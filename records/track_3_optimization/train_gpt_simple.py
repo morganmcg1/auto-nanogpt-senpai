@@ -593,6 +593,21 @@ NANOGPT_SENPAI_SEED = int(_SENPAI_SEED_RAW) if _SENPAI_SEED_RAW != "" else None
 # `embed.weight -= lr_embed * lambda * (embed.weight - embed_init_snapshot)`.
 # At lambda=0 the hook is a no-op and behavior is bit-identical to the merged stack.
 NANOGPT_EMBED_INIT_ANCHOR_LAMBDA = float(os.environ.get("NANOGPT_EMBED_INIT_ANCHOR_LAMBDA", "0.0"))
+# Schedule-Free AdamW on aux groups (#984, Defazio NeurIPS 2024 arxiv 2405.15682).
+# Scope selects which aux groups use SF-AdamW instead of standard AdamW; embed is always AdamW
+# (the merged init-anchor mechanism requires it). At "off" behavior is bit-identical.
+NANOGPT_SF_ADAMW_SCOPE = os.environ.get("NANOGPT_SF_ADAMW_SCOPE", "off")
+_VALID_SF_ADAMW_SCOPES = ("off", "lm_head", "scalars", "lm_head_scalars")
+if NANOGPT_SF_ADAMW_SCOPE not in _VALID_SF_ADAMW_SCOPES:
+    raise ValueError(
+        f"NANOGPT_SF_ADAMW_SCOPE={NANOGPT_SF_ADAMW_SCOPE!r}, must be one of {_VALID_SF_ADAMW_SCOPES}"
+    )
+NANOGPT_SF_ADAMW_R = float(os.environ.get("NANOGPT_SF_ADAMW_R", "0.0"))
+NANOGPT_SF_ADAMW_WEIGHT_LR_POWER = float(os.environ.get("NANOGPT_SF_ADAMW_WEIGHT_LR_POWER", "2.0"))
+# Schedule-Free's β_y (the interpolation/momentum coefficient). Defazio default is 0.9;
+# distinct from AdamW's β1=0.8 because β_y has a different theoretical role (the y point
+# at which gradients are computed). Kept as its own env var to enable tuning in follow-ups.
+NANOGPT_SF_ADAMW_BETA_Y = float(os.environ.get("NANOGPT_SF_ADAMW_BETA_Y", "0.9"))
 
 
 def get_ns_coef_at_iter(iter_idx: int, total_iters: int, schedule: str) -> tuple[float, float, float]:
@@ -701,6 +716,111 @@ def muon_update(grad, momentum, v, ns_iters: int, mu=0.95, beta2=0.999, eps=1e-8
     update = zeropower_via_newtonschulz5(update, ns_iters=ns_iters)
     update *= max(1, grad.size(-2) / grad.size(-1))**0.5
     return update
+
+class ScheduleFreeAdamW(torch.optim.Optimizer):
+    """Schedule-Free AdamW (Defazio NeurIPS 2024, arxiv 2405.15682).
+
+    Maintains z (slow state) and x (averaged state). y = (1-β_y)*z + β_y*x is the
+    point at which gradients are computed; .data is held at y during training and
+    at x during evaluation, controlled by .train() and .eval().
+
+    Required call pattern:
+        opt.train()        # before loss.backward()  -- p.data <- y
+        loss.backward()
+        opt.step()
+        ...
+        opt.eval()         # before validation/checkpoint  -- p.data <- x
+        ...validate...
+        opt.train()        # restore  -- p.data <- y
+    """
+
+    def __init__(self, params, lr=1e-3, betas=(0.9, 0.999), eps=1e-8,
+                 weight_decay=0.0, r=0.0, weight_lr_power=2.0):
+        defaults = dict(lr=lr, betas=betas, eps=eps, weight_decay=weight_decay,
+                        r=r, weight_lr_power=weight_lr_power,
+                        k=0, lr_max=-1.0, weight_sum=0.0, train_mode=True)
+        super().__init__(params, defaults)
+
+    @torch.no_grad()
+    def eval(self):
+        for group in self.param_groups:
+            if group["train_mode"]:
+                beta1 = group["betas"][0]
+                for p in group["params"]:
+                    state = self.state.get(p, None)
+                    if state is not None and "z" in state:
+                        # p.data is y = (1-β)z + βx; restore x = y/β + z*(1-1/β)
+                        p.data.lerp_(end=state["z"], weight=1.0 - 1.0 / beta1)
+                group["train_mode"] = False
+
+    @torch.no_grad()
+    def train(self):
+        for group in self.param_groups:
+            if not group["train_mode"]:
+                beta1 = group["betas"][0]
+                for p in group["params"]:
+                    state = self.state.get(p, None)
+                    if state is not None and "z" in state:
+                        # p.data is x; set y = β*x + (1-β)*z
+                        p.data.lerp_(end=state["z"], weight=1.0 - beta1)
+                group["train_mode"] = True
+
+    @torch.no_grad()
+    def step(self, closure=None):
+        loss = None
+        if closure is not None:
+            with torch.enable_grad():
+                loss = closure()
+
+        for group in self.param_groups:
+            assert group["train_mode"], "ScheduleFreeAdamW.step() requires train mode; call .train() first"
+            eps = group["eps"]
+            beta1, beta2 = group["betas"]
+            decay = group["weight_decay"]
+            lr = group["lr"]
+            r = group["r"]
+            wlrp = group["weight_lr_power"]
+            lr_max = group["lr_max"] = max(group["lr_max"], lr)
+            weight = ((group["k"] + 1) ** r) * (lr_max ** wlrp)
+            new_weight_sum = group["weight_sum"] + weight
+            ck = weight / new_weight_sum if new_weight_sum > 0 else 0.0
+            group["weight_sum"] = new_weight_sum
+
+            for p in group["params"]:
+                if p.grad is None:
+                    continue
+                grad = p.grad
+                state = self.state[p]
+                if "z" not in state:
+                    # First step: x_0 = z_0 = p.data (which equals y_0 at init).
+                    state["z"] = p.data.detach().clone()
+                    state["x"] = p.data.detach().clone()
+                    state["v"] = torch.zeros_like(p.data)
+                z = state["z"]
+                v = state["v"]
+                x = state["x"]
+
+                # AdamW second-moment EMA (biased), then bias-correction & sqrt+eps.
+                v.mul_(beta2).addcmul_(grad, grad, value=1.0 - beta2)
+                bias2 = 1.0 - beta2 ** (group["k"] + 1)
+                denom = (v / bias2).sqrt_().add_(eps)
+
+                # Decoupled weight decay on the slow state z.
+                if decay != 0:
+                    z.add_(z, alpha=-lr * decay)
+
+                # z_{t+1} = z_t - lr * grad / denom.
+                z.addcdiv_(grad, denom, value=-lr)
+
+                # x_{t+1} = (1 - ck) * x_t + ck * z_{t+1}.
+                x.lerp_(end=z, weight=ck)
+
+                # p.data <- y_{t+1} = (1 - β) * z_{t+1} + β * x_{t+1}.
+                p.data.copy_(x).lerp_(end=z, weight=1.0 - beta1)
+
+            group["k"] += 1
+        return loss
+
 
 class Muon(torch.optim.Optimizer):
     def __init__(self, params, lr=0.02, weight_decay=0, mu=0.95, beta2=0.999, eps=1e-8):
@@ -824,6 +944,10 @@ print0(f"  Effective Muon base LRs: attn={0.035*NANOGPT_MUON_ATTN_LR_MULT:.5f} m
 print0(f"EMBED_INIT_ANCHOR_LAMBDA: {NANOGPT_EMBED_INIT_ANCHOR_LAMBDA} "
        f"({'ACTIVE' if NANOGPT_EMBED_INIT_ANCHOR_LAMBDA > 0 else 'INACTIVE (bit-identical fallback)'})",
        console=True)
+print0(f"SF_ADAMW: scope={NANOGPT_SF_ADAMW_SCOPE} r={NANOGPT_SF_ADAMW_R} "
+       f"weight_lr_power={NANOGPT_SF_ADAMW_WEIGHT_LR_POWER} beta_y={NANOGPT_SF_ADAMW_BETA_Y} "
+       f"({'ACTIVE' if NANOGPT_SF_ADAMW_SCOPE != 'off' else 'INACTIVE (bit-identical fallback)'})",
+       console=True)
 if NS_ITERS_COOLDOWN > 0:
     print0(f"NS_SCHEDULE: ns_iters={NS_ITERS} -> ns_iters_cooldown={NS_ITERS_COOLDOWN} "
            f"at fraction {NS_COOLDOWN_START_FRAC} of train_steps "
@@ -896,6 +1020,10 @@ if dist.get_rank() == 0:
             "nanogpt_ns_stochastic_cooldown": NANOGPT_NS_STOCHASTIC_COOLDOWN,
             "senpai_seed": NANOGPT_SENPAI_SEED if NANOGPT_SENPAI_SEED is not None else -1,
             "nanogpt_embed_init_anchor_lambda": NANOGPT_EMBED_INIT_ANCHOR_LAMBDA,
+            "nanogpt_sf_adamw_scope": NANOGPT_SF_ADAMW_SCOPE,
+            "nanogpt_sf_adamw_r": NANOGPT_SF_ADAMW_R,
+            "nanogpt_sf_adamw_weight_lr_power": NANOGPT_SF_ADAMW_WEIGHT_LR_POWER,
+            "nanogpt_sf_adamw_beta_y": NANOGPT_SF_ADAMW_BETA_Y,
         },
     )
 
@@ -938,10 +1066,41 @@ for trial_idx in range(args.num_trials):
                f"snapshot_shape={tuple(embed_init_snapshot.shape)}", console=True)
 
     # create the optimizer(s)
-    optimizer1 = AdamW([dict(params=[model.embed.weight], lr=0.3 * NANOGPT_ADAMW_EMBED_LR_MULT, name="adam_embed"),
-                        dict(params=[model.proj.weight], lr=(1/320) * NANOGPT_ADAMW_LM_HEAD_LR_MULT, name="adam_lm_head"),
-                        dict(params=[p for p in model.parameters() if p.ndim < 2], lr=0.01 * NANOGPT_ADAMW_SCALAR_LR_MULT, name="adam_scalars")],
+    # Aux split (#984): embed is always standard AdamW (init-anchor #847 hook operates on it).
+    # lm_head and scalars go to ScheduleFreeAdamW conditionally based on SF_ADAMW_SCOPE.
+    scalar_params = [p for p in model.parameters() if p.ndim < 2]
+    adam_groups = [dict(params=[model.embed.weight], lr=0.3 * NANOGPT_ADAMW_EMBED_LR_MULT, name="adam_embed")]
+    sf_groups: list[dict] = []
+    if NANOGPT_SF_ADAMW_SCOPE in ("off", "scalars"):
+        adam_groups.append(dict(params=[model.proj.weight],
+                                lr=(1/320) * NANOGPT_ADAMW_LM_HEAD_LR_MULT,
+                                name="adam_lm_head"))
+    else:
+        sf_groups.append(dict(params=[model.proj.weight],
+                              lr=(1/320) * NANOGPT_ADAMW_LM_HEAD_LR_MULT,
+                              name="sf_lm_head"))
+    if NANOGPT_SF_ADAMW_SCOPE in ("off", "lm_head"):
+        adam_groups.append(dict(params=scalar_params,
+                                lr=0.01 * NANOGPT_ADAMW_SCALAR_LR_MULT,
+                                name="adam_scalars"))
+    else:
+        sf_groups.append(dict(params=scalar_params,
+                              lr=0.01 * NANOGPT_ADAMW_SCALAR_LR_MULT,
+                              name="sf_scalars"))
+    optimizer1 = AdamW(adam_groups,
                        betas=(0.8, NANOGPT_ADAMW_BETA2), eps=1e-10, weight_decay=0, fused=True)
+    optimizer1_sf = None
+    if sf_groups:
+        # β_y (SF interpolation/momentum) is its own knob, NOT inherited from AdamW β1=0.8.
+        optimizer1_sf = ScheduleFreeAdamW(
+            sf_groups,
+            lr=1.0,  # per-group lr already set on each dict above
+            betas=(NANOGPT_SF_ADAMW_BETA_Y, NANOGPT_ADAMW_BETA2),
+            eps=1e-10,
+            weight_decay=0.0,
+            r=NANOGPT_SF_ADAMW_R,
+            weight_lr_power=NANOGPT_SF_ADAMW_WEIGHT_LR_POWER,
+        )
     # Per-block-type Muon param split: attn (q/k/v/proj) vs mlp (fc/proj).
     # When both multipliers = 1.0, behavior is bit-identical to the prior single-group setup
     # (NS orthogonalization is per-matrix; the split only changes how groups are indexed).
@@ -962,14 +1121,16 @@ for trial_idx in range(args.num_trials):
     cooldown_start_step = int(train_steps * NS_COOLDOWN_START_FRAC)
     ns_iters_history: list[int] = []
     ns_cumulative_iters = 0
-    optimizers = [optimizer1, optimizer2]
+    optimizers = [optimizer1, optimizer2] + ([optimizer1_sf] if optimizer1_sf is not None else [])
     assert set(p for opt in optimizers for group in opt.param_groups
                for p in group["params"]) == set(model.parameters())
     # Per-group grad-clip param lists (#708). Body = Muon-orthogonalized matrices;
-    # aux = AdamW embed + lm_head + scalars. Reuses the same lists the optimizers
-    # were constructed from so the split cannot drift.
+    # aux = AdamW embed + lm_head + scalars (across both AdamW and SF-AdamW when split).
+    # Reuses the same lists the optimizers were constructed from so the split cannot drift.
     body_clip_params = muon_attn_params + muon_mlp_params
     aux_clip_params = [p for g in optimizer1.param_groups for p in g["params"]]
+    if optimizer1_sf is not None:
+        aux_clip_params += [p for g in optimizer1_sf.param_groups for p in g["params"]]
     assert set(body_clip_params) | set(aux_clip_params) == set(model.parameters())
     assert not (set(body_clip_params) & set(aux_clip_params))
     # Cumulative clip-trigger counters across the trial for mechanism reading.
@@ -1004,7 +1165,11 @@ for trial_idx in range(args.num_trials):
                 raise ValueError(f"unknown shape: {NANOGPT_EMBED_COOLDOWN_SHAPE}")
         for opt in optimizers:
             for group in opt.param_groups:
-                if group.get("name") == "adam_embed":
+                name = group.get("name", "")
+                if name.startswith("sf_"):
+                    # Schedule-Free (#984): no LR cooldown — averaging substitutes for cooldown.
+                    continue
+                if name == "adam_embed":
                     group["lr"] = group["initial_lr"] * eta_embed
                 else:
                     group["lr"] = group["initial_lr"] * eta_default
@@ -1041,6 +1206,10 @@ for trial_idx in range(args.num_trials):
             last_val_step = step
             training_time += time_since_last_val
             model.eval()
+            # Schedule-Free (#984): swap .data from y -> x for validation (x is the
+            # canonical averaged state, used for evaluation per Defazio 2024).
+            if optimizer1_sf is not None:
+                optimizer1_sf.eval()
             val_loss = torch.zeros((), device=device)
             with torch.no_grad():
                 assert len(val_inputs) % mbs == 0
@@ -1074,6 +1243,9 @@ for trial_idx in range(args.num_trials):
             print0(f"step:{step}/{train_steps} val_loss:{val_loss:.5f} train_time:{training_time:.3f}s"
                    + f" step_avg:{1000*step_avg:.2f}ms", console=True)
             model.train()
+            # Schedule-Free (#984): restore .data to y for the next training pass.
+            if optimizer1_sf is not None:
+                optimizer1_sf.train()
             # start the clock again
             dist.barrier()
             t0 = time.perf_counter()
