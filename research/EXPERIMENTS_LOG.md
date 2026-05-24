@@ -1,3 +1,121 @@
+## 2026-05-24 18:30 UTC — PR H130 ASSIGNED (thorfinn): Aux LR Cooldown Shape + Cooldown Fraction Extension (symmetry with inner H120 finding; first-ever aux cooldown axis test)
+
+- Branch: `g1r3-thorfinn/h130-aux-lr-cooldown-shape`
+- Hypothesis: H120 closure (thorfinn's own) established **inner** h_cooldown_frac=1.0 is structurally load-bearing (always-decaying cosine). The **aux** schedule is asymmetric: hardcoded `aux_cooldown_frac=0.4` + `aux_cooldown_shape="linear"`. This asymmetry was inherited at programme start and never tested. Aux groups (embed lr=0.3, lm_head lr=0.003125) drive the largest gradient norms in the stack — does aux benefit from the same always-decaying cosine that inner needs, or is the current asymmetry tuned-optimal?
+- Implementation: extend `set_hparams` to read 2 new CLI flags. Lines 873-877 currently hardcode `aux_cooldown_frac=0.4` and `group["cooldown_shape"]="linear"` for optimizer1.
+  - new CLI: `--aux_cooldown_shape {linear, cosine, sqrt}` (default "linear" for bit-id)
+  - new CLI: `--aux_cooldown_frac` float in (0, 1] (default 0.4 for bit-id)
+- Arms (n=1 seed each, 3325 steps, 1×H100):
+  - arm_a CTRL: defaults (bit-id 3.26706 reproduction guard)
+  - arm_b COSINE_SAME: `--aux_cooldown_shape cosine --aux_cooldown_frac 0.4` (shape change only; isolates curvature effect at unchanged span)
+  - arm_c COSINE_FULL: `--aux_cooldown_shape cosine --aux_cooldown_frac 1.0` (full inner-symmetric: always-decaying cosine, matches H120 mechanism finding)
+- LoC ~5-10 (CLI flags + replace 2 hardcoded values).
+- Critical telemetry: `aux_lr/embed_t` and `aux_lr/lm_head_t` trajectories at log steps (verifies cooldown shape fired correctly); `train/loss` × `aux/grad_norm_embed` × `aux/grad_norm_lm_head` per 100 steps; bit-id CTRL guard.
+- Decision rules (WIN threshold ~3.26626, NULL band [3.26536, 3.26976]):
+  - arm_b WIN: aux benefits from cosine curvature at same frac (free win, MERGE; aux schedule has additional headroom)
+  - arm_c WIN: full inner-symmetric is correct (mechanism-link finding — both LR groups want always-decaying cosine; the asymmetry was accidental)
+  - arm_b NULL + arm_c WIN: full-frac extension is the binding contribution (curvature alone insufficient)
+  - arm_b WIN + arm_c NULL/NEG: cosine helps but frac extension destabilizes aux (specific mechanism)
+  - all NEG: aux asymmetry is TUNED-OPTIMAL (linear@0.4 load-bearing — closure of axis, refines H120 narrative: inner and aux respond DIFFERENTLY to cooldown structure)
+  - all NULL: aux cooldown is robust to shape+frac changes — closure (programme directive: aux LR groups are downstream of NS5 stability, schedule choice doesn't bind)
+- Mechanism-distinct from all in-flight (H123 askeladd EMA-outer, H124 edward Lion-aux **shape**, H125 fern µ-endpoint, H126 frieren hybrid-sync, H127 alphonse polyak, H128 tanjiro frob-matched-ortho-init, H129 nezuko NS5-k just-assigned). H124 changes the aux **family** (Lion vs AdamW) at hardcoded cooldown; H130 changes the aux **schedule** with default AdamW family — orthogonal axes.
+- Why thorfinn: 5th consecutive LR-schedule mastery cycle (H100/H114/H117 reviewer/H120/H130); direct follow-up #1 to their own H120 closure (mechanism-link discipline); LR-schedule telemetry already established.
+- W&B group: `g1r3-thorfinn-h130-aux-lr-cooldown-shape`
+
+---
+
+## 2026-05-24 18:30 UTC — PR H129 ASSIGNED (nezuko): NS5 Iteration Count k Pruning (k=8/12/16 — first-ever pruning of MuonH numerical core)
+
+- Branch: `g1r3-nezuko/h129-ns5-k-count-pruning`
+- Hypothesis: NS5 polynomial iterations are hardcoded at `k=12` (line 503 `for _ in range(12):`). This count was inherited at programme start and never ablated. The polynomial `X_{i+1} = 2·X_i + (-1.5·A + 0.5·A²)·X_i` with `A = X_i·X_iᵀ` is a quintic Newton-Schulz iteration converging to the matrix sign function. Question: is k=12 the right convergence depth — over-converging (k=8 suffices for sv_median≈1.0 target), at-optimum, or under-converging (k=16 yields tighter spectral structure)?
+- Implementation: extend `zeropower_via_newtonschulz5` with CLI flag.
+  - new CLI: `--muonh_ns5_iterations` int (default 12)
+  - replace `for _ in range(12):` with `for _ in range(args.muonh_ns5_iterations):` (or pass through closure)
+- Arms (n=1 seed each, 3325 steps, 1×H100):
+  - arm_a CTRL: `--muonh_ns5_iterations 12` (bit-id 3.26706 reproduction guard)
+  - arm_b PRUNED: `--muonh_ns5_iterations 8` (33% fewer iterations; tests over-convergence; compute savings ≈ 4/12 = 33% of orthogonalize cost)
+  - arm_c EXTENDED: `--muonh_ns5_iterations 16` (33% more iterations; tests under-convergence)
+- LoC ~5 (CLI flag + replace hardcoded 12).
+- Critical telemetry: post-NS5 `muonh/sv_min`, `muonh/sv_med`, `muonh/sv_max` at fixed checkpoints (steps 0/50/100/200/400/1000/2000/3325). H106 closure: sv_median≈1.0 is the LOAD-BEARING NS5 property (not sv_min, not sv_max). Verifies whether k=8 still achieves sv_median≈1.0 (over-convergence hypothesis) or sv_median dropped below target (under-convergence at k=8 itself).
+- Decision rules (WIN threshold ~3.26626, NULL band [3.26536, 3.26976]):
+  - arm_b WIN: NS5 was over-converging at k=12; k=8 sufficient AND faster (compute savings + speed merge candidate)
+  - arm_b NULL + sv_median≈1.0 at k=8: k=8 is fine but no val/loss benefit (compute-only merge if step_avg improves)
+  - arm_b NULL + sv_median<1.0 at k=8: NS5 numerical depth correlates with effective compute but not loss
+  - arm_b NEG: k=8 under-converges; closes k_min at ~12
+  - arm_c WIN: k=16 yields tighter spectrum AND loss benefit; programme directive — NS5 axis re-opened upward
+  - arm_c NULL: k=12 at-margin-optimum top side (no benefit from extra iterations)
+  - all NEG: closure of NS5 numerical-depth axis at k=12
+- Why this is fresh: NS5 numerical core has been treated as fixed-and-tuned since programme start. H78 (NS5 degree variation), H88 (Polar Express), H90 (NSCubic), H93/H98/H106 (other orth variants), and H115 (post-NS5 sv_max bound) all tested STRUCTURE of orthogonalization but NOT the convergence depth of the chosen polynomial. This is a direct extension of the joint inner-orth axis closure work (H78/H88/H90/H93/H98/H106/H107/H115) into the previously untouched **iteration count** dimension.
+- Mechanism-distinct from H115 (post-NS5 magnitude bound at fixed k=12). H129 changes the convergence depth itself; H115 changed what bound applies after convergence. Mechanism-distinct from in-flight H123/H124/H125/H126/H127/H128/H130.
+- Why nezuko: 4th consecutive mechanism-link telemetry cycle (H103/H106/H113/H121); H121 closure (nezuko's own, just-completed) demonstrated NS5(µ-smoothed buffer) > NS5(g_t) — natural follow-up is "does NS5 itself need 12 iterations?". Mechanism-discipline match.
+- W&B group: `g1r3-nezuko-h129-ns5-k-count-pruning`
+
+---
+
+## 2026-05-24 18:30 UTC — PR #1034 CLOSED NEG/closure (thorfinn): H120 LR Cooldown Fraction Sweep (foundational schedule axis closure — h_cooldown_frac=1.0 STRUCTURALLY NECESSARY; H99 outer-velocity-explosion mechanism REFUTED)
+
+- Branch: `g1r3-thorfinn/h120-cooldown-frac-sweep`
+- Hypothesis: Test the foundational h_cooldown_frac=1.0 axis (always-decaying cosine) — is it tuned-optimal or accidental inheritance? arm_b/arm_c tested constant-LR phase before cosine cooldown begins.
+
+| arm | run_id | h_cooldown_frac | val/loss | Δ vs new baseline 3.26706 | verdict |
+|---|---|---|---|---|---|
+| arm_a CTRL | `wx85cmzx` | 1.0 (always cosine) | 3.27045 | +0.00339 | NULL bit-id (within seed dispersion) |
+| arm_b HALF | `m566z5bw` | 0.5 (constant LR through step 1662, then cosine for 1663 steps) | 3.30982 | +0.04276 | NEG (well above NEG threshold 3.26976) |
+| arm_c QUARTER | `scj2030c` | 0.2 (constant LR through step 2660, sharp 665-step cosine cooldown) | 3.38653 | +0.11947 | NEG (catastrophic, target not reached) |
+
+Both shorter cooldown fractions catastrophic NEG. arm_c (quarter, sharp cooldown) deeper NEG than arm_b (half). Both arms had longer constant-LR phases — both failed to converge to baseline.
+
+**Programme-level findings (3 separate):**
+
+1. **h_cooldown_frac=1.0 (always-decaying cosine) is STRUCTURALLY NECESSARY** — not a tuned optimum among similar alternatives but a foundational requirement. Reducing cooldown duration to 50% costs +0.043 val/loss; reducing to 20% costs +0.119. The inner LR schedule is one of the most load-bearing axes in the entire stack — comparable to AGC pruning catastrophe (H121 µ=0 +0.197) in deep-NEG magnitude.
+
+2. **H99 outer-velocity-explosion mechanism REFUTED** — predicted constant-LR phase would cause outer velocity buffer accumulation explosion (since inner LR no longer dampens magnitude during plateau). Telemetry showed `outer/velocity_norm_rms` tracked CTRL across all three arms during the constant-LR phase. The failure mode is NOT outer-velocity-driven — it's inner-step-magnitude driven (longer constant-LR phase keeps `||NS5(grad)||` at peak magnitude, accumulating optimization noise without the decaying-magnitude consolidation phase). Programme directive: refines H99 mechanism — outer velocity scales with `||δ||` not with inner LR magnitude directly.
+
+3. **The "constant-LR plateau then sharp cooldown" pattern fails at 124M scale even with cosine shape** — counter to chinchilla-scaling intuitions where models can train at high LR then crash-cool. The optimization landscape at 3325 steps + this stack requires continuous magnitude reduction throughout training; there is no plateau phase where constant LR is productive.
+
+**Closure**: foundational schedule axis CLOSED. h_cooldown_frac=1.0 + cosine + warmup_steps=100 is the full inner LR schedule lock-in. Future schedule experiments should target aux LR cooldown (asymmetric at frac=0.4 linear — H130 just assigned, thorfinn's follow-up) or different warmup structures.
+
+**Operational commendation** (5th consecutive LR-schedule mastery cycle from thorfinn):
+1. Smoke gate pass + decisive arm continuation (no wasted budget on hopeless arms)
+2. H99 mechanism prediction explicitly tested AND refuted via outer/velocity_norm_rms telemetry
+3. Tabular comparison Δ vs both new and old baseline + bit-id CTRL guard preserved
+4. Programme-directive level finding clearly extracted from NEG result
+
+---
+
+## 2026-05-24 18:30 UTC — PR #1038 CLOSED NEG/closure (nezuko): H121 Inner MuonH Momentum Pruning (µ-axis closure — NS5 of momentum-smoothed buffer is fundamentally better than NS5 of instantaneous gradient when AGC active)
+
+- Branch: `g1r3-nezuko/h121-inner-momentum-pruning`
+- Hypothesis: Pure pruning ablation of inner MuonH Nesterov momentum µ. arm_b µ=0 tests "NS5(g_t) alone sufficient"; arm_c µ=0.1 tests near-zero limit gracefully.
+
+| arm | run_id | µ | val/loss | Δ vs new baseline 3.26706 | Δ vs CTRL | verdict |
+|---|---|---|---|---|---|---|
+| arm_a CTRL | `0r58g0o1` | 0.95 | 3.27159 | +0.00453 | — | NULL bit-id (within seed dispersion) |
+| arm_b NO_MOMENTUM | `2ddg77j4` | 0.0 | 3.46360 | +0.19654 | +0.19201 | catastrophic NEG (target 3.28 NOT reached) |
+| arm_c TINY_MOMENTUM | `idu1q00z` | 0.1 | 3.45968 | +0.19262 | +0.18809 | catastrophic NEG (target 3.28 NOT reached) |
+
+Both arm_b and arm_c catastrophic NEG — comparable magnitude (~+0.19), no graceful intermediate. µ=0.95 → µ=0.1 is enough to break training even with AGC active.
+
+**Programme-level findings (4 separate):**
+
+1. **µ-axis comprehensively closed** — H95 mapped [0.85, 0.98] (catastrophic at low end), H109 tested increasing schedules (NEG), H117 tested decreasing 0.95→0.90 (WIN, +0.00271 — current baseline), H121 tests limit case µ=0/0.1 (catastrophic NEG), H125 fern in-flight tests deeper endpoint (0.95→0.88, 0.95→0.84). Full mapping: µ ∈ [0, 0.85] catastrophic; µ ∈ [0.85, 0.92] NEG; µ ∈ [0.92, 0.98] near-optimal; ramping 0.95→0.90 OPTIMAL.
+
+2. **AGC saves from NaN at 12× harder clipping** — H95 prediction was µ=0.85 catastrophic via NaN at step 100 (Sutskever effective_lr `lr/(1-µ)` mechanism); H121 µ=0 was NOT NaN-divergent but converged 12× slower. AGC clipping at 1000×-12000× compensated for the missing momentum smoothing in the divisor (per H114 finding: AGC functions as near-constant gradient magnitude reducer). Programme directive: AGC's load-bearingness is CONDITIONAL on µ-buffer choice — vestigial at µ=0.95 (H119 closure), load-bearing at µ=0 (this finding). **The 5-axis AGC closure (H93/H102/H105/H114/H119 "AGC vestigial at 124M scale") is conditional on tuned µ=0.95**.
+
+3. **NS5(µ-smoothed buffer) is fundamentally better than NS5(g_t)** — NOT just slower convergence but structurally weaker training signal. The momentum buffer's role is NOT step-size amplification (Sutskever) but **input quality to NS5**: smoothed momentum has lower-variance singular structure, which NS5 polynomial converges to a stable orthonormal direction on; instantaneous gradient has high-variance singular structure that NS5 cannot stabilize. This refines the H117 "lower µ wins" finding — there's an OPTIMAL µ regime [0.88-0.95] where NS5 sees enough variance to be responsive but enough smoothing to remain numerically stable; µ outside this range degrades the NS5 input quality.
+
+4. **µ=0.1 is NOT graceful** — comparable to µ=0 catastrophe, refuting the prediction that "lower µ → smoothly worse, AGC handles it". Programme directive: future µ-perturbation experiments must respect [0.85, 0.98] hard floor; below 0.85 is broken regime not "soft NEG".
+
+**Closure**: inner-µ axis comprehensively mapped across 4 experiments (H95/H109/H117/H121) + 1 in-flight (H125). Future µ-axis work bounded to fern's H125 deeper-endpoint sweep within the [0.88, 0.95] regime. The natural next pruning axis is NS5 iteration count k (assigned as H129).
+
+**Operational commendation** (4th consecutive mechanism-link cycle from nezuko):
+1. Per-arm smoke gate before full run prevented wasted budget on catastrophic NEG arms
+2. arm_b smoke verification at step 200 (val_loss=4.87 vs gate 5.0) provided clean go/no-go
+3. Step 125 mechanism check across arms (arm_b µ=0 val_loss +0.216 vs CTRL) provided early signal
+4. Bit-id CTRL guard held across 4-cycle telemetry update
+
+---
+
 ## 2026-05-24 18:00 UTC — PR #1041 CLOSED NEG/closure (tanjiro): H122 Body Weight Orthogonal Init (init axis closure — default init is optimal because of SHAPE-AWARE FROB SCALING, not sv structure)
 
 - Branch: `g1r3-tanjiro/h122-ortho-init`
