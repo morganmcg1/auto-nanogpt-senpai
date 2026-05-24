@@ -1,3 +1,45 @@
+## 2026-05-24 00:30 UTC — PR #970 ASSIGNED (edward): H107 MuonBP Block-Periodic Orthogonalization (block-granularity axis, untouched in programme)
+
+- Branch: `g1r3-edward/h107-muonbp-block-periodic`
+- Hypothesis: Decompose each weight matrix into column-blocks (block_size=192), apply NS5 to each block independently every step (cheaper since smaller matrix), periodically (every K steps) apply full-matrix NS5 to re-orthogonalize globally. This creates hierarchical orthogonalization: block-local per step + full-matrix periodic. **Block granularity is a fresh axis** — all NS5 variants tried so far (H78 per-layer iso-budget, H88 Polar Express, H90 NSCubic, H93 PSGD-Kron) varied polynomial degree/coefs or replaced NS5 entirely; none changed the SPATIAL DOMAIN over which NS5 operates. Mechanism mapped to H90 partial-orth load-bearing finding (sv_min ≈ 0.18 on (768,768) at k=12 is load-bearing) and H98 closure bonus diagnostic (sv_min on first attn projection = 0.054, NOT 0.18 average — partial-orth regime is BLOCK-SPECIFIC). MuonBP block-local probes intra-block sv_min equilibria directly.
+- Arms (n=1 seed each, 3325 steps, 1×H100): arm_a CTRL bit-identical full-matrix NS5 k=12 / arm_b PRIMARY MuonBP block_size=192 full_period=10 (block NS5 k=6 + full NS5 k=12 every 10 steps) / arm_c HIGH-PERIOD MuonBP block_size=192 full_period=30 (block NS5 k=8 + full NS5 k=12 every 30 steps, aligned with MuLoCo sync_interval).
+- Critical telemetry (programme-level finding regardless of val/loss): per-validation `sv_min`/`sv_max` for 4+ representative (768,768) body weight matrices. Compare block-orth equilibrium to H90's 0.18 and H98's 0.054.
+- Why edward: H99 velocity_rms × outer_lr_t decomposition (PR #935 closure) demonstrated gold-standard mechanism diagnostic skill — separating effective magnitude from schedule. H107 requires same skill on sv_min telemetry — probe what equilibrium intra-block NS5 reaches, compare to full-matrix, attribute val/loss difference to geometric difference.
+- Decision: WIN<3.26897; NULL∈[3.26880, 3.27070]; NEG>3.27150. Closure-amplifier: arm_b AND arm_c NEG → block granularity axis CLOSED + reinforces H90 partial-orth full-matrix scale is load-bearing.
+- Smoke gate (step 200): Loss <4.5 both arms; sv_min for 768×768 in [0.05, 0.95] (not collapsed). If sv_min < 0.01 abort. LoC ~80. W&B group `H107_muonbp_block_periodic`. Mutually exclusive with H106 GMN (PR #955 tanjiro in-flight) — both replace per-step NS5 call site.
+- Key references: Bernstein & Newhouse (2024) arXiv:2409.20325 (Muon theory: orthogonalization is THE key invariance); H90 NSCubic closure (sv_min ≈ 0.18 load-bearing); H98 closure bonus diagnostic (block-specific 0.054).
+
+---
+
+## 2026-05-24 00:30 UTC — PR #935 CLOSED NEG/closure (edward): H99 Outer-LR WSD cooldown schedule (programme-level closure on outer-optimizer-schedule axis)
+
+- Branch: `g1r3-edward/h99-outer-lr-wsd`
+- Final 3-arm table:
+
+| arm | config | val/loss | ffs | Δ vs baseline | result |
+|-----|--------|----------|-----|---------------|--------|
+| a   | CTRL outer_lr=0.7 constant | 3.27148 | 3100 | +0.00171 | NULL (baseline reproduce) |
+| b   | late-30% cosine cooldown floor 10% | 3.28021 | -1 | +0.01044 | NEG (missed 3.28) |
+| c   | late-10% cosine cooldown floor 10% | 3.27336 | 3100 | +0.00359 | NEG |
+
+- Closure-amplifier triggered: both schedule arms NEG → programme-level closure on outer-LR WSD-shape schedule axis. Joins H86 inner-LR WSD closure (PR #886 nezuko) to establish that the **inner-MuonH cosine cooldown is the load-bearing magnitude controller for BOTH inner and outer steps** — adding outer-LR decay on top creates UNDER-correction in late cooldown phase.
+- **Load-bearing mechanism finding (edward's velocity_rms × outer_lr_t decomposition — gold-standard diagnostic)**:
+
+| step | velocity_rms (∝ inner_lr²) | outer_lr_t (arm_a) | outer_lr_t (arm_c) | effective outer step (arm_a) | effective outer step (arm_c) |
+|------|---------------------------|---------------------|---------------------|-------------------------------|-------------------------------|
+| 1000 | high (inner cosine top)   | 0.7 | 0.7 | 0.7·V_high | 0.7·V_high |
+| 2000 | mid (inner cosine ~0.6)   | 0.7 | 0.7 | 0.7·V_mid | 0.7·V_mid |
+| 3000 | low (inner cosine ~0.04)  | 0.7 | 0.30 | 0.7·V_low | 0.30·V_low ≈ **0.42×** arm_a |
+| 3300 | ultra-low (cosine ~0.005) | 0.7 | 0.07 | 0.7·V_xlow | 0.07·V_xlow ≈ **0.10×** arm_a (9× smaller effective step)|
+
+- Inner-MuonH cosine cooldown already shrinks the outer step's effective magnitude by ~25× from peak velocity_rms decay. Adding outer-LR decay on top **multiplies** the shrinkage instead of complementing it — arm_b/c late-window outer steps become so small they fail to consolidate slow-weights at the rate the validation loss needs.
+- arm_a baseline reproduce within +1.7σ confirms run-to-run variance, not systematic shift.
+- Pre-closes WSD-shape, decoupled cosine, linear-decay variants on outer-LR axis. Does NOT pre-close: outer-LR warmup-only (without cooldown), outer-LR schedule synchronized to MuLoCo sync_interval (every 30 inner steps), constant outer-LR at higher value (>0.7).
+- Methodological commendation: edward's velocity_rms × outer_lr_t joint decomposition is the gold-standard mechanism diagnostic for this cycle — separated effective-magnitude axis from schedule axis cleanly, then computed step-by-step joint effect. Same caliber as H91 effective_step_rms across 470× dimensional decomposition.
+- Reassignment → PR #970 H107 MuonBP Block-Periodic (fresh-axis bold swing on block granularity).
+
+---
+
 ## 2026-05-23 23:00 UTC — PR #960 ASSIGNED (thorfinn): H105 Per-layer AGC clip_ratio adaptation from grad/weight ratios
 
 - Branch: `g1r3-thorfinn/h105-per-layer-agc`
