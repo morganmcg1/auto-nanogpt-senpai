@@ -465,6 +465,12 @@ ATTN_SOAP_BETA2 = 0.90
 ATTN_SOAP_PRECOND_FREQ = 10
 ATTN_SOAP_TRUST_THRESHOLD = float(os.environ.get("ATTN_SOAP_TRUST_THRESHOLD", "0.9"))
 NS5_ITERS = int(os.environ.get("NS5_ITERS", "12"))
+# Optional temporal schedule for NS5 iteration count (PR #948): linearly ramp from
+# NS5_ITERS at progress = 1 - NS5_SCHEDULE_FRAC to NS5_ITERS_END at progress = 1.0.
+# Default NS5_ITERS_END=NS5_ITERS disables the schedule (no-op).
+NS5_ITERS_END = int(os.environ.get("NS5_ITERS_END", str(NS5_ITERS)))
+NS5_SCHEDULE_FRAC = float(os.environ.get("NS5_SCHEDULE_FRAC", "0.7"))
+_NS5_ITERS_CURRENT = NS5_ITERS  # mutated by set_hparams each optimizer step
 WD_AUX = float(os.environ.get("WD_AUX", "0.0"))  # AdamW WD on embed + lm_head matrices (scalars stay at 0)
 EMBED_INIT_STD = float(os.environ.get("EMBED_INIT_STD", "1.0"))  # default preserves baseline N(0,1)
 LOGIT_SOFTCAP = float(os.environ.get("LOGIT_SOFTCAP", "15.0"))  # default = 15 (current hardcoded value); soft-cap value c in f(x) = c·x / sqrt(x^2+c^2)
@@ -480,7 +486,7 @@ def zeropower_via_newtonschulz5(G: Tensor) -> Tensor:
     X = X / (X.norm(dim=(-2, -1), keepdim=True) + 1e-7)
     # Perform the NS iterations, not optimizing for wallclock speed
     a, b, c = 2, -1.5, 0.5
-    for _ in range(NS5_ITERS):
+    for _ in range(_NS5_ITERS_CURRENT):
         A = X @ X.mT
         B = b * A + c * A @ A
         X = a * X + B @ X
@@ -865,6 +871,8 @@ if dist.get_rank() == 0:
             "optimizer/attn_soap_precond_freq": ATTN_SOAP_PRECOND_FREQ,
             "optimizer/attn_soap_trust_threshold": ATTN_SOAP_TRUST_THRESHOLD,
             "optimizer/ns5_iters": NS5_ITERS,
+            "optimizer/ns5_iters_end": NS5_ITERS_END,
+            "optimizer/ns5_schedule_frac": NS5_SCHEDULE_FRAC,
             "optimizer/wd_aux": WD_AUX,
             "optimizer/recipe": "contra-muon + normuon-lite + soap-on-mlp + soap-on-attn-trust-gate (pre-NS5, record #14 + record #16)",
         },
@@ -914,6 +922,7 @@ for trial_idx in range(args.num_trials):
 
     # learning rate schedule: stable then decay
     def set_hparams(step, cooldown_frac=0.7):
+        global _NS5_ITERS_CURRENT
         progress = step / train_steps
         assert 0 <= progress < 1
         if progress < 1 - cooldown_frac:
@@ -931,6 +940,19 @@ for trial_idx in range(args.num_trials):
                 cur_mu = MU_COOLDOWN_START + (MU_COOLDOWN_END - MU_COOLDOWN_START) * t
         else:
             cur_mu = MU + (MU_END - MU) * progress
+        # NS5 iteration schedule (PR #948): linearly ramp from NS5_ITERS at
+        # progress = 1 - NS5_SCHEDULE_FRAC to NS5_ITERS_END at progress = 1.0.
+        # When NS5_ITERS_END == NS5_ITERS the schedule is a no-op.
+        if NS5_ITERS_END != NS5_ITERS:
+            if progress < 1 - NS5_SCHEDULE_FRAC:
+                _NS5_ITERS_CURRENT = NS5_ITERS
+            else:
+                t_ns5 = (progress - (1 - NS5_SCHEDULE_FRAC)) / NS5_SCHEDULE_FRAC
+                _NS5_ITERS_CURRENT = int(round(NS5_ITERS + (NS5_ITERS_END - NS5_ITERS) * t_ns5))
+        else:
+            _NS5_ITERS_CURRENT = NS5_ITERS
+        if step in (0, 200, 500, 1000, 2000, 2500, 3000, 3175):
+            print0(f"[ns5-schedule] step={step} progress={progress:.4f} ns5_iters_current={_NS5_ITERS_CURRENT}", console=True)
         for opt in optimizers:
             for group in opt.param_groups:
                 group["lr"] = group["initial_lr"] * eta
@@ -1037,6 +1059,7 @@ for trial_idx in range(args.num_trials):
                 "trial": trial_idx,
                 "train/step": train_step,
                 "train/slope/window_target_steps": slope_window_steps,
+                "optimizer/ns5_iters_current": _NS5_ITERS_CURRENT,
             }
             slope_metrics.update(prefixed("train/slope", loss_slope_stats(train_loss_history, slope_window_steps)))
             wandb.log(slope_metrics, step=wandb_step)
