@@ -1,6 +1,6 @@
 # SENPAI Research State — auto-nanogpt-1gpu-r4
 
-- **Date:** 2026-05-24 02:28 UTC (cycle 198)
+- **Date:** 2026-05-24 03:05 UTC (cycle 199)
 - **Most recent research direction from human researcher team:** none on file
 - **Primary metric:** `val/loss` at 3350 steps (lower is better); `speedrun/final_first_step_to_target` secondary
 - **Statistical merge rule:** `(3.28 − μ) × √n ≥ 0.004` AND n mean ≤ current baseline
@@ -45,6 +45,71 @@ NANOGPT_EMBED_INIT_ANCHOR_LAMBDA=0.001   ← NEW post-#847: post-AdamW hook, emb
 | #708 | Per-group grad-clip BODY=10/AUX=5 | 3.27036 (3) | 3.27036 |
 | #787 | Stochastic NS cooldown spread=2 | 3.26944 (3) | 3.26944 |
 | **#847** | **Embed init-anchor WD λ=0.001** | **3.26756 (3)** | **3.26756** ← CURRENT |
+
+---
+
+## Cycle 199 snapshot (03:05 UTC May 24)
+
+### Closed this cycle (1)
+
+- **#944 tanjiro** CLOSED productive-NEG: body-Muon grad centralization 4-arm sweep terminal. Arm A `6ht4oj5l` val=3.26656 drift PASS (Δ=−0.00100, bit-clean codepath). Mechanism arms all direction-wrong:
+
+| arm | gc_mode | val/loss | Δ_vs_A | reading |
+|:---:|---|:---:|:---:|---|
+| A | none (ctrl) | 3.26656 | — | drift PASS |
+| B | col | 3.27594 | **+0.00938** | catastrophic-NEG |
+| C | row | 3.26955 | **+0.00299** | mild-NEG |
+| D | both | 3.27673 | **+0.01017** | catastrophic-NEG (sub-additive vs B+C) |
+
+  **Mechanism reading**: gc=col asymmetrically worst (~3× row magnitude). Composition D ≈ B+C −0.00220 (sub-additive: row and col gc interfere on Muon body since both project against orthogonal subspaces of NS pre-image). All 3 mechanism arms NEG. Closure: **body-Muon grad centralization axis exhaustively negative** — both axes wrong, composition does not rescue. Pre-NS DC removal on body Muon is mechanism-direction-inverted. tanjiro reassigned → #988.
+
+### Ack-only this cycle (2)
+
+- **#956 alphonse** stale_wip flag ACK: false-positive. Arm C `pfusx38h` terminal 3.26841 (Δ=+0.00075 within drift gate, productive-NULL on this arm). Arm D `1xyvay46` started 02:50 UTC ETA terminal ~04:42 UTC. Chain still active.
+- **#967 askeladd** stale_wip flag ACK: false-positive. Arm A terminal 3.26850 ✓; Arm B `pd25zsdp` running step ~775 ETA ~03:50 UTC.
+
+### New assignments this cycle (1)
+
+- **PR #988 tanjiro** — **AdamW state reset at cooldown boundary** (4-arm scope sweep). Bold mechanism-distinct swing: at step `int(0.7 * train_steps)` zero out `exp_avg` and `exp_avg_sq` for scoped aux groups, forcing v_t re-estimation under cooldown LR regime. Arms: A(off ctrl)/B(lm_head_scalars)/C(scalars)/D(lm_head). Embed EXCLUDED from every scope to preserve init-anchor coupling (#847). Untested per EXPERIMENTS_LOG.md grep; mechanism-distinct from all active cooldown-anneals (#919 β₁, #967 β₂, #980 Muon-μ) which smoothly modulate hyperparameters — this is a discrete state reset. Pre-stage signal threshold Δ_vs_A ≤ −0.0020 → PP escalation; regression threshold Δ_vs_A ≥ +0.0050 → close NEG.
+
+### Active chains (as of 03:05 UTC May 24, cycle 199)
+
+| PR | Student | Hypothesis | Run | state | step | val/loss | ETA |
+|:---:|:---:|---|---|:---:|:---:|:---:|:---:|
+| #919 | fern | β₁ cooldown PP seed 2 | `ofm1da08` | running | ~1450 | 3.51 | full chain ~05:30 UTC |
+| #956 | alphonse | lm_head max-norm Arm D | `1xyvay46` | running | ~210 | early | D ~04:42 UTC |
+| #963 | frieren | post-NS v_post Arm B | `355k8llh` | running | ~1500 | 3.65 | full chain ~07:30 UTC |
+| #967 | askeladd | AdamW aux β₂ anneal Arm B | `pd25zsdp` | running | ~775 | 3.69 | B ~03:50 UTC, C/D thereafter |
+| #980 | edward | Muon μ cooldown anneal | pending | — | — | — | pickup imminent |
+| #982 | nezuko | Per-block-type Muon μ | pending | — | — | — | pickup imminent (#674 partial coverage caveat posted) |
+| #984 | thorfinn | SF-AdamW for aux | pending | — | — | — | pickup imminent (smoke-test gate) |
+| **#988** | **tanjiro** | **AdamW state reset at cooldown (NEW)** | pending | — | — | — | pickup ~03:30 UTC |
+
+### Imminent terminals (next ~2h)
+
+- **#967 Arm B** (β₂→0.95 all-aux) `pd25zsdp` → ETA ~03:50 UTC. β₂ cooldown anneal mechanism gate.
+- **#956 Arm D** (cap=ramped) `1xyvay46` → ETA ~04:42 UTC. Closes lm_head max-norm 4-arm screen.
+- **#919 PP seed 2** (β₁ cooldown) `ofm1da08` → ETA ~05:30 UTC. G1 budget tight.
+
+### Mechanism axes CLOSED through cycle 199
+
+Closed in this run (still relevant context): body-Muon GC (#944 productive-NEG all-arms), path-norm body velocity (#933 NULL), Muon² body v_t β₂ (#880 NULL magnitude-collapse), AdamW v_t multiplicative floor (#929 NULL), embed-grad freq-rescale (#845 NULL), per-block-DEPTH Muon LR (#753), NS_ITERS (#710), per-block-TYPE Muon WD/β₂ (#669/#632), Schedule-Free MUON (#62), Lion/Adafactor/Yogi for aux (#77/#180/#516), AggMo/AdaBelief (#711), Zipf weighting (multiple), AdamW eps cooldown (#652), Cautious AdamW/sign-mask, init scaling embed/lm_head (#374), lm_head init-anchor (#938 zero-init degeneracy), NS-on-lm_head-grad (#618 NEG).
+
+### Mechanism axes EXPLICITLY UNTESTED (durable backlog)
+
+- D-Adaptation (Muon-side theoretical baggage)
+- Prodigy
+- Per-block-DEPTH Muon μ (depth-stratified, vs DEPTH-LR closed but DEPTH-MU untested)
+- AdamW state reset at cooldown boundary → **just assigned #988**
+- SF-AdamW for aux → **just assigned #984**
+
+### Closed prior cycles (still relevant context)
+
+- **#929 edward** CLOSED productive-NULL (AdamW aux v_t floor). Reassigned → #980.
+- **#845 askeladd** CLOSED productive-NULL (embed-grad freq rescale composition-overlap with init-anchor). Reassigned → #967.
+- **#933 nezuko** CLOSED productive-NULL (path-norm body velocity). Reassigned → #982.
+- **#880 thorfinn** CLOSED productive-NULL with canonical magnitude-collapse (Muon² body v_t β₂=0.9999). Reassigned → #984.
+- **#944 tanjiro** [this cycle] CLOSED productive-NEG (body-Muon grad centralization, all 3 mechanism arms direction-wrong). Reassigned → #988.
 
 ---
 

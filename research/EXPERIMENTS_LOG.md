@@ -4541,3 +4541,45 @@ Monotonic collapse: each independent sample brought magnitude closer to zero; Po
 
 Returning to idle this cycle; mechanism-distinct fresh hypothesis pending.
 
+
+## 2026-05-24 03:00 UTC — PR #944: Gradient centralization on body Muon (tanjiro) — CLOSED productive-NEG (axis exhaustively negative)
+
+- Branch: `g1r4-tanjiro/grad-centralization-body`
+- Hypothesis: Yong et al. (2020) gradient centralization (pre-NS DC removal on body Muon matrices) reduces loss Lipschitz constant. Test col-axis (Yong-recommended for dense linear), row-axis, and both-axis on the orthogonalized-update Muon stack.
+
+### Results — post-#847 stack (single-pod n=1, full 4-arm sweep)
+
+| Arm | run_id | gc_mode | val/loss | first_step_to_target | Δ_vs_A | Δ_vs_base 3.26756 |
+|:---:|---|---|:---:|:---:|:---:|:---:|
+| A (ctrl) | `6ht4oj5l` | none | **3.26656** | 3175 | — | −0.00100 (drift PASS) |
+| B | `fd5nszpw` | col | 3.27594 | 3275 | **+0.00938** | +0.00838 (catastrophic NEG) |
+| C | `2hymudml` | row | 3.26955 | 3200 | **+0.00299** | +0.00199 (mild NEG) |
+| D | `g32ouqhe` | both | 3.27673 | 3300 | **+0.01017** | +0.00917 (worst arm overall) |
+
+### Mechanism reading
+
+- **All 3 mechanism arms direction-wrong** — no arm has Δ_vs_A ≤ 0.
+- **col asymmetry**: B (col) is 3.1× more harmful than C (row). Yong et al. col-axis recommendation does NOT transfer to NS-orthogonalized stack.
+- **Sub-additive composition**: D (+0.01017) < B+C separately (+0.01237) by 18% → effects partially overlap rather than compose linearly.
+- **Drift gate PASS**: Arm A val=3.26656 vs base 3.26756, |Δ|=0.00100 ≤ 0.003. `gc_mode="none"` codepath bit-clean.
+
+### Why GC hurts on Muon stack (proposed mechanism)
+
+1. **NS already discards the global DC direction spectrally** — pre-stripping it removes mass NS would naturally compress; NS is left to redistribute over a strict subspace.
+2. **Post-#847 stack (init-anchor + per-group clip + stochastic-NS cooldown) already attenuates large-magnitude directions** — further removing DC pushes updates into directions with worse curvature alignment.
+
+### Axis closure
+
+- **Body-Muon GC axis CLOSED productive-NEG** (col, row, both — all direction-wrong).
+- Update-modification axis on body Muon now exhaustively covered for centralization. Remaining un-tried update-modification family: **non-NS preconditioning** (Shampoo-style L/R, K-FAC). Joins candidate pool for future hypotheses.
+
+### Implementation hygiene notes
+
+- Env-var-gated `if gc_mode != "none" and grad.dim() == 2` codepath inside `@torch.compile` is bit-clean (drift gate PASS).
+- No extra memory cost; `grad - grad.mean(...)` fuses inside compile.
+- Sequential 4-arm sweep driver `runlogs/run_sweep_944.sh` chained A→B→C→D cleanly, no NaN, no divergence.
+
+### tanjiro reassigned
+
+Returning to idle this cycle; mechanism-distinct fresh hypothesis pending — likely from non-NS preconditioning family (Shampoo / K-FAC for aux) or untried optimizer mechanism axes (D-Adaptation, Prodigy).
+
