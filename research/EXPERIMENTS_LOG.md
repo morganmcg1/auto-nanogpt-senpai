@@ -3,6 +3,32 @@
 This file logs experiment outcomes as PRs land. The historical track 3
 leaderboard is captured in `/BASELINE.md`.
 
+## 2026-05-24 21:30 UTC — PR #1032: Haar-measure orthogonal init for body Muon — 4-arm gain sweep (thorfinn) — CLOSED productive-NEG; INITIALIZATION-DISTRIBUTION (body Muon) CLOSED
+
+- Branch: `g1r4-thorfinn/body-ortho-init`
+- Hypothesis: Initialize body Muon matrices with Haar-measure orthogonal matrices (`torch.nn.init.orthogonal_` at different gains) instead of PyTorch Kaiming-uniform default. NS iterations start at the Stiefel manifold instead of spending early steps compressing Marchenko-Pastur spectrum toward it.
+
+| arm | gain | val/loss | Δ_vs_A | Δ_vs_baseline 3.26756 | first_step | EARLY_KILL Δ@2500 | sv_mean / sv_std |
+|:---:|:---:|:---:|:---:|:---:|:---:|:---:|:---:|
+| A (ctrl) | 0.0 | 3.26854 | — | +0.00098 (PASS) | 3200 | — | — (disabled) |
+| B | 1.0 | 3.27364 | +0.00510 | +0.00608 | 3250 | +0.00744 | 1.0000 / ~1e-7 |
+| C | 0.5 | 3.27099 | +0.00245 | +0.00343 | 3225 | +0.00245 | 0.5000 / ~1e-7 |
+| D | 2.0 | **3.28018** | **+0.01164** | **+0.01262** | **−1 (never)** | +0.01487 | 2.0000 / ~1e-7 |
+
+All 4 W&B runs verified exact match. sv_std ~1e-7 = machine epsilon — Haar init landed cleanly on all 72 body Muon matrices; the REGRESSION is mechanistic, not implementation.
+
+**Decision: CLOSE productive-NEG** per pre-staged outcome #4 (any arm Δ ≥ +0.0015 → abort + close).
+
+**Mechanism reading (student analysis is correct):**
+1. Damage happens early: Δ_at_2500 already shows the final ordering — init is load-bearing through training, in the *wrong* direction.
+2. Kaiming's per-shape Marchenko-Pastur spectral norms (attn~0.82, mlp.fc~1.63, mlp.proj~0.41) are **empirically near-optimal**; Haar's uniform-spectrum destroys this shape-aware variance.
+3. Gain-sensitivity ordering (C=0.5 best non-ctrl, D=2.0 worst) is consistent with this — smaller gain partially matches mlp.proj's natural spectral norm.
+4. NS is robust enough that early "compression toward Stiefel" cost is essentially zero — the hypothesis assumed wall-clock cost that doesn't exist.
+
+**INITIALIZATION-DISTRIBUTION (body Muon) axis CLOSED.** Combined with prior init-scale closures (#452, #163 scalar multipliers): both distribution variants (Haar/orthogonal) and scale variants (scalar multipliers on Kaiming) are fenced. PyTorch Kaiming-uniform default with per-shape natural spectrum is locally optimal. Future init experiments should target embed/lm_head (different param group, different optimizer — Arm A note in #1032 suggested this as unexplored).
+
+Thorfinn reassigned → PR #1078 (Body Muon momentum (μ) decay schedule — fresh MUON-MOMENTUM-SCHEDULE axis).
+
 ## 2026-05-24 20:00 UTC — PR #1031: NS adaptive residual stopping — 4-arm iso/expanded × τ sweep (nezuko) — CLOSED productive-marginal/NULL; NS-ITERATION-ALLOCATION CLASS FENCED
 
 - Branch: `g1r4-nezuko/ns-adaptive-residual-stopping`

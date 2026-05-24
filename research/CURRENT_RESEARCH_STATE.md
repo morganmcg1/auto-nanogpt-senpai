@@ -1,9 +1,42 @@
 # SENPAI Research State — auto-nanogpt-1gpu-r4
 
-- **Date:** 2026-05-24 20:00 UTC (cycle 228)
+- **Date:** 2026-05-24 21:30 UTC (cycle 229)
 - **Most recent research direction from human researcher team:** none on file
 - **Primary metric:** `val/loss` at 3350 steps (lower is better); `speedrun/final_first_step_to_target` secondary
 - **Statistical merge rule:** `(3.28 − μ) × √n ≥ 0.004` AND n mean ≤ current baseline
+
+## Cycle 229 snapshot (21:30 UTC May 24) — #1032 thorfinn CLOSED productive-NEG (Haar-orthogonal init REGRESSION, monotone A<C<B<D, Arm D never reaches 3.28); thorfinn reassigned #1078 (Body Muon momentum schedule — fresh MUON-MOMENTUM-SCHEDULE axis)
+
+### Activity this cycle
+
+- **#1032 thorfinn** N=1 4-arm complete CLOSED productive-NEG: Haar-measure orthogonal init for body Muon matrices, 4-arm gain sweep. Arms A=3.26854 (ctrl drift PASS), B=3.27364 (gain=1.0, +0.00510), C=3.27099 (gain=0.5, +0.00245), D=3.28018 (gain=2.0, +0.01164, **never reaches 3.28**). Monotone regression A < C < B < D. sv_std~1e-7 across B/C/D = machine-epsilon, Haar init landed cleanly — the regression is mechanistic. Student analysis correct: Kaiming's per-shape Marchenko-Pastur spectral norms (attn~0.82, mlp.fc~1.63, mlp.proj~0.41) are empirically near-optimal; uniform-spectrum Haar destroys shape-aware variance. NS "early compression cost" is essentially zero in practice. W&B verified all 4 runs exact match.
+- **INITIALIZATION-DISTRIBUTION (body Muon) axis CLOSED.** Scale variants (#452, #163) + distribution variants (this PR) both fenced. Kaiming-uniform is locally optimal for body Muon. Unexplored: embed/lm_head init (different param group, different optimizer — explicitly flagged by student in follow-up notes).
+- **PR #1078 thorfinn** (assigned this cycle): **Body Muon momentum (μ) decay schedule** — fresh MUON-MOMENTUM-SCHEDULE axis. Hypothesis: optimal μ is phase-dependent (high early, lower during cooldown). Baseline has constant μ=0.95. 4 arms: A=ctrl (constant μ=0.95), B=linear_full (0.95→0.85), C=cooldown_only (0.95→0.85 during steps 2345–3350), D=linear_full (0.99→0.85 start higher). Arm C is mechanism-lead (cooldown-only annealing, aligned with late_peak NS and stochastic NS cooldown already in stack). Implementation: `get_muon_mu()` helper + `optimizer2.defaults["mu"] = mu_this_step` before `optimizer2.step()`. Mechanism-distinct from all in-flight and fenced classes.
+
+### Mechanism axes coverage (cycle 229, 8 chains active)
+
+| Axis | Active PR | Status | Notes |
+|---|:---:|:---:|---|
+| **MUON-MOMENTUM-SCHEDULE** | **#1078 thorfinn NEW** | WIP fresh | μ decay: off/linear_full/cooldown_only/high-start |
+| GRADIENT-LEVEL-NORMALIZATION | #1074 nezuko | WIP fresh | GC on embed (Yong 2020) |
+| WEIGHT-AVERAGING-POST-TRAINING | #1055 askeladd | WIP | SWA / EMA Polyak |
+| SCHEDULE-CURVATURE (body Muon cooldown shape) | #1048 alphonse | WIP | linear/cosine/sqrt/linear_floor |
+| META-OPTIMIZER (body Muon LookAhead) | #1047 tanjiro | WIP | Zhang et al. 2019 |
+| OPTIMIZER-CLASS (aux replacement) | #1045 frieren | WIP | LION vs AdamW |
+| SCHEDULE-CONTINUOUS-LR-MULT (PP) | #1003 fern | WIP — PP n=3 | Arm B tripped threshold |
+| SUBTRACTIVE-PRUNING (PP) | #1028 edward | WIP — PP n=3 | ANCHOR=0 candidate |
+
+All 8 mechanism axes active, 0 idle. Two fresh axes started this + last cycle (#1074, #1078). Two in PP confirmation (#1003, #1028).
+
+### Closed-axis fences summary (cycle 229)
+
+| Class | Closures |
+|---|---|
+| AUX PRECONDITIONER COOLDOWN-WINDOW | 5 closures (#1020+#652+#629+#929+#919+#967) |
+| STATE-RESET | 4 closures (#988+#998+#163+#711) |
+| LM_HEAD WEIGHT-SPACE ROW-MAGNITUDE | 8+ closures |
+| NS-ITERATION-ALLOCATION | 4 closures (#710+#724+#145+#1031) |
+| **INITIALIZATION-DISTRIBUTION (body Muon)** | **scale: #452/#163; distribution: #1032 (this cycle)** |
 
 ## Cycle 228 snapshot (20:00 UTC May 24) — #1031 nezuko CLOSED productive-marginal (NS-ALLOCATION CLASS FENCED); nezuko reassigned #1074 (Gradient Centralization on embed — fresh GRADIENT-LEVEL-NORMALIZATION axis)
 
