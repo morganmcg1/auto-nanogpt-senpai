@@ -64,6 +64,14 @@ def parse_args():
     parser.add_argument("--muon_lr", type=float, default=0.035,
                         help="Base learning rate for body-Muon optimizer (matrix params in blocks). "
                              "Default 0.035 matches the merged baseline.")
+    parser.add_argument("--muon_wd_form", type=str, default="lr_linear",
+                        choices=["lr_linear", "lr_squared", "decoupled"],
+                        help="Weight decay coupling form for body-Muon. "
+                             "lr_linear=baseline (1-lr*wd), lr_squared=quadratic (1-lr^2*wd), "
+                             "decoupled=constant per step (1-wd).")
+    parser.add_argument("--muon_weight_decay", type=float, default=0.025,
+                        help="Body-Muon weight decay coefficient (used with --muon_wd_form coupling). "
+                             "Calibrated together with --muon_wd_form to control per-step decay at peak LR.")
     args = parser.parse_args()
     args.num_trials = args.num_trials if args.num_trials is not None else (args.legacy_num_trials or 1)
     args.wandb_tags = [tag.strip() for tag in args.wandb_tags.split(",") if tag.strip()]
@@ -535,11 +543,12 @@ def pmuon_update(
 
 class Muon(torch.optim.Optimizer):
     def __init__(self, params, lr=0.02, weight_decay=0, mu=0.95, beta_cov=0.95, gamma=PMUON_GAMMA,
-                 ns_a=NS_A, ns_b=NS_B, ns_c=NS_C):
+                 ns_a=NS_A, ns_b=NS_B, ns_c=NS_C, wd_form="lr_linear"):
         assert isinstance(params, list) and len(params) >= 1 and isinstance(params[0], torch.nn.Parameter)
+        assert wd_form in ("lr_linear", "lr_squared", "decoupled"), f"Unknown wd_form: {wd_form}"
         params = sorted(params, key=lambda x: x.size(), reverse=True)
         defaults = dict(lr=lr, weight_decay=weight_decay, mu=mu, beta_cov=beta_cov, gamma=gamma,
-                        ns_a=ns_a, ns_b=ns_b, ns_c=ns_c)
+                        ns_a=ns_a, ns_b=ns_b, ns_c=ns_c, wd_form=wd_form)
         super().__init__(params, defaults)
 
     @torch.no_grad()
@@ -582,8 +591,18 @@ class Muon(torch.optim.Optimizer):
                         if 0 < ratio < TARGET_UW:
                             floor_fired_count += 1
                             update.mul_(TARGET_UW / ratio)
-                    p.mul_(1 - group["lr"] * group["weight_decay"])
-                    p.add_(update, alpha=-group["lr"])
+                    lr = group["lr"]
+                    wd = group["weight_decay"]
+                    wd_form = group.get("wd_form", "lr_linear")
+                    if wd_form == "lr_linear":
+                        p.mul_(1 - lr * wd)
+                    elif wd_form == "lr_squared":
+                        p.mul_(1 - lr * lr * wd)
+                    elif wd_form == "decoupled":
+                        p.mul_(1 - wd)
+                    else:
+                        raise ValueError(f"Unknown wd_form: {wd_form}")
+                    p.add_(update, alpha=-lr)
                 dist.all_gather(params_pad[base_i:base_i + world_size], params_pad[base_i + rank])
         self._floor_diag = {"fired": floor_fired_count, "eligible": floor_eligible_count}
         self._polar_diag = polar_diag
@@ -756,9 +775,11 @@ for trial_idx in range(args.num_trials):
                         dict(params=[p for p in model.parameters() if p.ndim < 2], lr=0.025, name="adam_scalars")],
                        betas=(0.8, 0.95), eps=1e-10, weight_decay=0, fused=True)
     optimizer2 = Muon([p for p in model.blocks.parameters() if p.ndim >= 2],
-                      lr=args.muon_lr, weight_decay=0.025, beta_cov=0.95, gamma=PMUON_GAMMA)
+                      lr=args.muon_lr, weight_decay=args.muon_weight_decay, beta_cov=0.95, gamma=PMUON_GAMMA,
+                      wd_form=args.muon_wd_form)
     optimizer2.param_groups[0]["name"] = "muon_blocks"
-    print0(f"body-Muon optimizer: lr={args.muon_lr} weight_decay=0.025 beta_cov=0.95 gamma={PMUON_GAMMA}")
+    print0(f"body-Muon optimizer: lr={args.muon_lr} weight_decay={args.muon_weight_decay} "
+           f"wd_form={args.muon_wd_form} beta_cov=0.95 gamma={PMUON_GAMMA}")
     optimizers = [optimizer1, optimizer2]
     assert set(p for opt in optimizers for group in opt.param_groups
                for p in group["params"]) == set(model.parameters())
@@ -1007,6 +1028,19 @@ for trial_idx in range(args.num_trials):
                 step=train_step,
                 wandb_step=wandb_step,
             )
+            with torch.no_grad():
+                body_norms = [float(p.detach().norm().item()) for p in optimizer2.param_groups[0]["params"]]
+            p_norm_body_mean = (sum(body_norms) / len(body_norms)) if body_norms else 0.0
+            wandb.log({
+                "trial": trial_idx,
+                "train/step": train_step,
+                "train/p_norm_body_mean": p_norm_body_mean,
+                "train/p_norm_body_max": max(body_norms) if body_norms else 0.0,
+                "train/p_norm_body_min": min(body_norms) if body_norms else 0.0,
+                "train/p_norm_body_count": len(body_norms),
+                "train/muon_wd_form": {"lr_linear": 0, "lr_squared": 1, "decoupled": 2}.get(args.muon_wd_form, -1),
+                "train/muon_weight_decay": args.muon_weight_decay,
+            }, step=wandb_step)
             floor_diag = getattr(optimizer2, "_floor_diag", None)
             if floor_diag is not None:
                 eligible = floor_diag.get("eligible", 0)
@@ -1079,12 +1113,18 @@ for trial_idx in range(args.num_trials):
             + f" first_step_to_target:{first_step_to_target}",
             console=True,
         )
+        with torch.no_grad():
+            terminal_norms = [float(p.detach().norm().item()) for p in optimizer2.param_groups[0]["params"]]
+        terminal_mean = (sum(terminal_norms) / len(terminal_norms)) if terminal_norms else 0.0
         wandb.log({
             "trial": trial_idx,
             "speedrun/final_best_val_loss": best_val_loss,
             "speedrun/final_best_val_step": best_val_step,
             "speedrun/final_first_step_to_target": first_step_to_target,
             "speedrun/final_reached_target": int(first_step_to_target >= 0),
+            "train/p_norm_body_terminal": terminal_mean,
+            "train/p_norm_body_terminal_max": max(terminal_norms) if terminal_norms else 0.0,
+            "train/p_norm_body_terminal_min": min(terminal_norms) if terminal_norms else 0.0,
         }, step=(trial_idx + 1) * (train_steps + 1) - 1)
 
 if dist.get_rank() == 0:
