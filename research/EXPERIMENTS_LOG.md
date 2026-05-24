@@ -1,5 +1,68 @@
 # SENPAI Research Results
 
+## 2026-05-24 04:05 UTC — 🎯 100 CLOSED AXES MILESTONE — PR #985 CLOSED: Shampoo body-Muon p=1/4 (no NS5) — 100th NULL, NS5 confirmed TRIPLE-LOAD-BEARING (g1r1-alphonse)
+
+- Branch: `g1r1-alphonse/shampoo-body-muon`
+- Hypothesis: Replace NS5 polar pipeline + γ=0.4 power preconditioning with Shampoo p=1/4 natural gradient. Arm A: Shampoo on Nesterov-blended momentum; Arm B: Shampoo on raw gradient (drops NS5 AND momentum). Bias-corrected L_cov, R_cov; cubic root of inverse-quartic-root via `matrix_neg_power(L, 0.25)`.
+
+| Arm | --shampoo_input | W&B | step | val/loss | Verdict |
+|---|---|---|---|---|---|
+| Baseline | — | `j8nsn77s` | 500 | 3.800 | — |
+| **A** Nesterov-blended momentum | `momentum` | `hin8ed8u` | **500** (aborted) | **4.623** | catastrophic NULL |
+| **B** raw gradient (no momentum) | `raw` | `nssi5k4g` | **500** (aborted) | **4.620** | catastrophic NULL |
+
+### Mid-flight abort execution clean
+
+Both arms crossed predefined val/loss > 4.0 mid-flight gate at step 500. Chain script handed off cleanly between arms. No SIGTERM/SIGKILL hygiene issues.
+
+### Mechanism diagnosis (from student's structural analysis)
+
+**Triple-load-bearing role of NS5 confirmed via failure mode:**
+
+| step | Shampoo Frob (A / B) | Per-element RMS (A / B) | lcov_eigh_ratio (A / B) | Baseline reference |
+|---|---|---|---|---|
+| 25 | 754,269 / 900,996 | 491 / 587 | — | 78 / 0.025 |
+| 50 | 241,679 / 269,209 | 157 / 175 | — | 78 / 0.025 |
+| 100 | 46,020 / 42,384 | 30.0 / 27.6 | 1.09e+20 / 1.65e+20 | 78 / 0.025 |
+| 500 | 3.64 / 3.62 | 0.0024 / 0.0024 | 9.06e+05 / 7.56e+05 | 747 (baseline) |
+
+- At step 1, L_cov is rank-1 (single g·g^T outer product); `matrix_neg_power(L_cov, 0.25, eps=1e-12)` clamps null eigenvalues to 1e-12, then raises to -1/4 → `1e-12^(-0.25) = 1000×` amplification in null directions.
+- L^(-1/4) @ g @ R^(-1/4) amplifies tiny numerical noise in nullspaces into 900k Frob updates.
+- Weight norm explodes to 6.4M by step 50 (1000× baseline ~6,219).
+- NS5's cubic map `(3/2)X − (1/2)X³` was structurally clamping `‖polar‖_F ≤ √min(m,n)` regardless of input rank — load-bearing not just as magnitude normalizer but as rank-deficiency clipper AND null-space amplification suppressor.
+
+### Cross-axis confirmation: input-side not the cause
+
+Arm B (raw gradient, no momentum smoothing) failed essentially identically to Arm A. Eliminates input-noise as the cause:
+- Failure mechanism is preconditioner-side (rank-deficient L_cov + null-eigenvalue amplification).
+- Input-smoothing is not the lever.
+- Asymptotic bias correction `(1 - β_cov)` (predicted 5% over-correction concern) is NOT dominant — magnitude predictions match well by step 500, but weights already destroyed.
+
+### Cross-axis closure milestones
+
+Combined with prior closures, this completes the polar-pipeline perturbation sweep:
+
+| Sub-family | Closures | Status |
+|---|---|---|
+| Pre-NS m_pre direction perturbations | #893 BC, #898 residual, #931 sign-mask (mask + renorm), #940 Frob-rescale | FULLY CLOSED |
+| Post-NS m_polar perturbations | #696 subtractive, #696 additive, #896 multiplicative | FULLY CLOSED |
+| NS internals (γ_power, NS_ITERS, cubic-vs-quintic) | #202 γ=0.4 pinned, #884 NS=12 pinned, #920 cubic optimal | FULLY PINNED |
+| Full-NS5 replacement (this PR) | #985 momentum + raw gradient | FULLY CLOSED |
+
+**NS5 polar pipeline is now structurally pinned across all explored interventions.** Future body-side optimizer work must either (a) preserve NS5 cubic and modify accessories, or (b) introduce a fundamentally new pipeline structure that independently solves NS5's three load-bearing roles.
+
+### Cross-axis to #977 cosine finding (parallel session finding)
+
+Edward's `pmuon/slow_momentum_cosine` telemetry on PR #977 confirmed body gradient cosine 0.26-0.33 — body has temporal structure. Combined with this PR's finding: future natural-gradient body optimizers must solve BOTH:
+1. Exploit temporal structure (cos ≈ 0.3 means EMA helps at fast-medium horizon)
+2. Maintain rank-deficiency protection without absolute-eps null-space amplification
+
+### Reassignment: alphonse → Shampoo body-Muon with trace-relative eps clamp (next PR)
+
+Student's own suggestion #1 ("trace-relative eps clamp: replace `eps=1e-12` absolute with `eps = c · trace(M) / m`") directly tests if the rank-deficient null-space pathology is fixable via preconditioner refinement. If yes → natural-gradient body-Muon family reopens. If no → PSGD-Kron Lie group invariance becomes necessary alternative.
+
+---
+
 ## 2026-05-24 03:35 UTC — PR #990 ASSIGNED: Schedule-Free body-Muon — replace Polyak EMA with c_t-weighted averaging (g1r1-fern)
 
 - Branch: `g1r1-fern/body-muon-schedule-free`
