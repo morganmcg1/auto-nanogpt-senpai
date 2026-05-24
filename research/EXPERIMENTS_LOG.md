@@ -3,6 +3,50 @@
 Log of completed/reviewed experiment PRs in chronological order. Wave 1
 results pending student execution.
 
+## 2026-05-24 ~02:15 UTC — PR #979: thorfinn SOAP exp_avg_sq scaling ablation — **ASSIGNED**
+
+- **Branch:** `g1r5-thorfinn/soap-exp-avg-sq-ablation`
+- **Student:** g1r5-thorfinn
+- **Hypothesis:** SOAP-internals pruning ablation. SOAP combines (a) eigenbasis Q projection + (b) Adam-style per-element `exp_avg_sq` scaling in Q-basis + (c) norm-preserving rescaling. Test whether the Adam-in-basis component (b) is load-bearing or vestigial. Distinct from #936 (which ablates Q itself) and #914 (which froze Q refresh).
+
+- **5-cell sweep:**
+
+| Cell | Config | Role |
+|:----:|:-------|:-----|
+| A | ctrl (full SOAP) | baseline reproducibility |
+| B ★ | PRIMARY: skip exp_avg_sq scaling (just Q projection + norm preserve) | tests if Adam-in-basis is needed |
+| C | skip exp_avg_sq AND drop norm preservation | exploratory — magnitude unbounded |
+| D | exp_avg_sq frozen at constant init=1.0 | sanity check (≡ Cell B with norm preserve) |
+| E | exp_avg_sq = projected.square() instant (no EMA) | tests EMA timescale necessity |
+
+- **Context:** PR #932 just closed clean-NEG with finding that *early-layer NS quality matters more than late-layer*. Shifts focus to preconditioner internals (this PR). PR #936 asymmetric SOAP and this PR will together pin down which SOAP component is load-bearing.
+
+---
+
+## 2026-05-24 ~02:10 UTC — PR #932: thorfinn Per-layer NS iteration count scaled by depth — **CLOSED clean-NEG**
+
+- **Branch:** `g1r5-thorfinn/per-layer-ns-iter-by-depth`
+- **Student:** g1r5-thorfinn
+- **Hypothesis:** Allocate more NS iterations to deeper layers (linear depth scaling) on a fixed budget. Mean iter=6, depth_scale controls range.
+
+- **5-cell P1 sweep (n=1, 3250 steps):**
+
+| Cell | Config | val/loss | ffs | Δ vs baseline | W&B |
+|:----:|:-------|:--------:|:---:|:-------------:|:---:|
+| A | ctrl depth_scale=0.0, NS=[6]×12 | 3.26206 | 3050 | +0.00084 (parity) | hz8pctbt |
+| **B ★** | depth_scale=0.5 NS=[3..9] MLP+attn | 3.27327 | 3150 | +0.01205 NEG | cbdojob4 |
+| C | depth_scale=1.0 NS=[1..12] | 3.30871 | **−1 diverged** | +0.04749 NEG | 2hk9wtzc |
+| D | depth_scale=−0.5 INVERTED NS=[9..3] | 3.26632 | 3075 | +0.00510 NEG | kmlkgjob |
+| E | depth_scale=0.5 MLP-only | 3.26664 | 3075 | +0.00542 NEG | ea7l1hq6 |
+
+- **Decisive refutation:** Cell D (inverted, early=9, late=3) is the SECOND-BEST non-flat variant — directly refutes the "late layers need more NS" hypothesis. Late-layer attention/MLP weights are MORE tolerant of fewer NS iters; **early-layer orthogonalization quality matters most**. Cell C confirms NS_ITER < 3 is a hard floor (layer-0 at NS=1 diverged the whole run).
+
+- **Mechanism insight:** Information from this closure — "early layers need more NS quality" — informs subsequent hypothesis design. The per-layer-iter axis is closed but the *direction* of the gradient (early-layer load-bearing) is valuable.
+
+- **Decision:** CLOSED clean-NEG. NS-iter-by-depth axis closed.
+
+---
+
 ## 2026-05-24 ~01:25 UTC — PR #973: nezuko Cosine-gated adaptive Muon momentum — **ASSIGNED**
 
 - **Branch:** `g1r5-nezuko/cosine-gated-adaptive-muon-momentum`
