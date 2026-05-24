@@ -593,6 +593,12 @@ NANOGPT_SENPAI_SEED = int(_SENPAI_SEED_RAW) if _SENPAI_SEED_RAW != "" else None
 # `embed.weight -= lr_embed * lambda * (embed.weight - embed_init_snapshot)`.
 # At lambda=0 the hook is a no-op and behavior is bit-identical to the merged stack.
 NANOGPT_EMBED_INIT_ANCHOR_LAMBDA = float(os.environ.get("NANOGPT_EMBED_INIT_ANCHOR_LAMBDA", "0.0"))
+# Per-row L2 max-norm soft-clamp on lm_head (model.proj.weight) post-step.
+# When > 0.0: after each optimizer step, any row of model.proj.weight whose
+# L2 norm exceeds R_target is projected to the L2 ball of radius R_target.
+# Rows inside the ball are untouched (asymmetric — ceiling only, NOT pull-to-zero).
+# At 0.0 the hook is completely inactive and bit-identical to the merged baseline.
+NANOGPT_LM_HEAD_ROW_MAXNORM = float(os.environ.get("NANOGPT_LM_HEAD_ROW_MAXNORM", "0.0"))
 
 
 def get_ns_coef_at_iter(iter_idx: int, total_iters: int, schedule: str) -> tuple[float, float, float]:
@@ -824,6 +830,9 @@ print0(f"  Effective Muon base LRs: attn={0.035*NANOGPT_MUON_ATTN_LR_MULT:.5f} m
 print0(f"EMBED_INIT_ANCHOR_LAMBDA: {NANOGPT_EMBED_INIT_ANCHOR_LAMBDA} "
        f"({'ACTIVE' if NANOGPT_EMBED_INIT_ANCHOR_LAMBDA > 0 else 'INACTIVE (bit-identical fallback)'})",
        console=True)
+print0(f"LM_HEAD_ROW_MAXNORM: {NANOGPT_LM_HEAD_ROW_MAXNORM} "
+       f"({'ACTIVE' if NANOGPT_LM_HEAD_ROW_MAXNORM > 0 else 'INACTIVE (bit-identical baseline)'})",
+       console=True)
 if NS_ITERS_COOLDOWN > 0:
     print0(f"NS_SCHEDULE: ns_iters={NS_ITERS} -> ns_iters_cooldown={NS_ITERS_COOLDOWN} "
            f"at fraction {NS_COOLDOWN_START_FRAC} of train_steps "
@@ -896,6 +905,7 @@ if dist.get_rank() == 0:
             "nanogpt_ns_stochastic_cooldown": NANOGPT_NS_STOCHASTIC_COOLDOWN,
             "senpai_seed": NANOGPT_SENPAI_SEED if NANOGPT_SENPAI_SEED is not None else -1,
             "nanogpt_embed_init_anchor_lambda": NANOGPT_EMBED_INIT_ANCHOR_LAMBDA,
+            "nanogpt_lm_head_row_maxnorm": NANOGPT_LM_HEAD_ROW_MAXNORM,
         },
     )
 
@@ -1221,6 +1231,13 @@ for trial_idx in range(args.num_trials):
                             alpha=lr_embed * NANOGPT_EMBED_INIT_ANCHOR_LAMBDA,
                         )
                         break
+        # Per-row max-norm soft-clamp on lm_head post-step (bit-identical when cap=0.0).
+        if NANOGPT_LM_HEAD_ROW_MAXNORM > 0.0:
+            with torch.no_grad():
+                W = model.proj.weight        # (vocab_size, d_model)
+                row_norms = W.norm(dim=1, keepdim=True)          # (vocab, 1)
+                scale = (NANOGPT_LM_HEAD_ROW_MAXNORM / row_norms.clamp(min=1e-9)).clamp(max=1.0)
+                W.mul_(scale)
         # Per-100-step embed AdamW step-direction norm ||m_hat / (sqrt(v_hat) + eps)||.
         # This is the *direction* (pre-LR) so it captures whether the schedule change
         # is modulating the bias-corrected Adam update magnitude on the embed group.
@@ -1265,6 +1282,25 @@ for trial_idx in range(args.num_trials):
                     "embed/dist_from_init": embed_dist_from_init,
                     "embed/dist_from_init_mean_abs": embed_dist_from_init_mean_abs,
                     "embed/init_anchor_lambda": NANOGPT_EMBED_INIT_ANCHOR_LAMBDA,
+                }, step=wandb_step)
+            # LM-head row-norm telemetry (#956). Fires for all arms (incl. cap=0)
+            # so the early-kill gate can verify the natural row-norm bracket.
+            with torch.no_grad():
+                W_lm = model.proj.weight.detach().float()
+                rn = W_lm.norm(dim=1)
+                if NANOGPT_LM_HEAD_ROW_MAXNORM > 0.0:
+                    frac_at_cap = float((rn >= NANOGPT_LM_HEAD_ROW_MAXNORM * 0.99).float().mean())
+                else:
+                    frac_at_cap = 0.0
+                wandb.log({
+                    "trial": trial_idx,
+                    "train/step": train_step,
+                    "lm_head/row_norm_mean": float(rn.mean()),
+                    "lm_head/row_norm_max": float(rn.max()),
+                    "lm_head/row_norm_p50": float(rn.median()),
+                    "lm_head/row_norm_std": float(rn.std(unbiased=False)),
+                    "lm_head/row_norm_frac_at_cap": frac_at_cap,
+                    "lm_head/row_maxnorm_cap": NANOGPT_LM_HEAD_ROW_MAXNORM,
                 }, step=wandb_step)
         adamw_step_dir_due = (train_step % 100 == 0 or train_step == train_steps)
         if dist.get_rank() == 0 and adamw_step_dir_due:
