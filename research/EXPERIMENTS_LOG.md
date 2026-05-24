@@ -1,5 +1,59 @@
 # SENPAI Research Results — auto-nanogpt-1gpu-r2
 
+## 2026-05-24 11:50 UTC — PR #996: MUON_POST_NS5_NOISE (CLOSED, 98th refuted — n=2 mean refutes merge bar, regression-to-the-mean confirmed, floor cluster confirmed at n=2 statsig)
+
+- Branch: `g1r2-fern/muon-post-ns5-noise` (student g1r2-fern)
+- Hypothesis: SGLD-style Gaussian noise injection POST-NS5 (after polar projection, after u/w-floor, before parameter add). First POST-NS5 mechanism class in cycle 71. Arm A=σ=0.05 (light noise), n=2 confirm protocol after n=1 hold-zone landing.
+
+### n=2 confirm results
+
+| Trial | val/loss terminal | ffs | run | Notes |
+|---|---:|---:|---|---|
+| Trial 0 | 3.27124 | 3025 | `5kud6cnn-t0` | passes literature target (val<3.28) |
+| Trial 1 | 3.26982 | 3025 | `5kud6cnn-t1` | passes literature target |
+| **n=2 mean** | **3.27053** | **3025** | — | **REFUTES merge bar by +0.00277 val, +25 ffs** |
+| Baseline PR #613 (n=2) | 3.26776 | 3000 | `1zb5h0e5`, `4v5jsjk9` | merge bar |
+| Original n=1 lucky | 3.26784 | 3000 | `8bjixfx7` | seed-lucky single trial |
+
+**Regression to the mean confirmed**: lucky n=1 val=3.26784 sat at low end of natural variance band; n=2 mean is 0.00269 worse than the lucky single trial — exactly the regression signature when a single low-variance seed is replicated.
+
+### Per-trial kill-gate trajectory (both trials passed mostly, brushed/tripped step-1000)
+
+| step | trial 0 val | trial 1 val | kill gate | margin trial 0 | margin trial 1 |
+|---:|---:|---:|---:|:---|:---|
+| 500 | 3.80359 | 3.80398 | 3.81 | PASS (−0.0064) | PASS (−0.0060) |
+| 1000 | 3.66440 | 3.66099 | 3.66 | **trip (+0.00440)** | razor-edge (+0.00099) |
+| 1500 | 3.53384 | 3.53029 | 3.55 | PASS (−0.016) | PASS (−0.020) |
+| 2000 | 3.43101 | 3.42856 | 3.43 | razor-edge (+0.00101) | PASS (−0.0014) |
+| 2500 | 3.34730 | 3.34592 | 3.36 | PASS (−0.013) | PASS (−0.014) |
+| 3000 | 3.28241 | 3.28090 | 3.29 | PASS (−0.008) | PASS (−0.009) |
+| 3175 | **3.27124** | **3.26982** | — | terminal | terminal |
+
+**Systematic step-1000 trip** in both trials is the σ=0.05 noise's visible behavioral signature — small early-step efficiency cost recovered decisively by step 1500.
+
+### Mechanistic reading (student fern's analysis, advisor concurrence)
+
+1. **σ=0.05 is too weak to help, too strong to be free.** Update→noise SNR ~20× consistently produces a small (~+0.003) val tax vs unperturbed baseline mean. SGLD's "free regularization" doesn't show up at this 3175-step horizon — the model is in the fine-precision cooldown phase where stochastic perturbations cost more than they buy.
+
+2. **Floor cluster band touched but not won.** n=2 mean val=3.27053 lands JUST inside floor cluster band (+0.00053 above 3.270 center). ffs=3025 sits at floor cluster floor. Mechanism is "in the cluster" — non-toxic — but not a winner.
+
+3. **Regression to the mean is the dominant signal.** The lucky 8bjixfx7=3.26784 was a low-variance single draw at this operating point; n=2 mean=3.27053 is the honest estimate of the true mean. The merge bar requires the *true* mean < 3.26776; n=2 with this mechanism does not deliver.
+
+4. **Post-NS5 noise mechanism class bracketed below.** Per the advisor's directive, no Arm B σ=0.15 was launched. The σ=0.05 operating point is sub-optimal-but-non-toxic; σ=0.15 (lower SNR ~6.7×, more aggressive noise) is unlikely to be better.
+
+### Cycle 71 floor cluster characterization (THE biggest update of cycle 71)
+
+This was the **only n=1 hold-zone candidate of cycle 71** in 100+ PRs since the #613 baseline. n=2 refutation cleanly confirms the floor cluster at val=3.270/ffs=3025 is the n=2 statsig floor for this stack, not just an n=1 lucky landing. ≥5 separate within-step mechanisms now converge to this band:
+- #996 (this PR) σ=0.05 post-NS5 noise: 3.27053
+- #903 NORMUON_BETA2=0.99: 3.26915 (n=1)
+- #1017 momentum prefill α=0.5/1.0: 3.27009/3.27010 (n=1, zero slope)
+- #1016 NS5_RESIDUAL α=0.1: 3.27290 (n=1)
+- #1004 TARGET_UW=0.0 Arm A: 3.29097 (close-miss outside cluster but in family)
+
+**Disposition**: CLOSED as 98th refuted. The hold protocol worked as designed — single-seed lucky lands were correctly flagged for n=2 statsig verification, and the n=2 protocol cleanly distinguished noise from signal. Path forward must lift the n=2 floor below 3.26776 via variance reduction (#1037 Lookahead, #1039 EMA_VAL in flight) or a categorically new optimization principle.
+
+---
+
 ## 2026-05-24 11:40 UTC — PR #1017: MUON_MOMENTUM_PREFILL (CLOSED, 97th refuted — ZERO-SLOPE axis, both arms identical at floor cluster, momentum-buffer-INIT lifecycle exhausted)
 
 - Branch: `g1r2-alphonse/muon-momentum-prefill` (student g1r2-alphonse)
