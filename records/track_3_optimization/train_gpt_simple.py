@@ -466,6 +466,9 @@ ATTN_SOAP_PRECOND_FREQ = 10
 ATTN_SOAP_TRUST_THRESHOLD = float(os.environ.get("ATTN_SOAP_TRUST_THRESHOLD", "0.9"))
 NS5_ITERS = int(os.environ.get("NS5_ITERS", "12"))
 WD_AUX = float(os.environ.get("WD_AUX", "0.0"))  # AdamW WD on embed + lm_head matrices (scalars stay at 0)
+# AUX_EPS_SCHEDULE (PR #1061): schedule AdamW denominator floor (eps) during cooldown
+AUX_EPS_START = float(os.environ.get("AUX_EPS_START", "1e-10"))  # default = baseline constant
+AUX_EPS_END   = float(os.environ.get("AUX_EPS_END",   "1e-10"))  # default = no change (log-linear)
 EMBED_INIT_STD = float(os.environ.get("EMBED_INIT_STD", "1.0"))  # default preserves baseline N(0,1)
 LOGIT_SOFTCAP = float(os.environ.get("LOGIT_SOFTCAP", "15.0"))  # default = 15 (current hardcoded value); soft-cap value c in f(x) = c·x / sqrt(x^2+c^2)
 
@@ -866,6 +869,8 @@ if dist.get_rank() == 0:
             "optimizer/attn_soap_trust_threshold": ATTN_SOAP_TRUST_THRESHOLD,
             "optimizer/ns5_iters": NS5_ITERS,
             "optimizer/wd_aux": WD_AUX,
+            "optimizer/aux_eps_start": AUX_EPS_START,
+            "optimizer/aux_eps_end": AUX_EPS_END,
             "optimizer/recipe": "contra-muon + normuon-lite + soap-on-mlp + soap-on-attn-trust-gate (pre-NS5, record #14 + record #16)",
         },
     )
@@ -901,7 +906,7 @@ for trial_idx in range(args.num_trials):
     optimizer1 = AdamW([dict(params=[model.embed.weight], lr=0.3, name="adam_embed", weight_decay=WD_AUX),
                         dict(params=[model.proj.weight], lr=1/320, name="adam_lm_head", weight_decay=WD_AUX),
                         dict(params=[p for p in model.parameters() if p.ndim < 2], lr=0.01, name="adam_scalars")],
-                       betas=(0.8, 0.95), eps=1e-10, weight_decay=0, fused=True)
+                       betas=(0.8, 0.95), eps=AUX_EPS_START, weight_decay=0, fused=True)
     optimizer2 = Muon([(n, p) for n, p in model.blocks.named_parameters() if p.ndim >= 2],
                       lr=MUON_LR, weight_decay=MUON_WEIGHT_DECAY, mu=MU)
     optimizer2.param_groups[0]["name"] = "muon_blocks"
@@ -936,6 +941,19 @@ for trial_idx in range(args.num_trials):
                 group["lr"] = group["initial_lr"] * eta
                 if group.get("name") == "muon_blocks":
                     group["mu"] = cur_mu
+
+        # AUX_EPS_SCHEDULE (PR #1061): log-linear ramp eps during cooldown only
+        if AUX_EPS_END != AUX_EPS_START:
+            if progress < 1 - cooldown_frac:
+                cur_eps = AUX_EPS_START
+            else:
+                t_cool = (progress - (1 - cooldown_frac)) / cooldown_frac
+                cur_eps = AUX_EPS_START * (AUX_EPS_END / AUX_EPS_START) ** t_cool
+            for group in optimizer1.param_groups:
+                group["eps"] = cur_eps
+            cooldown_start_step = int(train_steps * (1 - cooldown_frac))
+            if step in (1, cooldown_start_step, cooldown_start_step + 1, train_steps - 1):
+                print0(f"[AUX_EPS_DEBUG] step={step}/{train_steps} progress={progress:.4f} cur_eps={cur_eps:.3e} group[0]['eps']={optimizer1.param_groups[0]['eps']:.3e}", console=True)
 
 
     ########################################
@@ -996,6 +1014,7 @@ for trial_idx in range(args.num_trials):
                     "speedrun/reached_target": int(first_step_to_target >= 0),
                     "time/train_seconds": training_time,
                     "time/step_avg_ms": 1000 * step_avg,
+                    "optim/aux_eps_live": float(optimizer1.param_groups[0]["eps"]),
                 }
                 metrics.update(prefixed("val/slope", loss_slope_stats(val_loss_history, slope_window_steps)))
                 wandb.log(metrics, step=trial_idx * (train_steps + 1) + step)
