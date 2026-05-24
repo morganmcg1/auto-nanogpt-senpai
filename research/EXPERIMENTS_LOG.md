@@ -1,3 +1,40 @@
+## 2026-05-24 07:55 UTC — PR #1018 ASSIGNED (askeladd): H116 Lookahead at Outer Level (pure pullback, no velocity buffer)
+
+- Branch: `g1r3-askeladd/h116-lookahead-outer`
+- Hypothesis: **Replace MuLoCo Nesterov-SGDM outer aggregation with pure Lookahead pullback** (Zhang et al. NeurIPS 2019). No velocity buffer, no momentum history, no magnitude clip, no direction change — just `step = α·δ` where δ = anchor − fast_weights, applied every sync_interval inner steps. This is a SIMPLIFICATION of MuLoCo (removes velocity buffer entirely), NOT a perturbation of it. Directly tests the question raised by H108 closure: "Is the velocity buffer in MuLoCo signal or noise?"
+- Arms (n=1 seed each, 3325 steps, 1×H100): arm_a CTRL `--outer_mode muloco` (bit-identical baseline) / arm_b PRIMARY `--outer_mode lookahead --outer_lookahead_alpha 0.5` (standard paper α) / arm_c HIGH `--outer_mode lookahead --outer_lookahead_alpha 0.7` (matches outer_lr=0.7 — direct velocity-vs-no-velocity comparison at same step magnitude).
+- Critical telemetry: `outer/la_delta_norm_mean` and `outer/la_step_norm_mean` per outer-sync (compare to MuLoCo effective step ~34 Frobenius from H108 arm_b smoke). These trajectories answer: does Lookahead δ-norm match MuLoCo effective step at matching sync points? If yes → velocity buffer was noise. If no → velocity buffer amplified or regularized the signal.
+- Mechanism-distinct from all closed outer axes (H91/H99/H100/H101/H108) and all in-flight (H111 sync interval, H113 AggMo). No velocity buffer is the key distinguisher — H113 nezuko AggMo still HAS velocity buffers (multiple). H116 removes the buffer entirely.
+- Decision: WIN<3.26897 (velocity buffer is noise, Lookahead is simpler+better); NULL∈[3.26880, 3.27250] (velocity buffer is unnecessary complexity, Lookahead equally good); NEG>3.27250 (velocity buffer is signal — 6th outer-aggregation closure, amplifier with H108).
+- Programme-level finding regardless: `outer/la_delta_norm_mean` trajectory characterizes anchor-fast divergence rate throughout MuLoCo-style training = fundamental MuLoCo dynamics question.
+- LoC ~25. W&B group `H116_lookahead_outer`. Why askeladd: 5-axis outer-loop closure expertise (H100/H108), gold-standard per-outer-sync telemetry discipline, H108 closure directly motivates this experiment.
+- Key references: Zhang et al. (2019) "Lookahead Optimizer: k steps forward, 1 step back" arXiv:1907.08610; H108 closure (outer-TR clip catastrophic — large outer steps are consolidation moves); H101 closure (SF outer under-aggression at outer level).
+- Note: CTRL dispersion floor confirmed widened to [3.27010, 3.27210] based on 5 in-flight CTRLs; NULL band widened to [3.26880, 3.27250] for this and all future PR decisions.
+
+---
+
+## 2026-05-24 07:55 UTC — PR #978 CLOSED NEG/closure (askeladd): H108 Outer Trust-Region Clipped SGDM (5th outer-aggregation closure — large outer excursions are CONSOLIDATION moves, not noise)
+
+- Branch: `g1r3-askeladd/h108-outer-trust-region`
+- Final 3-arm table (W&B-verified):
+
+| arm | TR ρ | val/best_loss | ffs | Δ vs baseline | Verdict |
+|-----|------|---------------|-----|---------------|---------|
+| arm_a CTRL | off | 3.27210 | 3125 | +0.00233 | dispersion floor (n=1 NULL) |
+| arm_b PRIMARY | ρ=0.05 | **3.41854** | -1 | **+0.14877** | clear NEG (64× CTRL noise floor) |
+| arm_c LOOSE | ρ=0.20 | 3.28403 | -1 | +0.01426 | mild NEG (6× CTRL noise floor) |
+
+- Closure: arm_b deep NEG + arm_c mild NEG → 5-axis outer-aggregation closure joint with H91/H99/H100/H101.
+- **Three programme-level mechanism findings:**
+  1. **Large outer excursions are CONSOLIDATION MOVES, not noise.** The MuLoCo apply rule `θ_new = θ_anchor − outer_lr·(β·v + δ)` is designed to take big steps when accumulated δ is large. ρ=0.05 reduced step magnitude ~11× during early training (85→13% clip rate trajectory), breaking the synchronization mechanism. ρ=0.20 clipped less aggressively but still NEG (+0.012 relative to CTRL).
+  2. **Outer step is structurally ~½×‖θ‖ during early/mid training** — not a tail event. H100's mid-training `sgdm_global_norm=269633` was the visible high-end of a much larger background distribution of large outer steps. No fixed ρ gives both early protection and late no-op.
+  3. **CTRL dispersion floor update (programme-level).** arm_a CTRL=3.27210 (+0.00233 above baseline #888) is the 5th data point establishing n=1 seed dispersion: all g1r3 CTRLs span 3.27010–3.27210. NULL band must widen to [3.26880, 3.27250] to avoid false-NEG closures on valid experiments. WIN threshold remains <3.26897.
+- TR telemetry (`tr_clipped_frac` 87→13% arm_b, 71→0% arm_c; `tr_ratio_pre_mean` 0.53→0.003; `tr_theta_norm_mean` growth 84→584 ~7×): gold-standard per-outer-sync mechanism diagnosis matching edward's H99 and askeladd's H100 diagnostic templates.
+- Pre-closes: all 3 follow-up variants (scheduled ρ, velocity-buffer TR clip, per-coord outer-TR). Does NOT pre-close: Lookahead (pure pullback α·δ — different mechanism; assigned H116), AggMo (in-flight nezuko H113), sync interval (in-flight frieren H111).
+- Methodological commendation: per-outer-sync `outer/tr_*` six-tuple is gold-standard mechanism diagnosis; smoke gate at step 200 confirmed aggressive binding before full training confirmed NEG; per-arm heartbeat comments maintained cadence throughout.
+
+---
+
 ## 2026-05-24 07:30 UTC — PR #1014 ASSIGNED (edward): H115 Post-NS5 sv_max Bound via Power Iteration (spectral-bias compression — direct H107 follow-up)
 
 - Branch: `g1r3-edward/h115-sv-max-compression`
