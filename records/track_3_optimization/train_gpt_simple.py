@@ -26,6 +26,15 @@ TARGET_VAL_LOSS = 3.28
 STAT_SIG_DELTA = 0.004
 SLOPE_FRACTION = 0.10
 
+# H132 NS5 spectral diagnostic checkpoint set. Sparse on purpose — each probe
+# runs a non-compiled NS5 mirror plus a few SVD calls on the largest MuonH
+# 2D gradient, so cost is negligible relative to training. At step 500 we
+# additionally log per-iteration sv trajectory at iter indices in
+# _NS5_DIAG_PER_ITER_INDICES to test convergence-speed within the quintic.
+_NS5_DIAG_STEPS = frozenset({0, 125, 500, 1000, 2000, 3000})
+_NS5_DIAG_PER_ITER_STEP = 500
+_NS5_DIAG_PER_ITER_INDICES = (0, 2, 4, 6, 8, 10, 12)
+
 
 def parse_args():
     parser = argparse.ArgumentParser(description="Modded-NanoGPT optimizer speedrun trainer")
@@ -95,6 +104,16 @@ def parse_args():
                         help="Starting value of µ schedule (used by linear and cooldown_ramp modes).")
     parser.add_argument("--muonh_mu_end", type=float, default=float(os.environ.get("MUONH_MU_END", "0.98")),
                         help="Ending value of µ schedule (used by linear and cooldown_ramp modes).")
+    # NS5 polynomial coefficients (H132). Defaults (2.0, -1.5, 0.5) match the
+    # hardcoded baseline triple in zeropower_via_newtonschulz5 — bit-identical
+    # when defaults are used. Tests within-quintic-family coefficient choice at
+    # fixed k=12 iterations.
+    parser.add_argument("--ns5_coef_a", type=float, default=float(os.environ.get("NS5_COEF_A", "2.0")),
+                        help="NS5 polynomial coefficient a (default 2.0 = baseline).")
+    parser.add_argument("--ns5_coef_b", type=float, default=float(os.environ.get("NS5_COEF_B", "-1.5")),
+                        help="NS5 polynomial coefficient b (default -1.5 = baseline).")
+    parser.add_argument("--ns5_coef_c", type=float, default=float(os.environ.get("NS5_COEF_C", "0.5")),
+                        help="NS5 polynomial coefficient c (default 0.5 = baseline).")
     args = parser.parse_args()
     args.num_trials = args.num_trials if args.num_trials is not None else (args.legacy_num_trials or 1)
     args.wandb_tags = [tag.strip() for tag in args.wandb_tags.split(",") if tag.strip()]
@@ -499,7 +518,7 @@ def zeropower_via_newtonschulz5(G: Tensor) -> Tensor:
     # Ensure spectral norm is at most 1
     X = X / (X.norm(dim=(-2, -1), keepdim=True) + 1e-7)
     # Perform the NS iterations, not optimizing for wallclock speed
-    a, b, c = 2, -1.5, 0.5
+    a, b, c = args.ns5_coef_a, args.ns5_coef_b, args.ns5_coef_c
     for _ in range(12):
         A = X @ X.mT
         B = b * A + c * A @ A
@@ -508,6 +527,54 @@ def zeropower_via_newtonschulz5(G: Tensor) -> Tensor:
     if G.size(-2) > G.size(-1):
         X = X.mT
     return X
+
+
+@torch.no_grad()
+def ns5_spectral_diagnostic(G: Tensor, a: float, b: float, c: float,
+                            num_iters: int = 12, log_iter_indices=None) -> dict:
+    """Eager-mode mirror of zeropower_via_newtonschulz5 that records sv telemetry.
+
+    Operates on a detached copy of G; does NOT mutate state or affect the live
+    training NS5 path. Returns sv_min/sv_med/sv_max pre- and post-NS5, plus
+    per-iter intermediate sv stats when log_iter_indices is provided (iteration
+    indices 0..num_iters, where 0 == initial normalized X). Caller decides
+    whether to invoke this — recommended only at sparse checkpoint steps.
+    """
+    assert G.ndim >= 2
+    X = G.bfloat16().detach().clone()
+    if G.size(-2) > G.size(-1):
+        X = X.mT
+    X = X / (X.norm(dim=(-2, -1), keepdim=True) + 1e-7)
+    metrics: dict = {}
+    log_iters = set(log_iter_indices) if log_iter_indices is not None else None
+    pre_svs = torch.linalg.svdvals(X.float())
+    metrics["pre_sv_min"] = float(pre_svs.min().item())
+    metrics["pre_sv_med"] = float(pre_svs.median().item())
+    metrics["pre_sv_max"] = float(pre_svs.max().item())
+    if log_iters is not None and 0 in log_iters:
+        metrics["iter0_sv_min"] = metrics["pre_sv_min"]
+        metrics["iter0_sv_med"] = metrics["pre_sv_med"]
+        metrics["iter0_sv_max"] = metrics["pre_sv_max"]
+    for i in range(num_iters):
+        A = X @ X.mT
+        B = b * A + c * A @ A
+        X = a * X + B @ X
+        iter_idx = i + 1
+        if log_iters is not None and iter_idx in log_iters and iter_idx != num_iters:
+            svs = torch.linalg.svdvals(X.float())
+            metrics[f"iter{iter_idx}_sv_min"] = float(svs.min().item())
+            metrics[f"iter{iter_idx}_sv_med"] = float(svs.median().item())
+            metrics[f"iter{iter_idx}_sv_max"] = float(svs.max().item())
+    post_svs = torch.linalg.svdvals(X.float())
+    metrics["post_sv_min"] = float(post_svs.min().item())
+    metrics["post_sv_med"] = float(post_svs.median().item())
+    metrics["post_sv_max"] = float(post_svs.max().item())
+    if log_iters is not None and num_iters in log_iters:
+        metrics[f"iter{num_iters}_sv_min"] = metrics["post_sv_min"]
+        metrics[f"iter{num_iters}_sv_med"] = metrics["post_sv_med"]
+        metrics[f"iter{num_iters}_sv_max"] = metrics["post_sv_max"]
+    return metrics
+
 
 @torch.compile
 def muon_update(grad, momentum, mu=0.95, nesterov=True):
@@ -796,6 +863,9 @@ if dist.get_rank() == 0:
             "muonh_mu_schedule": args.muonh_mu_schedule,
             "muonh_mu_start": args.muonh_mu_start,
             "muonh_mu_end": args.muonh_mu_end,
+            "ns5_coef_a": args.ns5_coef_a,
+            "ns5_coef_b": args.ns5_coef_b,
+            "ns5_coef_c": args.ns5_coef_c,
         },
     )
 
@@ -1089,6 +1159,36 @@ for trial_idx in range(args.num_trials):
         muonh_agc_stats = adaptive_gradient_clip(
             muonh_params_for_agc, args.muonh_agc_clip_ratio, eps=args.muonh_agc_eps,
         )
+        # H132 NS5 spectral diagnostic: at sparse checkpoint steps, run a
+        # non-compiled NS5 mirror on the largest MuonH 2D gradient to log
+        # pre/post sv stats; at step 500 additionally log per-iter trajectory.
+        # Runs on rank 0 only; reads p.grad without mutating it. Sidecar probe —
+        # does not affect the live training NS5 path or numerics.
+        ns5_diag_step = step in _NS5_DIAG_STEPS
+        if dist.get_rank() == 0 and ns5_diag_step:
+            diag_p = None
+            diag_p_size = -1
+            for opt in optimizers:
+                if isinstance(opt, MuonH):
+                    for group in opt.param_groups:
+                        for p in group["params"]:
+                            if p.grad is not None and p.grad.ndim == 2:
+                                s = p.grad.numel()
+                                if s > diag_p_size:
+                                    diag_p = p
+                                    diag_p_size = s
+            if diag_p is not None:
+                log_iters = _NS5_DIAG_PER_ITER_INDICES if step == _NS5_DIAG_PER_ITER_STEP else None
+                ns5_metrics = ns5_spectral_diagnostic(
+                    diag_p.grad, args.ns5_coef_a, args.ns5_coef_b, args.ns5_coef_c,
+                    log_iter_indices=log_iters,
+                )
+                ns5_diag_log = {"trial": trial_idx, "train/step": train_step}
+                for k, v in ns5_metrics.items():
+                    ns5_diag_log[f"train/ns5_diag/{k}"] = v
+                ns5_diag_log["train/ns5_diag/param_d_out"] = int(diag_p.size(-2))
+                ns5_diag_log["train/ns5_diag/param_d_in"] = int(diag_p.size(-1))
+                wandb.log(ns5_diag_log, step=wandb_step)
         for opt in optimizers:
             opt.step()
         # Log warmup telemetry every 10 steps during warmup (and at telemetry events
