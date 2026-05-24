@@ -1209,3 +1209,33 @@ In-flight as of 01:07Z (all WIP, 8 students busy, 0 idle):
 - **Temporal schedule**: #950 (logit softcap ramp)
 
 **Compositional floor theorem (#813)** holds at 77 refuted axes. Temporal schedule and post-NS5 direction perturbations exhausted. Portfolio concentrated on pre-NS5 grad-statistics layer (#965, #968, #971, #972) per frieren's localized floor insight.
+
+#### 2026-05-24 01:30Z update — mid-146: #961 thorfinn CONTRA_TYPE_SPLIT CLOSED (78th refuted), #975 thorfinn MUON_GRAD_HARDCLIP assigned, #974 fern MUON_GRAD_POWER re-assigned (recovery)
+
+**#961 thorfinn CONTRA_TYPE_SPLIT CLOSED (78th refuted)**: Arm A (symmetric 1.0/1.0) tripped step-1000 kill gate at val=3.6638 > 3.66, then SIGTERM. Arm B (MLP-heavy 0.5 attn / 1.5 mlp) terminal at val=3.27059/ffs=3025 — clean floor-cluster landing. **CONTRA axis class now FULLY SATURATED at 7 closures** (#405, #806, #532, #729, #928, #947, #961). Direction-quality CONTRA perturbations have NO remaining knobs.
+
+**#975 thorfinn MUON_GRAD_HARDCLIP assigned (fresh axis)**: Per-element hard clipping at ±k·σ (per-tensor std) BEFORE momentum lerp at line 695. Arms: A=k=3.0 (aggressive 3σ outlier removal), B=k=5.0 (gentler 5σ). ZERO matches in 250+ PRs for per-element hard clipping inside Muon body. Distinct from #968 (Frobenius scaling), #971 (continuous EMA division), #974 (continuous power), #965 (lerp coef). Element-wise thresholding family. Motivated by heavy-tailed gradient distribution literature (Zhang 2020 NeurIPS).
+
+**#974 fern MUON_GRAD_POWER re-assigned (recovery from FF-merge error)**: Previously assigned as #972, but #972 was auto-merged when the advisor accidentally committed research state on the experiment branch and then FF-merged into advisor — exactly the failure mode documented in advisor memory feedback_research_state_commit_workflow.md. Memory updated with recurrence note and defensive practice (immediate `git checkout` to advisor branch after `create_assignment_branch`). Hypothesis unchanged; new branch `g1r2-fern/muon-grad-power-v2`.
+
+#### Cycle 71 axis tally: **78 refuted**, ~50 floor cluster + kill-gate landings, **0 merges above baseline**
+
+In-flight as of 01:30Z (all WIP, 8 students busy, 0 idle):
+- #702 edward MU_WARMUP_START — pod-broken hold
+- #793 tanjiro DEPTH_DEP_MUON_LR — pod-broken hold
+- #950 alphonse LOGIT_SOFTCAP_SCHEDULE — Arm B (end=30) step 2075 val=3.4318, terminal ~01:55Z (Arm A close-miss val=3.26870)
+- #965 nezuko MUON_DAMPENING — Arm A running
+- #968 askeladd MUON_PER_TENSOR_GRAD_CLIP — running
+- #971 frieren MUON_GRAD_VAR_NORM — running
+- #974 fern MUON_GRAD_POWER (re-assigned) — newly assigned
+- #975 thorfinn MUON_GRAD_HARDCLIP — newly assigned
+
+**Mechanism category coverage (all five fresh axes on pre-NS5 grad-statistics layer)**:
+- **Element-wise hard thresholding (NEW)**: #975 (k·σ outlier clip)
+- **Element-wise continuous magnitude shaping**: #974 (power transform)
+- **Element-wise continuous variance normalization**: #971 (Adam-style EMA)
+- **Tensor-level Frobenius scaling**: #968 (per-tensor norm clip)
+- **Lerp-coefficient modulation**: #965 (dampening on grad weight)
+- **Loss-side temporal schedule (sole survivor of temporal cluster)**: #950 (logit softcap)
+
+**Compositional floor theorem (#813)** holds at 78 refuted axes. CONTRA axis class fully saturated. Programme is now running 5 parallel mechanism-distinct probes on the SAME pre-NS5 layer — comprehensive coverage of element-wise vs tensor-level perturbations.

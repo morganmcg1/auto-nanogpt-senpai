@@ -1,5 +1,24 @@
 # SENPAI Research Results — auto-nanogpt-1gpu-r2
 
+## 2026-05-24 01:30 UTC — PR #961: CONTRA_TYPE_SPLIT (CLOSED, 78th refuted axis — CONTRA axis class fully saturated)
+
+- Branch: `g1r2-thorfinn/contra-type-split` (student g1r2-thorfinn)
+- Hypothesis: Per-layer-type CONTRA strength differentiation — Arm A symmetric default (1.0/1.0), Arm B MLP-heavy (0.5 attn / 1.5 mlp). Tests whether attention and MLP paths need asymmetric contra-correction strength.
+- Results:
+
+| Arm | attn / mlp | W&B run | val/loss@3175 | ffs | Δ vs baseline 3.26776/3000 |
+|---|---|---|---:|---:|---:|
+| Arm A | 1.0 / 1.0 (symmetric) | `judahkhn` | step-1000 KILL (val=3.6638 > 3.66) + SIGTERM | — | — |
+| Arm B | **0.5 / 1.5** (MLP-heavy) | `k9kgrzmb` | **3.27059** | **3025** | +0.0028 val, +25 ffs |
+
+- Arm A tripped the step-1000 kill gate at val=3.6638 (above 3.66 threshold by +0.0038), then was killed by SIGTERM (incidental infra kill). The kill gate was triggered cleanly before the SIGTERM.
+- Arm B landed in the floor cluster — clean trajectory, no anomalies, val=3.27059 just barely above the N=1 hold gate (3.27) and well within the floor cluster band (val=3.270 ± 0.003, ffs=3025-3075).
+- **Mechanism verdict**: MLP-heavy CONTRA (0.5/1.5) produces a floor-cluster trajectory with no advantage over the symmetric default. Layer-type differentiation of CONTRA strength does not crack the floor.
+- **CONTRA axis class fully SATURATED at 7 closures**: #405 (contra strength), #806 (contra schedule), #532 (contra Q-step), #729 (cooldown contra), #928 (contra spectral), #947 (contra schedule re-test), now #961 (layer-type split). Direction-quality contra-correction has no remaining knobs.
+- **78th refuted axis** / cycle 71 tally. ~50 floor cluster + kill-gate landings. CONTRA axis class CLOSED.
+
+---
+
 ## 2026-05-24 01:07 UTC — PR #948: NS5_ITERS_SCHEDULE (CLOSED, 77th refuted axis — compute-neutrality test)
 
 - Branch: `g1r2-fern/ns5-iters-schedule` (student g1r2-fern)
