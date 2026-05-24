@@ -1,9 +1,42 @@
 # SENPAI Research State — auto-nanogpt-1gpu-r4
 
-- **Date:** 2026-05-24 14:45 UTC (cycle 225)
+- **Date:** 2026-05-24 15:30 UTC (cycle 226)
 - **Most recent research direction from human researcher team:** none on file
 - **Primary metric:** `val/loss` at 3350 steps (lower is better); `speedrun/final_first_step_to_target` secondary
 - **Statistical merge rule:** `(3.28 − μ) × √n ≥ 0.004` AND n mean ≤ current baseline
+
+## Cycle 226 snapshot (15:30 UTC May 24) — #1055 askeladd stale_wip acked (Arm A 90% complete, control config validated); no idle students, no review-ready PRs
+
+### Activity this cycle
+
+- **#1055 askeladd stale_wip acked**: Post-training weight averaging (SWA/EMA Polyak) 4-arm sweep — PR assigned at 14:14 UTC, stale_wip flagged ~45-60min later. W&B check on `g1r4-askeladd/weight-averaging-swa-ema` group found one run active: `9cgbsvpo` arm-A control (`nanogpt_weight_avg_mode=off`), step 3015/3350 (90%), val/loss=3.3045, runtime 101min. Config validated against assignment template (mode=off for Arm A control; B/C/D will set mode=swa/ema with start_frac=0.7 and decay=0.999/0.9999 respectively).
+- **SWA/EMA-specific diagnostic asks** posted in ack: required terminal SENPAI-RESULT telemetry is `val/loss_avg` (averaged-model val pass — the headline mechanism check), `avg_first_step_to_target`, averaging start step, EMA effective lookback (decay=0.999 ⇒ ~1000-step horizon ≈ averaging window of ~1005 steps; decay=0.9999 ⇒ ~10000-step horizon, expected to barely update), and L2/cosine distance between training and averaged weights at end of training. Comparison rule: arm B/C/D `val/loss_avg` vs arm A `val/loss` (averaging is the mechanism; live-model val/loss is unchanged across arms by mechanism-distinctness). Mechanism-class boundary check restated: if any feedback from averaged weights to live optimizer, shifts into LookAhead class.
+- **No idle students, no review-ready PRs**: all 8 chains active.
+
+### Operational pattern: stale_wip flagged for 5 consecutive cycles (222-226)
+
+| Cycle | PR | Student | Mechanism | Pattern observed |
+|---|---|---|---|---|
+| 222b | #1032 | thorfinn | Haar orthogonal init | Arm A ~80% complete + duplicate Arm B race |
+| 223 | #1031 | nezuko | NS adaptive residual stop | Arm A done, Arm B running, no per-arm acks |
+| 224b | #1045 | frieren | LION aux | Arm A running, no per-arm acks |
+| 225 | #1047 | tanjiro | LookAhead body Muon | Arm A 90% + duplicate Arm A restart |
+| 226 | #1055 | askeladd | SWA/EMA Polyak | Arm A 90% complete, 45-60min post-assignment |
+
+**Pattern: 5 cycles in a row, the only advisor action is acking a healthy stale_wip.** The harness's stale_wip threshold appears to be ~45-60min of silence, which fires on every newly-assigned PR before the first arm completes (~80-100min). It also fires on between-arm silence on multi-arm sweeps. The flag is doing its operational job (would catch real stuck pods) but is producing a high false-positive rate against the current student behavior (post terminal not per-arm). **Decision: continue acking with W&B-check pattern** — costs ~5min per cycle, no policy change. The per-arm-ping reminder is now standard boilerplate; whether students adopt it is up to them.
+
+### Mechanism axes coverage (cycle 226, 8 chains active — unchanged from cycle 224-225)
+
+| Axis | Active PR | Status | Notes |
+|---|:---:|:---:|---|
+| WEIGHT-AVERAGING-POST-TRAINING | **#1055 askeladd** | WIP — Arm A 90% | SWA / EMA Polyak (Izmailov 2018, Polyak 1992); stale_wip acked this cycle |
+| SCHEDULE-CURVATURE (body Muon cooldown shape) | #1048 alphonse | WIP | linear/cosine/sqrt/linear_floor |
+| META-OPTIMIZER (body Muon LookAhead) | #1047 tanjiro | WIP — Arm A nearing complete | Zhang et al. 2019 |
+| OPTIMIZER-CLASS (aux replacement) | #1045 frieren | WIP | LION vs AdamW |
+| INITIALIZATION-DISTRIBUTION (body) | #1032 thorfinn | WIP | Haar orthogonal |
+| PRECONDITIONER-ADAPTIVE (NS) | #1031 nezuko | WIP | NS adaptive residual stop |
+| SCHEDULE-CONTINUOUS-LR-MULT (PP) | #1003 fern | WIP — PP n=3 phase | Arm B tripped threshold, PP requested |
+| SUBTRACTIVE-PRUNING | #1028 edward | WIP | merged stack flag removal |
 
 ## Cycle 225 snapshot (14:45 UTC May 24) — #1047 tanjiro stale_wip acked (Arm A near complete + duplicate restart flagged); no idle students, no review-ready PRs
 
