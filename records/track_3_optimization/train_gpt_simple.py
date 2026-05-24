@@ -468,6 +468,10 @@ NS5_ITERS = int(os.environ.get("NS5_ITERS", "12"))
 WD_AUX = float(os.environ.get("WD_AUX", "0.0"))  # AdamW WD on embed + lm_head matrices (scalars stay at 0)
 EMBED_INIT_STD = float(os.environ.get("EMBED_INIT_STD", "1.0"))  # default preserves baseline N(0,1)
 LOGIT_SOFTCAP = float(os.environ.get("LOGIT_SOFTCAP", "15.0"))  # default = 15 (current hardcoded value); soft-cap value c in f(x) = c·x / sqrt(x^2+c^2)
+# PR #1093: blend α·sign(NS5_input) + (1-α)·NS5_input applied ONLY to the NS5 input
+# (downstream contra correction + NorMuon still see the un-blended momentum_update).
+# α=0.0 disables (bytewise inert).
+MUON_BODY_LION_SIGN_BLEND = float(os.environ.get("MUON_BODY_LION_SIGN_BLEND", "0.0"))
 
 
 def zeropower_via_newtonschulz5(G: Tensor) -> Tensor:
@@ -504,10 +508,18 @@ def scale_to_unit_operator_norm(G: Tensor, eps: float = 1e-10) -> Tensor:
     return G / op_norm.to(G.dtype)
 
 
-def contra_normuon_update(momentum_update, second_moment, beta2=NORMUON_BETA2):
-    """Contra-Muon + NorMuon-lite: NS5 -> contra subtraction -> per-row variance normalize."""
+def contra_normuon_update(momentum_update, second_moment, beta2=NORMUON_BETA2, ns5_input=None):
+    """Contra-Muon + NorMuon-lite: NS5 -> contra subtraction -> per-row variance normalize.
+
+    When ``ns5_input`` is provided (PR #1093 MUON_BODY_LION_SIGN_BLEND), NS5 polar
+    projection consumes it instead of ``momentum_update``. The contra correction's
+    op-norm-normalized signal and the NorMuon-lite per-row variance EMA still use
+    the unmodified ``momentum_update`` so the only path affected is NS5 input.
+    """
+    if ns5_input is None:
+        ns5_input = momentum_update
     normalized_grad = scale_to_unit_operator_norm(momentum_update.clone())
-    update = zeropower_via_newtonschulz5(momentum_update)
+    update = zeropower_via_newtonschulz5(ns5_input)
     opower_fro = update.norm()
     # Contra correction: subtract CONTRA_MUON / 2 * op-norm-normalized momentum.
     update = update - CONTRA_MUON / 2 * normalized_grad
@@ -655,11 +667,27 @@ class Muon(torch.optim.Optimizer):
         params = sorted([p for _, p in named_params], key=lambda x: x.size(), reverse=True)
         defaults = dict(lr=lr, weight_decay=weight_decay, mu=mu)
         super().__init__(params, defaults)
+        # PR #1093 MUON_BODY_LION_SIGN_BLEND telemetry: track per-step mean of
+        # ||m_lion||_F / ||momentum_update||_F across body 2D tensors and a
+        # one-shot debug print at step 100.
+        self._step_counter = 0
+        self._lion_blend_ratio_sum = 0.0
+        self._lion_blend_ratio_count = 0
+        self._lion_blend_debug_logged = False
 
     @torch.no_grad()
     def step(self):
         world_size = dist.get_world_size()
         rank = dist.get_rank()
+        self._step_counter += 1
+        self._lion_blend_ratio_sum = 0.0
+        self._lion_blend_ratio_count = 0
+        debug_print_due = (
+            MUON_BODY_LION_SIGN_BLEND > 0.0
+            and self._step_counter == 100
+            and not self._lion_blend_debug_logged
+        )
+        debug_lines: list[str] = []
         for group in self.param_groups:
             params = group["params"]
             params_pad = params + [torch.empty_like(params[-1])] * (world_size - len(params) % world_size)
@@ -700,8 +728,35 @@ class Muon(torch.optim.Optimizer):
                     # (matches public record #14/16 — pre-NS5 placement).
                     if use_soap or use_attn_soap:
                         momentum_update = soap_precondition(momentum_update, state)
+                    # PR #1093 MUON_BODY_LION_SIGN_BLEND: replace NS5 input with a
+                    # convex blend of sign(momentum_update) and momentum_update. The
+                    # contra correction inside contra_normuon_update still uses the
+                    # un-blended momentum_update.
+                    ns5_input_arg = None
+                    if MUON_BODY_LION_SIGN_BLEND > 0.0 and momentum_update.ndim >= 2:
+                        m_sign = momentum_update.sign()
+                        m_lion = (
+                            MUON_BODY_LION_SIGN_BLEND * m_sign
+                            + (1.0 - MUON_BODY_LION_SIGN_BLEND) * momentum_update
+                        )
+                        ns5_input_arg = m_lion
+                        m_lion_fro = float(m_lion.float().norm().item())
+                        m_fro = float(momentum_update.float().norm().clamp_min(1e-10).item())
+                        self._lion_blend_ratio_sum += m_lion_fro / m_fro
+                        self._lion_blend_ratio_count += 1
+                        if debug_print_due and len(debug_lines) < 6:
+                            sign_mean_abs = float(m_sign.abs().mean().item())
+                            m_mean_abs = float(momentum_update.abs().mean().item())
+                            debug_lines.append(
+                                f"[LION_BLEND step=100 blend={MUON_BODY_LION_SIGN_BLEND}] "
+                                f"shape={tuple(p.shape)} mean|sign(m)|={sign_mean_abs:.4f} "
+                                f"mean|m|={m_mean_abs:.6f} "
+                                f"||m_lion||/||m||={m_lion_fro / m_fro:.4f}"
+                            )
                     # NS5 + contra + NorMuon row variance on (possibly SOAP-preconditioned) momentum.
-                    update = contra_normuon_update(momentum_update, state["second_moment"])
+                    update = contra_normuon_update(
+                        momentum_update, state["second_moment"], ns5_input=ns5_input_arg
+                    )
                     # u/w-floor: scale up if u/w < TARGET_UW; leave alone otherwise.
                     p_fro = p.float().norm().clamp_min(1e-8)
                     u_fro = update.float().norm().clamp_min(1e-8)
@@ -719,6 +774,21 @@ class Muon(torch.optim.Optimizer):
                                      use_trust_gate=True,
                                      trust_threshold=ATTN_SOAP_TRUST_THRESHOLD)
                 dist.all_gather(params_pad[base_i:base_i + world_size], params_pad[base_i + rank])
+        if debug_print_due and debug_lines:
+            for line in debug_lines:
+                print0(line, console=True, log=True)
+            self._lion_blend_debug_logged = True
+
+    def lion_sign_blend_stats(self) -> dict[str, float]:
+        """PR #1093 telemetry: per-step mean ||m_lion||_F / ||momentum_update||_F
+        across body 2D tensors handled by this rank. Returns {} when disabled."""
+        if MUON_BODY_LION_SIGN_BLEND <= 0.0 or self._lion_blend_ratio_count == 0:
+            return {}
+        return {
+            "mag_ratio": self._lion_blend_ratio_sum / self._lion_blend_ratio_count,
+            "tensor_count": float(self._lion_blend_ratio_count),
+            "blend_alpha": MUON_BODY_LION_SIGN_BLEND,
+        }
 
     def trust_gate_stats(self) -> dict[str, float]:
         """Return aggregate + per-weight-type trust-gate telemetry across attention SOAP params.
@@ -1059,6 +1129,10 @@ for trial_idx in range(args.num_trials):
                     stats = opt.trust_gate_stats()
                     if stats:
                         wandb.log(prefixed("train/attn_soap_trust_gate", stats), step=wandb_step)
+                if hasattr(opt, "lion_sign_blend_stats"):
+                    lion_stats = opt.lion_sign_blend_stats()
+                    if lion_stats:
+                        wandb.log(prefixed("optim/lion_sign_blend", lion_stats), step=wandb_step)
         if dist.get_rank() == 0 and telemetry_due:
             log_weight_telemetry(
                 model=model,
