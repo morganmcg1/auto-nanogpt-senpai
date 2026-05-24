@@ -593,6 +593,15 @@ NANOGPT_SENPAI_SEED = int(_SENPAI_SEED_RAW) if _SENPAI_SEED_RAW != "" else None
 # `embed.weight -= lr_embed * lambda * (embed.weight - embed_init_snapshot)`.
 # At lambda=0 the hook is a no-op and behavior is bit-identical to the merged stack.
 NANOGPT_EMBED_INIT_ANCHOR_LAMBDA = float(os.environ.get("NANOGPT_EMBED_INIT_ANCHOR_LAMBDA", "0.0"))
+# Gradient centralization on body Muon (#944). When != "none", subtract the mean of
+# 2D gradient matrices along the chosen axis before the momentum lerp inside muon_update.
+# At "none" (default) the hook is a no-op and behavior is bit-identical to the merged stack.
+NANOGPT_MUON_BODY_GC_MODE = os.environ.get("NANOGPT_MUON_BODY_GC_MODE", "none")
+_VALID_MUON_BODY_GC_MODES = ("none", "col", "row", "both")
+if NANOGPT_MUON_BODY_GC_MODE not in _VALID_MUON_BODY_GC_MODES:
+    raise ValueError(
+        f"NANOGPT_MUON_BODY_GC_MODE={NANOGPT_MUON_BODY_GC_MODE!r}, must be one of {_VALID_MUON_BODY_GC_MODES}"
+    )
 
 
 def get_ns_coef_at_iter(iter_idx: int, total_iters: int, schedule: str) -> tuple[float, float, float]:
@@ -692,7 +701,19 @@ def zeropower_via_newtonschulz5(G: Tensor, ns_iters: int) -> Tensor:
     return X
 
 @torch.compile
-def muon_update(grad, momentum, v, ns_iters: int, mu=0.95, beta2=0.999, eps=1e-8, nesterov=True):
+def muon_update(grad, momentum, v, ns_iters: int, gc_mode: str = "none",
+                mu=0.95, beta2=0.999, eps=1e-8, nesterov=True):
+    # Gradient centralization (#944, pre-momentum). Subtract the global-mean
+    # ("DC") component of the 2D gradient matrix so the downstream NS
+    # orthogonalization operates on the zero-mean portion. 1D tensors are
+    # left untouched (biases/scalars are not routed through Muon anyway,
+    # but the guard keeps the kernel safe). At gc_mode="none" this branch
+    # is skipped and behavior is bit-identical to the merged stack.
+    if gc_mode != "none" and grad.dim() == 2:
+        if gc_mode == "col" or gc_mode == "both":
+            grad = grad - grad.mean(dim=0, keepdim=True)
+        if gc_mode == "row" or gc_mode == "both":
+            grad = grad - grad.mean(dim=1, keepdim=True)
     momentum.lerp_(grad, 1 - mu)
     update = grad.lerp_(momentum, mu) if nesterov else momentum
     # Muon^2: Adam-style second-moment preconditioning before NS (arXiv:2504.09967).
@@ -754,6 +775,7 @@ class Muon(torch.optim.Optimizer):
                         state["v"] = torch.zeros_like(p)
                     update = muon_update(p.grad, state["momentum"], state["v"],
                                          ns_iters=ns_iters,
+                                         gc_mode=NANOGPT_MUON_BODY_GC_MODE,
                                          mu=group["mu"], beta2=group["beta2"], eps=group["eps"])
                     if spectral_target is not None and p is spectral_target:
                         # Singular values of the orthogonalized (post-NS) update.
@@ -823,6 +845,9 @@ print0(f"MUON_LR_MULT: attn={NANOGPT_MUON_ATTN_LR_MULT:.3f} mlp={NANOGPT_MUON_ML
 print0(f"  Effective Muon base LRs: attn={0.035*NANOGPT_MUON_ATTN_LR_MULT:.5f} mlp={0.035*NANOGPT_MUON_MLP_LR_MULT:.5f}", console=True)
 print0(f"EMBED_INIT_ANCHOR_LAMBDA: {NANOGPT_EMBED_INIT_ANCHOR_LAMBDA} "
        f"({'ACTIVE' if NANOGPT_EMBED_INIT_ANCHOR_LAMBDA > 0 else 'INACTIVE (bit-identical fallback)'})",
+       console=True)
+print0(f"MUON_BODY_GC_MODE: {NANOGPT_MUON_BODY_GC_MODE} "
+       f"({'ACTIVE (pre-NS DC removal)' if NANOGPT_MUON_BODY_GC_MODE != 'none' else 'INACTIVE (bit-identical fallback)'})",
        console=True)
 if NS_ITERS_COOLDOWN > 0:
     print0(f"NS_SCHEDULE: ns_iters={NS_ITERS} -> ns_iters_cooldown={NS_ITERS_COOLDOWN} "
@@ -896,6 +921,7 @@ if dist.get_rank() == 0:
             "nanogpt_ns_stochastic_cooldown": NANOGPT_NS_STOCHASTIC_COOLDOWN,
             "senpai_seed": NANOGPT_SENPAI_SEED if NANOGPT_SENPAI_SEED is not None else -1,
             "nanogpt_embed_init_anchor_lambda": NANOGPT_EMBED_INIT_ANCHOR_LAMBDA,
+            "nanogpt_muon_body_gc_mode": NANOGPT_MUON_BODY_GC_MODE,
         },
     )
 
