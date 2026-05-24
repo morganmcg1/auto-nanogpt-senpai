@@ -55,6 +55,25 @@ def parse_args():
     parser.add_argument("--outer_lr", type=float, default=float(os.environ.get("OUTER_LR", "0.7")))
     parser.add_argument("--outer_momentum", type=float, default=float(os.environ.get("OUTER_MOMENTUM", "0.5")))
     parser.add_argument("--sync_interval", type=int, default=int(os.environ.get("SYNC_INTERVAL", "30")))
+    # H100: outer-step direction selector. 'sgdm' (default) is the existing
+    # Nesterov-flavor baseline (bit-identical). 'grafted_adam' uses Adam's
+    # per-coord direction grafted to the existing baseline-Nesterov per-tensor
+    # magnitude (Agarwal et al. 2020 layer-wise grafting; arXiv:2002.11803).
+    parser.add_argument("--outer_optimizer", type=str,
+                        default=os.environ.get("OUTER_OPTIMIZER", "sgdm"),
+                        choices=["sgdm", "grafted_adam"],
+                        help="Outer-step direction. 'sgdm' = baseline Nesterov "
+                             "(bit-identical). 'grafted_adam' = Adam direction "
+                             "x existing-baseline per-tensor magnitude.")
+    parser.add_argument("--outer_grafted_adam_beta1", type=float,
+                        default=float(os.environ.get("OUTER_GRAFTED_ADAM_BETA1", "0.8")),
+                        help="Grafted-Adam first-moment EMA decay (outer step)")
+    parser.add_argument("--outer_grafted_adam_beta2", type=float,
+                        default=float(os.environ.get("OUTER_GRAFTED_ADAM_BETA2", "0.95")),
+                        help="Grafted-Adam second-moment EMA decay (outer step)")
+    parser.add_argument("--outer_grafted_adam_eps", type=float,
+                        default=float(os.environ.get("OUTER_GRAFTED_ADAM_EPS", "1e-8")),
+                        help="Grafted-Adam denominator epsilon")
     # AGC (Brock et al. 2021): per-parameter adaptive gradient clipping applied to
     # AdamW aux groups (embed, lm_head, scalars). Clips grad to clip_ratio * |param|.
     # Default 0.0 disables (no-op for bit-identical baseline).
@@ -712,7 +731,12 @@ print0(f"Running PyTorch {torch.version.__version__} compiled for CUDA {torch.ve
        + f" on {torch.cuda.get_device_name(device)} with world_size {dist.get_world_size()}")
 if args.use_outer_optimizer:
     print0(f"MuLoCo outer optimizer ENABLED: outer_lr={args.outer_lr} "
-           f"outer_momentum={args.outer_momentum} sync_interval={args.sync_interval}", console=True)
+           f"outer_momentum={args.outer_momentum} sync_interval={args.sync_interval} "
+           f"direction={args.outer_optimizer}", console=True)
+    if args.outer_optimizer == "grafted_adam":
+        print0(f"  Grafted-Adam outer direction: beta1={args.outer_grafted_adam_beta1} "
+               f"beta2={args.outer_grafted_adam_beta2} eps={args.outer_grafted_adam_eps}",
+               console=True)
 else:
     print0("MuLoCo outer optimizer DISABLED", console=True)
 print0(f"MuonH mode={args.muonh_mode} lr={args.muonh_lr} budget_mult={args.muonh_budget_mult} cooldown_shape={args.muonh_cooldown_shape}", console=True)
@@ -772,6 +796,10 @@ if dist.get_rank() == 0:
             "muloco_outer_lr": args.outer_lr,
             "muloco_outer_momentum": args.outer_momentum,
             "muloco_sync_interval": args.sync_interval,
+            "muloco_outer_optimizer": args.outer_optimizer,
+            "muloco_outer_grafted_adam_beta1": args.outer_grafted_adam_beta1,
+            "muloco_outer_grafted_adam_beta2": args.outer_grafted_adam_beta2,
+            "muloco_outer_grafted_adam_eps": args.outer_grafted_adam_eps,
             "aux_agc_clip_ratio": args.aux_agc_clip_ratio,
             "aux_agc_eps": args.aux_agc_eps,
             "muonh_agc_clip_ratio": args.muonh_agc_clip_ratio,
@@ -929,10 +957,24 @@ for trial_idx in range(args.num_trials):
     if use_outer:
         outer_anchor = {n: p.detach().clone() for n, p in model.named_parameters()}
         outer_velocity = {n: torch.zeros_like(p) for n, p in model.named_parameters()}
+        if args.outer_optimizer == "grafted_adam":
+            # Allocate Adam state in fp32 to avoid bf16-underflow on the v-buffer
+            # (per H89 closure: bf16 underflow on β2=0.999 v-buffer was load-bearing
+            # for aux ADOPT failure).
+            outer_adam_m = {n: torch.zeros_like(p, dtype=torch.float32)
+                            for n, p in model.named_parameters()}
+            outer_adam_v = {n: torch.zeros_like(p, dtype=torch.float32)
+                            for n, p in model.named_parameters()}
+        else:
+            outer_adam_m = None
+            outer_adam_v = None
     else:
         outer_anchor = None
         outer_velocity = None
+        outer_adam_m = None
+        outer_adam_v = None
     outer_applied_steps = 0
+    outer_adam_t = 0
 
     # start the clock
     training_time = 0
@@ -1123,12 +1165,79 @@ for trial_idx in range(args.num_trials):
                 delta_sq = torch.zeros((), device=device)
                 velocity_sq = torch.zeros((), device=device)
                 total_count = 0
+            # Grafted-Adam: shared per-step bias-correction; t increments per outer step.
+            if args.outer_optimizer == "grafted_adam":
+                outer_adam_t += 1
+                ga_beta1 = args.outer_grafted_adam_beta1
+                ga_beta2 = args.outer_grafted_adam_beta2
+                ga_eps = args.outer_grafted_adam_eps
+                ga_bc1 = 1.0 - ga_beta1 ** outer_adam_t
+                ga_bc2 = 1.0 - ga_beta2 ** outer_adam_t
+                if log_outer:
+                    adam_step_sq = torch.zeros((), device=device)
+                    sgdm_step_sq = torch.zeros((), device=device)
+                    grafted_step_sq = torch.zeros((), device=device)
+                    ratio_sum = 0.0
+                    ratio_count = 0
+                    ratio_max = 0.0
+                    ratio_min = float("inf")
+                    adam_norm_max = 0.0
+                    sgdm_norm_max = 0.0
             with torch.no_grad():
                 for n, p in model.named_parameters():
                     delta = outer_anchor[n] - p.data
                     outer_velocity[n].mul_(args.outer_momentum).add_(delta)
-                    p.data.copy_(outer_anchor[n] - args.outer_lr *
-                                 (args.outer_momentum * outer_velocity[n] + delta))
+                    if args.outer_optimizer == "sgdm":
+                        # Existing baseline: Nesterov-flavor outer SGDM step.
+                        p.data.copy_(outer_anchor[n] - args.outer_lr *
+                                     (args.outer_momentum * outer_velocity[n] + delta))
+                    elif args.outer_optimizer == "grafted_adam":
+                        # H100: per-tensor grafting (Agarwal et al. 2020). Adam's
+                        # per-coord direction × baseline-Nesterov per-tensor
+                        # magnitude. The magnitude reference is the SAME step that
+                        # arm_a CTRL would have taken — keeps step magnitudes
+                        # apples-to-apples between arms (H91 mechanism: failure
+                        # is distributional, not magnitude).
+                        m = outer_adam_m[n]
+                        v = outer_adam_v[n]
+                        delta_fp32 = delta.float()
+                        # In-place Adam state update (fp32 throughout).
+                        m.mul_(ga_beta1).add_(delta_fp32, alpha=1.0 - ga_beta1)
+                        v.mul_(ga_beta2).addcmul_(delta_fp32, delta_fp32,
+                                                   value=1.0 - ga_beta2)
+                        # Bias-corrected moments (fp32 throughout).
+                        m_hat = m / ga_bc1
+                        v_hat = v / ga_bc2
+                        adam_step = m_hat / (v_hat.sqrt() + ga_eps)
+                        # SGDM magnitude reference = the actual existing Nesterov
+                        # step the baseline would take (mu * v_new + delta). This
+                        # matches the smoke gate: arm_b/c step magnitude ≈ arm_a.
+                        sgdm_step = (args.outer_momentum * outer_velocity[n] +
+                                     delta).float()
+                        adam_step_norm = adam_step.norm() + 1e-8
+                        sgdm_step_norm = sgdm_step.norm()
+                        # Per-tensor grafted step (in fp32, cast on assign).
+                        grafted_step = adam_step * (sgdm_step_norm / adam_step_norm)
+                        p.data.copy_(outer_anchor[n].float() -
+                                     args.outer_lr * grafted_step)
+                        if log_outer:
+                            adam_step_sq = adam_step_sq + adam_step.square().sum()
+                            sgdm_step_sq = sgdm_step_sq + sgdm_step.square().sum()
+                            grafted_step_sq = (grafted_step_sq +
+                                                grafted_step.square().sum())
+                            r = float((sgdm_step_norm / adam_step_norm).item())
+                            ratio_sum += r
+                            ratio_count += 1
+                            if r > ratio_max:
+                                ratio_max = r
+                            if r < ratio_min:
+                                ratio_min = r
+                            a_norm = float(adam_step_norm.item())
+                            s_norm = float(sgdm_step_norm.item())
+                            if a_norm > adam_norm_max:
+                                adam_norm_max = a_norm
+                            if s_norm > sgdm_norm_max:
+                                sgdm_norm_max = s_norm
                     outer_anchor[n].copy_(p.data)
                     if log_outer:
                         delta_sq = delta_sq + delta.float().square().sum()
@@ -1138,13 +1247,35 @@ for trial_idx in range(args.num_trials):
             if log_outer:
                 delta_rms = (delta_sq.item() / max(1, total_count)) ** 0.5
                 velocity_rms = (velocity_sq.item() / max(1, total_count)) ** 0.5
-                wandb.log({
+                outer_metrics = {
                     "trial": trial_idx,
                     "train/step": train_step,
                     "train/muloco/outer_step": outer_applied_steps,
                     "train/muloco/delta_rms": delta_rms,
                     "train/muloco/velocity_rms": velocity_rms,
-                }, step=wandb_step)
+                }
+                if args.outer_optimizer == "grafted_adam":
+                    outer_metrics["train/muloco/grafted/adam_global_norm"] = (
+                        adam_step_sq.item() ** 0.5)
+                    outer_metrics["train/muloco/grafted/sgdm_global_norm"] = (
+                        sgdm_step_sq.item() ** 0.5)
+                    outer_metrics["train/muloco/grafted/grafted_global_norm"] = (
+                        grafted_step_sq.item() ** 0.5)
+                    outer_metrics["train/muloco/grafted/adam_global_rms"] = (
+                        (adam_step_sq.item() / max(1, total_count)) ** 0.5)
+                    outer_metrics["train/muloco/grafted/sgdm_global_rms"] = (
+                        (sgdm_step_sq.item() / max(1, total_count)) ** 0.5)
+                    outer_metrics["train/muloco/grafted/grafted_global_rms"] = (
+                        (grafted_step_sq.item() / max(1, total_count)) ** 0.5)
+                    outer_metrics["train/muloco/grafted/ratio_sgdm_over_adam_mean"] = (
+                        ratio_sum / max(1, ratio_count))
+                    outer_metrics["train/muloco/grafted/ratio_sgdm_over_adam_max"] = ratio_max
+                    outer_metrics["train/muloco/grafted/ratio_sgdm_over_adam_min"] = (
+                        ratio_min if ratio_min < float("inf") else 0.0)
+                    outer_metrics["train/muloco/grafted/adam_norm_max"] = adam_norm_max
+                    outer_metrics["train/muloco/grafted/sgdm_norm_max"] = sgdm_norm_max
+                    outer_metrics["train/muloco/grafted/adam_t"] = outer_adam_t
+                wandb.log(outer_metrics, step=wandb_step)
 
         approx_training_time = training_time + (time.perf_counter() - t0)
         print0(f"step:{step+1}/{train_steps} train_time:{approx_training_time:.3f}s"
