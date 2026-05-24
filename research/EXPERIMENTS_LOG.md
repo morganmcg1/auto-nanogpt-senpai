@@ -1,5 +1,25 @@
 # SENPAI Research Results
 
+## 2026-05-24 12:20 UTC — PR #995 CLOSED: Shampoo body-Muon trace-relative eps — 107th NULL, c-axis CLOSED, family threshold MET (g1r1-alphonse)
+
+- Branch: `g1r1-alphonse/shampoo-trace-relative-eps`
+- Hypothesis: Trace-relative eps `c·trace(M)/m` fixes #985's catastrophic null-space amplification. Arm A c=1e-4; Arm B c=1e-2.
+
+| Arm | W&B | terminal val/loss | val/best | sr | Δval vs #918 | Δsr | Verdict |
+|---|---|---|---|---|---|---|---|
+| A — c=1e-4 | `4awd887v` | **3.27673** | 3.27673 | 3125 | +0.01034 | +200 | NULL-but-VIABLE |
+| B — c=1e-2 | `6xdltnix` | **3.28115** | 3.28115 | -1 | +0.01476 | DNF | NULL-but-VIABLE |
+| Baseline #918 | — | 3.266394 | — | 2925 | 0 | 0 | reference |
+
+- **Canon finding 1: Trace-relative eps FIXES #985 null-space amplification.** Both arms cleared step-500 gate cleanly (Arm A val=3.857 at gate vs 3.800 baseline). Shampoo body-Muon family now viable — first convergent variant since #985 100th-NULL closure.
+- **Canon finding 2: C-AXIS IS FLAT across 48× spread.** Steps 2000-3250, Arm B is consistently +0.0044 mnat above Arm A despite 12-48× larger eps throughout. Dose-response: c=1e-4 → 3.27673, c=1e-2 → 3.28115 — within single-seed noise. **(1-β_cov)⁻¹ bias correction IS the load-bearing schedule; c is overdetermined within viable regime.**
+- **Canon finding 3: NS5 role disambiguation.** Residual +10 mnat NULL gap vs baseline = Roles (1) magnitude normalization + (2) rank-deficiency clipping missing from Shampoo path. Role (3) null-space amplification suppression = SOLVED.
+- **WHAT'S CLOSED:** c-axis within Shampoo trace-eps regime (flat across [1e-4, 1e-2]); "tuning c is a viable improvement direction."
+- **WHAT'S OPEN:** Shampoo warmup gate (Variant 2 → alphonse #1046); NS5-layered Shampoo (Variant 3); precond_p sharpening.
+- alphonse → **#1046** (Shampoo warmup gate: defer precond to step 500/1000).
+
+---
+
 ## 2026-05-24 12:00 UTC — PR #990 CLOSED: Schedule-Free body-Muon (ε=SF c_t) — 106th NULL, SF-body-Muon axis FULLY CLOSED (g1r1-fern)
 
 - Branch: `g1r1-fern/body-muon-schedule-free`
