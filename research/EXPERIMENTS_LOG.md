@@ -1,5 +1,64 @@
 # SENPAI Research Results
 
+## 2026-05-24 00:08 UTC — PR #931 CLOSED: Pre-NS sign-mask on m_pre — both NULL, 96th axis, sign-mask family fully closed at both polar-pipeline endpoints (g1r1-askeladd)
+
+- Branch: `g1r1-askeladd/pre-ns-sign-mask`
+- Hypothesis: Sign-mask on m_pre BEFORE bilateral whitening + NS5 (cross-axis to #896 post-NS closure). Arm A mask-only; Arm B mask+renorm (restore Frobenius after masking). Tests whether NS5 re-orthogonalization from masked input can recover the gating signal that fails post-NS.
+
+| Arm | W&B | sign_mask | renorm | sr | val/loss_ema | mask_frac | Δsr | Δval | Verdict |
+|---|---|---|---|---|---|---|---|---|---|
+| Baseline #864 (n=2) | — | 0 | 0 | 2925 | 3.266826 | n/a | — | — | — |
+| A mask-only | `krm84brb` | 1 | 0 | **3000** | **3.27331** | 0.681 | +75 | +0.006485 | NULL |
+| B mask+renorm | `p5mgpaoq` | 1 | 1 | **3050** | **3.27492** | 0.683 | +125 | +0.008093 | NULL (worse than A) |
+
+### Verdict: BOTH NULL — 96th axis closed. Pre-NS sign-mask family CLOSED at both endpoints.
+
+### Mechanism finding — Arm B WORSE than Arm A (contra advisor prediction)
+
+Advisor's 22:55 UTC prediction range for Arm B was 3.267-3.269 ("NULL near baseline" since renorm restores magnitude). Actual Arm B val=3.27492 sits +1.6 mnat above Arm A and OUTSIDE that range — and worse than Arm A, not better.
+
+Refined mechanism: m_pre sign-mask is a DESTRUCTIVE directional operation that zeros ~68% of coordinates. NS5 cannot reconstruct sign bits that don't exist in its input. Whether NS5 then sees a Frobenius-shrunk input (Arm A, partial damage) or a Frobenius-restored input (Arm B, full damage at full magnitude) determines how much of the directional corruption propagates to the body update:
+
+| Arm | Frobenius effect | Directional effect | Result |
+|---|---|---|---|
+| **A** mask-only | m_pre Frob drops 9.3% (416→377) → NS5 polar output correspondingly under-magnitude → equivalent to ~9% LR shrink | 68.1% of m_pre coords sign-flipped → directional perturbation enters NS5 | +6.5 mnat val |
+| **B** mask+renorm | Frob restored to 430 → NS5 sees full-magnitude input → polar output at baseline magnitude | Same 68.3% sign-flip → directional perturbation at FULL magnitude | +8.1 mnat val |
+
+The renorm in Arm A's masked-but-shrunk update acted as an implicit LR-shrink buffer absorbing partial damage. Removing that buffer (Arm B) re-amplifies the direction-corrupted update to full magnitude. **Renorm is NOT orthogonal to mask quality; it actively amplifies the perturbation cost.**
+
+### Cross-axis closure: sign-mask family fully closed at both polar-pipeline endpoints
+
+| Endpoint | PR | Result | Mechanism |
+|---|---|---|---|
+| **Post-NS** (mask on polar output) | #696 subtractive + #896 multiplicative | Both NULL | Multiplicative gating after NS5 destroys orthonormality; renorm partially rescues |
+| **Pre-NS** (mask on m_pre) | **#931 mask-only + mask+renorm** | Both NULL | Direction-corrupted m_pre → NS5 orthogonalizes bad direction at full norm if renormed (B), or magnitude-buffered partial damage if not (A) |
+
+The pre-NS and post-NS renorm behave OPPOSITELY:
+- **Post-NS:** renorm helps (re-imposes Frobenius constraint on already-orthonormal polar after gating)
+- **Pre-NS:** renorm hurts (passes full-magnitude direction-corrupted update through NS5)
+
+### Cross-axis with #893 m_pre BC
+
+Smooth (BC) vs destructive (mask) m_pre interventions behave differently:
+- #893 BC: smooth multiplicative tilt of m_pre → Arm A marginal WIN (warmup-only effect)
+- #931 sign-mask: destructive zero-out of ~68% coords → both arms NULL
+
+Implication for future m_pre interventions: must be smooth/continuous (shrinkage, scaling, smooth elementwise function) NOT destructive (mask, hard-cutoff, sign-flip). NS5 preserves both, but only smooth tilting carries useful signal.
+
+### Implementation notes (intact telemetry)
+
+- `polar/pre_ns_sign_mask_enabled` and `polar/pre_ns_sign_mask_renorm_enabled` correctly distinguish arms (1/0 and 1/1)
+- `polar/pre_ns_mask_frac` ≈ 0.68 in both arms — in band with #896 post-NS telemetry (0.625)
+- `polar/pre_ns_pre_norm` = 416 (A) / 430 (B); `pre_ns_post_norm` = 377 (A, −9.3%) vs 430 (B, exact match) confirms renorm path mathematically correct
+- `polar/ortho_residual_sample` modestly elevated in both arms (0.129/0.117 vs baseline ~0.10) — NS5 converging slightly less tightly when input is mask-perturbed
+- Step time +1% (~13100 vs baseline ~13050) — sign-mask + renorm essentially free compute-wise
+
+### Reassignment
+
+askeladd → **#969 (WSD cooldown power exponent γ=1.2 vs γ=1.6)** — deferred clean axis, tier shift off polar-pipeline perturbations per Plateau Protocol. `COOLDOWN_POWER=1.4` at line 27 has never been retuned despite shaping 70% of training. Predicted: NULL within ±0.001-0.002 (1.4 hand-tuned in modded-nanogpt), but informative closure of WSD shape parameter local-optimum bandwidth.
+
+---
+
 ## 2026-05-23 22:50 UTC — PR #920 CLOSED: Quintic NS at low iter count (NS_ITERS=5 vs 6) — both NULL, 95th axis, joint cell quintic × low-iters CLOSED (g1r1-nezuko)
 
 - Branch: `g1r1-nezuko/quintic-low-iters`
