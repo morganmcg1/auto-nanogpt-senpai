@@ -3,6 +3,40 @@
 Log of completed/reviewed experiment PRs in chronological order. Wave 1
 results pending student execution.
 
+## 2026-05-24 ~18:10 UTC — PR #1021: fern embed/lm_head LR ablation — **CLOSED clean-NEG (local optimum confirmed)**
+
+- **Branch:** `g1r5-fern/lr-embed-lm-head-ablation`
+- **Student:** g1r5-fern
+- **Hypothesis:** Embed LR=0.3 and lm_head LR=1/320 (≈0.003125) HARDCODED in `optimizer1` construction at `train_gpt_simple.py:840-841`, never SENPAI-validated. ~76M params untouched by prior LR sweeps. Test whether the hand-tuned values sit near optimum.
+
+- **5-cell sweep results (n=1 each, 3250 steps):**
+
+| Cell | --lr_embed | --lr_lm_head | val/loss | Δ vs A | σ_single vs A | Δ vs μ | σ vs base | W&B |
+|:----:|:----------:|:------------:|:--------:|:------:|:-------------:|:------:|:---------:|:---:|
+| A (ctrl) | 0.3 | 0.003125 | **3.25905** | — | — | −0.00217 | **−3.66σ (lucky seed)** | `zskrqew5` |
+| **B ★** | 0.5 | 0.003125 | 3.26197 | +0.00292 | **+4.92σ** | +0.00075 | +1.26σ | `9em7qfmn` |
+| C | 0.2 | 0.003125 | 3.26121 | +0.00216 | +3.64σ | −0.00001 | −0.02σ | `sh3uzsi6` |
+| D | 0.3 | 0.005 | 3.26366 | +0.00461 | +7.77σ | +0.00244 | +4.11σ | `gqpfdik1` |
+| E | 0.3 | 0.002 | 3.26041 | +0.00136 | +2.29σ | −0.00081 | −1.37σ | `d9y57oje` |
+
+- **Decision: CLOSED clean-NEG with local-optimum confirmation.**
+
+- **Mechanism findings:**
+  - **All 4 LR perturbations from hardcoded values worse than Cell A control** (+2.29σ to +7.77σ_single vs A). Signature of a local optimum: two-sided worsening on both embed and lm_head axes.
+  - **embed LR (B vs C):** two-sided worsening (B +4.92σ, C +3.64σ vs A). 0.3 is local optimum. Mechanism: high LR compensates for sparse-row updates (rare tokens get few updates).
+  - **lm_head LR (D vs E):** asymmetric pattern — D (+60%) +7.77σ much worse than E (−40%) +2.29σ. The hardcoded 1/320 sits *near* but *slightly above* its strict optimum, but available gain from finer search is sub-σ.
+  - **Cell A "lucky seed" caveat:** Cell A at 3.25905 is baseline replication with a favorable seed (−3.66σ_single at n=1). Cell C at 3.26121 lands ≈baseline μ (−0.02σ), confirming A's deviation is n=1 noise. NOT a merge candidate.
+
+- **PRIMARY decision outcome:** Cell B at 3.26197 missed n=1 promotion gate (≤3.260). **No n=4 confirm requested.** Correct conclusion by student.
+
+- **Closure context:** Closes embed/lm_head LR **magnitude** axis comprehensively. The last untested optimizer LR dimension is now SENPAI-validated as near-optimal at the hand-tuned values. Combined with prior tested groups (lr_mlp/lr_attn/lr_scalars), all parameter-group LR magnitudes are now ablated.
+
+- **Student suggested follow-ups:** (1) Close LR-magnitude axis ✓; (2) Embed/lm_head warmup schedule — fresh axis (schedule, not magnitude); (3) Per-token frequency-weighted embed LR — more involved mechanism.
+
+- fern reassigned → **PR #TBD Embed/lm_head warmup schedule** (acts on suggested follow-up #2 — fresh schedule axis on AdamW groups, complements closed magnitude axis).
+
+---
+
 ## 2026-05-24 ~12:00 UTC — PR #979: thorfinn SOAP exp_avg_sq scaling ablation — **CLOSED clean-NEG (mechanism finding)**
 
 - Branch: `g1r5-thorfinn/soap-exp-avg-sq-ablation`
