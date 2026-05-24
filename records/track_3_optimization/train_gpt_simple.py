@@ -465,6 +465,7 @@ ATTN_SOAP_BETA2 = 0.90
 ATTN_SOAP_PRECOND_FREQ = 10
 ATTN_SOAP_TRUST_THRESHOLD = float(os.environ.get("ATTN_SOAP_TRUST_THRESHOLD", "0.9"))
 NS5_ITERS = int(os.environ.get("NS5_ITERS", "12"))
+NS5_RESIDUAL_ALPHA = float(os.environ.get("NS5_RESIDUAL_ALPHA", "0.0"))  # 0.0 disables; >0 blends raw momentum back into post-NS5 update at matched Frobenius scale
 WD_AUX = float(os.environ.get("WD_AUX", "0.0"))  # AdamW WD on embed + lm_head matrices (scalars stay at 0)
 EMBED_INIT_STD = float(os.environ.get("EMBED_INIT_STD", "1.0"))  # default preserves baseline N(0,1)
 LOGIT_SOFTCAP = float(os.environ.get("LOGIT_SOFTCAP", "15.0"))  # default = 15 (current hardcoded value); soft-cap value c in f(x) = c·x / sqrt(x^2+c^2)
@@ -702,6 +703,12 @@ class Muon(torch.optim.Optimizer):
                         momentum_update = soap_precondition(momentum_update, state)
                     # NS5 + contra + NorMuon row variance on (possibly SOAP-preconditioned) momentum.
                     update = contra_normuon_update(momentum_update, state["second_moment"])
+                    # NS5_RESIDUAL: blend raw momentum direction back into post-NS5 update at matched Frobenius scale.
+                    if NS5_RESIDUAL_ALPHA > 0:
+                        update_norm_pre = update.float().norm().clamp_min(1e-8)
+                        momentum_norm = momentum_update.float().norm().clamp_min(1e-8)
+                        scaled_momentum = momentum_update * (update_norm_pre / momentum_norm).to(momentum_update.dtype)
+                        update = (1.0 - NS5_RESIDUAL_ALPHA) * update + NS5_RESIDUAL_ALPHA * scaled_momentum
                     # u/w-floor: scale up if u/w < TARGET_UW; leave alone otherwise.
                     p_fro = p.float().norm().clamp_min(1e-8)
                     u_fro = update.float().norm().clamp_min(1e-8)
@@ -865,6 +872,7 @@ if dist.get_rank() == 0:
             "optimizer/attn_soap_precond_freq": ATTN_SOAP_PRECOND_FREQ,
             "optimizer/attn_soap_trust_threshold": ATTN_SOAP_TRUST_THRESHOLD,
             "optimizer/ns5_iters": NS5_ITERS,
+            "optimizer/ns5_residual_alpha": NS5_RESIDUAL_ALPHA,
             "optimizer/wd_aux": WD_AUX,
             "optimizer/recipe": "contra-muon + normuon-lite + soap-on-mlp + soap-on-attn-trust-gate (pre-NS5, record #14 + record #16)",
         },
