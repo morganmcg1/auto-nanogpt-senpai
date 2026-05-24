@@ -82,6 +82,15 @@ def parse_args():
                         help="β2 at start of training (and constant β2 if schedule=constant).")
     parser.add_argument("--aux_beta2_end", type=float, default=float(os.environ.get("AUX_BETA2_END", "0.99")),
                         help="β2 at end of training (after cooldown). Only used if schedule=cooldown_ramp.")
+    parser.add_argument("--aux_beta1_schedule", type=str, default=os.environ.get("AUX_BETA1_SCHEDULE", "off"),
+                        choices=["off", "cooldown_ramp"],
+                        help="If 'cooldown_ramp', ramp aux AdamW β1 from --aux_beta1_start to --aux_beta1_end "
+                             "linearly across the last aux_cooldown_frac of training. 'off' uses aux_beta1_start "
+                             "constant throughout (bit-identical to baseline when start=0.8).")
+    parser.add_argument("--aux_beta1_start", type=float, default=float(os.environ.get("AUX_BETA1_START", "0.8")),
+                        help="Starting (or constant) β1 for aux AdamW. Default 0.8 = baseline.")
+    parser.add_argument("--aux_beta1_end", type=float, default=float(os.environ.get("AUX_BETA1_END", "0.95")),
+                        help="Ending β1 if schedule is 'cooldown_ramp'.")
     args = parser.parse_args()
     args.num_trials = args.num_trials if args.num_trials is not None else (args.legacy_num_trials or 1)
     args.wandb_tags = [tag.strip() for tag in args.wandb_tags.split(",") if tag.strip()]
@@ -780,6 +789,9 @@ if dist.get_rank() == 0:
             "aux_beta2_schedule": args.aux_beta2_schedule,
             "aux_beta2_start": args.aux_beta2_start,
             "aux_beta2_end": args.aux_beta2_end,
+            "aux_beta1_schedule": args.aux_beta1_schedule,
+            "aux_beta1_start": args.aux_beta1_start,
+            "aux_beta1_end": args.aux_beta1_end,
         },
     )
 
@@ -829,11 +841,11 @@ for trial_idx in range(args.num_trials):
     # fused AdamW reads betas from param_groups on every .step(), but to avoid any
     # silent-failure-mode risk we use fused=False whenever the β2 schedule is active.
     # constant schedule keeps fused=True so arm_a is bitwise-identical to baseline.
-    _aux_fused = (args.aux_beta2_schedule == "constant")
+    _aux_fused = (args.aux_beta2_schedule == "constant" and args.aux_beta1_schedule == "off")
     optimizer1 = AdamW([dict(params=[model.embed.weight], lr=0.3, name="adam_embed"),
                         dict(params=[model.proj.weight], lr=1/320, name="adam_lm_head"),
                         dict(params=[p for p in model.parameters() if p.ndim < 2], lr=0.01, name="adam_scalars")],
-                       betas=(0.8, args.aux_beta2_start), eps=args.aux_adamw_eps, weight_decay=0, fused=_aux_fused)
+                       betas=(args.aux_beta1_start, args.aux_beta2_start), eps=args.aux_adamw_eps, weight_decay=0, fused=_aux_fused)
     optimizer2 = MuonH([p for p in model.blocks.parameters() if p.ndim >= 2],
                        lr=args.muonh_lr, weight_decay=0.0, mu=0.95,
                        hyperball=True, budget_mult=args.muonh_budget_mult,
@@ -906,9 +918,21 @@ for trial_idx in range(args.num_trials):
                 b2 = args.aux_beta2_start + prog * (args.aux_beta2_end - args.aux_beta2_start)
         else:
             b2 = args.aux_beta2_start
+        # Aux β1 schedule: ramp β1 from start to end linearly across the aux
+        # cooldown phase. 'off' keeps b1 at aux_beta1_start (bit-identical to
+        # baseline when start=0.8).
+        if args.aux_beta1_schedule == "cooldown_ramp":
+            cooldown_start_b1 = int((1.0 - aux_cooldown_frac) * train_steps)
+            if step < cooldown_start_b1:
+                b1 = args.aux_beta1_start
+            else:
+                prog_b1 = (step - cooldown_start_b1) / max(1, train_steps - cooldown_start_b1)
+                b1 = args.aux_beta1_start + prog_b1 * (args.aux_beta1_end - args.aux_beta1_start)
+        else:
+            b1 = args.aux_beta1_start
         for g in optimizer1.param_groups:
-            g["betas"] = (g["betas"][0], b2)
-        return muonh_warmup, b2
+            g["betas"] = (b1, b2)
+        return muonh_warmup, b2, b1
 
 
     ########################################
@@ -1013,7 +1037,7 @@ for trial_idx in range(args.num_trials):
         dist.all_reduce(step_loss, op=dist.ReduceOp.SUM)
         train_loss = float((step_loss / batch_size).item())
         # set optimization hyperparameters and take a step
-        muonh_warmup_factor, aux_beta2 = set_hparams(step)
+        muonh_warmup_factor, aux_beta2, aux_beta1 = set_hparams(step)
         train_step = step + 1
         telemetry_due = (step == 0 or (step + 1) % args.telemetry_interval == 0 or step + 1 == train_steps)
         histogram_due = (step == 0 or (step + 1) % args.histogram_interval == 0 or step + 1 == train_steps)
@@ -1063,6 +1087,7 @@ for trial_idx in range(args.num_trials):
         if dist.get_rank() == 0 and (telemetry_due or warmup_due):
             muonh_metrics = {"trial": trial_idx, "train/step": train_step}
             muonh_metrics["aux/beta2"] = aux_beta2
+            muonh_metrics["aux/beta1"] = aux_beta1
             for opt in optimizers:
                 if isinstance(opt, MuonH):
                     if telemetry_due:
