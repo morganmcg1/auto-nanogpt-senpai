@@ -1,5 +1,22 @@
 # SENPAI Research Results — auto-nanogpt-1gpu-r2
 
+## 2026-05-24 14:55 UTC — PR #1044: MUON_BIAS_CORRECT (CLOSED, 104th refuted — floor cluster touch +0.003 close-miss, momentum-INTERPRETATION layer now saturated)
+
+- Branch: `g1r2-thorfinn/muon-bias-correct` (student g1r2-thorfinn)
+- Hypothesis: Apply Adam-style bias correction `m_corrected = m / (1 - μ^t)` (Arm A full) or `m / sqrt(1 - μ^t)` (Arm B half) to body Muon momentum buffer BEFORE NS5 polar projection. Tests whether MU_WARMUP_STEPS=200 schedule is a workaround for missing bias correction or independent stabilization.
+- Results:
+
+| Arm | Correction | W&B run | Steps | Final val | FFS | Outcome |
+|-----|-----------|---------|-------|-----------|-----|---------|
+| A (full) | `m/(1-μ^t)`, 6.67×@step1 | `iexuxk2z` | 1075 (killed) | 3.663 | n/a | Step-1000 kill gate trip — over-amplifies cold-momentum |
+| B (half) | `m/sqrt(1-μ^t)`, 4.47×@step1 | `6tssm3ke` | 3175 ✓ | **3.27068** | **3025** | Floor cluster touch +0.00292 above merge bar |
+
+- **Verdict**: REFUTED. Arm A catastrophic crash at full correction confirms 6.67× scaling at step 1 is far too aggressive for the cold-momentum state. Arm B half correction lands in floor cluster band (3.270 ± 0.003 / ffs=3025) but offers no improvement — same regime as #996, #1017, #1004, #1016 close-misses.
+- **Mechanistic insight**: MU_WARMUP_STEPS=200 schedule (ramps MU from 0.85 → 0.95 over first 200 steps) already provides Adam-equivalent bias correction structurally. The schedule reduces effective momentum at start (lower β = less averaging of cold state) which is precisely what Adam's bias correction simulates via the 1/(1-μ^t) factor. Adding explicit correction on top is redundant — Arm B's floor-cluster landing matches no-correction baseline distribution.
+- **Cycle 71 portfolio milestone**: Cycle 71 has now refuted bias correction at the **MOMENTUM BUFFER INTERPRETATION level**. Combined with #1029 reset (refuted, monotone-in-scale), #1017 prefill (refuted, zero-slope), #983 rescale (refuted, catastrophic), #991 dropout (refuted) — the entire INTERPRETATION abstraction layer atop the momentum buffer is now exhausted. Buffer is content-fixed, dynamics-fixed, init-fixed, lifecycle-fixed, AND interpretation-fixed.
+- **Strengthens cycle-71 central conclusion**: floor is BIAS-LIMITED at the NS5 polar projection / preconditioner level, not in the upstream gradient/momentum processing stack. The remaining mechanism axes must intervene at orthogonalization quality (NS5 coefficient schedule #1057), preconditioner choice (#1051 SOAP trust schedule), or alternative regularization paths (#1050 WD_AUX schedule, #1061 AUX_EPS schedule).
+- **Reassignment for thorfinn**: PR #1061 AUX_EPS_SCHEDULE — first temporal schedule on AdamW aux-group `eps` in 250+ PRs (27th distinct mechanism class). Tests whether v_hat stabilizes enough during cooldown to benefit from tighter denominator floor. Distinct from all 6 prior static eps sweeps (#330, #333, #493, #685, #754, #1000) all of which refuted (eps not load-bearing at static values). Schedule interplay with simultaneous LR cooldown ramp is the novel angle.
+
 ## 2026-05-24 14:10 UTC — PR #1037: LOOKAHEAD_SLOW_WEIGHTS (CLOSED, 103rd refuted — strong evidence floor cluster is BIAS-LIMITED rather than variance-limited; outer-loop optimizer wrappers class probed at K=5 and K=10)
 
 - Branch: `g1r2-alphonse/lookahead-slow-weights` (student g1r2-alphonse)
