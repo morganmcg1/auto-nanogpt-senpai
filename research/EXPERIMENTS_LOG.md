@@ -3,6 +3,43 @@
 Log of completed/reviewed experiment PRs in chronological order. Wave 1
 results pending student execution.
 
+## 2026-05-24 ~22:15 UTC — PR #1042: thorfinn Soft Newton-Schulz mixing α·NS(x) + (1−α)·x_pre-NS — **CLOSED clean-NEG (7th NS-modulation axis closure)**
+
+- **Branch:** `g1r5-thorfinn/soft-ns-mixing`
+- **Student:** g1r5-thorfinn
+- **Hypothesis:** NS produces all-singular-values-≈1.0 update (full orthogonalization). Pre-NS input carries natural SV distribution from gradients + SOAP curvature scaling. Mixing `update = α·NS(x) + (1−α)·x_scaled` (Frobenius-norm-matched) preserves a fraction of pre-NS magnitude info while keeping orthogonalization dominant. Tests whether full orthogonalization is essential or sub-optimal.
+
+| Cell | α | val/loss | Δ vs μ_base | z_base | ffs | run_id |
+|------|---|----------|-------------|--------|-----|--------|
+| A | 1.00 (ctrl) | **3.25903** | −0.00219 | **−3.69σ** | 3025 | `2bn4xvq3` |
+| B ★ | 0.95 (PRIMARY) | 3.26130 | +0.00008 | +0.13σ | 3025 | `t7bef0a8` |
+| C | 0.90 | 3.26161 | +0.00039 | +0.66σ | 3025 | `cj6t6hcq` |
+| D | 0.80 | 3.26433 | +0.00311 | **+5.24σ** | 3050 | `0d9iaumh` |
+| E | 0.70 | 3.26369 | +0.00247 | **+4.16σ** | 3050 | `ou8kw6xg` |
+
+**PRIMARY verdict:** Cell B at +0.13σ_base — noise-neutral. FAILS n=1 confirm gate (3.260628). No n=4 follow-up warranted.
+
+**Cell A lucky-seed:** α=1.0 is algorithmically identical to baseline (mix code-path is no-op). The −3.69σ_base is n=1 favorable seed draw from baseline distribution. NOT a winner. Same pattern as #1021/#1022/#1024 Cell A. z_base is load-bearing for absolute claims.
+
+**Mechanism findings:**
+1. **Pre-NS magnitude info is NOT load-bearing.** Diagnostic norms confirm `update_pre_ns_norm` ~900-980, `update_ns_norm` ~27.1 (spectral-flattened), `update_mixed_norm` between 26.91 (E) and 27.10 (B) — monotone in α as expected. The convex combination behaves exactly as designed; no implementation bug.
+2. **Roughly monotone-worse as α decreases.** B/C noise-neutral, D/E clearly harmful (+4-5σ). 20%+ raw injection breaks the spectral-flattening property that's essential for step quality.
+3. **NS *convergence stage* ≠ NS *output mixing*.** The PR #932 "inverted-iter 2nd-best" intuition does NOT translate. Late-layer tolerance for fewer NS iters is about stopping NS short of x≈1 convergence; pre-NS-magnitude-injection has the wrong spectral structure entirely.
+
+**NS-modulation axis comprehensively closed (7 NEG closures):**
+- #776 askeladd post-NS RMS clamp
+- #815 tanjiro NS-iter warmup
+- #824 NS polynomial coefficients
+- #867 thorfinn cautious pre-NS sign mask
+- #932 thorfinn per-layer NS iter
+- #1010 tanjiro NS-iter-by-time
+- #1022 frieren NS polynomial degree
+- **#1042 thorfinn soft NS output mixing (THIS PR)**
+
+Only remaining open NS axis: **#1062 tanjiro NS precision (bf16 vs fp32)** — about numerical fidelity, not modulation. Conclusion: orthogonalization *quality* cannot be modulated for benefit at this baseline. NS implementation is structurally locked-in.
+
+**Decision: CLOSE clean-NEG with mechanism finding.** thorfinn → #1096 Per-group Muon mu sweep (mu_mlp vs mu_attn) — fresh axis at the pre-NS momentum layer, decouples MLP vs attn momentum (constructor already plumbs per-group mu via `g.get("mu", mu)` at line 605).
+
 ## 2026-05-24 ~18:55 UTC — PR #1022: frieren NS polynomial degree variation — **CLOSED clean-NEG (5th NS-internals axis NEG)**
 
 - **Branch:** `g1r5-frieren/ns-polynomial-degree-variation`
