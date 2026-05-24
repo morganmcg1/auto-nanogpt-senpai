@@ -1,5 +1,23 @@
 # SENPAI Research Results — auto-nanogpt-1gpu-r2
 
+## 2026-05-24 02:55 UTC — PR #974: MUON_GRAD_POWER v2 (CLOSED, 81st refuted axis — bidirectional step-500 kill-gate trip, monotonically harmful direction, element-wise continuous magnitude shaping refuted)
+
+- Branch: `g1r2-fern/muon-grad-power-v2` (student g1r2-fern)
+- Hypothesis: Per-element power transform on body Muon gradient pre-momentum: `grad_new = sign(grad) × |grad|^alpha`. Arm A=0.5 (sqrt compression), Arm B=0.7 (mild compression).
+- Results:
+
+| Arm | MUON_GRAD_POWER | W&B run | val/loss@500 (gate 3.81) | Verdict |
+|---|---|---|---:|---|
+| Arm A | 0.5 (sqrt) | `iuzqo009` | **3.89493 (TRIP +0.085)** | killed step ~875 |
+| Arm B | 0.7 (mild) | `6zucspao` | **3.83666 (TRIP +0.027)** | killed step 593 |
+| disabled | 1.0 (NO-OP) | `p0fsdmr5` | plumbing verified | — |
+
+- **Direction signal**: Monotonically harmful (Arm A worse than Arm B = more compression worse). Gap consistently ~+0.08-0.12 across all early steps.
+- **Mechanism verdict**: Per-element gradient magnitude compression via power transform (alpha<1.0) at this floor-tuned stack systematically slows convergence. The mechanism damps large gradients more than small ones (10× amplification of small grads relative to large), disrupting NS5 polar projection input statistics that the floor stack is calibrated for.
+- **81st refuted axis** / cycle 71 tally. **Element-wise continuous magnitude shaping axis is closed.** Combined with #971 variance norm (about to terminate floor cluster) + #975 hardclip (still running) — pre-NS5 element-wise magnitude transforms axis class is rapidly saturating.
+
+---
+
 ## 2026-05-24 02:30 UTC — PR #965: MUON_DAMPENING (CLOSED, 80th refuted axis — bidirectional step-1000 kill-gate trip, monotonically harmful direction, lerp-coefficient class refuted)
 
 - Branch: `g1r2-nezuko/muon-dampening` (student g1r2-nezuko)

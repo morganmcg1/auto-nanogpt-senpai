@@ -1296,3 +1296,33 @@ In-flight as of 02:30Z (all WIP, 8 students busy, 0 idle):
 - **CLOSED: Lerp-coefficient modulation**: #965 (refuted, dampening compounds harm)
 
 **Compositional floor theorem (#813)** holds at 80 refuted axes. Lerp-coefficient class closed. Programme is now running 6 distinct mechanism-class probes spanning: gradient transformation (5 mechanisms covering element-wise + tensor-level + EMA-decomposition) AND momentum-buffer manipulation (1 mechanism — #983 first ever). This is the most diverse mechanism-class coverage of the body Muon optimization layer ever attempted in this programme.
+
+#### 2026-05-24 02:55Z update — mid-149: #974 fern MUON_GRAD_POWER CLOSED (81st refuted), #987 fern MUON_GRAD_CG_DECORRELATE assigned (NOVEL geometric-relationship mechanism class)
+
+**#974 fern MUON_GRAD_POWER CLOSED (81st refuted)**: Bidirectional step-500 kill-gate trip. Arm A (α=0.5 sqrt) val@500=3.89493 TRIP by +0.085, Arm B (α=0.7 mild) val@500=3.83666 TRIP by +0.027. Monotonically harmful direction (more compression = worse). W&B runs `iuzqo009` (A), `6zucspao` (B), `p0fsdmr5` (disabled). **Element-wise continuous magnitude shaping axis CLOSED.** All element-wise gradient transformations attempted in cycle 71 have produced floor-cluster-or-worse outcomes: power transform (refuted), hardclip (in flight), variance norm (terminating floor cluster), sign-mag decouple (in flight). The pre-NS5 grad-statistics layer's calibration to NS5_ITERS=14 is more rigid than initially anticipated.
+
+**#987 fern MUON_GRAD_CG_DECORRELATE assigned (NOVEL mechanism class)**: Conjugate-gradient-style decorrelation of gradient from prior momentum direction. Mathematical form: `grad_new = grad - alpha * (grad·m / |m|²) * m` where `m = state["momentum"]`. Arms: A=0.5 (partial CG), B=1.0 (full CG). This is the FIRST direction-modification mechanism in cycle 71 (all prior arms modify magnitude or sign or buffer scale, none modify the geometric relationship between consecutive updates). Theoretically grounded in classical Conjugate Gradient methods (Hestenes-Stiefel 1952, Polak-Ribière 1969); ZERO matches in 250+ PRs for CG-style decorrelation on Muon body. The "floor is upstream of NS5" insight + cluster of refuted element-wise transforms suggests the missing axis is in the GEOMETRIC interactions between gradient and momentum, not in their individual element-wise statistics.
+
+#### Cycle 71 axis tally: **81 refuted**, ~52 floor cluster + kill-gate landings, **0 merges above baseline**
+
+In-flight as of 02:55Z (all WIP, 8 students busy, 0 idle):
+- #702 edward MU_WARMUP_START — pod-broken hold
+- #793 tanjiro DEPTH_DEP_MUON_LR — pod-broken hold
+- #968 askeladd MUON_PER_TENSOR_GRAD_CLIP — Arm A floor cluster MISS (3.27047/3025), Arm B=2.0 launch directed
+- #971 frieren MUON_GRAD_VAR_NORM — step 2900/3175 (91%), on track for floor cluster terminal
+- #975 thorfinn MUON_GRAD_HARDCLIP — running
+- #981 alphonse MUON_SIGN_MAG_DECOUPLE — Arm A val@125=5.14 (concerning gap), kill gate likely
+- #983 nezuko MUON_MOMENTUM_RENORM — disabled-check
+- #987 fern MUON_GRAD_CG_DECORRELATE — newly assigned (CG decorrelation, first geometric-relationship axis)
+
+**Updated mechanism category coverage (8 distinct mechanism classes on Muon body)**:
+- **CG-style geometric decorrelation (NEW)**: #987 (gradient orthogonalization to momentum)
+- **Momentum-buffer Frobenius rescaling**: #983 (between lerp and re-blend)
+- **Sign-magnitude EMA decomposition**: #981 (independent timescales)
+- **Element-wise hard thresholding**: #975 (k·σ outlier clip)
+- **Element-wise continuous variance normalization**: #971 (Adam-style EMA)
+- **Tensor-level Frobenius scaling**: #968 (per-tensor norm clip)
+- **CLOSED: Element-wise continuous magnitude shaping**: #974 (refuted, power transform)
+- **CLOSED: Lerp-coefficient modulation**: #965 (refuted, dampening)
+
+**Programme insight**: The element-wise magnitude transformation axis class is rapidly closing. The fresh direction is **geometric/relational mechanisms** that modify how consecutive gradient updates interact with each other or with the existing momentum buffer. CG decorrelation (#987) is the first probe; future probes could include orthogonal projection schedules, momentum-mixing strategies, or Stiefel manifold projections.
