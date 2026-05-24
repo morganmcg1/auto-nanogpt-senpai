@@ -571,6 +571,9 @@ if NANOGPT_EMBED_COOLDOWN_SHAPE not in _VALID_EMBED_COOLDOWN_SHAPES:
         f"NANOGPT_EMBED_COOLDOWN_SHAPE={NANOGPT_EMBED_COOLDOWN_SHAPE!r}, must be one of {_VALID_EMBED_COOLDOWN_SHAPES}"
     )
 NANOGPT_ADAMW_BETA2 = float(os.environ.get("NANOGPT_ADAMW_BETA2", "0.95"))
+# AdamW ε UP-ramp during cooldown (#askeladd): ramp eps from 1e-10 (base) to target over cooldown.
+# Default = 1e-10 (no change, baseline behavior).
+NANOGPT_ADAMW_EPS_COOLDOWN_TARGET = float(os.environ.get("NANOGPT_ADAMW_EPS_COOLDOWN_TARGET", "1e-10"))
 NANOGPT_ADAMW_EMBED_LR_MULT = float(os.environ.get("NANOGPT_ADAMW_EMBED_LR_MULT", "1.0"))
 NANOGPT_ADAMW_LM_HEAD_LR_MULT = float(os.environ.get("NANOGPT_ADAMW_LM_HEAD_LR_MULT", "1.0"))
 NANOGPT_ADAMW_SCALAR_LR_MULT = float(os.environ.get("NANOGPT_ADAMW_SCALAR_LR_MULT", "1.0"))
@@ -817,6 +820,11 @@ print0(f"EMBED_COOLDOWN_SHAPE: {NANOGPT_EMBED_COOLDOWN_SHAPE} "
        f"(applies to adam_embed only; lm_head/scalars use linear)", console=True)
 print0(f"ADAMW_BETA2: {NANOGPT_ADAMW_BETA2} (effective memory ~{int(1/(1-NANOGPT_ADAMW_BETA2)) if NANOGPT_ADAMW_BETA2 < 1 else 'inf'} steps)",
        console=True)
+if NANOGPT_ADAMW_EPS_COOLDOWN_TARGET != 1e-10:
+    print0(f"ADAMW_EPS_COOLDOWN: 1e-10 -> {NANOGPT_ADAMW_EPS_COOLDOWN_TARGET:.0e} "
+           f"(linear ramp, cooldown {NS_COOLDOWN_START_FRAC}→1.0) ACTIVE", console=True)
+else:
+    print0(f"ADAMW_EPS_COOLDOWN: 1e-10 static (baseline)", console=True)
 print0(f"ADAMW_LR_MULT: embed={NANOGPT_ADAMW_EMBED_LR_MULT} lm_head={NANOGPT_ADAMW_LM_HEAD_LR_MULT} scalar={NANOGPT_ADAMW_SCALAR_LR_MULT}", console=True)
 print0(f"  Effective base LRs: embed={0.3*NANOGPT_ADAMW_EMBED_LR_MULT:.4f} lm_head={(1/320)*NANOGPT_ADAMW_LM_HEAD_LR_MULT:.6f} scalar={0.01*NANOGPT_ADAMW_SCALAR_LR_MULT:.4f}", console=True)
 print0(f"MUON_LR_MULT: attn={NANOGPT_MUON_ATTN_LR_MULT:.3f} mlp={NANOGPT_MUON_MLP_LR_MULT:.3f}", console=True)
@@ -886,6 +894,7 @@ if dist.get_rank() == 0:
             "nanogpt_ns_cooldown_shape": NS_COOLDOWN_SHAPE,
             "nanogpt_embed_cooldown_shape": NANOGPT_EMBED_COOLDOWN_SHAPE,
             "nanogpt_adamw_beta2": NANOGPT_ADAMW_BETA2,
+            "nanogpt_adamw_eps_cooldown_target": NANOGPT_ADAMW_EPS_COOLDOWN_TARGET,
             "nanogpt_adamw_embed_lr_mult": NANOGPT_ADAMW_EMBED_LR_MULT,
             "nanogpt_adamw_lm_head_lr_mult": NANOGPT_ADAMW_LM_HEAD_LR_MULT,
             "nanogpt_adamw_scalar_lr_mult": NANOGPT_ADAMW_SCALAR_LR_MULT,
@@ -1205,6 +1214,12 @@ for trial_idx in range(args.num_trials):
             if len(ns_iters_history) > 100:
                 del ns_iters_history[:-100]
             ns_cumulative_iters += ns_iters_this_step
+        # ε UP-ramp on AdamW aux groups during cooldown (#askeladd).
+        if NANOGPT_ADAMW_EPS_COOLDOWN_TARGET != 1e-10 and step >= cooldown_start_step:
+            _frac = (step - cooldown_start_step) / max(1, train_steps - cooldown_start_step)  # 0→1
+            _eps_now = 1e-10 + _frac * (NANOGPT_ADAMW_EPS_COOLDOWN_TARGET - 1e-10)
+            for _g in optimizer1.param_groups:
+                _g["eps"] = _eps_now
         for opt in optimizers:
             opt.step()
         # Init-anchored WD on embed (#847, env-var-gated). After both optimizers
