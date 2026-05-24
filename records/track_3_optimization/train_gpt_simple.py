@@ -17,6 +17,7 @@ from pathlib import Path
 import torch
 from torch import Tensor, nn
 from torch.optim import AdamW
+from torch.nn.attention import SDPBackend, sdpa_kernel
 import torch.nn.functional as F
 import torch.distributed as dist
 import wandb
@@ -64,6 +65,23 @@ def parse_args():
     parser.add_argument("--muon_lr", type=float, default=0.035,
                         help="Base learning rate for body-Muon optimizer (matrix params in blocks). "
                              "Default 0.035 matches the merged baseline.")
+    parser.add_argument("--use_sophia_embed", type=int, default=0,
+                        help="If 1, use Sophia-H for embed parameters instead of AdamW")
+    parser.add_argument("--sophia_embed_rho", type=float, default=0.01,
+                        help="Sophia-H denominator clip floor (paper default 0.01)")
+    parser.add_argument("--sophia_embed_k", type=int, default=10,
+                        help="Hessian update interval (paper default 10)")
+    parser.add_argument("--sophia_embed_beta2", type=float, default=0.99,
+                        help="Hessian EMA decay (paper default 0.99)")
+    parser.add_argument("--sophia_embed_lr_scale", type=float, default=0.5,
+                        help="Multiplier applied to baseline embed LR for Sophia path")
+    parser.add_argument("--sophia_embed_hvp_mbs", type=int, default=8,
+                        help="Microbatch (number of sequences) used for the Hutchinson HVP "
+                             "forward. Smaller = less peak VRAM for the retained backward "
+                             "graph during create_graph=True; the estimator is stochastic so "
+                             "smaller batches just add variance, which the EMA smooths out.")
+    parser.add_argument("--train_steps_override", type=int, default=None,
+                        help="If set, overrides train_steps. Used for smoke/debug runs.")
     args = parser.parse_args()
     args.num_trials = args.num_trials if args.num_trials is not None else (args.legacy_num_trials or 1)
     args.wandb_tags = [tag.strip() for tag in args.wandb_tags.split(",") if tag.strip()]
@@ -73,6 +91,14 @@ def parse_args():
 
 
 args = parse_args()
+
+# Sophia-H computes a second-order autograd graph via Hutchinson HVP (autograd.grad
+# with create_graph=True).  PyTorch 2.10's AOT autograd "donated buffer" optimization
+# is incompatible with create_graph=True / retain_graph=True on a compiled backward.
+# Disable donated buffers when Sophia-H is active so the second backward succeeds.
+if args.use_sophia_embed:
+    import torch._functorch.config as _functorch_config
+    _functorch_config.donated_buffer = False
 
 
 def clean_metric_name(name: str) -> str:
@@ -589,6 +615,107 @@ class Muon(torch.optim.Optimizer):
         self._polar_diag = polar_diag
 
 
+class SophiaH(torch.optim.Optimizer):
+    """Sophia-H: Hutchinson diagonal Hessian preconditioner (Liu et al. 2023, arxiv:2305.14342).
+
+    Replaces AdamW's variance-based denominator with a stochastic diagonal Hessian estimate.
+    The Hessian-vector product (HVP) is computed via Hutchinson's trace estimator on a
+    Rademacher probe vector u ~ {±1}^d, updated every k steps.
+
+    Update rule (per PR #1013):
+        m_t = β1·m_{t-1} + (1−β1)·g_t                            (every step)
+        h_t = β2·h_{t-1} + (1−β2)·|u_t ⊙ (H_t · u_t)|            (every k steps)
+        p_t = p_{t-1} − lr · m_t / max(h_t, ρ)
+
+    HVP is computed via a separate forward pass (avoids interaction between
+    create_graph=True and the compiled main training forward).  State buffers
+    `m` and `h` are stored in fp32 for numerical stability across bf16 params.
+    """
+
+    def __init__(self, params, lr, rho=0.01, k=10, beta1=0.9, beta2=0.99):
+        defaults = dict(lr=lr, rho=rho, k=k, beta1=beta1, beta2=beta2)
+        super().__init__(params, defaults)
+        self._diagnostics: dict = {}
+
+    def _ensure_state(self, p: Tensor) -> dict:
+        state = self.state[p]
+        if "m" not in state:
+            state["m"] = torch.zeros_like(p, dtype=torch.float32)
+            state["h"] = torch.zeros_like(p, dtype=torch.float32)
+            state["sophia_step"] = 0
+        return state
+
+    @torch.no_grad()
+    def step(self, closure=None):
+        for group in self.param_groups:
+            lr = group["lr"]
+            beta1 = group["beta1"]
+            rho = group["rho"]
+            for p in group["params"]:
+                if p.grad is None:
+                    continue
+                state = self._ensure_state(p)
+                g = p.grad.detach().float()
+                state["m"].mul_(beta1).add_(g, alpha=1.0 - beta1)
+                denom = state["h"].clamp_min(rho)
+                update = state["m"] / denom
+                p.data.add_(update.to(p.dtype), alpha=-lr)
+                state["sophia_step"] += 1
+        return None
+
+    def update_hessian(self, model: nn.Module, loss_fn):
+        """Update h via Hutchinson HVP using a fresh forward pass.
+
+        loss_fn: callable returning a scalar loss tensor.  Called once per
+            parameter; computes ∂(g·u)/∂p where g = ∂loss/∂p and u is
+            Rademacher.  The transient forward graph is consumed by the
+            two `autograd.grad` calls and released afterward.
+
+        Two PyTorch 2.10 quirks are worked around here:
+          1. AOT autograd's compiled backward does not support second-order
+             autograd via `torch.autograd.grad`, so we temporarily disable
+             `torch.compile` on the model for the HVP forward.
+          2. `aten::_scaled_dot_product_flash_attention_backward` has no
+             derivative, so HVP through the flash kernel fails. We force the
+             math SDPA backend (which supports double backward) within the
+             HVP block.
+        """
+        # Temporarily bypass torch.compile so the forward graph supports
+        # higher-order autograd. Restore after HVP so subsequent training
+        # steps continue using the compiled forward.
+        saved_compile = getattr(model, "_compiled_call_impl", None)
+        if saved_compile is not None:
+            model._compiled_call_impl = None
+        try:
+            with sdpa_kernel([SDPBackend.MATH]):
+                for group in self.param_groups:
+                    beta2 = group["beta2"]
+                    rho = group["rho"]
+                    for p in group["params"]:
+                        state = self._ensure_state(p)
+                        with torch.enable_grad():
+                            loss = loss_fn()
+                            g = torch.autograd.grad(loss, p, create_graph=True, retain_graph=True)[0]
+                            # Rademacher probe sampled in fp32 for precision; cast to grad dtype for HVP.
+                            u_fp32 = (torch.randint(0, 2, p.shape, device=p.device, dtype=torch.float32) * 2.0 - 1.0)
+                            u = u_fp32.to(g.dtype)
+                            g_dot_u = (g * u).sum()
+                            Hu = torch.autograd.grad(g_dot_u, p, retain_graph=False)[0]
+                        # Hutchinson estimate |u ⊙ Hu| in fp32; abs() keeps preconditioner PSD.
+                        h_new = (u_fp32 * Hu.float()).abs()
+                        with torch.no_grad():
+                            state["h"].mul_(beta2).add_(h_new, alpha=1.0 - beta2)
+                        self._diagnostics[id(p)] = {
+                            "h_new_mean": float(h_new.mean().item()),
+                            "h_new_max": float(h_new.max().item()),
+                        }
+                        # Release transient HVP tensors so Python frees the autograd graph.
+                        del loss, g, Hu, g_dot_u, u, u_fp32, h_new
+        finally:
+            if saved_compile is not None:
+                model._compiled_call_impl = saved_compile
+
+
 def pmuon_spectral_diag(optimizer: torch.optim.Optimizer, gamma: float) -> dict[str, float]:
     # Post-whitening spectral diagnostic on the first PMuon-managed param (largest
     # by sort order). Re-evaluated against current L_cov, R_cov, momentum state.
@@ -720,6 +847,12 @@ if dist.get_rank() == 0:
             "ema_warmup_steps": args.ema_warmup_steps,
             "ema_beta_target": args.ema_beta_target if args.ema_beta_target is not None else 0.0,
             "ema_dynamic_ramp_active": int(args.ema_beta_target is not None and args.ema_beta > 0),
+            "use_sophia_embed": args.use_sophia_embed,
+            "sophia_embed_rho": args.sophia_embed_rho,
+            "sophia_embed_k": args.sophia_embed_k,
+            "sophia_embed_beta2": args.sophia_embed_beta2,
+            "sophia_embed_lr_scale": args.sophia_embed_lr_scale,
+            "sophia_embed_lr": (0.3 * args.sophia_embed_lr_scale) if args.use_sophia_embed else 0.0,
         },
     )
 
@@ -731,7 +864,7 @@ for trial_idx in range(args.num_trials):
     ########################################
 
     # we want to minimize this while still reaching 3.28 val loss
-    train_steps = 3250
+    train_steps = args.train_steps_override if args.train_steps_override is not None else 3250
 
     # initialize model parameters
     for name, p in model.named_parameters():
@@ -751,15 +884,33 @@ for trial_idx in range(args.num_trials):
             raise Exception(f"Uninitialized parameter: {name}")
 
     # create the optimizer(s)
-    optimizer1 = AdamW([dict(params=[model.embed.weight], lr=0.3, name="adam_embed"),
-                        dict(params=[model.proj.weight], lr=1/160, name="adam_lm_head"),
-                        dict(params=[p for p in model.parameters() if p.ndim < 2], lr=0.025, name="adam_scalars")],
-                       betas=(0.8, 0.95), eps=1e-10, weight_decay=0, fused=True)
+    BASELINE_EMBED_LR = 0.3
+    sophia_embed_lr = BASELINE_EMBED_LR * args.sophia_embed_lr_scale
+    adam_groups = []
+    if not args.use_sophia_embed:
+        adam_groups.append(dict(params=[model.embed.weight], lr=BASELINE_EMBED_LR, name="adam_embed"))
+    adam_groups.append(dict(params=[model.proj.weight], lr=1/160, name="adam_lm_head"))
+    adam_groups.append(dict(params=[p for p in model.parameters() if p.ndim < 2], lr=0.025, name="adam_scalars"))
+    optimizer1 = AdamW(adam_groups, betas=(0.8, 0.95), eps=1e-10, weight_decay=0, fused=True)
     optimizer2 = Muon([p for p in model.blocks.parameters() if p.ndim >= 2],
                       lr=args.muon_lr, weight_decay=0.025, beta_cov=0.95, gamma=PMUON_GAMMA)
     optimizer2.param_groups[0]["name"] = "muon_blocks"
     print0(f"body-Muon optimizer: lr={args.muon_lr} weight_decay=0.025 beta_cov=0.95 gamma={PMUON_GAMMA}")
     optimizers = [optimizer1, optimizer2]
+    sophia_opt = None
+    if args.use_sophia_embed:
+        sophia_opt = SophiaH(
+            [model.embed.weight],
+            lr=sophia_embed_lr,
+            rho=args.sophia_embed_rho,
+            k=args.sophia_embed_k,
+            beta1=0.9,
+            beta2=args.sophia_embed_beta2,
+        )
+        sophia_opt.param_groups[0]["name"] = "sophia_embed"
+        optimizers.append(sophia_opt)
+        print0(f"Sophia-H embed optimizer: lr={sophia_embed_lr} rho={args.sophia_embed_rho} "
+               f"k={args.sophia_embed_k} beta2={args.sophia_embed_beta2}")
     assert set(p for opt in optimizers for group in opt.param_groups
                for p in group["params"]) == set(model.parameters())
     for opt in optimizers:
@@ -978,6 +1129,24 @@ for trial_idx in range(args.num_trials):
                 train_steps=train_steps,
                 wandb_step=wandb_step,
             )
+        # Sophia-H Hessian-diagonal update via Hutchinson HVP every k steps.
+        # Done BEFORE optimizer.step() so the embed step uses the freshly updated h.
+        # Uses a small microbatch with an eager forward pass (compile disabled
+        # inside update_hessian) so create_graph=True can build the second-order
+        # graph for the HVP without hitting AOT-compile limitations.
+        if sophia_opt is not None and (step % args.sophia_embed_k == 0):
+            hvp_mbs = min(args.sophia_embed_hvp_mbs, len(inputs))
+            hvp_inputs = inputs[-hvp_mbs:]
+            hvp_targets = targets[-hvp_mbs:]
+            # Free as much VRAM as possible before HVP — the eager forward
+            # retains its activation graph for the second backward.
+            torch.cuda.empty_cache()
+
+            def _hvp_loss_fn():
+                return model(hvp_inputs, hvp_targets)
+
+            sophia_opt.update_hessian(model, _hvp_loss_fn)
+            torch.cuda.empty_cache()
         for opt in optimizers:
             opt.step()
         # EMA buffer update on body-Muon matrix params.
@@ -1053,6 +1222,45 @@ for trial_idx in range(args.num_trials):
                     "ema/active_train": int(step >= args.ema_warmup_steps),
                     "ema/ramp_enabled": int(args.ema_beta_target is not None),
                 }, step=wandb_step)
+        if (
+            sophia_opt is not None
+            and dist.get_rank() == 0
+            and telemetry_due
+        ):
+            embed_p = model.embed.weight
+            sophia_state = sophia_opt.state.get(embed_p, {})
+            if "h" in sophia_state:
+                h = sophia_state["h"]
+                m = sophia_state["m"]
+                rho = args.sophia_embed_rho
+                lr_now = sophia_opt.param_groups[0]["lr"]
+                denom = h.clamp_min(rho)
+                m_h_ratio = m.abs() / denom
+                update_tensor = (m / denom) * lr_now
+                sophia_metrics = {
+                    "trial": trial_idx,
+                    "train/step": train_step,
+                    "sophia/h_mean": float(h.mean().item()),
+                    "sophia/h_std": float(h.std().item()),
+                    "sophia/h_min": float(h.min().item()),
+                    "sophia/h_max": float(h.max().item()),
+                    "sophia/m_mean_abs": float(m.abs().mean().item()),
+                    "sophia/m_h_ratio_mean": float(m_h_ratio.mean().item()),
+                    "sophia/m_h_ratio_max": float(m_h_ratio.max().item()),
+                    "sophia/clip_frac": float((h < rho).float().mean().item()),
+                    "sophia/update_norm": float(update_tensor.norm().item()),
+                    "sophia/update_max_abs": float(update_tensor.abs().max().item()),
+                    "sophia/lr": lr_now,
+                    "sophia/rho": rho,
+                    "sophia/k": args.sophia_embed_k,
+                    "sophia/beta2": args.sophia_embed_beta2,
+                }
+                if embed_p.grad is not None:
+                    sophia_metrics["sophia/grad_norm_embed"] = float(embed_p.grad.norm().item())
+                diag = sophia_opt._diagnostics.get(id(embed_p), {})
+                for k_diag, v_diag in diag.items():
+                    sophia_metrics[f"sophia/{k_diag}"] = v_diag
+                wandb.log(sophia_metrics, step=wandb_step)
         if dist.get_rank() == 0 and (train_step % 100 == 0 or train_step == train_steps):
             spec = pmuon_spectral_diag(optimizer2, PMUON_GAMMA)
             if spec:
