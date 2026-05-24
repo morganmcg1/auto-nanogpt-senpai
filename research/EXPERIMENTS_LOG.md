@@ -1,5 +1,24 @@
 # SENPAI Research Results — auto-nanogpt-1gpu-r2
 
+## 2026-05-24 19:30 UTC — PR #1050: WD_AUX_SCHEDULE (CLOSED, 107th refuted — both arms close-miss in floor cluster, schedule axis zero-slope at WD_AUX=0.001 constant optimum)
+
+- Branch: `g1r2-askeladd/wd-aux-schedule` (student g1r2-askeladd)
+- Hypothesis: Schedule the AdamW aux-group weight decay across training instead of constant 0.001. First WD schedule in 250+ PRs (27th distinct mechanism class). Tests whether phase-dependent WD timing can lift the bias-limited floor. Arm A=linear_up 0→0.002 (warmup-low, cooldown-high) + Arm B=linear_down 0.002→0 (warmup-high, cooldown-low). Brackets the schedule axis from both directions.
+- Results:
+
+| Arm | Schedule | W&B run | Steps | val/loss | ffs | Outcome |
+|-----|----------|---------|-------|----------|-----|---------|
+| disabled-check #1 | constant 0.001 | `uwbdepam` | 200 | 4.09919 | — | baseline preserved |
+| disabled-check #2 | constant 0.001 | `jdf109gi` | 200 | 4.07716 | — | baseline preserved |
+| Arm A | linear_up 0→0.002 | `qo0e6un7` | 3175 ✓ | **3.27204** | 3050 | Close-miss, in floor cluster band |
+| Arm B | linear_down 0.002→0 | `gq357ouy` | 3175 ✓ | **3.26980** | 3025 | Close-miss, in floor cluster band |
+
+- **Verdict**: REFUTED. Both arms close-miss in floor cluster band (val=3.270 ± 0.003 / ffs=3025-3075). Neither beats merge bar (val ≤ 3.26776 AND ffs ≤ 3000). Arm B (early-high, late-low) slightly better than Arm A (early-low, late-high) by 0.00224 val + 25 ffs. Schedule axis is zero-slope at WD_AUX=0.001 constant optimum — neither linear direction can capture a better operating point.
+- **Secondary finding — schedule asymmetry direction**: WD_AUX favors early > late (Arm B > Arm A). This is the **OPPOSITE direction** from TARGET_UW asymmetry (PR #1023, where late > early). Mechanism interpretation: WD on AUX (embeddings/lm_head/scalars) benefits from early embedding norm discipline while magnitudes are growing; TARGET_UW (acts on logits/output projection) benefits from late-phase precision. Structurally different parameter families exhibit opposite phase-asymmetries. Weak effect overall but useful for future WD-schedule design.
+- **Schedule-on-frozen-scalar family status update**: #1023 TARGET_UW close-miss + #1051 ATTN_SOAP_TRUST clear-miss + #1050 WD_AUX close-miss. Three schedule probes with terminal data have failed. Two remaining in flight (#1057 NS5_COEF, #1061 AUX_EPS).
+- **Cycle 71 portfolio milestone**: 107 refuted axes / 28 distinct mechanism classes / 32 assigned (including #1073 MUON_BODY_SPECTRAL_CAP just assigned).
+- **Reassignment for askeladd**: PR #1073 MUON_BODY_SPECTRAL_CAP — 32nd distinct mechanism class, FIRST parameter-space spectral constraint in 280+ PRs. After each Muon step, cap σ_max(body matrix) via 1-step power iteration. Arm A=threshold=2.0 (loose), Arm B=threshold=1.0 (Miyato Lipschitz-1). Categorically distinct from all prior axes — not gradient preprocessing, not buffer manipulation, not isotropic shrinkage. BIAS-side direct constraint on weight matrix shape.
+
 ## 2026-05-24 17:30 UTC — PR #1039: EMA_VAL (CLOSED, 106th refuted — monotone-negative bracket, variance-floor cluster now characterized across 7 probes — BIAS-LIMITED firmly established)
 
 - Branch: `g1r2-fern/ema-val` (student g1r2-fern)
