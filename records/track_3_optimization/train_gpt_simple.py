@@ -78,6 +78,13 @@ def parse_args():
                              "Shampoo preconditioner. L_cov/R_cov still accumulate from step 0 "
                              "so they're warm when the gate opens. 0 disables the gate (Shampoo "
                              "applies from step 0 — byte-identical to no-warmup #995 behavior).")
+    parser.add_argument("--shampoo_layer_order", type=str, default="none",
+                        choices=["none", "shampoo_first", "ns5_first"],
+                        help="Composition of Shampoo precond and NS5 polar projection. "
+                             "'none' = Shampoo replaces NS5 (legacy #1046 behavior). "
+                             "'shampoo_first' = compute L^{-1/4} g R^{-1/4}, then apply NS5 to get final update. "
+                             "'ns5_first' = compute NS5(g), then apply L^{-1/4} @ ... @ R^{-1/4}. "
+                             "Requires --shampoo_input != 'off'.")
     args = parser.parse_args()
     args.num_trials = args.num_trials if args.num_trials is not None else (args.legacy_num_trials or 1)
     args.wandb_tags = [tag.strip() for tag in args.wandb_tags.split(",") if tag.strip()]
@@ -525,6 +532,7 @@ def pmuon_update(
     polar_diag: dict | None = None,
     shampoo_input: str = "off",
     shampoo_trace_eps_c: float = 0.0,
+    shampoo_layer_order: str = "none",
 ) -> Tensor:
     # Streaming raw (unnormalized) bilateral covariance EMAs in fp32.
     # Accumulate unconditionally (even during shampoo warmup) so L_cov/R_cov are
@@ -535,6 +543,8 @@ def pmuon_update(
 
     momentum.lerp_(grad, 1 - mu)
     update = grad.lerp_(momentum, mu) if nesterov else momentum
+
+    spectral_factor = max(1, grad.size(-2) / grad.size(-1)) ** 0.5
 
     if shampoo_input == "off":
         L_neg = matrix_neg_power(L_cov, gamma, eps)
@@ -557,17 +567,21 @@ def pmuon_update(
             polar_diag["residual"] = float(torch.linalg.norm(gram - eye).item())
             polar_diag["sample_rows"] = m
             polar_diag["sample_cols"] = n
-        update = polar * (max(1, grad.size(-2) / grad.size(-1)) ** 0.5)
-    else:
-        # Shampoo p=1/4: bilateral L_cov^{-1/4}, R_cov^{-1/4} with asymptotic
-        # bias correction (constant (1-β_cov) multiplier). Drops NS5 entirely.
-        L_cov_unbiased = L_cov * (1 - beta_cov)
-        R_cov_unbiased = R_cov * (1 - beta_cov)
-        eps_L = _shampoo_eps(L_cov_unbiased, shampoo_trace_eps_c)
-        eps_R = _shampoo_eps(R_cov_unbiased, shampoo_trace_eps_c)
-        L_neg_quarter = matrix_neg_power(L_cov_unbiased, 0.25, eps_L)
-        R_neg_quarter = matrix_neg_power(R_cov_unbiased, 0.25, eps_R)
-        shampoo_in = update.float() if shampoo_input == "momentum" else g32
+        update = polar * spectral_factor
+        return update
+
+    # Shampoo p=1/4: bilateral L_cov^{-1/4}, R_cov^{-1/4} with asymptotic
+    # bias correction (constant (1-β_cov) multiplier).
+    L_cov_unbiased = L_cov * (1 - beta_cov)
+    R_cov_unbiased = R_cov * (1 - beta_cov)
+    eps_L = _shampoo_eps(L_cov_unbiased, shampoo_trace_eps_c)
+    eps_R = _shampoo_eps(R_cov_unbiased, shampoo_trace_eps_c)
+    L_neg_quarter = matrix_neg_power(L_cov_unbiased, 0.25, eps_L)
+    R_neg_quarter = matrix_neg_power(R_cov_unbiased, 0.25, eps_R)
+    shampoo_in = update.float() if shampoo_input == "momentum" else g32
+
+    if shampoo_layer_order == "none":
+        # Legacy #1046 behavior: Shampoo replaces NS5 entirely.
         m_shampoo = (L_neg_quarter @ shampoo_in) @ R_neg_quarter
         if polar_diag is not None and "shampoo_frob_norm" not in polar_diag:
             polar_diag["shampoo_frob_norm"] = float(torch.linalg.norm(m_shampoo).item())
@@ -588,20 +602,72 @@ def pmuon_update(
             polar_diag["shampoo_trace_R_over_n"] = trace_R_over_n
             polar_diag["shampoo_eps_L_over_trace_L"] = eps_L / trace_L_over_m
             polar_diag["shampoo_eps_R_over_trace_R"] = eps_R / trace_R_over_n
-        update = m_shampoo.to(grad.dtype) * (max(1, grad.size(-2) / grad.size(-1)) ** 0.5)
+        update = m_shampoo.to(grad.dtype) * spectral_factor
+        return update
+
+    # Layered composition (NS5 + Shampoo).
+    if shampoo_layer_order == "shampoo_first":
+        # Shampoo whitens the gradient first, then NS5 re-orthogonalizes.
+        m_shampoo = (L_neg_quarter @ shampoo_in) @ R_neg_quarter
+        polar = zeropower_via_newtonschulz5(m_shampoo.to(update.dtype), a=ns_a, b=ns_b, c=ns_c)
+        composed = polar.float()
+    else:  # ns5_first
+        # NS5 orthogonalizes first, then Shampoo applies curvature reshape.
+        polar = zeropower_via_newtonschulz5(shampoo_in.to(update.dtype), a=ns_a, b=ns_b, c=ns_c)
+        composed = (L_neg_quarter @ polar.float()) @ R_neg_quarter
+
+    if polar_diag is not None and "composed_update_norm" not in polar_diag:
+        # First-eligible-param-per-step block. Compute reference quantities
+        # (Shampoo-only and NS5-only) so the layered composition can be diagnosed.
+        polar_diag["composed_update_norm"] = float(torch.linalg.norm(composed).item())
+        ns5_ref = zeropower_via_newtonschulz5(shampoo_in.to(update.dtype), a=ns_a, b=ns_b, c=ns_c)
+        m_shampoo_ref = (L_neg_quarter @ shampoo_in) @ R_neg_quarter
+        polar_diag["ns5_only_norm"] = float(torch.linalg.norm(ns5_ref).item())
+        polar_diag["shampoo_only_norm"] = float(torch.linalg.norm(m_shampoo_ref).item())
+        # Cosine similarity between composed update and pure-NS5(shampoo_in).
+        composed_flat = composed.reshape(-1)
+        ns5_flat = ns5_ref.float().reshape(-1)
+        c_norm = composed_flat.norm().clamp_min(1e-30)
+        n_norm = ns5_flat.norm().clamp_min(1e-30)
+        polar_diag["composition_cosine"] = float(
+            (composed_flat @ ns5_flat / (c_norm * n_norm)).item()
+        )
+        # Reuse Shampoo telemetry keys so #1046-style logging still fires.
+        polar_diag["shampoo_frob_norm"] = polar_diag["shampoo_only_norm"]
+        polar_diag["shampoo_per_element_rms"] = (
+            polar_diag["shampoo_only_norm"] / (m_shampoo_ref.numel() ** 0.5)
+        )
+        polar_diag["sample_rows"] = composed.shape[0]
+        polar_diag["sample_cols"] = composed.shape[1]
+        polar_diag["shampoo_eps_L"] = eps_L
+        polar_diag["shampoo_eps_R"] = eps_R
+        trace_L_over_m = float(
+            torch.diagonal(L_cov_unbiased).mean().clamp_min(1e-30).item()
+        )
+        trace_R_over_n = float(
+            torch.diagonal(R_cov_unbiased).mean().clamp_min(1e-30).item()
+        )
+        polar_diag["shampoo_trace_L_over_m"] = trace_L_over_m
+        polar_diag["shampoo_trace_R_over_n"] = trace_R_over_n
+        polar_diag["shampoo_eps_L_over_trace_L"] = eps_L / trace_L_over_m
+        polar_diag["shampoo_eps_R_over_trace_R"] = eps_R / trace_R_over_n
+        polar_diag["layer_order"] = shampoo_layer_order
+
+    update = composed.to(grad.dtype) * spectral_factor
     return update
 
 
 class Muon(torch.optim.Optimizer):
     def __init__(self, params, lr=0.02, weight_decay=0, mu=0.95, beta_cov=0.95, gamma=PMUON_GAMMA,
                  ns_a=NS_A, ns_b=NS_B, ns_c=NS_C, shampoo_input="off", shampoo_trace_eps_c=0.0,
-                 shampoo_warmup_steps=0):
+                 shampoo_warmup_steps=0, shampoo_layer_order="none"):
         assert isinstance(params, list) and len(params) >= 1 and isinstance(params[0], torch.nn.Parameter)
         params = sorted(params, key=lambda x: x.size(), reverse=True)
         defaults = dict(lr=lr, weight_decay=weight_decay, mu=mu, beta_cov=beta_cov, gamma=gamma,
                         ns_a=ns_a, ns_b=ns_b, ns_c=ns_c,
                         shampoo_input=shampoo_input, shampoo_trace_eps_c=shampoo_trace_eps_c,
-                        shampoo_warmup_steps=shampoo_warmup_steps)
+                        shampoo_warmup_steps=shampoo_warmup_steps,
+                        shampoo_layer_order=shampoo_layer_order)
         super().__init__(params, defaults)
         # Current optimizer step set by the training loop. Used to gate Shampoo
         # preconditioning until step >= shampoo_warmup_steps.
@@ -646,6 +712,7 @@ class Muon(torch.optim.Optimizer):
                         polar_diag=polar_diag,
                         shampoo_input=effective_shampoo_input,
                         shampoo_trace_eps_c=group["shampoo_trace_eps_c"],
+                        shampoo_layer_order=group["shampoo_layer_order"],
                     )
                     floor_eligible_count += 1
                     w_norm = p.norm()
@@ -795,6 +862,7 @@ if dist.get_rank() == 0:
             "shampoo_input": args.shampoo_input,
             "shampoo_trace_eps_c": args.shampoo_trace_eps_c,
             "shampoo_warmup_steps": args.shampoo_warmup_steps,
+            "shampoo_layer_order": args.shampoo_layer_order,
         },
     )
 
@@ -834,11 +902,13 @@ for trial_idx in range(args.num_trials):
                       lr=args.muon_lr, weight_decay=0.025, beta_cov=0.95, gamma=PMUON_GAMMA,
                       shampoo_input=args.shampoo_input,
                       shampoo_trace_eps_c=args.shampoo_trace_eps_c,
-                      shampoo_warmup_steps=args.shampoo_warmup_steps)
+                      shampoo_warmup_steps=args.shampoo_warmup_steps,
+                      shampoo_layer_order=args.shampoo_layer_order)
     optimizer2.param_groups[0]["name"] = "muon_blocks"
     print0(f"body-Muon optimizer: lr={args.muon_lr} weight_decay=0.025 beta_cov=0.95 gamma={PMUON_GAMMA}"
            + f" shampoo_input={args.shampoo_input} shampoo_trace_eps_c={args.shampoo_trace_eps_c}"
-           + f" shampoo_warmup_steps={args.shampoo_warmup_steps}")
+           + f" shampoo_warmup_steps={args.shampoo_warmup_steps}"
+           + f" shampoo_layer_order={args.shampoo_layer_order}")
     optimizers = [optimizer1, optimizer2]
     assert set(p for opt in optimizers for group in opt.param_groups
                for p in group["params"]) == set(model.parameters())
@@ -1129,6 +1199,16 @@ for trial_idx in range(args.num_trials):
                     "shampoo/eps_L_relative_to_trace_mean": polar_diag.get("shampoo_eps_L_over_trace_L", float("nan")),
                     "shampoo/eps_R_relative_to_trace_mean": polar_diag.get("shampoo_eps_R_over_trace_R", float("nan")),
                     "shampoo/trace_eps_c": args.shampoo_trace_eps_c,
+                }, step=wandb_step)
+            if polar_diag and "composed_update_norm" in polar_diag:
+                wandb.log({
+                    "trial": trial_idx,
+                    "train/step": train_step,
+                    "shampoo_ns5/composed_update_norm": polar_diag["composed_update_norm"],
+                    "shampoo_ns5/shampoo_only_norm": polar_diag["shampoo_only_norm"],
+                    "shampoo_ns5/ns5_only_norm": polar_diag["ns5_only_norm"],
+                    "shampoo_ns5/composition_cosine": polar_diag["composition_cosine"],
+                    "shampoo_ns5/layer_order": polar_diag.get("layer_order", "none"),
                 }, step=wandb_step)
             # Shampoo warmup-gate state. Always logged when Shampoo is configured
             # so the dashboard shows gate transitions cleanly across the run.
