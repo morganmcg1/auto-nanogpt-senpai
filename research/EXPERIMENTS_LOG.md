@@ -1,3 +1,54 @@
+## 2026-05-24 13:30 UTC — PR #1038 ASSIGNED (nezuko): H121 Inner MuonH Momentum Pruning Ablation (is Nesterov µ structurally load-bearing?)
+
+- Branch: `g1r3-nezuko/h121-inner-momentum-pruning`
+- Hypothesis: **Pure pruning ablation: disable inner MuonH Nesterov momentum entirely (µ=0.0) — first-ever test of zero-momentum MuonH.** H95 mapped static µ in [0.85, 0.98]; H109/H117 tested µ schedules. The limit case µ=0 has never been tested. Completes the 3-axis systematic stack pruning study: H118 (MuLoCo outer, in-flight frieren) + H119 (AGC, in-flight alphonse) + H121 (inner momentum, this PR). Tests whether `step = NS5(g_t)` alone is sufficient or whether `step = NS5(µ·v_{t-1} + g_t)` is structurally necessary.
+- Arms (n=1 seed each, 3325 steps, 1×H100):
+  - arm_a CTRL: `--muonh_mu 0.95` (bit-identical baseline)
+  - arm_b NO_MOMENTUM: `--muonh_mu 0.0` (pure pruning — momentum buffer never accumulates; inner step = NS5(g_t) per training step)
+  - arm_c TINY_MOMENTUM: `--muonh_mu 0.1` (graceful intermediate — bridges to H95 NEG floor at µ=0.85)
+- Smoke protocol: arm_b/arm_c run 200 steps first; catastrophic divergence likely for arm_b (H95 µ=0.85 was already catastrophic NEG +0.022; µ=0.0 is far below).
+- Critical telemetry: `muonh/sv_min`, `muonh/sv_max`, `muonh/sv_median` on body weights (post-NS5 spectral structure: does NS5 of g_t produce different sv distribution than NS5 of momentum buffer?); `muonh/grad_norm_pre_ns5` per arm; val/loss at 8 fixed checkpoints (H109 gold-standard 8-point diagnostic).
+- Decision (widened NULL band [3.26880, 3.27250]):
+  - WIN/NULL: momentum vestigial; NS5 alone sufficient; major simplification finding
+  - NEG: momentum load-bearing; validates H95 interior closure mechanism at limit case
+  - CATASTROPHIC: momentum is binding stability constraint; closes inner-momentum axis comprehensively (joint H95/H109/H117/H121)
+- Why nezuko: gold-standard momentum-mechanism diagnostic track record (H103 nesterov_heavy_ratio, H95 cooldown crossover, H113 per-buffer apply_norm/agreement_cos). Natural progression of nezuko's momentum-mechanism arc: outer formula → outer multi-buffer → inner pruning.
+
+---
+
+## 2026-05-24 13:15 UTC — PR #1006 CLOSED NEG/closure (nezuko): H113 Outer AggMo K=3 (8th outer-aggregation axis closure; magnitude overshoot at tuned outer_lr=0.7)
+
+- Branch: `g1r3-nezuko/h113-outer-aggmo`
+- Final 3-arm table (W&B-verified via sub-agent):
+
+| arm | β config | val/best_loss | Δ vs baseline | Δ vs CTRL | ffs | W&B | Verdict |
+|-----|---------|---------------|---------------|-----------|-----|-----|---------|
+| arm_a CTRL | single-buffer Nesterov µ=0.5 | 3.27094 | +0.00117 | — | 3100 | `7urrrtvx` | NULL (within widened band) |
+| arm_b PRIMARY | AggMo K=3 β=[0.0, 0.5, 0.9] | 3.30779 | +0.03802 | +0.03685 | -1 (DNF) | `wpuz1lql` | catastrophic NEG |
+| arm_c TUNED | AggMo K=3 β=[0.5, 0.7, 0.9] | 3.32765 | +0.05788 | +0.05671 | -1 (DNF) | `1vq2ndv3` | deep catastrophic NEG |
+
+Both AggMo arms failed to reach val_target=3.28 by step 3325. Closure-amplifier triggered.
+
+**Programme-level finding: buffer diversification is real but magnitude is wrong.**
+
+AggMo buffers DO carry non-redundant time-scale information (confirmed):
+- arm_b cos_min(β=0.0 ↔ β=0.9) drops to 0.0785 at final outer sync (highly diverged direction signals)
+- arm_b agreement_cos_mean ≈ 0.82 mid-training (partial alignment, not lock-step)
+- arm_c more redundant (smaller β range): cos_min(b0↔b2) ≈ 0.78 mid-training
+
+But uniform 1/K averaging with Nesterov-form amplification causes **magnitude overshoot**:
+- β=0.9 apply_rms ≈ 33× β=0.0 apply_rms at terminal (cooldown amplifies long-window buffer dominance)
+- Ensemble step at outer_lr=0.7 ≈ single buffer at outer_lr 1.5-2.0×
+
+**Mechanism insight**: Lucas et al. (2019) demonstrated AggMo benefits on an UNDER-TUNED SGDM baseline (β=0.9 only). Our baseline already uses µ=0.5 (near the "rapid response" end of their spectrum). Adding β=0.5 and β=0.9 buffers doesn't add rapid-response capability — it adds LONG-WINDOW lookback that magnifies cooldown-phase outer apply norms. The AggMo rescue mechanism is already built into our single-buffer µ=0.5 baseline.
+
+**Programme directive**: AggMo and multi-buffer ensemble variants pre-closed for outer-SGDM at tuned outer_lr. Future PRs proposing multi-buffer averaging must specify (1) what's missing in single-buffer µ=0.5 and (2) how to address magnitude overshoot.
+
+- **Joint 8-axis outer-aggregation closure**: H91/H99/H100/H101/H103/H108/H111/H113. Single-buffer Nesterov-SGDM(µ=0.5, outer_lr=0.7, sync_interval=30) is at-optimum across: direction (3), magnitude clip, schedule, formula, frequency, multi-buffer.
+- Methodological commendation: per-buffer apply_norm + agreement_cos telemetry = gold-standard outer-momentum diagnostic (3rd consecutive gold-standard mechanism diagnostic from nezuko). A-priori magnitude overshoot prediction confirmed.
+
+---
+
 ## 2026-05-24 13:00 UTC — PR #1034 ASSIGNED (thorfinn): H120 LR Cooldown Fraction Sweep (is entire-training-cosine-cooldown h_cooldown_frac=1.0 optimal?)
 
 - Branch: `g1r3-thorfinn/h120-cooldown-frac-sweep`
