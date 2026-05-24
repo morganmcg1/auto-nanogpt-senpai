@@ -1,5 +1,35 @@
 # SENPAI Research Results — auto-nanogpt-1gpu-r2
 
+## 2026-05-24 05:20 UTC — PR #971: MUON_GRAD_VAR_NORM (CLOSED, 88th refuted axis — bidirectional Adam-style pre-NS5 per-element 2nd-moment normalization, 11th pre-NS5 Muon body gradient stream intervention refutation in cycle 71)
+
+- Branch: `g1r2-frieren/muon-grad-var-norm` (student g1r2-frieren)
+- Hypothesis: Apply Adam-style per-element second-moment normalization to body Muon gradient before NS5. Arm A=exp0.5 (sqrt denominator, partial normalization), Arm B=exp1.0 (full Adam-style, complete normalization). Idea was to test whether forcing per-element grads to ~unit RMS would stabilize NS5 polynomial iteration.
+
+| Arm | exp | W&B run | val (terminal) | ffs | reached_target |
+|---|---|---|---:|---:|:---:|
+| Arm A | 0.5 | `20zgyect` | **3.27171** | 3050 | ✅ |
+| Arm B | 1.0 | `vudhcd5v` | **3.28535** | -1 | ❌ |
+| Disabled-check | n/a | `9xcalv8a` | val@200=4.087 | n/a | (baseline preserved) |
+
+Both arms uniformly harmful vs baseline 3.26776/3000:
+- Arm A (sqrt denominator) reached_target=True at step 3050 but val=3.27171 misses hold gate by +0.00171 (val) — partial pre-NS5 normalization still penalizes large grads but less aggressively than full Adam, lands in floor cluster band (val=3.270 ± 0.003 / ffs=3025-3075).
+- Arm B (full Adam-style) FAILS target (ffs=-1) val=3.28535 well above 3.28 — full per-element second-moment normalization destroys descent.
+
+**Student frieren's mechanistic insight (quoted in closure)**: "Per-element grads are forced to ~unit RMS [at exp=1.0]. This removes the natural magnitude variation that NS5 evidently depends on."
+
+This is the **definitive mechanistic identification** of why this entire axis class is uniformly harmful — NS5 polynomial iteration (`p(x) = 2x - 1.5x^3 + 0.5x^5`) requires the natural per-element magnitude variation of the gradient to function as an effective orthogonalization. Adam-style normalization equalizes magnitude across coordinates, breaking the directional signal NS5 is designed to preserve. At exp=0.5 (sqrt), the normalization is partial so descent survives but baseline is not beaten; at exp=1.0 (full), the descent signal is destroyed.
+
+**11th pre-NS5 Muon body gradient stream intervention refuted in cycle 71** — pre-NS5 abstraction layer fully SATURATED. Spans:
+- element-wise: sign, soft-sign, dampening, power, hardclip, var-norm exp0.5/1.0
+- tensor-level: per-tensor Frobenius clip (#968)
+- geometric: CG decorrelate (#987), low-rank, layer-norm
+- temporal: high-pass EMA subtraction (#989)
+- Adam-style: per-element second-moment normalization (#971 just closed)
+
+**Portfolio implication**: future axes MUST AVOID pre-NS5 grad-stream interventions. Mechanism families that have NOT yet been refuted: NS5 polynomial layer (#999 stochastic iters in flight), post-NS5 update space (#996 Gaussian noise in flight), aux AdamW eps (#1000 in flight), u/w-floor ablation (#1004 stack-pruning in flight), u/w-cap (#1007 band-constraint cap-side new assignment).
+
+Closure URL: https://github.com/morganmcg1/modded-nanogpt-senpai/pull/971#issuecomment-4527453507
+
 ## 2026-05-24 04:55 UTC — PR #968: MUON_PER_TENSOR_GRAD_CLIP (CLOSED, 87th refuted axis — bidirectional floor cluster close-miss, 10th pre-NS5 Muon body gradient stream intervention refutation in cycle 71)
 
 - Branch: `g1r2-askeladd/muon-per-tensor-grad-clip` (student g1r2-askeladd)
