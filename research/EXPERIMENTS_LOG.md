@@ -1,5 +1,27 @@
 # SENPAI Research Results
 
+## 2026-05-24 19:45 UTC — PR #1040 CLOSED: WD coupling form (lr-linear vs lr-squared vs fully decoupled) — 113th NULL, lr_linear IS load-bearing (g1r1-edward)
+
+- Branch: `g1r1-edward/wd-decoupling-form`
+- Hypothesis: body-Muon WD form `p *= (1 - lr * wd)` is an arbitrary SGD inheritance OR is load-bearing because NS5 polar output has different update-scale dynamics. Three forms tested: lr_linear (baseline), lr_squared (quadratic vanishing), decoupled (constant per step). All calibrated to identical per-step decay = 0.001 at peak LR=0.040.
+
+| Arm | wd_form | wd | W&B | val/loss | sr | Δval vs #918 | Δsr | Verdict |
+|---|---|---|---|---|---|---|---|---|
+| Baseline #918 (n=2) | lr_linear | 0.025 | `vm48fdof`/`0a7esmxs` | 3.266394 | 2925 | — | — | Pareto-optimum |
+| **Arm A lr_squared** | lr_squared | 0.625 | `ogapobt0` | **3.268200** | **2950** | +0.001806 | +25 | NULL |
+| **Arm B decoupled** | decoupled | 0.001 | `tad7pz1u` | **3.292603** | **-1** | +0.026209 | catastrophic | NEG (failed 3.28 target) |
+
+- **Decision: 113th NULL — DOES NOT MERGE.** Arm A NULL bracket; Arm B decisively NEG.
+- **Canon finding 1: lr_linear coupling is STRUCTURALLY CORRECT, not arbitrary.** It preserves decay-to-update ratio = wd/|polar(p)| constant throughout WSD schedule. NS5 polar output magnitude ∝ lr → WD ∝ lr maintains the balance. Breaking this proportionality (decoupled form) causes WD to dominate during cooldown when NS5 updates shrink to zero.
+- **Canon finding 2: p_norm_body_mean 5.35× terminal divergence is reference-grade mechanism deconvolution.** Arm A terminal p_norm=607 vs Arm B p_norm=113 — by construction both identical at peak LR=0.040 (calibration confirmed at step 500: 118.21 vs 118.36), divergence is ENTIRELY cooldown-phase artifact. Arm B p_norm peaks at step ~1500 (355) then COLLAPSES to 113 (3.1× shrinkage from 1500→3250) as WD wins tug-of-war against shrinking updates.
+- **Canon finding 3: val/loss slope flip is direct confirmation of unlearning.** Arm B val/loss bottom at step 2975 (3.2921) then ASCENDS to 3.2926 at step 3250 (+0.00139 slope = positive). Arm A continues descent (-0.00415 slope). The model is actively unlearning under decoupled WD-dominated dynamics.
+- **Canon finding 4: u/w-floor corroborates p_norm collapse.** fired_fraction: Arm A 100% throughout cooldown; Arm B 1.0→0.49 during cooldown. As |w|_F shrinks in Arm B, |u|/|w| ratio rises above floor, floor stops firing. Clean cross-axis link to #1035 u/w-floor pruning.
+- **WHAT'S CLOSED:** WD coupling form axis across {lr_linear, lr_squared, decoupled}. lr_linear IS CORRECT by construction, not by coincidence.
+- **WHAT'S OPEN:** Dual-region cooldown shape (OPEN per #969 closure note) — edward reassigned to #1084.
+- edward → **#1084** (dual-region cooldown shape: piecewise γ₁/γ₂, follow-up to #969 Pareto-coupling finding).
+
+---
+
 ## 2026-05-24 20:08 UTC — PR #1035 CLOSED: UW-floor pruning ablation (TARGET_UW=0 vs 0.50) — 112th NULL, clean U-shape confirmation, floor IS partially load-bearing at 0.35 (g1r1-thorfinn)
 
 - Branch: `g1r1-thorfinn/uw-floor-pruning`
