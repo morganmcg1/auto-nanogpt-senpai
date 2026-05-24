@@ -7,7 +7,31 @@ Statistical rule: `(3.28 - mu) * sqrt(n) >= 0.004`.
 
 ## Local baseline (auto-nanogpt-1gpu-r1)
 
-### 2026-05-23 14:10 UTC — PR #864: EMA warmup_steps re-tune 1750 (thorfinn n=2 WIN) (g1r1-thorfinn) ← CURRENT BEST
+### 2026-05-24 02:50 UTC — PR #918: Body-Muon LR retune to 0.040 (thorfinn n=2 WIN) (g1r1-thorfinn) ← CURRENT BEST
+
+- **speedrun/final_first_step_to_target:** 2925 (n=2 mean — seed-1 2925, seed-2 2925; both seeds independently hit sr=2925)
+- **val/loss:** 3.266394 (n=2 mean — seed-1 `vm48fdof` 3.265863, seed-2 `0a7esmxs` 3.266925)
+- **stat-sig margin:** (3.28 − 3.266394)·√2 = 0.01924 ≥ 0.004 ✓ (4.81×)
+- **Δ vs PR #864 baseline:** 0 sr-steps (tied), −0.000432 val (−0.4 mnat improvement vs PR #864 n=2 mean 3.266826)
+- **W&B runs:** seed-1 `vm48fdof`, seed-2 `0a7esmxs` (group `g1r1-thorfinn/muon-lr-retune-post-864`); Arm B (DOWN muon_lr=0.030, `1zif5xet`) NULL at val=3.269392 (+0.0026).
+- **Key config:** all PR #864 config + `--muon_lr 0.040` (changed from 0.035, +14%). `--ema_beta 0.95 --ema_warmup_steps 1750 --ema_beta_target 0.99` unchanged.
+- **Mechanism:** Body-Muon LR=0.035 was last tuned at PR #248 BEFORE the EMA wrapper (PR #737) and shortened warmup (PR #864). Higher LR (0.040) puts larger per-step updates into the body → EMA buffer absorbs more variance → EMA inference lands at lower val (ema/buffer_frob_dist: 22.6 at UP vs 5.1 at DOWN, 4.5× ratio). Asymmetric: DOWN regresses 6× harder (Δ+0.0026) than UP wins (Δ−0.0004), confirming the optimum has structurally shifted UP since PR #248.
+- **Statistical thresholds (updated with new baseline):** n=1 win: sr ≤ 2912.5 OR (sr = 2925 AND val < 3.266394). New **n=1 stat-sig threshold: val ≤ 3.276** (unchanged formula). **Marginal band: Δsr ≤ 25 OR Δval ≤ 0.001** (unchanged structure).
+- **Reproduce:**
+  ```bash
+  cd target
+  torchrun --standalone --nproc_per_node=1 \
+    records/track_3_optimization/train_gpt_simple.py --num_trials 1 \
+    --ema_beta 0.95 --ema_warmup_steps 1750 --ema_beta_target 0.99 \
+    --muon_lr 0.040 \
+    --wandb_name "baseline-reproduction-pr918" \
+    --wandb_group "baseline-reproduction"
+  ```
+- **Notes:** Body-Muon LR axis asymmetric: DOWN −14% (0.030) clearly NULLs; UP +14% (0.040) marginally wins at n=2. Local optimum likely in [0.038, 0.045]. Fine scan around 0.040 is a natural follow-up (0.038, 0.042, 0.045). The compound EMA mechanism (higher LR → larger EMA buffer divergence → better val) is load-bearing; joint scan with ema_warmup_steps could map the coupling further.
+
+---
+
+### 2026-05-23 14:10 UTC — PR #864: EMA warmup_steps re-tune 1750 (thorfinn n=2 WIN) (g1r1-thorfinn)
 
 - **speedrun/final_first_step_to_target:** 2925 (n=2 mean — seed-1 2925, seed-2 2925; both seeds independently hit sr=2925)
 - **val/loss:** 3.266826 (n=2 mean — seed-1 `j8nsn77s` 3.266355, seed-2 `08ursg5n` 3.267298)
