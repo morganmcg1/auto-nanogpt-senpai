@@ -468,6 +468,11 @@ NS5_ITERS = int(os.environ.get("NS5_ITERS", "12"))
 WD_AUX = float(os.environ.get("WD_AUX", "0.0"))  # AdamW WD on embed + lm_head matrices (scalars stay at 0)
 EMBED_INIT_STD = float(os.environ.get("EMBED_INIT_STD", "1.0"))  # default preserves baseline N(0,1)
 LOGIT_SOFTCAP = float(os.environ.get("LOGIT_SOFTCAP", "15.0"))  # default = 15 (current hardcoded value); soft-cap value c in f(x) = c·x / sqrt(x^2+c^2)
+# Lookahead / slow-weight averaging (Zhang et al. NeurIPS 2019, arxiv 1907.08610).
+# Disabled when either var is 0 -> mathematically identical to baseline.
+SLOW_WEIGHTS_K = int(os.environ.get("SLOW_WEIGHTS_K", "0"))  # sync every K steps; 0 = disabled
+SLOW_WEIGHTS_ALPHA = float(os.environ.get("SLOW_WEIGHTS_ALPHA", "0.0"))  # pull strength; 0 = disabled
+SLOW_WEIGHTS_ENABLED = SLOW_WEIGHTS_K > 0 and SLOW_WEIGHTS_ALPHA > 0.0
 
 
 def zeropower_via_newtonschulz5(G: Tensor) -> Tensor:
@@ -866,6 +871,9 @@ if dist.get_rank() == 0:
             "optimizer/attn_soap_trust_threshold": ATTN_SOAP_TRUST_THRESHOLD,
             "optimizer/ns5_iters": NS5_ITERS,
             "optimizer/wd_aux": WD_AUX,
+            "optimizer/slow_weights_k": SLOW_WEIGHTS_K,
+            "optimizer/slow_weights_alpha": SLOW_WEIGHTS_ALPHA,
+            "optimizer/slow_weights_enabled": SLOW_WEIGHTS_ENABLED,
             "optimizer/recipe": "contra-muon + normuon-lite + soap-on-mlp + soap-on-attn-trust-gate (pre-NS5, record #14 + record #16)",
         },
     )
@@ -945,6 +953,12 @@ for trial_idx in range(args.num_trials):
     train_loader = distributed_data_generator("data/fineweb10B/fineweb_train_*.bin", batch_size)
     for p in model.parameters():
         dist.broadcast(p.detach(), 0)
+    # Reset Lookahead slow-weight buffers per trial (params got reinitialized above).
+    if SLOW_WEIGHTS_ENABLED:
+        for p in model.parameters():
+            if hasattr(p, "_slow_weight"):
+                del p._slow_weight
+    lookahead_sync_count = 0
     # start the clock
     training_time = 0
     last_val_step = 0
@@ -1053,6 +1067,30 @@ for trial_idx in range(args.num_trials):
             )
         for opt in optimizers:
             opt.step()
+        # Lookahead / slow-weight averaging (Zhang et al. 2019, arxiv 1907.08610).
+        # After both optimizers step, every K iterations pull the fast weights toward
+        # a slow-moving average: slow <- slow + alpha*(fast - slow); fast <- slow.
+        if SLOW_WEIGHTS_ENABLED and step > 0 and step % SLOW_WEIGHTS_K == 0:
+            with torch.no_grad():
+                sq_dist = 0.0
+                pull_sq = 0.0
+                for p in model.parameters():
+                    if not hasattr(p, "_slow_weight"):
+                        p._slow_weight = p.data.detach().clone()
+                    diff = p.data - p._slow_weight
+                    if dist.get_rank() == 0 and telemetry_due:
+                        sq_dist += float(diff.pow(2).sum().item())
+                    p._slow_weight.add_(diff, alpha=SLOW_WEIGHTS_ALPHA)
+                    if dist.get_rank() == 0 and telemetry_due:
+                        pull_sq += float((diff * SLOW_WEIGHTS_ALPHA).pow(2).sum().item())
+                    p.data.copy_(p._slow_weight)
+            lookahead_sync_count += 1
+            if dist.get_rank() == 0 and telemetry_due:
+                wandb.log({
+                    "lookahead/slow_fast_distance": sq_dist ** 0.5,
+                    "lookahead/last_pull_magnitude": pull_sq ** 0.5,
+                    "lookahead/sync_count": lookahead_sync_count,
+                }, step=wandb_step)
         if dist.get_rank() == 0 and telemetry_due:
             for opt in optimizers:
                 if hasattr(opt, "trust_gate_stats"):
