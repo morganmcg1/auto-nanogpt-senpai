@@ -1,3 +1,45 @@
+## 2026-05-24 10:45 UTC — PR #1030 ASSIGNED (frieren): H118 MuLoCo Pruning Ablation (is outer SGDM structurally load-bearing?)
+
+- Branch: `g1r3-frieren/h118-no-outer-ablation`
+- Hypothesis: **After 7-axis outer-aggregation closure (H91/H99/H100/H101/H103/H108/H111), test whether the ENTIRE outer-SGDM-with-anchor mechanism is load-bearing.** Pure LoC=0 pruning ablation, explicitly encouraged by the launch constraints. Directly asks: "Is inner MuonH alone sufficient, or is outer-SGDM-with-anchor structurally necessary?"
+- Arms (n=1 seed each, 3325 steps, 1×H100):
+  - arm_a CTRL: `--use_outer_optimizer 1` (bit-identical baseline with full MuLoCo)
+  - arm_b NO_OUTER: `--use_outer_optimizer 0` (removes anchor + outer SGDM entirely; inner MuonH applies updates directly to parameters)
+  - arm_c NO_OUTER_LR_BOOSTED: `--use_outer_optimizer 0 --muonh_lr 0.025` (1.4× of default 0.018; tests if outer magnitude contribution is replaceable by inner LR boost)
+- Critical telemetry: `param/global_norm_l2` trajectory per arm (tests whether outer anchor pullback was implicitly regularizing parameter norm drift); `val/loss` trajectory comparison across arms.
+- Decision (widened NULL band [3.26880, 3.27250]):
+  - WIN/NULL: major finding — outer is vestigial, 7-axis closure was within unnecessary subsystem, simplification opportunity
+  - NEG >3.27250: outer structurally load-bearing; retroactively confirms 7-axis closure value
+  - CATASTROPHIC >3.35: outer was critical for stability; closes "stability question" axis
+- Programme-significance: arm_b vs arm_c comparison reveals whether outer was providing form (anchor-pullback structure) or magnitude (cumulative displacement). H111's finding ("sync_interval→∞ limit: no outer at all") directly motivates this experiment.
+- Why frieren: H111 closure naturally asks the ∞-sync_interval limit. Frieren's H87 (winning aux β2) + H111 (outer frequency analysis) gives them the deepest context on time-averaging + outer dynamics in the cohort.
+
+---
+
+## 2026-05-24 10:35 UTC — PR #1002 CLOSED NEG/closure (frieren): H111 Outer MuLoCo Sync Interval Granularity Sweep (7th outer-aggregation axis closure)
+
+- Branch: `g1r3-frieren/h111-outer-sync-interval`
+- Final 3-arm table (W&B-verified via sub-agent):
+
+| arm | sync_interval | outer syncs | val/best_loss | Δ vs baseline | ffs | W&B |
+|-----|---------------|-------------|---------------|---------------|-----|-----|
+| arm_a CTRL | 30 | 110 | 3.27010 | +0.00033 | 3100 | `4winek31` |
+| arm_b FINE | 15 | 221 | 3.27327 | +0.00350 | 3125 | `qrfz5d8c` |
+| arm_c COARSE | 60 | 55 | 3.27098 | +0.00121 | 3100 | `yh4mwta9` |
+
+- Under widened CTRL dispersion floor [3.26880, 3.27250]: arm_a NULL bit-id; arm_b NEG (above 3.27250); arm_c NULL (within band, upper region).
+
+**Three programme-level findings:**
+1. **delta_rms scales sub-linearly with sync_interval**: naive prediction 0.5×/2×; observed 0.66×/1.43×. Inner trajectory has substantial within-window curvature/cancellation — directional reversals within 15/30/60-step windows are significant.
+2. **velocity_rms scales WITH sync_interval (not against)**: β=0.5 EMA equilibrium is set by input magnitude, NOT sampling frequency. FINE: 0.70× CTRL; COARSE: 1.40× CTRL. Counter-intuitive — momentum buffer tracks delta magnitude regardless of how often it's updated.
+3. **Failure mode for FINE = "anchor reset before inner momentum settles"**: cumulative outer kick per training step: FINE=0.0300 > CTRL=0.0220 > COARSE=0.0156. MORE corrections ≠ better. Inner Adam β2=0.99 second-moment buffer needs ~100 unbiased steps to settle — 15-step windows disrupt this. **Programme directive: inner Adam β2=0.99 is the binding constraint on minimum sync_interval (must be >30).**
+
+- **Closure-amplifier**: arm_b NEG + arm_c NULL (not WIN) → NEG/closure on granularity axis. Joint H91/H99/H100/H101/H103/H108/H111 = **7-axis outer-aggregation closure**.
+- Methodological commendation: pre-cooldown plateau-mean averaging window methodology; cumulative outer movement per training step derived metric (load-bearing diagnostic); per-arm heartbeat cadence with interim mechanism interpretation.
+- **Frieren's follow-up suggestions**: (1) outer_lr rescaling — DECLINED (magnitude axis closed by H91/H99/H100); (2) inner β1 raise under FINE — DEFERRED pending H110 closure; (3) Nesterov+COARSE pairing — PRE-CLOSED by H103. H118 (just assigned) directly follows from follow-up direction "what is the limit case sync_interval→∞?"
+
+---
+
 ## 2026-05-24 10:10 UTC — PR #1027 ASSIGNED (fern): H117 Inner MuonH µ DECREASING Schedule (mirror-image of H109)
 
 - Branch: `g1r3-fern/h117-mu-decreasing-schedule`
