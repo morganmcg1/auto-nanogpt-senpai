@@ -1,6 +1,6 @@
 # SENPAI Research State — auto-nanogpt-1gpu-r1
 
-- **Last update:** 2026-05-24 04:15 UTC
+- **Last update:** 2026-05-24 04:50 UTC
 - **Most recent direction from humans:** None (checked 03:25 UTC, no issues open).
 - **Target:** Push `speedrun/final_first_step_to_target` below 2925 steps. LOCAL RECORD **2925** (PR #918, merged 2026-05-24 02:50 UTC). **NEW BASELINE val=3.266394** (muon_lr=0.040, Δ−0.000432 vs PR #864). Body-Muon LR axis: 0.035→NULL(pre-baseline), 0.030→NULL(Δ+0.0026), 0.040→WIN(merged). Optimum likely in [0.040, 0.055]; thorfinn probing 0.045 vs 0.050 in #986.
 - **🎯 100 closed axes milestone reached at 04:05 UTC May 24.** #985 alphonse (Shampoo body-Muon p=1/4, no NS5) closed as 100th NULL. Both arms (momentum-input Arm A `hin8ed8u` + raw-gradient Arm B `nssi5k4g`) crashed at step 500 mid-flight gate (val/loss > 4.0) with near-identical trajectories (Arm A val=4.623 vs Arm B val=4.620 at step 500). **MAJOR STRUCTURAL FINDING: NS5 is TRIPLE-LOAD-BEARING** — magnitude normalization (per #940) + rank-deficiency clipping (per #898) + **null-space amplification suppression (NEW from #985)**. Rank-1 L_cov at step 1 + `matrix_neg_power(L_cov, 0.25, eps=1e-12)` → null eigenvalues clamp to 1e-12 → 1000× amplification when raised to negative power → 20,000× per-element RMS over baseline by step 25. Both momentum and raw-gradient inputs fail identically → preconditioner-side pathology, not input-noise. alphonse → next PR (Shampoo with trace-relative eps clamp `eps = c·trace(M)/m` — student's own suggestion #1 from closure note).
@@ -17,7 +17,18 @@ W&B seeds: `vm48fdof` (seed-1 val=3.265863), `0a7esmxs` (seed-2 val=3.266925). *
 
 Note: The val improvement is razor-thin (−0.1 mnat over PR #737). Future experiments that previously compared against val=3.266926 now compare against 3.266826 (slightly harder target).
 
-## Active experiments (8 in-flight, 04:15 UTC May 24)
+## Live mid-flight signals (04:50 UTC May 24)
+
+- **#969 askeladd Arm A `pj81uhlp` TERMINAL (W&B 04:10 UTC)**: val/loss=**3.2647**. vs OLD baseline 3.266826 (apples-to-apples lr=0.035): Δ−0.0021 → past 0.001 marginal threshold → **POTENTIAL CLEAN n=1 WIN at lr=0.035 with γ=1.2 (slower cooldown decay)**. vs NEW baseline 3.266394 (lr=0.040): Δ−0.00169 → also past marginal but tighter. Awaiting student SENPAI-RESULT with sr. **Merge path:** require rebase + n=2 confirmation at lr=0.040 (current baseline) since Δ vs new baseline only 0.69× past marginal threshold. Arm B `rqrzfsaw` (γ=1.6) at step 425/3250 in flight — predicted NULL/regression (cooldown power axis may be asymmetric).
+- **#964 nezuko Arm A `4e0gxvwh` TERMINAL (W&B 02:55 UTC, 109 min stale)**: val/loss=**3.3061**. Δ+0.039 → 39× past marginal threshold = **clear NULL, mechanism failure**. Muon-as-aux for lm_head at `--lm_head_muon_lr 0.0841` regressed substantially. Consistent with i.i.d.-aux finding (per #846/#854/#875/#899/#913 cluster): cross-dim preconditioning (SOAP/Shampoo + Muon) all fail on aux. Arm B candidate `8455medh` (aux-muon-lm-head-conservative) at step 1575 in flight; second run `e4hqopjo` on pod is suspicious unrelated naming — refresh comment requests disambiguation.
+- **#977 edward Arm A `rqjoxwrn` DIVERGING (W&B 04:44 UTC)**: step 2450/3250 val=4.7694 train=5.16. Past divergence threshold but not crashing. ETA terminal ~05:35 UTC. **Body-gradient cosine 0.26-0.33 finding confirmed (non-i.i.d. but destructive temporal structure under stale-anchor blend).** Arm B α=0.05 (95% fast + 5% slow conservative) will chain after.
+- **#953 tanjiro Arm B `rviq8g8e` MID-FLIGHT (W&B 04:44 UTC)**: step 2175/3250 val=3.3804. ~67% done. ETA terminal ~05:30 UTC. Arm A already NULL val=3.2718 (R^{-1/4} norm-preserving).
+- **#995 alphonse Arm A `4awd887v` JUST LAUNCHED (W&B 04:43 UTC)**: step 150/3250 val=4.6369 in warmup phase. Trace-relative eps Shampoo (c=1e-4). Mid-flight gate at step 500 (val<4.0). Will reveal whether NS5 triple-load-bearing role (3) (null-space amplification suppression) is fixable via Tikhonov-style ridge.
+- **#990 fern Arm A `4kjfi8v7` MID-FLIGHT (W&B 04:44 UTC)**: step 925/3250 val=3.7052. Schedule-Free body-Muon (c_t weighted averaging). ETA terminal ~07:00 UTC.
+- **#986 thorfinn Arm A `j1ctno6k` MID-FLIGHT (W&B 04:44 UTC)**: step 1325/3250 val=3.6407 healthy (3rd attempt after 2 prior crashes `d6txg981` step 50, `z42gfxre` step 0). Body-Muon LR fine-scan UP at 0.045.
+- **#958 frieren Arm A NEW LAUNCH `m93rch9c` (W&B 04:41 UTC)**: step 25/3250 val=10.83 in init phase. Restart after prior `w9q2dzkm` crash at step 1350. γ_pre UP schedule.
+
+## Active experiments (8 in-flight, 04:50 UTC May 24)
 
 | PR | Student | Hypothesis | Status |
 |---|---|---|---|
