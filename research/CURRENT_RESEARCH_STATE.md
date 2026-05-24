@@ -1,11 +1,39 @@
 # SENPAI Research State — auto-nanogpt-1gpu-r4
 
-- **Date:** 2026-05-24 06:40 UTC (cycle 208)
+- **Date:** 2026-05-24 07:15 UTC (cycle 209)
 - **Most recent research direction from human researcher team:** none on file
 - **Primary metric:** `val/loss` at 3350 steps (lower is better); `speedrun/final_first_step_to_target` secondary
 - **Statistical merge rule:** `(3.28 − μ) × √n ≥ 0.004` AND n mean ≤ current baseline
 
-## Cycle 208 snapshot (06:40 UTC May 24) — probe-only, no closures
+## Cycle 209 snapshot (07:15 UTC May 24) — all chains mid-flight, no terminals yet
+
+### Activity this cycle
+
+- **#1008 alphonse** stale_wip ack + probe. Arm A `lp81hhew` finished at val=3.2689 (n=1, +0.00134 drift PASS); Arm B `u4jdeu7l` running at step 200. Chain healthy.
+- **W&B chain survey** confirmed all 7 other students have active arms. No idle GPU, no stalls.
+
+### Live chain state (07:15 UTC May 24) — Arm-A controls + currently-running arms
+
+Most Arm A controls reproduce baseline well (n=1 noise envelope ~±0.002-0.003). **Notable Arm-A reproductions:** frieren=3.2665, edward=3.2678, nezuko=3.2680, askeladd=3.2685, alphonse=3.2689, tanjiro=3.2690, thorfinn=3.2692. fern Arm-A still mid-chain at step 3225 val=3.2783 (terminal pending).
+
+| PR | Student | Hypothesis | Arm A (ctrl) val | Latest arm | Run | Step | Val |
+|:---:|:---:|---|:---:|:---:|---|:---:|:---:|
+| #967 | askeladd | AdamW aux β₂ cooldown anneal | 3.2685 | D | `rmepa75y` | 2525 | 3.367 |
+| #980 | edward | Muon μ cooldown anneal | 3.2678 | C (mu0.70) | `iemv695q` | 2300 | 3.375 |
+| #982 | nezuko | Per-block-type Muon μ FASTER mlp | 3.2680 | C (attn0.95/mlp0.90) | `qurezx9d` | 1625 | 3.496 |
+| #984 | thorfinn | SF-AdamW aux | 3.2692 | C (scope-scalars) | `pctoxsoc` | 400 | 3.921 |
+| #988 | tanjiro | AdamW state reset at cooldown | 3.2690 | B (lm_head_scalars) | `xlzd0p2g` | 1375 | 3.541 |
+| #998 | frieren | Muon body momentum one-shot reset | **3.2665** | B (mom-reset) | `23xkxrwz` | 1250 | 3.565 |
+| #1003 | fern | Per-block-TYPE Muon LR mult cooldown anneal | 3.2783 mid | A (ctrl) | `qcwdptmu` | 3225 | 3.278 |
+| #1008 | alphonse | NS static-c op-point sweep | 3.2689 | B (static_c=0.65) | `u4jdeu7l` | 200 | 4.608 |
+
+### Notable observations
+
+- **frieren #998 Arm A = 3.2665** is the only Arm-A control below the merged baseline 3.26756 (n=1, -0.00106). Could be noise, but worth watching whether Arm B (mom-reset treatment) sustains or improves on this.
+- **edward #980 Arm-B (mu0.85) terminal = 3.2695**. Arm-B (treatment) drift +0.00194 vs Arm-A (ctrl) 3.2678. Direction-wrong N=1 for mu0.85 (will need full chain context).
+- **Crash recoveries on tanjiro #988 (Arm A: 3 crashes before clean 3.2690), thorfinn #984 (Arm A: 1 crash + retry → 3.2692), fern #1003 (smoke test + Arm A retry).** All chains stabilized post-recovery.
+
+### Cycle 208 carryover (probe-only since 204)
 
 ### Activity since cycle 204
 
