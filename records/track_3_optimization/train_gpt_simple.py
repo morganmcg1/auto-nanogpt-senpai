@@ -83,6 +83,16 @@ def parse_args():
              "muall=musoft + non-residual block 2D weights also scaled by 1/sqrt(L); "
              "smallconst=std=1e-3 depth-independent.",
     )
+    parser.add_argument("--soap_no_adam_scale", action="store_true", default=False,
+                        help="Skip exp_avg_sq scaling in SOAP (basis projection only)")
+    parser.add_argument("--soap_no_norm_preserve", action="store_true", default=False,
+                        help="Skip norm-preserving rescaling in SOAP")
+    parser.add_argument("--soap_exp_avg_sq_init", type=float, default=0.0,
+                        help="Initial value for exp_avg_sq (0.0=zeros default, >0=constant init)")
+    parser.add_argument("--soap_exp_avg_sq_freeze", action="store_true", default=False,
+                        help="Freeze exp_avg_sq at initialization (skip EMA updates)")
+    parser.add_argument("--soap_exp_avg_sq_no_ema", action="store_true", default=False,
+                        help="Use instantaneous projected.square() instead of EMA")
     args = parser.parse_args()
     args.num_trials = args.num_trials if args.num_trials is not None else (args.legacy_num_trials or 1)
     args.wandb_tags = [tag.strip() for tag in args.wandb_tags.split(",") if tag.strip()]
@@ -540,15 +550,39 @@ def soap_basis_qr(row_gg, col_gg, q_row, q_col, exp_avg_sq):
     return q_row, q_col, exp_avg_sq
 
 
-def soap_precondition_momentum(update, state, beta2=SOAP_BETA2, eps=1e-8):
+def soap_precondition_momentum(update, state, beta2=SOAP_BETA2, eps=1e-8,
+                                no_adam=False, no_norm_preserve=False,
+                                freeze_eas=False, no_ema_eas=False,
+                                telemetry: dict | None = None):
     update_f = update.float()
     if state["q_row"] is None:
         return update
     q_row, q_col = state["q_row"], state["q_col"]
     projected = q_row.T @ update_f @ q_col
-    state["exp_avg_sq"].mul_(beta2).add_(projected.square(), alpha=1 - beta2)
-    precond = q_row @ (projected / state["exp_avg_sq"].sqrt().add(eps)) @ q_col.T
-    precond.mul_(update_f.norm() / precond.norm().clamp_min(eps))
+    if no_adam:
+        # Cell B: skip Adam-in-basis scaling entirely (pure basis projection)
+        precond = q_row @ projected @ q_col.T
+    else:
+        if no_ema_eas:
+            # Cell E: instantaneous (no EMA accumulation)
+            eas_now = projected.square()
+            precond = q_row @ (projected / eas_now.sqrt().add(eps)) @ q_col.T
+        elif not freeze_eas:
+            state["exp_avg_sq"].mul_(beta2).add_(projected.square(), alpha=1 - beta2)
+            precond = q_row @ (projected / state["exp_avg_sq"].sqrt().add(eps)) @ q_col.T
+        else:
+            # Cell D: frozen exp_avg_sq (state["exp_avg_sq"] never updates)
+            precond = q_row @ (projected / state["exp_avg_sq"].sqrt().add(eps)) @ q_col.T
+    pre_rescale_norm = precond.norm()
+    if not no_norm_preserve:
+        precond.mul_(update_f.norm() / pre_rescale_norm.clamp_min(eps))
+    if telemetry is not None:
+        telemetry["projected_norm"] = float(projected.norm().item())
+        telemetry["pre_rescale_norm_ratio"] = float((pre_rescale_norm / update_f.norm().clamp_min(eps)).item())
+        if not no_adam and not no_ema_eas:
+            telemetry["exp_avg_sq_mean"] = float(state["exp_avg_sq"].mean().item())
+        elif no_ema_eas:
+            telemetry["exp_avg_sq_mean"] = float(projected.square().mean().item())
     return precond.to(update.dtype)
 
 
@@ -571,7 +605,10 @@ class Muon(torch.optim.Optimizer):
     SOAP_ATTN_SUFFIXES = (".attn.q.weight", ".attn.k.weight", ".attn.v.weight", ".attn.proj.weight")
 
     def __init__(self, named_params, lr=0.02, weight_decay=0, mu=0.95,
-                 soap_attn=False, trust_threshold=0.0):
+                 soap_attn=False, trust_threshold=0.0,
+                 soap_no_adam_scale=False, soap_no_norm_preserve=False,
+                 soap_exp_avg_sq_init=0.0, soap_exp_avg_sq_freeze=False,
+                 soap_exp_avg_sq_no_ema=False):
         # `named_params` can be either:
         #   (a) list of (name, param) tuples → single param group (legacy form)
         #   (b) list of dicts {"named_params": [(name, param), ...], "lr": ?, "weight_decay": ?, "mu": ?, "name": ?}
@@ -594,6 +631,13 @@ class Muon(torch.optim.Optimizer):
         self.trust_threshold = float(trust_threshold)
         self.use_trust_gate = soap_attn
         self.cos_sims_buffer: dict[str, Tensor] = {}
+        self.soap_no_adam_scale = bool(soap_no_adam_scale)
+        self.soap_no_norm_preserve = bool(soap_no_norm_preserve)
+        self.soap_exp_avg_sq_init = float(soap_exp_avg_sq_init)
+        self.soap_exp_avg_sq_freeze = bool(soap_exp_avg_sq_freeze)
+        self.soap_exp_avg_sq_no_ema = bool(soap_exp_avg_sq_no_ema)
+        self.soap_telemetry_buffer: dict[str, dict[str, float]] = {}
+        self.collect_soap_telemetry = False
 
         param_groups = []
         for g in groups_raw:
@@ -613,6 +657,7 @@ class Muon(torch.optim.Optimizer):
     @torch.no_grad()
     def step(self):
         self.cos_sims_buffer = {}
+        self.soap_telemetry_buffer = {}
         world_size = dist.get_world_size()
         rank = dist.get_rank()
         for group in self.param_groups:
@@ -627,7 +672,11 @@ class Muon(torch.optim.Optimizer):
                     if len(state) == 0:
                         state["momentum"] = torch.zeros_like(p)
                         if use_soap:
-                            state["exp_avg_sq"] = torch.zeros_like(p, dtype=torch.float32)
+                            if self.soap_exp_avg_sq_init > 0.0:
+                                state["exp_avg_sq"] = torch.full_like(
+                                    p, self.soap_exp_avg_sq_init, dtype=torch.float32)
+                            else:
+                                state["exp_avg_sq"] = torch.zeros_like(p, dtype=torch.float32)
                             state["row_gg"] = torch.zeros(p.size(0), p.size(0), dtype=torch.float32, device=p.device)
                             state["col_gg"] = torch.zeros(p.size(1), p.size(1), dtype=torch.float32, device=p.device)
                             state["q_row"] = None
@@ -636,7 +685,17 @@ class Muon(torch.optim.Optimizer):
                     if use_soap:
                         state["momentum"].lerp_(p.grad, 1 - group["mu"])
                         raw_nesterov = p.grad.lerp(state["momentum"], group["mu"])
-                        precond_nesterov = soap_precondition_momentum(raw_nesterov, state)
+                        telemetry: dict[str, float] | None = {} if self.collect_soap_telemetry else None
+                        precond_nesterov = soap_precondition_momentum(
+                            raw_nesterov, state,
+                            no_adam=self.soap_no_adam_scale,
+                            no_norm_preserve=self.soap_no_norm_preserve,
+                            freeze_eas=self.soap_exp_avg_sq_freeze,
+                            no_ema_eas=self.soap_exp_avg_sq_no_ema,
+                            telemetry=telemetry,
+                        )
+                        if telemetry:
+                            self.soap_telemetry_buffer[self.param_names[id(p)]] = telemetry
                         u_soap = soap_ns_step(precond_nesterov)
                         if self.use_trust_gate:
                             u_muon = soap_ns_step(raw_nesterov)
@@ -765,6 +824,11 @@ if dist.get_rank() == 0:
             "wd_schedule": args.wd_schedule,
             "lr_scalars": args.lr_scalars,
             "depth_init_mode": args.depth_init_mode,
+            "soap_no_adam_scale": bool(args.soap_no_adam_scale),
+            "soap_no_norm_preserve": bool(args.soap_no_norm_preserve),
+            "soap_exp_avg_sq_init": float(args.soap_exp_avg_sq_init),
+            "soap_exp_avg_sq_freeze": bool(args.soap_exp_avg_sq_freeze),
+            "soap_exp_avg_sq_no_ema": bool(args.soap_exp_avg_sq_no_ema),
         },
     )
 
@@ -853,6 +917,11 @@ for trial_idx in range(args.num_trials):
             dict(named_params=attn_named, lr=args.lr_attn, weight_decay=args.wd_attn, name="muon_attn"),
         ],
         soap_attn=args.soap_attn, trust_threshold=args.soap_trust_threshold,
+        soap_no_adam_scale=args.soap_no_adam_scale,
+        soap_no_norm_preserve=args.soap_no_norm_preserve,
+        soap_exp_avg_sq_init=args.soap_exp_avg_sq_init,
+        soap_exp_avg_sq_freeze=args.soap_exp_avg_sq_freeze,
+        soap_exp_avg_sq_no_ema=args.soap_exp_avg_sq_no_ema,
     )
     optimizers = [optimizer1, optimizer2]
     assert set(p for opt in optimizers for group in opt.param_groups
@@ -1007,6 +1076,7 @@ for trial_idx in range(args.num_trials):
                 train_steps=train_steps,
                 wandb_step=wandb_step,
             )
+        optimizer2.collect_soap_telemetry = bool(telemetry_due)
         for opt in optimizers:
             opt.step()
         if telemetry_due:
@@ -1027,6 +1097,36 @@ for trial_idx in range(args.num_trials):
                 per_group_metrics["train/wd_attn_now"] = current_wds.get("muon_attn", 0.0)
                 per_group_metrics["train/wd_schedule_progress"] = train_step / train_steps
                 wandb.log(per_group_metrics, step=wandb_step)
+        if telemetry_due and optimizer2.soap_telemetry_buffer:
+            # Gather telemetry across ranks: each rank owns a different shard of params, so
+            # we collect locally then all_gather names. For simplicity, log only what rank 0
+            # has — sufficient for ablation cell signal since metric layout is symmetric.
+            if dist.get_rank() == 0:
+                soap_metrics = {"trial": trial_idx, "train/step": train_step}
+                projected_norms: list[float] = []
+                eas_means: list[float] = []
+                norm_ratios: list[float] = []
+                for pname, t in optimizer2.soap_telemetry_buffer.items():
+                    clean = clean_metric_name(pname)
+                    if "projected_norm" in t:
+                        v = t["projected_norm"]
+                        soap_metrics[f"soap/projected_norm/{clean}"] = v
+                        projected_norms.append(v)
+                    if "exp_avg_sq_mean" in t:
+                        v = t["exp_avg_sq_mean"]
+                        soap_metrics[f"soap/exp_avg_sq_mean/{clean}"] = v
+                        eas_means.append(v)
+                    if "pre_rescale_norm_ratio" in t:
+                        v = t["pre_rescale_norm_ratio"]
+                        soap_metrics[f"soap/precond_norm_ratio/{clean}"] = v
+                        norm_ratios.append(v)
+                if projected_norms:
+                    soap_metrics["soap/projected_norm_mean"] = sum(projected_norms) / len(projected_norms)
+                if eas_means:
+                    soap_metrics["soap/exp_avg_sq_mean_mean"] = sum(eas_means) / len(eas_means)
+                if norm_ratios:
+                    soap_metrics["soap/precond_norm_ratio_mean"] = sum(norm_ratios) / len(norm_ratios)
+                wandb.log(soap_metrics, step=wandb_step)
         if dist.get_rank() == 0 and optimizer2.cos_sims_buffer:
             cs_names = list(optimizer2.cos_sims_buffer.keys())
             cs_tensors = list(optimizer2.cos_sims_buffer.values())
