@@ -3,6 +3,41 @@
 Log of completed/reviewed experiment PRs in chronological order. Wave 1
 results pending student execution.
 
+## 2026-05-24 ~23:05 UTC — PR #1054: askeladd LR schedule shape sweep — **CLOSED clean-NEG (cooldown family comprehensively closed)**
+
+- **Branch:** `g1r5-askeladd/lr-schedule-shape-sweep`
+- **Student:** g1r5-askeladd
+- **Hypothesis:** LR schedule was HARDCODED at lines 882-888 (`set_hparams`) as trapezoidal-stable-then-linear-decay (`eta = (1 − progress) / cooldown_frac`), with no CLI flag — never SENPAI-validated. Tests cosine/exponential/floor/quintic alternatives via new `--lr_schedule` flag. Schedule shape is orthogonal to schedule values.
+
+| Cell | shape | val/loss | Δ vs μ_base | z_base | ffs | run_id |
+|------|-------|----------|-------------|--------|-----|--------|
+| A | linear (ctrl) | **3.260587** | −0.000634 | **−1.07σ** | 3025 | `jmcvuqax` |
+| B ★ | cosine (PRIMARY) | 3.270684 | +0.009463 | **+15.96σ** | 2950 | `8zjo92ya` |
+| C | exponential | 3.324707 | +0.063486 | **+107σ** | — (3.28 never reached) | `jblkphy4` |
+| D | linear_to_floor 0.1 | 3.270870 | +0.009649 | **+16.28σ** | 3175 | `1y2jm1us` |
+| E | quintic (1−t)^5 | 3.325045 | +0.063824 | **+107σ** | — (3.28 never reached) | `2hd0e23d` |
+
+**PRIMARY verdict:** Cell B catastrophically falsified at +15.96σ_base. Cosine shape mistimes the decay — slow-early-decay leaves model with less from near-zero late phase, plateau at 3.27.
+
+**Cell A refactor-neutrality PASS:** 3.260587 (−1.07σ_base, ffs=3025=baseline-ffs-mean exactly) confirms `--lr_schedule linear` reproduces hardcoded trapezoidal-linear behavior. Sits *just* inside n=1 confirm gate (≤3.260628) — but A IS the baseline config; the −1.07σ is single-seed noise, NOT a winner candidate.
+
+**Mechanism findings (bimodal failure mode):**
+1. **Mild redistribution (B, D, +16σ class):** Alternative shapes that still anneal but mistime/floor the descent. Cosine plateaus from slow-early decay; linear_to_floor strands LR at 0.1·peak preventing full convergence (still descending at last step).
+2. **Catastrophic early collapse (C, E, +107σ class):** Aggressive decay (exponential, quintic) drops LR <3% by t=0.5; directed-descent phase strands the model on a high-loss plateau at 3.325 — 3.28 target NEVER reached.
+
+**Mechanistic interpretation.** Cooldown requires **full annealing to zero** (rules out D) at a **roughly constant decay rate** (rules out B, C, E). The trapezoidal-stable-then-linear-decay (peak through 30% of training, then linearly drain) provides uniform loss reduction per step — exactly what #941's "cooldown is directed descent" finding predicts. The directed-descent phase needs uniform LR decay; any other shape disrupts it.
+
+**Axis closure (cooldown-mechanism family comprehensively closed):**
+- LR/schedule value: ALL closed (#925 μ ramp WEAK-NEG, #907 joint reset NEG, #966 weight rescale NEG)
+- LR/schedule shape: **#1054 CLOSED clean-NEG (THIS PR)** — trapezoidal-linear is tight local optimum
+- LR magnitude on embed/lm_head: #1021 fern CLOSED clean-NEG poll #665
+
+Combined: **entire cooldown phase is mechanistically locked-in.** No remaining cooldown-mechanism axis to test. The launch's cooldown protocol is structurally optimal.
+
+**Refactor kept:** `--lr_schedule linear` default. Costs nothing and exposes axis for future re-testing if optimizer family changes.
+
+**Decision: CLOSE clean-NEG with mechanism finding.** askeladd → **#1105 AdamW auxiliary weight decay sweep** — fresh axis on AdamW-managed embed/lm_head/scalars groups (currently `weight_decay=0` hardcoded at line 843, never CLI-flagged; PRs #349/#455 queued but never ran). Completely orthogonal to all closed cooldown axes.
+
 ## 2026-05-24 ~22:15 UTC — PR #1042: thorfinn Soft Newton-Schulz mixing α·NS(x) + (1−α)·x_pre-NS — **CLOSED clean-NEG (7th NS-modulation axis closure)**
 
 - **Branch:** `g1r5-thorfinn/soft-ns-mixing`
