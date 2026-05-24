@@ -82,6 +82,19 @@ def parse_args():
                         help="β2 at start of training (and constant β2 if schedule=constant).")
     parser.add_argument("--aux_beta2_end", type=float, default=float(os.environ.get("AUX_BETA2_END", "0.99")),
                         help="β2 at end of training (after cooldown). Only used if schedule=cooldown_ramp.")
+    # Inner MuonH µ schedule (H109). Static µ=0.95 baseline preserved when schedule=off.
+    # 'linear' ramps µ across all train_steps. 'cooldown_ramp' stays at mu_start until
+    # cooldown starts (using h_cooldown_frac), then ramps linearly across the cooldown.
+    parser.add_argument("--muonh_mu_schedule", type=str, default=os.environ.get("MUONH_MU_SCHEDULE", "off"),
+                        choices=["off", "linear", "cooldown_ramp"],
+                        help="Schedule for inner MuonH momentum coefficient µ. "
+                             "'off' (default) = static muonh_mu=0.95, bit-identical to baseline. "
+                             "'linear' = linear ramp from muonh_mu_start to muonh_mu_end across all train_steps. "
+                             "'cooldown_ramp' = static muonh_mu_start until cooldown begins, then linear ramp to muonh_mu_end over cooldown.")
+    parser.add_argument("--muonh_mu_start", type=float, default=float(os.environ.get("MUONH_MU_START", "0.95")),
+                        help="Starting value of µ schedule (used by linear and cooldown_ramp modes).")
+    parser.add_argument("--muonh_mu_end", type=float, default=float(os.environ.get("MUONH_MU_END", "0.98")),
+                        help="Ending value of µ schedule (used by linear and cooldown_ramp modes).")
     args = parser.parse_args()
     args.num_trials = args.num_trials if args.num_trials is not None else (args.legacy_num_trials or 1)
     args.wandb_tags = [tag.strip() for tag in args.wandb_tags.split(",") if tag.strip()]
@@ -780,6 +793,9 @@ if dist.get_rank() == 0:
             "aux_beta2_schedule": args.aux_beta2_schedule,
             "aux_beta2_start": args.aux_beta2_start,
             "aux_beta2_end": args.aux_beta2_end,
+            "muonh_mu_schedule": args.muonh_mu_schedule,
+            "muonh_mu_start": args.muonh_mu_start,
+            "muonh_mu_end": args.muonh_mu_end,
         },
     )
 
@@ -908,7 +924,30 @@ for trial_idx in range(args.num_trials):
             b2 = args.aux_beta2_start
         for g in optimizer1.param_groups:
             g["betas"] = (g["betas"][0], b2)
-        return muonh_warmup, b2
+        # MuonH µ schedule (H109): 'off' is a no-op — mu stays at the MuonH
+        # default 0.95 and we skip the param_group write so arm_a is bit-identical
+        # to baseline. 'linear' ramps mu_start → mu_end across all train_steps.
+        # 'cooldown_ramp' stays at mu_start until cooldown begins (using
+        # h_cooldown_frac, matching the optimizer2 LR cooldown), then ramps
+        # linearly to mu_end across the cooldown.
+        if args.muonh_mu_schedule != "off":
+            if args.muonh_mu_schedule == "linear":
+                prog = step / max(1, train_steps - 1)
+                mu_t = args.muonh_mu_start + prog * (args.muonh_mu_end - args.muonh_mu_start)
+            elif args.muonh_mu_schedule == "cooldown_ramp":
+                cooldown_start_frac = 1.0 - h_cooldown_frac
+                if progress < cooldown_start_frac:
+                    mu_t = args.muonh_mu_start
+                else:
+                    cooldown_prog = (progress - cooldown_start_frac) / h_cooldown_frac
+                    mu_t = args.muonh_mu_start + cooldown_prog * (args.muonh_mu_end - args.muonh_mu_start)
+            else:
+                raise ValueError(f"unknown muonh_mu_schedule: {args.muonh_mu_schedule}")
+            for g in optimizer2.param_groups:
+                g["mu"] = mu_t
+        else:
+            mu_t = 0.95
+        return muonh_warmup, b2, mu_t
 
 
     ########################################
@@ -1013,7 +1052,7 @@ for trial_idx in range(args.num_trials):
         dist.all_reduce(step_loss, op=dist.ReduceOp.SUM)
         train_loss = float((step_loss / batch_size).item())
         # set optimization hyperparameters and take a step
-        muonh_warmup_factor, aux_beta2 = set_hparams(step)
+        muonh_warmup_factor, aux_beta2, muonh_mu_t = set_hparams(step)
         train_step = step + 1
         telemetry_due = (step == 0 or (step + 1) % args.telemetry_interval == 0 or step + 1 == train_steps)
         histogram_due = (step == 0 or (step + 1) % args.histogram_interval == 0 or step + 1 == train_steps)
@@ -1063,6 +1102,7 @@ for trial_idx in range(args.num_trials):
         if dist.get_rank() == 0 and (telemetry_due or warmup_due):
             muonh_metrics = {"trial": trial_idx, "train/step": train_step}
             muonh_metrics["aux/beta2"] = aux_beta2
+            muonh_metrics["train/muonh_mu"] = muonh_mu_t
             for opt in optimizers:
                 if isinstance(opt, MuonH):
                     if telemetry_due:
