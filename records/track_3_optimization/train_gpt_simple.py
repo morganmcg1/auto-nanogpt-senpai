@@ -468,6 +468,13 @@ NS5_ITERS = int(os.environ.get("NS5_ITERS", "12"))
 WD_AUX = float(os.environ.get("WD_AUX", "0.0"))  # AdamW WD on embed + lm_head matrices (scalars stay at 0)
 EMBED_INIT_STD = float(os.environ.get("EMBED_INIT_STD", "1.0"))  # default preserves baseline N(0,1)
 LOGIT_SOFTCAP = float(os.environ.get("LOGIT_SOFTCAP", "15.0"))  # default = 15 (current hardcoded value); soft-cap value c in f(x) = c·x / sqrt(x^2+c^2)
+# PR #1087: heavy-ball friction on body Muon momentum buffer.
+# After standard AR(1) lerp m_t = mu*m_{t-1} + (1-mu)*g_t, apply
+#   m_t <- m_t - lambda * (m_t - m_{t-1})
+# which turns the momentum process into an AR(2) heavy-ball discretization
+# x_dotdot + gamma*x_dot + grad f = 0 (Polyak 1964 / Su-Boyd-Candes 2014).
+# 0.0 = inert (no friction, no extra buffer used).
+MUON_BODY_HEAVY_BALL_FRICTION = float(os.environ.get("MUON_BODY_HEAVY_BALL_FRICTION", "0.0"))
 
 
 def zeropower_via_newtonschulz5(G: Tensor) -> Tensor:
@@ -655,9 +662,18 @@ class Muon(torch.optim.Optimizer):
         params = sorted([p for _, p in named_params], key=lambda x: x.size(), reverse=True)
         defaults = dict(lr=lr, weight_decay=weight_decay, mu=mu)
         super().__init__(params, defaults)
+        # PR #1087 heavy-ball friction telemetry buffers.
+        self._hb_step = 0
+        self._hb_accel_norms: list[float] = []
+        self._hb_momentum_norms: list[float] = []
+        self._hb_accel_to_momentum: list[float] = []
 
     @torch.no_grad()
     def step(self):
+        self._hb_step += 1
+        self._hb_accel_norms.clear()
+        self._hb_momentum_norms.clear()
+        self._hb_accel_to_momentum.clear()
         world_size = dist.get_world_size()
         rank = dist.get_rank()
         for group in self.param_groups:
@@ -693,6 +709,25 @@ class Muon(torch.optim.Optimizer):
                                 state["trust_cos_col"] = 1.0
                     grad = p.grad
                     state["momentum"].lerp_(grad, 1 - group["mu"])
+                    if MUON_BODY_HEAVY_BALL_FRICTION > 0.0:
+                        if "momentum_prev" in state:
+                            accel = state["momentum"] - state["momentum_prev"]
+                            state["momentum"].sub_(accel, alpha=MUON_BODY_HEAVY_BALL_FRICTION)
+                            accel_norm = float(accel.float().norm().item())
+                            momentum_norm = float(state["momentum"].float().norm().clamp_min(1e-10).item())
+                            self._hb_accel_norms.append(accel_norm)
+                            self._hb_momentum_norms.append(momentum_norm)
+                            self._hb_accel_to_momentum.append(accel_norm / momentum_norm)
+                            if self._hb_step == 2 and len(self._hb_accel_norms) <= 4:
+                                print(
+                                    f"[MUON_BODY_HEAVY_BALL_FRICTION] step={self._hb_step}"
+                                    f" lambda={MUON_BODY_HEAVY_BALL_FRICTION}"
+                                    f" shape={tuple(p.shape)}"
+                                    f" accel.abs().mean()={accel.abs().float().mean().item():.6e}"
+                                    f" momentum.abs().mean()={state['momentum'].abs().float().mean().item():.6e}",
+                                    flush=True,
+                                )
+                        state["momentum_prev"] = state["momentum"].clone()
                     momentum_update = grad.lerp(state["momentum"], group["mu"])
                     use_soap = p in self.soap_params
                     use_attn_soap = p in self.attn_soap_params
@@ -719,6 +754,28 @@ class Muon(torch.optim.Optimizer):
                                      use_trust_gate=True,
                                      trust_threshold=ATTN_SOAP_TRUST_THRESHOLD)
                 dist.all_gather(params_pad[base_i:base_i + world_size], params_pad[base_i + rank])
+
+    def heavy_ball_stats(self) -> dict[str, float]:
+        """PR #1087: aggregate heavy-ball-friction telemetry for the current step.
+
+        Empty dict when friction is disabled or no measurements were taken
+        (first step, before momentum_prev exists). Otherwise reports the mean
+        accel norm, mean momentum norm, and mean accel/momentum ratio across
+        body 2D tensors. ``accel_to_momentum_ratio_mean`` is the headline
+        signal — large values mean the AR(1) momentum is oscillating heavily
+        and the friction term is biting; values near zero mean friction is
+        idle and the run reduces to the AR(1) baseline.
+        """
+        n = len(self._hb_accel_norms)
+        if n == 0:
+            return {}
+        return {
+            "count": float(n),
+            "accel_norm_mean": sum(self._hb_accel_norms) / n,
+            "momentum_norm_mean": sum(self._hb_momentum_norms) / n,
+            "accel_to_momentum_ratio_mean": sum(self._hb_accel_to_momentum) / n,
+            "lambda": MUON_BODY_HEAVY_BALL_FRICTION,
+        }
 
     def trust_gate_stats(self) -> dict[str, float]:
         """Return aggregate + per-weight-type trust-gate telemetry across attention SOAP params.
@@ -866,6 +923,7 @@ if dist.get_rank() == 0:
             "optimizer/attn_soap_trust_threshold": ATTN_SOAP_TRUST_THRESHOLD,
             "optimizer/ns5_iters": NS5_ITERS,
             "optimizer/wd_aux": WD_AUX,
+            "optimizer/muon_body_heavy_ball_friction": MUON_BODY_HEAVY_BALL_FRICTION,
             "optimizer/recipe": "contra-muon + normuon-lite + soap-on-mlp + soap-on-attn-trust-gate (pre-NS5, record #14 + record #16)",
         },
     )
@@ -1059,6 +1117,10 @@ for trial_idx in range(args.num_trials):
                     stats = opt.trust_gate_stats()
                     if stats:
                         wandb.log(prefixed("train/attn_soap_trust_gate", stats), step=wandb_step)
+                if hasattr(opt, "heavy_ball_stats"):
+                    hb_stats = opt.heavy_ball_stats()
+                    if hb_stats:
+                        wandb.log(prefixed("optim/heavy_ball", hb_stats), step=wandb_step)
         if dist.get_rank() == 0 and telemetry_due:
             log_weight_telemetry(
                 model=model,
