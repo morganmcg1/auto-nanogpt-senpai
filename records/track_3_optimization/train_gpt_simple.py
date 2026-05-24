@@ -82,6 +82,23 @@ def parse_args():
                         help="β2 at start of training (and constant β2 if schedule=constant).")
     parser.add_argument("--aux_beta2_end", type=float, default=float(os.environ.get("AUX_BETA2_END", "0.99")),
                         help="β2 at end of training (after cooldown). Only used if schedule=cooldown_ramp.")
+    # MuonBP (Block-Periodic Orthogonalization, H107). Splits each weight matrix
+    # into column blocks of size --muon_block_size and applies NS5 to each block
+    # independently every step (cheap, --muon_block_ns_iters). Every
+    # --muon_full_period steps, applies full-matrix NS5 (--muon_full_ns_iters)
+    # for global re-orthogonalization. --muon_block_size=0 disables (bit-identical
+    # baseline). Mutually probes H90 NSCubic partial-orth-load-bearing finding:
+    # block-only NS5 reaches a different sv_min equilibrium than full-matrix NS5.
+    parser.add_argument("--muon_block_size", type=int, default=int(os.environ.get("MUON_BLOCK_SIZE", "0")),
+                        help="Block size for MuonBP block-periodic orthogonalization "
+                             "(splits along last/column dim). 0 = disabled (bit-identical baseline).")
+    parser.add_argument("--muon_full_period", type=int, default=int(os.environ.get("MUON_FULL_PERIOD", "10")),
+                        help="Period for full-matrix NS5 re-orthogonalization in MuonBP "
+                             "(every K MuonH steps). Only used when muon_block_size > 0.")
+    parser.add_argument("--muon_block_ns_iters", type=int, default=int(os.environ.get("MUON_BLOCK_NS_ITERS", "6")),
+                        help="NS5 iteration count for block-local orthogonalization in MuonBP.")
+    parser.add_argument("--muon_full_ns_iters", type=int, default=int(os.environ.get("MUON_FULL_NS_ITERS", "12")),
+                        help="NS5 iteration count for the periodic full-matrix re-orthogonalization in MuonBP.")
     args = parser.parse_args()
     args.num_trials = args.num_trials if args.num_trials is not None else (args.legacy_num_trials or 1)
     args.wandb_tags = [tag.strip() for tag in args.wandb_tags.split(",") if tag.strip()]
@@ -504,6 +521,62 @@ def muon_update(grad, momentum, mu=0.95, nesterov=True):
     update *= max(1, grad.size(-2) / grad.size(-1))**0.5
     return update
 
+
+# MuonBP (H107): parameterized NS5 used by block_periodic_ns5. Same Newton-Schulz
+# polynomial as zeropower_via_newtonschulz5, but the iteration count is a Python
+# int set per call. @torch.compile specializes on (input shape, iters) so the
+# loop unrolls statically at trace time — keeps per-block matmul launches cheap.
+@torch.compile
+def _ns5_loop_k(G: Tensor, iters: int) -> Tensor:
+    assert G.ndim >= 2
+    X = G.bfloat16()
+    if G.size(-2) > G.size(-1):
+        X = X.mT
+    X = X / (X.norm(dim=(-2, -1), keepdim=True) + 1e-7)
+    a, b, c = 2, -1.5, 0.5
+    for _ in range(iters):
+        A = X @ X.mT
+        B = b * A + c * A @ A
+        X = a * X + B @ X
+    if G.size(-2) > G.size(-1):
+        X = X.mT
+    return X
+
+
+def block_periodic_ns5(G: Tensor, block_size: int, block_iters: int,
+                       full_iters: int, step_count: int, full_period: int):
+    """MuonBP block-periodic orthogonalization (H107).
+
+    Every full_period steps: full-matrix NS5 with full_iters (global re-orth).
+    Otherwise: split G along last/column dim into blocks of width block_size,
+    apply NS5 with block_iters to each block independently, concat back.
+
+    Falls back to full-matrix NS5 (with block_iters) when cols are not a multiple
+    of block_size, to avoid pad/truncate ambiguity. Returns the orthogonalized
+    update tensor, same shape as G.
+    """
+    if step_count % full_period == 0:
+        return _ns5_loop_k(G, full_iters)
+    n_cols = G.size(-1)
+    if n_cols % block_size != 0:
+        return _ns5_loop_k(G, block_iters)
+    blocks = G.split(block_size, dim=-1)
+    return torch.cat([_ns5_loop_k(blk, block_iters) for blk in blocks], dim=-1)
+
+
+def muon_update_block_periodic(grad, momentum, mu, block_size, block_iters,
+                               full_iters, step_count, full_period, nesterov=True):
+    """MuonBP variant of muon_update: replaces full-matrix NS5 with block-periodic
+    orthogonalization. The momentum buffer integration is identical to muon_update
+    (same Nesterov lerp on the same grad and momentum buffer)."""
+    momentum.lerp_(grad, 1 - mu)
+    update = grad.lerp_(momentum, mu) if nesterov else momentum
+    update = block_periodic_ns5(update, block_size=block_size,
+                                block_iters=block_iters, full_iters=full_iters,
+                                step_count=step_count, full_period=full_period)
+    update *= max(1, grad.size(-2) / grad.size(-1)) ** 0.5
+    return update
+
 class Muon(torch.optim.Optimizer):
     def __init__(self, params, lr=0.02, weight_decay=0, mu=0.95):
         assert isinstance(params, list) and len(params) >= 1 and isinstance(params[0], torch.nn.Parameter)
@@ -602,7 +675,8 @@ class MuonH(torch.optim.Optimizer):
     norm exactly constant; weight_decay must be 0.
     """
     def __init__(self, params, lr=0.018, weight_decay=0.0, mu=0.95,
-                 hyperball=True, budget_mult=1.0, mode="clip"):
+                 hyperball=True, budget_mult=1.0, mode="clip",
+                 block_size=0, block_ns_iters=6, full_ns_iters=12, full_period=10):
         assert isinstance(params, list) and len(params) >= 1 and isinstance(params[0], torch.nn.Parameter)
         assert mode in ("clip", "scale_invariant")
         params = sorted(params, key=lambda x: x.size(), reverse=True)
@@ -612,6 +686,15 @@ class MuonH(torch.optim.Optimizer):
         self._last_active_fraction = 0.0
         self._last_radius_to_norm_max = 0.0
         self._last_norm_to_radius_max = 0.0
+        # MuonBP (H107): block-periodic orthogonalization knobs. _step_count is the
+        # number of MuonH.step() calls so far, used to decide whether each step
+        # does block-local NS5 or periodic full-matrix NS5.
+        self._block_size = int(block_size)
+        self._block_ns_iters = int(block_ns_iters)
+        self._full_ns_iters = int(full_ns_iters)
+        self._full_period = int(full_period)
+        self._step_count = 0
+        self._last_was_full_step = False
 
     @torch.no_grad()
     def step(self):
@@ -621,6 +704,14 @@ class MuonH(torch.optim.Optimizer):
         total_count_local = 0
         max_r_over_n_local = 0.0
         max_n_over_r_local = 0.0
+        # MuonBP (H107): _step_count drives the block-periodic dispatch. Increment
+        # once per MuonH.step() call (not per-param) so all params share the same
+        # full/block decision on a given step. Captured before the inner loop so
+        # is_full_step is stable across params in this call.
+        self._step_count += 1
+        muonbp_on = self._block_size > 0
+        is_full_step = muonbp_on and (self._step_count % self._full_period == 0)
+        self._last_was_full_step = bool(is_full_step) if muonbp_on else False
         for group in self.param_groups:
             params = group["params"]
             params_pad = params + [torch.empty_like(params[-1])] * (world_size - len(params) % world_size)
@@ -635,7 +726,17 @@ class MuonH(torch.optim.Optimizer):
                         state["momentum"] = torch.zeros_like(p)
                         if hb:
                             state["hyperball_radius"] = p.data.norm().item() * budget_mult
-                    update = muon_update(p.grad, state["momentum"], mu=group["mu"])
+                    if muonbp_on:
+                        update = muon_update_block_periodic(
+                            p.grad, state["momentum"], mu=group["mu"],
+                            block_size=self._block_size,
+                            block_iters=self._block_ns_iters,
+                            full_iters=self._full_ns_iters,
+                            step_count=self._step_count,
+                            full_period=self._full_period,
+                        )
+                    else:
+                        update = muon_update(p.grad, state["momentum"], mu=group["mu"])
                     if hb and mode == "scale_invariant":
                         # Always-active variant: norm is held at initial value by construction.
                         scale_invariant_update_(p.data, update, group["lr"])
@@ -724,6 +825,14 @@ if args.muonh_agc_clip_ratio > 0:
     print0(f"AGC ENABLED on inner MuonH gradient: clip_ratio={args.muonh_agc_clip_ratio} eps={args.muonh_agc_eps}", console=True)
 else:
     print0("AGC DISABLED on inner MuonH gradient (clip_ratio=0)", console=True)
+if args.muon_block_size > 0:
+    print0(
+        f"MuonBP ENABLED: block_size={args.muon_block_size} block_ns_iters={args.muon_block_ns_iters} "
+        f"full_ns_iters={args.muon_full_ns_iters} full_period={args.muon_full_period}",
+        console=True,
+    )
+else:
+    print0("MuonBP DISABLED (muon_block_size=0, full-matrix NS5 every step)", console=True)
 print0("="*100)
 
 val_tokens = 20 * 524288
@@ -780,6 +889,10 @@ if dist.get_rank() == 0:
             "aux_beta2_schedule": args.aux_beta2_schedule,
             "aux_beta2_start": args.aux_beta2_start,
             "aux_beta2_end": args.aux_beta2_end,
+            "muon_block_size": args.muon_block_size,
+            "muon_full_period": args.muon_full_period,
+            "muon_block_ns_iters": args.muon_block_ns_iters,
+            "muon_full_ns_iters": args.muon_full_ns_iters,
         },
     )
 
@@ -837,7 +950,11 @@ for trial_idx in range(args.num_trials):
     optimizer2 = MuonH([p for p in model.blocks.parameters() if p.ndim >= 2],
                        lr=args.muonh_lr, weight_decay=0.0, mu=0.95,
                        hyperball=True, budget_mult=args.muonh_budget_mult,
-                       mode=args.muonh_mode)
+                       mode=args.muonh_mode,
+                       block_size=args.muon_block_size,
+                       block_ns_iters=args.muon_block_ns_iters,
+                       full_ns_iters=args.muon_full_ns_iters,
+                       full_period=args.muon_full_period)
     optimizer2.param_groups[0]["name"] = "muonh_blocks"
     optimizers = [optimizer1, optimizer2]
     # AGC targets: AdamW aux groups (embed, lm_head, scalars). Built from optimizer1
@@ -988,6 +1105,29 @@ for trial_idx in range(args.num_trials):
                 }
                 metrics.update(prefixed("val/slope", loss_slope_stats(val_loss_history, slope_window_steps)))
                 wandb.log(metrics, step=trial_idx * (train_steps + 1) + step)
+                # MuonBP (H107) SVD telemetry: at each validation step, log
+                # sv_min/sv_max/sv_mean for the first 4 (768,768) body weight
+                # matrices encountered. Probes the partial-orth equilibrium
+                # reached by block-local vs full-matrix NS5. Logged on EVERY arm
+                # (including the CTRL full-matrix arm) so we have apples-to-apples
+                # sv_min comparison rather than relying on historical H90 (≈0.18)
+                # or H98 (first-attn 0.054) references measured under earlier
+                # baselines.
+                sv_metrics = {"trial": trial_idx, "val/step": step}
+                logged = 0
+                for sv_name, sv_p in model.named_parameters():
+                    if sv_p.ndim == 2 and sv_p.size(0) == 768 and sv_p.size(1) == 768:
+                        sv = torch.linalg.svdvals(sv_p.detach().float())
+                        clean = clean_metric_name(sv_name)
+                        sv_metrics[f"sv/min/{clean}"] = float(sv.min().item())
+                        sv_metrics[f"sv/max/{clean}"] = float(sv.max().item())
+                        sv_metrics[f"sv/mean/{clean}"] = float(sv.mean().item())
+                        sv_metrics[f"sv/ratio/{clean}"] = float((sv.min() / sv.max().clamp_min(1e-30)).item())
+                        logged += 1
+                        if logged >= 4:
+                            break
+                if logged > 0:
+                    wandb.log(sv_metrics, step=trial_idx * (train_steps + 1) + step)
             print0(f"step:{step}/{train_steps} val_loss:{val_loss:.5f} train_time:{training_time:.3f}s"
                    + f" step_avg:{1000*step_avg:.2f}ms", console=True)
             model.train()
@@ -1071,6 +1211,13 @@ for trial_idx in range(args.num_trials):
                         muonh_metrics["train/muonh/norm_to_radius_max"] = opt._last_norm_to_radius_max
                     muonh_metrics["train/muonh/warmup_factor"] = muonh_warmup_factor
                     muonh_metrics["train/muonh/effective_lr"] = opt.param_groups[0]["lr"]
+                    # MuonBP (H107) dispatch telemetry: log whether the last
+                    # MuonH.step() was a full-matrix re-orth or block-local. Lets
+                    # us verify the periodic dispatch fires on the expected steps
+                    # and lets us correlate val/loss with full vs block phases.
+                    if args.muon_block_size > 0:
+                        muonh_metrics["train/muonh/muonbp_is_full_step"] = int(opt._last_was_full_step)
+                        muonh_metrics["train/muonh/muonbp_step_count"] = opt._step_count
             if telemetry_due and args.aux_agc_clip_ratio > 0 and agc_stats["agc_total"] > 0:
                 muonh_metrics["train/agc/active_fraction"] = agc_stats["agc_clipped"] / agc_stats["agc_total"]
                 muonh_metrics["train/agc/clipped_count"] = agc_stats["agc_clipped"]
