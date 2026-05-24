@@ -61,6 +61,9 @@ def parse_args():
                              "--ema_beta_target during cooldown, coupling β to the LR schedule. "
                              "Requires --ema_beta>0. β_t = ema_beta + (ema_beta_target - ema_beta) "
                              "× (1 - lr_mult_t).")
+    parser.add_argument("--muon_lr", type=float, default=0.035,
+                        help="Base learning rate for body-Muon optimizer (matrix params in blocks). "
+                             "Default 0.035 matches the merged baseline.")
     parser.add_argument("--gamma_pre_schedule", type=str, default="constant",
                         choices=["constant", "ramp_up", "ramp_down"],
                         help="γ_pre (PMuon bilateral whitening exponent) temporal schedule. "
@@ -709,7 +712,7 @@ if dist.get_rank() == 0:
             "param_histogram_limit": args.param_histogram_limit,
             "slope_fraction": SLOPE_FRACTION,
             # PMuon (bilateral covariance preconditioning, record #18) hyperparameters.
-            "muon_lr": 0.035,
+            "muon_lr": args.muon_lr,
             "muon_weight_decay": 0.025,
             "pmuon_beta_cov": 0.95,
             "pmuon_gamma": PMUON_GAMMA,
@@ -766,8 +769,9 @@ for trial_idx in range(args.num_trials):
                         dict(params=[p for p in model.parameters() if p.ndim < 2], lr=0.025, name="adam_scalars")],
                        betas=(0.8, 0.95), eps=1e-10, weight_decay=0, fused=True)
     optimizer2 = Muon([p for p in model.blocks.parameters() if p.ndim >= 2],
-                      lr=0.035, weight_decay=0.025, beta_cov=0.95, gamma=PMUON_GAMMA)
+                      lr=args.muon_lr, weight_decay=0.025, beta_cov=0.95, gamma=PMUON_GAMMA)
     optimizer2.param_groups[0]["name"] = "muon_blocks"
+    print0(f"body-Muon optimizer: lr={args.muon_lr} weight_decay=0.025 beta_cov=0.95 gamma={PMUON_GAMMA}")
     optimizers = [optimizer1, optimizer2]
     assert set(p for opt in optimizers for group in opt.param_groups
                for p in group["params"]) == set(model.parameters())
