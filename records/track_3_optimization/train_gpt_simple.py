@@ -593,6 +593,12 @@ NANOGPT_SENPAI_SEED = int(_SENPAI_SEED_RAW) if _SENPAI_SEED_RAW != "" else None
 # `embed.weight -= lr_embed * lambda * (embed.weight - embed_init_snapshot)`.
 # At lambda=0 the hook is a no-op and behavior is bit-identical to the merged stack.
 NANOGPT_EMBED_INIT_ANCHOR_LAMBDA = float(os.environ.get("NANOGPT_EMBED_INIT_ANCHOR_LAMBDA", "0.0"))
+# Post-NS per-element variance normalization on body Muon update (#963).
+# When beta2_post > 0: after NS orthogonalization, maintain EMA of update^2
+# and normalize: update <- update / (sqrt(v_post) + eps_post).
+# At beta2_post=0.0 (default), the buffer is disabled — bit-identical to merged baseline.
+NANOGPT_POST_NS_BETA2 = float(os.environ.get("NANOGPT_POST_NS_BETA2", "0.0"))
+NANOGPT_POST_NS_EPS   = float(os.environ.get("NANOGPT_POST_NS_EPS",   "1e-8"))
 
 
 def get_ns_coef_at_iter(iter_idx: int, total_iters: int, schedule: str) -> tuple[float, float, float]:
@@ -752,6 +758,8 @@ class Muon(torch.optim.Optimizer):
                     if len(state) == 0:
                         state["momentum"] = torch.zeros_like(p)
                         state["v"] = torch.zeros_like(p)
+                        if NANOGPT_POST_NS_BETA2 > 0.0:
+                            state["v_post"] = torch.zeros_like(p)
                     update = muon_update(p.grad, state["momentum"], state["v"],
                                          ns_iters=ns_iters,
                                          mu=group["mu"], beta2=group["beta2"], eps=group["eps"])
@@ -773,6 +781,12 @@ class Muon(torch.optim.Optimizer):
                             }
                         except Exception:
                             self.spectral_stats = None
+                    # Post-NS per-element variance normalization (#963, bit-identical when beta2_post=0.0).
+                    if NANOGPT_POST_NS_BETA2 > 0.0:
+                        vp = state["v_post"]
+                        vp.mul_(NANOGPT_POST_NS_BETA2).addcmul_(update, update,
+                                                                 value=1.0 - NANOGPT_POST_NS_BETA2)
+                        update = update / (vp.sqrt() + NANOGPT_POST_NS_EPS)
                     p.mul_(1 - group["lr"] * group["weight_decay"])
                     p.add_(update, alpha=-group["lr"])
                 dist.all_gather(params_pad[base_i:base_i + world_size], params_pad[base_i + rank])
@@ -823,6 +837,9 @@ print0(f"MUON_LR_MULT: attn={NANOGPT_MUON_ATTN_LR_MULT:.3f} mlp={NANOGPT_MUON_ML
 print0(f"  Effective Muon base LRs: attn={0.035*NANOGPT_MUON_ATTN_LR_MULT:.5f} mlp={0.035*NANOGPT_MUON_MLP_LR_MULT:.5f}", console=True)
 print0(f"EMBED_INIT_ANCHOR_LAMBDA: {NANOGPT_EMBED_INIT_ANCHOR_LAMBDA} "
        f"({'ACTIVE' if NANOGPT_EMBED_INIT_ANCHOR_LAMBDA > 0 else 'INACTIVE (bit-identical fallback)'})",
+       console=True)
+print0(f"POST_NS_BETA2: {NANOGPT_POST_NS_BETA2} eps={NANOGPT_POST_NS_EPS} "
+       f"({'ACTIVE — v_post buffer enabled' if NANOGPT_POST_NS_BETA2 > 0 else 'INACTIVE (bit-identical baseline)'})",
        console=True)
 if NS_ITERS_COOLDOWN > 0:
     print0(f"NS_SCHEDULE: ns_iters={NS_ITERS} -> ns_iters_cooldown={NS_ITERS_COOLDOWN} "
@@ -896,6 +913,8 @@ if dist.get_rank() == 0:
             "nanogpt_ns_stochastic_cooldown": NANOGPT_NS_STOCHASTIC_COOLDOWN,
             "senpai_seed": NANOGPT_SENPAI_SEED if NANOGPT_SENPAI_SEED is not None else -1,
             "nanogpt_embed_init_anchor_lambda": NANOGPT_EMBED_INIT_ANCHOR_LAMBDA,
+            "nanogpt_post_ns_beta2": NANOGPT_POST_NS_BETA2,
+            "nanogpt_post_ns_eps":   NANOGPT_POST_NS_EPS,
         },
     )
 
@@ -1296,6 +1315,21 @@ for trial_idx in range(args.num_trials):
             if optimizer2.spectral_stats is not None:
                 for k, v in optimizer2.spectral_stats.items():
                     ns_metrics[f"train/ns_schedule/{k}"] = v
+            # Post-NS v_post diagnostic telemetry (#963). Only logs when the buffer
+            # is active so beta2_post=0.0 runs add no extra W&B keys. Sync-heavy, so
+            # gated to every 100 steps within the telemetry window.
+            if NANOGPT_POST_NS_BETA2 > 0.0 and (train_step % 100 == 0 or train_step == train_steps):
+                vpost_means = []
+                vpost_maxes = []
+                for grp in optimizer2.param_groups:
+                    for pp in grp["params"]:
+                        st = optimizer2.state.get(pp, {})
+                        if "v_post" in st:
+                            vpost_means.append(float(st["v_post"].mean().item()))
+                            vpost_maxes.append(float(st["v_post"].max().item()))
+                if vpost_means:
+                    ns_metrics["muon_body/v_post_mean"] = sum(vpost_means) / len(vpost_means)
+                    ns_metrics["muon_body/v_post_max"] = max(vpost_maxes)
             # Per-iter NS coefficient telemetry (probes 3 representative iters).
             current_ns_iters = ns_iters_this_step
             a0, b0, c0 = get_ns_coef_at_iter(0, current_ns_iters, NS_COEF_SCHEDULE)
