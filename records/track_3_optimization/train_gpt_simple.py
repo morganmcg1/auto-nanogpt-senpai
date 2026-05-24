@@ -11,6 +11,7 @@ with open(sys.argv[0]) as f:
     code = f.read() # read the code of this file ASAP, for logging
 import argparse
 import math
+import statistics
 import uuid
 import time
 from pathlib import Path
@@ -69,6 +70,14 @@ def parse_args():
                              "Same formula as aux AGC: clip_scale = min(1, ratio * param_norm / grad_norm). "
                              "0.0 = disabled (default).")
     parser.add_argument("--muonh_agc_eps", type=float, default=float(os.environ.get("MUONH_AGC_EPS", "1e-3")))
+    # H105: per-layer AGC clip_ratio calibrated at agc_calibration_step from per-param
+    # grad/weight ratios. clip_ratio_i = base * (median_ratio / ratio_i)^gamma.
+    # gamma=0 (default) keeps the global flat clip_ratio (bit-identical CTRL).
+    parser.add_argument("--agc_per_layer_gamma", type=float, default=float(os.environ.get("AGC_PER_LAYER_GAMMA", "0.0")),
+                        help="If > 0, adapt per-layer AGC clip_ratio using grad/weight ratio at calibration step. "
+                             "0.0 = global flat clip (bit-identical CTRL).")
+    parser.add_argument("--agc_calibration_step", type=int, default=int(os.environ.get("AGC_CALIBRATION_STEP", "200")),
+                        help="train_step at which per-layer ratios are measured and per-layer clip_ratios populated.")
     parser.add_argument("--aux_adamw_eps", type=float, default=float(os.environ.get("AUX_ADAMW_EPS", "1e-10")),
                         help="Aux AdamW eps (default 1e-10 = baseline). Standard PyTorch is 1e-8.")
     # β2 schedule on aux AdamW (embed/lm_head/scalars). Mutates param_groups[*]['betas']
@@ -531,13 +540,18 @@ class Muon(torch.optim.Optimizer):
 
 
 @torch.no_grad()
-def adaptive_gradient_clip(parameters, clip_ratio: float, eps: float = 1e-3):
+def adaptive_gradient_clip(parameters, clip_ratio: float, eps: float = 1e-3,
+                           per_param_clip: dict | None = None):
     """Per-tensor AGC (Brock et al. 2021).
 
-    For each param p, scale its grad in-place if ||g|| exceeds clip_ratio * max(||p||, eps).
+    For each param p, scale its grad in-place if ||g|| exceeds eff * max(||p||, eps),
+    where eff = per_param_clip.get(id(p), clip_ratio) if per_param_clip is provided,
+    else clip_ratio. H105 uses the per-layer dict (populated at agc_calibration_step)
+    to adapt the clip threshold per parameter from grad/weight ratio heterogeneity.
+
     Returns telemetry: total params seen, count clipped, max pre-clip g_to_clip_threshold ratio,
     plus the applied-scale min and mean across all tracked params (1.0 when no clip fires).
-    No-op (and bit-identical) when clip_ratio <= 0.
+    No-op (and bit-identical) when clip_ratio <= 0 and per_param_clip is empty/None.
     """
     stats = {
         "agc_total": 0,
@@ -545,19 +559,36 @@ def adaptive_gradient_clip(parameters, clip_ratio: float, eps: float = 1e-3):
         "agc_max_ratio": 0.0,
         "agc_scale_min": 1.0,
         "agc_scale_mean": 1.0,
+        "agc_eff_min": float("inf"),
+        "agc_eff_max": 0.0,
     }
-    if clip_ratio <= 0:
+    use_per_layer = bool(per_param_clip)
+    if clip_ratio <= 0 and not use_per_layer:
+        stats["agc_eff_min"] = 0.0
         return stats
     max_ratio = 0.0
     scale_min = 1.0
     scale_sum = 0.0
+    eff_min = float("inf")
+    eff_max = 0.0
     for p in parameters:
         if p.grad is None:
             continue
         stats["agc_total"] += 1
+        effective_clip = per_param_clip.get(id(p), clip_ratio) if use_per_layer else clip_ratio
+        if effective_clip < eff_min:
+            eff_min = effective_clip
+        if effective_clip > eff_max:
+            eff_max = effective_clip
+        if effective_clip <= 0:
+            scale = 1.0
+            if scale < scale_min:
+                scale_min = scale
+            scale_sum += scale
+            continue
         p_norm = p.data.norm(2).clamp_min(eps)
         g_norm = p.grad.norm(2)
-        max_g = clip_ratio * p_norm
+        max_g = effective_clip * p_norm
         # Per-param ratio of g_norm to its allowed max (>1 means clipping fires).
         ratio = float((g_norm / max_g.clamp_min(1e-30)).item())
         if ratio > max_ratio:
@@ -575,6 +606,10 @@ def adaptive_gradient_clip(parameters, clip_ratio: float, eps: float = 1e-3):
     if stats["agc_total"] > 0:
         stats["agc_scale_min"] = scale_min
         stats["agc_scale_mean"] = scale_sum / stats["agc_total"]
+        stats["agc_eff_min"] = eff_min if eff_min != float("inf") else 0.0
+        stats["agc_eff_max"] = eff_max
+    else:
+        stats["agc_eff_min"] = 0.0
     return stats
 
 
@@ -724,6 +759,11 @@ if args.muonh_agc_clip_ratio > 0:
     print0(f"AGC ENABLED on inner MuonH gradient: clip_ratio={args.muonh_agc_clip_ratio} eps={args.muonh_agc_eps}", console=True)
 else:
     print0("AGC DISABLED on inner MuonH gradient (clip_ratio=0)", console=True)
+if args.agc_per_layer_gamma > 0:
+    print0(f"AGC PER-LAYER ADAPTATION ENABLED: gamma={args.agc_per_layer_gamma} "
+           f"calibration_step={args.agc_calibration_step}", console=True)
+else:
+    print0("AGC PER-LAYER ADAPTATION DISABLED (gamma=0, global flat clip)", console=True)
 print0("="*100)
 
 val_tokens = 20 * 524288
@@ -780,6 +820,8 @@ if dist.get_rank() == 0:
             "aux_beta2_schedule": args.aux_beta2_schedule,
             "aux_beta2_start": args.aux_beta2_start,
             "aux_beta2_end": args.aux_beta2_end,
+            "agc_per_layer_gamma": args.agc_per_layer_gamma,
+            "agc_calibration_step": args.agc_calibration_step,
         },
     )
 
@@ -846,6 +888,17 @@ for trial_idx in range(args.num_trials):
     # Inner-MuonH AGC targets: block 2D weights consumed by MuonH. Clipped BEFORE
     # the MuonH momentum buffer integrates the gradient.
     muonh_params_for_agc = [p for g in optimizer2.param_groups for p in g["params"]]
+    # H105: per-layer AGC clip_ratio dicts. Populated at args.agc_calibration_step
+    # from per-param grad/weight ratios. Empty for gamma=0 (bit-identical CTRL).
+    # Keys are id(p), values are the per-layer base clip_ratio.
+    muonh_per_layer_clip: dict[int, float] = {}
+    aux_per_layer_clip: dict[int, float] = {}
+    agc_calibrated = False
+    # Stable index of body / aux params for per-layer telemetry naming. Order
+    # matches the muonh_params_for_agc / aux_params_for_agc construction so
+    # arm_a / arm_b / arm_c logs are comparable.
+    muonh_param_idx = {id(p): i for i, p in enumerate(muonh_params_for_agc)}
+    aux_param_idx = {id(p): i for i, p in enumerate(aux_params_for_agc)}
     assert set(p for opt in optimizers for group in opt.param_groups
                for p in group["params"]) == set(model.parameters())
     for opt in optimizers:
@@ -1040,15 +1093,76 @@ for trial_idx in range(args.num_trials):
                 train_steps=train_steps,
                 wandb_step=wandb_step,
             )
+        # H105: per-layer AGC calibration. At train_step==agc_calibration_step,
+        # measure per-param grad/weight ratios on the unclipped reduced gradient
+        # and populate per-layer clip dicts with clip_i = base * (median/ratio_i)^gamma.
+        # Subsequent steps look up id(p) in the dicts. gamma=0.0 keeps dicts empty
+        # and the AGC path is bit-identical to CTRL.
+        if (args.agc_per_layer_gamma > 0 and not agc_calibrated
+                and train_step == args.agc_calibration_step):
+            body_ratios: dict[int, float] = {}
+            for p in muonh_params_for_agc:
+                if p.grad is None:
+                    continue
+                gn = float(p.grad.norm().item())
+                wn = float(p.data.norm().item()) + 1e-8
+                body_ratios[id(p)] = gn / wn
+            aux_ratios: dict[int, float] = {}
+            for p in aux_params_for_agc:
+                if p.grad is None:
+                    continue
+                gn = float(p.grad.norm().item())
+                wn = float(p.data.norm().item()) + 1e-8
+                aux_ratios[id(p)] = gn / wn
+            if body_ratios and args.muonh_agc_clip_ratio > 0:
+                median_body = float(statistics.median(body_ratios.values()))
+                for pid, r in body_ratios.items():
+                    mult = (median_body / max(r, 1e-8)) ** args.agc_per_layer_gamma
+                    muonh_per_layer_clip[pid] = args.muonh_agc_clip_ratio * mult
+            if aux_ratios and args.aux_agc_clip_ratio > 0:
+                median_aux = float(statistics.median(aux_ratios.values()))
+                for pid, r in aux_ratios.items():
+                    mult = (median_aux / max(r, 1e-8)) ** args.agc_per_layer_gamma
+                    aux_per_layer_clip[pid] = args.aux_agc_clip_ratio * mult
+            agc_calibrated = True
+            if dist.get_rank() == 0:
+                calib_metrics = {"trial": trial_idx, "train/step": train_step}
+                if body_ratios:
+                    rs = list(body_ratios.values())
+                    calib_metrics["agc/ratio_disparity_body"] = max(rs) / max(min(rs), 1e-12)
+                    calib_metrics["agc/ratio_median_body"] = float(statistics.median(rs))
+                    calib_metrics["agc/ratio_min_body"] = min(rs)
+                    calib_metrics["agc/ratio_max_body"] = max(rs)
+                if aux_ratios:
+                    rs = list(aux_ratios.values())
+                    calib_metrics["agc/ratio_disparity_aux"] = max(rs) / max(min(rs), 1e-12)
+                    calib_metrics["agc/ratio_median_aux"] = float(statistics.median(rs))
+                    calib_metrics["agc/ratio_min_aux"] = min(rs)
+                    calib_metrics["agc/ratio_max_aux"] = max(rs)
+                if muonh_per_layer_clip:
+                    vs = list(muonh_per_layer_clip.values())
+                    calib_metrics["agc/effective_clip_min_body"] = min(vs)
+                    calib_metrics["agc/effective_clip_max_body"] = max(vs)
+                    for pid, v in muonh_per_layer_clip.items():
+                        calib_metrics[f"agc/clip_per_layer_body/{muonh_param_idx[pid]:03d}"] = v
+                if aux_per_layer_clip:
+                    vs = list(aux_per_layer_clip.values())
+                    calib_metrics["agc/effective_clip_min_aux"] = min(vs)
+                    calib_metrics["agc/effective_clip_max_aux"] = max(vs)
+                    for pid, v in aux_per_layer_clip.items():
+                        calib_metrics[f"agc/clip_per_layer_aux/{aux_param_idx[pid]:03d}"] = v
+                wandb.log(calib_metrics, step=wandb_step)
         # AGC on aux AdamW groups: clip per-param grad to clip_ratio * |param|.
         # No-op (bit-identical) when args.aux_agc_clip_ratio <= 0.
         agc_stats = adaptive_gradient_clip(
             aux_params_for_agc, args.aux_agc_clip_ratio, eps=args.aux_agc_eps,
+            per_param_clip=aux_per_layer_clip,
         )
         # AGC on inner MuonH gradient: clip BEFORE the momentum buffer integrates
         # the reduced gradient. No-op (bit-identical) when clip_ratio <= 0.
         muonh_agc_stats = adaptive_gradient_clip(
             muonh_params_for_agc, args.muonh_agc_clip_ratio, eps=args.muonh_agc_eps,
+            per_param_clip=muonh_per_layer_clip,
         )
         for opt in optimizers:
             opt.step()
@@ -1078,6 +1192,12 @@ for trial_idx in range(args.num_trials):
                 muonh_metrics["train/agc/max_ratio"] = agc_stats["agc_max_ratio"]
                 muonh_metrics["train/agc/scale_min"] = agc_stats["agc_scale_min"]
                 muonh_metrics["train/agc/scale_mean"] = agc_stats["agc_scale_mean"]
+                if args.agc_per_layer_gamma > 0 and aux_per_layer_clip:
+                    muonh_metrics["agc/clipped_frac_aux"] = (
+                        agc_stats["agc_clipped"] / agc_stats["agc_total"]
+                    )
+                    muonh_metrics["agc/effective_clip_min_aux_step"] = agc_stats["agc_eff_min"]
+                    muonh_metrics["agc/effective_clip_max_aux_step"] = agc_stats["agc_eff_max"]
             if args.muonh_agc_clip_ratio > 0 and muonh_agc_stats["agc_total"] > 0:
                 muonh_metrics["train/muonh/agc/fraction_active"] = (
                     muonh_agc_stats["agc_clipped"] / muonh_agc_stats["agc_total"]
@@ -1087,6 +1207,12 @@ for trial_idx in range(args.num_trials):
                 muonh_metrics["train/muonh/agc/max_ratio"] = muonh_agc_stats["agc_max_ratio"]
                 muonh_metrics["train/muonh/agc/scale_min"] = muonh_agc_stats["agc_scale_min"]
                 muonh_metrics["train/muonh/agc/scale_mean"] = muonh_agc_stats["agc_scale_mean"]
+                if args.agc_per_layer_gamma > 0 and muonh_per_layer_clip:
+                    muonh_metrics["agc/clipped_frac_body"] = (
+                        muonh_agc_stats["agc_clipped"] / muonh_agc_stats["agc_total"]
+                    )
+                    muonh_metrics["agc/effective_clip_min_body_step"] = muonh_agc_stats["agc_eff_min"]
+                    muonh_metrics["agc/effective_clip_max_body_step"] = muonh_agc_stats["agc_eff_max"]
             if len(muonh_metrics) > 2:
                 wandb.log(muonh_metrics, step=wandb_step)
         if dist.get_rank() == 0 and telemetry_due:
