@@ -1,3 +1,46 @@
+## 2026-05-24 12:30 UTC — PR #1033 ASSIGNED (alphonse): H119 AGC Pruning Ablation (is Adaptive Gradient Clipping structurally load-bearing?)
+
+- Branch: `g1r3-alphonse/h119-agc-pruning-ablation`
+- Hypothesis: **After 8-axis aux AdamW closure (H73/H80/H87/H89/H94/H96/H97/H110) and 3-axis AGC heterogeneity closure (H93/H102/H105), test whether AGC clip_ratio=0.05 is structurally load-bearing OR vestigial defensive infrastructure.** Pure LoC=0 pruning ablation using clip_ratio=1000 (effectively disabled). Paired methodologically with H118 frieren (MuLoCo pruning ablation) — systematic stack-component load-bearing analysis. The LIMIT case beyond H114 (in-flight thorfinn, testing 0.05/0.10/0.20 relaxation) — H119 asks "is AGC needed at ALL?"
+- Arms (n=1 seed each, 3325 steps, 1×H100):
+  - arm_a CTRL: `--muonh_agc_clip_ratio 0.05 --aux_agc_clip_ratio 0.05` (bit-identical baseline)
+  - arm_b DISABLE_BODY: `--muonh_agc_clip_ratio 1000` (body AGC off; aux unchanged at 0.05 — tests whether NS5-orthogonalized direction needs post-NS5 magnitude clipping)
+  - arm_c DISABLE_BOTH: `--muonh_agc_clip_ratio 1000 --aux_agc_clip_ratio 1000` (full AGC removal — tests whether entire AGC subsystem is load-bearing)
+- Smoke protocol: arm_b/arm_c run 200 steps first; if train/loss < 5.0 proceed to full run. Catastrophic divergence (NaN before step 100) is itself a programme-level finding.
+- Critical telemetry: `body/grad_norm_pre_post_ratio` per step (CTRL should show ratio < 1.0 frequently; disabled should show ≈ 1.0 — the H101 sf_alpha_t mirror discipline verifying the ablation fired); `param/global_norm_l2` per checkpoint; `train/gradient_norm` mean per arm.
+- Decision (widened NULL band [3.26880, 3.27250]):
+  - WIN/NULL: AGC vestigial — programme directive: AGC can be disabled or relaxed without harm
+  - NEG >3.27250: AGC load-bearing at our scale; validates 3-axis AGC closure (H93/H102/H105); AGC clip_ratio=0.05 at-optimum
+  - CATASTROPHIC >3.35: AGC is binding stability constraint; programme directive: clip_ratio=0.05 is hard floor; no future PR may remove or relax AGC beyond H114's tested ceiling of 0.20
+- Closure scenarios: arm_b+arm_c WIN/NULL → AGC entirely vestigial (major finding); arm_b+arm_c CATASTROPHIC → AGC structurally critical, joint H93/H102/H105/H119 4-axis closure; arm_b NULL + arm_c NEG → aux AGC > body AGC in load-bearing-ness
+- Why alphonse: gold-standard mechanism-link cross-checks (H101 sf_alpha_t formula verification, H110 aux/beta1 trajectory verification). Ablation experiment discipline = "verify the perturbation actually fired before interpreting val/loss" — alphonse's track record on this is the strongest in cohort.
+
+---
+
+## 2026-05-24 12:20 UTC — PR #997 CLOSED NEG/closure (alphonse): H110 Aux AdamW β1 LEVEL + Asymmetry (8th aux AdamW axis closure)
+
+- Branch: `g1r3-alphonse/h110-aux-beta1-schedule`
+- Final 3-arm table (W&B-verified via sub-agent):
+
+| arm | β1 config | val/best_loss | Δ vs baseline | Δ vs CTRL | ffs | W&B | Verdict |
+|-----|-----------|---------------|---------------|-----------|-----|-----|---------|
+| arm_a CTRL | const 0.8 | 3.27016 | +0.00039 | — | 3100 | `ms3x5xwq` | NULL bit-id ✓ |
+| arm_b CONSTANT_HIGH | const 0.9 | 3.27299 | +0.00322 | +0.00283 | 3125 | `pqo56gmi` | **NEG** (>3.27250 by +0.00049) |
+| arm_c COOLDOWN-RAMP | 0.8→0.95 | 3.27187 | +0.00210 | +0.00171 | 3100 | `w8y5b6uj` | NULL upper-edge |
+
+Under widened NULL band [3.26880, 3.27250]: arm_a NULL bit-id; arm_b mild NEG (above band); arm_c NULL upper-edge.
+Telemetry verified: `aux/beta1` trajectories exactly match spec on all three arms (flat 0.8 / flat 0.9 / linear ramp to 0.9499).
+
+**Two programme-level findings:**
+1. **First-moment and second-moment EMA windows behave ASYMMETRICALLY**: H87 (β2=0.99 WIN) established lengthening the second-moment EMA window wins. Mirror prediction for β1 (longer β1=0.9 should also help) is **false**. arm_b β1=0.9 is mildly NEG. Why: v̂_t provides per-coordinate adaptive STEP SIZE (smoothed magnitude denominator — longer window smooths variance estimates without losing directional signal); m_t provides per-coordinate adaptive DIRECTION (longer window = more directional inertia, reducing reactivity on rare-token aux groups at late-cooldown when inner_lr → 0 compounds inertia). **Programme directive**: future aux-optimizer PRs must not assume β1/β2 symmetric — second-moment EMA is window-monotone-positive, first-moment EMA is window-monotone-negative beyond β1=0.8.
+2. **H95 µ-asymmetry mechanism is SPECIFIC to inner Nesterov µ, NOT aux AdamW β1**: arm_c COOLDOWN-RAMP tests aux-side analogue of H95 increasing-µ mechanism (Sutskever effective-step = lr/(1-µ)). Result: NULL upper-edge. Inner Nesterov µ has effective-step coupling `lr/(1-µ)` that scales during cooldown; aux AdamW β1 has no analogous coupling — v̂_t already handles per-coord variance so m_t smoothing is decoupled from LR cooldown effective-step argument. **Programme directive**: future PRs proposing "cooldown-phase ramp" of EMA-decay-style parameters must specify the LR-coupling mechanism — without it the ramp is mechanically inert.
+
+- **Closure-amplifier**: joint H73/H80/H87/H89/H94/H96/H97/H110 = **8-axis aux AdamW closure**. AdamW(betas=(0.8, 0.99), eps=1e-6, wd=0, AGC=0.05) sits on a thoroughly mapped local optimum.
+- Follow-ups evaluated: β1 LOW push (0.7/0.6) → DEFERRED (AGC dominance pre-closes from other side); cooldown-ramp opposite direction (0.9→0.7) → DEFERRED (arm_b NEG makes 0.9 start non-viable); β1+AGC interaction diagnostic (aux/agc/clipped_frac) → PROGRAMME DIRECTIVE (5 LoC addition for any future aux PR, not a separate experiment).
+- Methodological commendation: H101 sf_alpha_t mirror executed on aux/beta1 (gold-standard schedule-fire verification); widened NULL band independently reapplied; frank debrief on arm_c launch gap with fix specified.
+
+---
+
 ## 2026-05-24 10:45 UTC — PR #1030 ASSIGNED (frieren): H118 MuLoCo Pruning Ablation (is outer SGDM structurally load-bearing?)
 
 - Branch: `g1r3-frieren/h118-no-outer-ablation`
