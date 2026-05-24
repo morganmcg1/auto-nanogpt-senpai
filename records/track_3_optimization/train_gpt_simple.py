@@ -10,6 +10,7 @@ import sys
 with open(sys.argv[0]) as f:
     code = f.read() # read the code of this file ASAP, for logging
 import argparse
+import random
 import uuid
 import time
 from pathlib import Path
@@ -468,6 +469,10 @@ NS5_ITERS = int(os.environ.get("NS5_ITERS", "12"))
 WD_AUX = float(os.environ.get("WD_AUX", "0.0"))  # AdamW WD on embed + lm_head matrices (scalars stay at 0)
 EMBED_INIT_STD = float(os.environ.get("EMBED_INIT_STD", "1.0"))  # default preserves baseline N(0,1)
 LOGIT_SOFTCAP = float(os.environ.get("LOGIT_SOFTCAP", "15.0"))  # default = 15 (current hardcoded value); soft-cap value c in f(x) = c·x / sqrt(x^2+c^2)
+# Stochastic body Muon step skip: per-tensor Bernoulli mask zeros the parameter
+# update with probability MUON_STEP_DROPOUT_P. Momentum buffer continues to
+# accumulate normally — only the parameter add step is gated.
+MUON_STEP_DROPOUT_P = float(os.environ.get("MUON_STEP_DROPOUT_P", "0.0"))
 
 
 def zeropower_via_newtonschulz5(G: Tensor) -> Tensor:
@@ -708,6 +713,11 @@ class Muon(torch.optim.Optimizer):
                     cur_uw = u_fro / p_fro
                     scale = torch.where(cur_uw < TARGET_UW, TARGET_UW * p_fro / u_fro, torch.ones_like(p_fro))
                     update = update * scale.to(update.dtype)
+                    # Stochastic per-tensor step skip (PR #1049). Momentum continues
+                    # to accumulate via lerp_ above; only the parameter delta is gated.
+                    # Use Python's random to avoid a per-tensor GPU->CPU sync from .item().
+                    if MUON_STEP_DROPOUT_P > 0.0 and random.random() < MUON_STEP_DROPOUT_P:
+                        update = torch.zeros_like(update)
                     # Explicit weight decay intentionally omitted (matches record #14; u/w-floor replaces wd).
                     p.add_(update, alpha=-group["lr"])
                     # Refresh SOAP state with the raw grad (after applying the step).
@@ -866,6 +876,7 @@ if dist.get_rank() == 0:
             "optimizer/attn_soap_trust_threshold": ATTN_SOAP_TRUST_THRESHOLD,
             "optimizer/ns5_iters": NS5_ITERS,
             "optimizer/wd_aux": WD_AUX,
+            "optimizer/muon_step_dropout_p": MUON_STEP_DROPOUT_P,
             "optimizer/recipe": "contra-muon + normuon-lite + soap-on-mlp + soap-on-attn-trust-gate (pre-NS5, record #14 + record #16)",
         },
     )
