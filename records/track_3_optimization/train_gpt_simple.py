@@ -465,6 +465,11 @@ ATTN_SOAP_BETA2 = 0.90
 ATTN_SOAP_PRECOND_FREQ = 10
 ATTN_SOAP_TRUST_THRESHOLD = float(os.environ.get("ATTN_SOAP_TRUST_THRESHOLD", "0.9"))
 NS5_ITERS = int(os.environ.get("NS5_ITERS", "12"))
+# Periodic polar reprojection of body weight matrices (PR #1075).
+# K = MUON_BODY_PERIODIC_POLAR_REPROJECT; every K Muon steps, reproject p to the
+# orthogonal manifold via NS5 polar and rescale to preserve Frobenius norm.
+# 0 disables the branch and exactly reproduces the prior update.
+MUON_BODY_PERIODIC_POLAR_REPROJECT = int(os.environ.get("MUON_BODY_PERIODIC_POLAR_REPROJECT", "0"))
 WD_AUX = float(os.environ.get("WD_AUX", "0.0"))  # AdamW WD on embed + lm_head matrices (scalars stay at 0)
 EMBED_INIT_STD = float(os.environ.get("EMBED_INIT_STD", "1.0"))  # default preserves baseline N(0,1)
 LOGIT_SOFTCAP = float(os.environ.get("LOGIT_SOFTCAP", "15.0"))  # default = 15 (current hardcoded value); soft-cap value c in f(x) = c·x / sqrt(x^2+c^2)
@@ -710,6 +715,16 @@ class Muon(torch.optim.Optimizer):
                     update = update * scale.to(update.dtype)
                     # Explicit weight decay intentionally omitted (matches record #14; u/w-floor replaces wd).
                     p.add_(update, alpha=-group["lr"])
+                    # PR #1075: periodic NS5 polar reprojection of body weight matrices.
+                    # Every K Muon steps, snap p onto the orthogonal manifold (closest in
+                    # Frobenius norm) and rescale to preserve ||p||_F. Disabled when K=0.
+                    if MUON_BODY_PERIODIC_POLAR_REPROJECT > 0:
+                        state["polar_step"] = state.get("polar_step", 0) + 1
+                        if state["polar_step"] % MUON_BODY_PERIODIC_POLAR_REPROJECT == 0:
+                            orig_fro = p.float().norm().clamp_min(1e-8)
+                            p_polar = zeropower_via_newtonschulz5(p)
+                            new_fro = p_polar.float().norm().clamp_min(1e-8)
+                            p.copy_((p_polar * (orig_fro / new_fro)).to(p.dtype))
                     # Refresh SOAP state with the raw grad (after applying the step).
                     if use_soap:
                         soap_refresh(grad, state)
@@ -865,6 +880,7 @@ if dist.get_rank() == 0:
             "optimizer/attn_soap_precond_freq": ATTN_SOAP_PRECOND_FREQ,
             "optimizer/attn_soap_trust_threshold": ATTN_SOAP_TRUST_THRESHOLD,
             "optimizer/ns5_iters": NS5_ITERS,
+            "optimizer/muon_body_periodic_polar_reproject": MUON_BODY_PERIODIC_POLAR_REPROJECT,
             "optimizer/wd_aux": WD_AUX,
             "optimizer/recipe": "contra-muon + normuon-lite + soap-on-mlp + soap-on-attn-trust-gate (pre-NS5, record #14 + record #16)",
         },
