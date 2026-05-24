@@ -82,11 +82,37 @@ def parse_args():
                         help="β2 at start of training (and constant β2 if schedule=constant).")
     parser.add_argument("--aux_beta2_end", type=float, default=float(os.environ.get("AUX_BETA2_END", "0.99")),
                         help="β2 at end of training (after cooldown). Only used if schedule=cooldown_ramp.")
+    # H102: Sharpness-Disparity Blockwise LR Multipliers (Wang et al. ICML 2025, arXiv:2410.12855).
+    # Replace single global muonh_lr with per-block multipliers from per-block gradient RMS
+    # (a cheap proxy for top-Hessian-eigenvalue). 'off' = bit-identical baseline.
+    parser.add_argument("--muonh_blockwise_lr", type=str, default=os.environ.get("MUONH_BLOCKWISE_LR", "off"),
+                        choices=["off", "static", "dynamic"],
+                        help="Blockwise LR multipliers for MuonH. 'off' = current behavior (single global lr). "
+                             "'static' = compute per-block multipliers at calibration_step from grad RMS, fix thereafter. "
+                             "'dynamic' = also recompute every --muonh_blockwise_recompute_steps.")
+    parser.add_argument("--muonh_blockwise_calibration_step", type=int,
+                        default=int(os.environ.get("MUONH_BLOCKWISE_CALIBRATION_STEP", "200")),
+                        help="Step at which to first measure per-block gradient RMS and assign multipliers "
+                             "(must be > muonh_warmup_steps).")
+    parser.add_argument("--muonh_blockwise_recompute_steps", type=int,
+                        default=int(os.environ.get("MUONH_BLOCKWISE_RECOMPUTE_STEPS", "500")),
+                        help="(dynamic mode only) Recompute multipliers every N steps after calibration.")
+    parser.add_argument("--muonh_blockwise_exponent", type=float,
+                        default=float(os.environ.get("MUONH_BLOCKWISE_EXPONENT", "0.5")),
+                        help="Exponent for sharpness-LR scaling: lr_i = global_lr * (rms_avg / rms_i) ** exponent. "
+                             "0.5 = sqrt damping (recommended by PR; deliberate damping vs Wang et al. exp=1.0).")
+    parser.add_argument("--muonh_blockwise_clip", type=str,
+                        default=os.environ.get("MUONH_BLOCKWISE_CLIP", "0.5,2.0"),
+                        help="Min,max multiplier values (comma-separated) to bound per-block LR away from extremes.")
     args = parser.parse_args()
     args.num_trials = args.num_trials if args.num_trials is not None else (args.legacy_num_trials or 1)
     args.wandb_tags = [tag.strip() for tag in args.wandb_tags.split(",") if tag.strip()]
     if args.telemetry_interval < 1 or args.histogram_interval < 1:
         raise ValueError("--telemetry_interval and --histogram_interval must be positive")
+    clip_parts = [float(x) for x in args.muonh_blockwise_clip.split(",")]
+    if len(clip_parts) != 2 or clip_parts[0] > clip_parts[1] or clip_parts[0] <= 0:
+        raise ValueError("--muonh_blockwise_clip must be 'lo,hi' with 0<lo<=hi")
+    args.muonh_blockwise_clip_parsed = (clip_parts[0], clip_parts[1])
     return args
 
 
@@ -612,6 +638,10 @@ class MuonH(torch.optim.Optimizer):
         self._last_active_fraction = 0.0
         self._last_radius_to_norm_max = 0.0
         self._last_norm_to_radius_max = 0.0
+        # H102: per-block LR multipliers. Empty dict = no scaling (bit-identical baseline).
+        # Populated by the training loop at calibration step(s) via compute_block_lr_multipliers.
+        self._param_to_block_idx: dict[int, int] = {}
+        self._block_lr_multipliers: dict[int, float] = {}
 
     @torch.no_grad()
     def step(self):
@@ -636,14 +666,23 @@ class MuonH(torch.optim.Optimizer):
                         if hb:
                             state["hyperball_radius"] = p.data.norm().item() * budget_mult
                     update = muon_update(p.grad, state["momentum"], mu=group["mu"])
+                    # H102: per-block LR multiplier. When _block_lr_multipliers is empty (default),
+                    # effective_lr == group["lr"] exactly (Python: x*1.0==x for finite floats), so
+                    # this path is bit-identical to baseline.
+                    if self._block_lr_multipliers:
+                        block_idx = self._param_to_block_idx.get(id(p))
+                        mult = self._block_lr_multipliers.get(block_idx, 1.0)
+                        effective_lr = group["lr"] * mult
+                    else:
+                        effective_lr = group["lr"]
                     if hb and mode == "scale_invariant":
                         # Always-active variant: norm is held at initial value by construction.
-                        scale_invariant_update_(p.data, update, group["lr"])
+                        scale_invariant_update_(p.data, update, effective_lr)
                         total_count_local += 1
                         clip_count_local += 1  # by definition projection is always active
                     else:
-                        p.mul_(1 - group["lr"] * group["weight_decay"])
-                        p.add_(update, alpha=-group["lr"])
+                        p.mul_(1 - effective_lr * group["weight_decay"])
+                        p.add_(update, alpha=-effective_lr)
                         if hb:
                             R = state["hyperball_radius"]
                             norm = p.data.norm().item()
@@ -678,6 +717,48 @@ class MuonH(torch.optim.Optimizer):
         self._last_active_fraction = clip_count / total_count if total_count > 0 else 0.0
         self._last_radius_to_norm_max = max_r_over_n
         self._last_norm_to_radius_max = max_n_over_r
+
+
+@torch.no_grad()
+def compute_block_lr_multipliers(model, exponent=0.5, clip_lo=0.5, clip_hi=2.0):
+    """H102: Per-block LR multipliers from per-block gradient RMS (Wang et al. 2025).
+
+    Returns (multipliers, block_rms) where:
+      multipliers: dict {block_idx: float} suitable for MuonH._block_lr_multipliers.
+      block_rms: dict {block_idx: float} of raw RMS values (for telemetry).
+
+    The multiplier formula is `mult_i = (rms_avg / rms_i) ** exponent`, clipped to
+    [clip_lo, clip_hi]. exponent=0.5 = sqrt damping (PR default; deliberately more
+    conservative than Wang et al. exponent=1.0).
+
+    Eligibility matches MuonH: only block parameters with ndim >= 2 are read.
+    Call AFTER all_reduce(p.grad) and BEFORE opt.step() so we read pure (post-AGC)
+    gradients and so the resulting multipliers take effect from this step onward.
+    All ranks must see identical p.grad (which they do after all_reduce), so each
+    rank computes the same multipliers deterministically.
+    """
+    block_rms: dict[int, float] = {}
+    for block_idx, block in enumerate(model.blocks):
+        sq_sum = 0.0
+        n = 0
+        for p in block.parameters():
+            if p.grad is not None and p.ndim >= 2:
+                sq_sum += float(p.grad.float().pow(2).sum().item())
+                n += p.grad.numel()
+        rms = (sq_sum / max(1, n)) ** 0.5
+        block_rms[block_idx] = rms
+
+    rms_values = list(block_rms.values())
+    rms_avg = sum(rms_values) / len(rms_values) if rms_values else 0.0
+
+    multipliers: dict[int, float] = {}
+    for idx, rms in block_rms.items():
+        ratio = rms_avg / max(rms, 1e-12)
+        mult = ratio ** exponent
+        mult = max(clip_lo, min(clip_hi, mult))
+        multipliers[idx] = mult
+
+    return multipliers, block_rms
 
 
 ########################################
@@ -724,6 +805,14 @@ if args.muonh_agc_clip_ratio > 0:
     print0(f"AGC ENABLED on inner MuonH gradient: clip_ratio={args.muonh_agc_clip_ratio} eps={args.muonh_agc_eps}", console=True)
 else:
     print0("AGC DISABLED on inner MuonH gradient (clip_ratio=0)", console=True)
+if args.muonh_blockwise_lr != "off":
+    print0(f"H102 MuonH BLOCKWISE_LR ENABLED: mode={args.muonh_blockwise_lr} "
+           f"calibration_step={args.muonh_blockwise_calibration_step} "
+           f"exponent={args.muonh_blockwise_exponent} "
+           f"clip={args.muonh_blockwise_clip_parsed} "
+           f"recompute_steps={args.muonh_blockwise_recompute_steps}", console=True)
+else:
+    print0("H102 MuonH BLOCKWISE_LR DISABLED (off) — bit-identical baseline", console=True)
 print0("="*100)
 
 val_tokens = 20 * 524288
@@ -780,6 +869,12 @@ if dist.get_rank() == 0:
             "aux_beta2_schedule": args.aux_beta2_schedule,
             "aux_beta2_start": args.aux_beta2_start,
             "aux_beta2_end": args.aux_beta2_end,
+            "muonh_blockwise_lr": args.muonh_blockwise_lr,
+            "muonh_blockwise_calibration_step": args.muonh_blockwise_calibration_step,
+            "muonh_blockwise_recompute_steps": args.muonh_blockwise_recompute_steps,
+            "muonh_blockwise_exponent": args.muonh_blockwise_exponent,
+            "muonh_blockwise_clip_lo": args.muonh_blockwise_clip_parsed[0],
+            "muonh_blockwise_clip_hi": args.muonh_blockwise_clip_parsed[1],
         },
     )
 
@@ -839,6 +934,17 @@ for trial_idx in range(args.num_trials):
                        hyperball=True, budget_mult=args.muonh_budget_mult,
                        mode=args.muonh_mode)
     optimizer2.param_groups[0]["name"] = "muonh_blocks"
+    # H102: build id(param) -> block_idx map so MuonH can look up which block each
+    # parameter belongs to. The MuonH constructor sorts params by size internally,
+    # so we use id() rather than position. Empty _block_lr_multipliers (default)
+    # keeps MuonH bit-identical with baseline.
+    _param_to_block_idx: dict[int, int] = {}
+    for _block_idx, _block in enumerate(model.blocks):
+        for _p in _block.parameters():
+            if _p.ndim >= 2:
+                _param_to_block_idx[id(_p)] = _block_idx
+    optimizer2._param_to_block_idx = _param_to_block_idx
+    optimizer2._block_lr_multipliers = {}
     optimizers = [optimizer1, optimizer2]
     # AGC targets: AdamW aux groups (embed, lm_head, scalars). Built from optimizer1
     # param groups to track exactly the same params AdamW updates.
@@ -1050,6 +1156,60 @@ for trial_idx in range(args.num_trials):
         muonh_agc_stats = adaptive_gradient_clip(
             muonh_params_for_agc, args.muonh_agc_clip_ratio, eps=args.muonh_agc_eps,
         )
+        # H102: blockwise LR calibration. Compute per-block multipliers from current
+        # (post-AGC) gradients at the calibration step (static) and at recompute
+        # cadence (dynamic). Placement is BEFORE MuonH.step() because muon_update
+        # mutates p.grad in-place via lerp_, so we must read grads before that.
+        # Multipliers take effect at THIS step (i.e., step == calibration_step is
+        # the first divergent step from arm_a CTRL; trajectories match up to and
+        # including the validation event at the last val_freq before that).
+        calibration_due = (args.muonh_blockwise_lr != "off"
+                           and step == args.muonh_blockwise_calibration_step)
+        dynamic_recompute_due = (args.muonh_blockwise_lr == "dynamic"
+                                 and step > args.muonh_blockwise_calibration_step
+                                 and (step - args.muonh_blockwise_calibration_step) % args.muonh_blockwise_recompute_steps == 0)
+        if calibration_due or dynamic_recompute_due:
+            _multipliers, _block_rms = compute_block_lr_multipliers(
+                model,
+                exponent=args.muonh_blockwise_exponent,
+                clip_lo=args.muonh_blockwise_clip_parsed[0],
+                clip_hi=args.muonh_blockwise_clip_parsed[1],
+            )
+            optimizer2._block_lr_multipliers = _multipliers
+            if dist.get_rank() == 0:
+                _rms_vals = list(_block_rms.values())
+                _rms_max = max(_rms_vals)
+                _rms_min = min(_rms_vals)
+                _rms_avg = sum(_rms_vals) / len(_rms_vals)
+                _disparity = _rms_max / max(_rms_min, 1e-12)
+                _mult_vals = list(_multipliers.values())
+                _mult_max = max(_mult_vals)
+                _mult_min = min(_mult_vals)
+                _calib_metrics = {
+                    "trial": trial_idx,
+                    "train/step": train_step,
+                    "calibration/event_step": step,
+                    "calibration/disparity": _disparity,
+                    "calibration/rms_max": _rms_max,
+                    "calibration/rms_min": _rms_min,
+                    "calibration/rms_avg": _rms_avg,
+                    "calibration/multiplier_max": _mult_max,
+                    "calibration/multiplier_min": _mult_min,
+                    "calibration/multiplier_disparity": _mult_max / max(_mult_min, 1e-12),
+                }
+                for _i, _v in _block_rms.items():
+                    _calib_metrics[f"calibration/block_rms_{_i}"] = _v
+                for _i, _v in _multipliers.items():
+                    _calib_metrics[f"calibration/block_multiplier_{_i}"] = _v
+                wandb.log(_calib_metrics, step=wandb_step)
+                _tag = "calibration" if calibration_due else "dyn_recompute"
+                print0(f"[H102 {_tag}] step={step} disparity={_disparity:.3f} "
+                       f"rms_avg={_rms_avg:.4e} mult_range=[{_mult_min:.3f},{_mult_max:.3f}]",
+                       console=True)
+                if calibration_due and _disparity < 1.3:
+                    print0(f"[H102 SMOKE GATE] disparity={_disparity:.3f} < 1.3, "
+                           f"expect NULL result (per-block sharpness too uniform)",
+                           console=True)
         for opt in optimizers:
             opt.step()
         # Log warmup telemetry every 10 steps during warmup (and at telemetry events
@@ -1087,6 +1247,20 @@ for trial_idx in range(args.num_trials):
                 muonh_metrics["train/muonh/agc/max_ratio"] = muonh_agc_stats["agc_max_ratio"]
                 muonh_metrics["train/muonh/agc/scale_min"] = muonh_agc_stats["agc_scale_min"]
                 muonh_metrics["train/muonh/agc/scale_mean"] = muonh_agc_stats["agc_scale_mean"]
+            # H102: per-block LR multipliers and effective LR. Logged on telemetry
+            # events only (multipliers change at calibration; the cosine schedule on
+            # group lr applies uniformly across blocks).
+            if telemetry_due and optimizer2._block_lr_multipliers:
+                _muonh_group_lr = optimizer2.param_groups[0]["lr"]
+                _muonh_mult_vals = list(optimizer2._block_lr_multipliers.values())
+                _muonh_mult_min = min(_muonh_mult_vals)
+                _muonh_mult_max = max(_muonh_mult_vals)
+                muonh_metrics["train/block_lr_multiplier/min"] = _muonh_mult_min
+                muonh_metrics["train/block_lr_multiplier/max"] = _muonh_mult_max
+                muonh_metrics["train/block_lr_multiplier/disparity"] = _muonh_mult_max / max(_muonh_mult_min, 1e-12)
+                for _bi, _mult in optimizer2._block_lr_multipliers.items():
+                    muonh_metrics[f"train/block_lr_multiplier/block_{_bi}"] = _mult
+                    muonh_metrics[f"train/effective_lr/block_{_bi}"] = _muonh_group_lr * _mult
             if len(muonh_metrics) > 2:
                 wandb.log(muonh_metrics, step=wandb_step)
         if dist.get_rank() == 0 and telemetry_due:
