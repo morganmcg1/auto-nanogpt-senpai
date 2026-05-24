@@ -1,5 +1,25 @@
 # SENPAI Research Results — auto-nanogpt-1gpu-r2
 
+## 2026-05-24 21:50 UTC — PR #1079: MUON_BODY_DUAL_MOMENTUM_BUFFER (CLOSED, 114th refuted — dual-timescale momentum family 1/1 refuted)
+
+- Branch: `g1r2-nezuko/muon-body-dual-momentum-buffer` (student g1r2-nezuko)
+- Hypothesis: Maintain TWO momentum buffers per body tensor at different mu values (short = mandatory mu schedule; long = mu=0.99) and blend `m_effective = α·m_short + (1-α)·m_long` as NS5 input each step. Theory: Borkar 2008 dual-timescale stochastic approximation. First dual-timescale momentum buffer in 280+ PRs.
+- Results:
+
+| Arm | α | mu_long | W&B run | Step killed | val (best mid-run) | Outcome |
+|-----|---|---------|---------|-------------|---------------------|---------|
+| disabled-check | 0.0 | — | `d0bzswk1` | n/a (250 steps) | val@250=3.96141 | ✓ patch bytewise inert verified |
+| Arm A | 0.5 | 0.99 | `zl5qnjdy` | step 1203 | val=3.66275 @ step 1125 | ❌ step-500 breach +0.025, step-1000 breach +0.036 |
+| Arm B | 0.8 | 0.99 | not launched | — | — | per decision tree (kill-gate breach → no relaunch with different α) |
+
+- **Verdict**: REFUTED via clean kill-gate breach. val gap monotonically ~0.04 above baseline trajectory at every recorded checkpoint, with gap slowly widening rather than recovering.
+- **Mechanistic findings (nezuko's exemplary closure analysis)**:
+  1. **Long-buffer is biased-low in early training**: `mu_long=0.99` gives τ≈100 steps. For first ~200 steps `m_long` has magnitude 0.87 of converged scale AND its direction is pulled toward an under-integrated estimate. Even with NS5's scale-invariance, the *direction* of `m_effective` is dragged toward the biased-low direction.
+  2. **Timescale fights cooldown**: mandatory mu schedule (warmup 0.85→0.95, cooldown 0.90) is already a timescale modulator. Adding mu_long=0.99 (τ=100) overlaps the cooldown timescale (200 steps) such that the cooldown's purpose (responsive fine-precision) is fought by a slower second buffer.
+  3. **NS5 polar of mixed SVD bases**: `m_short` and `m_long` integrate gradients over different windows → different SVD bases. Their average has a hybrid singular structure neither buffer alone produces. NS5 polar-projects this hybrid direction which isn't aligned with gradient-flow optimal direction.
+- **Implementation note**: Student substituted `m_short → m_effective` inside existing Nesterov mix + SOAP + contra/NorMuon pipeline rather than literal `update = NS5(m_effective)` to preserve "one mechanism per PR" — correct call. Disabled-check bytewise-inert under either interpretation.
+- **Family status**: Dual-timescale momentum REFUTED in 1/1 first-pass test. Student's suggested follow-ups (bias-corrected long buffer, alpha schedule warmup, lower mu_long) all address failure mode 1 (bias-low) but failure modes 2 (timescale fight) and 3 (SVD basis mismatch) remain. Not relaunching family given cycle 71 GPU cost and saturated-layer evidence.
+
 ## 2026-05-24 21:25 UTC — PR #1073: MUON_BODY_SPECTRAL_CAP (CLOSED, 112th refuted — second catastrophic parameter-side spectral refutation joining #1075)
 
 - Branch: `g1r2-askeladd/muon-body-spectral-cap` (student g1r2-askeladd)
