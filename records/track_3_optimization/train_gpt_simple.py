@@ -61,6 +61,16 @@ def parse_args():
                              "--ema_beta_target during cooldown, coupling β to the LR schedule. "
                              "Requires --ema_beta>0. β_t = ema_beta + (ema_beta_target - ema_beta) "
                              "× (1 - lr_mult_t).")
+    parser.add_argument("--soap_lm_head_norm_preserving", action="store_true",
+                        help="Apply direction-only norm-preserving SOAP (R_cov) rotation to lm_head's "
+                             "AdamW update. Frobenius norm of the update is preserved by construction.")
+    parser.add_argument("--soap_lm_head_power", type=float, default=0.25,
+                        help="Inverse power for R_cov in SOAP rotation. 0.25 → R_cov^(-1/4) (standard SOAP), "
+                             "0.50 → R_cov^(-1/2) (Shampoo-style stronger preconditioning).")
+    parser.add_argument("--soap_precond_freq", type=int, default=5,
+                        help="Recompute R_neg every K optimizer steps (R_cov EMA still updates every step).")
+    parser.add_argument("--soap_ema_beta", type=float, default=0.95,
+                        help="EMA decay for R_cov accumulator (conventional EMA: β*R + (1-β)*g.T@g).")
     args = parser.parse_args()
     args.num_trials = args.num_trials if args.num_trials is not None else (args.legacy_num_trials or 1)
     args.wandb_tags = [tag.strip() for tag in args.wandb_tags.split(",") if tag.strip()]
@@ -483,6 +493,122 @@ def matrix_neg_power(M: Tensor, gamma: float, eps: float = 1e-12) -> Tensor:
     return (eigvecs * eigvals) @ eigvecs.T
 
 
+class AdamWSoapLmHead(torch.optim.AdamW):
+    """AdamW with optional norm-preserving direction-only SOAP rotation for lm_head.
+
+    Maintains an EMA R_cov = β*R + (1-β)*g.T@g over the lm_head gradient covariance.
+    Every `soap_precond_freq` steps, computes R_neg = R_cov^{-soap_power} via eigh.
+    Each step, the AdamW update direction is right-multiplied by R_neg, then rescaled
+    to preserve its original Frobenius norm. This tests whether the lm_head gradient
+    has any exploitable cross-vocab-dim structure beyond AdamW's per-coord rescaling,
+    with scale-axis confounding removed.
+
+    Implementation uses post-step delta correction: snapshot pre-step weights, run
+    vanilla AdamW step (fused=False so deltas are observable), then replace the
+    applied delta with norm-preserved (delta @ R_neg) ⋅ (||delta|| / ||delta @ R_neg||).
+    """
+
+    def __init__(self, *args, soap_lm_head_norm_preserving: bool = False,
+                 soap_precond_freq: int = 5, soap_ema_beta: float = 0.95,
+                 soap_power: float = 0.25, soap_eig_eps: float = 1e-8, **kwargs):
+        super().__init__(*args, **kwargs)
+        self._soap_enabled = soap_lm_head_norm_preserving
+        self._soap_precond_freq = max(1, soap_precond_freq)
+        self._soap_ema_beta = soap_ema_beta
+        self._soap_power = soap_power
+        self._soap_eig_eps = soap_eig_eps
+        self._soap_step = 0
+        self._soap_state: dict[int, dict] = {}
+        self._soap_diag: dict[str, float] = {}
+
+    @torch.no_grad()
+    def step(self):
+        if not self._soap_enabled:
+            super().step()
+            return
+
+        soap_params: list[torch.nn.Parameter] = []
+        for group in self.param_groups:
+            if group.get("name") != "adam_lm_head":
+                continue
+            for p in group["params"]:
+                if p.grad is not None:
+                    soap_params.append(p)
+
+        # Update R_cov EMA every step; recompute R_neg every soap_precond_freq steps.
+        for p in soap_params:
+            sid = id(p)
+            g32 = p.grad.detach().float()
+            if sid not in self._soap_state:
+                D = p.shape[1]
+                self._soap_state[sid] = {
+                    "R_cov": torch.zeros(D, D, device=p.device, dtype=torch.float32),
+                    "R_neg": torch.eye(D, device=p.device, dtype=torch.float32),
+                    "initialized": False,
+                }
+            s = self._soap_state[sid]
+            if not s["initialized"]:
+                # Seed R_cov with the first gradient outer product (per PR pseudocode).
+                s["R_cov"].copy_(g32.T @ g32)
+                s["initialized"] = True
+            else:
+                s["R_cov"].mul_(self._soap_ema_beta).add_(g32.T @ g32, alpha=1.0 - self._soap_ema_beta)
+
+            recompute = (self._soap_step % self._soap_precond_freq == 0)
+            if recompute:
+                R_sym = 0.5 * (s["R_cov"] + s["R_cov"].T)
+                eigvals, eigvecs = torch.linalg.eigh(R_sym)
+                eig_max_raw = float(eigvals.max().item())
+                eig_min_raw = float(eigvals.min().item())
+                eigvals_clamped = eigvals.clamp_min(self._soap_eig_eps)
+                s["R_neg"] = (eigvecs * eigvals_clamped.pow(-self._soap_power)) @ eigvecs.T
+                self._soap_diag["soap/R_cov_max_eig"] = eig_max_raw
+                self._soap_diag["soap/R_cov_min_eig"] = eig_min_raw
+                self._soap_diag["soap/R_cov_min_eig_clamped"] = float(eigvals_clamped.min().item())
+                eig_min_for_cond = max(eig_min_raw, self._soap_eig_eps)
+                self._soap_diag["soap/R_cov_condition_num"] = eig_max_raw / eig_min_for_cond
+                self._soap_diag["soap/R_neg_trace"] = float(s["R_neg"].trace().item())
+                self._soap_diag["soap/R_neg_frob"] = float(s["R_neg"].norm().item())
+                self._soap_diag["soap/precond_recompute_step"] = float(self._soap_step)
+
+        # Snapshot pre-step weights so we can recover the AdamW-applied delta.
+        pre_weights = {id(p): p.detach().clone() for p in soap_params}
+
+        super().step()
+
+        for p in soap_params:
+            sid = id(p)
+            if sid not in pre_weights:
+                continue
+            delta_applied = (pre_weights[sid] - p).float()
+            R_neg = self._soap_state[sid]["R_neg"]
+            soap_raw = delta_applied @ R_neg
+            adam_norm = delta_applied.norm().clamp_min(1e-12)
+            soap_raw_norm = soap_raw.norm().clamp_min(1e-12)
+            # Norm-preserving direction-only rotation: rescale rotated delta to match
+            # ||adam_delta||_F. By construction this ratio is exactly 1.0 at fp32 precision.
+            soap_delta = soap_raw * (adam_norm / soap_raw_norm)
+
+            cos_num = (soap_delta.flatten() * delta_applied.flatten()).sum()
+            cos_den = (soap_delta.norm() * delta_applied.norm()).clamp_min(1e-12)
+            cos_sim = float((cos_num / cos_den).item())
+
+            self._soap_diag["soap/precond_norm_ratio"] = float((soap_delta.norm() / adam_norm).item())
+            self._soap_diag["soap/precond_update_norm_ratio"] = self._soap_diag["soap/precond_norm_ratio"]
+            self._soap_diag["soap/adam_delta_norm"] = float(adam_norm.item())
+            self._soap_diag["soap/soap_delta_norm"] = float(soap_delta.norm().item())
+            self._soap_diag["soap/soap_raw_norm"] = float(soap_raw_norm.item())
+            self._soap_diag["soap/raw_over_adam_norm_ratio"] = float((soap_raw_norm / adam_norm).item())
+            self._soap_diag["soap/cosine_similarity"] = cos_sim
+            self._soap_diag["soap/angular_change"] = 1.0 - cos_sim
+
+            # Replace applied AdamW delta with the norm-preserved SOAP delta.
+            p.add_(delta_applied.to(p.dtype))
+            p.sub_(soap_delta.to(p.dtype))
+
+        self._soap_step += 1
+
+
 def pmuon_update(
     grad: Tensor,
     momentum: Tensor,
@@ -717,6 +843,10 @@ if dist.get_rank() == 0:
             "ema_warmup_steps": args.ema_warmup_steps,
             "ema_beta_target": args.ema_beta_target if args.ema_beta_target is not None else 0.0,
             "ema_dynamic_ramp_active": int(args.ema_beta_target is not None and args.ema_beta > 0),
+            "soap_lm_head_norm_preserving": int(args.soap_lm_head_norm_preserving),
+            "soap_lm_head_power": args.soap_lm_head_power,
+            "soap_precond_freq": args.soap_precond_freq,
+            "soap_ema_beta": args.soap_ema_beta,
         },
     )
 
@@ -748,10 +878,19 @@ for trial_idx in range(args.num_trials):
             raise Exception(f"Uninitialized parameter: {name}")
 
     # create the optimizer(s)
-    optimizer1 = AdamW([dict(params=[model.embed.weight], lr=0.3, name="adam_embed"),
-                        dict(params=[model.proj.weight], lr=1/160, name="adam_lm_head"),
-                        dict(params=[p for p in model.parameters() if p.ndim < 2], lr=0.025, name="adam_scalars")],
-                       betas=(0.8, 0.95), eps=1e-10, weight_decay=0, fused=True)
+    # When SOAP is active we need fused=False so the per-step AdamW delta is observable
+    # for the post-step norm-preserving rotation. With weight_decay=0 the delta equals lr*direction.
+    optimizer1 = AdamWSoapLmHead(
+        [dict(params=[model.embed.weight], lr=0.3, name="adam_embed"),
+         dict(params=[model.proj.weight], lr=1/160, name="adam_lm_head"),
+         dict(params=[p for p in model.parameters() if p.ndim < 2], lr=0.025, name="adam_scalars")],
+        betas=(0.8, 0.95), eps=1e-10, weight_decay=0,
+        fused=not args.soap_lm_head_norm_preserving,
+        soap_lm_head_norm_preserving=args.soap_lm_head_norm_preserving,
+        soap_precond_freq=args.soap_precond_freq,
+        soap_ema_beta=args.soap_ema_beta,
+        soap_power=args.soap_lm_head_power,
+    )
     optimizer2 = Muon([p for p in model.blocks.parameters() if p.ndim >= 2],
                       lr=0.035, weight_decay=0.025, beta_cov=0.95, gamma=PMUON_GAMMA)
     optimizer2.param_groups[0]["name"] = "muon_blocks"
@@ -1026,6 +1165,19 @@ for trial_idx in range(args.num_trials):
                     "polar/ns_coef_b": NS_B,
                     "polar/ns_coef_c": NS_C,
                 }, step=wandb_step)
+            soap_diag = getattr(optimizer1, "_soap_diag", None)
+            if soap_diag:
+                soap_log = {
+                    "trial": trial_idx,
+                    "train/step": train_step,
+                    "soap/active": int(args.soap_lm_head_norm_preserving),
+                    "soap/power": args.soap_lm_head_power,
+                    "soap/precond_freq": args.soap_precond_freq,
+                    "soap/ema_beta": args.soap_ema_beta,
+                    "soap/step": getattr(optimizer1, "_soap_step", 0),
+                }
+                soap_log.update(soap_diag)
+                wandb.log(soap_log, step=wandb_step)
             wandb.log({
                 "trial": trial_idx,
                 "train/step": train_step,
