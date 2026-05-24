@@ -61,6 +61,16 @@ def parse_args():
                              "--ema_beta_target during cooldown, coupling β to the LR schedule. "
                              "Requires --ema_beta>0. β_t = ema_beta + (ema_beta_target - ema_beta) "
                              "× (1 - lr_mult_t).")
+    parser.add_argument("--use_lm_head_muon", action="store_true",
+                        help="Replace AdamW on lm_head (proj.weight) with vanilla NS5-orthogonalized Muon-aux. "
+                             "When set, proj.weight is moved from optimizer1.adam_lm_head to optimizer3 "
+                             "(AuxMuonNoWhitening, no bilateral whitening).")
+    parser.add_argument("--lm_head_muon_lr", type=float, default=0.17,
+                        help="Learning rate for the lm_head Muon-aux optimizer. "
+                             "Frobenius-parity with AdamW lm_head_lr=1/160 is at ~0.17 "
+                             "(see PR #964 magnitude budget).")
+    parser.add_argument("--lm_head_muon_mu", type=float, default=0.95,
+                        help="Momentum coefficient for the lm_head Muon-aux optimizer.")
     args = parser.parse_args()
     args.num_trials = args.num_trials if args.num_trials is not None else (args.legacy_num_trials or 1)
     args.wandb_tags = [tag.strip() for tag in args.wandb_tags.split(",") if tag.strip()]
@@ -586,6 +596,50 @@ class Muon(torch.optim.Optimizer):
         self._polar_diag = polar_diag
 
 
+class AuxMuonNoWhitening(torch.optim.Optimizer):
+    """Vanilla NS5-orthogonalized Muon for non-square aux params (no bilateral whitening).
+
+    Used for lm_head (proj.weight, 50304x768) where L_cov = G @ G.T (50304^2) is infeasible.
+    Per-step update = -lr * NS5(Nesterov(p.grad, momentum)) * max(1, m/n)^0.5.
+    """
+    def __init__(self, params, lr=0.17, mu=0.95, ns_a=NS_A, ns_b=NS_B, ns_c=NS_C):
+        params = list(params)
+        assert all(isinstance(p, torch.nn.Parameter) and p.ndim == 2 for p in params)
+        defaults = dict(lr=lr, mu=mu, ns_a=ns_a, ns_b=ns_b, ns_c=ns_c)
+        super().__init__(params, defaults)
+
+    @torch.no_grad()
+    def step(self):
+        polar_diag: dict = {}
+        for group in self.param_groups:
+            for p in group["params"]:
+                if p.grad is None:
+                    continue
+                state = self.state[p]
+                if len(state) == 0:
+                    state["momentum"] = torch.zeros_like(p)
+                mom = state["momentum"]
+                mom.lerp_(p.grad, 1 - group["mu"])
+                upd = p.grad.lerp(mom, group["mu"])
+                polar = zeropower_via_newtonschulz5(upd, a=group["ns_a"], b=group["ns_b"], c=group["ns_c"])
+                if "residual" not in polar_diag:
+                    X = polar
+                    m, n = X.shape[-2], X.shape[-1]
+                    Xf = X.float()
+                    if m <= n:
+                        gram = Xf @ Xf.T
+                        eye = torch.eye(m, device=X.device, dtype=Xf.dtype)
+                    else:
+                        gram = Xf.T @ Xf
+                        eye = torch.eye(n, device=X.device, dtype=Xf.dtype)
+                    polar_diag["residual"] = float(torch.linalg.norm(gram - eye).item())
+                    polar_diag["sample_rows"] = m
+                    polar_diag["sample_cols"] = n
+                update = polar * (max(1, p.size(-2) / p.size(-1)) ** 0.5)
+                p.add_(update, alpha=-group["lr"])
+        self._polar_diag = polar_diag
+
+
 def pmuon_spectral_diag(optimizer: torch.optim.Optimizer, gamma: float) -> dict[str, float]:
     # Post-whitening spectral diagnostic on the first PMuon-managed param (largest
     # by sort order). Re-evaluated against current L_cov, R_cov, momentum state.
@@ -717,6 +771,9 @@ if dist.get_rank() == 0:
             "ema_warmup_steps": args.ema_warmup_steps,
             "ema_beta_target": args.ema_beta_target if args.ema_beta_target is not None else 0.0,
             "ema_dynamic_ramp_active": int(args.ema_beta_target is not None and args.ema_beta > 0),
+            "use_lm_head_muon": int(args.use_lm_head_muon),
+            "lm_head_muon_lr": args.lm_head_muon_lr,
+            "lm_head_muon_mu": args.lm_head_muon_mu,
         },
     )
 
@@ -748,14 +805,27 @@ for trial_idx in range(args.num_trials):
             raise Exception(f"Uninitialized parameter: {name}")
 
     # create the optimizer(s)
-    optimizer1 = AdamW([dict(params=[model.embed.weight], lr=0.3, name="adam_embed"),
-                        dict(params=[model.proj.weight], lr=1/160, name="adam_lm_head"),
-                        dict(params=[p for p in model.parameters() if p.ndim < 2], lr=0.025, name="adam_scalars")],
-                       betas=(0.8, 0.95), eps=1e-10, weight_decay=0, fused=True)
+    if args.use_lm_head_muon:
+        # Aux Muon for lm_head — vanilla NS5, no bilateral whitening (proj is 50304x768).
+        # lm_head is removed from optimizer1; AdamW only handles embed + scalars.
+        optimizer1 = AdamW([dict(params=[model.embed.weight], lr=0.3, name="adam_embed"),
+                            dict(params=[p for p in model.parameters() if p.ndim < 2], lr=0.025, name="adam_scalars")],
+                           betas=(0.8, 0.95), eps=1e-10, weight_decay=0, fused=True)
+    else:
+        optimizer1 = AdamW([dict(params=[model.embed.weight], lr=0.3, name="adam_embed"),
+                            dict(params=[model.proj.weight], lr=1/160, name="adam_lm_head"),
+                            dict(params=[p for p in model.parameters() if p.ndim < 2], lr=0.025, name="adam_scalars")],
+                           betas=(0.8, 0.95), eps=1e-10, weight_decay=0, fused=True)
     optimizer2 = Muon([p for p in model.blocks.parameters() if p.ndim >= 2],
                       lr=0.035, weight_decay=0.025, beta_cov=0.95, gamma=PMUON_GAMMA)
     optimizer2.param_groups[0]["name"] = "muon_blocks"
     optimizers = [optimizer1, optimizer2]
+    if args.use_lm_head_muon:
+        optimizer3 = AuxMuonNoWhitening([model.proj.weight],
+                                        lr=args.lm_head_muon_lr,
+                                        mu=args.lm_head_muon_mu)
+        optimizer3.param_groups[0]["name"] = "muon_lm_head"
+        optimizers.append(optimizer3)
     assert set(p for opt in optimizers for group in opt.param_groups
                for p in group["params"]) == set(model.parameters())
     for opt in optimizers:
@@ -1026,6 +1096,18 @@ for trial_idx in range(args.num_trials):
                     "polar/ns_coef_b": NS_B,
                     "polar/ns_coef_c": NS_C,
                 }, step=wandb_step)
+            if args.use_lm_head_muon:
+                lm_polar = getattr(optimizer3, "_polar_diag", None)
+                lm_metrics = {
+                    "trial": trial_idx,
+                    "train/step": train_step,
+                    "lm_head_muon/lr": optimizer3.param_groups[0]["lr"],
+                }
+                if lm_polar and "residual" in lm_polar:
+                    lm_metrics["lm_head_muon/polar_residual"] = lm_polar["residual"]
+                    lm_metrics["lm_head_muon/sample_rows"] = lm_polar.get("sample_rows", 0)
+                    lm_metrics["lm_head_muon/sample_cols"] = lm_polar.get("sample_cols", 0)
+                wandb.log(lm_metrics, step=wandb_step)
             wandb.log({
                 "trial": trial_idx,
                 "train/step": train_step,
