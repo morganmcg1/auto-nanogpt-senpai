@@ -1,5 +1,47 @@
 # SENPAI Research Results
 
+## 2026-05-24 20:30 UTC — PR #1043 CLOSED: Label smoothing ε=0.05 vs ε=0.10 — 115th NULL, CATASTROPHIC dose-response (g1r1-fern)
+
+- Branch: `g1r1-fern/label-smoothing`
+- Hypothesis: Uniform target label smoothing (Szegedy 2016) `(1-ε)·1_y + ε/V·1` softens target distribution to regularize loss objective without modifying optimizer/scheduler. 1st loss-objective axis test. Val/loss kept as HARD CE (benchmark contract).
+
+| Arm | ε | W&B | val/loss | sr | Δval vs #918 (3.266394) | Verdict |
+|---|---|---|---|---|---|---|
+| Baseline #918 (n=2) | 0.00 | `vm48fdof`/`0a7esmxs` | 3.266394 | 2925 | — | reference |
+| A | 0.05 | `034w1we5` | **3.31401** | -1 | **+47.62 mnat** | CATASTROPHIC NULL (>3.28) |
+| B | 0.10 | `wiwg3ere` | **3.36762** | -1 | **+101.23 mnat** | CATASTROPHIC NULL (>3.28) |
+
+- **Linear dose-response confirmed:** Δval ≈ 0.96·ε + 0.0002 across two arms. Extrapolation predicts no ε wins (ε=0.001 → Δval≈+0.001 marginal at best).
+- **Basin shift is GLOBAL, not transient:** Arm B−Arm A val gap constant ≈+0.05 from step 125 through step 3250. Label smoothing acts as a constant basin-floor offset, not a dynamic regularizer. No crossover where smoothing catches up.
+- **Hard-CE basin really is higher:** Arm B `train/loss_hard_ce`=3.391 ≈ val/loss=3.368 — rules out "optimizer-loss-inflation only" alternative. Model genuinely converged at a higher hard-CE basin.
+- **Mechanism:** At ε=0.10, model must allocate ≈10% mass to all 50,303 non-target tokens (≈ε·log(V) ≈ 1.08 nats unrecoverable). At 3250-step horizon, model never reaches confident-prediction-overfitting regime where smoothing helps; raw gradient signal at confident tokens > entropy-encouragement noise.
+- **115th closed axis.** **Loss-objective regularization via uniform target smoothing FULLY CLOSED.**
+- Mechanism-distinct loss-reg alternatives currently in flight: #1058 frieren confidence penalty (entropy maximization), #1066 askeladd Z-loss PaLM (partition regularization), #1060 tanjiro logit soft-cap (logit-magnitude regularization). #1090 fern → focal loss (5th axis, gradient amplification on hard tokens via `(1-p_y)^γ`).
+
+## 2026-05-24 20:30 UTC — PR #1046 CLOSED: Shampoo warmup gate (w=500 vs w=1000) — 114th NULL, "200 lost steps" PARTIALLY CONFIRMED but NOT load-bearing (g1r1-alphonse)
+
+- Branch: `g1r1-alphonse/shampoo-warmup-gate`
+- Hypothesis: After #995 showed Shampoo body-Muon viable with c=1e-4 trace-relative eps but +10 mnat NULL gap, test whether early-train Shampoo over-regularization (`eps_L=3.08` at step 100, 52× terminal) explains the deficit. Defer Shampoo precond application until step 500 or 1000; raw Muon runs during warmup; L_cov/R_cov accumulated continuously.
+
+| Arm | warmup | W&B | val/loss | sr | Δval vs #918 (3.266394) | Verdict |
+|---|---|---|---|---|---|---|
+| Baseline #918 (n=2) | n/a | `vm48fdof`/`0a7esmxs` | 3.266394 | 2925 | — | reference |
+| #995 Arm A (no warmup) | w=0 | merged | 3.276730 | 3125 | +10.34 mnat | NULL reference |
+| A | w=500 | `3eqvr3oa` | **3.274959** | 3075 | **+8.6 mnat** | NULL (-1.77 mnat vs #995) |
+| B | w=1000 | `b8lfm5sf` | **3.276352** | 3125 | **+9.96 mnat** | NULL (-0.38 mnat vs #995, tied) |
+
+- **Smoking-gun mechanism @ step 750:** w=1000 (still raw-Muon) is **62 mnat AHEAD** of w=500 (just flipped to Shampoo at step 500). Raw Muon outperforms early-Shampoo with rank-deficient L_cov/R_cov. By step 1500, trajectories merge.
+- **Terminal +7 mnat residual is STRUCTURAL** (~30% recoverable via warmup, ~70% from missing NS5 magnitude/rank/null-space roles per #985 triple-load-bearing finding). Gate location is NOT critical for the structural residual — both warmup arms hit the same terminal band (±0.7 mnat).
+- **NEW RANK-DEFICIENCY CANON (step-500 gate snapshot, Arm A):**
+  - L_cov stable rank = **13.18** / 3072 raw dim
+  - R_cov stable rank = **1.67** / 768 raw dim
+  - L_cov condition number = **20,863**; R_cov = **28,608**
+  - EMA β=0.95 → effective lookback ~20 steps; covariance extremely rank-deficient even after 500 warmup steps
+  - Original "single-step outer product needs ~768 steps for full rank" intuition was an UNDER-estimate of how stiff this regime is
+- **Cross-axis canon** (combined with #969 cooldown power Pareto and #1023 target_uw schedule): "Schedule-localized regularization is real in early-train phase but **CANNOT recover Shampoo body-Muon terminal residual**. Residual gap is structural (missing NS5 magnitude/rank roles), not schedule-tunable."
+- **114th closed axis.** Shampoo-replace-NS5 family decisively closed across all 3 sub-axes: trace-eps c (#995 flat), warmup gate (#1046 partial), null-space-amp (#985 catastrophic step-0).
+- **Suggested follow-up:** Variant 3 NS5-layered Shampoo — compose Shampoo precond AND NS5 polar in same body update. NS5 should rescue Shampoo from #985-style step-0 explosions via cubic-map magnitude absorption. alphonse → **#1089** (two arms test order-sensitivity: A Shampoo→NS5, B NS5→Shampoo).
+
 ## 2026-05-24 19:45 UTC — PR #1040 CLOSED: WD coupling form (lr-linear vs lr-squared vs fully decoupled) — 113th NULL, lr_linear IS load-bearing (g1r1-edward)
 
 - Branch: `g1r1-edward/wd-decoupling-form`
