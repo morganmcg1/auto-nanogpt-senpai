@@ -3,6 +3,47 @@
 This file logs experiment outcomes as PRs land. The historical track 3
 leaderboard is captured in `/BASELINE.md`.
 
+## 2026-05-24 04:30 UTC — PR #963: Post-NS element-wise variance normalization v_post (frieren) — CLOSED productive-NEG (202nd cycle)
+
+- Branch: `g1r4-frieren/post-ns-vpost`
+- Hypothesis: Apply per-element variance EMA (v_post) to the NS-orthogonalized body Muon update, dividing the update by `sqrt(v_post) + eps`. β₂_post sweep across {0.0=OFF, 0.95, 0.99, 0.999}. Mechanism: post-NS adaptive per-coordinate scaling on the orthogonalized update.
+- Result: **catastrophic-NEG, monotone-worsening across the β₂_post sweep at every matched step**.
+
+| Run ID | Arm | β₂_post | State | terminal step | val/loss | Δ_vs_A | Δ_vs_baseline 3.26756 |
+|---|:---:|:---:|:---:|:---:|:---:|:---:|:---:|
+| `5vzq0lob` | A (ctrl, off) | 0.0 | finished | 3350 | **3.26958** | — | +0.00202 (drift PASS) |
+| `355k8llh` | B | 0.95 | killed step 2625 | 2625 | 3.42908 | +0.15950 | +0.16152 (catastrophic NEG) |
+| `6hhyosib` | C | 0.99 | killed step 2475 | 2475 | 3.47289 | +0.20331 | +0.20533 (catastrophic NEG, worse than B) |
+| `w9q2dzkm` | D | 0.999 | aborted step 1375 | 1375 | 3.80055 | +0.53097 | +0.53299 (still ramping NEG) |
+
+Trajectory comparison at matched steps (val/loss):
+
+| step | A (0.0) | B (0.95) | C (0.99) | D (0.999) | Δ B-A | Δ C-A | Δ D-A |
+|---:|:---:|:---:|:---:|:---:|:---:|:---:|:---:|
+| 500  | 3.80883 | 4.31922 | 4.44497 | 4.56876 | +0.510 | +0.636 | +0.760 |
+| 1000 | 3.62376 | 3.80860 | 3.87492 | 4.01734 | +0.185 | +0.251 | +0.394 |
+| 1250 | 3.56688 | 3.71031 | 3.76001 | 3.85704 | +0.143 | +0.193 | +0.290 |
+| 1375 | 3.53923 | 3.67055 | 3.71603 | 3.80055 | +0.131 | +0.177 | +0.261 |
+| 2000 | 3.43332 | 3.52799 | 3.55832 | — | +0.095 | +0.125 | — |
+| 2500 | 3.36815 | 3.44829 | 3.47289 | — | +0.080 | +0.105 | — |
+| 3350 | 3.26958 | — | — | — | — | — | — |
+
+**Mechanism reading**: post-NS per-element variance EMA competes destructively with NS's unit-spectrum normalization. The post-NS update lives in spectrum-orthogonalized basis where each coordinate's "natural" variance is implicitly normalized; adding a per-element variance EMA on top introduces a competing per-coordinate scaling that breaks the unit-spectrum property NS just established. Higher β₂_post = slower v_post adaptation = larger mismatch between accumulated v_post statistics and current NS-output statistics = larger normalization error.
+
+**Axis closure**: Post-NS adaptive per-coordinate scaling family CLOSED productive-NEG on r4 post-#847 stack. Rules out the entire "per-element variance EMA after NS orthogonalization" family. Joins:
+- #618 NS on lm_head gradient (NEG)
+- #560 per-group β₂ (NEG)
+- #629 AdamW v_t floor (NULL, additive variant)
+- #929 AdamW v_t multiplicative floor (NULL)
+
+**Save value**: Frieren followed advisor recommendation to abort Arm D early (saved ~3+ GPU-hours). Clean closure with full 4-arm mechanism story despite 3/4 arms being early-killed.
+
+**Execution quality**: Excellent. Student diligence: bit-clean no-op verification at β₂_post=0 (vpost_mean=n/a, no allocation), early-kill gate triggers on B+C, accepted advisor abort recommendation on D.
+
+**Follow-up**: frieren reassigned **#998 Muon body momentum buffer one-shot reset 4-arm timing sweep**. Mirror image of #988 (AdamW state reset, scope axis) but on the body Muon side with TIMING axis. Tests whether momentum buffer continuity across boundary transitions is load-bearing. Mechanism-distinct from #163 (periodic DMR closed) and from #711 (structural EMA modifications "fully fenced"). 4 arms: A=ctrl, B=reset@0.7 (cooldown start), C=reset@0.5 (mid-train), D=reset@0.85 (deep cooldown).
+
+W&B runs: 5vzq0lob (A), 355k8llh (B killed), 6hhyosib (C killed), w9q2dzkm (D aborted). Group `g1r4-frieren/post-ns-vpost*`.
+
 ## 2026-05-24 02:00 UTC — PR #929: AdamW aux v_t second-moment floor sweep (edward) — CLOSED productive-NULL with regression tail (197th cycle)
 
 - Branch: `g1r4-edward/adamw-aux-vmin-floor`

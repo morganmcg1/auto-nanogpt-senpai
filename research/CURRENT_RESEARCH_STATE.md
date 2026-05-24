@@ -1,6 +1,6 @@
 # SENPAI Research State — auto-nanogpt-1gpu-r4
 
-- **Date:** 2026-05-24 03:05 UTC (cycle 199)
+- **Date:** 2026-05-24 04:30 UTC (cycle 202)
 - **Most recent research direction from human researcher team:** none on file
 - **Primary metric:** `val/loss` at 3350 steps (lower is better); `speedrun/final_first_step_to_target` secondary
 - **Statistical merge rule:** `(3.28 − μ) × √n ≥ 0.004` AND n mean ≤ current baseline
@@ -45,6 +45,67 @@ NANOGPT_EMBED_INIT_ANCHOR_LAMBDA=0.001   ← NEW post-#847: post-AdamW hook, emb
 | #708 | Per-group grad-clip BODY=10/AUX=5 | 3.27036 (3) | 3.27036 |
 | #787 | Stochastic NS cooldown spread=2 | 3.26944 (3) | 3.26944 |
 | **#847** | **Embed init-anchor WD λ=0.001** | **3.26756 (3)** | **3.26756** ← CURRENT |
+
+---
+
+## Cycle 202 snapshot (04:30 UTC May 24)
+
+### Closed this cycle (1)
+
+- **#963 frieren** CLOSED productive-NEG: post-NS element-wise variance normalization (v_post) 4-arm β₂_post sweep terminal. **Monotone-worsening across full sweep range** — every higher β₂_post is strictly worse at every matched step. Arm A `5vzq0lob` 3.26958 drift PASS upper edge. Arms B+C early-killed for regression (catastrophic), Arm D aborted on advisor recommendation. Mechanism: post-NS v_post EMA competes destructively with NS's unit-spectrum normalization. Axis closure: post-NS adaptive per-coordinate scaling family ruled out on r4 post-#847 stack.
+
+### Student response cycle (1) — #967 askeladd gate-bug catch
+
+Cycle 201: Askeladd identified an early-kill gate spec error in PR #967 (val ≥ 3.300 at step 2500 fires on healthy Arm A which lands 3.366 at that step). Took correct rescue action (re-parented torchrun, disabled bad gate, launching C/D manually). Advisor blessed recovery + adopted student-proposed **relative gate** `Δ_vs_A_at_step_2500 ≥ +0.10` as canonical for future PRs.
+
+### New assignments this cycle (1)
+
+- **PR #998 frieren** — **Muon body momentum buffer one-shot reset 4-arm timing sweep**. Mirror image of #988 (AdamW state reset, scope axis); this PR tests Muon-side reset with TIMING axis. Arms: A(off ctrl)/B(reset@0.7=cooldown start)/C(reset@0.5=mid-train)/D(reset@0.85=deep cooldown). Bold mechanism-distinct swing — tests whether body Muon momentum continuity is load-bearing across boundary transitions. Mechanism-distinct from #163 (periodic DMR closed) and from #711 (structural EMA modifications "fully fenced"). Trivial implementation (~15 LOC).
+
+### Active chains (as of 04:30 UTC May 24, cycle 202)
+
+| PR | Student | Hypothesis | Run | state | step | val/loss | ETA |
+|:---:|:---:|---|---|:---:|:---:|:---:|:---:|
+| #919 | fern | β₁ cooldown PP seed 3 | `89l7tmds` | running | ~3000 | 3.32 | terminal ~04:31 UTC |
+| #956 | alphonse | lm_head max-norm Arm D | `1xyvay46` | running | ~600 | 3.85 | D ~04:42 UTC |
+| #967 | askeladd | AdamW aux β₂ anneal Arm B (re-parented) | `pd25zsdp` | running | ~2196 | 3.42 | B ~03:50 UTC (overdue), C/D thereafter |
+| #980 | edward | Muon μ cooldown anneal Arm B | `344uvcwt` | running | early | initializing | B ~05:55, C ~07:45, D ~09:35 UTC |
+| #982 | nezuko | Per-block-type Muon μ | pending | — | — | — | pickup imminent |
+| #984 | thorfinn | SF-AdamW for aux | pending | — | — | — | pickup imminent (smoke-test gate) |
+| #988 | tanjiro | AdamW state reset at cooldown | pending | — | — | — | pickup imminent |
+| **#998** | **frieren** | **Muon body momentum reset timing (NEW)** | pending | — | — | — | pickup imminent |
+
+### Imminent terminals (next ~2h)
+
+- **#919 seed 3** `89l7tmds` ~step 3000 → ETA ~04:31 UTC. Chain projects close productive-NULL (seeds 1 + 2 both direction-wrong: 3.26880, 3.27080; need seed 3 ≤ 3.26308 to clear G1 which is effectively unachievable).
+- **#956 Arm D** `1xyvay46` ~step 600 → ETA ~04:42 UTC.
+- **#967 Arm B** `pd25zsdp` ~step 2196 → ETA ~05:00 UTC (re-parented torchrun).
+
+### Mechanism axes CLOSED through cycle 202
+
+Adds **#963 (post-NS v_post, productive-NEG, monotone-worsening)** to closed list. Other closures still relevant from cycles 197-201: body-Muon GC (#944), path-norm body velocity (#933), Muon² body v_t β₂ (#880), AdamW v_t multiplicative floor (#929), embed-grad freq-rescale (#845), per-block-DEPTH Muon LR (#753), NS_ITERS (#710), per-block-TYPE Muon WD/β₂ (#669/#632), Schedule-Free MUON (#62), Lion/Adafactor/Yogi for aux (#77/#180/#516), AggMo/AdaBelief (#711), AdamW eps cooldown (#652), Cautious AdamW/sign-mask, init scaling (#374), lm_head init-anchor (#938 zero-init degeneracy), NS-on-lm_head-grad (#618), Polyak weight-EMA (#104, #436), Lookahead (#120, #434), AdEMAMix (#399), DMR periodic (#163), LARS trust-ratio per-matrix (#755), ratio-EMA magnitude (#688), cos-EMA direction (#628).
+
+### Mechanism axes EXPLICITLY UNTESTED (durable backlog after cycle 202)
+
+- D-Adaptation (Muon-side theoretical baggage)
+- Prodigy adaptive LR
+- Per-block-DEPTH Muon μ (depth-stratified momentum, vs DEPTH-LR closed but DEPTH-MU untested)
+- AdamW state reset at cooldown boundary → **#988 (in flight)**
+- SF-AdamW for aux → **#984 (in flight)**
+- Per-block-TYPE Muon μ with FASTER mlp → **#982 (in flight)** (#674 tested slower-mlp NULL)
+- Muon body momentum one-shot reset timing → **#998 (in flight)** (#163 closed periodic-reset)
+- NS coefficient static value sweep (only schedule tested via #290)
+- Adaptive NS iteration count based on per-matrix spectral residual
+- LR-coupled momentum decay (μ ∝ lr(t))
+
+### Closed prior cycles (still relevant context)
+
+- **#929 edward** CLOSED productive-NULL (AdamW aux v_t floor). Reassigned → #980.
+- **#845 askeladd** CLOSED productive-NULL (embed-grad freq rescale). Reassigned → #967.
+- **#933 nezuko** CLOSED productive-NULL (path-norm body velocity). Reassigned → #982.
+- **#880 thorfinn** CLOSED productive-NULL with canonical magnitude-collapse. Reassigned → #984.
+- **#944 tanjiro** CLOSED productive-NEG (body-Muon grad centralization, all 3 mechanism arms direction-wrong). Reassigned → #988.
+- **#963 frieren** [this cycle] CLOSED productive-NEG (post-NS v_post, monotone-worsening). Reassigned → #998.
 
 ---
 
