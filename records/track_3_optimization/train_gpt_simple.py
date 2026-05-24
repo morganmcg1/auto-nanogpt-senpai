@@ -466,6 +466,9 @@ ATTN_SOAP_PRECOND_FREQ = 10
 ATTN_SOAP_TRUST_THRESHOLD = float(os.environ.get("ATTN_SOAP_TRUST_THRESHOLD", "0.9"))
 NS5_ITERS = int(os.environ.get("NS5_ITERS", "12"))
 WD_AUX = float(os.environ.get("WD_AUX", "0.0"))  # AdamW WD on embed + lm_head matrices (scalars stay at 0)
+WD_AUX_SCHEDULE_KIND = os.environ.get("WD_AUX_SCHEDULE_KIND", "constant")  # 'constant', 'linear_up', 'linear_down'
+WD_AUX_START = float(os.environ.get("WD_AUX_START", "0.001"))
+WD_AUX_END = float(os.environ.get("WD_AUX_END", "0.001"))
 EMBED_INIT_STD = float(os.environ.get("EMBED_INIT_STD", "1.0"))  # default preserves baseline N(0,1)
 LOGIT_SOFTCAP = float(os.environ.get("LOGIT_SOFTCAP", "15.0"))  # default = 15 (current hardcoded value); soft-cap value c in f(x) = c·x / sqrt(x^2+c^2)
 
@@ -866,6 +869,9 @@ if dist.get_rank() == 0:
             "optimizer/attn_soap_trust_threshold": ATTN_SOAP_TRUST_THRESHOLD,
             "optimizer/ns5_iters": NS5_ITERS,
             "optimizer/wd_aux": WD_AUX,
+            "optimizer/wd_aux_schedule_kind": WD_AUX_SCHEDULE_KIND,
+            "optimizer/wd_aux_start": WD_AUX_START,
+            "optimizer/wd_aux_end": WD_AUX_END,
             "optimizer/recipe": "contra-muon + normuon-lite + soap-on-mlp + soap-on-attn-trust-gate (pre-NS5, record #14 + record #16)",
         },
     )
@@ -936,6 +942,11 @@ for trial_idx in range(args.num_trials):
                 group["lr"] = group["initial_lr"] * eta
                 if group.get("name") == "muon_blocks":
                     group["mu"] = cur_mu
+        if WD_AUX_SCHEDULE_KIND in ("linear_up", "linear_down"):
+            cur_wd_aux = WD_AUX_START + (WD_AUX_END - WD_AUX_START) * progress
+            for group in optimizer1.param_groups:
+                if group.get("name") in ("adam_embed", "adam_lm_head"):
+                    group["weight_decay"] = cur_wd_aux
 
 
     ########################################
@@ -984,6 +995,10 @@ for trial_idx in range(args.num_trials):
                     best_val_step = step
                 if first_step_to_target < 0 and val_loss_float <= TARGET_VAL_LOSS:
                     first_step_to_target = step
+                if WD_AUX_SCHEDULE_KIND in ("linear_up", "linear_down"):
+                    cur_wd_aux_log = WD_AUX_START + (WD_AUX_END - WD_AUX_START) * min(step / max(train_steps, 1), 1.0)
+                else:
+                    cur_wd_aux_log = WD_AUX
                 metrics = {
                     "trial": trial_idx,
                     "val/step": step,
@@ -996,6 +1011,7 @@ for trial_idx in range(args.num_trials):
                     "speedrun/reached_target": int(first_step_to_target >= 0),
                     "time/train_seconds": training_time,
                     "time/step_avg_ms": 1000 * step_avg,
+                    "optimizer/cur_wd_aux": cur_wd_aux_log,
                 }
                 metrics.update(prefixed("val/slope", loss_slope_stats(val_loss_history, slope_window_steps)))
                 wandb.log(metrics, step=trial_idx * (train_steps + 1) + step)
