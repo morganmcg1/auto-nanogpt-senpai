@@ -457,6 +457,14 @@ MU_WARMUP_START = float(os.environ.get("MU_WARMUP_START", "0.85"))
 MUON_LR = float(os.environ.get("MUON_LR", "0.0375"))
 MUON_WEIGHT_DECAY = 0.025  # nominal; Muon.step does not apply explicit wd (u/w-floor replaces it)
 TARGET_UW = 0.35
+# Optional schedule for TARGET_UW (PR #1023): when KIND=='constant' (default), behavior is
+# identical to the legacy constant TARGET_UW=0.35 baseline. 'linear' ramps from
+# TARGET_UW_START -> TARGET_UW_END over total_steps. 'step' holds TARGET_UW_START until
+# step/total_steps reaches TARGET_UW_STEP_FRAC, then jumps to TARGET_UW_END.
+TARGET_UW_SCHEDULE_KIND = os.environ.get("TARGET_UW_SCHEDULE_KIND", "constant")  # 'constant' | 'linear' | 'step'
+TARGET_UW_START = float(os.environ.get("TARGET_UW_START", "0.35"))
+TARGET_UW_END = float(os.environ.get("TARGET_UW_END", "0.35"))
+TARGET_UW_STEP_FRAC = float(os.environ.get("TARGET_UW_STEP_FRAC", "0.7"))
 NORMUON_BETA2 = 0.95
 SOAP_BETA2 = 0.90
 SOAP_PRECOND_FREQ = 10
@@ -627,8 +635,12 @@ def soap_precondition(update, state, beta2=SOAP_BETA2, eps=1e-8):
 
 
 class Muon(torch.optim.Optimizer):
-    def __init__(self, named_params, lr=MUON_LR, weight_decay=MUON_WEIGHT_DECAY, mu=MU):
+    def __init__(self, named_params, lr=MUON_LR, weight_decay=MUON_WEIGHT_DECAY, mu=MU, total_steps=3175):
         assert isinstance(named_params, list) and len(named_params) >= 1
+        # TARGET_UW schedule state (PR #1023). global_step increments once per step() call.
+        self.global_step = 0
+        self.total_steps = max(int(total_steps), 1)
+        self.last_cur_target_uw = TARGET_UW_START if TARGET_UW_SCHEDULE_KIND != "constant" else TARGET_UW
         # MLP weights receive SOAP preconditioning (PR #78 / public record #14).
         self.soap_params = {
             p for n, p in named_params
@@ -658,6 +670,16 @@ class Muon(torch.optim.Optimizer):
 
     @torch.no_grad()
     def step(self):
+        self.global_step += 1
+        if TARGET_UW_SCHEDULE_KIND == "linear":
+            progress = min(self.global_step / self.total_steps, 1.0)
+            cur_target_uw = TARGET_UW_START + (TARGET_UW_END - TARGET_UW_START) * progress
+        elif TARGET_UW_SCHEDULE_KIND == "step":
+            progress = self.global_step / self.total_steps
+            cur_target_uw = TARGET_UW_START if progress < TARGET_UW_STEP_FRAC else TARGET_UW_END
+        else:
+            cur_target_uw = TARGET_UW
+        self.last_cur_target_uw = float(cur_target_uw)
         world_size = dist.get_world_size()
         rank = dist.get_rank()
         for group in self.param_groups:
@@ -702,11 +724,11 @@ class Muon(torch.optim.Optimizer):
                         momentum_update = soap_precondition(momentum_update, state)
                     # NS5 + contra + NorMuon row variance on (possibly SOAP-preconditioned) momentum.
                     update = contra_normuon_update(momentum_update, state["second_moment"])
-                    # u/w-floor: scale up if u/w < TARGET_UW; leave alone otherwise.
+                    # u/w-floor: scale up if u/w < cur_target_uw; leave alone otherwise.
                     p_fro = p.float().norm().clamp_min(1e-8)
                     u_fro = update.float().norm().clamp_min(1e-8)
                     cur_uw = u_fro / p_fro
-                    scale = torch.where(cur_uw < TARGET_UW, TARGET_UW * p_fro / u_fro, torch.ones_like(p_fro))
+                    scale = torch.where(cur_uw < cur_target_uw, cur_target_uw * p_fro / u_fro, torch.ones_like(p_fro))
                     update = update * scale.to(update.dtype)
                     # Explicit weight decay intentionally omitted (matches record #14; u/w-floor replaces wd).
                     p.add_(update, alpha=-group["lr"])
@@ -858,6 +880,10 @@ if dist.get_rank() == 0:
             "optimizer/muon_lr": MUON_LR,
             "optimizer/muon_weight_decay_nominal": MUON_WEIGHT_DECAY,
             "optimizer/target_uw": TARGET_UW,
+            "optimizer/target_uw_schedule_kind": TARGET_UW_SCHEDULE_KIND,
+            "optimizer/target_uw_start": TARGET_UW_START,
+            "optimizer/target_uw_end": TARGET_UW_END,
+            "optimizer/target_uw_step_frac": TARGET_UW_STEP_FRAC,
             "optimizer/normuon_beta2": NORMUON_BETA2,
             "optimizer/soap_beta2": SOAP_BETA2,
             "optimizer/soap_precond_freq": SOAP_PRECOND_FREQ,
@@ -903,7 +929,7 @@ for trial_idx in range(args.num_trials):
                         dict(params=[p for p in model.parameters() if p.ndim < 2], lr=0.01, name="adam_scalars")],
                        betas=(0.8, 0.95), eps=1e-10, weight_decay=0, fused=True)
     optimizer2 = Muon([(n, p) for n, p in model.blocks.named_parameters() if p.ndim >= 2],
-                      lr=MUON_LR, weight_decay=MUON_WEIGHT_DECAY, mu=MU)
+                      lr=MUON_LR, weight_decay=MUON_WEIGHT_DECAY, mu=MU, total_steps=train_steps)
     optimizer2.param_groups[0]["name"] = "muon_blocks"
     optimizers = [optimizer1, optimizer2]
     assert set(p for opt in optimizers for group in opt.param_groups
@@ -1059,6 +1085,8 @@ for trial_idx in range(args.num_trials):
                     stats = opt.trust_gate_stats()
                     if stats:
                         wandb.log(prefixed("train/attn_soap_trust_gate", stats), step=wandb_step)
+                if hasattr(opt, "last_cur_target_uw"):
+                    wandb.log({"optimizer/cur_target_uw": float(opt.last_cur_target_uw)}, step=wandb_step)
         if dist.get_rank() == 0 and telemetry_due:
             log_weight_telemetry(
                 model=model,
