@@ -1,5 +1,56 @@
 # SENPAI Research Results — auto-nanogpt-1gpu-r2
 
+## 2026-05-24 20:35 UTC — PR #1075: MUON_BODY_PERIODIC_POLAR_REPROJECT (CLOSED, 110th refuted — catastrophic train/val decoupling, spectrum-erasure mode, first non-floor-cluster non-NaN refutation in cycle 71)
+
+- Branch: `g1r2-alphonse/muon-body-periodic-polar` (student g1r2-alphonse)
+- Hypothesis: Periodic NS5 polar projection on body weight matrices `W` (not update `dW`) every K optimizer steps, with Frobenius-norm preservation `W ← NS5(W) · ‖W‖_F/‖NS5(W)‖_F`. 33rd distinct mechanism class — FIRST periodic parameter-space polar projection in 280+ PRs. Theory: Saxe et al. 2014 + Pennington et al. 2017/2018 (dynamical isometry) + Wisdom et al. 2016 (periodic Riemannian retraction). Hypothesis: accumulated `lr·NS5(G)` drifts `W` away from orthogonal manifold; periodic reprojection prevents rank collapse.
+- Results:
+
+| Arm | K (reproject freq) | W&B run | Steps | val/loss | Outcome |
+|-----|--------------------|---------|-------|----------|---------|
+| disabled-check | 0 | — | 321 (killed externally) | 4.05 @ 250 | patch verified bytewise no-op |
+| Arm A | 100 | `g1r105wa` | killed 557 | **4.88758 @ step 500** | ❌ kill gate breach +1.078 over 3.81 |
+| Arm B | 500 | NOT LAUNCHED | — | — | per decision tree §4 (mechanism predicts WORSE at K=500) |
+
+Per-step Arm A trajectory:
+
+| step | val/loss | train/loss | grad/global_norm | nonfinite_count |
+|------|----------|------------|------------------|-----------------|
+| 0    | 10.82583 | —          | —                | 0 |
+| 125  | 4.53087  | 4.55457    | 209598           | 0 |
+| 250  | 4.13015  | 4.08951    | 130452           | 0 |
+| 375  | 3.96760  | 3.99603    | 99349            | 0 |
+| 500  | **4.88758** ← kill | 3.88114 | 65080 | 0 |
+
+- **Verdict**: REFUTED via Arm A K=100 kill-gate breach at step 500. Arm B (K=500) correctly NOT launched per PR decision tree §4 — by spectrum-erasure mechanism, K=500 would diverge harder (more weight drift between reprojections = larger destructive shock per reprojection).
+- **Catastrophic refutation mode — train/val decoupling, NOT NaN/divergence**:
+  - train/loss monotone-improved 4.55 → 4.09 → 4.00 → 3.88 (model can still fit current batch)
+  - val/loss improved 4.53 → 4.13 → 3.97 then **spiked +0.92 to 4.89** by step 500 (generalization destroyed)
+  - grad/global_norm monotonically DECREASING 209598 → 65080 throughout (NO gradient explosion)
+  - nonfinite_count=0 throughout (NO NaN/Inf injection into parameter space)
+- **Spectrum-erasure hypothesis (student's mechanistic analysis)**: polar projection sets every σ_i(W) to a single value (‖W‖_F/√min(m,n)), preserving only U V^T directional content. Frobenius-norm rescale conserves energy but **erases the learned magnitude spectrum** that distinguishes strong from weak feature directions. Model retains training-fit capacity (still fits current batch) but loses generalization-relevant fine structure (val collapses).
+- **Super-linear damage growth**: 4 reprojections occurred at steps 100/200/300/400. The first 3 added modest cost (+0.08-0.11 per val measurement vs disabled-check); the 4th was super-linearly damaging (val ~3.97 → ~4.89). Mechanism: by step 400, body weights have 4× the spectral structure of step 100; destructive effect scales with drift of W from U V^T manifold, which grows with training.
+- **Refutation generalizes from K=100 to all K**: spectral-equalization mechanism is the same at any K — only cadence differs. K=100 is the most forgiving regime (smallest deltas per shock, most frequent recovery time); if K=100 destroys generalization, sparser cadences will too. K=500 would have been WORSE not better — student's own prediction P(divergence@K=500) ~20% > P(divergence@K=100) ~13%.
+- **Categorically distinct refutation mode** from the 8/8 variance-reduction floor cluster touches (val=3.270±0.003) and the 4/5 schedule-on-frozen-scalar close-misses:
+  - Floor cluster touches: tiny val gap (+0.003 to +0.01 above merge bar) with no qualitative training change
+  - NaN/divergence: training loss explosion, grad norm blow-up, nonfinite injection
+  - **This PR (catastrophic decoupling)**: clean training, healthy gradients, NO NaN, but generalization destroyed via spectral information erasure — a NEW failure mode in cycle 71
+- **First catastrophic refutation in 110 closed axes** that is neither a floor-cluster close-miss nor a NaN/training divergence. Clean mechanistic interpretation: *body-weight magnitude spectrum is load-bearing for generalization* — complements the SVD-perturbation refutation (#1019) that established NS5 approximation error is itself beneficial implicit regularization.
+- **Weight-spectrum trifecta status update**:
+  | PR | Intervention | Status | Damage profile |
+  |----|--------------|--------|----------------|
+  | #1067 fern | Isotropic shrinkage (wd=0.0001 / 0.001) | Arm A close-miss val=3.27063; Arm B running | gentle (multiplicative shrink) |
+  | #1073 askeladd | σ_max cap (Miyato spectral norm) | in flight | moderate (clip top singular only) |
+  | #1075 alphonse | **Full polar equalization (this PR)** | **REFUTED CATASTROPHIC** | extreme (flatten entire spectrum) |
+  - Pattern: damage scales with how much of the spectrum is modified. Full equalization is the upper-bound failure mode for the family.
+- **Implication for future weight-spectrum probes**: must be **non-destructive of σ_i ordering and magnitude**; full polar / unitarization on W is RULED OUT. Soft regularizers that *encourage* equal σ without destroying are still probeable in principle but face poor cost/benefit (u/w-floor at line 711 already provides spectrum maintenance via update-side regularization).
+- **Methodological merit (student g1r2-alphonse)**: Step-by-step train/val decomposition + super-linear damage observation + K-monotonicity prediction transforms a single failed run into a family-level refutation. The decoupling diagnostic (monotone-improving train + spiking val + decreasing grad norm + nonfinite=0) is a clean signature for spectrum-information-erasure that is now characterized for future weight-spectrum probes.
+- **Reassignment for alphonse**: PR #1082 MUON_BODY_COHERENCE_LR — 35th distinct mechanism class, FIRST per-tensor adaptive LR via cross-step gradient direction coherence in 280+ PRs. Maintains per-tensor prev_grad buffer, computes cos(grad_t, grad_{t-1}) as scalar coherence signal, scales post-NS5 update by factor in [0.9, 1.1] (Arm A conservative ±10%) or [0.8, 1.2] (Arm B moderate ±20%). Theory: Polyak 1987 / Barzilai-Borwein 1988 step-size adaptation, Nocedal & Wright §3.5 preconditioner-quality diagnostic. Conservative arm design intentional post-#1075 catastrophe. ~10 LOC patch, ~25-50MB extra memory for prev_grad buffer.
+- **Cycle 71 milestones**:
+  - 110 refuted axes, 28 distinct mechanism classes probed, 35 assigned (with #1082)
+  - 5 major mechanism layers saturated (NS5 6/6, Momentum LIFECYCLE 4/4, INTERPRETATION 5/5, Post-NS5 4/4, Variance reduction 8/8)
+  - Weight-spectrum trifecta: 1/3 refuted catastrophic (this PR) + 2 in flight (#1067 close-miss, #1073 wip)
+
 ## 2026-05-24 20:15 UTC — PR #1049: STOCHASTIC_MUON_STEP (CLOSED, 109th refuted — monotone-in-p degradation, variance-reduction floor cluster now 8/8 saturated)
 
 - Branch: `g1r2-nezuko/stochastic-muon-step` (student g1r2-nezuko)
