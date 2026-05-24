@@ -468,6 +468,10 @@ NS5_ITERS = int(os.environ.get("NS5_ITERS", "12"))
 WD_AUX = float(os.environ.get("WD_AUX", "0.0"))  # AdamW WD on embed + lm_head matrices (scalars stay at 0)
 EMBED_INIT_STD = float(os.environ.get("EMBED_INIT_STD", "1.0"))  # default preserves baseline N(0,1)
 LOGIT_SOFTCAP = float(os.environ.get("LOGIT_SOFTCAP", "15.0"))  # default = 15 (current hardcoded value); soft-cap value c in f(x) = c·x / sqrt(x^2+c^2)
+# EMA-validated evaluation (PR #1039): maintain a Polyak EMA of model params,
+# swap into params at validation time, restore live params afterwards. 0 disables.
+EMA_VAL_BETA = float(os.environ.get("EMA_VAL_BETA", "0.0"))
+EMA_VAL_START_STEP = int(os.environ.get("EMA_VAL_START_STEP", "0"))
 
 
 def zeropower_via_newtonschulz5(G: Tensor) -> Tensor:
@@ -866,6 +870,8 @@ if dist.get_rank() == 0:
             "optimizer/attn_soap_trust_threshold": ATTN_SOAP_TRUST_THRESHOLD,
             "optimizer/ns5_iters": NS5_ITERS,
             "optimizer/wd_aux": WD_AUX,
+            "optimizer/ema_val_beta": EMA_VAL_BETA,
+            "optimizer/ema_val_start_step": EMA_VAL_START_STEP,
             "optimizer/recipe": "contra-muon + normuon-lite + soap-on-mlp + soap-on-attn-trust-gate (pre-NS5, record #14 + record #16)",
         },
     )
@@ -945,6 +951,15 @@ for trial_idx in range(args.num_trials):
     train_loader = distributed_data_generator("data/fineweb10B/fineweb_train_*.bin", batch_size)
     for p in model.parameters():
         dist.broadcast(p.detach(), 0)
+
+    # EMA_VAL (PR #1039): per-trial EMA buffer initialization. Allocates one
+    # tensor per named parameter with the same dtype/device. When EMA_VAL_BETA=0
+    # the path is fully bypassed (no allocation, no update, no swap).
+    ema_buffers: dict[str, Tensor] = {}
+    if EMA_VAL_BETA > 0:
+        for name, p in model.named_parameters():
+            ema_buffers[name] = p.data.detach().clone()
+
     # start the clock
     training_time = 0
     last_val_step = 0
@@ -969,6 +984,7 @@ for trial_idx in range(args.num_trials):
             last_val_step = step
             training_time += time_since_last_val
             model.eval()
+            # Compute val loss on live params (the baseline metric).
             val_loss = torch.zeros((), device=device)
             with torch.no_grad():
                 assert len(val_inputs) % mbs == 0
@@ -976,7 +992,33 @@ for trial_idx in range(args.num_trials):
                     val_loss += model(val_inputs[i*mbs:(i+1)*mbs], val_targets[i*mbs:(i+1)*mbs])
             dist.all_reduce(val_loss, op=dist.ReduceOp.SUM)
             val_loss /= val_tokens
-            val_loss_float = float(val_loss.item())
+            val_loss_live_float = float(val_loss.item())
+
+            # EMA_VAL (PR #1039): if enabled and past start step, also evaluate on
+            # the EMA-swapped params. live <-> EMA swap is done via .copy_() so
+            # the underlying parameter tensors keep the same identity (optimizer
+            # state references remain valid).
+            ema_active = EMA_VAL_BETA > 0 and step >= EMA_VAL_START_STEP
+            if ema_active:
+                live_snapshot = {name: p.data.clone() for name, p in model.named_parameters()}
+                for name, p in model.named_parameters():
+                    p.data.copy_(ema_buffers[name])
+                val_loss_ema_t = torch.zeros((), device=device)
+                with torch.no_grad():
+                    for i in range(len(val_inputs) // mbs):
+                        val_loss_ema_t += model(val_inputs[i*mbs:(i+1)*mbs], val_targets[i*mbs:(i+1)*mbs])
+                dist.all_reduce(val_loss_ema_t, op=dist.ReduceOp.SUM)
+                val_loss_ema_t /= val_tokens
+                val_loss_ema_float = float(val_loss_ema_t.item())
+                for name, p in model.named_parameters():
+                    p.data.copy_(live_snapshot[name])
+                del live_snapshot
+            else:
+                val_loss_ema_float = val_loss_live_float
+
+            # Primary metric (drives kill gates, best_val_loss, first_step_to_target,
+            # val/loss in W&B) is the EMA-evaluated loss when EMA is active.
+            val_loss_float = val_loss_ema_float if ema_active else val_loss_live_float
             if dist.get_rank() == 0:
                 val_loss_history.append((step, val_loss_float))
                 if val_loss_float < best_val_loss:
@@ -996,11 +1038,15 @@ for trial_idx in range(args.num_trials):
                     "speedrun/reached_target": int(first_step_to_target >= 0),
                     "time/train_seconds": training_time,
                     "time/step_avg_ms": 1000 * step_avg,
+                    "val/loss_live": val_loss_live_float,
+                    "val/loss_ema": val_loss_ema_float,
+                    "val/loss_live_minus_ema": val_loss_live_float - val_loss_ema_float,
+                    "val/ema_active": int(ema_active),
                 }
                 metrics.update(prefixed("val/slope", loss_slope_stats(val_loss_history, slope_window_steps)))
                 wandb.log(metrics, step=trial_idx * (train_steps + 1) + step)
-            print0(f"step:{step}/{train_steps} val_loss:{val_loss:.5f} train_time:{training_time:.3f}s"
-                   + f" step_avg:{1000*step_avg:.2f}ms", console=True)
+            print0(f"step:{step}/{train_steps} val_loss:{val_loss_float:.5f} (live:{val_loss_live_float:.5f} ema:{val_loss_ema_float:.5f})"
+                   + f" train_time:{training_time:.3f}s step_avg:{1000*step_avg:.2f}ms", console=True)
             model.train()
             # start the clock again
             dist.barrier()
@@ -1053,6 +1099,13 @@ for trial_idx in range(args.num_trials):
             )
         for opt in optimizers:
             opt.step()
+        # EMA_VAL (PR #1039): accumulate the Polyak EMA of post-step parameters
+        # so the next validation event can swap into the smoothed weights. Skipped
+        # entirely when EMA_VAL_BETA=0 or before EMA_VAL_START_STEP.
+        if EMA_VAL_BETA > 0 and step >= EMA_VAL_START_STEP:
+            with torch.no_grad():
+                for name, p in model.named_parameters():
+                    ema_buffers[name].mul_(EMA_VAL_BETA).add_(p.data, alpha=(1 - EMA_VAL_BETA))
         if dist.get_rank() == 0 and telemetry_due:
             for opt in optimizers:
                 if hasattr(opt, "trust_gate_stats"):
