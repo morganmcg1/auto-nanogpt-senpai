@@ -3,6 +3,30 @@
 This file logs experiment outcomes as PRs land. The historical track 3
 leaderboard is captured in `/BASELINE.md`.
 
+## 2026-05-24 23:30 UTC — PR #1055: Post-training weight averaging SWA / EMA Polyak (askeladd) — CLOSED productive-NEG; WEIGHT-AVERAGING-POST-TRAINING 1-closure observation
+
+- Branch: `g1r4-askeladd/weight-averaging-swa-ema`
+- Hypothesis: Polyak weight averaging over the cooldown window (start_frac=0.7) reduces iterate variance and improves deployment val/loss_avg. 4-arm sweep: A ctrl off, B SWA uniform, C EMA decay=0.999, D EMA decay=0.9999.
+
+| arm | mode | run_id | val/loss | Δ_vs_A | val/loss_avg | Δ_avg_vs_A | first_step_to_target | avg_first_step |
+|:---:|:---|---|:---:|:---:|:---:|:---:|:---:|:---:|
+| A (ctrl) | off | `9cgbsvpo` | 3.27077 | — | — | — | 3225 | — |
+| B | swa | `qul7hw1k` | 3.27110 | +0.00033 | 3.28271 | **+0.01194** | 3225 | never |
+| C | ema 0.999 | `bvfmoo98` | 3.26821 | −0.00256 | 3.30021 | **+0.02944** | 3200 | never |
+| D | ema 0.9999 | `djusah32` | 3.26865 | −0.00212 | 3.37131 | **+0.10054** | 3200 | never |
+
+**Verdict: REGRESSION on mechanism metric (val/loss_avg).** Monotone-with-decay ordering D > C > B confirms structural diagnosis: slower decay = averaged buffer barely moves from its step-2345 initialization where val/loss ≈ 3.40, so val/loss_avg pulls toward that ~3.40 ceiling. buffer_drift monotonically ordered (B=15646 < C=23139 < D=23933) confirms slower decay genuinely lags further behind the live model.
+
+**Training trajectory orthogonality holds**: B/C/D unaveraged val/loss tracks A within ±0.003 (within seed-noise σ≈0.00134 envelope), confirming the averaging buffer is a side-channel with zero feedback into the optimizer. Implementation is bit-clean — mechanism-distinct from #1047 LookAhead (which fed back into the live params and disrupted cooldown).
+
+**Structural diagnosis**: Polyak/SWA averaging is theoretically optimal in the stochastic-gradient-near-convergence regime — small-LR Brownian motion around a local minimum. The cooldown window on this stack is NOT that regime: it is the LR-driven monotonic descent toward the minimum, dropping val/loss by ~0.08 nats over the cooldown (3.35 at step 2345 → 3.27 at step 3350). Averaging over a monotonically-descending trajectory pulls the averaged iterate BACK toward the higher-loss start of the window. The cooldown LR schedule itself does the variance reduction work SWA was designed for; layering SWA on top is redundant at best and harmful in practice.
+
+**Axis status: 1-closure observation, NOT fully fenced.** Variants remain mechanically distinct (deferred, not refuted): SWA with constant-LR phase + late average (Izmailov 2018 original protocol — replaces load-bearing #847 cooldown shape; mechanism-distinct but probably net regression on this stack); shorter, later averaging window (e.g. last 5%); EMA on optimizer internals (overlaps with prior closed Muon-EMA work). For the current cooldown-heavy stack (linear_floor embed + late_peak NS + linear body Muon), post-training param averaging anchored at cooldown_start is structurally counter-indicated.
+
+**Workflow note**: student found and fixed bug in `senpai-pr-guard.py::result_markers()` at line 25 (`if not raw:` → `if not raw.startswith("{"):`) that was blocking `mark_ready_for_review` when advisor comments contained the literal marker token in markdown formatting. Defensive parser guard — purely workflow improvement. Advisor templates updated to avoid the literal token in narrative text.
+
+W&B runs: A=`9cgbsvpo`, B=`qul7hw1k`, C=`bvfmoo98`, D=`djusah32`.
+
 ## 2026-05-24 23:00 UTC — PR #1048: Body Muon LR cooldown shape sweep (alphonse) — CLOSED productive-NEG/mixed; SCHEDULE-CURVATURE (body Muon) 1-closure observation
 
 - Branch: `g1r4-alphonse/body-muon-cooldown-shape`
