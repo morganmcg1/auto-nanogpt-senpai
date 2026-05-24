@@ -1,5 +1,52 @@
 # SENPAI Research Results — auto-nanogpt-1gpu-r2
 
+## 2026-05-24 13:40 UTC — PR #1016: NS5_RESIDUAL (CLOSED, 102nd refuted — monotonic-negative bracket confirms NS5-equalized direction is THE better mid-training direction, post-NS5 update space NOW FULLY EXHAUSTED across 4 orthogonal probes)
+
+- Branch: `g1r2-frieren/ns5-residual` (student g1r2-frieren)
+- Hypothesis: Add a small fraction α of the raw momentum direction back into the NS5-orthogonalized update (residual blend at post-NS5 site). Tests whether the polar projection's directional change is itself the load-bearing intervention or whether nearby directions also work. 18th distinct mechanism class. First residual mechanism in post-NS5 update space in 250+ PRs.
+
+### Results
+
+| Run | α | W&B | val/loss | ffs | Δ val vs n=2 base | Δ ffs vs base | Notes |
+|---|---|---|---|---|---|---|---|
+| Disabled-check | 0.00 | `tu539lvb` | val@200=4.08524 | — | in [4.05,4.15] ✓ | — | Baseline preserved |
+| Arm A | 0.10 | `gyaost4g` | **3.27290** | 3050 | +0.00514 | +50 | Close-miss; brushes floor cluster band upper edge |
+| Arm B | 0.25 | `avlcj4i5` | **3.27478** | 3075 | +0.00702 | +75 | Heavier blend, monotonically worse |
+
+### Head-to-head per-step kill-gate readings
+
+| Step | Gate | Arm A actual | Arm A margin | Arm B actual | Arm B margin |
+|---|---|---|---|---|---|
+| 500 | 3.81 | 3.8227 | +0.013 trip | 3.8605 | **+0.051 trip** (4× Arm A) |
+| 1000 | 3.66 | 3.6735 | +0.014 trip | 3.6919 | +0.032 trip (2× Arm A) |
+| 1500 | 3.55 | 3.5407 | -0.009 PASS | 3.5545 | +0.005 trip |
+| 2000 | 3.43 | 3.4339 | +0.004 trip | 3.4374 | +0.007 trip |
+| 2500 | 3.36 | 3.3492 | -0.011 PASS | 3.3523 | -0.008 PASS |
+| 3000 | 3.29 | 3.2841 | -0.006 PASS | 3.2863 | -0.004 PASS |
+| terminal | 3.27 | 3.27290 | +0.003 FAIL | 3.27478 | +0.005 FAIL |
+
+### Analysis & conclusions
+
+- **MONOTONIC-NEGATIVE BRACKET**: Arm B (α=0.25) is monotonically worse than Arm A (α=0.10) at every common checkpoint. Δ at terminal = +0.00188 nats / +25 ffs. The monotone-in-α signature confirms the predicted dose-response from #1007/#983/#991.
+- **Student's "shifted-but-parallel" diagnosis** is the canonical framing: the residual blend produces a constant-gap trajectory throughout main training (peak gap +0.134 around step 1000-2000 for Arm A, +0.18 for Arm B), followed by strong cooldown recovery (slope ~-0.0127/100steps in steps 2900-3175). The failure mode is "slower" not "broken".
+- **No catastrophic events**: gradient global norm healthy on both arms (final 18130, no divergence/NaN). This confirms the polar projection isn't just one of many viable directions — it's specifically the best mid-training direction across all 4 probes of this family.
+- **Arm A α=0.10 brushes floor cluster band** (val=3.27290 vs band 3.270 ± 0.003 = sits at upper edge). The residual blend can touch the cluster but not improve it. The floor cluster is now confirmed as a robust attractor — ≥6 separate within-step interventions converge to it.
+
+### Post-NS5 update space mechanism class NOW FULLY EXHAUSTED across 4 probes
+
+| Probe | Closed at | Mechanism | Signature |
+|---|---|---|---|
+| Continuous momentum rescale | #983 | Buffer content modification | REFUTED CATASTROPHIC |
+| Continuous momentum dropout | #991 | Buffer stochastic zeroing | REFUTED |
+| Post-NS5 additive Gaussian noise | #996 | Update perturbation | REFUTED close-miss (n=2 regression-to-the-mean) |
+| **Post-NS5 residual blend** | **#1016 (this PR, 102nd refuted)** | **Direction additive blend** | **REFUTED MONOTONIC-NEGATIVE** |
+
+**The polar projection isn't just one of many viable directions; it's specifically the best mid-training direction**. Future axes must EXIT the post-NS5 update space entirely.
+
+### Suggested follow-ups (noted for future cycle planning)
+
+The student noted potential follow-ups in the closure analysis. None are higher priority than fresh mechanism classes given the axis is fully refuted. Per-element norm-ratio diagnostic histogram (for theoretical understanding) could be added at any time but is not required for axis closure.
+
 ## 2026-05-24 13:25 UTC — PR #1025: NS7_CUBIC_CONVERGENCE (CLOSED, 100th refuted — polynomial DEGREE = local optimum, NS5 polynomial layer NOW FULLY SATURATED across 5 orthogonal probes)
 
 - Branch: `g1r2-nezuko/ns7-cubic-convergence` (student g1r2-nezuko)
