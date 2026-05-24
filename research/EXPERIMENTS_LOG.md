@@ -3,6 +3,50 @@
 Log of completed/reviewed experiment PRs in chronological order. Wave 1
 results pending student execution.
 
+## 2026-05-24 ~10:15 UTC — PR #1024: alphonse init mode ablation — **ASSIGNED**
+
+- **Branch:** `g1r5-alphonse/init-mode-ablation`
+- **Student:** g1r5-alphonse
+- **Hypothesis:** 5 `--depth_init_mode` options exist in code, but only `musoft` (PR #699 baseline) has been SENPAI-validated. Test whether any alternative — especially `muall` (extends depth scaling to ALL block 2D weights) — outperforms the baseline init assumption.
+
+- **5-cell sweep:**
+
+| Cell | Mode | Role |
+|:----:|:-----|:-----|
+| A | `musoft` | ctrl (current baseline) |
+| B ★ | `muall` | PRIMARY: depth scale applied to ALL 2D block weights, not just residual |
+| C | `mumedium` | stronger depth scaling (1/L vs 1/√L) |
+| D | `ctrl` | zero residual init — pre-#699 falsifier |
+| E | `smallconst` | tiny constant 1e-3, depth-independent |
+
+- **Context:** Closes the #699 verification loop — alphonse originally discovered `musoft`; this PR checks all 4 alternatives. Combined with #1021 (embed/lm_head LR), covers all param groups whose LR/init assumptions have been untested.
+
+---
+
+## 2026-05-24 ~10:10 UTC — PR #966: alphonse Cooldown weight rescaling — **CLOSED clean-NEG (strong falsifier)**
+
+- **Branch:** `g1r5-alphonse/cooldown-weight-rescale`
+- **Student:** g1r5-alphonse
+- **Hypothesis:** One-shot uniform shrink of body matrix weights at step 975 (cooldown onset) improves cooldown convergence.
+
+- **5-cell results (n=1, 3250 steps):**
+
+| Cell | α | val/loss | ffs | Δ ctrl | σ_single | W&B |
+|:----:|:---:|:--------:|:---:|:------:|:--------:|:---:|
+| A | 1.0 (ctrl) | 3.26179 | 3025 | 0.00000 | 0.00σ | vm72qu96 |
+| B ★ | 0.99 | 3.26169 | 3025 | −0.00010 | **−0.17σ** | qdnzakfd |
+| C | 0.97 | 3.26273 | 3050 | +0.00094 | +1.59σ | nrx7o9te |
+| D | 0.95 | 3.26220 | 3050 | +0.00041 | +0.69σ | 7sim5e47 |
+| E | 1.01 | 3.26272 | 3050 | +0.00093 | +1.57σ | 5cdc1sd3 |
+
+- **Decision:** CLOSED clean-NEG (strong-falsifier outcome as pre-declared). All 5 cells within ±2σ_single; best B is only −0.17σ (noise); falsifier E ≈ C (α=1.01 ≈ α=0.97) — asymmetry prediction falsified.
+
+- **Mechanism finding:** Muon's NS-orthogonalization is approximately scale-invariant per update (restores spectral direction), and `wd_schedule=ramp_down` already controls norms continuously. One-shot rescale at step 975 is absorbed — norm perturbation recovers within ~500 steps as shown by mid-training trace.
+
+- **Closes:** Weight-space cooldown intervention axis (first tested). **Comprehensive cooldown closure**: state-reset (#907, ABRUPT, σ 1.71×) + schedule (#925, SMOOTH, σ 1.40×) + weight-magnitude (#966, strong falsifier) = all mechanism categories NEG. Cooldown perturbation mean-improvement axis is fully saturated.
+
+---
+
 ## 2026-05-24 ~06:30 UTC — PR #1022: frieren NS polynomial degree variation — **ASSIGNED**
 
 - **Branch:** `g1r5-frieren/ns-polynomial-degree-variation`
