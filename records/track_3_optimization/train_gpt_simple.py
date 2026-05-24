@@ -213,6 +213,7 @@ def log_training_telemetry(
         "train/grad/max_abs": grad_stats.get("max_abs", 0.0),
         "train/grad/nonfinite_count": grad_stats.get("nonfinite_count", 0.0),
         "train/weight/global_norm_pre_update": weight_stats.get("norm", 0.0),
+        "loss/logit_softcap_current": model.logit_softcap_current.item(),
     }
     weight_norm = weight_stats.get("norm", 0.0)
     if weight_norm:
@@ -422,13 +423,21 @@ class GPT(nn.Module):
         self.proj = Linear(model_dim, vocab_size)
         self.norm1 = RMSNorm(model_dim)
         self.norm2 = RMSNorm(model_dim)
+        # Buffer (not a constant) so set_hparams can mutate it each step without
+        # triggering torch._dynamo recompiles. See PR #950.
+        self.register_buffer(
+            "logit_softcap_current",
+            torch.tensor(LOGIT_SOFTCAP, dtype=torch.float32),
+            persistent=False,
+        )
 
     def forward(self, inputs: Tensor, targets: Tensor):
         x = self.norm1(self.embed(inputs))
         for block in self.blocks:
             x = block(x)
         logits = self.proj(self.norm2(x)).float()
-        logits = LOGIT_SOFTCAP * logits * (logits.square() + LOGIT_SOFTCAP**2).rsqrt()
+        c = self.logit_softcap_current
+        logits = c * logits * (logits.square() + c * c).rsqrt()
         return F.cross_entropy(logits.view(targets.numel(), -1), targets.view(-1), reduction="sum")
 
 
@@ -468,6 +477,8 @@ NS5_ITERS = int(os.environ.get("NS5_ITERS", "12"))
 WD_AUX = float(os.environ.get("WD_AUX", "0.0"))  # AdamW WD on embed + lm_head matrices (scalars stay at 0)
 EMBED_INIT_STD = float(os.environ.get("EMBED_INIT_STD", "1.0"))  # default preserves baseline N(0,1)
 LOGIT_SOFTCAP = float(os.environ.get("LOGIT_SOFTCAP", "15.0"))  # default = 15 (current hardcoded value); soft-cap value c in f(x) = c·x / sqrt(x^2+c^2)
+LOGIT_SOFTCAP_END = float(os.environ.get("LOGIT_SOFTCAP_END", str(LOGIT_SOFTCAP)))  # default = no schedule
+LOGIT_SOFTCAP_SCHEDULE_FRAC = float(os.environ.get("LOGIT_SOFTCAP_SCHEDULE_FRAC", "0.7"))  # match LR cooldown_frac
 
 
 def zeropower_via_newtonschulz5(G: Tensor) -> Tensor:
@@ -866,6 +877,9 @@ if dist.get_rank() == 0:
             "optimizer/attn_soap_trust_threshold": ATTN_SOAP_TRUST_THRESHOLD,
             "optimizer/ns5_iters": NS5_ITERS,
             "optimizer/wd_aux": WD_AUX,
+            "loss/logit_softcap": LOGIT_SOFTCAP,
+            "loss/logit_softcap_end": LOGIT_SOFTCAP_END,
+            "loss/logit_softcap_schedule_frac": LOGIT_SOFTCAP_SCHEDULE_FRAC,
             "optimizer/recipe": "contra-muon + normuon-lite + soap-on-mlp + soap-on-attn-trust-gate (pre-NS5, record #14 + record #16)",
         },
     )
@@ -920,6 +934,13 @@ for trial_idx in range(args.num_trials):
             eta = 1.0
         else:
             eta = (1 - progress) / cooldown_frac
+        if LOGIT_SOFTCAP_END != LOGIT_SOFTCAP:
+            if progress < 1 - LOGIT_SOFTCAP_SCHEDULE_FRAC:
+                new_c = LOGIT_SOFTCAP
+            else:
+                t = (progress - (1 - LOGIT_SOFTCAP_SCHEDULE_FRAC)) / LOGIT_SOFTCAP_SCHEDULE_FRAC
+                new_c = LOGIT_SOFTCAP + (LOGIT_SOFTCAP_END - LOGIT_SOFTCAP) * t
+            model.logit_softcap_current.fill_(new_c)
         if MU_COOLDOWN_ENABLED:
             if step < MU_WARMUP_STEPS:
                 w = step / MU_WARMUP_STEPS
