@@ -67,6 +67,14 @@ def parse_args():
     parser.add_argument("--ns_iter", type=int, default=12,
                         help="Number of Newton-Schulz iterations in zeropower_via_newtonschulz5. "
                              "Default 12 (current hardcoded value). Lower = less orthogonal but faster.")
+    parser.add_argument("--ns_iter_depth_scale", type=float, default=0.0,
+                        help="Per-layer NS iter scaling. 0=flat (all layers use NS_ITER). "
+                             "Positive=fewer iters in early layers, more in late layers. "
+                             "Negative=inverted (more iters in early layers). "
+                             "Formula: ns_iter_i = round(NS_ITER * (1 + depth_scale * (2i/(L-1) - 1))).")
+    parser.add_argument("--ns_iter_depth_mlp_only", action="store_true",
+                        help="When --ns_iter_depth_scale != 0.0, apply per-layer scaling only to MLP "
+                             "params; attn params remain at flat NS_ITER. Default off (scale both).")
     parser.add_argument("--lr_scalars", type=float, default=0.01,
                         help="LR for AdamW adam_scalars group (RMSNorm gains; "
                              "params with ndim < 2). Default 0.01 — hardcoded, "
@@ -499,6 +507,23 @@ def zeropower_via_newtonschulz5(G: Tensor) -> Tensor:
         X = X.mT
     return X
 
+def zeropower_via_newtonschulz5_n(G: Tensor, ns_steps: int) -> Tensor:
+    # Same as zeropower_via_newtonschulz5 but with explicit per-call iteration count;
+    # not torch.compiled because per-param ns_steps would force recompilation.
+    assert G.ndim >= 2
+    X = G.bfloat16()
+    if G.size(-2) > G.size(-1):
+        X = X.mT
+    X = X / (X.norm(dim=(-2, -1), keepdim=True) + 1e-7)
+    a, b, c = 2, -1.5, 0.5
+    for _ in range(max(1, ns_steps)):
+        A = X @ X.mT
+        B = b * A + c * A @ A
+        X = a * X + B @ X
+    if G.size(-2) > G.size(-1):
+        X = X.mT
+    return X
+
 @torch.compile
 def muon_update(grad, momentum, mu=0.95, nesterov=True):
     momentum.lerp_(grad, 1 - mu)
@@ -508,9 +533,23 @@ def muon_update(grad, momentum, mu=0.95, nesterov=True):
     return update
 
 
+def muon_update_n(grad, momentum, ns_steps: int, mu=0.95, nesterov=True):
+    momentum.lerp_(grad, 1 - mu)
+    update = grad.lerp_(momentum, mu) if nesterov else momentum
+    update = zeropower_via_newtonschulz5_n(update, ns_steps)
+    update *= max(1, grad.size(-2) / grad.size(-1))**0.5
+    return update
+
+
 @torch.compile
 def soap_ns_step(nesterov_update):
     update = zeropower_via_newtonschulz5(nesterov_update)
+    update *= max(1, nesterov_update.size(-2) / nesterov_update.size(-1))**0.5
+    return update
+
+
+def soap_ns_step_n(nesterov_update, ns_steps: int):
+    update = zeropower_via_newtonschulz5_n(nesterov_update, ns_steps)
     update *= max(1, nesterov_update.size(-2) / nesterov_update.size(-1))**0.5
     return update
 
@@ -571,7 +610,7 @@ class Muon(torch.optim.Optimizer):
     SOAP_ATTN_SUFFIXES = (".attn.q.weight", ".attn.k.weight", ".attn.v.weight", ".attn.proj.weight")
 
     def __init__(self, named_params, lr=0.02, weight_decay=0, mu=0.95,
-                 soap_attn=False, trust_threshold=0.0):
+                 soap_attn=False, trust_threshold=0.0, param_ns_iter=None):
         # `named_params` can be either:
         #   (a) list of (name, param) tuples → single param group (legacy form)
         #   (b) list of dicts {"named_params": [(name, param), ...], "lr": ?, "weight_decay": ?, "mu": ?, "name": ?}
@@ -594,6 +633,7 @@ class Muon(torch.optim.Optimizer):
         self.trust_threshold = float(trust_threshold)
         self.use_trust_gate = soap_attn
         self.cos_sims_buffer: dict[str, Tensor] = {}
+        self.param_ns_iter: dict[int, int] = dict(param_ns_iter) if param_ns_iter else {}
 
         param_groups = []
         for g in groups_raw:
@@ -633,13 +673,20 @@ class Muon(torch.optim.Optimizer):
                             state["q_row"] = None
                             state["q_col"] = None
                             state["soap_step"] = 0
+                    p_ns = self.param_ns_iter.get(id(p), None)
                     if use_soap:
                         state["momentum"].lerp_(p.grad, 1 - group["mu"])
                         raw_nesterov = p.grad.lerp(state["momentum"], group["mu"])
                         precond_nesterov = soap_precondition_momentum(raw_nesterov, state)
-                        u_soap = soap_ns_step(precond_nesterov)
+                        if p_ns is None:
+                            u_soap = soap_ns_step(precond_nesterov)
+                        else:
+                            u_soap = soap_ns_step_n(precond_nesterov, p_ns)
                         if self.use_trust_gate:
-                            u_muon = soap_ns_step(raw_nesterov)
+                            if p_ns is None:
+                                u_muon = soap_ns_step(raw_nesterov)
+                            else:
+                                u_muon = soap_ns_step_n(raw_nesterov, p_ns)
                             us = u_soap.float()
                             um = u_muon.float()
                             cos_sim_t = (us * um).sum() / (us.norm() * um.norm() + 1e-8)
@@ -649,7 +696,10 @@ class Muon(torch.optim.Optimizer):
                             update = u_soap
                         soap_update_preconditioner(p.grad, state)
                     else:
-                        update = muon_update(p.grad, state["momentum"], mu=group["mu"])
+                        if p_ns is None:
+                            update = muon_update(p.grad, state["momentum"], mu=group["mu"])
+                        else:
+                            update = muon_update_n(p.grad, state["momentum"], p_ns, mu=group["mu"])
                     norm_sum.add_(update.float().norm())
                     p.mul_(1 - group["lr"] * group["weight_decay"])
                     p.add_(update, alpha=-group["lr"])
@@ -756,6 +806,8 @@ if dist.get_rank() == 0:
             "soap_beta2": SOAP_BETA2,
             "soap_precond_freq": PRECOND_FREQ,
             "ns_iter": NS_ITER,
+            "ns_iter_depth_scale": float(args.ns_iter_depth_scale),
+            "ns_iter_depth_mlp_only": bool(args.ns_iter_depth_mlp_only),
             "soap_attn_enabled": bool(args.soap_attn),
             "soap_trust_threshold": float(args.soap_trust_threshold),
             "lr_mlp": args.lr_mlp,
@@ -847,12 +899,40 @@ for trial_idx in range(args.num_trials):
     attn_named = [(n, p) for n, p in named_blocks
                   if not (n.endswith(".mlp.fc.weight") or n.endswith(".mlp.proj.weight"))]
     assert len(mlp_named) + len(attn_named) == len(named_blocks)
+
+    # Build per-parameter NS iteration count from depth_scale.
+    # names from model.blocks.named_parameters() look like "0.attn.q.weight",
+    # "11.mlp.proj.weight", etc. — extract leading layer index.
+    import re as _re_ns
+    param_ns_iter: dict[int, int] = {}
+    per_layer_ns_iters: list[int | None] = []  # for logging
+    if args.ns_iter_depth_scale != 0.0:
+        L = NUM_LAYERS  # = 12 for the fixed baseline arch
+        for layer_i in range(L):
+            scale_factor = 1.0 + args.ns_iter_depth_scale * (2.0 * layer_i / (L - 1) - 1.0)
+            per_layer_ns_iters.append(max(1, round(NS_ITER * scale_factor)))
+        for n, p in named_blocks:
+            m = _re_ns.match(r'^(\d+)\.', n)
+            if not m:
+                continue
+            layer_i = int(m.group(1))
+            is_mlp_param = n.endswith(".mlp.fc.weight") or n.endswith(".mlp.proj.weight")
+            if args.ns_iter_depth_mlp_only and not is_mlp_param:
+                # attn params keep flat NS_ITER => omit from dict, fall back to default branch
+                continue
+            param_ns_iter[id(p)] = per_layer_ns_iters[layer_i]
+        # Diagnostic print — print0 already gates on rank 0
+        scope = "MLP-only" if args.ns_iter_depth_mlp_only else "MLP+attn"
+        print0(f"[ns_iter_depth] scale={args.ns_iter_depth_scale}  scope={scope}  "
+               f"per_layer={per_layer_ns_iters}", console=True)
+
     optimizer2 = Muon(
         [
             dict(named_params=mlp_named,  lr=args.lr_mlp,  weight_decay=args.wd_mlp,  name="muon_mlp"),
             dict(named_params=attn_named, lr=args.lr_attn, weight_decay=args.wd_attn, name="muon_attn"),
         ],
         soap_attn=args.soap_attn, trust_threshold=args.soap_trust_threshold,
+        param_ns_iter=param_ns_iter,
     )
     optimizers = [optimizer1, optimizer2]
     assert set(p for opt in optimizers for group in opt.param_groups
