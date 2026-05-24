@@ -522,6 +522,23 @@ class Block(nn.Module):
         x = x + self.mlp(self.norm2(x))
         return x
 
+def _init_body_muon_orthogonal_(model: nn.Module, gain: float) -> int:
+    """Replace body Muon weight matrices with Haar-measure orthogonal matrices scaled by gain.
+
+    Targets exactly the params Muon optimizes (block.attn.{q,k,v,proj}.weight and
+    block.mlp.{fc,proj}.weight). Does NOT touch nn.Embedding, lm_head (proj),
+    RMSNorm gains, or biases — those keep their existing init.
+    """
+    n_matrices = 0
+    for block in model.blocks:
+        for module in [block.attn.q, block.attn.k, block.attn.v, block.attn.proj,
+                       block.mlp.fc, block.mlp.proj]:
+            with torch.no_grad():
+                torch.nn.init.orthogonal_(module.weight, gain=gain)
+            n_matrices += 1
+    return n_matrices
+
+
 class GPT(nn.Module):
     def __init__(self, vocab_size: int, num_layers: int, model_dim: int):
         super().__init__()
@@ -593,6 +610,10 @@ NANOGPT_SENPAI_SEED = int(_SENPAI_SEED_RAW) if _SENPAI_SEED_RAW != "" else None
 # `embed.weight -= lr_embed * lambda * (embed.weight - embed_init_snapshot)`.
 # At lambda=0 the hook is a no-op and behavior is bit-identical to the merged stack.
 NANOGPT_EMBED_INIT_ANCHOR_LAMBDA = float(os.environ.get("NANOGPT_EMBED_INIT_ANCHOR_LAMBDA", "0.0"))
+# Haar-measure orthogonal init for body Muon matrices (#1032 thorfinn).
+# Default 0.0 means disabled (keep existing N(0, σ) / zero init for proj). Nonzero
+# value is the orthogonal gain passed to torch.nn.init.orthogonal_.
+NANOGPT_BODY_ORTHO_INIT_GAIN = float(os.environ.get("NANOGPT_BODY_ORTHO_INIT_GAIN", "0.0"))
 
 
 def get_ns_coef_at_iter(iter_idx: int, total_iters: int, schedule: str) -> tuple[float, float, float]:
@@ -896,6 +917,7 @@ if dist.get_rank() == 0:
             "nanogpt_ns_stochastic_cooldown": NANOGPT_NS_STOCHASTIC_COOLDOWN,
             "senpai_seed": NANOGPT_SENPAI_SEED if NANOGPT_SENPAI_SEED is not None else -1,
             "nanogpt_embed_init_anchor_lambda": NANOGPT_EMBED_INIT_ANCHOR_LAMBDA,
+            "nanogpt_body_ortho_init_gain": NANOGPT_BODY_ORTHO_INIT_GAIN,
         },
     )
 
@@ -925,6 +947,45 @@ for trial_idx in range(args.num_trials):
             w.normal_(mean=1, std=0)
         else:
             raise Exception(f"Uninitialized parameter: {name}")
+
+    # Haar-measure orthogonal init for body Muon matrices (#1032, env-var-gated).
+    # When NANOGPT_BODY_ORTHO_INIT_GAIN=0.0 (default) this is a no-op; the body
+    # Muon matrices keep the iid-normal (q/k/v/fc) and zero (proj) init from the
+    # manual reinit loop above. Nonzero gain replaces those 6×L matrices with
+    # Haar-measure orthogonal matrices scaled by gain. Applied AFTER the manual
+    # reinit so it overrides q/k/v/proj/fc/proj.
+    if NANOGPT_BODY_ORTHO_INIT_GAIN > 0.0:
+        n_ortho = _init_body_muon_orthogonal_(model, gain=NANOGPT_BODY_ORTHO_INIT_GAIN)
+        print0(f"BODY_ORTHO_INIT: applied to {n_ortho} body Muon matrices "
+               f"with gain={NANOGPT_BODY_ORTHO_INIT_GAIN} (Haar measure)", console=True)
+        # One-shot spectral diagnostics so we can verify the init landed (sv ≈ gain, sv_std ≈ 0).
+        if dist.get_rank() == 0:
+            sv_all: list[Tensor] = []
+            for name, p in model.named_parameters():
+                if p.ndim == 2 and "blocks" in name and any(
+                    k in name for k in [".q.weight", ".k.weight", ".v.weight",
+                                        ".proj.weight", ".fc.weight"]
+                ):
+                    with torch.no_grad():
+                        W = p.detach().float().cpu()
+                        s = torch.linalg.svdvals(W)
+                        sv_all.append(s)
+            if sv_all:
+                s_cat = torch.cat(sv_all)
+                wandb.log({
+                    "init/body_ortho/sv_mean": float(s_cat.mean()),
+                    "init/body_ortho/sv_std": float(s_cat.std()),
+                    "init/body_ortho/sv_min": float(s_cat.min()),
+                    "init/body_ortho/sv_max": float(s_cat.max()),
+                    "init/body_ortho/n_matrices": len(sv_all),
+                }, step=0)
+                print0(f"BODY_ORTHO_INIT: spectral diagnostics "
+                       f"sv_mean={float(s_cat.mean()):.4f} sv_std={float(s_cat.std()):.4f} "
+                       f"sv_min={float(s_cat.min()):.4f} sv_max={float(s_cat.max()):.4f} "
+                       f"n_matrices={len(sv_all)}", console=True)
+    else:
+        print0("BODY_ORTHO_INIT: disabled (gain=0.0; keeping baseline N(0,σ)/zero init)",
+               console=True)
 
     # Init-anchor snapshot for embed-only init-anchored WD (#847, env-var-gated).
     # When NANOGPT_EMBED_INIT_ANCHOR_LAMBDA=0 (default) the snapshot stays None and
