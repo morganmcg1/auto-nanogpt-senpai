@@ -83,6 +83,16 @@ def parse_args():
              "muall=musoft + non-residual block 2D weights also scaled by 1/sqrt(L); "
              "smallconst=std=1e-3 depth-independent.",
     )
+    parser.add_argument("--hutch_scale", action="store_true", default=False,
+                        help="Apply free-Hutchinson diagonal curvature scaling post-NS")
+    parser.add_argument("--hutch_damping", type=float, default=1e-3,
+                        help="Damping term for curvature EMA denominator")
+    parser.add_argument("--hutch_alpha", type=float, default=0.5,
+                        help="Curvature correction exponent (1.0=full inverse, 0.5=sqrt)")
+    parser.add_argument("--hutch_ema_beta", type=float, default=0.9,
+                        help="EMA decay for curvature estimate")
+    parser.add_argument("--hutch_scope", type=str, default="mlp", choices=["mlp", "all"],
+                        help="Apply Hutchinson to mlp-only or all Muon-managed groups")
     args = parser.parse_args()
     args.num_trials = args.num_trials if args.num_trials is not None else (args.legacy_num_trials or 1)
     args.wandb_tags = [tag.strip() for tag in args.wandb_tags.split(",") if tag.strip()]
@@ -571,7 +581,9 @@ class Muon(torch.optim.Optimizer):
     SOAP_ATTN_SUFFIXES = (".attn.q.weight", ".attn.k.weight", ".attn.v.weight", ".attn.proj.weight")
 
     def __init__(self, named_params, lr=0.02, weight_decay=0, mu=0.95,
-                 soap_attn=False, trust_threshold=0.0):
+                 soap_attn=False, trust_threshold=0.0,
+                 hutch_scale=False, hutch_damping=1e-3, hutch_alpha=0.5,
+                 hutch_ema_beta=0.9, hutch_scope="mlp"):
         # `named_params` can be either:
         #   (a) list of (name, param) tuples → single param group (legacy form)
         #   (b) list of dicts {"named_params": [(name, param), ...], "lr": ?, "weight_decay": ?, "mu": ?, "name": ?}
@@ -594,6 +606,12 @@ class Muon(torch.optim.Optimizer):
         self.trust_threshold = float(trust_threshold)
         self.use_trust_gate = soap_attn
         self.cos_sims_buffer: dict[str, Tensor] = {}
+        self.hutch_scale = bool(hutch_scale)
+        self.hutch_damping = float(hutch_damping)
+        self.hutch_alpha = float(hutch_alpha)
+        self.hutch_ema_beta = float(hutch_ema_beta)
+        self.hutch_scope = hutch_scope
+        self.hutch_stats_buffer: dict[str, tuple[Tensor, Tensor]] = {}
 
         param_groups = []
         for g in groups_raw:
@@ -610,9 +628,16 @@ class Muon(torch.optim.Optimizer):
         defaults = dict(lr=lr, weight_decay=weight_decay, mu=mu)
         super().__init__(param_groups, defaults)
 
+    def _param_in_scope(self, p, group, scope):
+        if scope == "all":
+            return True
+        name = group.get("name", "")
+        return "mlp" in name.lower()
+
     @torch.no_grad()
     def step(self):
         self.cos_sims_buffer = {}
+        self.hutch_stats_buffer = {}
         world_size = dist.get_world_size()
         rank = dist.get_rank()
         for group in self.param_groups:
@@ -633,6 +658,10 @@ class Muon(torch.optim.Optimizer):
                             state["q_row"] = None
                             state["q_col"] = None
                             state["soap_step"] = 0
+                        if self.hutch_scale and self._param_in_scope(p, group, self.hutch_scope):
+                            state["prev_grad"] = torch.zeros_like(p, dtype=torch.float32)
+                            state["h_diag_ema"] = torch.full_like(p, self.hutch_damping, dtype=torch.float32)
+                            state["hutch_step"] = 0
                     if use_soap:
                         state["momentum"].lerp_(p.grad, 1 - group["mu"])
                         raw_nesterov = p.grad.lerp(state["momentum"], group["mu"])
@@ -650,6 +679,21 @@ class Muon(torch.optim.Optimizer):
                         soap_update_preconditioner(p.grad, state)
                     else:
                         update = muon_update(p.grad, state["momentum"], mu=group["mu"])
+                    if self.hutch_scale and self._param_in_scope(p, group, self.hutch_scope):
+                        if state.get("hutch_step", 0) > 0:
+                            dg = p.grad - state["prev_grad"]
+                            h_ema = state["h_diag_ema"]
+                            h_ema.mul_(self.hutch_ema_beta).add_(dg.abs(), alpha=1 - self.hutch_ema_beta)
+                            scale = (h_ema + self.hutch_damping).pow(self.hutch_alpha)
+                            update_f = update.float()
+                            update_scaled = update_f / scale
+                            norm_ratio = update_f.norm() / update_scaled.norm().clamp_min(1e-8)
+                            update = update_scaled * norm_ratio
+                            self.hutch_stats_buffer[self.param_names[id(p)]] = (
+                                scale.mean(), h_ema.mean()
+                            )
+                        state["prev_grad"].copy_(p.grad)
+                        state["hutch_step"] += 1
                     norm_sum.add_(update.float().norm())
                     p.mul_(1 - group["lr"] * group["weight_decay"])
                     p.add_(update, alpha=-group["lr"])
@@ -765,6 +809,11 @@ if dist.get_rank() == 0:
             "wd_schedule": args.wd_schedule,
             "lr_scalars": args.lr_scalars,
             "depth_init_mode": args.depth_init_mode,
+            "hutch_scale": args.hutch_scale,
+            "hutch_damping": args.hutch_damping,
+            "hutch_alpha": args.hutch_alpha,
+            "hutch_ema_beta": args.hutch_ema_beta,
+            "hutch_scope": args.hutch_scope,
         },
     )
 
@@ -853,6 +902,9 @@ for trial_idx in range(args.num_trials):
             dict(named_params=attn_named, lr=args.lr_attn, weight_decay=args.wd_attn, name="muon_attn"),
         ],
         soap_attn=args.soap_attn, trust_threshold=args.soap_trust_threshold,
+        hutch_scale=args.hutch_scale, hutch_damping=args.hutch_damping,
+        hutch_alpha=args.hutch_alpha, hutch_ema_beta=args.hutch_ema_beta,
+        hutch_scope=args.hutch_scope,
     )
     optimizers = [optimizer1, optimizer2]
     assert set(p for opt in optimizers for group in opt.param_groups
@@ -1060,6 +1112,23 @@ for trial_idx in range(args.num_trials):
                 trust_metrics["trust/cos_sim_mean_attn"] = sum(attn_vals) / len(attn_vals)
                 trust_metrics["trust/fired_count_attn"] = fired_attn
             wandb.log(trust_metrics, step=wandb_step)
+        if dist.get_rank() == 0 and telemetry_due and optimizer2.hutch_stats_buffer:
+            h_names = list(optimizer2.hutch_stats_buffer.keys())
+            h_vals = list(optimizer2.hutch_stats_buffer.values())
+            scale_means = torch.stack([v[0] for v in h_vals]).detach().float().cpu().tolist()
+            h_ema_means = torch.stack([v[1] for v in h_vals]).detach().float().cpu().tolist()
+            hutch_metrics = {"trial": trial_idx, "train/step": train_step}
+            hutch_metrics["hutch/scale_mean"] = sum(scale_means) / len(scale_means)
+            hutch_metrics["hutch/h_ema_mean"] = sum(h_ema_means) / len(h_ema_means)
+            hutch_metrics["hutch/scale_min"] = min(scale_means)
+            hutch_metrics["hutch/scale_max"] = max(scale_means)
+            hutch_metrics["hutch/h_ema_min"] = min(h_ema_means)
+            hutch_metrics["hutch/h_ema_max"] = max(h_ema_means)
+            hutch_metrics["hutch/params_scaled"] = len(h_names)
+            for name, sm, hm in zip(h_names, scale_means, h_ema_means):
+                hutch_metrics[f"hutch/scale/{clean_metric_name(name)}"] = sm
+                hutch_metrics[f"hutch/h_ema/{clean_metric_name(name)}"] = hm
+            wandb.log(hutch_metrics, step=wandb_step)
         if dist.get_rank() == 0 and telemetry_due:
             log_weight_telemetry(
                 model=model,
