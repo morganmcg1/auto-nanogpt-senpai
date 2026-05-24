@@ -3,6 +3,33 @@
 Log of completed/reviewed experiment PRs in chronological order. Wave 1
 results pending student execution.
 
+## 2026-05-24 ~23:10 UTC — PR #1053: edward asymmetric SOAP Q_row/Q_col refresh frequency — **CLOSED clean-NEG (SOAP per-component temporal-cadence axis closed)**
+
+- **Branch:** `g1r5-edward/soap-asymm-q-refresh-freq`
+- **Student:** g1r5-edward
+- **Hypothesis:** Combine #936 (Q_col load-bearing for attn, Q_row largely redundant) with #994 (Q_row not zero-cost — cross-scope non-additive 4.5×): structural Q-drop is not viable, but temporal sparsification of redundant Q_row component might recover compute savings. Refresh Q_col at PRECOND_FREQ=16, Q_row at 64/128 (4-8× sparser). Q_row carries low-rank slowly-evolving information.
+
+| Cell | qrow / qcol | val/loss | Δ vs μ_base | z_base | ffs | run_id |
+|------|-------------|----------|-------------|--------|-----|--------|
+| A | 16/16 (ctrl) | **3.26060** | −0.000621 | **−1.05σ** | 3025 | `b4pkp7sr` |
+| B ★ | 64/16 (PRIMARY) | 3.26292 | +0.001699 | **+2.87σ** | 3050 | `ul2sf9kk` |
+| C | 32/16 | 3.26151 | +0.000289 | +0.49σ | 3025 | `yyxzdudk` |
+| D | 128/16 | 3.26177 | +0.000549 | +0.93σ | 3025 | `rcc6147v` |
+| E | 16/64 (falsifier) | 3.26256 | +0.001339 | **+2.26σ** | 3050 | `lr9nmbj3` |
+
+**PRIMARY verdict:** Cell B clean-NEG at +2.87σ_base. Quadrupling Q_row's refresh interval while keeping Q_col at 16 does NOT preserve enough SOAP signal. FAILS n=1 confirm gate (3.260628) by +2.87σ.
+
+**Cell A refactor-neutrality PASS but baseline-equivalent:** 3.26060 (−1.05σ_base, ffs=3025=baseline-ffs-mean) confirms split code-path reproduces hardcoded baseline. The deviation is n=1 favorable seed noise on baseline config, NOT a winner candidate (same handling as #1021/#1022/#1024 Cell A pattern).
+
+**Mechanism findings (three distinct):**
+1. **Structural vs temporal axes are NOT interchangeable.** Under *structural* ablation (#936/#994 drop Q entirely), Q_col is clearly load-bearing. Under *temporal* sparsification at 4× (this PR), Q_col (Cell E, +2.26σ) is *less* harmful than Q_row (Cell B, +2.87σ) — opposite of prediction. The structural-load-bearing-ness does NOT predict temporal-load-bearing-ness. Critical lesson for SOAP mechanism interpretation.
+2. **Non-monotonic profile is n=1 noise.** Sweep along qrow={16,32,64,128} gives z={−1.05,+0.49,+2.87,+0.93}σ. A monotonic "more sparsification → more harm" curve would predict D > B regression. The 3.9σ envelope at n=1 matches σ_single≈0.0006 null distribution. No genuine sweet-spot reversal at K_row=64.
+3. **`exp_avg_sq` rotation artefact.** Per PR body §2, `exp_avg_sq` only rotated to new eigenbasis when Q_row also refreshes. Applies symmetrically in cells B and E — may dominate over structural Q_col/Q_row asymmetry at 4× sparsification factors. A faithful implementation requires per-dimension rotation gating (separate architectural change, not a fix for this PR).
+
+**Axis closure (SOAP per-component temporal-cadence at structural granularity closed):** Combined with #936/#994 structural Q ablations, this closes the SOAP per-component temporal-cadence sub-axis. The remaining open SOAP-cadence axis is **#1036 nezuko global PRECOND_FREQ** (4/8/16/32/64), which avoids the `exp_avg_sq` partial-rotation artefact entirely. Other SOAP-internals axes in flight: #1076 alphonse eps, #1077 frieren BETA2.
+
+**Decision: CLOSE clean-NEG with mechanism finding.** edward → **#1106 SOAP low-rank truncated eigenbasis sweep** — fresh mechanism axis (not scalar HP): keep only top-r eigenvectors of d×d Q matrix, controlling rank/compute tradeoff. Connects to Adafactor/GaLore/FLORA low-rank optimizer-state literature.
+
 ## 2026-05-24 ~23:05 UTC — PR #1054: askeladd LR schedule shape sweep — **CLOSED clean-NEG (cooldown family comprehensively closed)**
 
 - **Branch:** `g1r5-askeladd/lr-schedule-shape-sweep`
