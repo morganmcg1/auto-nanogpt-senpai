@@ -593,6 +593,14 @@ NANOGPT_SENPAI_SEED = int(_SENPAI_SEED_RAW) if _SENPAI_SEED_RAW != "" else None
 # `embed.weight -= lr_embed * lambda * (embed.weight - embed_init_snapshot)`.
 # At lambda=0 the hook is a no-op and behavior is bit-identical to the merged stack.
 NANOGPT_EMBED_INIT_ANCHOR_LAMBDA = float(os.environ.get("NANOGPT_EMBED_INIT_ANCHOR_LAMBDA", "0.0"))
+# LookAhead meta-optimizer wrapper on body Muon (Zhang et al. NeurIPS 2019).
+# K=0 disables (bit-identical to standard Muon); K>0 wraps body Muon in Lookahead.
+NANOGPT_LOOKAHEAD_K = int(os.environ.get("NANOGPT_LOOKAHEAD_K", "0"))
+NANOGPT_LOOKAHEAD_ALPHA = float(os.environ.get("NANOGPT_LOOKAHEAD_ALPHA", "0.5"))
+assert NANOGPT_LOOKAHEAD_K == 0 or 0.0 < NANOGPT_LOOKAHEAD_ALPHA <= 1.0, (
+    f"Invalid NANOGPT_LOOKAHEAD_ALPHA={NANOGPT_LOOKAHEAD_ALPHA}; must be in (0, 1]."
+)
+assert NANOGPT_LOOKAHEAD_K >= 0, f"Invalid NANOGPT_LOOKAHEAD_K={NANOGPT_LOOKAHEAD_K}; must be >= 0."
 
 
 def get_ns_coef_at_iter(iter_idx: int, total_iters: int, schedule: str) -> tuple[float, float, float]:
@@ -701,6 +709,93 @@ def muon_update(grad, momentum, v, ns_iters: int, mu=0.95, beta2=0.999, eps=1e-8
     update = zeropower_via_newtonschulz5(update, ns_iters=ns_iters)
     update *= max(1, grad.size(-2) / grad.size(-1))**0.5
     return update
+
+class Lookahead:
+    """LookAhead meta-optimizer wrapper (Zhang et al. NeurIPS 2019, arXiv:1907.08610).
+
+    Inner loop: base_optimizer.step() runs K times normally (fast weights).
+    Outer loop (every K steps): slow = (1-alpha)*slow + alpha*fast; fast = slow.
+
+    Wraps any base optimizer transparently: forwards .step(), .zero_grad(),
+    .param_groups, .state, .defaults, and arbitrary attributes (e.g. Muon's
+    `set_ns_iters_this_step` and `spectral_telemetry_param`).
+    """
+    # Names handled directly on the wrapper (not forwarded to base_optimizer).
+    _OWN_ATTRS = frozenset(("base_optimizer", "alpha", "k", "_step_count"))
+
+    def __init__(self, base_optimizer, alpha=0.5, k=5):
+        # Bypass __setattr__ during init by writing through object.__setattr__.
+        object.__setattr__(self, "base_optimizer", base_optimizer)
+        object.__setattr__(self, "alpha", alpha)
+        object.__setattr__(self, "k", k)
+        object.__setattr__(self, "_step_count", 0)
+        # Initialize slow weights to current parameter values so the first outer
+        # sync (at step K) blends K inner-loop updates against the init weights.
+        # We also pre-create `momentum` and `v` because Muon gates its own
+        # lazy init on `if len(state) == 0` — populating slow_weight without
+        # those would leave Muon trying to read missing keys on the first step.
+        for group in base_optimizer.param_groups:
+            for p in group["params"]:
+                if not p.requires_grad:
+                    continue
+                state = base_optimizer.state[p]
+                state["slow_weight"] = p.data.clone().detach()
+                if "momentum" not in state:
+                    state["momentum"] = torch.zeros_like(p)
+                if "v" not in state:
+                    state["v"] = torch.zeros_like(p)
+
+    @property
+    def param_groups(self):
+        return self.base_optimizer.param_groups
+
+    @property
+    def state(self):
+        return self.base_optimizer.state
+
+    @property
+    def defaults(self):
+        return self.base_optimizer.defaults
+
+    def __getattr__(self, name):
+        # Only called when standard attribute lookup fails — forward to base.
+        # Use object.__getattribute__ to avoid infinite recursion on base_optimizer itself.
+        base = object.__getattribute__(self, "base_optimizer")
+        return getattr(base, name)
+
+    def __setattr__(self, name, value):
+        if name in Lookahead._OWN_ATTRS:
+            object.__setattr__(self, name, value)
+        else:
+            setattr(self.base_optimizer, name, value)
+
+    def zero_grad(self, set_to_none=True):
+        self.base_optimizer.zero_grad(set_to_none=set_to_none)
+
+    @torch.no_grad()
+    def step(self, closure=None):
+        # Muon.step() in this codebase takes no closure arg; only forward
+        # `closure` when the caller actually provided one so we stay compatible
+        # with both signatures.
+        if closure is None:
+            loss = self.base_optimizer.step()
+        else:
+            loss = self.base_optimizer.step(closure)
+        self._step_count += 1
+        if self._step_count % self.k == 0:
+            for group in self.base_optimizer.param_groups:
+                for p in group["params"]:
+                    if not p.requires_grad:
+                        continue
+                    state = self.base_optimizer.state[p]
+                    if "slow_weight" not in state:
+                        state["slow_weight"] = p.data.clone().detach()
+                    slow = state["slow_weight"]
+                    # slow <- (1 - alpha)*slow + alpha*fast == slow + alpha*(fast - slow)
+                    slow.add_(p.data - slow, alpha=self.alpha)
+                    p.data.copy_(slow)
+        return loss
+
 
 class Muon(torch.optim.Optimizer):
     def __init__(self, params, lr=0.02, weight_decay=0, mu=0.95, beta2=0.999, eps=1e-8):
@@ -896,6 +991,10 @@ if dist.get_rank() == 0:
             "nanogpt_ns_stochastic_cooldown": NANOGPT_NS_STOCHASTIC_COOLDOWN,
             "senpai_seed": NANOGPT_SENPAI_SEED if NANOGPT_SENPAI_SEED is not None else -1,
             "nanogpt_embed_init_anchor_lambda": NANOGPT_EMBED_INIT_ANCHOR_LAMBDA,
+            "nanogpt_lookahead_k": NANOGPT_LOOKAHEAD_K,
+            "nanogpt_lookahead_alpha": (
+                NANOGPT_LOOKAHEAD_ALPHA if NANOGPT_LOOKAHEAD_K > 0 else None
+            ),
         },
     )
 
@@ -959,6 +1058,18 @@ for trial_idx in range(args.num_trials):
     # Track orthogonalized-update spectrum on first block's attention q.weight
     # to surface NS-schedule effects in W&B telemetry.
     optimizer2.spectral_telemetry_param = model.blocks[0].attn.q.weight
+    # LookAhead meta-optimizer wrapper on body Muon (#1047). The wrapper forwards
+    # spectral_telemetry_param + set_ns_iters_this_step transparently so existing
+    # NS schedule / spectral telemetry continue to function.
+    if NANOGPT_LOOKAHEAD_K > 0:
+        optimizer2 = Lookahead(optimizer2, alpha=NANOGPT_LOOKAHEAD_ALPHA, k=NANOGPT_LOOKAHEAD_K)
+        print0(
+            f"LOOKAHEAD: K={NANOGPT_LOOKAHEAD_K} alpha={NANOGPT_LOOKAHEAD_ALPHA} "
+            f"(body Muon wrapped; aux AdamW untouched)",
+            console=True,
+        )
+    else:
+        print0("LOOKAHEAD: disabled (K=0)", console=True)
     cooldown_start_step = int(train_steps * NS_COOLDOWN_START_FRAC)
     ns_iters_history: list[int] = []
     ns_cumulative_iters = 0
@@ -1205,6 +1316,39 @@ for trial_idx in range(args.num_trials):
             if len(ns_iters_history) > 100:
                 del ns_iters_history[:-100]
             ns_cumulative_iters += ns_iters_this_step
+        # LookAhead slow-fast distance telemetry (#1047). Logged BEFORE opt.step()
+        # so the diff captures the K-1 inner-step drift accumulated since the last
+        # sync; logging AFTER opt.step() at K-aligned steps would always read ~0
+        # because the sync just reset fast = slow.
+        if (
+            dist.get_rank() == 0
+            and NANOGPT_LOOKAHEAD_K > 0
+            and isinstance(optimizer2, Lookahead)
+            and telemetry_due
+        ):
+            with torch.no_grad():
+                total_sq = 0.0
+                total_n = 0
+                for group in optimizer2.base_optimizer.param_groups:
+                    for p in group["params"]:
+                        state = optimizer2.base_optimizer.state.get(p, {})
+                        if "slow_weight" not in state:
+                            continue
+                        diff = p.data.float() - state["slow_weight"].float()
+                        total_sq += float(diff.pow(2).sum().item())
+                        total_n += p.numel()
+            if total_n > 0:
+                lookahead_metrics = {
+                    "trial": trial_idx,
+                    "train/step": train_step,
+                    "lookahead/slow_fast_l2_norm": total_sq ** 0.5,
+                    "lookahead/slow_fast_rms": (total_sq / total_n) ** 0.5,
+                    "lookahead/inner_step_count": int(optimizer2._step_count),
+                    "lookahead/steps_since_sync": int(
+                        optimizer2._step_count % NANOGPT_LOOKAHEAD_K
+                    ),
+                }
+                wandb.log(lookahead_metrics, step=wandb_step)
         for opt in optimizers:
             opt.step()
         # Init-anchored WD on embed (#847, env-var-gated). After both optimizers
