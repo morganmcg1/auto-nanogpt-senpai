@@ -593,6 +593,10 @@ NANOGPT_SENPAI_SEED = int(_SENPAI_SEED_RAW) if _SENPAI_SEED_RAW != "" else None
 # `embed.weight -= lr_embed * lambda * (embed.weight - embed_init_snapshot)`.
 # At lambda=0 the hook is a no-op and behavior is bit-identical to the merged stack.
 NANOGPT_EMBED_INIT_ANCHOR_LAMBDA = float(os.environ.get("NANOGPT_EMBED_INIT_ANCHOR_LAMBDA", "0.0"))
+# Muon mu cooldown anneal (#980). Linearly anneal Muon body momentum from 0.95 to
+# the FINAL value over the cooldown window (last 30% of training). Default 0.95
+# is a no-op and bit-identical to the merged stack.
+NANOGPT_MUON_MU_COOLDOWN_FINAL = float(os.environ.get("NANOGPT_MUON_MU_COOLDOWN_FINAL", "0.95"))
 
 
 def get_ns_coef_at_iter(iter_idx: int, total_iters: int, schedule: str) -> tuple[float, float, float]:
@@ -824,6 +828,11 @@ print0(f"  Effective Muon base LRs: attn={0.035*NANOGPT_MUON_ATTN_LR_MULT:.5f} m
 print0(f"EMBED_INIT_ANCHOR_LAMBDA: {NANOGPT_EMBED_INIT_ANCHOR_LAMBDA} "
        f"({'ACTIVE' if NANOGPT_EMBED_INIT_ANCHOR_LAMBDA > 0 else 'INACTIVE (bit-identical fallback)'})",
        console=True)
+if NANOGPT_MUON_MU_COOLDOWN_FINAL != 0.95:
+    print0(f"MUON_MU_COOLDOWN: 0.95 -> {NANOGPT_MUON_MU_COOLDOWN_FINAL} (ACTIVE, linear anneal in cooldown window)",
+           console=True)
+else:
+    print0("MUON_MU_COOLDOWN: 0.95 constant (INACTIVE, bit-identical to merged stack)", console=True)
 if NS_ITERS_COOLDOWN > 0:
     print0(f"NS_SCHEDULE: ns_iters={NS_ITERS} -> ns_iters_cooldown={NS_ITERS_COOLDOWN} "
            f"at fraction {NS_COOLDOWN_START_FRAC} of train_steps "
@@ -1008,6 +1017,16 @@ for trial_idx in range(args.num_trials):
                     group["lr"] = group["initial_lr"] * eta_embed
                 else:
                     group["lr"] = group["initial_lr"] * eta_default
+        # Muon mu cooldown anneal (#980): linearly anneal mu from 0.95 -> FINAL
+        # across the cooldown window. No-op when FINAL=0.95 (default control).
+        if NANOGPT_MUON_MU_COOLDOWN_FINAL != 0.95:
+            if progress < 1 - cooldown_frac:
+                mu_this_step = 0.95
+            else:
+                cooldown_progress = 1.0 - eta_default
+                mu_this_step = 0.95 + cooldown_progress * (NANOGPT_MUON_MU_COOLDOWN_FINAL - 0.95)
+            for group in optimizer2.param_groups:
+                group["mu"] = mu_this_step
 
 
     ########################################
@@ -1325,6 +1344,9 @@ for trial_idx in range(args.num_trials):
                     "linear_ramp_down": 3,
                 }.get(NS_COEF_SCHEDULE, -1),
             })
+            # Muon mu cooldown anneal (#980): log current mu when schedule active.
+            if NANOGPT_MUON_MU_COOLDOWN_FINAL != 0.95:
+                ns_metrics["train/muon_mu"] = optimizer2.param_groups[0]["mu"]
             wandb.log(ns_metrics, step=wandb_step)
         if dist.get_rank() == 0 and telemetry_due:
             log_weight_telemetry(
