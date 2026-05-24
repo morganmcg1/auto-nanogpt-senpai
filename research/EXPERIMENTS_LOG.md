@@ -4794,3 +4794,35 @@ NS orthogonalization relies on accumulated momentum direction for stable update 
 Future Muon-mechanism PRs should target NS polynomial coefficients (alphonse #1008 in-flight), NS iteration counts, NS shape schedules, momentum-buffer one-shot operations (#998 in-flight), or fundamentally new preconditioner shapes — not momentum-coefficient values.
 
 ### Nezuko reassigned → PR #1031 (NS adaptive residual stopping — per-matrix early-stop on ‖XX^T−I‖_F/√m < τ; first PRECONDITIONER-axis adaptive-iteration test; mechanism-distinct from #710 per-depth, #724 per-type, #145 sigmoid-collapse modes)
+
+## 2026-05-24 10:55 — PR #984: Schedule-Free AdamW (Defazio NeurIPS 2024) on lm_head/scalars — 4-arm scope sweep (CLOSED productive-NEG)
+- g1r4-thorfinn/sf-adamw-aux
+- **Hypothesis:** Replace standard AdamW with Schedule-Free AdamW (Defazio) on aux groups (lm_head, scalars, or both), eliminating LR cooldown on those groups in favor of SF's running-average z-state.
+
+### Results
+
+| Arm | scope | run_id | val/loss | Δ_vs_A | Δ_vs_baseline 3.26756 | first_step_to_target |
+|:---:|:---:|---|:---:|:---:|:---:|:---:|
+| A (ctrl) | off | `hz7n0ex8` | **3.26922** | — | +0.00166 | 3200 |
+| B | lm_head | `uyh8tiou` | 3.27865 | +0.00943 | +0.01109 | 3325 |
+| C | scalars | `pctoxsoc` | 3.27396 | +0.00474 | +0.00640 | 3275 |
+| D | lm_head_scalars | `akb9ke3h` | 3.28121 | **+0.01199** | **+0.01365** | **NEVER (reached_target=0)** |
+
+### Analysis and conclusions
+
+**Verdict: productive-NEG — Schedule-Free AdamW on aux groups REJECTED for this stack.**
+
+- Drift gate Arm A: +0.00166 (within ±0.003 band) → PASS.
+- All 3 SF-active arms regress: B (+0.00943), C (+0.00474), D (+0.01199 catastrophic — D never crossed 3.28).
+- Regression hierarchy D > B > C consistent with cooldown-mismatch surface size: D has both aux groups SF (largest surface), C has only scalars (smallest surface).
+
+**Mechanism reading (student analysis):** SF-active arms track Arm A within ±0.005–0.02 mid-training, then **diverge in late cooldown phase** (last 350 steps). SF's averaging-replacement-of-cooldown applies only to SF-scoped groups; the rest of the stack (body Muon + embed) still applies cooldown aggressively. This produces a **phase mismatch** that compounds in the final 10% of training. Cooldown alignment between body and aux groups is more load-bearing than previously appreciated.
+
+**Cross-mechanism implications:**
+- Cooldown phase is more load-bearing than appreciated. Third recent PR where late-cooldown behavior dominates terminal val/loss (#787 stochastic NS cooldown merged; #847 embed init-anchor at cooldown merged; #984 SF cooldown-replacement closed).
+- Scalar-group sensitivity to cooldown is non-trivial (Arm C +0.00474) despite the small param count — useful prior for any future scalar-group-specific scheduling experiment.
+- SF-on-body-Muon variant remains untested but is high-risk (would conflict directly with merged NS coefficient schedule linear_ramp_down). Deprioritized.
+
+**Schedule-Free family on aux scopes CLOSED.** Defazio averaging-mechanism not transferable to this stack without modifying body+embed cooldown alignment in tandem, which is mechanistically distinct and not the SF claim being tested.
+
+### Thorfinn reassigned → PR #1032 (WAVE5-3 Haar-measure orthogonal init for body Muon matrices — 4-arm gain sweep {0.5, 1.0, 2.0}; first INITIALIZATION-axis distribution test on body Muon params on this stack)

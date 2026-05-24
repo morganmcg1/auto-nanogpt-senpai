@@ -1,9 +1,44 @@
 # SENPAI Research State — auto-nanogpt-1gpu-r4
 
-- **Date:** 2026-05-24 10:40 UTC (cycle 216)
+- **Date:** 2026-05-24 11:10 UTC (cycle 217)
 - **Most recent research direction from human researcher team:** none on file
 - **Primary metric:** `val/loss` at 3350 steps (lower is better); `speedrun/final_first_step_to_target` secondary
 - **Statistical merge rule:** `(3.28 − μ) × √n ≥ 0.004` AND n mean ≤ current baseline
+
+## Cycle 217 snapshot (11:10 UTC May 24) — #984 closed productive-NEG; thorfinn reassigned #1032 (first INITIALIZATION-axis distribution test on body Muon)
+
+### Activity this cycle
+
+- **#984 thorfinn** CLOSED productive-NEG: Schedule-Free AdamW on aux groups. All 3 SF-active arms regress; Arm D (lm_head_scalars, both aux SF) catastrophic (+0.01199, never crossed 3.28). Regression hierarchy D > B (lm_head, +0.00943) > C (scalars, +0.00474) consistent with cooldown-mismatch surface size. **SF averaging-replacement-of-cooldown not transferable to aux scopes on this stack** — late-cooldown phase mismatch between SF-scoped groups and the rest (body Muon + embed still cooling) compounds in final 10% of training. Schedule-Free family on aux scopes closed.
+- **PR #1032 thorfinn** assigned: **WAVE5-3 Haar-measure orthogonal init for body Muon matrices** (`blocks[i].attn.{q,k,v,proj}.weight` + `blocks[i].mlp.{fc,proj}.weight`). First INITIALIZATION-axis distribution test on body Muon params on this stack. 4 arms: A=ctrl (Kaiming default), B=gain 1.0 (Saxe convention), C=gain 0.5, D=gain 2.0. Mechanism-distinct from #452/#163 (scale variants, not distribution). NS-Stiefel-manifold theoretical motivation: NS spends early steps compressing Marchenko-Pastur tail toward orthogonality; starting on the manifold should remove that overhead. Diagnostic W&B telemetry logs init singular value mean/std at step 0 (sanity check: should be ≈gain / ≈0 for ortho-active arms).
+- **Cross-cycle insight from #984:** Cooldown phase is more load-bearing than appreciated. Third recent PR (#787, #847, #984) where late-cooldown behavior dominates terminal val/loss. Useful prior: any future "no-cooldown / alternative-cooldown" hypothesis must model body+aux cooldown alignment cost explicitly.
+
+### Live chain state (11:10 UTC May 24) — 8 chains active
+
+| PR | Student | Hypothesis | Status | Note |
+|:---:|:---:|---|:---:|---|
+| #984 | thorfinn | SF-AdamW aux | **CLOSED productive-NEG** | all 3 SF arms regress, D catastrophic |
+| #988 | tanjiro | AdamW state reset at cooldown | mid-flight | Arm B terminal 3.26905 (+0.00007), more arms pending |
+| #998 | frieren | Muon body momentum buffer one-shot RESET | mid-flight | Arm B terminal 3.26881 (+0.00226), Arm C `nioj7kvn` running |
+| #1003 | fern | Per-block-TYPE Muon LR mult cooldown anneal | mid-flight | post race-condition cleanup; arms re-spawning |
+| #1008 | alphonse | NS static-c op-point sweep | mid-flight | Arm B terminal 3.26886 (−0.00001 tied), Arm C `7t99gpnm` running |
+| #1020 | askeladd | AdamW ε UP-ramp cooldown | running | GPU 100%, Arm A still in progress (stale_wip flag is false-positive) |
+| #1028 | edward | Merged-stack pruning ablation (SUBTRACTIVE) | running | Arm-by-arm chain in progress |
+| #1031 | nezuko | NS adaptive residual stopping | running | just assigned cycle 216 |
+| **#1032** | **thorfinn** | **Haar-measure orthogonal init for body Muon** | **just assigned** | first INITIALIZATION-axis distribution test |
+
+### Mechanism axes backlog post-cycle 217
+
+- **CLOSED (recent):** β-schedule on AdamW aux (full family); Muon body μ cooldown DOWN-anneal (#980); per-block-TYPE Muon μ bidirectional (#982 + #674); AdamW ε DOWN-ramp (#652); per-depth static NS_ITERS (#710); per-block-TYPE static NS_ITERS_COOLDOWN (#724); per-layer sigmoid-adaptive NS (#145); Schedule-Free AdamW on aux scopes (#984); init-scale variants (#452, #163).
+- **IN FLIGHT (8):** NS static-c sweep (#1008); NS adaptive residual stopping (#1031); pruning ablation (#1028); AdamW ε UP-ramp (#1020); per-block Muon LR mult anneal (#1003); Muon momentum buffer one-shot reset (#998); AdamW state reset (#988); body Muon orthogonal init (#1032, NEW).
+- **Likely terminals next 3-6 hours:** #988 multi-arm chain, #998 Arm C terminal, possibly #1003 if recovery clean, #1008 Arm C terminal.
+
+### Open mechanism axes to consider for next cycles
+
+- **Preconditioner shape**: Shampoo/KFAC partial application (head or first-layer only); AdamW v_min multiplicative second-moment floor (distinct from #1020 additive ε); per-tensor adaptive Frobenius LR (LARS-style on body Muon).
+- **Initialization (additional, post-#1032)**: layer-wise LSUV calibration (Mishkin-Matas 2015); near-zero residual init for deep blocks; identity-plus-noise init for attn projections.
+- **Schedule shape**: WSD with non-linear stable→decay curvature; cyclic re-warmup mid-training; AdamW LR-mult-by-curvature.
+- **Loss-side** (broader exploration if optimizer space saturates): WAVE5-1 Zipf-frequency-weighted CE; WAVE5-6 path-norm regularization.
 
 ## Cycle 216 snapshot (10:40 UTC May 24) — #982 closed productive-NULL/NEG; nezuko reassigned #1031 (first PRECONDITIONER-axis adaptive-iteration test)
 
