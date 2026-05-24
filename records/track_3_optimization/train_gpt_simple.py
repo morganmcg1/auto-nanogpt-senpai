@@ -468,6 +468,7 @@ NS5_ITERS = int(os.environ.get("NS5_ITERS", "12"))
 WD_AUX = float(os.environ.get("WD_AUX", "0.0"))  # AdamW WD on embed + lm_head matrices (scalars stay at 0)
 EMBED_INIT_STD = float(os.environ.get("EMBED_INIT_STD", "1.0"))  # default preserves baseline N(0,1)
 LOGIT_SOFTCAP = float(os.environ.get("LOGIT_SOFTCAP", "15.0"))  # default = 15 (current hardcoded value); soft-cap value c in f(x) = c·x / sqrt(x^2+c^2)
+MUON_BODY_SPECTRAL_CAP = float(os.environ.get("MUON_BODY_SPECTRAL_CAP", "0.0"))  # 0.0 = disabled; >0 caps σ_max(W) for body matrices each step via 1-step power iteration
 
 
 def zeropower_via_newtonschulz5(G: Tensor) -> Tensor:
@@ -710,6 +711,21 @@ class Muon(torch.optim.Optimizer):
                     update = update * scale.to(update.dtype)
                     # Explicit weight decay intentionally omitted (matches record #14; u/w-floor replaces wd).
                     p.add_(update, alpha=-group["lr"])
+                    # MUON_BODY_SPECTRAL_CAP: per-step σ_max(p) cap via 1-step online power iteration.
+                    # Persistent pi_u state warm-starts power iteration each step (Miyato et al. 2018).
+                    if MUON_BODY_SPECTRAL_CAP > 0.0 and p.ndim == 2:
+                        if "pi_u" not in state:
+                            state["pi_u"] = torch.randn(p.size(0), device=p.device, dtype=p.dtype)
+                            state["pi_u"] = state["pi_u"] / state["pi_u"].norm().clamp_min(1e-8)
+                        u = state["pi_u"]
+                        v = p.T @ u
+                        v = v / v.norm().clamp_min(1e-8)
+                        u_new = p @ v
+                        sigma_est = u_new.norm().clamp_min(1e-8)
+                        state["pi_u"] = u_new / sigma_est
+                        state["spectral_sigma_est"] = sigma_est.detach()
+                        if sigma_est.item() > MUON_BODY_SPECTRAL_CAP:
+                            p.mul_(MUON_BODY_SPECTRAL_CAP / sigma_est)
                     # Refresh SOAP state with the raw grad (after applying the step).
                     if use_soap:
                         soap_refresh(grad, state)
@@ -775,6 +791,27 @@ class Muon(torch.optim.Optimizer):
             out[f"{kind}/mean_cos_row"] = sum(crs) / kn
             out[f"{kind}/mean_cos_col"] = sum(ccs) / kn
         return out
+
+    def spectral_cap_stats(self) -> dict[str, float]:
+        """Return aggregate σ_max telemetry across body 2D params with persistent pi_u state."""
+        sigmas: list[float] = []
+        for group in self.param_groups:
+            for p in group["params"]:
+                state = self.state.get(p)
+                if state is None or "spectral_sigma_est" not in state:
+                    continue
+                sigmas.append(float(state["spectral_sigma_est"].item()))
+        if not sigmas:
+            return {}
+        cap = MUON_BODY_SPECTRAL_CAP
+        fired = sum(1 for s in sigmas if cap > 0.0 and s > cap)
+        return {
+            "count": len(sigmas),
+            "sigma_max_mean": sum(sigmas) / len(sigmas),
+            "sigma_max_max": max(sigmas),
+            "sigma_max_min": min(sigmas),
+            "cap_fired_fraction": fired / len(sigmas) if cap > 0.0 else 0.0,
+        }
 
 
 ########################################
@@ -866,6 +903,7 @@ if dist.get_rank() == 0:
             "optimizer/attn_soap_trust_threshold": ATTN_SOAP_TRUST_THRESHOLD,
             "optimizer/ns5_iters": NS5_ITERS,
             "optimizer/wd_aux": WD_AUX,
+            "optimizer/muon_body_spectral_cap": MUON_BODY_SPECTRAL_CAP,
             "optimizer/recipe": "contra-muon + normuon-lite + soap-on-mlp + soap-on-attn-trust-gate (pre-NS5, record #14 + record #16)",
         },
     )
@@ -1059,6 +1097,10 @@ for trial_idx in range(args.num_trials):
                     stats = opt.trust_gate_stats()
                     if stats:
                         wandb.log(prefixed("train/attn_soap_trust_gate", stats), step=wandb_step)
+                if hasattr(opt, "spectral_cap_stats"):
+                    sc_stats = opt.spectral_cap_stats()
+                    if sc_stats:
+                        wandb.log(prefixed("train/muon_body_spectral_cap", sc_stats), step=wandb_step)
         if dist.get_rank() == 0 and telemetry_due:
             log_weight_telemetry(
                 model=model,
