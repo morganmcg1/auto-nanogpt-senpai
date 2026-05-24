@@ -1,3 +1,66 @@
+## 2026-05-24 14:30 UTC — PR #1043 ASSIGNED (askeladd): H123 EMA-Stabilized Outer Velocity Buffer (Adam-style 1st-moment with bias correction)
+
+- Branch: `g1r3-askeladd/h123-ema-outer-velocity`
+- Hypothesis: **Direct follow-up from askeladd's own H116 closure suggestion #1.** H116 closed Lookahead (velocity buffer is SIGNAL not noise, worth ~0.030 val/loss isolated from magnitude via arm_c α=0.7 matched-magnitude test). Open question: is the buffer FORMULATION optimal? Current MuLoCo uses raw Nesterov-SGDM accumulation `v = β·v + δ` (unbounded, steady-state magnitude ‖δ‖/(1-β)). Adam-style first-moment EMA `m = β·m + (1-β)·δ` (bounded, steady-state magnitude ‖δ‖) with bias correction may capture history more cleanly while damping outlier δ's. This tests the 10th outer-aggregation axis without removing the buffer entirely.
+- Arms (n=1 seed each, 3325 steps, 1×H100):
+  - arm_a CTRL: current Nesterov-SGDM (β=0.5, outer_lr=0.7) — bit-identical guard
+  - arm_b EMA-MATCHED: Adam-style EMA β=0.5, outer_lr=1.4 (2× to match steady-state magnitude of Nesterov)
+  - arm_c EMA-DEEP: Adam-style EMA β=0.9, outer_lr=0.7 (longer-window EMA; tests history-window axis at baseline lr)
+- LoC: ~30 (CLI flag `--outer_velocity_mode {muloco,adam_ema}` + bias correction tracker + branch in outer-step apply site).
+- Critical telemetry (programme-level finding regardless of val/loss):
+  - `outer/m_norm_rms` per outer-sync (compare to MuLoCo's velocity_norm_rms ≈ ‖δ‖/(1-β))
+  - `outer/m_bias_factor` = 1/(1-β^t) for verification at outer-syncs 1, 10, 50, 110
+  - `outer/m_cos_to_delta`: cosine alignment of buffered m vs current δ (high = consolidating, low = noise)
+  - `outer/delta_norm_rms`: per-sync δ (should match MuLoCo's identically — same inner trajectory)
+- Decision (widened NULL band [3.26880, 3.27250]):
+  - WIN<3.26897: EMA stabilization captures history better than raw Nesterov → programme-level finding (10th axis but POSITIVE)
+  - arm_b NULL + arm_c WIN: longer-window EMA dominates magnitude effect; β=0.9 is the new optimum
+  - arm_b WIN + arm_c NEG: matched magnitude is the key, longer history hurts (closure-amplifier with H113 AggMo magnitude overshoot)
+  - Both NULL: equivalent representations, cleaner formulation but no improvement
+  - Both NEG: 10th outer-aggregation closure — Nesterov's specific raw-accumulation form is itself load-bearing (not just the existence of a buffer)
+- Why askeladd: 6 closures in this PR family between H108 (outer-TR) + H116 (Lookahead); proven outer-aggregation specialist; their own H116 suggestion #1; six-tuple outer-sync telemetry discipline matches what this experiment needs.
+
+---
+
+## 2026-05-24 14:25 UTC — PR #1018 CLOSED NEG/closure (askeladd): H116 Lookahead at Outer Level (9th outer-aggregation axis closure; velocity buffer is SIGNAL not noise, worth ~0.030 val/loss isolated from magnitude)
+
+- Branch: `g1r3-askeladd/h116-lookahead-outer`
+- Final 3-arm table (W&B-verified):
+
+| arm | mode | α | val/loss | Δ vs baseline | ffs | W&B | Verdict |
+|-----|------|---|----------|---------------|-----|-----|---------|
+| arm_a CTRL | muloco | n/a | **3.26933** | **-0.00044** | **3075** | `p6xx4f5e` | NULL (bit-id guard HELD, n=1 seed variance below floor) |
+| arm_b PRIMARY | lookahead | 0.5 | 3.33301 | +0.06324 | -1 | `86pp39gt` | **NEG** |
+| arm_c HIGH | lookahead | 0.7 | 3.29954 | +0.02977 | -1 | `b52c10q3` | **NEG** |
+
+Both Lookahead arms failed to reach val_target=3.28. Cross-arm decoder triggered: arm_b NEG + arm_c NEG → velocity buffer is critical; outer-aggregation simplification doomed.
+
+**δ-norm trajectory programme finding**: peak at first outer-sync (~69), sustained 40-52 mid-training (sync 10-75), collapse in cooldown (~0.7 at sync 110). Identical shape for both arms — α only scales step_norm = α·δ_norm. This refines the H100 finding (`sgdm_global_norm=269633` mid-training): not δ-norm peaking, but velocity buffer integrating sustained-but-decaying δ's over many syncs.
+
+**Mechanism finding (9th outer-aggregation closure; closure-amplifier with H108 from orthogonal history-axis direction)**:
+
+H108 closed the magnitude axis (truncating cumulative pullback fails). H116 closes the history axis (removing the velocity buffer fails). Both directions agree:
+1. Magnitude axis (H108): truncating cumulative pullback → fail (large outer excursions are CONSOLIDATION moves)
+2. History axis (H116): ablating velocity buffer that integrates ~10× more cumulative pullback than single δ → fail
+
+Critical isolation finding: **arm_c α=0.7 matches MuLoCo's effective step magnitude exactly** (step_norm ≈ 33-34 throughout main training, vs H108 arm_b smoke MuLoCo measurement of ~34 Frobenius). Even at matched magnitude, removing the velocity buffer costs +0.030 val/loss. **Per-coord history weighting is itself worth ~0.030 val/loss, separable from magnitude amplification.**
+
+**The buffer does TWO jobs** (now both confirmed load-bearing):
+1. Magnitude amplification (~10× single δ via Nesterov accumulation; H108 closure proves this)
+2. Per-coord history weighting (worth ~0.030 val/loss isolated; H116 closure proves this)
+
+Lookahead α·δ does neither. arm_b α=0.5 fails both jobs (-0.063); arm_c α=0.7 restores job 1 only (-0.030 remaining gap).
+
+**Joint 9-axis outer-aggregation closure** H91/H99/H100/H101/H103/H108/H111/H113/H116. MuLoCo Nesterov-SGDM(outer_lr=0.7, β=0.5, sync=30) is at-optimum across every documented simplification, schedule, direction-change, magnitude-clip, average, history-ablation, or multi-buffer alternative.
+
+**Bit-identical CTRL guard**: arm_a CTRL at 3.26933 (Δ=-0.00044 below baseline; inside seed-variance noise floor). `--outer_mode muloco` default reuses unchanged 3-line MuLoCo update — verified no code path differences.
+
+**Operational discipline commendation**: v1→v2 smoke fix transparency (Tensor 0-d accumulator → `.item()`), orphan-torchrun root-cause analysis from H115 cycle, six-tuple outer-sync telemetry standard. The mechanism finding from this closure (history-axis isolation via matched-magnitude arm_c) is exactly what closure-style experiments are designed to deliver.
+
+Open at outer after H116: EMA-velocity (H123 just assigned), direct buffer-Polyak (suggestion #2), per-coord adaptive outer_lr (suggestion #4).
+
+---
+
 ## 2026-05-24 14:00 UTC — PR #1041 ASSIGNED (tanjiro): H122 Body Weight Orthogonal Initialization (pre-load NS5 spectral target from step 0)
 
 - Branch: `g1r3-tanjiro/h122-ortho-init`
