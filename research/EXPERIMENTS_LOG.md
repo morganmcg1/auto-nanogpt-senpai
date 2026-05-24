@@ -1,5 +1,22 @@
 # SENPAI Research Results — auto-nanogpt-1gpu-r2
 
+## 2026-05-24 04:18 UTC — PR #987: MUON_GRAD_CG_DECORRELATE (CLOSED, 84th refuted axis — bidirectional kill-gate trip, geometric mechanism class CLOSED as first geometric axis in cycle 71, exceptional student mechanistic analysis)
+
+- Branch: `g1r2-fern/muon-grad-cg-decorrelate` (student g1r2-fern)
+- Hypothesis: Apply Conjugate-Gradient-style decorrelation to body Muon gradient before momentum lerp. Subtract component of grad along current momentum direction, forcing partial orthogonality. Arm A=alpha 0.5 partial CG, Arm B=alpha 1.0 full CG.
+- Results:
+
+| Arm | alpha | W&B run | val/loss@500 (gate 3.81) | deficit | Plateau val | Verdict |
+|---|---|---|---:|---:|---:|---|
+| Arm A | 0.5 | `wvwrfrkg` | **3.98314 (TRIP +0.17)** | medium | ~3.94 | killed step ~975 |
+| Arm B | 1.0 | `48egl2g4` | **3.99529 (TRIP +0.19)** | slightly worse | ~3.96 | killed step ~907 |
+
+- **Mechanistic insight (student-articulated, exceptional)**: In Muon's lerp+NS5 architecture, momentum is the integration of past gradients. The lerp `state["momentum"].lerp_(grad, 1-mu)` is designed to accumulate aligned gradient signal across steps. Subtracting the component of grad that lies along existing momentum **systematically destroys the very signal the optimizer is designed to integrate.** Far from preventing zig-zag oscillations (CG's classical quadratic benefit), it actively cancels the consistent directional signal that Muon needs to drive the NS5 polar projection. Classical CG's orthogonality guarantee depends on the Hessian-metric inner product for quadratics; on a transformer cross-entropy landscape with mini-batch noise, projecting the new gradient orthogonal to old momentum just throws away signal.
+- **Refutation pattern**: Monotonic in alpha. Arm A=0.5 (partial decorrelation) → val plateau ~3.94, Arm B=1.0 (full decorrelation) → val plateau ~3.96 — strictly worse. Both trip step-500 kill gate by huge margins. Bidirectional refutation around the natural lower bound alpha=0 (the disabled path) confirms harm is directional and not a tuning artifact.
+- **Cycle 71 cluster context**: This is the **FIRST GEOMETRIC mechanism class** refuted in cycle 71 — the angular-relationship axis between grad and momentum. Joins refuted: #703 Nesterov, #267 GC, #251 Lookahead (geometric mechanisms refuted historically). Element-wise pre-NS5 magnitude shaping cluster is also fully saturated at #965 DAMPENING, #974 POWER, #975 HARDCLIP, #981 SIGN_MAG_DECOUPLE (all refuted).
+- **Conclusion**: The angular relationship between grad and momentum MUST remain positively correlated for body Muon. The optimizer is built on the assumption of positively-correlated gradient integration. CG geometric decorrelation axis CLOSED. 84th refuted axis.
+- **Student suggestions noted**: (1) anti-decorrelate alpha<0 (essentially momentum amplification, already saturated via cooldown/warmup), (2) NS5-output-side modulation (fresh class — assigned in this cycle as fern's next experiment #996 MUON_POST_NS5_NOISE), (3) cross-tensor CG decorrelation (saved for future planning).
+
 ## 2026-05-24 03:35 UTC — PR #981: MUON_SIGN_MAG_DECOUPLE (CLOSED, 83rd refuted axis — bidirectional catastrophic kill-gate trip, zero-init bias diagnosed, sign-mag decomposition refuted)
 
 - Branch: `g1r2-alphonse/muon-sign-mag-decouple` (student g1r2-alphonse)
