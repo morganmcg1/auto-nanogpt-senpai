@@ -1,9 +1,37 @@
 # SENPAI Research State — auto-nanogpt-1gpu-r4
 
-- **Date:** 2026-05-24 14:30 UTC (cycle 224)
+- **Date:** 2026-05-24 14:45 UTC (cycle 225)
 - **Most recent research direction from human researcher team:** none on file
 - **Primary metric:** `val/loss` at 3350 steps (lower is better); `speedrun/final_first_step_to_target` secondary
 - **Statistical merge rule:** `(3.28 − μ) × √n ≥ 0.004` AND n mean ≤ current baseline
+
+## Cycle 225 snapshot (14:45 UTC May 24) — #1047 tanjiro stale_wip acked (Arm A near complete + duplicate restart flagged); no idle students, no review-ready PRs
+
+### Activity this cycle
+
+- **#1047 tanjiro stale_wip acked**: LookAhead body Muon 4-arm sweep. W&B check on `g1r4-tanjiro/lookahead-body-muon` group found two Arm A runs simultaneously active:
+  - `osqg264j` arm-A-ctrl, step 3015/3350 (90%), val/loss=3.3033, runtime 106m — on track to finish soon
+  - `06yf866l` arm-A-ctrl, step 125/3350, val/loss=4.6119, runtime 11m — duplicate restart launched ~14:32 UTC
+  - Both runs have `nanogpt_lookahead_k=0` (control config), `senpai_seed=0`. Same duplicate-control pattern as #1032 thorfinn earlier this round.
+  - Stale_wip comment asks: (1) duplicate-Arm-A resolution, (2) confirm B/C/D will run sequentially after A, (3) per-arm terminal pings, (4) `lookahead/slow_fast_rms` telemetry for B/C/D — the mechanism-check is the PR's headline contribution beyond val/loss numbers. Diagnostic asks tuned to LookAhead specifics: slow-fast L2 should scale ~2x with K (5→10) at fixed α=0.5; α=0.2 (Arm D) should show larger steady-state drift than α=0.5 (Arm B) at same K.
+- **No idle students, no review-ready PRs**: all 8 chains active, no new assignments.
+
+### Mechanism axes coverage (cycle 225, 8 chains active — unchanged from cycle 224)
+
+| Axis | Active PR | Status | Notes |
+|---|:---:|:---:|---|
+| WEIGHT-AVERAGING-POST-TRAINING | #1055 askeladd | WIP fresh | SWA / EMA Polyak (Izmailov 2018, Polyak 1992) |
+| SCHEDULE-CURVATURE (body Muon cooldown shape) | #1048 alphonse | WIP | linear/cosine/sqrt/linear_floor |
+| META-OPTIMIZER (body Muon LookAhead) | **#1047 tanjiro** | WIP — Arm A near complete | Zhang et al. 2019; stale_wip acked this cycle |
+| OPTIMIZER-CLASS (aux replacement) | #1045 frieren | WIP | LION vs AdamW |
+| INITIALIZATION-DISTRIBUTION (body) | #1032 thorfinn | WIP | Haar orthogonal |
+| PRECONDITIONER-ADAPTIVE (NS) | #1031 nezuko | WIP | NS adaptive residual stop |
+| SCHEDULE-CONTINUOUS-LR-MULT (PP) | #1003 fern | WIP — PP n=3 phase | Arm B tripped threshold, PP requested |
+| SUBTRACTIVE-PRUNING | #1028 edward | WIP | merged stack flag removal |
+
+### Operational pattern: stale_wip cycles 222-225
+
+Four consecutive cycles flagged stale_wip on a student PR (#1032 thorfinn, #1031 nezuko, #1045 frieren, #1047 tanjiro). In every case the W&B health check found Arm A (or earlier arm) running normally, one or more duplicate runs from race-condition during arm launch, and zero post-launch comments from the student. **The stale_wip flag is functioning correctly** (catches idle students if real) but is firing on healthy chains because students complete arms without posting per-arm acks until terminal SENPAI-RESULT. **Decision: continue ack-with-W&B-check pattern** — the cost of acking a healthy run is small vs. the cost of missing a stuck run. Per-arm-ping reminder is now standard across these cycles.
 
 ## Cycle 224 snapshot (14:30 UTC May 24) — #1020 askeladd CLOSED productive-NULL/marginal; askeladd reassigned #1055 (Post-training weight averaging — fresh WEIGHT-AVERAGING-POST-TRAINING axis)
 
