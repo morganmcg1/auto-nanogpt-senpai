@@ -3,6 +3,50 @@
 Log of completed/reviewed experiment PRs in chronological order. Wave 1
 results pending student execution.
 
+## 2026-05-24 ~11:45 UTC — PR #1036: nezuko SOAP precond_freq ablation — **ASSIGNED**
+
+- **Branch:** `g1r5-nezuko/soap-precond-freq`
+- **Student:** g1r5-nezuko
+- **Hypothesis:** `PRECOND_FREQ=16` hardcoded global constant (line 28 of `train_gpt_simple.py`) has never been ablated. #914 tested cooldown-only freeze. Global refresh cadence for main training is a fresh axis.
+
+- **5-cell sweep:**
+
+| Cell | freq | Role |
+|:----:|:----:|:-----|
+| A | 16 | ctrl (current) |
+| B ★ | 8 | PRIMARY: 2× more frequent |
+| C | 4 | 4× more frequent (upper limit) |
+| D | 32 | less frequent (compute savings) |
+| E | 64 | near-freeze (connects to #914 finding) |
+
+- **Context:** Eigendecomp cost is O(d³) but small fraction of step time. Connects to #914 (freeze −4.9σ NEG), #936 (eigenbasis side findings), #979 (exp_avg_sq in flight).
+
+---
+
+## 2026-05-24 ~11:40 UTC — PR #973: nezuko Cosine-gated adaptive Muon momentum — **CLOSED clean-NEG (high info)**
+
+- **Branch:** `g1r5-nezuko/cosine-gated-adaptive-mu`
+- **Student:** g1r5-nezuko
+- **Hypothesis:** μ adapts per-step per-matrix based on cos(grad, momentum). cos=+1 → μ_max=0.99; cos=−1 → μ_min=0.70.
+
+- **5-cell results (n=1, 3250 steps):**
+
+| Cell | Config | val/loss | ffs | Δ ctrl | σ_single | W&B |
+|:----:|:-------|:--------:|:---:|:------:|:--------:|:---:|
+| A | ctrl (no gate) | 3.26054 | 3025 | −0.57σ | neutral | b6uosnj8 |
+| B ★ | (0.70, 0.99) cooldown on | 3.28014 | DNF | **+16.0σ** | 99c8fkj6 |
+| C | (0.50, 0.99) aggressive | 3.29153 | DNF | **+25.6σ** | eg1368tk |
+| D | (0.85, 0.99) conservative | 3.26744 | 3100 | **+5.24σ** | nu5m7q57 |
+| E | (0.70, 0.99) no cooldown | 3.27563 | 3175 | **+12.2σ** | 9uhsat8b |
+
+- **MECHANISM FINDING:** W&B `cos_gate/mu_local` traces show mean μ_local ≈ 0.845 in Cell B (μ_min=0.70, μ_max=0.99). Inverting gate formula → **implied mean cos ≈ 0 (orthogonal)**. Per-matrix grad↔buffer cosine is dominated by independent stochastic noise once buffer accumulates. Gate collapses to midpoint of [μ_min, μ_max] → effectively just lowers mean μ below well-tuned 0.95.
+
+- **Ordering:** D (midpoint 0.92) < B (midpoint 0.845) < C (midpoint 0.745) — **monotone in distance from baseline μ=0.95**. Confirms mechanism: harm proportional to mean-μ displacement from 0.95, not gate shape.
+
+- **Decision:** CLOSED clean-NEG. Closes direction-conditional momentum axis. Reinforces #924 (gradient-derived direction signals too noisy at per-matrix scale). Confirms #925 Cell E was schedule-shape effect, not geometry effect.
+
+---
+
 ## 2026-05-24 ~10:15 UTC — PR #1024: alphonse init mode ablation — **ASSIGNED**
 
 - **Branch:** `g1r5-alphonse/init-mode-ablation`
