@@ -464,6 +464,13 @@ SOAP_PRECOND_FREQ = 10
 ATTN_SOAP_BETA2 = 0.90
 ATTN_SOAP_PRECOND_FREQ = 10
 ATTN_SOAP_TRUST_THRESHOLD = float(os.environ.get("ATTN_SOAP_TRUST_THRESHOLD", "0.9"))
+# Optional schedule on ATTN_SOAP_TRUST_THRESHOLD (PR #1051). When KIND='constant'
+# (default), behavior is identical to baseline (uses ATTN_SOAP_TRUST_THRESHOLD).
+# When KIND='linear_up' or 'linear_down', interpolate linearly between
+# ATTN_SOAP_TRUST_START and ATTN_SOAP_TRUST_END across training progress.
+ATTN_SOAP_TRUST_SCHEDULE_KIND = os.environ.get("ATTN_SOAP_TRUST_SCHEDULE_KIND", "constant")
+ATTN_SOAP_TRUST_START = float(os.environ.get("ATTN_SOAP_TRUST_START", "0.85"))
+ATTN_SOAP_TRUST_END = float(os.environ.get("ATTN_SOAP_TRUST_END", "0.85"))
 NS5_ITERS = int(os.environ.get("NS5_ITERS", "12"))
 WD_AUX = float(os.environ.get("WD_AUX", "0.0"))  # AdamW WD on embed + lm_head matrices (scalars stay at 0)
 EMBED_INIT_STD = float(os.environ.get("EMBED_INIT_STD", "1.0"))  # default preserves baseline N(0,1)
@@ -717,7 +724,7 @@ class Muon(torch.optim.Optimizer):
                         soap_refresh(grad, state, beta2=ATTN_SOAP_BETA2,
                                      refresh_freq=ATTN_SOAP_PRECOND_FREQ,
                                      use_trust_gate=True,
-                                     trust_threshold=ATTN_SOAP_TRUST_THRESHOLD)
+                                     trust_threshold=group.get("attn_soap_trust", ATTN_SOAP_TRUST_THRESHOLD))
                 dist.all_gather(params_pad[base_i:base_i + world_size], params_pad[base_i + rank])
 
     def trust_gate_stats(self) -> dict[str, float]:
@@ -864,6 +871,9 @@ if dist.get_rank() == 0:
             "optimizer/attn_soap_beta2": ATTN_SOAP_BETA2,
             "optimizer/attn_soap_precond_freq": ATTN_SOAP_PRECOND_FREQ,
             "optimizer/attn_soap_trust_threshold": ATTN_SOAP_TRUST_THRESHOLD,
+            "optimizer/attn_soap_trust_schedule_kind": ATTN_SOAP_TRUST_SCHEDULE_KIND,
+            "optimizer/attn_soap_trust_start": ATTN_SOAP_TRUST_START,
+            "optimizer/attn_soap_trust_end": ATTN_SOAP_TRUST_END,
             "optimizer/ns5_iters": NS5_ITERS,
             "optimizer/wd_aux": WD_AUX,
             "optimizer/recipe": "contra-muon + normuon-lite + soap-on-mlp + soap-on-attn-trust-gate (pre-NS5, record #14 + record #16)",
@@ -931,11 +941,16 @@ for trial_idx in range(args.num_trials):
                 cur_mu = MU_COOLDOWN_START + (MU_COOLDOWN_END - MU_COOLDOWN_START) * t
         else:
             cur_mu = MU + (MU_END - MU) * progress
+        if ATTN_SOAP_TRUST_SCHEDULE_KIND in ("linear_up", "linear_down"):
+            cur_attn_soap_trust = ATTN_SOAP_TRUST_START + (ATTN_SOAP_TRUST_END - ATTN_SOAP_TRUST_START) * progress
+        else:
+            cur_attn_soap_trust = ATTN_SOAP_TRUST_THRESHOLD
         for opt in optimizers:
             for group in opt.param_groups:
                 group["lr"] = group["initial_lr"] * eta
                 if group.get("name") == "muon_blocks":
                     group["mu"] = cur_mu
+                    group["attn_soap_trust"] = cur_attn_soap_trust
 
 
     ########################################
@@ -1059,6 +1074,9 @@ for trial_idx in range(args.num_trials):
                     stats = opt.trust_gate_stats()
                     if stats:
                         wandb.log(prefixed("train/attn_soap_trust_gate", stats), step=wandb_step)
+                for group in opt.param_groups:
+                    if group.get("name") == "muon_blocks" and "attn_soap_trust" in group:
+                        wandb.log({"optimizer/cur_attn_soap_trust": group["attn_soap_trust"]}, step=wandb_step)
         if dist.get_rank() == 0 and telemetry_due:
             log_weight_telemetry(
                 model=model,
