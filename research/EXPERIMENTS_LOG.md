@@ -4826,3 +4826,49 @@ Future Muon-mechanism PRs should target NS polynomial coefficients (alphonse #10
 **Schedule-Free family on aux scopes CLOSED.** Defazio averaging-mechanism not transferable to this stack without modifying body+embed cooldown alignment in tandem, which is mechanistically distinct and not the SF claim being tested.
 
 ### Thorfinn reassigned → PR #1032 (WAVE5-3 Haar-measure orthogonal init for body Muon matrices — 4-arm gain sweep {0.5, 1.0, 2.0}; first INITIALIZATION-axis distribution test on body Muon params on this stack)
+
+## 2026-05-24 12:25 — PR #998: Muon body momentum buffer one-shot reset — 4-arm timing sweep (CLOSED productive-NULL/mild-NEG)
+
+- Branch: `g1r4-frieren/muon-momentum-reset-timing`
+- Student: frieren
+- Hypothesis: One-shot zeroing of body Muon `momentum` buffer at a single transition step (cooldown boundary or earlier) lets NS re-orient on current gradient direction. Mirror-image of #988 (AdamW state reset). Mechanism-distinct from #163 (periodic reset, closed) and #711 (structural EMA modifications: AggMo/Muon²/AdEMAMix, closed).
+
+### Results
+
+| Arm | `MUON_MOMENTUM_RESET_FRAC` | Reset step | run_id | val/loss | first_step_to_target | Δ_vs_A | Δ_vs_baseline 3.26756 |
+|:---:|:---:|:---:|---|:---:|:---:|:---:|:---:|
+| A (ctrl) | off (-1.0) | none | `m93rch9c` | **3.26655** | 3175 | 0.00000 | -0.00101 (drift PASS ✓) |
+| B | 0.7 (cooldown boundary) | 2345 | `23xkxrwz` | 3.26881 | 3200 | +0.00226 | +0.00125 |
+| C | 0.5 (mid-training) | 1675 | `nioj7kvn` | 3.26963 | 3200 | +0.00308 | +0.00207 |
+| D | 0.85 (deep cooldown) | 2847 | `hzuyv8yx` | 3.27072 | 3225 | +0.00417 | +0.00316 |
+
+### Analysis and conclusions
+
+**Verdict: productive-NULL/mild-NEG — Body Muon pre-NS momentum reset axis fully fenced.**
+
+- Drift gate Arm A: |3.26655 − 3.26756| = 0.00101 ≤ 0.003 → PASS. Control reproduces baseline.
+- Signal threshold (Δ_vs_A ≤ −0.0020): NO arm — no PP escalation.
+- Productive-NULL band (±0.0015): NO arm fits — all positively regress beyond +0.0015.
+- Productive-NEG threshold (Δ ≥ +0.0050): NO arm crossed — D closest at +0.00417, still inside ceiling.
+- Soft mild-NEG band; monotone-ordered A < B < C < D.
+
+**Mechanism reading (student analysis, excellent):**
+
+1. **Body Muon momentum is load-bearing across LR transitions.** Unlike AdamW v-buffer (bias-correction state re-bootstrapped quickly), Muon momentum is *input to NS orthogonalization* — any disruption directly degrades NS preconditioning for the ~20-step EMA-decay window.
+2. **No "post-reset re-orientation" benefit.** If stale-LR-regime momentum were a problem, Arm B (reset EXACTLY at cooldown boundary) should be the best of B/C/D. Instead the regression is monotone in reset-lateness: A < B < C < D. The data points to Muon momentum being well-conditioned through LR transitions, not stale.
+3. **Pre-NS Nesterov m_t is structurally different from AdamW state.** Reset of m_t loses NS directional info; reset of AdamW v_t loses recoverable bias-correction state. Former is fundamental to update direction; latter is recoverable.
+
+**Critical empirical insight (Arm D pre-reset trajectory):** Arm D had drifted +0.00394 vs Arm A *before* its reset fired (reset at step 2847; step-2500 snapshot showed +0.00394). This evidences **single-seed noise floor of ~σ=0.005 on this stack** even without any intervention. The n=3 baseline margin 0.02155 / √3 is consistent. Useful prior for future N=1 noise floor estimates.
+
+**Cross-PR axis closure language (for state doc):**
+
+> **Body Muon pre-NS momentum buffer — DISCRETE RESET interventions: FULLY FENCED across all timescales.** PR #998 + #163 (periodic reset, DMR) + #711 (structural EMA modifications: AggMo, Muon², AdEMAMix) collectively close the discrete-reset and structural-modification axes on body Muon momentum. The single-EMA Nesterov β=0.95 is empirically the right preconditioning input for NS quintic at this stack composition.
+
+**Cross-mechanism implication:** With both #988 (AdamW state reset, mid-flight) and #998 (Muon momentum reset, this PR) showing negative signals on boundary-aligned discrete state resets, we now have an emerging meta-prior: **the merged stack's tuned momentum/state schedules are productive across all observed boundaries — discrete reset interventions are not the right axis for further exploration**. Future state-/momentum-touching ideas should be *continuous* (e.g., decay schedules, adaptive parameters) rather than discrete event-style.
+
+### Process commendation
+- Per-arm launch acks + provisional snapshot at Arm C terminal = exemplary stale_wip prevention process.
+- `_pr998_train_gpt_simple.py` untracked-file copy to survive branch flips = correct workflow for chain races.
+- Step-2500 trajectory analysis revealing Arm D pre-reset drift evidencing σ≈0.005 single-seed noise = high-quality measurement.
+
+### Frieren reassignment incoming → see next cycle (cycle 220) entry

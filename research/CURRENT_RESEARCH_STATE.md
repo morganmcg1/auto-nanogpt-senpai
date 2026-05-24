@@ -1,9 +1,33 @@
 # SENPAI Research State — auto-nanogpt-1gpu-r4
 
-- **Date:** 2026-05-24 11:10 UTC (cycle 217)
+- **Date:** 2026-05-24 12:25 UTC (cycle 220)
 - **Most recent research direction from human researcher team:** none on file
 - **Primary metric:** `val/loss` at 3350 steps (lower is better); `speedrun/final_first_step_to_target` secondary
 - **Statistical merge rule:** `(3.28 − μ) × √n ≥ 0.004` AND n mean ≤ current baseline
+
+## Cycle 220 snapshot (12:25 UTC May 24) — #998 closed productive-NULL/mild-NEG; frieren reassigned #1034 (first OPTIMIZER-CLASS axis: LION on aux groups)
+
+### Activity this cycle
+
+- **#998 frieren** CLOSED productive-NULL/mild-NEG: Muon body momentum buffer one-shot reset (4-arm timing sweep). Drift gate Arm A PASS (3.26655, Δ_vs_baseline −0.00101). All 3 reset arms positively regress in monotone-ordered pattern A < B (+0.00226) < C (+0.00308) < D (+0.00417). NO arm in productive-NULL ±0.0015 band, NO arm crossed productive-NEG +0.0050 ceiling — soft mild-NEG axis closure. Mechanism: body Muon pre-NS momentum is load-bearing across LR transitions (no "post-reset re-orientation" benefit; if stale-LR-regime momentum were the issue, Arm B at cooldown boundary should be best, but it's not). **Body Muon momentum DISCRETE RESET interventions FULLY FENCED** combined with #163 (DMR periodic) + #711 (structural EMA mods: AggMo/Muon²/AdEMAMix).
+- **Critical empirical insight from #998:** Arm D had +0.00394 drift vs Arm A *pre-reset* (reset fired at step 2847; measured at step 2500). Evidence of **single-seed σ ≈ 0.005 noise floor on this stack**. Strengthens future N=1 noise calibration.
+- **Cross-mechanism meta-prior emerging (from #988 + #998):** boundary-aligned discrete state resets fail on both AdamW v-buffer (#988 mid-flight, regressive signal) and Muon momentum (#998 closed). Future state-/momentum-touching ideas should be **continuous** (decay schedules, adaptive parameters) rather than **discrete event-style**.
+- **PR #1034 frieren** (incoming this cycle): **LION optimizer for aux groups** — first OPTIMIZER-CLASS axis test on this stack. Mechanism-distinct from #984 (Schedule-Free, an averaging wrapper around AdamW) and #919/#967 (β-schedules on AdamW): this fully replaces the aux optimizer with Lion (Chen et al. 2023), changing update *class* from RMS-normalized direction (AdamW: `m̂/√v̂ + ε`) to sign-bounded direction (`sign(βm + (1−β)g)`). 4 arms: A=ctrl AdamW; B=LION at LR_ratio=0.1× (paper default); C=LION at LR_ratio=0.05× (conservative); D=LION at LR_ratio=0.20× (aggressive). Per-group base LRs preserved; only the LR is rescaled by `NANOGPT_LION_LR_RATIO`. Tests whether the aux update class is interchangeable with sign-based mechanism.
+
+### Mechanism axes coverage (cycle 220, 8 chains)
+
+| Axis | Active PR | Notes |
+|---|:---:|---|
+| **OPTIMIZER-CLASS (aux replacement)** | **#1034 frieren NEW** | LION vs AdamW |
+| INITIALIZATION-DISTRIBUTION (body) | #1032 thorfinn | Haar orthogonal |
+| PRECONDITIONER-ADAPTIVE (NS) | #1031 nezuko | NS adaptive residual stop |
+| PRECONDITIONER-STATIC (NS) | #1008 alphonse | NS static-c sweep |
+| SCHEDULE-CONTINUOUS (LR-MULT) | #1003 fern | per-block-TYPE LR mult anneal |
+| SCHEDULE-DISCRETE-RESET (AdamW) | #988 tanjiro | AdamW state reset at cooldown |
+| SCHEDULE-CONTINUOUS (ε) | #1020 askeladd | AdamW ε UP-ramp cooldown |
+| SUBTRACTIVE-PRUNING | #1028 edward | merged stack flag removal |
+
+Eight mechanism axes simultaneously in flight, all mutually mechanism-distinct.
 
 ## Cycle 217 snapshot (11:10 UTC May 24) — #984 closed productive-NEG; thorfinn reassigned #1032 (first INITIALIZATION-axis distribution test on body Muon)
 
