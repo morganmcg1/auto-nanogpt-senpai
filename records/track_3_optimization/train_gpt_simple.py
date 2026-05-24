@@ -10,6 +10,7 @@ import sys
 with open(sys.argv[0]) as f:
     code = f.read() # read the code of this file ASAP, for logging
 import argparse
+import math
 import uuid
 import time
 from pathlib import Path
@@ -83,6 +84,17 @@ def parse_args():
              "muall=musoft + non-residual block 2D weights also scaled by 1/sqrt(L); "
              "smallconst=std=1e-3 depth-independent.",
     )
+    parser.add_argument("--lr_schedule", type=str, default="linear",
+                        choices=["linear", "cosine", "exponential", "linear_to_floor", "quintic"],
+                        help="Shape of LR decay during cooldown. "
+                             "linear=current (1-t); "
+                             "cosine=0.5*(1+cos(pi*t)); "
+                             "exponential=0.001**t; "
+                             "linear_to_floor=(1-t)+lr_floor*t; "
+                             "quintic=(1-t)**5. "
+                             "Default 'linear' matches current behavior.")
+    parser.add_argument("--lr_floor", type=float, default=0.1,
+                        help="LR floor for linear_to_floor (fraction of peak). Default 0.1.")
     args = parser.parse_args()
     args.num_trials = args.num_trials if args.num_trials is not None else (args.legacy_num_trials or 1)
     args.wandb_tags = [tag.strip() for tag in args.wandb_tags.split(",") if tag.strip()]
@@ -765,6 +777,8 @@ if dist.get_rank() == 0:
             "wd_schedule": args.wd_schedule,
             "lr_scalars": args.lr_scalars,
             "depth_init_mode": args.depth_init_mode,
+            "lr_schedule": args.lr_schedule,
+            **({"lr_floor": args.lr_floor} if args.lr_schedule == "linear_to_floor" else {}),
         },
     )
 
@@ -885,7 +899,19 @@ for trial_idx in range(args.num_trials):
         if progress < 1 - cooldown_frac:
             eta = 1.0
         else:
-            eta = (1 - progress) / cooldown_frac
+            t = (progress - (1 - cooldown_frac)) / cooldown_frac
+            if args.lr_schedule == "linear":
+                eta = 1.0 - t
+            elif args.lr_schedule == "cosine":
+                eta = 0.5 * (1.0 + math.cos(math.pi * t))
+            elif args.lr_schedule == "exponential":
+                eta = 0.001 ** t
+            elif args.lr_schedule == "linear_to_floor":
+                eta = (1.0 - t) + args.lr_floor * t
+            elif args.lr_schedule == "quintic":
+                eta = (1.0 - t) ** 5
+            else:
+                raise ValueError(f"unknown lr_schedule: {args.lr_schedule}")
         wd_mu = _wd_multiplier(step, train_steps, args.wd_schedule)
         for opt in optimizers:
             for group in opt.param_groups:
