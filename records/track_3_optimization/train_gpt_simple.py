@@ -55,6 +55,14 @@ def parse_args():
     parser.add_argument("--outer_lr", type=float, default=float(os.environ.get("OUTER_LR", "0.7")))
     parser.add_argument("--outer_momentum", type=float, default=float(os.environ.get("OUTER_MOMENTUM", "0.5")))
     parser.add_argument("--sync_interval", type=int, default=int(os.environ.get("SYNC_INTERVAL", "30")))
+    # H108: Outer Trust-Region clip on the SGDM apply step. Per-tensor scale-down
+    # so ||outer_step||_F <= clip_ratio * ||theta||_F. Velocity buffer accumulates
+    # unchanged; only the displacement applied to p.data is attenuated. Default
+    # outer_tr_enabled=0 keeps the baseline bit-identical.
+    parser.add_argument("--outer_tr_enabled", type=int, default=int(os.environ.get("OUTER_TR_ENABLED", "0")),
+                        help="Enable Trust-Region clip on outer-SGDM apply step (1=on, 0=off)")
+    parser.add_argument("--outer_tr_clip_ratio", type=float, default=float(os.environ.get("OUTER_TR_CLIP_RATIO", "0.05")),
+                        help="Trust-region ratio: ||outer_step||_F <= ratio * ||theta||_F")
     # AGC (Brock et al. 2021): per-parameter adaptive gradient clipping applied to
     # AdamW aux groups (embed, lm_head, scalars). Clips grad to clip_ratio * |param|.
     # Default 0.0 disables (no-op for bit-identical baseline).
@@ -715,6 +723,11 @@ if args.use_outer_optimizer:
            f"outer_momentum={args.outer_momentum} sync_interval={args.sync_interval}", console=True)
 else:
     print0("MuLoCo outer optimizer DISABLED", console=True)
+if args.outer_tr_enabled:
+    print0(f"Outer Trust-Region ENABLED: clip_ratio={args.outer_tr_clip_ratio} "
+           f"(||outer_step|| <= ratio * ||theta||)", console=True)
+else:
+    print0("Outer Trust-Region DISABLED (outer_tr_enabled=0)", console=True)
 print0(f"MuonH mode={args.muonh_mode} lr={args.muonh_lr} budget_mult={args.muonh_budget_mult} cooldown_shape={args.muonh_cooldown_shape}", console=True)
 if args.aux_agc_clip_ratio > 0:
     print0(f"AGC ENABLED on aux AdamW groups: clip_ratio={args.aux_agc_clip_ratio} eps={args.aux_agc_eps}", console=True)
@@ -772,6 +785,8 @@ if dist.get_rank() == 0:
             "muloco_outer_lr": args.outer_lr,
             "muloco_outer_momentum": args.outer_momentum,
             "muloco_sync_interval": args.sync_interval,
+            "outer_tr_enabled": bool(args.outer_tr_enabled),
+            "outer_tr_clip_ratio": args.outer_tr_clip_ratio,
             "aux_agc_clip_ratio": args.aux_agc_clip_ratio,
             "aux_agc_eps": args.aux_agc_eps,
             "muonh_agc_clip_ratio": args.muonh_agc_clip_ratio,
@@ -1123,12 +1138,42 @@ for trial_idx in range(args.num_trials):
                 delta_sq = torch.zeros((), device=device)
                 velocity_sq = torch.zeros((), device=device)
                 total_count = 0
+                if args.outer_tr_enabled:
+                    # H108 trust-region telemetry accumulators (kept on GPU, one .item() per
+                    # accumulator at the end to avoid per-param CPU-GPU sync).
+                    outer_tr_clipped_count_t = torch.zeros((), device=device)
+                    outer_tr_step_norm_pre_sum_t = torch.zeros((), device=device)
+                    outer_tr_step_norm_post_sum_t = torch.zeros((), device=device)
+                    outer_tr_theta_norm_sum_t = torch.zeros((), device=device)
+                    outer_tr_ratio_pre_sum_t = torch.zeros((), device=device)
+                    outer_tr_param_count = 0
             with torch.no_grad():
                 for n, p in model.named_parameters():
                     delta = outer_anchor[n] - p.data
                     outer_velocity[n].mul_(args.outer_momentum).add_(delta)
-                    p.data.copy_(outer_anchor[n] - args.outer_lr *
-                                 (args.outer_momentum * outer_velocity[n] + delta))
+                    if args.outer_tr_enabled:
+                        # H108: per-tensor trust-region clip on the apply step.
+                        # Velocity buffer above accumulated delta unchanged; only the
+                        # displacement applied to p.data is attenuated.
+                        outer_step_raw = args.outer_lr * (args.outer_momentum * outer_velocity[n] + delta)
+                        theta_norm = p.data.float().norm()
+                        step_norm = outer_step_raw.float().norm()
+                        max_step = args.outer_tr_clip_ratio * theta_norm
+                        # Branchless clip: clip_factor = min(1, max_step / step_norm).
+                        clip_factor = torch.clamp(max_step / (step_norm + 1e-8), max=1.0)
+                        outer_step = outer_step_raw * clip_factor
+                        p.data.copy_(outer_anchor[n] - outer_step)
+                        if log_outer:
+                            clipped_indicator = (step_norm > max_step).float()
+                            outer_tr_clipped_count_t = outer_tr_clipped_count_t + clipped_indicator
+                            outer_tr_step_norm_pre_sum_t = outer_tr_step_norm_pre_sum_t + step_norm
+                            outer_tr_step_norm_post_sum_t = outer_tr_step_norm_post_sum_t + step_norm * clip_factor
+                            outer_tr_theta_norm_sum_t = outer_tr_theta_norm_sum_t + theta_norm
+                            outer_tr_ratio_pre_sum_t = outer_tr_ratio_pre_sum_t + step_norm / (theta_norm + 1e-8)
+                            outer_tr_param_count += 1
+                    else:
+                        p.data.copy_(outer_anchor[n] - args.outer_lr *
+                                     (args.outer_momentum * outer_velocity[n] + delta))
                     outer_anchor[n].copy_(p.data)
                     if log_outer:
                         delta_sq = delta_sq + delta.float().square().sum()
@@ -1138,13 +1183,24 @@ for trial_idx in range(args.num_trials):
             if log_outer:
                 delta_rms = (delta_sq.item() / max(1, total_count)) ** 0.5
                 velocity_rms = (velocity_sq.item() / max(1, total_count)) ** 0.5
-                wandb.log({
+                outer_log = {
                     "trial": trial_idx,
                     "train/step": train_step,
                     "train/muloco/outer_step": outer_applied_steps,
                     "train/muloco/delta_rms": delta_rms,
                     "train/muloco/velocity_rms": velocity_rms,
-                }, step=wandb_step)
+                }
+                if args.outer_tr_enabled and outer_tr_param_count > 0:
+                    tr_clipped_count = float(outer_tr_clipped_count_t.item())
+                    outer_log.update({
+                        "outer/tr_clipped_count": tr_clipped_count,
+                        "outer/tr_clipped_frac": tr_clipped_count / outer_tr_param_count,
+                        "outer/tr_step_norm_pre_mean": float(outer_tr_step_norm_pre_sum_t.item()) / outer_tr_param_count,
+                        "outer/tr_step_norm_post_mean": float(outer_tr_step_norm_post_sum_t.item()) / outer_tr_param_count,
+                        "outer/tr_ratio_pre_mean": float(outer_tr_ratio_pre_sum_t.item()) / outer_tr_param_count,
+                        "outer/tr_theta_norm_mean": float(outer_tr_theta_norm_sum_t.item()) / outer_tr_param_count,
+                    })
+                wandb.log(outer_log, step=wandb_step)
 
         approx_training_time = training_time + (time.perf_counter() - t0)
         print0(f"step:{step+1}/{train_steps} train_time:{approx_training_time:.3f}s"
