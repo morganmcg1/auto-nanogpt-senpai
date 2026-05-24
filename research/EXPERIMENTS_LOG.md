@@ -1,3 +1,49 @@
+## 2026-05-24 03:50 UTC — PR #992 ASSIGNED (fern): H109 Inner MuonH µ Schedule — Cooldown-Phase Momentum Ramp (fresh axis from H95 closure note)
+
+- Branch: `g1r3-fern/h109-mu-schedule`
+- Hypothesis: Replace static `muonh_mu=0.95` with a time-varying schedule that ramps µ upward during cosine cooldown. Direct motivation from H95 nezuko closure (cycle 147 PR #916) which flagged µ-schedule axis as NOT pre-closed and identified load-bearing finding: "cooldown-phase momentum asymmetry — lower µ wins early through step 2500, higher µ wins late at cosine cooldown when inner_lr → 0 needs more inertia per Sutskever 2013 effective-step-size rule". Mechanism: Sutskever 2013 effective_step_size ≈ lr/(1-µ); as cosine cooldown drives inner_lr → 0, µ must increase toward 1 to preserve step magnitude. H95 static landscape showed tight optimum at 0.95 with NEG on both sides (µ=0.90 +7σ, µ=0.98/0.85 catastrophic) — a schedule that moves µ through phase-appropriate values could beat the phase-averaged compromise.
+- Arms (n=1 seed each, 3325 steps, 1×H100): arm_a CTRL bit-identical (muonh_mu_schedule=off, static 0.95) / arm_b LINEAR linear ramp 0.92→0.98 across all training / arm_c COOLDOWN-RAMP µ=0.95 stable until cooldown start (last 25%), then linear ramp to 0.98 over cooldown.
+- Critical telemetry (programme-level finding regardless of val/loss): `train/muonh_mu` per log step (sanity check for schedule shape); arm_c trajectory at val/loss(3000) vs val/loss(3325) is direct test of H95's "higher µ wins late" prediction.
+- Why fern: 2nd mechanism-finding closure in programme (H93 PSGD-Kron AGC-100%-saturates-Q, H102 disparity-1.017-equalizer-finding). H109 mechanism-link cross-checks arm_c late-window val/loss decomposition vs H95's static cooldown-phase asymmetry — gold-standard diagnostic continuation.
+- Decision: WIN<3.26897 (instant merge); NULL∈[3.26880,3.27070]; NEG>3.27150; CATASTROPHIC>3.27500. Decision branches: arm_c WINS + arm_b NULL/NEG → cooldown-phase ramp load-bearing, H95 asymmetry generalizes; arm_b WINS + arm_c NULL → simple linear-up acceptable; both NULL/NEG → µ schedule axis closed under cosine cooldown LR shape.
+- LoC ~25 (3 argparse + schedule block in `set_hparams` + 1 W&B log line). W&B group `H109_mu_schedule`. Mechanism-distinct from all in-flight g1r3 experiments (H101 SF outer, H103 Outer Nesterov, H104 EMA-eval, H105 per-layer AGC, H106 GMN, H107 MuonBP, H108 Outer-TR-SGDM) and all closed axes (H79/H86 inner LR schedule shape, H95 static µ).
+- Key references: Sutskever et al. (2013) "On the importance of initialization and momentum in deep learning" ICML (effective-step-size rule); H95 closure note (cycle 147 commit message); H86 inner LR schedule closure.
+
+---
+
+## 2026-05-24 03:50 UTC — PR #952 CLOSED NEG/closure (fern): H102 Sharpness-Disparity Blockwise LR Multipliers (programme-level closure on per-block-LR-multipliers axis)
+
+- Branch: `g1r3-fern/h102-blockwise-lr-multipliers`
+- Final 3-arm table:
+
+| arm | mode | val/loss | ffs | Δ vs baseline (3.26977) | Δ vs CTRL | verdict |
+|-----|------|----------|-----|--------------------------|------------|---------|
+| arm_a CTRL | off | 3.27077 | 3100 | +0.00100 | — | NULL (dispersion floor) |
+| arm_b PRIMARY | static exp=0.5 | 3.27188 | 3125 | +0.00211 | +0.00111 | mild-NEG (>+σ) |
+| arm_c DYNAMIC | dynamic exp=0.5 | 3.27058 | 3100 | +0.00081 | −0.00019 | NULL |
+
+- Closure: arm_b mild-NEG + arm_c NULL → per-block-LR-multipliers axis CLOSED on MuonH-SI + AGC stack. No arm beats baseline (need <3.26897). Bit-identical guard PASS on arm_a.
+- **Load-bearing mechanism finding (gold-standard programme-level via fern's disparity-at-calibration diagnostic)**:
+
+| step | disparity | rms_avg | mult_range |
+|------|-----------|---------|------------|
+| 200 (arm_b calibration) | 1.017 | 1.5761e-03 | [0.997, 1.005] |
+| 200 (arm_c)             | 1.017 | 1.5770e-03 | [0.997, 1.005] |
+| 700 (dyn recompute)     | 1.109 | 2.5881e-03 | [0.988, 1.041] |
+| 1200                    | 1.131 | 3.7338e-03 | [0.985, 1.047] |
+| 1700                    | 1.130 | 4.6865e-03 | [0.984, 1.046] |
+| 2200                    | 1.126 | 5.2634e-03 | [0.984, 1.045] |
+| 2700                    | 1.123 | 5.4325e-03 | [0.985, 1.044] |
+| 3200                    | 1.123 | 5.4480e-03 | [0.985, 1.044] |
+
+- Mechanism: per-block gradient-RMS disparity stays ≤1.13 throughout training (smoke gate at 1.3); max multiplier deviation from unity is 4.7% — mathematically too small to move the needle by Wang et al. (2025) ICML mechanism, which depended on 2-5× disparity on vanilla AdamW transformers. **The equalizer is the stack itself**: scale-invariant projection (MuonH-SI normalizes each block's update to parameter norm) + AGC (clips outliers per-parameter) absorb whatever sharpness disparity raw gradients carry. Per-block-LR multipliers have nothing left to exploit.
+- This is fern's 2nd mechanism-finding closure in the programme (1st: H93 PSGD-Kron — AGC clips 100% → Q saturates to ≈c·I). Same diagnostic pattern: mechanism is closed because the equalizer absorbs the heterogeneity earlier in the pipeline.
+- **Methodological commendation**: fern's disparity-at-calibration smoke gate fired at step 200 with disparity=1.017 — closure was empirically obvious within 6 minutes of arm_b launch, but fern correctly let all 3 arms run to terminal to confirm the dynamic variant also stays in the equalized regime. Static + dynamic recompute variants both showed disparity ≤1.13 → closes both schedule modes in single experiment.
+- Pre-closes: per-block sharpness exploitation via LR scaling (any exponent), per-block Adam-β scaling, per-block warmup-length scaling, static+dynamic recompute variants.
+- Does NOT pre-close: per-matrix-TYPE intervention (QKV vs MLP), per-tensor AGC threshold (H105 in-flight thorfinn), µ schedule (H95 flagged → H109 just assigned), inner LR adaptive (RMS-tracking).
+
+---
+
 ## 2026-05-24 01:45 UTC — PR #978 ASSIGNED (askeladd): H108 Outer Trust-Region Clipped SGDM (AGC-analogue at outer level, fresh axis)
 
 - Branch: `g1r3-askeladd/h108-outer-trust-region`
