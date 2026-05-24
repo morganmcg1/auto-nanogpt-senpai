@@ -571,6 +571,15 @@ if NANOGPT_EMBED_COOLDOWN_SHAPE not in _VALID_EMBED_COOLDOWN_SHAPES:
         f"NANOGPT_EMBED_COOLDOWN_SHAPE={NANOGPT_EMBED_COOLDOWN_SHAPE!r}, must be one of {_VALID_EMBED_COOLDOWN_SHAPES}"
     )
 NANOGPT_ADAMW_BETA2 = float(os.environ.get("NANOGPT_ADAMW_BETA2", "0.95"))
+# AdamW β₂ cooldown anneal (#967). Linearly anneals β₂ from NANOGPT_ADAMW_BETA2 to
+# NANOGPT_ADAMW_AUX_BETA2_FINAL across the cooldown window
+# (step >= NS_COOLDOWN_START_FRAC * train_steps). SCOPE controls which AdamW groups
+# follow the schedule: "off" disables (bit-identical fallback), "all" anneals every
+# AdamW aux group, "embed" anneals only adam_embed.
+NANOGPT_ADAMW_AUX_BETA2_FINAL = float(os.environ.get("NANOGPT_ADAMW_AUX_BETA2_FINAL", str(NANOGPT_ADAMW_BETA2)))
+NANOGPT_ADAMW_AUX_BETA2_SCOPE = os.environ.get("NANOGPT_ADAMW_AUX_BETA2_SCOPE", "off")
+assert NANOGPT_ADAMW_AUX_BETA2_SCOPE in ("off", "all", "embed"), \
+    f"bad NANOGPT_ADAMW_AUX_BETA2_SCOPE: {NANOGPT_ADAMW_AUX_BETA2_SCOPE!r}"
 NANOGPT_ADAMW_EMBED_LR_MULT = float(os.environ.get("NANOGPT_ADAMW_EMBED_LR_MULT", "1.0"))
 NANOGPT_ADAMW_LM_HEAD_LR_MULT = float(os.environ.get("NANOGPT_ADAMW_LM_HEAD_LR_MULT", "1.0"))
 NANOGPT_ADAMW_SCALAR_LR_MULT = float(os.environ.get("NANOGPT_ADAMW_SCALAR_LR_MULT", "1.0"))
@@ -817,6 +826,12 @@ print0(f"EMBED_COOLDOWN_SHAPE: {NANOGPT_EMBED_COOLDOWN_SHAPE} "
        f"(applies to adam_embed only; lm_head/scalars use linear)", console=True)
 print0(f"ADAMW_BETA2: {NANOGPT_ADAMW_BETA2} (effective memory ~{int(1/(1-NANOGPT_ADAMW_BETA2)) if NANOGPT_ADAMW_BETA2 < 1 else 'inf'} steps)",
        console=True)
+if NANOGPT_ADAMW_AUX_BETA2_SCOPE != "off":
+    print0(f"ADAMW_AUX_BETA2_ANNEAL: {NANOGPT_ADAMW_BETA2:.4f} -> {NANOGPT_ADAMW_AUX_BETA2_FINAL:.4f} "
+           f"(cooldown frac={NS_COOLDOWN_START_FRAC}, scope={NANOGPT_ADAMW_AUX_BETA2_SCOPE}) ACTIVE",
+           console=True)
+else:
+    print0(f"ADAMW_AUX_BETA2_ANNEAL: INACTIVE (bit-identical fallback)", console=True)
 print0(f"ADAMW_LR_MULT: embed={NANOGPT_ADAMW_EMBED_LR_MULT} lm_head={NANOGPT_ADAMW_LM_HEAD_LR_MULT} scalar={NANOGPT_ADAMW_SCALAR_LR_MULT}", console=True)
 print0(f"  Effective base LRs: embed={0.3*NANOGPT_ADAMW_EMBED_LR_MULT:.4f} lm_head={(1/320)*NANOGPT_ADAMW_LM_HEAD_LR_MULT:.6f} scalar={0.01*NANOGPT_ADAMW_SCALAR_LR_MULT:.4f}", console=True)
 print0(f"MUON_LR_MULT: attn={NANOGPT_MUON_ATTN_LR_MULT:.3f} mlp={NANOGPT_MUON_MLP_LR_MULT:.3f}", console=True)
@@ -886,6 +901,8 @@ if dist.get_rank() == 0:
             "nanogpt_ns_cooldown_shape": NS_COOLDOWN_SHAPE,
             "nanogpt_embed_cooldown_shape": NANOGPT_EMBED_COOLDOWN_SHAPE,
             "nanogpt_adamw_beta2": NANOGPT_ADAMW_BETA2,
+            "nanogpt_adamw_aux_beta2_final": NANOGPT_ADAMW_AUX_BETA2_FINAL,
+            "nanogpt_adamw_aux_beta2_scope": NANOGPT_ADAMW_AUX_BETA2_SCOPE,
             "nanogpt_adamw_embed_lr_mult": NANOGPT_ADAMW_EMBED_LR_MULT,
             "nanogpt_adamw_lm_head_lr_mult": NANOGPT_ADAMW_LM_HEAD_LR_MULT,
             "nanogpt_adamw_scalar_lr_mult": NANOGPT_ADAMW_SCALAR_LR_MULT,
@@ -1134,6 +1151,21 @@ for trial_idx in range(args.num_trials):
         train_loss = float((step_loss / batch_size).item())
         # set optimization hyperparameters and take a step
         set_hparams(step)
+        # β₂ cooldown annealing on aux AdamW groups (#967, env-var-gated).
+        # Linearly anneals β₂ from NANOGPT_ADAMW_BETA2 to NANOGPT_ADAMW_AUX_BETA2_FINAL
+        # across [cooldown_start_step, train_steps]. SCOPE="off" leaves param_group
+        # betas untouched (bit-identical fallback to the merged stack).
+        beta2_current = NANOGPT_ADAMW_BETA2
+        if NANOGPT_ADAMW_AUX_BETA2_SCOPE != "off" and step >= cooldown_start_step:
+            cooldown_total = max(1, train_steps - cooldown_start_step)
+            frac = (step - cooldown_start_step) / cooldown_total
+            beta2_current = NANOGPT_ADAMW_BETA2 + frac * (NANOGPT_ADAMW_AUX_BETA2_FINAL - NANOGPT_ADAMW_BETA2)
+            for pg in optimizer1.param_groups:
+                pg_name = pg.get("name", "")
+                if NANOGPT_ADAMW_AUX_BETA2_SCOPE == "all" and pg_name.startswith("adam_"):
+                    pg["betas"] = (pg["betas"][0], beta2_current)
+                elif NANOGPT_ADAMW_AUX_BETA2_SCOPE == "embed" and pg_name == "adam_embed":
+                    pg["betas"] = (pg["betas"][0], beta2_current)
         train_step = step + 1
         telemetry_due = (step == 0 or (step + 1) % args.telemetry_interval == 0 or step + 1 == train_steps)
         histogram_due = (step == 0 or (step + 1) % args.histogram_interval == 0 or step + 1 == train_steps)
@@ -1292,6 +1324,13 @@ for trial_idx in range(args.num_trials):
                     NS_ITERS_COOLDOWN > 0 and step >= cooldown_start_step
                 ),
                 "train/ns_schedule/cumulative_iters": ns_cumulative_iters,
+                "train/adamw_aux_beta2_schedule/beta2_current": beta2_current,
+                "train/adamw_aux_beta2_schedule/in_cooldown": int(
+                    NANOGPT_ADAMW_AUX_BETA2_SCOPE != "off" and step >= cooldown_start_step
+                ),
+                "train/adamw_aux_beta2_schedule/scope_id": {
+                    "off": 0, "all": 1, "embed": 2,
+                }.get(NANOGPT_ADAMW_AUX_BETA2_SCOPE, -1),
             }
             if optimizer2.spectral_stats is not None:
                 for k, v in optimizer2.spectral_stats.items():
