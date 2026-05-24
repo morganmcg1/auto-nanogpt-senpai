@@ -1,3 +1,40 @@
+## 2026-05-24 07:30 UTC — PR #1014 ASSIGNED (edward): H115 Post-NS5 sv_max Bound via Power Iteration (spectral-bias compression — direct H107 follow-up)
+
+- Branch: `g1r3-edward/h115-sv-max-compression`
+- Hypothesis: **Test whether EXPLICIT sv_max compression beats implicit NS5 sv_max emergence**. Direct mechanism follow-up from edward's own H107 closure finding: val/loss gap correlates with **sv_max condition expansion**, not sv_min collapse. Block-periodic arms (H107 arm_b/c) had sv_max 13-23% higher than CTRL on 3-of-4 attn matrices, with val/loss +0.0165 to +0.0221 worse. Meanwhile sv_min ranges overlapped CTRL across all arms — the floor is essentially zero-floor noise. **The natural follow-up**: apply intermediate sv_max bound DURING NS5 polynomial iteration via cheap power iteration (~2 power_iter × 2 matmuls per matrix = 0.04% overhead vs NS5 polynomial). FIRST experiment to apply intermediate spectral bound within NS5 iteration.
+- Arms (n=1 seed each, 3325 steps, 1×H100): arm_a CTRL `muonh_sv_max_bound=0.0` (bit-identical baseline, gated path bypassed) / arm_b TIGHT `muonh_sv_max_bound=1.0` 3 intermediate bounds in k=12 / arm_c LOOSE `muonh_sv_max_bound=1.5` 50% larger bound permitted.
+- Critical telemetry (programme-level finding regardless of val/loss): continue edward's H107 pattern — sv telemetry on EVERY arm including CTRL. NEW for H115: `sv/sv_max_bound_active_frac` (fraction of body params where bound was binding), `sv/sv_max_pre_bound_mean`, `sv/sv_max_post_bound_mean` (mean sv_max before/after intermediate bound across NS5 iterations). Predicted: TIGHT binds frequently (>0.5), LOOSE rarely binds (0.0-0.3), sv_max(`attn/k/weight`) terminal drops from 6.20 CTRL to lower in arm_b.
+- Mechanism-distinct from all closed inner-orth (H78 NS5 degree, H88 Polar Express, H90 NSCubic, H93 PSGD-Kron, H98 Sophia-G, H106 GMN, H107 MuonBP) and all in-flight g1r3 (H108-H114). First intermediate-spectral-bound intervention in programme history.
+- Decision: WIN<3.26897 (instant merge — sv_max compression IS load-bearing); NULL+bound_active>0.5 → bound applies but downstream norm-rescaling absorbs (mechanism refinement: sv_max compression is implicit, not explicit-load-bearing); NEG+bound_active>0.5 → bound DISRUPTS NS5 polynomial convergence (axis CLOSED); both NEG → closure-amplifier joint with H107 (sv_max is CORRELATED diagnostic but not LOAD-BEARING control lever).
+- LoC ~15 (1 power_iteration function + 2 argparse + modified NS5 loop + 3 W&B telemetry keys). W&B group `H115_sv_max_compression`. Why edward: directly follows his own H107 closure suggestion #3 (spectral-bias over sv_min); same in-run-sv-telemetry-on-every-arm diagnostic style as H107.
+- Key references: Brock et al. (2021) AGC paper (analogous magnitude-bound intervention design); H107 closure (sv_max condition tracks val/loss); H106 closure (sv_median≈1.0 load-bearing); H90 sv_min=0.18 finding is **invalidated under current stack** by H107's in-run sv telemetry showing sv_min 1e-4 to 5e-3 (programme-level diagnostic refresh).
+
+---
+
+## 2026-05-24 07:20 UTC — PR #970 CLOSED NEG/closure (edward): H107 MuonBP Block-Periodic Orthogonalization (5th inner-orth axis closure; cross-block coupling is load-bearing; H90 sv_min=0.18 invalidated; sv_max condition is the new load-bearing diagnostic axis)
+
+- Branch: `g1r3-edward/h107-muonbp-block-periodic`
+- Final 3-arm table:
+
+| arm | muon_block_size | full_period | block_iters / full_iters | val/best_loss | ffs | Δ vs CTRL | band |
+|-----|-----------------|-------------|--------------------------|---------------|-----|-----------|------|
+| arm_a CTRL | 0 (full-matrix) | n/a | n/a / 12 | 3.27034 | 3100 | — | NULL (+0.00057 vs baseline 3.26977) |
+| arm_b PRIMARY | 192 | 10 | 6 / 12 | 3.29243 | -1 | +0.02209 | deep NEG (15× dispersion floor) |
+| arm_c HIGH-PERIOD | 192 | 30 | 8 / 12 | 3.28679 | -1 | +0.01645 | deep NEG (11× dispersion floor) |
+
+- Closure: arm_b deep NEG + arm_c deep NEG → strict closure-amplifier triggered. **Joint with H78 + H88 + H90 + H93 + H98 + H106** → 5th independent confirmation NS5 full-matrix k=12 polar polynomial is locally optimal among inner-orth family at our scale.
+- **Three programme-level mechanism findings**:
+  1. **Cross-block coupling is the load-bearing information**: +0.022 stable gap from step 1250 onward (not late-window divergence). During 9-of-10 (arm_b) or 29-of-30 (arm_c) block-only NS5 steps, intra-block column structure preserved but cross-block correlation discarded. The full-NS5 phase every K steps re-anchors global geometry, but optimizer state already absorbed K-1 information-lossy updates.
+  2. **H90's sv_min ≈ 0.18 claim is INVALIDATED under current stack** — programme-level diagnostic refresh independent of merge decision. edward's in-run sv telemetry on arm_a CTRL shows sv_min varies **31×** across just 4 attn projections in the same block (1.45e-4 to 4.49e-3 range). H90's "sv_min ≈ 0.18" was measured under a different stack/methodology. **Programme directive going forward**: any future PR building on H90's sv_min≈0.18 claim must re-measure under current MuonH-SI + AGC stack. Consistent with H106 closure (sv_median ≈ 1.0 load-bearing, not sv_min).
+  3. **sv_max condition number tracks val/loss BETTER than sv_min**: block-periodic arms had sv_max 13-23% higher than CTRL on 3-of-4 attn matrices (`attn/k/weight` 6.20→7.46, `attn/q/weight` 4.43→5.44) while sv_min ranges overlapped CTRL. The val/loss gap correlates with sv_max condition expansion, not sv_min collapse. **This is the load-bearing diagnostic refinement of H106's sv_median≈1.0 finding** — the BULK + TOP of the spectrum (sv_median + sv_max together) is what matters; the floor (sv_min) is zero-floor noise.
+- Period axis is a secondary modulator (arm_c -0.0056 vs arm_b stable from step 1875) — moving from fp=10 to fp=30 buys back 1/4 of the gap; remaining 3/4 is structural block-decomposition cost. Block_iters axis (6 vs 8) also secondary contributor.
+- Methodological commendation: 3 arms ran end-to-end in 5h35m chain with zero crashes/NaNs/OOMs. **In-run sv telemetry on every arm including CTRL** = apples-to-apples spectral comparison rather than relying on historical references → becomes the programme-level standard. Mid-run stable-gap extrapolation at +0.024 (advisor 04:18 UTC) matched terminal arm_b val/loss to within 0.001 — gold-standard predictive diagnostic.
+- Pre-closes: block-periodic NS5 (any block_size + full_period configuration at this scale); wider blocks (block_size=384); more frequent re-anchoring (fp=5); block_iters axis variations.
+- Does NOT pre-close: post-NS5 sv_max compression / spectral-bias control (H115 in-flight — edward's own follow-up #3); pre-NS5 gradient symmetrization (square-matrix only, mechanism-distinct); NS5 with renormalization between iterations (intermediate sv_max bound — H115 in-flight).
+- 26th plateau-protocol swing single-closure cycle.
+
+---
+
 ## 2026-05-24 07:00 UTC — PR #1009 ASSIGNED (thorfinn): H114 AGC Global Threshold Elevation Sensitivity Sweep
 
 - Branch: `g1r3-thorfinn/h114-agc-threshold-elevation`
