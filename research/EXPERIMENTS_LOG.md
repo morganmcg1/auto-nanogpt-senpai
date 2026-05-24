@@ -3957,3 +3957,59 @@ New assignment: PR #521 — gradient clipping sweep (first-ever clipping in this
 
 - **Gate**: μ_n=1 ≤ 3.260 → P2 n=4. μ_n=4 ≤ 3.259221 → merge.
 
+## 2026-05-24 15:55 — PR #1010: NS-iter-by-time (boost NS quality during cooldown) [CLOSED clean-NEG]
+
+- Branch: `g1r5-tanjiro/ns-iter-by-time-cooldown`
+- Hypothesis: cooldown lower LR → lower gradient SNR → cleaner orthogonalization extracts better directions during last 70% of training.
+
+- **5-cell sweep results (n=1 each, 3250 steps):**
+
+| Cell | --ns_iter_cooldown | ramp | val_loss | Δμ vs baseline (σ_single) | ffs | run id |
+|:----:|:------------------:|:----:|:--------:|:--------------------------:|:---:|:-------|
+| A (ctrl ns=6) | — | — | 3.26264 | +1.55σ | 3050 | `eq9b0j6y` |
+| **B ★** | 8 | false | **3.26122** | **−0.001σ** (≈μ) | 3025 | `qwtp9pw5` |
+| C | 10 | false | 3.26286 | +1.92σ | 3050 | `h6kir2ug` |
+| D | 12 | false | 3.26346 | +2.93σ | 3050 | `54lcfr1t` |
+| E | 9 (ramp) | true | 3.26072 | −0.85σ | 3025 | `avy5mf90` |
+
+- **Result**: clean-NEG. Cell B (PRIMARY) lands within ±1σ band [3.260628, 3.261814]. Null result for cooldown-time NS-quality axis.
+
+- **Mechanism findings**:
+  1. **Monotone NEG above ns_iter=6**: B(8)≈baseline, C(10)+1.92σ, D(12)+2.93σ. **NS_iter>6 actively HURTS**, not just neutral.
+  2. **No reliable smooth-vs-step signal**: E (smooth, 3.26072) vs B (jump, 3.26122) within σ_single.
+  3. **No discontinuity-variance penalty at step 975** for NS-iter changes (unlike #907 buffer reset which inflated σ 1.71×). NS-iter is numerical-quality knob, not state-resetting.
+
+- **Closure**: 3rd of 3 NS-iter scheduling axes (depth #932, early-time #815, late-time #1010 all NEG). NS-iter scheduling comprehensively saturated.
+
+- **Open mechanism puzzle**: student notes iter≥7 polynomial overshoots in bf16. NS currently runs in bf16 (line 485 hardcoded `X = G.bfloat16()`). Motivates fresh axis: precision sweep.
+
+- **Follow-up assigned**: tanjiro → #1062 NS precision sweep.
+
+## 2026-05-24 15:55 — PR #1062: NS precision sweep (bf16 vs fp32)
+
+- Branch: `g1r5-tanjiro/ns-precision-sweep`
+- Assigned to: g1r5-tanjiro (mechanism follow-up after #1010 closure)
+- Hypothesis: NS iteration precision is a hidden hyperparameter. Currently hardcoded bf16 at line 485. #1010 closure revealed ns_iter>6 monotonically HURTS — possibly bf16 round-off accumulates in higher iterations. Test fp32 NS to determine whether precision is the bottleneck or polynomial truly saturates at iter=6.
+
+- **5-cell sweep**:
+
+| Cell | --ns_precision | --ns_iter | Description |
+|:----:|:--------------:|:---------:|:------------|
+| A | bf16 (ctrl) | 6 | current behavior |
+| **B ★** | fp32 | 6 | entire NS in fp32 |
+| C | fp32_inner | 6 | X stays bf16, A/B computed in fp32 (hybrid) |
+| D | bf16_renorm | 6 | bf16, renormalize X by spectral norm after each iter |
+| E | fp32 | 8 | KILLER TEST: fp32 + higher iter count |
+
+- **Implementation**: add `--ns_precision` CLI flag, branch in `zeropower_via_newtonschulz5`. Plumb via module-level `NS_PRECISION` global.
+
+- **Decision rules**:
+  - B ≤ 3.260628 (n=1 gate) → request n=4 confirm.
+  - B within ±1σ of baseline → close null; precision not load-bearing at iter=6.
+  - B > +2σ → fp32 actively HURTS (bf16 stochastic noise was beneficially regularizing).
+  - E < B → fp32 unlocks higher iter counts; open follow-up for fp32 iter sweep.
+  - C ≈ B → accumulator precision was bottleneck; cheap fp32 trick works.
+
+- **Gate**: μ_n=1 ≤ 3.260628 → P2 n=4. μ_n=4 ≤ 3.259221 → merge.
+
+
