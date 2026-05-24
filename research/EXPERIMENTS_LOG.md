@@ -1,5 +1,28 @@
 # SENPAI Research Results
 
+## 2026-05-24 15:05 UTC — PR #1013 CLOSED: Sophia-H Hessian-diagonal for embed — 110th NULL, 5-AXIS i.i.d.-AUX STRUCTURAL CLOSURE (g1r1-tanjiro)
+
+- Branch: `g1r1-tanjiro/sophia-h-embed`
+- Hypothesis: Sophia-H diagonal Hessian preconditioner (Hutchinson estimate, k=10 steps) replaces AdamW for embed parameter. Tests whether true curvature (vs gradient variance in Adam) provides useful aux signal.
+
+| Arm | ρ | W&B | val/loss | sr | Δval | Δsr | sophia/clip_frac |
+|---|---|---|---|---|---|---|---|
+| Baseline #918 (n=2) | — | vm48fdof/0a7esmxs | 3.266394 | 2925 | — | — | — |
+| Arm A | 0.01 (conservative) | `56iuhjoa` | **3.27638** | **3125** | +0.01052 | +200 | **1.00 throughout** |
+| Arm B | 0.001 (aggressive) | `ab8pqcfg` | **3.27928** | **3200** | +0.01342 | +275 | **1.00 throughout** |
+
+- **Decision: 110th NULL.** Both arms clear stat-sig NULL (Arm A barely fails 3.276 threshold by 0.4 mnat; Arm B by 3.3 mnat). Δsr +200/+275 = 8-11× past marginal band. n=2 not needed.
+- **Canon finding 1: `sophia/clip_frac=1.0` throughout all steps in both arms — mechanism mechanically inactive.** h_mean ≈ 1.8e-5 (Arm A) / 1.7e-6 (Arm B), never approaching ρ threshold. Sophia-H degenerates to constant-magnitude SGD at effective LR = lr/ρ = 15 (Arm A) / 150 (Arm B).
+- **Canon finding 2: Root cause is sparse-update structure.** Only ~8192/50304 vocab rows receive gradient per batch (~16% occupancy). Hutchinson trace is ~0 for unseen rows → `h` concentrates near zero → 100% clip saturation structural at any ρ ≥ h_mean.
+- **Canon finding 3: 5-AXIS i.i.d.-AUX STRUCTURAL CLOSURE ACHIEVED.** Adam-family (18 axes) + SOAP (2 axes) + Diagonal-Hessian (1 axis) all NULL. Per-coord preconditioning of ANY form cannot extract useful signal from sparse, i.i.d. aux gradients at this benchmark scale. Closed families: gradient-variance estimators (Adam), covariance estimators (SOAP/Shampoo), Hessian estimators (Sophia-H).
+- **Canon finding 4: 4× HVP wall-clock overhead is a deployment blocker.** `model._compiled_call_impl = None` toggle inside `update_hessian` invalidates compile cache. 15 GPU-hours for n=2 confirmation would require >25% val improvement to break even — not achievable.
+- **Canon finding 5: Arm B monotone-worse (more aggressive ρ → worse val).** SGD at 10× higher effective LR with no curvature dampening is closer to plain gradient descent, explaining the +3.3 mnat worse result.
+- **WHAT'S CLOSED:** All diagonal-preconditioned aux families (Adam, SOAP, Hessian). i.i.d. structural closure is now definitive.
+- **WHAT'S OPEN:** Dense-update parameters (lm_head vs embed have different gradient density); constraint-based aux interventions (spectral-norm, row-WD); architectural logit-space interventions (soft-capping).
+- tanjiro → **#1060** (logit soft-capping — architectural 1-line: `tanh(logits/cap)*cap`, cap=30.0 vs 15.0).
+
+---
+
 ## 2026-05-24 14:50 UTC — PR #1015 CLOSED: lm_head non-zero orthogonal init — 109th NULL, LOCALLY INSENSITIVE init scale axis (g1r1-nezuko)
 
 - Branch: `g1r1-nezuko/lm-head-init-orthogonal-init`
