@@ -1,3 +1,73 @@
+## 2026-05-24 22:15 UTC — PR H133 ASSIGNED (fern): Inner MuonH LR Cooldown SHAPE Sweep (cosine/linear/sqrt at frac=1.0 — first-ever ablation of inner cooldown shape)
+
+- Branch: `g1r3-fern/h133-inner-cooldown-shape`
+- Hypothesis: H120 thorfinn closed the inner cooldown **FRAC** axis at 1.0 (always-decaying cosine, structurally necessary), but the inner cooldown **SHAPE** at frac=1.0 has NEVER been tested as a separate axis. fern's H125 closure suggestion #3 (verbatim): *"Cross-test with cooldown shape: linear-cooldown vs cosine-cooldown might preserve the low-µ advantage differently."* H125 found mid-training low-µ advantage gets erased by cosine cooldown (peak gap −0.068 below CTRL at step 1500 compressed to 0.0021 by step 3325). The cosine shape decays slowly early then accelerates — a different shape (linear constant-slope, sqrt fast-early) might preserve more of the mid-training advantage.
+- Implementation: **LoC=0** (CLI flag `--muonh_cooldown_shape` already exists at line 47 with choices `{linear, cosine, sqrt}`; default linear, baseline overrides with cosine).
+- Arms (n=1 seed each, 3325 steps, 1×H100, all inherit µ-decreasing 0.95→0.90 from baseline):
+  - arm_a CTRL: `--muonh_cooldown_shape cosine` (bit-id baseline reproduction guard for 3.26706)
+  - arm_b LINEAR: `--muonh_cooldown_shape linear` (constant slope from 1 → 0)
+  - arm_c SQRT: `--muonh_cooldown_shape sqrt` (fast early decay, slow late)
+- Critical telemetry:
+  - `muonh_lr_t` per checkpoint at {0, 125, 500, 1000, 1500, 2000, 2500, 3000, 3325} — verifies shape active (step 1500 expected: cosine ≈ 0.01040, linear ≈ 0.00990, sqrt ≈ 0.01336)
+  - 8-checkpoint val/loss trajectory (gold-standard H109 template — fern's own format)
+  - Crossing-point analysis (continues H125 pattern — does arm_c sqrt preserve mid-training lead?)
+  - `train/agc/active_fraction` per checkpoint (tests cross-mechanism with H114 closure: is active_fraction also invariant across shapes?)
+  - `muonh/sv_min/sv_med/sv_max` at 9 checkpoints if logged (H106 closure: sv_median ≈ 1.0 load-bearing — does shape affect this?)
+- Smoke gate: arm_c SQRT only (fastest early-LR drop = most aggressive perturbation); linear can run directly without smoke.
+- Decision rules (WIN threshold 3.26626, NULL band [3.26536, 3.26976], widened CTRL dispersion [3.26880, 3.27250]):
+  - arm_b LINEAR WIN: constant-slope better than cosine at frac=1.0 (1st shape WIN; MERGE candidate)
+  - arm_c SQRT WIN: keeping LR higher through middle preserves mid-training low-µ advantage (validates H125 mid-training-lead-erosion finding; MERGE candidate)
+  - arm_b NULL + arm_c NULL: cooldown SHAPE axis robust at frac=1.0 (axis closure as non-binding)
+  - arm_b NEG + arm_c NEG: cosine is load-bearing inner cooldown shape (shape axis closes at cosine; cross-experiment finding: H130 thorfinn aux + H133 inner BOTH need specific shapes — symmetric optima)
+  - mixed verdicts mapped to mechanism-specific reads
+- Mechanism-distinct from in-flight: H126 frieren outer timing / H127 alphonse eval-time Polyak / H128 tanjiro init / H129 nezuko NS5 depth / H130 thorfinn **aux** cooldown shape (complementary level) / H131 askeladd warmup duration (complementary phase) / H132 edward NS5 coefficients. H133 × H130 explicit complementary pair on cooldown SHAPE axis (different LR groups).
+- Why fern: 4th consecutive schedule cycle (H109 NEG/closure → H117 MERGED current baseline → H125 NEG/closure µ-endpoint comprehensive → H133 direct suggestion #3 follow-up). The inner LR schedule axes (warmup H131 + cooldown FRAC H120 + cooldown SHAPE H133) form a 3-axis programme-level matrix; H133 completes the inner schedule structural mapping.
+- W&B group: `g1r3-fern-h133-inner-cooldown-shape`
+
+---
+
+## 2026-05-24 22:15 UTC — PR #1063 CLOSED NEG/closure (fern): H125 MuonH µ-endpoint deeper sweep (6th µ-axis closure; µ-endpoint axis closes at 0.90; cooldown compresses mid-training lead)
+
+- Branch: `g1r3-fern/h125-mu-endpoint-sweep`
+- Hypothesis: H117 (fern's MERGED 0.95→0.90 win) → test whether monotonic improvement continues below 0.90 endpoint. Tests two deeper endpoints (0.95→0.88, 0.95→0.84).
+
+| arm | run_id | terminal µ | val/loss | Δ vs baseline 3.26706 | strict | widened CTRL |
+|---|---|---|---|---|---|---|
+| arm_a CTRL (off, µ=0.95) | `pj0zhte2` | 0.95 | **3.27200** | +0.00494 | NEG +0.00224 | **NULL** edge of [3.26880, 3.27250] ✅ |
+| arm_b LOW (0.95→0.88) | `adu0yfcu` | 0.88 | **3.27067** | +0.00361 | NEG +0.00091 | **NULL** within widened CTRL |
+| arm_c DEEPER (0.95→0.84) | `wtnt3nh9` | 0.84 | **3.26989** | +0.00283 | NEG +0.00013 (borderline) | **NULL** within widened CTRL |
+
+Best arm_c at 3.26989 ties baseline ffs=3025 but does NOT beat baseline 3.26706. No arm clears WIN threshold 3.26626.
+
+**4 programme-level findings (gold-standard mid-training diagnostic from fern's own H117 template):**
+
+1. **µ-endpoint axis closure at 0.90** — H117 finding (0.95→0.90 = 3.26706 WIN) stands as the local optimum. Going deeper does NOT extend the WIN monotonically. **Programme directive**: future µ-schedule work targets DIFFERENT axes (cooldown shape interaction = H133 just assigned, hybrid schedule timing), not deeper endpoints. The 0.95→0.90 endpoint pair is locked in.
+
+2. **Sutskever effective-step mechanism DOUBLE-REFUTED at deeper endpoints** — `lr/(1-µ_t)` goes OPPOSITE to improvement direction (arm_c smallest eff step but best mid-training tracking). Continues H117's refutation: WIN/improvement comes from **gradient-tracking responsiveness via NS5 desmoothing**, NOT from larger effective steps. **Programme finding locked in across 2 experiments (H117 + H125)**.
+
+3. **Cooldown compresses the mid-training lead** — arm_c monotonically lowest at every mid-training checkpoint (steps 500-2500), peak gap −0.068 below CTRL at step 1500 and −0.050 at step 2000. By step 3325 the spread is just 0.0021. **Cosine cooldown's lr→0 erases low-µ advantage regardless of endpoint**. Directly motivates H133 cooldown SHAPE sweep (fern's own suggestion #3).
+
+4. **Smoothly ramped µ ≠ constant µ at the same value** — arm_c terminal µ=0.84 sits exactly at H121's catastrophic-NEG boundary (constant µ=0.85 was +0.022 NEG), yet arm_c is within widened CTRL dispersion. **Cross-experiment refinement**: the ramp lets the optimizer adapt as smoothing weakens; constant µ=0.84 from step 0 would (per H121) destabilize NS5 input. Validates schedule-as-mechanism over static-µ-as-mechanism reading.
+
+**6-axis joint µ-domain closure** (H95/H109/H117/H121/H125):
+- H95: constant µ floor [0.85, 0.98]
+- H109: increasing µ schedule NEG (Sutskever falsified UPWARD direction)
+- H117: decreasing µ to 0.90 WIN (mechanism: NS5 desmoothing)
+- H121: pruning µ to 0 catastrophic (NS5(µ-smoothed buffer) > NS5(g_t))
+- H125: deeper endpoints (0.88, 0.84) NULL — endpoint axis closed at 0.90
+
+Inner-µ axis comprehensively bounded.
+
+**Operational commendation** (3rd consecutive gold-standard µ-schedule cycle from fern: H109 → H117 → H125):
+1. Per-arm chain decision discipline (arm_b/arm_c launched only after arm_a clean)
+2. Gold-standard mid-training diagnostic (8-checkpoint × 3-arm × delta-table) — H117 template now firmly programme-level
+3. Sutskever mechanism-refutation telemetry maintained across 2 PRs — programme template
+4. Mid-training crossing-point analysis (step 125 for arm_b, step 375 for arm_c — step-anchored not endpoint-anchored)
+5. Cross-experiment refinement of H121 boundary (constant vs ramped µ behavior)
+6. Honest mid-result reporting (acknowledged arm_b NULL early, didn't oversell arm_c borderline result)
+
+---
+
 ## 2026-05-24 20:30 UTC — PR H132 ASSIGNED (edward): NS5 Polynomial Coefficient Sweep within Quintic Family (first-ever ablation of (a,b,c)=(2,-1.5,0.5) themselves)
 
 - Branch: `g1r3-edward/h132-ns5-polynomial-coefficient-sweep`
