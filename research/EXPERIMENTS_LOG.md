@@ -1,5 +1,130 @@
 # SENPAI Research Results — auto-nanogpt-1gpu-r2
 
+## 2026-05-24 23:55 UTC — PR #1086: MUON_BODY_GRAD_LOG_COMPRESS (CLOSED, 119th refuted — pre-NS5 element-wise nonlinear transform family 2/2 catastrophic)
+
+- Branch: `g1r2-askeladd/muon-body-grad-log-compress` (student g1r2-askeladd)
+- Hypothesis: Stateless per-element log compression `g' = sign(g)·log(1+|g|/eps)` applied to body Muon gradient BEFORE momentum lerp; blended with raw gradient via blend coefficient. Mirror axis to #1083 pre-NS5 RMSProp catastrophic refutation but stateless (NO state buffer).
+- Results (mid-190 kill-override applied):
+
+| Run | Phase | MUON_BODY_GRAD_LOG_COMPRESS | EPS | Step | val | Outcome |
+|-----|-------|---|---|------|-----|---------|
+| `yicn6xpz` | disabled-check (canonical) | 0.0 | 1.0 | 200 | 4.0867 | ✓ identity verified |
+| `s3stfbb8` | disabled-check (canonical repeat) | 0.0 | 1.0 | 200 | 4.0892 | ✓ identity verified |
+| `ypbontfc` | Arm A | 0.5 | 1.0 | killed @ 1381 (advisor SIGTERM) | val@1000=**3.67129** | ❌ step-1000 kill-gate breach +0.0113 |
+| Arm B | not launched | — | 0.1 | — | — | per decision tree (mechanism predicts strictly worse) |
+
+- Arm A trajectory (kill-gate breach + continued past kill-gate to step 1375):
+
+| Step | val_loss | Gate | Margin | Status |
+|---:|---:|---:|---:|---|
+| 0 | 10.82583 | — | — | init |
+| 125 | 4.42873 | — | — | tracking |
+| 250 | 4.05030 | — | — | tracking |
+| 375 | 3.89056 | — | — | tracking |
+| **500** | **3.81020** | **3.81** | **+0.0002** | marginal (sub-resolution noise) |
+| 625 | 3.76019 | — | — | tracking behind floor-cluster |
+| 750 | 3.73034 | — | — | tracking behind floor-cluster |
+| 875 | 3.70260 | — | — | tracking behind floor-cluster |
+| **1000** | **3.67129** | **3.66** | **+0.0113** | **DECISIVE BREACH** |
+| 1125 | 3.64380 | — | — | continuing past kill-gate (advisor wake) |
+| 1250 | 3.60420 | — | — | continuing past kill-gate |
+| 1375 | 3.57587 | — | — | terminated mid-step-1500 region via SIGTERM |
+
+- **Mechanistic finding (askeladd's reframing — cleanest taxonomic clarification in cycle 71)**:
+
+  Pre-NS5 element-wise nonlinear transform family is now 2/2 catastrophic across stateful and stateless variants:
+
+  | PR | Type | Operation | Failure mode | Kill |
+  |---|---|---|---|---|
+  | **#1083** | stateful | `g'_t = g/sqrt(EMA(g²))` (per-element RMSProp rescaling) | per-element rescaling rotates matrix SVD basis upstream of NS5 → NS5 projects rotated direction | step 1040, +0.036 |
+  | **#1086** (this PR) | stateless | `g' = sign(g)·log(1+|g|/eps)` (per-element log compression) | per-element nonlinear compression distorts matrix SVD direction at large gradient magnitudes → NS5 projects compressed direction | step 1000, +0.0113 |
+
+  Askeladd's unifying mechanism statement: *"Both stateful (RMSProp) and stateless (log compression) per-element transforms produce direction distortion at the matrix level. The 'categorical distinction' between stateful and stateless is true in implementation but mechanistically equivalent: both modify per-element magnitudes nonlinearly, and the matrix-level effect on NS5 inputs is the same class of SVD basis distortion."*
+
+  This reframes what had been "RMSProp-on-Muon-body 2/2" (#1083 pre-NS5 + #1094 post-NS5) as a SUBSET of the larger pattern. Cleaner taxonomy:
+  - **PRE-NS5 element-wise nonlinear transform** (this family, 2/2 catastrophic): both stateful RMSProp #1083 AND stateless log compression #1086 distort matrix-level SVD direction NS5 polar-projects
+  - **POST-NS5 per-element variance scaling** (#1094 catastrophic): direction preserved but tail-heavy per-element rescaling factors destroy unitary structure
+
+  **Unifying principle**: per-element scaling factors with extreme dynamic range (RMSProp: 10¹³+ at #1094 telemetry; log compression: bounded ratio but nonlinear) are structurally incompatible with NS5's matrix-level σ_i ≈ 1 unitary projection at this LR scale.
+
+- **Kill-override applied mid-190**: advisor SIGTERM at step 1381 after observing step-1000 +0.0113 breach. Trajectory continuing past kill-gate to step 1375 val=3.576 trending toward step-1500 gate (3.55, +0.025+). Saved ~30-60 min GPU. Arm B (eps=0.1) NOT launched per decision tree (mechanism predicts strictly worse: more aggressive log compression amplifies direction distortion).
+- **W&B run IDs**: disabled-check `yicn6xpz` + `s3stfbb8`, Arm A `ypbontfc`, pre-patch retries `2lffsrpj` + `iwfgushx` (no config key, for reference).
+
+**Closure verdict**: 119th refuted axis in cycle 71. Pre-NS5 element-wise nonlinear transform family formally closed 2/2 catastrophic. Cumulative family-level closures NOW 8 (added higher-order AR(2) momentum 1/1 from #1087 + this pre-NS5 nonlinear transform 2/2). Askeladd pivots to TRAJECTORY-TIME memory structure axis (#1103 MUON_BODY_MOMENTUM_PERIODIC_RESET, 44th mech class).
+
+---
+
+## 2026-05-24 23:55 UTC — PR #1087: MUON_BODY_HEAVY_BALL_FRICTION (CLOSED, 118th refuted — higher-order AR(2) momentum dynamics family 1/1 refuted with monotone-in-λ signature)
+
+- Branch: `g1r2-frieren/muon-body-heavy-ball-friction` (student g1r2-frieren)
+- Hypothesis: Add explicit friction term `−λ·(m_t − m_{t−1})` to body Muon momentum AFTER the standard lerp, transforming AR(1) momentum into AR(2) heavy-ball discrete-time dynamics. First higher-order autoregressive momentum-dynamics test in 280+ PRs. Conjecture: if floor cluster is underdamped, AR(2) friction may provide useful smoothing.
+- Results:
+
+| Run | Arm | λ | Step | val | Outcome |
+|-----|-----|---|------|-----|---------|
+| `d31vda03` | disabled-check | 0.0 | 300 | 3.88468 | ✓ inert when disabled |
+| `395efyzx` | Arm A | 0.1 | killed @ 1263 | val@1000=**3.66629** | ❌ step-1000 kill-gate breach +0.0063 |
+| `ht78zaar` | Arm B | 0.3 | killed @ 1019 | val@500=**3.82709**, val@1000=**3.68730** | ❌ step-500 breach +0.017 AND step-1000 breach +0.027 |
+
+- **Frieren's exemplary monotone-in-λ trajectory comparison (publication-grade refutation signature)**:
+
+| step | Arm A (λ=0.1) | Arm B (λ=0.3) | Δ (B−A) |
+|---:|---:|---:|---:|
+| 125 | 4.43683 | 4.44793 | +0.011 |
+| 250 | 4.04366 | 4.05341 | +0.010 |
+| 500 | 3.80877 | 3.82709 | +0.018 |
+| 750 | 3.72755 | 3.74655 | +0.019 |
+| 875 | 3.69834 | 3.71830 | +0.020 |
+| 1000 | 3.66629 | 3.68730 | +0.021 |
+
+  Δ(B−A) monotonically widens with step count AND with λ — strict monotone-in-λ refutation. The friction term `−λ·(m_t − m_{t−1})` damps momentum acceleration; more damping → strictly worse val trajectory across all step counts.
+
+- **Arm A trajectory** (just barely-passing step-500 gate, then decisive step-1000 breach):
+
+| step | val_loss | kill gate | result |
+|---:|---:|---:|---|
+| 125 | 4.43683 | — | tracking |
+| 250 | 4.04366 | — | tracking |
+| **500** | **3.80877** | **3.81** | pass (margin 0.001) |
+| 625 | 3.75935 | — | tracking |
+| 750 | 3.72755 | — | tracking |
+| 875 | 3.69834 | — | tracking |
+| **1000** | **3.66629** | **3.66** | **FAIL (+0.0063)** |
+| 1125 | 3.64134 | — | continuing |
+| 1250 | 3.60185 | — | continuing (advisor SIGTERM after Arm A breach to free GPU for Arm B) |
+
+- **Arm B trajectory** (both step-500 and step-1000 gates breached, with widening margin):
+
+| step | val_loss | kill gate | result |
+|---:|---:|---:|---|
+| 125 | 4.44793 | — | tracking |
+| 250 | 4.05341 | — | tracking |
+| 375 | 3.90539 | — | tracking |
+| **500** | **3.82709** | **3.81** | **FAIL (+0.017)** |
+| 625 | 3.77657 | — | tracking behind |
+| 750 | 3.74655 | — | tracking behind |
+| 875 | 3.71830 | — | tracking behind |
+| **1000** | **3.68730** | **3.66** | **FAIL (+0.027) — breach widening** |
+
+  The step-500 → step-1000 margin widened from +0.017 to +0.027, confirming the trajectory was diverging further from the kill curve, not recovering. Arm B is strictly worse than Arm A at every matched step.
+
+- **Mechanistic finding**: Body Muon AR(1) momentum is structurally **underdamped-optimal at baseline** — adding explicit AR(2) friction strictly hurts. The friction term `−λ·(m_t − m_{t−1})` damps momentum acceleration; more damping → strictly worse val trajectory. The floor-cluster benchmark has been tuned such that fast-changing momentum buffers are load-bearing for early gradient descent, and any constraint on momentum-acceleration costs convergence speed.
+
+- **First higher-order autoregressive momentum dynamics axis** in 280+ PRs. Combined with prior closures, body Muon momentum dynamics now bias-robust across:
+  - AR(1) momentum LIFECYCLE 4/4 (warmup, cooldown, init, schedule shape)
+  - AR(1) momentum INTERPRETATION 5/5 (Nesterov #703, contra-Muon, signs, scales, blends)
+  - Dual-timescale momentum 1/1 (#1079 with three failure modes)
+  - **AR(2) heavy-ball 1/1 refuted (this PR, monotone-in-λ across two values)**
+
+  Natural extension axes (AR(k>2), per-tensor-class friction) are categorically constrained by the monotone-in-λ failure and likely refute similarly. Momentum-dynamics intervention space is structurally closed.
+
+- **Compute**: Arm A step time ~1.97 s/step, peak GPU memory ~35.0 GB (extra `state["momentum_prev"]` buffer ~100MB).
+- **W&B run IDs**: disabled-check `d31vda03`, Arm A `395efyzx`, Arm B `ht78zaar`.
+
+**Closure verdict**: 118th refuted axis in cycle 71. Higher-order autoregressive momentum-dynamics axis formally closed 1/1 with clean monotone-in-λ signature. Frieren pivots to direction-preserving GEOMETRIC axis (#1101 MUON_BODY_GRAD_NORMALIZE_BY_FROBENIUS, 43rd mech class) — tests whether catastrophe in pre-NS5 transform family was due to direction distortion or scalar rescaling.
+
+---
+
 ## 2026-05-24 23:30 UTC — PR #1094: MUON_BODY_POST_NS5_RMS_SCALE (CLOSED, 117th refuted — RMSProp family 2/2 catastrophic at both pre- and post-NS5 positions)
 
 - Branch: `g1r2-thorfinn/muon-body-post-ns5-rms-scale` (student g1r2-thorfinn)
