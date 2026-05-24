@@ -1,5 +1,36 @@
 # SENPAI Research Results
 
+## 2026-05-24 23:18 UTC — PR #1060 CLOSED: Logit soft-cap tanh(logits/cap)*cap (cap=30 vs 15) — 118th NULL, 3-axis output-reg closure (g1r1-tanjiro)
+
+- Branch: `g1r1-tanjiro/logit-soft-cap`
+- Hypothesis: Constrain logit magnitudes via smooth tanh saturation `tanh(logits/cap)*cap` (Gemma 2 canonical technique) pre-CE. Distinct from LS (target modification) and CP (entropy penalty) — directly constrains LOGIT SPACE. Single-line change, val/loss evaluated with uncapped CE (benchmark contract).
+
+| Arm | cap | W&B | val/loss | sr | Delta-val vs #918 (3.266394) | Delta-sr | Verdict |
+|---|---|---|---|---|---|---|---|
+| Baseline #918 (n=2) | — (sqrt-clip @15 only) | `vm48fdof`/`0a7esmxs` | 3.266394 | 2925 | — | — | reference |
+| A (loose) | 30 | `nqsjo07o` | **3.272813** | 3050 | +0.006419 (21x past marginal) | +125 (5x past) | CLEAR NULL |
+| B (matches baseline) | 15 | `f3abiepo` | **3.266489** | 2925 | +0.000095 (0.32σ) | 0 | NOISE-FLOOR NULL |
+
+Predeclared merge rule: `sr ≤ 2912.5 OR (sr=2925 AND val<3.266394)`. Arm B fails by 0.000095 mnat.
+
+**Finding 1: Output peakedness control saturated at cap≈15.** Arm B cap=15 (matching baseline's sqrt-clip kink point) ties baseline within 0.32σ — the tanh and sqrt-clip functional forms at the same cap value produce statistically identical val/loss. The soft-cap functional form is interchangeable; the effective cap value is the load-bearing lever.
+
+**Finding 2: Looser cap (30) deactivates peakedness control → clear regression.** With baseline sqrt-clip still active at 15, Arm A's tanh at 30 is dead-weight for in-range logits. The +6.4 mnat regression likely comes from compositional interaction at the boundary, or subtle `tanh(x/30)*30 ≠ clip(x,-30,30)` differences where sqrt-clip binds. Cap=30 is definitively wrong.
+
+**Cross-axis closure — 3-axis output-regularization portfolio:**
+
+| Axis | PR | Direction | Result |
+|---|---|---|---|
+| Soft-target smoothing | #1043 fern | modify TARGET | **CATASTROPHIC linear dose-response** (115th NULL, Δval≈0.96·ε) |
+| Hard-target entropy max | #1058 frieren | modify LOSS | **CATASTROPHIC super-linear dose-response** (117th NULL) |
+| Logit soft-cap | #1060 tanjiro (this) | modify ACTIVATIONS | **NULL noise-floor at cap=15; regression at cap=30** (118th NULL) |
+
+Consistent pattern across 3 independent output-reg mechanisms: baseline's existing peakedness control (sqrt-clip @15) saturates the channel. Modifications that match or tighten it are noise-floor neutral; modifications that loosen or add pressure via different objectives are NULL-to-catastrophic.
+
+Two remaining output-reg axes in flight: #1066 askeladd Z-loss, #1090 fern focal.
+
+**118th closed axis.** Logit soft-cap axis CLOSED. tanjiro → **#1107** (polar interpolation: alpha-blend polar(m_pre) vs magnitude-matched m_pre, tests polar-projection saturation in low-rank regime per #1046 rank-deficiency canon).
+
 ## 2026-05-24 22:50 UTC — PR #1058 CLOSED: Confidence penalty (Pereyra 2017) beta=0.05 vs 0.10 — 117th NULL, CLEAR + CATASTROPHIC super-linear dose-response, 2-axis loss-reg closure (g1r1-frieren)
 
 - Branch: `g1r1-frieren/confidence-penalty`
