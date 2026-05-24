@@ -456,6 +456,8 @@ MU_WARMUP_STEPS = int(os.environ.get("MU_WARMUP_STEPS", "0"))
 MU_WARMUP_START = float(os.environ.get("MU_WARMUP_START", "0.85"))
 MUON_LR = float(os.environ.get("MUON_LR", "0.0375"))
 MUON_WEIGHT_DECAY = 0.025  # nominal; Muon.step does not apply explicit wd (u/w-floor replaces it)
+MUON_GRAD_VAR_NORM = float(os.environ.get("MUON_GRAD_VAR_NORM", "0.0"))  # 0.0 = disabled; Adam-style 2nd-moment exponent applied to grad pre-momentum
+MUON_GRAD_VAR_BETA = float(os.environ.get("MUON_GRAD_VAR_BETA", "0.99"))  # EMA decay for grad^2 second-moment buffer
 TARGET_UW = 0.35
 NORMUON_BETA2 = 0.95
 SOAP_BETA2 = 0.90
@@ -692,6 +694,12 @@ class Muon(torch.optim.Optimizer):
                                 state["trust_cos_row"] = 1.0
                                 state["trust_cos_col"] = 1.0
                     grad = p.grad
+                    if MUON_GRAD_VAR_NORM > 0:
+                        if "grad_var" not in state:
+                            state["grad_var"] = torch.zeros_like(grad)
+                        state["grad_var"].lerp_(grad * grad, 1 - MUON_GRAD_VAR_BETA)
+                        std = state["grad_var"].sqrt().clamp(min=1e-8)
+                        grad = grad / (std ** MUON_GRAD_VAR_NORM)
                     state["momentum"].lerp_(grad, 1 - group["mu"])
                     momentum_update = grad.lerp(state["momentum"], group["mu"])
                     use_soap = p in self.soap_params
@@ -857,6 +865,8 @@ if dist.get_rank() == 0:
             "optimizer/mu_warmup_start": MU_WARMUP_START,
             "optimizer/muon_lr": MUON_LR,
             "optimizer/muon_weight_decay_nominal": MUON_WEIGHT_DECAY,
+            "optim/muon_grad_var_norm": MUON_GRAD_VAR_NORM,
+            "optim/muon_grad_var_beta": MUON_GRAD_VAR_BETA,
             "optimizer/target_uw": TARGET_UW,
             "optimizer/normuon_beta2": NORMUON_BETA2,
             "optimizer/soap_beta2": SOAP_BETA2,
