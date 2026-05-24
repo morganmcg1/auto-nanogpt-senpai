@@ -61,6 +61,16 @@ def parse_args():
                              "--ema_beta_target during cooldown, coupling β to the LR schedule. "
                              "Requires --ema_beta>0. β_t = ema_beta + (ema_beta_target - ema_beta) "
                              "× (1 - lr_mult_t).")
+    parser.add_argument("--gamma_pre_schedule", type=str, default="constant",
+                        choices=["constant", "ramp_up", "ramp_down"],
+                        help="γ_pre (PMuon bilateral whitening exponent) temporal schedule. "
+                             "'constant' = PMUON_GAMMA=0.4 throughout (baseline). "
+                             "'ramp_up' = linear γ_pre = gamma_pre_lo → gamma_pre_hi over all train_steps. "
+                             "'ramp_down' = linear γ_pre = gamma_pre_hi → gamma_pre_lo over all train_steps.")
+    parser.add_argument("--gamma_pre_lo", type=float, default=0.2,
+                        help="Lower bound for γ_pre ramp endpoints (default 0.2).")
+    parser.add_argument("--gamma_pre_hi", type=float, default=0.4,
+                        help="Upper bound for γ_pre ramp endpoints (default 0.4 = PMUON_GAMMA).")
     args = parser.parse_args()
     args.num_trials = args.num_trials if args.num_trials is not None else (args.legacy_num_trials or 1)
     args.wandb_tags = [tag.strip() for tag in args.wandb_tags.split(",") if tag.strip()]
@@ -717,6 +727,9 @@ if dist.get_rank() == 0:
             "ema_warmup_steps": args.ema_warmup_steps,
             "ema_beta_target": args.ema_beta_target if args.ema_beta_target is not None else 0.0,
             "ema_dynamic_ramp_active": int(args.ema_beta_target is not None and args.ema_beta > 0),
+            "gamma_pre_schedule": args.gamma_pre_schedule,
+            "gamma_pre_lo": args.gamma_pre_lo,
+            "gamma_pre_hi": args.gamma_pre_hi,
         },
     )
 
@@ -797,6 +810,18 @@ for trial_idx in range(args.num_trials):
         hi = max(args.ema_beta, args.ema_beta_target)
         return max(lo, min(hi, beta_t))
 
+    def compute_gamma_pre(step, schedule, lo=0.2, hi=0.4, num_steps=train_steps):
+        """Linear γ_pre schedule across all training steps."""
+        if schedule == "constant":
+            return PMUON_GAMMA
+        frac = step / max(1, num_steps - 1)
+        frac = min(max(frac, 0.0), 1.0)
+        if schedule == "ramp_up":
+            return lo + (hi - lo) * frac
+        if schedule == "ramp_down":
+            return hi - (hi - lo) * frac
+        return PMUON_GAMMA
+
     def set_hparams(step, cooldown_frac=0.7):
         progress = step / train_steps
         assert 0 <= progress < 1
@@ -810,7 +835,12 @@ for trial_idx in range(args.num_trials):
         for opt in optimizers:
             for group in opt.param_groups:
                 group["lr"] = group["initial_lr"] * eta
-        return progress, cooldown_progress, eta
+        gamma_now = compute_gamma_pre(
+            step, args.gamma_pre_schedule, lo=args.gamma_pre_lo, hi=args.gamma_pre_hi, num_steps=train_steps
+        )
+        for group in optimizer2.param_groups:
+            group["gamma"] = gamma_now
+        return progress, cooldown_progress, eta, gamma_now
 
 
     ########################################
@@ -947,7 +977,7 @@ for trial_idx in range(args.num_trials):
         dist.all_reduce(step_loss, op=dist.ReduceOp.SUM)
         train_loss = float((step_loss / batch_size).item())
         # set optimization hyperparameters and take a step
-        sched_progress, sched_cooldown_progress, sched_eta = set_hparams(step)
+        sched_progress, sched_cooldown_progress, sched_eta, sched_gamma_pre = set_hparams(step)
         train_step = step + 1
         telemetry_due = (step == 0 or (step + 1) % args.telemetry_interval == 0 or step + 1 == train_steps)
         histogram_due = (step == 0 or (step + 1) % args.histogram_interval == 0 or step + 1 == train_steps)
@@ -1033,6 +1063,7 @@ for trial_idx in range(args.num_trials):
                 "train/cooldown/cooldown_progress": sched_cooldown_progress,
                 "train/cooldown/lr_multiplier": sched_eta,
                 "train/cooldown/power_gamma": COOLDOWN_POWER,
+                "pmuon/gamma_pre_t": sched_gamma_pre,
             }, step=wandb_step)
             if ema_params is not None:
                 wandb.log({
@@ -1050,7 +1081,7 @@ for trial_idx in range(args.num_trials):
                     "ema/ramp_enabled": int(args.ema_beta_target is not None),
                 }, step=wandb_step)
         if dist.get_rank() == 0 and (train_step % 100 == 0 or train_step == train_steps):
-            spec = pmuon_spectral_diag(optimizer2, PMUON_GAMMA)
+            spec = pmuon_spectral_diag(optimizer2, sched_gamma_pre)
             if spec:
                 spec["trial"] = trial_idx
                 spec["train/step"] = train_step
