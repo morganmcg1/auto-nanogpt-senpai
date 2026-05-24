@@ -56,16 +56,17 @@ NANOGPT_EMBED_INIT_ANCHOR_LAMBDA=0.001   ← NEW post-#847: post-AdamW hook, emb
 
 ### New assignments this cycle (1)
 
-- **PR #TBD alphonse** — fresh-axis hypothesis pending researcher-agent return (backgrounded). Strong candidates being researched: NS coefficient (a, b, c) static value perturbation sweep (only schedule tested via #290); per-tensor adaptive NS iteration count; alternative NS polynomial families; or other genuinely structural axes from the durable backlog.
+- **PR #1008 alphonse** — **NS static-c operating-point sweep (4-arm: off/c0.65/c0.70/c0.40)**. Tests whether a fixed static c value (the one-parameter NS polynomial family: a=1.5+c, b=-0.5-2c) at a different operating point outperforms the merged `linear_ramp_down` schedule. Fresh axis: #290 only tested constant (c=0.5) vs ramp schedule shapes; static c=0.65/0.70/0.40 as sustained constants across all 3350 steps are genuinely untested. Theoretical grounding: Shulgin et al. (CPAL 2026) shows NS precision coupled with LR/momentum on nanoGPT scale; Kim & Oh (ICLR 2026) shows convergence improves doubly-exponentially with polynomial precision. Mechanism-distinct from all closed NS-schedule axes (#290 ramp-down merged, #787 stochastic-spread merged). Cheap implementation: 3 elif branches in `get_ns_coef_at_iter`.
 
 ### Active chains (as of 05:05 UTC May 24, cycle 204)
 
 | PR | Student | Hypothesis | Run | state | step | val/loss | ETA |
 |:---:|:---:|---|---|:---:|:---:|:---:|:---:|
-| #967 | askeladd | AdamW aux β₂ anneal Arm B (re-parented) | `pd25zsdp` | running | ~2700 | descent | B terminal soon, C+D thereafter |
-| #980 | edward | Muon μ cooldown anneal Arm B | `344uvcwt` | running | tbd | tbd | B ~05:55, C ~07:45, D ~09:35 UTC |
+| **#1008** | **alphonse** | **NS static-c op-point sweep** | pending pickup | — | — | — | — |
+| #967 | askeladd | AdamW aux β₂ anneal | `pd25zsdp` | **finished** Arm B | 3350 | **3.2686** | C+D sequential thereafter |
+| #980 | edward | Muon μ cooldown anneal Arm B | `344uvcwt` | running | ~335 | 4.08 early | B ~07:00, C+D thereafter |
 | #982 | nezuko | Per-block-type Muon μ FASTER mlp | pending pickup | — | — | — | — |
-| #984 | thorfinn | SF-AdamW for aux Arm A retry | `hz7n0ex8` | running | ~2700 | descent | A terminal ~05:25 UTC, chain ~10:00 UTC |
+| #984 | thorfinn | SF-AdamW for aux Arm A retry | `hz7n0ex8` | running | ~3150 | ~3.28 | terminal ~05:25 UTC |
 | #988 | tanjiro | AdamW state reset at cooldown boundary | pending pickup | — | — | — | — |
 | #998 | frieren | Muon body momentum reset timing | pending pickup | — | — | — | — |
 | #1003 | fern | Per-block-TYPE Muon LR mult cooldown anneal | pending pickup | — | — | — | — |
@@ -78,8 +79,8 @@ Adds **#956 (lm_head per-row max-norm soft-clamp, productive-NEG monotone-regres
 
 - D-Adaptation (Muon-side theoretical baggage)
 - Prodigy adaptive LR
-- NS coefficient (a, b, c) **static value perturbation sweep** (only schedule ramp-down tested in #290) ← strong candidate for alphonse
-- Per-tensor adaptive NS iteration count based on spectral residual ← strong candidate
+- NS coefficient static-c value sweep → **#1008 IN FLIGHT** (alphonse)
+- Per-tensor adaptive NS iteration count based on spectral residual ← next candidate
 - Alternative NS polynomial families (Chebyshev-derived, higher-order) ← fresh structural axis
 - LR-coupled momentum decay (μ ∝ lr(t))
 - AdamW eps cooldown anneal UP (opposite of closed #652 DOWN)
@@ -94,7 +95,7 @@ Adds **#956 (lm_head per-row max-norm soft-clamp, productive-NEG monotone-regres
 - **#944 tanjiro** CLOSED productive-NEG. Reassigned → #988.
 - **#963 frieren** CLOSED productive-NEG (monotone-worsening). Reassigned → #998.
 - **#919 fern** CLOSED productive-NULL (canonical N=1→PP magnitude collapse). Reassigned → #1003.
-- **#956 alphonse** [this cycle] CLOSED productive-NEG (monotone-regressive). Reassigned → PR #TBD.
+- **#956 alphonse** [this cycle] CLOSED productive-NEG (monotone-regressive). Reassigned → **PR #1008** NS static-c op-point sweep.
 
 ---
 
