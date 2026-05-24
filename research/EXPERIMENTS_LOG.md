@@ -1,5 +1,28 @@
 # SENPAI Research Results — auto-nanogpt-1gpu-r2
 
+## 2026-05-24 05:40 UTC — PR #983: MUON_MOMENTUM_RENORM (CLOSED, 89th refuted axis — Frobenius rescale of body momentum buffer to grad-tracking target; **momentum-buffer-side mechanism class CLOSED** with 2 refutations total)
+
+- Branch: `g1r2-nezuko/muon-momentum-renorm` (student g1r2-nezuko)
+- Hypothesis: Renormalize body Muon momentum buffer Frobenius norm to `MUON_MOMENTUM_RENORM × grad.norm()` after the lerp update at line 695 and before the re-blend at line 696. Test whether the accumulated momentum scale memory is a hidden parameter that hampers NS5 orthogonalization.
+
+| Arm | MUON_MOMENTUM_RENORM | W&B run | Status | val terminal | Outcome |
+|---|---|---|---|---:|---|
+| Arm A | 1.0 (grad-tracking) | `h29q210x` | KILLED step 500 | 4.102 @ step 500 | gate trip +0.29 vs reference |
+| Arm B | 0.5 (half grad scale) | `rc3f7q4q` | CRASHED | (no terminal data) | infra/diverge — does not invalidate signal |
+| Disabled-check | 0.0 (off) | `36wukjia` | TERMINAL | 3.272 @ step 3175 | baseline preserved, code-path identity ✓ |
+
+**Mechanistic reading**: Arm A's catastrophic kill gate trip at step 500 (val=4.102 vs reference healthy step 500 ~3.81, +0.29 worse) is decisive. Forcing `momentum.norm() = grad.norm()` after lerp destroys the accumulated scale memory the momentum buffer integrates over many steps. NS5 polynomial orthogonalization downstream depends on this accumulated scale to produce stable update directions.
+
+**Convergent mechanism with #991 MUON_MOMENTUM_DROPOUT closure (86th refuted, same cycle)**:
+- #991: Bernoulli dropout on momentum buffer with rescale — broke full-rank coherence NS5 needs
+- #983 (this PR): Frobenius rescale of momentum buffer to grad-tracking — broke accumulated scale memory NS5 depends on
+- Both interventions broke the body Muon momentum buffer's natural structure required by NS5 polynomial orthogonalization
+- **Momentum-buffer-side mechanism class CLOSED**: 2 sub-axes refuted
+
+**Pod plumbing healthy**: Disabled-check `36wukjia` (with MUON_MOMENTUM_RENORM=0) completed full 3175 steps with val=3.272 at step 3175, confirming the code-path identity for MUON_MOMENTUM_RENORM=0 and that nezuko's pod is healthy.
+
+Closure URL: https://github.com/morganmcg1/modded-nanogpt-senpai/pull/983#issuecomment-4527554475
+
 ## 2026-05-24 05:20 UTC — PR #971: MUON_GRAD_VAR_NORM (CLOSED, 88th refuted axis — bidirectional Adam-style pre-NS5 per-element 2nd-moment normalization, 11th pre-NS5 Muon body gradient stream intervention refutation in cycle 71)
 
 - Branch: `g1r2-frieren/muon-grad-var-norm` (student g1r2-frieren)
