@@ -61,6 +61,13 @@ def parse_args():
                              "--ema_beta_target during cooldown, coupling β to the LR schedule. "
                              "Requires --ema_beta>0. β_t = ema_beta + (ema_beta_target - ema_beta) "
                              "× (1 - lr_mult_t).")
+    parser.add_argument("--swa_cooldown_alpha", type=float, default=0.0,
+                        help="SWA partial blend coefficient at cooldown_start: "
+                             "p_new = (1-α)*p_live + α*p_SWA. 0=disabled (baseline).")
+    parser.add_argument("--swa_cooldown_window", type=int, default=0,
+                        help="Documentation knob: number of steps prior to cooldown_start "
+                             "to average for p_SWA. 0 (default) means use ALL stable-phase "
+                             "steps via running-sum (cooldown_frac=0.7 ⇒ ~975 steps).")
     args = parser.parse_args()
     args.num_trials = args.num_trials if args.num_trials is not None else (args.legacy_num_trials or 1)
     args.wandb_tags = [tag.strip() for tag in args.wandb_tags.split(",") if tag.strip()]
@@ -717,6 +724,9 @@ if dist.get_rank() == 0:
             "ema_warmup_steps": args.ema_warmup_steps,
             "ema_beta_target": args.ema_beta_target if args.ema_beta_target is not None else 0.0,
             "ema_dynamic_ramp_active": int(args.ema_beta_target is not None and args.ema_beta > 0),
+            "swa_cooldown_alpha": args.swa_cooldown_alpha,
+            "swa_cooldown_window": args.swa_cooldown_window,
+            "swa_cooldown_enabled": int(args.swa_cooldown_alpha > 0),
         },
     )
 
@@ -771,6 +781,20 @@ for trial_idx in range(args.num_trials):
     ema_params = None
     if args.ema_beta > 0:
         ema_params = [p.detach().float().clone() for p in optimizer2.param_groups[0]["params"]]
+
+    # SWA partial blend at cooldown_start (body-Muon matrix params only).
+    # Running-sum buffer accumulates post-step weights every step during the
+    # stable phase (step < cooldown_start_step). At step==cooldown_start_step,
+    # we compute p_swa = swa_sum / swa_count, then blend:
+    #   p_new = (1 - α) * p_live + α * p_swa
+    # All AdamW-managed params (embed, lm_head, scalars) are excluded.
+    swa_enabled = args.swa_cooldown_alpha > 0
+    cooldown_start_step = int(train_steps * (1 - 0.7))  # 975 for train_steps=3250, cooldown_frac=0.7
+    swa_sum = []
+    swa_count = 0
+    if swa_enabled:
+        swa_sum = [torch.zeros_like(p, dtype=torch.float32)
+                   for p in optimizer2.param_groups[0]["params"]]
 
     # learning rate schedule: stable then power-law cooldown (gamma = COOLDOWN_POWER)
     def compute_lr_mult(step, cooldown_frac=0.7):
@@ -976,6 +1000,46 @@ for trial_idx in range(args.num_trials):
             )
         for opt in optimizers:
             opt.step()
+        # SWA partial blend at cooldown_start. Body-Muon matrix params only.
+        # Accumulate stable-phase post-step snapshots, then at step==cooldown_start_step
+        # apply p_new = (1 - α) * p_live + α * p_swa, where p_swa = swa_sum / swa_count.
+        swa_blend_fired = False
+        swa_frob_dist_live_to_swa = float("nan")
+        swa_frob_dist_post_blend_to_live = float("nan")
+        if swa_enabled:
+            if step < cooldown_start_step:
+                with torch.no_grad():
+                    for buf, p in zip(swa_sum, optimizer2.param_groups[0]["params"]):
+                        buf.add_(p.detach().float())
+                    swa_count += 1
+            elif step == cooldown_start_step:
+                with torch.no_grad():
+                    # Compute pre-blend diagnostics: ||p_live - p_swa||_F (aggregated).
+                    sq_live_to_swa = 0.0
+                    sq_post_to_live = 0.0
+                    alpha = args.swa_cooldown_alpha
+                    for buf, p in zip(swa_sum, optimizer2.param_groups[0]["params"]):
+                        p_swa = buf / swa_count
+                        live_minus_swa = p.detach().float() - p_swa
+                        sq_live_to_swa += float(live_minus_swa.square().sum().item())
+                        # Post-blend - live = (1-α)*p_live + α*p_swa - p_live = α*(p_swa - p_live)
+                        # Frobenius norm = α * ||p_swa - p_live||_F (per-tensor; sum-of-squares aggregate)
+                        sq_post_to_live += float(((alpha) ** 2) * live_minus_swa.square().sum().item())
+                        # Apply blend in-place.
+                        p.data.mul_(1.0 - alpha).add_(p_swa.to(p.dtype), alpha=alpha)
+                    swa_frob_dist_live_to_swa = sq_live_to_swa ** 0.5
+                    swa_frob_dist_post_blend_to_live = sq_post_to_live ** 0.5
+                    swa_blend_fired = True
+                if dist.get_rank() == 0:
+                    print0(
+                        f"[step {step}] SWA cooldown blend: α={args.swa_cooldown_alpha}"
+                        f" K={swa_count} snapshots"
+                        f" frob_dist_live_to_swa={swa_frob_dist_live_to_swa:.4f}"
+                        f" frob_dist_post_blend_to_live={swa_frob_dist_post_blend_to_live:.4f}",
+                        console=True,
+                    )
+                # Free buffer memory after blend; not needed for the rest of training.
+                swa_sum = []
         # EMA buffer update on body-Muon matrix params.
         # During warmup: track params live (no averaging) so post-warmup buffer is
         # seeded with stable, non-zero params (handles proj zero-init bias and lets
@@ -1049,6 +1113,39 @@ for trial_idx in range(args.num_trials):
                     "ema/active_train": int(step >= args.ema_warmup_steps),
                     "ema/ramp_enabled": int(args.ema_beta_target is not None),
                 }, step=wandb_step)
+            if swa_enabled:
+                # Per-step SWA telemetry: snapshot count + sanity check on accumulating buffer.
+                swa_metrics = {
+                    "trial": trial_idx,
+                    "train/step": train_step,
+                    "swa/alpha": args.swa_cooldown_alpha,
+                    "swa/cooldown_start_step": cooldown_start_step,
+                    "swa/snapshot_count": swa_count,
+                    "swa/blend_done": int(step > cooldown_start_step or swa_blend_fired),
+                }
+                # Sanity: norm of running-mean for first body-Muon param. Pre-blend only.
+                if step < cooldown_start_step and swa_count > 0 and len(swa_sum) > 0:
+                    swa_metrics["swa/sum_mean_norm_first_param"] = float(
+                        (swa_sum[0] / swa_count).norm().item()
+                    )
+                wandb.log(swa_metrics, step=wandb_step)
+        if swa_enabled and swa_blend_fired and dist.get_rank() == 0:
+            # One-shot blend event diagnostics. Logged at any rank-0 step regardless of
+            # telemetry_due so we always capture the blend transition.
+            wandb.log({
+                "trial": trial_idx,
+                "train/step": train_step,
+                "swa/blend_event": 1.0,
+                "swa/blend_step": step,
+                "swa/blend_alpha_used": args.swa_cooldown_alpha,
+                "swa/blend_snapshot_count": swa_count,
+                "swa/frob_dist_live_to_swa": swa_frob_dist_live_to_swa,
+                "swa/frob_dist_post_blend_to_live": swa_frob_dist_post_blend_to_live,
+                "swa/frob_dist_ratio_post_to_pre": (
+                    swa_frob_dist_post_blend_to_live / swa_frob_dist_live_to_swa
+                    if swa_frob_dist_live_to_swa > 0 else 0.0
+                ),
+            }, step=wandb_step)
         if dist.get_rank() == 0 and (train_step % 100 == 0 or train_step == train_steps):
             spec = pmuon_spectral_diag(optimizer2, PMUON_GAMMA)
             if spec:
