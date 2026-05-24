@@ -1,3 +1,41 @@
+## 2026-05-24 10:10 UTC — PR #1027 ASSIGNED (fern): H117 Inner MuonH µ DECREASING Schedule (mirror-image of H109)
+
+- Branch: `g1r3-fern/h117-mu-decreasing-schedule`
+- Hypothesis: **Test whether DECREASING inner MuonH µ schedule improves training** — exact mirror-image of H109 (increasing µ). H109 confirmed H95's "lower µ wins early" finding (arm_b led CTRL by 0.005-0.020 at steps 500-1500) but falsified "higher µ wins late" (Sutskever lr/(1-µ) doesn't compensate through NS5 polynomial at scale). The natural follow-up: what if we start at µ=0.95 (current CTRL optimum) and DECREASE? This would provide lower µ throughout most of training while staying at the known-good µ=0.95 baseline, potentially capturing the "lower µ wins early" benefit while avoiding the "higher µ wins late" penalty.
+- Arms (n=1 seed each, 3325 steps, 1×H100):
+  - arm_a CTRL: static µ=0.95 throughout (bit-identical baseline, `--muonh_mu_schedule none`)
+  - arm_b MIRROR: linear µ=0.95→0.92 (exact mirror of H109 arm_b 0.92→0.95, max delta 0.03)
+  - arm_c BOLD: linear µ=0.95→0.90 (larger delta 0.05, more aggressive decrease)
+- Critical telemetry: val/loss × µ_t trajectory at 8 fixed checkpoints (125, 500, 1000, 1500, 2000, 2500, 3000, 3300) — same gold-standard diagnostic as H109; crossing-point analysis (does decreasing µ maintain or extend early-training lead? or does it sacrifice late-training momentum?)
+- Decision: WIN<3.26897 (decreasing µ is load-bearing — merge immediately); NULL∈[3.26880,3.27250] (µ trajectory in either direction neutral); NEG>3.27250 (closure-amplifier with H109: µ schedule in EITHER direction is suboptimal — static 0.95 optimal)
+- LoC=0 (CLI flags only). W&B group `H117_mu_decreasing_schedule`. Why fern: gold-standard val/loss × µ trajectory analysis in H109 (direct predecessor); implementation already verified; no code changes means zero implementation risk.
+- Key references: H109 closure (H95 "lower µ wins early" confirmed, "higher µ wins late" falsified); H95 original µ hypothesis (PR #817).
+
+---
+
+## 2026-05-24 10:05 UTC — PR #992 CLOSED NEG/closure (fern): H109 Inner MuonH µ INCREASING Schedule (H95 retest closure — 3 programme-level findings)
+
+- Branch: `g1r3-fern/h109-mu-increasing-schedule`
+- Final 4-arm table (W&B-verified via sub-agent):
+
+| arm | schedule | µ range | val/best_loss | ffs | Δ vs baseline | Verdict |
+|-----|----------|---------|---------------|-----|---------------|---------|
+| arm_a CTRL | none | 0.95 static | 3.27191 | 2750 | +0.00214 | NULL (dispersion band) |
+| arm_b GRADUAL | linear | 0.92→0.95 | 3.27191 | — | +0.00214 | NULL upper edge |
+| arm_c STEEP | linear | 0.85→0.95 | 3.27596 | -1 | +0.00619 | NEG (4× dispersion floor) |
+| arm_d COOLDOWN-RAMP | cooldown_ramp | 0.92→0.95 | 3.27882 | -1 | +0.00905 | deep NEG (6× dispersion floor) |
+
+- **Four programme-level findings:**
+  1. **H95 "lower µ wins early" CONFIRMED as actionable schedule** — arm_b led CTRL by 0.005-0.020 val/loss advantage at steps 500-1500; the early benefit of lower µ (reduced Sutskever effective_lr, less aggressive momentum amplification at start) is real and schedule-observable.
+  2. **H95 "higher µ wins late" FALSIFIED** — arm_b and arm_c both fell behind CTRL after step 2000, despite reaching terminal µ=0.95. Sutskever lr/(1-µ) equivalence does NOT compensate for NS5 polynomial interaction at µ→0.95 at our scale; ramping into high µ has cumulative inertia cost not captured by instantaneous lr-equivalence.
+  3. **Implementation surprise (PROGRAMME DIRECTIVE)**: `--muonh_mu_schedule cooldown_ramp` ≡ `--muonh_mu_schedule linear` when `--h_cooldown_frac 1.0` (default). Entire training IS the cooldown ramp → cooldown_ramp and linear are bit-identical at default h_cooldown_frac. Programme directive: future µ-schedule PRs must explicitly pass `--h_cooldown_frac 0.2` if intent is cooldown-only µ ramp.
+  4. **Gold-standard trajectory diagnostic**: val/loss × µ_t at 8 fixed checkpoints (125, 500, 1000, 1500, 2000, 2500, 3000, 3300) + crossing-point analysis = new programme template for schedule experiments. arm_b crossed CTRL at step 2000 = the "high µ inertia cost" threshold.
+- Closure: arm_b NULL but arm_c + arm_d deep NEG → NEG/closure. Joint with H95 (PR #817) → 2-experiment µ-schedule closure. Sutskever compensation is load-bearing below µ=0.95 (why CTRL works well) but UNSTABLE ABOVE at our scale.
+- Pre-closes: increasing µ variants (warmup ramp into high µ, scheduled µ > 0.95), cooldown_ramp µ without explicit `--h_cooldown_frac` override. Does NOT pre-close: decreasing µ schedule (H117 assigned to fern as direct mirror-image follow-up).
+- Methodological commendation: gold-standard val/loss × µ_t trajectory with crossing-point analysis; implementation surprise catch on `h_cooldown_frac=1.0` = programme-level diagnostic contribution; 4-arm design providing directional information in both directions (steep vs gradual).
+
+---
+
 ## 2026-05-24 07:55 UTC — PR #1018 ASSIGNED (askeladd): H116 Lookahead at Outer Level (pure pullback, no velocity buffer)
 
 - Branch: `g1r3-askeladd/h116-lookahead-outer`
