@@ -1,5 +1,95 @@
 # SENPAI Research Results — auto-nanogpt-1gpu-r2
 
+## 2026-05-24 13:25 UTC — PR #1025: NS7_CUBIC_CONVERGENCE (CLOSED, 100th refuted — polynomial DEGREE = local optimum, NS5 polynomial layer NOW FULLY SATURATED across 5 orthogonal probes)
+
+- Branch: `g1r2-nezuko/ns7-cubic-convergence` (student g1r2-nezuko)
+- Hypothesis: Replace NS5 quadratic-convergence polynomial with NS7 cubic-convergence polynomial in the body Muon orthogonalizer (`zeropower_via_newtonschulz5`). NS7 satisfies p(1)=1, p'(1)=0, p''(1)=0 (cubic convergence at σ=1 fixed point) giving 1-parameter family parametrized by d. 21st distinct mechanism class. First polynomial DEGREE variation in 250+ PRs (vs the already-refuted SHAPE variation #1011).
+
+### Results
+
+| Arm | d | a | b | c | run | val@500 | val@1000 | val@1500 | val@2000 | Status |
+|-----|---:|---:|---:|---:|---|---|---|---|---|---|
+| disabled-check | — | — | — | — | (earlier ns_poly_degree=5 baseline runs) | — | — | — | — | ✓ Baseline preserved |
+| A | 0.05 | 1.825 | -1.1 | 0.225 | `w2o3qdu7` | 3.80220 PASS by 0.008 | 3.66230 TRIP +0.0023 | 3.53628 PASS by 0.014 | 3.42987 PASS by 0.00013 (ultra-marginal) | Killed step ~2003, step-1000 gate trip |
+| B | 0.10 | 1.775 | -0.95 | 0.075 | `b5od0bb0` | 3.80595 PASS by 0.004 | 3.66569 TRIP +0.006 | 3.53282 PASS by 0.018 | — | Killed step ~1500, step-1000 gate trip |
+
+### Analysis & conclusions
+
+- **Both arms fail step-1000 kill gate** by similar small margins (+0.0023 and +0.006). Recovery to baseline by step 1500 (both PASS by 0.014/0.018 margins).
+- **d parameter has very little leverage**: max |Δ| ≤ 0.005 across 12 common checkpoints between arms. Cubic-convergence constraint family is over-determined near this operating point; all NS7 cubic-convergence variants likely produce essentially the same trajectory.
+- **At NS5_ITERS=14 (already over-converged for NS5)**, the extra polynomial degree advantage at σ=1 fixed point does NOT translate to a training-loss improvement. The Stiefel projection is already accurate enough that the cubic-convergence advantage doesn't matter.
+- **Per-step wallclock ~1968-1972ms** vs ~1850-1900ms baseline = 4% overhead, much less than predicted 15-20%. Cost is not the bottleneck; the issue is the slightly-worse early trajectory.
+
+### NS5 polynomial layer NOW COMPLETELY CHARACTERIZED across 5 orthogonal probes
+
+| Probe | Closed at | Status |
+|---|---|---|
+| SHAPE (c coefficient) | #1011 (95th refuted) | Symmetric U-shape penalty, Higham c=0.5 = local minimum |
+| ITER COUNT | #948 / #999 | Stochastic and scheduled variations refuted |
+| INPUT NORM | #917 | Norm type variations refuted |
+| FAMILY | #1019 (96th refuted) | SVD ground-truth refuted (NS5 approx = beneficial implicit regularization) |
+| **DEGREE** | **#1025 (this PR, 100th refuted)** | **Cubic-convergence NS7 refuted** |
+
+**The NS5 polynomial abstraction layer is now demonstrated as a local optimum across every dimension tested**. Future axes must EXIT the polynomial family entirely.
+
+### Suggested follow-ups (noted for future cycle planning)
+
+1. NS7 + NS_ITERS=2-4 (speed/accuracy tradeoff at lower iter count) — interesting but lower priority given saturation
+2. Asymmetric polynomial coefficients (non-orthogonalizing polynomial with p(1)≠1) — over-projection test
+3. Higham 5-step variant — different polynomial with same degree, better σ→1 dynamics from non-uniform σ initial distributions
+
+## 2026-05-24 13:25 UTC — PR #1023: TARGET_UW_SCHEDULE (CLOSED, 101st refuted — both arms close-miss bracket, schedule cannot exceed constant baseline)
+
+- Branch: `g1r2-askeladd/target-uw-schedule` (student g1r2-askeladd)
+- Hypothesis: Schedule TARGET_UW across training instead of holding it constant at 0.35. Build on PR #1004 data showing strong phase asymmetry (TARGET_UW=0.0 helpful in warmup, TARGET_UW=0.35 helpful in cooldown). 20th distinct mechanism class. First SCHEDULE on a previously-frozen scalar.
+
+### Results
+
+| Arm | Description | run | val@500 | val@1000 | val@2000 | val@3000 | val terminal | ffs | Notes |
+|-----|---|---|---|---|---|---|---|---|---|
+| disabled-check | KIND='constant' | `fl1ew1kz` | val@200=4.087 | — | — | — | — | — | ✓ Baseline preserved |
+| A | Linear ramp 0 → 0.35 | `5z5iotjh` | 3.77404 (−0.036 PASS) | 3.58274 (−0.077 PASS) | 3.40449 (−0.026 PASS) | 3.29598 (+0.006 hairline trip) | **3.28501** | -1 | Close-miss |
+| B | Step jump 0 → 0.35 @ step 2222 | `e28racwx` | 3.77609 (−0.034 PASS) | 3.58148 (−0.079 PASS) | 3.38567 (−0.044 PASS) | 3.29845 (+0.008 trip) | **3.28647** | -1 | Close-miss; regularization shock at step 2222 |
+
+### Head-to-head Arm A vs Arm B
+
+| Step | Arm A linear | Arm B step | Δ (B − A) |
+|---|---|---|---|
+| 500 | 3.77404 | 3.77609 | +0.002 |
+| 1000 | 3.58274 | 3.58148 | −0.001 |
+| 1500 | 3.46608 | 3.46094 | −0.005 |
+| 2000 | 3.40449 | 3.38567 | −0.019 |
+| 2500 | 3.34926 | 3.36314 | **+0.014** (regularization shock from step 2222 jump) |
+| 3000 | 3.29598 | 3.29845 | +0.002 |
+| 3175 | **3.28501** | 3.28647 | +0.001 |
+
+### Analysis & conclusions
+
+- **Warmup advantage recovered** (both arms): val@500 ≈ 3.776 matches PR #1004 Arm A (TARGET_UW=0.0 constant). Both schedules successfully avoided the constant-baseline warmup penalty by holding `cur_target_uw ≈ 0.0` early.
+- **Cooldown regularization captured but insufficient**: terminal val of both arms (3.28501, 3.28647) sits ~0.015 above floor-cluster band top (3.273). The schedule's late-phase floor activation did NOT recover all of the constant baseline's late-phase regularization benefit.
+- **Step (B) vs linear (A)**: Linear is mildly preferred. Abrupt step-jump caused transient regularization shock visible at step 2500 (B fell +0.014 above A within 280 steps of the jump). Linear ramp avoids this transient.
+- **Why the close-miss?** The linear ramp from 0.0 to 0.35 means the floor is at its full strength only at the very final step. For most of training the floor is sub-baseline strength. The constant baseline TARGET_UW=0.35 pays a small warmup penalty to get sustained cooldown-phase floor at full strength — the schedule can't reproduce that without spending the same time-at-strength.
+
+### TARGET_UW axis now bracketed across constant + schedule
+
+| Mechanism | PR | Terminal val | ffs | Notes |
+|---|---|---|---|---|
+| Constant 0.0 | #1004 Arm A | 3.291 | -1 | Loses the floor's value |
+| **Constant 0.35** | **baseline** | **~3.270** | **~3025-3075** | **Floor cluster** |
+| Linear 0→0.35 | #1023 Arm A | 3.285 | -1 | Partial capture (warmup advantage but insufficient cooldown) |
+| Step 0→0.35 @70% | #1023 Arm B | 3.286 | -1 | Partial capture + regularization shock |
+
+**Constant baseline is a local optimum on this scalar; scheduling cannot improve it from these two natural directions.**
+
+### Suggested follow-ups (noted for future cycle planning)
+
+1. Front-loaded ramp end (reach 0.35 at step 0.5×total) — captures more time-at-strength
+2. TARGET_UW_END > 0.35 (over-shoot 0.45/0.50) — compensates for under-applied early phase
+3. LR-cooldown-aligned hybrid (constant 0.0 for 70%, linear ramp over final 30%) — mirrors LR dynamics
+4. STEP_FRAC sweep on Arm B (0.5/0.6 earlier jump) — gives model more time to absorb shock
+
+These follow-ups are noted but lower priority than fresh mechanism classes — axis is bracketed.
+
 ## 2026-05-24 12:05 UTC — PR #1029: MUON_MOMENTUM_RESET_WARMUP (CLOSED, 99th refuted — MONOTONE-IN-SCALE signature, buffer accumulation cumulative load-bearing not transient contamination, momentum buffer LIFECYCLE class fully exhausted)
 
 - Branch: `g1r2-thorfinn/muon-momentum-reset-warmup` (student g1r2-thorfinn)
