@@ -64,6 +64,11 @@ def parse_args():
     parser.add_argument("--muon_lr", type=float, default=0.035,
                         help="Base learning rate for body-Muon optimizer (matrix params in blocks). "
                              "Default 0.035 matches the merged baseline.")
+    parser.add_argument("--pmuon_dema_beta", type=float, default=None,
+                        help="If set, enable DEMA (Double Exponential Moving Average) for "
+                             "body-Muon: cascade a second EMA at this beta on top of the "
+                             "first-stage momentum buffer before NS5. Arm A=0.95 (doubled "
+                             "horizon), Arm B=0.90 (horizon-matched to baseline 1st-order).")
     args = parser.parse_args()
     args.num_trials = args.num_trials if args.num_trials is not None else (args.legacy_num_trials or 1)
     args.wandb_tags = [tag.strip() for tag in args.wandb_tags.split(",") if tag.strip()]
@@ -500,6 +505,9 @@ def pmuon_update(
     ns_b: float = NS_B,
     ns_c: float = NS_C,
     polar_diag: dict | None = None,
+    dema_beta: float | None = None,
+    momentum2: Tensor | None = None,
+    dema_diag: dict | None = None,
 ) -> Tensor:
     # Streaming raw (unnormalized) bilateral covariance EMAs in fp32.
     g32 = grad.detach().float()
@@ -507,7 +515,24 @@ def pmuon_update(
     R_cov.mul_(beta_cov).add_(g32.T @ g32)
 
     momentum.lerp_(grad, 1 - mu)
-    update = grad.lerp_(momentum, mu) if nesterov else momentum
+    # DEMA: cascade a second EMA on top of the first-stage momentum buffer.
+    # m2_t = beta_dema * m2_{t-1} + (1 - beta_dema) * m1_t. The NS5 input becomes m2.
+    if dema_beta is not None and momentum2 is not None:
+        m1_f = momentum.float()
+        momentum2.lerp_(m1_f, 1 - dema_beta)
+        if dema_diag is not None and "cos" not in dema_diag:
+            m1_flat = m1_f.flatten().unsqueeze(0)
+            m2_flat = momentum2.flatten().unsqueeze(0)
+            dema_diag["cos"] = float(F.cosine_similarity(m2_flat, m1_flat).item())
+            m1_norm = m1_f.norm()
+            m2_norm = momentum2.norm()
+            dema_diag["frob_ratio"] = float((m2_norm / (m1_norm + 1e-12)).item())
+            dema_diag["m1_norm"] = float(m1_norm.item())
+            dema_diag["m2_norm"] = float(m2_norm.item())
+        m_ns5_input = momentum2.to(grad.dtype)
+    else:
+        m_ns5_input = momentum
+    update = grad.lerp_(m_ns5_input, mu) if nesterov else m_ns5_input
 
     L_neg = matrix_neg_power(L_cov, gamma, eps)
     R_neg = matrix_neg_power(R_cov, gamma, eps)
@@ -535,11 +560,11 @@ def pmuon_update(
 
 class Muon(torch.optim.Optimizer):
     def __init__(self, params, lr=0.02, weight_decay=0, mu=0.95, beta_cov=0.95, gamma=PMUON_GAMMA,
-                 ns_a=NS_A, ns_b=NS_B, ns_c=NS_C):
+                 ns_a=NS_A, ns_b=NS_B, ns_c=NS_C, dema_beta=None):
         assert isinstance(params, list) and len(params) >= 1 and isinstance(params[0], torch.nn.Parameter)
         params = sorted(params, key=lambda x: x.size(), reverse=True)
         defaults = dict(lr=lr, weight_decay=weight_decay, mu=mu, beta_cov=beta_cov, gamma=gamma,
-                        ns_a=ns_a, ns_b=ns_b, ns_c=ns_c)
+                        ns_a=ns_a, ns_b=ns_b, ns_c=ns_c, dema_beta=dema_beta)
         super().__init__(params, defaults)
 
     @torch.no_grad()
@@ -551,9 +576,11 @@ class Muon(torch.optim.Optimizer):
         floor_fired_count = 0
         floor_eligible_count = 0
         polar_diag: dict = {}
+        dema_diag: dict = {}
         for group in self.param_groups:
             params = group["params"]
             params_pad = params + [torch.empty_like(params[-1])] * (world_size - len(params) % world_size)
+            dema_beta = group.get("dema_beta")
             for base_i in range(0, len(params), world_size):
                 if base_i + rank < len(params):
                     p = params[base_i + rank]
@@ -562,6 +589,8 @@ class Muon(torch.optim.Optimizer):
                         state["momentum"] = torch.zeros_like(p)
                         state["L"] = torch.zeros(p.shape[0], p.shape[0], device=p.device, dtype=torch.float32)
                         state["R"] = torch.zeros(p.shape[1], p.shape[1], device=p.device, dtype=torch.float32)
+                        if dema_beta is not None:
+                            state["momentum2"] = torch.zeros_like(p, dtype=torch.float32)
                     update = pmuon_update(
                         p.grad,
                         state["momentum"],
@@ -574,6 +603,9 @@ class Muon(torch.optim.Optimizer):
                         ns_b=group["ns_b"],
                         ns_c=group["ns_c"],
                         polar_diag=polar_diag,
+                        dema_beta=dema_beta,
+                        momentum2=state.get("momentum2"),
+                        dema_diag=dema_diag,
                     )
                     floor_eligible_count += 1
                     w_norm = p.norm()
@@ -587,6 +619,7 @@ class Muon(torch.optim.Optimizer):
                 dist.all_gather(params_pad[base_i:base_i + world_size], params_pad[base_i + rank])
         self._floor_diag = {"fired": floor_fired_count, "eligible": floor_eligible_count}
         self._polar_diag = polar_diag
+        self._dema_diag = dema_diag
 
 
 def pmuon_spectral_diag(optimizer: torch.optim.Optimizer, gamma: float) -> dict[str, float]:
@@ -720,6 +753,8 @@ if dist.get_rank() == 0:
             "ema_warmup_steps": args.ema_warmup_steps,
             "ema_beta_target": args.ema_beta_target if args.ema_beta_target is not None else 0.0,
             "ema_dynamic_ramp_active": int(args.ema_beta_target is not None and args.ema_beta > 0),
+            "pmuon_dema_beta": args.pmuon_dema_beta if args.pmuon_dema_beta is not None else 0.0,
+            "pmuon_dema_active": int(args.pmuon_dema_beta is not None),
         },
     )
 
@@ -756,9 +791,13 @@ for trial_idx in range(args.num_trials):
                         dict(params=[p for p in model.parameters() if p.ndim < 2], lr=0.025, name="adam_scalars")],
                        betas=(0.8, 0.95), eps=1e-10, weight_decay=0, fused=True)
     optimizer2 = Muon([p for p in model.blocks.parameters() if p.ndim >= 2],
-                      lr=args.muon_lr, weight_decay=0.025, beta_cov=0.95, gamma=PMUON_GAMMA)
+                      lr=args.muon_lr, weight_decay=0.025, beta_cov=0.95, gamma=PMUON_GAMMA,
+                      dema_beta=args.pmuon_dema_beta)
     optimizer2.param_groups[0]["name"] = "muon_blocks"
     print0(f"body-Muon optimizer: lr={args.muon_lr} weight_decay=0.025 beta_cov=0.95 gamma={PMUON_GAMMA}")
+    if args.pmuon_dema_beta is not None:
+        print0(f"DEMA enabled: dema_beta={args.pmuon_dema_beta} "
+               f"(cascaded 2nd-order EMA before NS5, fp32 momentum2 buffer)")
     optimizers = [optimizer1, optimizer2]
     assert set(p for opt in optimizers for group in opt.param_groups
                for p in group["params"]) == set(model.parameters())
@@ -1029,6 +1068,17 @@ for trial_idx in range(args.num_trials):
                     "polar/ns_coef_a": NS_A,
                     "polar/ns_coef_b": NS_B,
                     "polar/ns_coef_c": NS_C,
+                }, step=wandb_step)
+            dema_diag = getattr(optimizer2, "_dema_diag", None)
+            if dema_diag and "cos" in dema_diag:
+                wandb.log({
+                    "trial": trial_idx,
+                    "train/step": train_step,
+                    "pmuon/dema_vs_single_cosine": dema_diag["cos"],
+                    "pmuon/dema_frob_ratio": dema_diag["frob_ratio"],
+                    "pmuon/dema_m1_norm": dema_diag["m1_norm"],
+                    "pmuon/dema_m2_norm": dema_diag["m2_norm"],
+                    "pmuon/dema_beta": args.pmuon_dema_beta if args.pmuon_dema_beta is not None else 0.0,
                 }, step=wandb_step)
             wandb.log({
                 "trial": trial_idx,
