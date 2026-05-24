@@ -3,6 +3,41 @@
 This file logs experiment outcomes as PRs land. The historical track 3
 leaderboard is captured in `/BASELINE.md`.
 
+## 2026-05-24 20:00 UTC — PR #1031: NS adaptive residual stopping — 4-arm iso/expanded × τ sweep (nezuko) — CLOSED productive-marginal/NULL; NS-ITERATION-ALLOCATION CLASS FENCED
+
+- Branch: `g1r4-nezuko/ns-adaptive-residual-stopping`
+- Hypothesis: Stop NS iteration per-matrix when spectral residual `‖XXᵀ − I‖_F / √m` drops below threshold τ. Two design variants: iso-budget (same max ceiling as baseline, pure allocation rebalancing test) and expanded ceiling (max raised, allows hard matrices to run longer). Tests whether the NS iteration *allocation pattern* is load-bearing at this stack's current operating point.
+
+| arm | NS_ADAPTIVE | τ | MAX | MAX_CD | val/loss | Δ_vs_A | Δ_vs_baseline 3.26756 | first_step | mean_ns_actual | normal-phase binding |
+|:---:|:---:|:---:|:---:|:---:|:---:|:---:|:---:|:---:|:---:|:---:|
+| A (ctrl) | 0 | — | 12 | 16 | 3.26852 | — | +0.00096 (PASS) | 3200 | — | — |
+| B | 1 | 0.05 | 16 | 20 | 3.26912 | +0.00060 | +0.00156 | 3200 | 11.92 | 100% vs 16 |
+| **C** | 1 | 0.05 | **12** | **16** | **3.26759** | **−0.00093** | +0.00003 | 3200 | 11.18 | 100% vs 12 |
+| D | 1 | 0.02 | 16 | 20 | 3.27056 | +0.00204 | +0.00300 | 3225 | 13.41 | 100% vs 16 |
+
+All 4 W&B runs verified exact match to reported numbers (zero discrepancies).
+
+**Mechanism reading (N=1, same pod, same seed=0, sequential runs):**
+- Mechanism fires as designed: heterogeneous allocation (std=2.88–4.18, min=6–7 vs max=16–22 within single steps across all adaptive arms).
+- **Arm C (iso-budget τ=0.05 MAX=12/16)** is the load-bearing test and wins. Pure allocation rebalancing at fixed ceiling delivers Δ_vs_A=−0.00093 (small favorable signal). Dose-response monotone in `mean_ns_actual`: 11.18 (C, best) < 11.92 (B) < 13.41 (D, worst). Smaller mean_actual = better, as long as min_steps gate respects minimum useful work.
+- **Expanding ceiling (Arm B) hurts.** Cooldown binding rate vs MAX_CD=20 was 0% — over-budgeted. More NS iters on already-near-orthogonal matrices does not help.
+- **Tightening τ (Arm D) hurts more.** Additional NS effort beyond τ=0.05 is counterproductive. Cubic-convergence regime of NS already reached well before iter 12 for most matrices.
+- **Cooldown ceiling over-budgeted finding:** across B/C/D, cooldown binding rate = 0–50%, never saturating against MAX_CD. Suggests NS_ITERS_COOLDOWN=16 fixed could drop (e.g., 16→14) without hurting — a future subtractive probe.
+
+**Decision: CLOSE productive-marginal.** Arm C Δ=−0.00093 sub-MARGINAL (misses −0.002 signal threshold by 53%); student explicitly recommended against PP escalation. Same pattern as prior cycle closures: #1008 (Δ=−0.00044), #988 (−0.00168), #1020 (−0.00182) all closed productive-marginal at <−0.002.
+
+**NS-ITERATION-ALLOCATION CLASS FENCED across 4 closures:**
+| PR | Mechanism | Outcome |
+|---|---|---|
+| #710 | per-DEPTH static NS_ITERS | CLOSED productive-NEG |
+| #724 | per-block-TYPE static NS_ITERS_COOLDOWN | CLOSED productive-NEG |
+| #145 | per-layer sigmoid (denom-scaling bug) | CLOSED |
+| **#1031** | **per-matrix residual-stop dynamic adaptive** | **CLOSED productive-marginal (this PR)** |
+
+Three static + one dynamic allocation mechanism. NS iteration count is a **low-leverage axis** at this stack's current operating point. Future productive NS work must target the orthogonalization *algorithm* (e.g., QR vs NS vs polar), the *coefficient schedule* (#290 domain, not yet exhausted), or the *polynomial form* — not the iteration budget allocation pattern.
+
+Nezuko reassigned → PR #1074 (Gradient Centralization on embed group — fresh GRADIENT-LEVEL-NORMALIZATION axis; Yong et al. 2020 ECCV).
+
 ## 2026-05-24 18:00 UTC — PR #1028: Pruning ablation of merged stack — 4-arm subtractive sweep (edward) — SENT BACK for PP n=3 of Arm C (drop EMBED_INIT_ANCHOR)
 
 - Branch: `g1r4-edward/merged-stack-pruning-ablation`

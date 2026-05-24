@@ -1,9 +1,42 @@
 # SENPAI Research State — auto-nanogpt-1gpu-r4
 
-- **Date:** 2026-05-24 18:00 UTC (cycle 227)
+- **Date:** 2026-05-24 20:00 UTC (cycle 228)
 - **Most recent research direction from human researcher team:** none on file
 - **Primary metric:** `val/loss` at 3350 steps (lower is better); `speedrun/final_first_step_to_target` secondary
 - **Statistical merge rule:** `(3.28 − μ) × √n ≥ 0.004` AND n mean ≤ current baseline
+
+## Cycle 228 snapshot (20:00 UTC May 24) — #1031 nezuko CLOSED productive-marginal (NS-ALLOCATION CLASS FENCED); nezuko reassigned #1074 (Gradient Centralization on embed — fresh GRADIENT-LEVEL-NORMALIZATION axis)
+
+### Activity this cycle
+
+- **#1031 nezuko** N=1 4-arm complete CLOSED productive-marginal: NS adaptive residual stopping. Arms A=3.26852 (ctrl, drift PASS), B=3.26912 (expanded MAX=16/20, +0.00060), C=**3.26759** (iso-budget MAX=12/16, **Δ_vs_A=−0.00093 sub-MARGINAL**), D=3.27056 (τ=0.02 tighter, +0.00204 REGRESSION). Arm C is best (iso-budget τ=0.05 MAX=12); dose-response monotone in mean_ns_actual (11.18 < 11.92 < 13.41 = better to worse); mechanism fires (heterogeneous std=2.88–4.18 per step) but allocation-pattern signal is sub-threshold by 53%. Student explicitly recommended against PP escalation. Closed per pattern from cycles 222–227: borderline N=1 misses <−0.002 → close productive-marginal. W&B confirmed all 4 runs exact match.
+- **NS-ITERATION-ALLOCATION CLASS FENCED** across 4 closures: #710 per-depth static (NEG) + #724 per-block-type static (NEG) + #145 per-layer sigmoid (bug) + **#1031 per-matrix dynamic residual-stop (marginal this PR)**. NS iteration count is a low-leverage axis at current operating point. Future NS work must target algorithm (#290 domain, coefficient form) or orthogonalization *method* — not iteration budget allocation.
+- **Cooldown ceiling over-budgeted finding from #1031:** NS_ITERS_COOLDOWN=16 is over-budgeted — binding rate 0–50% in adaptive arms, never saturating. Candidate for future subtractive probe via edward's #1028 path.
+- **PR #1074 nezuko** (assigned this cycle): **Gradient Centralization on embed group** — fresh GRADIENT-LEVEL-NORMALIZATION axis (Yong et al. 2020 ECCV). Mechanism: subtract per-row or per-column mean from embed gradient before AdamW step, forcing embed updates to have zero mean along that axis. Column-centering (Arm B) is the mechanism-lead: removes the per-embedding-dim systematic gradient shared across all in-batch tokens (the LM head's output bias), leaving only per-token differential gradient signal. 4 arms: A=ctrl, B=col-center (dim=0), C=row-center (dim=1), D=both. Implementation: ~8 lines around `optimizer1.step()`, `NANOGPT_EMBED_GRAD_CENTRING={0,1,2,3}`. Mechanism-distinct from all in-flight and all fenced classes.
+
+### Mechanism axes coverage (cycle 228, 8 chains active)
+
+| Axis | Active PR | Status | Notes |
+|---|:---:|:---:|---|
+| **GRADIENT-LEVEL-NORMALIZATION** | **#1074 nezuko NEW** | WIP fresh | GC on embed (Yong 2020); col-center dim=0 is mechanism-lead |
+| WEIGHT-AVERAGING-POST-TRAINING | #1055 askeladd | WIP | SWA / EMA Polyak |
+| SCHEDULE-CURVATURE (body Muon cooldown shape) | #1048 alphonse | WIP | linear/cosine/sqrt/linear_floor |
+| META-OPTIMIZER (body Muon LookAhead) | #1047 tanjiro | WIP | Zhang et al. 2019 |
+| OPTIMIZER-CLASS (aux replacement) | #1045 frieren | WIP | LION vs AdamW |
+| INITIALIZATION-DISTRIBUTION (body) | #1032 thorfinn | WIP | Haar orthogonal |
+| SCHEDULE-CONTINUOUS-LR-MULT (PP) | #1003 fern | WIP — PP n=3 phase | Arm B tripped threshold |
+| SUBTRACTIVE-PRUNING (PP) | #1028 edward | WIP — PP n=3 phase | ANCHOR=0 candidate (#847 prune) |
+
+All 8 mechanism axes active; none idle. Two in PP confirmation phase (#1003 winner-confirm, #1028 prune-confirm). One fresh axis just started (#1074 nezuko GC).
+
+### Closed-axis fences summary (cycle 228)
+
+| Class | Closures |
+|---|---|
+| AUX PRECONDITIONER COOLDOWN-WINDOW | 5 closures (#1020+#652+#629+#929+#919+#967) |
+| STATE-RESET | 4 closures (#988+#998+#163+#711) |
+| LM_HEAD WEIGHT-SPACE ROW-MAGNITUDE | 8+ closures |
+| **NS-ITERATION-ALLOCATION** | **4 closures (#710+#724+#145+#1031)** |
 
 ## Cycle 227 snapshot (18:00 UTC May 24) — #1028 edward N=1 4-arm pruning ablation TERMINAL; SENT BACK for PP n=3 of Arm C (drop EMBED_INIT_ANCHOR — first SUBTRACTIVE candidate identified)
 
