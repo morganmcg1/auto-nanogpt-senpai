@@ -3,6 +3,86 @@
 Log of completed/reviewed experiment PRs in chronological order. Wave 1
 results pending student execution.
 
+## 2026-05-24 ~06:30 UTC — PR #1022: frieren NS polynomial degree variation — **ASSIGNED**
+
+- **Branch:** `g1r5-frieren/ns-polynomial-degree-variation`
+- **Student:** g1r5-frieren
+- **Hypothesis:** NS-internals axis. Current NS uses degree-5 (quintic) polynomial `p(x) = 2x − 1.5x³ + 0.5x⁵` with 6 iters. Test alternative degree/iter trade-offs. #962 confirmed quintic load-bearing (Cell D cubic-only +16.66σ NEG). Now test whether HIGHER-degree polynomial with fewer iters can match quintic-6 efficiency, or whether more iters of CUBIC can recover quality.
+
+- **5-cell sweep:**
+
+| Cell | Config | Role |
+|:----:|:-------|:-----|
+| A | ctrl — quintic-6 (current) | baseline |
+| B ★ | PRIMARY: septic-4 (degree-7, 4 iters) | reduce iters via higher degree |
+| C | septic-6 | match-iters higher-degree (quality test) |
+| D | quintic-8 (more iters) | does more iter of current converge faster |
+| E | cubic-8 (degree-3 with 8 iters) | can iters compensate for missing quintic term |
+
+- **Context:** Adds `--ns_degree` CLI flag. Joins #1010 (NS-iter-by-time) as the remaining NS-internals axes. After #962 + this + #1010, NS-internals comprehensively explored.
+
+---
+
+## 2026-05-24 ~06:25 UTC — PR #1021: fern embed/lm_head LR ablation — **ASSIGNED**
+
+- **Branch:** `g1r5-fern/embed-lmhead-lr-ablation`
+- **Student:** g1r5-fern
+- **Hypothesis:** Discovery: embed LR=0.3 and lm_head LR=1/320≈0.003125 are HARDCODED constants in `optimizer1 = AdamW([dict(params=[model.embed.weight], lr=0.3, ...), dict(params=[model.proj.weight], lr=1/320, ...)])` — never SENPAI-validated. ~38M params each (vocab × dim). Body matrix LRs were tuned (`--lr_mlp 0.055`) but embeddings/projections were not. Fresh axis with significant parameter coverage.
+
+- **5-cell sweep (adds `--lr_embed` and `--lr_lm_head` CLI flags):**
+
+| Cell | embed_lr | lm_head_lr | Role |
+|:----:|:--------:|:----------:|:-----|
+| A | 0.3 | 0.003125 | ctrl (current hardcoded) |
+| B ★ | **0.5** | 0.003125 | PRIMARY: higher embed LR |
+| C | 0.2 | 0.003125 | lower embed LR |
+| D | 0.3 | 0.005 | higher lm_head LR |
+| E | 0.3 | 0.002 | lower lm_head LR |
+
+- **Context:** Embedding layers learn token-frequency-dependent statistics; lm_head ties to vocab distribution. These layers have very different optimization dynamics from Muon-tuned body matrices. ~76M total params untouched by prior LR sweeps.
+
+---
+
+## 2026-05-24 ~06:20 UTC — PR #962: frieren NS polynomial coefficient ablation — **CLOSED clean-NEG (high info)**
+
+- **Branch:** `g1r5-frieren/ns-polynomial-coefficient-ablation`
+- **Student:** g1r5-frieren
+- **Hypothesis:** Test alternative NS polynomial coefficients (a,b,c) for `p(x) = ax + bx³ + cx⁵` vs current (2, −1.5, 0.5).
+
+- **5-cell results (n=1, 3250 steps):**
+
+| Cell | Variant | val/loss | Δ vs ctrl | σ_single |
+|:----:|:--------|:--------:|:---------:|:--------:|
+| A | ctrl (2, −1.5, 0.5) | 3.26205 | 0.00000 | +1.40σ |
+| B | cubic-conv (1.875, −1.25, 0.375) | 3.26135 | −0.00070 | −1.18σ |
+| C | Muon-paper (3.4445, −4.7750, 2.0315) | 3.26390 | +0.00185 | +3.12σ NEG |
+| D | cubic-only (2.0, −1.0, 0.0) | **3.27110** | **+0.00905 (+15.26σ)** | quintic is load-bearing |
+| E | high-amp (2.5, −2.0, 0.625) | 3.26050 | −0.00155 | **−2.61σ POS** (n=1) |
+
+- **Decision:** CLOSED clean-NEG. Cell D confirms quintic term (`cx⁵`) is critical — removing it costs +15.26σ. Cell E n=1 POS (−2.61σ) too weak to warrant n=4 confirmation (projected statsig ~0.0021 < 0.004 gate). Cell C (Muon-paper) NEG → original tuned coefficients sub-optimal for this configuration.
+
+- **Cross-PR insight:** Quintic load-bearing finding informs #1022 (NS-degree variation) — going higher (degree-7) more likely promising than lower (degree-3).
+
+---
+
+## 2026-05-24 ~06:15 UTC — PR #925: fern μ schedule linear ramp — **CLOSED clean-WEAK-NEG**
+
+- **Branch:** `g1r5-fern/cooldown-momentum-ramp`
+- **Student:** g1r5-fern
+- **Hypothesis:** Linear ramp μ=0.95→0.85 over cooldown (smooth, distinct from #907's abrupt step-jump).
+
+- **n=1 P1 results:** Cell E POS at val/loss=3.258418, ffs=2975 (**−4.73σ_single**)
+- **n=4 confirm:** trials [3.26116, 3.26065, 3.26226, 3.26038], **μ=3.261112, σ_sample 1.4× baseline**
+- **Statsig:** (3.261221 − 3.261112) × √4 = 0.000218 (FAIL gate 0.004)
+- **FFS:** mean=3000 (baseline 3025) — 25-step FFS improvement but val/loss did not follow
+- **Decision:** CLOSED clean-WEAK-NEG. n=1 POS was +1.0 SD favorable-tail draw from inflated-variance distribution. Mean is essentially neutral, well within statistical noise.
+
+- **GENERALIZED LESSON (combined with #907):** Cooldown perturbations inflate variance without improving mean. **Two parallel POS-at-n=1 PRs both regressed at n=4 with σ inflation:** #907 σ_single 1.71× baseline, #925 σ_sample 1.4× baseline. The smooth-vs-abrupt distinction did NOT help — both inflated variance. The mean-improvement axis at cooldown is closed; future work should target VARIANCE REDUCTION (e.g. ensembling, dropout schedules) rather than mean improvement.
+
+- **Closes:** μ-schedule axis comprehensively. With #907 (buffer reset), #925 (μ ramp), and #826 (Lookahead) + #855 (Schedule-Free) + #941 (SWA) all NEG, the momentum/trajectory cluster at cooldown is fully saturated.
+
+---
+
 ## 2026-05-24 ~03:30 UTC — PR #993: askeladd Gradient-norm-anomaly-driven Muon momentum reset — **ASSIGNED**
 
 - **Branch:** `g1r5-askeladd/grad-norm-anomaly-momentum-reset`
