@@ -468,6 +468,7 @@ NS5_ITERS = int(os.environ.get("NS5_ITERS", "12"))
 WD_AUX = float(os.environ.get("WD_AUX", "0.0"))  # AdamW WD on embed + lm_head matrices (scalars stay at 0)
 EMBED_INIT_STD = float(os.environ.get("EMBED_INIT_STD", "1.0"))  # default preserves baseline N(0,1)
 LOGIT_SOFTCAP = float(os.environ.get("LOGIT_SOFTCAP", "15.0"))  # default = 15 (current hardcoded value); soft-cap value c in f(x) = c·x / sqrt(x^2+c^2)
+MUON_BODY_GRAD_ORTHO_W = float(os.environ.get("MUON_BODY_GRAD_ORTHO_W", "0.0"))  # 0.0 = baseline; in (0,1] blend in W-orthogonal gradient component before momentum lerp
 
 
 def zeropower_via_newtonschulz5(G: Tensor) -> Tensor:
@@ -655,11 +656,14 @@ class Muon(torch.optim.Optimizer):
         params = sorted([p for _, p in named_params], key=lambda x: x.size(), reverse=True)
         defaults = dict(lr=lr, weight_decay=weight_decay, mu=mu)
         super().__init__(params, defaults)
+        self._last_grad_ortho_stats: dict[str, float] = {}
 
     @torch.no_grad()
     def step(self):
         world_size = dist.get_world_size()
         rank = dist.get_rank()
+        ortho_w_parallel_fracs: list[float] = []
+        ortho_w_inner_coeffs: list[float] = []
         for group in self.param_groups:
             params = group["params"]
             params_pad = params + [torch.empty_like(params[-1])] * (world_size - len(params) % world_size)
@@ -692,6 +696,17 @@ class Muon(torch.optim.Optimizer):
                                 state["trust_cos_row"] = 1.0
                                 state["trust_cos_col"] = 1.0
                     grad = p.grad
+                    if MUON_BODY_GRAD_ORTHO_W > 0.0 and p.ndim >= 2:
+                        inner = (grad * p).sum()
+                        denom = (p * p).sum().clamp_min(1e-12)
+                        coeff = inner / denom
+                        g_ortho = grad - coeff * p
+                        grad_norm_sq = (grad * grad).sum().clamp_min(1e-20)
+                        parallel_norm_sq = coeff * coeff * denom
+                        parallel_frac = (parallel_norm_sq / grad_norm_sq).clamp_min(0.0).sqrt()
+                        ortho_w_parallel_fracs.append(float(parallel_frac.item()))
+                        ortho_w_inner_coeffs.append(float(coeff.item()))
+                        grad = MUON_BODY_GRAD_ORTHO_W * g_ortho + (1.0 - MUON_BODY_GRAD_ORTHO_W) * grad
                     state["momentum"].lerp_(grad, 1 - group["mu"])
                     momentum_update = grad.lerp(state["momentum"], group["mu"])
                     use_soap = p in self.soap_params
@@ -719,6 +734,18 @@ class Muon(torch.optim.Optimizer):
                                      use_trust_gate=True,
                                      trust_threshold=ATTN_SOAP_TRUST_THRESHOLD)
                 dist.all_gather(params_pad[base_i:base_i + world_size], params_pad[base_i + rank])
+        if MUON_BODY_GRAD_ORTHO_W > 0.0 and ortho_w_parallel_fracs:
+            self._last_grad_ortho_stats = {
+                "parallel_frac_mean": sum(ortho_w_parallel_fracs) / len(ortho_w_parallel_fracs),
+                "parallel_frac_max": max(ortho_w_parallel_fracs),
+                "inner_per_tensor_mean": sum(ortho_w_inner_coeffs) / len(ortho_w_inner_coeffs),
+                "n_tensors": float(len(ortho_w_parallel_fracs)),
+                "blend": MUON_BODY_GRAD_ORTHO_W,
+            }
+
+    def grad_ortho_stats(self) -> dict[str, float]:
+        """Return last-step body Muon weight-orthogonal gradient projection stats (empty if disabled)."""
+        return dict(self._last_grad_ortho_stats)
 
     def trust_gate_stats(self) -> dict[str, float]:
         """Return aggregate + per-weight-type trust-gate telemetry across attention SOAP params.
@@ -1059,6 +1086,19 @@ for trial_idx in range(args.num_trials):
                     stats = opt.trust_gate_stats()
                     if stats:
                         wandb.log(prefixed("train/attn_soap_trust_gate", stats), step=wandb_step)
+                if hasattr(opt, "grad_ortho_stats"):
+                    go_stats = opt.grad_ortho_stats()
+                    if go_stats:
+                        wandb.log(prefixed("optim/grad_ortho_w", go_stats), step=wandb_step)
+                        if train_step + 1 == 100:
+                            print0(
+                                f"[MUON_BODY_GRAD_ORTHO_W] step=100 blend={go_stats['blend']:.3f} "
+                                f"parallel_frac_mean={go_stats['parallel_frac_mean']:.5f} "
+                                f"parallel_frac_max={go_stats['parallel_frac_max']:.5f} "
+                                f"inner_per_tensor_mean={go_stats['inner_per_tensor_mean']:.5f} "
+                                f"n_tensors={int(go_stats['n_tensors'])}",
+                                console=True, log=True,
+                            )
         if dist.get_rank() == 0 and telemetry_due:
             log_weight_telemetry(
                 model=model,
