@@ -455,6 +455,7 @@ MU_COOLDOWN_END = float(os.environ.get("MU_COOLDOWN_END", "0.95"))
 MU_WARMUP_STEPS = int(os.environ.get("MU_WARMUP_STEPS", "0"))
 MU_WARMUP_START = float(os.environ.get("MU_WARMUP_START", "0.85"))
 MUON_LR = float(os.environ.get("MUON_LR", "0.0375"))
+MUON_POST_NS5_NOISE = float(os.environ.get("MUON_POST_NS5_NOISE", "0.0"))
 MUON_WEIGHT_DECAY = 0.025  # nominal; Muon.step does not apply explicit wd (u/w-floor replaces it)
 TARGET_UW = 0.35
 NORMUON_BETA2 = 0.95
@@ -709,6 +710,9 @@ class Muon(torch.optim.Optimizer):
                     scale = torch.where(cur_uw < TARGET_UW, TARGET_UW * p_fro / u_fro, torch.ones_like(p_fro))
                     update = update * scale.to(update.dtype)
                     # Explicit weight decay intentionally omitted (matches record #14; u/w-floor replaces wd).
+                    if MUON_POST_NS5_NOISE > 0:
+                        noise = torch.randn_like(update) * MUON_POST_NS5_NOISE * update.float().std().clamp_min(1e-10).to(update.dtype)
+                        update = update + noise
                     p.add_(update, alpha=-group["lr"])
                     # Refresh SOAP state with the raw grad (after applying the step).
                     if use_soap:
@@ -856,6 +860,7 @@ if dist.get_rank() == 0:
             "optimizer/mu_warmup_steps": MU_WARMUP_STEPS,
             "optimizer/mu_warmup_start": MU_WARMUP_START,
             "optimizer/muon_lr": MUON_LR,
+            "optimizer/muon_post_ns5_noise": MUON_POST_NS5_NOISE,
             "optimizer/muon_weight_decay_nominal": MUON_WEIGHT_DECAY,
             "optimizer/target_uw": TARGET_UW,
             "optimizer/normuon_beta2": NORMUON_BETA2,
