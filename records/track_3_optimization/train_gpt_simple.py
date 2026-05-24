@@ -83,7 +83,21 @@ def parse_args():
              "muall=musoft + non-residual block 2D weights also scaled by 1/sqrt(L); "
              "smallconst=std=1e-3 depth-independent.",
     )
+    parser.add_argument("--warmup_embed_frac", type=float, default=0.0,
+                        help="Linear warmup fraction for the AdamW adam_embed param group ONLY. "
+                             "0.0 (default) = no warmup (backwards-compat with existing baseline). "
+                             "0.10 = linear ramp 0->1 over the first 10%% of train_steps, then "
+                             "applies the existing trapezoidal/linear-decay schedule. "
+                             "Body Muon groups and adam_scalars/adam_lm_head are unaffected.")
+    parser.add_argument("--warmup_lm_head_frac", type=float, default=0.0,
+                        help="Linear warmup fraction for the AdamW adam_lm_head param group ONLY. "
+                             "0.0 (default) = no warmup. Same semantics as --warmup_embed_frac. "
+                             "Body Muon groups and adam_scalars/adam_embed are unaffected.")
     args = parser.parse_args()
+    if args.warmup_embed_frac < 0 or args.warmup_embed_frac >= 1:
+        raise ValueError("--warmup_embed_frac must be in [0, 1)")
+    if args.warmup_lm_head_frac < 0 or args.warmup_lm_head_frac >= 1:
+        raise ValueError("--warmup_lm_head_frac must be in [0, 1)")
     args.num_trials = args.num_trials if args.num_trials is not None else (args.legacy_num_trials or 1)
     args.wandb_tags = [tag.strip() for tag in args.wandb_tags.split(",") if tag.strip()]
     if args.telemetry_interval < 1 or args.histogram_interval < 1:
@@ -765,6 +779,8 @@ if dist.get_rank() == 0:
             "wd_schedule": args.wd_schedule,
             "lr_scalars": args.lr_scalars,
             "depth_init_mode": args.depth_init_mode,
+            "warmup_embed_frac": args.warmup_embed_frac,
+            "warmup_lm_head_frac": args.warmup_lm_head_frac,
         },
     )
 
@@ -878,6 +894,16 @@ for trial_idx in range(args.num_trials):
         else:
             raise ValueError(f"Unknown wd_schedule: {schedule}")
 
+    def _group_warmup_mult(step, warmup_frac, total_steps):
+        # Linear ramp 0 -> 1 over the first `warmup_frac * total_steps` steps;
+        # multiplies the existing trapezoidal/linear-decay schedule.
+        if warmup_frac <= 0:
+            return 1.0
+        warmup_steps = int(warmup_frac * total_steps)
+        if warmup_steps <= 0 or step >= warmup_steps:
+            return 1.0
+        return (step + 1) / warmup_steps
+
     # learning rate schedule: stable then decay
     def set_hparams(step, cooldown_frac=0.7):
         progress = step / train_steps
@@ -887,10 +913,18 @@ for trial_idx in range(args.num_trials):
         else:
             eta = (1 - progress) / cooldown_frac
         wd_mu = _wd_multiplier(step, train_steps, args.wd_schedule)
+        embed_mu = _group_warmup_mult(step, args.warmup_embed_frac, train_steps)
+        lm_head_mu = _group_warmup_mult(step, args.warmup_lm_head_frac, train_steps)
         for opt in optimizers:
             for group in opt.param_groups:
-                group["lr"] = group["initial_lr"] * eta
-                if "initial_wd" in group and group.get("name", "").startswith("muon_"):
+                name = group.get("name", "")
+                if name == "adam_embed":
+                    group["lr"] = group["initial_lr"] * eta * embed_mu
+                elif name == "adam_lm_head":
+                    group["lr"] = group["initial_lr"] * eta * lm_head_mu
+                else:
+                    group["lr"] = group["initial_lr"] * eta
+                if "initial_wd" in group and name.startswith("muon_"):
                     group["weight_decay"] = group["initial_wd"] * wd_mu
 
 
