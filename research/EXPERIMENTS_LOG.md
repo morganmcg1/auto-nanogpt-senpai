@@ -3,6 +3,40 @@
 This file logs experiment outcomes as PRs land. The historical track 3
 leaderboard is captured in `/BASELINE.md`.
 
+## 2026-05-24 18:00 UTC — PR #1028: Pruning ablation of merged stack — 4-arm subtractive sweep (edward) — SENT BACK for PP n=3 of Arm C (drop EMBED_INIT_ANCHOR)
+
+- Branch: `g1r4-edward/merged-stack-pruning-ablation`
+- Hypothesis: The merged stack post-#847 has accumulated 13 environmental knobs across 12 successive merges. Each was load-bearing at its merge time, but subsequent merges may have superseded or duplicated their effect. Subtractive ablation tests whether 3 selected flags (NS_STOCHASTIC_COOLDOWN=2 from #787, EMBED_INIT_ANCHOR_LAMBDA=0.001 from #847, EMBED_COOLDOWN_SHAPE=linear_floor from #235) remain load-bearing in current composition.
+- **First SUBTRACTIVE experiment of the auto-nanogpt-1gpu-r4 round.** Pure env-var ablation, zero code changes.
+
+| arm | flag removed | run_id | val/loss | Δ_vs_A | Δ_vs_baseline 3.26756 | first_step | pre-staged outcome |
+|:---:|---|---|:---:|:---:|:---:|:---:|---|
+| A (ctrl) | (none) | `hjgo0mbs` | 3.26810 | — | +0.00054 | 3200 | drift PASS (within ±0.003 envelope) |
+| B | NS_STOCHASTIC=0 | `jsilb1o2` | 3.27051 | +0.00241 | +0.00295 | 3225 | **STILL LOAD-BEARING** (Δ ≥ +0.0015) |
+| C | ANCHOR_LAMBDA=0 | `kk8hot5e` | 3.26828 | **+0.00018** | +0.00072 | 3200 | **NON-LOAD-BEARING** (\|Δ\| ≤ 0.0005) ⚠️ |
+| D | COOLDOWN_SHAPE=linear | `f2xcp34o` | 3.26974 | +0.00164 | +0.00218 | 3200 | STILL LOAD-BEARING (just over +0.0015) |
+
+**Mechanism reading (N=1, same pod, same seed=0, sequential runs):** Three different mergers from three different epochs produced three different load-bearing answers in a single 7.5h chain.
+- **NS_STOCHASTIC_COOLDOWN (#787)** STILL LOAD-BEARING with the strongest signal (+0.00241). Hypothesis that #847 anchor compensates for the same noise source NOT supported — the stochastic NS-iter sampling provides an orthogonal benefit.
+- **EMBED_INIT_ANCHOR_LAMBDA (#847, the most recent merge)** appears NON-LOAD-BEARING (Δ=+0.00018, deep inside |Δ|≤0.0005 prune band). The mechanism is "on" and exerting force (W&B traces show `embed/dist_from_init` and `embed/init_anchor_lambda` move as expected in Arm A), but isn't shifting val/loss in the current composition. **This is the high-information outcome the pruning ablation was designed to detect.**
+- **EMBED_COOLDOWN_SHAPE=linear_floor (#235, oldest aux-side flag)** remains marginally load-bearing (+0.00164, just over threshold). Aux-side floor still useful even after #393 (embed LR=1.5×) and #847 (anchor) were layered on.
+
+**Cross-arm pod-artifact check:** Arms A/B/C/D ran sequentially on the same pod with `SENPAI_SEED=0`. B and D regress meaningfully (+0.00241, +0.00164) while C reproduces A to within +0.00018. Asymmetric Δ on the same pod = real composition signal, not pod-side drift. Structurally convincing for N=1.
+
+**Decision: SEND BACK for PP n=3 confirmation of Arm C.** Best treatment arm C (3.26828) is +0.00072 above baseline mean and not merge-eligible as-is. Sending back to run 6 paired-pod runs (seeds {0,1,2} × {ANCHOR=0.001, ANCHOR=0.0}), interleaved on/off/on/off to remove pod-time drift confound. Decision rules pre-staged:
+- **PRUNE-CONFIRM** (expected): `|Δ| ≤ 0.001` AND `μ_off ≤ 3.27006` → follow-up PR to remove ANCHOR mechanism from merged stack.
+- **WIN** (favorable surprise): `Δ ≤ −0.002` AND `(3.28 − μ_off) × √3 ≥ 0.004` AND `μ_off ≤ 3.26756` → merge ANCHOR=0 as new baseline.
+- **REGRESS**: `Δ ≥ +0.001` → ANCHOR is load-bearing, N=1 was unlucky, close productive-NEG.
+- **AMBIGUOUS**: marginal, advisor judgment.
+
+ETA ~12 GPU-hours (6 runs × ~2h).
+
+**Methodology validation:** Round's first pruning ablation surfaced a real prune candidate in 7.5h single-pod compute. The signal structure (3-of-3 distinct outcomes across 3 different aux-side mergers) demonstrates the methodology is well-tuned to detect non-load-bearingness. Worth running periodically as the stack accumulates levers; remaining 10+ levers in the merged stack are future subtractive-sweep candidates (e.g., #393 embed LR=1.5× now that anchor may be redundant; #165 grad_clip body=10 now that late_peak NS schedule is active).
+
+Edward stays on PR #1028 for the PP phase (no longer idle).
+
+
+
 ## 2026-05-24 05:05 UTC — PR #956: lm_head per-row max-norm soft-clamp (alphonse) — CLOSED productive-NEG (204th cycle)
 
 - Branch: `g1r4-alphonse/lm-head-row-maxnorm`

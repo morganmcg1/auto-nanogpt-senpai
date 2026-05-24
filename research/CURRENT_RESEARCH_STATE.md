@@ -1,9 +1,46 @@
 # SENPAI Research State — auto-nanogpt-1gpu-r4
 
-- **Date:** 2026-05-24 15:30 UTC (cycle 226)
+- **Date:** 2026-05-24 18:00 UTC (cycle 227)
 - **Most recent research direction from human researcher team:** none on file
 - **Primary metric:** `val/loss` at 3350 steps (lower is better); `speedrun/final_first_step_to_target` secondary
 - **Statistical merge rule:** `(3.28 − μ) × √n ≥ 0.004` AND n mean ≤ current baseline
+
+## Cycle 227 snapshot (18:00 UTC May 24) — #1028 edward N=1 4-arm pruning ablation TERMINAL; SENT BACK for PP n=3 of Arm C (drop EMBED_INIT_ANCHOR — first SUBTRACTIVE candidate identified)
+
+### Activity this cycle
+
+- **#1028 edward** N=1 4-arm subtractive sweep complete: pruning ablation of merged stack (NS_STOCHASTIC #787, EMBED_INIT_ANCHOR #847, EMBED_COOLDOWN_SHAPE #235). Arms A=3.26810 (ctrl, drift +0.00054 PASS), B=3.27051 (NS_STOCH=0, +0.00241 STILL LOAD-BEARING), C=**3.26828 (ANCHOR=0, +0.00018 NON-LOAD-BEARING ⚠️)**, D=3.26974 (COOLDOWN_SHAPE=linear, +0.00164 STILL LOAD-BEARING just barely). Same pod, same seed=0, sequential runs — asymmetric Δ across B/C/D structurally convincing against pod-drift. **Best treatment arm C (3.26828) is +0.00072 above baseline mean; not merge-eligible as-is.** SENT BACK for **PP n=3 confirmation of Arm C** (interleaved 6 runs at seeds {0,1,2} × {ANCHOR=0.001, ANCHOR=0.0}). Pre-staged decision rules: PRUNE-CONFIRM (`|Δ|≤0.001` AND `μ_off≤3.27006`) → follow-up PR to remove ANCHOR; WIN (`Δ≤−0.002` AND statistical-significance) → merge as new baseline; REGRESS (`Δ≥+0.001`) → close productive-NEG; AMBIGUOUS → judgment call. ETA ~12 GPU-hours.
+- **Headline finding (n=1):** EMBED_INIT_ANCHOR_LAMBDA (#847, the most recent merge) appears NON-LOAD-BEARING in the current post-#847 stack composition. This is the high-information outcome the pruning ablation was designed to detect. Methodology validated: 7.5h single-pod compute produced 3-of-3 distinct outcomes across 3 different aux-side mergers, clean separation between LOAD-BEARING and NON-LOAD-BEARING signals.
+- **Second PP confirmation chain in flight this round.** First was #1003 fern (PP of a winner candidate). #1028 edward is PP of a null/prune candidate. The decision-rule pattern (cycles 222-227) now spans both directions: winner-confirmation and prune-confirmation.
+
+### Decision-rule pattern across cycles 222-227
+
+Last 6 cycles of N=1 sweep outcomes:
+
+| Cycle | PR | Best Δ_vs_A | Decision | Confirmation status |
+|---|---|---|---|---|
+| 222 | #1008 alphonse | −0.00044 (sub-noise) | CLOSE NULL | n/a (closed) |
+| 222 (older) | #988 tanjiro | −0.00168 (miss by 16%) | CLOSE NULL/borderline | n/a (closed) |
+| 223 | #1003 fern | **−0.00226 (cross by 13%)** | **PP n=3** | in flight |
+| 224 | #1020 askeladd | −0.00182 (miss by 9%) | CLOSE NULL/marginal | n/a (closed) |
+| 227 | **#1028 edward** | +0.00018 (deep NON-LOAD-BEARING) | **PP n=3 of null** | in flight |
+
+The −0.002 signal threshold continues to function as the meaningful winner-vs-close boundary; **separately, the |Δ|≤0.0005 NON-LOAD-BEARING boundary now functions as the prune-vs-close boundary**. Both PP confirmation chains (#1003 winner + #1028 prune) will land in the next ~24h and inform threshold calibration.
+
+### Mechanism axes coverage (cycle 227, 8 chains active — edward back to WIP for PP phase)
+
+| Axis | Active PR | Status | Notes |
+|---|:---:|:---:|---|
+| WEIGHT-AVERAGING-POST-TRAINING | #1055 askeladd | WIP — Arm A 90% | SWA / EMA Polyak |
+| SCHEDULE-CURVATURE (body Muon cooldown shape) | #1048 alphonse | WIP | linear/cosine/sqrt/linear_floor |
+| META-OPTIMIZER (body Muon LookAhead) | #1047 tanjiro | WIP — Arm A nearing complete | Zhang et al. 2019 |
+| OPTIMIZER-CLASS (aux replacement) | #1045 frieren | WIP | LION vs AdamW |
+| INITIALIZATION-DISTRIBUTION (body) | #1032 thorfinn | WIP | Haar orthogonal |
+| PRECONDITIONER-ADAPTIVE (NS) | #1031 nezuko | WIP | NS adaptive residual stop |
+| SCHEDULE-CONTINUOUS-LR-MULT (PP) | #1003 fern | WIP — PP n=3 phase | Arm B tripped threshold |
+| **SUBTRACTIVE-PRUNING (PP)** | **#1028 edward** | **WIP — PP n=3 phase** | **Arm C ANCHOR=0 candidate (#847 prune) — sent back this cycle** |
+
+All 8 mechanism axes still active. Two of them (#1003 fern, #1028 edward) are now in PP confirmation phase.
 
 ## Cycle 226 snapshot (15:30 UTC May 24) — #1055 askeladd stale_wip acked (Arm A 90% complete, control config validated); no idle students, no review-ready PRs
 
