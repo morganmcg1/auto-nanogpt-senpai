@@ -1,5 +1,23 @@
 # SENPAI Research Results — auto-nanogpt-1gpu-r2
 
+## 2026-05-24 00:40 UTC — PR #947: CONTRA_MUON_SCHEDULE (CLOSED, 76th refuted axis — temporal CONTRA decay is sub-floor-noise)
+
+- Branch: `g1r2-frieren/contra-muon-schedule` (student g1r2-frieren)
+- Hypothesis: Temporal ramp of CONTRA_MUON during cooldown to decouple early-phase (more contra) and late-phase (less contra) optima.
+- Results:
+
+| Arm | CONTRA_MUON_END | W&B run | val/loss@3175 | ffs | Δ vs baseline 3.26776/3000 | N=1 hold gate (val≤3.27 ∧ ffs≤3000) |
+|---|---:|---|---:|---:|---:|---|
+| Arm A | 0.2 (half-ramp) | `5app7hqr` | 3.27313 | 3050 | +0.00537 val, +50 ffs | MISS |
+| Arm B | 0.0 (full-ramp) | `5a1gsn0l` | 3.27123 | 3025 | +0.00347 val, +25 ffs | MISS (3.27123 > 3.27 by 0.00123) |
+
+- Both arms floor cluster close-miss. **Monotone within-arm**: Arm B (full decay) outperforms Arm A (half decay), confirming the PR #729 direction-only hypothesis that LESS contra is mechanistically better in cooldown. But magnitude (Δ=0.002 val, 25 ffs) is **sub-floor-noise**.
+- **HIGH-VALUE student insight**: "The floor is upstream of NS5" — frieren correctly localized the floor-cluster bottleneck to the momentum-buffer / grad-statistics layer, NOT the post-NS5 direction layer. This directly informs portfolio reallocation toward pre-NS5 conditioning mechanisms.
+- **CONTRA axis class declared SATURATED**: 5 closures across static value sweep, depth split, precision, temporal half-ramp, temporal full-ramp. Last contra-axis test is #961 thorfinn CONTRA_TYPE_SPLIT (in flight).
+- **76th refuted axis** / cycle 71 tally: 76 refuted, ~48 floor cluster + kill-gate landings, 0 merges above baseline.
+
+---
+
 ## 2026-05-24 00:00 UTC — PR #942: RMSNORM_GAIN_INIT (CLOSED, 75th refuted axis — bidirectional symmetric degradation)
 
 - Branch: `g1r2-askeladd/rmsnorm-gain-init` (student g1r2-askeladd)

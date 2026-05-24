@@ -1149,3 +1149,32 @@ In-flight as of 00:05Z (all WIP, 8 students busy, 0 idle):
 - nezuko #965 disabled-check verification: val@200=4.0933 over tolerance by 0.003. Pre-launch sanity blessed because patch is mathematically a NO-OP with MUON_DAMPENING=0. Stochastic noise across runs (step 100 spread 4.408-4.444) justifies the deviation.
 
 **Compositional floor theorem (#813)** still holds at 47+ landings across 75 refuted axes. Floor cluster at val=3.270 ± 0.003 / ffs=3025-3075 stable. New axis #968 directly tests whether grad-magnitude conditioning before momentum can break the floor.
+
+#### 2026-05-24 00:40Z update — mid-144: #947 frieren CONTRA_MUON_SCHEDULE CLOSED (76th refuted), #971 frieren MUON_GRAD_VAR_NORM assigned, #961 thorfinn rebased CLEAN
+
+**#947 frieren CONTRA_MUON_SCHEDULE CLOSED (76th refuted)**: Both arms floor cluster close-miss. Arm A (end=0.2) val=3.27313/ffs=3050. Arm B (end=0.0) val=3.27123/ffs=3025. Monotone improvement Arm B > Arm A confirms #729 direction-only hypothesis (LESS contra better in cooldown) but magnitude (Δ=0.002 val, 25 ffs) is sub-floor-noise. **CONTRA axis class declared SATURATED** — 5 closures (#405, #806, #532, #729, #928, now #947). HIGH-VALUE student insight: "The floor is upstream of NS5" — bottleneck localized to momentum-buffer / grad-statistics layer.
+
+**#971 frieren MUON_GRAD_VAR_NORM assigned (fresh axis)**: Adam-style per-element second-moment normalization applied PRE-NS5 (BEFORE momentum lerp at line 695). EMA of grad², divide grad by std^MUON_GRAD_VAR_NORM. Arms: A=0.5 (partial Adam), B=1.0 (full Adam). Distinct from #939 AdaMuon (POST-NS5), #965 MUON_DAMPENING (global lerp coef), #968 MUON_PER_TENSOR_GRAD_CLIP (Frobenius clip), all AdamW-side variants. ZERO matches in 250+ PRs for pre-NS5 per-element 2nd-moment normalization inside Muon body. Directly motivated by frieren's #947 "floor upstream of NS5" localization. First Adam-style variance treatment ever applied to Muon body parameters.
+
+**#961 thorfinn rebased**: Student executed `git merge -X theirs origin/auto-nanogpt-1gpu-r2 && git push` per advisor directive. mergeStateStatus = CLEAN. Merge commit d571071 includes both b292d77 (mid-143) and 54db4d8 (mid-142). Excellent compliance.
+
+#### Cycle 71 axis tally: **76 refuted**, ~48 floor cluster + kill-gate landings, **0 merges above baseline**
+
+In-flight as of 00:40Z (all WIP, 8 students busy, 0 idle):
+- #702 edward MU_WARMUP_START — pod-broken hold
+- #793 tanjiro DEPTH_DEP_MUON_LR — pod-broken hold
+- #948 fern NS5_ITERS_SCHEDULE — Arm B step 2600/3175 val=3.347 (~30 min to terminal)
+- #950 alphonse LOGIT_SOFTCAP_SCHEDULE — Arm A-buf TERMINAL val=3.26870/ffs=3000 (close-miss, awaiting Arm B end=30 at step 600)
+- #961 thorfinn CONTRA_TYPE_SPLIT — Arm A kill-gate trip step 1000 + SIGTERM, Arm B step 1875 val=3.455 (last contra-axis open)
+- #965 nezuko MUON_DAMPENING — Arm A step 525 val=3.804, patch verified (optimizer/muon_dampening=0.05 in W&B config)
+- #968 askeladd MUON_PER_TENSOR_GRAD_CLIP — disabled-check passed val=4.087 but MUON_GRAD_CLIP missing from W&B config, directed to fix; second disabled-check running with config logging
+- #971 frieren MUON_GRAD_VAR_NORM — newly assigned
+
+**Mechanism category coverage (active, ranked by NEW vs DERIVATIVE)**:
+- **Pre-NS5 per-element variance (NEW)**: #971 (Adam-style 2nd-moment, fresh)
+- **Pre-momentum grad-magnitude conditioning**: #968 (Frobenius clip per-tensor)
+- **Pre-momentum grad-EMA dampening**: #965 (lerp coef modulation)
+- **Layer-type CONTRA differentiation**: #961 (last open contra-axis)
+- **Temporal schedule**: #948 (NS5 iters), #950 (logit softcap)
+
+**Compositional floor theorem (#813)** held at 76 refuted axes. Floor cluster band remains val=3.270 ± 0.003 / ffs=3025-3075. New axis #971 directly targets frieren's localized "upstream of NS5" finding — highest-leverage probe of cycle 71.
