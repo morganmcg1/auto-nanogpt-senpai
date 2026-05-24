@@ -1,5 +1,23 @@
 # SENPAI Research Results
 
+## 2026-05-24 03:35 UTC — PR #990 ASSIGNED: Schedule-Free body-Muon — replace Polyak EMA with c_t-weighted averaging (g1r1-fern)
+
+- Branch: `g1r1-fern/body-muon-schedule-free`
+- Hypothesis: Replace Polyak EMA accumulation `ema_p.lerp_(p, 1-β_t)` with Schedule-Free c_t=γ²_t/Σγ²_i weighted average (Defazio 2024, arxiv:2405.15682). Attacks root cause of 4-instance cooldown-erosion pattern (#690 SGDR, #697 QHM, #686 β_cov, #695 Polyak EMA) — SF c_t weighting naturally diminishes during cooldown as step LR shrinks, eliminating need for externally scheduled β ramp.
+
+| Arm | Description | Flags |
+|---|---|---|
+| **A** | SF c_t weighting WITH WSD cooldown | `--use_schedule_free 1` (lr_mult decays as normal) |
+| **B** | SF c_t weighting WITHOUT cooldown | `--use_schedule_free 1 --sf_no_cooldown 1` (lr_mult=1.0 constant) |
+
+- Baseline: sr=2925 / val=3.266394 (PR #918 n=2 mean, muon_lr=0.040)
+- Bold direction per Plateau Protocol — 99 closed axes, 4-instance cooldown-erosion pattern confirmed
+- ~25 LOC across 6 steps; key diagnostic: `ema/c_t`, `ema/sf_lr_sq_sum`
+- Magnitude budget: NS5 polar unchanged; c_t → 0 as training progresses (tighter EMA tracking than Polyak β_t near 0.99)
+- Modal prediction ~50%: both NULL (β_t=0.99 is well-tuned Polyak); bold case ~25%: Arm B WIN (cooldown genuinely unnecessary with SF)
+
+---
+
 ## 2026-05-24 03:15 UTC — PR #943 CLOSED: SWA partial blend at cooldown_start — 99th NULL (informative), SWA family FULLY CLOSED (g1r1-fern)
 
 - Branch: `g1r1-fern/swa-partial-blend-cooldown-start`
