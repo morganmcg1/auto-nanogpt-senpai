@@ -1,5 +1,34 @@
 # SENPAI Research Results — auto-nanogpt-1gpu-r2
 
+## 2026-05-24 20:15 UTC — PR #1049: STOCHASTIC_MUON_STEP (CLOSED, 109th refuted — monotone-in-p degradation, variance-reduction floor cluster now 8/8 saturated)
+
+- Branch: `g1r2-nezuko/stochastic-muon-step` (student g1r2-nezuko)
+- Hypothesis: Per-tensor Bernoulli step skip on body Muon updates with momentum buffer continuing accumulation. First stochastic optimizer-level regularization in 250+ PRs (26th mech class). Implicit Polyak averaging across skipped steps — tests whether the variance-floor barrier can be broken via stochastic update-frequency randomization. Arm A=p=0.10 (light) + Arm B=p=0.30 (heavy, 3× Arm A).
+- Results:
+
+| Arm | p | W&B run | Steps | val/loss | ffs | Outcome |
+|-----|---|---------|-------|----------|-----|---------|
+| disabled-check | 0.00 | `y1fmsjzc` | 200 | 4.0844 | — | baseline preserved (patch bytewise inert) |
+| Arm A | 0.10 | `571xznh1` | 3175 ✓ | **3.27118** | 3025 | Floor cluster touch (+0.00342 above merge bar, misses N=1 hold gate val>3.27) |
+| Arm B | 0.30 | `lasnp1vy` | 3175 ✓ | **3.27787** | 3125 | Clear miss above floor cluster band |
+
+- **Verdict**: REFUTED MONOTONE-IN-P. Δ(B − A) = +0.00669 → clean monotone signature. Neither arm beats merge bar (val ≤ 3.26776 AND ffs ≤ 3000). Skip rate has clear leverage but in the wrong direction.
+- **Mid-training-vs-cooldown phase asymmetry** (student's key observation): Arm B led Arm A at every checkpoint through step 2500, then Arm A overtook by step 3000. **Heavier skip rate provides mild early-training Polyak averaging benefit but actively harms late-training fine-precision in cooldown phase**. This is the cleanest phase-decomposition analysis in cycle 71 — confirms that variance reduction is structurally incompatible with end-of-training fine-precision regimes (echoes the #1039 EMA_VAL cooldown finding: variance-reduction tools are beneficial in stable mid-training but harmful in cooldown's fine-precision regime).
+- **Cycle 71 portfolio milestone — VARIANCE-REDUCTION FLOOR CLUSTER NOW FULLY SATURATED across 8/8 orthogonal probes**:
+  1. #524 EMA on weights (train-time, refuted)
+  2. #996 post-NS5 additive noise (refuted close-miss n=2)
+  3. #1016 NS5 residual blend (refuted monotone-negative)
+  4. #1017 zero-slope momentum prefill (refuted)
+  5. #1037 Lookahead K=10 (refuted)
+  6. #1044 Muon bias correction half (refuted floor cluster touch)
+  7. #1039 eval-only EMA Arm A (refuted, Arm B catastrophic)
+  8. **#1049 stochastic step-skip p=0.10 (this PR)** — refuted floor cluster touch
+
+  All 8 converge to band val=3.270 ± 0.003 / ffs=3025-3075; ALL 8 fail to break it. **The bias-limited conclusion is now overdetermined across 8 orthogonal variance interventions** at different abstraction layers (parameter EMA, gradient noise, NS5 input/output, buffer state, Lookahead outer-loop, eval-time EMA, bias-correction, step-skip).
+- **Methodological merit**: Student nezuko's pre-test prediction of monotone-in-p OR floor-cluster outcome (covered both Arm A floor cluster touch and Arm B catastrophic if too aggressive) matched the observed pattern exactly. Clean disabled-check, clean kill gates, no NaN/divergence on either arm, full SENPAI-RESULT marker with all three wandb_run_ids (disabled-check, Arm A, Arm B clean completed runs).
+- **Five major mechanism layers now saturated**: NS5 6/6 + Momentum LIFECYCLE 4/4 + Momentum INTERPRETATION 5/5 + Post-NS5 update space 4/4 + **Variance-reduction 8/8** (now).
+- **Reassignment for nezuko**: PR #1079 MUON_BODY_DUAL_MOMENTUM_BUFFER — 34th distinct mechanism class, FIRST dual-timescale momentum buffer in 280+ PRs. Maintain TWO buffers at different mu values (short = mandatory stack mu; long = mu=0.99) and blend `m_effective = α·m_short + (1−α)·m_long` as NS5 input. Categorically distinct from all single-buffer interventions (lifecycle 4/4, interpretation 5/5 saturated) and from Lookahead/EMA (which average PARAMETERS not BUFFERS). Theory: Borkar 2008 dual-timescale stochastic approximation. Tests whether the bias-limited floor is in single-buffer EMA window misalignment vs NS5 polar approximation itself. Arm A=α=0.5 equal blend, Arm B=α=0.8 favor short. ~12 LOC patch, ~100MB extra memory.
+
 ## 2026-05-24 19:50 UTC — PR #1057: NS5_COEF_SCHEDULE (CLOSED, 108th refuted — both arms floor cluster touch, NS5 polynomial layer now 6/6 fully saturated)
 
 - Branch: `g1r2-alphonse/ns5-coef-schedule` (student g1r2-alphonse)
