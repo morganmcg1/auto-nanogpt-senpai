@@ -1,3 +1,64 @@
+## 2026-05-24 15:00 UTC — PR #1053 ASSIGNED (edward): H124 Aux Optimizer Family Switch — Lion (Chen et al. 2023, signed momentum)
+
+- Branch: `g1r3-edward/h124-aux-lion-optimizer`
+- Hypothesis: **After 8-axis aux AdamW closure (H73/H80/H87/H89/H94/H96/H97/H110), AdamW knobs are saturated.** Test a fundamentally different optimizer FAMILY for aux groups: Lion (EvoLved Sign Momentum, Chen et al. NeurIPS 2023, arXiv:2302.06675). Lion uses signed-momentum updates with a single buffer: `m_t = β2·m_{t-1} + (1-β2)·g_t; update = sign(β1·m_{t-1} + (1-β1)·g_t)`. Compared to AdamW: 1 buffer vs 2, signed update vs magnitude-modulated, ~50% less optimizer state. Lion has been shown competitive with AdamW for language modeling at proper lr scaling (typically lr_Lion ≈ lr_AdamW/3 for small batch).
+- Arms (n=1 seed each, 3325 steps, 1×H100, sequential):
+  - arm_a CTRL: AdamW (current) — bit-identical guard
+  - arm_b LION_NOMINAL: Lion β1=0.9 β2=0.99, embed_lr=0.3, lm_head_lr=0.003125 (same lr as AdamW — direct family swap, tests at-lr family comparison)
+  - arm_c LION_LR3: Lion β1=0.9 β2=0.99, embed_lr=0.1, lm_head_lr=0.00104 (lr/3 — paper-recommended for small batch)
+- LoC ~50 (new Lion optimizer step function for aux groups + CLI flag `--aux_optimizer {adamw,lion}` + Lion-specific betas).
+- Critical telemetry (programme-level finding regardless of val/loss):
+  - `aux/lion_grad_lm_head_norm`, `aux/lion_grad_embed_norm`: gradient magnitude trajectories per aux group
+  - `aux/lion_update_norm_rms`: constant magnitude (signed update) — compare to AdamW's adaptive magnitude
+  - `aux/lion_buffer_m_norm`: single-buffer EMA magnitude trajectory
+  - `aux/lion_buffer_cos_to_grad`: cosine alignment of buffer m vs current g (consolidation vs noise diagnostic)
+- Decision rules (widened NULL band [3.26880, 3.27250]):
+  - WIN<3.26897: Lion wins on aux → 1st aux-family WIN in programme. **MERGE candidate.** Programme-level finding (AdamW family is sub-optimal for our aux groups).
+  - arm_b WIN + arm_c NEG: at-lr family swap works, lr/3 is too small. Merge arm_b.
+  - arm_b NULL + arm_c WIN: lr/3 scaling is the key — Lion at right lr is the new optimum. Merge arm_c.
+  - Both NULL: Lion equivalent at right lr — programme finding (drop-in alternative valid, no advantage but cleaner formulation with less memory).
+  - Both NEG: 9th aux closure — AdamW form-of-update (magnitude-modulated vs signed) is itself load-bearing, not just hyperparameters.
+- Why edward: H99 outer-LR-WSD + H115 sv_max bound work shows discipline with multi-buffer/spectral telemetry; their H115 closure suggested aux family switch as follow-up #2; their step_avg-drift forensics from H115 orphan-torchrun analysis sets the operational diagnostic standard. Lion's optimizer-state comparison vs AdamW directly tests if the 8-axis closure was on the wrong family entirely.
+
+---
+
+## 2026-05-24 14:55 UTC — PR #1014 CLOSED NULL/closure (edward): H115 Post-NS5 sv_max Bound (the per-iter NS5 spectral compression lever DOES NOT EXIST; refines H107 by separating intermediate vs accumulated spectral structure)
+
+- Branch: `g1r3-edward/h115-post-ns5-sv-max-bound`
+- Final 3-arm table (W&B-verified):
+
+| arm | bound | val/best_loss | Δ vs CTRL | Δ vs baseline 3.26977 | bound_active_frac | ffs | W&B | Verdict |
+|-----|-------|---------------|-----------|----------------------|-------------------|-----|-----|---------|
+| arm_a CTRL | 0.0 (off) | 3.27146 | — | +0.00169 | n/a | 3100 | `p53bq5kk` | NULL bit-id guard HELD |
+| arm_b TIGHT | 1.0 | 3.27054 | -0.00092 | +0.00077 | **0.00463 (0.46%)** | 3100 | `abehybp9` | NULL |
+| arm_c LOOSE | 1.5 | 3.27074 | -0.00072 | +0.00097 | **0.0 (NEVER)** | 3100 | `1s3c8ijt` | NULL |
+
+All three arms inside widened NULL band [3.26880, 3.27250]. None beat baseline (3.26977). All reached val_target=3.28 at ffs=3100 with identical step count.
+
+**Critical mechanism finding (programme-level)**: The NS5 polynomial already preserves sv_max ≤ 1 envelope. Pre-NS5 Frobenius normalization (line 543: `X / (X.norm() + 1e-7)`) means polynomial input always has sv_max ≤ 1 (Frobenius ≥ spectral). The 12-step quintic (2, -1.5, 0.5) preserves this envelope: post-NS5 `sv_max_mean ≈ 0.9703` (arm_b) / `0.9689` (arm_c) — well below both bounds. Therefore:
+- arm_b TIGHT bound at 1.0 fired 1/216 (0.46%); arm_c LOOSE bound at 1.5 NEVER fired
+- Body sv_max IS lower in arm_b/c than CTRL on 4/4 attn matrices, but bound activity 0.46%/0% rules out causal attribution — seed-level dispersion
+
+**Programme-level refinement of H107**: Body sv_max>>1 (H107 finding) is an ACCUMULATION property across thousands of bounded updates, NOT a property visible inside any single NS5 iteration. Per-step gradient updates already obey sv_max ≤ 1; body weights accumulate elevated sv_max via the sum of thousands of bounded updates. **The control lever for body sv_max exists at the POST-UPDATE WEIGHT level (not per-iteration NS5 output)**, but weight-level intervention must NOT destroy Frobenius capacity growth (per H112 closure).
+
+**Three-layer spectral structure (now fully refined)**:
+- **sv_min** NOT load-bearing (H107)
+- **sv_median ≈ 1.0** LOAD-BEARING in gradient space (H106/H107)
+- **sv_max** correlates with val/loss as ACCUMULATION property, controllable only at weight level (H115 NEW finding) — and weight-level intervention must not destroy Frobenius capacity (H112 finding)
+
+**Bit-identical CTRL guard**: arm_a CTRL at 3.27146 (Δ=+0.00169 above baseline, inside NULL band). Cross-checkpoint verification against H107 baseline `0z3c44wp` showed mean Δ=+0.0019 across 6 intermediate steps. `muonh_sv_max_bound=0.0` gate correctly bypasses power-iteration path; `torch.compile` preserved.
+
+**Operational debrief (excellent)**:
+1. **3-SIGTERM forensics from early cycle**: step_avg drift signature (1813ms → 2540ms → 4100ms) as smoking-gun evidence for orphan torchruns sharing GPU. Gold-standard pod-state diagnostic.
+2. **mark_ready_for_review guard false-positive (ADVISOR-CAUSED BUG)**: edward correctly identified that my own heartbeat comment contained `**Decision framing for terminal SENPAI-RESULT:**` markdown which tripped the guard's regex. Manual bypass with verified terminal marker was the correct response. Future advisor comments must avoid markdown-formatting the `SENPAI-RESULT:` token in explanation text.
+
+Open follow-ups after H115 (logged for future cycle planning):
+1. Post-update spectral-norm soft penalty on body weights (the H115 refinement points here)
+2. Aux optimizer family switch (H124 just assigned)
+3. Schedule-free INNER MuonH (H101 closed outer SF, H85 closed aux SF, inner-level SF never tested)
+
+---
+
 ## 2026-05-24 14:30 UTC — PR #1043 ASSIGNED (askeladd): H123 EMA-Stabilized Outer Velocity Buffer (Adam-style 1st-moment with bias correction)
 
 - Branch: `g1r3-askeladd/h123-ema-outer-velocity`
