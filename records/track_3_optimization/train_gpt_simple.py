@@ -61,6 +61,9 @@ def parse_args():
                              "--ema_beta_target during cooldown, coupling β to the LR schedule. "
                              "Requires --ema_beta>0. β_t = ema_beta + (ema_beta_target - ema_beta) "
                              "× (1 - lr_mult_t).")
+    parser.add_argument("--polar_frob_norm", choices=["off", "post", "pre"], default="off",
+                        help="Polar Frobenius normalization: off=baseline, post=normalize polar output, "
+                             "pre=normalize m_pre before NS5.")
     args = parser.parse_args()
     args.num_trials = args.num_trials if args.num_trials is not None else (args.legacy_num_trials or 1)
     args.wandb_tags = [tag.strip() for tag in args.wandb_tags.split(",") if tag.strip()]
@@ -496,6 +499,7 @@ def pmuon_update(
     ns_a: float = NS_A,
     ns_b: float = NS_B,
     ns_c: float = NS_C,
+    polar_frob_norm: str = "off",
     polar_diag: dict | None = None,
 ) -> Tensor:
     # Streaming raw (unnormalized) bilateral covariance EMAs in fp32.
@@ -510,7 +514,13 @@ def pmuon_update(
     R_neg = matrix_neg_power(R_cov, gamma, eps)
     m_pre = (L_neg @ update.float()) @ R_neg
 
-    polar = zeropower_via_newtonschulz5(m_pre.to(update.dtype), a=ns_a, b=ns_b, c=ns_c)
+    # Arm B: pre-NS Frobenius normalization on m_pre.
+    if polar_frob_norm == "pre":
+        m_pre_for_ns = m_pre / (m_pre.norm() / (m_pre.numel() ** 0.5) + 1e-7)
+    else:
+        m_pre_for_ns = m_pre
+
+    polar = zeropower_via_newtonschulz5(m_pre_for_ns.to(update.dtype), a=ns_a, b=ns_b, c=ns_c)
     # Sample ortho residual ||X X^T - I||_F on the polar output (before spectral scaling).
     # Only the first eligible parameter per step writes — keeps cost ~O(d^2) once per step.
     if polar_diag is not None and "residual" not in polar_diag:
@@ -526,17 +536,35 @@ def pmuon_update(
         polar_diag["residual"] = float(torch.linalg.norm(gram - eye).item())
         polar_diag["sample_rows"] = m
         polar_diag["sample_cols"] = n
+    # Diagnostic: per-element RMS of polar output BEFORE post normalization
+    # (works for Arm A, Arm B, and baseline — for Arm B this is post-pre-norm).
+    if polar_diag is not None and "polar_frob_pre_norm" not in polar_diag:
+        polar_f = polar.float()
+        polar_frob = float(polar_f.norm().item())
+        polar_diag["polar_frob_pre_norm"] = polar_frob
+        polar_diag["polar_frob_pre_rms"] = polar_frob / (polar.numel() ** 0.5)
+
+    # Arm A: post-NS Frobenius normalization on polar output.
+    if polar_frob_norm == "post":
+        polar = polar / (polar.float().norm() / (polar.numel() ** 0.5) + 1e-7).to(polar.dtype)
+
+    if polar_diag is not None and "polar_frob_post_rms" not in polar_diag:
+        polar_diag["polar_frob_post_rms"] = float(
+            (polar.float().norm() / (polar.numel() ** 0.5)).item()
+        )
+
     update = polar * (max(1, grad.size(-2) / grad.size(-1)) ** 0.5)
     return update
 
 
 class Muon(torch.optim.Optimizer):
     def __init__(self, params, lr=0.02, weight_decay=0, mu=0.95, beta_cov=0.95, gamma=PMUON_GAMMA,
-                 ns_a=NS_A, ns_b=NS_B, ns_c=NS_C):
+                 ns_a=NS_A, ns_b=NS_B, ns_c=NS_C, polar_frob_norm="off"):
         assert isinstance(params, list) and len(params) >= 1 and isinstance(params[0], torch.nn.Parameter)
+        assert polar_frob_norm in ("off", "post", "pre")
         params = sorted(params, key=lambda x: x.size(), reverse=True)
         defaults = dict(lr=lr, weight_decay=weight_decay, mu=mu, beta_cov=beta_cov, gamma=gamma,
-                        ns_a=ns_a, ns_b=ns_b, ns_c=ns_c)
+                        ns_a=ns_a, ns_b=ns_b, ns_c=ns_c, polar_frob_norm=polar_frob_norm)
         super().__init__(params, defaults)
 
     @torch.no_grad()
@@ -570,6 +598,7 @@ class Muon(torch.optim.Optimizer):
                         ns_a=group["ns_a"],
                         ns_b=group["ns_b"],
                         ns_c=group["ns_c"],
+                        polar_frob_norm=group["polar_frob_norm"],
                         polar_diag=polar_diag,
                     )
                     floor_eligible_count += 1
@@ -717,6 +746,7 @@ if dist.get_rank() == 0:
             "ema_warmup_steps": args.ema_warmup_steps,
             "ema_beta_target": args.ema_beta_target if args.ema_beta_target is not None else 0.0,
             "ema_dynamic_ramp_active": int(args.ema_beta_target is not None and args.ema_beta > 0),
+            "polar_frob_norm": args.polar_frob_norm,
         },
     )
 
@@ -753,7 +783,8 @@ for trial_idx in range(args.num_trials):
                         dict(params=[p for p in model.parameters() if p.ndim < 2], lr=0.025, name="adam_scalars")],
                        betas=(0.8, 0.95), eps=1e-10, weight_decay=0, fused=True)
     optimizer2 = Muon([p for p in model.blocks.parameters() if p.ndim >= 2],
-                      lr=0.035, weight_decay=0.025, beta_cov=0.95, gamma=PMUON_GAMMA)
+                      lr=0.035, weight_decay=0.025, beta_cov=0.95, gamma=PMUON_GAMMA,
+                      polar_frob_norm=args.polar_frob_norm)
     optimizer2.param_groups[0]["name"] = "muon_blocks"
     optimizers = [optimizer1, optimizer2]
     assert set(p for opt in optimizers for group in opt.param_groups
@@ -1016,7 +1047,7 @@ for trial_idx in range(args.num_trials):
                 }, step=wandb_step)
             polar_diag = getattr(optimizer2, "_polar_diag", None)
             if polar_diag and "residual" in polar_diag:
-                wandb.log({
+                polar_log = {
                     "trial": trial_idx,
                     "train/step": train_step,
                     "polar/ortho_residual_sample": polar_diag["residual"],
@@ -1025,7 +1056,13 @@ for trial_idx in range(args.num_trials):
                     "polar/ns_coef_a": NS_A,
                     "polar/ns_coef_b": NS_B,
                     "polar/ns_coef_c": NS_C,
-                }, step=wandb_step)
+                }
+                if "polar_frob_pre_norm" in polar_diag:
+                    polar_log["polar/frob_pre_norm"] = polar_diag["polar_frob_pre_norm"]
+                    polar_log["polar/frob_pre_rms"] = polar_diag["polar_frob_pre_rms"]
+                if "polar_frob_post_rms" in polar_diag:
+                    polar_log["polar/frob_post_rms"] = polar_diag["polar_frob_post_rms"]
+                wandb.log(polar_log, step=wandb_step)
             wandb.log({
                 "trial": trial_idx,
                 "train/step": train_step,
