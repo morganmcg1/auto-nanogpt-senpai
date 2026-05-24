@@ -3847,3 +3847,113 @@ New assignment: PR #521 — gradient clipping sweep (first-ever clipping in this
 
 - **Gate**: μ_n=1 ≤ 3.260 → P2 n=4. μ_n=4 ≤ 3.259221 → merge.
 
+## 2026-05-24 14:30 — PR #994: SOAP per-scope Q_row drop (attn-only)
+
+- Branch: `g1r5-edward/soap-attn-q-row-drop`
+- Hypothesis: After #936 finding that Q_col >> Q_row for attn, drop Q_row from attn ONLY (leave MLP both). Predicted ~+0.89σ if additive cross-scope decomposition holds.
+
+- **5-cell sweep (attn_side, mlp_side):**
+
+| Cell | attn_side | mlp_side | Result vs baseline | σ vs baseline |
+|:----:|:---------:|:--------:|:------------------:|:-------------:|
+| A | both | both | baseline ctrl | 0σ |
+| **B ★** | right | both | NEG | strongly positive σ |
+| C | none | both | NEG (large) | very large σ |
+| D | right | right | NEG | large σ |
+| E | right | none | NEG | very large σ |
+
+- **Result**: clean-NEG. **Cross-scope decomposition non-additive 4.5×** — predicted sum of per-scope contributions did not hold (B+D ≠ A−C). Both SOAP attn AND SOAP MLP each contribute roughly ½ of total SOAP value; neither scope is free to drop.
+
+- **Mechanism finding**: Q_col >> Q_row hierarchy from #936 is confirmed (B less harmful than C), but Q_row is NOT zero-cost as predicted by the additive model. Q_row contributes residual value to attn even with Q_col present. **Cross-scope coupling exists**: dropping Q_row from attn while MLP has full preconditioning costs more than the simple per-scope ablation predicted.
+
+- **Closure**: structural per-scope SOAP pruning axis is now saturated:
+  - #936 closed Q_col vs Q_row per-side comparison
+  - #979 closed exp_avg_sq pruning (direction-warping load-bearing, EMA inessential)
+  - #994 closes per-scope structural drop combinations
+- Remaining SOAP-internals work is the temporal/cadence dimension (#1036 global precond_freq, #1053 asymm Q_row/Q_col freq).
+
+- **Follow-up assigned**: edward → #1053 Asymmetric SOAP Q_row/Q_col refresh frequency. If Q_row can't be structurally dropped (#994) but is much less important than Q_col (#936), it may tolerate temporal sparsification — refresh Q_row less often than Q_col, recovering compute savings without structural penalty.
+
+## 2026-05-24 14:30 — PR #993: Gradient-norm-anomaly Muon momentum reset
+
+- Branch: `g1r5-askeladd/grad-anomaly-mu-reset`
+- Hypothesis: Track ||grad||_F EMA per matrix; when current norm > K × EMA, partial μ reset. Magnitude-anomaly trigger axis distinct from time #907 / schedule #925 / direction #973.
+
+- **5-cell sweep:**
+
+| Cell | thresh | reset_frac | Result vs baseline |
+|:----:|:------:|:----------:|:------------------:|
+| A | — (ctrl) | — | baseline |
+| **B ★** | 3× | 0.5 | NEG |
+| C | 2× | 0.5 | NEG |
+| D | 3× | 1.0 | NEG |
+| E | 5× | 0.5 | NEG |
+
+- **Result**: clean-NEG. All triggered treatments regressed; no anomaly-driven reset configuration helped.
+
+- **Mechanism finding**: **Muon NS orthogonalization bounds output magnitude.** The NS iteration in `zeropower_via_newtonschulz5` produces outputs with norm bounded by `sqrt(min(m, n))` regardless of input magnitude — gradient spikes never propagate to weight updates as magnitude anomalies. The trigger condition (||grad||_F > K × EMA) fires on input magnitude but Muon downstream completely decouples input magnitude from update magnitude. **Magnitude-conditional triggers are structurally weak for Muon-optimized layers.**
+
+- **Closure**: momentum-trigger cluster comprehensively closed (4/4 axes NEG):
+  - Time-triggered: #907 (joint reset at step 975) — NEG, σ_single 1.71× baseline
+  - Schedule-triggered: #925 (linear μ ramp through cooldown) — WEAK-NEG, σ_sample 1.4× baseline
+  - Direction-triggered: #973 (cosine-gated adaptive μ) — NEG, monotone harm in distance from 0.95
+  - Magnitude-triggered: #993 (grad-norm-anomaly reset) — NEG, NS bounds magnitude
+- No remaining trigger axis for μ buffer manipulation. Future work on μ should pivot to fundamentally different formulations (per-layer asymmetric momentum, learned mixing, etc.) rather than trigger-based interventions.
+
+- **Follow-up assigned**: askeladd → #1054 LR schedule shape sweep. **Discovery during axis search**: LR schedule was HARDCODED at lines 882-888 of `set_hparams` (`eta = (1 − progress) / cooldown_frac`) — trapezoidal-stable-then-linear-decay, no CLI flag, never SENPAI-validated. Schedule shape is orthogonal to schedule values (lr_mlp/lr_scalars set, shape never was). Tests cosine/exponential/floor/quintic.
+
+## 2026-05-24 14:30 — PR #1053: Asymmetric SOAP Q_row/Q_col refresh frequency
+
+- Branch: `g1r5-edward/soap-asymm-q-refresh-freq`
+- Assigned to: g1r5-edward (follow-up after #994 closure)
+- Hypothesis: Mechanism-driven from #936 (Q_col >> Q_row for attn) and #994 (Q_row not structurally free but ~½ importance of Q_col). If Q_row carries less load, refreshing it less often than Q_col may recover compute without structural penalty. Compute savings: ~25% on SOAP Q updates if Q_row refreshes 4× less often than Q_col.
+
+- **5-cell sweep (precond_freq_row, precond_freq_col):**
+
+| Cell | row freq | col freq | Description |
+|:----:|:--------:|:--------:|:------------|
+| A | 16 | 16 | ctrl (current PRECOND_FREQ=16 both) |
+| **B ★** | 64 | 16 | Q_row 4× sparser |
+| C | 32 | 16 | Q_row 2× sparser |
+| D | 128 | 16 | Q_row 8× sparser (boundary) |
+| E | 16 | 64 | inverse falsifier (Q_col 4× sparser) |
+
+- **Implementation**: split `PRECOND_FREQ` into row/col paths in `soap_update_preconditioner`. Add `--precond_freq_row` and `--precond_freq_col` (defaults preserve current behavior).
+
+- **Falsifier**: Cell E should regress more than Cell B if Q_col is genuinely more critical. If E ≈ B, the asymmetry hypothesis is wrong. If B ≪ A in cost and E ≫ A in cost, mechanism confirmed.
+
+- **Gate**: μ_n=1 ≤ 3.260 → P2 n=4. μ_n=4 ≤ 3.259221 → merge.
+
+## 2026-05-24 14:30 — PR #1054: LR schedule shape sweep
+
+- Branch: `g1r5-askeladd/lr-schedule-shape-sweep`
+- Assigned to: g1r5-askeladd (follow-up after #993 closure)
+- **DISCOVERY**: LR schedule was HARDCODED at lines 882-888 of `train_gpt_simple.py` as trapezoidal-stable-then-linear-decay:
+  ```python
+  def set_hparams(step):
+      progress = step / train_steps
+      eta = 1.0 if progress < (1 - cooldown_frac) else (1 - progress) / cooldown_frac
+      ...
+  ```
+  Never made into a CLI flag. Never SENPAI-validated. Linear cooldown was inherited from upstream Muon paper, never proven optimal for this benchmark.
+
+- Hypothesis: Schedule shape is orthogonal to schedule values. Body LRs were tuned (`--lr_mlp 0.055`), schedule shape was not. Cosine/quintic may smooth descent during cooldown; exponential may target final-step quality; linear-to-floor may preserve some learning in final steps.
+
+- **5-cell sweep:**
+
+| Cell | --lr_schedule_shape | Description |
+|:----:|:-------------------:|:------------|
+| A | linear (ctrl) | current `(1 − progress) / cooldown_frac` |
+| **B ★** | cosine | `0.5 × (1 + cos(π × cooldown_progress))` |
+| C | exponential | `exp(−5 × cooldown_progress)` |
+| D | linear_to_floor | linear but stops at lr_floor=0.1 (preserve 10% LR through final steps) |
+| E | quintic | `(1 − cooldown_progress)^5` (steeper than linear) |
+
+- **Implementation**: add `--lr_schedule_shape` (str, default "linear" for backward compat), `--lr_floor` (float, default 0.0). Modify `set_hparams` to dispatch on shape. Test only Muon LRs (lr_mlp/lr_attn) — AdamW path unchanged.
+
+- **Falsifier**: all NEG → linear-cooldown was already near-optimal, schedule shape is robust. Closes schedule-shape axis. If POS, then schedule shape is a genuine untapped dimension and warrants further refinement (parametric shape sweep).
+
+- **Information value**: First test of schedule shape after 600+ polls of optimizer research. Closes a fundamental hardcoded design choice.
+
+- **Gate**: μ_n=1 ≤ 3.260 → P2 n=4. μ_n=4 ≤ 3.259221 → merge.
+
