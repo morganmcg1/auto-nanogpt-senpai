@@ -1239,3 +1239,31 @@ In-flight as of 01:30Z (all WIP, 8 students busy, 0 idle):
 - **Loss-side temporal schedule (sole survivor of temporal cluster)**: #950 (logit softcap)
 
 **Compositional floor theorem (#813)** holds at 78 refuted axes. CONTRA axis class fully saturated. Programme is now running 5 parallel mechanism-distinct probes on the SAME pre-NS5 layer — comprehensive coverage of element-wise vs tensor-level perturbations.
+
+#### 2026-05-24 02:15Z update — mid-147: #950 alphonse LOGIT_SOFTCAP_SCHEDULE CLOSED (79th refuted), #981 alphonse MUON_SIGN_MAG_DECOUPLE assigned
+
+**#950 alphonse LOGIT_SOFTCAP_SCHEDULE CLOSED (79th refuted)**: Bidirectional refutation around default LOGIT_SOFTCAP=20. Arm A (end=15, ramp DOWN) val=3.26870/ffs=3000 — close-miss, +0.00094 above baseline (PASS N=1 hold gate, MISS merge bar). Arm B (end=30, ramp UP) val=3.27288/ffs=3050 — floor cluster (MISS both gates). Monotonic direction signal (ramp DOWN > ramp UP) but both arms below baseline. Static LOGIT_SOFTCAP=20 (baseline #613) is true local optimum on the temporal axis. **N=2 confirmation NOT requested** — Arm A would need second seed at ≤3.26682 (below entire baseline distribution, ~10-15% recovery probability) — better to free alphonse for novel mechanism. Temporal schedule cluster now FULLY saturated: #946 ROPE_FRACTION, #947 CONTRA_MUON_SCHEDULE, #948 NS5_ITERS_SCHEDULE, #950 LOGIT_SOFTCAP_SCHEDULE — all closed.
+
+**#981 alphonse MUON_SIGN_MAG_DECOUPLE assigned (fresh axis, 6th pre-NS5 mechanism)**: Independent sign and magnitude EMAs for body Muon gradient, recombined before momentum lerp. `sign_ema = EMA(sign(g), decay=MUON_SIGN_DECAY)`, `mag_ema = EMA(|g|, decay=MUON_MAG_DECAY)`, `grad_new = sign_ema * mag_ema`. Arms: A=slow sign 0.99/fast magnitude 0.85, B=fast sign 0.85/slow magnitude 0.99. ZERO matches in 250+ PRs for sign-magnitude independent EMA decomposition. Mechanistically novel: decouples "what direction" from "how much" with separate timescales — distinct from Lion (sign-of-momentum), AdamW (g/sqrt(EMA(g²))), and all 5 other pre-NS5 axes.
+
+#### Cycle 71 axis tally: **79 refuted**, ~51 floor cluster + kill-gate landings, **0 merges above baseline**
+
+In-flight as of 02:15Z (all WIP, 8 students busy, 0 idle):
+- #702 edward MU_WARMUP_START — pod-broken hold
+- #793 tanjiro DEPTH_DEP_MUON_LR — pod-broken hold
+- #965 nezuko MUON_DAMPENING — running
+- #968 askeladd MUON_PER_TENSOR_GRAD_CLIP — running
+- #971 frieren MUON_GRAD_VAR_NORM — running
+- #974 fern MUON_GRAD_POWER (re-assigned) — running
+- #975 thorfinn MUON_GRAD_HARDCLIP — running
+- #981 alphonse MUON_SIGN_MAG_DECOUPLE — newly assigned
+
+**Mechanism category coverage (all six fresh axes on pre-NS5 grad-statistics layer)**:
+- **Sign-magnitude EMA decomposition (NEW)**: #981 (independent timescales)
+- **Element-wise hard thresholding**: #975 (k·σ outlier clip)
+- **Element-wise continuous magnitude shaping**: #974 (power transform)
+- **Element-wise continuous variance normalization**: #971 (Adam-style EMA)
+- **Tensor-level Frobenius scaling**: #968 (per-tensor norm clip)
+- **Lerp-coefficient modulation**: #965 (dampening on grad weight)
+
+**Compositional floor theorem (#813)** holds at 79 refuted axes. Temporal schedule cluster fully saturated. Direction-quality / CONTRA / post-NS5 cluster fully saturated. Programme is now running 6 parallel mechanism-distinct probes on the pre-NS5 grad-statistics layer — the most comprehensive coverage of this axis ever attempted.

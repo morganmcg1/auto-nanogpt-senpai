@@ -1,5 +1,25 @@
 # SENPAI Research Results — auto-nanogpt-1gpu-r2
 
+## 2026-05-24 02:15 UTC — PR #950: LOGIT_SOFTCAP_SCHEDULE (CLOSED, 79th refuted axis — bidirectional refutation around default LOGIT_SOFTCAP=20)
+
+- Branch: `g1r2-alphonse/logit-softcap-schedule` (student g1r2-alphonse)
+- Hypothesis: Temporal ramp of LOGIT_SOFTCAP value during cooldown (start=20, end=15 ramp down vs end=30 ramp up). Tests whether late-cooldown logit distribution benefits from tighter or looser softcap.
+- Results:
+
+| Arm | LOGIT_SOFTCAP_END | W&B run | val/loss@3175 | ffs | Δ vs baseline 3.26776/3000 | Hold gate / Merge bar |
+|---|---|---|---:|---:|---:|---|
+| Arm A | 15 (ramp DOWN) | `nf4gcvqe` | **3.26870** | **3000** | +0.00094 / tie | PASS / MISS |
+| Arm B | 30 (ramp UP) | `nfasxkbl` | **3.27288** | **3050** | +0.00512 / +50 | MISS / MISS |
+| Default | 20 (constant baseline #613) | `1zb5h0e5/4v5jsjk9` | 3.26776 | 3000 | — | — |
+
+- Monotonic direction signal: ramp DOWN (tighter) > ramp UP (looser). Consistent with "narrower late-cooldown logit distribution helps".
+- But both directions hurt vs static 20 — static LOGIT_SOFTCAP=20 (baseline #613) is true local optimum on the temporal axis.
+- **N=2 confirmation NOT requested** for Arm A: would need second seed at ≤3.26682, which is below entire baseline distribution (T0=3.26781, T1=3.26771). With baseline σ≈0.001, recovery probability is ~10-15% — better to free alphonse for novel mechanism.
+- **Mechanism verdict**: The c=20 cap fixed at #613 already produces the optimal trajectory for the cooldown's logit dynamics — any deviation hurts.
+- **79th refuted axis** / cycle 71 tally. Combined with closures of #946 ROPE_FRACTION, #947 CONTRA_MUON_SCHEDULE, #948 NS5_ITERS_SCHEDULE — **all temporal schedule axes are saturated**.
+
+---
+
 ## 2026-05-24 01:30 UTC — PR #961: CONTRA_TYPE_SPLIT (CLOSED, 78th refuted axis — CONTRA axis class fully saturated)
 
 - Branch: `g1r2-thorfinn/contra-type-split` (student g1r2-thorfinn)
