@@ -82,6 +82,22 @@ def parse_args():
                         help="β2 at start of training (and constant β2 if schedule=constant).")
     parser.add_argument("--aux_beta2_end", type=float, default=float(os.environ.get("AUX_BETA2_END", "0.99")),
                         help="β2 at end of training (after cooldown). Only used if schedule=cooldown_ramp.")
+    # Aux optimizer family swap: replace AdamW with Lion (Chen et al. NeurIPS 2023,
+    # arXiv:2302.06675). Lion uses a single momentum buffer and a signed update
+    # (constant magnitude per coord). All AdamW-specific flags (--aux_adamw_eps,
+    # --aux_beta2_schedule, --aux_beta2_start, --aux_beta2_end) are no-ops in Lion
+    # mode. Default 'adamw' keeps the aux path bit-identical to baseline.
+    parser.add_argument("--aux_optimizer", type=str, default=os.environ.get("AUX_OPTIMIZER", "adamw"),
+                        choices=["adamw", "lion"],
+                        help="Aux optimizer family: adamw=current AdamW (default, bit-identical), lion=Lion signed-momentum (Chen et al. 2023).")
+    parser.add_argument("--lion_beta1", type=float, default=float(os.environ.get("LION_BETA1", "0.9")),
+                        help="Lion β1 — interpolation toward current gradient for update direction (paper default 0.9). No-op when aux_optimizer=adamw.")
+    parser.add_argument("--lion_beta2", type=float, default=float(os.environ.get("LION_BETA2", "0.99")),
+                        help="Lion β2 — EMA decay for momentum buffer (paper default 0.99). No-op when aux_optimizer=adamw.")
+    parser.add_argument("--embed_lr", type=float, default=float(os.environ.get("EMBED_LR", "0.3")),
+                        help="Aux LR for token embedding (default 0.3 = baseline). Lower for Lion (paper recommends lr/3 for small batch).")
+    parser.add_argument("--lm_head_lr", type=float, default=float(os.environ.get("LM_HEAD_LR", str(1.0 / 320))),
+                        help="Aux LR for LM head (default 1/320 ≈ 0.003125 = baseline). Lower for Lion (paper recommends lr/3 for small batch).")
     args = parser.parse_args()
     args.num_trials = args.num_trials if args.num_trials is not None else (args.legacy_num_trials or 1)
     args.wandb_tags = [tag.strip() for tag in args.wandb_tags.split(",") if tag.strip()]
@@ -578,6 +594,94 @@ def adaptive_gradient_clip(parameters, clip_ratio: float, eps: float = 1e-3):
     return stats
 
 
+class Lion(torch.optim.Optimizer):
+    """Lion — EvoLved Sign Momentum (Chen et al. NeurIPS 2023, arXiv:2302.06675).
+
+    Single-buffer signed-momentum optimizer:
+
+        c_t    = β1·m_{t-1} + (1-β1)·g_t      (interpolation; m_{t-1} unchanged)
+        update = sign(c_t)                     (binary ±1 per coord)
+        p_t    = p_{t-1}·(1 - lr·wd) - lr·update    (decoupled WD then step)
+        m_t    = β2·m_{t-1} + (1-β2)·g_t      (EMA buffer; longer window than β1)
+
+    Half the optimizer state of AdamW (1 buffer vs 2); constant per-coord
+    update magnitude (|update_i| = lr). Lion paper recommends lr_Lion ≈
+    lr_AdamW/3 for small batch sizes.
+
+    The momentum buffer is held in fp32 regardless of parameter dtype to
+    avoid β2=0.99 EMA precision loss on bf16 params (embed.weight).
+
+    Telemetry accumulators (`_last_*`) are populated when step(telemetry=True)
+    is called and read by the training loop's metrics block.
+    """
+
+    def __init__(self, params, lr: float = 0.3, beta1: float = 0.9,
+                 beta2: float = 0.99, weight_decay: float = 0.0):
+        defaults = dict(lr=lr, beta1=beta1, beta2=beta2, weight_decay=weight_decay)
+        super().__init__(params, defaults)
+        self._last_buffer_m_norm_mean = 0.0
+        self._last_grad_norm_mean = 0.0
+        self._last_buffer_cos_to_grad_mean = 0.0
+        self._last_update_norm_mean = 0.0
+        self._last_param_count = 0
+
+    @torch.no_grad()
+    def step(self, telemetry: bool = False):
+        buffer_m_norm_sum = 0.0
+        grad_norm_sum = 0.0
+        buffer_cos_grad_sum = 0.0
+        update_norm_sum = 0.0
+        param_count = 0
+        for group in self.param_groups:
+            beta1 = group["beta1"]
+            beta2 = group["beta2"]
+            lr = group["lr"]
+            wd = group["weight_decay"]
+            for p in group["params"]:
+                if p.grad is None:
+                    continue
+                state = self.state[p]
+                if "lion_m" not in state:
+                    state["lion_m"] = torch.zeros_like(p, dtype=torch.float32)
+                m_prev = state["lion_m"]
+                g_f = p.grad.detach().to(torch.float32)
+
+                if telemetry:
+                    m_norm = float(m_prev.norm().item())
+                    g_norm = float(g_f.norm().item())
+                    if m_norm > 1e-12 and g_norm > 1e-12:
+                        dot = float(torch.dot(m_prev.view(-1), g_f.view(-1)).item())
+                        cos_sim = dot / (m_norm * g_norm)
+                    else:
+                        cos_sim = 0.0
+                    buffer_m_norm_sum += m_norm
+                    grad_norm_sum += g_norm
+                    buffer_cos_grad_sum += cos_sim
+
+                # c_t = β1·m_{t-1} + (1-β1)·g_t. m_prev.mul(beta1) allocates a
+                # NEW tensor (mul is not in-place); add_ then mutates that
+                # fresh tensor. m_prev is preserved for the β2 update below.
+                c_t = m_prev.mul(beta1).add_(g_f, alpha=1.0 - beta1)
+                c_t.sign_()  # in-place: c_t is now ±1.0 per coord
+                if telemetry:
+                    update_norm_sum += float(c_t.norm().item())
+
+                # Decoupled WD then signed step (matches official lion_pytorch.py).
+                if wd != 0:
+                    p.data.mul_(1.0 - lr * wd)
+                p.data.add_(c_t.to(p.dtype), alpha=-lr)
+
+                # m_t = β2·m_{t-1} + (1-β2)·g_t (in-place on m_prev).
+                m_prev.mul_(beta2).add_(g_f, alpha=1.0 - beta2)
+                param_count += 1
+        if telemetry and param_count > 0:
+            self._last_buffer_m_norm_mean = buffer_m_norm_sum / param_count
+            self._last_grad_norm_mean = grad_norm_sum / param_count
+            self._last_buffer_cos_to_grad_mean = buffer_cos_grad_sum / param_count
+            self._last_update_norm_mean = update_norm_sum / param_count
+        self._last_param_count = param_count
+
+
 def scale_invariant_update_(param, update, lr, eps=1e-10):
     """Always-active hyperball step: rescale update to param's current norm scale,
     take the step, then renormalise the result back onto the sphere of radius
@@ -724,6 +828,14 @@ if args.muonh_agc_clip_ratio > 0:
     print0(f"AGC ENABLED on inner MuonH gradient: clip_ratio={args.muonh_agc_clip_ratio} eps={args.muonh_agc_eps}", console=True)
 else:
     print0("AGC DISABLED on inner MuonH gradient (clip_ratio=0)", console=True)
+if args.aux_optimizer == "lion":
+    print0(f"Aux optimizer = LION (Chen et al. 2023): beta1={args.lion_beta1} beta2={args.lion_beta2} "
+           f"embed_lr={args.embed_lr} lm_head_lr={args.lm_head_lr} scalar_lr=0.01 — AdamW eps/β2 flags are no-ops",
+           console=True)
+else:
+    print0(f"Aux optimizer = ADAMW (baseline): betas=(0.8, {args.aux_beta2_start}) eps={args.aux_adamw_eps} "
+           f"embed_lr={args.embed_lr} lm_head_lr={args.lm_head_lr}",
+           console=True)
 print0("="*100)
 
 val_tokens = 20 * 524288
@@ -780,6 +892,11 @@ if dist.get_rank() == 0:
             "aux_beta2_schedule": args.aux_beta2_schedule,
             "aux_beta2_start": args.aux_beta2_start,
             "aux_beta2_end": args.aux_beta2_end,
+            "aux_optimizer": args.aux_optimizer,
+            "lion_beta1": args.lion_beta1,
+            "lion_beta2": args.lion_beta2,
+            "embed_lr": args.embed_lr,
+            "lm_head_lr": args.lm_head_lr,
         },
     )
 
@@ -824,16 +941,28 @@ for trial_idx in range(args.num_trials):
     # create the optimizer(s)
     # MuonH replaces plain Muon on the hidden 2D weights: hard hyperball projection
     # after each step (R = initial Frobenius norm * budget_mult), wd=0 since the
-    # projection now controls norm growth. AdamW aux groups match the starter
-    # (lr 0.3 / 1/320 / 0.01, betas=(0.8, 0.95), eps=1e-10, wd=0).
+    # projection now controls norm growth.
+    #
+    # Aux optimizer (embed, lm_head, scalars):
+    #   - aux_optimizer=adamw (default): AdamW (lr 0.3 / 1/320 / 0.01, betas=(0.8, β2),
+    #     eps=args.aux_adamw_eps, wd=0). Bit-identical to baseline.
+    #   - aux_optimizer=lion: Lion (Chen et al. 2023) with the same param groups,
+    #     beta1=args.lion_beta1, beta2=args.lion_beta2, wd=0. AdamW-specific flags
+    #     (eps, β2 schedule) become no-ops.
     # fused AdamW reads betas from param_groups on every .step(), but to avoid any
     # silent-failure-mode risk we use fused=False whenever the β2 schedule is active.
     # constant schedule keeps fused=True so arm_a is bitwise-identical to baseline.
-    _aux_fused = (args.aux_beta2_schedule == "constant")
-    optimizer1 = AdamW([dict(params=[model.embed.weight], lr=0.3, name="adam_embed"),
-                        dict(params=[model.proj.weight], lr=1/320, name="adam_lm_head"),
-                        dict(params=[p for p in model.parameters() if p.ndim < 2], lr=0.01, name="adam_scalars")],
-                       betas=(0.8, args.aux_beta2_start), eps=args.aux_adamw_eps, weight_decay=0, fused=_aux_fused)
+    if args.aux_optimizer == "lion":
+        optimizer1 = Lion([dict(params=[model.embed.weight], lr=args.embed_lr, name="adam_embed"),
+                           dict(params=[model.proj.weight], lr=args.lm_head_lr, name="adam_lm_head"),
+                           dict(params=[p for p in model.parameters() if p.ndim < 2], lr=0.01, name="adam_scalars")],
+                          beta1=args.lion_beta1, beta2=args.lion_beta2, weight_decay=0)
+    else:
+        _aux_fused = (args.aux_beta2_schedule == "constant")
+        optimizer1 = AdamW([dict(params=[model.embed.weight], lr=args.embed_lr, name="adam_embed"),
+                            dict(params=[model.proj.weight], lr=args.lm_head_lr, name="adam_lm_head"),
+                            dict(params=[p for p in model.parameters() if p.ndim < 2], lr=0.01, name="adam_scalars")],
+                           betas=(0.8, args.aux_beta2_start), eps=args.aux_adamw_eps, weight_decay=0, fused=_aux_fused)
     optimizer2 = MuonH([p for p in model.blocks.parameters() if p.ndim >= 2],
                        lr=args.muonh_lr, weight_decay=0.0, mu=0.95,
                        hyperball=True, budget_mult=args.muonh_budget_mult,
@@ -897,6 +1026,7 @@ for trial_idx in range(args.num_trials):
         # Aux β2 schedule: ramp β2 from start to end linearly across the aux
         # cooldown phase (last aux_cooldown_frac of training). constant schedule
         # is a no-op since b2 stays equal to aux_beta2_start = baseline 0.95.
+        # Lion mode does not use AdamW betas — skip the mutation entirely.
         if args.aux_beta2_schedule == "cooldown_ramp":
             cooldown_start = int((1.0 - aux_cooldown_frac) * train_steps)
             if step < cooldown_start:
@@ -906,8 +1036,9 @@ for trial_idx in range(args.num_trials):
                 b2 = args.aux_beta2_start + prog * (args.aux_beta2_end - args.aux_beta2_start)
         else:
             b2 = args.aux_beta2_start
-        for g in optimizer1.param_groups:
-            g["betas"] = (g["betas"][0], b2)
+        if args.aux_optimizer != "lion":
+            for g in optimizer1.param_groups:
+                g["betas"] = (g["betas"][0], b2)
         return muonh_warmup, b2
 
 
@@ -1051,7 +1182,12 @@ for trial_idx in range(args.num_trials):
             muonh_params_for_agc, args.muonh_agc_clip_ratio, eps=args.muonh_agc_eps,
         )
         for opt in optimizers:
-            opt.step()
+            # Lion has an extra kwarg to gate the per-step telemetry block (norm
+            # / cosine-sim accumulators are non-trivial on 38M-param embed grads).
+            if isinstance(opt, Lion):
+                opt.step(telemetry=telemetry_due)
+            else:
+                opt.step()
         # Log warmup telemetry every 10 steps during warmup (and at telemetry events
         # afterwards) so we capture the warmup curve at high resolution. Cheap since
         # it's just two floats.
@@ -1071,6 +1207,16 @@ for trial_idx in range(args.num_trials):
                         muonh_metrics["train/muonh/norm_to_radius_max"] = opt._last_norm_to_radius_max
                     muonh_metrics["train/muonh/warmup_factor"] = muonh_warmup_factor
                     muonh_metrics["train/muonh/effective_lr"] = opt.param_groups[0]["lr"]
+                if isinstance(opt, Lion) and telemetry_due and opt._last_param_count > 0:
+                    # aux/lion_buffer_cos_to_grad is the central programme-level
+                    # diagnostic: alignment between momentum buffer and current
+                    # gradient. >0.5 = persistent same-direction gradients
+                    # (buffer consolidates); <0.1 = decorrelated step-to-step
+                    # (signed updates may help by treating each step independently).
+                    muonh_metrics["aux/lion_buffer_m_norm"] = opt._last_buffer_m_norm_mean
+                    muonh_metrics["aux/lion_grad_norm_rms"] = opt._last_grad_norm_mean
+                    muonh_metrics["aux/lion_buffer_cos_to_grad"] = opt._last_buffer_cos_to_grad_mean
+                    muonh_metrics["aux/lion_update_norm_rms"] = opt._last_update_norm_mean
             if telemetry_due and args.aux_agc_clip_ratio > 0 and agc_stats["agc_total"] > 0:
                 muonh_metrics["train/agc/active_fraction"] = agc_stats["agc_clipped"] / agc_stats["agc_total"]
                 muonh_metrics["train/agc/clipped_count"] = agc_stats["agc_clipped"]
