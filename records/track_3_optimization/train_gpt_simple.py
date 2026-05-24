@@ -64,6 +64,10 @@ def parse_args():
     parser.add_argument("--muon_lr", type=float, default=0.035,
                         help="Base learning rate for body-Muon optimizer (matrix params in blocks). "
                              "Default 0.035 matches the merged baseline.")
+    parser.add_argument("--cooldown_power", type=float, default=COOLDOWN_POWER,
+                        help="WSD cooldown power exponent (default 1.4 = current baseline). "
+                             "Lower = slower decay, more LR mass late in cooldown. "
+                             "Higher = faster decay, less LR mass late in cooldown.")
     args = parser.parse_args()
     args.num_trials = args.num_trials if args.num_trials is not None else (args.legacy_num_trials or 1)
     args.wandb_tags = [tag.strip() for tag in args.wandb_tags.split(",") if tag.strip()]
@@ -713,7 +717,7 @@ if dist.get_rank() == 0:
             "ns_coef_c": NS_C,
             "target_uw_floor": 0.35,
             "target_uw": 0.35,
-            "power_cooldown_gamma": COOLDOWN_POWER,
+            "power_cooldown_gamma": args.cooldown_power,
             "cooldown_frac": 0.7,
             "muon_method": MUON_METHOD,
             "ema_beta": args.ema_beta,
@@ -776,7 +780,7 @@ for trial_idx in range(args.num_trials):
     if args.ema_beta > 0:
         ema_params = [p.detach().float().clone() for p in optimizer2.param_groups[0]["params"]]
 
-    # learning rate schedule: stable then power-law cooldown (gamma = COOLDOWN_POWER)
+    # learning rate schedule: stable then power-law cooldown (gamma = args.cooldown_power)
     def compute_lr_mult(step, cooldown_frac=0.7):
         """Pure: LR multiplier (eta) at `step`. Matches set_hparams."""
         if step >= train_steps:
@@ -786,7 +790,7 @@ for trial_idx in range(args.num_trials):
             return 1.0
         cooldown_progress = (progress - (1 - cooldown_frac)) / cooldown_frac
         w = 1.0 - cooldown_progress
-        return w ** COOLDOWN_POWER
+        return w ** args.cooldown_power
 
     def compute_ema_beta_t(step):
         """Dynamic β_t = β_base + (β_target - β_base) × (1 - lr_mult_t).
@@ -810,7 +814,7 @@ for trial_idx in range(args.num_trials):
         else:
             cooldown_progress = (progress - (1 - cooldown_frac)) / cooldown_frac
             w = 1.0 - cooldown_progress  # equivalent to (1 - progress) / cooldown_frac
-            eta = w ** COOLDOWN_POWER
+            eta = w ** args.cooldown_power
         for opt in optimizers:
             for group in opt.param_groups:
                 group["lr"] = group["initial_lr"] * eta
@@ -1036,7 +1040,7 @@ for trial_idx in range(args.num_trials):
                 "train/cooldown/progress": sched_progress,
                 "train/cooldown/cooldown_progress": sched_cooldown_progress,
                 "train/cooldown/lr_multiplier": sched_eta,
-                "train/cooldown/power_gamma": COOLDOWN_POWER,
+                "train/cooldown/power_gamma": args.cooldown_power,
             }, step=wandb_step)
             if ema_params is not None:
                 wandb.log({
