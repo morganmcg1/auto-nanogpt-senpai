@@ -83,11 +83,19 @@ def parse_args():
              "muall=musoft + non-residual block 2D weights also scaled by 1/sqrt(L); "
              "smallconst=std=1e-3 depth-independent.",
     )
+    parser.add_argument("--soap_qrow_freq", type=int, default=PRECOND_FREQ,
+                        help="Refresh frequency for Q_row eigenbasis. Default matches PRECOND_FREQ=16. "
+                             "Set higher to slow Q_row refresh (temporal sparsification).")
+    parser.add_argument("--soap_qcol_freq", type=int, default=PRECOND_FREQ,
+                        help="Refresh frequency for Q_col eigenbasis. Default matches PRECOND_FREQ=16. "
+                             "Set higher to slow Q_col refresh (temporal sparsification).")
     args = parser.parse_args()
     args.num_trials = args.num_trials if args.num_trials is not None else (args.legacy_num_trials or 1)
     args.wandb_tags = [tag.strip() for tag in args.wandb_tags.split(",") if tag.strip()]
     if args.telemetry_interval < 1 or args.histogram_interval < 1:
         raise ValueError("--telemetry_interval and --histogram_interval must be positive")
+    if args.soap_qrow_freq < 1 or args.soap_qcol_freq < 1:
+        raise ValueError("--soap_qrow_freq and --soap_qcol_freq must be positive")
     return args
 
 
@@ -552,17 +560,35 @@ def soap_precondition_momentum(update, state, beta2=SOAP_BETA2, eps=1e-8):
     return precond.to(update.dtype)
 
 
-def soap_update_preconditioner(grad, state, shampoo_beta=SOAP_BETA2, precondition_frequency=PRECOND_FREQ):
+def soap_update_preconditioner(grad, state, shampoo_beta=SOAP_BETA2,
+                                qrow_freq=PRECOND_FREQ, qcol_freq=PRECOND_FREQ):
     grad_f = grad.float()
     state["row_gg"].lerp_(grad_f @ grad_f.T, 1 - shampoo_beta)
     state["col_gg"].lerp_(grad_f.T @ grad_f, 1 - shampoo_beta)
     if state["q_row"] is None:
         state["q_row"] = soap_eigenbasis(state["row_gg"])
         state["q_col"] = soap_eigenbasis(state["col_gg"])
-    elif state["soap_step"] > 0 and state["soap_step"] % precondition_frequency == 0:
-        state["q_row"], state["q_col"], state["exp_avg_sq"] = soap_basis_qr(
-            state["row_gg"], state["col_gg"], state["q_row"], state["q_col"], state["exp_avg_sq"]
-        )
+        state["qrow_refreshes"] = 1
+        state["qcol_refreshes"] = 1
+    else:
+        soap_step = state["soap_step"]
+        refresh_row = soap_step > 0 and soap_step % qrow_freq == 0
+        refresh_col = soap_step > 0 and soap_step % qcol_freq == 0
+        if refresh_row or refresh_col:
+            old_q_row = state["q_row"]
+            old_q_col = state["q_col"]
+            new_q_row, new_q_col, new_exp_avg_sq = soap_basis_qr(
+                state["row_gg"], state["col_gg"], state["q_row"], state["q_col"], state["exp_avg_sq"]
+            )
+            if refresh_row:
+                state["q_row_drift"] = (new_q_row - old_q_row).norm()
+                state["q_row"] = new_q_row
+                state["exp_avg_sq"] = new_exp_avg_sq
+                state["qrow_refreshes"] = state.get("qrow_refreshes", 0) + 1
+            if refresh_col:
+                state["q_col_drift"] = (new_q_col - old_q_col).norm()
+                state["q_col"] = new_q_col
+                state["qcol_refreshes"] = state.get("qcol_refreshes", 0) + 1
     state["soap_step"] += 1
 
 
@@ -571,7 +597,8 @@ class Muon(torch.optim.Optimizer):
     SOAP_ATTN_SUFFIXES = (".attn.q.weight", ".attn.k.weight", ".attn.v.weight", ".attn.proj.weight")
 
     def __init__(self, named_params, lr=0.02, weight_decay=0, mu=0.95,
-                 soap_attn=False, trust_threshold=0.0):
+                 soap_attn=False, trust_threshold=0.0,
+                 qrow_freq=PRECOND_FREQ, qcol_freq=PRECOND_FREQ):
         # `named_params` can be either:
         #   (a) list of (name, param) tuples → single param group (legacy form)
         #   (b) list of dicts {"named_params": [(name, param), ...], "lr": ?, "weight_decay": ?, "mu": ?, "name": ?}
@@ -593,6 +620,8 @@ class Muon(torch.optim.Optimizer):
         self.soap_attn = soap_attn
         self.trust_threshold = float(trust_threshold)
         self.use_trust_gate = soap_attn
+        self.qrow_freq = int(qrow_freq)
+        self.qcol_freq = int(qcol_freq)
         self.cos_sims_buffer: dict[str, Tensor] = {}
 
         param_groups = []
@@ -633,6 +662,10 @@ class Muon(torch.optim.Optimizer):
                             state["q_row"] = None
                             state["q_col"] = None
                             state["soap_step"] = 0
+                            state["qrow_refreshes"] = 0
+                            state["qcol_refreshes"] = 0
+                            state["q_row_drift"] = torch.zeros((), dtype=torch.float32, device=p.device)
+                            state["q_col_drift"] = torch.zeros((), dtype=torch.float32, device=p.device)
                     if use_soap:
                         state["momentum"].lerp_(p.grad, 1 - group["mu"])
                         raw_nesterov = p.grad.lerp(state["momentum"], group["mu"])
@@ -647,7 +680,10 @@ class Muon(torch.optim.Optimizer):
                             self.cos_sims_buffer[self.param_names[id(p)]] = cos_sim_t
                         else:
                             update = u_soap
-                        soap_update_preconditioner(p.grad, state)
+                        soap_update_preconditioner(
+                            p.grad, state,
+                            qrow_freq=self.qrow_freq, qcol_freq=self.qcol_freq,
+                        )
                     else:
                         update = muon_update(p.grad, state["momentum"], mu=group["mu"])
                     norm_sum.add_(update.float().norm())
@@ -656,6 +692,29 @@ class Muon(torch.optim.Optimizer):
                 dist.all_gather(params_pad[base_i:base_i + world_size], params_pad[base_i + rank])
             group["_step_norm_sum"] = norm_sum
             group["_step_norm_count"] = len(params)
+
+    def get_soap_refresh_stats(self) -> dict[str, dict[str, float]]:
+        """Per-SOAP-param: cumulative Q refreshes and most recent Q drift.
+
+        Returns dict mapping param name -> {qrow_refreshes, qcol_refreshes,
+        q_row_drift, q_col_drift}. Only rank-owned params produce entries; in
+        the 1-GPU runs every param is owned by rank 0.
+        """
+        result: dict[str, dict[str, float]] = {}
+        for p in self.soap_params:
+            state = self.state.get(p)
+            if not state or "soap_step" not in state:
+                continue
+            name = self.param_names.get(id(p), str(id(p)))
+            qrow_drift_t = state.get("q_row_drift")
+            qcol_drift_t = state.get("q_col_drift")
+            result[name] = {
+                "qrow_refreshes": int(state.get("qrow_refreshes", 0)),
+                "qcol_refreshes": int(state.get("qcol_refreshes", 0)),
+                "q_row_drift": float(qrow_drift_t.item()) if torch.is_tensor(qrow_drift_t) else 0.0,
+                "q_col_drift": float(qcol_drift_t.item()) if torch.is_tensor(qcol_drift_t) else 0.0,
+            }
+        return result
 
     def get_step_update_norms(self) -> dict[str, float]:
         """Return per-group mean Frobenius norm of the most recent step's updates.
@@ -755,6 +814,8 @@ if dist.get_rank() == 0:
             ),
             "soap_beta2": SOAP_BETA2,
             "soap_precond_freq": PRECOND_FREQ,
+            "soap_qrow_freq": args.soap_qrow_freq,
+            "soap_qcol_freq": args.soap_qcol_freq,
             "ns_iter": NS_ITER,
             "soap_attn_enabled": bool(args.soap_attn),
             "soap_trust_threshold": float(args.soap_trust_threshold),
@@ -853,6 +914,7 @@ for trial_idx in range(args.num_trials):
             dict(named_params=attn_named, lr=args.lr_attn, weight_decay=args.wd_attn, name="muon_attn"),
         ],
         soap_attn=args.soap_attn, trust_threshold=args.soap_trust_threshold,
+        qrow_freq=args.soap_qrow_freq, qcol_freq=args.soap_qcol_freq,
     )
     optimizers = [optimizer1, optimizer2]
     assert set(p for opt in optimizers for group in opt.param_groups
@@ -1015,6 +1077,7 @@ for trial_idx in range(args.num_trials):
                            for i, group in enumerate(optimizer2.param_groups)}
             current_wds = {group.get("name", f"group_{i}"): group.get("weight_decay", 0.0)
                            for i, group in enumerate(optimizer2.param_groups)}
+            soap_refresh_stats = optimizer2.get_soap_refresh_stats()
             if dist.get_rank() == 0:
                 per_group_metrics = {"trial": trial_idx, "train/step": train_step}
                 for name, mean_norm in update_norms.items():
@@ -1026,6 +1089,29 @@ for trial_idx in range(args.num_trials):
                 per_group_metrics["train/wd_mlp_now"] = current_wds.get("muon_mlp", 0.0)
                 per_group_metrics["train/wd_attn_now"] = current_wds.get("muon_attn", 0.0)
                 per_group_metrics["train/wd_schedule_progress"] = train_step / train_steps
+                # SOAP Q refresh telemetry (per-param + aggregates).
+                if soap_refresh_stats:
+                    qrow_counts: list[int] = []
+                    qcol_counts: list[int] = []
+                    qrow_drifts: list[float] = []
+                    qcol_drifts: list[float] = []
+                    for p_name, stats in soap_refresh_stats.items():
+                        clean = clean_metric_name(p_name)
+                        per_group_metrics[f"soap/qrow_refresh_count/{clean}"] = stats["qrow_refreshes"]
+                        per_group_metrics[f"soap/qcol_refresh_count/{clean}"] = stats["qcol_refreshes"]
+                        per_group_metrics[f"soap/q_row_drift/{clean}"] = stats["q_row_drift"]
+                        per_group_metrics[f"soap/q_col_drift/{clean}"] = stats["q_col_drift"]
+                        qrow_counts.append(stats["qrow_refreshes"])
+                        qcol_counts.append(stats["qcol_refreshes"])
+                        qrow_drifts.append(stats["q_row_drift"])
+                        qcol_drifts.append(stats["q_col_drift"])
+                    n = len(soap_refresh_stats)
+                    per_group_metrics["soap/qrow_refresh_count_mean"] = sum(qrow_counts) / n
+                    per_group_metrics["soap/qcol_refresh_count_mean"] = sum(qcol_counts) / n
+                    per_group_metrics["soap/q_row_drift_mean"] = sum(qrow_drifts) / n
+                    per_group_metrics["soap/q_col_drift_mean"] = sum(qcol_drifts) / n
+                    per_group_metrics["soap/q_row_drift_max"] = max(qrow_drifts)
+                    per_group_metrics["soap/q_col_drift_max"] = max(qcol_drifts)
                 wandb.log(per_group_metrics, step=wandb_step)
         if dist.get_rank() == 0 and optimizer2.cos_sims_buffer:
             cs_names = list(optimizer2.cos_sims_buffer.keys())
