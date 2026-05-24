@@ -1,5 +1,27 @@
 # SENPAI Research Results
 
+## 2026-05-24 14:30 UTC — PR #958 CLOSED: PMuon γ_pre temporal schedule — 108th NULL, γ-schedule axis FULLY CLOSED (g1r1-frieren)
+
+- Branch: `g1r1-frieren/gamma-pre-temporal-schedule`
+- Hypothesis: PMuon γ_pre (Newton-Schulz polar exponent factor) temporal schedule (UP 0.2→0.4 vs DOWN 0.4→0.2 vs CONSTANT 0.4 baseline) is load-bearing. n=2 confirmation chain.
+
+| Seed | W&B | terminal val/loss | sr | Δval vs #918 | Verdict |
+|---|---|---|---|---|---|
+| seed-1 (DOWN 0.4→0.2) | `cbob6p4l` | **3.26731** | 2950 | +0.000916 | marginal NULL |
+| seed-2 (DOWN 0.4→0.2) | `amanpa5z` | **3.2676** | 2950 | +0.001206 | marginal NULL |
+| **n=2 mean** | — | **3.267455** | **2950** | **+0.001061** | **NULL** |
+| Baseline #918 (n=2) | `vm48fdof`/`0a7esmxs` | 3.266394 | 2925 | 0 | reference |
+
+- **Decision: 108th NULL.** Both seeds marginal NULL within seed noise; n=2 mean Δ+0.001 = clean NULL (just over marginal threshold), Δsr+25 = worse on speedrun metric. DOWN γ_pre schedule structurally indistinguishable from CONSTANT γ=0.4.
+- **Canon finding 1: γ_pre temporal schedule axis FULLY CLOSED** across {UP, DOWN, CONSTANT}. Original #958 trial showed UP was sub-marginal NULL and DOWN was n=1 WIN — but n=2 confirmation reveals DOWN is also within seed noise. **Constant γ_pre=0.4 is canonical operating point.**
+- **Canon finding 2: Empirical seed-noise floor established.** seed-1 = 3.26731, seed-2 = 3.26760 → single-seed σ ≈ 0.0003. Future marginal-WIN candidates must achieve Δ > 3× this spread (~0.001) for n=1 stat-sig WIN, OR provide n=2 confirmation.
+- **Canon finding 3: Schedule complexity is overdetermined.** Adding step-dependent γ computation per body parameter is a non-trivial code complexity bump for zero structural payoff. Pruning candidate: keep γ_pre constant.
+- **WHAT'S CLOSED:** PMuon γ_pre temporal schedule sub-axis; γ_pre as a schedule lever.
+- **WHAT'S OPEN:** NS5 iteration count axis (γ=0.4 constant might pair with reduced NS5 iters); β_cov-γ joint axis; per-block γ assignment.
+- frieren → **#1047** (confidence penalty — Pereyra et al. 2017, orthogonal-to-LS loss regularization).
+
+---
+
 ## 2026-05-24 12:20 UTC — PR #995 CLOSED: Shampoo body-Muon trace-relative eps — 107th NULL, c-axis CLOSED, family threshold MET (g1r1-alphonse)
 
 - Branch: `g1r1-alphonse/shampoo-trace-relative-eps`
