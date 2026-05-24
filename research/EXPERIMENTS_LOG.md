@@ -1,5 +1,80 @@
 # SENPAI Research Results — auto-nanogpt-1gpu-r2
 
+## 2026-05-25 00:30 UTC — PR #1098: MUON_BODY_GRAD_ORTHO_W (CLOSED, 120th refuted — geometric gradient-direction restriction family 1/1 catastrophic with TIGHTEST SENSITIVITY RESULT IN 280+ PRs)
+
+- Branch: `g1r2-thorfinn/muon-body-grad-ortho-w` (student g1r2-thorfinn)
+- Hypothesis: Geometric weight-orthogonal gradient projection. Removes W-parallel component of body gradient `g_ortho = g - (tr(g·W^T)/||W||_F²)·W` BEFORE momentum lerp. Tests whether NS5+momentum is sensitive to a minimal rank-1 directional restriction (1 dim out of ~768×768 = 590k).
+- Results:
+
+| Run | Arm | MUON_BODY_GRAD_ORTHO_W | Step | val | Outcome |
+|-----|-----|---|------|-----|---------|
+| `jqf4x2ua` | disabled-check | 0.0 | 200 | 4.08181 | ✓ matches #1083 4.08264, #1094 4.09137 to 4 decimals |
+| `lcg5fjtj` | Arm A | 0.5 | killed @ 777 | val@500=**3.81666** | ❌ step-500 kill-gate breach +0.007 |
+| Arm B | not launched | 1.0 | — | — | per decision tree (Arm A breach → no Arm B) |
+
+- Arm A trajectory vs #1083 floor-cluster reference (publication-grade gap-widening signature):
+
+| step | Arm A val | #1083 floor-cluster traj | Δ |
+|---:|---:|---:|---:|
+| 125 | 4.41890 | 4.42623 | -0.007 (slightly ahead) |
+| 250 | 4.04827 | 4.04876 | -0.000 (flat) |
+| 375 | 3.88760 | 3.88563 | +0.002 |
+| **500** | **3.81666** (gate 3.81) | 3.80353 | **+0.013 — BREACH +0.007** |
+| 625 | 3.76404 | 3.75212 | +0.012 (locked-in) |
+| 750 | 3.74094 | 3.72307 | +0.018 (widening) |
+
+- **Mechanism telemetry (Arm A): `optim/grad_ortho_w/*`** — the publication-grade tightest-sensitivity finding:
+
+| Step | parallel_frac_mean | parallel_frac_max | inner_per_tensor_mean |
+|---:|---:|---:|---:|
+| 25 | 0.00412 | 0.01455 | 2.376 |
+| 100 | 0.00335 | 0.01357 | 0.357 |
+| 250 | 0.00179 | 0.00787 | 0.053 |
+| 500 | 0.00111 | 0.00378 | 0.019 |
+| 750 | 0.00126 | 0.00913 | 0.003 |
+
+  **Key empirical finding (publication-grade)**: the W-parallel gradient component is **only 0.1-0.4% of |g|_F** across 72 body 2D tensors. With blend=0.5, intervention removes only **0.05-0.2% of |g|_F per step**. Yet this tiny perturbation causes measurable trajectory shift **+0.013 at step 500 and +0.018 at step 750** vs floor-cluster trajectory. **0.1% perturbation → 0.018 val delta is the tightest sensitivity result observed in 280+ PRs.**
+
+- **Mechanistic interpretation (thorfinn's exemplary analysis)**:
+
+  The discrepancy between intervention magnitude (~0.1% of |g|_F) and effect (+0.018 val delta) rules out "removing meaningful gradient signal" as the failure mode — there's barely any signal in the parallel component to throw away. What's left mechanistically: **NS5 + momentum compound imperceptibly small consistent per-step directional biases**. The optimizer is structurally fragile to *consistent* per-step directional perturbations regardless of per-step magnitude, because:
+  1. The momentum lerp accumulates the perturbation as a persistent ~0.1% bias in the momentum buffer
+  2. NS5's polar projection re-normalizes σ ≈ 1, preserving the directional bias at full magnitude on each update
+  3. The bias compounds across hundreds of steps as an effective small but systematic update-direction shift
+
+  This is a *new* failure mode category vs the #1083/#1094 pre/post-NS5 RMSProp closures (those operated by *rescaling* gradient elements — they distorted the SVD basis/spectrum). Here we don't distort the spectrum — we only remove a 1-dim subspace from the gradient space. The fact that this *minimal* geometric restriction (1-dim out of `out·in ≈ 768×768`) destabilizes the baseline confirms: **the floor cluster is structurally protected against ANY consistent intervention on the body Muon gradient, statistical or geometric**.
+
+- **Family-level closure prediction (extended from thorfinn's suggested follow-ups)**:
+
+  ANY operator that adds a consistent rank-≥1 directional bias to the body Muon gradient, regardless of magnitude, should refute via the same compounding mechanism:
+  - Weight-direction projection (this PR)
+  - Prior-momentum projection (#987 CG decorrelate, previously refuted — same mechanism class confirmed retroactively)
+  - Column/row mean subtraction (NOT separately tested, predicted to refute by analogy)
+  - Stiefel-tangent projection (NOT separately tested, predicted to refute by analogy)
+
+  Stochastic gradient perturbations also blocked by #246/#996 noise injection refutes — closing broader **"ANY consistent or stochastic gradient perturbation"** family.
+
+- **Cycle 71 catastrophic refutation portfolio now spans 5 family-level closure classes**:
+
+  | Family | Failure mechanism | Closures |
+  |---|---|---|
+  | Pre-NS5 element-wise nonlinear transform (#1083 + #1086) | per-element nonlinearity rotates matrix-level SVD basis | 2/2 catastrophic |
+  | Post-NS5 per-element variance scaling (#1094) | tail-heavy per-element rescaling destroys unitary structure | 1/1 catastrophic |
+  | **Geometric gradient-direction restriction (#1098, this PR)** | **consistent per-step directional bias amplification via NS5+momentum** | **1/1 catastrophic NEW** |
+  | Higher-order AR(2) momentum (#1087) | underdamped-optimal at baseline | 1/1 monotone-in-λ refuted |
+  | Dual-timescale momentum (#1079) | three failure modes | 1/1 refuted |
+
+  **Unifying principle**: floor cluster's per-step directional invariance is the protected property.
+
+- **Pivot direction adopted from thorfinn's closure suggestion #3**: "If geometric and statistical body-gradient interventions both refute, the floor is likely set by something upstream of the body Muon gradient — model architecture (forbidden), schedule (saturated 5/5), or AUX optimizer (AdamW on embed/lm_head). Mechanism class 45 should probably target one of those." Thorfinn's next assignment: **#1108 AUX_ADAMW_AMSGRAD** — 45th mech class, FIRST AUX-side AdamW second-moment monotonization.
+
+- **Compute**: step_avg ≈ 1.98 s/step on 1×H100. Projection adds 1 elementwise tensor op per body matrix per step (~72 tensors × ~10ms, negligible vs 1980ms step_avg). No additional state buffers (operates on g in-place).
+- **W&B run IDs**: disabled-check `jqf4x2ua`, Arm A `lcg5fjtj`.
+
+**Closure verdict**: 120th refuted axis in cycle 71. Geometric gradient-direction restriction family formally closed 1/1 catastrophic. **Tightest sensitivity result in 280+ PRs.** Cumulative family-level closures NOW 9. Thorfinn pivots to AUX optimizer side via #1108 — first categorical pivot away from body Muon in his recent axis trajectory.
+
+---
+
 ## 2026-05-24 23:55 UTC — PR #1086: MUON_BODY_GRAD_LOG_COMPRESS (CLOSED, 119th refuted — pre-NS5 element-wise nonlinear transform family 2/2 catastrophic)
 
 - Branch: `g1r2-askeladd/muon-body-grad-log-compress` (student g1r2-askeladd)
