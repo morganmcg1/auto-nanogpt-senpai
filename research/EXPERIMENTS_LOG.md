@@ -1,5 +1,23 @@
 # SENPAI Research Results — auto-nanogpt-1gpu-r2
 
+## 2026-05-24 14:10 UTC — PR #1037: LOOKAHEAD_SLOW_WEIGHTS (CLOSED, 103rd refuted — strong evidence floor cluster is BIAS-LIMITED rather than variance-limited; outer-loop optimizer wrappers class probed at K=5 and K=10)
+
+- Branch: `g1r2-alphonse/lookahead-slow-weights` (student g1r2-alphonse)
+- Hypothesis: Zhang et al. NeurIPS 2019 Lookahead/Slow-Weights outer-loop wrapper periodically pulls fast weights toward slow-moving average. Mechanism designed to reduce variance proportional to α/K with same convergence rate. Arm A=K=5/α=0.5 canonical defaults + Arm B=K=10/α=0.5 longer aggregation window. Categorically different from per-step interventions — operates at SECOND TIMESCALE outside the optimizer.
+- Results:
+
+| Arm | K | α | W&B run | Steps | Final val | FFS | Outcome |
+|-----|---|---|---------|-------|-----------|-----|---------|
+| disabled-check | n/a | n/a | `i2cas4hp` | 200 | 4.08397 | — | OK baseline preserved |
+| Arm A | 5 | 0.5 | `b1368dr7` | 500 (killed) | 3.82831 | n/a | Step-500 gate trip (+0.018 above 3.81 gate) |
+| Arm B | 10 | 0.5 | `lu6ecubi` | 3175 ✓ | **3.29732** | **-1** | +0.027 above floor cluster band |
+
+- **Verdict**: REFUTED. Arm B reached terminal cleanly at val=3.29732 — +0.017 above the 3.28 target and +0.027 above the floor cluster ~3.270. The outer-loop Polyak averaging FAILED to break the variance-floor barrier even with a longer K=10 aggregation window.
+- **Mechanistic insight (THE central conclusion of cycle 71)**: Combined with prior closures of Lookahead #251, EMA-related #524, post-NS5 noise #996 close-miss n=2, NS5_RESIDUAL #1016 monotonic-negative, and zero-slope prefill #1017, this is now overdetermined evidence that **the val=3.270/ffs=3025 floor cluster is BIAS-LIMITED rather than VARIANCE-LIMITED**. Variance-reduction tools (slow-weight pulls, EMA averaging, additive noise, residual blends) systematically fail to break the floor. EMA_VAL #1039 in-flight provides the final variance-side probe (eval-time only); if it also refutes, the variance abstraction layer is fully exhausted and the next frontier must attack BIAS — preconditioner choice, NS5 coefficient quality, orthogonalization algorithm.
+- **Arm asymmetry signal**: K=5 catastrophe vs K=10 survival. With K=5, the slow-weight sync fires 8 times in the first 40 training steps — disrupts cold-momentum buffer accumulation during MU_WARMUP_STEPS=200 window. With K=10, sync fires 4 times in first 40 steps — recoverable. Suggests Lookahead is incompatible with warmup-phase momentum buffer dynamics at short K but tolerable at longer K (though still ineffective at floor cluster).
+- **Cycle 71 portfolio**: 103 refuted axes, 25 distinct mechanism classes probed (26+27+28 just assigned; +29 NS5_COEF_SCHEDULE assigned this cycle). Three major layer saturation milestones locked in: NS5 polynomial layer (5/5) + Momentum LIFECYCLE (4/4) + Post-NS5 update space (4/4).
+- **Reassignment for alphonse**: PR #1057 NS5_COEF_SCHEDULE — first temporal schedule on the NS5 polynomial (a, b, c) coefficient tuple in 250+ PRs (29th distinct mechanism class). Direct BIAS-side test of the cycle-71 central conclusion.
+
 ## 2026-05-24 13:40 UTC — PR #1016: NS5_RESIDUAL (CLOSED, 102nd refuted — monotonic-negative bracket confirms NS5-equalized direction is THE better mid-training direction, post-NS5 update space NOW FULLY EXHAUSTED across 4 orthogonal probes)
 
 - Branch: `g1r2-frieren/ns5-residual` (student g1r2-frieren)
