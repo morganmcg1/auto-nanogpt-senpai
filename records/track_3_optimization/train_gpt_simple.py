@@ -438,6 +438,13 @@ class GPT(nn.Module):
 
 # Contra-Muon + SOAP-on-MLP hyperparameters
 CONTRA_MUON = float(os.environ.get("CONTRA_MUON", "0.5"))
+# Temporal CONTRA_MUON schedule (PR #947): linear ramp from CONTRA_MUON at
+# progress=CONTRA_MUON_RAMP_START_FRAC down to CONTRA_MUON_END at progress=1.
+# When CONTRA_MUON_END == CONTRA_MUON, the schedule is a no-op (byte-identical
+# to the static default). Defaults make the schedule a no-op so existing runs
+# are unaffected unless CONTRA_MUON_END is explicitly set.
+CONTRA_MUON_END = float(os.environ.get("CONTRA_MUON_END", str(CONTRA_MUON)))
+CONTRA_MUON_RAMP_START_FRAC = float(os.environ.get("CONTRA_MUON_RAMP_START_FRAC", "0.3"))
 MU = float(os.environ.get("MU_START", "0.95"))
 MU_END = float(os.environ.get("MU_END", "0.95"))
 # Cooldown-only mu schedule (Arm B of PR #288): hold MU_COOLDOWN_START during
@@ -504,13 +511,20 @@ def scale_to_unit_operator_norm(G: Tensor, eps: float = 1e-10) -> Tensor:
     return G / op_norm.to(G.dtype)
 
 
-def contra_normuon_update(momentum_update, second_moment, beta2=NORMUON_BETA2):
+def _contra_muon_now(progress: float) -> float:
+    if progress < CONTRA_MUON_RAMP_START_FRAC:
+        return CONTRA_MUON
+    ramp = (progress - CONTRA_MUON_RAMP_START_FRAC) / (1.0 - CONTRA_MUON_RAMP_START_FRAC)
+    return CONTRA_MUON + (CONTRA_MUON_END - CONTRA_MUON) * ramp
+
+
+def contra_normuon_update(momentum_update, second_moment, beta2=NORMUON_BETA2, contra_strength=CONTRA_MUON):
     """Contra-Muon + NorMuon-lite: NS5 -> contra subtraction -> per-row variance normalize."""
     normalized_grad = scale_to_unit_operator_norm(momentum_update.clone())
     update = zeropower_via_newtonschulz5(momentum_update)
     opower_fro = update.norm()
-    # Contra correction: subtract CONTRA_MUON / 2 * op-norm-normalized momentum.
-    update = update - CONTRA_MUON / 2 * normalized_grad
+    # Contra correction: subtract contra_strength / 2 * op-norm-normalized momentum.
+    update = update - contra_strength / 2 * normalized_grad
     update = update * opower_fro / torch.clamp(update.norm(), min=1e-10)
     update *= max(1, update.size(-2) / update.size(-1))**0.5
     # NorMuon-lite per-row (or per-col) variance EMA + renormalize back to original Frobenius norm.
@@ -627,6 +641,10 @@ def soap_precondition(update, state, beta2=SOAP_BETA2, eps=1e-8):
 
 
 class Muon(torch.optim.Optimizer):
+    # Training-loop sets this each step to drive the temporal CONTRA_MUON ramp (PR #947).
+    # Default 0.0 keeps contra at the static CONTRA_MUON value (pre-ramp regime).
+    _contra_progress: float = 0.0
+
     def __init__(self, named_params, lr=MUON_LR, weight_decay=MUON_WEIGHT_DECAY, mu=MU):
         assert isinstance(named_params, list) and len(named_params) >= 1
         # MLP weights receive SOAP preconditioning (PR #78 / public record #14).
@@ -658,6 +676,7 @@ class Muon(torch.optim.Optimizer):
 
     @torch.no_grad()
     def step(self):
+        contra_now = _contra_muon_now(type(self)._contra_progress)
         world_size = dist.get_world_size()
         rank = dist.get_rank()
         for group in self.param_groups:
@@ -701,7 +720,7 @@ class Muon(torch.optim.Optimizer):
                     if use_soap or use_attn_soap:
                         momentum_update = soap_precondition(momentum_update, state)
                     # NS5 + contra + NorMuon row variance on (possibly SOAP-preconditioned) momentum.
-                    update = contra_normuon_update(momentum_update, state["second_moment"])
+                    update = contra_normuon_update(momentum_update, state["second_moment"], contra_strength=contra_now)
                     # u/w-floor: scale up if u/w < TARGET_UW; leave alone otherwise.
                     p_fro = p.float().norm().clamp_min(1e-8)
                     u_fro = update.float().norm().clamp_min(1e-8)
@@ -847,6 +866,8 @@ if dist.get_rank() == 0:
             "slope_fraction": SLOPE_FRACTION,
             "train_steps_cli": args.train_steps,
             "optimizer/contra_muon": CONTRA_MUON,
+            "optimizer/contra_muon_end": CONTRA_MUON_END,
+            "optimizer/contra_muon_ramp_start_frac": CONTRA_MUON_RAMP_START_FRAC,
             "optimizer/mu": MU,
             "optimizer/mu_start": MU,
             "optimizer/mu_end": MU_END,
@@ -1025,6 +1046,11 @@ for trial_idx in range(args.num_trials):
         train_loss = float((step_loss / batch_size).item())
         # set optimization hyperparameters and take a step
         set_hparams(step)
+        # Drive temporal CONTRA_MUON schedule (PR #947): Muon.step() reads
+        # _contra_progress to compute contra_now via _contra_muon_now().
+        contra_progress = step / max(1, train_steps)
+        Muon._contra_progress = contra_progress
+        contra_now = _contra_muon_now(contra_progress)
         train_step = step + 1
         telemetry_due = (step == 0 or (step + 1) % args.telemetry_interval == 0 or step + 1 == train_steps)
         histogram_due = (step == 0 or (step + 1) % args.histogram_interval == 0 or step + 1 == train_steps)
@@ -1037,6 +1063,8 @@ for trial_idx in range(args.num_trials):
                 "trial": trial_idx,
                 "train/step": train_step,
                 "train/slope/window_target_steps": slope_window_steps,
+                "optimizer/contra_muon_current": contra_now,
+                "optimizer/contra_progress": contra_progress,
             }
             slope_metrics.update(prefixed("train/slope", loss_slope_stats(train_loss_history, slope_window_steps)))
             wandb.log(slope_metrics, step=wandb_step)
