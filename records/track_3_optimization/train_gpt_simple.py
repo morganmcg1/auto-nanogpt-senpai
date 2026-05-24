@@ -67,6 +67,13 @@ def parse_args():
     parser.add_argument("--ns_iter", type=int, default=12,
                         help="Number of Newton-Schulz iterations in zeropower_via_newtonschulz5. "
                              "Default 12 (current hardcoded value). Lower = less orthogonal but faster.")
+    parser.add_argument("--ns_iter_cooldown", type=int, default=0,
+                        help="Override NS iterations during cooldown (steps >= int(train_steps*(1-cooldown_frac))). "
+                             "0 disables (use --ns_iter throughout). When > 0, ns_iter switches to this value at "
+                             "cooldown onset (step-jump) unless --ns_iter_cooldown_ramp is also set.")
+    parser.add_argument("--ns_iter_cooldown_ramp", action="store_true",
+                        help="When set with --ns_iter_cooldown > 0, ns_iter linearly interpolates from --ns_iter at "
+                             "cooldown_onset to --ns_iter_cooldown at train_steps end (round-to-int).")
     parser.add_argument("--lr_scalars", type=float, default=0.01,
                         help="LR for AdamW adam_scalars group (RMSNorm gains; "
                              "params with ndim < 2). Default 0.01 — hardcoded, "
@@ -480,7 +487,7 @@ class GPT(nn.Module):
 #              Optimizer               #
 ########################################
 
-def zeropower_via_newtonschulz5(G: Tensor) -> Tensor:
+def zeropower_via_newtonschulz5(G: Tensor, ns_iter: int) -> Tensor:
     assert G.ndim >= 2
     X = G.bfloat16()
     if G.size(-2) > G.size(-1):
@@ -490,7 +497,7 @@ def zeropower_via_newtonschulz5(G: Tensor) -> Tensor:
     X = X / (X.norm(dim=(-2, -1), keepdim=True) + 1e-7)
     # Perform the NS iterations, not optimizing for wallclock speed
     a, b, c = 2, -1.5, 0.5
-    for _ in range(NS_ITER):
+    for _ in range(ns_iter):
         A = X @ X.mT
         B = b * A + c * A @ A
         X = a * X + B @ X
@@ -500,17 +507,17 @@ def zeropower_via_newtonschulz5(G: Tensor) -> Tensor:
     return X
 
 @torch.compile
-def muon_update(grad, momentum, mu=0.95, nesterov=True):
+def muon_update(grad, momentum, ns_iter: int, mu=0.95, nesterov=True):
     momentum.lerp_(grad, 1 - mu)
     update = grad.lerp_(momentum, mu) if nesterov else momentum
-    update = zeropower_via_newtonschulz5(update)
+    update = zeropower_via_newtonschulz5(update, ns_iter)
     update *= max(1, grad.size(-2) / grad.size(-1))**0.5
     return update
 
 
 @torch.compile
-def soap_ns_step(nesterov_update):
-    update = zeropower_via_newtonschulz5(nesterov_update)
+def soap_ns_step(nesterov_update, ns_iter: int):
+    update = zeropower_via_newtonschulz5(nesterov_update, ns_iter)
     update *= max(1, nesterov_update.size(-2) / nesterov_update.size(-1))**0.5
     return update
 
@@ -571,7 +578,7 @@ class Muon(torch.optim.Optimizer):
     SOAP_ATTN_SUFFIXES = (".attn.q.weight", ".attn.k.weight", ".attn.v.weight", ".attn.proj.weight")
 
     def __init__(self, named_params, lr=0.02, weight_decay=0, mu=0.95,
-                 soap_attn=False, trust_threshold=0.0):
+                 soap_attn=False, trust_threshold=0.0, ns_iter=NS_ITER):
         # `named_params` can be either:
         #   (a) list of (name, param) tuples → single param group (legacy form)
         #   (b) list of dicts {"named_params": [(name, param), ...], "lr": ?, "weight_decay": ?, "mu": ?, "name": ?}
@@ -594,6 +601,9 @@ class Muon(torch.optim.Optimizer):
         self.trust_threshold = float(trust_threshold)
         self.use_trust_gate = soap_attn
         self.cos_sims_buffer: dict[str, Tensor] = {}
+        # Per-step NS iteration count. The training loop sets this before each
+        # `.step()` to implement the NS-iter-by-TIME schedule (PR #1010).
+        self.ns_iter = int(ns_iter)
 
         param_groups = []
         for g in groups_raw:
@@ -615,6 +625,7 @@ class Muon(torch.optim.Optimizer):
         self.cos_sims_buffer = {}
         world_size = dist.get_world_size()
         rank = dist.get_rank()
+        ns_iter = int(self.ns_iter)
         for group in self.param_groups:
             params = group["params"]
             norm_sum = torch.zeros((), device=params[0].device, dtype=torch.float32)
@@ -637,9 +648,9 @@ class Muon(torch.optim.Optimizer):
                         state["momentum"].lerp_(p.grad, 1 - group["mu"])
                         raw_nesterov = p.grad.lerp(state["momentum"], group["mu"])
                         precond_nesterov = soap_precondition_momentum(raw_nesterov, state)
-                        u_soap = soap_ns_step(precond_nesterov)
+                        u_soap = soap_ns_step(precond_nesterov, ns_iter)
                         if self.use_trust_gate:
-                            u_muon = soap_ns_step(raw_nesterov)
+                            u_muon = soap_ns_step(raw_nesterov, ns_iter)
                             us = u_soap.float()
                             um = u_muon.float()
                             cos_sim_t = (us * um).sum() / (us.norm() * um.norm() + 1e-8)
@@ -649,7 +660,7 @@ class Muon(torch.optim.Optimizer):
                             update = u_soap
                         soap_update_preconditioner(p.grad, state)
                     else:
-                        update = muon_update(p.grad, state["momentum"], mu=group["mu"])
+                        update = muon_update(p.grad, state["momentum"], ns_iter, mu=group["mu"])
                     norm_sum.add_(update.float().norm())
                     p.mul_(1 - group["lr"] * group["weight_decay"])
                     p.add_(update, alpha=-group["lr"])
@@ -756,6 +767,8 @@ if dist.get_rank() == 0:
             "soap_beta2": SOAP_BETA2,
             "soap_precond_freq": PRECOND_FREQ,
             "ns_iter": NS_ITER,
+            "ns_iter_cooldown": args.ns_iter_cooldown,
+            "ns_iter_cooldown_ramp": bool(args.ns_iter_cooldown_ramp),
             "soap_attn_enabled": bool(args.soap_attn),
             "soap_trust_threshold": float(args.soap_trust_threshold),
             "lr_mlp": args.lr_mlp,
@@ -853,6 +866,7 @@ for trial_idx in range(args.num_trials):
             dict(named_params=attn_named, lr=args.lr_attn, weight_decay=args.wd_attn, name="muon_attn"),
         ],
         soap_attn=args.soap_attn, trust_threshold=args.soap_trust_threshold,
+        ns_iter=args.ns_iter,
     )
     optimizers = [optimizer1, optimizer2]
     assert set(p for opt in optimizers for group in opt.param_groups
@@ -892,6 +906,22 @@ for trial_idx in range(args.num_trials):
                 group["lr"] = group["initial_lr"] * eta
                 if "initial_wd" in group and group.get("name", "").startswith("muon_"):
                     group["weight_decay"] = group["initial_wd"] * wd_mu
+
+    # NS-iter-by-TIME (PR #1010): optionally boost NS quality during cooldown.
+    # cooldown_onset matches set_hparams' cooldown_frac=0.7 (e.g. step 975 at 3250).
+    def effective_ns_iter(step, cooldown_frac=0.7):
+        base = args.ns_iter
+        target = args.ns_iter_cooldown
+        if target <= 0:
+            return base
+        cooldown_onset = int(train_steps * (1 - cooldown_frac))
+        if step < cooldown_onset:
+            return base
+        if not args.ns_iter_cooldown_ramp:
+            return target
+        span = max(1, train_steps - cooldown_onset)
+        progress = min(1.0, max(0.0, (step - cooldown_onset) / span))
+        return int(round(base + (target - base) * progress))
 
 
     ########################################
@@ -981,6 +1011,9 @@ for trial_idx in range(args.num_trials):
         train_loss = float((step_loss / batch_size).item())
         # set optimization hyperparameters and take a step
         set_hparams(step)
+        # NS-iter-by-TIME schedule: pick effective ns_iter for this step.
+        effective_ns = effective_ns_iter(step)
+        optimizer2.ns_iter = effective_ns
         train_step = step + 1
         telemetry_due = (step == 0 or (step + 1) % args.telemetry_interval == 0 or step + 1 == train_steps)
         histogram_due = (step == 0 or (step + 1) % args.histogram_interval == 0 or step + 1 == train_steps)
@@ -1026,6 +1059,7 @@ for trial_idx in range(args.num_trials):
                 per_group_metrics["train/wd_mlp_now"] = current_wds.get("muon_mlp", 0.0)
                 per_group_metrics["train/wd_attn_now"] = current_wds.get("muon_attn", 0.0)
                 per_group_metrics["train/wd_schedule_progress"] = train_step / train_steps
+                per_group_metrics["ns/iter_effective"] = effective_ns
                 wandb.log(per_group_metrics, step=wandb_step)
         if dist.get_rank() == 0 and optimizer2.cos_sims_buffer:
             cs_names = list(optimizer2.cos_sims_buffer.keys())
