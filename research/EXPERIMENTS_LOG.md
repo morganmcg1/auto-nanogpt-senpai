@@ -1,5 +1,36 @@
 # SENPAI Research Results — auto-nanogpt-1gpu-r2
 
+## 2026-05-24 12:05 UTC — PR #1029: MUON_MOMENTUM_RESET_WARMUP (CLOSED, 99th refuted — MONOTONE-IN-SCALE signature, buffer accumulation cumulative load-bearing not transient contamination, momentum buffer LIFECYCLE class fully exhausted)
+
+- Branch: `g1r2-thorfinn/muon-momentum-reset-warmup` (student g1r2-thorfinn)
+- Hypothesis: Reset body Muon momentum buffer at end of warmup window (step 200 when MU_WARMUP_STEPS=200 completes). Tests whether warmup-phase momentum buffer accumulation is cumulative load-bearing (essential preparation) or transient contamination (corrupted state from warmup-phase reduced LR that should be purged at warmup end). FIRST mid-training momentum buffer RESET in 250+ PRs. 22nd distinct mechanism class. Distinct from #1017 prefill (INIT at step 0, refuted), #983 momentum-rescale (CONTINUOUS dynamic-tracking, refuted), #991 momentum-dropout (CONTINUOUS stochastic, refuted) — first ONE-TIME mid-training RESET intervention.
+
+### Results
+
+| Arm | Description | run | val@200 | val@500 | val@1000 | val/loss terminal | ffs | Notes |
+|-----|---|---|---|---|---|---|---|---|
+| disabled-check | RESET disabled | `f9gjaiyt` | 4.08054 | — | — | — | — | ✓ Baseline preserved |
+| A | scale=0.0 (full zero reset) | `ngiefm9q` | 4.085 | 3.80565 PASS | 3.66340 TRIP +0.0034 | killed step ~1078 | — | step-1000 gate trip, full reset HURT |
+| B | scale=0.5 (halve) | `nb993yhi` | 4.083 | 3.80344 PASS | 3.66132 TRIP +0.00132 | killed step ~1083 | — | step-1000 gate trip, partial reset HURT less |
+
+### Analysis & conclusions
+
+- **MONOTONE-IN-SCALE OUTCOME**: Arm B (scale=0.5) is **less bad than Arm A (scale=0.0)** at every common checkpoint. Δ at step 1000 = Arm A 3.66340 vs Arm B 3.66132 = 0.00208 nats — Arm A (more destruction) loses more.
+- **Cleanest possible signature** for "buffer accumulation is **cumulative load-bearing, not transient contamination**" — less reset = less hurt → warmup-phase buffer state is essential preparation, not corrupted contamination to be purged.
+- **Student's KEY reconciliation with #1017 PREFILL** (which was a ZERO-SLOPE refutation at α=0.5/1.0): "prefill is a one-time injection that can fix bad init; reset is a one-time destruction that can only erase signal." This neatly explains the asymmetric behavior — prefill arms cluster at floor cluster val=3.270 (no harm), while reset arms degrade monotonically with scale (harm).
+- **Momentum buffer LIFECYCLE mechanism class NOW FULLY EXHAUSTED across 4 orthogonal probes**:
+  - INIT: #1017 prefill α=0.5/1.0 refuted ZERO-SLOPE (both arms at floor cluster)
+  - CONTINUOUS rescale: #983 momentum-rescale refuted CATASTROPHIC
+  - CONTINUOUS dropout: #991 momentum-dropout refuted
+  - ONE-TIME RESET: #1029 (this PR) refuted MONOTONE-IN-SCALE
+- **Future axes must AVOID momentum buffer interventions** — the buffer is content-fixed (rescale, dropout), dynamics-fixed (rescale, dropout), init-fixed (prefill), AND lifecycle-fixed (reset). The mechanism is content-stable and behavior-load-bearing in every dimension tested.
+
+### Suggested follow-ups
+
+The student's follow-up suggestions in the PR closure align with the cycle 71 mid-166 portfolio:
+- #1044 thorfinn MUON_BIAS_CORRECT (assigned this cycle) — Adam-style `m / (1 - μ^t)` correction modifies how the optimizer INTERPRETS the buffer without touching its state, categorically different from all 4 LIFECYCLE probes
+- Exit momentum buffer abstraction entirely; future axes should target NS5 polynomial DEGREE (#1025 in flight), eval-time intervention (#1039 EMA_VAL), outer-loop wrapper (#1037 Lookahead), u/w-floor SCHEDULE (#1023), or fundamentally different mechanism class
+
 ## 2026-05-24 11:50 UTC — PR #996: MUON_POST_NS5_NOISE (CLOSED, 98th refuted — n=2 mean refutes merge bar, regression-to-the-mean confirmed, floor cluster confirmed at n=2 statsig)
 
 - Branch: `g1r2-fern/muon-post-ns5-noise` (student g1r2-fern)
