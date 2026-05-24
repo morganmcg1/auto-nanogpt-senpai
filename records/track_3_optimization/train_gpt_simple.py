@@ -95,6 +95,19 @@ def parse_args():
                         help="Starting value of µ schedule (used by linear and cooldown_ramp modes).")
     parser.add_argument("--muonh_mu_end", type=float, default=float(os.environ.get("MUONH_MU_END", "0.98")),
                         help="Ending value of µ schedule (used by linear and cooldown_ramp modes).")
+    # H128: body weight matrix initialization (attn q/k/v/proj, mlp fc/proj).
+    # 'default' = per-shape normal_() baseline (bit-id guard).
+    # 'ortho_frob_matched' = orthogonal_ with per-shape gain so the matrix has
+    #   uniform sv = gain[layer] and Frobenius = baseline_std[layer]·√(d_in·d_out)
+    #   (matches default init's Frob, decoupling spectral structure from Frob).
+    # 'ortho_frob_double' = same gain × 2 (uniform sv = 2·gain[layer], Frob doubled).
+    parser.add_argument("--body_init_mode", type=str,
+                        default=os.environ.get("BODY_INIT_MODE", "default"),
+                        choices=["default", "ortho_frob_matched", "ortho_frob_double"],
+                        help="Body weight init for attn q/k/v/proj and mlp fc/proj. "
+                             "'default' = baseline normal_() per shape; "
+                             "'ortho_frob_matched' = orthogonal with per-shape gain so Frob matches default; "
+                             "'ortho_frob_double' = ortho_frob_matched with gain × 2 (Frob doubled).")
     args = parser.parse_args()
     args.num_trials = args.num_trials if args.num_trials is not None else (args.legacy_num_trials or 1)
     args.wandb_tags = [tag.strip() for tag in args.wandb_tags.split(",") if tag.strip()]
@@ -348,6 +361,39 @@ def log_histograms(
         if sample.numel() > 0:
             metrics[f"train/weight_hist_param/{clean_name}"] = wandb.Histogram(sample.numpy())
     wandb.log(metrics, step=wandb_step)
+
+
+def log_sv_telemetry(model: nn.Module, trial_idx: int, train_step: int, wandb_step: int,
+                     num_blocks: int):
+    """Log singular-value and Frobenius statistics on 4 representative body weight
+    matrices (H122/H128). Triggered at predeclared milestones (steps 0, 50, 100,
+    200, 400, 1000, 2000, terminal). Tests whether orthogonal init's sv structure
+    (=per-shape gain for arm_b, =2·gain for arm_c) persists or washes out under
+    NS5 polar projection."""
+    repr_names = [
+        "blocks.0.attn.q.weight",                              # early square 768x768
+        "blocks.0.mlp.fc.weight",                              # early non-square 3072x768
+        f"blocks.{max(0, num_blocks // 2)}.attn.proj.weight",  # mid square
+        f"blocks.{num_blocks - 1}.mlp.proj.weight",            # late non-square 768x3072
+    ]
+    params = dict(model.named_parameters())
+    metrics = {"trial": trial_idx, "train/step": train_step}
+    for name in repr_names:
+        if name not in params:
+            continue
+        w = params[name].data.detach()
+        w32 = w.to(torch.float32)
+        try:
+            svals = torch.linalg.svdvals(w32)
+        except Exception:
+            continue
+        clean = clean_metric_name(name)
+        metrics[f"muonh/sv_min/{clean}"] = float(svals.min().item())
+        metrics[f"muonh/sv_max/{clean}"] = float(svals.max().item())
+        metrics[f"muonh/sv_median/{clean}"] = float(svals.median().item())
+        metrics[f"muonh/frobenius_norm/{clean}"] = float(w32.norm().item())
+    if len(metrics) > 2:
+        wandb.log(metrics, step=wandb_step)
 
 
 ########################################
@@ -796,6 +842,7 @@ if dist.get_rank() == 0:
             "muonh_mu_schedule": args.muonh_mu_schedule,
             "muonh_mu_start": args.muonh_mu_start,
             "muonh_mu_end": args.muonh_mu_end,
+            "body_init_mode": args.body_init_mode,
         },
     )
 
@@ -836,6 +883,40 @@ for trial_idx in range(args.num_trials):
             w.normal_(mean=1, std=0)
         else:
             raise Exception(f"Uninitialized parameter: {name}")
+
+    # H128: shape-aware Frob-matched orthogonal body weight init. Overwrites the
+    # per-module normal_() init above for body 2D weights (attn q/k/v/proj,
+    # mlp fc/proj) inside blocks only. Embedding, LM head, RMSNorm gains, biases
+    # are untouched (preserves zero initial logits via proj.weight=0).
+    # Per-shape gain ensures sv structure is orthogonal (sv_min = sv_med = sv_max
+    # = gain[layer]) AND Frobenius matches the default normal_() init's target,
+    # decoupling spectral structure from Frob (H122 conflated them: ortho gain=1
+    # gave Frob=√min(d_in,d_out) uniform across shapes).
+    #   target_frob[layer] = baseline_std[layer] · √(d_in · d_out)
+    #   gain[layer]        = target_frob[layer] / √(min(d_in, d_out))
+    # 'ortho_frob_matched' uses gain[layer]; 'ortho_frob_double' uses 2·gain[layer].
+    if args.body_init_mode != "default":
+        multiplier = 2.0 if args.body_init_mode == "ortho_frob_double" else 1.0
+        for name, p in model.named_parameters():
+            if not name.startswith("blocks."):
+                continue
+            if not name.endswith("weight"):
+                continue
+            if p.ndim < 2:
+                continue
+            d_out, d_in = p.shape[0], p.shape[1]
+            if "attn.q" in name or "attn.k" in name or "attn.v" in name:
+                baseline_std = math.sqrt(0.33) / math.sqrt(d_in)
+            elif "attn.proj" in name:
+                baseline_std = 0.026
+            elif "mlp.fc" in name or "mlp.proj" in name:
+                baseline_std = 0.031
+            else:
+                continue
+            target_frob = baseline_std * math.sqrt(d_in * d_out)
+            default_ortho_frob = math.sqrt(min(d_in, d_out))
+            gain = (target_frob / default_ortho_frob) * multiplier
+            torch.nn.init.orthogonal_(p.data, gain=gain)
 
     # create the optimizer(s)
     # MuonH replaces plain Muon on the hidden 2D weights: hard hyperball projection
@@ -983,6 +1064,19 @@ for trial_idx in range(args.num_trials):
     slope_window_steps = max(100, slope_interval)
     train_loss_history: list[tuple[int, float]] = []
     val_loss_history: list[tuple[int, float]] = []
+    # H128 SV telemetry milestones (train_step values). step=0 is logged
+    # separately below as the init-state snapshot, before any optimizer step has
+    # run. Step-0 sv signature is the mechanism-link check: arm_a baseline-shaped,
+    # arm_b uniform sv = gain[layer], arm_c uniform sv = 2·gain[layer].
+    sv_milestones = {50, 100, 200, 400, 1000, 2000, train_steps}
+    if dist.get_rank() == 0:
+        log_sv_telemetry(
+            model=model,
+            trial_idx=trial_idx,
+            train_step=0,
+            wandb_step=trial_idx * (train_steps + 1),
+            num_blocks=len(model.blocks),
+        )
     dist.barrier()
     t0 = time.perf_counter()
     for step in range(train_steps + 1):
@@ -1091,6 +1185,18 @@ for trial_idx in range(args.num_trials):
         )
         for opt in optimizers:
             opt.step()
+        # H128 SV milestone log (post-opt.step). Captures sv structure
+        # persistence under NS5 polar projection — 4 representative body weights
+        # × 4 stats. Steps in sv_milestones (50, 100, 200, 400, 1000, 2000,
+        # train_steps).
+        if dist.get_rank() == 0 and train_step in sv_milestones:
+            log_sv_telemetry(
+                model=model,
+                trial_idx=trial_idx,
+                train_step=train_step,
+                wandb_step=wandb_step,
+                num_blocks=len(model.blocks),
+            )
         # Log warmup telemetry every 10 steps during warmup (and at telemetry events
         # afterwards) so we capture the warmup curve at high resolution. Cheap since
         # it's just two floats.
