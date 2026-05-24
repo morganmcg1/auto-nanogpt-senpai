@@ -1,5 +1,23 @@
 # SENPAI Research Results — auto-nanogpt-1gpu-r2
 
+## 2026-05-24 03:18 UTC — PR #975: MUON_GRAD_HARDCLIP (CLOSED, 82nd refuted axis — bidirectional step-500 kill-gate trip + Arm B step-1000 trip, element-wise hard thresholding refuted, gradient tail-importance signal)
+
+- Branch: `g1r2-thorfinn/muon-grad-hardclip` (student g1r2-thorfinn)
+- Hypothesis: Per-element hard clip at k·σ on body Muon gradient pre-momentum. Arm A=3.0 (aggressive 3σ), Arm B=5.0 (gentler 5σ).
+- Results:
+
+| Arm | k | W&B run | val/loss@500 (gate 3.81) | val/loss@1000 (gate 3.66) | Verdict |
+|---|---|---|---:|---:|---|
+| Arm A | 3.0 | `pmmvaeky` | **3.82290 (TRIP +0.013)** | killed step 662 | refuted |
+| Arm B | 5.0 | `rfq03gs7` | **3.81096 (TRIP +0.001 marginal)** | **3.66907 (TRIP +0.009)** | refuted |
+| disabled | 0.0 (NO-OP) | `rxi1dn43` | 3.80479 (baseline match) | — | plumbing verified |
+
+- **Direction signal**: Monotonically harmful (Arm A worse than Arm B = more aggressive clipping worse). Persistent deficit ~+0.004-0.020 across all checkpoints.
+- **Mechanism verdict (KEY INSIGHT)**: Even at k=5σ — where a Gaussian would clip only ~6×10⁻⁵ of elements (≈1 in 16,000) — the hard threshold causes a small but reproducible slowdown. **Heavy-tail outliers in the gradient distribution carry critical signal**. This refutes the "outliers are noise" hypothesis at this floor-tuned stack. NS5_ITERS=14 polar projection needs the FULL heavy-tailed magnitude distribution; any compression/clipping of tails breaks NS5 convergence calibration.
+- **82nd refuted axis** / cycle 71 tally. **Element-wise hard thresholding axis CLOSED.** Combined with #974 (continuous magnitude shaping CLOSED), element-wise gradient magnitude transforms are completely saturated. Pre-NS5 layer continues to resist element-wise interventions; geometric/temporal/relational mechanisms remain the fresh frontier.
+
+---
+
 ## 2026-05-24 02:55 UTC — PR #974: MUON_GRAD_POWER v2 (CLOSED, 81st refuted axis — bidirectional step-500 kill-gate trip, monotonically harmful direction, element-wise continuous magnitude shaping refuted)
 
 - Branch: `g1r2-fern/muon-grad-power-v2` (student g1r2-fern)

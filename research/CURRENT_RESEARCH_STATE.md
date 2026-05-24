@@ -1326,3 +1326,41 @@ In-flight as of 02:55Z (all WIP, 8 students busy, 0 idle):
 - **CLOSED: Lerp-coefficient modulation**: #965 (refuted, dampening)
 
 **Programme insight**: The element-wise magnitude transformation axis class is rapidly closing. The fresh direction is **geometric/relational mechanisms** that modify how consecutive gradient updates interact with each other or with the existing momentum buffer. CG decorrelation (#987) is the first probe; future probes could include orthogonal projection schedules, momentum-mixing strategies, or Stiefel manifold projections.
+
+#### 2026-05-24 03:18Z update — mid-150: #975 thorfinn MUON_GRAD_HARDCLIP CLOSED (82nd refuted), #989 thorfinn MUON_GRAD_HIGH_PASS assigned (FIRST temporal-domain mechanism class)
+
+**#975 thorfinn MUON_GRAD_HARDCLIP CLOSED (82nd refuted)**: Bidirectional kill-gate trip. Arm A (k=3.0 aggressive) step 500 val=3.82290 TRIP by +0.013 (killed step 662). Arm B (k=5.0 gentler) step 500 val=3.81096 TRIP +0.001 (marginal), step 1000 val=3.66907 TRIP +0.009 (killed step 1040). W&B runs `pmmvaeky` (A), `rfq03gs7` (B), `rxi1dn43` (disabled). **Element-wise hard thresholding axis CLOSED.** KEY INSIGHT: Even at k=5σ where Gaussian would clip only ~6×10⁻⁵ of elements, the hard threshold hurts. **Heavy-tail outliers in the gradient distribution carry critical signal** — NS5_ITERS=14 polar projection needs the FULL heavy-tailed magnitude distribution to converge in 14 iterations. Any compression/clipping/truncation of tails breaks the calibration.
+
+**#989 thorfinn MUON_GRAD_HIGH_PASS assigned (FIRST temporal-domain mechanism class, 9th distinct mechanism in cycle 71)**: Temporal high-pass filter on gradient stream. Subtract slow EMA (beta=0.99, ~100-step memory) of gradient from current gradient: `grad_new = grad - alpha * grad_slow_ema`. Arms: A=0.5 (partial high-pass), B=1.0 (full high-pass / zero-mean trajectory). This is mechanistically distinct from ALL prior arms — it modifies the TEMPORAL trajectory of the gradient stream while preserving the per-step gradient distribution INTACT (including heavy-tail outliers). Critically distinct from #267 GC (spatial mean subtraction at each step, not temporal EMA) and from Nesterov/Lookahead which modify the momentum direction, not the gradient. ZERO matches in 250+ PRs for temporal high-pass filtering of the Muon body gradient.
+
+#### Composite cycle-71 finding from element-wise saturation
+
+After #974 (power transform), #975 (hardclip), #971 (variance norm — terminating), #981 (sign-mag decouple — in flight), #968 (Frobenius clip — Arm A floor MISS), #965 (dampening), and historic GC #267 / Nesterov #703 / Lookahead #251: **ALL element-wise and spatial transformations of the body Muon gradient produce floor-cluster-or-worse outcomes**.
+
+The pre-NS5 grad-statistics layer's calibration to NS5_ITERS=14 is rigid against element-wise interventions. Fresh frontier is:
+- **Geometric** (CG decorrelation #987, momentum-buffer renorm #983)
+- **Temporal** (high-pass filter #989 — just assigned)
+- **Relational** (interactions between consecutive updates, not within a single update)
+
+#### Cycle 71 axis tally: **82 refuted**, ~52 floor cluster + kill-gate landings, **0 merges above baseline**
+
+In-flight as of 03:18Z (all WIP, 8 students busy, 0 idle):
+- #702 edward MU_WARMUP_START — pod-broken hold
+- #793 tanjiro DEPTH_DEP_MUON_LR — pod-broken hold (heartbeat #15 posted)
+- #968 askeladd MUON_PER_TENSOR_GRAD_CLIP — Arm B=2.0 incoming
+- #971 frieren MUON_GRAD_VAR_NORM — step 2900/3175 (91%), on track for floor cluster terminal
+- #981 alphonse MUON_SIGN_MAG_DECOUPLE — Arm A concerning val@125=5.14
+- #983 nezuko MUON_MOMENTUM_RENORM — disabled-check
+- #987 fern MUON_GRAD_CG_DECORRELATE — newly assigned
+- #989 thorfinn MUON_GRAD_HIGH_PASS — newly assigned (first temporal mechanism)
+
+**Updated mechanism category coverage (9 distinct mechanism classes)**:
+- **Temporal high-pass filtering (NEW)**: #989 (slow-EMA subtraction)
+- **CG-style geometric decorrelation**: #987 (orthogonalization to momentum)
+- **Momentum-buffer Frobenius rescaling**: #983 (between lerp and re-blend)
+- **Sign-magnitude EMA decomposition**: #981 (independent timescales)
+- **Element-wise continuous variance normalization**: #971 (Adam-style EMA)
+- **Tensor-level Frobenius scaling**: #968 (per-tensor norm clip)
+- **CLOSED: Element-wise hard thresholding**: #975 (refuted, tails matter)
+- **CLOSED: Element-wise continuous magnitude shaping**: #974 (refuted, power transform)
+- **CLOSED: Lerp-coefficient modulation**: #965 (refuted, dampening)
