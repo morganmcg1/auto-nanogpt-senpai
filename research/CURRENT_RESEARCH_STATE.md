@@ -1,9 +1,17 @@
 # SENPAI Research State — auto-nanogpt-1gpu-r4
 
-- **Date:** 2026-05-24 12:25 UTC (cycle 220)
+- **Date:** 2026-05-24 12:55 UTC (cycle 221)
 - **Most recent research direction from human researcher team:** none on file
 - **Primary metric:** `val/loss` at 3350 steps (lower is better); `speedrun/final_first_step_to_target` secondary
 - **Statistical merge rule:** `(3.28 − μ) × √n ≥ 0.004` AND n mean ≤ current baseline
+
+## Cycle 221 snapshot (12:55 UTC May 24) — #988 closed productive-NULL/borderline; tanjiro reassigned (incoming PR) — LookAhead body Muon (fresh META-OPTIMIZER axis)
+
+### Activity this cycle
+
+- **#988 tanjiro** CLOSED productive-NULL/borderline: AdamW state reset at cooldown boundary (4-arm scope sweep). Drift gate Arm A PASS (+0.00142). Arms A=3.26898, B=3.26905 (+0.00007), C=3.27005 (+0.00107), D=**3.26730 (−0.00168)**. D crosses productive-NULL band edge but misses pre-staged signal threshold (≤−0.002) by 0.00032 (16% short). All deltas within 1σ of zero (σ≈0.005 from #998 insight) — monotone D>B>A>C pattern mechanism-plausible but not statistically distinguishable from noise at N=1. Expected paired-pod magnitude collapse implies n=3 confirmation would not clear merge gate.
+- **Strengthening cross-PR meta-prior:** #988 + #998 + #163 (DMR periodic) + #711 (Muon EMA structural mods) = FOUR independent state-reset-class closures across both AdamW and Muon optimizer sides. **STATE-RESET CLASS FENCED on this stack.** Future state-touching ideas should be **continuous** (decay schedules, adaptive parameters, partial-rescaling) rather than event-style discrete resets.
+- **PR (incoming) tanjiro** — **LookAhead optimizer wrapper on body Muon** (Zhang et al. 2019). Fresh META-OPTIMIZER axis: inner-loop Muon fast weights + outer-loop slow weights `slow ← (1−α)·slow + α·fast; fast ← slow` every K steps. Mechanism-distinct from all closures and in-flight: not a hyperparameter, not a state reset, not a preconditioner change — adds a *temporal averaging mechanism* on top of NS preconditioning. 4 arms: A=ctrl K=0; B=K=5/α=0.5 (paper default); C=K=10/α=0.5 (slower outer loop); D=K=5/α=0.2 (smaller pullback). Tests whether outer-loop weight averaging benefits NS-preconditioned trajectories.
 
 ## Cycle 220 snapshot (12:25 UTC May 24) — #998 closed productive-NULL/mild-NEG; frieren reassigned #1034 (first OPTIMIZER-CLASS axis: LION on aux groups)
 

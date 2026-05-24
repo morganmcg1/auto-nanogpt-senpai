@@ -4872,3 +4872,58 @@ Future Muon-mechanism PRs should target NS polynomial coefficients (alphonse #10
 - Step-2500 trajectory analysis revealing Arm D pre-reset drift evidencing σ≈0.005 single-seed noise = high-quality measurement.
 
 ### Frieren reassigned → PR #1045 (LION optimizer on aux groups — first OPTIMIZER-CLASS axis: sign-bounded update replacing AdamW RMS-normalized direction on embed + lm_head + scalars; 4-arm LR-ratio sweep {0.1x, 0.05x, 0.20x} vs ctrl AdamW)
+
+## 2026-05-24 12:55 — PR #988: AdamW state reset at cooldown boundary — 4-arm scope sweep (CLOSED productive-NULL/borderline)
+
+- Branch: `g1r4-tanjiro/adamw-state-reset-cooldown-scope`
+- Student: tanjiro
+- Hypothesis: One-shot reset of AdamW state (`exp_avg`, `exp_avg_sq`, `step`) at cooldown boundary (step 2345 = 0.7 × 3350) on subsets of aux groups. Mirror of #998 Muon momentum reset (closed productive-NULL/mild-NEG) but on the AdamW side. 4 scopes: A=off (ctrl), B=lm_head+scalars (max), C=scalars only (min), D=lm_head only.
+
+### Results
+
+| Arm | RESET_SCOPE | val/loss | Δ_vs_A | first_step_to_target | run_id |
+|:---:|:---:|---:|---:|---:|---|
+| A (ctrl) | off | 3.26898 | — | 3200 | `1kach4zq` |
+| B | lm_head_scalars | 3.26905 | +0.00007 | 3200 | `xlzd0p2g` |
+| C | scalars | 3.27005 | +0.00107 | 3225 | `job8mwuq` |
+| D | **lm_head** | **3.26730** | **−0.00168** | 3200 | `cj1ziy0d` |
+
+### Analysis and conclusions
+
+**Verdict: productive-NULL/borderline — AdamW aux state reset axis closed at all tested scopes.**
+
+- Drift gate Arm A: +0.00142 → PASS (within ±0.003).
+- Signal threshold (Δ_vs_A ≤ −0.0020): NO arm. D closest at −0.00168 (misses by 0.00032 = 16% short).
+- Productive-NULL band (±0.0015): B/C inside, D just outside.
+- Productive-NEG (≥ +0.005): NO arm crosses.
+
+**Single-seed σ ≈ 0.005 noise analysis (from #998 frieren insight):**
+- A drift: 0.28σ above baseline
+- B Δ_vs_A: ~0σ
+- C Δ_vs_A: 0.21σ
+- D Δ_vs_A: 0.34σ — direction-correct but well within 1σ noise
+
+The monotone D > B > A > C pattern is mechanism-plausible (lm_head v_t most-stale under cooldown regime shift; large fan-in/fan-out gradient distribution change) but **not statistically distinguishable from noise at N=1**. Paired-pod magnitude collapse pattern (#708 32% retention, #787 68%, typical 30-70%) implies expected n=3 mean(D) would NOT clear merge gate ≤3.26756.
+
+**Cross-mechanism axis closure:**
+
+> **AdamW aux state DISCRETE RESET at cooldown boundary — productive-NULL/borderline across all tested scopes.** PR #988 closes the AdamW state-reset axis. Combined with #998 (Muon momentum reset, fenced) and #163/#711 (other reset/structural-EMA closures): **discrete state-reset interventions on optimizer state buffers are NOT a productive axis on this stack at any scope**. Future state-touching ideas should be **continuous** (decay schedules, adaptive parameters, partial-rescaling) rather than event-style discrete resets.
+
+**Strengthening cross-PR meta-prior:**
+- #988 (this) — AdamW v_t reset, scope-stratified, borderline/null at best
+- #998 frieren — Muon momentum reset, timing-stratified, monotone soft mild-NEG
+- #163 DMR — periodic Muon reset, closed
+- #711 Muon EMA structural mods — closed (AggMo, Muon², AdEMAMix)
+
+Four independent state-reset-class closures across both optimizer sides. **STATE-RESET CLASS FENCED on this stack.**
+
+**Implementation banking:** The codepath added in #988 (env var `NANOGPT_ADAMW_RESET_SCOPE`, group-name-based selection via `.get('name')`, in-place `zero_()` for fused-AdamW state) is mechanism-clean and can be reused for *continuous* state-decay experiments at low implementation cost. Banked for future use.
+
+### Process commendation (above and beyond)
+
+- After the stale_wip prod, posted per-arm acks with clean tables and W&B IDs — exemplary recovery.
+- Implementation summary documenting `.get('name')` group selection (more robust than indexing).
+- Post-reset trajectory analysis showing val_loss bump 3.27746 → 3.38202 at step 2375 → monotonic recovery to 3.26730 = clean evidence the reset hook fires and cooldown LR absorbs the bump.
+- Balanced "I lean (1) but defer to advisor judgment" framing = appropriate epistemic posture.
+
+### Tanjiro reassigned → PR (incoming this cycle) — LookAhead optimizer wrapper on body Muon (Zhang et al. 2019) — fresh META-OPTIMIZER axis: inner-loop Muon fast weights + outer-loop slow weights averaging every K steps. 4-arm sweep on (K, α) = ({5, 10}, {0.2, 0.5}). Mechanism-distinct from all closures and in-flight.
