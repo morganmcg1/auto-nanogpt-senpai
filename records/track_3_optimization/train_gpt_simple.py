@@ -82,6 +82,10 @@ def parse_args():
                         help="β2 at start of training (and constant β2 if schedule=constant).")
     parser.add_argument("--aux_beta2_end", type=float, default=float(os.environ.get("AUX_BETA2_END", "0.99")),
                         help="β2 at end of training (after cooldown). Only used if schedule=cooldown_ramp.")
+    parser.add_argument("--muonh_qr_period", type=int,
+                        default=int(os.environ.get("MUONH_QR_PERIOD", "0")),
+                        help="Apply exact QR orthogonalization to MuonH block weights every K inner steps. "
+                             "0 = disabled (default, bit-identical to baseline). Recommend K=200 or 500.")
     args = parser.parse_args()
     args.num_trials = args.num_trials if args.num_trials is not None else (args.legacy_num_trials or 1)
     args.wandb_tags = [tag.strip() for tag in args.wandb_tags.split(",") if tag.strip()]
@@ -589,6 +593,37 @@ def scale_invariant_update_(param, update, lr, eps=1e-10):
     param.copy_(new_param / new_norm * p_norm)
 
 
+@torch.no_grad()
+def qr_orthogonalize_block_weights_(muonh_params, preserve_frobenius=False, eps=1e-10):
+    """Replace each 2D block weight with its rectangular orthonormal factor
+    (sign-preserved). Tall matrices (m >= n) get orthonormal columns; wide
+    matrices (m < n) get orthonormal rows via transpose-then-QR. Literal H112:
+    preserve_frobenius=False writes raw Q, giving Frobenius norm sqrt(min(m,n))
+    and singular values all ≈ 1 (matches the "rectangular-orth basis" mechanism
+    diagnostic). preserve_frobenius=True rescales to match the pre-QR norm."""
+    for p in muonh_params:
+        if p.ndim != 2:
+            continue
+        pre_norm = p.data.norm()
+        # QR in float32 for numerical accuracy regardless of param dtype.
+        mat = p.data.to(torch.float32)
+        m, n = mat.shape
+        if m >= n:
+            Q, R = torch.linalg.qr(mat, mode="reduced")           # Q: (m, n)
+            sign_diag = torch.sign(torch.diag(R))
+            sign_diag = torch.where(sign_diag == 0, torch.ones_like(sign_diag), sign_diag)
+            new_mat = Q * sign_diag.unsqueeze(0)                  # (m, n)
+        else:
+            Qt, Rt = torch.linalg.qr(mat.T, mode="reduced")       # Qt: (n, m)
+            sign_diag = torch.sign(torch.diag(Rt))
+            sign_diag = torch.where(sign_diag == 0, torch.ones_like(sign_diag), sign_diag)
+            new_mat = (Qt * sign_diag.unsqueeze(0)).T              # (m, n) with orth rows
+        if preserve_frobenius:
+            nm = torch.clamp(new_mat.norm(), min=eps)
+            new_mat = new_mat * (pre_norm / nm)
+        p.data.copy_(new_mat.to(p.dtype))
+
+
 class MuonH(torch.optim.Optimizer):
     """Muon with a hyperball (Frobenius-ball) projection on hidden 2D weight matrices.
 
@@ -780,6 +815,7 @@ if dist.get_rank() == 0:
             "aux_beta2_schedule": args.aux_beta2_schedule,
             "aux_beta2_start": args.aux_beta2_start,
             "aux_beta2_end": args.aux_beta2_end,
+            "muonh_qr_period": args.muonh_qr_period,
         },
     )
 
@@ -1052,6 +1088,43 @@ for trial_idx in range(args.num_trials):
         )
         for opt in optimizers:
             opt.step()
+        # H112: Periodic exact QR orthogonalization of MuonH block weights.
+        # qr_period=0 is a no-op (bit-identical to baseline). When firing, log
+        # singular value + Frobenius norm of one representative block pre/post.
+        qr_due = (
+            args.muonh_qr_period > 0 and (step + 1) % args.muonh_qr_period == 0
+        )
+        if qr_due:
+            log_qr = (dist.get_rank() == 0)
+            if log_qr:
+                rep_block = next((b for b in muonh_params_for_agc if b.ndim == 2), None)
+                qr_metrics = {"trial": trial_idx, "train/step": train_step}
+                if rep_block is not None:
+                    sv_pre = torch.linalg.svdvals(rep_block.data.float())
+                    qr_metrics["muonh_qr/pre_sv_min"] = sv_pre.min().item()
+                    qr_metrics["muonh_qr/pre_sv_median"] = sv_pre.median().item()
+                    qr_metrics["muonh_qr/pre_sv_max"] = sv_pre.max().item()
+                    qr_metrics["muonh_qr/pre_frobenius_norm"] = rep_block.data.norm().item()
+                # Aggregate Frobenius norms across all 2D blocks pre-QR.
+                pre_norms = torch.stack([b.data.norm() for b in muonh_params_for_agc
+                                          if b.ndim == 2]).float()
+                qr_metrics["muonh_qr/pre_frobenius_norm_min"] = pre_norms.min().item()
+                qr_metrics["muonh_qr/pre_frobenius_norm_max"] = pre_norms.max().item()
+                qr_metrics["muonh_qr/pre_frobenius_norm_mean"] = pre_norms.mean().item()
+            qr_orthogonalize_block_weights_(muonh_params_for_agc)
+            if log_qr:
+                if rep_block is not None:
+                    sv_post = torch.linalg.svdvals(rep_block.data.float())
+                    qr_metrics["muonh_qr/post_sv_min"] = sv_post.min().item()
+                    qr_metrics["muonh_qr/post_sv_median"] = sv_post.median().item()
+                    qr_metrics["muonh_qr/post_sv_max"] = sv_post.max().item()
+                    qr_metrics["muonh_qr/post_frobenius_norm"] = rep_block.data.norm().item()
+                post_norms = torch.stack([b.data.norm() for b in muonh_params_for_agc
+                                           if b.ndim == 2]).float()
+                qr_metrics["muonh_qr/post_frobenius_norm_min"] = post_norms.min().item()
+                qr_metrics["muonh_qr/post_frobenius_norm_max"] = post_norms.max().item()
+                qr_metrics["muonh_qr/post_frobenius_norm_mean"] = post_norms.mean().item()
+                wandb.log(qr_metrics, step=wandb_step)
         # Log warmup telemetry every 10 steps during warmup (and at telemetry events
         # afterwards) so we capture the warmup curve at high resolution. Cheap since
         # it's just two floats.
