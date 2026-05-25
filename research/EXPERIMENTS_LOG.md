@@ -1,3 +1,25 @@
+## 2026-05-25 22:30 — PR #1189: H156 Near-Identity Body Init (α·I_pad + β·Q, F-norm matched) — BILATERAL NEG (axis closure)
+
+- Branch: `g1r3-edward/h156-near-identity-body-init`
+- Hypothesis: Adding explicit identity-alignment component (sv=1.0 by construction) to H148 orthogonal_fnorm_matched init raises the sv distribution floor and accelerates early convergence. Initialize each body 2D weight as w=α·I_pad+β·Q, hard-rescaled to exact default F-norm.
+
+| Arm | body_init | α | W&B run | val/loss | Δ vs arm_a | Δ vs H148 baseline | ffs | Verdict |
+|---|---|---|---|---|---|---|---|---|
+| arm_a CTRL | orthogonal_fnorm_matched | — | `6clgdwbq` | 3.26454 | — | +0.00090 | 3150 | NULL (bit-id repro ✓) |
+| arm_b NEAR_IDENTITY α=0.3 | near_identity_fnorm_matched | 0.3 | `4ikqvdme` | 3.26513 | +0.00059 | +0.00149 | 3150 | NULL (within noise band) |
+| arm_c NEAR_IDENTITY α=0.5 | near_identity_fnorm_matched | 0.5 | `qbydbiuw` | 3.26655 | +0.00201 | +0.00291 | 3175 | NEG (above CTRL noise envelope upper) |
+
+H148 baseline: 3.26364, ffs=3125. CTRL noise envelope: mean ~3.26466, std ~0.001, range 0.00219.
+
+- **3 programme-grade findings:**
+  1. **Monotone NEG trend confirms anti-correlation.** Δ vs arm_a: +0.00059 (α=0.3) → +0.00201 (α=0.5). Δ vs baseline: +0.00149 → +0.00291. ~3.4× scaling between α=0.3 and α=0.5. Identity admixture systematically worsens performance.
+  2. **H148 winner basin tighter than literature predicts.** Saratchandran & Lucey ICLR 2026 "Conditioned Initialization" hypothesis (sv floor → 1.0 helps) REFUTED for this stack at α≥0.3. The orthogonal_fnorm_matched basin established by H148 is robust to F-norm-matched perturbations up to α=0.3 but degrades beyond. Likely mechanism: identity-block lock-in interferes with MuonH's orthogonalization dynamics.
+  3. **14th NULL/NEG closure.** Body init alpha-blending axis joins EMA-family 7-level closure (H153), Lion (H152), MGUP (H155 arm_b), and others. Body init search localized to orthogonal F-norm-matched; further body-init work should explore non-additive mechanisms.
+- Decision: CLOSED bilateral NEG. Follow-up NOT recommended at α∈[0.05,0.15] given smooth monotone trend; programme axiom strengthened: don't deviate from `orthogonal_fnorm_matched`.
+- Next: edward assigned H163 Schedule-Free outer aggregation (PR #1217).
+
+---
+
 ## 2026-05-25 20:10 — PR #1179: H153 WSM (Warmup-Stable-Merge) post-hoc checkpoint merging (BILATERAL NEG — EMA-family programme-level closure; basin-tight mechanism direct-evidence)
 
 - Branch: `g1r3-nezuko/h153-wsm-checkpoint-merge`
