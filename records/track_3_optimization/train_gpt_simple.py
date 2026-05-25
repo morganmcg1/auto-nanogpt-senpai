@@ -97,18 +97,25 @@ def parse_args():
     parser.add_argument("--muonh_mu_end", type=float, default=float(os.environ.get("MUONH_MU_END", "0.98")),
                         help="Ending value of µ schedule (used by linear and cooldown_ramp modes).")
     parser.add_argument("--body_init", type=str, default=os.environ.get("BODY_INIT", "default"),
-                        choices=["default", "orthogonal_fnorm_matched", "orthogonal_bottom_damp"],
+                        choices=["default", "orthogonal_fnorm_matched", "orthogonal_bottom_damp",
+                                 "near_identity_fnorm_matched"],
                         help="Initialization scheme for body MuonH 2D weights (attn.q/k/v, attn.proj, mlp.fc, mlp.proj). "
                              "'default' uses the current per-module normal_ init. "
                              "'orthogonal_fnorm_matched' uses torch.nn.init.orthogonal_ with gain rescaled to match "
                              "the F-norm of the default init for each weight (isolates init-direction from init-magnitude/hyperball). "
-                             "'orthogonal_bottom_damp' uses orthogonal_ with gain=1.0, then scales bottom-half layers by --body_init_bottom_damp_factor.")
+                             "'orthogonal_bottom_damp' uses orthogonal_ with gain=1.0, then scales bottom-half layers by --body_init_bottom_damp_factor. "
+                             "'near_identity_fnorm_matched' uses alpha*I_pad + beta*Q rescaled to default F-norm; "
+                             "alpha controlled by --body_init_identity_alpha.")
     parser.add_argument("--body_init_bottom_damp_factor", type=float,
                         default=float(os.environ.get("BODY_INIT_BOTTOM_DAMP_FACTOR", "0.5")),
                         help="Multiplier applied to body weights in layers [0, body_init_bottom_layers) when --body_init=orthogonal_bottom_damp.")
     parser.add_argument("--body_init_bottom_layers", type=int,
                         default=int(os.environ.get("BODY_INIT_BOTTOM_LAYERS", "6")),
                         help="Number of bottom layers to damp for --body_init=orthogonal_bottom_damp (default 6 = bottom half of 12 layers).")
+    parser.add_argument("--body_init_identity_alpha", type=float,
+                        default=float(os.environ.get("BODY_INIT_IDENTITY_ALPHA", "0.3")),
+                        help="Identity-component scalar for --body_init=near_identity_fnorm_matched. "
+                             "F-norm budget: id_contrib = alpha^2 * min(m,n); beta solved for remaining.")
     args = parser.parse_args()
     args.num_trials = args.num_trials if args.num_trials is not None else (args.legacy_num_trials or 1)
     args.wandb_tags = [tag.strip() for tag in args.wandb_tags.split(",") if tag.strip()]
@@ -850,8 +857,40 @@ if dist.get_rank() == 0:
             "muonh_mu_schedule": args.muonh_mu_schedule,
             "muonh_mu_start": args.muonh_mu_start,
             "muonh_mu_end": args.muonh_mu_end,
+            "body_init": args.body_init,
+            "body_init_identity_alpha": args.body_init_identity_alpha,
         },
     )
+
+def _near_identity_fnorm_matched(w: Tensor, default_fnorm: float, alpha: float) -> None:
+    """In-place: w = alpha*I_pad + beta*Q, then hard-rescale to ||w||_F = default_fnorm.
+
+    Cross-term <I_pad, Q> ~ 0 in expectation, so F-norm decomposes as
+    alpha^2*k + beta^2*k where k = min(m, n). Hard-rescale at the end absorbs
+    approximation error and guarantees exact hyperball-radius match.
+    """
+    m, n = w.shape
+    k = min(m, n)
+    device, dtype = w.device, w.dtype
+
+    I_pad = torch.zeros(m, n, device=device, dtype=dtype)
+    I_pad[:k, :k] = torch.eye(k, device=device, dtype=dtype)
+
+    Q = torch.empty(m, n, device=device, dtype=dtype)
+    torch.nn.init.orthogonal_(Q, gain=1.0)
+
+    id_contrib = (alpha ** 2) * k
+    if id_contrib < default_fnorm ** 2:
+        beta = math.sqrt((default_fnorm ** 2 - id_contrib) / k)
+    else:
+        beta = 0.0
+
+    w.copy_(alpha * I_pad + beta * Q)
+
+    actual = w.norm().item()
+    if actual > 0.0:
+        w.mul_(default_fnorm / actual)
+
 
 for trial_idx in range(args.num_trials):
 
@@ -899,6 +938,8 @@ for trial_idx in range(args.num_trials):
                     m = re.search(r"blocks\.(\d+)\.", name)
                     if m and int(m.group(1)) < args.body_init_bottom_layers:
                         w.mul_(args.body_init_bottom_damp_factor)
+                elif args.body_init == "near_identity_fnorm_matched":
+                    _near_identity_fnorm_matched(w, default_fnorm, args.body_init_identity_alpha)
                 body_init_log.append({"name": name, "shape": tuple(w.shape),
                                       "default_fnorm": default_fnorm,
                                       "final_fnorm": w.norm().item()})
@@ -916,6 +957,17 @@ for trial_idx in range(args.num_trials):
                         "blocks.11.attn.q.weight", "blocks.11.mlp.fc.weight")
         sample_rows = [e for e in body_init_log if e["name"] in sample_names]
         print0(f"[H148 body_init={args.body_init}] sample F-norms: {sample_rows}", console=True)
+        if body_init_log:
+            max_fnorm_diff = max(abs(e["final_fnorm"] - e["default_fnorm"]) for e in body_init_log)
+            print0(f"[H156 body_init={args.body_init} alpha={args.body_init_identity_alpha}] "
+                   f"max |final_fnorm - default_fnorm| across body weights = {max_fnorm_diff:.3e}", console=True)
+            # SV stats for the first sample body weight (step 0 conditioning telemetry).
+            for nm, p in model.named_parameters():
+                if nm == "blocks.0.attn.q.weight":
+                    sv = torch.linalg.svdvals(p.data.detach().float()).cpu()
+                    print0(f"[H156 sv step0 {nm}] sv_min={float(sv.min()):.4f} "
+                           f"sv_med={float(sv.median()):.4f} sv_max={float(sv.max()):.4f}", console=True)
+                    break
 
     # create the optimizer(s)
     # MuonH replaces plain Muon on the hidden 2D weights: hard hyperball projection
