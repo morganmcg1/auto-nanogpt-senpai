@@ -468,6 +468,12 @@ NS5_ITERS = int(os.environ.get("NS5_ITERS", "12"))
 WD_AUX = float(os.environ.get("WD_AUX", "0.0"))  # AdamW WD on embed + lm_head matrices (scalars stay at 0)
 EMBED_INIT_STD = float(os.environ.get("EMBED_INIT_STD", "1.0"))  # default preserves baseline N(0,1)
 LOGIT_SOFTCAP = float(os.environ.get("LOGIT_SOFTCAP", "15.0"))  # default = 15 (current hardcoded value); soft-cap value c in f(x) = c·x / sqrt(x^2+c^2)
+# Cautious sign-agreement mask on AUX AdamW path (PR #1205, Liang et al. NeurIPS 2024
+# arXiv:2411.16085). When both flags are 0 the CautiousAdamW subclass defers to
+# torch.optim.AdamW.step() so the disabled-check stays bytewise identical to baseline.
+CAUTIOUS_AUX = int(os.environ.get("CAUTIOUS_AUX", "0"))
+CAUTIOUS_AUX_SOFT = int(os.environ.get("CAUTIOUS_AUX_SOFT", "0"))
+CAUTIOUS_AUX_FLOOR = float(os.environ.get("CAUTIOUS_AUX_FLOOR", "0.1"))
 
 
 def zeropower_via_newtonschulz5(G: Tensor) -> Tensor:
@@ -777,6 +783,71 @@ class Muon(torch.optim.Optimizer):
         return out
 
 
+class CautiousAdamW(AdamW):
+    """AdamW with optional Cautious sign-agreement mask on the AUX path (PR #1205).
+
+    When CAUTIOUS_AUX=0 AND CAUTIOUS_AUX_SOFT=0 the step defers to torch.optim.AdamW
+    so the disabled-check is bytewise identical to the baseline fused AdamW path.
+    """
+
+    @torch.no_grad()
+    def step(self, closure=None):
+        if not (CAUTIOUS_AUX or CAUTIOUS_AUX_SOFT):
+            return super().step(closure)
+
+        loss = None
+        if closure is not None:
+            with torch.enable_grad():
+                loss = closure()
+
+        keep_ratios: dict[str, float] = {}
+        for group_idx, group in enumerate(self.param_groups):
+            lr = group["lr"]
+            beta1, beta2 = group["betas"]
+            eps = group["eps"]
+            weight_decay = group["weight_decay"]
+            group_name = group.get("name", f"group_{group_idx}")
+            kr_sum = 0.0
+            kr_count = 0
+            for p in group["params"]:
+                if p.grad is None:
+                    continue
+                grad = p.grad
+                state = self.state[p]
+                if len(state) == 0:
+                    state["step"] = 0
+                    state["exp_avg"] = torch.zeros_like(p, memory_format=torch.preserve_format)
+                    state["exp_avg_sq"] = torch.zeros_like(p, memory_format=torch.preserve_format)
+                state["step"] += 1
+                t = state["step"]
+                exp_avg = state["exp_avg"]
+                exp_avg_sq = state["exp_avg_sq"]
+                # Decoupled weight decay (AdamW), applied before moment updates as in torch.optim.AdamW.
+                if weight_decay != 0:
+                    p.mul_(1 - lr * weight_decay)
+                # Adam moment updates.
+                exp_avg.mul_(beta1).add_(grad, alpha=1 - beta1)
+                exp_avg_sq.mul_(beta2).addcmul_(grad, grad, value=1 - beta2)
+                # Bias-corrected Adam update direction: m_hat / (sqrt(v_hat) + eps).
+                bc1 = 1.0 - beta1 ** t
+                bc2 = 1.0 - beta2 ** t
+                denom = (exp_avg_sq.sqrt() / (bc2 ** 0.5)).add_(eps)
+                update = (exp_avg / bc1) / denom
+                # Cautious sign-agreement mask (Liang et al. 2024).
+                sign_agree = (torch.sign(update) == torch.sign(grad)).to(update.dtype)
+                if CAUTIOUS_AUX_SOFT:
+                    sign_agree = 0.5 + 0.5 * sign_agree
+                keep_ratio = sign_agree.mean().clamp(min=CAUTIOUS_AUX_FLOOR)
+                update = update * sign_agree / keep_ratio
+                p.add_(update, alpha=-lr)
+                kr_sum += float(keep_ratio)
+                kr_count += 1
+            if kr_count > 0:
+                keep_ratios[group_name] = kr_sum / kr_count
+        self._cautious_aux_stats = keep_ratios
+        return loss
+
+
 ########################################
 #                Setup                 #
 ########################################
@@ -898,10 +969,15 @@ for trial_idx in range(args.num_trials):
             raise Exception(f"Uninitialized parameter: {name}")
 
     # create the optimizer(s)
-    optimizer1 = AdamW([dict(params=[model.embed.weight], lr=0.3, name="adam_embed", weight_decay=WD_AUX),
-                        dict(params=[model.proj.weight], lr=1/320, name="adam_lm_head", weight_decay=WD_AUX),
-                        dict(params=[p for p in model.parameters() if p.ndim < 2], lr=0.01, name="adam_scalars")],
-                       betas=(0.8, 0.95), eps=1e-10, weight_decay=0, fused=True)
+    # When CAUTIOUS_AUX and CAUTIOUS_AUX_SOFT are both 0 we instantiate the baseline fused
+    # AdamW directly so the disabled-check is bytewise-identical to baseline (PR #1205).
+    _aux_groups = [dict(params=[model.embed.weight], lr=0.3, name="adam_embed", weight_decay=WD_AUX),
+                   dict(params=[model.proj.weight], lr=1/320, name="adam_lm_head", weight_decay=WD_AUX),
+                   dict(params=[p for p in model.parameters() if p.ndim < 2], lr=0.01, name="adam_scalars")]
+    if CAUTIOUS_AUX or CAUTIOUS_AUX_SOFT:
+        optimizer1 = CautiousAdamW(_aux_groups, betas=(0.8, 0.95), eps=1e-10, weight_decay=0)
+    else:
+        optimizer1 = AdamW(_aux_groups, betas=(0.8, 0.95), eps=1e-10, weight_decay=0, fused=True)
     optimizer2 = Muon([(n, p) for n, p in model.blocks.named_parameters() if p.ndim >= 2],
                       lr=MUON_LR, weight_decay=MUON_WEIGHT_DECAY, mu=MU)
     optimizer2.param_groups[0]["name"] = "muon_blocks"
@@ -1059,6 +1135,15 @@ for trial_idx in range(args.num_trials):
                     stats = opt.trust_gate_stats()
                     if stats:
                         wandb.log(prefixed("train/attn_soap_trust_gate", stats), step=wandb_step)
+                cautious_stats = getattr(opt, "_cautious_aux_stats", None)
+                if cautious_stats:
+                    caut_metrics = {
+                        f"train/cautious_aux/group_{name}/keep_ratio": v
+                        for name, v in cautious_stats.items()
+                    }
+                    caut_metrics["train/cautious_aux/enabled"] = int(bool(CAUTIOUS_AUX or CAUTIOUS_AUX_SOFT))
+                    caut_metrics["train/cautious_aux/hard_vs_soft"] = 0 if CAUTIOUS_AUX_SOFT else 1
+                    wandb.log(caut_metrics, step=wandb_step)
         if dist.get_rank() == 0 and telemetry_due:
             log_weight_telemetry(
                 model=model,
