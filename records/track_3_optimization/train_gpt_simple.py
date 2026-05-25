@@ -64,6 +64,10 @@ def parse_args():
                              "triangle=linear 0->2x->0 with peak at midpoint; "
                              "cosine_updown=cosine 0->2x->0 (smooth triangle). "
                              "Only applies to Muon param groups; AdamW aux is unaffected.")
+    parser.add_argument("--wd_aux", type=float, default=0.0,
+                        help="Weight decay applied to AdamW groups (embed, lm_head, scalars). "
+                             "Default 0.0 = current hardcoded value. Static through the run — "
+                             "the ramp_down schedule does NOT apply to AdamW groups.")
     parser.add_argument("--ns_iter", type=int, default=12,
                         help="Number of Newton-Schulz iterations in zeropower_via_newtonschulz5. "
                              "Default 12 (current hardcoded value). Lower = less orthogonal but faster.")
@@ -763,6 +767,7 @@ if dist.get_rank() == 0:
             "lr_attn": args.lr_attn,
             "wd_attn": args.wd_attn,
             "wd_schedule": args.wd_schedule,
+            "wd_aux": args.wd_aux,
             "lr_scalars": args.lr_scalars,
             "depth_init_mode": args.depth_init_mode,
         },
@@ -840,7 +845,10 @@ for trial_idx in range(args.num_trials):
     optimizer1 = AdamW([dict(params=[model.embed.weight], lr=0.3, name="adam_embed"),
                         dict(params=[model.proj.weight], lr=1/320, name="adam_lm_head"),
                         dict(params=[p for p in model.parameters() if p.ndim < 2], lr=args.lr_scalars, name="adam_scalars")],
-                       betas=(0.8, 0.95), eps=1e-10, weight_decay=0, fused=True)
+                       betas=(0.8, 0.95), eps=1e-10, weight_decay=args.wd_aux, fused=True)
+    if args.wd_aux > 0 and args.wd_schedule != "constant":
+        print0(f"[wd_aux] NOTE: wd_aux={args.wd_aux:g} is static (no schedule); "
+               f"wd_schedule={args.wd_schedule} applies only to Muon body params.", console=True)
     named_blocks = [(n, p) for n, p in model.blocks.named_parameters() if p.ndim >= 2]
     mlp_named = [(n, p) for n, p in named_blocks
                  if n.endswith(".mlp.fc.weight") or n.endswith(".mlp.proj.weight")]
