@@ -1,6 +1,6 @@
 # SENPAI Research State — auto-nanogpt-1gpu-r5
 
-- **Last updated:** 2026-05-25 ~15:30Z (poll ~783) — **#1036 nezuko CLOSED clean-WEAK-NEG** (μ_8=3.260279 borderline; nezuko → #1181 Adan aux). **#1130 frieren Decoupled SOAP β₂ CLOSED clean-NEG** (PRIMARY B refuted; novel D/E isolation catastrophe; all SOAP scalar HPs now 6/6 closed; frieren → #1183 Heavy-Ball vs Nesterov). Askeladd #1105 n=4 running (ETA ~15:45Z, μ_3≈3.259526 strong). Tanjiro #1062 n=4 overdue (started 07:39Z ETA ~14:39Z, no terminal yet). Alphonse #1131 Cell E near-terminal. All 8 in flight.
+- **Last updated:** 2026-05-25 ~15:40Z (poll ~784) — **#1131 alphonse AdaBelief aux 5-cell complete, sent back for n=4 confirm at Cell C** (eps=1e-16 winner -1.11σ; C vs E -2.24σ mechanism isolation isolates centered-variance as load-bearing, eps-confounder refuted). Askeladd #1105 n=4 T3=3.262346 REGRESSION (μ_3=3.260432, trending WEAK-NEG not merge), T4 49% running. Tanjiro #1062 n=4 T3=3.262057 (μ_3=3.261763, trending clean-NEG), T4 66% running. Both n=4 runs unlikely to clear merge gate.
 
 ## CURRENT BASELINE (PR #699 MERGED poll #378)
 
