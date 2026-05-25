@@ -11,6 +11,7 @@ with open(sys.argv[0]) as f:
     code = f.read() # read the code of this file ASAP, for logging
 import argparse
 import math
+import re
 import uuid
 import time
 from pathlib import Path
@@ -95,6 +96,19 @@ def parse_args():
                         help="Starting value of µ schedule (used by linear and cooldown_ramp modes).")
     parser.add_argument("--muonh_mu_end", type=float, default=float(os.environ.get("MUONH_MU_END", "0.98")),
                         help="Ending value of µ schedule (used by linear and cooldown_ramp modes).")
+    parser.add_argument("--body_init", type=str, default=os.environ.get("BODY_INIT", "default"),
+                        choices=["default", "orthogonal_fnorm_matched", "orthogonal_bottom_damp"],
+                        help="Initialization scheme for body MuonH 2D weights (attn.q/k/v, attn.proj, mlp.fc, mlp.proj). "
+                             "'default' uses the current per-module normal_ init. "
+                             "'orthogonal_fnorm_matched' uses torch.nn.init.orthogonal_ with gain rescaled to match "
+                             "the F-norm of the default init for each weight (isolates init-direction from init-magnitude/hyperball). "
+                             "'orthogonal_bottom_damp' uses orthogonal_ with gain=1.0, then scales bottom-half layers by --body_init_bottom_damp_factor.")
+    parser.add_argument("--body_init_bottom_damp_factor", type=float,
+                        default=float(os.environ.get("BODY_INIT_BOTTOM_DAMP_FACTOR", "0.5")),
+                        help="Multiplier applied to body weights in layers [0, body_init_bottom_layers) when --body_init=orthogonal_bottom_damp.")
+    parser.add_argument("--body_init_bottom_layers", type=int,
+                        default=int(os.environ.get("BODY_INIT_BOTTOM_LAYERS", "6")),
+                        help="Number of bottom layers to damp for --body_init=orthogonal_bottom_damp (default 6 = bottom half of 12 layers).")
     args = parser.parse_args()
     args.num_trials = args.num_trials if args.num_trials is not None else (args.legacy_num_trials or 1)
     args.wandb_tags = [tag.strip() for tag in args.wandb_tags.split(",") if tag.strip()]
@@ -308,6 +322,46 @@ def log_weight_telemetry(
         metrics.update(prefixed(f"train/weight_type/{module_type}", aggregate_stats(tensors)))
     for name, weight in weights:
         metrics.update(prefixed(f"train/weight_param/{clean_metric_name(name)}", tensor_stats(weight)))
+    wandb.log(metrics, step=wandb_step)
+
+
+def log_body_sv_stats(
+    model: nn.Module,
+    trial_idx: int,
+    step: int,
+    wandb_step: int,
+):
+    # H148: NS5-alignment telemetry. Sample singular values of MuonH body 2D
+    # weights and log aggregate + per-param sv_med / sv_min / sv_max. Cheap
+    # enough to call at a handful of steps (1, 50, 250, 500, 1000, terminal).
+    metrics = {"trial": trial_idx, "train/step": step}
+    all_med: list[float] = []
+    all_min: list[float] = []
+    all_max: list[float] = []
+    for name, p in model.named_parameters():
+        if p.ndim < 2 or not name.endswith("weight"):
+            continue
+        if not (".attn." in name or ".mlp." in name):
+            continue
+        svs = torch.linalg.svdvals(p.data.detach().to(torch.float32))
+        sv_med = float(svs.median().item())
+        sv_min = float(svs.min().item())
+        sv_max = float(svs.max().item())
+        clean = clean_metric_name(name)
+        metrics[f"train/muonh/sv_med_param/{clean}"] = sv_med
+        metrics[f"train/muonh/sv_min_param/{clean}"] = sv_min
+        metrics[f"train/muonh/sv_max_param/{clean}"] = sv_max
+        all_med.append(sv_med)
+        all_min.append(sv_min)
+        all_max.append(sv_max)
+    if all_med:
+        sorted_med = sorted(all_med)
+        metrics["train/muonh/sv_med"] = sorted_med[len(sorted_med) // 2]
+        metrics["train/muonh/sv_min"] = min(all_min)
+        metrics["train/muonh/sv_max"] = max(all_max)
+        metrics["train/muonh/sv_med_mean"] = sum(all_med) / len(all_med)
+        metrics["train/muonh/sv_med_min"] = min(all_med)
+        metrics["train/muonh/sv_med_max"] = max(all_med)
     wandb.log(metrics, step=wandb_step)
 
 
@@ -813,6 +867,11 @@ for trial_idx in range(args.num_trials):
     # while keeping the LM head (model.proj.weight) at zero so initial logits are 0.
     # The "proj" substring matches both block proj weights and the LM head, so the
     # LM head is special-cased by exact-name first.
+    # H148: body_init axis sweep. Default branch is bit-identical to prior behavior.
+    # Orthogonal arms first run the default normal_ init to establish the per-weight
+    # F-norm reference (preserves MuonH hyperball radius for the F-norm matched arm),
+    # then overwrite with torch.nn.init.orthogonal_ and rescale.
+    body_init_log: list[dict] = []
     for name, p in model.named_parameters():
         w = p.data
         if name.endswith("weight"):
@@ -820,14 +879,29 @@ for trial_idx in range(args.num_trials):
                 w.zero_()  # LM head: keep zero like starter
             elif name == "embed.weight":
                 w.normal_()  # token embedding: default torch init
-            elif "attn.proj" in name:
-                w.normal_(std=0.026)
-            elif "mlp.proj" in name:
-                w.normal_(std=0.031)
-            elif "mlp.fc" in name:
-                w.normal_(std=0.031)
-            elif "attn." in name:
-                w.normal_(std=0.33**0.5 / w.size(-1)**0.5)
+            elif "attn.proj" in name or "mlp.proj" in name or "mlp.fc" in name or "attn." in name:
+                # Body 2D weights — subject to init-axis sweep.
+                if "attn.proj" in name:
+                    default_std = 0.026
+                elif "mlp.proj" in name or "mlp.fc" in name:
+                    default_std = 0.031
+                else:  # attn.q / attn.k / attn.v
+                    default_std = 0.33**0.5 / w.size(-1)**0.5
+                w.normal_(std=default_std)
+                default_fnorm = w.norm().item()
+
+                if args.body_init == "orthogonal_fnorm_matched":
+                    torch.nn.init.orthogonal_(w, gain=1.0)
+                    ortho_fnorm = w.norm().item()
+                    w.mul_(default_fnorm / ortho_fnorm)
+                elif args.body_init == "orthogonal_bottom_damp":
+                    torch.nn.init.orthogonal_(w, gain=1.0)
+                    m = re.search(r"blocks\.(\d+)\.", name)
+                    if m and int(m.group(1)) < args.body_init_bottom_layers:
+                        w.mul_(args.body_init_bottom_damp_factor)
+                body_init_log.append({"name": name, "shape": tuple(w.shape),
+                                      "default_fnorm": default_fnorm,
+                                      "final_fnorm": w.norm().item()})
             else:
                 w.normal_(std=0.33**0.5 / w.size(-1)**0.5)
         elif name.endswith("bias"):
@@ -836,6 +910,12 @@ for trial_idx in range(args.num_trials):
             w.normal_(mean=1, std=0)
         else:
             raise Exception(f"Uninitialized parameter: {name}")
+    if trial_idx == 0:
+        sample_names = ("blocks.0.attn.q.weight", "blocks.0.mlp.fc.weight",
+                        "blocks.5.attn.q.weight", "blocks.5.mlp.fc.weight",
+                        "blocks.11.attn.q.weight", "blocks.11.mlp.fc.weight")
+        sample_rows = [e for e in body_init_log if e["name"] in sample_names]
+        print0(f"[H148 body_init={args.body_init}] sample F-norms: {sample_rows}", console=True)
 
     # create the optimizer(s)
     # MuonH replaces plain Muon on the hidden 2D weights: hard hyperball projection
@@ -1146,6 +1226,42 @@ for trial_idx in range(args.num_trials):
                 histogram_samples=args.histogram_samples,
                 param_histogram_limit=args.param_histogram_limit,
             )
+        # H148: NS5-alignment telemetry. Singular values of MuonH body weights
+        # at a small set of probe steps. Captures whether orthogonal init
+        # (arm_b/arm_c) actually starts the trajectory closer to the NS5
+        # attractor than the default normal init (arm_a CTRL).
+        sv_due = (
+            dist.get_rank() == 0
+            and train_step in (1, 50, 250, 500, 1000, train_steps)
+        )
+        if sv_due:
+            log_body_sv_stats(
+                model=model,
+                trial_idx=trial_idx,
+                step=train_step,
+                wandb_step=wandb_step,
+            )
+        # H148: sample hyperball radii after MuonH initializes its state on
+        # step 1. Used to verify arm_b hyperball is bit-id to arm_a (F-norm
+        # matched) and arm_c bottom layers are halved.
+        if dist.get_rank() == 0 and train_step == 1:
+            radius_sample = []
+            sample_names = ("blocks.0.attn.q.weight", "blocks.0.mlp.fc.weight",
+                            "blocks.5.attn.q.weight", "blocks.5.mlp.fc.weight",
+                            "blocks.11.attn.q.weight", "blocks.11.mlp.fc.weight")
+            param_by_name = dict(model.named_parameters())
+            for opt in optimizers:
+                if isinstance(opt, MuonH):
+                    for n in sample_names:
+                        if n in param_by_name:
+                            st = opt.state.get(param_by_name[n], {})
+                            if "hyperball_radius" in st:
+                                radius_sample.append({
+                                    "name": n, "radius": st["hyperball_radius"],
+                                })
+            if radius_sample:
+                print0(f"[H148 body_init={args.body_init}] hyperball radii: {radius_sample}",
+                       console=True)
         model.zero_grad(set_to_none=True)
 
         # MuLoCo outer Nesterov step (Algorithm 1, K=1). Fires every sync_interval
