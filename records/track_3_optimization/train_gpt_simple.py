@@ -464,6 +464,7 @@ SOAP_PRECOND_FREQ = 10
 ATTN_SOAP_BETA2 = 0.90
 ATTN_SOAP_PRECOND_FREQ = 10
 ATTN_SOAP_TRUST_THRESHOLD = float(os.environ.get("ATTN_SOAP_TRUST_THRESHOLD", "0.9"))
+SOAP_GRAM_DRIFT_THRESHOLD = float(os.environ.get("SOAP_GRAM_DRIFT_THRESHOLD", "0"))
 NS5_ITERS = int(os.environ.get("NS5_ITERS", "12"))
 WD_AUX = float(os.environ.get("WD_AUX", "0.0"))  # AdamW WD on embed + lm_head matrices (scalars stay at 0)
 EMBED_INIT_STD = float(os.environ.get("EMBED_INIT_STD", "1.0"))  # default preserves baseline N(0,1)
@@ -565,6 +566,9 @@ def soap_refresh(grad, state, beta2=SOAP_BETA2, refresh_freq=SOAP_PRECOND_FREQ,
     grad_f = grad.float()
     state["row_gg"].lerp_(grad_f @ grad_f.T, 1 - beta2)
     state["col_gg"].lerp_(grad_f.T @ grad_f, 1 - beta2)
+    state.setdefault("refresh_count", 0)
+    state.setdefault("refresh_total_count", 0)
+    state["refresh_total_count"] += 1
     if state["q_row"] is None:
         state["q_row"] = soap_eigenbasis(state["row_gg"])
         state["q_col"] = soap_eigenbasis(state["col_gg"])
@@ -572,39 +576,61 @@ def soap_refresh(grad, state, beta2=SOAP_BETA2, refresh_freq=SOAP_PRECOND_FREQ,
             state["trust_gate"] = 1.0
             state["trust_cos_row"] = 1.0
             state["trust_cos_col"] = 1.0
-    elif state["soap_step"] > 0 and state["soap_step"] % refresh_freq == 0:
-        if use_trust_gate:
-            row_gg = state["row_gg"]
-            col_gg = state["col_gg"]
-            q_row_old = state["q_row"]
-            q_col_old = state["q_col"]
-            exp_avg_sq = state["exp_avg_sq"]
-
-            row_eig = torch.diag(q_row_old.T @ row_gg @ q_row_old)
-            row_sort = torch.argsort(row_eig, descending=True)
-            q_row_sorted = q_row_old[:, row_sort]
-            exp_avg_sq = exp_avg_sq.index_select(0, row_sort)
-            q_row_new, _ = torch.linalg.qr(row_gg @ q_row_sorted)
-
-            col_eig = torch.diag(q_col_old.T @ col_gg @ q_col_old)
-            col_sort = torch.argsort(col_eig, descending=True)
-            q_col_sorted = q_col_old[:, col_sort]
-            exp_avg_sq = exp_avg_sq.index_select(1, col_sort)
-            q_col_new, _ = torch.linalg.qr(col_gg @ q_col_sorted)
-
-            state["q_row"] = q_row_new
-            state["q_col"] = q_col_new
-            state["exp_avg_sq"] = exp_avg_sq
-
-            cos_row = (q_row_new.T @ q_row_sorted).diagonal().abs().mean().item()
-            cos_col = (q_col_new.T @ q_col_sorted).diagonal().abs().mean().item()
-            state["trust_cos_row"] = cos_row
-            state["trust_cos_col"] = cos_col
-            state["trust_gate"] = 1.0 if (cos_row >= trust_threshold and cos_col >= trust_threshold) else 0.0
+        state["refresh_count"] += 1
+    else:
+        if SOAP_GRAM_DRIFT_THRESHOLD > 0:
+            if "prev_row_gg" not in state:
+                state["prev_row_gg"] = state["row_gg"].detach().clone()
+                _do_refresh = (state["q_row"] is None)
+            else:
+                _row_norm = state["row_gg"].norm().clamp_min(1e-8)
+                _drift = (state["row_gg"] - state["prev_row_gg"]).norm() / _row_norm
+                # Trigger on drift OR periodic fallback (every 5x refresh_freq to
+                # prevent indefinite staleness if gradient is unusually stable).
+                _do_refresh = (
+                    _drift.item() > SOAP_GRAM_DRIFT_THRESHOLD
+                    or (state["soap_step"] % (refresh_freq * 5) == 0)
+                )
+                if _do_refresh:
+                    state["prev_row_gg"] = state["row_gg"].detach().clone()
+            do_refresh = _do_refresh
         else:
-            state["q_row"], state["q_col"], state["exp_avg_sq"] = soap_basis_qr(
-                state["row_gg"], state["col_gg"], state["q_row"], state["q_col"], state["exp_avg_sq"]
-            )
+            # Baseline: fixed frequency (BYTEWISE INERT vs prior behavior).
+            do_refresh = (state["soap_step"] > 0 and state["soap_step"] % refresh_freq == 0)
+        if do_refresh:
+            state["refresh_count"] += 1
+            if use_trust_gate:
+                row_gg = state["row_gg"]
+                col_gg = state["col_gg"]
+                q_row_old = state["q_row"]
+                q_col_old = state["q_col"]
+                exp_avg_sq = state["exp_avg_sq"]
+
+                row_eig = torch.diag(q_row_old.T @ row_gg @ q_row_old)
+                row_sort = torch.argsort(row_eig, descending=True)
+                q_row_sorted = q_row_old[:, row_sort]
+                exp_avg_sq = exp_avg_sq.index_select(0, row_sort)
+                q_row_new, _ = torch.linalg.qr(row_gg @ q_row_sorted)
+
+                col_eig = torch.diag(q_col_old.T @ col_gg @ q_col_old)
+                col_sort = torch.argsort(col_eig, descending=True)
+                q_col_sorted = q_col_old[:, col_sort]
+                exp_avg_sq = exp_avg_sq.index_select(1, col_sort)
+                q_col_new, _ = torch.linalg.qr(col_gg @ q_col_sorted)
+
+                state["q_row"] = q_row_new
+                state["q_col"] = q_col_new
+                state["exp_avg_sq"] = exp_avg_sq
+
+                cos_row = (q_row_new.T @ q_row_sorted).diagonal().abs().mean().item()
+                cos_col = (q_col_new.T @ q_col_sorted).diagonal().abs().mean().item()
+                state["trust_cos_row"] = cos_row
+                state["trust_cos_col"] = cos_col
+                state["trust_gate"] = 1.0 if (cos_row >= trust_threshold and cos_col >= trust_threshold) else 0.0
+            else:
+                state["q_row"], state["q_col"], state["exp_avg_sq"] = soap_basis_qr(
+                    state["row_gg"], state["col_gg"], state["q_row"], state["q_col"], state["exp_avg_sq"]
+                )
     state["soap_step"] += 1
 
 
@@ -776,6 +802,40 @@ class Muon(torch.optim.Optimizer):
             out[f"{kind}/mean_cos_col"] = sum(ccs) / kn
         return out
 
+    def soap_refresh_stats(self) -> dict[str, float]:
+        """Aggregate refresh-frequency telemetry across all SOAP-enabled params.
+
+        Returns counts and per-group refresh fractions (mlp and attn).
+        """
+        out: dict[str, float] = {}
+        groups = {"mlp": self.soap_params, "attn": self.attn_soap_params}
+        total_refresh = 0
+        total_calls = 0
+        for label, params in groups.items():
+            refresh_sum = 0
+            total_sum = 0
+            n_params = 0
+            for p in params:
+                state = self.state.get(p)
+                if state is None or "refresh_total_count" not in state:
+                    continue
+                refresh_sum += state["refresh_count"]
+                total_sum += state["refresh_total_count"]
+                n_params += 1
+            if n_params == 0:
+                continue
+            out[f"{label}/count"] = n_params
+            out[f"{label}/refresh_count"] = refresh_sum
+            out[f"{label}/total_count"] = total_sum
+            out[f"{label}/refresh_fraction"] = refresh_sum / max(1, total_sum)
+            total_refresh += refresh_sum
+            total_calls += total_sum
+        if total_calls > 0:
+            out["refresh_fraction"] = total_refresh / total_calls
+            out["refresh_count"] = total_refresh
+            out["total_count"] = total_calls
+        return out
+
 
 ########################################
 #                Setup                 #
@@ -864,6 +924,7 @@ if dist.get_rank() == 0:
             "optimizer/attn_soap_beta2": ATTN_SOAP_BETA2,
             "optimizer/attn_soap_precond_freq": ATTN_SOAP_PRECOND_FREQ,
             "optimizer/attn_soap_trust_threshold": ATTN_SOAP_TRUST_THRESHOLD,
+            "optimizer/soap_gram_drift_threshold": SOAP_GRAM_DRIFT_THRESHOLD,
             "optimizer/ns5_iters": NS5_ITERS,
             "optimizer/wd_aux": WD_AUX,
             "optimizer/recipe": "contra-muon + normuon-lite + soap-on-mlp + soap-on-attn-trust-gate (pre-NS5, record #14 + record #16)",
@@ -1059,6 +1120,10 @@ for trial_idx in range(args.num_trials):
                     stats = opt.trust_gate_stats()
                     if stats:
                         wandb.log(prefixed("train/attn_soap_trust_gate", stats), step=wandb_step)
+                if hasattr(opt, "soap_refresh_stats"):
+                    refresh_stats = opt.soap_refresh_stats()
+                    if refresh_stats:
+                        wandb.log(prefixed("train/soap", refresh_stats), step=wandb_step)
         if dist.get_rank() == 0 and telemetry_due:
             log_weight_telemetry(
                 model=model,
