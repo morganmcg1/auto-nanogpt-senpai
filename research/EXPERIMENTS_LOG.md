@@ -1,3 +1,67 @@
+## 2026-05-25 01:35 UTC — PR #1111 ASSIGNED (alphonse): Embed-only Polyak EMA (decay=0.99/0.999 restricted to embed.weight; first-ever per-subsystem eval-time averaging test)
+
+- Branch: `g1r3-alphonse/embed-only-polyak-ema`
+- Hypothesis (direct H127 suggestion #2 followup): H127 closure (today, see entry below) found global Polyak EMA never beats raw at terminal — cosine cooldown is binding stabilizer (3-way H120/H125/H127 evidence). BUT H127 telemetry revealed weight_diff_norm was **99.98-99.99% concentrated in aux_embed** at terminal (arm_b body=1.79, embed=621.8; arm_c body=145.3, embed=19850). Body MuonH params drained to near-zero under cosine cooldown; aux_embed retained huge diffs because aux uses **linear@0.4 cooldown, NOT cosine@1.0** — cooldown-as-stabilizer mechanism is body-specific. Additionally arm_b EMA was BETTER than raw during BULK training (peak gap +0.115 at step 1000, eroded by cooldown). H136 isolates Polyak to ONLY model.embed.weight — the parameter group with 99.98% of H127 weight diff AND different cooldown schedule.
+- Implementation: ~25-35 LoC (extends H127 infrastructure). Add `--polyak_ema_target` CLI flag (choices: all/embed_only/body_only/aux_only, default "all" for bit-id), filter Polyak buffer build + eval substitution + buffer updates based on target.
+- Arms (n=1 seed each, 3325 steps, 1×H100):
+  - arm_a CTRL: `--polyak_ema_decay 0.0 --polyak_ema_target all` (bit-id baseline 3.26706 guard)
+  - arm_b SHORT_EMBED_ONLY: `--polyak_ema_decay 0.99 --polyak_ema_target embed_only` (100-step window on embed)
+  - arm_c LONG_EMBED_ONLY: `--polyak_ema_decay 0.999 --polyak_ema_target embed_only` (1000-step window on embed)
+- Critical telemetry (extends H127 format):
+  - Per-checkpoint `eval/val_loss_raw`, `eval/val_loss_ema`, `eval/val_loss_gap = raw - ema`
+  - Per-checkpoint `polyak/embed_weight_diff_norm` (headline diagnostic)
+  - **Trajectory question 1**: does embed_weight_diff_norm DRAIN by terminal under arm_b's 100-step window (matching H127 body behavior, was 1.79 at terminal), OR PERSIST under linear@0.4 cooldown (suggesting linear cooldown does NOT stabilize like cosine)?
+  - **Trajectory question 2**: does arm_b's mid-training advantage (H127 peak gap +0.115 at step 1000) survive to terminal in embed-only variant?
+- Decision rules:
+  - arm_b WIN ema < 3.26626: embed-only short window beats raw → eval-time mechanism re-opened on per-subsystem axis, MERGE
+  - arm_c WIN ema < 3.26626: long-window dominates → MERGE arm_c
+  - both NULL ema in band: embed-only neutral, close eval-time axis fully (aux/embed dispersion-tolerant)
+  - both NEG monotone: confirms eval-time closure at deeper precision; all fixed-window EMA dominated by current schedule stack
+  - arm_a NEG > 3.27250: CTRL drift, rerun
+- Mechanism-distinctness vs in-flight:
+  - vs H127 global Polyak (closed today): **restricted to one parameter group** (embed only) — isolates per-subsystem dynamics
+  - vs H101 sf_alpha_t (closed): different mechanism (training vs eval), different optimizer layer
+  - vs H110 aux beta1 (closed): different lever (HP vs eval-time average)
+  - vs H134 frieren outer LR warmup (in flight): different optimizer level, training-time vs eval-time
+  - vs H130 thorfinn aux cooldown shape (in flight): **COMPLEMENTARY** — H130 changes aux LR over time; H136 averages aux weights at eval
+  - vs H135 tanjiro embed init std (in flight): **COMPLEMENTARY** — same parameter group, different lever (init at t=0 vs eval-time average)
+  - **First-ever per-subsystem Polyak EMA test in programme.** Forms aux/embed-axis triad with H130 (aux schedule) + H135 (embed init).
+- Why alphonse: 5th consecutive mechanism+telemetry cycle (H101/H110/H119/H127 + H136). Own H127 closure identified 99.98% embed concentration; own suggestion #2 explicitly proposed this. Best context to interpret per-subsystem EMA dynamics.
+- W&B group: `g1r3-alphonse-h136-embed-only-polyak`
+
+## 2026-05-25 01:30 UTC — PR #1068 CLOSED (alphonse): H127 Polyak Weight Averaging for Evaluation (NEG/closure; eval-time fixed-window Polyak EMA does NOT beat raw at any window; "cosine cooldown is the binding final-step stabilization mechanism" — 3-way H120/H125/H127 evidence)
+
+- Branch: `g1r3-alphonse/polyak-weight-averaging`
+- Hypothesis (now refuted): eval-time Polyak EMA `θ̄_t = β·θ̄_{t-1} + (1-β)·θ_t` substituted for θ at eval. Zero training-trajectory impact (only changes eval forward pass). arm_b SHORT (~100-step window, cooldown noise rejection target) and arm_c LONG (~1000-step window, bulk consolidation target).
+- Terminal results (W&B verified):
+
+| Arm | Decay | run_id | val/loss_raw | val/loss_ema | Gap (raw−ema) | Verdict |
+|-----|-------|--------|--------------|--------------|---------------|---------|
+| arm_a CTRL | 0.0 | `ebubs38w` | **3.26815** | 3.26815 | 0 | NULL bit-id ✅ |
+| arm_b SHORT | 0.99 | `8aflbcgi` | 3.26965 | **3.27015** | **-0.00050** | EMA NEG; raw NULL widened |
+| arm_c LONG | 0.999 | `80f5fpqu` | 3.26927 | **3.33779** | **-0.06852** | EMA CATASTROPHIC NEG; raw NULL |
+
+ffs: arm_a 3025; arm_b raw 3050 / ema 3025; arm_c raw 3050 / ema **never reached 3.28**.
+
+Baseline: val/loss=3.26706 (PR #1027 H117 µ-decreasing 0.95→0.90).
+
+**Headline answer: EMA never beats raw at terminal for any arm**.
+
+- Programme-level findings (5):
+
+  **Finding 1 — Cosine cooldown is the binding final-step stabilization mechanism.** Live weights driven below lagging EMA buffer in final ~500 steps (lr→0). arm_b (100-step window) catches up partially (weight_diff_norm 13.2k→0.6k) but lands marginally above raw. arm_c (1000-step window) cannot drain in 325 cooldown steps.
+
+  **Finding 2 — Joint 3-way evidence with H120/H125 — single principle**: cosine cooldown's annealed-to-zero LR is the load-bearing trajectory stabilizer; alternative averaging schemes are redundant or harmful at this schedule stack.
+
+  **Finding 3 — arm_b EMA is BETTER than raw during BULK training** (steps 500-2500, peak gap +0.115 at step 1000), then collapses at terminal. Polyak may recover headroom in no-cooldown or shallow-cooldown regimes.
+
+  **Finding 4 — weight_diff_norm 99.98-99.99% concentrated in aux_embed.** Body MuonH params drain to near-zero under cosine cooldown; aux_embed retains huge diffs (under linear@0.4 cooldown). Points to embed-only Polyak (H136 just assigned) as natural follow-up.
+
+  **Finding 5 — arm_c EMA "never reached 3.28"** — 1000-step window cannot drain in 325 cooldown steps, fundamentally incompatible with cosine schedule. Closes "long-window Polyak with cooldown" sub-axis.
+
+- Operational commendation: 4th consecutive mechanism+telemetry cycle (H101/H110/H119/H127). EMA-RAW gap trajectory + per-parameter-group weight_diff_norm decomposition were textbook diagnostics. arm_c catastrophic finding reported transparently with mechanism analysis. Suggestion #2 (embed-only Polyak) directly accepted as H136.
+- Followup chosen for alphonse H136 (assigned today, see entry above): Embed-only Polyak EMA restricted to model.embed.weight — parameter group with 99.98% of H127 weight diff AND different cooldown schedule (linear@0.4 not cosine@1.0).
+
 ## 2026-05-25 01:05 UTC — PR #1109 ASSIGNED (tanjiro): Embed init std sweep (1.0/0.1/0.01; first-ever aux-init test in programme)
 
 - Branch: `g1r3-tanjiro/embed-init-std-sweep`
