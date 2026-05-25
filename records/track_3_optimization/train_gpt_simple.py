@@ -429,7 +429,23 @@ class GPT(nn.Module):
             x = block(x)
         logits = self.proj(self.norm2(x)).float()
         logits = LOGIT_SOFTCAP * logits * (logits.square() + LOGIT_SOFTCAP**2).rsqrt()
-        return F.cross_entropy(logits.view(targets.numel(), -1), targets.view(-1), reduction="sum")
+        flat_logits = logits.view(targets.numel(), -1)
+        loss = F.cross_entropy(flat_logits, targets.view(-1), reduction="sum")
+        if Z_LOSS_ALPHA > 0.0 and self.training:
+            # PaLM-style z-loss: penalize partition-function magnitude.
+            # .sum() reduction matches CE so effective per-token weight ≈ α.
+            z = torch.logsumexp(flat_logits, dim=-1)
+            z_sq_sum = (z ** 2).sum()
+            z_loss = Z_LOSS_ALPHA * z_sq_sum
+            if dist.get_rank() == 0:
+                wandb.log({
+                    "train/z_loss_sum": z_loss.item(),
+                    "train/z_loss_per_token": (z_loss / targets.numel()).item(),
+                    "train/logsumexp_mean": z.mean().item(),
+                    "train/logsumexp_max": z.max().item(),
+                }, commit=False)
+            loss = loss + z_loss
+        return loss
 
 
 ########################################
@@ -468,6 +484,7 @@ NS5_ITERS = int(os.environ.get("NS5_ITERS", "12"))
 WD_AUX = float(os.environ.get("WD_AUX", "0.0"))  # AdamW WD on embed + lm_head matrices (scalars stay at 0)
 EMBED_INIT_STD = float(os.environ.get("EMBED_INIT_STD", "1.0"))  # default preserves baseline N(0,1)
 LOGIT_SOFTCAP = float(os.environ.get("LOGIT_SOFTCAP", "15.0"))  # default = 15 (current hardcoded value); soft-cap value c in f(x) = c·x / sqrt(x^2+c^2)
+Z_LOSS_ALPHA = float(os.environ.get("Z_LOSS_ALPHA", "0.0"))  # PaLM-style z-loss: α·sum(logsumexp(logits)^2); 0 disables (bytewise inert)
 
 
 def zeropower_via_newtonschulz5(G: Tensor) -> Tensor:
@@ -866,6 +883,7 @@ if dist.get_rank() == 0:
             "optimizer/attn_soap_trust_threshold": ATTN_SOAP_TRUST_THRESHOLD,
             "optimizer/ns5_iters": NS5_ITERS,
             "optimizer/wd_aux": WD_AUX,
+            "optimizer/z_loss_alpha": Z_LOSS_ALPHA,
             "optimizer/recipe": "contra-muon + normuon-lite + soap-on-mlp + soap-on-attn-trust-gate (pre-NS5, record #14 + record #16)",
         },
     )
