@@ -64,6 +64,10 @@ def parse_args():
     parser.add_argument("--muon_lr", type=float, default=0.035,
                         help="Base learning rate for body-Muon optimizer (matrix params in blocks). "
                              "Default 0.035 matches the merged baseline.")
+    parser.add_argument("--body_init_scale", type=float, default=1.0,
+                        help="Multiplicative scale on body weight init std (baseline=1.0 -> "
+                             "std = sqrt(0.33/fan_in)). 0.5x and 2.0x ablate forward-activation "
+                             "magnitude through body blocks. Mirror of #1059 embed, #1015 lm_head.")
     args = parser.parse_args()
     args.num_trials = args.num_trials if args.num_trials is not None else (args.legacy_num_trials or 1)
     args.wandb_tags = [tag.strip() for tag in args.wandb_tags.split(",") if tag.strip()]
@@ -720,6 +724,7 @@ if dist.get_rank() == 0:
             "ema_warmup_steps": args.ema_warmup_steps,
             "ema_beta_target": args.ema_beta_target if args.ema_beta_target is not None else 0.0,
             "ema_dynamic_ramp_active": int(args.ema_beta_target is not None and args.ema_beta > 0),
+            "body_init_scale": args.body_init_scale,
         },
     )
 
@@ -742,13 +747,27 @@ for trial_idx in range(args.num_trials):
             elif "embed" in name:
                 w.normal_()  # default torch init
             else:
-                w.normal_(std=0.33**0.5 / w.size(-1)**0.5)  # default torch init
+                base_std = 0.33**0.5 / w.size(-1)**0.5
+                w.normal_(std=args.body_init_scale * base_std)
         elif name.endswith("bias"):
             w.zero_()
         elif name.endswith("gains"):
             w.normal_(mean=1, std=0)
         else:
             raise Exception(f"Uninitialized parameter: {name}")
+
+    # Init-time body-weight diagnostic for body_init_scale ablation (PR #1080).
+    if dist.get_rank() == 0:
+        body_weights_init = [(n, p) for n, p in model.blocks.named_parameters()
+                             if "weight" in n and p.ndim >= 2]
+        if body_weights_init:
+            total_pn = sum(p.data.norm().item() for _, p in body_weights_init)
+            rms_per = [p.data.pow(2).mean().sqrt().item() for _, p in body_weights_init]
+            sample_names = [n for n, _ in body_weights_init[:3]]
+            sample_norms = [p.data.norm().item() for _, p in body_weights_init[:3]]
+            print0(f"body_init_scale={args.body_init_scale} body_param_total_norm={total_pn:.4f} "
+                   f"body_param_mean_rms={sum(rms_per) / len(rms_per):.6f} "
+                   f"sample={list(zip(sample_names, sample_norms))}")
 
     # create the optimizer(s)
     optimizer1 = AdamW([dict(params=[model.embed.weight], lr=0.3, name="adam_embed"),
@@ -1038,6 +1057,25 @@ for trial_idx in range(args.num_trials):
                 "train/cooldown/lr_multiplier": sched_eta,
                 "train/cooldown/power_gamma": COOLDOWN_POWER,
             }, step=wandb_step)
+            # body_init_scale ablation telemetry (PR #1080):
+            # Tracks whether NS5 + RMSNorm equilibrate body-weight magnitude back to
+            # baseline within ~50-100 steps. Restricted to first 250 steps (Scenario 1
+            # equilibration window) plus 25-step cadence to limit overhead.
+            if step <= 250 and step % 25 == 0:
+                with torch.no_grad():
+                    body_weights_tel = [p for n, p in model.blocks.named_parameters()
+                                        if "weight" in n and p.ndim >= 2]
+                    if body_weights_tel:
+                        total_pn_t = sum(p.data.norm().item() for p in body_weights_tel)
+                        rms_per_t = [p.data.pow(2).mean().sqrt().item() for p in body_weights_tel]
+                        wandb.log({
+                            "trial": trial_idx,
+                            "train/step": train_step,
+                            "body_init/total_param_norm": total_pn_t,
+                            "body_init/mean_param_rms": sum(rms_per_t) / len(rms_per_t),
+                            "body_init/max_param_rms": max(rms_per_t),
+                            "body_init/min_param_rms": min(rms_per_t),
+                        }, step=wandb_step)
             if ema_params is not None:
                 wandb.log({
                     "trial": trial_idx,
