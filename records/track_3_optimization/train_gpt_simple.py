@@ -466,6 +466,7 @@ ATTN_SOAP_PRECOND_FREQ = 10
 ATTN_SOAP_TRUST_THRESHOLD = float(os.environ.get("ATTN_SOAP_TRUST_THRESHOLD", "0.9"))
 NS5_ITERS = int(os.environ.get("NS5_ITERS", "12"))
 WD_AUX = float(os.environ.get("WD_AUX", "0.0"))  # AdamW WD on embed + lm_head matrices (scalars stay at 0)
+AUX_ADAMW_AMSGRAD = int(os.environ.get("AUX_ADAMW_AMSGRAD", "0"))  # PR #1108: enable AMSGrad v_hat = max(v_hat, v_t) on AUX AdamW
 EMBED_INIT_STD = float(os.environ.get("EMBED_INIT_STD", "1.0"))  # default preserves baseline N(0,1)
 LOGIT_SOFTCAP = float(os.environ.get("LOGIT_SOFTCAP", "15.0"))  # default = 15 (current hardcoded value); soft-cap value c in f(x) = c·x / sqrt(x^2+c^2)
 
@@ -901,7 +902,8 @@ for trial_idx in range(args.num_trials):
     optimizer1 = AdamW([dict(params=[model.embed.weight], lr=0.3, name="adam_embed", weight_decay=WD_AUX),
                         dict(params=[model.proj.weight], lr=1/320, name="adam_lm_head", weight_decay=WD_AUX),
                         dict(params=[p for p in model.parameters() if p.ndim < 2], lr=0.01, name="adam_scalars")],
-                       betas=(0.8, 0.95), eps=1e-10, weight_decay=0, fused=True)
+                       betas=(0.8, 0.95), eps=1e-10, weight_decay=0, fused=True,
+                       amsgrad=bool(AUX_ADAMW_AMSGRAD))
     optimizer2 = Muon([(n, p) for n, p in model.blocks.named_parameters() if p.ndim >= 2],
                       lr=MUON_LR, weight_decay=MUON_WEIGHT_DECAY, mu=MU)
     optimizer2.param_groups[0]["name"] = "muon_blocks"
@@ -1059,6 +1061,25 @@ for trial_idx in range(args.num_trials):
                     stats = opt.trust_gate_stats()
                     if stats:
                         wandb.log(prefixed("train/attn_soap_trust_gate", stats), step=wandb_step)
+        if dist.get_rank() == 0 and telemetry_due and AUX_ADAMW_AMSGRAD == 1:
+            ratios = []
+            for group in optimizer1.param_groups:
+                for p in group["params"]:
+                    st = optimizer1.state.get(p, {})
+                    v = st.get("exp_avg_sq")
+                    vhat = st.get("max_exp_avg_sq")
+                    if v is None or vhat is None:
+                        continue
+                    vhat_max = vhat.max()
+                    if float(vhat_max) <= 0:
+                        continue
+                    ratios.append(float(v.max() / vhat_max))
+            if ratios:
+                wandb.log({
+                    "optim/aux_amsgrad_v_vs_vhat_max_ratio": sum(ratios) / len(ratios),
+                    "optim/aux_amsgrad_v_vs_vhat_max_ratio_min": min(ratios),
+                    "optim/aux_amsgrad_param_count": len(ratios),
+                }, step=wandb_step)
         if dist.get_rank() == 0 and telemetry_due:
             log_weight_telemetry(
                 model=model,
