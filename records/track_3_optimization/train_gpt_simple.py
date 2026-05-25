@@ -95,6 +95,12 @@ def parse_args():
                         help="Starting value of µ schedule (used by linear and cooldown_ramp modes).")
     parser.add_argument("--muonh_mu_end", type=float, default=float(os.environ.get("MUONH_MU_END", "0.98")),
                         help="Ending value of µ schedule (used by linear and cooldown_ramp modes).")
+    # H129: Number of NS5 Newton-Schulz iterations in zeropower_via_newtonschulz5.
+    # Default 12 reproduces baseline bit-for-bit.
+    parser.add_argument("--muonh_ns5_iterations", type=int,
+                        default=int(os.environ.get("MUONH_NS5_ITERATIONS", "12")),
+                        help="Number of Newton-Schulz iterations in NS5 orthogonalization. "
+                             "Default 12 (bit-identical to prior baseline).")
     args = parser.parse_args()
     args.num_trials = args.num_trials if args.num_trials is not None else (args.legacy_num_trials or 1)
     args.wandb_tags = [tag.strip() for tag in args.wandb_tags.split(",") if tag.strip()]
@@ -490,7 +496,7 @@ class GPT(nn.Module):
 #              Optimizer               #
 ########################################
 
-def zeropower_via_newtonschulz5(G: Tensor) -> Tensor:
+def zeropower_via_newtonschulz5(G: Tensor, num_iters: int = 12) -> Tensor:
     assert G.ndim >= 2
     X = G.bfloat16()
     if G.size(-2) > G.size(-1):
@@ -500,7 +506,7 @@ def zeropower_via_newtonschulz5(G: Tensor) -> Tensor:
     X = X / (X.norm(dim=(-2, -1), keepdim=True) + 1e-7)
     # Perform the NS iterations, not optimizing for wallclock speed
     a, b, c = 2, -1.5, 0.5
-    for _ in range(12):
+    for _ in range(num_iters):
         A = X @ X.mT
         B = b * A + c * A @ A
         X = a * X + B @ X
@@ -510,18 +516,18 @@ def zeropower_via_newtonschulz5(G: Tensor) -> Tensor:
     return X
 
 @torch.compile
-def muon_update(grad, momentum, mu=0.95, nesterov=True):
+def muon_update(grad, momentum, mu=0.95, nesterov=True, num_iters=12):
     momentum.lerp_(grad, 1 - mu)
     update = grad.lerp_(momentum, mu) if nesterov else momentum
-    update = zeropower_via_newtonschulz5(update)
+    update = zeropower_via_newtonschulz5(update, num_iters=num_iters)
     update *= max(1, grad.size(-2) / grad.size(-1))**0.5
     return update
 
 class Muon(torch.optim.Optimizer):
-    def __init__(self, params, lr=0.02, weight_decay=0, mu=0.95):
+    def __init__(self, params, lr=0.02, weight_decay=0, mu=0.95, num_iters=12):
         assert isinstance(params, list) and len(params) >= 1 and isinstance(params[0], torch.nn.Parameter)
         params = sorted(params, key=lambda x: x.size(), reverse=True)
-        defaults = dict(lr=lr, weight_decay=weight_decay, mu=mu)
+        defaults = dict(lr=lr, weight_decay=weight_decay, mu=mu, num_iters=num_iters)
         super().__init__(params, defaults)
 
     @torch.no_grad()
@@ -537,7 +543,7 @@ class Muon(torch.optim.Optimizer):
                     state = self.state[p]
                     if len(state) == 0:
                         state["momentum"] = torch.zeros_like(p)
-                    update = muon_update(p.grad, state["momentum"], mu=group["mu"])
+                    update = muon_update(p.grad, state["momentum"], mu=group["mu"], num_iters=group["num_iters"])
                     p.mul_(1 - group["lr"] * group["weight_decay"])
                     p.add_(update, alpha=-group["lr"])
                 dist.all_gather(params_pad[base_i:base_i + world_size], params_pad[base_i + rank])
@@ -615,12 +621,13 @@ class MuonH(torch.optim.Optimizer):
     norm exactly constant; weight_decay must be 0.
     """
     def __init__(self, params, lr=0.018, weight_decay=0.0, mu=0.95,
-                 hyperball=True, budget_mult=1.0, mode="clip"):
+                 hyperball=True, budget_mult=1.0, mode="clip", num_iters=12):
         assert isinstance(params, list) and len(params) >= 1 and isinstance(params[0], torch.nn.Parameter)
         assert mode in ("clip", "scale_invariant")
         params = sorted(params, key=lambda x: x.size(), reverse=True)
         defaults = dict(lr=lr, weight_decay=weight_decay, mu=mu,
-                        hyperball=hyperball, budget_mult=budget_mult, mode=mode)
+                        hyperball=hyperball, budget_mult=budget_mult, mode=mode,
+                        num_iters=num_iters)
         super().__init__(params, defaults)
         self._last_active_fraction = 0.0
         self._last_radius_to_norm_max = 0.0
@@ -648,7 +655,7 @@ class MuonH(torch.optim.Optimizer):
                         state["momentum"] = torch.zeros_like(p)
                         if hb:
                             state["hyperball_radius"] = p.data.norm().item() * budget_mult
-                    update = muon_update(p.grad, state["momentum"], mu=group["mu"])
+                    update = muon_update(p.grad, state["momentum"], mu=group["mu"], num_iters=group["num_iters"])
                     if hb and mode == "scale_invariant":
                         # Always-active variant: norm is held at initial value by construction.
                         scale_invariant_update_(p.data, update, group["lr"])
@@ -728,7 +735,7 @@ if args.use_outer_optimizer:
            f"outer_momentum={args.outer_momentum} sync_interval={args.sync_interval}", console=True)
 else:
     print0("MuLoCo outer optimizer DISABLED", console=True)
-print0(f"MuonH mode={args.muonh_mode} lr={args.muonh_lr} budget_mult={args.muonh_budget_mult} cooldown_shape={args.muonh_cooldown_shape}", console=True)
+print0(f"MuonH mode={args.muonh_mode} lr={args.muonh_lr} budget_mult={args.muonh_budget_mult} cooldown_shape={args.muonh_cooldown_shape} ns5_iterations={args.muonh_ns5_iterations}", console=True)
 if args.aux_agc_clip_ratio > 0:
     print0(f"AGC ENABLED on aux AdamW groups: clip_ratio={args.aux_agc_clip_ratio} eps={args.aux_agc_eps}", console=True)
 else:
@@ -796,6 +803,7 @@ if dist.get_rank() == 0:
             "muonh_mu_schedule": args.muonh_mu_schedule,
             "muonh_mu_start": args.muonh_mu_start,
             "muonh_mu_end": args.muonh_mu_end,
+            "muonh_ns5_iterations": args.muonh_ns5_iterations,
         },
     )
 
@@ -853,7 +861,7 @@ for trial_idx in range(args.num_trials):
     optimizer2 = MuonH([p for p in model.blocks.parameters() if p.ndim >= 2],
                        lr=args.muonh_lr, weight_decay=0.0, mu=0.95,
                        hyperball=True, budget_mult=args.muonh_budget_mult,
-                       mode=args.muonh_mode)
+                       mode=args.muonh_mode, num_iters=args.muonh_ns5_iterations)
     optimizer2.param_groups[0]["name"] = "muonh_blocks"
     optimizers = [optimizer1, optimizer2]
     # AGC targets: AdamW aux groups (embed, lm_head, scalars). Built from optimizer1
@@ -862,6 +870,15 @@ for trial_idx in range(args.num_trials):
     # Inner-MuonH AGC targets: block 2D weights consumed by MuonH. Clipped BEFORE
     # the MuonH momentum buffer integrates the gradient.
     muonh_params_for_agc = [p for g in optimizer2.param_groups for p in g["params"]]
+    # H129 SV telemetry: track post-NS5 singular values of a representative MuonH-managed
+    # block (blocks.0.mlp.fc.weight, a non-square 768x3072 matrix) at fixed checkpoints.
+    sv_tracked_param = None
+    sv_tracked_param_name = ""
+    for name, p in model.named_parameters():
+        if name == "blocks.0.mlp.fc.weight":
+            sv_tracked_param = p
+            sv_tracked_param_name = name
+            break
     assert set(p for opt in optimizers for group in opt.param_groups
                for p in group["params"]) == set(model.parameters())
     for opt in optimizers:
@@ -1089,6 +1106,37 @@ for trial_idx in range(args.num_trials):
         muonh_agc_stats = adaptive_gradient_clip(
             muonh_params_for_agc, args.muonh_agc_clip_ratio, eps=args.muonh_agc_eps,
         )
+        # H129 SV telemetry: post-NS5 singular-value snapshot on a representative
+        # MuonH-managed block at fixed checkpoints. Side-channel: clones grad and
+        # momentum so the actual optimizer step is unaffected (bit-identical).
+        sv_checkpoint_steps = {0, 50, 100, 200, 400, 1000, 2000, train_steps - 1}
+        if (dist.get_rank() == 0
+                and sv_tracked_param is not None
+                and sv_tracked_param.grad is not None
+                and step in sv_checkpoint_steps):
+            p_sv = sv_tracked_param
+            mu_now = optimizer2.param_groups[0]["mu"]
+            num_iters_now = optimizer2.param_groups[0]["num_iters"]
+            mom_state = optimizer2.state.get(p_sv, {})
+            mom_buf = mom_state.get("momentum")
+            if mom_buf is None:
+                mom_clone = torch.zeros_like(p_sv.grad)
+            else:
+                mom_clone = mom_buf.clone()
+            grad_clone = p_sv.grad.clone()
+            mom_clone.lerp_(grad_clone, 1 - mu_now)
+            update_clone = grad_clone.lerp_(mom_clone, mu_now)
+            with torch.no_grad():
+                orth = zeropower_via_newtonschulz5(update_clone, num_iters=num_iters_now)
+                svs = torch.linalg.svdvals(orth.float())
+            wandb.log({
+                "trial": trial_idx,
+                "train/step": train_step,
+                "muonh/sv_min": float(svs.min().item()),
+                "muonh/sv_med": float(svs.median().item()),
+                "muonh/sv_max": float(svs.max().item()),
+                "muonh/sv_num_iters": num_iters_now,
+            }, step=wandb_step)
         for opt in optimizers:
             opt.step()
         # Log warmup telemetry every 10 steps during warmup (and at telemetry events
