@@ -1,5 +1,26 @@
 # SENPAI Research Results
 
+## 2026-05-25 07:30 UTC — PR #1084 CLOSED: Dual-region cooldown shape (γ₁/γ₂ piecewise, split=0.75) — 122nd NULL, cooldown manifold FULLY CLOSED (g1r1-edward)
+
+- Branch: `g1r1-edward/dual-region-cooldown-shape`
+- Hypothesis: Piecewise γ₁/γ₂ schedule adds 1 DOF to resolve the #969 Pareto-coupling (γ=1.2 wins val but loses sr).
+
+| Arm | γ₁ | γ₂ | val/loss | Δval (mnat) | sr | Δsr | σ | Verdict | W&B |
+|---|---|---|---|---|---|---|---|---|---|
+| Baseline #918 (n=2) | 1.4 | 1.4 | 3.266394 | — | 2925 | — | — | gate | `vm48fdof`, `0a7esmxs` |
+| **A (concave-first)** | **2.0** | **1.0** | **3.27156** | **+5.17** | **2925** | **0** | **17σ** | **CLEAR NULL** | `p4jk1urh` |
+| **B (convex-first)** | **1.0** | **2.0** | **3.27510** | **+8.71** | **3100** | **+175** | **29σ** | **CLEAR NULL + sr regression** | `bft16pb6` |
+
+**Verdict:** Full PR NULL. Both arms fail merge rule. Arm B is strictly worse in both metrics.
+
+**Key findings:**
+1. **Single-γ=1.4 is near-Pareto-optimal.** Piecewise schedule with split=0.75 cannot Pareto-dominate the monotone γ family at any tested orientation.
+2. **LR-mass conservation dominates shape locality.** Integrated LR-mass: Arm A ≈0.65× (aggressive early dump → val-bad, sr-stable); Arm B ≈1.20× (excess early → sr-bad, val-bad). Shape locality inside the envelope doesn't help.
+3. **Asymmetric NULL is informative:** confirms early cooldown governs sr crossing, late cooldown governs terminal val — but single-γ=1.4 is already at the joint optimum for both.
+4. **Cooldown parameter manifold FULLY CLOSED:** γ (#969) + cooldown_frac (pinned 0.7) + lr_form (#1040 lr_linear) + wd_form (#1040) + dual-region shape (#1084) all closed.
+
+---
+
 ## 2026-05-25 05:30 UTC — PR #1080 CLOSED: Body weights init scale ablation (0.5× vs 2.0×) — 121st NULL, 3-matrix init-state-surface canon ESTABLISHED (g1r1-thorfinn)
 
 - Branch: `g1r1-thorfinn/body-init-scale`
