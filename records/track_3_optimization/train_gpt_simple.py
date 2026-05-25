@@ -468,6 +468,13 @@ NS5_ITERS = int(os.environ.get("NS5_ITERS", "12"))
 WD_AUX = float(os.environ.get("WD_AUX", "0.0"))  # AdamW WD on embed + lm_head matrices (scalars stay at 0)
 EMBED_INIT_STD = float(os.environ.get("EMBED_INIT_STD", "1.0"))  # default preserves baseline N(0,1)
 LOGIT_SOFTCAP = float(os.environ.get("LOGIT_SOFTCAP", "15.0"))  # default = 15 (current hardcoded value); soft-cap value c in f(x) = c·x / sqrt(x^2+c^2)
+# AUX LR cooldown (PR #1119): override the eta cosine cooldown on AUX optimizer
+# (optimizer1: embed + lm_head + scalars). When factor < 1.0, AUX LRs stay flat at
+# initial_lr until AUX_COOLDOWN_START_STEP, then linearly anneal to initial_lr*factor.
+# When factor == 1.0, the override is INACTIVE and AUX follows the regular eta cooldown
+# (i.e. baseline behavior is preserved at default factor=1.0).
+AUX_LR_COOLDOWN_FACTOR = float(os.environ.get("AUX_LR_COOLDOWN_FACTOR", "1.0"))
+AUX_COOLDOWN_START_STEP = int(os.environ.get("AUX_COOLDOWN_START_STEP", "2975"))  # default = 3175 - 200
 
 
 def zeropower_via_newtonschulz5(G: Tensor) -> Tensor:
@@ -866,6 +873,8 @@ if dist.get_rank() == 0:
             "optimizer/attn_soap_trust_threshold": ATTN_SOAP_TRUST_THRESHOLD,
             "optimizer/ns5_iters": NS5_ITERS,
             "optimizer/wd_aux": WD_AUX,
+            "optimizer/aux_lr_cooldown_factor": AUX_LR_COOLDOWN_FACTOR,
+            "optimizer/aux_cooldown_start_step": AUX_COOLDOWN_START_STEP,
             "optimizer/recipe": "contra-muon + normuon-lite + soap-on-mlp + soap-on-attn-trust-gate (pre-NS5, record #14 + record #16)",
         },
     )
@@ -936,6 +945,20 @@ for trial_idx in range(args.num_trials):
                 group["lr"] = group["initial_lr"] * eta
                 if group.get("name") == "muon_blocks":
                     group["mu"] = cur_mu
+
+        # AUX_LR_COOLDOWN override (PR #1119). When AUX_LR_COOLDOWN_FACTOR < 1.0,
+        # override the eta cosine cooldown for AUX (optimizer1) param groups only:
+        # flat at initial_lr until AUX_COOLDOWN_START_STEP, then linear cooldown
+        # to initial_lr * AUX_LR_COOLDOWN_FACTOR over the remaining steps. Body
+        # Muon (optimizer2) eta cooldown is untouched.
+        if AUX_LR_COOLDOWN_FACTOR < 1.0:
+            if step < AUX_COOLDOWN_START_STEP:
+                aux_scale = 1.0
+            else:
+                t = min(1.0, (step - AUX_COOLDOWN_START_STEP) / max(1, train_steps - AUX_COOLDOWN_START_STEP))
+                aux_scale = 1.0 - (1.0 - AUX_LR_COOLDOWN_FACTOR) * t
+            for group in optimizer1.param_groups:
+                group["lr"] = group["initial_lr"] * aux_scale
 
 
     ########################################
@@ -1051,6 +1074,12 @@ for trial_idx in range(args.num_trials):
                 train_steps=train_steps,
                 wandb_step=wandb_step,
             )
+            aux_lr_metrics = {"trial": trial_idx, "train/step": train_step}
+            for group in optimizer1.param_groups:
+                name = group.get("name", "unknown")
+                aux_lr_metrics[f"optim/aux_lr_{name.replace('adam_', '')}"] = float(group["lr"])
+                aux_lr_metrics[f"optim/aux_lr_{name.replace('adam_', '')}_scale"] = float(group["lr"]) / float(group["initial_lr"])
+            wandb.log(aux_lr_metrics, step=wandb_step)
         for opt in optimizers:
             opt.step()
         if dist.get_rank() == 0 and telemetry_due:
