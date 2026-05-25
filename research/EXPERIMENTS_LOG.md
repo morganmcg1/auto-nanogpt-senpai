@@ -3,6 +3,53 @@
 Log of completed/reviewed experiment PRs in chronological order. Wave 1
 results pending student execution.
 
+## 2026-05-25 23:23 UTC — PR #1183: frieren Heavy-Ball vs Nesterov momentum for Muon body — **CLOSED clean-NEG**
+
+- **Branch:** `g1r5-frieren/heavy-ball-nesterov`
+- **Student:** g1r5-frieren
+- **Hypothesis:** Replace Muon body's `grad.lerp_(momentum, mu)` (Nesterov-style: current grad re-injected each step) with pure heavy-ball EMA buffer as NS input. Predicted NULL/POS: NS discards magnitude so the re-injected grad is noise NS just discards anyway.
+
+| Cell | Config | val/loss | Z vs A (σ_single) | ffs | W&B |
+|:---:|:---:|---:|---:|---:|:---|
+| A ctrl | Nesterov μ=0.95 | 3.26213 | 0 | 3050 | 3ut2bwjg |
+| **B★** | **heavy-ball μ=0.95** | **3.26732** | **+8.75σ** clean-NEG | 3075 | w1i07m9v |
+| C | heavy-ball μ=0.90 | 3.26765 | +9.31σ NEG | 3075 | oj9r645p |
+| D | heavy-ball μ=0.99 | 3.29196 | **+50.3σ** catastrophic | never | wtpt2xid |
+| E | heavy-ball μ=0.00 falsifier | 3.50102 @ early-kill | catastrophic | n/a | 66uetm29 |
+
+- **Decision: CLOSED clean-NEG.** Cell B fails n=1 gate (≤ 3.260628) by +11σ_single. n=4 not pursued.
+- **★ Mechanism findings (three coherent signatures):**
+  1. **Directional fidelity** — Nesterov re-injects current grad into NS input each step. Heavy-Ball feeds NS a direction lagged by ~1/(1−μ) ≈ 20 steps at μ=0.95, ~100 steps at μ=0.99.
+  2. **The `lerp_(momentum, mu)` coefficient is information** — `(1−μ)·grad + μ·momentum` is NOT just smoothing. Dropping `(1−μ)·grad` discards 5% of *current* signal at μ=0.95. NS cannot recover information not in its input.
+  3. **μ=0.99 catastrophe scales nonlinearly** — doubling the effective momentum window (1/(1−μ) from 20→100 steps) hurts >2× more for heavy-ball than the corresponding Nesterov increase would. EMA-only path is highly lag-sensitive; Nesterov's current-grad re-injection masks this.
+- **Cell E (μ=0) catastrophic** independently confirms temporal smoothing is load-bearing. So both temporal smoothing AND Nesterov re-injection of current grad are individually load-bearing — Muon's current `g.lerp_(m, μ)` is the structurally-optimal form.
+- **Closure context — momentum-form axis on Muon body NOW SATURATED:** Combined with #823 (SignMuon NEG), #1042 (NS soft mixing NEG), and #1151 (GC NEG), pre-NS and momentum-input transformation axes are saturated.
+- **frieren → #1221 lamb-trust-ratio-body** (LAMB-style per-layer ‖W‖_F/‖update‖_F trust ratio applied AFTER NS; orthogonal to thorfinn #1206 temporal axis and tanjiro #1188 static-depth axis)
+
+## 2026-05-25 23:22 UTC — PR #1177: fern Cautious Muon (sign-mask NS updates) — **CLOSED NULL**
+
+- **Branch:** `g1r5-fern/cautious-muon-body`
+- **Student:** g1r5-fern
+- **Hypothesis:** Apply Liang et al. 2024-style cautious mask: zero NS output elements where sign disagrees with `precond_nesterov` (or `grad`). Predicted POS: removes "wrong-direction" components from NS output.
+
+| Cell | Config | val/loss | Δ baseline | Verdict | W&B |
+|:---:|:---:|---:|---:|:---|:---|
+| A ctrl | off | 3.259998 | −2.06σ | refactor-neutral ✓ (lucky-seed within tolerance) | dlz7xarj |
+| **B★** | **vs_momentum** | **3.261294** | **+0.12σ** | NULL, fails n=1 gate by +0.67mσ | pab97gtk |
+| C | vs_grad | 3.283169 | +37σ | catastrophic NEG | e734y22l |
+| D | soft_momentum | 3.261033 | −0.32σ | NULL | 0wavs2di |
+| E | random_30% falsifier | 3.334116 | +123σ | catastrophic NEG | hrpgt9n3 |
+
+- **Decision: CLOSED NULL.** Cell B (PRIMARY) ≈ baseline +0.12σ; fails n=1 gate. n=4 not warranted.
+- **★ Mechanism finding — NS subsumes cautious masking:** Mask density telemetry: NS output agrees in sign with `precond_nesterov` on **89% of elements per step** (overall: 0.890, MLP 0.919, attn 0.875). Only 11% are zeroed by the cautious mask — and removing them is essentially neutral.
+- **Three internal falsifiers all confirm the mechanism:**
+  1. **B vs C** (vs_momentum 3.261 vs vs_grad 3.283): SOAP-preconditioned momentum is the right sign reference, not raw grad.
+  2. **B vs D** (binary 3.261 vs soft 3.261): hardness of mask is not the issue.
+  3. **B vs E** (cautious 3.261 vs random_30% 3.334): cautious mask is NOT equivalent to a density-equivalent random mask — sign-alignment carries information, but at 11% the val/loss effect is below noise floor.
+- **Student insight (worth quoting):** "The heavy lifting that 'cautious' does in AdamW — discarding sign-misaligned components of the update relative to the momentum direction — is already done by Newton-Schulz orthogonalization (which projects the preconditioned momentum onto the orthogonal manifold while preserving sign alignment for the vast majority of entries). There is little residual sign-misalignment to remove."
+- **Closure context:** Closes cautious-mask axis. Generalizable result: any sign-correction trick that runs *after* NS will have negligible effect on Muon body matrices because NS already enforces sign alignment with `precond_nesterov` on ~89% of elements.
+- **fern → #1222 adamp-aux** (Heo et al. 2021 AdamP gradient projection on scale-invariant aux: embed/lm_head/scalars; orthogonal to alphonse #1211 v_t ablation and askeladd #1105 aux-WD)
+
 ## 2026-05-25 20:47 UTC — PR #1131: alphonse AdaBelief on aux groups (eps sweep) — **CLOSED clean WEAK-NEG**
 
 - **Branch:** `g1r5-alphonse/adabelief-aux`
