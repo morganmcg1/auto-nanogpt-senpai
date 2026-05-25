@@ -1,3 +1,30 @@
+## 2026-05-25 23:20 — PR #1193: H157 frieren cooldown-confined AGC muonh clip_ratio ramp — BILATERAL NULL (16th NULL/NEG closure + programme-grade mechanism reinterpretation)
+
+- Branch: `g1r3-frieren/h157-cooldown-confined-ctrl`
+- Hypothesis: H149 full-trajectory linear AGC ramp showed +0.00361 early regret + -0.00444 late-phase signal (net NULL). H157 cooldown-confines the ramp (off→cooldown_linear schedule activated at step 2227 = cooldown start, ramp to end=0.02 or end=0.01 by step 3325) to preserve late signal while eliminating early regret.
+
+| arm | schedule | end | W&B run | val/loss | FFS | Δ vs CTRL arm_a | Δ vs baseline 3.26364 | Verdict |
+|---|---|---|---|---|---|---|---|---|
+| arm_a CTRL | off | — | `ofkff9gf` | 3.26583 | 3150 | — | +0.00219 | NULL (edge-of-envelope: CTRL high, +0.00219 = upper noise edge) |
+| arm_b cooldown_linear | 0.02 | `4987zvf2` | 3.26530 | 3150 | -0.00053 | +0.00166 | NULL (within seed noise) |
+| arm_c cooldown_linear | 0.01 | `iq2epuc0` | 3.26529 | 3150 | -0.00055 | +0.00165 | NULL (within seed noise) |
+
+- **Programme-grade mechanism reinterpretation (frieren analysis)**: H149's "mid-training-LAG-cooldown-RECOVERY pattern was a single coupled phenomenon, NOT two separable effects. The -0.00444 was the magnitude of the recovery from regret, NOT a separable late-train benefit." This re-frames the 8-axis erosion portfolio as **single-coupled-effect** trajectories where the early "advantage" is a manifestation of late-train-cost-deferral. Schedule-confinement preserves the small in-chain signal (Δ vs arm_a = -0.00053/-0.00055) but cannot recover the apparent mid-training magnitudes because the gain was never separable. **Programme implication**: any axis showing cross-programme erosion pattern is likely a coupled-effect axis; cooldown-confinement won't unlock apparent mid-training magnitudes for these.
+
+- **Mechanism saturation at end=0.02**: arm_b vs arm_c (end=0.02 vs end=0.01) Δ = -0.00001 — flat. Further tightening below end=0.02 provides no additional within-chain signal. Mechanism saturated; no follow-up at lower end values warranted.
+
+- **CTRL drift / noise envelope corroboration**: arm_a CTRL = 3.26583 is the upper edge of the characterized 4-CTRL envelope (mean 3.26466, std ~0.001, range 0.00219). Within-chain comparison (arm_b/c vs arm_a) is the cleaner read at this scale; cross-chain comparison to baseline is misleading.
+
+- **16th NULL/NEG closure in portfolio**. Aggregated programme map (counts approximate): 9 erosion-axes + 12 NS5 closures + 7-level EMA + 5 aux-AdamW-family closures + Lion + Look-Ahead + WSM + MGUP body + near-identity body init + cooldown-confined AGC = ~50 closed mechanism axes.
+
+- step_avg 1907.93 ms across all 3 arms (AGC ramp adds zero throughput overhead).
+
+- Decision: CLOSE bilateral NULL. AGC clip_ratio schedule axis (cooldown_linear at end values 0.01-0.02) closed; mechanism saturated; H149 reinterpretation is the high-value programme finding.
+
+- Follow-up: frieren assigned H165 MGUP-on-AdamW-aux per-row — direct cross-family test of askeladd H155 finding (cos(m,g)<0 on Muon body); tests whether MGUP fails on aux too (cross-family closure) or wins (aux has positive cos(m,g) regime).
+
+---
+
 ## 2026-05-25 23:05 — PR #1187: H155 MGUP-MuonH momentum-gradient alignment body — BILATERAL SEVERE NEG (axis closure + programme-grade mechanism finding)
 
 - Branch: `g1r3-askeladd/h155-mgup-muonh-body`
