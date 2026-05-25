@@ -1,5 +1,67 @@
 # SENPAI Research Results — auto-nanogpt-1gpu-r2
 
+## 2026-05-25 07:00 UTC — PR #1139: GALORE_MUON_PREGRAD (CLOSED, 133rd refuted — pre-NS5-low-rank-rectangular-projection-per-step family 1/1, 20th family-level closure, 6th catastrophic refute signature in cycle 71 with publication-grade energy-retention mechanism interpretation)
+
+- Branch: `g1r2-alphonse/galore-muon-pregrad` (student g1r2-alphonse)
+- Hypothesis: GaLore (Zhao 2024 arXiv:2403.03507) low-rank SVD projection of body 2D gradient pre-NS5 — rank-4 should preserve dominant gradient subspace while reducing computational cost and noise from tail singular directions, NS5 polar projection then operates on the rank-reduced representation.
+- Mechanism class: PRE-NS5-LOW-RANK-RECTANGULAR-PROJECTION (54th distinct mech class). FIRST low-rank SVD pre-NS5 transform in 295-PR corpus.
+
+### Results
+
+| Run | Arm | GALORE_RANK | val/loss | ffs | Status |
+|---|---|---|---|---|---|
+| `ia45ojol` | disabled-check | 0 | 4.09115 @ step 200 | — | ✓ patch structurally inert (+0.006 above upper band, seed noise) |
+| `t94r1wx9` | A | 4 | **5.21573** @ step 375 (KILLED step 449) | -1 | CATASTROPHIC: ~1.4 nats above step-500 kill gate 3.811 |
+| — | B | 8 | — | — | Decision-tree-skipped per Arm A clear miss |
+
+**Arm A trajectory**:
+| Step | Arm A val/loss | Baseline (kill gate +0.005) |
+|---|---|---|
+| 0 | 10.82583 | — |
+| 125 | 5.50286 | — |
+| 250 | 5.29212 | — |
+| 375 | **5.21573** | — |
+| 500 (proj.) | ~5.18 | 3.811 → breached by ~1.37 nats |
+
+**Energy-retention telemetry (publication-grade)**:
+- Step 25→125: top-4 singular directions capture only **0.637 → 0.409 = 41%** of gradient energy
+- Step 425: recovery to **0.707 = 70.7%** as gradient spectrum slowly adapts
+- 1800 tensors truncated per step throughout — no skips
+- step_avg = **5068 ms** (2.6× slower than baseline due to per-step SVD on ~36 body 2D tensors)
+- Peak memory ~unchanged (SVD temporaries O(few MB) per tensor, freed each step)
+
+### Results commentary, analysis, conclusions
+
+**Catastrophic refute with energy-retention bottleneck — rank-4 destroys 59% of gradient signal in early training, NS5 cannot recover discarded directions.**
+
+1. **Disabled-check confirms bytewise inert at rank=0**: `if GALORE_RANK > 0 …` guard short-circuits, optimizer path identical to baseline. Disabled-check val@200=4.09115 +0.006 above upper band is seed noise.
+
+2. **Energy retention is the proximate mechanism**: At step 125 only 41% of singular energy is captured by top-4 directions. NS5 cannot recover the missing 59% of gradient signal — there is no spectral information for the polar projection to whiten in those truncated directions.
+
+3. **"NS5 cannot fabricate directions that were truncated upstream"** (alphonse's mechanism interpretation): NS5 maps σ_i → 1 *within its computed rank* but cannot complete directions discarded by the rank-4 SVD upstream. NS5 is a WHITENING WITHIN THE INPUT RANGE SPACE, not a DIRECTION COMPLETION. This clarifies the asymmetry between pre-NS5 transforms:
+   - **Direction-preserving rescaling (Frobenius blend #1101 closed floor-cluster)**: scalar magnitude transforms that preserve direction get absorbed by NS5's polar projection (which already normalizes σ_i → 1).
+   - **Direction-destroying rank reduction (#1139 catastrophic)**: SVD truncation destroys directional content, NS5 cannot fabricate replacements.
+   - **Direction-destroying nonlinear (pre-NS5-nonlinear 2/2 catastrophic)**: nonlinear transforms (sign, polar-reproject) corrupt directional content, also catastrophic.
+
+4. **Wall-clock cost compounds the refute**: 2.6× slower per step (5068 vs 1953 ms baseline). Even if a higher rank could match baseline val/loss, the speedrun ffs would still be heavily impacted by SVD overhead unless amortized via periodic-refresh.
+
+5. **Family-level closure (1/1)**: ANY per-step pre-NS5 low-rank SVD truncation of body 2D gradient with rank/min_dim ≤ 4/64 (~6%) catastrophically destroys learning at this model scale. Closure absorbs by analogy: pre-NS5 randomized SVD, pre-NS5 oblique projection, pre-NS5 Gaussian random projection, ANY rank-bottleneck transform applied per-step before NS5 input at rank ≤ 4.
+
+6. **Student follow-ups all absorbed by closure**:
+   - (1) Periodic-refresh GaLore K=50: addresses 2.6× wall-clock cost but NOT energy-retention. Same energy-retention bottleneck applies between refreshes. Family closure absorbs.
+   - (2) Rank-schedule (full → low): tail directions matter throughout (your 41% → 70% recovery shows spectrum stays broad). Same closure.
+   - (3) Momentum-side GaLore: projecting momentum buffer loses 59% of cumulative direction history. Same family.
+   - (4) AUX-only GaLore: same energy-retention argument on AdamW path. AUX side separately closed (#1108 AMSGrad + #1119 LR cooldown).
+   All 4 absorbed by family closure — time to pivot mechanism layer.
+
+7. **6th CATASTROPHIC refute signature in cycle 71** joining pre-NS5-nonlinear #1083+#1086, geometric-direction #1075/#1073, post-NS5 variance-scaling #1094, W-orthogonal #1098. All exhibit early-training divergence with kill-gate violation by huge margin — pure mechanism failure, not misaligned optimization (the #1133 catastrophic-divergence-persistent-gap signature is methodologically distinct: mechanism fires successfully but optimizes wrong objective).
+
+8. **Mechanism-layer exhaustion at body-Muon/pre-NS5/NS5 now QUANTIFIED**: 4 distinct family closures at this single layer — NS5 saturated 6/6, pre-NS5-nonlinear 2/2 catastrophic, pre-NS5-linear 2/2 floor-cluster-touch, pre-NS5-low-rank-rectangular 1/1 catastrophic. Pivot to attention-side now structurally indicated by the closure map.
+
+9. **Follow-up assigned**: #1148 alphonse ATTN_ENTROPY_BONUS (58th mech class — FIRST attention-side regularization in 295-PR corpus). Pivot from optimizer-internals to attention-distribution-regularization. Categorically distinct from #1145 prediction entropy bonus (output softmax vs attention softmax). Anti-duplication grep verified clean.
+
+---
+
 ## 2026-05-25 06:50 UTC — PR #1133: TOKEN_FREQ_REWEIGHT_LOSS (CLOSED, 132nd refuted — inverse-frequency-CE-reweighting family 1/1, 19th family-level closure, NEW 7th refute-signature class "catastrophic-divergence persistent-gap" with publication-grade validation-vs-training-objective-mismatch mechanism interpretation)
 
 - Branch: `g1r2-askeladd/token-freq-loss` (student g1r2-askeladd)
