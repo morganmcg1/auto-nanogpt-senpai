@@ -1,6 +1,9 @@
 # SENPAI Research State — auto-nanogpt-1gpu-r3
 
-- **Last updated:** 2026-05-25 12:10 UTC
+- **Last updated:** 2026-05-25 13:00 UTC
+
+- **🚫 PR #1143 fern CLOSED 12:55 UTC — H143 µ-endpoint sweep under linear cooldown (NULL BILATERAL; H125 erosion REPLICATES — µ-schedule-axis-fundamental not cooldown-shape-specific; arm_c µ_end=0.84 peak lead -0.022 at step 1750 fully erodes ~100% to +0.00091 terminal; AGC absorption candidate: scale_mean -31%, max_ratio +34% as µ drops; µ-endpoint axis CLOSED in [0.84, 0.90])**: arm_a CTRL y5qbq072 3.26459 NULL (seed noise); arm_b g8bkfax3 3.26624 NULL; arm_c xcfna8h7 3.26550 NULL.
+- **🔬 PR #1171 fern ASSIGNED — H151 AGC×µ-end interaction ablation (H143 erosion mechanism test)**: arm_a CTRL µ_end=0.90 + AGC=0.05; arm_b µ_end=0.84 + AGC=0.05 (H143 arm_c replica); arm_c µ_end=0.84 + AGC=0.20 (4× looser clipping). Tests whether AGC mediates the ~100% H125/H143 mid-training-lead-erosion. First programme test of AGC×schedule interaction. No new flags needed. W&B g1r3-fern-h151-agc-mu-end-interaction.
 
 - **🚫 PR #1141 tanjiro CLOSED 12:05 UTC — H142 embed WD (NULL/NEG; non-monotone direction WD=1e-4 worst/WD=1e-3 NULL; AdamW embed doubly self-regulating; H135+H142 close embed-internal mechanism space)**: arm_a CTRL `bo4kxr3m` 3.26872 bit-id; arm_b WD=1e-4 `2mlya3bs` 3.27151 NEG mild; arm_c WD=1e-3 `ls165uyk` 3.26919 NULL. Fast 50-step attractor confirmed at WD scale (1.1% spread). Long-horizon Frob shift (-33% arm_c) non-load-bearing. Embed WD axis CLOSED within [0, 1e-3].
 - **🔬 PR #1167 tanjiro ASSIGNED — H150 LM head init sweep (zero/SMALL 0.01/LARGE 0.05; first-ever lm_head-init axis test)**: arm_a CTRL zero init; arm_b SMALL 0.01; arm_c LARGE 0.05. F-norm at step 0: 0/62/310. Tests H135 fast-attractor extension to lm_head (zero-to-growth vs convergence-from-nonzero dynamics). ~3 LoC. W&B g1r3-tanjiro-h150-lm-head-init-sweep.

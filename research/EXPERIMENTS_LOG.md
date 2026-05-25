@@ -1,3 +1,29 @@
+## 2026-05-25 12:55 — PR #1143: H143 Inner MuonH µ-endpoint sweep under linear cooldown (NULL closure)
+- Branch: `g1r3-fern/h143-mu-end-linear-cooldown`
+- Hypothesis: Linear cooldown (H133 winner) preserves gradient signal late training. H125 showed µ_end=0.84 mid-training advantage fully erodes under cosine. Does linear cooldown rescue the low-µ_end advantage? If H133 linear cooldown is the mechanism preserving gradient signal, then low-µ_end could survive to terminal.
+
+| Arm | Config | run_id | val/loss | Δ vs baseline | Δ vs CTRL | ffs | Band |
+|---|---|---|---|---|---|---|---|
+| arm_a | CTRL µ_end=0.90 | `y5qbq072` | 3.26459 | -0.00088 | 0 | 3150 | NULL (bit-id seed noise) |
+| arm_b | µ_end=0.86 | `g8bkfax3` | 3.26624 | +0.00077 | +0.00165 | 3150 | NULL |
+| arm_c | µ_end=0.84 | `xcfna8h7` | 3.26550 | +0.00003 | +0.00091 | 3125 | NULL |
+
+Baseline: 3.26547 (PR #1097 fern H133). WIN < 3.26467 | NULL [3.26377, 3.26817] | NEG > 3.26817
+
+**Verdict: NULL closure. µ-endpoint axis closed as non-binding in [0.84, 0.90] under linear cooldown.**
+
+**Results commentary:**
+- arm_c µ_end=0.84 peaked at -0.02174 advantage at step 1750 then FULLY ERODED to +0.00091 at terminal (~100% erosion fraction)
+- Cross-experiment with H125: cosine erosion -0.068→+0.0021 (~100%); linear erosion -0.022→+0.00091 (~100%). Erosion fraction identical. Linear just builds 3× smaller peak lead.
+
+**Key mechanism findings:**
+1. **H125 mid-training-lead-erosion REPLICATES under linear cooldown — programme-level reattribution**: erosion is µ-schedule-axis-fundamental, NOT cooldown-shape-specific. H125 closure framing amended.
+2. **AGC absorbs low-µ update magnitudes**: `agc/scale_mean` drops 0.00137→0.00095 (-31%) and `agc/max_ratio` rises 3510→4713 (+34%) as µ_end drops 0.90→0.84. AGC clamps larger updates from high-momentum dynamics. Candidate mechanism for the erosion.
+3. **3× smaller peak lead under linear**: linear's gentler mid-training LR suppresses the µ-advantage build, even as it preserves terminal gradient signal (H133 finding). Two cooldown-shape effects in opposite directions across training.
+4. **Terminal spread ±0.00165** across all 3 arms — µ-endpoint axis is dispersion-tolerant in [0.84, 0.90].
+
+→ **H151 assigned**: AGC×µ-end interaction ablation — arm_c µ_end=0.84 + AGC=0.20 (4× looser) tests whether AGC IS the erosion mechanism.
+
 ## 2026-05-25 12:05 — PR #1141: H142 Embed-only weight decay sweep (NULL/NEG closure)
 - Branch: `g1r3-tanjiro/h142-embed-wd-sweep`
 - Hypothesis: Introducing explicit WD on the embed param group shifts the AdamW attractor target. If the natural AdamW attractor is slightly above-optimal (as H135 hinted), WD-shrunk attractor should help. First-ever WD axis test on aux subsystem.
