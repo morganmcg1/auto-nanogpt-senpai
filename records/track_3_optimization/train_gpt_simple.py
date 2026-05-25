@@ -71,6 +71,25 @@ def parse_args():
     parser.add_argument("--muonh_agc_eps", type=float, default=float(os.environ.get("MUONH_AGC_EPS", "1e-3")))
     parser.add_argument("--aux_adamw_eps", type=float, default=float(os.environ.get("AUX_ADAMW_EPS", "1e-10")),
                         help="Aux AdamW eps (default 1e-10 = baseline). Standard PyTorch is 1e-8.")
+    # H152: optimizer-architecture swap for aux groups (embed/lm_head/scalars).
+    # 'adamw' = bit-id baseline. 'lion' = sign-momentum (Chen et al. 2023, arXiv 2302.06675):
+    # update = -lr * sign(β1·m + (1-β1)·g). Discards gradient magnitude, captures direction.
+    parser.add_argument("--aux_optimizer", type=str,
+                        default=os.environ.get("AUX_OPTIMIZER", "adamw"),
+                        choices=["adamw", "lion"],
+                        help="Optimizer for aux groups (embed/lm_head/scalars). "
+                             "adamw=bit-id baseline. lion=Lion sign-momentum (Chen et al. 2023).")
+    parser.add_argument("--aux_lion_lr_mult", type=float,
+                        default=float(os.environ.get("AUX_LION_LR_MULT", "0.33")),
+                        help="Lion LR multiplier on the AdamW group LRs (0.3/(1/320)/0.01). "
+                             "Lion paper recommends 3-10x smaller LR than AdamW because sign() "
+                             "discards magnitude. Only active when --aux_optimizer lion.")
+    parser.add_argument("--aux_lion_beta1", type=float,
+                        default=float(os.environ.get("AUX_LION_BETA1", "0.9")),
+                        help="Lion β1 (direction lookahead momentum). Paper default 0.9.")
+    parser.add_argument("--aux_lion_beta2", type=float,
+                        default=float(os.environ.get("AUX_LION_BETA2", "0.99")),
+                        help="Lion β2 (persistent momentum). Paper default 0.99.")
     # β2 schedule on aux AdamW (embed/lm_head/scalars). Mutates param_groups[*]['betas']
     # each step. constant = baseline (fused=True kept); cooldown_ramp = fused=False so
     # PyTorch reads the updated betas from the param_group on every .step() call.
@@ -693,6 +712,47 @@ class MuonH(torch.optim.Optimizer):
         self._last_norm_to_radius_max = max_n_over_r
 
 
+class Lion(torch.optim.Optimizer):
+    """Lion (EvoLved Sign Momentum) — Chen et al. 2023, arXiv 2302.06675.
+
+    Update rule (per param p with gradient g):
+        c_t = β1·m_{t-1} + (1-β1)·g_t       # direction lookahead (transient)
+        p_t = p_{t-1} · (1 - lr·wd) - lr · sign(c_t)
+        m_t = β2·m_{t-1} + (1-β2)·g_t        # persistent momentum
+
+    sign() discards gradient magnitude, so Lion LR is typically 3-10x smaller
+    than AdamW LR. Single momentum buffer (~50% optimizer memory vs AdamW).
+    No bias correction — sign() is scale-free.
+    """
+    def __init__(self, params, lr=1e-4, betas=(0.9, 0.99), weight_decay=0.0):
+        defaults = dict(lr=lr, betas=betas, weight_decay=weight_decay)
+        super().__init__(params, defaults)
+
+    @torch.no_grad()
+    def step(self):
+        for group in self.param_groups:
+            beta1, beta2 = group["betas"]
+            lr = group["lr"]
+            wd = group["weight_decay"]
+            for p in group["params"]:
+                if p.grad is None:
+                    continue
+                g = p.grad
+                state = self.state[p]
+                if len(state) == 0:
+                    state["momentum"] = torch.zeros_like(p)
+                m = state["momentum"]
+                # Direction = β1·m + (1-β1)·g via torch.lerp(g, m, β1) = g + β1·(m - g).
+                c = torch.lerp(g, m, beta1)
+                # Decoupled weight decay (no-op when wd=0).
+                if wd != 0:
+                    p.mul_(1 - lr * wd)
+                # Sign update — sign_() in-place is safe (c is a fresh tensor).
+                p.add_(c.sign_(), alpha=-lr)
+                # Persistent momentum update: m ← β2·m + (1-β2)·g via lerp_.
+                m.lerp_(g, 1 - beta2)
+
+
 ########################################
 #                Setup                 #
 ########################################
@@ -737,6 +797,12 @@ if args.muonh_agc_clip_ratio > 0:
     print0(f"AGC ENABLED on inner MuonH gradient: clip_ratio={args.muonh_agc_clip_ratio} eps={args.muonh_agc_eps}", console=True)
 else:
     print0("AGC DISABLED on inner MuonH gradient (clip_ratio=0)", console=True)
+if args.aux_optimizer == "lion":
+    print0(f"Using Lion aux optimizer (lr_mult={args.aux_lion_lr_mult}, "
+           f"β1={args.aux_lion_beta1}, β2={args.aux_lion_beta2})", console=True)
+else:
+    print0(f"Using AdamW aux optimizer (eps={args.aux_adamw_eps}, "
+           f"β2_schedule={args.aux_beta2_schedule}, β2_start={args.aux_beta2_start})", console=True)
 print0("="*100)
 
 val_tokens = 20 * 524288
@@ -793,6 +859,10 @@ if dist.get_rank() == 0:
             "aux_beta2_schedule": args.aux_beta2_schedule,
             "aux_beta2_start": args.aux_beta2_start,
             "aux_beta2_end": args.aux_beta2_end,
+            "aux_optimizer": args.aux_optimizer,
+            "aux_lion_lr_mult": args.aux_lion_lr_mult,
+            "aux_lion_beta1": args.aux_lion_beta1,
+            "aux_lion_beta2": args.aux_lion_beta2,
             "muonh_mu_schedule": args.muonh_mu_schedule,
             "muonh_mu_start": args.muonh_mu_start,
             "muonh_mu_end": args.muonh_mu_end,
@@ -845,11 +915,22 @@ for trial_idx in range(args.num_trials):
     # fused AdamW reads betas from param_groups on every .step(), but to avoid any
     # silent-failure-mode risk we use fused=False whenever the β2 schedule is active.
     # constant schedule keeps fused=True so arm_a is bitwise-identical to baseline.
-    _aux_fused = (args.aux_beta2_schedule == "constant")
-    optimizer1 = AdamW([dict(params=[model.embed.weight], lr=0.3, name="adam_embed"),
-                        dict(params=[model.proj.weight], lr=1/320, name="adam_lm_head"),
-                        dict(params=[p for p in model.parameters() if p.ndim < 2], lr=0.01, name="adam_scalars")],
-                       betas=(0.8, args.aux_beta2_start), eps=args.aux_adamw_eps, weight_decay=0, fused=_aux_fused)
+    if args.aux_optimizer == "lion":
+        # H152: Lion sign-momentum optimizer for aux groups. LRs are AdamW base LRs
+        # scaled by aux_lion_lr_mult (paper recommends 3-10x smaller than AdamW LR).
+        lion_lr_mult = args.aux_lion_lr_mult
+        optimizer1 = Lion(
+            [dict(params=[model.embed.weight], lr=0.3 * lion_lr_mult, name="lion_embed"),
+             dict(params=[model.proj.weight], lr=(1/320) * lion_lr_mult, name="lion_lm_head"),
+             dict(params=[p for p in model.parameters() if p.ndim < 2], lr=0.01 * lion_lr_mult, name="lion_scalars")],
+            betas=(args.aux_lion_beta1, args.aux_lion_beta2), weight_decay=0.0,
+        )
+    else:
+        _aux_fused = (args.aux_beta2_schedule == "constant")
+        optimizer1 = AdamW([dict(params=[model.embed.weight], lr=0.3, name="adam_embed"),
+                            dict(params=[model.proj.weight], lr=1/320, name="adam_lm_head"),
+                            dict(params=[p for p in model.parameters() if p.ndim < 2], lr=0.01, name="adam_scalars")],
+                           betas=(0.8, args.aux_beta2_start), eps=args.aux_adamw_eps, weight_decay=0, fused=_aux_fused)
     optimizer2 = MuonH([p for p in model.blocks.parameters() if p.ndim >= 2],
                        lr=args.muonh_lr, weight_decay=0.0, mu=0.95,
                        hyperball=True, budget_mult=args.muonh_budget_mult,
@@ -922,8 +1003,12 @@ for trial_idx in range(args.num_trials):
                 b2 = args.aux_beta2_start + prog * (args.aux_beta2_end - args.aux_beta2_start)
         else:
             b2 = args.aux_beta2_start
-        for g in optimizer1.param_groups:
-            g["betas"] = (g["betas"][0], b2)
+        # H152: only write the β2 schedule to AdamW aux groups. For Lion, betas
+        # are (lion_beta1, lion_beta2) and must not be overwritten by the AdamW
+        # β2 schedule path. Lion stays at the constant args.aux_lion_beta2.
+        if args.aux_optimizer == "adamw":
+            for g in optimizer1.param_groups:
+                g["betas"] = (g["betas"][0], b2)
         # MuonH µ schedule (H109): 'off' is a no-op — mu stays at the MuonH
         # default 0.95 and we skip the param_group write so arm_a is bit-identical
         # to baseline. 'linear' ramps mu_start → mu_end across all train_steps.
@@ -1089,6 +1174,19 @@ for trial_idx in range(args.num_trials):
         muonh_agc_stats = adaptive_gradient_clip(
             muonh_params_for_agc, args.muonh_agc_clip_ratio, eps=args.muonh_agc_eps,
         )
+        # H152: snapshot aux params just before opt.step() so we can compute
+        # update_norm = ||p_post - p_pre|| per checkpoint and compare Lion's
+        # sign-update against AdamW's adaptive update. Rank 0 only, telemetry
+        # checkpoints only (memory cost is one transient copy of 3 tensors).
+        aux_update_snapshot = None
+        if dist.get_rank() == 0 and telemetry_due:
+            scalar_param = next((p for p in model.parameters() if p.ndim < 2), None)
+            aux_update_snapshot = {
+                "embed": (model.embed.weight, model.embed.weight.detach().clone()),
+                "lm_head": (model.proj.weight, model.proj.weight.detach().clone()),
+            }
+            if scalar_param is not None:
+                aux_update_snapshot["scalar0"] = (scalar_param, scalar_param.detach().clone())
         for opt in optimizers:
             opt.step()
         # Log warmup telemetry every 10 steps during warmup (and at telemetry events
@@ -1101,8 +1199,22 @@ for trial_idx in range(args.num_trials):
         )
         if dist.get_rank() == 0 and (telemetry_due or warmup_due):
             muonh_metrics = {"trial": trial_idx, "train/step": train_step}
-            muonh_metrics["aux/beta2"] = aux_beta2
+            # H152: aux/beta2 is the AdamW β2 schedule output. For Lion it's not
+            # used by the optimizer (Lion β2 stays at args.aux_lion_beta2). Log
+            # under separate keys so plots stay unambiguous across arms.
+            if args.aux_optimizer == "adamw":
+                muonh_metrics["aux/beta2"] = aux_beta2
+            else:
+                muonh_metrics["aux/lion_beta1"] = args.aux_lion_beta1
+                muonh_metrics["aux/lion_beta2"] = args.aux_lion_beta2
+                muonh_metrics["aux/lion_lr_mult"] = args.aux_lion_lr_mult
             muonh_metrics["train/muonh_mu"] = muonh_mu_t
+            if telemetry_due and aux_update_snapshot is not None:
+                for tag, (param, pre) in aux_update_snapshot.items():
+                    diff = (param.data - pre).float()
+                    muonh_metrics[f"train/aux/{tag}/update_norm"] = float(diff.norm().item())
+                    muonh_metrics[f"train/aux/{tag}/update_rms"] = float(diff.square().mean().sqrt().item())
+                    muonh_metrics[f"train/aux/{tag}/update_max_abs"] = float(diff.abs().max().item())
             for opt in optimizers:
                 if isinstance(opt, MuonH):
                     if telemetry_due:
