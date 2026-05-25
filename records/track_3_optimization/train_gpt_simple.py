@@ -95,6 +95,14 @@ def parse_args():
                         help="Starting value of µ schedule (used by linear and cooldown_ramp modes).")
     parser.add_argument("--muonh_mu_end", type=float, default=float(os.environ.get("MUONH_MU_END", "0.98")),
                         help="Ending value of µ schedule (used by linear and cooldown_ramp modes).")
+    # H140 Layer-Wise LR Decay (LWLRD) for body MuonH. decay=1.0 is bit-identical to baseline
+    # (single param group path). decay<1.0 splits body 2D weights into per-layer param groups
+    # with differential initial_lr; cooldown schedule (eta multiplier) still applies uniformly.
+    parser.add_argument("--muonh_layer_lr_decay", type=float, default=float(os.environ.get("MUONH_LAYER_LR_DECAY", "1.0")),
+                        help="Per-layer LR decay factor for body MuonH groups. 1.0 = bit-identical baseline (single group). <1.0 = differential LR per layer with direction set by --muonh_layer_lr_direction.")
+    parser.add_argument("--muonh_layer_lr_direction", type=str, default=os.environ.get("MUONH_LAYER_LR_DIRECTION", "top_heavy"),
+                        choices=["top_heavy", "bottom_heavy"],
+                        help="When --muonh_layer_lr_decay < 1.0: top_heavy → top layers get higher LR (lr_mult at layer i = decay^(n_layers-1-i)). bottom_heavy → bottom layers get higher LR (lr_mult at layer i = decay^i). No-op when decay=1.0.")
     args = parser.parse_args()
     args.num_trials = args.num_trials if args.num_trials is not None else (args.legacy_num_trials or 1)
     args.wandb_tags = [tag.strip() for tag in args.wandb_tags.split(",") if tag.strip()]
@@ -616,9 +624,18 @@ class MuonH(torch.optim.Optimizer):
     """
     def __init__(self, params, lr=0.018, weight_decay=0.0, mu=0.95,
                  hyperball=True, budget_mult=1.0, mode="clip"):
-        assert isinstance(params, list) and len(params) >= 1 and isinstance(params[0], torch.nn.Parameter)
         assert mode in ("clip", "scale_invariant")
-        params = sorted(params, key=lambda x: x.size(), reverse=True)
+        # Accept either a flat list of Parameters (original interface, bit-identical
+        # for baseline) or a list of param-group dicts (H140 LWLRD). Sort params by
+        # descending size for balanced cross-rank parallelism; for groups, sort within
+        # each group so per-group `lr` is preserved.
+        assert isinstance(params, list) and len(params) >= 1
+        if isinstance(params[0], dict):
+            params = [{**g, "params": sorted(g["params"], key=lambda x: x.size(), reverse=True)}
+                      for g in params]
+        else:
+            assert isinstance(params[0], torch.nn.Parameter)
+            params = sorted(params, key=lambda x: x.size(), reverse=True)
         defaults = dict(lr=lr, weight_decay=weight_decay, mu=mu,
                         hyperball=hyperball, budget_mult=budget_mult, mode=mode)
         super().__init__(params, defaults)
@@ -729,6 +746,10 @@ if args.use_outer_optimizer:
 else:
     print0("MuLoCo outer optimizer DISABLED", console=True)
 print0(f"MuonH mode={args.muonh_mode} lr={args.muonh_lr} budget_mult={args.muonh_budget_mult} cooldown_shape={args.muonh_cooldown_shape}", console=True)
+if args.muonh_layer_lr_decay != 1.0:
+    print0(f"LWLRD ENABLED on body MuonH: decay={args.muonh_layer_lr_decay} direction={args.muonh_layer_lr_direction}", console=True)
+else:
+    print0("LWLRD DISABLED on body MuonH (decay=1.0, single param group, bit-identical to baseline)", console=True)
 if args.aux_agc_clip_ratio > 0:
     print0(f"AGC ENABLED on aux AdamW groups: clip_ratio={args.aux_agc_clip_ratio} eps={args.aux_agc_eps}", console=True)
 else:
@@ -796,6 +817,8 @@ if dist.get_rank() == 0:
             "muonh_mu_schedule": args.muonh_mu_schedule,
             "muonh_mu_start": args.muonh_mu_start,
             "muonh_mu_end": args.muonh_mu_end,
+            "muonh_layer_lr_decay": args.muonh_layer_lr_decay,
+            "muonh_layer_lr_direction": args.muonh_layer_lr_direction,
         },
     )
 
@@ -850,11 +873,41 @@ for trial_idx in range(args.num_trials):
                         dict(params=[model.proj.weight], lr=1/320, name="adam_lm_head"),
                         dict(params=[p for p in model.parameters() if p.ndim < 2], lr=0.01, name="adam_scalars")],
                        betas=(0.8, args.aux_beta2_start), eps=args.aux_adamw_eps, weight_decay=0, fused=_aux_fused)
-    optimizer2 = MuonH([p for p in model.blocks.parameters() if p.ndim >= 2],
-                       lr=args.muonh_lr, weight_decay=0.0, mu=0.95,
-                       hyperball=True, budget_mult=args.muonh_budget_mult,
-                       mode=args.muonh_mode)
-    optimizer2.param_groups[0]["name"] = "muonh_blocks"
+    # H140 LWLRD: decay=1.0 takes the single-group code path (bit-identical to baseline).
+    # decay<1.0 splits body 2D weights into per-layer param groups with differential initial_lr.
+    if args.muonh_layer_lr_decay == 1.0:
+        optimizer2 = MuonH([p for p in model.blocks.parameters() if p.ndim >= 2],
+                           lr=args.muonh_lr, weight_decay=0.0, mu=0.95,
+                           hyperball=True, budget_mult=args.muonh_budget_mult,
+                           mode=args.muonh_mode)
+        optimizer2.param_groups[0]["name"] = "muonh_blocks"
+    else:
+        block_params_by_layer: dict[int, list] = {}
+        for name, p in model.blocks.named_parameters():
+            if p.ndim >= 2:
+                layer_idx = int(name.split(".")[0])
+                block_params_by_layer.setdefault(layer_idx, []).append(p)
+        n_layers = len(block_params_by_layer)
+        muonh_groups = []
+        for layer_idx in sorted(block_params_by_layer.keys()):
+            if args.muonh_layer_lr_direction == "top_heavy":
+                lr_mult = args.muonh_layer_lr_decay ** (n_layers - 1 - layer_idx)
+            else:  # bottom_heavy
+                lr_mult = args.muonh_layer_lr_decay ** layer_idx
+            muonh_groups.append({
+                "params": block_params_by_layer[layer_idx],
+                "lr": args.muonh_lr * lr_mult,
+            })
+        optimizer2 = MuonH(muonh_groups, lr=args.muonh_lr, weight_decay=0.0, mu=0.95,
+                           hyperball=True, budget_mult=args.muonh_budget_mult,
+                           mode=args.muonh_mode)
+        for i, g in enumerate(optimizer2.param_groups):
+            g["name"] = f"muonh_layer_{i:02d}"
+            g["layer_idx"] = i
+            if args.muonh_layer_lr_direction == "top_heavy":
+                g["lr_mult"] = args.muonh_layer_lr_decay ** (n_layers - 1 - i)
+            else:
+                g["lr_mult"] = args.muonh_layer_lr_decay ** i
     optimizers = [optimizer1, optimizer2]
     # AGC targets: AdamW aux groups (embed, lm_head, scalars). Built from optimizer1
     # param groups to track exactly the same params AdamW updates.
@@ -1111,6 +1164,10 @@ for trial_idx in range(args.num_trials):
                         muonh_metrics["train/muonh/norm_to_radius_max"] = opt._last_norm_to_radius_max
                     muonh_metrics["train/muonh/warmup_factor"] = muonh_warmup_factor
                     muonh_metrics["train/muonh/effective_lr"] = opt.param_groups[0]["lr"]
+                    # H140 per-layer effective LR (only when LWLRD is active, i.e. >1 group with layer_idx)
+                    if len(opt.param_groups) > 1 and "layer_idx" in opt.param_groups[0]:
+                        for g in opt.param_groups:
+                            muonh_metrics[f"train/muonh/layer_{g['layer_idx']:02d}_effective_lr"] = g["lr"]
             if telemetry_due and args.aux_agc_clip_ratio > 0 and agc_stats["agc_total"] > 0:
                 muonh_metrics["train/agc/active_fraction"] = agc_stats["agc_clipped"] / agc_stats["agc_total"]
                 muonh_metrics["train/agc/clipped_count"] = agc_stats["agc_clipped"]
