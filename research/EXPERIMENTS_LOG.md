@@ -1,5 +1,52 @@
 # SENPAI Research Results
 
+## 2026-05-25 12:55 UTC — PR #1129 CLOSED: Post-polar aspect-ratio exponent ablation (exp=0.0 vs 1.0) — 130th NULL, spectral_exp axis FULLY CLOSED (g1r1-edward)
+
+- Branch: `g1r1-edward/spectral-exp`
+- Hypothesis: Test the hardcoded `** 0.5` exponent in `update = polar * (max(1, m/n) ** 0.5)` (line 532). Frobenius-style aspect-ratio compensation only affects MLP.fc matrices (aspect ratio 4.0). Arm A exp=0.0 (1.0× polar on MLP.fc, 0.5× vs baseline); Arm B exp=1.0 (4.0× polar on MLP.fc, 2.0× vs baseline).
+
+### Results
+
+| Arm | exp | MLP.fc factor | W&B | val/loss | sr | Δval (mnat) | Δsr | Verdict |
+|---|---|---|---|---|---|---|---|---|
+| Baseline #918 | 0.5 (Frobenius) | 2.0× polar | vm48fdof/0a7esmxs | 3.266394 | 2925 | — | — | — |
+| A | **0.0** | **1.0× polar** | `8slemy5y` | **3.267764** | 2950 | +1.37 (4.6σ) | +25 | **marginal NULL** (just outside band) |
+| B | **1.0** | **4.0× polar** | `ymmtfaff` | **3.268970** | 2975 | +2.58 (8.6σ) | +50 | **CLEAR NULL** |
+
+Both arms FAIL predeclared merge rule (sr ≤ 2912.5 OR (sr=2925 AND val<3.266394)). Asymmetric U-curve: Arm B regresses ~1.9× harder than Arm A.
+
+### Mechanism findings
+
+1. **u/w-floor (TARGET_UW=0.35 from #1035) saturates at 100% on MLP.fc by mid-training in BOTH arms.** Arm A reaches saturation earlier (smaller magnitude → lower ratio → floor fires sooner); Arm B at step ~425 (4× polar magnitude takes longer to push ratio above 0.35). Once saturated, floor is the dominant magnitude controller, not the post-polar scalar.
+2. **Floor is asymmetric: rescues magnitude shortfalls but cannot bound magnitude overshoots.** Arm A only +1.4 mnat despite 0.5× MLP.fc factor (floor saves it). Arm B +2.6 mnat at 2× factor (floor doesn't push it back DOWN). Direction of safety from baseline: DOWN (sub-Frobenius), never UP.
+3. **polar/ortho_residual drift confirms post-polar magnitude affects projection cleanliness.** Arm A 0.108 ≈ baseline 0.10; Arm B 0.143 (43% higher). Larger post-polar magnitudes degrade polar projection quality at scale.
+
+### Cross-axis intersections
+
+- **Reinforces #1135 alphonse exact-SVD finding (Arm A regressed +3 mnat):** NS5's 6.7% polar residual is implicit regularization. This PR's Arm B polar/ortho_residual drift (0.143 vs baseline 0.10) is direct evidence the polar projection itself becomes the limiting factor at large post-polar magnitudes.
+- **Reinforces #1102 frieren m_pre rank discriminator:** post-polar magnitude levers (spectral_exp here, polar interp #1107, exact SVD #1135 Arm A) all show smaller effects than pre-polar perturbations (cov source #1125, γ asymmetry #1123).
+- **Reinforces #1035 u/w-floor canon:** floor is now empirically confirmed as the dominant magnitude controller, not just a safety net.
+
+### Predicted outcome alignment
+
+- ~20% best-case (one arm hits gate): NO
+- ~25% marginal: PARTIAL (Arm A just outside marginal band, +0.001370 vs 0.001 threshold)
+- ~45% NULL modal: YES — both arms within seed-noise direction of baseline
+- ~10% catastrophic: NO
+
+### Suggested follow-ups by student
+
+1. **Close spectral_exp axis** — done
+2. **Higher-leverage axis: u/w-floor TARGET_UW probe** — never directly ablated as a value (#1035 tested 0.0 vs 0.50 floor existence/disabling, but not a tight sweep around 0.35)
+3. **Joint spectral_exp × γ_power probe** — both control post-polar effective magnitude
+4. **Per-shape TARGET_UW differentiation** — fc vs lm_head
+
+### Next assignment for edward
+
+→ **#1170** (or next number) — u/w-floor TARGET_UW direct probe. Tightly ablates the dominant magnitude controller exposed by this PR.
+
+---
+
 ## 2026-05-25 12:10 UTC — PR #1125 CLOSED: SOAP-style cov source (update vs momentum) — 129th NULL, cov-source axis FULLY CLOSED (g1r1-thorfinn)
 
 - Branch: `g1r1-thorfinn/soap-cov-source`
