@@ -109,6 +109,21 @@ def parse_args():
     parser.add_argument("--body_init_bottom_layers", type=int,
                         default=int(os.environ.get("BODY_INIT_BOTTOM_LAYERS", "6")),
                         help="Number of bottom layers to damp for --body_init=orthogonal_bottom_damp (default 6 = bottom half of 12 layers).")
+    # H164 MuonBP: block-periodic NS5 orthogonalization on MuonH body weights.
+    # block_size=0 disables (full-matrix NS5 every step, bit-identical to baseline).
+    # full_period controls the cadence: every full_period inner steps run full-NS5,
+    # other steps run block-NS5. full_period=1 with block_size>0 still runs full-NS5
+    # every step (bit-id baseline guard for the block path).
+    parser.add_argument("--muon_block_size", type=int,
+                        default=int(os.environ.get("MUON_BLOCK_SIZE", "0")),
+                        help="MuonBP block-periodic NS5: column block size for block-NS5 mode. "
+                             "0 = disabled (full-matrix NS5 every step, bit-id baseline). "
+                             "Recommend 192 (4 blocks for 768-wide square matrices).")
+    parser.add_argument("--muon_full_period", type=int,
+                        default=int(os.environ.get("MUON_FULL_PERIOD", "1")),
+                        help="MuonBP full-NS5 period: every N inner steps apply full-matrix NS5 "
+                             "instead of block-NS5. 1 = every step is full (bit-id when block_size=0). "
+                             "Larger values = more aggressive block-local orthogonalization.")
     args = parser.parse_args()
     args.num_trials = args.num_trials if args.num_trials is not None else (args.legacy_num_trials or 1)
     args.wandb_tags = [tag.strip() for tag in args.wandb_tags.split(",") if tag.strip()]
@@ -571,6 +586,42 @@ def muon_update(grad, momentum, mu=0.95, nesterov=True):
     update *= max(1, grad.size(-2) / grad.size(-1))**0.5
     return update
 
+
+# H164 MuonBP: block-periodic NS5. Split G along its larger dim into evenly-sized
+# column blocks, apply full NS5 to each block, concatenate. If block_size <= 0 or
+# block_size does not evenly divide the larger axis, falls back to the standard
+# full-matrix NS5 path (bit-id with the baseline). Not @torch.compile'd because
+# the python-level chunk + list comprehension does not compile cleanly; the
+# inner zeropower_via_newtonschulz5 calls remain compiled.
+def zeropower_via_newtonschulz5_blocked(G: Tensor, block_size: int) -> Tensor:
+    assert G.ndim >= 2
+    if G.size(-2) > G.size(-1):
+        G_t = G.mT
+        n_axis = G_t.size(-1)
+        if block_size <= 0 or block_size >= n_axis or n_axis % block_size != 0:
+            return zeropower_via_newtonschulz5(G)
+        n_blocks = n_axis // block_size
+        chunks = G_t.chunk(n_blocks, dim=-1)
+        out_chunks = [zeropower_via_newtonschulz5(c) for c in chunks]
+        return torch.cat(out_chunks, dim=-1).mT
+    else:
+        n_axis = G.size(-1)
+        if block_size <= 0 or block_size >= n_axis or n_axis % block_size != 0:
+            return zeropower_via_newtonschulz5(G)
+        n_blocks = n_axis // block_size
+        chunks = G.chunk(n_blocks, dim=-1)
+        out_chunks = [zeropower_via_newtonschulz5(c) for c in chunks]
+        return torch.cat(out_chunks, dim=-1)
+
+
+def muon_update_blocked(grad, momentum, mu, nesterov, block_size):
+    momentum.lerp_(grad, 1 - mu)
+    update = grad.lerp_(momentum, mu) if nesterov else momentum
+    update = zeropower_via_newtonschulz5_blocked(update, block_size)
+    update *= max(1, grad.size(-2) / grad.size(-1))**0.5
+    return update
+
+
 class Muon(torch.optim.Optimizer):
     def __init__(self, params, lr=0.02, weight_decay=0, mu=0.95):
         assert isinstance(params, list) and len(params) >= 1 and isinstance(params[0], torch.nn.Parameter)
@@ -669,7 +720,8 @@ class MuonH(torch.optim.Optimizer):
     norm exactly constant; weight_decay must be 0.
     """
     def __init__(self, params, lr=0.018, weight_decay=0.0, mu=0.95,
-                 hyperball=True, budget_mult=1.0, mode="clip"):
+                 hyperball=True, budget_mult=1.0, mode="clip",
+                 block_size=0, full_period=1):
         assert isinstance(params, list) and len(params) >= 1 and isinstance(params[0], torch.nn.Parameter)
         assert mode in ("clip", "scale_invariant")
         params = sorted(params, key=lambda x: x.size(), reverse=True)
@@ -679,9 +731,22 @@ class MuonH(torch.optim.Optimizer):
         self._last_active_fraction = 0.0
         self._last_radius_to_norm_max = 0.0
         self._last_norm_to_radius_max = 0.0
+        # H164 MuonBP block-periodic config and telemetry. block_size=0 keeps the
+        # step() path bit-id with the baseline (use_block always False).
+        self.block_size = block_size
+        self.full_period = max(1, full_period)
+        self._inner_step_count = 0
+        self._last_block_mode = 0  # 0 = full-NS5 step, 1 = block-NS5 step
 
     @torch.no_grad()
     def step(self):
+        # H164 MuonBP: increment counter, decide block-vs-full mode for this step.
+        # When block_size <= 0 the use_block check fails and the muon_update path
+        # below stays bit-identical to the baseline (compiled, full-matrix NS5).
+        self._inner_step_count += 1
+        use_block = (self.block_size > 0
+                     and (self._inner_step_count % self.full_period) != 0)
+        self._last_block_mode = 1 if use_block else 0
         world_size = dist.get_world_size()
         rank = dist.get_rank()
         clip_count_local = 0
@@ -702,7 +767,12 @@ class MuonH(torch.optim.Optimizer):
                         state["momentum"] = torch.zeros_like(p)
                         if hb:
                             state["hyperball_radius"] = p.data.norm().item() * budget_mult
-                    update = muon_update(p.grad, state["momentum"], mu=group["mu"])
+                    if use_block:
+                        update = muon_update_blocked(p.grad, state["momentum"],
+                                                     mu=group["mu"], nesterov=True,
+                                                     block_size=self.block_size)
+                    else:
+                        update = muon_update(p.grad, state["momentum"], mu=group["mu"])
                     if hb and mode == "scale_invariant":
                         # Always-active variant: norm is held at initial value by construction.
                         scale_invariant_update_(p.data, update, group["lr"])
@@ -850,6 +920,8 @@ if dist.get_rank() == 0:
             "muonh_mu_schedule": args.muonh_mu_schedule,
             "muonh_mu_start": args.muonh_mu_start,
             "muonh_mu_end": args.muonh_mu_end,
+            "muon_block_size": args.muon_block_size,
+            "muon_full_period": args.muon_full_period,
         },
     )
 
@@ -933,8 +1005,18 @@ for trial_idx in range(args.num_trials):
     optimizer2 = MuonH([p for p in model.blocks.parameters() if p.ndim >= 2],
                        lr=args.muonh_lr, weight_decay=0.0, mu=0.95,
                        hyperball=True, budget_mult=args.muonh_budget_mult,
-                       mode=args.muonh_mode)
+                       mode=args.muonh_mode,
+                       block_size=args.muon_block_size,
+                       full_period=args.muon_full_period)
     optimizer2.param_groups[0]["name"] = "muonh_blocks"
+    if dist.get_rank() == 0:
+        if args.muon_block_size > 0:
+            print0(f"[H164] MuonBP enabled: block_size={args.muon_block_size}, "
+                   f"full_period={args.muon_full_period} (full-NS5 every "
+                   f"{args.muon_full_period} steps)", console=True)
+        else:
+            print0("[H164] MuonBP disabled (full-matrix NS5 every step, bit-id baseline)",
+                   console=True)
     optimizers = [optimizer1, optimizer2]
     # AGC targets: AdamW aux groups (embed, lm_head, scalars). Built from optimizer1
     # param groups to track exactly the same params AdamW updates.
@@ -1191,6 +1273,11 @@ for trial_idx in range(args.num_trials):
                         muonh_metrics["train/muonh/norm_to_radius_max"] = opt._last_norm_to_radius_max
                     muonh_metrics["train/muonh/warmup_factor"] = muonh_warmup_factor
                     muonh_metrics["train/muonh/effective_lr"] = opt.param_groups[0]["lr"]
+                    if args.muon_block_size > 0:
+                        muonh_metrics["muonbp/block_mode"] = opt._last_block_mode
+                        muonh_metrics["muonbp/block_size"] = args.muon_block_size
+                        muonh_metrics["muonbp/full_period"] = args.muon_full_period
+                        muonh_metrics["muonbp/step_count"] = opt._inner_step_count
             if telemetry_due and args.aux_agc_clip_ratio > 0 and agc_stats["agc_total"] > 0:
                 muonh_metrics["train/agc/active_fraction"] = agc_stats["agc_clipped"] / agc_stats["agc_total"]
                 muonh_metrics["train/agc/clipped_count"] = agc_stats["agc_clipped"]
@@ -1230,9 +1317,11 @@ for trial_idx in range(args.num_trials):
         # at a small set of probe steps. Captures whether orthogonal init
         # (arm_b/arm_c) actually starts the trajectory closer to the NS5
         # attractor than the default normal init (arm_a CTRL).
+        # H164: extend mid/late probe steps so MuonBP block-NS5 vs full-NS5
+        # sv_min/sv_max trajectory comparison is visible across cooldown.
         sv_due = (
             dist.get_rank() == 0
-            and train_step in (1, 50, 250, 500, 1000, train_steps)
+            and train_step in (1, 50, 250, 500, 1000, 1500, 2000, 2500, 3000, train_steps)
         )
         if sv_due:
             log_body_sv_stats(
