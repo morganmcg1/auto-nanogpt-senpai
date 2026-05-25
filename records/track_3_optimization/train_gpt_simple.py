@@ -64,6 +64,11 @@ def parse_args():
     parser.add_argument("--muon_lr", type=float, default=0.035,
                         help="Base learning rate for body-Muon optimizer (matrix params in blocks). "
                              "Default 0.035 matches the merged baseline.")
+    parser.add_argument("--body_grad_noise_sigma", type=float, default=0.0,
+                        help="Std-dev of additive gaussian noise to body Muon gradients "
+                             "as a fraction of ||g||_F/sqrt(numel) (gradient RMS). "
+                             "Default 0.0 (no noise). Applied BEFORE EMA momentum update. "
+                             "Only affects body Muon params (matrix params in blocks).")
     args = parser.parse_args()
     args.num_trials = args.num_trials if args.num_trials is not None else (args.legacy_num_trials or 1)
     args.wandb_tags = [tag.strip() for tag in args.wandb_tags.split(",") if tag.strip()]
@@ -535,11 +540,12 @@ def pmuon_update(
 
 class Muon(torch.optim.Optimizer):
     def __init__(self, params, lr=0.02, weight_decay=0, mu=0.95, beta_cov=0.95, gamma=PMUON_GAMMA,
-                 ns_a=NS_A, ns_b=NS_B, ns_c=NS_C):
+                 ns_a=NS_A, ns_b=NS_B, ns_c=NS_C, body_grad_noise_sigma=0.0):
         assert isinstance(params, list) and len(params) >= 1 and isinstance(params[0], torch.nn.Parameter)
         params = sorted(params, key=lambda x: x.size(), reverse=True)
         defaults = dict(lr=lr, weight_decay=weight_decay, mu=mu, beta_cov=beta_cov, gamma=gamma,
-                        ns_a=ns_a, ns_b=ns_b, ns_c=ns_c)
+                        ns_a=ns_a, ns_b=ns_b, ns_c=ns_c,
+                        body_grad_noise_sigma=body_grad_noise_sigma)
         super().__init__(params, defaults)
 
     @torch.no_grad()
@@ -551,12 +557,47 @@ class Muon(torch.optim.Optimizer):
         floor_fired_count = 0
         floor_eligible_count = 0
         polar_diag: dict = {}
+        # PR #1136 gradient noise injection diagnostics (mean across noised body params,
+        # plus first MLP.fc / first attn.proj samples).
+        noise_diag = {
+            "sigma": 0.0,
+            "params_noised": 0,
+            "grad_rms_pre_sum": 0.0,
+            "grad_rms_post_sum": 0.0,
+            "noise_to_signal_sum": 0.0,
+            "mlp_fc_grad_rms_pre": None,
+            "mlp_fc_noise_to_signal": None,
+            "attn_proj_grad_rms_pre": None,
+            "attn_proj_noise_to_signal": None,
+        }
         for group in self.param_groups:
             params = group["params"]
             params_pad = params + [torch.empty_like(params[-1])] * (world_size - len(params) % world_size)
+            sigma = group.get("body_grad_noise_sigma", 0.0)
+            noise_diag["sigma"] = float(sigma)
             for base_i in range(0, len(params), world_size):
                 if base_i + rank < len(params):
                     p = params[base_i + rank]
+                    # PR #1136 NOISE INJECTION (BEFORE EMA momentum update inside pmuon_update).
+                    # g_noisy = g + σ · (||g||_F / √numel) · N(0, 1); ||noise||_F / ||g||_F ≈ σ.
+                    if sigma > 0.0:
+                        g_rms_pre = p.grad.norm() / (p.grad.numel() ** 0.5)
+                        noise = torch.randn_like(p.grad) * (sigma * g_rms_pre)
+                        grad_norm_pre = p.grad.norm()
+                        noise_norm = noise.norm()
+                        p.grad.add_(noise)
+                        g_rms_post = p.grad.norm() / (p.grad.numel() ** 0.5)
+                        noise_diag["params_noised"] += 1
+                        noise_diag["grad_rms_pre_sum"] += float(g_rms_pre.item())
+                        noise_diag["grad_rms_post_sum"] += float(g_rms_post.item())
+                        n2s = float((noise_norm / grad_norm_pre).item()) if float(grad_norm_pre.item()) > 0 else 0.0
+                        noise_diag["noise_to_signal_sum"] += n2s
+                        if p.shape[0] != p.shape[1] and noise_diag["mlp_fc_grad_rms_pre"] is None:
+                            noise_diag["mlp_fc_grad_rms_pre"] = float(g_rms_pre.item())
+                            noise_diag["mlp_fc_noise_to_signal"] = n2s
+                        elif p.shape[0] == p.shape[1] and noise_diag["attn_proj_grad_rms_pre"] is None:
+                            noise_diag["attn_proj_grad_rms_pre"] = float(g_rms_pre.item())
+                            noise_diag["attn_proj_noise_to_signal"] = n2s
                     state = self.state[p]
                     if len(state) == 0:
                         state["momentum"] = torch.zeros_like(p)
@@ -587,6 +628,7 @@ class Muon(torch.optim.Optimizer):
                 dist.all_gather(params_pad[base_i:base_i + world_size], params_pad[base_i + rank])
         self._floor_diag = {"fired": floor_fired_count, "eligible": floor_eligible_count}
         self._polar_diag = polar_diag
+        self._grad_noise_diag = noise_diag
 
 
 def pmuon_spectral_diag(optimizer: torch.optim.Optimizer, gamma: float) -> dict[str, float]:
@@ -720,6 +762,7 @@ if dist.get_rank() == 0:
             "ema_warmup_steps": args.ema_warmup_steps,
             "ema_beta_target": args.ema_beta_target if args.ema_beta_target is not None else 0.0,
             "ema_dynamic_ramp_active": int(args.ema_beta_target is not None and args.ema_beta > 0),
+            "body_grad_noise_sigma": args.body_grad_noise_sigma,
         },
     )
 
@@ -756,9 +799,11 @@ for trial_idx in range(args.num_trials):
                         dict(params=[p for p in model.parameters() if p.ndim < 2], lr=0.025, name="adam_scalars")],
                        betas=(0.8, 0.95), eps=1e-10, weight_decay=0, fused=True)
     optimizer2 = Muon([p for p in model.blocks.parameters() if p.ndim >= 2],
-                      lr=args.muon_lr, weight_decay=0.025, beta_cov=0.95, gamma=PMUON_GAMMA)
+                      lr=args.muon_lr, weight_decay=0.025, beta_cov=0.95, gamma=PMUON_GAMMA,
+                      body_grad_noise_sigma=args.body_grad_noise_sigma)
     optimizer2.param_groups[0]["name"] = "muon_blocks"
-    print0(f"body-Muon optimizer: lr={args.muon_lr} weight_decay=0.025 beta_cov=0.95 gamma={PMUON_GAMMA}")
+    print0(f"body-Muon optimizer: lr={args.muon_lr} weight_decay=0.025 beta_cov=0.95 gamma={PMUON_GAMMA}"
+           f" body_grad_noise_sigma={args.body_grad_noise_sigma}")
     optimizers = [optimizer1, optimizer2]
     assert set(p for opt in optimizers for group in opt.param_groups
                for p in group["params"]) == set(model.parameters())
@@ -1030,6 +1075,26 @@ for trial_idx in range(args.num_trials):
                     "polar/ns_coef_b": NS_B,
                     "polar/ns_coef_c": NS_C,
                 }, step=wandb_step)
+            grad_noise_diag = getattr(optimizer2, "_grad_noise_diag", None)
+            if grad_noise_diag is not None:
+                noise_metrics = {
+                    "trial": trial_idx,
+                    "train/step": train_step,
+                    "muon/grad_noise_sigma": grad_noise_diag["sigma"],
+                    "muon/grad_noise_params_noised": grad_noise_diag["params_noised"],
+                }
+                if grad_noise_diag["params_noised"] > 0:
+                    n = grad_noise_diag["params_noised"]
+                    noise_metrics["muon/grad_rms_pre_noise"] = grad_noise_diag["grad_rms_pre_sum"] / n
+                    noise_metrics["muon/grad_rms_post_noise"] = grad_noise_diag["grad_rms_post_sum"] / n
+                    noise_metrics["muon/noise_to_signal_ratio"] = grad_noise_diag["noise_to_signal_sum"] / n
+                if grad_noise_diag["mlp_fc_grad_rms_pre"] is not None:
+                    noise_metrics["muon/grad_rms_pre_noise_mlp_fc"] = grad_noise_diag["mlp_fc_grad_rms_pre"]
+                    noise_metrics["muon/noise_to_signal_ratio_mlp_fc"] = grad_noise_diag["mlp_fc_noise_to_signal"]
+                if grad_noise_diag["attn_proj_grad_rms_pre"] is not None:
+                    noise_metrics["muon/grad_rms_pre_noise_attn_proj"] = grad_noise_diag["attn_proj_grad_rms_pre"]
+                    noise_metrics["muon/noise_to_signal_ratio_attn_proj"] = grad_noise_diag["attn_proj_noise_to_signal"]
+                wandb.log(noise_metrics, step=wandb_step)
             wandb.log({
                 "trial": trial_idx,
                 "train/step": train_step,
