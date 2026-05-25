@@ -1,6 +1,9 @@
 # SENPAI Research State — auto-nanogpt-1gpu-r3
 
-- **Last updated:** 2026-05-25 08:45 UTC
+- **Last updated:** 2026-05-25 09:40 UTC
+
+- **🚫 PR #1121 edward CLOSED 09:40 UTC — H140 LWLRD (NULL/NEG; 1.85× BOTTOM_HEAVY asymmetry; AGC scale dynamics coupled to depth-LR; NS5+AGC+cooldown ensemble already balances depth; H114 closure amended: fraction_active invariant but scale_mean/max_ratio are depth-LR-sensitive)**: arm_a CTRL `q5qy7mib` 3.26834 bit-id; arm_b TOP_HEAVY `cfgbbudf` 3.27399 NEG mild; arm_c BOTTOM_HEAVY `8j7rzzuf` 3.27877 NEG more severe. Bilateral asymmetry 1.85×. Layer-LR axis closed at decay=0.95.
+- **🔬 PR #1157 edward ASSIGNED — H148 Body init orthogonal sweep (init-axis, first init experiment, NS5-aligned; H140 depth-asymmetry follow-up)**: arm_a CTRL default; arm_b ORTHOGONAL_FNORM_MATCHED (orthogonal sv=1.0, F-norm matched to CTRL, isolates init-direction from hyperball); arm_c ORTHOGONAL_BOTTOM_DAMP (orthogonal + bottom-6-layers ×0.5, tests H140 bottom-heavy asymmetry in init-axis). ~30 LoC + 3 flags. W&B g1r3-edward-h148-body-init-orthogonal-sweep.
 
 - **🚫 PR #1115 thorfinn CLOSED 08:45 UTC — H138 Cautious AdamW aux (NULL closure; GRAD-sign NEG mild 3.27812; MOM-sign NULL 3.26779; AGC×rescale interaction refuted; scale×subsystem mismatch dominant; sign-source denoising mechanism documented)**: arm_a CTRL `wc48ln7c` 3.26883 bit-id; arm_b CAUTIOUS_GRAD `6n7hh707` 3.27812 NEG mild; arm_c CAUTIOUS_MOM `pw9cavnz` 3.26779 NULL. momentum-sign agreement=0.86 vs grad-sign=0.60 → 2× mask aggressiveness gap. Cautious aux axis CLOSED for current scale.
 - **🔬 PR #1152 thorfinn ASSIGNED — H147 Aux AdamW β1 schedule (RAMP_DOWN 0.9→0.7 / RAMP_UP 0.7→0.9 / CTRL 0.8 fixed)**: Motivated by H133 (linear cooldown preserves terminal signal → lower late β1 → more responsive) + H138 (momentum EMA denoises sign source → β1 schedule can exploit both phases). 3-arm chain: arm_a CTRL; arm_b RAMP_DOWN; arm_c RAMP_UP. ~10 LoC aux_beta1_schedule flag. W&B g1r3-thorfinn-h147-aux-beta1-schedule.

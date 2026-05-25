@@ -1,3 +1,32 @@
+## 2026-05-25 09:40 — PR #1121: H140 Layer-Wise LR Decay (LWLRD) for body MuonH (NULL/NEG closure)
+- Branch: `g1r3-edward/h140-layer-wise-lr-decay-body-muonh`
+- Hypothesis: Post-NS5 spectral normalization, LR is the only remaining knob to differentiate update magnitudes across depth. Apply geometric per-layer LR decay (decay=0.95) in TOP_HEAVY or BOTTOM_HEAVY direction to expose depth-aware optimization.
+
+| Arm | Config | run_id | val/loss | Δ vs baseline | Δ vs CTRL | ffs | Band |
+|---|---|---|---|---|---|---|---|
+| arm_a | CTRL (decay=1.0, single group) | `q5qy7mib` | 3.26834 | +0.00287 | 0 | 3025 | widened-CTRL ✓ |
+| arm_b | TOP_HEAVY (decay=0.95) | `cfgbbudf` | 3.27399 | +0.00852 | +0.00565 | 3125 | NEG mild |
+| arm_c | BOTTOM_HEAVY (decay=0.95) | `8j7rzzuf` | 3.27877 | +0.01330 | +0.01043 | 3250 | NEG more severe |
+
+Baseline: 3.26547 (PR #1097 fern H133). WIN < 3.26467 | NULL [3.26377, 3.26817] | NEG > 3.26817
+Per-layer LR ratio: predicted 1.7591, measured 1.7581 (CLI plumbing PASS, 99.94% precision)
+
+**Verdict: NULL/NEG closure. Depth-LR-axis closed at decay=0.95. Bilateral severity asymmetry documented.**
+
+**Results commentary:**
+- arm_a CTRL bit-id at 3.26834 inside widened CTRL [3.26721, 3.27091] ✓
+- arm_b TOP_HEAVY 3.27399 NEG mild, arm_c BOTTOM_HEAVY 3.27877 NEG more severe: **1.85× asymmetry** (BOTTOM_HEAVY worse). Directional evidence that bottom layers are at their LR ceiling.
+- Mid-training (steps 500-2000): differential arms slightly BETTER than CTRL. Crossover at step 2500+ — destruction concentrated in cooldown phase. Same pattern as several other mechanism axes (H133, H125, H127 etc.).
+
+**Key mechanism findings:**
+1. **Bilateral severity asymmetry 1.85× (BOTTOM_HEAVY worse)**: bottom layers near LR ceiling, top layers have headroom. Directional depth signal survives at this decay magnitude.
+2. **AGC scale dynamics are depth-LR-coupled**: fraction_active stays 1.000 (H114 holds) but scale_mean drops 50% and max_ratio rises 2.4-3.2× in LWLRD arms. AGC partially absorbs the per-group LR differential as a compensating mechanism.
+3. **NS5+cooldown+AGC ensemble already balances depth**: LWLRD "double-counts" depth. Per-group AGC re-normalizes update magnitudes irrespective of initial_lr.
+4. **Crossover at cooldown phase**: mid-training advantage from lower mean LR disappears under cooldown — same pattern as cosine-cooldown-drain (H139) and LA (H146 pending).
+5. **H114 closure amended**: AGC clip-active fraction invariant still holds, but AGC SCALE dynamics (scale_mean, max_ratio) are depth-LR-sensitive. The H114 "AGC is invariant" statement is now precise: fraction_active is invariant, scale distribution is not.
+
+→ **H148 assigned**: Body MuonH init-sweep (ORTHOGONAL_FNORM_MATCHED / ORTHOGONAL_BOTTOM_DAMP / CTRL). Init-axis is launch-endorsed and uncharted after 15+ optimizer/schedule axes closed.
+
 ## 2026-05-25 08:45 — PR #1115: H138 Cautious AdamW for aux groups (NULL closure)
 - Branch: `g1r3-thorfinn/h138-cautious-adamw-aux`
 - Hypothesis: Applying Cautious AdamW (Wang et al. 2024, arXiv:2411.16085) to the aux optimizer groups (embed/lm_head/scalars) will improve convergence by masking updates where the current gradient and historical update disagree in sign, preventing "overshooting" in the high-LR aux groups.
