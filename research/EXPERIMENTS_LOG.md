@@ -1,5 +1,52 @@
 # SENPAI Research Results
 
+## 2026-05-25 06:15 UTC — PR #1099 CLOSED: Decoupled AdamW cooldown shape (γ_adamw=2.0 vs 1.0, body γ=1.4) — 125th NULL, Pareto-shift finding (g1r1-nezuko)
+
+- Branch: `g1r1-nezuko/decoupled-adamw-cooldown`
+- Hypothesis: Decouple AdamW cooldown γ from body Muon (which is fixed at γ=1.4 per #969 closure). Tests whether AdamW subgroups (embed lr=0.3, lm_head lr=1/160, scalars lr=0.025) benefit from a different cooldown γ than body. Two arms: γ_adamw=2.0 sharper vs γ_adamw=1.0 flatter.
+
+| Arm | γ_adamw | val/loss | Δval (mnat) | sr | Δsr | σ | Verdict | W&B |
+|---|---|---|---|---|---|---|---|---|
+| Baseline #918 | 1.4 (=body) | 3.266394 | — | 2925 | — | — | — | vm48fdof/0a7esmxs |
+| Arm A | 2.0 sharper | **3.271085** | +4.69 | 2975 | +50 | 16σ | CLEAR NULL | `7vn1axje` |
+| Arm B | 1.0 flatter | **3.265249** | **−1.15** | 2950 | +25 | 3.8σ | **Pareto-shift NULL** | `g546ir3f` |
+
+### Mechanism findings
+
+**Pareto-shift confirmation**: γ_adamw on the decoupled AdamW cooldown manifold exhibits the same trade-off as body γ (per #969 closure):
+- **γ_adamw < body γ (Arm B γ=1.0 flat)**: preserves AdamW LR longer through cooldown → embed/lm_head continue learning during cooldown phase → improves final val by 1.15 mnat (3.8σ above seed noise σ≈0.0003) BUT delays first val ≤ 3.28 crossing by +25 steps.
+- **γ_adamw > body γ (Arm A γ=2.0 sharp)**: AdamW LR decays faster than body → embed/lm_head stop adapting before body finishes converging → worse on BOTH axes.
+
+**Predeclared merge rule failure**: `sr ≤ 2912.5 OR (sr = 2925 AND val < 3.266394)`. Arm B sr=2950 satisfies neither clause. Cannot merge despite val improvement.
+
+### Pareto frontier mapping (cooldown γ axes)
+
+| Axis | PR | Optimal point | Pareto trade-off direction |
+|---|---|---|---|
+| Body γ | #969 | γ=1.4 (sr-Pareto-optimum) | γ=1.2 wins val but loses sr (#969 closure) |
+| Dual-region body | #1084 | single γ=1.4 near-Pareto-optimal | piecewise γ does not help (#1084 closure) |
+| Decoupled AdamW γ | **#1099 (this PR)** | γ_adamw=1.4=body γ (sr-Pareto-optimum) | γ_adamw=1.0 wins val but loses sr |
+
+**Canon**: Cooldown γ on any sub-axis (body, dual-region piecewise, decoupled AdamW) produces a Pareto frontier where reduced γ improves val at sr cost. The sr=2925 baseline constraint is **structurally binding** for cooldown-γ work. Future cooldown shape work must use a different parameterization (decoupled-START step, non-power cooldown functions) to escape this Pareto.
+
+### Cooldown parameter manifold full closure
+
+The cooldown manifold is now FULLY mapped:
+- γ (power exponent): #969 body axis closed, #1099 decoupled AdamW axis closed
+- cooldown_frac (cooldown duration): #1084 dual-region partial test, manifold closed
+- lr_form (functional form): #1040 lr_linear vs lr_squared closed
+- wd_form (WD coupling): #1040 closed at lr_linear
+- dual-region piecewise γ: #1084 closed (single γ optimum)
+- **Future cooldown work must move to non-manifold dimensions (decoupled start step, non-cosine non-power LR shapes, schedule-side stochasticity).**
+
+### Next assignment
+
+**nezuko → #1144** (NS_ITERS phase schedule: stable=10/cooldown=14 vs stable=14/cooldown=10) — fresh phase-dependent NS5 polar quality axis. First test of whether polar quality is phase-dependent. Cross-axis to all in-flight (#1107 polar blend, #1129 aspect-ratio, #1135 exact SVD, #1125 cov source, #1123 γ_L/γ_R asym, #1136 grad noise).
+
+SENPAI-RESULT: {"terminal":true,"status":"complete","pending_arms":false,"wandb_run_ids":["7vn1axje","g546ir3f"],"primary_metric":{"name":"val/loss","value":3.265249},"test_metric":{"name":"val/loss","value":3.265249}}
+
+---
+
 ## 2026-05-25 10:00 UTC — PR #1090 CLOSED: Focal loss for LM (γ=1.0 vs γ=2.0) — 124th NULL, 5-axis output-regularization portfolio FULLY CLOSED (g1r1-fern)
 
 - Branch: `g1r1-fern/focal-loss`
