@@ -95,6 +95,18 @@ def parse_args():
                         help="Starting value of µ schedule (used by linear and cooldown_ramp modes).")
     parser.add_argument("--muonh_mu_end", type=float, default=float(os.environ.get("MUONH_MU_END", "0.98")),
                         help="Ending value of µ schedule (used by linear and cooldown_ramp modes).")
+    # Look-Ahead body MuonH (H139/H146). Wraps the 2D body params consumed by MuonH
+    # with a slow-weights buffer; every la_k inner steps, snap fast = slow + la_alpha*(fast - slow)
+    # and copy fast back into slow. la_k=0 (default) disables Look-Ahead entirely (bit-identical
+    # to baseline). la_disable_after_step>=0 disables snapping from that step onward.
+    parser.add_argument("--la_k", type=int, default=int(os.environ.get("LA_K", "0")),
+                        help="Look-Ahead snap interval (inner-step period). 0 (default) disables "
+                             "Look-Ahead — bit-identical baseline. >0 wraps body MuonH params.")
+    parser.add_argument("--la_alpha", type=float, default=float(os.environ.get("LA_ALPHA", "0.5")),
+                        help="Look-Ahead interpolation coefficient: fast = slow + la_alpha*(fast - slow); slow = fast.")
+    parser.add_argument("--la_disable_after_step", type=int, default=int(os.environ.get("LA_DISABLE_AFTER_STEP", "-1")),
+                        help="If >= 0, disable Look-Ahead snapping from this step onward. "
+                             "Default=-1 (LA active throughout). Used to test surgical cooldown-drain removal.")
     args = parser.parse_args()
     args.num_trials = args.num_trials if args.num_trials is not None else (args.legacy_num_trials or 1)
     args.wandb_tags = [tag.strip() for tag in args.wandb_tags.split(",") if tag.strip()]
@@ -796,6 +808,9 @@ if dist.get_rank() == 0:
             "muonh_mu_schedule": args.muonh_mu_schedule,
             "muonh_mu_start": args.muonh_mu_start,
             "muonh_mu_end": args.muonh_mu_end,
+            "la_k": args.la_k,
+            "la_alpha": args.la_alpha,
+            "la_disable_after_step": args.la_disable_after_step,
         },
     )
 
@@ -862,6 +877,20 @@ for trial_idx in range(args.num_trials):
     # Inner-MuonH AGC targets: block 2D weights consumed by MuonH. Clipped BEFORE
     # the MuonH momentum buffer integrates the gradient.
     muonh_params_for_agc = [p for g in optimizer2.param_groups for p in g["params"]]
+    # Look-Ahead body MuonH (H139/H146). Wraps the same 2D body params as MuonH.
+    # la_slow is lazy-initialized at the first snap (step 0, snap_distance=0).
+    # la_k=0 keeps la_slow=None and skips the snap branch entirely.
+    if args.la_k > 0:
+        la_params = [p for g in optimizer2.param_groups for p in g["params"]]
+        la_slow: list[Tensor] | None = None
+        print0(f"Look-Ahead ENABLED: la_k={args.la_k} la_alpha={args.la_alpha} "
+               f"la_disable_after_step={args.la_disable_after_step} "
+               f"({len(la_params)} 2D body params wrapped)", console=True)
+    else:
+        la_params = []
+        la_slow = None
+        print0("Look-Ahead DISABLED (la_k=0)", console=True)
+    la_snap_count = 0
     assert set(p for opt in optimizers for group in opt.param_groups
                for p in group["params"]) == set(model.parameters())
     for opt in optimizers:
@@ -1091,6 +1120,38 @@ for trial_idx in range(args.num_trials):
         )
         for opt in optimizers:
             opt.step()
+        # Look-Ahead body MuonH snap (H139/H146). Fires at step % la_k == 0 unless
+        # disabled by la_disable_after_step. step 0 acts as a lazy-init snap with
+        # snap_distance_rms=0 by construction. All ranks hold identical body 2D
+        # params after MuonH's all_gather and aux AdamW's identical-on-all-ranks
+        # update, so each rank computes the same snap without explicit syncing.
+        if (args.la_k > 0 and step % args.la_k == 0 and
+                (args.la_disable_after_step < 0 or step < args.la_disable_after_step)):
+            la_snap_distance_rms = 0.0
+            if la_slow is None:
+                la_slow = [p.data.clone() for p in la_params]
+            else:
+                delta_sq = torch.zeros((), device=device, dtype=torch.float64)
+                total_count = 0
+                with torch.no_grad():
+                    for p, s in zip(la_params, la_slow):
+                        delta_sq = delta_sq + (p.data.float() - s.float()).square().sum().double()
+                        total_count += p.data.numel()
+                la_snap_distance_rms = float((delta_sq.item() / max(1, total_count)) ** 0.5)
+                with torch.no_grad():
+                    for p, s in zip(la_params, la_slow):
+                        # fast = slow + la_alpha * (fast - slow) = (1 - la_alpha) * slow + la_alpha * fast
+                        p.data.mul_(args.la_alpha).add_(s, alpha=1.0 - args.la_alpha)
+                        s.copy_(p.data)
+            la_snap_count += 1
+            if dist.get_rank() == 0:
+                wandb.log({
+                    "trial": trial_idx,
+                    "train/step": train_step,
+                    "train/la/snap_count": la_snap_count,
+                    "train/la/snap_distance_rms": la_snap_distance_rms,
+                    "train/la/effective_alpha": args.la_alpha,
+                }, step=wandb_step)
         # Log warmup telemetry every 10 steps during warmup (and at telemetry events
         # afterwards) so we capture the warmup curve at high resolution. Cheap since
         # it's just two floats.
