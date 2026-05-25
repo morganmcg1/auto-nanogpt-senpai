@@ -64,6 +64,10 @@ def parse_args():
     parser.add_argument("--muon_lr", type=float, default=0.035,
                         help="Base learning rate for body-Muon optimizer (matrix params in blocks). "
                              "Default 0.035 matches the merged baseline.")
+    parser.add_argument("--focal_gamma", type=float, default=0.0,
+                        help="Focal loss γ exponent for training loss. 0.0 = standard CE (no-op). "
+                             "1.0/2.0 = focal (Lin et al. 2017, arxiv:1708.02002). "
+                             "Validation always uses hard CE (benchmark contract).")
     args = parser.parse_args()
     args.num_trials = args.num_trials if args.num_trials is not None else (args.legacy_num_trials or 1)
     args.wandb_tags = [tag.strip() for tag in args.wandb_tags.split(",") if tag.strip()]
@@ -223,6 +227,10 @@ def log_training_telemetry(
     step: int,
     train_steps: int,
     wandb_step: int,
+    focal_gamma: float = 0.0,
+    train_hard_ce: float = float("nan"),
+    train_py_mean: float = float("nan"),
+    train_fw_mean: float = float("nan"),
 ):
     grads = [(name, p.grad) for name, p in model.named_parameters() if p.grad is not None]
     grad_stats = aggregate_stats(grads)
@@ -239,6 +247,13 @@ def log_training_telemetry(
         "train/grad/nonfinite_count": grad_stats.get("nonfinite_count", 0.0),
         "train/weight/global_norm_pre_update": weight_stats.get("norm", 0.0),
     }
+    if focal_gamma > 0.0:
+        metrics["train/loss_focal"] = train_loss
+        metrics["train/loss_hard_ce"] = train_hard_ce
+        metrics["train/loss_focal_minus_hard_ce"] = train_loss - train_hard_ce
+        metrics["train/p_y_mean"] = train_py_mean
+        metrics["train/focal_weight_mean"] = train_fw_mean
+        metrics["hyperparams/focal_gamma"] = focal_gamma
     weight_norm = weight_stats.get("norm", 0.0)
     if weight_norm:
         metrics["train/grad/grad_to_weight_norm"] = grad_stats.get("norm", 0.0) / weight_norm
@@ -446,13 +461,26 @@ class GPT(nn.Module):
         self.norm1 = RMSNorm(model_dim)
         self.norm2 = RMSNorm(model_dim)
 
-    def forward(self, inputs: Tensor, targets: Tensor):
+    def forward(self, inputs: Tensor, targets: Tensor, focal_gamma: float = 0.0):
         x = self.norm1(self.embed(inputs))
         for block in self.blocks:
             x = block(x)
         logits = self.proj(self.norm2(x)).float()
         logits = 15 * logits * (logits.square() + 15**2).rsqrt()
-        return F.cross_entropy(logits.view(targets.numel(), -1), targets.view(-1), reduction="sum")
+        logits_flat = logits.view(targets.numel(), -1)
+        targets_flat = targets.view(-1)
+        if focal_gamma > 0.0:
+            # Focal CE: -(1 - p_y)^γ · log(p_y), summed.
+            # Use log_softmax + gather to avoid log(exp(.)) round-trip.
+            log_p = F.log_softmax(logits_flat, dim=-1)
+            log_p_y = log_p.gather(1, targets_flat.unsqueeze(-1)).squeeze(-1)
+            p_y = log_p_y.exp()
+            focal_weight = (1.0 - p_y).pow(focal_gamma)
+            focal_loss = -(focal_weight * log_p_y).sum()
+            hard_ce = -log_p_y.sum()
+            # Return scalar tensors for distributed-safe aggregation in the train loop.
+            return focal_loss, hard_ce, p_y.sum(), focal_weight.sum()
+        return F.cross_entropy(logits_flat, targets_flat, reduction="sum")
 
 
 ########################################
@@ -720,6 +748,8 @@ if dist.get_rank() == 0:
             "ema_warmup_steps": args.ema_warmup_steps,
             "ema_beta_target": args.ema_beta_target if args.ema_beta_target is not None else 0.0,
             "ema_dynamic_ramp_active": int(args.ema_beta_target is not None and args.ema_beta > 0),
+            "focal_gamma": args.focal_gamma,
+            "focal_active": int(args.focal_gamma > 0.0),
         },
     )
 
@@ -941,8 +971,20 @@ for trial_idx in range(args.num_trials):
         # accumulate across microbatches in case we are running with fewer than 8 gpus
         assert len(inputs) % mbs == 0
         step_loss = torch.zeros((), device=device)
+        focal_active = args.focal_gamma > 0.0
+        if focal_active:
+            step_hard_ce = torch.zeros((), device=device)
+            step_py_sum = torch.zeros((), device=device)
+            step_fw_sum = torch.zeros((), device=device)
         for i in range(len(inputs) // mbs):
-            loss = model(inputs[i*mbs:(i+1)*mbs], targets[i*mbs:(i+1)*mbs])
+            if focal_active:
+                loss, hard_ce, py_sum, fw_sum = model(
+                    inputs[i*mbs:(i+1)*mbs], targets[i*mbs:(i+1)*mbs], args.focal_gamma)
+                step_hard_ce += hard_ce.detach()
+                step_py_sum += py_sum.detach()
+                step_fw_sum += fw_sum.detach()
+            else:
+                loss = model(inputs[i*mbs:(i+1)*mbs], targets[i*mbs:(i+1)*mbs])
             step_loss += loss.detach()
             loss.backward()
         for name, p in model.named_parameters():
@@ -950,6 +992,16 @@ for trial_idx in range(args.num_trials):
             dist.all_reduce(p.grad, op=dist.ReduceOp.SUM)
         dist.all_reduce(step_loss, op=dist.ReduceOp.SUM)
         train_loss = float((step_loss / batch_size).item())
+        train_hard_ce = float("nan")
+        train_py_mean = float("nan")
+        train_fw_mean = float("nan")
+        if focal_active:
+            dist.all_reduce(step_hard_ce, op=dist.ReduceOp.SUM)
+            dist.all_reduce(step_py_sum, op=dist.ReduceOp.SUM)
+            dist.all_reduce(step_fw_sum, op=dist.ReduceOp.SUM)
+            train_hard_ce = float((step_hard_ce / batch_size).item())
+            train_py_mean = float((step_py_sum / batch_size).item())
+            train_fw_mean = float((step_fw_sum / batch_size).item())
         # set optimization hyperparameters and take a step
         sched_progress, sched_cooldown_progress, sched_eta = set_hparams(step)
         train_step = step + 1
@@ -977,6 +1029,10 @@ for trial_idx in range(args.num_trials):
                 step=train_step,
                 train_steps=train_steps,
                 wandb_step=wandb_step,
+                focal_gamma=args.focal_gamma,
+                train_hard_ce=train_hard_ce,
+                train_py_mean=train_py_mean,
+                train_fw_mean=train_fw_mean,
             )
         for opt in optimizers:
             opt.step()
