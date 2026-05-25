@@ -109,6 +109,21 @@ def parse_args():
     parser.add_argument("--body_init_bottom_layers", type=int,
                         default=int(os.environ.get("BODY_INIT_BOTTOM_LAYERS", "6")),
                         help="Number of bottom layers to damp for --body_init=orthogonal_bottom_damp (default 6 = bottom half of 12 layers).")
+    # H155 MGUP-MuonH (Da Chang & Yuan, NeurIPS 2025 Spotlight): per-parameter
+    # cos(m_t, g_t) alignment-based step-size scaling on MuonH body group.
+    # 0 = disabled (bit-identical to current baseline). 1 = enabled.
+    parser.add_argument("--use_mgup", type=int,
+                        default=int(os.environ.get("USE_MGUP", "0")),
+                        help="Enable MGUP (momentum-gradient alignment selective step-size) on MuonH body group. 0 = disabled (bit-id baseline). 1 = enabled.")
+    parser.add_argument("--mgup_k", type=float,
+                        default=float(os.environ.get("MGUP_K", "0.5")),
+                        help="MGUP top-k fraction: top-k%% of body params (by cos(m,g)) get lr_high. Default 0.5 (top 50%%). Paper-robust range [0.25, 0.75].")
+    parser.add_argument("--mgup_alpha", type=float,
+                        default=float(os.environ.get("MGUP_ALPHA", "0.5")),
+                        help="MGUP high-lr boost: lr_high = lr * (1 + alpha). Default 0.5 (1.5x boost).")
+    parser.add_argument("--mgup_beta", type=float,
+                        default=float(os.environ.get("MGUP_BETA", "0.5")),
+                        help="MGUP low-lr suppression: lr_low = lr * beta. Default 0.5 (0.5x suppression). Must be > 0 to keep non-zero step.")
     args = parser.parse_args()
     args.num_trials = args.num_trials if args.num_trials is not None else (args.legacy_num_trials or 1)
     args.wandb_tags = [tag.strip() for tag in args.wandb_tags.split(",") if tag.strip()]
@@ -667,9 +682,15 @@ class MuonH(torch.optim.Optimizer):
     rescale the update to the param's current norm scale, then renormalise the
     new param back onto the sphere of radius ||initial param||. Holds Frobenius
     norm exactly constant; weight_decay must be 0.
+
+    use_mgup: if True, apply MGUP (Da Chang & Yuan, NeurIPS 2025) — compute
+    per-parameter cos(m_t, g_t) BEFORE muon_update; top-k% of body params get
+    lr * (1+alpha), bottom (1-k)% get lr * beta. Pure scalar step-size assignment
+    post-NS5; orthogonal to spectral preconditioning.
     """
     def __init__(self, params, lr=0.018, weight_decay=0.0, mu=0.95,
-                 hyperball=True, budget_mult=1.0, mode="clip"):
+                 hyperball=True, budget_mult=1.0, mode="clip",
+                 use_mgup=False, mgup_k=0.5, mgup_alpha=0.5, mgup_beta=0.5):
         assert isinstance(params, list) and len(params) >= 1 and isinstance(params[0], torch.nn.Parameter)
         assert mode in ("clip", "scale_invariant")
         params = sorted(params, key=lambda x: x.size(), reverse=True)
@@ -679,6 +700,15 @@ class MuonH(torch.optim.Optimizer):
         self._last_active_fraction = 0.0
         self._last_radius_to_norm_max = 0.0
         self._last_norm_to_radius_max = 0.0
+        # MGUP config (Da Chang & Yuan, NeurIPS 2025 Spotlight)
+        self.use_mgup = use_mgup
+        self.mgup_k = mgup_k
+        self.mgup_alpha = mgup_alpha
+        self.mgup_beta = mgup_beta
+        # MGUP telemetry
+        self._last_mgup_high_frac = 0.0
+        self._last_mgup_mean_cos = 0.0
+        self._last_mgup_threshold = 0.0
 
     @torch.no_grad()
     def step(self):
@@ -688,6 +718,55 @@ class MuonH(torch.optim.Optimizer):
         total_count_local = 0
         max_r_over_n_local = 0.0
         max_n_over_r_local = 0.0
+
+        # MGUP PRE-PASS: compute cos(m, g) for every body param BEFORE muon_update
+        # mutates momentum/grad in-place. Then compute the percentile threshold.
+        mgup_scale_by_id = {}
+        if self.use_mgup:
+            scores = []
+            scored_params = []
+            for group in self.param_groups:
+                for p in group["params"]:
+                    if p.grad is None:
+                        continue
+                    state = self.state[p]
+                    if "momentum" not in state:
+                        # Cold start (step 0): no momentum yet, mark high (use lr_high).
+                        scores.append(float("inf"))
+                        scored_params.append(p)
+                        continue
+                    m = state["momentum"]
+                    g = p.grad
+                    # Per-tensor scalar cosine similarity (paper Eq. 3 form)
+                    m_flat = m.view(-1).float()
+                    g_flat = g.view(-1).float()
+                    denom = (m_flat.norm() * g_flat.norm()).clamp_min(1e-30)
+                    cos = float((m_flat.dot(g_flat) / denom).item())
+                    scores.append(cos)
+                    scored_params.append(p)
+            if scores:
+                finite = [s for s in scores if s != float("inf")]
+                if finite:
+                    finite_sorted = sorted(finite, reverse=True)
+                    k_idx = max(0, int(self.mgup_k * len(finite_sorted)) - 1)
+                    k_idx = min(k_idx, len(finite_sorted) - 1)
+                    threshold = finite_sorted[k_idx]
+                else:
+                    threshold = -1.0
+                high_count = 0
+                cos_sum = 0.0
+                for p, s in zip(scored_params, scores):
+                    if s == float("inf") or s >= threshold:
+                        mgup_scale_by_id[id(p)] = 1.0 + self.mgup_alpha
+                        high_count += 1
+                    else:
+                        mgup_scale_by_id[id(p)] = self.mgup_beta
+                    if s != float("inf"):
+                        cos_sum += s
+                self._last_mgup_high_frac = high_count / len(scored_params)
+                self._last_mgup_mean_cos = cos_sum / max(len(finite), 1)
+                self._last_mgup_threshold = threshold
+
         for group in self.param_groups:
             params = group["params"]
             params_pad = params + [torch.empty_like(params[-1])] * (world_size - len(params) % world_size)
@@ -703,14 +782,17 @@ class MuonH(torch.optim.Optimizer):
                         if hb:
                             state["hyperball_radius"] = p.data.norm().item() * budget_mult
                     update = muon_update(p.grad, state["momentum"], mu=group["mu"])
+                    # MGUP: scale effective lr per-parameter (default 1.0 if disabled or missing)
+                    step_scale = mgup_scale_by_id.get(id(p), 1.0) if self.use_mgup else 1.0
+                    effective_lr = group["lr"] * step_scale
                     if hb and mode == "scale_invariant":
                         # Always-active variant: norm is held at initial value by construction.
-                        scale_invariant_update_(p.data, update, group["lr"])
+                        scale_invariant_update_(p.data, update, effective_lr)
                         total_count_local += 1
                         clip_count_local += 1  # by definition projection is always active
                     else:
-                        p.mul_(1 - group["lr"] * group["weight_decay"])
-                        p.add_(update, alpha=-group["lr"])
+                        p.mul_(1 - effective_lr * group["weight_decay"])
+                        p.add_(update, alpha=-effective_lr)
                         if hb:
                             R = state["hyperball_radius"]
                             norm = p.data.norm().item()
@@ -933,8 +1015,17 @@ for trial_idx in range(args.num_trials):
     optimizer2 = MuonH([p for p in model.blocks.parameters() if p.ndim >= 2],
                        lr=args.muonh_lr, weight_decay=0.0, mu=0.95,
                        hyperball=True, budget_mult=args.muonh_budget_mult,
-                       mode=args.muonh_mode)
+                       mode=args.muonh_mode,
+                       use_mgup=bool(args.use_mgup),
+                       mgup_k=args.mgup_k,
+                       mgup_alpha=args.mgup_alpha,
+                       mgup_beta=args.mgup_beta)
     optimizer2.param_groups[0]["name"] = "muonh_blocks"
+    if dist.get_rank() == 0:
+        if args.use_mgup:
+            print(f"[H155] MGUP-MuonH enabled: k={args.mgup_k} (top fraction), lr_high={1.0+args.mgup_alpha:.3f}x, lr_low={args.mgup_beta:.3f}x")
+        else:
+            print(f"[H155] MGUP disabled (bit-id baseline)")
     optimizers = [optimizer1, optimizer2]
     # AGC targets: AdamW aux groups (embed, lm_head, scalars). Built from optimizer1
     # param groups to track exactly the same params AdamW updates.
@@ -1189,6 +1280,10 @@ for trial_idx in range(args.num_trials):
                         muonh_metrics["train/muonh/active_fraction"] = opt._last_active_fraction
                         muonh_metrics["train/muonh/radius_to_norm_max"] = opt._last_radius_to_norm_max
                         muonh_metrics["train/muonh/norm_to_radius_max"] = opt._last_norm_to_radius_max
+                        if args.use_mgup:
+                            muonh_metrics["train/mgup/high_frac"] = opt._last_mgup_high_frac
+                            muonh_metrics["train/mgup/mean_cos"] = opt._last_mgup_mean_cos
+                            muonh_metrics["train/mgup/threshold"] = opt._last_mgup_threshold
                     muonh_metrics["train/muonh/warmup_factor"] = muonh_warmup_factor
                     muonh_metrics["train/muonh/effective_lr"] = opt.param_groups[0]["lr"]
             if telemetry_due and args.aux_agc_clip_ratio > 0 and agc_stats["agc_total"] > 0:
