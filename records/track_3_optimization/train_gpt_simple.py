@@ -64,6 +64,11 @@ def parse_args():
     parser.add_argument("--muon_lr", type=float, default=0.035,
                         help="Base learning rate for body-Muon optimizer (matrix params in blocks). "
                              "Default 0.035 matches the merged baseline.")
+    parser.add_argument("--muon_spectral_exp", type=float, default=0.5,
+                        help="Exponent for post-polar aspect-ratio rescaling: "
+                             "update = polar * (max(1, m/n) ** exp). "
+                             "Baseline=0.5 (Frobenius-style). "
+                             "0.0 = no rescaling, 1.0 = linear aspect-ratio scaling.")
     args = parser.parse_args()
     args.num_trials = args.num_trials if args.num_trials is not None else (args.legacy_num_trials or 1)
     args.wandb_tags = [tag.strip() for tag in args.wandb_tags.split(",") if tag.strip()]
@@ -500,6 +505,7 @@ def pmuon_update(
     ns_b: float = NS_B,
     ns_c: float = NS_C,
     polar_diag: dict | None = None,
+    spectral_exp: float = 0.5,
 ) -> Tensor:
     # Streaming raw (unnormalized) bilateral covariance EMAs in fp32.
     g32 = grad.detach().float()
@@ -529,17 +535,17 @@ def pmuon_update(
         polar_diag["residual"] = float(torch.linalg.norm(gram - eye).item())
         polar_diag["sample_rows"] = m
         polar_diag["sample_cols"] = n
-    update = polar * (max(1, grad.size(-2) / grad.size(-1)) ** 0.5)
+    update = polar * (max(1, grad.size(-2) / grad.size(-1)) ** spectral_exp)
     return update
 
 
 class Muon(torch.optim.Optimizer):
     def __init__(self, params, lr=0.02, weight_decay=0, mu=0.95, beta_cov=0.95, gamma=PMUON_GAMMA,
-                 ns_a=NS_A, ns_b=NS_B, ns_c=NS_C):
+                 ns_a=NS_A, ns_b=NS_B, ns_c=NS_C, spectral_exp=0.5):
         assert isinstance(params, list) and len(params) >= 1 and isinstance(params[0], torch.nn.Parameter)
         params = sorted(params, key=lambda x: x.size(), reverse=True)
         defaults = dict(lr=lr, weight_decay=weight_decay, mu=mu, beta_cov=beta_cov, gamma=gamma,
-                        ns_a=ns_a, ns_b=ns_b, ns_c=ns_c)
+                        ns_a=ns_a, ns_b=ns_b, ns_c=ns_c, spectral_exp=spectral_exp)
         super().__init__(params, defaults)
 
     @torch.no_grad()
@@ -550,6 +556,11 @@ class Muon(torch.optim.Optimizer):
         TARGET_UW = 0.35
         floor_fired_count = 0
         floor_eligible_count = 0
+        # Track u/w-floor activity restricted to params where m > n (i.e. the
+        # aspect-ratio-rescaled subset — MLP.fc in this model). These are the
+        # only params whose update magnitude depends on spectral_exp.
+        floor_fired_mn_count = 0
+        floor_eligible_mn_count = 0
         polar_diag: dict = {}
         for group in self.param_groups:
             params = group["params"]
@@ -574,18 +585,29 @@ class Muon(torch.optim.Optimizer):
                         ns_b=group["ns_b"],
                         ns_c=group["ns_c"],
                         polar_diag=polar_diag,
+                        spectral_exp=group.get("spectral_exp", 0.5),
                     )
                     floor_eligible_count += 1
+                    is_mn = p.shape[0] > p.shape[1]
+                    if is_mn:
+                        floor_eligible_mn_count += 1
                     w_norm = p.norm()
                     if w_norm > 0:
                         ratio = update.norm() / w_norm
                         if 0 < ratio < TARGET_UW:
                             floor_fired_count += 1
+                            if is_mn:
+                                floor_fired_mn_count += 1
                             update.mul_(TARGET_UW / ratio)
                     p.mul_(1 - group["lr"] * group["weight_decay"])
                     p.add_(update, alpha=-group["lr"])
                 dist.all_gather(params_pad[base_i:base_i + world_size], params_pad[base_i + rank])
-        self._floor_diag = {"fired": floor_fired_count, "eligible": floor_eligible_count}
+        self._floor_diag = {
+            "fired": floor_fired_count,
+            "eligible": floor_eligible_count,
+            "fired_mn": floor_fired_mn_count,
+            "eligible_mn": floor_eligible_mn_count,
+        }
         self._polar_diag = polar_diag
 
 
@@ -703,6 +725,7 @@ if dist.get_rank() == 0:
             "slope_fraction": SLOPE_FRACTION,
             # PMuon (bilateral covariance preconditioning, record #18) hyperparameters.
             "muon_lr": args.muon_lr,
+            "muon_spectral_exp": args.muon_spectral_exp,
             "muon_weight_decay": 0.025,
             "pmuon_beta_cov": 0.95,
             "pmuon_gamma": PMUON_GAMMA,
@@ -756,9 +779,11 @@ for trial_idx in range(args.num_trials):
                         dict(params=[p for p in model.parameters() if p.ndim < 2], lr=0.025, name="adam_scalars")],
                        betas=(0.8, 0.95), eps=1e-10, weight_decay=0, fused=True)
     optimizer2 = Muon([p for p in model.blocks.parameters() if p.ndim >= 2],
-                      lr=args.muon_lr, weight_decay=0.025, beta_cov=0.95, gamma=PMUON_GAMMA)
+                      lr=args.muon_lr, weight_decay=0.025, beta_cov=0.95, gamma=PMUON_GAMMA,
+                      spectral_exp=args.muon_spectral_exp)
     optimizer2.param_groups[0]["name"] = "muon_blocks"
-    print0(f"body-Muon optimizer: lr={args.muon_lr} weight_decay=0.025 beta_cov=0.95 gamma={PMUON_GAMMA}")
+    print0(f"body-Muon optimizer: lr={args.muon_lr} weight_decay=0.025 beta_cov=0.95 gamma={PMUON_GAMMA} "
+           f"spectral_exp={args.muon_spectral_exp}")
     optimizers = [optimizer1, optimizer2]
     assert set(p for opt in optimizers for group in opt.param_groups
                for p in group["params"]) == set(model.parameters())
@@ -1011,12 +1036,18 @@ for trial_idx in range(args.num_trials):
             if floor_diag is not None:
                 eligible = floor_diag.get("eligible", 0)
                 fired = floor_diag.get("fired", 0)
+                eligible_mn = floor_diag.get("eligible_mn", 0)
+                fired_mn = floor_diag.get("fired_mn", 0)
                 wandb.log({
                     "trial": trial_idx,
                     "train/step": train_step,
                     "train/uw_floor/eligible": eligible,
                     "train/uw_floor/fired": fired,
                     "train/uw_floor/fired_fraction": (fired / eligible) if eligible > 0 else 0.0,
+                    "train/uw_floor/eligible_mlp_fc": eligible_mn,
+                    "train/uw_floor/fired_mlp_fc": fired_mn,
+                    "uw_floor/fired_frac_mlp_fc": (fired_mn / eligible_mn) if eligible_mn > 0 else 0.0,
+                    "muon/spectral_exp": args.muon_spectral_exp,
                 }, step=wandb_step)
             polar_diag = getattr(optimizer2, "_polar_diag", None)
             if polar_diag and "residual" in polar_diag:
