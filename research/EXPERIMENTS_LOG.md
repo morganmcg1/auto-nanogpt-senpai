@@ -1,5 +1,41 @@
 # SENPAI Research Results
 
+## 2026-05-25 09:42 UTC — PR #1089 CLOSED: NS5-layered Shampoo body-Muon (compose Shampoo + NS5) — 123rd NULL, composition-order axis FULLY CLOSED (g1r1-alphonse)
+
+- Branch: `g1r1-alphonse/ns5-layered-shampoo`
+- Hypothesis: Compose Shampoo preconditioning with NS5 polar projection (Variant 3 from #1046 closure). Tests order-sensitivity: does shampoo_first or ns5_first survive both rank-deficiency (#985) and rank-defect (#1046) constraints?
+
+| Arm | Order | val/loss | Δval (mnat) | sr | Δsr | σ-dist | Verdict | W&B |
+|---|---|---|---|---|---|---|---|---|
+| Baseline #918 (n=2) | — | 3.266394 | — | 2925 | — | — | gate | `vm48fdof`, `0a7esmxs` |
+| **A (shampoo_first)** | NS5(Shampoo(g)) | **3.269755** | **+3.361** | **2975** | **+50** | **11σ** | **CLEAR NULL** | `vff9pulk` |
+| **B (ns5_first)** | Shampoo(NS5(g)) | **3.273024** | **+6.630** | **3050** | **+125** | **22σ** | **CLEAR NULL + sr regression** | `2mbhkkin` |
+
+**Verdict:** Full PR NULL. Both arms fail predeclared merge rule `sr ≤ 2912.5 OR (sr=2925 AND val<3.266394)`.
+
+**Key findings:**
+1. **Composition-order matters structurally.** Arm A recovers ~5.2 mnat/100 sr from #1046 pure-Shampoo residual (3.275 → 3.270). Magnitude budget 27.69 ≈ √768·1.001 (perfect 1.001× ratio). composition_cosine vs pure NS5 = **0.972** (14° additional steering from Shampoo curvature).
+2. **NS5-first is structurally destructive.** composed_update_norm = **0.524** (~50× smaller than bare NS5, ~10× smaller than predicted 5.8). Applying L^{-1/4}, R^{-1/4} AFTER NS5 destroys orthogonality and collapses magnitude. u/w-floor takes over the optimization signal entirely. **Rule out:** post-orthogonalization curvature factors are magnitude-collapsing, not tunable.
+3. **+3.4 mnat residual vs baseline persists despite composition.** Shampoo's curvature signal is mostly redundant with NS5 polar at m_pre stable rank ≈ 426 (per #1102 reframe). Cubic NS5 polar at NS_ITERS=12 already orthogonalizes nearly optimally.
+4. **Composition-order axis FULLY CLOSED.** Future preconditioner PRs (Shampoo, SOAP, AggMo variants) must NOT propose post-orthogonalization compositions — magnitude collapse is structural.
+
+**Diagnostic telemetry (post-warmup averages, gate step 500):**
+
+| metric | Arm A (shampoo_first) | Arm B (ns5_first) |
+|---|---:|---:|
+| `composed_update_norm` | 27.694 | **0.524** |
+| `shampoo_only_norm` | 6.094 | 5.700 |
+| `ns5_only_norm` | 26.625 | 22.375 |
+| `composition_cosine` (vs pure NS5(g)) | **0.9723** | 0.9021 |
+| L_cov stable rank @ gate | 11.0 / 3072 | 10.9 / 3072 |
+| R_cov stable rank @ gate | 1.60 / 768 | 1.64 / 768 |
+
+**Cross-axis canon:** #985 NS5 triple-load-bearing role REAFFIRMED via Arm B's magnitude collapse. #1046 +7 mnat residual PARTIALLY EXPLAINED via Arm A's ~5.2 mnat recovery. #1102 m_pre stable rank ≈ 426 finding CONSISTENT (Shampoo redundant with NS5 polar).
+
+**alphonse → #1133** (exact SVD polar map: replace NS5 cubic Newton at 12 iters with torch.linalg.svd; tests if ~6.7% polar/ortho_residual is load-bearing under current EMA stack).
+
+---
+
 ## 2026-05-25 07:30 UTC — PR #1084 CLOSED: Dual-region cooldown shape (γ₁/γ₂ piecewise, split=0.75) — 122nd NULL, cooldown manifold FULLY CLOSED (g1r1-edward)
 
 - Branch: `g1r1-edward/dual-region-cooldown-shape`
