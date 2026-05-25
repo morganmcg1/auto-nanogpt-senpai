@@ -414,6 +414,9 @@ class Block(nn.Module):
         x = x + self.mlp(self.norm2(x))
         return x
 
+FOCAL_CE_GAMMA = float(os.environ.get("FOCAL_CE_GAMMA", "0.0"))
+
+
 class GPT(nn.Module):
     def __init__(self, vocab_size: int, num_layers: int, model_dim: int):
         super().__init__()
@@ -422,6 +425,7 @@ class GPT(nn.Module):
         self.proj = Linear(model_dim, vocab_size)
         self.norm1 = RMSNorm(model_dim)
         self.norm2 = RMSNorm(model_dim)
+        self._focal_stats: dict[str, float] = {}
 
     def forward(self, inputs: Tensor, targets: Tensor):
         x = self.norm1(self.embed(inputs))
@@ -429,7 +433,22 @@ class GPT(nn.Module):
             x = block(x)
         logits = self.proj(self.norm2(x)).float()
         logits = LOGIT_SOFTCAP * logits * (logits.square() + LOGIT_SOFTCAP**2).rsqrt()
-        return F.cross_entropy(logits.view(targets.numel(), -1), targets.view(-1), reduction="sum")
+        flat_logits = logits.view(targets.numel(), -1)
+        flat_targets = targets.view(-1)
+        # Focal weighting is train-only; validation always uses unweighted CE so
+        # val/loss remains comparable to the benchmark target. The fused
+        # reduction="none" path avoids materializing the (B, V) log_softmax
+        # tensor (would be ~12 GiB at V=50304, B=65536, fp32).
+        if FOCAL_CE_GAMMA > 0.0 and self.training:
+            ce_per_token = F.cross_entropy(flat_logits, flat_targets, reduction="none")
+            # p_t = exp(-CE) = softmax(logits)[target]. Detach so the focal
+            # weight does not contribute to backprop (paper convention).
+            p_t = (-ce_per_token).exp().detach()
+            focal_weight = (1.0 - p_t).clamp_min(0.0).pow(FOCAL_CE_GAMMA)
+            self._last_focal_weight = focal_weight.detach()
+            self._last_p_t = p_t
+            return (focal_weight * ce_per_token).sum()
+        return F.cross_entropy(flat_logits, flat_targets, reduction="sum")
 
 
 ########################################
@@ -866,6 +885,7 @@ if dist.get_rank() == 0:
             "optimizer/attn_soap_trust_threshold": ATTN_SOAP_TRUST_THRESHOLD,
             "optimizer/ns5_iters": NS5_ITERS,
             "optimizer/wd_aux": WD_AUX,
+            "loss/focal_ce_gamma": FOCAL_CE_GAMMA,
             "optimizer/recipe": "contra-muon + normuon-lite + soap-on-mlp + soap-on-attn-trust-gate (pre-NS5, record #14 + record #16)",
         },
     )
@@ -1051,6 +1071,26 @@ for trial_idx in range(args.num_trials):
                 train_steps=train_steps,
                 wandb_step=wandb_step,
             )
+            if FOCAL_CE_GAMMA > 0.0 and hasattr(model, "_last_focal_weight"):
+                with torch.no_grad():
+                    fw = model._last_focal_weight
+                    pt = model._last_p_t
+                    n_tokens = fw.numel()
+                    fw_sum = fw.sum().item()
+                    fw_max = fw.max().clamp_min(1e-8).item()
+                    wandb.log({
+                        "trial": trial_idx,
+                        "train/step": train_step,
+                        "loss/focal_weight_mean": fw.mean().item(),
+                        "loss/focal_weight_p50": fw.median().item(),
+                        "loss/focal_weight_p99": fw.quantile(0.99).item(),
+                        "loss/focal_weight_max": fw_max,
+                        "loss/p_t_mean": pt.mean().item(),
+                        "loss/p_t_p50": pt.median().item(),
+                        "loss/p_t_p01": pt.quantile(0.01).item(),
+                        "loss/effective_token_count": fw_sum / fw_max,
+                        "loss/effective_token_fraction": (fw_sum / fw_max) / max(n_tokens, 1),
+                    }, step=wandb_step)
         for opt in optimizers:
             opt.step()
         if dist.get_rank() == 0 and telemetry_due:
