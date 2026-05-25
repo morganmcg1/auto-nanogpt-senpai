@@ -3,6 +3,29 @@
 This file logs experiment outcomes as PRs land. The historical track 3
 leaderboard is captured in `/BASELINE.md`.
 
+## 2026-05-25 13:30 UTC — PR #1127: Schedule-Free AdamW aux groups (frieren) — CLOSED productive-MARGINAL/CATASTROPHIC; SCHEDULE-REPLACEMENT-AUX axis FENCED 3-direction; cooldown structurally load-bearing; Arm D sub-threshold by 0.00012 with cooldown-NARROWING signature; **19th consecutive no-merge closure since #847**
+
+- Branch: `g1r4-frieren/aux-schedule-free`
+- Hypothesis: Schedule-Free AdamW (Defazio 2024) on aux groups — replace cosine-with-cooldown schedule with iterate-averaging y↔z dance. Tests whether SF's bias correction can match cooldown's late-training LR pressure.
+
+| Arm | run_id | β_sf | keep_cd | val/loss | Δ_vs_A | Δ_vs_baseline | fs | classification |
+|:---:|:---:|:---:|:---:|:---:|:---:|:---:|:---:|:---:|
+| A ctrl-cooldown | `xk1v2f0u` | — | — | **3.26943** | — | +0.00187 drift PASS | 3200 | clean ctrl (1.4σ unfavorable) |
+| B sf09-no-cd | `vfc723jc` | 0.9 | off | **3.29061** | **+0.02118** | +0.02305 | **−1** | **CATASTROPHIC** |
+| C sf095-no-cd | `8wwv5ga2` | 0.95 | off | **3.29142** | **+0.02199** | +0.02386 | **−1** | **CATASTROPHIC (worse than B → monotone-in-β)** |
+| D sf09-hybrid-cd | `am96kspn` | 0.9 | on | **3.26755** | **−0.00188** | −0.00001 | 3200 | sub-threshold favorable (0.00012 short) |
+
+**Arm D mechanism analysis**: trajectory at step 1250 showed Δ_D−A ≈ −0.003 (7/8 sampled steps favorable) — small consistent mid-training advantage. This NARROWED to −0.00188 at terminal. Cooldown ABSORBED 40% of the SF benefit. Mechanism support: 2/5 (fs-invariance + direction-consistent), missing monotone, group-specific, late-cooldown WIDENING (opposite — was NARROWING). Not enough for PP n=3 threshold override vs #1100's 5/5 support.
+
+**SCHEDULE-REPLACEMENT-AUX axis fenced 3-direction**:
+1. B (β=0.9 no-cooldown): CATASTROPHIC — SF averaging cannot substitute for cooldown late-LR pressure
+2. C (β=0.95 no-cooldown): CATASTROPHIC + worse → monotone-in-β confirmed slower averaging = worse
+3. D (β=0.9 + cooldown): sub-threshold favorable — SF mid-training variance reduction mechanism partially redundant with cooldown's m/v buffer smoothing
+
+**Overall reading**: aux AdamW's cosine-with-cooldown schedule is structurally load-bearing (same pattern as NS5 polar decomp on body side). SF's iterate-averaging produces small additive mid-training benefit but cooldown absorbs it; wholesale replacement catastrophic.
+
+**frieren reassigned #1175 AdamW v_min floor** — OPTIMIZER-PRESERVING modification addressing same lm_head Zipfian structure from preconditioner side (denominator floor) rather than schedule or optimizer replacement axis.
+
 ## 2026-05-25 12:30 UTC — PR #1132: Shampoo body Muon Kronecker 2nd-order preconditioner (alphonse) — CLOSED productive-NEG/CATASTROPHIC; NS5-REPLACING axis catastrophic cluster strengthens to 3-closure fence; **18th consecutive no-merge closure since #847**
 
 - Branch: `g1r4-alphonse/shampoo-body`
