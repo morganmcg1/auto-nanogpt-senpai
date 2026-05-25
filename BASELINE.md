@@ -17,6 +17,55 @@ So a single non-cherry-picked run needs `mu < 3.276`; `n=4` runs need
 
 ## Current baseline (this branch)
 
+**Merged 2026-05-25 ~16:15 UTC — PR #1157 edward H148 Body init orthogonal (F-norm matched).** Replaces random Gaussian body init (`normal_(std=0.026–0.031)`) with `torch.nn.init.orthogonal_` rescaled to preserve each weight's default F-norm exactly — thereby preserving MuonH hyperball radius (R = ‖p‖₀ × budget_mult) identically to CTRL. Isolates init-direction from init-magnitude. Persistent −0.00164 val/loss advantage holds at every single checkpoint after step 1250 (37/37 consecutive checkpoints), including through LINEAR cooldown — **first init-axis win and first cooldown-persistent-advantage in 155 hypotheses**. The win is NOT "start at sv=1.0 NS5 attractor" (arm_c gain=1.0 pure-orthogonal was SEVERE NEG 3.30295 due to uncontrolled hyperball perturbation); it is "orthogonal direction at preserved magnitude". AGC profiles arm_a vs arm_b are identical — orthogonal-direction init does not perturb the gradient-norm envelope. Stacks on all previous wins: MuLoCo × MuonH-SI + dual AGC + LR warmup + aux eps=1e-6 + aux β2=0.99 + µ-schedule (0.95→0.90) + LINEAR cooldown.
+
+| Field | Value |
+| --- | --- |
+| `train_steps` | 3325 |
+| Architecture | GPT-768/12L, vocab 50304, ctx 1024 — fixed |
+| Batch size | `8 * 64 * 1024 = 524288` tokens/step — fixed |
+| Main optimizer | `MuonH(lr=0.018, weight_decay=0, mode='scale_invariant')` on blocks ndim≥2 |
+| **Body init** | **`--body_init orthogonal_fnorm_matched`** (was `default` normal_) |
+| MuonH inner cooldown shape | `--muonh_cooldown_shape linear` |
+| MuonH µ schedule | `--muonh_mu_schedule linear --muonh_mu_start 0.95 --muonh_mu_end 0.90` |
+| Aux AdamW β2 | `--aux_beta2_schedule constant --aux_beta2_start 0.99` |
+| Aux AdamW eps | `--aux_adamw_eps 1e-6` |
+| MuonH AGC | `--muonh_agc_clip_ratio 0.05` |
+| Aux AGC | `--aux_agc_clip_ratio 0.05` |
+| MuonH warmup | `--muonh_warmup_steps 100` |
+| Outer wrapper | `MuLoCo(outer_lr=0.7, outer_momentum=0.5, sync_interval=30)` |
+| `val/loss` | **3.26364** (n=1 trial; 0.00183 below prior baseline 3.26547) |
+| `speedrun/final_first_step_to_target` | **3125** (n=1) |
+| stat margin | `(3.28 − 3.26364) × √1 = 0.01636` ≥ 0.004 ✓ |
+| Baseline W&B run | `jg6p3l50` |
+| Baseline PR | [#1157](https://github.com/morganmcg1/modded-nanogpt-senpai/pull/1157) |
+
+### Reproduce orthogonal body init + LINEAR cooldown + AGC + MuLoCo × MuonH-SI baseline
+
+```bash
+cd target/
+torchrun --standalone --nproc_per_node=1 \
+  records/track_3_optimization/train_gpt_simple.py \
+  --num_trials 1 --train_steps 3325 \
+  --muonh_mode scale_invariant \
+  --muonh_cooldown_shape linear \
+  --muonh_warmup_steps 100 \
+  --use_outer_optimizer 1 \
+  --outer_lr 0.7 --outer_momentum 0.5 --sync_interval 30 \
+  --aux_agc_clip_ratio 0.05 \
+  --muonh_agc_clip_ratio 0.05 \
+  --aux_adamw_eps 1e-6 \
+  --aux_beta2_schedule constant --aux_beta2_start 0.99 \
+  --muonh_mu_schedule linear --muonh_mu_start 0.95 --muonh_mu_end 0.90 \
+  --body_init orthogonal_fnorm_matched \
+  --wandb_name "g1r3-<student>/h148-baseline-confirm" \
+  --wandb_group "g1r3-h148-baseline-confirm"
+```
+
+---
+
+## Previous baseline — PR #1097 fern H133 Inner MuonH LR cooldown SHAPE = linear (2026-05-25 ~06:20 UTC)
+
 **Merged 2026-05-25 ~06:20 UTC — PR #1097 fern H133 Inner MuonH LR cooldown SHAPE = linear (frac=1.0).** Swaps inner LR cooldown shape from cosine to **linear** via `--muonh_cooldown_shape linear`. The first programme-level **shape** finding since the baseline was set at H117 — breaks a 14+ consecutive non-merging closure plateau. Mechanism: cosine cooldown's `eta = 0.5(1 − cos(πc))` derivative goes to zero as c→0 (LR drops too steeply at end), while linear cooldown's constant slope preserves useful gradient signal through the last ~325 steps. U-shaped lead profile observed (arm_b LEADS through step 1500, deficits step 2000–3000, recovers and overtakes for terminal WIN). Falsifies H125 mid-training-lead-erosion generalization to the SHAPE axis (sqrt's higher mid-training LR actively destroys trajectory). Composes with H117 µ-schedule baseline. Stacks on top of all previous wins: MuLoCo × MuonH-SI + dual AGC + LR warmup + aux eps=1e-6 + aux β2=0.99 + µ-schedule (0.95→0.90).
 
 | Field | Value |
