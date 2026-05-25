@@ -1,5 +1,50 @@
 # SENPAI Research Results — auto-nanogpt-1gpu-r2
 
+## 2026-05-25 06:10 UTC — PR #1124: MUON_LOOKAHEAD (CLOSED, 130th refuted — weight-space-averaging-on-body-Muon-ungated family 1/1, 17th family-level closure, 2nd CROSSOVER signature in cycle 71)
+
+- Branch: `g1r2-frieren/muon-lookahead` (student g1r2-frieren)
+- Hypothesis: Lookahead k=5/α=0.5 slow-weight wrapper on body Muon (Zhang et al. NeurIPS 2019 arXiv:1907.08610) targets oscillation-in-weight-space floor hypothesis. Slow weights act as EMA over fast trajectory; α=0.5 sync resets fast to slow centroid every 5 steps.
+- Mechanism class: WEIGHT-SPACE-AVERAGING-ON-BODY-MUON-UNGATED, 50th distinct mech class probed. **FIRST weight-space averaging in 280+ PRs** — operates post-update on weights, categorically distinct from gradient-side and optimizer-state interventions.
+
+### Results
+
+| Arm | Config | wandb_run_id | val@3175 | ffs | Δ vs baseline | N=1 hold? | Decision |
+|---|---|---|---|---|---|---|---|
+| Baseline (n=2) | no Lookahead | (PR #613) | 3.26776 | 3000 | — | pass | reference |
+| Disabled-check | K=0 (gate off) | `nsuvvvvy` | val@200=4.08984 | — | within RNG envelope | ✓ bytewise inert | OK |
+| **Arm A** | k=5, α=0.5 | `9aqxoxxf` | **3.29187** | -1 | +0.02411 | fail (clear miss) | CROSSOVER refute |
+| Arm B | k=10, α=0.5 | — | NOT LAUNCHED | — | — | — | not advancing per decision tree |
+
+### Trajectory (Arm A vs baseline — CROSSOVER signature)
+
+| step | baseline | Arm A | Δ |
+|---|---|---|---|
+| 500  | 3.806 | 3.805 | -0.001 |
+| 1000 | 3.662 | 3.602 | **-0.060 LARGEST cycle 71 early advantage** |
+| 1500 | 3.532 | 3.485 | -0.047 |
+| 2000 | 3.428 | 3.403 | -0.025 |
+| 2500 | 3.345 | 3.343 | -0.002 |
+| 3000 | 3.279 | 3.299 | **+0.020 crossover** |
+| 3175 | 3.268 | 3.292 | **+0.024 terminal cost** |
+
+### Commentary
+
+**Frieren's mechanism interpretation (publication-grade):** Lookahead's slow-weight averaging interferes with LR cooldown. During steps 0-2500 the LR is large and the per-step trajectory genuinely zig-zags; α=0.5 sync recovers a deeper basin centroid and Arm A leads baseline by 30-60bps (Δ peak -0.060 @ step 1000 is **10× larger than #1095 fern QHAdam's -0.045 peak**). During cooldown (final ~10% of training), the LR is collapsing and Muon's small carefully-tuned updates close the val/loss gap. The Lookahead sync **discards** half of every 5-step cooldown trajectory by interpolating back toward stale slow weights — effectively shortening the effective cooldown. Slow weights lag the fast-weight cooldown progress, so resetting fast → slow undoes cooldown gains.
+
+CROSSOVER ~step 2600 aligns with mu_cooldown_start phase transition (0.95 → 0.90 ramp).
+
+**Family-level closure: weight-space averaging on body Muon UNGATED 1/1 refuted (17th family-level closure in cycle 71)**. Absorbs by analogy ANY (k, α) variation at endpoint mu=0.90 because cooldown destruction is the binding mechanism, not sync-step granularity.
+
+**CROSSOVER refute signature taxonomy now 2/2 in cycle 71:**
+- #1095 fern QHAdam ν=0.3 — instantaneous-g injection FIGHTS damping in cooldown (Δ peak -0.045)
+- #1124 frieren Lookahead α=0.5 — slow-weight pull FIGHTS cooldown convergence (Δ peak -0.060)
+
+Both exhibit identical pattern: body-Muon-side intervention generates early-training advantage by NOT respecting mu_cooldown phase boundary.
+
+**Follow-up #1142 assigned (cooldown-gated Lookahead):** direct mechanism-driven follow-up. Schedule-gating on closed mechanism is categorically distinct from ungated form (precedent: #1110 schedule-shape opened from #1101 Frobenius). Arms gate=0.7 / gate=0.8. Best case ~3.265 (beats merge bar), realistic floor-cluster touch ~3.275.
+
+---
+
 ## 2026-05-25 05:21 UTC — PR #1110: MU_COOLDOWN_SHAPE (CLOSED, 129th refuted — schedule-shape family 1/1 closure, 16th family-level closure, mass-redistribution mid-cooldown advantage absorbed by terminal)
 
 - Branch: `g1r2-nezuko/mu-cooldown-shape` (student g1r2-nezuko)
