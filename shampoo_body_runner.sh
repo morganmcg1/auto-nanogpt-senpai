@@ -49,7 +49,14 @@ run_arm() {
   export NANOGPT_SHAMPOO_BETA=0.95
   export NANOGPT_SHAMPOO_LR_SCALE="${shampoo_lr_scale}"
   export NANOGPT_SHAMPOO_PERIOD="${shampoo_period}"
-  export NANOGPT_SHAMPOO_EPS=1e-12
+  # NOTE: rebuilt after #1132 initial divergence. Stable-Shampoo defaults:
+  # eps=1e-6 (identity-init scale + absolute floor), ridge_rel=1e-6 (relative
+  # ridge damping in matrix_inverse_root), GRAFT=1 (Frobenius-norm graft of
+  # Shampoo direction onto NS5 reference magnitude = sqrt(d_out)). Old buggy
+  # config used eps=1e-12 with no ridge and no graft → diverged at step 1.
+  export NANOGPT_SHAMPOO_EPS=1e-6
+  export NANOGPT_SHAMPOO_RIDGE_REL=1e-6
+  export NANOGPT_SHAMPOO_GRAFT=1
   echo "=== ARM ${arm_label} | BODY_OPT=${body_opt} LR_SCALE=${shampoo_lr_scale} PERIOD=${shampoo_period} | $(date -u +%H:%M:%S) ===" | tee -a "${logfile}"
   torchrun --standalone --nproc_per_node=1 \
     records/track_3_optimization/train_gpt_simple.py \

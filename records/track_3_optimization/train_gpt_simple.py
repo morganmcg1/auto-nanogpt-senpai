@@ -609,7 +609,30 @@ if NANOGPT_BODY_OPT not in _VALID_BODY_OPTS:
 NANOGPT_SHAMPOO_BETA = float(os.environ.get("NANOGPT_SHAMPOO_BETA", "0.95"))
 NANOGPT_SHAMPOO_PERIOD = int(os.environ.get("NANOGPT_SHAMPOO_PERIOD", "200"))
 NANOGPT_SHAMPOO_LR_SCALE = float(os.environ.get("NANOGPT_SHAMPOO_LR_SCALE", "0.5"))
-NANOGPT_SHAMPOO_EPS = float(os.environ.get("NANOGPT_SHAMPOO_EPS", "1e-12"))
+# Floor eps (absolute) used both as L/R identity-init scale and as a minimum
+# damping ridge. Default 1e-6 is appropriate for float32 eigendecomp; 1e-12 is
+# only appropriate for float64.
+NANOGPT_SHAMPOO_EPS = float(os.environ.get("NANOGPT_SHAMPOO_EPS", "1e-6"))
+# Relative ridge ratio applied as damping = ridge_rel * max(eigval, 1e-16) before
+# the inverse-root power. Keeps Shampoo's update magnitude bounded under
+# rank-deficient L,R (which is the typical regime for transformer training where
+# 1/(1-beta) effective EMA samples << d).
+NANOGPT_SHAMPOO_RIDGE_REL = float(os.environ.get("NANOGPT_SHAMPOO_RIDGE_REL", "1e-6"))
+# When 1 (default), graft the Shampoo direction onto the NS5 update magnitude
+# (target Frobenius norm = sqrt(d_out)). When 0, retain the raw `L^{-1/4} G R^{-1/4}`
+# magnitude (the old, divergent path — provided only for diagnostic isolation).
+NANOGPT_SHAMPOO_GRAFT = int(os.environ.get("NANOGPT_SHAMPOO_GRAFT", "1"))
+# Number of training steps to run NS5 (Muon) updates while accumulating L,R Gram
+# EMAs in the Shampoo state. After this many steps, the body switches to the
+# Shampoo update L^{-1/4} G R^{-1/4}. Default 100 because with beta=0.95 the EMA
+# has 1/(1-beta)=20 effective samples by step 100 — enough to produce a
+# non-trivial L,R spectrum so the Shampoo update direction differs meaningfully
+# from a normalized raw gradient. Diagnostic finding (smoke v3 #1132): in early
+# training the L,R Gram matrices are dominated by the eps*I init (because
+# post-clip body grads are tiny), making the Shampoo direction collapse to a
+# Frobenius-normalized raw gradient. That direction is NOT orthogonalized like
+# NS5 and destroys the model on the first few steps when full-LR is applied.
+NANOGPT_SHAMPOO_WARMUP_STEPS = int(os.environ.get("NANOGPT_SHAMPOO_WARMUP_STEPS", "100"))
 
 
 def get_ns_coef_at_iter(iter_idx: int, total_iters: int, schedule: str) -> tuple[float, float, float]:
@@ -720,97 +743,164 @@ def muon_update(grad, momentum, v, ns_iters: int, mu=0.95, beta2=0.999, eps=1e-8
     return update
 
 
-def matrix_inverse_root(M: Tensor, p: float, eps: float) -> Tensor:
+def matrix_inverse_root(M: Tensor, p: float, eps: float,
+                        ridge_rel: float = 0.0) -> tuple[Tensor, dict]:
     """Compute M^p for symmetric positive (semi-)definite M via eigendecomposition.
 
-    Clips eigenvalues to eps before raising to power p so near-zero eigenvalues
-    do not produce division-by-zero in the inverse-root branch (p < 0).
+    Adds a relative ridge `damping = ridge_rel * max(eigval_max, 1e-16)` to all
+    eigenvalues before clamping to `eps` (absolute floor) and raising to power p.
+    The relative ridge is the canonical Shampoo (Anil/Gupta 2018, Distributed
+    Shampoo, Optax) stabilization that keeps `M^p` bounded under rank-deficient
+    Gram matrices — without it, near-zero eigenvalues raised to a negative power
+    blow the inverse up by 10^9–10^12.
+
+    Returns the inverse-root matrix and a dict of telemetry (raw min/max eigvals,
+    damping applied, post-damp condition number).
     """
     # symmetrize defensively in case accumulated float32 rounding broke symmetry
     Msym = 0.5 * (M + M.T)
     eigvals, eigvecs = torch.linalg.eigh(Msym)
-    eigvals_clipped = torch.clamp(eigvals, min=eps)
+    e_min = float(eigvals.min().item())
+    e_max = float(eigvals.max().item())
+    damping = ridge_rel * max(e_max, 1e-16)
+    # Apply relative ridge in eigenvalue space (equivalent to M + damping*I).
+    eigvals_damped = eigvals + damping
+    eigvals_clipped = torch.clamp(eigvals_damped, min=max(eps, damping))
     roots = eigvals_clipped.pow(p)
-    return (eigvecs * roots.unsqueeze(0)) @ eigvecs.T
+    inv = (eigvecs * roots.unsqueeze(0)) @ eigvecs.T
+    e_min_post = float(eigvals_clipped.min().item())
+    e_max_post = float(eigvals_clipped.max().item())
+    telemetry = {
+        "eigval_min_raw": e_min,
+        "eigval_max_raw": e_max,
+        "damping": damping,
+        "eigval_min_post": e_min_post,
+        "eigval_max_post": e_max_post,
+        "cond_post": e_max_post / max(e_min_post, 1e-30),
+    }
+    return inv, telemetry
+
+
+def shampoo_accumulate_grams(grad: Tensor, state: dict, beta: float, eps: float) -> int:
+    """Accumulate L,R Gram-matrix EMAs for the Shampoo state.
+
+    Called every step including during the NS5 warmup phase so the Gram matrices
+    are populated before the Shampoo path takes over. Returns the new internal
+    step index (state["step"]) after incrementing.
+    """
+    assert grad.ndim == 2
+    d_out, d_in = grad.shape
+    device = grad.device
+    if "L" not in state:
+        # Identity-scaled init: ensures the first eigendecomp operates on a
+        # well-conditioned matrix. The identity prior decays as beta^step and is
+        # dominated by accumulated gg^T after the first few EMA updates.
+        state["L"] = eps * torch.eye(d_out, device=device, dtype=torch.float32)
+        state["R"] = eps * torch.eye(d_in, device=device, dtype=torch.float32)
+        state["L_inv"] = torch.eye(d_out, device=device, dtype=torch.float32)
+        state["R_inv"] = torch.eye(d_in, device=device, dtype=torch.float32)
+        state["step"] = 0
+    g32 = grad.to(torch.float32)
+    state["L"].mul_(beta).add_(g32 @ g32.T, alpha=1.0 - beta)
+    state["R"].mul_(beta).add_(g32.T @ g32, alpha=1.0 - beta)
+    state["step"] += 1
+    return state["step"]
 
 
 def shampoo_update(grad: Tensor, state: dict, beta: float, period: int,
-                   eps: float, lr_scale_norm: bool = True) -> Tensor:
+                   eps: float, ridge_rel: float, graft_to_ns5: bool,
+                   warmup_steps: int = 0) -> Tensor:
     """Compute one Shampoo (Anil 2018) preconditioned update direction for a 2D param.
 
-    Maintains EMAs of L = E[G G^T] (d_out x d_out) and R = E[G^T G] (d_in x d_in)
-    Gram matrices in float32. Every `period` steps it recomputes L^{-1/4} and
-    R^{-1/4} via eigendecomp and clipping. The returned update has the same
-    dtype as `grad` and the same shape, ready to be added with -lr.
+    Stabilized version of canonical Shampoo (Anil/Gupta 2018) with three
+    Distributed-Shampoo-style modifications that are required for stability under
+    rank-deficient L,R (the typical regime for transformer training where
+    1/(1-beta) ~ 20 effective EMA samples is far below d ~ 768):
 
-    Telemetry written into `state["telemetry"]` for the most recent step.
+    1. L,R initialized as `eps * I` instead of zeros so the first eigendecomp
+       sees a non-singular matrix.
+    2. Relative ridge damping inside matrix_inverse_root keeps the inverse-root
+       bounded even when the Gram matrix is essentially rank-deficient.
+    3. Frobenius-norm grafting onto the NS5 reference magnitude
+       (||u||_F = sqrt(d_out)) so the update inherits NS5's well-tuned LR
+       schedule (Anil 2018 §4 / Scalable Shampoo / Distributed Shampoo all use
+       Adam grafting; we graft onto NS5 because that's the existing baseline).
+
+    The L,R Gram EMAs must already have been accumulated for this step via
+    `shampoo_accumulate_grams` — this function only reads them and (if recompute
+    is due) updates L_inv, R_inv, then applies the preconditioner.
+
+    `warmup_steps` is the number of initial NS5-warmup steps that preceded this
+    Shampoo step; it is used to anchor the recompute schedule so the FIRST
+    Shampoo step always triggers a recompute (otherwise L_inv/R_inv would still
+    be the identity matrices from initialization).
+
+    Telemetry written into `state["telemetry_*"]` keys for the most recent step
+    (per-param so the W&B aggregator can max/min across params).
     """
     assert grad.ndim == 2, f"shampoo_update expects 2D grad, got shape {tuple(grad.shape)}"
     d_out, d_in = grad.shape
     grad_dtype = grad.dtype
-    device = grad.device
-
-    if "L" not in state:
-        state["L"] = torch.zeros(d_out, d_out, device=device, dtype=torch.float32)
-        state["R"] = torch.zeros(d_in, d_in, device=device, dtype=torch.float32)
-        state["L_inv"] = torch.eye(d_out, device=device, dtype=torch.float32)
-        state["R_inv"] = torch.eye(d_in, device=device, dtype=torch.float32)
-        state["step"] = 0
 
     g32 = grad.to(torch.float32)
     L = state["L"]
     R = state["R"]
-    # EMA accumulation of Gram matrices. (1 - beta) weight on the fresh sample.
-    L.mul_(beta).add_(g32 @ g32.T, alpha=1.0 - beta)
-    R.mul_(beta).add_(g32.T @ g32, alpha=1.0 - beta)
-    state["step"] += 1
     step_idx = state["step"]
 
-    recompute = (step_idx % period == 0) or (step_idx == 1)
+    first_shampoo_step = warmup_steps + 1
+    # Recompute on the FIRST Shampoo step (must update L_inv/R_inv away from
+    # identity initialization), then every `period` steps anchored to that step.
+    steps_since_first = step_idx - first_shampoo_step
+    recompute = (step_idx == first_shampoo_step) or (
+        steps_since_first >= 0 and steps_since_first % period == 0
+    )
     if recompute:
         t0 = torch.cuda.Event(enable_timing=True)
         t1 = torch.cuda.Event(enable_timing=True)
         t0.record()
-        state["L_inv"] = matrix_inverse_root(L, -0.25, eps=eps)
-        state["R_inv"] = matrix_inverse_root(R, -0.25, eps=eps)
+        L_inv, L_tele = matrix_inverse_root(L, -0.25, eps=eps, ridge_rel=ridge_rel)
+        R_inv, R_tele = matrix_inverse_root(R, -0.25, eps=eps, ridge_rel=ridge_rel)
+        state["L_inv"] = L_inv
+        state["R_inv"] = R_inv
         t1.record()
         # Single sync per recompute (cheap because period is large).
         torch.cuda.synchronize()
         state["telemetry_eig_ms"] = float(t0.elapsed_time(t1))
         state["telemetry_recompute_step"] = int(step_idx)
-        # Eigenvalue spectrum stats from the latest eigendecomp (post-clip view).
-        Lsym = 0.5 * (L + L.T)
-        Rsym = 0.5 * (R + R.T)
-        try:
-            Levs = torch.linalg.eigvalsh(Lsym)
-            Revs = torch.linalg.eigvalsh(Rsym)
-            L_min = float(Levs.min().item())
-            L_max = float(Levs.max().item())
-            R_min = float(Revs.min().item())
-            R_max = float(Revs.max().item())
-            L_min_c = max(L_min, eps)
-            R_min_c = max(R_min, eps)
-            state["telemetry_L_min"] = L_min
-            state["telemetry_L_max"] = L_max
-            state["telemetry_R_min"] = R_min
-            state["telemetry_R_max"] = R_max
-            state["telemetry_L_cond"] = float(L_max / L_min_c)
-            state["telemetry_R_cond"] = float(R_max / R_min_c)
-        except Exception:
-            pass
+        state["telemetry_L_min"] = L_tele["eigval_min_raw"]
+        state["telemetry_L_max"] = L_tele["eigval_max_raw"]
+        state["telemetry_R_min"] = R_tele["eigval_min_raw"]
+        state["telemetry_R_max"] = R_tele["eigval_max_raw"]
+        state["telemetry_L_damping"] = L_tele["damping"]
+        state["telemetry_R_damping"] = R_tele["damping"]
+        # Condition number after damping (the metric that actually matters for
+        # update magnitude bound — pre-damping cond is meaningless when ridge_rel>0).
+        state["telemetry_L_cond"] = L_tele["cond_post"]
+        state["telemetry_R_cond"] = R_tele["cond_post"]
 
     L_inv = state["L_inv"]
     R_inv = state["R_inv"]
     update32 = L_inv @ g32 @ R_inv
+
+    if graft_to_ns5:
+        # Frobenius-norm graft onto NS5's update magnitude: ||NS5(g) * fan_in||_F
+        # = sqrt(d_out) (verified: max(1, d_out/d_in)**0.5 * sqrt(d_min) = sqrt(d_out)
+        # in all body-matrix shapes). This is the magnitude reference; lr_scale=1.0
+        # means the same effective body LR as the NS5 baseline.
+        target_fro = d_out ** 0.5
+        cur_fro = update32.norm().clamp_min(1e-12)
+        update32 = update32 * (target_fro / cur_fro)
+    else:
+        # Diagnostic / legacy path: keep the raw L^{-1/4} G R^{-1/4} magnitude
+        # plus the NS5 fan-in scaling. This is the divergent path; only retained
+        # so future ablations can isolate the graft contribution.
+        update32 = update32 * (max(1, d_out / d_in) ** 0.5)
+
     if recompute:
         # Update RMS computed only when recompute is happening so we avoid a
         # per-step GPU→CPU sync that adds ~1.5s/step (72 params × .item()).
         state["telemetry_update_rms"] = float(update32.square().mean().sqrt().item())
-
-    if lr_scale_norm:
-        # Inherit the same fan-in/fan-out scaling that NS5 path uses so the
-        # body Muon LR schedule remains the canonical operating point.
-        update32 *= max(1, d_out / d_in) ** 0.5
+        state["telemetry_update_fro"] = float(update32.norm().item())
 
     return update32.to(grad_dtype)
 
@@ -866,24 +956,62 @@ class Muon(torch.optim.Optimizer):
                     p = params[base_i + rank]
                     state = self.state[p]
                     if use_shampoo:
-                        update = shampoo_update(
+                        # Always accumulate L,R EMAs — during warmup *and* during
+                        # the active Shampoo phase. This means by the time we
+                        # switch from NS5 warmup to Shampoo, L,R have been
+                        # populated for `warmup_steps` of training and have a
+                        # non-trivial spectrum (not just eps*I).
+                        shampoo_step_idx = shampoo_accumulate_grams(
                             p.grad, state,
                             beta=NANOGPT_SHAMPOO_BETA,
-                            period=NANOGPT_SHAMPOO_PERIOD,
                             eps=NANOGPT_SHAMPOO_EPS,
                         )
-                        if spectral_target is not None and p is spectral_target:
-                            self.shampoo_stats = {
-                                "L_cond": state.get("telemetry_L_cond", float("nan")),
-                                "R_cond": state.get("telemetry_R_cond", float("nan")),
-                                "L_eigval_min": state.get("telemetry_L_min", float("nan")),
-                                "L_eigval_max": state.get("telemetry_L_max", float("nan")),
-                                "R_eigval_min": state.get("telemetry_R_min", float("nan")),
-                                "R_eigval_max": state.get("telemetry_R_max", float("nan")),
-                                "update_rms": state.get("telemetry_update_rms", float("nan")),
-                                "recompute_step": state.get("telemetry_recompute_step", -1),
-                                "eigendecomp_time_ms": state.get("telemetry_eig_ms", float("nan")),
-                            }
+                        in_warmup = shampoo_step_idx <= NANOGPT_SHAMPOO_WARMUP_STEPS
+                        if in_warmup:
+                            # NS5 path during warmup — uses its own momentum/v
+                            # state stored alongside the Shampoo L/R state. The
+                            # body LR is already scaled by lr_scale at optimizer
+                            # construction so we don't double-scale here.
+                            if "momentum" not in state:
+                                state["momentum"] = torch.zeros_like(p)
+                                state["v"] = torch.zeros_like(p)
+                            update = muon_update(p.grad, state["momentum"], state["v"],
+                                                 ns_iters=ns_iters,
+                                                 mu=group["mu"], beta2=group["beta2"], eps=group["eps"])
+                            if spectral_target is not None and p is spectral_target:
+                                self.shampoo_stats = {
+                                    "in_warmup": 1.0,
+                                    "warmup_steps_remaining": float(
+                                        NANOGPT_SHAMPOO_WARMUP_STEPS - shampoo_step_idx),
+                                    "shampoo_step_idx": float(shampoo_step_idx),
+                                }
+                        else:
+                            update = shampoo_update(
+                                p.grad, state,
+                                beta=NANOGPT_SHAMPOO_BETA,
+                                period=NANOGPT_SHAMPOO_PERIOD,
+                                eps=NANOGPT_SHAMPOO_EPS,
+                                ridge_rel=NANOGPT_SHAMPOO_RIDGE_REL,
+                                graft_to_ns5=(NANOGPT_SHAMPOO_GRAFT != 0),
+                                warmup_steps=NANOGPT_SHAMPOO_WARMUP_STEPS,
+                            )
+                            if spectral_target is not None and p is spectral_target:
+                                self.shampoo_stats = {
+                                    "in_warmup": 0.0,
+                                    "shampoo_step_idx": float(shampoo_step_idx),
+                                    "L_cond": state.get("telemetry_L_cond", float("nan")),
+                                    "R_cond": state.get("telemetry_R_cond", float("nan")),
+                                    "L_eigval_min": state.get("telemetry_L_min", float("nan")),
+                                    "L_eigval_max": state.get("telemetry_L_max", float("nan")),
+                                    "R_eigval_min": state.get("telemetry_R_min", float("nan")),
+                                    "R_eigval_max": state.get("telemetry_R_max", float("nan")),
+                                    "L_damping": state.get("telemetry_L_damping", float("nan")),
+                                    "R_damping": state.get("telemetry_R_damping", float("nan")),
+                                    "update_rms": state.get("telemetry_update_rms", float("nan")),
+                                    "update_fro": state.get("telemetry_update_fro", float("nan")),
+                                    "recompute_step": state.get("telemetry_recompute_step", -1),
+                                    "eigendecomp_time_ms": state.get("telemetry_eig_ms", float("nan")),
+                                }
                     else:
                         if len(state) == 0:
                             state["momentum"] = torch.zeros_like(p)
@@ -965,7 +1093,10 @@ print0(f"BODY_OPT: {NANOGPT_BODY_OPT} "
        console=True)
 if NANOGPT_BODY_OPT == "shampoo":
     print0(f"  SHAMPOO: beta={NANOGPT_SHAMPOO_BETA} period={NANOGPT_SHAMPOO_PERIOD} "
-           f"lr_scale={NANOGPT_SHAMPOO_LR_SCALE} eps={NANOGPT_SHAMPOO_EPS}", console=True)
+           f"lr_scale={NANOGPT_SHAMPOO_LR_SCALE} eps={NANOGPT_SHAMPOO_EPS} "
+           f"ridge_rel={NANOGPT_SHAMPOO_RIDGE_REL} "
+           f"graft_to_ns5={'ON' if NANOGPT_SHAMPOO_GRAFT != 0 else 'OFF'} "
+           f"warmup_steps={NANOGPT_SHAMPOO_WARMUP_STEPS}", console=True)
     print0(f"  Effective Shampoo body LRs: attn={0.035*NANOGPT_MUON_ATTN_LR_MULT*NANOGPT_SHAMPOO_LR_SCALE:.5f} "
            f"mlp={0.035*NANOGPT_MUON_MLP_LR_MULT*NANOGPT_SHAMPOO_LR_SCALE:.5f}", console=True)
 if NS_ITERS_COOLDOWN > 0:
@@ -1045,6 +1176,9 @@ if dist.get_rank() == 0:
             "nanogpt_shampoo_period": NANOGPT_SHAMPOO_PERIOD,
             "nanogpt_shampoo_lr_scale": NANOGPT_SHAMPOO_LR_SCALE,
             "nanogpt_shampoo_eps": NANOGPT_SHAMPOO_EPS,
+            "nanogpt_shampoo_ridge_rel": NANOGPT_SHAMPOO_RIDGE_REL,
+            "nanogpt_shampoo_graft": NANOGPT_SHAMPOO_GRAFT,
+            "nanogpt_shampoo_warmup_steps": NANOGPT_SHAMPOO_WARMUP_STEPS,
         },
     )
 
@@ -1491,13 +1625,20 @@ for trial_idx in range(args.num_trials):
                 "train/shampoo/lr_scale": NANOGPT_SHAMPOO_LR_SCALE,
                 "train/shampoo/beta": NANOGPT_SHAMPOO_BETA,
                 "train/shampoo/period": NANOGPT_SHAMPOO_PERIOD,
+                "train/shampoo/warmup_steps": NANOGPT_SHAMPOO_WARMUP_STEPS,
+                # Whether the body is currently in the NS5-warmup phase. Read
+                # from the per-param shampoo_step counter: if any body param
+                # has step <= warmup, the body group is still warming up.
+                "train/shampoo/in_warmup": int(train_step <= NANOGPT_SHAMPOO_WARMUP_STEPS),
             }
             # Aggregate across all body params using cached per-state telemetry.
             L_conds = []
             R_conds = []
             L_mins, L_maxs = [], []
             R_mins, R_maxs = [], []
+            L_damps, R_damps = [], []
             update_rmss = []
+            update_fros = []
             eig_mss = []
             recompute_steps = []
             for st in optimizer2.state.values():
@@ -1513,8 +1654,14 @@ for trial_idx in range(args.num_trials):
                     R_mins.append(st["telemetry_R_min"])
                 if "telemetry_R_max" in st:
                     R_maxs.append(st["telemetry_R_max"])
+                if "telemetry_L_damping" in st:
+                    L_damps.append(st["telemetry_L_damping"])
+                if "telemetry_R_damping" in st:
+                    R_damps.append(st["telemetry_R_damping"])
                 if "telemetry_update_rms" in st:
                     update_rmss.append(st["telemetry_update_rms"])
+                if "telemetry_update_fro" in st:
+                    update_fros.append(st["telemetry_update_fro"])
                 if "telemetry_eig_ms" in st:
                     eig_mss.append(st["telemetry_eig_ms"])
                 if "telemetry_recompute_step" in st:
@@ -1533,9 +1680,18 @@ for trial_idx in range(args.num_trials):
                 shampoo_metrics["train/shampoo_R_eigval_min"] = min(R_mins)
             if R_maxs:
                 shampoo_metrics["train/shampoo_R_eigval_max"] = max(R_maxs)
+            if L_damps:
+                shampoo_metrics["train/shampoo_L_damping_max"] = max(L_damps)
+                shampoo_metrics["train/shampoo_L_damping_min"] = min(L_damps)
+            if R_damps:
+                shampoo_metrics["train/shampoo_R_damping_max"] = max(R_damps)
+                shampoo_metrics["train/shampoo_R_damping_min"] = min(R_damps)
             if update_rmss:
                 shampoo_metrics["train/shampoo_update_rms"] = sum(update_rmss) / len(update_rmss)
                 shampoo_metrics["train/shampoo_update_rms_max"] = max(update_rmss)
+            if update_fros:
+                shampoo_metrics["train/shampoo_update_fro_max"] = max(update_fros)
+                shampoo_metrics["train/shampoo_update_fro_mean"] = sum(update_fros) / len(update_fros)
             if eig_mss:
                 shampoo_metrics["train/shampoo_eigendecomp_time_ms"] = sum(eig_mss)
             if recompute_steps:
