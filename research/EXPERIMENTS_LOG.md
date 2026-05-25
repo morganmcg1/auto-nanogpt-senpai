@@ -3,6 +3,35 @@
 This file logs experiment outcomes as PRs land. The historical track 3
 leaderboard is captured in `/BASELINE.md`.
 
+## 2026-05-25 12:00 UTC — PR #1122: Body Muon AggMo K-bank multi-β (thorfinn) — CLOSED productive-NEG; MULTI-BUFFER-BODY-MUON-MOMENTUM axis FENCED 1-closure; Nesterov-loss + mean-dilution interaction identified as load-bearing; **17th consecutive no-merge closure since #847**
+
+- Branch: `g1r4-thorfinn/body-muon-aggmo`
+- Hypothesis: K-bank multi-β momentum (Lucas 2018 AggMo) BEFORE NS5 polar decomp provides time-scale diversity that single-buffer μ=0.95 lacks; mean-aggregate K momentum buffers and feed to NS5 unchanged. NS5-PRESERVING but NS5-INPUT-MODIFYING escalation.
+
+| Arm | run_id | K | β-bank | val/loss | Δ_vs_A | Δ_vs_baseline | fs | classification |
+|:---:|---|:---:|---|:---:|:---:|:---:|:---:|:---:|
+| A ctrl | `8zlj6872` | 1 | [0.95] +Nesterov | **3.26895** | — | +0.00139 drift PASS | 3200 | clean ctrl |
+| B Lucas mech-lead | `p30s7rv7` | 3 | [0.0, 0.9, 0.99] no-Nesterov | 3.27303 | +0.00408 | +0.00547 | 3250 | regression band |
+| C compact | `twmsjycm` | 2 | [0.85, 0.99] no-Nesterov | **3.27858** | **+0.00963** | +0.01102 | 3325 | **PRODUCTIVE-NEG (worst, 2× threshold)** |
+| D centered | `87r7hslw` | 3 | [0.85, 0.95, 0.99] no-Nesterov | 3.27293 | +0.00399 | +0.00538 | 3225 | regression band |
+
+**Chain ordering**: A < D ≈ B < C — counterintuitive: K=2 worse than K=3.
+
+**Student's mechanism reading (sharper than advisor's):**
+1. **High-β dominance in mean**: at step 3350 Lucas buf_2 (β=0.99) is **7.4× the L2 of buf_0 (β=0.0)** → mean-aggregate behaves as noisy single-high-β buffer, defeating Lucas's time-scale-diversity premise.
+2. **Nesterov is lost in K≥2 path**: Lucas canonical AggMo is plain-momentum (no Nesterov). Centered Arm D regression (+0.00398) ≈ Lucas Arm B regression (+0.00408) within 0.0001 → Nesterov-loss alone accounts for ~+0.004.
+3. **β=0.0 fast-anchor NOT load-bearing**: B (with β=0.0) and D (without β=0.0) regress identically.
+4. **Compact K=2 catastrophic** because dilution-by-mean has only 2 extreme buffers with no central smoothing — slow buffer 3.5× dominance most pronounced.
+5. **NS5-preserving but mechanism-disruptive**: Body Muon NS5+μ=0.95+Nesterov is a tuned operating point that does not tolerate input-distribution perturbations.
+
+**Mapping signal hardening (17 closures)**:
+- NS5-REPLACING/AdamW-REPLACING (catastrophic): GaLore #1120 DIVERGENT, Shampoo #1132 DIVERGENT, SF B/C #1127 CATASTROPHIC
+- NS5-PRESERVING but NS5-INPUT-MODIFYING (regression): **AggMo #1122 (this work)** — first observation on this sub-axis
+- NS5-PRESERVING + NS5-INPUT-PRESERVING (in flight): Newton-Muon #1138, Cautious #1153, MARS #1155, lm_head WD #1100 (PP n=3 seed 0 confirmed Δ=−0.00144 — STRONGEST CANDIDATE)
+
+**Conclusion**: CLOSED productive-NEG. MULTI-BUFFER-BODY-MUON-MOMENTUM axis FENCED 1-closure with strong mechanism characterization (Nesterov-loss + mean-dilution). Thorfinn reassigned **#1163 AggMo + Nesterov hybrid** disambiguation (2-arm chain: ctrl K=1 + Nesterov K=3 centered). If Arm B recovers ctrl performance → Nesterov-loss is entire failure mode; if still regresses → mean-aggregation itself is harmful (full axis fence).
+
+
 ## 2026-05-25 04:50 UTC — PR #1091: Body Muon decoupled weight decay — 4-arm sweep (alphonse) — CLOSED productive-NEG; BODY-MUON-WEIGHT-DECAY axis COMPREHENSIVELY FENCED (4 directions); **12th consecutive no-merge closure since #847**
 
 - Branch: `g1r4-alphonse/body-muon-weight-decay`
