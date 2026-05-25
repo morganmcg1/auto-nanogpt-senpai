@@ -95,6 +95,22 @@ def parse_args():
                         help="Starting value of µ schedule (used by linear and cooldown_ramp modes).")
     parser.add_argument("--muonh_mu_end", type=float, default=float(os.environ.get("MUONH_MU_END", "0.98")),
                         help="Ending value of µ schedule (used by linear and cooldown_ramp modes).")
+    # H129: Number of NS5 Newton-Schulz iterations in zeropower_via_newtonschulz5.
+    # Default 12 reproduces baseline bit-for-bit.
+    parser.add_argument("--muonh_ns5_iterations", type=int,
+                        default=int(os.environ.get("MUONH_NS5_ITERATIONS", "12")),
+                        help="Number of Newton-Schulz iterations in NS5 orthogonalization. "
+                             "Default 12 (bit-identical to prior baseline).")
+    # H137: Dtype for the internal NS5 Newton-Schulz iterations. Default bf16
+    # reproduces baseline bit-for-bit. fp32 tests whether the bf16 sv_min floor
+    # is load-bearing (H129 finding). fp16 tests whether bf16 is the binding
+    # precision threshold downward. Input/output cast to bf16 unchanged.
+    parser.add_argument("--muonh_ns5_dtype", type=str,
+                        default=os.environ.get("MUONH_NS5_DTYPE", "bf16"),
+                        choices=["bf16", "fp32", "fp16"],
+                        help="Dtype for NS5 polynomial iterations. Default bf16 "
+                             "(bit-identical to prior baseline). fp32 tests whether "
+                             "the bf16 sv_min floor is load-bearing.")
     args = parser.parse_args()
     args.num_trials = args.num_trials if args.num_trials is not None else (args.legacy_num_trials or 1)
     args.wandb_tags = [tag.strip() for tag in args.wandb_tags.split(",") if tag.strip()]
@@ -104,6 +120,17 @@ def parse_args():
 
 
 args = parse_args()
+
+# H137: Map --muonh_ns5_dtype string to torch dtype. Read inside
+# zeropower_via_newtonschulz5 so the NS5 polynomial iterations use this dtype
+# internally. Input is cast in / output cast back to bf16 so downstream
+# interface is unchanged. bf16 reproduces baseline bit-for-bit.
+_NS5_DTYPE_MAP = {
+    "bf16": torch.bfloat16,
+    "fp32": torch.float32,
+    "fp16": torch.float16,
+}
+_NS5_DTYPE = _NS5_DTYPE_MAP[args.muonh_ns5_dtype]
 
 
 def clean_metric_name(name: str) -> str:
@@ -490,9 +517,12 @@ class GPT(nn.Module):
 #              Optimizer               #
 ########################################
 
-def zeropower_via_newtonschulz5(G: Tensor) -> Tensor:
+def zeropower_via_newtonschulz5(G: Tensor, num_iters: int = 12) -> Tensor:
     assert G.ndim >= 2
-    X = G.bfloat16()
+    # H137: NS5 polynomial iterations run in _NS5_DTYPE (bf16 by default, fp32
+    # or fp16 selectable). Output is cast back to bf16 so downstream consumers
+    # see the same dtype as before.
+    X = G.to(_NS5_DTYPE)
     if G.size(-2) > G.size(-1):
         X = X.mT
 
@@ -500,28 +530,28 @@ def zeropower_via_newtonschulz5(G: Tensor) -> Tensor:
     X = X / (X.norm(dim=(-2, -1), keepdim=True) + 1e-7)
     # Perform the NS iterations, not optimizing for wallclock speed
     a, b, c = 2, -1.5, 0.5
-    for _ in range(12):
+    for _ in range(num_iters):
         A = X @ X.mT
         B = b * A + c * A @ A
         X = a * X + B @ X
 
     if G.size(-2) > G.size(-1):
         X = X.mT
-    return X
+    return X.bfloat16()
 
 @torch.compile
-def muon_update(grad, momentum, mu=0.95, nesterov=True):
+def muon_update(grad, momentum, mu=0.95, nesterov=True, num_iters=12):
     momentum.lerp_(grad, 1 - mu)
     update = grad.lerp_(momentum, mu) if nesterov else momentum
-    update = zeropower_via_newtonschulz5(update)
+    update = zeropower_via_newtonschulz5(update, num_iters=num_iters)
     update *= max(1, grad.size(-2) / grad.size(-1))**0.5
     return update
 
 class Muon(torch.optim.Optimizer):
-    def __init__(self, params, lr=0.02, weight_decay=0, mu=0.95):
+    def __init__(self, params, lr=0.02, weight_decay=0, mu=0.95, num_iters=12):
         assert isinstance(params, list) and len(params) >= 1 and isinstance(params[0], torch.nn.Parameter)
         params = sorted(params, key=lambda x: x.size(), reverse=True)
-        defaults = dict(lr=lr, weight_decay=weight_decay, mu=mu)
+        defaults = dict(lr=lr, weight_decay=weight_decay, mu=mu, num_iters=num_iters)
         super().__init__(params, defaults)
 
     @torch.no_grad()
@@ -537,7 +567,7 @@ class Muon(torch.optim.Optimizer):
                     state = self.state[p]
                     if len(state) == 0:
                         state["momentum"] = torch.zeros_like(p)
-                    update = muon_update(p.grad, state["momentum"], mu=group["mu"])
+                    update = muon_update(p.grad, state["momentum"], mu=group["mu"], num_iters=group["num_iters"])
                     p.mul_(1 - group["lr"] * group["weight_decay"])
                     p.add_(update, alpha=-group["lr"])
                 dist.all_gather(params_pad[base_i:base_i + world_size], params_pad[base_i + rank])
@@ -615,12 +645,13 @@ class MuonH(torch.optim.Optimizer):
     norm exactly constant; weight_decay must be 0.
     """
     def __init__(self, params, lr=0.018, weight_decay=0.0, mu=0.95,
-                 hyperball=True, budget_mult=1.0, mode="clip"):
+                 hyperball=True, budget_mult=1.0, mode="clip", num_iters=12):
         assert isinstance(params, list) and len(params) >= 1 and isinstance(params[0], torch.nn.Parameter)
         assert mode in ("clip", "scale_invariant")
         params = sorted(params, key=lambda x: x.size(), reverse=True)
         defaults = dict(lr=lr, weight_decay=weight_decay, mu=mu,
-                        hyperball=hyperball, budget_mult=budget_mult, mode=mode)
+                        hyperball=hyperball, budget_mult=budget_mult, mode=mode,
+                        num_iters=num_iters)
         super().__init__(params, defaults)
         self._last_active_fraction = 0.0
         self._last_radius_to_norm_max = 0.0
@@ -648,7 +679,7 @@ class MuonH(torch.optim.Optimizer):
                         state["momentum"] = torch.zeros_like(p)
                         if hb:
                             state["hyperball_radius"] = p.data.norm().item() * budget_mult
-                    update = muon_update(p.grad, state["momentum"], mu=group["mu"])
+                    update = muon_update(p.grad, state["momentum"], mu=group["mu"], num_iters=group["num_iters"])
                     if hb and mode == "scale_invariant":
                         # Always-active variant: norm is held at initial value by construction.
                         scale_invariant_update_(p.data, update, group["lr"])
@@ -728,7 +759,7 @@ if args.use_outer_optimizer:
            f"outer_momentum={args.outer_momentum} sync_interval={args.sync_interval}", console=True)
 else:
     print0("MuLoCo outer optimizer DISABLED", console=True)
-print0(f"MuonH mode={args.muonh_mode} lr={args.muonh_lr} budget_mult={args.muonh_budget_mult} cooldown_shape={args.muonh_cooldown_shape}", console=True)
+print0(f"MuonH mode={args.muonh_mode} lr={args.muonh_lr} budget_mult={args.muonh_budget_mult} cooldown_shape={args.muonh_cooldown_shape} ns5_iterations={args.muonh_ns5_iterations} ns5_dtype={args.muonh_ns5_dtype}", console=True)
 if args.aux_agc_clip_ratio > 0:
     print0(f"AGC ENABLED on aux AdamW groups: clip_ratio={args.aux_agc_clip_ratio} eps={args.aux_agc_eps}", console=True)
 else:
@@ -796,6 +827,8 @@ if dist.get_rank() == 0:
             "muonh_mu_schedule": args.muonh_mu_schedule,
             "muonh_mu_start": args.muonh_mu_start,
             "muonh_mu_end": args.muonh_mu_end,
+            "muonh_ns5_iterations": args.muonh_ns5_iterations,
+            "muonh_ns5_dtype": args.muonh_ns5_dtype,
         },
     )
 
@@ -853,7 +886,7 @@ for trial_idx in range(args.num_trials):
     optimizer2 = MuonH([p for p in model.blocks.parameters() if p.ndim >= 2],
                        lr=args.muonh_lr, weight_decay=0.0, mu=0.95,
                        hyperball=True, budget_mult=args.muonh_budget_mult,
-                       mode=args.muonh_mode)
+                       mode=args.muonh_mode, num_iters=args.muonh_ns5_iterations)
     optimizer2.param_groups[0]["name"] = "muonh_blocks"
     optimizers = [optimizer1, optimizer2]
     # AGC targets: AdamW aux groups (embed, lm_head, scalars). Built from optimizer1
@@ -862,6 +895,14 @@ for trial_idx in range(args.num_trials):
     # Inner-MuonH AGC targets: block 2D weights consumed by MuonH. Clipped BEFORE
     # the MuonH momentum buffer integrates the gradient.
     muonh_params_for_agc = [p for g in optimizer2.param_groups for p in g["params"]]
+    # H129/H137 SV telemetry: track post-NS5 singular values of two representative
+    # MuonH-managed blocks at fixed checkpoints. blocks.0.mlp.fc.weight is the
+    # H129 reference (non-square 768x3072). blocks.0.attn.q.weight is square
+    # (768x768) so we can compare shape effects across the precision sweep.
+    sv_tracked_params: dict[str, Tensor] = {}
+    for name, p in model.named_parameters():
+        if name in ("blocks.0.mlp.fc.weight", "blocks.0.attn.q.weight"):
+            sv_tracked_params[name] = p
     assert set(p for opt in optimizers for group in opt.param_groups
                for p in group["params"]) == set(model.parameters())
     for opt in optimizers:
@@ -1089,6 +1130,98 @@ for trial_idx in range(args.num_trials):
         muonh_agc_stats = adaptive_gradient_clip(
             muonh_params_for_agc, args.muonh_agc_clip_ratio, eps=args.muonh_agc_eps,
         )
+        # H129/H137 SV telemetry: post-NS5 singular-value snapshot on
+        # representative MuonH-managed blocks at fixed checkpoints. Side-channel:
+        # clones grad and momentum so the actual optimizer step is unaffected
+        # (bit-identical). Two tracked blocks: non-square mlp.fc (H129 ref) and
+        # square attn.q (H137 shape comparison). All sv values are computed
+        # after the full NS5 polynomial in the configured --muonh_ns5_dtype.
+        sv_checkpoint_steps = {0, 50, 100, 200, 400, 1000, 2000, train_steps - 1}
+        if (dist.get_rank() == 0
+                and len(sv_tracked_params) > 0
+                and step in sv_checkpoint_steps):
+            mu_now = optimizer2.param_groups[0]["mu"]
+            num_iters_now = optimizer2.param_groups[0]["num_iters"]
+            sv_log: dict = {
+                "trial": trial_idx,
+                "train/step": train_step,
+                "muonh/sv_num_iters": num_iters_now,
+            }
+            for sv_name, p_sv in sv_tracked_params.items():
+                if p_sv.grad is None:
+                    continue
+                short = "mlp_fc" if "mlp.fc" in sv_name else ("attn_q" if "attn.q" in sv_name else sv_name.replace(".", "_"))
+                mom_state = optimizer2.state.get(p_sv, {})
+                mom_buf = mom_state.get("momentum")
+                if mom_buf is None:
+                    mom_clone = torch.zeros_like(p_sv.grad)
+                else:
+                    mom_clone = mom_buf.clone()
+                grad_clone = p_sv.grad.clone()
+                mom_clone.lerp_(grad_clone, 1 - mu_now)
+                update_clone = grad_clone.lerp_(mom_clone, mu_now)
+                with torch.no_grad():
+                    orth = zeropower_via_newtonschulz5(update_clone, num_iters=num_iters_now)
+                    svs = torch.linalg.svdvals(orth.float())
+                sv_log[f"muonh/sv_min/{short}"] = float(svs.min().item())
+                sv_log[f"muonh/sv_med/{short}"] = float(svs.median().item())
+                sv_log[f"muonh/sv_max/{short}"] = float(svs.max().item())
+                # Mirror the H129 keys (un-suffixed) onto mlp_fc so historical
+                # comparisons across H129/H137 stay direct.
+                if short == "mlp_fc":
+                    sv_log["muonh/sv_min"] = float(svs.min().item())
+                    sv_log["muonh/sv_med"] = float(svs.median().item())
+                    sv_log["muonh/sv_max"] = float(svs.max().item())
+            wandb.log(sv_log, step=wandb_step)
+        # H137 per-iter SV diagnostic at step 501 (the "edward H132" trajectory
+        # probe). Manually unroll NS5 in the configured dtype and log sv_min /
+        # sv_med / sv_max at iterations 0 (after spectral normalization, before
+        # any polynomial step) and 4 / 8 / num_iters. Shows how the dtype affects
+        # the polynomial convergence trajectory inside a single step.
+        if (dist.get_rank() == 0
+                and step == 501
+                and "blocks.0.mlp.fc.weight" in sv_tracked_params):
+            p_sv = sv_tracked_params["blocks.0.mlp.fc.weight"]
+            if p_sv.grad is not None:
+                mu_now = optimizer2.param_groups[0]["mu"]
+                num_iters_now = optimizer2.param_groups[0]["num_iters"]
+                mom_state = optimizer2.state.get(p_sv, {})
+                mom_buf = mom_state.get("momentum")
+                if mom_buf is None:
+                    mom_clone = torch.zeros_like(p_sv.grad)
+                else:
+                    mom_clone = mom_buf.clone()
+                grad_clone = p_sv.grad.clone()
+                mom_clone.lerp_(grad_clone, 1 - mu_now)
+                update_clone = grad_clone.lerp_(mom_clone, mu_now)
+                with torch.no_grad():
+                    # Reproduce the inside of zeropower_via_newtonschulz5 step-by-step.
+                    G = update_clone
+                    X_iter = G.to(_NS5_DTYPE)
+                    transposed = G.size(-2) > G.size(-1)
+                    if transposed:
+                        X_iter = X_iter.mT
+                    X_iter = X_iter / (X_iter.norm(dim=(-2, -1), keepdim=True) + 1e-7)
+                    a, b, c = 2, -1.5, 0.5
+                    probe_iters = sorted({0, 4, 8, num_iters_now})
+                    per_iter_log: dict = {
+                        "trial": trial_idx,
+                        "train/step": train_step,
+                        "muonh/per_iter/dtype": args.muonh_ns5_dtype,
+                    }
+                    for k in range(num_iters_now + 1):
+                        if k in probe_iters:
+                            X_eval = X_iter.mT if transposed else X_iter
+                            svs_k = torch.linalg.svdvals(X_eval.float())
+                            per_iter_log[f"muonh/per_iter/sv_min/iter_{k}"] = float(svs_k.min().item())
+                            per_iter_log[f"muonh/per_iter/sv_med/iter_{k}"] = float(svs_k.median().item())
+                            per_iter_log[f"muonh/per_iter/sv_max/iter_{k}"] = float(svs_k.max().item())
+                        if k == num_iters_now:
+                            break
+                        A_mat = X_iter @ X_iter.mT
+                        B_mat = b * A_mat + c * A_mat @ A_mat
+                        X_iter = a * X_iter + B_mat @ X_iter
+                    wandb.log(per_iter_log, step=wandb_step)
         for opt in optimizers:
             opt.step()
         # Log warmup telemetry every 10 steps during warmup (and at telemetry events
