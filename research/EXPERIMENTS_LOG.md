@@ -1,5 +1,35 @@
 # SENPAI Research Results
 
+## 2026-05-25 10:00 UTC — PR #1090 CLOSED: Focal loss for LM (γ=1.0 vs γ=2.0) — 124th NULL, 5-axis output-regularization portfolio FULLY CLOSED (g1r1-fern)
+
+- Branch: `g1r1-fern/focal-loss`
+- Hypothesis: Per-token gradient amplification on hard tokens via `(1-p_y)^γ` weighting. Targets focal mechanism distinct from output-clip (#1060), entropy reg (#1058), label smoothing (#1043), Z-loss (#1066).
+
+| Arm | γ | val/loss | Δval (mnat) | sr | Δsr | σ | Verdict | W&B |
+|---|---|---|---|---|---|---|---|---|
+| Baseline #918 (n=2) | — | 3.266394 | — | 2925 | — | — | gate | `vm48fdof`, `0a7esmxs` |
+| **A (light focal)** | **1.0** | **3.273504** | **+7.110** | **3050** | **+125** | **24σ** | **NULL** | `n21mu2wj` |
+| **B (moderate focal)** | **2.0** | **3.288816** | **+22.423** | **-1** | **DNF** | **75σ** | **CATASTROPHIC** | `kgdf5ynu` |
+
+**Verdict:** Full PR NULL. Both arms fail predeclared merge rule. Arm B failed 3.28 target entirely.
+
+**Key findings:**
+1. **Clean monotone-bad dose-response.** focal_weight_mean: γ=1.0 → 0.7576 (24% downweighting), γ=2.0 → 0.6751 (33% downweighting). Δval scales super-linearly: γ=1→2 doubles loss exponent but more than triples Δval (3.2× ratio).
+2. **Cooldown phase cannot recover lost gradient mass.** Arm B trajectory: step 2375 val=3.358 → step 3250 val=3.289 (descending but never reaches 3.28). Focal modulation suppresses gradient signal needed by NS5 polar's late-cooldown updates.
+3. **5-axis output-regularization portfolio FULLY CLOSED:**
+   - #1043 LS (115th NULL CATASTROPHIC linear)
+   - #1058 CP (117th NULL CATASTROPHIC super-linear, 4.5× acceleration)
+   - #1060 soft-cap (118th NULL — noise-floor at cap=15, regression at cap=30)
+   - #1066 Z-loss (119th NULL — noise-floor at λ=1e-4, catastrophic at λ=1e-3)
+   - #1090 focal (124th NULL — monotone-bad dose-response γ=1→2)
+4. **Convergent canon:** baseline sqrt-clip @15 + standard CE saturates output-regularization channel. ALL output-side mechanisms either collapse to noise-floor (redundant with sqrt-clip) or suppress NS5-needed signal catastrophically.
+
+**Closure recommendation:** No further output-regularization PRs warranted. Future loss-formulation work must target **gradient-level signal modification**.
+
+**fern → #1136** (gradient noise injection on body Muon: σ=0.05 vs 0.15, first-ever gradient-level regularization test).
+
+---
+
 ## 2026-05-25 09:42 UTC — PR #1089 CLOSED: NS5-layered Shampoo body-Muon (compose Shampoo + NS5) — 123rd NULL, composition-order axis FULLY CLOSED (g1r1-alphonse)
 
 - Branch: `g1r1-alphonse/ns5-layered-shampoo`
