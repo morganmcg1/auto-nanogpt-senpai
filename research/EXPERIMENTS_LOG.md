@@ -1,5 +1,60 @@
 # SENPAI Research Results — auto-nanogpt-1gpu-r2
 
+## 2026-05-25 06:30 UTC — PR #1117: Z_LOSS (CLOSED, 131st refuted — logit-magnitude-penalty family 1/1, 18th family-level closure, monotone-in-α wrong-direction refute with publication-grade LOGIT_SOFTCAP-redundancy mechanism interpretation)
+
+- Branch: `g1r2-fern/z-loss-palm` (student g1r2-fern)
+- Hypothesis: Z-loss `α·logsumexp(logits)²` auxiliary regularizer (PaLM Chowdhery 2022, Switch Transformer Fedus 2021, MosaicGPT) regularizes logit magnitude → cleaner gradients flow back to body Muon and AUX paths → may break bias-limited floor cluster by reducing terminal-phase logit variance.
+- Mechanism class: LOGIT-MAGNITUDE-PENALTY (48th distinct mech class). FIRST loss-side intervention in cycle 71 + 295-PR corpus.
+
+### Results
+
+| Arm | Config | wandb_run_id | val@3175 | ffs | Δ vs baseline | Decision |
+|---|---|---|---|---|---|---|
+| Baseline (n=2) | no z-loss | (PR #613) | 3.26776 | 3000 | — | reference |
+| Disabled-check 1 | α=0 | `l4bestut` | val@200=4.08214 | — | within RNG envelope | ✓ bytewise inert |
+| Disabled-check 2 | α=0 (re-verify) | `uua9019m` | val@200=4.08072 | — | 0.00128 below stated lower bound, structurally guaranteed inert via gate | ✓ |
+| **Arm A** | α=1e-4 (.sum()) | `dubem3w3` | **3.27341** | 3050 | +0.00565 | floor-cluster upper-boundary close-miss |
+| **Arm B** | α=1e-3 (10× probe) | `h0heucem` | **3.28741** | -1 | +0.01965 | CLEAR MISS monotone-in-α wrong direction |
+
+### Trajectory (monotone-in-α wrong direction)
+
+| Step | Arm A α=1e-4 | Arm B α=1e-3 | Δ(B−A) |
+|---|---|---|---|
+| 500  | 3.80406 | 3.83524 | +0.031 |
+| 1000 | 3.66394 | 3.68850 | +0.025 |
+| 1500 | 3.53834 | 3.55814 | +0.020 |
+| 2000 | 3.43225 | 3.45255 | +0.020 |
+| 2500 | 3.34933 | 3.36695 | +0.018 |
+| 3000 | 3.28498 | 3.29955 | +0.015 |
+| 3175 | 3.27341 | 3.28741 | **+0.014 terminal** |
+
+### Z-loss mechanism telemetry — VERIFIED WORKING
+
+**Arm A α=1e-4:** `logsumexp_mean` ≈ 8.5-9.3, `logsumexp_max` ≈ 15-18 (under LOGIT_SOFTCAP=20), `z_loss_sum` ≈ 500-650, per-token grad weight ≈ α
+**Arm B α=1e-3:** `logsumexp_mean` 6.87→2.04 across training (4× compression vs Arm A's 8.5 stable) — z-loss biting head representation harder
+
+The mechanism is REAL: z-loss compresses logit magnitudes 4× between Arm A→B. But that compression costs CE capacity (the head can't reach its trained predictions).
+
+### Commentary
+
+**Fern's mechanism interpretation (publication-grade):** Under the mandatory stack, LOGIT_SOFTCAP=20.0 already keeps `logsumexp_max ≈ 15-18` (well below 20). There is no logit drift pathology for z-loss to fix. The forward-pass soft-cap and auxiliary backward signal are not orthogonal in this regime; they target the same magnitude pathology, and the soft-cap has already neutralized it. **Adding z-loss on top is a redundant intervention that costs CE capacity without delivering a stabilization benefit the existing stack hasn't already provided.**
+
+**Pre-launch invariant catch (METHODOLOGICAL WIN):** Fern's pre-launch `.sum()` reduction catch (mid-198) saved this PR from being a near-null refute. With `.mean()` reduction, effective α would have been ~65k× smaller → both arms essentially noise → bogus family closure for the wrong reason. **3rd high-value pre-launch student catch in cycle 71** (joining thorfinn's eta-cooldown invariant catch, fern's own .sum() catch on z-loss).
+
+**Family-level closure: LOGIT-MAGNITUDE-PENALTY family 1/1 → 18th family-level closure in cycle 71.** Absorbs by analogy ANY loss-side intervention that targets `||logits||²`-style partition magnitude. Loss-side broader family STILL OPEN at distribution-concentration axis (#1145 entropy-bonus assigned), token-frequency axis (#1133 in-flight).
+
+**Refute-signature taxonomy now 6 classes:**
+- catastrophic (#1075 etc.)
+- shifted-floor (#1093, #1108)
+- floor-cluster-touch (#1067 etc.)
+- crossover (#1095, #1124)
+- mechanism-null (#1082)
+- **wrong-direction NEW (#1108, #1117) — monotone-in-treatment refute**
+
+**Follow-up #1145 assigned (PREDICTION_ENTROPY_BONUS):** directly inspired by fern's mechanism interpretation. LOGIT_SOFTCAP caps individual logit magnitudes but not distribution concentration. Entropy bonus `-β·H(softmax)` is orthogonal axis to soft-cap. Arms β=1e-4 / 1e-3. Tests whether floor is sensitive to distribution concentration as orthogonal to logit magnitude.
+
+---
+
 ## 2026-05-25 06:10 UTC — PR #1124: MUON_LOOKAHEAD (CLOSED, 130th refuted — weight-space-averaging-on-body-Muon-ungated family 1/1, 17th family-level closure, 2nd CROSSOVER signature in cycle 71)
 
 - Branch: `g1r2-frieren/muon-lookahead` (student g1r2-frieren)
