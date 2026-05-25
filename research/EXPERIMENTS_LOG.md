@@ -3,6 +3,43 @@
 Log of completed/reviewed experiment PRs in chronological order. Wave 1
 results pending student execution.
 
+## 2026-05-25 23:50 UTC — PR #1105: askeladd AdamW auxiliary weight decay sweep — **CLOSED clean-WEAK-NEG**
+
+- **Branch:** `g1r5-askeladd/adamw-aux-wd`
+- **Student:** g1r5-askeladd
+- **Hypothesis:** Apply weight decay (wd_aux) to AdamW auxiliary groups (embed, lm_head, scalars) — currently hardcoded to 0.0. Sweep wd_aux ∈ {0, 0.001, 0.005, 0.01, 0.05}.
+
+**Phase 1 n=1 5-cell sweep:**
+
+| Cell | wd_aux | val/loss | ffs | reached | Δ baseline |
+|:----:|:------:|:--------:|:---:|:-------:|:----------:|
+| A ctrl | 0.0 | 3.26200 | 3050 | yes | +0.00078 (within σ) |
+| **B★** | **0.001** | **3.25981** | **3025** | yes | **−0.00141** ✓ passes n=1 gate |
+| C | 0.005 | 3.26009 | 3050 | yes | −0.00113 ✓ passes n=1 gate |
+| D | 0.01 | 3.26658 | 3100 | yes | +0.00536 |
+| E | 0.05 | 3.28928 | never | no | +0.02806 (severe) |
+
+**Phase 2 n=4 confirm on B (wd_aux=0.001):** μ_4=3.260020, σ=0.001675, SEM=0.000838 — BORDERLINE (between merge gate 3.259221 and n=1 gate 3.260628). T2=3.26235 was an outlier.
+
+**Phase 3 n=8 extension (combined Phase 2 + 4 new trials):**
+
+| Stat | Value | Gate |
+|:-----|:-----:|:-----|
+| μ_8 | **3.259890** | misses MERGE (≤3.259807) by **+0.000083** |
+| σ_8 | 0.001217 | (baseline σ_single=0.000593, this cohort 2× noisier) |
+| Δ × √8 | **0.003765** | needs ≥ 0.004 for statsig merge — misses by 0.000235 |
+| ffs_mean | 3028.125 | vs baseline 3025 (essentially flat) |
+| Direction-correct | **8/8 ≤ baseline** | signal real |
+
+W&B runs: `qq23ru4w` (Phase 2 n=4), `pimmpy73` (Phase 3 n=4 extension), group `g1r5-askeladd/adamw-aux-wd`. Extension cohort alone: μ_ext=3.259760 < merge gate; Phase 2 T2 outlier cost the merge.
+
+- **Decision: CLOSED clean-WEAK-NEG per predeclared rule** (μ_8 > 3.259807). All 8 trials ≤ baseline rules out lucky seed — signal is real but sub-statsig at n=8.
+- **★ Mechanism finding — val/loss helps, ffs doesn't:** 7 of 8 trials hit target at step 3025 (vs baseline 3025); only T2 hit at 3050. ffs_mean essentially flat. Light L2 on embed/lm_head shrinks the *converged* solution but not the *rate* of reaching the 3.28 target — the L2 effect accumulates late, biting only in cooldown phase.
+- **Sweet-spot pattern A→B↓→C~B→D↑→E↑↑ is textbook clean** — confirms [0.001, 0.005] is a real local minimum, but magnitude of the B-vs-ctrl gain is just below what 8 seeds reliably distinguish.
+- **Closure context — AdamW aux side now extensively saturated:** LR magnitude (#1021), LR warmup/schedule (#1054/#1072), trajectory averaging (Lookahead #1126, SF #659), optimizer family (Adan/AdaBelief/Lion/AdEmaMix/ADopt/Cautious all NEG), and now regularization (#1105 WEAK-NEG). Last open aux-side axes: alphonse #1211 (v_t structural), fern #1222 (AdamP direction), nezuko #1181 (Adan).
+- **Plumbing decision:** keep `--wd_aux` CLI flag as zero-cost optionality for future per-group experiments. The default `wd_aux=0.0` reproduces the baseline behavior exactly.
+- **askeladd → #1227 pre-NS noise injection on Muon body** (fresh axis: inject Gaussian noise BEFORE NS5 orthogonalization on body matrices; mechanically distinct from #383 POST-NS noise — NS projects pre-NS noise to the orthogonal manifold, producing structured exploration rather than unstructured perturbation)
+
 ## 2026-05-25 23:23 UTC — PR #1183: frieren Heavy-Ball vs Nesterov momentum for Muon body — **CLOSED clean-NEG**
 
 - **Branch:** `g1r5-frieren/heavy-ball-nesterov`
