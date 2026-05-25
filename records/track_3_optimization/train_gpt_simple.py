@@ -64,6 +64,17 @@ def parse_args():
     parser.add_argument("--muon_lr", type=float, default=0.035,
                         help="Base learning rate for body-Muon optimizer (matrix params in blocks). "
                              "Default 0.035 matches the merged baseline.")
+    parser.add_argument("--polar_method", type=str, default="ns5",
+                        choices=["ns5", "svd_full", "svd_noisy"],
+                        help="Polar map for body-Muon. 'ns5'=baseline NS5 cubic iteration. "
+                             "'svd_full'=exact SVD U @ Vh (residual≈0). "
+                             "'svd_noisy'=exact SVD + isotropic Gaussian noise with std "
+                             "--polar_noise_sigma (PR #1201 cubic-vs-noise probe).")
+    parser.add_argument("--polar_noise_sigma", type=float, default=0.0,
+                        help="Std-dev of isotropic Gaussian noise added to exact SVD polar when "
+                             "--polar_method=svd_noisy. Calibrated values for body params "
+                             "(min-dim=768): σ≈6.2e-5 → residual≈0.067 (NS5 baseline match); "
+                             "σ≈1.84e-4 → residual≈0.20 (4× NS5).")
     args = parser.parse_args()
     args.num_trials = args.num_trials if args.num_trials is not None else (args.legacy_num_trials or 1)
     args.wandb_tags = [tag.strip() for tag in args.wandb_tags.split(",") if tag.strip()]
@@ -499,6 +510,8 @@ def pmuon_update(
     ns_a: float = NS_A,
     ns_b: float = NS_B,
     ns_c: float = NS_C,
+    polar_method: str = "ns5",
+    polar_noise_sigma: float = 0.0,
     polar_diag: dict | None = None,
 ) -> Tensor:
     # Streaming raw (unnormalized) bilateral covariance EMAs in fp32.
@@ -513,10 +526,35 @@ def pmuon_update(
     R_neg = matrix_neg_power(R_cov, gamma, eps)
     m_pre = (L_neg @ update.float()) @ R_neg
 
-    polar = zeropower_via_newtonschulz5(m_pre.to(update.dtype), a=ns_a, b=ns_b, c=ns_c)
+    sample = polar_diag is not None and "residual" not in polar_diag
+
+    if polar_method == "ns5":
+        polar = zeropower_via_newtonschulz5(m_pre.to(update.dtype), a=ns_a, b=ns_b, c=ns_c)
+    else:
+        # Exact SVD polar (fp32) → U @ Vh; isotropic Gaussian noise injection if requested.
+        m_pre_f = m_pre.float()
+        U, S, Vh = torch.linalg.svd(m_pre_f, full_matrices=False)
+        polar_f = U @ Vh
+        polar_norm_pre = float(torch.linalg.norm(polar_f).item()) if sample else None
+        if polar_method == "svd_noisy" and polar_noise_sigma > 0.0:
+            polar_f = polar_f + torch.randn_like(polar_f) * polar_noise_sigma
+        polar = polar_f.to(update.dtype)
+        if sample:
+            polar_diag["polar_norm_F_post"] = float(torch.linalg.norm(polar_f).item())
+            polar_diag["polar_norm_F_pre"] = polar_norm_pre
+            polar_diag["noise_sigma"] = float(polar_noise_sigma)
+            if S.numel() > 0:
+                s_max = float(S[0].item())
+                s_sum_sq = float((S * S).sum().item())
+                polar_diag["svd_S_top_max"] = s_max
+                polar_diag["svd_stable_rank"] = s_sum_sq / max(s_max * s_max, 1e-30)
+                k = min(4, S.numel())
+                polar_diag["svd_S_ratio_topk"] = float((S[:k] * S[:k]).sum().item()) / max(s_sum_sq, 1e-30)
+                polar_diag["svd_S_topk"] = k
+
     # Sample ortho residual ||X X^T - I||_F on the polar output (before spectral scaling).
     # Only the first eligible parameter per step writes — keeps cost ~O(d^2) once per step.
-    if polar_diag is not None and "residual" not in polar_diag:
+    if sample:
         X = polar
         m, n = X.shape[-2], X.shape[-1]
         Xf = X.float()
@@ -535,11 +573,13 @@ def pmuon_update(
 
 class Muon(torch.optim.Optimizer):
     def __init__(self, params, lr=0.02, weight_decay=0, mu=0.95, beta_cov=0.95, gamma=PMUON_GAMMA,
-                 ns_a=NS_A, ns_b=NS_B, ns_c=NS_C):
+                 ns_a=NS_A, ns_b=NS_B, ns_c=NS_C,
+                 polar_method="ns5", polar_noise_sigma=0.0):
         assert isinstance(params, list) and len(params) >= 1 and isinstance(params[0], torch.nn.Parameter)
         params = sorted(params, key=lambda x: x.size(), reverse=True)
         defaults = dict(lr=lr, weight_decay=weight_decay, mu=mu, beta_cov=beta_cov, gamma=gamma,
-                        ns_a=ns_a, ns_b=ns_b, ns_c=ns_c)
+                        ns_a=ns_a, ns_b=ns_b, ns_c=ns_c,
+                        polar_method=polar_method, polar_noise_sigma=polar_noise_sigma)
         super().__init__(params, defaults)
 
     @torch.no_grad()
@@ -573,6 +613,8 @@ class Muon(torch.optim.Optimizer):
                         ns_a=group["ns_a"],
                         ns_b=group["ns_b"],
                         ns_c=group["ns_c"],
+                        polar_method=group["polar_method"],
+                        polar_noise_sigma=group["polar_noise_sigma"],
                         polar_diag=polar_diag,
                     )
                     floor_eligible_count += 1
@@ -716,6 +758,8 @@ if dist.get_rank() == 0:
             "power_cooldown_gamma": COOLDOWN_POWER,
             "cooldown_frac": 0.7,
             "muon_method": MUON_METHOD,
+            "polar_method": args.polar_method,
+            "polar_noise_sigma": args.polar_noise_sigma,
             "ema_beta": args.ema_beta,
             "ema_warmup_steps": args.ema_warmup_steps,
             "ema_beta_target": args.ema_beta_target if args.ema_beta_target is not None else 0.0,
@@ -756,9 +800,11 @@ for trial_idx in range(args.num_trials):
                         dict(params=[p for p in model.parameters() if p.ndim < 2], lr=0.025, name="adam_scalars")],
                        betas=(0.8, 0.95), eps=1e-10, weight_decay=0, fused=True)
     optimizer2 = Muon([p for p in model.blocks.parameters() if p.ndim >= 2],
-                      lr=args.muon_lr, weight_decay=0.025, beta_cov=0.95, gamma=PMUON_GAMMA)
+                      lr=args.muon_lr, weight_decay=0.025, beta_cov=0.95, gamma=PMUON_GAMMA,
+                      polar_method=args.polar_method, polar_noise_sigma=args.polar_noise_sigma)
     optimizer2.param_groups[0]["name"] = "muon_blocks"
-    print0(f"body-Muon optimizer: lr={args.muon_lr} weight_decay=0.025 beta_cov=0.95 gamma={PMUON_GAMMA}")
+    print0(f"body-Muon optimizer: lr={args.muon_lr} weight_decay=0.025 beta_cov=0.95 gamma={PMUON_GAMMA} "
+           f"polar_method={args.polar_method} polar_noise_sigma={args.polar_noise_sigma}")
     optimizers = [optimizer1, optimizer2]
     assert set(p for opt in optimizers for group in opt.param_groups
                for p in group["params"]) == set(model.parameters())
@@ -1020,7 +1066,7 @@ for trial_idx in range(args.num_trials):
                 }, step=wandb_step)
             polar_diag = getattr(optimizer2, "_polar_diag", None)
             if polar_diag and "residual" in polar_diag:
-                wandb.log({
+                polar_log = {
                     "trial": trial_idx,
                     "train/step": train_step,
                     "polar/ortho_residual_sample": polar_diag["residual"],
@@ -1029,7 +1075,14 @@ for trial_idx in range(args.num_trials):
                     "polar/ns_coef_a": NS_A,
                     "polar/ns_coef_b": NS_B,
                     "polar/ns_coef_c": NS_C,
-                }, step=wandb_step)
+                    "polar/svd_noise_residual_target": args.polar_noise_sigma,
+                }
+                for k in ("polar_norm_F_pre", "polar_norm_F_post", "noise_sigma",
+                          "svd_S_top_max", "svd_stable_rank", "svd_S_ratio_topk",
+                          "svd_S_topk"):
+                    if k in polar_diag:
+                        polar_log[f"polar/{k}"] = polar_diag[k]
+                wandb.log(polar_log, step=wandb_step)
             wandb.log({
                 "trial": trial_idx,
                 "train/step": train_step,
