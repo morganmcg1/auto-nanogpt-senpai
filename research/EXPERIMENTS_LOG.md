@@ -1,3 +1,62 @@
+## 2026-05-25 01:05 UTC — PR #1109 ASSIGNED (tanjiro): Embed init std sweep (1.0/0.1/0.01; first-ever aux-init test in programme)
+
+- Branch: `g1r3-tanjiro/embed-init-std-sweep`
+- Hypothesis (direct H128 suggestion #4 followup): H128 closure (today, see entry below) joined H106/H112/H122 to comprehensively close the body-init axis. Body init has 4-axis joint closure. tanjiro suggested redirecting to aux/embed init — NEVER tested in programme. Current `embed.weight` init is `w.normal_()` (line 822) = PyTorch default std=1.0, unscaled. Frob ≈ √(50304×768×1²) ≈ **6215** — 388× larger than body attn weights (Frob ≈ 16). Tests whether the saturated random embed init is load-bearing (informative random token differentiation for first attention pass) or wasteful (optimizer must de-randomize before building useful representation).
+- Implementation: ~15-20 LoC. Add `--embed_init_std` CLI flag (default=1.0 for bit-id), modify line 822 `w.normal_(std=args.embed_init_std)`, add 4-element sv telemetry (frob/sv_max/sv_med/sv_min via `torch.linalg.svdvals(model.embed.weight.float())`) at 9 checkpoints (0/50/100/200/400/800/1500/2500/3325).
+- Arms (n=1 seed each, 3325 steps, 1×H100):
+  - arm_a CTRL: `--embed_init_std 1.0` (bit-id baseline 3.26706 guard)
+  - arm_b SMALLER: `--embed_init_std 0.1` (10× smaller variance; Frob ≈ 622)
+  - arm_c MUCH_SMALLER: `--embed_init_std 0.01` (100× smaller variance; Frob ≈ 62, similar order to body)
+- Critical telemetry:
+  - Per-arm step-0 sv profile of embed (does smaller std produce uniform-spectrum init or scaled-default?)
+  - **Frob convergence question**: do all 3 arms converge to same target Frob (AdamW re-equilibrates) or different targets (init persists)? — Direct extension of H128 finding "2× elevated Frob PERSISTS throughout training"
+  - **sv_max washout question**: at what step does arm_b/c sv_max match arm_a? — Direct mirror of H128 "Muon spectral equalization dominates within 200 steps" finding for body, tests if AdamW's behavior on embed is similar or different
+  - **Mid-training step-125 lead check**: H122 and H128 found body ortho init produced step-125 "lead" patterns (mid-training advantage that washed by cooldown). Does smaller embed std produce head-start or head-deficit?
+  - 8-checkpoint val/loss + final + best checkpoint
+- Decision rules:
+  - arm_b/arm_c WIN < 3.26626: smaller embed init better → axis re-opened, MERGE candidate; default std=1.0 was wasteful
+  - arm_b NULL + arm_c NULL: aux/embed init dispersion-tolerant → close axis as non-binding
+  - arm_b NULL + arm_c NEG: partial closure; embed needs SOME random differentiation
+  - both NEG monotone (arm_c worse): embed init std=1.0 IS load-bearing → high-variance "informative random differentiation" confirmed; aux/embed init axis closes at default
+  - arm_a NEG > 3.27250: CTRL drift, rerun
+- Mechanism-distinctness vs in-flight:
+  - vs all body-init (H106/H112/H122/H128 closed): DIFFERENT parameter group (aux/embed vs body); DIFFERENT optimizer (AdamW vs MuonH); DIFFERENT fundamental Frob scale (6215 vs 16-50)
+  - vs H130 thorfinn aux cooldown shape (in flight): SAME optimizer (AdamW aux) but DIFFERENT lever (init shapes weights at t=0; schedule shapes LR over time) — orthogonal axes
+  - vs H124 edward aux Lion family (closed): DIFFERENT lever (init vs optimizer family) — orthogonal
+  - vs H110 alphonse aux beta1 (closed): DIFFERENT lever (init vs HP) — orthogonal
+  - vs H134 frieren outer LR warmup (in flight): DIFFERENT mechanism + DIFFERENT optimizer
+  - **First-ever aux-init experiment in programme.**
+- Why tanjiro: 5th consecutive init+spectral diagnostic cycle (H105→H106→H112→H122→H128). Closed body-init axis comprehensively today. Aux/embed init is the natural mechanism-distinct pivot. tanjiro's H128 suggestion #4 directly proposed this. Best context on init-induced mid-training "lead" patterns to interpret aux-side results.
+- W&B group: `g1r3-tanjiro-h135-embed-init-std-sweep`
+
+## 2026-05-25 00:55 UTC — PR #1069 CLOSED (tanjiro): H128 Shape-Aware Frob-Matched Orthogonal Init (NULL/NEG closure — 4-axis joint body-init closure; H122 mechanism amplified via clean decoupling test; "Muon spectral equalization dominates init spectrum within ~200 steps" mechanism identified)
+
+- Branch: `g1r3-tanjiro/h128-frob-matched-ortho-init`
+- Hypothesis (now closed): H122 conflated orthogonal STRUCTURE (sv=1.0) AND uniform Frob (√(min(d_in,d_out))). H128 DECOUPLES them via orthogonal init with per-shape Frob scaled to match the existing normal_() init's Frob target. arm_b FROB_MATCHED = pure spectral structure test; arm_c FROB_DOUBLE = 2× elevated Frob test.
+- Terminal results (W&B verified):
+
+| Arm | Mode | Run ID | val/loss | Delta vs 3.26706 | ffs | Verdict |
+|-----|------|--------|----------|-------------------|-----|---------|
+| arm_a CTRL | default | `9vsaslgi` | **3.26934** | +0.00228 | 3050 | NULL bit-id ✅ |
+| arm_b FROB_MATCHED | ortho + per-shape Frob = default | `2a6dch94` | **3.26960** | +0.00254 | 3050 | NULL — **ties CTRL** (Δ=+0.00026 = seed noise) |
+| arm_c FROB_DOUBLE | ortho + 2× shape-aware Frob | `89dx2ac0` | **3.27103** | +0.00397 | — | NEG mild (within widened CTRL [≤3.27250]) |
+
+Baseline: val/loss=3.26706 (PR #1027 H117 µ-decreasing 0.95→0.90).
+
+- Programme-level findings (4):
+
+  **Finding 1 — Orthogonal spectral structure is NON-LOAD-BEARING when shape-aware Frob is preserved.** arm_b ties arm_a (Δ=+0.00026 = seed-noise floor). Clean decoupling refutes "orthogonal structure helps" — H122 closure narrative ("default init optimal because of SHAPE-AWARE FROB SCALING") amplified.
+
+  **Finding 2 — H122 step-125 head-start was driven by uniform Frob elevation on attn weights.** In H122 ortho arm_b led CTRL by **-0.079** at step 125. In H128 arm_b (Frob preserved), that lead collapses to **-0.010** — 87% reduction. Direct evidence: the head-start was Frob-elevation-driven, not ortho-structure-driven.
+
+  **Finding 3 — Muon spectral equalization dominates init spectrum within ~200 steps.** arm_b sv_min for attn.q: **0.575 (perfect uniform spectrum at step 0) → 0.001 by step 200**. NS5 is a fast (~200 steps) attractor; weight-space init spectrum is non-binding past warmup.
+
+  **Finding 4 — 2× Frob elevation PERSISTS throughout training and is mildly harmful.** arm_c maintains 1.91-2.02× Frob elevation at every checkpoint (terminal attn.q Frob: arm_a 48.1, arm_c 93.5 = 1.94×). Optimizer does NOT re-equilibrate elevated Frob, yet elevated capacity costs +0.00397. **Refines H112 finding**: capacity growth from default→learned-target is load-bearing, but pre-loaded random capacity is NOT helpful (different mechanism).
+
+- Body-init axis 4-axis joint closure (H106 periodic ortho / H112 periodic QR / H122 ortho init / H128 Frob-matched ortho). Default `normal_()` with per-shape std (line 824-832) is at-optimum because: (1) shape-aware Frob naturally preserved; (2) NS5 enforces sv_median≈1.0 in gradient space within ~200 steps regardless of init; (3) Frob capacity growth from default → learned-target is load-bearing, pre-loaded capacity is not.
+- Operational commendation: 5th consecutive gold-standard sv+Frob trajectory diagnostic cycle. Decoupled-mechanism design (hold Frob constant, vary spectral structure) was textbook ablation discipline — directly addressed H122 confound and produced cleanest possible refutation. Per-arm sv+Frob telemetry at 5 checkpoints × 3 layer shapes (attn.q, attn.proj, mlp.fc) identified "~200 step washout" with confidence. No-advisor-action-needed flag honored; zero open questions.
+- Followup chosen for tanjiro H135 (assigned today, see entry above): aux/embed init std sweep (1.0/0.1/0.01; first-ever aux-init test — embed.weight currently uses unscaled normal_() with Frob ≈ 6215, 388× larger than body attn weights).
+
 ## 2026-05-25 00:35 UTC — PR #1104 ASSIGNED (frieren): Outer LR Warmup Duration Sweep (0/250/1000 steps — first-ever outer LR warmup axis)
 
 - Branch: `g1r3-frieren/outer-lr-warmup-duration`
