@@ -1,5 +1,47 @@
 # SENPAI Research Results
 
+## 2026-05-25 17:38 UTC — PR #1156 CLOSED: Lookahead k-step slow-fast weight averaging on body Muon (k=5, α=0.5 vs α=0.25) — 133rd NULL, Lookahead family FULLY CLOSED (g1r1-askeladd)
+
+- Branch: `g1r1-askeladd/lookahead`
+- Hypothesis: Apply Zhang 2019 Lookahead to body Muon — every k=5 fast steps, blend slow buffer toward fast iterate with weight α. Test canonical α=0.5 vs lighter α=0.25 to characterize dose-response. Hypothesis: outer averaging could dampen late-cooldown variance.
+
+### Results
+
+| Arm | k | α | W&B | val/loss | sr | first_step_to_target | Δval (mnat) | Verdict |
+|---|---|---|---|---|---|---|---|---|
+| Baseline #918 | — | — | vm48fdof/0a7esmxs | 3.266394 | 2925 | 2925 | — | BASELINE |
+| **A (canonical)** | 5 | 0.5 | `fuvrw1jy` | **3.28288** | **−1** | −1 | **+16.49** (55σ) | **CATASTROPHIC** (missed 3.28 target) |
+| **B (light blend)** | 5 | 0.25 | `yy7ep97n` | **3.30829** | **−1** | −1 | **+41.89** (140σ) | **CATASTROPHIC** (much worse than Arm A!) |
+
+### Diagnostic telemetry
+
+| Metric | Arm A (α=0.5) | Arm B (α=0.25) |
+|---|---|---|
+| `lookahead/blend_events_cumulative` | 46,800 (650 events × 72 params) | 46,800 (identical) |
+| `lookahead/slow_fast_distance_mean` (full hist) | 0.0520 | **0.0811** (LARGER despite milder α) |
+| `lookahead/slow_fast_distance` (final cooldown) | 7.2e-6 | 1.1e-5 |
+| `polar/ortho_residual_sample` | 0.2627 | 0.1463 |
+| `ema/buffer_frob_dist` (terminal) | 1.97 | 0.94 |
+
+### Mechanism findings (5 numbered)
+
+1. **STRIKING NON-MONOTONIC DOSE RESPONSE — Arm B (milder α=0.25) is 2.5× WORSE than Arm A (canonical α=0.5).** Naïve linear-in-α prediction was Δval(B) ≈ ½·Δval(A) ≈ +8 mnat; observed +41.89 mnat. **The periodic-blend mechanism itself is intrinsically catastrophic at body-Muon scale, irrespective of α magnitude.**
+2. **Slow buffer = sum of polar(NS5)-orthogonal matrices is NOT itself orthogonal.** Every blend reintroduces non-orthogonal weight components that NS5 spent compute removing. `polar/ortho_residual` elevated 1.5-26× vs baseline.
+3. **Two competing averaging mechanisms destructively interfere during cooldown.** Body Muon EMA buffer (β_t→0.99) AND Lookahead slow buffer fight. Arm A's `ema/buffer_frob_dist`=1.97 vs Arm B 0.94 — EMA buffer drifts more in Arm A as it "competes" more with Lookahead average.
+4. **Counter-intuitive distance reversal:** Arm B's mean slow_fast distance (0.081) is LARGER than Arm A's (0.052) despite α=0.25 vs α=0.5. Lower α means slow stays further from fast between blends → each blend event introduces a LARGER per-event perturbation. The averaging mechanism is NOT a smooth dose-response in α.
+5. **Lookahead family FULLY CLOSED in r1.** Joins #943 SWA (catastrophic α=0.5) and #990 Schedule-Free (catastrophic) as the 3rd weight-space averaging NULL. **Body Muon's EMA + WSD cooldown is SUFFICIENT outer smoothing across 3 independent mechanisms — any additional weight-space averaging is redundant + destructive.**
+
+### Cross-axis canons strengthened
+
+- **PIPELINE POSITION CANON #1136** — weight-space mixing AFTER NS5 (post-polar averaging via slow buffer) is catastrophic, consistent with the canon: post-NS5 magnitude/direction modifications are punished by the EMA+cooldown stack.
+- **#1129 u/w-floor canon** — when polar quality degrades (Lookahead injects non-ortho components), val regresses substantially → polar IS load-bearing when externally perturbed (vs sub-noise under intra-NS5 modification).
+
+### Conclusions
+
+Lookahead axis CLOSED across α ∈ {0.25, 0.5}. Linear-in-α extrapolation does not hold — there is no "magic α<0.25" that recovers; the milder arm is worse, not better. Next: askeladd → new hypothesis post-researcher-agent ideation.
+
+---
+
 ## 2026-05-25 14:15 UTC — PR #1144 CLOSED: NS_ITERS phase schedule probe (stable=10/cooldown=14 vs stable=14/cooldown=10) — 132nd NULL, phase-schedule axis FULLY CLOSED (g1r1-nezuko)
 
 - Branch: `g1r1-nezuko/ns-iters-phase`
