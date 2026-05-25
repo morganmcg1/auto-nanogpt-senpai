@@ -468,6 +468,8 @@ NS5_ITERS = int(os.environ.get("NS5_ITERS", "12"))
 WD_AUX = float(os.environ.get("WD_AUX", "0.0"))  # AdamW WD on embed + lm_head matrices (scalars stay at 0)
 EMBED_INIT_STD = float(os.environ.get("EMBED_INIT_STD", "1.0"))  # default preserves baseline N(0,1)
 LOGIT_SOFTCAP = float(os.environ.get("LOGIT_SOFTCAP", "15.0"))  # default = 15 (current hardcoded value); soft-cap value c in f(x) = c·x / sqrt(x^2+c^2)
+MUON_LOOKAHEAD_K = int(os.environ.get("MUON_LOOKAHEAD_K", "0"))  # 0 = disabled; >0 = sync interval (fast steps per slow-weight update)
+MUON_LOOKAHEAD_ALPHA = float(os.environ.get("MUON_LOOKAHEAD_ALPHA", "0.5"))  # slow←slow+α(fast−slow) interpolation factor
 
 
 def zeropower_via_newtonschulz5(G: Tensor) -> Tensor:
@@ -912,6 +914,10 @@ for trial_idx in range(args.num_trials):
         for group in opt.param_groups:
             group["initial_lr"] = group["lr"]
 
+    # Lookahead slow-weight wrapper on body Muon 2-D parameters (Zhang et al. 2019, arXiv:1907.08610)
+    body_params_2d = [(n, p) for n, p in model.blocks.named_parameters() if p.ndim >= 2]
+    slow_weights = {n: p.data.clone().detach() for n, p in body_params_2d} if MUON_LOOKAHEAD_K > 0 else None
+
     # learning rate schedule: stable then decay
     def set_hparams(step, cooldown_frac=0.7):
         progress = step / train_steps
@@ -1053,6 +1059,17 @@ for trial_idx in range(args.num_trials):
             )
         for opt in optimizers:
             opt.step()
+        # Lookahead sync: every K fast steps, merge slow←slow+α(fast−slow), then reset fast←slow
+        if MUON_LOOKAHEAD_K > 0 and step > 0 and step % MUON_LOOKAHEAD_K == 0:
+            for n, p in body_params_2d:
+                slow_weights[n].add_(p.data - slow_weights[n], alpha=MUON_LOOKAHEAD_ALPHA)
+                p.data.copy_(slow_weights[n])
+            if dist.get_rank() == 0:
+                wandb.log({
+                    "optim/lookahead_sync_step": step,
+                    "optim/lookahead_k": MUON_LOOKAHEAD_K,
+                    "optim/lookahead_alpha": MUON_LOOKAHEAD_ALPHA,
+                }, step=wandb_step, commit=False)
         if dist.get_rank() == 0 and telemetry_due:
             for opt in optimizers:
                 if hasattr(opt, "trust_gate_stats"):
