@@ -83,6 +83,10 @@ def parse_args():
              "muall=musoft + non-residual block 2D weights also scaled by 1/sqrt(L); "
              "smallconst=std=1e-3 depth-independent.",
     )
+    parser.add_argument("--soap_rank_frac", type=float, default=1.0,
+                        help="Fraction of SOAP eigenbasis to retain (top-r by eigenvalue). "
+                             "Default 1.0 = full rank (current). 0.5 = top-50% retained per dimension. "
+                             "Applied to both Q_row and Q_col separately.")
     args = parser.parse_args()
     args.num_trials = args.num_trials if args.num_trials is not None else (args.legacy_num_trials or 1)
     args.wandb_tags = [tag.strip() for tag in args.wandb_tags.split(",") if tag.strip()]
@@ -515,14 +519,17 @@ def soap_ns_step(nesterov_update):
     return update
 
 
-def soap_eigenbasis(mat: Tensor) -> Tensor:
+def soap_eigenbasis(mat: Tensor, rank: int = None) -> Tensor:
     eye = torch.eye(mat.size(0), device=mat.device)
     try:
         _, q = torch.linalg.eigh(mat + 1e-30 * eye)
     except RuntimeError:
         _, q = torch.linalg.eigh(mat.double() + 1e-30 * eye.double())
         q = q.float()
-    return torch.flip(q, [1])
+    q = torch.flip(q, [1])
+    if rank is not None and rank < q.size(1):
+        q = q[:, :rank].contiguous()
+    return q
 
 
 def soap_basis_qr(row_gg, col_gg, q_row, q_col, exp_avg_sq):
@@ -557,8 +564,8 @@ def soap_update_preconditioner(grad, state, shampoo_beta=SOAP_BETA2, preconditio
     state["row_gg"].lerp_(grad_f @ grad_f.T, 1 - shampoo_beta)
     state["col_gg"].lerp_(grad_f.T @ grad_f, 1 - shampoo_beta)
     if state["q_row"] is None:
-        state["q_row"] = soap_eigenbasis(state["row_gg"])
-        state["q_col"] = soap_eigenbasis(state["col_gg"])
+        state["q_row"] = soap_eigenbasis(state["row_gg"], rank=state.get("rank_row"))
+        state["q_col"] = soap_eigenbasis(state["col_gg"], rank=state.get("rank_col"))
     elif state["soap_step"] > 0 and state["soap_step"] % precondition_frequency == 0:
         state["q_row"], state["q_col"], state["exp_avg_sq"] = soap_basis_qr(
             state["row_gg"], state["col_gg"], state["q_row"], state["q_col"], state["exp_avg_sq"]
@@ -571,7 +578,7 @@ class Muon(torch.optim.Optimizer):
     SOAP_ATTN_SUFFIXES = (".attn.q.weight", ".attn.k.weight", ".attn.v.weight", ".attn.proj.weight")
 
     def __init__(self, named_params, lr=0.02, weight_decay=0, mu=0.95,
-                 soap_attn=False, trust_threshold=0.0):
+                 soap_attn=False, trust_threshold=0.0, soap_rank_frac=1.0):
         # `named_params` can be either:
         #   (a) list of (name, param) tuples → single param group (legacy form)
         #   (b) list of dicts {"named_params": [(name, param), ...], "lr": ?, "weight_decay": ?, "mu": ?, "name": ?}
@@ -593,7 +600,9 @@ class Muon(torch.optim.Optimizer):
         self.soap_attn = soap_attn
         self.trust_threshold = float(trust_threshold)
         self.use_trust_gate = soap_attn
+        self.soap_rank_frac = float(soap_rank_frac)
         self.cos_sims_buffer: dict[str, Tensor] = {}
+        self.soap_rank_info: dict[str, tuple[int, int, int, int]] = {}
 
         param_groups = []
         for g in groups_raw:
@@ -627,12 +636,18 @@ class Muon(torch.optim.Optimizer):
                     if len(state) == 0:
                         state["momentum"] = torch.zeros_like(p)
                         if use_soap:
-                            state["exp_avg_sq"] = torch.zeros_like(p, dtype=torch.float32)
-                            state["row_gg"] = torch.zeros(p.size(0), p.size(0), dtype=torch.float32, device=p.device)
-                            state["col_gg"] = torch.zeros(p.size(1), p.size(1), dtype=torch.float32, device=p.device)
+                            d_row, d_col = p.size(0), p.size(1)
+                            rank_row = max(1, int(d_row * self.soap_rank_frac))
+                            rank_col = max(1, int(d_col * self.soap_rank_frac))
+                            state["rank_row"] = rank_row
+                            state["rank_col"] = rank_col
+                            state["exp_avg_sq"] = torch.zeros(rank_row, rank_col, dtype=torch.float32, device=p.device)
+                            state["row_gg"] = torch.zeros(d_row, d_row, dtype=torch.float32, device=p.device)
+                            state["col_gg"] = torch.zeros(d_col, d_col, dtype=torch.float32, device=p.device)
                             state["q_row"] = None
                             state["q_col"] = None
                             state["soap_step"] = 0
+                            self.soap_rank_info[self.param_names[id(p)]] = (d_row, d_col, rank_row, rank_col)
                     if use_soap:
                         state["momentum"].lerp_(p.grad, 1 - group["mu"])
                         raw_nesterov = p.grad.lerp(state["momentum"], group["mu"])
@@ -758,6 +773,7 @@ if dist.get_rank() == 0:
             "ns_iter": NS_ITER,
             "soap_attn_enabled": bool(args.soap_attn),
             "soap_trust_threshold": float(args.soap_trust_threshold),
+            "soap_rank_frac": float(args.soap_rank_frac),
             "lr_mlp": args.lr_mlp,
             "wd_mlp": args.wd_mlp,
             "lr_attn": args.lr_attn,
@@ -853,6 +869,7 @@ for trial_idx in range(args.num_trials):
             dict(named_params=attn_named, lr=args.lr_attn, weight_decay=args.wd_attn, name="muon_attn"),
         ],
         soap_attn=args.soap_attn, trust_threshold=args.soap_trust_threshold,
+        soap_rank_frac=args.soap_rank_frac,
     )
     optimizers = [optimizer1, optimizer2]
     assert set(p for opt in optimizers for group in opt.param_groups
@@ -1009,6 +1026,30 @@ for trial_idx in range(args.num_trials):
             )
         for opt in optimizers:
             opt.step()
+        if dist.get_rank() == 0 and train_step == 1 and optimizer2.soap_rank_info:
+            rank_metrics = {"trial": trial_idx, "train/step": train_step}
+            mlp_proj_name = None
+            attn_proj_name = None
+            for n in optimizer2.soap_rank_info:
+                if mlp_proj_name is None and n.endswith(".mlp.proj.weight"):
+                    mlp_proj_name = n
+                if attn_proj_name is None and n.endswith(".attn.proj.weight"):
+                    attn_proj_name = n
+            for n, (dr, dc, rr, rc) in optimizer2.soap_rank_info.items():
+                key = clean_metric_name(n)
+                rank_metrics[f"soap_rank/d_row/{key}"] = dr
+                rank_metrics[f"soap_rank/d_col/{key}"] = dc
+                rank_metrics[f"soap_rank/rank_row/{key}"] = rr
+                rank_metrics[f"soap_rank/rank_col/{key}"] = rc
+            if mlp_proj_name:
+                _, _, rr, rc = optimizer2.soap_rank_info[mlp_proj_name]
+                rank_metrics["soap_rank/example_mlp_proj/rank_row"] = rr
+                rank_metrics["soap_rank/example_mlp_proj/rank_col"] = rc
+            if attn_proj_name:
+                _, _, rr, rc = optimizer2.soap_rank_info[attn_proj_name]
+                rank_metrics["soap_rank/example_attn_proj/rank_row"] = rr
+                rank_metrics["soap_rank/example_attn_proj/rank_col"] = rc
+            wandb.log(rank_metrics, step=wandb_step)
         if telemetry_due:
             update_norms = optimizer2.get_step_update_norms()
             current_lrs = {group.get("name", f"group_{i}"): group["lr"]
