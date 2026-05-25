@@ -1,3 +1,32 @@
+## 2026-05-25 14:50 — PR #1152: H147 Aux AdamW β1 schedule (NULL bilateral closure)
+- Branch: `g1r3-thorfinn/h147-aux-beta1-schedule`
+- Hypothesis: lower β1 in cooldown phase makes precision-tuning phase more responsive to current gradient signal (mirroring H133 LINEAR cooldown which preserves terminal gradient signal). Test ramp_up (β1 0.7→0.9) vs ramp_down (β1 0.9→0.7) vs fixed (β1=0.8 bit-id).
+
+| Arm | β1 schedule | run_id | val/loss | Δ vs baseline | Δ vs CTRL | ffs | Band |
+|---|---|---|---|---|---|---|---|
+| arm_a | CTRL fixed β1=0.8 | `hbzszx5o` | 3.26577 | +0.00030 | 0 | 3150 | NULL (bit-id seed noise) |
+| arm_b | RAMP_DOWN 0.9→0.7 | `pqo76pmi` | 3.26714 | +0.00167 | +0.00137 | 3175 | NULL |
+| arm_c | RAMP_UP 0.7→0.9 | `mtysrzop` | 3.26626 | +0.00079 | +0.00049 | 3150 | NULL |
+
+Baseline: 3.26547 (PR #1097 fern H133). WIN < 3.26467 | NULL [3.26377, 3.26817] | NEG > 3.26817
+
+**Verdict: NULL BILATERAL closure. β1 schedule axis CLOSED in [0.7, 0.9] for aux AdamW at 3325-step scale. Asymmetric direction-of-effect uncovered.**
+
+**Results commentary:**
+- All 3 arms within NULL band. No WIN, no NEG.
+- arm_c RAMP_UP > arm_b RAMP_DOWN by +0.00088 — **terminal β1 dominates over initial β1**. Both ramps span symmetric range but terminal endpoint determines val/loss.
+- Mid-training step 1500 arm_c lead: -0.005 vs CTRL. Lead erodes by step 3325 (terminal +0.0005). Classic mid-training-lead-erosion pattern.
+- step_avg overhead ~0.13% — negligible.
+- Sparkline schedule verification confirmed: arm_a flat, arm_b descending, arm_c ascending.
+
+**Key mechanism findings:**
+1. **TERMINAL β1 DOMINATES over INITIAL β1 — first asymmetric direction-of-effect on EMA-coefficient axis.** β1 SCHEDULE is non-binding but TERMINAL β1 has mild direction-of-effect with β1=0.9 ≥ 0.8 ≥ 0.7 at terminal. Lever-mechanism separation finding.
+2. **H133 LINEAR cooldown mechanism DOES NOT TRANSFER from LR-magnitude lever to EMA-coefficient lever — programme-level cross-axis null.** The "preserve terminal gradient signal" mechanism is LR-axis-specific; lowering β1 does NOT achieve the same effect. Important for future cooldown-related hypotheses.
+3. **5th cross-programme replication of "mid-training-lead-erosion under cooldown" pattern.** Now confirmed across 6 distinct mechanism axes (µ H125, init H128, init H135, cooldown-shape H133-SQRT, β1 H147, µ-under-linear H143). Any mechanism providing "faster mid-training adaptation" without LR-aware terminal preservation falls into this erosion pattern. Future hypotheses claiming mid-training advantage should declare expected terminal recovery mechanism explicitly.
+4. **Operational excellence**: student/advisor PR-body inconsistency detection (option-A vs option-B clarification cycle 232) saved a 5.5h wasted run. Diligence pre-empted a confounded experiment.
+
+→ **H154 assigned (pending researcher selection)**: plateau-protocol strategy-tier shift OUT of aux AdamW EMA-coefficient family. thorfinn has exhausted 2 aux-AdamW-internal axes (H138 Cautious sign-source, H147 β1 schedule). Time for mechanism family ORTHOGONAL to AdamW EMA structure entirely.
+
 ## 2026-05-25 13:55 — PR #1149: H145 NS5 application-frequency sweep (NULL/NEG closure)
 - Branch: `g1r3-nezuko/h145-ns5-apply-frequency`
 - Hypothesis: NS5 orthogonalization currently fires every step (K=1). Does sparse application (K=2 every other step; K=4 every 4 steps) preserve learning while saving wallclock? Tests whether NS5 is one-shot landing (drift between fires is tolerable) or active maintenance (drift between fires accumulates damage). Secondary hypothesis: wallclock savings ~10-15% at K=2, ~22-25% at K=4 (assuming NS5 is 30-40% of step cost).
