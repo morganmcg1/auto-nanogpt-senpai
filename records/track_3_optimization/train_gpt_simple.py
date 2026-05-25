@@ -66,7 +66,20 @@ def parse_args():
                              "Only applies to Muon param groups; AdamW aux is unaffected.")
     parser.add_argument("--ns_iter", type=int, default=12,
                         help="Number of Newton-Schulz iterations in zeropower_via_newtonschulz5. "
-                             "Default 12 (current hardcoded value). Lower = less orthogonal but faster.")
+                             "Default 12 (current hardcoded value). Lower = less orthogonal but faster. "
+                             "IGNORED when --orth_scheme is not one of nspoly_*; nspoly_iter6/iter3 "
+                             "hardcode their own iter counts.")
+    parser.add_argument("--orth_scheme", type=str, default="nspoly_iter6",
+                        choices=["nspoly_iter6", "nspoly_iter3", "polar_svd_fp32",
+                                 "schulz_iter5", "schulz_iter8"],
+                        help="Orthogonalization scheme for the Muon body matrix update. "
+                             "nspoly_iter6=baseline polynomial Newton-Schulz (6 iters, bf16); "
+                             "nspoly_iter3=degraded baseline falsifier (3 iters); "
+                             "polar_svd_fp32=exact polar factor via fp32 SVD; "
+                             "schulz_iter5=classical Schulz iter (5 iters, fp32); "
+                             "schulz_iter8=classical Schulz iter (8 iters, fp32). "
+                             "When set to nspoly_*, the embedded iter count overrides --ns_iter "
+                             "for the Muon body path.")
     parser.add_argument("--lr_scalars", type=float, default=0.01,
                         help="LR for AdamW adam_scalars group (RMSNorm gains; "
                              "params with ndim < 2). Default 0.01 — hardcoded, "
@@ -340,6 +353,41 @@ def log_histograms(
     wandb.log(metrics, step=wandb_step)
 
 
+@torch.no_grad()
+def compute_orth_diagnostics(sample_grad: Tensor, orth_fn) -> dict:
+    """Apply the active body-orthogonalization function to a sample grad once and
+    record (wall_time_ms, singular-value statistics of the output).
+
+    Diagnostic-only; runs at telemetry intervals on a single MLP fc.weight grad.
+    For converged orthogonal output, max=min=1 (cond=1). For under-converged
+    Schulz, max≈1 but min<<1 (cond≫1) since small singular values grow more slowly.
+    """
+    if sample_grad is None or not torch.cuda.is_available():
+        return {}
+    g = sample_grad.detach().clone()
+    torch.cuda.synchronize()
+    t0 = time.perf_counter()
+    out = orth_fn(g)
+    torch.cuda.synchronize()
+    wall_ms = (time.perf_counter() - t0) * 1000.0
+    svals = torch.linalg.svdvals(out.float())
+    s_max = float(svals[0].item())
+    s_min = float(svals[-1].item())
+    s_mean = float(svals.mean().item())
+    s_std = float(svals.std().item()) if svals.numel() > 1 else 0.0
+    cond = s_max / max(s_min, 1e-12)
+    return {
+        "orth/wall_time_ms_per_call": wall_ms,
+        "orth/spectral_norm_post_max": s_max,
+        "orth/spectral_norm_post_min": s_min,
+        "orth/spectral_norm_post_mean": s_mean,
+        "orth/spectral_norm_post_std": s_std,
+        "orth/cond_number": cond,
+        "orth/output_shape_m": int(out.size(-2)),
+        "orth/output_shape_n": int(out.size(-1)),
+    }
+
+
 ########################################
 #              Dataloader              #
 ########################################
@@ -480,7 +528,11 @@ class GPT(nn.Module):
 #              Optimizer               #
 ########################################
 
-def zeropower_via_newtonschulz5(G: Tensor) -> Tensor:
+def zeropower_via_newtonschulz5(G: Tensor, n_iter: int = None) -> Tensor:
+    """Polynomial Newton-Schulz iteration (Muon-style, degree 5, bf16).
+
+    n_iter defaults to module-level NS_ITER for backward compatibility.
+    """
     assert G.ndim >= 2
     X = G.bfloat16()
     if G.size(-2) > G.size(-1):
@@ -490,7 +542,8 @@ def zeropower_via_newtonschulz5(G: Tensor) -> Tensor:
     X = X / (X.norm(dim=(-2, -1), keepdim=True) + 1e-7)
     # Perform the NS iterations, not optimizing for wallclock speed
     a, b, c = 2, -1.5, 0.5
-    for _ in range(NS_ITER):
+    iters = NS_ITER if n_iter is None else n_iter
+    for _ in range(iters):
         A = X @ X.mT
         B = b * A + c * A @ A
         X = a * X + B @ X
@@ -499,18 +552,78 @@ def zeropower_via_newtonschulz5(G: Tensor) -> Tensor:
         X = X.mT
     return X
 
+
+def schulz_iteration(G: Tensor, n_iter: int) -> Tensor:
+    """Classical Schulz iteration in fp32: X_{k+1} = X_k (3I - X_k^T X_k) / 2.
+
+    Starts from G / ||G||_F (so sigma_1(X_0) <= 1 <= sqrt(3), convergence guaranteed).
+    Converges quadratically to the polar factor of G; the polynomial is degree-3 in X
+    with map f(sigma) = sigma * (3 - sigma^2) / 2, fixed point at sigma=1.
+    Initial growth rate at small sigma is f'(0) = 1.5 (vs Muon NS poly f'(0) = 3.4445).
+    """
+    assert G.ndim >= 2
+    X = G.float()
+    if G.size(-2) > G.size(-1):
+        X = X.mT
+    X = X / (X.norm(dim=(-2, -1), keepdim=True) + 1e-7)
+    eye = torch.eye(X.size(-1), device=X.device, dtype=X.dtype)
+    for _ in range(n_iter):
+        XtX = X.mT @ X
+        X = X @ (1.5 * eye - 0.5 * XtX)
+    if G.size(-2) > G.size(-1):
+        X = X.mT
+    return X.to(G.dtype)
+
+
+def polar_svd_fp32(G: Tensor) -> Tensor:
+    """Exact polar factor via fp32 SVD. Ground-truth orthogonalization.
+
+    G = U @ diag(S) @ Vh  =>  polar(G) = U @ Vh (the closest orthogonal matrix).
+    """
+    assert G.ndim >= 2
+    Gf = G.float()
+    U, _, Vh = torch.linalg.svd(Gf, full_matrices=False)
+    return (U @ Vh).to(G.dtype)
+
+
+# Dispatcher bound once at module load based on args.orth_scheme.
+# Module-level constants enable torch.compile specialization.
+def _make_orthogonalize_body(scheme: str):
+    if scheme == "nspoly_iter6":
+        def fn(G: Tensor) -> Tensor:
+            return zeropower_via_newtonschulz5(G, n_iter=6)
+    elif scheme == "nspoly_iter3":
+        def fn(G: Tensor) -> Tensor:
+            return zeropower_via_newtonschulz5(G, n_iter=3)
+    elif scheme == "polar_svd_fp32":
+        def fn(G: Tensor) -> Tensor:
+            return polar_svd_fp32(G)
+    elif scheme == "schulz_iter5":
+        def fn(G: Tensor) -> Tensor:
+            return schulz_iteration(G, n_iter=5)
+    elif scheme == "schulz_iter8":
+        def fn(G: Tensor) -> Tensor:
+            return schulz_iteration(G, n_iter=8)
+    else:
+        raise ValueError(f"unknown orth_scheme: {scheme}")
+    return fn
+
+
+orthogonalize_body_matrix = _make_orthogonalize_body(args.orth_scheme)
+
+
 @torch.compile
 def muon_update(grad, momentum, mu=0.95, nesterov=True):
     momentum.lerp_(grad, 1 - mu)
     update = grad.lerp_(momentum, mu) if nesterov else momentum
-    update = zeropower_via_newtonschulz5(update)
+    update = orthogonalize_body_matrix(update)
     update *= max(1, grad.size(-2) / grad.size(-1))**0.5
     return update
 
 
 @torch.compile
 def soap_ns_step(nesterov_update):
-    update = zeropower_via_newtonschulz5(nesterov_update)
+    update = orthogonalize_body_matrix(nesterov_update)
     update *= max(1, nesterov_update.size(-2) / nesterov_update.size(-1))**0.5
     return update
 
@@ -756,6 +869,7 @@ if dist.get_rank() == 0:
             "soap_beta2": SOAP_BETA2,
             "soap_precond_freq": PRECOND_FREQ,
             "ns_iter": NS_ITER,
+            "orth_scheme": args.orth_scheme,
             "soap_attn_enabled": bool(args.soap_attn),
             "soap_trust_threshold": float(args.soap_trust_threshold),
             "lr_mlp": args.lr_mlp,
@@ -1007,6 +1121,19 @@ for trial_idx in range(args.num_trials):
                 train_steps=train_steps,
                 wandb_step=wandb_step,
             )
+            # Apply the active orth scheme to one MLP body grad and log singular-value
+            # stats and wall-time. Diagnostic-only — does NOT influence the actual update.
+            sample_grad = None
+            for _n, _p in model.named_parameters():
+                if _n.endswith(".mlp.fc.weight") and _p.grad is not None:
+                    sample_grad = _p.grad
+                    break
+            orth_metrics = compute_orth_diagnostics(sample_grad, orthogonalize_body_matrix)
+            if orth_metrics:
+                orth_metrics["trial"] = trial_idx
+                orth_metrics["train/step"] = train_step
+                orth_metrics["orth/scheme_str"] = args.orth_scheme
+                wandb.log(orth_metrics, step=wandb_step)
         for opt in optimizers:
             opt.step()
         if telemetry_due:
