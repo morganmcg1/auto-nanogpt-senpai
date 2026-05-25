@@ -1,5 +1,89 @@
 # SENPAI Research Results — auto-nanogpt-1gpu-r2
 
+## 2026-05-25 10:55 UTC — PR #1158: MUON_INTER_NS5_NOISE (CLOSED, 136th refuted — NS5-INTER-NOISE-ELEMENT-WISE-FROBENIUS-SCALING family 1/1, 23rd family-level closure, 2nd CATASTROPHIC-DIVERGENCE-PERSISTENT-GAP refute signature instance, publication-grade Frobenius-vs-element-wise unit-analysis mechanism interpretation)
+
+- Branch: `g1r2-frieren/muon-inter-ns5-noise` (student g1r2-frieren)
+- Hypothesis: Inter-NS5 manifold Langevin noise — inject decaying Gaussian noise `σ(t)·randn_like(X)` between Newton-Schulz iterations to perturb the iterate inside the manifold tangent during orthogonalization, then re-normalize. Schedule `σ(t)=σ₀·(1-t/T)^α` recovers exact NS5 at terminal preserving cooldown precision. Hope: escape sharp minima in early-mid training analogous to SGLD on Stiefel manifold (Welling & Teh 2011, Leimkuhler & Matthews 2015).
+- Mechanism class: NS5-INTER-NOISE-ELEMENT-WISE-FROBENIUS-SCALING (59th distinct mech class). FIRST inter-NS5 manifold Langevin noise injection in 295-PR corpus — noise IS the iteration not pre-/post-NS5.
+
+### Results
+
+| Run | Arm | σ₀ | α | val/loss | ffs | step | Status |
+|---|---|---|---|---|---|---|---|
+| `93v08xtv` | disabled-check | 0.0 | n/a | 4.42323 @200 | n/a | 200 | ✓ within band (bytewise inert) |
+| `v1eekoxw` | A | 0.01 | 1.0 | **5.71783** | -1 | 500 KILLED | +1.79 above kill gate 3.93 sustained throughout |
+| — | B | 0.02 | 2.0 | — | — | — | Decision-tree-skipped per Arm A catastrophic miss |
+
+**Verification — config plumbing**:
+
+| Run | `optimizer/ns5_inter_noise_sigma0` | `optimizer/ns5_inter_noise_alpha` |
+|---|---|---|
+| `93v08xtv` | 0.0 ✓ | 1.0 ✓ |
+| `v1eekoxw` | 0.01 ✓ | 1.0 ✓ |
+
+**Mechanism-fired telemetry**:
+- 936 noise injections per step ✓ matches 72 body 2D tensors × 13 inject points (between NS5 iterations k<NS5_ITERS-1)
+- Sigma schedule σ(t)=0.01·(1-t/3175)¹ linear decay confirmed: σ@step 0 = 0.01000, σ@step 450 = 0.00859 (only 14% decay before kill)
+- Mechanism fired faithfully — noise injection working as implemented
+
+**Catastrophic divergence trajectory**:
+
+| step | gate | Arm A val | violation |
+|---:|---:|---:|---:|
+| 200  | n/a  | ~4.42  | matches disabled-check |
+| 250  | 4.40 | ~4.83  | +0.43 |
+| 375  | 4.10 | ~5.30  | +1.20 |
+| 500  | 3.93 | 5.71783 | **+1.79 KILLED** |
+
+**Frobenius-vs-element-wise unit analysis (frieren's verbatim publication-grade mechanism interpretation)**:
+
+`σ=0.01` is per-element std. `torch.randn_like(X)` returns element-wise N(0,1). Frobenius norm of `σ·N(0,1)` on n-element matrix = σ·√n. For body-Muon matrices:
+
+| Matrix shape | numel n | ‖σ·N(0,1)‖_F at σ=0.01 | Ratio vs ‖X‖_F=1 |
+|---|---:|---:|---:|
+| (768, 768) attn proj | 589,824 | 7.68 | **7.68×** |
+| (2304, 768) attn QKV | 1,769,472 | 13.30 | **13.30×** |
+| (768, 3072) MLP up | 2,359,296 | 15.36 | **15.36×** |
+| (3072, 768) MLP down | 2,359,296 | 15.36 | **15.36×** |
+
+After `X = X / X.norm(dim=(-2,-1), keepdim=True).clamp_min(1.0)` re-normalization, the "polar factor" becomes essentially random orthogonal noise at each of 13 NS5 iterations. Destructive blend compounds — by NS5 exit, body update direction is decorrelated from gradient direction. Result: model attempts to optimize while body-Muon updates are random noise → +1.79 sustained gap, no NaN/Inf (signal magnitudes finite), pure misaligned optimization.
+
+### Results commentary, analysis, conclusions
+
+**23rd family-level closure: NS5-INTER-NOISE-ELEMENT-WISE-FROBENIUS-SCALING 1/1, 2nd CATASTROPHIC-DIVERGENCE-PERSISTENT-GAP refute signature.**
+
+1. **Mechanism fires as implemented, NOT as intended**:
+   - Disabled-check confirms bytewise inert at σ₀=0
+   - Arm A fires 936 injections/step matching expected count
+   - σ schedule decays as specified (0.01000→0.00859 by step 450)
+   - But unit semantics destroy NS5 polar projection convergence
+
+2. **Catastrophic-divergence-persistent-gap refute signature 2nd instance** joining #1133 askeladd TOKEN_FREQ_REWEIGHT_LOSS. Both exhibit +0.9-1.8 sustained val gap with no NaN/Inf no recovery — pure misaligned optimization. Distinct from CATASTROPHIC signature (which has numerical breakdown).
+
+3. **Frobenius-vs-element-wise unit pathology (frieren's publication-grade interpretation)**:
+   The PR specified σ as element-wise std assuming the noise scale was "moderate at σ=0.01". But `randn_like` returns element-wise samples → Frobenius norm scales as σ·√numel. For body-Muon matrices (min numel ≈ 590K), σ=0.01 produces noise Frobenius norm 7-15× the unit signal — already past the danger threshold. The PR's "moderate" was 7-15× too large in the unit semantics that NS5 actually consumes.
+
+4. **NS5 polar projection cannot recover from per-iteration random orthogonal blends**: NS5 iterates project `X` toward the polar factor of the gradient via quintic polynomial. Injecting noise with Frobenius norm >> 1 between iterations replaces the iterate with random orthogonal at each step. After 13 such blends, the output direction is decorrelated from the gradient → body update is structurally garbage.
+
+5. **Family-level closure (1/1) — parametrization-binding absorption**:
+   - ANY additive noise injection between NS5 iterations using `σ·randn_like(X)` parametrization where σ·√numel(X) >> 1 catastrophically destroys NS5 convergence
+   - For body-Muon matrices min numel ≈ 590K, threshold σ > 1.3e-3 already past danger
+   - This PR's "moderate" σ₀=0.01 exceeded threshold by 7-15×
+   - Family closure absorbs different α schedules (quadratic, polynomial), different injection points within NS5, different decay shapes — all bound by element-wise parametrization
+
+6. **Does NOT absorb (categorically distinct parametrization axes)**:
+   - **Frobenius-normalized noise** `noise = randn_like(X) * (σ_F / √numel(X))` — σ_F becomes per-matrix Frobenius std interpretable on Stiefel manifold, at σ_F=0.01 the noise has Frobenius norm 0.01 of unit signal across whole matrix regardless of shape → assigned as #1161 follow-up
+   - **Spectral-normalized noise** — noise scaled by singular value spectrum, operates in spectral space
+   - **Manifold-tangent-projected noise** — project Gaussian onto Stiefel tangent space before adding (categorically distinct geometry)
+
+7. **3rd consecutive within-frieren cycle 71 refute → mechanism → follow-up cycle**: frieren #1124 (LH-ungated CROSSOVER) → #1142 (LH-cooldown-gated CROSSOVER) → #1158 (inter-NS5 noise element-wise) → #1161 (inter-NS5 noise Frobenius-normalized). Same student demonstrated force-multiplier pattern THREE TIMES consecutively. Validates publication-grade closure interpretation as systemic capability not transient.
+
+8. **Decision-tree-skip Arm B correct**: σ₀=0.02 α=2.0 would have Frobenius norm 2× larger and longer-lasting (quadratic decay holds noise higher longer) — structurally guaranteed at least as bad as Arm A. Saved GPU-day.
+
+9. **Follow-up assigned: #1161 NS5_INTER_NOISE_FROBENIUS** — 61st mechanism class, FIRST Frobenius-normalized inter-NS5 manifold Langevin noise in 295-PR corpus. Code: `noise = torch.randn_like(X) * (σ_t / X.numel() ** 0.5)`. Env var renamed `NS5_INTER_NOISE_SIGMA0_F` (Frobenius) vs #1158's `NS5_INTER_NOISE_SIGMA0` (element-wise) to make unit distinction explicit and prevent accidental reuse with element-wise semantics. Arm A σ_F=0.01 α=1.0 (Frobenius norm 0.01 across whole matrix), Arm B σ_F=0.03 α=1.0 monotone probe. Anti-duplication grep verified clean across 295-PR corpus: only #996 MUON_POST_NS5_NOISE (post-NS5, categorically distinct) and #1158 itself.
+
+---
+
 ## 2026-05-25 10:34 UTC — PR #1134: SOAP_GRAM_DRIFT_REFRESH (CLOSED, 135th refuted — SOAP-DRIFT-REFRESH-EMA-PREVSTEP-FORMULATION family 1/1, 22nd family-level closure, 5th FLOOR-CLUSTER-TOUCH refute signature instance, publication-grade EMA-jitter-vs-eigenbasis-rotation mechanism interpretation)
 
 - Branch: `g1r2-thorfinn/soap-gram-drift-refresh` (student g1r2-thorfinn)
