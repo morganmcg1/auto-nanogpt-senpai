@@ -5,6 +5,7 @@ This file descends from the [NanoGPT speedrun](https://github.com/KellerJordan/m
 It was prepared as a simplified version of the speedrun for use in neural net optimization research.
 """
 
+import math
 import os
 import sys
 with open(sys.argv[0]) as f:
@@ -64,6 +65,10 @@ def parse_args():
     parser.add_argument("--muon_lr", type=float, default=0.035,
                         help="Base learning rate for body-Muon optimizer (matrix params in blocks). "
                              "Default 0.035 matches the merged baseline.")
+    parser.add_argument("--target_uw", type=float, default=0.35,
+                        help="u/w-floor value: rescale update so ||update||/||p|| >= target_uw when below. "
+                             "Baseline 0.35. #1035 tested 0.0 (NULL +5.8 mnat) and 0.50 (CATASTROPHIC +20 mnat). "
+                             "This PR fine-probes the sweet-spot region.")
     args = parser.parse_args()
     args.num_trials = args.num_trials if args.num_trials is not None else (args.legacy_num_trials or 1)
     args.wandb_tags = [tag.strip() for tag in args.wandb_tags.split(",") if tag.strip()]
@@ -535,25 +540,29 @@ def pmuon_update(
 
 class Muon(torch.optim.Optimizer):
     def __init__(self, params, lr=0.02, weight_decay=0, mu=0.95, beta_cov=0.95, gamma=PMUON_GAMMA,
-                 ns_a=NS_A, ns_b=NS_B, ns_c=NS_C):
+                 ns_a=NS_A, ns_b=NS_B, ns_c=NS_C, target_uw=0.35):
         assert isinstance(params, list) and len(params) >= 1 and isinstance(params[0], torch.nn.Parameter)
         params = sorted(params, key=lambda x: x.size(), reverse=True)
         defaults = dict(lr=lr, weight_decay=weight_decay, mu=mu, beta_cov=beta_cov, gamma=gamma,
-                        ns_a=ns_a, ns_b=ns_b, ns_c=ns_c)
+                        ns_a=ns_a, ns_b=ns_b, ns_c=ns_c, target_uw=target_uw)
         super().__init__(params, defaults)
 
     @torch.no_grad()
     def step(self):
         world_size = dist.get_world_size()
         rank = dist.get_rank()
-        # Skylight u/w-floor: enforce ||u||_F / ||w||_F >= TARGET_UW per parameter.
-        TARGET_UW = 0.35
+        # Skylight u/w-floor: enforce ||u||_F / ||w||_F >= group["target_uw"] per parameter.
         floor_fired_count = 0
         floor_eligible_count = 0
+        rescale_factor_sum = 0.0
+        min_ratio_observed = float("inf")
+        target_uw_last = float(self.param_groups[0]["target_uw"])
         polar_diag: dict = {}
         for group in self.param_groups:
             params = group["params"]
             params_pad = params + [torch.empty_like(params[-1])] * (world_size - len(params) % world_size)
+            TARGET_UW = group["target_uw"]
+            target_uw_last = float(TARGET_UW)
             for base_i in range(0, len(params), world_size):
                 if base_i + rank < len(params):
                     p = params[base_i + rank]
@@ -579,13 +588,26 @@ class Muon(torch.optim.Optimizer):
                     w_norm = p.norm()
                     if w_norm > 0:
                         ratio = update.norm() / w_norm
+                        ratio_f = float(ratio.item())
+                        if ratio_f > 0 and ratio_f < min_ratio_observed:
+                            min_ratio_observed = ratio_f
                         if 0 < ratio < TARGET_UW:
                             floor_fired_count += 1
+                            rescale_factor_sum += TARGET_UW / ratio_f
                             update.mul_(TARGET_UW / ratio)
                     p.mul_(1 - group["lr"] * group["weight_decay"])
                     p.add_(update, alpha=-group["lr"])
                 dist.all_gather(params_pad[base_i:base_i + world_size], params_pad[base_i + rank])
-        self._floor_diag = {"fired": floor_fired_count, "eligible": floor_eligible_count}
+        mean_rescale = (rescale_factor_sum / floor_fired_count) if floor_fired_count > 0 else 0.0
+        if not math.isfinite(min_ratio_observed):
+            min_ratio_observed = 0.0
+        self._floor_diag = {
+            "fired": floor_fired_count,
+            "eligible": floor_eligible_count,
+            "target_uw_current": target_uw_last,
+            "mean_rescale_factor": mean_rescale,
+            "min_ratio_observed": min_ratio_observed,
+        }
         self._polar_diag = polar_diag
 
 
@@ -711,8 +733,8 @@ if dist.get_rank() == 0:
             "ns_coef_a": NS_A,
             "ns_coef_b": NS_B,
             "ns_coef_c": NS_C,
-            "target_uw_floor": 0.35,
-            "target_uw": 0.35,
+            "target_uw_floor": args.target_uw,
+            "target_uw": args.target_uw,
             "power_cooldown_gamma": COOLDOWN_POWER,
             "cooldown_frac": 0.7,
             "muon_method": MUON_METHOD,
@@ -756,9 +778,10 @@ for trial_idx in range(args.num_trials):
                         dict(params=[p for p in model.parameters() if p.ndim < 2], lr=0.025, name="adam_scalars")],
                        betas=(0.8, 0.95), eps=1e-10, weight_decay=0, fused=True)
     optimizer2 = Muon([p for p in model.blocks.parameters() if p.ndim >= 2],
-                      lr=args.muon_lr, weight_decay=0.025, beta_cov=0.95, gamma=PMUON_GAMMA)
+                      lr=args.muon_lr, weight_decay=0.025, beta_cov=0.95, gamma=PMUON_GAMMA,
+                      target_uw=args.target_uw)
     optimizer2.param_groups[0]["name"] = "muon_blocks"
-    print0(f"body-Muon optimizer: lr={args.muon_lr} weight_decay=0.025 beta_cov=0.95 gamma={PMUON_GAMMA}")
+    print0(f"body-Muon optimizer: lr={args.muon_lr} weight_decay=0.025 beta_cov=0.95 gamma={PMUON_GAMMA} target_uw={args.target_uw}")
     optimizers = [optimizer1, optimizer2]
     assert set(p for opt in optimizers for group in opt.param_groups
                for p in group["params"]) == set(model.parameters())
@@ -1017,6 +1040,9 @@ for trial_idx in range(args.num_trials):
                     "train/uw_floor/eligible": eligible,
                     "train/uw_floor/fired": fired,
                     "train/uw_floor/fired_fraction": (fired / eligible) if eligible > 0 else 0.0,
+                    "train/uw_floor/target_uw_current": floor_diag.get("target_uw_current", args.target_uw),
+                    "train/uw_floor/mean_rescale_factor": floor_diag.get("mean_rescale_factor", 0.0),
+                    "train/uw_floor/min_ratio_observed": floor_diag.get("min_ratio_observed", 0.0),
                 }, step=wandb_step)
             polar_diag = getattr(optimizer2, "_polar_diag", None)
             if polar_diag and "residual" in polar_diag:
