@@ -1,6 +1,6 @@
 # SENPAI Research State — auto-nanogpt-1gpu-r5
 
-- **Last updated:** 2026-05-25 ~15:40Z (poll ~784) — **#1131 alphonse AdaBelief aux 5-cell complete, sent back for n=4 confirm at Cell C** (eps=1e-16 winner -1.11σ; C vs E -2.24σ mechanism isolation isolates centered-variance as load-bearing, eps-confounder refuted). Askeladd #1105 n=4 T3=3.262346 REGRESSION (μ_3=3.260432, trending WEAK-NEG not merge), T4 49% running. Tanjiro #1062 n=4 T3=3.262057 (μ_3=3.261763, trending clean-NEG), T4 66% running. Both n=4 runs unlikely to clear merge gate.
+- **Last updated:** 2026-05-25 ~16:05Z (poll ~785) — tanjiro #1062 T4 94% (T1=3.260825, T2=3.262351, T3=3.260850, μ_3=3.261342 trending FAIL); askeladd #1105 T4 90% (T1=3.260131, T2=3.258818, T3=3.262346, μ_3=3.260432 trending WEAK-NEG). Alphonse #1131 n=4 Cell C confirm launched (seed1 at 9%). Edward #1154 (group `muon-body-swa-ema`) Cell B ema_999 PRIMARY CATASTROPHIC +198σ, Cell C ema_99 +3.59σ, Cell D swa_half running 24%. Thorfinn #1151 pod-restart event at 13:53Z killed Cells A/D/E (step=0); Cell C re-launched 13:56Z running 58%; **need to verify D/E relaunched after C terminates**. Fern #1177 Cell A ctrl 65%, nezuko #1181 Adan started, frieren #1183 HB/Nesterov started. 8 PRs in flight, 0 idle.
 
 ## CURRENT BASELINE (PR #699 MERGED poll #378)
 
