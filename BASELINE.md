@@ -17,7 +17,7 @@ So a single non-cherry-picked run needs `mu < 3.276`; `n=4` runs need
 
 ## Current baseline (this branch)
 
-**Merged 2026-05-24 ~16:00 UTC — PR #1027 fern H117 Inner MuonH µ DECREASING Schedule (0.95→0.90).** Linear µ schedule decreasing from 0.95 to 0.90 over 3325 steps via `--muonh_mu_schedule linear --muonh_mu_start 0.95 --muonh_mu_end 0.90`. Lower µ throughout training reduces momentum smoothing of the NS5-orthogonalized update direction, improving gradient-tracking responsiveness without relying on Sutskever effective-step amplification (which goes the *opposite* direction). The smaller µ endpoint (0.90 vs static 0.95) pays a tiny step-125 penalty then opens a persistent -0.027 gap by step 1000 through cooldown. arm_c BOLD (0.95→0.90) is the winner; arm_b MIRROR (0.95→0.92) landed NULL marginal. Stacks on top of all previous wins: MuLoCo × MuonH-SI + dual AGC + cosine cooldown + LR warmup + aux eps=1e-6 + aux β2=0.99.
+**Merged 2026-05-25 ~06:20 UTC — PR #1097 fern H133 Inner MuonH LR cooldown SHAPE = linear (frac=1.0).** Swaps inner LR cooldown shape from cosine to **linear** via `--muonh_cooldown_shape linear`. The first programme-level **shape** finding since the baseline was set at H117 — breaks a 14+ consecutive non-merging closure plateau. Mechanism: cosine cooldown's `eta = 0.5(1 − cos(πc))` derivative goes to zero as c→0 (LR drops too steeply at end), while linear cooldown's constant slope preserves useful gradient signal through the last ~325 steps. U-shaped lead profile observed (arm_b LEADS through step 1500, deficits step 2000–3000, recovers and overtakes for terminal WIN). Falsifies H125 mid-training-lead-erosion generalization to the SHAPE axis (sqrt's higher mid-training LR actively destroys trajectory). Composes with H117 µ-schedule baseline. Stacks on top of all previous wins: MuLoCo × MuonH-SI + dual AGC + LR warmup + aux eps=1e-6 + aux β2=0.99 + µ-schedule (0.95→0.90).
 
 | Field | Value |
 | --- | --- |
@@ -25,21 +25,22 @@ So a single non-cherry-picked run needs `mu < 3.276`; `n=4` runs need
 | Architecture | GPT-768/12L, vocab 50304, ctx 1024 — fixed |
 | Batch size | `8 * 64 * 1024 = 524288` tokens/step — fixed |
 | Main optimizer | `MuonH(lr=0.018, weight_decay=0, mode='scale_invariant')` on blocks ndim≥2 |
-| **MuonH µ schedule** | **`--muonh_mu_schedule linear --muonh_mu_start 0.95 --muonh_mu_end 0.90`** (was static 0.95) |
+| **MuonH inner cooldown shape** | **`--muonh_cooldown_shape linear`** (was cosine) |
+| MuonH µ schedule | `--muonh_mu_schedule linear --muonh_mu_start 0.95 --muonh_mu_end 0.90` |
 | Aux AdamW β2 | `--aux_beta2_schedule constant --aux_beta2_start 0.99` |
 | Aux AdamW eps | `--aux_adamw_eps 1e-6` |
 | MuonH inner AGC | `--muonh_agc_clip_ratio 0.05` |
 | MuonH LR warmup | `--muonh_warmup_steps 100` |
 | Outer wrapper | `MuLoCo(outer_lr=0.7, outer_momentum=0.5, sync_interval=30)` |
 | Aux AdamW | `betas=(0.8, 0.99), eps=1e-6, weight_decay=0` + AGC `clip_ratio=0.05` |
-| LR schedule | Cosine cooldown for MuonH (`cooldown_frac=1.0`); linear cooldown for aux (`cooldown_frac=0.4`) |
-| `val/loss` | **3.26706** (n=1 trial; passes n=1 bar < 3.27206) |
-| `speedrun/final_first_step_to_target` | **3025** (n=1; improves over previous baseline 3075 by 50 steps) |
-| stat margin | `(3.28 - 3.26706) * sqrt(1) = 0.01294` ≥ 0.004 ✓ |
-| Baseline W&B run | `dmvm8eat` (arm_c BOLD); full group: `b1yxccn9` (arm_a CTRL), `5q76w7a4` (arm_b MIRROR) |
-| Baseline PR | [#1027](https://github.com/morganmcg1/modded-nanogpt-senpai/pull/1027) |
+| LR schedule | **Linear** cooldown for MuonH (`cooldown_frac=1.0`); linear cooldown for aux (`cooldown_frac=0.4`) |
+| `val/loss` | **3.26547** (n=1 trial; passes n=1 bar < 3.27206) |
+| `speedrun/final_first_step_to_target` | **3150** (n=1) |
+| stat margin | `(3.28 - 3.26547) * sqrt(1) = 0.01453` ≥ 0.004 ✓ |
+| Baseline W&B run | `n21sh37z` (arm_b LINEAR); full group: `58wedojq` (arm_a CTRL cosine 3.26902), `xk5gmtnq` (arm_c SQRT 3.29121) |
+| Baseline PR | [#1097](https://github.com/morganmcg1/modded-nanogpt-senpai/pull/1097) |
 
-### Reproduce µ-schedule (0.95→0.90) + Aux β2=0.99 + eps=1e-6 + AGC inner + MuonH warmup + cosine cooldown + AGC aux + MuLoCo × MuonH-SI baseline
+### Reproduce H133 linear cooldown + µ-schedule (0.95→0.90) + Aux β2=0.99 + eps=1e-6 + AGC inner + MuonH warmup + AGC aux + MuLoCo × MuonH-SI baseline
 
 ```bash
 cd target/
@@ -47,7 +48,7 @@ torchrun --standalone --nproc_per_node=1 \
   records/track_3_optimization/train_gpt_simple.py \
   --num_trials 1 --train_steps 3325 \
   --muonh_mode scale_invariant \
-  --muonh_cooldown_shape cosine \
+  --muonh_cooldown_shape linear \
   --muonh_warmup_steps 100 \
   --use_outer_optimizer 1 \
   --outer_lr 0.7 --outer_momentum 0.5 --sync_interval 30 \
@@ -57,6 +58,12 @@ torchrun --standalone --nproc_per_node=1 \
   --aux_beta2_schedule constant --aux_beta2_start 0.99 \
   --muonh_mu_schedule linear --muonh_mu_start 0.95 --muonh_mu_end 0.90
 ```
+
+---
+
+## Previous baseline — PR #1027 fern H117 Inner MuonH µ DECREASING Schedule 0.95→0.90 (2026-05-24 ~16:00 UTC)
+
+**Merged 2026-05-24 ~16:00 UTC — PR #1027 fern H117 Inner MuonH µ DECREASING Schedule (0.95→0.90).** Linear µ schedule decreasing from 0.95 to 0.90 over 3325 steps via `--muonh_mu_schedule linear --muonh_mu_start 0.95 --muonh_mu_end 0.90`. Lower µ throughout training reduces momentum smoothing of the NS5-orthogonalized update direction, improving gradient-tracking responsiveness without relying on Sutskever effective-step amplification. arm_c BOLD (0.95→0.90) winner at val/loss=3.26706, ffs=3025. Baseline W&B run `dmvm8eat`. Superseded by PR #1097.
 
 ---
 

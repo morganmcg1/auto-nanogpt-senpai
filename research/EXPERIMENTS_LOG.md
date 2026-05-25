@@ -1,3 +1,29 @@
+## 2026-05-25 06:25 UTC — PR #1097 MERGED (fern): H133 Inner MuonH LR cooldown SHAPE = linear (PLATEAU-BREAK; first WIN since H117 baseline 14+ closures ago; new baseline val/loss=3.26547, ffs=3150)
+
+- Branch: `g1r3-fern/h133-inner-cooldown-shape`
+- Hypothesis: test SHAPE axis at frac=1.0 — cosine (CTRL) vs linear vs sqrt. Mechanism prediction: sqrt's higher mid-training LR (0.01334 vs cosine 0.01039 at step 1500, +28% mid-training) would preserve mid-training advantage à la H125 µ-schedule finding. Programme question: does cooldown SHAPE differentiate from FRAC (H120 closed) under same schedule family?
+- Terminal results (W&B verified, student SENPAI-RESULT marker present):
+  - arm_a CTRL cosine `58wedojq` val/loss=**3.26902** (NULL bit-id within widened CTRL [3.26880, 3.27250]; +0.00196 vs baseline) ffs=3050 ✅
+  - **arm_b LINEAR `n21sh37z` val/loss=3.26547 WIN** (Δ=-0.00159 vs baseline 3.26706; 0.00079 below WIN threshold 3.26626) ffs=3150 ✅
+  - arm_c SQRT `xk5gmtnq` val/loss=**3.29121** NEG (+0.02415 vs baseline; ffs=-1 never reached 3.28 target) — SEVERE NEG
+- Verdict: **MERGED as new baseline.** This breaks the 14+ consecutive non-merging closure plateau since H117 set baseline 3.26706 at cycle ~100. New baseline val/loss=**3.26547**, ffs=3150. New WIN threshold: 3.26467; NULL [3.26377, 3.26817]; widened CTRL [3.26721, 3.27091].
+- **U-shaped lead profile (most surprising programme finding to date)**:
+  - arm_b LEADS arm_a through step 1500 (peak -0.01936 at step 1000)
+  - arm_b DEFICITS arm_a through step 2000-3000 (peak +0.02708 at step 2500 — linear's slower mid-cooldown momentarily lags cosine's faster initial drop)
+  - arm_b RECOVERS and overtakes arm_a for terminal WIN at step 3325 (Δ=-0.00356) — linear's smoother end-of-cooldown converges faster than cosine's accelerating tail
+- **Mechanism finding: "late-cooldown gradient preservation via even decay rate"**. Cosine's `eta = 0.5(1 − cos(πc))` derivative goes to ZERO as c→0 (steep LR drop near end), while linear's constant slope preserves useful gradient signal through the last ~325 steps. Linear holds optimizer momentum mid-training (slight deficit), then preserves final-step gradient signal for stronger convergence (terminal WIN). Mechanism is NOT mid-training lead preservation (sqrt was *catastrophic* for that).
+- **H125 mid-training-lead-erosion hypothesis FALSIFIED on SHAPE axis**: sqrt's higher mid-training LR did NOT preserve mid-training advantage; it actively destroyed trajectory (monotone deficit growth peaking +0.098 at step 2500, never recovering, ffs=-1). Mid-training-lead-erosion mechanism is **specific to the µ-schedule axis** (heavy-ball coefficient affects acceleration); shape axis is **different lever, different dynamics**.
+- **AGC active_fraction = 0.99010 invariant across shapes** — extends H114 closure (invariant across thresholds) to invariant-across-shapes. The val/loss differential is NOT mediated by differential AGC clipping; it is a pure schedule-shape effect on optimizer effective step size.
+- **CLI plumbing verified**: at step 1500, observed `muonh_lr_t` matches predicted to ≤4 sig figs (cosine=0.01039, linear=0.00989, sqrt=0.01334). At step 1500, sqrt maintains +28% LR vs cosine — that's the experimental lever.
+- Crossing-point analysis: arm_b LINEAR reaches target 100 steps later than arm_a CTRL but lands at lower terminal val/loss (WIN gate on val/loss not ffs).
+- Operational excellence: Recovered from SIGTERM cascade at step 664 (signal cascade from prior Claude session re-entry); fern correctly diagnosed external kill (not code crash), skipped repeated smoking (6 sqrt smokes already passed), relaunched via nohup'd chain script that survived session re-entry. Multi-cycle resilience to operational issues.
+- **Programme decision tree (post-merge)**:
+  - Inner cooldown SHAPE = LINEAR is new baseline. FRAC axis was closed at 1.0 under cosine (H120); needs re-test under linear shape (next-experiment candidate).
+  - Inner-µ schedule (linear 0.95→0.90) baseline preserved — composes cleanly with linear cooldown.
+  - Aux cooldown linear@0.4 unchanged (H130 paradigm-split: inner wants cosine@1.0 — now LINEAR@1.0; aux wants linear@0.4).
+  - All other in-flight (#1111/#1112/#1115/#1118/#1121/#1128/#1141) now compare against tightened threshold (WIN<3.26467 vs prior 3.26626) — heartbeat sent to each.
+- 1st base-improvement merge in 14+ cycles; first programme-level SHAPE finding; falsifies H125 mid-training-lead-erosion generalization to SHAPE axis.
+
 ## 2026-05-25 09:00 UTC — PR #1141 ASSIGNED (tanjiro): H142 Embed-only weight decay sweep (first-ever WD axis on aux subsystem; direct H135 closure followup; tests whether AdamW attractor target IS load-bearing or merely path-dependent)
 
 - Branch: `g1r3-tanjiro/h142-embed-wd-sweep`
