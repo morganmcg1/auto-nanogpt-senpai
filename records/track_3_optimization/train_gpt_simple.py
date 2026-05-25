@@ -83,6 +83,12 @@ def parse_args():
              "muall=musoft + non-residual block 2D weights also scaled by 1/sqrt(L); "
              "smallconst=std=1e-3 depth-independent.",
     )
+    parser.add_argument("--soap_gram_beta", type=float, default=None,
+                        help="β2 for Gram-matrix EMA (used in soap_update_preconditioner). "
+                             "Default None = use SOAP_BETA2 (=0.90) for backwards compatibility.")
+    parser.add_argument("--soap_basis_beta", type=float, default=None,
+                        help="β2 for in-basis exp_avg_sq EMA (used in soap_precondition_momentum). "
+                             "Default None = use SOAP_BETA2 (=0.90) for backwards compatibility.")
     args = parser.parse_args()
     args.num_trials = args.num_trials if args.num_trials is not None else (args.legacy_num_trials or 1)
     args.wandb_tags = [tag.strip() for tag in args.wandb_tags.split(",") if tag.strip()]
@@ -571,7 +577,8 @@ class Muon(torch.optim.Optimizer):
     SOAP_ATTN_SUFFIXES = (".attn.q.weight", ".attn.k.weight", ".attn.v.weight", ".attn.proj.weight")
 
     def __init__(self, named_params, lr=0.02, weight_decay=0, mu=0.95,
-                 soap_attn=False, trust_threshold=0.0):
+                 soap_attn=False, trust_threshold=0.0,
+                 soap_gram_beta=None, soap_basis_beta=None):
         # `named_params` can be either:
         #   (a) list of (name, param) tuples → single param group (legacy form)
         #   (b) list of dicts {"named_params": [(name, param), ...], "lr": ?, "weight_decay": ?, "mu": ?, "name": ?}
@@ -594,6 +601,8 @@ class Muon(torch.optim.Optimizer):
         self.trust_threshold = float(trust_threshold)
         self.use_trust_gate = soap_attn
         self.cos_sims_buffer: dict[str, Tensor] = {}
+        self.soap_gram_beta = soap_gram_beta if soap_gram_beta is not None else SOAP_BETA2
+        self.soap_basis_beta = soap_basis_beta if soap_basis_beta is not None else SOAP_BETA2
 
         param_groups = []
         for g in groups_raw:
@@ -636,7 +645,7 @@ class Muon(torch.optim.Optimizer):
                     if use_soap:
                         state["momentum"].lerp_(p.grad, 1 - group["mu"])
                         raw_nesterov = p.grad.lerp(state["momentum"], group["mu"])
-                        precond_nesterov = soap_precondition_momentum(raw_nesterov, state)
+                        precond_nesterov = soap_precondition_momentum(raw_nesterov, state, beta2=self.soap_basis_beta, eps=1e-8)
                         u_soap = soap_ns_step(precond_nesterov)
                         if self.use_trust_gate:
                             u_muon = soap_ns_step(raw_nesterov)
@@ -647,7 +656,7 @@ class Muon(torch.optim.Optimizer):
                             self.cos_sims_buffer[self.param_names[id(p)]] = cos_sim_t
                         else:
                             update = u_soap
-                        soap_update_preconditioner(p.grad, state)
+                        soap_update_preconditioner(p.grad, state, shampoo_beta=self.soap_gram_beta, precondition_frequency=PRECOND_FREQ)
                     else:
                         update = muon_update(p.grad, state["momentum"], mu=group["mu"])
                     norm_sum.add_(update.float().norm())
@@ -754,6 +763,8 @@ if dist.get_rank() == 0:
                 ",attn.q.weight,attn.k.weight,attn.v.weight,attn.proj.weight" if args.soap_attn else ""
             ),
             "soap_beta2": SOAP_BETA2,
+            "soap_gram_beta": args.soap_gram_beta if args.soap_gram_beta is not None else SOAP_BETA2,
+            "soap_basis_beta": args.soap_basis_beta if args.soap_basis_beta is not None else SOAP_BETA2,
             "soap_precond_freq": PRECOND_FREQ,
             "ns_iter": NS_ITER,
             "soap_attn_enabled": bool(args.soap_attn),
@@ -853,6 +864,7 @@ for trial_idx in range(args.num_trials):
             dict(named_params=attn_named, lr=args.lr_attn, weight_decay=args.wd_attn, name="muon_attn"),
         ],
         soap_attn=args.soap_attn, trust_threshold=args.soap_trust_threshold,
+        soap_gram_beta=args.soap_gram_beta, soap_basis_beta=args.soap_basis_beta,
     )
     optimizers = [optimizer1, optimizer2]
     assert set(p for opt in optimizers for group in opt.param_groups
