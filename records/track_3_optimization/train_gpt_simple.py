@@ -64,6 +64,14 @@ def parse_args():
     parser.add_argument("--muon_lr", type=float, default=0.035,
                         help="Base learning rate for body-Muon optimizer (matrix params in blocks). "
                              "Default 0.035 matches the merged baseline.")
+    parser.add_argument("--depth_mu_shallow", type=float, default=0.95,
+                        help="EMA momentum mu for the shallowest body Muon layer (layer 0). "
+                             "Linearly interpolated to --depth_mu_deep across body layers. "
+                             "Default 0.95 (=baseline uniform mu).")
+    parser.add_argument("--depth_mu_deep", type=float, default=0.95,
+                        help="EMA momentum mu for the deepest body Muon layer (layer N-1). "
+                             "Linearly interpolated from --depth_mu_shallow across body layers. "
+                             "Default 0.95 (=baseline uniform mu).")
     args = parser.parse_args()
     args.num_trials = args.num_trials if args.num_trials is not None else (args.legacy_num_trials or 1)
     args.wandb_tags = [tag.strip() for tag in args.wandb_tags.split(",") if tag.strip()]
@@ -755,10 +763,38 @@ for trial_idx in range(args.num_trials):
                         dict(params=[model.proj.weight], lr=1/160, name="adam_lm_head"),
                         dict(params=[p for p in model.parameters() if p.ndim < 2], lr=0.025, name="adam_scalars")],
                        betas=(0.8, 0.95), eps=1e-10, weight_decay=0, fused=True)
-    optimizer2 = Muon([p for p in model.blocks.parameters() if p.ndim >= 2],
-                      lr=args.muon_lr, weight_decay=0.025, beta_cov=0.95, gamma=PMUON_GAMMA)
-    optimizer2.param_groups[0]["name"] = "muon_blocks"
-    print0(f"body-Muon optimizer: lr={args.muon_lr} weight_decay=0.025 beta_cov=0.95 gamma={PMUON_GAMMA}")
+    num_body_layers = len(model.blocks)
+    def mu_at_depth(layer_idx: int) -> float:
+        if num_body_layers <= 1:
+            return args.depth_mu_shallow
+        frac = layer_idx / (num_body_layers - 1)
+        return args.depth_mu_shallow + frac * (args.depth_mu_deep - args.depth_mu_shallow)
+    muon_params_by_layer = [sorted([p for p in block.parameters() if p.ndim >= 2],
+                                   key=lambda x: x.size(), reverse=True)
+                            for block in model.blocks]
+    optimizer2 = Muon(muon_params_by_layer[0],
+                      lr=args.muon_lr, weight_decay=0.025, beta_cov=0.95, gamma=PMUON_GAMMA,
+                      mu=mu_at_depth(0))
+    optimizer2.param_groups[0]["name"] = "muon_blocks_L00"
+    for i in range(1, num_body_layers):
+        optimizer2.add_param_group({
+            "params": muon_params_by_layer[i],
+            "lr": args.muon_lr,
+            "weight_decay": 0.025,
+            "beta_cov": 0.95,
+            "gamma": PMUON_GAMMA,
+            "ns_a": NS_A,
+            "ns_b": NS_B,
+            "ns_c": NS_C,
+            "mu": mu_at_depth(i),
+            "name": f"muon_blocks_L{i:02d}",
+        })
+    # Flat ordered list of all body-Muon params (layer-by-layer, by-size within layer).
+    # EMA tracking uses this list so it works across multi-group Muon.
+    all_muon_params = [p for group in optimizer2.param_groups for p in group["params"]]
+    print0(f"body-Muon optimizer: lr={args.muon_lr} weight_decay=0.025 beta_cov=0.95 "
+           f"gamma={PMUON_GAMMA} depth_mu=[{args.depth_mu_shallow:.4f}..{args.depth_mu_deep:.4f}] "
+           f"({num_body_layers} layer groups)")
     optimizers = [optimizer1, optimizer2]
     assert set(p for opt in optimizers for group in opt.param_groups
                for p in group["params"]) == set(model.parameters())
@@ -774,7 +810,7 @@ for trial_idx in range(args.num_trials):
     # ema_beta (base) to ema_beta_target as the LR multiplier decays to 0.
     ema_params = None
     if args.ema_beta > 0:
-        ema_params = [p.detach().float().clone() for p in optimizer2.param_groups[0]["params"]]
+        ema_params = [p.detach().float().clone() for p in all_muon_params]
 
     # learning rate schedule: stable then power-law cooldown (gamma = COOLDOWN_POWER)
     def compute_lr_mult(step, cooldown_frac=0.7):
@@ -865,14 +901,14 @@ for trial_idx in range(args.num_trials):
             # Swap in EMA weights (body-Muon matrix params only) for the eval pass.
             train_bufs = None
             if ema_params is not None:
-                train_bufs = [p.detach().clone() for p in optimizer2.param_groups[0]["params"]]
+                train_bufs = [p.detach().clone() for p in all_muon_params]
                 # Compute Frobenius distance ||ema - live|| across all body-Muon params.
                 sq_sum = 0.0
-                for ema_p, p in zip(ema_params, optimizer2.param_groups[0]["params"]):
+                for ema_p, p in zip(ema_params, all_muon_params):
                     diff = (ema_p - p.detach().float())
                     sq_sum += float(diff.square().sum().item())
                 buffer_frob_dist = sq_sum ** 0.5
-                for ema_p, p in zip(ema_params, optimizer2.param_groups[0]["params"]):
+                for ema_p, p in zip(ema_params, all_muon_params):
                     p.data.copy_(ema_p.to(p.dtype))
             val_loss = torch.zeros((), device=device)
             with torch.no_grad():
@@ -884,7 +920,7 @@ for trial_idx in range(args.num_trials):
             val_loss_float = float(val_loss.item())
             # Restore train weights immediately after eval so subsequent backward passes use them.
             if train_bufs is not None:
-                for train_p, p in zip(train_bufs, optimizer2.param_groups[0]["params"]):
+                for train_p, p in zip(train_bufs, all_muon_params):
                     p.data.copy_(train_p)
             if dist.get_rank() == 0:
                 val_loss_history.append((step, val_loss_float))
@@ -989,7 +1025,7 @@ for trial_idx in range(args.num_trials):
         ema_lr_mult_now = float("nan")
         if ema_params is not None:
             if step < args.ema_warmup_steps:
-                for ema_p, p in zip(ema_params, optimizer2.param_groups[0]["params"]):
+                for ema_p, p in zip(ema_params, all_muon_params):
                     ema_p.copy_(p.detach().float())
                 ema_beta_t_now = args.ema_beta
                 ema_lr_mult_now = compute_lr_mult(step)
@@ -997,7 +1033,7 @@ for trial_idx in range(args.num_trials):
                 ema_lr_mult_now = compute_lr_mult(step)
                 ema_beta_t_now = compute_ema_beta_t(step)
                 lerp_w = 1.0 - ema_beta_t_now
-                for ema_p, p in zip(ema_params, optimizer2.param_groups[0]["params"]):
+                for ema_p, p in zip(ema_params, all_muon_params):
                     ema_p.lerp_(p.detach().float(), lerp_w)
         if dist.get_rank() == 0 and telemetry_due:
             log_weight_telemetry(
@@ -1038,6 +1074,32 @@ for trial_idx in range(args.num_trials):
                 "train/cooldown/lr_multiplier": sched_eta,
                 "train/cooldown/power_gamma": COOLDOWN_POWER,
             }, step=wandb_step)
+            depth_mu_metrics = {
+                "trial": trial_idx,
+                "train/step": train_step,
+                "depth_mu/shallow": args.depth_mu_shallow,
+                "depth_mu/deep": args.depth_mu_deep,
+                "depth_mu/num_layers": num_body_layers,
+            }
+            for li in range(num_body_layers):
+                depth_mu_metrics[f"depth_mu/layer_{li:02d}"] = mu_at_depth(li)
+            wandb.log(depth_mu_metrics, step=wandb_step)
+            if train_step % 250 == 0 or train_step == train_steps:
+                snr_metrics = {"trial": trial_idx, "train/step": train_step}
+                for li in [0, num_body_layers // 2, num_body_layers - 1]:
+                    params_li = muon_params_by_layer[li]
+                    if not params_li:
+                        continue
+                    p_probe = params_li[0]
+                    g_norm = float(p_probe.grad.norm().item()) if p_probe.grad is not None else 0.0
+                    st = optimizer2.state.get(p_probe, None)
+                    m_norm = float(st["momentum"].norm().item()) if st and "momentum" in st else 0.0
+                    snr_metrics[f"depth_mu/layer_{li:02d}_grad_norm"] = g_norm
+                    snr_metrics[f"depth_mu/layer_{li:02d}_mom_norm"] = m_norm
+                    snr_metrics[f"depth_mu/layer_{li:02d}_grad_to_mom_ratio"] = (
+                        g_norm / max(m_norm, 1e-12)
+                    )
+                wandb.log(snr_metrics, step=wandb_step)
             if ema_params is not None:
                 wandb.log({
                     "trial": trial_idx,
