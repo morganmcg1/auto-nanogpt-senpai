@@ -29,6 +29,56 @@ PRECOND_FREQ = 16
 NS_ITER = 12  # overridden by args.ns_iter at module load
 
 
+class AdaBelief(torch.optim.Optimizer):
+    """AdaBelief optimizer (Zhuang et al. NeurIPS 2020, arXiv:2010.07468).
+
+    Drop-in replacement for AdamW. Variance estimate uses centered gradient
+    (g - exp_avg)^2 instead of g^2, giving a belief-weighted update that
+    amplifies steps when grad aligns with momentum and damps noisy directions.
+    """
+    def __init__(self, params, lr=1e-3, betas=(0.9, 0.999), eps=1e-10,
+                 weight_decay=0.0):
+        if not 0.0 <= lr:
+            raise ValueError(f"Invalid learning rate: {lr}")
+        defaults = dict(lr=lr, betas=betas, eps=eps, weight_decay=weight_decay)
+        super().__init__(params, defaults)
+
+    @torch.no_grad()
+    def step(self, closure=None):
+        loss = None
+        if closure is not None:
+            with torch.enable_grad():
+                loss = closure()
+        for group in self.param_groups:
+            beta1, beta2 = group["betas"]
+            lr = group["lr"]
+            eps = group["eps"]
+            wd = group["weight_decay"]
+            for p in group["params"]:
+                if p.grad is None:
+                    continue
+                grad = p.grad
+                state = self.state[p]
+                if len(state) == 0:
+                    state["step"] = 0
+                    state["exp_avg"] = torch.zeros_like(p)
+                    state["exp_avg_sq"] = torch.zeros_like(p)
+                state["step"] += 1
+                exp_avg = state["exp_avg"]
+                exp_avg_sq = state["exp_avg_sq"]
+                exp_avg.mul_(beta1).add_(grad, alpha=1 - beta1)
+                diff = grad - exp_avg
+                exp_avg_sq.mul_(beta2).addcmul_(diff, diff, value=1 - beta2).add_(eps)
+                step = state["step"]
+                bias1 = 1 - beta1 ** step
+                bias2 = 1 - beta2 ** step
+                if wd != 0:
+                    p.mul_(1 - lr * wd)
+                denom = (exp_avg_sq / bias2).sqrt().add_(eps)
+                p.addcdiv_(exp_avg, denom, value=-lr / bias1)
+        return loss
+
+
 def parse_args():
     parser = argparse.ArgumentParser(description="Modded-NanoGPT optimizer speedrun trainer")
     parser.add_argument("legacy_num_trials", nargs="?", type=int, help="Backward-compatible positional trial count")
@@ -83,6 +133,12 @@ def parse_args():
              "muall=musoft + non-residual block 2D weights also scaled by 1/sqrt(L); "
              "smallconst=std=1e-3 depth-independent.",
     )
+    parser.add_argument("--use_adabelief", action="store_true",
+                        help="Replace AdamW with AdaBelief for the auxiliary parameter groups "
+                             "(embed, lm_head, scalars). Default False = use AdamW.")
+    parser.add_argument("--adam_eps", type=float, default=1e-10,
+                        help="ε for the aux-group optimizer denominator (AdamW or AdaBelief). "
+                             "Default 1e-10 matches the prior hardcoded AdamW eps.")
     args = parser.parse_args()
     args.num_trials = args.num_trials if args.num_trials is not None else (args.legacy_num_trials or 1)
     args.wandb_tags = [tag.strip() for tag in args.wandb_tags.split(",") if tag.strip()]
@@ -765,6 +821,9 @@ if dist.get_rank() == 0:
             "wd_schedule": args.wd_schedule,
             "lr_scalars": args.lr_scalars,
             "depth_init_mode": args.depth_init_mode,
+            "use_adabelief": bool(args.use_adabelief),
+            "adam_eps": float(args.adam_eps),
+            "aux_optimizer": "AdaBelief" if args.use_adabelief else "AdamW",
         },
     )
 
@@ -837,10 +896,13 @@ for trial_idx in range(args.num_trials):
     print0(f"[init] mode={args.depth_init_mode}  L={NUM_LAYERS}  block_residual_attn.proj_std={_ex_resid_std:.6f}", console=True)
 
     # create the optimizer(s)
-    optimizer1 = AdamW([dict(params=[model.embed.weight], lr=0.3, name="adam_embed"),
-                        dict(params=[model.proj.weight], lr=1/320, name="adam_lm_head"),
-                        dict(params=[p for p in model.parameters() if p.ndim < 2], lr=args.lr_scalars, name="adam_scalars")],
-                       betas=(0.8, 0.95), eps=1e-10, weight_decay=0, fused=True)
+    opt1_param_groups = [dict(params=[model.embed.weight], lr=0.3, name="adam_embed"),
+                         dict(params=[model.proj.weight], lr=1/320, name="adam_lm_head"),
+                         dict(params=[p for p in model.parameters() if p.ndim < 2], lr=args.lr_scalars, name="adam_scalars")]
+    if args.use_adabelief:
+        optimizer1 = AdaBelief(opt1_param_groups, betas=(0.8, 0.95), eps=args.adam_eps, weight_decay=0)
+    else:
+        optimizer1 = AdamW(opt1_param_groups, betas=(0.8, 0.95), eps=args.adam_eps, weight_decay=0, fused=True)
     named_blocks = [(n, p) for n, p in model.blocks.named_parameters() if p.ndim >= 2]
     mlp_named = [(n, p) for n, p in named_blocks
                  if n.endswith(".mlp.fc.weight") or n.endswith(".mlp.proj.weight")]
