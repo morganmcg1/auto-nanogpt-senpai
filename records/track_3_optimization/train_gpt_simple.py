@@ -594,6 +594,14 @@ NANOGPT_SENPAI_SEED = int(_SENPAI_SEED_RAW) if _SENPAI_SEED_RAW != "" else None
 # At lambda=0 the hook is a no-op and behavior is bit-identical to the merged stack.
 NANOGPT_EMBED_INIT_ANCHOR_LAMBDA = float(os.environ.get("NANOGPT_EMBED_INIT_ANCHOR_LAMBDA", "0.0"))
 
+# GaLore low-rank gradient subspace projection on lm_head (#1120 PLATEAU ESCALATION).
+# When RANK > 0 we split model.proj.weight off from the main AdamW into a
+# GaLoreAdamW optimizer that periodically estimates the top-r left-singular
+# subspace of the lm_head gradient and runs AdamW in that rank-r subspace.
+# RANK=0 (default) keeps the legacy 3-group AdamW path bit-identically.
+NANOGPT_LM_HEAD_GALORE_RANK = int(os.environ.get("NANOGPT_LM_HEAD_GALORE_RANK", "0"))
+NANOGPT_LM_HEAD_GALORE_PERIOD = int(os.environ.get("NANOGPT_LM_HEAD_GALORE_PERIOD", "200"))
+
 
 def get_ns_coef_at_iter(iter_idx: int, total_iters: int, schedule: str) -> tuple[float, float, float]:
     """Return (a, b, c) for NS iter iter_idx of total_iters.
@@ -778,6 +786,130 @@ class Muon(torch.optim.Optimizer):
                 dist.all_gather(params_pad[base_i:base_i + world_size], params_pad[base_i + rank])
 
 
+class GaLoreAdamW(torch.optim.Optimizer):
+    """AdamW wrapped with GaLore left-singular gradient subspace projection.
+
+    For a weight `p` with gradient g of shape (V, D) we periodically (every
+    ``svd_period`` steps) estimate the top-``rank`` left singular vectors P of g
+    via randomized SVD. Between refreshes, AdamW is run in the projected
+    subspace: `g_proj = P.T @ g` (shape r x D), m/v are r x D, and the
+    update is `P @ (m_hat / (sqrt(v_hat) + eps))` re-projected back to V x D.
+
+    Mechanism: when V (vocabulary) is much larger than D and the gradient is
+    Zipfian-heavy (lm_head case, per #1045), the dominant left singular vectors
+    capture the high-frequency-token directions while small singular vectors
+    correspond to noisy rare-token rows. Projecting denoises the rare-token
+    rows while preserving the load-bearing token directions.
+
+    Per-refresh policy:
+        * `P` is recomputed via `torch.svd_lowrank(g.float(), q=rank+8, niter=2)`.
+            We cast to float32 because bf16 SVD is numerically unstable. The
+            projection back uses g's native dtype.
+        * `m` and `v` are reset to zeros in the new subspace (PR #1120 spec).
+            Bias correction uses `tau = global_step - last_refresh_step` so the
+            first post-refresh step does not get an erroneously large bias-
+            corrected update. (The PR sketch's literal `1 - beta**t` would
+            over-suppress m_hat post-reset; tracking refresh-relative step is
+            the AdamW-correct fix and keeps the projection mechanism the only
+            knob being tested.)
+
+    Diagnostic state populated at every refresh:
+        * ``state["last_singular_values"]`` -- singular values from svd_lowrank
+        * ``state["last_proj_energy_ratio"]`` -- ||P^T g||_F / ||g||_F
+        * ``state["last_refresh_step"]`` -- global step that triggered refresh
+        * ``state["refresh_count"]`` -- cumulative number of refreshes
+
+    Args:
+        params: iterable of parameters or param-group dicts.
+        lr: outer learning rate (matches AdamW semantics).
+        rank: subspace rank r (must be > 0; r << min(V, D) recommended).
+        svd_period: refresh the projector every this many optimizer steps.
+        betas: (beta1, beta2) for AdamW moments in the projected subspace.
+        eps: AdamW epsilon (applied to v_hat.sqrt()).
+        weight_decay: decoupled AdamW weight decay (applied to full-space p).
+    """
+
+    def __init__(self, params, lr, rank, svd_period, betas=(0.8, 0.99), eps=1e-10, weight_decay=0):
+        assert rank > 0, "GaLoreAdamW requires rank > 0; use AdamW directly for rank=0"
+        assert svd_period >= 1
+        defaults = dict(lr=lr, rank=rank, svd_period=svd_period,
+                        betas=betas, eps=eps, weight_decay=weight_decay)
+        super().__init__(params, defaults)
+        for group in self.param_groups:
+            for p in group["params"]:
+                assert p.ndim == 2, (
+                    f"GaLoreAdamW expects 2D matrices (got ndim={p.ndim}, shape={tuple(p.shape)})"
+                )
+                state = self.state[p]
+                state["step"] = 0
+                state["P"] = None
+                state["m"] = None
+                state["v"] = None
+                state["refresh_step"] = 0  # global step at which last refresh ran
+                state["refresh_count"] = 0
+                state["last_singular_values"] = None
+                state["last_proj_energy_ratio"] = None
+                state["last_refresh_step"] = -1
+
+    @torch.no_grad()
+    def step(self):
+        for group in self.param_groups:
+            lr = group["lr"]
+            rank = group["rank"]
+            svd_period = group["svd_period"]
+            beta1, beta2 = group["betas"]
+            eps = group["eps"]
+            wd = group["weight_decay"]
+            for p in group["params"]:
+                if p.grad is None:
+                    continue
+                g = p.grad
+                state = self.state[p]
+                state["step"] += 1
+                t = state["step"]
+                refresh_due = (
+                    state["P"] is None
+                    or (t - state["refresh_step"]) >= svd_period
+                )
+                if refresh_due:
+                    g_f32 = g.detach().float()
+                    q = min(rank + 8, min(g_f32.shape))
+                    U, S, Vt = torch.svd_lowrank(g_f32, q=q, niter=2)
+                    P = U[:, :rank].contiguous().to(g.dtype)
+                    state["P"] = P
+                    state["m"] = torch.zeros(rank, g.shape[1], device=g.device, dtype=g.dtype)
+                    state["v"] = torch.zeros(rank, g.shape[1], device=g.device, dtype=g.dtype)
+                    # `tau = t - refresh_step` is the AdamW step counter inside the
+                    # current subspace. Setting refresh_step = t - 1 makes tau = 1
+                    # on this very step so the moments get a normal bias-correction.
+                    state["refresh_step"] = t - 1
+                    state["last_refresh_step"] = t
+                    state["refresh_count"] += 1
+                    # Diagnostic: keep up to 64 singular values for spectrum logging.
+                    state["last_singular_values"] = S.detach().to(torch.float32).cpu().clone()
+                    # Diagnostic projection energy: ||P^T g||_F / ||g||_F (computed once per refresh).
+                    P_for_diag = P.to(g_f32.dtype)
+                    g_proj_diag = P_for_diag.t() @ g_f32
+                    g_norm = float(g_f32.norm().item())
+                    state["last_proj_energy_ratio"] = (
+                        float(g_proj_diag.norm().item()) / (g_norm + 1e-12) if g_norm > 0 else 0.0
+                    )
+                P = state["P"]
+                g_proj = P.t() @ g  # r x D
+                state["m"].mul_(beta1).add_(g_proj, alpha=1 - beta1)
+                state["v"].mul_(beta2).addcmul_(g_proj, g_proj, value=1 - beta2)
+                tau = t - state["refresh_step"]
+                bias1 = 1.0 - beta1 ** tau
+                bias2 = 1.0 - beta2 ** tau
+                m_hat = state["m"] / bias1
+                v_hat = state["v"] / bias2
+                step_proj = m_hat / (v_hat.sqrt() + eps)
+                step_full = P @ step_proj
+                if wd > 0:
+                    p.mul_(1 - lr * wd)
+                p.add_(step_full, alpha=-lr)
+
+
 ########################################
 #                Setup                 #
 ########################################
@@ -823,6 +955,9 @@ print0(f"MUON_LR_MULT: attn={NANOGPT_MUON_ATTN_LR_MULT:.3f} mlp={NANOGPT_MUON_ML
 print0(f"  Effective Muon base LRs: attn={0.035*NANOGPT_MUON_ATTN_LR_MULT:.5f} mlp={0.035*NANOGPT_MUON_MLP_LR_MULT:.5f}", console=True)
 print0(f"EMBED_INIT_ANCHOR_LAMBDA: {NANOGPT_EMBED_INIT_ANCHOR_LAMBDA} "
        f"({'ACTIVE' if NANOGPT_EMBED_INIT_ANCHOR_LAMBDA > 0 else 'INACTIVE (bit-identical fallback)'})",
+       console=True)
+print0(f"LM_HEAD_GALORE: rank={NANOGPT_LM_HEAD_GALORE_RANK} period={NANOGPT_LM_HEAD_GALORE_PERIOD} "
+       f"({'ACTIVE (lm_head AdamW -> GaLoreAdamW)' if NANOGPT_LM_HEAD_GALORE_RANK > 0 else 'INACTIVE (legacy 3-group AdamW)'})",
        console=True)
 if NS_ITERS_COOLDOWN > 0:
     print0(f"NS_SCHEDULE: ns_iters={NS_ITERS} -> ns_iters_cooldown={NS_ITERS_COOLDOWN} "
@@ -896,6 +1031,8 @@ if dist.get_rank() == 0:
             "nanogpt_ns_stochastic_cooldown": NANOGPT_NS_STOCHASTIC_COOLDOWN,
             "senpai_seed": NANOGPT_SENPAI_SEED if NANOGPT_SENPAI_SEED is not None else -1,
             "nanogpt_embed_init_anchor_lambda": NANOGPT_EMBED_INIT_ANCHOR_LAMBDA,
+            "nanogpt_lm_head_galore_rank": NANOGPT_LM_HEAD_GALORE_RANK,
+            "nanogpt_lm_head_galore_period": NANOGPT_LM_HEAD_GALORE_PERIOD,
         },
     )
 
@@ -938,10 +1075,38 @@ for trial_idx in range(args.num_trials):
                f"snapshot_shape={tuple(embed_init_snapshot.shape)}", console=True)
 
     # create the optimizer(s)
-    optimizer1 = AdamW([dict(params=[model.embed.weight], lr=0.3 * NANOGPT_ADAMW_EMBED_LR_MULT, name="adam_embed"),
-                        dict(params=[model.proj.weight], lr=(1/320) * NANOGPT_ADAMW_LM_HEAD_LR_MULT, name="adam_lm_head"),
-                        dict(params=[p for p in model.parameters() if p.ndim < 2], lr=0.01 * NANOGPT_ADAMW_SCALAR_LR_MULT, name="adam_scalars")],
+    _galore_active = NANOGPT_LM_HEAD_GALORE_RANK > 0
+    _adamw_aux_groups = [
+        dict(params=[model.embed.weight], lr=0.3 * NANOGPT_ADAMW_EMBED_LR_MULT, name="adam_embed"),
+        dict(params=[p for p in model.parameters() if p.ndim < 2], lr=0.01 * NANOGPT_ADAMW_SCALAR_LR_MULT, name="adam_scalars"),
+    ]
+    if not _galore_active:
+        # Bit-identical legacy path: lm_head lives in the same fused AdamW.
+        _adamw_aux_groups.insert(1, dict(
+            params=[model.proj.weight], lr=(1/320) * NANOGPT_ADAMW_LM_HEAD_LR_MULT,
+            name="adam_lm_head",
+        ))
+    optimizer1 = AdamW(_adamw_aux_groups,
                        betas=(0.8, NANOGPT_ADAMW_BETA2), eps=1e-10, weight_decay=0, fused=True)
+    optimizer_galore = None
+    if _galore_active:
+        # Mirror the AdamW lm_head group hyperparameters; GaLore wraps AdamW with
+        # a left-singular subspace projection on the (V, D) gradient.
+        optimizer_galore = GaLoreAdamW(
+            [dict(
+                params=[model.proj.weight],
+                lr=(1/320) * NANOGPT_ADAMW_LM_HEAD_LR_MULT,
+                rank=NANOGPT_LM_HEAD_GALORE_RANK,
+                svd_period=NANOGPT_LM_HEAD_GALORE_PERIOD,
+                name="galore_lm_head",
+            )],
+            lr=(1/320) * NANOGPT_ADAMW_LM_HEAD_LR_MULT,
+            rank=NANOGPT_LM_HEAD_GALORE_RANK,
+            svd_period=NANOGPT_LM_HEAD_GALORE_PERIOD,
+            betas=(0.8, NANOGPT_ADAMW_BETA2),
+            eps=1e-10,
+            weight_decay=0,
+        )
     # Per-block-type Muon param split: attn (q/k/v/proj) vs mlp (fc/proj).
     # When both multipliers = 1.0, behavior is bit-identical to the prior single-group setup
     # (NS orthogonalization is per-matrix; the split only changes how groups are indexed).
@@ -962,14 +1127,18 @@ for trial_idx in range(args.num_trials):
     cooldown_start_step = int(train_steps * NS_COOLDOWN_START_FRAC)
     ns_iters_history: list[int] = []
     ns_cumulative_iters = 0
-    optimizers = [optimizer1, optimizer2]
+    # Aux (AdamW + optional GaLore) optimizers; body Muon stays separate.
+    aux_optimizers = [optimizer1]
+    if optimizer_galore is not None:
+        aux_optimizers.append(optimizer_galore)
+    optimizers = aux_optimizers + [optimizer2]
     assert set(p for opt in optimizers for group in opt.param_groups
                for p in group["params"]) == set(model.parameters())
     # Per-group grad-clip param lists (#708). Body = Muon-orthogonalized matrices;
-    # aux = AdamW embed + lm_head + scalars. Reuses the same lists the optimizers
-    # were constructed from so the split cannot drift.
+    # aux = AdamW embed + (lm_head if not GaLore else via GaLoreAdamW) + scalars.
+    # Reuses the same lists the optimizers were constructed from so the split cannot drift.
     body_clip_params = muon_attn_params + muon_mlp_params
-    aux_clip_params = [p for g in optimizer1.param_groups for p in g["params"]]
+    aux_clip_params = [p for opt in aux_optimizers for g in opt.param_groups for p in g["params"]]
     assert set(body_clip_params) | set(aux_clip_params) == set(model.parameters())
     assert not (set(body_clip_params) & set(aux_clip_params))
     # Cumulative clip-trigger counters across the trial for mechanism reading.
@@ -1274,6 +1443,76 @@ for trial_idx in range(args.num_trials):
                 step=train_step,
                 wandb_step=wandb_step,
             )
+        # GaLore SVD-refresh telemetry (#1120). Logs whenever the subspace
+        # projector was refreshed this step: singular value spectrum (first 64),
+        # projection energy ratio, and lm_head Frobenius norm. Also logs per-100-step
+        # diagnostics regardless of refresh, so the SVD-period axis is comparable
+        # across arms.
+        if dist.get_rank() == 0 and optimizer_galore is not None:
+            lm_head_p = model.proj.weight
+            gstate = optimizer_galore.state.get(lm_head_p, {})
+            refresh_this_step = (
+                gstate.get("last_refresh_step", -1) == gstate.get("step", 0)
+            )
+            galore_periodic_due = (train_step % 100 == 0 or train_step == train_steps)
+            if refresh_this_step or galore_periodic_due:
+                galore_metrics = {
+                    "trial": trial_idx,
+                    "train/step": train_step,
+                    "train/galore/rank": NANOGPT_LM_HEAD_GALORE_RANK,
+                    "train/galore/svd_period": NANOGPT_LM_HEAD_GALORE_PERIOD,
+                    "train/galore/refresh_count": gstate.get("refresh_count", 0),
+                    "train/galore/refresh_this_step": int(refresh_this_step),
+                    "train/galore/lm_head_weight_norm": float(lm_head_p.detach().norm().item()),
+                }
+                if refresh_this_step:
+                    sv = gstate.get("last_singular_values")
+                    if sv is not None:
+                        sv_np = sv.numpy()
+                        # Singular values (rank+8 captured by svd_lowrank).
+                        for i, v in enumerate(sv_np[:64]):
+                            galore_metrics[f"train/galore/sv_{i:02d}"] = float(v)
+                        galore_metrics["train/galore/sv_max"] = float(sv_np[0])
+                        galore_metrics["train/galore/sv_min_captured"] = float(sv_np[-1])
+                        if len(sv_np) > 1:
+                            galore_metrics["train/galore/sv_decay_ratio"] = (
+                                float(sv_np[-1]) / float(sv_np[0] + 1e-12)
+                            )
+                        # Energy concentration: how much of captured spectrum
+                        # is in the top-r singular values vs the +8 extras.
+                        r = NANOGPT_LM_HEAD_GALORE_RANK
+                        sv_sq_total = float((sv_np * sv_np).sum())
+                        sv_sq_top_r = float((sv_np[:r] * sv_np[:r]).sum())
+                        galore_metrics["train/galore/captured_energy_in_top_r"] = (
+                            sv_sq_top_r / (sv_sq_total + 1e-12)
+                        )
+                    if gstate.get("last_proj_energy_ratio") is not None:
+                        galore_metrics["train/galore/proj_energy_ratio"] = float(
+                            gstate["last_proj_energy_ratio"]
+                        )
+                # Projected step direction (post bias correction) — equivalent in spirit
+                # to log_adamw_step_direction but in the projected r x D subspace.
+                if gstate.get("m") is not None and gstate.get("v") is not None:
+                    beta1, beta2 = optimizer_galore.param_groups[0]["betas"]
+                    eps_g = optimizer_galore.param_groups[0]["eps"]
+                    tau_g = max(1, int(gstate.get("step", 1) - gstate.get("refresh_step", 0)))
+                    bc1_g = 1.0 - beta1 ** tau_g
+                    bc2_g = 1.0 - beta2 ** tau_g
+                    m_hat_g = gstate["m"].to(torch.float32) / bc1_g
+                    v_hat_g = gstate["v"].to(torch.float32) / bc2_g
+                    step_dir_g = m_hat_g / (v_hat_g.sqrt() + eps_g)
+                    galore_metrics["train/galore/step_dir_proj_norm"] = float(step_dir_g.norm().item())
+                    galore_metrics["train/galore/step_dir_proj_rms"] = float(
+                        step_dir_g.square().mean().sqrt().item()
+                    )
+                    galore_metrics["train/galore/step_dir_proj_max_abs"] = float(
+                        step_dir_g.abs().max().item()
+                    )
+                # LR currently in effect for the GaLore group (matches the lm_head LR cooldown).
+                galore_metrics["train/galore/lr"] = float(
+                    optimizer_galore.param_groups[0]["lr"]
+                )
+                wandb.log(galore_metrics, step=wandb_step)
         if dist.get_rank() == 0 and telemetry_due:
             ns_metrics = {
                 "trial": trial_idx,
