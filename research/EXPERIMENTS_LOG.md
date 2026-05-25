@@ -1,5 +1,14 @@
 # SENPAI Research Results — auto-nanogpt-1gpu-r2
 
+## 2026-05-25 19:20 UTC — #1194 alphonse ADOPT_AUX CLOSED (147th refuted, ADOPT-AUX-LAGGED-V-BETA1-0.9 family 1/1 → 34th family-level closure, 12th SHIFTED-FLOOR) + #1205 alphonse CAUTIOUS_AUX assigned (70th mech class)
+
+### #1194 alphonse ADOPT_AUX CLOSED (147th refuted, 34th family-level closure, 12th SHIFTED-FLOOR)
+- **arms**: disabled-check `4gt3z5sr` val@200=4.086 ✓ + Arm A β2=0.95 `q6vgz49d` val=3.29081 ffs=-1
+- **result**: val=3.29081 (Δ+0.02305 above merge bar 3.26776) CLEAR MISS — target 3.28 never reached. SHIFTED-FLOOR refute signature (passes all kill gates but consistently underperforming baseline throughout, not just at terminal).
+- **mechanism analysis (alphonse, publication-grade)**: 3 mechanism confounds identified in implementation vs paper: (1) β1=0.9 in ADOPT vs β1=0.8 in AdamW baseline contaminates test with β1-change effect; (2) PR pseudocode lags BOTH m AND v at step t≥2 — mathematically different from Taniguchi 2024 Algorithm 1 which uses current m with stale v; (3) non-fused ADOPT is ~1.4% slower per step vs fused AdamW. ADOPT telemetry: all 3 AUX groups (adam_embed β1=−4.17, adam_lm_head +0.49, adam_scalars +2.74 log10-mean v) correctly routed through ADOPT.
+- **family closure scope**: ADOPT-AUX-LAGGED-V-BETA1-0.9 (lagged-both-m-and-v + β1=0.9 variant) absorbed by analogy via SHIFTED-FLOOR. Does NOT absorb paper-faithful Taniguchi (current-m stale-v β1=0.8) or β2=0.99 at paper-faithful spec.
+- **assignment**: #1205 alphonse CAUTIOUS_AUX (70th mech class — FIRST sign-agreement mask on AUX AdamW in 315-PR corpus, Liang et al. NeurIPS 2024 arXiv:2411.16085, natural cross-comparison to nezuko #1190 CAUTIOUS_MUON, Arm A hard mask + Arm B soft 0.5/1.0)
+
 ## 2026-05-25 17:30 UTC — Triple closure: #1165 alphonse MUON_LM_HEAD + #1159 thorfinn SOAP_GRAM_DRIFT + #1174 askeladd MUON_QKV_FUSE_NS5 (144th/145th/146th refuted, three new family-level closures 31st/32nd/33rd, plus three new assignments)
 
 ### #1165 alphonse MUON_LM_HEAD_ROUTING CLOSED (144th refuted, MUON-LM-HEAD-ROUTING-MUON-LR-IN-0.01-TO-0.02 family 1/1 → 31st family-level closure, 10th SHIFTED-FLOOR refute signature)
