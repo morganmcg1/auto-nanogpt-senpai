@@ -468,6 +468,10 @@ NS5_ITERS = int(os.environ.get("NS5_ITERS", "12"))
 WD_AUX = float(os.environ.get("WD_AUX", "0.0"))  # AdamW WD on embed + lm_head matrices (scalars stay at 0)
 EMBED_INIT_STD = float(os.environ.get("EMBED_INIT_STD", "1.0"))  # default preserves baseline N(0,1)
 LOGIT_SOFTCAP = float(os.environ.get("LOGIT_SOFTCAP", "15.0"))  # default = 15 (current hardcoded value); soft-cap value c in f(x) = c·x / sqrt(x^2+c^2)
+# PR #1114: depth-dependent body 2D weight init std taper.
+# For block index l in [0, L-1], multiplies weight init by 1/sqrt(1 + alpha * l/(L-1)).
+# alpha=0.0 -> taper=1.0 for all layers (bytewise inert vs baseline init).
+BODY_DEPTH_INIT_ALPHA = float(os.environ.get("BODY_DEPTH_INIT_ALPHA", "0.0"))
 
 
 def zeropower_via_newtonschulz5(G: Tensor) -> Tensor:
@@ -867,6 +871,9 @@ if dist.get_rank() == 0:
             "optimizer/ns5_iters": NS5_ITERS,
             "optimizer/wd_aux": WD_AUX,
             "optimizer/recipe": "contra-muon + normuon-lite + soap-on-mlp + soap-on-attn-trust-gate (pre-NS5, record #14 + record #16)",
+            "init/body_depth_alpha": BODY_DEPTH_INIT_ALPHA,
+            "init/body_layer_0_taper": 1.0,
+            "init/body_layer_Lminus1_taper": 1.0 / (1.0 + BODY_DEPTH_INIT_ALPHA)**0.5,
         },
     )
 
@@ -896,6 +903,36 @@ for trial_idx in range(args.num_trials):
             w.normal_(mean=1, std=0)
         else:
             raise Exception(f"Uninitialized parameter: {name}")
+
+    # PR #1114: depth-dependent body 2D init std taper.
+    # Scales already-initialized body weights by 1/sqrt(1 + alpha * l / (L-1))
+    # per block index l. Only touches body 2D weights inside transformer blocks
+    # (skips lm_head/embed AUX and zero-init proj). alpha=0.0 is a no-op.
+    NUM_BLOCKS_FOR_TAPER = 12  # matches model = GPT(..., num_layers=12)
+    if BODY_DEPTH_INIT_ALPHA > 0.0 and NUM_BLOCKS_FOR_TAPER > 1:
+        taper_log = {}
+        for name, p in model.named_parameters():
+            if not name.endswith("weight"):
+                continue
+            if "proj" in name or "embed" in name:
+                continue
+            if "blocks." not in name:
+                continue
+            parts = name.split(".")
+            try:
+                bi = parts.index("blocks")
+                block_l = int(parts[bi + 1])
+            except (ValueError, IndexError):
+                continue
+            taper = 1.0 / (1.0 + BODY_DEPTH_INIT_ALPHA * block_l / (NUM_BLOCKS_FOR_TAPER - 1))**0.5
+            with torch.no_grad():
+                p.data.mul_(taper)
+            taper_log[f"init/per_param_taper/{name.replace('.', '_')}"] = taper
+            taper_log[f"init/per_param_std/{name.replace('.', '_')}"] = float(p.data.float().std(unbiased=False).item())
+        if dist.get_rank() == 0 and trial_idx == 0:
+            wandb.summary.update(taper_log)
+            wandb.summary["init/body_depth_alpha_applied"] = BODY_DEPTH_INIT_ALPHA
+            wandb.summary["init/num_blocks"] = NUM_BLOCKS_FOR_TAPER
 
     # create the optimizer(s)
     optimizer1 = AdamW([dict(params=[model.embed.weight], lr=0.3, name="adam_embed", weight_decay=WD_AUX),
