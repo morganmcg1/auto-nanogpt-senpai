@@ -468,6 +468,10 @@ NS5_ITERS = int(os.environ.get("NS5_ITERS", "12"))
 WD_AUX = float(os.environ.get("WD_AUX", "0.0"))  # AdamW WD on embed + lm_head matrices (scalars stay at 0)
 EMBED_INIT_STD = float(os.environ.get("EMBED_INIT_STD", "1.0"))  # default preserves baseline N(0,1)
 LOGIT_SOFTCAP = float(os.environ.get("LOGIT_SOFTCAP", "15.0"))  # default = 15 (current hardcoded value); soft-cap value c in f(x) = c·x / sqrt(x^2+c^2)
+# PR #1196: PER_HEAD_NS5 — split attn Q/K/V (out_dim, in_dim) into (num_heads, head_dim, in_dim)
+# and apply NS5 polar projection per-head independently. Bytewise inert at PER_HEAD_NS5=0.
+PER_HEAD_NS5 = bool(int(os.environ.get("PER_HEAD_NS5", "0")))
+PER_HEAD_NS5_HEAD_DIM = int(os.environ.get("PER_HEAD_NS5_HEAD_DIM", "128"))
 
 
 def zeropower_via_newtonschulz5(G: Tensor) -> Tensor:
@@ -504,10 +508,37 @@ def scale_to_unit_operator_norm(G: Tensor, eps: float = 1e-10) -> Tensor:
     return G / op_norm.to(G.dtype)
 
 
-def contra_normuon_update(momentum_update, second_moment, beta2=NORMUON_BETA2):
-    """Contra-Muon + NorMuon-lite: NS5 -> contra subtraction -> per-row variance normalize."""
+def per_head_ns5_polar(M: Tensor, head_dim: int) -> Tensor:
+    """PR #1196: per-head NS5 polar projection. Split (out_dim, in_dim) row-axis into
+    (num_heads, head_dim, in_dim) and apply batched NS5 to each (head_dim, in_dim) slice,
+    then reshape back to (out_dim, in_dim).
+
+    Each per-head slice has orthonormal rows (Fro ≈ sqrt(head_dim)); total Fro of the
+    reassembled (out_dim, in_dim) tensor ≈ sqrt(out_dim) matches the full-matrix polar Fro.
+    The per-head structure preserves attention head-block-diagonal asymmetry — each head
+    receives an independent spectral projection rather than a joint one across all heads.
+    """
+    assert M.ndim == 2, f"per_head_ns5_polar expects 2D, got {M.shape}"
+    out_dim, in_dim = M.size(0), M.size(1)
+    assert out_dim % head_dim == 0, (
+        f"per_head_ns5_polar: out_dim {out_dim} not divisible by head_dim {head_dim}"
+    )
+    num_heads = out_dim // head_dim
+    M_reshaped = M.view(num_heads, head_dim, in_dim)
+    polar = zeropower_via_newtonschulz5(M_reshaped)
+    return polar.reshape(out_dim, in_dim)
+
+
+def contra_normuon_update(momentum_update, second_moment, beta2=NORMUON_BETA2, polar_override=None):
+    """Contra-Muon + NorMuon-lite: NS5 -> contra subtraction -> per-row variance normalize.
+
+    PR #1196: when ``polar_override`` is provided, use it as the polar factor instead of
+    invoking ``zeropower_via_newtonschulz5`` here. Used by the PER_HEAD_NS5 path so the
+    polar can be computed per-head externally; the rest of the contra/NorMuon flow
+    operates on the full (out_dim, in_dim) tensor exactly as before.
+    """
     normalized_grad = scale_to_unit_operator_norm(momentum_update.clone())
-    update = zeropower_via_newtonschulz5(momentum_update)
+    update = polar_override if polar_override is not None else zeropower_via_newtonschulz5(momentum_update)
     opower_fro = update.norm()
     # Contra correction: subtract CONTRA_MUON / 2 * op-norm-normalized momentum.
     update = update - CONTRA_MUON / 2 * normalized_grad
@@ -652,6 +683,19 @@ class Muon(torch.optim.Optimizer):
                     self.attn_soap_kind[id(p)] = "v"
                 elif n.endswith(".attn.proj.weight"):
                     self.attn_soap_kind[id(p)] = "proj"
+        # PR #1196: PER_HEAD_NS5 — track attn Q/K/V params for per-head NS5 polar projection.
+        # NOT including attn.proj (mixes heads via output projection) or MLP weights (no head structure).
+        self.per_head_ns5_enabled = PER_HEAD_NS5
+        self.per_head_ns5_head_dim = PER_HEAD_NS5_HEAD_DIM
+        self.per_head_qkv_ids: set[int] = set()
+        if self.per_head_ns5_enabled:
+            for n, p in named_params:
+                if (n.endswith(".attn.q.weight") or n.endswith(".attn.k.weight")
+                        or n.endswith(".attn.v.weight")):
+                    self.per_head_qkv_ids.add(id(p))
+        # Per-head NS5 telemetry collected every TELEMETRY_INTERVAL fused steps.
+        self.per_head_step_counter = 0
+        self.per_head_last_stats: dict[str, float] = {}
         params = sorted([p for _, p in named_params], key=lambda x: x.size(), reverse=True)
         defaults = dict(lr=lr, weight_decay=weight_decay, mu=mu)
         super().__init__(params, defaults)
@@ -700,8 +744,20 @@ class Muon(torch.optim.Optimizer):
                     # (matches public record #14/16 — pre-NS5 placement).
                     if use_soap or use_attn_soap:
                         momentum_update = soap_precondition(momentum_update, state)
+                    # PR #1196: PER_HEAD_NS5 — per-head NS5 polar on attn Q/K/V only.
+                    use_per_head_ns5 = (
+                        self.per_head_ns5_enabled and id(p) in self.per_head_qkv_ids
+                    )
+                    polar_override = None
+                    if use_per_head_ns5:
+                        polar_override = per_head_ns5_polar(
+                            momentum_update, self.per_head_ns5_head_dim
+                        )
+                        self._record_per_head_stat(polar_override, self.per_head_ns5_head_dim)
                     # NS5 + contra + NorMuon row variance on (possibly SOAP-preconditioned) momentum.
-                    update = contra_normuon_update(momentum_update, state["second_moment"])
+                    update = contra_normuon_update(
+                        momentum_update, state["second_moment"], polar_override=polar_override
+                    )
                     # u/w-floor: scale up if u/w < TARGET_UW; leave alone otherwise.
                     p_fro = p.float().norm().clamp_min(1e-8)
                     u_fro = update.float().norm().clamp_min(1e-8)
@@ -719,6 +775,43 @@ class Muon(torch.optim.Optimizer):
                                      use_trust_gate=True,
                                      trust_threshold=ATTN_SOAP_TRUST_THRESHOLD)
                 dist.all_gather(params_pad[base_i:base_i + world_size], params_pad[base_i + rank])
+
+    def _record_per_head_stat(self, polar_assembled: Tensor, head_dim: int) -> None:
+        """PR #1196: accumulate per-head NS5 telemetry for the latest optimizer step.
+
+        ``polar_assembled`` is the (out_dim, in_dim) reassembled per-head polar.
+        We compute (1) mean per-head slice Frobenius norm (expected ≈ sqrt(head_dim)) and
+        (2) number of per-head NS5 calls this step (one per Q/K/V param × num_heads).
+        """
+        out_dim, in_dim = polar_assembled.size(0), polar_assembled.size(1)
+        num_heads = out_dim // head_dim
+        sliced = polar_assembled.view(num_heads, head_dim, in_dim)
+        slice_fro = sliced.float().pow(2).sum(dim=(-1, -2)).sqrt().mean().item()
+        stats = self.per_head_last_stats
+        stats["per_head_slice_fro_sum"] = stats.get("per_head_slice_fro_sum", 0.0) + slice_fro
+        stats["per_head_param_count"] = stats.get("per_head_param_count", 0) + 1
+        stats["per_head_ns5_call_count"] = stats.get("per_head_ns5_call_count", 0) + num_heads
+
+    def per_head_ns5_stats(self) -> dict[str, float]:
+        """PR #1196: latest per-head NS5 telemetry, then reset accumulators.
+
+        Returns aggregate keys:
+          per_head_slice_fro_mean — mean Fro of per-head polar slices (expect ≈ sqrt(head_dim))
+          per_head_param_count   — number of Q/K/V params processed this step (expect 36)
+          per_head_ns5_calls     — total per-head NS5 calls this step (expect 36 * num_heads)
+        """
+        if not self.per_head_ns5_enabled or not self.per_head_last_stats:
+            return {}
+        s = self.per_head_last_stats
+        count = max(int(s.get("per_head_param_count", 0)), 1)
+        out = {
+            "per_head_slice_fro_mean": s["per_head_slice_fro_sum"] / count,
+            "per_head_param_count": float(s["per_head_param_count"]),
+            "per_head_ns5_calls": float(s["per_head_ns5_call_count"]),
+            "per_head_head_dim": float(self.per_head_ns5_head_dim),
+        }
+        self.per_head_last_stats = {}
+        return out
 
     def trust_gate_stats(self) -> dict[str, float]:
         """Return aggregate + per-weight-type trust-gate telemetry across attention SOAP params.
@@ -866,6 +959,10 @@ if dist.get_rank() == 0:
             "optimizer/attn_soap_trust_threshold": ATTN_SOAP_TRUST_THRESHOLD,
             "optimizer/ns5_iters": NS5_ITERS,
             "optimizer/wd_aux": WD_AUX,
+            "optimizer/embed_init_std": EMBED_INIT_STD,
+            "optimizer/logit_softcap": LOGIT_SOFTCAP,
+            "optimizer/per_head_ns5": int(PER_HEAD_NS5),
+            "optimizer/per_head_ns5_head_dim": PER_HEAD_NS5_HEAD_DIM,
             "optimizer/recipe": "contra-muon + normuon-lite + soap-on-mlp + soap-on-attn-trust-gate (pre-NS5, record #14 + record #16)",
         },
     )
@@ -1059,6 +1156,10 @@ for trial_idx in range(args.num_trials):
                     stats = opt.trust_gate_stats()
                     if stats:
                         wandb.log(prefixed("train/attn_soap_trust_gate", stats), step=wandb_step)
+                if hasattr(opt, "per_head_ns5_stats"):
+                    ph_stats = opt.per_head_ns5_stats()
+                    if ph_stats:
+                        wandb.log(prefixed("train/muon", ph_stats), step=wandb_step)
         if dist.get_rank() == 0 and telemetry_due:
             log_weight_telemetry(
                 model=model,
