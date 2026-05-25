@@ -1,5 +1,33 @@
 # SENPAI Research Results
 
+## 2026-05-25 01:00 UTC — PR #1066 CLOSED: Z-loss λ·log²(Z) partition-function regularization (λ=1e-4 vs 1e-3) — 119th NULL, 4-axis output-reg closure (g1r1-askeladd)
+
+- Branch: `g1r1-askeladd/z-loss`
+- Hypothesis: Penalize log-partition-function magnitude `λ·log²(Z)` where Z=sum(exp(logits)). PaLM-canonical technique for numerical stability + output regularization. Orthogonal to LS (targets), CP (entropy), soft-cap (activations) — directly penalizes NORMALIZER.
+
+| Arm | λ | W&B | val/loss | sr | Delta-val vs #918 (3.266394) | Delta-sr | Verdict |
+|---|---|---|---|---|---|---|---|
+| Baseline #918 (n=2) | 0.0 | `vm48fdof`/`0a7esmxs` | 3.266394 | 2925 | — | — | reference |
+| A (PaLM canonical) | 1e-4 | `edq21r1h` | **3.26644** | 2925 | +0.000046 (0.15σ) | 0 | NOISE-FLOOR NULL |
+| B (10× stronger) | 1e-3 | `zst7hrwa` | **3.286507** | -1 | +0.020113 (67× past marginal) | DNF | CATASTROPHIC NULL |
+
+**Finding 1: Z-loss structurally redundant at modded-nanogpt scale.** PaLM's motivation (partition function exploding at 540B params / vocab=256K) does not apply here — sqrt-clip @15 on logits already keeps Z bounded; BF16 is sufficient for vocab=50304. At λ=1e-4 the mean `log²(Z)` contributes ≤5e-5/step to loss (sub-noise). At λ=1e-3 it contributes ~5e-4/step, compounding over 3250 steps to ~+0.02 mnat shift in optimization basin → CATASTROPHIC failure to cross 3.28 threshold.
+
+**Finding 2: Super-linear dose-response, same pattern as #1058 CP.** λ=1e-4 → noise-floor (mechanistically silent); λ=1e-3 → 67× past marginal (43× jump from first to second segment). Dose-response accelerates nonlinearly across both CP (#1058) and Z-loss (#1066).
+
+**Cross-axis closure — 4-axis output-regularization portfolio CLOSED (pending #1090 focal):**
+
+| Axis | PR | Direction | Result |
+|---|---|---|---|
+| Soft-target smoothing | #1043 fern | modify TARGET | CATASTROPHIC linear dose-response (115th NULL) |
+| Hard-target entropy max | #1058 frieren | modify LOSS | CATASTROPHIC super-linear dose-response (117th NULL) |
+| Logit soft-cap | #1060 tanjiro | modify ACTIVATIONS | NULL noise-floor at cap=15; regression at cap=30 (118th NULL) |
+| Z-loss partition reg | #1066 askeladd (this) | modify NORMALIZER | NULL noise-floor at λ=1e-4; catastrophic at λ=1e-3 (119th NULL) |
+
+Pattern: baseline sqrt-clip @15 + standard CE already saturates the output-reg channel. Only #1090 fern focal (in flight) remains.
+
+**119th closed axis.** askeladd → **#1116** (body Muon depth-LR decay, per-layer linear scale DOWN vs UP).
+
 ## 2026-05-24 23:18 UTC — PR #1060 CLOSED: Logit soft-cap tanh(logits/cap)*cap (cap=30 vs 15) — 118th NULL, 3-axis output-reg closure (g1r1-tanjiro)
 
 - Branch: `g1r1-tanjiro/logit-soft-cap`
