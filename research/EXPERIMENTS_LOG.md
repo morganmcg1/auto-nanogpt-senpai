@@ -1,5 +1,36 @@
 # SENPAI Research Results
 
+## 2026-05-25 09:27 UTC — PR #1116 CLOSED: Body Muon depth-LR decay (DOWN vs UP) — 126th NULL, depth-stratified LR axis FULLY CLOSED (g1r1-askeladd)
+
+- Branch: `g1r1-askeladd/depth-lr-decay`
+- Hypothesis: First depth-stratified body-Muon test. Per-layer linear LR scaling across 12 transformer layers. Tests whether shallow vs deep layers benefit from differential LR during late-train + cooldown.
+
+| Arm | Mode | val/loss | Δval (mnat) | sr | Δsr | σ | Verdict | W&B |
+|---|---|---|---|---|---|---|---|---|
+| Baseline #918 | uniform=0.040 | 3.266394 | — | 2925 | — | — | — | vm48fdof/0a7esmxs |
+| Arm A | DOWN (shallow=1.0× → deep=0.5×) | **3.277380** | **+10.986** | 3125 | +200 | 37σ | **CATASTROPHIC NULL** | `ua2c7zlf` |
+| Arm B | UP (shallow=0.5× → deep=1.0×) | **3.267130** | **+0.736** | **2925** | 0 | 2.5σ | marginal NULL | `7u3hbikt` |
+
+### Mechanism findings
+
+1. **Body-Muon optimal LR is approximately uniform across depth.** Both unilateral departures from uniform 0.040 produce val regression. The DOWN arm hypothesis (deep layers over-shooting because zero-init proj.weight ramp accumulates faster than EMA absorbs) is **falsified** — halving deep-layer LR costs 37σ val.
+2. **Asymmetric penalty**: deep-layer LR halving (Arm A) costs 37σ val + 200 sr; shallow-layer LR halving (Arm B) costs only 2.5σ val with sr held flat. **Deep-layer LR is more load-bearing than shallow-layer LR** in absolute terms.
+3. **Cross-axis with #1046 rank-deficiency canon**: NS5 magnitude normalization absorbs *direction*-of-update across layers but does NOT absorb per-layer step-size differences at 50% scale. Polar(G) direction preserved; LR-gated step size still controls per-layer progress.
+
+### Predeclared merge rule
+
+`sr ≤ 2912.5 OR (sr = 2925 AND val < 3.266394)`:
+- Arm A: sr=3125 fails both clauses → NULL
+- Arm B: sr=2925 matches but val=3.26713 > 3.266394 → fails val clause → NULL
+
+### Portfolio implications
+
+- Closes first depth-stratified body-Muon axis in r1.
+- Future depth-stratified PRs must be mechanism-distinct (per-layer EMA β, per-layer wd, per-layer NS5 iters — NOT per-layer LR alone).
+- askeladd → **#1156** (Lookahead k-step slow-fast weight averaging on body Muon — first weight-space averaging since #943 SWA / #990 SF closures).
+
+---
+
 ## 2026-05-25 06:15 UTC — PR #1099 CLOSED: Decoupled AdamW cooldown shape (γ_adamw=2.0 vs 1.0, body γ=1.4) — 125th NULL, Pareto-shift finding (g1r1-nezuko)
 
 - Branch: `g1r1-nezuko/decoupled-adamw-cooldown`
