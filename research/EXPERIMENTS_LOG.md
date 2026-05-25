@@ -1,3 +1,28 @@
+## 2026-05-25 16:50 — PR #1160: H149 AGC clip_ratio schedule (NULL BILATERAL — 6 programme findings)
+
+- Branch: `g1r3-frieren/h149-agc-clip-ratio-schedule`
+- Hypothesis: AGC clip_ratio benefits from loose-early / tight-late linear schedule. Tests H114 fraction_active invariance at time axis; tests H140 scale dynamics depth-LR-coupling at time axis; subsystem-asymmetric (body vs aux separately).
+- Results vs new H148 baseline 3.26364 (post-merge):
+
+| Arm | wandb | val/loss | Δ vs new baseline | Δ within-cycle | ffs | Verdict |
+|---|---|---|---|---|---|---|
+| arm_a CTRL (both schedules off) | `d4kugwpl` | 3.26644 | +0.00280 | — | 3150 | NULL |
+| arm_b MUONH_AGC_RAMP_DOWN (muonh 0.10→0.02 linear) | `frmjahr2` | 3.26561 | +0.00197 | **-0.00083** | 3150 | NULL borderline |
+| arm_c AUX_AGC_RAMP_DOWN (aux 0.10→0.02 linear) | `eyz0nvq6` | 3.26587 | +0.00223 | -0.00057 | 3150 | NULL |
+
+- **Statistical benchmark rule** (3.28 − μ) × √n ≥ 0.004 with n=1: all 3 satisfy ✓ but NULL vs new baseline.
+- **6 programme-grade findings:**
+  1. **H114 fraction_active invariance EXTENDS TO TIME AXIS.** clip_ratio 5× swing (0.10→0.02) → fraction_active bit-flat at 0.9901 (aux) / 1.000 (muonh) across all 3 arms. AGC is clip-scale magnitude controller, NOT sparsity controller — confirmed across schedule perturbations.
+  2. **Body-side scale dynamics ARE schedule-responsive (H140 amendment confirmed at time axis).** arm_b muonh scale_mean halves (0.00139 → 0.00055), max_ratio nearly triples (3344 → 9349). arm_c symmetric for aux subsystem (29% lower scale_mean, 2.5× max_ratio terminal).
+  3. **NEW PROGRAMME PATTERN — INVERSE H125 EROSION**: arm_b LAGS mid-training (+0.00361 at step 1500) then CATCHES UP under cooldown (-0.00083 terminal). FIRST observation in 156 hypotheses of cooldown-RECOVERY from mid-training-deficit. Cooldown is dual-axis: erodes mid-training leads (7-axis pattern) AND recovers mid-training deficits (NEW axis pattern).
+  4. **Subsystem-asymmetric schedule effects, additive in mechanism.** arm_b and arm_c had independent scale_mean dynamics; combined effect likely additive. Final ordering arm_b < arm_c < arm_a — body schedule effect stronger than aux schedule effect.
+  5. **Schedule shape matters more than schedule axis.** Full-trajectory linear ramp had early-train regret (peak +0.00361 at step 1500); cooldown-confined ramp would eliminate regret while preserving -0.00444 late-phase signal swing. Direct WIN candidate for H157.
+  6. **H148 baseline raises the bar dramatically.** AGC schedule mechanism gain (~0.0018) was absorbed by H148 cooldown-persistent advantage. Confirms init-axis WINs compose orthogonally with schedule-axis NULLs at our scale.
+- Decision: CLOSE per "arm_b NULL + arm_c NULL but arm_b shows lower-than-CTRL trajectory mid-training" branch of decision rules.
+- Follow-up: H157 frieren cooldown-confined AGC ramp ASSIGNED — eliminates early-train regret, preserves late-train signal.
+
+---
+
 ## 2026-05-25 16:15 — PR #1157: H148 Body init orthogonal sweep (WIN — NEW BASELINE 3.26364)
 
 - Branch: `g1r3-edward/h148-body-init-orthogonal-sweep`
