@@ -27,6 +27,7 @@ SLOPE_FRACTION = 0.10
 SOAP_BETA2 = 0.90
 PRECOND_FREQ = 16
 NS_ITER = 12  # overridden by args.ns_iter at module load
+NS_PRECISION = "bf16"  # overridden by args.ns_precision at module load
 
 
 def parse_args():
@@ -67,6 +68,15 @@ def parse_args():
     parser.add_argument("--ns_iter", type=int, default=12,
                         help="Number of Newton-Schulz iterations in zeropower_via_newtonschulz5. "
                              "Default 12 (current hardcoded value). Lower = less orthogonal but faster.")
+    parser.add_argument("--ns_precision", type=str, default="bf16",
+                        choices=["bf16", "fp32", "fp32_inner", "bf16_renorm"],
+                        help="Numerical precision for Newton-Schulz iteration. "
+                             "bf16=current behavior (G.bfloat16()). "
+                             "fp32=full fp32 for entire NS loop (operand+accumulator). "
+                             "fp32_inner=X stays bf16 between iters but A, B, intermediate "
+                             "computed in fp32 (tests accumulator precision in isolation). "
+                             "bf16_renorm=bf16 throughout but renormalize X by spectral norm "
+                             "after each iter (tests drift mechanism).")
     parser.add_argument("--lr_scalars", type=float, default=0.01,
                         help="LR for AdamW adam_scalars group (RMSNorm gains; "
                              "params with ndim < 2). Default 0.01 — hardcoded, "
@@ -93,6 +103,7 @@ def parse_args():
 
 args = parse_args()
 NS_ITER = args.ns_iter
+NS_PRECISION = args.ns_precision
 
 
 def clean_metric_name(name: str) -> str:
@@ -482,7 +493,11 @@ class GPT(nn.Module):
 
 def zeropower_via_newtonschulz5(G: Tensor) -> Tensor:
     assert G.ndim >= 2
-    X = G.bfloat16()
+    target_dtype = G.dtype
+    if NS_PRECISION == "fp32":
+        X = G.float()
+    else:
+        X = G.bfloat16()
     if G.size(-2) > G.size(-1):
         X = X.mT
 
@@ -491,13 +506,21 @@ def zeropower_via_newtonschulz5(G: Tensor) -> Tensor:
     # Perform the NS iterations, not optimizing for wallclock speed
     a, b, c = 2, -1.5, 0.5
     for _ in range(NS_ITER):
-        A = X @ X.mT
-        B = b * A + c * A @ A
-        X = a * X + B @ X
+        if NS_PRECISION == "fp32_inner":
+            X_f = X.float()
+            A = X_f @ X_f.mT
+            B = b * A + c * (A @ A)
+            X = (a * X_f + B @ X_f).bfloat16()
+        else:
+            A = X @ X.mT
+            B = b * A + c * A @ A
+            X = a * X + B @ X
+            if NS_PRECISION == "bf16_renorm":
+                X = X / (X.norm(dim=(-2, -1), keepdim=True) + 1e-7)
 
     if G.size(-2) > G.size(-1):
         X = X.mT
-    return X
+    return X.to(target_dtype)
 
 @torch.compile
 def muon_update(grad, momentum, mu=0.95, nesterov=True):
@@ -756,6 +779,7 @@ if dist.get_rank() == 0:
             "soap_beta2": SOAP_BETA2,
             "soap_precond_freq": PRECOND_FREQ,
             "ns_iter": NS_ITER,
+            "ns_precision": NS_PRECISION,
             "soap_attn_enabled": bool(args.soap_attn),
             "soap_trust_threshold": float(args.soap_trust_threshold),
             "lr_mlp": args.lr_mlp,
