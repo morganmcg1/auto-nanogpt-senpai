@@ -1,3 +1,62 @@
+## 2026-05-25 02:05 UTC — PR #1112 ASSIGNED (nezuko): NS5 precision sweep (bf16/fp32/fp16 — first-ever NS5 dtype ablation; direct H129 bf16-floor followup)
+
+- Branch: `g1r3-nezuko/h137-ns5-precision-sweep`
+- Hypothesis (direct H129 finding followup): H129 closure (today, see entry below) identified **bf16 as binding numerical floor at k≥12 on H100** — arm_a (k=12) and arm_c (k=16) bit-equivalent SV signatures at 4-decimal precision, sv_min ≈ 0.994 both. Adding 4 more iters produces zero spectral tightening under bf16. **The unanswered question**: is the bf16 floor itself load-bearing for val/loss? 3 logically distinct possibilities — (1) fp32 → tighter sv_min → val/loss WIN (precision binding); (2) fp32 → tighter sv_min → val/loss NULL (refines H106 — sv_min ≈ 0.994 is "close enough"); (3) bf16 precision-optimal (fp32 over-precise, fp16 under-precise). 9th NS5-axis ablation, first-ever precision test (8 prior NS5 axes all at fixed bf16).
+- Implementation: ~10 LoC. Add `--muonh_ns5_dtype` CLI flag (choices bf16/fp32/fp16, default=bf16 bit-id). Module-level `_NS5_DTYPE` set in main() after parse; replace `X = G.bfloat16()` at line 495 with `X = G.to(_NS5_DTYPE)`; cast back to bf16 at end via `return X.bfloat16()` (isolates experiment to internal NS5 precision; downstream interface dtype-unchanged). Keep H129 sv telemetry side-channel running for all 3 arms.
+- Arms (n=1 seed each, 3325 steps, 1×H100, sequential chain):
+  - arm_a CTRL: `--muonh_ns5_dtype bf16` (bit-id baseline 3.26706 guard)
+  - arm_b FP32: `--muonh_ns5_dtype fp32` (internal NS5 iterations in fp32, bf16 input/output)
+  - arm_c FP16: `--muonh_ns5_dtype fp16` (internal NS5 iterations in fp16, bf16 input/output)
+- Critical telemetry (mechanism diagnostic):
+  - H129 8-checkpoint sv_min/sv_med/sv_max on blocks.0.mlp.fc.weight + blocks.0.attn.q.weight (cross-shape robustness)
+  - Per-iter sv at step 501 (H132 edward diagnostic — sweeps iter 0/4/8/12 to show fp32 vs bf16 convergence trajectory)
+  - step_avg per arm (verifies predicted ~3% fp32 overhead)
+  - **Headline diagnostic**: cross-arm sv_min at same checkpoint. If arm_b sv_min > 0.994 AND val/loss WIN → bf16 floor load-bearing. If arm_b sv_min > 0.994 AND val/loss NULL → spectral tightening doesn't translate (H106 refinement). If arm_b sv_min ≈ 0.994 → fp32 doesn't tighten (surprising — would mean bf16 wasn't the floor).
+- Decision rules: WIN ~3.26626 / NULL [3.26536, 3.26976] / NEG > 3.26976.
+  - arm_b WIN: NS5 precision binding load-bearing → fp32 NS5 becomes default MERGE candidate
+  - arm_b NULL + sv_min↑: spectral tightening non-load-bearing for loss → H106 refinement
+  - arm_b NULL + sv_min flat: NS5 already converging within fp32 representable in bf16 (surprising mechanism)
+  - arm_b NEG: fp32 compute overhead penalty > precision benefit (unlikely)
+  - arm_c NEG: confirms bf16 floor binding precision threshold
+  - arm_c NULL: fp16 viable; bf16 wasn't binding downward either
+  - Composite arm_b WIN + arm_c NEG = Goldilocks (graduate fp32 NS5 to default)
+- Mechanism-distinctness vs in-flight: H132 edward NS5 coefficients adjacent (coefs at fixed precision vs precision at fixed coefs — H132 × H137 future composite plausible after both close); all other in-flight (H130/H131/H133/H134/H135/H136) untouch NS5 internals. First-ever NS5 precision test in programme.
+- Why nezuko: 5th consecutive NS5-mechanism + SV-telemetry cycle (H103/H106/H113/H121/H129). H129 gold-standard sv_min finding is direct motivation. Per-iter sv telemetry instrumentation already built + verified read-only.
+- W&B group: `g1r3-nezuko-h137-ns5-precision-sweep`
+
+## 2026-05-25 02:00 UTC — PR #1070 CLOSED (nezuko): H129 NS5 iteration count k pruning (NEG/NULL; NS5 numerical depth axis closes at k=12 — sv_min is load-bearing not sv_med; bf16 is binding numerical floor at k≥12 on H100)
+
+- Branch: `g1r3-nezuko/h129-ns5-k-count-pruning`
+- Hypothesis (closed): NS5 polynomial iterations hardcoded at k=12 since programme start. Test if k=8 sufficient (compute savings) or k=16 better (tighter spectrum). First-ever NS5 k-count ablation.
+- Terminal results (W&B verified):
+
+| Arm | k | run_id | val/loss | Δ vs baseline | ffs | step_avg | Verdict |
+|-----|---|--------|----------|---------------|-----|----------|---------|
+| arm_a CTRL | 12 | `ctd3vv2r` | 3.26783 | +0.00077 | 3025 | 1808ms | NULL bit-id ✅ |
+| arm_b PRUNED | 8 | `9r879jhk` | **3.27188** | **+0.00482** | 3100 (+75) | 1792ms (-0.9%) | **NEG** > 3.26976 |
+| arm_c EXTENDED | 16 | `k7avbkfh` | 3.26817 | +0.00111 | 3025 | 1821ms (+0.7%) | NULL band, no benefit |
+
+Baseline: val/loss=3.26706 (PR #1027 H117 µ-decreasing 0.95→0.90).
+
+**Headline answer: NS5 numerical-depth axis closes at k=12. k=8 under-converges sv_min tail; k=16 hits bf16 floor.**
+
+- Programme-level findings (6):
+
+  **Finding 1 — `sv_min` is the load-bearing NS5 convergence metric (refines H106 sv_med ≈ 1.0)**. At k=8, sv_med already ≈ 1.0 from step 50 onward (0.9995→1.0002), but sv_min collapses to **0.83 at step 101**, 0.92 at step 201, only recovering to 0.992 by step 2000. The tail of the singular-value distribution is what NS5 iterations 9-12 buy. H106 closure identified sv_med ≈ 1.0; H129 refines this: **future spectral-pruning ideas must track sv_min, not sv_med**.
+
+  **Finding 2 — bf16 is the binding numerical floor at k≥12 on H100.** arm_c (k=16) and arm_a (k=12) bit-equivalent SV signature at 4-decimal precision on blocks.0.mlp.fc.weight every checkpoint (sv_min 0.99434 vs 0.99440 step 51; identical pattern through step 3325). 4 extra iterations produce zero spectral tightening under bf16 — bf16 mantissa precision is the constraint, not the polynomial. Motivates H137 nezuko (assigned, see entry above).
+
+  **Finding 3 — NS5 is not the speedrun bottleneck on bf16/H100.** 33% iteration change → ±0.9% wall clock. NS5 occupies ~3% of step time. **Programme implication**: compute-saving via NS5 pruning has tiny ceiling (<1% wallclock); future NS5 work should target val/loss quality (precision, alt polynomials), not iteration-count reduction.
+
+  **Finding 4 — 9th NS5 axis closure within quintic family** (H78 degree, H88 Polar Express, H90 NSCubic, H93/H98 alternates, H106 sv_med, H115 sv_max bound, H121 input source, H129 k-count). Quintic NS5 with k=12 + coefs (2,-1.5,0.5) comprehensively tuned. With H132 in-flight (coef sweep), any remaining "tweak existing NS5" hypotheses become mechanism-redundant once H132 closes. H137 nezuko (precision) is the natural 10th axis — closes "stay within NS5 quintic family" research.
+
+  **Finding 5 — SV telemetry side-channel proven as research instrument.** Clone-grad/clone-momentum + rerun-NS5 pattern read-only (bit-id PASS via arm_a). Per-iteration sv at fixed checkpoints uncovered sv_min vs sv_med distinction that 11 prior NS5 experiments missed. **Programme directive**: graduate SV telemetry to default-on at low cadence (every 500 steps) for future spectral diagnostics (student suggestion #4, endorsed).
+
+  **Finding 6 — Mechanism complementarity with H132 edward (in-flight)**: H132 arm_c UNDER_CORRECTED (b=-1.0, c=0.25) showed NS5 quintic converges to sv_med ≈ **1.365** at iter 12 (not 1.0) — coefficient × iteration axes are NOT interchangeable. UNDER at k=12 ≠ CTRL at lower k. Quintic NS5 stable fixed point jointly controlled by (coefs, k); bf16-floor (sv_min insensitive to k≥12 at canonical coefs) is binding constraint for k.
+
+- Operational commendation: 4th consecutive NS5 + SV-telemetry cycle. Per-iter sv at step 501 was textbook diagnostic. Student suggestion #4 (graduate SV telemetry to default) explicitly endorsed for future programme work.
+- Followup chosen for nezuko H137 (assigned today, see entry above): NS5 precision sweep (bf16/fp32/fp16) — direct test of H129 finding 2 (bf16 binding floor) — does fp32 NS5 tighten sv_min beyond 0.994 AND translate to val/loss benefit?
+
 ## 2026-05-25 01:35 UTC — PR #1111 ASSIGNED (alphonse): Embed-only Polyak EMA (decay=0.99/0.999 restricted to embed.weight; first-ever per-subsystem eval-time averaging test)
 
 - Branch: `g1r3-alphonse/embed-only-polyak-ema`
