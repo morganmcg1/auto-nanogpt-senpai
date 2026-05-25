@@ -1,3 +1,62 @@
+## 2026-05-25 02:35 UTC — PR #1115 ASSIGNED (thorfinn): Cautious AdamW for aux groups (Wang et al. 2024 NeurIPS — first fresh optimizer mechanism test for aux subsystem; plateau-protocol-aligned strategy-tier shift from schedule axes to update mechanism)
+
+- Branch: `g1r3-thorfinn/h138-cautious-adamw-aux`
+- Hypothesis (citation Wang et al. 2024, arxiv 2411.16085, NeurIPS 2024): apply cautious-mask one-line addition to AdamW aux groups (embed, lm_head, scalars). Mask `M = (update * grad > 0)` zero out positions where adaptive update direction disagrees with immediate gradient direction; rescale `M = M / mean(M).clamp(min=1e-3)` to preserve update magnitude; `p -= lr * update * M`. Paper reports 0.5-1% perplexity improvement on LLMs, negligible compute overhead, no retuning required. H127 closure showed aux is 99.98-99.99% of weight diff at terminal; H130 closure showed aux schedule is mechanism-distinct from inner — aux subsystem is dominant late-training driver but the AdamW *update mechanism itself* has never been tested for headroom. Mechanism-link to H130's lm_head finding: lm_head has largest grad norms in stack (7000-9000 at terminal), Cautious masking should specifically benefit lm_head's noisy update direction.
+- Implementation: ~25-40 LoC. Custom `CautiousAdamW` subclass of `torch.optim.AdamW` replacing optimizer1 construction at line 849 (or post-step hook). Override .step() to compute Adam update direction then apply mask; rescale by mean. Add `--aux_cautious_mode` CLI flag (choices: none/grad/momentum, default=none for bit-id, mask=all-ones reduces to standard AdamW).
+- Arms (n=1 seed each, 3325 steps, 1×H100, sequential chain):
+  - arm_a CTRL: `--aux_cautious_mode none` (bit-id baseline guard)
+  - arm_b CAUTIOUS_GRAD: `--aux_cautious_mode grad` (Wang et al. 2024 canonical formulation; mask via sign-agreement with gradient)
+  - arm_c CAUTIOUS_MOMENTUM: `--aux_cautious_mode momentum` (variant; mask via sign-agreement with momentum buffer — may be more stable since momentum less noisy)
+- Critical telemetry:
+  - **Headline diagnostic**: `aux/cautious_mask_fraction_embed`, `_lm_head`, `_scalars` per checkpoint — fraction of update positions NOT masked; paper-typical range 0.45-0.65; mean ~0.5 if grad and Adam direction uncorrelated, higher if correlated
+  - 8-checkpoint val/loss trajectory (H109 gold-standard) — compare crossing-point behavior with H130 arm_a vs arm_b template
+  - `aux/grad_norm_lm_head`, `_embed` at standard checkpoints — does Cautious masking lower late-training grad_norm_lm_head (the noisy positions masked → cleaner direction → less oscillation)?
+  - step_avg per arm (Cautious adds 1 elementwise multiply + 1 mean + 1 rescale per param; <1% overhead expected; confirm empirically)
+  - `muonh/sv_min/sv_med/sv_max` standard checkpoints (sanity check — body MuonH UNCHANGED, should match arm_a CTRL across all 3 arms)
+- Decision rules: WIN ~3.26626 / NULL [3.26536, 3.26976] / NEG > 3.26976
+  - arm_b WIN: cautious-gradient masking improves aux → MERGE candidate; programme directive — apply to body MuonH (H139 candidate)
+  - arm_c WIN: cautious-momentum better than gradient variant → MERGE candidate; mechanism finding — momentum sign less-noisy reference than instantaneous gradient sign
+  - both WIN with arm_b > arm_c: paper formulation correct; momentum variant inferior
+  - both WIN with arm_c > arm_b: momentum variant superior; programme finding refines paper's recommendation
+  - both NULL: Cautious neutral at this scale → close axis (Adam preconditioner already well-tuned, mis-aligned updates rare)
+  - both NEG: Cautious harmful → confirms current AdamW at-optimum (noise rejection costs too much signal)
+  - arm_b WIN + arm_c NEG: gradient-sign uniquely productive
+  - arm_b NEG + arm_c WIN: gradient-sign noise too aggressive
+- Mechanism-distinctness vs in-flight: H137 nezuko NS5 precision (NS5 internal dtype, none); H136 alphonse embed-only Polyak (eval-time avg, adjacent on embed); H135 tanjiro embed init std (t=0, adjacent on embed); H134 frieren outer LR warmup (different optimizer level); H133 fern inner cooldown shape (inner schedule); H132 edward NS5 coefs (none); H131 askeladd inner warmup (inner schedule). **First-ever fresh-update-mechanism test for aux in programme.** Forms aux-axis tetrad with H130 (schedule, closed today), H135 (init), H136 (eval avg) — covering schedule × init × eval × update for aux subsystem.
+- Why thorfinn: H130 closure today produced paradigm-split finding (inner/aux schedules mechanism-distinct). H138 graduates from schedule axes to update-mechanism axes — higher-level question on same aux subsystem. Per plateau protocol (8+ consecutive non-merging closures), strategy-tier shift from "tune schedules" to "fresh optimizer mechanisms." Cautious is citation-grade 2024 mechanism (NeurIPS 2024) with strong empirical track record. thorfinn's mechanism-analysis depth (8-checkpoint crossover diagnostic in H130 was textbook work) qualifies for reading per-param-group mask_fraction telemetry deeply.
+- W&B group: `g1r3-thorfinn-h138-cautious-adamw-aux`
+
+## 2026-05-25 02:30 UTC — PR #1071 CLOSED (thorfinn): H130 Aux LR cooldown shape + cooldown fraction extension (NEG closure; aux LR cooldown asymmetry linear@0.4 is TUNED-OPTIMAL; **paradigm-splitting mechanism finding**: inner and aux respond DIFFERENTLY to cooldown shape × frac — original asymmetry is mechanism-correct not accidental)
+
+- Branch: `g1r3-thorfinn/h130-aux-lr-cooldown-shape`
+- Hypothesis (now refuted): aux LR cooldown shape/frac mirrors inner — cosine@0.4 or cosine@1.0 could improve over linear@0.4 baseline. Symmetry test with H120 (inner cooldown_frac=1.0 closure).
+- Terminal results (W&B verified, student-posted SENPAI-RESULT marker):
+
+| Arm | Config | run_id | val/loss | Δ vs 3.26706 | ffs | Verdict |
+|-----|--------|--------|----------|--------------|-----|---------|
+| arm_a CTRL | linear@0.4 | `ijztcn0n` | 3.26901 | +0.00195 | 3050 | NULL edge (widened CTRL [3.26880, 3.27250]) ✅ |
+| arm_b COSINE_SAME | cosine@0.4 | `q8jxwdn0` | **3.27052** | +0.00346 | 3025 | **NEG** mild |
+| arm_c COSINE_FULL | cosine@1.0 | `a3fhenpv` | **3.27671** | +0.00965 | 3100 | **NEG** strong |
+
+Baseline: val/loss=3.26706 (PR #1027 H117 µ-decreasing 0.95→0.90).
+
+**Headline: monotone NEG along cosine-extension axis. linear@0.4 (bit-id) > cosine@0.4 > cosine@1.0. The longer the cosine aux cooldown, the worse the result.**
+
+- Programme-level findings (5):
+
+  **Finding 1 — Aux LR cooldown asymmetry (linear@0.4) is TUNED-OPTIMAL.** Both test arms drift outside NULL band on the wrong side. Original asymmetry between inner and aux cooldown schedules is mechanism-correct, not accidental. Refines what H120 closure means: H120's "always-decaying cosine wins" is body-specific, not universal.
+
+  **Finding 2 — PARADIGM-SPLIT: inner and aux respond DIFFERENTLY to cooldown shape × frac.** Inner needs always-decaying cosine (H120 closure: cooldown_frac=1.0 load-bearing). Aux needs short linear (H130 closure: cooldown_shape=linear at frac=0.4 load-bearing). The two layers of the optimizer stack have **mechanism-distinct schedule preferences**. Paradigm-splitting because prior intuition assumed schedule shape is a universal optimizer property; H130 demonstrates it is layer-conditional.
+
+  **Finding 3 — Mechanism root cause via mid-training crossover analysis.** Student's 8-checkpoint trajectory shows precise mechanism: cosine on aux trades early-training optimization speed for late-training overshoot. arm_b leads arm_a by -0.00432 at step 1500 (cosine's higher LR through middle of training is genuinely productive), but crosses **above** arm_a by step 2500 (cosine's faster late drop costs final-loss precision). For lm_head specifically — which carries largest grad-norms in the stack (`aux/grad_norm_lm_head` ~7000-9000 at terminal) — premature LR reduction is fatal to final-step precision.
+
+  **Finding 4 — `lm_head` is the schedule-binding aux sub-component.** Student's telemetry showed embed_lr trajectories diverging cleanly across arms but lm_head's identical step-by-step trajectory in each arm reveals shared cooldown_frac=0.4 binds via lm_head's much larger grad norms. Motivates per-aux-group schedule axes as future direction (student suggestion #2 logged for future programme work).
+
+  **Finding 5 — Bit-id CTRL verified twice through programme.** arm_a 3.26901 within widened CTRL dispersion; verifies `--aux_cooldown_shape` / `--aux_cooldown_frac` CLI plumbing routes default linear@0.4 path with no side-effects.
+
+- Operational commendation: textbook mechanism analysis. 8-checkpoint trajectory with explicit crossover-step identification (step 2500 inversion point), aux_lr telemetry verification across all 3 arms, and deep-mechanism interpretation about lm_head grad-norms.
+- Followup chosen for thorfinn H138 (assigned today, see entry above): Cautious AdamW for aux groups (Wang et al. 2024, NeurIPS 2024) — graduates from aux schedule axes to aux update-mechanism axes per plateau protocol.
+
 ## 2026-05-25 02:05 UTC — PR #1112 ASSIGNED (nezuko): NS5 precision sweep (bf16/fp32/fp16 — first-ever NS5 dtype ablation; direct H129 bf16-floor followup)
 
 - Branch: `g1r3-nezuko/h137-ns5-precision-sweep`
