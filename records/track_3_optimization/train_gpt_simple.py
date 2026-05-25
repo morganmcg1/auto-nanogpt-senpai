@@ -64,6 +64,16 @@ def parse_args():
     parser.add_argument("--muon_lr", type=float, default=0.035,
                         help="Base learning rate for body-Muon optimizer (matrix params in blocks). "
                              "Default 0.035 matches the merged baseline.")
+    parser.add_argument("--polar_method", type=str, default="ns5",
+                        choices=["ns5", "svd_full", "svd_topk"],
+                        help="Polar map method: 'ns5' (baseline NS5 cubic Newton "
+                             "at NS_ITERS=12), 'svd_full' (exact SVD polar via "
+                             "torch.linalg.svd), 'svd_topk' (SVD with rank-K "
+                             "truncation, keep only top --polar_topk singular vectors).")
+    parser.add_argument("--polar_topk", type=int, default=256,
+                        help="When --polar_method=svd_topk, retain only top K "
+                             "singular values (and zero out the rest). Default 256 "
+                             "= top 1/3 of 768-dim singular spectrum.")
     args = parser.parse_args()
     args.num_trials = args.num_trials if args.num_trials is not None else (args.legacy_num_trials or 1)
     args.wandb_tags = [tag.strip() for tag in args.wandb_tags.split(",") if tag.strip()]
@@ -486,6 +496,25 @@ def matrix_neg_power(M: Tensor, gamma: float, eps: float = 1e-12) -> Tensor:
     return (eigvecs * eigvals) @ eigvecs.T
 
 
+def polar_via_svd(G: Tensor, topk: int | None = None) -> tuple[Tensor, Tensor | None]:
+    # Exact polar projection via SVD. Returns (polar, singular_values).
+    # polar = U @ Vh of shape (m, n); if topk is set, only top-K sv retained.
+    # Computes in fp32 for numerical stability, returns polar in input dtype;
+    # singular_values returned in fp32 for telemetry, or None if not computed.
+    orig_dtype = G.dtype
+    G_fp32 = G.float()
+    U, S, Vh = torch.linalg.svd(G_fp32, full_matrices=False)
+    if topk is not None and topk < S.shape[-1]:
+        k = topk
+        if U.ndim == 2:
+            polar = U[:, :k] @ Vh[:k, :]
+        else:
+            polar = U[..., :, :k] @ Vh[..., :k, :]
+    else:
+        polar = U @ Vh
+    return polar.to(orig_dtype), S
+
+
 def pmuon_update(
     grad: Tensor,
     momentum: Tensor,
@@ -500,6 +529,8 @@ def pmuon_update(
     ns_b: float = NS_B,
     ns_c: float = NS_C,
     polar_diag: dict | None = None,
+    polar_method: str = "ns5",
+    polar_topk: int = 256,
 ) -> Tensor:
     # Streaming raw (unnormalized) bilateral covariance EMAs in fp32.
     g32 = grad.detach().float()
@@ -513,7 +544,15 @@ def pmuon_update(
     R_neg = matrix_neg_power(R_cov, gamma, eps)
     m_pre = (L_neg @ update.float()) @ R_neg
 
-    polar = zeropower_via_newtonschulz5(m_pre.to(update.dtype), a=ns_a, b=ns_b, c=ns_c)
+    svd_singular_values: Tensor | None = None
+    if polar_method == "ns5":
+        polar = zeropower_via_newtonschulz5(m_pre.to(update.dtype), a=ns_a, b=ns_b, c=ns_c)
+    elif polar_method == "svd_full":
+        polar, svd_singular_values = polar_via_svd(m_pre.to(update.dtype), topk=None)
+    elif polar_method == "svd_topk":
+        polar, svd_singular_values = polar_via_svd(m_pre.to(update.dtype), topk=polar_topk)
+    else:
+        raise ValueError(f"Unknown polar_method: {polar_method}")
     # Sample ortho residual ||X X^T - I||_F on the polar output (before spectral scaling).
     # Only the first eligible parameter per step writes — keeps cost ~O(d^2) once per step.
     if polar_diag is not None and "residual" not in polar_diag:
@@ -529,17 +568,34 @@ def pmuon_update(
         polar_diag["residual"] = float(torch.linalg.norm(gram - eye).item())
         polar_diag["sample_rows"] = m
         polar_diag["sample_cols"] = n
+        if svd_singular_values is not None:
+            S = svd_singular_values
+            polar_diag["svd_S_top_max"] = float(S.max().item())
+            polar_diag["svd_S_min"] = float(S.min().item())
+            n_sv = int(S.shape[-1])
+            polar_diag["svd_n_sv"] = n_sv
+            if polar_method == "svd_topk" and polar_topk < n_sv:
+                k = polar_topk
+                polar_diag["svd_S_topk_cutoff"] = float(S[..., k - 1].item())
+                polar_diag["svd_S_ratio_topk"] = (
+                    float(S[..., k - 1].item()) / max(float(S[..., 0].item()), 1e-12)
+                )
+            # Stable rank: (||S||_F^2) / S_max^2
+            S_max = float(S.max().item())
+            stable_rank = float((S.square().sum() / max(S_max * S_max, 1e-24)).item())
+            polar_diag["svd_stable_rank"] = stable_rank
     update = polar * (max(1, grad.size(-2) / grad.size(-1)) ** 0.5)
     return update
 
 
 class Muon(torch.optim.Optimizer):
     def __init__(self, params, lr=0.02, weight_decay=0, mu=0.95, beta_cov=0.95, gamma=PMUON_GAMMA,
-                 ns_a=NS_A, ns_b=NS_B, ns_c=NS_C):
+                 ns_a=NS_A, ns_b=NS_B, ns_c=NS_C, polar_method="ns5", polar_topk=256):
         assert isinstance(params, list) and len(params) >= 1 and isinstance(params[0], torch.nn.Parameter)
         params = sorted(params, key=lambda x: x.size(), reverse=True)
         defaults = dict(lr=lr, weight_decay=weight_decay, mu=mu, beta_cov=beta_cov, gamma=gamma,
-                        ns_a=ns_a, ns_b=ns_b, ns_c=ns_c)
+                        ns_a=ns_a, ns_b=ns_b, ns_c=ns_c,
+                        polar_method=polar_method, polar_topk=polar_topk)
         super().__init__(params, defaults)
 
     @torch.no_grad()
@@ -574,6 +630,8 @@ class Muon(torch.optim.Optimizer):
                         ns_b=group["ns_b"],
                         ns_c=group["ns_c"],
                         polar_diag=polar_diag,
+                        polar_method=group.get("polar_method", "ns5"),
+                        polar_topk=group.get("polar_topk", 256),
                     )
                     floor_eligible_count += 1
                     w_norm = p.norm()
@@ -720,6 +778,8 @@ if dist.get_rank() == 0:
             "ema_warmup_steps": args.ema_warmup_steps,
             "ema_beta_target": args.ema_beta_target if args.ema_beta_target is not None else 0.0,
             "ema_dynamic_ramp_active": int(args.ema_beta_target is not None and args.ema_beta > 0),
+            "polar_method": args.polar_method,
+            "polar_topk": args.polar_topk if args.polar_method == "svd_topk" else -1,
         },
     )
 
@@ -756,9 +816,11 @@ for trial_idx in range(args.num_trials):
                         dict(params=[p for p in model.parameters() if p.ndim < 2], lr=0.025, name="adam_scalars")],
                        betas=(0.8, 0.95), eps=1e-10, weight_decay=0, fused=True)
     optimizer2 = Muon([p for p in model.blocks.parameters() if p.ndim >= 2],
-                      lr=args.muon_lr, weight_decay=0.025, beta_cov=0.95, gamma=PMUON_GAMMA)
+                      lr=args.muon_lr, weight_decay=0.025, beta_cov=0.95, gamma=PMUON_GAMMA,
+                      polar_method=args.polar_method, polar_topk=args.polar_topk)
     optimizer2.param_groups[0]["name"] = "muon_blocks"
-    print0(f"body-Muon optimizer: lr={args.muon_lr} weight_decay=0.025 beta_cov=0.95 gamma={PMUON_GAMMA}")
+    print0(f"body-Muon optimizer: lr={args.muon_lr} weight_decay=0.025 beta_cov=0.95 gamma={PMUON_GAMMA} "
+           f"polar_method={args.polar_method} polar_topk={args.polar_topk}")
     optimizers = [optimizer1, optimizer2]
     assert set(p for opt in optimizers for group in opt.param_groups
                for p in group["params"]) == set(model.parameters())
@@ -1020,7 +1082,7 @@ for trial_idx in range(args.num_trials):
                 }, step=wandb_step)
             polar_diag = getattr(optimizer2, "_polar_diag", None)
             if polar_diag and "residual" in polar_diag:
-                wandb.log({
+                polar_log = {
                     "trial": trial_idx,
                     "train/step": train_step,
                     "polar/ortho_residual_sample": polar_diag["residual"],
@@ -1029,7 +1091,17 @@ for trial_idx in range(args.num_trials):
                     "polar/ns_coef_a": NS_A,
                     "polar/ns_coef_b": NS_B,
                     "polar/ns_coef_c": NS_C,
-                }, step=wandb_step)
+                    "polar/method_id": {"ns5": 0, "svd_full": 1, "svd_topk": 2}[args.polar_method],
+                }
+                if "svd_S_top_max" in polar_diag:
+                    polar_log["polar/svd_S_top_max"] = polar_diag["svd_S_top_max"]
+                    polar_log["polar/svd_S_min"] = polar_diag["svd_S_min"]
+                    polar_log["polar/svd_n_sv"] = polar_diag["svd_n_sv"]
+                    polar_log["polar/svd_stable_rank"] = polar_diag["svd_stable_rank"]
+                    if "svd_S_topk_cutoff" in polar_diag:
+                        polar_log["polar/svd_S_topk_cutoff"] = polar_diag["svd_S_topk_cutoff"]
+                        polar_log["polar/svd_S_ratio_topk"] = polar_diag["svd_S_ratio_topk"]
+                wandb.log(polar_log, step=wandb_step)
             wandb.log({
                 "trial": trial_idx,
                 "train/step": train_step,
