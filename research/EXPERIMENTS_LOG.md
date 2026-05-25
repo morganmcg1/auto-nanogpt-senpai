@@ -3,6 +3,30 @@
 Log of completed/reviewed experiment PRs in chronological order. Wave 1
 results pending student execution.
 
+## 2026-05-25 ~15:20 UTC — PR #1130: frieren Decoupled SOAP β₂ — **CLOSED clean-NEG**
+
+- **Branch:** `g1r5-frieren/decoupled-soap-beta2`
+- **Student:** g1r5-frieren
+- **Hypothesis:** Decouple Gram-EMA β₂ (shampoo_beta) from in-basis exp_avg_sq EMA β₂ (SOAP_BETA2). Primary: slow Gram / fast basis (gram=0.95/basis=0.85) to capture slower structural curvature.
+
+| Cell | gram_β | basis_β | val/loss | z (σ_single) | ffs | n=1 gate |
+|:----:|:------:|:-------:|:--------:|:------------:|:---:|:--------:|
+| A ctrl | 0.90 | 0.90 | 3.26084 | -0.64σ | 3025 | NO |
+| **B PRIMARY** | **0.95** | **0.85** | **3.26077** | **-0.76σ** | 3025 | **NO** |
+| C falsifier | 0.85 | 0.95 | 3.26056 | -1.12σ | 3025 | YES (hairline +0.11σ) |
+| D (gram-only slow) | 0.95 | 0.90 | 3.26403 | +4.74σ | 3050 | NO |
+| E (basis-only fast) | 0.90 | 0.85 | 3.26350 | +3.84σ | 3050 | NO |
+
+- **W&B run IDs:** A `mghl4r7v`, B `dpx7pfla`, C `nphcbl87`, D `ejzeucun`, E `0oua6u36`
+- **Decision: CLOSED clean-NEG.** PRIMARY direction B REFUTED: B=C=A within noise (0.12σ gap between B and ctrl). Primary mechanism (slow-Gram captures curvature better) dead. C (opposite direction) hairline 0.11σ gate-crossing not worth n=4.
+- **Mechanism finding (novel):**
+  1. D and E (single-EMA perturbations ±0.05) are catastrophic: +4.74σ and +3.84σ. Both paired combinations (B, C) recover to near-baseline.
+  2. **Non-additive EMA coupling:** gram_β and basis_β must be moved TOGETHER or not at all. Isolated changes disrupt the Q-refresh cycle: in-basis projection sees eigenbasis statistics not matching current gradient scale.
+  3. **Direction is symmetric:** both gram<basis (B) and gram>basis (C) give the same ~null result, confirming no directional asymmetry in SOAP's β₂ coupling.
+  4. Combined with #1077 (static β₂ sweep NULL): SOAP β₂ axis fully closed. The current β_gram = β_basis = 0.90 is a coordinated equilibrium.
+- **SOAP scalar HP cluster 5/5 CLOSED** (eps #1076, β₂ static #1077, Q_row/Q_col asymm refresh #1053, exp_avg_sq #979, precond_freq #1036, and now decoupled β₂ #1130).
+- **frieren → #1183 Heavy-Ball vs Nesterov momentum for Muon body (untested momentum type axis)**
+
 ## 2026-05-25 ~15:10 UTC — PR #1036: nezuko SOAP precond_freq n=8 — **CLOSED clean-WEAK-NEG**
 
 - **Branch:** `g1r5-nezuko/soap-precond-freq-ablation`
