@@ -1,0 +1,4 @@
+2026-05-25T17:33:44Z resume daemon v2: starting pid=396605
+2026-05-25T17:33:44Z resume daemon v2: waiting for seed2 pid=391574 to exit
+2026-05-25T18:32:44Z resume daemon v2: seed2 exited
+2026-05-25T18:32:59Z resume daemon v2: launching seed=3

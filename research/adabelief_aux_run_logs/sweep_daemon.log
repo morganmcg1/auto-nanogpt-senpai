@@ -1,0 +1,14 @@
+2026-05-25T05:25:36Z daemon: starting, pid=339069
+2026-05-25T05:25:36Z daemon: waiting for cell A (pid=337176)...
+2026-05-25T06:16:22Z daemon: starting, pid=342890
+2026-05-25T06:16:22Z daemon: waiting for cell A (pid=337176)...
+2026-05-25T06:56:22Z daemon: cell A exited
+2026-05-25T06:56:22Z daemon: launching cell B (belief_eps1e-10_primary) -> /workspace/senpai/target/research/adabelief_aux_run_logs/cellB.log
+2026-05-25T08:46:27Z daemon: cell B finished rc=0
+2026-05-25T08:46:27Z daemon: launching cell C (belief_eps1e-16_paperdefault) -> /workspace/senpai/target/research/adabelief_aux_run_logs/cellC.log
+2026-05-25T10:36:32Z daemon: cell C finished rc=0
+2026-05-25T10:36:32Z daemon: launching cell D (belief_eps1e-8_loose) -> /workspace/senpai/target/research/adabelief_aux_run_logs/cellD.log
+2026-05-25T12:26:36Z daemon: cell D finished rc=0
+2026-05-25T12:26:36Z daemon: launching cell E (adamw_eps1e-16_falsifier) -> /workspace/senpai/target/research/adabelief_aux_run_logs/cellE.log
+2026-05-25T14:16:28Z daemon: cell E finished rc=0
+2026-05-25T14:16:28Z daemon: all cells complete
