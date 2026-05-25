@@ -83,6 +83,19 @@ def parse_args():
              "muall=musoft + non-residual block 2D weights also scaled by 1/sqrt(L); "
              "smallconst=std=1e-3 depth-independent.",
     )
+    parser.add_argument("--mu", type=float, default=0.95,
+                        help="Muon momentum coefficient (EMA decay). Applies to both MLP and attn "
+                             "param groups. Default 0.95 matches the current baseline.")
+    parser.add_argument(
+        "--momentum_type",
+        type=str,
+        default="nesterov",
+        choices=["nesterov", "heavy_ball"],
+        help="Momentum style for Muon body matrices. "
+             "'nesterov': current default, g_ns = (1-mu)*grad + mu*momentum (Polyak Nesterov form used by Muon). "
+             "'heavy_ball': g_ns = momentum (EMA buffer, no lookahead). "
+             "Also applies to the NS input on the SOAP path.",
+    )
     args = parser.parse_args()
     args.num_trials = args.num_trials if args.num_trials is not None else (args.legacy_num_trials or 1)
     args.wandb_tags = [tag.strip() for tag in args.wandb_tags.split(",") if tag.strip()]
@@ -500,9 +513,12 @@ def zeropower_via_newtonschulz5(G: Tensor) -> Tensor:
     return X
 
 @torch.compile
-def muon_update(grad, momentum, mu=0.95, nesterov=True):
+def muon_update(grad, momentum, mu=0.95, momentum_type: str = "nesterov"):
     momentum.lerp_(grad, 1 - mu)
-    update = grad.lerp_(momentum, mu) if nesterov else momentum
+    if momentum_type == "nesterov":
+        update = grad.lerp_(momentum, mu)
+    else:  # "heavy_ball"
+        update = momentum
     update = zeropower_via_newtonschulz5(update)
     update *= max(1, grad.size(-2) / grad.size(-1))**0.5
     return update
@@ -571,11 +587,12 @@ class Muon(torch.optim.Optimizer):
     SOAP_ATTN_SUFFIXES = (".attn.q.weight", ".attn.k.weight", ".attn.v.weight", ".attn.proj.weight")
 
     def __init__(self, named_params, lr=0.02, weight_decay=0, mu=0.95,
-                 soap_attn=False, trust_threshold=0.0):
+                 soap_attn=False, trust_threshold=0.0, momentum_type="nesterov"):
         # `named_params` can be either:
         #   (a) list of (name, param) tuples → single param group (legacy form)
         #   (b) list of dicts {"named_params": [(name, param), ...], "lr": ?, "weight_decay": ?, "mu": ?, "name": ?}
         #       → multiple param groups, one per dict
+        assert momentum_type in ("nesterov", "heavy_ball")
         assert isinstance(named_params, list) and len(named_params) >= 1
         if isinstance(named_params[0], dict):
             groups_raw = named_params
@@ -603,11 +620,12 @@ class Muon(torch.optim.Optimizer):
                 "lr": g.get("lr", lr),
                 "weight_decay": g.get("weight_decay", weight_decay),
                 "mu": g.get("mu", mu),
+                "momentum_type": g.get("momentum_type", momentum_type),
             }
             if "name" in g:
                 g_dict["name"] = g["name"]
             param_groups.append(g_dict)
-        defaults = dict(lr=lr, weight_decay=weight_decay, mu=mu)
+        defaults = dict(lr=lr, weight_decay=weight_decay, mu=mu, momentum_type=momentum_type)
         super().__init__(param_groups, defaults)
 
     @torch.no_grad()
@@ -635,11 +653,14 @@ class Muon(torch.optim.Optimizer):
                             state["soap_step"] = 0
                     if use_soap:
                         state["momentum"].lerp_(p.grad, 1 - group["mu"])
-                        raw_nesterov = p.grad.lerp(state["momentum"], group["mu"])
-                        precond_nesterov = soap_precondition_momentum(raw_nesterov, state)
-                        u_soap = soap_ns_step(precond_nesterov)
+                        if group["momentum_type"] == "nesterov":
+                            raw_ns_input = p.grad.lerp(state["momentum"], group["mu"])
+                        else:  # heavy_ball
+                            raw_ns_input = state["momentum"]
+                        precond_ns_input = soap_precondition_momentum(raw_ns_input, state)
+                        u_soap = soap_ns_step(precond_ns_input)
                         if self.use_trust_gate:
-                            u_muon = soap_ns_step(raw_nesterov)
+                            u_muon = soap_ns_step(raw_ns_input)
                             us = u_soap.float()
                             um = u_muon.float()
                             cos_sim_t = (us * um).sum() / (us.norm() * um.norm() + 1e-8)
@@ -649,7 +670,8 @@ class Muon(torch.optim.Optimizer):
                             update = u_soap
                         soap_update_preconditioner(p.grad, state)
                     else:
-                        update = muon_update(p.grad, state["momentum"], mu=group["mu"])
+                        update = muon_update(p.grad, state["momentum"], mu=group["mu"],
+                                             momentum_type=group["momentum_type"])
                     norm_sum.add_(update.float().norm())
                     p.mul_(1 - group["lr"] * group["weight_decay"])
                     p.add_(update, alpha=-group["lr"])
@@ -765,6 +787,8 @@ if dist.get_rank() == 0:
             "wd_schedule": args.wd_schedule,
             "lr_scalars": args.lr_scalars,
             "depth_init_mode": args.depth_init_mode,
+            "mu": args.mu,
+            "momentum_type": args.momentum_type,
         },
     )
 
@@ -852,7 +876,9 @@ for trial_idx in range(args.num_trials):
             dict(named_params=mlp_named,  lr=args.lr_mlp,  weight_decay=args.wd_mlp,  name="muon_mlp"),
             dict(named_params=attn_named, lr=args.lr_attn, weight_decay=args.wd_attn, name="muon_attn"),
         ],
+        mu=args.mu,
         soap_attn=args.soap_attn, trust_threshold=args.soap_trust_threshold,
+        momentum_type=args.momentum_type,
     )
     optimizers = [optimizer1, optimizer2]
     assert set(p for opt in optimizers for group in opt.param_groups
