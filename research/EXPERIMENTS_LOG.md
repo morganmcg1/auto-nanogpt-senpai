@@ -3,6 +3,34 @@
 This file logs experiment outcomes as PRs land. The historical track 3
 leaderboard is captured in `/BASELINE.md`.
 
+## 2026-05-25 19:00 UTC — PR #1100: Decoupled AdamW per-group weight decay — lm_head wd=1e-3 PP n=3 (askeladd) — CLOSED productive-NULL with mechanism mortem; **23rd consecutive no-merge closure since #847**
+
+- Branch: `g1r4-askeladd/aux-wd-decoupled` (PP confirmation chain `g1r4-askeladd/aux-wd-pp-confirm`)
+- Hypothesis: Decoupled AdamW per-group weight decay applied to lm_head only (wd=1e-3) shrinks Zipfian high-magnitude rare-token rows in lm_head during cooldown, reducing late-phase weight overgrowth. N=1 chain showed Δ=−0.00185 with 5 mechanism signals.
+- PP n=3 Terminal results (6 interleaved sequential seeds):
+
+| Seed | Pair | val/loss | fs | Δ_paired |
+|:----:|:---:|:---:|:---:|:---:|
+| 0 | ctrl 3.26980 / armC 3.26836 | 3200 / 3200 | **−0.00144 favorable** |
+| 1 | ctrl 3.26930 / armC 3.26941 | 3200 / 3200 | **+0.00011 NULL** |
+| 2 | ctrl 3.26927 / armC 3.27047 | 3200 / **3225** | **+0.00120 unfavorable** |
+
+- Aggregate: mean(armC,n=3)=3.26941 (above baseline 3.26756 by +0.00185), mean Δ_paired=−0.00004 NULL
+- **5-gate audit: 3 of 5 FAIL.** G1 baseline-beat FAIL (above by 0.00185), G3 direction FAIL (1/3 favorable), G5 catastrophe FAIL (seed 2 Δ=+0.00120 ≥ +0.001), G2 stat-rule PASS (margin 0.0183 ≥ 0.004 mechanically but doesn't address baseline-beat), G4 drift PASS (all 3 ctrls within ±0.003)
+- **Mechanism mortem — the science PP n=3 was designed to catch:** Three distinct per-seed trajectories — seed 0 reproduces N=1 late-cooldown widening signature, seed 1 mid-train favorable collapses to NULL at cooldown, seed 2 early reversal sustained unfavorable + first-ever fs regression. Mechanism IS real per-seed but seed-conditional strength. N=1 (seed=1 in 4-arm chain) Δ=−0.00185 was at favorable tail of seed-conditional strength.
+- **lm_head MAGNITUDE-PRESERVING cluster — 5 mechanisms now characterized (all sub-threshold at PP n=3):**
+
+| PR | Mechanism | Best Δ | Status |
+|---|---|:---:|---|
+| **#1100** | **lm_head WD=1e-3 (regularization)** | **−0.00004 mean n=3** | **CLOSED 23rd** |
+| #1155 | MARS γ=0.025 (variance reduction) | −0.00048 N=1 | CLOSED 22nd |
+| #1175 | v_min floor (denominator) | −0.00257 Arm B | in flight |
+| #1192 | row-norm AdamW | — | in flight |
+| #1153 D | Cautious soft mask | +0.00124 | CLOSED 21st |
+
+- **Pattern lock: lm_head Zipfian shrinkage advantage is at the noise floor for this fixed stack at single-GPU scale.** Argues against further isolated lm_head magnitude escalation. **Compositional stacking** (multiple favorable-direction mechanisms applied simultaneously) is the natural escalation path.
+- Reassignment: askeladd → #1203 AdamW β2 cooldown step (β2: 0.99→0.999 at cooldown_start, schedule mechanism, mechanism-distinct from all 5 lm_head MAGNITUDE escalations from the schedule axis).
+
 ## 2026-05-25 17:30 UTC — PR #1155: MARS-AdamW aux — γ × scope 2D sweep (nezuko) — CLOSED productive-NULL with mechanism characterization; lm_head-specific signal confirmed; γ=0.025 near-optimum; **22nd consecutive no-merge closure since #847**
 
 - Branch: `g1r4-nezuko/mars-adamw-aux`
