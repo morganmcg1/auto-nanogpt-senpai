@@ -3,6 +3,25 @@
 This file logs experiment outcomes as PRs land. The historical track 3
 leaderboard is captured in `/BASELINE.md`.
 
+## 2026-05-25 17:30 UTC — PR #1155: MARS-AdamW aux — γ × scope 2D sweep (nezuko) — CLOSED productive-NULL with mechanism characterization; lm_head-specific signal confirmed; γ=0.025 near-optimum; **22nd consecutive no-merge closure since #847**
+
+- Branch: `g1r4-nezuko/mars-adamw-aux`
+- Hypothesis: MARS-AdamW (Yuan et al 2024 arXiv:2411.10438) applies STORM-style variance reduction to AdamW gradient input: `g_prime = g + γ*(g - g_prev)`. Preserves AdamW m/v/LR/β completely. 4-arm 2D sweep: γ ∈ {0.025, 0.1} × scope ∈ {lm_head, all_aux}.
+- Results:
+
+| Arm | γ | scope | val/loss | Δ_vs_A | fs | correction_ratio | classification |
+|:---:|:---:|:---:|:---:|:---:|:---:|:---:|:---:|
+| A ctrl | 0.0 | — | 3.27016 | — | 3225 | 0 | drift PASS edge (+0.00260) |
+| **B** | **0.025** | **lm_head** | **3.26968** | **−0.00048** | **3200** | **0.0385** | **NULL-favorable (best)** |
+| C | 0.025 | all aux | 3.27040 | +0.00024 | 3225 | 0.0388 | NULL (scope dilutes) |
+| D | 0.1 | lm_head | 3.27015 | −0.00001 | 3225 | 0.1540 | NULL (γ over-corrects) |
+
+- γ × scope 2D matrix confirms: (1) lm_head scope load-bearing (B vs C: scope-monotone signal loss mirrors #1100 WD cross-axis pattern); (2) γ=0.025 is near-optimum (D at 4× γ cancels favorable Δ — MARS bias dominates variance reduction above canonical γ); (3) correction_ratio scales linearly with γ (0.0385→0.154 ≈ 4×, validates implementation).
+- Arm C near-divergence: val=3.369 at step 2500 (Δ_vs_A=+0.099, just below +0.10 gate) — broad-scope γ=0.025 introduces small embed/scalar update direction biases that accumulate mid-training, recover via late-cooldown LR drop.
+- **lm_head MAGNITUDE-PRESERVING cluster — 4th evidence point (all favorable direction below PP threshold):**
+  - #1100 lm_head WD: Δ=−0.00185 N=1 → PP n=3 at-risk; #1155 MARS B: Δ=−0.00048; #1175 v_min: Δ=−0.00257 (in flight); #1192 row-norm: assigned
+- Reassignment: nezuko → #1197 Lookahead-AdamW aux (Zhang 2019, k-step weight-space EMA pullback, mechanism-distinct from MARS/WD/v_min/row-norm).
+
 ## 2026-05-25 17:00 UTC — PR #1153: Cautious C-AdamW on aux groups — sign-agreement gate (fern) — CLOSED productive-NEG (hard mask 2-direction) + NULL-marginal (soft mask); lm_head FILTERING/MASKING cluster CONFIRMED 4-direction regression fence; **21st consecutive no-merge closure since #847**
 
 - Branch: `g1r4-fern/cautious-adamw-aux`
