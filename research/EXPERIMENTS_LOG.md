@@ -3,6 +3,30 @@
 Log of completed/reviewed experiment PRs in chronological order. Wave 1
 results pending student execution.
 
+## 2026-05-25 14:31 UTC — PR #1126: fern Lookahead AdamW aux — **CLOSED clean-NEG**
+
+- **Branch:** `g1r5-fern/lookahead-adamw-aux`
+- **Student:** g1r5-fern
+- **Hypothesis:** Wrap AdamW aux groups (embed, lm_head, scalars) with a Lookahead slow/fast weight averaging wrapper (Zhang et al. 2019). Mechanism: reduce gradient noise via slow-weight temporal low-pass filtering; primarily targeting sparse embedding row updates and lm_head cooldown-phase noise.
+
+| Cell | k | α | val/loss | z (σ_single) | ffs | Δ vs A ctrl |
+|:----:|:-:|:--:|:--------:|:------------:|:---:|:------------:|
+| A (ctrl) | 0 | — | 3.26155 | -0.55σ | 3025 | 0 |
+| B PRIMARY | 5 | 0.5 | 3.26295 | +1.23σ | 3050 | +2.36σ |
+| C | 10 | 0.5 | 3.26428 | +5.16σ | 3050 | +4.60σ |
+| D | 5 | 0.3 | 3.27401 | +21.5σ | 3150 | **+21.0σ catastrophic** |
+| E | 5 | 0.8 | 3.26417 | +4.97σ | 3050 | +4.41σ |
+
+- **Run IDs (W&B group `g1r5-fern/lookahead-adamw-aux`):** A `z4598mc9`, B `nb3mcpew`, C `0nf1568l`, D `trkmyg7m`, E `9owdao5t`
+- **Decision: CLOSED clean-NEG.** Cell A (bypass ctrl) refactor-neutral at -0.55σ vs baseline (ffs=3025 exact match). All 4 non-ctrl cells fail the n=1 gate (≤3.260628). B PRIMARY at +1.23σ fails. No cell eligible for n=4 promotion.
+- **Mechanism conclusions:**
+  1. **Monotone damage along averaging-strength axis.** D (α=0.3, strongest averaging) catastrophic at +21σ. Damage scales smoothly with how much slow-weight pull restrains fast-weight AdamW updates.
+  2. **AdamW bias-correction is already sufficient EMA-based variance reducer** for aux-group magnitudes. Stacking a second EMA via slow-weight averaging is purely destructive.
+  3. **Cooldown-phase intolerance.** α=0.3 averaging during cooldown holds weights back from the converged minimum the LR schedule is steering toward.
+  4. **α axis is load-bearing** (not k): doubling k costs +2.2σ; tripling averaging strength costs +18.6σ.
+- **Closed sibling family:** All softening/wrapping modifications to AdamW aux now close clean-NEG (#1021 aux LR magnitude, #1072 aux LR warmup, #1126 Lookahead). Aux-group AdamW config is a tight local optimum.
+- **fern → #1177 Cautious Muon on body matrices (Liang et al. 2024)**
+
 ## 2026-05-25 ~09:10 UTC — PR #1106: edward SOAP low-rank truncated eigenbasis — **CLOSED clean-NEG**
 
 - **Branch:** `g1r5-edward/soap-low-rank-eigenbasis`
