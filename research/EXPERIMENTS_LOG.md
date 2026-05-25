@@ -1,5 +1,38 @@
 # SENPAI Research Results
 
+## 2026-05-25 22:25 UTC — PR #1178 CLOSED: AdamW aux eps ablation (1e-8 LOOSER PyTorch default; Arm B 1e-12 aborted) — 138th NULL, AdamW aux eps axis FULLY CLOSED across 4-decade range, eps_dominance_frac structural finding (g1r1-fern)
+
+- Branch: `g1r1-fern/adamw-eps`
+- Hypothesis: AdamW `eps=1e-10` baseline is unusual (PyTorch default 1e-8) and never directly ablated. Probe ±2 decades around baseline to test whether eps floor is load-bearing for aux i.i.d. pipeline. Arm A LOOSER eps=1e-8 (PyTorch default), Arm B TIGHTER eps=1e-12 (FP edge).
+
+| Arm / Seed | wandb run | val_ema | sr | Δval (mnat) | Verdict |
+|---|---|---|---|---|---|
+| Baseline (n=2) | vm48fdof / 0a7esmxs | 3.266394 | 2925 | 0 | (reference) |
+| Arm A seed 1 (eps=1e-8) | `2jtcjepq` | 3.266378880 | 2925 | −0.0152 | sub-noise WIN by math, fails stat-sig |
+| Arm A seed 2 (eps=1e-8) | `0u42mc7s` | 3.266378164 | 2925 | −0.0158 | sub-noise WIN by math, fails stat-sig |
+| **Arm A n=2 mean** | — | **3.266378522** | **2925** | **−0.0155** | **NULL — FAILS stat-sig (180× below threshold)** |
+| Arm B (eps=1e-12) | `vwtb8laz` | aborted at step 74 | — | — | per advisor pivot, structural finding from Arm A telemetry |
+
+n=2 stat-sig: `(3.266394 − 3.266378522)·√2 = 0.0000219` vs threshold ≥ 0.004 → FAILS by factor 180×. n=2 sample std = **5.06e-7** (val_ema seed spread) — astonishingly tight, ~600× tighter than empirical σ ≈ 3e-4. Possible eps=1e-8 reduces seed variance, or 7σ coincidence (unverified).
+
+- **MECHANISM CANON — eps_dominance_frac structural finding:**
+
+| Group | seed-1 eps_dom_frac | seed-2 eps_dom_frac | v_mean_sqrt | eps / sqrt(v̂) |
+|---|---|---|---|---|
+| embed (50304×768) | 0.6868% | 0.6869% | 0.0047 | ~2.1e-6 |
+| lm_head (50304×768) | 1.51e-5 | 2.05e-5 | 0.493 | ~2.0e-8 |
+| scalars | 0.0 | 0.0 | 7.49 | ~1.3e-9 |
+
+  - **At eps=1e-8 (10000× looser than baseline 1e-10), the eps floor is essentially never binding across all 3 aux groups.** Variance signal `sqrt(v̂)` dominates the AdamW update across entire training trajectory, NOT the eps floor.
+  - Even on the sparsest group (embed, token-level sparsity), only 0.687% of coords fall below the eps floor at 1e-8. At baseline 1e-10, the binding fraction is 100× smaller still (≈0.007% projected).
+  - **Seed-to-seed agreement on `eps_dominance_frac` (differs by 1.5e-6 between seeds) confirms this is a structural property of the aux pipeline**, not a per-run fluctuation.
+  - **Baseline `eps=1e-10` was silent over-engineering** at this scale.
+
+- **AdamW aux eps axis FULLY CLOSED across 4-decade range [1e-12, 1e-8].** 138th NULL.
+- **Joint aux Adam-family hyperparameter closure now spans 20+ axes**: all update-rule families (Adan, NAdam, AdaBelief, Lion, Lookahead, SF, AdEMAMix, AMSGrad, Adamax, LAMB, Cautious, Adam-mini, SOAP, Sophia), β1 ramp (#796), β2 ramp (#741), aux base-LR retune (#913), now eps (#1178). Per-coord variance scaling self-normalizes via AdamW denominator — eps floor irrelevant within wide range.
+
+- fern → **#1217** (AdamW aux β2 STATIC value scan: Arm A β2=0.99 vs Arm B β2=0.999 PyTorch default, baseline=0.95 — mechanism-distinct from #741 β2 cooldown ramp (probed cooldown phase only, not full-training static), tests whether unusual baseline β2=0.95 is load-bearing or legacy artifact, ~3 LOC implementation).
+
 ## 2026-05-25 21:18 UTC — PR #1166 CLOSED: NS5 cubic-coefficient ablation ((1.7, -0.7) TIGHTER vs (1.3, -0.3) GENTLER at a+b=1) — 137th NULL, NS5 cubic-coefficient axis FULLY CLOSED with asymmetric robustness canon (g1r1-tanjiro)
 
 - Branch: `g1r1-tanjiro/ns-coef-cubic`
