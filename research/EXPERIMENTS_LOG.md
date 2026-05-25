@@ -3,6 +3,33 @@
 Log of completed/reviewed experiment PRs in chronological order. Wave 1
 results pending student execution.
 
+## 2026-05-25 ~03:55 UTC — PR #1072: fern embed/lm_head warmup schedule — **CLOSED clean-NEG (AdamW aux schedule axis closed for warmup direction)**
+
+- **Branch:** `g1r5-fern/embed-lm-head-warmup`
+- **Student:** g1r5-fern
+- **Hypothesis:** Add linear warmup to AdamW aux groups (embed LR=0.3, lm_head LR≈0.003). Mechanism: AdamW β₂=0.95 EMA second-moment estimator is biased low at steps 0–~25, so a short LR warmup reduces early-step gradient noise amplification on sparse rows (embed) and dense projection (lm_head).
+
+| Cell | warmup_e / l | val/loss | Δ vs μ_base | z_base | ffs | run_id |
+|------|--------------|----------|-------------|--------|-----|--------|
+| A (ctrl) | 0.00 / 0.00 | **3.26086** | −0.000361 | −0.61σ | 3025 | `a1mulk80` |
+| C | 0.05 / 0.05 | 3.26233 | +0.001109 | **+1.87σ** | 3050 | `mz66t94p` |
+| B ★ | 0.10 / 0.10 (PRIMARY) | 3.26455 | +0.003329 | **+5.61σ** | 3075 | `tsdo2jwd` |
+| D | 0.20 / 0.20 | 3.26717 | +0.005949 | **+10.03σ** | 3100 | `70vgbn7d` |
+| E | 0.30 / 0.30 | 3.27004 | +0.008819 | **+14.87σ** | 3125 | `w0bl3tm4` |
+
+**PRIMARY verdict:** Cell B clean-NEG at +5.61σ_base. Strict monotone damage across warmup={0.00,0.05,0.10,0.20,0.30}: every cell with warmup>0 hurts; ffs tracks val/loss linearly (3025 → 3050 → 3075 → 3100 → 3125, +25 steps per cell).
+
+**Cell A refactor-neutrality PASS:** 3.26086 (−0.61σ_base, ffs=3025=baseline-ffs-mean) confirms `--warmup_*_frac 0.00/0.00` reproduces hardcoded behavior.
+
+**Mechanism findings:**
+1. **AdamW bias-correction is sufficient — warmup is double-correction.** AdamW's bias-correction term `1/(1−β^step)` already compensates for cold-start EMA bias. Adding linear warmup on top is redundant and removes useful training signal during the warmup window.
+2. **ffs/val-loss linear coupling.** Each +5% warmup costs ~25 ffs and +1.6σ_base val/loss. Strong evidence that the 3250-step budget doesn't allow recovery from lost early-step LR.
+3. **No local optimum at warmup>0.** Monotone profile with no inflection across 0.05–0.30 fractions falsifies the "modest warmup is optimal" hypothesis.
+
+**Axis closure (AdamW aux schedule):** Combined with #1021 (LR magnitude — closed) and #1054 (LR schedule shape — closed), AdamW aux groups' schedule and magnitude axes are now comprehensively closed. **Open axes remaining for AdamW aux:** regularization (#1105 in-flight, Cell B at -2.38σ strong n=1 signal), and any non-scalar mechanism axes (e.g. Lookahead wrapper, alternative optimizer, EMA averaging).
+
+**Decision: CLOSE clean-NEG with mechanism finding.** fern → **#1107 Lookahead wrapper on AdamW aux groups** — fresh mechanism axis (slow/fast weight averaging, not scalar HP), theoretically motivated for high-noise sparse-update groups. NOT a 2D warmup decoupling or finer-grain sweep on closed axis.
+
 ## 2026-05-24 ~23:10 UTC — PR #1053: edward asymmetric SOAP Q_row/Q_col refresh frequency — **CLOSED clean-NEG (SOAP per-component temporal-cadence axis closed)**
 
 - **Branch:** `g1r5-edward/soap-asymm-q-refresh-freq`
