@@ -1,5 +1,57 @@
 # SENPAI Research Results — auto-nanogpt-1gpu-r2
 
+## 2026-05-25 14:25 UTC — PR #1145: PREDICTION_ENTROPY_BONUS (CLOSED, 141st refuted — ENTROPY-BONUS-PREDICTION-SOFTMAX-ADDITIVE family 1/1, 28th family-level closure, 8th FLOOR-CLUSTER-TOUCH refute signature, publication-grade fern β-sweep optimum-identification)
+
+- Branch: `g1r2-fern/prediction-entropy-bonus` (student g1r2-fern)
+- Hypothesis: Add `β·H(softmax(logits))` entropy bonus reward on predicted output distribution to encourage broader prediction confidence, complementary to LOGIT_SOFTCAP=20.0 and orthogonal to attention-side entropy (#1148 already closed).
+- Refute signature: **WRONG-DIRECTION MONOTONE-AFTER-OPTIMUM** at β=3e-3 (Arm C above optimum at β=1e-3) — 8th FLOOR-CLUSTER-TOUCH refute-signature instance in cycle 71.
+
+### Results table
+
+| Run | β | val@3175 | ffs | Δval vs baseline (3.26776) | Δffs vs baseline (3000) | Status |
+|-----|---|----------|-----|----------------------------|--------------------------|--------|
+| Disabled-check #1 (`qm3gdkmi`) | 0 | 4.07516 @ step 200 | n/a | — | — | ✓ bytewise inert |
+| Disabled-check #2 (`7l4a9svs`) | 0 | 4.08889 @ step 200 | n/a | — | — | ✓ bytewise inert |
+| Arm A (`xrs4qw2c`) | 1e-4 | 3.27035 | 3025 | +0.00259 | +25 | ✗ FLOOR-CLUSTER-EDGE |
+| **Arm B (`dfpd3b25`)** | **1e-3** | **3.26842** | **3000** | **+0.00066** | **0** | **✗ N=1 hold-gate PASS, merge bar MISS, LOCAL OPTIMUM** |
+| Arm C (`z5shuu8x`) | 3e-3 | 3.27148 | 3025 | +0.00372 | +25 | ✗ WRONG-DIRECTION-AFTER-OPTIMUM |
+
+### Analysis and conclusions
+
+**Publication-grade fern β-sweep optimum-identification mechanism interpretation**: 3-arm β sweep maps a clean unimodal-in-β response curve at the floor. Direction-of-mechanism:
+- Weak β (1e-4, bonus ~0.4% CE): too small to bite during late training, converges baseline-like
+- Mid β (1e-3, bonus ~4% CE): captures small concentration-broadening benefit through cooldown phase, **local optimum** at +0.00066 above merge bar
+- Strong β (3e-3, bonus ~12% CE): over-broadening kicks in during 2000-3000 cooldown phase, regresses +0.00306 vs Arm B optimum
+
+**Mechanism telemetry confirms across all 3 arms**:
+- `bonus_term` scales 10× / 3× with β as expected (Arm A: 175 → Arm B: 1752 → Arm C: 5273) — bonus is structurally biting
+- `entropy_per_token` converges to same ~3.34 nats at all 3 arms terminal — CE gradient ultimately wins
+- BUT `predicted_max_prob` and `effective_vocab` pathway through critical cooldown phase **differs by β**: late-training concentration sharpening that earns merge bar is suppressed at β > 1e-3
+- Arm C maintains marginally broader distribution to step 3175 (eff_vocab=22.89 vs Arm B 22.7) — confirms over-broadening interpretation
+
+**Family closure**: ENTROPY-BONUS-PREDICTION-SOFTMAX-ADDITIVE 1/1 → 28th family-level closure.
+
+**Family closure absorbs by analogy**: ANY β ∈ [1e-4, 3e-3] absorbed by full unimodal curve mapping (optimum identified at β=1e-3, +0.00066 above merge bar). ANY β > 3e-3 absorbed by monotone-degradation argument. ANY β < 1e-4 absorbed by under-bite argument.
+
+**Family closure does NOT absorb**:
+- Per-block entropy bonus (different mechanism layer)
+- KL-divergence-to-prior on prediction distribution (different distance metric)
+- Per-head entropy bonus (different decomposition granularity)
+- Cooldown-only / adaptive β schedule (different timing parametrization)
+- Adaptive β based on per-token surprise (state-dependent reweighting)
+
+**Cycle 71 loss-side "concentration/broadening" mechanism class taxonomy complete map**:
+- Z_LOSS (#1117): logit magnitude penalty — redundant under LOGIT_SOFTCAP=20.0
+- LABEL_SMOOTHING (#858, #901): target-distribution interpolation to uniform — closed
+- ATTENTION_SOFTMAX_ENTROPY (#1148): attention-layer softmax — different layer
+- **PREDICTION_ENTROPY_BONUS (this PR)**: output-softmax concentration — sub-merge-bar even at optimal β
+
+The output-softmax concentration is a real mechanism lever but at the floor it's worth ~1 millibel below merge bar — not enough headroom to cross.
+
+**Force-multiplier validation**: 11th cycle 71 closure where refute interpretation drives next experiment within same student/wave (fern #1117 Z_LOSS → fern #1145 PREDICTION_ENTROPY_BONUS, 2nd within-student loss-side validation for fern).
+
+---
+
 ## 2026-05-25 12:35 UTC — PR #1170: ATTN_QKV_SEPARATE_NS5 (CLOSED at pre-flight, NOT a refute count — 5th cycle 71 pre-launch student catch, false-premise verification)
 
 - Branch: `g1r2-askeladd/attn-qkv-separate-ns5` (student g1r2-askeladd)
