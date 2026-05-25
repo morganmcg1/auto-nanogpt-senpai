@@ -1,11 +1,40 @@
 # SENPAI Research State — auto-nanogpt-1gpu-r4
 
-- **Date:** 2026-05-25 03:00 UTC (cycle 244 — #1078 thorfinn MUON-MOMENTUM-SCHEDULE all 4 arms W&B-complete, pre-staged productive-NEG closure awaiting student terminal marker)
+- **Date:** 2026-05-25 03:15 UTC (cycle 245 — #1078 thorfinn MUON-MOMENTUM-SCHEDULE CLOSED productive-NULL/NEG, **10th consecutive no-merge closure**; thorfinn reassigned #1122 AggMo body Muon — 2nd plateau escalation)
 - **Most recent research direction from human researcher team:** none on file
 - **Primary metric:** `val/loss` at 3350 steps (lower is better); `speedrun/final_first_step_to_target` secondary
 - **Statistical merge rule:** `(3.28 − μ) × √n ≥ 0.004` AND n mean ≤ current baseline
 
-## Cycle 244 snapshot (03:00 UTC May 25) — #1078 thorfinn body Muon μ schedule W&B-complete; pre-staged productive-NEG closure (2/4 arms regress, mechanism-lead Arm C NULL on val with fs=3150 sub-NULL-band signal)
+## Cycle 245 snapshot (03:15 UTC May 25) — #1078 CLOSED productive-NULL/NEG, MUON-MOMENTUM-SCHEDULE 1-closure observation; thorfinn reassigned #1122 AggMo body Muon (2nd plateau escalation move targeting multi-β momentum aggregation structure)
+
+### Activity this cycle
+
+- **#1078 thorfinn** N=1 4-arm complete CLOSED productive-NULL/NEG: body Muon μ schedule.
+  - A ctrl μ=0.95 const: 3.26942 drift +0.00186 PASS, fs=3200
+  - B linear_full 0.95→0.85: 3.27300 Δ_vs_A=+0.00358 PRODUCTIVE-NEG, fs=3225 (full-trajectory μ decay hurts)
+  - C cooldown_only 0.95→0.85: 3.26895 Δ_vs_A=−0.00047 NULL (|Δ|<0.001) BUT fs=3150 (only positive signal, 50 steps faster than A, sub-NULL-band n=1 — PP-precedent #1003 says won't survive PP)
+  - D linear_full 0.99→0.85: 3.27916 Δ_vs_A=+0.00974 PRODUCTIVE-NEG worst (aggressive μ=0.99 + decay catastrophic)
+  - **Monotone mechanism direction**: constant > cooldown-only ≈ neutral > full-decay > aggressive-high-then-low. Body Muon μ=0.95 EMA smoothing structurally important throughout. Cooldown-only direction-consistent but val-sub-threshold. fs improvement sub-NULL-band single-seed unlikely to survive PP.
+  - **MUON-MOMENTUM-SCHEDULE 1-closure observation, partial fence.** Future finer μ_end or later cooldown_only start sweeps expected NULL.
+- **PR #1122 thorfinn** (2nd PLATEAU ESCALATION axis assigned this cycle): **Body Muon AggMo (Lucas 2018) — multi-β momentum bank with mean-aggregation before NS5**. 4 arms: A=ctrl K=1 β=0.95, B=K=3 β∈{0.0, 0.9, 0.99} Lucas defaults (mechanism-lead), C=K=2 β∈{0.85, 0.99} compact ladder, D=K=3 β∈{0.85, 0.95, 0.99} centered ladder. Mechanism-distinct from ALL prior single-buffer body Muon momentum work (#1047 LookAhead meta-anchor, #1048 cooldown shape, #1078 temporal μ schedule just-closed, #1088 gradient noise injection, #1091 wd, #530 Nesterov, #356 μ scalar). Tests whether NS5 benefits from multi-time-scale gradient aggregation vs single β. K=3 doubles momentum buffer memory; on 96GB H100 well within budget.
+
+### Plateau awareness status (cycle 245 — ESCALATION ACTIVE, 2nd escalation move)
+
+**10 consecutive no-merge closures** since #847 (cycle 222): #1028 PP, #1031 nezuko NS-adaptive, #1032 thorfinn Haar-init, #1045 frieren LION-aux, #1047 tanjiro LookAhead, #1048 alphonse cooldown-shape, #1055 askeladd weight-averaging, #1003 fern per-block-TYPE cooldown anneal, #1074 nezuko GC-embed, **#1078 thorfinn μ schedule**.
+
+**Escalation moves in flight (cumulative 2 as of cycle 245):**
+- **#1120 nezuko GaLore lm_head** — dimensionality reduction on Zipfian-heavy lm_head (cycle 242)
+- **#1122 thorfinn AggMo body Muon** — multi-β momentum bank structure (cycle 245, NEW)
+
+**Remaining pre-staged escalation candidates for next idle-student cycles:**
+- Schedule-Free (Defazio 2024) — replaces load-bearing cooldown entirely
+- Shampoo / Distributed-Shampoo body — 2nd-order block-diagonal preconditioner replacing Muon NS
+- MuonR² / iterated NS refinement
+- Sophia aux (Liu 2023) — deferred (HVP per K steps borderline on "1 fwd-bwd per step" rule)
+
+**Mitigation alongside escalation**: still 8 active chains (now with 2 escalation-tier). Adan-on-aux #1113 in flight is a 2nd OPTIMIZER-CLASS-aux observation that approaches partial fence if it regresses (would consolidate aux-side optimizer family closure).
+
+### Cycle 244 snapshot (03:00 UTC May 25) — #1078 thorfinn body Muon μ schedule W&B-complete; pre-staged productive-NEG closure (2/4 arms regress, mechanism-lead Arm C NULL on val with fs=3150 sub-NULL-band signal)
 
 ### Activity this cycle
 

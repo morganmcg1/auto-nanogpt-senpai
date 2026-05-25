@@ -3,6 +3,31 @@
 This file logs experiment outcomes as PRs land. The historical track 3
 leaderboard is captured in `/BASELINE.md`.
 
+## 2026-05-25 03:10 UTC — PR #1078: Body Muon momentum (μ) decay schedule — 4-arm sweep (thorfinn) — CLOSED productive-NULL/NEG; MUON-MOMENTUM-SCHEDULE 1-closure observation; **10th consecutive no-merge closure since #847**
+
+- Branch: `g1r4-thorfinn/body-muon-momentum-schedule`
+- Hypothesis: Body Muon momentum coefficient μ may benefit from a time-varying schedule analogous to LR/WD cooldown. 4 arms test: A=off (μ=0.95 const), B=linear_full 0.95→0.85 across full training, C=cooldown_only 0.95→0.85 across cooldown phase only (NS_COOLDOWN_START_FRAC=0.7 → starts at step 2345), D=linear_full 0.99→0.85 (aggressive start). Mechanism-lead Arm C tests whether reducing μ during cooldown improves NS5 precision by reducing stale momentum at NS=20.
+
+| Arm | run_id | μ_start | μ_end | schedule | val/loss | Δ_vs_A | classification | fs | final μ @ 3350 |
+|:---:|---|:---:|:---:|:---:|:---:|:---:|:---:|:---:|:---:|
+| A ctrl | `icrp16u8` | 0.95 | — | off | **3.26942** | — drift +0.00186 PASS | clean stack | 3200 | 0.9500 |
+| B | `kai3a62l` | 0.95 | 0.85 | linear_full | 3.27300 | +0.00358 | **PRODUCTIVE-NEG** | 3225 | 0.8500 |
+| C mech-lead | `nrmno8j1` | 0.95 | 0.85 | cooldown_only | 3.26895 | −0.00047 | **NULL** (|Δ|<0.001) | **3150** | 0.8499 |
+| D | `tmaoyc4b` | 0.99 | 0.85 | linear_full | 3.27916 | **+0.00974** | **PRODUCTIVE-NEG (worst)** | 3325 | 0.8500 |
+
+**Analysis:**
+- **Monotone mechanism direction (constant > cooldown-only ≈ neutral > full-decay > aggressive-high-then-low).** Body Muon μ=0.95 EMA smoothing is structurally important throughout the entire training trajectory; reducing μ at any point of the high-LR plateau is at best neutral and at worst catastrophic.
+- **Arm C (cooldown-only, mechanism-lead) is direction-consistent but val-NULL.** Δ_vs_A=−0.00047 sits inside the |Δ|<0.001 NON-LOAD-BEARING gate. Cooldown-only μ decay does *not* regress like full-trajectory decay arms, but its val effect is too small to clear the structural-signal bar.
+- **Arm C fs=3150 is the only positive signal.** 50 steps faster than ctrl A=3200 and 33 steps faster than paired-pod baseline 3183.33. However: val NULL on primary metric, bin-quantized at val_step_freq=25 granularity (signal magnitude ≤2 bins), and PP-collapse precedent #1003 (N=1 −0.00226 → PP n=3 +0.00041 full sign-flip past zero) suggests this sub-NULL-band signal will not survive paired-pod confirmation.
+- **PP escalation NOT justified at plateau status.** Consuming a 3-pod slot on a NULL-band fs-only single-seed signal redirects resources better spent on escalation-tier optimizer family axes.
+- **Mechanism-distinct from related closed body-Muon axes**: #1047 LookAhead (meta-optimizer, slow-anchor feedback), #1048 cooldown-shape (LR shape), #1003 per-block-TYPE LR mult, #530 Nesterov-Muon body weights. Each manipulates a different lever; this one (temporal μ scheduling) is now characterized as NOT load-bearing.
+- **MUON-MOMENTUM-SCHEDULE 1-closure observation → partial fence.** Future "would a finer μ_end ∈ {0.80, 0.90}" or "would a later cooldown_only start" sweeps are expected NULL given the mechanism characterization here.
+- **Implementation note (mechanism integrity):** student caught a deviation from the PR body's instruction — the PR body said update `optimizer2.defaults["mu"]`, but `muon_update` reads `group["mu"]` directly (not via `group.get` fallback), and PyTorch's `Optimizer.__init__` copies `defaults` into per-group dicts at construction time. Student switched to direct `for group in optimizer2.param_groups: group["mu"] = mu_this_step` and verified via startup banner + W&B `train/muon_mu` trace landing exactly at the cooldown boundary. Mechanism integrity preserved.
+
+**Conclusion**: CLOSED productive-NULL/NEG. Body Muon μ schedule mechanistically NOT load-bearing at this stack's operating point. Constant μ=0.95 across full 3350-step trajectory is locally optimal. 10th consecutive no-merge closure since #847 — escalation already active (#1120 GaLore lm_head from cycle 242). Thorfinn reassigned **#1122 Body Muon AggMo (multi-β momentum bank, Lucas 2018)** — 2nd plateau escalation, mechanism-distinct from all prior single-buffer body Muon momentum work.
+
+---
+
 ## 2026-05-25 02:35 UTC — PR #1074: Gradient Centralization on embed group (nezuko) — CLOSED productive-NEG; GRADIENT-LEVEL-NORMALIZATION (embed) 1-closure observation; **PLATEAU ESCALATION TRIGGER FIRES (9th consecutive no-merge closure)**
 
 - Branch: `g1r4-nezuko/embed-gradient-centralization`
