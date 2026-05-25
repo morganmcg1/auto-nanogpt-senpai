@@ -468,6 +468,11 @@ NS5_ITERS = int(os.environ.get("NS5_ITERS", "12"))
 WD_AUX = float(os.environ.get("WD_AUX", "0.0"))  # AdamW WD on embed + lm_head matrices (scalars stay at 0)
 EMBED_INIT_STD = float(os.environ.get("EMBED_INIT_STD", "1.0"))  # default preserves baseline N(0,1)
 LOGIT_SOFTCAP = float(os.environ.get("LOGIT_SOFTCAP", "15.0"))  # default = 15 (current hardcoded value); soft-cap value c in f(x) = c·x / sqrt(x^2+c^2)
+# MUON_LM_HEAD (PR #1165): when enabled, route model.proj.weight (lm_head, shape
+# (50257, 768)) to the Muon optimizer as a separate param group with its own LR
+# instead of leaving it in the AdamW per-element-v group. Default 0 is byte-inert.
+MUON_LM_HEAD_ROUTING = int(os.environ.get("MUON_LM_HEAD_ROUTING", "0"))
+LM_HEAD_MUON_LR = float(os.environ.get("LM_HEAD_MUON_LR", "0.01"))
 
 
 def zeropower_via_newtonschulz5(G: Tensor) -> Tensor:
@@ -866,6 +871,8 @@ if dist.get_rank() == 0:
             "optimizer/attn_soap_trust_threshold": ATTN_SOAP_TRUST_THRESHOLD,
             "optimizer/ns5_iters": NS5_ITERS,
             "optimizer/wd_aux": WD_AUX,
+            "optimizer/muon_lm_head_routing": MUON_LM_HEAD_ROUTING,
+            "optimizer/lm_head_muon_lr": LM_HEAD_MUON_LR,
             "optimizer/recipe": "contra-muon + normuon-lite + soap-on-mlp + soap-on-attn-trust-gate (pre-NS5, record #14 + record #16)",
         },
     )
@@ -898,13 +905,31 @@ for trial_idx in range(args.num_trials):
             raise Exception(f"Uninitialized parameter: {name}")
 
     # create the optimizer(s)
-    optimizer1 = AdamW([dict(params=[model.embed.weight], lr=0.3, name="adam_embed", weight_decay=WD_AUX),
-                        dict(params=[model.proj.weight], lr=1/320, name="adam_lm_head", weight_decay=WD_AUX),
-                        dict(params=[p for p in model.parameters() if p.ndim < 2], lr=0.01, name="adam_scalars")],
-                       betas=(0.8, 0.95), eps=1e-10, weight_decay=0, fused=True)
-    optimizer2 = Muon([(n, p) for n, p in model.blocks.named_parameters() if p.ndim >= 2],
-                      lr=MUON_LR, weight_decay=MUON_WEIGHT_DECAY, mu=MU)
-    optimizer2.param_groups[0]["name"] = "muon_blocks"
+    if MUON_LM_HEAD_ROUTING:
+        # PR #1165: lm_head (model.proj.weight) is routed to Muon instead of
+        # AdamW. Drops the AdamW adam_lm_head group; adds a new Muon param group
+        # "muon_lm_head" at LM_HEAD_MUON_LR. The body Muon group remains at MUON_LR.
+        optimizer1 = AdamW([dict(params=[model.embed.weight], lr=0.3, name="adam_embed", weight_decay=WD_AUX),
+                            dict(params=[p for p in model.parameters() if p.ndim < 2], lr=0.01, name="adam_scalars")],
+                           betas=(0.8, 0.95), eps=1e-10, weight_decay=0, fused=True)
+        optimizer2 = Muon([(n, p) for n, p in model.blocks.named_parameters() if p.ndim >= 2],
+                          lr=MUON_LR, weight_decay=MUON_WEIGHT_DECAY, mu=MU)
+        optimizer2.param_groups[0]["name"] = "muon_blocks"
+        optimizer2.add_param_group({
+            "params": [model.proj.weight],
+            "lr": LM_HEAD_MUON_LR,
+            "weight_decay": WD_AUX,
+            "mu": MU,
+            "name": "muon_lm_head",
+        })
+    else:
+        optimizer1 = AdamW([dict(params=[model.embed.weight], lr=0.3, name="adam_embed", weight_decay=WD_AUX),
+                            dict(params=[model.proj.weight], lr=1/320, name="adam_lm_head", weight_decay=WD_AUX),
+                            dict(params=[p for p in model.parameters() if p.ndim < 2], lr=0.01, name="adam_scalars")],
+                           betas=(0.8, 0.95), eps=1e-10, weight_decay=0, fused=True)
+        optimizer2 = Muon([(n, p) for n, p in model.blocks.named_parameters() if p.ndim >= 2],
+                          lr=MUON_LR, weight_decay=MUON_WEIGHT_DECAY, mu=MU)
+        optimizer2.param_groups[0]["name"] = "muon_blocks"
     optimizers = [optimizer1, optimizer2]
     assert set(p for opt in optimizers for group in opt.param_groups
                for p in group["params"]) == set(model.parameters())
@@ -934,7 +959,10 @@ for trial_idx in range(args.num_trials):
         for opt in optimizers:
             for group in opt.param_groups:
                 group["lr"] = group["initial_lr"] * eta
-                if group.get("name") == "muon_blocks":
+                # Apply mu cooldown to all Muon groups. When MUON_LM_HEAD_ROUTING=0
+                # only muon_blocks exists, so behavior is byte-identical to the
+                # original `== "muon_blocks"` gate.
+                if group.get("name", "").startswith("muon"):
                     group["mu"] = cur_mu
 
 
