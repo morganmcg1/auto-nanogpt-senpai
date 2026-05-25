@@ -467,6 +467,12 @@ ATTN_SOAP_TRUST_THRESHOLD = float(os.environ.get("ATTN_SOAP_TRUST_THRESHOLD", "0
 NS5_ITERS = int(os.environ.get("NS5_ITERS", "12"))
 WD_AUX = float(os.environ.get("WD_AUX", "0.0"))  # AdamW WD on embed + lm_head matrices (scalars stay at 0)
 EMBED_INIT_STD = float(os.environ.get("EMBED_INIT_STD", "1.0"))  # default preserves baseline N(0,1)
+# Adam-mini AUX partitioned second moment (PR #1140 / Zhang et al. 2024 arXiv:2406.16793).
+# "disabled" → fused AdamW byte-for-byte baseline. "col" → mean(grad^2) over vocab dim
+# (one v per d_model column). "scalar" → mean(grad^2) over entire matrix (one v per matrix).
+# Applies to adam_embed and adam_lm_head groups only; adam_scalars keeps per-element v.
+EMBED_MINI_MODE = os.environ.get("EMBED_MINI_MODE", "disabled")
+assert EMBED_MINI_MODE in ("disabled", "col", "scalar"), f"EMBED_MINI_MODE={EMBED_MINI_MODE} not in disabled|col|scalar"
 LOGIT_SOFTCAP = float(os.environ.get("LOGIT_SOFTCAP", "15.0"))  # default = 15 (current hardcoded value); soft-cap value c in f(x) = c·x / sqrt(x^2+c^2)
 
 
@@ -606,6 +612,62 @@ def soap_refresh(grad, state, beta2=SOAP_BETA2, refresh_freq=SOAP_PRECOND_FREQ,
                 state["row_gg"], state["col_gg"], state["q_row"], state["q_col"], state["exp_avg_sq"]
             )
     state["soap_step"] += 1
+
+
+def get_partitioned_grad_sq(grad_sq: Tensor, mode: str) -> Tensor:
+    """Adam-mini partitioned second moment (PR #1140), broadcast back to grad shape.
+
+    embed.weight and proj.weight have shape [vocab_size, d_model] (vocab dim 0, d_model dim 1).
+    "col"    → one v per d_model column (mean over vocab dim).
+    "scalar" → one v per entire matrix.
+    """
+    if mode == "col":
+        return grad_sq.mean(dim=0, keepdim=True).expand_as(grad_sq)
+    if mode == "scalar":
+        return grad_sq.mean().view(*([1] * grad_sq.ndim)).expand_as(grad_sq)
+    return grad_sq
+
+
+def adam_mini_aux_step(optimizer, mode: str):
+    """Hand-rolled AdamW step replacing fused PyTorch AdamW.
+
+    For adam_embed + adam_lm_head groups, v is partitioned via get_partitioned_grad_sq
+    so the EMA accumulates a row-broadcast-of-column-mean (or scalar mean) of grad**2
+    instead of a per-element grad**2. adam_scalars keeps standard per-element v.
+    Uses decoupled weight decay (AdamW), matching torch.optim.AdamW semantics.
+    """
+    for group in optimizer.param_groups:
+        gname = group.get("name", "")
+        beta1, beta2 = group["betas"]
+        eps = group["eps"]
+        lr = group["lr"]
+        wd = group["weight_decay"]
+        partition_this_group = (gname in ("adam_embed", "adam_lm_head")) and (mode != "disabled")
+        for p in group["params"]:
+            if p.grad is None:
+                continue
+            grad = p.grad
+            state = optimizer.state[p]
+            if len(state) == 0:
+                state["step"] = 0
+                state["exp_avg"] = torch.zeros_like(p, memory_format=torch.preserve_format)
+                state["exp_avg_sq"] = torch.zeros_like(p, memory_format=torch.preserve_format)
+            state["step"] += 1
+            m = state["exp_avg"]
+            v = state["exp_avg_sq"]
+            m.mul_(beta1).add_(grad, alpha=1 - beta1)
+            if partition_this_group:
+                grad_sq = get_partitioned_grad_sq(grad.pow(2), mode)
+                v.mul_(beta2).add_(grad_sq, alpha=1 - beta2)
+            else:
+                v.mul_(beta2).addcmul_(grad, grad, value=1 - beta2)
+            bc1 = 1 - beta1 ** state["step"]
+            bc2 = 1 - beta2 ** state["step"]
+            denom = (v / bc2).sqrt().add(eps)
+            update = (m / bc1) / denom
+            if wd != 0:
+                update = update + wd * p
+            p.data.add_(update, alpha=-lr)
 
 
 def soap_precondition(update, state, beta2=SOAP_BETA2, eps=1e-8):
@@ -866,6 +928,7 @@ if dist.get_rank() == 0:
             "optimizer/attn_soap_trust_threshold": ATTN_SOAP_TRUST_THRESHOLD,
             "optimizer/ns5_iters": NS5_ITERS,
             "optimizer/wd_aux": WD_AUX,
+            "optimizer/embed_mini_mode": EMBED_MINI_MODE,
             "optimizer/recipe": "contra-muon + normuon-lite + soap-on-mlp + soap-on-attn-trust-gate (pre-NS5, record #14 + record #16)",
         },
     )
@@ -898,10 +961,13 @@ for trial_idx in range(args.num_trials):
             raise Exception(f"Uninitialized parameter: {name}")
 
     # create the optimizer(s)
+    # When EMBED_MINI_MODE != "disabled", use fused=False so adam_mini_aux_step can rewrite v.
+    # When EMBED_MINI_MODE == "disabled", keep fused=True for byte-perfect baseline reproduction.
+    _AUX_FUSED = (EMBED_MINI_MODE == "disabled")
     optimizer1 = AdamW([dict(params=[model.embed.weight], lr=0.3, name="adam_embed", weight_decay=WD_AUX),
                         dict(params=[model.proj.weight], lr=1/320, name="adam_lm_head", weight_decay=WD_AUX),
                         dict(params=[p for p in model.parameters() if p.ndim < 2], lr=0.01, name="adam_scalars")],
-                       betas=(0.8, 0.95), eps=1e-10, weight_decay=0, fused=True)
+                       betas=(0.8, 0.95), eps=1e-10, weight_decay=0, fused=_AUX_FUSED)
     optimizer2 = Muon([(n, p) for n, p in model.blocks.named_parameters() if p.ndim >= 2],
                       lr=MUON_LR, weight_decay=MUON_WEIGHT_DECAY, mu=MU)
     optimizer2.param_groups[0]["name"] = "muon_blocks"
@@ -1051,8 +1117,12 @@ for trial_idx in range(args.num_trials):
                 train_steps=train_steps,
                 wandb_step=wandb_step,
             )
-        for opt in optimizers:
-            opt.step()
+        if EMBED_MINI_MODE != "disabled":
+            adam_mini_aux_step(optimizer1, EMBED_MINI_MODE)
+            optimizer2.step()
+        else:
+            for opt in optimizers:
+                opt.step()
         if dist.get_rank() == 0 and telemetry_due:
             for opt in optimizers:
                 if hasattr(opt, "trust_gate_stats"):
