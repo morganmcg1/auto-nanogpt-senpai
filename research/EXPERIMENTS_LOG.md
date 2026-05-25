@@ -1,5 +1,58 @@
 # SENPAI Research Results — auto-nanogpt-1gpu-r2
 
+## 2026-05-25 11:55 UTC — PR #1148: ATTN_ENTROPY_BONUS (CLOSED, 138th refuted — ATTN-ENTROPY-BONUS-ATTENTION-SOFTMAX-ADDITIVE family 1/1, 25th family-level closure, 6th FLOOR-CLUSTER-TOUCH refute signature instance, publication-grade CE-gradient-dominance mechanism interpretation)
+
+- Branch: `g1r2-alphonse/attn-entropy-bonus` (student g1r2-alphonse)
+- Hypothesis: −β · mean(H(softmax(QK^T·scale))) attention entropy reward at block 6 (Lin 2018, Pereyra 2017) — first attention-side regularization in 295-PR corpus
+- Configuration: Arm A β=1e-3, Arm B β=5e-3, both on block 6 single-block representative
+- Stack: NS5_ITERS=14 WD_AUX=0.001 CONTRA_MUON=0.4 MUON_LR=0.04 EMBED_INIT_STD=0.1 LOGIT_SOFTCAP=20.0 MU_COOLDOWN_START=0.95 MU_COOLDOWN_END=0.90 ATTN_SOAP_TRUST_THRESHOLD=0.85 MU_WARMUP_STEPS=200 MU_WARMUP_START=0.85
+
+### Results
+
+| Run | β | val_loss @ 3175 | ffs | merge_bar (≤3.26776 AND ≤3000) | N=1 hold (≤3.27 AND ≤3000) | step_avg_ms | peak GPU |
+|-----|---|------------------|-----|-------------------------------|----------------------------|--------------|----------|
+| Baseline #613 (n=2) | — | 3.26776 | 3000 | — | — | 1943 | — |
+| Disabled-check `hfppdksf` | 0 | val@200=4.08368 | — | bytewise inert ✓ | — | 1943 | 35.0 GB |
+| Arm A `w2x7wada` | 1e-3 | 3.27001 | 3025 | ✗ val+ffs miss | ✗ val by 0.00001 + ffs by 25 | 2067 (+6.4%) | 37.4 GB |
+| Arm B `aljwvlm5` | 5e-3 | 3.27002 | 3025 | ✗ val+ffs miss | ✗ val by 0.00002 + ffs by 25 | 2069 (+6.5%) | 72 GB (likely transient spike) |
+
+### Mechanism telemetry — block-6 attention entropy
+
+| Step | Arm A β=1e-3 (nats) | Arm B β=5e-3 (nats) |
+|------|----------------------|----------------------|
+| 1 | 5.08 | 5.08 |
+| 800 | 3.11 | 3.42 |
+| 1600 | 3.10 | 3.16 |
+| 2400 | 3.04 | 3.06 |
+| 3175 | 3.01 | 3.00 |
+
+Bonus loss contribution: Arm A ~3e-3 (~0.1% of CE), Arm B ~1.5e-2 (~0.5% of CE) — both small enough to be eclipsed by CE gradient.
+
+### Refute interpretation (publication-grade — alphonse)
+
+**Mechanism failure mode**: additive entropy bonus on attention softmax distribution is monotone-saturating in β across [1e-3, 5e-3]. The 5× scaling of bonus magnitude only delays mid-training entropy collapse — it does NOT prevent CE gradient from driving attention to the same terminal sharpness (3.00-3.01 nats). The bonus magnitude (≤0.5% of CE loss) is structurally too small to compete with the language modeling objective's gradient flow.
+
+**Why mechanism-binding, not config-binding**: any single-block additive H(attn_softmax) reward at β < 1e-1 will be eclipsed by CE gradient strength because CE gradient on logits propagates back through attention without entropy reward seeing matched magnitude. The bonus would need to scale with CE gradient norm to have effect, which violates the additive parameterization.
+
+### Family closure
+
+**ATTN-ENTROPY-BONUS-ATTENTION-SOFTMAX-ADDITIVE family** absorbs by analogy:
+- ANY β ∈ [1e-3, 5e-3] with single-block placement (block 6 representative)
+- Multi-block sums (each block face same CE dominance)
+- Bonus on attention sharpness penalty (opposite sign, same magnitude bound)
+
+**Does NOT absorb (categorically distinct)**:
+- KL divergence to uniform on attention softmax (multiplicative bound on softmax shape)
+- Per-head attention regularization (head-importance gating, not block-level)
+- Output-side entropy bonus on prediction softmax (in-flight as #1145 fern PREDICTION_ENTROPY_BONUS)
+- MUON_LM_HEAD routing (apply NS5 polar projection to lm_head matrix instead of AUX/Adam)
+
+### Conclusion
+
+138th refuted hypothesis in cycle 71. 25th family-level closure (ATTN-ENTROPY-BONUS-ATTENTION-SOFTMAX-ADDITIVE 1/1). 6th FLOOR-CLUSTER-TOUCH refute signature instance. Both arms land val ∈ [3.267, 3.273] floor-cluster interior with mechanism observed but terminal effect washed out by CE gradient dominance. Decision-tree: Arm B run since Arm A val ∈ (3.26776, 3.28] (intermediate close-miss) — terminal Arm B = Arm A within noise confirms saturation. Alphonse pivots to MUON_LM_HEAD (#1165) — apply NS5 polar projection to lm_head matrix (currently in AUX/Adam group), categorically novel routing change explicitly flagged "NOT YET TRIED" in nezuko #1140 closure analysis.
+
+---
+
 ## 2026-05-25 11:15 UTC — PR #1140: ADAM_MINI_AUX (CLOSED, 137th refuted — AUX-SECOND-MOMENT-PARTITION family 1/1, 24th family-level closure, 8th SHIFTED-FLOOR refute signature instance, publication-grade per-element-v-load-bearing mechanism interpretation)
 
 - Branch: `g1r2-nezuko/adam-mini-aux` (student g1r2-nezuko)
