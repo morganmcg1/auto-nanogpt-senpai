@@ -83,6 +83,19 @@ def parse_args():
              "muall=musoft + non-residual block 2D weights also scaled by 1/sqrt(L); "
              "smallconst=std=1e-3 depth-independent.",
     )
+    parser.add_argument(
+        "--trust_ratio_mode",
+        type=str,
+        default="off",
+        choices=["off", "lamb_clipped", "lamb_unclipped", "weight_only", "inverse"],
+        help="LAMB-style per-layer trust ratio applied to Muon body matrices "
+             "after Newton-Schulz: "
+             "off=disabled; "
+             "lamb_clipped=‖W‖_F/‖update‖_F clamped to [0.5, 2.0]; "
+             "lamb_unclipped=‖W‖_F/‖update‖_F no clamp; "
+             "weight_only=‖W‖_F/median(‖W‖_F) clamped to [0.5, 2.0]; "
+             "inverse=‖update‖_F/‖W‖_F clamped to [0.5, 2.0] (falsifier).",
+    )
     args = parser.parse_args()
     args.num_trials = args.num_trials if args.num_trials is not None else (args.legacy_num_trials or 1)
     args.wandb_tags = [tag.strip() for tag in args.wandb_tags.split(",") if tag.strip()]
@@ -552,6 +565,33 @@ def soap_precondition_momentum(update, state, beta2=SOAP_BETA2, eps=1e-8):
     return precond.to(update.dtype)
 
 
+def compute_trust_ratio(update, weight, mode, weight_norm_median=1.0, eps=1e-12):
+    """LAMB-style per-matrix trust ratio. Returns scalar Tensor (float, on update's device).
+
+    update: post-NS update tensor (will be multiplied by ratio).
+    weight: current parameter tensor.
+    mode: one of "off", "lamb_clipped", "lamb_unclipped", "weight_only", "inverse".
+    weight_norm_median: median ‖W‖_F across body matrices at init (used by weight_only).
+    """
+    if mode == "off":
+        return None
+    w_norm = weight.detach().float().norm()
+    if mode == "lamb_clipped":
+        u_norm = update.detach().float().norm() + eps
+        ratio = (w_norm / u_norm).clamp(0.5, 2.0)
+    elif mode == "lamb_unclipped":
+        u_norm = update.detach().float().norm() + eps
+        ratio = w_norm / u_norm
+    elif mode == "weight_only":
+        ratio = (w_norm / max(weight_norm_median, eps)).clamp(0.5, 2.0)
+    elif mode == "inverse":
+        u_norm = update.detach().float().norm() + eps
+        ratio = (u_norm / (w_norm + eps)).clamp(0.5, 2.0)
+    else:
+        raise ValueError(f"Unknown trust_ratio_mode: {mode}")
+    return ratio
+
+
 def soap_update_preconditioner(grad, state, shampoo_beta=SOAP_BETA2, precondition_frequency=PRECOND_FREQ):
     grad_f = grad.float()
     state["row_gg"].lerp_(grad_f @ grad_f.T, 1 - shampoo_beta)
@@ -571,7 +611,7 @@ class Muon(torch.optim.Optimizer):
     SOAP_ATTN_SUFFIXES = (".attn.q.weight", ".attn.k.weight", ".attn.v.weight", ".attn.proj.weight")
 
     def __init__(self, named_params, lr=0.02, weight_decay=0, mu=0.95,
-                 soap_attn=False, trust_threshold=0.0):
+                 soap_attn=False, trust_threshold=0.0, trust_ratio_mode="off"):
         # `named_params` can be either:
         #   (a) list of (name, param) tuples → single param group (legacy form)
         #   (b) list of dicts {"named_params": [(name, param), ...], "lr": ?, "weight_decay": ?, "mu": ?, "name": ?}
@@ -594,6 +634,18 @@ class Muon(torch.optim.Optimizer):
         self.trust_threshold = float(trust_threshold)
         self.use_trust_gate = soap_attn
         self.cos_sims_buffer: dict[str, Tensor] = {}
+        self.trust_ratio_mode = trust_ratio_mode
+        self.trust_ratios_buffer: dict[str, Tensor] = {}
+        # Calibration: median ‖W‖_F across all body matrices at construction
+        # (after model param init). Used by weight_only mode as normalizer.
+        body_norms = [float(p.detach().float().norm().item()) for _, p in all_named]
+        body_norms.sort()
+        if body_norms:
+            mid = len(body_norms) // 2
+            self.weight_norm_median = (body_norms[mid] if len(body_norms) % 2 == 1
+                                       else 0.5 * (body_norms[mid - 1] + body_norms[mid]))
+        else:
+            self.weight_norm_median = 1.0
 
         param_groups = []
         for g in groups_raw:
@@ -613,6 +665,7 @@ class Muon(torch.optim.Optimizer):
     @torch.no_grad()
     def step(self):
         self.cos_sims_buffer = {}
+        self.trust_ratios_buffer = {}
         world_size = dist.get_world_size()
         rank = dist.get_rank()
         for group in self.param_groups:
@@ -650,6 +703,12 @@ class Muon(torch.optim.Optimizer):
                         soap_update_preconditioner(p.grad, state)
                     else:
                         update = muon_update(p.grad, state["momentum"], mu=group["mu"])
+                    if self.trust_ratio_mode != "off":
+                        ratio = compute_trust_ratio(update, p, self.trust_ratio_mode,
+                                                    weight_norm_median=self.weight_norm_median)
+                        if ratio is not None:
+                            update = update * ratio.to(update.dtype)
+                            self.trust_ratios_buffer[self.param_names[id(p)]] = ratio
                     norm_sum.add_(update.float().norm())
                     p.mul_(1 - group["lr"] * group["weight_decay"])
                     p.add_(update, alpha=-group["lr"])
@@ -765,6 +824,7 @@ if dist.get_rank() == 0:
             "wd_schedule": args.wd_schedule,
             "lr_scalars": args.lr_scalars,
             "depth_init_mode": args.depth_init_mode,
+            "trust_ratio_mode": args.trust_ratio_mode,
         },
     )
 
@@ -853,7 +913,13 @@ for trial_idx in range(args.num_trials):
             dict(named_params=attn_named, lr=args.lr_attn, weight_decay=args.wd_attn, name="muon_attn"),
         ],
         soap_attn=args.soap_attn, trust_threshold=args.soap_trust_threshold,
+        trust_ratio_mode=args.trust_ratio_mode,
     )
+    if dist.get_rank() == 0:
+        print0(f"[trust_ratio] mode={args.trust_ratio_mode}  "
+               f"weight_norm_median={optimizer2.weight_norm_median:.4f}", console=True)
+        wandb.config.update({"weight_norm_median_init": optimizer2.weight_norm_median},
+                            allow_val_change=True)
     optimizers = [optimizer1, optimizer2]
     assert set(p for opt in optimizers for group in opt.param_groups
                for p in group["params"]) == set(model.parameters())
@@ -1027,6 +1093,33 @@ for trial_idx in range(args.num_trials):
                 per_group_metrics["train/wd_attn_now"] = current_wds.get("muon_attn", 0.0)
                 per_group_metrics["train/wd_schedule_progress"] = train_step / train_steps
                 wandb.log(per_group_metrics, step=wandb_step)
+        if dist.get_rank() == 0 and optimizer2.trust_ratios_buffer:
+            tr_names = list(optimizer2.trust_ratios_buffer.keys())
+            tr_tensors = list(optimizer2.trust_ratios_buffer.values())
+            tr_values = torch.stack([t.detach().float().view(()) for t in tr_tensors]).cpu().tolist()
+            tr_finite = [v for v in tr_values if v == v and abs(v) != float("inf")]
+            tr_metrics = {"trial": trial_idx, "train/step": train_step}
+            mlp_tr: list[float] = []
+            attn_tr: list[float] = []
+            for tr_name, tr_val in zip(tr_names, tr_values):
+                if telemetry_due:
+                    tr_metrics[f"trust_ratio/per_layer/{clean_metric_name(tr_name)}"] = tr_val
+                if any(tr_name.endswith(suf) for suf in Muon.SOAP_ATTN_SUFFIXES):
+                    attn_tr.append(tr_val)
+                else:
+                    mlp_tr.append(tr_val)
+            if tr_finite:
+                tr_finite_sorted = sorted(tr_finite)
+                tr_metrics["trust_ratio/min"] = tr_finite_sorted[0]
+                tr_metrics["trust_ratio/max"] = tr_finite_sorted[-1]
+                tr_metrics["trust_ratio/mean"] = sum(tr_finite) / len(tr_finite)
+                tr_metrics["trust_ratio/median"] = tr_finite_sorted[len(tr_finite_sorted) // 2]
+            tr_metrics["trust_ratio/nonfinite_count"] = len(tr_values) - len(tr_finite)
+            if mlp_tr:
+                tr_metrics["trust_ratio/mean_mlp"] = sum(mlp_tr) / len(mlp_tr)
+            if attn_tr:
+                tr_metrics["trust_ratio/mean_attn"] = sum(attn_tr) / len(attn_tr)
+            wandb.log(tr_metrics, step=wandb_step)
         if dist.get_rank() == 0 and optimizer2.cos_sims_buffer:
             cs_names = list(optimizer2.cos_sims_buffer.keys())
             cs_tensors = list(optimizer2.cos_sims_buffer.values())
