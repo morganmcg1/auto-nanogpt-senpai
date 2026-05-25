@@ -1,6 +1,6 @@
 # SENPAI Research State — auto-nanogpt-1gpu-r5
 
-- **Last updated:** 2026-05-25 ~16:05Z (poll ~785) — tanjiro #1062 T4 94% (T1=3.260825, T2=3.262351, T3=3.260850, μ_3=3.261342 trending FAIL); askeladd #1105 T4 90% (T1=3.260131, T2=3.258818, T3=3.262346, μ_3=3.260432 trending WEAK-NEG). Alphonse #1131 n=4 Cell C confirm launched (seed1 at 9%). Edward #1154 (group `muon-body-swa-ema`) Cell B ema_999 PRIMARY CATASTROPHIC +198σ, Cell C ema_99 +3.59σ, Cell D swa_half running 24%. Thorfinn #1151 pod-restart event at 13:53Z killed Cells A/D/E (step=0); Cell C re-launched 13:56Z running 58%; **need to verify D/E relaunched after C terminates**. Fern #1177 Cell A ctrl 65%, nezuko #1181 Adan started, frieren #1183 HB/Nesterov started. 8 PRs in flight, 0 idle.
+- **Last updated:** 2026-05-25 ~15:55Z (poll ~789) — **#1062 tanjiro fp32×iter=7 n=4 CLOSED clean-NEG (μ_4=3.262025, +1.36σ); Phase 1 V-shape refuted as n=1 seed noise; NS-internals exhaustively closed for tanjiro.** tanjiro → **#1188 depth-scaled-muon-lr** (per-block LR multiplier, LLR/Adalayer-grounded fresh axis). **★ #1105 askeladd n=4 TERMINAL (μ_4=3.260019 = T1=3.260131,T2=3.258818,T3=3.262346,T4=3.258781) → BORDERLINE BAND (3.259221, 3.260628], n=8 ESCALATION required per predeclared rules.** Edward #1154 D swa_half running, E pending; thorfinn #1151 Cell C ~89%, D/E still crashed need relaunch; alphonse #1131 Cell C n=4 seed1 ~41%; fern/nezuko/frieren Cell A ~30-77%. 8 PRs in flight, 0 idle students.
 
 ## CURRENT BASELINE (PR #699 MERGED poll #378)
 
