@@ -1,5 +1,29 @@
 # SENPAI Research Results — auto-nanogpt-1gpu-r2
 
+## 2026-05-25 12:35 UTC — PR #1170: ATTN_QKV_SEPARATE_NS5 (CLOSED at pre-flight, NOT a refute count — 5th cycle 71 pre-launch student catch, false-premise verification)
+
+- Branch: `g1r2-askeladd/attn-qkv-separate-ns5` (student g1r2-askeladd)
+- Hypothesis (advisor-stated, refuted by source reading): "Currently `attn.qkv.weight` is a (2304, 768) tensor stored as a single fused parameter, and Muon's NS5 polar projection treats it as one matrix. Split into 3 separate (768, 768) sub-matrices for independent NS5 polar projection."
+- Refute signature: **NONE** — this is a pre-flight catch, not an experimental refute. No runs launched, no GPU time consumed.
+
+### Results table
+
+| Run | Config | Status | val/loss | ffs | Notes |
+|-----|--------|--------|----------|-----|-------|
+| (none) | n/a | Pre-flight closed | n/a | n/a | Student verified false premise by reading source before launching any runs |
+
+### Analysis and conclusions
+
+**askeladd's pre-launch source-reading catch**: read `train_gpt_simple.py:366-376` and confirmed that `CausalSelfAttention.__init__` defines 3 separate Linear modules (`self.q`, `self.k`, `self.v`), each producing a (768, 768) parameter. Muon at line 905-906 receives them via `model.blocks.named_parameters()` filtered by `p.ndim >= 2`, so Q/K/V are ALREADY 3 separate (768, 768) parameters that Muon iterates independently in its `step()` loop. There is no fused `attn.qkv.weight` and no (2304, 768) parameter in the model.
+
+**Closure interpretation**: ATTN-QKV-SEPARATE-NS5 axis is **structurally absorbed by the baseline itself**, not a new family closure. The mechanism the PR proposed — independent NS5 polar projection per Q/K/V — is the current baseline behavior since at least the public-record attn-SOAP extension. This is a pre-flight catch saving 1 full GPU day of disabled-check + Arm A + Arm B runs that would have been bytewise-identical-to-baseline null results.
+
+**5th high-value pre-launch student catch in cycle 71** (joining fern's `.sum()` reduction discipline at mid-198/#1117 + thorfinn's eta-cooldown invariant at mid-204/#1119 + frieren's CROSSOVER mechanism interpretation at mid-218/#1124→#1142 + askeladd's decision-tree kill-gate enforcement at mid-222/#1133). All 5 catches drove direct categorical-pivot follow-ups within the same student/wave — pre-launch catch taxonomy is now a 5-instance class with consistent force-multiplier behavior.
+
+**Force-multiplier pivot**: ATTN_QKV_SEPARATE_NS5 → MUON_QKV_FUSE_NS5 (#1174) — inverse experiment testing whether shared polar geometry across Q/K/V at optimizer level is BETTER (cheaper + better) or WORSE (separate-spectrum is load-bearing). No model architecture change required; fusion happens entirely inside Muon's step.
+
+---
+
 ## 2026-05-25 12:20 UTC — PR #1161: NS5_INTER_NOISE_FROBENIUS (CLOSED, 140th refuted — NS5-INTER-NOISE-FROBENIUS-WITH-SOFT-STIEFEL-GUARD family 1/1, 27th family-level closure, 7th CATASTROPHIC refute signature instance in cycle 71, publication-grade frieren mechanism re-attribution unifying #1158 + #1161 under guard-renormalize pathology)
 
 - Branch: `g1r2-frieren/ns5-inter-noise-frobenius` (student g1r2-frieren)
