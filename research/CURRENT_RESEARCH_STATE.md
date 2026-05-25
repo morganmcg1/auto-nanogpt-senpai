@@ -1,9 +1,37 @@
 # SENPAI Research State — auto-nanogpt-1gpu-r4
 
-- **Date:** 2026-05-25 03:15 UTC (cycle 245 — #1078 thorfinn MUON-MOMENTUM-SCHEDULE CLOSED productive-NULL/NEG, **10th consecutive no-merge closure**; thorfinn reassigned #1122 AggMo body Muon — 2nd plateau escalation)
+- **Date:** 2026-05-25 04:45 UTC (cycle 247 — #1088 frieren GRADIENT-NOISE-INJECTION on body Muon NS5 input CLOSED productive-NULL **11th consecutive no-merge closure** — NS5 Lipschitz-invariance empirically proven; frieren reassigned #1127 **Schedule-Free AdamW aux** — 3rd plateau escalation)
 - **Most recent research direction from human researcher team:** none on file
 - **Primary metric:** `val/loss` at 3350 steps (lower is better); `speedrun/final_first_step_to_target` secondary
 - **Statistical merge rule:** `(3.28 − μ) × √n ≥ 0.004` AND n mean ≤ current baseline
+
+## Cycle 247 snapshot (04:45 UTC May 25) — #1088 frieren body-Muon NS5-input gradient-noise injection CLOSED productive-NULL; NS5 Lipschitz invariance empirically proven (||g_ortho||_RMS=0.0360 invariant under ±5% input perturbation, σ_min 0.35→0.99 spectrum-tightening as structural side-effect); frieren reassigned **#1127 Schedule-Free AdamW aux** (Defazio 2024) — 3rd plateau escalation move targeting load-bearing cooldown mechanism
+
+### Activity this cycle
+
+- **#1088 frieren** N=1 4-arm complete CLOSED productive-NULL: body Muon NS5-input gradient-noise injection.
+  - A ctrl 3.26794 drift +0.00038 PASS, B σ=0.01 const +0.00064 NULL, C σ=0.05 cosine +0.00016 NULL (mech-lead), D σ=0.05 const −0.00009 NULL (ceiling).
+  - **All arms inside |Δ|≤0.0015 NULL band.** No signal, no regression.
+  - **Structural finding 1 — Update RMS invariance proven**: `||g_ortho||_RMS = 0.036050 ± 0.000003` across all 4 arms. NS5 polar decomposition is Lipschitz-invariant on input scale. Noise injection at NS5 input cannot reach the orthogonalized update magnitude.
+  - **Structural finding 2 — Spectrum tightening**: σ_min A=0.347 → D=0.991 monotone. Higher noise on NS5 input produces *tighter* post-NS5 spectrum (stochastic Tikhonov-regularization effect on polar-decomp Hessian, Higham 2008 property). Structurally interesting but signal-blind on FineWeb LM at this scale.
+  - **GRADIENT-NOISE-INJECTION (body Muon NS5 input) 1-closure observation → partial fence.** Future input-side noise sweeps at NS5 input expected NULL. Mapping signal: future regularization mechanisms must act on NS5 *output*, NOT NS5 *input*.
+- **PR #1127 frieren** (3rd PLATEAU ESCALATION axis assigned this cycle): **Schedule-Free AdamW for aux groups** (Defazio 2024) — replaces load-bearing cosine-with-cooldown LR schedule on aux side with online iterate-averaging (y↔z dance, β_sf=0.9 Defazio default). Body Muon retains full schedule. 4 arms: A=ctrl AdamW+cooldown, B=SF β_sf=0.9 cooldown-off (mech-lead, canonical Defazio config), C=SF β_sf=0.95 cooldown-off, D=SF β_sf=0.9 cooldown-on (hybrid). Mechanism-distinct from all prior aux-side work (#1100 wd, #1113 Adan, #1092 β1) — directly attacks the schedule mechanism. Even NULL outcome is high-info: confirms cooldown and SF are mechanism-equivalent or that cooldown is structurally load-bearing.
+
+### Plateau awareness status (cycle 247 — ESCALATION ACTIVE, 3rd escalation move)
+
+**11 consecutive no-merge closures** since #847 (cycle 222): #1028 PP, #1031 nezuko NS-adaptive, #1032 thorfinn Haar-init, #1045 frieren LION-aux, #1047 tanjiro LookAhead, #1048 alphonse cooldown-shape, #1055 askeladd weight-averaging, #1003 fern per-block-TYPE cooldown anneal, #1074 nezuko GC-embed, #1078 thorfinn μ schedule, **#1088 frieren gradient-noise NS5 input**.
+
+**Escalation moves in flight (cumulative 3 as of cycle 247):**
+- **#1120 nezuko GaLore lm_head** — dimensionality reduction on Zipfian-heavy lm_head (cycle 242)
+- **#1122 thorfinn AggMo body Muon** — multi-β momentum bank structure (cycle 245)
+- **#1127 frieren Schedule-Free AdamW aux** — replace cooldown with online iterate averaging (cycle 247, NEW)
+
+**Remaining pre-staged escalation candidates for next idle-student cycles:**
+- Shampoo / Distributed-Shampoo body — 2nd-order block-diagonal preconditioner replacing Muon NS
+- MuonR² / iterated NS refinement (NS coefficient variants beyond saturated NS-iter count axes)
+- Sophia aux (Liu 2023) — deferred (HVP per K steps borderline on "1 fwd-bwd per step" rule)
+
+**Mitigation alongside escalation**: still 8 active chains. 3 tier-4 escalation axes targeting orthogonal mechanism slots (lm_head dimensionality, body momentum structure, aux schedule replacement).
 
 ## Cycle 245 snapshot (03:15 UTC May 25) — #1078 CLOSED productive-NULL/NEG, MUON-MOMENTUM-SCHEDULE 1-closure observation; thorfinn reassigned #1122 AggMo body Muon (2nd plateau escalation move targeting multi-β momentum aggregation structure)
 

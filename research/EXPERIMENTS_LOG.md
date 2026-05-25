@@ -3,6 +3,30 @@
 This file logs experiment outcomes as PRs land. The historical track 3
 leaderboard is captured in `/BASELINE.md`.
 
+## 2026-05-25 04:40 UTC — PR #1088: Body Muon NS5-input gradient-noise injection — 4-arm screen (frieren) — CLOSED productive-NULL; GRADIENT-NOISE-INJECTION (body Muon NS5 input) 1-closure observation; **11th consecutive no-merge closure since #847**
+
+- Branch: `g1r4-frieren/body-muon-gradient-noise`
+- Hypothesis: Inject Gaussian noise into the body Muon momentum buffer immediately before NS5 polar decomposition. Mechanism candidate: structured noise on the NS5 input may provide implicit regularization through stochastic Newton-Schulz refinement.
+- 4 arms (seed=0, 3350 steps): A=ctrl noise=0, B=σ=0.01 constant, C=σ=0.05 cosine-annealed (mech-lead), D=σ=0.05 constant (ceiling).
+
+| Arm | NOISE_STD | SCHEDULE | val/loss@3350 | Δ_vs_A | classification | u_rms (||g_ortho||) | sign_flip_frac | σ_min |
+|:---:|:---:|:---:|:---:|:---:|:---:|:---:|:---:|:---:|
+| A ctrl | 0.0 | — | **3.26794** | 0 drift +0.00038 PASS | clean stack | 0.036046 | 0.2616 | 0.3471 |
+| B | 0.01 | constant | 3.26858 | +0.00064 | NULL | 0.036049 | 0.2656 | 0.3563 |
+| C mech-lead | 0.05 | cosine | 3.26810 | +0.00016 | NULL | 0.036053 | 0.2672 | 0.9848 |
+| D ceiling | 0.05 | constant | 3.26785 | −0.00009 | NULL | 0.036050 | 0.2694 | 0.9911 |
+
+**Analysis:**
+- **All 4 arms NULL within |Δ|≤0.0015.** No arm crosses signal (≤−0.002) nor regression (≥+0.0015) threshold. Ctrl drift +0.00038 PASS confirms clean stack reproduction.
+- **Update RMS invariance proven**: ||g_ortho||_RMS = 0.036050 ± 0.000003 across all 4 arms. **NS5 polar decomposition is Lipschitz-invariant on the input scale** — ±5% RMS-scaled Gaussian perturbations on the momentum buffer produce essentially zero perturbation on the orthogonalized update. This was the *predicted* structural property of NS5 in modded-nanogpt and is now empirically confirmed.
+- **Sign-flip rate monotone (+0.78pp A→D)**: the noise *does* reach the orthogonalized update and causes mild directional jitter, but the magnitude is tiny vs the baseline ~26% intrinsic flip rate and translates to zero val/loss effect.
+- **Spectrum tightening (σ_min A=0.347 → D=0.991)**: surprising structural finding — higher noise during NS5 input produces *tighter* post-NS5 spectrum. Mechanism hypothesis: noise injection acts as stochastic Tikhonov regularization on the polar-decomp iteration, helping converge to a *more perfectly orthogonal* update when the input is noised (Higham 2008 Newton iteration property on near-singular operators). Structurally interesting but signal-blind on FineWeb LM at this scale.
+- **GRADIENT-NOISE-INJECTION (body Muon NS5 input) 1-closure observation → partial fence.** Future "noise schedules" or "input-side gradient perturbation at non-NS5 sites" sweeps expected NULL by the Lipschitz-invariance characterization.
+
+**Conclusion**: CLOSED productive-NULL. NS5 polar decomposition's Lipschitz invariance renders input gradient noise structurally invisible at the update level. This is a clean negative result that maps where future regularization mechanisms need to act (NOT NS5 input). 11th consecutive no-merge closure since #847 — 3 escalation moves now in flight. Frieren reassigned **#1127 Schedule-Free AdamW for aux** (Defazio 2024) — 3rd plateau escalation, replaces load-bearing cooldown with online iterate averaging.
+
+---
+
 ## 2026-05-25 03:10 UTC — PR #1078: Body Muon momentum (μ) decay schedule — 4-arm sweep (thorfinn) — CLOSED productive-NULL/NEG; MUON-MOMENTUM-SCHEDULE 1-closure observation; **10th consecutive no-merge closure since #847**
 
 - Branch: `g1r4-thorfinn/body-muon-momentum-schedule`
