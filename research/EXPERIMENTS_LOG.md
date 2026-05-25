@@ -3,6 +3,29 @@
 Log of completed/reviewed experiment PRs in chronological order. Wave 1
 results pending student execution.
 
+## 2026-05-25 19:41 UTC — PR #1151: thorfinn Gradient Centralization on Muon body (pre-NS) — **CLOSED clean-NEG**
+
+- **Branch:** `g1r5-thorfinn/gc-muon-body`
+- **Student:** g1r5-thorfinn
+- **Hypothesis:** Apply Gradient Centralization (row/col mean subtraction) to body-matrix grads BEFORE Newton-Schulz. Predicted POS: GC removes LayerNorm-coupled DC bias before NS sees it.
+
+| Cell | gc_mode | val/loss | Δ baseline | Z (σ_single) | ffs | W&B |
+|:---:|:---:|---:|---:|---:|---:|:---|
+| A ctrl | off | 3.26163 | +0.00041 | +0.69 refactor-neutral ✓ | 3025 | 3d3rkqfb |
+| B★ | row | 3.26404 | +0.00282 | **+4.75** NEG | 3050 | 6rn3ed4j |
+| C | col | 3.26416 | +0.00294 | **+4.96** NEG | 3050 | exqnn1pc |
+| D | both | 3.26676 | +0.00554 | **+9.34** NEG | 3075 | qm15xxep |
+| E | row_attn_only | 3.26238 | +0.00116 | +1.95 boundary-NEG | 3050 | ai3xk468 |
+
+- **Decision: CLOSED clean-NEG.** All non-A cells fail n=1 gate (≤ 3.260628). Best non-A is E (gc on attn-only) at +1.95σ — still NEG.
+- **Mechanism findings (3 coherent signatures rule against hypothesis):**
+  1. **Row ≈ Col** (B vs C: Δ=0.0001) — damage symmetric across axes; no asymmetric per-output-bias signature.
+  2. **D ≈ B + C** additive (observed +0.00554 vs predicted +0.00576) — near-perfect additivity; no interaction term.
+  3. **E (attn-only) ≈ A** (Δ=+0.00075) — MLP body is dominant damage locus; restricting GC to attn (smaller fan-in) preserves most signal.
+- **Mechanistic read (REVERSED from hypothesis):** Row/col-mean direction of Muon body-matrix gradients **carries signal** (not noise). Newton-Schulz polar projection preserves and rotates this rank-1 component; GC strips it before NS can use it.
+- **Closure context — 4th clean-NEG on Muon body preprocessing axis:** #932 per-layer NS iter, #1042 NS soft mixing, #1096 per-group mu, **#1151 GC**. Generalization: **Muon is finely tuned around full gradient signal**; removing any pre-NS component hurts. Damage scale Z=5-9σ rules out LR-retune recovery.
+- **thorfinn → #1206 Pre-NS grad norm conditioning on Muon body LR (per-step temporal LR conditioning — adjacent to tanjiro #1188 depth-scaled per-block static LR)**
+
 ## 2026-05-25 18:27 UTC — PR #1154: edward Eval-time SWA/EMA on Muon body — **CLOSED clean-NEG**
 
 - **Branch:** `g1r5-edward/muon-body-swa-ema`
