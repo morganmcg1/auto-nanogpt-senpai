@@ -1,5 +1,34 @@
 # SENPAI Research Results — auto-nanogpt-1gpu-r2
 
+## 2026-05-25 01:00 UTC — PR #1093: MUON_BODY_LION_SIGN_BLEND (CLOSED, 121st refuted — NS5-input-side spectrum modification family 1/1 shifted-floor with three-class NS5-interaction taxonomy)
+
+- Branch: `g1r2-nezuko/muon-body-lion-sign-blend` (student g1r2-nezuko)
+- Hypothesis: Element-wise sign() applied to body Muon momentum buffer blended with raw m as NS5 input `m_lion = α·sign(m) + (1-α)·m`. Tests whether Lion-style sign-of-momentum direction information is compatible with NS5 polar projection — categorically distinct from prior NS5-side interventions (input-side momentum spectrum modification vs internal-iter saturated 6/6 vs parameter-side catastrophic #1075 + #1073).
+- Results:
+
+| Run | Arm | MUON_BODY_LION_SIGN_BLEND | Step | val | Kill gate | Outcome |
+|-----|-----|---|------|-----|---|---------|
+| `6p1b1yzi` | disabled-check #1 | 0.0 | 200 | 4.07988 | — | ✓ canonical baseline (Δ=-0.00012 vs ~4.08) |
+| `n5kgpe76` | disabled-check #2 | 0.0 | 200 | 4.07614 | — | ✓ canonical baseline (Δ=-0.00386 vs ~4.08) |
+| `0wwf5ns1` | Arm A (terminal) | 0.3 | 500 | 3.80084 | ≤3.81 | ✓ passed (-0.00916) |
+| `0wwf5ns1` | Arm A (terminal) | 0.3 | 1000 | 3.64807 | ≤3.66 | ✓ passed (-0.01193) |
+| `0wwf5ns1` | Arm A (terminal) | 0.3 | 1500 | 3.52284 | ≤3.55 | ✓ passed (-0.02716) |
+| `0wwf5ns1` | Arm A (terminal) | 0.3 | 2000 | 3.43053 | ≤3.43 | ✗ borderline (+0.00053) — proceeded |
+| `0wwf5ns1` | Arm A (terminal) | 0.3 | 2500 | 3.35450 | ≤3.36 | ✓ passed (-0.00550) |
+| `0wwf5ns1` | Arm A (terminal) | 0.3 | 3000 | 3.29484 | ≤3.29 | ✗ borderline (+0.00484) — proceeded |
+| `0wwf5ns1` | Arm A (terminal) | 0.3 | **3175 (terminal)** | **3.28341** | (target ≤3.28) | **clear miss (+0.00341)** |
+| (Arm B) | (blend=0.7) | NOT LAUNCHED | — | — | — | per decision tree: Arm A clear miss → close as refute |
+
+- Mechanism telemetry at step 100 (6 of 72 body 2D tensors shown):
+  - `mean|sign(m)|=1.0000` ✓ exact across all 72 body 2D tensors (sign correctly element-wise ±1)
+  - `mean|m|` per-tensor: 2.888 / 1.648 / 1.207 / 0.848 / 0.750 / 0.621 (3072×768 shapes)
+  - `||m_lion||/||m||` Frobenius ratios at step 100: 0.7645 / 0.8135 / 0.8566 / 0.9270 / 0.9586 / 1.0148
+  - Terminal mag_ratio time series: sign(m) component grew to dominate raw m over training (mag_ratio reached 2.4364 at terminal — sign norm stayed at sqrt(numel) while raw m norm decayed mid-late phase steps 750-2500)
+  - `tensor_count=72` ✓ matches 12 layers × 6 body 2D tensors
+- Conclusion: **REFUTED as 121st axis, "shifted-floor" signature** — not catastrophic (no divergence, no NaN, monotone descent throughout) but persistent +0.013 lift above floor cluster (3.270 ± 0.003) and +0.0156 above baseline merge bar (3.26776). **Three-class NS5-interaction taxonomy crystallized**: (a) NS5 input-side spectrum modification (this PR, sign(m) blended) → SHIFTED FLOOR, (b) NS5 internal-iter mechanism → SATURATED 6/6 (already closed), (c) NS5 parameter-side spectrum modification (#1075 polar reproject + #1073 σ_max cap) → CATASTROPHIC divergence. The qualitative gradient — input-side shifted-floor vs parameter-side catastrophic — is the cleanest single-PR taxonomy of NS5 sensitivity modes in 280+ PRs.
+- Cycle 71 status: 121 refuted axes, 31+ distinct mechanism classes probed (46 assigned including #1110 MU_COOLDOWN_SHAPE — nezuko's next axis, FIRST non-scalar schedule axis in 280+ PRs).
+- Family closure: NS5-INPUT-SIDE SPECTRUM MODIFICATION family 1/1 shifted-floor closed (NEW 10th family-level closure in cycle 71). Suggested follow-ups #1 (α=0.1 monotone-in-α completion) + #3 (Lion as full body update no NS5) categorically absorbed by this family closure as confirmation tests; #2 (sign-of-g pre-momentum) added to advisor backlog.
+
 ## 2026-05-25 00:30 UTC — PR #1098: MUON_BODY_GRAD_ORTHO_W (CLOSED, 120th refuted — geometric gradient-direction restriction family 1/1 catastrophic with TIGHTEST SENSITIVITY RESULT IN 280+ PRs)
 
 - Branch: `g1r2-thorfinn/muon-body-grad-ortho-w` (student g1r2-thorfinn)
