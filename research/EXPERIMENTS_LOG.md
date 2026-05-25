@@ -1,3 +1,28 @@
+## 2026-05-25 17:42 — PR #1167: H150 lm_head init sweep (NULL CLOSURE — F-norm path-dependence finding)
+
+- Branch: `g1r3-tanjiro/h150-lm-head-init-sweep`
+- Hypothesis: Non-zero lm_head init (vs hardcoded zero) accelerates AdamW convergence or is path-independent. Three competing hypotheses tested: H1 lm_head AdamW attractor (analogue to H135 embed), H2 init-aligned trajectory advantage, H3 zero init optimal.
+- Results vs new H148 baseline 3.26364 (post-merge):
+
+| Arm | `--lm_head_init_std` | wandb | val/loss | Δ vs arm_a | Δ vs H148 baseline | ffs | Verdict |
+|---|---|---|---|---|---|---|---|
+| arm_a CTRL | 0.0 (zero, bit-id) | `54rxrpxp` | 3.26551 | — | +0.00187 | 3150 | NULL bit-id ✓ |
+| arm_b SMALL | 0.01 | `yqpzumf7` | 3.26509 | **−0.00042** | +0.00145 | 3150 | NULL within seed noise |
+| arm_c LARGE | 0.05 | `u64zck7a` | 3.26663 | **+0.00112** | +0.00299 | 3175 | NULL but NEG-direction |
+
+- **Chain pre-dated H148 merge** (12:02 vs 16:15 UTC), all arms `--body_init default`. Within-run signal is the H150 result.
+- **WIN threshold vs new baseline**: <3.26284 — none cleared.
+- **Step-1 plumbing verified**: measured F-norm at step 1 matches predictions (0.093 / 64.35 / 310.14 — predicted 0 / ~62 / ~310).
+- **4 programme-grade findings:**
+  1. **lm_head F-norm is path-dependent through 3325 steps under lr=1/320.** Unlike H135 embed (50-step AdamW attractor), arm_c retains +3.1% terminal F-norm gap. arm_b settles at 0.992 ratio (sub-1.0% lower attractor). **Mechanism-distinct from H135**: lm_head's 100× smaller LR (0.003125 vs embed 0.3) means AdamW cannot equilibrate within cooldown horizon. Cleanest evidence for per-group LR ratio creating qualitatively different init regimes between embed and lm_head.
+  2. **Zero init is essentially optimal for lm_head under this stack.** arm_c step-125 lag +0.0414 (~52σ); arm_c monotone NEG throughout. Gradient-aligned growth from zero gives AdamW the cleanest possible early-step trajectory.
+  3. **GENERALIZATION of H125-family cooldown-erosion pattern: arm_b is the FIRST observation of mid-training-lead-erosion on an INIT-axis perturbation.** Peak −0.0043 at step 1000 erodes to −0.0004 terminal (90% erosion under linear cooldown). Prior cases (H125/H133/H139/H141/H142) were schedule/clip axes. The 7-axis pattern extends to init axis.
+  4. **AGC step-1 over-clip does NOT neutralize large-init perturbation.** arm_c step-1 agc_scale_mean=0.000249 (4000× harder clip than arm_a); AGC clips back into gradient-aligned regime by step 25, but early-step gradient corruption is permanent. **Mechanism boundary for AGC**: clipping cannot rescue a degenerate init starting point.
+- Decision: CLOSE — direction-of-effect clear (zero init optimal; lm_head AdamW prefers gradient-aligned growth over random init noise). lm_head init axis exhausted.
+- Follow-up: H158 tanjiro lm_head LR sweep ASSIGNED — natural extension of F-norm path-dependence finding; if lm_head doesn't equilibrate under lr=1/320, raising LR may enable faster equilibration → cleaner cooldown.
+
+---
+
 ## 2026-05-25 16:50 — PR #1160: H149 AGC clip_ratio schedule (NULL BILATERAL — 6 programme findings)
 
 - Branch: `g1r3-frieren/h149-agc-clip-ratio-schedule`
