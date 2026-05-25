@@ -593,6 +593,22 @@ NANOGPT_SENPAI_SEED = int(_SENPAI_SEED_RAW) if _SENPAI_SEED_RAW != "" else None
 # `embed.weight -= lr_embed * lambda * (embed.weight - embed_init_snapshot)`.
 # At lambda=0 the hook is a no-op and behavior is bit-identical to the merged stack.
 NANOGPT_EMBED_INIT_ANCHOR_LAMBDA = float(os.environ.get("NANOGPT_EMBED_INIT_ANCHOR_LAMBDA", "0.0"))
+# MARS-AdamW (#1155, Yuan et al 2024 arXiv:2411.10438). Variance-reduced gradient
+# `g_t' = g_t + gamma * (g_t - prev_g)` fed into standard AdamW state update.
+# NANOGPT_MARS_GROUPS: comma-separated subset of {"embed","lm_head","scalars"} to
+# enable MARS on. Empty string = MARS off, use baseline AdamW (bit-identical Arm A).
+# NANOGPT_MARS_GAMMA: correction weight (Yuan canonical 0.025, large 0.1).
+_MARS_GROUPS_RAW = os.environ.get("NANOGPT_MARS_GROUPS", "")
+NANOGPT_MARS_GROUPS = set(t.strip() for t in _MARS_GROUPS_RAW.split(",")) - {""}
+NANOGPT_MARS_GAMMA = float(os.environ.get("NANOGPT_MARS_GAMMA", "0.0"))
+_VALID_MARS_GROUPS = {"embed", "lm_head", "scalars"}
+_unknown_mars_groups = NANOGPT_MARS_GROUPS - _VALID_MARS_GROUPS
+if _unknown_mars_groups:
+    raise ValueError(
+        f"NANOGPT_MARS_GROUPS contains unknown name(s) {_unknown_mars_groups}, "
+        f"must be subset of {_VALID_MARS_GROUPS}"
+    )
+NANOGPT_MARS_ENABLED = bool(NANOGPT_MARS_GROUPS) and NANOGPT_MARS_GAMMA != 0.0
 
 
 def get_ns_coef_at_iter(iter_idx: int, total_iters: int, schedule: str) -> tuple[float, float, float]:
@@ -778,6 +794,120 @@ class Muon(torch.optim.Optimizer):
                 dist.all_gather(params_pad[base_i:base_i + world_size], params_pad[base_i + rank])
 
 
+class MARSAdamW(torch.optim.Optimizer):
+    """MARS-AdamW: variance-reduced gradient → standard AdamW update.
+
+    Yuan et al 2024, arXiv:2411.10438, Algorithm 2. The MARS pre-processing
+    replaces the raw gradient g_t with `g_t' = g_t + gamma * (g_t - prev_g)`
+    (STORM-style variance reduction) before the standard AdamW state update.
+    When gamma == 0 the step reduces to standard AdamW math (modulo float32
+    buffer dtype). Per-group gamma allows MARS to be active on some param
+    groups while others run as plain AdamW within a single optimizer.
+
+    State buffers are stored in float32 so the (g - prev_g) correction does
+    not compound BF16 truncation. The state keys match torch.optim.AdamW
+    (`exp_avg`, `exp_avg_sq`, `step`) so existing AdamW telemetry helpers
+    (log_adamw_step_direction, embed_step_norm logging) work unchanged.
+    """
+
+    def __init__(self, params, gamma=0.0, lr=1e-3, betas=(0.9, 0.99),
+                 eps=1e-8, weight_decay=0.0):
+        defaults = dict(gamma=gamma, lr=lr, betas=betas, eps=eps,
+                        weight_decay=weight_decay)
+        super().__init__(params, defaults)
+        # Diagnostic collection: when True, step() populates _last_diag with
+        # per-group correction norms. The training loop sets this every N
+        # steps to throttle the extra reductions.
+        self._collect_diag = False
+        self._last_diag: dict[str, dict[str, float]] = {}
+
+    @torch.no_grad()
+    def step(self, closure=None):
+        loss = None
+        if closure is not None:
+            with torch.enable_grad():
+                loss = closure()
+        if self._collect_diag:
+            self._last_diag = {}
+        for group in self.param_groups:
+            gamma = group["gamma"]
+            lr = group["lr"]
+            beta1, beta2 = group["betas"]
+            eps = group["eps"]
+            wd = group["weight_decay"]
+            group_name = group.get("name", "unknown")
+            # Per-group diagnostic accumulators.
+            collect = self._collect_diag
+            corr_sq = 0.0
+            g_sq = 0.0
+            g_prime_sq = 0.0
+            for p in group["params"]:
+                if p.grad is None:
+                    continue
+                g = p.grad.detach().to(torch.float32)
+
+                state = self.state[p]
+                if len(state) == 0:
+                    state["step"] = 0
+                    state["exp_avg"] = torch.zeros_like(p, dtype=torch.float32)
+                    state["exp_avg_sq"] = torch.zeros_like(p, dtype=torch.float32)
+                    if gamma != 0.0:
+                        state["prev_grad"] = torch.zeros_like(p, dtype=torch.float32)
+                elif gamma != 0.0 and "prev_grad" not in state:
+                    # gamma was 0 before, now > 0: lazily allocate buffer.
+                    state["prev_grad"] = torch.zeros_like(p, dtype=torch.float32)
+
+                state["step"] += 1
+                t = state["step"]
+
+                if gamma != 0.0:
+                    prev_g = state["prev_grad"]
+                    g_prime = g + gamma * (g - prev_g)
+                    if collect:
+                        diff = (g - prev_g)
+                        corr_sq += float((gamma * gamma) * (diff * diff).sum().item())
+                else:
+                    g_prime = g
+
+                if collect:
+                    g_sq += float((g * g).sum().item())
+                    g_prime_sq += float((g_prime * g_prime).sum().item())
+
+                m, v = state["exp_avg"], state["exp_avg_sq"]
+                m.mul_(beta1).add_(g_prime, alpha=1.0 - beta1)
+                v.mul_(beta2).addcmul_(g_prime, g_prime, value=1.0 - beta2)
+
+                bc1 = 1.0 - beta1 ** t
+                bc2 = 1.0 - beta2 ** t
+                step_size = lr / bc1
+                denom = (v.sqrt() / math.sqrt(bc2)).add_(eps)
+
+                if wd != 0.0:
+                    p.data.mul_(1.0 - lr * wd)
+
+                # m, denom are float32; compute step in float32 then cast to p.dtype
+                # so bf16 params do not lose precision in the division.
+                adam_step = (m / denom).mul_(-step_size)
+                p.data.add_(adam_step.to(p.dtype))
+
+                if gamma != 0.0:
+                    state["prev_grad"].copy_(g)
+            if collect:
+                g_norm = g_sq ** 0.5
+                corr_norm = corr_sq ** 0.5
+                g_prime_norm = g_prime_sq ** 0.5
+                self._last_diag[group_name] = {
+                    "gamma": float(gamma),
+                    "g_norm": g_norm,
+                    "correction_norm": corr_norm,
+                    "g_prime_norm": g_prime_norm,
+                    "correction_ratio": (corr_norm / g_norm) if g_norm > 0 else 0.0,
+                }
+        # Disarm diagnostic flag — caller must rearm before the next sample.
+        self._collect_diag = False
+        return loss
+
+
 ########################################
 #                Setup                 #
 ########################################
@@ -823,6 +953,10 @@ print0(f"MUON_LR_MULT: attn={NANOGPT_MUON_ATTN_LR_MULT:.3f} mlp={NANOGPT_MUON_ML
 print0(f"  Effective Muon base LRs: attn={0.035*NANOGPT_MUON_ATTN_LR_MULT:.5f} mlp={0.035*NANOGPT_MUON_MLP_LR_MULT:.5f}", console=True)
 print0(f"EMBED_INIT_ANCHOR_LAMBDA: {NANOGPT_EMBED_INIT_ANCHOR_LAMBDA} "
        f"({'ACTIVE' if NANOGPT_EMBED_INIT_ANCHOR_LAMBDA > 0 else 'INACTIVE (bit-identical fallback)'})",
+       console=True)
+print0(f"MARS_AUX: groups={sorted(NANOGPT_MARS_GROUPS) if NANOGPT_MARS_GROUPS else 'none'} "
+       f"gamma={NANOGPT_MARS_GAMMA} "
+       f"({'ACTIVE (MARSAdamW)' if NANOGPT_MARS_ENABLED else 'INACTIVE (baseline AdamW, bit-identical Arm A)'})",
        console=True)
 if NS_ITERS_COOLDOWN > 0:
     print0(f"NS_SCHEDULE: ns_iters={NS_ITERS} -> ns_iters_cooldown={NS_ITERS_COOLDOWN} "
@@ -896,6 +1030,9 @@ if dist.get_rank() == 0:
             "nanogpt_ns_stochastic_cooldown": NANOGPT_NS_STOCHASTIC_COOLDOWN,
             "senpai_seed": NANOGPT_SENPAI_SEED if NANOGPT_SENPAI_SEED is not None else -1,
             "nanogpt_embed_init_anchor_lambda": NANOGPT_EMBED_INIT_ANCHOR_LAMBDA,
+            "nanogpt_mars_groups": ",".join(sorted(NANOGPT_MARS_GROUPS)) if NANOGPT_MARS_GROUPS else "",
+            "nanogpt_mars_gamma": NANOGPT_MARS_GAMMA,
+            "nanogpt_mars_enabled": NANOGPT_MARS_ENABLED,
         },
     )
 
@@ -938,10 +1075,32 @@ for trial_idx in range(args.num_trials):
                f"snapshot_shape={tuple(embed_init_snapshot.shape)}", console=True)
 
     # create the optimizer(s)
-    optimizer1 = AdamW([dict(params=[model.embed.weight], lr=0.3 * NANOGPT_ADAMW_EMBED_LR_MULT, name="adam_embed"),
-                        dict(params=[model.proj.weight], lr=(1/320) * NANOGPT_ADAMW_LM_HEAD_LR_MULT, name="adam_lm_head"),
-                        dict(params=[p for p in model.parameters() if p.ndim < 2], lr=0.01 * NANOGPT_ADAMW_SCALAR_LR_MULT, name="adam_scalars")],
-                       betas=(0.8, NANOGPT_ADAMW_BETA2), eps=1e-10, weight_decay=0, fused=True)
+    if NANOGPT_MARS_ENABLED:
+        # MARS-AdamW: per-group gamma. Groups not in NANOGPT_MARS_GROUPS get
+        # gamma=0 → standard AdamW math (float32 buffers vs fused/bf16 in Arm A).
+        _gamma_embed = NANOGPT_MARS_GAMMA if "embed" in NANOGPT_MARS_GROUPS else 0.0
+        _gamma_lmhead = NANOGPT_MARS_GAMMA if "lm_head" in NANOGPT_MARS_GROUPS else 0.0
+        _gamma_scalars = NANOGPT_MARS_GAMMA if "scalars" in NANOGPT_MARS_GROUPS else 0.0
+        optimizer1 = MARSAdamW(
+            [dict(params=[model.embed.weight], lr=0.3 * NANOGPT_ADAMW_EMBED_LR_MULT,
+                  name="adam_embed", gamma=_gamma_embed),
+             dict(params=[model.proj.weight], lr=(1/320) * NANOGPT_ADAMW_LM_HEAD_LR_MULT,
+                  name="adam_lm_head", gamma=_gamma_lmhead),
+             dict(params=[p for p in model.parameters() if p.ndim < 2],
+                  lr=0.01 * NANOGPT_ADAMW_SCALAR_LR_MULT, name="adam_scalars",
+                  gamma=_gamma_scalars)],
+            gamma=0.0, betas=(0.8, NANOGPT_ADAMW_BETA2), eps=1e-10, weight_decay=0,
+        )
+        print0(
+            f"MARS_PER_GROUP_GAMMA: embed={_gamma_embed} lm_head={_gamma_lmhead} "
+            f"scalars={_gamma_scalars} (float32 m/v/prev_grad buffers)",
+            console=True,
+        )
+    else:
+        optimizer1 = AdamW([dict(params=[model.embed.weight], lr=0.3 * NANOGPT_ADAMW_EMBED_LR_MULT, name="adam_embed"),
+                            dict(params=[model.proj.weight], lr=(1/320) * NANOGPT_ADAMW_LM_HEAD_LR_MULT, name="adam_lm_head"),
+                            dict(params=[p for p in model.parameters() if p.ndim < 2], lr=0.01 * NANOGPT_ADAMW_SCALAR_LR_MULT, name="adam_scalars")],
+                           betas=(0.8, NANOGPT_ADAMW_BETA2), eps=1e-10, weight_decay=0, fused=True)
     # Per-block-type Muon param split: attn (q/k/v/proj) vs mlp (fc/proj).
     # When both multipliers = 1.0, behavior is bit-identical to the prior single-group setup
     # (NS orthogonalization is per-matrix; the split only changes how groups are indexed).
@@ -1205,8 +1364,29 @@ for trial_idx in range(args.num_trials):
             if len(ns_iters_history) > 100:
                 del ns_iters_history[:-100]
             ns_cumulative_iters += ns_iters_this_step
+        # MARS diagnostic collection (#1155): per-group correction norm/ratio
+        # captured during optimizer1.step(). Fires every 50 train_steps when
+        # MARSAdamW is active so the extra reductions stay throttled.
+        mars_telemetry_due = (
+            isinstance(optimizer1, MARSAdamW)
+            and ((step + 1) % 50 == 0 or (step + 1) == train_steps)
+        )
+        if mars_telemetry_due:
+            optimizer1._collect_diag = True
         for opt in optimizers:
             opt.step()
+        if mars_telemetry_due and dist.get_rank() == 0:
+            diag = getattr(optimizer1, "_last_diag", {})
+            if diag:
+                mars_metrics = {
+                    "trial": trial_idx,
+                    "train/step": train_step,
+                }
+                for group_name, vals in diag.items():
+                    short = group_name.replace("adam_", "")
+                    for k, v in vals.items():
+                        mars_metrics[f"train/mars/{short}_{k}"] = float(v)
+                wandb.log(mars_metrics, step=wandb_step)
         # Init-anchored WD on embed (#847, env-var-gated). After both optimizers
         # have stepped, apply `p -= lr_embed * lambda * (p - p_init)`. Order vs
         # optimizer2.step() does not matter because the hook only touches
