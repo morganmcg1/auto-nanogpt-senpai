@@ -469,6 +469,14 @@ WD_AUX = float(os.environ.get("WD_AUX", "0.0"))  # AdamW WD on embed + lm_head m
 EMBED_INIT_STD = float(os.environ.get("EMBED_INIT_STD", "1.0"))  # default preserves baseline N(0,1)
 LOGIT_SOFTCAP = float(os.environ.get("LOGIT_SOFTCAP", "15.0"))  # default = 15 (current hardcoded value); soft-cap value c in f(x) = c·x / sqrt(x^2+c^2)
 
+# MUON_INTER_NS5_NOISE (#1158): decaying Gaussian noise injected between NS5 iterations.
+NS5_INTER_NOISE_SIGMA0 = float(os.environ.get("NS5_INTER_NOISE_SIGMA0", "0.0"))
+NS5_INTER_NOISE_ALPHA  = float(os.environ.get("NS5_INTER_NOISE_ALPHA", "1.0"))
+_ns5_step_counter = [0]
+_ns5_total_steps  = [5100]
+_ns5_noise_injections_this_step = [0]
+_ns5_current_sigma = [0.0]
+
 
 def zeropower_via_newtonschulz5(G: Tensor) -> Tensor:
     assert G.ndim >= 2
@@ -480,10 +488,23 @@ def zeropower_via_newtonschulz5(G: Tensor) -> Tensor:
     X = X / (X.norm(dim=(-2, -1), keepdim=True) + 1e-7)
     # Perform the NS iterations, not optimizing for wallclock speed
     a, b, c = 2, -1.5, 0.5
-    for _ in range(NS5_ITERS):
+    inject = NS5_INTER_NOISE_SIGMA0 > 0.0
+    if inject:
+        t_frac = min(1.0, _ns5_step_counter[0] / max(1, _ns5_total_steps[0]))
+        sigma  = NS5_INTER_NOISE_SIGMA0 * (1.0 - t_frac) ** NS5_INTER_NOISE_ALPHA
+        do_inject = sigma > 1e-9
+        _ns5_current_sigma[0] = sigma
+    else:
+        do_inject = False
+    for k in range(NS5_ITERS):
         A = X @ X.mT
         B = b * A + c * A @ A
         X = a * X + B @ X
+        if do_inject and k < NS5_ITERS - 1:
+            X = X + sigma * torch.randn_like(X)
+            nrm = X.norm(dim=(-2, -1), keepdim=True).clamp_min(1.0)
+            X = X / nrm
+            _ns5_noise_injections_this_step[0] += 1
 
     if G.size(-2) > G.size(-1):
         X = X.mT
@@ -719,6 +740,10 @@ class Muon(torch.optim.Optimizer):
                                      use_trust_gate=True,
                                      trust_threshold=ATTN_SOAP_TRUST_THRESHOLD)
                 dist.all_gather(params_pad[base_i:base_i + world_size], params_pad[base_i + rank])
+        if NS5_INTER_NOISE_SIGMA0 > 0.0 and _ns5_step_counter[0] % 100 == 0:
+            print(f"[NS5_NOISE] step={_ns5_step_counter[0]} injections={_ns5_noise_injections_this_step[0]} sigma={_ns5_current_sigma[0]:.6f}")
+        _ns5_noise_injections_this_step[0] = 0
+        _ns5_step_counter[0] += 1
 
     def trust_gate_stats(self) -> dict[str, float]:
         """Return aggregate + per-weight-type trust-gate telemetry across attention SOAP params.
@@ -865,6 +890,8 @@ if dist.get_rank() == 0:
             "optimizer/attn_soap_precond_freq": ATTN_SOAP_PRECOND_FREQ,
             "optimizer/attn_soap_trust_threshold": ATTN_SOAP_TRUST_THRESHOLD,
             "optimizer/ns5_iters": NS5_ITERS,
+            "optimizer/ns5_inter_noise_sigma0": NS5_INTER_NOISE_SIGMA0,
+            "optimizer/ns5_inter_noise_alpha": NS5_INTER_NOISE_ALPHA,
             "optimizer/wd_aux": WD_AUX,
             "optimizer/recipe": "contra-muon + normuon-lite + soap-on-mlp + soap-on-attn-trust-gate (pre-NS5, record #14 + record #16)",
         },
@@ -879,6 +906,7 @@ for trial_idx in range(args.num_trials):
 
     # we want to minimize this while still reaching 3.28 val loss
     train_steps = args.train_steps if args.train_steps is not None else 3175
+    _ns5_total_steps[0] = train_steps
 
     # initialize model parameters
     for name, p in model.named_parameters():
@@ -1059,6 +1087,11 @@ for trial_idx in range(args.num_trials):
                     stats = opt.trust_gate_stats()
                     if stats:
                         wandb.log(prefixed("train/attn_soap_trust_gate", stats), step=wandb_step)
+            if NS5_INTER_NOISE_SIGMA0 > 0.0:
+                wandb.log({
+                    "train/ns5_inter_noise_sigma": _ns5_current_sigma[0],
+                    "train/ns5_inter_noise_step_counter": _ns5_step_counter[0],
+                }, step=wandb_step)
         if dist.get_rank() == 0 and telemetry_due:
             log_weight_telemetry(
                 model=model,
