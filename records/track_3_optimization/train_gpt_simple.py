@@ -594,6 +594,39 @@ NANOGPT_SENPAI_SEED = int(_SENPAI_SEED_RAW) if _SENPAI_SEED_RAW != "" else None
 # At lambda=0 the hook is a no-op and behavior is bit-identical to the merged stack.
 NANOGPT_EMBED_INIT_ANCHOR_LAMBDA = float(os.environ.get("NANOGPT_EMBED_INIT_ANCHOR_LAMBDA", "0.0"))
 
+# AdaBelief lm_head aux experiment (#1210, Zhuang et al NeurIPS 2020, arXiv:2010.07468).
+# Replaces AdamW v_t = E[g^2] with s_t = E[(g - m_t)^2] for selected aux groups,
+# preconditioning by gradient-direction belief instead of raw gradient magnitude.
+# NANOGPT_ADABELIEF_GROUPS is a comma-separated subset of {"lm_head","embed","scalars"};
+# empty means disabled (bit-identical fallback to the merged-stack fused AdamW).
+_ADABELIEF_GROUP_ALIAS = {
+    "lm_head": "adam_lm_head",
+    "embed": "adam_embed",
+    "scalars": "adam_scalars",
+}
+_NANOGPT_ADABELIEF_GROUPS_RAW = os.environ.get("NANOGPT_ADABELIEF_GROUPS", "").strip()
+if _NANOGPT_ADABELIEF_GROUPS_RAW:
+    NANOGPT_ADABELIEF_GROUPS = set()
+    for tok in _NANOGPT_ADABELIEF_GROUPS_RAW.split(","):
+        tok = tok.strip()
+        if not tok:
+            continue
+        if tok not in _ADABELIEF_GROUP_ALIAS:
+            raise ValueError(
+                f"NANOGPT_ADABELIEF_GROUPS contains unknown token {tok!r}; "
+                f"valid tokens: {sorted(_ADABELIEF_GROUP_ALIAS)}"
+            )
+        NANOGPT_ADABELIEF_GROUPS.add(_ADABELIEF_GROUP_ALIAS[tok])
+else:
+    NANOGPT_ADABELIEF_GROUPS = set()
+NANOGPT_ADABELIEF_EPS_S = float(os.environ.get("NANOGPT_ADABELIEF_EPS_S", "1e-16"))
+# Optional per-AdaBelief-group β2 override (Arm D β2=0.95 sensitivity test).
+# When unset, AdaBelief groups inherit NANOGPT_ADAMW_BETA2 like other aux groups.
+_NANOGPT_ADABELIEF_BETA2_RAW = os.environ.get("NANOGPT_ADABELIEF_BETA2", "").strip()
+NANOGPT_ADABELIEF_BETA2 = (
+    float(_NANOGPT_ADABELIEF_BETA2_RAW) if _NANOGPT_ADABELIEF_BETA2_RAW else NANOGPT_ADAMW_BETA2
+)
+
 
 def get_ns_coef_at_iter(iter_idx: int, total_iters: int, schedule: str) -> tuple[float, float, float]:
     """Return (a, b, c) for NS iter iter_idx of total_iters.
@@ -778,6 +811,176 @@ class Muon(torch.optim.Optimizer):
                 dist.all_gather(params_pad[base_i:base_i + world_size], params_pad[base_i + rank])
 
 
+class AdaBeliefAdamW(torch.optim.Optimizer):
+    """Drop-in AdamW that, for param groups whose 'name' is in `belief_group_names`,
+    replaces the second-moment update v_t = β2 v_{t-1} + (1-β2) g_t² with
+    AdaBelief's belief moment s_t = β2 s_{t-1} + (1-β2) (g_t - m_t)² + ε_s
+    (Zhuang et al, NeurIPS 2020, arXiv:2010.07468).
+
+    Non-belief groups follow the standard AdamW recipe via the same wrapper
+    code path (no inner fused optimizer); both paths share the same m_t (β1)
+    EMA, bias-correct m and s (or v), and apply decoupled weight decay
+    `p *= 1 - lr*wd` before the gradient step. Per-group `betas` and `eps`
+    override the constructor defaults.
+
+    For AdaBelief groups, we additionally maintain a parallel `vt_equiv`
+    buffer that follows the standard AdamW v_t recipe; it is never used in
+    the parameter update but powers the `s_vs_vt_ratio` telemetry metric.
+
+    When `belief_group_names` is empty the class still works but is NOT
+    bit-identical to PyTorch's fused AdamW (it uses a hand-written, non-fused
+    step). Use the fused `torch.optim.AdamW` directly for the bit-identical
+    fallback path; this wrapper is only constructed when AdaBelief is active.
+    """
+
+    def __init__(
+        self,
+        params,
+        belief_group_names,
+        *,
+        lr,
+        betas,
+        eps,
+        weight_decay,
+        eps_belief=1e-16,
+    ):
+        defaults = dict(lr=lr, betas=betas, eps=eps, weight_decay=weight_decay)
+        super().__init__(params, defaults)
+        self.belief_group_names = set(belief_group_names)
+        self.eps_belief = float(eps_belief)
+        seen_names = {g.get("name") for g in self.param_groups}
+        missing = self.belief_group_names - seen_names
+        if missing:
+            raise ValueError(
+                f"AdaBeliefAdamW: belief_group_names {sorted(missing)} not present "
+                f"among param_group names {sorted(n for n in seen_names if n is not None)}"
+            )
+
+    @torch.no_grad()
+    def step(self, closure=None):
+        loss = None
+        if closure is not None:
+            with torch.enable_grad():
+                loss = closure()
+        for group in self.param_groups:
+            name = group.get("name", None)
+            use_belief = name in self.belief_group_names
+            lr = group["lr"]
+            beta1, beta2 = group["betas"]
+            eps = group["eps"]
+            wd = group["weight_decay"]
+            for p in group["params"]:
+                if p.grad is None:
+                    continue
+                grad = p.grad
+                state = self.state[p]
+                if len(state) == 0:
+                    state["step"] = 0
+                    state["exp_avg"] = torch.zeros_like(
+                        p, memory_format=torch.preserve_format
+                    )
+                    state["exp_avg_sq"] = torch.zeros_like(
+                        p, memory_format=torch.preserve_format
+                    )
+                    if use_belief:
+                        state["vt_equiv"] = torch.zeros_like(
+                            p, memory_format=torch.preserve_format
+                        )
+                state["step"] += 1
+                step_t = state["step"]
+                m = state["exp_avg"]
+                v = state["exp_avg_sq"]
+                # m_t = β1 m_{t-1} + (1-β1) g_t (raw, no bias correction yet).
+                m.mul_(beta1).add_(grad, alpha=1.0 - beta1)
+                if use_belief:
+                    # AdaBelief: s_t = β2 s_{t-1} + (1-β2) (g - m_t)² + ε_s.
+                    # Uses the just-updated raw m_t (Zhuang paper equation, no bias-corr on m).
+                    diff = grad.sub(m)
+                    v.mul_(beta2).addcmul_(diff, diff, value=1.0 - beta2)
+                    v.add_(self.eps_belief)
+                    # Parallel standard v_t (for s_vs_vt_ratio telemetry only).
+                    state["vt_equiv"].mul_(beta2).addcmul_(
+                        grad, grad, value=1.0 - beta2
+                    )
+                    # Stash diff for telemetry as 0-dim tensors so non-telemetry steps
+                    # do not pay a device→host sync.
+                    state["last_diff_sq_sum"] = diff.square().sum().detach()
+                    state["last_diff_numel"] = diff.numel()
+                else:
+                    # Standard AdamW: v_t = β2 v_{t-1} + (1-β2) g².
+                    v.mul_(beta2).addcmul_(grad, grad, value=1.0 - beta2)
+                bc1 = 1.0 - beta1 ** step_t
+                bc2 = 1.0 - beta2 ** step_t
+                if wd != 0.0:
+                    p.mul_(1.0 - lr * wd)
+                # p -= lr * (m/bc1) / (sqrt(v/bc2) + eps)
+                # Implemented as: p -= (lr/bc1) * m / (sqrt(v)/sqrt(bc2) + eps)
+                # (algebraically equivalent; matches PyTorch's AdamW form).
+                denom = (v.sqrt() / (bc2 ** 0.5)).add_(eps)
+                p.addcdiv_(m, denom, value=-lr / bc1)
+        return loss
+
+
+def log_adabelief_telemetry(
+    optimizer: torch.optim.Optimizer,
+    trial_idx: int,
+    step: int,
+    wandb_step: int,
+):
+    """Per-group AdaBelief diagnostics: s_t stats, ||g - m_t||, and s_t / v_t ratio.
+
+    Only logs for groups in `optimizer.belief_group_names`. Skips other groups
+    (they use standard AdamW; their stats are covered by `log_adamw_step_direction`)."""
+    if not isinstance(optimizer, AdaBeliefAdamW) or not optimizer.belief_group_names:
+        return
+    metrics = {"trial": trial_idx, "train/step": step}
+    for group in optimizer.param_groups:
+        name = group.get("name", None)
+        if name not in optimizer.belief_group_names:
+            continue
+        s_sum = 0.0
+        s_max = 0.0
+        s_numel = 0
+        vt_sum = 0.0
+        vt_numel = 0
+        diff_sq_sum = 0.0
+        diff_numel = 0
+        for p in group["params"]:
+            state = optimizer.state.get(p, {})
+            if "exp_avg_sq" not in state:
+                continue
+            s = state["exp_avg_sq"]
+            s_sum += float(s.sum().item())
+            s_max = max(s_max, float(s.abs().max().item()))
+            s_numel += s.numel()
+            vt = state.get("vt_equiv")
+            if vt is not None:
+                vt_sum += float(vt.sum().item())
+                vt_numel += vt.numel()
+            diff_sq_t = state.get("last_diff_sq_sum")
+            diff_n = state.get("last_diff_numel")
+            if diff_sq_t is not None and diff_n is not None:
+                diff_sq_sum += float(diff_sq_t.item())
+                diff_numel += int(diff_n)
+        if s_numel > 0:
+            s_mean = s_sum / s_numel
+            metrics[f"train/adabelief/{name}_s_mean"] = s_mean
+            metrics[f"train/adabelief/{name}_s_max"] = s_max
+            if vt_numel > 0:
+                vt_mean = vt_sum / vt_numel
+                metrics[f"train/adabelief/{name}_vt_equiv_mean"] = vt_mean
+                metrics[f"train/adabelief/{name}_s_vs_vt_ratio_mean"] = (
+                    s_mean / vt_mean if vt_mean > 0 else 0.0
+                )
+            if diff_numel > 0:
+                metrics[f"train/adabelief/{name}_g_minus_m_norm"] = diff_sq_sum ** 0.5
+                metrics[f"train/adabelief/{name}_g_minus_m_rms"] = (
+                    diff_sq_sum / diff_numel
+                ) ** 0.5
+    if len(metrics) > 2:  # at least one belief metric
+        wandb.log(metrics, step=wandb_step)
+
+
 ########################################
 #                Setup                 #
 ########################################
@@ -824,6 +1027,12 @@ print0(f"  Effective Muon base LRs: attn={0.035*NANOGPT_MUON_ATTN_LR_MULT:.5f} m
 print0(f"EMBED_INIT_ANCHOR_LAMBDA: {NANOGPT_EMBED_INIT_ANCHOR_LAMBDA} "
        f"({'ACTIVE' if NANOGPT_EMBED_INIT_ANCHOR_LAMBDA > 0 else 'INACTIVE (bit-identical fallback)'})",
        console=True)
+if NANOGPT_ADABELIEF_GROUPS:
+    print0(f"ADABELIEF: ACTIVE groups={sorted(NANOGPT_ADABELIEF_GROUPS)} "
+           f"eps_belief={NANOGPT_ADABELIEF_EPS_S:g} beta2={NANOGPT_ADABELIEF_BETA2} "
+           f"(other-aux beta2={NANOGPT_ADAMW_BETA2})", console=True)
+else:
+    print0("ADABELIEF: INACTIVE (bit-identical fused-AdamW fallback)", console=True)
 if NS_ITERS_COOLDOWN > 0:
     print0(f"NS_SCHEDULE: ns_iters={NS_ITERS} -> ns_iters_cooldown={NS_ITERS_COOLDOWN} "
            f"at fraction {NS_COOLDOWN_START_FRAC} of train_steps "
@@ -896,6 +1105,10 @@ if dist.get_rank() == 0:
             "nanogpt_ns_stochastic_cooldown": NANOGPT_NS_STOCHASTIC_COOLDOWN,
             "senpai_seed": NANOGPT_SENPAI_SEED if NANOGPT_SENPAI_SEED is not None else -1,
             "nanogpt_embed_init_anchor_lambda": NANOGPT_EMBED_INIT_ANCHOR_LAMBDA,
+            "nanogpt_adabelief_groups": ",".join(sorted(NANOGPT_ADABELIEF_GROUPS)),
+            "nanogpt_adabelief_eps_s": NANOGPT_ADABELIEF_EPS_S,
+            "nanogpt_adabelief_beta2": NANOGPT_ADABELIEF_BETA2,
+            "adabelief_active": int(bool(NANOGPT_ADABELIEF_GROUPS)),
         },
     )
 
@@ -938,10 +1151,29 @@ for trial_idx in range(args.num_trials):
                f"snapshot_shape={tuple(embed_init_snapshot.shape)}", console=True)
 
     # create the optimizer(s)
-    optimizer1 = AdamW([dict(params=[model.embed.weight], lr=0.3 * NANOGPT_ADAMW_EMBED_LR_MULT, name="adam_embed"),
-                        dict(params=[model.proj.weight], lr=(1/320) * NANOGPT_ADAMW_LM_HEAD_LR_MULT, name="adam_lm_head"),
-                        dict(params=[p for p in model.parameters() if p.ndim < 2], lr=0.01 * NANOGPT_ADAMW_SCALAR_LR_MULT, name="adam_scalars")],
-                       betas=(0.8, NANOGPT_ADAMW_BETA2), eps=1e-10, weight_decay=0, fused=True)
+    _adamw_groups = [
+        dict(params=[model.embed.weight], lr=0.3 * NANOGPT_ADAMW_EMBED_LR_MULT, name="adam_embed"),
+        dict(params=[model.proj.weight], lr=(1/320) * NANOGPT_ADAMW_LM_HEAD_LR_MULT, name="adam_lm_head"),
+        dict(params=[p for p in model.parameters() if p.ndim < 2], lr=0.01 * NANOGPT_ADAMW_SCALAR_LR_MULT, name="adam_scalars"),
+    ]
+    if NANOGPT_ADABELIEF_GROUPS:
+        # Per-AdaBelief-group β2 override (Arm D). Non-belief groups keep stack β2.
+        if NANOGPT_ADABELIEF_BETA2 != NANOGPT_ADAMW_BETA2:
+            for g in _adamw_groups:
+                if g["name"] in NANOGPT_ADABELIEF_GROUPS:
+                    g["betas"] = (0.8, NANOGPT_ADABELIEF_BETA2)
+                else:
+                    g["betas"] = (0.8, NANOGPT_ADAMW_BETA2)
+        optimizer1 = AdaBeliefAdamW(
+            _adamw_groups,
+            belief_group_names=NANOGPT_ADABELIEF_GROUPS,
+            lr=0.3, betas=(0.8, NANOGPT_ADAMW_BETA2), eps=1e-10, weight_decay=0,
+            eps_belief=NANOGPT_ADABELIEF_EPS_S,
+        )
+    else:
+        # Bit-identical fallback: keep the merged-stack fused AdamW exactly.
+        optimizer1 = AdamW(_adamw_groups,
+                           betas=(0.8, NANOGPT_ADAMW_BETA2), eps=1e-10, weight_decay=0, fused=True)
     # Per-block-type Muon param split: attn (q/k/v/proj) vs mlp (fc/proj).
     # When both multipliers = 1.0, behavior is bit-identical to the prior single-group setup
     # (NS orthogonalization is per-matrix; the split only changes how groups are indexed).
@@ -1269,6 +1501,13 @@ for trial_idx in range(args.num_trials):
         adamw_step_dir_due = (train_step % 100 == 0 or train_step == train_steps)
         if dist.get_rank() == 0 and adamw_step_dir_due:
             log_adamw_step_direction(
+                optimizer=optimizer1,
+                trial_idx=trial_idx,
+                step=train_step,
+                wandb_step=wandb_step,
+            )
+        if dist.get_rank() == 0 and telemetry_due and NANOGPT_ADABELIEF_GROUPS:
+            log_adabelief_telemetry(
                 optimizer=optimizer1,
                 trial_idx=trial_idx,
                 step=train_step,
