@@ -3,6 +3,39 @@
 This file logs experiment outcomes as PRs land. The historical track 3
 leaderboard is captured in `/BASELINE.md`.
 
+## 2026-05-25 17:00 UTC — PR #1153: Cautious C-AdamW on aux groups — sign-agreement gate (fern) — CLOSED productive-NEG (hard mask 2-direction) + NULL-marginal (soft mask); lm_head FILTERING/MASKING cluster CONFIRMED 4-direction regression fence; **21st consecutive no-merge closure since #847**
+
+- Branch: `g1r4-fern/cautious-adamw-aux`
+- Hypothesis: Cautious C-AdamW (Liang 2024) on aux groups — sign-agreement update gate (mask updates where `m_t · g_t < 0`). 2×2 design: hard mask × {lm_head only, all aux} + soft mask × {lm_head}. Novel scope refinements vs #419 (which closed productive-null with all-aux hard rescale).
+- Results:
+
+| Arm | Config | val/loss | Δ_vs_A | fs | mask_frac (lm_head/embed/scalars) | classification |
+|:---:|:---|:---:|:---:|:---:|:---:|:---|
+| A | ctrl (cautious=off) | 3.26901 | — | 3200 | — | drift PASS (+0.00145) |
+| B | lm_head hard mask | 3.27689 | +0.00788 | 3300 | 0.660 / — / — | PRODUCTIVE-NEG (5.3× threshold) |
+| C | all-aux hard mask | 3.27992 | +0.01091 | 3350 | 0.658 / 0.444 / 0.736 | PRODUCTIVE-NEG (7.3× threshold) |
+| D | lm_head soft mask | 3.27025 | +0.00124 | 3225 | 0.673 / — / — | NULL-marginal (below +0.0015 threshold) |
+
+- Mechanism reading (excellent mask_fraction telemetry from student):
+  - **lm_head sign-agreement ~0.66** = 34% sign-flip rate, **HIGHER than #1045's 25.6% prediction**
+  - Driver: post-#847 stack's `NANOGPT_ADAMW_EMBED_LR_MULT=1.5` produces more aggressive momentum dynamics → more sign flips
+  - **embed sign-agreement ~0.44** = majority disagreement, explaining why hard-masking embed in Arm C costs most (~56% updates zeroed)
+  - **scalars sign-agreement ~0.74** = lowest disagreement (low-noise params)
+- Hard-mask scope-monotone regression (B → C): zeroing more updates compounds harm. **Hard-mask cautious is structurally incompatible with this merged stack regardless of scope.**
+- Soft mask Arm D salvages mechanism via gradient down-weighting (same 34% disagreement applied as γ_t=0.5+0.5·sign_agree continuous down-weight): Δ=+0.00124 NULL-marginal, much smaller regression than hard mask but no positive signal.
+- **lm_head FILTERING/MASKING cluster 4-direction regression fence:**
+
+| Mechanism | PR | Scope | Δ_vs_ctrl |
+|:---|:---:|:---:|:---:|
+| LION-aux (sign-only) | #1045 | all aux | +0.014 |
+| Cautious hard mask lm_head | #1153 B | lm_head | +0.00788 |
+| Cautious hard mask all-aux | #1153 C | all aux | +0.01091 |
+| Cautious soft mask lm_head | #1153 D | lm_head | +0.00124 |
+
+- **lm_head sign-filtering / hard-masking is structurally incompatible regardless of mask shape or scope.** lm_head's gradient direction information IS load-bearing; lm_head's gradient magnitude is the safely-modifiable axis.
+- **Locked cross-axis pattern**: lm_head DIRECTION-FILTERING fences (4-direction), lm_head MAGNITUDE-PRESERVING favorable (#1100 PP at-risk, #1155 NULL-favorable, #1175 in flight).
+- Reassignment: fern → #1192 lm_head row-norm AdamW (Muon-spirit row-wise L2 gradient equalization before AdamW step on lm_head/embed — preserves direction per-row, equalizes magnitude across Zipfian rows, mechanism-distinct from all prior aux modifications, joins lm_head MAGNITUDE-PRESERVING cluster from the row-equalizing branch).
+
 ## 2026-05-25 16:30 UTC — PR #1163: AggMo + Nesterov hybrid disambiguation (thorfinn) — CLOSED productive-NEG/CATASTROPHIC; NS5-INPUT-MODIFYING + multi-buffer mean-aggregation sub-axis FULLY FENCED 2-direction with #1122; **20th consecutive no-merge closure since #847**
 
 - Branch: `g1r4-thorfinn/aggmo-nesterov-hybrid`
