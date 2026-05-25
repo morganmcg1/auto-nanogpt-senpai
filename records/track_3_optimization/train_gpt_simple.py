@@ -468,6 +468,7 @@ NS5_ITERS = int(os.environ.get("NS5_ITERS", "12"))
 WD_AUX = float(os.environ.get("WD_AUX", "0.0"))  # AdamW WD on embed + lm_head matrices (scalars stay at 0)
 EMBED_INIT_STD = float(os.environ.get("EMBED_INIT_STD", "1.0"))  # default preserves baseline N(0,1)
 LOGIT_SOFTCAP = float(os.environ.get("LOGIT_SOFTCAP", "15.0"))  # default = 15 (current hardcoded value); soft-cap value c in f(x) = c·x / sqrt(x^2+c^2)
+RSVD_RANK = int(os.environ.get("RSVD_RANK", "0"))  # PR #1212: per-step pre-NS5 randomized-SVD low-rank gradient denoising; 0 = disabled (bytewise inert)
 
 
 def zeropower_via_newtonschulz5(G: Tensor) -> Tensor:
@@ -488,6 +489,27 @@ def zeropower_via_newtonschulz5(G: Tensor) -> Tensor:
     if G.size(-2) > G.size(-1):
         X = X.mT
     return X
+
+
+def rand_svd_denoise(grad: Tensor, rank: int) -> Tensor:
+    """PR #1212: top-k randomized SVD reconstruction (Halko et al. 2011) of a 2D
+    gradient/momentum matrix as a pre-NS5 spatial spectral denoiser.
+
+    Reconstructs only the top-`rank` singular components, discarding the noisy
+    tail. Cost O(mn*rank + rank^2*n + rank^3): cheap when rank << min(m, n).
+    """
+    m, n = grad.shape[-2], grad.shape[-1]
+    if rank <= 0 or rank >= min(m, n):
+        return grad
+    g_f = grad.float()
+    omega = torch.randn(n, rank, device=grad.device, dtype=g_f.dtype)
+    Y = g_f @ omega                                  # (m, rank) random projection
+    Q, _ = torch.linalg.qr(Y)                        # (m, rank) orthonormal basis
+    B = Q.mT @ g_f                                   # (rank, n) projected matrix
+    Uhat, S, Vh = torch.linalg.svd(B, full_matrices=False)
+    U = Q @ Uhat                                     # (m, rank) lifted left singular vectors
+    recon = (U * S.unsqueeze(0)) @ Vh                # (m, n) rank-k reconstruction
+    return recon.to(grad.dtype)
 
 
 def scale_to_unit_operator_norm(G: Tensor, eps: float = 1e-10) -> Tensor:
@@ -700,6 +722,10 @@ class Muon(torch.optim.Optimizer):
                     # (matches public record #14/16 — pre-NS5 placement).
                     if use_soap or use_attn_soap:
                         momentum_update = soap_precondition(momentum_update, state)
+                    # PR #1212 RAND_SVD_MUON: pre-NS5 randomized-SVD low-rank denoising on
+                    # the (possibly SOAP-preconditioned) momentum. RSVD_RANK=0 is bytewise inert.
+                    if RSVD_RANK > 0 and momentum_update.ndim == 2 and min(momentum_update.shape) > RSVD_RANK:
+                        momentum_update = rand_svd_denoise(momentum_update, RSVD_RANK)
                     # NS5 + contra + NorMuon row variance on (possibly SOAP-preconditioned) momentum.
                     update = contra_normuon_update(momentum_update, state["second_moment"])
                     # u/w-floor: scale up if u/w < TARGET_UW; leave alone otherwise.
@@ -866,6 +892,7 @@ if dist.get_rank() == 0:
             "optimizer/attn_soap_trust_threshold": ATTN_SOAP_TRUST_THRESHOLD,
             "optimizer/ns5_iters": NS5_ITERS,
             "optimizer/wd_aux": WD_AUX,
+            "optimizer/rsvd_rank": RSVD_RANK,
             "optimizer/recipe": "contra-muon + normuon-lite + soap-on-mlp + soap-on-attn-trust-gate (pre-NS5, record #14 + record #16)",
         },
     )
