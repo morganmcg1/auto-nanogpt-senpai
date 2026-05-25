@@ -468,6 +468,11 @@ NS5_ITERS = int(os.environ.get("NS5_ITERS", "12"))
 WD_AUX = float(os.environ.get("WD_AUX", "0.0"))  # AdamW WD on embed + lm_head matrices (scalars stay at 0)
 EMBED_INIT_STD = float(os.environ.get("EMBED_INIT_STD", "1.0"))  # default preserves baseline N(0,1)
 LOGIT_SOFTCAP = float(os.environ.get("LOGIT_SOFTCAP", "15.0"))  # default = 15 (current hardcoded value); soft-cap value c in f(x) = c·x / sqrt(x^2+c^2)
+# ADOPT (Taniguchi et al. NeurIPS 2024 arXiv:2411.02853) on AdamW aux groups.
+# ADOPT_AUX_BETA2=0 keeps AdamW path bytewise-unchanged.
+ADOPT_AUX_BETA2 = float(os.environ.get("ADOPT_AUX_BETA2", "0"))
+ADOPT_AUX_BETA1 = float(os.environ.get("ADOPT_AUX_BETA1", "0.9"))
+ADOPT_AUX_EPS = float(os.environ.get("ADOPT_AUX_EPS", "1e-10"))
 
 
 def zeropower_via_newtonschulz5(G: Tensor) -> Tensor:
@@ -777,6 +782,76 @@ class Muon(torch.optim.Optimizer):
         return out
 
 
+class ADOPT(torch.optim.Optimizer):
+    """ADOPT optimizer (Taniguchi et al. NeurIPS 2024 arXiv:2411.02853).
+
+    Removes the AdamW convergence-proof pathology by normalizing with the *stale*
+    second moment v_{t-1} instead of v_t. Algorithm:
+      step 1: no v_{t-1}, fall back to standard Adam (v_t first, then update).
+      step >=2: update = m_{t-1} / (sqrt(v_{t-1}) + eps) first, THEN update v_t and m_t.
+    Decoupled (AdamW-style) weight decay is applied before the update.
+    """
+    def __init__(self, params, betas=(0.9, 0.95), eps=1e-10, weight_decay=0.0):
+        defaults = dict(betas=betas, eps=eps, weight_decay=weight_decay)
+        super().__init__(params, defaults)
+
+    @torch.no_grad()
+    def step(self, closure=None):
+        loss = closure() if closure is not None else None
+        for group in self.param_groups:
+            beta1, beta2 = group["betas"]
+            eps = group["eps"]
+            lr = group["lr"]
+            wd = group["weight_decay"]
+            for p in group["params"]:
+                if p.grad is None:
+                    continue
+                grad = p.grad
+                state = self.state[p]
+                if len(state) == 0:
+                    state["step"] = 0
+                    state["exp_avg"] = torch.zeros_like(p)
+                    state["exp_avg_sq"] = torch.zeros_like(p)
+                exp_avg = state["exp_avg"]
+                exp_avg_sq = state["exp_avg_sq"]
+                state["step"] += 1
+                t = state["step"]
+                if wd != 0:
+                    p.data.mul_(1 - lr * wd)
+                if t == 1:
+                    exp_avg_sq.mul_(beta2).addcmul_(grad, grad, value=1 - beta2)
+                    exp_avg.mul_(beta1).add_(grad, alpha=1 - beta1)
+                    update = exp_avg / (exp_avg_sq.sqrt().add(eps))
+                else:
+                    update = exp_avg / (exp_avg_sq.sqrt().add(eps))
+                    exp_avg_sq.mul_(beta2).addcmul_(grad, grad, value=1 - beta2)
+                    exp_avg.mul_(beta1).add_(grad, alpha=1 - beta1)
+                p.data.add_(update, alpha=-lr)
+        return loss
+
+    def adopt_stats(self) -> dict[str, float]:
+        """Per-group ADOPT telemetry: step count + log-mean exp_avg_sq."""
+        out: dict[str, float] = {}
+        for group in self.param_groups:
+            name = group.get("name", "adopt")
+            step_counts: list[int] = []
+            v_means: list[float] = []
+            for p in group["params"]:
+                state = self.state.get(p)
+                if not state or "exp_avg_sq" not in state:
+                    continue
+                step_counts.append(int(state.get("step", 0)))
+                v_means.append(float(state["exp_avg_sq"].mean().item()))
+            if step_counts:
+                out[f"{name}/adopt_step_count"] = max(step_counts)
+            if v_means:
+                v_mean_avg = sum(v_means) / len(v_means)
+                if v_mean_avg > 0:
+                    import math
+                    out[f"{name}/exp_avg_sq_mean_log"] = math.log10(v_mean_avg)
+        return out
+
+
 ########################################
 #                Setup                 #
 ########################################
@@ -898,10 +973,16 @@ for trial_idx in range(args.num_trials):
             raise Exception(f"Uninitialized parameter: {name}")
 
     # create the optimizer(s)
-    optimizer1 = AdamW([dict(params=[model.embed.weight], lr=0.3, name="adam_embed", weight_decay=WD_AUX),
-                        dict(params=[model.proj.weight], lr=1/320, name="adam_lm_head", weight_decay=WD_AUX),
-                        dict(params=[p for p in model.parameters() if p.ndim < 2], lr=0.01, name="adam_scalars")],
-                       betas=(0.8, 0.95), eps=1e-10, weight_decay=0, fused=True)
+    if ADOPT_AUX_BETA2 > 0:
+        optimizer1 = ADOPT([dict(params=[model.embed.weight], lr=0.3, name="adam_embed", weight_decay=WD_AUX),
+                            dict(params=[model.proj.weight], lr=1/320, name="adam_lm_head", weight_decay=WD_AUX),
+                            dict(params=[p for p in model.parameters() if p.ndim < 2], lr=0.01, name="adam_scalars")],
+                           betas=(ADOPT_AUX_BETA1, ADOPT_AUX_BETA2), eps=ADOPT_AUX_EPS, weight_decay=0)
+    else:
+        optimizer1 = AdamW([dict(params=[model.embed.weight], lr=0.3, name="adam_embed", weight_decay=WD_AUX),
+                            dict(params=[model.proj.weight], lr=1/320, name="adam_lm_head", weight_decay=WD_AUX),
+                            dict(params=[p for p in model.parameters() if p.ndim < 2], lr=0.01, name="adam_scalars")],
+                           betas=(0.8, 0.95), eps=1e-10, weight_decay=0, fused=True)
     optimizer2 = Muon([(n, p) for n, p in model.blocks.named_parameters() if p.ndim >= 2],
                       lr=MUON_LR, weight_decay=MUON_WEIGHT_DECAY, mu=MU)
     optimizer2.param_groups[0]["name"] = "muon_blocks"
@@ -1059,6 +1140,11 @@ for trial_idx in range(args.num_trials):
                     stats = opt.trust_gate_stats()
                     if stats:
                         wandb.log(prefixed("train/attn_soap_trust_gate", stats), step=wandb_step)
+            for opt in optimizers:
+                if hasattr(opt, "adopt_stats"):
+                    stats = opt.adopt_stats()
+                    if stats:
+                        wandb.log(prefixed("train/optimizer1", stats), step=wandb_step)
         if dist.get_rank() == 0 and telemetry_due:
             log_weight_telemetry(
                 model=model,
