@@ -593,6 +593,22 @@ NANOGPT_SENPAI_SEED = int(_SENPAI_SEED_RAW) if _SENPAI_SEED_RAW != "" else None
 # `embed.weight -= lr_embed * lambda * (embed.weight - embed_init_snapshot)`.
 # At lambda=0 the hook is a no-op and behavior is bit-identical to the merged stack.
 NANOGPT_EMBED_INIT_ANCHOR_LAMBDA = float(os.environ.get("NANOGPT_EMBED_INIT_ANCHOR_LAMBDA", "0.0"))
+# Body Muon decoupled weight decay (muon_attn + muon_mlp groups only). When > 0,
+# after optimizer2.step() we apply `w <- (1 - lr_body * wd) * w` on body Muon params.
+# At wd=0.0 the shrinkage is skipped (early-return) and behavior is bit-identical
+# to the merged stack. Aux AdamW groups (adam_embed, adam_lm_head, adam_scalars)
+# are NOT touched by this hook.
+NANOGPT_MUON_WD = float(os.environ.get("NANOGPT_MUON_WD", "0.0"))
+# Step-dependent schedule for the body Muon decoupled WD coefficient.
+#   "constant"             -> NANOGPT_MUON_WD throughout training
+#   "cooldown_only"        -> 0 during warmup/flat phase, NANOGPT_MUON_WD during cooldown
+#   "warmup_then_constant" -> linear warmup over the first 10% of training, then constant
+NANOGPT_MUON_WD_SCHEDULE = os.environ.get("NANOGPT_MUON_WD_SCHEDULE", "constant")
+_VALID_MUON_WD_SCHEDULES = ("constant", "cooldown_only", "warmup_then_constant")
+if NANOGPT_MUON_WD_SCHEDULE not in _VALID_MUON_WD_SCHEDULES:
+    raise ValueError(
+        f"NANOGPT_MUON_WD_SCHEDULE={NANOGPT_MUON_WD_SCHEDULE!r}, must be one of {_VALID_MUON_WD_SCHEDULES}"
+    )
 
 
 def get_ns_coef_at_iter(iter_idx: int, total_iters: int, schedule: str) -> tuple[float, float, float]:
@@ -824,6 +840,9 @@ print0(f"  Effective Muon base LRs: attn={0.035*NANOGPT_MUON_ATTN_LR_MULT:.5f} m
 print0(f"EMBED_INIT_ANCHOR_LAMBDA: {NANOGPT_EMBED_INIT_ANCHOR_LAMBDA} "
        f"({'ACTIVE' if NANOGPT_EMBED_INIT_ANCHOR_LAMBDA > 0 else 'INACTIVE (bit-identical fallback)'})",
        console=True)
+print0(f"MUON_WD: wd={NANOGPT_MUON_WD} schedule={NANOGPT_MUON_WD_SCHEDULE} "
+       f"({'ACTIVE (body Muon decoupled WD)' if NANOGPT_MUON_WD > 0 else 'INACTIVE (bit-identical fallback)'})",
+       console=True)
 if NS_ITERS_COOLDOWN > 0:
     print0(f"NS_SCHEDULE: ns_iters={NS_ITERS} -> ns_iters_cooldown={NS_ITERS_COOLDOWN} "
            f"at fraction {NS_COOLDOWN_START_FRAC} of train_steps "
@@ -896,6 +915,8 @@ if dist.get_rank() == 0:
             "nanogpt_ns_stochastic_cooldown": NANOGPT_NS_STOCHASTIC_COOLDOWN,
             "senpai_seed": NANOGPT_SENPAI_SEED if NANOGPT_SENPAI_SEED is not None else -1,
             "nanogpt_embed_init_anchor_lambda": NANOGPT_EMBED_INIT_ANCHOR_LAMBDA,
+            "nanogpt_muon_wd": NANOGPT_MUON_WD,
+            "nanogpt_muon_wd_schedule": NANOGPT_MUON_WD_SCHEDULE if NANOGPT_MUON_WD > 0.0 else None,
         },
     )
 
@@ -979,6 +1000,25 @@ for trial_idx in range(args.num_trials):
     for opt in optimizers:
         for group in opt.param_groups:
             group["initial_lr"] = group["lr"]
+
+    # Body Muon decoupled WD schedule. Returns the step-dependent coefficient
+    # before any LR scaling. The actual shrinkage is `(1 - lr_body * coef) * w`.
+    def get_muon_wd(step, cooldown_frac=0.7):
+        if NANOGPT_MUON_WD == 0.0:
+            return 0.0
+        progress = step / train_steps
+        if NANOGPT_MUON_WD_SCHEDULE == "constant":
+            return NANOGPT_MUON_WD
+        if NANOGPT_MUON_WD_SCHEDULE == "cooldown_only":
+            if progress < 1.0 - cooldown_frac:
+                return 0.0
+            return NANOGPT_MUON_WD
+        if NANOGPT_MUON_WD_SCHEDULE == "warmup_then_constant":
+            warmup_frac = 0.1
+            if progress < warmup_frac:
+                return NANOGPT_MUON_WD * (progress / warmup_frac)
+            return NANOGPT_MUON_WD
+        raise ValueError(f"unknown muon_wd schedule: {NANOGPT_MUON_WD_SCHEDULE}")
 
     # learning rate schedule: stable then decay.
     # All groups follow the default linear-to-zero cooldown except the
@@ -1221,6 +1261,19 @@ for trial_idx in range(args.num_trials):
                             alpha=lr_embed * NANOGPT_EMBED_INIT_ANCHOR_LAMBDA,
                         )
                         break
+        # Body Muon decoupled weight decay (env-var-gated). After optimizer2.step()
+        # has applied the orthogonalized Muon update, multiplicatively shrink each
+        # body Muon weight: w <- (1 - lr_body * wd) * w. Only the muon_attn and
+        # muon_mlp groups are touched. wd=0.0 -> early-return = bit-identical baseline.
+        muon_wd = get_muon_wd(step)
+        if muon_wd > 0.0:
+            with torch.no_grad():
+                for group in optimizer2.param_groups:
+                    if group.get("name") in ("muon_attn", "muon_mlp"):
+                        shrinkage = 1.0 - muon_wd * group["lr"]
+                        for p in group["params"]:
+                            if p.requires_grad:
+                                p.data.mul_(shrinkage)
         # Per-100-step embed AdamW step-direction norm ||m_hat / (sqrt(v_hat) + eps)||.
         # This is the *direction* (pre-LR) so it captures whether the schedule change
         # is modulating the bias-corrected Adam update magnitude on the embed group.
@@ -1274,6 +1327,42 @@ for trial_idx in range(args.num_trials):
                 step=train_step,
                 wandb_step=wandb_step,
             )
+        # Body Muon decoupled WD telemetry. Logged only when wd is enabled so
+        # NANOGPT_MUON_WD=0.0 runs add no extra W&B keys (truly zero-cost).
+        muon_wd_due = (train_step % 100 == 0 or train_step == train_steps)
+        if dist.get_rank() == 0 and muon_wd_due and NANOGPT_MUON_WD > 0.0:
+            with torch.no_grad():
+                body_attn_sq = 0.0
+                body_attn_count = 0
+                body_mlp_sq = 0.0
+                body_mlp_count = 0
+                body_attn_lr = 0.0
+                body_mlp_lr = 0.0
+                for group in optimizer2.param_groups:
+                    if group.get("name") == "muon_attn":
+                        body_attn_lr = float(group["lr"])
+                        for p in group["params"]:
+                            body_attn_sq += float(p.data.float().pow(2).sum().item())
+                            body_attn_count += p.numel()
+                    elif group.get("name") == "muon_mlp":
+                        body_mlp_lr = float(group["lr"])
+                        for p in group["params"]:
+                            body_mlp_sq += float(p.data.float().pow(2).sum().item())
+                            body_mlp_count += p.numel()
+            current_wd_coef = get_muon_wd(step)
+            muon_wd_metrics = {
+                "trial": trial_idx,
+                "train/step": train_step,
+                "muon_wd/current_coef": current_wd_coef,
+                "muon_wd/effective_attn": current_wd_coef * body_attn_lr,
+                "muon_wd/effective_mlp": current_wd_coef * body_mlp_lr,
+                "muon_wd/configured_wd": NANOGPT_MUON_WD,
+            }
+            if body_attn_count > 0:
+                muon_wd_metrics["muon_wd/body_attn_weight_rms"] = (body_attn_sq / body_attn_count) ** 0.5
+            if body_mlp_count > 0:
+                muon_wd_metrics["muon_wd/body_mlp_weight_rms"] = (body_mlp_sq / body_mlp_count) ** 0.5
+            wandb.log(muon_wd_metrics, step=wandb_step)
         if dist.get_rank() == 0 and telemetry_due:
             ns_metrics = {
                 "trial": trial_idx,
