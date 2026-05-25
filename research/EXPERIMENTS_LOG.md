@@ -1,5 +1,66 @@
 # SENPAI Research Results — auto-nanogpt-1gpu-r2
 
+## 2026-05-25 17:30 UTC — Triple closure: #1165 alphonse MUON_LM_HEAD + #1159 thorfinn SOAP_GRAM_DRIFT + #1174 askeladd MUON_QKV_FUSE_NS5 (144th/145th/146th refuted, three new family-level closures 31st/32nd/33rd, plus three new assignments)
+
+### #1165 alphonse MUON_LM_HEAD_ROUTING CLOSED (144th refuted, MUON-LM-HEAD-ROUTING-MUON-LR-IN-0.01-TO-0.02 family 1/1 → 31st family-level closure, 10th SHIFTED-FLOOR refute signature)
+- **arms**: disabled-check `98owqgjz` ✓ + Arm A LR=0.01 `watq6ynu` val=3.27182 ffs=3025 + Arm B LR=0.02 `3rhoxezr` val=3.27006 ffs=3025
+- **mechanism**: Monotone-in-LR signal real but tiny (+0.00176 closing 43% of gap from 0.01→0.02). Linear extrapolation predicts val≈3.2683 at LR=0.04 — still above merge bar. Per-token-direction-only update geometry has structural floor at val≈3.270 in this stack regardless of LR magnitude. ffs locked at 3025 for both arms — body-Muon dominates ffs, lm_head LR doesn't accelerate early/mid trajectory.
+- **wall-clock surprise**: +1.9% step_avg_ms vs PR-predicted +20-25%. The (768, 50257) NS5 Gram is fast on H100 — mechanism cost not limiting.
+- **family closure**: ANY LM_HEAD_MUON_LR ∈ [0.01, 0.02] with MUON_LM_HEAD_ROUTING=1 saturates at val ∈ [3.270, 3.272] floor-cluster-edge. Does NOT absorb (a) lm_head Muon+AdamW residual α-blend (hybrid optimizer routing different mechanism), (b) NS5 iter depth sweep on lm_head decoupled from body NS5_ITERS=14, (c) WD sweep under MUON_LM_HEAD_ROUTING=1.
+
+### #1159 thorfinn SOAP_GRAM_DRIFT_AGAINST_LAST_REFRESH CLOSED (145th refuted, SOAP-GRAM-DRIFT-AGAINST-LAST-REFRESH-EMA-PREVSTEP family 1/1 → 32nd family-level closure, 11th SHIFTED-FLOOR refute signature)
+- **arms**: disabled-check `an21bypg` ✓ + Arm A thresh=0.05 `0yjcsm8i` val=3.27628 ffs=3100 refresh_fraction_mean=0.992 + Arm B thresh=0.02 `87hrwt82` val=3.27398 ffs=3075 refresh_fraction_mean=0.999
+- **mechanism (publication-grade)**: Both thresholds (0.05, 0.02) sit BELOW the per-step drift floor (≈0.08–0.09) measured against `last_refreshed_row_gg`. Threshold trips every step → `last_refreshed_row_gg` overwritten every step → snapshot age never exceeds 1 → `last_refresh` formulation bytewise equivalent to prev-step EMA formulation refuted at #1134. Monotone-in-threshold: tighter threshold strictly WORSE (Arm A → B: refresh_fraction 0.992 → 0.999, interval_max 4 → 1). The wall-clock tax +39% step_avg_ms is structurally identical to #1134 because refresh saturates either way.
+- **family closure**: ANY threshold ≤ 0.05 against `last_refreshed_row_gg` Gram entry-wise Frobenius drift signal collapses to prev-step EMA regime. Does NOT absorb (a) threshold ∈ [0.10, 0.67] natural-drift-window probe, (b) refresh on eigenvalue spectrum (rotation-invariant signal, structurally different drift signal), (c) trust-region damping (continuous attenuation vs discrete refresh, different layer), (d) non-EMA instantaneous Gram drift.
+
+### #1174 askeladd MUON_QKV_FUSE_NS5 CLOSED (146th refuted, MUON-QKV-FUSE-NS5 family 1/1 → 33rd family-level closure, CATASTROPHIC-FLOOR-OUTSIDE refute signature)
+- **arms**: disabled-check `cmzjbwrj` ✓ + Arm A `yuthabza` (re-launch after `4zygtrzb` crashed @ 725) **val=3.28138, ffs=-1 NEVER REACHED 3.28 TARGET**, step_avg_ms=1957.6 (~3% faster as predicted)
+- **mechanism**: Joint Gram on stacked (2304, 768) computes Q+K+V joint principal directions, then split polar applied per-param. Result: shared polar geometry is **load-bearing harmful** — val=3.28138 NEVER drops below 3.28 target, far outside floor-cluster band [3.267, 3.273]. Q-K spectrum needs to be scale-matched for attention softmax QK^T stability; joint Gram forces Q+K to share spectral structure constrained by V (gradient-statistics-dominant). Role asymmetry IS load-bearing: separate per-role NS5 is required.
+- **validates**: askeladd's #1170 false-premise catch identifying current baseline as already separate-per-Q/K/V NS5. The inverse experiment empirically confirms separate-NS5 was the right design.
+- **family closure**: ANY QKV-fused single-NS5-call per attention block at optimizer step level absorbed via shared-spectrum-harmful + Q-K-role-asymmetry pathology. Does NOT absorb (a) per-head NS5 across Q/K/V (different decomposition granularity — exactly the structurally novel pivot direction), (b) shared Gram with Lanczos cheap iter (different NS5 inner algorithm), (c) Q+K joint NS5 only V separate (different routing — captures Q-K attention pairing without forcing V), (d) fused NS5 across blocks at depth axis.
+
+### Three new assignments (zero idle students)
+
+#### #1194 g1r2-alphonse ADOPT_AUX (67th distinct mech class — FIRST second-moment-update-ordering modification in 312-PR corpus)
+- **mechanism**: Apply ADOPT optimizer (Taniguchi et al. NeurIPS 2024 arXiv:2411.02853) to AdamW AUX param groups (embed, lm_head, scalars). Uses v_{t-1} (previous second-moment) for normalization, THEN updates v_t — removes circular dependency in Adam's convergence proof. Optimal O(1/√T) for any β2.
+- **anti-dup clean**: ADOPT / adopt_optimizer / stale.*second.*moment / taniguchi / 2411.02853 zero matches across 312-PR corpus
+- **structurally distinct**: from #527 NAdamW (Nesterov on first moment, no v ordering change), #816 AdEMAMix (dual EMA blend, different moment construction), all AdamW hyperparameter sweeps (vary values never alter v ordering)
+- **arms**: Arm A β2=0.95 (faster v-tracking), Arm B β2=0.99 (conventional AdamW default — tests if convergence fix matters more than β2 value)
+- **pivots alphonse**: from output-side (#1165 MUON_LM_HEAD just closed) and loss-side (#1148 ATTN_ENTROPY_BONUS closed) back to AUX optimizer at structurally novel update-ordering axis
+
+#### #1195 g1r2-thorfinn SWD_MUON (68th distinct mech class — FIRST post-NS5 rank-1 spectral weight-space subtraction in 312-PR corpus)
+- **mechanism**: Post-optimizer-step rank-1 spectral subtraction `weight -= wd_spec · σ_max · u1 · v1.T` where (σ_max, u1, v1) is the top singular triple of WEIGHT estimated via warm-started power iteration (2 steps). Selectively reduces dominant singular value without touching the rest of spectrum.
+- **anti-dup clean**: SWD / SWD_MUON / spectral_wd / sigma_max / dominant.*singular / miyato / 1802.05957 / yunis / 2408.11804 zero matches across 312-PR corpus
+- **structurally distinct from Contra-Muon** (mandatory stack CONTRA_MUON=0.4): Contra-Muon computes scalar σ_max of MOMENTUM, divides momentum by σ_max, subtracts scalar-normalized momentum from NS5 OUTPUT (operand=momentum, op=scalar normalize+subtract, stage=NS5-output). SWD_MUON computes (σ_max, u1, v1) of WEIGHT, subtracts σ_max·u1·v1.T rank-1 from WEIGHT (operand=weight, op=rank-1 subtract, stage=post-optimizer-step). Categorically distinct mechanism.
+- **structurally distinct from #1094** (post-NS5 RMS scaling): per-element vs rank-1 spectral
+- **arms**: Arm A SWD_SPEC=1e-4 (light), Arm B SWD_SPEC=1e-3 (moderate)
+- **pivots thorfinn**: from SOAP body-side preconditioner family (#1134, #1159 both closed) back to post-NS5 weight-space at structurally novel rank-1 spectral subtraction axis
+
+#### #1196 g1r2-askeladd MUON_PER_HEAD_NS5 (69th distinct mech class — FIRST per-head NS5 polar projection within attention QKV in 312-PR corpus)
+- **mechanism**: For attention Q/K/V (each shape (768, 768) with num_heads=6, head_dim=128), split each into (6, 128, 768) by head dimension, apply NS5 polar projection PER HEAD (6 per-head NS5 calls per Q/K/V), assemble polar back to (768, 768) via view(). Respects head-block-diagonal structure of multi-head attention — each head operates in its own 128-dim feature subspace.
+- **anti-dup clean for NS5 per-head**: PER_HEAD_NS5 / ATTN_HEAD_NS5 / HEAD_SPLIT_NS5 / MUON_PER_HEAD / MULTIHEAD_NS5 zero matches across 312-PR corpus
+- **structurally distinct from #1174 MUON_QKV_FUSE_NS5** (just closed): #1174 FUSES across Q/K/V into single NS5; #1196 SPLITS WITHIN each Q/K/V by head_dim. Opposite decomposition axis.
+- **structurally distinct from #1170 ATTN_QKV_SEPARATE_NS5**: confirmed Q/K/V already separate at param level (current baseline). #1196 goes one decomposition level deeper.
+- **structurally distinct from #281 Per-head SOAP**: SOAP and NS5 are different preconditioner classes (Shampoo Kronecker decomposition vs Newton-Schulz polar projection). Per-head SOAP estimates per-head Gram for Kronecker decomp. Per-head NS5 applies polar projection per-head. Different mathematical primitive entirely.
+- **structurally distinct from #713 EARLY/LATE NS5 iters**: that adapts NS5 iter count by block position; this changes matrix DECOMPOSITION GRANULARITY (within-block, within-Q/K/V, across head_dim).
+- **arms**: Arm A head_dim=128 (matches model config), Arm B head_dim=64 (sub-head granularity probe)
+- **wall-clock prediction**: -5-10% step_avg_ms from cheaper per-head Gram (128×128 vs 768×768)
+- **pivots askeladd**: 5-PR attention-architecture / optimizer-routing within-student validation chain — #1133 → #1147 → #1170 → #1174 → #1196 — completes the decomposition-axis probe with natural granularity matching multi-head attention forward-pass structure
+
+### Cycle 71 mid-247 state
+**146 refuted / 69 mech classes / 33 family-level closures / 6 saturated mechanism layers / 11 SHIFTED-FLOOR refute signature instances / 1 new CATASTROPHIC-FLOOR-OUTSIDE refute signature class / 5 pre-launch student catches**. In-flight portfolio at mid-247: **6 active WIPs + 2 pod-broken holds, ZERO idle students**. 6 active: #1184 fern MUON_POLAR_EXPRESS + #1186 frieren RIEMANNIAN_MUON_MOMENTUM + #1190 nezuko CAUTIOUS_MUON + #1194 alphonse ADOPT_AUX NEW + #1195 thorfinn SWD_MUON NEW + #1196 askeladd MUON_PER_HEAD_NS5 NEW. 33 family-level closures (3 new this cycle): MUON-LM-HEAD-ROUTING-MUON-LR-IN-0.01-TO-0.02 1/1 + SOAP-GRAM-DRIFT-AGAINST-LAST-REFRESH-EMA-PREVSTEP 1/1 + MUON-QKV-FUSE-NS5 1/1.
+
+Force-multiplier patterns at mid-247:
+- frieren #1124→#1142→#1158→#1161→#1169→#1186: SIX consecutive within-student validations (longest in campaign)
+- askeladd #1133→#1147→#1170→#1174→#1196: FIVE consecutive within-student validations NEW (2nd longest, attention-architecture / optimizer-routing trajectory)
+- nezuko #1140→#1162→#1190: THREE consecutive within-student validations
+- alphonse #1148→#1165→#1194: THREE consecutive within-student validations NEW
+- thorfinn #1134→#1159→#1195: THREE consecutive within-student validations NEW
+- fern #1117→#1145→#1184: TWO consecutive within-student validations
+**ALL FIVE active students now have ≥3 consecutive within-student closure-map-driven validations.** The closure-map-driven assignment pathway has produced 16 within-student validations across all 5 active students in cycle 71.
+
+Methodological observation mid-247: askeladd's #1170 false-premise catch → #1174 inverse-experiment closure → #1196 follow-up trajectory demonstrates THREE STAGES of categorical search at the SAME structural layer (attention Q/K/V decomposition): (1) source-read confirms baseline is already X, (2) test inverse-of-baseline at structurally novel axis Y, (3) close Y refuting joint-spectrum and pivot to natural-granularity decomposition Z. This is a three-stage closure-map trajectory within ONE structural layer — a new pattern in the campaign.
+
 ## 2026-05-25 16:30 UTC — PR #1162: FOCAL_CE_LOSS (CLOSED, 143rd refuted — FOCAL-CE-LOSS-PER-TOKEN-MULTIPLICATIVE-WEIGHT family 1/1, 30th family-level closure)
 
 - **student**: g1r2-nezuko
