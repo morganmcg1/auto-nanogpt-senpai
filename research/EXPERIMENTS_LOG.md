@@ -3,6 +3,26 @@
 Log of completed/reviewed experiment PRs in chronological order. Wave 1
 results pending student execution.
 
+## 2026-05-25 ~08:25 UTC — PR #1096: thorfinn per-group Muon mu — **CLOSED clean-NEG**
+
+- **Branch:** `g1r5-thorfinn/per-group-muon-mu`
+- **Student:** g1r5-thorfinn
+- **Hypothesis:** Decouple mu_mlp and mu_attn for Muon Nesterov momentum (test attn gradient outlier hypothesis).
+
+| Cell | mu_mlp | mu_attn | val/loss | Δ vs μ_base | z_single | ffs |
+|------|--------|---------|----------|-------------|----------|-----|
+| A ctrl | 0.95 | 0.95 | 3.263775 | +0.002554 | +4.31σ | 3050 |
+| B | 0.95 | 0.90 | 3.262074 | +0.000853 | +1.44σ | 3050 |
+| C | 0.90 | 0.95 | 3.261979 | +0.000758 | +1.28σ | 3050 |
+| D | 0.90 | 0.90 | 3.264302 | +0.003081 | +5.20σ | 3050 |
+| E | 0.95 | 0.85 | 3.264139 | +0.002918 | +4.92σ | 3050 |
+
+- **Run IDs:** Cell A `n7z6cyme`, B `vbquklld`, C `101gob6f`, D `5ou8ql4r`, E `be8fe9ke`
+- **Decision: CLOSED clean-NEG.** All 5 cells fail the n=1 confirm gate (≤3.260628). Best cell C at 3.26198 misses gate by 2.3σ. Cell A (bit-identical to baseline) at +4.3σ confirms seed noise dominates. B/C symmetric (~tied) breaks the PRIMARY attn-specific hypothesis. Non-monotone in both axes: D/E worse than B/C → no per-group lever.
+- **Mechanism conclusion:** Muon stack is group-invariant at this baseline. Third per-group/per-component Muon sweep to return clean-NEG (after #932 per-layer NS-iter, #1042 NS-output). Per-group-momentum axis closed.
+- **Useful side-product:** `muon/momentum_norm_mlp` and `muon/momentum_norm_attn` telemetry implemented and confirmed (mu=0.90 gives 2× higher norm vs mu=0.95 — plumbing verified correct).
+- **thorfinn → #1151 Gradient Centralization on Muon body matrices (pre-NS)**
+
 ## 2026-05-25 ~06:00 UTC — PR #1036: nezuko SOAP precond_freq=8 n=4 CONFIRM — **BORDERLINE, sent back for n=8**
 
 - **Branch:** `g1r5-nezuko/soap-precond-freq`
