@@ -83,6 +83,20 @@ def parse_args():
                         help="β2 at start of training (and constant β2 if schedule=constant).")
     parser.add_argument("--aux_beta2_end", type=float, default=float(os.environ.get("AUX_BETA2_END", "0.99")),
                         help="β2 at end of training (after cooldown). Only used if schedule=cooldown_ramp.")
+    # Aux AdamW eps schedule (H160). Probes the v_t magnitude-scaling activation
+    # threshold: AdamW update is θ -= lr · m / (√v + eps). Raising eps suppresses
+    # adaptive per-coord scaling and pushes the update toward sign-momentum.
+    # 'constant' keeps fused=True (bit-id with baseline at default eps_end=1e-6).
+    parser.add_argument("--aux_adamw_eps_schedule", type=str,
+                        default=os.environ.get("AUX_ADAMW_EPS_SCHEDULE", "constant"),
+                        choices=["constant", "linear", "cooldown_linear"],
+                        help="Schedule shape for aux AdamW eps. "
+                             "'constant' = fixed at --aux_adamw_eps throughout (bit-id baseline). "
+                             "'linear' = full-trajectory linear ramp from --aux_adamw_eps to --aux_adamw_eps_end. "
+                             "'cooldown_linear' = constant at --aux_adamw_eps until cooldown begins, then linear ramp to --aux_adamw_eps_end over the last aux_cooldown_frac of training.")
+    parser.add_argument("--aux_adamw_eps_end", type=float,
+                        default=float(os.environ.get("AUX_ADAMW_EPS_END", "1e-6")),
+                        help="Final eps value for non-constant aux_adamw_eps_schedule. Default 1e-6 = same as merged --aux_adamw_eps (no-op for safety).")
     # Inner MuonH µ schedule (H109). Static µ=0.95 baseline preserved when schedule=off.
     # 'linear' ramps µ across all train_steps. 'cooldown_ramp' stays at mu_start until
     # cooldown starts (using h_cooldown_frac), then ramps linearly across the cooldown.
@@ -844,6 +858,8 @@ if dist.get_rank() == 0:
             "muonh_agc_clip_ratio": args.muonh_agc_clip_ratio,
             "muonh_agc_eps": args.muonh_agc_eps,
             "aux_adamw_eps": args.aux_adamw_eps,
+            "aux_adamw_eps_schedule": args.aux_adamw_eps_schedule,
+            "aux_adamw_eps_end": args.aux_adamw_eps_end,
             "aux_beta2_schedule": args.aux_beta2_schedule,
             "aux_beta2_start": args.aux_beta2_start,
             "aux_beta2_end": args.aux_beta2_end,
@@ -922,14 +938,20 @@ for trial_idx in range(args.num_trials):
     # after each step (R = initial Frobenius norm * budget_mult), wd=0 since the
     # projection now controls norm growth. AdamW aux groups match the starter
     # (lr 0.3 / 1/320 / 0.01, betas=(0.8, 0.95), eps=1e-10, wd=0).
-    # fused AdamW reads betas from param_groups on every .step(), but to avoid any
-    # silent-failure-mode risk we use fused=False whenever the β2 schedule is active.
-    # constant schedule keeps fused=True so arm_a is bitwise-identical to baseline.
-    _aux_fused = (args.aux_beta2_schedule == "constant")
+    # fused AdamW reads betas/eps from param_groups on every .step(), but to avoid
+    # any silent-failure-mode risk we use fused=False whenever ANY aux schedule is
+    # active. Both constant => keeps fused=True so arm_a is bitwise-identical to
+    # baseline. eps schedule mirrors β2 schedule pattern.
+    _aux_fused = (args.aux_beta2_schedule == "constant"
+                  and args.aux_adamw_eps_schedule == "constant")
     optimizer1 = AdamW([dict(params=[model.embed.weight], lr=0.3, name="adam_embed"),
                         dict(params=[model.proj.weight], lr=1/320, name="adam_lm_head"),
                         dict(params=[p for p in model.parameters() if p.ndim < 2], lr=0.01, name="adam_scalars")],
                        betas=(0.8, args.aux_beta2_start), eps=args.aux_adamw_eps, weight_decay=0, fused=_aux_fused)
+    if trial_idx == 0:
+        print0(f"[H160 aux_eps_schedule={args.aux_adamw_eps_schedule} "
+               f"eps_start={args.aux_adamw_eps} eps_end={args.aux_adamw_eps_end}] "
+               f"AdamW fused={_aux_fused}", console=True)
     optimizer2 = MuonH([p for p in model.blocks.parameters() if p.ndim >= 2],
                        lr=args.muonh_lr, weight_decay=0.0, mu=0.95,
                        hyperball=True, budget_mult=args.muonh_budget_mult,
@@ -1004,6 +1026,27 @@ for trial_idx in range(args.num_trials):
             b2 = args.aux_beta2_start
         for g in optimizer1.param_groups:
             g["betas"] = (g["betas"][0], b2)
+        # Aux eps schedule (H160). Mirrors β2 schedule pattern. 'constant' is a
+        # no-op (eps_t = args.aux_adamw_eps). 'linear' ramps across all train_steps.
+        # 'cooldown_linear' stays at aux_adamw_eps until cooldown begins, then ramps
+        # to aux_adamw_eps_end over the aux cooldown phase.
+        if args.aux_adamw_eps_schedule == "constant":
+            eps_t = args.aux_adamw_eps
+        elif args.aux_adamw_eps_schedule == "linear":
+            prog = step / max(1, train_steps - 1)
+            eps_t = args.aux_adamw_eps + prog * (args.aux_adamw_eps_end - args.aux_adamw_eps)
+        elif args.aux_adamw_eps_schedule == "cooldown_linear":
+            cooldown_start = int((1.0 - aux_cooldown_frac) * train_steps)
+            if step < cooldown_start:
+                eps_t = args.aux_adamw_eps
+            else:
+                prog = (step - cooldown_start) / max(1, train_steps - cooldown_start)
+                eps_t = args.aux_adamw_eps + prog * (args.aux_adamw_eps_end - args.aux_adamw_eps)
+        else:
+            raise ValueError(f"unknown aux_adamw_eps_schedule: {args.aux_adamw_eps_schedule}")
+        if args.aux_adamw_eps_schedule != "constant":
+            for g in optimizer1.param_groups:
+                g["eps"] = eps_t
         # MuonH µ schedule (H109): 'off' is a no-op — mu stays at the MuonH
         # default 0.95 and we skip the param_group write so arm_a is bit-identical
         # to baseline. 'linear' ramps mu_start → mu_end across all train_steps.
@@ -1027,7 +1070,7 @@ for trial_idx in range(args.num_trials):
                 g["mu"] = mu_t
         else:
             mu_t = 0.95
-        return muonh_warmup, b2, mu_t
+        return muonh_warmup, b2, mu_t, eps_t
 
 
     ########################################
@@ -1132,7 +1175,7 @@ for trial_idx in range(args.num_trials):
         dist.all_reduce(step_loss, op=dist.ReduceOp.SUM)
         train_loss = float((step_loss / batch_size).item())
         # set optimization hyperparameters and take a step
-        muonh_warmup_factor, aux_beta2, muonh_mu_t = set_hparams(step)
+        muonh_warmup_factor, aux_beta2, muonh_mu_t, aux_eps_t = set_hparams(step)
         train_step = step + 1
         telemetry_due = (step == 0 or (step + 1) % args.telemetry_interval == 0 or step + 1 == train_steps)
         histogram_due = (step == 0 or (step + 1) % args.histogram_interval == 0 or step + 1 == train_steps)
@@ -1182,7 +1225,47 @@ for trial_idx in range(args.num_trials):
         if dist.get_rank() == 0 and (telemetry_due or warmup_due):
             muonh_metrics = {"trial": trial_idx, "train/step": train_step}
             muonh_metrics["aux/beta2"] = aux_beta2
+            muonh_metrics["aux/eps_t"] = aux_eps_t
             muonh_metrics["train/muonh_mu"] = muonh_mu_t
+            # H160: per-aux-group AdamW state telemetry. <|m|>/(<√v> + eps_t) is the
+            # "effective adaptive scaling fraction" — when v_t-dominated, the ratio
+            # tracks |m|/√v (Adam regime); when eps-dominated, the denominator is
+            # essentially eps_t and the update becomes sign-momentum-like. eps_frac
+            # = eps / (eps + √v) is the cleaner mechanism diagnostic.
+            if telemetry_due:
+                with torch.no_grad():
+                    for group in optimizer1.param_groups:
+                        gname = group.get("name", "adam")
+                        m_abs_sum = 0.0
+                        sqrt_v_sum = 0.0
+                        eff_scale_sum = 0.0
+                        eps_frac_sum = 0.0
+                        m_sq_sum = 0.0
+                        v_sum = 0.0
+                        n_el = 0
+                        for p in group["params"]:
+                            st = optimizer1.state.get(p, {})
+                            if "exp_avg" not in st or "exp_avg_sq" not in st:
+                                continue
+                            m = st["exp_avg"].detach().to(torch.float32)
+                            v = st["exp_avg_sq"].detach().to(torch.float32)
+                            sqrt_v = v.sqrt()
+                            denom = sqrt_v + aux_eps_t
+                            m_abs_sum += float(m.abs().sum().item())
+                            sqrt_v_sum += float(sqrt_v.sum().item())
+                            eff_scale_sum += float((m.abs() / denom).sum().item())
+                            eps_frac_sum += float((aux_eps_t / denom).sum().item())
+                            m_sq_sum += float(m.square().sum().item())
+                            v_sum += float(v.sum().item())
+                            n_el += m.numel()
+                        if n_el > 0:
+                            inv_n = 1.0 / n_el
+                            muonh_metrics[f"train/aux/{gname}/m_mean_abs"] = m_abs_sum * inv_n
+                            muonh_metrics[f"train/aux/{gname}/sqrt_v_mean"] = sqrt_v_sum * inv_n
+                            muonh_metrics[f"train/aux/{gname}/eff_scaling_mean"] = eff_scale_sum * inv_n
+                            muonh_metrics[f"train/aux/{gname}/eps_dominated_frac"] = eps_frac_sum * inv_n
+                            muonh_metrics[f"train/aux/{gname}/m_norm"] = m_sq_sum ** 0.5
+                            muonh_metrics[f"train/aux/{gname}/v_norm"] = v_sum ** 0.5
             for opt in optimizers:
                 if isinstance(opt, MuonH):
                     if telemetry_due:
