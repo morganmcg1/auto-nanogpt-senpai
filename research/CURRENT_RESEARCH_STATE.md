@@ -1,9 +1,63 @@
 # SENPAI Research State — auto-nanogpt-1gpu-r4
 
-- **Date:** 2026-05-25 00:50 UTC (cycle 239)
+- **Date:** 2026-05-25 02:45 UTC (cycle 242 — **PLATEAU PROTOCOL ESCALATION ACTIVATED**)
 - **Most recent research direction from human researcher team:** none on file
 - **Primary metric:** `val/loss` at 3350 steps (lower is better); `speedrun/final_first_step_to_target` secondary
 - **Statistical merge rule:** `(3.28 − μ) × √n ≥ 0.004` AND n mean ≤ current baseline
+
+## Cycle 242 snapshot (02:45 UTC May 25) — **PLATEAU ESCALATION TRIGGER FIRES** — #1074 nezuko GC-on-embed CLOSED productive-NEG (clean mechanism: small col-mean DC load-bearing, row-mean null-space, non-additive interaction); 9th consecutive no-merge closure; nezuko reassigned **#1120 GaLore lm_head** (FIRST bigger-bet escalation axis — low-rank gradient subspace on Zipfian-heavy lm_head, Zhao 2024)
+
+### Activity this cycle
+
+- **#1074 nezuko** N=1 4-arm complete CLOSED productive-NEG: GC on embed (off/row/col/both). A=3.26773 ctrl drift PASS, B col=3.27565 (Δ=+0.00792 REGRESSION, ~5σ), C row=3.26817 (Δ=+0.00044 NON-LOAD-BEARING), D both=3.27298 (Δ=+0.00525 REGRESSION ~3.5σ). Clean mechanism finding:
+  - **Col-mean small but load-bearing** (2.3e-6 absolute norm, removing it costs +0.00792).
+  - **Row-mean is null-space** (2.5e-5 absolute norm — ~10× larger — but removing it has zero structural effect).
+  - **Non-additive interaction**: predicted D under additivity +0.00836, actual +0.00525 (−0.00311 better than additive). Row-mean and col-mean share structure; double-centering preserves more than col-only removal.
+  - **Yong 2020 standard GC (row-center) is a no-op on this stack.** Signal axis is rotated to col direction.
+- **PR #1120 nezuko** (PLATEAU ESCALATION axis assigned this cycle): **GaLore low-rank lm_head gradient subspace projection** — first formal bigger-bet escalation. 4 arms: A=ctrl off, B=rank=8 period=200 mechanism-lead, C=rank=32 period=200 moderate compression, D=rank=8 period=50 frequent SVD refresh. Compresses lm_head AdamW state from V×D≈51M to ~400k (r=8, 125× compression). Tests Zipfian-low-rank assumption on lm_head gradient — if dominant singular subspace captures >95% signal at r=8, the low-rank assumption is validated and opens a new direction.
+
+### Plateau awareness status (cycle 242 — ESCALATION ACTIVATED)
+
+**9 consecutive no-merge closures** since #847 (cycle 222): #1028 PP, #1031 nezuko NS-adaptive, #1032 thorfinn Haar-init, #1045 frieren LION-aux, #1047 tanjiro LookAhead, #1048 alphonse cooldown-shape, #1055 askeladd weight-averaging, #1003 fern per-block-TYPE cooldown anneal, **#1074 nezuko GC-embed**.
+
+**Escalation status — TRIGGERED**: pre-staged bigger-bet candidates now active. First escalation assigned this cycle:
+- **#1120 nezuko GaLore lm_head** ✅ — dimensionality reduction on Zipfian-heavy substrate
+
+Remaining pre-staged escalation candidates for next idle-student cycles:
+- Schedule-Free (Defazio 2024) — replaces load-bearing cooldown entirely
+- Shampoo / Distributed-Shampoo body — 2nd-order block-diagonal preconditioner replacing Muon NS
+- AggMo body (Lucas 2018) — multi-β momentum bank with simultaneous (not temporal) β variation
+- Sophia aux (Liu 2023) — Hutchinson Hessian-diag estimator (HVP per K steps — borderline on "1 fwd-bwd per step" rule; defer unless clean clarification)
+- MuonR² / iterated NS refinement
+
+**Mitigation alongside escalation**: 8 fresh axes opened across cycles 230-242 + 1 remaining PP confirmation chain (#1028 edward). Adan-on-aux #1113 in flight is itself a 2nd OPTIMIZER-CLASS-aux observation that approaches partial fence if it also regresses.
+
+### Mechanism axes coverage (cycle 242, 8 chains active)
+
+| Axis | Active PR | Status | Notes |
+|---|:---:|:---:|---|
+| **LM_HEAD-GRADIENT-SUBSPACE-PROJECTION (GaLore)** | **#1120 nezuko NEW (escalation)** | WIP fresh | First plateau escalation; low-rank dimensionality reduction on Zipfian-heavy lm_head |
+| OPTIMIZER-CLASS-aux (Adan, 2nd obs) | #1113 fern | WIP fresh | Grad-difference momentum + extrapolated-grad denominator |
+| AUX-WEIGHT-DECAY (per-group) | #1100 askeladd | WIP — Arm B running | Arm A finished 3.26962 drift PASS, Arm B step 275 |
+| DECOUPLED-AUX-PRECONDITIONER (per-group β1) | #1092 tanjiro | WIP fresh | Option 2 corrected: lm_head 0.70 + embed 0.95 |
+| BODY-MUON-WEIGHT-DECAY | #1091 alphonse | WIP — Arm A done | Arm A drift PASS, Arm B chaining |
+| GRADIENT-NOISE-INJECTION (body Muon momentum) | #1088 frieren | WIP fresh | Gaussian noise on momentum NS5 input |
+| MUON-MOMENTUM-SCHEDULE | #1078 thorfinn | WIP fresh | μ decay temporal: off/linear_full/cooldown_only/high-start |
+| SUBTRACTIVE-PRUNING (PP) | #1028 edward | WIP — PP n=3 | ANCHOR=0 candidate, last remaining PP chain |
+
+### Closed-axis fence status (cycle 242)
+
+- AUX PRECONDITIONER COOLDOWN-WINDOW: 5 fences (CLOSED)
+- STATE-RESET: 4 fences (CLOSED)
+- LM_HEAD WEIGHT-SPACE ROW-MAGNITUDE: 8+ fences (CLOSED)
+- NS-ITERATION-ALLOCATION: 4 fences (CLOSED)
+- INITIALIZATION-DISTRIBUTION (body Muon): 2 fences (CLOSED)
+- OPTIMIZER-CLASS (aux): 1-closure observation (#1045 LION); 2nd obs PENDING via #1113 Adan
+- META-OPTIMIZER (body Muon): 1-closure observation (#1047 LookAhead)
+- SCHEDULE-CURVATURE (body Muon): 1-closure observation (#1048 cooldown shape)
+- WEIGHT-AVERAGING-POST-TRAINING: 1-closure observation (#1055 SWA/EMA)
+- SCHEDULE-CONTINUOUS-LR-MULT (per-block-TYPE): 1-closure observation (#1003 cooldown anneal)
+- **GRADIENT-LEVEL-NORMALIZATION (embed): 1-closure observation (#1074 GC) — NEW THIS CYCLE**
 
 ## Cycle 239 snapshot (00:50 UTC May 25) — #1003 fern per-block-TYPE Muon LR mult cooldown anneal CLOSED productive-NULL on PP confirmation (textbook PP collapse: N=1 −0.00226 → PP +0.00041 sign-flip; G1+G3 FAIL); SCHEDULE-CONTINUOUS-LR-MULT 1-closure observation; fern reassigned #1113 (ADAN OPTIMIZER ON AUX — fresh 2nd OPTIMIZER-CLASS-aux observation, mechanism-distinct from #1045 LION sign-based by grad-difference momentum + n-buffer extrapolated-grad squared); **8 consecutive no-merge closures — PLATEAU PROTOCOL ESCALATION TRIGGER IMMINENT**: next closure without merge = escalation to bigger bets (Schedule-Free, Shampoo, AggMo, Sophia, GaLore pre-staged).
 

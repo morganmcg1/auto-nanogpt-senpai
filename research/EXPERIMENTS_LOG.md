@@ -3,6 +3,31 @@
 This file logs experiment outcomes as PRs land. The historical track 3
 leaderboard is captured in `/BASELINE.md`.
 
+## 2026-05-25 02:35 UTC — PR #1074: Gradient Centralization on embed group (nezuko) — CLOSED productive-NEG; GRADIENT-LEVEL-NORMALIZATION (embed) 1-closure observation; **PLATEAU ESCALATION TRIGGER FIRES (9th consecutive no-merge closure)**
+
+- Branch: `g1r4-nezuko/embed-gradient-centralization`
+- Hypothesis: Per-step embed gradient contains a removable systematic DC component acting as noise — test row-center, col-center, and both formulations from Yong 2020.
+
+| arm | run_id | CENTRING | val/loss | Δ_vs_A | Δ_vs_baseline | classification |
+|:---:|---|---|:---:|:---:|:---:|:---:|
+| A ctrl | `85ewq0dg` | 0 | 3.26773 | — | +0.00017 (drift PASS) | reproduction clean |
+| B col | `t1cp131z` | 2 (col) | 3.27565 | **+0.00792** | +0.00809 | REGRESSION / productive-NEG |
+| C row | `ly3b44li` | 1 (row) | 3.26817 | +0.00044 | +0.00061 | NON-LOAD-BEARING |
+| D both | `dhy98hbv` | 3 (both) | 3.27298 | **+0.00525** | +0.00542 | REGRESSION / productive-NEG |
+
+**Mechanism reading — high-information closure:**
+1. **Col-mean small but load-bearing**: `embed_gc_col_mean_norm` ≈ 2.3e-6 (tiny absolute norm), removing it costs +0.00792 val/loss (~5σ regression). The per-embedding-dimension DC component of the embed gradient encodes signal AdamW needs.
+2. **Row-mean is null-space**: `embed_gc_row_mean_norm` ≈ 2.5e-5 (~10× larger than col-mean), removing it has effectively zero effect on val/loss (NON-LOAD-BEARING gate). The per-token DC component is structurally orthogonal to the loss-relevant gradient subspace at this scale.
+3. **Non-additive interaction**: predicted D Δ under additivity = +0.00836 (B+C). Actual D = +0.00525, i.e. −0.00311 better than additive prediction. Row-mean and col-mean are not orthogonal information channels — they share structure. Double-centering removes both DC components and leaves only the (token, dim) interaction term; pure col-only (B) destroys the load-bearing structure more than double-centering (D) does.
+
+**Yong et al. 2020 standard GC (row-center for FC weights = arm C) is a no-op here.** The signal axis is rotated: it lives in the col direction (per-embedding-dim), not the row direction (per-token).
+
+**Axis status**: GRADIENT-LEVEL-NORMALIZATION (embed) 1-closure observation, NOT fully fenced. Mechanistically distinct deferred candidates: col-direction *addition* (amplification rather than removal), GC applied to body Muon gradients (different param group), col-center applied only during pre-cooldown phase (temporal gating), PCA-based gradient denoising (top-k principal components beyond rank-1).
+
+**Closure context — 9th consecutive no-merge closure since #847 (cycle 222)**. Plateau Protocol escalation trigger fires. First formal escalation: nezuko reassigned #1120 GaLore lm_head (low-rank gradient subspace projection on Zipfian-heavy lm_head — Zhao 2024). Mechanism-distinct from GC because GaLore changes the *dimensionality* of the update, not the DC component of the gradient.
+
+W&B runs: A=`85ewq0dg`, B=`t1cp131z`, C=`ly3b44li`, D=`dhy98hbv`.
+
 ## 2026-05-25 00:45 UTC — PR #1003: Per-block-TYPE Muon LR mult cooldown anneal (fern) — CLOSED productive-NULL on PP confirmation; SCHEDULE-CONTINUOUS-LR-MULT 1-closure observation
 
 - Branch: `g1r4-fern/per-block-type-muon-cooldown-anneal`
