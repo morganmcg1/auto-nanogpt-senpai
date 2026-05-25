@@ -1,3 +1,29 @@
+## 2026-05-25 08:12 UTC — PR #1118 CLOSED (askeladd): H139 Look-Ahead Body MuonH (SEVERE NEG closure; **cosine-cooldown-drain mechanism** — NOT two-slow-weights-conflict; LA arms LED CTRL by +0.05 at step 1000 but catastrophically drain under cosine cooldown; MuLoCo undisturbed by LA at aggregator level; **H146 immediately assigned to rescue mid-training benefit under NEW LINEAR cooldown**)
+
+- Branch: `g1r3-askeladd/h139-lookahead-muonh`
+- Hypothesis: Look-Ahead optimizer (Zhang et al. 2019) wrapping body MuonH — k=5/10, α=0.5. Tests whether LA's slow-weight trajectory smoothing improves body gradient updates while MuLoCo outer aggregator handles large-scale optimization. Decision-rule predicted "two-slow-weights-conflict" as likely failure mode.
+- Terminal results (student SENPAI-RESULT marker valid, all 3 wandb_run_ids):
+  - arm_a CTRL la_k=0 `cu5xympt` val/loss=**3.26836** (NULL bit-id within widened CTRL [3.26721, 3.27091]) ffs=3025 ✓
+  - arm_b LA_K5 `9q0ngm5c` val/loss=**3.32156** **SEVERE NEG** Δ=+0.056 vs NEW baseline 3.26547 (ffs=-1 never reached 3.28)
+  - arm_c LA_K10 `5av0u9i9` val/loss=**3.32062** **SEVERE NEG** Δ=+0.055 vs NEW baseline (ffs=-1)
+  - k-independence confirmed: |arm_b - arm_c| = 0.00094 (within seed noise)
+- Verdict: **CLOSED as SEVERE NEG.** Best=arm_a CTRL 3.26836 fails WIN threshold 3.26467 by 0.00369. No merge.
+- **MECHANISM REVISION — "TWO-SLOW-WEIGHTS-CONFLICT" FALSIFIED BY DECISIVE TELEMETRY**:
+  - MuLoCo delta_rms, velocity_rms, effective_lr, active_fraction IDENTICAL across all 3 arms (within 6 sig figs at terminal). Look-Ahead does NOT disturb MuLoCo outer aggregator AT ALL.
+  - Hypothesis in PR body and advisor heartbeats was WRONG. Student corrected it with data.
+- **ACTUAL MECHANISM: COSINE-COOLDOWN-DRAIN** (third programme confirmation alongside H125 + H127):
+  - Steps 500-2000: LA arms LEAD arm_a CTRL by up to **+0.061 val/loss** at step 1000 — trajectory smoothing is genuinely BENEFICIAL in bulk training
+  - Crossover at step ~2125: LA transitions from leading to lagging CTRL
+  - Steps 2500-3325: stale slow weights pull fast weights BACKWARD against cosine cooldown's precision-tuning gradient → +0.053 SEVERE NEG at terminal
+  - Family: H125 (global Polyak EMA, cosine cooldown) + H127 (AdamW EMA, cosine cooldown) + H139 (Look-Ahead body MuonH, cosine cooldown) = three slow-weight mechanisms all catastrophically harmed by cosine cooldown's late-phase precision tuning
+- **SNAP-DISTANCE-RMS MECHANISM TRACE**: peak at step ~100 (k=10: 2.275, k=5: 1.173 — ~2× ratio consistent with k). Monotonic decay 6500× from peak to terminal. Terminal snaps arithmetically tiny (0.000184 / 0.000351) but coherently BACKWARD against cooldown direction.
+- **K-INDEPENDENCE VIA MECHANISM**: both k=5 (664 snaps) and k=10 (332 snaps) have enough cooldown-phase snaps to fully drain cooldown gains. Harm-per-snap × snap-count approximately conserved across k.
+- **CRITICAL PROGRAMME OBSERVATION**: H139 ran with `--muonh_cooldown_shape cosine` (OLD pre-H133 default). H133 merged LINEAR cooldown as the new baseline. Cosine-cooldown-drain mechanism is by definition cosine-specific. **Under NEW LINEAR baseline, LA mechanism may behave completely differently** — opened H146 immediately.
+- **SMOKE-GATE LESSON**: smoke test at 200 steps cannot predict late-cooldown failure modes. Future slow-weight mechanism smoke gates need a mid-cooldown checkpoint (~step 3000) not just early-training sanity.
+- Step time overhead for LA: statistically ZERO (arm_b/c marginally FASTER than arm_a by 0.5-1ms, within measurement noise).
+- Student suggested follow-ups: (1) la_disable_after_step=2500 (surgical cooldown drain removal — directly assigned as H146 arm_c); (2) la_alpha=0.1 for milder pull; (3) LA on aux subsystem only (H139 speculation #4). Advisor agreed #1 most high-signal and included in H146.
+- Operational excellence: mechanism revision based on decisive MuLoCo telemetry (not just accepting PR-body prediction), 8-checkpoint trajectory, snap_distance_rms per arm, mid-training crossover analysis. Corrected TWO wrong predictions (two-slow-weights-conflict mechanism AND k-dependent-vs-k-independent outcome). Textbook negative-result scholarship.
+
 ## 2026-05-25 07:50 UTC — PR #1112 CLOSED (nezuko): H137 NS5 Precision Sweep (NULL/NEG closure; 10th NS5 axis closure within quintic family; bf16 is precision-optimal at the bf16-cast boundary; **spectral health DECOUPLED from val/loss outcome** — 3 mantissa bits over bf16 sufficient to saturate spectral tightening, 13 more bits buy nothing)
 
 - Branch: `g1r3-nezuko/h137-ns5-precision-sweep`
