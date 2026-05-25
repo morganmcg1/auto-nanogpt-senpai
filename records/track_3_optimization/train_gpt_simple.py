@@ -64,6 +64,9 @@ def parse_args():
     parser.add_argument("--muon_lr", type=float, default=0.035,
                         help="Base learning rate for body-Muon optimizer (matrix params in blocks). "
                              "Default 0.035 matches the merged baseline.")
+    parser.add_argument("--z_loss_coef", type=float, default=0.0,
+                        help="Z-loss coefficient lambda for lambda * log^2(Z) regularization "
+                             "(PaLM, Chowdhery et al. 2022, sec 5.1). PaLM uses 1e-4. 0 = disabled (baseline).")
     args = parser.parse_args()
     args.num_trials = args.num_trials if args.num_trials is not None else (args.legacy_num_trials or 1)
     args.wandb_tags = [tag.strip() for tag in args.wandb_tags.split(",") if tag.strip()]
@@ -445,6 +448,15 @@ class GPT(nn.Module):
         self.proj = Linear(model_dim, vocab_size)
         self.norm1 = RMSNorm(model_dim)
         self.norm2 = RMSNorm(model_dim)
+        # Z-loss (PaLM Chowdhery et al. 2022, sec 5.1): lambda * mean(log^2(Z))
+        # where Z = sum_v exp(logits_v). Only active in training mode when coef > 0.
+        # Last-microbatch telemetry buffers (non-persistent, read by training loop).
+        self.z_loss_coef = float(getattr(args, "z_loss_coef", 0.0))
+        self.register_buffer("z_loss_log_z_mean", torch.zeros((), dtype=torch.float32), persistent=False)
+        self.register_buffer("z_loss_log_z_std", torch.zeros((), dtype=torch.float32), persistent=False)
+        self.register_buffer("z_loss_log_z_max", torch.zeros((), dtype=torch.float32), persistent=False)
+        self.register_buffer("z_loss_value", torch.zeros((), dtype=torch.float32), persistent=False)
+        self.register_buffer("z_loss_ce_value", torch.zeros((), dtype=torch.float32), persistent=False)
 
     def forward(self, inputs: Tensor, targets: Tensor):
         x = self.norm1(self.embed(inputs))
@@ -452,7 +464,19 @@ class GPT(nn.Module):
             x = block(x)
         logits = self.proj(self.norm2(x)).float()
         logits = 15 * logits * (logits.square() + 15**2).rsqrt()
-        return F.cross_entropy(logits.view(targets.numel(), -1), targets.view(-1), reduction="sum")
+        logits_flat = logits.view(targets.numel(), -1)
+        targets_flat = targets.view(-1)
+        ce_loss = F.cross_entropy(logits_flat, targets_flat, reduction="sum")
+        if self.training and self.z_loss_coef > 0.0:
+            log_Z = torch.logsumexp(logits_flat, dim=-1)
+            z_loss = (log_Z ** 2).sum() * self.z_loss_coef
+            self.z_loss_log_z_mean.copy_(log_Z.detach().mean())
+            self.z_loss_log_z_std.copy_(log_Z.detach().std())
+            self.z_loss_log_z_max.copy_(log_Z.detach().max())
+            self.z_loss_value.copy_(z_loss.detach())
+            self.z_loss_ce_value.copy_(ce_loss.detach())
+            return ce_loss + z_loss
+        return ce_loss
 
 
 ########################################
@@ -720,6 +744,8 @@ if dist.get_rank() == 0:
             "ema_warmup_steps": args.ema_warmup_steps,
             "ema_beta_target": args.ema_beta_target if args.ema_beta_target is not None else 0.0,
             "ema_dynamic_ramp_active": int(args.ema_beta_target is not None and args.ema_beta > 0),
+            "z_loss_coef": args.z_loss_coef,
+            "z_loss_active": int(args.z_loss_coef > 0.0),
         },
     )
 
@@ -978,6 +1004,20 @@ for trial_idx in range(args.num_trials):
                 train_steps=train_steps,
                 wandb_step=wandb_step,
             )
+        if dist.get_rank() == 0 and telemetry_due and args.z_loss_coef > 0.0:
+            z_ce = float(model.z_loss_ce_value.item())
+            z_val = float(model.z_loss_value.item())
+            wandb.log({
+                "trial": trial_idx,
+                "train/step": train_step,
+                "z_loss/log_Z_mean": float(model.z_loss_log_z_mean.item()),
+                "z_loss/log_Z_std": float(model.z_loss_log_z_std.item()),
+                "z_loss/log_Z_max": float(model.z_loss_log_z_max.item()),
+                "z_loss/z_loss_value": z_val,
+                "z_loss/ce_loss_value": z_ce,
+                "z_loss/z_loss_ratio_to_ce": z_val / max(z_ce, 1e-12),
+                "z_loss/coef": args.z_loss_coef,
+            }, step=wandb_step)
         for opt in optimizers:
             opt.step()
         # EMA buffer update on body-Muon matrix params.
