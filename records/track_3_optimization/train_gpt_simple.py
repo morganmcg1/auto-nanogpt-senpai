@@ -593,6 +593,20 @@ NANOGPT_SENPAI_SEED = int(_SENPAI_SEED_RAW) if _SENPAI_SEED_RAW != "" else None
 # `embed.weight -= lr_embed * lambda * (embed.weight - embed_init_snapshot)`.
 # At lambda=0 the hook is a no-op and behavior is bit-identical to the merged stack.
 NANOGPT_EMBED_INIT_ANCHOR_LAMBDA = float(os.environ.get("NANOGPT_EMBED_INIT_ANCHOR_LAMBDA", "0.0"))
+# Body Muon momentum-buffer → NS5 gradient-noise injection (#1088).
+# When > 0, on each body Muon step we add RMS-scaled Gaussian noise to the NS5
+# *input* (the v-preconditioned update under Muon^2). The momentum buffer and
+# the second-moment buffer are never written-back with noise — only the NS5
+# input is perturbed each step. STD=0 (default) is a bit-identical no-op.
+NANOGPT_MUON_NOISE_STD = float(os.environ.get("NANOGPT_MUON_NOISE_STD", "0.0"))
+NANOGPT_MUON_NOISE_SCHEDULE = os.environ.get("NANOGPT_MUON_NOISE_SCHEDULE", "constant")
+_VALID_MUON_NOISE_SCHEDULES = ("constant", "cosine")
+if NANOGPT_MUON_NOISE_SCHEDULE not in _VALID_MUON_NOISE_SCHEDULES:
+    raise ValueError(
+        f"NANOGPT_MUON_NOISE_SCHEDULE={NANOGPT_MUON_NOISE_SCHEDULE!r}, "
+        f"must be one of {_VALID_MUON_NOISE_SCHEDULES}"
+    )
+_MUON_NOISE_ACTIVE = NANOGPT_MUON_NOISE_STD > 0.0
 
 
 def get_ns_coef_at_iter(iter_idx: int, total_iters: int, schedule: str) -> tuple[float, float, float]:
@@ -691,13 +705,37 @@ def zeropower_via_newtonschulz5(G: Tensor, ns_iters: int) -> Tensor:
         X = X.mT
     return X
 
+def get_muon_noise_std(step: int, total_steps: int) -> float:
+    """Step-dependent σ for body Muon NS5-input noise injection (#1088).
+
+    constant -> σ = NANOGPT_MUON_NOISE_STD throughout.
+    cosine   -> σ decays from NANOGPT_MUON_NOISE_STD at step=0 to 0 at step=total_steps.
+    Returns 0.0 when the feature is gated off so the noise path is a no-op.
+    """
+    if not _MUON_NOISE_ACTIVE:
+        return 0.0
+    if NANOGPT_MUON_NOISE_SCHEDULE == "constant":
+        return NANOGPT_MUON_NOISE_STD
+    if NANOGPT_MUON_NOISE_SCHEDULE == "cosine":
+        return NANOGPT_MUON_NOISE_STD * 0.5 * (1.0 + math.cos(math.pi * step / max(total_steps, 1)))
+    return 0.0
+
+
 @torch.compile
-def muon_update(grad, momentum, v, ns_iters: int, mu=0.95, beta2=0.999, eps=1e-8, nesterov=True):
+def muon_update(grad, momentum, v, ns_iters: int, mu=0.95, beta2=0.999, eps=1e-8,
+                nesterov=True, noise=None, noise_scale: float = 0.0):
     momentum.lerp_(grad, 1 - mu)
     update = grad.lerp_(momentum, mu) if nesterov else momentum
     # Muon^2: Adam-style second-moment preconditioning before NS (arXiv:2504.09967).
     v.mul_(beta2).addcmul_(update, update, value=1 - beta2)
     update = update / (v.sqrt() + eps)
+    # Body Muon NS5-input gradient-noise injection (#1088). When `noise` is not
+    # None, add RMS-scaled Gaussian perturbation to the NS5 input. Critically,
+    # `momentum` and `v` are NOT modified by the noise — only the local `update`
+    # variable is rebound here, so the running EMAs stay noise-free across steps.
+    if noise is not None:
+        buf_rms = update.pow(2).mean().sqrt()
+        update = update + noise * (noise_scale * buf_rms)
     update = zeropower_via_newtonschulz5(update, ns_iters=ns_iters)
     update *= max(1, grad.size(-2) / grad.size(-1))**0.5
     return update
@@ -729,9 +767,19 @@ class Muon(torch.optim.Optimizer):
         # the training loop reads back after the optimizer step.
         self.spectral_telemetry_param: torch.nn.Parameter | None = None
         self.spectral_stats: dict[str, float] | None = None
+        # NS5-input noise injection (#1088). `noise_generator` is a per-rank
+        # torch.Generator seeded by SENPAI_SEED (set by the training loop after
+        # construction); `noise_scale_this_step` is the step-dependent σ that the
+        # training loop sets via `set_noise_scale_this_step()` before each step.
+        # Both default to no-op so unset env vars give bit-identical behavior.
+        self.noise_generator: torch.Generator | None = None
+        self.noise_scale_this_step: float = 0.0
 
     def set_ns_iters_this_step(self, ns_iters: int) -> None:
         self.ns_iters_this_step = int(ns_iters)
+
+    def set_noise_scale_this_step(self, scale: float) -> None:
+        self.noise_scale_this_step = float(scale)
 
     @torch.no_grad()
     def step(self):
@@ -739,6 +787,9 @@ class Muon(torch.optim.Optimizer):
         rank = dist.get_rank()
         ns_iters = self.ns_iters_this_step
         spectral_target = self.spectral_telemetry_param
+        noise_scale = self.noise_scale_this_step
+        noise_generator = self.noise_generator
+        noise_active = noise_scale > 0.0 and noise_generator is not None
         # Reset spectral_stats at the start of each step; only the rank that
         # owns the tracked parameter on this round-robin shard will repopulate.
         self.spectral_stats = None
@@ -752,9 +803,16 @@ class Muon(torch.optim.Optimizer):
                     if len(state) == 0:
                         state["momentum"] = torch.zeros_like(p)
                         state["v"] = torch.zeros_like(p)
+                    # Per-step per-matrix independent noise draw, gated on
+                    # noise_active so unset env vars don't consume RNG state.
+                    if noise_active:
+                        noise = torch.empty_like(p).normal_(generator=noise_generator)
+                    else:
+                        noise = None
                     update = muon_update(p.grad, state["momentum"], state["v"],
                                          ns_iters=ns_iters,
-                                         mu=group["mu"], beta2=group["beta2"], eps=group["eps"])
+                                         mu=group["mu"], beta2=group["beta2"], eps=group["eps"],
+                                         noise=noise, noise_scale=noise_scale)
                     if spectral_target is not None and p is spectral_target:
                         # Singular values of the orthogonalized (post-NS) update.
                         # Multiplied by max(1, fan_in/fan_out)**0.5 inside muon_update;
@@ -763,7 +821,9 @@ class Muon(torch.optim.Optimizer):
                         u_for_svd = (update.detach().float() / scale)
                         try:
                             svals = torch.linalg.svdvals(u_for_svd)
-                            self.spectral_stats = {
+                            top10_k = min(10, svals.numel())
+                            top10 = torch.topk(svals, top10_k).values
+                            stats = {
                                 "u_singular_max": float(svals.max().item()),
                                 "u_singular_min": float(svals.min().item()),
                                 "u_singular_mean": float(svals.mean().item()),
@@ -771,8 +831,34 @@ class Muon(torch.optim.Optimizer):
                                 "u_singular_std": float(svals.std(unbiased=False).item()),
                                 "ns_iters_used": float(ns_iters),
                             }
+                            for i in range(top10_k):
+                                stats[f"u_singular_top{i+1}"] = float(top10[i].item())
+                            self.spectral_stats = stats
                         except Exception:
                             self.spectral_stats = None
+                        # Body Muon update RMS + sign-flip rate (#1088 diagnostics).
+                        # NS5 normalizes spectral direction so RMS should be near
+                        # invariant to noise injection — confirms the noise path
+                        # does not blow up update magnitude. Sign-flip rate
+                        # compares this step's update sign to the previous step's
+                        # for the same parameter.
+                        u_det = update.detach().float()
+                        try:
+                            u_rms = float(u_det.pow(2).mean().sqrt().item())
+                        except Exception:
+                            u_rms = float("nan")
+                        if self.spectral_stats is not None:
+                            self.spectral_stats["u_rms"] = u_rms
+                        prev_update = state.get("prev_update_for_signflip", None)
+                        if prev_update is not None:
+                            flips = (torch.sign(u_det) * torch.sign(prev_update)) < 0
+                            sign_flip_frac = float(flips.float().mean().item())
+                        else:
+                            sign_flip_frac = float("nan")
+                        state["prev_update_for_signflip"] = u_det.clone()
+                        if self.spectral_stats is not None:
+                            self.spectral_stats["u_sign_flip_frac"] = sign_flip_frac
+                            self.spectral_stats["noise_scale_this_step"] = float(noise_scale)
                     p.mul_(1 - group["lr"] * group["weight_decay"])
                     p.add_(update, alpha=-group["lr"])
                 dist.all_gather(params_pad[base_i:base_i + world_size], params_pad[base_i + rank])
@@ -823,6 +909,9 @@ print0(f"MUON_LR_MULT: attn={NANOGPT_MUON_ATTN_LR_MULT:.3f} mlp={NANOGPT_MUON_ML
 print0(f"  Effective Muon base LRs: attn={0.035*NANOGPT_MUON_ATTN_LR_MULT:.5f} mlp={0.035*NANOGPT_MUON_MLP_LR_MULT:.5f}", console=True)
 print0(f"EMBED_INIT_ANCHOR_LAMBDA: {NANOGPT_EMBED_INIT_ANCHOR_LAMBDA} "
        f"({'ACTIVE' if NANOGPT_EMBED_INIT_ANCHOR_LAMBDA > 0 else 'INACTIVE (bit-identical fallback)'})",
+       console=True)
+print0(f"MUON_NOISE: std={NANOGPT_MUON_NOISE_STD} schedule={NANOGPT_MUON_NOISE_SCHEDULE} "
+       f"({'ACTIVE (body-Muon NS5-input RMS-scaled Gaussian)' if _MUON_NOISE_ACTIVE else 'INACTIVE (bit-identical fallback)'})",
        console=True)
 if NS_ITERS_COOLDOWN > 0:
     print0(f"NS_SCHEDULE: ns_iters={NS_ITERS} -> ns_iters_cooldown={NS_ITERS_COOLDOWN} "
@@ -896,6 +985,9 @@ if dist.get_rank() == 0:
             "nanogpt_ns_stochastic_cooldown": NANOGPT_NS_STOCHASTIC_COOLDOWN,
             "senpai_seed": NANOGPT_SENPAI_SEED if NANOGPT_SENPAI_SEED is not None else -1,
             "nanogpt_embed_init_anchor_lambda": NANOGPT_EMBED_INIT_ANCHOR_LAMBDA,
+            "nanogpt_muon_noise_std": NANOGPT_MUON_NOISE_STD,
+            "nanogpt_muon_noise_schedule": NANOGPT_MUON_NOISE_SCHEDULE,
+            "nanogpt_muon_noise_active": int(_MUON_NOISE_ACTIVE),
         },
     )
 
@@ -959,6 +1051,20 @@ for trial_idx in range(args.num_trials):
     # Track orthogonalized-update spectrum on first block's attention q.weight
     # to surface NS-schedule effects in W&B telemetry.
     optimizer2.spectral_telemetry_param = model.blocks[0].attn.q.weight
+    # Body Muon NS5-input noise generator (#1088). Per-rank torch.cuda.Generator
+    # seeded from SENPAI_SEED (mixed with trial_idx so successive trials draw
+    # independent streams). Stays None when noise is gated off — the optimizer
+    # then short-circuits the noise path entirely.
+    if _MUON_NOISE_ACTIVE:
+        muon_noise_generator = torch.Generator(device=device)
+        seed_base = NANOGPT_SENPAI_SEED if NANOGPT_SENPAI_SEED is not None else 0
+        # 100003 is prime, dist.get_rank() de-correlates streams across ranks.
+        muon_noise_generator.manual_seed(seed_base * 100003 + trial_idx * 17 + dist.get_rank())
+        optimizer2.noise_generator = muon_noise_generator
+        print0(f"MUON_NOISE_GEN: seed_base={seed_base} trial={trial_idx} rank={dist.get_rank()} "
+               f"-> seed={seed_base * 100003 + trial_idx * 17 + dist.get_rank()}", console=True)
+    else:
+        optimizer2.noise_generator = None
     cooldown_start_step = int(train_steps * NS_COOLDOWN_START_FRAC)
     ns_iters_history: list[int] = []
     ns_cumulative_iters = 0
@@ -1200,6 +1306,10 @@ for trial_idx in range(args.num_trials):
         else:
             ns_iters_this_step = ns_iters_deterministic
         optimizer2.set_ns_iters_this_step(ns_iters_this_step)
+        # Step-dependent body Muon NS5-input noise scale (#1088). Returns 0.0
+        # when the feature is gated off; the optimizer short-circuits in that case.
+        muon_noise_scale_this_step = get_muon_noise_std(step, train_steps)
+        optimizer2.set_noise_scale_this_step(muon_noise_scale_this_step)
         if dist.get_rank() == 0:
             ns_iters_history.append(ns_iters_this_step)
             if len(ns_iters_history) > 100:
@@ -1296,6 +1406,11 @@ for trial_idx in range(args.num_trials):
             if optimizer2.spectral_stats is not None:
                 for k, v in optimizer2.spectral_stats.items():
                     ns_metrics[f"train/ns_schedule/{k}"] = v
+            # Body Muon noise injection telemetry (#1088). `muon_noise_scale_this_step`
+            # is the σ_t for *this* step (cosine schedule shrinks across training);
+            # active flag stays constant per run.
+            ns_metrics["train/muon_noise/scale_this_step"] = muon_noise_scale_this_step
+            ns_metrics["train/muon_noise/active"] = int(_MUON_NOISE_ACTIVE)
             # Per-iter NS coefficient telemetry (probes 3 representative iters).
             current_ns_iters = ns_iters_this_step
             a0, b0, c0 = get_ns_coef_at_iter(0, current_ns_iters, NS_COEF_SCHEDULE)
