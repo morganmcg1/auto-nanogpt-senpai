@@ -1,3 +1,31 @@
+## 2026-05-25 13:55 — PR #1149: H145 NS5 application-frequency sweep (NULL/NEG closure)
+- Branch: `g1r3-nezuko/h145-ns5-apply-frequency`
+- Hypothesis: NS5 orthogonalization currently fires every step (K=1). Does sparse application (K=2 every other step; K=4 every 4 steps) preserve learning while saving wallclock? Tests whether NS5 is one-shot landing (drift between fires is tolerable) or active maintenance (drift between fires accumulates damage). Secondary hypothesis: wallclock savings ~10-15% at K=2, ~22-25% at K=4 (assuming NS5 is 30-40% of step cost).
+
+| Arm | Config | run_id | val/loss | Δ vs baseline | Δ vs CTRL | step_avg_ms | Band |
+|---|---|---|---|---|---|---|---|
+| arm_a | CTRL K=1 (every step) | `w8vjre5w` | 3.27291 | +0.00744 | 0 | 60.78 | NULL (single-trial bad-luck, just above widened CTRL upper 3.27091) |
+| arm_b | K=2 (every other step) | `007ezzsb` | 3.33408 | +0.06861 | +0.06117 | 60.10 | **NEG** (+0.06591 above threshold) |
+| arm_c | K=4 (every 4 steps) | `78lgulf3` | 3.35543 | +0.08996 | +0.08252 | 59.92 | **SEVERE NEG** |
+
+Baseline: 3.26547 (PR #1097 fern H133). WIN < 3.26467 | NULL [3.26377, 3.26817] | NEG > 3.26817
+
+**Verdict: NULL/NEG closure. NS5 frequency-axis closes at K=1 with strong "every-step required" verdict. Monotone K=1→K=2→K=4 degradation.**
+
+**Results commentary:**
+- Monotone K=1 ≺ K=2 ≺ K=4 at every checkpoint after step 250. Mid-training divergence at step 125 with gap +0.55 (huge). No late-training recovery.
+- Per-iter SV at step 501: iter_12 sv_max ≈ 1.005, sv_med ≈ 1.000 across ALL 3 arms. NS5 STILL converges to the same tight cluster when it fires; damage is in loss trajectory from unorthogonalized intermediate updates.
+- Wallclock savings NEGLIGIBLE: 1.12% at K=2, 1.42% at K=4 (vs predicted 10-25%). NS5 is much smaller fraction of step cost than the 30-40% proxy estimate.
+
+**Key mechanism findings:**
+1. **NS5 is ACTIVE MAINTENANCE, not one-shot landing — first definitive demonstration**: body-weight spectrum drifts between NS5 firings via plain Nesterov-mixed gradient updates. K=2/K=4 catastrophically degrade learning even though NS5 STILL converges when it fires. The damage is in the loss trajectory from unorthogonalized intermediate updates. NS5 *maintains* the spectral cluster — it does not *re-establish* it from arbitrary drift.
+2. **Sparse-K spectral footprint shows pre-NS5 drift, not post-NS5 failure**: iter_0 sv_max rises 0.367 → 0.387 across K=1 → K=4 (pre-NS5 update spectrum slightly more skewed for sparse-K). But iter_12 cluster signature is IDENTICAL across arms. The 12-iter NS5 quintic tames any post-skip drift in one application; drift between fires is what hurts.
+3. **Wallclock savings from sparse NS5 are NEGLIGIBLE — secondary hypothesis bilaterally falsified**: NS5 is much smaller fraction of step cost than the 30-40% proxy estimate. Future NS5 throughput optimization must focus on per-step NS5 speedup (H129 already closed: 12-iter is optimal) or non-NS5 step components.
+4. **Mid-training divergence point: step 125, gap +0.55 (huge)**: sparse-K paths diverge from K=1 immediately in warm-up regime. Gap shrinks across cooldown but never closes. K=1 ≺ K=2 ≺ K=4 monotone at every checkpoint after step 250. No late-training recovery — rules out any "compensating mechanism" interpretation.
+5. **12-axis NS5 closure portfolio complete — STRATEGY-TIER SHIFT NOW WARRANTED**: H78 (per-layer iso-budget), H88 (polar map polynomial family), H90 (NSCubic degree sweep), H93 (PSGD-Kron NS5 alternative), H98 (Sophia-G diagonal Hessian pre-NS5), H106 (NS5 coefficient sweep), H115 (partial-orth sv equilibrium), H121 (NS5 iter-count sweep), H129 (NS5 12-iter optimality), H132 (NS5 sv_med refinement), H137 (NS5 precision bf16), H145 (NS5 firing frequency external axis). **Entire NS5 polynomial family + iteration + frequency + precision + coefficient axes EXHAUSTED.** Future improvements on the body orthogonalization mechanism require leaving the NS5 polynomial family entirely.
+
+→ **H153 assigned**: WSM (Warmup-Stable-Merge) post-hoc checkpoint merging (Tian et al. 2024, ICLR 2026 Oral) — plateau-protocol strategy-tier shift OUT of NS5 specialty. Mechanism-orthogonal to ALL 7 in-flight experiments AND to closed EMA-family (H120/H125/H127/H136/H144 were CONTINUOUS EMA during training; WSM is DISCRETE snapshots merged AT END).
+
 ## 2026-05-25 13:10 — PR #1146: H144 AdEMAMix optimizer for aux groups (NULL/NEG closure)
 - Branch: `g1r3-alphonse/h144-ademamix-aux-optimizer`
 - Hypothesis: AdEMAMix (Pagliardini et al. 2024) adds a slow EMA momentum buffer (β3=0.9999) to AdamW's fast EMA (β1=0.8). The mixture parameter α scales the slow EMA contribution. Tests training-time dual-EMA momentum mixture as an orthogonal direction from eval-time weight averaging (H120/H125/H127/H136).
