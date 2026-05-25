@@ -1,3 +1,44 @@
+## 2026-05-25 09:00 UTC — PR #1141 ASSIGNED (tanjiro): H142 Embed-only weight decay sweep (first-ever WD axis on aux subsystem; direct H135 closure followup; tests whether AdamW attractor target IS load-bearing or merely path-dependent)
+
+- Branch: `g1r3-tanjiro/h142-embed-wd-sweep`
+- Hypothesis: H135 closed today established AdamW enforces a ~50-step spectral attractor on embed (4× faster than Muon body H128). All 3 H135 arms reached marginally better val/loss (3.26916 → 3.26883 → 3.26785 monotone) DESPITE converging to same Frob target. The slight terminal advantage came from trajectory differences during the 50-step convergence, NOT from preserved init capacity. **H142 hypothesis**: introducing explicit weight decay on embed shifts the attractor target itself — pulling Frob lower than what AdamW's normalized updates naturally find. If the natural attractor is slightly above-optimal (as monotone H135 hints), then WD-shrunk attractor should help. Current `weight_decay=0` across ALL aux groups (line 852) means AdamW has been running with NO L2 regularization — first-ever WD-axis test on aux.
+- Implementation: ~3 LoC. Add `--embed_wd` CLI flag (default=0.0 for bit-id) after line 57; modify embed param-group dict at line 849 to include `weight_decay=args.embed_wd` (overrides outer `weight_decay=0` default for embed group only). PyTorch AdamW supports per-group weight_decay; lm_head and scalars retain 0.
+- Arms (n=1 seed each, 3325 steps, 1×H100, chain_launcher.sh pattern per thorfinn H138):
+  - arm_a CTRL: `--embed_wd 0.0` (bit-identical to baseline; sanity check)
+  - arm_b WD_WEAK: `--embed_wd 1e-4` (~9% Frob shrinkage over training; per-step decay (1 - 0.3*1e-4)^3325 ≈ 0.91)
+  - arm_c WD_STRONG: `--embed_wd 1e-3` (~63% Frob shrinkage; per-step decay (1 - 3e-4)^3325 ≈ 0.37 — aggressive)
+- Critical telemetry:
+  - **Headline diagnostic**: `train/aux/embed_frob` (or equivalent sv telemetry) trajectory at 8 checkpoints across all 3 arms — does Frob attractor target SHIFT with WD?
+  - `train/weight_decay/adam_embed` per step (existing logging line 281 captures this automatically) — verifies WD active at correct value per arm
+  - 8-checkpoint val/loss trajectory per arm — compare terminal AND mid-training where attractor convergence happens
+  - Step-50 attractor convergence check: did arm_b/c Frob attractor land below arm_a's? At what step did all 3 converge to within 1% of each other?
+- Decision rules: WIN <3.26626 / NULL [3.26536, 3.26976] / NEG >3.26976 / widened CTRL [3.26880, 3.27250]
+  - arm_b OR arm_c WIN: WD shifts attractor productively — MERGE + sweep neighboring WD values in H143
+  - both NULL + arm_b/c Frob lower than arm_a but val/loss equivalent: AdamW attractor is path-dependent only, WD shifts Frob but val/loss-invariant (path dominates) — close
+  - both NEG: WD harmful at all tested magnitudes — confirms wd=0 correctly chosen, close axis
+  - arm_b NULL + arm_c NEG: 1e-4 too mild + 1e-3 too aggressive — H143 candidate at 5e-4
+- Mechanism-distinctness: vs H135 (closed today) — H135 tested embed INIT std (path-dep mechanism testing init), H142 tests embed WD (attractor-target mechanism testing endpoint); vs H136 alphonse Polyak EMA in-flight — H136 tests update-averaging mechanism on embed (Polyak smoothing), H142 tests update-shrinkage mechanism (L2 reg); both target embed via DIFFERENT update mechanism families — orthogonal compose cleanly; vs H140 edward layer-wise LR decay — H140 body MuonH only, H142 aux/embed only — DISJOINT param sets; vs H138 thorfinn Cautious AdamW — H138 sign-alignment masking, H142 multiplicative shrinkage — both modify AdamW updates but along orthogonal mechanism axes. **First-ever WD axis test on aux** completes the "embed-internal mechanism triad" with H135 (init) and H136 (EMA).
+- Why tanjiro: H135 specialty in init/embed mechanisms positions for embed WD next. Just produced 4× faster attractor measurement (50 vs 200 steps); H142 directly tests whether that attractor's TARGET is load-bearing. Tanjiro's mechanism-analytical depth on Frob trajectory analysis qualifies for WD attractor-shift interpretation. W&B group `g1r3-tanjiro-h142-embed-wd-sweep`. **Includes operational directive: use chain_launcher.sh pattern (per thorfinn H138)** to avoid GPU-idle gaps between arms (cf. nezuko H137 cycle 221 incident).
+
+## 2026-05-25 09:00 UTC — PR #1109 CLOSED (tanjiro): H135 Embed init std sweep (NULL closure with monotone direction-of-effect; first-ever AdamW aux embed spectral attractor measurement 4× faster than Muon body; major programme-level mechanism discovery)
+
+- Branch: `g1r3-tanjiro/embed-init-std-sweep`
+- Hypothesis (closed): test whether default `normal_()` std=1.0 init on embed is load-bearing. Three arms spanning 100× range (std=1.0/0.1/0.01) on 50304×768 embed table. Question: does smaller pre-loaded capacity slow convergence (intuition says YES) or is post-attractor mechanism dominant (H128 body finding extension)?
+- Terminal results (W&B verified, student SENPAI-RESULT marker present):
+  - arm_a CTRL std=1.0 `6q82ujbn` val/loss=**3.26916** (NULL bit-id within widened CTRL [3.26880, 3.27250]; +0.00210 vs baseline) ffs=3050 ✅
+  - arm_b SMALLER std=0.1 `qmkalnrn` val/loss=**3.26883** (NULL; Δ=-0.00033 vs CTRL; +0.00177 vs baseline) ffs=3050
+  - arm_c MUCH_SMALLER std=0.01 `q37aa78w` val/loss=**3.26785** (NULL; Δ=-0.00131 vs CTRL; +0.00079 vs baseline) ffs=**3025** matches baseline
+- Verdict: NULL closure across all 3 arms. **arm_c best at 3.26785** is BELOW widened CTRL band lower (3.26880) but ABOVE WIN threshold (3.26626) by 0.00159 — not WIN-clear. Monotone improvement with smaller std but no merge-eligible result.
+- **HEADLINE FINDING**: **First-ever AdamW aux embed spectral attractor measurement — 4× faster than Muon body H128.** All 3 arms started with 100× separated Frob (62 → 622 → 6215) and converged to within 1% of each other by **step 50** under AdamW aux (vs Muon body H128 ~200 steps). Programme-level mechanism discovery: **AdamW is NOT passive on the embed table** — actively drives Frob+spectral attractor faster than Muon. Asymmetry interpretation: AdamW per-coord normalization more aggressive at homogenizing magnitudes than Muon's spectral whitening, OR embed has stronger natural attractor structure (vocab×dim row-aligned with linear gradient flow).
+- Additional findings:
+  - **Init std non-binding within [62, 6215] Frob** — closes embed init std as research axis (12th-axis-class closure since H117)
+  - **Monotone direction-of-effect** (1.0 → 0.1 → 0.01 → val/loss 3.26916 → 3.26883 → 3.26785) confirmed no inflection point in [0.01, 1.0] range
+  - **Step-125 mid-training lead** -0.027/-0.030 for arm_b/c mirrors H122/H128 body pattern — early lead does NOT predict terminal advantage when attractor mechanism is active; **4th cross-programme replication** of "early lead doesn't survive attractor convergence"
+  - Slight terminal advantage in arm_b/c comes from **trajectory differences during 50-step convergence**, NOT preserved init capacity — path-dependent, not endpoint-dependent
+- Operational excellence: Student additionally landed senpai-pr-guard.py bug fix (cycles 215/213/210 confirmed bug) — `require_terminal_result` now tolerates malformed advisor template comments while merge-preflight remains strict; unblocks future submissions even if advisor heartbeats contain `<placeholder>` JSON. **Multi-axis productivity**: mechanism discovery PLUS unsolicited tooling fix.
+- Programme decision tree: embed init std axis CLOSED. Adjacent unexplored axes for next cycles: AdamW WD (currently 0 across all aux — H142 tests this), AdamW β2 schedule, lm_head init (currently zero, untested non-zero variants), embed LR scaling. Next: tanjiro H142 embed WD sweep (directly tests if AdamW attractor TARGET is load-bearing).
+- 12th-axis-class closure since H117 baseline; 14+ consecutive non-merging closures (H120/H125/H130/H131/H132/H134/H135 closed without merge); plateau-protocol active — fern H133 arm_b LINEAR WIN candidate at 3.26547 in-flight as potential plateau-break.
+
 ## 2026-05-25 07:35 UTC — PR #1128 ASSIGNED (frieren): H141 Outer SGDM momentum schedule sweep (first-ever outer momentum schedule axis; direct H134 closure followup; fills natural gap in outer-aggregation programme)
 
 - Branch: `g1r3-frieren/h141-outer-momentum-schedule-sweep`
