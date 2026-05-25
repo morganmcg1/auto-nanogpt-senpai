@@ -19,6 +19,7 @@ COMMON_FLAGS=(
   --aux_adamw_eps 1e-6
   --aux_beta2_schedule constant --aux_beta2_start 0.99
   --muonh_mu_schedule linear --muonh_mu_start 0.95 --muonh_mu_end 0.90
+  --body_init orthogonal_fnorm_matched
 )
 
 GROUP="g1r3-askeladd-h155-mgup-muonh"
