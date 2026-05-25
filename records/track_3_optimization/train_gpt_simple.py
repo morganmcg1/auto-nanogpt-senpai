@@ -70,6 +70,32 @@ def parse_args():
                              "Same formula as aux AGC: clip_scale = min(1, ratio * param_norm / grad_norm). "
                              "0.0 = disabled (default).")
     parser.add_argument("--muonh_agc_eps", type=float, default=float(os.environ.get("MUONH_AGC_EPS", "1e-3")))
+    # H157: AGC clip_ratio schedules. 'off' keeps clip_ratio constant at --aux_agc_clip_ratio
+    # / --muonh_agc_clip_ratio (bit-id with baseline when both are 'off'). 'linear' ramps
+    # from start (step 0) to end (step train_steps-1) across the full trajectory (H149-style).
+    # 'cooldown_linear' (H157) ramps only during the last `agc_schedule_late_frac` of training;
+    # constant before — confines the H149 ramp signal to the productive cooldown phase.
+    parser.add_argument("--aux_agc_clip_ratio_schedule", type=str,
+                        default=os.environ.get("AUX_AGC_CLIP_RATIO_SCHEDULE", "off"),
+                        choices=["off", "linear", "cooldown_linear"],
+                        help="Schedule for aux AGC clip_ratio. 'off' (default) keeps it constant at --aux_agc_clip_ratio. "
+                             "'linear' ramps from --aux_agc_clip_ratio (step 0) to --aux_agc_clip_ratio_end (step train_steps-1). "
+                             "'cooldown_linear' ramps from --aux_agc_clip_ratio to --aux_agc_clip_ratio_end only during the last "
+                             "--agc_schedule_late_frac fraction of training; constant before.")
+    parser.add_argument("--aux_agc_clip_ratio_end", type=float,
+                        default=float(os.environ.get("AUX_AGC_CLIP_RATIO_END", "0.05")),
+                        help="Terminal value for aux AGC clip_ratio when schedule != 'off'. Ignored when schedule=off.")
+    parser.add_argument("--muonh_agc_clip_ratio_schedule", type=str,
+                        default=os.environ.get("MUONH_AGC_CLIP_RATIO_SCHEDULE", "off"),
+                        choices=["off", "linear", "cooldown_linear"],
+                        help="Schedule for MuonH AGC clip_ratio. (See --aux_agc_clip_ratio_schedule for semantics.)")
+    parser.add_argument("--muonh_agc_clip_ratio_end", type=float,
+                        default=float(os.environ.get("MUONH_AGC_CLIP_RATIO_END", "0.05")),
+                        help="Terminal value for MuonH AGC clip_ratio when schedule != 'off'. Ignored when schedule=off.")
+    parser.add_argument("--agc_schedule_late_frac", type=float,
+                        default=float(os.environ.get("AGC_SCHEDULE_LATE_FRAC", "0.33")),
+                        help="For cooldown_linear schedule: fraction of training during which AGC clip_ratio ramps. "
+                             "Default 0.33 (last ~1100 steps of 3325-step run). Matches but is independent of LR cooldown_frac.")
     parser.add_argument("--aux_adamw_eps", type=float, default=float(os.environ.get("AUX_ADAMW_EPS", "1e-10")),
                         help="Aux AdamW eps (default 1e-10 = baseline). Standard PyTorch is 1e-8.")
     # β2 schedule on aux AdamW (embed/lm_head/scalars). Mutates param_groups[*]['betas']
@@ -841,8 +867,13 @@ if dist.get_rank() == 0:
             "muloco_sync_interval": args.sync_interval,
             "aux_agc_clip_ratio": args.aux_agc_clip_ratio,
             "aux_agc_eps": args.aux_agc_eps,
+            "aux_agc_clip_ratio_schedule": args.aux_agc_clip_ratio_schedule,
+            "aux_agc_clip_ratio_end": args.aux_agc_clip_ratio_end,
             "muonh_agc_clip_ratio": args.muonh_agc_clip_ratio,
             "muonh_agc_eps": args.muonh_agc_eps,
+            "muonh_agc_clip_ratio_schedule": args.muonh_agc_clip_ratio_schedule,
+            "muonh_agc_clip_ratio_end": args.muonh_agc_clip_ratio_end,
+            "agc_schedule_late_frac": args.agc_schedule_late_frac,
             "aux_adamw_eps": args.aux_adamw_eps,
             "aux_beta2_schedule": args.aux_beta2_schedule,
             "aux_beta2_start": args.aux_beta2_start,
@@ -916,6 +947,13 @@ for trial_idx in range(args.num_trials):
                         "blocks.11.attn.q.weight", "blocks.11.mlp.fc.weight")
         sample_rows = [e for e in body_init_log if e["name"] in sample_names]
         print0(f"[H148 body_init={args.body_init}] sample F-norms: {sample_rows}", console=True)
+        print0(f"[H157 AGC SCHEDULE] aux_schedule={args.aux_agc_clip_ratio_schedule} "
+               f"aux_clip={args.aux_agc_clip_ratio}->{args.aux_agc_clip_ratio_end} | "
+               f"muonh_schedule={args.muonh_agc_clip_ratio_schedule} "
+               f"muonh_clip={args.muonh_agc_clip_ratio}->{args.muonh_agc_clip_ratio_end} | "
+               f"late_frac={args.agc_schedule_late_frac} "
+               f"ramp_start_step={int((1.0 - args.agc_schedule_late_frac) * args.train_steps)}",
+               console=True)
 
     # create the optimizer(s)
     # MuonH replaces plain Muon on the hidden 2D weights: hard hyperball projection
@@ -1027,7 +1065,28 @@ for trial_idx in range(args.num_trials):
                 g["mu"] = mu_t
         else:
             mu_t = 0.95
-        return muonh_warmup, b2, mu_t
+        # H149/H157: AGC clip_ratio schedules. 'off' is a no-op (bit-id with baseline
+        # when the constant clip_ratio matches baseline). 'linear' ramps the clip_ratio
+        # across all train_steps (full-trajectory). 'cooldown_linear' (H157) ramps only
+        # during the last `agc_schedule_late_frac` of training; constant before.
+        def _agc_clip_t(start_val, end_val, mode):
+            if mode == "off":
+                return start_val
+            if mode == "linear":
+                prog = step / max(1, train_steps - 1)
+                return start_val + prog * (end_val - start_val)
+            if mode == "cooldown_linear":
+                ramp_start = int((1.0 - args.agc_schedule_late_frac) * train_steps)
+                if step < ramp_start:
+                    return start_val
+                prog = (step - ramp_start) / max(1, train_steps - 1 - ramp_start)
+                return start_val + prog * (end_val - start_val)
+            raise ValueError(f"unknown AGC schedule: {mode}")
+        aux_agc_clip_t = _agc_clip_t(args.aux_agc_clip_ratio, args.aux_agc_clip_ratio_end,
+                                     args.aux_agc_clip_ratio_schedule)
+        muonh_agc_clip_t = _agc_clip_t(args.muonh_agc_clip_ratio, args.muonh_agc_clip_ratio_end,
+                                       args.muonh_agc_clip_ratio_schedule)
+        return muonh_warmup, b2, mu_t, aux_agc_clip_t, muonh_agc_clip_t
 
 
     ########################################
@@ -1132,7 +1191,19 @@ for trial_idx in range(args.num_trials):
         dist.all_reduce(step_loss, op=dist.ReduceOp.SUM)
         train_loss = float((step_loss / batch_size).item())
         # set optimization hyperparameters and take a step
-        muonh_warmup_factor, aux_beta2, muonh_mu_t = set_hparams(step)
+        muonh_warmup_factor, aux_beta2, muonh_mu_t, aux_agc_clip_t, muonh_agc_clip_t = set_hparams(step)
+        # H157 CLI plumbing verification: confirm schedule traces at start, ramp_start,
+        # mid, and end. Cheap (4 prints per run).
+        _ramp_start = int((1.0 - args.agc_schedule_late_frac) * train_steps)
+        if step in (0, _ramp_start, train_steps // 2, train_steps - 1):
+            print0(
+                f"[H157-AGC] step:{step} aux_agc_clip_t={aux_agc_clip_t:.6f} "
+                f"muonh_agc_clip_t={muonh_agc_clip_t:.6f} "
+                f"aux_sched={args.aux_agc_clip_ratio_schedule} "
+                f"muonh_sched={args.muonh_agc_clip_ratio_schedule} "
+                f"ramp_start={_ramp_start}",
+                console=True,
+            )
         train_step = step + 1
         telemetry_due = (step == 0 or (step + 1) % args.telemetry_interval == 0 or step + 1 == train_steps)
         histogram_due = (step == 0 or (step + 1) % args.histogram_interval == 0 or step + 1 == train_steps)
@@ -1160,14 +1231,15 @@ for trial_idx in range(args.num_trials):
                 wandb_step=wandb_step,
             )
         # AGC on aux AdamW groups: clip per-param grad to clip_ratio * |param|.
-        # No-op (bit-identical) when args.aux_agc_clip_ratio <= 0.
+        # No-op (bit-identical) when aux_agc_clip_t <= 0. Uses scheduled value from
+        # set_hparams() — equal to args.aux_agc_clip_ratio when schedule == "off".
         agc_stats = adaptive_gradient_clip(
-            aux_params_for_agc, args.aux_agc_clip_ratio, eps=args.aux_agc_eps,
+            aux_params_for_agc, aux_agc_clip_t, eps=args.aux_agc_eps,
         )
         # AGC on inner MuonH gradient: clip BEFORE the momentum buffer integrates
-        # the reduced gradient. No-op (bit-identical) when clip_ratio <= 0.
+        # the reduced gradient. No-op (bit-identical) when muonh_agc_clip_t <= 0.
         muonh_agc_stats = adaptive_gradient_clip(
-            muonh_params_for_agc, args.muonh_agc_clip_ratio, eps=args.muonh_agc_eps,
+            muonh_params_for_agc, muonh_agc_clip_t, eps=args.muonh_agc_eps,
         )
         for opt in optimizers:
             opt.step()
@@ -1191,14 +1263,15 @@ for trial_idx in range(args.num_trials):
                         muonh_metrics["train/muonh/norm_to_radius_max"] = opt._last_norm_to_radius_max
                     muonh_metrics["train/muonh/warmup_factor"] = muonh_warmup_factor
                     muonh_metrics["train/muonh/effective_lr"] = opt.param_groups[0]["lr"]
-            if telemetry_due and args.aux_agc_clip_ratio > 0 and agc_stats["agc_total"] > 0:
+            if telemetry_due and aux_agc_clip_t > 0 and agc_stats["agc_total"] > 0:
                 muonh_metrics["train/agc/active_fraction"] = agc_stats["agc_clipped"] / agc_stats["agc_total"]
                 muonh_metrics["train/agc/clipped_count"] = agc_stats["agc_clipped"]
                 muonh_metrics["train/agc/total_count"] = agc_stats["agc_total"]
                 muonh_metrics["train/agc/max_ratio"] = agc_stats["agc_max_ratio"]
                 muonh_metrics["train/agc/scale_min"] = agc_stats["agc_scale_min"]
                 muonh_metrics["train/agc/scale_mean"] = agc_stats["agc_scale_mean"]
-            if args.muonh_agc_clip_ratio > 0 and muonh_agc_stats["agc_total"] > 0:
+                muonh_metrics["train/agc/clip_ratio"] = aux_agc_clip_t
+            if muonh_agc_clip_t > 0 and muonh_agc_stats["agc_total"] > 0:
                 muonh_metrics["train/muonh/agc/fraction_active"] = (
                     muonh_agc_stats["agc_clipped"] / muonh_agc_stats["agc_total"]
                 )
@@ -1207,6 +1280,7 @@ for trial_idx in range(args.num_trials):
                 muonh_metrics["train/muonh/agc/max_ratio"] = muonh_agc_stats["agc_max_ratio"]
                 muonh_metrics["train/muonh/agc/scale_min"] = muonh_agc_stats["agc_scale_min"]
                 muonh_metrics["train/muonh/agc/scale_mean"] = muonh_agc_stats["agc_scale_mean"]
+                muonh_metrics["train/muonh/agc/clip_ratio"] = muonh_agc_clip_t
             if len(muonh_metrics) > 2:
                 wandb.log(muonh_metrics, step=wandb_step)
         if dist.get_rank() == 0 and telemetry_due:
