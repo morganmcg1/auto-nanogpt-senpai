@@ -83,6 +83,13 @@ def parse_args():
              "muall=musoft + non-residual block 2D weights also scaled by 1/sqrt(L); "
              "smallconst=std=1e-3 depth-independent.",
     )
+    parser.add_argument("--lookahead_k", type=int, default=0,
+                        help="Lookahead k (inner AdamW steps between slow-weight syncs) for the AdamW aux groups "
+                             "(embed, lm_head, scalars). 0 = disabled (vanilla AdamW, no wrapper overhead).")
+    parser.add_argument("--lookahead_alpha", type=float, default=0.5,
+                        help="Lookahead alpha (slow-weight interpolation strength, 0-1). "
+                             "Default 0.5 = paper canonical. Higher = faster sync (less averaging); "
+                             "lower = stronger averaging effect. Ignored when --lookahead_k 0.")
     args = parser.parse_args()
     args.num_trials = args.num_trials if args.num_trials is not None else (args.legacy_num_trials or 1)
     args.wandb_tags = [tag.strip() for tag in args.wandb_tags.split(",") if tag.strip()]
@@ -681,6 +688,63 @@ class Muon(torch.optim.Optimizer):
         return result
 
 
+class Lookahead:
+    """Lookahead wrapper around an inner optimizer (Zhang et al. 2019, arXiv:1907.08610).
+
+    Maintains a slow copy of each parameter and interpolates toward the inner
+    optimizer's fast weights every `k` inner steps:
+        slow := slow + alpha * (fast - slow)
+        fast := slow
+    Used here to wrap the AdamW for the aux groups (embed, lm_head, scalars);
+    Muon-h (optimizer2) is intentionally NOT wrapped.
+    """
+    def __init__(self, inner_optimizer, k=5, alpha=0.5):
+        self.inner = inner_optimizer
+        self.k = int(k)
+        self.alpha = float(alpha)
+        self.step_count = 0
+        self.last_sync_step = 0
+        # Initialize slow weights as detached copies of fast weights.
+        # Keyed by id(p) so slow tensors track the same param object across syncs.
+        self.slow_state: dict[int, Tensor] = {}
+        for group in inner_optimizer.param_groups:
+            for p in group["params"]:
+                self.slow_state[id(p)] = p.data.clone().detach()
+        # Expose attributes the training loop reads directly.
+        self.param_groups = inner_optimizer.param_groups
+        self.state = inner_optimizer.state
+
+    def zero_grad(self, set_to_none=True):
+        self.inner.zero_grad(set_to_none=set_to_none)
+
+    def step(self, closure=None):
+        loss = self.inner.step(closure)
+        self.step_count += 1
+        if self.step_count % self.k == 0:
+            for group in self.inner.param_groups:
+                for p in group["params"]:
+                    slow = self.slow_state[id(p)]
+                    slow.add_(p.data - slow, alpha=self.alpha)
+                    p.data.copy_(slow)
+            self.last_sync_step = self.step_count
+        return loss
+
+    def is_sync_step(self) -> bool:
+        return self.step_count > 0 and self.step_count == self.last_sync_step
+
+    def embed_slow_norm(self, embed_param) -> float:
+        slow = self.slow_state.get(id(embed_param))
+        if slow is None:
+            return 0.0
+        return float(slow.detach().float().norm().item())
+
+    def embed_fast_minus_slow_norm(self, embed_param) -> float:
+        slow = self.slow_state.get(id(embed_param))
+        if slow is None:
+            return 0.0
+        return float((embed_param.data - slow).detach().float().norm().item())
+
+
 ########################################
 #                Setup                 #
 ########################################
@@ -765,6 +829,9 @@ if dist.get_rank() == 0:
             "wd_schedule": args.wd_schedule,
             "lr_scalars": args.lr_scalars,
             "depth_init_mode": args.depth_init_mode,
+            "lookahead_k": args.lookahead_k,
+            "lookahead_alpha": args.lookahead_alpha,
+            "lookahead_enabled": bool(args.lookahead_k > 0),
         },
     )
 
@@ -837,10 +904,14 @@ for trial_idx in range(args.num_trials):
     print0(f"[init] mode={args.depth_init_mode}  L={NUM_LAYERS}  block_residual_attn.proj_std={_ex_resid_std:.6f}", console=True)
 
     # create the optimizer(s)
-    optimizer1 = AdamW([dict(params=[model.embed.weight], lr=0.3, name="adam_embed"),
-                        dict(params=[model.proj.weight], lr=1/320, name="adam_lm_head"),
-                        dict(params=[p for p in model.parameters() if p.ndim < 2], lr=args.lr_scalars, name="adam_scalars")],
-                       betas=(0.8, 0.95), eps=1e-10, weight_decay=0, fused=True)
+    optimizer1_inner = AdamW([dict(params=[model.embed.weight], lr=0.3, name="adam_embed"),
+                              dict(params=[model.proj.weight], lr=1/320, name="adam_lm_head"),
+                              dict(params=[p for p in model.parameters() if p.ndim < 2], lr=args.lr_scalars, name="adam_scalars")],
+                             betas=(0.8, 0.95), eps=1e-10, weight_decay=0, fused=True)
+    if args.lookahead_k > 0:
+        optimizer1 = Lookahead(optimizer1_inner, k=args.lookahead_k, alpha=args.lookahead_alpha)
+    else:
+        optimizer1 = optimizer1_inner
     named_blocks = [(n, p) for n, p in model.blocks.named_parameters() if p.ndim >= 2]
     mlp_named = [(n, p) for n, p in named_blocks
                  if n.endswith(".mlp.fc.weight") or n.endswith(".mlp.proj.weight")]
@@ -1026,6 +1097,12 @@ for trial_idx in range(args.num_trials):
                 per_group_metrics["train/wd_mlp_now"] = current_wds.get("muon_mlp", 0.0)
                 per_group_metrics["train/wd_attn_now"] = current_wds.get("muon_attn", 0.0)
                 per_group_metrics["train/wd_schedule_progress"] = train_step / train_steps
+                if isinstance(optimizer1, Lookahead):
+                    per_group_metrics["train/lookahead_sync"] = int(optimizer1.is_sync_step())
+                    per_group_metrics["train/lookahead_step_count"] = optimizer1.step_count
+                    per_group_metrics["train/lookahead_last_sync_step"] = optimizer1.last_sync_step
+                    per_group_metrics["train/embed_slow_norm"] = optimizer1.embed_slow_norm(model.embed.weight)
+                    per_group_metrics["train/embed_fast_minus_slow_norm"] = optimizer1.embed_fast_minus_slow_norm(model.embed.weight)
                 wandb.log(per_group_metrics, step=wandb_step)
         if dist.get_rank() == 0 and optimizer2.cos_sims_buffer:
             cs_names = list(optimizer2.cos_sims_buffer.keys())
