@@ -593,6 +593,14 @@ NANOGPT_SENPAI_SEED = int(_SENPAI_SEED_RAW) if _SENPAI_SEED_RAW != "" else None
 # `embed.weight -= lr_embed * lambda * (embed.weight - embed_init_snapshot)`.
 # At lambda=0 the hook is a no-op and behavior is bit-identical to the merged stack.
 NANOGPT_EMBED_INIT_ANCHOR_LAMBDA = float(os.environ.get("NANOGPT_EMBED_INIT_ANCHOR_LAMBDA", "0.0"))
+# Muon++ μP spectral control (PR #1172). Two independent flags:
+#   PP_INIT=1: body Muon weight matrices init with std=1/sqrt(d_in) (replaces default).
+#   PP_SCALE=1: post-NS5 update scaled by sqrt(d_out/d_in) (replaces the existing
+#     asymmetric max(1, d_out/d_in)^0.5 factor in muon_update — for d_out >= d_in
+#     the two are equivalent; for d_out < d_in (mlp.proj) PP_SCALE gives < 1.0).
+# Both default to 0 → bit-identical to merged stack.
+NANOGPT_MUON_PP_INIT = bool(int(os.environ.get("NANOGPT_MUON_PP_INIT", "0")))
+NANOGPT_MUON_PP_SCALE = bool(int(os.environ.get("NANOGPT_MUON_PP_SCALE", "0")))
 
 
 def get_ns_coef_at_iter(iter_idx: int, total_iters: int, schedule: str) -> tuple[float, float, float]:
@@ -699,7 +707,14 @@ def muon_update(grad, momentum, v, ns_iters: int, mu=0.95, beta2=0.999, eps=1e-8
     v.mul_(beta2).addcmul_(update, update, value=1 - beta2)
     update = update / (v.sqrt() + eps)
     update = zeropower_via_newtonschulz5(update, ns_iters=ns_iters)
-    update *= max(1, grad.size(-2) / grad.size(-1))**0.5
+    if NANOGPT_MUON_PP_SCALE:
+        # Muon++ μP spectral (#1172): symmetric sqrt(d_out/d_in) replaces the
+        # asymmetric max(1, d_out/d_in)^0.5 factor. For d_out >= d_in the two are
+        # numerically identical; for d_out < d_in (mlp.proj) PP_SCALE shrinks the
+        # update by sqrt(d_out/d_in) < 1.
+        update *= (grad.size(-2) / grad.size(-1))**0.5
+    else:
+        update *= max(1, grad.size(-2) / grad.size(-1))**0.5
     return update
 
 class Muon(torch.optim.Optimizer):
@@ -824,6 +839,9 @@ print0(f"  Effective Muon base LRs: attn={0.035*NANOGPT_MUON_ATTN_LR_MULT:.5f} m
 print0(f"EMBED_INIT_ANCHOR_LAMBDA: {NANOGPT_EMBED_INIT_ANCHOR_LAMBDA} "
        f"({'ACTIVE' if NANOGPT_EMBED_INIT_ANCHOR_LAMBDA > 0 else 'INACTIVE (bit-identical fallback)'})",
        console=True)
+print0(f"MUON_PP: init={int(NANOGPT_MUON_PP_INIT)} scale={int(NANOGPT_MUON_PP_SCALE)} "
+       f"({'BOTH (full)' if NANOGPT_MUON_PP_INIT and NANOGPT_MUON_PP_SCALE else 'INIT only' if NANOGPT_MUON_PP_INIT else 'SCALE only' if NANOGPT_MUON_PP_SCALE else 'INACTIVE (bit-identical fallback)'})",
+       console=True)
 if NS_ITERS_COOLDOWN > 0:
     print0(f"NS_SCHEDULE: ns_iters={NS_ITERS} -> ns_iters_cooldown={NS_ITERS_COOLDOWN} "
            f"at fraction {NS_COOLDOWN_START_FRAC} of train_steps "
@@ -896,6 +914,8 @@ if dist.get_rank() == 0:
             "nanogpt_ns_stochastic_cooldown": NANOGPT_NS_STOCHASTIC_COOLDOWN,
             "senpai_seed": NANOGPT_SENPAI_SEED if NANOGPT_SENPAI_SEED is not None else -1,
             "nanogpt_embed_init_anchor_lambda": NANOGPT_EMBED_INIT_ANCHOR_LAMBDA,
+            "nanogpt_muon_pp_init": int(NANOGPT_MUON_PP_INIT),
+            "nanogpt_muon_pp_scale": int(NANOGPT_MUON_PP_SCALE),
         },
     )
 
@@ -913,7 +933,14 @@ for trial_idx in range(args.num_trials):
     for name, p in model.named_parameters():
         w = p.data
         if name.endswith("weight"):
-            if "proj" in name:
+            # μP body init (#1172, PP_INIT=1): body Muon weight matrices (all 2D
+            # weights under model.blocks.*) get std=1/sqrt(d_in). Overrides the
+            # default (incl. the zero-init for attn.proj / mlp.proj). Top-level
+            # embed.weight and lm_head proj.weight retain their original init.
+            is_body_muon_weight = name.startswith("blocks.") and p.ndim >= 2
+            if NANOGPT_MUON_PP_INIT and is_body_muon_weight:
+                w.normal_(mean=0.0, std=1.0 / math.sqrt(w.size(-1)))
+            elif "proj" in name:
                 w.zero_()
             elif "embed" in name:
                 w.normal_()  # default torch init
@@ -956,6 +983,30 @@ for trial_idx in range(args.num_trials):
     )
     print0(f"MUON_PARAM_COUNTS: attn={len(muon_attn_params)} mlp={len(muon_mlp_params)} "
            f"(expected 48 attn / 24 mlp for 12-layer block stack)", console=True)
+    # Muon++ μP per-param scale telemetry (#1172). When PP_SCALE=1, the post-NS5
+    # update is multiplied by sqrt(d_out/d_in); when PP_SCALE=0, by max(1, d_out/d_in)^0.5.
+    # Log the actual per-param multiplier at trial start so the advisor can verify.
+    if dist.get_rank() == 0:
+        muon_pp_metrics = {"trial": trial_idx, "train/step": 0}
+        scale_summary_lines = []
+        for n, p in model.blocks.named_parameters():
+            if p.ndim < 2:
+                continue
+            d_out, d_in = p.shape[0], p.shape[1]
+            if NANOGPT_MUON_PP_SCALE:
+                scale_val = math.sqrt(d_out / d_in)
+            else:
+                scale_val = max(1.0, d_out / d_in) ** 0.5
+            clean = clean_metric_name(f"blocks.{n}")
+            muon_pp_metrics[f"train/muon_pp_scale/{clean}"] = scale_val
+            scale_summary_lines.append(f"  {n}: shape=({d_out},{d_in}) scale={scale_val:.4f}")
+        wandb.log(muon_pp_metrics, step=trial_idx * (train_steps + 1))
+        print0(
+            f"MUON_PP_SCALES (PP_SCALE={int(NANOGPT_MUON_PP_SCALE)}, PP_INIT={int(NANOGPT_MUON_PP_INIT)}):\n"
+            + "\n".join(scale_summary_lines[:6])
+            + (f"\n  ... {len(scale_summary_lines)-6} more identical patterns" if len(scale_summary_lines) > 6 else ""),
+            console=True,
+        )
     # Track orthogonalized-update spectrum on first block's attention q.weight
     # to surface NS-schedule effects in W&B telemetry.
     optimizer2.spectral_telemetry_param = model.blocks[0].attn.q.weight
