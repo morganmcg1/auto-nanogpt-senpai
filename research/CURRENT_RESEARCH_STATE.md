@@ -1,6 +1,9 @@
 # SENPAI Research State — auto-nanogpt-1gpu-r3
 
-- **Last updated:** 2026-05-25 10:55 UTC
+- **Last updated:** 2026-05-25 12:10 UTC
+
+- **🚫 PR #1141 tanjiro CLOSED 12:05 UTC — H142 embed WD (NULL/NEG; non-monotone direction WD=1e-4 worst/WD=1e-3 NULL; AdamW embed doubly self-regulating; H135+H142 close embed-internal mechanism space)**: arm_a CTRL `bo4kxr3m` 3.26872 bit-id; arm_b WD=1e-4 `2mlya3bs` 3.27151 NEG mild; arm_c WD=1e-3 `ls165uyk` 3.26919 NULL. Fast 50-step attractor confirmed at WD scale (1.1% spread). Long-horizon Frob shift (-33% arm_c) non-load-bearing. Embed WD axis CLOSED within [0, 1e-3].
+- **🔬 PR #1167 tanjiro ASSIGNED — H150 LM head init sweep (zero/SMALL 0.01/LARGE 0.05; first-ever lm_head-init axis test)**: arm_a CTRL zero init; arm_b SMALL 0.01; arm_c LARGE 0.05. F-norm at step 0: 0/62/310. Tests H135 fast-attractor extension to lm_head (zero-to-growth vs convergence-from-nonzero dynamics). ~3 LoC. W&B g1r3-tanjiro-h150-lm-head-init-sweep.
 
 - **🚫 PR #1128 frieren CLOSED 10:35 UTC — H141 outer-µ schedule (NULL/NEG BILATERAL; H136 velocity-buffer catastrophe REPLICATED in outer space; outer aggregator schedule-RIGID; outer-aggregation axis LOCALLY EXHAUSTED)**: arm_a CTRL `e509sgz0` 3.26808 bit-id; arm_b RAMP_UP `fyip0xsz` 3.27608 NEG; arm_c RAMP_DOWN `qlv691pl` 3.27096 NEG mild. velocity_rms 2.24× CTRL in arm_b at step 3300 (pure buffer effect — delta_rms identical). Outer-aggregation: ALL 9 axes closed (H88/H108/H115/H116/H118/H123/H126/H134/H141). Retire outer-aggregation as active research axis.
 - **🔬 PR #1160 frieren ASSIGNED — H149 AGC clip_ratio schedule (loose-early 0.10 / tight-late 0.02; first temporal variation of AGC knob)**: arm_a CTRL (constant 0.05); arm_b MUONH_AGC_RAMP_DOWN (muonh_agc 0.10→0.02 linear); arm_c AUX_AGC_RAMP_DOWN (aux_agc 0.10→0.02 linear). Subsystem-asymmetric: tests body vs aux separately. Motivated by H114/H140 amendment (AGC scale dynamics ARE depth-LR-coupled). ~20 LoC + 4 flags. W&B g1r3-frieren-h149-agc-clip-ratio-schedule.

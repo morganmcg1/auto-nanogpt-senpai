@@ -1,3 +1,30 @@
+## 2026-05-25 12:05 — PR #1141: H142 Embed-only weight decay sweep (NULL/NEG closure)
+- Branch: `g1r3-tanjiro/h142-embed-wd-sweep`
+- Hypothesis: Introducing explicit WD on the embed param group shifts the AdamW attractor target. If the natural AdamW attractor is slightly above-optimal (as H135 hinted), WD-shrunk attractor should help. First-ever WD axis test on aux subsystem.
+
+| Arm | Config | run_id | val/loss | Δ vs baseline | Δ vs CTRL | ffs | Band |
+|---|---|---|---|---|---|---|---|
+| arm_a | CTRL (wd=0.0) | `bo4kxr3m` | 3.26872 | +0.00325 | 0 | 3050 | widened-CTRL ✓ |
+| arm_b | WD_WEAK (wd=1e-4) | `2mlya3bs` | 3.27151 | +0.00604 | +0.00279 | 3075 | NEG |
+| arm_c | WD_STRONG (wd=1e-3) | `ls165uyk` | 3.26919 | +0.00372 | +0.00047 | 3075 | NULL |
+
+Baseline: 3.26547 (PR #1097 fern H133). WIN < 3.26467 | NULL [3.26377, 3.26817] | NEG > 3.26817
+
+**Verdict: NULL/NEG closure. Embed WD axis closed within [0, 1e-3].**
+
+**Results commentary:**
+- arm_a CTRL bit-id within widened CTRL [3.26721, 3.27091] ✓
+- arm_b WD=1e-4 NEG (+0.00279 vs CTRL, +0.00060 above widened CTRL upper)
+- arm_c WD=1e-3 NULL, indistinguishable from CTRL despite 33% Frob shrinkage
+
+**Key mechanism findings:**
+1. **Non-monotone direction-of-effect refutes the "Frob target controls val/loss" hypothesis**: WD=0 best, WD=1e-4 worst, WD=1e-3 middle. arm_b (4% Frob shrinkage) hurts 0.00279; arm_c (33% Frob shrinkage) hurts only 0.00047. Transitional WD=1e-4 regime perturbs AdamW second-moment dynamics without redefining the attractor.
+2. **AdamW embed doubly self-regulating**: combined with H135 (init std non-binding), both init magnitude AND L2 regularization are absorbed by AdamW's adaptive LR. Embed endpoint is path-independent w.r.t. both perturbation axes.
+3. **Fast 50-step attractor confirmed at WD scale**: at step 50, all 3 arms Frob spread only 1.1% (~16K). WD shifts long-horizon attractor (asymptotes to -33% at WD=1e-3 by step 2500) but NOT the short-horizon convergence path.
+4. **Embed-internal mechanism space EXHAUSTED**: H120/H125/H127/H135/H136/H142 — init, WD, and EMA axes all closed. Programme-level: embed table is doubly self-regulating within practical AdamW ranges.
+
+→ **H150 assigned**: LM head init sweep (zero vs small vs moderate noise — first-ever lm_head-init axis test).
+
 ## 2026-05-25 10:35 — PR #1128: H141 Outer SGDM momentum schedule sweep (NULL/NEG closure)
 - Branch: `g1r3-frieren/h141-outer-sgdm-momentum-schedule`
 - Hypothesis: Outer SGDM momentum coefficient (outer_µ) has only been tested at a constant value (0.5). A ramp-up (0.3→0.7) or ramp-down (0.7→0.3) schedule could improve gradient integration in the MuLoCo outer aggregator by adapting smoothing strength over training.
