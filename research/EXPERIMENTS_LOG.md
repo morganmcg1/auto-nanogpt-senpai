@@ -3,6 +3,31 @@
 This file logs experiment outcomes as PRs land. The historical track 3
 leaderboard is captured in `/BASELINE.md`.
 
+## 2026-05-25 20:30 UTC — PR #1172: Muon++ μP spectral — per-layer shape-derived post-NS5 update scaling (alphonse) — CLOSED productive-NEG with PARTIAL FENCE (μP init fenced, scale-only NULL-band benign compositional candidate); **24th consecutive no-merge closure since #847**
+
+- Branch: `g1r4-alphonse/muon-pp-spectral`
+- Hypothesis: Muon++ (Zhao 2026 arXiv:2601.01306) μP-style spectral scaling on body Muon. Two sub-mechanisms tested via 4-arm 2×2 attribution: (PP_INIT) μP-correct init `1/√d_in` per layer + (PP_SCALE) post-NS5 update scaling by `sqrt(d_out/d_in)` per layer.
+- Results:
+
+| Arm | Config (PP_INIT/PP_SCALE) | W&B run | val/loss | fs | Δ_vs_A (val) | Δ_vs_A (fs) | Reading |
+|:---:|:---|:---:|:---:|:---:|:---:|:---:|:---|
+| A | 0 / 0 (ctrl) | `b8omnpi0` | 3.26981 | 3225 | — | — | drift +0.00225 PASS edge |
+| **B** | **1 / 1 (full)** | `jxy1icd3` | **3.27493** | **3275** | **+0.00512** | **+50** | **PRODUCTIVE-NEG** at threshold |
+| C | 1 / 0 (init-only) | `mf1yz38h` | 3.27209 | 3250 | +0.00228 | +25 | REGRESSION direction |
+| **D** | **0 / 1 (scale-only)** | `yww7vxlu` | **3.27048** | **3225** | **+0.00067** | **0** | **NULL band, fs identical** |
+
+- Verified scale factors at step 0 (Arm D telemetry): `attn × 1.0` (QKV unfused all no-op), `mlp.fc × 2.0`, `mlp.proj × 0.5` → 4× asymmetry within MLP residual, magnitude product preserved.
+- **Component decomposition with super-additive interaction**:
+  - Δ_init-only = +0.00228 (μP init alone produces measurable regression)
+  - Δ_scale-only = +0.00067 (NULL band, fs unchanged)
+  - Δ_full = +0.00512 → super-additive by +0.00217 vs sum-of-parts (+0.00295); init and scale interact non-linearly in regression direction
+- **Mechanism reading**: μP init **incompatible with merged stack** — double-counts with empirical per-block LR mults (`attn_lr_mult=0.80`, `mlp_lr_mult=1.20`, `embed_lr_mult=1.5`) calibrated to default PyTorch init geometry. Post-NS5 spectral scaling alone is **structurally compatible** with NS5-orthogonalized update direction — 4× MLP asymmetry absorbed cleanly without breaking tuned per-block balance.
+- **SPECTRAL-CONDITIONING-MUON axis FENCED 1-direction** on μP init component.
+- **Post-NS5 update scaling NOT fenced** — scale-only mechanism preserved as compositional candidate. Two stacking opportunities reserved:
+  1. **Newton-Muon (input-side) × Muon++ scale-only (output-side)** — mechanism-orthogonal, NS5-PRESERVING + INPUT-PRECOND + POST-NS5-MAGNITUDE stack if #1138 PP confirms
+  2. **Body Muon momentum reset × Muon++ scale-only** — if #1191 produces signal
+- Reassignment: alphonse → **#TBD AdaBelief lm_head aux** — Zhuang 2020 NeurIPS belief-based preconditioner: replaces v_t = E[g²] with s_t = E[(g − m)²] tracking gradient-direction belief, mechanism-distinct from all 5 prior lm_head MAGNITUDE-PRESERVING cluster mechanisms (WD weight-side, MARS input-side variance, v_min preconditioner floor, row-norm input-side equalization, Cautious update-direction mask).
+
 ## 2026-05-25 19:00 UTC — PR #1100: Decoupled AdamW per-group weight decay — lm_head wd=1e-3 PP n=3 (askeladd) — CLOSED productive-NULL with mechanism mortem; **23rd consecutive no-merge closure since #847**
 
 - Branch: `g1r4-askeladd/aux-wd-decoupled` (PP confirmation chain `g1r4-askeladd/aux-wd-pp-confirm`)
