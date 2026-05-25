@@ -364,8 +364,9 @@ class Rotary(nn.Module):
         return torch.cat((y1, y2), 3).type_as(x_BTHD)
 
 class CausalSelfAttention(nn.Module):
-    def __init__(self, dim: int, head_dim=128):
+    def __init__(self, dim: int, head_dim=128, block_idx: int = 0):
         super().__init__()
+        self.block_idx = block_idx
         self.num_heads = dim // head_dim
         self.head_dim = head_dim
         hdim = self.num_heads * self.head_dim
@@ -374,6 +375,15 @@ class CausalSelfAttention(nn.Module):
         self.v = Linear(dim, hdim)
         self.proj = Linear(hdim, dim)
         self.rotary = Rotary(head_dim)
+        # PR #1148: whether THIS block contributes to the attention-entropy bonus.
+        # Evaluated once at construction (env vars are module-level constants), so the
+        # compiled forward can specialize on a Python bool and skip the cost entirely on
+        # blocks where the bonus is off (no per-step graph branching cost).
+        self.entropy_enabled: bool = (
+            ATTN_ENTROPY_BETA > 0.0
+            and ATTN_ENTROPY_FROM_BLOCK <= block_idx
+            and (ATTN_ENTROPY_TO_BLOCK < 0 or block_idx <= ATTN_ENTROPY_TO_BLOCK)
+        )
 
     def forward(self, x: Tensor):
         B, T = x.size(0), x.size(1)
@@ -382,8 +392,22 @@ class CausalSelfAttention(nn.Module):
         v = self.v(x).view(B, T, self.num_heads, self.head_dim)
         q, k = F.rms_norm(q, (q.size(-1),)), F.rms_norm(k, (k.size(-1),))
         q, k = self.rotary(q), self.rotary(k)
-        y = F.scaled_dot_product_attention(q.transpose(1, 2), k.transpose(1, 2),
-                                           v.transpose(1, 2), scale=0.12, is_causal=True).transpose(1, 2)
+        qT, kT, vT = q.transpose(1, 2), k.transpose(1, 2), v.transpose(1, 2)
+        y = F.scaled_dot_product_attention(qT, kT, vT, scale=0.12, is_causal=True).transpose(1, 2)
+        if self.entropy_enabled and self.training:
+            # Manual attention-weight recomputation in fp32 — FlashAttention path above is untouched.
+            attn_scores = torch.einsum('bhtd,bhsd->bhts', qT.float(), kT.float()) * 0.12
+            causal_mask = torch.triu(
+                torch.ones(T, T, dtype=torch.bool, device=qT.device), diagonal=1
+            )
+            attn_scores = attn_scores.masked_fill(causal_mask, float('-inf'))
+            attn_weights = F.softmax(attn_scores, dim=-1)
+            log_attn_weights = torch.log(attn_weights.clamp_min(1e-20))
+            entropy_per_position = -(attn_weights * log_attn_weights).sum(dim=-1)  # [B, H, T]
+            mean_entropy = entropy_per_position.mean()
+            self.last_entropy_bonus_term = mean_entropy
+            self.last_entropy_min = entropy_per_position.detach().min()
+            self.last_entropy_max = entropy_per_position.detach().max()
         y = y.contiguous().view(B, T, self.num_heads * self.head_dim)
         y = self.proj(y)
         return y
@@ -402,9 +426,10 @@ class MLP(nn.Module):
         return x
 
 class Block(nn.Module):
-    def __init__(self, dim: int):
+    def __init__(self, dim: int, block_idx: int = 0):
         super().__init__()
-        self.attn = CausalSelfAttention(dim)
+        self.block_idx = block_idx
+        self.attn = CausalSelfAttention(dim, block_idx=block_idx)
         self.mlp = MLP(dim)
         self.norm1 = RMSNorm(dim)
         self.norm2 = RMSNorm(dim)
@@ -418,10 +443,15 @@ class GPT(nn.Module):
     def __init__(self, vocab_size: int, num_layers: int, model_dim: int):
         super().__init__()
         self.embed = nn.Embedding(vocab_size, model_dim).bfloat16()
-        self.blocks = nn.ModuleList([Block(model_dim) for _ in range(num_layers)])
+        self.blocks = nn.ModuleList([Block(model_dim, block_idx=i) for i in range(num_layers)])
         self.proj = Linear(model_dim, vocab_size)
         self.norm1 = RMSNorm(model_dim)
         self.norm2 = RMSNorm(model_dim)
+        # PR #1148: precompute the list of entropy-contributing blocks once. Each entry
+        # is the block index; the train loop reads the contributing block.attn tensors after forward.
+        self.entropy_block_indices: list[int] = [
+            b.block_idx for b in self.blocks if b.attn.entropy_enabled
+        ]
 
     def forward(self, inputs: Tensor, targets: Tensor):
         x = self.norm1(self.embed(inputs))
@@ -429,7 +459,14 @@ class GPT(nn.Module):
             x = block(x)
         logits = self.proj(self.norm2(x)).float()
         logits = LOGIT_SOFTCAP * logits * (logits.square() + LOGIT_SOFTCAP**2).rsqrt()
-        return F.cross_entropy(logits.view(targets.numel(), -1), targets.view(-1), reduction="sum")
+        base_loss = F.cross_entropy(logits.view(targets.numel(), -1), targets.view(-1), reduction="sum")
+        # Only apply the entropy bonus during training — val_loss must remain pure CE on the
+        # held-out fineweb tokens since that's the benchmarked metric.
+        if self.entropy_block_indices and self.training:
+            entropy_terms = [self.blocks[i].attn.last_entropy_bonus_term for i in self.entropy_block_indices]
+            total_entropy = torch.stack(entropy_terms).sum()
+            return base_loss - ATTN_ENTROPY_BETA * total_entropy
+        return base_loss
 
 
 ########################################
@@ -468,6 +505,12 @@ NS5_ITERS = int(os.environ.get("NS5_ITERS", "12"))
 WD_AUX = float(os.environ.get("WD_AUX", "0.0"))  # AdamW WD on embed + lm_head matrices (scalars stay at 0)
 EMBED_INIT_STD = float(os.environ.get("EMBED_INIT_STD", "1.0"))  # default preserves baseline N(0,1)
 LOGIT_SOFTCAP = float(os.environ.get("LOGIT_SOFTCAP", "15.0"))  # default = 15 (current hardcoded value); soft-cap value c in f(x) = c·x / sqrt(x^2+c^2)
+# PR #1148 — ATTN_ENTROPY_BONUS: reward higher entropy in attention softmax. β=0 disables the entropy
+# computation entirely so disabled-checks pay no overhead. FROM/TO_BLOCK select which transformer
+# blocks contribute entropy (defaults: block 6 only, the middle of a 12-block stack).
+ATTN_ENTROPY_BETA = float(os.environ.get("ATTN_ENTROPY_BETA", "0.0"))
+ATTN_ENTROPY_FROM_BLOCK = int(os.environ.get("ATTN_ENTROPY_FROM_BLOCK", "6"))
+ATTN_ENTROPY_TO_BLOCK = int(os.environ.get("ATTN_ENTROPY_TO_BLOCK", "6"))  # -1 = all blocks above FROM
 
 
 def zeropower_via_newtonschulz5(G: Tensor) -> Tensor:
@@ -867,6 +910,11 @@ if dist.get_rank() == 0:
             "optimizer/ns5_iters": NS5_ITERS,
             "optimizer/wd_aux": WD_AUX,
             "optimizer/recipe": "contra-muon + normuon-lite + soap-on-mlp + soap-on-attn-trust-gate (pre-NS5, record #14 + record #16)",
+            "loss/embed_init_std": EMBED_INIT_STD,
+            "loss/logit_softcap": LOGIT_SOFTCAP,
+            "loss/attn_entropy_beta": ATTN_ENTROPY_BETA,
+            "loss/attn_entropy_from_block": ATTN_ENTROPY_FROM_BLOCK,
+            "loss/attn_entropy_to_block": ATTN_ENTROPY_TO_BLOCK,
         },
     )
 
@@ -1014,10 +1062,22 @@ for trial_idx in range(args.num_trials):
         # accumulate across microbatches in case we are running with fewer than 8 gpus
         assert len(inputs) % mbs == 0
         step_loss = torch.zeros((), device=device)
+        # PR #1148 — accumulate entropy stats only on the LAST microbatch; tracking across
+        # microbatches would require holding the compute graph open, which costs memory.
+        step_attn_entropy_mean_per_block: dict[int, Tensor] = {}
+        step_attn_entropy_min_per_block: dict[int, Tensor] = {}
+        step_attn_entropy_max_per_block: dict[int, Tensor] = {}
         for i in range(len(inputs) // mbs):
             loss = model(inputs[i*mbs:(i+1)*mbs], targets[i*mbs:(i+1)*mbs])
             step_loss += loss.detach()
             loss.backward()
+            # After backward the entropy tensors are detached views; safe to capture for telemetry.
+            if model.entropy_block_indices:
+                for b_idx in model.entropy_block_indices:
+                    attn_mod = model.blocks[b_idx].attn
+                    step_attn_entropy_mean_per_block[b_idx] = attn_mod.last_entropy_bonus_term.detach()
+                    step_attn_entropy_min_per_block[b_idx] = attn_mod.last_entropy_min
+                    step_attn_entropy_max_per_block[b_idx] = attn_mod.last_entropy_max
         for name, p in model.named_parameters():
             assert p.grad is not None, name
             dist.all_reduce(p.grad, op=dist.ReduceOp.SUM)
@@ -1051,6 +1111,23 @@ for trial_idx in range(args.num_trials):
                 train_steps=train_steps,
                 wandb_step=wandb_step,
             )
+            if ATTN_ENTROPY_BETA > 0.0 and step_attn_entropy_mean_per_block:
+                attn_entropy_metrics: dict[str, float] = {
+                    "trial": trial_idx,
+                    "train/step": train_step,
+                    "train/attn_entropy_beta": ATTN_ENTROPY_BETA,
+                }
+                total_entropy_mean = 0.0
+                for b_idx, mean_tensor in step_attn_entropy_mean_per_block.items():
+                    mean_val = float(mean_tensor.item())
+                    total_entropy_mean += mean_val
+                    attn_entropy_metrics[f"train/attn_entropy_block{b_idx}_mean"] = mean_val
+                    attn_entropy_metrics[f"train/attn_entropy_block{b_idx}_max_position"] = float(step_attn_entropy_max_per_block[b_idx].item())
+                    attn_entropy_metrics[f"train/attn_entropy_block{b_idx}_min_position"] = float(step_attn_entropy_min_per_block[b_idx].item())
+                # Bonus contribution (already factored into train_loss): β * sum of per-block mean entropies.
+                attn_entropy_metrics["train/attn_entropy_bonus_loss"] = ATTN_ENTROPY_BETA * total_entropy_mean
+                attn_entropy_metrics["train/total_loss_unweighted"] = train_loss + (ATTN_ENTROPY_BETA * total_entropy_mean) / batch_size
+                wandb.log(attn_entropy_metrics, step=wandb_step)
         for opt in optimizers:
             opt.step()
         if dist.get_rank() == 0 and telemetry_due:
