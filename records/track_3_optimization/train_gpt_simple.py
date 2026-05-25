@@ -64,6 +64,9 @@ def parse_args():
     parser.add_argument("--muon_lr", type=float, default=0.035,
                         help="Base learning rate for body-Muon optimizer (matrix params in blocks). "
                              "Default 0.035 matches the merged baseline.")
+    parser.add_argument("--adamw_cooldown_power", type=float, default=1.4,
+                        help="Per-group cooldown power γ for AdamW subgroups (embed, lm_head, scalars). "
+                             "Body Muon group remains at COOLDOWN_POWER=1.4. Default: 1.4 (uniform with body).")
     args = parser.parse_args()
     args.num_trials = args.num_trials if args.num_trials is not None else (args.legacy_num_trials or 1)
     args.wandb_tags = [tag.strip() for tag in args.wandb_tags.split(",") if tag.strip()]
@@ -714,6 +717,8 @@ if dist.get_rank() == 0:
             "target_uw_floor": 0.35,
             "target_uw": 0.35,
             "power_cooldown_gamma": COOLDOWN_POWER,
+            "power_cooldown_gamma_body": COOLDOWN_POWER,
+            "power_cooldown_gamma_adamw": args.adamw_cooldown_power,
             "cooldown_frac": 0.7,
             "muon_method": MUON_METHOD,
             "ema_beta": args.ema_beta,
@@ -805,16 +810,22 @@ for trial_idx in range(args.num_trials):
         progress = step / train_steps
         assert 0 <= progress < 1
         if progress < 1 - cooldown_frac:
-            eta = 1.0
+            eta_body = 1.0
+            eta_adamw = 1.0
             cooldown_progress = 0.0
         else:
             cooldown_progress = (progress - (1 - cooldown_frac)) / cooldown_frac
             w = 1.0 - cooldown_progress  # equivalent to (1 - progress) / cooldown_frac
-            eta = w ** COOLDOWN_POWER
+            eta_body = w ** COOLDOWN_POWER
+            eta_adamw = w ** args.adamw_cooldown_power
         for opt in optimizers:
             for group in opt.param_groups:
-                group["lr"] = group["initial_lr"] * eta
-        return progress, cooldown_progress, eta
+                name = group.get("name", "")
+                if name in ("adam_embed", "adam_lm_head", "adam_scalars"):
+                    group["lr"] = group["initial_lr"] * eta_adamw
+                else:  # muon_blocks (body Muon)
+                    group["lr"] = group["initial_lr"] * eta_body
+        return progress, cooldown_progress, eta_body, eta_adamw
 
 
     ########################################
@@ -951,7 +962,7 @@ for trial_idx in range(args.num_trials):
         dist.all_reduce(step_loss, op=dist.ReduceOp.SUM)
         train_loss = float((step_loss / batch_size).item())
         # set optimization hyperparameters and take a step
-        sched_progress, sched_cooldown_progress, sched_eta = set_hparams(step)
+        sched_progress, sched_cooldown_progress, sched_eta, sched_eta_adamw = set_hparams(step)
         train_step = step + 1
         telemetry_due = (step == 0 or (step + 1) % args.telemetry_interval == 0 or step + 1 == train_steps)
         histogram_due = (step == 0 or (step + 1) % args.histogram_interval == 0 or step + 1 == train_steps)
@@ -1037,6 +1048,10 @@ for trial_idx in range(args.num_trials):
                 "train/cooldown/cooldown_progress": sched_cooldown_progress,
                 "train/cooldown/lr_multiplier": sched_eta,
                 "train/cooldown/power_gamma": COOLDOWN_POWER,
+                "train/cooldown/power_gamma_body": COOLDOWN_POWER,
+                "train/cooldown/power_gamma_adamw": args.adamw_cooldown_power,
+                "train/cooldown/eta_body": sched_eta,
+                "train/cooldown/eta_adamw": sched_eta_adamw,
             }, step=wandb_step)
             if ema_params is not None:
                 wandb.log({
