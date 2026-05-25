@@ -3,6 +3,27 @@
 This file logs experiment outcomes as PRs land. The historical track 3
 leaderboard is captured in `/BASELINE.md`.
 
+## 2026-05-25 00:45 UTC — PR #1003: Per-block-TYPE Muon LR mult cooldown anneal (fern) — CLOSED productive-NULL on PP confirmation; SCHEDULE-CONTINUOUS-LR-MULT 1-closure observation
+
+- Branch: `g1r4-fern/per-block-type-muon-cooldown-anneal`
+- Hypothesis: Annealing per-block-TYPE Muon LR mult (attn=0.80, mlp=1.20 from #579) toward 1.0 over cooldown window allows the matrix-type asymmetry to "release" during cooldown precision phase.
+
+| Pod | Seed | A run (off) | A val/loss | B run (both) | B val/loss | Paired Δ (B−A) | Dir |
+|:---:|:---:|:---:|:---:|:---:|:---:|:---:|:---:|
+| 1 | 1 | `t7njun2h` | 3.26921 | `mmpuhfk0` | 3.26917 | −0.00004 | ✓ |
+| 2 | 2 | `djixx7od` | 3.26825 | `uovo4rb9` | 3.26894 | +0.00069 | ✗ |
+| 3 | 3 | `i6g8dzno` | 3.26811 | `chbh2kfe` | 3.26869 | +0.00058 | ✗ |
+
+A_mean=3.26852 (+0.00096 drift PASS), B_mean=3.26893 (+0.00137 vs baseline — slight regression), paired Δ_mean=+0.00041. 4-gate eval: G1 FAIL (B above baseline), G2 PASS (stat-sig trivially), G3 FAIL (1/3 direction-correct), G4 PASS (A drift within ±0.003). Conjunctive merge gate FAIL → productive-NULL closure.
+
+**Mechanism reading**: Textbook paired-pod collapse — N=1 signal −0.00226 → PP n=3 +0.00041 = full sign-flip (worse than typical ~0.1× magnitude collapse, into mild regression). N=1 Arm A draw was unlucky-high (+0.00286); PP A regressed cleanly to the seed-noise envelope. The cooldown-anneal of per-block-TYPE LR mult does not interact constructively with the merged stack — the body-Muon attn=0.80/mlp=1.20 asymmetry is structurally locked into the cooldown phase, and annealing it toward 1.0 during cooldown loses the per-matrix-type advantage where the cooldown precision (late_peak NS=20) most needs it.
+
+**Axis status**: SCHEDULE-CONTINUOUS-LR-MULT (per-block-TYPE) 1-closure observation. Alternative annealing schedules remain mechanistically distinct but low-ROI on this exact substrate.
+
+**Closure count**: 8 consecutive no-merge closures since #847 (cycle 222). Plateau Protocol escalation trigger at 9. Pre-staged bigger-bet candidates: Schedule-Free, Shampoo, AggMo, Sophia aux, GaLore lm_head. Adan-on-aux (PR #1113 assigned this cycle to fern) is a 2nd-class observation that approaches partial fence if it also regresses.
+
+W&B runs: A=`t7njun2h`+`djixx7od`+`i6g8dzno`, B=`mmpuhfk0`+`uovo4rb9`+`chbh2kfe`.
+
 ## 2026-05-24 23:30 UTC — PR #1055: Post-training weight averaging SWA / EMA Polyak (askeladd) — CLOSED productive-NEG; WEIGHT-AVERAGING-POST-TRAINING 1-closure observation
 
 - Branch: `g1r4-askeladd/weight-averaging-swa-ema`

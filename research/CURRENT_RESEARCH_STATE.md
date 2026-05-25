@@ -1,9 +1,58 @@
 # SENPAI Research State — auto-nanogpt-1gpu-r4
 
-- **Date:** 2026-05-24 23:45 UTC (cycle 236)
+- **Date:** 2026-05-25 00:50 UTC (cycle 239)
 - **Most recent research direction from human researcher team:** none on file
 - **Primary metric:** `val/loss` at 3350 steps (lower is better); `speedrun/final_first_step_to_target` secondary
 - **Statistical merge rule:** `(3.28 − μ) × √n ≥ 0.004` AND n mean ≤ current baseline
+
+## Cycle 239 snapshot (00:50 UTC May 25) — #1003 fern per-block-TYPE Muon LR mult cooldown anneal CLOSED productive-NULL on PP confirmation (textbook PP collapse: N=1 −0.00226 → PP +0.00041 sign-flip; G1+G3 FAIL); SCHEDULE-CONTINUOUS-LR-MULT 1-closure observation; fern reassigned #1113 (ADAN OPTIMIZER ON AUX — fresh 2nd OPTIMIZER-CLASS-aux observation, mechanism-distinct from #1045 LION sign-based by grad-difference momentum + n-buffer extrapolated-grad squared); **8 consecutive no-merge closures — PLATEAU PROTOCOL ESCALATION TRIGGER IMMINENT**: next closure without merge = escalation to bigger bets (Schedule-Free, Shampoo, AggMo, Sophia, GaLore pre-staged).
+
+### Activity this cycle
+
+- **#1003 fern** PP n=3 confirmation complete CLOSED productive-NULL: Per-block-TYPE Muon LR mult cooldown anneal. A_mean=3.26852 (drift +0.00096 PASS), B_mean=3.26893 (+0.00137 vs baseline — slight regression). Paired Δ_mean=+0.00041, 1/3 pods direction-correct. 4-gate eval: G1 FAIL (B>baseline), G3 FAIL (1/3 dir-correct). N=1 signal −0.00226 sign-flipped to PP +0.00041 — full sign-flip past zero into mild regression, worse than typical ~0.1× PP collapse. Mechanism interpretation: body-Muon attn=0.80/mlp=1.20 asymmetry is structurally locked into cooldown phase, annealing toward 1.0 during cooldown loses the per-matrix-type advantage where late_peak NS=20 precision most needs it.
+- **PR #1113 fern** (assigned this cycle): **Adan optimizer on AUX groups** — fresh OPTIMIZER-CLASS-aux 2nd observation. 4 arms: A=ctrl AdamW, B=Adan default betas (0.98, 0.92, 0.99) mechanism-lead, C=more-responsive betas (0.95, 0.90, 0.99), D=smoother betas (0.98, 0.95, 0.999). Adan's grad-difference 2nd buffer (v_diff) + extrapolated-grad squared (n) buffer give Nesterov-like extrapolation at optimizer level. Mechanism-distinct from #1045 LION (sign-based no per-coord normalization), #1100 askeladd aux wd (post-step shrinkage on AdamW, not optimizer replacement), #1092 tanjiro per-group β1 (HP differentiation within AdamW). Tests if grad-difference momentum reduces lm_head sign-flip rate vs AdamW's 25.6% LR-invariant structural rate (#1045 finding).
+
+### Plateau awareness status (cycle 239 — ESCALATION IMMINENT)
+
+**8 consecutive no-merge closures** since #847 (cycle 222): #1028 PP, #1031 nezuko NS-adaptive, #1032 thorfinn Haar-init, #1045 frieren LION-aux, #1047 tanjiro LookAhead, #1048 alphonse cooldown-shape, #1055 askeladd weight-averaging, #1003 fern per-block-TYPE cooldown anneal.
+
+**Mitigation in place**: 7 fresh axes opened in 7 cycles (#1074 GC, #1078 μ schedule, #1088 noise injection, #1091 body wd, #1092 per-group β1 [Option 2], #1100 aux wd, #1113 Adan-aux) + 1 remaining PP confirmation chain (#1028 edward prune). Breadth strategy compensating.
+
+**Escalation trigger**: If next 1 closure lands without merge, total = 9 consecutive no-merge → ESCALATE. Pre-staged bigger bets:
+- **Schedule-Free** (Defazio 2024) — replaces load-bearing cooldown entirely
+- **Shampoo / Distributed-Shampoo body** — 2nd-order block-diagonal preconditioner replacing Muon NS
+- **AggMo body** (Aggregated Momentum, Lucas 2018) — multi-β momentum bank
+- **Sophia aux** (Hutchinson Hessian-diag, Liu 2023) — 2nd-order info on aux
+- **GaLore lm_head** (Zhao 2024) — low-rank gradient subspace on Zipfian-heavy lm_head
+- **MuonR² / Muon-via-majorization-minimization** — iterated NS refinement
+
+Note: #1113 Adan-aux is itself a 2nd OPTIMIZER-CLASS-aux observation — if it lands productive, it opens new optimizer-family direction; if it regresses, it tightens the fence toward closure.
+
+### Mechanism axes coverage (cycle 239, 8 chains active)
+
+| Axis | Active PR | Status | Notes |
+|---|:---:|:---:|---|
+| **OPTIMIZER-CLASS-aux (Adan, 2nd obs)** | **#1113 fern NEW** | WIP fresh | Grad-difference momentum + extrapolated-grad denominator; mechanism-distinct from #1045 LION |
+| AUX-WEIGHT-DECAY (per-group) | #1100 askeladd | WIP fresh | First per-group wd differentiation on AdamW aux; lm_head mechanism-lead |
+| DECOUPLED-AUX-PRECONDITIONER (per-group β1) | #1092 tanjiro | WIP fresh | Option 2 corrected: lm_head 0.70 + embed 0.95 (faster lm_head Zipfian) |
+| BODY-MUON-WEIGHT-DECAY | #1091 alphonse | WIP fresh | Arm A drift PASS, Arm B chaining |
+| GRADIENT-NOISE-INJECTION (body Muon momentum) | #1088 frieren | WIP fresh | Gaussian noise on momentum NS5 input |
+| MUON-MOMENTUM-SCHEDULE | #1078 thorfinn | WIP fresh | μ decay temporal: off/linear_full/cooldown_only/high-start |
+| GRADIENT-LEVEL-NORMALIZATION | #1074 nezuko | WIP fresh | GC on embed (Yong 2020) |
+| SUBTRACTIVE-PRUNING (PP) | #1028 edward | WIP — PP n=3 | ANCHOR=0 candidate, last remaining PP chain |
+
+### Closed-axis fence status (cycle 239)
+
+- AUX PRECONDITIONER COOLDOWN-WINDOW: 5 fences (CLOSED)
+- STATE-RESET: 4 fences (CLOSED)
+- LM_HEAD WEIGHT-SPACE ROW-MAGNITUDE: 8+ fences (CLOSED)
+- NS-ITERATION-ALLOCATION: 4 fences (CLOSED)
+- INITIALIZATION-DISTRIBUTION (body Muon): 2 fences (CLOSED)
+- OPTIMIZER-CLASS (aux): 1-closure observation (#1045 LION); **2nd obs PENDING via #1113 Adan**
+- META-OPTIMIZER (body Muon): 1-closure observation (#1047 LookAhead)
+- SCHEDULE-CURVATURE (body Muon): 1-closure observation (#1048 cooldown shape)
+- WEIGHT-AVERAGING-POST-TRAINING: 1-closure observation (#1055 SWA/EMA)
+- **SCHEDULE-CONTINUOUS-LR-MULT (per-block-TYPE): 1-closure observation (#1003 cooldown anneal) — NEW THIS CYCLE**
 
 ## Cycle 236 snapshot (23:45 UTC May 24) — #1055 askeladd weight-averaging CLOSED productive-NEG (WEIGHT-AVERAGING-POST-TRAINING 1-closure observation; structural cooldown-vs-averaging mismatch); askeladd reassigned #1100 (AUX-WEIGHT-DECAY axis — first per-group wd differentiation on aux AdamW); 7 consecutive no-merge closures — PLATEAU PROTOCOL ESCALATION: 6 fresh axes opened in 6 cycles + 2 PP chains in flight, but if next 2 closures land without merge, ESCALATE to bigger architectural/optimizer-class swings (Shampoo, Schedule-Free, AggMo, etc.)
 
