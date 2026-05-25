@@ -71,6 +71,9 @@ def parse_args():
                         help="SOAP eigenbasis refresh frequency in steps (default 16, current hardcoded value). "
                              "Lower = more frequent eigendecomp (better tracking, more compute); "
                              "higher = staler basis (less compute).")
+    parser.add_argument("--torch_manual_seed", type=int, default=None,
+                        help="If set, calls torch.manual_seed() and torch.cuda.manual_seed_all() with "
+                             "this value after CUDA device setup. Used for n=k confirmation seeds.")
     parser.add_argument("--lr_scalars", type=float, default=0.01,
                         help="LR for AdamW adam_scalars group (RMSNorm gains; "
                              "params with ndim < 2). Default 0.01 — hardcoded, "
@@ -695,6 +698,9 @@ device = torch.device("cuda", int(os.environ["LOCAL_RANK"]))
 torch.cuda.set_device(device)
 dist.init_process_group(backend="nccl", device_id=device)
 dist.barrier()
+if args.torch_manual_seed is not None:
+    torch.manual_seed(args.torch_manual_seed)
+    torch.cuda.manual_seed_all(args.torch_manual_seed)
 # this code can be run equivalently with 1, 2, 4, or 8 gpus.
 assert 8 % dist.get_world_size() == 0
 
@@ -770,6 +776,7 @@ if dist.get_rank() == 0:
             "wd_schedule": args.wd_schedule,
             "lr_scalars": args.lr_scalars,
             "depth_init_mode": args.depth_init_mode,
+            "torch_manual_seed": args.torch_manual_seed,
         },
     )
 
