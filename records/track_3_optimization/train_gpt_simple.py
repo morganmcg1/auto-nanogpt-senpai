@@ -10,6 +10,7 @@ import sys
 with open(sys.argv[0]) as f:
     code = f.read() # read the code of this file ASAP, for logging
 import argparse
+import math
 import uuid
 import time
 from pathlib import Path
@@ -447,6 +448,11 @@ MU_END = float(os.environ.get("MU_END", "0.95"))
 MU_COOLDOWN_ENABLED = ("MU_COOLDOWN_START" in os.environ) or ("MU_COOLDOWN_END" in os.environ)
 MU_COOLDOWN_START = float(os.environ.get("MU_COOLDOWN_START", "0.95"))
 MU_COOLDOWN_END = float(os.environ.get("MU_COOLDOWN_END", "0.95"))
+# PR #1110: cooldown interpolation SHAPE between MU_COOLDOWN_START and MU_COOLDOWN_END.
+# "linear" reproduces baseline exactly (default). "cosine" smooth ease-in. "exp" front-loaded.
+MU_COOLDOWN_SHAPE = os.environ.get("MU_COOLDOWN_SHAPE", "linear").lower()
+if MU_COOLDOWN_SHAPE not in ("linear", "cosine", "exp"):
+    raise ValueError(f"Unknown MU_COOLDOWN_SHAPE: {MU_COOLDOWN_SHAPE}")
 # Optional Muon momentum warmup (PR #415): linearly ramp cur_mu from
 # MU_WARMUP_START -> MU_COOLDOWN_START over the first MU_WARMUP_STEPS optimizer
 # steps before entering the plateau+cooldown schedule. Only active when
@@ -853,6 +859,7 @@ if dist.get_rank() == 0:
             "optimizer/mu_cooldown_enabled": MU_COOLDOWN_ENABLED,
             "optimizer/mu_cooldown_start": MU_COOLDOWN_START,
             "optimizer/mu_cooldown_end": MU_COOLDOWN_END,
+            "optimizer/mu_cooldown_shape": MU_COOLDOWN_SHAPE,
             "optimizer/mu_warmup_steps": MU_WARMUP_STEPS,
             "optimizer/mu_warmup_start": MU_WARMUP_START,
             "optimizer/muon_lr": MUON_LR,
@@ -928,7 +935,14 @@ for trial_idx in range(args.num_trials):
                 cur_mu = MU_COOLDOWN_START
             else:
                 t = (progress - (1 - cooldown_frac)) / cooldown_frac
-                cur_mu = MU_COOLDOWN_START + (MU_COOLDOWN_END - MU_COOLDOWN_START) * t
+                if MU_COOLDOWN_SHAPE == "linear":
+                    s = t
+                elif MU_COOLDOWN_SHAPE == "cosine":
+                    # mass redistributed toward middle/late of cooldown window
+                    s = 0.5 * (1.0 - math.cos(math.pi * t))
+                else:  # "exp": front-loaded, fast ramp early; normalized so s(1)=1
+                    s = (1.0 - math.exp(-3.0 * t)) / (1.0 - math.exp(-3.0))
+                cur_mu = MU_COOLDOWN_START + (MU_COOLDOWN_END - MU_COOLDOWN_START) * s
         else:
             cur_mu = MU + (MU_END - MU) * progress
         for opt in optimizers:
