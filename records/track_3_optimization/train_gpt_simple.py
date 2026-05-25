@@ -71,6 +71,10 @@ def parse_args():
                         help="LR for AdamW adam_scalars group (RMSNorm gains; "
                              "params with ndim < 2). Default 0.01 — hardcoded, "
                              "never ablated. ~20K params total in this model.")
+    parser.add_argument("--mu_mlp", type=float, default=0.95,
+                        help="Nesterov momentum for muon_mlp param group. Default 0.95 = current shared value.")
+    parser.add_argument("--mu_attn", type=float, default=0.95,
+                        help="Nesterov momentum for muon_attn param group. Default 0.95 = current shared value.")
     parser.add_argument(
         "--depth_init_mode",
         type=str,
@@ -680,6 +684,41 @@ class Muon(torch.optim.Optimizer):
             result[name] = mean
         return result
 
+    @torch.no_grad()
+    def get_momentum_norms(self) -> dict[str, float]:
+        """Return per-group mean Frobenius norm of the current momentum buffers.
+
+        Returns a dict mapping group name (e.g., 'muon_mlp') to mean ‖momentum‖_F.
+        """
+        world_size = dist.get_world_size()
+        rank = dist.get_rank()
+        result: dict[str, float] = {}
+        for g_idx, group in enumerate(self.param_groups):
+            params = group["params"]
+            if not params:
+                continue
+            norm_sum = torch.zeros((), device=params[0].device, dtype=torch.float32)
+            count = 0
+            for i, p in enumerate(params):
+                if i % world_size != rank:
+                    continue
+                state = self.state.get(p, {})
+                m = state.get("momentum", None)
+                if m is None:
+                    continue
+                norm_sum.add_(m.float().norm())
+                count += 1
+            count_t = torch.tensor(float(count), device=norm_sum.device)
+            if world_size > 1:
+                dist.all_reduce(norm_sum, op=dist.ReduceOp.SUM)
+                dist.all_reduce(count_t, op=dist.ReduceOp.SUM)
+            total_count = float(count_t.item())
+            if total_count == 0:
+                continue
+            name = group.get("name", f"group_{g_idx}")
+            result[name] = float(norm_sum.item()) / total_count
+        return result
+
 
 ########################################
 #                Setup                 #
@@ -765,6 +804,8 @@ if dist.get_rank() == 0:
             "wd_schedule": args.wd_schedule,
             "lr_scalars": args.lr_scalars,
             "depth_init_mode": args.depth_init_mode,
+            "mu_mlp": args.mu_mlp,
+            "mu_attn": args.mu_attn,
         },
     )
 
@@ -849,8 +890,8 @@ for trial_idx in range(args.num_trials):
     assert len(mlp_named) + len(attn_named) == len(named_blocks)
     optimizer2 = Muon(
         [
-            dict(named_params=mlp_named,  lr=args.lr_mlp,  weight_decay=args.wd_mlp,  name="muon_mlp"),
-            dict(named_params=attn_named, lr=args.lr_attn, weight_decay=args.wd_attn, name="muon_attn"),
+            dict(named_params=mlp_named,  lr=args.lr_mlp,  weight_decay=args.wd_mlp,  mu=args.mu_mlp,  name="muon_mlp"),
+            dict(named_params=attn_named, lr=args.lr_attn, weight_decay=args.wd_attn, mu=args.mu_attn, name="muon_attn"),
         ],
         soap_attn=args.soap_attn, trust_threshold=args.soap_trust_threshold,
     )
@@ -1011,18 +1052,25 @@ for trial_idx in range(args.num_trials):
             opt.step()
         if telemetry_due:
             update_norms = optimizer2.get_step_update_norms()
+            momentum_norms = optimizer2.get_momentum_norms()
             current_lrs = {group.get("name", f"group_{i}"): group["lr"]
                            for i, group in enumerate(optimizer2.param_groups)}
             current_wds = {group.get("name", f"group_{i}"): group.get("weight_decay", 0.0)
+                           for i, group in enumerate(optimizer2.param_groups)}
+            current_mus = {group.get("name", f"group_{i}"): group.get("mu", 0.0)
                            for i, group in enumerate(optimizer2.param_groups)}
             if dist.get_rank() == 0:
                 per_group_metrics = {"trial": trial_idx, "train/step": train_step}
                 for name, mean_norm in update_norms.items():
                     per_group_metrics[f"train/update_norm/{name}"] = mean_norm
+                for name, mean_norm in momentum_norms.items():
+                    per_group_metrics[f"muon/momentum_norm_{name.replace('muon_', '')}"] = mean_norm
                 for name, lr in current_lrs.items():
                     per_group_metrics[f"train/lr/{name}"] = lr
                 for name, wd in current_wds.items():
                     per_group_metrics[f"train/wd/{name}"] = wd
+                for name, mu in current_mus.items():
+                    per_group_metrics[f"muon/mu_{name.replace('muon_', '')}"] = mu
                 per_group_metrics["train/wd_mlp_now"] = current_wds.get("muon_mlp", 0.0)
                 per_group_metrics["train/wd_attn_now"] = current_wds.get("muon_attn", 0.0)
                 per_group_metrics["train/wd_schedule_progress"] = train_step / train_steps
