@@ -593,6 +593,21 @@ NANOGPT_SENPAI_SEED = int(_SENPAI_SEED_RAW) if _SENPAI_SEED_RAW != "" else None
 # `embed.weight -= lr_embed * lambda * (embed.weight - embed_init_snapshot)`.
 # At lambda=0 the hook is a no-op and behavior is bit-identical to the merged stack.
 NANOGPT_EMBED_INIT_ANCHOR_LAMBDA = float(os.environ.get("NANOGPT_EMBED_INIT_ANCHOR_LAMBDA", "0.0"))
+# Cautious AdamW per-group masking (#1153, Liang et al 2024 arXiv:2411.16085).
+# Comma-separated short names of aux groups to mask: subset of {embed, lm_head, scalars}.
+# Empty string => no masking; CautiousAdamW falls through to fused AdamW (bit-identical baseline).
+_CAUTIOUS_RAW = os.environ.get("NANOGPT_CAUTIOUS_GROUPS", "")
+NANOGPT_CAUTIOUS_GROUPS = {tok for tok in (s.strip() for s in _CAUTIOUS_RAW.split(",")) if tok}
+_VALID_CAUTIOUS_GROUPS = {"embed", "lm_head", "scalars"}
+_unknown_cautious = NANOGPT_CAUTIOUS_GROUPS - _VALID_CAUTIOUS_GROUPS
+if _unknown_cautious:
+    raise ValueError(
+        f"NANOGPT_CAUTIOUS_GROUPS contains unknown groups: {sorted(_unknown_cautious)}; "
+        f"valid options: {sorted(_VALID_CAUTIOUS_GROUPS)}"
+    )
+NANOGPT_CAUTIOUS_SOFT = os.environ.get("NANOGPT_CAUTIOUS_SOFT", "0") == "1"
+# Short-name -> param_group name used by optimizer1.
+_CAUTIOUS_GROUP_NAME_MAP = {"embed": "adam_embed", "lm_head": "adam_lm_head", "scalars": "adam_scalars"}
 
 
 def get_ns_coef_at_iter(iter_idx: int, total_iters: int, schedule: str) -> tuple[float, float, float]:
@@ -778,6 +793,85 @@ class Muon(torch.optim.Optimizer):
                 dist.all_gather(params_pad[base_i:base_i + world_size], params_pad[base_i + rank])
 
 
+class CautiousAdamW(AdamW):
+    """AdamW with optional per-group cautious masking (Liang 2024 arXiv:2411.16085 eq. 3).
+
+    Per-group flags (set via the dict passed to ``__init__``):
+      ``cautious``      - hard mask: zero AdamW update where sign(m_hat/sqrt(v_hat)) != sign(g)
+      ``cautious_soft`` - soft mask: scale disagreeing updates by 0.5 instead of 0.0
+    The masked update is renormalized by mask.mean() so the expected step magnitude on
+    non-masked parameters is preserved.
+
+    Dispatch: when no group has ``cautious=True``, ``step()`` defers to ``AdamW.step``
+    (the fused path) for bit-identical behavior vs the standard-AdamW baseline. When any
+    group is cautious, the entire optimizer runs an unfused Adam step so the mask can be
+    applied between the bias-corrected update direction and the parameter update.
+    """
+
+    def __init__(self, params, **kwargs):
+        super().__init__(params, **kwargs)
+        for group in self.param_groups:
+            group.setdefault("cautious", False)
+            group.setdefault("cautious_soft", False)
+        self._any_cautious = any(g.get("cautious", False) for g in self.param_groups)
+        # Per-group last-step agree-fraction as GPU tensors; caller .item()s when logging.
+        self.last_mask_fraction: dict[str, torch.Tensor] = {}
+
+    @torch.no_grad()
+    def step(self, closure=None):
+        if not self._any_cautious:
+            return super().step(closure)
+        loss = None
+        if closure is not None:
+            with torch.enable_grad():
+                loss = closure()
+        for group in self.param_groups:
+            beta1, beta2 = group["betas"]
+            eps = group["eps"]
+            lr = group["lr"]
+            weight_decay = group.get("weight_decay", 0.0)
+            cautious = group.get("cautious", False)
+            cautious_soft = group.get("cautious_soft", False)
+            name = group.get("name", "?")
+            group_agree_sum = None  # tensor accumulator, no GPU sync until logging
+            group_total_count = 0
+            for p in group["params"]:
+                if p.grad is None:
+                    continue
+                grad = p.grad
+                state = self.state[p]
+                if len(state) == 0:
+                    state["step"] = 0
+                    state["exp_avg"] = torch.zeros_like(p, memory_format=torch.preserve_format)
+                    state["exp_avg_sq"] = torch.zeros_like(p, memory_format=torch.preserve_format)
+                exp_avg = state["exp_avg"]
+                exp_avg_sq = state["exp_avg_sq"]
+                state["step"] += 1
+                t = state["step"]
+                if weight_decay != 0:
+                    p.mul_(1 - lr * weight_decay)
+                exp_avg.mul_(beta1).add_(grad, alpha=1 - beta1)
+                exp_avg_sq.mul_(beta2).addcmul_(grad, grad, value=1 - beta2)
+                bias1 = 1.0 - beta1 ** t
+                bias2 = 1.0 - beta2 ** t
+                m_hat = exp_avg / bias1
+                v_hat = exp_avg_sq / bias2
+                update = m_hat / (v_hat.sqrt() + eps)
+                if cautious:
+                    agree = (update * grad) > 0
+                    agree_f = agree.float()
+                    mask = 0.5 + 0.5 * agree_f if cautious_soft else agree_f
+                    mask_mean = mask.mean().clamp(min=1e-8)
+                    update = update * mask / mask_mean
+                    cur_agree_sum = agree_f.sum()
+                    group_agree_sum = cur_agree_sum if group_agree_sum is None else group_agree_sum + cur_agree_sum
+                    group_total_count += agree_f.numel()
+                p.add_(update, alpha=-lr)
+            if cautious and group_total_count > 0:
+                self.last_mask_fraction[name] = group_agree_sum / float(group_total_count)
+        return loss
+
+
 ########################################
 #                Setup                 #
 ########################################
@@ -824,6 +918,11 @@ print0(f"  Effective Muon base LRs: attn={0.035*NANOGPT_MUON_ATTN_LR_MULT:.5f} m
 print0(f"EMBED_INIT_ANCHOR_LAMBDA: {NANOGPT_EMBED_INIT_ANCHOR_LAMBDA} "
        f"({'ACTIVE' if NANOGPT_EMBED_INIT_ANCHOR_LAMBDA > 0 else 'INACTIVE (bit-identical fallback)'})",
        console=True)
+print0(
+    f"CAUTIOUS_ADAMW: groups={sorted(NANOGPT_CAUTIOUS_GROUPS) or '[]'} soft={NANOGPT_CAUTIOUS_SOFT} "
+    f"({'ACTIVE — unfused AdamW with mask' if NANOGPT_CAUTIOUS_GROUPS else 'INACTIVE — fused AdamW fallback (bit-identical)'})",
+    console=True,
+)
 if NS_ITERS_COOLDOWN > 0:
     print0(f"NS_SCHEDULE: ns_iters={NS_ITERS} -> ns_iters_cooldown={NS_ITERS_COOLDOWN} "
            f"at fraction {NS_COOLDOWN_START_FRAC} of train_steps "
@@ -896,6 +995,9 @@ if dist.get_rank() == 0:
             "nanogpt_ns_stochastic_cooldown": NANOGPT_NS_STOCHASTIC_COOLDOWN,
             "senpai_seed": NANOGPT_SENPAI_SEED if NANOGPT_SENPAI_SEED is not None else -1,
             "nanogpt_embed_init_anchor_lambda": NANOGPT_EMBED_INIT_ANCHOR_LAMBDA,
+            "nanogpt_cautious_groups": ",".join(sorted(NANOGPT_CAUTIOUS_GROUPS)) or "",
+            "nanogpt_cautious_soft": int(NANOGPT_CAUTIOUS_SOFT),
+            "nanogpt_cautious_active": int(bool(NANOGPT_CAUTIOUS_GROUPS)),
         },
     )
 
@@ -938,10 +1040,24 @@ for trial_idx in range(args.num_trials):
                f"snapshot_shape={tuple(embed_init_snapshot.shape)}", console=True)
 
     # create the optimizer(s)
-    optimizer1 = AdamW([dict(params=[model.embed.weight], lr=0.3 * NANOGPT_ADAMW_EMBED_LR_MULT, name="adam_embed"),
-                        dict(params=[model.proj.weight], lr=(1/320) * NANOGPT_ADAMW_LM_HEAD_LR_MULT, name="adam_lm_head"),
-                        dict(params=[p for p in model.parameters() if p.ndim < 2], lr=0.01 * NANOGPT_ADAMW_SCALAR_LR_MULT, name="adam_scalars")],
-                       betas=(0.8, NANOGPT_ADAMW_BETA2), eps=1e-10, weight_decay=0, fused=True)
+    # CautiousAdamW (#1153): per-group cautious masking on selected aux groups. With no
+    # group in NANOGPT_CAUTIOUS_GROUPS the optimizer falls through to fused AdamW so
+    # behavior is bit-identical to the baseline.
+    _cautious_embed = "embed" in NANOGPT_CAUTIOUS_GROUPS
+    _cautious_lm_head = "lm_head" in NANOGPT_CAUTIOUS_GROUPS
+    _cautious_scalars = "scalars" in NANOGPT_CAUTIOUS_GROUPS
+    optimizer1 = CautiousAdamW(
+        [dict(params=[model.embed.weight], lr=0.3 * NANOGPT_ADAMW_EMBED_LR_MULT,
+              name="adam_embed",
+              cautious=_cautious_embed, cautious_soft=NANOGPT_CAUTIOUS_SOFT),
+         dict(params=[model.proj.weight], lr=(1/320) * NANOGPT_ADAMW_LM_HEAD_LR_MULT,
+              name="adam_lm_head",
+              cautious=_cautious_lm_head, cautious_soft=NANOGPT_CAUTIOUS_SOFT),
+         dict(params=[p for p in model.parameters() if p.ndim < 2],
+              lr=0.01 * NANOGPT_ADAMW_SCALAR_LR_MULT, name="adam_scalars",
+              cautious=_cautious_scalars, cautious_soft=NANOGPT_CAUTIOUS_SOFT)],
+        betas=(0.8, NANOGPT_ADAMW_BETA2), eps=1e-10, weight_decay=0, fused=True,
+    )
     # Per-block-type Muon param split: attn (q/k/v/proj) vs mlp (fc/proj).
     # When both multipliers = 1.0, behavior is bit-identical to the prior single-group setup
     # (NS orthogonalization is per-matrix; the split only changes how groups are indexed).
@@ -1274,6 +1390,23 @@ for trial_idx in range(args.num_trials):
                 step=train_step,
                 wandb_step=wandb_step,
             )
+        # Per-50-step cautious-mask fraction (fraction of params whose momentum agrees with
+        # gradient this step). #1045 predicts ~0.744 (= 1 − 0.256 LR-invariant sign-flip rate)
+        # on lm_head; deviations vs that baseline reveal whether cautious masking is
+        # adaptively reshaping the sign-flip distribution during training.
+        cautious_log_due = (
+            NANOGPT_CAUTIOUS_GROUPS
+            and (train_step % 50 == 0 or train_step == train_steps)
+        )
+        if dist.get_rank() == 0 and cautious_log_due:
+            cautious_metrics = {"trial": trial_idx, "train/step": train_step}
+            for short_name in sorted(NANOGPT_CAUTIOUS_GROUPS):
+                group_name = _CAUTIOUS_GROUP_NAME_MAP[short_name]
+                frac_t = optimizer1.last_mask_fraction.get(group_name)
+                if frac_t is not None:
+                    cautious_metrics[f"train/cautious_{short_name}_mask_fraction"] = float(frac_t.item())
+            if len(cautious_metrics) > 2:
+                wandb.log(cautious_metrics, step=wandb_step)
         if dist.get_rank() == 0 and telemetry_due:
             ns_metrics = {
                 "trial": trial_idx,
