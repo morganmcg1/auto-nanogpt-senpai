@@ -1,3 +1,28 @@
+## 2026-05-25 16:15 — PR #1157: H148 Body init orthogonal sweep (WIN — NEW BASELINE 3.26364)
+
+- Branch: `g1r3-edward/h148-body-init-orthogonal-sweep`
+- Hypothesis: NS5 spectral normalization pushes body weight singular values toward 1.0 every step — what if we START at an orthogonal basis? Two sub-hypotheses: (a) orthogonal directions at F-norm matched magnitude (isolates init-direction from magnitude); (b) orthogonal + depth-asymmetric damping (rescues H140 bottom-layers-prefer-smaller signal in init-axis).
+
+| Arm | W&B run | val/loss | Δ vs baseline (3.26547) | ffs | Verdict |
+|-----|---------|----------|-------------------------|-----|---------|
+| arm_a CTRL `default` | `ql0umjdd` | 3.26528 | −0.00019 | 3150 | NULL bit-id |
+| arm_b ORTHOGONAL_FNORM_MATCHED | `jg6p3l50` | **3.26364** | **−0.00183** | 3125 | **WIN** (0.00103 below threshold 3.26467) |
+| arm_c ORTHOGONAL_BOTTOM_DAMP | `6vh8xhrh` | 3.30295 | +0.03748 | −1 | **SEVERE NEG** (does not reach 3.28 target) |
+
+**Statistical rule**: arm_b (3.28 − 3.26364) × √1 = 0.01636 ≥ 0.004 ✓ MERGED
+
+**Programme findings**:
+
+1. **F-norm matched orthogonal body init gives persistent −0.00164 cooldown-resistant advantage.** arm_b led CTRL at 37/37 consecutive checkpoints after step 1250 with gap stabilizing in [−0.0014, −0.0020] range. **First case of cooldown-persistent advantage in the programme** — breaks the 7-axis mid-training-lead-erosion pattern. Mechanism: orthogonal direction at preserved hyperball radius = same geometric constraints, better starting basis.
+
+2. **The win is NOT sv=1.0 NS5-attractor (arm_c falsified that).** arm_b sv_med at step 1 is 0.7188 (rescaled orthogonal, not 1.0). arm_c (gain=1.0, true sv=1.0) is SEVERE NEG due to uncontrolled hyperball radius perturbation (top half expands 1.74×, bottom MLP half collapses to 0.29×). Co-design wins through hyperball preservation, not NS5 fixed-point alignment.
+
+3. **H140 depth-asymmetry signal does NOT survive uncontrolled hyperball perturbation.** Future depth-asymmetric init tests must per-layer F-norm match FIRST then apply asymmetric damp. arm_c conflated direction, magnitude, and per-layer ratio.
+
+4. **AGC profiles identical across arm_a and arm_b** (muonh/agc/fraction_active mean 0.99315, scale_mean 0.00758 both arms). Orthogonal-direction init at matched F-norm does not perturb gradient-norm envelope.
+
+---
+
 ## 2026-05-25 15:35 — PR #1150: H146 Look-Ahead body MuonH under LINEAR cooldown (SEVERE NEG bilateral closure)
 - Branch: `g1r3-askeladd/h146-la-linear-cooldown`
 - Hypothesis: H139 LA body MuonH SEVERE NEG under cosine attributed to "cosine-cooldown-drain" mechanism. Test whether LINEAR cooldown (H133 winner) rescues LA's mid-training benefit (+0.05 lead at step 1000 in H139). Also test surgical late-disable (la_disable_after_step=2500) as transient rescue path.
