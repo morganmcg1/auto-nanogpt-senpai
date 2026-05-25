@@ -1,3 +1,26 @@
+## 2026-05-25 07:50 UTC — PR #1112 CLOSED (nezuko): H137 NS5 Precision Sweep (NULL/NEG closure; 10th NS5 axis closure within quintic family; bf16 is precision-optimal at the bf16-cast boundary; **spectral health DECOUPLED from val/loss outcome** — 3 mantissa bits over bf16 sufficient to saturate spectral tightening, 13 more bits buy nothing)
+
+- Branch: `g1r3-nezuko/h137-ns5-precision-sweep`
+- Hypothesis: NS5 polynomial internal-precision sweep at canonical (k=12, coefs (2,-1.5,0.5)) — does bf16 internal precision act as a binding numerical floor on val/loss? Test fp32 (lift floor) and fp16 (reduce floor) vs bf16 (CTRL).
+- Terminal results (student SENPAI-RESULT marker valid, all 3 wandb_run_ids):
+  - arm_a CTRL bf16 `qrk1vjnt` val/loss=**3.26794** (NULL bit-id within widened CTRL [3.26721, 3.27091]) ffs=3025 ✓
+  - arm_b fp32 `czif0gzz` val/loss=**3.27066** **NEG** (Δ=+0.00272 vs CTRL; under new bands lands in NEG band > 3.26817) ffs=3075; step_avg +4.3% wallclock overhead
+  - arm_c fp16 `2kpx4i7p` val/loss=**3.26863** **NULL** (Δ=+0.00069 vs CTRL; within new NULL band [3.26377, 3.26817]) ffs=3050; step_avg +0.1% (≡ bf16)
+- Verdict: **CLOSED as NULL/NEG.** Best=3.26794 (arm_a) fails new WIN threshold 3.26467 by 0.00327. No merge.
+- **MANTISSA-PRECISION-DETERMINES-SPECTRAL-TIGHTNESS finding (mechanism diagnostic)**: at step-201 `blocks.0.mlp.fc.weight`:
+  - bf16 (7-bit mantissa): sv_min=0.99443 / sv_max=1.00527 — wider spread
+  - fp16 (10-bit mantissa): sv_min=0.99863 / sv_max=1.00146 — tight
+  - fp32 (23-bit mantissa): sv_min=0.99890 / sv_max=1.00133 — essentially identical to fp16
+  - **+3 mantissa bits (bf16→fp16) saturates the spectral tightening; +13 more bits (fp16→fp32) buys nothing.**
+- **bf16-CAST-BOUNDARY-DOMINATES-VAL/LOSS finding (programme-level)**: fp32 NS5 *does* tighten the spectrum substantially (sv_min 0.994 → 0.999, ~4.5x improvement in singular-value cluster radius around 1) but **the val/loss WORSENS by +0.00272**. The bf16 cast on NS5 output truncates fp32-internal precision gains before they reach body weights. Spectral tightening above sv_min ≈ 0.994 does NOT translate to val/loss improvement. **Spectral health and val/loss outcome are DECOUPLED at this benchmark.**
+- **H106 sv_med=1.0 strict-requirement closure REFINED**: H106 originally closed at "sv_med must be 1.0." H132 (edward) showed sv_med non-binding within [0.816, 1.365]. H137 now refines further: **NS5 only needs to produce a *sufficiently orthogonal* update direction (sv_min≈0.994 is enough), not a perfectly orthogonal one.** Any internal precision tighter than bf16 is wasted information at the bf16-cast boundary.
+- **NS5 quintic family COMPREHENSIVELY TUNED at k=12 with coefs (2,-1.5,0.5) bf16 internal**: H78 (degree) + H88 (Polar Express) + H90 (NSCubic) + H93/H98 (alternates) + H106 (sv_med) + H115 (sv_max) + H121 (input source) + H129 (k-pruning) + H132 (coefs) + H137 (precision) — **10 NS5 axes all closed**. Further "stay within NS5 quintic" hypotheses become mechanism-redundant.
+- **Programme directive (nezuko's writeup)**: future NS5 work must (a) abandon precision-internal axes — Pareto-dominated, (b) keep bf16 default, (c) NOT explore fp32 NS5, (d) consider fp16 NS5 only if memory binding.
+- **Per-iter NS5 convergence**: all 3 dtypes converge by iter 4 (sv_max/iter_0=0.42 → iter_4=1.002), differences are in *limiting precision*, not convergence speed.
+- Student honest caveats: single-seed per arm (n=1); arm_b NEG borderline (+0.0009 above old NULL upper); decision rule applied against pre-H133 baseline 3.26706 (H133 merged mid-experiment to 3.26547), but closure verdict holds against either threshold.
+- Student suggested follow-ups: (1) **bf16-cast boundary removal mechanism check** — promising for confirming the bf16-cast hypothesis but invasive (~30-50 LoC); (2) fp16 mixed-precision body weights for throughput; (3) NS5 k-stable-fp16 limit; (4) advisor agrees no further precision-internal work warranted.
+- Operational excellence: comprehensive terminal report with per-iter SV trajectory across 3 dtypes, mantissa-precision-vs-spectral-tightness mechanism, bf16-cast-boundary mechanism, H106 refinement narrative, programme directive, exact reproduce commands. Strongest "negative result" writeup of the cycle.
+
 ## 2026-05-25 06:40 UTC — PR #1111 CLOSED (alphonse): H136 Embed-only Polyak EMA (NULL/NEG closure; 4-level-deep closure of eval-time mechanism axis H120+H125+H127+H136; H127 catastrophic regime mechanism RE-ATTRIBUTED to body weights × cosine cooldown — embed-only avoids catastrophe; H127 mid-training EMA gain was ~90% body-driven not embed-driven)
 
 - Branch: `g1r3-alphonse/embed-only-polyak-ema`
