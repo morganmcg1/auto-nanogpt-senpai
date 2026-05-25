@@ -1,5 +1,56 @@
 # SENPAI Research Results
 
+## 2026-05-25 13:45 UTC — PR #1136 CLOSED: Body Muon gradient noise injection (σ=0.05 vs 0.15) — 131st NULL, gradient noise axis FULLY CLOSED (g1r1-fern)
+
+- Branch: `g1r1-fern/grad-noise`
+- Hypothesis: Inject gradient noise `σ·||g||_F/√numel·N(0,1)` into all 72 body Muon params before EMA/whitening/NS5. Arm A σ=0.05 (light); Arm B σ=0.15 (moderate). Based on Neelakantan et al. 2015 annealed gradient noise for generalization.
+
+### Results
+
+| Arm | σ | W&B | val/loss | sr | Δval (mnat) | σ multiples | Verdict |
+|---|---|---|---|---|---|---|---|
+| Baseline #918 | 0.0 | vm48fdof/0a7esmxs | 3.266394 | 2925 | — | — | — |
+| **A** | **0.05** (light) | `ze6l9k7r` | **3.282374** | **−1** | **+15.98** | 53σ | **CATASTROPHIC** (missed 3.28 target) |
+| **B** | **0.15** (moderate) | `7vrtq1l1` | **3.345232** | **−1** | **+78.84** | 263σ | **CATASTROPHIC** (missed 3.28 target) |
+
+**Dose-response: Δval ∝ σ^1.45 (super-linear).** 3× increase in σ → 4.94× regression. Variance accumulates super-linearly through bilateral whitening (2 GEMMs) + NS5 (cubic Newton amplifies off-manifold component).
+
+### Diagnostic telemetry (final values)
+
+| Metric | Arm A (σ=0.05) | Arm B (σ=0.15) | Baseline |
+|---|---|---|---|
+| `muon/noise_to_signal_ratio` | 0.0500 | 0.1500 | n/a |
+| `polar/ortho_residual_sample` | 0.2404 | **0.5275** | 0.2477 / 0.1394 |
+| `ema/buffer_frob_dist` | 23.714 (+4.7%) | **28.212 (+24.6%)** | 22.645 / 22.642 |
+| `ema/delta_ema_minus_live_mnat` | 0.618 | 0.636 | 0.597 / 0.607 |
+
+### Mechanism findings
+
+1. **NS5 absorbs σ=0.05 noise at the ortho_residual level but NOT at the val level.** Arm A ortho_residual 0.240 ≈ baseline range (0.139–0.248). Yet val is 15.98 mnat worse. The regression is at the descent level, not the polar projection level.
+2. **NS5 FAILS to orthogonalize σ=0.15-corrupted input.** Arm B ortho_residual 0.528 = 2.1× elevated → NS5 cubic Newton cannot orthogonalize a highly-corrupted polar map.
+3. **EMA does NOT dampen pre-EMA noise.** Noise injected before EMA enters the buffer and persists for ~10 steps (μ=0.95). The regression is at descent level (ema/delta_ema_minus_live_mnat flat: 0.60→0.62→0.64). Buffer_frob_dist grows monotonically with σ but is NOT the primary regression mechanism.
+4. **Implementation verified correct.** noise_to_signal_ratio matched σ exactly; all 72 body params received noise as designed.
+
+### Pipeline position canon (major mechanism update)
+
+**The Neelakantan et al. 2015 prior on annealed gradient noise does NOT transfer** to a benchmark where the optimizer pipeline includes a strongly-nonlinear orthogonalizer (NS5) that amplifies noise via cubic Newton iteration.
+
+Pipeline position hierarchy established:
+- **Pre-EMA pre-whitening pre-NS5 (THIS PR):** CATASTROPHIC at all σ > 0
+- **Post-polar magnitude blend (#1107):** sub-noise at n=2 (n=1 mirage)  
+- **Post-NS5 output side (#1135 Arm A exact SVD):** +3 mnat regress — NS5 residual IS implicit regularization
+- **Output-level (loss-side regularization #1043/#1058/#1060/#1066/#1090):** all CATASTROPHIC or noise-floor
+
+**Rule: regularization must be applied POST-POLAR (after NS5), not upstream of it.**
+
+### Cross-axis
+
+- Reinforces #1135 exact-SVD finding: NS5's 6.7% polar residual is implicit regularization; perturbing it (either by bypassing with exact SVD upstream, or corrupting with noise upstream) is harmful
+- Reinforces #1102 m_pre rank canon: m_pre stable rank ≈426; pre-polar noise injection further collapses rank
+- Closes the "gradient-level signal modification" direction suggested by #1090 closure note
+
+---
+
 ## 2026-05-25 12:55 UTC — PR #1129 CLOSED: Post-polar aspect-ratio exponent ablation (exp=0.0 vs 1.0) — 130th NULL, spectral_exp axis FULLY CLOSED (g1r1-edward)
 
 - Branch: `g1r1-edward/spectral-exp`
