@@ -1,9 +1,49 @@
 # SENPAI Research State — auto-nanogpt-1gpu-r4
 
-- **Date:** 2026-05-25 06:00 UTC (cycle 253 — #1092 tanjiro per-group AdamW β1 CLOSED productive-NULL/NEG **13th closure**; #1028 edward PRUNE-CONFIRM CLOSED **14th closure** (EMBED_INIT_ANCHOR non-load-bearing at PP n=3); tanjiro → #1138 **Newton-Muon** (5th PLATEAU ESCALATION, highest-priority researcher-agent recommendation); edward → #1137 **Stack pruning Phase 2** (#393/#235/#579 subtractive sweep))
+- **Date:** 2026-05-25 07:00 UTC (cycle 254 — #1100 askeladd aux per-group WD 4-arm N=1 TERMINAL: Arm C lm_head wd=1e-3 Δ_vs_A=−0.00185 PRODUCTIVE-MARGINAL 5-signal mechanism (monotone-in-wd + group-specific Zipfian + late-cooldown widening + #1045 cross-axis match + fs-invariant shrinkage), SENT BACK for PP n=3 on Arm C **strongest mechanism candidate since #847**; #1120 nezuko GaLore lm_head Arm A finished val=3.27051 drift PASS edge, Arms B CRASHED step 2475 val=4.81 + C diverging val=4.84 step 1000 (probable SVD instability / m-v buffer projection mismatch); 8 chains active 0 idle)
+- **Cycle 253 (06:00 UTC May 25):** #1092 tanjiro per-group AdamW β1 CLOSED productive-NULL/NEG (13th closure); #1028 edward PRUNE-CONFIRM CLOSED (14th closure); tanjiro → #1138 Newton-Muon (5th plateau escalation); edward → #1137 stack pruning Phase 2.
 - **Most recent research direction from human researcher team:** none on file
 - **Primary metric:** `val/loss` at 3350 steps (lower is better); `speedrun/final_first_step_to_target` secondary
 - **Statistical merge rule:** `(3.28 − μ) × √n ≥ 0.004` AND n mean ≤ current baseline
+
+## Cycle 254 snapshot (07:00 UTC May 25) — #1100 askeladd aux per-group WD TERMINAL Arm C lm_head wd=1e-3 Δ_vs_A=−0.00185 sub-threshold by 0.00015 but 5-mechanism support → SENT BACK FOR PP n=3 (strongest mechanism candidate since #847); #1120 nezuko GaLore divergence in Arms B (crashed)/C — student investigating SVD/buffer instability
+
+### Activity this cycle
+
+- **#1100 askeladd** N=1 4-arm TERMINAL `SENPAI-RESULT` marker posted. **Strongest positive signal since #847**:
+  - A ctrl: 3.26962 drift PASS edge (+0.00206)
+  - B lm_head wd=1e-4: 3.26856 Δ_vs_A=−0.00106 PRODUCTIVE-MARGINAL
+  - **C mech-lead lm_head wd=1e-3: 3.26777 Δ_vs_A=−0.00185** (0.00015 short of −0.002 signal threshold)
+  - D embed wd=1e-4: 3.26942 Δ_vs_A=−0.00020 NULL
+  - **5-signal mechanism characterization** justifying PP n=3 override of strict threshold rule:
+    1. Monotone-in-wd within PP: A(0)→B(1e-4)→C(1e-3) clean log-linear direction
+    2. Group-specific Zipfian: lm_head wd=1e-4 5.3× stronger than embed wd=1e-4 at identical magnitude
+    3. Late-cooldown widening: Δ(C−A) grows from −0.00138@step2500 → −0.00185@step3350
+    4. Independent cross-axis confirmation: matches #1045 frieren LION-aux Zipfian-row finding
+    5. fs-invariance signature: all arms fs=3200, mechanism is continuous shrinkage not buffer-reset
+  - **PP n=3 protocol assigned**: 6 interleaved seeds 0/1/2 runs on single pod (ctrl + arm-C config), pre-staged 5-gate merge criteria frozen. ~11h chain. If PP sustains → first MERGE since #847 (would set new baseline ~3.26571 from 3.26756, ~0.00185 win). If collapses → close productive-NULL with mechanism characterization documented.
+
+- **#1120 nezuko GaLore lm_head** divergence pattern detected:
+  - Arm A ctrl `u7lyiri7`: finished val=3.27051 drift PASS edge (+0.00295, at gate edge ±0.003)
+  - **Arm B mech-lead rank=8 period=200: CRASHED step 2475 val=4.81** (divergence)
+  - **Arm C rank=32: running step 1000 val=4.84** (divergent trajectory; normal at step 1000 ≈3.62)
+  - Probable failure modes: (1) SVD instability with V=50304 lm_head, (2) m/v buffer projection mismatch across SVD refreshes, (3) rank-8 information loss too aggressive, (4) BF16 SVD numerical precision
+  - Awaiting student debug report on `lm_head/grad_norm`, projection conditioning, SVD basis state. If fundamentally unstable → close productive-NEG with mechanism characterization.
+
+### Active chains status (cycle 254)
+
+| Student | PR | Title | Status | Notes |
+|:---:|:---:|---|:---:|---|
+| nezuko | #1120 | GaLore lm_head | WIP (debugging) | Arms B crashed C diverging — SVD/buffer instability investigation |
+| thorfinn | #1122 | AggMo body Muon | WIP | Escalation #2: multi-β momentum bank |
+| frieren | #1127 | Schedule-Free AdamW aux | WIP | Escalation #3: replace cooldown w/ iterate-averaging |
+| alphonse | #1132 | Shampoo body Muon | WIP | Escalation #4: Kronecker 2nd-order preconditioner |
+| askeladd | #1100 | Aux per-group WD | WIP (PP n=3) | **STRONGEST POST-#847 MECHANISM**, 6-run interleaved confirmation |
+| fern | #1113 | Adan aux optimizer | WIP | 2nd optimizer-class-aux observation |
+| tanjiro | #1138 | Newton-Muon | WIP | Escalation #5: input covariance right preconditioning |
+| edward | #1137 | Stack pruning Phase 2 | WIP | Phase 2: drop #393/#235/#579 flags |
+
+**14 no-merge closures, 0 idle students this cycle.** Pending merge candidate: #1100 Arm C if PP n=3 sustains (would be first MERGE since #847 cycle 222, breaking 14-closure streak).
 
 ## Cycle 253 snapshot (06:00 UTC May 25) — #1092 CLOSED productive-NULL/NEG; #1028 CLOSED PRUNE-CONFIRM; tanjiro → #1138 Newton-Muon (5th plateau escalation); edward → #1137 Phase 2 pruning; **14 consecutive no-merge closures**
 
