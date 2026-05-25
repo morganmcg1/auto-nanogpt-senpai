@@ -71,6 +71,22 @@ def parse_args():
     parser.add_argument("--muonh_agc_eps", type=float, default=float(os.environ.get("MUONH_AGC_EPS", "1e-3")))
     parser.add_argument("--aux_adamw_eps", type=float, default=float(os.environ.get("AUX_ADAMW_EPS", "1e-10")),
                         help="Aux AdamW eps (default 1e-10 = baseline). Standard PyTorch is 1e-8.")
+    # ADOPT (Saito & Suzuki, NeurIPS 2024, arXiv 2411.02853). Replaces aux AdamW with
+    # lagged-second-moment Adam: normalizes the gradient by v_{t-1} (computed BEFORE
+    # the current second-moment update) instead of v_t. Provably convergent for any
+    # β2 ∈ (0,1). Clipped variant (clip_lambda >= 0) clips normalized grad by
+    # step**clip_lambda — paper-recommended for zero-init params (we have proj.weight
+    # initialized to zero, line 820). aux_adopt_beta1 == 0.0 disables ADOPT and falls
+    # back to the AdamW baseline path (bit-identical to current stack).
+    parser.add_argument("--aux_adopt_beta1", type=float,
+                        default=float(os.environ.get("AUX_ADOPT_BETA1", "0.0")),
+                        help="ADOPT β1 for aux groups. 0.0 = disabled (use AdamW bit-id baseline).")
+    parser.add_argument("--aux_adopt_beta2", type=float,
+                        default=float(os.environ.get("AUX_ADOPT_BETA2", "0.999")),
+                        help="ADOPT β2 for aux groups. Used only when aux_adopt_beta1 > 0.")
+    parser.add_argument("--aux_adopt_clip_lambda", type=float,
+                        default=float(os.environ.get("AUX_ADOPT_CLIP_LAMBDA", "0.25")),
+                        help="Clipped ADOPT exponent (clip normalized gradient by step**lambda). Set < 0 to disable clipping.")
     # β2 schedule on aux AdamW (embed/lm_head/scalars). Mutates param_groups[*]['betas']
     # each step. constant = baseline (fused=True kept); cooldown_ramp = fused=False so
     # PyTorch reads the updated betas from the param_group on every .step() call.
@@ -693,6 +709,84 @@ class MuonH(torch.optim.Optimizer):
         self._last_norm_to_radius_max = max_n_over_r
 
 
+class ADOPT(torch.optim.Optimizer):
+    """ADOPT: Modified Adam with lagged second-moment normalization.
+
+    From Saito & Suzuki, NeurIPS 2024 (arXiv 2411.02853, Algorithm 1).
+    Key difference from Adam: the gradient is normalized by sqrt(v_{t-1})
+    (the previous step's second moment) BEFORE entering the momentum buffer,
+    not by sqrt(v_t). Provably convergent for any β2 ∈ (0,1) — closes the
+    Reddi et al. 2018 counterexample that prevents standard Adam convergence
+    theory.
+
+    Algorithm per step t >= 1 (with state {m, v} carrying over):
+        1. θ_t   ← θ_{t-1} - lr * m_t                     (param step uses current m)
+        2. v_t   ← β2 * v_{t-1} + (1-β2) * g_t**2
+        3. ĝ_t   ← g_t / max(sqrt(v_t), eps)              (lagged-v normalization)
+        3'. ĝ_t  ← clip(ĝ_t, ±t**clip_lambda)              (only if clip_lambda >= 0)
+        4. m_{t+1} ← β1 * m_t + (1-β1) * ĝ_t
+
+    Step 0 (initialization, t=0):
+        v_0 ← g_0**2
+        m_1 ← g_0 / max(sqrt(v_0), eps)
+        θ_1 ← θ_0 - lr * m_1
+    This matches paper Algorithm 1's initial-step special case.
+
+    clip_lambda < 0 disables Clipped ADOPT (recommended for non-zero-init params).
+    clip_lambda = 0.25 (default) is the paper's Clipped variant for zero-init
+    parameters (our model.proj.weight starts at zero).
+    """
+    def __init__(self, params, lr=1e-3, betas=(0.9, 0.999), eps=1e-6,
+                 weight_decay=0.0, clip_lambda=0.25):
+        defaults = dict(lr=lr, betas=betas, eps=eps,
+                        weight_decay=weight_decay, clip_lambda=clip_lambda)
+        super().__init__(params, defaults)
+
+    @torch.no_grad()
+    def step(self, closure=None):
+        loss = closure() if closure is not None else None
+        for group in self.param_groups:
+            beta1, beta2 = group["betas"]
+            eps = group["eps"]
+            clip_lam = group["clip_lambda"]
+            lr = group["lr"]
+            wd = group["weight_decay"]
+            for p in group["params"]:
+                if p.grad is None:
+                    continue
+                g = p.grad
+                state = self.state[p]
+                if len(state) == 0:
+                    # ADOPT init: v_0 = g_0**2, m_1 = g_0 / max(sqrt(v_0), eps),
+                    # θ_1 = θ_0 - lr * m_1.
+                    state["step"] = 1
+                    state["exp_avg_sq"] = g.mul(g).clone()
+                    denom0 = state["exp_avg_sq"].sqrt().clamp(min=eps)
+                    state["exp_avg"] = (g / denom0).clone()
+                    if wd != 0:
+                        p.data.mul_(1 - lr * wd)
+                    p.data.add_(state["exp_avg"], alpha=-lr)
+                    continue
+                state["step"] += 1
+                t = state["step"]
+                exp_avg, exp_avg_sq = state["exp_avg"], state["exp_avg_sq"]
+                # 1. θ_t = θ_{t-1} - lr * m_t  (uses momentum carried over from t-1)
+                if wd != 0:
+                    p.data.mul_(1 - lr * wd)
+                p.data.add_(exp_avg, alpha=-lr)
+                # 2. v_t = β2 * v_{t-1} + (1-β2) * g_t**2
+                exp_avg_sq.mul_(beta2).addcmul_(g, g, value=1 - beta2)
+                # 3. ĝ_t = g_t / max(sqrt(v_t), eps); optionally clip by t**λ
+                denom = exp_avg_sq.sqrt().clamp(min=eps)
+                normed_g = g / denom
+                if clip_lam >= 0:
+                    clip_val = t ** clip_lam
+                    normed_g = normed_g.clamp(-clip_val, clip_val)
+                # 4. m_{t+1} = β1 * m_t + (1-β1) * ĝ_t
+                exp_avg.mul_(beta1).add_(normed_g, alpha=1 - beta1)
+        return loss
+
+
 ########################################
 #                Setup                 #
 ########################################
@@ -793,6 +887,9 @@ if dist.get_rank() == 0:
             "aux_beta2_schedule": args.aux_beta2_schedule,
             "aux_beta2_start": args.aux_beta2_start,
             "aux_beta2_end": args.aux_beta2_end,
+            "aux_adopt_beta1": args.aux_adopt_beta1,
+            "aux_adopt_beta2": args.aux_adopt_beta2,
+            "aux_adopt_clip_lambda": args.aux_adopt_clip_lambda,
             "muonh_mu_schedule": args.muonh_mu_schedule,
             "muonh_mu_start": args.muonh_mu_start,
             "muonh_mu_end": args.muonh_mu_end,
@@ -846,10 +943,27 @@ for trial_idx in range(args.num_trials):
     # silent-failure-mode risk we use fused=False whenever the β2 schedule is active.
     # constant schedule keeps fused=True so arm_a is bitwise-identical to baseline.
     _aux_fused = (args.aux_beta2_schedule == "constant")
-    optimizer1 = AdamW([dict(params=[model.embed.weight], lr=0.3, name="adam_embed"),
-                        dict(params=[model.proj.weight], lr=1/320, name="adam_lm_head"),
-                        dict(params=[p for p in model.parameters() if p.ndim < 2], lr=0.01, name="adam_scalars")],
-                       betas=(0.8, args.aux_beta2_start), eps=args.aux_adamw_eps, weight_decay=0, fused=_aux_fused)
+    # H154 gate: aux_adopt_beta1 > 0 selects ADOPT (lagged-v Adam); else AdamW
+    # baseline path (bit-identical to current stack). β2 schedule code below still
+    # writes group["betas"] = (β1, b2); ADOPT reads the same tuple field.
+    if args.aux_adopt_beta1 > 0.0:
+        optimizer1 = ADOPT([dict(params=[model.embed.weight], lr=0.3, name="adam_embed"),
+                            dict(params=[model.proj.weight], lr=1/320, name="adam_lm_head"),
+                            dict(params=[p for p in model.parameters() if p.ndim < 2], lr=0.01, name="adam_scalars")],
+                           betas=(args.aux_adopt_beta1, args.aux_adopt_beta2),
+                           eps=args.aux_adamw_eps, weight_decay=0,
+                           clip_lambda=args.aux_adopt_clip_lambda)
+        if dist.get_rank() == 0:
+            print0(f"[H154] Using ADOPT aux optimizer: β1={args.aux_adopt_beta1}, β2={args.aux_adopt_beta2}, "
+                   f"eps={args.aux_adamw_eps}, clip_lambda={args.aux_adopt_clip_lambda}", console=True)
+    else:
+        optimizer1 = AdamW([dict(params=[model.embed.weight], lr=0.3, name="adam_embed"),
+                            dict(params=[model.proj.weight], lr=1/320, name="adam_lm_head"),
+                            dict(params=[p for p in model.parameters() if p.ndim < 2], lr=0.01, name="adam_scalars")],
+                           betas=(0.8, args.aux_beta2_start), eps=args.aux_adamw_eps, weight_decay=0, fused=_aux_fused)
+        if dist.get_rank() == 0:
+            print0(f"[H154] Using AdamW aux optimizer (bit-id baseline): β1=0.8, β2={args.aux_beta2_start}, "
+                   f"eps={args.aux_adamw_eps}", console=True)
     optimizer2 = MuonH([p for p in model.blocks.parameters() if p.ndim >= 2],
                        lr=args.muonh_lr, weight_decay=0.0, mu=0.95,
                        hyperball=True, budget_mult=args.muonh_budget_mult,
