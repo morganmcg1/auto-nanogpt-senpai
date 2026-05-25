@@ -95,6 +95,22 @@ def parse_args():
                         help="Starting value of µ schedule (used by linear and cooldown_ramp modes).")
     parser.add_argument("--muonh_mu_end", type=float, default=float(os.environ.get("MUONH_MU_END", "0.98")),
                         help="Ending value of µ schedule (used by linear and cooldown_ramp modes).")
+    # H153 WSM (Warmup-Stable-Merge): save model state_dict snapshots at predefined
+    # late-training steps, then mean-average ("Polyak") them at terminal as the final
+    # model. Reports merged val/loss as a separate metric alongside the single-final
+    # baseline val/loss. wsm_mode=off path is fully gated; arm_a stays bit-identical
+    # to the merged-stack baseline.
+    parser.add_argument("--wsm_mode", type=str,
+                        default=os.environ.get("WSM_MODE", "off"),
+                        choices=["off", "k3_mean", "k7_mean"],
+                        help="Warmup-Stable-Merge checkpoint merging at end of training. "
+                             "off=bit-id baseline (single final ckpt at step 3325). "
+                             "k3_mean=mean-average 3 checkpoints at steps {2992, 3159, 3325} (last ~10%%). "
+                             "k7_mean=mean-average 7 checkpoints at steps {2326, 2493, 2659, 2826, 2992, 3159, 3325} (last ~30%%).")
+    parser.add_argument("--wsm_save_steps_override", type=str,
+                        default=os.environ.get("WSM_SAVE_STEPS_OVERRIDE", ""),
+                        help="Optional comma-separated list of save steps overriding the wsm_mode default schedule. "
+                             "Used for the smoke gate (e.g. \"50,75,100\" at train_steps=100). Leave empty for default schedule.")
     args = parser.parse_args()
     args.num_trials = args.num_trials if args.num_trials is not None else (args.legacy_num_trials or 1)
     args.wandb_tags = [tag.strip() for tag in args.wandb_tags.split(",") if tag.strip()]
@@ -737,6 +753,9 @@ if args.muonh_agc_clip_ratio > 0:
     print0(f"AGC ENABLED on inner MuonH gradient: clip_ratio={args.muonh_agc_clip_ratio} eps={args.muonh_agc_eps}", console=True)
 else:
     print0("AGC DISABLED on inner MuonH gradient (clip_ratio=0)", console=True)
+print0(f"WSM mode: {args.wsm_mode}"
+       + (f" (override save steps: {args.wsm_save_steps_override})" if args.wsm_save_steps_override else ""),
+       console=True)
 print0("="*100)
 
 val_tokens = 20 * 524288
@@ -983,6 +1002,24 @@ for trial_idx in range(args.num_trials):
     slope_window_steps = max(100, slope_interval)
     train_loss_history: list[tuple[int, float]] = []
     val_loss_history: list[tuple[int, float]] = []
+    # H153 WSM checkpoint scheduling: snapshots are captured AFTER opt.step() at
+    # train_step (= step+1) ∈ wsm_save_steps, stored CPU-side as detached clones,
+    # then mean-averaged at trial terminal before a forward-only val pass.
+    # arm_a (wsm_mode=off) → empty set → save/merge blocks are no-ops.
+    wsm_ckpts: dict[int, dict] = {}
+    if args.wsm_save_steps_override:
+        wsm_save_steps = {int(s.strip()) for s in args.wsm_save_steps_override.split(",") if s.strip()}
+    elif args.wsm_mode == "k3_mean":
+        wsm_save_steps = {2992, 3159, 3325}
+    elif args.wsm_mode == "k7_mean":
+        wsm_save_steps = {2326, 2493, 2659, 2826, 2992, 3159, 3325}
+    else:
+        wsm_save_steps = set()
+    if dist.get_rank() == 0:
+        if wsm_save_steps:
+            print0(f"WSM: {args.wsm_mode}, saving at {sorted(wsm_save_steps)}", console=True)
+        else:
+            print0(f"WSM: off (no checkpoints will be saved)", console=True)
     dist.barrier()
     t0 = time.perf_counter()
     for step in range(train_steps + 1):
@@ -1091,6 +1128,13 @@ for trial_idx in range(args.num_trials):
         )
         for opt in optimizers:
             opt.step()
+        # H153 WSM: capture post-update model state at predeclared steps. Detached
+        # CPU clones avoid GPU-memory pressure. Rank 0 only — single-GPU setup, so
+        # rank 0 holds the canonical model state.
+        if (step + 1) in wsm_save_steps and dist.get_rank() == 0:
+            wsm_ckpts[step + 1] = {k: v.detach().cpu().clone() for k, v in model.state_dict().items()}
+            print0(f"WSM: saved checkpoint at step {step + 1} (cumulative count {len(wsm_ckpts)}/{len(wsm_save_steps)})",
+                   console=True)
         # Log warmup telemetry every 10 steps during warmup (and at telemetry events
         # afterwards) so we capture the warmup curve at high resolution. Cheap since
         # it's just two floats.
@@ -1189,6 +1233,99 @@ for trial_idx in range(args.num_trials):
         approx_training_time = training_time + (time.perf_counter() - t0)
         print0(f"step:{step+1}/{train_steps} train_time:{approx_training_time:.3f}s"
                + f" step_avg:{1000*approx_training_time/(step + 1):.2f}ms", console=True, log=False)
+
+    # H153 WSM post-hoc checkpoint merge + final eval pass.
+    # Gated by wsm_mode != "off"; arm_a path is wholly skipped (bit-id with baseline).
+    if args.wsm_mode != "off" and dist.get_rank() == 0:
+        assert len(wsm_ckpts) == len(wsm_save_steps), (
+            f"WSM: expected {len(wsm_save_steps)} checkpoints at {sorted(wsm_save_steps)}, "
+            f"got {sorted(wsm_ckpts.keys())} ({len(wsm_ckpts)} actual). "
+            f"Missing: {wsm_save_steps - set(wsm_ckpts.keys())}"
+        )
+        sorted_steps = sorted(wsm_ckpts.keys())
+        ref_state = wsm_ckpts[sorted_steps[-1]]  # final-step snapshot is the reference
+        keys = list(ref_state.keys())
+        # Snapshot the single-checkpoint terminal val/loss (val ran at step==train_steps)
+        # for the comparison metric. val_loss_history[-1] is (train_steps, val_loss_float).
+        terminal_val_loss = val_loss_history[-1][1] if val_loss_history else float("nan")
+        # Consecutive-checkpoint relative Frobenius distance trajectory: quantifies
+        # late-training drift across the captured window. Small → merge-tolerant.
+        pair_distances = []
+        for i in range(1, len(sorted_steps)):
+            prev_state = wsm_ckpts[sorted_steps[i-1]]
+            cur_state = wsm_ckpts[sorted_steps[i]]
+            diff_sq = 0.0
+            prev_norm_sq = 0.0
+            for k in keys:
+                prev_t = prev_state[k].float()
+                cur_t = cur_state[k].float()
+                diff_sq += float((cur_t - prev_t).square().sum().item())
+                prev_norm_sq += float(prev_t.square().sum().item())
+            rel_dist = (diff_sq ** 0.5) / max(1e-12, prev_norm_sq ** 0.5)
+            pair_distances.append((sorted_steps[i-1], sorted_steps[i], rel_dist))
+            print0(
+                f"WSM: pair_distance step {sorted_steps[i-1]}→{sorted_steps[i]} "
+                f"rel_frob={rel_dist:.6e}",
+                console=True,
+            )
+        # Mean-average (Polyak): per-tensor mean across all stored checkpoints, in
+        # fp32 to avoid bf16 accumulation drift, then cast back to the source dtype.
+        merged_state = {}
+        for k in keys:
+            stacked = torch.stack([wsm_ckpts[s][k].float() for s in sorted_steps], dim=0)
+            merged_state[k] = stacked.mean(dim=0).to(ref_state[k].dtype)
+        # Per-tensor merge displacement vs final-step checkpoint for a few key tensors.
+        interesting_keys = [
+            "embed.weight",
+            "proj.weight",
+            "blocks.0.mlp.fc.weight",
+            "blocks.0.attn.q.weight",
+            "blocks.11.mlp.fc.weight",
+        ]
+        displacement_log = {}
+        for k in interesting_keys:
+            if k not in ref_state:
+                continue
+            final_t = ref_state[k].float()
+            merged_t = merged_state[k].float()
+            diff_norm = float((merged_t - final_t).norm().item())
+            final_norm = float(final_t.norm().item())
+            rel = diff_norm / max(1e-12, final_norm)
+            safe_key = k.replace(".", "/")
+            displacement_log[f"wsm/displacement_rel/{safe_key}"] = rel
+            print0(f"WSM: merge_displacement {k} rel_frob={rel:.6e}", console=True)
+        # Load merged state and run forward-only validation. Single-GPU path: val
+        # data lives on rank 0, so no all_reduce needed.
+        model.load_state_dict(merged_state)
+        model.eval()
+        wsm_val_loss = torch.zeros((), device=device)
+        with torch.no_grad():
+            assert len(val_inputs) % mbs == 0
+            for i in range(len(val_inputs) // mbs):
+                wsm_val_loss += model(val_inputs[i*mbs:(i+1)*mbs], val_targets[i*mbs:(i+1)*mbs])
+        wsm_val_loss /= val_tokens
+        wsm_val_loss_float = float(wsm_val_loss.item())
+        improvement_vs_terminal = terminal_val_loss - wsm_val_loss_float
+        print0(
+            f"WSM merged val/loss ({args.wsm_mode}, {len(wsm_ckpts)} ckpts at {sorted_steps}): "
+            f"{wsm_val_loss_float:.5f} | terminal={terminal_val_loss:.5f} | "
+            f"improvement={improvement_vs_terminal:+.5f}",
+            console=True,
+        )
+        wsm_metrics = {
+            "trial": trial_idx,
+            "wsm/merged_val_loss": wsm_val_loss_float,
+            "wsm/terminal_val_loss": terminal_val_loss,
+            "wsm/improvement_vs_terminal": improvement_vs_terminal,
+            "wsm/n_checkpoints": len(wsm_ckpts),
+        }
+        wsm_metrics.update(displacement_log)
+        for prev_step, cur_step, rel_dist in pair_distances:
+            wsm_metrics[f"wsm/pair_rel_dist/step_{prev_step}_to_{cur_step}"] = rel_dist
+        wandb.log(wsm_metrics, step=(trial_idx + 1) * (train_steps + 1) - 1)
+        # Free CPU memory after merge so the next trial starts clean.
+        del merged_state
+        wsm_ckpts.clear()
 
     if dist.get_rank() == 0:
         print0(
