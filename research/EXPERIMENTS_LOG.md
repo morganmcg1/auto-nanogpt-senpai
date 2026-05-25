@@ -1,3 +1,30 @@
+## 2026-05-25 18:32 — PR #1171: H151 AGC × µ-end interaction ablation (NULL CLOSURE — H143 AGC absorption REFUTED)
+
+- Branch: `g1r3-fern/h151-agc-mu-end-interaction`
+- Hypothesis: AGC absorbs the H125/H143 mid-training low-µ advantage; loosening AGC 4× should unlock the suppressed signal. Three competing hypotheses: H1 AGC mediates (predicts WIN), H2 AGC partial (arm_c < arm_b mid-training, ≈ at terminal), H3 erosion intrinsic (arm_b ≈ arm_c throughout).
+- Results vs new H148 baseline 3.26364 (chain pre-dated H148 merge, `--body_init default`):
+
+| Arm | µ_end | AGC | wandb | val/loss | Δ vs arm_a | Δ vs new baseline | Verdict |
+|---|---|---|---|---|---|---|---|
+| arm_a CTRL | 0.90 | 0.05 | `2fbl5j9n` | 3.26422 | — | +0.00058 | NULL within-noise (favorable-seed CTRL) |
+| arm_b H143-replica | 0.84 | 0.05 | `49brt65u` | 3.26643 | +0.00221 | +0.00279 | NULL NEG-direction |
+| arm_c mechanism-test | 0.84 | 0.20 | `2ju0djz1` | 3.26691 | +0.00269 | +0.00327 | NULL NEG-direction |
+
+- **WIN threshold vs new baseline**: <3.26284. None contest.
+- **AGC machinery engaged cleanly**: arm_c muonh/agc/scale_mean 3.9-4.6× higher across all checkpoints (1.080e-3 → 3.849e-3 at terminal); max_ratio 3.6-5.0× lower (6218 → 1187 terminal). Aux-side AGC also loosened: scale_mean 1.9-2.4× higher in arm_c. fraction_active pinned at 1.0000 muonh / 0.9901 aux for all 3 arms (H114 invariance holds under magnitude perturbation, extending H149's time-axis invariance to magnitude axis).
+- step_avg_ms: 1819-1820 across all 3 arms (no throughput penalty for AGC=0.20).
+- Smoke `dqz3qhot` (200 steps, AGC=0.20 both subsystems): clean.
+- **5 programme-grade findings:**
+  1. **H143's "AGC absorption candidate" REFUTED with the cleanest possible ablation.** arm_b/c terminal Δ=+0.00048 within seed noise despite 4-5× AGC dynamic range. AGC magnitude is orthogonal to µ-erosion mechanism. Going further (AGC=0.40 or off) would only sharpen the negative result — slope is essentially flat from 0.05→0.20.
+  2. **8th cross-programme mid-training-lead-erosion replication**. Both arm_b and arm_c hit peak lead Δ≈-0.023 at step 1750, erode to terminal +0.0022/+0.0027 (109.8% / 111.6% erosion fraction — overshooting into NEG territory). **Programme-level pattern now confirmed across 9 distinct mechanism axes**: H125 µ, H128 init, H135 init, H133-SQRT cooldown, H143 µ-under-linear, H146 LA body, H147 β1, H150 lm_head init, H151 AGC×µ.
+  3. **NEW programme lesson — CORRELATION ≠ CAUSATION for telemetry-axis pairs.** H143's "AGC scale_mean drops 31% as µ_end drops 0.90→0.84" was a correlational artifact (lower µ → larger pre-clip update magnitudes → AGC denominator exercised harder, hence the scale_mean shift). H151 ablated AGC magnitude independently — the per-step trajectory difference does NOT depend on AGC clip_ratio. Future hypothesis writers should flag "telemetry-X moves with axis-Y" as a candidate requiring a mechanism-clean ablation before treating as a causal mediator.
+  4. **arm_b at 3.26643 replicates H143 arm_c at 3.26550 within seed noise** (Δ=+0.00093 across cycles). Robust second-seed confirmation that µ_end=0.84 lands in NULL band under linear cooldown.
+  5. **arm_a favorable-seed CTRL at 3.26422 sits below the old PR baseline 3.26547** (Δ=-0.00125). Cross-cycle CTRL seed variability is consistent with widened-CTRL band [3.26721, 3.27091] interpretation: real CTRL seeds span ~0.003 in val/loss.
+- Decision: CLOSE per "arm_c ≈ arm_b at terminal (same erosion pattern) → AGC is NOT the mediator. CLOSE AGC×µ axis."
+- Follow-up: H159 fern ASSIGNED — cooldown-confined µ recovery (test velocity-buffer late-LR coupling hypothesis — fern's own suggestion #2.1).
+
+---
+
 ## 2026-05-25 17:42 — PR #1167: H150 lm_head init sweep (NULL CLOSURE — F-norm path-dependence finding)
 
 - Branch: `g1r3-tanjiro/h150-lm-head-init-sweep`
