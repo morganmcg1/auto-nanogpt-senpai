@@ -312,6 +312,50 @@ def _load_data_shard(file: Path):
         assert nbytes == 2 * num_tokens, "number of tokens read does not match header"
     return tokens
 
+def compute_token_log_freq(shard_path: str, vocab_size: int, floor_n: float):
+    """Compute log(freq) over [vocab_size] from a FineWeb shard.
+
+    Returns (log_freq_fp32 [vocab_size], stats dict). Unobserved tokens are
+    floored to 1/(num_tokens * floor_n) so log(freq) stays finite.
+    """
+    header = torch.from_file(shard_path, False, 256, dtype=torch.int32)
+    assert int(header[0]) == 20240520, f"magic mismatch in {shard_path}"
+    assert int(header[1]) == 1, f"unsupported version in {shard_path}"
+    num_tokens = int(header[2])
+    tokens = torch.empty(num_tokens, dtype=torch.uint16)
+    with open(shard_path, "rb", buffering=0) as f:
+        f.seek(256 * 4)
+        n_read = f.readinto(tokens.numpy())
+    assert n_read == 2 * num_tokens, f"short read on {shard_path}: {n_read} != {2*num_tokens}"
+    counts = torch.bincount(tokens.to(torch.int64), minlength=vocab_size).double()
+    total = float(counts.sum().item())
+    floor = 1.0 / (num_tokens * floor_n)
+    freq = counts / total
+    freq_floored = freq.clamp_min(floor)
+    log_freq = freq_floored.log().float()
+    unobserved = int((counts == 0).sum().item())
+    # observed-only stats so the floor doesn't pollute distribution telemetry
+    observed_mask = counts > 0
+    observed_freq = freq[observed_mask]
+    stats = {
+        "num_tokens": num_tokens,
+        "vocab_size": vocab_size,
+        "unobserved_count": unobserved,
+        "floor": floor,
+        "freq_min_observed": float(observed_freq.min().item()),
+        "freq_max": float(freq.max().item()),
+        "freq_mean": float(freq.mean().item()),
+        "freq_std": float(freq.std().item()),
+        "freq_p01": float(torch.quantile(observed_freq, 0.01).item()),
+        "freq_p99": float(torch.quantile(observed_freq, 0.99).item()),
+        "log_freq_min": float(log_freq.min().item()),
+        "log_freq_max": float(log_freq.max().item()),
+        "log_freq_mean": float(log_freq.mean().item()),
+        "log_freq_std": float(log_freq.std().item()),
+    }
+    return log_freq, stats
+
+
 def distributed_data_generator(filename_pattern: str, batch_size: int, seq_len=1024):
     files = sorted(Path.cwd().glob(filename_pattern))
     assert batch_size % dist.get_world_size() == 0
@@ -422,12 +466,16 @@ class GPT(nn.Module):
         self.proj = Linear(model_dim, vocab_size)
         self.norm1 = RMSNorm(model_dim)
         self.norm2 = RMSNorm(model_dim)
+        # Menon 2020 logit adjustment: fixed per-token bias added to logits before softcap.
+        # Filled in from shard-0 token frequency at construction time when alpha != 0.
+        self.register_buffer("logit_adjustment_log_freq", torch.zeros(vocab_size, dtype=torch.float32))
 
     def forward(self, inputs: Tensor, targets: Tensor):
         x = self.norm1(self.embed(inputs))
         for block in self.blocks:
             x = block(x)
         logits = self.proj(self.norm2(x)).float()
+        logits = logits + LOGIT_ADJUSTMENT_ALPHA * self.logit_adjustment_log_freq
         logits = LOGIT_SOFTCAP * logits * (logits.square() + LOGIT_SOFTCAP**2).rsqrt()
         return F.cross_entropy(logits.view(targets.numel(), -1), targets.view(-1), reduction="sum")
 
@@ -468,6 +516,10 @@ NS5_ITERS = int(os.environ.get("NS5_ITERS", "12"))
 WD_AUX = float(os.environ.get("WD_AUX", "0.0"))  # AdamW WD on embed + lm_head matrices (scalars stay at 0)
 EMBED_INIT_STD = float(os.environ.get("EMBED_INIT_STD", "1.0"))  # default preserves baseline N(0,1)
 LOGIT_SOFTCAP = float(os.environ.get("LOGIT_SOFTCAP", "15.0"))  # default = 15 (current hardcoded value); soft-cap value c in f(x) = c·x / sqrt(x^2+c^2)
+# Menon 2020 logit-adjustment prior bias (PR #1147): logits = lm_head + alpha * log(freq).
+LOGIT_ADJUSTMENT_ALPHA = float(os.environ.get("LOGIT_ADJUSTMENT_ALPHA", "0.0"))
+LOGIT_ADJUSTMENT_FLOOR_N = float(os.environ.get("LOGIT_ADJUSTMENT_FLOOR_N", "100.0"))
+LOGIT_ADJUSTMENT_SHARD = os.environ.get("LOGIT_ADJUSTMENT_SHARD", "data/fineweb10B/fineweb_train_000001.bin")
 
 
 def zeropower_via_newtonschulz5(G: Tensor) -> Tensor:
@@ -815,6 +867,20 @@ mbs = 64
 val_inputs, val_targets = next(distributed_data_generator("data/fineweb10B/fineweb_val_*.bin", val_tokens))
 
 model = GPT(vocab_size=50304, num_layers=12, model_dim=768).cuda()
+# Populate the Menon-2020 logit-adjustment prior bias buffer from shard-0 token freq.
+# Always computed so the val/loss pipeline is identical between alpha=0 and alpha>0;
+# alpha=0 reduces the bias to zero in the forward.
+_logit_adjustment_log_freq, _logit_adjustment_stats = compute_token_log_freq(
+    LOGIT_ADJUSTMENT_SHARD, vocab_size=50304, floor_n=LOGIT_ADJUSTMENT_FLOOR_N,
+)
+model.logit_adjustment_log_freq.copy_(_logit_adjustment_log_freq.to(model.logit_adjustment_log_freq.device))
+print0(
+    f"logit_adjustment: alpha={LOGIT_ADJUSTMENT_ALPHA} shard={LOGIT_ADJUSTMENT_SHARD} "
+    f"floor_n={LOGIT_ADJUSTMENT_FLOOR_N} unobserved={_logit_adjustment_stats['unobserved_count']}/50304 "
+    f"log_freq min={_logit_adjustment_stats['log_freq_min']:.3f} max={_logit_adjustment_stats['log_freq_max']:.3f} "
+    f"mean={_logit_adjustment_stats['log_freq_mean']:.3f}",
+    console=True,
+)
 model.compile(dynamic=False)
 
 module_types = param_module_types(model)
@@ -866,6 +932,25 @@ if dist.get_rank() == 0:
             "optimizer/attn_soap_trust_threshold": ATTN_SOAP_TRUST_THRESHOLD,
             "optimizer/ns5_iters": NS5_ITERS,
             "optimizer/wd_aux": WD_AUX,
+            "optimizer/logit_softcap": LOGIT_SOFTCAP,
+            "logit_adjustment/alpha": LOGIT_ADJUSTMENT_ALPHA,
+            "logit_adjustment/floor_n": LOGIT_ADJUSTMENT_FLOOR_N,
+            "logit_adjustment/shard": LOGIT_ADJUSTMENT_SHARD,
+            "logit_adjustment/num_tokens_in_shard": _logit_adjustment_stats["num_tokens"],
+            "logit_adjustment/unobserved_count": _logit_adjustment_stats["unobserved_count"],
+            "logit_adjustment/floor": _logit_adjustment_stats["floor"],
+            "logit_adjustment/freq_min_observed": _logit_adjustment_stats["freq_min_observed"],
+            "logit_adjustment/freq_max": _logit_adjustment_stats["freq_max"],
+            "logit_adjustment/freq_mean": _logit_adjustment_stats["freq_mean"],
+            "logit_adjustment/freq_std": _logit_adjustment_stats["freq_std"],
+            "logit_adjustment/freq_p01_observed": _logit_adjustment_stats["freq_p01"],
+            "logit_adjustment/freq_p99_observed": _logit_adjustment_stats["freq_p99"],
+            "logit_adjustment/log_freq_min": _logit_adjustment_stats["log_freq_min"],
+            "logit_adjustment/log_freq_max": _logit_adjustment_stats["log_freq_max"],
+            "logit_adjustment/log_freq_mean": _logit_adjustment_stats["log_freq_mean"],
+            "logit_adjustment/log_freq_std": _logit_adjustment_stats["log_freq_std"],
+            "logit_adjustment/bias_abs_mean": LOGIT_ADJUSTMENT_ALPHA * abs(_logit_adjustment_stats["log_freq_mean"]),
+            "logit_adjustment/bias_max_abs": LOGIT_ADJUSTMENT_ALPHA * max(abs(_logit_adjustment_stats["log_freq_min"]), abs(_logit_adjustment_stats["log_freq_max"])),
             "optimizer/recipe": "contra-muon + normuon-lite + soap-on-mlp + soap-on-attn-trust-gate (pre-NS5, record #14 + record #16)",
         },
     )
