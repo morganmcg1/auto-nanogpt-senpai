@@ -95,6 +95,20 @@ def parse_args():
                         help="Starting value of µ schedule (used by linear and cooldown_ramp modes).")
     parser.add_argument("--muonh_mu_end", type=float, default=float(os.environ.get("MUONH_MU_END", "0.98")),
                         help="Ending value of µ schedule (used by linear and cooldown_ramp modes).")
+    # H136 Polyak weight EMA: maintain exponential moving average of selected param
+    # data in a float32 buffer (bf16 cannot resolve (1-decay)=0.001 contributions at
+    # decay=0.999). At every eval, compute val_loss with both live and EMA weights.
+    # polyak_ema_target selects which param subset gets the EMA + eval substitution.
+    # decay=0.0 disables the buffer entirely (no allocation, no update, no extra eval
+    # pass) so the baseline run is bit-identical.
+    parser.add_argument("--polyak_ema_decay", type=float, default=float(os.environ.get("POLYAK_EMA_DECAY", "0.0")),
+                        help="Polyak EMA decay rate. 0.0 = disabled (bit-identical to baseline). "
+                             "0.99 ≈ 100-step window, 0.999 ≈ 1000-step window.")
+    parser.add_argument("--polyak_ema_target", type=str,
+                        default=os.environ.get("POLYAK_EMA_TARGET", "all"),
+                        choices=["all", "embed_only", "body_only", "aux_only"],
+                        help="Which parameter group to apply Polyak EMA to. "
+                             "Ignored when --polyak_ema_decay == 0.0.")
     args = parser.parse_args()
     args.num_trials = args.num_trials if args.num_trials is not None else (args.legacy_num_trials or 1)
     args.wandb_tags = [tag.strip() for tag in args.wandb_tags.split(",") if tag.strip()]
@@ -737,6 +751,10 @@ if args.muonh_agc_clip_ratio > 0:
     print0(f"AGC ENABLED on inner MuonH gradient: clip_ratio={args.muonh_agc_clip_ratio} eps={args.muonh_agc_eps}", console=True)
 else:
     print0("AGC DISABLED on inner MuonH gradient (clip_ratio=0)", console=True)
+if args.polyak_ema_decay > 0.0:
+    print0(f"Polyak EMA ENABLED: decay={args.polyak_ema_decay} target={args.polyak_ema_target}", console=True)
+else:
+    print0("Polyak EMA DISABLED (polyak_ema_decay=0.0)", console=True)
 print0("="*100)
 
 val_tokens = 20 * 524288
@@ -796,6 +814,8 @@ if dist.get_rank() == 0:
             "muonh_mu_schedule": args.muonh_mu_schedule,
             "muonh_mu_start": args.muonh_mu_start,
             "muonh_mu_end": args.muonh_mu_end,
+            "polyak_ema_decay": args.polyak_ema_decay,
+            "polyak_ema_target": args.polyak_ema_target,
         },
     )
 
@@ -958,6 +978,28 @@ for trial_idx in range(args.num_trials):
     for p in model.parameters():
         dist.broadcast(p.detach(), 0)
 
+    # H136 Polyak EMA buffer. Initialised AFTER param broadcast so all ranks agree
+    # on the initial buffer. Float32 because bf16 cannot resolve (1-decay)=0.001
+    # updates at decay=0.999. decay=0.0 skips allocation (bit-identical baseline).
+    polyak_params: list[tuple[str, torch.nn.Parameter]] = []
+    polyak_buffer: dict[str, Tensor] = {}
+    if args.polyak_ema_decay > 0.0:
+        if args.polyak_ema_target == "embed_only":
+            polyak_params = [(n, p) for n, p in model.named_parameters() if n == "embed.weight"]
+        elif args.polyak_ema_target == "body_only":
+            polyak_params = [(n, p) for n, p in model.named_parameters()
+                             if n.startswith("blocks.") and p.ndim >= 2]
+        elif args.polyak_ema_target == "aux_only":
+            polyak_params = [(n, p) for n, p in model.named_parameters()
+                             if n in ("embed.weight", "proj.weight") or p.ndim < 2]
+        else:  # "all"
+            polyak_params = list(model.named_parameters())
+        polyak_buffer = {n: p.detach().float().clone() for n, p in polyak_params}
+        if dist.get_rank() == 0:
+            n_params = sum(p.numel() for _, p in polyak_params)
+            print0(f"Polyak EMA buffer built: target={args.polyak_ema_target} "
+                   f"params={len(polyak_params)} elements={n_params}", console=True)
+
     # MuLoCo outer Nesterov SGD state (Algorithm 1, K=1). Snapshot after broadcast
     # so all ranks agree on the anchor. Velocity starts at zero. Wraps ALL
     # trainable params so the outer pull is applied uniformly across MuonH-SI
@@ -1005,6 +1047,23 @@ for trial_idx in range(args.num_trials):
             dist.all_reduce(val_loss, op=dist.ReduceOp.SUM)
             val_loss /= val_tokens
             val_loss_float = float(val_loss.item())
+            # H136 Polyak EMA eval: swap live weights for EMA buffer on the filtered
+            # subset, run val again, restore live. val/loss stays raw to keep the
+            # primary metric consistent across runs; EMA val_loss is logged separately.
+            val_loss_ema_float: float | None = None
+            if args.polyak_ema_decay > 0.0 and polyak_buffer:
+                with torch.no_grad():
+                    saved_live = {n: p.data.clone() for n, p in polyak_params}
+                    for n, p in polyak_params:
+                        p.data.copy_(polyak_buffer[n].to(p.data.dtype))
+                    val_loss_ema = torch.zeros((), device=device)
+                    for i in range(len(val_inputs) // mbs):
+                        val_loss_ema += model(val_inputs[i*mbs:(i+1)*mbs], val_targets[i*mbs:(i+1)*mbs])
+                    for n, p in polyak_params:
+                        p.data.copy_(saved_live[n])
+                dist.all_reduce(val_loss_ema, op=dist.ReduceOp.SUM)
+                val_loss_ema /= val_tokens
+                val_loss_ema_float = float(val_loss_ema.item())
             if dist.get_rank() == 0:
                 val_loss_history.append((step, val_loss_float))
                 if val_loss_float < best_val_loss:
@@ -1025,6 +1084,14 @@ for trial_idx in range(args.num_trials):
                     "time/train_seconds": training_time,
                     "time/step_avg_ms": 1000 * step_avg,
                 }
+                if val_loss_ema_float is not None:
+                    metrics["eval/val_loss_raw"] = val_loss_float
+                    metrics["eval/val_loss_ema"] = val_loss_ema_float
+                    metrics["eval/val_loss_gap"] = val_loss_float - val_loss_ema_float
+                if args.polyak_ema_decay > 0.0 and "embed.weight" in polyak_buffer:
+                    embed_diff = (polyak_buffer["embed.weight"]
+                                  - model.embed.weight.data.float()).norm().item()
+                    metrics["polyak/embed_weight_diff_norm"] = embed_diff
                 metrics.update(prefixed("val/slope", loss_slope_stats(val_loss_history, slope_window_steps)))
                 wandb.log(metrics, step=trial_idx * (train_steps + 1) + step)
             print0(f"step:{step}/{train_steps} val_loss:{val_loss:.5f} train_time:{training_time:.3f}s"
@@ -1185,6 +1252,16 @@ for trial_idx in range(args.num_trials):
                     "train/muloco/delta_rms": delta_rms,
                     "train/muloco/velocity_rms": velocity_rms,
                 }, step=wandb_step)
+
+        # H136 Polyak EMA buffer update. Applied after both inner and outer steps so
+        # the EMA tracks the post-update state of the model. Float32 math avoids the
+        # bf16 (1-decay)=0.001 rounding-to-zero problem at decay=0.999.
+        if args.polyak_ema_decay > 0.0 and polyak_buffer:
+            with torch.no_grad():
+                for n, p in polyak_params:
+                    polyak_buffer[n].mul_(args.polyak_ema_decay).add_(
+                        p.data.float(), alpha=1.0 - args.polyak_ema_decay
+                    )
 
         approx_training_time = training_time + (time.perf_counter() - t0)
         print0(f"step:{step+1}/{train_steps} train_time:{approx_training_time:.3f}s"
