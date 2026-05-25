@@ -422,6 +422,9 @@ class GPT(nn.Module):
         self.proj = Linear(model_dim, vocab_size)
         self.norm1 = RMSNorm(model_dim)
         self.norm2 = RMSNorm(model_dim)
+        # PR #1145: telemetry buffer for PREDICTION_ENTROPY_BONUS. Order:
+        # [entropy_sum, max_prob_sum, eff_vocab_sum, token_count]. Zeros when disabled.
+        self.register_buffer("_entropy_buf", torch.zeros(4), persistent=False)
 
     def forward(self, inputs: Tensor, targets: Tensor):
         x = self.norm1(self.embed(inputs))
@@ -429,7 +432,25 @@ class GPT(nn.Module):
             x = block(x)
         logits = self.proj(self.norm2(x)).float()
         logits = LOGIT_SOFTCAP * logits * (logits.square() + LOGIT_SOFTCAP**2).rsqrt()
-        return F.cross_entropy(logits.view(targets.numel(), -1), targets.view(-1), reduction="sum")
+        flat_logits = logits.view(targets.numel(), -1)
+        flat_targets = targets.view(-1)
+        ce_loss = F.cross_entropy(flat_logits, flat_targets, reduction="sum")
+        if ENTROPY_BONUS_BETA > 0.0 and self.training:
+            # entropy = logsumexp(z) - sum(softmax(z) * z) per token; avoids materializing log_softmax.
+            log_partition = torch.logsumexp(flat_logits, dim=-1)
+            softmax_probs = F.softmax(flat_logits, dim=-1)
+            expected_logit = (softmax_probs * flat_logits).sum(dim=-1)
+            entropy_per_token = log_partition - expected_logit
+            entropy_sum = entropy_per_token.sum()
+            entropy_bonus = ENTROPY_BONUS_BETA * entropy_sum
+            with torch.no_grad():
+                max_prob_sum = softmax_probs.detach().max(dim=-1).values.sum()
+                inv_simpson = 1.0 / (softmax_probs.detach() * softmax_probs.detach()).sum(dim=-1)
+                eff_vocab_sum = inv_simpson.sum()
+                token_count = torch.tensor(float(flat_targets.numel()), device=flat_logits.device)
+                self._entropy_buf.copy_(torch.stack([entropy_sum.detach(), max_prob_sum, eff_vocab_sum, token_count]))
+            return ce_loss - entropy_bonus
+        return ce_loss
 
 
 ########################################
@@ -468,6 +489,9 @@ NS5_ITERS = int(os.environ.get("NS5_ITERS", "12"))
 WD_AUX = float(os.environ.get("WD_AUX", "0.0"))  # AdamW WD on embed + lm_head matrices (scalars stay at 0)
 EMBED_INIT_STD = float(os.environ.get("EMBED_INIT_STD", "1.0"))  # default preserves baseline N(0,1)
 LOGIT_SOFTCAP = float(os.environ.get("LOGIT_SOFTCAP", "15.0"))  # default = 15 (current hardcoded value); soft-cap value c in f(x) = c·x / sqrt(x^2+c^2)
+# PR #1145 PREDICTION_ENTROPY_BONUS: β·H(softmax(logits)) added (subtracted) to CE loss to reward higher
+# predicted-distribution entropy. Bytewise inert at β=0 (the if-branch in GPT.forward is skipped).
+ENTROPY_BONUS_BETA = float(os.environ.get("ENTROPY_BONUS_BETA", "0.0"))
 
 
 def zeropower_via_newtonschulz5(G: Tensor) -> Tensor:
@@ -1014,15 +1038,21 @@ for trial_idx in range(args.num_trials):
         # accumulate across microbatches in case we are running with fewer than 8 gpus
         assert len(inputs) % mbs == 0
         step_loss = torch.zeros((), device=device)
+        # PR #1145: accumulate per-microbatch entropy telemetry sums across the inner loop.
+        step_entropy_acc = torch.zeros(4, device=device) if ENTROPY_BONUS_BETA > 0.0 else None
         for i in range(len(inputs) // mbs):
             loss = model(inputs[i*mbs:(i+1)*mbs], targets[i*mbs:(i+1)*mbs])
             step_loss += loss.detach()
+            if step_entropy_acc is not None:
+                step_entropy_acc += model._entropy_buf.detach()
             loss.backward()
         for name, p in model.named_parameters():
             assert p.grad is not None, name
             dist.all_reduce(p.grad, op=dist.ReduceOp.SUM)
         dist.all_reduce(step_loss, op=dist.ReduceOp.SUM)
         train_loss = float((step_loss / batch_size).item())
+        if step_entropy_acc is not None:
+            dist.all_reduce(step_entropy_acc, op=dist.ReduceOp.SUM)
         # set optimization hyperparameters and take a step
         set_hparams(step)
         train_step = step + 1
@@ -1040,6 +1070,21 @@ for trial_idx in range(args.num_trials):
             }
             slope_metrics.update(prefixed("train/slope", loss_slope_stats(train_loss_history, slope_window_steps)))
             wandb.log(slope_metrics, step=wandb_step)
+        if dist.get_rank() == 0 and step_entropy_acc is not None:
+            ent_vals = step_entropy_acc.tolist()
+            ent_token_count = max(1.0, ent_vals[3])
+            entropy_sum_val = ent_vals[0]
+            entropy_per_token = ent_vals[0] / ent_token_count
+            max_prob_per_token = ent_vals[1] / ent_token_count
+            eff_vocab_per_token = ent_vals[2] / ent_token_count
+            wandb.log({
+                "train/entropy_sum": entropy_sum_val,
+                "train/entropy_per_token": entropy_per_token,
+                "train/entropy_bonus_term": ENTROPY_BONUS_BETA * entropy_sum_val,
+                "train/predicted_max_prob": max_prob_per_token,
+                "train/effective_vocab": eff_vocab_per_token,
+                "train/entropy_beta": ENTROPY_BONUS_BETA,
+            }, step=wandb_step)
         if dist.get_rank() == 0 and telemetry_due:
             log_training_telemetry(
                 model=model,
