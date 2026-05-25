@@ -455,6 +455,16 @@ MU_COOLDOWN_END = float(os.environ.get("MU_COOLDOWN_END", "0.95"))
 MU_WARMUP_STEPS = int(os.environ.get("MU_WARMUP_STEPS", "0"))
 MU_WARMUP_START = float(os.environ.get("MU_WARMUP_START", "0.85"))
 MUON_LR = float(os.environ.get("MUON_LR", "0.0375"))
+# Cooldown-gated Lookahead on body-Muon weights (PR #1142, follow-up to #1124).
+# Standard Lookahead (Zhang et al. NeurIPS 2019, arXiv:1907.08610) maintains a
+# "slow" weight copy; every K body-Muon steps, slow.lerp_(fast, alpha) and then
+# fast.copy_(slow). The cooldown-gate variant disables sync once training
+# progress exceeds LOOKAHEAD_COOLDOWN_GATE, preserving the cooldown-phase
+# trajectory of the fast weights. MUON_LOOKAHEAD_K=0 disables Lookahead entirely
+# (bytewise inert).
+MUON_LOOKAHEAD_K = int(os.environ.get("MUON_LOOKAHEAD_K", "0"))
+MUON_LOOKAHEAD_ALPHA = float(os.environ.get("MUON_LOOKAHEAD_ALPHA", "0.5"))
+LOOKAHEAD_COOLDOWN_GATE = float(os.environ.get("LOOKAHEAD_COOLDOWN_GATE", "0.7"))
 MUON_WEIGHT_DECAY = 0.025  # nominal; Muon.step does not apply explicit wd (u/w-floor replaces it)
 TARGET_UW = 0.35
 NORMUON_BETA2 = 0.95
@@ -945,6 +955,20 @@ for trial_idx in range(args.num_trials):
     train_loader = distributed_data_generator("data/fineweb10B/fineweb_train_*.bin", batch_size)
     for p in model.parameters():
         dist.broadcast(p.detach(), 0)
+    # Lookahead slow-weight buffer for body-Muon params (PR #1142).
+    # Initialized AFTER broadcast so slow == fast on every rank.
+    # MUON_LOOKAHEAD_K=0 allocates nothing and skips all sync work (bytewise inert).
+    lookahead_enabled = MUON_LOOKAHEAD_K > 0
+    lookahead_named_params: list[tuple[str, Tensor]] = []
+    lookahead_slow_weights: dict[str, Tensor] = {}
+    lookahead_sync_count = 0
+    lookahead_last_sync_step = -1
+    if lookahead_enabled:
+        lookahead_named_params = [
+            (n, p) for n, p in model.blocks.named_parameters() if p.ndim >= 2
+        ]
+        for n, p in lookahead_named_params:
+            lookahead_slow_weights[n] = p.data.clone().detach()
     # start the clock
     training_time = 0
     last_val_step = 0
@@ -1053,6 +1077,30 @@ for trial_idx in range(args.num_trials):
             )
         for opt in optimizers:
             opt.step()
+        # Cooldown-gated Lookahead sync (PR #1142): every K body-Muon steps,
+        # slow = lerp(slow, fast, alpha) and copy slow back to fast — but only
+        # while train_step / train_steps < LOOKAHEAD_COOLDOWN_GATE. This freezes
+        # weight-space averaging once the cooldown phase has progressed enough
+        # that resynchronizing fast weights to stale slow weights would discard
+        # cooldown trajectory progress (mechanism identified in #1124 refute).
+        if lookahead_enabled and train_step % MUON_LOOKAHEAD_K == 0:
+            lookahead_progress = train_step / train_steps
+            if lookahead_progress < LOOKAHEAD_COOLDOWN_GATE:
+                for n, p in lookahead_named_params:
+                    slow = lookahead_slow_weights[n]
+                    slow.lerp_(p.data, MUON_LOOKAHEAD_ALPHA)
+                    p.data.copy_(slow)
+                lookahead_sync_count += 1
+                lookahead_last_sync_step = train_step
+        if dist.get_rank() == 0 and telemetry_due and lookahead_enabled:
+            wandb.log({
+                "lookahead/sync_count": lookahead_sync_count,
+                "lookahead/last_sync_step": lookahead_last_sync_step,
+                "lookahead/progress": train_step / train_steps,
+                "lookahead/k": MUON_LOOKAHEAD_K,
+                "lookahead/alpha": MUON_LOOKAHEAD_ALPHA,
+                "lookahead/cooldown_gate": LOOKAHEAD_COOLDOWN_GATE,
+            }, step=wandb_step)
         if dist.get_rank() == 0 and telemetry_due:
             for opt in optimizers:
                 if hasattr(opt, "trust_gate_stats"):
