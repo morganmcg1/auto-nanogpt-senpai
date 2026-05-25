@@ -3056,3 +3056,53 @@ ETA terminal ~06:00-06:30 UTC. Posted #838 progress refresh #3 comment.
 **Clipping**:
 - clip=5 → clip=10: MERGED #165
 - AGC (per-parameter): productive-null per paired-pod trajectory (#408)
+
+## Cycle 260 snapshot (09:00 UTC May 25) — #1113 fern Adan-aux CLOSED productive-NEG/CATASTROPHIC (15th consecutive no-merge closure since #847); fern reassigned #1153 Cautious C-AdamW-aux; OPTIMIZER-FAMILY-AUX axis closes toward partial fence (2-observation)
+
+### Cycle 260 actions
+- **#1113 CLOSED** productive-NEG/CATASTROPHIC: all 3 Adan arms (B/C/D) fs=−1 (never hit 3.28 in 3350 steps). Best arm C Δ_vs_A=+0.01575 (10× regression threshold). LR confound documented: Adan needs ~5× higher LR per Xie 2022 §4.1; PR spec did not retune. Test is "Adan at AdamW's tuned LR" — AdamW LR non-transferrable across optimizer families on aux. OPTIMIZER-FAMILY-AUX axis now 2-observation fence (#1045 LION mild-NEG + #1113 Adan catastrophic). Future optimizer-family-aux work must include per-arm LR retuning.
+- **#1153 ASSIGNED to g1r4-fern**: Cautious Optimization (C-AdamW) for aux groups (Liang 2024 arXiv:2411.16085). Mechanism: mask AdamW update where sign(m̂/√v̂) ≠ sign(g) (agreements masked in, disagreements masked out), with normalization to preserve expected step magnitude. 4 arms: A=ctrl, B=hard mask on lm_head only (mech-lead — 25.6% sign-flip rate per #1045), C=hard mask on all aux groups, D=soft mask on lm_head (0.5+0.5×agree). Key distinction vs all prior optimizer changes: NOT a family change (AdamW preserved, all LRs unchanged — no LR confound); single mechanism slot: sign-consistency gate. Liang 2024 reports 1.47× speedup on LLaMA 1B. Mechanism-distinct from all current escalations.
+
+### In-flight experiments (8 total, 0 idle)
+
+| PR | student | axis | current state |
+|:---:|:---:|---|:---:|
+| #1100 | askeladd | AUX-WD per-group (PP n=3, Arm C lm_head wd=1e-3) | IN CHAIN — 6 interleaved seeds 0/1/2; ~11h budget; **STRONGEST CANDIDATE SINCE #847** |
+| #1120 | nezuko | GaLore lm_head low-rank gradient (escalation) | INVESTIGATING — Arms B/C diverged (SVD instability); awaiting debug report |
+| #1122 | thorfinn | Body Muon AggMo K-bank multi-β momentum | IN CHAIN — Arm A cleared drift, K=1 fast path bitwise-clean; B/C/D in flight |
+| #1127 | frieren | Schedule-Free AdamW aux (Defazio 2024) | IN CHAIN — progressing |
+| #1132 | alphonse | Shampoo body (Kronecker precond, Anil 2018) | INVESTIGATING — Arms B/C diverged; awaiting debug report on L/R Gram init |
+| #1137 | edward | Stack pruning Phase 2 — 3 oldest flags (#393/#235/#579) | IN CHAIN — Arm A finished clean (val=3.269972, fs=3225, drift PASS), Arm B step 75 |
+| #1138 | tanjiro | Newton-Muon body (Du & Su 2026 arXiv:2604.01472) | IN CHAIN — Arm A running (val=3.3857 step 2375); Arm A init crash `jnawq4x2` confirmed not Newton-related |
+| **#1153** | **fern** | **Cautious C-AdamW aux (Liang 2024)** | **FRESH — just assigned** |
+
+### Closure streak and plateau status
+
+**15 consecutive no-merge closures since #847 (cycle 222)**:
+1. #1028 PP (PRUNE-CONFIRM — anchor non-load-bearing)
+2. #1031 nezuko NS-adaptive (marginal)
+3. #1032 thorfinn Haar-init (regression)
+4. #1045 frieren LION-aux (productive-NEG)
+5. #1047 tanjiro LookAhead (productive-NEG)
+6. #1048 alphonse cooldown-shape (null)
+7. #1055 askeladd weight-averaging (productive-NEG)
+8. #1003 fern per-block-TYPE cooldown anneal (PP collapse)
+9. #1074 alphonse GC body (null)
+10. #1078 thorfinn μ schedule (null/NEG)
+11. #1088 frieren NS5-noise injection (null — Lipschitz-invariant)
+12. #1091 alphonse body-Muon decoupled WD (NEG)
+13. #1092 tanjiro per-group β1 asymmetric (null/NEG — mechanism fires but no signal)
+14. #1028 PP n=3 PRUNE-CONFIRM (Edward's confirmation)
+15. **#1113 fern Adan-aux (CATASTROPHIC — this cycle)**
+
+Escalation Protocol Level 4 (tier-4 larger bets) in full effect since cycle 242. Live escalation axes: GaLore (diverging), AggMo, SF, Shampoo (diverging), Newton-Muon, Cautious (new). The 2 diverging axes (#1120 GaLore, #1132 Shampoo) are wholesale NS5-replacement; the 4 NS5-preserving axes (#1122 AggMo, #1127 SF, #1138 Newton-Muon, #1153 Cautious) show lower divergence risk.
+
+### High-priority candidates
+1. **#1100 PP n=3 (askeladd)** — AUX-WD per-group, lm_head wd=1e-3. 5-mechanism support (monotone A→B→C, group-specific Zipfian 5.3× signal, late-cooldown widening, fs-invariant continuous shrinkage, cross-axis confirmation). Δ=−0.00185 single-seed (0.00015 short of −0.002 threshold but elevated PP success probability). If PP passes all 5 merge gates → FIRST MERGE since cycle 222, new baseline ~3.26571.
+2. **#1138 Newton-Muon (tanjiro)** — Du & Su 2026 report 6% step reduction on modded-nanoGPT; highest theory-backed prior since #847. NS5-preserving.
+3. **#1153 Cautious C-AdamW (fern)** — directly addresses lm_head 25.6% sign-flip mechanism per #1045; Liang 2024 1.47× speedup claim; no LR confound; simplest implementation in this escalation wave.
+
+### OPTIMIZER-FAMILY-AUX partial fence
+- **#1045 LION**: mild NEG Δ=+0.00164
+- **#1113 Adan**: CATASTROPHIC all arms Δ≥+0.01575
+- **Reading**: AdamW's tuned LR is non-transferrable across optimizer families on aux. Future optimizer-family-aux experiments MUST include per-arm LR retuning (2×/5×/10× sweep). Cautious C-AdamW (#1153) ESCAPES this fence because it preserves AdamW (no family change).

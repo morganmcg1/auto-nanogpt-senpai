@@ -5417,3 +5417,60 @@ Telemetry matches predicted mechanism exactly. But neither single-group interven
 **14th consecutive no-merge closure** since #847 (cycle 222). Escalation moves in flight: #1120 GaLore, #1122 AggMo, #1127 Schedule-Free, #1132 Shampoo — 4 orthogonal escalation directions.
 
 ### Edward reassigned → PR #1137 Stack pruning Phase 2 — 3 oldest still-merged flags subtractive sweep (#393 embed LR mult 1.5×, #235 embed cooldown linear_floor, #579 body Muon LR asymmetry 0.80/1.20). Same methodology as Phase 1 (#1028): 4-arm N=1 sweep, trigger PP n=3 if any arm |Δ|≤0.001.
+
+## 2026-05-25 09:00 — PR #1113: Adan optimizer on aux groups — 2nd OPTIMIZER-CLASS-aux observation (CLOSED productive-NEG/CATASTROPHIC, 15th consecutive no-merge closure)
+
+- branch: g1r4-fern/adan-aux-optimizer
+- hypothesis: Adan optimizer (Xie 2022, arXiv:2208.06677) on aux groups (embed/lm_head/scalars). Replaces AdamW's `m_hat/√v_hat` update with `(m_hat + β2·v_diff_hat)/(√n_hat + ε)` — grad-difference momentum (v_diff = grad - prev_grad) provides Nesterov-style lookahead in the numerator; n = EMA of extrapolated-grad squared (g + β2·g_diff)² normalizes the denominator. Body Muon unchanged. 4 arms: A=ctrl AdamW, B=mech-lead Adan β∈{0.98,0.92,0.99} Xie paper defaults, C=Adan β∈{0.95,0.90,0.99} faster m/v_diff, D=Adan β∈{0.98,0.95,0.999} smoother v_diff + slower n.
+- Mechanism prior: addresses lm_head Zipfian sign-flip (25.6% rate per #1045) via grad-difference smoothing in the update direction.
+
+### Results (single-seed N=1, step 3350)
+
+| Arm | run_id | β1 | β2 | β3 | val/loss | Δ_vs_A | Δ_vs_baseline 3.26756 | fs | classification |
+|:---:|---|:---:|:---:|:---:|:---:|:---:|:---:|:---:|:---:|
+| A ctrl AdamW | `vokowfqt` | — | — | — | **3.26642** | — | −0.00114 drift PASS (favorable seed −0.85σ) | 3175 | clean ctrl |
+| **B mech-lead** | `77oj1nhc` | 0.98 | 0.92 | 0.99 | **3.28521** | **+0.01879** | +0.01765 | **−1 never hit** | **CATASTROPHIC** |
+| **C** | `dpymd6af` | 0.95 | 0.90 | 0.99 | **3.28217** | **+0.01575** | +0.01461 | **−1 never hit** | **CATASTROPHIC** |
+| **D** | `i6wov6qu` | 0.98 | 0.95 | 0.999 | **3.28940** | **+0.02298** | +0.02184 | **−1 never hit** | **CATASTROPHIC** |
+
+Step 2500 trajectory check (early-kill gate Δ_vs_A ≥ +0.10 never tripped — Adan arms were on parallel slower trajectories, not diverging):
+
+| Arm | val/loss @ step 2500 | Δ_vs_A @ 2500 | gate fired? |
+|:---:|:---:|:---:|:---:|
+| A | 3.36487 | — | — |
+| B | 3.38186 | +0.01699 | no |
+| C | 3.38037 | +0.01550 | no |
+| D | 3.38599 | +0.02112 | no |
+
+### Analysis and conclusions
+
+**Verdict: CLOSE productive-NEG/CATASTROPHIC across all 3 Adan arms. 15th consecutive no-merge closure since #847 (cycle 222).**
+
+**Headline**: At the merged-stack baseline LR (load-bearing per #847), Adan's `(m+β2·v_diff)/√n` rule cannot match AdamW's `m/√v` convergence within 3350 steps. Consistent across 3 β-configurations spanning the m/v_diff/n response-time space.
+
+**Mechanism reading**:
+- Best Adan arm (C, β1=0.95 faster m) was closest to A but still +0.01575 above and never hit target — m-response speed alone insufficient.
+- Worst Adan arm (D, β3=0.999 slowest denominator averaging) regressed most, confirming **denominator magnitude is load-bearing** for Adan's behavior on this stack.
+- Δ_vs_A magnitude was consistent end-to-end — arms on parallel slower trajectories, not diverging. The mechanism gradient was *too small not too noisy*.
+
+**Fairness caveat — Adan LR confound (load-bearing for interpretation)**:
+- Xie 2022 §4.1 specifies Adan typically requires ~5× higher LR than AdamW for equivalent transformer convergence (ViT-Adan uses 1.5e-3 vs ViT-Adam 1e-3 at smaller scale; LM scale needs even larger multiplier).
+- The PR specification did not retune LR per Adan arm — all 3 ran at AdamW's tuned LRs (embed=0.45, lm_head=0.003125, scalar=0.01).
+- This is **the test of "Adan at AdamW's tuned LR" not "Adan at its optimal LR"**.
+
+**Three readings despite the confound**:
+1. **AdamW's hyperparameter regime is not transferrable** to Adan on aux. The load-bearing LRs from the merged stack do not transfer across optimizer families.
+2. **Adan's √n denominator at AdamW LR underestimates step magnitude** — Adan arms made consistent but slower progress, magnitude-under direction of LR mismatch.
+3. **Adan's `m + β2·v_diff` extrapolation does not provide free Nesterov-like speedup** at AdamW LR — grad-difference momentum did not compensate for denominator-magnitude mismatch.
+
+**OPTIMIZER-FAMILY-AUX axis CLOSING toward partial fence**:
+- **1st observation: #1045 frieren LION-on-aux** Δ=+0.00164 mild NEG (cycle ~140), tested LION's sign-momentum on aux.
+- **2nd observation: #1113 fern Adan-on-aux** all 3 arms CATASTROPHIC (this PR).
+- Two distinct optimizer-family changes (LION sign-momentum, Adan grad-diff momentum) both regress at AdamW's tuned LR.
+- **Mapping signal**: optimizer-family changes on aux without per-arm LR retuning are non-productive on this stack. AdamW's tuned LR is structurally non-transferrable across optimizer families.
+- **Future optimizer-family-aux work must include explicit per-arm LR retuning** (e.g., 2×/5×/10× LR multiplier sweep per arm), which makes them effectively a 12-arm experiment rather than 4-arm. Defer SOAP-for-aux / MARS-AdamW-for-aux / Scion until the LR-retune protocol is feasible within step budget.
+- Adan body-Muon was already closed productive-NEG by #717 askeladd (cycle 63) → Adan family CLOSED in 2 mechanism slots (body + aux).
+
+**Plateau context**: 15th consecutive no-merge closure since #847. Remaining live escalation axes: #1120 GaLore (DIVERGING, investigation), #1122 AggMo body (NS5-preserving, in flight), #1127 Schedule-Free aux (in flight), #1132 Shampoo body (DIVERGING, investigation), #1137 stack-pruning Phase 2 (subtractive, in flight, Arm A finished clean), #1138 Newton-Muon body (NS5-preserving, in flight). #1100 PP n=3 aux WD (strongest candidate since #847, in chain).
+
+### Fern reassigned → fresh axis: Cautious Optimization (C-AdamW) for aux groups (Liang 2024 arXiv:2411.16085) — addresses lm_head Zipfian sign-flip mechanism mapped via #1045 (25.6% LR-invariant rate). Mechanism-distinct: NOT an optimizer-family change (preserves AdamW + LR), single mechanism slot: mask updates where `sign(update) ≠ sign(gradient)`. Liang 2024 reports 1.47× speedup on LLaMA pretraining 1B scale. Mechanism-distinct from all current escalations.
