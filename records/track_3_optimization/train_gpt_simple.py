@@ -64,6 +64,11 @@ def parse_args():
     parser.add_argument("--muon_lr", type=float, default=0.035,
                         help="Base learning rate for body-Muon optimizer (matrix params in blocks). "
                              "Default 0.035 matches the merged baseline.")
+    parser.add_argument("--ns_norm_mode", type=str, default="frobenius",
+                        choices=["frobenius", "spectral", "frob_over_sqrt_n"],
+                        help="NS5 input normalization mode. frobenius (baseline): X/||X||_F. "
+                             "spectral: X/sigma_max(X) via 3 power iters (low-rank inputs benefit). "
+                             "frob_over_sqrt_n: X / (||X||_F / sqrt(min(m,n))) — overshoots sigma_max=1.")
     args = parser.parse_args()
     args.num_trials = args.num_trials if args.num_trials is not None else (args.legacy_num_trials or 1)
     args.wandb_tags = [tag.strip() for tag in args.wandb_tags.split(",") if tag.strip()]
@@ -459,14 +464,50 @@ class GPT(nn.Module):
 #              Optimizer               #
 ########################################
 
-def zeropower_via_newtonschulz5(G: Tensor, a: float = NS_A, b: float = NS_B, c: float = NS_C, iters: int = NS_ITERS) -> Tensor:
+def zeropower_via_newtonschulz5(G: Tensor, a: float = NS_A, b: float = NS_B, c: float = NS_C,
+                                iters: int = NS_ITERS, norm_mode: str = "frobenius",
+                                norm_diag: dict | None = None) -> Tensor:
     assert G.ndim >= 2
     X = G.bfloat16()
     if G.size(-2) > G.size(-1):
         X = X.mT
 
-    # Ensure spectral norm is at most 1
-    X = X / (X.norm(dim=(-2, -1), keepdim=True) + 1e-7)
+    # Input normalization (controls effective sigma_max entering the NS iterations).
+    if norm_mode == "frobenius":
+        # Baseline: Frobenius normalization gives sigma_max <= 1 (loose upper bound on low-rank inputs).
+        frob = X.norm(dim=(-2, -1), keepdim=True)
+        X = X / (frob + 1e-7)
+        if norm_diag is not None and "input_sigma_max" not in norm_diag:
+            norm_diag["input_sigma_max"] = -1.0
+            norm_diag["input_stable_rank_est"] = -1.0
+    elif norm_mode == "spectral":
+        # Spectral norm via 3 power iterations; sigma_max(normalized X) = 1 exactly.
+        Xf = X.float()
+        v = torch.randn(Xf.shape[-1], device=Xf.device, dtype=Xf.dtype)
+        v = v / (v.norm() + 1e-10)
+        for _ in range(3):
+            u = Xf @ v
+            u = u / (u.norm() + 1e-10)
+            v = Xf.mT @ u
+            v = v / (v.norm() + 1e-10)
+        sigma_max = (Xf @ v).norm()
+        if norm_diag is not None and "input_sigma_max" not in norm_diag:
+            frob_sq = (Xf * Xf).sum()
+            norm_diag["input_sigma_max"] = float(sigma_max.item())
+            norm_diag["input_stable_rank_est"] = float(
+                (frob_sq / sigma_max.clamp_min(1e-10).pow(2)).item())
+        X = X / (sigma_max.to(X.dtype) + 1e-7)
+    elif norm_mode == "frob_over_sqrt_n":
+        # Frobenius / sqrt(min(m,n)) — inflates effective sigma_max by sqrt(min(m,n)/stable_rank).
+        n_min = min(X.shape[-2], X.shape[-1])
+        frob = X.norm(dim=(-2, -1), keepdim=True)
+        X = X / (frob / (n_min ** 0.5) + 1e-7)
+        if norm_diag is not None and "input_sigma_max" not in norm_diag:
+            norm_diag["input_sigma_max"] = -1.0
+            norm_diag["input_stable_rank_est"] = -1.0
+    else:
+        raise ValueError(f"Unknown norm_mode: {norm_mode}")
+
     # Perform the NS iterations, not optimizing for wallclock speed
     for _ in range(iters):
         A = X @ X.mT
@@ -499,6 +540,7 @@ def pmuon_update(
     ns_a: float = NS_A,
     ns_b: float = NS_B,
     ns_c: float = NS_C,
+    ns_norm_mode: str = "frobenius",
     polar_diag: dict | None = None,
 ) -> Tensor:
     # Streaming raw (unnormalized) bilateral covariance EMAs in fp32.
@@ -513,7 +555,8 @@ def pmuon_update(
     R_neg = matrix_neg_power(R_cov, gamma, eps)
     m_pre = (L_neg @ update.float()) @ R_neg
 
-    polar = zeropower_via_newtonschulz5(m_pre.to(update.dtype), a=ns_a, b=ns_b, c=ns_c)
+    polar = zeropower_via_newtonschulz5(m_pre.to(update.dtype), a=ns_a, b=ns_b, c=ns_c,
+                                        norm_mode=ns_norm_mode, norm_diag=polar_diag)
     # Sample ortho residual ||X X^T - I||_F on the polar output (before spectral scaling).
     # Only the first eligible parameter per step writes — keeps cost ~O(d^2) once per step.
     if polar_diag is not None and "residual" not in polar_diag:
@@ -535,11 +578,11 @@ def pmuon_update(
 
 class Muon(torch.optim.Optimizer):
     def __init__(self, params, lr=0.02, weight_decay=0, mu=0.95, beta_cov=0.95, gamma=PMUON_GAMMA,
-                 ns_a=NS_A, ns_b=NS_B, ns_c=NS_C):
+                 ns_a=NS_A, ns_b=NS_B, ns_c=NS_C, ns_norm_mode="frobenius"):
         assert isinstance(params, list) and len(params) >= 1 and isinstance(params[0], torch.nn.Parameter)
         params = sorted(params, key=lambda x: x.size(), reverse=True)
         defaults = dict(lr=lr, weight_decay=weight_decay, mu=mu, beta_cov=beta_cov, gamma=gamma,
-                        ns_a=ns_a, ns_b=ns_b, ns_c=ns_c)
+                        ns_a=ns_a, ns_b=ns_b, ns_c=ns_c, ns_norm_mode=ns_norm_mode)
         super().__init__(params, defaults)
 
     @torch.no_grad()
@@ -573,6 +616,7 @@ class Muon(torch.optim.Optimizer):
                         ns_a=group["ns_a"],
                         ns_b=group["ns_b"],
                         ns_c=group["ns_c"],
+                        ns_norm_mode=group["ns_norm_mode"],
                         polar_diag=polar_diag,
                     )
                     floor_eligible_count += 1
@@ -711,6 +755,7 @@ if dist.get_rank() == 0:
             "ns_coef_a": NS_A,
             "ns_coef_b": NS_B,
             "ns_coef_c": NS_C,
+            "ns_norm_mode": args.ns_norm_mode,
             "target_uw_floor": 0.35,
             "target_uw": 0.35,
             "power_cooldown_gamma": COOLDOWN_POWER,
@@ -756,9 +801,10 @@ for trial_idx in range(args.num_trials):
                         dict(params=[p for p in model.parameters() if p.ndim < 2], lr=0.025, name="adam_scalars")],
                        betas=(0.8, 0.95), eps=1e-10, weight_decay=0, fused=True)
     optimizer2 = Muon([p for p in model.blocks.parameters() if p.ndim >= 2],
-                      lr=args.muon_lr, weight_decay=0.025, beta_cov=0.95, gamma=PMUON_GAMMA)
+                      lr=args.muon_lr, weight_decay=0.025, beta_cov=0.95, gamma=PMUON_GAMMA,
+                      ns_norm_mode=args.ns_norm_mode)
     optimizer2.param_groups[0]["name"] = "muon_blocks"
-    print0(f"body-Muon optimizer: lr={args.muon_lr} weight_decay=0.025 beta_cov=0.95 gamma={PMUON_GAMMA}")
+    print0(f"body-Muon optimizer: lr={args.muon_lr} weight_decay=0.025 beta_cov=0.95 gamma={PMUON_GAMMA} ns_norm_mode={args.ns_norm_mode}")
     optimizers = [optimizer1, optimizer2]
     assert set(p for opt in optimizers for group in opt.param_groups
                for p in group["params"]) == set(model.parameters())
@@ -1020,7 +1066,7 @@ for trial_idx in range(args.num_trials):
                 }, step=wandb_step)
             polar_diag = getattr(optimizer2, "_polar_diag", None)
             if polar_diag and "residual" in polar_diag:
-                wandb.log({
+                polar_log = {
                     "trial": trial_idx,
                     "train/step": train_step,
                     "polar/ortho_residual_sample": polar_diag["residual"],
@@ -1029,7 +1075,11 @@ for trial_idx in range(args.num_trials):
                     "polar/ns_coef_a": NS_A,
                     "polar/ns_coef_b": NS_B,
                     "polar/ns_coef_c": NS_C,
-                }, step=wandb_step)
+                }
+                if "input_sigma_max" in polar_diag:
+                    polar_log["polar/input_sigma_max"] = polar_diag["input_sigma_max"]
+                    polar_log["polar/input_stable_rank_est"] = polar_diag["input_stable_rank_est"]
+                wandb.log(polar_log, step=wandb_step)
             wandb.log({
                 "trial": trial_idx,
                 "train/step": train_step,
