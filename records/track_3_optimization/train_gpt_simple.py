@@ -468,6 +468,7 @@ NS5_ITERS = int(os.environ.get("NS5_ITERS", "12"))
 WD_AUX = float(os.environ.get("WD_AUX", "0.0"))  # AdamW WD on embed + lm_head matrices (scalars stay at 0)
 EMBED_INIT_STD = float(os.environ.get("EMBED_INIT_STD", "1.0"))  # default preserves baseline N(0,1)
 LOGIT_SOFTCAP = float(os.environ.get("LOGIT_SOFTCAP", "15.0"))  # default = 15 (current hardcoded value); soft-cap value c in f(x) = c·x / sqrt(x^2+c^2)
+GALORE_RANK = int(os.environ.get("GALORE_RANK", "0"))  # 0 = disabled (no SVD), >0 = top-r truncated SVD on body 2D grads pre-NS5
 
 
 def zeropower_via_newtonschulz5(G: Tensor) -> Tensor:
@@ -655,6 +656,10 @@ class Muon(torch.optim.Optimizer):
         params = sorted([p for _, p in named_params], key=lambda x: x.size(), reverse=True)
         defaults = dict(lr=lr, weight_decay=weight_decay, mu=mu)
         super().__init__(params, defaults)
+        # GaLore (pre-NS5 low-rank SVD) telemetry accumulators.
+        self._galore_energy_sum = 0.0
+        self._galore_energy_count = 0
+        self._galore_skipped_count = 0
 
     @torch.no_grad()
     def step(self):
@@ -692,6 +697,21 @@ class Muon(torch.optim.Optimizer):
                                 state["trust_cos_row"] = 1.0
                                 state["trust_cos_col"] = 1.0
                     grad = p.grad
+                    # GaLore: pre-NS5 low-rank SVD projection on body 2D gradients.
+                    # When GALORE_RANK > 0, replace grad with its rank-r truncated reconstruction
+                    # before momentum lerp, NS5, contra, and SOAP refresh. Disabled-check (rank=0)
+                    # skips the branch entirely so the patch is bytewise inert.
+                    if GALORE_RANK > 0 and grad.ndim == 2 and min(grad.shape) > GALORE_RANK:
+                        g_float = grad.float()
+                        U, S, Vt = torch.linalg.svd(g_float, full_matrices=False)
+                        g_truncated = (U[:, :GALORE_RANK] * S[:GALORE_RANK].unsqueeze(0)) @ Vt[:GALORE_RANK, :]
+                        grad = g_truncated.to(grad.dtype)
+                        s_sum = S.sum()
+                        if s_sum > 0:
+                            self._galore_energy_sum += float((S[:GALORE_RANK].sum() / s_sum).item())
+                            self._galore_energy_count += 1
+                    elif GALORE_RANK > 0:
+                        self._galore_skipped_count += 1
                     state["momentum"].lerp_(grad, 1 - group["mu"])
                     momentum_update = grad.lerp(state["momentum"], group["mu"])
                     use_soap = p in self.soap_params
@@ -774,6 +794,26 @@ class Muon(torch.optim.Optimizer):
             out[f"{kind}/on_fraction"] = agg["on"] / kn
             out[f"{kind}/mean_cos_row"] = sum(crs) / kn
             out[f"{kind}/mean_cos_col"] = sum(ccs) / kn
+        return out
+
+    def galore_stats(self) -> dict[str, float]:
+        """Mean fraction of singular energy retained by rank-r SVD truncation, since the last call.
+
+        Resets accumulators on every call so each telemetry window reports a fresh mean.
+        Returns empty dict when GaLore is disabled or no 2D body grads were truncated.
+        """
+        if GALORE_RANK <= 0 or self._galore_energy_count == 0:
+            return {}
+        mean_energy = self._galore_energy_sum / self._galore_energy_count
+        out = {
+            "energy_retained_mean": mean_energy,
+            "rank_used": float(GALORE_RANK),
+            "tensors_truncated": float(self._galore_energy_count),
+            "tensors_skipped": float(self._galore_skipped_count),
+        }
+        self._galore_energy_sum = 0.0
+        self._galore_energy_count = 0
+        self._galore_skipped_count = 0
         return out
 
 
@@ -866,6 +906,7 @@ if dist.get_rank() == 0:
             "optimizer/attn_soap_trust_threshold": ATTN_SOAP_TRUST_THRESHOLD,
             "optimizer/ns5_iters": NS5_ITERS,
             "optimizer/wd_aux": WD_AUX,
+            "optimizer/galore_rank": GALORE_RANK,
             "optimizer/recipe": "contra-muon + normuon-lite + soap-on-mlp + soap-on-attn-trust-gate (pre-NS5, record #14 + record #16)",
         },
     )
@@ -1059,6 +1100,10 @@ for trial_idx in range(args.num_trials):
                     stats = opt.trust_gate_stats()
                     if stats:
                         wandb.log(prefixed("train/attn_soap_trust_gate", stats), step=wandb_step)
+                if hasattr(opt, "galore_stats"):
+                    g_stats = opt.galore_stats()
+                    if g_stats:
+                        wandb.log(prefixed("optim/galore", g_stats), step=wandb_step)
         if dist.get_rank() == 0 and telemetry_due:
             log_weight_telemetry(
                 model=model,
