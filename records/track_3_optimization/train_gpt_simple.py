@@ -64,6 +64,12 @@ def parse_args():
     parser.add_argument("--muon_lr", type=float, default=0.035,
                         help="Base learning rate for body-Muon optimizer (matrix params in blocks). "
                              "Default 0.035 matches the merged baseline.")
+    parser.add_argument("--lookahead_k", type=int, default=0,
+                        help="Lookahead k: number of inner body-Muon steps between slow-weight blend "
+                             "events. 0 = disabled. Default 0.")
+    parser.add_argument("--lookahead_alpha", type=float, default=0.0,
+                        help="Lookahead alpha: slow-fast blend coefficient in [0, 1]. "
+                             "0 = disabled (no blending). Default 0.0.")
     args = parser.parse_args()
     args.num_trials = args.num_trials if args.num_trials is not None else (args.legacy_num_trials or 1)
     args.wandb_tags = [tag.strip() for tag in args.wandb_tags.split(",") if tag.strip()]
@@ -535,12 +541,15 @@ def pmuon_update(
 
 class Muon(torch.optim.Optimizer):
     def __init__(self, params, lr=0.02, weight_decay=0, mu=0.95, beta_cov=0.95, gamma=PMUON_GAMMA,
-                 ns_a=NS_A, ns_b=NS_B, ns_c=NS_C):
+                 ns_a=NS_A, ns_b=NS_B, ns_c=NS_C,
+                 lookahead_k: int = 0, lookahead_alpha: float = 0.0):
         assert isinstance(params, list) and len(params) >= 1 and isinstance(params[0], torch.nn.Parameter)
         params = sorted(params, key=lambda x: x.size(), reverse=True)
         defaults = dict(lr=lr, weight_decay=weight_decay, mu=mu, beta_cov=beta_cov, gamma=gamma,
-                        ns_a=ns_a, ns_b=ns_b, ns_c=ns_c)
+                        ns_a=ns_a, ns_b=ns_b, ns_c=ns_c,
+                        lookahead_k=lookahead_k, lookahead_alpha=lookahead_alpha)
         super().__init__(params, defaults)
+        self._lookahead_cumulative_events = 0
 
     @torch.no_grad()
     def step(self):
@@ -551,7 +560,12 @@ class Muon(torch.optim.Optimizer):
         floor_fired_count = 0
         floor_eligible_count = 0
         polar_diag: dict = {}
+        lookahead_blend_events = 0
+        lookahead_distance_sum = 0.0
+        lookahead_distance_count = 0
         for group in self.param_groups:
+            k = group["lookahead_k"]
+            alpha = group["lookahead_alpha"]
             params = group["params"]
             params_pad = params + [torch.empty_like(params[-1])] * (world_size - len(params) % world_size)
             for base_i in range(0, len(params), world_size):
@@ -562,6 +576,9 @@ class Muon(torch.optim.Optimizer):
                         state["momentum"] = torch.zeros_like(p)
                         state["L"] = torch.zeros(p.shape[0], p.shape[0], device=p.device, dtype=torch.float32)
                         state["R"] = torch.zeros(p.shape[1], p.shape[1], device=p.device, dtype=torch.float32)
+                        if k > 0:
+                            state["slow"] = p.detach().clone()
+                            state["step_count"] = 0
                     update = pmuon_update(
                         p.grad,
                         state["momentum"],
@@ -584,9 +601,26 @@ class Muon(torch.optim.Optimizer):
                             update.mul_(TARGET_UW / ratio)
                     p.mul_(1 - group["lr"] * group["weight_decay"])
                     p.add_(update, alpha=-group["lr"])
+                    if k > 0:
+                        state["step_count"] += 1
+                        if state["step_count"] % k == 0:
+                            fast_norm = p.norm().clamp_min(1e-12)
+                            diff_norm = (p - state["slow"]).norm()
+                            lookahead_distance_sum += float((diff_norm / fast_norm).item())
+                            lookahead_distance_count += 1
+                            state["slow"].lerp_(p, alpha)
+                            p.copy_(state["slow"])
+                            lookahead_blend_events += 1
                 dist.all_gather(params_pad[base_i:base_i + world_size], params_pad[base_i + rank])
         self._floor_diag = {"fired": floor_fired_count, "eligible": floor_eligible_count}
         self._polar_diag = polar_diag
+        self._lookahead_cumulative_events += lookahead_blend_events
+        self._lookahead_diag = {
+            "blend_events": lookahead_blend_events,
+            "blend_events_cumulative": self._lookahead_cumulative_events,
+            "distance_mean": lookahead_distance_sum / max(lookahead_distance_count, 1),
+            "distance_count": lookahead_distance_count,
+        }
 
 
 def pmuon_spectral_diag(optimizer: torch.optim.Optimizer, gamma: float) -> dict[str, float]:
@@ -720,6 +754,9 @@ if dist.get_rank() == 0:
             "ema_warmup_steps": args.ema_warmup_steps,
             "ema_beta_target": args.ema_beta_target if args.ema_beta_target is not None else 0.0,
             "ema_dynamic_ramp_active": int(args.ema_beta_target is not None and args.ema_beta > 0),
+            "lookahead_k": args.lookahead_k,
+            "lookahead_alpha": args.lookahead_alpha,
+            "lookahead_active": int(args.lookahead_k > 0 and args.lookahead_alpha > 0),
         },
     )
 
@@ -756,9 +793,11 @@ for trial_idx in range(args.num_trials):
                         dict(params=[p for p in model.parameters() if p.ndim < 2], lr=0.025, name="adam_scalars")],
                        betas=(0.8, 0.95), eps=1e-10, weight_decay=0, fused=True)
     optimizer2 = Muon([p for p in model.blocks.parameters() if p.ndim >= 2],
-                      lr=args.muon_lr, weight_decay=0.025, beta_cov=0.95, gamma=PMUON_GAMMA)
+                      lr=args.muon_lr, weight_decay=0.025, beta_cov=0.95, gamma=PMUON_GAMMA,
+                      lookahead_k=args.lookahead_k, lookahead_alpha=args.lookahead_alpha)
     optimizer2.param_groups[0]["name"] = "muon_blocks"
-    print0(f"body-Muon optimizer: lr={args.muon_lr} weight_decay=0.025 beta_cov=0.95 gamma={PMUON_GAMMA}")
+    print0(f"body-Muon optimizer: lr={args.muon_lr} weight_decay=0.025 beta_cov=0.95 gamma={PMUON_GAMMA} "
+           f"lookahead_k={args.lookahead_k} lookahead_alpha={args.lookahead_alpha}")
     optimizers = [optimizer1, optimizer2]
     assert set(p for opt in optimizers for group in opt.param_groups
                for p in group["params"]) == set(model.parameters())
@@ -1029,6 +1068,18 @@ for trial_idx in range(args.num_trials):
                     "polar/ns_coef_a": NS_A,
                     "polar/ns_coef_b": NS_B,
                     "polar/ns_coef_c": NS_C,
+                }, step=wandb_step)
+            lookahead_diag = getattr(optimizer2, "_lookahead_diag", None)
+            if lookahead_diag is not None:
+                wandb.log({
+                    "trial": trial_idx,
+                    "train/step": train_step,
+                    "lookahead/k": args.lookahead_k,
+                    "lookahead/alpha": args.lookahead_alpha,
+                    "lookahead/blend_events": lookahead_diag["blend_events"],
+                    "lookahead/blend_events_cumulative": lookahead_diag["blend_events_cumulative"],
+                    "lookahead/slow_fast_distance_mean": lookahead_diag["distance_mean"],
+                    "lookahead/distance_count": lookahead_diag["distance_count"],
                 }, step=wandb_step)
             wandb.log({
                 "trial": trial_idx,
