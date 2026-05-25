@@ -468,6 +468,10 @@ NS5_ITERS = int(os.environ.get("NS5_ITERS", "12"))
 WD_AUX = float(os.environ.get("WD_AUX", "0.0"))  # AdamW WD on embed + lm_head matrices (scalars stay at 0)
 EMBED_INIT_STD = float(os.environ.get("EMBED_INIT_STD", "1.0"))  # default preserves baseline N(0,1)
 LOGIT_SOFTCAP = float(os.environ.get("LOGIT_SOFTCAP", "15.0"))  # default = 15 (current hardcoded value); soft-cap value c in f(x) = c·x / sqrt(x^2+c^2)
+# Post-NS5 rank-1 spectral weight decay (SWD): subtract wd_spec * sigma_max * u1 v1^T from each
+# body weight matrix after the Muon step. SWD_SPEC=0 (default) → branch skipped (bytewise inert).
+SWD_SPEC = float(os.environ.get("SWD_SPEC", "0"))
+SWD_POWER_ITER = int(os.environ.get("SWD_POWER_ITER", "2"))
 
 
 def zeropower_via_newtonschulz5(G: Tensor) -> Tensor:
@@ -502,6 +506,46 @@ def scale_to_unit_operator_norm(G: Tensor, eps: float = 1e-10) -> Tensor:
         v = v / torch.clamp(v.norm(), min=eps)
     op_norm = torch.clamp((X @ v).norm(), min=eps)
     return G / op_norm.to(G.dtype)
+
+
+# Warm-start cache for SWD power iteration (keyed by id(param)). Each entry holds (u, v)
+# from the previous step's converged iteration so the next step starts close to the dominant
+# singular triple and reaches it in 1-3 cheap iterations.
+_swd_uv_cache: dict[int, tuple[Tensor, Tensor]] = {}
+
+
+def spectral_wd_rank1(weight_data: Tensor, wd_spec: float, param_id: int, n_power_iter: int = 2):
+    """Subtract wd_spec * sigma_max * u1 @ v1.T from `weight_data` in-place.
+
+    Power iteration is warm-started from the previous step's (u, v) so 2 iters suffice.
+    Returns (sigma_max_tensor, u_resid_tensor) as 0-d GPU tensors (None when disabled).
+    Tensors are kept on GPU and only synced via `.item()` when telemetry consumes them.
+    """
+    if wd_spec <= 0 or weight_data.ndim != 2:
+        return None, None
+    m, n = weight_data.shape
+    X = weight_data.float()  # fp32 for stability
+    cache = _swd_uv_cache.get(param_id)
+    if cache is None:
+        u = torch.randn(m, 1, device=X.device, dtype=X.dtype)
+        v = torch.randn(n, 1, device=X.device, dtype=X.dtype)
+        u = u / u.norm().clamp_min(1e-12)
+        v = v / v.norm().clamp_min(1e-12)
+        u_prev = u.clone()
+    else:
+        u, v = cache
+        u_prev = u.clone()
+    for _ in range(n_power_iter):
+        v = X.mT @ u
+        v = v / v.norm().clamp_min(1e-12)
+        u = X @ v
+        u = u / u.norm().clamp_min(1e-12)
+    sigma_max = (u.mT @ X @ v).reshape(())  # 0-d scalar tensor
+    _swd_uv_cache[param_id] = (u.detach(), v.detach())
+    shrink = (wd_spec * sigma_max) * (u @ v.mT)
+    weight_data.sub_(shrink.to(weight_data.dtype))
+    u_resid = (u - u_prev).norm()
+    return sigma_max, u_resid
 
 
 def contra_normuon_update(momentum_update, second_moment, beta2=NORMUON_BETA2):
@@ -710,6 +754,13 @@ class Muon(torch.optim.Optimizer):
                     update = update * scale.to(update.dtype)
                     # Explicit weight decay intentionally omitted (matches record #14; u/w-floor replaces wd).
                     p.add_(update, alpha=-group["lr"])
+                    # Post-NS5 rank-1 spectral weight decay (SWD). Skipped entirely when SWD_SPEC=0.
+                    if SWD_SPEC > 0 and p.ndim == 2:
+                        swd_sigma, swd_resid = spectral_wd_rank1(
+                            p.data, SWD_SPEC, id(p), SWD_POWER_ITER
+                        )
+                        state["swd_sigma_max"] = swd_sigma
+                        state["swd_u_resid"] = swd_resid
                     # Refresh SOAP state with the raw grad (after applying the step).
                     if use_soap:
                         soap_refresh(grad, state)
@@ -719,6 +770,34 @@ class Muon(torch.optim.Optimizer):
                                      use_trust_gate=True,
                                      trust_threshold=ATTN_SOAP_TRUST_THRESHOLD)
                 dist.all_gather(params_pad[base_i:base_i + world_size], params_pad[base_i + rank])
+
+    def swd_stats(self) -> dict[str, float]:
+        """Aggregate sigma_max and warm-start residual across Muon body params for telemetry."""
+        sigmas: list[float] = []
+        resids: list[float] = []
+        for group in self.param_groups:
+            for p in group["params"]:
+                state = self.state.get(p)
+                if state is None:
+                    continue
+                s = state.get("swd_sigma_max")
+                r = state.get("swd_u_resid")
+                if s is not None:
+                    sigmas.append(float(s.item()))
+                if r is not None:
+                    resids.append(float(r.item()))
+        if not sigmas:
+            return {}
+        out: dict[str, float] = {
+            "count": len(sigmas),
+            "sigma_max_mean_body": sum(sigmas) / len(sigmas),
+            "sigma_max_max_body": max(sigmas),
+            "sigma_max_min_body": min(sigmas),
+        }
+        if resids:
+            out["u_warmstart_residual_mean"] = sum(resids) / len(resids)
+            out["u_warmstart_residual_max"] = max(resids)
+        return out
 
     def trust_gate_stats(self) -> dict[str, float]:
         """Return aggregate + per-weight-type trust-gate telemetry across attention SOAP params.
@@ -866,6 +945,8 @@ if dist.get_rank() == 0:
             "optimizer/attn_soap_trust_threshold": ATTN_SOAP_TRUST_THRESHOLD,
             "optimizer/ns5_iters": NS5_ITERS,
             "optimizer/wd_aux": WD_AUX,
+            "optimizer/swd_spec": SWD_SPEC,
+            "optimizer/swd_power_iter": SWD_POWER_ITER,
             "optimizer/recipe": "contra-muon + normuon-lite + soap-on-mlp + soap-on-attn-trust-gate (pre-NS5, record #14 + record #16)",
         },
     )
@@ -1059,6 +1140,10 @@ for trial_idx in range(args.num_trials):
                     stats = opt.trust_gate_stats()
                     if stats:
                         wandb.log(prefixed("train/attn_soap_trust_gate", stats), step=wandb_step)
+                if hasattr(opt, "swd_stats"):
+                    stats = opt.swd_stats()
+                    if stats:
+                        wandb.log(prefixed("swd", stats), step=wandb_step)
         if dist.get_rank() == 0 and telemetry_due:
             log_weight_telemetry(
                 model=model,
