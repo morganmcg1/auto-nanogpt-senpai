@@ -8171,3 +8171,45 @@ Baseline: val=3.26776, ffs=3000 (PR #613 n=2 mean).
 
 - **Commentary**: 125th refuted axis in cycle 71. **13th family-level closure**. Monotone-in-blend signal confirmed: stronger normalization (blend=1.0) monotonically better than blend=0.5 by Δ=-0.00231 val / -25 ffs. Both close-miss in floor cluster band [3.267-3.273]. Family closure: NS5's matrix-level polar projection (σ_i→1) absorbs scalar magnitude information losslessly into global EMA — pre-NS5 direction-preserving (scalar) rescaling is **inert at floor cluster**. This validates the SVD-basis-rotation hypothesis from #1086: pre-NS5 catastrophes (RMSProp, log-compress, post-NS5 RMS) were per-element non-linear SVD-basis distortions; Frobenius normalization is a linear (direction-preserving) rescaling which NS5 annihilates. By family-level prediction, ANY linear pre-NS5 scalar rescaling (constant or per-tensor function of F-norm) is absorbed by NS5 and cannot affect floor cluster. The tightest N=1 hold close-miss (+0.00004 for Arm B blend=1.0) is sub-noise and was not pursued for n=2 confirmation since no variation beyond blend=1.0 is feasible.
 
+
+## 2026-05-25 04:50 — PR #1103: MUON_BODY_MOMENTUM_PERIODIC_RESET (K=200, K=500) — CLOSED 126th refute
+
+- g1r2-askeladd/muon-body-momentum-periodic-reset
+- Hypothesis: periodic full-forgetting of body Muon momentum buffer (K-step zeroing) on the floor cluster
+- Results:
+
+| Arm | K | val@3175 | ffs | Δ vs baseline | N=1 hold? |
+|---|---|---|---|---|---|
+| Baseline (n=2) | — | 3.26776 | 3000 | — | pass |
+| Arm A K=200 (`bf9p97rn`) | 200 | 3.27256 | 3050 | +0.00480 | fail by +0.0026, +50 ffs |
+| Arm B K=500 (`j39hm74k`) | 500 | 3.27134 | 3025 | +0.00358 | fail by +0.0013, +25 ffs (tightest) |
+
+Monotone-in-K Δ(B-A) = -0.00122 val / -25 ffs. Larger K (less frequent reset) → closer to baseline. K → ∞ limit IS baseline.
+
+Mechanism observation: NS5 absorbs the reset perturbation via lerp accumulation within ~50-100 steps (τ ≈ 20 at β=0.95). Per-reset cost ~+0.0003 to +0.0006 on terminal val. Pre_reset_norm decays 481 → 86 across training, mirroring eta-cosine cooldown.
+
+Conclusion: TRAJECTORY-TIME MEMORY STRUCTURE family closure — body Muon momentum buffer's accumulation across the full training trajectory is not informationally load-bearing in a load-shifting way. Joins LOOKAHEAD #784 and EMA weights #524 as trajectory-time-soft-averaging refutations.
+
+Refute-signature taxonomy gains 5th class: monotone-in-K (joining catastrophic, shifted-floor, floor-cluster-touch, crossover).
+
+## 2026-05-25 04:50 — PR #1119: AUX_LR_COOLDOWN (factor=0.5) — CLOSED 127th refute
+
+- g1r2-thorfinn/aux-lr-cooldown
+- Hypothesis: suppress eta cosine cooldown on AUX param groups + add controlled late linear cooldown last 200 steps; tests "floor cluster needs unconstrained adaptive LR on largest tensors" from #1108 closure
+- Results:
+
+| Arm | factor | val@3175 | ffs | Δ vs baseline | Decision |
+|---|---|---|---|---|---|
+| Baseline (n=2) | — | 3.26776 | 3000 | — | reference |
+| Arm A factor=0.5 (`iep98nsa`) | 0.5 | 3.28759 | -1 | +0.01983 | clear miss → close without Arm B |
+| Disabled-check (`mj4hnrmg`) | 1.0 | val@200=4.08235 | — | — | bytewise-inert ✓ |
+
+AUX LR trajectory verification (publication-grade):
+- aux_lr_embed FLAT at 0.3 from step 0 to step 2975 (override successfully suppresses eta cooldown)
+- aux_lr_embed linear descent 0.3 → 0.150 over steps 2975-3175 (late cooldown working as designed)
+
+Mechanism reading: AUX LR held FLAT at 0.3 from step 952-2975 (vs baseline cosine-cooling 0.3 → 0.027) imposed +0.018-0.025 cumulative cost; late linear cooldown 0.3 → 0.15 recovered ~0.027 — recovery magnitude equals cost magnitude. The eta cosine cooldown on AUX is empirically load-bearing.
+
+Combined with #1108 AUX-AMSGrad refute: **AUX-LR-SCHEDULE family closure 2/2 — 14th family-level closure**. Deviating from the existing eta cosine cooldown shape on AUX hurts in BOTH directions (monotone-shrink via AMSGrad, monotone-inflate via Option B).
+
+Methodological observation: thorfinn's pre-launch invariant catch on `set_hparams` eta loop applied to all param groups (overturning my initial "AUX LRs constant" assertion) saved GPU time on an incoherent ~11× LR jump implementation. Joins fern's `.sum()` reduction catch on #1117 as the second high-value pre-launch student catch in cycle 71.
