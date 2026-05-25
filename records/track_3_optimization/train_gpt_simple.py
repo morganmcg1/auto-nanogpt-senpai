@@ -82,6 +82,18 @@ def parse_args():
                         help="β2 at start of training (and constant β2 if schedule=constant).")
     parser.add_argument("--aux_beta2_end", type=float, default=float(os.environ.get("AUX_BETA2_END", "0.99")),
                         help="β2 at end of training (after cooldown). Only used if schedule=cooldown_ramp.")
+    # Aux AdamW β1 schedule (H147). Linear interpolation across all train_steps when active.
+    # 'off' = fixed 0.8 (bit-identical to baseline; no param_group write).
+    # 'ramp_down' / 'ramp_up' write group['betas'] each step from aux_beta1_start → aux_beta1_end.
+    parser.add_argument("--aux_beta1_schedule", type=str, default=os.environ.get("AUX_BETA1_SCHEDULE", "off"),
+                        choices=["off", "ramp_down", "ramp_up"],
+                        help="Schedule for aux AdamW β1 momentum coefficient. 'off' = fixed 0.8 (bit-id baseline). "
+                             "'ramp_down' starts at aux_beta1_start and ends at aux_beta1_end (start>end). "
+                             "'ramp_up' starts at aux_beta1_start and ends at aux_beta1_end (start<end).")
+    parser.add_argument("--aux_beta1_start", type=float, default=float(os.environ.get("AUX_BETA1_START", "0.9")),
+                        help="Initial β1 value for aux AdamW when schedule != off.")
+    parser.add_argument("--aux_beta1_end", type=float, default=float(os.environ.get("AUX_BETA1_END", "0.7")),
+                        help="Terminal β1 value for aux AdamW when schedule != off.")
     # Inner MuonH µ schedule (H109). Static µ=0.95 baseline preserved when schedule=off.
     # 'linear' ramps µ across all train_steps. 'cooldown_ramp' stays at mu_start until
     # cooldown starts (using h_cooldown_frac), then ramps linearly across the cooldown.
@@ -793,6 +805,9 @@ if dist.get_rank() == 0:
             "aux_beta2_schedule": args.aux_beta2_schedule,
             "aux_beta2_start": args.aux_beta2_start,
             "aux_beta2_end": args.aux_beta2_end,
+            "aux_beta1_schedule": args.aux_beta1_schedule,
+            "aux_beta1_start": args.aux_beta1_start,
+            "aux_beta1_end": args.aux_beta1_end,
             "muonh_mu_schedule": args.muonh_mu_schedule,
             "muonh_mu_start": args.muonh_mu_start,
             "muonh_mu_end": args.muonh_mu_end,
@@ -843,9 +858,10 @@ for trial_idx in range(args.num_trials):
     # projection now controls norm growth. AdamW aux groups match the starter
     # (lr 0.3 / 1/320 / 0.01, betas=(0.8, 0.95), eps=1e-10, wd=0).
     # fused AdamW reads betas from param_groups on every .step(), but to avoid any
-    # silent-failure-mode risk we use fused=False whenever the β2 schedule is active.
-    # constant schedule keeps fused=True so arm_a is bitwise-identical to baseline.
-    _aux_fused = (args.aux_beta2_schedule == "constant")
+    # silent-failure-mode risk we use fused=False whenever the β2 or β1 schedule is
+    # active. constant β2 + off β1 keeps fused=True so the bit-id baseline arm stays
+    # bitwise-identical.
+    _aux_fused = (args.aux_beta2_schedule == "constant" and args.aux_beta1_schedule == "off")
     optimizer1 = AdamW([dict(params=[model.embed.weight], lr=0.3, name="adam_embed"),
                         dict(params=[model.proj.weight], lr=1/320, name="adam_lm_head"),
                         dict(params=[p for p in model.parameters() if p.ndim < 2], lr=0.01, name="adam_scalars")],
@@ -924,6 +940,18 @@ for trial_idx in range(args.num_trials):
             b2 = args.aux_beta2_start
         for g in optimizer1.param_groups:
             g["betas"] = (g["betas"][0], b2)
+        # Aux β1 schedule (H147): 'off' is a no-op (no param_group write), preserving
+        # the bit-identical baseline of fixed β1=0.8. 'ramp_down'/'ramp_up' linearly
+        # interpolate β1 from aux_beta1_start → aux_beta1_end across all train_steps,
+        # matching the muonh_mu_schedule 'linear' precedent. fused=False is set above
+        # whenever the schedule is active so PyTorch AdamW re-reads betas each step.
+        if args.aux_beta1_schedule != "off":
+            beta1_frac = min(1.0, step / max(1, train_steps - 1))
+            b1 = args.aux_beta1_start + (args.aux_beta1_end - args.aux_beta1_start) * beta1_frac
+            for g in optimizer1.param_groups:
+                g["betas"] = (b1, g["betas"][1])
+        else:
+            b1 = 0.8
         # MuonH µ schedule (H109): 'off' is a no-op — mu stays at the MuonH
         # default 0.95 and we skip the param_group write so arm_a is bit-identical
         # to baseline. 'linear' ramps mu_start → mu_end across all train_steps.
@@ -947,7 +975,7 @@ for trial_idx in range(args.num_trials):
                 g["mu"] = mu_t
         else:
             mu_t = 0.95
-        return muonh_warmup, b2, mu_t
+        return muonh_warmup, b2, b1, mu_t
 
 
     ########################################
@@ -1052,7 +1080,7 @@ for trial_idx in range(args.num_trials):
         dist.all_reduce(step_loss, op=dist.ReduceOp.SUM)
         train_loss = float((step_loss / batch_size).item())
         # set optimization hyperparameters and take a step
-        muonh_warmup_factor, aux_beta2, muonh_mu_t = set_hparams(step)
+        muonh_warmup_factor, aux_beta2, aux_beta1, muonh_mu_t = set_hparams(step)
         train_step = step + 1
         telemetry_due = (step == 0 or (step + 1) % args.telemetry_interval == 0 or step + 1 == train_steps)
         histogram_due = (step == 0 or (step + 1) % args.histogram_interval == 0 or step + 1 == train_steps)
@@ -1102,6 +1130,8 @@ for trial_idx in range(args.num_trials):
         if dist.get_rank() == 0 and (telemetry_due or warmup_due):
             muonh_metrics = {"trial": trial_idx, "train/step": train_step}
             muonh_metrics["aux/beta2"] = aux_beta2
+            muonh_metrics["aux/beta1"] = aux_beta1
+            muonh_metrics["train/aux/beta1_effective"] = aux_beta1
             muonh_metrics["train/muonh_mu"] = muonh_mu_t
             for opt in optimizers:
                 if isinstance(opt, MuonH):
