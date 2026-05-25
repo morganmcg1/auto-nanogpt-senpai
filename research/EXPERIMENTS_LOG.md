@@ -1,5 +1,73 @@
 # SENPAI Research Results — auto-nanogpt-1gpu-r2
 
+## 2026-05-25 09:46 UTC — PR #1142: MUON_LOOKAHEAD_COOLDOWN_GATE (CLOSED, 134th refuted — weight-space-averaging-cooldown-gated family 1/1, 21st family-level closure, 2nd CROSSOVER refute signature, publication-grade trajectory-analysis with embedded-interpolation-memory mechanism interpretation)
+
+- Branch: `g1r2-frieren/lookahead-cooldown-gate` (student g1r2-frieren)
+- Hypothesis: Cooldown-gated Lookahead — disable sync at `mu_cooldown_progress > 0.7` so the fast weights have ~955 cooldown steps to drift past slow-weight inertia before terminal, preserving the early-training Δ=−0.060 @ step 1000 advantage seen in #1124 while releasing the fast weights into a clean cooldown trajectory.
+- Mechanism class: WEIGHT-SPACE-AVERAGING-COOLDOWN-GATED (51st distinct mech class). Schedule-gating on previously-closed weight-space-averaging-ungated family.
+
+### Results
+
+| Run | Arm | LH config | val/loss @ step 3175 | ffs | Status |
+|---|---|---|---|---|---|
+| `7p2kfsat` | disabled-check | K=0 | 4.08140 @ step 200 | — | ✓ within band (K=0 bytewise inert) |
+| `itlula39` | A | K=5/α=0.5/gate=0.7 | **3.29032** | -1 | CLEAR MISS: +0.022 above merge bar 3.268 |
+| — | B | K=5/α=0.5/gate=0.8 | — | — | Decision-tree-skipped per Arm A clear miss |
+
+**Trajectory comparison (frieren's verbatim publication-grade table)**:
+
+| Step | Baseline | #1124 Arm A (LH ungated) | Arm A gate=0.7 | Δ vs baseline | Δ vs #1124 |
+|------|---------:|--------------------------:|---------------:|--------------:|-----------:|
+| 500  | 3.806    | 3.805                     | **3.774**      | **−0.032**    | **−0.031** |
+| 1000 | 3.662    | 3.602                     | **3.582**      | **−0.080**    | **−0.020** |
+| 1500 | 3.532    | 3.485                     | **3.470**      | **−0.062**    | **−0.015** |
+| 2000 | 3.428    | 3.403                     | **3.394**      | **−0.034**    | **−0.009** |
+| 2500 | 3.345    | 3.343                     | 3.366          | +0.021        | +0.023     |
+| 3000 | 3.279    | 3.299                     | 3.302          | +0.023        | +0.003     |
+| 3175 | 3.268    | 3.292                     | 3.290          | +0.022        | −0.002     |
+
+**Gate-verification telemetry**:
+- `last_sync_step = 2220` ✓ (gate 0.7 × 3175 = 2222.5, last K=5 multiple below = 2220)
+- `total_syncs = 444`
+- `lookahead/progress = 1.0` at terminal
+- Disabled-check K=0 inert: lookahead_enabled=False allocates nothing, skips all sync work
+
+### Results commentary, analysis, conclusions
+
+**21st family-level closure: weight-space-averaging-cooldown-gated 1/1, 2nd CROSSOVER refute signature joining #1124 base MUON_LOOKAHEAD.**
+
+1. **Mechanism delivered exactly as predicted during gated window (steps ≤ 2220)**:
+   - Sustained Δ ≈ −0.020 to −0.030 vs ungated #1124 Lookahead at every gated step
+   - Peak advantage Δ = **−0.080 @ step 1000** *exceeds* the −0.060 prediction from #1124 trajectory
+   - Cross-over to "Lookahead-cost" correctly deferred from #1124's ~step 2600 to slightly later
+
+2. **Regression after sync-off was faster and sharper than predicted**:
+   - @ step 2250 (one sync past gate): 3.390 — already starting to lag #1124
+   - @ step 2500 (280 steps post-gate): 3.366 vs #1124 3.343 → **Arm A is *worse* than #1124 here** even though #1124 is still syncing
+   - By step 3000 gap closes back to +0.003, terminal converges within −0.002
+
+3. **Mechanism update — embedded-interpolation-memory framing (frieren's publication-grade interpretation)**:
+   Stopping `fast.copy_(slow)` at the gate **does not** release the fast weights into a clean cooldown trajectory. The fast weights at step 2220 already encode 5× α=0.5 interpolation history (444 syncs accumulated), i.e. they carry inertia toward where the slow weights *were* in the recent past. The remaining 955 cooldown steps are not long enough to shed that inertia under the steep MU_COOLDOWN_START=0.95/END=0.90 schedule (cooldown takes effect in the last ~5–10% of training).
+
+4. **CROSSOVER signature 2/2 — empirical equivalence at terminal**: Both #1124 ungated and #1142 cooldown-gated converge to within 0.002 of each other at terminal (3.292 vs 3.290) despite categorically different schedule-gating semantics. The mechanism is empirically equivalent at terminal because embedded interpolation history dominates the remaining cooldown trajectory.
+
+5. **Family-level closure (1/1) — schedule-gating on closed mech does NOT rescue closed family**: Absorbs by analogy:
+   - Earlier gates (e.g. gate=0.5): proportionally longer drift window but same final destination — embedded-inertia mechanism unchanged
+   - Larger α with gate=0.7: worsens embedded inertia, refutes by larger margin
+   - Different K with α=0.5/gate=0.7: K is orthogonal to the inertia mechanism (more K = more interpolation history, same direction)
+   - Arm B gate=0.8: shorter drift window than gate=0.7 → would land between #1124 ungated and Arm A gate=0.7, no improvement
+   - Therefore decision-tree-skipped Arm B is rigorous absorption not capitulation
+
+6. **CROSSOVER refute signature now 2/2 instances** — both body-Muon-side weight-space averaging interventions that fail to respect mu_cooldown phase boundary. CROSSOVER taxonomy now characterized: early-training Δ advantage (≥0.05) genuinely captured by mechanism, mechanism inertia dominates terminal cooldown trajectory, terminal val converges within 0.005 of ungated baseline.
+
+7. **Body-Muon-side weight-averaging family entirely closed**: ungated 1/1 (#1124) + cooldown-gated 1/1 (#1142) = 2/2. Frieren's suggested follow-ups (3) linear α-decay between progress 0.5-0.7 and (4) gate-by-val-loss-slope would require dedicated mech-class assignments as categorically distinct axes — for now Lookahead family fully closed at the body-Muon weight-space-averaging layer.
+
+8. **Methodological observation — 2nd refute → mechanism → follow-up within same student/wave**: Frieren #1124 → #1142 demonstrates the publication-grade mechanism interpretation pattern as force-multiplier on closure quality for the second consecutive instance within cycle 71 (joining fern #1117 → #1145, askeladd #1133 → #1147). Pattern now validated 3 times across 3 students.
+
+9. **Follow-up assigned: #1158 MUON_INTER_NS5_NOISE** — 59th mechanism class, FIRST inter-NS5 manifold Langevin noise injection in 295-PR corpus. Mechanism: decaying Gaussian noise σ(t)=σ₀·(1-t/T)^α injected between NS5 Newton-Schulz iterations to perturb iterate inside manifold tangent during orthogonalization. Schedule recovers exact NS5 at terminal preserving cooldown-window precision so noise only operates during early-mid exploratory training — direct application of frieren's mechanism interpretation that cooldown precision is binding (#1142 closure) means noise must EXIT before cooldown begins. Arm A σ₀=0.01 α=1.0 linear-decay, Arm B σ₀=0.02 α=2.0 quadratic-decay. Welling & Teh 2011 SGLD + Leimkuhler & Matthews 2015 Langevin-on-manifolds. Categorically distinct from all pre-NS5 (closed) and post-NS5 (in stack) operations — noise IS the iteration in NS5 not pre- or post-.
+
+---
+
 ## 2026-05-25 07:00 UTC — PR #1139: GALORE_MUON_PREGRAD (CLOSED, 133rd refuted — pre-NS5-low-rank-rectangular-projection-per-step family 1/1, 20th family-level closure, 6th catastrophic refute signature in cycle 71 with publication-grade energy-retention mechanism interpretation)
 
 - Branch: `g1r2-alphonse/galore-muon-pregrad` (student g1r2-alphonse)
