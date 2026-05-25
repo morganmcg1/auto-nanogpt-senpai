@@ -1,3 +1,56 @@
+## 2026-05-25 22:25 UTC — #1220 frieren SHAMPOO_MUON_BODY assigned (74th mech class — bilateral Kronecker-factored Shampoo preconditioner pre-NS5 pre-momentum, only-untested class 3 of #1101 pre-NS5 transform taxonomy, frieren pivot from saturated 8-PR Riemannian-momentum trajectory to bilateral structured second-order preconditioning)
+
+### #1220 frieren SHAMPOO_MUON_BODY assigned
+
+- **Branch**: g1r2-frieren/shampoo-muon-body
+- **Hypothesis (one-line)**: Pre-NS5 pre-momentum bilateral Kronecker-factored Shampoo preconditioning `g_white = L^(-1/4) @ g @ R^(-1/4)` whitens body-Muon gradient spectrum so NS5 polar projection acts on a unit-condition input, recovering √condition_number speedup over raw-gradient Muon (Gupta 2018 / Anil 2020 / Morwani 2024).
+- **Mechanism**:
+  ```
+  # Per body-Muon 2D weight (m,n):
+  # Every step (cheap):
+  state["L"].mul_(0.95).add_(g @ g.T, alpha=0.05)   # m×m left-factor EMA
+  state["R"].mul_(0.95).add_(g.T @ g, alpha=0.05)   # n×n right-factor EMA
+  
+  # Every KRON_PRECOND_FREQ steps (refresh):
+  with torch.compiler.disable():
+      L_reg = state["L"] + SHAMPOO_EPS * torch.eye(m)
+      R_reg = state["R"] + SHAMPOO_EPS * torch.eye(n)
+      eigvals_L, eigvecs_L = torch.linalg.eigh(L_reg)
+      eigvals_R, eigvecs_R = torch.linalg.eigh(R_reg)
+      state["L_inv_pow"] = eigvecs_L @ torch.diag(eigvals_L.clamp_min(SHAMPOO_EPS).pow(-0.25)) @ eigvecs_L.T
+      state["R_inv_pow"] = eigvecs_R @ torch.diag(eigvals_R.clamp_min(SHAMPOO_EPS).pow(-0.25)) @ eigvecs_R.T
+  
+  # Apply: BEFORE momentum lerp BEFORE NS5
+  g = state["L_inv_pow"] @ g @ state["R_inv_pow"]
+  # ... then standard Muon: momentum lerp → NS5 → AUX scaling
+  ```
+- **Arms**:
+  - Arm A: `KRON_PRECOND_FREQ=50 SHAMPOO_EPS=1e-6` — paper-standard refresh cadence
+  - Arm B: `KRON_PRECOND_FREQ=100 SHAMPOO_EPS=1e-6` — slower refresh (saves wall-time)
+- **Anti-duplication grep clean**: `SHAMPOO_MUON_BODY` / `SHAMPOO_BODY` / `KRON_MUON` / `SHAMPOO_PRE_NS5` / `BILATERAL_SHAMPOO` / `LEFT_FACTOR_RIGHT_FACTOR` zero matches across 318-PR corpus.
+- **Distinct from prior PRs**:
+  | PR | Mechanism | Status | Distinction |
+  |---|---|---|---|
+  | #82 PMuon (oryom) | Streaming-QR + power-iteration γ=0.3 PRE-NS5 | Infrastructure crash | DIFFERENT factor estimator (eigh vs streaming-QR), DIFFERENT γ (1/4 vs 0.3), NO @torch.compile interaction; #82 was Blackwell+torch infra crash NOT mechanism refute |
+  | #187 PMuon (cale)  | Same as #82 different student | Same infra crash | Same distinction |
+  | #534 SOAP-lm-head | Right-factor Shampoo on AUX lm_head only | Merged | DIFFERENT path (AUX-side one-sided vs body-Muon bilateral) |
+  | #1216 thorfinn PSGD_KRON_AUX | Kronecker-factored Lie-group preconditioner on AUX embed+lm_head | Active | DIFFERENT path (AUX-side vs body-Muon), DIFFERENT method (Lie-group damped Newton vs eigh) |
+  | #1101 pre-NS5 transform taxonomy | Established 3-class taxonomy | Closed | This PR fills class 3 (only-untested) bilateral structured Kron |
+- **Why this pivot for frieren**:
+  - Frieren saturated 8-PR Riemannian-momentum/Stiefel-projection trajectory (#1124 → #1142 → #1158 → #1161 → #1169 → #1186 → #1207)
+  - Campaign-level NS5-as-polar pruning from #1207 (NS5 is contractive non-orthogonal approximation, accumulates ~4.3% Frobenius bleed/step) rules out future Cayley-transform / Riemannian-Lie-algebra / geodesic-momentum variants that depend on NS5-as-polar primitive
+  - Shampoo treats NS5 as black-box polar projection of preconditioned gradient — orthogonal to NS5-polar-approximation issue, so it sidesteps the structural ceiling
+  - Frieren has geometric-fluency expertise (proven across 8 PRs: sym vs non-sym Stiefel projection identification, canonical vs PR pseudocode rigor) which transfers directly to bilateral Kronecker factorization theory
+- **Kill gates**:
+  - val@200 ≤ 4.20 (vs baseline 4.087 disabled-check, +0.11 slack for whitening-startup transient)
+  - val@500 ≤ 3.85 (sharp catastrophic gate matching fern RSVD breach pattern)
+  - val@1500 ≤ 3.50 (anti-collapse gate)
+  - Step >2x baseline = wall-clock kill
+- **Predicted result**: If Shampoo whitening recovers √condition speedup, expect val < 3.265 (BEATS merge bar 3.26776). If condition number was not the bottleneck (similar to #1184 polar-precision finding), expect floor-cluster-edge SHIFTED-FLOOR ~3.270.
+- **Researcher-agent confidence**: HIGH (well-established theory + only-untested class in pre-NS5 taxonomy + clean anti-duplication + frieren's expertise lane transfer).
+
+---
+
 # SENPAI Research Results — auto-nanogpt-1gpu-r2
 
 ## 2026-05-25 22:15 UTC — #1207 frieren RIEMANNIAN_MUON_TRANSPORT CLOSED (151st refuted, RIEMANNIAN-MUON-TRANSPORT-PILOT-ITERS-IN-{4,7}-PRE-NS5 1/1 → 38th family-level closure, 14th SHIFTED-FLOOR)
