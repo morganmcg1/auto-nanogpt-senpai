@@ -593,6 +593,31 @@ NANOGPT_SENPAI_SEED = int(_SENPAI_SEED_RAW) if _SENPAI_SEED_RAW != "" else None
 # `embed.weight -= lr_embed * lambda * (embed.weight - embed_init_snapshot)`.
 # At lambda=0 the hook is a no-op and behavior is bit-identical to the merged stack.
 NANOGPT_EMBED_INIT_ANCHOR_LAMBDA = float(os.environ.get("NANOGPT_EMBED_INIT_ANCHOR_LAMBDA", "0.0"))
+# Lookahead optimizer wrapper for AdamW aux groups (#1197, Zhang et al 2019 arXiv:1907.08610).
+# Every k AdamW steps, applies weight-space EMA pullback:
+#   theta_slow += alpha * (theta_fast - theta_slow); theta_fast = theta_slow
+# Inner AdamW's m/v buffers continue unchanged (averaging weights, not states).
+# K=0 disables (bit-identical fallback). GROUPS is a comma-separated subset of
+# {"lm_head", "embed", "scalars"}; empty => disabled.
+NANOGPT_LOOKAHEAD_K = int(os.environ.get("NANOGPT_LOOKAHEAD_K", "0"))
+NANOGPT_LOOKAHEAD_ALPHA = float(os.environ.get("NANOGPT_LOOKAHEAD_ALPHA", "0.5"))
+NANOGPT_LOOKAHEAD_GROUPS = set(
+    g.strip() for g in os.environ.get("NANOGPT_LOOKAHEAD_GROUPS", "").split(",") if g.strip()
+)
+_VALID_LOOKAHEAD_GROUPS = {"lm_head", "embed", "scalars"}
+if NANOGPT_LOOKAHEAD_GROUPS - _VALID_LOOKAHEAD_GROUPS:
+    raise ValueError(
+        f"NANOGPT_LOOKAHEAD_GROUPS={NANOGPT_LOOKAHEAD_GROUPS}, must be subset of {_VALID_LOOKAHEAD_GROUPS}"
+    )
+# Map our short names to the AdamW param_group names used in optimizer1.
+_LOOKAHEAD_GROUP_NAME_MAP = {
+    "embed": "adam_embed",
+    "lm_head": "adam_lm_head",
+    "scalars": "adam_scalars",
+}
+NANOGPT_LOOKAHEAD_ACTIVE = (
+    NANOGPT_LOOKAHEAD_K > 0 and len(NANOGPT_LOOKAHEAD_GROUPS) > 0
+)
 
 
 def get_ns_coef_at_iter(iter_idx: int, total_iters: int, schedule: str) -> tuple[float, float, float]:
@@ -778,6 +803,117 @@ class Muon(torch.optim.Optimizer):
                 dist.all_gather(params_pad[base_i:base_i + world_size], params_pad[base_i + rank])
 
 
+class LookaheadAdamW:
+    """Lookahead wrapper around an AdamW optimizer (Zhang et al 2019, arXiv:1907.08610).
+
+    Every k inner AdamW steps, applies a weight-space EMA pullback per param:
+        theta_slow += alpha * (theta_fast - theta_slow)
+        theta_fast  = theta_slow
+    The inner AdamW's m/v buffers continue unchanged. Slow weights are stored only
+    for params whose AdamW param_group["name"] is in ``slow_group_names``; any
+    other params remain pure-AdamW (their slow_state entry is absent, so the
+    pullback loop skips them).
+    """
+
+    def __init__(self, base_optimizer, k: int, alpha: float, slow_group_names: set[str]):
+        assert k >= 1, f"LookaheadAdamW requires k>=1, got {k}"
+        self.optimizer = base_optimizer
+        self.k = int(k)
+        self.alpha = float(alpha)
+        self._slow_group_names = set(slow_group_names)
+        self._step_count = 0
+        self._slow_weights: dict[int, Tensor] = {}
+        self._param_to_group_name: dict[int, str] = {}
+        for group in self.optimizer.param_groups:
+            gname = group.get("name", "")
+            if gname not in self._slow_group_names:
+                continue
+            for p in group["params"]:
+                self._slow_weights[id(p)] = p.data.clone().detach()
+                self._param_to_group_name[id(p)] = gname
+
+    @property
+    def param_groups(self):
+        return self.optimizer.param_groups
+
+    @property
+    def state(self):
+        return self.optimizer.state
+
+    @property
+    def defaults(self):
+        return self.optimizer.defaults
+
+    def zero_grad(self, *args, **kwargs):
+        return self.optimizer.zero_grad(*args, **kwargs)
+
+    @torch.no_grad()
+    def step(self, closure=None):
+        loss = self.optimizer.step(closure)
+        self._step_count += 1
+        if self._step_count % self.k == 0:
+            for group in self.optimizer.param_groups:
+                gname = group.get("name", "")
+                if gname not in self._slow_group_names:
+                    continue
+                for p in group["params"]:
+                    slow = self._slow_weights.get(id(p))
+                    if slow is None:
+                        continue
+                    # slow += alpha * (fast - slow); then fast <- slow
+                    slow.add_(p.data - slow, alpha=self.alpha)
+                    p.data.copy_(slow)
+        return loss
+
+    def slow_fast_dists_by_group(self) -> dict[str, dict[str, float]]:
+        """Return per-group mean and max L2 distance ||p_fast - p_slow||.
+
+        Useful telemetry: near-zero distance => Lookahead is near-idle (fast already
+        tracks slow). Non-trivial distance => the inner AdamW is moving fast away
+        from the slow EMA across the k-step horizon.
+        """
+        per_group_norms: dict[str, list[float]] = {}
+        for group in self.optimizer.param_groups:
+            gname = group.get("name", "")
+            if gname not in self._slow_group_names:
+                continue
+            norms = []
+            for p in group["params"]:
+                slow = self._slow_weights.get(id(p))
+                if slow is None:
+                    continue
+                norms.append(float((p.data.float() - slow.float()).norm().item()))
+            if norms:
+                per_group_norms[gname] = norms
+        out: dict[str, dict[str, float]] = {}
+        for gname, norms in per_group_norms.items():
+            out[gname] = {
+                "mean": sum(norms) / len(norms),
+                "max": max(norms),
+                "sum": sum(norms),
+                "count": float(len(norms)),
+            }
+        return out
+
+    def state_dict(self):
+        return {
+            "optimizer": self.optimizer.state_dict(),
+            "k": self.k,
+            "alpha": self.alpha,
+            "step_count": self._step_count,
+            "slow_weights": {pid: t.detach().cpu() for pid, t in self._slow_weights.items()},
+            "param_to_group_name": dict(self._param_to_group_name),
+        }
+
+    def load_state_dict(self, state):
+        self.optimizer.load_state_dict(state["optimizer"])
+        self.k = state["k"]
+        self.alpha = state["alpha"]
+        self._step_count = state["step_count"]
+        self._slow_weights = {pid: t.clone() for pid, t in state["slow_weights"].items()}
+        self._param_to_group_name = dict(state["param_to_group_name"])
+
+
 ########################################
 #                Setup                 #
 ########################################
@@ -823,6 +959,10 @@ print0(f"MUON_LR_MULT: attn={NANOGPT_MUON_ATTN_LR_MULT:.3f} mlp={NANOGPT_MUON_ML
 print0(f"  Effective Muon base LRs: attn={0.035*NANOGPT_MUON_ATTN_LR_MULT:.5f} mlp={0.035*NANOGPT_MUON_MLP_LR_MULT:.5f}", console=True)
 print0(f"EMBED_INIT_ANCHOR_LAMBDA: {NANOGPT_EMBED_INIT_ANCHOR_LAMBDA} "
        f"({'ACTIVE' if NANOGPT_EMBED_INIT_ANCHOR_LAMBDA > 0 else 'INACTIVE (bit-identical fallback)'})",
+       console=True)
+print0(f"LOOKAHEAD: k={NANOGPT_LOOKAHEAD_K} alpha={NANOGPT_LOOKAHEAD_ALPHA} "
+       f"groups={sorted(NANOGPT_LOOKAHEAD_GROUPS) if NANOGPT_LOOKAHEAD_GROUPS else '(none)'} "
+       f"({'ACTIVE' if NANOGPT_LOOKAHEAD_ACTIVE else 'INACTIVE (bit-identical fallback)'})",
        console=True)
 if NS_ITERS_COOLDOWN > 0:
     print0(f"NS_SCHEDULE: ns_iters={NS_ITERS} -> ns_iters_cooldown={NS_ITERS_COOLDOWN} "
@@ -896,6 +1036,10 @@ if dist.get_rank() == 0:
             "nanogpt_ns_stochastic_cooldown": NANOGPT_NS_STOCHASTIC_COOLDOWN,
             "senpai_seed": NANOGPT_SENPAI_SEED if NANOGPT_SENPAI_SEED is not None else -1,
             "nanogpt_embed_init_anchor_lambda": NANOGPT_EMBED_INIT_ANCHOR_LAMBDA,
+            "nanogpt_lookahead_k": NANOGPT_LOOKAHEAD_K,
+            "nanogpt_lookahead_alpha": NANOGPT_LOOKAHEAD_ALPHA,
+            "nanogpt_lookahead_groups": ",".join(sorted(NANOGPT_LOOKAHEAD_GROUPS)),
+            "nanogpt_lookahead_active": int(NANOGPT_LOOKAHEAD_ACTIVE),
         },
     )
 
@@ -942,6 +1086,30 @@ for trial_idx in range(args.num_trials):
                         dict(params=[model.proj.weight], lr=(1/320) * NANOGPT_ADAMW_LM_HEAD_LR_MULT, name="adam_lm_head"),
                         dict(params=[p for p in model.parameters() if p.ndim < 2], lr=0.01 * NANOGPT_ADAMW_SCALAR_LR_MULT, name="adam_scalars")],
                        betas=(0.8, NANOGPT_ADAMW_BETA2), eps=1e-10, weight_decay=0, fused=True)
+    # Lookahead wrapper around optimizer1 (#1197, Zhang et al 2019). When ACTIVE,
+    # wraps the AdamW with weight-space EMA pullback on the named aux groups
+    # specified by NANOGPT_LOOKAHEAD_GROUPS. Inner AdamW state (m/v) is untouched.
+    # The wrapper exposes .param_groups/.state/.step/.zero_grad pass-throughs so
+    # downstream telemetry (log_adamw_step_direction, init_anchor, schedule, etc.)
+    # operates on the same underlying AdamW.
+    lookahead_wrapper: LookaheadAdamW | None = None
+    if NANOGPT_LOOKAHEAD_ACTIVE:
+        slow_group_names = {_LOOKAHEAD_GROUP_NAME_MAP[g] for g in NANOGPT_LOOKAHEAD_GROUPS}
+        lookahead_wrapper = LookaheadAdamW(
+            optimizer1,
+            k=NANOGPT_LOOKAHEAD_K,
+            alpha=NANOGPT_LOOKAHEAD_ALPHA,
+            slow_group_names=slow_group_names,
+        )
+        # Swap optimizer1 to refer to the wrapper for the training-loop opt.step() call.
+        # The wrapper.optimizer is the original AdamW; telemetry that needs the raw
+        # AdamW (e.g. log_adamw_step_direction) reads through the wrapper's
+        # .param_groups/.state pass-throughs, which delegate to the inner AdamW.
+        optimizer1 = lookahead_wrapper
+        print0(f"LOOKAHEAD_WRAP: wrapped optimizer1 (AdamW) with k={NANOGPT_LOOKAHEAD_K} "
+               f"alpha={NANOGPT_LOOKAHEAD_ALPHA} slow_groups={sorted(slow_group_names)} "
+               f"slow_param_count={len(lookahead_wrapper._slow_weights)}",
+               console=True)
     # Per-block-type Muon param split: attn (q/k/v/proj) vs mlp (fc/proj).
     # When both multipliers = 1.0, behavior is bit-identical to the prior single-group setup
     # (NS orthogonalization is per-matrix; the split only changes how groups are indexed).
@@ -1274,6 +1442,44 @@ for trial_idx in range(args.num_trials):
                 step=train_step,
                 wandb_step=wandb_step,
             )
+        # Lookahead diagnostic: mean/max ||theta_fast - theta_slow|| per aux group.
+        # Log at TWO offsets per 100-step window so the trajectory shows the
+        # sawtooth pattern that proves the mechanism is firing:
+        #   train_step % 100 == 99: ONE step before each sync (step_count % k != 0
+        #     for k in {5,10}) -> near-max accumulated drift over the k-step horizon
+        #   train_step % 100 == 0: immediately AFTER the sync at step 100/200/...
+        #     -> dist=0 by construction (confirms sync fired)
+        # Logging only at multiples of 100 lands on sync boundaries and reads
+        # dist=0 every time (timing artifact); the +99 offset breaks that
+        # alignment for any k that divides 100. Also log at the final step for
+        # an end-of-training snapshot.
+        lookahead_log_due = (
+            train_step % 100 == 0
+            or train_step % 100 == 99
+            or train_step == train_steps
+        )
+        if (
+            dist.get_rank() == 0
+            and lookahead_log_due
+            and lookahead_wrapper is not None
+        ):
+            lookahead_metrics = {
+                "trial": trial_idx,
+                "train/step": train_step,
+                "train/lookahead/step_count": float(lookahead_wrapper._step_count),
+                "train/lookahead/k": float(lookahead_wrapper.k),
+                "train/lookahead/alpha": float(lookahead_wrapper.alpha),
+                "train/lookahead/step_count_mod_k": float(
+                    lookahead_wrapper._step_count % lookahead_wrapper.k
+                ),
+            }
+            for gname, stats in lookahead_wrapper.slow_fast_dists_by_group().items():
+                # short-name for readability (adam_lm_head -> lm_head)
+                short = gname.replace("adam_", "")
+                lookahead_metrics[f"train/lookahead/{short}_slow_fast_dist_mean"] = stats["mean"]
+                lookahead_metrics[f"train/lookahead/{short}_slow_fast_dist_max"] = stats["max"]
+                lookahead_metrics[f"train/lookahead/{short}_slow_fast_dist_sum"] = stats["sum"]
+            wandb.log(lookahead_metrics, step=wandb_step)
         if dist.get_rank() == 0 and telemetry_due:
             ns_metrics = {
                 "trial": trial_idx,
