@@ -468,10 +468,16 @@ NS5_ITERS = int(os.environ.get("NS5_ITERS", "12"))
 WD_AUX = float(os.environ.get("WD_AUX", "0.0"))  # AdamW WD on embed + lm_head matrices (scalars stay at 0)
 EMBED_INIT_STD = float(os.environ.get("EMBED_INIT_STD", "1.0"))  # default preserves baseline N(0,1)
 LOGIT_SOFTCAP = float(os.environ.get("LOGIT_SOFTCAP", "15.0"))  # default = 15 (current hardcoded value); soft-cap value c in f(x) = c·x / sqrt(x^2+c^2)
+# Riemannian-Muon parallel transport (PR #1207): rotate momentum buffer m_{t-1}
+# from tangent space at X_{t-1}=polar(g_{t-1}) to T_{X_t} via R = X_t @ X_{t-1}^T
+# before applying the standard EMA. Wen et al. ICLR 2023 §3.1 (arXiv:2205.14173).
+RIEMANNIAN_MUON_TRANSPORT = int(os.environ.get("RIEMANNIAN_MUON_TRANSPORT", "0"))
+RIEMANNIAN_MUON_PILOT_ITERS = int(os.environ.get("RIEMANNIAN_MUON_PILOT_ITERS", "4"))
 
 
-def zeropower_via_newtonschulz5(G: Tensor) -> Tensor:
+def zeropower_via_newtonschulz5(G: Tensor, steps: int | None = None) -> Tensor:
     assert G.ndim >= 2
+    iters = NS5_ITERS if steps is None else int(steps)
     X = G.bfloat16()
     if G.size(-2) > G.size(-1):
         X = X.mT
@@ -480,7 +486,7 @@ def zeropower_via_newtonschulz5(G: Tensor) -> Tensor:
     X = X / (X.norm(dim=(-2, -1), keepdim=True) + 1e-7)
     # Perform the NS iterations, not optimizing for wallclock speed
     a, b, c = 2, -1.5, 0.5
-    for _ in range(NS5_ITERS):
+    for _ in range(iters):
         A = X @ X.mT
         B = b * A + c * A @ A
         X = a * X + B @ X
@@ -655,6 +661,13 @@ class Muon(torch.optim.Optimizer):
         params = sorted([p for _, p in named_params], key=lambda x: x.size(), reverse=True)
         defaults = dict(lr=lr, weight_decay=weight_decay, mu=mu)
         super().__init__(params, defaults)
+        # Riemannian-Muon transport diagnostics (only allocated when feature is on).
+        if RIEMANNIAN_MUON_TRANSPORT:
+            dev = params[0].device
+            self._transport_ratio_sum = torch.zeros((), dtype=torch.float32, device=dev)
+            self._transport_ratio_min = torch.ones((), dtype=torch.float32, device=dev)
+            self._transport_ratio_max = torch.zeros((), dtype=torch.float32, device=dev)
+            self._transport_ratio_count = torch.zeros((), dtype=torch.float32, device=dev)
 
     @torch.no_grad()
     def step(self):
@@ -692,6 +705,31 @@ class Muon(torch.optim.Optimizer):
                                 state["trust_cos_row"] = 1.0
                                 state["trust_cos_col"] = 1.0
                     grad = p.grad
+                    if RIEMANNIAN_MUON_TRANSPORT:
+                        # Pilot polar of current step's gradient = X_curr (tangent reference for step t).
+                        X_curr = zeropower_via_newtonschulz5(grad, steps=RIEMANNIAN_MUON_PILOT_ITERS)
+                        if "X_prev" in state:
+                            X_prev = state["X_prev"]
+                            buf = state["momentum"]
+                            # Wen et al. retraction transport: R = X_curr @ X_prev^T applied to buf.
+                            # Square: R is exactly orthogonal; tall/wide: column-isometric (Wen §3.1).
+                            # For tall (d_out > d_in), apply equivalent right-multiply to keep the
+                            # rotation in the short-side d_in x d_in space (matches NS5 convention).
+                            if grad.size(-2) > grad.size(-1):
+                                R_t = (X_curr.mT @ X_prev).float()  # (d_in, d_in)
+                                buf_transported = buf @ R_t.mT
+                            else:
+                                R = (X_curr @ X_prev.mT).float()  # (d_out, d_out)
+                                buf_transported = R @ buf
+                            buf_norm_before = buf.norm()
+                            buf.copy_(buf_transported)
+                            buf_norm_after = buf.norm()
+                            ratio = buf_norm_after / buf_norm_before.clamp_min(1e-10)
+                            self._transport_ratio_sum += ratio.detach().float()
+                            self._transport_ratio_min = torch.minimum(self._transport_ratio_min, ratio.detach().float())
+                            self._transport_ratio_max = torch.maximum(self._transport_ratio_max, ratio.detach().float())
+                            self._transport_ratio_count += 1.0
+                        state["X_prev"] = X_curr
                     state["momentum"].lerp_(grad, 1 - group["mu"])
                     momentum_update = grad.lerp(state["momentum"], group["mu"])
                     use_soap = p in self.soap_params
@@ -719,6 +757,31 @@ class Muon(torch.optim.Optimizer):
                                      use_trust_gate=True,
                                      trust_threshold=ATTN_SOAP_TRUST_THRESHOLD)
                 dist.all_gather(params_pad[base_i:base_i + world_size], params_pad[base_i + rank])
+
+    def transport_stats(self) -> dict[str, float]:
+        """Return Riemannian-Muon transport norm-preservation diagnostics + reset accumulator.
+
+        norm_ratio_mean = (1/count) Σ ||R·m||_F / ||m||_F across all Muon params since last call.
+        Should stay ≈ 1.0 (exactly 1.0 for square params; 0.95-0.99 for tall/wide via Wen et al.
+        column-isometric transport). Persistent drop below 0.9 signals NS5 pilot polar drift.
+        """
+        if not RIEMANNIAN_MUON_TRANSPORT:
+            return {}
+        count = self._transport_ratio_count.item()
+        if count == 0:
+            return {}
+        mean = (self._transport_ratio_sum / self._transport_ratio_count).item()
+        out = {
+            "norm_ratio_mean": mean,
+            "norm_ratio_min": self._transport_ratio_min.item(),
+            "norm_ratio_max": self._transport_ratio_max.item(),
+            "count": count,
+        }
+        self._transport_ratio_sum.zero_()
+        self._transport_ratio_min.fill_(1.0)
+        self._transport_ratio_max.zero_()
+        self._transport_ratio_count.zero_()
+        return out
 
     def trust_gate_stats(self) -> dict[str, float]:
         """Return aggregate + per-weight-type trust-gate telemetry across attention SOAP params.
@@ -866,6 +929,8 @@ if dist.get_rank() == 0:
             "optimizer/attn_soap_trust_threshold": ATTN_SOAP_TRUST_THRESHOLD,
             "optimizer/ns5_iters": NS5_ITERS,
             "optimizer/wd_aux": WD_AUX,
+            "optimizer/riemannian_muon_transport": RIEMANNIAN_MUON_TRANSPORT,
+            "optimizer/riemannian_muon_pilot_iters": RIEMANNIAN_MUON_PILOT_ITERS,
             "optimizer/recipe": "contra-muon + normuon-lite + soap-on-mlp + soap-on-attn-trust-gate (pre-NS5, record #14 + record #16)",
         },
     )
@@ -1059,6 +1124,10 @@ for trial_idx in range(args.num_trials):
                     stats = opt.trust_gate_stats()
                     if stats:
                         wandb.log(prefixed("train/attn_soap_trust_gate", stats), step=wandb_step)
+                if hasattr(opt, "transport_stats"):
+                    transport = opt.transport_stats()
+                    if transport:
+                        wandb.log(prefixed("optimizer/riemannian_transport", transport), step=wandb_step)
         if dist.get_rank() == 0 and telemetry_due:
             log_weight_telemetry(
                 model=model,
