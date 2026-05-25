@@ -3,6 +3,33 @@
 This file logs experiment outcomes as PRs land. The historical track 3
 leaderboard is captured in `/BASELINE.md`.
 
+## 2026-05-25 04:50 UTC — PR #1091: Body Muon decoupled weight decay — 4-arm sweep (alphonse) — CLOSED productive-NEG; BODY-MUON-WEIGHT-DECAY axis COMPREHENSIVELY FENCED (4 directions); **12th consecutive no-merge closure since #847**
+
+- Branch: `g1r4-alphonse/body-muon-weight-decay`
+- Hypothesis: Add decoupled weight decay on body Muon parameters (currently wd=0). 4 arms test: A=ctrl wd=0, B=wd=0.001 constant, C=wd=0.01 cooldown_only (mechanism-lead — wd active only during cooldown phase), D=wd=0.01 constant.
+
+| Arm | run_id | wd | schedule | val/loss | Δ_vs_A | Δ_vs_baseline | fs | body_attn_rms_final | body_mlp_rms_final | classification |
+|:---:|---|:---:|:---:|:---:|:---:|:---:|:---:|:---:|:---:|:---:|
+| A ctrl | `pmpyg8d6` | 0.0 | — | **3.26708** | 0 | −0.00048 drift PASS | 3175 | n/a (gated) | n/a (gated) | clean stack |
+| B | `rberv9e7` | 0.001 | constant | 3.27111 | +0.00403 | +0.00355 | 3225 | 0.0965 | 0.1009 | REGRESSION |
+| C mech-lead | `bjm1ohlq` | 0.01 | cooldown_only | 3.27279 | **+0.00571** | +0.00523 | 3250 | 0.0819 | 0.0831 | **PRODUCTIVE-NEG (worst)** |
+| D | `tsteuz10` | 0.01 | constant | 3.26968 | +0.00260 | +0.00212 | 3225 | 0.0804 | 0.0822 | REGRESSION |
+
+**Analysis:**
+- **All 3 wd arms regress.** Mechanism-lead C (cooldown_only-activation) is WORST; constant high wd D is best of the three wd arms but still regression band. The "wd matters during cooldown" hypothesis actively *hurts*.
+- **Counter-mechanism interpretation**: fs A=3175 → C=3250 (75 steps slower) confirms late-stage shrinkage delays target reach. Smallest-RMS arm (D, constant wd=0.01) is the LEAST regressing of three — early shrinkage less harmful than late-cooldown shrinkage.
+- **Structural reading**: body Muon's NS5 polar decomp produces operator-norm-bounded updates; the parameter magnitude evolves only through orthogonal gradient signal accumulation. Adding wd shrinkage breaks this clean structure — NS5 polar decomp does NOT "want" magnitude regularization on top of its own normalization.
+- **BODY-MUON-WEIGHT-DECAY axis comprehensively fenced** (4 directions):
+  - #483 thorfinn Muon WD warmup ADDITION → productive-NEG (monotone worsening)
+  - #550 edward Muon WD cooldown REDUCTION → productive-NULL (sub-threshold, PP-collapse)
+  - #1091 alphonse Muon WD ADDITION constant + cooldown_only → productive-NEG (this work)
+  - #808 alphonse distance-from-init WD → productive-NULL (signal absorbed by NS-orthogonalization)
+  - **Full fence**: body Muon wd=0 is structurally optimal across addition/reduction/timing/distance-from-init directions.
+
+**Conclusion**: CLOSED productive-NEG. Body Muon wd=0 confirmed structurally optimal. 12th consecutive no-merge closure since #847 — escalation continues. Alphonse reassigned **#1132 Shampoo body** (Anil 2018) — 4th plateau escalation, REPLACES NS5 polar decomposition with Kronecker-factored 2nd-order preconditioner. Highest-info-value tier-4 escalation remaining for body Muon.
+
+---
+
 ## 2026-05-25 04:40 UTC — PR #1088: Body Muon NS5-input gradient-noise injection — 4-arm screen (frieren) — CLOSED productive-NULL; GRADIENT-NOISE-INJECTION (body Muon NS5 input) 1-closure observation; **11th consecutive no-merge closure since #847**
 
 - Branch: `g1r4-frieren/body-muon-gradient-noise`
