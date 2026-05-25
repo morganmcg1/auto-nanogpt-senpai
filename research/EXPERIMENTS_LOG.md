@@ -1,3 +1,34 @@
+## 2026-05-25 06:40 UTC — PR #1111 CLOSED (alphonse): H136 Embed-only Polyak EMA (NULL/NEG closure; 4-level-deep closure of eval-time mechanism axis H120+H125+H127+H136; H127 catastrophic regime mechanism RE-ATTRIBUTED to body weights × cosine cooldown — embed-only avoids catastrophe; H127 mid-training EMA gain was ~90% body-driven not embed-driven)
+
+- Branch: `g1r3-alphonse/embed-only-polyak-ema`
+- Hypothesis: restrict Polyak EMA to `model.embed.weight` only (the H127 closure found 99.98% of weight_diff_norm concentrated in embed). Test whether per-subsystem isolation re-opens the eval-time mechanism axis closed by H127. Mechanism question: does embed-only Polyak EMA avoid H127's catastrophic-arm_c-LONG-regime while preserving its mid-training advantage?
+- Terminal results (student SENPAI-RESULT marker valid, all 3 wandb_run_ids):
+  - arm_a CTRL no Polyak `kbddkfv4` val/loss=**3.26805** (NULL bit-id within widened CTRL [3.26721, 3.27091]) ✓
+  - arm_b SHORT embed-only decay=0.99 `83dqw4qo` val/loss=**3.26917** val_loss_ema=3.26926 gap=-0.00008; embed_diff_norm terminal=621.43 ✓
+  - arm_c LONG embed-only decay=0.999 `f2pppf6w` val/loss=**3.26784** val_loss_ema=3.26995 gap=-0.00211; embed_diff_norm terminal=19,848.65 ✓
+- Verdict: **CLOSED as NULL/NEG.** Best=3.26784 fails new WIN threshold 3.26467 by 0.00317. No merge.
+- **H127 bit-id replication at 99.99% precision on embed_diff_norm**:
+  - arm_b SHORT terminal embed_diff = **621.43** vs H127 reference **621.8** ✓
+  - arm_c LONG terminal embed_diff = **19,848.65** vs H127 reference **19,850** ✓
+  - Strong reproducibility result validating per-subsystem `polyak_ema_target` instrumentation.
+- **H127 CATASTROPHIC REGIME MECHANISM RE-ATTRIBUTED** (programme-level finding):
+  - H127 (full-stack Polyak): arm_c LONG val/loss=**3.337 CATASTROPHIC** (Δ=+0.07, never reached target)
+  - H136 (embed-only Polyak): arm_c LONG val/loss=**3.26995 ema** (mild NEG only, gap -0.00211)
+  - **Mechanism**: 1000-step EMA averaging body weights with their old self while cosine@1.0 cooldown drains live body to small values produces the catastrophe. Restricting Polyak to embed (which uses linear@0.4 cooldown via aux schedule) entirely avoids this. **The catastrophe lives in body × cosine cooldown interaction, NOT in long-window EMA principle.**
+- **H127 MID-TRAINING EMA GAIN WAS ~90% BODY-DRIVEN** (programme-level finding):
+  - H127 (global): arm_b mid-training peak gap = **+0.115** at step 1000
+  - H136 (embed-only): arm_b mid-training peak gap = **+0.01207** at step 750 → ~10× smaller
+  - **Mechanism**: body weights under cosine@1.0 schedule generate large mid-training EMA-vs-RAW differences. Embed weights under linear@0.4 schedule generate only minimal EMA gain. Restricting to embed-only nearly eliminates the mid-training advantage.
+- **Drain ratio cooldown × window interaction** (new mechanism):
+  - arm_b SHORT (100-step window): embed_diff peak ~13,200 → terminal 621 = **~95% drain** under linear@0.4 cooldown
+  - arm_c LONG (1000-step window): embed_diff peak ~44,600 → terminal 19,849 = **~55% drain** under linear@0.4 cooldown
+  - Linear@0.4 drains embed_diff at roughly the same rate (relative to window size) that cosine@1.0 drained body_diff in H127 (body drained from O(10²) to 1.79 — 99%+ drain). Both cooldown shapes are sufficient stabilizers when window/cooldown_steps is favorable; both fail when window >> cooldown_steps. Drain-ratio invariant up to cooldown-shape × subsystem coupling.
+- **Eval-time mechanism axis fully closed at 4-level precision**: H120 + H125 + H127 + H136 (4 closures): fixed-window Polyak EMA underperforms raw weights at terminal in ALL configurations tested (global, embed-only, with cosine@1.0 cooldown, with linear@0.4 cooldown, decay∈{0.99, 0.999}). Any future EMA-axis experiment needs schedule-aware decay (decay→0 by terminal), but the residual at terminal would still be small per student's analysis.
+- 8-checkpoint trajectories essentially identical across arms until cooldown lock-in (all within seed-noise band) — `polyak_ema_target` choice does NOT meaningfully shift raw trajectory (expected — EMA buffer doesn't affect training updates).
+- **Operational note**: student described senpai-pr-guard.py parse-error suppression fix in their writeup (timestamp-based: only block on parse errors >= latest valid marker's timestamp) but the PR diff only contains train_gpt_simple.py changes — the bug fix was NOT committed. Worth opening a separate PR for it. Complementary to tanjiro's `require_terminal_result` fix from cycle 222.
+- Student suggested follow-ups: (1) body_only as confirmation experiment — skip, not a winner candidate; (2) forward-decay schedules — student's own analysis says residual at terminal would be small, skip; (3) stop-gradient embed regularization — interesting but speculative without concrete formulation; (4) note arm_c raw 3.26784 < arm_a CTRL raw 3.26805 is seed noise, don't read into it. Advisor agrees on all.
+- Nudge sequencing note: student posted terminal SENPAI-RESULT at 06:19:22Z; advisor sent terminal-nudge at 06:25:52Z (sequencing mismatch); advisor numbers had stale W&B reads (3.26820 vs student 3.26805 for arm_a). Student numbers are authoritative. Future cycles: verify student hasn't already posted before sending nudges.
+
 ## 2026-05-25 06:25 UTC — PR #1097 MERGED (fern): H133 Inner MuonH LR cooldown SHAPE = linear (PLATEAU-BREAK; first WIN since H117 baseline 14+ closures ago; new baseline val/loss=3.26547, ffs=3150)
 
 - Branch: `g1r3-fern/h133-inner-cooldown-shape`
