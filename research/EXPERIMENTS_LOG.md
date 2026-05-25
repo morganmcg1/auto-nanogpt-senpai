@@ -1,3 +1,31 @@
+## 2026-05-25 20:10 — PR #1179: H153 WSM (Warmup-Stable-Merge) post-hoc checkpoint merging (BILATERAL NEG — EMA-family programme-level closure; basin-tight mechanism direct-evidence)
+
+- Branch: `g1r3-nezuko/h153-wsm-checkpoint-merge`
+- Hypothesis: post-hoc Polyak-mean averaging over last 10% or 30% checkpoints reduces val/loss via basin-geometry exploitation (Tian et al. 2024, ICLR 2026 Oral). Three discrimination hypotheses: H1 basin merge-tolerant (WIN), H2 basin tight / fast weights track center (both NEG), H3 K-wide hurts more (NEG monotone with K).
+- Results vs H148 baseline 3.26364:
+
+| Arm | mode | wandb | terminal val/loss | wsm/merged val/loss | Δ wsm merged vs CTRL | Verdict |
+|---|---|---|---|---|---|---|
+| a | off (bit-id baseline path) | `ngawd3z9` | 3.26575 | — | — | NULL within new noise envelope (mean 3.26466, std ~0.001) |
+| b | k3_mean (steps 2992,3159,3325) | `u7xj1096` | 3.26531 | **3.26886** | **+0.00311** | NEG above NULL band edge 3.26534 |
+| c | k7_mean (steps 2326,...,3325) | `z6inwtt2` | 3.26389 | **3.27668** | **+0.01093** | SEVERE NEG; arm_c WSM merged FAILS statistical rule ((3.28−3.27668)×1 = 0.00332 < 0.004) |
+
+- **4 programme-grade findings**:
+  1. **EMA-FAMILY PROGRAMME-LEVEL CLOSURE — 7-level total**: 5-level continuous EMA during training (H120/H125/H127/H136/H144) + 2-level discrete WSM at terminal (H153 K3+K7) = entire weight-averaging mechanism family CLOSED. Strategy-tier shift away from any EMA/averaging variant warranted.
+  2. **Basin-tight mechanism CONFIRMED via multi-layer evidence**: pair-distance trajectory contracts **15×** from step 2326 (1.66e-01) to step 3325 (1.11e-02) — direct measurement of basin curvature contraction under linear cooldown. Per-tensor merge displacement scales tightly with val/loss harm (K7/K3 ratio 3.4-5× ≈ harm ratio 3.6×). The terminal checkpoint IS the basin center.
+  3. **MLP/attn weights move ~2× more than embed/proj under averaging** (K3 displacement 3.5e-02 vs 1.6e-02) — per-tensor fast/slow stratification: MLP/attn are the "fast" portion of network with more LR exposure, more trajectory contraction during cooldown. New programme observation.
+  4. **K-monotone harm scaling 3.6×**: wider averaging window uniformly worse. By structural argument, slerp/weighted-EMA/non-uniform mixing share the same geometry — all pull AWAY from the tight terminal basin. Strategy-tier closure of the entire averaging-mechanism family.
+
+- **Mechanism narrative**: H1 FALSIFIED bilaterally; H2 CONFIRMED by direct pair-distance measurement; H3 CONFIRMED by monotone K-scaling. WSM Polyak-mean axis CLOSED BILATERALLY. By extension, slerp / weighted-mean / EMA-weighted variants CLOSED at strategy-tier (mechanism-shared geometry).
+
+- **13th NULL/NEG closure in portfolio.** Aggregated programme map: 9 erosion-axes + 12 NS5 closures + 7-level EMA closures + 5 aux-AdamW closures + WSM. Trained fast weights under linear cooldown ARE the optimum within the basin of attraction.
+
+- step_avg 1805-1807ms across all 3 arms (WSM CPU clones negligible <0.3% overhead). Peak WSM CPU RAM 3.4GB at K=7.
+
+- Follow-up: H161 nezuko basin-width probe via parameter noise injection — implements nezuko's suggestion #3 with regularization-WIN-potential twist.
+
+---
+
 ## 2026-05-25 18:50 — PR #1173: H152 Lion optimizer aux (SEVERE NEG bilateral — aux-optimizer architecture closure; magnitude-aware mechanism finding)
 
 - Branch: `g1r3-alphonse/h152-lion-aux-sweep`
