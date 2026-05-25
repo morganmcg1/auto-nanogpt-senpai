@@ -64,6 +64,10 @@ def parse_args():
     parser.add_argument("--muon_lr", type=float, default=0.035,
                         help="Base learning rate for body-Muon optimizer (matrix params in blocks). "
                              "Default 0.035 matches the merged baseline.")
+    parser.add_argument("--ns_a", type=float, default=NS_A,
+                        help="NS5 cubic coefficient a (default 1.5; constraint a+b+c=1 for σ=1 fixed point).")
+    parser.add_argument("--ns_b", type=float, default=NS_B,
+                        help="NS5 cubic coefficient b (default -0.5; constraint a+b+c=1 for σ=1 fixed point).")
     args = parser.parse_args()
     args.num_trials = args.num_trials if args.num_trials is not None else (args.legacy_num_trials or 1)
     args.wandb_tags = [tag.strip() for tag in args.wandb_tags.split(",") if tag.strip()]
@@ -459,7 +463,8 @@ class GPT(nn.Module):
 #              Optimizer               #
 ########################################
 
-def zeropower_via_newtonschulz5(G: Tensor, a: float = NS_A, b: float = NS_B, c: float = NS_C, iters: int = NS_ITERS) -> Tensor:
+def zeropower_via_newtonschulz5(G: Tensor, a: float = NS_A, b: float = NS_B, c: float = NS_C,
+                                iters: int = NS_ITERS, polar_diag: dict | None = None) -> Tensor:
     assert G.ndim >= 2
     X = G.bfloat16()
     if G.size(-2) > G.size(-1):
@@ -467,11 +472,19 @@ def zeropower_via_newtonschulz5(G: Tensor, a: float = NS_A, b: float = NS_B, c: 
 
     # Ensure spectral norm is at most 1
     X = X / (X.norm(dim=(-2, -1), keepdim=True) + 1e-7)
+    # Sample sigma_max after iter 1 and final iter for the first eligible param only.
+    log_sigmax = polar_diag is not None and "sigma_max_after_iter_1" not in polar_diag
     # Perform the NS iterations, not optimizing for wallclock speed
-    for _ in range(iters):
+    for it in range(iters):
         A = X @ X.mT
         B = b * A + c * A @ A
         X = a * X + B @ X
+        if log_sigmax and (it == 0 or it == iters - 1):
+            try:
+                sn = float(torch.linalg.matrix_norm(X.float(), ord=2).item())
+            except Exception:
+                sn = float("nan")
+            polar_diag[f"sigma_max_after_iter_{it + 1}"] = sn
 
     if G.size(-2) > G.size(-1):
         X = X.mT
@@ -513,7 +526,7 @@ def pmuon_update(
     R_neg = matrix_neg_power(R_cov, gamma, eps)
     m_pre = (L_neg @ update.float()) @ R_neg
 
-    polar = zeropower_via_newtonschulz5(m_pre.to(update.dtype), a=ns_a, b=ns_b, c=ns_c)
+    polar = zeropower_via_newtonschulz5(m_pre.to(update.dtype), a=ns_a, b=ns_b, c=ns_c, polar_diag=polar_diag)
     # Sample ortho residual ||X X^T - I||_F on the polar output (before spectral scaling).
     # Only the first eligible parameter per step writes — keeps cost ~O(d^2) once per step.
     if polar_diag is not None and "residual" not in polar_diag:
@@ -708,8 +721,8 @@ if dist.get_rank() == 0:
             "pmuon_gamma": PMUON_GAMMA,
             "pmuon_gamma_power": PMUON_GAMMA,
             "ns_iterations": NS_ITERS,
-            "ns_coef_a": NS_A,
-            "ns_coef_b": NS_B,
+            "ns_coef_a": args.ns_a,
+            "ns_coef_b": args.ns_b,
             "ns_coef_c": NS_C,
             "target_uw_floor": 0.35,
             "target_uw": 0.35,
@@ -756,9 +769,11 @@ for trial_idx in range(args.num_trials):
                         dict(params=[p for p in model.parameters() if p.ndim < 2], lr=0.025, name="adam_scalars")],
                        betas=(0.8, 0.95), eps=1e-10, weight_decay=0, fused=True)
     optimizer2 = Muon([p for p in model.blocks.parameters() if p.ndim >= 2],
-                      lr=args.muon_lr, weight_decay=0.025, beta_cov=0.95, gamma=PMUON_GAMMA)
+                      lr=args.muon_lr, weight_decay=0.025, beta_cov=0.95, gamma=PMUON_GAMMA,
+                      ns_a=args.ns_a, ns_b=args.ns_b)
     optimizer2.param_groups[0]["name"] = "muon_blocks"
-    print0(f"body-Muon optimizer: lr={args.muon_lr} weight_decay=0.025 beta_cov=0.95 gamma={PMUON_GAMMA}")
+    print0(f"body-Muon optimizer: lr={args.muon_lr} weight_decay=0.025 beta_cov=0.95 gamma={PMUON_GAMMA} "
+           f"ns_a={args.ns_a} ns_b={args.ns_b} ns_c={NS_C}")
     optimizers = [optimizer1, optimizer2]
     assert set(p for opt in optimizers for group in opt.param_groups
                for p in group["params"]) == set(model.parameters())
@@ -1020,16 +1035,21 @@ for trial_idx in range(args.num_trials):
                 }, step=wandb_step)
             polar_diag = getattr(optimizer2, "_polar_diag", None)
             if polar_diag and "residual" in polar_diag:
-                wandb.log({
+                polar_log = {
                     "trial": trial_idx,
                     "train/step": train_step,
                     "polar/ortho_residual_sample": polar_diag["residual"],
                     "polar/sample_rows": polar_diag.get("sample_rows", 0),
                     "polar/sample_cols": polar_diag.get("sample_cols", 0),
-                    "polar/ns_coef_a": NS_A,
-                    "polar/ns_coef_b": NS_B,
+                    "polar/ns_coef_a": args.ns_a,
+                    "polar/ns_coef_b": args.ns_b,
                     "polar/ns_coef_c": NS_C,
-                }, step=wandb_step)
+                }
+                if "sigma_max_after_iter_1" in polar_diag:
+                    polar_log["ns5/sigma_max_after_iter_1"] = polar_diag["sigma_max_after_iter_1"]
+                if f"sigma_max_after_iter_{NS_ITERS}" in polar_diag:
+                    polar_log[f"ns5/sigma_max_after_iter_{NS_ITERS}"] = polar_diag[f"sigma_max_after_iter_{NS_ITERS}"]
+                wandb.log(polar_log, step=wandb_step)
             wandb.log({
                 "trial": trial_idx,
                 "train/step": train_step,
