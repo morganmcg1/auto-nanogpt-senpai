@@ -468,6 +468,11 @@ NS5_ITERS = int(os.environ.get("NS5_ITERS", "12"))
 WD_AUX = float(os.environ.get("WD_AUX", "0.0"))  # AdamW WD on embed + lm_head matrices (scalars stay at 0)
 EMBED_INIT_STD = float(os.environ.get("EMBED_INIT_STD", "1.0"))  # default preserves baseline N(0,1)
 LOGIT_SOFTCAP = float(os.environ.get("LOGIT_SOFTCAP", "15.0"))  # default = 15 (current hardcoded value); soft-cap value c in f(x) = c·x / sqrt(x^2+c^2)
+# PR #1186 RIEMANNIAN_MUON_MOMENTUM: project Muon EMA buffer onto Stiefel tangent space
+# of the polar factor each step. Wen et al. ICLR 2023 (arXiv:2205.14173) canonical projection
+# P_X(m) = m - sym(X m^T) X in wide convention with X X^T ≈ I.
+RIEMANNIAN_MUON = bool(int(os.environ.get("RIEMANNIAN_MUON", "0")))
+RIEMANNIAN_MUON_PILOT_ITERS = int(os.environ.get("RIEMANNIAN_MUON_PILOT_ITERS", "7"))
 
 
 def zeropower_via_newtonschulz5(G: Tensor) -> Tensor:
@@ -654,6 +659,8 @@ class Muon(torch.optim.Optimizer):
                     self.attn_soap_kind[id(p)] = "proj"
         params = sorted([p for _, p in named_params], key=lambda x: x.size(), reverse=True)
         defaults = dict(lr=lr, weight_decay=weight_decay, mu=mu)
+        # Per-param ratio ||m_T||/||m|| after Stiefel-tangent projection (PR #1186).
+        self.riemannian_proj_ratios: dict[int, float] = {}
         super().__init__(params, defaults)
 
     @torch.no_grad()
@@ -694,6 +701,39 @@ class Muon(torch.optim.Optimizer):
                     grad = p.grad
                     state["momentum"].lerp_(grad, 1 - group["mu"])
                     momentum_update = grad.lerp(state["momentum"], group["mu"])
+                    if RIEMANNIAN_MUON:
+                        # Riemannian-Muon (PR #1186): project EMA buffer onto Stiefel tangent
+                        # space at X = polar(momentum_update). Half-cost NS5 pilot computes X,
+                        # canonical projection P_X(m) = m - sym(X m^T) X removes the non-tangent
+                        # part of the EMA so it accumulates geometrically on St(d, min_d).
+                        G_pilot = momentum_update.to(torch.bfloat16)
+                        rm_transposed = G_pilot.size(-2) > G_pilot.size(-1)
+                        if rm_transposed:
+                            G_pilot = G_pilot.mT
+                        G_pilot = G_pilot / (G_pilot.norm() + 1e-7)
+                        rm_a, rm_b, rm_c = 2.0, -1.5, 0.5  # match baseline NS5 coefficients
+                        X_polar = G_pilot.clone()
+                        for _ in range(RIEMANNIAN_MUON_PILOT_ITERS):
+                            A = X_polar @ X_polar.mT
+                            B = rm_b * A + rm_c * A @ A
+                            X_polar = rm_a * X_polar + B @ X_polar
+                        m_buf = state["momentum"].to(torch.bfloat16)
+                        if rm_transposed:
+                            m_buf = m_buf.mT
+                        # Wide convention (X X^T ≈ I): canonical Stiefel tangent projection
+                        # P(m) = m - sym(X m^T) X, where sym(A) = 0.5 (A + A^T).
+                        Y = X_polar @ m_buf.mT
+                        sym_Y = 0.5 * (Y + Y.mT)
+                        m_proj = m_buf - sym_Y @ X_polar
+                        m_buf_norm = m_buf.norm().clamp_min(1e-10)
+                        self.riemannian_proj_ratios[id(p)] = float(
+                            (m_proj.norm() / m_buf_norm).item()
+                        )
+                        if rm_transposed:
+                            m_proj = m_proj.mT
+                        state["momentum"].copy_(m_proj.to(state["momentum"].dtype))
+                        # Recompute momentum_update from projected buffer.
+                        momentum_update = grad.lerp(state["momentum"], group["mu"])
                     use_soap = p in self.soap_params
                     use_attn_soap = p in self.attn_soap_params
                     # SOAP precondition applied to momentum BEFORE NS5+contra+NorMuon
@@ -719,6 +759,26 @@ class Muon(torch.optim.Optimizer):
                                      use_trust_gate=True,
                                      trust_threshold=ATTN_SOAP_TRUST_THRESHOLD)
                 dist.all_gather(params_pad[base_i:base_i + world_size], params_pad[base_i + rank])
+
+    def riemannian_proj_stats(self) -> dict[str, float]:
+        """Aggregate diagnostics for the Stiefel-tangent projection (PR #1186).
+
+        Returns mean / min / max of ||m_T|| / ||m|| over the most recent Muon
+        step's per-param projections. Empty dict when RIEMANNIAN_MUON is off.
+        """
+        if not self.riemannian_proj_ratios:
+            return {}
+        ratios = list(self.riemannian_proj_ratios.values())
+        finite = [r for r in ratios if r == r and r != float("inf") and r != float("-inf")]
+        if not finite:
+            return {}
+        return {
+            "count": len(finite),
+            "mean_proj_ratio": sum(finite) / len(finite),
+            "min_proj_ratio": min(finite),
+            "max_proj_ratio": max(finite),
+            "normal_removed_mean": 1.0 - sum(finite) / len(finite),
+        }
 
     def trust_gate_stats(self) -> dict[str, float]:
         """Return aggregate + per-weight-type trust-gate telemetry across attention SOAP params.
@@ -866,6 +926,8 @@ if dist.get_rank() == 0:
             "optimizer/attn_soap_trust_threshold": ATTN_SOAP_TRUST_THRESHOLD,
             "optimizer/ns5_iters": NS5_ITERS,
             "optimizer/wd_aux": WD_AUX,
+            "optimizer/riemannian_muon": int(RIEMANNIAN_MUON),
+            "optimizer/riemannian_muon_pilot_iters": RIEMANNIAN_MUON_PILOT_ITERS,
             "optimizer/recipe": "contra-muon + normuon-lite + soap-on-mlp + soap-on-attn-trust-gate (pre-NS5, record #14 + record #16)",
         },
     )
@@ -1059,6 +1121,10 @@ for trial_idx in range(args.num_trials):
                     stats = opt.trust_gate_stats()
                     if stats:
                         wandb.log(prefixed("train/attn_soap_trust_gate", stats), step=wandb_step)
+                if hasattr(opt, "riemannian_proj_stats"):
+                    stats = opt.riemannian_proj_stats()
+                    if stats:
+                        wandb.log(prefixed("train/riemannian_proj", stats), step=wandb_step)
         if dist.get_rank() == 0 and telemetry_due:
             log_weight_telemetry(
                 model=model,
