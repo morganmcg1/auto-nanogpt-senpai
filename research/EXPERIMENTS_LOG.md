@@ -1,5 +1,37 @@
 # SENPAI Research Results
 
+## 2026-05-25 11:40 UTC — PR #1123 CLOSED: Asymmetric γ_L/γ_R whitening exponents — 127th NULL, asymmetric whitening axis FULLY CLOSED (g1r1-frieren)
+
+- Branch: `g1r1-frieren/gamma-L-gamma-R-asymmetry`
+- Hypothesis: PMUON_GAMMA=0.4 is symmetric across L_cov/R_cov whitening, but L_cov stable rank (~13.18 / 3072) and R_cov stable rank (~1.67 / 768) have very different rank profiles per #1046 rank-deficiency canon. Test whether decoupling γ_L from γ_R lets each side match its rank-deficiency budget. Arm A (γ_L=0.25, γ_R=0.5) softens L whitening and tightens R; Arm B (γ_L=0.5, γ_R=0.25) inverts.
+
+| Arm | γ_L | γ_R | val/loss | Δval (mnat) | sr | Δsr | σ | Verdict | W&B |
+|---|---|---|---|---|---|---|---|---|---|
+| Baseline #918 | 0.4 | 0.4 | 3.266394 | — | 2925 | — | — | — | vm48fdof/0a7esmxs |
+| Arm A | 0.25 | 0.5 | **3.270** | +3.6 | 2950 | +25 | 12σ | **CLEAR NULL** | (see PR) |
+| Arm B | 0.5 | 0.25 | **3.268** | +1.6 | 2950 | +25 | 5σ | marginal NULL | (see PR) |
+
+### Mechanism findings
+
+1. **Polar/ortho_residual differs 4× between arms but val barely shifts.** Arm A ortho_residual ≈ 0.401 (looser whitening of L → less polar input pre-conditioning); Arm B ortho_residual ≈ 0.101 (tighter whitening of L → more polar input pre-conditioning). 4× spread in residual but Δval gap between arms is only 2 mnat. **NS_ITERS=12 absorbs 4× residual perturbation without proportional val penalty.**
+2. **Direct confirmation of #1102 canon.** "Polar/ortho_residual is NOT load-bearing at NS_ITERS=12 — residual can be tightened 3-5× without val change." #1123 tested the inverse: residual loosened 4× → val also barely moves. The cubic NS5 map's contractive geometry on rank-deficient inputs is robust to upstream whitening exponent variation across [0.25, 0.5].
+3. **Rank asymmetry (L 13/3072 vs R 1.67/768) does NOT translate to γ asymmetry.** Both decoupled-γ configurations regress vs symmetric γ=0.4. The expected mechanism — "looser-whitened side compensates for tighter-side over-whitening" — does not materialize.
+
+### Predeclared merge rule
+
+`sr ≤ 2912.5 OR (sr = 2925 AND val < 3.266394)`:
+- Arm A: sr=2950 fails first clause; val=3.270 fails second → NULL
+- Arm B: sr=2950 fails first clause; val=3.268 > 3.266394 → fails second → NULL
+
+### Portfolio implications
+
+- Closes first decoupled-γ axis in r1; PMUON_GAMMA symmetric form (γ_L=γ_R=0.4) is canonical.
+- Closes the "rank-asymmetry → γ-asymmetry" inference chain motivated by #1102 reframe + #1046 rank-deficiency canon.
+- Reinforces #1102 canon: future PRs targeting polar quality must operate INSIDE NS5 (NS_ITERS modulation per #1144, exact SVD per #1135, blend post-polar per #1107), NOT upstream whitening.
+- frieren → **#1164** (depth-stratified body-Muon EMA momentum mu: per-layer linear interpolation across 12 transformer layers; Arm A DOWN shallow=0.99/deep=0.90 vs Arm B UP shallow=0.90/deep=0.99). Direct response to #1116 askeladd depth-LR closure note explicitly suggesting per-layer EMA β as next mechanism-distinct depth axis. Mirrors #1116 implementation pattern (add_param_group per layer) but operates on EMA memory not step magnitude — mechanism-distinct from all closed mu axes (#682 schedule, #777 cooldown ramp — all were uniform across depth).
+
+---
+
 ## 2026-05-25 09:27 UTC — PR #1116 CLOSED: Body Muon depth-LR decay (DOWN vs UP) — 126th NULL, depth-stratified LR axis FULLY CLOSED (g1r1-askeladd)
 
 - Branch: `g1r1-askeladd/depth-lr-decay`
