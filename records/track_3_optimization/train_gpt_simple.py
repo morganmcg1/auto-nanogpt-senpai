@@ -593,6 +593,27 @@ NANOGPT_SENPAI_SEED = int(_SENPAI_SEED_RAW) if _SENPAI_SEED_RAW != "" else None
 # `embed.weight -= lr_embed * lambda * (embed.weight - embed_init_snapshot)`.
 # At lambda=0 the hook is a no-op and behavior is bit-identical to the merged stack.
 NANOGPT_EMBED_INIT_ANCHOR_LAMBDA = float(os.environ.get("NANOGPT_EMBED_INIT_ANCHOR_LAMBDA", "0.0"))
+# Schedule-Free AdamW on aux (#1127, Defazio 2024). When "on", optimizer1 (aux
+# AdamW: adam_embed/adam_lm_head/adam_scalars) is wrapped with a z/y iterate-
+# averaging mechanism: AdamW updates z, then y = (1-β_sf)*y + β_sf*z, and p.data
+# is set to y for the next forward. KEEP_COOLDOWN=off removes the aux LR cooldown
+# (SF replaces the schedule); KEEP_COOLDOWN=on keeps the existing cooldown on top
+# of SF (additive test). When SF=off the wrapping is a no-op (bit-identical).
+NANOGPT_AUX_SCHEDULE_FREE = os.environ.get("NANOGPT_AUX_SCHEDULE_FREE", "off")
+NANOGPT_AUX_SF_BETA = float(os.environ.get("NANOGPT_AUX_SF_BETA", "0.9"))
+NANOGPT_AUX_SF_KEEP_COOLDOWN = os.environ.get("NANOGPT_AUX_SF_KEEP_COOLDOWN", "off")
+assert NANOGPT_AUX_SCHEDULE_FREE in ("on", "off"), (
+    f"NANOGPT_AUX_SCHEDULE_FREE={NANOGPT_AUX_SCHEDULE_FREE!r}, must be 'on' or 'off'"
+)
+assert NANOGPT_AUX_SF_KEEP_COOLDOWN in ("on", "off"), (
+    f"NANOGPT_AUX_SF_KEEP_COOLDOWN={NANOGPT_AUX_SF_KEEP_COOLDOWN!r}, must be 'on' or 'off'"
+)
+assert 0.0 < NANOGPT_AUX_SF_BETA <= 1.0, (
+    f"NANOGPT_AUX_SF_BETA={NANOGPT_AUX_SF_BETA}, must be in (0, 1]"
+)
+_AUX_SF_ON = (NANOGPT_AUX_SCHEDULE_FREE == "on")
+_AUX_SF_KEEP_COOLDOWN_ON = (NANOGPT_AUX_SF_KEEP_COOLDOWN == "on")
+_AUX_SF_OVERRIDE_PEAK_LR = _AUX_SF_ON and not _AUX_SF_KEEP_COOLDOWN_ON
 
 
 def get_ns_coef_at_iter(iter_idx: int, total_iters: int, schedule: str) -> tuple[float, float, float]:
@@ -824,6 +845,10 @@ print0(f"  Effective Muon base LRs: attn={0.035*NANOGPT_MUON_ATTN_LR_MULT:.5f} m
 print0(f"EMBED_INIT_ANCHOR_LAMBDA: {NANOGPT_EMBED_INIT_ANCHOR_LAMBDA} "
        f"({'ACTIVE' if NANOGPT_EMBED_INIT_ANCHOR_LAMBDA > 0 else 'INACTIVE (bit-identical fallback)'})",
        console=True)
+print0(f"AUX_SCHEDULE_FREE: enabled={NANOGPT_AUX_SCHEDULE_FREE} beta_sf={NANOGPT_AUX_SF_BETA} "
+       f"keep_cooldown={NANOGPT_AUX_SF_KEEP_COOLDOWN} "
+       f"(aux LR override: {'PEAK_THROUGHOUT' if _AUX_SF_OVERRIDE_PEAK_LR else 'STANDARD_COOLDOWN'})",
+       console=True)
 if NS_ITERS_COOLDOWN > 0:
     print0(f"NS_SCHEDULE: ns_iters={NS_ITERS} -> ns_iters_cooldown={NS_ITERS_COOLDOWN} "
            f"at fraction {NS_COOLDOWN_START_FRAC} of train_steps "
@@ -896,6 +921,11 @@ if dist.get_rank() == 0:
             "nanogpt_ns_stochastic_cooldown": NANOGPT_NS_STOCHASTIC_COOLDOWN,
             "senpai_seed": NANOGPT_SENPAI_SEED if NANOGPT_SENPAI_SEED is not None else -1,
             "nanogpt_embed_init_anchor_lambda": NANOGPT_EMBED_INIT_ANCHOR_LAMBDA,
+            "nanogpt_aux_schedule_free": NANOGPT_AUX_SCHEDULE_FREE,
+            "nanogpt_aux_sf_beta": NANOGPT_AUX_SF_BETA,
+            "nanogpt_aux_sf_keep_cooldown": NANOGPT_AUX_SF_KEEP_COOLDOWN,
+            "nanogpt_aux_sf_active": int(_AUX_SF_ON),
+            "nanogpt_aux_sf_override_peak_lr": int(_AUX_SF_OVERRIDE_PEAK_LR),
         },
     )
 
@@ -965,6 +995,27 @@ for trial_idx in range(args.num_trials):
     optimizers = [optimizer1, optimizer2]
     assert set(p for opt in optimizers for group in opt.param_groups
                for p in group["params"]) == set(model.parameters())
+    # Schedule-Free state buffers + init snapshots for aux params (#1127). Kept
+    # in a separate dict (not optimizer1.state) so the presence of these buffers
+    # does NOT block AdamW's `len(state) == 0` lazy init of exp_avg/exp_avg_sq/step.
+    # When SF is off these dicts stay empty and the SF code paths are skipped.
+    sf_aux_params: list[torch.nn.Parameter] = []
+    sf_state: dict[torch.nn.Parameter, dict[str, Tensor]] = {}
+    aux_init_snapshots: dict[torch.nn.Parameter, Tensor] = {}
+    if _AUX_SF_ON:
+        for group in optimizer1.param_groups:
+            for p in group["params"]:
+                sf_aux_params.append(p)
+                aux_init_snapshots[p] = p.data.clone()
+                # y starts equal to p.data (= w_init); z starts equal to p.data —
+                # both equal at step 0 so the first forward sees exactly w_init.
+                sf_state[p] = {
+                    "sf_z": p.data.clone(),
+                    "sf_y": p.data.clone(),
+                }
+        print0(f"AUX_SCHEDULE_FREE_INIT: allocated z/y buffers for {len(sf_aux_params)} aux params "
+               f"(beta_sf={NANOGPT_AUX_SF_BETA}, keep_cooldown={NANOGPT_AUX_SF_KEEP_COOLDOWN})",
+               console=True)
     # Per-group grad-clip param lists (#708). Body = Muon-orthogonalized matrices;
     # aux = AdamW embed + lm_head + scalars. Reuses the same lists the optimizers
     # were constructed from so the split cannot drift.
@@ -1002,9 +1053,17 @@ for trial_idx in range(args.num_trials):
                 eta_embed = eta_default ** 2
             else:
                 raise ValueError(f"unknown shape: {NANOGPT_EMBED_COOLDOWN_SHAPE}")
+        # Schedule-Free aux LR override (#1127): when SF=on and KEEP_COOLDOWN=off,
+        # aux groups stay at peak LR throughout training — the LR schedule is
+        # *replaced* by online z↔y iterate averaging. Body Muon groups always
+        # follow the standard cosine-with-cooldown schedule regardless.
         for opt in optimizers:
             for group in opt.param_groups:
-                if group.get("name") == "adam_embed":
+                group_name = group.get("name", "")
+                is_aux = group_name in ("adam_embed", "adam_lm_head", "adam_scalars")
+                if is_aux and _AUX_SF_OVERRIDE_PEAK_LR:
+                    group["lr"] = group["initial_lr"]
+                elif group_name == "adam_embed":
                     group["lr"] = group["initial_lr"] * eta_embed
                 else:
                     group["lr"] = group["initial_lr"] * eta_default
@@ -1205,12 +1264,26 @@ for trial_idx in range(args.num_trials):
             if len(ns_iters_history) > 100:
                 del ns_iters_history[:-100]
             ns_cumulative_iters += ns_iters_this_step
+        # Schedule-Free pre-step swap (#1127). For each aux param, save the
+        # current y (= p.data) into state["sf_y"] and load z into p.data so the
+        # AdamW step acts on z (where the cosine/cooldown schedule is replaced
+        # by online iterate averaging). p.grad was computed at y by the just-
+        # completed forward+backward — that is what Defazio's ∇L(y_t) requires.
+        # When SF is off, sf_aux_params is empty and this block is a no-op.
+        if _AUX_SF_ON:
+            with torch.no_grad():
+                for p in sf_aux_params:
+                    s = sf_state[p]
+                    s["sf_y"].copy_(p.data)
+                    p.data.copy_(s["sf_z"])
         for opt in optimizers:
             opt.step()
         # Init-anchored WD on embed (#847, env-var-gated). After both optimizers
         # have stepped, apply `p -= lr_embed * lambda * (p - p_init)`. Order vs
         # optimizer2.step() does not matter because the hook only touches
         # model.embed.weight (an AdamW-managed AUX param, untouched by Muon).
+        # With SF on, p.data still holds z here, so the anchor pulls z toward
+        # init and the subsequent y interpolation averages that pull into y.
         if embed_init_snapshot is not None:
             with torch.no_grad():
                 for group in optimizer1.param_groups:
@@ -1221,6 +1294,19 @@ for trial_idx in range(args.num_trials):
                             alpha=lr_embed * NANOGPT_EMBED_INIT_ANCHOR_LAMBDA,
                         )
                         break
+        # Schedule-Free post-step swap (#1127). p.data now holds the new z (after
+        # AdamW + optional init-anchor on z). Capture new z into state["sf_z"],
+        # interpolate y_new = (1-β_sf)*y_old + β_sf*z_new, and set p.data = y so
+        # the next forward sees y. Bit-identical no-op when SF is off.
+        if _AUX_SF_ON:
+            with torch.no_grad():
+                for p in sf_aux_params:
+                    s = sf_state[p]
+                    s["sf_z"].copy_(p.data)
+                    s["sf_y"].mul_(1.0 - NANOGPT_AUX_SF_BETA).add_(
+                        s["sf_z"], alpha=NANOGPT_AUX_SF_BETA,
+                    )
+                    p.data.copy_(s["sf_y"])
         # Per-100-step embed AdamW step-direction norm ||m_hat / (sqrt(v_hat) + eps)||.
         # This is the *direction* (pre-LR) so it captures whether the schedule change
         # is modulating the bias-corrected Adam update magnitude on the embed group.
@@ -1274,6 +1360,44 @@ for trial_idx in range(args.num_trials):
                 step=train_step,
                 wandb_step=wandb_step,
             )
+        # Schedule-Free aux iterate-averaging diagnostics (#1127). Reveals whether
+        # SF is doing meaningful work: ||y|| and ||z|| should diverge over training
+        # (z extrapolates further than y), and z_overshoot = ||z-w0||/||y-w0||
+        # should grow above 1.0 if iterate averaging genuinely lags z's lead.
+        sf_diag_due = (train_step % 100 == 0 or train_step == train_steps)
+        if _AUX_SF_ON and dist.get_rank() == 0 and sf_diag_due:
+            with torch.no_grad():
+                sf_y_l2_sq = 0.0
+                sf_z_l2_sq = 0.0
+                sf_yz_dist_sq = 0.0
+                sf_y_init_dist_sq = 0.0
+                sf_z_init_dist_sq = 0.0
+                for p in sf_aux_params:
+                    s = sf_state[p]
+                    y = s["sf_y"].detach().float()
+                    z = s["sf_z"].detach().float()
+                    w0 = aux_init_snapshots[p].detach().float()
+                    sf_y_l2_sq += float(y.square().sum().item())
+                    sf_z_l2_sq += float(z.square().sum().item())
+                    sf_yz_dist_sq += float((y - z).square().sum().item())
+                    sf_y_init_dist_sq += float((y - w0).square().sum().item())
+                    sf_z_init_dist_sq += float((z - w0).square().sum().item())
+                sf_y_l2 = sf_y_l2_sq ** 0.5
+                sf_z_l2 = sf_z_l2_sq ** 0.5
+                sf_yz_distance = sf_yz_dist_sq ** 0.5
+                sf_y_dist = sf_y_init_dist_sq ** 0.5
+                sf_z_dist = sf_z_init_dist_sq ** 0.5
+                sf_z_overshoot = sf_z_dist / max(sf_y_dist, 1e-12)
+                wandb.log({
+                    "trial": trial_idx,
+                    "train/step": train_step,
+                    "train/sf_y_l2": sf_y_l2,
+                    "train/sf_z_l2": sf_z_l2,
+                    "train/sf_yz_distance": sf_yz_distance,
+                    "train/sf_y_dist_from_init": sf_y_dist,
+                    "train/sf_z_dist_from_init": sf_z_dist,
+                    "train/sf_z_overshoot": sf_z_overshoot,
+                }, step=wandb_step)
         if dist.get_rank() == 0 and telemetry_due:
             ns_metrics = {
                 "trial": trial_idx,
