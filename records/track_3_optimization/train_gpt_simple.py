@@ -64,6 +64,14 @@ def parse_args():
     parser.add_argument("--muon_lr", type=float, default=0.035,
                         help="Base learning rate for body-Muon optimizer (matrix params in blocks). "
                              "Default 0.035 matches the merged baseline.")
+    parser.add_argument("--muon_gamma_L", type=float, default=None,
+                        help="Asymmetric whitening exponent for L_cov side. "
+                             "If None, falls back to PMUON_GAMMA (symmetric baseline). "
+                             "Lower -> less L-whitening (preserve L direction).")
+    parser.add_argument("--muon_gamma_R", type=float, default=None,
+                        help="Asymmetric whitening exponent for R_cov side. "
+                             "If None, falls back to PMUON_GAMMA (symmetric baseline). "
+                             "Lower -> less R-whitening.")
     args = parser.parse_args()
     args.num_trials = args.num_trials if args.num_trials is not None else (args.legacy_num_trials or 1)
     args.wandb_tags = [tag.strip() for tag in args.wandb_tags.split(",") if tag.strip()]
@@ -494,6 +502,8 @@ def pmuon_update(
     mu: float = 0.95,
     beta_cov: float = 0.95,
     gamma: float = PMUON_GAMMA,
+    gamma_L: float | None = None,
+    gamma_R: float | None = None,
     eps: float = 1e-12,
     nesterov: bool = True,
     ns_a: float = NS_A,
@@ -501,6 +511,9 @@ def pmuon_update(
     ns_c: float = NS_C,
     polar_diag: dict | None = None,
 ) -> Tensor:
+    gL = gamma_L if gamma_L is not None else gamma
+    gR = gamma_R if gamma_R is not None else gamma
+
     # Streaming raw (unnormalized) bilateral covariance EMAs in fp32.
     g32 = grad.detach().float()
     L_cov.mul_(beta_cov).add_(g32 @ g32.T)
@@ -509,9 +522,31 @@ def pmuon_update(
     momentum.lerp_(grad, 1 - mu)
     update = grad.lerp_(momentum, mu) if nesterov else momentum
 
-    L_neg = matrix_neg_power(L_cov, gamma, eps)
-    R_neg = matrix_neg_power(R_cov, gamma, eps)
+    L_neg = matrix_neg_power(L_cov, gL, eps)
+    R_neg = matrix_neg_power(R_cov, gR, eps)
     m_pre = (L_neg @ update.float()) @ R_neg
+
+    # Estimate stable rank of m_pre (input to NS5) via 3 power iterations.
+    # stable_rank = ||m_pre||_F^2 / sigma_max^2. Cost: O(d^2) once per step.
+    if polar_diag is not None and "input_stable_rank_est" not in polar_diag:
+        with torch.no_grad():
+            Mf = m_pre.detach()
+            fro_sq = float(Mf.square().sum().item())
+            # Power iteration on Mf: after `v = Mf.T @ u` step, ||v|| converges to sigma_max.
+            v = torch.randn(Mf.shape[-1], device=Mf.device, dtype=Mf.dtype)
+            v = v / (v.norm() + 1e-12)
+            sigma_max = torch.tensor(0.0, device=Mf.device, dtype=Mf.dtype)
+            for _ in range(3):
+                u = Mf @ v
+                u = u / (u.norm() + 1e-12)
+                v = Mf.T @ u
+                sigma_max = v.norm()
+                v = v / (sigma_max + 1e-12)
+            sigma_max_val = float(sigma_max.item())
+            sigma_max_sq = sigma_max_val * sigma_max_val
+            polar_diag["input_stable_rank_est"] = fro_sq / max(sigma_max_sq, 1e-12)
+            polar_diag["input_fro_sq"] = fro_sq
+            polar_diag["input_sigma_max"] = sigma_max_val
 
     polar = zeropower_via_newtonschulz5(m_pre.to(update.dtype), a=ns_a, b=ns_b, c=ns_c)
     # Sample ortho residual ||X X^T - I||_F on the polar output (before spectral scaling).
@@ -535,10 +570,12 @@ def pmuon_update(
 
 class Muon(torch.optim.Optimizer):
     def __init__(self, params, lr=0.02, weight_decay=0, mu=0.95, beta_cov=0.95, gamma=PMUON_GAMMA,
+                 gamma_L=None, gamma_R=None,
                  ns_a=NS_A, ns_b=NS_B, ns_c=NS_C):
         assert isinstance(params, list) and len(params) >= 1 and isinstance(params[0], torch.nn.Parameter)
         params = sorted(params, key=lambda x: x.size(), reverse=True)
         defaults = dict(lr=lr, weight_decay=weight_decay, mu=mu, beta_cov=beta_cov, gamma=gamma,
+                        gamma_L=gamma_L, gamma_R=gamma_R,
                         ns_a=ns_a, ns_b=ns_b, ns_c=ns_c)
         super().__init__(params, defaults)
 
@@ -570,6 +607,8 @@ class Muon(torch.optim.Optimizer):
                         mu=group["mu"],
                         beta_cov=group["beta_cov"],
                         gamma=group["gamma"],
+                        gamma_L=group.get("gamma_L"),
+                        gamma_R=group.get("gamma_R"),
                         ns_a=group["ns_a"],
                         ns_b=group["ns_b"],
                         ns_c=group["ns_c"],
@@ -707,6 +746,9 @@ if dist.get_rank() == 0:
             "pmuon_beta_cov": 0.95,
             "pmuon_gamma": PMUON_GAMMA,
             "pmuon_gamma_power": PMUON_GAMMA,
+            "pmuon_gamma_L": (args.muon_gamma_L if args.muon_gamma_L is not None else PMUON_GAMMA),
+            "pmuon_gamma_R": (args.muon_gamma_R if args.muon_gamma_R is not None else PMUON_GAMMA),
+            "pmuon_gamma_asymmetric": int(args.muon_gamma_L is not None or args.muon_gamma_R is not None),
             "ns_iterations": NS_ITERS,
             "ns_coef_a": NS_A,
             "ns_coef_b": NS_B,
@@ -756,9 +798,13 @@ for trial_idx in range(args.num_trials):
                         dict(params=[p for p in model.parameters() if p.ndim < 2], lr=0.025, name="adam_scalars")],
                        betas=(0.8, 0.95), eps=1e-10, weight_decay=0, fused=True)
     optimizer2 = Muon([p for p in model.blocks.parameters() if p.ndim >= 2],
-                      lr=args.muon_lr, weight_decay=0.025, beta_cov=0.95, gamma=PMUON_GAMMA)
+                      lr=args.muon_lr, weight_decay=0.025, beta_cov=0.95, gamma=PMUON_GAMMA,
+                      gamma_L=args.muon_gamma_L, gamma_R=args.muon_gamma_R)
     optimizer2.param_groups[0]["name"] = "muon_blocks"
-    print0(f"body-Muon optimizer: lr={args.muon_lr} weight_decay=0.025 beta_cov=0.95 gamma={PMUON_GAMMA}")
+    _gL_eff = args.muon_gamma_L if args.muon_gamma_L is not None else PMUON_GAMMA
+    _gR_eff = args.muon_gamma_R if args.muon_gamma_R is not None else PMUON_GAMMA
+    print0(f"body-Muon optimizer: lr={args.muon_lr} weight_decay=0.025 beta_cov=0.95 "
+           f"gamma={PMUON_GAMMA} gamma_L_eff={_gL_eff} gamma_R_eff={_gR_eff}")
     optimizers = [optimizer1, optimizer2]
     assert set(p for opt in optimizers for group in opt.param_groups
                for p in group["params"]) == set(model.parameters())
@@ -1020,7 +1066,7 @@ for trial_idx in range(args.num_trials):
                 }, step=wandb_step)
             polar_diag = getattr(optimizer2, "_polar_diag", None)
             if polar_diag and "residual" in polar_diag:
-                wandb.log({
+                _polar_log = {
                     "trial": trial_idx,
                     "train/step": train_step,
                     "polar/ortho_residual_sample": polar_diag["residual"],
@@ -1029,7 +1075,14 @@ for trial_idx in range(args.num_trials):
                     "polar/ns_coef_a": NS_A,
                     "polar/ns_coef_b": NS_B,
                     "polar/ns_coef_c": NS_C,
-                }, step=wandb_step)
+                    "muon/gamma_L_effective": (args.muon_gamma_L if args.muon_gamma_L is not None else PMUON_GAMMA),
+                    "muon/gamma_R_effective": (args.muon_gamma_R if args.muon_gamma_R is not None else PMUON_GAMMA),
+                }
+                if "input_stable_rank_est" in polar_diag:
+                    _polar_log["polar/input_stable_rank_est"] = polar_diag["input_stable_rank_est"]
+                    _polar_log["polar/input_fro_sq"] = polar_diag.get("input_fro_sq", 0.0)
+                    _polar_log["polar/input_sigma_max"] = polar_diag.get("input_sigma_max", 0.0)
+                wandb.log(_polar_log, step=wandb_step)
             wandb.log({
                 "trial": trial_idx,
                 "train/step": train_step,
