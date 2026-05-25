@@ -468,6 +468,10 @@ NS5_ITERS = int(os.environ.get("NS5_ITERS", "12"))
 WD_AUX = float(os.environ.get("WD_AUX", "0.0"))  # AdamW WD on embed + lm_head matrices (scalars stay at 0)
 EMBED_INIT_STD = float(os.environ.get("EMBED_INIT_STD", "1.0"))  # default preserves baseline N(0,1)
 LOGIT_SOFTCAP = float(os.environ.get("LOGIT_SOFTCAP", "15.0"))  # default = 15 (current hardcoded value); soft-cap value c in f(x) = c·x / sqrt(x^2+c^2)
+# PR #1101: Frobenius-norm normalization of body gradient pre-momentum-lerp.
+# Blend coefficient α in [0, 1]: g = α * (g/‖g‖_F) + (1 - α) * g.
+# Default 0.0 fully reproduces baseline (no-op).
+MUON_BODY_GRAD_NORMALIZE_BY_FROBENIUS = float(os.environ.get("MUON_BODY_GRAD_NORMALIZE_BY_FROBENIUS", "0.0"))
 
 
 def zeropower_via_newtonschulz5(G: Tensor) -> Tensor:
@@ -655,11 +659,16 @@ class Muon(torch.optim.Optimizer):
         params = sorted([p for _, p in named_params], key=lambda x: x.size(), reverse=True)
         defaults = dict(lr=lr, weight_decay=weight_decay, mu=mu)
         super().__init__(params, defaults)
+        # PR #1101 telemetry: per-step list of pre-normalization Frobenius norms across body tensors.
+        self._last_grad_fnorms: list[float] = []
 
     @torch.no_grad()
     def step(self):
         world_size = dist.get_world_size()
         rank = dist.get_rank()
+        # Reset per-step Frobenius-norm telemetry; populated only when the
+        # PR #1101 Frobenius-normalize path is active.
+        self._last_grad_fnorms = []
         for group in self.param_groups:
             params = group["params"]
             params_pad = params + [torch.empty_like(params[-1])] * (world_size - len(params) % world_size)
@@ -692,6 +701,15 @@ class Muon(torch.optim.Optimizer):
                                 state["trust_cos_row"] = 1.0
                                 state["trust_cos_col"] = 1.0
                     grad = p.grad
+                    # PR #1101: Optionally Frobenius-normalize the gradient before the momentum lerp.
+                    # g = α · (g/‖g‖_F) + (1 - α) · g. Direction-preserving (scalar tensor-level scaling
+                    # leaves SVD basis intact). Blend coefficient 0.0 is no-op.
+                    if MUON_BODY_GRAD_NORMALIZE_BY_FROBENIUS > 0.0:
+                        g_fnorm = grad.norm(p='fro').clamp_min(1e-12)
+                        self._last_grad_fnorms.append(float(g_fnorm.item()))
+                        g_normalized = grad / g_fnorm
+                        grad = (MUON_BODY_GRAD_NORMALIZE_BY_FROBENIUS * g_normalized
+                                + (1.0 - MUON_BODY_GRAD_NORMALIZE_BY_FROBENIUS) * grad)
                     state["momentum"].lerp_(grad, 1 - group["mu"])
                     momentum_update = grad.lerp(state["momentum"], group["mu"])
                     use_soap = p in self.soap_params
@@ -775,6 +793,27 @@ class Muon(torch.optim.Optimizer):
             out[f"{kind}/mean_cos_row"] = sum(crs) / kn
             out[f"{kind}/mean_cos_col"] = sum(ccs) / kn
         return out
+
+    def frobenius_stats(self) -> dict[str, float]:
+        """PR #1101 telemetry: pre-normalization Frobenius-norm aggregates across body tensors.
+
+        Returns mean/std/max/min of ‖g‖_F over the body tensors visited during
+        the most recent step. Empty when the Frobenius-normalize path is
+        disabled or no params were visited this step.
+        """
+        norms = self._last_grad_fnorms
+        n = len(norms)
+        if n == 0:
+            return {}
+        mean = sum(norms) / n
+        var = sum((x - mean) ** 2 for x in norms) / n
+        return {
+            "count": n,
+            "mean": mean,
+            "std": var ** 0.5,
+            "max": max(norms),
+            "min": min(norms),
+        }
 
 
 ########################################
@@ -866,6 +905,7 @@ if dist.get_rank() == 0:
             "optimizer/attn_soap_trust_threshold": ATTN_SOAP_TRUST_THRESHOLD,
             "optimizer/ns5_iters": NS5_ITERS,
             "optimizer/wd_aux": WD_AUX,
+            "optimizer/muon_body_grad_normalize_by_frobenius": MUON_BODY_GRAD_NORMALIZE_BY_FROBENIUS,
             "optimizer/recipe": "contra-muon + normuon-lite + soap-on-mlp + soap-on-attn-trust-gate (pre-NS5, record #14 + record #16)",
         },
     )
@@ -1059,6 +1099,10 @@ for trial_idx in range(args.num_trials):
                     stats = opt.trust_gate_stats()
                     if stats:
                         wandb.log(prefixed("train/attn_soap_trust_gate", stats), step=wandb_step)
+                if hasattr(opt, "frobenius_stats"):
+                    fstats = opt.frobenius_stats()
+                    if fstats:
+                        wandb.log(prefixed("optim/grad_fnorm", fstats), step=wandb_step)
         if dist.get_rank() == 0 and telemetry_due:
             log_weight_telemetry(
                 model=model,
