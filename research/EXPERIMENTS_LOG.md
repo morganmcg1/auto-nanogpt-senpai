@@ -3,6 +3,38 @@
 This file logs experiment outcomes as PRs land. The historical track 3
 leaderboard is captured in `/BASELINE.md`.
 
+## 2026-05-25 12:30 UTC — PR #1132: Shampoo body Muon Kronecker 2nd-order preconditioner (alphonse) — CLOSED productive-NEG/CATASTROPHIC; NS5-REPLACING axis catastrophic cluster strengthens to 3-closure fence; **18th consecutive no-merge closure since #847**
+
+- Branch: `g1r4-alphonse/shampoo-body`
+- Hypothesis: Replace NS5 polar decomposition with Shampoo Kronecker-factored curvature-aware preconditioner `L^{-1/4} G R^{-1/4}`. Direct test of whether NS5's orthogonality constraint is the right body-side preconditioner or whether second-order curvature awareness beats it.
+
+| Arm | run_id | LR_scale | val/loss | Δ_vs_A | Δ_vs_baseline | fs | classification |
+|:---:|---|:---:|:---:|:---:|:---:|:---:|:---:|
+| A ctrl Muon | `mfmsa1k9` | — | **3.26898** | — | +0.00142 drift **PASS** | 3200 | clean ctrl |
+| B Shampoo lr05 stab | `ce8ws5g2` | 0.5 | **3.39996** | **+0.13098** | +0.13240 | **−1** | **PRODUCTIVE-NEG (26× threshold)** |
+| C Shampoo lr10 stab | `lts8fz5t` | 1.0 | **3.39900** | **+0.13002** | +0.13144 | **−1** | **PRODUCTIVE-NEG (26× threshold)** |
+| D Shampoo period=50 | not launched | 0.5 | — | — | — | — | aborted per advisor (B≈C within 0.001) |
+
+**Arm B/C convergence**: both stabilized Shampoo arms land within 0.001 nat of each other despite 2× LR-scale difference under Frobenius graft → direction is the bottleneck, not magnitude.
+
+**Three-bug stabilization story (student's investigation):**
+1. Zero-init of L, R Gram matrices → after step 1, EMA gives single rank-1 matrix with d-1 zero eigenvalues → literal 0.0 eigenvalue in float32 eigendecomp → `(0+1e-12)^(-0.25) = 10^3` magnitude explosion. Fix: init L=R=eps·I.
+2. eps=1e-12 is float64-scale (BF16/float32 noise floor ~1e-4) → same near-zero amplification without zero-init. Fix: eps=1e-6 ridge + relative ridge `max(eig, 1e-6 * trace(L) / d_out)`.
+3. No magnitude grafting → Shampoo update RMS diverges from NS5 reference ~0.036. Fix: Frobenius graft `update = update * sqrt(d_out) / ||update||_F`.
+
+**Trajectory pattern**: gap partially closes during stable phase (peak +0.45 at step 250 → +0.118 at step 2500) then reopens in cooldown (+0.131 at step 3350). **Cooldown signature**: NS5 polar-decomp direction has lower cooldown gradient-energy waste than Shampoo's `L^{-1/4} G R^{-1/4}` even at matched magnitude. The reopening during cooldown (steps 2500-3350) is mechanism-informative: NS5's spectral bounds compose better with the late_peak cooldown schedule.
+
+**Mechanism conclusion**: Shampoo's curvature-aware `L^{-1/4} G R^{-1/4}` direction is **structurally inferior to NS5 polar decomp direction** on this merged stack. Not an LR-calibration problem (Frobenius graft eliminates LR confound); genuine direction mismatch.
+
+**NS5-REPLACING catastrophic cluster now 3 closures**:
+- #1120 GaLore lm_head: divergence/CATASTROPHIC
+- #1127 SF body Arms B/C: CATASTROPHIC Δ=+0.021
+- **#1132 Shampoo body Arms B/C: PRODUCTIVE-NEG Δ=+0.131**
+
+**Mapping signal**: NS5 polar-decomp inductive bias is STRUCTURALLY REQUIRED for body-side updates on this merged stack. Alternative direction operators systematically lose regardless of LR calibration or numerical stabilization. The ONLY positive body signal comes from Newton-Muon (#1138) which PRESERVES NS5 and modifies the INPUT to it via `G·(X^TX)^{-1/2}`.
+
+**alphonse reassigned #1172 Muon++ μP spectral control** (Zhao arXiv:2601.01306): NS5-PRESERVING POST-NS5 UPDATE-MAGNITUDE-MODIFYING via `√(d_out/d_in)` per-layer shape scaling. Complementary to Newton-Muon (input-side) — applies to output stage of NS5 pipeline.
+
 ## 2026-05-25 12:00 UTC — PR #1122: Body Muon AggMo K-bank multi-β (thorfinn) — CLOSED productive-NEG; MULTI-BUFFER-BODY-MUON-MOMENTUM axis FENCED 1-closure; Nesterov-loss + mean-dilution interaction identified as load-bearing; **17th consecutive no-merge closure since #847**
 
 - Branch: `g1r4-thorfinn/body-muon-aggmo`
