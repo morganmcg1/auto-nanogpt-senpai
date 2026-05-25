@@ -95,6 +95,13 @@ def parse_args():
                         help="Starting value of µ schedule (used by linear and cooldown_ramp modes).")
     parser.add_argument("--muonh_mu_end", type=float, default=float(os.environ.get("MUONH_MU_END", "0.98")),
                         help="Ending value of µ schedule (used by linear and cooldown_ramp modes).")
+    # LM head (model.proj.weight) init std. Default 0.0 preserves the hardcoded zero
+    # init (bit-id baseline). >0 replaces zero init with normal_(std=X) so AdamW starts
+    # from a non-degenerate trajectory rather than growing from a zero attractor.
+    parser.add_argument("--lm_head_init_std", type=float,
+                        default=float(os.environ.get("LM_HEAD_INIT_STD", "0.0")),
+                        help="Initialization std for proj.weight (LM head). Default 0.0 keeps the current hardcoded "
+                             "zero init (bit-id baseline). >0 replaces zero init with normal_(std=X).")
     args = parser.parse_args()
     args.num_trials = args.num_trials if args.num_trials is not None else (args.legacy_num_trials or 1)
     args.wandb_tags = [tag.strip() for tag in args.wandb_tags.split(",") if tag.strip()]
@@ -817,7 +824,10 @@ for trial_idx in range(args.num_trials):
         w = p.data
         if name.endswith("weight"):
             if name == "proj.weight":
-                w.zero_()  # LM head: keep zero like starter
+                if args.lm_head_init_std > 0.0:
+                    w.normal_(std=args.lm_head_init_std)
+                else:
+                    w.zero_()  # LM head: bit-id default
             elif name == "embed.weight":
                 w.normal_()  # token embedding: default torch init
             elif "attn.proj" in name:
@@ -836,6 +846,8 @@ for trial_idx in range(args.num_trials):
             w.normal_(mean=1, std=0)
         else:
             raise Exception(f"Uninitialized parameter: {name}")
+
+    print0(f"lm_head_init_std={args.lm_head_init_std} model.proj.weight.norm()={model.proj.weight.detach().float().norm().item():.4f}", console=True)
 
     # create the optimizer(s)
     # MuonH replaces plain Muon on the hidden 2D weights: hard hyperball projection
