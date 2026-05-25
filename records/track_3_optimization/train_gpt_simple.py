@@ -95,6 +95,11 @@ def parse_args():
                         help="Starting value of µ schedule (used by linear and cooldown_ramp modes).")
     parser.add_argument("--muonh_mu_end", type=float, default=float(os.environ.get("MUONH_MU_END", "0.98")),
                         help="Ending value of µ schedule (used by linear and cooldown_ramp modes).")
+    parser.add_argument("--muonh_ns5_freq", type=int, default=int(os.environ.get("MUONH_NS5_FREQ", "1")),
+                        help="Apply NS5 orthogonalization every N steps. Default=1 (every step, bit-id baseline). "
+                             "N=2 applies NS5 every 2nd step; intermediate steps use plain Nesterov-mixed gradient "
+                             "(NO NS5 orthogonalization) magnitude-bound by dividing by L2 norm. Tests whether "
+                             "NS5 every-step is compute-optimal vs spectrum drifting fast enough to require it.")
     args = parser.parse_args()
     args.num_trials = args.num_trials if args.num_trials is not None else (args.legacy_num_trials or 1)
     args.wandb_tags = [tag.strip() for tag in args.wandb_tags.split(",") if tag.strip()]
@@ -510,10 +515,19 @@ def zeropower_via_newtonschulz5(G: Tensor) -> Tensor:
     return X
 
 @torch.compile
-def muon_update(grad, momentum, mu=0.95, nesterov=True):
+def muon_update(grad, momentum, mu=0.95, nesterov=True, apply_ns5=True):
     momentum.lerp_(grad, 1 - mu)
     update = grad.lerp_(momentum, mu) if nesterov else momentum
-    update = zeropower_via_newtonschulz5(update)
+    if apply_ns5:
+        update = zeropower_via_newtonschulz5(update)
+    else:
+        # Sparse-NS5 (H145): skip orthogonalization, magnitude-bound the update
+        # to roughly match NS5's output magnitude. NS5 output has spectral_norm≈1
+        # for square slices; the post-NS5 multiplier max(1, m/n)**0.5 below
+        # further scales tall matrices. The bare Nesterov-mixed gradient can
+        # have arbitrary Frobenius norm, so divide by Frobenius norm so the
+        # baseline scaling stays comparable to the NS5 path.
+        update = update / (update.norm() + 1e-7)
     update *= max(1, grad.size(-2) / grad.size(-1))**0.5
     return update
 
@@ -615,16 +629,21 @@ class MuonH(torch.optim.Optimizer):
     norm exactly constant; weight_decay must be 0.
     """
     def __init__(self, params, lr=0.018, weight_decay=0.0, mu=0.95,
-                 hyperball=True, budget_mult=1.0, mode="clip"):
+                 hyperball=True, budget_mult=1.0, mode="clip", ns5_freq=1):
         assert isinstance(params, list) and len(params) >= 1 and isinstance(params[0], torch.nn.Parameter)
         assert mode in ("clip", "scale_invariant")
+        assert ns5_freq >= 1
         params = sorted(params, key=lambda x: x.size(), reverse=True)
         defaults = dict(lr=lr, weight_decay=weight_decay, mu=mu,
-                        hyperball=hyperball, budget_mult=budget_mult, mode=mode)
+                        hyperball=hyperball, budget_mult=budget_mult, mode=mode,
+                        ns5_freq=ns5_freq)
         super().__init__(params, defaults)
         self._last_active_fraction = 0.0
         self._last_radius_to_norm_max = 0.0
         self._last_norm_to_radius_max = 0.0
+        self._last_ns5_active_fraction = 0.0
+        self._ns5_fire_count_cum = 0
+        self._ns5_total_count_cum = 0
 
     @torch.no_grad()
     def step(self):
@@ -634,21 +653,33 @@ class MuonH(torch.optim.Optimizer):
         total_count_local = 0
         max_r_over_n_local = 0.0
         max_n_over_r_local = 0.0
+        ns5_fire_count_local = 0
+        ns5_total_count_local = 0
         for group in self.param_groups:
             params = group["params"]
             params_pad = params + [torch.empty_like(params[-1])] * (world_size - len(params) % world_size)
             hb = group["hyperball"]
             budget_mult = group["budget_mult"]
             mode = group["mode"]
+            ns5_freq = group["ns5_freq"]
             for base_i in range(0, len(params), world_size):
                 if base_i + rank < len(params):
                     p = params[base_i + rank]
                     state = self.state[p]
                     if len(state) == 0:
                         state["momentum"] = torch.zeros_like(p)
+                        state["step"] = 0
                         if hb:
                             state["hyperball_radius"] = p.data.norm().item() * budget_mult
-                    update = muon_update(p.grad, state["momentum"], mu=group["mu"])
+                    state["step"] += 1
+                    # NS5 fires every ns5_freq steps. K=1: fires every step
+                    # (1%1=0). K=2: fires on even steps. K=4: fires on multiples
+                    # of 4. PR #1149 / H145.
+                    apply_ns5 = (state["step"] % ns5_freq) == 0
+                    ns5_total_count_local += 1
+                    if apply_ns5:
+                        ns5_fire_count_local += 1
+                    update = muon_update(p.grad, state["momentum"], mu=group["mu"], apply_ns5=apply_ns5)
                     if hb and mode == "scale_invariant":
                         # Always-active variant: norm is held at initial value by construction.
                         scale_invariant_update_(p.data, update, group["lr"])
@@ -673,7 +704,8 @@ class MuonH(torch.optim.Optimizer):
                                 clip_count_local += 1
                 dist.all_gather(params_pad[base_i:base_i + world_size], params_pad[base_i + rank])
         if world_size > 1:
-            counts = torch.tensor([clip_count_local, total_count_local],
+            counts = torch.tensor([clip_count_local, total_count_local,
+                                   ns5_fire_count_local, ns5_total_count_local],
                                   device="cuda", dtype=torch.float64)
             dist.all_reduce(counts, op=dist.ReduceOp.SUM)
             ratios = torch.tensor([max_r_over_n_local, max_n_over_r_local],
@@ -681,16 +713,29 @@ class MuonH(torch.optim.Optimizer):
             dist.all_reduce(ratios, op=dist.ReduceOp.MAX)
             clip_count = float(counts[0].item())
             total_count = float(counts[1].item())
+            ns5_fire_count = float(counts[2].item())
+            ns5_total_count = float(counts[3].item())
             max_r_over_n = float(ratios[0].item())
             max_n_over_r = float(ratios[1].item())
         else:
             clip_count = float(clip_count_local)
             total_count = float(total_count_local)
+            ns5_fire_count = float(ns5_fire_count_local)
+            ns5_total_count = float(ns5_total_count_local)
             max_r_over_n = max_r_over_n_local
             max_n_over_r = max_n_over_r_local
         self._last_active_fraction = clip_count / total_count if total_count > 0 else 0.0
         self._last_radius_to_norm_max = max_r_over_n
         self._last_norm_to_radius_max = max_n_over_r
+        # ns5_active_fraction: cumulative across all steps so far. For K=1, stays
+        # at 1.0; for K=2, converges to 0.5; for K=4, converges to 0.25. This is
+        # the sanity-check metric the PR asks for ("~0.25 in steady state").
+        self._ns5_fire_count_cum += int(ns5_fire_count)
+        self._ns5_total_count_cum += int(ns5_total_count)
+        self._last_ns5_active_fraction = (
+            self._ns5_fire_count_cum / self._ns5_total_count_cum
+            if self._ns5_total_count_cum > 0 else 0.0
+        )
 
 
 ########################################
@@ -796,6 +841,7 @@ if dist.get_rank() == 0:
             "muonh_mu_schedule": args.muonh_mu_schedule,
             "muonh_mu_start": args.muonh_mu_start,
             "muonh_mu_end": args.muonh_mu_end,
+            "muonh_ns5_freq": args.muonh_ns5_freq,
         },
     )
 
@@ -853,7 +899,8 @@ for trial_idx in range(args.num_trials):
     optimizer2 = MuonH([p for p in model.blocks.parameters() if p.ndim >= 2],
                        lr=args.muonh_lr, weight_decay=0.0, mu=0.95,
                        hyperball=True, budget_mult=args.muonh_budget_mult,
-                       mode=args.muonh_mode)
+                       mode=args.muonh_mode,
+                       ns5_freq=args.muonh_ns5_freq)
     optimizer2.param_groups[0]["name"] = "muonh_blocks"
     optimizers = [optimizer1, optimizer2]
     # AGC targets: AdamW aux groups (embed, lm_head, scalars). Built from optimizer1
@@ -1089,6 +1136,65 @@ for trial_idx in range(args.num_trials):
         muonh_agc_stats = adaptive_gradient_clip(
             muonh_params_for_agc, args.muonh_agc_clip_ratio, eps=args.muonh_agc_eps,
         )
+        # H145 per-iter SV probe at step 501 on blocks.0.mlp.fc.weight (H129 /
+        # H132 / H137 side-channel pattern). Hypothetically runs NS5 on the
+        # current Nesterov-mixed gradient (without mutating optimizer state) and
+        # logs sv_min/med/max at iters 0, 4, 8, 12. For sparse-NS5 arms, this
+        # probes the drift the next NS5 firing must recover from — wider sv
+        # spread at iter 0 ⇒ more drift accumulated between firings.
+        if dist.get_rank() == 0 and train_step == 501:
+            sv_param = None
+            for name, p in model.named_parameters():
+                if name == "blocks.0.mlp.fc.weight" and p.grad is not None:
+                    sv_param = p
+                    break
+            if sv_param is not None:
+                mu_now = optimizer2.param_groups[0]["mu"]
+                ns5_freq_now = optimizer2.param_groups[0]["ns5_freq"]
+                mom_state = optimizer2.state.get(sv_param, {})
+                mom_buf = mom_state.get("momentum")
+                step_so_far = int(mom_state.get("step", 0))
+                # +1 because state["step"] is incremented inside MuonH.step,
+                # which runs AFTER this probe — predict what the next opt.step
+                # call will see.
+                next_step = step_so_far + 1
+                would_fire = (next_step % ns5_freq_now) == 0
+                if mom_buf is None:
+                    mom_clone = torch.zeros_like(sv_param.grad)
+                else:
+                    mom_clone = mom_buf.clone()
+                grad_clone = sv_param.grad.clone()
+                mom_clone.lerp_(grad_clone, 1 - mu_now)
+                update_clone = grad_clone.lerp_(mom_clone, mu_now)
+                with torch.no_grad():
+                    G = update_clone
+                    X_iter = G.bfloat16()
+                    transposed = G.size(-2) > G.size(-1)
+                    if transposed:
+                        X_iter = X_iter.mT
+                    X_iter = X_iter / (X_iter.norm(dim=(-2, -1), keepdim=True) + 1e-7)
+                    a, b, c = 2, -1.5, 0.5
+                    probe_iters = {0, 4, 8, 12}
+                    per_iter_log = {
+                        "trial": trial_idx,
+                        "train/step": train_step,
+                        "muonh/per_iter/ns5_freq": float(ns5_freq_now),
+                        "muonh/per_iter/would_fire_next_step": float(would_fire),
+                        "muonh/per_iter/state_step": float(step_so_far),
+                    }
+                    for k in range(13):
+                        if k in probe_iters:
+                            X_eval = X_iter.mT if transposed else X_iter
+                            svs_k = torch.linalg.svdvals(X_eval.float())
+                            per_iter_log[f"muonh/per_iter/sv_min/iter_{k}"] = float(svs_k.min().item())
+                            per_iter_log[f"muonh/per_iter/sv_med/iter_{k}"] = float(svs_k.median().item())
+                            per_iter_log[f"muonh/per_iter/sv_max/iter_{k}"] = float(svs_k.max().item())
+                        if k == 12:
+                            break
+                        A_mat = X_iter @ X_iter.mT
+                        B_mat = b * A_mat + c * A_mat @ A_mat
+                        X_iter = a * X_iter + B_mat @ X_iter
+                    wandb.log(per_iter_log, step=wandb_step)
         for opt in optimizers:
             opt.step()
         # Log warmup telemetry every 10 steps during warmup (and at telemetry events
@@ -1109,6 +1215,8 @@ for trial_idx in range(args.num_trials):
                         muonh_metrics["train/muonh/active_fraction"] = opt._last_active_fraction
                         muonh_metrics["train/muonh/radius_to_norm_max"] = opt._last_radius_to_norm_max
                         muonh_metrics["train/muonh/norm_to_radius_max"] = opt._last_norm_to_radius_max
+                        muonh_metrics["train/muonh/ns5_active_fraction"] = opt._last_ns5_active_fraction
+                        muonh_metrics["train/muonh/ns5_freq"] = float(opt.param_groups[0]["ns5_freq"])
                     muonh_metrics["train/muonh/warmup_factor"] = muonh_warmup_factor
                     muonh_metrics["train/muonh/effective_lr"] = opt.param_groups[0]["lr"]
             if telemetry_due and args.aux_agc_clip_ratio > 0 and agc_stats["agc_total"] > 0:
