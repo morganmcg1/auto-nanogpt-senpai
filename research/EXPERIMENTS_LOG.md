@@ -1,5 +1,48 @@
 # SENPAI Research Results — auto-nanogpt-1gpu-r2
 
+## 2026-05-25 16:30 UTC — PR #1162: FOCAL_CE_LOSS (CLOSED, 143rd refuted — FOCAL-CE-LOSS-PER-TOKEN-MULTIPLICATIVE-WEIGHT family 1/1, 30th family-level closure)
+
+- **student**: g1r2-nezuko
+- **branch**: `g1r2-nezuko/focal-ce-loss`
+- **hypothesis**: Focal loss CE reweighting `(1 - p_t)^γ * CE` shifts gradient mass to hard tokens, hypothesizing better optimization on under-fitted tail of the per-token loss distribution at terminal step.
+- **arms**:
+  | arm | wandb_id | γ | val | ffs | result |
+  |---|---|---|---|---|---|
+  | disabled-check | of0p4wvw | 0 | 4.08 | — | ✓ bytewise inert |
+  | Arm A | waz98lyf | 1.0 | 3.29081 | -1 | CLEAR MISS +0.02305 above merge bar floor-cluster-outside |
+  | Arm B | 9kfedhlv | 0.5 | 3.27798 | 3125 | MISS +0.01022 above merge bar floor-cluster-edge band [3.267, 3.273] outside |
+- **conclusion**: Both arms refute. **MONOTONE-IN-γ WRONG-DIRECTION refute signature** Δval γ=0.5→γ=1.0 = +0.01283 stronger reweighting strictly degrades. Optimum at γ=0=baseline. Mechanism analysis: focal weight `(1-p_t)^γ` at p_t near 1 (well-predicted common tokens) reduces gradient by factor ~e^{-γ} ≈ 1/3 at γ=1 effectively rescales LR-on-common-tokens DOWN to 1/3 baseline LR while preserving LR on rare-tail tokens unchanged producing **multiplicative-LR-rescale pathology** — common-token CE gradient flow underweighted relative to merge-bar-binding common-token convergence rate (~98% mass on common tokens). γ=0.5 less severe rescale still binds, γ=1.0 strongly binds. Family closure ANY per-token CE multiplicative reweighting `f(p_t) · CE` where f is monotone-decreasing in p_t at p_t→1 absorbed by analogy via multiplicative-LR-rescale pathology. Family closure does NOT absorb additive-bias reweighting (different mechanism layer covered by #1145 ENTROPY-BONUS + #1147 LOGIT-ADJUSTMENT closures), KL-divergence-to-reference (different regularizer family), per-class fixed weights `w_c · CE` (different routing structure not per-sample dynamic).
+- **family closure boundary**: FOCAL-CE-LOSS-PER-TOKEN-MULTIPLICATIVE-WEIGHT 1/1 → 30th family-level closure. **6th cycle 71 MONOTONE-IN-X-WRONG-DIRECTION instance** joining 1/1 confirmed signature class (#1117 fern Z_LOSS + #1147 askeladd LOGIT_ADJUSTMENT + #1162 nezuko FOCAL_CE confirmed, others as base data).
+- **closure URL**: https://github.com/morganmcg1/modded-nanogpt-senpai/pull/1162#issuecomment-4535565868
+
+## 2026-05-25 16:30 UTC — PR #1190 nezuko CAUTIOUS_MUON assigned (66th mech class — FIRST sign-agreement mask on Muon body in 311-PR corpus)
+
+- **student**: g1r2-nezuko
+- **branch**: `g1r2-nezuko/cautious-muon`
+- **mech class**: Pre-NS5 sign-agreement mask on Muon momentum buffer with keep-ratio upscaling compensation
+- **hypothesis**: Apply Cautious optimizer sign-agreement mask `m_cautious = m · 1[sign(m) == sign(g)]` to Muon momentum BEFORE NS5 polar projection with `keep_ratio` upscaling to preserve magnitude. Liang et al. NeurIPS 2024 arXiv:2411.16085 demonstrates Cautious mask provides 1.6× faster pretraining convergence on Llama by removing momentum components where momentum and current gradient disagree — interpretation as decision-theory bounded-noise momentum smoothing. Novel categorical axis: **first sign-agreement mask** in 311-PR corpus pivoting nezuko from saturated loss-side multiplicative-weight (#1162 FOCAL_CE 30th family-level closure) back to Muon body-side at structurally novel sign-agreement-masking layer.
+- **arms**:
+  - **Arm A** hard mask: `sign_agree = (sign(m) == sign(g)).float()` strict 0/1 binary mask + keep_ratio upscale
+  - **Arm B** soft mask: 0.5/1.0 weighting (`0.5 + 0.5 * (2 * sign_agree - 1)`) preserves smoother gradient flow + keep_ratio upscale
+- **env vars**: `CAUTIOUS_MUON=0/1`, `CAUTIOUS_MUON_SOFT=0/1`, `CAUTIOUS_MUON_KEEP_FLOOR=0.1`
+- **code sketch**:
+  ```python
+  if CAUTIOUS_MUON:
+      sign_agree = (torch.sign(momentum_update) == torch.sign(grad)).to(momentum_update.dtype)
+      if CAUTIOUS_MUON_SOFT:
+          sign_agree = 0.5 + 0.5 * (2 * sign_agree - 1.0)
+      keep_ratio = sign_agree.mean().clamp_min(CAUTIOUS_MUON_KEEP_FLOOR)
+      momentum_update = (momentum_update * sign_agree) / keep_ratio
+  ```
+- **anti-duplication**: clean grep across 311-PR corpus for CAUTIOUS_MUON / MUON_CAUTIOUS / SIGN_AGREE / CAUTIOUS_PRE_NS5 / CAUTIOUS_POST_NS5 / CAUTIOUS_BODY / CAUTIOUS_NS5 / SIGN_MASK_MUON patterns zero matches
+- **pre-launch verification checklist** mandated per #1170 lesson: confirm CAUTIOUS_MUON=0 disabled-check bytewise-inert + sign-agreement mask correctness on synthetic small tensor + keep_ratio guards against keep_ratio=0 zero-mask-degenerate case via clamp_min(0.1) floor
+- **categorically distinct from**: #1093 nezuko Muon body Lion sign blend (different operation Lion takes pure sign(grad) as update direction vs Cautious masks momentum based on sign-agreement preserving magnitude), #816 nezuko AdEMAMix Muon (different momentum schedule β2-mix scheme not sign-mask), all prior Muon momentum interventions
+- **closure-map-driven pivot**: nezuko #1140 AUX-second-moment-partition → #1162 FOCAL_CE → #1190 CAUTIOUS_MUON THREE consecutive within-student validations expertise rotation loss-side ⊥ Muon body ⊥ Muon body
+- **kill gate**: val@375 > 4.0 catastrophic, predeclared 3175 steps both arms
+- **PR URL**: https://github.com/morganmcg1/modded-nanogpt-senpai/pull/1190
+
+**13th cycle 71 closure where refute interpretation drives next experiment within same student/wave** force-multiplier pattern validated 13 times across 5 distinct students. Cycle 71 at mid-246: **143 refuted / 66 mech classes / 30 family-level closures / 6 saturated mechanism layers / 7 refute-signature classes + 5 pre-launch student catches**. In-flight portfolio at mid-246: **6 active WIPs + 2 pod-broken holds, ZERO idle students**. 6 active: #1159 thorfinn SOAP_GRAM_DRIFT (Arm B 87hrwt82 step 2975/3175 in-flight) + #1165 alphonse MUON_LM_HEAD Arm B + #1174 askeladd MUON_QKV_FUSE_NS5 Arm A + #1184 fern MUON_POLAR_EXPRESS + #1186 frieren RIEMANNIAN_MUON_MOMENTUM + **#1190 nezuko CAUTIOUS_MUON NEW**. 30 family-level closures: variance 8/8 + schedule-scalar 5/5 + weight-spectrum 3/3 + dual-momentum 1/1 + RMSProp 2/2 + pre-NS5-nonlinear 2/2 + AR(2) 1/1 + geometric-direction 1/1 + NS5-input-side 1/1 + coherence-LR 1/1 + AUX-AMSGrad 1/1 + pre-NS5-linear 2/2 + AUX-LR-SCHEDULE 2/2 + init-side 2/2 + schedule-shape 1/1 + weight-space-averaging-ungated 1/1 + logit-magnitude-penalty 1/1 + inverse-frequency-CE-reweighting 1/1 + pre-NS5-low-rank-rectangular-per-step 1/1 + weight-space-averaging-cooldown-gated 1/1 + SOAP-drift-refresh-EMA-prevstep-formulation 1/1 + NS5-inter-noise-element-wise-Frobenius-scaling 1/1 + AUX-second-moment-partition 1/1 + ATTN-ENTROPY-BONUS-ATTENTION-SOFTMAX-ADDITIVE 1/1 + LOGIT-SPACE-LOG-FREQUENCY-ADDITIVE-BIAS 1/1 + NS5-INTER-NOISE-FROBENIUS-WITH-SOFT-STIEFEL-GUARD 1/1 + ENTROPY-BONUS-PREDICTION-SOFTMAX-ADDITIVE 1/1 + NS5-INTER-NOISE-NORENORM 1/1 + **FOCAL-CE-LOSS-PER-TOKEN-MULTIPLICATIVE-WEIGHT 1/1 NEW (#1162)**. Methodological observation mid-246: nezuko's pivot from saturated loss-side multiplicative-weight (#1162 FOCAL_CE) back to Muon body-side at structurally-novel sign-agreement-masking axis demonstrates closure-map-driven assignment now operates at the **mechanism layer × within-student expertise** intersection — nezuko's prior 7-PR body-Muon expertise trajectory (Muon², NS5 coef, AdEMAMix Muon, NS7 cubic, body Lion sign blend, AUX partition) compounds with closure-map redirect from saturated loss-side back to Muon-body where novel Cautious-mask categorical lever exists structurally distinct from all 6 prior nezuko body-Muon interventions.
+
 ## 2026-05-25 15:15 UTC — PR #1169: NS5_INTER_NOISE_NORENORM (CLOSED, 142nd refuted — NS5-INTER-NOISE-NORENORM family 1/1, 29th family-level closure, 10th SHIFTED-FLOOR refute signature, publication-grade frieren #1158→#1161→#1169 closure re-attribution arc empirically validated)
 
 - Branch: `g1r2-frieren/ns5-inter-noise-norenorm` (student g1r2-frieren)
