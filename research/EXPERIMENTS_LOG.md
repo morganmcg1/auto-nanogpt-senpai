@@ -1,3 +1,22 @@
+## 2026-05-25 23:05 — PR #1187: H155 MGUP-MuonH momentum-gradient alignment body — BILATERAL SEVERE NEG (axis closure + programme-grade mechanism finding)
+
+- Branch: `g1r3-askeladd/h155-mgup-muonh-body`
+- Hypothesis: MGUP (Da Chang & Yuan, NeurIPS 2025 Spotlight) — non-uniform per-parameter step-size on MuonH body conditioned on `cos(m_t, g_t)`. Top-k% of body params by alignment score get `lr × (1+α)`; bottom get `lr × β`. Strategy-tier shift OUT of closed Look-Ahead body family (H139+H146 bilateral NEG) into per-parameter cooldown-response axis.
+
+| Arm | use_mgup | k | α | β | W&B run | val/loss | Δ vs CTRL | Δ vs baseline 3.26364 | ffs | Verdict |
+|---|---|---|---|---|---|---|---|---|---|---|
+| arm_a CTRL | 0 | — | — | — | `p0rbz934` | 3.26366 | — | +0.00002 | 3125 | NULL (gold-standard bit-id) |
+| arm_b MGUP_50_MODERATE | 1 | 0.5 | 0.5 | 0.5 | `chh763mf` | 3.28441 | +0.02075 | +0.02077 | -1 | SEVERE NEG |
+| arm_c MGUP_25_AGGRESSIVE | 1 | 0.25 | 1.0 | 0.75 | `x2ryqqbx` | 3.28283 | +0.01917 | +0.01919 | -1 | SEVERE NEG |
+
+- **Programme-grade finding — systematic negative cos(m,g) on Muon body**: `train/mgup/mean_cos` was persistently NEGATIVE throughout training (full-run mean −0.25 to −0.27, never crosses zero). Under the NS5+heavy-momentum+outer-Nesterov+AGC stack, `cos(m_t, g_t)` on body params has no positive-mode region — MGUP's "top-k% by alignment" threshold selects "least anti-aligned" coords (cos ≈ −0.17 vs −0.30), boosting coords whose gradient is anti-aligned with momentum direction. Three composable mechanisms explain the systematic anti-alignment: (1) NS5 orthogonalization whitens consecutive update directions → momentum and current gradient approximately orthogonal-to-opposed, (2) heavy momentum µ=0.95→0.90 EMA-smooths across NS5-orthogonalized directions, (3) AGC at 0.05 trims the largest-magnitude gradient coords that would otherwise correlate with momentum.
+- **8th cross-programme replication of mid-training-lead-erosion pattern**: both arms briefly led CTRL at step 125 (−0.008/−0.009) but lost the lead by step 1000 and widened monotonically through step 3325. Step_avg overhead <0.4%; the failure is purely mechanistic, not engineering.
+- **high_frac stability**: arm_b at 0.5036±0.0426 (target 0.50), arm_c at 0.2555±0.0638 (target 0.25) — threshold math correct, signal uninformative.
+- **Axis closed**: MGUP-on-body axis closed bilaterally (any per-parameter LR scaling conditioned on `cos(m,g)` on Muon body). 15th NULL/NEG closure. Note: MGUP-on-AdamW-aux (no NS5, cos(m,g) may be positive) is a live future follow-up.
+- Next: askeladd assigned H164 MuonBP block-periodic NS5 orthogonalization (PR #1219) — strategy-tier shift to spatial granularity of NS5.
+
+---
+
 ## 2026-05-25 22:30 — PR #1189: H156 Near-Identity Body Init (α·I_pad + β·Q, F-norm matched) — BILATERAL NEG (axis closure)
 
 - Branch: `g1r3-edward/h156-near-identity-body-init`
