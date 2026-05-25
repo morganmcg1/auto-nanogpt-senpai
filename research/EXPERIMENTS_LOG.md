@@ -3,6 +3,41 @@
 Log of completed/reviewed experiment PRs in chronological order. Wave 1
 results pending student execution.
 
+## 2026-05-25 ~15:10 UTC — PR #1036: nezuko SOAP precond_freq n=8 — **CLOSED clean-WEAK-NEG**
+
+- **Branch:** `g1r5-nezuko/soap-precond-freq-ablation`
+- **Student:** g1r5-nezuko
+- **Hypothesis:** SOAP eigenbasis refresh cadence ablation (freq ∈ {4, 8, 16, 32, 64}). Screen found freq=8 best at n=1 (-1.99σ). Sent back for n=4 confirm, then n=8 when n=4 borderline.
+
+**Sweep results (n=1 screen):**
+
+| Cell | freq | val/loss | z (σ_single) | ffs |
+|:----:|:----:|:--------:|:------------:|:---:|
+| A ctrl | 16 | 3.26112 | -0.17σ | 3025 |
+| **B ★** | **8** | **3.26004** | **-1.99σ** | **3025** |
+| C | 4 | 3.26056 | -1.11σ | 3025 |
+| D | 32 | 3.26193 | +1.20σ | 3025 |
+| E | 64 | 3.26429 | +5.18σ | 3050 |
+
+**n=4 confirm (B1-B4, seeds 0-3):** B1=3.26004, B2=3.26096, B3=3.25984, B4=3.25934. μ_4=3.260045. Δ=-0.001176. statsig=0.002352 vs gate 0.004 → **BORDERLINE (59% of required)**.
+
+**n=8 confirm (B1-B8, seeds 0-7):** B5=3.26049, B6=3.26119, B7=3.25979, B8=3.26058. μ_8=3.260279. Δ=-0.000942. statsig=0.002665 vs gate 0.004 → **BORDERLINE again (midband: 3.259807 < μ_8 ≤ 3.260628)**.
+
+| Phase | μ | σ | Δ | Δ×√n | Seeds below gate |
+|:------|:--|:--|:--|:----:|:----------------:|
+| n=4 | 3.260045 | 0.000677 | -0.001176 | 0.002352 | 3/4 |
+| n=8 | **3.260279** | 0.000632 | -0.000942 | **0.002665** | **6/8** |
+
+- **Decision: CLOSED clean-WEAK-NEG per predeclared n=8 rule.** Borderline → close with mechanism documentation.
+- **Mechanism findings:**
+  1. SOAP eigenbasis refresh cadence IS real but modestly load-bearing (~-0.001 val/loss at freq=16→8).
+  2. freq=16 default is adequate. freq=8 yields directionally consistent improvement but below formal effect-size threshold at n=8.
+  3. freq=4→8 plateau is flat (~0.0005 Δ); true optimum in [6,8] but margin too small to lock in.
+  4. freq=64 +5.18σ regression confirms basis freshness is genuinely needed (not free to ignore cadence).
+  5. No variance inflation (σ_n=8=0.000632 ≈ σ_single=0.000593) — distinct from cooldown-perturbation pattern.
+- **Closed axis:** SOAP precond_freq. Combined with #1076 (eps NULL), #1077 (β₂-static NULL), #1053 (asymm row/col NULL), #979 (exp_avg_sq), #936 (Q-ablation): **SOAP scalar HP cluster comprehensively closed 5/5**. Remaining SOAP open: decoupled β₂ (#1130 frieren in flight).
+- **nezuko → #1181 Adan optimizer for AdamW aux groups (Xie et al. 2022, arXiv:2208.06677; gradient-difference Nesterov correction)**
+
 ## 2026-05-25 14:31 UTC — PR #1126: fern Lookahead AdamW aux — **CLOSED clean-NEG**
 
 - **Branch:** `g1r5-fern/lookahead-adamw-aux`
