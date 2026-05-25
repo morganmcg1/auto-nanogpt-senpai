@@ -139,6 +139,9 @@ def parse_args():
     parser.add_argument("--adam_eps", type=float, default=1e-10,
                         help="ε for the aux-group optimizer denominator (AdamW or AdaBelief). "
                              "Default 1e-10 matches the prior hardcoded AdamW eps.")
+    parser.add_argument("--torch_manual_seed", type=int, default=None,
+                        help="If set, calls torch.manual_seed() and torch.cuda.manual_seed_all() with "
+                             "this value after CUDA device setup. Used for n=k confirmation seeds.")
     args = parser.parse_args()
     args.num_trials = args.num_trials if args.num_trials is not None else (args.legacy_num_trials or 1)
     args.wandb_tags = [tag.strip() for tag in args.wandb_tags.split(",") if tag.strip()]
@@ -746,6 +749,9 @@ device = torch.device("cuda", int(os.environ["LOCAL_RANK"]))
 torch.cuda.set_device(device)
 dist.init_process_group(backend="nccl", device_id=device)
 dist.barrier()
+if args.torch_manual_seed is not None:
+    torch.manual_seed(args.torch_manual_seed)
+    torch.cuda.manual_seed_all(args.torch_manual_seed)
 # this code can be run equivalently with 1, 2, 4, or 8 gpus.
 assert 8 % dist.get_world_size() == 0
 
@@ -823,6 +829,7 @@ if dist.get_rank() == 0:
             "depth_init_mode": args.depth_init_mode,
             "use_adabelief": bool(args.use_adabelief),
             "adam_eps": float(args.adam_eps),
+            "torch_manual_seed": args.torch_manual_seed,
             "aux_optimizer": "AdaBelief" if args.use_adabelief else "AdamW",
         },
     )
