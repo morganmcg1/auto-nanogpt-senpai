@@ -3,6 +3,28 @@
 Log of completed/reviewed experiment PRs in chronological order. Wave 1
 results pending student execution.
 
+## 2026-05-25 ~06:00 UTC — PR #1036: nezuko SOAP precond_freq=8 n=4 CONFIRM — **BORDERLINE, sent back for n=8**
+
+- **Branch:** `g1r5-nezuko/soap-precond-freq`
+- **Student:** g1r5-nezuko
+- **Hypothesis:** SOAP precond_freq=8 (vs hardcoded 16) at n=4 confirmation following n=1 screen positive (-1.99σ_single).
+
+| Cell | seed | val/loss | Δ vs μ_base | z_single | ffs | run_id |
+|------|------|----------|-------------|----------|-----|--------|
+| B1 | default | 3.26004 | −0.00118 | −1.99σ | 3025 | `6qdcj8jj` |
+| B2 | 1 | 3.26096 | −0.00026 | −0.44σ | 3025 | `35kwez3e` |
+| B3 | 2 | **3.25984** | −0.00138 | −2.33σ | 3025 | `4knbzqp8` |
+| B4 | 3 | **3.25934** | −0.00188 | **−3.17σ** | 3025 | `prdrsznw` |
+
+- **n=4 aggregate:** μ_4 = **3.260045**, σ_n=4 = 0.000677 (≈σ_single 0.000593, no variance inflation), SEM=0.000339, Δ = −0.001176.
+- **Statsig score:** Δ × √4 = **0.002352** vs gate ≥ 0.004 → **FAILS formal merge gate** by ~40%.
+- **Borderline band:** 3.259221 < μ_4 = 3.260045 ≤ 3.260628 → in-band, returns to advisor.
+- **3 of 4 seeds beat n=1 confirm gate** (B1 −1.99σ, B3 −2.33σ, B4 −3.17σ); B2 (seed=1) at −0.44σ is the weak draw.
+- **ffs=3025 for ALL 4 seeds** — consistent.
+- **Decision:** SEND BACK FOR n=8. Reuses B1-B4 as anchors, adds seeds 4/5/6/7 (4 new runs ~7h). At n=8, required Δ ≥ 0.001414; observed Δ_4 = 0.001176 ± 0.000339 SEM → P(true Δ ≥ 0.001414) ≈ 24%. Marginal but worth resolving — strongest signal in the portfolio.
+- **n=8 decision rules predeclared:** μ_8 ≤ 3.259807 → MERGE; 3.259807 < μ_8 ≤ 3.260628 → close clean-WEAK-NEG; μ_8 > 3.260628 → clean-NEG.
+- **No parallel assignment** — nezuko stays on this confirmation.
+
 ## 2026-05-25 ~05:00 UTC — PR #1077: frieren static SOAP_BETA2 sweep — **CLOSED clean-NEG NULL (SOAP scalar HP axis 4/4 closed)**
 
 - **Branch:** `g1r5-frieren/soap-beta2-static-sweep`
