@@ -95,6 +95,14 @@ def parse_args():
                         help="Starting value of µ schedule (used by linear and cooldown_ramp modes).")
     parser.add_argument("--muonh_mu_end", type=float, default=float(os.environ.get("MUONH_MU_END", "0.98")),
                         help="Ending value of µ schedule (used by linear and cooldown_ramp modes).")
+    # H135 (tanjiro): embed.weight init std. Default 1.0 = bit-identical baseline
+    # (PyTorch normal_() unscaled). Smaller std reduces initial token-embedding
+    # variance; tests whether the "saturated random" default is load-bearing or
+    # whether AdamW aux re-equilibrates to the same scale regardless.
+    parser.add_argument("--embed_init_std", type=float,
+                        default=float(os.environ.get("EMBED_INIT_STD", "1.0")),
+                        help="std for embed.weight init via normal_(std=X); default 1.0 = bit-id baseline "
+                             "(PyTorch default unscaled). Smaller std reduces initial token-embedding variance.")
     args = parser.parse_args()
     args.num_trials = args.num_trials if args.num_trials is not None else (args.legacy_num_trials or 1)
     args.wandb_tags = [tag.strip() for tag in args.wandb_tags.split(",") if tag.strip()]
@@ -347,6 +355,35 @@ def log_histograms(
         sample = sample_tensor(p.data, histogram_samples)
         if sample.numel() > 0:
             metrics[f"train/weight_hist_param/{clean_name}"] = wandb.Histogram(sample.numpy())
+    wandb.log(metrics, step=wandb_step)
+
+
+def log_embed_spectral(
+    model: nn.Module,
+    trial_idx: int,
+    step: int,
+    wandb_step: int,
+):
+    # H135 (tanjiro): aux/embed Frob + spectral telemetry. embed.weight is bfloat16,
+    # cast to float32 on GPU for stable SVD. ~0.5s overhead on 50304x768; runs at
+    # a small set of checkpoints so the total cost is negligible.
+    w = model.embed.weight.detach().float()
+    frob = float(torch.linalg.norm(w).item())
+    sv = torch.linalg.svdvals(w)
+    sv_sorted = torch.sort(sv, descending=True).values
+    n_sv = sv_sorted.numel()
+    metrics = {
+        "trial": trial_idx,
+        "train/step": step,
+        "aux/embed/frob_norm": frob,
+        "aux/embed/sv_max": float(sv_sorted[0].item()),
+        "aux/embed/sv_median": float(sv_sorted[n_sv // 2].item()),
+        "aux/embed/sv_min": float(sv_sorted[-1].item()),
+        "aux/embed/sv_mean": float(sv_sorted.mean().item()),
+        "aux/embed/effective_rank": float(torch.exp(
+            -(sv_sorted / sv_sorted.sum() * torch.log(sv_sorted / sv_sorted.sum() + 1e-12)).sum()
+        ).item()),
+    }
     wandb.log(metrics, step=wandb_step)
 
 
@@ -796,6 +833,7 @@ if dist.get_rank() == 0:
             "muonh_mu_schedule": args.muonh_mu_schedule,
             "muonh_mu_start": args.muonh_mu_start,
             "muonh_mu_end": args.muonh_mu_end,
+            "embed_init_std": args.embed_init_std,
         },
     )
 
@@ -819,7 +857,7 @@ for trial_idx in range(args.num_trials):
             if name == "proj.weight":
                 w.zero_()  # LM head: keep zero like starter
             elif name == "embed.weight":
-                w.normal_()  # token embedding: default torch init
+                w.normal_(std=args.embed_init_std)  # token embedding (H135: std knob; default 1.0 = bit-id)
             elif "attn.proj" in name:
                 w.normal_(std=0.026)
             elif "mlp.proj" in name:
@@ -957,6 +995,19 @@ for trial_idx in range(args.num_trials):
     train_loader = distributed_data_generator("data/fineweb10B/fineweb_train_*.bin", batch_size)
     for p in model.parameters():
         dist.broadcast(p.detach(), 0)
+
+    # H135 (tanjiro): aux/embed telemetry at pristine init (step 0, post-broadcast,
+    # pre-training) plus a small set of in-loop checkpoints. Captures Frob/sv
+    # trajectory to test whether AdamW re-equilibrates embed to a common target
+    # regardless of init std (mirrors H128's "200-step washout" for body weights).
+    embed_telemetry_steps = {50, 100, 200, 400, 800, 1500, 2500, 3325}
+    if dist.get_rank() == 0:
+        log_embed_spectral(
+            model=model,
+            trial_idx=trial_idx,
+            step=0,
+            wandb_step=trial_idx * (train_steps + 1),
+        )
 
     # MuLoCo outer Nesterov SGD state (Algorithm 1, K=1). Snapshot after broadcast
     # so all ranks agree on the anchor. Velocity starts at zero. Wraps ALL
@@ -1145,6 +1196,14 @@ for trial_idx in range(args.num_trials):
                 wandb_step=wandb_step,
                 histogram_samples=args.histogram_samples,
                 param_histogram_limit=args.param_histogram_limit,
+            )
+        # H135 (tanjiro): aux/embed Frob + sv telemetry at PR-spec checkpoints.
+        if dist.get_rank() == 0 and train_step in embed_telemetry_steps:
+            log_embed_spectral(
+                model=model,
+                trial_idx=trial_idx,
+                step=train_step,
+                wandb_step=wandb_step,
             )
         model.zero_grad(set_to_none=True)
 
