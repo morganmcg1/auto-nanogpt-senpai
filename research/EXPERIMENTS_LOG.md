@@ -5474,3 +5474,47 @@ Step 2500 trajectory check (early-kill gate Δ_vs_A ≥ +0.10 never tripped — 
 **Plateau context**: 15th consecutive no-merge closure since #847. Remaining live escalation axes: #1120 GaLore (DIVERGING, investigation), #1122 AggMo body (NS5-preserving, in flight), #1127 Schedule-Free aux (in flight), #1132 Shampoo body (DIVERGING, investigation), #1137 stack-pruning Phase 2 (subtractive, in flight, Arm A finished clean), #1138 Newton-Muon body (NS5-preserving, in flight). #1100 PP n=3 aux WD (strongest candidate since #847, in chain).
 
 ### Fern reassigned → fresh axis: Cautious Optimization (C-AdamW) for aux groups (Liang 2024 arXiv:2411.16085) — addresses lm_head Zipfian sign-flip mechanism mapped via #1045 (25.6% LR-invariant rate). Mechanism-distinct: NOT an optimizer-family change (preserves AdamW + LR), single mechanism slot: mask updates where `sign(update) ≠ sign(gradient)`. Liang 2024 reports 1.47× speedup on LLaMA pretraining 1B scale. Mechanism-distinct from all current escalations.
+
+## 2026-05-25 09:30 — PR #1120: GaLore lm_head low-rank gradient subspace — PLATEAU ESCALATION axis (CLOSED productive-NEG/DIVERGENT, 16th consecutive no-merge closure)
+
+- branch: g1r4-nezuko/galore-lm-head
+- hypothesis: GaLore (Zhao 2024, arXiv:2403.03507) applied to lm_head AdamW state — periodic SVD on accumulated gradient matrix to project gradient onto top-r singular subspace, store m/v buffers in compressed r-dim subspace (125× compression at r=8 for V=50304×D=768 lm_head). Mechanism prior: lm_head's Zipfian heavy-tail row structure may map to low effective gradient rank (most variance in dominant token-cluster directions). 4 arms: A=ctrl AdamW, B=rank=8 period=200 mech-lead, C=rank=32 period=200 (rank sensitivity), D=rank=8 period=50 (refresh frequency).
+
+### Results (single-seed N=1, step 3350 / aborted at step 2500)
+
+| Arm | run_id | RANK | PERIOD | state | val/loss @ 2500 | gap vs A @ 2500 | final val/loss | fs | classification |
+|:---:|---|:---:|:---:|:---:|:---:|:---:|:---:|:---:|:---:|
+| A ctrl | `u7lyiri7` | 0 | — | finished | 3.36844 | (ref) | **3.27051** | 3225 | drift PASS edge (Δ_vs_baseline=+0.00295) |
+| **B mech-lead** | `uhcm8awt` | 8 | 200 | **early-killed step 2500** | **4.75798** | **+1.390 (14× gate)** | (aborted) | — | **CATASTROPHIC DIVERGENCE** |
+| **C** | `qu7gie32` | 32 | 200 | **early-killed step 2500** | **4.16646** | **+0.798 (8× gate)** | (aborted) | — | **CATASTROPHIC DIVERGENCE** |
+| **D** | `ee13mdz1` | 8 | 50 | **early-killed step 2500** | **4.40654** | **+1.038 (10× gate)** | (aborted) | — | **CATASTROPHIC DIVERGENCE** |
+
+### Analysis and conclusions
+
+**Verdict: CLOSE productive-NEG/DIVERGENT — all 3 GaLore arms aborted by step 2500 early-kill gate by 8-14× the +0.10 threshold. 16th consecutive no-merge closure since #847.**
+
+**Smoking gun pattern**: Arms B (rank=8) and C (rank=32) crashed at the EXACT SAME STEP (2475), ruling out rank-specific SVD conditioning issues and pointing to a SHARED CODE-PATH BUG that compounds across SVD refreshes. Arm D (period=50, fastest refresh) showed divergence EARLIEST and worst (lm_head grad_norm 282k vs ctrl 9k = 30× explosion) — confirming monotone-in-refresh-frequency damage.
+
+**Mechanism reading at the spectrum level (student-provided high-info telemetry)**:
+
+The hypothesis assumed lm_head gradient is rank-8-dominant. Telemetry directly contradicts this:
+
+- **Arm B (r=8) `proj_energy_ratio`**: 0.92 → 0.86 over training. Rank-8 misses ~14% of gradient energy mid-training.
+- **Arm C (r=32) `proj_energy_ratio`**: 0.99 → 0.91. Rank-32 still misses ~9% energy.
+- **Arm D (r=8, period=50) `proj_energy_ratio`**: 0.97 → **0.70** by step 2451. Rank-8 misses 30% of energy late in training.
+- **`captured_energy_in_top_r`**: drops from ~0.99 → 0.80 over training in Arm D — spectrum FLATTENS as training progresses, the opposite of Zipfian-low-rank prediction.
+- **`sv_max`** drops 4.80 → 1.81 while tail stays ~0.4-0.5 → spectrum decompactification.
+
+**Structural mechanism finding**: lm_head gradient is NOT low effective rank. The Zipfian-low-rank hypothesis (motivated by #1045 LION-aux row-magnitude finding) does NOT transfer from per-token row magnitudes to the gradient MATRIX spectrum. lm_head's dominant gradient structure is high-rank and FLATTENS over training.
+
+**Failure mode (compounding mechanism)**: GaLore's m/v buffers are stored in the projected r-dim subspace, but each SVD refresh changes the subspace basis. Without re-projecting m and v to the new basis, stale momentum in the OLD basis gets applied to gradient in the NEW subspace → step direction errors → grad_norm explosion → optimizer divergence. The error compounds across refreshes: faster refresh (Arm D period=50) compounds damage faster than slower refresh (Arms B/C period=200) — exactly the monotone-in-refresh-frequency damage observed.
+
+**Closure type**: PRODUCTIVE-NEG/DIVERGENT (1st observation on GALORE-LM-HEAD axis). Two structural learnings:
+
+1. **Low-rank gradient projection on Zipfian-heavy aux groups is infeasible** without addressing the buffer re-projection problem. Future subspace-projection mechanisms (SOAP, KFAC, Adafactor row-col) on lm_head must include explicit m/v subspace transport logic.
+
+2. **Zipfian row-magnitude ≠ Zipfian gradient spectrum**. The #1045 LION-aux row-magnitude finding does NOT generalize to gradient-matrix spectral structure. Future Zipfian-targeted mechanisms must distinguish between per-row magnitude (where Zipfian distributions DO appear) and per-direction spectral concentration (where they DON'T).
+
+**Plateau context**: 16th consecutive no-merge closure since #847 (cycle 222). 2 of 5 escalation axes diverged (#1120 GaLore + #1132 Shampoo — both wholesale NS5-or-AdamW-replacement). NS5-preserving / AdamW-preserving escalations remain stable: #1122 AggMo, #1127 SF Arm A only (Arm B regression), #1138 Newton-Muon, #1153 Cautious.
+
+### Nezuko reassigned → PR #1154 MARS-AdamW for aux (Yuan 2024 arXiv:2411.10438) — variance-reduced gradient estimate `g_t' = g_t + γ·(g_t − g_{t−1})` fed into standard AdamW. Mechanism-distinct from Cautious (output-mask) and from all OPTIMIZER-FAMILY-AUX closures: preserves AdamW step rule (no LR confound), single mechanism slot = STORM-style gradient variance reduction at the AdamW INPUT. 4 arms: A=ctrl, B=γ=0.025 lm_head only (mech-lead, targets Zipfian noise specifically), C=γ=0.025 all aux, D=γ=0.1 lm_head only (magnitude sensitivity).

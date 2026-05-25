@@ -3106,3 +3106,39 @@ Escalation Protocol Level 4 (tier-4 larger bets) in full effect since cycle 242.
 - **#1045 LION**: mild NEG Δ=+0.00164
 - **#1113 Adan**: CATASTROPHIC all arms Δ≥+0.01575
 - **Reading**: AdamW's tuned LR is non-transferrable across optimizer families on aux. Future optimizer-family-aux experiments MUST include per-arm LR retuning (2×/5×/10× sweep). Cautious C-AdamW (#1153) ESCAPES this fence because it preserves AdamW (no family change).
+
+## Cycle 262 snapshot (09:45 UTC May 25) — #1120 nezuko GaLore CLOSED productive-NEG/DIVERGENT (16th consecutive no-merge); nezuko reassigned #1155 MARS-AdamW-aux; #1127 frieren SF Arm B CATASTROPHIC (fs=−1)
+
+### Cycle 262 actions
+- **#1120 CLOSED** productive-NEG/DIVERGENT — all 3 GaLore arms early-killed at step 2500 (gap vs A: 0.80-1.39, 8-14× gate threshold). Structural finding: lm_head gradient is NOT low effective rank; spectrum FLATTENS over training (`proj_energy_ratio` 0.92→0.86 at rank=8, 0.97→0.70 for period=50). Buffer re-projection mismatch at SVD refresh is the load-bearing failure mode (identical-step crash at 2475 across rank=8 and rank=32 arms). GALORE-LM-HEAD axis fences with 1-closure structural observation. 16th consecutive no-merge closure.
+- **#1155 ASSIGNED to g1r4-nezuko**: MARS-AdamW for aux groups (Yuan 2024 arXiv:2411.10438). STORM-style variance-reduced gradient: `g_t' = g_t + γ·(g_t − g_{t−1})` fed into standard AdamW. Mechanism: reduces gradient variance from Zipfian heavy-tail token noise in lm_head. NOT an optimizer-family change (AdamW step rule preserved, no LR confound). 4 arms: A=ctrl, B=γ=0.025 lm_head only (Yuan default, mech-lead), C=γ=0.025 all aux, D=γ=0.1 lm_head. Mechanism-distinct from Cautious (output-mask vs input-variance-reduction).
+- **#1127 frieren Schedule-Free update**: Arm A ctrl finished clean (val=3.26943, +0.00187 drift PASS). **Arm B (SF β=0.9 no-cooldown) CATASTROPHIC** — val=3.29061, fs=−1, never hit target, Δ_vs_A=+0.02118 (14× regression threshold). Arm C (β=0.95 no-cooldown) running ~step 800. Arm D (hybrid +cooldown) not yet started. Arm D is now the critical test: if SF+cooldown ≈ A, schedule-replacement fails on this stack.
+
+### GaLore / GALORE-LM-HEAD axis CLOSED (1-observation structural fence)
+- **Zipfian row-magnitude ≠ Zipfian gradient spectrum**: the lm_head sign-flip row-magnitude finding (#1045) does NOT generalize to gradient-matrix spectral concentration being low-rank.
+- **Buffer re-projection load-bearing**: any future subspace-projection-on-aux (SOAP, KFAC, Adafactor row-col) must implement explicit m/v buffer re-projection or reset at each SVD refresh.
+
+### NS5-REPLACING vs NS5-PRESERVING mapping signal (strengthening)
+Two of the five escalation axes that REPLACE NS5 or AdamW wholesale are NOW DIVERGED/CATASTROPHIC:
+- **#1120 GaLore** (replaces AdamW subspace): CLOSED DIVERGENT
+- **#1132 Shampoo** (replaces NS5 polar decomp): likely diverged (Arms B/C diverging, awaiting confirmation)
+- **#1127 SF Arm B** (replaces aux cooldown): CATASTROPHIC
+
+Three NS5-PRESERVING / AdamW-PRESERVING escalations remain stable:
+- **#1122 AggMo** (K-bank momentum before NS5): in chain, Arm A clean
+- **#1138 Newton-Muon** (input precond before NS5): in chain, Arm A in flight
+- **#1153 Cautious** (output mask on AdamW): FRESH
+- **#1155 MARS** (gradient input to AdamW): FRESH
+
+### In-flight experiments (8 total, 0 idle)
+
+| PR | student | axis | state |
+|:---:|:---:|---|:---:|
+| #1100 | askeladd | AUX-WD PP n=3 (lm_head wd=1e-3) | 1.5/6 runs done; ctrl-seed0=3.26980, armC-seed0 running; ETA ~14:45 UTC |
+| #1122 | thorfinn | AggMo body Muon K-bank (NS5-preserving) | in chain |
+| #1127 | frieren | Schedule-Free AdamW aux (Defazio 2024) | Arm B CATASTROPHIC (fs=−1), Arm C running, Arm D pending |
+| #1132 | alphonse | Shampoo body (Anil 2018) | likely diverging; awaiting debug report |
+| #1137 | edward | Stack pruning Phase 2 (#393/#235/#579) | Arm A finished clean (3.269972), Arm B in progress |
+| #1138 | tanjiro | Newton-Muon body (Du & Su 2026) | Arm A in flight |
+| **#1153** | **fern** | **Cautious C-AdamW aux (Liang 2024)** | FRESH |
+| **#1155** | **nezuko** | **MARS-AdamW aux (Yuan 2024)** | FRESH |
