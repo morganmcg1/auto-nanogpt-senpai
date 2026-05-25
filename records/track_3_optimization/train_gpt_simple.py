@@ -64,6 +64,12 @@ def parse_args():
     parser.add_argument("--muon_lr", type=float, default=0.035,
                         help="Base learning rate for body-Muon optimizer (matrix params in blocks). "
                              "Default 0.035 matches the merged baseline.")
+    parser.add_argument("--cooldown_power_1", type=float, default=None,
+                        help="Pre-split cooldown power exponent γ₁. None → uses COOLDOWN_POWER for both regions (baseline behavior).")
+    parser.add_argument("--cooldown_power_2", type=float, default=None,
+                        help="Post-split cooldown power exponent γ₂. None → uses COOLDOWN_POWER for both regions (baseline behavior).")
+    parser.add_argument("--cooldown_split", type=float, default=0.75,
+                        help="Fraction through cooldown [0,1] where γ₁→γ₂ transition occurs (default 0.75).")
     args = parser.parse_args()
     args.num_trials = args.num_trials if args.num_trials is not None else (args.legacy_num_trials or 1)
     args.wandb_tags = [tag.strip() for tag in args.wandb_tags.split(",") if tag.strip()]
@@ -715,6 +721,10 @@ if dist.get_rank() == 0:
             "target_uw": 0.35,
             "power_cooldown_gamma": COOLDOWN_POWER,
             "cooldown_frac": 0.7,
+            "cooldown_power_1": (args.cooldown_power_1 if args.cooldown_power_1 is not None else COOLDOWN_POWER),
+            "cooldown_power_2": (args.cooldown_power_2 if args.cooldown_power_2 is not None else COOLDOWN_POWER),
+            "cooldown_split": args.cooldown_split,
+            "cooldown_piecewise_active": int(args.cooldown_power_1 is not None or args.cooldown_power_2 is not None),
             "muon_method": MUON_METHOD,
             "ema_beta": args.ema_beta,
             "ema_warmup_steps": args.ema_warmup_steps,
@@ -776,7 +786,29 @@ for trial_idx in range(args.num_trials):
     if args.ema_beta > 0:
         ema_params = [p.detach().float().clone() for p in optimizer2.param_groups[0]["params"]]
 
-    # learning rate schedule: stable then power-law cooldown (gamma = COOLDOWN_POWER)
+    # learning rate schedule: stable then (piecewise) power-law cooldown.
+    # Baseline: single γ=COOLDOWN_POWER over the whole cooldown.
+    # Piecewise (PR #1084): γ₁ on [0, split), γ₂ on [split, 1], continuous at split.
+    def cooldown_lr_mult(cooldown_progress):
+        """Piecewise power-law cooldown.
+        cooldown_progress in [0, 1]: 0 = cooldown start (η=1), 1 = run end (η→0).
+        Segment 1 over [0, split]: η = (1 - cooldown_progress)^γ₁
+        Segment 2 over [split, 1]: continuous at split, then η = eta_join * (remaining_frac)^γ₂
+        Backward-compatible: when γ₁=γ₂, fast path returns bitwise-identical baseline w^γ shape.
+        """
+        g1 = args.cooldown_power_1 if args.cooldown_power_1 is not None else COOLDOWN_POWER
+        g2 = args.cooldown_power_2 if args.cooldown_power_2 is not None else COOLDOWN_POWER
+        if g1 == g2:
+            w = 1.0 - cooldown_progress
+            return w ** g1
+        split = args.cooldown_split
+        if cooldown_progress < split:
+            w = 1.0 - cooldown_progress
+            return w ** g1
+        eta_join = (1.0 - split) ** g1
+        remaining_frac = (1.0 - cooldown_progress) / (1.0 - split)
+        return eta_join * (remaining_frac ** g2)
+
     def compute_lr_mult(step, cooldown_frac=0.7):
         """Pure: LR multiplier (eta) at `step`. Matches set_hparams."""
         if step >= train_steps:
@@ -785,8 +817,7 @@ for trial_idx in range(args.num_trials):
         if progress < 1 - cooldown_frac:
             return 1.0
         cooldown_progress = (progress - (1 - cooldown_frac)) / cooldown_frac
-        w = 1.0 - cooldown_progress
-        return w ** COOLDOWN_POWER
+        return cooldown_lr_mult(cooldown_progress)
 
     def compute_ema_beta_t(step):
         """Dynamic β_t = β_base + (β_target - β_base) × (1 - lr_mult_t).
@@ -809,8 +840,7 @@ for trial_idx in range(args.num_trials):
             cooldown_progress = 0.0
         else:
             cooldown_progress = (progress - (1 - cooldown_frac)) / cooldown_frac
-            w = 1.0 - cooldown_progress  # equivalent to (1 - progress) / cooldown_frac
-            eta = w ** COOLDOWN_POWER
+            eta = cooldown_lr_mult(cooldown_progress)
         for opt in optimizers:
             for group in opt.param_groups:
                 group["lr"] = group["initial_lr"] * eta
@@ -1037,6 +1067,11 @@ for trial_idx in range(args.num_trials):
                 "train/cooldown/cooldown_progress": sched_cooldown_progress,
                 "train/cooldown/lr_multiplier": sched_eta,
                 "train/cooldown/power_gamma": COOLDOWN_POWER,
+                "train/cooldown/power_gamma_1": (args.cooldown_power_1
+                                                 if args.cooldown_power_1 is not None else COOLDOWN_POWER),
+                "train/cooldown/power_gamma_2": (args.cooldown_power_2
+                                                 if args.cooldown_power_2 is not None else COOLDOWN_POWER),
+                "train/cooldown/split": args.cooldown_split,
             }, step=wandb_step)
             if ema_params is not None:
                 wandb.log({
@@ -1079,13 +1114,22 @@ for trial_idx in range(args.num_trials):
             + f" first_step_to_target:{first_step_to_target}",
             console=True,
         )
+        terminal_wandb_step = (trial_idx + 1) * (train_steps + 1) - 1
         wandb.log({
             "trial": trial_idx,
             "speedrun/final_best_val_loss": best_val_loss,
             "speedrun/final_best_val_step": best_val_step,
             "speedrun/final_first_step_to_target": first_step_to_target,
             "speedrun/final_reached_target": int(first_step_to_target >= 0),
-        }, step=(trial_idx + 1) * (train_steps + 1) - 1)
+        }, step=terminal_wandb_step)
+        # Per-arm cooldown-shape landmark eta values (one-time, terminal).
+        # Makes piecewise LR-shape difference VISIBLE for cross-axis comparison.
+        cooldown_landmarks = {0.0: "0pct", 0.25: "25pct", 0.5: "50pct",
+                              0.75: "split", 0.9: "90pct", 1.0: "100pct"}
+        landmark_metrics = {"trial": trial_idx}
+        for cp, label in cooldown_landmarks.items():
+            landmark_metrics[f"cooldown_shape/eta_at_{label}"] = cooldown_lr_mult(cp)
+        wandb.log(landmark_metrics, step=terminal_wandb_step)
 
 if dist.get_rank() == 0:
     wandb.finish()
