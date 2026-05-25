@@ -22,6 +22,58 @@ import torch.nn.functional as F
 import torch.distributed as dist
 import wandb
 
+
+class AdEMAMix(torch.optim.Optimizer):
+    """AdEMAMix: AdamW with dual-EMA first moment (Pagliardini et al. 2024, arxiv 2409.03137).
+
+    First moment combines a fast EMA (beta1) and a slow EMA (beta3) as m_eff = m_fast_hat + alpha * m_slow.
+    alpha=0 reproduces AdamW exactly (bit-id). beta3 should be much larger than beta1 (paper: beta3=0.9999).
+    """
+    def __init__(self, params, lr=1e-3, betas=(0.9, 0.999), beta3=0.9999, alpha=0.0,
+                 eps=1e-8, weight_decay=0.0):
+        defaults = dict(lr=lr, betas=betas, beta3=beta3, alpha=alpha, eps=eps, weight_decay=weight_decay)
+        super().__init__(params, defaults)
+
+    @torch.no_grad()
+    def step(self, closure=None):
+        loss = None
+        if closure is not None:
+            with torch.enable_grad():
+                loss = closure()
+        for group in self.param_groups:
+            beta1, beta2 = group['betas']
+            beta3 = group['beta3']
+            alpha = group['alpha']
+            eps = group['eps']
+            lr = group['lr']
+            wd = group['weight_decay']
+            for p in group['params']:
+                if p.grad is None:
+                    continue
+                grad = p.grad
+                state = self.state[p]
+                if len(state) == 0:
+                    state['step'] = 0
+                    state['m_fast'] = torch.zeros_like(p)
+                    state['v'] = torch.zeros_like(p)
+                    if alpha > 0.0:
+                        state['m_slow'] = torch.zeros_like(p)
+                state['step'] += 1
+                t = state['step']
+                state['m_fast'].mul_(beta1).add_(grad, alpha=1 - beta1)
+                state['v'].mul_(beta2).addcmul_(grad, grad, value=1 - beta2)
+                m_hat = state['m_fast'] / (1 - beta1 ** t)
+                v_hat = state['v'] / (1 - beta2 ** t)
+                if wd != 0.0:
+                    p.data.mul_(1 - lr * wd)
+                if alpha > 0.0:
+                    state['m_slow'].mul_(beta3).add_(grad, alpha=1 - beta3)
+                    m_eff = m_hat + alpha * state['m_slow']
+                else:
+                    m_eff = m_hat
+                p.data.addcdiv_(m_eff, v_hat.sqrt().add_(eps), value=-lr)
+        return loss
+
 TARGET_VAL_LOSS = 3.28
 STAT_SIG_DELTA = 0.004
 SLOPE_FRACTION = 0.10
@@ -71,6 +123,12 @@ def parse_args():
     parser.add_argument("--muonh_agc_eps", type=float, default=float(os.environ.get("MUONH_AGC_EPS", "1e-3")))
     parser.add_argument("--aux_adamw_eps", type=float, default=float(os.environ.get("AUX_ADAMW_EPS", "1e-10")),
                         help="Aux AdamW eps (default 1e-10 = baseline). Standard PyTorch is 1e-8.")
+    # AdEMAMix dual-EMA momentum mixture (Pagliardini et al. 2024, arxiv 2409.03137).
+    # alpha=0.0 reproduces AdamW bit-id (default). alpha>0 enables AdEMAMix slow EMA mixing.
+    parser.add_argument("--aux_ademamix_alpha", type=float, default=float(os.environ.get("AUX_ADEMAMIX_ALPHA", "0.0")),
+                        help="AdEMAMix mixing coefficient for slow EMA. 0.0 = standard AdamW bit-id (default). >0 enables AdEMAMix with alpha-weighted slow EMA additive contribution to first moment.")
+    parser.add_argument("--aux_ademamix_beta3", type=float, default=float(os.environ.get("AUX_ADEMAMIX_BETA3", "0.9999")),
+                        help="AdEMAMix slow EMA decay (beta3). Only active when --aux_ademamix_alpha > 0. Paper default 0.9999 (~10000-step effective window).")
     # β2 schedule on aux AdamW (embed/lm_head/scalars). Mutates param_groups[*]['betas']
     # each step. constant = baseline (fused=True kept); cooldown_ramp = fused=False so
     # PyTorch reads the updated betas from the param_group on every .step() call.
@@ -796,6 +854,8 @@ if dist.get_rank() == 0:
             "muonh_mu_schedule": args.muonh_mu_schedule,
             "muonh_mu_start": args.muonh_mu_start,
             "muonh_mu_end": args.muonh_mu_end,
+            "aux_ademamix_alpha": args.aux_ademamix_alpha,
+            "aux_ademamix_beta3": args.aux_ademamix_beta3,
         },
     )
 
@@ -846,10 +906,19 @@ for trial_idx in range(args.num_trials):
     # silent-failure-mode risk we use fused=False whenever the β2 schedule is active.
     # constant schedule keeps fused=True so arm_a is bitwise-identical to baseline.
     _aux_fused = (args.aux_beta2_schedule == "constant")
-    optimizer1 = AdamW([dict(params=[model.embed.weight], lr=0.3, name="adam_embed"),
-                        dict(params=[model.proj.weight], lr=1/320, name="adam_lm_head"),
-                        dict(params=[p for p in model.parameters() if p.ndim < 2], lr=0.01, name="adam_scalars")],
-                       betas=(0.8, args.aux_beta2_start), eps=args.aux_adamw_eps, weight_decay=0, fused=_aux_fused)
+    _aux_optim_groups = [dict(params=[model.embed.weight], lr=0.3, name="adam_embed"),
+                         dict(params=[model.proj.weight], lr=1/320, name="adam_lm_head"),
+                         dict(params=[p for p in model.parameters() if p.ndim < 2], lr=0.01, name="adam_scalars")]
+    if args.aux_ademamix_alpha > 0.0:
+        optimizer1 = AdEMAMix(_aux_optim_groups,
+                              betas=(0.8, args.aux_beta2_start),
+                              beta3=args.aux_ademamix_beta3,
+                              alpha=args.aux_ademamix_alpha,
+                              eps=args.aux_adamw_eps, weight_decay=0)
+        print0(f"Using AdEMAMix for aux groups: alpha={args.aux_ademamix_alpha} beta3={args.aux_ademamix_beta3} beta1=0.8 beta2={args.aux_beta2_start}", console=True)
+    else:
+        optimizer1 = AdamW(_aux_optim_groups,
+                           betas=(0.8, args.aux_beta2_start), eps=args.aux_adamw_eps, weight_decay=0, fused=_aux_fused)
     optimizer2 = MuonH([p for p in model.blocks.parameters() if p.ndim >= 2],
                        lr=args.muonh_lr, weight_decay=0.0, mu=0.95,
                        hyperball=True, budget_mult=args.muonh_budget_mult,
@@ -1118,6 +1187,33 @@ for trial_idx in range(args.num_trials):
                 muonh_metrics["train/agc/max_ratio"] = agc_stats["agc_max_ratio"]
                 muonh_metrics["train/agc/scale_min"] = agc_stats["agc_scale_min"]
                 muonh_metrics["train/agc/scale_mean"] = agc_stats["agc_scale_mean"]
+            if telemetry_due and args.aux_ademamix_alpha > 0.0 and isinstance(optimizer1, AdEMAMix):
+                for group in optimizer1.param_groups:
+                    gname = group.get("name", "adam_unknown")
+                    fast_sq, slow_sq, eff_sq, fast_count, slow_count = 0.0, 0.0, 0.0, 0, 0
+                    for p in group["params"]:
+                        st = optimizer1.state.get(p, {})
+                        if "m_fast" in st:
+                            mf = st["m_fast"]
+                            fast_sq += float(mf.float().square().sum().item())
+                            fast_count += mf.numel()
+                            t = st["step"]
+                            m_hat = mf / (1 - (group["betas"][0]) ** t)
+                            if "m_slow" in st:
+                                ms = st["m_slow"]
+                                slow_sq += float(ms.float().square().sum().item())
+                                slow_count += ms.numel()
+                                m_eff = m_hat + group["alpha"] * ms
+                            else:
+                                m_eff = m_hat
+                            eff_sq += float(m_eff.float().square().sum().item())
+                    if fast_count > 0:
+                        fast_rms = (fast_sq / fast_count) ** 0.5
+                        eff_rms = (eff_sq / fast_count) ** 0.5
+                        muonh_metrics[f"train/aux/{gname}/m_fast_rms"] = fast_rms
+                        muonh_metrics[f"train/aux/{gname}/m_eff_to_m_fast_ratio"] = eff_rms / max(fast_rms, 1e-30)
+                    if slow_count > 0:
+                        muonh_metrics[f"train/aux/{gname}/m_slow_rms"] = (slow_sq / slow_count) ** 0.5
             if args.muonh_agc_clip_ratio > 0 and muonh_agc_stats["agc_total"] > 0:
                 muonh_metrics["train/muonh/agc/fraction_active"] = (
                     muonh_agc_stats["agc_clipped"] / muonh_agc_stats["agc_total"]
