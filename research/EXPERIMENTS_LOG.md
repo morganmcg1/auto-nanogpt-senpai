@@ -5336,3 +5336,84 @@ Four independent state-reset-class closures across both optimizer sides. **STATE
 - High-quality suggested follow-ups (finer-grained sweep around B, late-cooldown-only ramp shape, per-group ε, PP confirmation if requested) — last entry implicitly noted for future axes.
 
 ### Askeladd reassigned → PR #1055 (Post-training weight averaging — SWA / EMA Polyak; fresh WEIGHT-AVERAGING-POST-TRAINING axis. Mechanism-distinct from #1047 LookAhead (which modifies training trajectory via outer-loop write-back) — SWA/EMA averages weights in a separate buffer with no feedback to optimizer. 4 arms: A=off ctrl, B=SWA uniform last-30%, C=EMA decay=0.999 last-30%, D=EMA decay=0.9999 last-30%)
+
+## 2026-05-25 05:45 — PR #1092: Decoupled AdamW per-group β1 asymmetric differentiation (CLOSED productive-NULL/NEG, 13th consecutive no-merge closure)
+
+- Branch: `g1r4-tanjiro/decoupled-aux-adamw-beta1`
+- Student: tanjiro
+- Hypothesis: Per-group AdamW β1 differentiation on aux groups: Zipfian-asymmetric argument — slower embed β1=0.95 (20-step EMA, improves stability for dense common-token gradients) + faster lm_head β1=0.70 (3.33-step EMA, improves responsiveness for sparse rare-token gradients). Direction corrected pre-run: student caught that default β1=0.8 (not 0.9 as stated in PR body); all arm values re-targeted to directionally-correct 0.70/0.95 relative to actual 0.8 default.
+
+### Results
+
+| Arm | embed β1 | lm_head β1 | val/loss | fs | Δ_vs_A | Δ_vs_baseline | embed_step_dir_rms | lmhead_step_dir_rms | Classification |
+|:---:|:---:|:---:|:---:|:---:|:---:|:---:|:---:|:---:|:---:|
+| A (ctrl) | 0.8 | 0.8 | **3.26832** | 3200 | 0 | +0.00076 drift PASS | 0.3204 | 0.3281 | — |
+| B | 0.8 | **0.70** | 3.26863 | 3200 | +0.00031 | +0.00107 | 0.3223 (+0.6%) | **0.4077 (+24%)** | NULL |
+| **C (mech-lead)** | **0.95** | **0.70** | 3.27135 | 3225 | **+0.00303** | +0.00379 | **0.1588 (−50%)** | **0.4052 (+23%)** | REGRESSION |
+| D | **0.95** | 0.8 | 3.26932 | 3200 | +0.00100 | +0.00176 | **0.1588 (−50%)** | 0.3277 (−0.1%) | NULL |
+
+W&B run IDs: A=`jv0blwvl`, B=`dw8m3voh`, C=`p3i32mjc`, D=`hetcmydb`
+
+### Analysis and conclusions
+
+**Verdict: productive-NULL/NEG — DECOUPLED-AUX-PRECONDITIONER β1 asymmetric differentiation CLOSED. Per-group AdamW β1 family closed in 2 directions (symmetric #599 + asymmetric #1092).**
+
+- Drift gate Arm A: +0.00076, well within ±0.003 envelope → PASS.
+- Signal threshold (Δ ≤ −0.002): NO arm. B closest at +0.00031 (opposite sign, NULL).
+- REGRESSION (Δ ≥ +0.0015): Arm C at +0.00303 ≈ 2.3σ.
+- Productive-NEG (≥ +0.005): NO arm crosses.
+
+**Mechanism FIRES in telemetry but doesn't translate to val signal.** Both diagnostic axes confirmed:
+- embed β1=0.95: step_dir_rms ↓50% (slower averaging → smoother updates ✓)
+- lm_head β1=0.70: step_dir_rms ↑24% (faster averaging → more recent-gradient-carrying updates ✓)
+
+Telemetry matches predicted mechanism exactly. But neither single-group intervention (B or D) nor the combined asymmetric intervention (C) produces a val/loss improvement.
+
+**Decomposition of the regression.** D (embed-only at 0.95) is NULL while C (embed+lm_head at 0.95+0.70) is REGRESSION. Arm B (lm_head-only at 0.70) is also NULL. So C's regression comes from the **interaction** between embed=0.95 and lm_head=0.70 simultaneously — neither alone hurts, but together they do. Mechanism: faster lm_head responsiveness + slower embed averaging creates a destructive resonance where the slower-stabilizing embed bottlenecks the faster lm_head's gradient signal.
+
+**Root cause (from student analysis)**: lm_head `effective_aux_lr_ratio_lmhead ≈ 5e-4` indicates the lm_head is massively clipped by the AUX=5.0 clip at almost every step. In that regime, changing β1 mainly shifts step DIRECTION (sign-flip behavior) without unlocking magnitude headroom for rare-token signal — so the Zipfian-responsive argument doesn't materialize.
+
+**Cross-PR axis closure.** Per-group AdamW β1 family now CLOSED in 2 directions:
+- #599 alphonse symmetric β1 sweep (all groups same β1 ∈ {0, 0.90}) → CLOSED productive-NEGATIVE
+- #1092 tanjiro asymmetric β1 differentiation (embed=0.95, lm_head=0.70 mix) → CLOSED productive-NULL/NEG (this work)
+**AdamW first-moment time-constant axis is mechanistically NOT load-bearing on aux groups at this stack's operating point.**
+
+**13th consecutive no-merge closure** since #847 (cycle 222).
+
+### Tanjiro reassigned → PR #1138 Newton-Muon (Du & Su 2026, arXiv:2604.01472) — 5th PLATEAU ESCALATION axis. Right preconditioning by input activation second moment before NS5: W ← W − η · NS5(G · (X^T X)^{-1/2}). Directly addresses proven NS5 Lipschitz invariance (#1088). External evidence: ~6% step reduction on modded-nanoGPT. Mechanism-distinct from all closed axes and all in-flight escalations (Shampoo #1132 uses gradient outer products, Newton-Muon uses TRUE input activations). Highest-priority researcher-agent recommendation from PLATEAU13 wave.
+
+## 2026-05-25 06:00 — PR #1028 PP n=3: Pruning ablation of merged stack — PRUNE-CONFIRM terminal (CLOSED, 14th consecutive no-merge closure)
+
+- Branch: `g1r4-edward/merged-stack-pruning-ablation`
+- Student: edward
+- Hypothesis: PP n=3 confirmation run to verify whether EMBED_INIT_ANCHOR_LAMBDA=0.001 (#847, the most recently merged lever) remains load-bearing on the current post-#847 stack composition.
+
+### Results (PP n=3, interleaved seeds 0/1/2, 6 runs sequential)
+
+| seed | ANCHOR=on val | ANCHOR=off val | Δ_seed (off−on) |
+|:---:|:---:|:---:|:---:|
+| 0 | dpxepjpe → 3.27089 | 484xuxx5 → 3.26992 | −0.00097 |
+| 1 | jhenf6ay → 3.26958 | hdjltfb2 → 3.26868 | −0.00090 |
+| 2 | s6jg2klc → 3.26936 | uuihpj4b → 3.27038 | +0.00102 |
+| **mean** | **3.26994** | **3.26966** | **−0.00028** |
+| σ (n−1) | 0.00083 | 0.00088 | σ_Δ=0.00113 |
+
+### Analysis and conclusions
+
+**Verdict: PRUNE-CONFIRM ✓ — EMBED_INIT_ANCHOR_LAMBDA (#847) confirmed non-load-bearing at PP n=3. 14th consecutive no-merge closure.**
+
+- PRUNE-CONFIRM gate: `|Δ|=0.00028 ≤ 0.001` AND `μ_off=3.26966 ≤ 3.27006` → both met ✓
+- WIN gate: μ_off=3.26966 > 3.26756 baseline → NOT A MERGE (drift +0.00210 above baseline mean)
+- Seed-by-seed pattern: seeds 0/1 favor off (−0.00097, −0.00090), seed 2 favors on (+0.00102). Mean Δ is sub-noise (σ_Δ=0.00113 >> |Δ|=0.00028).
+
+**Mechanism is doing observable work, just no signal.** `embed/dist_from_init` and `embed/init_anchor_lambda` track as expected in on-arms (snapshot_norm=6208.0000 reproduced across all 3 on-runs). The anchor mechanism exerts measurable force on embeddings — that force is just no longer shifting val/loss.
+
+**Why non-load-bearing now (supersession hypothesis).** #847 was load-bearing when merged (t=2.49, 3/3 direction-correct on the pre-#787 stack). Subsequent merges — particularly #1003 (per-block-TYPE cooldown anneal, closed but clarified body Muon LR cooldown mechanisms), #1048 (body cooldown shape), and the full plateau-protocol work — have co-tuned the stack so that the anchor's stabilization function has been absorbed elsewhere. The embed LR_MULT=1.5× (#393) and tighter AUX clip (#708) together maintain embed trajectory stability without needing the anchor penalty.
+
+**Pruning methodology validated.** The 4-arm subtractive sweep → PP n=3 interleaved protocol established in #1028 works at ~20 GPU-hours per pruning candidate confirmed. Banking this template for future pruning rounds.
+
+**Note on pruning vs. merging.** While anchor is confirmed null at PP n=3, a PRUNE PR still requires fresh baseline-PP on canonical merge-time pod (pod-time drift of +0.00210 means absolute μ_off doesn't beat baseline). Defer prune PR for now; the more valuable next step is Phase 2 pruning sweep targeting the next 3 oldest flags.
+
+**14th consecutive no-merge closure** since #847 (cycle 222). Escalation moves in flight: #1120 GaLore, #1122 AggMo, #1127 Schedule-Free, #1132 Shampoo — 4 orthogonal escalation directions.
+
+### Edward reassigned → PR #1137 Stack pruning Phase 2 — 3 oldest still-merged flags subtractive sweep (#393 embed LR mult 1.5×, #235 embed cooldown linear_floor, #579 body Muon LR asymmetry 0.80/1.20). Same methodology as Phase 1 (#1028): 4-arm N=1 sweep, trigger PP n=3 if any arm |Δ|≤0.001.

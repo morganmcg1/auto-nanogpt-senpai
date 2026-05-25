@@ -1,9 +1,81 @@
 # SENPAI Research State — auto-nanogpt-1gpu-r4
 
-- **Date:** 2026-05-25 04:55 UTC (cycle 249 — #1091 alphonse BODY-MUON-WEIGHT-DECAY CLOSED productive-NEG **12th consecutive no-merge closure**, BODY-MUON-WD axis COMPREHENSIVELY FENCED in 4 directions; alphonse reassigned #1132 **Shampoo body** — 4th plateau escalation, REPLACES NS5 polar decomposition entirely)
+- **Date:** 2026-05-25 06:00 UTC (cycle 253 — #1092 tanjiro per-group AdamW β1 CLOSED productive-NULL/NEG **13th closure**; #1028 edward PRUNE-CONFIRM CLOSED **14th closure** (EMBED_INIT_ANCHOR non-load-bearing at PP n=3); tanjiro → #1138 **Newton-Muon** (5th PLATEAU ESCALATION, highest-priority researcher-agent recommendation); edward → #1137 **Stack pruning Phase 2** (#393/#235/#579 subtractive sweep))
 - **Most recent research direction from human researcher team:** none on file
 - **Primary metric:** `val/loss` at 3350 steps (lower is better); `speedrun/final_first_step_to_target` secondary
 - **Statistical merge rule:** `(3.28 − μ) × √n ≥ 0.004` AND n mean ≤ current baseline
+
+## Cycle 253 snapshot (06:00 UTC May 25) — #1092 CLOSED productive-NULL/NEG; #1028 CLOSED PRUNE-CONFIRM; tanjiro → #1138 Newton-Muon (5th plateau escalation); edward → #1137 Phase 2 pruning; **14 consecutive no-merge closures**
+
+### Activity this cycle
+
+- **#1092 tanjiro** N=1 4-arm CLOSED productive-NULL/NEG: per-group AdamW β1 asymmetric differentiation (13th closure).
+  - A ctrl β1=0.8 both: 3.26832 drift PASS (+0.00076), fs=3200
+  - B lm_head β1=0.70: 3.26863 Δ_vs_A=+0.00031 NULL; lmhead_step_dir_rms +24% (mechanism fires)
+  - **C mech-lead embed=0.95+lm_head=0.70**: 3.27135 Δ_vs_A=**+0.00303 REGRESSION**; embed_step_dir_rms −50%, lmhead +23%
+  - D embed β1=0.95: 3.26932 Δ_vs_A=+0.00100 NULL; embed_step_dir_rms −50%
+  - **Mechanism fires but doesn't translate.** Diagnostic telemetry confirms all β1 overrides operating as designed. Regression in C is from INTERACTION between embed=0.95 and lm_head=0.70 simultaneously — neither alone hurts.
+  - **Root cause**: lm_head `effective_aux_lr_ratio ≈ 5e-4` → massively AUX-clipped at virtually every step → changing β1 shifts direction only, not magnitude headroom.
+  - **PER-GROUP ADAMW β1 FAMILY CLOSED in 2 directions**: #599 symmetric (all groups same β1) + #1092 asymmetric (this work).
+
+- **#1028 edward PP n=3 TERMINAL** CLOSED PRUNE-CONFIRM (14th closure).
+  - PP n=3 interleaved on/off seeds 0/1/2: μ_on=3.26994 vs μ_off=3.26966, |Δ|=0.00028, σ_Δ=0.00113
+  - Seed pattern: 0/1 favor off (−0.00097/−0.00090), seed 2 favors on (+0.00102) — sub-noise, split direction
+  - **PRUNE-CONFIRM ✓**: |Δ|=0.00028 ≤ 0.001 AND μ_off=3.26966 ≤ 3.27006
+  - NOT a merge: μ_off=3.26966 doesn't beat baseline 3.26756 (pod-time drift +0.00210)
+  - **EMBED_INIT_ANCHOR_LAMBDA (#847) confirmed non-load-bearing at PP n=3.** Anchor mechanism is doing observable work (embed/dist_from_init tracked, snapshot_norm=6208 reproduced), but no val/loss signal. Superseded by later composition of LR_MULT=1.5×/#708 clip tightening.
+  - **Pruning methodology validated**: 4-arm subtractive sweep → PP n=3 confirmed at ~20 GPU-hours/candidate.
+
+- **#1100 askeladd aux WD Phase 2** (mid-chain): Arm C (lm_head wd=1e-3) Δ_vs_A=−0.00185 approaching signal threshold; monotone A→B→C; Arm D (embed wd=1e-4) still in flight. Pre-staged decision framework: if D positive → PP n=3 on C; if D NULL/NEG → lm_head-specific Zipfian WD mechanism.
+
+- **Researcher-agent completed (PLATEAU13 wave)**: 6 fresh tier-4 hypotheses generated (see `/research/RESEARCH_IDEAS_2026-05-25_PLATEAU13.md`). Highest priorities: Newton-Muon (arXiv:2604.01472, input activation second moment right preconditioning, ~6% step reduction external evidence), SOAP aux, MARS-AdamW aux, Scion body, Muon++.
+
+- **PR #1138 tanjiro** (5th PLATEAU ESCALATION assigned this cycle): **Newton-Muon (Du & Su, arXiv:2604.01472, April 2026)** — right preconditioning by input activation second moment before NS5: `W ← W − η · NS5(G · (X^T X)^{-1/2})`. Directly addresses proven NS5 Lipschitz invariance structural finding (#1088): NS5 is Lipschitz-invariant on gradient INPUT scale; right-preconditioning by activation covariance rotates the gradient in column space (not just rescales), which IS visible to NS5. Mechanism-distinct from Shampoo #1132 (which uses gradient outer products G^T G as R proxy; Newton-Muon uses TRUE input activations X^T X). External evidence: ~6% step reduction on modded-nanoGPT at comparable settings. 4 arms: A=ctrl Muon, B=Newton lr_scale=1.0 period=10 (mech-lead), C=Newton lr_scale=0.5 period=10 (conservative LR), D=Newton lr_scale=1.0 period=50 (sparse R update).
+
+- **PR #1137 edward** (Phase 2 pruning assigned this cycle): **Stack pruning Phase 2 — subtractive sweep of next 3 oldest still-merged flags**. Same methodology as #1028 Phase 1. Arms: A=ctrl, B=drop #393 embed LR mult (1.5→1.0), C=drop #235 embed cooldown floor (linear_floor→linear), D=drop #579 body Muon LR asymmetry (0.80/1.20→1.0/1.0). PRUNE-CONFIRM gate: |Δ|≤0.001 → trigger PP n=3 confirmation.
+
+### Active chains status (cycle 253)
+
+| Student | PR | Title | Status | Notes |
+|:---:|:---:|---|:---:|---|
+| nezuko | #1120 | GaLore lm_head | WIP | Escalation #1: Arm A complete, B/C/D chaining |
+| thorfinn | #1122 | AggMo body Muon | WIP | Escalation #2: multi-β momentum bank |
+| frieren | #1127 | Schedule-Free AdamW aux | WIP | Escalation #3: replace cooldown w/ iterate-averaging |
+| alphonse | #1132 | Shampoo body Muon | WIP | Escalation #4: Kronecker 2nd-order preconditioner |
+| askeladd | #1100 | Aux per-group WD | WIP | Mid-chain, Arm C approaching signal, Arm D in-flight |
+| fern | #1113 | Adan aux optimizer | WIP | 2nd optimizer-class-aux observation |
+| tanjiro | #1138 | Newton-Muon | WIP (NEW) | Escalation #5: input covariance right preconditioning |
+| edward | #1137 | Stack pruning Phase 2 | WIP (NEW) | Phase 2: drop #393/#235/#579 flags |
+
+### Plateau awareness status (cycle 253 — ESCALATION ACTIVE, 5 escalation moves assigned)
+
+**14 consecutive no-merge closures** since #847 (cycle 222): #1028 PP, #1031, #1032, #1045, #1047, #1048, #1055, #1003, #1074, #1078, #1088, #1091, **#1092**, **#1028 PP n=3 terminal**.
+
+**Escalation moves in flight (cumulative 4 active + 1 new as of cycle 253):**
+- **#1120 nezuko GaLore lm_head** — dimensionality reduction on Zipfian-heavy lm_head (cycle 242)
+- **#1122 thorfinn AggMo body Muon** — multi-β momentum bank structure (cycle 245)
+- **#1127 frieren Schedule-Free AdamW aux** — replace cooldown with online iterate averaging (cycle 247)
+- **#1132 alphonse Shampoo body Muon** — replace NS5 polar decomposition with Kronecker-factored 2nd-order preconditioner (cycle 249)
+- **#1138 tanjiro Newton-Muon** — right preconditioning by input activation second moment (cycle 253, NEW, HIGHEST PRIORITY)
+
+**Comprehensive closed-axis map (for future hypothesis generation):**
+- Body Muon WD: 4 directions fenced (warmup NEG, cooldown NULL, constant+cooldown_only NEG, distance-from-init NULL)
+- Body Muon momentum: μ scalar (#356), Nesterov (#530), LookAhead (#1047), μ temporal schedule (#1078), AggMo (#1122 in-flight), gradient noise injection NS5-input (#1088 NULL-proven Lipschitz-invariant)
+- AdamW aux preconditioner: β2 (#236 merged, #967 cooldown anneal NULL), ε (#629/#929 v_t floor, #652 DOWN NEG, #1020 UP NULL), β1 symmetric (#599 NEG), β1 asymmetric (#1092 NULL/NEG, THIS WORK), all 5 COOLDOWN-WINDOW sub-axes fenced
+- Optimizer class aux: LION (#1045 NEG), Adan (#1113 in-flight)
+- State reset: 4 closures across both optimizer sides (#163/#711/#988/#998)
+- NS5 structure: static-c (#1008 NULL), iteration schedule (#1031 NULL), Haar-init (#1032 NULL), NS5-input gradient noise (#1088 NULL-Lipschitz-proven)
+- lm_head structure: 13 closures, GaLore dimensionality (#1120 in-flight), LION-aux (#1045 NEG)
+- Weight averaging: SWA/EMA (#1055 NULL), init-anchor (#847 merged, #1028 PRUNE-CONFIRM non-load-bearing)
+- Loss shape: CE-family 4-axis fence (#446/#441/#791/#801)
+
+**Remaining open escalation candidates (researcher-agent PLATEAU13 wave):**
+1. ~~Newton-Muon~~ → assigned #1138 tanjiro
+2. SOAP for aux (lm_head+embed) — Adam in Shampoo eigenbasis
+3. MARS-AdamW aux — STORM variance reduction on aux gradients
+4. Scion body — nuclear-norm-ball LMO replacing body Muon
+5. Muon++ — μP-style per-layer adaptive scaling
+6. Stochastic rounding diagnostic
 
 ## Cycle 249 snapshot (04:55 UTC May 25) — #1091 alphonse BODY-MUON-WEIGHT-DECAY 4-arm CLOSED productive-NEG; comprehensive 4-direction fence on body Muon WD; alphonse reassigned #1132 **Shampoo body** (Anil 2018) — 4th plateau escalation REPLACING NS5 polar decomposition with Kronecker-factored 2nd-order preconditioner
 
