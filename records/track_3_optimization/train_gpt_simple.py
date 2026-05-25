@@ -64,6 +64,11 @@ def parse_args():
     parser.add_argument("--muon_lr", type=float, default=0.035,
                         help="Base learning rate for body-Muon optimizer (matrix params in blocks). "
                              "Default 0.035 matches the merged baseline.")
+    parser.add_argument("--adamw_eps", type=float, default=1e-10,
+                        help="AdamW eps for aux pipeline (embed + lm_head + scalars). "
+                             "Baseline 1e-10 (unusual, PyTorch default is 1e-8). "
+                             "Controls denominator floor: when sqrt(v_hat) << eps, behaves like "
+                             "SignSGD on that coord.")
     args = parser.parse_args()
     args.num_trials = args.num_trials if args.num_trials is not None else (args.legacy_num_trials or 1)
     args.wandb_tags = [tag.strip() for tag in args.wandb_tags.split(",") if tag.strip()]
@@ -704,6 +709,7 @@ if dist.get_rank() == 0:
             # PMuon (bilateral covariance preconditioning, record #18) hyperparameters.
             "muon_lr": args.muon_lr,
             "muon_weight_decay": 0.025,
+            "adamw_eps": args.adamw_eps,
             "pmuon_beta_cov": 0.95,
             "pmuon_gamma": PMUON_GAMMA,
             "pmuon_gamma_power": PMUON_GAMMA,
@@ -754,7 +760,7 @@ for trial_idx in range(args.num_trials):
     optimizer1 = AdamW([dict(params=[model.embed.weight], lr=0.3, name="adam_embed"),
                         dict(params=[model.proj.weight], lr=1/160, name="adam_lm_head"),
                         dict(params=[p for p in model.parameters() if p.ndim < 2], lr=0.025, name="adam_scalars")],
-                       betas=(0.8, 0.95), eps=1e-10, weight_decay=0, fused=True)
+                       betas=(0.8, 0.95), eps=args.adamw_eps, weight_decay=0, fused=True)
     optimizer2 = Muon([p for p in model.blocks.parameters() if p.ndim >= 2],
                       lr=args.muon_lr, weight_decay=0.025, beta_cov=0.95, gamma=PMUON_GAMMA)
     optimizer2.param_groups[0]["name"] = "muon_blocks"
@@ -1038,6 +1044,22 @@ for trial_idx in range(args.num_trials):
                 "train/cooldown/lr_multiplier": sched_eta,
                 "train/cooldown/power_gamma": COOLDOWN_POWER,
             }, step=wandb_step)
+            adamw_metrics = {"trial": trial_idx, "train/step": train_step,
+                             "adamw/eps": args.adamw_eps}
+            for group in optimizer1.param_groups:
+                short_name = group["name"].replace("adam_", "")
+                v_values = []
+                for p in group["params"]:
+                    state = optimizer1.state.get(p, {})
+                    if "exp_avg_sq" in state:
+                        v_values.append(state["exp_avg_sq"].detach().float().flatten())
+                if v_values:
+                    sqrt_v = torch.cat(v_values).sqrt()
+                    adamw_metrics[f"adamw/{short_name}/v_mean_sqrt"] = float(sqrt_v.mean().item())
+                    adamw_metrics[f"adamw/{short_name}/eps_dominance_frac"] = (
+                        float((sqrt_v < args.adamw_eps).float().mean().item())
+                    )
+            wandb.log(adamw_metrics, step=wandb_step)
             if ema_params is not None:
                 wandb.log({
                     "trial": trial_idx,
