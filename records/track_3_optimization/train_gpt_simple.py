@@ -594,6 +594,26 @@ NANOGPT_SENPAI_SEED = int(_SENPAI_SEED_RAW) if _SENPAI_SEED_RAW != "" else None
 # At lambda=0 the hook is a no-op and behavior is bit-identical to the merged stack.
 NANOGPT_EMBED_INIT_ANCHOR_LAMBDA = float(os.environ.get("NANOGPT_EMBED_INIT_ANCHOR_LAMBDA", "0.0"))
 
+# Body Muon Aggregated Momentum (AggMo, Lucas 2018; arxiv 1804.00325) — K parallel
+# momentum buffers at different beta values, aggregated (mean or sum) before NS5.
+# K=1 with betas=[0.95] uses the unchanged single-buffer EMA+Nesterov fast path
+# (bit-identical to baseline). K>=2 activates the AggMo path which uses Lucas's
+# pure-accumulation form (`buf_i = β_i * buf_i + grad`), aggregates the K buffers,
+# and feeds the aggregate into Muon^2 second-moment + NS5. Nesterov lookahead is
+# omitted on the K>=2 path (Lucas 2018 omits it; baseline keeps it at K=1).
+NANOGPT_AGGMO_K = int(os.environ.get("NANOGPT_AGGMO_K", "1"))
+NANOGPT_AGGMO_BETAS_STR = os.environ.get("NANOGPT_AGGMO_BETAS", "0.95")
+NANOGPT_AGGMO_BETAS = [float(x) for x in NANOGPT_AGGMO_BETAS_STR.split(",")]
+NANOGPT_AGGMO_AGGREGATE = os.environ.get("NANOGPT_AGGMO_AGGREGATE", "mean")
+assert NANOGPT_AGGMO_K == len(NANOGPT_AGGMO_BETAS), (
+    f"NANOGPT_AGGMO_K={NANOGPT_AGGMO_K} but {len(NANOGPT_AGGMO_BETAS)} betas provided "
+    f"in NANOGPT_AGGMO_BETAS={NANOGPT_AGGMO_BETAS_STR!r}"
+)
+assert NANOGPT_AGGMO_AGGREGATE in ("mean", "sum"), (
+    f"NANOGPT_AGGMO_AGGREGATE must be 'mean' or 'sum', got {NANOGPT_AGGMO_AGGREGATE!r}"
+)
+assert NANOGPT_AGGMO_K >= 1, f"NANOGPT_AGGMO_K must be >=1, got {NANOGPT_AGGMO_K}"
+
 
 def get_ns_coef_at_iter(iter_idx: int, total_iters: int, schedule: str) -> tuple[float, float, float]:
     """Return (a, b, c) for NS iter iter_idx of total_iters.
@@ -702,6 +722,33 @@ def muon_update(grad, momentum, v, ns_iters: int, mu=0.95, beta2=0.999, eps=1e-8
     update *= max(1, grad.size(-2) / grad.size(-1))**0.5
     return update
 
+
+def muon_update_aggmo(grad, momentums, v, ns_iters: int, betas, aggregate: str,
+                     beta2=0.999, eps=1e-8):
+    """Aggregated Momentum body Muon (Lucas 2018, arxiv 1804.00325).
+
+    K parallel momentum buffers, each integrated as `buf_i = β_i * buf_i + grad`
+    (pure accumulation, per Lucas 2018). After all K buffers are updated, they
+    are aggregated (mean or sum) and the aggregate replaces the single momentum
+    buffer in the downstream Muon^2 + NS5 path. Nesterov lookahead is omitted
+    (Lucas 2018 does not include Nesterov; baseline single-buffer Muon keeps
+    Nesterov via the K=1 fast path that calls the unchanged `muon_update`).
+    """
+    bufs = []
+    for i in range(len(betas)):
+        momentums[i].mul_(betas[i]).add_(grad)
+        bufs.append(momentums[i])
+    stacked = torch.stack(bufs, dim=0)
+    if aggregate == "mean":
+        update = stacked.mean(dim=0)
+    else:
+        update = stacked.sum(dim=0)
+    v.mul_(beta2).addcmul_(update, update, value=1 - beta2)
+    update = update / (v.sqrt() + eps)
+    update = zeropower_via_newtonschulz5(update, ns_iters=ns_iters)
+    update *= max(1, grad.size(-2) / grad.size(-1))**0.5
+    return update
+
 class Muon(torch.optim.Optimizer):
     def __init__(self, params, lr=0.02, weight_decay=0, mu=0.95, beta2=0.999, eps=1e-8):
         assert isinstance(params, list) and len(params) >= 1
@@ -750,11 +797,23 @@ class Muon(torch.optim.Optimizer):
                     p = params[base_i + rank]
                     state = self.state[p]
                     if len(state) == 0:
-                        state["momentum"] = torch.zeros_like(p)
+                        if NANOGPT_AGGMO_K == 1:
+                            state["momentum"] = torch.zeros_like(p)
+                        else:
+                            for i in range(NANOGPT_AGGMO_K):
+                                state[f"aggmo_buf_{i}"] = torch.zeros_like(p)
                         state["v"] = torch.zeros_like(p)
-                    update = muon_update(p.grad, state["momentum"], state["v"],
-                                         ns_iters=ns_iters,
-                                         mu=group["mu"], beta2=group["beta2"], eps=group["eps"])
+                    if NANOGPT_AGGMO_K == 1:
+                        update = muon_update(p.grad, state["momentum"], state["v"],
+                                             ns_iters=ns_iters,
+                                             mu=group["mu"], beta2=group["beta2"], eps=group["eps"])
+                    else:
+                        momentums = [state[f"aggmo_buf_{i}"] for i in range(NANOGPT_AGGMO_K)]
+                        update = muon_update_aggmo(p.grad, momentums, state["v"],
+                                                   ns_iters=ns_iters,
+                                                   betas=NANOGPT_AGGMO_BETAS,
+                                                   aggregate=NANOGPT_AGGMO_AGGREGATE,
+                                                   beta2=group["beta2"], eps=group["eps"])
                     if spectral_target is not None and p is spectral_target:
                         # Singular values of the orthogonalized (post-NS) update.
                         # Multiplied by max(1, fan_in/fan_out)**0.5 inside muon_update;
@@ -823,6 +882,10 @@ print0(f"MUON_LR_MULT: attn={NANOGPT_MUON_ATTN_LR_MULT:.3f} mlp={NANOGPT_MUON_ML
 print0(f"  Effective Muon base LRs: attn={0.035*NANOGPT_MUON_ATTN_LR_MULT:.5f} mlp={0.035*NANOGPT_MUON_MLP_LR_MULT:.5f}", console=True)
 print0(f"EMBED_INIT_ANCHOR_LAMBDA: {NANOGPT_EMBED_INIT_ANCHOR_LAMBDA} "
        f"({'ACTIVE' if NANOGPT_EMBED_INIT_ANCHOR_LAMBDA > 0 else 'INACTIVE (bit-identical fallback)'})",
+       console=True)
+print0(f"AGGMO_BODY_MUON: K={NANOGPT_AGGMO_K} betas={NANOGPT_AGGMO_BETAS} "
+       f"aggregate={NANOGPT_AGGMO_AGGREGATE} "
+       f"({'ACTIVE (Lucas 2018 multi-buffer; no Nesterov)' if NANOGPT_AGGMO_K >= 2 else 'INACTIVE (single-buffer EMA+Nesterov fast path)'})",
        console=True)
 if NS_ITERS_COOLDOWN > 0:
     print0(f"NS_SCHEDULE: ns_iters={NS_ITERS} -> ns_iters_cooldown={NS_ITERS_COOLDOWN} "
@@ -896,6 +959,10 @@ if dist.get_rank() == 0:
             "nanogpt_ns_stochastic_cooldown": NANOGPT_NS_STOCHASTIC_COOLDOWN,
             "senpai_seed": NANOGPT_SENPAI_SEED if NANOGPT_SENPAI_SEED is not None else -1,
             "nanogpt_embed_init_anchor_lambda": NANOGPT_EMBED_INIT_ANCHOR_LAMBDA,
+            "nanogpt_aggmo_k": NANOGPT_AGGMO_K,
+            "nanogpt_aggmo_betas": NANOGPT_AGGMO_BETAS,
+            "nanogpt_aggmo_aggregate": NANOGPT_AGGMO_AGGREGATE,
+            "nanogpt_aggmo_active": int(NANOGPT_AGGMO_K >= 2),
         },
     )
 
@@ -1326,6 +1393,38 @@ for trial_idx in range(args.num_trials):
                 }.get(NS_COEF_SCHEDULE, -1),
             })
             wandb.log(ns_metrics, step=wandb_step)
+        if dist.get_rank() == 0 and telemetry_due and NANOGPT_AGGMO_K >= 2:
+            # AggMo per-buffer telemetry: measure L2 norms of the K parallel
+            # momentum buffers on a representative body Muon parameter
+            # (blocks[0].attn.q.weight, same target used for spectral_stats).
+            # buf_0_l2_ratio = ||buf_i|| / ||buf_0|| reveals whether slow buffers
+            # dominate the aggregated update (an artifact of Lucas 2018's pure
+            # accumulation form where high-β buffers grow ~1/(1-β) in steady
+            # state) or whether multiple time-scales contribute meaningfully.
+            with torch.no_grad():
+                aggmo_target = model.blocks[0].attn.q.weight
+                aggmo_state = optimizer2.state.get(aggmo_target, {})
+                if all(f"aggmo_buf_{i}" in aggmo_state for i in range(NANOGPT_AGGMO_K)):
+                    aggmo_bufs = [aggmo_state[f"aggmo_buf_{i}"].detach().float()
+                                  for i in range(NANOGPT_AGGMO_K)]
+                    buf_l2s = [float(b.norm().item()) for b in aggmo_bufs]
+                    if NANOGPT_AGGMO_AGGREGATE == "mean":
+                        agg_buf = torch.stack(aggmo_bufs, dim=0).mean(dim=0)
+                    else:
+                        agg_buf = torch.stack(aggmo_bufs, dim=0).sum(dim=0)
+                    agg_l2 = float(agg_buf.norm().item())
+                    aggmo_metrics = {
+                        "trial": trial_idx,
+                        "train/step": train_step,
+                        "train/aggmo/k": NANOGPT_AGGMO_K,
+                        "train/aggmo/agg_l2": agg_l2,
+                    }
+                    ref = max(buf_l2s[0], 1e-30)
+                    for i, (l2, beta_i) in enumerate(zip(buf_l2s, NANOGPT_AGGMO_BETAS)):
+                        aggmo_metrics[f"train/aggmo/buf_{i}_l2"] = l2
+                        aggmo_metrics[f"train/aggmo/buf_{i}_l2_ratio"] = l2 / ref
+                        aggmo_metrics[f"train/aggmo/buf_{i}_beta"] = beta_i
+                    wandb.log(aggmo_metrics, step=wandb_step)
         if dist.get_rank() == 0 and telemetry_due:
             log_weight_telemetry(
                 model=model,
