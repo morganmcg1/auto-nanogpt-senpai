@@ -83,6 +83,16 @@ def parse_args():
              "muall=musoft + non-residual block 2D weights also scaled by 1/sqrt(L); "
              "smallconst=std=1e-3 depth-independent.",
     )
+    parser.add_argument("--gc_mode", type=str, default="off",
+                        choices=["off", "row", "col", "both", "row_attn_only"],
+                        help="Gradient centralization mode for Muon body matrices, applied "
+                             "to the gradient before it feeds momentum, SOAP preconditioner "
+                             "updates, and Newton-Schulz orthogonalization. "
+                             "off (default) = current behavior (no change); "
+                             "row = subtract per-output-row mean (canonical GC); "
+                             "col = subtract per-input-col mean; "
+                             "both = row + col with grand-mean add-back (Schur centering); "
+                             "row_attn_only = row-mean centering on attn body only (mlp untouched).")
     args = parser.parse_args()
     args.num_trials = args.num_trials if args.num_trials is not None else (args.legacy_num_trials or 1)
     args.wandb_tags = [tag.strip() for tag in args.wandb_tags.split(",") if tag.strip()]
@@ -571,7 +581,7 @@ class Muon(torch.optim.Optimizer):
     SOAP_ATTN_SUFFIXES = (".attn.q.weight", ".attn.k.weight", ".attn.v.weight", ".attn.proj.weight")
 
     def __init__(self, named_params, lr=0.02, weight_decay=0, mu=0.95,
-                 soap_attn=False, trust_threshold=0.0):
+                 soap_attn=False, trust_threshold=0.0, gc_mode="off"):
         # `named_params` can be either:
         #   (a) list of (name, param) tuples → single param group (legacy form)
         #   (b) list of dicts {"named_params": [(name, param), ...], "lr": ?, "weight_decay": ?, "mu": ?, "name": ?}
@@ -594,6 +604,8 @@ class Muon(torch.optim.Optimizer):
         self.trust_threshold = float(trust_threshold)
         self.use_trust_gate = soap_attn
         self.cos_sims_buffer: dict[str, Tensor] = {}
+        self.gc_mode = gc_mode
+        self.grad_row_mean_l1_buffer: dict[str, Tensor] = {}
 
         param_groups = []
         for g in groups_raw:
@@ -610,9 +622,37 @@ class Muon(torch.optim.Optimizer):
         defaults = dict(lr=lr, weight_decay=weight_decay, mu=mu)
         super().__init__(param_groups, defaults)
 
+    def _maybe_centralize(self, grad, param):
+        """Apply Gradient Centralization (Yong et al. 2020) to body-matrix gradients.
+
+        Mode `off` returns the gradient unchanged (bit-identical baseline path).
+        `row` / `col` subtract the per-row / per-column mean; `both` removes both
+        with a grand-mean add-back so we do not double-subtract the scalar mean
+        (Schur-style centering). `row_attn_only` restricts row centering to attn
+        body weights (mlp body untouched).
+        """
+        if self.gc_mode == "off" or grad.ndim < 2:
+            return grad
+        if self.gc_mode == "row_attn_only":
+            name = self.param_names.get(id(param), "")
+            if not any(name.endswith(suf) for suf in self.SOAP_ATTN_SUFFIXES):
+                return grad
+            return grad - grad.mean(dim=1, keepdim=True)
+        if self.gc_mode == "row":
+            return grad - grad.mean(dim=1, keepdim=True)
+        if self.gc_mode == "col":
+            return grad - grad.mean(dim=0, keepdim=True)
+        if self.gc_mode == "both":
+            g_row_mean = grad.mean(dim=1, keepdim=True)
+            g_col_mean = grad.mean(dim=0, keepdim=True)
+            g_grand_mean = grad.mean()
+            return grad - g_row_mean - g_col_mean + g_grand_mean
+        return grad
+
     @torch.no_grad()
     def step(self):
         self.cos_sims_buffer = {}
+        self.grad_row_mean_l1_buffer = {}
         world_size = dist.get_world_size()
         rank = dist.get_rank()
         for group in self.param_groups:
@@ -633,9 +673,14 @@ class Muon(torch.optim.Optimizer):
                             state["q_row"] = None
                             state["q_col"] = None
                             state["soap_step"] = 0
+                    # Diagnostic: pre-centralization row-mean L1 on one canonical attn body.
+                    pname = self.param_names.get(id(p), "")
+                    if pname == "0.attn.q.weight" and p.grad is not None and p.grad.ndim >= 2:
+                        self.grad_row_mean_l1_buffer[pname] = p.grad.float().mean(dim=1).abs().sum()
+                    g_in = self._maybe_centralize(p.grad, p)
                     if use_soap:
-                        state["momentum"].lerp_(p.grad, 1 - group["mu"])
-                        raw_nesterov = p.grad.lerp(state["momentum"], group["mu"])
+                        state["momentum"].lerp_(g_in, 1 - group["mu"])
+                        raw_nesterov = g_in.lerp(state["momentum"], group["mu"])
                         precond_nesterov = soap_precondition_momentum(raw_nesterov, state)
                         u_soap = soap_ns_step(precond_nesterov)
                         if self.use_trust_gate:
@@ -647,9 +692,9 @@ class Muon(torch.optim.Optimizer):
                             self.cos_sims_buffer[self.param_names[id(p)]] = cos_sim_t
                         else:
                             update = u_soap
-                        soap_update_preconditioner(p.grad, state)
+                        soap_update_preconditioner(g_in, state)
                     else:
-                        update = muon_update(p.grad, state["momentum"], mu=group["mu"])
+                        update = muon_update(g_in, state["momentum"], mu=group["mu"])
                     norm_sum.add_(update.float().norm())
                     p.mul_(1 - group["lr"] * group["weight_decay"])
                     p.add_(update, alpha=-group["lr"])
@@ -765,6 +810,7 @@ if dist.get_rank() == 0:
             "wd_schedule": args.wd_schedule,
             "lr_scalars": args.lr_scalars,
             "depth_init_mode": args.depth_init_mode,
+            "gc_mode": args.gc_mode,
         },
     )
 
@@ -853,6 +899,7 @@ for trial_idx in range(args.num_trials):
             dict(named_params=attn_named, lr=args.lr_attn, weight_decay=args.wd_attn, name="muon_attn"),
         ],
         soap_attn=args.soap_attn, trust_threshold=args.soap_trust_threshold,
+        gc_mode=args.gc_mode,
     )
     optimizers = [optimizer1, optimizer2]
     assert set(p for opt in optimizers for group in opt.param_groups
@@ -1027,6 +1074,11 @@ for trial_idx in range(args.num_trials):
                 per_group_metrics["train/wd_attn_now"] = current_wds.get("muon_attn", 0.0)
                 per_group_metrics["train/wd_schedule_progress"] = train_step / train_steps
                 wandb.log(per_group_metrics, step=wandb_step)
+        if dist.get_rank() == 0 and optimizer2.grad_row_mean_l1_buffer:
+            gc_metrics = {"trial": trial_idx, "train/step": train_step}
+            for gc_name, gc_val in optimizer2.grad_row_mean_l1_buffer.items():
+                gc_metrics[f"muon/grad_row_mean_l1/{clean_metric_name(gc_name)}"] = float(gc_val.detach().item())
+            wandb.log(gc_metrics, step=wandb_step)
         if dist.get_rank() == 0 and optimizer2.cos_sims_buffer:
             cs_names = list(optimizer2.cos_sims_buffer.keys())
             cs_tensors = list(optimizer2.cos_sims_buffer.values())
