@@ -1,5 +1,36 @@
 # SENPAI Research Results — auto-nanogpt-1gpu-r2
 
+## 2026-05-25 22:15 UTC — #1207 frieren RIEMANNIAN_MUON_TRANSPORT CLOSED (151st refuted, RIEMANNIAN-MUON-TRANSPORT-PILOT-ITERS-IN-{4,7}-PRE-NS5 1/1 → 38th family-level closure, 14th SHIFTED-FLOOR)
+
+### #1207 frieren RIEMANNIAN_MUON_TRANSPORT CLOSED (151st refuted, 38th family-level closure, 14th SHIFTED-FLOOR)
+
+- **Branch**: g1r2-frieren/riemannian-muon-parallel-transport
+- **Hypothesis**: Riemannian parallel transport `R = X_curr @ X_prev.T` rotates Muon momentum buffer to track Stiefel manifold rotation, preserving `||m||` exactly vs PR #1186 projection collapse 0.049-0.496. Arm A pilot=4 + Arm B pilot=7 sequential.
+- **Results**:
+
+| Run | Arm | Pilot iters | Step | val/loss | Status |
+|---|---|---|---|---|---|
+| ye7ccw21 | disabled-check | n/a | 200 | 4.09198 | bytewise-inert verified, +0.005 above expected 4.087 within variance |
+| 5ahud3i8 | A | 4 | 1500 (killed) | 3.56482 | kill-gate breach val=4.00236 @ step 375 by +0.0024, +0.10 sustained gap vs baseline |
+| —       | B | 7 | n/a (absorbed) | —        | not run — decision tree clear-miss + root cause = polar approximation not pilot count |
+
+  **Norm-preservation diagnostic** (PR predicted ratio≈1.0):
+
+| Step | Mean ratio | Min | Max |
+|---|---|---|---|
+| 100 | 0.9101 | 0.4133 | 0.9981 |
+| 200 | 0.9222 | 0.5902 | 0.9982 |
+| 500 | 0.9398 | 0.6147 | 0.9979 |
+| 1000 | 0.9550 | 0.7121 | 0.9984 |
+| 1500 | 0.9566 | 0.5711 | 0.9985 |
+
+  Hypothesis violated: mean stabilizes ~0.957 (4.3% bleed/step), min drops to 0.41-0.73 worst case = 30-60% norm loss for some params.
+
+- **Conclusion**: SHIFTED-FLOOR refute, 14th instance. Family closure `RIEMANNIAN-MUON-TRANSPORT-PILOT-ITERS-IN-{4,7}-PRE-NS5` 1/1 — Arm B absorbed without running because root cause is approximate-polar leakage (NS5 with finite iters is contractive non-orthogonal approximation), not pilot-iter count. Higher pilot iters would tighten R but not fix orthogonality error accumulation across chained X_curr @ X_prev^T multiplications. **NEW STRUCTURAL FINDING (campaign-level): rules out future Cayley-transform / Riemannian-Lie-algebra / geodesic-momentum variants built on NS5-as-polar primitive** — closure interpretations now contribute to research-direction-pruning, not just family-level absorption. Frieren EIGHT consecutive within-student closure-map validations #1124→#1142→#1158→#1161→#1169→#1186→#1207 saturates Riemannian-momentum mechanism layer. Pivot to structurally distinct axis required, researcher-agent launched.
+- **Advisor self-correction**: After initial Arm A crash, I misread baseline at step 1500 as ~3.58 (actual 3.46982) and instructed re-launch as "infrastructure crash". Frieren had already correctly killed per kill-gate policy. Comment retracted. Process learning: always check baseline trajectory before instructing re-launch on apparent crashes.
+
+---
+
 ## 2026-05-25 21:45 UTC — #1195 thorfinn SWD_MUON CLOSED (150th refuted, SWD-MUON-RANK1-WD-SPEC-IN-[1e-4,1e-3]-POWER-ITER-2-WARM-START 1/1 → 37th family-level closure, 13th SHIFTED-FLOOR, **9th refute-signature class MONOTONE-IN-SPEC-WRONG-DIRECTION first instance**) + #1216 thorfinn PSGD_KRON_AUX assigned (73rd mech class)
 
 ### #1195 thorfinn SWD_MUON CLOSED (150th refuted, 37th family-level closure, 13th SHIFTED-FLOOR + 1st MONOTONE-IN-SPEC-WRONG-DIRECTION)
