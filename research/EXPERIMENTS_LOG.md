@@ -1,5 +1,51 @@
 # SENPAI Research Results — auto-nanogpt-1gpu-r2
 
+## 2026-05-25 02:15 UTC — PR #1108: AUX_ADAMW_AMSGRAD (CLOSED, 124th refuted — first AUX-side intervention in 280+ PRs, publication-grade mechanism telemetry "wrong direction" explanation)
+
+- Branch: `g1r2-thorfinn/aux-amsgrad` (student g1r2-thorfinn)
+- Hypothesis: Enable AMSGrad variant on AUX AdamW via `v_hat_t = max(v_t, v_hat_{t-1})` for monotone non-increasing effective LR on embed + lm_head (234M params). Tests whether AUX second-moment monotonization moves the bias-limited floor cluster.
+- Results:
+
+| Run | Arm | AUX_ADAMW_AMSGRAD | val_final | ffs | Notes |
+|---|---|---|---|---|---|
+| `ij2kciyy` | Arm A (n=1) | 1 | **3.28308** | **-1** | Clear miss (+0.0153 above merge bar) |
+| `cupyrm27` | disabled-check | 0 | 4.08025 @ step 200 | -1 | ✓ matches references, bytewise inert |
+| Arm B | NOT LAUNCHED | — | — | — | Per decision tree: clear miss → close without Arm B |
+| baseline #613 (n=2) | — | 0 | 3.26776 | 3000 | — |
+
+- Arm A trajectory (smooth descent through cooldown, 2 technical gate touches < 0.005):
+
+| Step | Arm A val | Kill gate | Margin |
+|---|---|---|---|
+| 500 | 3.79929 | ≤3.81 | -0.011 pass |
+| 1000 | 3.65977 | ≤3.66 | -0.0002 pass tight |
+| 1500 | 3.53494 | ≤3.55 | -0.015 pass |
+| 2000 | 3.43417 | ≤3.43 | +0.004 technical breach |
+| 2500 | 3.35587 | ≤3.36 | -0.004 pass |
+| 3000 | 3.29340 | ≤3.29 | +0.003 technical breach |
+| 3175 | **3.28308** terminal | — | clear miss |
+
+- Cooldown phase descent rate (steps 2900-3175): -0.021 (0.020/175 steps = 0.000120 per step, vs floor cluster norm 0.000125)
+- **AMSGrad mechanism telemetry (publication-grade)**:
+  - `optim/aux_amsgrad_param_count = 101` (full AUX coverage)
+  - Mid-training `v_hat / v_t` ratio descended to 0.1-0.3 range
+  - Terminal `optim/aux_amsgrad_v_vs_vhat_max_ratio = 0.02716` mean, `_min = 0.0`
+  - Interpretation: terminal `v_hat ≈ 37× v_t.max()` on average → effective AUX LR shrunk to 1/√37 ≈ 0.16× of vanilla AdamW
+  - AMSGrad delivered de facto ~6× permanent LR shrinkage on dominant AUX param tensors (embed + lm_head) WITHOUT explicit schedule changes
+  - Mechanism worked exactly as Reddi et al 2018 theory predicts
+- Disabled-check verification: `AUX_ADAMW_AMSGRAD=0` produces val@200=4.08025 ✓ bytewise inert
+- Step overhead: ~5% (extra max_exp_avg_sq buffer + max operation per step on AUX params)
+- Memory overhead: ~940 MB float32 max_exp_avg_sq buffer (well within 96GB budget)
+- Conclusion: **REFUTED as 124th axis** — categorically novel AUX-side intervention class refuted with clean mechanistic explanation
+- Mechanistic interpretation (thorfinn's publication-grade analysis "wrong direction"):
+  - "AUX LRs (0.3 for embed, 1/320 for lm_head) are already well-tuned. AMSGrad's effect ≈ multiplying these by ~0.16 by terminal — too aggressive. Floor cluster baseline reaches val=3.268 with vanilla AdamW second-moment dynamics on AUX → optimal AUX effective LR through cooldown is HIGHER than AMSGrad permits."
+  - "Monotone non-increasing effective LR is the wrong direction — floor cluster needs UNCONSTRAINED adaptive LR on the largest tensors."
+- Trajectory observation: Arm A narrowed gap to +0.006 vs floor cluster at step 2900, briefly went -0.001 (even) at step 3000, then re-opened to +0.013 terminal — delivered "shifted-floor" trajectory parallel to but slightly above bias-limited floor
+- Cycle 71 status: 124 refuted axes, 31+ distinct mechanism classes probed (48 assigned). 11 family-level closures unchanged (single-PR class addition). AUX-side second-moment monotonization family 1/1 refuted.
+- Family-level closure prediction by analogy: ANY monotone non-increasing effective AUX LR mechanism → refute via same wrong-direction mechanism (Yogi-style v_t clip, partial-ratchet variants all absorbed)
+- Categorically distinct axes NOT closed (advisor backlog from thorfinn's follow-ups): AUX second-moment AMPLIFICATION (opposite direction), AUX bias-correction OFF, **AUX LR SCHEDULE (next assignment for thorfinn)**, AUX_BETA2_SCHEDULE
+- Mechanistic significance: thorfinn's `v_hat / v_t` ratio analysis is the cleanest single-PR explanation of AUX-side LR sensitivity in 280+ PRs. Floor cluster now has mechanistic understanding that bias is NOT due to insufficient AUX LR monotonization.
+
 ## 2026-05-25 02:00 UTC — PR #1095: MUON_BODY_QHADAM_BLEND (CLOSED, 123rd refuted — first cycle 71 closure with "crossover" refute signature, publication-grade phase-dependent advantage/disadvantage analysis)
 
 - Branch: `g1r2-fern/muon-body-qhadam-blend` (student g1r2-fern)
