@@ -3,6 +3,56 @@
 Log of completed/reviewed experiment PRs in chronological order. Wave 1
 results pending student execution.
 
+## 2026-05-25 ~05:00 UTC — PR #1077: frieren static SOAP_BETA2 sweep — **CLOSED clean-NEG NULL (SOAP scalar HP axis 4/4 closed)**
+
+- **Branch:** `g1r5-frieren/soap-beta2-static-sweep`
+- **Student:** g1r5-frieren
+- **Hypothesis:** Static `SOAP_BETA2` (hardcoded 0.90 at line 27) might not be the local optimum on the current SOAP-attn+musoft+lr_mlp=0.055 baseline. Sweep ±5%/±10% around 0.90 (5 cells) to characterize the loss curvature in β₂ space.
+
+| Cell | β₂ | val/loss | Δ vs μ_base | z_base | ffs | run_id |
+|------|----|----------|-------------|--------|-----|--------|
+| A (CTRL) | 0.90 | 3.26319 | +0.001969 | **+3.32σ** | 3050 | `o7p6luu7` |
+| B ★ (PRIMARY) | 0.95 | 3.26202 | −0.000799 | −1.35σ | 3050 | `w3wz60ir` |
+| C | 0.98 | 3.26331 | +0.002089 | **+3.52σ** | 3050 | `lsj58yek` |
+| D | 0.85 | **3.26134** | −0.000881 | −1.49σ | **3025** | `qf4qqtm8` |
+| E | 0.80 | 3.26144 | −0.000781 | −1.32σ | **3025** | `7otmnknq` |
+
+- **Baseline:** μ=3.261221, σ_single=0.000593, n=4, ffs_mean=3025. n=1 confirm gate: ≤3.260628.
+- **Best cell D (β₂=0.85) at −1.49σ_baseline FAILS n=1 confirm gate by +0.71σ** → NULL.
+- **Cell C (β₂=0.98) +3.52σ is the cleanest mechanism falsifier:** 34-step EMA halving-time > PRECOND_FREQ=16 → exp_avg_sq cannot equilibrate before Q refresh. Slow β₂ is structurally unsafe on this stack.
+- **Cell A (CTRL β₂=0.90) +3.32σ unlucky-seed draw** confounds the D/E comparison vs A; comparing D/E to baseline μ (n=4) places them only at −1.5σ/−1.3σ, within the seed-noise band.
+- **Across-cell stdev 0.000800 ≈ σ_single 0.000593** → axis dominated by seed noise; static β₂ in [0.80, 0.95] not load-bearing.
+- **Decision:** CLOSE clean-NEG NULL. Static SOAP_BETA2 axis closed.
+- **Mechanism cluster:** SOAP scalar HP axis comprehensively closed (4/4):
+  - Q_row/Q_col asymmetry (#936/#994/#1053) — CLOSED
+  - exp_avg_sq scaling (#979) — CLOSED
+  - SOAP eps (#1076) — CLOSED NULL (same poll)
+  - SOAP_BETA2 static (this PR) — CLOSED NULL
+- **Student's #3 follow-up adopted as fresh assignment:** Decoupled β₂ — Gram-matrix EMA (`shampoo_beta`, consumed every PRECOND_FREQ=16 steps for Q refresh) vs in-basis exp_avg_sq EMA (`beta2`, consumed per-step in Adam denominator). The two EMAs have different downstream consumers and no a-priori reason to share β₂. Exposes a new structural degree of freedom.
+- **frieren → #1130 Decoupled SOAP β₂** (5-cell sweep, gram∈{0.85, 0.90, 0.95} × basis∈{0.85, 0.90, 0.95}).
+
+## 2026-05-25 ~05:00 UTC — PR #1076: alphonse SOAP eps sweep — **CLOSED clean-NEG NULL (eps axis flat across 8 OOM)**
+
+- **Branch:** `g1r5-alphonse/soap-eps-sweep`
+- **Student:** g1r5-alphonse
+- **Hypothesis:** SOAP's `eps=1e-8` (hardcoded line 543) in `soap_precondition_momentum(update, state, beta2, eps)` controls the Adam-in-eigenbasis denominator floor AND the norm-preservation clamp_min. Test 8 orders of magnitude across {1e-2, 1e-4, 1e-6 (PRIMARY), 1e-8 (ctrl), 1e-10}.
+
+| Cell | soap_eps | val/loss | Δ vs μ_base | z_base | ffs | run_id |
+|------|----------|----------|-------------|--------|-----|--------|
+| A (CTRL) | 1e-8 | 3.261112 | +0.000891 | +1.50σ | 3050 | `emacq2yb` |
+| B ★ (PRIMARY) | 1e-6 | 3.261044 | −0.000177 | −0.30σ | **3025** | `8ebopxxf` |
+| C | 1e-4 | 3.261588 | +0.000367 | +0.62σ | **3025** | `xlpbiwbm` |
+| D | 1e-10 | **3.261030** | −0.000191 | −0.32σ | **3025** | `jgbsjfzt` |
+| E | 1e-2 | 3.261980 | +0.000759 | +1.28σ | 3050 | `ufx11gga` |
+
+- **Baseline:** μ=3.261221, σ_single=0.000593, n=4, ffs_mean=3025. n=1 confirm gate: ≤3.260628.
+- **Best cell D (1e-10) at −0.32σ_baseline FAILS n=1 gate** by +0.000402 (still +0.68σ ABOVE the gate).
+- **Across-cell stdev 0.000507 ≈ σ_single 0.000593** — eps axis explains no variance beyond seed noise across 8 OOM.
+- **Non-monotonic profile (D < B < A < C < E)** — loss surface locally flat w.r.t. eps in [1e-10, 1e-2]. The norm-preservation clamp_min likely rescales bulk eps differences away — per-eigendirection denominator floor only matters for vanishingly rare extreme-low-variance components. SOAP_BETA2=0.90 fast EMA produces enough `exp_avg_sq` variance that even 1e-2 floor doesn't dominate.
+- **Decision:** CLOSE clean-NEG NULL. SOAP eps axis structurally inert in [1e-10, 1e-2].
+- **Student follow-up noted but deprioritized:** Decoupling additive denominator floor from norm-preservation clamp_min (currently both share `eps`). Structural axis but axis itself flat, so low-priority.
+- **alphonse → #1131 AdaBelief replacement for AdamW on aux groups** (fresh optimizer-family axis on optimizer1; orthogonal to closed scalar HP work and complementary to in-flight WD work #1105).
+
 ## 2026-05-25 ~03:55 UTC — PR #1072: fern embed/lm_head warmup schedule — **CLOSED clean-NEG (AdamW aux schedule axis closed for warmup direction)**
 
 - **Branch:** `g1r5-fern/embed-lm-head-warmup`
