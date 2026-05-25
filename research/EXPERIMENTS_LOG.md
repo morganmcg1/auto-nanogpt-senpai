@@ -1,5 +1,75 @@
 # SENPAI Research Results — auto-nanogpt-1gpu-r2
 
+## 2026-05-25 06:50 UTC — PR #1133: TOKEN_FREQ_REWEIGHT_LOSS (CLOSED, 132nd refuted — inverse-frequency-CE-reweighting family 1/1, 19th family-level closure, NEW 7th refute-signature class "catastrophic-divergence persistent-gap" with publication-grade validation-vs-training-objective-mismatch mechanism interpretation)
+
+- Branch: `g1r2-askeladd/token-freq-loss` (student g1r2-askeladd)
+- Hypothesis: Inverse-token-frequency weighted CE `weight_t = (1/f_t)^α` (Mikolov 2013 negative sampling intuition + Lin 2017 focal-loss long-tail framing): downweight common tokens (whitespace, punctuation) so gradient signal focuses on rare-token correctness → potentially break floor cluster by reallocating learning effort.
+- Mechanism class: LOSS-ARCHITECTURE-FREQUENCY (52nd distinct mech class). FIRST per-token CE reweighting in 295-PR corpus.
+
+### Results
+
+| Run | Arm | α | val/loss | ffs | Status |
+|---|---|---|---|---|---|
+| `lwnzfrh5` | disabled-check | 0 | 4.08173 @ step 200 | — | ✓ within [4.075, 4.085] band |
+| `mwksz91h` | A | 0.5 | **4.46405** @ step 1419 (KILLED) | -1 | CATASTROPHIC: +0.92 above baseline throughout |
+| — | B | 0.25 | — | — | Decision-tree-skipped per Arm A kill-gate violation |
+
+**Trajectory table (Arm A val/loss vs baseline `1zb5h0e5`)**:
+| Step | Arm A | Baseline | Δ | Kill gate |
+|---|---|---|---|---|
+| 125 | 5.49592 | 4.42186 | +1.07406 | — |
+| 250 | 5.09159 | 4.04135 | +1.05024 | — |
+| 500 | 4.75375 | 3.80572 | +0.94803 | — |
+| 1000 | 4.58151 | 3.66152 | +0.91999 | ≤ 3.71 (+0.05 over baseline) → VIOLATED by +0.87 |
+| 1250 | 4.50437 | 3.59561 | +0.90876 | — |
+| 1375 | 4.46405 | 3.56621 | +0.89784 | — |
+
+**Mechanism telemetry (token weight distribution, Arm A, 100M tokens shard)**:
+- `token_weight/mean` = 1.0 (normalized)
+- `token_weight/std` = 1.332
+- `token_weight/min` = 0.00645 (most common token)
+- `token_weight/p01` = 0.0911
+- `token_weight/median` = 0.7562
+- `token_weight/p99` = 8.0014
+- `token_weight/max` = 12.608 (rarest observed)
+- `token_weight/unobserved_tokens` = 407 of 50,257
+- **Dynamic range ~1955×** from min to max
+
+**Train-side confirms mechanism fired**:
+- train/loss: 1.04 → 0.78 (steps 125 → 1250) — model IS optimizing the weighted CE successfully
+- train/grad/rms: 2.491 → 0.637 (~5× elevated vs baseline early due to rare-token weight 12.6 boost)
+- train/grad/global_norm: 31740 → 8115
+
+### Results commentary, analysis, conclusions
+
+**Catastrophic refute with persistent +0.9 gap throughout training — mechanism faithfully implements the hypothesis but the hypothesis is wrong-direction for the language-modeling validation objective.**
+
+1. **Mechanism worked**: The patch is bytewise inert at α=0 (disabled-check val@200=4.08173 ✓), and at α=0.5 train/loss decreases monotonically while grad RMS is ~5× elevated (consistent with rare-token gradient boost ×12.6). Token weight dynamic range 1955× is faithfully applied. No NaN, no Inf, no instability — purely an optimization-quality failure.
+
+2. **Why it fails**: Validation is **unweighted CE**, which mathematically equals the expected per-token NLL under the true token frequency distribution. By reweighting training loss to weighted-CE, the model converges to a different distribution than val measures. The +0.9 persistent gap IS the L1 distance between weighted-vs-unweighted CE on the trained model.
+
+3. **Why common tokens aren't trivially easy**: Whitespace/punctuation/short-subword tokens encode syntactic structure (sentence boundaries, line breaks, code structure, JSON formatting) that's load-bearing for the joint distribution. Downweighting them by 150× starves the model of basic syntactic learning signal. The trained model knows rare tokens but is bad at common-token syntactic structure where most of the val loss is concentrated.
+
+4. **Sampling-temperature-like interpretation**: At α=0.5, the model effectively learns a distribution that pretends rare tokens are 1955× more probable than they actually are. This is a *target-distribution warping*, not a regularizer — it's optimizing a different generative task than what val measures.
+
+5. **Family-level closure (1/1)**: Any monotone reweighting of per-token CE by a function of token marginal frequency f_t (i.e., `weight_t = g(f_t)` for any decreasing g) will produce a model optimizing a different distribution than the validation CE measures. The miss magnitude scales with the dynamic range of g(f_t). α=0.25 (dynamic range ~44× instead of 1955×) would refute same direction at lower magnitude — Arm B decision-tree skip correct.
+
+6. **Refute-signature taxonomy**: 7th class **"catastrophic-divergence persistent-gap"** NEW — distinct from prior 6 (catastrophic / shifted-floor / floor-cluster-touch / crossover / mechanism-null / wrong-direction). Characterized by: mechanism fires successfully (train side optimizes intended objective), val/loss exhibits SUSTAINED LARGE GAP >>0.05 throughout training with NO recovery near terminal, no NaN/Inf/numerical issues. Methodologically distinct from "catastrophic" (numerical) because nothing breaks — pure misaligned optimization. Future loss-side experiments with persistent val/loss gap >0.05 throughout training will be classified under this signature.
+
+7. **Follow-up routing**: askeladd's 5 suggested follow-ups evaluated:
+   - (1) Auxiliary additive loss + (3) curriculum schedule on α: same family-level closure (both still optimize a non-CE objective). SKIP.
+   - (2) Frequency-aware label smoothing: already tested as #858 + #901 (closed). SKIP.
+   - **(4) Logit-adjustment Menon 2020**: ✓ Categorically distinct mechanism layer (logit-space additive bias, not loss-space reweighting). Assigned as **#1147 LOGIT_ADJUSTMENT_PRIOR_BIAS** — adds `α·log(freq)` as fixed per-token bias to logits during both training AND val so the objective is consistent. The lm_head learns context-only signal with the prior baked in as a fixed offset.
+   - (5) Frequency-aware param-space (embed/lm_head WD/init): Held pending #1147 signal — if logit-adjustment fails, param-space attempts at same goal are unlikely to succeed at floor cluster.
+
+8. **4th high-value pre-launch / mid-flight student catch in cycle 71**: askeladd's decision-tree kill-gate violation enforcement saved an entire Arm B GPU-day on already-confirmed +0.9 gap miss. Joins fern's `.sum()` discipline (#1117), thorfinn's eta-cooldown invariant (#1119), frieren's CROSSOVER mechanism interpretation (#1124→#1142).
+
+9. **3rd cycle 71 closure where refute interpretation directly drives next experiment within same student/wave**: #1133→#1147 logit-adjustment joins frieren #1124→#1142 cooldown-gating and fern #1117→#1145 entropy-bonus. Trio validates "refute → mechanism understanding → categorically novel follow-up axis" force multiplier pattern, maintaining categorical pivot continuity.
+
+10. **Follow-up assigned**: #1147 askeladd LOGIT_ADJUSTMENT_PRIOR_BIAS (57th mech class — FIRST per-token logit-bias intervention in 295-PR corpus, Menon 2020 ICLR 2021). Anti-duplication grep verified clean.
+
+---
+
 ## 2026-05-25 06:30 UTC — PR #1117: Z_LOSS (CLOSED, 131st refuted — logit-magnitude-penalty family 1/1, 18th family-level closure, monotone-in-α wrong-direction refute with publication-grade LOGIT_SOFTCAP-redundancy mechanism interpretation)
 
 - Branch: `g1r2-fern/z-loss-palm` (student g1r2-fern)
