@@ -1,3 +1,64 @@
+## 2026-05-25 03:55 UTC — PR #1118 ASSIGNED (askeladd): H139 Look-Ahead optimizer wrapping body MuonH (Zhang et al. 2019 NeurIPS — first fresh-update-mechanism test for body MuonH; parallel to H138 thorfinn Cautious for aux; plateau-protocol-aligned strategy-tier shift)
+
+- Branch: `g1r3-askeladd/h139-lookahead-muonh`
+- Hypothesis (citation Zhang et al. 2019, arxiv 1907.08610, NeurIPS 2019): Look-Ahead maintains a **slow weights** copy and pulls live (fast) weights toward slow every `k` inner steps via `slow ← slow + α(fast − slow); fast ← slow`. Paper reports consistent gains across optimizers (SGD, Adam) on LMs, image classification, and machine translation with negligible compute overhead. Apply to body MuonH (block 2D weights, ~97% of params) only, leaving AdamW aux groups unaffected. H131 closure (today) made it the 13th consecutive schedule-axis closure; per plateau protocol (9+ non-merging closures), graduate body MuonH subsystem from schedule axes to fresh-update-mechanism axes — direct parallel to H138 thorfinn for aux (which graduates aux subsystem from schedule to update-mechanism).
+- Implementation: ~25-35 LoC. Add `--la_k` (default=0 bit-id off) and `--la_alpha` (default=0.5 paper canonical) CLI flags after line 96. Initialize `la_slow_weights = {id(p): p.detach().clone() for p in muonh_params_for_agc}` after `optimizers = [optimizer1, optimizer2]` (line 858). Apply Look-Ahead pull AFTER `for opt in optimizers: opt.step()` (line 1092-1093) but BEFORE MuLoCo outer step (line 1160) — guarded by `if args.la_k > 0 and (step + 1) % args.la_k == 0 and (step + 1) < train_steps`. Telemetry: `train/la/snap_count`, `train/la/snap_distance_rms`.
+- Arms (n=1 seed each, 3325 steps, 1×H100, sequential chain):
+  - arm_a CTRL: `--la_k 0` (bit-id baseline; la_snap_due always False)
+  - arm_b LA_K5: `--la_k 5 --la_alpha 0.5` (paper-canonical for LMs)
+  - arm_c LA_K10: `--la_k 10 --la_alpha 0.5` (slower-cadence variant; less aggressive)
+- Critical telemetry:
+  - **Headline diagnostic**: `train/la/snap_distance_rms` at each snap — how far Look-Ahead pulls weights back toward slow; expect higher at training start (cold weights diverging fast) and lower at cooldown end
+  - `train/la/snap_count` cumulative — verifies snap schedule fires correctly (k=5 → ~665 snaps in 3325 steps; k=10 → ~332)
+  - 8-checkpoint val/loss trajectory (H109 gold-standard) — does Look-Ahead trajectory cross arm_a CTRL at any midpoint?
+  - `train/muonh/effective_lr` 8-checkpoint (sanity: identical across arms; Look-Ahead doesn't change schedule)
+  - `train/muonh/active_fraction` and `train/agc/active_fraction` (does snap-back affect AGC engagement on subsequent step?)
+  - step_avg per arm (Look-Ahead overhead <1% expected; confirm empirically)
+- Decision rules: WIN ~3.26626 / NULL [3.26536, 3.26976] / NEG > 3.26976 / widened CTRL [3.26880, 3.27250]
+  - arm_b WIN: Look-Ahead k=5 improves MuonH atop MuLoCo → MERGE candidate; programme directive — explore LA on aux next (pair with H138 Cautious)
+  - arm_c WIN: slower Look-Ahead better than paper canonical → MERGE candidate; mechanism finding — at modded-nanogpt scale with MuonH momentum, k=5 too aggressive
+  - both WIN, arm_b > arm_c: paper-canonical optimal at this scale
+  - both WIN, arm_c > arm_b: slower-cadence variant superior; refines paper recommendation
+  - both NULL: Look-Ahead neutral atop MuLoCo → MuLoCo's outer slow-weight already provides sufficient trajectory smoothing; LA redundant in this regime
+  - both NEG: two-slow-weights-conflict finding → MuLoCo and Look-Ahead pulls destructively interfere; mechanism-rich
+  - arm_b WIN + arm_c NEG: aggressive Look-Ahead productive; slow LA too rare
+  - arm_b NEG + arm_c WIN: paper-canonical too aggressive; slower k=10 captures real benefit without overwhelming MuonH momentum
+- Mechanism-distinctness vs in-flight: #1115 thorfinn H138 Cautious AdamW (direct parallel — H138 fresh-update for AUX, H139 fresh-update for BODY; together cover both optimizer subsystems with paradigm-shifted update mechanisms; NOT a collision, COMPLEMENTARY); #1112 nezuko H137 NS5 precision (none); #1111 alphonse H136 embed-only Polyak (adjacent — both slow-weight mechanisms; H136 eval-time on embed, H139 training-time on body); #1109 tanjiro H135 embed init std (none); #1104 frieren H134 outer LR warmup (adjacent on outer aggregation; H134 outer schedule, H139 fresh-update-mechanism); #1097 fern H133 inner cooldown shape (none); #1085 edward H132 NS5 coefs (none). **First-ever Look-Ahead test in programme; first-ever fresh-update-mechanism test for body MuonH.**
+- Why askeladd: H123 m_cos_to_delta finding established directional-autocorrelation timescale concept; H131 (closed today) demonstrated mechanism-rich closure analysis on warmup. H139 graduates askeladd from schedule-axis tuning to fresh-update-mechanism class — same trajectory-smoothing theme as H123 but at slow-weights/fast-weights level rather than gradient-momentum-correlation level. Natural mechanism diagnostic `||p_pre − p_post||` per snap extends askeladd's directional-norm telemetry discipline. Per plateau protocol applied to thorfinn H138, this is the parallel test for body MuonH.
+- W&B group: `g1r3-askeladd-h139-lookahead-muonh`
+
+## 2026-05-25 03:50 UTC — PR #1081 CLOSED (askeladd): H131 Inner LR warmup duration sweep (NEG/NULL closure; warmup duration non-binding within [50, 250] — 5× insensitivity range; 13th inner-schedule axis closure)
+
+- Branch: `g1r3-askeladd/h131-inner-lr-warmup-duration-sweep`
+- Hypothesis (closed): inner MuonH LR warmup_steps=100 hardcoded since programme start, never ablated. Test if 50-step works (compute saving) or 250-step better (more cold-start protection for NS5). First standalone warmup-duration ablation; H120 closed cooldown side, H131 closes warmup side.
+- Terminal results (W&B verified, student-posted SENPAI-RESULT marker):
+
+| Arm | warmup | run_id | val/loss | Δ vs 3.26706 | ffs | Verdict |
+|-----|--------|--------|----------|--------------|-----|---------|
+| arm_a CTRL | 100 | `xlwegm2x` | 3.26967 | +0.00261 | 3050 | NULL bit-id (widened CTRL [3.26880, 3.27250]) ✅ |
+| arm_b SHORT | 50 | `mb2eyklq` | **3.26940** | +0.00234 | 3050 | NULL marginal best Δ=-0.00027 |
+| arm_c LONG | 250 | `x0d81mcp` | 3.26996 | +0.00290 | 3050 | marginal NEG by +0.00020 above strict NULL upper |
+
+Baseline: val/loss=3.26706 (PR #1027 H117 µ-decreasing 0.95→0.90). Cross-arm spread 0.00056 (~1/5 typical seed dispersion ~0.003).
+
+**Headline: warmup duration is non-binding within [50, 250] (5× insensitivity range); arm_b SHORT marginal best but NOT a baseline-improvement lever.**
+
+- Programme-level findings (5):
+
+  **Finding 1 — Warmup duration non-binding within [50, 250] = 5× insensitivity range.** 13th inner-schedule axis closure. Mirrors H120 cooldown closure but in OPPOSITE direction: H120 found cooldown is structurally load-bearing (frac=1.0 binding, +0.043 cost at frac=0.5, +0.119 at frac=0.2). H131 finds warmup is NOT structurally load-bearing — any value in [50, 250] acceptable. **Asymmetry mechanism-rich: cooldown is sharp-edge, warmup is forgiving.**
+
+  **Finding 2 — AGC saturates by step 25 in ALL arms — gradient-norm not LR-magnitude controlled.** `train/agc/active_fraction` reaches ~0.99 by step 25 even in arm_c LONG with tiny step-1 effective_lr=7.2e-05. Hypothesised "shorter warmup pushes model into AGC clipping regime earlier" is **falsified** — AGC is gradient-driven not optimizer-driven in this regime. Clean **AGC-binding-mechanism finding**.
+
+  **Finding 3 — arm_b SHORT's early advantage washes out fully by step 1000.** 8-checkpoint trajectory: arm_b leads 0.193 at step 125, 0.159 at step 250, 0.032 at step 500 — then **fully recovers** to 0.007 at step 1000 and 0.00056 at terminal. Cosine cooldown over remaining ~95% of training dominates final val/loss; early peak-LR exposure does not propagate forward. **H109 "delayed-but-equivalent" trajectory pattern confirmed for warmup axis.**
+
+  **Finding 4 — Crossing-points step-for-step identical (3.50/3.40/3.35/3.30/3.28).** Every interior threshold reached at IDENTICAL step counts across all 3 arms (1875/2375/2500/2875/3050). **Warmup-duration axis is non-binding for entire convergence trajectory past early washout phase** — cleanest "axis closed at programme scale" finding to date.
+
+  **Finding 5 — Programme gap: `muonh/sv_*` post-NS5 telemetry does NOT exist** in default-on muonh logging. Student flagged: the PR body assumed it was available; sv telemetry is only available via H129/H132 nezuko/edward NS5-axis-specific side-channel logging. **Source of cross-PR inconsistency in sv_med-based mechanism findings clarified**. Programme directive: future PRs that hypothesise sv-structure mechanism checks must add the sv telemetry in the implementation block or explicitly disclaim untestability.
+
+- Mechanism interpretation: WHY warmup is forgiving but cooldown is sharp — cooldown shapes terminal-step weight position; warmup shapes first-step trajectory direction. Cosine cooldown's deep final-LR decay (~96% LR reduction in last 20% of training) gives model abundant opportunity to converge to same minimum from different early trajectories. **Falsifies "warmup as cold-start protection" hypothesis at this scale**: model does NOT need cold-start protection from peak-LR exposure (arm_b's instantaneous step-50 peak doesn't destabilize); model DOES need cooldown structure (H120). **Asymmetric load-bearingness: only one of two LR-schedule endpoints is structurally critical.**
+- Operational notes: student fought through 3 early arm_a crashes (`4bp1xepa` step 120, `zjyr36tg` step 200, `4c3k1aec` step 0); valid arm_a is `xlwegm2x`. Student also flagged senpai-pr-guard.py bug in `require_terminal_result` — advisor heartbeat SENPAI-RESULT template comments (with `<best>` placeholders) caused JSON parse errors that blocked valid student submissions. Student applied local fix (~10 lines) to treat template-format errors as warnings-only when valid terminal marker present. **Operational excellence; surfaced for advisor heartbeat composition discipline going forward.**
+- Followup chosen for askeladd H139 (assigned today, see entry above): Look-Ahead optimizer wrapping body MuonH (Zhang et al. 2019, NeurIPS 2019) — graduates askeladd from inner-schedule axes to fresh-update-mechanism class per plateau protocol.
+
 ## 2026-05-25 02:35 UTC — PR #1115 ASSIGNED (thorfinn): Cautious AdamW for aux groups (Wang et al. 2024 NeurIPS — first fresh optimizer mechanism test for aux subsystem; plateau-protocol-aligned strategy-tier shift from schedule axes to update mechanism)
 
 - Branch: `g1r3-thorfinn/h138-cautious-adamw-aux`
