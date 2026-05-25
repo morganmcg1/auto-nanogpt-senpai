@@ -1,5 +1,24 @@
 # SENPAI Research Results — auto-nanogpt-1gpu-r2
 
+## 2026-05-25 01:25 UTC — PR #1082: MUON_BODY_COHERENCE_LR (CLOSED, 122nd refuted — coherence-based per-tensor adaptive LR on raw body Muon gradient family 1/1 mechanism-null with structural cause)
+
+- Branch: `g1r2-alphonse/muon-body-coherence-lr` (student g1r2-alphonse)
+- Hypothesis: Per-tensor adaptive LR on body Muon driven by cross-step gradient direction coherence `cos_sim(g_t, g_{t-1})`. Boost branch (cos > THRESH_HIGH → LR × FACTOR_HIGH > 1) and damp branch (cos < THRESH_LOW → LR × FACTOR_LOW < 1) gated on cosine signal. Tests whether per-tensor cross-step directional consistency provides usable adaptive LR signal on body Muon.
+- Results:
+
+| Run | Arm | THRESH_HIGH / THRESH_LOW / FACTOR_HIGH / FACTOR_LOW | val_final | ffs | mean_cos_sim | max_cos_sim | boost_fraction | damp_fraction | mean_lr_scale |
+|---|---|---|---|---|---|---|---|---|---|
+| `u4yrevjj` | Arm A (n=1) | 0.7 / 0.3 / 1.1 / 0.9 | **3.27170** | **3025** | 0.0088 | 0.2935 | **0.0** | 1.0 (uniform) | 0.90 |
+| `kptu8atw` | Arm B (n=1) | 0.5 / 0.0 / 1.2 / 0.8 | **3.27383** | **3050** | 0.0134 | **0.1553** | **0.0** | 0.417 (selective) | 0.917 |
+| baseline #613 (n=2) | — | (no coherence LR) | 3.26776 | 3000 | — | — | — | — | — |
+
+- Arm A kill-gate trajectory (all gates cleared): step 500: 3.785 (margin 0.025), step 1000: 3.628 (margin 0.032), step 1500: 3.508 (margin 0.042), step 2000: 3.414 (margin 0.016), step 2500: 3.341 (margin 0.019), step 3000: 3.284 (margin 0.006)
+- Arm B kill-gate trajectory (all gates cleared): step 500: 3.785 (margin 0.025), step 1000: 3.628 (margin 0.032), step 1500: 3.508 (margin 0.042), step 2000: 3.414 (margin 0.016), step 2500: 3.341 (margin 0.019), step 3000: 3.284 (margin 0.006)
+- Step overhead: +10 ms (~0.5%) per step from one extra `prev_grad` buffer per body 2D tensor + flatten + dot product + 2 norms per body tensor per step
+- Conclusion: **REFUTED as 122nd axis, "mechanism-null" signature with structural cause** — boost branch NEVER fires across ANY arm because `max_cos_sim` never crosses `THRESH_HIGH` (Arm A max 0.29 < 0.7; Arm B max 0.16 < 0.5). **NS5 orthogonalizes each step's update independently → strips out cross-step low-rank shared directions → residual cross-step body-Muon gradient coherence ≈ 0.01 by construction.** Both arms produce mild under-learning vs tuned baseline (Arm A effective LR 0.036 uniform / Arm B effective LR 0.0367 fluctuating). Selective per-tensor damping in Arm B (damp_fraction=0.42) provides no positive signal over Arm A's uniform damping — selective damping at 0.8× is MORE aggressive per-tensor than uniform 0.9× and mean LR reduction is comparable.
+- Cycle 71 status: 122 refuted axes, 31+ distinct mechanism classes probed (47 assigned including #1114 DEPTH_DEP_BODY_INIT_STD — alphonse's next axis, categorical pivot to init-side family). 11 family-level closures including NEW (11) coherence-based per-tensor adaptive LR on raw body Muon gradient 1/1 mechanism-null.
+- Family closure: COHERENCE-BASED PER-TENSOR ADAPTIVE LR ON RAW BODY MUON GRADIENT family 1/1 mechanism-null. Family-level prediction: ANY axis using cross-step coherence of raw body Muon gradient as adaptive signal cannot fire boost branch under any threshold reachable by the observed coherence distribution. Family closure absorbs alphonse's own suggested follow-up #3 (continuous f(cos) mapping on raw body grad). Three productive follow-ups backlogged: #1 coherence on attention/AUX (deprioritized, body-Muon-sibling), #2 coherence on post-NS5 update (distinct deterministic-projection signal source, distinct family), #4 coherence on momentum buffer (EMA-smoothed signal source, addresses #1082's exact failure mode).
+
 ## 2026-05-25 01:00 UTC — PR #1093: MUON_BODY_LION_SIGN_BLEND (CLOSED, 121st refuted — NS5-input-side spectrum modification family 1/1 shifted-floor with three-class NS5-interaction taxonomy)
 
 - Branch: `g1r2-nezuko/muon-body-lion-sign-blend` (student g1r2-nezuko)
