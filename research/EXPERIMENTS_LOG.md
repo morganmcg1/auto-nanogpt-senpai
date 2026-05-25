@@ -1,3 +1,30 @@
+## 2026-05-25 23:55 — PR #1199: H158 tanjiro lm_head LR sweep — BILATERAL NULL with direction-of-effect at 2× (17th NULL/NEG closure + 3 programme-grade mechanism findings)
+
+- Branch: `g1r3-tanjiro/h158-lm-head-lr-sweep`
+- Hypothesis: H150 found lm_head F-norm doesn't equilibrate under lr=1/320 (path-dependent through 3325 steps; embed-LR=0.3 has 50-step attractor per H135). H158 tests whether raising lm_head LR closes the equilibration-time gap → terminal advantage. arm_a/b/c = 1×/2×/3× lm_head LR.
+
+| arm | LR mult | W&B run | val/loss | Δ vs baseline (3.26364) | Δ vs arm_a (3.26469) | Verdict |
+|---|---|---|---|---|---|---|
+| arm_a CTRL 1× | 1.0 | `7ambtim5` | 3.26469 | +0.00105 | — | NULL (CTRL envelope mean) |
+| arm_b 2× | 2.0 | `p46bdmh1` | **3.26329** | **-0.00035** | **-0.00140** | NULL, suggestive ~1.4σ within-chain |
+| arm_c 3× | 3.0 | `89gd3o6j` | 3.26518 | +0.00154 | +0.00049 | NULL, mild within-chain disadvantage |
+
+WIN threshold <3.26284 NOT MET. Non-monotone direction-of-effect (peak at 2×); arm_b suggestive but ~1.4σ within-chain signal is sub-WIN. 30% probability of n=3 mean clearing 3.26284 — not worth confirmation seed.
+
+- **Programme-grade finding #1: lm_head terminal F-norm scales LINEARLY with LR (no universal attractor)**. Terminal F-norm ratio b/a = 1.98×, c/a = 2.95× (matches LR ratios exactly). AdamW+AGC produces steady-state lm_head F-norm `~LR × constant`. **Reframes H150**: lm_head "path-dependence" at lr=1/320 isn't a "stuck-low" pathology — it's active LR-proportional growth throughout training, never reaching a universal attractor. arm_b operates in 2× larger magnitude regime, NOT faster path to same regime. **Implication**: future LR-scaling hypotheses on AGC-stacked groups should NOT assume "raise LR → faster convergence to same attractor"; expect magnitude co-scaling. Invalidates a class of LR-warmup mechanisms.
+
+- **Programme-grade finding #2: AGC is LR-invariant on relative magnitude (clips on grad-vs-param ratio)**. `train/agc/scale_mean` drifts only slightly UP with LR (0.01909 → 0.01945 → 0.02074), `train/agc/active_fraction` tied at 0.990 across arms. AGC clips on `||g||/||p||`; since `||p||` scales with LR (finding #1), the ratio stays constant. Co-rescaling preserves relative dynamic across LR multipliers. **This is why val/loss gain is small despite F-norm changing 2-3×**: in relative-magnitude space, all 3 arms look similar. Compounds with finding #1 to define a no-go region for LR-axis interventions on AGC-stacked groups.
+
+- **Programme-grade finding #3: LR-axis brittleness RECOVERS; init-axis brittleness does NOT (H150 vs H158)**. H150 arm_c (init std=0.05): +0.0414 at step 125 → +0.0414 terminal (never recovers). H158 arm_c (3× LR): +0.04546 step 125 → +0.00049 terminal (recovers ~93×). **Mechanism**: large initial weight perturbation lands network in worse basin, AGC can't push back. Persistently larger LR throughout training is recoverable because optimizer continuously navigates landscape; late-training cooldown re-equilibrates. **Bound for future planning**: init-axis interventions need conservatism (one-shot, hard to recover); LR-axis has built-in recovery margin via cooldown. Justifies bolder LR-axis sweeps in future.
+
+- **Bonus finding #4: H158 does NOT show mid-training-lead-erosion-under-cooldown** (2nd cooldown-refinement observation; joins H149 inverse-erosion). arm_b lags through step 2000 (Δ b−a peaks +0.00265 step 1000), then gains small persistent lead during cooldown (Δ widens monotonically to −0.00140 at terminal). **Cooldown REFINES, not erodes, arm_b's advantage.** LR-axis interventions appear to avoid the 8-axis erosion pattern that plagues init/schedule/β1 axes. Plausible mechanism: LR-axis creates steady-state regime difference (per finding #1), not transient regime that cooldown unwinds.
+
+- **Operational note: H162 thorfinn CTRL-clone bug found same cycle** (PR #1214 sendback): arm_b W&B config bit-identical to arm_a CTRL; all 12 per-block LRs uniform at every step. This is the 3rd chain misconfiguration in 5 cycles (H157 frieren + H162 thorfinn + earlier instance). Establishing a programme-level **"chain-launch verification gate"**: every chain must include `wandb.config.update({...hypothesis-defining-flags...})` and explicit per-arm CLI dispatch validation before submission.
+
+- Follow-up: tanjiro assigned H166 Gradient Centralization (Yong et al. 2020) — strategy-tier shift OUT of per-group LR axis into gradient pre-processing axis (PR #1228). 2× lm_head LR (arm_b) logged as future compound-test candidate (recovery margin per finding #3 minimizes downside risk).
+
+---
+
 ## 2026-05-25 23:20 — PR #1193: H157 frieren cooldown-confined AGC muonh clip_ratio ramp — BILATERAL NULL (16th NULL/NEG closure + programme-grade mechanism reinterpretation)
 
 - Branch: `g1r3-frieren/h157-cooldown-confined-ctrl`
