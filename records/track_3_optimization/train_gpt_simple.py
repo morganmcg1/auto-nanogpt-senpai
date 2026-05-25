@@ -83,6 +83,15 @@ def parse_args():
              "muall=musoft + non-residual block 2D weights also scaled by 1/sqrt(L); "
              "smallconst=std=1e-3 depth-independent.",
     )
+    parser.add_argument("--cautious_muon", type=str, default="off",
+                        choices=["off", "vs_momentum", "vs_grad", "soft_momentum", "random_30pct"],
+                        help="Cautious mask mode for Muon body matrix updates. "
+                             "off=no mask; vs_momentum=binary mask sign(update)==sign(precond_nesterov); "
+                             "vs_grad=binary mask sign(update)==sign(p.grad); "
+                             "soft_momentum=multiply 0.5 where disagree (soft variant); "
+                             "random_30pct=falsifier, random 30%% mask same density as vs_momentum avg")
+    parser.add_argument("--cautious_random_seed", type=int, default=42,
+                        help="Seed for random mask in cautious_muon=random_30pct mode")
     args = parser.parse_args()
     args.num_trials = args.num_trials if args.num_trials is not None else (args.legacy_num_trials or 1)
     args.wandb_tags = [tag.strip() for tag in args.wandb_tags.split(",") if tag.strip()]
@@ -566,6 +575,31 @@ def soap_update_preconditioner(grad, state, shampoo_beta=SOAP_BETA2, preconditio
     state["soap_step"] += 1
 
 
+def apply_cautious_mask(update: Tensor, reference: Tensor, mode: str, random_seed: int = 42) -> Tensor:
+    """Cautious Optimizer mask (Liang et al. 2024, arXiv:2411.16085).
+
+    Zeros (or down-weights) elements where update sign disagrees with reference sign,
+    then rescales to preserve total Frobenius mass. Returns the masked/rescaled update
+    in the same dtype as the input update.
+    """
+    if mode == "off":
+        return update
+    orig_dtype = update.dtype
+    if mode == "random_30pct":
+        gen = torch.Generator(device=update.device)
+        gen.manual_seed(random_seed)
+        mask = (torch.rand(update.shape, generator=gen, device=update.device, dtype=torch.float32) > 0.30).to(orig_dtype)
+    elif mode == "soft_momentum":
+        agree = (update.sign() == reference.sign()).to(orig_dtype)
+        mask = agree + (1 - agree) * 0.5
+    else:
+        mask = (update.sign() == reference.sign()).to(orig_dtype)
+    total = float(mask.numel())
+    effective = mask.float().sum().clamp(min=1.0)
+    scale = (total / effective).to(orig_dtype)
+    return update * mask * scale
+
+
 class Muon(torch.optim.Optimizer):
     SOAP_MLP_SUFFIXES = (".mlp.fc.weight", ".mlp.proj.weight")
     SOAP_ATTN_SUFFIXES = (".attn.q.weight", ".attn.k.weight", ".attn.v.weight", ".attn.proj.weight")
@@ -594,6 +628,9 @@ class Muon(torch.optim.Optimizer):
         self.trust_threshold = float(trust_threshold)
         self.use_trust_gate = soap_attn
         self.cos_sims_buffer: dict[str, Tensor] = {}
+        self.cautious_muon = "off"
+        self.cautious_random_seed = 42
+        self.cautious_mask_density: dict[str, float] = {}
 
         param_groups = []
         for g in groups_raw:
@@ -613,6 +650,7 @@ class Muon(torch.optim.Optimizer):
     @torch.no_grad()
     def step(self):
         self.cos_sims_buffer = {}
+        self.cautious_mask_density = {}
         world_size = dist.get_world_size()
         rank = dist.get_rank()
         for group in self.param_groups:
@@ -650,6 +688,17 @@ class Muon(torch.optim.Optimizer):
                         soap_update_preconditioner(p.grad, state)
                     else:
                         update = muon_update(p.grad, state["momentum"], mu=group["mu"])
+                    if self.cautious_muon != "off":
+                        if self.cautious_muon == "vs_grad":
+                            ref = p.grad
+                        elif use_soap:
+                            ref = precond_nesterov
+                        else:
+                            ref = state["momentum"]
+                        if self.cautious_muon == "vs_momentum" and use_soap:
+                            agree = (update.sign() == ref.sign()).float()
+                            self.cautious_mask_density[self.param_names[id(p)]] = float(agree.mean().item())
+                        update = apply_cautious_mask(update, ref, self.cautious_muon, self.cautious_random_seed)
                     norm_sum.add_(update.float().norm())
                     p.mul_(1 - group["lr"] * group["weight_decay"])
                     p.add_(update, alpha=-group["lr"])
@@ -765,6 +814,8 @@ if dist.get_rank() == 0:
             "wd_schedule": args.wd_schedule,
             "lr_scalars": args.lr_scalars,
             "depth_init_mode": args.depth_init_mode,
+            "cautious_muon": args.cautious_muon,
+            "cautious_random_seed": args.cautious_random_seed,
         },
     )
 
@@ -854,6 +905,8 @@ for trial_idx in range(args.num_trials):
         ],
         soap_attn=args.soap_attn, trust_threshold=args.soap_trust_threshold,
     )
+    optimizer2.cautious_muon = args.cautious_muon
+    optimizer2.cautious_random_seed = args.cautious_random_seed
     optimizers = [optimizer1, optimizer2]
     assert set(p for opt in optimizers for group in opt.param_groups
                for p in group["params"]) == set(model.parameters())
@@ -1060,6 +1113,22 @@ for trial_idx in range(args.num_trials):
                 trust_metrics["trust/cos_sim_mean_attn"] = sum(attn_vals) / len(attn_vals)
                 trust_metrics["trust/fired_count_attn"] = fired_attn
             wandb.log(trust_metrics, step=wandb_step)
+        if dist.get_rank() == 0 and telemetry_due and optimizer2.cautious_mask_density:
+            cd_names = list(optimizer2.cautious_mask_density.keys())
+            cd_vals = [optimizer2.cautious_mask_density[n] for n in cd_names]
+            cd_metrics = {"trial": trial_idx, "train/step": train_step}
+            for cd_name, cd_val in zip(cd_names, cd_vals):
+                cd_metrics[f"train/cautious_mask_density/{clean_metric_name(cd_name)}"] = cd_val
+            mlp_d = [v for n, v in zip(cd_names, cd_vals)
+                     if any(n.endswith(suf) for suf in Muon.SOAP_MLP_SUFFIXES)]
+            attn_d = [v for n, v in zip(cd_names, cd_vals)
+                      if any(n.endswith(suf) for suf in Muon.SOAP_ATTN_SUFFIXES)]
+            cd_metrics["train/cautious_mask_density/mean"] = sum(cd_vals) / len(cd_vals)
+            if mlp_d:
+                cd_metrics["train/cautious_mask_density/mean_mlp"] = sum(mlp_d) / len(mlp_d)
+            if attn_d:
+                cd_metrics["train/cautious_mask_density/mean_attn"] = sum(attn_d) / len(attn_d)
+            wandb.log(cd_metrics, step=wandb_step)
         if dist.get_rank() == 0 and telemetry_due:
             log_weight_telemetry(
                 model=model,
