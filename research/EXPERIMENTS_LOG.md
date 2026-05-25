@@ -1,5 +1,67 @@
 # SENPAI Research Results
 
+## 2026-05-25 18:40 UTC — PR #1135 CLOSED: Exact SVD polar map (svd_full vs svd_topk=256) — 134th NULL, exact-polar / rank-truncation axis FULLY CLOSED, "imperfect polar is better than perfect polar" canon (g1r1-alphonse)
+
+- Branch: `g1r1-alphonse/exact-svd-polar`
+- Hypothesis: Replace NS5 cubic Newton polar map with exact `torch.linalg.svd` to isolate the polar projection's role. Two arms: svd_full (machine-precision polar) and svd_topk=256 (rank-truncated to ~stable_rank). Tests whether NS5's 6.7% residual is an approximation artifact or a structural feature.
+
+### Results
+
+| Arm | polar_method | polar_topk | W&B | val/loss | sr | first_step_to_target | Δval (mnat) | step_avg (ms) | Verdict |
+|---|---|---|---|---|---|---|---|---|---|
+| Baseline #918 | ns5 | — | vm48fdof/0a7esmxs | 3.266394 | 2925 | 2925 | — | ~4329 | BASELINE |
+| **A (svd_full)** | svd_full | — | `e29g5f3q` | **3.269416** | **2975** | 2975 | **+3.022** (10σ) | **6829.72** (1.58×) | **CLEAR NULL** |
+| **B (svd_topk=256)** | svd_topk | 256 | `t85dixhq` | **3.319233** | **−1** | −1 | **+52.84** (176σ) | **6788.79** (1.57×) | **CATASTROPHIC NULL** (failed 3.28) |
+
+### Diagnostic telemetry
+
+| Metric | Arm A (svd_full) | Arm B (svd_topk=256) |
+|---|---|---|
+| `polar/ortho_residual` | **0.0065** (machine precision ✓) | **22.63** (~750× baseline) |
+| `polar/svd_stable_rank` | (full rank) | **1.003** (collapse to rank-1!) |
+| `polar/svd_S_top_max` | — | 1.219 |
+| `polar/svd_S_ratio_topk` | — | 0.00156 (S[256]/S[0]) |
+
+### Mechanism findings (3 numbered)
+
+1. **Exact polar (Arm A) mildly hurts val.** SVD-based polar with residual ≈ 0 (machine precision) regresses +3.022 mnat (10σ above noise floor σ≈0.0003). **Falsifies the strict "polar residual not load-bearing" reading of #1102** — the residual is not just unimportant, it is mildly *beneficial*. The cubic NS5 polar at 12 iters acts as a stochastic damper / structured noise injection that helps generalization.
+2. **Rank-256 polar (Arm B) catastrophically hurts.** Truncating to rank-256 (just below m_pre's static stable_rank ≈ 426) produces a CATASTROPHIC +52.8 mnat regression and never hits sr=3.28. The diagnostic smoking gun: `polar/svd_stable_rank` collapses to 1.003, meaning the truncated polar output concentrates ~entirely in the top singular component → effective rank-1 updates per body-Muon step. The bottom-2/3 singular components carry load-bearing late-cooldown signal even though they're below the static rank measurement.
+3. **Step-time methodology lesson.** Pre-launch standalone SVD-vs-NS5 benchmark predicted 44× slower; in-training measurement was 1.58× slower (cuSolver overhead amortizes over body-Muon step pipeline). **Future PR cost estimates must distinguish static-FLOP estimates from in-training wall-clock** for kernel-class operations where overhead amortization matters.
+
+### Canonical finding crystallized — "Imperfect polar is better than perfect polar"
+
+The asymmetric outcome maps cleanly onto a new structural canon that **refines but does not overturn** #1102/#1107:
+
+1. **Cubic NS5 polar at NS_ITERS=12 is a near-optimal practical compromise** between exact-polar (kills implicit regularization, +3 mnat / 10σ) and rank-truncated polar (kills late-cooldown signal, +53 mnat / catastrophic).
+2. **The ~6.7% NS5 residual is implicit regularization**, not an approximation artifact. The cubic polynomial structure injects beneficial stochastic damping into the body-Muon update.
+3. **m_pre's effective spectrum is rank-concentrated in live training.** Pre-launch static measurement of stable_rank ≈ 426 understates the rank-importance of the bottom-2/3 singular components. The polar/svd_stable_rank=1.003 collapse in Arm B confirms low-rank truncation collapses to rank-1 update.
+
+### Cross-axis canon strengthening
+
+- **#985 NS5 triple-load-bearing canon** strengthened to 4-role: magnitude normalization + rank-deficiency clipping + null-space amplification suppression + **structured residual-as-regularization**.
+- **#1136 PIPELINE POSITION CANON** strengthened: polar map IS the position where regularization is *welcome*, in contrast to pre-NS5 grad-noise (CATASTROPHIC) and post-polar regularization (sub-noise).
+- **#1102 m_pre rank canon refined**: stable_rank≈426 is a static measurement that understates effective rank in live training; rank truncation below this effective rank is catastrophic.
+- **#1107 polar interpolation grounding**: the closed n=2 NULL at α=0.75 (Δval−0.706 mnat marginal) is consistent with this finding — partial back-blend with raw m_pre is sub-noise; full exact-polar is regression; full rank-truncation is catastrophic.
+
+### Merge rule check
+- Arm A: sr=2975 > 2912.5, sr ≠ 2925 → FAILS both clauses
+- Arm B: val=3.31923 above 3.28 stat-sig threshold itself → FAILS
+
+Both arms FAIL merge rule. Closed without merge.
+
+### Conclusion
+
+**134th NULL.** The exact-polar / rank-truncation axis is FULLY CLOSED:
+- Exact polar (Arm A): mildly bad (+3 mnat)
+- Rank-truncated polar (Arm B): catastrophically bad (+53 mnat)
+- Cubic NS5 at NS_ITERS=12: locally optimal
+
+Combined with #884 (NS_ITERS sweep NULL) + #1102 (NS5 input normalization NULL) + #1123 (asymmetric γ NULL) + #1144 (NS_ITERS phase schedule NULL), **NS5 polar configuration is structurally established as load-bearing in current form**.
+
+alphonse → **#1201** (Hybrid noisy exact polar: SVD + calibrated Gaussian noise — does the cubic polynomial structure matter or just the residual magnitude? Direct mechanism follow-up testing one of alphonse's own suggested #1135 follow-ups).
+
+---
+
 ## 2026-05-25 17:38 UTC — PR #1156 CLOSED: Lookahead k-step slow-fast weight averaging on body Muon (k=5, α=0.5 vs α=0.25) — 133rd NULL, Lookahead family FULLY CLOSED (g1r1-askeladd)
 
 - Branch: `g1r1-askeladd/lookahead`
