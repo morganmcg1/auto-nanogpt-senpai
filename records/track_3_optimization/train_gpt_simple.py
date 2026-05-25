@@ -288,37 +288,60 @@ def log_adamw_step_direction(
     step: int,
     wandb_step: int,
 ):
-    """Per-group ||m_hat / (sqrt(v_hat) + eps)|| for AdamW.
-    Bias-corrected step direction whose variance over time reflects β2 stability."""
-    beta1, beta2 = optimizer.param_groups[0].get("betas", (None, None))
-    eps = optimizer.param_groups[0].get("eps", 1e-10)
+    """Per-group bias-corrected step direction (pre-LR) for AdamW or Adan.
+
+    AdamW: m_hat / (sqrt(v_hat) + eps).
+    Adan : (m_hat + beta2*v_hat) / (sqrt(n_hat) + eps). For Adan we also emit
+    mean|m|, mean|v|, mean|n| under train/optimizer1_adan_state/* so the
+    grad-difference (v) and extrap-grad-squared (n) trajectories can be
+    compared against AdamW's exp_avg_sq (v) trajectory.
+    """
+    first_betas = optimizer.param_groups[0].get("betas", (None,) * 2)
+    eps_default = optimizer.param_groups[0].get("eps", 1e-10)
     metrics = {"trial": trial_idx, "train/step": step}
-    if beta1 is not None and beta2 is not None:
-        metrics["train/optimizer1/beta1"] = float(beta1)
-        metrics["train/optimizer1/beta2"] = float(beta2)
-        metrics["train/optimizer1/eps"] = float(eps)
+    if first_betas[0] is not None:
+        metrics["train/optimizer1/beta1"] = float(first_betas[0])
+        metrics["train/optimizer1/beta2"] = float(first_betas[1])
+        if len(first_betas) >= 3 and first_betas[2] is not None:
+            metrics["train/optimizer1/beta3"] = float(first_betas[2])
+        metrics["train/optimizer1/eps"] = float(eps_default)
     grand_sq = 0.0
     grand_n = 0
     for group in optimizer.param_groups:
         group_name = group.get("name", "unknown")
-        group_b1, group_b2 = group.get("betas", (beta1, beta2))
-        group_eps = group.get("eps", eps)
+        group_betas = group.get("betas", first_betas)
+        group_eps = group.get("eps", eps_default)
         sq_sum = 0.0
         nel = 0
         max_abs = 0.0
         for p in group["params"]:
             st = optimizer.state.get(p, {})
-            if "exp_avg" not in st or "exp_avg_sq" not in st:
-                continue
             t = st.get("step")
             t_val = float(t.item()) if torch.is_tensor(t) else float(t or 0)
             if t_val <= 0:
                 continue
-            bc1 = 1.0 - group_b1 ** t_val
-            bc2 = 1.0 - group_b2 ** t_val
-            m_hat = st["exp_avg"] / bc1
-            v_hat = st["exp_avg_sq"] / bc2
-            step_dir = m_hat / (v_hat.sqrt() + group_eps)
+            if "exp_avg" in st and "exp_avg_sq" in st:
+                b1, b2 = group_betas[0], group_betas[1]
+                bc1 = 1.0 - b1 ** t_val
+                bc2 = 1.0 - b2 ** t_val
+                m_hat = st["exp_avg"] / bc1
+                v_hat = st["exp_avg_sq"] / bc2
+                step_dir = m_hat / (v_hat.sqrt() + group_eps)
+            elif "m" in st and "v" in st and "n" in st:
+                b1, b2, b3 = group_betas[0], group_betas[1], group_betas[2]
+                bc1 = 1.0 - b1 ** t_val
+                bc2 = 1.0 - b2 ** t_val
+                bc3 = 1.0 - b3 ** t_val
+                m_hat = st["m"] / bc1
+                v_hat = st["v"] / bc2
+                n_hat = st["n"] / bc3
+                step_dir = (m_hat + b2 * v_hat) / (n_hat.sqrt() + group_eps)
+                metrics[f"train/optimizer1_adan_state/{group_name}_m_mean_abs"] = float(st["m"].abs().mean().item())
+                metrics[f"train/optimizer1_adan_state/{group_name}_v_mean_abs"] = float(st["v"].abs().mean().item())
+                metrics[f"train/optimizer1_adan_state/{group_name}_n_mean_abs"] = float(st["n"].abs().mean().item())
+                metrics[f"train/optimizer1_adan_state/{group_name}_n_sqrt_mean"] = float(st["n"].sqrt().mean().item())
+            else:
+                continue
             sq = float((step_dir * step_dir).sum().item())
             sq_sum += sq
             nel += step_dir.numel()
@@ -574,6 +597,21 @@ NANOGPT_ADAMW_BETA2 = float(os.environ.get("NANOGPT_ADAMW_BETA2", "0.95"))
 NANOGPT_ADAMW_EMBED_LR_MULT = float(os.environ.get("NANOGPT_ADAMW_EMBED_LR_MULT", "1.0"))
 NANOGPT_ADAMW_LM_HEAD_LR_MULT = float(os.environ.get("NANOGPT_ADAMW_LM_HEAD_LR_MULT", "1.0"))
 NANOGPT_ADAMW_SCALAR_LR_MULT = float(os.environ.get("NANOGPT_ADAMW_SCALAR_LR_MULT", "1.0"))
+# OPTIMIZER-CLASS-aux axis (PR #1113): swap AdamW for Adan (Xie et al. 2022) on the
+# three aux groups. Adan adds a gradient-difference momentum (v) and tracks the
+# squared "extrapolated gradient" (n); update = (m_hat + β2·v_hat) / (√n_hat + eps).
+# Default "adamw" preserves bit-identical behavior to the merged stack.
+NANOGPT_AUX_OPTIMIZER = os.environ.get("NANOGPT_AUX_OPTIMIZER", "adamw").lower()
+_VALID_AUX_OPTIMIZERS = ("adamw", "adan")
+if NANOGPT_AUX_OPTIMIZER not in _VALID_AUX_OPTIMIZERS:
+    raise ValueError(
+        f"NANOGPT_AUX_OPTIMIZER={NANOGPT_AUX_OPTIMIZER!r}, must be one of {_VALID_AUX_OPTIMIZERS}"
+    )
+# Adan betas use AdamW-style memory-weight convention (β close to 1 = more memory).
+# Paper defaults (Xie 2022, ICLR 2023) in this convention: (0.98, 0.92, 0.99).
+NANOGPT_ADAN_BETA1 = float(os.environ.get("NANOGPT_ADAN_BETA1", "0.98"))
+NANOGPT_ADAN_BETA2 = float(os.environ.get("NANOGPT_ADAN_BETA2", "0.92"))
+NANOGPT_ADAN_BETA3 = float(os.environ.get("NANOGPT_ADAN_BETA3", "0.99"))
 # Per-block-type Muon LR multipliers (1.0 = bit-identical to single-group baseline).
 NANOGPT_MUON_ATTN_LR_MULT = float(os.environ.get("NANOGPT_MUON_ATTN_LR_MULT", "1.0"))
 NANOGPT_MUON_MLP_LR_MULT = float(os.environ.get("NANOGPT_MUON_MLP_LR_MULT", "1.0"))
@@ -778,6 +816,60 @@ class Muon(torch.optim.Optimizer):
                 dist.all_gather(params_pad[base_i:base_i + world_size], params_pad[base_i + rank])
 
 
+class Adan(torch.optim.Optimizer):
+    """Adan optimizer (Xie et al. 2022, ICLR 2023).
+
+    AdamW-style memory-weight convention for betas (β close to 1 = more memory):
+        m_t = β1·m_{t-1} + (1-β1)·g_t                      (1st moment of grad)
+        v_t = β2·v_{t-1} + (1-β2)·(g_t - g_{t-1})          (1st moment of grad-diff)
+        n_t = β3·n_{t-1} + (1-β3)·(g_t + β2·(g_t-g_{t-1}))² (extrap grad squared)
+        update = (m_hat + β2·v_hat) / (√n_hat + eps)
+        p ← p·(1 - lr·wd) - lr·update
+
+    State per param: m, v, n, g_prev — 4× param tensor (vs AdamW's 2×).
+    """
+    def __init__(self, params, lr=1e-3, betas=(0.98, 0.92, 0.99), eps=1e-10, weight_decay=0):
+        defaults = dict(lr=lr, betas=betas, eps=eps, weight_decay=weight_decay)
+        super().__init__(params, defaults)
+
+    @torch.no_grad()
+    def step(self):
+        for group in self.param_groups:
+            beta1, beta2, beta3 = group["betas"]
+            lr = group["lr"]
+            eps = group["eps"]
+            wd = group["weight_decay"]
+            for p in group["params"]:
+                if p.grad is None:
+                    continue
+                g = p.grad
+                state = self.state[p]
+                if "step" not in state:
+                    state["step"] = 0
+                    state["m"] = torch.zeros_like(p)
+                    state["v"] = torch.zeros_like(p)
+                    state["n"] = torch.zeros_like(p)
+                    state["g_prev"] = torch.zeros_like(p)
+                state["step"] += 1
+                t = state["step"]
+                g_diff = g - state["g_prev"]
+                state["m"].mul_(beta1).add_(g, alpha=1 - beta1)
+                state["v"].mul_(beta2).add_(g_diff, alpha=1 - beta2)
+                extrap = g + beta2 * g_diff
+                state["n"].mul_(beta3).addcmul_(extrap, extrap, value=1 - beta3)
+                bias_c1 = 1 - beta1 ** t
+                bias_c2 = 1 - beta2 ** t
+                bias_c3 = 1 - beta3 ** t
+                m_hat = state["m"] / bias_c1
+                v_hat = state["v"] / bias_c2
+                n_hat = state["n"] / bias_c3
+                update = (m_hat + beta2 * v_hat) / (n_hat.sqrt() + eps)
+                if wd > 0:
+                    p.mul_(1 - lr * wd)
+                p.add_(update, alpha=-lr)
+                state["g_prev"].copy_(g)
+
+
 ########################################
 #                Setup                 #
 ########################################
@@ -817,6 +909,9 @@ print0(f"EMBED_COOLDOWN_SHAPE: {NANOGPT_EMBED_COOLDOWN_SHAPE} "
        f"(applies to adam_embed only; lm_head/scalars use linear)", console=True)
 print0(f"ADAMW_BETA2: {NANOGPT_ADAMW_BETA2} (effective memory ~{int(1/(1-NANOGPT_ADAMW_BETA2)) if NANOGPT_ADAMW_BETA2 < 1 else 'inf'} steps)",
        console=True)
+print0(f"AUX_OPTIMIZER: {NANOGPT_AUX_OPTIMIZER}"
+       + (f" (Adan betas=({NANOGPT_ADAN_BETA1},{NANOGPT_ADAN_BETA2},{NANOGPT_ADAN_BETA3}))"
+          if NANOGPT_AUX_OPTIMIZER == "adan" else " (AdamW fused)"), console=True)
 print0(f"ADAMW_LR_MULT: embed={NANOGPT_ADAMW_EMBED_LR_MULT} lm_head={NANOGPT_ADAMW_LM_HEAD_LR_MULT} scalar={NANOGPT_ADAMW_SCALAR_LR_MULT}", console=True)
 print0(f"  Effective base LRs: embed={0.3*NANOGPT_ADAMW_EMBED_LR_MULT:.4f} lm_head={(1/320)*NANOGPT_ADAMW_LM_HEAD_LR_MULT:.6f} scalar={0.01*NANOGPT_ADAMW_SCALAR_LR_MULT:.4f}", console=True)
 print0(f"MUON_LR_MULT: attn={NANOGPT_MUON_ATTN_LR_MULT:.3f} mlp={NANOGPT_MUON_MLP_LR_MULT:.3f}", console=True)
@@ -889,6 +984,10 @@ if dist.get_rank() == 0:
             "nanogpt_adamw_embed_lr_mult": NANOGPT_ADAMW_EMBED_LR_MULT,
             "nanogpt_adamw_lm_head_lr_mult": NANOGPT_ADAMW_LM_HEAD_LR_MULT,
             "nanogpt_adamw_scalar_lr_mult": NANOGPT_ADAMW_SCALAR_LR_MULT,
+            "nanogpt_aux_optimizer": NANOGPT_AUX_OPTIMIZER,
+            "nanogpt_adan_beta1": NANOGPT_ADAN_BETA1,
+            "nanogpt_adan_beta2": NANOGPT_ADAN_BETA2,
+            "nanogpt_adan_beta3": NANOGPT_ADAN_BETA3,
             "nanogpt_muon_attn_lr_mult": NANOGPT_MUON_ATTN_LR_MULT,
             "nanogpt_muon_mlp_lr_mult": NANOGPT_MUON_MLP_LR_MULT,
             "nanogpt_ns_coef_schedule": NS_COEF_SCHEDULE,
@@ -938,10 +1037,17 @@ for trial_idx in range(args.num_trials):
                f"snapshot_shape={tuple(embed_init_snapshot.shape)}", console=True)
 
     # create the optimizer(s)
-    optimizer1 = AdamW([dict(params=[model.embed.weight], lr=0.3 * NANOGPT_ADAMW_EMBED_LR_MULT, name="adam_embed"),
-                        dict(params=[model.proj.weight], lr=(1/320) * NANOGPT_ADAMW_LM_HEAD_LR_MULT, name="adam_lm_head"),
-                        dict(params=[p for p in model.parameters() if p.ndim < 2], lr=0.01 * NANOGPT_ADAMW_SCALAR_LR_MULT, name="adam_scalars")],
-                       betas=(0.8, NANOGPT_ADAMW_BETA2), eps=1e-10, weight_decay=0, fused=True)
+    if NANOGPT_AUX_OPTIMIZER == "adan":
+        optimizer1 = Adan([dict(params=[model.embed.weight], lr=0.3 * NANOGPT_ADAMW_EMBED_LR_MULT, name="adam_embed"),
+                            dict(params=[model.proj.weight], lr=(1/320) * NANOGPT_ADAMW_LM_HEAD_LR_MULT, name="adam_lm_head"),
+                            dict(params=[p for p in model.parameters() if p.ndim < 2], lr=0.01 * NANOGPT_ADAMW_SCALAR_LR_MULT, name="adam_scalars")],
+                           betas=(NANOGPT_ADAN_BETA1, NANOGPT_ADAN_BETA2, NANOGPT_ADAN_BETA3),
+                           eps=1e-10, weight_decay=0)
+    else:
+        optimizer1 = AdamW([dict(params=[model.embed.weight], lr=0.3 * NANOGPT_ADAMW_EMBED_LR_MULT, name="adam_embed"),
+                            dict(params=[model.proj.weight], lr=(1/320) * NANOGPT_ADAMW_LM_HEAD_LR_MULT, name="adam_lm_head"),
+                            dict(params=[p for p in model.parameters() if p.ndim < 2], lr=0.01 * NANOGPT_ADAMW_SCALAR_LR_MULT, name="adam_scalars")],
+                           betas=(0.8, NANOGPT_ADAMW_BETA2), eps=1e-10, weight_decay=0, fused=True)
     # Per-block-type Muon param split: attn (q/k/v/proj) vs mlp (fc/proj).
     # When both multipliers = 1.0, behavior is bit-identical to the prior single-group setup
     # (NS orthogonalization is per-matrix; the split only changes how groups are indexed).
