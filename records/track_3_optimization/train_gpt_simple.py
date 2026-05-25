@@ -593,6 +593,34 @@ NANOGPT_SENPAI_SEED = int(_SENPAI_SEED_RAW) if _SENPAI_SEED_RAW != "" else None
 # `embed.weight -= lr_embed * lambda * (embed.weight - embed_init_snapshot)`.
 # At lambda=0 the hook is a no-op and behavior is bit-identical to the merged stack.
 NANOGPT_EMBED_INIT_ANCHOR_LAMBDA = float(os.environ.get("NANOGPT_EMBED_INIT_ANCHOR_LAMBDA", "0.0"))
+# Body Muon momentum (μ) schedule (#1078 thorfinn).
+# "off"           => constant mu_start (bit-identical fallback when MUON_MU_START=0.95).
+# "linear_full"   => linear anneal mu_start -> mu_end over full training.
+# "cooldown_only" => constant mu_start until cooldown begins, then linear anneal to mu_end.
+MUON_MU_SCHEDULE = os.environ.get("NANOGPT_MUON_MU_SCHEDULE", "off")
+MUON_MU_START = float(os.environ.get("NANOGPT_MUON_MU_START", "0.95"))
+MUON_MU_END = float(os.environ.get("NANOGPT_MUON_MU_END", "0.85"))
+_VALID_MUON_MU_SCHEDULES = ("off", "linear_full", "cooldown_only")
+if MUON_MU_SCHEDULE not in _VALID_MUON_MU_SCHEDULES:
+    raise ValueError(
+        f"NANOGPT_MUON_MU_SCHEDULE={MUON_MU_SCHEDULE!r}, must be one of {_VALID_MUON_MU_SCHEDULES}"
+    )
+
+
+def get_muon_mu(step: int, total_steps: int, cooldown_start_frac: float,
+                schedule: str, mu_start: float, mu_end: float) -> float:
+    if schedule == "off":
+        return mu_start
+    if schedule == "linear_full":
+        progress = step / max(total_steps - 1, 1)
+        return mu_start + (mu_end - mu_start) * progress
+    if schedule == "cooldown_only":
+        cooldown_start = int(total_steps * cooldown_start_frac)
+        if step < cooldown_start:
+            return mu_start
+        cooldown_progress = (step - cooldown_start) / max(total_steps - cooldown_start - 1, 1)
+        return mu_start + (mu_end - mu_start) * cooldown_progress
+    return mu_start
 
 
 def get_ns_coef_at_iter(iter_idx: int, total_iters: int, schedule: str) -> tuple[float, float, float]:
@@ -831,6 +859,11 @@ if NS_ITERS_COOLDOWN > 0:
 else:
     print0(f"NS_SCHEDULE: constant ns_iters={NS_ITERS} (NS_ITERS_COOLDOWN=0, schedule disabled)",
            console=True)
+if MUON_MU_SCHEDULE != "off":
+    print0(f"MUON_MU_SCHEDULE: {MUON_MU_SCHEDULE} "
+           f"mu_start={MUON_MU_START} -> mu_end={MUON_MU_END} ACTIVE", console=True)
+else:
+    print0(f"MUON_MU_SCHEDULE: off (constant mu={MUON_MU_START})", console=True)
 print0(f"NS_COEF_SCHEDULE: {NS_COEF_SCHEDULE}", console=True)
 for _probe_iters in (NS_ITERS, NS_ITERS_COOLDOWN if NS_ITERS_COOLDOWN > 0 else NS_ITERS):
     _table = get_ns_coef_table(_probe_iters)
@@ -896,6 +929,9 @@ if dist.get_rank() == 0:
             "nanogpt_ns_stochastic_cooldown": NANOGPT_NS_STOCHASTIC_COOLDOWN,
             "senpai_seed": NANOGPT_SENPAI_SEED if NANOGPT_SENPAI_SEED is not None else -1,
             "nanogpt_embed_init_anchor_lambda": NANOGPT_EMBED_INIT_ANCHOR_LAMBDA,
+            "nanogpt_muon_mu_schedule": MUON_MU_SCHEDULE,
+            "nanogpt_muon_mu_start": MUON_MU_START,
+            "nanogpt_muon_mu_end": MUON_MU_END,
         },
     )
 
@@ -1068,6 +1104,8 @@ for trial_idx in range(args.num_trials):
                     "speedrun/reached_target": int(first_step_to_target >= 0),
                     "time/train_seconds": training_time,
                     "time/step_avg_ms": 1000 * step_avg,
+                    "train/muon_mu": get_muon_mu(step, train_steps, NS_COOLDOWN_START_FRAC,
+                                                 MUON_MU_SCHEDULE, MUON_MU_START, MUON_MU_END),
                 }
                 metrics.update(prefixed("val/slope", loss_slope_stats(val_loss_history, slope_window_steps)))
                 wandb.log(metrics, step=trial_idx * (train_steps + 1) + step)
@@ -1205,6 +1243,14 @@ for trial_idx in range(args.num_trials):
             if len(ns_iters_history) > 100:
                 del ns_iters_history[:-100]
             ns_cumulative_iters += ns_iters_this_step
+        # Body Muon μ per-step schedule (#1078). Updates group["mu"] in place; the
+        # Muon optimizer reads mu = group["mu"] inside step(), so this propagates
+        # to all body Muon param groups. (Note: muon_update reads group["mu"]
+        # directly, not via self.defaults — modifying defaults alone has no effect.)
+        mu_this_step = get_muon_mu(step, train_steps, NS_COOLDOWN_START_FRAC,
+                                    MUON_MU_SCHEDULE, MUON_MU_START, MUON_MU_END)
+        for group in optimizer2.param_groups:
+            group["mu"] = mu_this_step
         for opt in optimizers:
             opt.step()
         # Init-anchored WD on embed (#847, env-var-gated). After both optimizers
