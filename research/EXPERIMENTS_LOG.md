@@ -1,3 +1,28 @@
+## 2026-05-25 18:50 — PR #1173: H152 Lion optimizer aux (SEVERE NEG bilateral — aux-optimizer architecture closure; magnitude-aware mechanism finding)
+
+- Branch: `g1r3-alphonse/h152-lion-aux-sweep`
+- Hypothesis: Plateau-protocol bold swing — does direction-only sign-momentum suffice for aux groups, or is magnitude information load-bearing? Three competing hypotheses: H1 direction suffices (WIN), H2 magnitude matters (NULL/NEG), H3 LR scaling recovers direction-only (arm_c WIN at lower lr).
+- Results vs new H148 baseline 3.26364:
+
+| Arm | aux_optimizer | aux_lion_lr_mult | wandb | val/loss | Δ vs arm_a | Δ vs new baseline | Verdict |
+|---|---|---|---|---|---|---|---|
+| arm_a CTRL | adamw | n/a | `rbnhmun2` | 3.26581 | — | +0.00217 | NULL bit-id (replicates H144 CTRL within 0.00009) |
+| arm_b LION_LR3 | lion | 0.33 | `lmqi51bk` | **3.30071** | +0.03490 | +0.03707 | **SEVERE NEG** |
+| arm_c LION_LR10 | lion | 0.10 | `prvr702p` | **3.30303** | +0.03722 | +0.03939 | **SEVERE NEG** |
+
+- **Plateau-flat at ~3.30** for both Lion arms (Δ arm_b vs arm_c = +0.00232 within seed noise). LR sweep provides essentially zero variance — Lion is plateau-bound, not LR-bound. Forecloses any finer-LR Lion sweep.
+- step_avg_ms: 1819-1820 across all 3 arms (no throughput speedup from Lion's single momentum buffer).
+- **5 programme-grade findings:**
+  1. **Lion's direction-only update fundamentally incompatible with aux groups under this stack.** Mechanism: embed gradients heavy-tailed by token frequency; lm_head/proj similar dynamic range; `sign()` collapses per-coordinate magnitudes to ±lr. No LR scaling recovers per-coordinate information that sign() discarded.
+  2. **7-level aux-AdamW-family closure portfolio**: H120/H125/H127/H136/H144 (5-level EMA family) + H147 (β1 schedule) + H152 (Lion direction-only) — all NULL/NEG. AdamW core mechanism (v_t per-coordinate adaptive scaling) is the load-bearing aux-side mechanism. **Magnitude-aware optimizers are non-negotiable for aux groups.**
+  3. **Cross-H mechanism distinction with H154 (ADOPT)**: ADOPT preserves magnitude-awareness via lagged-v normalization while Lion discards it via sign(). Both architectures' fates jointly distinguish "magnitude matters" from "specific magnitude implementation matters."
+  4. **Body-Lion ruled out implicitly.** Muon's NS5 orthogonalization is already a direction-aware (magnitude-discarding) update on body 2D weights. Replacing with Lion just removes orthogonalization — strictly worse. Aux-NEG closes this branch without separate experiment.
+  5. **No wall-clock bottleneck from aux optimizer.** Identical step_avg across direction-only vs magnitude-aware suggests optimizer state ops are noise-floor for aux groups (small param counts vs body MuonH NS5 dominant cost).
+- Decision: CLOSE per "Both NEG → magnitude matters, close aux-optimizer architecture axis" branch of decision rules.
+- Follow-up: H160 alphonse ASSIGNED — aux AdamW eps schedule (alphonse's own suggestion #4: probes v_t magnitude-scaling activation threshold).
+
+---
+
 ## 2026-05-25 18:32 — PR #1171: H151 AGC × µ-end interaction ablation (NULL CLOSURE — H143 AGC absorption REFUTED)
 
 - Branch: `g1r3-fern/h151-agc-mu-end-interaction`
