@@ -1,5 +1,51 @@
 # SENPAI Research Results
 
+## 2026-05-25 11:55 UTC — PR #1107 CLOSED: Polar interpolation α=0.75 n=2 confirmation — 128th NULL, polar-interp axis FULLY CLOSED, n=2 REVERSES n=1 WIN (g1r1-tanjiro)
+
+- Branch: `g1r1-tanjiro/polar-interpolation`
+- Hypothesis (original): polar projection over-orthogonalizes m_pre in low-rank regime; blending raw m_pre with polar (α-blend) preserves directional information that pure polar discards. Two arms initially: α=0.75 light blend vs α=0.50 heavy blend. Arm A (α=0.75) showed n=1 WIN (val=3.264891, Δval−1.503 mnat); n=2 confirmation requested per marginal-boundary rule.
+
+### n=2 confirmation results
+
+| Seed | wandb id | val/loss | sr | Δval vs baseline (mnat) |
+|---|---|---|---|---|
+| 1 | `wlrtyf2t` | 3.264891 | 2925 | **−1.503** |
+| 2 | `zegkqdpe` | 3.266485 | 2925 | **+0.091** (regress) |
+| **n=2 mean** | — | **3.265688** | **2925** | **−0.706** |
+
+Baseline (n=2 PR #918): val=3.266394, sr=2925. Empirical σ ≈ 0.0003 (#958).
+
+### Merge rule evaluation — BOTH REQUIRED CLAUSES FAIL
+
+| Rule | Value | Threshold | Pass |
+|---|---|---|---|
+| `(3.266394 − μ_n2) · √2 ≥ 0.004` | 0.000998 | 0.004 | ❌ |
+| Seed-1 `sr ≤ 2912.5 OR (sr=2925 AND val<3.266394)` | sr=2925, val=3.264891 | val<3.266394 | ✅ |
+| Seed-2 `sr ≤ 2912.5 OR (sr=2925 AND val<3.266394)` | sr=2925, val=3.266485 | val<3.266394 | ❌ |
+
+Both required conditions fail → **NULL closure**.
+
+### Mechanism findings
+
+1. **Polar telemetry reproduces cleanly across seeds.** Seed-1 vs seed-2 final values: `polar/ortho_residual_sample` 3.604/3.625, `polar/ortho_residual_polar_only` 0.188/0.203, `polar/blend_magnitude_ratio` 0.00230/0.00230. Trajectory means consistent: residual_sample mean=3.921±0.323, blend_ratio mean=0.00193±0.00044. **The blend mechanism IS doing what it should — m_pre carries ~0.23% of polar Frob mass, the residual is ~4× elevated vs polar-only, confirming non-trivial shift away from orthogonal projection.**
+2. **The val/loss signal does NOT survive seed averaging.** Seed-1 (−1.503 mnat) was a lucky draw; seed-2 (+0.091 mnat) is essentially baseline noise. The n=2 mean improvement (−0.706 mnat) is positive but 4× below the merge threshold (need 0.004 after √n scaling, observed 0.001).
+3. **Polar projection in NS5 is closer to load-bearing than seed-1 suggested.** Combined with Arm B (α=0.50, +4.82 mnat regress), any blend in (0.5, 1.0) tested is either neutral or regressive. The mechanism intuition (rank-deficiency canon: polar synthesizes singular-value structure not in the gradient) MAY still be correct, but the practical val/loss effect at this magnitude is below noise.
+4. **n=2 boundary discipline SAVED A FALSE MERGE.** Pattern matches #969 (γ=1.2: n=1 looked like clean WIN at lr=0.035; n=2 at lr=0.040 revealed Pareto-shift). Session memory rule "Marginal Δval ≤ 0.001 at n=1 over baseline requires n=2 confirmation" is load-bearing here.
+
+### Bug fix commendation
+
+Student detected and fixed a `senpai-pr-guard.py` regex bug (committed `3107d30` to senpai main) — the guard was crashing on SENPAI-RESULT lines INSIDE markdown code fences. The advisor's 07:34 UTC comment contained a template line `SENPAI-RESULT: {"terminal":true,...,"value":<val_2>}` inside a fenced code block. The fix adds `in_code_block` state tracking to `result_markers()` so fenced lines are skipped. Infrastructure-grade catch that benefits all future PRs.
+
+### Portfolio implications
+
+- **Polar-interpolation axis FULLY CLOSED** across α ∈ {0.50, 0.75}.
+- Cross-axis with #1102 reframe: m_pre stable rank ≈ 426 (rank-rich, not rank-deficient). The polar over-projection lever-arm is smaller than initially hypothesized.
+- Future PRs targeting NS5 polar quality must operate INSIDE NS5 (NS_ITERS modulation, polynomial coefficient choice, exact SVD substitution), NOT post-NS5 blend.
+- Reinforces n=2 boundary discipline as load-bearing for future marginal-WIN candidates.
+- tanjiro → **#1166** (NS5 cubic polynomial coefficient ablation: Arm A TIGHTER (a=1.7, b=-0.7) linear convergence at σ=1 rate −0.4 vs Arm B GENTLER (a=1.3, b=-0.3) linear convergence rate +0.4). First direct ablation of NS5 cubic coefficients in r1. Baseline (1.5, -0.5) has quadratic convergence at σ=1 (`f'(1)=0`); arms test linear convergence with better/worse far-from-1 behavior. Mechanism-distinct from all in-flight: #1129 post-polar magnitude, #1135 exact SVD replacement, #1144 phase NS_ITERS count. m_pre stable rank ≈ 426 → most singular values are far from σ=1 → polynomial behavior in σ≪1 regime matters.
+
+---
+
 ## 2026-05-25 11:40 UTC — PR #1123 CLOSED: Asymmetric γ_L/γ_R whitening exponents — 127th NULL, asymmetric whitening axis FULLY CLOSED (g1r1-frieren)
 
 - Branch: `g1r1-frieren/gamma-L-gamma-R-asymmetry`
