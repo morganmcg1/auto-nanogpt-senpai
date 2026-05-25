@@ -1,3 +1,29 @@
+## 2026-05-25 08:45 — PR #1115: H138 Cautious AdamW for aux groups (NULL closure)
+- Branch: `g1r3-thorfinn/h138-cautious-adamw-aux`
+- Hypothesis: Applying Cautious AdamW (Wang et al. 2024, arXiv:2411.16085) to the aux optimizer groups (embed/lm_head/scalars) will improve convergence by masking updates where the current gradient and historical update disagree in sign, preventing "overshooting" in the high-LR aux groups.
+
+| Arm | Mode | run_id | val/loss | Δ vs baseline | Δ vs CTRL | ffs | step_avg_ms | Band |
+|---|---|---|---|---|---|---|---|---|
+| arm_a | CTRL (none) | `wc48ln7c` | 3.26883 | +0.00336 | 0 | 3050 | 1813.0 | widened-CTRL ✓ |
+| arm_b | CAUTIOUS_GRAD | `6n7hh707` | 3.27812 | +0.01265 | +0.00929 | 3250 | 1831.1 (+1.00%) | NEG mild |
+| arm_c | CAUTIOUS_MOM | `pw9cavnz` | 3.26779 | +0.00232 | -0.00104 | 3025 | 1826.5 (+0.74%) | NULL |
+
+Baseline: 3.26547 (PR #1097 fern H133). WIN < 3.26467 | NULL [3.26377, 3.26817] | NEG > 3.26817
+
+**Verdict: NULL closure. Cautious AdamW aux axis closed.**
+
+**Results commentary:**
+- arm_b CAUTIOUS_GRAD failed: grad-sign agreement = 0.44 on embed (paper low end), causing 2.26× mean rescale on embed. Embed grad_norm halved vs CTRL throughout training (ratio 0.52-0.63). Despite "cleaner direction," val/loss WORSENED by +0.0093 — masking is removing real signal, not noise, at 124M × 3325-step scale.
+- arm_c CAUTIOUS_MOM landed NULL: momentum-sign agreement = 0.86 (well above paper range). Only 14% of positions masked, mean rescale 1.16×. Mid-training arm_c was AHEAD of CTRL (steps 125-1875, max Δ=-0.026) then converged to ~CTRL by step 2000 then drifted slightly negative through cooldown. Essentially bit-equivalent to CTRL at terminal.
+
+**Key mechanism findings:**
+1. **Sign-source noise matters more than masking aggressiveness.** GRAD=0.60 sign agreement → aggressive masking → NEG. MOM=0.84 sign agreement → mild masking → NULL. The β1=0.8 EMA denoises momentum direction — result directly motivated H147 β1 schedule hypothesis.
+2. **AGC × Cautious rescale interaction refuted.** AGC active_fraction = 0.983 across all 3 arms (already saturating). Cautious 2.26× embed rescale is INVISIBLE to AGC. No mediation.
+3. **Paper's "0.5-1% improvement" doesn't transfer to 124M × aux-only × strict-AGC config.** Scale × subsystem mismatch is the dominant explanation. Aux-only application creates body/aux update imbalance that standard schedule isn't tuned for.
+4. **Cautious axis CLOSED for aux subsystem.** Both masking variants tested; gradient-sign is too aggressive, momentum-sign is too gentle. Whole-model body+aux Cautious remains untested but deprioritized given scale mismatch mechanism.
+
+→ **H147 assigned**: Aux AdamW β1 schedule RAMP_DOWN (0.9→0.7) / RAMP_UP (0.7→0.9) / CTRL (0.8 fixed). Tests whether β1 high early + low late (more denoising + more responsive) can WIN where fixed β1=0.8 fails.
+
 ## 2026-05-25 08:12 UTC — PR #1118 CLOSED (askeladd): H139 Look-Ahead Body MuonH (SEVERE NEG closure; **cosine-cooldown-drain mechanism** — NOT two-slow-weights-conflict; LA arms LED CTRL by +0.05 at step 1000 but catastrophically drain under cosine cooldown; MuLoCo undisturbed by LA at aggregator level; **H146 immediately assigned to rescue mid-training benefit under NEW LINEAR cooldown**)
 
 - Branch: `g1r3-askeladd/h139-lookahead-muonh`
