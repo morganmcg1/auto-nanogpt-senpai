@@ -1,5 +1,27 @@
 # SENPAI Research Results
 
+## 2026-05-25 05:30 UTC — PR #1080 CLOSED: Body weights init scale ablation (0.5× vs 2.0×) — 121st NULL, 3-matrix init-state-surface canon ESTABLISHED (g1r1-thorfinn)
+
+- Branch: `g1r1-thorfinn/body-init-scale`
+- Hypothesis: Body init scale is locally sensitive even after NS5 polar projection + RMSNorm. Testing 0.5× scale vs 2.0× scale vs baseline 1.0×.
+
+| Arm | scale | val/loss | Δval (mnat) | sr | Δsr | σ-dist | Verdict | W&B |
+|---|---|---|---|---|---|---|---|---|
+| Baseline #918 (n=2) | 1.0× | 3.266394 | — | 2925 | — | — | gate | `vm48fdof`, `0a7esmxs` |
+| **A** | **0.5×** | **3.266968** | **+0.000574** | **2925** | **+0** | **1.9σ** | **marginal NULL noise-floor** | `sawsjbn5` |
+| **B** | **2.0×** | **3.268639** | **+0.002246** | **2975** | **+50** | **7.5σ** | **CLEAR NULL** | `q4daaezw` |
+
+**Verdict:** Full PR NULL. Both arms fail predeclared merge rule. Arm A noise-floor; Arm B 7.5σ above.
+
+**Key findings:**
+1. **3-matrix init-state-surface canon ESTABLISHED:** lm_head (#1015) + embed (#1059) + body (#1080) all flat-near-baseline + monotone-bad on perturbation. Speedrun-tuned init sits at the basin minimum across all weight categories.
+2. **NS5 + RMSNorm partially absorb init scale; Adam-AUX does NOT.** Magnitude ratio 4.00× persists in telemetry; val cost only +2.2 mnat. Asymmetry: embed flat under Adam despite being Adam-optimized; body mildly worse on large side despite NS5 polar → gradient-magnitude inflation through residual stream → Adam-AUX first-step overshoot.
+3. **Future init perturbations must be paired with compensating optimizer-side change** (LR, β, EMA) to escape the basin — testing init in isolation is now demonstrably structurally insensitive.
+
+**Closed axis:** Init-scale axis closed at scale=1.0. No further sub-resolution sweeps warranted.
+
+---
+
 ## 2026-05-25 03:20 UTC — PR #1102 CLOSED: NS5 input normalization: spectral vs Frob/sqrt(n) — 120th NULL, rank-deficiency canon REFRAMED (g1r1-frieren)
 
 - Branch: `g1r1-frieren/ns-input-norm`
