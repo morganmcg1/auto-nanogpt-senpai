@@ -469,6 +469,27 @@ WD_AUX = float(os.environ.get("WD_AUX", "0.0"))  # AdamW WD on embed + lm_head m
 EMBED_INIT_STD = float(os.environ.get("EMBED_INIT_STD", "1.0"))  # default preserves baseline N(0,1)
 LOGIT_SOFTCAP = float(os.environ.get("LOGIT_SOFTCAP", "15.0"))  # default = 15 (current hardcoded value); soft-cap value c in f(x) = c·x / sqrt(x^2+c^2)
 
+# Polar Express (Amsel et al. 2025, arXiv:2505.16932) per-iteration NS5 coefficients.
+# Hardcoded from official repo github.com/NoahAmsel/PolarExpress/blob/main/polar_express.py
+# Generated with (l=1e-3, num_iters=10, safety_factor_eps=1e-2, cushion=0.02).
+# When POLAR_EXPRESS_STEPS > 10 the last entry repeats (matches reference behavior).
+POLAR_EXPRESS_ROUTING = int(os.environ.get("POLAR_EXPRESS_ROUTING", "0"))
+POLAR_EXPRESS_STEPS = int(os.environ.get("POLAR_EXPRESS_STEPS", "14"))
+POLAR_EXPRESS_TABLE = [
+    ( 8.23731249049555458, -23.15774741455819807,  16.68056841144591473),
+    ( 4.08244199906483640,  -2.89304773533258874,   0.52528492569756513),
+    ( 3.92634799225465558,  -2.85474680347652932,   0.53180224228949891),
+    ( 3.29821871330851435,  -2.42454198102670615,   0.48632008358844075),
+    ( 2.29703694345525822,  -1.63662558125903201,   0.40026284559536324),
+    ( 1.87638053514404035,  -1.23478965777222482,   0.35891887501668518),
+    ( 1.85644234856599910,  -1.21324498810178660,   0.35680034878662220),
+    ( 1.85643643812839354,  -1.21323924271007466,   0.35680039639780314),
+    ( 1.85643116679765918,  -1.21322890781730663,   0.35679533078847669),
+    ( 1.87499547756620677,  -1.24999095515422920,   0.37499547758802260),
+]
+# Sampled polar residual ||X X^T - I||_F captured by zeropower_via_newtonschulz5; read by training loop telemetry.
+_POLAR_LAST_RESIDUAL = {"residual": float("nan")}
+
 
 def zeropower_via_newtonschulz5(G: Tensor) -> Tensor:
     assert G.ndim >= 2
@@ -476,14 +497,29 @@ def zeropower_via_newtonschulz5(G: Tensor) -> Tensor:
     if G.size(-2) > G.size(-1):
         X = X.mT
 
-    # Ensure spectral norm is at most 1
-    X = X / (X.norm(dim=(-2, -1), keepdim=True) + 1e-7)
-    # Perform the NS iterations, not optimizing for wallclock speed
-    a, b, c = 2, -1.5, 0.5
-    for _ in range(NS5_ITERS):
-        A = X @ X.mT
-        B = b * A + c * A @ A
-        X = a * X + B @ X
+    if POLAR_EXPRESS_ROUTING:
+        # Polar Express normalization: 1.01 safety factor keeps sigma_max < 1 before the
+        # aggressive t=0 polynomial (a=8.24) is applied.
+        X = X / (X.norm(dim=(-2, -1), keepdim=True) * 1.01 + 1e-7)
+        n_table = len(POLAR_EXPRESS_TABLE)
+        for t in range(POLAR_EXPRESS_STEPS):
+            a, b, c = POLAR_EXPRESS_TABLE[t] if t < n_table else POLAR_EXPRESS_TABLE[-1]
+            A = X @ X.mT
+            B = b * A + c * A @ A
+            X = a * X + B @ X
+        with torch.no_grad():
+            A = X @ X.mT
+            eye = torch.eye(A.size(-2), dtype=A.dtype, device=A.device)
+            _POLAR_LAST_RESIDUAL["residual"] = float((A - eye).norm().item())
+    else:
+        # Ensure spectral norm is at most 1
+        X = X / (X.norm(dim=(-2, -1), keepdim=True) + 1e-7)
+        # Perform the NS iterations, not optimizing for wallclock speed
+        a, b, c = 2, -1.5, 0.5
+        for _ in range(NS5_ITERS):
+            A = X @ X.mT
+            B = b * A + c * A @ A
+            X = a * X + B @ X
 
     if G.size(-2) > G.size(-1):
         X = X.mT
@@ -866,7 +902,14 @@ if dist.get_rank() == 0:
             "optimizer/attn_soap_trust_threshold": ATTN_SOAP_TRUST_THRESHOLD,
             "optimizer/ns5_iters": NS5_ITERS,
             "optimizer/wd_aux": WD_AUX,
+            "optimizer/polar_express_routing": POLAR_EXPRESS_ROUTING,
+            "optimizer/polar_express_steps": POLAR_EXPRESS_STEPS,
             "optimizer/recipe": "contra-muon + normuon-lite + soap-on-mlp + soap-on-attn-trust-gate (pre-NS5, record #14 + record #16)",
+            **{
+                f"polar_express/table_iter_{t}/coeff_{name}": v
+                for t, coeffs in enumerate(POLAR_EXPRESS_TABLE)
+                for name, v in zip(("a", "b", "c"), coeffs)
+            },
         },
     )
 
@@ -1053,6 +1096,11 @@ for trial_idx in range(args.num_trials):
             )
         for opt in optimizers:
             opt.step()
+        if dist.get_rank() == 0 and telemetry_due and POLAR_EXPRESS_ROUTING:
+            wandb.log(
+                {"polar_express/per_step_polar_residual": _POLAR_LAST_RESIDUAL["residual"]},
+                step=wandb_step,
+            )
         if dist.get_rank() == 0 and telemetry_due:
             for opt in optimizers:
                 if hasattr(opt, "trust_gate_stats"):
