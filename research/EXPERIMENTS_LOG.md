@@ -1,5 +1,93 @@
 # SENPAI Research Results — auto-nanogpt-1gpu-r2
 
+## 2026-05-25 10:34 UTC — PR #1134: SOAP_GRAM_DRIFT_REFRESH (CLOSED, 135th refuted — SOAP-DRIFT-REFRESH-EMA-PREVSTEP-FORMULATION family 1/1, 22nd family-level closure, 5th FLOOR-CLUSTER-TOUCH refute signature instance, publication-grade EMA-jitter-vs-eigenbasis-rotation mechanism interpretation)
+
+- Branch: `g1r2-thorfinn/soap-gram-drift-refresh` (student g1r2-thorfinn)
+- Hypothesis: Drift-triggered SOAP eigenbasis refresh — fire `soap_refresh()` when normalized Gram delta `||Δrow_gg||/||row_gg||` exceeds threshold instead of every 10 steps. Should distribute refreshes adaptively (more early, fewer late).
+- Mechanism class: SOAP-DRIFT-REFRESH-EMA-PREVSTEP-FORMULATION (53rd distinct mech class, originally assigned mid-flight). FIRST drift-triggered SOAP refresh in 295-PR corpus.
+
+### Results
+
+| Run | Arm | thresh | val/loss | ffs | step_avg_ms | refresh_fraction | Status |
+|---|---|---|---|---|---|---|---|
+| `3m36mqe1` | disabled-check | 0 (off) | 4.07825 @200 | -1 | 1961.89 | n/a (baseline path) | ✓ bytewise inert |
+| `rdtfenjg` | A | 0.05 | **3.27452** | 3075 | 2735.73 | 0.988 → 0.992 → 0.994 | Floor-cluster interior +0.0068 above merge bar |
+| `zu7nw7dx` | B | 0.02 | **3.27474** | 3075 | 2737.11 | 0.992 → 0.999 → 0.999 | Monotone-in-threshold *slightly worse not better* |
+
+**Verification — config plumbing**:
+
+| Run | `optimizer/soap_gram_drift_threshold` |
+|---|---|
+| `3m36mqe1` | 0 ✓ |
+| `rdtfenjg` | 0.05 ✓ |
+| `zu7nw7dx` | 0.02 ✓ |
+
+**Refresh telemetry — mechanism diagnosis**:
+
+| step | Arm A (thresh=0.05) | Arm B (thresh=0.02) | PR prediction |
+|---:|---:|---:|---:|
+| 125  | 0.988 | 0.992 | > 0.10 early |
+| 1500 | 0.992 | 0.999 | adaptive |
+| 3175 | 0.994 | 0.999 | < 0.10 late |
+
+**Refresh fraction never drops below 0.99 at either threshold** — mechanism is firing on essentially every step, NOT distributing refreshes adaptively.
+
+**Kill-gate trajectory**:
+
+| step | gate | Arm A val | Arm B val | violation |
+|---:|---:|---:|---:|---:|
+| 1000 | ≤ 3.66 | 3.69557 | 3.69486 | +0.036 / +0.035 (within +0.05 tolerance) |
+| 2000 | ≤ 3.43 | 3.44734 | 3.44576 | +0.017 / +0.016 (within tolerance) |
+| 3000 | ≤ 3.29 | 3.28569 | 3.28590 | clean |
+
+**Wall-clock cost**:
+
+| run | mean step_avg_ms | Δ vs disabled |
+|---|---:|---:|
+| disabled-check | 1961.89 | baseline |
+| Arm A (thresh=0.05) | 2735.73 | **+773.8 ms (+39.4%)** |
+| Arm B (thresh=0.02) | 2737.11 | **+775.2 ms (+39.5%)** |
+
+### Results commentary, analysis, conclusions
+
+**22nd family-level closure: SOAP-DRIFT-REFRESH-EMA-PREVSTEP-FORMULATION 1/1, 5th FLOOR-CLUSTER-TOUCH refute signature.**
+
+1. **Mechanism fires as implemented but NOT as intended**:
+   - Disabled-check confirms bytewise inert at thresh=0
+   - Both arms fire refresh on essentially every step (refresh_fraction ≈ 0.99)
+   - Wall-clock cost +39% matches predicted "refresh every step" rate
+
+2. **Floor-cluster touch with monotone-in-threshold direction**:
+   - Arm A val=3.27452 sits in floor-cluster interior [3.270, 3.278]
+   - Arm B val=3.27474 with tighter threshold is *slightly worse* not better → "push harder" interpretation refuted
+   - Both arms miss N=1 hold gate (val+0.00452/+0.00474, ffs+75) and merge bar (val+0.0068, ffs+75)
+
+3. **Mechanism interpretation — EMA jitter dominates eigenbasis rotation in drift signal (thorfinn's publication-grade analysis)**:
+   The SOAP Gram EMA uses `beta2=0.95`, so each step replaces ~5% of `row_gg` with a fresh outer product. The normalized delta `||Δrow_gg|| / ||row_gg||` is therefore dominated by EMA jitter (~0.05/step), NOT by genuine eigenbasis rotation. Threshold ≤ 0.05 fires every step regardless of geometric stability — the mechanism cannot distinguish "Gram matrix is genuinely evolving" from "Gram matrix is the same but EMA shifted by 5%".
+
+   **Drift-triggered refresh formulated against prev-step EMA is structurally non-adaptive for any threshold ≤ EMA mixing rate.** The signal-to-noise ratio is wrong by construction.
+
+4. **Floor-cluster-touch refute signature 5th instance** joining pre-NS5-linear 2/2 (#1101, #1103), AUX-LR-SCHEDULE 2/2 (#1108, #1119), variance 8/8, NS5-input-side #1116 shifted-floor. Floor-cluster-touch signature now characterized: mechanism fires as implemented, wall-clock cost paid in full (now 5/5 instances exhibit wall-clock cost > +10%), val/loss lands within [3.270, 3.278] but misses merge bar.
+
+5. **Family-level closure (1/1) — absorbs by analogy**:
+   - Higher thresholds (≥ 0.1) on same prev-step formulation: would produce refresh_fraction < 1.0 but drift signal still EMA-jitter-dominated → adaptiveness illusory, refreshes distributed by jitter percentile not eigenbasis stability
+   - Different threshold metrics (relative ratio, absolute norm) on same prev-step delta: still EMA-jitter-dominated
+   - Different SOAP `β₂` values: would shift jitter floor but not eliminate signal pathology
+   - Therefore family closure is rigorous absorption
+
+6. **Does NOT absorb (categorically distinct mechanism axes still open)**:
+   - Drift measured against **last refreshed** Gram snapshot: decouples from EMA jitter, drift accumulates across refresh window → assigned as #1159 follow-up
+   - Drift measured on **eigenvectors directly** (post-decomposition): bypasses Gram representation entirely
+   - **Periodic refresh schedule** (refresh_freq itself): orthogonal axis — not drift-triggered
+
+7. **Wall-clock cost confirms refute is not marginal**: +39% step time × no metric gain × ffs+75 = clear refute, not a close-miss-worth-iterating-on.
+
+8. **5th cycle 71 refute → mechanism → follow-up pattern within same student/wave** (joining frieren #1124→#1142, frieren #1142→#1158, fern #1117→#1145, askeladd #1133→#1147, now thorfinn #1134→#1159). Force-multiplier pattern now validated 5 times across 4 distinct students — publication-grade closure interpretation is a systemic capability not student-specific anomaly.
+
+9. **Follow-up assigned: #1159 SOAP_GRAM_DRIFT_AGAINST_LAST_REFRESH** — 60th mechanism class, FIRST drift-against-last-refresh-snapshot SOAP refresh in 295-PR corpus. Drift measured against `last_refreshed_row_gg` snapshot updated only when refresh fires, NOT against prev-step EMA — decouples drift signal from EMA jitter so drift accumulates across refresh window producing genuinely adaptive signal. Anti-duplication grep verified clean. Predicted refresh_fraction drops to 0.05-0.50 confirming adaptive behavior.
+
+---
+
 ## 2026-05-25 09:46 UTC — PR #1142: MUON_LOOKAHEAD_COOLDOWN_GATE (CLOSED, 134th refuted — weight-space-averaging-cooldown-gated family 1/1, 21st family-level closure, 2nd CROSSOVER refute signature, publication-grade trajectory-analysis with embedded-interpolation-memory mechanism interpretation)
 
 - Branch: `g1r2-frieren/lookahead-cooldown-gate` (student g1r2-frieren)
