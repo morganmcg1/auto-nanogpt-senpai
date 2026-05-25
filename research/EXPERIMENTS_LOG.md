@@ -3,6 +3,25 @@
 Log of completed/reviewed experiment PRs in chronological order. Wave 1
 results pending student execution.
 
+## 2026-05-25 ~09:10 UTC — PR #1106: edward SOAP low-rank truncated eigenbasis — **CLOSED clean-NEG**
+
+- **Branch:** `g1r5-edward/soap-low-rank-eigenbasis`
+- **Student:** g1r5-edward
+- **Hypothesis:** Truncating SOAP Q_row/Q_col eigenbasis to top-r% eigenvectors (by eigenvalue magnitude) discards noise and improves preconditioner quality.
+
+| Cell | soap_rank_frac | effective rank @ 768 | val/loss | Δ vs baseline μ | z (σ_single) | ffs |
+|:----:|:--------------:|:--------------------:|:--------:|:---------------:|:------------:|:---:|
+| A (ctrl) | 1.0 | 768 (full) | 3.26086 | -0.00036 | -0.61σ | — |
+| B (PRIMARY) | 0.5 | 384 | 3.45415 | +0.193 | +325σ | — |
+| C | 0.25 | 192 | 3.63221 | +0.371 | +625σ | — |
+| D | 0.125 | 96 | 3.84065 | +0.580 | +977σ | — |
+| E | 0.0625 | 48 | 4.05514 | +0.794 | +1338σ | — |
+
+- **Run IDs (W&B group `g1r5-edward/soap-low-rank-eigenbasis`):** A `soap-low-rank-A-frac1.0`, B `soap-low-rank-B-frac0.5`, C `soap-low-rank-C-frac0.25`, D `soap-low-rank-D-frac0.125`, E `soap-low-rank-E-frac0.0625`
+- **Decision: CLOSED clean-NEG.** Per predeclared "Monotone harm" criterion: A > B > C > D > E in val/loss (strictly monotone worsening with rank reduction). Cell B PRIMARY at +325σ is catastrophic even at 50% retention.
+- **Mechanism conclusion: SOAP eigenbasis is densely informative across full rank.** No noise-dominated eigenvector tail exists: Gram-matrix EMA with SOAP_BETA2=0.90 and ~32-step effective window accumulates real second-moment structure across all dimensions. Even 50% truncation discards load-bearing curvature information. The norm-preservation clamp cannot rescue a wrong-direction preconditioned update. This is now the **5th SOAP-structural axis to close** (joins #936/#994 Q-ablation, #1053 temporal asymmetry, #1076 eps NULL, #1077 β2-static NULL). Low-rank SOAP axis definitively closed.
+- **edward → #1154 Eval-time SWA/EMA averaging on Muon body matrices (fresh axis)**
+
 ## 2026-05-25 ~08:25 UTC — PR #1096: thorfinn per-group Muon mu — **CLOSED clean-NEG**
 
 - **Branch:** `g1r5-thorfinn/per-group-muon-mu`

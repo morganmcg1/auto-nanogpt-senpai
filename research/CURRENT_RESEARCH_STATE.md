@@ -1,6 +1,6 @@
 # SENPAI Research State — auto-nanogpt-1gpu-r5
 
-- **Last updated:** 2026-05-25 ~08:30Z (poll ~755) — **#1096 thorfinn per-group Muon mu CLOSED clean-NEG** (all 5 cells fail confirm gate; symmetric B/C tie breaks attn-specific hypothesis; Cell A +4.3σ = seed noise; thorfinn → #1151 Gradient Centralization on Muon body). **★★ #1105 askeladd AdamW aux WD FULL SWEEP COMPLETE:** Cell B wd=0.001 at **-2.38σ** (BEATS n=1 gate), Cell C wd=0.005 at -1.91σ (also beats gate), Cell D wd=0.01 +9.04σ, Cell E wd=0.05 +47.3σ catastrophic. Sweet-spot profile clear. Awaiting student terminal SENPAI-RESULT to send back for n=4 confirm. **★ #1036 nezuko SOAP precond_freq n=8 confirm:** 5 of 5 seeds so far all negative direction (B1 -1.99σ, B2 -0.44σ, B3 -2.33σ, B4 -3.17σ, B5 -1.23σ); μ_5=3.260135; B6 seed=5 running. **#1062 tanjiro NS fp32 n=4 confirm in flight** (~6h, student auto-launched). **#1106 edward SOAP low-rank:** Cell E frac=0.0625 final cell running. **#1126 fern Lookahead:** Cell B k=5,α=0.5 +2.92σ NEG (PRIMARY poor), Cells C/D/E in flight. **#1130 frieren Decoupled SOAP β₂:** Cell A ctrl done 3.26084, Cell B PRIMARY running step ~2900. **#1131 alphonse AdaBelief:** Cell A ctrl done 3.26200, Cell B PRIMARY running step ~2600. 8 PRs in flight, 0 idle students.
+- **Last updated:** 2026-05-25 ~09:15Z (poll ~756) — **#1106 edward SOAP low-rank CLOSED clean-NEG** (5/5 cells catastrophic monotone NEG: A ctrl -0.61σ, B frac=0.5 **+325σ**, C/D/E +625/977/1338σ; SOAP eigenbasis full-rank is essential; low-rank axis closed; edward → #1154 eval-time SWA/EMA averaging on Muon body matrices). **★★ #1105 askeladd Phase 2 n=4 confirm RUNNING** (Cell B wd=0.001 autonomously launched by student per two-phase protocol; ~7.3h ETA). **★ #1036 nezuko n=8 confirm running** (μ_5=3.260135, B6/B7/B8 still in flight). **#1062 tanjiro n=4 fp32+iter=7 running** (~5h remain, autonomous student launch; both iter=7 and iter=12 tied at -0.63/-0.67σ). All 3 n>1 confirms may gate or close together over the next 6-8h.
 
 ## CURRENT BASELINE (PR #699 MERGED poll #378)
 
@@ -10,20 +10,20 @@
 - **Statsig rule:** `(3.261221 - μ) × √n ≥ 0.004`
 - **n=4 gate: μ ≤ 3.259221** (merge) | **μ > 3.261** (close clean-NEG, tentative)
 
-## Active WIP Portfolio (poll ~755)
+## Active WIP Portfolio (poll ~756)
 
 8 PRs in flight, 0 idle students.
 
 | PR # | Student | Hypothesis | Phase / Status |
 |:----:|:-------:|:-----------|:---------------|
-| **★★ #1105** | **askeladd** | AdamW auxiliary WD sweep (embed/lm_head/scalars). `weight_decay=0` hardcoded; never tested. | **FULL 5-CELL COMPLETE.** B wd=0.001 **-2.38σ BEATS gate**, C wd=0.005 -1.91σ also beats gate, D +9.04σ, E +47.3σ. Sweet-spot at wd=0.001. Awaiting terminal SENPAI-RESULT → n=4 confirm at wd=0.001. |
-| **★ #1036** | **nezuko** | SOAP precond_freq=8 n=8 confirm. Borderline at n=4 (μ_4=3.260045, statsig 59%). | n=8 running. B1-B5 all negative (μ_5=3.260135). B6 seed=5 running. Predeclared: μ_8≤3.259807 MERGE / borderline WEAK-NEG / >3.260628 clean-NEG. |
-| **#1062** | **tanjiro** | NS fp32×iter mini-sweep → n=4 confirm of iter=7 (auto-launched by student). | n=4 confirm running (01zknaa0, ~5.5h remain). Both iter=7 and iter=12 tied at -0.63/-0.67σ. Student chose iter=7 (simpler mechanism). Resolve on terminal arrival. |
-| **#1106** | **edward** | SOAP low-rank truncated eigenbasis sweep. SOAP full-rank essential. | Cell E frac=0.0625 running (~1h). Clear monotonic catastrophic NEG: A ctrl -0.61σ, B-E +325/625/977/catastrophic. Close clean-NEG mechanism falsifier when terminal. |
-| **#1126** | **fern** | Lookahead on AdamW aux groups (embed/lm_head/scalars). | Cell A ctrl +0.56σ, Cell B PRIMARY k=5,α=0.5 **+2.92σ NEG**. Cell C k=10,α=0.5 running (~45min). Heading clean-NEG unless C/D/E surprise. |
-| **#1130** | **frieren** | Decoupled SOAP β₂ (gram-EMA shampoo_beta vs basis-EMA beta2). | Cell A ctrl 3.26084 (-0.64σ refactor-neutral). Cell B PRIMARY (0.95,0.85) running step ~2900 (~7min). 3 more cells to go. |
-| **#1131** | **alphonse** | AdaBelief as AdamW aux replacement (centered variance (g-m)²). | Cell A ctrl 3.26200 (+1.31σ refactor-neutral). Cell B PRIMARY AdaBelief eps=1e-10 running step ~2600 (~12min). 3 more cells to go. |
-| **#1151** | **thorfinn** | Gradient Centralization on Muon body matrices (pre-NS). NEW. | Just assigned. Student will pick up on next poll. 5-cell: A off ctrl, B row-mean, C col-mean, D both, E row-mean attn-only. |
+| **★★ #1105** | **askeladd** | AdamW auxiliary WD sweep (embed/lm_head/scalars). | **Phase 2 n=4 RUNNING.** Phase 1 complete: B wd=0.001 -2.38σ, C wd=0.005 -1.91σ (both beat n=1 gate), D +9.04σ, E +47.3σ. n=4 confirm at wd=0.001 auto-launched by student (~7.3h ETA). Predeclared: μ_4≤3.259221 MERGE / borderline → n=8 / >3.260628 clean-NEG. |
+| **★ #1036** | **nezuko** | SOAP precond_freq=8 n=8 confirm. Borderline at n=4 (μ_4=3.260045, statsig 59%). | n=8 running. B1-B5 all negative direction (μ_5=3.260135, B5 -1.23σ). B6/B7/B8 in flight. Predeclared: μ_8≤3.259807 MERGE / borderline WEAK-NEG / >3.260628 clean-NEG. |
+| **#1062** | **tanjiro** | NS fp32×iter: iter=7 PRIMARY n=4 confirm. | n=4 confirm running (01zknaa0, ~5.5h remain). Cell B iter=7 at -0.63σ, Cell E iter=12 at -0.67σ (tied, below n=1 gate). P(merge)≈10-15%. Resolves #1010 bf16+iter≥7 monotone-hurt regardless of outcome. |
+| **#1126** | **fern** | Lookahead on AdamW aux groups (embed/lm_head/scalars). | Cell A ctrl +0.56σ, Cell B PRIMARY k=5,α=0.5 +2.92σ NEG. Cells C/D/E in flight. Heading clean-NEG unless C/D/E surprise. |
+| **#1130** | **frieren** | Decoupled SOAP β₂ (gram-EMA shampoo_beta vs basis-EMA beta2). | Cell A ctrl 3.26084 (-0.64σ refactor-neutral). Cell B PRIMARY (shampoo_beta=0.95, beta2=0.85) in flight. 3 more cells to go. |
+| **#1131** | **alphonse** | AdaBelief as AdamW aux replacement (centered variance (g-m)²). | Cell A ctrl 3.26200 (+1.31σ refactor-neutral). Cell B PRIMARY AdaBelief in flight. 3 more cells to go. |
+| **#1151** | **thorfinn** | Gradient Centralization on Muon body matrices (pre-NS). | Assigned poll ~755. Student picking up. 5-cell: A off ctrl, B row-mean PRIMARY, C col-mean, D both, E row-mean attn-only. |
+| **#1154** | **edward** | Eval-time SWA/EMA averaging on Muon body matrices. FRESH AXIS. | Assigned this poll. 5-cell: A off ctrl, B ema_999 PRIMARY (~1000-step memory), C ema_99 (shorter), D swa_half (Izmailov 2018), E ema_9999 (very long). Eval-time swap only — train dynamics unchanged. |
 
 ## Key Signals (as of poll #635)
 
