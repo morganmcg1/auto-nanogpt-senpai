@@ -55,6 +55,13 @@ def parse_args():
     parser.add_argument("--outer_lr", type=float, default=float(os.environ.get("OUTER_LR", "0.7")))
     parser.add_argument("--outer_momentum", type=float, default=float(os.environ.get("OUTER_MOMENTUM", "0.5")))
     parser.add_argument("--sync_interval", type=int, default=int(os.environ.get("SYNC_INTERVAL", "30")))
+    parser.add_argument("--outer_mu_schedule", type=str, default=os.environ.get("OUTER_MU_SCHEDULE", "off"),
+                        choices=["off", "linear"],
+                        help="Schedule for outer SGDM momentum. 'off' = constant at --outer_momentum (bit-id). 'linear' = linear ramp from --outer_mu_start to --outer_mu_end over training.")
+    parser.add_argument("--outer_mu_start", type=float, default=float(os.environ.get("OUTER_MU_START", "0.5")),
+                        help="Starting outer momentum when --outer_mu_schedule != 'off'. Defaults to 0.5 = current --outer_momentum default.")
+    parser.add_argument("--outer_mu_end", type=float, default=float(os.environ.get("OUTER_MU_END", "0.5")),
+                        help="Ending outer momentum when --outer_mu_schedule != 'off'. Defaults to 0.5 = no-op vs constant 0.5.")
     # AGC (Brock et al. 2021): per-parameter adaptive gradient clipping applied to
     # AdamW aux groups (embed, lm_head, scalars). Clips grad to clip_ratio * |param|.
     # Default 0.0 disables (no-op for bit-identical baseline).
@@ -1158,6 +1165,11 @@ for trial_idx in range(args.num_trials):
         # ``param.norm()`` at that step and preserves the new norm. Acceptable
         # behavior — the goal is trajectory smoothing, not strict norm invariance.
         if use_outer and train_step % args.sync_interval == 0 and train_step < train_steps:
+            if args.outer_mu_schedule == "linear":
+                progress = train_step / train_steps  # [0, 1)
+                eff_outer_mu = args.outer_mu_start + (args.outer_mu_end - args.outer_mu_start) * progress
+            else:
+                eff_outer_mu = args.outer_momentum
             log_outer = (dist.get_rank() == 0)
             if log_outer:
                 delta_sq = torch.zeros((), device=device)
@@ -1166,9 +1178,9 @@ for trial_idx in range(args.num_trials):
             with torch.no_grad():
                 for n, p in model.named_parameters():
                     delta = outer_anchor[n] - p.data
-                    outer_velocity[n].mul_(args.outer_momentum).add_(delta)
+                    outer_velocity[n].mul_(eff_outer_mu).add_(delta)
                     p.data.copy_(outer_anchor[n] - args.outer_lr *
-                                 (args.outer_momentum * outer_velocity[n] + delta))
+                                 (eff_outer_mu * outer_velocity[n] + delta))
                     outer_anchor[n].copy_(p.data)
                     if log_outer:
                         delta_sq = delta_sq + delta.float().square().sum()
@@ -1182,6 +1194,7 @@ for trial_idx in range(args.num_trials):
                     "trial": trial_idx,
                     "train/step": train_step,
                     "train/muloco/outer_step": outer_applied_steps,
+                    "train/muloco/outer_mu_t": eff_outer_mu,
                     "train/muloco/delta_rms": delta_rms,
                     "train/muloco/velocity_rms": velocity_rms,
                 }, step=wandb_step)
