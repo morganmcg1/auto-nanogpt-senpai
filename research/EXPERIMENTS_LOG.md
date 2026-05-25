@@ -1,5 +1,56 @@
 # SENPAI Research Results
 
+## 2026-05-25 21:18 UTC — PR #1166 CLOSED: NS5 cubic-coefficient ablation ((1.7, -0.7) TIGHTER vs (1.3, -0.3) GENTLER at a+b=1) — 137th NULL, NS5 cubic-coefficient axis FULLY CLOSED with asymmetric robustness canon (g1r1-tanjiro)
+
+- Branch: `g1r1-tanjiro/ns-coef-cubic`
+- Hypothesis: scan NS5 cubic polynomial coefficients (a, b) along the a+b=1 constraint line (fixed point at σ=1). Arm A TIGHTER (1.7, -0.7) has linear convergence rate −0.4 at σ=1 (oscillatory). Arm B GENTLER (1.3, -0.3) has rate +0.4 (monotone). Tests whether baseline (1.5, -0.5) quadratic convergence is structurally critical.
+
+| Arm | (a, b) | val | sr | Δval (mnat) | Merge rule |
+|---|---|---|---|---|---|
+| Baseline (n=2) | (1.5, -0.5) | 3.266394 | 2925 | 0 | (reference) |
+| **A (TIGHTER)** `5vpx9orf` | (1.7, -0.7) | **3.26758** | **2950** | **+1.19 (4σ)** | FAILS both (sr+25 + val miss) |
+| **B (GENTLER)** `m7s2z8a0` | (1.3, -0.3) | **3.27378** | **3050** | **+7.39 (25σ)** | FAILS both (sr+125 + val miss) |
+
+- **Both arms NULL.** 137th closure. ASYMMETRIC regression — TIGHTER 6× milder than GENTLER.
+
+- **MECHANISM CRYSTALLIZED — NS5 cubic robustness boundary is asymmetric, GENTLER fails to converge within budget:**
+
+| Telemetry | Arm A TIGHTER | Arm B GENTLER |
+|---|---|---|
+| `ns5/sigma_max_after_iter_12` | n/a (pre-telemetry) | **0.846** (vs target ~1.003 baseline) — never reaches unit norm |
+| `polar/ortho_residual_sample` | 0.176 (~2× elevated) | **16.03 (~91× Arm A)** — severely sub-orthogonal |
+| `ema/buffer_frob_dist` | 22.75 (≈ baseline 22.6) | 14.30 (smaller post-NS5 updates due to scale ~0.85×) |
+| linear convergence rate at σ=1 | −0.4 (oscillatory) | +0.4 (monotone undershoot) |
+
+  - **Arm A TIGHTER**: NS5 produces approximately-orthogonal output; optimizer absorbs the change with only +1.2 mnat val cost. EMA dynamics unchanged. Tightening NS5 coefficients by ±0.2 is well-tolerated. Note: ~8 crash restarts in early debug — `f(σ)=1.7σ−0.7σ³` overshoots aggressively at large σ in first few steps; 1/spectral-norm pre-scaling at line 469 keeps input in stable basin once past warmup.
+  - **Arm B GENTLER**: NS5 SEVERELY UNDER-CONVERGED. With f'(0)=a=1.3, small-σ amplification rate too weak to drive m_pre's bulk-σ (starting at ~0.07 per ns5/sigma_max_after_iter_1) up to unit norm in 12 iterations. Rate=+0.4 monotone approach converges asymptotically but runs out of budget → NS5 outputs sub-orthogonal matrix at 0.85× scale every step.
+
+- **REFINED CANON — polar/ortho_residual NOT load-bearing at small variations, IS load-bearing at large variations** (qualifies #1102/#1123/#1107 canon "polar/ortho_residual is NOT load-bearing at NS_ITERS=12"):
+
+| Source | ortho_residual | Δval (mnat) | Verdict |
+|---|---|---|---|
+| #1102 spectral-norm | 0.0525 (3.7× tighter) | +0.77 | NOT load-bearing |
+| #1123 asymmetric γ | 0.401 vs 0.101 (4× spread) | +1.6/+3.6 | NOT load-bearing (within band) |
+| Baseline | ~0.10 | 0 | (reference) |
+| #1166 Arm A TIGHTER | 0.176 (~2× elevated) | +1.19 | NOT load-bearing (mild cost) |
+| **#1166 Arm B GENTLER** | **16.03 (~160× elevated)** | **+7.39** | **LOAD-BEARING (clear cost)** |
+
+  - **Regime boundary somewhere between ortho_residual ≈ 0.2 and ortho_residual ≈ 16.** The canon "tightening residual 3-5× is fine" still holds. New finding: **loosening residual 100× DOES cost ~7 mnat val** — at the level where NS5 fails to reach unit norm within budget.
+
+- **Cross-axis canon strengthening — NS5 polar-quality manifold FULLY CHARACTERIZED:**
+  - #884 NS_ITERS scan (8, 12, 16, 20): NS_ITERS=12 optimal
+  - #920 quintic@NS_ITERS={5,6}: Jordan-quintic worse than cubic-at-12 (overshoot at intermediate σ)
+  - #1102 NS5 input spectral-norm: ortho_residual 0.0525 (3.7× tighter), NULL
+  - #1107 polar interpolation α=0.50/0.75: post-NS5 blend, NULL
+  - #1123 asymmetric γ_L/γ_R: 4× ortho_residual spread, NULL
+  - #1135 exact SVD polar: 0.0065 residual, +3 mnat NULL; rank-256 truncation 22.63 residual, CATASTROPHIC
+  - #1136 grad noise: pre-NS5 noise CATASTROPHIC
+  - #1144 phase NS_ITERS: phase asymmetry NULL
+  - **#1166 cubic-coefficient line: (1.5, -0.5) robust to TIGHTER ±0.2, fragile to GENTLER**
+  - **NS5 cubic baseline (1.5, -0.5) is structurally optimal under joint constraint `{a+b=1, NS_ITERS=12, m_pre bulk-σ ~ 0.07}`.**
+
+- Closing as NULL. tanjiro → **#1215** (body-Muon Nesterov momentum buffer warmup: linearly ramp mu 0 → 0.95 over first 200 (Arm A) vs 500 (Arm B) steps. Mechanism: m EMA cold-start-biased for first ~20 steps under mu=0.95; warmup replaces implicit β1-style bias with explicit linear schedule. Adam-style first-moment bias correction; mechanism-distinct from all closed mu axes (#930 static, #1156 Lookahead, #1164 depth-stratified, #1107 polar-interp) and complementary to #1208 frieren beta_cov warmup which tests the β2-analog).
+
 ## 2026-05-25 21:08 UTC — PR #1176 CLOSED: u/w-floor TARGET_UW probe (0.25 LOWER vs 0.45 HIGHER, baseline=0.35) — 136th NULL, u/w-floor U-shape FULLY MAPPED across 5 points with asymmetric harm direction (g1r1-edward)
 
 - Branch: `g1r1-edward/target-uw`
