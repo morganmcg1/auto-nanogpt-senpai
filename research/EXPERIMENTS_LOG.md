@@ -3,6 +3,37 @@
 Log of completed/reviewed experiment PRs in chronological order. Wave 1
 results pending student execution.
 
+## 2026-05-25 20:47 UTC — PR #1131: alphonse AdaBelief on aux groups (eps sweep) — **CLOSED clean WEAK-NEG**
+
+- **Branch:** `g1r5-alphonse/adabelief-aux`
+- **Student:** g1r5-alphonse
+- **Hypothesis:** Replace AdamW's `g²` 2nd-moment estimator with AdaBelief's `(g−m)²` on aux groups (embed/lm_head/scalars). Predicted POS: aux gradients are noisy on sparse-token tasks; centering on momentum should sharpen the denominator.
+
+### Phase 1 (n=1 eps sweep)
+| Cell | eps | val/loss | Z vs μ_base | Notes |
+|:---:|:---:|---:|---:|:---|
+| A ctrl | adam | 3.26121 | −0.02σ | refactor-neutral ✓ |
+| B★ | 1e-8 | 3.26280 | +2.68σ NEG | |
+| C | **1e-16** | **3.26056** | **−1.11σ** PASS n=1 | promoted to n=4 confirm |
+| D | 1e-4 | 3.26415 | +4.95σ NEG | |
+| E | 1e-12 | 3.26190 | +1.16σ boundary | |
+
+### Phase 2 (n=4 confirm at eps=1e-16)
+| Trial | val/loss | Z vs μ_base | Notes |
+|:---:|---:|---:|:---|
+| B1 default | 3.26056 | −1.11σ | original Cell C |
+| B2 seed=1 | **3.26360** | **+4.01σ** | bad seed draw |
+| B3 seed=2 | 3.26182 | +1.01σ | |
+| B4 seed=3 | 3.26108 | −0.23σ | |
+| **μ_4** | **3.261765** | **+0.92σ** | Above baseline μ |
+
+- **Decision: CLOSED clean WEAK-NEG.** μ_4 = 3.261765 fails both gates: MERGE (μ_4 ≤ 3.259221) by 4.3σ_single, borderline n=8 (≤ 3.260628) by 1.9σ_single.
+- **★ Mechanism finding — variance amplification on sparse aux gradients:** σ_n=4 = 0.001328 = **2.24× baseline σ_single** — largest variance inflation observed in this advisor cycle. Student decomposition: aux groups (embed 76M, lm_head, scalars 12K) see sparse gradients per step. `(g−m)²` is a *difference of two noisy quantities* — noisier than `g²` when `m_t` itself is being driven by stochastic sparse `g_t`. For dense Muon-targeted matrices, AdaBelief's claim that `(g−m)` is small in steady state would sharpen the denominator; for sparse-token embeddings, neither m nor g is well-stabilized, so `(g−m)²` ≈ `g²` plus extra subtraction variance.
+- **Falsifiable structural prediction:** AdaBelief should do better on **dense** parameter groups than sparse ones (use in future hypothesis design).
+- **Student self-criticism (excellent):** "I overweighted the n=1 within-pair mechanism contrast (C vs E: −2.24σ) and underweighted the possibility that AdaBelief might just have wider seed variance." Going forward, screen optimizer variants for seed variance during Phase 1, not just mean.
+- **Closure context — 5th aux-optimizer family closure:** AdaBelief #1131 NEG, Adan #1181 trending NEG, Lion h152 NEG, AdEmaMix h144 NEG, ADopt h160 NEG. **AdamW is a tight local optimum for aux groups; 2nd-moment-variants on aux don't help and frequently hurt via variance amplification.**
+- **alphonse → #1211 Pruning ablation: AdamW 2nd-moment adaptation on aux groups (v_t denominator load-bearing test) — direct extension of variance-amplification finding**
+
 ## 2026-05-25 19:41 UTC — PR #1151: thorfinn Gradient Centralization on Muon body (pre-NS) — **CLOSED clean-NEG**
 
 - **Branch:** `g1r5-thorfinn/gc-muon-body`
