@@ -423,12 +423,16 @@ class GPT(nn.Module):
         self.norm1 = RMSNorm(model_dim)
         self.norm2 = RMSNorm(model_dim)
 
-    def forward(self, inputs: Tensor, targets: Tensor):
+    def forward(self, inputs: Tensor, targets: Tensor, token_weight: Tensor = None):
         x = self.norm1(self.embed(inputs))
         for block in self.blocks:
             x = block(x)
         logits = self.proj(self.norm2(x)).float()
         logits = LOGIT_SOFTCAP * logits * (logits.square() + LOGIT_SOFTCAP**2).rsqrt()
+        if token_weight is not None:
+            _flat = targets.view(-1)
+            _per_tok = F.cross_entropy(logits.view(_flat.numel(), -1), _flat, reduction="none")
+            return (token_weight[_flat] * _per_tok).sum()
         return F.cross_entropy(logits.view(targets.numel(), -1), targets.view(-1), reduction="sum")
 
 
@@ -468,6 +472,7 @@ NS5_ITERS = int(os.environ.get("NS5_ITERS", "12"))
 WD_AUX = float(os.environ.get("WD_AUX", "0.0"))  # AdamW WD on embed + lm_head matrices (scalars stay at 0)
 EMBED_INIT_STD = float(os.environ.get("EMBED_INIT_STD", "1.0"))  # default preserves baseline N(0,1)
 LOGIT_SOFTCAP = float(os.environ.get("LOGIT_SOFTCAP", "15.0"))  # default = 15 (current hardcoded value); soft-cap value c in f(x) = c·x / sqrt(x^2+c^2)
+TOKEN_FREQ_WEIGHT_ALPHA = float(os.environ.get("TOKEN_FREQ_WEIGHT_ALPHA", "0"))  # PR #1133: inverse-token-frequency loss reweighting power
 
 
 def zeropower_via_newtonschulz5(G: Tensor) -> Tensor:
@@ -866,9 +871,50 @@ if dist.get_rank() == 0:
             "optimizer/attn_soap_trust_threshold": ATTN_SOAP_TRUST_THRESHOLD,
             "optimizer/ns5_iters": NS5_ITERS,
             "optimizer/wd_aux": WD_AUX,
+            "optimizer/token_freq_weight_alpha": TOKEN_FREQ_WEIGHT_ALPHA,
             "optimizer/recipe": "contra-muon + normuon-lite + soap-on-mlp + soap-on-attn-trust-gate (pre-NS5, record #14 + record #16)",
         },
     )
+
+# PR #1133 TOKEN_FREQ_REWEIGHT_LOSS: build per-token weight table from first
+# train shard. Weights are normalized to mean 1.0 so the disabled-check
+# (alpha=0 -> all-ones weights) is bytewise inert.  Weighting is applied only
+# during training so val/loss remains a standard unweighted CE comparable to
+# baseline numbers (kill gates and decision-tree thresholds reference the
+# unweighted CE).
+token_weight = None
+if TOKEN_FREQ_WEIGHT_ALPHA > 0:
+    _train_files = sorted(Path.cwd().glob("data/fineweb10B/fineweb_train_*.bin"))
+    assert _train_files, "no FineWeb train shards found"
+    _shard_tokens = _load_data_shard(_train_files[0])
+    _ids = _shard_tokens.long().clamp(0, 50256)
+    _token_counts = torch.zeros(50257, dtype=torch.float64)
+    _token_counts.scatter_add_(0, _ids, torch.ones(len(_ids), dtype=torch.float64))
+    del _ids, _shard_tokens
+    _token_freq = (_token_counts + 1.0) / (_token_counts.sum() + 50257)
+    _tw_50257 = _token_freq.pow(-TOKEN_FREQ_WEIGHT_ALPHA)
+    _tw_50257 = _tw_50257 / _tw_50257.mean()
+    # Pad to vocab_size=50304 (model padding above true vocab). Padded indices
+    # never appear in real targets but are required so token_weight[targets]
+    # lookups never indexerror.
+    token_weight = torch.ones(50304, dtype=torch.float32, device=device)
+    token_weight[:50257] = _tw_50257.float().to(device)
+    if dist.get_rank() == 0:
+        _tw_real = token_weight[:50257]
+        _stats = {
+            "token_weight/min": float(_tw_real.min()),
+            "token_weight/max": float(_tw_real.max()),
+            "token_weight/median": float(torch.median(_tw_real)),
+            "token_weight/mean": float(_tw_real.mean()),
+            "token_weight/std": float(_tw_real.std()),
+            "token_weight/p01": float(torch.quantile(_tw_real, 0.01)),
+            "token_weight/p99": float(torch.quantile(_tw_real, 0.99)),
+            "token_weight/shard_tokens": int(_token_counts.sum().item()),
+            "token_weight/unobserved_tokens": int((_token_counts == 0).sum().item()),
+        }
+        wandb.config.update({"token_freq_weight_stats": _stats})
+        print0(f"token_weight stats: {_stats}", console=True)
+    del _token_counts, _token_freq, _tw_50257
 
 for trial_idx in range(args.num_trials):
 
@@ -1015,7 +1061,7 @@ for trial_idx in range(args.num_trials):
         assert len(inputs) % mbs == 0
         step_loss = torch.zeros((), device=device)
         for i in range(len(inputs) // mbs):
-            loss = model(inputs[i*mbs:(i+1)*mbs], targets[i*mbs:(i+1)*mbs])
+            loss = model(inputs[i*mbs:(i+1)*mbs], targets[i*mbs:(i+1)*mbs], token_weight=token_weight)
             step_loss += loss.detach()
             loss.backward()
         for name, p in model.named_parameters():
