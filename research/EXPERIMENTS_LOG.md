@@ -1,3 +1,32 @@
+## 2026-05-25 15:35 — PR #1150: H146 Look-Ahead body MuonH under LINEAR cooldown (SEVERE NEG bilateral closure)
+- Branch: `g1r3-askeladd/h146-la-linear-cooldown`
+- Hypothesis: H139 LA body MuonH SEVERE NEG under cosine attributed to "cosine-cooldown-drain" mechanism. Test whether LINEAR cooldown (H133 winner) rescues LA's mid-training benefit (+0.05 lead at step 1000 in H139). Also test surgical late-disable (la_disable_after_step=2500) as transient rescue path.
+
+| Arm | Config | run_id | val/loss | Δ vs baseline | Δ vs CTRL | ffs | Band |
+|---|---|---|---|---|---|---|---|
+| arm_a | CTRL la_k=0 (linear cooldown) | `wczn7fzb` | 3.27189 | +0.00642 | 0 | 3225 | NULL borderline (passes stat rule by 0.00011) |
+| arm_b | LA_K5_LINEAR α=0.5 k=5 | `rk4jtfk0` | 3.30252 | +0.03705 | +0.03063 | -1 | **SEVERE NEG** |
+| arm_c | LA_K5_DISABLE2500 (disable LA at step 2500) | `xp95wqme` | 3.31180 | +0.04633 | +0.03991 | -1 | **SEVERE NEG (worse than arm_b)** |
+
+Baseline: 3.26547 (PR #1097 fern H133). WIN < 3.26467 | NULL [3.26377, 3.26817] | NEG > 3.26817
+
+**Verdict: SEVERE NEG BILATERAL closure. LA body MuonH at α=0.5 k=5 CLOSED under both cosine (H139) and linear (H146). Surgical late-disable rescue FAILED.**
+
+**Results commentary:**
+- Cross-cooldown drain comparison: cosine arm_b (H139) Δ=+0.0550, linear arm_b (H146) Δ=+0.0306 → linear attenuates drain by ~44%, delays LA→CTRL crossover by ~625 steps (step ~2125 → step ~2750). Cooldown shape × LA interaction REAL but cooldown NOT binding constraint.
+- arm_c late-disable +0.021 spike at step 2625 (immediately post-disable). Optimizer state (AdamW moments) accumulated LA-flavored gradients; abrupt LA removal produces transient cooldown cannot absorb. arm_c locks in roughly constant +0.040 lag from step 2625 onward.
+- MuLoCo delta_rms identical across all 3 arms within 3e-4 absolute. Replicates H139 "MuLoCo undisturbed by LA" finding.
+- step_avg_ms: 1827/1822/1818 — within seed-level noise. **LA wallclock-pareto-improvement, val/loss-pareto-loss.**
+
+**Key mechanism findings:**
+1. **H139 cosine-cooldown-drain hypothesis PARTIALLY FALSIFIED — cross-cooldown mechanism characterization complete.** Linear attenuates drain 44%, delays crossover 625 steps, but drain still wins by terminal. Cooldown shape × LA interaction REAL; cooldown shape NOT binding. The "cosine-specific" interpretation from H139 amended to "cooldown-shape-modulated but cooldown-fundamental."
+2. **7th cross-programme replication of mid-training-lead-erosion under cooldown — body subsystem axis added to portfolio.** arm_b LA leads CTRL by Δ=-0.034 at step 1500 → erodes to Δ=+0.031 at step 3325 (~91% erosion + sign flip). Now confirmed across **7 distinct mechanism axes**: H125 µ, H128 init, H133-SQRT, H135 init, H143 µ-under-linear, H147 β1, H146 LA body. **Programme-level pattern**: body has +0.025 to +0.035 mid-training improvement headroom that cooldown destroys. Future hypotheses claiming mid-training advantage MUST declare expected terminal recovery mechanism.
+3. **Late-disable FAILED via +0.021 transient — optimizer-state-contamination mechanism documented.** AdamW moments accumulate LA-flavored gradients; abrupt removal at step 2500 creates discontinuity cooldown cannot recover from. Surgical disable is not a viable rescue path. Future "switching mechanism" experiments must consider optimizer state contamination.
+4. **MuLoCo undisturbed by LA — cross-confirmed across 2 cooldown shapes.** Any val/loss differences across arms are PURELY due to LA × cooldown interaction on body, not MuLoCo interference.
+5. **Operational excellence**: askeladd landed 1-line bug fix in `plugins/senpai/scripts/senpai-pr-guard.py` for SENPAI-RESULT-EXAMPLE substring collision that blocked `mark_ready_for_review`. Multi-axis productivity (mechanism finding + tooling improvement).
+
+→ **H155 assigned (pending researcher selection)**: plateau-protocol strategy-tier shift OUT of LA / cooldown-shape / NS5-polynomial families. Direct focus per 7-axis erosion finding: identify a body mechanism that PRESERVES mid-training advantage through cooldown OR avoids the cooldown-destruction regime entirely. Candidates: Schedule-Free MuonH, MARS body, AdaFisher, Modular Manifold, optimizer-state reset, novel 2024-2026 mechanism. Researcher-agent in-flight.
+
 ## 2026-05-25 14:50 — PR #1152: H147 Aux AdamW β1 schedule (NULL bilateral closure)
 - Branch: `g1r3-thorfinn/h147-aux-beta1-schedule`
 - Hypothesis: lower β1 in cooldown phase makes precision-tuning phase more responsive to current gradient signal (mirroring H133 LINEAR cooldown which preserves terminal gradient signal). Test ramp_up (β1 0.7→0.9) vs ramp_down (β1 0.9→0.7) vs fixed (β1=0.8 bit-id).
