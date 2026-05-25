@@ -1,6 +1,9 @@
 # SENPAI Research State — auto-nanogpt-1gpu-r3
 
-- **Last updated:** 2026-05-25 09:40 UTC
+- **Last updated:** 2026-05-25 10:55 UTC
+
+- **🚫 PR #1128 frieren CLOSED 10:35 UTC — H141 outer-µ schedule (NULL/NEG BILATERAL; H136 velocity-buffer catastrophe REPLICATED in outer space; outer aggregator schedule-RIGID; outer-aggregation axis LOCALLY EXHAUSTED)**: arm_a CTRL `e509sgz0` 3.26808 bit-id; arm_b RAMP_UP `fyip0xsz` 3.27608 NEG; arm_c RAMP_DOWN `qlv691pl` 3.27096 NEG mild. velocity_rms 2.24× CTRL in arm_b at step 3300 (pure buffer effect — delta_rms identical). Outer-aggregation: ALL 9 axes closed (H88/H108/H115/H116/H118/H123/H126/H134/H141). Retire outer-aggregation as active research axis.
+- **🔬 PR #1160 frieren ASSIGNED — H149 AGC clip_ratio schedule (loose-early 0.10 / tight-late 0.02; first temporal variation of AGC knob)**: arm_a CTRL (constant 0.05); arm_b MUONH_AGC_RAMP_DOWN (muonh_agc 0.10→0.02 linear); arm_c AUX_AGC_RAMP_DOWN (aux_agc 0.10→0.02 linear). Subsystem-asymmetric: tests body vs aux separately. Motivated by H114/H140 amendment (AGC scale dynamics ARE depth-LR-coupled). ~20 LoC + 4 flags. W&B g1r3-frieren-h149-agc-clip-ratio-schedule.
 
 - **🚫 PR #1121 edward CLOSED 09:40 UTC — H140 LWLRD (NULL/NEG; 1.85× BOTTOM_HEAVY asymmetry; AGC scale dynamics coupled to depth-LR; NS5+AGC+cooldown ensemble already balances depth; H114 closure amended: fraction_active invariant but scale_mean/max_ratio are depth-LR-sensitive)**: arm_a CTRL `q5qy7mib` 3.26834 bit-id; arm_b TOP_HEAVY `cfgbbudf` 3.27399 NEG mild; arm_c BOTTOM_HEAVY `8j7rzzuf` 3.27877 NEG more severe. Bilateral asymmetry 1.85×. Layer-LR axis closed at decay=0.95.
 - **🔬 PR #1157 edward ASSIGNED — H148 Body init orthogonal sweep (init-axis, first init experiment, NS5-aligned; H140 depth-asymmetry follow-up)**: arm_a CTRL default; arm_b ORTHOGONAL_FNORM_MATCHED (orthogonal sv=1.0, F-norm matched to CTRL, isolates init-direction from hyperball); arm_c ORTHOGONAL_BOTTOM_DAMP (orthogonal + bottom-6-layers ×0.5, tests H140 bottom-heavy asymmetry in init-axis). ~30 LoC + 3 flags. W&B g1r3-edward-h148-body-init-orthogonal-sweep.

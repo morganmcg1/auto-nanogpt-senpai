@@ -1,3 +1,30 @@
+## 2026-05-25 10:35 — PR #1128: H141 Outer SGDM momentum schedule sweep (NULL/NEG closure)
+- Branch: `g1r3-frieren/h141-outer-sgdm-momentum-schedule`
+- Hypothesis: Outer SGDM momentum coefficient (outer_µ) has only been tested at a constant value (0.5). A ramp-up (0.3→0.7) or ramp-down (0.7→0.3) schedule could improve gradient integration in the MuLoCo outer aggregator by adapting smoothing strength over training.
+
+| Arm | Config | run_id | val/loss | Δ vs baseline | Δ vs CTRL | ffs | Band |
+|---|---|---|---|---|---|---|---|
+| arm_a | CTRL (constant 0.5) | `e509sgz0` | 3.26808 | +0.00261 | 0 | 3025 | widened-CTRL ✓ |
+| arm_b | RAMP_UP (0.3→0.7) | `fyip0xsz` | 3.27608 | +0.01061 | +0.008 | 3250 | NEG |
+| arm_c | RAMP_DOWN (0.7→0.3) | `qlv691pl` | 3.27096 | +0.00549 | +0.00288 | 3175 | NEG mild |
+
+Baseline: 3.26547 (PR #1097 fern H133). WIN < 3.26467 | NULL [3.26377, 3.26817] | NEG > 3.26817
+
+**Verdict: NULL/NEG closure. Outer-µ schedule axis BILATERALLY closed.**
+
+**Results commentary:**
+- arm_a CTRL bit-id at 3.26808 inside widened CTRL [3.26721, 3.27091] ✓
+- arm_b RAMP_UP 3.27608 NEG (+0.01061 vs baseline); arm_c RAMP_DOWN 3.27096 NEG mild (+0.00549).
+- arm_c briefly BEAT CTRL at step 2000-3000 (Δ=-0.008) when eff_outer_µ was below CTRL (~0.30-0.46). Same mid-training-lead-erosion-under-cooldown pattern as H125/H139.
+
+**Key mechanism findings:**
+1. **H136 velocity-buffer catastrophe REPLICATED in outer momentum space**: arm_b RAMP_UP velocity_rms = 2.24× CTRL at step 3300; delta_rms IDENTICAL across arms — divergence is PURELY velocity buffer accumulation, not per-step gradient. Cooldown × buffer-magnitude composite is a GENERAL MuLoCo failure mode.
+2. **Outer aggregator is schedule-RIGID; inner is schedule-FLEXIBLE**: combined with H134 outer-LR closure, BOTH outer schedule axes now CLOSED. Mechanism: outer step at sync_interval=30 is a slow-trajectory low-pass filter — time-varying the smoothing strength adds noise without signal.
+3. **Inner/outer time-scale separation explains asymmetry**: inner per-step (fast-changing gradient signal) benefits from cooldown-style annealing; outer per-30-step (path-integral already smoothed) does not.
+4. **Outer-aggregation mechanism LOCALLY EXHAUSTED**: H88/H108/H115/H116/H118/H123/H126/H134/H141 — all 9 outer-aggregation axes closed. Recommendation: retire outer-aggregation as active research axis.
+
+→ **H149 assigned**: AGC clip_ratio schedule (loose-early / tight-late) — first temporal variation of AGC, motivated by H114/H140 amendment.
+
 ## 2026-05-25 09:40 — PR #1121: H140 Layer-Wise LR Decay (LWLRD) for body MuonH (NULL/NEG closure)
 - Branch: `g1r3-edward/h140-layer-wise-lr-decay-body-muonh`
 - Hypothesis: Post-NS5 spectral normalization, LR is the only remaining knob to differentiate update magnitudes across depth. Apply geometric per-layer LR decay (decay=0.95) in TOP_HEAVY or BOTTOM_HEAVY direction to expose depth-aware optimization.
