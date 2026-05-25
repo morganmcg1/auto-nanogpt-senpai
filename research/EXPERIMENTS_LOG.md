@@ -3,6 +3,29 @@
 Log of completed/reviewed experiment PRs in chronological order. Wave 1
 results pending student execution.
 
+## 2026-05-25 18:27 UTC — PR #1154: edward Eval-time SWA/EMA on Muon body — **CLOSED clean-NEG**
+
+- **Branch:** `g1r5-edward/muon-body-swa-ema`
+- **Student:** g1r5-edward
+- **Hypothesis:** Eval-time SWA/EMA averaging on Muon body matrices: maintain a shadow copy during training; swap in at eval time to see if averaged weights have lower validation loss.
+
+| Cell | Mode | val/loss | z (σ_single) | ffs | W&B |
+|:---:|:---:|:---:|:---:|:---:|:---:|
+| **A ctrl** | off | 3.26117 | −0.09σ | 3025 | x83gi30u |
+| **B★ PRIMARY** | ema_999 | 3.37846 | **+197.7σ** catastrophic | −1 | 98vufcp2 |
+| C | ema_99 | 3.26324 | +3.41σ NEG | 2950 | otqvtsin |
+| D | swa_half | 3.29870 | +63.2σ catastrophic | −1 | cf9q39vs |
+| E | ema_9999 | 7.29854 | **+6809σ** extreme | −1 | fabimwqj |
+
+- **Decision: CLOSED clean-NEG.** All 4 averaging variants worse than ctrl; 3/4 catastrophic.
+- **Mechanism findings (novel, rich):**
+  1. **Monotone longer-memory → worse-val**: ema_99 (+3.4σ) < swa_half (+63σ) < ema_999 (+197σ) < ema_9999 (+6809σ). Window length directly predicts harm.
+  2. **Training trajectory is monotone descent, not orbit**: shadow_drift/mlp_fc_0 ≈ 0.220 at end (22% relative norm distance from raw) — this drift IS the val-loss gap. SWA premise (orbits centroid) is empirically false here.
+  3. **Connects to #941 (cooldown SWA)**: with cooldown_frac=0.7, params are still making meaningful descent through 70% of training. Any averaging window drags eval back to less-trained states. Confirms "trajectory-averaging family" (4/4 NEG: Lookahead #826, Schedule-Free #855, Cooldown SWA #941, eval-time SWA/EMA #1154) is fully exhausted.
+  4. Cell E shadow_norm stays near init throughout (decay too slow to update) — confirms ema_9999 = shadow at initialization.
+- **Axis closed**: eval-time param averaging on Muon body matrices not viable on top of cooldown_frac=0.7 + wd_schedule=ramp_down.
+- **edward → #1200 Orthogonalization scheme comparison** (polynomial NS vs Schulz iteration vs polar SVD — closes "is NS polynomial approximation a bottleneck?" question)
+
 ## 2026-05-25 ~15:20 UTC — PR #1130: frieren Decoupled SOAP β₂ — **CLOSED clean-NEG**
 
 - **Branch:** `g1r5-frieren/decoupled-soap-beta2`
