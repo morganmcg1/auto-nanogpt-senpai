@@ -1,9 +1,27 @@
 # SENPAI Research State — auto-nanogpt-1gpu-r4
 
-- **Date:** 2026-05-25 02:45 UTC (cycle 242 — **PLATEAU PROTOCOL ESCALATION ACTIVATED**)
+- **Date:** 2026-05-25 03:00 UTC (cycle 244 — #1078 thorfinn MUON-MOMENTUM-SCHEDULE all 4 arms W&B-complete, pre-staged productive-NEG closure awaiting student terminal marker)
 - **Most recent research direction from human researcher team:** none on file
 - **Primary metric:** `val/loss` at 3350 steps (lower is better); `speedrun/final_first_step_to_target` secondary
 - **Statistical merge rule:** `(3.28 − μ) × √n ≥ 0.004` AND n mean ≤ current baseline
+
+## Cycle 244 snapshot (03:00 UTC May 25) — #1078 thorfinn body Muon μ schedule W&B-complete; pre-staged productive-NEG closure (2/4 arms regress, mechanism-lead Arm C NULL on val with fs=3150 sub-NULL-band signal)
+
+### Activity this cycle
+
+- **#1078 thorfinn** W&B confirms all 4 arms `state=finished step=3350`. Student has posted per-arm acks for A/B/C but NOT yet posted Arm D ack or terminal structured-result marker. Posted stale_wip ack with full W&B verification + pre-staged closure rationale:
+  - A ctrl `icrp16u8`: val=3.26942 drift +0.00186 PASS, fs=3200
+  - B linear_full 0.95→0.85 `kai3a62l`: val=3.27300 Δ_vs_A=+0.00358 **PRODUCTIVE-NEG**, fs=3225 — full-trajectory μ decay hurts
+  - C cooldown_only 0.95→0.85 `nrmno8j1`: val=3.26895 Δ_vs_A=−0.00047 **NULL** (|Δ|<0.001 NON-LOAD-BEARING gate), **fs=3150 50 steps faster than A** (only positive signal, n=1 sub-NULL-band — PP-collapse precedent #1003 N=1 −0.00226→PP n=3 +0.00041 suggests this signal won't survive PP)
+  - D linear_full 0.99→0.85 `tmaoyc4b`: val=3.27916 Δ_vs_A=+0.00974 **PRODUCTIVE-NEG (worst)**, fs=3325 — aggressive early μ=0.99 + decay hurts most
+  - **Mechanism**: constant μ=0.95 across full 3350-step trajectory is locally optimal at this stack's operating point; any deviation regresses on val; cooldown-only direction is at best neutral. MUON-MOMENTUM-SCHEDULE axis approaches 1-closure observation pending terminal marker (this would be the **10th consecutive no-merge closure**).
+
+### Plateau awareness status (cycle 244 — ESCALATION ACTIVE)
+
+- **9 consecutive no-merge closures formalized** as of cycle 242 (#1074); #1078 will become the 10th once student posts terminal marker.
+- **Escalation already triggered cycle 242** — #1120 nezuko GaLore lm_head is first formal bigger-bet escalation in flight.
+- Pre-staged escalation candidates remaining for thorfinn (next idle when #1078 closes): **Schedule-Free / Shampoo body / AggMo body / MuonR²** (Sophia deferred — HVP per K steps borderline on "1 fwd-bwd per step" rule).
+- 2nd OPTIMIZER-CLASS observation pending via #1113 Adan-on-aux (Arm A `state=finished` last cycle val=3.26642 below baseline single-seed; awaiting B/C/D + terminal marker).
 
 ## Cycle 242 snapshot (02:45 UTC May 25) — **PLATEAU ESCALATION TRIGGER FIRES** — #1074 nezuko GC-on-embed CLOSED productive-NEG (clean mechanism: small col-mean DC load-bearing, row-mean null-space, non-additive interaction); 9th consecutive no-merge closure; nezuko reassigned **#1120 GaLore lm_head** (FIRST bigger-bet escalation axis — low-rank gradient subspace on Zipfian-heavy lm_head, Zhao 2024)
 
