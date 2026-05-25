@@ -64,6 +64,10 @@ def parse_args():
     parser.add_argument("--muon_lr", type=float, default=0.035,
                         help="Base learning rate for body-Muon optimizer (matrix params in blocks). "
                              "Default 0.035 matches the merged baseline.")
+    parser.add_argument("--matrix_neg_power_eps", type=float, default=1e-12,
+                        help="Eps clamp for matrix_neg_power(L_cov, gamma, eps) and R_cov. "
+                             "Controls null-space eigenvalue amplification: smaller eps = sharper. "
+                             "Baseline 1e-12 gives 63,095x amplification at gamma=0.4.")
     args = parser.parse_args()
     args.num_trials = args.num_trials if args.num_trials is not None else (args.legacy_num_trials or 1)
     args.wandb_tags = [tag.strip() for tag in args.wandb_tags.split(",") if tag.strip()]
@@ -535,11 +539,11 @@ def pmuon_update(
 
 class Muon(torch.optim.Optimizer):
     def __init__(self, params, lr=0.02, weight_decay=0, mu=0.95, beta_cov=0.95, gamma=PMUON_GAMMA,
-                 ns_a=NS_A, ns_b=NS_B, ns_c=NS_C):
+                 ns_a=NS_A, ns_b=NS_B, ns_c=NS_C, mn_eps=1e-12):
         assert isinstance(params, list) and len(params) >= 1 and isinstance(params[0], torch.nn.Parameter)
         params = sorted(params, key=lambda x: x.size(), reverse=True)
         defaults = dict(lr=lr, weight_decay=weight_decay, mu=mu, beta_cov=beta_cov, gamma=gamma,
-                        ns_a=ns_a, ns_b=ns_b, ns_c=ns_c)
+                        ns_a=ns_a, ns_b=ns_b, ns_c=ns_c, mn_eps=mn_eps)
         super().__init__(params, defaults)
 
     @torch.no_grad()
@@ -570,6 +574,7 @@ class Muon(torch.optim.Optimizer):
                         mu=group["mu"],
                         beta_cov=group["beta_cov"],
                         gamma=group["gamma"],
+                        eps=group["mn_eps"],
                         ns_a=group["ns_a"],
                         ns_b=group["ns_b"],
                         ns_c=group["ns_c"],
@@ -589,9 +594,12 @@ class Muon(torch.optim.Optimizer):
         self._polar_diag = polar_diag
 
 
-def pmuon_spectral_diag(optimizer: torch.optim.Optimizer, gamma: float) -> dict[str, float]:
+def pmuon_spectral_diag(optimizer: torch.optim.Optimizer, gamma: float,
+                        mn_eps: float = 1e-12) -> dict[str, float]:
     # Post-whitening spectral diagnostic on the first PMuon-managed param (largest
     # by sort order). Re-evaluated against current L_cov, R_cov, momentum state.
+    # Uses mn_eps as the clamp floor (matches the optimizer's matrix_neg_power eps),
+    # so the diagnostics track the configured eps choice.
     if dist.get_rank() != 0:
         return {}
     for group in optimizer.param_groups:
@@ -605,28 +613,43 @@ def pmuon_spectral_diag(optimizer: torch.optim.Optimizer, gamma: float) -> dict[
                 momentum = state["momentum"].float()
                 L_sym = 0.5 * (L_cov + L_cov.T)
                 R_sym = 0.5 * (R_cov + R_cov.T)
-                L_eig = torch.linalg.eigvalsh(L_sym).clamp_min(0)
-                R_eig = torch.linalg.eigvalsh(R_sym).clamp_min(0)
-                L_neg = matrix_neg_power(L_cov, gamma)
-                R_neg = matrix_neg_power(R_cov, gamma)
+                L_eig_raw = torch.linalg.eigvalsh(L_sym).clamp_min(0)
+                R_eig_raw = torch.linalg.eigvalsh(R_sym).clamp_min(0)
+                L_eig = L_eig_raw.clamp_min(mn_eps)
+                R_eig = R_eig_raw.clamp_min(mn_eps)
+                L_neg = matrix_neg_power(L_cov, gamma, eps=mn_eps)
+                R_neg = matrix_neg_power(R_cov, gamma, eps=mn_eps)
                 whitened = (L_neg @ momentum) @ R_neg
                 sv = torch.linalg.svdvals(whitened)
                 sv_min = sv.min().clamp_min(1e-12)
+                # Pre-polar m_pre diagnostics — track L_neg @ m @ R_neg sensitivity to eps.
+                m_pre_fro = float(torch.linalg.norm(whitened).item())
+                m_pre_sigma_max = float(sv.max().item())
+                m_pre_sigma_sum_sq = float((sv * sv).sum().item())
+                m_pre_stable_rank = m_pre_sigma_sum_sq / max(m_pre_sigma_max ** 2, 1e-30)
                 l_min = float(L_eig.min().item())
                 l_max = float(L_eig.max().item())
                 r_min = float(R_eig.min().item())
                 r_max = float(R_eig.max().item())
+                l_min_raw = float(L_eig_raw.min().item())
+                r_min_raw = float(R_eig_raw.min().item())
                 return {
                     "pmuon/gamma_power": float(gamma),
+                    "pmuon/mn_eps": float(mn_eps),
                     "pmuon/lcov_eigh_min": l_min,
+                    "pmuon/lcov_eigh_min_raw": l_min_raw,
                     "pmuon/lcov_eigh_max": l_max,
-                    "pmuon/lcov_eigh_ratio": l_max / max(l_min, 1e-12),
+                    "pmuon/lcov_eigh_ratio": l_max / max(l_min, 1e-30),
                     "pmuon/rcov_eigh_min": r_min,
+                    "pmuon/rcov_eigh_min_raw": r_min_raw,
                     "pmuon/rcov_eigh_max": r_max,
-                    "pmuon/rcov_eigh_ratio": r_max / max(r_min, 1e-12),
+                    "pmuon/rcov_eigh_ratio": r_max / max(r_min, 1e-30),
                     "pmuon/whitened_sv_max": float(sv.max().item()),
                     "pmuon/whitened_sv_min": float(sv_min.item()),
                     "pmuon/whitened_sv_ratio": float((sv.max() / sv_min).item()),
+                    "polar/m_pre_fro": m_pre_fro,
+                    "polar/m_pre_sigma_max": m_pre_sigma_max,
+                    "polar/input_stable_rank_est": m_pre_stable_rank,
                     "pmuon/sample_shape_dim0": float(momentum.shape[0]),
                     "pmuon/sample_shape_dim1": float(momentum.shape[1]),
                 }
@@ -707,6 +730,7 @@ if dist.get_rank() == 0:
             "pmuon_beta_cov": 0.95,
             "pmuon_gamma": PMUON_GAMMA,
             "pmuon_gamma_power": PMUON_GAMMA,
+            "matrix_neg_power_eps": args.matrix_neg_power_eps,
             "ns_iterations": NS_ITERS,
             "ns_coef_a": NS_A,
             "ns_coef_b": NS_B,
@@ -756,9 +780,11 @@ for trial_idx in range(args.num_trials):
                         dict(params=[p for p in model.parameters() if p.ndim < 2], lr=0.025, name="adam_scalars")],
                        betas=(0.8, 0.95), eps=1e-10, weight_decay=0, fused=True)
     optimizer2 = Muon([p for p in model.blocks.parameters() if p.ndim >= 2],
-                      lr=args.muon_lr, weight_decay=0.025, beta_cov=0.95, gamma=PMUON_GAMMA)
+                      lr=args.muon_lr, weight_decay=0.025, beta_cov=0.95, gamma=PMUON_GAMMA,
+                      mn_eps=args.matrix_neg_power_eps)
     optimizer2.param_groups[0]["name"] = "muon_blocks"
-    print0(f"body-Muon optimizer: lr={args.muon_lr} weight_decay=0.025 beta_cov=0.95 gamma={PMUON_GAMMA}")
+    print0(f"body-Muon optimizer: lr={args.muon_lr} weight_decay=0.025 beta_cov=0.95 gamma={PMUON_GAMMA} "
+           f"mn_eps={args.matrix_neg_power_eps}")
     optimizers = [optimizer1, optimizer2]
     assert set(p for opt in optimizers for group in opt.param_groups
                for p in group["params"]) == set(model.parameters())
@@ -1054,7 +1080,7 @@ for trial_idx in range(args.num_trials):
                     "ema/ramp_enabled": int(args.ema_beta_target is not None),
                 }, step=wandb_step)
         if dist.get_rank() == 0 and (train_step % 100 == 0 or train_step == train_steps):
-            spec = pmuon_spectral_diag(optimizer2, PMUON_GAMMA)
+            spec = pmuon_spectral_diag(optimizer2, PMUON_GAMMA, mn_eps=args.matrix_neg_power_eps)
             if spec:
                 spec["trial"] = trial_idx
                 spec["train/step"] = train_step
