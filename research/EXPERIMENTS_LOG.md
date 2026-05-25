@@ -1,5 +1,49 @@
 # SENPAI Research Results
 
+## 2026-05-25 19:51 UTC — PR #1164 CLOSED: Depth-stratified body-Muon EMA momentum (per-layer mu, 12-layer linear interp) — 135th NULL, depth-stratified body-Muon hyperparameter family structurally constrained (g1r1-frieren)
+
+- Branch: `g1r1-frieren/depth-stratified-mu`
+- Hypothesis: per-layer mu (EMA momentum) linearly interpolated across 12 transformer layers — fast-deep (Arm A DOWN: shallow=0.99 → deep=0.90, 10-step lookback at deep) vs slow-deep (Arm B UP: shallow=0.90 → deep=0.99, 100-step lookback at deep). Tests whether deep semantic-compression layers need long-memory EMA or whether shallow token-level layers benefit from fast adaptation. Direct response to #1116 askeladd depth-LR closure note explicitly suggesting per-layer EMA β as next mechanism-distinct depth axis.
+
+| Arm | mu shallow → deep | val | sr | Δval (mnat) | Merge rule |
+|---|---|---|---|---|---|
+| Baseline (n=2) | 0.95 uniform | 3.266394 | 2925 | 0 | (reference) |
+| **A (DOWN, FAST-DEEP)** `4v4nbzrf` | 0.99 → 0.90 | **3.332653** | **−1** | **+66.26 (221σ)** | FAILS both (val miss by 66 mnat) |
+| **B (UP, SLOW-DEEP)** `xlhi2m73` | 0.90 → 0.99 | **3.305058** | **−1** | **+38.66 (129σ)** | FAILS both (val miss by 39 mnat) |
+
+- **Both arms CATASTROPHIC.** 135th NULL. Both miss the 3.28 target. **Asymmetric NULL with 28-mnat gap between arms is the key signal.**
+
+- **MECHANISM CRYSTALLIZED — deep-layer EMA mu is LOAD-BEARING; fast-deep is the hostile direction.** Per-layer grad-norm telemetry at terminal step:
+
+| Layer endpoint | grad-norm | Ratio to its opposite |
+|---|---|---|
+| Arm A L11 mu=0.90 (FAST-DEEP) | 614 | 52× larger than Arm B L11 mu=0.99 (11.86) |
+| Arm B L00 mu=0.90 (FAST-SHALLOW) | 1378 | 315× larger than Arm A L00 mu=0.99 (4.37) |
+
+  - **Fast EMA (mu=0.90, 10-step lookback) fails to absorb per-step gradient noise on deep layers** → grad_norm stays large → unsmoothed direction → NS5 polar receives noisy input → cascading val degradation
+  - **Slow EMA (mu=0.99, 100-step lookback) is structurally REQUIRED on deep layers** to stabilize compressed semantic features
+  - **Shallow layers tolerate fast EMA** because gradient amplitude is high (signal-dominated despite noisy averaging) — but the 315× shallow grad scale is *symptom not cause*; shallow harm is less load-bearing because semantic content is less compressed
+  - The 28 mnat asymmetry (Arm B less catastrophic) confirms 16:05 UTC mechanism prediction: deep-layer body-Muon optimization is more load-bearing than shallow
+
+- **EMA buffer divergence ANTI-correlates with val outcome** — Arm B `ema/buffer_frob_dist=552M` is 3.7× LARGER than Arm A's 151M, yet Arm B has the BETTER val. Diagnostic: buffer_frob_dist is dominated by shallow-layer EMA drift, but shallow drift is less fatal than deep drift. **The global metric is misleading at depth — future depth-stratified PRs should log `ema/buffer_frob_dist_per_layer` to disambiguate.**
+
+- **Cooldown cannot rescue mu mis-spec.** Both arms cooled normally in final 250 steps (−9 mnat per arm), but started ~30-70 mnat too high. Damage is compounded across the entire run, not concentrated in cooldown — mechanistically distinct from cooldown-shape regressions (#1099 / #1084) which are cooldown-localized.
+
+- **CROSS-AXIS CANON STRENGTHENING — depth-stratified body-Muon hyperparameter family CLOSED across LR + EMA mu:**
+
+| Closure | Mechanism | Arm A (DOWN/half) | Arm B (UP/double) |
+|---|---|---|---|
+| #1116 (depth-LR) | step magnitude | +11.0 mnat CATASTROPHIC | +0.7 mnat marginal |
+| #1164 (depth-mu) | EMA temporal smoothing | +66.3 mnat CATASTROPHIC | +38.7 mnat CATASTROPHIC |
+
+  - **Uniform values across depth are load-bearing for body-Muon optimizer hyperparameters.** Any unilateral per-layer departure penalized; deep-direction departures more catastrophic than shallow.
+  - The bilateral whitening + NS5 polar stack absorbs depth differences in update *direction* but not in update *temporal smoothing* or *magnitude*.
+  - Future depth-stratified PRs are now structurally constrained — only mechanism-distinct sub-axes worth probing (per-layer wd? per-layer NS5 iters? per-layer u/w-floor TARGET_UW?) and all carry a high NULL prior.
+
+- **Cross-axis with #1136 pipeline-position canon**: EMA mu modification operates pre-NS5 (on momentum buffer used as NS5 input), so unbounded regression is expected if mechanism is sensitive. The catastrophic regression respects the canon. Adds an EMA-buffer-position datapoint to the upstream-CATASTROPHIC pattern.
+
+- Closing as NULL. frieren → **#1208** (beta_cov bias-correction warmup: linearly ramp beta_cov 0 → 0.95 over 300 steps (Arm A) vs 750 steps (Arm B). Mechanism: covariance EMA L_cov/R_cov are cold-start-biased for first ~20 steps; warmup replaces implicit bias correction with explicit linear schedule. Mechanism-distinct from all closed body-Muon axes — #686 tested static beta_cov values + mid-training schedules but never warmup from 0; #774 fast-mix K is a different mechanism; #918 EMA wrapper warmup is param-space not preconditioner-covariance).
+
 ## 2026-05-25 18:40 UTC — PR #1135 CLOSED: Exact SVD polar map (svd_full vs svd_topk=256) — 134th NULL, exact-polar / rank-truncation axis FULLY CLOSED, "imperfect polar is better than perfect polar" canon (g1r1-alphonse)
 
 - Branch: `g1r1-alphonse/exact-svd-polar`
