@@ -593,6 +593,23 @@ NANOGPT_SENPAI_SEED = int(_SENPAI_SEED_RAW) if _SENPAI_SEED_RAW != "" else None
 # `embed.weight -= lr_embed * lambda * (embed.weight - embed_init_snapshot)`.
 # At lambda=0 the hook is a no-op and behavior is bit-identical to the merged stack.
 NANOGPT_EMBED_INIT_ANCHOR_LAMBDA = float(os.environ.get("NANOGPT_EMBED_INIT_ANCHOR_LAMBDA", "0.0"))
+# Body preconditioner family (#1132): "muon" (default, NS5 polar decomposition) or
+# "shampoo" (Kronecker-factored 2nd-order preconditioner, Anil 2018). When set to
+# "shampoo" the Muon optimizer routes body-param updates through shampoo_update
+# (with L = E[G G^T], R = E[G^T G] Gram-matrix accumulation and periodic eigendecomp
+# computing L^{-1/4}, R^{-1/4}). At "muon" (default) the behavior is bit-identical
+# to the prior NS5 body Muon code path.
+NANOGPT_BODY_OPT = os.environ.get("NANOGPT_BODY_OPT", "muon")
+_VALID_BODY_OPTS = ("muon", "shampoo")
+if NANOGPT_BODY_OPT not in _VALID_BODY_OPTS:
+    raise ValueError(
+        f"NANOGPT_BODY_OPT={NANOGPT_BODY_OPT!r}, must be one of {_VALID_BODY_OPTS}"
+    )
+# Shampoo body-preconditioner config (only active when NANOGPT_BODY_OPT=shampoo).
+NANOGPT_SHAMPOO_BETA = float(os.environ.get("NANOGPT_SHAMPOO_BETA", "0.95"))
+NANOGPT_SHAMPOO_PERIOD = int(os.environ.get("NANOGPT_SHAMPOO_PERIOD", "200"))
+NANOGPT_SHAMPOO_LR_SCALE = float(os.environ.get("NANOGPT_SHAMPOO_LR_SCALE", "0.5"))
+NANOGPT_SHAMPOO_EPS = float(os.environ.get("NANOGPT_SHAMPOO_EPS", "1e-12"))
 
 
 def get_ns_coef_at_iter(iter_idx: int, total_iters: int, schedule: str) -> tuple[float, float, float]:
@@ -702,6 +719,101 @@ def muon_update(grad, momentum, v, ns_iters: int, mu=0.95, beta2=0.999, eps=1e-8
     update *= max(1, grad.size(-2) / grad.size(-1))**0.5
     return update
 
+
+def matrix_inverse_root(M: Tensor, p: float, eps: float) -> Tensor:
+    """Compute M^p for symmetric positive (semi-)definite M via eigendecomposition.
+
+    Clips eigenvalues to eps before raising to power p so near-zero eigenvalues
+    do not produce division-by-zero in the inverse-root branch (p < 0).
+    """
+    # symmetrize defensively in case accumulated float32 rounding broke symmetry
+    Msym = 0.5 * (M + M.T)
+    eigvals, eigvecs = torch.linalg.eigh(Msym)
+    eigvals_clipped = torch.clamp(eigvals, min=eps)
+    roots = eigvals_clipped.pow(p)
+    return (eigvecs * roots.unsqueeze(0)) @ eigvecs.T
+
+
+def shampoo_update(grad: Tensor, state: dict, beta: float, period: int,
+                   eps: float, lr_scale_norm: bool = True) -> Tensor:
+    """Compute one Shampoo (Anil 2018) preconditioned update direction for a 2D param.
+
+    Maintains EMAs of L = E[G G^T] (d_out x d_out) and R = E[G^T G] (d_in x d_in)
+    Gram matrices in float32. Every `period` steps it recomputes L^{-1/4} and
+    R^{-1/4} via eigendecomp and clipping. The returned update has the same
+    dtype as `grad` and the same shape, ready to be added with -lr.
+
+    Telemetry written into `state["telemetry"]` for the most recent step.
+    """
+    assert grad.ndim == 2, f"shampoo_update expects 2D grad, got shape {tuple(grad.shape)}"
+    d_out, d_in = grad.shape
+    grad_dtype = grad.dtype
+    device = grad.device
+
+    if "L" not in state:
+        state["L"] = torch.zeros(d_out, d_out, device=device, dtype=torch.float32)
+        state["R"] = torch.zeros(d_in, d_in, device=device, dtype=torch.float32)
+        state["L_inv"] = torch.eye(d_out, device=device, dtype=torch.float32)
+        state["R_inv"] = torch.eye(d_in, device=device, dtype=torch.float32)
+        state["step"] = 0
+
+    g32 = grad.to(torch.float32)
+    L = state["L"]
+    R = state["R"]
+    # EMA accumulation of Gram matrices. (1 - beta) weight on the fresh sample.
+    L.mul_(beta).add_(g32 @ g32.T, alpha=1.0 - beta)
+    R.mul_(beta).add_(g32.T @ g32, alpha=1.0 - beta)
+    state["step"] += 1
+    step_idx = state["step"]
+
+    recompute = (step_idx % period == 0) or (step_idx == 1)
+    if recompute:
+        t0 = torch.cuda.Event(enable_timing=True)
+        t1 = torch.cuda.Event(enable_timing=True)
+        t0.record()
+        state["L_inv"] = matrix_inverse_root(L, -0.25, eps=eps)
+        state["R_inv"] = matrix_inverse_root(R, -0.25, eps=eps)
+        t1.record()
+        # Single sync per recompute (cheap because period is large).
+        torch.cuda.synchronize()
+        state["telemetry_eig_ms"] = float(t0.elapsed_time(t1))
+        state["telemetry_recompute_step"] = int(step_idx)
+        # Eigenvalue spectrum stats from the latest eigendecomp (post-clip view).
+        Lsym = 0.5 * (L + L.T)
+        Rsym = 0.5 * (R + R.T)
+        try:
+            Levs = torch.linalg.eigvalsh(Lsym)
+            Revs = torch.linalg.eigvalsh(Rsym)
+            L_min = float(Levs.min().item())
+            L_max = float(Levs.max().item())
+            R_min = float(Revs.min().item())
+            R_max = float(Revs.max().item())
+            L_min_c = max(L_min, eps)
+            R_min_c = max(R_min, eps)
+            state["telemetry_L_min"] = L_min
+            state["telemetry_L_max"] = L_max
+            state["telemetry_R_min"] = R_min
+            state["telemetry_R_max"] = R_max
+            state["telemetry_L_cond"] = float(L_max / L_min_c)
+            state["telemetry_R_cond"] = float(R_max / R_min_c)
+        except Exception:
+            pass
+
+    L_inv = state["L_inv"]
+    R_inv = state["R_inv"]
+    update32 = L_inv @ g32 @ R_inv
+    if recompute:
+        # Update RMS computed only when recompute is happening so we avoid a
+        # per-step GPU→CPU sync that adds ~1.5s/step (72 params × .item()).
+        state["telemetry_update_rms"] = float(update32.square().mean().sqrt().item())
+
+    if lr_scale_norm:
+        # Inherit the same fan-in/fan-out scaling that NS5 path uses so the
+        # body Muon LR schedule remains the canonical operating point.
+        update32 *= max(1, d_out / d_in) ** 0.5
+
+    return update32.to(grad_dtype)
+
 class Muon(torch.optim.Optimizer):
     def __init__(self, params, lr=0.02, weight_decay=0, mu=0.95, beta2=0.999, eps=1e-8):
         assert isinstance(params, list) and len(params) >= 1
@@ -729,6 +841,8 @@ class Muon(torch.optim.Optimizer):
         # the training loop reads back after the optimizer step.
         self.spectral_telemetry_param: torch.nn.Parameter | None = None
         self.spectral_stats: dict[str, float] | None = None
+        # Per-step shampoo telemetry for the tracked param when NANOGPT_BODY_OPT=shampoo.
+        self.shampoo_stats: dict[str, float] | None = None
 
     def set_ns_iters_this_step(self, ns_iters: int) -> None:
         self.ns_iters_this_step = int(ns_iters)
@@ -742,6 +856,8 @@ class Muon(torch.optim.Optimizer):
         # Reset spectral_stats at the start of each step; only the rank that
         # owns the tracked parameter on this round-robin shard will repopulate.
         self.spectral_stats = None
+        self.shampoo_stats = None
+        use_shampoo = NANOGPT_BODY_OPT == "shampoo"
         for group in self.param_groups:
             params = group["params"]
             params_pad = params + [torch.empty_like(params[-1])] * (world_size - len(params) % world_size)
@@ -749,30 +865,50 @@ class Muon(torch.optim.Optimizer):
                 if base_i + rank < len(params):
                     p = params[base_i + rank]
                     state = self.state[p]
-                    if len(state) == 0:
-                        state["momentum"] = torch.zeros_like(p)
-                        state["v"] = torch.zeros_like(p)
-                    update = muon_update(p.grad, state["momentum"], state["v"],
-                                         ns_iters=ns_iters,
-                                         mu=group["mu"], beta2=group["beta2"], eps=group["eps"])
-                    if spectral_target is not None and p is spectral_target:
-                        # Singular values of the orthogonalized (post-NS) update.
-                        # Multiplied by max(1, fan_in/fan_out)**0.5 inside muon_update;
-                        # divide it out so the spectrum is the pure NS output.
-                        scale = max(1, p.grad.size(-2) / p.grad.size(-1))**0.5
-                        u_for_svd = (update.detach().float() / scale)
-                        try:
-                            svals = torch.linalg.svdvals(u_for_svd)
-                            self.spectral_stats = {
-                                "u_singular_max": float(svals.max().item()),
-                                "u_singular_min": float(svals.min().item()),
-                                "u_singular_mean": float(svals.mean().item()),
-                                "u_singular_range": float((svals.max() - svals.min()).item()),
-                                "u_singular_std": float(svals.std(unbiased=False).item()),
-                                "ns_iters_used": float(ns_iters),
+                    if use_shampoo:
+                        update = shampoo_update(
+                            p.grad, state,
+                            beta=NANOGPT_SHAMPOO_BETA,
+                            period=NANOGPT_SHAMPOO_PERIOD,
+                            eps=NANOGPT_SHAMPOO_EPS,
+                        )
+                        if spectral_target is not None and p is spectral_target:
+                            self.shampoo_stats = {
+                                "L_cond": state.get("telemetry_L_cond", float("nan")),
+                                "R_cond": state.get("telemetry_R_cond", float("nan")),
+                                "L_eigval_min": state.get("telemetry_L_min", float("nan")),
+                                "L_eigval_max": state.get("telemetry_L_max", float("nan")),
+                                "R_eigval_min": state.get("telemetry_R_min", float("nan")),
+                                "R_eigval_max": state.get("telemetry_R_max", float("nan")),
+                                "update_rms": state.get("telemetry_update_rms", float("nan")),
+                                "recompute_step": state.get("telemetry_recompute_step", -1),
+                                "eigendecomp_time_ms": state.get("telemetry_eig_ms", float("nan")),
                             }
-                        except Exception:
-                            self.spectral_stats = None
+                    else:
+                        if len(state) == 0:
+                            state["momentum"] = torch.zeros_like(p)
+                            state["v"] = torch.zeros_like(p)
+                        update = muon_update(p.grad, state["momentum"], state["v"],
+                                             ns_iters=ns_iters,
+                                             mu=group["mu"], beta2=group["beta2"], eps=group["eps"])
+                        if spectral_target is not None and p is spectral_target:
+                            # Singular values of the orthogonalized (post-NS) update.
+                            # Multiplied by max(1, fan_in/fan_out)**0.5 inside muon_update;
+                            # divide it out so the spectrum is the pure NS output.
+                            scale = max(1, p.grad.size(-2) / p.grad.size(-1))**0.5
+                            u_for_svd = (update.detach().float() / scale)
+                            try:
+                                svals = torch.linalg.svdvals(u_for_svd)
+                                self.spectral_stats = {
+                                    "u_singular_max": float(svals.max().item()),
+                                    "u_singular_min": float(svals.min().item()),
+                                    "u_singular_mean": float(svals.mean().item()),
+                                    "u_singular_range": float((svals.max() - svals.min()).item()),
+                                    "u_singular_std": float(svals.std(unbiased=False).item()),
+                                    "ns_iters_used": float(ns_iters),
+                                }
+                            except Exception:
+                                self.spectral_stats = None
                     p.mul_(1 - group["lr"] * group["weight_decay"])
                     p.add_(update, alpha=-group["lr"])
                 dist.all_gather(params_pad[base_i:base_i + world_size], params_pad[base_i + rank])
@@ -824,6 +960,14 @@ print0(f"  Effective Muon base LRs: attn={0.035*NANOGPT_MUON_ATTN_LR_MULT:.5f} m
 print0(f"EMBED_INIT_ANCHOR_LAMBDA: {NANOGPT_EMBED_INIT_ANCHOR_LAMBDA} "
        f"({'ACTIVE' if NANOGPT_EMBED_INIT_ANCHOR_LAMBDA > 0 else 'INACTIVE (bit-identical fallback)'})",
        console=True)
+print0(f"BODY_OPT: {NANOGPT_BODY_OPT} "
+       f"({'NS5 polar decomp (default)' if NANOGPT_BODY_OPT == 'muon' else 'Shampoo Kronecker-factored preconditioner'})",
+       console=True)
+if NANOGPT_BODY_OPT == "shampoo":
+    print0(f"  SHAMPOO: beta={NANOGPT_SHAMPOO_BETA} period={NANOGPT_SHAMPOO_PERIOD} "
+           f"lr_scale={NANOGPT_SHAMPOO_LR_SCALE} eps={NANOGPT_SHAMPOO_EPS}", console=True)
+    print0(f"  Effective Shampoo body LRs: attn={0.035*NANOGPT_MUON_ATTN_LR_MULT*NANOGPT_SHAMPOO_LR_SCALE:.5f} "
+           f"mlp={0.035*NANOGPT_MUON_MLP_LR_MULT*NANOGPT_SHAMPOO_LR_SCALE:.5f}", console=True)
 if NS_ITERS_COOLDOWN > 0:
     print0(f"NS_SCHEDULE: ns_iters={NS_ITERS} -> ns_iters_cooldown={NS_ITERS_COOLDOWN} "
            f"at fraction {NS_COOLDOWN_START_FRAC} of train_steps "
@@ -896,6 +1040,11 @@ if dist.get_rank() == 0:
             "nanogpt_ns_stochastic_cooldown": NANOGPT_NS_STOCHASTIC_COOLDOWN,
             "senpai_seed": NANOGPT_SENPAI_SEED if NANOGPT_SENPAI_SEED is not None else -1,
             "nanogpt_embed_init_anchor_lambda": NANOGPT_EMBED_INIT_ANCHOR_LAMBDA,
+            "nanogpt_body_opt": NANOGPT_BODY_OPT,
+            "nanogpt_shampoo_beta": NANOGPT_SHAMPOO_BETA,
+            "nanogpt_shampoo_period": NANOGPT_SHAMPOO_PERIOD,
+            "nanogpt_shampoo_lr_scale": NANOGPT_SHAMPOO_LR_SCALE,
+            "nanogpt_shampoo_eps": NANOGPT_SHAMPOO_EPS,
         },
     )
 
@@ -949,9 +1098,13 @@ for trial_idx in range(args.num_trials):
                         if p.ndim >= 2 and ".attn." in n]
     muon_mlp_params = [p for n, p in model.blocks.named_parameters()
                        if p.ndim >= 2 and ".mlp." in n]
+    # When NANOGPT_BODY_OPT=shampoo, scale the body-LR by NANOGPT_SHAMPOO_LR_SCALE
+    # because Shampoo updates aren't operator-norm bounded like NS5 outputs and
+    # need a different operating-point LR. Default scale = 0.5 (PR #1132).
+    _body_lr_scale = NANOGPT_SHAMPOO_LR_SCALE if NANOGPT_BODY_OPT == "shampoo" else 1.0
     optimizer2 = Muon(
-        [dict(params=muon_attn_params, lr=0.035 * NANOGPT_MUON_ATTN_LR_MULT, name="muon_attn"),
-         dict(params=muon_mlp_params,  lr=0.035 * NANOGPT_MUON_MLP_LR_MULT,  name="muon_mlp")],
+        [dict(params=muon_attn_params, lr=0.035 * NANOGPT_MUON_ATTN_LR_MULT * _body_lr_scale, name="muon_attn"),
+         dict(params=muon_mlp_params,  lr=0.035 * NANOGPT_MUON_MLP_LR_MULT * _body_lr_scale,  name="muon_mlp")],
         weight_decay=0.025,
     )
     print0(f"MUON_PARAM_COUNTS: attn={len(muon_attn_params)} mlp={len(muon_mlp_params)} "
@@ -1326,6 +1479,72 @@ for trial_idx in range(args.num_trials):
                 }.get(NS_COEF_SCHEDULE, -1),
             })
             wandb.log(ns_metrics, step=wandb_step)
+        # Shampoo telemetry (#1132): logged when NANOGPT_BODY_OPT=shampoo at the
+        # same cadence as NS telemetry. Aggregates across all body params for max
+        # condition / extreme eigenvalues, plus tracked-param-specific stats.
+        if (dist.get_rank() == 0 and telemetry_due
+                and NANOGPT_BODY_OPT == "shampoo"):
+            shampoo_metrics = {
+                "trial": trial_idx,
+                "train/step": train_step,
+                "train/shampoo/body_opt_id": 1,  # 0 = muon, 1 = shampoo
+                "train/shampoo/lr_scale": NANOGPT_SHAMPOO_LR_SCALE,
+                "train/shampoo/beta": NANOGPT_SHAMPOO_BETA,
+                "train/shampoo/period": NANOGPT_SHAMPOO_PERIOD,
+            }
+            # Aggregate across all body params using cached per-state telemetry.
+            L_conds = []
+            R_conds = []
+            L_mins, L_maxs = [], []
+            R_mins, R_maxs = [], []
+            update_rmss = []
+            eig_mss = []
+            recompute_steps = []
+            for st in optimizer2.state.values():
+                if "telemetry_L_cond" in st:
+                    L_conds.append(st["telemetry_L_cond"])
+                if "telemetry_R_cond" in st:
+                    R_conds.append(st["telemetry_R_cond"])
+                if "telemetry_L_min" in st:
+                    L_mins.append(st["telemetry_L_min"])
+                if "telemetry_L_max" in st:
+                    L_maxs.append(st["telemetry_L_max"])
+                if "telemetry_R_min" in st:
+                    R_mins.append(st["telemetry_R_min"])
+                if "telemetry_R_max" in st:
+                    R_maxs.append(st["telemetry_R_max"])
+                if "telemetry_update_rms" in st:
+                    update_rmss.append(st["telemetry_update_rms"])
+                if "telemetry_eig_ms" in st:
+                    eig_mss.append(st["telemetry_eig_ms"])
+                if "telemetry_recompute_step" in st:
+                    recompute_steps.append(st["telemetry_recompute_step"])
+            if L_conds:
+                shampoo_metrics["train/shampoo_L_cond_max"] = max(L_conds)
+                shampoo_metrics["train/shampoo_L_cond_mean"] = sum(L_conds) / len(L_conds)
+            if R_conds:
+                shampoo_metrics["train/shampoo_R_cond_max"] = max(R_conds)
+                shampoo_metrics["train/shampoo_R_cond_mean"] = sum(R_conds) / len(R_conds)
+            if L_mins:
+                shampoo_metrics["train/shampoo_L_eigval_min"] = min(L_mins)
+            if L_maxs:
+                shampoo_metrics["train/shampoo_L_eigval_max"] = max(L_maxs)
+            if R_mins:
+                shampoo_metrics["train/shampoo_R_eigval_min"] = min(R_mins)
+            if R_maxs:
+                shampoo_metrics["train/shampoo_R_eigval_max"] = max(R_maxs)
+            if update_rmss:
+                shampoo_metrics["train/shampoo_update_rms"] = sum(update_rmss) / len(update_rmss)
+                shampoo_metrics["train/shampoo_update_rms_max"] = max(update_rmss)
+            if eig_mss:
+                shampoo_metrics["train/shampoo_eigendecomp_time_ms"] = sum(eig_mss)
+            if recompute_steps:
+                shampoo_metrics["train/shampoo_recompute_step"] = max(recompute_steps)
+            # Tracked-param (blocks[0].attn.q.weight) per-step snapshot.
+            if optimizer2.shampoo_stats is not None:
+                for k, v in optimizer2.shampoo_stats.items():
+                    shampoo_metrics[f"train/shampoo_tracked/{k}"] = v
+            wandb.log(shampoo_metrics, step=wandb_step)
         if dist.get_rank() == 0 and telemetry_due:
             log_weight_telemetry(
                 model=model,
