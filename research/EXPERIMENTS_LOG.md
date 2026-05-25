@@ -3,6 +3,31 @@
 This file logs experiment outcomes as PRs land. The historical track 3
 leaderboard is captured in `/BASELINE.md`.
 
+## 2026-05-25 16:30 UTC — PR #1163: AggMo + Nesterov hybrid disambiguation (thorfinn) — CLOSED productive-NEG/CATASTROPHIC; NS5-INPUT-MODIFYING + multi-buffer mean-aggregation sub-axis FULLY FENCED 2-direction with #1122; **20th consecutive no-merge closure since #847**
+
+- Branch: `g1r4-thorfinn/aggmo-nesterov-hybrid`
+- Hypothesis: Disambiguate #1122 failure mode — was the K=3 multi-buffer regression caused by (i) Nesterov-loss when dropping single-buffer Nesterov fast path, or (ii) mean-aggregation diluting the dominant β buffer? Test K=3 [0.85,0.95,0.99] with per-β Nesterov restored vs K=1 ctrl with Nesterov fast path.
+- Results:
+
+| Arm | K | Aggregate | Nesterov | val/loss | Δ_vs_A | Δ_vs_baseline 3.26756 | first_step_to_target | W&B |
+|:---:|:-:|:---:|:---:|:---:|:---:|:---:|:---:|:---|
+| A ctrl | 1 | n/a | 1 (single-buffer fast path) | 3.26975 | — | +0.00219 drift PASS edge | 3200 ✓ | `dojn3qml` |
+| B mech-lead | 3 | mean | 1 (per-β on each buffer) | **3.30556** | **+0.03581** | +0.038 | **−1 (NOT reached)** | `qo9nzs6o` |
+
+- Conclusion: Arm B Δ=+0.03581 is 7× signal threshold, CATASTROPHIC (val below speedrun target). Δ_vs_A widens monotonically through cooldown (+0.014@step2500 → +0.020@step2750 → +0.026@step3000 → +0.032@step3175 → +0.036@step3350) — mean-aggregation's regression compounds as NS5 input becomes more important under late-peak cooldown shape.
+- Mechanism reading: Per-β Nesterov lookahead is **passive on EMA-form buffers** — correction L2 dominated by near-stationary β=0.99 buffer (no information gain from lookahead at this β), while β=0.85 fast buffer's lookahead introduces variance that NS5 then amplifies into body weights. K=1 Nesterov works because single β=0.95 buffer is "fast enough that lookahead has signal, slow enough that lookahead bias is small." Adding Nesterov to K=3 mean-aggregation is NOT orthogonal — it's 9× WORSE than K=3 Lucas without Nesterov in #1122 (Δ=+0.036 vs Δ=+0.004).
+- **NS5-INPUT-MODIFYING + multi-buffer mean-aggregation sub-axis FENCED 2-direction:**
+
+| Modification | PR | Δ_vs_ctrl | Outcome |
+|:---|:---:|:---:|:---:|
+| K=2 [0.85,0.95] mean (compact) | #1122 | +0.00963 | PRODUCTIVE-NEG |
+| K=3 [0.85,0.95,0.99] Lucas mean | #1122 | +0.00408 | PRODUCTIVE-NEG |
+| K=3 [0.85,0.95,0.99] centered mean | #1122 | +0.00399 | PRODUCTIVE-NEG |
+| K=3 [0.85,0.95,0.99] mean + per-β Nesterov | #1163 | +0.03581 | CATASTROPHIC |
+
+- 4-closure regression cluster — mean-aggregation of multi-buffer momentum is structurally incompatible with this merged stack regardless of buffer scheme, β-spacing, or Nesterov restoration. **20th consecutive no-merge closure since #847.**
+- Reassignment: thorfinn → #1191 Body Muon momentum buffer periodic reset (SGDR-style warm restart on optimizer state, NS5-PRESERVING + SINGLE-BUFFER-PRESERVING + SCHEDULE-MODIFYING — mechanism-distinct from all 4 prior body Muon closures, opens fresh NS5-PRESERVING + BODY-MUON-OPTIMIZER-STATE-MODIFYING axis).
+
 ## 2026-05-25 13:30 UTC — PR #1127: Schedule-Free AdamW aux groups (frieren) — CLOSED productive-MARGINAL/CATASTROPHIC; SCHEDULE-REPLACEMENT-AUX axis FENCED 3-direction; cooldown structurally load-bearing; Arm D sub-threshold by 0.00012 with cooldown-NARROWING signature; **19th consecutive no-merge closure since #847**
 
 - Branch: `g1r4-frieren/aux-schedule-free`
