@@ -306,6 +306,7 @@ def log_adamw_step_direction(
         sq_sum = 0.0
         nel = 0
         max_abs = 0.0
+        exp_avg_sq_sum = 0.0  # raw first-moment squared sum (for β1 diagnostics, #1092)
         for p in group["params"]:
             st = optimizer.state.get(p, {})
             if "exp_avg" not in st or "exp_avg_sq" not in st:
@@ -325,6 +326,7 @@ def log_adamw_step_direction(
             m_abs = float(step_dir.abs().max().item())
             if m_abs > max_abs:
                 max_abs = m_abs
+            exp_avg_sq_sum += float((st["exp_avg"].to(torch.float32) ** 2).sum().item())
         if nel > 0:
             norm = sq_sum ** 0.5
             rms = (sq_sum / nel) ** 0.5
@@ -332,6 +334,9 @@ def log_adamw_step_direction(
             metrics[f"train/optimizer1_step_dir/{group_name}_rms"] = rms
             metrics[f"train/optimizer1_step_dir/{group_name}_max_abs"] = max_abs
             metrics[f"train/optimizer1_step_dir/{group_name}_numel"] = nel
+            # Per-group β1 diagnostics (#1092 DECOUPLED-AUX-PRECONDITIONER axis).
+            metrics[f"aux_beta1/{group_name}_beta1"] = float(group_b1)
+            metrics[f"aux_beta1/{group_name}_exp_avg_rms"] = (exp_avg_sq_sum / nel) ** 0.5
             grand_sq += sq_sum
             grand_n += nel
     if grand_n > 0:
@@ -593,6 +598,24 @@ NANOGPT_SENPAI_SEED = int(_SENPAI_SEED_RAW) if _SENPAI_SEED_RAW != "" else None
 # `embed.weight -= lr_embed * lambda * (embed.weight - embed_init_snapshot)`.
 # At lambda=0 the hook is a no-op and behavior is bit-identical to the merged stack.
 NANOGPT_EMBED_INIT_ANCHOR_LAMBDA = float(os.environ.get("NANOGPT_EMBED_INIT_ANCHOR_LAMBDA", "0.0"))
+# Per-aux-group β1 customization (#1092, DECOUPLED-AUX-PRECONDITIONER axis).
+# Setting to 0.0 means use the optimizer default β1 (currently 0.8) for that group.
+# When non-zero, must be in (0, 1). All-zero is bit-identical to baseline.
+NANOGPT_ADAMW_EMBED_BETA1 = float(os.environ.get("NANOGPT_ADAMW_EMBED_BETA1", "0.0"))
+NANOGPT_ADAMW_LM_HEAD_BETA1 = float(os.environ.get("NANOGPT_ADAMW_LM_HEAD_BETA1", "0.0"))
+NANOGPT_ADAMW_SCALARS_BETA1 = float(os.environ.get("NANOGPT_ADAMW_SCALARS_BETA1", "0.0"))
+for _var_name, _val in [
+    ("NANOGPT_ADAMW_EMBED_BETA1", NANOGPT_ADAMW_EMBED_BETA1),
+    ("NANOGPT_ADAMW_LM_HEAD_BETA1", NANOGPT_ADAMW_LM_HEAD_BETA1),
+    ("NANOGPT_ADAMW_SCALARS_BETA1", NANOGPT_ADAMW_SCALARS_BETA1),
+]:
+    if _val != 0.0 and not (0.0 < _val < 1.0):
+        raise ValueError(f"{_var_name}={_val}, must be 0 (= use default) or in (0, 1)")
+_AUX_BETA1_OVERRIDE_ACTIVE = (
+    NANOGPT_ADAMW_EMBED_BETA1 != 0.0
+    or NANOGPT_ADAMW_LM_HEAD_BETA1 != 0.0
+    or NANOGPT_ADAMW_SCALARS_BETA1 != 0.0
+)
 
 
 def get_ns_coef_at_iter(iter_idx: int, total_iters: int, schedule: str) -> tuple[float, float, float]:
@@ -824,6 +847,10 @@ print0(f"  Effective Muon base LRs: attn={0.035*NANOGPT_MUON_ATTN_LR_MULT:.5f} m
 print0(f"EMBED_INIT_ANCHOR_LAMBDA: {NANOGPT_EMBED_INIT_ANCHOR_LAMBDA} "
        f"({'ACTIVE' if NANOGPT_EMBED_INIT_ANCHOR_LAMBDA > 0 else 'INACTIVE (bit-identical fallback)'})",
        console=True)
+print0(f"AUX_BETA1_OVERRIDE: embed={NANOGPT_ADAMW_EMBED_BETA1} lm_head={NANOGPT_ADAMW_LM_HEAD_BETA1} "
+       f"scalars={NANOGPT_ADAMW_SCALARS_BETA1} "
+       f"({'ACTIVE (per-group decoupled)' if _AUX_BETA1_OVERRIDE_ACTIVE else 'INACTIVE (uniform default beta1=0.8)'})",
+       console=True)
 if NS_ITERS_COOLDOWN > 0:
     print0(f"NS_SCHEDULE: ns_iters={NS_ITERS} -> ns_iters_cooldown={NS_ITERS_COOLDOWN} "
            f"at fraction {NS_COOLDOWN_START_FRAC} of train_steps "
@@ -896,6 +923,10 @@ if dist.get_rank() == 0:
             "nanogpt_ns_stochastic_cooldown": NANOGPT_NS_STOCHASTIC_COOLDOWN,
             "senpai_seed": NANOGPT_SENPAI_SEED if NANOGPT_SENPAI_SEED is not None else -1,
             "nanogpt_embed_init_anchor_lambda": NANOGPT_EMBED_INIT_ANCHOR_LAMBDA,
+            "nanogpt_adamw_embed_beta1": NANOGPT_ADAMW_EMBED_BETA1,
+            "nanogpt_adamw_lm_head_beta1": NANOGPT_ADAMW_LM_HEAD_BETA1,
+            "nanogpt_adamw_scalars_beta1": NANOGPT_ADAMW_SCALARS_BETA1,
+            "nanogpt_aux_beta1_override_active": int(_AUX_BETA1_OVERRIDE_ACTIVE),
         },
     )
 
@@ -942,6 +973,22 @@ for trial_idx in range(args.num_trials):
                         dict(params=[model.proj.weight], lr=(1/320) * NANOGPT_ADAMW_LM_HEAD_LR_MULT, name="adam_lm_head"),
                         dict(params=[p for p in model.parameters() if p.ndim < 2], lr=0.01 * NANOGPT_ADAMW_SCALAR_LR_MULT, name="adam_scalars")],
                        betas=(0.8, NANOGPT_ADAMW_BETA2), eps=1e-10, weight_decay=0, fused=True)
+    # Per-group β1 override (#1092, DECOUPLED-AUX-PRECONDITIONER axis). Modify each
+    # aux AdamW param_group's betas tuple in place. When all three env vars are 0.0
+    # this branch is skipped entirely and the run is bit-identical to baseline.
+    if _AUX_BETA1_OVERRIDE_ACTIVE:
+        _aux_beta1_override = {
+            "adam_embed": NANOGPT_ADAMW_EMBED_BETA1,
+            "adam_lm_head": NANOGPT_ADAMW_LM_HEAD_BETA1,
+            "adam_scalars": NANOGPT_ADAMW_SCALARS_BETA1,
+        }
+        for _group in optimizer1.param_groups:
+            _name = _group.get("name", "")
+            _new_b1 = _aux_beta1_override.get(_name, 0.0)
+            if _new_b1 != 0.0:
+                _old_b1, _b2 = _group["betas"]
+                _group["betas"] = (_new_b1, _b2)
+                print0(f"AUX_BETA1: {_name} beta1 overridden to {_new_b1} (was {_old_b1})", console=True)
     # Per-block-type Muon param split: attn (q/k/v/proj) vs mlp (fc/proj).
     # When both multipliers = 1.0, behavior is bit-identical to the prior single-group setup
     # (NS orthogonalization is per-matrix; the split only changes how groups are indexed).
