@@ -1,3 +1,31 @@
+## 2026-05-25 13:10 — PR #1146: H144 AdEMAMix optimizer for aux groups (NULL/NEG closure)
+- Branch: `g1r3-alphonse/h144-ademamix-aux-optimizer`
+- Hypothesis: AdEMAMix (Pagliardini et al. 2024) adds a slow EMA momentum buffer (β3=0.9999) to AdamW's fast EMA (β1=0.8). The mixture parameter α scales the slow EMA contribution. Tests training-time dual-EMA momentum mixture as an orthogonal direction from eval-time weight averaging (H120/H125/H127/H136).
+
+| Arm | Config | run_id | val/loss | Δ vs baseline | Δ vs CTRL | ffs | Band |
+|---|---|---|---|---|---|---|---|
+| arm_a | CTRL α=0 (AdamW bit-id) | `2vgczqj7` | 3.26590 | +0.00043 | 0 | 3150 | NULL (favorable seed) |
+| arm_b | α=2 | `9xwr3gxq` | 3.26682 | +0.00135 | +0.00092 | 3150 | NULL (worse side) |
+| arm_c | α=5 | `8ezfhxg1` | 3.27206 | +0.00659 | +0.00616 | 3175 | NEG (+0.00389 above NEG threshold) |
+
+Baseline: 3.26547 (PR #1097 fern H133). WIN < 3.26467 | NULL [3.26377, 3.26817] | NEG > 3.26817
+
+**Verdict: NULL/NEG closure. AdEMAMix axis closed; α-monotone cooldown drag mechanism documented.**
+
+**Results commentary:**
+- Mid-training peak lead is α-INDEPENDENT (saturates at α∈[2,5]) at Δ≈-0.009 at step 1500.
+- Cooldown drag is α-MONOTONE: arm_b α=2 crossover-back at step 3100 (terminal Δ=+0.00092); arm_c α=5 crossover-back at step ~2500 (terminal Δ=+0.00616, 6.7× larger deficit). NEW mechanism characterization.
+- Best arm fails WIN threshold by 0.00123.
+
+**Key mechanism findings:**
+1. **α-monotone cooldown drag mechanism — first documented in programme**: saturating mid-training benefit + scaling cooldown drag. Mid-training advantage is α-INDEPENDENT; terminal deficit is α-MONOTONE.
+2. **Slow EMA is NOT LR-aware**: β3=0.9999 EMA accumulates from high-LR phase. As cooldown drops aux LR, the actual update step needs to be small, but m_slow's contribution α·m_slow still reflects high-LR-magnitude gradients. Larger α directly scales this stale-gradient drag. Same mechanism family as H127 (Polyak EMA catastrophic regime) and H136 erosion — but in MOMENTUM space, not weight space.
+3. **EMA-family closure at 5-level precision — PROGRAMME MILESTONE**: H120 (embed-only Polyak SHORT NEG), H125 (embed-only refined NULL — cooldown erodes mid-training EMA gain), H127 (global Polyak NEG catastrophic under cosine 1.0), H136 (embed-only 4th-precision NULL — catastrophic regime body-driven), H144 (AdEMAMix training-time dual-EMA NULL/NEG — α-monotone cooldown drag). **Entire fixed-window / dual-EMA averaging mechanism family CLOSED** across eval-time weight averaging (H120/H125/H127/H136) AND training-time optimizer momentum mixture (H144). The EMA-as-averaging-mechanism research direction is exhausted in this stack.
+4. **Saturation at α∈[2,5] mid-training**: paper-claimed α-scaling benefit doesn't manifest. Mid-training Δ peak is essentially α-flat. At our scale + 3325-step budget + linear@0.4 cooldown, slow-EMA saturates as a "useful long-term direction" at modest α already.
+5. **Replication caveat documented**: paper-scale was 1B+ params, 10B+ tokens with cosine cooldown. Our 124M / 3.4B tokens / linear@0.4 cooldown stresses the cooldown phase ~40% of total compute. Mechanism (cooldown drag) is real for our stack; paper claim is not falsified for paper's scale.
+
+→ **H152 assigned**: Lion optimizer for aux groups (Chen et al. 2023, arXiv 2302.06675) — sign-momentum architectural shift per alphonse's suggestion #4. Plateau-protocol bold swing after 5-level EMA-family closure.
+
 ## 2026-05-25 12:55 — PR #1143: H143 Inner MuonH µ-endpoint sweep under linear cooldown (NULL closure)
 - Branch: `g1r3-fern/h143-mu-end-linear-cooldown`
 - Hypothesis: Linear cooldown (H133 winner) preserves gradient signal late training. H125 showed µ_end=0.84 mid-training advantage fully erodes under cosine. Does linear cooldown rescue the low-µ_end advantage? If H133 linear cooldown is the mechanism preserving gradient signal, then low-µ_end could survive to terminal.
