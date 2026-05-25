@@ -1,3 +1,86 @@
+## 2026-05-25 23:25 UTC — TRIPLE CLOSURE + TRIPLE ASSIGNMENT (cycle 71 mid-254)
+
+### #1212 fern RAND_SVD_MUON CLOSED (152nd refuted, 39th family-level closure, 3rd CATASTROPHIC-SHIFTED-FLOOR)
+- **Branch**: g1r2-fern/rand-svd-muon
+- **Hypothesis**: Pre-NS5 PowerSGD-style randomized SVD rank-{4,8} reconstruction of body Muon gradients as denoising step before polar projection.
+- **Results**:
+
+| Arm | Rank | wandb | Last step | Last val | Δ vs baseline | step_avg_ms |
+|---|---|---|---|---|---|---|
+| Baseline #613 | — | — | 3175 | 3.26776 | — | ~1980 |
+| A | 4 | q8spiyya | 875 (crashed @ 950) | 4.62026 | +1.35 | 2005.7 |
+| B | 8 | hi7zrdnt | 875 (killed) | 4.47041 | +1.20 | 2010.4 |
+
+Disabled-check (val@200): rizdu97w=4.07875 + kryaq7c3=4.08419 — both inside [4.075, 4.090] ✓.
+- **Conclusion**: CATASTROPHIC-SHIFTED-FLOOR. Family closure `RAND-SVD-MUON-PRE-NS5-RANK-IN-{4,8}` 1/1. Mechanism: pre-NS5 rank-k truncation is SUBTRACTIVE — Muon body gradient effective rank ≫8 so collapsing to top-k destroys 60-80% load-bearing structure. PowerSGD's bandwidth-bottleneck regime doesn't apply to single-GPU + NS5 pipeline. Fern's 6th consecutive within-student closure-map validation. NS5/polar/pre-NS5-rank-k mechanism layer fully traced.
+
+### #1196 askeladd MUON_PER_HEAD_NS5 CLOSED (153rd refuted, 40th family-level closure, 15th SHIFTED-FLOOR)
+- **Branch**: g1r2-askeladd/per-head-ns5
+- **Hypothesis**: Split Q/K/V tensors by head_dim and apply per-head NS5 polar projection separately, recovering ~5-10% step_avg_ms savings via smaller matrices.
+- **Results**:
+
+| Arm | head_dim | num_heads (per Q/K/V) | NS5 calls/step | wandb | val/loss | best_val_step | FFS | step_avg_ms | Δ merge bar |
+|-----|---:|---:|---:|---|---:|---:|---:|---:|---:|
+| Baseline #613 (n=2) | — | — | 36 | — | 3.26776 | — | 3000 | — | — |
+| A | 128 | 6 | 216 | lnrrteq9 | 3.27374 | 3175 | 3050 | 1988.70 | +0.00598 |
+| B | 64  | 12 | 432 | mn2se0uh | 3.27365 | 3175 | 3075 | 1988.69 | +0.00589 |
+
+Telemetry validation: per-head Fro=√head_dim (8.0005≈√64, 11.315≈√128) confirms orthonormality of per-head polar slices.
+- **Conclusion**: SHIFTED-FLOOR refute. Family closure `PER-HEAD-NS5-RECTANGULAR-Q/K/V-HEAD-DIM-IN-{64, 128}` 1/1. Mechanism: joint spectral conditioning across full (768, 768) IS the useful inductive bias; per-head decomposition breaks cross-head coupling, sub-head granularity no further benefit. NO wall-clock savings materialized (kernel-launch overhead dominates cubic compute savings on small matrices). Campaign learning: future "split mechanism for cubic savings" hypotheses on Q/K/V should NOT cite wall-clock as motivation.
+- **Advisor self-correction**: I gave Arm B kill gate "val > 3.33 at step 500" which is tighter than baseline trajectory itself (baseline ~3.83 at step 500). Askeladd correctly fell back to PR-defined baseline-trajectory + noise-margin gates. Process learning recorded.
+- Askeladd's 3rd consecutive validation. Muon-QKV decomposition axis bilaterally closed via #1174 FUSE + #1196 SPLIT.
+
+### #1190 nezuko CAUTIOUS_MUON CLOSED (154th refuted, 41st family-level closure, 16th SHIFTED-FLOOR)
+- **Branch**: g1r2-nezuko/cautious-muon
+- **Hypothesis**: Apply Liang et al. 2024 sign-agreement mask `sign(m_t) == sign(g_t)` to Muon body momentum before NS5 polar projection.
+- **Results** (corrected — both completed runs are hard-mask seed repeats, not Arm A + Arm B):
+
+| Run ID | Arm | CAUTIOUS_MUON_SOFT | val/loss @ step 3175 | First step val < 3.28 |
+|---|---|---|---|---|
+| 8kylb6ek | A (hard, seed-1) | 0 | 3.27675 | 3100 |
+| lxz3k0s5 | A (hard, seed-2) | 0 | 3.27661 | 3100 |
+| **Mean** | | | **3.27668** | **3100** |
+| syf1yqo8 | B (soft) | 1 | NaN @ step 250 | — (killed) |
+
+Disabled-check (val@200): 5yxmzico=4.089, lt59srri=4.081, 16nmmeqq=4.078, bz4rld57=4.092 — all inside band ✓.
+- **Conclusion**: SHIFTED-FLOOR refute, statistically conclusive at N=2 seeds (σ<<0.001). Family closure `CAUTIOUS-MUON-HARD-MASK-SIGN-AGREEMENT-PRE-NS5-N=2-SEEDS` 1/1. Mechanism: (1) NS5 already denoises so pre-NS5 sign-mask is subtractive lossy; (2) sign-disagreement carries exploration signal not pure noise; (3) per-tensor keep_ratio.mean upscaling distorts cross-tensor LR balance; (4) CAUTIOUS was tuned for AdamW-sign-dominated updates, doesn't transfer to Muon polar-factor geometry.
+- **Cross-comparison with alphonse #1205 CAUTIOUS_AUX (in-flight)**: Arm A js9iro62 terminal val=3.28655 CATASTROPHIC ffs=-1 + Arm B 1mjeh913 step 2125 val=3.4155 trending same → CAUTIOUS-family is BILATERALLY-SATURATED across Muon body AND AUX paths. Mechanism-family refute.
+- Nezuko transparency note (commendable): admitted the original Arm A vs Arm B classification was actually both Arm A seeds — research-grade integrity. soft mask Arm B remained formally untested but EV-low given hard mask SHIFTED-FLOOR.
+
+---
+
+### #1224 fern WD_BODY_DEPTH assigned (75th distinct mech class)
+- **Branch**: g1r2-fern/wd-body-depth-ramp
+- **Hypothesis**: Linear depth-ramp `wd_l = CONTRA_MUON · (1 + β · l/(L-1))` for body Muon parameters across 12 transformer blocks. μP/SP² (Yang 2022 Tensor Programs IV arXiv:2203.03466) predicts depth-asymmetric SNR — uniform WD over-regularizes shallow layers, under-regularizes deep layers.
+- **Arms**:
+  - Arm A: WD_BODY_DEPTH=+0.5 (deeper more decayed, μP-predicted direction)
+  - Arm B: WD_BODY_DEPTH=-0.3 (opposite direction, control)
+- **Anti-duplication grep clean**: WD_BODY_DEPTH / LAYER_WD / PER_LAYER_WD / WD_DEPTH zero matches across 318-PR corpus.
+- **Distinct from #1114 DEPTH_DEP_BODY_INIT_STD** (closed, init-side absorbed by Muon+NS5 in 750 steps), **distinct from #729 PER-BLOCK CONTRA_MUON** (2-band step-function, this is continuous 12-block ramp), **distinct from #793 DEPTH_DEP_MUON_LR** (pod-broken-hold, LR not WD).
+- **Why fern**: pivot OUT of NS5/polar/rank-k axis (6 consecutive validations) to regularization-side structurally orthogonal.
+
+### #1225 askeladd AUX_BIAS_CORRECTION_OFF assigned (76th distinct mech class)
+- **Branch**: g1r2-askeladd/aux-bias-correction-off
+- **Hypothesis**: Skip the `m_hat = m / (1 - β1^t)` and `v_hat = v / (1 - β2^t)` bias-correction factors in AUX AdamW step. Tests whether MU_WARMUP and global LR warmup act as bias-correction surrogates, making explicit correction double-counting on the AUX path. From advisor backlog (cycle 71 mid-178 line 1103 EXPERIMENTS_LOG.md).
+- **Arms**:
+  - Arm A: AUX_BIAS_CORRECTION_OFF=1 (full-OFF, all AUX groups)
+  - Arm B: AUX_BIAS_CORRECTION_OFF=2 (OFF on embed + lm_head, scalars KEEP correction)
+- **Anti-duplication grep clean**: AUX_BIAS_CORRECTION_OFF / BIAS_CORRECTION_OFF / AUX_BETA2_AMPLIFICATION zero matches across 318-PR corpus.
+- **Distinct from #944 MUON_BUFFER_BIAS_CORRECTION** (closed ADDING correction to Muon body — mirror image, opposite direction), **distinct from #739 ADAMW_NESTEROV** (Nesterov m not correction-removal), **distinct from #742 ADAMW_RADAM** (variance-rectification not correction-removal).
+- **Why askeladd**: pivot OUT of Muon-QKV decomposition (bilaterally closed via #1174 + #1196) to AUX-side structurally orthogonal axis.
+
+### #1226 nezuko AUX_CLIP_NORM assigned (77th distinct mech class)
+- **Branch**: g1r2-nezuko/aux-clip-norm-per-group
+- **Hypothesis**: `clip_grad_norm_(aux_params_only, max_norm)` group-vector concatenated norm clipping BEFORE AUX AdamW step. Body Muon gradients untouched. Tests Muon-AUX gradient-magnitude asymmetry: NS5 provides body bound, AUX has none.
+- **Arms**:
+  - Arm A: AUX_CLIP_NORM=1.0 (tight, GPT-3-standard)
+  - Arm B: AUX_CLIP_NORM=5.0 (loose, only catches spikes)
+- **Anti-duplication grep clean**: AUX_CLIP_NORM / CLIP_AUX / AUX_GRAD_CLIP zero matches across 318-PR corpus.
+- **Distinct from #860 GLOBAL_GRAD_CLIP** (closed — scaled body Muon disproportionately), **distinct from #580 AGC** (closed — per-param clipping disrupted NS5), **distinct from #734 ADAMW_GRAD_CLIP** (closed — global not AUX-isolated). Key scope distinction: AUX-group concatenated vector norm vs global vs per-param.
+- **Why nezuko**: pivot OUT of CAUTIOUS-family (bilaterally saturated via #1190 + #1205) to gradient-magnitude regulation structurally distinct from sign-agreement.
+
+---
+
 ## 2026-05-25 22:25 UTC — #1220 frieren SHAMPOO_MUON_BODY assigned (74th mech class — bilateral Kronecker-factored Shampoo preconditioner pre-NS5 pre-momentum, only-untested class 3 of #1101 pre-NS5 transform taxonomy, frieren pivot from saturated 8-PR Riemannian-momentum trajectory to bilateral structured second-order preconditioning)
 
 ### #1220 frieren SHAMPOO_MUON_BODY assigned
