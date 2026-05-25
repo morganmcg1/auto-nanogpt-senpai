@@ -96,6 +96,28 @@ def parse_args():
                         help="Starting value of µ schedule (used by linear and cooldown_ramp modes).")
     parser.add_argument("--muonh_mu_end", type=float, default=float(os.environ.get("MUONH_MU_END", "0.98")),
                         help="Ending value of µ schedule (used by linear and cooldown_ramp modes).")
+    # H161 late-training parameter noise injection probe. When mode='off' the
+    # injection block is fully skipped — no torch.randn_like calls, no wandb.log —
+    # so arm_a is bit-identical to the prior baseline. Per-coord sigma is scaled
+    # to sigma_rel * ||p||_F / sqrt(numel), giving relative noise that is
+    # invariant to tensor size.
+    parser.add_argument("--late_noise_mode", type=str,
+                        default=os.environ.get("LATE_NOISE_MODE", "off"),
+                        choices=["off", "pre_cooldown", "late_cooldown"],
+                        help="H161 late-training parameter noise injection mode. "
+                             "'off' (default) = no noise, bit-id baseline. "
+                             "'pre_cooldown' = inject in [late_noise_start_step, 0.67*train_steps). "
+                             "'late_cooldown' = inject in [0.90*train_steps, train_steps).")
+    parser.add_argument("--late_noise_start_step", type=int,
+                        default=int(os.environ.get("LATE_NOISE_START_STEP", "1500")),
+                        help="First step at which to inject noise (gates the outer if).")
+    parser.add_argument("--late_noise_sigma_rel", type=float,
+                        default=float(os.environ.get("LATE_NOISE_SIGMA_REL", "1e-4")),
+                        help="Per-tensor noise σ relative to parameter Frobenius norm. "
+                             "Per-coord sigma = sigma_rel * ||p||_F / sqrt(numel).")
+    parser.add_argument("--late_noise_interval", type=int,
+                        default=int(os.environ.get("LATE_NOISE_INTERVAL", "50")),
+                        help="Inject noise every N steps when in window.")
     parser.add_argument("--body_init", type=str, default=os.environ.get("BODY_INIT", "default"),
                         choices=["default", "orthogonal_fnorm_matched", "orthogonal_bottom_damp"],
                         help="Initialization scheme for body MuonH 2D weights (attn.q/k/v, attn.proj, mlp.fc, mlp.proj). "
@@ -850,6 +872,10 @@ if dist.get_rank() == 0:
             "muonh_mu_schedule": args.muonh_mu_schedule,
             "muonh_mu_start": args.muonh_mu_start,
             "muonh_mu_end": args.muonh_mu_end,
+            "late_noise_mode": args.late_noise_mode,
+            "late_noise_start_step": args.late_noise_start_step,
+            "late_noise_sigma_rel": args.late_noise_sigma_rel,
+            "late_noise_interval": args.late_noise_interval,
         },
     )
 
@@ -862,6 +888,11 @@ for trial_idx in range(args.num_trials):
 
     # we want to minimize this while still reaching 3.28 val loss
     train_steps = args.train_steps
+
+    # H161 late-noise window boundaries: pre_cooldown stops at the 0.67 mark
+    # (rough MuonH-LR knee); late_cooldown only fires in the final 10%.
+    late_noise_cooldown_start = int(0.67 * train_steps)
+    late_noise_late_window_start = int(0.90 * train_steps)
 
     # Per-module init std: gives MuonH non-zero matrices to operate on from step 0
     # while keeping the LM head (model.proj.weight) at zero so initial logits are 0.
@@ -1171,6 +1202,39 @@ for trial_idx in range(args.num_trials):
         )
         for opt in optimizers:
             opt.step()
+        # H161 late-training parameter noise injection. Fully no-op (no
+        # torch.randn_like, no wandb.log) when mode='off' so arm_a remains
+        # bit-identical to the prior baseline. Noise is added AFTER the inner
+        # optimizer step but BEFORE MuLoCo / next forward pass, per advisor
+        # placement instruction.
+        if (args.late_noise_mode != "off"
+                and step >= args.late_noise_start_step
+                and step % args.late_noise_interval == 0):
+            if args.late_noise_mode == "pre_cooldown":
+                in_noise_window = step < late_noise_cooldown_start
+            elif args.late_noise_mode == "late_cooldown":
+                in_noise_window = step >= late_noise_late_window_start
+            else:
+                in_noise_window = False
+            if in_noise_window:
+                with torch.no_grad():
+                    for p in model.parameters():
+                        if p.requires_grad and p.dim() >= 1:
+                            p_norm = p.norm().item()
+                            if p_norm > 0:
+                                sigma = args.late_noise_sigma_rel * p_norm / (p.numel() ** 0.5)
+                                p.add_(torch.randn_like(p) * sigma)
+                if dist.get_rank() == 0:
+                    total_noise_frob_sq = sum(
+                        (args.late_noise_sigma_rel * p.norm().item() / (p.numel() ** 0.5)) ** 2 * p.numel()
+                        for p in model.parameters() if p.requires_grad and p.dim() >= 1
+                    )
+                    wandb.log({
+                        "trial": trial_idx,
+                        "train/step": train_step,
+                        "late_noise/total_disp_frob": total_noise_frob_sq ** 0.5,
+                        "late_noise/active": 1,
+                    }, step=wandb_step)
         # Log warmup telemetry every 10 steps during warmup (and at telemetry events
         # afterwards) so we capture the warmup curve at high resolution. Cheap since
         # it's just two floats.
