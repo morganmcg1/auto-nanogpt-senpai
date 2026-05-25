@@ -1,5 +1,42 @@
 # SENPAI Research Results
 
+## 2026-05-25 14:15 UTC — PR #1144 CLOSED: NS_ITERS phase schedule probe (stable=10/cooldown=14 vs stable=14/cooldown=10) — 132nd NULL, phase-schedule axis FULLY CLOSED (g1r1-nezuko)
+
+- Branch: `g1r1-nezuko/ns-iters-phase`
+- Hypothesis: Test whether NS_ITERS polar quality should be phase-dependent: tighter during cooldown (NS=14, when each step matters more) vs tighter during stable (NS=14). Baseline uniform NS_ITERS=12 from #884. #1102 found polar/ortho_residual NOT load-bearing at static NS_ITERS=12 — this PR tests whether phase-selective tightening unlocks latent signal.
+
+### Results
+
+| Arm | NS stable | NS cooldown | W&B | val/loss | sr | Δval (mnat) | Verdict |
+|---|---|---|---|---|---|---|---|
+| Baseline #918 | 12 | 12 | vm48fdof/0a7esmxs | 3.266394 | 2925 | — | BASELINE |
+| **A** | **10** | **14** | `j9lot65t` | **3.267672** | **2950** | **+1.278** | NULL (~4.3σ) |
+| **B** | **14** | **10** | `norz0n09` | **3.267612** | **2950** | **+1.218** | NULL (~4.0σ) |
+
+**STRIKINGLY SYMMETRIC REGRESSION.** Both arms +1.2 mnat, both sr=2950. Δval gap between arms = 0.06 mnat (< empirical σ≈0.0003 single-seed noise floor). Both fail merge rule (sr=2950 disqualifies val clause).
+
+### Diagnostic telemetry (final values)
+
+| Metric | Arm A (stable=10, cd=14) | Arm B (stable=14, cd=10) |
+|---|---|---|
+| `polar/ortho_residual_sample` (final) | **0.0759** (tighter — cooldown NS=14) | **3.1102** (looser — cooldown NS=10) |
+| `ema/buffer_frob_dist` (final) | 20.15 | 23.26 |
+| Schedule transition at step 975 | ortho_residual 4.20→0.37→0.076 (55× cooldown tightening) | ortho_residual 0.12→3.94 (30× cooldown loosening) |
+
+### Mechanism findings
+
+1. **Symmetric regression rules out phase-asymmetric polar-quality loading.** If stable-phase polar quality were preferentially load-bearing, Arm A (NS=10 stable, looser) should regress while Arm B (NS=14 stable, tighter) should recover. Neither helps — same direction, same magnitude. Phase-asymmetric polar quality is NOT load-bearing in either direction.
+2. **Any departure from uniform NS_ITERS=12 costs ~1.2 mnat regardless of phase.** Arm A avg NS_iters ≈12.8 (+6.7%), Arm B ≈11.2 (−6.7%) vs baseline. Both deviations cost identically.
+3. **Reinforces #884 static optimum + #1102 ortho_residual NOT load-bearing.** Now extended to phase-selective application: the static NS_ITERS=12 is a genuine sweet-spot, not a coincidence. NS5 polar-quality manifold {static, asymmetric, post-polar, exact, residual, phase} is fully closed.
+4. **Plausible mechanism for symmetric ~1.2 mnat cost:** EMA buffer expects uniform polar quality across all steps; mid-training regime shift at step 975 disrupts EMA statistics. Arm B's higher buffer_frob_dist (23.26 vs Arm A 20.15) is suggestive. Schedule discontinuity itself may also impose a small one-time regime-shift cost.
+5. **Cross-axis confirmation of #1136 pipeline-position canon:** intra-NS5 modifications are bounded (+1.2 mnat NULL); pre-NS5 perturbations are unbounded (CATASTROPHIC +16/+79 mnat). Canon: modifications within NS5 have upper-bounded cost, modifications before NS5 are unbounded.
+
+### Conclusions
+
+NS_ITERS phase-schedule axis CLOSED. Next: nezuko → **#1182** (EMA wrapper β_target probe: first direct ablation of ema_beta_target=0.99 in r1).
+
+---
+
 ## 2026-05-25 13:45 UTC — PR #1136 CLOSED: Body Muon gradient noise injection (σ=0.05 vs 0.15) — 131st NULL, gradient noise axis FULLY CLOSED (g1r1-fern)
 
 - Branch: `g1r1-fern/grad-noise`
