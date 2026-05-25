@@ -95,6 +95,15 @@ def parse_args():
                         help="Starting value of µ schedule (used by linear and cooldown_ramp modes).")
     parser.add_argument("--muonh_mu_end", type=float, default=float(os.environ.get("MUONH_MU_END", "0.98")),
                         help="Ending value of µ schedule (used by linear and cooldown_ramp modes).")
+    # Look-Ahead (Zhang et al. 2019, arxiv 1907.08610). Maintains a slow-weights copy
+    # of body MuonH params and pulls live (fast) weights toward slow every la_k inner
+    # steps: slow += alpha*(fast-slow); fast.copy_(slow). la_k=0 disables (bit-id).
+    parser.add_argument("--la_k", type=int, default=int(os.environ.get("LA_K", "0")),
+                        help="Look-Ahead slow-weights update interval for body MuonH params (Zhang et al. 2019). "
+                             "0 = disabled (bit-id baseline). Paper canonical: 5 for LMs.")
+    parser.add_argument("--la_alpha", type=float, default=float(os.environ.get("LA_ALPHA", "0.5")),
+                        help="Look-Ahead pull strength (linear interp factor: slow += alpha*(fast-slow)). "
+                             "Paper canonical: 0.5.")
     args = parser.parse_args()
     args.num_trials = args.num_trials if args.num_trials is not None else (args.legacy_num_trials or 1)
     args.wandb_tags = [tag.strip() for tag in args.wandb_tags.split(",") if tag.strip()]
@@ -862,6 +871,13 @@ for trial_idx in range(args.num_trials):
     # Inner-MuonH AGC targets: block 2D weights consumed by MuonH. Clipped BEFORE
     # the MuonH momentum buffer integrates the gradient.
     muonh_params_for_agc = [p for g in optimizer2.param_groups for p in g["params"]]
+    # Look-Ahead slow weights for body MuonH params only. AdamW aux groups
+    # (embed/lm_head/scalars) are unaffected. la_k=0 is a no-op.
+    if args.la_k > 0:
+        la_slow_weights = {id(p): p.detach().clone() for p in muonh_params_for_agc}
+    else:
+        la_slow_weights = None
+    la_snap_count = 0
     assert set(p for opt in optimizers for group in opt.param_groups
                for p in group["params"]) == set(model.parameters())
     for opt in optimizers:
@@ -1091,6 +1107,24 @@ for trial_idx in range(args.num_trials):
         )
         for opt in optimizers:
             opt.step()
+        # Look-Ahead slow-weights pull (Zhang et al. 2019, arxiv 1907.08610).
+        # Operates on body MuonH params only, after both optimizer .step() calls
+        # but before MuLoCo outer step. la_k=0 is a no-op (bit-id). Fires every
+        # la_k inner steps starting from step la_k; skipped on the final training
+        # step so the live state is the last inner update (matches MuLoCo guard).
+        la_snap_due = (args.la_k > 0 and (step + 1) % args.la_k == 0 and (step + 1) < train_steps)
+        la_snap_distance_total = 0.0
+        la_snap_count_this_step = 0
+        if la_snap_due:
+            with torch.no_grad():
+                for p in muonh_params_for_agc:
+                    slow = la_slow_weights[id(p)]
+                    slow.add_(p.data - slow, alpha=args.la_alpha)
+                    if dist.get_rank() == 0:
+                        la_snap_distance_total += (p.data - slow).float().square().sum().item()
+                    p.data.copy_(slow)
+                    la_snap_count_this_step += 1
+            la_snap_count += 1
         # Log warmup telemetry every 10 steps during warmup (and at telemetry events
         # afterwards) so we capture the warmup curve at high resolution. Cheap since
         # it's just two floats.
@@ -1127,6 +1161,14 @@ for trial_idx in range(args.num_trials):
                 muonh_metrics["train/muonh/agc/max_ratio"] = muonh_agc_stats["agc_max_ratio"]
                 muonh_metrics["train/muonh/agc/scale_min"] = muonh_agc_stats["agc_scale_min"]
                 muonh_metrics["train/muonh/agc/scale_mean"] = muonh_agc_stats["agc_scale_mean"]
+            if args.la_k > 0:
+                muonh_metrics["train/la/k"] = args.la_k
+                muonh_metrics["train/la/alpha"] = args.la_alpha
+                muonh_metrics["train/la/snap_count"] = la_snap_count
+                if la_snap_due and la_snap_count_this_step > 0:
+                    muonh_metrics["train/la/snap_distance_rms"] = (
+                        la_snap_distance_total / la_snap_count_this_step
+                    ) ** 0.5
             if len(muonh_metrics) > 2:
                 wandb.log(muonh_metrics, step=wandb_step)
         if dist.get_rank() == 0 and telemetry_due:
