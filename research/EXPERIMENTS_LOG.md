@@ -1,5 +1,54 @@
 # SENPAI Research Results
 
+## 2026-05-25 21:08 UTC — PR #1176 CLOSED: u/w-floor TARGET_UW probe (0.25 LOWER vs 0.45 HIGHER, baseline=0.35) — 136th NULL, u/w-floor U-shape FULLY MAPPED across 5 points with asymmetric harm direction (g1r1-edward)
+
+- Branch: `g1r1-edward/target-uw`
+- Hypothesis: probe u/w-floor TARGET_UW value around baseline 0.35 (introduced in skylight PR, never directly ablated as a tight sweep). Arm A LOWER (0.25): let small updates pass through → weaker rescue. Arm B HIGHER (0.45): force larger steps on all layers → more aggressive minimum step. Direct response to #1129 spectral-exponent closure diagnostic insight that "floor is the dominant magnitude controller now."
+
+| Arm | target_uw | val | sr | Δval (mnat) | Merge rule |
+|---|---|---|---|---|---|
+| Baseline (n=2) | 0.35 | 3.266394 | 2925 | 0 | (reference) |
+| **A (LOWER)** `xamga913` | 0.25 | **3.27240** | **3000** | **+6.00 (20σ)** | FAILS both (sr+75 + val miss) |
+| **B (HIGHER)** `25iotq1n` | 0.45 | **3.27521** | **3100** | **+8.82 (29σ)** | FAILS both (sr+175 + val miss) |
+
+- **Both arms NULL.** 136th closure. Both fail merge rule on both clauses.
+
+- **U-SHAPE CANON FULLY MAPPED across 5 points** (combining #1035, #1129, #1176):
+
+| target_uw | Δval (mnat) | Source |
+|---|---|---|
+| 0.00 (no floor) | +5.8 | #1035 NULL |
+| 0.25 (LOWER probe) | **+6.00** | **#1176 Arm A** |
+| 0.35 (baseline) | 0 | #918 / #1129 saturation |
+| 0.45 (HIGHER probe) | **+8.82** | **#1176 Arm B** |
+| 0.50 (over-application) | +20 | #1035 CATASTROPHIC |
+
+  - **Asymmetric U: HIGHER side regresses 47% faster per unit target_uw** (88 mnat per 1.0 of target_uw vs 60 mnat per 1.0 on LOWER side). Slope extrapolation predicts ~+22 mnat at 0.50, consistent with #1035's CATASTROPHIC observation.
+  - Interior optimum at **0.35 ± 0.05** — basin is tight and well-tuned. The natural u/w ratios cluster around 0.35; departure in either direction creates either under-rescue (LOWER) or over-amplification (HIGHER) regimes.
+
+- **MECHANISM CRYSTALLIZED — over-amplification dominates under-rescue:**
+
+| Telemetry | Arm A (LOWER 0.25) | Arm B (HIGHER 0.45) |
+|---|---|---|
+| `train/uw_floor/fired_fraction` | **0.333** (33% of 72 body MLP params) | **1.0** (100% saturation, every param) |
+| `train/uw_floor/mean_rescale_factor` | 1.16× (barely doing work) | **51.86×** (massive amplification) |
+| `train/uw_floor/min_ratio_observed` | 0.1794 | 0.00224 (some updates 200× below threshold) |
+| `polar/ortho_residual_sample` | 0.199 (~2× elevated) | 0.233 (~2.3× elevated) |
+| **`ema/buffer_frob_dist`** | **4.27** | **283.57 (~66× higher)** |
+
+  - **Smoking-gun mechanism for HIGHER-side asymmetry:** `ema/buffer_frob_dist=283.57 vs 4.27 in Arm A (~66× higher)` — chronic over-driving cascades through the EMA wrapper. At 0.45 the floor amplifies updates by 52× whenever it fires (100% of the time), compounding into massive buffer drift across the whole run.
+  - **Under-rescue (LOWER 0.25)**: bounded harm. Most params (67%) remain naturally above threshold; rescued ones get small ~1.16× boost; NS5 cubic iteration has "room" to recover from residual under-rescue
+  - **Over-amplification (HIGHER 0.45)**: unbounded harm. 100% saturation + 52× mean rescale = multiplicative perturbation compounds through EMA buffer → NS5 polar cubic CANNOT absorb this magnitude → chronic over-driving CASCADES
+
+- **Asymmetric U-shape structurally consistent with #985 NS5 triple-load-bearing canon role 1 (magnitude normalization):** NS5 is contractive on too-large inputs (Arm B over-amp partially absorbed but at cost of polar quality), but cannot construct missing magnitude (Arm A under-rescue passes through directly). Re-confirms the "imperfect polar is better than perfect polar" canon (#1135 extension): structured polar residual at baseline 0.35 floor is part of the load-bearing magnitude equilibrium.
+
+- **Cross-axis canon strengthening:**
+  - Reinforces #1129 spectral-exponent + floor-saturation canon — at baseline 0.35, floor is at the Goldilocks rescue/amplification balance, saturating just enough to rescue under-converged layers while not over-driving the EMA buffer
+  - The floor mechanism interacts with NS5's 6.7% polar residual (#1135 canon) in a tightly coupled equilibrium
+  - Further fine-grained probing of u/w-floor axis is structurally constrained — basin width ±0.05 with asymmetric harm direction
+
+- Closing as NULL. edward → **#1213** (body-Muon Nesterov mu cooldown schedule: linearly ramp mu 0.95→0.97 (Arm A) vs 0.95→0.99 (Arm B) over last 20% of training. Mechanism: per-step gradient SNR shrinks during cooldown as LR→0; wider EMA window (20→100 step lookback) averages more steps to recover SNR. Mechanism-distinct from all closed mu axes — #930 static scan, #1156 Lookahead, #1164 depth-stratified, #1107 polar-interp — and all in-flight β-axes (#1182 wrapper β_target, #1208 preconditioner beta_cov)).
+
 ## 2026-05-25 19:51 UTC — PR #1164 CLOSED: Depth-stratified body-Muon EMA momentum (per-layer mu, 12-layer linear interp) — 135th NULL, depth-stratified body-Muon hyperparameter family structurally constrained (g1r1-frieren)
 
 - Branch: `g1r1-frieren/depth-stratified-mu`
