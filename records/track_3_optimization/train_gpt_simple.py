@@ -593,6 +593,19 @@ NANOGPT_SENPAI_SEED = int(_SENPAI_SEED_RAW) if _SENPAI_SEED_RAW != "" else None
 # `embed.weight -= lr_embed * lambda * (embed.weight - embed_init_snapshot)`.
 # At lambda=0 the hook is a no-op and behavior is bit-identical to the merged stack.
 NANOGPT_EMBED_INIT_ANCHOR_LAMBDA = float(os.environ.get("NANOGPT_EMBED_INIT_ANCHOR_LAMBDA", "0.0"))
+# AdamW v_min floor (#1175). Percentile-adaptive lower bound on exp_avg_sq used for
+# the step. The floor is applied to a temporary v_eff; state["exp_avg_sq"] continues
+# to accumulate with the un-floored v_t so the EMA history is preserved.
+#   "none"        -> bit-identical fallback (delegates to torch.optim.AdamW fused path).
+#   "median_frac" -> v_floor = frac * v_t.median()
+#   "max_frac"    -> v_floor = frac * v_t.max() (AMSGrad-style running-max variant)
+NANOGPT_ADAMW_V_FLOOR_MODE = os.environ.get("NANOGPT_ADAMW_V_FLOOR_MODE", "none")
+NANOGPT_ADAMW_V_FLOOR_FRAC = float(os.environ.get("NANOGPT_ADAMW_V_FLOOR_FRAC", "1e-4"))
+_VALID_V_FLOOR_MODES = ("none", "median_frac", "max_frac")
+if NANOGPT_ADAMW_V_FLOOR_MODE not in _VALID_V_FLOOR_MODES:
+    raise ValueError(
+        f"NANOGPT_ADAMW_V_FLOOR_MODE={NANOGPT_ADAMW_V_FLOOR_MODE!r}, must be one of {_VALID_V_FLOOR_MODES}"
+    )
 
 
 def get_ns_coef_at_iter(iter_idx: int, total_iters: int, schedule: str) -> tuple[float, float, float]:
@@ -778,6 +791,102 @@ class Muon(torch.optim.Optimizer):
                 dist.all_gather(params_pad[base_i:base_i + world_size], params_pad[base_i + rank])
 
 
+class AdamWVFloor(AdamW):
+    """AdamW with optional percentile-adaptive v_min floor (#1175).
+
+    The floor is applied to a temporary `v_eff` used for computing the step direction;
+    `state["exp_avg_sq"]` continues to accumulate with the un-floored EMA so the
+    Adam second-moment history is preserved across steps.
+
+    Modes:
+      - "none":        delegate to torch.optim.AdamW (fused path) for bit-identical baseline.
+      - "median_frac": v_floor = v_floor_frac * exp_avg_sq.median()  (soft percentile)
+      - "max_frac":    v_floor = v_floor_frac * exp_avg_sq.max()     (AMSGrad-style)
+    """
+
+    def __init__(self, params, *, v_floor_mode="none", v_floor_frac=1e-4, **kwargs):
+        if v_floor_mode != "none":
+            # Manual step path; fused/foreach kernels can't be intercepted mid-step.
+            kwargs["fused"] = False
+            kwargs.setdefault("foreach", False)
+        super().__init__(params, **kwargs)
+        self.v_floor_mode = v_floor_mode
+        self.v_floor_frac = float(v_floor_frac)
+        # Diagnostics buffer populated by the manual step path on each call. Read
+        # back by the training loop for W&B logging.
+        self.v_floor_last_stats: dict[str, dict[str, float]] = {}
+
+    @torch.no_grad()
+    def step(self, closure=None):
+        if self.v_floor_mode == "none":
+            return super().step(closure)
+
+        loss = None
+        if closure is not None:
+            with torch.enable_grad():
+                loss = closure()
+
+        for group in self.param_groups:
+            group_name = group.get("name", "unknown")
+            lr = group["lr"]
+            beta1, beta2 = group["betas"]
+            eps = group["eps"]
+            weight_decay = group.get("weight_decay", 0.0)
+
+            for p in group["params"]:
+                if p.grad is None:
+                    continue
+                grad = p.grad
+
+                state = self.state[p]
+                if len(state) == 0:
+                    state["step"] = torch.zeros((), dtype=torch.float32, device=p.device)
+                    state["exp_avg"] = torch.zeros_like(p, memory_format=torch.preserve_format)
+                    state["exp_avg_sq"] = torch.zeros_like(p, memory_format=torch.preserve_format)
+
+                exp_avg = state["exp_avg"]
+                exp_avg_sq = state["exp_avg_sq"]
+                state["step"] += 1
+                step_count = float(state["step"].item())
+
+                # AdamW decoupled weight decay: applied to param prior to the Adam step.
+                if weight_decay != 0:
+                    p.data.mul_(1.0 - lr * weight_decay)
+
+                # EMA updates (in-place; matches stock AdamW exactly).
+                exp_avg.lerp_(grad, 1 - beta1)
+                exp_avg_sq.mul_(beta2).addcmul_(grad, grad, value=1 - beta2)
+
+                bias_correction1 = 1.0 - beta1 ** step_count
+                bias_correction2 = 1.0 - beta2 ** step_count
+                step_size = lr / bias_correction1
+                bias_correction2_sqrt = math.sqrt(bias_correction2)
+
+                # Compute v_eff. clamp() returns a new tensor — exp_avg_sq is untouched.
+                if self.v_floor_mode == "median_frac":
+                    v_ref = float(exp_avg_sq.median().item())
+                elif self.v_floor_mode == "max_frac":
+                    v_ref = float(exp_avg_sq.max().item())
+                else:
+                    raise ValueError(f"unknown v_floor_mode: {self.v_floor_mode}")
+                v_floor_val = self.v_floor_frac * v_ref
+                v_eff = exp_avg_sq.clamp(min=v_floor_val)
+
+                # denom = sqrt(v_eff) / sqrt(bc2) + eps  (matches stock single-tensor path)
+                denom = (v_eff.sqrt() / bias_correction2_sqrt).add_(eps)
+                p.data.addcdiv_(exp_avg, denom, value=-step_size)
+
+                # Cheap per-step scalar stash (v_ref + floor val). Full distribution
+                # diagnostics (min/max/median/clamped_frac) are computed at telemetry
+                # time in the training loop to avoid per-step GPU reductions.
+                self.v_floor_last_stats[group_name] = {
+                    "v_ref": v_ref,
+                    "v_floor_val": float(v_floor_val),
+                }
+
+        return loss
+
+
 ########################################
 #                Setup                 #
 ########################################
@@ -823,6 +932,9 @@ print0(f"MUON_LR_MULT: attn={NANOGPT_MUON_ATTN_LR_MULT:.3f} mlp={NANOGPT_MUON_ML
 print0(f"  Effective Muon base LRs: attn={0.035*NANOGPT_MUON_ATTN_LR_MULT:.5f} mlp={0.035*NANOGPT_MUON_MLP_LR_MULT:.5f}", console=True)
 print0(f"EMBED_INIT_ANCHOR_LAMBDA: {NANOGPT_EMBED_INIT_ANCHOR_LAMBDA} "
        f"({'ACTIVE' if NANOGPT_EMBED_INIT_ANCHOR_LAMBDA > 0 else 'INACTIVE (bit-identical fallback)'})",
+       console=True)
+print0(f"ADAMW_V_FLOOR: mode={NANOGPT_ADAMW_V_FLOOR_MODE} frac={NANOGPT_ADAMW_V_FLOOR_FRAC} "
+       f"({'ACTIVE (manual step, fused=False)' if NANOGPT_ADAMW_V_FLOOR_MODE != 'none' else 'INACTIVE (bit-identical fused fallback)'})",
        console=True)
 if NS_ITERS_COOLDOWN > 0:
     print0(f"NS_SCHEDULE: ns_iters={NS_ITERS} -> ns_iters_cooldown={NS_ITERS_COOLDOWN} "
@@ -896,6 +1008,8 @@ if dist.get_rank() == 0:
             "nanogpt_ns_stochastic_cooldown": NANOGPT_NS_STOCHASTIC_COOLDOWN,
             "senpai_seed": NANOGPT_SENPAI_SEED if NANOGPT_SENPAI_SEED is not None else -1,
             "nanogpt_embed_init_anchor_lambda": NANOGPT_EMBED_INIT_ANCHOR_LAMBDA,
+            "nanogpt_adamw_v_floor_mode": NANOGPT_ADAMW_V_FLOOR_MODE,
+            "nanogpt_adamw_v_floor_frac": NANOGPT_ADAMW_V_FLOOR_FRAC,
         },
     )
 
@@ -938,10 +1052,13 @@ for trial_idx in range(args.num_trials):
                f"snapshot_shape={tuple(embed_init_snapshot.shape)}", console=True)
 
     # create the optimizer(s)
-    optimizer1 = AdamW([dict(params=[model.embed.weight], lr=0.3 * NANOGPT_ADAMW_EMBED_LR_MULT, name="adam_embed"),
-                        dict(params=[model.proj.weight], lr=(1/320) * NANOGPT_ADAMW_LM_HEAD_LR_MULT, name="adam_lm_head"),
-                        dict(params=[p for p in model.parameters() if p.ndim < 2], lr=0.01 * NANOGPT_ADAMW_SCALAR_LR_MULT, name="adam_scalars")],
-                       betas=(0.8, NANOGPT_ADAMW_BETA2), eps=1e-10, weight_decay=0, fused=True)
+    optimizer1 = AdamWVFloor(
+        [dict(params=[model.embed.weight], lr=0.3 * NANOGPT_ADAMW_EMBED_LR_MULT, name="adam_embed"),
+         dict(params=[model.proj.weight], lr=(1/320) * NANOGPT_ADAMW_LM_HEAD_LR_MULT, name="adam_lm_head"),
+         dict(params=[p for p in model.parameters() if p.ndim < 2], lr=0.01 * NANOGPT_ADAMW_SCALAR_LR_MULT, name="adam_scalars")],
+        betas=(0.8, NANOGPT_ADAMW_BETA2), eps=1e-10, weight_decay=0, fused=True,
+        v_floor_mode=NANOGPT_ADAMW_V_FLOOR_MODE, v_floor_frac=NANOGPT_ADAMW_V_FLOOR_FRAC,
+    )
     # Per-block-type Muon param split: attn (q/k/v/proj) vs mlp (fc/proj).
     # When both multipliers = 1.0, behavior is bit-identical to the prior single-group setup
     # (NS orthogonalization is per-matrix; the split only changes how groups are indexed).
@@ -1274,6 +1391,40 @@ for trial_idx in range(args.num_trials):
                 step=train_step,
                 wandb_step=wandb_step,
             )
+            # v_min floor diagnostics (#1175). v_ratio = max/min on the un-floored
+            # EMA tells us how Zipfian the second-moment is across rows; the floor is
+            # working when ratio compresses from ~1e4-1e6 (initial Zipfian) toward ~1e2.
+            # Always computed on optimizer1.state[*]["exp_avg_sq"] so it works in any
+            # mode (including "none" — useful as a baseline to compare arms against).
+            with torch.no_grad():
+                vfloor_metrics = {"trial": trial_idx, "train/step": train_step}
+                for group in optimizer1.param_groups:
+                    gname = group.get("name", "unknown")
+                    for p in group["params"]:
+                        st = optimizer1.state.get(p, {})
+                        v_t = st.get("exp_avg_sq")
+                        if v_t is None:
+                            continue
+                        v_min = float(v_t.min().item())
+                        v_max = float(v_t.max().item())
+                        v_med = float(v_t.median().item())
+                        ratio = v_max / (v_min + 1e-30)
+                        vfloor_metrics[f"train/v_floor/{gname}_v_min"] = v_min
+                        vfloor_metrics[f"train/v_floor/{gname}_v_max"] = v_max
+                        vfloor_metrics[f"train/v_floor/{gname}_v_median"] = v_med
+                        vfloor_metrics[f"train/v_floor/{gname}_v_ratio_max_over_min"] = ratio
+                        # Floor application diagnostics (only populated when mode != "none").
+                        manual_stats = optimizer1.v_floor_last_stats.get(gname)
+                        if manual_stats is not None:
+                            floor_val = manual_stats["v_floor_val"]
+                            vfloor_metrics[f"train/v_floor/{gname}_floor_val"] = floor_val
+                            vfloor_metrics[f"train/v_floor/{gname}_v_ref"] = manual_stats["v_ref"]
+                            vfloor_metrics[f"train/v_floor/{gname}_clamped_frac"] = float(
+                                (v_t < floor_val).float().mean().item()
+                            )
+                        # Only one param per aux group of interest; first is enough.
+                        break
+                wandb.log(vfloor_metrics, step=wandb_step)
         if dist.get_rank() == 0 and telemetry_due:
             ns_metrics = {
                 "trial": trial_idx,
