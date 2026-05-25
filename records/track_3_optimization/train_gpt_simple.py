@@ -468,6 +468,11 @@ NS5_ITERS = int(os.environ.get("NS5_ITERS", "12"))
 WD_AUX = float(os.environ.get("WD_AUX", "0.0"))  # AdamW WD on embed + lm_head matrices (scalars stay at 0)
 EMBED_INIT_STD = float(os.environ.get("EMBED_INIT_STD", "1.0"))  # default preserves baseline N(0,1)
 LOGIT_SOFTCAP = float(os.environ.get("LOGIT_SOFTCAP", "15.0"))  # default = 15 (current hardcoded value); soft-cap value c in f(x) = c·x / sqrt(x^2+c^2)
+# CAUTIOUS_MUON (PR #1190): sign-agreement mask on Muon momentum_update vs raw grad, applied BEFORE NS5.
+# Liang et al. NeurIPS 2024 (arXiv:2411.16085) — original CAUTIOUS on AdamW; here adapted to Muon body matrices.
+CAUTIOUS_MUON = bool(int(os.environ.get("CAUTIOUS_MUON", "0")))
+CAUTIOUS_MUON_SOFT = bool(int(os.environ.get("CAUTIOUS_MUON_SOFT", "0")))  # 0=hard mask (0/1), 1=soft mask (0.5/1.0)
+CAUTIOUS_MUON_KEEP_FLOOR = float(os.environ.get("CAUTIOUS_MUON_KEEP_FLOOR", "0.1"))
 
 
 def zeropower_via_newtonschulz5(G: Tensor) -> Tensor:
@@ -694,6 +699,16 @@ class Muon(torch.optim.Optimizer):
                     grad = p.grad
                     state["momentum"].lerp_(grad, 1 - group["mu"])
                     momentum_update = grad.lerp(state["momentum"], group["mu"])
+                    # CAUTIOUS_MUON (PR #1190): mask elements where sign(momentum_update) != sign(grad)
+                    # before NS5 polar projection. Liang et al. NeurIPS 2024 (arXiv:2411.16085).
+                    if CAUTIOUS_MUON:
+                        sign_agree = (torch.sign(momentum_update) == torch.sign(grad)).to(momentum_update.dtype)
+                        if CAUTIOUS_MUON_SOFT:
+                            # Soft variant: disagree -> 0.5, agree -> 1.0
+                            sign_agree = 0.5 + 0.5 * sign_agree
+                        keep_ratio = sign_agree.mean().clamp_min(CAUTIOUS_MUON_KEEP_FLOOR)
+                        momentum_update = (momentum_update * sign_agree) / keep_ratio
+                        state["cautious_keep_ratio"] = float(keep_ratio.item())
                     use_soap = p in self.soap_params
                     use_attn_soap = p in self.attn_soap_params
                     # SOAP precondition applied to momentum BEFORE NS5+contra+NorMuon
@@ -775,6 +790,29 @@ class Muon(torch.optim.Optimizer):
             out[f"{kind}/mean_cos_row"] = sum(crs) / kn
             out[f"{kind}/mean_cos_col"] = sum(ccs) / kn
         return out
+
+    def cautious_muon_stats(self) -> dict[str, float]:
+        """Aggregate keep-ratio telemetry across Muon body params (PR #1190).
+
+        Returns mean / min / max of the per-tensor sign-agreement fraction recorded
+        on the most recent step. Empty dict if CAUTIOUS_MUON is disabled.
+        """
+        ratios: list[float] = []
+        for group in self.param_groups:
+            for p in group["params"]:
+                state = self.state.get(p)
+                if state is None:
+                    continue
+                if "cautious_keep_ratio" in state:
+                    ratios.append(state["cautious_keep_ratio"])
+        if not ratios:
+            return {}
+        return {
+            "count": len(ratios),
+            "mean_keep_ratio": sum(ratios) / len(ratios),
+            "min_keep_ratio": min(ratios),
+            "max_keep_ratio": max(ratios),
+        }
 
 
 ########################################
@@ -866,6 +904,9 @@ if dist.get_rank() == 0:
             "optimizer/attn_soap_trust_threshold": ATTN_SOAP_TRUST_THRESHOLD,
             "optimizer/ns5_iters": NS5_ITERS,
             "optimizer/wd_aux": WD_AUX,
+            "optimizer/cautious_muon": CAUTIOUS_MUON,
+            "optimizer/cautious_muon_soft": CAUTIOUS_MUON_SOFT,
+            "optimizer/cautious_muon_keep_floor": CAUTIOUS_MUON_KEEP_FLOOR,
             "optimizer/recipe": "contra-muon + normuon-lite + soap-on-mlp + soap-on-attn-trust-gate (pre-NS5, record #14 + record #16)",
         },
     )
@@ -1059,6 +1100,10 @@ for trial_idx in range(args.num_trials):
                     stats = opt.trust_gate_stats()
                     if stats:
                         wandb.log(prefixed("train/attn_soap_trust_gate", stats), step=wandb_step)
+                if hasattr(opt, "cautious_muon_stats"):
+                    stats = opt.cautious_muon_stats()
+                    if stats:
+                        wandb.log(prefixed("train/cautious_muon", stats), step=wandb_step)
         if dist.get_rank() == 0 and telemetry_due:
             log_weight_telemetry(
                 model=model,
