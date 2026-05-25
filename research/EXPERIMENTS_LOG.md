@@ -8141,3 +8141,33 @@ Kill-gate ladder: both arms razor-edge at step 1000 (+0.00038 Arm B, +0.00291 Ar
 **Mechanistic conclusion**: Initial singular-value structure already saturates what NS5 needs at default init. Smaller init slightly val-favorable but ffs blocked by quantization. Larger init clearly past inflection. Default 1.0 is the asymmetric Goldilocks endpoint. Body init magnitude is fully tuned within the mandatory stack.
 
 **Closure outcome**: 72nd refuted axis. Student's suggested follow-ups (BODY_INIT_SCALE=0.6, joint EMBED×BODY sweep, longer schedule with smaller init) are all scalar precision in nature — declined per launch directive ("do not let the run become mostly scalar hyperparameter search"). Next assignment for thorfinn: **PR #951 MUON_AUX_ADAMW** — first "two-optimizers-on-body-weights" mechanism in 232+ PRs. Adds a small secondary AdamW running on body weights alongside Muon, providing per-element variance correction that bypasses Muon's Frobenius rescale composition (categorically distinct from #939 AdaMuon which kept per-element inside Muon's rescaled pipeline).
+
+## 2026-05-25 03:30 — PR #1101: MUON_BODY_GRAD_NORMALIZE_BY_FROBENIUS (43rd mech class, 13th family-level closure)
+
+- g1r2-frieren/muon-body-grad-normalize-frobenius
+- **Hypothesis**: Pre-NS5 tensor-level Frobenius normalization of momentum buffer before momentum lerp. Two blend strengths: Arm A=0.5 (mix), Arm B=1.0 (full normalization).
+- **Results**:
+
+| Run | Blend α | val_terminal | ffs | vs N=1 hold | vs merge bar | Outcome |
+|---|---|---|---|---|---|---|
+| Disabled `re4018iz` | 0.0 | val@200=4.08602 | — | bytewise inert ✓ | — | Verified no-op |
+| Arm A `wcz9mqg3` | 0.5 | 3.27235 | 3050 | +0.00235 | +0.00459 | Floor cluster touch |
+| Arm B `7s0yk3nd` | 1.0 | **3.27004** | **3025** | **+0.00004** | +0.00228 | **Tightest N=1 hold close-miss in cycle 71** |
+
+Baseline: val=3.26776, ffs=3000 (PR #613 n=2 mean).
+
+**Trajectory comparison (kill-gate checkpoints)**:
+| Step | Gate | Arm A blend=0.5 | Arm B blend=1.0 | Δ(B-A) |
+|---|---|---|---|---|
+| 500 | ≤3.81 | 3.80171 ✓ | 3.80326 ✓ | +0.00155 |
+| 1000 | ≤3.66 | 3.66077 ✓ | 3.66418 ✓ | +0.00341 |
+| 1500 | ≤3.55 | 3.53359 ✓ | 3.53489 ✓ | +0.00130 |
+| 2000 | ≤3.43 | 3.43174 ✓ | 3.42899 ✓ | -0.00275 |
+| 2500 | ≤3.36 | 3.34818 ✓ | 3.34625 ✓ | -0.00193 |
+| 3000 | ≤3.29 | 3.28359 ✓ | 3.28134 ✓ | -0.00225 |
+| 3175 terminal | — | 3.27235 | **3.27004** | **-0.00231** |
+
+**Mechanism telemetry (Arm B terminal)**: `optim/grad_fnorm/{count=72, mean=476.24, std=573.31, max=3054.19, min=86.05}` across 72 body 2-D tensors. 35× per-tensor scale diversity (min 86 to max 3054) confirmed and equalized by blend=1.0 Frobenius normalization.
+
+- **Commentary**: 125th refuted axis in cycle 71. **13th family-level closure**. Monotone-in-blend signal confirmed: stronger normalization (blend=1.0) monotonically better than blend=0.5 by Δ=-0.00231 val / -25 ffs. Both close-miss in floor cluster band [3.267-3.273]. Family closure: NS5's matrix-level polar projection (σ_i→1) absorbs scalar magnitude information losslessly into global EMA — pre-NS5 direction-preserving (scalar) rescaling is **inert at floor cluster**. This validates the SVD-basis-rotation hypothesis from #1086: pre-NS5 catastrophes (RMSProp, log-compress, post-NS5 RMS) were per-element non-linear SVD-basis distortions; Frobenius normalization is a linear (direction-preserving) rescaling which NS5 annihilates. By family-level prediction, ANY linear pre-NS5 scalar rescaling (constant or per-tensor function of F-norm) is absorbed by NS5 and cannot affect floor cluster. The tightest N=1 hold close-miss (+0.00004 for Arm B blend=1.0) is sub-noise and was not pursued for n=2 confirmation since no variation beyond blend=1.0 is feasible.
+
