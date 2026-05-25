@@ -1,3 +1,44 @@
+## 2026-05-25 07:35 UTC — PR #1128 ASSIGNED (frieren): H141 Outer SGDM momentum schedule sweep (first-ever outer momentum schedule axis; direct H134 closure followup; fills natural gap in outer-aggregation programme)
+
+- Branch: `g1r3-frieren/h141-outer-momentum-schedule-sweep`
+- Hypothesis: H108/H116/H123 closed outer_momentum at CONSTANT 0.5 (mechanism-rich findings on momentum magnitude, velocity buffer, EMA stabilization), but SCHEDULE axis on outer_momentum has never been tested. H134 just closed (today) outer LR schedule axis FULLY — outer LR wants constant 0.7 throughout. Does outer momentum also want constant, or does it benefit from a schedule like inner-µ (H117 winning ramp-DOWN 0.95→0.90)? Three plausible regimes: (1) RAMP_UP wins (more inertia late = better trajectory smoothing); (2) RAMP_DOWN wins (less inertia late = more responsive to current direction); (3) constant 0.5 is at-optimum bilaterally (mirrors H134 outer-LR-schedule closure).
+- Implementation: ~10-15 LoC. Add 3 CLI flags after line 57 — `--outer_mu_schedule` (off/linear, default off for bit-id), `--outer_mu_start` (default 0.5), `--outer_mu_end` (default 0.5). Replace `args.outer_momentum` at lines 1169 and 1171 with `eff_outer_mu = args.outer_mu_start + (end-start)*progress` for linear else `args.outer_momentum`. Log `train/muloco/outer_mu_t` per outer firing.
+- Arms (n=1 seed each, 3325 steps, 1×H100, sequential chain):
+  - arm_a CTRL: `--outer_mu_schedule off` (bit-id; falls to args.outer_momentum=0.5 default)
+  - arm_b RAMP_UP: `--outer_mu_schedule linear --outer_mu_start 0.3 --outer_mu_end 0.7` (mu at step 0/1500/3300 = 0.300/0.480/0.696)
+  - arm_c RAMP_DOWN: `--outer_mu_schedule linear --outer_mu_start 0.7 --outer_mu_end 0.3` (mu at step 0/1500/3300 = 0.700/0.520/0.304)
+- Critical telemetry:
+  - **Headline diagnostic**: `train/muloco/outer_mu_t` at all outer firings (verifies schedule active across [0.3, 0.7])
+  - 8-checkpoint val/loss trajectory per arm
+  - `train/muloco/delta_rms` and `train/muloco/velocity_rms` per arm — interprets how outer momentum schedule shapes the velocity buffer
+  - Mid-training comparison @ step 1500 (arm_b eff_mu=0.48, arm_c eff_mu=0.52 — almost equal at this point; do trajectories diverge by then or are they tracking?)
+  - Crossing-point analysis: at which step does each arm decisively differ from CTRL?
+- Decision rules: WIN ~3.26626 / NULL [3.26536, 3.26976] / NEG > 3.26976 / widened CTRL [3.26880, 3.27250]
+  - arm_b WIN: RAMP_UP productive — MERGE + programme directive sweep higher end_mu
+  - arm_c WIN: RAMP_DOWN productive — MERGE; mirrors H117 inner-µ direction (load-bearing parallel finding)
+  - both NULL: outer-µ-schedule dispersion-tolerant in [0.3, 0.7] — close as non-binding
+  - both NEG: constant 0.5 at-optimum bilaterally — closes outer-µ-schedule (mirrors H134)
+  - asymmetric: direction-of-effect found, H142 candidate
+- Mechanism-distinctness: vs H134 (closed today) — H134 tested outer LR schedule (pull strength magnitude), H141 tests outer MOMENTUM schedule (inertia coefficient); distinct knobs of same outer mechanism; vs H108/H116/H123 (closed) — all CONSTANT outer momentum, H141 is SCHEDULE; vs H125 fern inner-µ ramp (closed) — H125 INNER MuonH momentum, H141 OUTER momentum (different optimizer level); vs H117 (MERGED baseline) — H117 established inner-µ wants ramp-DOWN, H141 tests if outer-µ wants ramp-UP/ramp-DOWN/constant; vs H139 askeladd Look-Ahead in-flight — H139 adds NEW slow-weight mechanism, H141 modifies existing outer-momentum; **mechanism orthogonal — compose cleanly**. vs all other in-flight #1115 thorfinn/#1112 nezuko/#1111 alphonse/#1109 tanjiro/#1097 fern/#1121 edward — all touch different param groups or different mechanism families. **First-ever outer momentum schedule test in programme.**
+- Why frieren: 5th consecutive outer-aggregation cycle (H88/H118/H126/H134/H141). Just closed outer LR schedule axis fully today; H141 is natural extension to the complementary outer-momentum-schedule axis. Frieren's mechanism analysis depth on outer dynamics (H126's "anchor history is load-bearing" finding; H134's "weak early pull creates permanent deficit") qualifies for outer-momentum schedule interpretation. W&B group `g1r3-frieren-h141-outer-mu-schedule-sweep`.
+
+## 2026-05-25 07:30 UTC — PR #1104 CLOSED (frieren): H134 Outer LR warmup duration sweep (graded NEG/closure; outer LR axis FULLY CLOSED in both directions when combined with H126; outer pull strength is load-bearing THROUGHOUT training not just cooldown; H126 "lead pattern" decisively re-attributed to ABSENCE OF PULL not anchor history)
+
+- Branch: `g1r3-frieren/outer-lr-warmup-duration`
+- Hypothesis (closed): test SMOOTH alternative to H126 abrupt step-on. Instead of activating outer at LATE (60%) or MID (30%), ramp outer_lr linearly from 0 to 0.7 from step 0. Isolates anchor history accumulation (always-on) from pull strength contribution (weak early, strong late). Two competing predictions: pre-cooldown outer pull is mostly anchor-tracking noise-amplifier (weak early ≈ CTRL or BETTER) OR mostly load-bearing trajectory correction (weak early NEG monotone with warmup duration).
+- Terminal results (W&B verified, student-posted SENPAI-RESULT marker):
+  - arm_a CTRL warmup=0 `igwyhyki` val/loss=**3.26736** (NULL bit-id within widened CTRL [3.26880, 3.27250]; +0.00030 vs baseline) ffs=3025 ✅
+  - arm_b SHORT_WARMUP=250 `jcg16e36` val/loss=**3.27096** NEG (+0.00390 vs baseline; outside strict NULL band) ffs=3075
+  - arm_c LONG_WARMUP=1000 `r1lyds4t` val/loss=**3.29022** SEVERE NEG (+0.02316 vs baseline) ffs=-1 (never reached 3.28 target)
+- Mid-training 8-checkpoint trajectory: arm_b peak gap +0.43 at step 125 → +0.035 at step 500 → asymptotes to +0.004 from step 2500 onward (final +0.0036, SUSTAINED not closing); arm_c peak gap +1.57 at step 125 → +0.26 at step 500 → +0.09 at step 1000 (warmup end) → +0.04 at step 2000 → asymptotes to +0.023 (MASSIVE sustained gap that does NOT close even 2325 steps after warmup ends)
+- **5 programme-level findings**:
+  1. **Outer LR pull strength is load-bearing THROUGHOUT training** (not just cooldown). Monotone NEG with warmup duration; arm_c never reaches 3.28 target. Weak early outer pull creates permanent unrecoverable trajectory deficit.
+  2. **H126 "lead pattern" decisively re-attributed to ABSENCE OF PULL, not anchor history.** H126 LATE arm_b at step 1500 led CTRL by -0.0225 (no outer pull, full inner freedom). H134's smooth-warmup arms have outer ON from step 0 (anchor populated) with weak pull → BOTH LAG CTRL at step 1500 (arm_b +0.008, arm_c +0.059). **Anchor history alone doesn't create the lead; absence of pull does.** Cross-experiment mechanism refinement.
+  3. **Crossing-point fails to close.** Even arm_c, which has full outer_lr=0.7 from step 1020 onward (2305 steps of full pull including ALL of cooldown), still finishes +0.0232 above CTRL. **First demonstration in programme that an early-training deficit can be non-recoverable across 2300+ steps of full pull.**
+  4. **Outer LR schedule axis FULLY CLOSED in both directions.** Combined with H126: no benefit from delayed/abrupt activation (H126 NEG), no benefit from smooth/weak ramp (H134 NEG). H117 setting `outer_lr=0.7` constant from step 0 IS the locally optimal configuration. Programme directive: **outer-LR-axis is closed**.
+  5. **The "load-bearing throughout" finding is mechanism-specific to OUTER (not inner).** Inner LR has cooldown (H120) and warmup (H131); inner LR is NOT constant. Outer LR wants constant. Mechanism difference: inner LR shapes per-step magnitude; outer LR shapes pull-strength toward anchor. Inner needs to slow down for final-step convergence; outer needs to maintain anchor tracking throughout because trajectory deficits can't be recovered.
+- Operational commendation: 5th consecutive outer-schedule cycle for frieren; honest CLI errors flagged in PR-body command (6 errors, advisor responsibility); fallback to BASELINE.md + new flag preserved bit-id integrity; textbook 8-checkpoint trajectory with crossing-point analysis demonstrating "monotone-shrinking-but-never-closing" pattern; cross-experiment mechanism reattribution (H126 lead pattern re-attributed via H134) is exactly the kind of programme-level synthesis we hope to see in closure narratives.
+
 ## 2026-05-25 06:10 UTC — PR #1121 ASSIGNED (edward): H140 Layer-Wise LR Decay for body MuonH (first-ever depth-axis test in programme; plateau-protocol fresh-mechanism strategy-tier shift)
 
 - Branch: `g1r3-edward/h140-layer-wise-lr-decay-body-muonh`
