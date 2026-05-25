@@ -468,9 +468,23 @@ NS5_ITERS = int(os.environ.get("NS5_ITERS", "12"))
 WD_AUX = float(os.environ.get("WD_AUX", "0.0"))  # AdamW WD on embed + lm_head matrices (scalars stay at 0)
 EMBED_INIT_STD = float(os.environ.get("EMBED_INIT_STD", "1.0"))  # default preserves baseline N(0,1)
 LOGIT_SOFTCAP = float(os.environ.get("LOGIT_SOFTCAP", "15.0"))  # default = 15 (current hardcoded value); soft-cap value c in f(x) = c·x / sqrt(x^2+c^2)
+# PR #1161 follow-up to #1158: Frobenius-normalized inter-NS5 Langevin noise.
+# σ_F is the per-matrix Frobenius std (NOT per-element). At σ_F=0.01 the noise
+# has Frobenius norm ~0.01 of the unit signal regardless of matrix shape.
+NS5_INTER_NOISE_SIGMA0_F = float(os.environ.get("NS5_INTER_NOISE_SIGMA0_F", "0.0"))
+NS5_INTER_NOISE_ALPHA = float(os.environ.get("NS5_INTER_NOISE_ALPHA", "1.0"))
+# Mutable globals updated by the training loop so the NS5 inner loop can compute
+# the decaying schedule σ(t) = σ_F·(1 - step/total_steps)^α and count injections.
+_NS5_CURRENT_STEP: int = 0
+_NS5_TOTAL_STEPS: int = 1
+_NS5_NOISE_INJECTIONS_THIS_STEP: int = 0
+# When non-None, the NS5 function records (numel, fro_norm) for each injection so
+# the telemetry block can verify magnitude regime by matrix shape.
+_NS5_NOISE_FRO_SAMPLES: list[tuple[int, float]] | None = None
 
 
 def zeropower_via_newtonschulz5(G: Tensor) -> Tensor:
+    global _NS5_NOISE_INJECTIONS_THIS_STEP
     assert G.ndim >= 2
     X = G.bfloat16()
     if G.size(-2) > G.size(-1):
@@ -478,12 +492,33 @@ def zeropower_via_newtonschulz5(G: Tensor) -> Tensor:
 
     # Ensure spectral norm is at most 1
     X = X / (X.norm(dim=(-2, -1), keepdim=True) + 1e-7)
+    # Frobenius-normalized inter-NS5 noise schedule (per outer training step).
+    if NS5_INTER_NOISE_SIGMA0_F > 0.0 and _NS5_TOTAL_STEPS > 0:
+        progress = min(1.0, _NS5_CURRENT_STEP / _NS5_TOTAL_STEPS)
+        sigma_t = NS5_INTER_NOISE_SIGMA0_F * (1.0 - progress) ** NS5_INTER_NOISE_ALPHA
+        sigma_t = max(sigma_t, 0.0)
+    else:
+        sigma_t = 0.0
     # Perform the NS iterations, not optimizing for wallclock speed
     a, b, c = 2, -1.5, 0.5
-    for _ in range(NS5_ITERS):
+    for k in range(NS5_ITERS):
         A = X @ X.mT
         B = b * A + c * A @ A
         X = a * X + B @ X
+        # Inject Frobenius-normalized Gaussian noise between iterations (k < NS5_ITERS-1).
+        # σ_t is the per-matrix Frobenius std; dividing by sqrt(numel) converts σ_F → per-element std.
+        if sigma_t > 0.0 and k < NS5_ITERS - 1:
+            per_element_std = sigma_t / (X.numel() ** 0.5)
+            noise = torch.randn_like(X) * per_element_std
+            X = X + noise
+            # Soft Stiefel guard: only renormalize if perturbed matrix exceeds Frobenius norm 1.
+            nrm = X.norm(dim=(-2, -1), keepdim=True).clamp_min(1.0)
+            X = X / nrm
+            _NS5_NOISE_INJECTIONS_THIS_STEP += 1
+            if _NS5_NOISE_FRO_SAMPLES is not None:
+                # Record actual injected Frobenius norm for telemetry sanity-check.
+                actual_fro = float(noise.float().norm().item())
+                _NS5_NOISE_FRO_SAMPLES.append((int(X.numel()), actual_fro))
 
     if G.size(-2) > G.size(-1):
         X = X.mT
@@ -865,6 +900,8 @@ if dist.get_rank() == 0:
             "optimizer/attn_soap_precond_freq": ATTN_SOAP_PRECOND_FREQ,
             "optimizer/attn_soap_trust_threshold": ATTN_SOAP_TRUST_THRESHOLD,
             "optimizer/ns5_iters": NS5_ITERS,
+            "optimizer/ns5_inter_noise_sigma0_F": NS5_INTER_NOISE_SIGMA0_F,
+            "optimizer/ns5_inter_noise_alpha": NS5_INTER_NOISE_ALPHA,
             "optimizer/wd_aux": WD_AUX,
             "optimizer/recipe": "contra-muon + normuon-lite + soap-on-mlp + soap-on-attn-trust-gate (pre-NS5, record #14 + record #16)",
         },
@@ -1051,8 +1088,40 @@ for trial_idx in range(args.num_trials):
                 train_steps=train_steps,
                 wandb_step=wandb_step,
             )
+        # Update NS5 inter-noise schedule globals + reset per-step counters.
+        # `progress` is the same convention used by set_hparams: step / train_steps in [0, 1).
+        _NS5_CURRENT_STEP = step
+        _NS5_TOTAL_STEPS = train_steps
+        _NS5_NOISE_INJECTIONS_THIS_STEP = 0
+        # Only collect per-injection Frobenius-norm samples on telemetry-due steps; clear otherwise.
+        _NS5_NOISE_FRO_SAMPLES = [] if telemetry_due else None
         for opt in optimizers:
             opt.step()
+        if dist.get_rank() == 0 and telemetry_due:
+            inter_noise_metrics = {
+                "trial": trial_idx,
+                "train/step": train_step,
+                "train/ns5_inter_noise/sigma_F_now": (
+                    NS5_INTER_NOISE_SIGMA0_F * max(0.0, 1.0 - step / train_steps) ** NS5_INTER_NOISE_ALPHA
+                    if NS5_INTER_NOISE_SIGMA0_F > 0.0 else 0.0
+                ),
+                "train/ns5_inter_noise/sigma0_F": NS5_INTER_NOISE_SIGMA0_F,
+                "train/ns5_inter_noise/alpha": NS5_INTER_NOISE_ALPHA,
+                "train/ns5_inter_noise/injections_per_step": _NS5_NOISE_INJECTIONS_THIS_STEP,
+            }
+            samples = _NS5_NOISE_FRO_SAMPLES or []
+            if samples:
+                fro_vals = [v for _, v in samples]
+                numels = [n for n, _ in samples]
+                inter_noise_metrics.update({
+                    "train/ns5_inter_noise/fro_norm_min": min(fro_vals),
+                    "train/ns5_inter_noise/fro_norm_max": max(fro_vals),
+                    "train/ns5_inter_noise/fro_norm_mean": sum(fro_vals) / len(fro_vals),
+                    "train/ns5_inter_noise/numel_min": min(numels),
+                    "train/ns5_inter_noise/numel_max": max(numels),
+                })
+            wandb.log(inter_noise_metrics, step=wandb_step)
+            _NS5_NOISE_FRO_SAMPLES = None
         if dist.get_rank() == 0 and telemetry_due:
             for opt in optimizers:
                 if hasattr(opt, "trust_gate_stats"):
