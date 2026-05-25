@@ -468,6 +468,12 @@ NS5_ITERS = int(os.environ.get("NS5_ITERS", "12"))
 WD_AUX = float(os.environ.get("WD_AUX", "0.0"))  # AdamW WD on embed + lm_head matrices (scalars stay at 0)
 EMBED_INIT_STD = float(os.environ.get("EMBED_INIT_STD", "1.0"))  # default preserves baseline N(0,1)
 LOGIT_SOFTCAP = float(os.environ.get("LOGIT_SOFTCAP", "15.0"))  # default = 15 (current hardcoded value); soft-cap value c in f(x) = c·x / sqrt(x^2+c^2)
+# PR #1169: inter-NS5 Frobenius-normalized Langevin noise WITHOUT soft-Stiefel renormalize guard.
+# sigma is per-matrix Frobenius std (sigma_F divided by sqrt(numel(X)) at injection site).
+# Default 0.0 = bytewise inert.
+NS5_INTER_NOISE_SIGMA_F_NORENORM = float(os.environ.get("NS5_INTER_NOISE_SIGMA_F_NORENORM", "0.0"))
+NS5_INTER_NOISE_ALPHA_NORENORM = float(os.environ.get("NS5_INTER_NOISE_ALPHA_NORENORM", "1.0"))
+_NS5_T_PROGRESS = 0.0  # written by set_hparams each step, read by zeropower_via_newtonschulz5
 
 
 def zeropower_via_newtonschulz5(G: Tensor) -> Tensor:
@@ -480,10 +486,24 @@ def zeropower_via_newtonschulz5(G: Tensor) -> Tensor:
     X = X / (X.norm(dim=(-2, -1), keepdim=True) + 1e-7)
     # Perform the NS iterations, not optimizing for wallclock speed
     a, b, c = 2, -1.5, 0.5
-    for _ in range(NS5_ITERS):
+    # PR #1169: inter-NS5 Frobenius-normalized Langevin noise (NO renormalize guard).
+    # Per #1161 closure, the renormalize is what crushed convergence — NS5's natural
+    # contraction handles small Langevin perturbations across iterations.
+    sigma_F0 = NS5_INTER_NOISE_SIGMA_F_NORENORM
+    if sigma_F0 > 0.0:
+        decay = max(0.0, 1.0 - _NS5_T_PROGRESS) ** NS5_INTER_NOISE_ALPHA_NORENORM
+        sigma_t = sigma_F0 * decay
+    else:
+        sigma_t = 0.0
+    for i in range(NS5_ITERS):
         A = X @ X.mT
         B = b * A + c * A @ A
         X = a * X + B @ X
+        if sigma_t > 0.0 and i < NS5_ITERS - 1:
+            # Frobenius-normalized noise: per-element std = sigma_t / sqrt(m*n).
+            # Do NOT add a renormalize after — that was the catastrophic mechanism in #1161.
+            scale = sigma_t / (X.size(-2) * X.size(-1)) ** 0.5
+            X = X + torch.randn_like(X) * scale
 
     if G.size(-2) > G.size(-1):
         X = X.mT
@@ -865,6 +885,8 @@ if dist.get_rank() == 0:
             "optimizer/attn_soap_precond_freq": ATTN_SOAP_PRECOND_FREQ,
             "optimizer/attn_soap_trust_threshold": ATTN_SOAP_TRUST_THRESHOLD,
             "optimizer/ns5_iters": NS5_ITERS,
+            "optimizer/ns5_inter_noise_sigma_f_norenorm": NS5_INTER_NOISE_SIGMA_F_NORENORM,
+            "optimizer/ns5_inter_noise_alpha_norenorm": NS5_INTER_NOISE_ALPHA_NORENORM,
             "optimizer/wd_aux": WD_AUX,
             "optimizer/recipe": "contra-muon + normuon-lite + soap-on-mlp + soap-on-attn-trust-gate (pre-NS5, record #14 + record #16)",
         },
@@ -916,6 +938,9 @@ for trial_idx in range(args.num_trials):
     def set_hparams(step, cooldown_frac=0.7):
         progress = step / train_steps
         assert 0 <= progress < 1
+        # PR #1169: publish current train progress to module global for inter-NS5 noise schedule.
+        global _NS5_T_PROGRESS
+        _NS5_T_PROGRESS = progress
         if progress < 1 - cooldown_frac:
             eta = 1.0
         else:
