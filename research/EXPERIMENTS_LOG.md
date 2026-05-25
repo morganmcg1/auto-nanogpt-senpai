@@ -1,5 +1,48 @@
 # SENPAI Research Results
 
+## 2026-05-25 12:10 UTC — PR #1125 CLOSED: SOAP-style cov source (update vs momentum) — 129th NULL, cov-source axis FULLY CLOSED (g1r1-thorfinn)
+
+- Branch: `g1r1-thorfinn/soap-cov-source`
+- Hypothesis: PMuon's L_cov/R_cov are built from raw gradient `g32` but the preconditioned signal is Nesterov-blended `update = (1-μ²)·g + μ²·m_prev`. SOAP (Vyas 2024) identifies this mismatch as a bias source. Test whether building cov from the actual signal being preconditioned helps: Arm A uses cov_source="update", Arm B uses cov_source="momentum" (pure EMA buffer).
+
+### Results
+
+| Arm | cov_source | W&B | val/loss | sr | Δval (mnat) | Δsr | σ | Verdict |
+|---|---|---|---|---|---|---|---|---|
+| Baseline #918 | grad | vm48fdof/0a7esmxs | 3.266394 | 2925 | — | — | — | — |
+| A | update (Nesterov-blended) | `x0cvzei9` | **3.272748** | **3025** | +6.35 | +100 | 21σ | **CLEAR NULL** |
+| B | momentum (pure EMA) | `j2skvl7i` | **3.279062** | **3200** | +12.67 | +275 | 42σ | **CATASTROPHIC NULL** |
+
+Both arms fail predeclared merge rule. Arm B misses the 3.28 target stat-sig threshold (margin=0.00094 < 0.004).
+
+### Polar / m_pre diagnostics
+
+| Arm | input_stable_rank_est | ortho_residual_sample | m_pre_fro | m_pre_sigma_max | cov_signal_norm |
+|---|---|---|---|---|---|
+| A (update) | **418.55** | 0.1998 | 0.944 | 0.04616 | 454.35 |
+| B (momentum) | **377.10** | 0.1414 | 1.134 | 0.05839 | 485.04 |
+| Baseline (grad) | ~426 | ~0.20 | — | — | — |
+
+### Mechanism findings
+
+1. **m_pre stable rank IS the discriminator, NOT ortho_residual.** Arm B has LOWER ortho_residual (0.14 vs 0.20) yet WORSE val/loss. The bilateral preconditioner's job is whitening the step's characteristic curvature, not maximizing pre-NS5 isotropy. **Yet another confirmation of #1102/#1123/#1107 canon: polar/ortho_residual is NOT load-bearing at NS_ITERS=12.**
+2. **Momentum-cov collapses m_pre stable rank by ~12% (426 → 377).** EMA buffer is autocorrelated → over-weights stale direction → fewer effective singular directions reach polar → descent loses generality across parameter geometry.
+3. **Update-cov is rank-preserving but val-disappointing.** Arm A rank ≈ 418 ≈ baseline. The Nesterov blend `(1-μ²)·g + μ²·m_prev` whitens magnitude correctly (cov_signal_norm 454 ≈ baseline ballpark) but mixes old + new signal in a way slightly biased relative to fitting on `g` alone.
+4. **cov_signal_norm asymmetry**: Arm A 454 (smallest — Nesterov blending shrinks toward zero when momentum lags); Arm B 485 (largest — EMA accumulates magnitude across steps); gradient-cov sits between and matches NS5's implicit design assumption.
+
+### Canon: SOAP recipe doesn't transfer to bilateral preconditioner
+
+SOAP (Vyas 2024) prescribes "build covariance from the same signal you precondition." Under our γ=0.4 symmetric whitening + β_cov=0.95 EMA + NS5 cubic polar pipeline, **this prescription does NOT transfer**. NS5's cubic map (per #985 triple-load-bearing canon) is implicitly designed for gradient-distribution inputs. Both update-cov and momentum-cov drift away from that distribution in different but uniformly harmful directions.
+
+### Portfolio implications
+
+- **cov-source axis FULLY CLOSED** at γ=0.4, β_cov=0.95.
+- Future cov-related PRs (β_cov retune #686 CLOSED, cov reset #725 CLOSED, cov warmup-fast-mix #774 CLOSED, cov source #1125 CLOSED) must operate under known constraints.
+- Strong cross-axis canon: **m_pre stable rank IS the discriminator** across #1102 (input norm), #1123 (γ_L/γ_R asym), #1125 (cov source). Future PRs should report m_pre stable rank as primary diagnostic.
+- thorfinn → **#1168** (L_neg/R_neg matrix_neg_power eps ablation: Arm A LOOSER eps=1e-6 251× amp vs Arm B TIGHTER eps=1e-15 10^6× amp, baseline eps=1e-12 63095× amp). Direct test of NS5 triple-load-bearing role 3 ("null-space amplification suppression") via L_neg/R_neg construction at γ=0.4. L_cov stable rank ≈13/3072 → ≈99.6% of eigenvalues are in clamped tail → eps directly controls null-space amplification. Mechanism-distinct from all in-flight; first eps-clamp ablation in r1.
+
+---
+
 ## 2026-05-25 11:55 UTC — PR #1107 CLOSED: Polar interpolation α=0.75 n=2 confirmation — 128th NULL, polar-interp axis FULLY CLOSED, n=2 REVERSES n=1 WIN (g1r1-tanjiro)
 
 - Branch: `g1r1-tanjiro/polar-interpolation`
