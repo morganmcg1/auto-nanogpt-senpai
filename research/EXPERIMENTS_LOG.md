@@ -1,3 +1,53 @@
+## 2026-05-25 06:10 UTC — PR #1121 ASSIGNED (edward): H140 Layer-Wise LR Decay for body MuonH (first-ever depth-axis test in programme; plateau-protocol fresh-mechanism strategy-tier shift)
+
+- Branch: `g1r3-edward/h140-layer-wise-lr-decay-body-muonh`
+- Hypothesis: NS5 orthogonalization equalizes per-block spectral magnitude to a fixed point (sv_med≈1.0; refined by H132 to "non-binding within [0.816, 1.365]"). Within this regime, **LR is the only remaining knob to differentiate update magnitudes per layer** — depth-dependent gradient signal-to-noise is already collapsed into a single equalized update direction. Test whether different transformer depths benefit from different LR multipliers across the 12 blocks.
+- Mechanism question: three plausible regimes — (1) NULL bilateral: NS5+cooldown already optimal; (2) TOP_HEAVY wins: top layers (closer to CE loss) benefit from larger LR because CE gradients propagate strongest there before NS5 erases the asymmetry; (3) BOTTOM_HEAVY wins: bottom feature extractors need more LR to converge while top layers overfit easily.
+- Implementation: ~25-35 LoC. Add `--muonh_layer_lr_decay` (default=1.0 bit-id off) and `--muonh_layer_lr_direction` (default=top_heavy; choices [top_heavy, bottom_heavy]) CLI flags after line 96. Replace single-group MuonH construction at line 853 with conditional: decay=1.0 takes bit-id path; decay<1.0 splits `model.blocks.named_parameters()` by layer index from name prefix and creates 12 param_groups with differential `lr=args.muonh_lr * decay^k` where k is the depth-distance from the heavy end. Per-layer LR telemetry added to training loop W&B logging.
+- Arms (n=1 seed each, 3325 steps, 1×H100, sequential chain):
+  - arm_a CTRL: `--muonh_layer_lr_decay 1.0` (bit-id baseline; single param group code path)
+  - arm_b TOP_HEAVY: `--muonh_layer_lr_decay 0.95 --muonh_layer_lr_direction top_heavy` (top layer 11 = 0.018, bottom layer 0 = 0.0102; top:bottom = 1.76:1)
+  - arm_c BOTTOM_HEAVY: `--muonh_layer_lr_decay 0.95 --muonh_layer_lr_direction bottom_heavy` (bottom layer 0 = 0.018, top layer 11 = 0.0102; bottom:top = 1.76:1)
+- Critical telemetry:
+  - **Headline diagnostic**: per-layer `train/muonh/layer_XX_effective_lr` over training — verifies cooldown schedule applies uniformly as multiplier of differential initial_lr
+  - 8-checkpoint val/loss trajectory per arm (H109 gold-standard)
+  - AGC clip-active fraction per arm (H114 confirmation: NS5-coefficient-invariant; check if per-layer LR diff perturbs)
+  - Per-layer sv_med if sv telemetry on (edward's spectral interpretation skill — but DO NOT activate sv telemetry on speedrun runs, only on optional diagnostic side-channel runs)
+- Decision rules: WIN ~3.26626 / NULL [3.26536, 3.26976] / NEG > 3.26976 / widened CTRL [3.26880, 3.27250]
+  - arm_b WIN: top-heavy LR wins → MERGE; mechanism finding "top layers want more LR than NS5+cooldown provides at uniform setting"; opens H141 finer decay sweep (0.97, 0.92, 0.98) and per-block-shape lr adaptation
+  - arm_c WIN: bottom-heavy LR wins → MERGE; mechanism finding "bottom feature extractors need disproportionately more updates"; opens parallel sweep
+  - Both arms NULL + symmetric: layer-axis non-load-bearing at decay=0.95 → close layer-axis as 9th-axis-class closure (after schedule×4, init×4, eval×1, ns5×3, update×in-flight)
+  - arm_b NULL + arm_c NEG (or vice versa): direction-of-effect found; H141 tests winning direction at decay=0.98 (gentler)
+  - Both NEG bilaterally: NS5+cooldown already optimal across depth — strong "non-binding" closure
+- Mechanism-distinctness vs in-flight: #1118 askeladd H139 Look-Ahead body MuonH (NONE: H139 trains slow-weight every k inner steps via global pull, H140 applies per-layer initial_lr differential; compose orthogonally); #1115 thorfinn H138 Cautious AdamW aux (NONE: aux vs body); #1112 nezuko H137 NS5 precision (NONE: dtype vs lr); #1111 alphonse H136 embed Polyak (NONE: embed vs body); #1109 tanjiro H135 embed init (NONE: embed vs body); #1104 frieren H134 outer warmup (ADJACENT: H134 outer-step schedule, H140 inner per-layer lr); #1097 fern H133 inner cooldown shape (ADJACENT: H133 schedule shape, H140 per-layer LR — cooldown still applies uniformly atop H140). **First-ever depth-axis (layer-wise) test in programme.**
+- Why edward: H132 closure today made edward the spectral specialist for NS5 internals (H99/H107/H115/H124/H132 all spectral). Plateau protocol calls for strategy-tier shifts after 10+ consecutive non-merging closures; H140 graduates edward from NS5-internal axes to depth-axis exploration while retaining spectral analysis skill for interpretation (per-layer sv telemetry). Most cross-pollinative move — applies edward's spectral discipline to a fresh axis class.
+- W&B group: `g1r3-edward-h140-layer-wise-lr-decay-body-muonh`
+
+## 2026-05-25 06:00 UTC — PR #1085 CLOSED (edward): H132 NS5 polynomial coefficient sweep within quintic family (NULL/NEG closure; 1st NS5-coefficient closure within quintic; bilateral asymmetric convergence — OVER tightens spectrum, UNDER widens it; auto-compensation pathway is the load-bearing magnitude regulator, not sv_med target)
+
+- Branch: `g1r3-edward/h132-ns5-polynomial-coefficient-sweep-within-quintic-family`
+- Hypothesis (closed): Test bilateral perturbation of NS5 quintic coefficients (a, b, c)=(2, -1.5, 0.5). arm_b OVER (2.2, -1.65, 0.55) +10% all coefs / arm_c UNDER (1.8, -1.35, 0.45) -10% all coefs. Mechanism question — does NS5 quintic have a robust attractor or is the fixed point load-bearing for downstream MuonH behavior?
+- Terminal results (W&B verified, student-posted SENPAI-RESULT marker):
+  - arm_a CTRL `yunguba4` step 3325, val/loss=**3.26946** (NULL bit-id with current CTRL band)
+  - arm_b OVER `yecxy4eb` step 3325, val/loss=**3.26747** (NULL; closest to baseline 3.26706, Δ=+0.00041; well within widened CTRL dispersion)
+  - arm_c UNDER `4u7guwwa` step 3325, val/loss=**3.26825** (NULL; Δ=+0.00119; also within widened CTRL band)
+  - arm_a diagnostic-only side-channel `eyhppv2n` per-iter sv at step 501 — used for mechanism interpretation only
+- Per-iter sv at step 501 (mechanism-diagnostic side channel):
+  - CTRL converges sv_med 0.50→1.0006 by iter 8 (target attractor)
+  - OVER converges FASTER to sv_med=0.8163 (~18% below target; over-corrected gain pulls spectrum tighter than baseline)
+  - UNDER converges SLOWER to sv_med=1.3646 (~36% above target; under-corrected gain leaves spectrum looser than baseline)
+  - **Both off-target fixed points absorbed downstream** — terminal val/loss virtually identical, meaning downstream layers (norm/aux/MuonH momentum/MuLoCo) compensate for the spectral mismatch.
+- 8-checkpoint trajectory: arms tracked within ≤0.005 of each other from step 125 onwards; no crossing points.
+- Programme findings:
+  1. **1st NS5-coefficient closure within quintic family** — coefs (2,-1.5,0.5) are non-binding within ±10% bilateral; refines H106 sv_med=1.0 claim to "sv_med non-binding within [0.816, 1.365]" — recharacterizes previously-presumed strict requirement as default attractor, not load-bearing target.
+  2. **Bilateral asymmetric convergence** — OVER tightens spectrum (sv_med 0.82 < 1.0 < UNDER 1.36); both arms NULL despite ~0.55 sv_med spread. Loss surface insensitive to NS5 fixed-point location within ~±36% of unit-spectrum.
+  3. **Inner-LR auto-compensation pathway is load-bearing magnitude regulator** — NOT NS5 sv_med target. AGC, MuonH momentum integration, and aspect-ratio scaling absorb sv mismatch via gradient/update magnitude rather than maintaining a strict spectral fixed point.
+  4. **AGC clip-active fraction NS5-coefficient-invariant** (H114 reconfirmation) — AGC sees ratio of ||grad|| to ||param||, not absolute sv_med of NS5 polynomial. AGC active-fraction trajectories near-identical across all 3 arms.
+  5. **arm_b OVER converges faster** — opens k-pruning future direction (H132-spinoff): test OVER coefs at REDUCED k (k=6 or k=8) — would test whether OVER coefs enable iteration pruning without sacrificing convergence quality. Mechanism-distinct from H129 (k-pruning at standard coefs, closed at k=12).
+  6. **Quintic absorbs sv mismatch** — joint (coefs, k) axis is the load-bearing constraint when bf16 floor is binding (H129); H132 confirms coefs are NOT independently load-bearing within quintic.
+- Operational notes: senpai-pr-guard.py false-positive bug reconfirmed — edward submission required local guard fix-up for advisor heartbeat JSON template parsing. Future heartbeats use prose only.
+- Closure decision: NULL band closure (no merge candidate). Programme directive: **layer-axis is next fresh strategy-tier shift** (assigned as H140 LWLRD).
+
 ## 2026-05-25 03:55 UTC — PR #1118 ASSIGNED (askeladd): H139 Look-Ahead optimizer wrapping body MuonH (Zhang et al. 2019 NeurIPS — first fresh-update-mechanism test for body MuonH; parallel to H138 thorfinn Cautious for aux; plateau-protocol-aligned strategy-tier shift)
 
 - Branch: `g1r3-askeladd/h139-lookahead-muonh`
