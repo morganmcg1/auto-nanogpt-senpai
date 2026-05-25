@@ -64,6 +64,10 @@ def parse_args():
     parser.add_argument("--muon_lr", type=float, default=0.035,
                         help="Base learning rate for body-Muon optimizer (matrix params in blocks). "
                              "Default 0.035 matches the merged baseline.")
+    parser.add_argument("--polar_alpha", type=float, default=1.0,
+                        help="Polar interpolation: update = alpha*polar(m_pre) + (1-alpha)*m_pre_norm. "
+                             "alpha=1.0 baseline (full polar). alpha<1 blends magnitude-matched raw "
+                             "preconditioned EMA back into the polar output.")
     args = parser.parse_args()
     args.num_trials = args.num_trials if args.num_trials is not None else (args.legacy_num_trials or 1)
     args.wandb_tags = [tag.strip() for tag in args.wandb_tags.split(",") if tag.strip()]
@@ -500,6 +504,7 @@ def pmuon_update(
     ns_b: float = NS_B,
     ns_c: float = NS_C,
     polar_diag: dict | None = None,
+    polar_alpha: float = 1.0,
 ) -> Tensor:
     # Streaming raw (unnormalized) bilateral covariance EMAs in fp32.
     g32 = grad.detach().float()
@@ -514,10 +519,27 @@ def pmuon_update(
     m_pre = (L_neg @ update.float()) @ R_neg
 
     polar = zeropower_via_newtonschulz5(m_pre.to(update.dtype), a=ns_a, b=ns_b, c=ns_c)
-    # Sample ortho residual ||X X^T - I||_F on the polar output (before spectral scaling).
-    # Only the first eligible parameter per step writes — keeps cost ~O(d^2) once per step.
+
+    # POLAR INTERPOLATION: blend polar output with magnitude-matched m_pre.
+    # alpha=1.0 is the baseline (pure polar). alpha<1 preserves the singular-value
+    # spectrum of m_pre while still rescaling its overall Frobenius magnitude to
+    # match the polar output, keeping Muon's per-step magnitude budget.
+    blend_magnitude_ratio = 0.0
+    if polar_alpha < 1.0:
+        m_pre_bf = m_pre.to(polar.dtype)
+        polar_fro = polar.norm()
+        m_pre_fro = m_pre_bf.norm() + 1e-12
+        blend_magnitude_ratio = float((m_pre_fro / (polar_fro + 1e-12)).item())
+        m_pre_norm = m_pre_bf * (polar_fro / m_pre_fro)
+        blended = polar_alpha * polar + (1.0 - polar_alpha) * m_pre_norm
+    else:
+        blended = polar
+
+    # Sample ortho residual ||X X^T - I||_F on the blended output (this is what
+    # the model actually steps with). Also record the pure-polar residual for
+    # comparison — it should remain ~0 regardless of alpha.
     if polar_diag is not None and "residual" not in polar_diag:
-        X = polar
+        X = blended
         m, n = X.shape[-2], X.shape[-1]
         Xf = X.float()
         if m <= n:
@@ -529,17 +551,26 @@ def pmuon_update(
         polar_diag["residual"] = float(torch.linalg.norm(gram - eye).item())
         polar_diag["sample_rows"] = m
         polar_diag["sample_cols"] = n
-    update = polar * (max(1, grad.size(-2) / grad.size(-1)) ** 0.5)
+        Xp = polar.float()
+        if m <= n:
+            gram_p = Xp @ Xp.T
+        else:
+            gram_p = Xp.T @ Xp
+        polar_diag["residual_polar_only"] = float(torch.linalg.norm(gram_p - eye).item())
+        polar_diag["blend_magnitude_ratio"] = blend_magnitude_ratio
+        polar_diag["polar_alpha"] = float(polar_alpha)
+
+    update = blended * (max(1, grad.size(-2) / grad.size(-1)) ** 0.5)
     return update
 
 
 class Muon(torch.optim.Optimizer):
     def __init__(self, params, lr=0.02, weight_decay=0, mu=0.95, beta_cov=0.95, gamma=PMUON_GAMMA,
-                 ns_a=NS_A, ns_b=NS_B, ns_c=NS_C):
+                 ns_a=NS_A, ns_b=NS_B, ns_c=NS_C, polar_alpha=1.0):
         assert isinstance(params, list) and len(params) >= 1 and isinstance(params[0], torch.nn.Parameter)
         params = sorted(params, key=lambda x: x.size(), reverse=True)
         defaults = dict(lr=lr, weight_decay=weight_decay, mu=mu, beta_cov=beta_cov, gamma=gamma,
-                        ns_a=ns_a, ns_b=ns_b, ns_c=ns_c)
+                        ns_a=ns_a, ns_b=ns_b, ns_c=ns_c, polar_alpha=polar_alpha)
         super().__init__(params, defaults)
 
     @torch.no_grad()
@@ -574,6 +605,7 @@ class Muon(torch.optim.Optimizer):
                         ns_b=group["ns_b"],
                         ns_c=group["ns_c"],
                         polar_diag=polar_diag,
+                        polar_alpha=group["polar_alpha"],
                     )
                     floor_eligible_count += 1
                     w_norm = p.norm()
@@ -720,6 +752,7 @@ if dist.get_rank() == 0:
             "ema_warmup_steps": args.ema_warmup_steps,
             "ema_beta_target": args.ema_beta_target if args.ema_beta_target is not None else 0.0,
             "ema_dynamic_ramp_active": int(args.ema_beta_target is not None and args.ema_beta > 0),
+            "polar_alpha": args.polar_alpha,
         },
     )
 
@@ -756,9 +789,11 @@ for trial_idx in range(args.num_trials):
                         dict(params=[p for p in model.parameters() if p.ndim < 2], lr=0.025, name="adam_scalars")],
                        betas=(0.8, 0.95), eps=1e-10, weight_decay=0, fused=True)
     optimizer2 = Muon([p for p in model.blocks.parameters() if p.ndim >= 2],
-                      lr=args.muon_lr, weight_decay=0.025, beta_cov=0.95, gamma=PMUON_GAMMA)
+                      lr=args.muon_lr, weight_decay=0.025, beta_cov=0.95, gamma=PMUON_GAMMA,
+                      polar_alpha=args.polar_alpha)
     optimizer2.param_groups[0]["name"] = "muon_blocks"
-    print0(f"body-Muon optimizer: lr={args.muon_lr} weight_decay=0.025 beta_cov=0.95 gamma={PMUON_GAMMA}")
+    print0(f"body-Muon optimizer: lr={args.muon_lr} weight_decay=0.025 beta_cov=0.95 "
+           f"gamma={PMUON_GAMMA} polar_alpha={args.polar_alpha}")
     optimizers = [optimizer1, optimizer2]
     assert set(p for opt in optimizers for group in opt.param_groups
                for p in group["params"]) == set(model.parameters())
@@ -1024,6 +1059,9 @@ for trial_idx in range(args.num_trials):
                     "trial": trial_idx,
                     "train/step": train_step,
                     "polar/ortho_residual_sample": polar_diag["residual"],
+                    "polar/ortho_residual_polar_only": polar_diag.get("residual_polar_only", 0.0),
+                    "polar/blend_magnitude_ratio": polar_diag.get("blend_magnitude_ratio", 0.0),
+                    "polar/alpha": polar_diag.get("polar_alpha", args.polar_alpha),
                     "polar/sample_rows": polar_diag.get("sample_rows", 0),
                     "polar/sample_cols": polar_diag.get("sample_cols", 0),
                     "polar/ns_coef_a": NS_A,
