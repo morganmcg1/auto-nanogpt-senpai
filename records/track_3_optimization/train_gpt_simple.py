@@ -95,6 +95,17 @@ def parse_args():
                         help="Starting value of µ schedule (used by linear and cooldown_ramp modes).")
     parser.add_argument("--muonh_mu_end", type=float, default=float(os.environ.get("MUONH_MU_END", "0.98")),
                         help="Ending value of µ schedule (used by linear and cooldown_ramp modes).")
+    # H127: Polyak weight averaging for evaluation. EMA buffer tracks all
+    # model.parameters() at training time and is substituted in for the model's
+    # live weights at val-eval time only (originals restored immediately after).
+    # No effect on optimizer trajectory, gradient flow, or anchor params. Buffer
+    # is held in float32 to avoid bf16 precision loss with high decay.
+    parser.add_argument("--polyak_ema_decay", type=float,
+                        default=float(os.environ.get("POLYAK_EMA_DECAY", "0.0")),
+                        help="Polyak weight-EMA decay applied to all model.parameters(). "
+                             "0.0 = disabled (bit-id baseline). 0.99 ≈ 100-step window. "
+                             "0.999 ≈ 1000-step window. Substitutes EMA-averaged weights "
+                             "at eval; restores originals afterward.")
     args = parser.parse_args()
     args.num_trials = args.num_trials if args.num_trials is not None else (args.legacy_num_trials or 1)
     args.wandb_tags = [tag.strip() for tag in args.wandb_tags.split(",") if tag.strip()]
@@ -737,6 +748,10 @@ if args.muonh_agc_clip_ratio > 0:
     print0(f"AGC ENABLED on inner MuonH gradient: clip_ratio={args.muonh_agc_clip_ratio} eps={args.muonh_agc_eps}", console=True)
 else:
     print0("AGC DISABLED on inner MuonH gradient (clip_ratio=0)", console=True)
+if args.polyak_ema_decay > 0:
+    print0(f"Polyak weight EMA ENABLED: decay={args.polyak_ema_decay}", console=True)
+else:
+    print0("Polyak weight EMA DISABLED (decay=0, bit-id baseline)", console=True)
 print0("="*100)
 
 val_tokens = 20 * 524288
@@ -796,6 +811,7 @@ if dist.get_rank() == 0:
             "muonh_mu_schedule": args.muonh_mu_schedule,
             "muonh_mu_start": args.muonh_mu_start,
             "muonh_mu_end": args.muonh_mu_end,
+            "polyak_ema_decay": args.polyak_ema_decay,
         },
     )
 
@@ -973,6 +989,29 @@ for trial_idx in range(args.num_trials):
         outer_velocity = None
     outer_applied_steps = 0
 
+    # Polyak weight EMA state (H127). Float32 buffers avoid bf16 precision loss
+    # with high decay; only the embed.weight is bf16 in this model and 0.999-decay
+    # updates of order 1e-7 fall below bf16 mantissa resolution. None when disabled
+    # so arm_a (decay=0.0) is bit-identical to baseline.
+    polyak_state = None
+    polyak_groups = None
+    if args.polyak_ema_decay > 0.0:
+        polyak_state = {n: p.detach().clone().float()
+                        for n, p in model.named_parameters() if p.requires_grad}
+        # Per-group weight_diff_norm telemetry: body MuonH 2D weights (driven by
+        # optimizer2), aux embed, aux lm_head, plus an aux_scalars catch-all.
+        body_muonh_names = {n for n, p in model.named_parameters()
+                            if n.startswith("blocks.") and p.ndim >= 2 and n in polyak_state}
+        aux_scalars_names = {n for n, p in model.named_parameters()
+                             if p.ndim < 2 and n in polyak_state}
+        polyak_groups = {
+            "body_muonh": body_muonh_names,
+            "aux_embed": {"embed.weight"} & set(polyak_state),
+            "aux_lm_head": {"proj.weight"} & set(polyak_state),
+            "aux_scalars": aux_scalars_names,
+        }
+    first_step_to_target_raw = -1  # diagnostic continuity (raw path) for polyak arms
+
     # start the clock
     training_time = 0
     last_val_step = 0
@@ -1004,31 +1043,64 @@ for trial_idx in range(args.num_trials):
                     val_loss += model(val_inputs[i*mbs:(i+1)*mbs], val_targets[i*mbs:(i+1)*mbs])
             dist.all_reduce(val_loss, op=dist.ReduceOp.SUM)
             val_loss /= val_tokens
-            val_loss_float = float(val_loss.item())
+            val_loss_raw_float = float(val_loss.item())
+            # Polyak EMA val pass: swap θ ← θ̄, eval, restore θ. polyak_state==None
+            # disables the swap, leaving the val path bit-identical to baseline.
+            val_loss_ema_float = val_loss_raw_float
+            if polyak_state is not None:
+                backup = {n: p.detach().clone()
+                          for n, p in model.named_parameters() if n in polyak_state}
+                with torch.no_grad():
+                    for n, p in model.named_parameters():
+                        if n in polyak_state:
+                            p.data.copy_(polyak_state[n].to(p.dtype))
+                val_loss_ema = torch.zeros((), device=device)
+                with torch.no_grad():
+                    for i in range(len(val_inputs) // mbs):
+                        val_loss_ema += model(val_inputs[i*mbs:(i+1)*mbs], val_targets[i*mbs:(i+1)*mbs])
+                dist.all_reduce(val_loss_ema, op=dist.ReduceOp.SUM)
+                val_loss_ema /= val_tokens
+                val_loss_ema_float = float(val_loss_ema.item())
+                with torch.no_grad():
+                    for n, p in model.named_parameters():
+                        if n in backup:
+                            p.data.copy_(backup[n])
+                del backup
+            # Primary metric path: EMA when polyak active, raw otherwise. Drives
+            # best_val_loss, first_step_to_target, and the published val/loss.
+            val_loss_primary = val_loss_ema_float if polyak_state is not None else val_loss_raw_float
+            val_loss_float = val_loss_primary
             if dist.get_rank() == 0:
-                val_loss_history.append((step, val_loss_float))
-                if val_loss_float < best_val_loss:
-                    best_val_loss = val_loss_float
+                val_loss_history.append((step, val_loss_primary))
+                if val_loss_primary < best_val_loss:
+                    best_val_loss = val_loss_primary
                     best_val_step = step
-                if first_step_to_target < 0 and val_loss_float <= TARGET_VAL_LOSS:
+                if first_step_to_target < 0 and val_loss_primary <= TARGET_VAL_LOSS:
                     first_step_to_target = step
+                if first_step_to_target_raw < 0 and val_loss_raw_float <= TARGET_VAL_LOSS:
+                    first_step_to_target_raw = step
                 metrics = {
                     "trial": trial_idx,
                     "val/step": step,
-                    "val/loss": val_loss_float,
+                    "val/loss": val_loss_primary,
+                    "val/loss_raw": val_loss_raw_float,
+                    "val/loss_ema": val_loss_ema_float,
+                    "val/loss_gap": val_loss_raw_float - val_loss_ema_float,
                     "val/best_loss": best_val_loss,
                     "val/best_step": best_val_step,
-                    "val/target_margin": TARGET_VAL_LOSS - val_loss_float,
-                    "val/single_run_stat_sig_margin": TARGET_VAL_LOSS - val_loss_float - STAT_SIG_DELTA,
+                    "val/target_margin": TARGET_VAL_LOSS - val_loss_primary,
+                    "val/single_run_stat_sig_margin": TARGET_VAL_LOSS - val_loss_primary - STAT_SIG_DELTA,
                     "speedrun/first_step_to_target": first_step_to_target,
+                    "speedrun/first_step_to_target_raw": first_step_to_target_raw,
                     "speedrun/reached_target": int(first_step_to_target >= 0),
                     "time/train_seconds": training_time,
                     "time/step_avg_ms": 1000 * step_avg,
                 }
                 metrics.update(prefixed("val/slope", loss_slope_stats(val_loss_history, slope_window_steps)))
                 wandb.log(metrics, step=trial_idx * (train_steps + 1) + step)
-            print0(f"step:{step}/{train_steps} val_loss:{val_loss:.5f} train_time:{training_time:.3f}s"
-                   + f" step_avg:{1000*step_avg:.2f}ms", console=True)
+            print0(f"step:{step}/{train_steps} val_loss:{val_loss_primary:.5f}"
+                   + (f" val_loss_raw:{val_loss_raw_float:.5f}" if polyak_state is not None else "")
+                   + f" train_time:{training_time:.3f}s step_avg:{1000*step_avg:.2f}ms", console=True)
             model.train()
             # start the clock again
             dist.barrier()
@@ -1186,6 +1258,37 @@ for trial_idx in range(args.num_trials):
                     "train/muloco/velocity_rms": velocity_rms,
                 }, step=wandb_step)
 
+        # Polyak weight EMA update. Runs after both inner and (possible) outer
+        # step on every iteration so the buffer tracks end-of-iteration weights.
+        # Buffer is float32; p.data may be float32 or bf16 (embed.weight).
+        if polyak_state is not None:
+            with torch.no_grad():
+                for n, p in model.named_parameters():
+                    if n in polyak_state:
+                        polyak_state[n].mul_(args.polyak_ema_decay).add_(
+                            p.data.float(), alpha=1.0 - args.polyak_ema_decay
+                        )
+            # ||θ − θ̄|| diagnostic — global + per-group, at telemetry cadence.
+            if dist.get_rank() == 0 and telemetry_due:
+                with torch.no_grad():
+                    total_sq = 0.0
+                    group_sq = {g: 0.0 for g in polyak_groups}
+                    for n, p in model.named_parameters():
+                        if n in polyak_state:
+                            d = (p.data.float() - polyak_state[n]).square().sum().item()
+                            total_sq += d
+                            for g, names in polyak_groups.items():
+                                if n in names:
+                                    group_sq[g] += d
+                polyak_metrics = {
+                    "trial": trial_idx,
+                    "train/step": train_step,
+                    "polyak/weight_diff_norm": total_sq ** 0.5,
+                }
+                for g, sq in group_sq.items():
+                    polyak_metrics[f"polyak/weight_diff_norm_{g}"] = sq ** 0.5
+                wandb.log(polyak_metrics, step=wandb_step)
+
         approx_training_time = training_time + (time.perf_counter() - t0)
         print0(f"step:{step+1}/{train_steps} train_time:{approx_training_time:.3f}s"
                + f" step_avg:{1000*approx_training_time/(step + 1):.2f}ms", console=True, log=False)
@@ -1201,6 +1304,7 @@ for trial_idx in range(args.num_trials):
             "speedrun/final_best_val_loss": best_val_loss,
             "speedrun/final_best_val_step": best_val_step,
             "speedrun/final_first_step_to_target": first_step_to_target,
+            "speedrun/final_first_step_to_target_raw": first_step_to_target_raw,
             "speedrun/final_reached_target": int(first_step_to_target >= 0),
         }, step=(trial_idx + 1) * (train_steps + 1) - 1)
 
