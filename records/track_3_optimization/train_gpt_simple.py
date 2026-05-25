@@ -83,6 +83,14 @@ def parse_args():
              "muall=musoft + non-residual block 2D weights also scaled by 1/sqrt(L); "
              "smallconst=std=1e-3 depth-independent.",
     )
+    parser.add_argument("--muon_body_avg", type=str, default="off",
+                        choices=["off", "ema_999", "ema_99", "swa_half", "ema_9999"],
+                        help="Eval-time averaging for Muon body matrices. "
+                             "off = no averaging (default, ctrl). "
+                             "ema_999 = EMA with decay=0.999 (PRIMARY). "
+                             "ema_99 = EMA with decay=0.99 (medium memory). "
+                             "swa_half = uniform SWA starting at step train_steps/2 (Izmailov 2018 recipe). "
+                             "ema_9999 = EMA with decay=0.9999 (very long memory).")
     args = parser.parse_args()
     args.num_trials = args.num_trials if args.num_trials is not None else (args.legacy_num_trials or 1)
     args.wandb_tags = [tag.strip() for tag in args.wandb_tags.split(",") if tag.strip()]
@@ -765,6 +773,7 @@ if dist.get_rank() == 0:
             "wd_schedule": args.wd_schedule,
             "lr_scalars": args.lr_scalars,
             "depth_init_mode": args.depth_init_mode,
+            "muon_body_avg": args.muon_body_avg,
         },
     )
 
@@ -857,6 +866,13 @@ for trial_idx in range(args.num_trials):
     optimizers = [optimizer1, optimizer2]
     assert set(p for opt in optimizers for group in opt.param_groups
                for p in group["params"]) == set(model.parameters())
+    muon_body_params: list[Tensor] = [p for group in optimizer2.param_groups for p in group["params"]]
+    muon_body_shadow: dict[int, Tensor] = {}
+    muon_body_swa_n: int = 0
+    if args.muon_body_avg != "off":
+        for p in muon_body_params:
+            muon_body_shadow[id(p)] = p.detach().clone()
+        print0(f"[muon_body_avg] mode={args.muon_body_avg}  shadow_params={len(muon_body_shadow)}", console=True)
     for opt in optimizers:
         for group in opt.param_groups:
             group["initial_lr"] = group["lr"]
@@ -924,15 +940,36 @@ for trial_idx in range(args.num_trials):
             step_avg = time_since_last_val / (step - last_val_step) if step > 0 else float("nan")
             last_val_step = step
             training_time += time_since_last_val
-            model.eval()
-            val_loss = torch.zeros((), device=device)
-            with torch.no_grad():
-                assert len(val_inputs) % mbs == 0
-                for i in range(len(val_inputs) // mbs):
-                    val_loss += model(val_inputs[i*mbs:(i+1)*mbs], val_targets[i*mbs:(i+1)*mbs])
-            dist.all_reduce(val_loss, op=dist.ReduceOp.SUM)
-            val_loss /= val_tokens
-            val_loss_float = float(val_loss.item())
+            # eval-time param swap: replace raw params with shadow (averaged) for val
+            saved_body_params: list[Tensor] = []
+            shadow_diagnostics: dict[str, float] = {}
+            if args.muon_body_avg != "off":
+                example_p = muon_body_params[0]
+                example_shadow = muon_body_shadow[id(example_p)]
+                shadow_diagnostics["muon_body_avg/shadow_norm/mlp_fc_0"] = float(example_shadow.detach().float().norm().item())
+                shadow_diagnostics["muon_body_avg/raw_norm/mlp_fc_0"] = float(example_p.detach().float().norm().item())
+                raw_norm = shadow_diagnostics["muon_body_avg/raw_norm/mlp_fc_0"]
+                if raw_norm > 0:
+                    diff_norm = float((example_shadow.detach().float() - example_p.detach().float()).norm().item())
+                    shadow_diagnostics["muon_body_avg/shadow_drift/mlp_fc_0"] = diff_norm / raw_norm
+                for p in muon_body_params:
+                    saved_body_params.append(p.detach().clone())
+                    p.data.copy_(muon_body_shadow[id(p)])
+            try:
+                model.eval()
+                val_loss = torch.zeros((), device=device)
+                with torch.no_grad():
+                    assert len(val_inputs) % mbs == 0
+                    for i in range(len(val_inputs) // mbs):
+                        val_loss += model(val_inputs[i*mbs:(i+1)*mbs], val_targets[i*mbs:(i+1)*mbs])
+                dist.all_reduce(val_loss, op=dist.ReduceOp.SUM)
+                val_loss /= val_tokens
+                val_loss_float = float(val_loss.item())
+            finally:
+                if args.muon_body_avg != "off":
+                    for p, saved in zip(muon_body_params, saved_body_params):
+                        p.data.copy_(saved)
+                    saved_body_params.clear()
             if dist.get_rank() == 0:
                 val_loss_history.append((step, val_loss_float))
                 if val_loss_float < best_val_loss:
@@ -954,6 +991,7 @@ for trial_idx in range(args.num_trials):
                     "time/step_avg_ms": 1000 * step_avg,
                 }
                 metrics.update(prefixed("val/slope", loss_slope_stats(val_loss_history, slope_window_steps)))
+                metrics.update(shadow_diagnostics)
                 wandb.log(metrics, step=trial_idx * (train_steps + 1) + step)
             print0(f"step:{step}/{train_steps} val_loss:{val_loss:.5f} train_time:{training_time:.3f}s"
                    + f" step_avg:{1000*step_avg:.2f}ms", console=True)
@@ -1009,6 +1047,24 @@ for trial_idx in range(args.num_trials):
             )
         for opt in optimizers:
             opt.step()
+        # Update Muon-body shadow (EMA/SWA) with the freshly updated raw params
+        if args.muon_body_avg != "off":
+            if args.muon_body_avg == "ema_999":
+                for p in muon_body_params:
+                    muon_body_shadow[id(p)].mul_(0.999).add_(p.detach(), alpha=0.001)
+            elif args.muon_body_avg == "ema_99":
+                for p in muon_body_params:
+                    muon_body_shadow[id(p)].mul_(0.99).add_(p.detach(), alpha=0.01)
+            elif args.muon_body_avg == "ema_9999":
+                for p in muon_body_params:
+                    muon_body_shadow[id(p)].mul_(0.9999).add_(p.detach(), alpha=0.0001)
+            elif args.muon_body_avg == "swa_half":
+                if train_step >= train_steps // 2:
+                    muon_body_swa_n += 1
+                    inv_n = 1.0 / muon_body_swa_n
+                    for p in muon_body_params:
+                        shadow = muon_body_shadow[id(p)]
+                        shadow.add_(p.detach() - shadow, alpha=inv_n)
         if telemetry_due:
             update_norms = optimizer2.get_step_update_norms()
             current_lrs = {group.get("name", f"group_{i}"): group["lr"]
