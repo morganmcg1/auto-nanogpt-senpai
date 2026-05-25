@@ -55,6 +55,9 @@ def parse_args():
     parser.add_argument("--outer_lr", type=float, default=float(os.environ.get("OUTER_LR", "0.7")))
     parser.add_argument("--outer_momentum", type=float, default=float(os.environ.get("OUTER_MOMENTUM", "0.5")))
     parser.add_argument("--sync_interval", type=int, default=int(os.environ.get("SYNC_INTERVAL", "30")))
+    parser.add_argument("--outer_lr_warmup_steps", type=int,
+        default=int(os.environ.get("OUTER_LR_WARMUP_STEPS", "0")),
+        help="Linear warmup of outer_lr from 0 to args.outer_lr over first N training steps; 0 = no warmup (bit-id baseline)")
     # AGC (Brock et al. 2021): per-parameter adaptive gradient clipping applied to
     # AdamW aux groups (embed, lm_head, scalars). Clips grad to clip_ratio * |param|.
     # Default 0.0 disables (no-op for bit-identical baseline).
@@ -1158,6 +1161,10 @@ for trial_idx in range(args.num_trials):
         # ``param.norm()`` at that step and preserves the new norm. Acceptable
         # behavior — the goal is trajectory smoothing, not strict norm invariance.
         if use_outer and train_step % args.sync_interval == 0 and train_step < train_steps:
+            if args.outer_lr_warmup_steps > 0:
+                eff_outer_lr = args.outer_lr * min(1.0, train_step / args.outer_lr_warmup_steps)
+            else:
+                eff_outer_lr = args.outer_lr
             log_outer = (dist.get_rank() == 0)
             if log_outer:
                 delta_sq = torch.zeros((), device=device)
@@ -1167,7 +1174,7 @@ for trial_idx in range(args.num_trials):
                 for n, p in model.named_parameters():
                     delta = outer_anchor[n] - p.data
                     outer_velocity[n].mul_(args.outer_momentum).add_(delta)
-                    p.data.copy_(outer_anchor[n] - args.outer_lr *
+                    p.data.copy_(outer_anchor[n] - eff_outer_lr *
                                  (args.outer_momentum * outer_velocity[n] + delta))
                     outer_anchor[n].copy_(p.data)
                     if log_outer:
@@ -1184,6 +1191,8 @@ for trial_idx in range(args.num_trials):
                     "train/muloco/outer_step": outer_applied_steps,
                     "train/muloco/delta_rms": delta_rms,
                     "train/muloco/velocity_rms": velocity_rms,
+                    "train/muloco/outer_lr_t": eff_outer_lr,
+                    "train/muloco/outer_lr_ratio": eff_outer_lr / args.outer_lr,
                 }, step=wandb_step)
 
         approx_training_time = training_time + (time.perf_counter() - t0)
