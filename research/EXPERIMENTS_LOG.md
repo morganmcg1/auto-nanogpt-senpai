@@ -1,5 +1,26 @@
 # SENPAI Research Results
 
+## 2026-05-25 03:20 UTC — PR #1102 CLOSED: NS5 input normalization: spectral vs Frob/sqrt(n) — 120th NULL, rank-deficiency canon REFRAMED (g1r1-frieren)
+
+- Branch: `g1r1-frieren/ns-input-norm`
+- Hypothesis: NS5 wastes early iterations growing sigma when fed a Frob-normalized low-rank input (from #1046 L_cov stable rank ~13). Spectral normalization (sigma_max=1) should close the "wasted iterations" gap. Frob/sqrt(n) was predicted to overshoort (sigma_max~0.28 at k=13).
+
+| Arm | norm_mode | W&B | val/loss | sr | polar/ortho_residual | Verdict |
+|---|---|---|---|---|---|---|
+| Baseline #918 (n=2) | frobenius | `vm48fdof`/`0a7esmxs` | 3.266394 | 2925 | ~0.19 (mean) | gate |
+| A SPECTRAL | spectral | `jeck1ge0` | **3.267161** | 2950 | **0.0525** (3.7x tighter) | **NULL** (+0.77 mnat, fails merge) |
+| B FROB/sqrt(n) | frob_over_sqrt_n | `kqrtsre6` | crashed step 2 | — | — | **CATASTROPHIC** |
+
+**Finding 1: m_pre stable rank ≈ 426 (NOT ~13 like L_cov).** L_neg/R_neg pre-whitening de-low-ranks the NS5 input. The original "wasted iterations" estimate overestimates headroom by ~5× (sqrt(13)/sqrt(426) ≈ 0.17). The rank-deficiency canon for L_cov does NOT apply to the NS5 input m_pre.
+
+**Finding 2: polar/ortho_residual is NOT load-bearing at NS_ITERS=12.** Spectral norm tightens residual ~3-5× (0.0525 vs ~0.19 baseline) but does not move val/loss or sr. Extra refinement headroom is not the bottleneck.
+
+**Finding 3: CATASTROPHIC endpoint established.** sigma_max ≈ 27 (frob/sqrt(n) with actual k=426) → NS cubic map blows up → L_cov ill-conditioned → eigh fails at step 2. Stable region σ∈[0,√3] confirmed.
+
+**Finding 4: +11% wall-clock cost** for spectral (3 fp32 power iters per NS5 call). Unattractive even at val neutral.
+
+**Structural reframe:** Future rank-deficiency-motivated PRs must report m_pre stable rank (not L_cov/R_cov). Implications for #1107 polar-interpolation: "polar fills in missing structure" premise partially undermined (m_pre is rank-rich). frieren → #1123 (asymmetric gamma_L/gamma_R whitening exponents, first decoupled test).
+
 ## 2026-05-25 01:00 UTC — PR #1066 CLOSED: Z-loss λ·log²(Z) partition-function regularization (λ=1e-4 vs 1e-3) — 119th NULL, 4-axis output-reg closure (g1r1-askeladd)
 
 - Branch: `g1r1-askeladd/z-loss`
