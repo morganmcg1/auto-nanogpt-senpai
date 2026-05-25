@@ -464,6 +464,10 @@ SOAP_PRECOND_FREQ = 10
 ATTN_SOAP_BETA2 = 0.90
 ATTN_SOAP_PRECOND_FREQ = 10
 ATTN_SOAP_TRUST_THRESHOLD = float(os.environ.get("ATTN_SOAP_TRUST_THRESHOLD", "0.9"))
+# SOAP eigenbasis refresh triggered by Gram drift against last refreshed snapshot (#1159).
+# THRESHOLD=0 (default) disables drift gating and falls back to periodic refresh.
+SOAP_GRAM_DRIFT_THRESHOLD = float(os.environ.get("SOAP_GRAM_DRIFT_THRESHOLD", "0.0"))
+SOAP_DRIFT_AGAINST = os.environ.get("SOAP_DRIFT_AGAINST", "last_refresh")
 NS5_ITERS = int(os.environ.get("NS5_ITERS", "12"))
 WD_AUX = float(os.environ.get("WD_AUX", "0.0"))  # AdamW WD on embed + lm_head matrices (scalars stay at 0)
 EMBED_INIT_STD = float(os.environ.get("EMBED_INIT_STD", "1.0"))  # default preserves baseline N(0,1)
@@ -565,14 +569,30 @@ def soap_refresh(grad, state, beta2=SOAP_BETA2, refresh_freq=SOAP_PRECOND_FREQ,
     grad_f = grad.float()
     state["row_gg"].lerp_(grad_f @ grad_f.T, 1 - beta2)
     state["col_gg"].lerp_(grad_f.T @ grad_f, 1 - beta2)
+    # #1159: drift signal against last refreshed Gram snapshot.
+    do_refresh_drift = False
+    if SOAP_GRAM_DRIFT_THRESHOLD > 0 and SOAP_DRIFT_AGAINST == "last_refresh":
+        last_ref = state.get("last_refreshed_row_gg")
+        if last_ref is not None:
+            delta = (state["row_gg"] - last_ref).norm()
+            norm = last_ref.norm().clamp_min(1e-12)
+            drift_val = (delta / norm).item()
+            state["last_drift"] = drift_val
+            do_refresh_drift = drift_val >= SOAP_GRAM_DRIFT_THRESHOLD
     if state["q_row"] is None:
         state["q_row"] = soap_eigenbasis(state["row_gg"])
         state["q_col"] = soap_eigenbasis(state["col_gg"])
+        if SOAP_GRAM_DRIFT_THRESHOLD > 0 and SOAP_DRIFT_AGAINST == "last_refresh":
+            state["last_refreshed_row_gg"] = state["row_gg"].clone()
+            state["soap_refresh_count"] = state.get("soap_refresh_count", 0) + 1
+            state["last_refresh_soap_step"] = state["soap_step"]
+            state["refresh_intervals"] = []
+            state["last_do_refresh"] = 1.0
         if use_trust_gate:
             state["trust_gate"] = 1.0
             state["trust_cos_row"] = 1.0
             state["trust_cos_col"] = 1.0
-    elif state["soap_step"] > 0 and state["soap_step"] % refresh_freq == 0:
+    elif state["soap_step"] > 0 and (state["soap_step"] % refresh_freq == 0 or do_refresh_drift):
         if use_trust_gate:
             row_gg = state["row_gg"]
             col_gg = state["col_gg"]
@@ -605,6 +625,19 @@ def soap_refresh(grad, state, beta2=SOAP_BETA2, refresh_freq=SOAP_PRECOND_FREQ,
             state["q_row"], state["q_col"], state["exp_avg_sq"] = soap_basis_qr(
                 state["row_gg"], state["col_gg"], state["q_row"], state["q_col"], state["exp_avg_sq"]
             )
+        if SOAP_GRAM_DRIFT_THRESHOLD > 0 and SOAP_DRIFT_AGAINST == "last_refresh":
+            interval = state["soap_step"] - state.get("last_refresh_soap_step", state["soap_step"])
+            intervals = state.setdefault("refresh_intervals", [])
+            intervals.append(interval)
+            if len(intervals) > 1024:
+                del intervals[: len(intervals) - 1024]
+            state["last_refreshed_row_gg"] = state["row_gg"].clone()
+            state["last_refresh_soap_step"] = state["soap_step"]
+            state["soap_refresh_count"] = state.get("soap_refresh_count", 0) + 1
+            state["last_do_refresh"] = 1.0
+    else:
+        if SOAP_GRAM_DRIFT_THRESHOLD > 0 and SOAP_DRIFT_AGAINST == "last_refresh":
+            state["last_do_refresh"] = 0.0
     state["soap_step"] += 1
 
 
@@ -776,6 +809,54 @@ class Muon(torch.optim.Optimizer):
             out[f"{kind}/mean_cos_col"] = sum(ccs) / kn
         return out
 
+    def gram_drift_stats(self) -> dict[str, float]:
+        """Aggregate Gram-drift telemetry across SOAP params (mlp + attn). #1159.
+
+        Returns an empty dict if drift-gating is disabled (SOAP_GRAM_DRIFT_THRESHOLD == 0).
+        """
+        if not (SOAP_GRAM_DRIFT_THRESHOLD > 0 and SOAP_DRIFT_AGAINST == "last_refresh"):
+            return {}
+        drifts: list[float] = []
+        refresh_fracs: list[float] = []
+        last_refresh_steps: list[int] = []
+        do_refresh_flags: list[float] = []
+        intervals_all: list[int] = []
+        for p in (self.soap_params | self.attn_soap_params):
+            st = self.state.get(p)
+            if st is None or "soap_step" not in st:
+                continue
+            if "last_drift" in st:
+                drifts.append(st["last_drift"])
+            if "last_do_refresh" in st:
+                do_refresh_flags.append(st["last_do_refresh"])
+            soap_step = st["soap_step"]
+            refresh_count = st.get("soap_refresh_count", 0)
+            if soap_step > 0:
+                refresh_fracs.append(refresh_count / soap_step)
+            last_refresh_steps.append(st.get("last_refresh_soap_step", 0))
+            intervals_all.extend(st.get("refresh_intervals", []))
+        out: dict[str, float] = {}
+        if drifts:
+            out["count"] = len(drifts)
+            out["drift_mean"] = sum(drifts) / len(drifts)
+            out["drift_max"] = max(drifts)
+            out["drift_min"] = min(drifts)
+        if refresh_fracs:
+            out["refresh_fraction_mean"] = sum(refresh_fracs) / len(refresh_fracs)
+            out["refresh_fraction_max"] = max(refresh_fracs)
+            out["refresh_fraction_min"] = min(refresh_fracs)
+        if do_refresh_flags:
+            out["do_refresh_fraction_this_step"] = sum(do_refresh_flags) / len(do_refresh_flags)
+        if last_refresh_steps:
+            out["last_refresh_step_mean"] = sum(last_refresh_steps) / len(last_refresh_steps)
+            out["last_refresh_step_max"] = max(last_refresh_steps)
+        if intervals_all:
+            out["interval_mean"] = sum(intervals_all) / len(intervals_all)
+            out["interval_max"] = max(intervals_all)
+            out["interval_min"] = min(intervals_all)
+            out["interval_count"] = len(intervals_all)
+        return out
+
 
 ########################################
 #                Setup                 #
@@ -864,6 +945,8 @@ if dist.get_rank() == 0:
             "optimizer/attn_soap_beta2": ATTN_SOAP_BETA2,
             "optimizer/attn_soap_precond_freq": ATTN_SOAP_PRECOND_FREQ,
             "optimizer/attn_soap_trust_threshold": ATTN_SOAP_TRUST_THRESHOLD,
+            "optimizer/soap_gram_drift_threshold": SOAP_GRAM_DRIFT_THRESHOLD,
+            "optimizer/soap_drift_against": SOAP_DRIFT_AGAINST,
             "optimizer/ns5_iters": NS5_ITERS,
             "optimizer/wd_aux": WD_AUX,
             "optimizer/recipe": "contra-muon + normuon-lite + soap-on-mlp + soap-on-attn-trust-gate (pre-NS5, record #14 + record #16)",
@@ -1059,6 +1142,10 @@ for trial_idx in range(args.num_trials):
                     stats = opt.trust_gate_stats()
                     if stats:
                         wandb.log(prefixed("train/attn_soap_trust_gate", stats), step=wandb_step)
+                if hasattr(opt, "gram_drift_stats"):
+                    stats = opt.gram_drift_stats()
+                    if stats:
+                        wandb.log(prefixed("train/soap/gram_drift", stats), step=wandb_step)
         if dist.get_rank() == 0 and telemetry_due:
             log_weight_telemetry(
                 model=model,
