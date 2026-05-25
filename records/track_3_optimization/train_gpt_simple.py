@@ -64,6 +64,12 @@ def parse_args():
     parser.add_argument("--muon_lr", type=float, default=0.035,
                         help="Base learning rate for body-Muon optimizer (matrix params in blocks). "
                              "Default 0.035 matches the merged baseline.")
+    parser.add_argument("--depth_lr_mode", type=str, default="uniform",
+                        choices=["uniform", "down", "up"],
+                        help="Body Muon LR depth scaling. "
+                             "uniform: lr_l = muon_lr (baseline, 12 layered groups with identical lr). "
+                             "down: lr_l = muon_lr * (1 - 0.5*l/(L-1)), shallow=1.0x, deep=0.5x. "
+                             "up:   lr_l = muon_lr * (0.5 + 0.5*l/(L-1)), shallow=0.5x, deep=1.0x.")
     args = parser.parse_args()
     args.num_trials = args.num_trials if args.num_trials is not None else (args.legacy_num_trials or 1)
     args.wandb_tags = [tag.strip() for tag in args.wandb_tags.split(",") if tag.strip()]
@@ -720,6 +726,7 @@ if dist.get_rank() == 0:
             "ema_warmup_steps": args.ema_warmup_steps,
             "ema_beta_target": args.ema_beta_target if args.ema_beta_target is not None else 0.0,
             "ema_dynamic_ramp_active": int(args.ema_beta_target is not None and args.ema_beta > 0),
+            "depth_lr_mode": args.depth_lr_mode,
         },
     )
 
@@ -755,10 +762,55 @@ for trial_idx in range(args.num_trials):
                         dict(params=[model.proj.weight], lr=1/160, name="adam_lm_head"),
                         dict(params=[p for p in model.parameters() if p.ndim < 2], lr=0.025, name="adam_scalars")],
                        betas=(0.8, 0.95), eps=1e-10, weight_decay=0, fused=True)
-    optimizer2 = Muon([p for p in model.blocks.parameters() if p.ndim >= 2],
-                      lr=args.muon_lr, weight_decay=0.025, beta_cov=0.95, gamma=PMUON_GAMMA)
-    optimizer2.param_groups[0]["name"] = "muon_blocks"
-    print0(f"body-Muon optimizer: lr={args.muon_lr} weight_decay=0.025 beta_cov=0.95 gamma={PMUON_GAMMA}")
+    # Body Muon with optional depth-LR decay. Split into one param group per
+    # transformer block so the cooldown loop (set_hparams) naturally scales each
+    # layer's initial_lr; depth scaling is encoded once in initial_lr.
+    n_layers = len(model.blocks)
+
+    def depth_lr_scale(layer_idx, mode, n_layers):
+        if mode == "uniform" or n_layers <= 1:
+            return 1.0
+        frac = layer_idx / (n_layers - 1)  # 0.0 → 1.0
+        if mode == "down":
+            return 1.0 - 0.5 * frac        # 1.0 at layer 0, 0.5 at last layer
+        if mode == "up":
+            return 0.5 + 0.5 * frac        # 0.5 at layer 0, 1.0 at last layer
+        raise ValueError(f"Unknown depth_lr_mode: {mode}")
+
+    first_layer_params = sorted([p for p in model.blocks[0].parameters() if p.ndim >= 2],
+                                key=lambda x: x.size(), reverse=True)
+    scale_0 = depth_lr_scale(0, args.depth_lr_mode, n_layers)
+    optimizer2 = Muon(first_layer_params,
+                      lr=args.muon_lr * scale_0,
+                      weight_decay=0.025, beta_cov=0.95, gamma=PMUON_GAMMA)
+    optimizer2.param_groups[0]["name"] = "muon_blocks_L00"
+    optimizer2.param_groups[0]["depth_scale"] = scale_0
+    optimizer2.param_groups[0]["layer_idx"] = 0
+    for layer_idx in range(1, n_layers):
+        layer_params = sorted([p for p in model.blocks[layer_idx].parameters() if p.ndim >= 2],
+                              key=lambda x: x.size(), reverse=True)
+        scale = depth_lr_scale(layer_idx, args.depth_lr_mode, n_layers)
+        optimizer2.add_param_group(dict(
+            params=layer_params,
+            lr=args.muon_lr * scale,
+            weight_decay=0.025,
+            mu=0.95,
+            beta_cov=0.95,
+            gamma=PMUON_GAMMA,
+            ns_a=NS_A, ns_b=NS_B, ns_c=NS_C,
+            name=f"muon_blocks_L{layer_idx:02d}",
+            depth_scale=scale,
+            layer_idx=layer_idx,
+        ))
+    # Flat list of body-Muon params in fixed order — used by EMA buffer.
+    body_muon_params = [p for g in optimizer2.param_groups for p in g["params"]]
+    for g in optimizer2.param_groups:
+        print0(f"body-Muon group {g['name']}: lr={g['lr']:.5f}"
+               f" (scale={g['depth_scale']:.3f}, n_params={len(g['params'])})")
+    print0(f"body-Muon depth_lr_mode={args.depth_lr_mode} n_layers={n_layers}"
+           f" total_body_muon_params={len(body_muon_params)}"
+           f" lr_min={min(g['lr'] for g in optimizer2.param_groups):.5f}"
+           f" lr_max={max(g['lr'] for g in optimizer2.param_groups):.5f}")
     optimizers = [optimizer1, optimizer2]
     assert set(p for opt in optimizers for group in opt.param_groups
                for p in group["params"]) == set(model.parameters())
@@ -774,7 +826,7 @@ for trial_idx in range(args.num_trials):
     # ema_beta (base) to ema_beta_target as the LR multiplier decays to 0.
     ema_params = None
     if args.ema_beta > 0:
-        ema_params = [p.detach().float().clone() for p in optimizer2.param_groups[0]["params"]]
+        ema_params = [p.detach().float().clone() for p in body_muon_params]
 
     # learning rate schedule: stable then power-law cooldown (gamma = COOLDOWN_POWER)
     def compute_lr_mult(step, cooldown_frac=0.7):
@@ -865,14 +917,14 @@ for trial_idx in range(args.num_trials):
             # Swap in EMA weights (body-Muon matrix params only) for the eval pass.
             train_bufs = None
             if ema_params is not None:
-                train_bufs = [p.detach().clone() for p in optimizer2.param_groups[0]["params"]]
+                train_bufs = [p.detach().clone() for p in body_muon_params]
                 # Compute Frobenius distance ||ema - live|| across all body-Muon params.
                 sq_sum = 0.0
-                for ema_p, p in zip(ema_params, optimizer2.param_groups[0]["params"]):
+                for ema_p, p in zip(ema_params, body_muon_params):
                     diff = (ema_p - p.detach().float())
                     sq_sum += float(diff.square().sum().item())
                 buffer_frob_dist = sq_sum ** 0.5
-                for ema_p, p in zip(ema_params, optimizer2.param_groups[0]["params"]):
+                for ema_p, p in zip(ema_params, body_muon_params):
                     p.data.copy_(ema_p.to(p.dtype))
             val_loss = torch.zeros((), device=device)
             with torch.no_grad():
@@ -884,7 +936,7 @@ for trial_idx in range(args.num_trials):
             val_loss_float = float(val_loss.item())
             # Restore train weights immediately after eval so subsequent backward passes use them.
             if train_bufs is not None:
-                for train_p, p in zip(train_bufs, optimizer2.param_groups[0]["params"]):
+                for train_p, p in zip(train_bufs, body_muon_params):
                     p.data.copy_(train_p)
             if dist.get_rank() == 0:
                 val_loss_history.append((step, val_loss_float))
@@ -989,7 +1041,7 @@ for trial_idx in range(args.num_trials):
         ema_lr_mult_now = float("nan")
         if ema_params is not None:
             if step < args.ema_warmup_steps:
-                for ema_p, p in zip(ema_params, optimizer2.param_groups[0]["params"]):
+                for ema_p, p in zip(ema_params, body_muon_params):
                     ema_p.copy_(p.detach().float())
                 ema_beta_t_now = args.ema_beta
                 ema_lr_mult_now = compute_lr_mult(step)
@@ -997,7 +1049,7 @@ for trial_idx in range(args.num_trials):
                 ema_lr_mult_now = compute_lr_mult(step)
                 ema_beta_t_now = compute_ema_beta_t(step)
                 lerp_w = 1.0 - ema_beta_t_now
-                for ema_p, p in zip(ema_params, optimizer2.param_groups[0]["params"]):
+                for ema_p, p in zip(ema_params, body_muon_params):
                     ema_p.lerp_(p.detach().float(), lerp_w)
         if dist.get_rank() == 0 and telemetry_due:
             log_weight_telemetry(
@@ -1038,6 +1090,36 @@ for trial_idx in range(args.num_trials):
                 "train/cooldown/lr_multiplier": sched_eta,
                 "train/cooldown/power_gamma": COOLDOWN_POWER,
             }, step=wandb_step)
+            # Per-layer body-Muon LR + depth_scale (depth-LR axis telemetry).
+            depth_lr_log = {
+                "trial": trial_idx,
+                "train/step": train_step,
+            }
+            body_lrs_now: list[float] = []
+            for g in optimizer2.param_groups:
+                if "layer_idx" not in g:
+                    continue
+                li = g["layer_idx"]
+                depth_lr_log[f"depth_lr/L{li:02d}/lr"] = g["lr"]
+                depth_lr_log[f"depth_lr/L{li:02d}/initial_lr"] = g["initial_lr"]
+                depth_lr_log[f"depth_lr/L{li:02d}/depth_scale"] = g["depth_scale"]
+                body_lrs_now.append(g["lr"])
+            if body_lrs_now:
+                depth_lr_log["depth_lr/lr_min"] = min(body_lrs_now)
+                depth_lr_log["depth_lr/lr_max"] = max(body_lrs_now)
+                depth_lr_log["depth_lr/lr_mean"] = sum(body_lrs_now) / len(body_lrs_now)
+                depth_lr_log["depth_lr/lr_ratio_max_over_min"] = (max(body_lrs_now)
+                                                                 / max(min(body_lrs_now), 1e-12))
+            wandb.log(depth_lr_log, step=wandb_step)
+            if step == 0:
+                # One-time histogram of initial LRs at step 0 — verifies shape at launch.
+                initial_lrs = [g["initial_lr"] for g in optimizer2.param_groups
+                               if "layer_idx" in g]
+                wandb.log({
+                    "trial": trial_idx,
+                    "train/step": train_step,
+                    "depth_lr/initial_lr_hist": wandb.Histogram(initial_lrs),
+                }, step=wandb_step)
             if ema_params is not None:
                 wandb.log({
                     "trial": trial_idx,
