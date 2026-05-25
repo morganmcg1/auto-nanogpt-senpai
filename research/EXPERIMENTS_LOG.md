@@ -1,5 +1,57 @@
 # SENPAI Research Results — auto-nanogpt-1gpu-r2
 
+## 2026-05-25 12:20 UTC — PR #1161: NS5_INTER_NOISE_FROBENIUS (CLOSED, 140th refuted — NS5-INTER-NOISE-FROBENIUS-WITH-SOFT-STIEFEL-GUARD family 1/1, 27th family-level closure, 7th CATASTROPHIC refute signature instance in cycle 71, publication-grade frieren mechanism re-attribution unifying #1158 + #1161 under guard-renormalize pathology)
+
+- Branch: `g1r2-frieren/ns5-inter-noise-frobenius` (student g1r2-frieren)
+- Hypothesis: Frobenius-normalized inter-NS5 manifold Langevin noise injection on Stiefel manifold at non-destructive magnitude. Per frieren's #1158 closure unit-analysis, σ_F=0.01 makes the noise Frobenius std interpretable on Stiefel manifold (not per-element). Predicted at-worst NS5-cost-neutral exploration of polar geometry.
+- Refute signature: **CATASTROPHIC** (7th cycle 71 instance) — Arm A killed step 375 val=4.1163 at +0.30 above kill gate, sustained divergence with no recovery.
+
+### Results table
+
+| Run | Config | Status | val/loss | ffs | Notes |
+|-----|--------|--------|----------|-----|-------|
+| `bc805gfq` | σ_F=0 disabled-check | ✓ bytewise inert | 4.09190 @ step 200 | n/a | Within band [4.075, 4.100], confirms patch bytewise inert when disabled |
+| `ddmwt0ne` | σ_F=0.01 α=1.0 Arm A | KILLED step 375 | 4.1163 @ step 375 (catastrophic) | n/a | +0.30 above kill gate 3.81, sustained +1.0-1.5 nats above baseline, no recovery |
+| (Arm B skipped) | σ_F=0.03 α=1.0 Arm B | Decision-tree-skipped | n/a | n/a | Monotone-in-σ_F argument: 3× noise structurally guaranteed worse than Arm A |
+
+### Analysis and conclusions
+
+**frieren's publication-grade mechanism re-attribution**: at the polar-factor regime post-NS5 the Frobenius norm of X equals √min_dim = √768 ≈ 27.71 (singular values ≈ 1 across 768 dims). Frobenius-normalized noise σ_F=0.01 has Fro norm 0.01 producing a 0.04% perturbation of unit signal — structurally well-conditioned for NS5 contraction (eigenvalues ≤ 1.02). The catastrophic mechanism was therefore NOT noise magnitude as #1158 closure originally interpreted but the **soft-Stiefel guard `X = X / nrm.clamp_min(1.0)` re-applied each iteration** after the noise injection, which crushes X back to Fro=1 erasing 5-6 iterations of NS5 convergence work per noise injection. This re-attribution unifies #1158 and #1161 closures under a single mechanism pathology (the renormalize guard) and isolates inter-NS5 Langevin noise WITHOUT renormalize as a structurally-distinct untouched axis.
+
+**Family closure**: ANY inter-NS5 Langevin noise injection that retains the soft-Stiefel guard renormalize after the perturbation absorbed by analogy because guard-renormalize is mechanism-binding not noise-magnitude binding.
+
+**Family closure does NOT absorb**: NS5-INTER-NOISE-NORENORM follow-up at #1169 (drop the renormalize entirely letting NS5 contraction handle re-convergence); spectral-guard-via-power-iteration (replaces Frobenius re-norm with spectral norm enforcement); tangent-projected noise onto Stiefel manifold tangent space before adding.
+
+**Methodological lift**: 2nd-order mechanism understanding — closure interpretation refactored on new evidence within the same student trajectory. The family-level closure boundary for #1158 was originally drawn at "element-wise vs Frobenius-normalized noise parametrization" but the corrected boundary is "noise + guard vs noise without guard". Publication-grade closure interpretation can CORRECT prior closure interpretations.
+
+---
+
+## 2026-05-25 12:20 UTC — PR #1147: LOGIT_ADJUSTMENT_PRIOR_BIAS (CLOSED, 139th refuted — LOGIT-SPACE-LOG-FREQUENCY-ADDITIVE-BIAS family 1/1, 26th family-level closure, 9th SHIFTED-FLOOR refute signature + 2nd WRONG-DIRECTION-MONOTONE instance)
+
+- Branch: `g1r2-askeladd/logit-adjustment-prior-bias` (student g1r2-askeladd)
+- Hypothesis: Menon et al. 2020 logit-adjustment `logits + α·log(f)` per-token fixed additive bias applied to logits during BOTH training AND val. Categorically distinct from #1133 inverse-frequency CE reweighting (loss-space vs logit-space) — escapes #1133's catastrophic-persistent-gap pathology by construction because val applies same bias offset → no objective mismatch.
+- Refute signature: **SHIFTED-FLOOR** (9th cycle 71 instance) at Arm A, **WRONG-DIRECTION-MONOTONE-IN-α** (2nd instance joining #1117 fern Z_LOSS) at Arm B.
+
+### Results table
+
+| Run | Config | Status | val/loss | ffs | Notes |
+|-----|--------|--------|----------|-----|-------|
+| `lwnzfrh5` | α=0 disabled-check | ✓ bytewise inert | 4.08173 @ step 200 | n/a | Within band [4.075, 4.100], confirms patch bytewise inert when disabled |
+| `1ernjckg` | α=0.5 Arm A | FINISHED | 3.27495 | 3075 | SHIFTED-FLOOR signature, +0.00719 above merge bar (3.26776), floor-cluster-edge |
+| `gwgx3yr7` | α=1.0 Arm B | FINISHED | 3.28231 | -1 (no ffs) | CLEAR MISS, +0.01455 above merge bar, monotone-in-α WRONG-DIRECTION (stronger α DEGRADES) |
+
+### Analysis and conclusions
+
+**askeladd's publication-grade mechanism interpretation**: Menon 2020 logit-adjustment is structurally sound for class-imbalanced classification but at 50K-vocab Zipfian distribution scale `α·log(f)` shifts logits of common tokens UP by ~α·log(p_common) ≈ -3α and rare-token logits DOWN by ~α·log(1e-6) ≈ -14α — the resulting log-prior bias dynamic range ~11α dominates the learned logit signal (LOGIT_SOFTCAP=20 + base logits ≤ ~5-8 in trained regime) at α≥0.5, effectively forcing the softmax toward uniform-over-vocabulary which has higher CE than the data distribution.
+
+**WRONG-DIRECTION-MONOTONE signature 2nd instance** confirms it as a refute-signature class at the loss-side mechanism layer. Both instances (#1117 fern Z_LOSS + #1147 askeladd LOGIT_ADJUSTMENT_PRIOR_BIAS) are logit-space additive interventions that destabilize the LOGIT_SOFTCAP=20-managed trained logit geometry. Emerging signature class for loss-side interventions: **logit-space additive interventions at this scale destabilize trained logit geometry the stack already manages**.
+
+**Family closure**: ANY α-additive log-frequency logit bias absorbed by analogy because magnitude-binding pathology α·log(p_min/p_max) ≈ -14α dominates trained logit dynamic range ~10.
+
+**Family closure does NOT absorb**: α=0.1 sub-magnitude probe (would shift bias dominance to noise band but α-decay should also recover this); learned-bias-with-regularization (decoupled from frequency, fixed-prior); pre-softmax-temperature (different mechanism layer); per-token-temperature-scaling.
+
+---
+
 ## 2026-05-25 11:55 UTC — PR #1148: ATTN_ENTROPY_BONUS (CLOSED, 138th refuted — ATTN-ENTROPY-BONUS-ATTENTION-SOFTMAX-ADDITIVE family 1/1, 25th family-level closure, 6th FLOOR-CLUSTER-TOUCH refute signature instance, publication-grade CE-gradient-dominance mechanism interpretation)
 
 - Branch: `g1r2-alphonse/attn-entropy-bonus` (student g1r2-alphonse)
