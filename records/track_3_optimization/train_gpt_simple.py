@@ -603,6 +603,26 @@ NANOGPT_NEWTON_MUON_BETA = float(os.environ.get("NANOGPT_NEWTON_MUON_BETA", "0.9
 NANOGPT_NEWTON_MUON_EPS = float(os.environ.get("NANOGPT_NEWTON_MUON_EPS", "1e-4"))
 NANOGPT_NEWTON_MUON_MAX_D_IN = int(os.environ.get("NANOGPT_NEWTON_MUON_MAX_D_IN", "1024"))
 
+# Gradient Centralization (#1246, Yong et al. ECCV 2020, arXiv:2004.01461) applied
+# to body Muon gradients BEFORE Newton-Muon right-precondition + NS5. When
+# NANOGPT_GRAD_CENTRALIZE="none" (default) the centralize helper short-circuits
+# inside Muon.step() and the pipeline is bit-identical to the merged stack.
+# Values: "none" | "row" | "col" | "both"
+#   row  -> g - g.mean(dim=-1, keepdim=True)  zero-mean per output row (over d_in)
+#   col  -> g - g.mean(dim=-2, keepdim=True)  zero-mean per input col (over d_out)
+#   both -> row centering followed by col centering
+NANOGPT_GRAD_CENTRALIZE = os.environ.get("NANOGPT_GRAD_CENTRALIZE", "none")
+NANOGPT_GRAD_CENTRALIZE_SCOPE = os.environ.get("NANOGPT_GRAD_CENTRALIZE_SCOPE", "body_muon")
+_VALID_GC_MODES = {"none", "row", "col", "both"}
+if NANOGPT_GRAD_CENTRALIZE not in _VALID_GC_MODES:
+    raise ValueError(
+        f"NANOGPT_GRAD_CENTRALIZE={NANOGPT_GRAD_CENTRALIZE!r} not in {sorted(_VALID_GC_MODES)}"
+    )
+if NANOGPT_GRAD_CENTRALIZE_SCOPE != "body_muon":
+    raise ValueError(
+        f"NANOGPT_GRAD_CENTRALIZE_SCOPE={NANOGPT_GRAD_CENTRALIZE_SCOPE!r} only 'body_muon' supported"
+    )
+
 # Global per-parameter input-activation cache populated by forward hooks. Keyed by
 # id(weight_param) → tensor of shape (B*T, d_in) on device. Only populated when
 # NANOGPT_NEWTON_MUON=1 (hooks are not registered otherwise, so cache stays empty
@@ -730,6 +750,30 @@ def zeropower_via_newtonschulz5(G: Tensor, ns_iters: int) -> Tensor:
         X = X.mT
     return X
 
+def _centralize_grad(g: Tensor, mode: str) -> Tensor:
+    """Gradient Centralization (Yong et al. ECCV 2020, arXiv:2004.01461).
+
+    Returns g unchanged when mode == "none" (bit-identical fallback for Arm A).
+    For 2D body Muon matrices of shape (d_out, d_in):
+      row  -> subtract per-row mean over input dim (-1)  -> rows zero-mean
+      col  -> subtract per-col mean over output dim (-2) -> cols zero-mean
+      both -> apply row then col centering (composes commutatively for 2D)
+    """
+    if mode == "none":
+        return g
+    if g.ndim < 2:
+        return g
+    if mode == "row":
+        return g - g.mean(dim=-1, keepdim=True)
+    if mode == "col":
+        return g - g.mean(dim=-2, keepdim=True)
+    if mode == "both":
+        g = g - g.mean(dim=-1, keepdim=True)
+        g = g - g.mean(dim=-2, keepdim=True)
+        return g
+    raise ValueError(f"Unknown grad-centralize mode {mode!r}")
+
+
 @torch.compile
 def muon_update(grad, momentum, v, ns_iters: int, mu=0.95, beta2=0.999, eps=1e-8, nesterov=True):
     momentum.lerp_(grad, 1 - mu)
@@ -746,7 +790,8 @@ class Muon(torch.optim.Optimizer):
                  newton_precond: bool = False, newton_beta: float = 0.95,
                  newton_eps: float = 1e-4, newton_update_period: int = 10,
                  newton_max_d_in: int = 1024,
-                 newton_input_cache: dict | None = None):
+                 newton_input_cache: dict | None = None,
+                 grad_centralize: str = "none"):
         assert isinstance(params, list) and len(params) >= 1
         if isinstance(params[0], dict):
             # list-of-dicts param_groups: sort each group's params by size.
@@ -794,6 +839,14 @@ class Muon(torch.optim.Optimizer):
         # to enable the sync-y per-param diagnostics; False otherwise to keep
         # the GPU pipeline async (item() calls block the CPU and serialize work).
         self.newton_telemetry_due: bool = False
+        # === Gradient Centralization (#1246) ===
+        # grad_centralize="none" -> bit-identical fallback (centralize helper short-circuits).
+        # Other modes ("row" | "col" | "both") subtract per-axis grad means before
+        # Newton-Muon right-precondition + NS5 polar decomposition.
+        self.grad_centralize: str = str(grad_centralize)
+        # Per-step aggregate telemetry; reset at the start of step() and read by the
+        # training loop on telemetry_due steps. Empty when grad_centralize=="none".
+        self.gc_telemetry: dict = {}
 
     def set_ns_iters_this_step(self, ns_iters: int) -> None:
         self.ns_iters_this_step = int(ns_iters)
@@ -888,6 +941,9 @@ class Muon(torch.optim.Optimizer):
         if self.newton_precond:
             self._newton_step_count += 1
             self.newton_telemetry = {}
+        gc_active = self.grad_centralize != "none"
+        if gc_active:
+            self.gc_telemetry = {}
         for group in self.param_groups:
             params = group["params"]
             params_pad = params + [torch.empty_like(params[-1])] * (world_size - len(params) % world_size)
@@ -898,13 +954,38 @@ class Muon(torch.optim.Optimizer):
                     if len(state) == 0:
                         state["momentum"] = torch.zeros_like(p)
                         state["v"] = torch.zeros_like(p)
+                    # === Gradient Centralization (#1246). Applied BEFORE
+                    # Newton-Muon right-precondition because GC operates in the
+                    # original gradient space; right-precond rescales the gradient,
+                    # so post-precond centering would zero-mean a different object.
+                    grad_for_update = p.grad
+                    if gc_active:
+                        grad_pre = grad_for_update
+                        grad_for_update = _centralize_grad(grad_pre, self.grad_centralize)
+                        if self.newton_telemetry_due:
+                            # rel_change = ||G - G_centralized|| / ||G||  (Frobenius).
+                            # Sync-y .item() calls are only issued on telemetry-due steps.
+                            tel = self.gc_telemetry
+                            pre_norm = float(grad_pre.float().norm().item())
+                            delta_norm = float(
+                                (grad_pre.float() - grad_for_update.float()).norm().item()
+                            )
+                            post_norm = float(grad_for_update.float().norm().item())
+                            tel["n_params"] = tel.get("n_params", 0) + 1
+                            tel["pre_norm_sum"] = tel.get("pre_norm_sum", 0.0) + pre_norm
+                            tel["post_norm_sum"] = tel.get("post_norm_sum", 0.0) + post_norm
+                            tel["delta_norm_sum"] = tel.get("delta_norm_sum", 0.0) + delta_norm
+                            if pre_norm > 1e-30:
+                                rel = delta_norm / pre_norm
+                                tel["rel_change_sum"] = tel.get("rel_change_sum", 0.0) + rel
+                                tel["rel_change_max"] = max(tel.get("rel_change_max", 0.0), rel)
+                                tel["rel_change_n"] = tel.get("rel_change_n", 0) + 1
                     # === Newton right-preconditioning (#1138). Applied BEFORE
                     # momentum/v buffers so they accumulate preconditioned
                     # gradients (matches paper pipeline order: G @ R^{-1/2}
                     # -> momentum -> v normalization -> NS5 -> update).
-                    grad_for_update = p.grad
                     if self.newton_precond:
-                        g_precond = self._apply_newton_precondition(p, p.grad, state)
+                        g_precond = self._apply_newton_precondition(p, grad_for_update, state)
                         if g_precond is not None:
                             grad_for_update = g_precond
                     update = muon_update(grad_for_update, state["momentum"], state["v"],
@@ -985,6 +1066,11 @@ print0(
     f"update_period={NANOGPT_NEWTON_MUON_UPDATE_PERIOD} "
     f"beta={NANOGPT_NEWTON_MUON_BETA} eps={NANOGPT_NEWTON_MUON_EPS} "
     f"max_d_in={NANOGPT_NEWTON_MUON_MAX_D_IN}",
+    console=True,
+)
+print0(
+    f"GRAD_CENTRALIZE (#1246): mode={NANOGPT_GRAD_CENTRALIZE} scope={NANOGPT_GRAD_CENTRALIZE_SCOPE} "
+    f"({'ACTIVE' if NANOGPT_GRAD_CENTRALIZE != 'none' else 'INACTIVE (bit-identical fallback)'})",
     console=True,
 )
 if NS_ITERS_COOLDOWN > 0:
@@ -1105,6 +1191,8 @@ if dist.get_rank() == 0:
             "nanogpt_newton_muon_beta": NANOGPT_NEWTON_MUON_BETA,
             "nanogpt_newton_muon_eps": NANOGPT_NEWTON_MUON_EPS,
             "nanogpt_newton_muon_max_d_in": NANOGPT_NEWTON_MUON_MAX_D_IN,
+            "nanogpt_grad_centralize": NANOGPT_GRAD_CENTRALIZE,
+            "nanogpt_grad_centralize_scope": NANOGPT_GRAD_CENTRALIZE_SCOPE,
         },
     )
 
@@ -1172,6 +1260,7 @@ for trial_idx in range(args.num_trials):
         newton_update_period=NANOGPT_NEWTON_MUON_UPDATE_PERIOD,
         newton_max_d_in=NANOGPT_NEWTON_MUON_MAX_D_IN,
         newton_input_cache=_newton_input_cache,
+        grad_centralize=NANOGPT_GRAD_CENTRALIZE,
     )
     print0(f"MUON_PARAM_COUNTS: attn={len(muon_attn_params)} mlp={len(muon_mlp_params)} "
            f"(expected 48 attn / 24 mlp for 12-layer block stack)", console=True)
@@ -1425,8 +1514,10 @@ for trial_idx in range(args.num_trials):
                 del ns_iters_history[:-100]
             ns_cumulative_iters += ns_iters_this_step
         # Tell Newton-Muon whether to compute telemetry diagnostics this step
-        # (gated to avoid per-param CUDA syncs on the hot path).
-        if getattr(optimizer2, "newton_precond", False):
+        # (gated to avoid per-param CUDA syncs on the hot path). The same flag
+        # gates Gradient Centralization (#1246) telemetry — sync-y pre/post
+        # gradient norms are only computed on telemetry_due steps.
+        if getattr(optimizer2, "newton_precond", False) or getattr(optimizer2, "grad_centralize", "none") != "none":
             optimizer2.newton_telemetry_due = bool(telemetry_due)
         for opt in optimizers:
             opt.step()
@@ -1464,6 +1555,28 @@ for trial_idx in range(args.num_trials):
                     tel["precond_ratio_sum"] / ratio_n
                 )
             wandb.log(newton_metrics, step=wandb_step)
+        # === Gradient Centralization (#1246) per-step telemetry. ===
+        # When grad_centralize=="none" the gc_telemetry dict stays empty so no
+        # extra W&B keys are logged (bit-identical reporting to baseline).
+        if (
+            dist.get_rank() == 0
+            and getattr(optimizer2, "grad_centralize", "none") != "none"
+            and telemetry_due
+        ):
+            gc_tel = optimizer2.gc_telemetry
+            n = gc_tel.get("rel_change_n", 0)
+            if n > 0:
+                gc_metrics = {
+                    "trial": trial_idx,
+                    "train/step": train_step,
+                    "train/gc/rel_change_mean": gc_tel["rel_change_sum"] / n,
+                    "train/gc/rel_change_max": gc_tel["rel_change_max"],
+                    "train/gc/pre_norm_mean": gc_tel["pre_norm_sum"] / gc_tel["n_params"],
+                    "train/gc/post_norm_mean": gc_tel["post_norm_sum"] / gc_tel["n_params"],
+                    "train/gc/delta_norm_mean": gc_tel["delta_norm_sum"] / gc_tel["n_params"],
+                    "train/gc/params_centralized": gc_tel["n_params"],
+                }
+                wandb.log(gc_metrics, step=wandb_step)
         # Init-anchored WD on embed (#847, env-var-gated). After both optimizers
         # have stepped, apply `p -= lr_embed * lambda * (p - p_init)`. Order vs
         # optimizer2.step() does not matter because the hook only touches
