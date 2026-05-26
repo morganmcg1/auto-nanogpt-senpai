@@ -1,3 +1,40 @@
+## 2026-05-26 09:15 UTC — Cycle 71 mid-274
+
+**Cumulative**: 163 refuted (thorfinn #1251 CLOSED as 163rd, 14th refute-signature class **ASYMMETRIC-DIRECTIONAL-REFUTE** introduced) / 87 distinct mech classes (thorfinn #1282 MUON_BETA_DEPTH_RAMP_COOLDOWN_ONLY NEW — first phase-gated spatial-schedule in 320-PR corpus) / 49 family-level closures (#1251 closure adds spatial-β to the spatial-schedule family group) / 7 SATURATED MECHANISM LAYERS + 3 SATURATED LANES / **14 refute-signature classes** / 7 CATASTROPHIC-SHIFTED-FLOOR (thorfinn #1251 Arm B added — 6th cooldown-tail-collapse instance)
+
+**This cycle**:
+- **#1251 thorfinn MUON_BETA_DEPTH_RAMP CLOSED**: 163rd refute, 49th family-level closure. Arm A `ufkanf0u` val=3.26912 ffs=3025 (FFS-PRIMARY-REFUTE close-miss) + Arm B `ocijn6iw` val=3.28135 ffs=-1 (CATASTROPHIC cooldown-tail collapse — better than baseline through step 3000, then -0.014 lost in final 175 steps of cooldown phase). 14th refute-signature class **ASYMMETRIC-DIRECTIONAL-REFUTE** introduced: one arm close-miss + other arm catastrophic, distinct from BILATERAL-SYMMETRIC-SHIFTED-FLOOR (both cluster) and CATASTROPHIC-SHIFTED-FLOOR (single-arm). Diagnosis: axis IS sensitive to magnitude but only in one sign-direction — deeper-layers-higher-β (Arm A) ≈ null behavior; deeper-layers-lower-β (Arm B) destabilizes cooldown phase specifically. Cooldown-tail collapse trajectory (step 3000 → 3175) reveals β1 spatial schedule interacts with cooldown phase, not with overall training trajectory.
+- **#1282 thorfinn MUON_BETA_DEPTH_RAMP_COOLDOWN_ONLY assigned**: 87th distinct mech class — FIRST phase-gated spatial schedule in 320-PR corpus. Mechanism: `β_layer(l,t) = β_global(t) + RAMP_COOLDOWN_ONLY × (l/(L-1) - 0.5)` if `step ≥ round(3175 × 0.95) = 3016` else `β_global(t)`. Cooldown duration is only 159 steps (3016-3175) so this isolates the late-phase trajectory mechanism observed in #1251 Arm B. Arms: A=+0.04 (deeper=higher β only in cooldown) + B=-0.04 (cooldown direction of #1251 Arm B collapse). Tests whether cooldown-tail collapse is mechanism-direction-specific (Arm B replicates collapse → confirmed) or phase-specific (both → phase fragility).
+- **#793 tanjiro spec pivot**: Student caught spec/authorization mismatch (PR body specced mean-preserving 0.7→1.3 ramp with MUON_LR_DEPTH_PROFILE env vars; authorization referenced DEPTH_DEP_MUON_LR/DEPTH_DEP_EXP). Pivoted to canonical CompleteP option II-a power-law `lr_l = MUON_LR × ((l+1)/L)^DEPTH_DEP_EXP` with DEPTH_DEP_EXP=0.5 (per-layer multipliers 0.2887 → 1.0000, mean 0.6453). Distinct from frieren #1250 (mean-preserving additive ramp) — CompleteP exponent form not yet tested in 320-PR corpus.
+- **#1271 askeladd SOAP_TRUST_DEPTH_RAMP Arm A authorized**: disabled-check val@200=4.09438 vs cu13 ceiling 4.090 (+0.004 overshoot). Accepted via 3-factor argument: (1) bytewise-inert disabled path verified code-level (env=0.0 → no behavioral diff); (2) precedent #1196 accepted at val@200=4.091; (3) cu13 RNG variance ~0.017 span. Cross-pod cu13 telemetry: 7-point mean 4.0833, span 0.017.
+
+**FFS-PRIMARY-REFUTE cluster (4 confirmed n=1 close-misses at ffs=3025 floor)** — unchanged from mid-273. Cluster prediction holds: any single-seed close-miss landing in (3.269, 3.272) × ffs=3025 is **null behavior** for n=1.
+
+**Active fleet (mid-274 post-cycle)**:
+- alphonse #1248 NOVOGRAD_BODY_MUON — Arm B in-flight β2=0.99 confirm, ETA ~09:00 UTC (terminal soon)
+- frieren #1250 MUON_LR_DEPTH_RAMP — Arm B in-flight RAMP=-0.3, ETA ~09:30 UTC
+- edward #1264 LATE_NORMUON_VARIANCE_RESET — Arm A in-flight, step ~1500
+- fern #1267 LATE_COOLDOWN_MOMENTUM_RESET — Arm A in-flight, step ~600+
+- askeladd #1271 SOAP_TRUST_DEPTH_RAMP — Arm A authorized, launching
+- **thorfinn #1282 MUON_BETA_DEPTH_RAMP_COOLDOWN_ONLY — NEW, awaiting disabled-check + code-review gate**
+- 2 pod-broken holds: tanjiro #793 (awaiting CompleteP impl) + nezuko #1226 (Arm B in-flight, Option B approved — let finish then launch Arm A=1.0)
+
+**ZERO IDLE STUDENTS** — 6 active WIPs + 1 NEW awaiting-launch (#1282) + 1 in-flight (nezuko Arm B)
+
+**Aligned with Morgan #1259 directive**:
+- 5× depth/per-group (#1250 LR + #1271 SOAP_TRUST attn + #793 CompleteP + #1282 phase-gated spatial-β + (#1251 CLOSED spatial-β refute))
+- 4× state-phase changes (#1248 NovoGrad + #1264/#1267 paired reset event + #1282 cooldown phase-gating)
+- 0× scalar HP-only sweeps
+- 0× saturated lanes added (#1251 closure adds spatial-β to ongoing schedule family, does NOT saturate)
+
+**Methodological observations**:
+- 14th refute-signature class **ASYMMETRIC-DIRECTIONAL-REFUTE** identifies sign-direction-specific axis sensitivity. Future spatial-schedule designs must consider both directions independently rather than assuming symmetric behavior.
+- Cooldown-tail collapse (CATASTROPHIC instance #6) is a **phase-specific failure mode** — Arm B trajectory was healthy through step 3000 then collapsed -0.014 in 175 steps. Suggests cooldown-phase mechanisms deserve their own decoupled study (motivates #1282 phase-gated design).
+- Phase-gated spatial schedule (#1282) is **first explicit phase × spatial interaction test** — generalizes the decoupled-mechanism pair design methodology to phase × axis decoupling.
+- Cooldown duration 159 steps may be too short to converge separate mechanisms; if #1282 yields ASYMMETRIC-DIRECTIONAL-REFUTE again, suggests cooldown-isolation is too tight a window. Alternative: extend MU_COOLDOWN_START earlier (e.g. 0.85 → 539-step cooldown) as follow-up family.
+
+---
+
 ## 2026-05-26 08:15 UTC — Cycle 71 mid-273
 
 **Cumulative**: 162 refuted (askeladd #1254 CLOSED as 162nd, CATASTROPHIC single-arm refute) / 86 distinct mech classes (askeladd #1271 SOAP_TRUST_DEPTH_RAMP NEW — first per-layer SOAP gating in 320-PR corpus) / 48 family-level closures (#1254 single-arm preempt-close does NOT increment family-level — Arm B killed pre-launch) / 7 SATURATED MECHANISM LAYERS + 3 SATURATED LANES / **13 refute-signature classes** (13th class **Stiefel-averaging-magnitude-loss** introduced via #1254 — distinct from generic CATASTROPHIC-SHIFTED-FLOOR, identifies a specific Riemannian-averaging failure mode where post-NS5 EMA of unit-direction projections loses gradient magnitude info that downstream Muon update needs for layer-wise scale calibration)
