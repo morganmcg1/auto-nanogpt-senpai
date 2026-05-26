@@ -633,6 +633,15 @@ def _make_newton_input_hook(weight_param: "torch.Tensor", max_d_in: int):
 
     return hook
 
+# Body Muon momentum bias correction (PR g1r4-thorfinn/body-muon-bias-correction).
+# When BIAS_CORRECTION=1, apply Adam-style m_hat = m / (1 - β^t) to the running
+# momentum buffer before the Nesterov blend + NS5 polar decomposition. Defaults
+# (0/0.95/0) reproduce the merged baseline bit-for-bit (no new tensor created).
+NANOGPT_BODY_MUON_BIAS_CORRECTION = int(os.environ.get("NANOGPT_BODY_MUON_BIAS_CORRECTION", "0"))
+NANOGPT_BODY_MUON_BIAS_BETA = float(os.environ.get("NANOGPT_BODY_MUON_BIAS_BETA", "0.95"))
+# WARMUP_STEPS=0 -> always-on; WARMUP_STEPS=N -> correction active for first N steps only.
+NANOGPT_BODY_MUON_BIAS_WARMUP_STEPS = int(os.environ.get("NANOGPT_BODY_MUON_BIAS_WARMUP_STEPS", "0"))
+
 
 def get_ns_coef_at_iter(iter_idx: int, total_iters: int, schedule: str) -> tuple[float, float, float]:
     """Return (a, b, c) for NS iter iter_idx of total_iters.
@@ -741,6 +750,24 @@ def muon_update(grad, momentum, v, ns_iters: int, mu=0.95, beta2=0.999, eps=1e-8
     update *= max(1, grad.size(-2) / grad.size(-1))**0.5
     return update
 
+
+@torch.compile
+def muon_update_bias_corrected(grad, momentum, v, bias_term, ns_iters: int,
+                               mu=0.95, beta2=0.999, eps=1e-8, nesterov=True):
+    # Same as muon_update but with Adam-style bias correction on the momentum
+    # buffer before the Nesterov blend / NS5 (NS5-INPUT-MAGNITUDE-CORRECTING).
+    # The running `momentum` buffer is *not* mutated by the correction; it
+    # remains the uncorrected EMA so future steps see the standard recurrence.
+    momentum.lerp_(grad, 1 - mu)
+    m_corrected = momentum / bias_term
+    update = grad.lerp_(m_corrected, mu) if nesterov else m_corrected
+    v.mul_(beta2).addcmul_(update, update, value=1 - beta2)
+    update = update / (v.sqrt() + eps)
+    update = zeropower_via_newtonschulz5(update, ns_iters=ns_iters)
+    update *= max(1, grad.size(-2) / grad.size(-1))**0.5
+    return update
+
+
 class Muon(torch.optim.Optimizer):
     def __init__(self, params, lr=0.02, weight_decay=0, mu=0.95, beta2=0.999, eps=1e-8,
                  newton_precond: bool = False, newton_beta: float = 0.95,
@@ -794,6 +821,14 @@ class Muon(torch.optim.Optimizer):
         # to enable the sync-y per-param diagnostics; False otherwise to keep
         # the GPU pipeline async (item() calls block the CPU and serialize work).
         self.newton_telemetry_due: bool = False
+        # === Body Muon momentum bias correction (#1231) ===
+        # All Muon params step together, so a single shared counter is equivalent to
+        # per-param state["step"] and avoids redundant state. Counter is *0-indexed*
+        # at the start of each step() — i.e. it equals the number of completed steps.
+        self.muon_step_count = 0
+        # Populated by step() when bias correction is active so the training loop
+        # can read back per-step diagnostics (bias term, m-norms, correction ratio).
+        self.bias_correction_stats: dict[str, float] | None = None
 
     def set_ns_iters_this_step(self, ns_iters: int) -> None:
         self.ns_iters_this_step = int(ns_iters)
@@ -888,6 +923,20 @@ class Muon(torch.optim.Optimizer):
         if self.newton_precond:
             self._newton_step_count += 1
             self.newton_telemetry = {}
+        # Decide bias-correction policy once per step (shared across all params).
+        # When inactive, every code path below reduces to the legacy `muon_update`
+        # call — bit-identical to the merged baseline.
+        step_count = self.muon_step_count
+        bias_active = bool(NANOGPT_BODY_MUON_BIAS_CORRECTION) and (
+            NANOGPT_BODY_MUON_BIAS_WARMUP_STEPS == 0
+            or step_count < NANOGPT_BODY_MUON_BIAS_WARMUP_STEPS
+        )
+        if bias_active:
+            bias_term_value = 1.0 - NANOGPT_BODY_MUON_BIAS_BETA ** (step_count + 1)
+        else:
+            bias_term_value = 1.0
+        self.bias_correction_stats = None
+        bias_term_tensor: torch.Tensor | None = None
         for group in self.param_groups:
             params = group["params"]
             params_pad = params + [torch.empty_like(params[-1])] * (world_size - len(params) % world_size)
@@ -907,9 +956,35 @@ class Muon(torch.optim.Optimizer):
                         g_precond = self._apply_newton_precondition(p, p.grad, state)
                         if g_precond is not None:
                             grad_for_update = g_precond
-                    update = muon_update(grad_for_update, state["momentum"], state["v"],
-                                         ns_iters=ns_iters,
-                                         mu=group["mu"], beta2=group["beta2"], eps=group["eps"])
+                    if bias_active:
+                        if bias_term_tensor is None or bias_term_tensor.device != p.device:
+                            bias_term_tensor = torch.tensor(
+                                bias_term_value, device=p.device, dtype=state["momentum"].dtype
+                            )
+                        update = muon_update_bias_corrected(
+                            grad_for_update, state["momentum"], state["v"],
+                            bias_term_tensor, ns_iters=ns_iters,
+                            mu=group["mu"], beta2=group["beta2"], eps=group["eps"],
+                        )
+                    else:
+                        update = muon_update(grad_for_update, state["momentum"], state["v"],
+                                             ns_iters=ns_iters,
+                                             mu=group["mu"], beta2=group["beta2"], eps=group["eps"])
+                    if spectral_target is not None and p is spectral_target:
+                        # Capture pre/post-correction L2 norms on the same tracked
+                        # parameter the spectral stats use. After the muon_update*
+                        # call, state["momentum"] holds the (uncorrected) running
+                        # buffer m_t — so its norm IS the pre-correction norm.
+                        pre_norm = float(state["momentum"].detach().float().norm().item())
+                        self.bias_correction_stats = {
+                            "bias_active": float(bias_active),
+                            "bias_term_value": float(bias_term_value),
+                            "m_pre_correction_norm": pre_norm,
+                            "m_post_correction_norm": pre_norm / bias_term_value if bias_active else pre_norm,
+                            "correction_ratio": (1.0 / bias_term_value) if bias_active else 1.0,
+                            "warmup_steps_cfg": float(NANOGPT_BODY_MUON_BIAS_WARMUP_STEPS),
+                            "bias_beta_cfg": float(NANOGPT_BODY_MUON_BIAS_BETA),
+                        }
                     if spectral_target is not None and p is spectral_target:
                         # Singular values of the orthogonalized (post-NS) update.
                         # Multiplied by max(1, fan_in/fan_out)**0.5 inside muon_update;
@@ -931,6 +1006,9 @@ class Muon(torch.optim.Optimizer):
                     p.mul_(1 - group["lr"] * group["weight_decay"])
                     p.add_(update, alpha=-group["lr"])
                 dist.all_gather(params_pad[base_i:base_i + world_size], params_pad[base_i + rank])
+        # Single shared counter (see __init__): increment AFTER the per-param
+        # loop so the value passed into the loop is "completed steps" (0-indexed).
+        self.muon_step_count += 1
 
 
 ########################################
@@ -987,6 +1065,18 @@ print0(
     f"max_d_in={NANOGPT_NEWTON_MUON_MAX_D_IN}",
     console=True,
 )
+if NANOGPT_BODY_MUON_BIAS_CORRECTION:
+    _bias_warmup_desc = (
+        "always-on" if NANOGPT_BODY_MUON_BIAS_WARMUP_STEPS == 0
+        else f"first {NANOGPT_BODY_MUON_BIAS_WARMUP_STEPS} steps only"
+    )
+    print0(f"BODY_MUON_BIAS_CORRECTION: ACTIVE (β={NANOGPT_BODY_MUON_BIAS_BETA}, {_bias_warmup_desc}; "
+           f"step1 amplify ≈{1.0/(1.0 - NANOGPT_BODY_MUON_BIAS_BETA**1):.2f}×, "
+           f"step10 ≈{1.0/(1.0 - NANOGPT_BODY_MUON_BIAS_BETA**10):.2f}×, "
+           f"step100 ≈{1.0/(1.0 - NANOGPT_BODY_MUON_BIAS_BETA**100):.3f}×)",
+           console=True)
+else:
+    print0("BODY_MUON_BIAS_CORRECTION: INACTIVE (bit-identical fallback)", console=True)
 if NS_ITERS_COOLDOWN > 0:
     print0(f"NS_SCHEDULE: ns_iters={NS_ITERS} -> ns_iters_cooldown={NS_ITERS_COOLDOWN} "
            f"at fraction {NS_COOLDOWN_START_FRAC} of train_steps "
@@ -1105,6 +1195,9 @@ if dist.get_rank() == 0:
             "nanogpt_newton_muon_beta": NANOGPT_NEWTON_MUON_BETA,
             "nanogpt_newton_muon_eps": NANOGPT_NEWTON_MUON_EPS,
             "nanogpt_newton_muon_max_d_in": NANOGPT_NEWTON_MUON_MAX_D_IN,
+            "nanogpt_body_muon_bias_correction": NANOGPT_BODY_MUON_BIAS_CORRECTION,
+            "nanogpt_body_muon_bias_beta": NANOGPT_BODY_MUON_BIAS_BETA,
+            "nanogpt_body_muon_bias_warmup_steps": NANOGPT_BODY_MUON_BIAS_WARMUP_STEPS,
         },
     )
 
@@ -1553,6 +1646,9 @@ for trial_idx in range(args.num_trials):
             if optimizer2.spectral_stats is not None:
                 for k, v in optimizer2.spectral_stats.items():
                     ns_metrics[f"train/ns_schedule/{k}"] = v
+            if optimizer2.bias_correction_stats is not None:
+                for k, v in optimizer2.bias_correction_stats.items():
+                    ns_metrics[f"body_muon/{k}"] = v
             # Per-iter NS coefficient telemetry (probes 3 representative iters).
             current_ns_iters = ns_iters_this_step
             a0, b0, c0 = get_ns_coef_at_iter(0, current_ns_iters, NS_COEF_SCHEDULE)
