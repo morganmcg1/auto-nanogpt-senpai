@@ -340,6 +340,60 @@ def log_adamw_step_direction(
     wandb.log(metrics, step=wandb_step)
 
 
+@torch.no_grad()
+def row_normalize_grad_(grad: torch.Tensor, eps: float = 1e-8) -> dict:
+    """Row-normalize a 2D gradient in place (#1192).
+
+    For each row v of `grad` (shape [|V|, d]), replace g_v ← g_v · (r_bar / r_v)
+    where r_v = ||g_v||_2 and r_bar = mean_v(r_v_clamped). Preserves per-row
+    direction, equalizes per-row L2 magnitude to the batch-mean. Returns
+    pre/post row-L2 statistics for telemetry.
+    """
+    assert grad.ndim == 2, f"row_normalize expects 2D grad, got {tuple(grad.shape)}"
+    grad32 = grad.to(torch.float32)
+    r_pre = grad32.norm(dim=1)  # [|V|]
+    r_pre_clamped = r_pre.clamp_min(eps)
+    r_bar = r_pre_clamped.mean()
+    scale = r_bar / r_pre_clamped
+    grad32.mul_(scale.unsqueeze(1))
+    grad.copy_(grad32.to(grad.dtype))
+    r_post = grad32.norm(dim=1)
+    return {
+        "pre_mean": float(r_pre.mean().item()),
+        "pre_std": float(r_pre.std().item()),
+        "pre_min": float(r_pre.min().item()),
+        "pre_max": float(r_pre.max().item()),
+        "post_mean": float(r_post.mean().item()),
+        "post_std": float(r_post.std().item()),
+        "r_bar": float(r_bar.item()),
+    }
+
+
+@torch.no_grad()
+def row_grad_stats(grad: torch.Tensor) -> dict:
+    """Pre-norm row-L2 stats without modifying `grad` (control-arm telemetry)."""
+    assert grad.ndim == 2, f"row_grad_stats expects 2D grad, got {tuple(grad.shape)}"
+    g32 = grad.to(torch.float32)
+    r = g32.norm(dim=1)
+    return {
+        "pre_mean": float(r.mean().item()),
+        "pre_std": float(r.std().item()),
+        "pre_min": float(r.min().item()),
+        "pre_max": float(r.max().item()),
+    }
+
+
+@torch.no_grad()
+def compute_sign_flip_rate(m_t: torch.Tensor, g_t: torch.Tensor) -> float:
+    """Fraction of (i,j) entries where m_t[i,j] · g_t[i,j] < 0.
+
+    Measures momentum-gradient disagreement on the post-row-norm gradient that
+    AdamW actually sees this step.
+    """
+    product = m_t.to(torch.float32) * g_t.to(torch.float32)
+    return float((product < 0).to(torch.float32).mean().item())
+
+
 def log_weight_telemetry(
     model: nn.Module,
     module_types: dict[str, str],
@@ -593,6 +647,14 @@ NANOGPT_SENPAI_SEED = int(_SENPAI_SEED_RAW) if _SENPAI_SEED_RAW != "" else None
 # `embed.weight -= lr_embed * lambda * (embed.weight - embed_init_snapshot)`.
 # At lambda=0 the hook is a no-op and behavior is bit-identical to the merged stack.
 NANOGPT_EMBED_INIT_ANCHOR_LAMBDA = float(os.environ.get("NANOGPT_EMBED_INIT_ANCHOR_LAMBDA", "0.0"))
+# Row-norm AdamW gradient preconditioning (#1192). When > 0 for a group, before
+# AdamW reads the gradient we scale each row so its L2 equals the batch-mean
+# row L2 (preserves direction per-row, equalizes magnitude across rows).
+# Applied AFTER per-group grad clip and BEFORE optimizer.step(). At 0 (default)
+# the call short-circuits and behavior is bit-identical to the merged stack.
+NANOGPT_LM_HEAD_ROW_NORM = int(os.environ.get("NANOGPT_LM_HEAD_ROW_NORM", "0"))
+NANOGPT_EMBED_ROW_NORM = int(os.environ.get("NANOGPT_EMBED_ROW_NORM", "0"))
+NANOGPT_ROW_NORM_EPS = float(os.environ.get("NANOGPT_ROW_NORM_EPS", "1e-8"))
 
 
 def get_ns_coef_at_iter(iter_idx: int, total_iters: int, schedule: str) -> tuple[float, float, float]:
@@ -824,6 +886,10 @@ print0(f"  Effective Muon base LRs: attn={0.035*NANOGPT_MUON_ATTN_LR_MULT:.5f} m
 print0(f"EMBED_INIT_ANCHOR_LAMBDA: {NANOGPT_EMBED_INIT_ANCHOR_LAMBDA} "
        f"({'ACTIVE' if NANOGPT_EMBED_INIT_ANCHOR_LAMBDA > 0 else 'INACTIVE (bit-identical fallback)'})",
        console=True)
+print0(f"ROW_NORM: lm_head={NANOGPT_LM_HEAD_ROW_NORM} embed={NANOGPT_EMBED_ROW_NORM} "
+       f"eps={NANOGPT_ROW_NORM_EPS} "
+       f"({'ACTIVE' if (NANOGPT_LM_HEAD_ROW_NORM > 0 or NANOGPT_EMBED_ROW_NORM > 0) else 'INACTIVE (bit-identical fallback)'})",
+       console=True)
 if NS_ITERS_COOLDOWN > 0:
     print0(f"NS_SCHEDULE: ns_iters={NS_ITERS} -> ns_iters_cooldown={NS_ITERS_COOLDOWN} "
            f"at fraction {NS_COOLDOWN_START_FRAC} of train_steps "
@@ -896,6 +962,9 @@ if dist.get_rank() == 0:
             "nanogpt_ns_stochastic_cooldown": NANOGPT_NS_STOCHASTIC_COOLDOWN,
             "senpai_seed": NANOGPT_SENPAI_SEED if NANOGPT_SENPAI_SEED is not None else -1,
             "nanogpt_embed_init_anchor_lambda": NANOGPT_EMBED_INIT_ANCHOR_LAMBDA,
+            "nanogpt_lm_head_row_norm": NANOGPT_LM_HEAD_ROW_NORM,
+            "nanogpt_embed_row_norm": NANOGPT_EMBED_ROW_NORM,
+            "nanogpt_row_norm_eps": NANOGPT_ROW_NORM_EPS,
         },
     )
 
@@ -1205,6 +1274,51 @@ for trial_idx in range(args.num_trials):
             if len(ns_iters_history) > 100:
                 del ns_iters_history[:-100]
             ns_cumulative_iters += ns_iters_this_step
+        # Row-norm gradient preconditioning for AdamW lm_head / embed (#1192).
+        # Applied AFTER per-group grad clip and BEFORE optimizer.step() so AdamW
+        # sees the equalized gradient. Captures pre-norm row-L2 stats and
+        # sign-flip rate (m_t · g_t < 0) on telemetry-due steps regardless of
+        # row-norm being active; post-norm stats only when row-norm is active.
+        lm_head_row_stats = None
+        embed_row_stats = None
+        lm_head_sign_flip_rate = None
+        embed_sign_flip_rate = None
+        if NANOGPT_LM_HEAD_ROW_NORM > 0:
+            lm_head_state = optimizer1.state.get(model.proj.weight, {})
+            m_t_lm = lm_head_state.get("exp_avg")
+            lm_head_row_stats = row_normalize_grad_(
+                model.proj.weight.grad, NANOGPT_ROW_NORM_EPS
+            )
+            if dist.get_rank() == 0 and telemetry_due and m_t_lm is not None:
+                lm_head_sign_flip_rate = compute_sign_flip_rate(
+                    m_t_lm, model.proj.weight.grad
+                )
+        elif dist.get_rank() == 0 and telemetry_due:
+            lm_head_row_stats = row_grad_stats(model.proj.weight.grad)
+            lm_head_state = optimizer1.state.get(model.proj.weight, {})
+            m_t_lm = lm_head_state.get("exp_avg")
+            if m_t_lm is not None:
+                lm_head_sign_flip_rate = compute_sign_flip_rate(
+                    m_t_lm, model.proj.weight.grad
+                )
+        if NANOGPT_EMBED_ROW_NORM > 0:
+            embed_state = optimizer1.state.get(model.embed.weight, {})
+            m_t_emb = embed_state.get("exp_avg")
+            embed_row_stats = row_normalize_grad_(
+                model.embed.weight.grad, NANOGPT_ROW_NORM_EPS
+            )
+            if dist.get_rank() == 0 and telemetry_due and m_t_emb is not None:
+                embed_sign_flip_rate = compute_sign_flip_rate(
+                    m_t_emb, model.embed.weight.grad
+                )
+        elif dist.get_rank() == 0 and telemetry_due:
+            embed_row_stats = row_grad_stats(model.embed.weight.grad)
+            embed_state = optimizer1.state.get(model.embed.weight, {})
+            m_t_emb = embed_state.get("exp_avg")
+            if m_t_emb is not None:
+                embed_sign_flip_rate = compute_sign_flip_rate(
+                    m_t_emb, model.embed.weight.grad
+                )
         for opt in optimizers:
             opt.step()
         # Init-anchored WD on embed (#847, env-var-gated). After both optimizers
@@ -1274,6 +1388,36 @@ for trial_idx in range(args.num_trials):
                 step=train_step,
                 wandb_step=wandb_step,
             )
+        # Row-norm telemetry (#1192). Always log pre-norm row stats and sign-flip
+        # rate on telemetry-due steps. Post-norm stats only logged when row-norm
+        # is firing for that param group.
+        if dist.get_rank() == 0 and telemetry_due:
+            row_norm_metrics = {"trial": trial_idx, "train/step": train_step}
+            if lm_head_row_stats is not None:
+                row_norm_metrics["lm_head/grad_row_norm_mean"] = lm_head_row_stats["pre_mean"]
+                row_norm_metrics["lm_head/grad_row_norm_std"] = lm_head_row_stats["pre_std"]
+                row_norm_metrics["lm_head/grad_row_norm_min"] = lm_head_row_stats["pre_min"]
+                row_norm_metrics["lm_head/grad_row_norm_max"] = lm_head_row_stats["pre_max"]
+                if "post_mean" in lm_head_row_stats:
+                    row_norm_metrics["lm_head/grad_row_norm_post_mean"] = lm_head_row_stats["post_mean"]
+                    row_norm_metrics["lm_head/grad_row_norm_post_std"] = lm_head_row_stats["post_std"]
+                    row_norm_metrics["lm_head/grad_row_norm_r_bar"] = lm_head_row_stats["r_bar"]
+            row_norm_metrics["lm_head/row_norm_active"] = int(NANOGPT_LM_HEAD_ROW_NORM > 0)
+            if lm_head_sign_flip_rate is not None:
+                row_norm_metrics["lm_head/grad_sign_flip_rate"] = lm_head_sign_flip_rate
+            if embed_row_stats is not None:
+                row_norm_metrics["embed/grad_row_norm_mean"] = embed_row_stats["pre_mean"]
+                row_norm_metrics["embed/grad_row_norm_std"] = embed_row_stats["pre_std"]
+                row_norm_metrics["embed/grad_row_norm_min"] = embed_row_stats["pre_min"]
+                row_norm_metrics["embed/grad_row_norm_max"] = embed_row_stats["pre_max"]
+                if "post_mean" in embed_row_stats:
+                    row_norm_metrics["embed/grad_row_norm_post_mean"] = embed_row_stats["post_mean"]
+                    row_norm_metrics["embed/grad_row_norm_post_std"] = embed_row_stats["post_std"]
+                    row_norm_metrics["embed/grad_row_norm_r_bar"] = embed_row_stats["r_bar"]
+            row_norm_metrics["embed/row_norm_active"] = int(NANOGPT_EMBED_ROW_NORM > 0)
+            if embed_sign_flip_rate is not None:
+                row_norm_metrics["embed/grad_sign_flip_rate"] = embed_sign_flip_rate
+            wandb.log(row_norm_metrics, step=wandb_step)
         if dist.get_rank() == 0 and telemetry_due:
             ns_metrics = {
                 "trial": trial_idx,
