@@ -593,6 +593,20 @@ NANOGPT_SENPAI_SEED = int(_SENPAI_SEED_RAW) if _SENPAI_SEED_RAW != "" else None
 # `embed.weight -= lr_embed * lambda * (embed.weight - embed_init_snapshot)`.
 # At lambda=0 the hook is a no-op and behavior is bit-identical to the merged stack.
 NANOGPT_EMBED_INIT_ANCHOR_LAMBDA = float(os.environ.get("NANOGPT_EMBED_INIT_ANCHOR_LAMBDA", "0.0"))
+# Power AdamW (#1232): replace AdamW's v_t = E[g²] (p=2) with v_t = E[|g|^p] and
+# denom = v_t^{1/p} for the listed AdamW groups. p=2.0 OR empty scope keeps the
+# fused-AdamW path bit-identical to baseline. POWER_SCOPE accepts comma-separated
+# AdamW group names: "lm_head", "embed", "scalars". This PR only ships lm_head.
+NANOGPT_ADAMW_POWER_P = float(os.environ.get("NANOGPT_ADAMW_POWER_P", "2.0"))
+NANOGPT_ADAMW_POWER_SCOPE = os.environ.get("NANOGPT_ADAMW_POWER_SCOPE", "")
+_POWER_SCOPE_GROUPS = set(
+    s.strip() for s in NANOGPT_ADAMW_POWER_SCOPE.split(",") if s.strip()
+)
+_POWER_ACTIVE_LM_HEAD = (NANOGPT_ADAMW_POWER_P != 2.0 and "lm_head" in _POWER_SCOPE_GROUPS)
+# For p < 1 the denom exponent 1/p > 1 amplifies small numbers; nudge eps up
+# slightly for numerical stability (PR critical note 3). At p>=1 we keep eps=1e-10
+# to match baseline.
+_POWER_EPS = 1e-6 if (NANOGPT_ADAMW_POWER_P < 1.0) else 1e-10
 
 
 def get_ns_coef_at_iter(iter_idx: int, total_iters: int, schedule: str) -> tuple[float, float, float]:
@@ -778,6 +792,94 @@ class Muon(torch.optim.Optimizer):
                 dist.all_gather(params_pad[base_i:base_i + world_size], params_pad[base_i + rank])
 
 
+class PowerAdamW(torch.optim.Optimizer):
+    """AdamW with generalized p-norm denominator (#1232).
+
+    Standard Adam: v_t = β2 v_{t-1} + (1-β2) g_t², denom = sqrt(v_t).
+    Power AdamW:   v_t = β2 v_{t-1} + (1-β2) |g_t|^p, denom = v_t^{1/p}.
+
+    p=2.0 collapses to standard AdamW (math-equivalent, FP-different from fused).
+    Used only when NANOGPT_ADAMW_POWER_P != 2.0 AND group name in scope; otherwise
+    the script keeps the fused-AdamW path for bit-identical baseline.
+    """
+
+    def __init__(self, params, lr, betas, eps, weight_decay, power_p):
+        defaults = dict(lr=lr, betas=betas, eps=eps,
+                        weight_decay=weight_decay, power_p=power_p)
+        super().__init__(params, defaults)
+        # Per-step telemetry buffer the training loop reads after step().
+        self.power_telemetry: dict[str, float] = {}
+
+    @torch.no_grad()
+    def step(self, closure=None):
+        loss = None if closure is None else closure()
+        telem: dict[str, float] = {}
+        for group in self.param_groups:
+            beta1, beta2 = group["betas"]
+            eps = group["eps"]
+            wd = group["weight_decay"]
+            lr = group["lr"]
+            p_pow = group["power_p"]
+            inv_p = 1.0 / p_pow
+            g_name = group.get("name", "unknown")
+            for p in group["params"]:
+                if p.grad is None:
+                    continue
+                state = self.state[p]
+                if len(state) == 0:
+                    state["step"] = 0
+                    state["exp_avg"] = torch.zeros_like(
+                        p, memory_format=torch.preserve_format, dtype=torch.float32)
+                    state["exp_avg_sq"] = torch.zeros_like(
+                        p, memory_format=torch.preserve_format, dtype=torch.float32)
+                state["step"] += 1
+                t = state["step"]
+                m = state["exp_avg"]
+                v = state["exp_avg_sq"]
+                # Cast grad to fp32 for state update and power computation (avoids
+                # bf16 overflow on |g|^p for p > 2; lm_head grads are already fp32
+                # in this codebase but we promote defensively).
+                g32 = p.grad.detach().to(dtype=torch.float32)
+                # AdamW decoupled WD (wd=0 here; included for completeness).
+                if wd > 0:
+                    p.data.mul_(1.0 - lr * wd)
+                m.mul_(beta1).add_(g32, alpha=(1.0 - beta1))
+                # Power-p second moment: v_t = β2 v_{t-1} + (1-β2)|g|^p.
+                g_pow = g32.abs().pow_(p_pow)
+                v.mul_(beta2).add_(g_pow, alpha=(1.0 - beta2))
+                bc1 = 1.0 - beta1 ** t
+                bc2 = 1.0 - beta2 ** t
+                m_hat = m / bc1
+                v_hat = v / bc2
+                # Power denom: v_hat^{1/p}. clone() so we can also read v_hat L2.
+                denom = v_hat.pow(inv_p).add_(eps)
+                update = m_hat / denom
+                p.data.add_(update.to(dtype=p.dtype), alpha=-lr)
+                # Telemetry (last param of group wins if multiple; here lm_head
+                # has only one). v_norm_pre_pow is sqrt(sum(v_hat²)); denom_norm
+                # is the same for the post-power denom. effective_step_scale_ratio
+                # compares to the canonical p=2 denom = sqrt(v_hat) — purely a
+                # diagnostic of how much the power exponent shifts the rescaling.
+                telem[f"power_lmhead/{g_name}/power_p_active"] = float(p_pow)
+                telem[f"power_lmhead/{g_name}/v_norm_pre_pow"] = float(v_hat.norm().item())
+                telem[f"power_lmhead/{g_name}/denom_norm"] = float(denom.norm().item())
+                # ratio of denom_p / denom_2 (where denom_2 = sqrt(v_hat_2) + eps).
+                # Approximation: denom_2 norm using v_hat from this run as if p=2.
+                # We don't keep a separate v_hat_2, so the ratio uses an analytic
+                # equivalent form: comparing v_hat^{1/p} norm to v_hat^{1/2} norm
+                # of the SAME v_hat tensor (which is what is being raised). This
+                # is a sanity check that the exponent shift is the dominant effect.
+                denom_2_proxy = v_hat.sqrt().add_(eps)
+                telem[f"power_lmhead/{g_name}/effective_step_scale_ratio"] = float(
+                    (denom.norm() / (denom_2_proxy.norm() + 1e-30)).item()
+                )
+                telem[f"power_lmhead/{g_name}/m_hat_norm"] = float(m_hat.norm().item())
+                telem[f"power_lmhead/{g_name}/update_norm"] = float(update.norm().item())
+                telem[f"power_lmhead/{g_name}/grad_max_abs"] = float(g32.abs().max().item())
+        self.power_telemetry = telem
+        return loss
+
+
 ########################################
 #                Setup                 #
 ########################################
@@ -823,6 +925,10 @@ print0(f"MUON_LR_MULT: attn={NANOGPT_MUON_ATTN_LR_MULT:.3f} mlp={NANOGPT_MUON_ML
 print0(f"  Effective Muon base LRs: attn={0.035*NANOGPT_MUON_ATTN_LR_MULT:.5f} mlp={0.035*NANOGPT_MUON_MLP_LR_MULT:.5f}", console=True)
 print0(f"EMBED_INIT_ANCHOR_LAMBDA: {NANOGPT_EMBED_INIT_ANCHOR_LAMBDA} "
        f"({'ACTIVE' if NANOGPT_EMBED_INIT_ANCHOR_LAMBDA > 0 else 'INACTIVE (bit-identical fallback)'})",
+       console=True)
+print0(f"ADAMW_POWER_P: p={NANOGPT_ADAMW_POWER_P} scope={NANOGPT_ADAMW_POWER_SCOPE!r} "
+       f"({'ACTIVE on lm_head (custom PowerAdamW)' if _POWER_ACTIVE_LM_HEAD else 'INACTIVE (bit-identical fallback, fused AdamW)'})"
+       f" eps={_POWER_EPS}",
        console=True)
 if NS_ITERS_COOLDOWN > 0:
     print0(f"NS_SCHEDULE: ns_iters={NS_ITERS} -> ns_iters_cooldown={NS_ITERS_COOLDOWN} "
@@ -896,6 +1002,10 @@ if dist.get_rank() == 0:
             "nanogpt_ns_stochastic_cooldown": NANOGPT_NS_STOCHASTIC_COOLDOWN,
             "senpai_seed": NANOGPT_SENPAI_SEED if NANOGPT_SENPAI_SEED is not None else -1,
             "nanogpt_embed_init_anchor_lambda": NANOGPT_EMBED_INIT_ANCHOR_LAMBDA,
+            "nanogpt_adamw_power_p": NANOGPT_ADAMW_POWER_P,
+            "nanogpt_adamw_power_scope": NANOGPT_ADAMW_POWER_SCOPE,
+            "nanogpt_adamw_power_active_lm_head": int(_POWER_ACTIVE_LM_HEAD),
+            "nanogpt_adamw_power_eps": _POWER_EPS,
         },
     )
 
@@ -938,10 +1048,27 @@ for trial_idx in range(args.num_trials):
                f"snapshot_shape={tuple(embed_init_snapshot.shape)}", console=True)
 
     # create the optimizer(s)
-    optimizer1 = AdamW([dict(params=[model.embed.weight], lr=0.3 * NANOGPT_ADAMW_EMBED_LR_MULT, name="adam_embed"),
-                        dict(params=[model.proj.weight], lr=(1/320) * NANOGPT_ADAMW_LM_HEAD_LR_MULT, name="adam_lm_head"),
-                        dict(params=[p for p in model.parameters() if p.ndim < 2], lr=0.01 * NANOGPT_ADAMW_SCALAR_LR_MULT, name="adam_scalars")],
-                       betas=(0.8, NANOGPT_ADAMW_BETA2), eps=1e-10, weight_decay=0, fused=True)
+    # Power AdamW (#1232) optionally splits the lm_head AdamW group into a
+    # custom Python optimizer that uses v_t = E[|g|^p] / denom = v_t^{1/p}.
+    # When inactive (p=2.0 or scope empty), all three AdamW groups stay in the
+    # fused-AdamW path for bit-identical baseline behavior.
+    _adam_scalar_params = [p for p in model.parameters() if p.ndim < 2]
+    if _POWER_ACTIVE_LM_HEAD:
+        optimizer1 = AdamW([dict(params=[model.embed.weight], lr=0.3 * NANOGPT_ADAMW_EMBED_LR_MULT, name="adam_embed"),
+                            dict(params=_adam_scalar_params, lr=0.01 * NANOGPT_ADAMW_SCALAR_LR_MULT, name="adam_scalars")],
+                           betas=(0.8, NANOGPT_ADAMW_BETA2), eps=1e-10, weight_decay=0, fused=True)
+        optimizer1_lm_head = PowerAdamW(
+            [dict(params=[model.proj.weight], lr=(1/320) * NANOGPT_ADAMW_LM_HEAD_LR_MULT, name="adam_lm_head")],
+            lr=(1/320) * NANOGPT_ADAMW_LM_HEAD_LR_MULT,
+            betas=(0.8, NANOGPT_ADAMW_BETA2), eps=_POWER_EPS, weight_decay=0,
+            power_p=NANOGPT_ADAMW_POWER_P,
+        )
+    else:
+        optimizer1 = AdamW([dict(params=[model.embed.weight], lr=0.3 * NANOGPT_ADAMW_EMBED_LR_MULT, name="adam_embed"),
+                            dict(params=[model.proj.weight], lr=(1/320) * NANOGPT_ADAMW_LM_HEAD_LR_MULT, name="adam_lm_head"),
+                            dict(params=_adam_scalar_params, lr=0.01 * NANOGPT_ADAMW_SCALAR_LR_MULT, name="adam_scalars")],
+                           betas=(0.8, NANOGPT_ADAMW_BETA2), eps=1e-10, weight_decay=0, fused=True)
+        optimizer1_lm_head = None
     # Per-block-type Muon param split: attn (q/k/v/proj) vs mlp (fc/proj).
     # When both multipliers = 1.0, behavior is bit-identical to the prior single-group setup
     # (NS orthogonalization is per-matrix; the split only changes how groups are indexed).
@@ -962,14 +1089,17 @@ for trial_idx in range(args.num_trials):
     cooldown_start_step = int(train_steps * NS_COOLDOWN_START_FRAC)
     ns_iters_history: list[int] = []
     ns_cumulative_iters = 0
-    optimizers = [optimizer1, optimizer2]
+    if optimizer1_lm_head is not None:
+        optimizers = [optimizer1, optimizer1_lm_head, optimizer2]
+    else:
+        optimizers = [optimizer1, optimizer2]
     assert set(p for opt in optimizers for group in opt.param_groups
                for p in group["params"]) == set(model.parameters())
     # Per-group grad-clip param lists (#708). Body = Muon-orthogonalized matrices;
-    # aux = AdamW embed + lm_head + scalars. Reuses the same lists the optimizers
-    # were constructed from so the split cannot drift.
+    # aux = AdamW embed + lm_head + scalars. Aux always includes lm_head whether
+    # it's in optimizer1 or the split PowerAdamW so clip behavior is preserved.
     body_clip_params = muon_attn_params + muon_mlp_params
-    aux_clip_params = [p for g in optimizer1.param_groups for p in g["params"]]
+    aux_clip_params = [model.embed.weight, model.proj.weight] + _adam_scalar_params
     assert set(body_clip_params) | set(aux_clip_params) == set(model.parameters())
     assert not (set(body_clip_params) & set(aux_clip_params))
     # Cumulative clip-trigger counters across the trial for mechanism reading.
@@ -1274,6 +1404,46 @@ for trial_idx in range(args.num_trials):
                 step=train_step,
                 wandb_step=wandb_step,
             )
+        # Power AdamW per-25-step telemetry (#1232). Optimizer caches metrics in
+        # `power_telemetry`; we just forward to wandb on the standard cadence.
+        if (dist.get_rank() == 0 and telemetry_due
+                and optimizer1_lm_head is not None
+                and optimizer1_lm_head.power_telemetry):
+            power_metrics = {"trial": trial_idx, "train/step": train_step}
+            for k, v in optimizer1_lm_head.power_telemetry.items():
+                power_metrics[f"train/{k}"] = v
+            # Also log the step direction for lm_head (analog to the optimizer1
+            # log_adamw_step_direction path, which excludes lm_head when active).
+            with torch.no_grad():
+                for group in optimizer1_lm_head.param_groups:
+                    g_name = group.get("name", "unknown")
+                    beta1, beta2 = group["betas"]
+                    eps = group["eps"]
+                    p_pow = group["power_p"]
+                    inv_p = 1.0 / p_pow
+                    for p in group["params"]:
+                        st = optimizer1_lm_head.state.get(p, {})
+                        if "exp_avg" not in st or "exp_avg_sq" not in st:
+                            continue
+                        t_val = float(st.get("step", 0))
+                        if t_val <= 0:
+                            continue
+                        bc1 = 1.0 - beta1 ** t_val
+                        bc2 = 1.0 - beta2 ** t_val
+                        m_hat = st["exp_avg"].to(torch.float32) / bc1
+                        v_hat = st["exp_avg_sq"].to(torch.float32) / bc2
+                        denom = v_hat.pow(inv_p) + eps
+                        step_dir = m_hat / denom
+                        sq = float((step_dir * step_dir).sum().item())
+                        nel = step_dir.numel()
+                        norm = sq ** 0.5
+                        rms = (sq / max(1, nel)) ** 0.5
+                        max_abs = float(step_dir.abs().max().item())
+                        power_metrics[f"train/optimizer1_step_dir/{g_name}_norm"] = norm
+                        power_metrics[f"train/optimizer1_step_dir/{g_name}_rms"] = rms
+                        power_metrics[f"train/optimizer1_step_dir/{g_name}_max_abs"] = max_abs
+                        power_metrics[f"train/optimizer1_step_dir/{g_name}_numel"] = nel
+            wandb.log(power_metrics, step=wandb_step)
         if dist.get_rank() == 0 and telemetry_due:
             ns_metrics = {
                 "trial": trial_idx,
