@@ -83,6 +83,11 @@ def parse_args():
              "muall=musoft + non-residual block 2D weights also scaled by 1/sqrt(L); "
              "smallconst=std=1e-3 depth-independent.",
     )
+    parser.add_argument("--cooldown_frac", type=float, default=0.7,
+                        help="Fraction of training in linear-decay-to-zero cooldown phase. "
+                             "Baseline 0.7 (hardcoded). 0<frac<=1: lr eta=1.0 for "
+                             "progress<1-frac, then eta=(1-progress)/frac. Lower frac = "
+                             "more time at peak LR before decay starts.")
     args = parser.parse_args()
     args.num_trials = args.num_trials if args.num_trials is not None else (args.legacy_num_trials or 1)
     args.wandb_tags = [tag.strip() for tag in args.wandb_tags.split(",") if tag.strip()]
@@ -765,6 +770,7 @@ if dist.get_rank() == 0:
             "wd_schedule": args.wd_schedule,
             "lr_scalars": args.lr_scalars,
             "depth_init_mode": args.depth_init_mode,
+            "cooldown_frac": args.cooldown_frac,
         },
     )
 
@@ -879,7 +885,7 @@ for trial_idx in range(args.num_trials):
             raise ValueError(f"Unknown wd_schedule: {schedule}")
 
     # learning rate schedule: stable then decay
-    def set_hparams(step, cooldown_frac=0.7):
+    def set_hparams(step, cooldown_frac=args.cooldown_frac):
         progress = step / train_steps
         assert 0 <= progress < 1
         if progress < 1 - cooldown_frac:
@@ -892,6 +898,7 @@ for trial_idx in range(args.num_trials):
                 group["lr"] = group["initial_lr"] * eta
                 if "initial_wd" in group and group.get("name", "").startswith("muon_"):
                     group["weight_decay"] = group["initial_wd"] * wd_mu
+        return eta
 
 
     ########################################
@@ -907,6 +914,10 @@ for trial_idx in range(args.num_trials):
     best_val_loss = float("inf")
     best_val_step = -1
     first_step_to_target = -1
+    # FFS milestone tracking: full crossing curve for cooldown-frac probe (PR #1276)
+    first_step_to_3_40 = -1
+    first_step_to_3_35 = -1
+    first_step_to_3_30 = -1
     slope_interval = max(1, round(train_steps * SLOPE_FRACTION))
     slope_window_steps = max(100, slope_interval)
     train_loss_history: list[tuple[int, float]] = []
@@ -940,6 +951,12 @@ for trial_idx in range(args.num_trials):
                     best_val_step = step
                 if first_step_to_target < 0 and val_loss_float <= TARGET_VAL_LOSS:
                     first_step_to_target = step
+                if first_step_to_3_40 < 0 and val_loss_float <= 3.40:
+                    first_step_to_3_40 = step
+                if first_step_to_3_35 < 0 and val_loss_float <= 3.35:
+                    first_step_to_3_35 = step
+                if first_step_to_3_30 < 0 and val_loss_float <= 3.30:
+                    first_step_to_3_30 = step
                 metrics = {
                     "trial": trial_idx,
                     "val/step": step,
@@ -950,6 +967,9 @@ for trial_idx in range(args.num_trials):
                     "val/single_run_stat_sig_margin": TARGET_VAL_LOSS - val_loss_float - STAT_SIG_DELTA,
                     "speedrun/first_step_to_target": first_step_to_target,
                     "speedrun/reached_target": int(first_step_to_target >= 0),
+                    "speedrun/first_step_to_3_40": first_step_to_3_40,
+                    "speedrun/first_step_to_3_35": first_step_to_3_35,
+                    "speedrun/first_step_to_3_30": first_step_to_3_30,
                     "time/train_seconds": training_time,
                     "time/step_avg_ms": 1000 * step_avg,
                 }
@@ -980,7 +1000,7 @@ for trial_idx in range(args.num_trials):
         dist.all_reduce(step_loss, op=dist.ReduceOp.SUM)
         train_loss = float((step_loss / batch_size).item())
         # set optimization hyperparameters and take a step
-        set_hparams(step)
+        current_eta = set_hparams(step)
         train_step = step + 1
         telemetry_due = (step == 0 or (step + 1) % args.telemetry_interval == 0 or step + 1 == train_steps)
         histogram_due = (step == 0 or (step + 1) % args.histogram_interval == 0 or step + 1 == train_steps)
@@ -1025,6 +1045,9 @@ for trial_idx in range(args.num_trials):
                     per_group_metrics[f"train/wd/{name}"] = wd
                 per_group_metrics["train/wd_mlp_now"] = current_wds.get("muon_mlp", 0.0)
                 per_group_metrics["train/wd_attn_now"] = current_wds.get("muon_attn", 0.0)
+                per_group_metrics["train/eta"] = current_eta
+                per_group_metrics["train/cooldown_frac"] = args.cooldown_frac
+                per_group_metrics["train/progress"] = step / train_steps
                 per_group_metrics["train/wd_schedule_progress"] = train_step / train_steps
                 wandb.log(per_group_metrics, step=wandb_step)
         if dist.get_rank() == 0 and optimizer2.cos_sims_buffer:
@@ -1094,6 +1117,9 @@ for trial_idx in range(args.num_trials):
             "speedrun/final_best_val_step": best_val_step,
             "speedrun/final_first_step_to_target": first_step_to_target,
             "speedrun/final_reached_target": int(first_step_to_target >= 0),
+            "speedrun/final_first_step_to_3_40": first_step_to_3_40,
+            "speedrun/final_first_step_to_3_35": first_step_to_3_35,
+            "speedrun/final_first_step_to_3_30": first_step_to_3_30,
         }, step=(trial_idx + 1) * (train_steps + 1) - 1)
 
 if dist.get_rank() == 0:
