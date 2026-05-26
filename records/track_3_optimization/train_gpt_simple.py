@@ -83,6 +83,24 @@ def parse_args():
              "muall=musoft + non-residual block 2D weights also scaled by 1/sqrt(L); "
              "smallconst=std=1e-3 depth-independent.",
     )
+    parser.add_argument(
+        "--adamp_aux_mode",
+        type=str,
+        default="off",
+        choices=["off", "embed_lmhead", "soft_half", "scalars_only", "anti_falsifier"],
+        help="AdamP-style projection on AdamW aux groups (embed/lm_head/scalars): "
+             "off=no projection (control); "
+             "embed_lmhead=row-wise hard project orthogonal to W when |cos(g,W)|>delta on embed+lm_head; "
+             "soft_half=row-wise project 50%% of parallel component out (no threshold) on embed+lm_head; "
+             "scalars_only=project orthogonal to W on 1D scalar tensors only; "
+             "anti_falsifier=row-wise REPLACE grad with PARALLEL component when |cos|>delta (catastrophic falsifier).",
+    )
+    parser.add_argument(
+        "--adamp_delta",
+        type=float,
+        default=0.1,
+        help="Cosine threshold for AdamP projection. Hard modes fire when |cos(g,W)|>delta.",
+    )
     args = parser.parse_args()
     args.num_trials = args.num_trials if args.num_trials is not None else (args.legacy_num_trials or 1)
     args.wandb_tags = [tag.strip() for tag in args.wandb_tags.split(",") if tag.strip()]
@@ -552,6 +570,115 @@ def soap_precondition_momentum(update, state, beta2=SOAP_BETA2, eps=1e-8):
     return precond.to(update.dtype)
 
 
+def _adamp_project_2d(grad, weight, mode, delta, eps=1e-12, compute_telemetry=False):
+    weight_flat = weight.detach().flatten(1).float()
+    grad_flat = grad.detach().flatten(1).float()
+    w_norm = weight_flat.norm(dim=1, keepdim=True).clamp_min(eps)
+    g_norm = grad_flat.norm(dim=1, keepdim=True).clamp_min(eps)
+    cosine = (grad_flat * weight_flat).sum(1, keepdim=True) / (w_norm * g_norm)
+    w_unit = weight_flat / w_norm
+    parallel = (grad_flat * w_unit).sum(1, keepdim=True) * w_unit
+    g_orth = grad_flat - parallel
+
+    telemetry = {}
+    if compute_telemetry:
+        cos_abs = cosine.abs()
+        telemetry["cos_mean"] = float(cos_abs.mean().item())
+        telemetry["fire_rate"] = float((cos_abs > delta).float().mean().item())
+        telemetry["weight_norm"] = float(weight_flat.norm().item())
+
+    if mode == "embed_lmhead":
+        mask = cosine.abs() > delta
+        result = torch.where(mask, g_orth, grad_flat)
+    elif mode == "soft_half":
+        result = grad_flat - 0.5 * parallel
+    elif mode == "anti_falsifier":
+        mask = cosine.abs() > delta
+        result = torch.where(mask, parallel, grad_flat)
+    else:
+        return None, telemetry
+
+    return result.reshape_as(grad).to(grad.dtype), telemetry
+
+
+def _adamp_project_1d(grad, weight, mode, delta, eps=1e-12, compute_telemetry=False):
+    g_flat = grad.detach().flatten().float()
+    w_flat = weight.detach().flatten().float()
+    w_norm = w_flat.norm().clamp_min(eps)
+    g_norm = g_flat.norm().clamp_min(eps)
+    cosine = (g_flat * w_flat).sum() / (w_norm * g_norm)
+    w_unit = w_flat / w_norm
+    parallel = (g_flat * w_unit).sum() * w_unit
+    g_orth = g_flat - parallel
+
+    telemetry = {}
+    if compute_telemetry:
+        cos_abs = float(cosine.abs().item())
+        telemetry["cos_abs"] = cos_abs
+        telemetry["fired"] = 1 if cos_abs > delta else 0
+        telemetry["weight_norm"] = float(w_flat.norm().item())
+
+    if mode == "scalars_only":
+        return g_orth.reshape_as(grad).to(grad.dtype), telemetry
+    return None, telemetry
+
+
+_ADAMP_TELEMETRY_BY_GROUP = {"adam_embed": "embed", "adam_lm_head": "lmhead"}
+
+
+def apply_adamp_projection(optimizer1, mode, delta, compute_telemetry=False):
+    """Project gradients of the AdamW aux optimizer in-place. Returns telemetry dict.
+
+    For 2D modes (embed_lmhead/soft_half/anti_falsifier) projection acts on
+    embed.weight + proj.weight (the adam_embed and adam_lm_head groups). For
+    scalars_only it acts on the adam_scalars group's 1D tensors. mode=off
+    leaves gradients untouched. Telemetry (when compute_telemetry=True) is
+    computed regardless of mode so controls can be compared to projected runs.
+    """
+    telemetry = {}
+    if mode == "off" and not compute_telemetry:
+        return telemetry
+
+    scalars_acc = []
+    for group in optimizer1.param_groups:
+        group_name = group.get("name", "")
+        if group_name in _ADAMP_TELEMETRY_BY_GROUP:
+            tname = _ADAMP_TELEMETRY_BY_GROUP[group_name]
+            for p in group["params"]:
+                if p.grad is None or p.ndim < 2:
+                    continue
+                new_grad, t = _adamp_project_2d(
+                    p.grad, p.data, mode, delta, compute_telemetry=compute_telemetry
+                )
+                if new_grad is not None:
+                    p.grad.copy_(new_grad)
+                if compute_telemetry:
+                    telemetry[f"train/adamp/cos_mean/{tname}"] = t["cos_mean"]
+                    telemetry[f"train/adamp/fire_rate/{tname}"] = t["fire_rate"]
+                    telemetry[f"train/adamp/weight_norm/{tname}"] = t["weight_norm"]
+        elif group_name == "adam_scalars":
+            for p in group["params"]:
+                if p.grad is None or p.ndim < 1:
+                    continue
+                new_grad, t = _adamp_project_1d(
+                    p.grad, p.data, mode, delta, compute_telemetry=compute_telemetry
+                )
+                if new_grad is not None:
+                    p.grad.copy_(new_grad)
+                if compute_telemetry:
+                    scalars_acc.append(t)
+
+    if compute_telemetry and scalars_acc:
+        cos_vals = [t["cos_abs"] for t in scalars_acc]
+        fired_vals = [t["fired"] for t in scalars_acc]
+        wn_vals = [t["weight_norm"] for t in scalars_acc]
+        telemetry["train/adamp/cos_mean/scalars"] = sum(cos_vals) / len(cos_vals)
+        telemetry["train/adamp/fire_rate/scalars"] = sum(fired_vals) / len(fired_vals)
+        telemetry["train/adamp/weight_norm/scalars"] = sum(wn_vals) / len(wn_vals)
+
+    return telemetry
+
+
 def soap_update_preconditioner(grad, state, shampoo_beta=SOAP_BETA2, precondition_frequency=PRECOND_FREQ):
     grad_f = grad.float()
     state["row_gg"].lerp_(grad_f @ grad_f.T, 1 - shampoo_beta)
@@ -765,6 +892,8 @@ if dist.get_rank() == 0:
             "wd_schedule": args.wd_schedule,
             "lr_scalars": args.lr_scalars,
             "depth_init_mode": args.depth_init_mode,
+            "adamp_aux_mode": args.adamp_aux_mode,
+            "adamp_delta": args.adamp_delta,
         },
     )
 
@@ -1007,6 +1136,15 @@ for trial_idx in range(args.num_trials):
                 train_steps=train_steps,
                 wandb_step=wandb_step,
             )
+        adamp_telemetry = apply_adamp_projection(
+            optimizer1,
+            args.adamp_aux_mode,
+            args.adamp_delta,
+            compute_telemetry=(telemetry_due and dist.get_rank() == 0),
+        )
+        if dist.get_rank() == 0 and adamp_telemetry:
+            adamp_telemetry.update({"trial": trial_idx, "train/step": train_step})
+            wandb.log(adamp_telemetry, step=wandb_step)
         for opt in optimizers:
             opt.step()
         if telemetry_due:
