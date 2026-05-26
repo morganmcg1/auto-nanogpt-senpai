@@ -468,6 +468,12 @@ NS5_ITERS = int(os.environ.get("NS5_ITERS", "12"))
 WD_AUX = float(os.environ.get("WD_AUX", "0.0"))  # AdamW WD on embed + lm_head matrices (scalars stay at 0)
 EMBED_INIT_STD = float(os.environ.get("EMBED_INIT_STD", "1.0"))  # default preserves baseline N(0,1)
 LOGIT_SOFTCAP = float(os.environ.get("LOGIT_SOFTCAP", "15.0"))  # default = 15 (current hardcoded value); soft-cap value c in f(x) = c·x / sqrt(x^2+c^2)
+# NovoGrad per-tensor scalar 2nd-moment normalizer applied to body Muon grads
+# pre-momentum-accumulation (PR #1248). Disabled by default; bytewise inert when
+# NOVOGRAD_MUON=0 (no state allocation, no code path entered in Muon.step).
+NOVOGRAD_MUON = int(os.environ.get("NOVOGRAD_MUON", "0"))
+NOVOGRAD_MUON_BETA2 = float(os.environ.get("NOVOGRAD_MUON_BETA2", "0.95"))
+NOVOGRAD_MUON_EPS = 1e-8
 
 
 def zeropower_via_newtonschulz5(G: Tensor) -> Tensor:
@@ -691,7 +697,17 @@ class Muon(torch.optim.Optimizer):
                                 state["trust_gate"] = 1.0
                                 state["trust_cos_row"] = 1.0
                                 state["trust_cos_col"] = 1.0
+                        if NOVOGRAD_MUON:
+                            # NovoGrad per-tensor scalar EMA of ||g||²_F. Cold-start v=0 per PR #1248 spec.
+                            state["novograd_v"] = torch.zeros((), dtype=torch.float32, device=p.device)
                     grad = p.grad
+                    if NOVOGRAD_MUON:
+                        # Per-tensor Frobenius-squared scalar EMA, then normalize grad pre-momentum.
+                        # grad is float32 for body matmul params (Linear weights default fp32).
+                        g_norm_sq = grad.float().square().sum()
+                        state["novograd_v"].mul_(NOVOGRAD_MUON_BETA2).add_(g_norm_sq, alpha=1.0 - NOVOGRAD_MUON_BETA2)
+                        v_sqrt_plus_eps = state["novograd_v"].sqrt() + NOVOGRAD_MUON_EPS
+                        grad = grad / v_sqrt_plus_eps.to(grad.dtype)  # new tensor, p.grad untouched
                     state["momentum"].lerp_(grad, 1 - group["mu"])
                     momentum_update = grad.lerp(state["momentum"], group["mu"])
                     use_soap = p in self.soap_params
@@ -775,6 +791,34 @@ class Muon(torch.optim.Optimizer):
             out[f"{kind}/mean_cos_row"] = sum(crs) / kn
             out[f"{kind}/mean_cos_col"] = sum(ccs) / kn
         return out
+
+    def novograd_stats(self) -> dict[str, float]:
+        """Aggregate NovoGrad per-tensor v_l scalars across body Muon params (PR #1248).
+
+        Returns empty dict when NOVOGRAD_MUON is disabled or no state is populated.
+        Keys: v_min, v_max, v_ratio (v_max/v_min), normalization_scale_mean (mean sqrt(v_l)), count.
+        """
+        if not NOVOGRAD_MUON:
+            return {}
+        vs: list[float] = []
+        for group in self.param_groups:
+            for p in group["params"]:
+                state = self.state.get(p)
+                if state is not None and "novograd_v" in state:
+                    vs.append(float(state["novograd_v"].item()))
+        if not vs:
+            return {}
+        v_min = min(vs)
+        v_max = max(vs)
+        v_ratio = v_max / max(v_min, 1e-30)
+        norm_scale_mean = sum(v ** 0.5 for v in vs) / len(vs)
+        return {
+            "count": len(vs),
+            "v_min": v_min,
+            "v_max": v_max,
+            "v_ratio": v_ratio,
+            "normalization_scale_mean": norm_scale_mean,
+        }
 
 
 ########################################
@@ -866,6 +910,9 @@ if dist.get_rank() == 0:
             "optimizer/attn_soap_trust_threshold": ATTN_SOAP_TRUST_THRESHOLD,
             "optimizer/ns5_iters": NS5_ITERS,
             "optimizer/wd_aux": WD_AUX,
+            "optimizer/novograd_muon": NOVOGRAD_MUON,
+            "optimizer/novograd_muon_beta2": NOVOGRAD_MUON_BETA2,
+            "optimizer/novograd_muon_eps": NOVOGRAD_MUON_EPS,
             "optimizer/recipe": "contra-muon + normuon-lite + soap-on-mlp + soap-on-attn-trust-gate (pre-NS5, record #14 + record #16)",
         },
     )
@@ -1059,6 +1106,10 @@ for trial_idx in range(args.num_trials):
                     stats = opt.trust_gate_stats()
                     if stats:
                         wandb.log(prefixed("train/attn_soap_trust_gate", stats), step=wandb_step)
+                if hasattr(opt, "novograd_stats"):
+                    nstats = opt.novograd_stats()
+                    if nstats:
+                        wandb.log(prefixed("train/novograd", nstats), step=wandb_step)
         if dist.get_rank() == 0 and telemetry_due:
             log_weight_telemetry(
                 model=model,
