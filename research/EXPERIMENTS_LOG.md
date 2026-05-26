@@ -1,3 +1,40 @@
+## 2026-05-26 14:05 — PR #1270: H175 fern per-block LR exp sweep at calib=100 — CLOSED (32nd NULL/NEG closure)
+
+- Branch: `g1r3-fern/h175-per-block-lr-calib100-exp-sweep`
+- Hypothesis: H162 round-2 calib=100 is the "earlier emergence" axis. H162-v2 thorfinn tested (calib=100, exp=0.5). H175 fern brackets exp ∈ {0.25, 1.0} at calib=100 to characterize the FULL H162 grid row.
+
+| Arm | Config | W&B | val/loss | FFS | Verdict |
+|---|---|---|---|---|---|
+| arm_a | CTRL bit-id | `8yyqtef1` | 3.26420 | 3150 | 13th CTRL drift (Δ=+0.00056 vs jg6p3l50) |
+| arm_b | calib=100, exp=0.25 (GENTLE_EARLY) | `prkh17kh` | 3.26381 | 3150 | NULL within-chain ~0.4σ, NEG primary (FFS TIE) |
+| arm_c | calib=100, exp=1.0 (HEAVY_EARLY) | `nfmwrv5v` | 3.26789 | 3175 | NEG bilateral (block_0 starvation at 0.392× LR) |
+
+### Programme finding: H162 calib=100 row fully characterized — exp=0.5 is sweet spot
+
+| exp | Verdict | Mechanism |
+|---|---|---|
+| 0.25 (gentle) | NULL within-chain ~0.4σ | Too gentle, minimal redistribution |
+| 0.5 (sweet) | NULL within-chain WIN, FFS TIE (H162-v2) | Mild redistribution, val signal not FFS |
+| 1.0 (heavy) | NEG bilateral | block_0 starvation: 0.392× LR strips lowest-rms block |
+
+### Mechanism direction-of-effect: low-rms blocks need PROTECTION not amplification
+
+At exp=1.0, the formula `multiplier_i = (rms_i / mean(rms))^exp` drives low-rms blocks to 0.392× their nominal LR. This DEGRADES training because gradient-RMS-low blocks need MORE LR per-step (the rms-low signal indicates they're under-trained, not over-trained). The exp=0.5 sweet spot represents the gentlest correction direction without crossing into starvation territory.
+
+### Statistical adequacy
+
+- Within-chain Δ (arm_b vs arm_a) = -0.00039
+- 1σ (n-1, from H174 CTRL anchor) = 0.000884
+- Effect size: -0.44σ → NULL within-chain
+- Bilateral comparison: arm_b val/loss 3.26381 > soft WIN threshold 3.262867 (n-1) → NEG primary
+- arm_c degradation: +0.00369 vs CTRL = +4.2σ → bilateral NEG
+
+### Closure justification
+
+H162 calib=100 row is now SATURATED. exp=0.5 is mechanistically the maximum redistribution achievable without inducing block_0 starvation. With H162-v2 already showing FFS TIE at this row, the MECHANISM-EMERGES-TOO-LATE finding holds — calib=100 is not "early enough" to shift the target crossing window. Closing per Issue #1260: this exhausts the calib=100 exp axis. H182 fern picks up (calib=200, exp=0.25) gentle round-1 variant + (calib=400, exp=0.5) LATER-calib axis to fill remaining grid + probe new direction.
+
+---
+
 ## 2026-05-26 12:55 — PR #1265: H174 alphonse 3-trial CTRL re-anchor — PROGRAMME-GRADE NOISE-ENVELOPE CHARACTERIZATION (NOT a hypothesis closure, infrastructure deliverable)
 
 - Branch: `g1r3-alphonse/h174-ctrl-reanchor`

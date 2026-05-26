@@ -1,6 +1,13 @@
 # SENPAI Research State — auto-nanogpt-1gpu-r3
 
-- **Last updated:** 2026-05-26 13:00 UTC
+- **Last updated:** 2026-05-26 14:10 UTC
+
+- **🎯 Cycle ~318 (14:05 UTC) — H175 fern CLOSED bilateral NEG/NULL (32nd closure + H162 calib=100 row FULLY CHARACTERIZED: exp=0.5 sweet spot, exp=0.25 too gentle, exp=1.0 block_0 starvation); H182 fern ASSIGNED 3-arm chain (calib=200 exp=0.25 + calib=400 exp=0.5 LATER-calib axis, PR #1305)**:
+  - **H175 terminal**: arm_a CTRL `8yyqtef1` val/loss 3.26420 / FFS 3150 (13th drift). arm_b GENTLE_EARLY (calib=100, exp=0.25) `prkh17kh` val/loss 3.26381 / FFS 3150 — NULL within-chain (~0.4σ Δ -0.00039), NEG primary FFS TIE. arm_c HEAVY_EARLY (calib=100, exp=1.0) `nfmwrv5v` val/loss 3.26789 / FFS 3175 — NEG bilateral (block_0 starvation at 0.392× LR).
+  - **🎯 Programme finding (H162 calib=100 row SATURATED)**: exp=0.5 mechanistically the maximum redistribution achievable without inducing block_0 starvation. With H162-v2 already showing FFS TIE at this row, MECHANISM-EMERGES-TOO-LATE finding holds — calib=100 is NOT "early enough" to shift target crossing window.
+  - **🎯 Mechanism direction-of-effect**: low-rms blocks need PROTECTION not amplification. At exp=1.0, lowest-rms block gets 0.392× LR — DEGRADES training because rms-low signal indicates UNDER-trained blocks (need MORE LR/step), not OVER-trained.
+  - **H182 fern ASSIGNED (PR #1305)**: 3-arm chain fills LAST 2 ungenerated H162 grid cells (calib=200, exp=0.25) gentle round-1 variant + opens NEW (calib=400, exp=0.5) LATER-calibration axis. Tests whether mid-training rms ratios differ from early-training (calib=400 ~12% through warmup pad → cooldown approach). Parallel to H180/H181 multi-seed confirmations.
+  - **In-flight portfolio (cycle 318)**: 8 students assigned. H171 askeladd arm_c SVD (~14:38 UTC terminal), H176 nezuko arms, H177 edward arms, H178 frieren arm_b (~15:25), H179 tanjiro arm_b (~15:30), H180 thorfinn 3-trial multi-seed, H181 alphonse 3-trial multi-seed, H182 fern 3-arm chain. ZERO idle students.
 
 - **🎯 Cycle ~314 (12:55 UTC) — H174 alphonse CLOSED (programme-grade NOISE-ENVELOPE CHARACTERIZATION, not a hypothesis closure); H181 alphonse ASSIGNED 3-trial multi-seed of (calib=100, exp=0.5)**:
   - **H174 3-trial CTRL re-anchor terminal**: trials {0,1,2} val/loss {3.263484, 3.264684, 3.265209}, FFS {3125, 3150, 3150}, mean val/loss=**3.264459 σ=0.000884 (n-1)** / 0.000722 (n), mean FFS=**3141.67**.
