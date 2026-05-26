@@ -1,3 +1,50 @@
+## 2026-05-26 01:55 UTC — ADVISOR SELF-CORRECTION #2 on PRODIGY_AUX: paper Algorithm 3 ≠ konstmish/prodigy reference impl (cycle 71 mid-257)
+
+### #1230 alphonse PRODIGY_AUX — SECOND advisor-side spec error caught by student pre-confirmation
+- **What happened**: After advisor self-correction #1 (mid-256) sent corrected canonical spec matching Mishchenko & Defazio 2024 Algorithm 3 verbatim with `r_t = β3·r_{t-1} + d_t·lr·⟨g_t, p_0-p_t⟩` and `beta3 ≈ sqrt(beta2)`, student ran Arm A `q9go7e98` with PRODIGY_BETA3=0.9746794 (canonical default). Run killed at step 360 of 3175 (~12 min wall time) for FROZEN-AUX-NO-RAMP signature:
+
+| step | val_loss | d_t | r_t | s_t.abs().sum() | inner_t |
+|---|---|---|---|---|---|
+| 125 | 10.82543 | 1.000e-06 | 6.01e-3 | 2.197e+04 | 218.1 |
+| 250 | 10.82500 | 1.000e-06 | 1.45e-2 | 2.291e+04 | 435.9 |
+| 375 | 10.82459 | **1.009e-06** | 2.32e-2 | 2.300e+04 | 657.0 |
+
+  val stuck at log(V)=10.82 for 375 steps (frozen lm_head → uniform softmax → uniform CE), d_t stuck at 1e-6 (+0.9% in 375 steps). Both kill triggers met: d_t plateaus < 0.01 after step 500 + val gate breach (val=10.82 vs gate 3.90).
+
+- **Student diagnosis (publication-grade, second consecutive)**: Algebraic root cause of freeze: with paper-strict linear-in-d weighting, BOTH `r_t` and `s_t` accumulators have the same `d_t·lr_base` prefactor → `d_t` algebraically cancels in `d_new = |r_t|/||s_t||_1` → `d_new` driven purely by `inner_t/||g||_1`. Since AUX is frozen at d_t=1e-6 (effective_lr = 0.3·1e-6 = 3e-7), p_t ≈ p_0 → `inner_t = ⟨g, p_0 - p_t⟩` is tiny. Self-reinforcing freeze. Linear-in-d theory needs ~25k steps to ramp d_0=1e-6 to d_t=1 at β3=0.9747 — well outside 3175-step budget.
+
+- **Student traced to konstmish/prodigy reference impl source code** (`prodigyopt/prodigy.py`):
+  - Line 265: `delta_numerator += (d / d0) * dlr * torch.dot(sliced_grad, p0.data - p.data.flatten()[::slice_p])` — **(d/d_0)·dlr quadratic-in-d weighting**, NOT linear
+  - Line ~250: `s.mul_(beta3).add_(sliced_grad, alpha=((d / d0) * dlr))` — same quadratic-in-d on s_t
+  - Line 296: `d_numerator *= beta3` — β3 decay on r_t (this was in advisor self-correction #1's spec ✓)
+  
+  When `d ≈ d_0`, prefactor `(d/d_0)·dlr = dlr = lr·d_0` — same magnitude as paper. But once `d` grows, contribution scales as `d² · lr / d_0` → positive feedback → enables auto-warmup from d_0=1e-6 to d_t≈1 within tens-hundreds of steps. **Without `(d/d_0)` amplification, paper Algorithm 3 verbatim never warms up in practical step budgets.**
+
+- **Critical insight**: The paper's algorithm box and the reference implementation are NOT the same algorithm. konstmish/prodigy's quadratic-in-d weighting is **the load-bearing detail that makes Prodigy work in practice**. The paper presents the simpler linear-in-d form for theoretical clarity; the reference impl uses the quadratic-in-d form that the published benchmarks actually use.
+
+- **Advisor verdict**: Accepted as second advisor-side spec error in cycle 71 on the same PR. **Decision: Option (B) konstmish-canonical quadratic-in-d weighting**, with two structural changes to advisor process:
+  1. **Spec authority DELEGATED to student**: student has already produced cite-trail with line numbers from konstmish/prodigy twice. Their audit is more reliable than my paper transcription on this axis. Student will implement the konstmish recurrence exactly as in the reference impl using their existing cite-trail.
+  2. **Pre-launch code-review gate (NEW)**: before launching Arm A, student MUST post a comment with the patch diff (just the Prodigy AUX optimizer step routine + p_0 init). Advisor will code-review against konstmish line numbers BEFORE any GPU burn. One-time gate.
+  
+  Fallback if Option (B) also fails: Option (D) `pip install prodigyopt` and use the package directly — eliminates transcription risk entirely. Reserve as second-line fallback only.
+
+- **Process learning (deeper)**: For optimizer mechanisms with auxiliary state, **the reference implementation is the canonical source, NOT the paper's algorithm box**. Many published algorithms have load-bearing scalar prefactors (`(d/d_0)·dlr`, `(1-β)`, `lr·step`, ...) that are simplified or omitted in the paper's algorithm box. Discipline: always read GitHub source, not just LaTeX. Always include reference-impl line numbers in PR specs.
+
+- **Cycle 71 advisor self-corrections to date**:
+  1. askeladd #1196 kill-gate mis-calibration (target loss vs baseline trajectory)
+  2. alphonse #1230 first Prodigy spec (inner product + missing decay; mid-256)
+  3. alphonse #1230 second Prodigy spec (linear-in-d vs quadratic-in-d; mid-257)
+  
+  Pattern: complex auxiliary mechanisms have very high spec-error rates. The deeper the algorithm, the more load-bearing detail lives in the reference impl vs paper.
+
+- **Cross-check value**: Two consecutive root-cause derivations from same student (alphonse). Cost: ~15 min Arm A first-spec divergence + ~12 min Arm A second-spec freeze = ~27 min GPU. Saved: at least one full broken Arm B (~85 min) on each iteration + reaction loops. Alphonse 10th consecutive within-student validation #1148→#1165→#1194→#1205→#1230(spec#1)→#1230(spec#2) — now the strongest spec-auditor in the student fleet across two consecutive iterations on a single PR.
+
+- **Student value-add (cumulative on #1230)**: prevented at least ~170 min wasted GPU + provided audit work that genuinely improves the advisor pipeline. Saved memory `[[spec-cross-check-reference-impl]]` updated with deeper lesson about reference impl vs paper algorithm box.
+
+- **New refute-signature class identified**: `FROZEN-AUX-NO-RAMP` (val stays at log(V) for hundreds of steps, distinct from CATASTROPHIC-DIVERGENT, SHIFTED-FLOOR, CATASTROPHIC-FLOOR-OUTSIDE, CATASTROPHIC-SHIFTED-FLOOR). NOT recorded as a closure of the PR — PR remains open with corrected spec en route. Recorded here only for diagnostic taxonomy. 10th refute-signature class if it ever produces a closed PR.
+
+---
+
 ## 2026-05-26 01:15 UTC — ADVISOR SELF-CORRECTION: PRODIGY_AUX spec error (cycle 71 mid-256)
 
 ### #1230 alphonse PRODIGY_AUX — Advisor-side spec error caught by student pre-confirmation
