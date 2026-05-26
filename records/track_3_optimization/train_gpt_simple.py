@@ -109,6 +109,13 @@ def parse_args():
     parser.add_argument("--body_init_bottom_layers", type=int,
                         default=int(os.environ.get("BODY_INIT_BOTTOM_LAYERS", "6")),
                         help="Number of bottom layers to damp for --body_init=orthogonal_bottom_damp (default 6 = bottom half of 12 layers).")
+    parser.add_argument("--muonh_orthog_method", type=str,
+                        default=os.environ.get("MUONH_ORTHOG_METHOD", "ns5"),
+                        choices=["ns5", "qr", "svd"],
+                        help="Body orthogonalization method: ns5 (default, polynomial Schmidt iteration), "
+                             "qr (explicit thin-QR factorization, exact orthogonality), "
+                             "svd (explicit U @ V.T polar projection, exact orthogonality). "
+                             "ns5 path is bit-identical to baseline; qr/svd disable torch.compile on the inner update.")
     args = parser.parse_args()
     args.num_trials = args.num_trials if args.num_trials is not None else (args.legacy_num_trials or 1)
     args.wandb_tags = [tag.strip() for tag in args.wandb_tags.split(",") if tag.strip()]
@@ -571,6 +578,51 @@ def muon_update(grad, momentum, mu=0.95, nesterov=True):
     update *= max(1, grad.size(-2) / grad.size(-1))**0.5
     return update
 
+
+# H171: explicit orthogonalization variants. Both return a matrix with
+# sv_min = sv_max = 1.0 (up to numerical precision), in contrast to NS5
+# which leaves a partial-orth tail with sv_min ≈ 0.18.
+def orthogonalize_qr(grad: Tensor) -> Tensor:
+    """Thin-QR polar projection. Returns Q with orthonormal columns,
+    same shape as grad. For wide matrices (m < n), transposes so the
+    column-orthonormal factor is computed on the longer axis, then
+    transposes back."""
+    m, n = grad.size(-2), grad.size(-1)
+    if m >= n:
+        Q, _ = torch.linalg.qr(grad, mode="reduced")
+        return Q.to(grad.dtype)
+    else:
+        Q, _ = torch.linalg.qr(grad.mT, mode="reduced")
+        return Q.mT.to(grad.dtype)
+
+
+def orthogonalize_svd(grad: Tensor) -> Tensor:
+    """Explicit SVD-based polar projection: U @ V.T. Returns a matrix
+    with sv_min = sv_max = 1.0 exact, same shape as grad."""
+    U, _, Vt = torch.linalg.svd(grad, full_matrices=False)
+    return (U @ Vt).to(grad.dtype)
+
+
+def muon_update_explicit_orth(grad, momentum, mu=0.95, nesterov=True, method="qr"):
+    """Uncompiled muon_update variant for QR / SVD body orthogonalization.
+
+    Same momentum/lerp logic as muon_update, but casts to float32 before
+    QR/SVD for numerical stability and avoids torch.compile (QR/SVD ops
+    aren't compile-friendly under inductor)."""
+    momentum.lerp_(grad, 1 - mu)
+    update = grad.lerp_(momentum, mu) if nesterov else momentum
+    update_f32 = update.float()
+    if method == "qr":
+        orth = orthogonalize_qr(update_f32)
+    elif method == "svd":
+        orth = orthogonalize_svd(update_f32)
+    else:
+        raise ValueError(f"unknown explicit orth method: {method}")
+    orth = orth.to(update.dtype)
+    orth *= max(1, grad.size(-2) / grad.size(-1)) ** 0.5
+    return orth
+
+
 class Muon(torch.optim.Optimizer):
     def __init__(self, params, lr=0.02, weight_decay=0, mu=0.95):
         assert isinstance(params, list) and len(params) >= 1 and isinstance(params[0], torch.nn.Parameter)
@@ -669,12 +721,15 @@ class MuonH(torch.optim.Optimizer):
     norm exactly constant; weight_decay must be 0.
     """
     def __init__(self, params, lr=0.018, weight_decay=0.0, mu=0.95,
-                 hyperball=True, budget_mult=1.0, mode="clip"):
+                 hyperball=True, budget_mult=1.0, mode="clip",
+                 orthog_method="ns5"):
         assert isinstance(params, list) and len(params) >= 1 and isinstance(params[0], torch.nn.Parameter)
         assert mode in ("clip", "scale_invariant")
+        assert orthog_method in ("ns5", "qr", "svd")
         params = sorted(params, key=lambda x: x.size(), reverse=True)
         defaults = dict(lr=lr, weight_decay=weight_decay, mu=mu,
-                        hyperball=hyperball, budget_mult=budget_mult, mode=mode)
+                        hyperball=hyperball, budget_mult=budget_mult, mode=mode,
+                        orthog_method=orthog_method)
         super().__init__(params, defaults)
         self._last_active_fraction = 0.0
         self._last_radius_to_norm_max = 0.0
@@ -694,6 +749,7 @@ class MuonH(torch.optim.Optimizer):
             hb = group["hyperball"]
             budget_mult = group["budget_mult"]
             mode = group["mode"]
+            orthog_method = group["orthog_method"]
             for base_i in range(0, len(params), world_size):
                 if base_i + rank < len(params):
                     p = params[base_i + rank]
@@ -702,7 +758,13 @@ class MuonH(torch.optim.Optimizer):
                         state["momentum"] = torch.zeros_like(p)
                         if hb:
                             state["hyperball_radius"] = p.data.norm().item() * budget_mult
-                    update = muon_update(p.grad, state["momentum"], mu=group["mu"])
+                    if orthog_method == "ns5":
+                        update = muon_update(p.grad, state["momentum"], mu=group["mu"])
+                    else:
+                        update = muon_update_explicit_orth(
+                            p.grad, state["momentum"], mu=group["mu"],
+                            method=orthog_method,
+                        )
                     if hb and mode == "scale_invariant":
                         # Always-active variant: norm is held at initial value by construction.
                         scale_invariant_update_(p.data, update, group["lr"])
@@ -850,6 +912,7 @@ if dist.get_rank() == 0:
             "muonh_mu_schedule": args.muonh_mu_schedule,
             "muonh_mu_start": args.muonh_mu_start,
             "muonh_mu_end": args.muonh_mu_end,
+            "muonh_orthog_method": args.muonh_orthog_method,
         },
     )
 
@@ -933,8 +996,10 @@ for trial_idx in range(args.num_trials):
     optimizer2 = MuonH([p for p in model.blocks.parameters() if p.ndim >= 2],
                        lr=args.muonh_lr, weight_decay=0.0, mu=0.95,
                        hyperball=True, budget_mult=args.muonh_budget_mult,
-                       mode=args.muonh_mode)
+                       mode=args.muonh_mode,
+                       orthog_method=args.muonh_orthog_method)
     optimizer2.param_groups[0]["name"] = "muonh_blocks"
+    print0(f"[H171 INIT] body orthogonalization method = {args.muonh_orthog_method}", console=True)
     optimizers = [optimizer1, optimizer2]
     # AGC targets: AdamW aux groups (embed, lm_head, scalars). Built from optimizer1
     # param groups to track exactly the same params AdamW updates.
@@ -1226,13 +1291,13 @@ for trial_idx in range(args.num_trials):
                 histogram_samples=args.histogram_samples,
                 param_histogram_limit=args.param_histogram_limit,
             )
-        # H148: NS5-alignment telemetry. Singular values of MuonH body weights
-        # at a small set of probe steps. Captures whether orthogonal init
-        # (arm_b/arm_c) actually starts the trajectory closer to the NS5
-        # attractor than the default normal init (arm_a CTRL).
+        # H148/H171: NS5-alignment telemetry. Singular values of MuonH body
+        # weights at a small set of probe steps. H171 extends the probe set to
+        # 1500/2000/2500/3000 so the QR/SVD vs NS5 trajectory comparison has
+        # mid-to-late-training coverage.
         sv_due = (
             dist.get_rank() == 0
-            and train_step in (1, 50, 250, 500, 1000, train_steps)
+            and train_step in (1, 50, 250, 500, 1000, 1500, 2000, 2500, 3000, train_steps)
         )
         if sv_due:
             log_body_sv_stats(
