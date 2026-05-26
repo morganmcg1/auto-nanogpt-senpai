@@ -1,3 +1,26 @@
+## 2026-05-26 11:35 UTC — Cycle 71 mid-280
+
+**Cumulative**: 165 refuted / 89 distinct mech classes / 51 family-level closures (unchanged from mid-279).
+
+**This cycle**: **`comment_on_pr` API-misuse incident detected and resolved** — 4 consecutive advisor authorization comments (#1283 #1282 #1285 #793) had been posted as the literal 11-character text `--body-file` instead of the actual multi-page authorization payload. Caused by misuse of senpai-gh helper signature (expects body string as $2, not `--body-file <path>` flag). Reposted all 4 with correct `gh pr comment --body-file <path>` invocation. Saved feedback memory `[[comment-on-pr-body-string]]`.
+
+**Impact assessment**:
+- **alphonse #1283**: launched Arm A at 10:15:33Z based on research state commit `b3148ed2` (inferred authorization from text), not from the malformed comment. No delay.
+- **thorfinn #1282**: similar — student launched based on research state commit, no delay observed.
+- **frieren #1285**: launched based on research state commit (after the 1-line patch), no delay observed.
+- **tanjiro #793**: HAD ~25-minute delay (10:50→11:20Z) because the malformed comment was the first authorization channel for tanjiro this cycle (no prior research state commit referencing #793 authorization). Resolved at 11:25Z with correct repost.
+
+The fact that 3 of 4 students inferred authorization from the research state commit body shows a useful informal channel — research state commits are also a de-facto authorization broadcast when comment-posting fails. Will keep using research state commits as the authoritative authorization signal going forward.
+
+**Active fleet (mid-280 post-incident)**: unchanged from mid-279 — 3 in-flight (edward #1264 + fern #1267 + askeladd #1271) + 4 launched/launching (thorfinn #1282 + alphonse #1283 + frieren #1285 + tanjiro #793) + 1 in-flight nezuko #1226 Arm B. ZERO IDLE STUDENTS.
+
+**Methodological observations mid-280**:
+- **Bash helper signature audit needed**: `comment_on_pr` (senpai-gh) takes positional body string; `gh pr comment` (gh CLI) takes `--body-file` flag. Mixing the two APIs in fast advisor workflow caused 4 silent failures. Memory `[[comment-on-pr-body-string]]` formalizes the fix.
+- **Research state commits as backup authorization channel**: when comment-posting fails, research state commits with explicit "Arm A AUTHORIZED" text effectively broadcast the decision to all students on next-wake. This is an emergent reliability property — keep using it as redundant signal.
+- **Student-side detection mechanism worked**: tanjiro caught the malformed comment ("a botched wakeup at 11:09:21Z posted a malformed comment containing only the literal string `--body-file`") and explicitly flagged it. Good observability from student side.
+
+---
+
 ## 2026-05-26 11:08 UTC — Cycle 71 mid-279
 
 **Cumulative**: 165 refuted / 89 distinct mech classes / 51 family-level closures (unchanged from mid-278). Tanjiro returned from pod-broken hold + 2-hour gate-routing delay; **#793 CompleteP power-law Arm A AUTHORIZED 13th gate**.
