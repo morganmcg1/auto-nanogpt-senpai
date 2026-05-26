@@ -303,9 +303,21 @@ def log_adamw_step_direction(
         group_name = group.get("name", "unknown")
         group_b1, group_b2 = group.get("betas", (beta1, beta2))
         group_eps = group.get("eps", eps)
+        # Per-group β2 (#1203). When the β2 cooldown step fires, the per-group
+        # value changes; the global beta2 logged above stays at the
+        # construction-time value for back-compat.
+        metrics[f"train/adamw_beta2/{group_name}"] = float(group_b2)
         sq_sum = 0.0
         nel = 0
         max_abs = 0.0
+        # v_t telemetry per group (#1203). ‖v_t‖, mean, and elementwise std
+        # validate that the β2 transition is actually smoothing the variance
+        # estimate during cooldown. We sum-then-aggregate so multi-param groups
+        # combine correctly.
+        v_sq_sum = 0.0
+        v_sum = 0.0
+        v_sqsum_for_var = 0.0
+        v_nel = 0
         for p in group["params"]:
             st = optimizer.state.get(p, {})
             if "exp_avg" not in st or "exp_avg_sq" not in st:
@@ -325,6 +337,11 @@ def log_adamw_step_direction(
             m_abs = float(step_dir.abs().max().item())
             if m_abs > max_abs:
                 max_abs = m_abs
+            v_raw = st["exp_avg_sq"].to(torch.float32)
+            v_sq_sum += float((v_raw * v_raw).sum().item())
+            v_sum += float(v_raw.sum().item())
+            v_sqsum_for_var += float((v_raw * v_raw).sum().item())
+            v_nel += v_raw.numel()
         if nel > 0:
             norm = sq_sum ** 0.5
             rms = (sq_sum / nel) ** 0.5
@@ -334,6 +351,13 @@ def log_adamw_step_direction(
             metrics[f"train/optimizer1_step_dir/{group_name}_numel"] = nel
             grand_sq += sq_sum
             grand_n += nel
+        if v_nel > 0:
+            v_mean = v_sum / v_nel
+            v_var = max(0.0, v_sqsum_for_var / v_nel - v_mean * v_mean)
+            metrics[f"train/adamw_v/{group_name}_norm"] = v_sq_sum ** 0.5
+            metrics[f"train/adamw_v/{group_name}_mean"] = v_mean
+            metrics[f"train/adamw_v/{group_name}_std"] = v_var ** 0.5
+            metrics[f"train/adamw_v/{group_name}_numel"] = v_nel
     if grand_n > 0:
         metrics["train/optimizer1_step_dir/all_norm"] = grand_sq ** 0.5
         metrics["train/optimizer1_step_dir/all_rms"] = (grand_sq / grand_n) ** 0.5
@@ -571,6 +595,30 @@ if NANOGPT_EMBED_COOLDOWN_SHAPE not in _VALID_EMBED_COOLDOWN_SHAPES:
         f"NANOGPT_EMBED_COOLDOWN_SHAPE={NANOGPT_EMBED_COOLDOWN_SHAPE!r}, must be one of {_VALID_EMBED_COOLDOWN_SHAPES}"
     )
 NANOGPT_ADAMW_BETA2 = float(os.environ.get("NANOGPT_ADAMW_BETA2", "0.95"))
+# AdamW β2 cooldown step (#1203): at NS_COOLDOWN_START_FRAC * train_steps, swap
+# β2 from NANOGPT_ADAMW_BETA2 to NANOGPT_ADAMW_BETA2_COOLDOWN for the AdamW
+# param groups named in NANOGPT_ADAMW_BETA2_COOLDOWN_GROUPS (comma-separated:
+# subset of {"lm_head","embed","scalars"}). When both values are equal or the
+# group set is empty, the transition is a no-op and behavior is bit-identical.
+NANOGPT_ADAMW_BETA2_COOLDOWN = float(os.environ.get("NANOGPT_ADAMW_BETA2_COOLDOWN", str(NANOGPT_ADAMW_BETA2)))
+_ADAMW_BETA2_COOLDOWN_GROUPS_RAW = os.environ.get("NANOGPT_ADAMW_BETA2_COOLDOWN_GROUPS", "")
+NANOGPT_ADAMW_BETA2_COOLDOWN_GROUPS = set(
+    g.strip() for g in _ADAMW_BETA2_COOLDOWN_GROUPS_RAW.split(",") if g.strip()
+)
+_VALID_ADAMW_BETA2_COOLDOWN_GROUPS = {"lm_head", "embed", "scalars"}
+_unknown_groups = NANOGPT_ADAMW_BETA2_COOLDOWN_GROUPS - _VALID_ADAMW_BETA2_COOLDOWN_GROUPS
+if _unknown_groups:
+    raise ValueError(
+        f"NANOGPT_ADAMW_BETA2_COOLDOWN_GROUPS={_ADAMW_BETA2_COOLDOWN_GROUPS_RAW!r} "
+        f"contains unknown groups {_unknown_groups}; valid options are {_VALID_ADAMW_BETA2_COOLDOWN_GROUPS}"
+    )
+# Map the user-facing group names onto the AdamW param-group `name` field
+# used at optimizer construction.
+_ADAMW_BETA2_COOLDOWN_GROUP_NAMES = {
+    "lm_head": "adam_lm_head",
+    "embed": "adam_embed",
+    "scalars": "adam_scalars",
+}
 NANOGPT_ADAMW_EMBED_LR_MULT = float(os.environ.get("NANOGPT_ADAMW_EMBED_LR_MULT", "1.0"))
 NANOGPT_ADAMW_LM_HEAD_LR_MULT = float(os.environ.get("NANOGPT_ADAMW_LM_HEAD_LR_MULT", "1.0"))
 NANOGPT_ADAMW_SCALAR_LR_MULT = float(os.environ.get("NANOGPT_ADAMW_SCALAR_LR_MULT", "1.0"))
@@ -817,6 +865,24 @@ print0(f"EMBED_COOLDOWN_SHAPE: {NANOGPT_EMBED_COOLDOWN_SHAPE} "
        f"(applies to adam_embed only; lm_head/scalars use linear)", console=True)
 print0(f"ADAMW_BETA2: {NANOGPT_ADAMW_BETA2} (effective memory ~{int(1/(1-NANOGPT_ADAMW_BETA2)) if NANOGPT_ADAMW_BETA2 < 1 else 'inf'} steps)",
        console=True)
+_beta2_transition_active = (
+    NANOGPT_ADAMW_BETA2_COOLDOWN != NANOGPT_ADAMW_BETA2
+    and len(NANOGPT_ADAMW_BETA2_COOLDOWN_GROUPS) > 0
+)
+if _beta2_transition_active:
+    _cd_memory = int(1/(1-NANOGPT_ADAMW_BETA2_COOLDOWN)) if NANOGPT_ADAMW_BETA2_COOLDOWN < 1 else 'inf'
+    print0(
+        f"ADAMW_BETA2_COOLDOWN: β2 step-change {NANOGPT_ADAMW_BETA2} -> {NANOGPT_ADAMW_BETA2_COOLDOWN} "
+        f"(effective memory ~{_cd_memory} steps) at fraction {NS_COOLDOWN_START_FRAC} of train_steps "
+        f"on groups {sorted(NANOGPT_ADAMW_BETA2_COOLDOWN_GROUPS)} (ACTIVE)",
+        console=True,
+    )
+else:
+    print0(
+        f"ADAMW_BETA2_COOLDOWN: β2={NANOGPT_ADAMW_BETA2_COOLDOWN} groups={sorted(NANOGPT_ADAMW_BETA2_COOLDOWN_GROUPS)} "
+        f"(INACTIVE — bit-identical fallback)",
+        console=True,
+    )
 print0(f"ADAMW_LR_MULT: embed={NANOGPT_ADAMW_EMBED_LR_MULT} lm_head={NANOGPT_ADAMW_LM_HEAD_LR_MULT} scalar={NANOGPT_ADAMW_SCALAR_LR_MULT}", console=True)
 print0(f"  Effective base LRs: embed={0.3*NANOGPT_ADAMW_EMBED_LR_MULT:.4f} lm_head={(1/320)*NANOGPT_ADAMW_LM_HEAD_LR_MULT:.6f} scalar={0.01*NANOGPT_ADAMW_SCALAR_LR_MULT:.4f}", console=True)
 print0(f"MUON_LR_MULT: attn={NANOGPT_MUON_ATTN_LR_MULT:.3f} mlp={NANOGPT_MUON_MLP_LR_MULT:.3f}", console=True)
@@ -886,6 +952,9 @@ if dist.get_rank() == 0:
             "nanogpt_ns_cooldown_shape": NS_COOLDOWN_SHAPE,
             "nanogpt_embed_cooldown_shape": NANOGPT_EMBED_COOLDOWN_SHAPE,
             "nanogpt_adamw_beta2": NANOGPT_ADAMW_BETA2,
+            "nanogpt_adamw_beta2_cooldown": NANOGPT_ADAMW_BETA2_COOLDOWN,
+            "nanogpt_adamw_beta2_cooldown_groups": ",".join(sorted(NANOGPT_ADAMW_BETA2_COOLDOWN_GROUPS)),
+            "nanogpt_adamw_beta2_cooldown_active": int(_beta2_transition_active),
             "nanogpt_adamw_embed_lr_mult": NANOGPT_ADAMW_EMBED_LR_MULT,
             "nanogpt_adamw_lm_head_lr_mult": NANOGPT_ADAMW_LM_HEAD_LR_MULT,
             "nanogpt_adamw_scalar_lr_mult": NANOGPT_ADAMW_SCALAR_LR_MULT,
@@ -1134,6 +1203,34 @@ for trial_idx in range(args.num_trials):
         train_loss = float((step_loss / batch_size).item())
         # set optimization hyperparameters and take a step
         set_hparams(step)
+        # AdamW β2 cooldown step (#1203). Single-discontinuity transition fired
+        # at cooldown_start_step on the configured aux groups. Applied to all
+        # ranks (each opt is local; betas are a python tuple on the param group,
+        # so this is a local mutation — no collective needed). Has to land
+        # before the opt.step() at this step so the new β2 is used when v_t is
+        # updated. When transition is inactive (default), this is a no-op.
+        if (
+            _beta2_transition_active
+            and step == cooldown_start_step
+            and NANOGPT_ADAMW_BETA2_COOLDOWN_GROUPS
+        ):
+            _targets = {
+                _ADAMW_BETA2_COOLDOWN_GROUP_NAMES[g]
+                for g in NANOGPT_ADAMW_BETA2_COOLDOWN_GROUPS
+            }
+            _swapped = []
+            for group in optimizer1.param_groups:
+                if group.get("name") in _targets:
+                    old_b1, old_b2 = group["betas"]
+                    group["betas"] = (old_b1, NANOGPT_ADAMW_BETA2_COOLDOWN)
+                    _swapped.append((group.get("name"), old_b2))
+            if dist.get_rank() == 0:
+                print0(
+                    f"step={step}: AdamW β2 cooldown step transition → "
+                    f"β2={NANOGPT_ADAMW_BETA2_COOLDOWN} on "
+                    f"{[name for name, _ in _swapped]} (was β2={_swapped[0][1] if _swapped else None})",
+                    console=True,
+                )
         train_step = step + 1
         telemetry_due = (step == 0 or (step + 1) % args.telemetry_interval == 0 or step + 1 == train_steps)
         histogram_due = (step == 0 or (step + 1) % args.histogram_interval == 0 or step + 1 == train_steps)
