@@ -468,6 +468,11 @@ NS5_ITERS = int(os.environ.get("NS5_ITERS", "12"))
 WD_AUX = float(os.environ.get("WD_AUX", "0.0"))  # AdamW WD on embed + lm_head matrices (scalars stay at 0)
 EMBED_INIT_STD = float(os.environ.get("EMBED_INIT_STD", "1.0"))  # default preserves baseline N(0,1)
 LOGIT_SOFTCAP = float(os.environ.get("LOGIT_SOFTCAP", "15.0"))  # default = 15 (current hardcoded value); soft-cap value c in f(x) = c·x / sqrt(x^2+c^2)
+# AUX-side Adam bias-correction toggle (PR #1225):
+# 0 = standard fused AdamW with bias correction (baseline, bytewise inert)
+# 1 = remove bias correction on ALL AUX groups (embed, lm_head, scalars)
+# 2 = remove bias correction only on embed + lm_head (scalars keep correction)
+AUX_BIAS_CORRECTION_OFF = int(os.environ.get("AUX_BIAS_CORRECTION_OFF", "0"))
 
 
 def zeropower_via_newtonschulz5(G: Tensor) -> Tensor:
@@ -624,6 +629,82 @@ def soap_precondition(update, state, beta2=SOAP_BETA2, eps=1e-8):
     precond = q_row @ (projected / state["exp_avg_sq"].sqrt().add(eps)) @ q_col.T
     precond.mul_(update_f.norm() / precond.norm().clamp_min(eps))
     return precond.to(update.dtype)
+
+
+class AdamWNoBC(torch.optim.Optimizer):
+    """AdamW with optional per-group bias-correction disabling.
+
+    Each param group may carry ``bias_correction: bool`` (default True). When
+    False, the standard Adam factors ``bias_correction1 = 1 - beta1**step`` and
+    ``bias_correction2 = 1 - beta2**step`` are pinned at 1.0, so the raw EMAs
+    ``m`` and ``v`` are applied directly without the first-iteration upscaling
+    introduced by Kingma & Ba 2014 for zero-initialized EMAs.
+    """
+
+    def __init__(self, params, lr=1e-3, betas=(0.9, 0.999), eps=1e-8, weight_decay=0.0):
+        defaults = dict(lr=lr, betas=betas, eps=eps, weight_decay=weight_decay,
+                        bias_correction=True)
+        super().__init__(params, defaults)
+
+    @torch.no_grad()
+    def step(self):
+        for group in self.param_groups:
+            beta1, beta2 = group["betas"]
+            lr = group["lr"]
+            wd = group.get("weight_decay", 0.0)
+            eps = group["eps"]
+            use_bc = bool(group.get("bias_correction", True))
+            for p in group["params"]:
+                if p.grad is None:
+                    continue
+                grad = p.grad
+                state = self.state[p]
+                if len(state) == 0:
+                    state["step"] = 0
+                    state["exp_avg"] = torch.zeros_like(p, memory_format=torch.preserve_format)
+                    state["exp_avg_sq"] = torch.zeros_like(p, memory_format=torch.preserve_format)
+                state["step"] += 1
+                step = state["step"]
+                exp_avg = state["exp_avg"]
+                exp_avg_sq = state["exp_avg_sq"]
+                if wd != 0.0:
+                    p.mul_(1.0 - lr * wd)
+                exp_avg.mul_(beta1).add_(grad, alpha=1.0 - beta1)
+                exp_avg_sq.mul_(beta2).addcmul_(grad, grad, value=1.0 - beta2)
+                if use_bc:
+                    bc1 = 1.0 - beta1 ** step
+                    bc2 = 1.0 - beta2 ** step
+                else:
+                    bc1 = 1.0
+                    bc2 = 1.0
+                step_size = lr / bc1
+                denom = (exp_avg_sq.sqrt() / (bc2 ** 0.5)).add_(eps)
+                p.addcdiv_(exp_avg, denom, value=-step_size)
+
+    def bias_correction_stats(self) -> dict[str, float]:
+        """Per-group bias-correction telemetry: bc1, bc2, step, enabled flag."""
+        out: dict[str, float] = {}
+        for group in self.param_groups:
+            name = group.get("name", "unnamed")
+            beta1, beta2 = group["betas"]
+            step_val = 0
+            for p in group["params"]:
+                state = self.state.get(p)
+                if state is not None and "step" in state:
+                    step_val = int(state["step"])
+                    break
+            enabled = bool(group.get("bias_correction", True))
+            if enabled and step_val > 0:
+                bc1 = 1.0 - beta1 ** step_val
+                bc2 = 1.0 - beta2 ** step_val
+            else:
+                bc1 = 1.0
+                bc2 = 1.0
+            out[f"{name}/bc1"] = bc1
+            out[f"{name}/bc2"] = bc2
+            out[f"{name}/step"] = float(step_val)
+            out[f"{name}/bias_correction_enabled"] = float(enabled)
+        return out
 
 
 class Muon(torch.optim.Optimizer):
@@ -866,6 +947,7 @@ if dist.get_rank() == 0:
             "optimizer/attn_soap_trust_threshold": ATTN_SOAP_TRUST_THRESHOLD,
             "optimizer/ns5_iters": NS5_ITERS,
             "optimizer/wd_aux": WD_AUX,
+            "optimizer/aux_bias_correction_off": AUX_BIAS_CORRECTION_OFF,
             "optimizer/recipe": "contra-muon + normuon-lite + soap-on-mlp + soap-on-attn-trust-gate (pre-NS5, record #14 + record #16)",
         },
     )
@@ -898,10 +980,29 @@ for trial_idx in range(args.num_trials):
             raise Exception(f"Uninitialized parameter: {name}")
 
     # create the optimizer(s)
-    optimizer1 = AdamW([dict(params=[model.embed.weight], lr=0.3, name="adam_embed", weight_decay=WD_AUX),
-                        dict(params=[model.proj.weight], lr=1/320, name="adam_lm_head", weight_decay=WD_AUX),
-                        dict(params=[p for p in model.parameters() if p.ndim < 2], lr=0.01, name="adam_scalars")],
-                       betas=(0.8, 0.95), eps=1e-10, weight_decay=0, fused=True)
+    if AUX_BIAS_CORRECTION_OFF == 0:
+        optimizer1 = AdamW([dict(params=[model.embed.weight], lr=0.3, name="adam_embed", weight_decay=WD_AUX),
+                            dict(params=[model.proj.weight], lr=1/320, name="adam_lm_head", weight_decay=WD_AUX),
+                            dict(params=[p for p in model.parameters() if p.ndim < 2], lr=0.01, name="adam_scalars")],
+                           betas=(0.8, 0.95), eps=1e-10, weight_decay=0, fused=True)
+    else:
+        if AUX_BIAS_CORRECTION_OFF == 1:
+            bc_embed = bc_lm_head = bc_scalars = False
+        elif AUX_BIAS_CORRECTION_OFF == 2:
+            bc_embed = False
+            bc_lm_head = False
+            bc_scalars = True
+        else:
+            raise ValueError(f"Unknown AUX_BIAS_CORRECTION_OFF={AUX_BIAS_CORRECTION_OFF}")
+        optimizer1 = AdamWNoBC(
+            [dict(params=[model.embed.weight], lr=0.3, name="adam_embed",
+                  weight_decay=WD_AUX, bias_correction=bc_embed),
+             dict(params=[model.proj.weight], lr=1/320, name="adam_lm_head",
+                  weight_decay=WD_AUX, bias_correction=bc_lm_head),
+             dict(params=[p for p in model.parameters() if p.ndim < 2], lr=0.01,
+                  name="adam_scalars", bias_correction=bc_scalars)],
+            betas=(0.8, 0.95), eps=1e-10, weight_decay=0,
+        )
     optimizer2 = Muon([(n, p) for n, p in model.blocks.named_parameters() if p.ndim >= 2],
                       lr=MUON_LR, weight_decay=MUON_WEIGHT_DECAY, mu=MU)
     optimizer2.param_groups[0]["name"] = "muon_blocks"
@@ -1059,6 +1160,10 @@ for trial_idx in range(args.num_trials):
                     stats = opt.trust_gate_stats()
                     if stats:
                         wandb.log(prefixed("train/attn_soap_trust_gate", stats), step=wandb_step)
+                if hasattr(opt, "bias_correction_stats"):
+                    bc_stats = opt.bias_correction_stats()
+                    if bc_stats:
+                        wandb.log(prefixed("train/aux_bias_correction", bc_stats), step=wandb_step)
         if dist.get_rank() == 0 and telemetry_due:
             log_weight_telemetry(
                 model=model,
