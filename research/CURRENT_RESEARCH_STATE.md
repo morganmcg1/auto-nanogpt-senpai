@@ -1,3 +1,45 @@
+## 2026-05-26 11:50 UTC — Cycle 71 mid-281
+
+**Cumulative**: 165 refuted / 89 distinct mech classes / 51 family-level closures (unchanged from mid-280).
+
+**This cycle**: **nezuko #1226 Arm B terminal posted (FFS-PRIMARY-REFUTE cluster 6th member)** + Arm A=1.0 AUTHORIZED for sequential launch (last sub-arm of 4 sequential authorizations from mid-279→mid-281). Stale_wip flag triggered because student posted terminal Arm B at 09:54Z and waited explicitly per the 09:16Z protocol — gate-routing was correct this time but my response was 2 hours late due to mid-flight #793 + comment-bug remediation absorbing attention.
+
+- **#1226 nezuko AUX_CLIP_NORM Arm B (loose clip=5.0) — terminal**: n=1 val=3.26956 (Δ vs baseline 3.26776 = +0.00180), ffs=3025 (Δ vs baseline 3000 = +25), 0 nonfinite grads, clean trajectory. **6th FFS-PRIMARY-REFUTE cluster member** — cluster band tightens to val ∈ (3.269, 3.272) × ffs ∈ {3025, 3050}. Mechanism telemetry: pre-clip AUX grad norm = 16,487 at step 3175 (3,297× threshold) but clip is **almost entirely inert during steady state** (sparkline ▁) and only fires hard at terminal cooldown step. Two interpretations: (1) terminal-step kill-switch only, no trajectory-body effect; (2) terminal-step clip enables 3.26956 specifically. Arm A=1.0 will distinguish.
+
+- **#1226 Arm A=1.0 (tight clip) AUTHORIZED**: standard cycle 71 stack, n=1 seed=0, no canary needed (Arm B trajectory cleanly confirmed pod healthy on cu13). Kill gates standard (no relaxation since trajectory expected to be close to baseline if mechanism is null).
+
+**FFS-PRIMARY-REFUTE cluster grows to 6 members** (added nezuko #1226 Arm B):
+
+| PR | Mechanism | Arm | val | Δ | ffs |
+|---|---|---|---|---|---|
+| #1251 thorfinn | β1 depth-ramp +0.04 | A | 3.26912 | +0.00136 | 3025 |
+| #1224 fern | WD body depth | B | 3.26982 | +0.00206 | 3025 |
+| **#1226 nezuko** | **AUX_CLIP_NORM=5.0 loose clip** | **B** | **3.26956** | **+0.00180** | **3025** ← NEW |
+| #1250 frieren | LR body depth +0.3 | A | 3.27012 | +0.00236 | 3025 |
+| #1248 alphonse | NovoGrad β2=0.95 | A | 3.27141 | +0.00365 | 3025 |
+| #1248 alphonse | NovoGrad β2=0.5 (cluster-adjacent) | B | 3.27161 | +0.00385 | 3050 |
+
+Within-cluster val spread = 0.00249 across 6 unrelated mechanisms. Cluster prediction load-bearing — n=1 results inside the band are treated as predicted-by-null, do not trigger n=2 confirm without ffs improvement.
+
+**Active fleet (mid-281 post-cycle)**:
+- edward #1264 LATE_NORMUON_VARIANCE_RESET — Arm A in-flight (factorial cell V-only)
+- fern #1267 LATE_COOLDOWN_MOMENTUM_RESET — Arm A in-flight (factorial cell M-only)
+- askeladd #1271 SOAP_TRUST_DEPTH_RAMP — Arm A in-flight
+- thorfinn #1282 MUON_BETA_DEPTH_RAMP_COOLDOWN_ONLY — Arm A launched
+- alphonse #1283 MUON_COMBINED_LATE_RESET — Arm A launched (factorial cell M+V)
+- frieren #1285 MUON_LR_BETA_PAIRED_DEPTH_RAMP — Arm A launched post 1-line patch
+- tanjiro #793 DEPTH_DEP_MUON_LR — Arm A launched (canonical CompleteP)
+- **nezuko #1226 AUX_CLIP_NORM — Arm A=1.0 AUTHORIZED, launching** ← THIS CYCLE
+
+**ZERO IDLE STUDENTS** — 8 active arms in-flight or launching (highest concurrent active count in cycle 71). All 8 students productively occupied.
+
+**Methodological observations mid-281**:
+- **Cluster prediction validated 6×**: AUX_CLIP_NORM (gradient norm clip) + WD body depth + LR body depth + β1 body depth + NovoGrad pre-NS5 normalization × 2 — 5 unrelated mechanism families all converge to the same val × ffs cluster. This is a structural property of LOGIT_SOFTCAP=20.0 stack at this train-steps budget, not a property of any single mechanism. Implications: (a) breaking the cluster requires either bigger train_steps budget OR architectural/preconditioning changes that affect the cooldown-floor directly, not optimizer HP tweaks; (b) interaction tests (#1283 factorial, #1285 paired, #1282 phase-gated) are the most informative remaining tests because they probe whether cluster floor can be broken by combinations or schedules.
+- **Stale_wip flag value**: nezuko caught here demonstrates the survey heuristic does work for terminal-result + awaiting-advisor-authorization cases. 2-hour delay is suboptimal but bounded (90 min from post → next survey hit). Acceptable failure mode.
+- **Sequential authorization cadence updated**: 4 authorizations in last 3 hours (#1282 #1283 #1285 #793 + now #1226 Arm A). All 8 Arm A trajectories running concurrently — maximum concurrent active count of cycle 71.
+
+---
+
 ## 2026-05-26 11:35 UTC — Cycle 71 mid-280
 
 **Cumulative**: 165 refuted / 89 distinct mech classes / 51 family-level closures (unchanged from mid-279).
