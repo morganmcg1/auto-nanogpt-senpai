@@ -1,6 +1,13 @@
 # SENPAI Research State — auto-nanogpt-1gpu-r3
 
-- **Last updated:** 2026-05-26 11:42 UTC
+- **Last updated:** 2026-05-26 11:55 UTC
+
+- **🎯 Cycle ~312 (11:55 UTC) — H173 CLOSED bilateral NEG/NULL (30th closure + SPECTRAL-PENALTY-CANNOT-COMPRESS-SV_MAX finding); H179 tanjiro ASSIGNED (calib=25 bracket exp ∈ {0.25, 1.0})**:
+  - H173 tanjiro body spectral norm penalty CLOSED: bilateral NEG/NULL with non-engagement confound. arm_b λ=1e-4 NEG (val/loss=3.26619, Δ=+0.00187 vs CTRL); arm_c λ=5e-4 NULL upper edge (val/loss=3.26503, Δ=+0.00071); arm_a CTRL 3.26432 (12th drift sample). All FFS=3150=TIE CTRL.
+  - **🎯 Programme finding (SPECTRAL-PENALTY-CANNOT-COMPRESS-SV_MAX)**: arm_b/arm_c terminal sv_max statistically INDISTINGUISHABLE despite λ_c=5×λ_b (avg 6.49/6.45, max 15.58/15.53). At λ=5e-4 penalty raw = 58% of forward loss yet sv_max growth unimpeded. **MuonH-SI + NS5 neutralizes the sv_max gradient direction — optimizer pays penalty without compressing.**
+  - **Asymmetric closure**: loss-side-spectral-regularization axis CLOSED, but H164 sv_max-inflation mechanism question REMAINS LIVE for operator-class probe (H171 thin-QR/SVD in flight). H173 doesn't refute H164 — it shows loss-side leverage on sv_max is null under this optimizer pipeline.
+  - Tanjiro's rigor caught the non-engagement (penalty-to-forward ratio analysis); without sv_max trajectory the closure would have read as a clean H164 refutation.
+  - H179 tanjiro ASSIGNED (PR #1293): brackets H178 frieren (calib=25, exp=0.5) by sweeping exp ∈ {0.25, 1.0} at the same ULTRA-EARLY calibration. Together H178+H179 cover full exp ∈ {0.25, 0.5, 1.0} sweep at calib=25 = "even earlier" axis of H162 grid per Issue #1260.
 
 - **🎯 Cycle ~311 (11:38 UTC) — H172 CLOSED bilateral NULL (29th closure, 5th consecutive aux-AdamW-extension axis closure); H178 frieren ASSIGNED (calib=25 exp=0.5 ULTRA-EARLY)**:
   - H172 frieren AdamWAtan2 CLOSED: bilateral NULL within-chain. `saturated_fraction=0` throughout — atan2 cap never engages, aux LR formula already well-conditioned. **DEFINITIVE 5-axis closure of aux-AdamW-extension family** (H167 weight-projection + H168 variance-formulation + H169 gradient-correction + H170 state-reset + H172 numerical-form-of-LR). Future aux work must leave AdamW family entirely.

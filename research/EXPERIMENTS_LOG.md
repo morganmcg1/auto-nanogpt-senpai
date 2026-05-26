@@ -1,3 +1,55 @@
+## 2026-05-26 11:55 — PR #1257: H173 tanjiro body spectral norm penalty — BILATERAL NEG/NULL with non-engagement confound (30th closure + SPECTRAL-PENALTY-CANNOT-COMPRESS-SV_MAX finding)
+
+- Branch: `g1r3-tanjiro/h173-body-spectral-penalty`
+- Hypothesis: Add explicit body spectral norm penalty `λ · Σ sv_max(W_body)²` (power-iteration estimate, 5 iters, 72 body matrices) to directly regularize H164's sv_max inflation pathway. λ ∈ {1e-4, 5e-4}.
+
+| arm | λ | W&B | val/loss | FFS | Δ vs CTRL | Δ vs baseline | verdict |
+|---|---|---|---|---|---|---|---|
+| arm_a CTRL | 0 | `3fhp6xtk` | **3.26432** | 3150 | — | +0.00068 | NULL anchor (12th CTRL drift) |
+| arm_b PENALTY | 1e-4 | `pds67rlu` | **3.26619** | 3150 | +0.00187 | +0.00255 | **NEG** (clearly outside NULL band) |
+| arm_c PENALTY | 5e-4 | `t2xfrjd6` | **3.26503** | 3150 | +0.00071 | +0.00139 | NULL upper edge |
+
+WIN <3.26284: 0/3. FFS<3125: 0/3 (all FFS=3150 = TIE CTRL, +25 vs baseline).
+
+### Programme-grade Finding: SPECTRAL-PENALTY-CANNOT-COMPRESS-SV_MAX (MuonH+NS5 neutralizes the regularization gradient)
+
+**The penalty failed to compress sv_max at any λ tested.** arm_b and arm_c terminal sv_max trajectories are statistically INDISTINGUISHABLE despite λ_c = 5×λ_b:
+- Terminal avg sv_max: arm_b=6.49, arm_c=6.45 (Δ=0.04, within ~7.5% power-iter noise)
+- Terminal max sv_max: arm_b=15.58, arm_c=15.53 (Δ=0.05)
+- Both ≈ the CTRL natural value from H164 (6-7 range)
+
+Penalty-to-forward ratio: arm_b 11.8%, **arm_c 58.0%** — at arm_c the penalty term is over half the forward loss in magnitude yet sv_max growth was unimpeded. The MuonH-SI + NS5 orthogonalization pipeline aggressively reshapes body gradients such that the sv_max-gradient direction is effectively neutralized. **The optimizer pays the penalty cost without compressing sv_max.**
+
+### Confound limits the strength of closure
+
+H173's NEG verdict **does NOT refute the H164 mechanism question** (sv_max inflation → val/loss NEG). It shows that *loss-side regularization is unable to affect sv_max under this optimizer pipeline*. The mechanism axis bifurcates:
+- **Loss-side regularization axis** (this PR): CLOSED. Cannot compress sv_max via gradient penalty under MuonH+NS5.
+- **Operator-class axis** (H171 thin-QR/SVD): REMAINS LIVE. Direct replacement of partial-orth tail (NS5 sv_min≈0.18) → full orthogonalization can actually compress sv_max. H171 arm_c SVD still in flight.
+
+### Step-time overhead (well within budget)
+
+| Arm | train_time (s) | overhead vs CTRL |
+|---|---|---|
+| arm_a CTRL | 6038.9 | — |
+| arm_b 1e-4 | 6118.8 | +1.32% |
+| arm_c 5e-4 | 6121.6 | +1.37% |
+
+Power-iteration (5 iters × 72 body matrices) cost: ~1.3% (predicted ~3% in PR). Cheap mechanism probe.
+
+### CTRL drift envelope (12th sample)
+
+arm_a 3.26432 (Δ=+0.00068 vs baseline 3.26364). Combined with H172 arm_a 3.26579 (11th drift), H170 arm_a 3.26398 (9th), etc. — cumulative drift mean now 3.26494, FFS mean 3150. H174 alphonse trial 0 hit baseline EXACTLY (3.26348, FFS=3125) so the drift envelope is approach-dependent (which optimizer extension touches state), not seed-dependent.
+
+### Tanjiro's excellent rigor
+
+Catching the sv_max-non-compression confound is the load-bearing scientific contribution. Without this analysis, H173 would have read as a clean closure of the H164 mechanism question; instead, we know the closure is asymmetric. Per-layer breakdown was the one missed instrumentation (acknowledged) — can be filled in cheaply by checkpoint reload.
+
+### Follow-up: H179 tanjiro ASSIGNED (PR #1293) — calib=25 bracket exp ∈ {0.25, 1.0}
+
+Brackets H178 frieren (calib=25, exp=0.5) by sweeping the gentle-strong corners at the same ULTRA-EARLY calibration. Together H178+H179 cover the full exp ∈ {0.25, 0.5, 1.0} sweep at calib=25 — completes the H162 grid "even earlier" axis per Issue #1260 directive.
+
+---
+
 ## 2026-05-26 11:35 — PR #1256: H172 frieren AdamWAtan2 on aux — BILATERAL NULL within-chain (29th closure + NUMERICAL-FORM-OF-LR-NOT-LEVER finding)
 
 - Branch: `g1r3-frieren/h172-adamw-atan2-aux`
