@@ -83,6 +83,18 @@ def parse_args():
              "muall=musoft + non-residual block 2D weights also scaled by 1/sqrt(L); "
              "smallconst=std=1e-3 depth-independent.",
     )
+    parser.add_argument("--sf_muon_body", action="store_true",
+                        help="Enable Schedule-Free-style Polyak averaging on Muon body groups. "
+                             "Maintains a per-param Polyak-averaged tensor x; training steps on z (the parameter); "
+                             "validation evaluates the model with x. Aux groups (AdamW) are unaffected.")
+    parser.add_argument("--sf_beta", type=float, default=0.90,
+                        help="Schedule-Free averaging coefficient β ∈ (0,1). "
+                             "Per-step averaging weight ck = (1-β)/(1-β^(t+1)). "
+                             "β=0.90 is the Defazio default; larger=more conservative averaging.")
+    parser.add_argument("--sf_disable_cooldown", action="store_true",
+                        help="When --sf_muon_body is on, disable the LR cooldown for Muon body groups "
+                             "(LR multiplier eta stays at 1.0 for the whole run on body groups). "
+                             "Polyak averaging implicitly performs the cooldown role.")
     args = parser.parse_args()
     args.num_trials = args.num_trials if args.num_trials is not None else (args.legacy_num_trials or 1)
     args.wandb_tags = [tag.strip() for tag in args.wandb_tags.split(",") if tag.strip()]
@@ -571,7 +583,8 @@ class Muon(torch.optim.Optimizer):
     SOAP_ATTN_SUFFIXES = (".attn.q.weight", ".attn.k.weight", ".attn.v.weight", ".attn.proj.weight")
 
     def __init__(self, named_params, lr=0.02, weight_decay=0, mu=0.95,
-                 soap_attn=False, trust_threshold=0.0):
+                 soap_attn=False, trust_threshold=0.0,
+                 sf_muon=False, sf_beta=0.90):
         # `named_params` can be either:
         #   (a) list of (name, param) tuples → single param group (legacy form)
         #   (b) list of dicts {"named_params": [(name, param), ...], "lr": ?, "weight_decay": ?, "mu": ?, "name": ?}
@@ -594,6 +607,13 @@ class Muon(torch.optim.Optimizer):
         self.trust_threshold = float(trust_threshold)
         self.use_trust_gate = soap_attn
         self.cos_sims_buffer: dict[str, Tensor] = {}
+
+        # Schedule-Free Polyak-averaging state
+        self.sf_muon = bool(sf_muon)
+        self.sf_beta = float(sf_beta)
+        self.sf_step_count = 0
+        self._last_ck = 1.0
+        self._sf_swapped_to_x = False
 
         param_groups = []
         for g in groups_raw:
@@ -657,6 +677,22 @@ class Muon(torch.optim.Optimizer):
             group["_step_norm_sum"] = norm_sum
             group["_step_norm_count"] = len(params)
 
+        if self.sf_muon:
+            self.sf_step_count += 1
+            beta = self.sf_beta
+            if beta < 1.0:
+                ck = (1.0 - beta) / (1.0 - beta ** self.sf_step_count)
+            else:
+                ck = 1.0 / self.sf_step_count
+            self._last_ck = float(ck)
+            for group in self.param_groups:
+                for p in group["params"]:
+                    state = self.state[p]
+                    if "x" not in state:
+                        state["x"] = torch.empty_like(p)
+                        state["x"].copy_(p.data)
+                    state["x"].mul_(1.0 - ck).add_(p.data, alpha=ck)
+
     def get_step_update_norms(self) -> dict[str, float]:
         """Return per-group mean Frobenius norm of the most recent step's updates.
 
@@ -679,6 +715,55 @@ class Muon(torch.optim.Optimizer):
             name = group.get("name", f"group_{g_idx}")
             result[name] = mean
         return result
+
+    @torch.no_grad()
+    def sf_get_telemetry(self) -> dict[str, float]:
+        """Per-block ‖x - z‖_F summarized; only meaningful when sf_muon is on."""
+        if not self.sf_muon:
+            return {}
+        distances: list[float] = []
+        for group in self.param_groups:
+            for p in group["params"]:
+                state = self.state[p]
+                if "x" in state:
+                    distances.append(float((state["x"] - p.data).float().norm().item()))
+        if not distances:
+            return {}
+        t = torch.tensor(distances, dtype=torch.float32)
+        return {
+            "sf_muon/x_z_dist_mean": float(t.mean().item()),
+            "sf_muon/x_z_dist_p95": float(t.quantile(0.95).item()),
+            "sf_muon/x_z_dist_max": float(t.max().item()),
+            "sf_muon/ck": float(self._last_ck),
+            "sf_muon/step_count": int(self.sf_step_count),
+        }
+
+    @torch.no_grad()
+    def sf_swap_to_x(self) -> None:
+        """Copy each SF body param's Polyak-averaged x into p.data; save z in z_save."""
+        if not self.sf_muon or self._sf_swapped_to_x:
+            return
+        for group in self.param_groups:
+            for p in group["params"]:
+                state = self.state[p]
+                if "x" in state:
+                    if "z_save" not in state:
+                        state["z_save"] = torch.empty_like(p)
+                    state["z_save"].copy_(p.data)
+                    p.data.copy_(state["x"])
+        self._sf_swapped_to_x = True
+
+    @torch.no_grad()
+    def sf_swap_back(self) -> None:
+        """Restore z into p.data after a sf_swap_to_x()."""
+        if not self.sf_muon or not self._sf_swapped_to_x:
+            return
+        for group in self.param_groups:
+            for p in group["params"]:
+                state = self.state[p]
+                if "z_save" in state:
+                    p.data.copy_(state["z_save"])
+        self._sf_swapped_to_x = False
 
 
 ########################################
@@ -765,6 +850,9 @@ if dist.get_rank() == 0:
             "wd_schedule": args.wd_schedule,
             "lr_scalars": args.lr_scalars,
             "depth_init_mode": args.depth_init_mode,
+            "sf_muon_body": bool(args.sf_muon_body),
+            "sf_beta": float(args.sf_beta),
+            "sf_disable_cooldown": bool(args.sf_disable_cooldown),
         },
     )
 
@@ -853,6 +941,7 @@ for trial_idx in range(args.num_trials):
             dict(named_params=attn_named, lr=args.lr_attn, weight_decay=args.wd_attn, name="muon_attn"),
         ],
         soap_attn=args.soap_attn, trust_threshold=args.soap_trust_threshold,
+        sf_muon=args.sf_muon_body, sf_beta=args.sf_beta,
     )
     optimizers = [optimizer1, optimizer2]
     assert set(p for opt in optimizers for group in opt.param_groups
@@ -887,10 +976,13 @@ for trial_idx in range(args.num_trials):
         else:
             eta = (1 - progress) / cooldown_frac
         wd_mu = _wd_multiplier(step, train_steps, args.wd_schedule)
+        body_no_cooldown = args.sf_muon_body and args.sf_disable_cooldown
         for opt in optimizers:
             for group in opt.param_groups:
-                group["lr"] = group["initial_lr"] * eta
-                if "initial_wd" in group and group.get("name", "").startswith("muon_"):
+                is_body = group.get("name", "").startswith("muon_")
+                group_eta = 1.0 if (body_no_cooldown and is_body) else eta
+                group["lr"] = group["initial_lr"] * group_eta
+                if "initial_wd" in group and is_body:
                     group["weight_decay"] = group["initial_wd"] * wd_mu
 
 
@@ -925,14 +1017,31 @@ for trial_idx in range(args.num_trials):
             last_val_step = step
             training_time += time_since_last_val
             model.eval()
-            val_loss = torch.zeros((), device=device)
-            with torch.no_grad():
-                assert len(val_inputs) % mbs == 0
-                for i in range(len(val_inputs) // mbs):
-                    val_loss += model(val_inputs[i*mbs:(i+1)*mbs], val_targets[i*mbs:(i+1)*mbs])
-            dist.all_reduce(val_loss, op=dist.ReduceOp.SUM)
-            val_loss /= val_tokens
-            val_loss_float = float(val_loss.item())
+
+            def _compute_val_loss():
+                vl = torch.zeros((), device=device)
+                with torch.no_grad():
+                    assert len(val_inputs) % mbs == 0
+                    for i in range(len(val_inputs) // mbs):
+                        vl += model(val_inputs[i*mbs:(i+1)*mbs], val_targets[i*mbs:(i+1)*mbs])
+                dist.all_reduce(vl, op=dist.ReduceOp.SUM)
+                vl /= val_tokens
+                return float(vl.item())
+
+            sf_active = args.sf_muon_body and optimizer2.sf_step_count > 0
+            if sf_active:
+                # val_z first (current p.data = z), then swap to x and re-eval
+                val_z_float = _compute_val_loss()
+                optimizer2.sf_swap_to_x()
+                val_x_float = _compute_val_loss()
+                optimizer2.sf_swap_back()
+                # The SF-correct val/loss is the one evaluated at the Polyak average x
+                val_loss_float = val_x_float
+            else:
+                val_loss_float = _compute_val_loss()
+                val_z_float = val_loss_float
+                val_x_float = val_loss_float
+
             if dist.get_rank() == 0:
                 val_loss_history.append((step, val_loss_float))
                 if val_loss_float < best_val_loss:
@@ -953,10 +1062,16 @@ for trial_idx in range(args.num_trials):
                     "time/train_seconds": training_time,
                     "time/step_avg_ms": 1000 * step_avg,
                 }
+                if sf_active:
+                    metrics["val/loss_z"] = val_z_float
+                    metrics["val/loss_x"] = val_x_float
+                    metrics["sf_muon/eval_lag"] = val_x_float - val_z_float
                 metrics.update(prefixed("val/slope", loss_slope_stats(val_loss_history, slope_window_steps)))
                 wandb.log(metrics, step=trial_idx * (train_steps + 1) + step)
-            print0(f"step:{step}/{train_steps} val_loss:{val_loss:.5f} train_time:{training_time:.3f}s"
-                   + f" step_avg:{1000*step_avg:.2f}ms", console=True)
+            print0(f"step:{step}/{train_steps} val_loss:{val_loss_float:.5f}"
+                   + (f" (z={val_z_float:.5f} lag={val_x_float-val_z_float:+.5f})" if sf_active else "")
+                   + f" train_time:{training_time:.3f}s step_avg:{1000*step_avg:.2f}ms",
+                   console=True)
             model.train()
             # start the clock again
             dist.barrier()
@@ -1026,6 +1141,7 @@ for trial_idx in range(args.num_trials):
                 per_group_metrics["train/wd_mlp_now"] = current_wds.get("muon_mlp", 0.0)
                 per_group_metrics["train/wd_attn_now"] = current_wds.get("muon_attn", 0.0)
                 per_group_metrics["train/wd_schedule_progress"] = train_step / train_steps
+                per_group_metrics.update(optimizer2.sf_get_telemetry())
                 wandb.log(per_group_metrics, step=wandb_step)
         if dist.get_rank() == 0 and optimizer2.cos_sims_buffer:
             cs_names = list(optimizer2.cos_sims_buffer.keys())
