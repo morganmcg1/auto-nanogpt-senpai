@@ -1,3 +1,60 @@
+## 2026-05-26 05:30 — PR #1219: H164 askeladd MuonBP block-periodic NS5 orthogonalization — BILATERAL NEG (22nd NULL/NEG closure + 13th NS5-axis closure + first SPATIAL GRANULARITY axis closure + 1 programme-grade mechanism finding)
+
+- Branch: `g1r3-askeladd/h164-muonbp-block-periodic`
+- Hypothesis: Block-local NS5 with periodic full-NS5 resets may reach a different partial-orth equilibrium with better task-aligned spectral structure (directly probes H90 sv_min ≈ 0.18 load-bearing question via spatial granularity axis).
+
+| arm | block_size | full_period | W&B | val/loss | Δ vs baseline (3.26364) | speedrun_ffs | Verdict |
+|-----|-----------|-------------|-----|----------|------------------------|--------------|---------|
+| arm_a CTRL | 0 | 1 | `lct7tcjk` | **3.26538** | +0.00174 | 3150 | NEG-edge (5th CTRL drift sample) |
+| arm_b BLOCK_192_P10 | 192 | 10 | `9c0oh78b` | **3.27754** | +0.01390 | 3275 | **CLEAR NEG** (~14σ) |
+| arm_c BLOCK_192_P30 | 192 | 30 | `1sdjipml` | **3.27768** | +0.01404 | 3275 | **CLEAR NEG** (~14σ; TIED arm_b within 0.0001) |
+
+WIN <3.26284: 0/3. Benchmark rule (3.28 target, n=1): only arm_a passes (margin 0.01462); arm_b/c fail.
+
+### Programme-grade Finding: sv_max-inflation is the load-bearing failure mode
+
+Block-NS5 cannot constrain top spectral modes — sv_max inflates +15-25% across attention layers vs CTRL (block_6 attn.q arm_b +25.7%; block_0 attn.q arm_c +24.5%) and val/loss tracks the inflation linearly. sv_min near-zero across all arms (4.66e-05 CTRL, 3.21e-06 arm_b, 1.36e-05 arm_c) — partial-orth tail preserved regardless of granularity.
+
+**H90 standing question RESOLVED**: cross-column directional structure enforced by NS5 is the load-bearing partial-orth property, NOT per-column orthogonality. The block-local NS5 destroys cross-column coupling but preserves within-block low-SV tail. This sharpens 13+ NS5-axis closures.
+
+### Bonus Finding: damage saturates fast
+
+arm_b (period=10) and arm_c (period=30) TIE within 0.0001 — tripling time between full-NS5 resets gave zero additional damage. Cross-column structure has fast destruction timescale (saturates by step 500); once broken, sparser full-NS5 doesn't break it further AND full-NS5 cannot restore (optimizer state drifts past recovery).
+
+### Closure framing
+
+13-axis NS5 closure portfolio: H78/H88/H90/H93/H98/H106/H115/H121/H129/H132/H137/H145/**H164**. NS5 polynomial family + iteration + frequency + precision + coefficient + spatial granularity ALL EXHAUSTED. Programme statement: future body-orthogonalization wins require LEAVING NS5 entirely. Follow-up: H171 askeladd thin-QR/SVD operator-class replacement (PR #1255).
+
+---
+
+## 2026-05-26 05:30 — PR #1223: H165 frieren MGUP-on-AdamW-aux per-row (cross-family test of H155 cos(m,g)<0 finding) — BILATERAL NEG/NULL (23rd NULL/NEG closure + 1 programme-grade cross-family mechanism finding)
+
+- Branch: `g1r3-frieren/h165-mgup-aux-adamw`
+- Hypothesis: H155 closure established cos(m,g) systematically NEGATIVE on MuonH body under NS5+heavy-momentum+outer-Nesterov+AGC stack. H165 tests cross-family generalization on AdamW aux (no NS5). If cos>0 on aux, MGUP's "boost top-k% by alignment" works as designed — high-value WIN candidate. Per-row granularity (vocab axis V=50304) gives 50304 score values per tensor, exposing token-dependent alignment heterogeneity.
+
+| arm | k | α | β | W&B | val/loss | Δ vs baseline (3.26364) | speedrun_ffs | Verdict |
+|-----|---|---|---|-----|----------|------------------------|--------------|---------|
+| arm_a CTRL | — | — | — | `hqmeqh9j` | **3.26751** | +0.00387 | 3275 | NEG (7th CTRL drift sample) |
+| arm_b MGUP_50_MOD | 0.50 | 0.5 | 0.5 | `otmlgzp1` | **3.26349** | -0.00015 | 3150 | NULL vs baseline (within-chain Δ -0.00402 = 4σ but ONLY vs drifted CTRL — codebase-drift cancellation, NOT substantive WIN) |
+| arm_c MGUP_25_AGG | 0.25 | 1.0 | 0.75 | `nixyk9gr` | **~3.30** projected | +0.038 | -1 | **NEG-certain** (k=0.25 too aggressive) |
+
+WIN <3.26284: 0/3. Soft WIN threshold not cleared (arm_b Δ +0.00065 above). NO confirmation seed requested — arm_b NULL vs original baseline 3.26364 is not WIN-eligible.
+
+### Programme-grade Finding: Cross-family cos(m,g) sign asymmetry CONFIRMED
+
+**Body MuonH** (NS5+heavy-momentum+outer-Nesterov+AGC stack, H155 askeladd): cos(m_t, g_t) systematically negative through training (full-run mean −0.25 to −0.27, never crosses zero). MGUP's "boost top-k by alignment" selects least-anti-aligned coords (cos −0.17 vs −0.30) — boosting pushes parameters AWAY from descent.
+
+**Aux AdamW** (no NS5, no outer-Nesterov, H165 frieren): cos(m_t, g_t) systematically POSITIVE through training. arm_b `mgup_aux/lm_head/pos_frac` mean **0.864** across 136 datapoints; `mgup_aux/embed/pos_frac` mean **0.619**.
+
+**Implications**:
+- Body-side per-parameter LR hypotheses must accommodate cos(m,g)<0 dominance (anti-aligned correction)
+- Aux-side operates in standard cos>0 regime; alignment-boost mechanism applies but doesn't deliver WIN-magnitude gain above current AdamW stack
+- MGUP's positive-mode mechanism transfers cleanly to aux as expected — but mechanism alone insufficient
+
+Follow-up: H172 frieren AdamWAtan2 aux (PR #1256) — different mechanism axis (numerical conditioning of per-element LR formula).
+
+---
+
 ## 2026-05-26 04:35 — PR #1217: H163 edward Schedule-Free outer aggregation (MuLoCo EMA vs heavy-ball Nesterov-SGDM) — BILATERAL NEG (21st NULL/NEG closure + 3 programme-grade findings)
 
 - Branch: `g1r3-edward/h163-schedule-free-outer`
