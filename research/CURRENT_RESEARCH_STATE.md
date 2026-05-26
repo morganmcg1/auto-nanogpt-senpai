@@ -1,3 +1,49 @@
+## 2026-05-26 12:20 UTC — Cycle 71 mid-282
+
+**Cumulative**: 165 refuted (unchanged) / 89 distinct mech classes (unchanged) / 51 family-level closures (unchanged). **Potential cycle-71 inflection point** — fern #1267 Arm A terminal posted with **first cluster-break signature** of cycle 71 (val=3.26872 ffs=3000, OUTSIDE FFS-PRIMARY cluster).
+
+**This cycle**: 
+- **fern #1267 LATE_COOLDOWN_MOMENTUM_RESET Arm A (zero) terminal**: refute under FFS framing (FFS=3000 ≠ ≤2975 hold gate). val=3.26872 (Δ+0.00096 vs baseline 3.26776 — within RNG band) + ffs=3000 (matches baseline). **Cluster-break signature**: val BELOW cluster lower bound 3.26912 thorfinn A, ffs BELOW cluster's 3025. First cycle-71 mechanism that may genuinely escape FFS-PRIMARY cluster — but n=1 makes interpretation ambiguous.
+
+- **Two interpretations**:
+  1. n=1 RNG noise: baseline-like draws occur stochastically at n=1; fern Arm A is the lucky baseline-RNG-draw outcome.
+  2. State-reset family uniquely orthogonal to cluster floor: 5 prior cluster members all "perturb" the cooldown trajectory (depth ramps, novel optimizer additions, AUX clip). State-reset doesn't perturb the trajectory body — it resets the EMA at one step, leaving cooldown dynamics intact.
+
+- **Arm B (scale=0.5 half-magnitude reset) AUTHORIZED** to discriminate. Bilateral close completes the decoupled-pair design with edward #1264 (variance reset). If Arm B also produces ffs=3000 + val ~3.268, interpretation 2 is confirmed → state-reset family is orthogonal to cluster, family-level closure may NOT apply.
+
+**Cross-comparison plan** when state-reset family terminates:
+
+| PR | Mechanism | Arm A val | Arm A ffs | In-cluster? |
+|---|---|---|---|---|
+| #1267 fern (Arm A done) | LATE_COOLDOWN_MOMENTUM_RESET (M-only) | 3.26872 | 3000 | **NO** ← cluster-break |
+| #1264 edward (in-flight) | LATE_NORMUON_RESET (V-only) | TBD | TBD | predicting NO if interp 2 |
+| #1283 alphonse (launched) | LATE_RESET_BOTH (M+V combined) | TBD | TBD | predicting NO if interp 2 |
+
+If all three state-reset arms land at ffs=3000 baseline-noise, **STATE-RESET FAMILY IS NEW SIGNATURE CLASS** — first cycle-71 family that breaks the FFS-PRIMARY cluster floor. This would warrant n=2 confirmation of each arm and reframe the rest of cycle 71 toward state-reset variants (scale magnitudes, reset step variations, different state buffers, multi-reset schedules).
+
+If state-reset arms split (e.g., fern A ffs=3000 but edward/alphonse ffs=3025), then fern A was n=1 RNG noise + family lands in cluster.
+
+**Cluster prediction loadbearing-ness UPDATE**: until now, the cluster floor at val ∈ (3.269, 3.272) × ffs ∈ {3025, 3050} was assumed structural for LOGIT_SOFTCAP=20.0 stack. fern Arm A challenges this. The next 3-6 hours of state-reset terminals will resolve.
+
+**Active fleet (mid-282 post-cycle)**:
+- edward #1264 LATE_NORMUON_VARIANCE_RESET — Arm A in-flight (most informational pending result for cluster question)
+- **fern #1267 LATE_COOLDOWN_MOMENTUM_RESET — Arm B AUTHORIZED post-Arm-A** ← cluster-break flag pending
+- askeladd #1271 SOAP_TRUST_DEPTH_RAMP — Arm A in-flight
+- thorfinn #1282 MUON_BETA_DEPTH_RAMP_COOLDOWN_ONLY — Arm A launched
+- alphonse #1283 MUON_COMBINED_LATE_RESET (M+V) — Arm A launched (factorial cell completes state-reset family)
+- frieren #1285 MUON_LR_BETA_PAIRED_DEPTH_RAMP — Arm A launched post 1-line patch
+- tanjiro #793 DEPTH_DEP_MUON_LR — Arm A launched (canonical CompleteP)
+- nezuko #1226 AUX_CLIP_NORM — Arm A=1.0 launching
+
+**ZERO IDLE STUDENTS** — 7 active arms + 1 fern Arm B authorized = 8 launches in cycle 71 batch. Maximum concurrent count.
+
+**Methodological observations mid-282**:
+- **First potential cluster-break of cycle 71**: fern Arm A is the only Arm A result this cycle landing outside FFS-PRIMARY-REFUTE cluster (val=3.26872 ffs=3000). If cross-confirmed by edward + alphonse, this would be the most significant methodological result of cycle 71 — invalidates the "cluster floor is structural" assumption and reframes state-reset as a fundamentally different family.
+- **Decision-tree flag**: until edward + alphonse terminal, treat fern Arm A as POTENTIALLY CLUSTER-BREAKING (not yet confirmed). Don't merge or n=2 confirm yet; await family-wide cross-comparison.
+- **Methodological note**: this is exactly the kind of high-information remaining test I flagged in mid-281 — interaction/family-wide cross-comparisons probe the cluster floor more deeply than individual HP tweaks. Validation of mid-281 methodological prediction.
+
+---
+
 ## 2026-05-26 11:50 UTC — Cycle 71 mid-281
 
 **Cumulative**: 165 refuted / 89 distinct mech classes / 51 family-level closures (unchanged from mid-280).
