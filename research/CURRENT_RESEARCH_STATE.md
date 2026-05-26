@@ -1,3 +1,48 @@
+## 2026-05-26 08:15 UTC — Cycle 71 mid-273
+
+**Cumulative**: 162 refuted (askeladd #1254 CLOSED as 162nd, CATASTROPHIC single-arm refute) / 86 distinct mech classes (askeladd #1271 SOAP_TRUST_DEPTH_RAMP NEW — first per-layer SOAP gating in 320-PR corpus) / 48 family-level closures (#1254 single-arm preempt-close does NOT increment family-level — Arm B killed pre-launch) / 7 SATURATED MECHANISM LAYERS + 3 SATURATED LANES / **13 refute-signature classes** (13th class **Stiefel-averaging-magnitude-loss** introduced via #1254 — distinct from generic CATASTROPHIC-SHIFTED-FLOOR, identifies a specific Riemannian-averaging failure mode where post-NS5 EMA of unit-direction projections loses gradient magnitude info that downstream Muon update needs for layer-wise scale calibration)
+
+**This cycle**:
+- **#1254 askeladd MUON_POST_NS5_MOMENTUM CLOSED**: 162nd refute, 6th CATASTROPHIC-SHIFTED-FLOOR. Arm A `2kozjqop` terminal val=3.32294 (Δ+0.05518 vs baseline 3.26776 — **11× typical SHIFTED-FLOOR magnitude**), ffs=-1 (NEVER crossed 3.28). Arm B `yugudq21` KILLED pre-terminal (mechanism failure, no information value). 13th refute-signature class **Stiefel-averaging-magnitude-loss** introduced — post-NS5 polar projection produces unit-norm orthogonalized directions; subsequent EMA averages those unit directions, discarding gradient magnitude information. The Muon update then loses the layer-wise scale calibration that the pre-NS5 EMA (orthogonalizing magnitude-weighted average) provided. Generalizes beyond NS5 to any operation-order reorder placing EMA after a magnitude-stripping projection (norm preserving, scale stripping).
+- **#1271 askeladd SOAP_TRUST_DEPTH_RAMP assigned**: 86th distinct mech class — FIRST per-layer SOAP gating in 320-PR corpus. Center-preserving depth-ramp `trust_threshold(l) = 0.85 + RAMP × (l/(L-1) - 0.5)` for L=12 attn-soap layers. Arms: A=+0.15 (shallow=0.775 loose/more SOAP, deep=0.925 strict/less SOAP) + B=-0.15 (flipped). Mean threshold = baseline 0.85 (isolates spatial asymmetry from threshold-scale, which #683 already validated as optimal). Theoretical motivation: depth-dependent SNR (μP/SP² Bordelon 2024) — deeper layers see heavily-mixed residual stream, Gram matrix eigenbasis rotation rate may differ systematically with depth. Completes spatial-schedule **quad** with #1224 WD + #1250 LR + #1251 β + #1271 SOAP_TRUST across body+attention sides.
+- **Code-review gate methodology**: 7 successful applications cycle 71 (#1230 #1248 #1251 #1254 #1264 #1267 #1271-prep). Pre-launch code-review now standard practice; askeladd #1271 instructions explicitly require disabled-check + advisor code-review before Arm A launch.
+
+**FFS-PRIMARY-REFUTE pattern saturation (Morgan #1259 framing)**:
+4 confirmed n=1 close-misses at ffs=3025 floor across UNRELATED mechanisms (cycle 71):
+| PR | Mechanism | Arm | val | Δ vs baseline | ffs |
+|---|---|---|---|---|---|
+| #1251 thorfinn | β1 depth-ramp +0.04 | A | 3.26912 | +0.00136 | 3025 |
+| #1224 fern | WD body depth | B | 3.26982 | +0.00206 | 3025 |
+| #1250 frieren | LR body depth +0.3 | A | 3.27012 | +0.00236 | 3025 |
+| #1248 alphonse | NovoGrad pre-NS5 norm | A | 3.27141 | +0.00365 | 3025 |
+
+**Structural conclusion**: n=1 seeds for the LOGIT_SOFTCAP=20.0 baseline stack have a hard FFS floor at 3025 (baseline n=2 seeds 0+1 → ffs_mean=3000, but individual non-canonical seeds appear to bottom at 3025). Within-cluster val variance is ±0.00115 (range 3.26912–3.27141). Future merge-bar candidates near this cluster must validate with **n=2 confirmation** AND show ffs improvement, not just val tight to baseline. Any single-seed close-miss landing in (3.269, 3.272) × ffs=3025 is now **predicted by null** — mechanism interpretation must explain why a mechanism would BOTH leave val unchanged AND cost 25 ffs steps.
+
+**Active fleet (mid-273 post-cycle)**:
+- alphonse #1248 NOVOGRAD_BODY_MUON — Arm A SENPAI-RESULT non-terminal `k6ch2snl` val=3.27141 ffs=3025 (FFS-PRIMARY-REFUTE); Arm B running (β2=0.99 confirm), ETA ~09:00 UTC
+- thorfinn #1251 MUON_BETA_DEPTH_RAMP — Arm A `ufkanf0u` val=3.26912 ffs=3025 (FFS-PRIMARY-REFUTE, awaiting student reconciliation 3.27141 vs 3.26912); Arm B `ocijn6iw` running RAMP=-0.04, ETA ~08:55 UTC
+- frieren #1250 MUON_LR_DEPTH_RAMP — Arm A `4oswee0c` val=3.27012 ffs=3025 (FFS-PRIMARY-REFUTE); Arm B running RAMP=-0.3, ETA ~09:30 UTC
+- edward #1264 LATE_NORMUON_VARIANCE_RESET — Arm A authorized 07:53, launching, kill-gate template includes doubled margin near reset step 2540 (state-phase change), ETA ~09:35 UTC
+- fern #1267 LATE_COOLDOWN_MOMENTUM_RESET — Arm A authorized 08:04, launching, kill-gate template includes doubled margin near reset step 2540, ETA ~09:45 UTC
+- **askeladd #1271 SOAP_TRUST_DEPTH_RAMP — NEW, awaiting disabled-check + code-review gate**
+- 2 pod-broken holds: tanjiro #793 + nezuko #1226
+
+**ZERO IDLE STUDENTS** — 6 active WIPs (4 in-flight + 2 launching) + 1 awaiting-launch (#1271) + 2 pod-broken holds
+
+**Aligned with Morgan #1259 directive**:
+- 4× depth/per-group (#1250 LR + #1251 β + #1264/#1267 paired reset + #1271 SOAP_TRUST attn) — **portfolio enriched this cycle**
+- 4× state-phase changes (#1248 NovoGrad + #1264/#1267 paired reset event + (#1254 CLOSED structural failure))
+- 0× scalar HP-only sweeps
+- 0× saturated lanes added (#1254 closure does NOT saturate POST_NS5 operation-order axis — single-arm preempt; complementary "pre-NS5 ONS" or "interleaved" could still test)
+
+**Methodological observations**:
+- 13th refute-signature class **Stiefel-averaging-magnitude-loss** crystalizes a specific reorder-failure pattern. Future operation-order proposals on orthogonalization-bearing pipelines must demonstrate magnitude-preservation argument pre-launch.
+- FFS-PRIMARY-REFUTE cluster predicts close-miss space (3.269, 3.272) × ffs=3025 as **null behavior** for n=1. Merge bar effectively requires breaking out of this cluster (either Δval < -0.0015 or ffs ≤ 3000).
+- Decoupled-mechanism pair design (fern #1267 momentum + edward #1264 variance) executing in parallel — first explicit application of the methodology.
+- Spatial-schedule **quad** (WD + LR + β + SOAP-trust): if all four refute symmetrically, depth-spatial-schedule family closes cleanly across body+attention sides; if any single arm clears merge bar, that axis becomes the lone winner in a 4-way symmetry test (powerful 4-way comparison).
+
+---
+
 ## 2026-05-26 07:50 UTC — Cycle 71 mid-272
 
 **Cumulative**: 161 refuted (fern #1224 CLOSED as 161st) / 85 distinct mech classes (#1267 LATE_COOLDOWN_MOMENTUM_RESET NEW) / 48 family-level closures (WD_BODY_DEPTH adds to 48) / 7 SATURATED MECHANISM LAYERS + 8th candidate / 3 SATURATED LANES / 12 refute-signature classes (12th FFS-PRIMARY-REFUTE introduced via #1224)
