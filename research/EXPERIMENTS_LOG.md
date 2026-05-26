@@ -3,6 +3,46 @@
 Log of completed/reviewed experiment PRs in chronological order. Wave 1
 results pending student execution.
 
+## 2026-05-26 14:58 UTC — PR #1258: thorfinn Schedule-Free Muon on body matrices — **CLOSED clean-NEG** [FFS-PRIMARY]
+
+- **Branch:** `g1r5-thorfinn/sf-muon-body`
+- **Student:** g1r5-thorfinn
+- **Hypothesis:** Replace explicit cooldown on Muon body matrices with Schedule-Free Polyak averaging (Defazio 2024). Maintain implicit average `x_t = (1-c_t)·z_t + c_t·x_{t-1}` where `c_t = 1 - 1/√t`, then evaluate on averaged params. 5-cell β sweep: A=ctrl (cooldown), B★=β=0.90 SF no cooldown, C=β=0.95 SF, D=β=0.80 SF, E=β=0.90 SF + cooldown. Tests "implicit averaging vs explicit cooldown" axis on body — orthogonal to NS-modulation, complements closed aux-side SF #659 NEG and Lookahead-aux #1126 NEG.
+
+### FFS-primary verdict
+
+| Cell | Config                  | val_loss   | FFS    | W&B id   | Δ vs A (σ_single=0.000593) |
+|:----:|:------------------------|:----------:|:------:|:---------|:---------------------------|
+| A    | ctrl (cooldown, no SF)  | 3.26126    | 3025   | (ctrl)   | baseline                   |
+| B★   | β=0.90 SF, no cooldown  | **3.34243**| **−1** | (logged) | **CATASTROPHIC** (FFS-never-reached) |
+| C    | β=0.95 SF, no cooldown  | early-kill | —      | —        | step 1000 same pattern as B |
+| D    | β=0.80 SF, no cooldown  | early-kill | —      | —        | step 1000 same pattern as B |
+| E    | β=0.90 SF + cooldown    | 3.26212    | 3025   | (logged) | +0.145σ ≈ baseline (FAILS n=1 gate, but FFS=baseline) |
+
+- **FFS verdict:** Cell B PRIMARY FFS=−1 (never reached 3.28 target); Cells C/D early-killed step 1000 (same divergent pattern); Cell E (SF + cooldown) returns to FFS=3025 baseline. **Clean-NEG with cooldown-equalizer pattern.**
+
+### Key mechanism findings (★)
+
+1. **★ Cooldown is load-bearing schedule structure SF cannot substitute.** SF averaging window (`c_t = 1 - 1/√t`) reaches ~0.98 by step 1000, but still-oscillating trajectory means averaged-noise NOT refined-minimum. Polyak's theoretical guarantee requires bounded variance around true minimum; pre-cooldown trajectory has neither bounded variance nor proximity.
+
+2. **★ Cell E (SF + cooldown) returns to baseline at FFS=3025.** When LR→0 in cooldown, SF averaging window collapses (steps zero, average frozen). β knob becomes a no-op once cooldown kicks in. Mechanically: SF is structurally compatible with cooldown but provides zero lift when cooldown is present.
+
+3. **★ 8th trajectory-averaging axis closure (3rd in family).** Joins #659 SF aux NEG, #1126 Lookahead aux NEG. All three trajectory-averaging schemes — Polyak (SF aux), Polyak (SF body), Lookahead (aux) — fail under cooldown-equalizer. Implicit averaging is structurally redundant once explicit cooldown is doing the refinement.
+
+4. **★ 5th independent cooldown-equalizer demonstration.** Joins #1042 (post-NS mixing), #1206 (pre-NS conditioning), #1200 (operator class), #1227 (pre-NS noise), now #1258 (SF). Cooldown is single most load-bearing schedule component — mid-training ±X-σ deltas collapse to ±2σ_single under ~100× LR contraction across 5 independent modification axes.
+
+### Analysis & conclusions
+
+- Trajectory-averaging family fully closed: SF and Lookahead cannot substitute explicit cooldown anywhere in the optimizer stack.
+- Cooldown-equalizer pattern is now mechanism-load: cooldown's 100× LR contraction is the directed-descent finalizer; pre-cooldown midtraining behavior is recoverable via the refinement phase regardless of trajectory dynamics chosen.
+- SF on body without cooldown is catastrophic (B/C/D all diverge by step 1000) — pre-cooldown trajectory averaging applied to an oscillating sequence produces wrong-direction averaged updates.
+
+### Next assignment
+
+thorfinn → **#1310 AdamW aux β1 pruning ablation** (8th stack-component pruning under FFS-primary; tests `betas=(0.8, 0.95)` hardcoded at train_gpt_simple.py:843 via new `--adamw_aux_beta1` CLI arg; 5-cell A=0.8 ctrl / B★=0.95 PRIMARY align with Muon mu=0.95 / C=0.9 bracket / D=0.99 over-stable falsifier / E=0.0 pure-gradient falsifier; tests "is AdamW aux β1=0.8 FFS-load-bearing or val-loss-cosmetic?").
+
+---
+
 ## 2026-05-26 12:10 UTC — PR #1238: nezuko SPAM spike-aware momentum reset on Muon body — **CLOSED clean-NEG** [FFS-PRIMARY]
 
 - **Branch:** `g1r5-nezuko/spam-muon-body`
