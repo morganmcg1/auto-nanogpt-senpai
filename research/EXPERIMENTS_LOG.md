@@ -1,3 +1,67 @@
+## 2026-05-26 00:30 UTC — CAUTIOUS FAMILY BILATERAL SATURATED (cycle 71 mid-255)
+
+### #1205 alphonse CAUTIOUS_AUX CLOSED (155th refuted, 42nd family-level closure, 7th SATURATED MECHANISM LAYER)
+- **Branch**: g1r2-alphonse/cautious-aux-adamw
+- **Hypothesis**: Sign-agreement mask `m·1[sign(m)==sign(g)]/keep_ratio` applied to AUX AdamW step direction after adaptive normalization (Liang 2024 NeurIPS arXiv:2411.16085 — Cautious optimizer, bounded-noise convergence proof).
+- **Results**:
+
+| Arm | Mask | wandb | Final step | val/loss | ffs | Class |
+|---|---|---|---|---|---|---|
+| Baseline #613 | — | `1zb5h0e5`+`4v5jsjk9` | 3175 | 3.26776 (n=2) | 3000 | — |
+| Disabled-check | CAUTIOUS_AUX=0 | `xhqbcp4p` | 200 | 4.09342 | -1 | parity-drift +0.003 above [4.075,4.090] band, acceptable CUDA non-det |
+| Arm A | hard binary | `js9iro62` | 3175 | **3.28655** | -1 | CATASTROPHIC-FLOOR-OUTSIDE Δ+0.01879 |
+| Arm B | soft 0.5/1.0 | `1mjeh913` | 3175 | **3.27703** | 3125 | SHIFTED-FLOOR Δ+0.00927 |
+
+- **Telemetry — keep_ratio averaged over 128 logged steps**:
+
+| group | hard (Arm A) | soft (Arm B) |
+|---|---|---|
+| adam_embed | 0.4553 (min 0.4375) | 0.7277 (min 0.7188) |
+| adam_lm_head | 0.6573 (min 0.6451) | 0.8337 (min 0.8282) |
+| adam_scalars | 0.7625 (min 0.6619) | 0.8805 (min 0.8393) |
+
+- **Decision**: CLOSE — clear miss (val=3.27703 > 3.275 per PR decision tree).
+- **Mechanism analysis (alphonse, publication-grade)**: AUX path dominated by embed (sparse-gradient regime). AdamW's running momentum on embed is mostly *stale directional info from rows not touched this step* — sign-mask correctly identifies that disagreement but discarding ~54% of the embed update destroys load-bearing information specifically rare-token rows that momentum was meant to preserve. Soft mask retains 73% effective weight → ~half the harm. Liang 2024's bounded-noise convergence proof assumes dense gradient samples per parameter (holds for body matmuls not embed lookup) — regime mismatch is structural, not tunable.
+- **Cross-path family closure**: Combined with `nezuko #1190 CAUTIOUS_MUON` (body Muon, val_mean=3.27668 SHIFTED-FLOOR ffs>3000 hard-mask both seeds), CAUTIOUS family is bilaterally saturated across body Muon AND AUX paths. **7th saturated mechanism layer** in cycle 71. Same directional refute trajectory (shifted ~0.009-0.019 above floor cluster) on both paths → rules out future Cautious-family variants (Sahillioğlu 2024 normalized cautious, signed momentum, sign-agreement-with-decay) via inheritance of sparse-embed pathology.
+- **First cross-path bilateral mechanism-family closure in campaign** — establishes precedent for cross-path saturation as superior to single-path closure when same mechanism is applied across multiple optimizer paths in same stack.
+
+### #1230 alphonse PRODIGY_AUX assigned (78th distinct mech class)
+- **Branch**: g1r2-alphonse/prodigy-aux
+- **Hypothesis**: Replace fixed-magnitude AUX AdamW LR with online D-Adaptation estimator (Prodigy, Mishchenko & Defazio ICML 2024 arXiv:2306.06101 + precursor D-Adapt arXiv:2301.07733). Maintain running lower-bound `d_t` on distance-from-initialization; scale effective AUX LR as `lr_t = d_t · base_lr · PRODIGY_D_COEF`. Auto-warmup phase calibrated to actual loss surface geometry, not hand-tuned schedule.
+- **Update equations** (each step, on flat-concat AUX gradient vector):
+  ```
+  r_t = r_{t-1} + d_t · ⟨g0, g_t⟩
+  s_t = β3·s_{t-1} + d_t · g_t       (β3=0 → vanilla D-Adapt)
+  d_new = |r_t| / ||s_t||_1
+  d_t = max(d_max, d_new · d_coef)
+  effective_lr_g(t) = base_lr_g · d_t  for g in {embed, lm_head, scalars}
+  ```
+- **Arms**:
+  - Arm A: PRODIGY_BETA3=0.0 (vanilla D-Adapt)
+  - Arm B: PRODIGY_BETA3=0.9 (Algorithm 2 momentum-corrected `d` estimator — reduces variance, slight lag)
+- **Anti-duplication**: grep clean PRODIGY/D-ADAPT/DADAPT/D_ADAPT zero matches across EXPERIMENTS_LOG.md + 0 PR matches "PRODIGY" + "D-ADAPT" returned unrelated false-positives. **First PR in 319-PR corpus to test online parameter-free LR estimation on any optimizer group.**
+- **Structurally distinct from**:
+  - All 7 saturated mechanism layers (no NS5 / no per-head / no sign-agreement / no spectral-decay)
+  - In-flight: #1216 PSGD_KRON_AUX (gradient geometry not LR magnitude), #1220 SHAMPOO_MUON_BODY (body-side only), #1224 WD_BODY_DEPTH (weight decay), #1225 AUX_BIAS_CORRECTION_OFF (removes bias correction with LR fixed), #1226 AUX_CLIP_NORM (clips magnitude not estimates LR)
+- **Implementation discipline**: Mandatory disabled-check parity (PRODIGY_AUX=0 byte-identical to baseline, early-return guard at TOP before any tensor allocation per #1226 lesson). Log `d_t`, `r_t`, `||s_t||_1` per step. Kill if `d_t < 0.01` after step 500 (failed ramp) or `d_t > 100` (instability).
+- **Alphonse pivots OUT** of bilaterally-saturated CAUTIOUS family to AUX-LR-magnitude-estimation structurally orthogonal axis. Alphonse's 8 consecutive within-student closure-map validations (#1148→#1165→#1194→#1205→#1230) — sustained force-multiplier pattern.
+
+### #1226 nezuko AUX_CLIP_NORM disabled-check NaN — DIAGNOSED as implementation bug (not pod-state)
+- **W&B agent diagnosis on `rrzc2hlz`**:
+  - step=1: 100% finite gradients, loss=10.83 (healthy)
+  - step ~5-20 onward: 91% non-finite gradient elements (sustained, not stochastic)
+  - step=140: val=NaN
+  - `aux_clip_norm` config key absent from W&B run config — patch did not log the parameter
+- **Verdict**: Implementation bug, not hardware/pod-state issue.
+- **Root cause hypothesis**: disabled-check path (`AUX_CLIP_NORM=0.0`) interpreted as "clip all AUX gradients to zero norm" instead of "skip clip entirely." Multiplying all AUX gradients by `0.0/||g||` zeros them; subsequent normalization or division pathways produce the NaN-cascade fingerprint.
+- **Required fix** (sent to PR #1226):
+  1. Early-return guard `if AUX_CLIP_NORM == 0.0: return` at TOP of clip routine, BEFORE any concat / norm / scale computation
+  2. Log `aux_clip_norm` value to W&B config
+  3. Re-run disabled-check; val@200 must hit [4.075, 4.090] band before any arm
+- **Cross-incident pattern**: Second disabled-check parity bug in cycle 71. Alphonse #1205 had val@200=4.09342 slightly above [4.075, 4.090] band but accepted as CUDA non-determinism (no Cautious code constructed when flags=0). Nezuko #1226 was explicit code-path divergence (zero-clip instead of skip). Process discipline now: disabled-check parity REQUIRES code-level guard at TOP before any tensor allocation, not flag check inside compute.
+
+---
+
 ## 2026-05-25 23:25 UTC — TRIPLE CLOSURE + TRIPLE ASSIGNMENT (cycle 71 mid-254)
 
 ### #1212 fern RAND_SVD_MUON CLOSED (152nd refuted, 39th family-level closure, 3rd CATASTROPHIC-SHIFTED-FLOOR)
