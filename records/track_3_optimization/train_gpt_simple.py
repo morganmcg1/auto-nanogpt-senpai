@@ -468,6 +468,12 @@ NS5_ITERS = int(os.environ.get("NS5_ITERS", "12"))
 WD_AUX = float(os.environ.get("WD_AUX", "0.0"))  # AdamW WD on embed + lm_head matrices (scalars stay at 0)
 EMBED_INIT_STD = float(os.environ.get("EMBED_INIT_STD", "1.0"))  # default preserves baseline N(0,1)
 LOGIT_SOFTCAP = float(os.environ.get("LOGIT_SOFTCAP", "15.0"))  # default = 15 (current hardcoded value); soft-cap value c in f(x) = c·x / sqrt(x^2+c^2)
+# PR #1267 LATE_COOLDOWN_MOMENTUM_RESET — one-shot body-Muon state["momentum"] reset at LATE_RESET_FRACTION of train_steps.
+# Default LATE_COOLDOWN_RESET=0 keeps the new path bytewise-inert (no allocation, no CUDA sync, no state mutation).
+LATE_COOLDOWN_RESET = bool(int(os.environ.get("LATE_COOLDOWN_RESET", "0")))
+LATE_RESET_FRACTION = float(os.environ.get("LATE_RESET_FRACTION", "0.80"))
+LATE_RESET_MODE = os.environ.get("LATE_RESET_MODE", "zero")  # "zero" or "scale"
+LATE_RESET_SCALE = float(os.environ.get("LATE_RESET_SCALE", "0.5"))
 
 
 def zeropower_via_newtonschulz5(G: Tensor) -> Tensor:
@@ -627,8 +633,12 @@ def soap_precondition(update, state, beta2=SOAP_BETA2, eps=1e-8):
 
 
 class Muon(torch.optim.Optimizer):
-    def __init__(self, named_params, lr=MUON_LR, weight_decay=MUON_WEIGHT_DECAY, mu=MU):
+    def __init__(self, named_params, lr=MUON_LR, weight_decay=MUON_WEIGHT_DECAY, mu=MU, train_steps=3175):
         assert isinstance(named_params, list) and len(named_params) >= 1
+        # PR #1267: train_steps used to schedule the one-shot LATE_COOLDOWN_RESET event.
+        self.train_steps = train_steps
+        self._step_count = 0
+        self._reset_done = False
         # MLP weights receive SOAP preconditioning (PR #78 / public record #14).
         self.soap_params = {
             p for n, p in named_params
@@ -660,6 +670,23 @@ class Muon(torch.optim.Optimizer):
     def step(self):
         world_size = dist.get_world_size()
         rank = dist.get_rank()
+        # PR #1267 LATE_COOLDOWN_MOMENTUM_RESET — one-shot reset event at LATE_RESET_FRACTION × train_steps.
+        # Fires exactly once (guarded by self._reset_done). Disabled path is bytewise-inert: the
+        # `if LATE_COOLDOWN_RESET and not self._reset_done` short-circuits to False on the first check
+        # so no allocation, no CUDA sync, no state mutation occurs when LATE_COOLDOWN_RESET=0.
+        self._step_count += 1
+        if LATE_COOLDOWN_RESET and not self._reset_done:
+            reset_step = round(self.train_steps * LATE_RESET_FRACTION)
+            if self._step_count >= reset_step:
+                for group in self.param_groups:
+                    for p in group["params"]:
+                        state = self.state.get(p, {})
+                        if "momentum" in state:
+                            if LATE_RESET_MODE == "zero":
+                                state["momentum"].zero_()
+                            elif LATE_RESET_MODE == "scale":
+                                state["momentum"].mul_(LATE_RESET_SCALE)
+                self._reset_done = True
         for group in self.param_groups:
             params = group["params"]
             params_pad = params + [torch.empty_like(params[-1])] * (world_size - len(params) % world_size)
@@ -903,7 +930,8 @@ for trial_idx in range(args.num_trials):
                         dict(params=[p for p in model.parameters() if p.ndim < 2], lr=0.01, name="adam_scalars")],
                        betas=(0.8, 0.95), eps=1e-10, weight_decay=0, fused=True)
     optimizer2 = Muon([(n, p) for n, p in model.blocks.named_parameters() if p.ndim >= 2],
-                      lr=MUON_LR, weight_decay=MUON_WEIGHT_DECAY, mu=MU)
+                      lr=MUON_LR, weight_decay=MUON_WEIGHT_DECAY, mu=MU,
+                      train_steps=train_steps)
     optimizer2.param_groups[0]["name"] = "muon_blocks"
     optimizers = [optimizer1, optimizer2]
     assert set(p for opt in optimizers for group in opt.param_groups
