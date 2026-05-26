@@ -907,6 +907,15 @@ for trial_idx in range(args.num_trials):
     best_val_loss = float("inf")
     best_val_step = -1
     first_step_to_target = -1
+    # PR #1275 telemetry: track FFS across crossing window thresholds
+    crossing_thresholds = (3.40, 3.35, 3.30, 3.28)
+    first_step_to_threshold = {th: -1 for th in crossing_thresholds}
+    # Cache 1D scalar param subgroups for cheap norm telemetry
+    gain_params_for_telemetry = [p for n, p in model.named_parameters()
+                                 if p.ndim < 2 and n.endswith("gains")]
+    bias_params_for_telemetry = [p for n, p in model.named_parameters()
+                                 if p.ndim < 2 and n.endswith("bias")]
+    all_1d_params_for_telemetry = [p for p in model.parameters() if p.ndim < 2]
     slope_interval = max(1, round(train_steps * SLOPE_FRACTION))
     slope_window_steps = max(100, slope_interval)
     train_loss_history: list[tuple[int, float]] = []
@@ -940,6 +949,9 @@ for trial_idx in range(args.num_trials):
                     best_val_step = step
                 if first_step_to_target < 0 and val_loss_float <= TARGET_VAL_LOSS:
                     first_step_to_target = step
+                for th in crossing_thresholds:
+                    if first_step_to_threshold[th] < 0 and val_loss_float <= th:
+                        first_step_to_threshold[th] = step
                 metrics = {
                     "trial": trial_idx,
                     "val/step": step,
@@ -953,6 +965,24 @@ for trial_idx in range(args.num_trials):
                     "time/train_seconds": training_time,
                     "time/step_avg_ms": 1000 * step_avg,
                 }
+                for th in crossing_thresholds:
+                    metrics[f"speedrun/first_step_to_loss_{th:.2f}"] = first_step_to_threshold[th]
+                with torch.no_grad():
+                    if gain_params_for_telemetry:
+                        gain_norm = torch.norm(torch.cat([p.detach().flatten() for p in gain_params_for_telemetry])).item()
+                    else:
+                        gain_norm = 0.0
+                    if bias_params_for_telemetry:
+                        bias_norm = torch.norm(torch.cat([p.detach().flatten() for p in bias_params_for_telemetry])).item()
+                    else:
+                        bias_norm = 0.0
+                    if all_1d_params_for_telemetry:
+                        all_1d_norm = torch.norm(torch.cat([p.detach().flatten() for p in all_1d_params_for_telemetry])).item()
+                    else:
+                        all_1d_norm = 0.0
+                metrics["scalars/ln_gain_norm"] = gain_norm
+                metrics["scalars/bias_norm"] = bias_norm
+                metrics["scalars/all_1d_norm"] = all_1d_norm
                 metrics.update(prefixed("val/slope", loss_slope_stats(val_loss_history, slope_window_steps)))
                 wandb.log(metrics, step=trial_idx * (train_steps + 1) + step)
             print0(f"step:{step}/{train_steps} val_loss:{val_loss:.5f} train_time:{training_time:.3f}s"
@@ -1088,13 +1118,16 @@ for trial_idx in range(args.num_trials):
             + f" first_step_to_target:{first_step_to_target}",
             console=True,
         )
-        wandb.log({
+        final_metrics = {
             "trial": trial_idx,
             "speedrun/final_best_val_loss": best_val_loss,
             "speedrun/final_best_val_step": best_val_step,
             "speedrun/final_first_step_to_target": first_step_to_target,
             "speedrun/final_reached_target": int(first_step_to_target >= 0),
-        }, step=(trial_idx + 1) * (train_steps + 1) - 1)
+        }
+        for th in crossing_thresholds:
+            final_metrics[f"speedrun/final_first_step_to_loss_{th:.2f}"] = first_step_to_threshold[th]
+        wandb.log(final_metrics, step=(trial_idx + 1) * (train_steps + 1) - 1)
 
 if dist.get_rank() == 0:
     wandb.finish()
