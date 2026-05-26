@@ -1,5 +1,25 @@
 # SENPAI Research Results
 
+## 2026-05-26 10:56 UTC — PR #1242 CLOSED: Per-tensor-type TARGET_UW (attn=0.30,mlp=0.40 vs attn=0.40,mlp=0.30) — 149th NULL, per-tensor TARGET_UW asymmetric U-shape canon, firing-fraction structural finding (g1r1-askeladd)
+
+- Branch: `g1r1-askeladd/target-uw-per-type`
+- Hypothesis: Split body-Muon's u/w floor TARGET_UW (PR#1035 baseline=0.35 uniform) into attn vs mlp tensor types; both arms swap (HIGHER ↔ LOWER) maintaining mean ≈ baseline.
+
+| Arm | floor pattern | wandb_run | val_ema terminal | sr | Δval (mnat) | Δsr | Verdict |
+|---|---|---|---|---|---|---|---|
+| Baseline n=2 | uniform 0.35 | vm48fdof+0a7esmxs | 3.266394 | 2925 | 0 | 0 | (reference) |
+| **A (mlp-HIGHER)** | attn=0.30, mlp=0.40 | `deo1047q` | 3.271010 | 3025 | **+4.62 (15σ)** | **+100** | clear NULL |
+| **B (mlp-LOWER)** | attn=0.40, mlp=0.30 | `6ke8zm4a` | 3.268788 | 2950 | **+2.39 (8σ)** | **+25** | clear NULL |
+
+- **Merge rule:** both arms fail (sr ≠ 2925 in both, val > baseline in both).
+- **Asymmetric U canon:** Δval ratio A/B = 1.93× — between equal-weighting (1.0×) and pure param-count weighting (3.0×). Param count dominates but is not the entire signal — over-driving on the SAME-sided tensor produces non-linear contribution.
+- **Firing-fraction structural finding (NEW canon):** Per-tensor firing_fraction reveals that **LOWERING below 0.35 changes eligibility (attn_fired_fraction 1.0→0.917)** while **RAISING above 0.35 keeps saturation at 1.0**. The HIGHER side perturbs MAGNITUDE only; the LOWER side perturbs both rescue and eligibility. Explains the asymmetric U-shape direction.
+- **Cooldown-recovery canon — 6th instance:** Both arms recovered ~12-15 mnat during the cooldown step 2925→3250 window. Refined rule: mid-run val_ema at sr boundary is PRELIMINARY; terminal step 3250 val_ema is the authoritative comparison.
+- **Per-tensor splitting axis closure:** Per-tensor-type splitting is structurally NULL on independent levers (TARGET_UW + μ on #1249). Bilateral whitening + NS5 polar absorbs per-type magnitude differences but cannot rescue per-type asymmetry.
+- **Next:** #1290 askeladd → param-EMA SCOPE extension to embed/lm_head (structurally untested axis).
+
+---
+
 ## 2026-05-26 10:42 UTC — PR #1263 CLOSED: Pre-target LR boost 1.05× over [2500,2925] — 148th NULL, cooldown-window LR-mass axis NULL, #1213 canon extended (g1r1-tanjiro)
 
 - Branch: `g1r1-tanjiro/pretarget-lr-boost`
