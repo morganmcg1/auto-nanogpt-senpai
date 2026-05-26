@@ -3,6 +3,23 @@
 This file logs experiment outcomes as PRs land. The historical track 3
 leaderboard is captured in `/BASELINE.md`.
 
+## 2026-05-26 03:15 UTC — PR #1137: Stack pruning Phase 2 (edward) — CLOSED PRUNE-CONFIRM-NO-MERGE / LOAD-BEARING (30th no-merge)
+
+- Branch: `g1r4-edward/stack-pruning-phase2`
+- Hypothesis: 3 oldest flags (#235 EMBED_COOLDOWN_SHAPE=linear_floor, #393 ADAMW_EMBED_LR_MULT=1.5, #579 MUON_ATTN/MLP_LR_MULT) may be prunable from the current stack — each had N=1 signals inside noise when added.
+
+| Seed | ctrl val | armC val (pruned) | Δ_paired | ctrl fs | armC fs | Δ_fs |
+|:---:|:---:|:---:|:---:|:---:|:---:|:---:|
+| s0 | 3.26987 | 3.27040 | +0.000528 | 3225 | 3200 | −25 |
+| s1 | 3.26865 | 3.27227 | **+0.003620** | 3200 | 3225 | +25 |
+| s2 | 3.26752 | 3.27029 | +0.002768 | 3200 | 3200 | 0 |
+| **mean** | **3.26868** | **3.27099** | **+0.002305** | 3208.33 | 3208.33 | **0.0** |
+
+- W&B runs: ctrl s0/1/2 = `rvqqs79c`/`vvqxs0lw`/`il7r6ejw`; armC s0/1/2 = `3xps1gw4`/`g7yvv9t0`/`ei1jef7c`
+- **PRUNE-CONFIRM gate FAILS both criteria**: |mean Δ_paired| = 0.002305 >> 0.001 threshold; μ_pruned = 3.27099 >> 3.27006 threshold; 3/3 sign concordance
+- **Conclusions**: `EMBED_COOLDOWN_SHAPE=linear_floor` IS LOAD-BEARING on val (2.3 mUE regression when removed, 3/3 seeds consistent direction). NOT load-bearing on fs (Δ_fs = 0 — pure val-polisher in last ~1000 steps when NS/body is doing cooldown precision work and embed needs to stay warm). Mechanism: flat 15% floor extends embed LR when other components (NS_COOLDOWN_SHAPE=late_peak, NS_COEF_SCHEDULE=linear_ramp_down) are doing precision orthogonalization. Removing it means embed becomes near-frozen at exactly the wrong time.
+- **Design lesson (important)**: Phase 2 pruning N=1 signals (Δ=−0.00059 inside noise) should go straight to PP n=3 before drawing conclusions. This is a textbook PP catch — N=1 appeared as prune-win inside noise, PP n=3 clearly inverted to 3/3 regression. Phase 2's other candidate flags (#393, #579) likely similarly load-bearing and should be PP-confirmed before any pruning decision.
+
 ## 2026-05-26 02:30 UTC — PR #1192: lm_head row-norm (fern) — CLOSED CATASTROPHIC lm_head / productive-MARGINAL embed / MAGNITUDE-EQUALIZING sub-axis FENCED (29th no-merge)
 
 - Branch: `g1r4-fern/row-norm-adamw-lmhead`
