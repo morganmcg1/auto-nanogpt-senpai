@@ -468,6 +468,12 @@ NS5_ITERS = int(os.environ.get("NS5_ITERS", "12"))
 WD_AUX = float(os.environ.get("WD_AUX", "0.0"))  # AdamW WD on embed + lm_head matrices (scalars stay at 0)
 EMBED_INIT_STD = float(os.environ.get("EMBED_INIT_STD", "1.0"))  # default preserves baseline N(0,1)
 LOGIT_SOFTCAP = float(os.environ.get("LOGIT_SOFTCAP", "15.0"))  # default = 15 (current hardcoded value); soft-cap value c in f(x) = c·x / sqrt(x^2+c^2)
+# LATE_NORMUON_RESET (PR #1264): one-shot variance buffer reset on body Muon
+# `state["second_moment"]` at a chosen fraction of training. Disabled by default.
+LATE_NORMUON_RESET = bool(int(os.environ.get("LATE_NORMUON_RESET", "0")))
+LATE_NORMUON_RESET_FRACTION = float(os.environ.get("LATE_NORMUON_RESET_FRACTION", "0.80"))
+LATE_NORMUON_RESET_MODE = os.environ.get("LATE_NORMUON_RESET_MODE", "instant")  # "instant" or "scale"
+LATE_NORMUON_RESET_SCALE = float(os.environ.get("LATE_NORMUON_RESET_SCALE", "0.5"))
 
 
 def zeropower_via_newtonschulz5(G: Tensor) -> Tensor:
@@ -627,8 +633,9 @@ def soap_precondition(update, state, beta2=SOAP_BETA2, eps=1e-8):
 
 
 class Muon(torch.optim.Optimizer):
-    def __init__(self, named_params, lr=MUON_LR, weight_decay=MUON_WEIGHT_DECAY, mu=MU):
+    def __init__(self, named_params, lr=MUON_LR, weight_decay=MUON_WEIGHT_DECAY, mu=MU, train_steps=3175):
         assert isinstance(named_params, list) and len(named_params) >= 1
+        self.train_steps = train_steps
         # MLP weights receive SOAP preconditioning (PR #78 / public record #14).
         self.soap_params = {
             p for n, p in named_params
@@ -658,6 +665,34 @@ class Muon(torch.optim.Optimizer):
 
     @torch.no_grad()
     def step(self):
+        if not hasattr(self, "_step_count"):
+            self._step_count = 0
+            self._normuon_reset_done = False
+        self._step_count += 1
+
+        if LATE_NORMUON_RESET and not self._normuon_reset_done:
+            reset_step = round(self.train_steps * LATE_NORMUON_RESET_FRACTION)
+            if self._step_count >= reset_step:
+                for group in self.param_groups:
+                    for p in group["params"]:
+                        state = self.state.get(p, {})
+                        if "second_moment" not in state:
+                            continue
+                        if LATE_NORMUON_RESET_MODE == "instant":
+                            grad = p.grad
+                            if p.size(-2) >= p.size(-1):
+                                per_row_var = (grad.float() ** 2).mean(dim=-1, keepdim=True)
+                            else:
+                                per_row_var = (grad.float() ** 2).mean(dim=-2, keepdim=True)
+                            state["second_moment"].copy_(per_row_var)
+                        elif LATE_NORMUON_RESET_MODE == "scale":
+                            state["second_moment"].mul_(LATE_NORMUON_RESET_SCALE)
+                self._normuon_reset_done = True
+                if dist.get_rank() == 0:
+                    print0(f"[LATE_NORMUON_RESET] fired at step {self._step_count} "
+                           f"(reset_step={reset_step}, mode={LATE_NORMUON_RESET_MODE}, "
+                           f"scale={LATE_NORMUON_RESET_SCALE})", console=True)
+
         world_size = dist.get_world_size()
         rank = dist.get_rank()
         for group in self.param_groups:
@@ -903,7 +938,8 @@ for trial_idx in range(args.num_trials):
                         dict(params=[p for p in model.parameters() if p.ndim < 2], lr=0.01, name="adam_scalars")],
                        betas=(0.8, 0.95), eps=1e-10, weight_decay=0, fused=True)
     optimizer2 = Muon([(n, p) for n, p in model.blocks.named_parameters() if p.ndim >= 2],
-                      lr=MUON_LR, weight_decay=MUON_WEIGHT_DECAY, mu=MU)
+                      lr=MUON_LR, weight_decay=MUON_WEIGHT_DECAY, mu=MU,
+                      train_steps=train_steps)
     optimizer2.param_groups[0]["name"] = "muon_blocks"
     optimizers = [optimizer1, optimizer2]
     assert set(p for opt in optimizers for group in opt.param_groups
