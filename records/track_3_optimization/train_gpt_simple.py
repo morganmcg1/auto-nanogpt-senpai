@@ -602,6 +602,20 @@ NANOGPT_NEWTON_MUON_UPDATE_PERIOD = int(os.environ.get("NANOGPT_NEWTON_MUON_UPDA
 NANOGPT_NEWTON_MUON_BETA = float(os.environ.get("NANOGPT_NEWTON_MUON_BETA", "0.95"))
 NANOGPT_NEWTON_MUON_EPS = float(os.environ.get("NANOGPT_NEWTON_MUON_EPS", "1e-4"))
 NANOGPT_NEWTON_MUON_MAX_D_IN = int(os.environ.get("NANOGPT_NEWTON_MUON_MAX_D_IN", "1024"))
+# Late-window NM tuning (#1286). Defaults match early-window values -> bit-identical
+# fallback when LATE_START_STEP is unset (default 1e9, never crossed).
+NANOGPT_NEWTON_MUON_LATE_PERIOD = int(
+    os.environ.get("NANOGPT_NEWTON_MUON_LATE_PERIOD", str(NANOGPT_NEWTON_MUON_UPDATE_PERIOD))
+)
+NANOGPT_NEWTON_MUON_LATE_MAX_D_IN = int(
+    os.environ.get("NANOGPT_NEWTON_MUON_LATE_MAX_D_IN", str(NANOGPT_NEWTON_MUON_MAX_D_IN))
+)
+NANOGPT_NEWTON_MUON_LATE_START_STEP = int(
+    os.environ.get("NANOGPT_NEWTON_MUON_LATE_START_STEP", "1000000000")
+)
+NANOGPT_NEWTON_MUON_MAX_D_IN_EFFECTIVE = max(
+    NANOGPT_NEWTON_MUON_MAX_D_IN, NANOGPT_NEWTON_MUON_LATE_MAX_D_IN
+)
 
 # Global per-parameter input-activation cache populated by forward hooks. Keyed by
 # id(weight_param) → tensor of shape (B*T, d_in) on device. Only populated when
@@ -746,6 +760,9 @@ class Muon(torch.optim.Optimizer):
                  newton_precond: bool = False, newton_beta: float = 0.95,
                  newton_eps: float = 1e-4, newton_update_period: int = 10,
                  newton_max_d_in: int = 1024,
+                 newton_late_period: int | None = None,
+                 newton_late_max_d_in: int | None = None,
+                 newton_late_start_step: int = 1_000_000_000,
                  newton_input_cache: dict | None = None):
         assert isinstance(params, list) and len(params) >= 1
         if isinstance(params[0], dict):
@@ -784,6 +801,20 @@ class Muon(torch.optim.Optimizer):
         self.newton_eps = float(newton_eps)
         self.newton_update_period = int(newton_update_period)
         self.newton_max_d_in = int(newton_max_d_in)
+        # Late-window NM tuning (#1286). Defaults to early-window values -> no late effect.
+        self.newton_late_period = int(
+            newton_late_period if newton_late_period is not None else newton_update_period
+        )
+        self.newton_late_max_d_in = int(
+            newton_late_max_d_in if newton_late_max_d_in is not None else newton_max_d_in
+        )
+        self.newton_late_start_step = int(newton_late_start_step)
+        # Effective period/max_d_in for the current step. Recomputed at the start
+        # of each step() call from the train-step counter; read by
+        # _apply_newton_precondition and by telemetry.
+        self._current_newton_period = self.newton_update_period
+        self._current_newton_max_d_in = self.newton_max_d_in
+        self._current_newton_late_active = False
         self.newton_input_cache = newton_input_cache if newton_input_cache is not None else {}
         self._newton_step_count = 0
         # Accumulator dict reset each step() — read by the training loop after
@@ -812,16 +843,19 @@ class Muon(torch.optim.Optimizer):
         if p.ndim != 2:
             return None
         d_out, d_in = grad.shape
-        if d_in > self.newton_max_d_in:
+        # Step-aware coverage gate (#1286). _current_newton_max_d_in is set by
+        # step() at the start of each call based on the train-step counter.
+        if d_in > self._current_newton_max_d_in:
             return None
         pid = id(p)
         x = self.newton_input_cache.get(pid)
         if x is None:
             return None
-        # Update R EMA + eigendecomp every newton_update_period steps (and at first call).
+        # Update R EMA + eigendecomp every _current_newton_period steps (and at first call).
+        # Late-window period (#1286) substitutes _current_newton_period when active.
         update_R = (
             "R" not in state
-            or (self._newton_step_count % self.newton_update_period == 1)
+            or (self._newton_step_count % self._current_newton_period == 1)
         )
         if update_R:
             x32 = x.float()
@@ -888,6 +922,18 @@ class Muon(torch.optim.Optimizer):
         if self.newton_precond:
             self._newton_step_count += 1
             self.newton_telemetry = {}
+            # Late-window NM tuning (#1286). _newton_step_count is incremented above so
+            # equals (train_step + 1). Late window is active when train_step >= LATE_START_STEP,
+            # i.e. _newton_step_count > LATE_START_STEP.
+            self._current_newton_late_active = (
+                self._newton_step_count > self.newton_late_start_step
+            )
+            if self._current_newton_late_active:
+                self._current_newton_period = self.newton_late_period
+                self._current_newton_max_d_in = self.newton_late_max_d_in
+            else:
+                self._current_newton_period = self.newton_update_period
+                self._current_newton_max_d_in = self.newton_max_d_in
         for group in self.param_groups:
             params = group["params"]
             params_pad = params + [torch.empty_like(params[-1])] * (world_size - len(params) % world_size)
@@ -987,6 +1033,13 @@ print0(
     f"max_d_in={NANOGPT_NEWTON_MUON_MAX_D_IN}",
     console=True,
 )
+print0(
+    f"NEWTON_MUON_LATE: period={NANOGPT_NEWTON_MUON_LATE_PERIOD} "
+    f"max_d_in={NANOGPT_NEWTON_MUON_LATE_MAX_D_IN} "
+    f"start_step={NANOGPT_NEWTON_MUON_LATE_START_STEP} "
+    f"({'ACTIVE' if (NANOGPT_NEWTON_MUON and NANOGPT_NEWTON_MUON_LATE_START_STEP < 1_000_000_000) else 'INACTIVE (bit-identical fallback)'})",
+    console=True,
+)
 if NS_ITERS_COOLDOWN > 0:
     print0(f"NS_SCHEDULE: ns_iters={NS_ITERS} -> ns_iters_cooldown={NS_ITERS_COOLDOWN} "
            f"at fraction {NS_COOLDOWN_START_FRAC} of train_steps "
@@ -1028,6 +1081,11 @@ if NANOGPT_NEWTON_MUON:
     muon_param_ids = muon_attn_param_ids | muon_mlp_param_ids
     _newton_hook_count = 0
     _newton_hook_skipped_d_in = 0
+    # Hook coverage uses max(MAX_D_IN, LATE_MAX_D_IN) so caches populate for late-window
+    # expanded coverage (e.g. d_in=3072 MLP down-proj layers when LATE_MAX_D_IN=4096).
+    # The runtime gate inside _apply_newton_precondition decides per-step whether to
+    # actually apply NM for a given layer.
+    _newton_hook_max_d_in = NANOGPT_NEWTON_MUON_MAX_D_IN_EFFECTIVE
     for name, module in model.named_modules():
         w = getattr(module, "weight", None)
         if isinstance(w, torch.nn.Parameter) and id(w) in muon_param_ids:
@@ -1035,9 +1093,9 @@ if NANOGPT_NEWTON_MUON:
             # they would never be preconditioned anyway, and the hook itself
             # already shortcircuits, but avoiding registration saves graph nodes.
             in_features = getattr(module, "in_features", None)
-            if in_features is None or in_features <= NANOGPT_NEWTON_MUON_MAX_D_IN:
+            if in_features is None or in_features <= _newton_hook_max_d_in:
                 handle = module.register_forward_hook(
-                    _make_newton_input_hook(w, NANOGPT_NEWTON_MUON_MAX_D_IN)
+                    _make_newton_input_hook(w, _newton_hook_max_d_in)
                 )
                 _newton_hook_handles.append(handle)
                 _newton_hook_count += 1
@@ -1045,7 +1103,7 @@ if NANOGPT_NEWTON_MUON:
                 _newton_hook_skipped_d_in += 1
     print0(
         f"NEWTON_MUON: hooks registered for {_newton_hook_count} parameter modules "
-        f"(skipped {_newton_hook_skipped_d_in} d_in>{NANOGPT_NEWTON_MUON_MAX_D_IN})",
+        f"(skipped {_newton_hook_skipped_d_in} d_in>{_newton_hook_max_d_in})",
         console=True,
     )
 
@@ -1105,6 +1163,9 @@ if dist.get_rank() == 0:
             "nanogpt_newton_muon_beta": NANOGPT_NEWTON_MUON_BETA,
             "nanogpt_newton_muon_eps": NANOGPT_NEWTON_MUON_EPS,
             "nanogpt_newton_muon_max_d_in": NANOGPT_NEWTON_MUON_MAX_D_IN,
+            "nanogpt_newton_muon_late_period": NANOGPT_NEWTON_MUON_LATE_PERIOD,
+            "nanogpt_newton_muon_late_max_d_in": NANOGPT_NEWTON_MUON_LATE_MAX_D_IN,
+            "nanogpt_newton_muon_late_start_step": NANOGPT_NEWTON_MUON_LATE_START_STEP,
         },
     )
 
@@ -1171,6 +1232,9 @@ for trial_idx in range(args.num_trials):
         newton_eps=NANOGPT_NEWTON_MUON_EPS,
         newton_update_period=NANOGPT_NEWTON_MUON_UPDATE_PERIOD,
         newton_max_d_in=NANOGPT_NEWTON_MUON_MAX_D_IN,
+        newton_late_period=NANOGPT_NEWTON_MUON_LATE_PERIOD,
+        newton_late_max_d_in=NANOGPT_NEWTON_MUON_LATE_MAX_D_IN,
+        newton_late_start_step=NANOGPT_NEWTON_MUON_LATE_START_STEP,
         newton_input_cache=_newton_input_cache,
     )
     print0(f"MUON_PARAM_COUNTS: attn={len(muon_attn_params)} mlp={len(muon_mlp_params)} "
@@ -1446,6 +1510,18 @@ for trial_idx in range(args.num_trials):
                 "trial": trial_idx,
                 "train/step": train_step,
                 "newton_muon/params_preconditioned": applied,
+                # Late-window telemetry (#1286). _current_newton_* reflect the
+                # effective gate values used by Muon.step() this step.
+                "newton_muon/nm_late_window_active": int(
+                    getattr(optimizer2, "_current_newton_late_active", False)
+                ),
+                "newton_muon/nm_current_period": int(
+                    getattr(optimizer2, "_current_newton_period", 0)
+                ),
+                "newton_muon/nm_current_max_d": int(
+                    getattr(optimizer2, "_current_newton_max_d_in", 0)
+                ),
+                "newton_muon/nm_layers_active": int(applied),
             }
             cond_n = tel.get("cond_n", 0)
             if cond_n > 0:
