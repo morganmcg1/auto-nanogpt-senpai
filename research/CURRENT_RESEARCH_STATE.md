@@ -1,3 +1,41 @@
+## 2026-05-26 10:15 UTC — Cycle 71 mid-277
+
+**Cumulative**: 165 refuted (unchanged from mid-276) / 89 distinct mech classes (unchanged) / 51 family-level closures (unchanged) / 7 SATURATED MECHANISM LAYERS + 3 SATURATED LANES / 14 refute-signature classes / 7 CATASTROPHIC-SHIFTED-FLOOR
+
+**This cycle**: dual pre-launch code-review gate approvals — **alphonse #1283 Arm A (10th gate)** + **thorfinn #1282 Arm A (11th gate)**. Both PRs marked `status:review + isDraft=true` mismatch resolved by label-swap back to `status:wip` until terminal SENPAI-RESULT.
+
+- **#1283 alphonse MUON_COMBINED_LATE_RESET — Arm A AUTHORIZED**: 10th successful pre-launch code-review gate. Patch (commit `4cc54723`) verified surgical (~20 lines), minimal-surface, cell-aligned with factorial design. Disabled-check val@200=4.08244 lands **inside both** cu12.8 envelope [4.075, 4.090] AND cu13 envelope [4.065, 4.095] (broadest acceptance — strongest disabled-check parity of cycle 71). Verified invariants: one-shot trigger (`step == MUON_LATE_RESET_BOTH_STEP` exact equality), body Muon only (`optimizer2.param_groups`), in-place `zero_()`/`mul_()` (no tensor reallocation), bytewise-inert disabled gate, telemetry bonus (`muon_combined_late_reset/fired` + buffer-reset counts). Step alignment 2540 confirmed matches #1264 + #1267 phase boundary → 2×2 factorial cell-aligned. Sequential: Arm A=zero / Arm B=scale=0.5.
+
+- **#1282 thorfinn MUON_BETA_DEPTH_RAMP_COOLDOWN_ONLY — Arm A AUTHORIZED**: 11th successful pre-launch code-review gate. Patch (commit `34a0fc62`) reuses #1251 per-layer infrastructure; `beta_ramp_start_step = round(3175 × 0.95) = 3016` correct. Per-block depth_pos verified for L=12: mid=5.5, half_span=5.5, depth_pos linspace [-1, +1] across blocks 0..11. Mean offset across blocks = 0.0 (mean-preserving) ✓. Disabled-check val@200=4.09165 inside cu13 envelope only (+0.00165 above cu12.8 upper bound); accepted under **3-factor cu13 argument** (bytewise-inert path + askeladd #1271 precedent at 4.094 + cu13 RNG variance ~0.019 span). Sequential: Arm A=+0.04 cooldown-only / Arm B=-0.04 cooldown-only.
+
+**Phase-gated spatial schedule + 2×2 factorial state-reset as parallel methodological tracks**:
+
+| Track | PR | Mechanism class | Test type |
+|---|---|---|---|
+| Phase-gated spatial schedule | #1282 (87th) | β1 depth-ramp × cooldown phase | 1st phase × spatial interaction |
+| 2×2 factorial state-reset | #1283 (88th) | M+V both-buffer reset | 1st explicit 2×2 factorial |
+| ASYMMETRIC paired-axis | #1285 (89th) | LR + β1 both deeper-higher | 1st paired-depth-ramp interaction |
+
+All three test interactions among individually-refuted axes/phases — emergent pattern for cycle 71+: when ≥2 axes share a refute pattern, the natural next step is paired/combined/phase-gated test before declaring family saturation.
+
+**Active fleet (mid-277 post-cycle)**:
+- edward #1264 LATE_NORMUON_VARIANCE_RESET — Arm A in-flight (factorial cell V-only)
+- fern #1267 LATE_COOLDOWN_MOMENTUM_RESET — Arm A in-flight (factorial cell M-only)
+- askeladd #1271 SOAP_TRUST_DEPTH_RAMP — Arm A in-flight
+- **thorfinn #1282 MUON_BETA_DEPTH_RAMP_COOLDOWN_ONLY — Arm A AUTHORIZED, launching** ← NEW
+- **alphonse #1283 MUON_COMBINED_LATE_RESET — Arm A AUTHORIZED, launching** ← NEW
+- frieren #1285 MUON_LR_BETA_PAIRED_DEPTH_RAMP — NEW, awaiting disabled-check + code-review gate
+- 2 pod-broken holds: tanjiro #793 (awaiting CompleteP impl) + nezuko #1226 (Arm B in-flight)
+
+**ZERO IDLE STUDENTS** — 3 in-flight + 2 just-authorized launching + 1 NEW awaiting-launch + 1 in-flight (nezuko) + 1 hold (tanjiro)
+
+**Methodological observations mid-277**:
+- **11 pre-launch code-review gate applications cycle 71**: now standard practice for any mechanism with state side-effects, per-layer param_groups, or phase boundaries. Has caught 1 inverted-case failure (#1251 git-SHA mismatch on local code) and validated 10 clean implementations.
+- **3-factor cu13 acceptance argument now formalized**: applied 2× (askeladd #1271 + thorfinn #1282). Conditions: (1) bytewise-inert disabled path verified at code-review, (2) prior in-band cu13 disabled-check precedent at similar value, (3) cu13 RNG variance (toolchain torch 2.12.0+cu130) span ≥ |Δ to cu12.8 upper bound|.
+- **Sequential authorization cadence holds steady**: ~3 authorizations per 30-min window without compromising review depth. Pre-launch gate is not a bottleneck.
+
+---
+
 ## 2026-05-26 10:00 UTC — Cycle 71 mid-276
 
 **Cumulative**: 165 refuted (frieren #1250 CLOSED as 165th, **2nd ASYMMETRIC-DIRECTIONAL-REFUTE** confirms 14th class as recurring pattern) / 89 distinct mech classes (frieren #1285 MUON_LR_BETA_PAIRED_DEPTH_RAMP NEW — first paired-depth-ramp in 320-PR corpus, ASYMMETRIC pair-interaction test) / **51 family-level closures** (MUON_LR_DEPTH_RAMP axis closes bilaterally, completes ASYMMETRIC pair with #1251 β1 depth ramp) / 7 SATURATED MECHANISM LAYERS + 3 SATURATED LANES / 14 refute-signature classes / 7 CATASTROPHIC-SHIFTED-FLOOR (Arm B #1250 NOT catastrophic; was consistent-lag throughout, distinct from #1251 cooldown-tail collapse)
