@@ -602,6 +602,19 @@ NANOGPT_NEWTON_MUON_UPDATE_PERIOD = int(os.environ.get("NANOGPT_NEWTON_MUON_UPDA
 NANOGPT_NEWTON_MUON_BETA = float(os.environ.get("NANOGPT_NEWTON_MUON_BETA", "0.95"))
 NANOGPT_NEWTON_MUON_EPS = float(os.environ.get("NANOGPT_NEWTON_MUON_EPS", "1e-4"))
 NANOGPT_NEWTON_MUON_MAX_D_IN = int(os.environ.get("NANOGPT_NEWTON_MUON_MAX_D_IN", "1024"))
+# Per-row Zipfian-aware LR scaling for lm_head (#1244). Token frequencies in
+# FineWeb follow a Zipfian distribution; a single global AdamW LR for the
+# 50304×768 lm_head treats high-SNR frequent-token rows and low-SNR rare-token
+# rows identically. This env var selects a static per-row LR multiplier
+# applied as a post-step correction to lm_head ONLY. Mode "none" leaves the
+# lm_head AdamW path bit-identical to baseline.
+NANOGPT_ZIPFIAN_LR_MODE = os.environ.get("NANOGPT_ZIPFIAN_LR_MODE", "none")
+_VALID_ZIPFIAN_LR_MODES = ("none", "log_freq", "inv_sqrt_freq", "capped_log")
+if NANOGPT_ZIPFIAN_LR_MODE not in _VALID_ZIPFIAN_LR_MODES:
+    raise ValueError(
+        f"NANOGPT_ZIPFIAN_LR_MODE={NANOGPT_ZIPFIAN_LR_MODE!r}, must be one of {_VALID_ZIPFIAN_LR_MODES}"
+    )
+NANOGPT_ZIPFIAN_LR_FREQ_TOKENS = int(os.environ.get("NANOGPT_ZIPFIAN_LR_FREQ_TOKENS", "10000000"))
 
 # Global per-parameter input-activation cache populated by forward hooks. Keyed by
 # id(weight_param) → tensor of shape (B*T, d_in) on device. Only populated when
@@ -632,6 +645,54 @@ def _make_newton_input_hook(weight_param: "torch.Tensor", max_d_in: int):
         _newton_input_cache[weight_id] = x_flat
 
     return hook
+
+
+def compute_token_frequencies(num_tokens: int, freq_sample_tokens: int) -> torch.Tensor:
+    """Count token occurrences in the first training shard (additive-smoothed).
+
+    Returns a 1-D fp32 tensor of shape [num_tokens] on CPU summing to 1. Uses
+    the first ~freq_sample_tokens tokens of fineweb_train_000001.bin, which is
+    plenty (~10M) for a stable Zipfian shape; FineWeb's vocab distribution is
+    near-stationary across shards.
+    """
+    files = sorted(Path.cwd().glob("data/fineweb10B/fineweb_train_*.bin"))
+    if not files:
+        raise FileNotFoundError(
+            "No fineweb_train_*.bin shards found for token frequency computation"
+        )
+    tokens = _load_data_shard(files[0])
+    sample = tokens[: max(1, freq_sample_tokens)].to(torch.int64)
+    counts = torch.bincount(sample, minlength=num_tokens).to(torch.float64)
+    counts.add_(1.0)  # additive smoothing — no zero-frequency rows
+    freqs = counts / counts.sum()
+    return freqs.float()
+
+
+def make_per_row_lr_scale(freqs: torch.Tensor, mode: str, device: torch.device) -> "torch.Tensor | None":
+    """Static per-row LR multiplier for the lm_head update (#1244).
+
+    Returns None when mode='none' so the calling site can skip the post-step
+    correction and keep the AdamW path bit-identical to baseline.
+    """
+    if mode == "none":
+        return None
+    freq_median = freqs.median()
+    if mode == "log_freq":
+        # Arm B: frequent rows get higher LR. log of freq/median shifted by 1 so
+        # the median row stays at scale=1.0. Hard-clipped to [0.1, 10.0].
+        scale = (1.0 + torch.log(freqs / (freq_median + 1e-30))).clamp(0.1, 10.0)
+    elif mode == "inv_sqrt_freq":
+        # Arm C: rare rows get higher LR (inverse-sqrt subsampling style).
+        scale = ((freq_median + 1e-30) / (freqs + 1e-30)).sqrt().clamp(0.1, 10.0)
+    elif mode == "capped_log":
+        # Arm D: log-magnitude ratio with conservative [0.5, 2.0] bounds. Note:
+        # because log(median) < 0, this formula gives scale > 1 for rare rows
+        # and scale < 1 for frequent rows — direction is rare↑, opposite of B.
+        log_med = torch.log(freq_median + 1e-30)
+        scale = (torch.log(freqs + 1e-30) / (log_med + 1e-30)).clamp(0.5, 2.0)
+    else:
+        raise ValueError(f"unknown NANOGPT_ZIPFIAN_LR_MODE: {mode}")
+    return scale.to(device).float()
 
 
 def get_ns_coef_at_iter(iter_idx: int, total_iters: int, schedule: str) -> tuple[float, float, float]:
@@ -1105,8 +1166,31 @@ if dist.get_rank() == 0:
             "nanogpt_newton_muon_beta": NANOGPT_NEWTON_MUON_BETA,
             "nanogpt_newton_muon_eps": NANOGPT_NEWTON_MUON_EPS,
             "nanogpt_newton_muon_max_d_in": NANOGPT_NEWTON_MUON_MAX_D_IN,
+            "nanogpt_zipfian_lr_mode": NANOGPT_ZIPFIAN_LR_MODE,
+            "nanogpt_zipfian_lr_freq_tokens": NANOGPT_ZIPFIAN_LR_FREQ_TOKENS,
         },
     )
+
+# Per-row Zipfian-aware LR scaling for lm_head (#1244). The scale is a static
+# function of token frequencies, so we compute it once outside the trial loop.
+# token_freqs is kept on `device` for telemetry slicing.
+per_row_lr_scale = None
+token_freqs_device = None
+if NANOGPT_ZIPFIAN_LR_MODE != "none":
+    _zipf_freqs = compute_token_frequencies(50304, NANOGPT_ZIPFIAN_LR_FREQ_TOKENS)
+    per_row_lr_scale = make_per_row_lr_scale(_zipf_freqs, NANOGPT_ZIPFIAN_LR_MODE, device)
+    token_freqs_device = _zipf_freqs.to(device)
+    print0(
+        f"ZIPFIAN_LR_MODE: {NANOGPT_ZIPFIAN_LR_MODE} "
+        f"freq_sample_tokens={NANOGPT_ZIPFIAN_LR_FREQ_TOKENS} "
+        f"scale_min={per_row_lr_scale.min().item():.4f} "
+        f"scale_max={per_row_lr_scale.max().item():.4f} "
+        f"scale_median={per_row_lr_scale.median().item():.4f} "
+        f"scale_ratio={(per_row_lr_scale.max() / per_row_lr_scale.min()).item():.2f}",
+        console=True,
+    )
+else:
+    print0("ZIPFIAN_LR_MODE: none (bit-identical lm_head AdamW path)", console=True)
 
 for trial_idx in range(args.num_trials):
 
@@ -1428,8 +1512,27 @@ for trial_idx in range(args.num_trials):
         # (gated to avoid per-param CUDA syncs on the hot path).
         if getattr(optimizer2, "newton_precond", False):
             optimizer2.newton_telemetry_due = bool(telemetry_due)
+        # Per-row Zipfian-aware LR scaling for lm_head (#1244). Capture the
+        # pre-step lm_head so the post-step correction can recover the uniform
+        # AdamW delta and re-apply it with the per-row scale. Skipped entirely
+        # when per_row_lr_scale is None — control runs are bit-identical.
+        lm_head_pre_step = None
+        if per_row_lr_scale is not None:
+            lm_head_pre_step = model.proj.weight.detach().clone()
         for opt in optimizers:
             opt.step()
+        if per_row_lr_scale is not None and lm_head_pre_step is not None:
+            with torch.no_grad():
+                # fused AdamW applied: p_new_uniform = p_pre - lr * adamw_step
+                # We want:               p_new_scaled  = p_pre - scale[:,None] * lr * adamw_step
+                # delta = p_pre - p_new_uniform == lr * adamw_step (per row)
+                # adjustment = (1 - scale[:,None]) * delta restores the rows whose
+                # desired step is smaller and amplifies rows whose desired step
+                # is larger (scale > 1 → adjustment is negative → further step).
+                delta = lm_head_pre_step.sub_(model.proj.weight.data)
+                delta.mul_(1.0 - per_row_lr_scale.unsqueeze(1))
+                model.proj.weight.data.add_(delta)
+            del lm_head_pre_step
         # === Newton-Muon (#1138) per-step telemetry. ===
         # The accumulator dict was reset and populated inside Muon.step(); read
         # it back on rank 0 and emit summary scalars to W&B at telemetry_due
@@ -1464,6 +1567,38 @@ for trial_idx in range(args.num_trials):
                     tel["precond_ratio_sum"] / ratio_n
                 )
             wandb.log(newton_metrics, step=wandb_step)
+        # Per-row Zipfian-aware LR scale telemetry (#1244). The scale itself is
+        # static so these scalars are constant across the run, but logging them
+        # at telemetry cadence keeps the W&B chart aligned with other panels
+        # and makes it easy to cross-compare arms.
+        if (
+            dist.get_rank() == 0
+            and per_row_lr_scale is not None
+            and token_freqs_device is not None
+            and telemetry_due
+        ):
+            rare_q = token_freqs_device.quantile(0.05)
+            common_q = token_freqs_device.quantile(0.95)
+            rare_mask = token_freqs_device < rare_q
+            common_mask = token_freqs_device > common_q
+            zipf_metrics = {
+                "trial": trial_idx,
+                "train/step": train_step,
+                "lm_head/zipfian_lr_scale_min": float(per_row_lr_scale.min().item()),
+                "lm_head/zipfian_lr_scale_max": float(per_row_lr_scale.max().item()),
+                "lm_head/zipfian_lr_scale_median": float(per_row_lr_scale.median().item()),
+                "lm_head/zipfian_lr_scale_mean": float(per_row_lr_scale.mean().item()),
+                "lm_head/zipfian_lr_scale_ratio": float(
+                    (per_row_lr_scale.max() / per_row_lr_scale.min()).item()
+                ),
+                "lm_head/zipfian_lr_scale_rare_mean": (
+                    float(per_row_lr_scale[rare_mask].mean().item()) if int(rare_mask.sum().item()) > 0 else 0.0
+                ),
+                "lm_head/zipfian_lr_scale_common_mean": (
+                    float(per_row_lr_scale[common_mask].mean().item()) if int(common_mask.sum().item()) > 0 else 0.0
+                ),
+            }
+            wandb.log(zipf_metrics, step=wandb_step)
         # Init-anchored WD on embed (#847, env-var-gated). After both optimizers
         # have stepped, apply `p -= lr_embed * lambda * (p - p_init)`. Order vs
         # optimizer2.step() does not matter because the hook only touches
