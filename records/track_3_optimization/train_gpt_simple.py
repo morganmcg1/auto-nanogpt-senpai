@@ -64,6 +64,12 @@ def parse_args():
     parser.add_argument("--muon_lr", type=float, default=0.035,
                         help="Base learning rate for body-Muon optimizer (matrix params in blocks). "
                              "Default 0.035 matches the merged baseline.")
+    parser.add_argument("--aux_v_refresh_step", type=int, default=-1,
+                        help="Step at which to reset AdamW aux exp_avg_sq (variance buffer) "
+                             "to zero across all aux param groups (embed, lm_head, scalars). "
+                             "First moment (exp_avg) is preserved. -1 = disabled (baseline). "
+                             "Try 2600 (Arm A, L_cov canonical WIN window) or 2275 "
+                             "(Arm B, param-EMA canonical WIN window).")
     args = parser.parse_args()
     args.num_trials = args.num_trials if args.num_trials is not None else (args.legacy_num_trials or 1)
     args.wandb_tags = [tag.strip() for tag in args.wandb_tags.split(",") if tag.strip()]
@@ -720,6 +726,8 @@ if dist.get_rank() == 0:
             "ema_warmup_steps": args.ema_warmup_steps,
             "ema_beta_target": args.ema_beta_target if args.ema_beta_target is not None else 0.0,
             "ema_dynamic_ramp_active": int(args.ema_beta_target is not None and args.ema_beta > 0),
+            "aux_v_refresh_step": args.aux_v_refresh_step,
+            "aux_v_refresh_enabled": int(args.aux_v_refresh_step >= 0),
         },
     )
 
@@ -980,6 +988,55 @@ for trial_idx in range(args.num_trials):
             )
         for opt in optimizers:
             opt.step()
+        # AdamW aux variance-only refresh (PR #1315).
+        # At step == args.aux_v_refresh_step, zero exp_avg_sq for all aux param
+        # groups (embed, lm_head, scalars) while preserving exp_avg (first moment).
+        # Hypothesis: variance buffer staleness from stable-phase gradients is the
+        # dominant axis of the AdamW-aux-state-refresh WIN signal (#1268 fern,
+        # #1274 nezuko). state["step"] is intentionally NOT reset so subsequent
+        # updates re-accumulate v at β2=0.95 from current cooldown gradients.
+        if args.aux_v_refresh_step >= 0 and step == args.aux_v_refresh_step:
+            pre_v_rms = {"adam_embed": float("nan"),
+                         "adam_lm_head": float("nan"),
+                         "adam_scalars": float("nan")}
+            pre_m_rms = {"adam_embed": float("nan"),
+                         "adam_lm_head": float("nan"),
+                         "adam_scalars": float("nan")}
+            num_reset = 0
+            for group in optimizer1.param_groups:
+                gname = group.get("name", "")
+                v_acc = []
+                m_acc = []
+                for p in group["params"]:
+                    state = optimizer1.state.get(p, {})
+                    if "exp_avg_sq" in state:
+                        v_acc.append(float(state["exp_avg_sq"].mean().sqrt().item()))
+                        if "exp_avg" in state:
+                            m_acc.append(float(state["exp_avg"].abs().mean().item()))
+                        state["exp_avg_sq"].zero_()
+                        num_reset += 1
+                if v_acc and gname in pre_v_rms:
+                    pre_v_rms[gname] = sum(v_acc) / len(v_acc)
+                if m_acc and gname in pre_m_rms:
+                    pre_m_rms[gname] = sum(m_acc) / len(m_acc)
+            if dist.get_rank() == 0:
+                wandb.log({
+                    "trial": trial_idx,
+                    "train/step": train_step,
+                    "aux_v_refresh/fired": 1,
+                    "aux_v_refresh/at_step": step,
+                    "aux_v_refresh/num_tensors_reset": num_reset,
+                    "aux_v_refresh/pre_embed_v_rms": pre_v_rms["adam_embed"],
+                    "aux_v_refresh/pre_lm_head_v_rms": pre_v_rms["adam_lm_head"],
+                    "aux_v_refresh/pre_scalars_v_rms": pre_v_rms["adam_scalars"],
+                    "aux_v_refresh/pre_embed_m_abs": pre_m_rms["adam_embed"],
+                    "aux_v_refresh/pre_lm_head_m_abs": pre_m_rms["adam_lm_head"],
+                    "aux_v_refresh/pre_scalars_m_abs": pre_m_rms["adam_scalars"],
+                }, step=wandb_step)
+                print0(f"[step {step}] AdamW aux exp_avg_sq reset fired "
+                       f"({num_reset} tensors, embed pre_v_rms={pre_v_rms['adam_embed']:.4e}, "
+                       f"lm_head pre_v_rms={pre_v_rms['adam_lm_head']:.4e}, "
+                       f"scalars pre_v_rms={pre_v_rms['adam_scalars']:.4e})")
         # EMA buffer update on body-Muon matrix params.
         # During warmup: track params live (no averaging) so post-warmup buffer is
         # seeded with stable, non-zero params (handles proj zero-init bias and lets
