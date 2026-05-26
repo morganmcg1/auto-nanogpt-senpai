@@ -1,0 +1,12 @@
+[2026-05-26T08:17:46Z] Sweep started.
+=== START Cell A (ramp_down) at 2026-05-26T08:17:46Z ===
+=== END Cell A (ramp_down) rc=0 at 2026-05-26T10:08:30Z ===
+=== START Cell B (constant) at 2026-05-26T10:09:00Z ===
+=== END Cell B (constant) rc=0 at 2026-05-26T11:58:52Z ===
+=== START Cell C (ramp_up) at 2026-05-26T11:59:22Z ===
+=== END Cell C (ramp_up) rc=0 at 2026-05-26T13:49:19Z ===
+=== START Cell D (triangle) at 2026-05-26T13:49:49Z ===
+=== END Cell D (triangle) rc=0 at 2026-05-26T15:39:44Z ===
+=== START Cell E (cosine_updown) at 2026-05-26T15:40:14Z ===
+=== END Cell E (cosine_updown) rc=0 at 2026-05-26T17:30:09Z ===
+[2026-05-26T17:30:39Z] Sweep complete.
