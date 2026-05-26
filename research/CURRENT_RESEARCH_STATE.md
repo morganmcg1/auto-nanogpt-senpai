@@ -1,3 +1,42 @@
+## 2026-05-26 07:50 UTC — Cycle 71 mid-272
+
+**Cumulative**: 161 refuted (fern #1224 CLOSED as 161st) / 85 distinct mech classes (#1267 LATE_COOLDOWN_MOMENTUM_RESET NEW) / 48 family-level closures (WD_BODY_DEPTH adds to 48) / 7 SATURATED MECHANISM LAYERS + 8th candidate / 3 SATURATED LANES / 12 refute-signature classes (12th FFS-PRIMARY-REFUTE introduced via #1224)
+
+**This cycle**:
+- **#1224 fern WD_BODY_DEPTH CLOSED**: 161st refute, 48th family-level closure. Arm A val=3.27254 ffs=3050 SHIFTED-FLOOR + Arm B val=3.26982 ffs=3025 — val tight close-to-floor (+0.00206 above baseline) but **FFS regressed +25 steps**. 12th refute-signature class **FFS-PRIMARY-REFUTE** introduced (val close-miss/improvement that fails to move FFS or actively regresses it — distinct from SHIFTED-FLOOR which is val above floor cluster). Fern 5th consecutive within-student validation cycle (#1124 → #1142 → #1216(workaround) → #1220 → #1224).
+- **#1267 fern LATE_COOLDOWN_MOMENTUM_RESET assigned**: 85th distinct mech class. One-shot reset event on body Muon `state["momentum"]` at step `round(train_steps * 0.80) = 2540`. Arms: A=zero (full reset, direction test) + B=0.5× scale (magnitude test). **Pairs with edward #1264 LATE_NORMUON_VARIANCE_RESET as decoupled-mechanism design** — same phase boundary step 2540, different state buffer (momentum vs variance).
+- **#1251 thorfinn URGENT pre-launch code-review gate violation flagged**: W&B run `ufkanf0u` config has `optimizer/muon_beta_depth_ramp=0.04` AND step 3100/3175 val=3.272 — clearly running real mechanism. BUT git SHA recorded `de316e524b0e4ed62dc5aee22c6274561bd3ecd0` (assign commit) has ZERO `MUON_BETA_DEPTH` references in `train_gpt_simple.py` on both advisor branch AND student PR branch. **Diagnosis**: thorfinn modified local file on pod but did NOT commit/push. Posted urgent comment demanding patch push before Arm B launch authorization. Memory updated with inverted-case sub-pattern of [[feedback_verify_student_code_implementation]].
+- **Pending terminals**: alphonse #1248 NOVOGRAD Arm A `k6ch2snl` step 3050 val=3.2777 ffs=3025 (terminal ETA ~07:55 UTC, same FFS-PRIMARY-REFUTE pattern emerging); thorfinn #1251 ufkanf0u terminal pending but BLOCKED on implementation push.
+
+**Pattern emerging across cycle 71 close-misses**: 3+ unrelated mechanisms (#1224 fern WD Arm B, #1248 alphonse NovoGrad Arm A, #1251 thorfinn BETA Arm A) all landing val=3.27±0.005 + ffs=3025-3050. Suggests **structural FFS floor at 3025 on n=1 seeds** for the LOGIT_SOFTCAP=20.0 baseline stack — baseline n=2 ffs=3000 mean (seeds 0+1) but n=1 seed variance lower bound is ~3025. Future mechanism evaluations under FFS-primary framing should account for ~25-step n=1 floor variance margin.
+
+**Active fleet (mid-272 post-cycle)**:
+- alphonse #1248 NOVOGRAD_BODY_MUON — Arm A terminal pending SENPAI-RESULT (step 3050 val=3.2777 ffs=3025, FFS-PRIMARY-REFUTE pattern)
+- thorfinn #1251 MUON_BETA_DEPTH — BLOCKED on implementation push, urgent comment posted
+- frieren #1250 MUON_LR_DEPTH_RAMP — Arm A `4oswee0c` step ~838 healthy (4th attempt after SIGKILL crashes)
+- askeladd #1254 MUON_POST_NS5_MOMENTUM — Arm A step ~1050 healthy
+- edward #1264 LATE_NORMUON_VARIANCE_RESET — NEW, awaiting disabled-check + code-review gate
+- fern #1267 LATE_COOLDOWN_MOMENTUM_RESET — NEW, awaiting disabled-check + code-review gate
+- 2 pod-broken holds: tanjiro #793 + nezuko #1226
+
+**ZERO IDLE STUDENTS** — 6 active WIPs + 2 pod-broken holds
+
+**Aligned with Morgan #1259 directive**:
+- 3× depth/per-group (#1250 LR, #1251 β [contested], #1267 fern reset paired with #1264 edward)
+- 4× state-phase changes (#1248 NovoGrad, #1254 POST_NS5, #1264 NORMUON_RESET, #1267 MOMENTUM_RESET)
+- 0× scalar HP-only sweeps (#702 closed for that reason)
+- 0× saturated lanes
+
+**Methodological observations**:
+- Pre-launch code-review gate: 5 successful explicit applications + 1 retrospective catch (#1251 caught post-hoc)
+- Disabled-check parity mandatory val@200 ∈ [4.075, 4.090]
+- FFS-primary framing reveals structural FFS noise floor ~3025 on n=1 seeds; n=2 confirmation may need stricter merge bar
+- Decoupled-mechanism pair design new methodology (fern + edward LATE_RESET pair)
+- Student-side audit catches: 6th in cycle 71 (edward #702 directive-conflict catch)
+- **NEW failure mode**: uncommitted local code execution (thorfinn #1251) — W&B config + summary log mechanism active but git SHA shows no implementation; memory updated to detect this inverted-case
+
+---
+
 ## 2026-05-26 07:20 UTC — Cycle 71 mid-271
 
 **Cumulative**: 160 refuted (pending fern #1224 161st) / 84 distinct mech classes (#1264 LATE_NORMUON_VARIANCE_RESET NEW) / 47 family-level closures / 7 SATURATED MECHANISM LAYERS (+ 8th candidate: bias-correction bilateral) + 3 SATURATED LANES / 11 refute-signature classes (12th FFS-PRIMARY-REFUTE candidate via #1224)
