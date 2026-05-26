@@ -96,6 +96,18 @@ def parse_args():
                         help="Starting value of µ schedule (used by linear and cooldown_ramp modes).")
     parser.add_argument("--muonh_mu_end", type=float, default=float(os.environ.get("MUONH_MU_END", "0.98")),
                         help="Ending value of µ schedule (used by linear and cooldown_ramp modes).")
+    # H162: per-block MuonH LR multipliers derived from gradient-RMS sharpness proxy.
+    # Default exponent=0.0 keeps a single global LR (bit-identical to baseline).
+    parser.add_argument("--muonh_per_block_lr_exponent", type=float,
+                        default=float(os.environ.get("MUONH_PER_BLOCK_LR_EXPONENT", "0.0")),
+                        help="If > 0, scale per-block muonh LR by (rms_avg/rms_block)^exponent "
+                             "at the calibration step. 0.0 = disabled (single global LR, default).")
+    parser.add_argument("--muonh_per_block_calibration_step", type=int,
+                        default=int(os.environ.get("MUONH_PER_BLOCK_CALIBRATION_STEP", "200")),
+                        help="Step at which per-block grad-RMS is measured. Default 200.")
+    parser.add_argument("--muonh_per_block_recalibrate_interval", type=int,
+                        default=int(os.environ.get("MUONH_PER_BLOCK_RECALIBRATE_INTERVAL", "0")),
+                        help="If > 0, recompute per-block grad-RMS at this interval. 0=static. Default 0.")
     parser.add_argument("--body_init", type=str, default=os.environ.get("BODY_INIT", "default"),
                         choices=["default", "orthogonal_fnorm_matched", "orthogonal_bottom_damp"],
                         help="Initialization scheme for body MuonH 2D weights (attn.q/k/v, attn.proj, mlp.fc, mlp.proj). "
@@ -293,6 +305,16 @@ def log_training_telemetry(
             group_name = group.get("name", f"optimizer_{opt_idx}_group_{group_idx}")
             metrics[f"train/lr/{group_name}"] = group["lr"]
             metrics[f"train/weight_decay/{group_name}"] = group.get("weight_decay", 0.0)
+    # H162: per-block LR spread summary so the advisor can verify per-block
+    # divergence at any sampled step without grepping 12 keys. Only emits when
+    # the per-block path is active (>= 2 muonh_block_* groups).
+    per_block_lrs = [g["lr"] for g in optimizers[1].param_groups
+                     if g.get("name", "").startswith("muonh_block_")]
+    if len(per_block_lrs) >= 2:
+        metrics["train/per_block_lr/min"] = min(per_block_lrs)
+        metrics["train/per_block_lr/max"] = max(per_block_lrs)
+        metrics["train/per_block_lr/spread_max_over_min"] = max(per_block_lrs) / max(1e-12, min(per_block_lrs))
+        metrics["train/per_block_lr/num_groups"] = len(per_block_lrs)
     for module_type, tensors in grouped_by_type(grads, module_types).items():
         metrics.update(prefixed(f"train/grad_type/{module_type}", aggregate_stats(tensors)))
     for name, grad in grads:
@@ -645,6 +667,27 @@ def adaptive_gradient_clip(parameters, clip_ratio: float, eps: float = 1e-3):
     return stats
 
 
+def compute_per_block_lr_multipliers(model, exponent):
+    """H162: per-block grad-RMS sharpness proxy → LR multipliers.
+
+    Compute the RMS of the reduced gradient over each block's 2D weights, then
+    return per-block multipliers (rms_avg / rms_block)^exponent so high-sharpness
+    (high-RMS) blocks get smaller LR. Call AFTER backward and grad-allreduce,
+    BEFORE optimizer.step().
+    """
+    rms_per_block = []
+    for block in model.blocks:
+        sq_sum, n_elems = 0.0, 0
+        for p in block.parameters():
+            if p.ndim >= 2 and p.grad is not None:
+                sq_sum += p.grad.detach().float().pow(2).sum().item()
+                n_elems += p.grad.numel()
+        rms_per_block.append((sq_sum / max(1, n_elems)) ** 0.5)
+    rms_avg = sum(rms_per_block) / len(rms_per_block)
+    multipliers = [(rms_avg / max(1e-12, r)) ** exponent for r in rms_per_block]
+    return multipliers, rms_per_block, rms_avg
+
+
 def scale_invariant_update_(param, update, lr, eps=1e-10):
     """Always-active hyperball step: rescale update to param's current norm scale,
     take the step, then renormalise the result back onto the sphere of radius
@@ -670,9 +713,14 @@ class MuonH(torch.optim.Optimizer):
     """
     def __init__(self, params, lr=0.018, weight_decay=0.0, mu=0.95,
                  hyperball=True, budget_mult=1.0, mode="clip"):
-        assert isinstance(params, list) and len(params) >= 1 and isinstance(params[0], torch.nn.Parameter)
+        assert isinstance(params, list) and len(params) >= 1
+        assert isinstance(params[0], (torch.nn.Parameter, dict))
         assert mode in ("clip", "scale_invariant")
-        params = sorted(params, key=lambda x: x.size(), reverse=True)
+        # Flat list of Parameters: sort by size for ranks×params sharding (legacy
+        # single-group path). List of param_group dicts: leave ordering to the
+        # caller; MuonH.step iterates each group independently (H162 per-block).
+        if isinstance(params[0], torch.nn.Parameter):
+            params = sorted(params, key=lambda x: x.size(), reverse=True)
         defaults = dict(lr=lr, weight_decay=weight_decay, mu=mu,
                         hyperball=hyperball, budget_mult=budget_mult, mode=mode)
         super().__init__(params, defaults)
@@ -791,6 +839,12 @@ if args.muonh_agc_clip_ratio > 0:
     print0(f"AGC ENABLED on inner MuonH gradient: clip_ratio={args.muonh_agc_clip_ratio} eps={args.muonh_agc_eps}", console=True)
 else:
     print0("AGC DISABLED on inner MuonH gradient (clip_ratio=0)", console=True)
+if args.muonh_per_block_lr_exponent > 0.0:
+    print0(f"H162 per-block MuonH LR ENABLED: exponent={args.muonh_per_block_lr_exponent} "
+           f"calibration_step={args.muonh_per_block_calibration_step} "
+           f"recalibrate_interval={args.muonh_per_block_recalibrate_interval}", console=True)
+else:
+    print0("H162 per-block MuonH LR DISABLED (single global LR)", console=True)
 print0("="*100)
 
 val_tokens = 20 * 524288
@@ -850,6 +904,10 @@ if dist.get_rank() == 0:
             "muonh_mu_schedule": args.muonh_mu_schedule,
             "muonh_mu_start": args.muonh_mu_start,
             "muonh_mu_end": args.muonh_mu_end,
+            "muonh_per_block_lr_exponent": args.muonh_per_block_lr_exponent,
+            "muonh_per_block_calibration_step": args.muonh_per_block_calibration_step,
+            "muonh_per_block_recalibrate_interval": args.muonh_per_block_recalibrate_interval,
+            "body_init": args.body_init,
         },
     )
 
@@ -930,11 +988,34 @@ for trial_idx in range(args.num_trials):
                         dict(params=[model.proj.weight], lr=1/320, name="adam_lm_head"),
                         dict(params=[p for p in model.parameters() if p.ndim < 2], lr=0.01, name="adam_scalars")],
                        betas=(0.8, args.aux_beta2_start), eps=args.aux_adamw_eps, weight_decay=0, fused=_aux_fused)
-    optimizer2 = MuonH([p for p in model.blocks.parameters() if p.ndim >= 2],
-                       lr=args.muonh_lr, weight_decay=0.0, mu=0.95,
-                       hyperball=True, budget_mult=args.muonh_budget_mult,
-                       mode=args.muonh_mode)
-    optimizer2.param_groups[0]["name"] = "muonh_blocks"
+    if args.muonh_per_block_lr_exponent > 0.0:
+        # H162: per-block param groups for heterogeneous LR multipliers (arms b, c).
+        # Each block's 2D weights get their own param_group so we can rescale LR per block.
+        block_groups = []
+        for block_idx, block in enumerate(model.blocks):
+            block_2d_params = [p for p in block.parameters() if p.ndim >= 2]
+            block_groups.append(dict(
+                params=block_2d_params,
+                lr=args.muonh_lr,
+                name=f"muonh_block_{block_idx}",
+                block_idx=block_idx,
+            ))
+        optimizer2 = MuonH(block_groups, lr=args.muonh_lr, weight_decay=0.0, mu=0.95,
+                           hyperball=True, budget_mult=args.muonh_budget_mult,
+                           mode=args.muonh_mode)
+        print0(f"[H162 INIT] PER-BLOCK MuonH path: built {len(optimizer2.param_groups)} param groups "
+               f"(exponent={args.muonh_per_block_lr_exponent}, calibration_step="
+               f"{args.muonh_per_block_calibration_step}, recalibrate_interval="
+               f"{args.muonh_per_block_recalibrate_interval})", console=True)
+    else:
+        # Bit-identical single-group path (arm_a CTRL).
+        optimizer2 = MuonH([p for p in model.blocks.parameters() if p.ndim >= 2],
+                           lr=args.muonh_lr, weight_decay=0.0, mu=0.95,
+                           hyperball=True, budget_mult=args.muonh_budget_mult,
+                           mode=args.muonh_mode)
+        optimizer2.param_groups[0]["name"] = "muonh_blocks"
+        print0(f"[H162 INIT] SINGLE-GROUP MuonH path: built {len(optimizer2.param_groups)} param group "
+               f"(exponent={args.muonh_per_block_lr_exponent}, CTRL bit-identical to baseline)", console=True)
     optimizers = [optimizer1, optimizer2]
     # AGC targets: AdamW aux groups (embed, lm_head, scalars). Built from optimizer1
     # param groups to track exactly the same params AdamW updates.
@@ -1164,6 +1245,44 @@ for trial_idx in range(args.num_trials):
         agc_stats = adaptive_gradient_clip(
             aux_params_for_agc, args.aux_agc_clip_ratio, eps=args.aux_agc_eps,
         )
+        # H162: per-block MuonH LR calibration. At the calibration step (and
+        # optionally on a recalibration interval afterwards), compute per-block
+        # gradient-RMS, then set each block's initial_lr to muonh_lr * (rms_avg /
+        # rms_block)^exponent. The cooldown loop in set_hparams() rescales from
+        # group['initial_lr'] on subsequent steps. Computed BEFORE the muonh AGC
+        # so the RMS reflects raw post-allreduce gradients, not the AGC-clipped
+        # version (which would normalize block magnitudes to clip_ratio * |w|).
+        # No-op when exponent <= 0.
+        should_calibrate = (
+            args.muonh_per_block_lr_exponent > 0.0
+            and (
+                train_step == args.muonh_per_block_calibration_step
+                or (args.muonh_per_block_recalibrate_interval > 0
+                    and train_step >= args.muonh_per_block_calibration_step
+                    and (train_step - args.muonh_per_block_calibration_step)
+                        % args.muonh_per_block_recalibrate_interval == 0)
+            )
+        )
+        if should_calibrate:
+            multipliers, rms_per_block, rms_avg = compute_per_block_lr_multipliers(
+                model, args.muonh_per_block_lr_exponent)
+            for group in optimizer2.param_groups:
+                block_idx = group.get("block_idx")
+                if block_idx is not None:
+                    mult = multipliers[block_idx]
+                    group["initial_lr"] = args.muonh_lr * mult
+                    group["lr"] = group["initial_lr"]
+            if dist.get_rank() == 0:
+                log_dict = {"trial": trial_idx, "train/step": train_step}
+                for i, (m, r) in enumerate(zip(multipliers, rms_per_block)):
+                    log_dict[f"train/per_block_lr_mult/block_{i}"] = m
+                    log_dict[f"train/per_block_grad_rms/block_{i}"] = r
+                log_dict["train/per_block_grad_rms_avg"] = rms_avg
+                log_dict["train/per_block_lr_mult_max_over_min"] = max(multipliers) / min(multipliers)
+                wandb.log(log_dict, step=wandb_step)
+                print0(f"[H162 PER-BLOCK LR] step {train_step}: "
+                       f"rms_disparity={max(rms_per_block)/min(rms_per_block):.3f} "
+                       f"mult_range=[{min(multipliers):.3f}, {max(multipliers):.3f}]", console=True)
         # AGC on inner MuonH gradient: clip BEFORE the momentum buffer integrates
         # the reduced gradient. No-op (bit-identical) when clip_ratio <= 0.
         muonh_agc_stats = adaptive_gradient_clip(
