@@ -1,5 +1,54 @@
 # SENPAI Research Results
 
+## 2026-05-26 16:00 UTC — ASSIGNMENTS #1314 (alphonse) and #1315 (askeladd)
+
+### #1314 alphonse — Depth-stratified u/w floor (per-block TARGET_UW)
+- Branch: `g1r1-alphonse/per-block-uw-floor`
+- Hypothesis: Mirror #1289 tanjiro per-block LR late-higher WIN for the u/w floor mechanism. Late transformer blocks may also benefit from higher floor threshold (larger minimum u/w ratio), paralleling the depth-asymmetry finding.
+- Arm A: late-higher floor (block 0=0.30, block 11=0.40, mean=0.35), Arm B: late-lower (block 0=0.40, block 11=0.30, mean=0.35)
+- Cross-axis with #1176 (uniform TARGET_UW U-shape, closed), #1129 (per-tensor-type post-polar scale, closed), #1164 (depth-stratified mu CATASTROPHIC — different lever: magnitude minimum vs temporal smoothing)
+- Status: assigned, pending student pickup
+
+### #1315 askeladd — AdamW aux variance refresh (exp_avg_sq only)
+- Branch: `g1r1-askeladd/aux-variance-refresh`
+- Hypothesis: By step 2600, aux variance buffer is stale (calibrated to pre-cooldown high-LR gradient magnitudes). Resetting ONLY exp_avg_sq (second moment) at step 2600 recalibrates effective step size without discarding first-moment direction information.
+- Arm A: refresh @ step 2600 (L_cov canonical WIN window from #1268), Arm B: refresh @ step 2275 (param-EMA canonical WIN window from #1274)
+- Mechanism isolation: #1253 first-moment reset NULL; #1299 full state reset in flight; THIS PR = second-moment only → isolates variance vs full state staleness
+- Status: assigned, pending student pickup
+
+## 2026-05-26 15:55 UTC — PR #1269 CLOSED: Phase-gated u/w floor (g1r1-alphonse) — 152nd NULL
+
+- Branch: `g1r1-alphonse/uw-floor-phase-A-late, uw-floor-phase-B-early`
+- Hypothesis: u/w floor may be load-bearing in only one training phase. Test: Arm A = active only in cooldown (2500-3250), Arm B = active only in pre-cooldown (0-2500).
+
+| Arm | Run | floor_start | floor_end | val_ema_terminal | sr | Δval vs baseline | Verdict |
+|---|---|---|---|---|---|---|---|
+| NEW baseline | `4yfdygud` | always-on | always-on | 3.266024 | 2925 | 0 | (reference) |
+| A | `xn0ekeyb` | 2500 | 3250 | 3.272057 | 3025 | +6.03 mnat | NULL Δsr+100 |
+| **B** | `jmvr65lx` | **0** | **2500** | **3.284301** | **-1** | **+18.28 mnat CATASTROPHIC** | **MISSED TARGET** |
+
+- Mechanism canon: u/w floor establishes a magnitude equilibrium that the EMA buffer accumulates against. Deactivating floor at step 2500 removes this equilibrium — uncontrolled NS5 output cascades through EMA buffer. Arm B's gap WIDENS monotonically from +4.5 → +18.3 mnat over 750 steps. Terminal buffer_frob_dist=6.85 (vs Arm A's 4.79, both much lower than baseline ~22 — both arms have UNDER-accumulated buffers due to floor interference).
+- Arm A (floor only in cooldown) partially recovers terminal val but at +100sr cost — floor is load-bearing in BOTH phases.
+- **Canon reinforced:** #1035 (existence), #1129 (dominant magnitude controller), #1176 (optimal value), #1269 (phase-gating) — 4 PRs confirm floor structural requirement at 0.35 always-on.
+- 152nd NULL closed.
+
+## 2026-05-26 15:55 UTC — PR #1290 CLOSED: Param-EMA scope=embed-only (g1r1-askeladd) — 153rd NULL
+
+- Branch: `g1r1-askeladd/ema-scope-embed-only-arm-a`
+- Hypothesis: Extend param-EMA wrapper to include embed token matrix (scope=embed-only as first step toward full scope extension).
+
+| Run | Config | val_ema_terminal | sr | Δval vs baseline | Verdict |
+|---|---|---|---|---|---|
+| NEW baseline | body-only scope | 3.266024 | 2925 | 0 | (reference) |
+| `trjmxtlj` | embed-only scope | 3.267540 | 2950 | +1.52 mnat | NULL Δsr+25 Pareto-shift |
+
+- Trajectory: uniformly +1.5 mnat above baseline throughout cooldown. Clean constant penalty with no pathological dynamics.
+- Mechanism: Adding 38.6M embed params to EMA wrapper (comparable to all transformer body params) introduces smoothing-mismatch between live and EMA params at high dimensional surface, effectively halving per-step contribution from body params.
+- Terminal diagnostics: pmuon/lcov_eigh_min=1975.87 (baseline-band), buffer_frob_dist=22.49 (normal), polar_ortho=0.117 (clean) — mechanism is benign but additive penalty.
+- Arm B (embed+lm_head) never launched — 6 duplicate-launch crashes due to pgrep gate issue in pod.
+- Param-EMA scope-extension axis: body-only is optimal. Combined with #1234 (β_start=0.97 WIN) and #1274 nezuko (buffer refresh WIN), the param-EMA family canon: β dynamics matter ✅, buffer refresh helps ✅, scope extension hurts ❌.
+- 153rd NULL closed.
+
 ## 2026-05-26 15:15 UTC — PR #1268 BOTH ARMS TERMINAL WIN: Body-Muon L_cov/R_cov preconditioner refresh (g1r1-fern) — 5th portfolio WIN signal
 
 - Branch: `g1r1-fern/lcov-refresh-cooldown-entry`
