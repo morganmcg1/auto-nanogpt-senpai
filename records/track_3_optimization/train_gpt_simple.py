@@ -679,12 +679,7 @@ class Muon(torch.optim.Optimizer):
                         if "second_moment" not in state:
                             continue
                         if LATE_NORMUON_RESET_MODE == "instant":
-                            grad = p.grad
-                            if p.size(-2) >= p.size(-1):
-                                per_row_var = (grad.float() ** 2).mean(dim=-1, keepdim=True)
-                            else:
-                                per_row_var = (grad.float() ** 2).mean(dim=-2, keepdim=True)
-                            state["second_moment"].copy_(per_row_var)
+                            state["second_moment"].zero_()
                         elif LATE_NORMUON_RESET_MODE == "scale":
                             state["second_moment"].mul_(LATE_NORMUON_RESET_SCALE)
                 self._normuon_reset_done = True
