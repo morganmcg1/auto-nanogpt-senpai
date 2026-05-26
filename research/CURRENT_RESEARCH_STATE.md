@@ -1,3 +1,103 @@
+## 2026-05-26 14:50 UTC — Cycle 71 mid-287
+
+**Cumulative**: **171 refuted (+2: thorfinn #1282 170th, nezuko #1226 171st)** / **95 distinct mech classes (+2: 94 MUON_NESTEROV_PHASE_TRANSITION #1306, 95 AUX_BIASES_LR_BOOST #1307)** / **55 family-level closures (+2: 54 MUON_BETA_DEPTH_RAMP family-cooldown-only-axis via #1282, 55 AUX_CLIP_NORM family via #1226)**.
+
+**This cycle — 2 PR closures + 2 reassignments + 1 code-review gate authorized + 13-member cluster confirmed**:
+
+1. **thorfinn #1282 MUON_BETA_DEPTH_RAMP_COOLDOWN_ONLY closed as 170th refute** — bilateral cluster-member outcome:
+   - Arm A `b980zd71` (+0.04 deeper-higher β1) val=**3.26978** ffs=**3025** — cluster member 11th
+   - Arm B `rawvrotv` (-0.04 shallower-higher β1) val=**3.27111** ffs=**3025** — cluster member 12th
+   - (Note: thorfinn's terminal SENPAI-RESULT corrected arm direction — Arm A is `b980zd71` not `rawvrotv` as initially recorded; verdict unchanged)
+   - Mean: val=**3.27045**, ffs=**3025**
+   - **MUON_BETA_DEPTH_RAMP family-cooldown-only-axis closed as 54th family-level closure** (combined with always-on #1251 winner + cooldown-only #1282)
+   - Per-block β1 spatial schedule, whether always-on or cooldown-gated, produces FFS-PRIMARY-cluster outcomes regardless of ramp direction (+/-0.04, +/-0.05)
+   - Mechanism insight: askeladd #1271 telemetry confirms `mean_cos_row × mean_cos_col` Gram-EMA stability product is depth-uniform — no intrinsic depth-dependent β1 signal for spatial ramp to exploit
+   - `wehhrzkn` anomaly resolved as accidental run (per heartbeat clarification)
+
+2. **nezuko #1226 AUX_CLIP_NORM closed as 171st refute** — bilateral cluster-member outcome, **AUX_CLIP_NORM family closure (55th family-level)**:
+   - Arm B=5.0 `e3qoqskz` (loose clip) val=**3.26956** ffs=**3025** — cluster member 6th
+   - Arm A=1.0 `g18v4uii` (tight clip) val=**3.27182** ffs=**3050** — cluster member 13th
+   - Mean: val=**3.27069**, ffs=**3037.5**
+   - **Mechanism null at clip ∈ (1.0, 5.0) granularity** — AUX clip is a kill-switch only, threshold within bracket does not differentially affect convergence
+   - Telemetry insight preserved: **pre-clip AUX grad norm = 16,487 at step 3175 → 3,297× threshold** — 4-order-of-magnitude norm spike is structural property of AUX (AdamW) optimizer state at terminal cooldown
+   - `dwe1xx1v` accidental duplicate killed by student (acknowledged)
+
+**Reassignments (2 students reassigned)**:
+
+1. **thorfinn → PR #1306 MUON_NESTEROV_PHASE_TRANSITION (94th mech class)** — body Muon switches from heavy-ball to Nesterov-form re-blend at cooldown boundary:
+   - State-phase × momentum-mechanism axis (orthogonal to per-block β1 axis)
+   - Distinguishes from #703 (CLOSED uniform Nesterov refuted): hypothesis is Nesterov value is conditional on μ being non-stationary, only happens during cooldown
+   - Arm A: cooldown-only Nesterov form; Arm B: uniform Nesterov falsification control (re-test #703 under cycle-71 stack)
+   - Pre-launch 3-canary disabled-check + code-review gate required
+   - Morgan #1259-aligned (state-phase change)
+
+2. **nezuko → PR #1307 AUX_BIASES_LR_BOOST (95th mech class)** — biases param-group LR multiplier dispatch:
+   - **First per-AUX-group LR dispatch in 320+ PRs** (only WD and bias-correction have been per-group)
+   - Splits biases out of `adam_scalars` into separate AdamW param-group with `LR_SCALARS * AUX_BIASES_LR_MULT`
+   - Arm A: x2.0 boost; Arm B: x0.5 suppression (falsification)
+   - Builds on nezuko's AUX-side expertise (#1224 DEPTH_DEP_WD + #1226 AUX_CLIP_NORM)
+   - Anti-duplication confirmed: no prior per-AUX-group LR dispatch experiments
+   - Pre-launch 3-canary disabled-check + code-review gate required
+   - Morgan #1259-aligned (per-group optimizer behavior)
+
+**Code-review gate authorized (15th cycle 71 application)**:
+
+3. **askeladd #1301 ATTN_SOAP_TRUST_PER_KIND** — code-review gate PASSED at 14:35Z, Arm A launch authorized:
+   - Patch `8a47782` ~+25 LoC surgical per-kind dispatch via `id(p)` lookup
+   - 3-canary disabled-check `wodj4e3w`/`e9vgpvi0`/`v2ewz1ge` mean=**4.08670** span=**0.00415** (tighter than cu13 RNG variance)
+   - All 6 gate criteria pass (formula correctness, body-only, bytewise-inert disabled, kind extraction, telemetry preservation, W&B config)
+   - **3-canary disabled-check methodology now standard** for 3 consecutive high-stakes PRs (#1296, #1283, #1301) — should be default pre-launch protocol going forward
+   - Arm A: v-loose threshold=0.70 (others fixed 0.85); heartbeat priority on per-kind on_fraction trajectory
+
+**Active fleet status mid-287**:
+
+| Student | PR | Status | W&B notes |
+|---|---|---|---|
+| g1r2-alphonse | #1283 | status:wip, n=2 confirm authorized | Option 1 confirmed 14:29Z; launch confirmation pending |
+| g1r2-thorfinn | #1306 NEW | draft, just assigned | MUON_NESTEROV_PHASE_TRANSITION — student picks up on next poll |
+| g1r2-nezuko | #1307 NEW | draft, just assigned | AUX_BIASES_LR_BOOST — student picks up on next poll |
+| g1r2-fern | #1296 | status:wip, Arm A in-flight | `vxcvdgt0` step ~1250 val 3.598, ETA ~50 min to terminal |
+| g1r2-frieren | #1285 | status:wip, Arm B in-flight | `sx14oojd` step ~1365 ETA terminal ~15:14Z |
+| g1r2-askeladd | #1301 | status:wip, Arm A authorized | code-review gate passed 14:35Z, awaiting launch confirmation |
+| g1r2-tanjiro | #1303 | status:wip, in-flight | `mnzcyx80` step ~590 val 3.845, ETA terminal ~15:55Z |
+| g1r2-edward | #1304 | status:wip, pre-launch | disabled-check in progress |
+
+**ZERO IDLE STUDENTS** — 8 students concurrently active. Maximum count maintained.
+
+**FFS-PRIMARY-REFUTE cluster — 13 members confirmed (pending alphonse n=2 confirm)**:
+
+| # | PR | Arm | Mechanism | val | ffs |
+|---|---|---|---|---|---|
+| 1 | thorfinn #1251 | A | β1 depth-ramp +0.05 always-on | 3.26912 | 3025 |
+| 2 | fern #1224 | B | DEPTH_DEP_WD AUX inverse ramp | 3.26978 | 3050 |
+| 3 | nezuko #1226 | B | AUX_CLIP_NORM clip=5.0 | 3.26956 | 3025 |
+| 4 | frieren #1250 | A | MUON_LR depth-ramp +favorable | 3.27042 | 3025 |
+| 5 | alphonse #1248 | A | NovoGrad β2=0.99 favorable | 3.27040 | 3025 |
+| 6 | alphonse #1248 | B | NovoGrad β2=0.95 falsify | 3.27176 | 3050 |
+| 7 | askeladd #1271 | B | SOAP_TRUST_DEPTH_RAMP -0.15 | 3.27001 | 3025 |
+| 8 | thorfinn #1282 | A | β1 cooldown-only +0.04 (b980zd71) | 3.26978 | 3025 |
+| 9 | thorfinn #1282 | B | β1 cooldown-only -0.04 (rawvrotv) | 3.27111 | 3025 |
+| 10 | alphonse #1283 | A | combined M+V late reset zero | 3.26975 | 3025 |
+| 11 | edward #1264 | A+B(×2) | LATE_NORMUON_RESET zero/half | 3.27184 (n=3) | 3050 |
+| 12 | nezuko #1226 | A | AUX_CLIP_NORM clip=1.0 | 3.27182 | 3050 |
+| 13 | alphonse #1283 | B (n=1) | combined M+V late reset scale=0.5 | 3.26842* | 3000* |
+
+*alphonse Arm B at ffs=3000 is the cluster-break-pattern signature; pending n=2 confirm. Cluster band: val ∈ (3.26842, 3.27219) × ffs ∈ {3000, 3025, 3050} across 13 unrelated mechanism families.
+
+**Methodological synthesis (cycle 71 mid-287)**:
+
+- **n=2 corpus methodology documented**: process-start RNG + CUDA non-determinism IS the implicit n=2 mechanism (no `--seed` flag, no `manual_seed()`, no SEED env var). Baseline #613 n=2 spread ~0.001 + edward #1264 accidental B-1/B-2 spread 0.0006 establish this empirically. Adding `--seed` would change methodology mid-cycle — preserved as-is for cycle 71.
+- **AUX axis findings (post #1226 closure)**: AUX_CLIP_NORM bracketing is null at this granularity → per-AUX-group dispatch axes (LR, WD, bias correction, clip) all need testing as separate mechanism families. Per-AUX-group LR dispatch (#1307) is the natural next-axis follow-up.
+- **State-phase × momentum-form axis (new via #1306)**: combines thorfinn's cooldown-gating expertise with momentum-mechanism axis (heavy-ball vs Nesterov). Falsification arm directly re-tests #703's refute under current stack — clean control.
+- **Pre-launch code-review gate count**: 15 successful applications cycle 71 (latest = askeladd #1301).
+- **3-canary disabled-check methodology now established** as default for state-mutating / dispatch-altering mechanisms (3 consecutive PRs: #1296, #1283, #1301 with mean span ~0.004).
+- **MUON_BETA_DEPTH_RAMP family-cooldown-only-axis closed** — combined with always-on closure earlier in cycle 71. Per-block β1 spatial schedule fully refuted in both schedule modes.
+- **AUX_CLIP_NORM family closed** — first AUX-clip family-level closure cycle 71.
+
+**Wake schedule**: ~15-25 min for fern #1296 LATE_LR_PULSE Arm A terminal (ETA ~15:15Z) + frieren #1285 Arm B terminal (ETA ~15:14Z) + alphonse n=2 confirm launch confirmation + askeladd #1301 Arm A launch confirmation + thorfinn/nezuko/edward disabled-check progress + tanjiro #1303 terminal ETA ~15:55Z.
+
+---
+
 ## 2026-05-26 14:30 UTC — Cycle 71 mid-286
 
 **Cumulative**: **169 refuted (unchanged)** / **93 distinct mech classes (unchanged)** / **53 family-level closures (unchanged)**. **Pending closure**: alphonse #1283 (n=2 confirm authorized), thorfinn #1282 (bilateral terminal awaiting SENPAI-RESULT), nezuko #1226 (bilateral terminal awaiting SENPAI-RESULT).
