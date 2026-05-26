@@ -83,6 +83,18 @@ def parse_args():
              "muall=musoft + non-residual block 2D weights also scaled by 1/sqrt(L); "
              "smallconst=std=1e-3 depth-independent.",
     )
+    parser.add_argument(
+        "--aux_v_mode",
+        type=str,
+        default="adam",
+        choices=["adam", "fixed_one", "l1_running", "adam_fast_beta2", "adam_huge_eps"],
+        help="Second-moment (v_t) behavior for aux AdamW groups (embed/lm_head/scalars). "
+             "adam=baseline g^2 EMA with sqrt(v_hat)+eps denominator; "
+             "fixed_one=v frozen at 1, denominator=1+eps (pure momentum); "
+             "l1_running=v=EMA(|g|), denominator=v_hat+eps (no sqrt); "
+             "adam_fast_beta2=adam with beta2=0.9 override (~10-step v memory); "
+             "adam_huge_eps=adam with eps=1.0 override (drowns v in denominator).",
+    )
     args = parser.parse_args()
     args.num_trials = args.num_trials if args.num_trials is not None else (args.legacy_num_trials or 1)
     args.wandb_tags = [tag.strip() for tag in args.wandb_tags.split(",") if tag.strip()]
@@ -681,6 +693,139 @@ class Muon(torch.optim.Optimizer):
         return result
 
 
+class AuxAdamW(torch.optim.Optimizer):
+    """AdamW with configurable second-moment (v_t) behavior on a per-group basis.
+
+    The v_t mode is set per group via the "aux_v_mode" key (default "adam").
+
+    Modes:
+    - 'adam'             : v = β2·v + (1-β2)·g²; denom = sqrt(v_hat) + eps.
+                           Matches torch.optim.AdamW (non-fused) numerics.
+    - 'fixed_one'        : v frozen at 1; denom = 1 + eps (scalar).
+                           Pure bias-corrected momentum update.
+    - 'l1_running'       : v = β2·v + (1-β2)·|g|; denom = v_hat + eps (no sqrt).
+                           Running absolute mean instead of squared mean.
+    - 'adam_fast_beta2'  : β2 overridden to 0.9 for both EMA and bias correction.
+    - 'adam_huge_eps'    : eps overridden to 1.0; v computed as in standard adam.
+                           Falsifier — should ≈ fixed_one if mechanism is denominator size.
+
+    AdamW decoupled weight decay (p *= 1 - lr*wd) is applied identically across modes.
+
+    Diagnostics from the most recent step() are stored on ``self.last_step_diag``
+    keyed by ``group["name"]``: keys are ``v_mean``, ``v_p95``, ``denominator_mean``,
+    ``update_norm_mean``, ``update_norm_p95``. Logged at telemetry cadence by caller.
+    """
+
+    VALID_MODES = ("adam", "fixed_one", "l1_running", "adam_fast_beta2", "adam_huge_eps")
+    _DIAG_SAMPLE = 65536  # Linearly-spaced subsample for v/denom stats on big tensors.
+
+    def __init__(self, params, lr=1e-3, betas=(0.9, 0.999), eps=1e-8, weight_decay=0):
+        defaults = dict(lr=lr, betas=betas, eps=eps, weight_decay=weight_decay, aux_v_mode="adam")
+        super().__init__(params, defaults)
+        self.last_step_diag: dict[str, dict[str, float]] = {}
+
+    @staticmethod
+    def _subsample_flat(t: Tensor, max_n: int) -> Tensor:
+        x = t.detach().float().flatten()
+        if x.numel() > max_n:
+            idx = torch.linspace(0, x.numel() - 1, max_n, device=x.device, dtype=torch.float64).long()
+            x = x[idx]
+        return x
+
+    @torch.no_grad()
+    def step(self):
+        self.last_step_diag = {}
+        for group in self.param_groups:
+            lr = group["lr"]
+            beta1, beta2 = group["betas"]
+            eps = group["eps"]
+            wd = group["weight_decay"]
+            mode = group.get("aux_v_mode", "adam")
+            assert mode in self.VALID_MODES, f"invalid aux_v_mode: {mode}"
+
+            beta2_eff = 0.9 if mode == "adam_fast_beta2" else beta2
+            eps_eff = 1.0 if mode == "adam_huge_eps" else eps
+
+            v_samples: list[Tensor] = []
+            denom_samples: list[Tensor] = []
+            update_norms: list[float] = []
+
+            for p in group["params"]:
+                if p.grad is None:
+                    continue
+                g = p.grad
+                state = self.state[p]
+                if len(state) == 0:
+                    state["step"] = 0
+                    state["exp_avg"] = torch.zeros_like(p, memory_format=torch.preserve_format)
+                    state["exp_avg_sq"] = torch.zeros_like(p, memory_format=torch.preserve_format)
+
+                state["step"] += 1
+                t = state["step"]
+                m = state["exp_avg"]
+                v = state["exp_avg_sq"]
+
+                # First-moment EMA (always standard Adam β1 momentum).
+                m.mul_(beta1).add_(g, alpha=1 - beta1)
+                bc1 = 1.0 - beta1 ** t
+
+                # Second-moment EMA + denominator depend on the chosen v-mode.
+                if mode == "fixed_one":
+                    denom_scalar = 1.0 + eps_eff
+                    denom: Tensor | None = None
+                elif mode == "l1_running":
+                    v.mul_(beta2_eff).add_(g.abs(), alpha=1 - beta2_eff)
+                    bc2 = 1.0 - beta2_eff ** t
+                    denom = v.div(bc2).add_(eps_eff)
+                else:
+                    # adam, adam_fast_beta2, adam_huge_eps all share g² EMA.
+                    v.mul_(beta2_eff).addcmul_(g, g, value=1 - beta2_eff)
+                    bc2 = 1.0 - beta2_eff ** t
+                    # Match torch.optim.AdamW non-fused form: sqrt(v)/sqrt(bc2) + eps.
+                    denom = v.sqrt().div_(bc2 ** 0.5).add_(eps_eff)
+
+                # AdamW decoupled weight decay.
+                if wd != 0:
+                    p.mul_(1.0 - lr * wd)
+
+                # Apply update; match torch.optim.AdamW step_size = lr / bc1.
+                step_size = lr / bc1
+                if denom is None:
+                    scale = step_size / denom_scalar
+                    update_norms.append(scale * float(m.norm().item()))
+                    p.add_(m, alpha=-scale)
+                else:
+                    upd = m.div(denom)
+                    update_norms.append(step_size * float(upd.norm().item()))
+                    p.add_(upd, alpha=-step_size)
+
+                # Diagnostic samples (subsampled for large aux tensors like embed).
+                if mode != "fixed_one":
+                    v_samples.append(self._subsample_flat(v, self._DIAG_SAMPLE))
+                if denom is not None:
+                    denom_samples.append(self._subsample_flat(denom, self._DIAG_SAMPLE))
+
+            group_name = group.get("name", "aux_group")
+            diag: dict[str, float] = {}
+            if v_samples:
+                v_all = torch.cat(v_samples)
+                diag["v_mean"] = float(v_all.mean().item())
+                diag["v_p95"] = float(v_all.quantile(0.95).item())
+            if denom_samples:
+                d_all = torch.cat(denom_samples)
+                diag["denominator_mean"] = float(d_all.mean().item())
+            elif mode == "fixed_one":
+                diag["denominator_mean"] = 1.0 + eps_eff
+            if update_norms:
+                ut = torch.tensor(update_norms)
+                diag["update_norm_mean"] = float(ut.mean().item())
+                if len(update_norms) > 1:
+                    diag["update_norm_p95"] = float(ut.quantile(0.95).item())
+                else:
+                    diag["update_norm_p95"] = float(ut[0].item())
+            self.last_step_diag[group_name] = diag
+
+
 ########################################
 #                Setup                 #
 ########################################
@@ -765,6 +910,7 @@ if dist.get_rank() == 0:
             "wd_schedule": args.wd_schedule,
             "lr_scalars": args.lr_scalars,
             "depth_init_mode": args.depth_init_mode,
+            "aux_v_mode": args.aux_v_mode,
         },
     )
 
@@ -837,10 +983,12 @@ for trial_idx in range(args.num_trials):
     print0(f"[init] mode={args.depth_init_mode}  L={NUM_LAYERS}  block_residual_attn.proj_std={_ex_resid_std:.6f}", console=True)
 
     # create the optimizer(s)
-    optimizer1 = AdamW([dict(params=[model.embed.weight], lr=0.3, name="adam_embed"),
-                        dict(params=[model.proj.weight], lr=1/320, name="adam_lm_head"),
-                        dict(params=[p for p in model.parameters() if p.ndim < 2], lr=args.lr_scalars, name="adam_scalars")],
-                       betas=(0.8, 0.95), eps=1e-10, weight_decay=0, fused=True)
+    optimizer1 = AuxAdamW(
+        [dict(params=[model.embed.weight], lr=0.3, name="adam_embed", aux_v_mode=args.aux_v_mode),
+         dict(params=[model.proj.weight], lr=1/320, name="adam_lm_head", aux_v_mode=args.aux_v_mode),
+         dict(params=[p for p in model.parameters() if p.ndim < 2], lr=args.lr_scalars, name="adam_scalars", aux_v_mode=args.aux_v_mode)],
+        betas=(0.8, 0.95), eps=1e-10, weight_decay=0,
+    )
     named_blocks = [(n, p) for n, p in model.blocks.named_parameters() if p.ndim >= 2]
     mlp_named = [(n, p) for n, p in named_blocks
                  if n.endswith(".mlp.fc.weight") or n.endswith(".mlp.proj.weight")]
@@ -1015,6 +1163,7 @@ for trial_idx in range(args.num_trials):
                            for i, group in enumerate(optimizer2.param_groups)}
             current_wds = {group.get("name", f"group_{i}"): group.get("weight_decay", 0.0)
                            for i, group in enumerate(optimizer2.param_groups)}
+            aux_v_diag = optimizer1.last_step_diag
             if dist.get_rank() == 0:
                 per_group_metrics = {"trial": trial_idx, "train/step": train_step}
                 for name, mean_norm in update_norms.items():
@@ -1026,6 +1175,9 @@ for trial_idx in range(args.num_trials):
                 per_group_metrics["train/wd_mlp_now"] = current_wds.get("muon_mlp", 0.0)
                 per_group_metrics["train/wd_attn_now"] = current_wds.get("muon_attn", 0.0)
                 per_group_metrics["train/wd_schedule_progress"] = train_step / train_steps
+                for group_name, diag in aux_v_diag.items():
+                    for key, value in diag.items():
+                        per_group_metrics[f"aux_v/{group_name}/{key}"] = value
                 wandb.log(per_group_metrics, step=wandb_step)
         if dist.get_rank() == 0 and optimizer2.cos_sims_buffer:
             cs_names = list(optimizer2.cos_sims_buffer.keys())
