@@ -468,6 +468,12 @@ NS5_ITERS = int(os.environ.get("NS5_ITERS", "12"))
 WD_AUX = float(os.environ.get("WD_AUX", "0.0"))  # AdamW WD on embed + lm_head matrices (scalars stay at 0)
 EMBED_INIT_STD = float(os.environ.get("EMBED_INIT_STD", "1.0"))  # default preserves baseline N(0,1)
 LOGIT_SOFTCAP = float(os.environ.get("LOGIT_SOFTCAP", "15.0"))  # default = 15 (current hardcoded value); soft-cap value c in f(x) = c·x / sqrt(x^2+c^2)
+# SHAMPOO_MUON_BODY (PR #1220): bilateral Kronecker pre-NS5 preconditioner on raw body Muon gradient.
+# Applies (L+eps*I)^-1/4 G (R+eps*I)^-1/4 to grad BEFORE momentum lerp and BEFORE NS5.
+SHAMPOO_MUON_BODY = bool(int(os.environ.get("SHAMPOO_MUON_BODY", "0")))
+KRON_PRECOND_FREQ = int(os.environ.get("KRON_PRECOND_FREQ", "50"))
+SHAMPOO_EPS = float(os.environ.get("SHAMPOO_EPS", "1e-6"))
+SHAMPOO_BETA = float(os.environ.get("SHAMPOO_BETA", "0.95"))
 
 
 def zeropower_via_newtonschulz5(G: Tensor) -> Tensor:
@@ -642,6 +648,8 @@ class Muon(torch.optim.Optimizer):
         }
         # Track which sub-type each attention-SOAP param is (q/k/v/proj) for per-type telemetry.
         self.attn_soap_kind: dict[int, str] = {}
+        # Short telemetry-friendly names for every Muon param (used by Shampoo telemetry, PR #1220).
+        self.param_short_names: dict[int, str] = {}
         for n, p in named_params:
             if p in self.attn_soap_params:
                 if n.endswith(".attn.q.weight"):
@@ -652,6 +660,9 @@ class Muon(torch.optim.Optimizer):
                     self.attn_soap_kind[id(p)] = "v"
                 elif n.endswith(".attn.proj.weight"):
                     self.attn_soap_kind[id(p)] = "proj"
+            short = n[: -len(".weight")] if n.endswith(".weight") else n
+            short = short.replace("blocks.", "b").replace(".", "_")
+            self.param_short_names[id(p)] = short
         params = sorted([p for _, p in named_params], key=lambda x: x.size(), reverse=True)
         defaults = dict(lr=lr, weight_decay=weight_decay, mu=mu)
         super().__init__(params, defaults)
@@ -691,7 +702,48 @@ class Muon(torch.optim.Optimizer):
                                 state["trust_gate"] = 1.0
                                 state["trust_cos_row"] = 1.0
                                 state["trust_cos_col"] = 1.0
+                        # SHAMPOO_MUON_BODY (PR #1220): bilateral Kronecker pre-NS5 preconditioner state.
+                        if SHAMPOO_MUON_BODY and p.ndim == 2 and p.size(0) >= 128 and p.size(1) >= 128:
+                            sm, sn = p.size(0), p.size(1)
+                            state["shampoo_L"] = torch.zeros(sm, sm, dtype=torch.float32, device=p.device)
+                            state["shampoo_R"] = torch.zeros(sn, sn, dtype=torch.float32, device=p.device)
+                            state["shampoo_L_inv_pow"] = torch.eye(sm, dtype=torch.float32, device=p.device)
+                            state["shampoo_R_inv_pow"] = torch.eye(sn, dtype=torch.float32, device=p.device)
+                            state["shampoo_step"] = 0
                     grad = p.grad
+                    # SHAMPOO_MUON_BODY (PR #1220): bilateral Kronecker pre-NS5 pre-momentum preconditioner.
+                    # Apply L^-1/4 G R^-1/4 to raw grad BEFORE the momentum lerp (reshapes both U and V
+                    # of the SVD that NS5 will then polar-project; the only untested class 3 of #1101).
+                    if SHAMPOO_MUON_BODY and "shampoo_L" in state:
+                        grad_f32 = grad.float()
+                        # Per-step EMA update of Kronecker factors (cheap: GG^T + G^TG).
+                        state["shampoo_L"].mul_(SHAMPOO_BETA).add_(grad_f32 @ grad_f32.T, alpha=1 - SHAMPOO_BETA)
+                        state["shampoo_R"].mul_(SHAMPOO_BETA).add_(grad_f32.T @ grad_f32, alpha=1 - SHAMPOO_BETA)
+                        state["shampoo_step"] += 1
+                        # Periodically refresh inverse 4th roots via eigh-based matrix-power.
+                        if state["shampoo_step"] % KRON_PRECOND_FREQ == 0:
+                            sm, sn = grad_f32.shape
+                            eye_m = torch.eye(sm, dtype=torch.float32, device=p.device)
+                            eye_n = torch.eye(sn, dtype=torch.float32, device=p.device)
+                            eigvals_L, eigvecs_L = torch.linalg.eigh(state["shampoo_L"] + SHAMPOO_EPS * eye_m)
+                            eigvals_L = eigvals_L.clamp_min(SHAMPOO_EPS)
+                            state["shampoo_L_inv_pow"] = eigvecs_L @ torch.diag(eigvals_L.pow(-0.25)) @ eigvecs_L.T
+                            eigvals_R, eigvecs_R = torch.linalg.eigh(state["shampoo_R"] + SHAMPOO_EPS * eye_n)
+                            eigvals_R = eigvals_R.clamp_min(SHAMPOO_EPS)
+                            state["shampoo_R_inv_pow"] = eigvecs_R @ torch.diag(eigvals_R.pow(-0.25)) @ eigvecs_R.T
+                            state["shampoo_L_max_eig"] = float(eigvals_L.max().item())
+                            state["shampoo_L_min_eig"] = float(eigvals_L.min().item())
+                            state["shampoo_L_condition"] = state["shampoo_L_max_eig"] / max(state["shampoo_L_min_eig"], 1e-30)
+                            state["shampoo_R_max_eig"] = float(eigvals_R.max().item())
+                            state["shampoo_R_min_eig"] = float(eigvals_R.min().item())
+                            state["shampoo_R_condition"] = state["shampoo_R_max_eig"] / max(state["shampoo_R_min_eig"], 1e-30)
+                        g_frob_pre = float(grad_f32.norm().item())
+                        grad_prec = state["shampoo_L_inv_pow"] @ grad_f32 @ state["shampoo_R_inv_pow"]
+                        g_frob_post = float(grad_prec.norm().item())
+                        state["shampoo_g_frob_pre"] = g_frob_pre
+                        state["shampoo_g_frob_post"] = g_frob_post
+                        state["shampoo_g_frob_ratio"] = g_frob_post / max(g_frob_pre, 1e-10)
+                        grad = grad_prec.to(grad.dtype)
                     state["momentum"].lerp_(grad, 1 - group["mu"])
                     momentum_update = grad.lerp(state["momentum"], group["mu"])
                     use_soap = p in self.soap_params
@@ -774,6 +826,58 @@ class Muon(torch.optim.Optimizer):
             out[f"{kind}/on_fraction"] = agg["on"] / kn
             out[f"{kind}/mean_cos_row"] = sum(crs) / kn
             out[f"{kind}/mean_cos_col"] = sum(ccs) / kn
+        return out
+
+    def shampoo_stats(self) -> dict[str, float]:
+        """Return Shampoo Kronecker-preconditioner telemetry (PR #1220).
+
+        Aggregate keys: count, g_frob_pre_mean, g_frob_post_mean, g_frob_ratio_mean/min/max.
+        Per-param keys: {short_name}/L_max_eig, L_min_eig, L_condition, R_max_eig, R_min_eig,
+                        R_condition, g_frob_pre, g_frob_post, g_frob_ratio.
+        """
+        if not SHAMPOO_MUON_BODY:
+            return {}
+        out: dict[str, float] = {}
+        g_pre_list: list[float] = []
+        g_post_list: list[float] = []
+        g_ratio_list: list[float] = []
+        cond_L_list: list[float] = []
+        cond_R_list: list[float] = []
+        for p, state in self.state.items():
+            if "shampoo_L" not in state:
+                continue
+            short = self.param_short_names.get(id(p), "unknown")
+            if "shampoo_g_frob_pre" in state:
+                gpre = state["shampoo_g_frob_pre"]
+                gpost = state["shampoo_g_frob_post"]
+                gratio = state["shampoo_g_frob_ratio"]
+                g_pre_list.append(gpre)
+                g_post_list.append(gpost)
+                g_ratio_list.append(gratio)
+                out[f"{short}/g_frob_pre"] = gpre
+                out[f"{short}/g_frob_post"] = gpost
+                out[f"{short}/g_frob_ratio"] = gratio
+            if "shampoo_L_condition" in state:
+                cond_L_list.append(state["shampoo_L_condition"])
+                cond_R_list.append(state["shampoo_R_condition"])
+                out[f"{short}/L_max_eig"] = state["shampoo_L_max_eig"]
+                out[f"{short}/L_min_eig"] = state["shampoo_L_min_eig"]
+                out[f"{short}/L_condition"] = state["shampoo_L_condition"]
+                out[f"{short}/R_max_eig"] = state["shampoo_R_max_eig"]
+                out[f"{short}/R_min_eig"] = state["shampoo_R_min_eig"]
+                out[f"{short}/R_condition"] = state["shampoo_R_condition"]
+        if g_ratio_list:
+            out["count"] = len(g_ratio_list)
+            out["g_frob_pre_mean"] = sum(g_pre_list) / len(g_pre_list)
+            out["g_frob_post_mean"] = sum(g_post_list) / len(g_post_list)
+            out["g_frob_ratio_mean"] = sum(g_ratio_list) / len(g_ratio_list)
+            out["g_frob_ratio_min"] = min(g_ratio_list)
+            out["g_frob_ratio_max"] = max(g_ratio_list)
+        if cond_L_list:
+            out["L_condition_mean"] = sum(cond_L_list) / len(cond_L_list)
+            out["L_condition_max"] = max(cond_L_list)
+            out["R_condition_mean"] = sum(cond_R_list) / len(cond_R_list)
+            out["R_condition_max"] = max(cond_R_list)
         return out
 
 
@@ -1059,6 +1163,10 @@ for trial_idx in range(args.num_trials):
                     stats = opt.trust_gate_stats()
                     if stats:
                         wandb.log(prefixed("train/attn_soap_trust_gate", stats), step=wandb_step)
+                if hasattr(opt, "shampoo_stats"):
+                    stats = opt.shampoo_stats()
+                    if stats:
+                        wandb.log(prefixed("train/shampoo", stats), step=wandb_step)
         if dist.get_rank() == 0 and telemetry_due:
             log_weight_telemetry(
                 model=model,
