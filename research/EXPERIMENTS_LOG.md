@@ -3,6 +3,28 @@
 This file logs experiment outcomes as PRs land. The historical track 3
 leaderboard is captured in `/BASELINE.md`.
 
+## 2026-05-26 10:30 UTC — PR #1233: Lion sign-optimizer for lm_head (fern) — CLOSED productive-NEG (38th no-merge)
+
+- Branch: `g1r4-fern/lion-lm-head`
+- Hypothesis: Lion sign-based optimizer for lm_head (Chen et al. 2023, arXiv:2302.06675). 4-arm design tests SIGN-BASED-OPTIMIZER-LM-HEAD axis on post-#1138 stack: B Lion LR=0.001 default + C Lion LR=0.0005 half-LR + D Lion-Cautious LR=0.001 with sign-agreement mask. Mechanism-distinct from MAGNITUDE-PRESERVING-DENOMINATOR cluster (strips v_t denominator entirely).
+- Chain re-launched cleanly on post-#1138 stack after rebase recovery (force-with-lease push, proactive env var typo detection caught `_PERIOD` → `_UPDATE_PERIOD`).
+
+| Arm | Variant | val/loss | fs | Δ_paired_val | Δ_paired_fs | Verdict |
+|:---:|---|:---:|:---:|:---:|:---:|---|
+| A ctrl | AdamW lm_head | **3.26564** | **3175** | (ref) | (ref) | drift −0.00050 PASS-strong (cleanest in cohort) |
+| B | Lion LR=0.001 | 3.27340 | 3250 | +0.00776 | +75 | PRODUCTIVE-NEG |
+| C | Lion LR=0.0005 | 3.27271 | 3250 | +0.00707 | +75 | PRODUCTIVE-NEG |
+| **D** | **Lion-Cautious LR=0.001** | **3.28185** | **−1 NEVER CROSSED 3.28** | **+0.01621** | undefined | **STRONG PRODUCTIVE-NEG** |
+
+- **3-direction fence with REVERSED expectation on Arm D**: Forecast Δ_D < Δ_B − 0.001 (Cautious salvages Lion), but actual Δ_D > Δ_B by +0.00845 (Cautious makes Lion WORSE). Mechanism: 1/frac re-norm scales agreement-region updates by ~1.45× → larger sustained update magnitudes (D lion_m_norm 31% higher than B). Sign-only update with no v_t denominator + 1.45× boost → overshoots on lm_head Zipfian gradient distribution.
+- **LR scale does NOT recover mechanism**: half-LR Arm C Δ=+0.00707 nearly identical to full-LR Arm B Δ=+0.00776 — confirms direction-level fence, not LR-tuning fence.
+- **Arm D never reached val/loss < 3.28 target** — strongest single-arm regression signal yet.
+- **SIGN-BASED-OPTIMIZER-LM-HEAD axis fully fenced 3-direction** — joins #1153 Cautious (B/C/D) in lm_head SIGN-BASED/FILTERING regression cluster. **5 total lm_head sign/mask arms all PRODUCTIVE-NEG** (#1153 B/C/D + #1233 B/C/D).
+- **Mechanism interpretation**: Lion strips per-row magnitude adaptation that AdamW's v_t denominator provides. lm_head's Zipfian gradient distribution makes per-row magnitude variance essential — rare-token rows need different effective step size than common-token rows. Sign-only update with no `v_t` warm-up cancels signal-rich rare-token directions across early-training noise. This matches the structural pattern: #1192 row-norm CATASTROPHIC removed per-row magnitude entirely (compatible "softer" version of same intervention).
+- **Cross-axis context**: Confirms lm_head SIGN-BASED/FILTERING regression cluster boundary against MAGNITUDE-PRESERVING-DENOMINATOR cluster. AdamW denominator is **structurally load-bearing** on lm_head — removing it (Lion) or filtering it (Cautious) is catastrophic.
+- **Directive alignment (Issue #1261)**: This was the last lm_head-only optimizer-zoo data point. fern REASSIGNED **#1286 H4 Late-window NM coverage+period tune** per directive bullet (4) — completes the H1-H4 directive coverage (H1 nezuko #1277 + H2 edward #1281 + H3 alphonse #1280 + H4 fern #1286).
+- **W&B run IDs**: `b74xsrxf / ofk3hopn / ujp6ciko / 9prk2oth` (Arms A/B/C/D)
+
 ## 2026-05-26 08:56 UTC — PR #1244: Zipfian-aware per-row LR for lm_head (alphonse) — CLOSED productive-NEG (36th no-merge)
 
 - Branch: `g1r4-alphonse/zipfian-lr-lm-head`
