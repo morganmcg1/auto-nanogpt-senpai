@@ -1,5 +1,45 @@
 # SENPAI Research Results
 
+## 2026-05-26 20:30 UTC — PR #1315 CLOSED: AdamW aux variance-only refresh CATASTROPHIC NULL — 157th NULL (g1r1-askeladd)
+
+- Branch: `g1r1-askeladd/aux-variance-refresh`
+- Hypothesis: Refreshing AdamW aux `exp_avg_sq` (v_t) only (preserving exp_avg, step) at step 2600 (A) vs step 2275 (B) would rebalance preconditioner against accumulated cooldown gradient variance, similar to L_cov refresh (#1268).
+
+| Arm | Run | Refresh content | Refresh step | val_live (terminal) | sr | Verdict |
+|---|---|---|---|---|---|---|
+| A | `obv2106k` | exp_avg_sq → 0 only | 2600 | **9.487** (step 3050 failed) | -1 | **CATASTROPHIC** |
+| B | `d2qwrtt1` | exp_avg_sq → 0 only | 2275 | n/a (killed @ step 50) | n/a | KILLED pre-refresh |
+
+**Mechanism analysis — m/v coupling breakdown (NEW CANON, 9th of day, 1st catastrophic-failure example of asymmetric state refresh):** AdamW's update is `m_hat / (sqrt(v_hat) + eps)`. Resetting `exp_avg_sq` (v_t) to zero but leaving `exp_avg` (m_t) and step counter at their pre-refresh values produces:
+- `m_t` retains step-2600 magnitude (accumulated first moment of body gradient)
+- `v_t = 0` → `v_hat ≈ 0` → `sqrt(v_hat) + eps ≈ eps = 1e-10`
+- Update magnitude ≈ `m_hat / 1e-10` ≈ **1e10 × m_hat**
+
+For aux embed at LR=0.3, per-step update becomes `0.3 × 1e10 × m_hat` → embedding matrix saturates, val_loss explodes within ~25 steps (3.27 → 9.487). EMA buffer broke during divergence (val_ema=None at terminal).
+
+**Cross-PR mechanism map — state-refresh asymmetry is universally destructive across optimizer surfaces:**
+
+| PR | Surface | Refresh content | Outcome |
+|---|---|---|---|
+| #1299 frieren | Aux (AdamW) | FULL (m+v+step) @ 2275/2600 | NULL inert (β2=0.95 fast-mixing erases reset) |
+| **#1315 askeladd** | Aux (AdamW) | **VARIANCE-ONLY @ 2600** | **CATASTROPHIC (m/v coupling violation)** |
+| #1253 edward | Body (Muon) | First-moment-only @ 2600/2925 | NULL (m_prev load-bearing) |
+| #1302 edward | L_cov + paramEMA | Simultaneous @ same step | INTERFERENCE (anti-stacks) |
+| #1268 fern | L_cov | Refresh @ 2600 | NULL (canonical-optimal, subsumed by #1289) |
+| #1274 nezuko | param-EMA | Refresh @ 2275 | NULL (canonical-optimal, subsumed by #1289) |
+
+**Universal canon:** State-refresh must be ATOMIC (all components together) or NOT AT ALL. Partial state refresh violates magnitude balance and produces unbounded updates (Adam case) or destroys load-bearing direction information (Muon case). Same-step coupling of independent refreshes anti-stacks (#1302).
+
+**Forecloses:** Any partial-state Adam refresh design across aux/lm_head/embed; variance-only or moment-only reset families for adaptive optimizers.
+
+**Enables:** Temporal-separated stacking (#1325 thorfinn — L_cov@2600 + paramEMA@2275 with 325-step separation) remains the only viable refresh-stacking direction.
+
+**Excellent execution by askeladd** — Arm A diverged cleanly within design tolerance (no infrastructure failure), Arm B killed immediately at step 50 on advisor signal (no wasted GPU time), terminal SENPAI-RESULT posted with both run IDs.
+
+**askeladd → PR #1342 per-block Muon gamma shape** (6th and final per-block Muon axis, completes the matrix: LR/u-w-floor/μ/WD/β_cov/γ).
+
+---
+
 ## 2026-05-26 19:57 UTC — PR #1274 CLOSED: param-EMA buffer refresh cooldown NULL vs new baseline (g1r1-nezuko)
 
 - Branch: `g1r1-nezuko/ema-buffer-refresh-cooldown`
