@@ -1,3 +1,42 @@
+## 2026-05-26 21:35 — PR #1311: H185 askeladd per-block LR FINE-GRAINED recal interval at peak anchor (calib=100, exp=0.5, recal ∈ {250, 750}) — CLOSED (43rd NULL/NEG closure + 2 programme findings: #19 per-block LR recal ALWAYS pays +25 FFS at peak anchor across 4-point sweep, #20 late-cooldown recal is FFS-killer via +0.044 val_loss spike at step 3100)
+
+- Branch: `g1r3-askeladd/h185-per-block-lr-recal-fine-grained-interval`
+- Hypothesis: Fine-grained recalibration interval (250 vs 750 steps) sweep at peak rms_disparity anchor (calib=100, exp=0.5). Three predicted outcomes: arm_b WIN (fast recal tracks decay), arm_c WIN (slow recal less disruptive), or both NULL (interval degenerate).
+- Results:
+
+  | Arm | exp/calib/recal | W&B | val/loss | FFS | Verdict |
+  |---|---|---|---|---|---|
+  | arm_a CTRL | 0.0/200/0 | `9nmkyzhs` | 3.26445 | 3150 | CTRL drift n=18 |
+  | arm_b RECAL_250 | 0.5/100/250 | `i084g99d` | 3.26889 | **3175** | NEG +0.0044 val / NEG +25 FFS |
+  | arm_c RECAL_750 | 0.5/100/750 | `uamb9gv2` | 3.26459 | **3175** | TIE val / NEG +25 FFS |
+
+- Outcome: Outcome 3 — both arms NEG +25 on FFS within-chain. arm_c val is TIE-with-CTRL but FFS NEG +25; arm_b val NEG and FFS NEG.
+- **Programme finding #19**: 4-point sweep at (calib=100, exp=0.5) recal ∈ {100, 250, 500, 750} ALL give FFS=3175 (NEG +25 vs static FFS=3150). Static-but-anchored multipliers from step 100 are uniformly better than ANY recalibrating variant tested.
+- **Programme finding #20 (NEW MECHANISM)**: Student-identified val_loss SPIKE at step 3100 in BOTH recal arms (arm_b +0.0435, arm_c +0.0436 at the calibration event closest to FFS crossing). Step 3100 is ~85% through linear cooldown — late-cooldown per-block LR re-scaling perturbs an already-shrinking effective LR landscape and pushes the 3.28 crossing back by one telemetry interval (3150→3175). Reinforces programme finding #18 (H183 edward: pre-target lead inverts to post-target loss during cooldown).
+- **Per-block LR axis fully exhausted**: combined evidence from H180/H181 (static multi-seed), H184 (recal=500 + exp=1.0 divergence), H183 (recal at calib=200), H185 (recal ∈ {250, 750}), H186 (recal ∈ {100, 1500}) shows mechanism is viable only at exp≈0.5 AND static (recal=0), and even there only ties — does not improve — CTRL.
+- Excellent student analysis: rms_disparity probe trajectory tables for both recal arms, per-block multiplier evolution ([0.614, 1.262] → [0.669, 1.335] for arm_c across 5 recal events), arm_b vs arm_c val divergence isolation (13 vs 5 recal events compound to +0.0044 vs +0.0001), and the step-3100 spike mechanism identification.
+
+---
+
+## 2026-05-26 21:00 — PR #1308: H183 edward per-block LR FREQUENT recal at round-1 anchor (calib=200, exp=0.5, recal ∈ {500, 1000}) — CLOSED (42nd NULL/NEG closure + programme finding #18: recalibration disrupts late-cooldown convergence — pre-target lead inverts to post-target loss)
+
+- Branch: `g1r3-edward/h183-per-block-lr-recal-round1-anchor`
+- Hypothesis: Test recalibration interval ∈ {500, 1000} at the H162 round-1 anchor (calib=200, exp=0.5). Two predicted outcomes: arm_b/c WIN (multiplier drift tracking improves convergence) or NULL (multipliers degenerate after calibration regardless of interval).
+- Results:
+
+  | Arm | exp/calib/recal | W&B | val/loss | FFS | Verdict |
+  |---|---|---|---|---|---|
+  | arm_a CTRL | 0/200/0 | (CTRL run) | 3.26618 | 3150 | CTRL drift n=17 |
+  | arm_b RECAL_500 | 0.5/200/500 | (recal run) | 3.26770 | 3150 | NEG val / FFS TIE |
+  | arm_c RECAL_1000 | 0.5/200/1000 | (recal run) | 3.26707 | 3150 | NEG val / FFS TIE |
+
+- Outcome: Within-chain NEG val (+0.00152 arm_b, +0.00089 arm_c vs CTRL), FFS TIE. Per-PR criterion `FFS < 3125 OR val/loss < 3.262867` — neither arm satisfies.
+- **Programme finding #18 (NEW)**: Student observed pre-target window recal arms LEAD CTRL on loss curve, but post-target ordering INVERTS — mid-training advantage erodes during cooldown. Suggests bottleneck is late-phase convergence, not mid-trajectory descent quality. Recalibration during cooldown discrete LR jumps are uniformly harmful.
+- Mechanism evidence: multipliers DO evolve correctly across recal events (mult_range stays bounded [0.7, 1.4] at exp=0.5) — the failure mode is not "multiplier drift wrong direction" but "multiplier reset disrupts cooldown convergence."
+- Cross-anchor recal picture (calib=200): recal ∈ {500, 1000} both give FFS TIE but val NEG — different signature than calib=100 anchor (FFS NEG +25). The round-1 anchor is FFS-tolerant of recal but val-sensitive.
+
+---
+
 ## 2026-05-26 21:15 — PR #1305: H182 fern per-block LR (calib=200, exp=0.25) gentle round-1 + (calib=400, exp=0.5) LATER-calib axis — CLOSED (41st NULL/NEG closure + programme finding #17: calibration-timing axis is NARROW)
 
 - Branch: `g1r3-fern/h182-per-block-lr-calib200-exp025`
