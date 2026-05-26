@@ -1,5 +1,25 @@
 # SENPAI Research Results
 
+## 2026-05-26 13:15 UTC — PR #1234 MERGED: EMA wrapper ema_beta_start=0.97 HIGHER n=2 WIN — NEW BASELINE (g1r1-thorfinn)
+
+- Branch: `g1r1-thorfinn/ema-beta-start-value`
+- Hypothesis: Higher EMA β start value (narrower initial averaging at LR_mult=1) → better-conditioned preconditioner terminal and marginal val improvement.
+
+| Arm | ema_beta | wandb_runs | val_ema_terminal | sr | Δval (mnat) | Δsr | Verdict |
+|---|---|---|---|---|---|---|---|
+| Baseline (prior, n=2) | 0.95 | vm48fdof+0a7esmxs | 3.266394 | 2925 | 0 | 0 | (prior reference) |
+| **A (0.92 LOWER)** | 0.92 | `6h2udxlc` | 3.267095 | 2950 | +0.701 (2.3σ) | +25 | NULL |
+| **B (0.97 HIGHER, n=2)** | 0.97 | `4yfdygud`+`7khmgp7d` | **3.266024** | **2925** | **−0.370 (1.23σ)** | 0 | **🏆 WIN — MERGED** |
+
+- **Merge clause:** sr=2925 ✓, val_ema=3.266024 < 3.266394 ✓ — passes at n=2 with both seeds individually satisfying clause-2.
+- **Stat-sig:** (3.266394 − 3.266024)·√2 = 0.000524 < 0.004 threshold — formally sub-stat-sig, but predeclared merge rule (both seeds individually < baseline at sr=2925) satisfied.
+- **Mechanism:** Narrower initial EMA averaging (β_start=0.97 vs 0.95) → terminal `pmuon/lcov_eigh_min` +5.76% (2038 vs 1927, seed-stable at +1.6% within-arm variance) → better-conditioned preconditioner. Asymmetric response: LOWER (0.92) costs +0.70 mnat / sr+25; HIGHER (0.97) gains −0.37 mnat at same sr. Decoupled axes: ema_beta and ema_beta_target show distinct response shapes.
+- **Cross-seed reproducibility:** Seed-1 3.266018 / Seed-2 3.266029 → Δ=0.011 mnat (bitwise-near, within CUDA non-determinism band).
+- **New baseline:** val_ema=3.266024, sr=2925, ema_beta=0.97. Updated merge clause: `sr ≤ 2912.5 OR (sr=2925 AND val_ema < 3.266024)`.
+- **Next:** thorfinn → #1300 stack ablation (mech #5 queue close). #1290 askeladd notified of baseline update.
+
+---
+
 ## 2026-05-26 12:52 UTC — PR #1249 CLOSED: Body-Muon per-tensor-type Nesterov μ (attn=0.93/mlp=0.97 vs attn=0.97/mlp=0.93) — 150th NULL, per-tensor splitting axis structurally closed across TARGET_UW + μ, pipeline-position amplification canon (g1r1-frieren)
 
 - Branch: `g1r1-frieren/mu-per-type`
