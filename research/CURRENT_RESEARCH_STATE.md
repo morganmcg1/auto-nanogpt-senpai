@@ -1,3 +1,89 @@
+## 2026-05-26 18:25 UTC — Cycle 71 mid-294
+
+**Cumulative**: **179 refuted (+2: edward #1304 178th + thorfinn #1306 179th)** / **101 distinct mech classes (+1: 101 EMBED_LR_PHASE_TRANSITION #1335)** / **57 family-level closures (+1: 57 per-layer body-Muon-WD axis closed via #1304 bilateral)**.
+
+**This cycle — 2 closures (both n=1 cluster-band, both with informative cross-arm signals) + 2 reassignments (1 novel mech class, 1 data-motivated variant)**:
+
+1. **edward #1304 WD_BODY_DEPTH closed as 178th refute** — bilateral cluster, **direction-asymmetry refutation of μP-aligned theory**:
+   - Arm A (μP-aligned ↑, WD_BODY_DEPTH=+0.5) `zlm27itb`: val=**3.26960** ffs=**3025** (cluster, +0.00184 vs baseline)
+   - Arm B (falsifying ↓, WD_BODY_DEPTH=-0.3) `dmv3ow7j`: val=**3.26912** ffs=**3025** (cluster, +0.00136 vs baseline)
+   - **Direction-asymmetry refutation**: μP-predicted direction (deeper-stronger WD) is MARGINALLY WORSE than inverse (shallower-stronger). Δ(B−A) ≈ −0.0005 at terminal, within RNG envelope but **opposite to theoretical prediction**. Either μP/SP² compensation formula is wrong for this initialization OR depth-WD axis is below resolution threshold at magnitude 0.5.
+   - **57th family-level closure**: per-layer body-Muon-WD axis fully closed across both directions at tested magnitudes. Cluster floor robust to per-layer WD dispatch under both +25% and -15% mean perturbations.
+
+2. **thorfinn #1306 MUON_NESTEROV_PHASE_TRANSITION closed as 179th refute** — bilateral cluster with **HIGHEST-INFORMATION crossover signal**:
+   - Arm A (cooldown_only Nesterov) `przuetzb`: val=**3.27002** ffs=**3025** (cluster, +0.00226 vs baseline)
+   - Arm B (always/uniform Nesterov) `tv8tx7ni`: val=3.27197 ffs=3025 (cluster, +0.00421 vs baseline)
+   - A−B = **−0.00195** (Arm A wins by small margin)
+   - **Pre-cooldown crossover at step 3000**: Arm B led Arm A through step 2500 by Δ ≈ 0.006-0.022 (Nesterov-form HELPS plateau), then Arm A overtook precisely at step 3000 cooldown gate (Nesterov-form HURTS cooldown). Trajectory inversion is structural-signal candidate.
+   - **#703 rehabilitation**: uniform Nesterov is cluster-member-neutral under cycle-71 stack (not catastrophic as in older stacks). Original #703 refute was partially stack-dependent.
+   - **Refute classification**: n=1 cluster-band subtype with informative-crossover variant. Highest-information cross-arm trajectory signal in cycle 71.
+
+**Reassignments**:
+
+3. **edward → PR #1335 EMBED_LR_PHASE_TRANSITION (101st mech class)** — first state-phase event mechanism on embed.weight LR in 320+ PR corpus. Adopts student suggestion #4 ORTHOGONAL axis:
+   - **Mechanism**: at step 953 (cooldown_frac=0.7 boundary), multiply embed.weight's AUX LR by Arm A=0.5× / Arm B=2.0×. Single in-step phase event, not continuous dispatch.
+   - **Genuinely novel axis**: embed.weight optimizer dynamics never phase-perturbed in 320+ PRs. All prior LR-dispatch experiments operate on body Muon or other AUX param groups (biases via #1307).
+   - **Hypothesis**: embed encodes input vocabulary mappings whose optimal update magnitude is phase-dependent. Uniform LR throughout may mismatch one phase.
+   - Cost ~10-15 LoC. Single-canary structural exemption (IEEE-identity tier at default factor=1.0).
+   - Morgan #1259-aligned: state-phase event, NOT scalar HP sweep.
+
+4. **thorfinn → PR #1336 MUON_NESTEROV_INVERSE_PHASE_GATE** — direct data-motivated follow-up to #1306. Adopts student suggestion #1:
+   - **Mechanism**: Nesterov-form ACTIVE during plateau (step <3016), INACTIVE (heavy-ball) during cooldown (step ≥3016) — OPPOSITE phase to #1306 Arm A.
+   - **Triangulation logic**: #1306 Arm B (always-on) + #1306 Arm A (cooldown-only-on) + this PR (cooldown-only-OFF) fully triangulates the Nesterov-form phase-axis.
+   - **Probability assessment**: ~40% merge candidate, ~50% cluster member, ~10% above-cluster regression. **Highest plausible merge probability in current open fleet** because data motivation is direct rather than speculative.
+   - Single Arm A (no bilateral needed — #1306 provided disambiguation pair).
+   - Cost ~3-5 LoC (new env-var mode on existing #1306 infrastructure). Single-canary structural exemption (branch-isolated identity tier).
+   - **Pre-add `train/body_muon/momentum_update_norm_mean` telemetry** — fixes #1306's load-bearing missing diagnostic per student's own suggestion #2.
+
+**Cluster-floor structural-property hypothesis status (cycle 71 mid-294)**:
+
+| Mechanism axis | Closure level | Cluster-break? |
+|---|---|---|
+| State perturbations at step 2540 | 53rd family closure | NO (fern #1267 Arm A n=2 confirm via #1324) |
+| Schedule perturbations (β1 cooldown depth-ramp) | #1282 | NO |
+| Magnitude perturbations (LR pulse) | #1296 | NO |
+| WD depth ramps | family closure | NO |
+| LR depth ramps | family closure | NO |
+| AUX clip norm | family closure | NO |
+| Per-kind SOAP trust (q/k/v/proj) | 56th family closure | NO |
+| **Per-layer body-Muon-WD (μP-direction inversion finding)** | **NEW 57th family closure** | **NO** |
+| **Nesterov-form phase axis (cooldown_only)** | NEW closure (informative-crossover) | NO |
+| Bias correction phase | MATH-NULL (#1317) | N/A |
+| Per-structural-kind body Muon β | mech #99 IN TEST (#1323 Arm A) | TBD |
+| Polyak averaging (eval-state) | mech IN TEST (#1316 Arm A) | TBD |
+| SOAP Gram state-phase reset | mech #100 ASSIGNED (#1333) | TBD |
+| **Embed-LR state-phase event** | **mech #101 ASSIGNED (#1335)** | **TBD** |
+| **Nesterov-form INVERSE phase gate** | ASSIGNED (#1336, data-motivated) | TBD (40% merge candidate) |
+
+Cluster floor is broadly evidenced as structural across 7 distinct dispatch axes and counting. Three novel mechanism classes assigned in this cycle (#1333 SOAP Gram, #1335 Embed-LR phase, #1336 Nesterov inverse) test whether ANY mechanism class can break cluster.
+
+**Active fleet status mid-294**:
+
+| Student | PR | Status | W&B notes |
+|---|---|---|---|
+| g1r2-alphonse | #1323 | status:wip, Arm A authorized | MUON_BODY_ATTN_MLP_BETA_PHASE_DISPATCH |
+| g1r2-thorfinn | #1336 NEW | status:wip, just assigned | MUON_NESTEROV_INVERSE_PHASE_GATE (data-motivated, ~40% merge prob) |
+| g1r2-nezuko | #1307 | status:wip, Arm A authorized | AUX_BIASES_LR_BOOST x2 boost |
+| g1r2-fern | #1324 | status:wip, just assigned | FERN_1267_N2_CONFIRM |
+| g1r2-frieren | #1312 | status:wip, just assigned | MUON_LR_BETA_DEPTH_RAMP_ANTI_ALIGNED |
+| g1r2-askeladd | #1333 | status:wip, just assigned | ATTN_SOAP_GRAM_REINIT_AT_COOLDOWN (100th mech) |
+| g1r2-tanjiro | #1316 | status:wip, Arm A authorized | MUON_BODY_POLYAK_AVERAGING |
+| g1r2-edward | #1335 NEW | status:wip, just assigned | EMBED_LR_PHASE_TRANSITION (101st mech) |
+
+**ZERO IDLE STUDENTS** — 8 students concurrently active.
+
+**Methodological synthesis (cycle 71 mid-294)**:
+
+- **Two refutes + two reassignments in single advisor cycle** — high throughput preserved. 4 students fresh-assigned in cycle 71 mid-292 to mid-294 (#1324 fern, #1333 askeladd, #1335 edward, #1336 thorfinn).
+- **101 distinct mech classes** reached. Four novel mechanism classes simultaneously in test (#1316 eval-state, #1323 per-structural-kind body β, #1333 SOAP Gram phase reset, #1335 embed-LR phase event).
+- **Highest-merge-probability PR is data-motivated, not speculative** (#1336 ~40%). The pre-cooldown crossover in #1306 is the strongest mid-training signal in cycle 71 — direct test of structural-vs-RNG question for that signal.
+- **Refute taxonomy now 5-way** (cluster-band, catastrophic-shifted-floor, n=2-confirm, MATH-NULL, informative-crossover): #1306 establishes informative-crossover variant of cluster-band subtype. Future bilateral closes should explicitly check for cross-arm sign-flips as follow-up motivators.
+- **Direction-asymmetry refutation of μP theory** (#1304) joins NS5-asymmetry finding (#1296) as cycle-71 methodology corpus assets for cross-axis hypothesis prediction.
+
+**Wake schedule**: ~25-35 min for next wave — wave of canary returns from #1333, #1335, #1336 + Arm A terminals from #1323 alphonse, #1316 tanjiro, #1307 nezuko all in flight or imminent.
+
+---
+
 ## 2026-05-26 18:10 UTC — Cycle 71 mid-293
 
 **Cumulative**: **177 refuted (+1: askeladd #1301 177th)** / **100 distinct mech classes (+1: 100 ATTN_SOAP_GRAM_REINIT_AT_COOLDOWN #1333)** / **56 family-level closures (+1: 56 per-kind SOAP-trust family closed across #1301 + SOAP_TRUST_DEPTH_RAMP family)**.
