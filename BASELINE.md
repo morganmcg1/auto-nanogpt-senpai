@@ -7,7 +7,32 @@ Statistical rule: `(3.28 - mu) * sqrt(n) >= 0.004`.
 
 ## Local baseline (auto-nanogpt-1gpu-r1)
 
-### 2026-05-26 13:15 UTC — PR #1234: EMA wrapper ema_beta_start=0.97 HIGHER (thorfinn n=2 WIN) (g1r1-thorfinn) ← CURRENT BEST
+### 2026-05-26 18:54 UTC — PR #1289: Per-block Muon LR shape late-higher (tanjiro Arm A WIN) (g1r1-tanjiro) ← CURRENT BEST
+
+- **speedrun/final_first_step_to_target:** 2925 (n=1 seed-1 `3zhwgfiw`, sr=2925 tied with prior baseline)
+- **val/loss_ema:** 3.264718 (n=1 seed-1 `3zhwgfiw`)
+- **stat-sig margin:** (3.28 − 3.264718)·√1 = 0.01528 ≥ 0.004 ✓ (3.82×); Δ=1.306 mnat >> 0.001 marginal threshold
+- **Δ vs PR #1234 baseline:** 0 sr-steps (tied at 2925), −0.001306 val (−1.306 mnat improvement)
+- **W&B runs:** Arm A `3zhwgfiw` (WIN), Arm B `4wkp3dib` (NULL +1.32 mnat, sr=2950 Pareto-shift)
+- **Key config:** all PR #1234 config + `--muon_block_lr_pattern late-higher`. Linear ramp: block 0 multiplier=0.900 (LR=0.036), block 11 multiplier=1.100 (LR=0.044); mean=1.0 exactly preserves scalar LR=0.040.
+- **Terminal diagnostics (Arm A):** pmuon/lcov_eigh_min=3926.57 (high — clean preconditioner), ema/buffer_frob_dist=29.08, polar/ortho_residual_sample=0.1452.
+- **Mechanism:** Per-block linear LR ramp (late blocks higher, early blocks lower) reshapes gradient flow across depth during cooldown. Pre-cooldown: mild +1.37 mnat penalty (late blocks slightly over-weighted pre-LR-anneal). Cooldown inversion: crossover at step ~2500-2925 → terminal −1.306 mnat benefit (late blocks need MORE LR precisely when LR is being annealed down). Clean asymmetric mirror: Arm B late-lower produces mirror +1.32 mnat penalty confirming the mechanism is strictly directional (late-higher only). Fourth independent WIN mechanism class (distinct from state-staleness, EMA β, and u/w floor).
+- **Updated merge clause:** `sr ≤ 2912.5 OR (sr=2925 AND val_ema < 3.264718)`
+- **Statistical thresholds (updated):** n=1 win: sr ≤ 2912.5 OR (sr=2925 AND val_ema < 3.264718). Marginal band: Δval ≤ 0.001 requires n=2.
+- **Reproduce:**
+  ```bash
+  cd target
+  torchrun --standalone --nproc_per_node=1 \
+    records/track_3_optimization/train_gpt_simple.py --num_trials 1 \
+    --ema_beta 0.97 --ema_warmup_steps 1750 --ema_beta_target 0.99 \
+    --muon_lr 0.040 \
+    --muon_block_lr_pattern late-higher \
+    --wandb_name "baseline-reproduction-pr1289" \
+    --wandb_group "baseline-reproduction"
+  ```
+- **Notes:** Mirror test of late-lower (Arm B) confirms mechanism is asymmetric — moving late-block LR in the wrong direction costs symmetrically. Per-block mechanism #1314 alphonse is testing depth-stratified u/w floor as potential companion WIN axis. #1268 fern L_cov refresh (marginal n=1 WIN) and #1274 nezuko param-EMA buffer refresh (marginal n=1 WIN) are pending n=2 confirmation and may stack with this per-block LR improvement.
+
+### 2026-05-26 13:15 UTC — PR #1234: EMA wrapper ema_beta_start=0.97 HIGHER (thorfinn n=2 WIN) (g1r1-thorfinn)
 
 - **speedrun/final_first_step_to_target:** 2925 (n=2 — seed-1 `4yfdygud` 2925, seed-2 `7khmgp7d` 2925; both seeds independently hit sr=2925)
 - **val/loss_ema:** 3.266024 (n=2 mean — seed-1 `4yfdygud` 3.266018, seed-2 `7khmgp7d` 3.266029)
