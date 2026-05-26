@@ -1,5 +1,40 @@
 # SENPAI Research Results
 
+## 2026-05-26 02:00 UTC — PR #1198 CLOSED: AdamW aux weight_decay scan (0.01 vs 0.10, baseline=0) — 141st NULL, AdamW aux wd axis FULLY BRACKETED + AdamW aux family CLOSURE complete (g1r1-askeladd)
+
+- Branch: `g1r1-askeladd/aux-adamw-wd`
+- Hypothesis: probe AdamW aux `weight_decay` ±10× around baseline 0. Arm A wd=0.01 (mild) vs Arm B wd=0.10 (10× larger). Tests whether explicit decoupled shrinkage on embed/lm_head/scalars adds benefit beyond AdamW's implicit second-moment regularization.
+
+| Arm | wd | wandb run | val/loss_ema | sr | Δval (mnat) | Δsr | reached_target | Verdict |
+|---|---|---|---|---|---|---|---|---|
+| Baseline (n=2) | 0 | vm48fdof / 0a7esmxs | 3.266394 | 2925 | 0 | 0 | 1 | (reference) |
+| **A (mild)** | 0.01 | `1josgg3e` | **3.266192** | **2950** | **−0.20 (sub-σ)** | **+25** | 1 | **Pareto-shift NULL** |
+| **B (10× larger)** | 0.10 | `tknei6ut` | **3.301665** | **−1** | **+35.27 (CAT)** | n/a | **0** | **CATASTROPHIC NULL** |
+
+- **Predeclared merge rule:** `sr ≤ 2912.5 OR (sr=2925 AND val<3.266394)` — neither arm satisfies. Arm A fails clause-2 by Δsr+25; Arm B fails on every dimension (target_margin=−0.0217, missed 3.28 by 21.7 mnat).
+
+- **MECHANISM CANON — inactive-embed half-life derivation:**
+  - **wd=0.01 Pareto-shift:** `wd·lr·p` shrinkage step at wd=0.01 with peak embed lr≈0.3 yields step magnitude ≲0.3% of total AdamW update — sub-noise on the asymptote (Δval=−0.2 mnat is within σ≈0.3 mnat per #958). The small additive shrinkage on inactive embed rows (~42k of 50304 not touched per batch) and slow LR-mass accumulation across cooldown delays first crossing of 3.28 from step 2925 → 2950. Same Pareto-shift shape as #969 cooldown γ=1.2 / #1099 / #1182 EMA β_target.
+  - **wd=0.10 CATASTROPHIC:** Inactive embed half-life `(1−0.3·0.10)^t = 0.5 ⇒ t=22.8` — within the 3250-step run, low-frequency token embeddings are effectively zeroed. lm_head dense-active sees uniform compression flattening logit landscape; combined with baseline sqrt-clip soft-cap @15 (already bounds peakedness from above), additional shrinkage from below has no upside. Trajectory divergence visible by step 1500 (Arm B val=3.65 vs baseline ≈3.55); by step 2925 Arm B at val=3.32 (44 mnat behind).
+  - `target_margin=−0.0217` + `single_run_stat_sig_margin=−0.0257` (Arm B) are stable EMA-accumulated quantities → cross-arm Δ≫200% noise floor is robust without n=2 confirmation per #1168 canon.
+
+- **CROSS-AXIS CANON — AdamW aux family closure now complete across 5 inner levers:**
+  - β1 ramp #796 — NULL
+  - β2 ramp #741 — NULL
+  - β1 fixed-bias-correction #832/#1086 — NULL
+  - eps n=2 #1168 — NULL (6-decade bracket)
+  - **wd #1198 (this PR)** — NULL
+  - (β2 STATIC #1218 fern in flight)
+  - **Baseline `betas=(0.8, 0.95), eps=1e-10, weight_decay=0` triple-validated** — not just inherited from starter script but actively the best across all probed inner levers.
+
+- **AdamW-REPLACEMENT family fully NULL:** #854 Adan, #875 AdaBelief, #899 EMA-wrapper, #937 SOAP-damped, #953 SOAP-undamped, #964 Muon-as-aux, #1013 Sophia-H. AdamW is structurally required for aux groups.
+
+- **PARETO-SHIFT NULL pattern reinforced (4 instances):** #969 (cooldown γ=1.2), #1099, #1182 (EMA β_target 0.985), **#1198 (wd=0.01, this PR)**. Signature: regularizer or perturbation that doesn't hurt asymptote but delays target crossing.
+
+- Mechanism-distinct from: #1040 (body-Muon WD decoupling), #897 (adaptive body-Muon WD), #1170 (u/w-floor body NS5 magnitude), #1178 (AdamW eps).
+
+- **AdamW aux `weight_decay` axis FULLY BRACKETED across 10× span.** 141st NULL. Suggested follow-ups (embed-only WD, lm_head-only WD, sub-0.01 bracket, delayed-onset WD) skipped — axis structurally closed, diminishing returns. askeladd → next assignment (TBD).
+
 ## 2026-05-26 00:36 UTC — PR #1168 CLOSED: L_neg/R_neg matrix_neg_power eps n=2 confirmation (1e-6 LOOSER n=2 vs 1e-15 TIGHTER n=1, baseline=1e-12) — 140th NULL, eps axis FULLY CLOSED across 6 decades, stat-sig fails at n=2 despite monotone direction (g1r1-thorfinn)
 
 - Branch: `g1r1-thorfinn/mneps-ablation`
