@@ -109,6 +109,15 @@ def parse_args():
     parser.add_argument("--body_init_bottom_layers", type=int,
                         default=int(os.environ.get("BODY_INIT_BOTTOM_LAYERS", "6")),
                         help="Number of bottom layers to damp for --body_init=orthogonal_bottom_damp (default 6 = bottom half of 12 layers).")
+    parser.add_argument("--body_spectral_penalty_lambda", type=float,
+                        default=float(os.environ.get("BODY_SPECTRAL_PENALTY_LAMBDA", "0.0")),
+                        help="H173: spectral norm penalty coefficient on body 2D weight matrices. "
+                             "total_loss += lambda * sum_{W in body} sv_max(W)^2. "
+                             "When 0 (default), the penalty branch is bypassed entirely (bit-identical to baseline).")
+    parser.add_argument("--body_spectral_penalty_power_iters", type=int,
+                        default=int(os.environ.get("BODY_SPECTRAL_PENALTY_POWER_ITERS", "5")),
+                        help="H173: number of power iterations used to approximate sv_max(W) "
+                             "in the spectral penalty. Only used when body_spectral_penalty_lambda > 0.")
     args = parser.parse_args()
     args.num_trials = args.num_trials if args.num_trials is not None else (args.legacy_num_trials or 1)
     args.wandb_tags = [tag.strip() for tag in args.wandb_tags.split(",") if tag.strip()]
@@ -323,6 +332,31 @@ def log_weight_telemetry(
     for name, weight in weights:
         metrics.update(prefixed(f"train/weight_param/{clean_metric_name(name)}", tensor_stats(weight)))
     wandb.log(metrics, step=wandb_step)
+
+
+def power_iteration_sv_max(W: Tensor, n_iter: int = 5) -> Tensor:
+    """H173: differentiable approximation of sv_max(W) via power iteration.
+
+    Returns a 0-d tensor sigma such that sigma ~= ||W||_2 (top singular value) and
+    autograd traces gradients through W. We detach u and v from each other across
+    iterations (no grad through the iteration itself, only through the final
+    sigma = u^T W v form); this is the standard `spectral_norm` recipe used by
+    e.g. Miyato et al. 2018 and ``torch.nn.utils.spectral_norm``.
+    """
+    # Compute in fp32 for numerical stability; gradient still flows to W's dtype.
+    W32 = W.to(torch.float32)
+    m, n = W32.shape
+    with torch.no_grad():
+        u = torch.randn(m, device=W.device, dtype=torch.float32)
+        u = u / (u.norm() + 1e-12)
+        for _ in range(n_iter):
+            v = W32.T @ u
+            v = v / (v.norm() + 1e-12)
+            u = W32 @ v
+            u = u / (u.norm() + 1e-12)
+    # Differentiable Rayleigh quotient using the converged u, v (treated as constants).
+    sigma = u @ W32 @ v
+    return sigma
 
 
 def log_body_sv_stats(
@@ -850,6 +884,8 @@ if dist.get_rank() == 0:
             "muonh_mu_schedule": args.muonh_mu_schedule,
             "muonh_mu_start": args.muonh_mu_start,
             "muonh_mu_end": args.muonh_mu_end,
+            "body_spectral_penalty_lambda": args.body_spectral_penalty_lambda,
+            "body_spectral_penalty_power_iters": args.body_spectral_penalty_power_iters,
         },
     )
 
@@ -916,6 +952,21 @@ for trial_idx in range(args.num_trials):
                         "blocks.11.attn.q.weight", "blocks.11.mlp.fc.weight")
         sample_rows = [e for e in body_init_log if e["name"] in sample_names]
         print0(f"[H148 body_init={args.body_init}] sample F-norms: {sample_rows}", console=True)
+
+    # H173: precompute the list of body 2D weight matrices that participate in
+    # the spectral penalty. When body_spectral_penalty_lambda == 0 this list is
+    # never iterated, so arm_a CTRL is bit-identical to baseline.
+    body_2d_params_for_spec_pen: list[tuple[str, Tensor]] = [
+        (name, p) for name, p in model.named_parameters()
+        if "blocks." in name and p.ndim == 2 and p.requires_grad
+    ]
+    if trial_idx == 0:
+        print0(
+            f"[H173 INIT] body spectral penalty lambda={args.body_spectral_penalty_lambda}, "
+            f"power_iters={args.body_spectral_penalty_power_iters}, "
+            f"n_body_2d_params={len(body_2d_params_for_spec_pen)}",
+            console=True,
+        )
 
     # create the optimizer(s)
     # MuonH replaces plain Muon on the hidden 2D weights: hard hyperball projection
@@ -1131,6 +1182,26 @@ for trial_idx in range(args.num_trials):
             dist.all_reduce(p.grad, op=dist.ReduceOp.SUM)
         dist.all_reduce(step_loss, op=dist.ReduceOp.SUM)
         train_loss = float((step_loss / batch_size).item())
+        # H173: spectral norm penalty on body 2D weights. lambda=0 skips the
+        # entire branch -> arm_a CTRL is bit-identical to baseline. Weights are
+        # identical across ranks and the penalty is data-independent, so each
+        # rank computes the same spec_pen.grad and adds it once to the already
+        # all_reduced data gradient. Logged at telemetry_due steps only.
+        spec_pen_value: float | None = None
+        spec_pen_avg_sv_max: float | None = None
+        spec_pen_max_sv_max: float | None = None
+        if args.body_spectral_penalty_lambda > 0.0 and body_2d_params_for_spec_pen:
+            sv_max_terms: list[Tensor] = []
+            for _name, p in body_2d_params_for_spec_pen:
+                sv = power_iteration_sv_max(p, n_iter=args.body_spectral_penalty_power_iters)
+                sv_max_terms.append(sv)
+            sv_max_stack = torch.stack(sv_max_terms)
+            spec_pen = args.body_spectral_penalty_lambda * (sv_max_stack ** 2).sum()
+            spec_pen.backward()
+            spec_pen_value = float(spec_pen.detach().item())
+            with torch.no_grad():
+                spec_pen_avg_sv_max = float(sv_max_stack.detach().mean().item())
+                spec_pen_max_sv_max = float(sv_max_stack.detach().max().item())
         # set optimization hyperparameters and take a step
         muonh_warmup_factor, aux_beta2, muonh_mu_t = set_hparams(step)
         train_step = step + 1
@@ -1209,6 +1280,16 @@ for trial_idx in range(args.num_trials):
                 muonh_metrics["train/muonh/agc/scale_mean"] = muonh_agc_stats["agc_scale_mean"]
             if len(muonh_metrics) > 2:
                 wandb.log(muonh_metrics, step=wandb_step)
+        # H173: spec_pen telemetry (only when penalty is active).
+        if dist.get_rank() == 0 and telemetry_due and spec_pen_value is not None:
+            wandb.log({
+                "trial": trial_idx,
+                "train/step": train_step,
+                "spec_pen/raw_value": spec_pen_value,
+                "spec_pen/avg_sv_max": spec_pen_avg_sv_max,
+                "spec_pen/max_sv_max": spec_pen_max_sv_max,
+                "spec_pen/lambda": args.body_spectral_penalty_lambda,
+            }, step=wandb_step)
         if dist.get_rank() == 0 and telemetry_due:
             log_weight_telemetry(
                 model=model,
@@ -1232,7 +1313,7 @@ for trial_idx in range(args.num_trials):
         # attractor than the default normal init (arm_a CTRL).
         sv_due = (
             dist.get_rank() == 0
-            and train_step in (1, 50, 250, 500, 1000, train_steps)
+            and train_step in (1, 50, 250, 500, 1000, 1500, 2000, 2500, 3000, train_steps)
         )
         if sv_due:
             log_body_sv_stats(
