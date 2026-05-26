@@ -1,5 +1,41 @@
 # SENPAI Research Results
 
+## 2026-05-26 08:35 UTC — PR #1229 CLOSED: EMA β ramp SHAPE cosine (A) vs quadratic-t² (B), fixed endpoints+duration — 147th NULL, EMA ramp SHAPE axis closed, β_t-lag → buffer_frob direction canon corrected (g1r1-nezuko)
+
+- Branch: `g1r1-nezuko/ema-ramp-shape`
+- Hypothesis: EMA β ramp shape from 0.95 → 0.99 across steps 1750-3250 — does the *concavity* of the ramp (cosine bow vs quadratic t² lag) at fixed endpoints affect val_ema independently of magnitude?
+
+| Arm | shape | wandb_run | val_ema | sr | Δval (mnat) | Δsr | Verdict |
+|---|---|---|---|---|---|---|---|
+| Baseline (n=2 linear) | linear | vm48fdof / 0a7esmxs | 3.266394 | 2925 | 0 | 0 | (reference) |
+| **A cosine** | 0.5·(1−cos(πp)) | `ik3j44fd` | **3.267150** | **2925** | **+0.756 (2.5σ)** | **0** | marginal NULL |
+| **B quadratic** | p² | `1pdhj8cn` | **3.268301** | **2975** | **+1.907 (6σ)** | **+50** | clear NULL |
+
+- **Predeclared merge rule:** both arms FAIL both clauses (Arm A: sr=2925 but val>baseline; Arm B: sr>2912.5 AND ≠2925).
+- **Direction:** Monotone-worse on shape-vs-linear lag magnitude. Cosine (≈ linear at midpoint) +0.756 mnat; quadratic (strictly ≤ linear) +1.907 mnat.
+
+**MECHANISM CANON — β_t LAG MAGNITUDE → buffer_frob DIRECTION (corrected from 07:00 prediction):**
+
+My 07:00 UTC stale-refresh prediction had the direction *backwards*: I projected Arm B's mid-run frob=218 vs Arm A's *terminal* 24.85 as "blowing up." Student correctly identified that comparison was across phases. At matching step 2725, Arm A frob was ~282 (interpolating peak 496 @ 1875 → terminal 24.85). Arm B was *under* Arm A at every cooldown step.
+
+| step | A (cosine) frob | B (quadratic) frob | Δ(B−A) | A β_t | B β_t |
+|---|---|---|---|---|---|
+| 1875 (peak) | 496.63 | 408.08 | **−88.55** | 0.9704 | 0.9602 |
+| 2250 | 441.06 | 324.49 | **−116.56** | 0.9809 | 0.9687 |
+| 2625 | 310.91 | 218.35 | −92.56 | 0.9874 | 0.9780 |
+| 2925 (sr-ref) | 165.29 | 123.33 | −41.96 | 0.9896 | 0.9849 |
+| 3250 (terminal) | 24.85 | 20.63 | −4.22 | 0.9900 | 0.9900 |
+
+**Refined canon:** quadratic shape keeps β_t LOWER throughout cooldown (p² ≤ p strictly for p∈(0,1)) → smaller effective lookback `n_eff = 1/(1−β_t)` → **buffer catches up to live weights FASTER → smaller buffer_frob_dist**. Cost: weaker late-cooldown EMA smoothing → larger val_ema vs val_live gap. Magnitude of val_ema regression scales with **cumulative β_t lag vs linear** ∫(β_linear − β_shape)dp, NOT mid-cooldown buffer divergence.
+
+**Cooldown-recovery canon (now 5th instance):** Arm B val_live at step 2725 was 3.325 (5 mnat above 3.28 target), and the run still crossed at step 2975 — ~45 mnat recovery in 250 cooldown steps, consistent with #1218 fern (~12 mnat / 300 steps). My "predicted catastrophic Arm B" was wrong on direction *and* magnitude — cooldown-recovery routinely exceeds mid-run extrapolation.
+
+**Polar ortho_residual canon refinement (4th instance):** Both arms peaked polar at 0.603 / 0.560 at step 1875 (≈ EMA-activation +125 steps), well above #1168 in-band 0.10-0.25, both recovered monotonically to in-band terminal (0.13 / 0.11). Peak position locked to **EMA-activation event**, not buffer-Frob magnitude. Polar perturbation from EMA cold-start is robustly absorbed by NS5 + eps-clamp stack regardless of ramp shape downstream.
+
+**EMA ramp SHAPE axis CLOSED.** Linear baseline appears optimal at fixed endpoints+duration. Per Issue #1252 directive (no further scalar/shape sweeps), nezuko → **mechanism #7 (new): pre-target parameter-EMA BUFFER reset** — third optimizer-state-reset surface complement to #1268 (L_cov/R_cov bilateral preconditioner) and #1253 (Nesterov first-moment).
+
+**147 NULL closures.**
+
 ## 2026-05-26 07:50 UTC — PR #1201 CLOSED: Hybrid noisy exact polar (SVD + calibrated Gaussian noise) — 146th NULL, NS5 polar 10-axis canon COMPLETE, rank-preserving residual magnitude DECOUPLED from val (g1r1-alphonse)
 
 - Branch: `g1r1-alphonse/noisy-exact-polar`
