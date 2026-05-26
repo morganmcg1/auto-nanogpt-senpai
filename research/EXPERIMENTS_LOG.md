@@ -3,6 +3,49 @@
 Log of completed/reviewed experiment PRs in chronological order. Wave 1
 results pending student execution.
 
+## 2026-05-26 01:50 UTC — PR #1181: nezuko Adan optimizer for AdamW aux groups — **CLOSED clean-NEG**
+
+- **Branch:** `g1r5-nezuko/adan-aux-optimizer`
+- **Student:** g1r5-nezuko
+- **Hypothesis:** Adan (Xie et al. 2022, arXiv:2208.06677) replaces AdamW on aux groups (embed/lm_head/scalars). Adds Nesterov gradient-difference correction `v_t = EMA(g_t − g_{t-1})` plus a modified denominator `n_t = EMA(u_t²)` where `u_t = g + β₂·d` is the Nesterov-corrected gradient. Hypothesis: aux gradients have temporal autocorrelation that the grad-diff term can exploit.
+
+**Phase 1 n=1 5-cell sweep (sequential, ~9h):**
+
+| Cell | aux_optimizer | β₁ | β₂ | β₃ | val/loss | ffs | Δ vs ctrl | gate? | W&B |
+|:----:|:--------------|:--:|:--:|:--:|:--------:|:---:|:---------:|:-----:|:----|
+| A | adamw | — | — | — | **3.26067** | 3025 | — | passes (= baseline) | `e1ppjk6u` |
+| B (PRIMARY) | adan | 0.98 | 0.92 | 0.99 | 3.27524 | 3175 | +0.01457 | FAIL (+24.6σ) | `k29quyl4` |
+| C | adan | 0.98 | 0.50 | 0.99 | 3.27114 | 3125 | +0.01047 | FAIL (+17.7σ) | `v3lmfw81` |
+| D | adan | 0.90 | 0.92 | 0.99 | 3.26421 | 3050 | +0.00354 | FAIL (+6.0σ) | `ozknyrap` |
+| E (β₂=0 falsifier) | adan | 0.98 | 0.00 | 0.99 | 3.28059 | -1 (never reached) | +0.01992 | FAIL (+33.6σ) | `kcnl5ywy` |
+
+n=1 confirm gate: val/loss ≤ 3.260628 (baseline 3.261221 − 1σ_single). **All 4 Adan cells exceed the gate** — clean-NEG outcome, no Phase 2 launched.
+
+**Mechanism findings (★ student diagnosis):**
+
+1. **Grad-diff term IS real but small.** B vs E gap = 0.00535 (β₂=0.92 vs β₂=0). The `v_t = EMA(g_t − g_{t-1})` term contributes a measurable positive lift on aux gradients — temporal autocorrelation exists. But this lift is dwarfed by the structural cost of Adan's modified denominator.
+2. **β₁=0.98 (Adan default) too slow vs AdamW β₁=0.8.** Cell D ablation (β₁=0.90) recovers ~70% of the gap to ctrl (3.26421 vs 3.27524 PRIMARY). The residual ~0.0035 to ctrl is the structural cost of Adan's update form. β₁=0.98 vs 0.8 dominates the regression.
+3. **Modified denominator hurts.** Adan's `n_t = EMA(u_t²)` over the Nesterov-corrected gradient is structurally different from AdamW's `v_t = EMA(g_t²)`. When `d_t` is small (aux grads have weak autocorrelation), `u_t ≈ g_t` and the denominator is similar to AdamW, but the small grad-diff residue still injects variance into n_t that AdamW avoids.
+4. **eps difference (1e-8 vs 1e-10) secondary.** With small aux gradients (especially scalars), 100× eps shift dampens early updates, but Cell D's near-ctrl performance suggests this is sub-dominant to β₁.
+5. **ffs degrades too.** Adan B reaches target at step 3175 vs ctrl at 3025 (5% slower). All Adan cells need more steps. If ffs becomes primary metric, Adan would lose on both axes.
+
+**★ Student diligence: paper-formula vs Adam-style β convention.** Student detected the PR pseudocode used paper-formula `m_t = (1−β₁)·m + β₁·g` with Adam-style β defaults `(0.98, 0.92, 0.99)` — inconsistent. Cross-checked official sail-sg/Adan reference and verified the convention pairing. Implemented Adam-style β (slow EMA at β=0.98). Mapping: `β_paper = 1 − β_code` so paper `(0.02, 0.08, 0.01)` ↔ code `(0.98, 0.92, 0.99)` — same slow-EMA regime. Without this catch, the experiment would have been an unfair test of Adan.
+
+**Closure context — 6th aux-optimizer-family closure:**
+
+| Family | PR | Mechanism | Result |
+|:-------|:--:|:----------|:-------|
+| Adan (Nesterov grad-diff) | **#1181** | grad-diff lift small; β₁=0.98 dominates | clean-NEG |
+| AdaBelief (centered variance) | #1131 | (g−m)² inflates variance on sparse aux grads | clean-WEAK-NEG |
+| Lion (sign-only) | h152 | sign destroys magnitude info in aux | NEG |
+| AdEmaMix (dual EMA) | h144 | longer-memory EMA biases late updates | NEG |
+| ADopt (modified denom) | h160 | denom structure mismatched to aux | NEG |
+| Cautious | (h-series) | masking degrades aux without compensating signal | NEG |
+
+Plus within-AdamW saturation: LR magnitude (#1021), warmup/schedule (#1054/#1072), trajectory averaging (#1126 Lookahead, #659 SF), regularization (#1105 WD clean-WEAK-NEG). In flight: #1211 v_t pruning ablation, #1222 AdamP projection. **AdamW is a tight local optimum for aux-group regime under this stack.** After #1211 + #1222, aux-side optimizer-family axis is essentially closed.
+
+**Next:** nezuko → #1238 SPAM spike-aware momentum reset on Muon body matrices (Chen et al. 2025, arXiv:2501.06842). Mechanism: detect grad-norm spikes via rolling EMA and zero Muon momentum buffer when spike > threshold × EMA. Targets training stability — different failure mode from all closed axes. 5-cell sweep with thresholds 5/10 PRIMARY/20/50; Cell A uses high threshold (1000) for diagnostic logging. Includes no-spike gate for early-close if spikes don't occur.
+
 ## 2026-05-25 23:50 UTC — PR #1105: askeladd AdamW auxiliary weight decay sweep — **CLOSED clean-WEAK-NEG**
 
 - **Branch:** `g1r5-askeladd/adamw-aux-wd`
