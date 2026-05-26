@@ -1,3 +1,98 @@
+## 2026-05-26 23:30 UTC — Cycle 71 mid-302
+
+**Cumulative**: **187 refuted (+2 this cycle: tanjiro #1354 186th STRUCTURAL-MISMATCH-AT-L8, alphonse #1323 187th cluster-band ASYMMETRIC-OUTCOME)** / **107 distinct mech classes (unchanged: closures don't reduce; #1358 + #1359 add 108th + 109th when implemented)** / **62 family-level closures (+2: 61st STRUCTURAL-MISMATCH fast-close, 62nd cluster-band ASYMMETRIC-OUTCOME after #1057)** / **6-way closure taxonomy unchanged**.
+
+**Highest-information mid-302 finding**: **Cluster-floor robustness principle extends to FOUR distinct mechanism CLASSES** (with #1323 closure):
+- **#1336 (Nesterov-form phase-axis)**: state mechanism — plateau-phase
+- **#1316 (eval-state Polyak averaging)**: eval-state mechanism — plateau-phase
+- **#1333 (SOAP Gram reset at cooldown)**: state-reset mechanism — cooldown-start
+- **#1323 (per-kind body Muon μ dispatch at cooldown)**: per-group-dispatch mechanism — cooldown-onwards
+
+Four structurally distinct mechanism families, all converging at val ≈ 3.270 ffs ∈ {3025, 3050, 3075}. The floor is now characterized as mechanism-class-agnostic across state, eval-state, state-reset, AND per-group-dispatch interventions.
+
+**Second high-information mid-302 finding**: **LAG axis IS structurally real but operating regime is L<<8** (#1354 STRUCTURAL-MISMATCH closure):
+- Clean mechanism-firing telemetry: cosine_sim(buffer, grad) trajectory 0.0→-0.105→-0.148→-0.146 across steps 0-500 → buffer flipped sign relative to grad
+- L=8 anti-correlates the buffer; Nesterov-EMA step `grad.lerp(buffer, μ)` then pulls BACKWARDS along grad, undoing each update
+- Kill-gate trip at step 500 (val=4.08 vs gate 3.92, +0.157 above; extrapolated terminal ≈ 3.60)
+- Operating regime localized: L=2-4 likely the sweet spot (cosine_sim drops modestly without sign flip); L-sweep deferred pending other state-phase results
+
+**This cycle — 2 closures + 2 fresh per-kind state-phase assignments (FOURTH and FIFTH per-kind axes assigned in cycle 71)**:
+
+1. **tanjiro #1354 MUON_BODY_GRAD_LAG closed as 186th refute** (STRUCTURAL-MISMATCH-AT-L8 fast-close, 61st family closure):
+   - First STRUCTURAL-MISMATCH fast-close on a virgin axis with **clean mechanism-firing telemetry**
+   - LAG axis confirmed real (decorrelation mechanism fires exactly as hypothesis predicted)
+   - L=8 overshoots — sign flip in buffer relative to grad → active step degradation
+   - Closure rationale: Arm B would eat the same plateau-phase +0.33 damage; structurally subsumed; no recovery possible via cooldown gating
+   - Methodology corpus addition: STRUCTURAL-MISMATCH-AT-PARAM sub-subtype (fast-close with telemetry-confirmed axis-real + operating-regime-mislocalized signature)
+
+2. **alphonse #1323 MUON_BODY_ATTN_MLP_BETA_PHASE_DISPATCH closed as 187th refute** (cluster-band ASYMMETRIC-OUTCOME sub-subtype, 62nd family closure):
+   - Arm A (1.03, 0.97): val=3.27167 ffs=3050 (cluster member, `amdgs7m3`)
+   - Arm B (0.97, 1.03): val=3.28064 ffs=**-1** (regression + target miss, `ftc0vyuk`)
+   - Direction confirmed: **attn-higher-μ / mlp-lower-μ favorable** (Arm A clusters, Arm B regresses with target miss)
+   - Mechanism textbook: per-group momentum_norm trajectory shows symmetric mirror across arms (Arm A: attn 547/mlp 2226 at step 975; Arm B: attn 1264/mlp 804)
+   - **First cluster-band ASYMMETRIC-OUTCOME** distinct from ASYMMETRIC-MAGNITUDE (Arm B outside cluster, not just at higher magnitude within)
+   - Methodology corpus refinement: 5-way cluster-band sub-subtype taxonomy now: SYMMETRIC, ASYMMETRIC-MAGNITUDE, ASYMMETRIC-OUTCOME, INFORMATIVE-TRIANGULATION, STANDARD (single-arm)
+
+3. **tanjiro → #1358 AUX_BETA2_PER_KIND_AT_COOLDOWN (108th mech class assigned)**:
+   - **FIRST PER-AUX-KIND β2 DISPATCH** in 320+ PR corpus. Prior PRs: #903 global β2 sweep, #1194 ADOPT_AUX, #1140 ADAM_MINI_AUX.
+   - Mechanism: at cooldown_start (step 953), dispatch β2 per AUX kind {embed, lm_head, scalars}. Arm A: embed β2=0.99 (tighter v EMA), others baseline 0.95. Arm B: lm_head β2=0.99, others baseline.
+   - **Tests cluster-floor robustness on AUX-side per-kind dispatch** (complement to #1323 body-side per-kind dispatch).
+   - State-phase event + per-AUX-kind dispatch per Morgan directive #1259.
+   - Hold gate TIGHTENED `val ≤ 3.265 AND ffs ≤ 3000`.
+
+4. **alphonse → #1359 AUX_EPS_PER_KIND_AT_COOLDOWN (109th mech class assigned)**:
+   - **FIRST PER-AUX-KIND ε DISPATCH** in 320+ PR corpus. Prior PRs: #1061 global eps schedule at cooldown, #1000/#685/#754/#493 global eps sweeps.
+   - Mechanism: at cooldown_start (step 953), dispatch ε per AUX kind. Arm A: embed ε=1e-8 (larger denominator floor), others baseline 1e-10. Arm B: embed ε=1e-12 (smaller denominator floor), others baseline.
+   - **Tests embed-specific denominator-floor direction-preference during cooldown** — embed is highest-LR AUX kind, most sensitive to ε. ±2 orders of magnitude on embed only.
+   - State-phase event + per-AUX-kind dispatch per Morgan directive #1259.
+   - Hold gate TIGHTENED `val ≤ 3.265 AND ffs ≤ 3000`.
+
+**Per-kind state-phase axes now in flight or recently closed** (cycle 71):
+- #1307 (nezuko): per-AUX-group LR scalar dispatch — closed cluster-band ASYMMETRIC-MAGNITUDE
+- #1323 (alphonse): per-kind body Muon μ dispatch at cooldown — JUST CLOSED cluster-band ASYMMETRIC-OUTCOME
+- #1347 (nezuko): per-kind Nesterov on body Muon — IN FLIGHT
+- #1355 (askeladd): per-kind NS5_ITERS at cooldown — IN FLIGHT
+- #1353 (thorfinn): AUX state reset at cooldown — IN FLIGHT (not per-kind but state-phase)
+- #1358 (tanjiro): per-AUX-kind β2 at cooldown — JUST ASSIGNED
+- #1359 (alphonse): per-AUX-kind ε at cooldown — JUST ASSIGNED
+
+This is a 7-axis per-kind/state-phase swarm — direct response to Morgan directive #1259.
+
+**Cluster-floor research direction — refinement post-#1323**:
+
+The cluster floor at val ≈ 3.270 is now characterized by FOUR distinct mechanism-class closures. Remaining floor-breaking candidates:
+- (a) **Cooldown SHAPE intervention** — DONE extensively (#1110, #1050, #861, #764, #720, #678, #657, #549, #495, #464, #339, #276, #238, #208, #178). Limited future return.
+- (b) **Cooldown START boundary change** — DONE via cooldown_frac sweeps. Limited future return.
+- (c) **Optimizer-class SWITCH during cooldown** — partial (#376 AdaMuon switch closed; AUX_LION #1012, ADAFACTOR_MLP #804 are full replacements, not phase-gated). Phase-gated full-switch is virgin.
+- (d) **Virgin axes** — LAG closed (operating regime localized but not pursued); next virgin axes: per-AUX-kind β2 (#1358), per-AUX-kind ε (#1359) — assigned this cycle.
+- (e) **Per-group structural dispatch with phase-gating** — actively probed by 7-axis swarm above.
+
+**Closure-mechanism taxonomy** (unchanged 6-way):
+- cluster-band sub-subtypes: SYMMETRIC, ASYMMETRIC-MAGNITUDE, **ASYMMETRIC-OUTCOME** (recognized this cycle), INFORMATIVE-TRIANGULATION, STANDARD (5-way)
+- catastrophic-shifted-floor / n=2-confirm / MATH-NULL / informative-crossover / **STRUCTURAL-MISMATCH-AT-PARAM** (recognized this cycle)
+
+**Active fleet status mid-302**:
+
+| Student | PR | Status | W&B notes |
+|---|---|---|---|
+| g1r2-alphonse | #1359 | status:wip, JUST ASSIGNED | AUX_EPS_PER_KIND_AT_COOLDOWN (109th mech) |
+| g1r2-thorfinn | #1353 | status:wip, implementing | MUON_AUX_BUFFER_RESET_AT_COOLDOWN (105th mech) |
+| g1r2-nezuko | #1347 | status:wip, Canary PASS → Arm A | MUON_NESTEROV_PER_KIND (104th mech) |
+| g1r2-fern | #1341 | status:wip, Arm A heartbeat step 2000 | MUON_BETA_RAMP_DECAY |
+| g1r2-frieren | #1340 | status:wip, Arm B launching | MUON_BETA_LOCALIZED_STEP |
+| g1r2-askeladd | #1355 | status:wip, implementing | MUON_NS5_ITERS_PER_KIND_AT_COOLDOWN (107th mech) |
+| g1r2-tanjiro | #1358 | status:wip, JUST ASSIGNED | AUX_BETA2_PER_KIND_AT_COOLDOWN (108th mech) |
+| g1r2-edward | #1335 | status:wip, Arm B step 1465 | EMBED_LR_PHASE_TRANSITION |
+
+**ZERO IDLE STUDENTS — 8 students concurrently active. ZERO IDLE GPUs.**
+
+**Methodology corpus this cycle**:
+- **5-way cluster-band sub-subtype taxonomy** (added ASYMMETRIC-OUTCOME): distinguishing cluster-member arm + regression arm (with target miss) from cluster-member arms at different magnitudes. ASYMMETRIC-OUTCOME has stronger mechanism-direction signal (one arm fails, not just at different cluster magnitude).
+- **STRUCTURAL-MISMATCH-AT-PARAM sub-subtype**: kill-gate fast-close on virgin axis with telemetry-confirmed mechanism-firing + operating-regime-mislocalized signature. Distinct from a kill-gate trip on an ill-formed mechanism (where telemetry would be uninformative).
+- **Per-AUX-kind dispatch is a distinct axis from per-body-kind dispatch**: prior per-kind work was body-Muon-side (#1323, #1347, #1355). #1358 and #1359 open AUX-side per-kind dispatch. Future PRs should distinguish.
+
+**Cumulative closure rate**: 187 / ~530 PRs ≈ 35% refute rate. 9 mech classes assigned in cycle 71 so far (#1340-#1341-#1347-#1353-#1354-#1355-#1358-#1359 + open #1282-closed).
+
 ## 2026-05-26 23:10 UTC — Cycle 71 mid-301
 
 **Cumulative**: **185 refuted (+1: askeladd #1333 185th cluster-band single-arm, 100th mech class CLOSED)** / **107 distinct mech classes (+1: askeladd #1355 MUON_NS5_ITERS_PER_KIND_AT_COOLDOWN, first per-kind NS5_ITERS dispatch in 320+ corpus)** / **60 family-level closures (unchanged; single-arm closure does not warrant family closure)** / **6-way closure taxonomy unchanged**.
