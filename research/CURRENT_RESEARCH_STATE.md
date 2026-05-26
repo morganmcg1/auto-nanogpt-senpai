@@ -1,3 +1,74 @@
+## 2026-05-26 18:10 UTC — Cycle 71 mid-293
+
+**Cumulative**: **177 refuted (+1: askeladd #1301 177th)** / **100 distinct mech classes (+1: 100 ATTN_SOAP_GRAM_REINIT_AT_COOLDOWN #1333)** / **56 family-level closures (+1: 56 per-kind SOAP-trust family closed across #1301 + SOAP_TRUST_DEPTH_RAMP family)**.
+
+**MECH-CLASS MILESTONE**: 100 distinct mechanism classes reached. #1333 ATTN_SOAP_GRAM_REINIT_AT_COOLDOWN is the **first state-phase event mechanism on SOAP Gram** in the 320+ PR corpus. SOAP Gram is a second-order accumulator (gradient outer-product covariance), mathematically distinct from first-order EMA buffers (body Muon m/v) where state-reset family is already closed.
+
+**This cycle — 1 closure (n=1 cluster-band, structural confirmation maximum-spread) + 1 reassignment (100th mech class, novel SOAP state-phase axis)**:
+
+1. **askeladd #1301 ATTN_SOAP_TRUST_THRESHOLD_V closed as 177th refute (n=1 cluster-band)** — maximum-spread bilateral structural confirmation, mechanistically inert:
+   - Arm A v-loose 0.70 `94xpwzf1`: val=**3.27572** ffs=**3100** (cluster member, +0.00796 vs baseline)
+   - Arm B v-strict 0.95 `ghalfxi3`: val=**3.27127** ffs=**3025** (cluster member, +0.00351 vs baseline)
+   - **Maximum-spread structural confirmation (gold-standard methodology)**: v on_fraction was **1.000 throughout** for Arm A (maximum refresh saturation) vs **0.000 throughout** for Arm B (maximum stale-Gram preservation). 1.000 vs 0.000 is the cleanest possible per-kind intervention magnitude — definitive structural evidence mechanism fired as designed.
+   - **Cross-arm interpretation (sign-meaningful, magnitude-insufficient)**: Arm B leads Arm A by 0.004-0.010 from step 1500 onwards. Early training (v_cos_row ~0.78) → v Gram noisy, refreshes help (Arm A leads). Late training (v_cos_row 0.80-0.85) → v stale Gram mildly informative (Arm B leads). The cross-over IS a real per-kind axis signal, but magnitude well within cluster RNG envelope.
+   - **Verdict**: per-kind v-axis is **structurally orthogonal** (mechanism can be flipped extreme-to-extreme without breaking dynamics) but **mechanistically inert** (extreme dispatch doesn't move val/loss outside cluster). Uniform 0.85 trust threshold sits near optimum for v despite asymmetric on_fraction.
+   - **Family-level closure (56th)**: per-kind SOAP-trust closed across two consecutive PRs (#1301 per-kind + SOAP_TRUST_DEPTH_RAMP family at 55th). Per-kind/per-depth axes on SOAP trust threshold are now both exhausted. Continuing on q/proj per-kind variants would re-test closed sub-family with marginal information gain.
+
+**Reassignment**:
+
+2. **askeladd → PR #1333 ATTN_SOAP_GRAM_REINIT_AT_COOLDOWN (100th mech class milestone)** — first state-phase event mechanism on SOAP Gram in 320+ PRs:
+   - **Mechanism**: at step 953 (cooldown_frac=0.7 boundary), zero out SOAP Gram statistics for all kinds (q/k/v/proj). Force fresh Gram re-accumulation through cooldown phase.
+   - **Distinct from all closed axes**: per-kind dispatch (closed #1301), per-depth ramp (closed 55th family), state-buffer-reset family (closed for body Muon m/v at 53rd family). SOAP Gram is a **second-order** accumulator (gradient outer-product covariance), mechanistically distinct from first-order EMA momentum. NOT a duplicate.
+   - **Hypothesis**: SOAP Gram accumulates gradient correlations from pre-cooldown distributions. Cooldown gradients have qualitatively different distribution (smaller magnitude, different direction structure). Stale pre-cooldown Gram may sub-optimally precondition cooldown updates. Reinit forces re-learning of Gram structure aligned with cooldown gradient distribution.
+   - **Cost**: ~10-15 LoC. Phase-event at step 953 (single in-step intervention, not continuous mechanism).
+   - **Morgan #1259-aligned**: state-phase event mechanism on SOAP optimizer state. NOT scalar HP sweep.
+   - **Cross-axis safety**: even if cluster floor at val ∈ (3.269, 3.272) × ffs ∈ {3025, 3050} is structural, SOAP Gram reset is on an axis NEVER tested across the 320+ PR corpus. New axis = new information regardless of cluster outcome.
+   - **Single-canary structural exemption** (branch-isolated identity, precedent #1306 thorfinn). NOT 3-canary.
+
+**Cluster-floor structural-property hypothesis status (cycle-71 cumulative evidence)**:
+
+| Mechanism axis | Closure level | Cluster-break? |
+|---|---|---|
+| State perturbations at step 2540 (M-reset, V-reset, M+V-combined, M+V-halve) | 53rd family closure | NO (fern #1267 Arm A awaiting n=2 confirm via #1324) |
+| Schedule perturbations (β1 cooldown depth-ramp) | #1282 closure | NO |
+| Magnitude perturbations (LR boost/halve at step 2540) | #1296 closure | NO |
+| WD depth ramps | family closure | NO |
+| LR depth ramps | family closure | NO |
+| AUX clip norm | family closure | NO |
+| Per-kind SOAP trust (q/k/v/proj) | NEW 56th family closure (#1301 + DEPTH_RAMP) | NO |
+| Bias correction phase | MATH-NULL closure (#1317) | N/A |
+| Per-structural-kind body Muon β | mech #99 IN TEST (#1323 alphonse Arm A) | TBD |
+| Polyak averaging (eval-state) | mech IN TEST (#1316 tanjiro Arm A) | TBD |
+| **SOAP Gram state-phase reset** | **mech #100 ASSIGNED (#1333 askeladd)** | **TBD** |
+
+Cluster floor is increasingly evidenced as a STRUCTURAL property of the LOGIT_SOFTCAP=20.0 + NS5_ITERS=14 + cooldown stack. NEW axes (#1316 eval-state, #1323 per-kind body Muon β, #1333 SOAP Gram phase reset) are the load-bearing remaining tests on whether ANY mechanism class can break cluster.
+
+**Active fleet status mid-293**:
+
+| Student | PR | Status | W&B notes |
+|---|---|---|---|
+| g1r2-alphonse | #1323 | status:wip, Arm A authorized | MUON_BODY_ATTN_MLP_BETA_PHASE_DISPATCH |
+| g1r2-thorfinn | #1306 | status:wip, Arm A authorized | MUON_NESTEROV_PHASE_TRANSITION |
+| g1r2-nezuko | #1307 | status:wip, Arm A authorized | AUX_BIASES_LR_BOOST x2 boost |
+| g1r2-fern | #1324 | status:wip, just assigned | FERN_1267_N2_CONFIRM |
+| g1r2-frieren | #1312 | status:wip, just assigned | MUON_LR_BETA_DEPTH_RAMP_ANTI_ALIGNED |
+| g1r2-askeladd | #1333 NEW | status:wip, just assigned | ATTN_SOAP_GRAM_REINIT_AT_COOLDOWN (100th mech) |
+| g1r2-tanjiro | #1316 | status:wip, Arm A authorized | MUON_BODY_POLYAK_AVERAGING |
+| g1r2-edward | #1304 | status:wip, Arm A authorized | WD_BODY_DEPTH |
+
+**ZERO IDLE STUDENTS** — 8 students concurrently active. 6 of 8 in late-experiment stages (Arm A authorized OR mechanism-active running). Next 30-60 min should produce wave of terminals.
+
+**Methodological synthesis (cycle 71 mid-293)**:
+
+- **100th distinct mechanism class reached** (#1333 ATTN_SOAP_GRAM_REINIT_AT_COOLDOWN). Mech-class milestone. State-phase event on SOAP Gram is genuinely novel territory in the 320+ PR corpus.
+- **Per-kind/per-depth dispatch axes closed at SOAP trust** (56th family closure across #1301 + DEPTH_RAMP family). Future per-kind dispatch tests should be expected to land cluster unless paired with simultaneous per-phase or per-depth modulation. Cycle-71 methodology asset.
+- **Maximum-spread bilateral structural-confirmation methodology validated** (#1301 v on_fraction 1.000 vs 0.000): cleanest possible per-kind intervention magnitude is "definitive structural evidence" for mechanism firing AND for mechanism inertness. Per-kind on_fraction telemetry retained as corpus methodology asset.
+- **Three novel mechanism classes simultaneously in test** (#1316 eval-state, #1323 per-structural-kind body Muon β, #1333 SOAP Gram state-phase reset): cluster floor structural-property hypothesis will be tested against three orthogonal axes within next ~60 min. If all three land cluster, cluster floor is structurally confirmed at unprecedented breadth.
+
+**Wake schedule**: ~25-30 min for next wave — alphonse #1323 Arm A in flight, tanjiro #1316 Arm A launching, fern #1324 launch ramp-up, askeladd #1333 canary expected.
+
+---
+
 ## 2026-05-26 18:00 UTC — Cycle 71 mid-292
 
 **Cumulative**: **176 refuted (+1: fern #1296 176th)** / **99 distinct mech classes (unchanged — fern #1324 is a re-run of #1267 mechanism for n=2 confirm, NOT a new mech class)** / **56 family-level closures (unchanged)**.
