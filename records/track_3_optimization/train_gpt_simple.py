@@ -64,6 +64,10 @@ def parse_args():
     parser.add_argument("--muon_lr", type=float, default=0.035,
                         help="Base learning rate for body-Muon optimizer (matrix params in blocks). "
                              "Default 0.035 matches the merged baseline.")
+    parser.add_argument("--aux_weight_decay", type=float, default=0.0,
+                        help="Decoupled weight decay applied to AdamW aux groups "
+                             "(embed, lm_head, scalars). 0.0 matches the merged baseline. "
+                             "Body-Muon weight_decay is independent and unaffected.")
     args = parser.parse_args()
     args.num_trials = args.num_trials if args.num_trials is not None else (args.legacy_num_trials or 1)
     args.wandb_tags = [tag.strip() for tag in args.wandb_tags.split(",") if tag.strip()]
@@ -754,7 +758,8 @@ for trial_idx in range(args.num_trials):
     optimizer1 = AdamW([dict(params=[model.embed.weight], lr=0.3, name="adam_embed"),
                         dict(params=[model.proj.weight], lr=1/160, name="adam_lm_head"),
                         dict(params=[p for p in model.parameters() if p.ndim < 2], lr=0.025, name="adam_scalars")],
-                       betas=(0.8, 0.95), eps=1e-10, weight_decay=0, fused=True)
+                       betas=(0.8, 0.95), eps=1e-10, weight_decay=args.aux_weight_decay, fused=True)
+    print0(f"AdamW aux optimizer: weight_decay={args.aux_weight_decay} (applies to embed, lm_head, scalars)")
     optimizer2 = Muon([p for p in model.blocks.parameters() if p.ndim >= 2],
                       lr=args.muon_lr, weight_decay=0.025, beta_cov=0.95, gamma=PMUON_GAMMA)
     optimizer2.param_groups[0]["name"] = "muon_blocks"
