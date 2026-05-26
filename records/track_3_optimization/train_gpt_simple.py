@@ -6,6 +6,7 @@ It was prepared as a simplified version of the speedrun for use in neural net op
 """
 
 import os
+import re
 import sys
 with open(sys.argv[0]) as f:
     code = f.read() # read the code of this file ASAP, for logging
@@ -455,6 +456,13 @@ MU_COOLDOWN_END = float(os.environ.get("MU_COOLDOWN_END", "0.95"))
 MU_WARMUP_STEPS = int(os.environ.get("MU_WARMUP_STEPS", "0"))
 MU_WARMUP_START = float(os.environ.get("MU_WARMUP_START", "0.85"))
 MUON_LR = float(os.environ.get("MUON_LR", "0.0375"))
+# PR #1285/#1312: paired LR+β1 mean-preserving spatial depth ramp on Muon body params.
+# Combines #1250 (LR depth-ramp) + #1251 (β depth-ramp). Gated by a single env
+# var so the disabled path is bytewise-inert with baseline. #1312 anti-aligned
+# variant uses the SAME infra with independent signs on the two ramp env vars.
+MUON_LR_DEPTH_RAMP_BETA_PAIRED = int(os.environ.get("MUON_LR_DEPTH_RAMP_BETA_PAIRED", "0"))
+MUON_LR_DEPTH_RAMP = float(os.environ.get("MUON_LR_DEPTH_RAMP", "0.0"))
+MUON_BETA_DEPTH_RAMP = float(os.environ.get("MUON_BETA_DEPTH_RAMP", "0.0"))
 MUON_WEIGHT_DECAY = 0.025  # nominal; Muon.step does not apply explicit wd (u/w-floor replaces it)
 TARGET_UW = 0.35
 NORMUON_BETA2 = 0.95
@@ -856,6 +864,9 @@ if dist.get_rank() == 0:
             "optimizer/mu_warmup_steps": MU_WARMUP_STEPS,
             "optimizer/mu_warmup_start": MU_WARMUP_START,
             "optimizer/muon_lr": MUON_LR,
+            "optimizer/muon_lr_depth_ramp_beta_paired": MUON_LR_DEPTH_RAMP_BETA_PAIRED,
+            "optimizer/muon_lr_depth_ramp": MUON_LR_DEPTH_RAMP,
+            "optimizer/muon_beta_depth_ramp": MUON_BETA_DEPTH_RAMP,
             "optimizer/muon_weight_decay_nominal": MUON_WEIGHT_DECAY,
             "optimizer/target_uw": TARGET_UW,
             "optimizer/normuon_beta2": NORMUON_BETA2,
@@ -902,9 +913,39 @@ for trial_idx in range(args.num_trials):
                         dict(params=[model.proj.weight], lr=1/320, name="adam_lm_head", weight_decay=WD_AUX),
                         dict(params=[p for p in model.parameters() if p.ndim < 2], lr=0.01, name="adam_scalars")],
                        betas=(0.8, 0.95), eps=1e-10, weight_decay=0, fused=True)
-    optimizer2 = Muon([(n, p) for n, p in model.blocks.named_parameters() if p.ndim >= 2],
-                      lr=MUON_LR, weight_decay=MUON_WEIGHT_DECAY, mu=MU)
-    optimizer2.param_groups[0]["name"] = "muon_blocks"
+    if MUON_LR_DEPTH_RAMP_BETA_PAIRED:
+        # PR #1285: build 12 per-layer subgroups carrying mean-preserving LR ramp
+        # and additive β1 ramp. The Muon constructor is fed a flat (n, p) list so
+        # SOAP-eligible params are still detected by name; param_groups is then
+        # reorganized into 12 layer-indexed groups with per-layer lr/mu.
+        L = 12
+        layer_pat = re.compile(r"^(\d+)\.")
+        per_layer_named: dict[int, list] = {l: [] for l in range(L)}
+        for n, p in model.blocks.named_parameters():
+            if p.ndim < 2:
+                continue
+            m = layer_pat.match(n)
+            assert m, f"unexpected block param name {n!r}"
+            per_layer_named[int(m.group(1))].append((n, p))
+        flat_named = [item for l in range(L) for item in per_layer_named[l]]
+        optimizer2 = Muon(flat_named, lr=MUON_LR, weight_decay=MUON_WEIGHT_DECAY, mu=MU)
+        # Replace the single auto-created param_group with 12 layer-indexed groups.
+        optimizer2.param_groups = []
+        for l in range(L):
+            depth_pos = l / (L - 1) - 0.5  # ∈ [-0.5, +0.5], 0 at center — matches #1250/#1251 form
+            layer_lr = MUON_LR * (1.0 + MUON_LR_DEPTH_RAMP * depth_pos)
+            optimizer2.add_param_group(dict(
+                params=[p for _, p in per_layer_named[l]],
+                lr=layer_lr,
+                weight_decay=MUON_WEIGHT_DECAY,
+                mu=MU,
+                name=f"muon_blocks_l{l}",
+                depth_pos=depth_pos,
+            ))
+    else:
+        optimizer2 = Muon([(n, p) for n, p in model.blocks.named_parameters() if p.ndim >= 2],
+                          lr=MUON_LR, weight_decay=MUON_WEIGHT_DECAY, mu=MU)
+        optimizer2.param_groups[0]["name"] = "muon_blocks"
     optimizers = [optimizer1, optimizer2]
     assert set(p for opt in optimizers for group in opt.param_groups
                for p in group["params"]) == set(model.parameters())
@@ -934,8 +975,12 @@ for trial_idx in range(args.num_trials):
         for opt in optimizers:
             for group in opt.param_groups:
                 group["lr"] = group["initial_lr"] * eta
-                if group.get("name") == "muon_blocks":
+                name = group.get("name", "")
+                if name == "muon_blocks":
                     group["mu"] = cur_mu
+                elif name.startswith("muon_blocks_l"):
+                    # PR #1285: per-layer additive β1 ramp around the scheduled cur_mu.
+                    group["mu"] = cur_mu + MUON_BETA_DEPTH_RAMP * group["depth_pos"]
 
 
     ########################################
