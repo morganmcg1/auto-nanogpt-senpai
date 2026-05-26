@@ -83,7 +83,12 @@ def parse_args():
              "muall=musoft + non-residual block 2D weights also scaled by 1/sqrt(L); "
              "smallconst=std=1e-3 depth-independent.",
     )
+    parser.add_argument("--soap_precond_freq", type=int, default=16,
+                        help="SOAP eigenbasis Q refresh frequency in steps (default 16 — hardcoded). "
+                             "Q matrices refresh every N steps via soap_basis_qr in soap_update_preconditioner.")
     args = parser.parse_args()
+    if args.soap_precond_freq < 1:
+        raise ValueError("--soap_precond_freq must be >= 1")
     args.num_trials = args.num_trials if args.num_trials is not None else (args.legacy_num_trials or 1)
     args.wandb_tags = [tag.strip() for tag in args.wandb_tags.split(",") if tag.strip()]
     if args.telemetry_interval < 1 or args.histogram_interval < 1:
@@ -93,6 +98,7 @@ def parse_args():
 
 args = parse_args()
 NS_ITER = args.ns_iter
+PRECOND_FREQ = args.soap_precond_freq
 
 
 def clean_metric_name(name: str) -> str:
@@ -552,17 +558,21 @@ def soap_precondition_momentum(update, state, beta2=SOAP_BETA2, eps=1e-8):
     return precond.to(update.dtype)
 
 
-def soap_update_preconditioner(grad, state, shampoo_beta=SOAP_BETA2, precondition_frequency=PRECOND_FREQ):
+def soap_update_preconditioner(grad, state, shampoo_beta=SOAP_BETA2, precondition_frequency=None):
+    if precondition_frequency is None:
+        precondition_frequency = PRECOND_FREQ
     grad_f = grad.float()
     state["row_gg"].lerp_(grad_f @ grad_f.T, 1 - shampoo_beta)
     state["col_gg"].lerp_(grad_f.T @ grad_f, 1 - shampoo_beta)
     if state["q_row"] is None:
         state["q_row"] = soap_eigenbasis(state["row_gg"])
         state["q_col"] = soap_eigenbasis(state["col_gg"])
+        state["q_refresh_count"] += 1
     elif state["soap_step"] > 0 and state["soap_step"] % precondition_frequency == 0:
         state["q_row"], state["q_col"], state["exp_avg_sq"] = soap_basis_qr(
             state["row_gg"], state["col_gg"], state["q_row"], state["q_col"], state["exp_avg_sq"]
         )
+        state["q_refresh_count"] += 1
     state["soap_step"] += 1
 
 
@@ -633,6 +643,7 @@ class Muon(torch.optim.Optimizer):
                             state["q_row"] = None
                             state["q_col"] = None
                             state["soap_step"] = 0
+                            state["q_refresh_count"] = 0
                     if use_soap:
                         state["momentum"].lerp_(p.grad, 1 - group["mu"])
                         raw_nesterov = p.grad.lerp(state["momentum"], group["mu"])
@@ -678,6 +689,51 @@ class Muon(torch.optim.Optimizer):
                 mean = float(norm_sum.item()) / count
             name = group.get("name", f"group_{g_idx}")
             result[name] = mean
+        return result
+
+    @torch.no_grad()
+    def get_soap_telemetry(self, layer_suffixes: tuple[str, ...] = ()) -> dict[str, float]:
+        # q_refresh_count is computed only on the rank that owns each SOAP param;
+        # all_reduce sums across ranks. row_gg/col_gg condition numbers are computed
+        # locally where the param lives — we all_reduce.max so any rank with the
+        # tensor contributes (cond on missing ranks stays at 0 sentinel).
+        world_size = dist.get_world_size()
+        total_refresh = 0
+        for p in self.soap_params:
+            state = self.state.get(p)
+            if state and "q_refresh_count" in state:
+                total_refresh += int(state["q_refresh_count"])
+        if world_size > 1:
+            refresh_t = torch.tensor([total_refresh], device="cuda", dtype=torch.int64)
+            dist.all_reduce(refresh_t, op=dist.ReduceOp.SUM)
+            total_refresh = int(refresh_t.item())
+        result: dict[str, float] = {"q_refresh_total": float(total_refresh)}
+
+        for suffix_key in layer_suffixes:
+            name_match, suffix = suffix_key
+            row_cond = torch.zeros((), device="cuda", dtype=torch.float32)
+            col_cond = torch.zeros((), device="cuda", dtype=torch.float32)
+            for p in self.soap_params:
+                pname = self.param_names[id(p)]
+                if not pname.endswith(suffix):
+                    continue
+                state = self.state.get(p)
+                if not state or state.get("q_row") is None:
+                    continue
+                try:
+                    row_eig = torch.linalg.eigvalsh(state["row_gg"]).abs()
+                    col_eig = torch.linalg.eigvalsh(state["col_gg"]).abs()
+                    eps = 1e-12
+                    row_cond += row_eig.max() / row_eig.min().clamp_min(eps)
+                    col_cond += col_eig.max() / col_eig.min().clamp_min(eps)
+                except RuntimeError:
+                    pass
+                break
+            if world_size > 1:
+                dist.all_reduce(row_cond, op=dist.ReduceOp.MAX)
+                dist.all_reduce(col_cond, op=dist.ReduceOp.MAX)
+            result[f"row_cond/{name_match}"] = float(row_cond.item())
+            result[f"col_cond/{name_match}"] = float(col_cond.item())
         return result
 
 
@@ -907,6 +963,7 @@ for trial_idx in range(args.num_trials):
     best_val_loss = float("inf")
     best_val_step = -1
     first_step_to_target = -1
+    threshold_first_steps: dict[float, int] = {3.40: -1, 3.35: -1, 3.30: -1, 3.28: -1}
     slope_interval = max(1, round(train_steps * SLOPE_FRACTION))
     slope_window_steps = max(100, slope_interval)
     train_loss_history: list[tuple[int, float]] = []
@@ -940,6 +997,9 @@ for trial_idx in range(args.num_trials):
                     best_val_step = step
                 if first_step_to_target < 0 and val_loss_float <= TARGET_VAL_LOSS:
                     first_step_to_target = step
+                for threshold in threshold_first_steps:
+                    if threshold_first_steps[threshold] < 0 and val_loss_float <= threshold:
+                        threshold_first_steps[threshold] = step
                 metrics = {
                     "trial": trial_idx,
                     "val/step": step,
@@ -950,6 +1010,10 @@ for trial_idx in range(args.num_trials):
                     "val/single_run_stat_sig_margin": TARGET_VAL_LOSS - val_loss_float - STAT_SIG_DELTA,
                     "speedrun/first_step_to_target": first_step_to_target,
                     "speedrun/reached_target": int(first_step_to_target >= 0),
+                    "speedrun/first_step_to_3p40": threshold_first_steps[3.40],
+                    "speedrun/first_step_to_3p35": threshold_first_steps[3.35],
+                    "speedrun/first_step_to_3p30": threshold_first_steps[3.30],
+                    "speedrun/first_step_to_3p28": threshold_first_steps[3.28],
                     "time/train_seconds": training_time,
                     "time/step_avg_ms": 1000 * step_avg,
                 }
@@ -1015,6 +1079,11 @@ for trial_idx in range(args.num_trials):
                            for i, group in enumerate(optimizer2.param_groups)}
             current_wds = {group.get("name", f"group_{i}"): group.get("weight_decay", 0.0)
                            for i, group in enumerate(optimizer2.param_groups)}
+            soap_telemetry = optimizer2.get_soap_telemetry(layer_suffixes=(
+                ("mlp_fc_layer0", "0.mlp.fc.weight"),
+                ("mlp_proj_layer11", "11.mlp.proj.weight"),
+                ("attn_q_layer0", "0.attn.q.weight"),
+            ))
             if dist.get_rank() == 0:
                 per_group_metrics = {"trial": trial_idx, "train/step": train_step}
                 for name, mean_norm in update_norms.items():
@@ -1026,6 +1095,9 @@ for trial_idx in range(args.num_trials):
                 per_group_metrics["train/wd_mlp_now"] = current_wds.get("muon_mlp", 0.0)
                 per_group_metrics["train/wd_attn_now"] = current_wds.get("muon_attn", 0.0)
                 per_group_metrics["train/wd_schedule_progress"] = train_step / train_steps
+                per_group_metrics["soap/precond_freq_eff"] = PRECOND_FREQ
+                for k, v in soap_telemetry.items():
+                    per_group_metrics[f"soap/{k}"] = v
                 wandb.log(per_group_metrics, step=wandb_step)
         if dist.get_rank() == 0 and optimizer2.cos_sims_buffer:
             cs_names = list(optimizer2.cos_sims_buffer.keys())
