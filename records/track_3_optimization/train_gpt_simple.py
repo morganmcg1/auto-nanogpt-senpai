@@ -593,6 +593,45 @@ NANOGPT_SENPAI_SEED = int(_SENPAI_SEED_RAW) if _SENPAI_SEED_RAW != "" else None
 # `embed.weight -= lr_embed * lambda * (embed.weight - embed_init_snapshot)`.
 # At lambda=0 the hook is a no-op and behavior is bit-identical to the merged stack.
 NANOGPT_EMBED_INIT_ANCHOR_LAMBDA = float(os.environ.get("NANOGPT_EMBED_INIT_ANCHOR_LAMBDA", "0.0"))
+# Newton-Muon (#1138, Du & Su 2026). Right-precondition body Muon gradients by the input
+# activation second moment: G_precond = G @ (X^T X)^{-1/2} computed via EMA + eigendecomp.
+# When NEWTON_MUON=0 (default), no hooks register and Muon path is bit-identical baseline.
+NANOGPT_NEWTON_MUON = int(os.environ.get("NANOGPT_NEWTON_MUON", "0"))
+NANOGPT_NEWTON_MUON_LR_SCALE = float(os.environ.get("NANOGPT_NEWTON_MUON_LR_SCALE", "1.0"))
+NANOGPT_NEWTON_MUON_UPDATE_PERIOD = int(os.environ.get("NANOGPT_NEWTON_MUON_UPDATE_PERIOD", "10"))
+NANOGPT_NEWTON_MUON_BETA = float(os.environ.get("NANOGPT_NEWTON_MUON_BETA", "0.95"))
+NANOGPT_NEWTON_MUON_EPS = float(os.environ.get("NANOGPT_NEWTON_MUON_EPS", "1e-4"))
+NANOGPT_NEWTON_MUON_MAX_D_IN = int(os.environ.get("NANOGPT_NEWTON_MUON_MAX_D_IN", "1024"))
+
+# Global per-parameter input-activation cache populated by forward hooks. Keyed by
+# id(weight_param) → tensor of shape (B*T, d_in) on device. Only populated when
+# NANOGPT_NEWTON_MUON=1 (hooks are not registered otherwise, so cache stays empty
+# and Muon.step() short-circuits Newton preconditioning).
+_newton_input_cache: dict[int, "torch.Tensor"] = {}
+
+
+def _make_newton_input_hook(weight_param: "torch.Tensor", max_d_in: int):
+    """Build a forward hook that caches the layer's input activations for Newton-Muon.
+
+    Hook signature: hook(module, args, output). We store the first positional
+    arg (the input tensor) reshaped to (B*T, d_in). Skips layers with
+    d_in > max_d_in to avoid blowing up the eigendecomp cost on MLP contract
+    projections (d_in=3072 in this stack).
+    """
+    weight_id = id(weight_param)
+
+    def hook(module, inp, out):
+        if not inp or inp[0] is None:
+            return
+        x = inp[0]
+        if x.ndim < 2 or x.shape[-1] > max_d_in:
+            return
+        # detach() preserves dtype (bf16) but breaks gradient tracking.
+        # reshape to (B*T, d_in) for second-moment computation.
+        x_flat = x.detach().reshape(-1, x.shape[-1])
+        _newton_input_cache[weight_id] = x_flat
+
+    return hook
 
 
 def get_ns_coef_at_iter(iter_idx: int, total_iters: int, schedule: str) -> tuple[float, float, float]:
@@ -703,7 +742,11 @@ def muon_update(grad, momentum, v, ns_iters: int, mu=0.95, beta2=0.999, eps=1e-8
     return update
 
 class Muon(torch.optim.Optimizer):
-    def __init__(self, params, lr=0.02, weight_decay=0, mu=0.95, beta2=0.999, eps=1e-8):
+    def __init__(self, params, lr=0.02, weight_decay=0, mu=0.95, beta2=0.999, eps=1e-8,
+                 newton_precond: bool = False, newton_beta: float = 0.95,
+                 newton_eps: float = 1e-4, newton_update_period: int = 10,
+                 newton_max_d_in: int = 1024,
+                 newton_input_cache: dict | None = None):
         assert isinstance(params, list) and len(params) >= 1
         if isinstance(params[0], dict):
             # list-of-dicts param_groups: sort each group's params by size.
@@ -729,9 +772,109 @@ class Muon(torch.optim.Optimizer):
         # the training loop reads back after the optimizer step.
         self.spectral_telemetry_param: torch.nn.Parameter | None = None
         self.spectral_stats: dict[str, float] | None = None
+        # === Newton-Muon (#1138) ===
+        # newton_precond=False -> bit-identical baseline. When True, before the
+        # standard Muon update we right-precondition G with (X^T X)^{-1/2} where
+        # X is captured per-step via the forward hooks registered in the
+        # training script (see _make_newton_input_hook). EMA on R is decoupled
+        # from eigendecomp via newton_update_period (eigendecomp runs every k
+        # steps; EMA refreshes on the same cadence using the latest cached X).
+        self.newton_precond = bool(newton_precond)
+        self.newton_beta = float(newton_beta)
+        self.newton_eps = float(newton_eps)
+        self.newton_update_period = int(newton_update_period)
+        self.newton_max_d_in = int(newton_max_d_in)
+        self.newton_input_cache = newton_input_cache if newton_input_cache is not None else {}
+        self._newton_step_count = 0
+        # Accumulator dict reset each step() — read by the training loop after
+        # step() for W&B logging. Keys: cond_max, cond_min, cond_sum, cond_n,
+        # inv_sqrt_norm_sum, precond_ratio_sum, precond_ratio_n, applied_n.
+        self.newton_telemetry: dict = {}
+        # Telemetry gating flag: training loop sets True on telemetry_due steps
+        # to enable the sync-y per-param diagnostics; False otherwise to keep
+        # the GPU pipeline async (item() calls block the CPU and serialize work).
+        self.newton_telemetry_due: bool = False
 
     def set_ns_iters_this_step(self, ns_iters: int) -> None:
         self.ns_iters_this_step = int(ns_iters)
+
+    def _apply_newton_precondition(self, p, grad, state):
+        """Right-precondition grad by (X^T X)^{-1/2} for body Muon matrices.
+
+        Returns the preconditioned gradient (new tensor, same dtype as grad) or
+        None if preconditioning should be skipped for this param (no cached X,
+        d_in too large, or eigendecomp failed).
+
+        Telemetry .item() calls force CUDA syncs and gate GPU pipelining, so they
+        are guarded behind self.newton_telemetry_due (set by the training loop
+        before step()) — async-only path on non-telemetry steps.
+        """
+        if p.ndim != 2:
+            return None
+        d_out, d_in = grad.shape
+        if d_in > self.newton_max_d_in:
+            return None
+        pid = id(p)
+        x = self.newton_input_cache.get(pid)
+        if x is None:
+            return None
+        # Update R EMA + eigendecomp every newton_update_period steps (and at first call).
+        update_R = (
+            "R" not in state
+            or (self._newton_step_count % self.newton_update_period == 1)
+        )
+        if update_R:
+            x32 = x.float()
+            # R_new = (X^T X) / N, shape (d_in, d_in) in float32 for eigendecomp stability.
+            n = x32.shape[0]
+            R_new = (x32.T @ x32) / float(n)
+            if "R" not in state:
+                state["R"] = R_new.clone()
+            else:
+                b = self.newton_beta
+                state["R"].mul_(b).add_(R_new, alpha=1.0 - b)
+            # Symmetric eigendecomp -> inverse square root with eigenvalue floor.
+            try:
+                vals, vecs = torch.linalg.eigh(state["R"])
+                vals_clamped = vals.clamp(min=0.0) + self.newton_eps
+                inv_sqrt_vals = vals_clamped.rsqrt()
+                # R_inv_sqrt = V * diag(inv_sqrt_vals) * V^T (symmetric).
+                state["R_inv_sqrt"] = (vecs * inv_sqrt_vals.unsqueeze(0)) @ vecs.T
+                # Stash eigvals on-device for lazy telemetry — no sync here.
+                state["_R_vals_clamped"] = vals_clamped
+            except Exception:
+                state.pop("R_inv_sqrt", None)
+                state.pop("_R_vals_clamped", None)
+        R_inv_sqrt = state.get("R_inv_sqrt")
+        if R_inv_sqrt is None:
+            return None
+        # G @ R_inv_sqrt: float32 matmul, then cast back to grad dtype.
+        g32 = grad.float()
+        g_precond32 = g32 @ R_inv_sqrt
+        tel = self.newton_telemetry
+        tel["applied_n"] = tel.get("applied_n", 0) + 1
+        # Only force CUDA syncs for telemetry on telemetry-due steps. The rest
+        # of the time we keep the GPU pipeline full and avoid blocking the CPU.
+        if self.newton_telemetry_due:
+            vals_clamped = state.get("_R_vals_clamped")
+            if vals_clamped is not None:
+                cond = float((vals_clamped.max() / vals_clamped.min()).item())
+                tel["cond_max"] = max(tel.get("cond_max", 0.0), cond)
+                tel["cond_min"] = min(tel.get("cond_min", float("inf")), cond)
+                tel["cond_sum"] = tel.get("cond_sum", 0.0) + cond
+                tel["cond_n"] = tel.get("cond_n", 0) + 1
+            tel["inv_sqrt_norm_sum"] = tel.get("inv_sqrt_norm_sum", 0.0) + float(
+                R_inv_sqrt.norm().item()
+            )
+            # precond_ratio = ||G @ R_inv_sqrt|| / ||G||  (Frobenius norms).
+            g_norm = float(g32.norm().item())
+            if g_norm > 1e-30:
+                tel["precond_ratio_sum"] = (
+                    tel.get("precond_ratio_sum", 0.0)
+                    + float(g_precond32.norm().item()) / g_norm
+                )
+                tel["precond_ratio_n"] = tel.get("precond_ratio_n", 0) + 1
+        return g_precond32.to(grad.dtype)
 
     @torch.no_grad()
     def step(self):
@@ -742,6 +885,9 @@ class Muon(torch.optim.Optimizer):
         # Reset spectral_stats at the start of each step; only the rank that
         # owns the tracked parameter on this round-robin shard will repopulate.
         self.spectral_stats = None
+        if self.newton_precond:
+            self._newton_step_count += 1
+            self.newton_telemetry = {}
         for group in self.param_groups:
             params = group["params"]
             params_pad = params + [torch.empty_like(params[-1])] * (world_size - len(params) % world_size)
@@ -752,7 +898,16 @@ class Muon(torch.optim.Optimizer):
                     if len(state) == 0:
                         state["momentum"] = torch.zeros_like(p)
                         state["v"] = torch.zeros_like(p)
-                    update = muon_update(p.grad, state["momentum"], state["v"],
+                    # === Newton right-preconditioning (#1138). Applied BEFORE
+                    # momentum/v buffers so they accumulate preconditioned
+                    # gradients (matches paper pipeline order: G @ R^{-1/2}
+                    # -> momentum -> v normalization -> NS5 -> update).
+                    grad_for_update = p.grad
+                    if self.newton_precond:
+                        g_precond = self._apply_newton_precondition(p, p.grad, state)
+                        if g_precond is not None:
+                            grad_for_update = g_precond
+                    update = muon_update(grad_for_update, state["momentum"], state["v"],
                                          ns_iters=ns_iters,
                                          mu=group["mu"], beta2=group["beta2"], eps=group["eps"])
                     if spectral_target is not None and p is spectral_target:
@@ -824,6 +979,14 @@ print0(f"  Effective Muon base LRs: attn={0.035*NANOGPT_MUON_ATTN_LR_MULT:.5f} m
 print0(f"EMBED_INIT_ANCHOR_LAMBDA: {NANOGPT_EMBED_INIT_ANCHOR_LAMBDA} "
        f"({'ACTIVE' if NANOGPT_EMBED_INIT_ANCHOR_LAMBDA > 0 else 'INACTIVE (bit-identical fallback)'})",
        console=True)
+print0(
+    f"NEWTON_MUON: use_precond={'True' if NANOGPT_NEWTON_MUON else 'False'} "
+    f"lr_scale={NANOGPT_NEWTON_MUON_LR_SCALE} "
+    f"update_period={NANOGPT_NEWTON_MUON_UPDATE_PERIOD} "
+    f"beta={NANOGPT_NEWTON_MUON_BETA} eps={NANOGPT_NEWTON_MUON_EPS} "
+    f"max_d_in={NANOGPT_NEWTON_MUON_MAX_D_IN}",
+    console=True,
+)
 if NS_ITERS_COOLDOWN > 0:
     print0(f"NS_SCHEDULE: ns_iters={NS_ITERS} -> ns_iters_cooldown={NS_ITERS_COOLDOWN} "
            f"at fraction {NS_COOLDOWN_START_FRAC} of train_steps "
@@ -846,6 +1009,46 @@ mbs = 64
 val_inputs, val_targets = next(distributed_data_generator("data/fineweb10B/fineweb_val_*.bin", val_tokens))
 
 model = GPT(vocab_size=50304, num_layers=12, model_dim=768).cuda()
+
+# === Newton-Muon (#1138) forward hook registration ===
+# Must run BEFORE model.compile() so the hooks are part of the compiled graph.
+# Hooks fire on every forward of body Muon modules and overwrite the cached X
+# with the latest microbatch's input activations. When NEWTON_MUON=0 we skip
+# hook registration entirely, leaving the path bit-identical to baseline.
+_newton_hook_handles: list = []
+if NANOGPT_NEWTON_MUON:
+    muon_attn_param_ids = {
+        id(p) for n, p in model.blocks.named_parameters()
+        if p.ndim >= 2 and ".attn." in n
+    }
+    muon_mlp_param_ids = {
+        id(p) for n, p in model.blocks.named_parameters()
+        if p.ndim >= 2 and ".mlp." in n
+    }
+    muon_param_ids = muon_attn_param_ids | muon_mlp_param_ids
+    _newton_hook_count = 0
+    _newton_hook_skipped_d_in = 0
+    for name, module in model.named_modules():
+        w = getattr(module, "weight", None)
+        if isinstance(w, torch.nn.Parameter) and id(w) in muon_param_ids:
+            # Skip registering hooks on modules whose input dim exceeds the cap;
+            # they would never be preconditioned anyway, and the hook itself
+            # already shortcircuits, but avoiding registration saves graph nodes.
+            in_features = getattr(module, "in_features", None)
+            if in_features is None or in_features <= NANOGPT_NEWTON_MUON_MAX_D_IN:
+                handle = module.register_forward_hook(
+                    _make_newton_input_hook(w, NANOGPT_NEWTON_MUON_MAX_D_IN)
+                )
+                _newton_hook_handles.append(handle)
+                _newton_hook_count += 1
+            else:
+                _newton_hook_skipped_d_in += 1
+    print0(
+        f"NEWTON_MUON: hooks registered for {_newton_hook_count} parameter modules "
+        f"(skipped {_newton_hook_skipped_d_in} d_in>{NANOGPT_NEWTON_MUON_MAX_D_IN})",
+        console=True,
+    )
+
 model.compile(dynamic=False)
 
 module_types = param_module_types(model)
@@ -896,6 +1099,12 @@ if dist.get_rank() == 0:
             "nanogpt_ns_stochastic_cooldown": NANOGPT_NS_STOCHASTIC_COOLDOWN,
             "senpai_seed": NANOGPT_SENPAI_SEED if NANOGPT_SENPAI_SEED is not None else -1,
             "nanogpt_embed_init_anchor_lambda": NANOGPT_EMBED_INIT_ANCHOR_LAMBDA,
+            "nanogpt_newton_muon": NANOGPT_NEWTON_MUON,
+            "nanogpt_newton_muon_lr_scale": NANOGPT_NEWTON_MUON_LR_SCALE,
+            "nanogpt_newton_muon_update_period": NANOGPT_NEWTON_MUON_UPDATE_PERIOD,
+            "nanogpt_newton_muon_beta": NANOGPT_NEWTON_MUON_BETA,
+            "nanogpt_newton_muon_eps": NANOGPT_NEWTON_MUON_EPS,
+            "nanogpt_newton_muon_max_d_in": NANOGPT_NEWTON_MUON_MAX_D_IN,
         },
     )
 
@@ -950,9 +1159,19 @@ for trial_idx in range(args.num_trials):
     muon_mlp_params = [p for n, p in model.blocks.named_parameters()
                        if p.ndim >= 2 and ".mlp." in n]
     optimizer2 = Muon(
-        [dict(params=muon_attn_params, lr=0.035 * NANOGPT_MUON_ATTN_LR_MULT, name="muon_attn"),
-         dict(params=muon_mlp_params,  lr=0.035 * NANOGPT_MUON_MLP_LR_MULT,  name="muon_mlp")],
+        [dict(params=muon_attn_params,
+              lr=0.035 * NANOGPT_MUON_ATTN_LR_MULT * NANOGPT_NEWTON_MUON_LR_SCALE,
+              name="muon_attn"),
+         dict(params=muon_mlp_params,
+              lr=0.035 * NANOGPT_MUON_MLP_LR_MULT * NANOGPT_NEWTON_MUON_LR_SCALE,
+              name="muon_mlp")],
         weight_decay=0.025,
+        newton_precond=bool(NANOGPT_NEWTON_MUON),
+        newton_beta=NANOGPT_NEWTON_MUON_BETA,
+        newton_eps=NANOGPT_NEWTON_MUON_EPS,
+        newton_update_period=NANOGPT_NEWTON_MUON_UPDATE_PERIOD,
+        newton_max_d_in=NANOGPT_NEWTON_MUON_MAX_D_IN,
+        newton_input_cache=_newton_input_cache,
     )
     print0(f"MUON_PARAM_COUNTS: attn={len(muon_attn_params)} mlp={len(muon_mlp_params)} "
            f"(expected 48 attn / 24 mlp for 12-layer block stack)", console=True)
@@ -1205,8 +1424,46 @@ for trial_idx in range(args.num_trials):
             if len(ns_iters_history) > 100:
                 del ns_iters_history[:-100]
             ns_cumulative_iters += ns_iters_this_step
+        # Tell Newton-Muon whether to compute telemetry diagnostics this step
+        # (gated to avoid per-param CUDA syncs on the hot path).
+        if getattr(optimizer2, "newton_precond", False):
+            optimizer2.newton_telemetry_due = bool(telemetry_due)
         for opt in optimizers:
             opt.step()
+        # === Newton-Muon (#1138) per-step telemetry. ===
+        # The accumulator dict was reset and populated inside Muon.step(); read
+        # it back on rank 0 and emit summary scalars to W&B at telemetry_due
+        # cadence. When newton_precond=False the dict stays empty so no extra
+        # keys are logged (bit-identical reporting to baseline).
+        if (
+            dist.get_rank() == 0
+            and getattr(optimizer2, "newton_precond", False)
+            and telemetry_due
+        ):
+            tel = optimizer2.newton_telemetry
+            applied = tel.get("applied_n", 0)
+            newton_metrics = {
+                "trial": trial_idx,
+                "train/step": train_step,
+                "newton_muon/params_preconditioned": applied,
+            }
+            cond_n = tel.get("cond_n", 0)
+            if cond_n > 0:
+                newton_metrics["newton_muon/R_condition_number_mean"] = (
+                    tel["cond_sum"] / cond_n
+                )
+                newton_metrics["newton_muon/R_condition_number_max"] = tel["cond_max"]
+                newton_metrics["newton_muon/R_condition_number_min"] = tel["cond_min"]
+            if applied > 0:
+                newton_metrics["newton_muon/R_inv_sqrt_norm_mean"] = (
+                    tel["inv_sqrt_norm_sum"] / applied
+                )
+            ratio_n = tel.get("precond_ratio_n", 0)
+            if ratio_n > 0:
+                newton_metrics["newton_muon/precond_ratio_mean"] = (
+                    tel["precond_ratio_sum"] / ratio_n
+                )
+            wandb.log(newton_metrics, step=wandb_step)
         # Init-anchored WD on embed (#847, env-var-gated). After both optimizers
         # have stepped, apply `p -= lr_embed * lambda * (p - p_init)`. Order vs
         # optimizer2.step() does not matter because the hook only touches
