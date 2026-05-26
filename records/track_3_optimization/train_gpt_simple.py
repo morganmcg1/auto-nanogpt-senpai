@@ -6,6 +6,7 @@ It was prepared as a simplified version of the speedrun for use in neural net op
 """
 
 import os
+import re
 import sys
 with open(sys.argv[0]) as f:
     code = f.read() # read the code of this file ASAP, for logging
@@ -456,6 +457,17 @@ MU_WARMUP_STEPS = int(os.environ.get("MU_WARMUP_STEPS", "0"))
 MU_WARMUP_START = float(os.environ.get("MU_WARMUP_START", "0.85"))
 MUON_LR = float(os.environ.get("MUON_LR", "0.0375"))
 MUON_WEIGHT_DECAY = 0.025  # nominal; Muon.step does not apply explicit wd (u/w-floor replaces it)
+# PR #1341: per-layer β1 depth-ramp (mean-preserving) with optional continuous-decay schedule.
+# At MUON_BETA_DEPTH_RAMP=R, block i's offset = R * (i/(N-1) - 0.5) → l0 gets -R/2, l(N-1) gets +R/2.
+# Default 0.0 zeros all offsets → bytewise-identical to baseline.
+MUON_BETA_DEPTH_RAMP = float(os.environ.get("MUON_BETA_DEPTH_RAMP", "0.0"))
+# When MUON_BETA_RAMP_DECAY=1, multiply offsets by linear decay factor:
+#   step 0 → factor 1.0 (full ramp)
+#   step MUON_BETA_RAMP_DECAY_END → factor 0.0 (uniform β across depth)
+#   step > END → stays at 0.0 (cooldown phase has uniform β)
+# Default 0 = no decay (matches monotonic linear ramp).
+MUON_BETA_RAMP_DECAY = int(os.environ.get("MUON_BETA_RAMP_DECAY", "0"))
+MUON_BETA_RAMP_DECAY_END = int(os.environ.get("MUON_BETA_RAMP_DECAY_END", "3016"))
 TARGET_UW = 0.35
 NORMUON_BETA2 = 0.95
 SOAP_BETA2 = 0.90
@@ -652,12 +664,50 @@ class Muon(torch.optim.Optimizer):
                     self.attn_soap_kind[id(p)] = "v"
                 elif n.endswith(".attn.proj.weight"):
                     self.attn_soap_kind[id(p)] = "proj"
+        # PR #1341: per-block β1 depth-ramp offset (mean-preserving).
+        # named_params come from model.blocks.named_parameters(), so names look like
+        # "<block_idx>.attn.q.weight" (no "blocks." prefix). Also tolerate a "blocks."
+        # prefix in case the caller changes.
+        self.param_beta_offset: dict[int, float] = {}
+        self.block_idx_offsets: dict[int, float] = {}  # block_idx -> offset (for telemetry)
+        block_idx_re = re.compile(r"^(?:blocks\.)?(\d+)\.")
+        block_indices_seen: set[int] = set()
+        for n, p in named_params:
+            m = block_idx_re.match(n)
+            if m is None:
+                self.param_beta_offset[id(p)] = 0.0
+                continue
+            block_indices_seen.add(int(m.group(1)))
+        # Use the actual number of blocks observed in named_params so the mean-preserving
+        # formula stays valid regardless of model size (model has 12 transformer blocks).
+        N = max(2, len(block_indices_seen))
+        for n, p in named_params:
+            m = block_idx_re.match(n)
+            if m is None:
+                continue
+            block_idx = int(m.group(1))
+            offset = MUON_BETA_DEPTH_RAMP * (block_idx / (N - 1) - 0.5)
+            # Defensive: mu_kind must stay in (0, 1). With MU_COOLDOWN_START=0.95 and RAMP=0.04,
+            # max |offset| = 0.02 → max mu_kind = 0.97, min mu_kind = 0.93. Safe.
+            assert -0.05 < offset < 0.05, f"β offset {offset:.4f} out of safe range at block {block_idx}"
+            self.param_beta_offset[id(p)] = offset
+            self.block_idx_offsets[block_idx] = offset
+        # PR #1341: step counter for time-varying ramp decay.
+        self._step_counter = 0
+        self._last_decay_factor = 1.0
         params = sorted([p for _, p in named_params], key=lambda x: x.size(), reverse=True)
         defaults = dict(lr=lr, weight_decay=weight_decay, mu=mu)
         super().__init__(params, defaults)
 
     @torch.no_grad()
     def step(self):
+        # PR #1341: increment step counter and compute decay factor for β depth-ramp.
+        self._step_counter += 1
+        if MUON_BETA_RAMP_DECAY:
+            decay_factor = max(0.0, 1.0 - self._step_counter / MUON_BETA_RAMP_DECAY_END)
+        else:
+            decay_factor = 1.0
+        self._last_decay_factor = decay_factor
         world_size = dist.get_world_size()
         rank = dist.get_rank()
         for group in self.param_groups:
@@ -692,8 +742,14 @@ class Muon(torch.optim.Optimizer):
                                 state["trust_cos_row"] = 1.0
                                 state["trust_cos_col"] = 1.0
                     grad = p.grad
-                    state["momentum"].lerp_(grad, 1 - group["mu"])
-                    momentum_update = grad.lerp(state["momentum"], group["mu"])
+                    # PR #1341: per-block β1 with optional decay schedule. At default
+                    # (RAMP=0.0 and DECAY=0), offset=0 and decay_factor=1.0 → mu_kind=group["mu"].
+                    mu_kind = group["mu"] + decay_factor * self.param_beta_offset.get(id(p), 0.0)
+                    assert 0.0 < mu_kind < 1.0, (
+                        f"mu_kind={mu_kind:.4f} out of (0,1) at step {self._step_counter}"
+                    )
+                    state["momentum"].lerp_(grad, 1 - mu_kind)
+                    momentum_update = grad.lerp(state["momentum"], mu_kind)
                     use_soap = p in self.soap_params
                     use_attn_soap = p in self.attn_soap_params
                     # SOAP precondition applied to momentum BEFORE NS5+contra+NorMuon
@@ -719,6 +775,28 @@ class Muon(torch.optim.Optimizer):
                                      use_trust_gate=True,
                                      trust_threshold=ATTN_SOAP_TRUST_THRESHOLD)
                 dist.all_gather(params_pad[base_i:base_i + world_size], params_pad[base_i + rank])
+
+    def mu_kind_stats(self, base_mu: float) -> dict[str, float]:
+        """PR #1341: per-block β1 (mu_kind) telemetry.
+
+        Returns keys: decay_factor, mu_kind/min, mu_kind/max, mu_kind/range,
+        mu_kind/block_<i> for each block, and offset/block_<i> for the raw
+        depth-ramp offset (independent of decay).
+        """
+        if not self.block_idx_offsets:
+            return {}
+        decay_factor = getattr(self, "_last_decay_factor", 1.0)
+        stats: dict[str, float] = {"decay_factor": decay_factor}
+        mu_kinds: list[float] = []
+        for bi, off in sorted(self.block_idx_offsets.items()):
+            mu_kind = base_mu + decay_factor * off
+            stats[f"mu_kind/block_{bi}"] = mu_kind
+            stats[f"offset/block_{bi}"] = off
+            mu_kinds.append(mu_kind)
+        stats["mu_kind/min"] = min(mu_kinds)
+        stats["mu_kind/max"] = max(mu_kinds)
+        stats["mu_kind/range"] = max(mu_kinds) - min(mu_kinds)
+        return stats
 
     def trust_gate_stats(self) -> dict[str, float]:
         """Return aggregate + per-weight-type trust-gate telemetry across attention SOAP params.
@@ -856,6 +934,9 @@ if dist.get_rank() == 0:
             "optimizer/mu_warmup_steps": MU_WARMUP_STEPS,
             "optimizer/mu_warmup_start": MU_WARMUP_START,
             "optimizer/muon_lr": MUON_LR,
+            "optimizer/muon_beta_depth_ramp": MUON_BETA_DEPTH_RAMP,
+            "optimizer/muon_beta_ramp_decay": MUON_BETA_RAMP_DECAY,
+            "optimizer/muon_beta_ramp_decay_end": MUON_BETA_RAMP_DECAY_END,
             "optimizer/muon_weight_decay_nominal": MUON_WEIGHT_DECAY,
             "optimizer/target_uw": TARGET_UW,
             "optimizer/normuon_beta2": NORMUON_BETA2,
@@ -1059,6 +1140,13 @@ for trial_idx in range(args.num_trials):
                     stats = opt.trust_gate_stats()
                     if stats:
                         wandb.log(prefixed("train/attn_soap_trust_gate", stats), step=wandb_step)
+                if hasattr(opt, "mu_kind_stats"):
+                    for g in opt.param_groups:
+                        if g.get("name") == "muon_blocks":
+                            mks = opt.mu_kind_stats(g["mu"])
+                            if mks:
+                                wandb.log(prefixed("train/muon_beta_ramp", mks), step=wandb_step)
+                            break
         if dist.get_rank() == 0 and telemetry_due:
             log_weight_telemetry(
                 model=model,
