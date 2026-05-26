@@ -83,6 +83,13 @@ def parse_args():
              "muall=musoft + non-residual block 2D weights also scaled by 1/sqrt(L); "
              "smallconst=std=1e-3 depth-independent.",
     )
+    parser.add_argument("--mu_cooldown_target", type=float, default=0.95,
+                        help="Muon momentum target at end of cooldown (default=0.95 = no change). "
+                             "Set <0.95 to decay mu linearly from cooldown_start to train_steps.")
+    parser.add_argument("--mu_cooldown_instant", action="store_true",
+                        help="If set, instantly switch mu to mu_cooldown_target at cooldown_start (no linear ramp).")
+    parser.add_argument("--mu_cooldown_full_run", action="store_true",
+                        help="If set, apply mu_cooldown_target from step 0 over the full training (Cell E falsifier).")
     args = parser.parse_args()
     args.num_trials = args.num_trials if args.num_trials is not None else (args.legacy_num_trials or 1)
     args.wandb_tags = [tag.strip() for tag in args.wandb_tags.split(",") if tag.strip()]
@@ -878,6 +885,22 @@ for trial_idx in range(args.num_trials):
         else:
             raise ValueError(f"Unknown wd_schedule: {schedule}")
 
+    def _mu_schedule(step, total_steps, cooldown_frac, mu_target, instant=False, full_run=False):
+        mu_init = 0.95
+        if mu_target == mu_init and not full_run:
+            return mu_init
+        cooldown_start = int(total_steps * (1 - cooldown_frac))
+        if full_run:
+            return mu_init + (mu_target - mu_init) * (step / total_steps)
+        if step < cooldown_start:
+            return mu_init
+        if instant:
+            return mu_target
+        progress = (step - cooldown_start) / max(1, total_steps - cooldown_start)
+        return mu_init + (mu_target - mu_init) * min(1.0, progress)
+
+    mu_active = args.mu_cooldown_target != 0.95 or args.mu_cooldown_full_run
+
     # learning rate schedule: stable then decay
     def set_hparams(step, cooldown_frac=0.7):
         progress = step / train_steps
@@ -887,11 +910,23 @@ for trial_idx in range(args.num_trials):
         else:
             eta = (1 - progress) / cooldown_frac
         wd_mu = _wd_multiplier(step, train_steps, args.wd_schedule)
+        if mu_active:
+            current_mu = _mu_schedule(
+                step, train_steps, cooldown_frac,
+                args.mu_cooldown_target,
+                instant=args.mu_cooldown_instant,
+                full_run=args.mu_cooldown_full_run,
+            )
+        else:
+            current_mu = 0.95
         for opt in optimizers:
             for group in opt.param_groups:
                 group["lr"] = group["initial_lr"] * eta
                 if "initial_wd" in group and group.get("name", "").startswith("muon_"):
                     group["weight_decay"] = group["initial_wd"] * wd_mu
+                if mu_active and group.get("name", "").startswith("muon_"):
+                    group["mu"] = current_mu
+        return current_mu
 
 
     ########################################
@@ -980,7 +1015,7 @@ for trial_idx in range(args.num_trials):
         dist.all_reduce(step_loss, op=dist.ReduceOp.SUM)
         train_loss = float((step_loss / batch_size).item())
         # set optimization hyperparameters and take a step
-        set_hparams(step)
+        current_mu = set_hparams(step)
         train_step = step + 1
         telemetry_due = (step == 0 or (step + 1) % args.telemetry_interval == 0 or step + 1 == train_steps)
         histogram_due = (step == 0 or (step + 1) % args.histogram_interval == 0 or step + 1 == train_steps)
@@ -1026,6 +1061,7 @@ for trial_idx in range(args.num_trials):
                 per_group_metrics["train/wd_mlp_now"] = current_wds.get("muon_mlp", 0.0)
                 per_group_metrics["train/wd_attn_now"] = current_wds.get("muon_attn", 0.0)
                 per_group_metrics["train/wd_schedule_progress"] = train_step / train_steps
+                per_group_metrics["muon/mu"] = current_mu
                 wandb.log(per_group_metrics, step=wandb_step)
         if dist.get_rank() == 0 and optimizer2.cos_sims_buffer:
             cs_names = list(optimizer2.cos_sims_buffer.keys())
