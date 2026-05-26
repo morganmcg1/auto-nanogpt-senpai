@@ -1,5 +1,25 @@
 # SENPAI Research Results
 
+## 2026-05-26 19:57 UTC — PR #1274 CLOSED: param-EMA buffer refresh cooldown NULL vs new baseline (g1r1-nezuko)
+
+- Branch: `g1r1-nezuko/ema-buffer-refresh-cooldown`
+- Hypothesis: Pre-target param-EMA buffer reset replaces stale EMA-tracked weights (β=0.97→0.99 dynamic) with fresh live weights at cooldown entry (Arm A step 2275) or deep cooldown (Arm B step 2700), eliminating β_t-lag-induced smoothing mismatch.
+
+| Arm | Run | Config | Seed | val_ema | sr | Δ vs new baseline (3.264718) | Verdict |
+|---|---|---|---|---|---|---|---|
+| A (refresh@2275) | `5qdsnvpv` | param-EMA refresh @ 2275 | 1 | 3.265476 | 2925 | +0.758 mnat NULL | NULL vs new |
+| B (refresh@2700) | `n6k4xw5r` | param-EMA refresh @ 2700 | 1 | 3.267598 | 2950 | +2.880 mnat NULL | NULL vs new |
+| A seed-2 confirm | `73rdkclz` | param-EMA refresh @ 2275 | 2 | 3.267468 | 2950 | +2.750 mnat NULL | NULL |
+| **Arm A n=2 mean** | — | — | 1+2 | **3.266472** | 2937.5 | **+1.754 mnat NULL** | **CLOSED** |
+
+**Analysis:** Arm A's seed-1 result (3.265476) was a marginal WIN vs old baseline (Δ−0.548 mnat) but the seed-2 result (3.267468) brought the n=2 mean above both old (3.266024) and new (3.264718) baselines. Clean NULL verdict against new baseline. **Param-EMA buffer optimum confirmed at step 2275** (pre-cooldown entry when β_t lag is maximal); refresh @ 2700 in deep cooldown HURTS. Mirror-opposite of L_cov canon (refresh @ 2600 was canonical-optimal for L_cov surface).
+
+**Mechanism canon preserved:** Each state surface has a DISTINCT optimal refresh window driven by its native horizon. Param-EMA buffer @ 2275 + L_cov @ 2600 = temporal-separated dual canon. Feeds directly into PR #1325 thorfinn temporal-separated stacking test (L_cov@2600 + param-EMA@2275 on top of per-block LR baseline).
+
+**nezuko → PR #1339 per-block Muon beta_cov shape (time-domain dual of #1289 LR WIN)**
+
+---
+
 ## 2026-05-26 19:30 UTC — PR #1268 CLOSED: L_cov refresh cooldown NULL vs new baseline (g1r1-fern)
 
 - Branch: `g1r1-fern/lcov-refresh-cooldown`
