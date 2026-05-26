@@ -1,3 +1,28 @@
+## 2026-05-26 09:00 — PR #1241: H169 nezuko Adan-on-aux (Nesterov gradient-difference correction) — BILATERAL NEG (27th NULL/NEG closure + AdamW-EXTENSION axis programme closing)
+
+- Branch: `g1r3-nezuko/h169-adan-aux`
+- Hypothesis: Adan (Xie et al. 2021) uses `g_t - g_{t-1}` Nesterov correction in gradient numerator and denominator to track local gradient curvature. If aux LR is too large in late training, Adan's forward look-ahead should dampen oscillation.
+
+| arm | target | W&B | val/loss | Δ vs baseline (3.26364) | FFS | Δ FFS vs baseline | Verdict |
+|-----|--------|-----|---------|------------------------|-----|-------------------|---------|
+| arm_a CTRL (use_adan=0) | — | `jggrsl9n` | **3.26564** | +0.00200 | **3150** | +25 | CTRL drift (10th sample) |
+| arm_b ADAN_LM_HEAD | lm_head_only | `ihy3kuws` | **3.26918** | +0.00554 | **3175** | +50 | **NEG vs CTRL** |
+| arm_c ADAN_EMBED | embed_only | `l9endhtq` | **3.27408** | +0.01044 | **3225** | +100 | **NEG vs CTRL** (worst arm) |
+
+WIN <3.26284: 0/3. FFS<3125: 0/3.
+
+### Programme-grade Finding: Adan Nesterov correction is ANTI-SIGNAL on aux
+
+`g_diff_norm_ratio ≈ 1.5-2×` sustained (mechanism strongly engaged, not no-op). `n_vs_v_t_ratio ≈ 600-900×` — Adan's denominator 600-900× larger than AdamW's `v_t`. Mechanism ENGAGED but HARMFUL. Per-step gradient noise dominates the look-ahead signal at aux scale: `g_t - g_{t-1}` is mostly stochasticity, not curvature. Over-inflated denominator shrinks step magnitudes systematically and amplifies noise.
+
+**Cross-portfolio AdamW-EXTENSION closure**: H167 AdamP (CLEAR NEG, F-norm load-bearing) + H168 AdaBelief (bilateral NULL, erosion not variance-driven) + H169 Adan (bilateral NEG, Nesterov anti-signal) = three consecutive mechanism-axis closures. Strategy shift: future aux work should target architecturally different preconditioners (Sophia, SOAP) or the m_t / cooldown LR schedule — NOT AdamW-family extensions.
+
+### Follow-up: H176 nezuko ASSIGNED (PR #1278) — H162 calib=50 ultra-early chain
+
+Fills calib=50 row (mid-warmup): arm_b exp=0.5/calib=50 and arm_c exp=1.0/calib=50. Completes the calib ∈ {50, 100, 200} characterization of the H162 (exp, calib) plane.
+
+---
+
 ## 2026-05-26 08:00 — PR #1237: H168 fern AdaBelief-on-aux (variance second-moment test) — BILATERAL NULL (26th NULL/NEG closure + 1 programme-grade mechanism refutation)
 
 - Branch: `g1r3-fern/h168-adabelief-aux`
