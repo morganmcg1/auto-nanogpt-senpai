@@ -3,6 +3,34 @@
 This file logs experiment outcomes as PRs land. The historical track 3
 leaderboard is captured in `/BASELINE.md`.
 
+## 2026-05-26 17:13 UTC — PR #1277: H1 Step-gated Newton-Muon (nezuko) — CLOSED productive-NEG (42nd no-merge)
+
+- Branch: `g1r4-nezuko/step-gated-newton-muon`
+- Hypothesis (Issue #1261 directive bullet H1 "Newton-Muon only after X"): Newton-Muon right-precondition gated to activate at `START_STEP` ∈ {0, 2000, 2200, 2400} to test if late-only NM is sufficient — would both save compute AND validate "help BEFORE crossing, not just improve final val" thesis. Sequential 4-arm chain on post-#1138 stack with `NANOGPT_NEWTON_MUON_START_STEP` env var.
+
+| Arm | `START_STEP` | val/loss | fs | Δ_paired_val | Δ_paired_fs | Verdict |
+|:---:|:---:|:---:|:---:|:---:|:---:|---|
+| **A ctrl** | 0 (always-on) | **3.26719** | **3175** | (ref) | (ref) | drift +0.00105 PASS-CLEAN |
+| **B gate2000** | 2000 | 3.26814 | 3200 | **+0.00095** | +25 | NULL-band (\|Δ\|≤0.0015) |
+| **C gate2200** | 2200 | 3.26967 | 3200 | **+0.00248** | +25 | PRODUCTIVE-NEG (>+0.0015 fence) |
+| **D gate2400** | 2400 | 3.26962 | 3200 | **+0.00243** | +25 | PRODUCTIVE-NEG (saturated with C) |
+
+- **Pre-staged decision tree resolution**: all 3 gated arms NULL or NEG with monotone B<C≈D saturation → productive-NEG closure. H1 axis empirically fenced for START_STEP ≥ 2000.
+- **Monotone NEG-with-saturation**: B (+0.00095 NULL) → C (+0.00248 NEG) → D (+0.00243 NEG ~= C). The saturation between C and D suggests almost all of NM's val contribution is built up via R-buffer EMA convergence in the [0, 2200] pre-cooldown window. Past that point, the harm from delayed activation saturates because there's no more pre-gate NM accumulation left to lose.
+- **fs uniformly +25** for all gated arms vs ctrl — NM contributes to FFS continuously, not just at endpoint. Directly contradicts the "NM has zero pre-crossing FFS effect" sub-hypothesis.
+- **🎯 HEADLINE — H1 (delay) and H2 (refresh) are NOT the same mechanism**: This result is CRUCIAL evidence ruling out the confound 'maybe #1281 H2 wins because there's less NM in pre-cooldown window'. The monotone NEG with later START_STEP proves the opposite: more pre-cooldown NM is HELPFUL, less is HARMFUL. Therefore #1281 H2's favorable signal is specifically the **R-buffer-freshness-at-distribution-shift** mechanism, not the **less-NM-in-pre-cooldown** confound.
+- **Mechanism reconciliation across H1/H2/H3 chains**: H2 (RESET=2345) wins because NM runs continuously through the pre-cooldown window with R adapted to the full distribution, then refreshed cleanly when the cooldown LR shape shifts the activation distribution. H1 (this PR) deprives the model of that pre-cooldown adaptation entirely → fenced NEG. H3 #1280 (window [2400, 3000)) was NULL — late-window deactivation before cooldown finishing spares damage from stale R during cooldown finishing.
+- **Lesson learned: avoid forecasting terminal Δ from partial-trajectory data >3% of training remaining**: Cycle 347 partial-trajectory forecast was +0.00982 NEG for Arm B based on in-training val=3.27596 at step 3225/3350. Terminal val=3.26814 → Δ=+0.00095 NULL — val dropped 0.00782 in the last 125 steps of cooldown finishing. This lesson now propagates to all future partial-observation reviews.
+- **Directive alignment (Issue #1261)**: H1 directive bullet "Newton-Muon only after X" empirically fenced. Update directive thread to note this bullet is closed for START_STEP=2000+. The "help BEFORE crossing" thesis is REFUTED for temporal-gating axis — NM is FFS-load-bearing throughout training, NOT plateau-attack-only.
+- **Cross-chain validation summary** (3 of 4 directive bullets now terminal):
+  - H1 (nezuko #1277) "NM only after X" → **FENCED PRODUCTIVE-NEG** (this PR, monotone delay-NEG)
+  - H2 (edward #1281) "refresh/enable around cooldown entry" → **FAVORABLE** (Arm B Δ=−0.00225 + Arm C Δ=−0.00141 + Arm D Δ=−0.00186 triple-favorable, PP n=3 in flight)
+  - H3 (alphonse #1280) "short burst before expected crossing" → **NULL** (window [2400, 3000) fenced productive-NULL)
+  - H4 (fern #1286) "coverage/period tuned for steps 2400-3000" → **PARTIAL FAVORABLE** (Arm C late_maxd_4096 Δ=−0.00188 favorable, Arm B late_period=5 NULL-NEG, Arm D compound running)
+- **Suggested follow-ups not pursued** (per decision tree closure): finer gate-step sweep in [100, 1500] could test "warm up adam-only briefly" regime; orthogonal `END_STEP` "gate THROUGH cooldown only" inversion test. Both deferred — directive alignment is now LOW after H1 monotone fence, and the cross-chain mechanism narrative around H2's buffer-freshness lever is more productive than further H1-derivative sweeps.
+- **Student excellence**: clean `NANOGPT_NEWTON_MUON_START_STEP` env var plumbed through `Muon.__init__` with early-return None from `_maybe_compute_newton_precondition` when pre-gate (skips both R EMA update AND precondition application); R buffer fresh-init via existing `"R" not in state` branch (no zero-blend hack); telemetry `newton_muon/start_step_cfg`, `gated_active`, `steps_since_gate` confirmed gate flip mid-run on Arm D; drift-gate Arm A verified bit-equivalent to always-on path; honest mechanism reconciliation distinguishing H1 from H2 by elimination (productive-NEG with high information value).
+- **W&B run IDs**: `f1rzpq3w / zgjf77y3 / rmb35bu4 / haoj1bbw` (Arms A/B/C/D)
+
 ## 2026-05-26 12:30 UTC — PR #1231: Body Muon momentum bias correction (thorfinn) — CLOSED productive-NEG (41st no-merge)
 
 - Branch: `g1r4-thorfinn/body-muon-bias-correction`
