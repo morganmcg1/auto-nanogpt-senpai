@@ -1,5 +1,55 @@
 # SENPAI Research Results
 
+## 2026-05-26 07:50 UTC — PR #1201 CLOSED: Hybrid noisy exact polar (SVD + calibrated Gaussian noise) — 146th NULL, NS5 polar 10-axis canon COMPLETE, rank-preserving residual magnitude DECOUPLED from val (g1r1-alphonse)
+
+- Branch: `g1r1-alphonse/noisy-exact-polar`
+- Hypothesis: Decompose #1135's "imperfect polar helps" canon. Is it the cubic polynomial STRUCTURE that's load-bearing, or just the residual MAGNITUDE? Replace cubic NS5 with exact SVD + calibrated Gaussian noise to reproduce the residual magnitude WITHOUT the cubic structure.
+
+| Arm | σ | residual | wandb run | val/loss | sr | Δval (mnat) | Δsr | Verdict |
+|---|---|---|---|---|---|---|---|---|
+| Baseline (n=2) | — | NS5 cubic ≈ 0.067 | vm48fdof / 0a7esmxs | 3.266394 | 2925 | 0 | 0 | (reference) |
+| **A (matched)** | **5.4e-5** | **0.059 (match)** | `hrds5ojg` | **3.26916** | **2975** | **+2.76 (9σ)** | **+50** | clear NULL |
+| **B (3.3× elevated)** | **1.81e-4** | **0.197** | `jo32du86` | **3.26833** | **2950** | **+1.93 (6σ)** | **+25** | clear NULL |
+
+- **Predeclared merge rule:** both arms FAIL both clauses.
+- **Direction:** flat dose-response — Arm B at 3.3× elevated residual is slightly BETTER than Arm A at matched residual. The NULL is essentially constant within rank-preserving regime [0.007, 0.197].
+
+**MECHANISM CANON — RESIDUAL MAGNITUDE DECOUPLED FROM VAL in rank-preserving regime:**
+
+5-row comparison synthesizing #1135 + #1201:
+
+| polar method | residual | Δval (mnat) | rank-preserving? | source |
+|---|---|---|---|---|
+| NS5 cubic (baseline) | 0.067 | 0 | yes (stable_rank ≈ 426) | baseline |
+| svd_noisy σ_A=5.4e-5 | **0.059** | **+2.76 NULL** | yes (rank 349) | this PR Arm A |
+| svd_noisy σ_B=1.81e-4 | **0.197** | **+1.93 NULL** | yes (rank 346) | this PR Arm B |
+| exact SVD svd_full | ~0.007 | +3.02 NULL | yes (full rank) | #1135 Arm A |
+| svd_topk=256 | ~22.6 | +52.84 CATASTROPHIC | **NO (rank-limited)** | #1135 Arm B |
+
+**Refined NS5 polar canon (4 propositions):**
+1. **Residual magnitude is NOT the load-bearing axis within rank-preserving polar perturbations.** Across residual ∈ [0.007, 0.197] (28× range), val regresses by near-identical ~+2-3 mnat. Decoupled.
+2. **Cubic NS5 polynomial structure carries a small (~2-3 mnat) consistent benefit.** Every rank-preserving alternative regresses by ~+2-3 mnat. Mild support that Newton-Schulz fixed-point dynamics encode rank-direction-magnitude coupling beyond magnitude-matched noise.
+3. **Rank-truncation is the catastrophic regime** (52.84 mnat regression at rank-limited #1135 Arm B), NOT residual magnitude. Polar map must preserve the full SVD rank structure; magnitude within the orthogonal manifold neighborhood is permissible up to at least 0.20 residual.
+4. **Cross-axis #1166 cubic-coefficient canon:** cubic coefficients (1.5, -0.5) robust to ±0.2 perturbation TIGHTER side, fragile GENTLER. Combined: cubic FAMILY encodes load-bearing information beyond magnitude-matched noise, but ONLY ~2-3 mnat — not the dominant Muon lever.
+
+**Cooldown-recovery canon update (4th instance):** Advisor's step-2650 mid-cooldown projection of catastrophic Arm B (val_ema=3.308) was WRONG — Arm B recovered ~40 mnat in final 600 cooldown steps, landing slightly ahead of Arm A. **4th instance of cooldown-recovery exceeding mid-run extrapolation** (#1218 fern Arm B, #1166 tanjiro partial, #1129 edward partial, #1201 this). Future mid-run projections should reserve "CATASTROPHIC" until terminal.
+
+**NS5 polar-quality manifold — 10 mechanism-distinct closures, FULLY CHARACTERIZED:**
+- #884 NS_ITERS scan (optimal at 12)
+- #920 quintic at low iters
+- #1102 spectral-norm input
+- #1107 polar interpolation α
+- #1123 asymmetric γ_L/γ_R
+- #1135 exact SVD + topk truncation (rank load-bearing)
+- #1136 pre-NS5 gradient noise (CATASTROPHIC)
+- #1144 phase-schedule NS_ITERS
+- #1166 cubic coefficient (a, b)
+- **#1201 (this)** SVD + calibrated noise (magnitude decoupled)
+
+NS5 cubic + 12 iters + bilateral L^(-γ)R^(-γ) preconditioning is structurally optimal. Only mechanism-distinct sub-axes worth probing (e.g., post-polar magnitude modulation, polar input gradient construction).
+
+**146th NULL closed.** Per Issue #1252 directive (avoid further NS5 polar mining), alphonse → **mechanism #6 from aligned hypothesis queue: phase-gated u/w floor (TARGET_UW)** — directly addresses directive item "phase-specific mechanisms active only before target crossing window." Mechanism-distinct from #1170/#1176 (TARGET_UW value sweeps); tests *when* the floor is load-bearing, not *what value*.
+
 ## 2026-05-26 06:58 UTC — PR #1218 CLOSED: AdamW aux β2 static (0.99 vs 0.999 PyTorch default) — 145th NULL, AdamW aux family CLOSURE across 6 inner levers (g1r1-fern)
 
 - Branch: `g1r1-fern/adamw-aux-beta2-static`
