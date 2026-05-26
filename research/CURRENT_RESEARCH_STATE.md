@@ -1,3 +1,81 @@
+## 2026-05-26 20:40 UTC — Cycle 71 mid-296
+
+**Cumulative**: **181 refuted (+1: fern #1324 181st)** / **103 distinct mech classes (+1: 103rd MUON_BETA_RAMP_DECAY #1341)** / **57 family-level closures** / **6-way closure taxonomy unchanged**.
+
+**Load-bearing methodological closure**: fern #1324 DEFINITIVELY resolves the cluster-break-vs-RNG question that anchored cycle 71 for 5+ cycles.
+
+**This cycle — 1 closure (n=2 confirm cluster-band methodology resolution) + 1 reassignment (103rd mech, fresh phase-axis)**:
+
+1. **fern #1324 FERN_1267_N2_CONFIRM closed as 181st refute — n=2-CONFIRM subtype, DEFINITIVE methodological closure**:
+   - Seed-1 (#1267 Arm A `4piccwsm`): val=3.26872 ffs=3000
+   - Seed-2 (#1324 `1a4juvym`): val=**3.27156** ffs=**3025** — cluster member
+   - n=2 mean: val=**3.27014** ffs=3012.5 — FAILS merge bar by +0.00238 val, +12.5 ffs
+   - Inter-seed |Δval| = 0.00284 — within alphonse #1283 ~0.002-0.003 nat RNG noise band
+   - **fern #1267 Arm A retroactively reclassified as RNG-favorable cluster-edge extreme** (not structural cluster-break)
+   - **State-reset family 8/8 cells closed cluster** (M-only zero × M-only scale × V-only zero × V-only scale × M+V combined × no-reset baseline)
+   - **Cluster lower edge methodology established**: val ≈ 3.269 ffs 3025 is EMPIRICAL RNG-FLOOR for this stack
+   - **n=1 hold gate now TIGHTER**: `val ≤ 3.265 AND ffs ≤ 3000` (was nominally `< 3.26776`)
+   - Excellence: env-var schema verification pre-launch caught spec-vs-reference drift; trajectory side-by-side heartbeats set cycle-71 gold-standard
+
+2. **fern → #1341 MUON_BETA_RAMP_DECAY (103rd mech class)** — first continuous-decay schedule on per-layer dispatch axis in 320+ PR corpus:
+   - **Mechanism**: linear decay of β-favorable depth ramp (#1251 RAMP=+0.04 mean-preserving) from full magnitude at step 0 to zero at step 3016 (cooldown gate). Cooldown phase has uniform β.
+   - **Complementary to #1282 binary phase-gate** (cooldown-only ramp ON → cluster). This PR plateau-only ramp ON.
+   - **Discriminator**: tests whether β-favorable mechanism is plateau-localized vs persistent. #1251 + #1282 + this PR fully triangulate the {ramp magnitude × phase} axis.
+   - Cost ~15 LoC. Branch-isolated structural-exemption at default `MUON_BETA_RAMP_DECAY=0`.
+   - Morgan #1259-aligned: state-phase change × per-group depth mechanism. NOT scalar sweep.
+   - Single Arm A only (no bilateral needed — #1251 + #1282 + #613 baseline anchor points exist).
+
+**Active fleet status mid-296**:
+
+| Student | PR | Status | W&B notes |
+|---|---|---|---|
+| g1r2-alphonse | #1323 | status:wip, send-back active | MUON_BODY_ATTN_MLP_BETA_PHASE_DISPATCH (revised mults 1.03/0.97) |
+| g1r2-thorfinn | #1336 | status:wip, Arm A running | MUON_NESTEROV_INVERSE_PHASE_GATE (~40% merge prob) |
+| g1r2-nezuko | #1307 | status:wip, Arm A running | AUX_BIASES_LR_BOOST x2 boost |
+| g1r2-fern | #1341 NEW | status:wip, just assigned | MUON_BETA_RAMP_DECAY (103rd mech, plateau-only decay) |
+| g1r2-frieren | #1340 | status:wip, just assigned | MUON_BETA_LOCALIZED_STEP (102nd mech, locality discriminator) |
+| g1r2-askeladd | #1333 | status:wip, running | ATTN_SOAP_GRAM_REINIT_AT_COOLDOWN (100th mech) |
+| g1r2-tanjiro | #1316 | status:wip, Arm A running | MUON_BODY_POLYAK_AVERAGING (eval-state) |
+| g1r2-edward | #1335 | status:wip, Arm A running | EMBED_LR_PHASE_TRANSITION (101st mech) |
+
+**ZERO IDLE STUDENTS** — 8 students concurrently active.
+
+**Cluster-band saturation summary**:
+
+| Mechanism axis category | Closure depth | Cluster-break? |
+|---|---|---|
+| State perturbations (8-cell state-reset family) | DEFINITIVE n=2-confirm (#1324) | NO (cluster lower edge = RNG floor) |
+| Schedule perturbations (β1 cooldown depth-ramp #1282) | family closure | NO |
+| Magnitude perturbations (LR pulse #1296) | family closure | NO |
+| WD depth ramps (#1304) | 57th family closure | NO |
+| LR depth ramps (#1250) | family closure | NO |
+| AUX clip norm | family closure | NO |
+| Per-kind SOAP trust (#1301) | 56th family closure | NO |
+| Per-layer body-Muon-WD (#1304) | 57th family closure | NO |
+| Nesterov-form phase axis (#1306) | informative-crossover closure | NO |
+| LR×β paired-depth-ramp 2×2 (#1285 + #1312) | DEFINITIVE 2×2 closure | NO |
+| Per-structural-kind body Muon β (#1323) | mech #99 IN TEST (revised 1.03/0.97) | TBD |
+| Polyak averaging (#1316 eval-state) | mech #97 IN TEST | TBD |
+| SOAP Gram state-phase reset (#1333) | mech #100 IN TEST | TBD |
+| Embed-LR state-phase event (#1335) | mech #101 IN TEST | TBD |
+| Nesterov INVERSE phase gate (#1336) | data-motivated IN TEST | TBD (40% merge prob) |
+| Step-function β locality (#1340) | mech #102 IN TEST | TBD |
+| **Continuous decay of β ramp (#1341 NEW)** | **mech #103 ASSIGNED** | TBD |
+
+**Cluster band saturation extends across 11 distinct dispatch axes + 8-cell state-reset family + 5 magnitude perturbation directions. Empirical RNG-floor confirmed at val ≈ 3.269 ffs 3025.**
+
+**Five novel mechanism classes simultaneously in test** (#1316 eval-state, #1323 per-kind body β, #1333 SOAP Gram, #1335 embed-LR phase, #1340 β-locality step). Six novel mech classes assigned in cycle 71. Three of seven open PRs are data-motivated (not speculative): #1336 (40% merge prob from #1306 crossover), #1340 (from #1312 ASYMMETRIC-OUTCOME), #1341 (from #1324 n=2-confirm methodology resolution).
+
+**Next expected arrivals** (sequential terminal returns based on launch times):
+- #1316 tanjiro: Arm A terminal imminent (launched earliest)
+- #1307 nezuko: Arm A terminal imminent
+- #1336 thorfinn: Arm A terminal ETA 60-90 min (highest-priority, ~40% merge prob)
+- #1335 edward: Arm A terminal ETA 60-90 min
+- #1333 askeladd: terminal ETA ~120 min
+- #1323 alphonse revised: terminal ETA ~110 min from re-launch
+- #1340 frieren: Arm A terminal ETA ~120 min
+- #1341 fern: Arm A terminal ETA ~120 min
+
 ## 2026-05-26 20:30 UTC — Cycle 71 mid-295
 
 **Cumulative**: **180 refuted (+1: frieren #1312 180th)** / **102 distinct mech classes (+1: 102nd MUON_BETA_LOCALIZED_STEP #1340)** / **57 family-level closures (unchanged)** / **6-way closure taxonomy (+1: ASYMMETRIC-OUTCOME from #1312)**.
