@@ -602,6 +602,28 @@ NANOGPT_NEWTON_MUON_UPDATE_PERIOD = int(os.environ.get("NANOGPT_NEWTON_MUON_UPDA
 NANOGPT_NEWTON_MUON_BETA = float(os.environ.get("NANOGPT_NEWTON_MUON_BETA", "0.95"))
 NANOGPT_NEWTON_MUON_EPS = float(os.environ.get("NANOGPT_NEWTON_MUON_EPS", "1e-4"))
 NANOGPT_NEWTON_MUON_MAX_D_IN = int(os.environ.get("NANOGPT_NEWTON_MUON_MAX_D_IN", "1024"))
+# H2 cooldown-entry R-buffer refresh (#1281). When > 0, force a single-shot
+# R-buffer reset at the specified optimizer step number (matches 1-indexed
+# train_step / _newton_step_count). On that step state["R"] is replaced by the
+# fresh X^T X (no EMA blend with the stale prior buffer) and the eigendecomp is
+# refreshed regardless of the standard update_period cadence. Default 0 = no
+# reset, identical EMA throughout (bit-identical to merged #1138 baseline).
+NANOGPT_NEWTON_MUON_RESET_STEP = int(os.environ.get("NANOGPT_NEWTON_MUON_RESET_STEP", "0"))
+# H4 late-window NM tuning (#1286). Defaults mirror the early-window values so
+# the bit-identical fallback is preserved when LATE_START_STEP is unset
+# (default 1e9 → never crossed in a 3350-step run).
+NANOGPT_NEWTON_MUON_LATE_PERIOD = int(
+    os.environ.get("NANOGPT_NEWTON_MUON_LATE_PERIOD", str(NANOGPT_NEWTON_MUON_UPDATE_PERIOD))
+)
+NANOGPT_NEWTON_MUON_LATE_MAX_D_IN = int(
+    os.environ.get("NANOGPT_NEWTON_MUON_LATE_MAX_D_IN", str(NANOGPT_NEWTON_MUON_MAX_D_IN))
+)
+NANOGPT_NEWTON_MUON_LATE_START_STEP = int(
+    os.environ.get("NANOGPT_NEWTON_MUON_LATE_START_STEP", "1000000000")
+)
+NANOGPT_NEWTON_MUON_MAX_D_IN_EFFECTIVE = max(
+    NANOGPT_NEWTON_MUON_MAX_D_IN, NANOGPT_NEWTON_MUON_LATE_MAX_D_IN
+)
 
 # Global per-parameter input-activation cache populated by forward hooks. Keyed by
 # id(weight_param) → tensor of shape (B*T, d_in) on device. Only populated when
@@ -746,6 +768,10 @@ class Muon(torch.optim.Optimizer):
                  newton_precond: bool = False, newton_beta: float = 0.95,
                  newton_eps: float = 1e-4, newton_update_period: int = 10,
                  newton_max_d_in: int = 1024,
+                 newton_late_period: int | None = None,
+                 newton_late_max_d_in: int | None = None,
+                 newton_late_start_step: int = 1_000_000_000,
+                 newton_reset_step: int = 0,
                  newton_input_cache: dict | None = None):
         assert isinstance(params, list) and len(params) >= 1
         if isinstance(params[0], dict):
@@ -784,11 +810,32 @@ class Muon(torch.optim.Optimizer):
         self.newton_eps = float(newton_eps)
         self.newton_update_period = int(newton_update_period)
         self.newton_max_d_in = int(newton_max_d_in)
+        # H4 late-window NM tuning (#1286). Defaults to early-window values so the
+        # late window has no effect unless LATE_START_STEP is explicitly crossed.
+        self.newton_late_period = int(
+            newton_late_period if newton_late_period is not None else newton_update_period
+        )
+        self.newton_late_max_d_in = int(
+            newton_late_max_d_in if newton_late_max_d_in is not None else newton_max_d_in
+        )
+        self.newton_late_start_step = int(newton_late_start_step)
+        # Effective period / max_d_in for the current optimizer step. Recomputed
+        # at the start of each step() call based on the train-step counter and
+        # read by _apply_newton_precondition and telemetry.
+        self._current_newton_period = self.newton_update_period
+        self._current_newton_max_d_in = self.newton_max_d_in
+        self._current_newton_late_active = False
+        # H2 cooldown-entry R-buffer refresh (#1281). 0 disables the reset entirely
+        # (bit-identical to merged #1138 EMA path). >0 fires a single discrete
+        # reset event at that optimizer step number.
+        self.newton_reset_step = int(newton_reset_step)
         self.newton_input_cache = newton_input_cache if newton_input_cache is not None else {}
         self._newton_step_count = 0
         # Accumulator dict reset each step() — read by the training loop after
         # step() for W&B logging. Keys: cond_max, cond_min, cond_sum, cond_n,
-        # inv_sqrt_norm_sum, precond_ratio_sum, precond_ratio_n, applied_n.
+        # inv_sqrt_norm_sum, precond_ratio_sum, precond_ratio_n, applied_n,
+        # plus #1281 reset diagnostics (r_buffer_norm_pre_sum/post_sum and
+        # reset_triggered_n) and #1286 step-aware coverage state.
         self.newton_telemetry: dict = {}
         # Telemetry gating flag: training loop sets True on telemetry_due steps
         # to enable the sync-y per-param diagnostics; False otherwise to keep
@@ -812,27 +859,51 @@ class Muon(torch.optim.Optimizer):
         if p.ndim != 2:
             return None
         d_out, d_in = grad.shape
-        if d_in > self.newton_max_d_in:
+        # H4 step-aware coverage gate (#1286). _current_newton_max_d_in is set by
+        # step() at the start of each call based on the train-step counter.
+        if d_in > self._current_newton_max_d_in:
             return None
         pid = id(p)
         x = self.newton_input_cache.get(pid)
         if x is None:
             return None
-        # Update R EMA + eigendecomp every newton_update_period steps (and at first call).
+        # H2 cooldown-entry R-buffer refresh (#1281). When fired, this step forces
+        # an R update (regardless of update_period phase) AND replaces R with the
+        # fresh X^T X (no EMA blend with the stale prior buffer).
+        is_reset_step = (
+            self.newton_reset_step > 0
+            and self._newton_step_count == self.newton_reset_step
+        )
+        # Update R EMA + eigendecomp every _current_newton_period steps (and at
+        # first call). Late-window period (#1286) substitutes _current_newton_period
+        # when active; the H2 reset (#1281) overrides the period gate entirely.
         update_R = (
             "R" not in state
-            or (self._newton_step_count % self.newton_update_period == 1)
+            or (self._newton_step_count % self._current_newton_period == 1)
+            or is_reset_step
         )
         if update_R:
             x32 = x.float()
             # R_new = (X^T X) / N, shape (d_in, d_in) in float32 for eigendecomp stability.
             n = x32.shape[0]
             R_new = (x32.T @ x32) / float(n)
-            if "R" not in state:
+            tel = self.newton_telemetry
+            # Capture pre-reset R norm for telemetry before mutating state["R"].
+            if is_reset_step and self.newton_telemetry_due and "R" in state:
+                r_pre = float(state["R"].norm().item())
+                tel["r_buffer_norm_pre_sum"] = tel.get("r_buffer_norm_pre_sum", 0.0) + r_pre
+                tel["r_buffer_norm_pre_n"] = tel.get("r_buffer_norm_pre_n", 0) + 1
+            if "R" not in state or is_reset_step:
                 state["R"] = R_new.clone()
             else:
                 b = self.newton_beta
                 state["R"].mul_(b).add_(R_new, alpha=1.0 - b)
+            if is_reset_step:
+                tel["reset_triggered_n"] = tel.get("reset_triggered_n", 0) + 1
+                if self.newton_telemetry_due:
+                    r_post = float(state["R"].norm().item())
+                    tel["r_buffer_norm_post_sum"] = tel.get("r_buffer_norm_post_sum", 0.0) + r_post
+                    tel["r_buffer_norm_post_n"] = tel.get("r_buffer_norm_post_n", 0) + 1
             # Symmetric eigendecomp -> inverse square root with eigenvalue floor.
             try:
                 vals, vecs = torch.linalg.eigh(state["R"])
@@ -888,6 +959,18 @@ class Muon(torch.optim.Optimizer):
         if self.newton_precond:
             self._newton_step_count += 1
             self.newton_telemetry = {}
+            # H4 late-window NM tuning (#1286). _newton_step_count was incremented
+            # above so equals (train_step + 1). Late window is active when
+            # train_step >= LATE_START_STEP i.e. _newton_step_count > LATE_START_STEP.
+            self._current_newton_late_active = (
+                self._newton_step_count > self.newton_late_start_step
+            )
+            if self._current_newton_late_active:
+                self._current_newton_period = self.newton_late_period
+                self._current_newton_max_d_in = self.newton_late_max_d_in
+            else:
+                self._current_newton_period = self.newton_update_period
+                self._current_newton_max_d_in = self.newton_max_d_in
         for group in self.param_groups:
             params = group["params"]
             params_pad = params + [torch.empty_like(params[-1])] * (world_size - len(params) % world_size)
@@ -984,7 +1067,17 @@ print0(
     f"lr_scale={NANOGPT_NEWTON_MUON_LR_SCALE} "
     f"update_period={NANOGPT_NEWTON_MUON_UPDATE_PERIOD} "
     f"beta={NANOGPT_NEWTON_MUON_BETA} eps={NANOGPT_NEWTON_MUON_EPS} "
-    f"max_d_in={NANOGPT_NEWTON_MUON_MAX_D_IN}",
+    f"max_d_in={NANOGPT_NEWTON_MUON_MAX_D_IN} "
+    f"reset_step={NANOGPT_NEWTON_MUON_RESET_STEP} "
+    f"({'ACTIVE single-shot R-buffer reset at step ' + str(NANOGPT_NEWTON_MUON_RESET_STEP) if NANOGPT_NEWTON_MUON_RESET_STEP > 0 else 'INACTIVE (standard EMA, bit-identical fallback)'})",
+    console=True,
+)
+print0(
+    f"NEWTON_MUON_LATE: period={NANOGPT_NEWTON_MUON_LATE_PERIOD} "
+    f"max_d_in={NANOGPT_NEWTON_MUON_LATE_MAX_D_IN} "
+    f"start_step={NANOGPT_NEWTON_MUON_LATE_START_STEP} "
+    f"max_d_in_effective={NANOGPT_NEWTON_MUON_MAX_D_IN_EFFECTIVE} "
+    f"({'ACTIVE' if (NANOGPT_NEWTON_MUON and NANOGPT_NEWTON_MUON_LATE_START_STEP < 1_000_000_000) else 'INACTIVE (bit-identical fallback)'})",
     console=True,
 )
 if NS_ITERS_COOLDOWN > 0:
@@ -1028,6 +1121,11 @@ if NANOGPT_NEWTON_MUON:
     muon_param_ids = muon_attn_param_ids | muon_mlp_param_ids
     _newton_hook_count = 0
     _newton_hook_skipped_d_in = 0
+    # Hook coverage uses max(MAX_D_IN, LATE_MAX_D_IN) so caches populate for the
+    # late-window expanded coverage (e.g. d_in=3072 MLP down-proj layers when
+    # LATE_MAX_D_IN=4096). The runtime gate inside _apply_newton_precondition
+    # decides per-step whether to actually precondition a given layer.
+    _newton_hook_max_d_in = NANOGPT_NEWTON_MUON_MAX_D_IN_EFFECTIVE
     for name, module in model.named_modules():
         w = getattr(module, "weight", None)
         if isinstance(w, torch.nn.Parameter) and id(w) in muon_param_ids:
@@ -1035,9 +1133,9 @@ if NANOGPT_NEWTON_MUON:
             # they would never be preconditioned anyway, and the hook itself
             # already shortcircuits, but avoiding registration saves graph nodes.
             in_features = getattr(module, "in_features", None)
-            if in_features is None or in_features <= NANOGPT_NEWTON_MUON_MAX_D_IN:
+            if in_features is None or in_features <= _newton_hook_max_d_in:
                 handle = module.register_forward_hook(
-                    _make_newton_input_hook(w, NANOGPT_NEWTON_MUON_MAX_D_IN)
+                    _make_newton_input_hook(w, _newton_hook_max_d_in)
                 )
                 _newton_hook_handles.append(handle)
                 _newton_hook_count += 1
@@ -1045,7 +1143,7 @@ if NANOGPT_NEWTON_MUON:
                 _newton_hook_skipped_d_in += 1
     print0(
         f"NEWTON_MUON: hooks registered for {_newton_hook_count} parameter modules "
-        f"(skipped {_newton_hook_skipped_d_in} d_in>{NANOGPT_NEWTON_MUON_MAX_D_IN})",
+        f"(skipped {_newton_hook_skipped_d_in} d_in>{_newton_hook_max_d_in})",
         console=True,
     )
 
@@ -1105,6 +1203,11 @@ if dist.get_rank() == 0:
             "nanogpt_newton_muon_beta": NANOGPT_NEWTON_MUON_BETA,
             "nanogpt_newton_muon_eps": NANOGPT_NEWTON_MUON_EPS,
             "nanogpt_newton_muon_max_d_in": NANOGPT_NEWTON_MUON_MAX_D_IN,
+            "nanogpt_newton_muon_reset_step": NANOGPT_NEWTON_MUON_RESET_STEP,
+            "nanogpt_newton_muon_late_period": NANOGPT_NEWTON_MUON_LATE_PERIOD,
+            "nanogpt_newton_muon_late_max_d_in": NANOGPT_NEWTON_MUON_LATE_MAX_D_IN,
+            "nanogpt_newton_muon_late_start_step": NANOGPT_NEWTON_MUON_LATE_START_STEP,
+            "nanogpt_newton_muon_max_d_in_effective": NANOGPT_NEWTON_MUON_MAX_D_IN_EFFECTIVE,
         },
     )
 
@@ -1171,6 +1274,10 @@ for trial_idx in range(args.num_trials):
         newton_eps=NANOGPT_NEWTON_MUON_EPS,
         newton_update_period=NANOGPT_NEWTON_MUON_UPDATE_PERIOD,
         newton_max_d_in=NANOGPT_NEWTON_MUON_MAX_D_IN,
+        newton_late_period=NANOGPT_NEWTON_MUON_LATE_PERIOD,
+        newton_late_max_d_in=NANOGPT_NEWTON_MUON_LATE_MAX_D_IN,
+        newton_late_start_step=NANOGPT_NEWTON_MUON_LATE_START_STEP,
+        newton_reset_step=NANOGPT_NEWTON_MUON_RESET_STEP,
         newton_input_cache=_newton_input_cache,
     )
     print0(f"MUON_PARAM_COUNTS: attn={len(muon_attn_params)} mlp={len(muon_mlp_params)} "
@@ -1425,9 +1532,15 @@ for trial_idx in range(args.num_trials):
                 del ns_iters_history[:-100]
             ns_cumulative_iters += ns_iters_this_step
         # Tell Newton-Muon whether to compute telemetry diagnostics this step
-        # (gated to avoid per-param CUDA syncs on the hot path).
+        # (gated to avoid per-param CUDA syncs on the hot path). H2 #1281: also
+        # force telemetry_due on the discrete reset step so pre/post R-buffer
+        # norms are captured even if the normal interval is misaligned.
+        is_newton_reset_step = (
+            NANOGPT_NEWTON_MUON_RESET_STEP > 0
+            and train_step == NANOGPT_NEWTON_MUON_RESET_STEP
+        )
         if getattr(optimizer2, "newton_precond", False):
-            optimizer2.newton_telemetry_due = bool(telemetry_due)
+            optimizer2.newton_telemetry_due = bool(telemetry_due or is_newton_reset_step)
         for opt in optimizers:
             opt.step()
         # === Newton-Muon (#1138) per-step telemetry. ===
@@ -1438,7 +1551,7 @@ for trial_idx in range(args.num_trials):
         if (
             dist.get_rank() == 0
             and getattr(optimizer2, "newton_precond", False)
-            and telemetry_due
+            and (telemetry_due or is_newton_reset_step)
         ):
             tel = optimizer2.newton_telemetry
             applied = tel.get("applied_n", 0)
@@ -1446,7 +1559,31 @@ for trial_idx in range(args.num_trials):
                 "trial": trial_idx,
                 "train/step": train_step,
                 "newton_muon/params_preconditioned": applied,
+                # H2 cooldown-entry R-buffer refresh (#1281) diagnostics.
+                "newton_muon/reset_step_cfg": NANOGPT_NEWTON_MUON_RESET_STEP,
+                "newton_muon/reset_triggered": tel.get("reset_triggered_n", 0),
+                "newton_muon/steps_since_reset": (
+                    max(0, optimizer2._newton_step_count - NANOGPT_NEWTON_MUON_RESET_STEP)
+                    if NANOGPT_NEWTON_MUON_RESET_STEP > 0
+                    else 0
+                ),
+                # H4 late-window NM tuning (#1286) diagnostics.
+                "newton_muon/late_active": int(
+                    getattr(optimizer2, "_current_newton_late_active", False)
+                ),
+                "newton_muon/current_period": int(
+                    getattr(optimizer2, "_current_newton_period", 0)
+                ),
+                "newton_muon/effective_max_d_in": int(
+                    getattr(optimizer2, "_current_newton_max_d_in", 0)
+                ),
+                "newton_muon/layers_active": int(applied),
             }
+            # Stack-compose (#1318) compound-arm marker — both mechanisms armed.
+            newton_metrics["newton_muon/compound_armed"] = int(
+                NANOGPT_NEWTON_MUON_RESET_STEP > 0
+                and NANOGPT_NEWTON_MUON_LATE_START_STEP < 1_000_000_000
+            )
             cond_n = tel.get("cond_n", 0)
             if cond_n > 0:
                 newton_metrics["newton_muon/R_condition_number_mean"] = (
@@ -1462,6 +1599,16 @@ for trial_idx in range(args.num_trials):
             if ratio_n > 0:
                 newton_metrics["newton_muon/precond_ratio_mean"] = (
                     tel["precond_ratio_sum"] / ratio_n
+                )
+            r_pre_n = tel.get("r_buffer_norm_pre_n", 0)
+            if r_pre_n > 0:
+                newton_metrics["newton_muon/r_buffer_norm_pre_reset_mean"] = (
+                    tel["r_buffer_norm_pre_sum"] / r_pre_n
+                )
+            r_post_n = tel.get("r_buffer_norm_post_n", 0)
+            if r_post_n > 0:
+                newton_metrics["newton_muon/r_buffer_norm_post_reset_mean"] = (
+                    tel["r_buffer_norm_post_sum"] / r_post_n
                 )
             wandb.log(newton_metrics, step=wandb_step)
         # Init-anchored WD on embed (#847, env-var-gated). After both optimizers
