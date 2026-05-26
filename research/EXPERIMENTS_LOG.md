@@ -1,5 +1,38 @@
 # SENPAI Research Results
 
+## 2026-05-26 00:36 UTC — PR #1168 CLOSED: L_neg/R_neg matrix_neg_power eps n=2 confirmation (1e-6 LOOSER n=2 vs 1e-15 TIGHTER n=1, baseline=1e-12) — 140th NULL, eps axis FULLY CLOSED across 6 decades, stat-sig fails at n=2 despite monotone direction (g1r1-thorfinn)
+
+- Branch: `g1r1-thorfinn/mneps-ablation`
+- Hypothesis: probe matrix_neg_power eps ±2 decades around baseline 1e-12. Arm A LOOSER eps=1e-6 (251× max amplification vs baseline 63095×) vs Arm B TIGHTER eps=1e-15 (5623× amplification, 178× MORE than baseline). Direct test of #985 NS5 triple-load-bearing role 3 (null-space amplification suppression).
+- n=2 confirmation triggered by Arm A marginal-WIN candidate at n=1 (Δ−0.21 mnat sub-noise, marginal n=1 win requires n=2 confirmation per session memory).
+
+| Run | eps | val_ema | sr | Δval (mnat) | Merge clause-2 |
+|---|---|---|---|---|---|
+| Baseline #918 (n=2) | 1e-12 | 3.266394 | 2925 | 0 | (reference) |
+| `yyp8df25` Arm A seed-1 | 1e-6 | 3.266184 | 2925 | −0.210 | PASS (sr=2925 AND val<baseline) |
+| `po02h3dn` Arm A seed-2 | 1e-6 | 3.265409 | 2925 | −0.985 | PASS (sr=2925 AND val<baseline) |
+| **Arm A n=2 mean** | 1e-6 | **3.265797** | 2925 | **−0.597** | **stat-sig FAILS (0.000844 < 0.004, 4.7× below threshold)** |
+| Arm B (n=1) `cccpoha7` | 1e-15 | 3.267550 | 2950 | +1.16 | FAIL (sr+25, sr≠2925) |
+
+- **STAT-SIG FAILS:** Δval_n2 = −0.597 mnat is 2.8× empirical single-seed σ≈0.0003 — borderline 2σ at n=2. Seed-1 → seed-2 difference (0.775 mnat) is ~2.6× the noise floor too, so apparent improvement is dominated by seed dimension rather than eps perturbation. **Pattern matches #1107 polar-interp** (now third recurrence of this pattern in r1: #1107, #1118, #1168).
+
+- **STRIKING MECHANISM CANON — cross-seed `polar/ortho_residual_sample` variability OVERTURNS prior reading:**
+  - Arm A seed-1 ortho_residual=0.135; Arm A seed-2 (SAME eps)=0.376 → +178% same-eps seed variance
+  - Arm A vs Arm B (different eps) Δ=+100% at terminal step
+  - **The 16:14 UTC + 20:23 UTC narrative ("Arm B 2× elevated ortho_residual = NS5 working harder") is OVERTURNED** — the cross-arm Δ is WITHIN seed noise band.
+  - **Corrected canon: `polar/ortho_residual_sample` is single-batch noisy with σ ~ 0.1-0.2 in terminal regime.** Future PR diagnostic interpretations must require n=2 cross-seed reference for any cross-arm metric claim where Δ < 200%. Cite EMA-averaged or accumulated diagnostics (e.g., `pmuon/lcov_eigh_min` which varied only 3-13% across seeds) for stable mechanism claims.
+  - Same caveat applies to `pmuon/whitened_sv_ratio` (+51% seed-to-seed; +36% Arm A vs Arm B). Major retraction of original mechanism-divergence narrative.
+
+- **EPS AXIS STRUCTURE (across 6 orders of magnitude):**
+  - eps=1e-15: +1.16 mnat, sr+25 (mild regression)
+  - eps=1e-12 (baseline): reference
+  - eps=1e-6: −0.60 mnat (n=2 mean, sub-stat-sig)
+  - **NS5 role 3 (null-space amp suppression) confirmed REAL but OVER-DETERMINED in [1e-6, 1e-15]** — axis structurally flat in this range.
+
+- **CRASH ASYMMETRY EMPIRICALLY REVERSED:** Arm A LOOSER eps had 4 crash-restarts (`z5328dg3`, `iku6uc1t`, `n7t90h27`, `y5ir5oqq`); Arm B TIGHTER eps launched CLEANLY with NONE. **Contradicts advisor 14:10 UTC prior** ("tighter eps → more rank-deficient eigs amplified → more crashes"). Empirical update to NS5 stability canon: early-step crash sensitivity does NOT scale monotonically with eps amplification factor — likely depends on specific eigenvalue distribution at step 1-20 where L_cov rank is filling per #1046.
+
+- **L_neg/R_neg matrix_neg_power eps axis FULLY CLOSED across 6 decades.** 140th NULL. Future NS5 internals PRs must report m_pre stable rank (#1102) and use n=2 cross-seed reference for any ortho_residual-based mechanism claim. thorfinn → next assignment (EMA wrapper ema_beta starting value scan: Arm A=0.92 LOWER (wider ramp), Arm B=0.97 HIGHER (narrower ramp), baseline=0.95; tests the START of LR-coupled β ramp; mechanism-distinct from #864 (duration), #1182 (endpoint), and in-flight #1229 (ramp shape); ~0 LOC, CLI flag exists).
+
 ## 2026-05-25 23:55 UTC — PR #1182 CLOSED: EMA wrapper β_target probe (0.985 LOWER vs 0.995 HIGHER, baseline=0.99) — 139th NULL, EMA β_target axis FULLY CLOSED with asymmetric U-shape canon (HIGHER benign, LOWER costs ~1.5 mnat per 0.005) (g1r1-nezuko)
 
 - Branch: `g1r1-nezuko/ema-beta-target`
