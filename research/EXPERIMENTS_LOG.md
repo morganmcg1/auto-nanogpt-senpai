@@ -3,6 +3,60 @@
 Log of completed/reviewed experiment PRs in chronological order. Wave 1
 results pending student execution.
 
+## 2026-05-26 22:45 UTC — PR #1284: edward body WD value 0.025 pruning ablation — **CLOSED clean-NEG-SHARP-CLIFF** [FFS-PRIMARY]
+
+- **Branch:** `g1r5-edward/body-wd-pruning`
+- **Hypothesis:** Test whether `wd_mlp=wd_attn=0.025` (default body matrix WD with ramp_down schedule) is FFS-load-bearing in the magnitude direction. PR's PRIMARY prior (55%): "all 5 cells FFS ∈ [3025, 3150]" — meaning WD value would be val-loss-cosmetic at FFS scale.
+- **5-cell design:** A=0.025 ctrl / B★=0.0 PRIMARY drop body WD entirely / C=0.0125 half / D=0.05 double / E=0.10 over-WD falsifier.
+- **Results (FFS-primary):**
+
+| Cell | wd_mlp=wd_attn | FFS | val/loss | Δ vs μ_4 (σ_single) | Outcome |
+|:----:|:--------------:|:---:|:--------:|:-------:|:--------|
+| A (ctrl) | 0.025 | 3025 | 3.26057 | −1.10σ | baseline reproduced |
+| **B★ (zero)** | **0.0** | **−1** | 3.28252 | **+35.92σ** | **catastrophic FFS** |
+| C (half) | 0.0125 | 3050 | 3.26645 | +8.82σ | mild late cross |
+| D (double) | 0.05 | 3100 | 3.26629 | +8.55σ | later cross |
+| **E (over)** | **0.10** | **−1** | 3.28869 | **+46.32σ** | **catastrophic FFS** |
+
+Baseline reference (PR #699 musoft, run `zp6gvwv5`, n=4): μ_4=3.261221, σ_single=0.000593, FFS=3025.
+
+W&B runs: A `7vi8hcze` | **B★ `h201ccok`** | C `mki66e0z` | D `bgrz2o2j` | E `tcjsdi3t`. Group: `g1r5-edward/body-wd-pruning`.
+
+**Val/loss trajectory (every 500 steps) — striking pattern:**
+
+| step | A (ctrl) | B (zero) | C (half) | D (double) | E (over) |
+|-----:|---------:|---------:|---------:|-----------:|---------:|
+|  500 | 3.81315  | 3.77781  | 3.79399  | 3.85397    | 3.92171  |
+| 1000 | 3.64292  | 3.58592  | 3.61272  | 3.69930    | 3.77702  |
+| 1500 | 3.52492  | 3.46982  | 3.49648  | 3.57546    | 3.65769  |
+| 2000 | 3.43290  | 3.39474  | 3.41288  | 3.47191    | 3.53713  |
+| 2500 | 3.35381  | 3.33848  | 3.34333  | 3.38047    | 3.43019  |
+| 3000 | 3.28233  | 3.29453  | 3.28385  | 3.29393    | 3.32400  |
+| 3250 | 3.26057  | 3.28252  | 3.26645  | 3.26629    | 3.28869  |
+
+- **Verdict: clean-NEG-SHARP-CLIFF; PR's "FFS-cosmetic" prior FALSIFIED.**
+  - Cell B★ FFS=−1 catastrophic + Cell E FFS=−1 catastrophic → body WD value is FFS-load-bearing in BOTH directions
+  - Cells C/D bracket the baseline cleanly (+25 / +75 FFS) → narrow U-shape FFS basin centered at 0.025
+  - **8th stack-component pruning closure under FFS-primary directive #1262.**
+  - PR's "FFS-positive at B FFS≤3000" branch did not fire; this is a clean basin-confirmation experiment.
+- **Mechanism (4 findings):**
+  1. **Cell B no-WD LEADS in early-mid training then STALLS in cooldown.** Cell B fastest descent through step 2500 (B-step2500=3.33848 vs A-step2500=3.35381), but cooldown drop step 3000→3250: B=0.0120 vs A=0.0218 (A nearly 2× more cooldown drop). The ramp_down WD schedule is **the cooldown's load-bearing tightening mechanism, NOT LR cooldown alone**. Without WD, body matrices stay large; final-cooldown descent lacks the WD-driven shrinkage that pulls val/loss across 3.28.
+  2. **Cell E over-WD monotone-worse from step 500.** 4× WD over-shrinks body weights throughout training, leaving insufficient capacity at every step. The matrix capacity destroyed in mid-training cannot be recovered.
+  3. **Cells C/D monotone in FFS (3050 < 3100).** U-shape FFS basin centered at 0.025. Half-WD costs +25 FFS (one bin), double-WD costs +75 FFS (three bins). Asymmetric — over-shrinking is worse than under-shrinking by a factor of ~3.
+  4. **Reproduces #1272 wd-schedule finding from different angle.** #1272 showed schedule SHAPE matters (ramp_down vs alternatives). This PR shows VALUE matters at fixed shape. **Joint finding: SHAPE + VALUE are both load-bearing** — perturbing either is regressive or catastrophic.
+- **Cluster connection — "cooldown WD-driven shrinkage is the structural tightening mechanism":**
+  - #966 cooldown weight rescaling NEG: post-cooldown weight rescaling NOT useful
+  - #1272 wd-schedule ramp_down: terminal WD must be near zero; shape not dose
+  - #1284 (this): WD value 0.025 + ramp_down jointly load-bearing
+  
+  Three independent tests converging on the same mechanism: **the optimizer wants WD-shrinkage acting on body matrices specifically during the cooldown phase**, with intermediate steps too. Not LR-only descent, not constant WD, not post-hoc rescaling — the gradient of WD over training is what tightens the val/loss surface.
+- **Body-matrix WD pruning programme fully closed.** Combined #1272 (shape) + #1284 (value) — both axes tightly tuned, narrow basin. No further body-WD experiments planned.
+- **Student-flagged process improvement:** the launch script `launch_body_wd_pruning_ABCDE.sh` defined `check_step_threshold` and `check_nonfinite` functions but never invoked them in `run_cell`. Cell E hit `val_loss=3.53713` at step 2000 (above predeclared 3.40 kill threshold) but was not killed, wasting ~1.5h of GPU time. Worth a separate launcher template fix; advisor noted in close comment.
+
+**Action:** Closed clean-NEG. **Assigned edward → #1334 AdamW aux WD pruning** (★ completes AdamW aux (β1, β2, ε, wd) TETRAD under FFS-primary; tests hardcoded `weight_decay=0` line 843 via new `--adamw_aux_wd` CLI arg; 5-cell A=0.0 ctrl / B★=0.01 PRIMARY uniform small positive / C=0.001 very small / D=0.025 match body / E=0.1 falsifier; **strong asymmetric prediction informed by #1275 scalars-LR-pruning closure**: per #1275 LN gains MUST drift from init, applying WD>0 uniformly will pull gains back toward 0 → likely Cell B catastrophic = clean cross-PR mechanism confirmation that "WD=0 is structurally required for scalars LN-gain drift mechanism"; scalars_norm telemetry added to verify mechanism live).
+
+---
+
 ## 2026-05-26 22:00 UTC — PR #1279: tanjiro SOAP `PRECOND_FREQ=16` pruning ablation — **CLOSED clean-NEG** [FFS-PRIMARY]
 
 - **Branch:** `g1r5-tanjiro/soap-precond-freq-pruning`
