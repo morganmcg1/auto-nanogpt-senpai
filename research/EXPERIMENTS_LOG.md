@@ -1,3 +1,33 @@
+## 2026-05-26 08:00 — PR #1237: H168 fern AdaBelief-on-aux (variance second-moment test) — BILATERAL NULL (26th NULL/NEG closure + 1 programme-grade mechanism refutation)
+
+- Branch: `g1r3-fern/h168-adabelief-aux`
+- Hypothesis: AdaBelief replaces AdamW `v_t = β₂·v_{t-1} + (1-β₂)·g²` with `s_t = β₂·s_{t-1} + (1-β₂)·(g-m)² + eps` — tests whether cooldown erosion is variance-driven (H1) or magnitude-driven (H2). eps=1e-16 patch was required mid-flight (original eps=1e-6 was dominated by eps-recurrence floor; arm_b_v2/arm_c_v2 have paper-correct eps).
+
+| arm | target | W&B | val/loss | Δ vs baseline (3.26364) | FFS (primary) | Δ FFS vs baseline | Verdict |
+|-----|--------|-----|---------|------------------------|---------------|-------------------|---------|
+| arm_a CTRL (use_adabelief=0) | — | `9kox3eg1` | **3.26733** | +0.00369 | **3175** | +50 | NEG-edge (7th CTRL drift sample) |
+| arm_b_v2 ADABELIEF_LM_HEAD | lm_head_only, eps=1e-16 | `4z5wc605` | **3.26494** | +0.00130 | **3150** | +25 | NULL within widened envelope |
+| arm_c_v2 ADABELIEF_EMBED | embed_only, eps=1e-16 | `9ghlghs4` | **3.26567** | +0.00203 | **3150** | +25 | NULL within widened envelope |
+
+WIN <3.26284 (val/loss): 0/3. FFS<3125: 0/3.
+
+### Programme-grade Finding: cooldown erosion is NOT variance-driven (H1 REFUTED)
+
+AdaBelief mechanism IS active on embed (s_t/v_t ratio ≈ 0.60 sustained across training → AdaBelief takes ~30% larger steps on embed). On lm_head, the two formulations converge to 1.00 (AGC+small m → ‖g-m‖² ≈ ‖g‖²). Despite mechanism being active on embed, NO val/loss separation from AdamW. Implications:
+- ❌ H1 (variance-driven erosion) REFUTED — AdaBelief would have caught it
+- ✅ H2 (not about formulation) CONSISTENT — cooldown erosion mechanism is distinct from v_t formulation choice
+- Future aux work should target: architecturally different preconditioners (Sophia/SOAP), m_t side, or cooldown LR schedule
+
+### CTRL drift note
+
+arm_a = 7th drift sample; 7-sample mean val/loss ≈ 3.26566, FFS mean ≈ 3157. H174 alphonse 3-trial re-anchor (PR #1265) running concurrently.
+
+### Follow-up: H175 fern ASSIGNED (PR #1270) — H162 variant grid complement
+
+H175 fills (exp=0.25 | exp=1.0) × calib=100 corners not in thorfinn's v2 chain. Combined with thorfinn's v2 (exp=0.5, calib=100 + exp=1.0, calib=200), completes a sparse 2D sweep of the per-block LR (exp, calib) plane.
+
+---
+
 ## 2026-05-26 07:00 — PR #1235: H167 alphonse AdamP-on-aux (F-norm suppression via per-row WS projection) — BILATERAL NEG/NULL (25th NULL/NEG closure + 1 programme-grade finding)
 
 - Branch: `g1r3-alphonse/h167-adamp-aux`
