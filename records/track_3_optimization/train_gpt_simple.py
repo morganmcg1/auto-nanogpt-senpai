@@ -64,6 +64,18 @@ def parse_args():
                              "triangle=linear 0->2x->0 with peak at midpoint; "
                              "cosine_updown=cosine 0->2x->0 (smooth triangle). "
                              "Only applies to Muon param groups; AdamW aux is unaffected.")
+    parser.add_argument("--mu_cooldown_target", type=float, default=0.95,
+                        help="Muon momentum target value reached at the end of the cooldown phase. "
+                             "Default 0.95 = no schedule (mu stays at 0.95 throughout). "
+                             "Values <0.95 ramp mu DOWN during cooldown (PR #1294); "
+                             "values >0.95 ramp mu UP during cooldown (PR #1345). "
+                             "Cooldown phase is the last cooldown_frac=0.7 of training. "
+                             "Only applies to Muon param groups (muon_mlp, muon_attn); "
+                             "AdamW aux betas are unaffected.")
+    parser.add_argument("--mu_cooldown_instant", action="store_true",
+                        help="If set, snap mu to --mu_cooldown_target instantly at cooldown_start "
+                             "instead of linearly ramping from 0.95 to target across cooldown. "
+                             "Requires --mu_cooldown_target != 0.95 to have effect.")
     parser.add_argument("--ns_iter", type=int, default=12,
                         help="Number of Newton-Schulz iterations in zeropower_via_newtonschulz5. "
                              "Default 12 (current hardcoded value). Lower = less orthogonal but faster.")
@@ -861,6 +873,26 @@ for trial_idx in range(args.num_trials):
         for group in opt.param_groups:
             group["initial_lr"] = group["lr"]
             group["initial_wd"] = group.get("weight_decay", 0.0)
+            if "mu" in group:
+                group["initial_mu"] = group["mu"]
+
+    _MU_BASE = 0.95
+    _MU_ACTIVE = (args.mu_cooldown_target != _MU_BASE)
+
+    def _mu_schedule(step, total_steps, target, instant, cooldown_frac=0.7, base=_MU_BASE):
+        # No-op when target equals base — preserves baseline exactly.
+        if target == base:
+            return base
+        progress = step / total_steps
+        cooldown_start = 1.0 - cooldown_frac
+        if progress < cooldown_start:
+            return base
+        if instant:
+            return target
+        # Linear ramp from base -> target across the cooldown_frac window.
+        local = (progress - cooldown_start) / cooldown_frac
+        local = min(max(local, 0.0), 1.0)
+        return base + (target - base) * local
 
     def _wd_multiplier(step, total_steps, schedule):
         if schedule == "constant":
@@ -887,11 +919,15 @@ for trial_idx in range(args.num_trials):
         else:
             eta = (1 - progress) / cooldown_frac
         wd_mu = _wd_multiplier(step, train_steps, args.wd_schedule)
+        mu_now = _mu_schedule(step, train_steps, args.mu_cooldown_target,
+                              args.mu_cooldown_instant, cooldown_frac=cooldown_frac)
         for opt in optimizers:
             for group in opt.param_groups:
                 group["lr"] = group["initial_lr"] * eta
                 if "initial_wd" in group and group.get("name", "").startswith("muon_"):
                     group["weight_decay"] = group["initial_wd"] * wd_mu
+                if _MU_ACTIVE and "mu" in group and group.get("name", "").startswith("muon_"):
+                    group["mu"] = mu_now
 
 
     ########################################
@@ -1026,6 +1062,14 @@ for trial_idx in range(args.num_trials):
                 per_group_metrics["train/wd_mlp_now"] = current_wds.get("muon_mlp", 0.0)
                 per_group_metrics["train/wd_attn_now"] = current_wds.get("muon_attn", 0.0)
                 per_group_metrics["train/wd_schedule_progress"] = train_step / train_steps
+                current_mus = {group.get("name", f"group_{i}"): group.get("mu", float("nan"))
+                               for i, group in enumerate(optimizer2.param_groups)}
+                per_group_metrics["muon/mu"] = current_mus.get("muon_mlp", float("nan"))
+                per_group_metrics["muon/mu_mlp"] = current_mus.get("muon_mlp", float("nan"))
+                per_group_metrics["muon/mu_attn"] = current_mus.get("muon_attn", float("nan"))
+                per_group_metrics["muon/mu_active"] = float(_MU_ACTIVE)
+                per_group_metrics["muon/mu_target"] = args.mu_cooldown_target
+                per_group_metrics["muon/mu_instant"] = float(args.mu_cooldown_instant)
                 wandb.log(per_group_metrics, step=wandb_step)
         if dist.get_rank() == 0 and optimizer2.cos_sims_buffer:
             cs_names = list(optimizer2.cos_sims_buffer.keys())
