@@ -3,6 +3,46 @@
 This file logs experiment outcomes as PRs land. The historical track 3
 leaderboard is captured in `/BASELINE.md`.
 
+## 2026-05-26 08:56 UTC — PR #1244: Zipfian-aware per-row LR for lm_head (alphonse) — CLOSED productive-NEG (36th no-merge)
+
+- Branch: `g1r4-alphonse/zipfian-lr-lm-head`
+- Hypothesis: Scale lm_head per-row LR by token frequency. Two opposite-direction arms test the Zipfian-LR direction asymmetry hypothesis: B log_freq amplifies frequent rows (LR×4.68 for frequent, LR×0.10 for rare); C inv_sqrt_freq amplifies rare rows (LR×4.75 for rare, LR×0.176 for frequent).
+
+| Arm | Mode | val/loss | fs | Δ_paired_val | Δ_paired_fs | Verdict |
+|:---:|---|:---:|:---:|:---:|:---:|---|
+| A ctrl | uniform LR (`none`) | 3.26692 | 3175 | (ref) | (ref) | drift +0.00078 PASS-strong |
+| B log_freq | frequent↑LR (×4.68), rare↓LR (×0.10) | 3.28909 | -1 | +0.02217 | NEVER REACHED | **CATASTROPHIC** |
+| C inv_sqrt_freq | rare↑LR (×4.75), frequent↓LR (×0.176) | 3.28252 | -1 | +0.01560 | NEVER REACHED | HARMFUL |
+| D capped_log | (correctly aborted by student per directive) | — | — | — | — | not run |
+
+- **Dual-NEG bidirectional fence**: Both opposite-direction arms catastrophic, ruling out direction asymmetry hypothesis. Frequent↑LR (B) destroys the Zipfian magnitude prior the canonical Adam denominator already encodes — common-token gradient signal gets disproportionately amplified, destabilizing lm_head fine-tuning. Rare↑LR (C) less severe but still HARMFUL (rare-token rows disproportionately dominate Nesterov-momentum-NS5 dynamics). Neither arm ever reached val/loss < 3.28 target.
+- **Joins MAGNITUDE-EQUALIZING-ACROSS-ROWS sub-cluster fence** with #1192 fern row-norm — modifying lm_head row magnitudes (either by direct row-normalization or by LR-rescaling) is catastrophic. The Zipfian magnitude prior MUST be preserved on lm_head.
+- **Mechanism interpretation**: Per-row Zipfian-aware LR scaling is incompatible with the post-#1138 stack's implicit Zipfian handling (canonical Adam denominator + `NANOGPT_ADAMW_EMBED_LR_MULT=1.5`). Any explicit per-row scaling destroys the established equilibrium.
+- **Student execution quality**: (a) Caught env var typo `NANOGPT_NEWTON_MUON_PERIOD` → `NANOGPT_NEWTON_MUON_UPDATE_PERIOD` at PR launch, proactively substituted correct name. (b) Self-aborted Arm D when watchdog killed chain mid-launch, recognizing that running another lm_head-zoo arm contradicted Issue #1261 directive ("avoid lm_head optimizer zoo unless tied to NM"). Mature judgment — 3-arm result (1 ctrl + 2 opposite-direction NEG) sufficient for fence conclusion.
+- **Directive alignment (Issue #1261)**: alphonse REASSIGNED **#1280 H3 Pre-crossing burst NM** — window-bounded `[NEWTON_MUON_START_STEP, NEWTON_MUON_END_STEP]` sweep testing directive bullet (3) "short burst before expected crossing". Mechanism-distinct from nezuko's #1277 H1 (single-gate START_STEP) — adds END_STEP for window-bounded activation.
+- **W&B run IDs**: `zmh95adk / 79l41u1n / rh6q0uj1` (Arms A/B/C)
+
+## 2026-05-26 08:57 UTC — PR #1236: Per-layer depth-calibrated LR for body Muon (edward) — CLOSED productive-NEG (37th no-merge)
+
+- Branch: `g1r4-edward/per-layer-depth-lr`
+- Hypothesis: Body Muon per-layer LR multipliers along depth. 3-shape fence test: B asc (later-layers boosted), C desc (earlier-layers boosted), D ushape (edges×1.5, middle×0.59) at scale=0.5. NS5 polar decomp benefits MOST from balanced spectral conditioning — calibrating LR by depth could compensate for activation-magnitude variation.
+
+| Arm | Mode | val/loss | fs | Δ_paired_val | Δ_paired_fs | Verdict |
+|:---:|---|:---:|:---:|:---:|:---:|---|
+| A ctrl | uniform body Muon LR | 3.26835 | 3200 | (ref) | (ref) | drift +0.00221 PASS |
+| B asc03 | ascending depth-LR (later×bigger), scale=0.3 | 3.27273 | 3250 | +0.00438 | +25 | **PRODUCTIVE-NEG strong** |
+| C desc03 | descending (earlier×bigger), scale=0.3 | 3.26994 | 3225 | +0.00159 | +25 | PRODUCTIVE-MARGINAL |
+| D ushape05 | u-shape (edges×1.5, middle×0.59), scale=0.5 | 3.27411 | 3275 | +0.00576 | +75 | **PRODUCTIVE-NEG strongest** |
+
+- **3-direction fence pattern**: Every off-ctrl arm regresses. Severity ordering asc < desc < ushape with 2.75× asymmetry between asc and desc (boosting later layers more harmful than boosting earlier layers). Arm D matches advisor pre-staged modal forecast Δ ∈ [+0.003, +0.006] exactly (actual +0.00576).
+- **Mechanism interpretation (student's honest closing analysis acknowledged)**:
+  1. **NS5 cooldown already provides implicit depth calibration** via `ns_iters=12→16 + late_peak` shape, making orthogonalization depth/step-aware. Manual depth-LR fights this implicit calibration.
+  2. **Per-type LR mults are already load-bearing** — stacking depth-axis multiplicatively (base × type × depth_mult) widens the LR-range Muon must handle. NS5 polar-decomp normalizes step direction, so extra LR-range re-introduces the magnitude asymmetry NS5 was designed to remove.
+- **Closure axis lesson**: NO manually-crafted depth scaling helps — the post-#1138 stack already has near-optimal NS5-based implicit depth calibration. Explicit depth-LR dilutes the LR-magnitude balance NS5 has established. **PER-LAYER-DEPTH-CALIBRATED-LR axis fenced fully load-bearing-against**.
+- **Direction asymmetry detail**: asc (factor 2.75×) more harmful than desc — boosting later layers (where activation magnitudes are already larger post-cooldown) over-corrects, while boosting earlier layers (cleaner gradient) yields milder imbalance.
+- **Directive alignment (Issue #1261)**: edward REASSIGNED **#1281 H2 Cooldown-entry R-buffer refresh** — single-shot reset of Newton-Muon's R = EMA(X^T X) buffer at cooldown_start (step 2345) per directive bullet (2). Adds `NANOGPT_NEWTON_MUON_RESET_STEP` env var; 4-arm: A ctrl RESET=0 (off) + B reset2345 (exact) + C reset2400 (55 steps after) + D reset2200 (145 steps before). Tests whether pre-cooldown R accumulation goes stale through cooldown.
+- **W&B run IDs**: `6w0xfxtz / qbakrjep / h10s0x7g / dicf06c0` (Arms A/B/C/D)
+
 ## 2026-05-26 14:50 UTC — PR #1232: Power AdamW (p-norm denominator) for lm_head (nezuko) — CLOSED productive-NEG (35th no-merge)
 
 - Branch: `g1r4-nezuko/power-adamw-lm-head`
