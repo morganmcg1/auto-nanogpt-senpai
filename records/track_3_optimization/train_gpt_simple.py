@@ -469,6 +469,16 @@ WD_AUX = float(os.environ.get("WD_AUX", "0.0"))  # AdamW WD on embed + lm_head m
 EMBED_INIT_STD = float(os.environ.get("EMBED_INIT_STD", "1.0"))  # default preserves baseline N(0,1)
 LOGIT_SOFTCAP = float(os.environ.get("LOGIT_SOFTCAP", "15.0"))  # default = 15 (current hardcoded value); soft-cap value c in f(x) = c·x / sqrt(x^2+c^2)
 
+# PSGD-KRON-AUX (PR #1216): Kronecker-factored whitening preconditioner on AUX (embed, lm_head)
+# 2D params. Half-Kron memory layout: diagonal factor on the larger dim, full upper-triangular
+# factor on the smaller dim. Algorithm: PSGD-WHITENING (Li & Mahoney 2015 arXiv:1512.04202),
+# reference implementation lixilinx/psgd_torch. Disabled (=0) is bytewise inert.
+PSGD_KRON_AUX = int(os.environ.get("PSGD_KRON_AUX", "0"))
+KRON_PRECOND_FREQ = int(os.environ.get("KRON_PRECOND_FREQ", "10"))
+KRON_DAMPING = float(os.environ.get("KRON_DAMPING", "1e-4"))
+KRON_LR = float(os.environ.get("KRON_LR", "0.1"))  # Lie-group Newton step size for Q update
+KRON_BETA_L = float(os.environ.get("KRON_BETA_L", "0.9"))  # adaptive Lipschitz EMA decay
+
 
 def zeropower_via_newtonschulz5(G: Tensor) -> Tensor:
     assert G.ndim >= 2
@@ -777,6 +787,164 @@ class Muon(torch.optim.Optimizer):
         return out
 
 
+class PSGDKronAUX:
+    """Kronecker-factored whitening preconditioner for AUX 2D parameters (embed, lm_head).
+
+    Algorithm: PSGD-WHITENING (Li & Mahoney 2015, arXiv:1512.04202),
+    reference implementation lixilinx/psgd_torch.
+
+    Whitening application: G' = Q1^T Q1 G Q2^T Q2  (preconditioner P = (Q1 ⊗ Q2)^T (Q1 ⊗ Q2))
+    Q update: Lie-group Newton step with random Gaussian probe + adaptive Lipschitz EMA
+        q -= (lr / L) * tril_or_diag(term1 - term2) [@] q  (multiplicative; preserves Lie group)
+    where term1 = contractions of (Q1 ⊗ Q2)·Hvp with itself, and term2 = same for inv-applied V.
+
+    Half-Kron: smaller dim gets full upper-triangular factor; larger dim gets a diagonal vector.
+    For embed/lm_head both shape (50304, 768): row=diag(50304), col=upper-tri(768,768).
+    Total state ~10MB float32 across both params.
+    """
+
+    def __init__(self, named_params, freq=10, damping=1e-4, lr=0.1, beta_L=0.9):
+        self.freq = freq
+        self.damping = damping
+        self.lr = lr
+        self.beta_L = beta_L
+        self.params: list[Tensor] = []
+        self.names: dict[int, str] = {}
+        self.state: dict[int, dict] = {}
+        for name, p in named_params:
+            assert p.ndim == 2, f"PSGDKronAUX requires 2D params, got {name} shape {tuple(p.shape)}"
+            self.params.append(p)
+            self.names[id(p)] = name
+            m, n = p.shape[0], p.shape[1]
+            device = p.device
+            if m >= n:
+                # diag on row dim (large), full upper-tri on col dim (small)
+                self.state[id(p)] = {
+                    "q1": torch.ones(m, dtype=torch.float32, device=device),
+                    "q2": torch.eye(n, dtype=torch.float32, device=device),
+                    "q1_diag": True,
+                    "L_q1": torch.tensor(0.0, dtype=torch.float32, device=device),
+                    "L_q2": torch.tensor(0.0, dtype=torch.float32, device=device),
+                    "step": 0,
+                    "last_raw_norm": 0.0,
+                    "last_whitened_norm": 0.0,
+                }
+            else:
+                self.state[id(p)] = {
+                    "q1": torch.eye(m, dtype=torch.float32, device=device),
+                    "q2": torch.ones(n, dtype=torch.float32, device=device),
+                    "q1_diag": False,
+                    "L_q1": torch.tensor(0.0, dtype=torch.float32, device=device),
+                    "L_q2": torch.tensor(0.0, dtype=torch.float32, device=device),
+                    "step": 0,
+                    "last_raw_norm": 0.0,
+                    "last_whitened_norm": 0.0,
+                }
+
+    @torch.no_grad()
+    def whiten_and_update(self) -> None:
+        """For each AUX 2D param: update Q1/Q2 every `freq` steps, then whiten p.grad in place."""
+        for p in self.params:
+            if p.grad is None:
+                continue
+            st = self.state[id(p)]
+            g_orig = p.grad.float()
+            q1 = st["q1"]
+            q2 = st["q2"]
+            q1_diag = st["q1_diag"]
+
+            # ---- Q update (every `freq` steps) ----
+            if st["step"] % self.freq == 0:
+                V = torch.randn_like(g_orig)
+                damp = self.damping + torch.finfo(g_orig.dtype).eps * g_orig.abs()
+                Hvp = g_orig + damp * V
+
+                # A = (Q1 ⊗ Q2) · Hvp  --- one application of each factor
+                if q1_diag:
+                    A = q1.unsqueeze(-1) * (Hvp @ q2.T)
+                else:
+                    A = (q1 @ Hvp) * q2.unsqueeze(0)
+
+                # conjB = (Q1^-1 ⊗ Q2^-1) · V  --- inv-applied probe
+                if q1_diag:
+                    tmp = V / q1.unsqueeze(-1).clamp(min=1e-30)
+                    conjB = torch.linalg.solve_triangular(q2, tmp, upper=True, left=False)
+                else:
+                    tmp = torch.linalg.solve_triangular(q1, V, upper=True, left=True)
+                    conjB = tmp / q2.unsqueeze(0).clamp(min=1e-30)
+
+                if q1_diag:
+                    term1_q1 = (A * A).sum(dim=-1)  # (m,)
+                    term2_q1 = (conjB * conjB).sum(dim=-1)  # (m,)
+                    term1_q2 = A.T @ A  # (n, n)
+                    term2_q2 = conjB.T @ conjB  # (n, n)
+
+                    ell_q1 = (term1_q1 + term2_q1).max()
+                    st["L_q1"].copy_(torch.max(self.beta_L * st["L_q1"] + (1 - self.beta_L) * ell_q1, ell_q1))
+                    q1.sub_((self.lr / st["L_q1"].clamp(min=1e-30)) * (term1_q1 - term2_q1) * q1)
+                    q1.clamp_(min=1e-6, max=1e6)
+
+                    ell_q2 = (term1_q2 + term2_q2).diag().abs().max()
+                    st["L_q2"].copy_(torch.max(self.beta_L * st["L_q2"] + (1 - self.beta_L) * ell_q2, ell_q2))
+                    upd_q2 = torch.triu(term1_q2 - term2_q2) @ q2
+                    q2.sub_((self.lr / st["L_q2"].clamp(min=1e-30)) * upd_q2)
+                else:
+                    term1_q1 = A @ A.T  # (m, m)
+                    term2_q1 = conjB @ conjB.T
+                    term1_q2 = (A * A).sum(dim=0)  # (n,)
+                    term2_q2 = (conjB * conjB).sum(dim=0)
+
+                    ell_q1 = (term1_q1 + term2_q1).diag().abs().max()
+                    st["L_q1"].copy_(torch.max(self.beta_L * st["L_q1"] + (1 - self.beta_L) * ell_q1, ell_q1))
+                    upd_q1 = torch.triu(term1_q1 - term2_q1) @ q1
+                    q1.sub_((self.lr / st["L_q1"].clamp(min=1e-30)) * upd_q1)
+
+                    ell_q2 = (term1_q2 + term2_q2).max()
+                    st["L_q2"].copy_(torch.max(self.beta_L * st["L_q2"] + (1 - self.beta_L) * ell_q2, ell_q2))
+                    q2.sub_((self.lr / st["L_q2"].clamp(min=1e-30)) * (term1_q2 - term2_q2) * q2)
+                    q2.clamp_(min=1e-6, max=1e6)
+
+            st["step"] += 1
+
+            # ---- Apply preconditioner: G' = Q1^T Q1 G Q2^T Q2 ----
+            if q1_diag:
+                Q2TQ2 = q2.T @ q2
+                g_whitened = (q1 * q1).unsqueeze(-1) * (g_orig @ Q2TQ2)
+            else:
+                Q1TQ1 = q1.T @ q1
+                g_whitened = (Q1TQ1 @ g_orig) * (q2 * q2).unsqueeze(0)
+
+            st["last_raw_norm"] = float(g_orig.norm().item())
+            st["last_whitened_norm"] = float(g_whitened.norm().item())
+
+            p.grad.copy_(g_whitened.to(p.grad.dtype))
+
+    @torch.no_grad()
+    def telemetry(self) -> dict[str, float]:
+        out: dict[str, float] = {}
+        for p in self.params:
+            st = self.state[id(p)]
+            name = self.names[id(p)]
+            short = "embed" if "embed" in name else ("lm_head" if "proj" in name else name.replace(".", "_"))
+            q1 = st["q1"]
+            q2 = st["q2"]
+            tri = q2 if st["q1_diag"] else q1
+            diag = q1 if st["q1_diag"] else q2
+            diag_tri_vals = tri.diag().abs()
+            cond_tri = float((diag_tri_vals.max() / diag_tri_vals.min().clamp(min=1e-30)).item())
+            out[f"psgd/L_{short}_cond"] = cond_tri
+            out[f"psgd/{short}_diag_min"] = float(diag.min().item())
+            out[f"psgd/{short}_diag_max"] = float(diag.max().item())
+            out[f"psgd/{short}_diag_mean"] = float(diag.mean().item())
+            out[f"psgd/{short}_tri_fro"] = float(tri.norm().item())
+            raw = st["last_raw_norm"]
+            whitened = st["last_whitened_norm"]
+            out[f"psgd/raw_grad_norm_{short}"] = raw
+            out[f"psgd/whitened_grad_norm_{short}"] = whitened
+            out[f"psgd/whitening_ratio_{short}"] = whitened / max(raw, 1e-30)
+        return out
+
+
 ########################################
 #                Setup                 #
 ########################################
@@ -866,6 +1034,11 @@ if dist.get_rank() == 0:
             "optimizer/attn_soap_trust_threshold": ATTN_SOAP_TRUST_THRESHOLD,
             "optimizer/ns5_iters": NS5_ITERS,
             "optimizer/wd_aux": WD_AUX,
+            "optimizer/psgd_kron_aux": PSGD_KRON_AUX,
+            "optimizer/kron_precond_freq": KRON_PRECOND_FREQ,
+            "optimizer/kron_damping": KRON_DAMPING,
+            "optimizer/kron_lr": KRON_LR,
+            "optimizer/kron_beta_L": KRON_BETA_L,
             "optimizer/recipe": "contra-muon + normuon-lite + soap-on-mlp + soap-on-attn-trust-gate (pre-NS5, record #14 + record #16)",
         },
     )
@@ -906,6 +1079,17 @@ for trial_idx in range(args.num_trials):
                       lr=MUON_LR, weight_decay=MUON_WEIGHT_DECAY, mu=MU)
     optimizer2.param_groups[0]["name"] = "muon_blocks"
     optimizers = [optimizer1, optimizer2]
+    # PSGD-KRON-AUX (PR #1216): create whitening preconditioner for AUX 2D params.
+    # Bytewise inert when PSGD_KRON_AUX=0.
+    psgd_kron_aux: PSGDKronAUX | None = None
+    if PSGD_KRON_AUX:
+        psgd_kron_aux = PSGDKronAUX(
+            [("embed.weight", model.embed.weight), ("proj.weight", model.proj.weight)],
+            freq=KRON_PRECOND_FREQ,
+            damping=KRON_DAMPING,
+            lr=KRON_LR,
+            beta_L=KRON_BETA_L,
+        )
     assert set(p for opt in optimizers for group in opt.param_groups
                for p in group["params"]) == set(model.parameters())
     for opt in optimizers:
@@ -1051,6 +1235,10 @@ for trial_idx in range(args.num_trials):
                 train_steps=train_steps,
                 wandb_step=wandb_step,
             )
+        # PSGD-KRON-AUX (PR #1216): whiten AUX 2D gradients in place before AdamW step.
+        # Must occur after telemetry (which reads raw grads) and before opt.step().
+        if psgd_kron_aux is not None:
+            psgd_kron_aux.whiten_and_update()
         for opt in optimizers:
             opt.step()
         if dist.get_rank() == 0 and telemetry_due:
@@ -1059,6 +1247,8 @@ for trial_idx in range(args.num_trials):
                     stats = opt.trust_gate_stats()
                     if stats:
                         wandb.log(prefixed("train/attn_soap_trust_gate", stats), step=wandb_step)
+            if psgd_kron_aux is not None:
+                wandb.log(psgd_kron_aux.telemetry(), step=wandb_step)
         if dist.get_rank() == 0 and telemetry_due:
             log_weight_telemetry(
                 model=model,
