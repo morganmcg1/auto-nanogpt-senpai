@@ -1,5 +1,41 @@
 # SENPAI Research Results
 
+## 2026-05-25 23:55 UTC — PR #1182 CLOSED: EMA wrapper β_target probe (0.985 LOWER vs 0.995 HIGHER, baseline=0.99) — 139th NULL, EMA β_target axis FULLY CLOSED with asymmetric U-shape canon (HIGHER benign, LOWER costs ~1.5 mnat per 0.005) (g1r1-nezuko)
+
+- Branch: `g1r1-nezuko/ema-beta-target`
+- Hypothesis: probe EMA wrapper β_target ±0.005 around baseline 0.99. Arm A LOWER β=0.985 (67-step lookback) vs Arm B HIGHER β=0.995 (200-step lookback). Tests U-shape geometry around baseline.
+
+| Arm | β_target | wandb run | val_ema | sr | Δval (mnat) | Merge rule |
+|---|---|---|---|---|---|---|
+| Baseline (n=2) | 0.99 | vm48fdof / 0a7esmxs | 3.266394 | 2925 | 0 | (reference) |
+| **A (LOWER)** | 0.985 | `kt5hn5uk` | **3.267900** | **2950** | **+1.506 (5σ)** | FAILS both (sr+25 + val miss) |
+| **B (HIGHER)** | 0.995 | `m4mvdz7v` | **3.266713** | **2925** | **+0.319 (1.06σ)** | FAILS clause-2 (sr tied but val miss) |
+
+Both arms FAIL merge rule. **Arm B is sub-σ NULL** (1.06σ at empirical σ ≈ 0.3 mnat per #958) — statistically indistinguishable from baseline.
+
+- **ASYMMETRIC NULL — corrected canon: monotone-decreasing val-vs-β_target in [0.99, 0.995], not symmetric U-shape.** Arm B regresses 4.7× LESS than Arm A. Lower β_target sharply penalized (-1.5 mnat per 0.005); higher β_target benign.
+
+- **MECHANISM REVISION — buffer_frob_dist intuition INVERTED:**
+
+| Direction | Δβ | terminal buffer_frob_dist | Δval | Mechanism |
+|---|---|---|---|---|
+| LOWER (Arm A) | −0.005 | 11.31 (smaller) | +1.51 mnat | 67-step lookback misses early-cooldown gradient signal |
+| HIGHER (Arm B) | +0.005 | **58.80 (5.2× larger)** | +0.32 mnat | 200-step lookback approximately re-centers on trajectory mean |
+
+  - **Terminal `buffer_frob_dist` scales with how much of cooldown's LR mass falls inside the lookback window**, NOT abstract "smoothing strength."
+  - Arm A's 67-step window captures only terminal-LR-near-zero phase (steps ~3183-3250) where weights barely move → buffer ≈ live → small frob_dist.
+  - Arm B's 200-step window reaches back to steps ~3050-3250 including early-cooldown high-LR phase → buffer ≠ live → large frob_dist.
+  - **`buffer_frob_dist` is NOT a direct val proxy** — mechanism-conditional. Contradicts the #918 canon "higher LR → larger frob_dist → lower val" by showing high β_target also produces large frob_dist but does NOT improve val.
+
+- **CROSS-AXIS CANON STRENGTHENING:**
+  - #864 baseline β_target=0.99 confirmed as approximately optimal with asymmetric local neighborhood
+  - #1144 NS_ITERS phase schedule (132nd NULL "any departure from uniform NS_ITERS=12 costs ~1.2 mnat"): Arm A's +1.5 mnat in same band — EMA expects uniform smoothing rate across cooldown
+  - #1176 u/w-floor U-shape: also asymmetric (HIGHER 47% steeper) but OPPOSITE direction (HIGHER hurts there, LOWER hurts here). Mechanism distinction: u/w-floor is direct multiplicative perturbation; EMA β_target affects lookback over LR-weighted trajectory.
+
+- **EMA wrapper β_target axis FULLY CLOSED across {0.985, 0.99, 0.995}.** 139th NULL. Future EMA wrapper PRs must stay above β_target=0.99 and recognize buffer_frob_dist is mechanism-conditional.
+
+- nezuko → **#1219** (EMA β ramp SHAPE probe: Arm A cosine ramp (slow-start fast-finish) vs Arm B quadratic-t² ramp (fast-start slow-finish), both 0.95→0.99 over 1750 steps; tests whether SHAPE of the ramp matters at fixed endpoints + duration; mechanism-distinct from #864 (duration probe) and #1182 (target probe) and #1213/#1215 (body-Muon mu schedules, not EMA wrapper); ~5 LOC implementation).
+
 ## 2026-05-25 22:25 UTC — PR #1178 CLOSED: AdamW aux eps ablation (1e-8 LOOSER PyTorch default; Arm B 1e-12 aborted) — 138th NULL, AdamW aux eps axis FULLY CLOSED across 4-decade range, eps_dominance_frac structural finding (g1r1-fern)
 
 - Branch: `g1r1-fern/adamw-eps`
