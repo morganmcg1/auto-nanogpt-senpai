@@ -64,6 +64,9 @@ def parse_args():
     parser.add_argument("--muon_lr", type=float, default=0.035,
                         help="Base learning rate for body-Muon optimizer (matrix params in blocks). "
                              "Default 0.035 matches the merged baseline.")
+    parser.add_argument("--ema_aux_scope", type=str, default="none",
+                        choices=["none", "embed", "lm_head", "both"],
+                        help="Extend EMA wrapper to AdamW-managed params: none/embed/lm_head/both")
     args = parser.parse_args()
     args.num_trials = args.num_trials if args.num_trials is not None else (args.legacy_num_trials or 1)
     args.wandb_tags = [tag.strip() for tag in args.wandb_tags.split(",") if tag.strip()]
@@ -720,6 +723,7 @@ if dist.get_rank() == 0:
             "ema_warmup_steps": args.ema_warmup_steps,
             "ema_beta_target": args.ema_beta_target if args.ema_beta_target is not None else 0.0,
             "ema_dynamic_ramp_active": int(args.ema_beta_target is not None and args.ema_beta > 0),
+            "ema_aux_scope": args.ema_aux_scope,
         },
     )
 
@@ -775,6 +779,15 @@ for trial_idx in range(args.num_trials):
     ema_params = None
     if args.ema_beta > 0:
         ema_params = [p.detach().float().clone() for p in optimizer2.param_groups[0]["params"]]
+    # Aux EMA buffers (FP32) for AdamW-managed embed/lm_head params. Same β_t schedule
+    # as body-Muon EMA. Scope controlled by --ema_aux_scope (none|embed|lm_head|both).
+    # FP32 storage avoids β_t ≥ 0.996 rounding to 1.0 when the live tensor is BF16.
+    ema_embed = None
+    ema_lm_head = None
+    if args.ema_aux_scope in ("embed", "both") and args.ema_beta > 0:
+        ema_embed = model.embed.weight.detach().float().clone()
+    if args.ema_aux_scope in ("lm_head", "both") and args.ema_beta > 0:
+        ema_lm_head = model.proj.weight.detach().float().clone()
 
     # learning rate schedule: stable then power-law cooldown (gamma = COOLDOWN_POWER)
     def compute_lr_mult(step, cooldown_frac=0.7):
@@ -862,8 +875,10 @@ for trial_idx in range(args.num_trials):
                 dist.all_reduce(val_loss_live, op=dist.ReduceOp.SUM)
                 val_loss_live /= val_tokens
                 val_loss_live_float = float(val_loss_live.item())
-            # Swap in EMA weights (body-Muon matrix params only) for the eval pass.
+            # Swap in EMA weights (body-Muon matrix params, plus optional aux embed/lm_head) for the eval pass.
             train_bufs = None
+            train_embed_buf = None
+            train_lm_head_buf = None
             if ema_params is not None:
                 train_bufs = [p.detach().clone() for p in optimizer2.param_groups[0]["params"]]
                 # Compute Frobenius distance ||ema - live|| across all body-Muon params.
@@ -874,6 +889,12 @@ for trial_idx in range(args.num_trials):
                 buffer_frob_dist = sq_sum ** 0.5
                 for ema_p, p in zip(ema_params, optimizer2.param_groups[0]["params"]):
                     p.data.copy_(ema_p.to(p.dtype))
+                if ema_embed is not None:
+                    train_embed_buf = model.embed.weight.detach().clone()
+                    model.embed.weight.data.copy_(ema_embed.to(model.embed.weight.dtype))
+                if ema_lm_head is not None:
+                    train_lm_head_buf = model.proj.weight.detach().clone()
+                    model.proj.weight.data.copy_(ema_lm_head.to(model.proj.weight.dtype))
             val_loss = torch.zeros((), device=device)
             with torch.no_grad():
                 assert len(val_inputs) % mbs == 0
@@ -886,6 +907,10 @@ for trial_idx in range(args.num_trials):
             if train_bufs is not None:
                 for train_p, p in zip(train_bufs, optimizer2.param_groups[0]["params"]):
                     p.data.copy_(train_p)
+            if train_embed_buf is not None:
+                model.embed.weight.data.copy_(train_embed_buf)
+            if train_lm_head_buf is not None:
+                model.proj.weight.data.copy_(train_lm_head_buf)
             if dist.get_rank() == 0:
                 val_loss_history.append((step, val_loss_float))
                 if val_loss_float < best_val_loss:
@@ -924,6 +949,14 @@ for trial_idx in range(args.num_trials):
                     metrics["ema/n_eff"] = 1.0 / max(1e-12, (1.0 - beta_t_now))
                     metrics["ema/active"] = int(step >= args.ema_warmup_steps)
                     metrics["ema/warmup_steps"] = args.ema_warmup_steps
+                    if ema_embed is not None:
+                        embed_diff = ema_embed - model.embed.weight.detach().float()
+                        metrics["ema_aux/embed_frob_dist"] = float(embed_diff.square().sum().sqrt().item())
+                        metrics["ema_aux/embed_max_diff"] = float(embed_diff.abs().max().item())
+                    if ema_lm_head is not None:
+                        lm_diff = ema_lm_head - model.proj.weight.detach().float()
+                        metrics["ema_aux/lm_head_frob_dist"] = float(lm_diff.square().sum().sqrt().item())
+                        metrics["ema_aux/lm_head_max_diff"] = float(lm_diff.abs().max().item())
                 metrics.update(prefixed("val/slope", loss_slope_stats(val_loss_history, slope_window_steps)))
                 wandb.log(metrics, step=trial_idx * (train_steps + 1) + step)
             print0(f"step:{step}/{train_steps} val_loss:{val_loss:.5f} train_time:{training_time:.3f}s"
@@ -991,6 +1024,10 @@ for trial_idx in range(args.num_trials):
             if step < args.ema_warmup_steps:
                 for ema_p, p in zip(ema_params, optimizer2.param_groups[0]["params"]):
                     ema_p.copy_(p.detach().float())
+                if ema_embed is not None:
+                    ema_embed.copy_(model.embed.weight.detach().float())
+                if ema_lm_head is not None:
+                    ema_lm_head.copy_(model.proj.weight.detach().float())
                 ema_beta_t_now = args.ema_beta
                 ema_lr_mult_now = compute_lr_mult(step)
             else:
@@ -999,6 +1036,10 @@ for trial_idx in range(args.num_trials):
                 lerp_w = 1.0 - ema_beta_t_now
                 for ema_p, p in zip(ema_params, optimizer2.param_groups[0]["params"]):
                     ema_p.lerp_(p.detach().float(), lerp_w)
+                if ema_embed is not None:
+                    ema_embed.lerp_(model.embed.weight.detach().float(), lerp_w)
+                if ema_lm_head is not None:
+                    ema_lm_head.lerp_(model.proj.weight.detach().float(), lerp_w)
         if dist.get_rank() == 0 and telemetry_due:
             log_weight_telemetry(
                 model=model,
