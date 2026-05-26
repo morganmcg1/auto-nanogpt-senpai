@@ -1,3 +1,48 @@
+## 2026-05-26 12:15 — PR #1214: H162-v2 thorfinn per-block MuonH LR (round-2 FFS-targeted) — BILATERAL NEG on primary FFS metric (31st closure + MECHANISM-EMERGES-TOO-LATE finding for calib≥100)
+
+- Branch: `thorfinn/h162-per-block-lr`
+- Hypothesis (per human Issue #1260 directive): Test whether EARLIER calibration (calib=100) or STRONGER differentiation (exp=1.0) shifts the per-block LR mechanism's emergence window to pull FFS below 3125. Round-1 arm_b had FFS=3125=TIE.
+
+| arm | Run ID | exp | calib | val/loss | FFS | Δ vs baseline | Δ vs CTRL | Verdict |
+|---|---|---|---|---|---|---|---|---|
+| arm_a CTRL | `10c4ppvy` | 0.0 | — | 3.26558 | 3150 | +0.00194 / +25 | — | NULL anchor (10th drift) |
+| arm_b EARLIER | `ojkbrfrb` | 0.5 | **100** | **3.26345** | **3150** | -0.00019 / **+25** | -0.00212 / 0 | **NEG primary** (val/loss within-chain ~2σ WIN) |
+| arm_c STRONGER | `7djqmvzg` | 1.0 | 200 | 3.26919 | **3175** | +0.00555 / **+50** | +0.00361 / +25 | **NEG** (too aggressive) |
+
+Best FFS across arms = 3150. Baseline FFS = 3125 → **NEG on primary metric**. No merge.
+
+### Programme-grade Finding: MECHANISM-EMERGES-TOO-LATE for calib≥100 (3 data points)
+
+| Round | arm_b config | val/loss vs baseline | FFS vs baseline |
+|---|---|---|---|
+| Round 1 | calib=200, exp=0.5 | -0.00102 (soft WIN ~0.22σ) | TIE 3125 |
+| Round 2 | calib=100, exp=0.5 | -0.00019 (NULL) | +25 NEG (3150) |
+| Round 2 | calib=200, exp=1.0 | +0.00555 (NEG) | +50 NEG (3175) |
+
+**Critical quantitative analysis** (thorfinn): at step 3125, arm_b's val/loss = 3.28039 — residual gap to 3.28 threshold = +0.00039. Within-chain advantage at step 3125 is only -0.0015 vs CTRL. Need ~4× that gap (~0.0004+ additional improvement) to pull FFS to 3100. Val/loss gain compounds AT and AFTER the FFS window, not before. Earlier calibration (calib=100) does NOT shift the emergence window — both round-1 calib=200 and round-2 calib=100 cross 3.28 at step 3150.
+
+### Implication for the H162 grid (calib ∈ {25, 50} variants live)
+
+Closes calib≥100 axis. Does NOT close the entire H162 axis — the live in-flight portfolio is testing calib ∈ {25, 50} (gentler-and-earlier corner):
+- H175 fern calib=100 exp ∈ {0.25, 1.0}
+- H176 nezuko calib=50 exp ∈ {0.5, 1.0}
+- H177 edward calib=50 exp=0.25
+- H178 frieren calib=25 exp=0.5
+- H179 tanjiro calib=25 exp ∈ {0.25, 1.0}
+- H180 thorfinn 3-trial multi-seed confirmation of round-1 arm_b (calib=200, exp=0.5)
+
+The remaining hypothesis: ULTRA-EARLY calibration (calib ≤ 50, during/just-after warmup) can produce per-block LR multipliers measuring earlier-warmup gradient anisotropy, with a +500 to +1000 step compounding window before the FFS region.
+
+### Excellent rigor from thorfinn
+
+Quantitative residual-gap analysis (+0.00039 to threshold, 4× more needed) is the load-bearing finding. 11-checkpoint trajectory table around the FFS crossing window. The H162 round-1+2 sequence is a textbook example of FFS-vs-val/loss decoupling for cooldown-phase-emerging mechanisms.
+
+### Follow-up: H180 thorfinn ASSIGNED (PR #1295) — 3-trial multi-seed CONFIRMATION
+
+3 trials of H162 round-1 arm_b config (calib=200, exp=0.5, recal=0). Single CLI call with `--num_trials 3`. Resolves whether the round-1 single-trial val/loss=3.262617 + FFS=3125 is reproducible (mechanism signal) or single-trial noise floor. Per Issue #1260: "confirm the best per-block MuonH LR variant before scattering into unrelated ideas."
+
+---
+
 ## 2026-05-26 11:55 — PR #1257: H173 tanjiro body spectral norm penalty — BILATERAL NEG/NULL with non-engagement confound (30th closure + SPECTRAL-PENALTY-CANNOT-COMPRESS-SV_MAX finding)
 
 - Branch: `g1r3-tanjiro/h173-body-spectral-penalty`

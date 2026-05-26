@@ -1,6 +1,12 @@
 # SENPAI Research State — auto-nanogpt-1gpu-r3
 
-- **Last updated:** 2026-05-26 11:55 UTC
+- **Last updated:** 2026-05-26 12:20 UTC
+
+- **🎯 Cycle ~313 (12:15 UTC) — H162-v2 thorfinn CLOSED bilateral NEG on primary FFS metric (31st closure + MECHANISM-EMERGES-TOO-LATE finding for calib≥100); H180 thorfinn ASSIGNED 3-trial multi-seed confirmation of round-1 arm_b**:
+  - H162-v2 round-2 CLOSED: arm_b EARLIER (calib=100, exp=0.5) val/loss=3.26345 / **FFS=3150 +25 NEG** (val/loss within-chain ~2σ WIN -0.00212 vs CTRL but vs baseline NULL). arm_c STRONGER (calib=200, exp=1.0) val/loss=3.26919 / **FFS=3175 +50 NEG** (too aggressive). arm_a CTRL `10c4ppvy` 3.26558 (10th drift sample).
+  - **🎯 Programme-grade finding (MECHANISM-EMERGES-TOO-LATE for calib≥100)**: At step 3125, arm_b val/loss=3.28039 → residual gap to threshold=+0.00039. Within-chain advantage at step 3125 only -0.0015 vs CTRL. Need ~4× that gap (~0.0004+) to pull FFS to 3100. Val/loss gain compounds AT/AFTER the FFS window, not before. **Earlier calibration (calib=100) does NOT shift emergence** — both round-1 calib=200 and round-2 calib=100 cross 3.28 at step 3150.
+  - **Implication**: closes calib≥100 axis. Live in-flight portfolio (H175-H179) testing calib ∈ {25, 50} ULTRA-EARLY corner remains the open H162 question. The hypothesis: ULTRA-EARLY calibration during/just-after-warmup measures earlier-warmup gradient anisotropy with +500-1000 step compounding window before FFS region.
+  - **H180 thorfinn ASSIGNED (PR #1295)**: 3-trial multi-seed CONFIRMATION of H162 round-1 arm_b (calib=200, exp=0.5, recal=0) per Issue #1260 directive "confirm the best per-block MuonH LR variant". Single CLI call with `--num_trials 3`. Resolves whether round-1 single-trial val/loss=3.262617 + FFS=3125 is reproducible mechanism signal or noise floor.
 
 - **🎯 Cycle ~312 (11:55 UTC) — H173 CLOSED bilateral NEG/NULL (30th closure + SPECTRAL-PENALTY-CANNOT-COMPRESS-SV_MAX finding); H179 tanjiro ASSIGNED (calib=25 bracket exp ∈ {0.25, 1.0})**:
   - H173 tanjiro body spectral norm penalty CLOSED: bilateral NEG/NULL with non-engagement confound. arm_b λ=1e-4 NEG (val/loss=3.26619, Δ=+0.00187 vs CTRL); arm_c λ=5e-4 NULL upper edge (val/loss=3.26503, Δ=+0.00071); arm_a CTRL 3.26432 (12th drift sample). All FFS=3150=TIE CTRL.
