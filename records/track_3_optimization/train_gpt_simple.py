@@ -83,6 +83,25 @@ def parse_args():
              "muall=musoft + non-residual block 2D weights also scaled by 1/sqrt(L); "
              "smallconst=std=1e-3 depth-independent.",
     )
+    parser.add_argument(
+        "--muon_spike_threshold",
+        type=float,
+        default=0.0,
+        help="Muon momentum spike-reset threshold (multiple of rolling EMA of "
+             "Frobenius gradient norm). 0.0 = disabled (no detection, no telemetry, "
+             "original muon_update path). When >0, the Muon body step monitors "
+             "||g_t||_F vs an EMA baseline; if the ratio exceeds this threshold, "
+             "state['momentum'] is zeroed AFTER the lerp_(grad,1-mu) buffer update "
+             "and BEFORE the Nesterov lerp(momentum,mu). Typical values: 5, 10, 20, 50. "
+             "Use 1000 as a 'never-triggers' diagnostic that still logs ratios.",
+    )
+    parser.add_argument(
+        "--muon_spike_ema_decay",
+        type=float,
+        default=0.99,
+        help="EMA decay for the rolling grad-norm baseline used by "
+             "--muon_spike_threshold. Decay 0.99 -> ~100-step effective window.",
+    )
     args = parser.parse_args()
     args.num_trials = args.num_trials if args.num_trials is not None else (args.legacy_num_trials or 1)
     args.wandb_tags = [tag.strip() for tag in args.wandb_tags.split(",") if tag.strip()]
@@ -571,7 +590,8 @@ class Muon(torch.optim.Optimizer):
     SOAP_ATTN_SUFFIXES = (".attn.q.weight", ".attn.k.weight", ".attn.v.weight", ".attn.proj.weight")
 
     def __init__(self, named_params, lr=0.02, weight_decay=0, mu=0.95,
-                 soap_attn=False, trust_threshold=0.0):
+                 soap_attn=False, trust_threshold=0.0,
+                 spike_threshold=0.0, spike_ema_decay=0.99):
         # `named_params` can be either:
         #   (a) list of (name, param) tuples → single param group (legacy form)
         #   (b) list of dicts {"named_params": [(name, param), ...], "lr": ?, "weight_decay": ?, "mu": ?, "name": ?}
@@ -594,6 +614,12 @@ class Muon(torch.optim.Optimizer):
         self.trust_threshold = float(trust_threshold)
         self.use_trust_gate = soap_attn
         self.cos_sims_buffer: dict[str, Tensor] = {}
+        # SPAM (Chen et al. 2025) spike-aware momentum reset config
+        self.spike_threshold = float(spike_threshold)
+        self.spike_ema_decay = float(spike_ema_decay)
+        self.spike_enabled = self.spike_threshold > 0.0
+        self.cumulative_reset_count = 0
+        self._step_spike_stats: dict[str, float] = {}
 
         param_groups = []
         for g in groups_raw:
@@ -615,6 +641,11 @@ class Muon(torch.optim.Optimizer):
         self.cos_sims_buffer = {}
         world_size = dist.get_world_size()
         rank = dist.get_rank()
+        # Per-step spike telemetry accumulators (rank-local; aggregated by caller).
+        step_reset_count = 0
+        step_max_ratio = 0.0
+        step_g_norm_ema_sum = 0.0
+        step_n_params = 0
         for group in self.param_groups:
             params = group["params"]
             norm_sum = torch.zeros((), device=params[0].device, dtype=torch.float32)
@@ -626,6 +657,10 @@ class Muon(torch.optim.Optimizer):
                     use_soap = p in self.soap_params
                     if len(state) == 0:
                         state["momentum"] = torch.zeros_like(p)
+                        if self.spike_enabled:
+                            state["g_norm_ema"] = 0.0
+                            state["spike_count"] = 0
+                            state["reset_count"] = 0
                         if use_soap:
                             state["exp_avg_sq"] = torch.zeros_like(p, dtype=torch.float32)
                             state["row_gg"] = torch.zeros(p.size(0), p.size(0), dtype=torch.float32, device=p.device)
@@ -635,6 +670,24 @@ class Muon(torch.optim.Optimizer):
                             state["soap_step"] = 0
                     if use_soap:
                         state["momentum"].lerp_(p.grad, 1 - group["mu"])
+                        if self.spike_enabled:
+                            g_norm = float(p.grad.detach().float().norm())
+                            if state["g_norm_ema"] == 0.0:
+                                state["g_norm_ema"] = g_norm
+                            spike_ratio = g_norm / max(state["g_norm_ema"], 1e-12)
+                            if spike_ratio > self.spike_threshold:
+                                state["momentum"].zero_()
+                                state["reset_count"] += 1
+                                self.cumulative_reset_count += 1
+                                step_reset_count += 1
+                            state["spike_count"] += int(spike_ratio > self.spike_threshold)
+                            step_max_ratio = max(step_max_ratio, spike_ratio)
+                            step_g_norm_ema_sum += state["g_norm_ema"]
+                            step_n_params += 1
+                            state["g_norm_ema"] = (
+                                self.spike_ema_decay * state["g_norm_ema"]
+                                + (1.0 - self.spike_ema_decay) * g_norm
+                            )
                         raw_nesterov = p.grad.lerp(state["momentum"], group["mu"])
                         precond_nesterov = soap_precondition_momentum(raw_nesterov, state)
                         u_soap = soap_ns_step(precond_nesterov)
@@ -648,6 +701,29 @@ class Muon(torch.optim.Optimizer):
                         else:
                             update = u_soap
                         soap_update_preconditioner(p.grad, state)
+                    elif self.spike_enabled:
+                        # Inline muon_update so spike check can sit between the two lerps.
+                        state["momentum"].lerp_(p.grad, 1 - group["mu"])
+                        g_norm = float(p.grad.detach().float().norm())
+                        if state["g_norm_ema"] == 0.0:
+                            state["g_norm_ema"] = g_norm
+                        spike_ratio = g_norm / max(state["g_norm_ema"], 1e-12)
+                        if spike_ratio > self.spike_threshold:
+                            state["momentum"].zero_()
+                            state["reset_count"] += 1
+                            self.cumulative_reset_count += 1
+                            step_reset_count += 1
+                        state["spike_count"] += int(spike_ratio > self.spike_threshold)
+                        step_max_ratio = max(step_max_ratio, spike_ratio)
+                        step_g_norm_ema_sum += state["g_norm_ema"]
+                        step_n_params += 1
+                        state["g_norm_ema"] = (
+                            self.spike_ema_decay * state["g_norm_ema"]
+                            + (1.0 - self.spike_ema_decay) * g_norm
+                        )
+                        update = p.grad.lerp_(state["momentum"], group["mu"])
+                        update = zeropower_via_newtonschulz5(update)
+                        update *= max(1, p.grad.size(-2) / p.grad.size(-1))**0.5
                     else:
                         update = muon_update(p.grad, state["momentum"], mu=group["mu"])
                     norm_sum.add_(update.float().norm())
@@ -656,6 +732,54 @@ class Muon(torch.optim.Optimizer):
                 dist.all_gather(params_pad[base_i:base_i + world_size], params_pad[base_i + rank])
             group["_step_norm_sum"] = norm_sum
             group["_step_norm_count"] = len(params)
+        # Stash per-step aggregates for the training loop to log.
+        self._step_spike_stats = {
+            "reset_count_this_step": step_reset_count,
+            "max_ratio": step_max_ratio,
+            "g_norm_ema_sum": step_g_norm_ema_sum,
+            "n_params": step_n_params,
+        }
+
+    def get_step_spike_stats(self) -> dict[str, float]:
+        """Return per-step spike-detection stats for the most recent Muon.step().
+
+        Requires distributed all_reduce when world_size > 1: reset_count and
+        n_params are summed; max_ratio is max-reduced; g_norm_ema_sum is summed
+        and divided by total n_params for the cross-rank mean.
+        """
+        stats = self._step_spike_stats
+        if not stats:
+            return {}
+        world_size = dist.get_world_size()
+        device = next(iter(self.state.values()))["momentum"].device if self.state else torch.device("cpu")
+        if world_size > 1:
+            buf = torch.tensor(
+                [stats["reset_count_this_step"], stats["n_params"], stats["g_norm_ema_sum"]],
+                dtype=torch.float64, device=device,
+            )
+            dist.all_reduce(buf, op=dist.ReduceOp.SUM)
+            max_ratio_buf = torch.tensor([stats["max_ratio"]], dtype=torch.float64, device=device)
+            dist.all_reduce(max_ratio_buf, op=dist.ReduceOp.MAX)
+            reset_count_global = int(buf[0].item())
+            n_params_global = int(buf[1].item())
+            g_norm_ema_sum_global = float(buf[2].item())
+            max_ratio_global = float(max_ratio_buf[0].item())
+        else:
+            reset_count_global = int(stats["reset_count_this_step"])
+            n_params_global = int(stats["n_params"])
+            g_norm_ema_sum_global = float(stats["g_norm_ema_sum"])
+            max_ratio_global = float(stats["max_ratio"])
+        mean_g_norm_ema = (
+            g_norm_ema_sum_global / max(1, n_params_global)
+            if n_params_global else 0.0
+        )
+        return {
+            "reset_count_this_step": reset_count_global,
+            "cumulative_reset_count": int(self.cumulative_reset_count),
+            "max_ratio": max_ratio_global,
+            "mean_g_norm_ema": mean_g_norm_ema,
+            "n_params_tracked": n_params_global,
+        }
 
     def get_step_update_norms(self) -> dict[str, float]:
         """Return per-group mean Frobenius norm of the most recent step's updates.
@@ -765,6 +889,9 @@ if dist.get_rank() == 0:
             "wd_schedule": args.wd_schedule,
             "lr_scalars": args.lr_scalars,
             "depth_init_mode": args.depth_init_mode,
+            "muon_spike_threshold": args.muon_spike_threshold,
+            "muon_spike_ema_decay": args.muon_spike_ema_decay,
+            "muon_spike_enabled": bool(args.muon_spike_threshold > 0.0),
         },
     )
 
@@ -853,6 +980,8 @@ for trial_idx in range(args.num_trials):
             dict(named_params=attn_named, lr=args.lr_attn, weight_decay=args.wd_attn, name="muon_attn"),
         ],
         soap_attn=args.soap_attn, trust_threshold=args.soap_trust_threshold,
+        spike_threshold=args.muon_spike_threshold,
+        spike_ema_decay=args.muon_spike_ema_decay,
     )
     optimizers = [optimizer1, optimizer2]
     assert set(p for opt in optimizers for group in opt.param_groups
@@ -1027,6 +1156,20 @@ for trial_idx in range(args.num_trials):
                 per_group_metrics["train/wd_attn_now"] = current_wds.get("muon_attn", 0.0)
                 per_group_metrics["train/wd_schedule_progress"] = train_step / train_steps
                 wandb.log(per_group_metrics, step=wandb_step)
+        if optimizer2.spike_enabled:
+            spike_stats = optimizer2.get_step_spike_stats()
+            if dist.get_rank() == 0 and spike_stats:
+                wandb.log({
+                    "trial": trial_idx,
+                    "train/step": train_step,
+                    "spike/reset_count": spike_stats["cumulative_reset_count"],
+                    "spike/n_params_reset_this_step": spike_stats["reset_count_this_step"],
+                    "spike/max_ratio": spike_stats["max_ratio"],
+                    "spike/mean_g_norm_ema": spike_stats["mean_g_norm_ema"],
+                    "spike/n_params_tracked": spike_stats["n_params_tracked"],
+                    "spike/threshold": optimizer2.spike_threshold,
+                    "spike/ema_decay": optimizer2.spike_ema_decay,
+                }, step=wandb_step)
         if dist.get_rank() == 0 and optimizer2.cos_sims_buffer:
             cs_names = list(optimizer2.cos_sims_buffer.keys())
             cs_tensors = list(optimizer2.cos_sims_buffer.values())
