@@ -64,6 +64,12 @@ def parse_args():
     parser.add_argument("--muon_lr", type=float, default=0.035,
                         help="Base learning rate for body-Muon optimizer (matrix params in blocks). "
                              "Default 0.035 matches the merged baseline.")
+    parser.add_argument("--target_uw_attn", type=float, default=0.35,
+                        help="u/w-floor TARGET_UW for attn-family weights (q/k/v + attn.proj). "
+                             "Baseline 0.35 (uniform with mlp). #1035/#1129/#1176 closed UNIFORM value at 0.35.")
+    parser.add_argument("--target_uw_mlp", type=float, default=0.35,
+                        help="u/w-floor TARGET_UW for mlp-family weights (mlp.fc + mlp.proj). "
+                             "Baseline 0.35 (uniform with attn). #1035/#1129/#1176 closed UNIFORM value at 0.35.")
     args = parser.parse_args()
     args.num_trials = args.num_trials if args.num_trials is not None else (args.legacy_num_trials or 1)
     args.wandb_tags = [tag.strip() for tag in args.wandb_tags.split(",") if tag.strip()]
@@ -535,23 +541,36 @@ def pmuon_update(
 
 class Muon(torch.optim.Optimizer):
     def __init__(self, params, lr=0.02, weight_decay=0, mu=0.95, beta_cov=0.95, gamma=PMUON_GAMMA,
-                 ns_a=NS_A, ns_b=NS_B, ns_c=NS_C):
-        assert isinstance(params, list) and len(params) >= 1 and isinstance(params[0], torch.nn.Parameter)
-        params = sorted(params, key=lambda x: x.size(), reverse=True)
+                 ns_a=NS_A, ns_b=NS_B, ns_c=NS_C, target_uw=0.35):
+        # Accept either a list of Parameters (single implicit group) or a list of
+        # param-group dicts. For dicts, sort within each group by p.size() desc
+        # (matches the single-group ordering at line 540 baseline).
+        assert isinstance(params, list) and len(params) >= 1
+        if isinstance(params[0], dict):
+            for g in params:
+                g["params"] = sorted(g["params"], key=lambda x: x.size(), reverse=True)
+        else:
+            assert isinstance(params[0], torch.nn.Parameter)
+            params = sorted(params, key=lambda x: x.size(), reverse=True)
         defaults = dict(lr=lr, weight_decay=weight_decay, mu=mu, beta_cov=beta_cov, gamma=gamma,
-                        ns_a=ns_a, ns_b=ns_b, ns_c=ns_c)
+                        ns_a=ns_a, ns_b=ns_b, ns_c=ns_c, target_uw=target_uw)
         super().__init__(params, defaults)
 
     @torch.no_grad()
     def step(self):
         world_size = dist.get_world_size()
         rank = dist.get_rank()
-        # Skylight u/w-floor: enforce ||u||_F / ||w||_F >= TARGET_UW per parameter.
-        TARGET_UW = 0.35
+        # Skylight u/w-floor: enforce ||u||_F / ||w||_F >= group["target_uw"] per parameter.
         floor_fired_count = 0
         floor_eligible_count = 0
+        floor_fired_by_group: dict[str, int] = {}
+        floor_eligible_by_group: dict[str, int] = {}
         polar_diag: dict = {}
         for group in self.param_groups:
+            target_uw = group["target_uw"]
+            group_name = group.get("name", "default")
+            floor_fired_by_group.setdefault(group_name, 0)
+            floor_eligible_by_group.setdefault(group_name, 0)
             params = group["params"]
             params_pad = params + [torch.empty_like(params[-1])] * (world_size - len(params) % world_size)
             for base_i in range(0, len(params), world_size):
@@ -576,16 +595,20 @@ class Muon(torch.optim.Optimizer):
                         polar_diag=polar_diag,
                     )
                     floor_eligible_count += 1
+                    floor_eligible_by_group[group_name] += 1
                     w_norm = p.norm()
                     if w_norm > 0:
                         ratio = update.norm() / w_norm
-                        if 0 < ratio < TARGET_UW:
+                        if 0 < ratio < target_uw:
                             floor_fired_count += 1
-                            update.mul_(TARGET_UW / ratio)
+                            floor_fired_by_group[group_name] += 1
+                            update.mul_(target_uw / ratio)
                     p.mul_(1 - group["lr"] * group["weight_decay"])
                     p.add_(update, alpha=-group["lr"])
                 dist.all_gather(params_pad[base_i:base_i + world_size], params_pad[base_i + rank])
-        self._floor_diag = {"fired": floor_fired_count, "eligible": floor_eligible_count}
+        self._floor_diag = {"fired": floor_fired_count, "eligible": floor_eligible_count,
+                            "fired_by_group": floor_fired_by_group,
+                            "eligible_by_group": floor_eligible_by_group}
         self._polar_diag = polar_diag
 
 
@@ -713,6 +736,8 @@ if dist.get_rank() == 0:
             "ns_coef_c": NS_C,
             "target_uw_floor": 0.35,
             "target_uw": 0.35,
+            "target_uw_attn": args.target_uw_attn,
+            "target_uw_mlp": args.target_uw_mlp,
             "power_cooldown_gamma": COOLDOWN_POWER,
             "cooldown_frac": 0.7,
             "muon_method": MUON_METHOD,
@@ -755,10 +780,18 @@ for trial_idx in range(args.num_trials):
                         dict(params=[model.proj.weight], lr=1/160, name="adam_lm_head"),
                         dict(params=[p for p in model.parameters() if p.ndim < 2], lr=0.025, name="adam_scalars")],
                        betas=(0.8, 0.95), eps=1e-10, weight_decay=0, fused=True)
-    optimizer2 = Muon([p for p in model.blocks.parameters() if p.ndim >= 2],
-                      lr=args.muon_lr, weight_decay=0.025, beta_cov=0.95, gamma=PMUON_GAMMA)
-    optimizer2.param_groups[0]["name"] = "muon_blocks"
-    print0(f"body-Muon optimizer: lr={args.muon_lr} weight_decay=0.025 beta_cov=0.95 gamma={PMUON_GAMMA}")
+    attn_params = [p for n, p in model.blocks.named_parameters() if p.ndim >= 2 and "attn" in n]
+    mlp_params  = [p for n, p in model.blocks.named_parameters() if p.ndim >= 2 and "mlp"  in n]
+    all_body_matrix = [p for p in model.blocks.parameters() if p.ndim >= 2]
+    assert len(attn_params) + len(mlp_params) == len(all_body_matrix), \
+        f"attn+mlp split lost params: {len(attn_params)}+{len(mlp_params)} != {len(all_body_matrix)}"
+    optimizer2 = Muon([
+        dict(params=attn_params, name="muon_attn", target_uw=args.target_uw_attn),
+        dict(params=mlp_params,  name="muon_mlp",  target_uw=args.target_uw_mlp),
+    ], lr=args.muon_lr, weight_decay=0.025, beta_cov=0.95, gamma=PMUON_GAMMA)
+    print0(f"body-Muon optimizer: lr={args.muon_lr} weight_decay=0.025 beta_cov=0.95 gamma={PMUON_GAMMA} "
+           f"target_uw_attn={args.target_uw_attn} target_uw_mlp={args.target_uw_mlp} "
+           f"(attn_params={len(attn_params)}, mlp_params={len(mlp_params)})")
     optimizers = [optimizer1, optimizer2]
     assert set(p for opt in optimizers for group in opt.param_groups
                for p in group["params"]) == set(model.parameters())
@@ -772,9 +805,12 @@ for trial_idx in range(args.num_trials):
     # post-warmup params). After warmup, EMA averaging begins. If
     # --ema_beta_target is set, the EMA β is dynamically ramped from
     # ema_beta (base) to ema_beta_target as the LR multiplier decays to 0.
+    # Flattened across both Muon groups (attn, mlp) so EMA spans all body params.
+    def _body_muon_params():
+        return [p for g in optimizer2.param_groups for p in g["params"]]
     ema_params = None
     if args.ema_beta > 0:
-        ema_params = [p.detach().float().clone() for p in optimizer2.param_groups[0]["params"]]
+        ema_params = [p.detach().float().clone() for p in _body_muon_params()]
 
     # learning rate schedule: stable then power-law cooldown (gamma = COOLDOWN_POWER)
     def compute_lr_mult(step, cooldown_frac=0.7):
@@ -865,14 +901,15 @@ for trial_idx in range(args.num_trials):
             # Swap in EMA weights (body-Muon matrix params only) for the eval pass.
             train_bufs = None
             if ema_params is not None:
-                train_bufs = [p.detach().clone() for p in optimizer2.param_groups[0]["params"]]
+                body_params = _body_muon_params()
+                train_bufs = [p.detach().clone() for p in body_params]
                 # Compute Frobenius distance ||ema - live|| across all body-Muon params.
                 sq_sum = 0.0
-                for ema_p, p in zip(ema_params, optimizer2.param_groups[0]["params"]):
+                for ema_p, p in zip(ema_params, body_params):
                     diff = (ema_p - p.detach().float())
                     sq_sum += float(diff.square().sum().item())
                 buffer_frob_dist = sq_sum ** 0.5
-                for ema_p, p in zip(ema_params, optimizer2.param_groups[0]["params"]):
+                for ema_p, p in zip(ema_params, body_params):
                     p.data.copy_(ema_p.to(p.dtype))
             val_loss = torch.zeros((), device=device)
             with torch.no_grad():
@@ -884,7 +921,7 @@ for trial_idx in range(args.num_trials):
             val_loss_float = float(val_loss.item())
             # Restore train weights immediately after eval so subsequent backward passes use them.
             if train_bufs is not None:
-                for train_p, p in zip(train_bufs, optimizer2.param_groups[0]["params"]):
+                for train_p, p in zip(train_bufs, _body_muon_params()):
                     p.data.copy_(train_p)
             if dist.get_rank() == 0:
                 val_loss_history.append((step, val_loss_float))
@@ -988,8 +1025,9 @@ for trial_idx in range(args.num_trials):
         ema_beta_t_now = float("nan")
         ema_lr_mult_now = float("nan")
         if ema_params is not None:
+            body_params = _body_muon_params()
             if step < args.ema_warmup_steps:
-                for ema_p, p in zip(ema_params, optimizer2.param_groups[0]["params"]):
+                for ema_p, p in zip(ema_params, body_params):
                     ema_p.copy_(p.detach().float())
                 ema_beta_t_now = args.ema_beta
                 ema_lr_mult_now = compute_lr_mult(step)
@@ -997,7 +1035,7 @@ for trial_idx in range(args.num_trials):
                 ema_lr_mult_now = compute_lr_mult(step)
                 ema_beta_t_now = compute_ema_beta_t(step)
                 lerp_w = 1.0 - ema_beta_t_now
-                for ema_p, p in zip(ema_params, optimizer2.param_groups[0]["params"]):
+                for ema_p, p in zip(ema_params, body_params):
                     ema_p.lerp_(p.detach().float(), lerp_w)
         if dist.get_rank() == 0 and telemetry_due:
             log_weight_telemetry(
@@ -1011,12 +1049,28 @@ for trial_idx in range(args.num_trials):
             if floor_diag is not None:
                 eligible = floor_diag.get("eligible", 0)
                 fired = floor_diag.get("fired", 0)
+                fired_by_group = floor_diag.get("fired_by_group", {})
+                eligible_by_group = floor_diag.get("eligible_by_group", {})
+                attn_fired = fired_by_group.get("muon_attn", 0)
+                attn_eligible = eligible_by_group.get("muon_attn", 0)
+                mlp_fired = fired_by_group.get("muon_mlp", 0)
+                mlp_eligible = eligible_by_group.get("muon_mlp", 0)
                 wandb.log({
                     "trial": trial_idx,
                     "train/step": train_step,
                     "train/uw_floor/eligible": eligible,
                     "train/uw_floor/fired": fired,
                     "train/uw_floor/fired_fraction": (fired / eligible) if eligible > 0 else 0.0,
+                    "train/uw_floor/attn_fired": attn_fired,
+                    "train/uw_floor/attn_eligible": attn_eligible,
+                    "train/uw_floor/attn_fired_fraction":
+                        (attn_fired / attn_eligible) if attn_eligible > 0 else 0.0,
+                    "train/uw_floor/mlp_fired": mlp_fired,
+                    "train/uw_floor/mlp_eligible": mlp_eligible,
+                    "train/uw_floor/mlp_fired_fraction":
+                        (mlp_fired / mlp_eligible) if mlp_eligible > 0 else 0.0,
+                    "train/uw_floor/target_uw_attn": args.target_uw_attn,
+                    "train/uw_floor/target_uw_mlp": args.target_uw_mlp,
                 }, step=wandb_step)
             polar_diag = getattr(optimizer2, "_polar_diag", None)
             if polar_diag and "residual" in polar_diag:
