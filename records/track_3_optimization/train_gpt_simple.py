@@ -468,6 +468,16 @@ NS5_ITERS = int(os.environ.get("NS5_ITERS", "12"))
 WD_AUX = float(os.environ.get("WD_AUX", "0.0"))  # AdamW WD on embed + lm_head matrices (scalars stay at 0)
 EMBED_INIT_STD = float(os.environ.get("EMBED_INIT_STD", "1.0"))  # default preserves baseline N(0,1)
 LOGIT_SOFTCAP = float(os.environ.get("LOGIT_SOFTCAP", "15.0"))  # default = 15 (current hardcoded value); soft-cap value c in f(x) = c·x / sqrt(x^2+c^2)
+# Attention SOAP Gram reinit at cooldown boundary (PR #1333): at a single step
+# boundary (default 953 = cooldown_frac=0.7 of train_steps=3175), zero the
+# accumulated attention SOAP Gram statistics (row_gg, col_gg) and companion
+# preconditioner state for all attention kinds (q/k/v/proj) so re-accumulation
+# is aligned with the cooldown gradient distribution. Disabled by default —
+# when ATTN_SOAP_GRAM_REINIT_AT_COOLDOWN is 0 / unset, the conjunction
+# short-circuits and the mutation block is unreachable (bytewise identical
+# baseline code path).
+ATTN_SOAP_GRAM_REINIT_AT_COOLDOWN = bool(int(os.environ.get("ATTN_SOAP_GRAM_REINIT_AT_COOLDOWN", "0")))
+ATTN_SOAP_GRAM_REINIT_STEP = int(os.environ.get("ATTN_SOAP_GRAM_REINIT_STEP", "953"))
 
 
 def zeropower_via_newtonschulz5(G: Tensor) -> Tensor:
@@ -720,6 +730,89 @@ class Muon(torch.optim.Optimizer):
                                      trust_threshold=ATTN_SOAP_TRUST_THRESHOLD)
                 dist.all_gather(params_pad[base_i:base_i + world_size], params_pad[base_i + rank])
 
+    @torch.no_grad()
+    def gram_reinit_attn(self) -> int:
+        """Zero attention SOAP Gram (row_gg, col_gg) + companion preconditioner
+        state across all attention kinds (q/k/v/proj). Used by the
+        ATTN_SOAP_GRAM_REINIT_AT_COOLDOWN phase event (PR #1333) to force fresh
+        re-accumulation of SOAP statistics aligned with the cooldown gradient
+        distribution. Mirrors the initial state set up in ``Muon.step`` so the
+        post-reset path behaves as a fresh start: eigenbasis cleared (so the
+        next soap_refresh tick re-initializes it from current-phase Gram), the
+        second-moment EMA and step counter zeroed, and the trust-gate
+        telemetry reset to the default "on" state.
+
+        Returns the number of parameters whose state was reset (rank-0
+        bookkeeping for the heartbeat log).
+        """
+        reset_count = 0
+        for p in self.attn_soap_params:
+            state = self.state.get(p)
+            if state is None or "row_gg" not in state:
+                continue
+            state["row_gg"].zero_()
+            state["col_gg"].zero_()
+            state["exp_avg_sq"].zero_()
+            state["q_row"] = None
+            state["q_col"] = None
+            state["soap_step"] = 0
+            state["trust_gate"] = 1.0
+            state["trust_cos_row"] = 1.0
+            state["trust_cos_col"] = 1.0
+            reset_count += 1
+        return reset_count
+
+    def gram_norm_stats(self) -> dict[str, float]:
+        """Per-kind aggregate Frobenius norms of attention SOAP Gram buffers.
+
+        Returns aggregate (mean/max row+col) plus per-kind (q/k/v/proj) row+col
+        norm means. Used as diagnostic telemetry for the
+        ATTN_SOAP_GRAM_REINIT_AT_COOLDOWN mechanism — expect a sharp drop to 0
+        at the reset step boundary then progressive re-accumulation through
+        cooldown.
+        """
+        by_kind: dict[str, dict[str, list[float]]] = {
+            "q": {"row": [], "col": []},
+            "k": {"row": [], "col": []},
+            "v": {"row": [], "col": []},
+            "proj": {"row": [], "col": []},
+        }
+        all_row: list[float] = []
+        all_col: list[float] = []
+        for p in self.attn_soap_params:
+            state = self.state.get(p)
+            if state is None or "row_gg" not in state:
+                continue
+            row_norm = float(state["row_gg"].norm().item())
+            col_norm = float(state["col_gg"].norm().item())
+            all_row.append(row_norm)
+            all_col.append(col_norm)
+            kind = self.attn_soap_kind.get(id(p))
+            if kind is not None:
+                by_kind[kind]["row"].append(row_norm)
+                by_kind[kind]["col"].append(col_norm)
+        if not all_row:
+            return {}
+        out: dict[str, float] = {
+            "count": len(all_row),
+            "row_norm_mean": sum(all_row) / len(all_row),
+            "col_norm_mean": sum(all_col) / len(all_col),
+            "row_norm_max": max(all_row),
+            "col_norm_max": max(all_col),
+            "row_norm_min": min(all_row),
+            "col_norm_min": min(all_col),
+        }
+        for kind, agg in by_kind.items():
+            rows = agg["row"]
+            cols = agg["col"]
+            if rows:
+                out[f"{kind}/count"] = len(rows)
+                out[f"{kind}/row_norm"] = sum(rows) / len(rows)
+                out[f"{kind}/col_norm"] = sum(cols) / len(cols)
+                out[f"{kind}/row_norm_max"] = max(rows)
+                out[f"{kind}/col_norm_max"] = max(cols)
+        return out
+
     def trust_gate_stats(self) -> dict[str, float]:
         """Return aggregate + per-weight-type trust-gate telemetry across attention SOAP params.
 
@@ -866,6 +959,8 @@ if dist.get_rank() == 0:
             "optimizer/attn_soap_trust_threshold": ATTN_SOAP_TRUST_THRESHOLD,
             "optimizer/ns5_iters": NS5_ITERS,
             "optimizer/wd_aux": WD_AUX,
+            "optimizer/attn_soap_gram_reinit_at_cooldown": ATTN_SOAP_GRAM_REINIT_AT_COOLDOWN,
+            "optimizer/attn_soap_gram_reinit_step": ATTN_SOAP_GRAM_REINIT_STEP,
             "optimizer/recipe": "contra-muon + normuon-lite + soap-on-mlp + soap-on-attn-trust-gate (pre-NS5, record #14 + record #16)",
         },
     )
@@ -1051,6 +1146,25 @@ for trial_idx in range(args.num_trials):
                 train_steps=train_steps,
                 wandb_step=wandb_step,
             )
+        # ATTN_SOAP_GRAM_REINIT_AT_COOLDOWN phase event (PR #1333): zero the
+        # accumulated attention SOAP Gram + companion preconditioner state at
+        # the cooldown boundary so re-accumulation aligns with the cooldown
+        # gradient distribution. Fires exactly once per trial at
+        # step == ATTN_SOAP_GRAM_REINIT_STEP, before this step's opt.step()
+        # applies the preconditioner.
+        if ATTN_SOAP_GRAM_REINIT_AT_COOLDOWN and step == ATTN_SOAP_GRAM_REINIT_STEP:
+            reset_count = optimizer2.gram_reinit_attn()
+            if dist.get_rank() == 0:
+                pre_step_gram_stats = optimizer2.gram_norm_stats()
+                reset_metrics: dict[str, float] = {
+                    "trial": trial_idx,
+                    "train/step": train_step,
+                    "train/soap/gram_reinit_active": 1.0,
+                    "train/soap/gram_reinit_count": float(reset_count),
+                }
+                if pre_step_gram_stats:
+                    reset_metrics.update(prefixed("train/soap/post_reset", pre_step_gram_stats))
+                wandb.log(reset_metrics, step=wandb_step)
         for opt in optimizers:
             opt.step()
         if dist.get_rank() == 0 and telemetry_due:
@@ -1059,6 +1173,19 @@ for trial_idx in range(args.num_trials):
                     stats = opt.trust_gate_stats()
                     if stats:
                         wandb.log(prefixed("train/attn_soap_trust_gate", stats), step=wandb_step)
+            if ATTN_SOAP_GRAM_REINIT_AT_COOLDOWN and hasattr(optimizer2, "gram_norm_stats"):
+                gram_stats = optimizer2.gram_norm_stats()
+                if gram_stats:
+                    wandb.log(prefixed("train/soap", gram_stats), step=wandb_step)
+                # Steady-state binary flag (1.0 only at the firing step; the
+                # firing-step force-log above writes the same value at
+                # wandb_step). Telemetry-tick logging keeps the timeseries
+                # populated so charts render a clean 0 baseline.
+                wandb.log({
+                    "trial": trial_idx,
+                    "train/step": train_step,
+                    "train/soap/gram_reinit_active": 1.0 if step == ATTN_SOAP_GRAM_REINIT_STEP else 0.0,
+                }, step=wandb_step)
         if dist.get_rank() == 0 and telemetry_due:
             log_weight_telemetry(
                 model=model,
