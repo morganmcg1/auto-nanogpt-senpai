@@ -468,6 +468,10 @@ NS5_ITERS = int(os.environ.get("NS5_ITERS", "12"))
 WD_AUX = float(os.environ.get("WD_AUX", "0.0"))  # AdamW WD on embed + lm_head matrices (scalars stay at 0)
 EMBED_INIT_STD = float(os.environ.get("EMBED_INIT_STD", "1.0"))  # default preserves baseline N(0,1)
 LOGIT_SOFTCAP = float(os.environ.get("LOGIT_SOFTCAP", "15.0"))  # default = 15 (current hardcoded value); soft-cap value c in f(x) = c·x / sqrt(x^2+c^2)
+# PR #1336 — MUON_NESTEROV_INVERSE_PHASE_GATE (re-creates #1306 phase-gate infrastructure with new inverse_cooldown mode).
+# Phase-gated Nesterov-form re-blend on body Muon. Disabled (=0) path is bytewise-identical to baseline (heavy-ball lerp).
+MUON_NESTEROV_PHASE = int(os.environ.get("MUON_NESTEROV_PHASE", "0"))
+MUON_NESTEROV_PHASE_MODE = os.environ.get("MUON_NESTEROV_PHASE_MODE", "cooldown_only")
 
 
 def zeropower_via_newtonschulz5(G: Tensor) -> Tensor:
@@ -655,6 +659,8 @@ class Muon(torch.optim.Optimizer):
         params = sorted([p for _, p in named_params], key=lambda x: x.size(), reverse=True)
         defaults = dict(lr=lr, weight_decay=weight_decay, mu=mu)
         super().__init__(params, defaults)
+        self._momentum_update_norm_sum = 0.0
+        self._momentum_update_norm_count = 0
 
     @torch.no_grad()
     def step(self):
@@ -693,7 +699,17 @@ class Muon(torch.optim.Optimizer):
                                 state["trust_cos_col"] = 1.0
                     grad = p.grad
                     state["momentum"].lerp_(grad, 1 - group["mu"])
-                    momentum_update = grad.lerp(state["momentum"], group["mu"])
+                    if group.get("nesterov_phase", False):
+                        # Nesterov-form re-blend: weight past EMA by μ² (vs μ for heavy-ball).
+                        momentum_update = grad.lerp(state["momentum"], group["mu"] * group["mu"])
+                    else:
+                        momentum_update = grad.lerp(state["momentum"], group["mu"])
+                    # PR #1336 — norm tracking only when MUON_NESTEROV_PHASE=1 to keep the
+                    # disabled path bytewise-identical to baseline (the .item() sync below
+                    # otherwise perturbs CUDA non-deterministic kernel scheduling).
+                    if MUON_NESTEROV_PHASE == 1:
+                        self._momentum_update_norm_sum += float(momentum_update.float().norm().item())
+                        self._momentum_update_norm_count += 1
                     use_soap = p in self.soap_params
                     use_attn_soap = p in self.attn_soap_params
                     # SOAP precondition applied to momentum BEFORE NS5+contra+NorMuon
@@ -775,6 +791,29 @@ class Muon(torch.optim.Optimizer):
             out[f"{kind}/mean_cos_row"] = sum(crs) / kn
             out[f"{kind}/mean_cos_col"] = sum(ccs) / kn
         return out
+
+    def momentum_update_norm_stats(self) -> dict[str, float]:
+        """Cross-rank mean of body Muon momentum_update L2 norms since last call.
+
+        Reset after each emission. Returns empty dict when no samples (e.g. step 0).
+        """
+        if not dist.is_initialized() or dist.get_world_size() == 1:
+            count = self._momentum_update_norm_count
+            total = self._momentum_update_norm_sum
+        else:
+            device = next(iter(self.state.keys())).device if self.state else torch.device("cuda")
+            stats = torch.tensor(
+                [self._momentum_update_norm_sum, float(self._momentum_update_norm_count)],
+                dtype=torch.float64, device=device,
+            )
+            dist.all_reduce(stats, op=dist.ReduceOp.SUM)
+            total = float(stats[0].item())
+            count = int(stats[1].item())
+        self._momentum_update_norm_sum = 0.0
+        self._momentum_update_norm_count = 0
+        if count == 0:
+            return {}
+        return {"momentum_update_norm_mean": total / count}
 
 
 ########################################
@@ -866,6 +905,8 @@ if dist.get_rank() == 0:
             "optimizer/attn_soap_trust_threshold": ATTN_SOAP_TRUST_THRESHOLD,
             "optimizer/ns5_iters": NS5_ITERS,
             "optimizer/wd_aux": WD_AUX,
+            "optimizer/muon_nesterov_phase": MUON_NESTEROV_PHASE,
+            "optimizer/muon_nesterov_phase_mode": MUON_NESTEROV_PHASE_MODE,
             "optimizer/recipe": "contra-muon + normuon-lite + soap-on-mlp + soap-on-attn-trust-gate (pre-NS5, record #14 + record #16)",
         },
     )
@@ -931,11 +972,26 @@ for trial_idx in range(args.num_trials):
                 cur_mu = MU_COOLDOWN_START + (MU_COOLDOWN_END - MU_COOLDOWN_START) * t
         else:
             cur_mu = MU + (MU_END - MU) * progress
+        # PR #1336 Nesterov-form phase gate. Boundary uses round(train_steps * MU_COOLDOWN_START)
+        # (==3016 for train_steps=3175, MU_COOLDOWN_START=0.95) per #1306 convention.
+        if MUON_NESTEROV_PHASE == 1:
+            boundary = round(train_steps * MU_COOLDOWN_START)
+            if MUON_NESTEROV_PHASE_MODE == "cooldown_only":
+                nesterov_on = step >= boundary
+            elif MUON_NESTEROV_PHASE_MODE == "always":
+                nesterov_on = True
+            elif MUON_NESTEROV_PHASE_MODE == "inverse_cooldown":
+                nesterov_on = step < boundary
+            else:
+                nesterov_on = False
+        else:
+            nesterov_on = False
         for opt in optimizers:
             for group in opt.param_groups:
                 group["lr"] = group["initial_lr"] * eta
                 if group.get("name") == "muon_blocks":
                     group["mu"] = cur_mu
+                    group["nesterov_phase"] = nesterov_on
 
 
     ########################################
@@ -977,6 +1033,12 @@ for trial_idx in range(args.num_trials):
             dist.all_reduce(val_loss, op=dist.ReduceOp.SUM)
             val_loss /= val_tokens
             val_loss_float = float(val_loss.item())
+            # PR #1336 — body Muon momentum_update L2 norm telemetry. Must be called on every
+            # rank to satisfy the all_reduce inside momentum_update_norm_stats when world_size>1.
+            body_muon_norm_stats: dict[str, float] = {}
+            for opt in optimizers:
+                if hasattr(opt, "momentum_update_norm_stats"):
+                    body_muon_norm_stats.update(opt.momentum_update_norm_stats())
             if dist.get_rank() == 0:
                 val_loss_history.append((step, val_loss_float))
                 if val_loss_float < best_val_loss:
@@ -998,6 +1060,7 @@ for trial_idx in range(args.num_trials):
                     "time/step_avg_ms": 1000 * step_avg,
                 }
                 metrics.update(prefixed("val/slope", loss_slope_stats(val_loss_history, slope_window_steps)))
+                metrics.update(prefixed("train/body_muon", body_muon_norm_stats))
                 wandb.log(metrics, step=trial_idx * (train_steps + 1) + step)
             print0(f"step:{step}/{train_steps} val_loss:{val_loss:.5f} train_time:{training_time:.3f}s"
                    + f" step_avg:{1000*step_avg:.2f}ms", console=True)
