@@ -1,3 +1,26 @@
+## 2026-05-26 05:45 UTC — ASKELADD #1225 AUX_BIAS_CORRECTION_OFF CLOSED (160th refuted, 47th family-level closure, SHIFTED-FLOOR Arm A + close-miss Arm B, symmetric null mirror of #944, AUX-BIAS-CORRECTION-OFF axis bilaterally saturated, 8th SATURATED MECHANISM LAYER candidate) + ASKELADD #1254 MUON_POST_NS5_MOMENTUM assigned NEW 83rd distinct mech class (first operation-order reorder of NS5 polar projection and momentum EMA in 320-PR corpus) (cycle 71 mid-264)
+
+### #1225 askeladd AUX_BIAS_CORRECTION_OFF — CLOSED, 160th refuted, 47th family-level closure
+
+- **Hypothesis**: Remove Adam bias correction `1/(1-β1^t)` from the AUX path (embed + lm_head + scalars). Hypothesis: early-step bias correction on AUX "double-compensates" with MU_WARMUP_STEPS=200 warmup on body Muon, leading to over-large AUX updates in the first ~200 steps. Removing it should produce smaller, cleaner early-step AUX updates.
+- **Results**:
+
+| Run | AUX_BC_OFF | Groups OFF | val@3175 | ffs | Decision |
+|---|---|---|---|---|---|
+| Arm A `epzsy75x` | 1 | embed + lm_head + scalars (all) | 3.27101 | 3025 | SHIFTED-FLOOR Δ+0.00325 |
+| Arm B `d8lt6izv` | 2 | embed + lm_head only (scalars KEEP) | 3.27324 | 3050 | close-miss adjacent Δ+0.00548 |
+| Baseline PR #613 | — | — | 3.26776 (n=2) | 3000 | merge bar |
+| Disabled-check `zcq7x6sp` | 0 | none | val@200=4.07968 ✓ | — | plumbing PASS |
+
+- **Commentary**: Both arms inside close-miss band (3.27, 3.275]. Trajectories overlay for >85% of training; divergence (Arm A < Arm B by 0.00223) appears only in late cooldown. The bias-correction `1/(1-β1^t)` is a no-op-up-to-noise on this stack. Root cause: the LR warmup (MU_WARMUP_START=0.85) + WD_AUX schedule already absorb the early-step magnitude compensation that bias-correction was meant to provide; at t≤200 the 0.85 warmup multiplier dominates by ~17× the bias-correction amplitude. **Symmetric null with #944** (added bias correction to body Muon → no effect; removed from AUX → no effect): bias-correction is load-bearing at NEITHER end of this optimizer. Family-level closure AUX-BIAS-CORRECTION-OFF bilaterally saturated. Candidate for 8th SATURATED MECHANISM LAYER designation (body side #944 + AUX side #1225). **Note**: #1225 was blocked from auto-submitting due to advisor comment at 03:00 UTC containing `SENPAI-RESULT:` with invalid placeholder JSON — edited via API to unblock student. 5th recurrence of this failure mode.
+
+### #1254 askeladd MUON_POST_NS5_MOMENTUM — NEW 83rd distinct mech class
+
+- **Hypothesis**: Reverse the operation order of NS5 polar projection and momentum EMA on body Muon. Baseline: `m_t = EMA(g_τ); update_t = NS5(m_t)` (orthogonalize magnitude-weighted average). Proposed: `ns5_grad = NS5+contra+NORMUON(g_t); m_t = EMA(ns5_grad); update_t = m_t` (average orthogonalized directions). Same 1× NS5 per step, same LR calibration (||update||_op ≤ 1 in both). Tests whether averaging magnitude-weighted directions (baseline) vs averaging unit-norm directions (post-NS5) matters.
+- **Arms**: Arm A MUON_POST_NS5_MU=-1 (default schedule μ); Arm B MUON_POST_NS5_MU=0.5 (responsive constant μ). Disabled-check + pre-launch code-review gate required.
+- **Anti-duplication**: 0 corpus hits across 20+ search terms (post_ns5, ns5_post, ema_post_ns5, double_ns5, reorder_muon, etc.)
+- **Theoretical motivation**: Riemannian averaging on Stiefel manifold; magnitude-scale decoupling in NS5 preconditioner application order
+
 ## 2026-05-26 05:45 UTC — THORFINN #1245 DOWG_BODY_MUON CLOSED (159th refuted, 46th family-level closure, NORMALIZER-MISMATCH NEW 11th refute-signature class, parameter-free LR lane bilaterally saturated 3rd LANE designation) + THORFINN #1251 MUON_BETA_DEPTH_RAMP assigned NEW 82nd distinct mech class (spatial-schedule trio completed WD+LR+β) + ALPHONSE #1248 PRE-LAUNCH AUDIT-CATCH cold-start vs canonical warm-start spec deviation (NeMo/timm/APEX cross-checked) → decision (A) green-lit (cycle 71 mid-262)
 
 ### #1245 thorfinn DOWG_BODY_MUON — CLOSED, 159th refuted, 46th family-level closure, 11th refute-signature class (NORMALIZER-MISMATCH NEW)
