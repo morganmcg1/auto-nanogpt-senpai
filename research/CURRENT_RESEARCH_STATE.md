@@ -1,3 +1,47 @@
+## 2026-05-26 07:20 UTC — Cycle 71 mid-271
+
+**Cumulative**: 160 refuted (pending fern #1224 161st) / 84 distinct mech classes (#1264 LATE_NORMUON_VARIANCE_RESET NEW) / 47 family-level closures / 7 SATURATED MECHANISM LAYERS (+ 8th candidate: bias-correction bilateral) + 3 SATURATED LANES / 11 refute-signature classes (12th FFS-PRIMARY-REFUTE candidate via #1224)
+
+**This cycle**:
+- **fern #1224 WD_BODY_DEPTH_RAMP terminal data sealed (awaiting student SENPAI-RESULT)**: Arm A `2uybctq6` val=3.2725 ffs=3050 SHIFTED-FLOOR; Arm B `n5kb2kol` val=3.26982 ffs=3025 — val tight close-to-floor (+0.00206 above baseline) BUT **FFS regressed +25 steps**. Under Morgan #1259 FFS-primary framing this is the canonical "mechanism insight not speed candidate" pattern — introduces 12th refute-signature class **FFS-PRIMARY-REFUTE** (val close-miss/improvement that fails to move FFS or actively regresses it).
+- **#702 edward MU_WARMUP_START CLOSED**: directive-deprioritized (Morgan #1259 — plain scalar μ sweep without specific state mechanism). NOT a refute (process closure). 6th pre-launch student-side audit catch in cycle 71 — edward correctly flagged the directive conflict rather than auto-proceeding with self-timer; saved ~3.5h compute.
+- **#1264 edward LATE_NORMUON_VARIANCE_RESET assigned**: 84th distinct mech class. One-shot reset event on body Muon `state["second_moment"]` (NORMUON per-row variance EMA) at step 2540 (80% training). Arms: A=`instant` (fresh-start from current per_row_var, discards EMA history) + B=`scale=0.5` (halve buffer, boost post-reset updates by sqrt(2)). FIRST phase-boundary RESET on `state["second_moment"]` in 320-PR corpus.
+- **fern next assignment LATE_COOLDOWN_MOMENTUM_RESET drafted** (`/tmp/late_cooldown_momentum_reset.md`, will assign after SENPAI-RESULT): same phase boundary (step 2540), on `state["momentum"]` instead of variance. Arms: A=zero + B=0.5× scale. Pairs with edward #1264 as **decoupled-mechanism design** — momentum staleness (fern) vs variance staleness (edward).
+
+**Decoupled-mechanism pair design (fern + edward, first explicit application)**:
+- Both run LATE_RESET at step 2540 (~80% training)
+- Fern resets `state["momentum"]`; Edward resets `state["second_moment"]`
+- If both refute → optimizer state staleness is NOT the late-descent bottleneck
+- If only fern improves → momentum direction is the stale dimension
+- If only edward improves → variance magnitude is the stale dimension (over-suppression)
+- If both improve → both dimensions stale; combined-reset test follows
+
+**Active fleet (mid-271 post-cycle)**:
+- fern #1224 — awaiting SENPAI-RESULT (terminal data sealed), then close + reassign LATE_COOLDOWN_MOMENTUM_RESET
+- alphonse #1248 NOVOGRAD_BODY_MUON — Arm A step ~2650 healthy, ETA ~07:30 UTC terminal
+- thorfinn #1251 MUON_BETA_DEPTH_RAMP — Arm A `ufkanf0u` step 2825/3175 val=3.3098 (projected terminal val ~3.272, ~07:28 UTC)
+- frieren #1250 MUON_LR_DEPTH_RAMP — Arm A `4oswee0c` step 838 healthy (4th attempt after 3 prior SIGKILL)
+- askeladd #1254 MUON_POST_NS5_MOMENTUM — Arm A step ~1050 healthy
+- edward #1264 LATE_NORMUON_VARIANCE_RESET — NEW, awaiting disabled-check + code-review gate
+- 2 pod-broken holds: tanjiro #793 + nezuko #1226 (edward #702 now closed, not held)
+
+**ZERO IDLE STUDENTS**
+
+**Aligned with Morgan #1259 directive** (depth/per-group + state-phase + FFS-primary, avoid plain scalar sweeps):
+- 3× depth/per-group (#1224 closing, #1250, #1251)
+- 4× state-phase changes (#1248 NovoGrad, #1254 POST_NS5, #1264 NORMUON_RESET, fern's pending MOMENTUM_RESET)
+- 0× scalar HP-only sweeps (audit catch: #702 closed for this reason)
+- 0× saturated lanes
+
+**Methodological gates active**:
+- Pre-launch code-review gate (5 successful applications: #1230, #1248, #1251, #1254, pending #1264/fern's next)
+- Disabled-check parity mandatory (val@200 ∈ [4.075, 4.090])
+- FFS-primary kill gates with reset-disruption tolerance for phase-boundary events
+- Decoupled-mechanism pair design (NEW methodology, first explicit application via fern+edward LATE_RESET pair)
+- Student-side audit catches (6th in cycle 71 — saves GPU pre-launch)
+
+---
+
 ## 2026-05-26 05:45 UTC — Cycle 71 mid-264
 
 **Cumulative**: 160 refuted / 83 distinct mech classes / 47 family-level closures / 7 SATURATED MECHANISM LAYERS (+ 8th candidate: bias-correction bilateral) + 3 SATURATED LANES (AUX adaptive-LR/preconditioner + Kronecker preconditioner + parameter-free LR) / 11 refute-signature classes / 18 SHIFTED-FLOOR + 4 CATASTROPHIC-SHIFTED-FLOOR + 1 FROZEN-AUX-SLOW-RAMP + 1 NORMALIZER-MISMATCH
