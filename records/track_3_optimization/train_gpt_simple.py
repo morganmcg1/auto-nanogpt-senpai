@@ -64,6 +64,11 @@ def parse_args():
     parser.add_argument("--muon_lr", type=float, default=0.035,
                         help="Base learning rate for body-Muon optimizer (matrix params in blocks). "
                              "Default 0.035 matches the merged baseline.")
+    parser.add_argument("--lcov_refresh_step", type=int, default=-1,
+                        help="Step at which to zero L_cov/R_cov state on body-Muon (-1=disabled)")
+    parser.add_argument("--ema_buffer_refresh_step", type=int, default=-1,
+                        help="Step at which to copy current params into ema_params "
+                             "(resets buffer EMA state). -1=disabled.")
     args = parser.parse_args()
     args.num_trials = args.num_trials if args.num_trials is not None else (args.legacy_num_trials or 1)
     args.wandb_tags = [tag.strip() for tag in args.wandb_tags.split(",") if tag.strip()]
@@ -720,6 +725,8 @@ if dist.get_rank() == 0:
             "ema_warmup_steps": args.ema_warmup_steps,
             "ema_beta_target": args.ema_beta_target if args.ema_beta_target is not None else 0.0,
             "ema_dynamic_ramp_active": int(args.ema_beta_target is not None and args.ema_beta > 0),
+            "lcov_refresh_step": args.lcov_refresh_step,
+            "ema_buffer_refresh_step": args.ema_buffer_refresh_step,
         },
     )
 
@@ -978,8 +985,51 @@ for trial_idx in range(args.num_trials):
                 train_steps=train_steps,
                 wandb_step=wandb_step,
             )
+        # Pre-target L_cov/R_cov state refresh (body-Muon bilateral preconditioner)
+        if args.lcov_refresh_step >= 0 and step == args.lcov_refresh_step:
+            pre_lcov_eigh_min = float("nan")
+            pre_rcov_eigh_min = float("nan")
+            for group in optimizer2.param_groups:
+                for p in group["params"]:
+                    state = optimizer2.state[p]
+                    if "L" in state and state["L"].numel() > 0:
+                        if pre_lcov_eigh_min != pre_lcov_eigh_min:  # NaN check (first eligible param)
+                            L_sym = 0.5 * (state["L"] + state["L"].T)
+                            R_sym = 0.5 * (state["R"] + state["R"].T)
+                            pre_lcov_eigh_min = float(torch.linalg.eigvalsh(L_sym)[0].item())
+                            pre_rcov_eigh_min = float(torch.linalg.eigvalsh(R_sym)[0].item())
+                        state["L"].zero_()
+                        state["R"].zero_()
+            if dist.get_rank() == 0:
+                wandb.log({
+                    "lcov_refresh/fired": 1,
+                    "lcov_refresh/step": step,
+                    "lcov_refresh/lcov_eigh_min_pre": pre_lcov_eigh_min,
+                    "lcov_refresh/rcov_eigh_min_pre": pre_rcov_eigh_min,
+                }, step=wandb_step)
         for opt in optimizers:
             opt.step()
+        # Pre-target parameter-EMA buffer refresh (reset ema_params ← live params)
+        if (args.ema_buffer_refresh_step >= 0
+                and step == args.ema_buffer_refresh_step
+                and ema_params is not None):
+            pre_buffer_frob = float("nan")
+            pre_buffer_max_diff = float("nan")
+            if dist.get_rank() == 0 and len(ema_params) > 0:
+                ema_p = ema_params[0]
+                p = optimizer2.param_groups[0]["params"][0]
+                diff = ema_p - p.detach().float()
+                pre_buffer_frob = float(torch.norm(diff).item())
+                pre_buffer_max_diff = float(diff.abs().max().item())
+            for ema_p, p in zip(ema_params, optimizer2.param_groups[0]["params"]):
+                ema_p.copy_(p.detach().float())
+            if dist.get_rank() == 0:
+                wandb.log({
+                    "ema_refresh/fired": 1,
+                    "ema_refresh/step": step,
+                    "ema_refresh/buffer_frob_pre": pre_buffer_frob,
+                    "ema_refresh/buffer_max_diff_pre": pre_buffer_max_diff,
+                }, step=wandb_step)
         # EMA buffer update on body-Muon matrix params.
         # During warmup: track params live (no averaging) so post-warmup buffer is
         # seeded with stable, non-zero params (handles proj zero-init bias and lets
