@@ -3,6 +3,35 @@
 Log of completed/reviewed experiment PRs in chronological order. Wave 1
 results pending student execution.
 
+## 2026-05-26 09:50 UTC — PR #1200: edward orth-scheme alternatives to NS5 polynomial — **CLOSED clean-NEG** [FFS-PRIMARY]
+
+- **Branch:** `g1r5-edward/orth-scheme-alternatives`
+- **Student:** g1r5-edward
+- **Hypothesis:** Alternative orthogonalization operators replacing Muon's NS5 minimax polynomial — Polar via Cholesky/SVD (cond=1 exact), Schulz iter=5/8 (cond≈18 / cond≈1.06), and nspoly_iter3 falsifier (cond≈18 directional corruption). Tests whether NS5's specific polynomial form is FFS-load-bearing or operator-class is robust.
+
+### FFS-primary verdict
+
+| Cell | --orth_scheme | **FFS** | val/loss | Δ FFS vs baseline 3025 | Verdict |
+|:----:|:--------------|:-------:|:--------:|:----------------------:|:--------|
+| A | nspoly_iter6 (ctrl) | 3025 | 3.26108 | 0 | baseline |
+| **B★** | polar_svd_fp32 | 3050 | 3.26215 | +25 (1 val tick) | within ±2σ band, +1.80σ_single, NO MERGE — 8× wall-clock cost |
+| C | schulz_iter5 | 3150 | 3.27280 | +125 | NEG severe under-orth |
+| D | schulz_iter8 | **3025** | 3.26176 | **0 (PARITY)** | ✨ second operator class reaches baseline-EXACT |
+| E | nspoly_iter3 (falsifier) | 3175 | 3.27553 | +150 | NEG falsifier valid (+24.4σ_single) |
+
+- **FFS verdict:** Cell B PRIMARY +25 FFS (1 val tick = noise floor). Cell D Schulz iter=8 **reaches FFS=3025 baseline-EXACT**. Cell E falsifier confirms iter=3 catastrophic. Close clean-NEG.
+- **W&B run IDs:** A=0dwh1qfw, B=48fjzxdi, C=mlgle7vn, D=knvrka7k, E=boa4nype
+- **★ Mechanism finding 1 — Broad basin headline:** cond ∈ [1.0, 5.6] all reach the same floor within ±2σ_single. Polynomial floor is a **basin floor extending from cond≈1 to cond≈6**, not a sharp optimum. Catastrophic outside cond≳10. Revises single-point reading — A is not on a sharp optimum, operator class is forgiving within the basin.
+- **★ Mechanism finding 2 — Cond is NOT a complete operator descriptor (SURPRISE):** Cells C and E have nearly identical spectral fingerprints (cond≈18, σ_min≈0.054, σ_mean≈0.195) yet differ by **4.6σ_single** in val/loss. Schulz iter=5 (monotone non-decreasing on (0,1)) under-converges gracefully; nspoly iter=3 (non-monotone minimax poly with a+b+c=0.701≠1) under-converges with direction corruption. Implication: per-singular-vector alignment matters beyond spectral summary.
+- **★ Mechanism finding 3 — Cooldown is the equalizer:** Cells B and D show opposite-signed +5σ/−14σ mid-training deltas (step 1000) that collapse to within ±2σ_single at terminal under cooldown's ~100× LR contraction. Early high-LR phase is where operator choice matters; cooldown washes terminal impact.
+- **★ Mechanism finding 4 — NS-modulation operator-class fully closed:** Joining #962 (NS coefs), #1042 (post-NS mixing), #1206 (pre-NS conditioning), **#1200 (operator class)** — 4 independent operator-output modifications all clean-NEG with mechanism connections. The Muon polynomial at iter=6, post-spectral-norm=1.0, with a+b+c=0.7 is the optimizer's preferred (direction, magnitude, spectral) tuple in a broad basin.
+- **★ Cell D parity is the FFS-headline finding:** Schulz `X(1.5−0.5X²)` reaches FFS=3025 = baseline-EXACT. **Operator-equivalence at FFS level** — FFS readout is structurally robust to operator choice within the basin. Useful for future framework redesigns where Muon's polynomial is awkward (e.g., quantized inference paths).
+- **Pareto map:** 4 of 5 alternatives strictly dominated by A on (wall-time × val_loss); falsifier E only Pareto-relevant point but its +24.4σ rules it out.
+- **★ 11th NS-modulation closure** with broadened mechanism family (operator-class basin closed).
+- **Next:** Assigned edward → **#1284 body-WD value pruning** (6th stack-component pruning; tests `--wd_mlp=0.025 --wd_attn=0.025` value as FFS-load-bearing vs val-loss-cosmetic; 5-cell A=0.025 ctrl / B★=0.0 PRIMARY drop body WD / C=0.0125 / D=0.05 / E=0.10 falsifier).
+
+---
+
 ## 2026-05-26 08:55 UTC — PR #1188: tanjiro depth-scaled per-block LR multiplier on Muon body — **CLOSED clean-NEG** [FFS-PRIMARY]
 
 - **Branch:** `g1r5-tanjiro/depth-scaled-muon-lr`
