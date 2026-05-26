@@ -577,6 +577,34 @@ NANOGPT_ADAMW_SCALAR_LR_MULT = float(os.environ.get("NANOGPT_ADAMW_SCALAR_LR_MUL
 # Per-block-type Muon LR multipliers (1.0 = bit-identical to single-group baseline).
 NANOGPT_MUON_ATTN_LR_MULT = float(os.environ.get("NANOGPT_MUON_ATTN_LR_MULT", "1.0"))
 NANOGPT_MUON_MLP_LR_MULT = float(os.environ.get("NANOGPT_MUON_MLP_LR_MULT", "1.0"))
+# Per-layer-depth Muon LR scaling (PR #1236). Multiplies attn/mlp LR by depth_mult(layer_idx).
+# scale=0.0 or mode='none' keeps the legacy two-group setup (bit-identical to ctrl).
+NANOGPT_MUON_DEPTH_LR_SCALE = float(os.environ.get("NANOGPT_MUON_DEPTH_LR_SCALE", "0.0"))
+NANOGPT_MUON_DEPTH_LR_MODE = os.environ.get("NANOGPT_MUON_DEPTH_LR_MODE", "none")
+_VALID_MUON_DEPTH_MODES = ("none", "ascending", "descending", "u-shape")
+if NANOGPT_MUON_DEPTH_LR_MODE not in _VALID_MUON_DEPTH_MODES:
+    raise ValueError(
+        f"NANOGPT_MUON_DEPTH_LR_MODE={NANOGPT_MUON_DEPTH_LR_MODE!r}, must be one of {_VALID_MUON_DEPTH_MODES}"
+    )
+
+
+def compute_depth_mult(layer_idx: int, num_layers: int, mode: str, scale: float) -> float:
+    """Per-layer LR multiplier centered around 1.0 (symmetric on average).
+
+    - ascending : t=0 -> 1-scale, t=1 -> 1+scale (early small, late large)
+    - descending: t=0 -> 1+scale, t=1 -> 1-scale (early large, late small)
+    - u-shape   : middle -> 1-scale, edges -> 1+scale
+    """
+    if mode == "none" or scale == 0.0:
+        return 1.0
+    t = layer_idx / max(num_layers - 1, 1)
+    if mode == "ascending":
+        return (1.0 - scale) + 2.0 * scale * t
+    if mode == "descending":
+        return (1.0 + scale) - 2.0 * scale * t
+    if mode == "u-shape":
+        return (1.0 - scale) + 2.0 * scale * abs(2.0 * t - 1.0)
+    return 1.0
 NS_COEF_SCHEDULE = os.environ.get("NANOGPT_NS_COEF_SCHEDULE", "constant")
 # Stochastic NS iter count: per-step uniform sampling around the deterministic mean.
 # spread=0 -> deterministic (default, bit-identical to merged stack).
@@ -821,6 +849,7 @@ print0(f"ADAMW_LR_MULT: embed={NANOGPT_ADAMW_EMBED_LR_MULT} lm_head={NANOGPT_ADA
 print0(f"  Effective base LRs: embed={0.3*NANOGPT_ADAMW_EMBED_LR_MULT:.4f} lm_head={(1/320)*NANOGPT_ADAMW_LM_HEAD_LR_MULT:.6f} scalar={0.01*NANOGPT_ADAMW_SCALAR_LR_MULT:.4f}", console=True)
 print0(f"MUON_LR_MULT: attn={NANOGPT_MUON_ATTN_LR_MULT:.3f} mlp={NANOGPT_MUON_MLP_LR_MULT:.3f}", console=True)
 print0(f"  Effective Muon base LRs: attn={0.035*NANOGPT_MUON_ATTN_LR_MULT:.5f} mlp={0.035*NANOGPT_MUON_MLP_LR_MULT:.5f}", console=True)
+print0(f"MUON_DEPTH_LR: mode={NANOGPT_MUON_DEPTH_LR_MODE} scale={NANOGPT_MUON_DEPTH_LR_SCALE:.3f}", console=True)
 print0(f"EMBED_INIT_ANCHOR_LAMBDA: {NANOGPT_EMBED_INIT_ANCHOR_LAMBDA} "
        f"({'ACTIVE' if NANOGPT_EMBED_INIT_ANCHOR_LAMBDA > 0 else 'INACTIVE (bit-identical fallback)'})",
        console=True)
@@ -891,6 +920,8 @@ if dist.get_rank() == 0:
             "nanogpt_adamw_scalar_lr_mult": NANOGPT_ADAMW_SCALAR_LR_MULT,
             "nanogpt_muon_attn_lr_mult": NANOGPT_MUON_ATTN_LR_MULT,
             "nanogpt_muon_mlp_lr_mult": NANOGPT_MUON_MLP_LR_MULT,
+            "nanogpt_muon_depth_lr_scale": NANOGPT_MUON_DEPTH_LR_SCALE,
+            "nanogpt_muon_depth_lr_mode": NANOGPT_MUON_DEPTH_LR_MODE,
             "nanogpt_ns_coef_schedule": NS_COEF_SCHEDULE,
             "nanogpt_ns_stochastic_mid": NANOGPT_NS_STOCHASTIC_MID,
             "nanogpt_ns_stochastic_cooldown": NANOGPT_NS_STOCHASTIC_COOLDOWN,
@@ -949,13 +980,54 @@ for trial_idx in range(args.num_trials):
                         if p.ndim >= 2 and ".attn." in n]
     muon_mlp_params = [p for n, p in model.blocks.named_parameters()
                        if p.ndim >= 2 and ".mlp." in n]
-    optimizer2 = Muon(
-        [dict(params=muon_attn_params, lr=0.035 * NANOGPT_MUON_ATTN_LR_MULT, name="muon_attn"),
-         dict(params=muon_mlp_params,  lr=0.035 * NANOGPT_MUON_MLP_LR_MULT,  name="muon_mlp")],
-        weight_decay=0.025,
-    )
+    # Per-layer depth-LR scaling (#1236). When scale==0 or mode=='none' we keep
+    # the legacy two-group setup (bit-identical to ctrl). Otherwise we split body
+    # params into per-layer groups so each layer's LR can be multiplied by
+    # compute_depth_mult(layer_idx). The set_hparams cooldown scheduler applies
+    # eta_default to all groups uniformly, preserving the cooldown shape per group.
+    _num_layers = len(model.blocks)
+    if NANOGPT_MUON_DEPTH_LR_SCALE == 0.0 or NANOGPT_MUON_DEPTH_LR_MODE == "none":
+        muon_param_groups = [
+            dict(params=muon_attn_params, lr=0.035 * NANOGPT_MUON_ATTN_LR_MULT, name="muon_attn"),
+            dict(params=muon_mlp_params,  lr=0.035 * NANOGPT_MUON_MLP_LR_MULT,  name="muon_mlp"),
+        ]
+    else:
+        muon_param_groups = []
+        for _layer_idx in range(_num_layers):
+            _prefix = f"{_layer_idx}."
+            _attn_params = [p for n, p in model.blocks.named_parameters()
+                            if p.ndim >= 2 and n.startswith(_prefix) and ".attn." in n]
+            _mlp_params = [p for n, p in model.blocks.named_parameters()
+                           if p.ndim >= 2 and n.startswith(_prefix) and ".mlp." in n]
+            _dm = compute_depth_mult(_layer_idx, _num_layers,
+                                     NANOGPT_MUON_DEPTH_LR_MODE, NANOGPT_MUON_DEPTH_LR_SCALE)
+            if _attn_params:
+                muon_param_groups.append(dict(
+                    params=_attn_params,
+                    lr=0.035 * NANOGPT_MUON_ATTN_LR_MULT * _dm,
+                    name=f"muon_attn_L{_layer_idx}",
+                    layer_idx=_layer_idx,
+                    block_type="attn",
+                    depth_mult=_dm,
+                ))
+            if _mlp_params:
+                muon_param_groups.append(dict(
+                    params=_mlp_params,
+                    lr=0.035 * NANOGPT_MUON_MLP_LR_MULT * _dm,
+                    name=f"muon_mlp_L{_layer_idx}",
+                    layer_idx=_layer_idx,
+                    block_type="mlp",
+                    depth_mult=_dm,
+                ))
+    optimizer2 = Muon(muon_param_groups, weight_decay=0.025)
     print0(f"MUON_PARAM_COUNTS: attn={len(muon_attn_params)} mlp={len(muon_mlp_params)} "
            f"(expected 48 attn / 24 mlp for 12-layer block stack)", console=True)
+    if NANOGPT_MUON_DEPTH_LR_SCALE != 0.0 and NANOGPT_MUON_DEPTH_LR_MODE != "none":
+        _dms = [compute_depth_mult(i, _num_layers, NANOGPT_MUON_DEPTH_LR_MODE,
+                                   NANOGPT_MUON_DEPTH_LR_SCALE) for i in range(_num_layers)]
+        print0(f"MUON_DEPTH_LR_GROUPS: {len(muon_param_groups)} groups (split {_num_layers} layers x 2 types)", console=True)
+        print0(f"  depth_mult per layer: {[f'{x:.3f}' for x in _dms]}", console=True)
+        print0(f"  min={min(_dms):.3f} max={max(_dms):.3f}", console=True)
     # Track orthogonalized-update spectrum on first block's attention q.weight
     # to surface NS-schedule effects in W&B telemetry.
     optimizer2.spectral_telemetry_param = model.blocks[0].attn.q.weight
@@ -1325,6 +1397,54 @@ for trial_idx in range(args.num_trials):
                     "linear_ramp_down": 3,
                 }.get(NS_COEF_SCHEDULE, -1),
             })
+            # Per-layer-depth Muon LR telemetry (#1236). When axis is OFF (scale==0)
+            # we still log scale/mode_id and a constant depth_mult=1 baseline so the
+            # dashboard panels don't break across runs.
+            _dm_mode_id = {
+                "none": 0, "ascending": 1, "descending": 2, "u-shape": 3,
+            }.get(NANOGPT_MUON_DEPTH_LR_MODE, -1)
+            _n_layers_log = len(model.blocks)
+            _ref_layers = [0, _n_layers_log // 2, _n_layers_log - 1]
+            _all_dms = [compute_depth_mult(i, _n_layers_log,
+                                           NANOGPT_MUON_DEPTH_LR_MODE,
+                                           NANOGPT_MUON_DEPTH_LR_SCALE)
+                        for i in range(_n_layers_log)]
+            ns_metrics["muon/depth_lr_scale"] = NANOGPT_MUON_DEPTH_LR_SCALE
+            ns_metrics["muon/depth_lr_mode_id"] = _dm_mode_id
+            for _ref in _ref_layers:
+                ns_metrics[f"muon/depth_mult_L{_ref}"] = _all_dms[_ref]
+            ns_metrics["muon/depth_mult_min"] = min(_all_dms)
+            ns_metrics["muon/depth_mult_max"] = max(_all_dms)
+            # Effective per-layer Muon LR at this step (post-cooldown scaling).
+            # Read current LR from the matching Muon param group; falls back to
+            # group_lr * depth_mult when groups are not split per-layer.
+            _muon_attn_group = next(
+                (g for g in optimizer2.param_groups if g.get("name") == "muon_attn"),
+                None,
+            )
+            _muon_mlp_group = next(
+                (g for g in optimizer2.param_groups if g.get("name") == "muon_mlp"),
+                None,
+            )
+            for _ref in _ref_layers:
+                _attn_g = next(
+                    (g for g in optimizer2.param_groups
+                     if g.get("name") == f"muon_attn_L{_ref}"),
+                    None,
+                )
+                _mlp_g = next(
+                    (g for g in optimizer2.param_groups
+                     if g.get("name") == f"muon_mlp_L{_ref}"),
+                    None,
+                )
+                if _attn_g is not None:
+                    ns_metrics[f"muon/effective_lr_attn_L{_ref}"] = _attn_g["lr"]
+                elif _muon_attn_group is not None:
+                    ns_metrics[f"muon/effective_lr_attn_L{_ref}"] = _muon_attn_group["lr"] * _all_dms[_ref]
+                if _mlp_g is not None:
+                    ns_metrics[f"muon/effective_lr_mlp_L{_ref}"] = _mlp_g["lr"]
+                elif _muon_mlp_group is not None:
+                    ns_metrics[f"muon/effective_lr_mlp_L{_ref}"] = _muon_mlp_group["lr"] * _all_dms[_ref]
             wandb.log(ns_metrics, step=wandb_step)
         if dist.get_rank() == 0 and telemetry_due:
             log_weight_telemetry(
