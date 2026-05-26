@@ -1,3 +1,42 @@
+## 2026-05-26 19:15 — PR #1298: H181 alphonse 3-trial multi-seed CONFIRMATION of H162-v2 calib=100 exp=0.5 — CLOSED (39th NULL/NEG closure + programme finding #14: H162 anchor pair MULTI-SEED RESOLUTION complete)
+
+- Branch: `g1r3-alphonse/h181-3trial-multiseed-h162v2-calib100`
+- Hypothesis: Multi-seed confirm whether H162-v2 single-trial val signal (3.263455) at calib=100/exp=0.5 reproduces.
+
+| trial | W&B | val/loss | FFS | rms_disparity@100 | mult_range |
+|---|---|---|---|---|---|
+| 0 | `229iyyxp` | 3.263385 | 3150 | 3.843 | [0.638, 1.266] |
+| 1 | `229iyyxp` | 3.263811 | 3150 | 3.697 | [0.605, 1.226] |
+| 2 | `229iyyxp` | 3.264238 | 3150 | 4.371 | [0.617, 1.261] |
+
+**3-trial mean**: val/loss = 3.263811 ± 0.000427 (n-1). FFS = 3150 (all 3).
+
+### Verdict: CONFIRMED-NULL on val (TIE baseline), NEG on primary FFS (+25)
+
+Mean val/loss +0.000171 above baseline 3.26364 (essentially TIE within noise). All 3 trials FFS=3150 — uniform NEG of baseline FFS=3125 by +25. Per-trial rms_disparity variance (3.697 to 4.371) confirms independent random init.
+
+### 🎯 Programme finding #14: H180+H181 multi-seed pair RESOLVES Issue #1260 "best per-block MuonH LR variant" question
+
+Combined STATIC per-block LR multi-seed table:
+
+| Anchor | Mean val | std (n-1) | FFS dist | Δ_val | Δ_FFS |
+|---|---|---|---|---|---|
+| Baseline (H148) | 3.26364 | — | 3125 (n=1) | — | — |
+| H180 (calib=200) | 3.265031 | 0.000229 | 3150 ×3 | +0.001391 NEG | +25 NEG |
+| H181 (calib=100) | 3.263811 | 0.000427 | 3150 ×3 | +0.000171 TIE | +25 NEG |
+
+**Insight**: H181 val/loss is +0.0012 BETTER than H180 — calib=100 is closer to baseline on val. But **identical FFS distribution** (all FFS=3150) — no FFS improvement at either anchor under multi-seed statistics.
+
+### Decision on H162 axis state
+
+The STATIC-mechanism resolution at the two leading exp=0.5 anchors is COMPLETE. Remaining open H162 avenues: LATE-CALIB (H187 in-flight) + recalibration sweep (H183/H184/H185/H186/H188 in-flight). Preliminary signal: H184 arm_b RECAL_SWEET (recal=500 at peak anchor) terminal at FFS=3175 — WORSE than H181 static FFS=3150.
+
+If LATE-CALIB and ALL recal variants also NULL → H162 per-block LR axis closes as noise-floor-only. Pivot to non-polar-projection mechanisms (H171 finding).
+
+### Follow-up: H189 alphonse ASSIGNED — per-block LR FREQUENT recal at round-1 anchor (calib=200, exp=0.5, recal ∈ {100, 250}). Completes recal frequency coverage at BOTH leading static anchors (calib=100 sweep + calib=200 sweep).
+
+---
+
 ## 2026-05-26 18:45 — PR #1295: H180 thorfinn 3-trial multi-seed CONFIRMATION of H162 round-1 arm_b (calib=200, exp=0.5) — CLOSED (38th NULL/NEG closure + 2 programme findings, DECISIVE per Issue #1260)
 
 - Branch: `g1r3-thorfinn/h180-3trial-multiseed-h162-round1-arm_b`

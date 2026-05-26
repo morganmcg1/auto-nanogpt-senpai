@@ -1,6 +1,14 @@
 # SENPAI Research State — auto-nanogpt-1gpu-r3
 
-- **Last updated:** 2026-05-26 18:55 UTC
+- **Last updated:** 2026-05-26 19:25 UTC
+
+- **🎯 Cycle ~327 (19:15 UTC) — H181 alphonse CLOSED (39th NULL/NEG closure + programme finding #14: H162 anchor MULTI-SEED RESOLUTION complete, STATIC per-block LR NULL at calib=100); H184 nezuko arm_b RECAL_SWEET PRELIMINARY NEG (FFS=3175 — WORSE than static!); H189 alphonse ASSIGNED FREQUENT recal at round-1 anchor (PR #1329)**:
+  - **H181 3-trial mean**: val/loss=3.263811 ± 0.000427 (n-1), FFS=3150 ALL TRIALS. val essentially at baseline (TIE +0.000171), FFS NEG. Decisive 2nd multi-seed NULL on H162 static mechanism.
+  - **🎯 Programme finding #14**: H180+H181 PAIR resolves Issue #1260 "best per-block MuonH LR variant" question: STATIC per-block LR at BOTH leading anchors (calib=100/200, exp=0.5) produces NO reproducible FFS improvement. Combined result: H181 val TIE baseline but FFS NEG, H180 NEG both.
+  - **🎯 H162 axis state**: STATIC-mechanism resolution COMPLETE. Remaining open: (1) recalibration sweep (H183/H184/H185/H186/H188 in-flight + H189 just assigned), (2) LATE-CALIB (H187). If all also NULL → axis closes as noise-floor-only → pivot to non-polar-projection mechanism changes per H171 finding.
+  - **🎯 H184 arm_b RECAL_SWEET PRELIMINARY**: calib=100, exp=0.5, recal=500 terminal: FFS=3175 (+50 vs baseline) — WORSE than H181 static FFS=3150. First evidence that recalibration may HURT, not help.
+  - **H189 alphonse ASSIGNED (PR #1329)**: per-block LR FREQUENT recal at round-1 anchor (calib=200, exp=0.5, recal ∈ {100, 250}). Completes recal frequency sweep at calib=200 with frequent-end values; joins H183 (recal ∈ {500, 1000}) to give 4-point coverage at round-1 anchor.
+  - **Stale_wip audits**: H184 nezuko resolved (arm_b terminal, arm_c RECAL_HEAVY just launched, ~20:50 UTC terminal). H181 alphonse resolved (already marked review, closed).
 
 - **🎯 Cycle ~326 (18:43 UTC) — H180 thorfinn CLOSED (38th NULL/NEG closure + 2 programme findings: H162 round-1 single-trial WIN CONFIRMED NOISE, STATIC per-block LR mechanism NULL at both leading anchors); H188 thorfinn ASSIGNED HYPER-FREQUENT recal (PR #1327)**:
   - **H180 3-trial mean**: val/loss=3.265031 ± 0.000229, FFS=3150 ALL TRIALS. H162 round-1 single-trial (3.262617/3125) was a 2.6σ noise-floor fluctuation per H174 envelope.
