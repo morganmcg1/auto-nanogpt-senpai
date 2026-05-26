@@ -3,6 +3,30 @@
 Log of completed/reviewed experiment PRs in chronological order. Wave 1
 results pending student execution.
 
+## 2026-05-26 08:35 UTC — PR #1227: askeladd pre-NS gradient noise injection on Muon body — **CLOSED clean-NEG** [FFS-PRIMARY]
+
+- **Branch:** `g1r5-askeladd/pre-ns-noise-body`
+- **Student:** g1r5-askeladd
+- **Hypothesis:** Pre-NS Gaussian noise injection on Muon body matrices — mechanically distinct from #383 POST-NS noise (closed clean-NEG); orthogonal-manifold projection should give "structured exploration" rather than unstructured perturbation. 5-cell sweep across mode × std combinations.
+
+| Cell | Mode | std | FFS | val/loss | Δ vs baseline |
+|:----:|:-----|:---:|:---:|:--------:|:-------------:|
+| A | off (ctrl) | 0.0 | 3050 | 3.263377 | +25 FFS, +3.64σ val |
+| **B★** | linear_decay | 5e-4 | **3050** | 3.262661 | +25 FFS, +2.43σ val |
+| C | constant | 5e-4 | 3050 | 3.264013 | +25 FFS, +4.71σ val |
+| D | cooldown_only | 1e-3 | 3050 | 3.262424 | +25 FFS, +2.03σ val |
+| E (falsifier) | constant | 5e-3 | **−1 (killed step 1582)** | 3.522823 | catastrophic ✓ |
+
+- **FFS verdict:** All 4 surviving cells at FFS=3050 (baseline +25 step = 1 val tick variance). FFS dead at this scale. Cell B PRIMARY missed n=1 gate by +0.002033.
+- **★ Mechanism — NS amplifies pre-NS noise:** Cell E catastrophic at 5e-3 (val=3.522 at step 1582, monotone-improving-but-slow) confirms the predicted NS-amplification mechanism: NS5 redistributes noise variance into low-singular-direction components where the model has no signal, so the orthogonalized update wastes energy on directions orthogonal to gradient. The "orthogonal-manifold structured exploration" intuition is mathematically reasonable but empirically falsified at scales that matter.
+- **★ Cell C ≥ A:** keeping constant noise during cooldown actively hurts (B linear_decay < C constant at same std=5e-4). Confirms #941 "cooldown is directed descent, not noisy oscillation" from the noise-injection angle.
+- **★ 10th NS-modulation axis closure:** joins #776 RMS clamp, #815 NS warmup, #824 NS coefs, #867 cautious pre-NS, #932 per-layer iter, #1010 iter-by-time, #1022 NS degree, #1042 soft mixing, #1151 GC, #1206 pre-NS conditioning. Combined with #383 post-NS noise: **every form of pre-NS or post-NS modulation has failed.** NS expects clean gradient in, clean orthogonal out. NS-on-body operator class is structurally locked at (iter=6, polynomial-degree-5, ‖update‖=1, no noise).
+- **Operational note:** Cell A control unlucky seed (+3.64σ above n=4 mean) — within-sweep comparisons noisier than ideal but FFS conclusion robust.
+- **W&B run IDs:** A=ar9guz8h, B=hk2y1qft, C=4o13jqe5, D=u7mbeg9i, E=0z9nu5ae (killed step 1582)
+- **Next:** Assigned askeladd → **#1275 lr-scalars-pruning** (is `--lr_scalars 0.03` FFS-load-bearing? 5-cell: 0.03 ctrl / 0.0★ PRIMARY freeze / 0.015 / 0.06 / 0.10 falsifier; tests "is the 1D scalars param group FFS-load-bearing or val-loss-cosmetic?")
+
+---
+
 ## 2026-05-26 08:20 UTC — PR #1266: alphonse depth-init-mode pruning ablation — **CLOSED clean-NEG** [FFS-PRIMARY]
 
 - **Branch:** `g1r5-alphonse/depth-init-pruning`
