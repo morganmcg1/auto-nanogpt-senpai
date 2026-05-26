@@ -1,3 +1,37 @@
+## 2026-05-26 11:35 — PR #1256: H172 frieren AdamWAtan2 on aux — BILATERAL NULL within-chain (29th closure + NUMERICAL-FORM-OF-LR-NOT-LEVER finding)
+
+- Branch: `g1r3-frieren/h172-adamw-atan2-aux`
+- Hypothesis: Replace `α/(sqrt(v)+eps)` per-element LR with `α·(2/π)·atan2(m, sqrt(v))` smooth saturation (Everett & Xiao 2024). Tests whether the numerical conditioning of AdamW's per-element LR formula is the bottleneck.
+
+| arm | target | W&B | val/loss | FFS | Δ vs CTRL | verdict |
+|---|---|---|---|---|---|---|
+| arm_a CTRL | — | `ex8nzolv` | **3.26579** | 3150 | — | NULL (11th drift) |
+| arm_b ATAN2_LM_HEAD | lm_head_only | `ytsa9oak` | **3.26542** | 3150 | -0.00037 (~0.4σ) | NULL |
+| arm_c ATAN2_EMBED | embed_only | `blnan0yd` | **3.26625** | 3150 | +0.00046 (~0.5σ) | NULL |
+
+WIN <3.26284: 0/3. FFS<3125: 0/3 (all FFS=3150 = TIE CTRL).
+
+### Programme-grade Finding: NUMERICAL-FORM-OF-LR IS NOT THE LEVER
+
+`saturated_fraction = 0` throughout for BOTH atan2 arms — the smooth-saturation cap **NEVER engages** in this stack. Counterfactual on AdamW arms: only 0.7% of aux params ever have m/sqrt(v) > 1, and barely so. AdamW's `α/(sqrt(v)+eps)` is **already well-conditioned**: eps=1e-6 + typical v_max ~5-7 keeps the denominator stable across training. Everett & Xiao 2024's published gains were at much larger LRs/different schedules where m/sqrt(v) reaches saturation; doesn't transfer here.
+
+Side observation: atan2 systematically shrinks updates by ~36% in linear regime (where `atan2(m, sqrt(v)) ≈ m/sqrt(v)` × 2/π). val/loss unchanged despite this shrinkage → **aux subsystems sit on a flat-bottom basin of effective-LR sensitivity** (40% LR perturbations don't move val/loss). Compounds with H167/H168 LR-sensitivity NULL findings.
+
+**Cross-portfolio AUX-ADAMW-EXTENSION CLOSURE — 5 IN A ROW**:
+- H167 AdamP — weight-projection NEG (F-norm load-bearing)
+- H168 AdaBelief — second-moment formulation NULL (erosion not variance-driven)
+- H169 Adan — gradient-correction NEG (Nesterov anti-signal)
+- H170 v-reset — state-reset NEG (curvature buffer load-bearing)
+- H172 AdamWAtan2 — numerical-form NULL (LR formula well-conditioned)
+
+The aux-AdamW-extension axis is now **DEFINITIVELY CLOSED** at 5 distinct mechanism families. Future aux interventions must target structural changes (Sophia/SOAP/GaLore) or schedule-axis (decoupled aux LR cooldown), NOT AdamW-family extensions.
+
+### Follow-up: H178 frieren ASSIGNED (PR #1292) — calib=25 exp=0.5 ULTRA-EARLY
+
+Fills the (calib=25, exp=0.5) cell — ULTRA-EARLY mid-warmup calibration with H162-WIN exponent. Tests whether the per-block LR proxy can be measured during mid-warmup (gradients still ramping) and whether ~3300 steps of compounding window translates to FFS WIN.
+
+---
+
 ## 2026-05-26 10:25 — PR #1247: H170 edward AdamW v-reset at cooldown entry — BILATERAL NULL/NEG (28th closure + AUX-CURVATURE-LOAD-BEARING finding)
 
 - Branch: `g1r3-edward/h170-aux-v-reset-cooldown`

@@ -1,6 +1,13 @@
 # SENPAI Research State — auto-nanogpt-1gpu-r3
 
-- **Last updated:** 2026-05-26 10:30 UTC
+- **Last updated:** 2026-05-26 11:42 UTC
+
+- **🎯 Cycle ~311 (11:38 UTC) — H172 CLOSED bilateral NULL (29th closure, 5th consecutive aux-AdamW-extension axis closure); H178 frieren ASSIGNED (calib=25 exp=0.5 ULTRA-EARLY)**:
+  - H172 frieren AdamWAtan2 CLOSED: bilateral NULL within-chain. `saturated_fraction=0` throughout — atan2 cap never engages, aux LR formula already well-conditioned. **DEFINITIVE 5-axis closure of aux-AdamW-extension family** (H167 weight-projection + H168 variance-formulation + H169 gradient-correction + H170 state-reset + H172 numerical-form-of-LR). Future aux work must leave AdamW family entirely.
+  - **🎯 H174 PROGRAMME-CRITICAL DATA**: trial 0 reproduces baseline FFS=3125 **EXACTLY** (val/loss=3.263484 vs 3.26364). Trial 1: FFS=3150. 2-trial mean FFS=3137.5 — baseline FFS=3125 is real and reproducible (not lucky-seed). FFS noise envelope is ±25 step bin spread. Pins all future merge decisions.
+  - H178 frieren ASSIGNED (PR #1292): fills (calib=25, exp=0.5) ULTRA-EARLY corner. Pushes "act before target crossing window" directive to its limit (calibration at mid-warmup, ~3300 steps compounding).
+  - H162-v2 thorfinn arm_b: val/loss=3.2635 (-0.0021 vs CTRL), FFS=3150 — val/loss WIN within-chain but FFS TIES CTRL drift, NEG vs baseline. arm_c still running (~66% at 11:25).
+  - H171 askeladd arm_b QR FAILED (val/loss=4.76, FFS=-1) — direct evidence NS5's partial-orth tail load-bearing.
 
 - **🎯 Cycle ~307 (10:25 UTC) — H170 CLOSED bilateral NULL/NEG (28th closure) + H177 edward ASSIGNED (calib=50 exp=0.25)**:
   - H170 edward v-reset CLOSED: monotonic harm ISO>PARTIAL>OFF — **aux v-buffer IS load-bearing at cooldown entry** (H1 rejected). Four-closing AdamW-extension axis portfolio complete (H167+H168+H169+H170). Future aux work: schedule-axis or non-AdamW preconditioners. CTRL drift: 12 samples accumulated.
