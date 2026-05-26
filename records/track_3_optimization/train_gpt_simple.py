@@ -468,6 +468,15 @@ NS5_ITERS = int(os.environ.get("NS5_ITERS", "12"))
 WD_AUX = float(os.environ.get("WD_AUX", "0.0"))  # AdamW WD on embed + lm_head matrices (scalars stay at 0)
 EMBED_INIT_STD = float(os.environ.get("EMBED_INIT_STD", "1.0"))  # default preserves baseline N(0,1)
 LOGIT_SOFTCAP = float(os.environ.get("LOGIT_SOFTCAP", "15.0"))  # default = 15 (current hardcoded value); soft-cap value c in f(x) = c·x / sqrt(x^2+c^2)
+# PR #1296 LATE_LR_PULSE: brief multiplicative pulse on body Muon LR over a 50-step
+# window starting at step 2540 (~80% of 3175). Non-state-mutating control test for
+# the cluster-break signature observed in #1267 (state-reset family). Disabled
+# default (LATE_LR_PULSE=0) is bytewise-inert: the if-guard short-circuits on the
+# first term before any comparison or multiplication.
+LATE_LR_PULSE = int(os.environ.get("LATE_LR_PULSE", "0"))               # 0=disabled, 1=enabled
+LATE_LR_PULSE_FACTOR = float(os.environ.get("LATE_LR_PULSE_FACTOR", "1.0"))   # multiplier on body Muon LR during pulse window
+LATE_LR_PULSE_START = int(os.environ.get("LATE_LR_PULSE_START", "2540"))      # step at which pulse begins (default = round(3175*0.80))
+LATE_LR_PULSE_DURATION = int(os.environ.get("LATE_LR_PULSE_DURATION", "50"))  # number of steps the pulse remains active
 
 
 def zeropower_via_newtonschulz5(G: Tensor) -> Tensor:
@@ -655,9 +664,15 @@ class Muon(torch.optim.Optimizer):
         params = sorted([p for _, p in named_params], key=lambda x: x.size(), reverse=True)
         defaults = dict(lr=lr, weight_decay=weight_decay, mu=mu)
         super().__init__(params, defaults)
+        # PR #1296 LATE_LR_PULSE step counter (1-indexed after increment at top of step()).
+        # Matches the pattern from #1267's _reset_done guard: maintained unconditionally,
+        # consumed only inside an LATE_LR_PULSE-guarded branch so the disabled path is
+        # bytewise-inert.
+        self._step_count = 0
 
     @torch.no_grad()
     def step(self):
+        self._step_count += 1
         world_size = dist.get_world_size()
         rank = dist.get_rank()
         for group in self.param_groups:
@@ -709,7 +724,14 @@ class Muon(torch.optim.Optimizer):
                     scale = torch.where(cur_uw < TARGET_UW, TARGET_UW * p_fro / u_fro, torch.ones_like(p_fro))
                     update = update * scale.to(update.dtype)
                     # Explicit weight decay intentionally omitted (matches record #14; u/w-floor replaces wd).
-                    p.add_(update, alpha=-group["lr"])
+                    # PR #1296 LATE_LR_PULSE: optional ±FACTOR multiplicative pulse on body
+                    # Muon LR over [LATE_LR_PULSE_START, LATE_LR_PULSE_START + DURATION).
+                    # Short-circuits to group["lr"] when LATE_LR_PULSE=0 (bytewise-inert).
+                    effective_lr = group["lr"]
+                    if LATE_LR_PULSE and (LATE_LR_PULSE_START <= self._step_count
+                                          < LATE_LR_PULSE_START + LATE_LR_PULSE_DURATION):
+                        effective_lr = group["lr"] * LATE_LR_PULSE_FACTOR
+                    p.add_(update, alpha=-effective_lr)
                     # Refresh SOAP state with the raw grad (after applying the step).
                     if use_soap:
                         soap_refresh(grad, state)
@@ -866,6 +888,10 @@ if dist.get_rank() == 0:
             "optimizer/attn_soap_trust_threshold": ATTN_SOAP_TRUST_THRESHOLD,
             "optimizer/ns5_iters": NS5_ITERS,
             "optimizer/wd_aux": WD_AUX,
+            "optimizer/late_lr_pulse": LATE_LR_PULSE,
+            "optimizer/late_lr_pulse_factor": LATE_LR_PULSE_FACTOR,
+            "optimizer/late_lr_pulse_start": LATE_LR_PULSE_START,
+            "optimizer/late_lr_pulse_duration": LATE_LR_PULSE_DURATION,
             "optimizer/recipe": "contra-muon + normuon-lite + soap-on-mlp + soap-on-attn-trust-gate (pre-NS5, record #14 + record #16)",
         },
     )
