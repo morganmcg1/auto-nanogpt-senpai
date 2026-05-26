@@ -1,3 +1,66 @@
+## 2026-05-26 17:55 UTC — Cycle 71 mid-291
+
+**Cumulative**: **175 refuted (+1: alphonse #1317 175th, MATH-NULL subtype)** / **99 distinct mech classes (+1: 99 MUON_BODY_ATTN_MLP_BETA_PHASE_DISPATCH #1323)** / **56 family-level closures (unchanged)**.
+
+**This cycle — 1 closure (math-null subtype, NEW closure mechanism) + 1 reassignment + META-INSIGHT on #1225 reinterpretation**:
+
+1. **alphonse #1317 AUX_BIAS_CORRECTION_PHASE_OFF closed as 175th refute (MATH-NULL subtype)** — NEW closure mechanism in corpus:
+   - **Load-bearing student math correction**: alphonse's pre-launch verification revealed `train_gpt_simple.py:904` configures `AdamW(betas=(0.8, 0.95), ...)`. My PR body assumed β2=0.999 — WRONG.
+   - Under actual β2=0.95: bias_correction2 = 1-0.95^t. Divisor is **≈1.0 by step ~100** and exactly 1.0 by step 200, 953, 3175.
+   - Under actual β1=0.8: bias_correction1 is **≈1.0 by step ~30**.
+   - **Implications**:
+     - Arm A (cooldown-off, step ≥ 953): disables a divisor already ≡ 1.0 → mathematically NULL. Predicted result (without launch): cluster member at val ≈ 3.27, ffs ≈ 3025.
+     - Arm B (warmup-off, step < 200): bias correction IS active for steps 0-100; predicted catastrophic per PR — even informative outcome (not catastrophic) has low actionable follow-up.
+   - **Closure mechanism distinguishes from 174 prior experimental refutes**: hypothesis was nulled BEFORE any mechanism-active GPU run, based on student's verification of code constants vs PR body's mathematical motivation. Disabled-check canary (val@200=4.09111, within cu13 envelope) was the only GPU work expended.
+   - **META-INSIGHT on #1225 reinterpretation**: PR #1225 AUX_BIAS_CORRECTION_OFF (uniform, refuted 2026-05-22 vicinity) was mathematically near-null beyond step ~100 for this stack. Its refute outcome is therefore CONSISTENT with the math — disabling a divisor already ≈1 produces baseline-equivalent results. Re-framed closure: "bias correction is not load-bearing past step ~100 for β1=0.8, β2=0.95" rather than "bias correction was tested and the mechanism was null."
+   - **Methodology validation**: pre-launch math-check + canary protocol caught this BEFORE Arm A wasted GPU hours. Gold-standard pattern. Future bias-correction-related PRs MUST verify β values in code before deriving phase boundaries.
+
+**Reassignment**:
+
+2. **alphonse → PR #1323 MUON_BODY_ATTN_MLP_BETA_PHASE_DISPATCH (99th mech class)** — FIRST per-structural-kind body Muon dispatch in 320+ PRs:
+   - Split body Muon 2D-tensor params into **attn-block params (q/k/v/proj)** vs **mlp-block params (fc/proj)**. Apply differential momentum coefficient β multipliers per group, cooldown-phase-gated (step ≥ 953).
+   - Arm A: `MUON_ATTN_BETA_MULT_COOLDOWN=1.1` `MUON_MLP_BETA_MULT_COOLDOWN=0.9` (attn-momentum-preserve, mlp-fast-adapt)
+   - Arm B: `MUON_ATTN_BETA_MULT_COOLDOWN=0.9` `MUON_MLP_BETA_MULT_COOLDOWN=1.1` (reverse)
+   - **Morgan #1259-aligned**: per-group (structural kind) + state-phase axis. NOT scalar HP sweep.
+   - **Distinct from prior work**: CompleteP family (per-LAYER LR, closed) + MUON_BETA_DEPTH_RAMP family (depth-ramp on β, closed) + askeladd #1301 (per-kind SOAP trust on ATTN preconditioner, different optimizer+param-set) + nezuko #1307 (per-AUX-group LR on AdamW, complementary).
+   - **Hypothesis space**: attn (interaction substrate, low-rank-tendency) vs mlp (expansion substrate, near-full-rank) may have different optimal momentum during cooldown fine-tuning.
+   - Cost: ~20-30 LoC. Pre-launch code-review gate required (per-param mult dict at MULT=1.0 = IEEE-identity → single-canary structural exemption likely qualifies).
+
+**Closure-mechanism taxonomy (cycle 71 — first 4-subtype refute classification)**:
+
+| Refute subtype | Trigger | Count cycle-71 |
+|---|---|---|
+| **n=1 cluster-band refute** (val ∈ [3.268, 3.275], ffs ∈ [3000, 3050]) | n=1 GPU-launched mechanism-active arm | dominant subtype |
+| **Catastrophic-shifted-floor refute** (val > 3.30 OR target missed) | n=1 GPU-launched mechanism-active arm | 10 in cycle 71 |
+| **n=2 confirm refute** (n=1 hold-pass refuted by n=2 mean) | n=2 GPU-launched mechanism-active arms | 3 in cycle 71 (edward #1264, fern #1267, alphonse #1283) |
+| **MATH-NULL refute** (mathematical analysis nulls hypothesis pre-launch) | NO mechanism-active GPU run; canary disabled-check only | **1 in cycle 71 (alphonse #1317)** |
+
+**Active fleet status mid-291**:
+
+| Student | PR | Status | W&B notes |
+|---|---|---|---|
+| g1r2-alphonse | #1323 NEW | draft, just assigned | MUON_BODY_ATTN_MLP_BETA_PHASE_DISPATCH |
+| g1r2-thorfinn | #1306 | status:wip, Arm A authorized | MUON_NESTEROV_PHASE_TRANSITION |
+| g1r2-nezuko | #1307 | status:wip, Arm A authorized | AUX_BIASES_LR_BOOST x2 boost |
+| g1r2-fern | #1296 | status:wip, in-flight | LATE_LR_PULSE Arm A |
+| g1r2-frieren | #1312 | draft, just assigned | MUON_LR_BETA_DEPTH_RAMP_ANTI_ALIGNED |
+| g1r2-askeladd | #1301 | status:wip, Arm A authorized | ATTN_SOAP_TRUST_PER_KIND |
+| g1r2-tanjiro | #1316 | draft, just assigned | MUON_BODY_POLYAK_AVERAGING |
+| g1r2-edward | #1304 | status:wip, Arm A authorized | WD_BODY_DEPTH |
+
+**ZERO IDLE STUDENTS** — 8 students concurrently active.
+
+**Methodological synthesis (cycle 71 mid-291)**:
+
+- **MATH-NULL closure subtype** — first appearance in 320+ PR corpus. Enabled by: (a) student's implementation-plan-comment protocol that requires pre-launch math verification, (b) canary disabled-check that gates Arm A launch, (c) advisor's willingness to close hypotheses on mathematical grounds rather than insisting on GPU-confirmed null. Cycle 71+ methodology should treat MATH-NULL closures as **equal-validity refutes** — they save GPU time AND produce stronger evidence (mathematical analysis is more general than n=1 experimental refute).
+- **PR-body authoring methodology**: future advisor PRs that depend on hyperparameter values from the code base MUST cross-check against the actual code. The alphonse #1317 incident was caused by the PR-body using a theoretical/literature value (β2=0.999) without checking the in-code value (β2=0.95). Adding to cycle-71+ PR-authoring checklist: "verify all referenced HP values against `train_gpt_simple.py` before publishing."
+- **Per-structural-kind dispatch axis newly opened**: alphonse #1323 is the first body Muon per-structural-kind (attn vs mlp) split. If this axis produces non-trivial signal, the family expands to: three-way structural splits, attn-q/k vs attn-v/proj, lm_head vs body, embed vs body. Per-LAYER patterns are closed; per-KIND patterns are open.
+- **Closure-mechanism taxonomy now 4-way**: cluster-band, catastrophic-shifted-floor, n=2-confirm, math-null. Future refutes should be categorized by subtype for portfolio analysis.
+
+**Wake schedule**: ~20-25 min for next terminals — multiple Arm A launches still in flight (thorfinn #1306, edward #1304, askeladd #1301, nezuko #1307). fern #1296 terminal overdue. alphonse #1323 + frieren #1312 + tanjiro #1316 in pre-launch (code-review gates pending for tanjiro + alphonse).
+
+---
+
 ## 2026-05-26 16:10 UTC — Cycle 71 mid-290
 
 **Cumulative**: **174 refuted (+1: alphonse #1283 174th)** / **98 distinct mech classes (+1: 98 AUX_BIAS_CORRECTION_PHASE_OFF #1317)** / **56 family-level closures (unchanged — state-buffer-reset already counted mid-285, now definitively n=2-confirmed)**.
