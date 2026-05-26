@@ -1,3 +1,71 @@
+## 2026-05-26 20:55 UTC — Cycle 71 mid-297
+
+**Cumulative**: **181 refuted (unchanged)** / **103 distinct mech classes (unchanged)** / **57 family-level closures (unchanged)** / **6-way closure taxonomy unchanged**.
+
+**This cycle — 2 code-review-gate actions (1 authorize, 1 methodology-send-back) + 1 stale-student recovery + 1 incoming bilateral confirmation**:
+
+1. **askeladd #1333 ATTN_SOAP_GRAM_REINIT_AT_COOLDOWN code-review gate PASSED (23rd cycle-71)** — single-arm authorized:
+   - Commit `84f5617`, +127 LoC. Branch-isolated identity verified (env-var conjunction short-circuits at default `ATTN_SOAP_GRAM_REINIT_AT_COOLDOWN=0`).
+   - Canary `jhit0wbe` step:0 val=10.82583 bit-id ✓; step:250 val=4.04156 well under cu13 kill gate ✓.
+   - **gram_reinit_attn() correctness verified**: zeros `row_gg`/`col_gg`/`exp_avg_sq`, clears `q_row`/`q_col`, resets `soap_step=0` and trust state. Matches initial-state init path exactly. Uniform across q/k/v/proj.
+   - **100th distinct mech class** (first state-phase event on SOAP Gram, second-order accumulator).
+   - **Cross-axis safety**: SOAP Gram reset is on an axis NEVER tested across 320+ PR corpus.
+   - Single Arm A only (#613 baseline IS the disabled arm).
+   - Hold gate TIGHTENED per #1324 cluster-band lower-edge methodology: `val ≤ 3.265 AND ffs ≤ 3000` for merge candidate.
+
+2. **fern #1341 MUON_BETA_RAMP_DECAY methodology send-back (advisor self-correction)**:
+   - Student CORRECTLY identified that PR body referenced `MUON_BETA_DEPTH_RAMP`, `param_beta_offset`, and `self._step_counter` as "pre-existing infrastructure" from #1251/#1267, BUT those PRs were closed (refutes), so infrastructure never merged to advisor branch.
+   - **Methodology rule added (cycle-71 corpus self-correction)**: advisor must verify referenced infrastructure is on the advisor branch (via grep) BEFORE referencing in PR body. Closed refutes do NOT propagate code to advisor branch.
+   - Send-back with full implementation specs: layer-indexing convention (`re.match(r'^blocks\.(\d+)\.', name)`), per-block offset formula (`offset = RAMP × (block_idx/11 - 0.5)`, mean-preserving), which-params (all body Muon `blocks.<i>.` params; AUX excluded).
+   - Single-canary structural exemption argument: at default `MUON_BETA_DEPTH_RAMP=0 AND MUON_BETA_RAMP_DECAY=0` → IEEE-identity (0.0 × x = 0.0 exactly).
+   - Joins fern's #1324 env-var schema verification methodology as second prevention rule of cycle.
+
+3. **nezuko #1307 Arm B stale-student recovery**:
+   - Arm B (`m6bonjso`) training completed successfully ~2h ago (state=finished, step 3175): val=**3.27376** ffs=**3075**.
+   - Student Claude instance got stuck at iteration 51, killed by watchdog at iteration 52 with stale log + no train.py process. Iterations 52-53 failed to post terminal.
+   - Advisor posted recovery prompt with W&B data + exact SENPAI-RESULT template for student to submit.
+   - **Bilateral verdict** (pending student submission): Arm A 2.0× val=3.26934 ffs=3025 vs Arm B 0.5× val=3.27376 ffs=3075. Both cluster-band-member with asymmetric regression. Bias-LR axis structurally inert at per-AUX-group granularity; mild asymmetry favors higher LR (suppression weakens already-tepid bias updates more than over-LR destabilizes them).
+   - Expected closure: **182nd refute** when terminal posted.
+
+4. **tanjiro #1316 Arm B running normally** (`hetje6py`):
+   - Polyak α=0.99 (longer effective window than α=0.95 in Arm A). At step 725 (val 3.71) tracking healthy. State=running.
+   - **Arm A terminal confirmed**: val(Polyak)=**3.26955** ffs=**3000** at step 3175 (cluster member, +0.00179 above merge bar but ffs=3000 matches baseline). Mechanism is real and substantial during pre-cooldown phase (peak Δ=-0.068 at step 875) but VANISHES at convergence (terminal Δ=+0.0001).
+   - Key finding: Polyak benefit is FRONT-LOADED — useful for noisy training phase, drags up during cooldown when current params are steady-improving.
+   - ETA terminal ~80 min.
+
+**Pod-state interpretation refinement**:
+
+The system flag "stale_wip" can mean either (a) student Claude is stuck or (b) training is completing but heartbeat cadence is sparse. Need to discriminate by checking pod logs + W&B run state. Discrimination protocol:
+- pod GPU=0% + W&B run finished + no terminal comment posted → student Claude stale, needs recovery prompt with W&B data
+- pod GPU>50% + W&B run running → student Claude alive, training in progress, no action
+- pod GPU=0% + no recent W&B run → student Claude alive but idle (between arms or post-terminal), check for assignment
+
+**Active fleet status mid-297**:
+
+| Student | PR | Status | W&B notes |
+|---|---|---|---|
+| g1r2-alphonse | #1323 | status:wip, revised mults running | MUON_BODY_ATTN_MLP_BETA_PHASE_DISPATCH (1.03/0.97 revised) |
+| g1r2-thorfinn | #1336 | status:wip, Arm A running | MUON_NESTEROV_INVERSE_PHASE_GATE (~40% merge prob) |
+| g1r2-nezuko | #1307 | status:wip, stale-recovery prompt posted | AUX_BIASES_LR_BOOST bilateral done, terminal pending student submission |
+| g1r2-fern | #1341 | status:wip, methodology send-back posted | MUON_BETA_RAMP_DECAY (103rd mech, implementation specs delivered) |
+| g1r2-frieren | #1340 | status:wip, Arm A running | MUON_BETA_LOCALIZED_STEP (102nd mech) |
+| g1r2-askeladd | #1333 | status:wip, Arm A authorized | ATTN_SOAP_GRAM_REINIT_AT_COOLDOWN (100th mech) |
+| g1r2-tanjiro | #1316 | status:wip, Arm B running | MUON_BODY_POLYAK_AVERAGING (Arm A terminal: cluster, ffs=3000) |
+| g1r2-edward | #1335 | status:wip, Arm A running | EMBED_LR_PHASE_TRANSITION (101st mech) |
+
+**ZERO IDLE STUDENTS** — 8 students concurrently active.
+
+**Methodology corpus additions this cycle**:
+
+1. **advisor-must-verify-infra-on-branch rule**: before referencing pre-existing infrastructure in PR body, advisor must grep the advisor branch to verify it's there. Closed refutes do NOT propagate code. Self-correction from fern #1341.
+2. **pod-state discrimination protocol**: stale_wip flag requires triage (pod GPU + W&B run state + last comment timestamp) to distinguish stuck-Claude from in-progress training.
+
+**Polyak averaging structural finding** (load-bearing for future eval-state PRs from tanjiro #1316):
+
+Polyak EMA's benefit on val/loss is FRONT-LOADED during noisy training phase, then collapses to zero (or marginally negative) at convergence. The mechanism averages over a window of params; during steady descent the window-average lags current params by enough to be meaningfully better; during cooldown the window-average drags up because the lagged params were noisier. This explains why Polyak averaging in fixed-α schemes shows publication-grade gains in training-loss curves but fails to clear cooldown-phase merge bars in benchmark setups.
+
+**Future-direction insight**: a SCHEDULED Polyak α (boost α during pre-cooldown, OFF α during cooldown) might preserve the front-loaded benefit while avoiding the cooldown drag. This is a follow-up candidate if/when tanjiro is reassigned post-#1316.
+
 ## 2026-05-26 20:40 UTC — Cycle 71 mid-296
 
 **Cumulative**: **181 refuted (+1: fern #1324 181st)** / **103 distinct mech classes (+1: 103rd MUON_BETA_RAMP_DECAY #1341)** / **57 family-level closures** / **6-way closure taxonomy unchanged**.
