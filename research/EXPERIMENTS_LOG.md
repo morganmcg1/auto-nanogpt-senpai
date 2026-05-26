@@ -1,5 +1,41 @@
 # SENPAI Research Results
 
+## 2026-05-26 21:30 UTC — PR #1299 CLOSED: AdamW aux FULL state refresh inert — 158th NULL (g1r1-frieren)
+
+- Branch: `frieren/adamw-aux-state-refresh`
+- Hypothesis: Refreshing AdamW aux FULL state (m_t + v_t + step counter) at step 2275 (A, pre-cooldown) or step 2600 (B, deep cooldown) would clear accumulated state staleness, mirror of #1268 L_cov refresh WIN on the body surface.
+
+| Arm | Run | Refresh step | val_ema | sr | Δ vs baseline (3.264718) | Verdict |
+|---|---|---|---|---|---|---|
+| A | `z3srm37i` | 2275 (pre-cooldown) | **3.266328** | **2925** | +1.609 mnat NULL | NULL |
+| B | `0ps8phoj` | 2600 (deep cooldown) | **3.266311** | **2925** | +1.593 mnat NULL | NULL |
+
+**Analysis:** Both arms tied within seed-noise (Δ=0.016 mnat between arms) — refresh step location is irrelevant for this surface. Both arms FAIL both merge clauses.
+
+**Mechanism canon — β2-fast-mixing erases full state reset:** AdamW aux state at β2=0.95 has effective horizon `1/(1-β2)=20` steps. Full-state refresh at step 2275 re-equilibrates by step 2295; refresh at step 2600 re-equilibrates by step 2620. Either way, the refresh disturbance is fully absorbed long before sr=2925 (650 steps and 325 steps of re-mixing respectively). Net effect: zero terminal signal.
+
+**State-refresh axis FULLY CLOSED across all six surfaces:**
+
+| PR | Surface | Refresh type | Outcome |
+|---|---|---|---|
+| #1253 edward | Body Muon m_prev | First-moment only | NULL (m_prev load-bearing) |
+| #1268 fern | Body L_cov bilateral | Refresh @ 2275/2600 | Subsumed-NULL (optimal @ 2600 but subsumed by #1289) |
+| #1274 nezuko | param-EMA | Refresh @ 2275/2700 | Subsumed-NULL (optimal @ 2275 but subsumed by #1289) |
+| **#1299 frieren** | **Aux AdamW** | **FULL state @ 2275/2600** | **NULL inert (β2-fast-mixing erases)** |
+| #1302 edward | L_cov + paramEMA | Simultaneous @ same step | INTERFERENCE (anti-stacks) |
+| #1315 askeladd | Aux AdamW | VARIANCE-ONLY @ 2600 | CATASTROPHIC (m/v coupling violation) |
+
+**Universal state-refresh canon:**
+- Aux state surface CANNOT benefit from any refresh design (full=inert, partial=destructive).
+- Body Muon m_prev is load-bearing; reset destructive.
+- L_cov + param-EMA refresh canonical optima identified but subsumed by per-block LR baseline.
+- Same-step coupled refresh = INTERFERENCE.
+- **Only temporal-separated refresh stacking (#1325 thorfinn — L_cov@2600 + paramEMA@2275) remains as viable refresh direction.**
+
+**frieren → PR #1350 per-optimizer-class cooldown power split** — schedule-shape mechanism. Tests whether aux (i.i.d. gradients) and body (autocorrelated gradients) benefit from differential COOLDOWN_POWER. Arm A aux=1.2 flatter, Arm B aux=1.6 sharper, body=1.4 fixed both arms. Mechanism-distinct from all 7 prior aux-axis closures (which were β/μ/EMA scalar sweeps + state-refresh).
+
+---
+
 ## 2026-05-26 20:30 UTC — PR #1315 CLOSED: AdamW aux variance-only refresh CATASTROPHIC NULL — 157th NULL (g1r1-askeladd)
 
 - Branch: `g1r1-askeladd/aux-variance-refresh`
