@@ -3,6 +3,32 @@
 This file logs experiment outcomes as PRs land. The historical track 3
 leaderboard is captured in `/BASELINE.md`.
 
+## 2026-05-26 17:21 UTC — PR #1280: H3 Pre-crossing burst NM (alphonse) — CLOSED productive-NULL (43rd no-merge)
+
+- Branch: `g1r4-alphonse/pre-crossing-burst-nm`
+- Hypothesis (Issue #1261 directive bullet H3 "short burst before expected crossing"): Newton-Muon window-bounded activation `[START_STEP, END_STEP]` to test whether NM gain is concentrated in a pre-crossing window (potentially saving ~70-80% compute) or distributed throughout training. Adds `NANOGPT_NEWTON_MUON_END_STEP` env var to nezuko's `_START_STEP`. 4-arm chain comparing 3 window configurations against always-on baseline.
+
+| Arm | Window | NM-active steps | val/loss | fs | Δ_paired_val | Δ_paired_fs | Verdict |
+|:---:|---|:---:|:---:|:---:|:---:|:---:|---|
+| **A ctrl** | [0, 1e9) always-on | 3350 (100%) | **3.26823** | **3200** | (ref) | (ref) | drift +0.00209 PASS-strong |
+| **B burst600** | [2400, 3000) | 600 (18%) | 3.26895 | 3200 | **+0.00072** | 0 | **NULL** (within ±0.0015), **82% NM compute saved with NO val/fs degradation** |
+| **C burst300** | [2400, 2700) | 300 (9%) | 3.26984 | 3225 | **+0.00161** | +25 | borderline-NEG (just over +0.0015), fs leaks +25 — 300-step too tight |
+| **D burst1000** | [2200, 3200) | 1000 (30%) | 3.26753 | 3200 | **−0.00070** | 0 | NULL-favorable (sub-threshold), fs match |
+
+- **Pre-staged decision tree resolution**: drift PASS, no Δ ≤ −0.002 signal threshold met, Arm B/D NULL band, Arm C borderline-NEG → productive-NULL closure on window-axis.
+- **🎯 Key empirical finding — minimum-sufficient pre-crossing burst is ~600 steps from step 2400**: Arm B configuration confirms NM benefit is **late-phase-concentrated** in the [2400, 3000) window. Sub-300-step burst (Arm C) leaks signal on BOTH val (+0.00161 over NULL ceiling) AND fs (+25). Widening to 1000-step (Arm D) gives sub-threshold favorable trend but no PP-escalation candidate.
+- **🎯 Cross-chain mechanism convergence (H1 + H2 + H3 directive triangulation)**: Combined with #1281 H2 Arm B (RESET=2345 Δ=−0.00225 FAVORABLE), #1277 H1 monotone NEG-with-saturation (corrected terminal: Arm B START=2000 Δ=+0.00095 NULL → Arm D START=2400 Δ=+0.00243 saturated NEG), and now this PR's H3 NULL on [2400, 3000):
+  - NM benefit is **late-phase-concentrated** in the [2000, 3000) load-bearing window
+  - R-buffer freshness AT cooldown transition is the load-bearing mechanism (H2 single-shot reset)
+  - Removing NM in [3000, 3350) cooldown-finishing is harmless (H3 Arm B NULL)
+  - Removing NM in [0, 2000) pre-load-bearing is harmless (H1 Arm B NULL with corrected terminal)
+  - Adding NM after distribution-shift with stale R-buffer (H1 Arm C/D START=2200/2400) is harmful — confirms R-buffer-freshness mechanism over temporal-gating mechanism
+- **Directive (Issue #1261) bullet H3 EMPIRICALLY ANSWERED**: 'short burst before expected crossing' can substitute for always-on at the [2400, 3000) configuration with NO val/fs degradation, but cannot EXCEED always-on. The 'help BEFORE crossing' thesis is PARTIALLY REFUTED for this axis: NM is not a plateau-attack mechanism per se, but a continuously-load-bearing preconditioner whose late-phase contribution dominates.
+- **Compute-aware downstream value**: even with NULL Δ_paired, the 82% NM compute reduction (NM application is the slowest per-step component) could be a meaningful wallclock win for future longer-step runs. Deferred — directive alignment is now MEDIUM for wallclock-saving variants, sub-merge-eligible.
+- **Suggested follow-ups not pursued in this PR**: (1) late-late burst [2800, 3100) or [3000, 3200) cooldown-transition-only to disentangle pre-cooldown vs cooldown-transition NM signal; (2) R-buffer-refresh + window combo (RESET at burst entry); (3) sub-300-step characterization in [2400, 2800) / [2400, 2900). Alphonse REASSIGNED to follow-up #3 / #1 — sub-window decomposition test (#1319).
+- **Student excellence**: clean `NANOGPT_NEWTON_MUON_END_STEP` env var implementation on top of nezuko's `_START_STEP`, mid-run pickup with 6535ab1 restoring H3 impl into working tree from frozen copy, drift-gate verified PASS-strong, cross-chain mechanism table tying H1/H2/H3 interventions to R-freshness-at-cooldown-transition, honest closure acknowledging window-axis fence + compute-savings finding.
+- **W&B run IDs**: `39ogmtxg / 3naqekec / 6315j2ue / k1r3uwgj` (Arms A/B/C/D)
+
 ## 2026-05-26 17:13 UTC — PR #1277: H1 Step-gated Newton-Muon (nezuko) — CLOSED productive-NEG (42nd no-merge)
 
 - Branch: `g1r4-nezuko/step-gated-newton-muon`
