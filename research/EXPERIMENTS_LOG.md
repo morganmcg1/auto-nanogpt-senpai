@@ -1,3 +1,30 @@
+## 2026-05-26 07:00 — PR #1235: H167 alphonse AdamP-on-aux (F-norm suppression via per-row WS projection) — BILATERAL NEG/NULL (25th NULL/NEG closure + 1 programme-grade finding)
+
+- Branch: `g1r3-alphonse/h167-adamp-aux`
+- Hypothesis: AdamP (Heo et al. 2020) removes the weight-projection component from the update direction (`p ← p - (p·Δp/‖p‖²)·p`) before the AdamW step, suppressing lm_head F-norm growth identified in H158.
+
+| arm | mode | W&B | val/loss | Δ vs baseline (3.26364) | FFS (primary) | stat margin | Verdict |
+|-----|------|-----|---------|------------------------|---------------|-------------|---------|
+| arm_a CTRL (use_adamp=0) | — | `evfdhm5j` | **3.26624** | +0.00260 | 3150 | 0.01376 ✓ | NEG-edge (5th CTRL drift sample) |
+| arm_b ADAMP_LM_HEAD (target=lm_head_only) | δ=0.1 | `qy2eluwa` | **3.28196** | +0.01832 | **−1 (FAILED 3.28)** | **−0.00196 ✗** | **CLEAR NEG — failed benchmark** |
+| arm_c ADAMP_EMBED (target=embed_only) | δ=0.1 | `oap2vx2m` | **3.26380** | +0.00016 | 3150 | 0.01620 ✓ | NULL within widened CTRL envelope |
+
+WIN <3.26284: 0/3. Hard WIN <3.26164: 0/3. arm_b failed benchmark statistical rule.
+
+### Programme-grade Finding: lm_head F-norm growth is load-bearing (H158 hypothesis #1 INVERTED)
+
+H158 framed lm_head F-norm growth as suboptimal. H167 arm_b directly tests this via AdamP projection (54% project_fraction sustained, `cos_p_w_mean` → −0.032) — mechanistically active throughout training. Result: +0.018 CLEAR NEG, 18σ above CTRL std. **F-norm growth is a symptom of well-tuned AGC+AdamW dynamics, not a missed efficiency.** Suppressing it via per-row orthogonal projection disrupts the optimization trajectory. CLOSES the lm_head AdamW-magnitude-suppression axis for future aux work.
+
+### arm_c mechanistic decay
+
+`adamp/embed/project_fraction` → 0.0 by terminal (collapsed from peak in first ~10% of training). Embed self-orthogonalizes to H135 attractor, so δ=0.1 gate stops firing. arm_c 3.26380 is effectively AdamW with dormant branch = NULL within drift envelope.
+
+### CTRL drift programme note
+
+arm_a = 5th drift sample; 5-sample mean = 3.26517 (+0.00153 vs baseline). Follow-up: H174 alphonse CTRL re-anchor 3-trial chain assigned (PR #1265) to pin μ and σ.
+
+---
+
 ## 2026-05-26 06:30 — PR #1214: H162 thorfinn Per-block MuonH LR (gradient-RMS sharpness proxy) — ROUND-1 SENT BACK (val/loss WIN but FFS TIES baseline; H162-v2 directive per human Issue #1260)
 
 - Branch: `thorfinn/h162-per-block-lr`
