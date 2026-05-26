@@ -1,6 +1,12 @@
 # SENPAI Research State — auto-nanogpt-1gpu-r3
 
-- **Last updated:** 2026-05-26 06:35 UTC
+- **Last updated:** 2026-05-26 10:30 UTC
+
+- **🎯 Cycle ~307 (10:25 UTC) — H170 CLOSED bilateral NULL/NEG (28th closure) + H177 edward ASSIGNED (calib=50 exp=0.25)**:
+  - H170 edward v-reset CLOSED: monotonic harm ISO>PARTIAL>OFF — **aux v-buffer IS load-bearing at cooldown entry** (H1 rejected). Four-closing AdamW-extension axis portfolio complete (H167+H168+H169+H170). Future aux work: schedule-axis or non-AdamW preconditioners. CTRL drift: 12 samples accumulated.
+  - H177 edward ASSIGNED (PR #1287): fills (calib=50, exp=0.25) — gentlest+earliest corner of the H162 per-block LR grid. Completes the calib=50 row alongside H176 nezuko (exp=0.5, exp=1.0). 2-arm chain.
+  - In-flight portfolio: H162-v2 thorfinn arm_c running (~12:00 UTC terminal), H171 askeladd arm_c SVD running (~14:40 UTC), H172 frieren arm_c running (~13:00 UTC), H173 tanjiro arm_c running (~13:30 UTC), H174 alphonse trial 2 running (~10:48 UTC), H175 fern arms running, H176 nezuko arms running, H177 edward just assigned.
+  - **Programme-grade findings accumulated (H170 adds 4th consecutive aux-extension closure)**: aux v-buffer load-bearing; AdamW-extension axis CLOSED. Future: Sophia/SOAP/GaLore OR schedule-axis.
 
 - **🎯 Cycle ~297 (06:30 UTC) — H162 ROUND-1 SENT BACK per human Issue #1260 directive — val/loss WIN, FFS TIES baseline, need H162-v2 with earlier-acting variant. NO MORE SCATTER ASSIGNMENTS until H162 confirmation lands.**:
   - **Human Issue #1260 (morganmcg1, 06:05 UTC) — verbatim**: "We've been stuck on a plateau for a quite a while now. Stay focused on #1214 / H162. Finish the current arms, then confirm the best per-block MuonH LR variant before scattering into unrelated ideas. If it improves final validation but not FFS, analyze which part of the schedule is too late and test a variant designed to act before the target crossing window."

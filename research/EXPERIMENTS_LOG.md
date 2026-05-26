@@ -1,3 +1,32 @@
+## 2026-05-26 10:25 — PR #1247: H170 edward AdamW v-reset at cooldown entry — BILATERAL NULL/NEG (28th closure + AUX-CURVATURE-LOAD-BEARING finding)
+
+- Branch: `g1r3-edward/h170-aux-v-reset-cooldown`
+- Hypothesis: Reset the AdamW aux v-buffer (second moment) to isotropic (ISO) or partially reduced (PARTIAL α=0.5) at cooldown entry (step 1996 = 60% of 3325). H1: v-buffer non-uniformity (effective_lr_spread 3000-13000×) causes parameter bit-freeze during cooldown → resetting equalizes per-element LR → params move more freely → better terminal val/loss.
+
+| arm | mode | reset @ step | W&B | val/loss | FFS | Δ vs CTRL | verdict |
+|---|---|---|---|---|---|---|---|
+| arm_a CTRL | off | (no reset) | `f1rnotc1` | **3.26398** | 3150 | — | NULL anchor (9th CTRL drift) |
+| arm_b ISO | iso | 1996 (auto) | `pk2dew5h` | **3.26565** | 3150 | +0.00167 | **NEG** (just outside NULL band) |
+| arm_c PARTIAL α=0.5 | partial | 1996 (auto) | `9szhaqcg` | **3.26491** | 3150 | +0.00093 | **NULL** (within band) |
+
+WIN <3.26284: 0/3. FFS<3125: 0/3 (all FFS=3150 = TIE with CTRL, +25 vs baseline).
+
+### Programme-grade Finding: AUX CURVATURE BUFFER IS LOAD-BEARING AT COOLDOWN ENTRY (H1 REJECTED)
+
+The monotonic ordering ISO > PARTIAL > OFF in val/loss (most harm ↔ most v-info destroyed) is the opposite of H1's prediction. The per-element curvature estimates in the v-buffer **were carrying useful adaptive information for the cooldown**: non-uniformity (effective_lr_spread 3000-13000×) reflects which elements have well-estimated curvature. Resetting it isotropic re-introduces the LR/curvature mismatch AdamW was designed to absorb. Reset telemetry confirmed mechanism fired correctly at step 1996 (v_std_post=0 for ISO, ratio=0.500 for PARTIAL, mean preserved in both).
+
+FFS=3150 unchanged across all arms — intervention acts too late to affect the 3.28 crossing window.
+
+**Cross-portfolio implication**: H167 (AdamP NEG, F-norm load-bearing) + H168 (AdaBelief NULL, erosion not variance-driven) + H169 (Adan NEG, Nesterov anti-signal) + H170 (v-reset NEG, curvature buffer load-bearing) = **four consecutive programme-grade closures of the aux-AdamW-extension axis**. The aux v-buffer is highly tuned by AdamW's machinery. Future aux interventions should target: (1) schedule-axis (decoupled aux LR cooldown), (2) m₁-direction diagnostic, or (3) non-AdamW preconditioners (Sophia/SOAP).
+
+Student suggested follow-ups recorded: (1) m₁ direction diagnostic, (2) decoupled aux LR schedule, (3) MSAM-aux, (4) m₁ reset at cooldown entry.
+
+### Follow-up: H177 edward ASSIGNED (PR #1287) — calib=50 exp=0.25
+
+Fills the (calib=50, exp=0.25) cell of the H162 per-block LR grid. Gentlest+earliest corner: exp=0.25 gives spread ~[0.84, 1.09] vs exp=0.5's [0.70, 1.20]. Tests whether even a gentle calibration at step 50 (mid-warmup) can shift the FFS crossing window.
+
+---
+
 ## 2026-05-26 09:00 — PR #1241: H169 nezuko Adan-on-aux (Nesterov gradient-difference correction) — BILATERAL NEG (27th NULL/NEG closure + AdamW-EXTENSION axis programme closing)
 
 - Branch: `g1r3-nezuko/h169-adan-aux`
