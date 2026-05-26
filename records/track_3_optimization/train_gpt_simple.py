@@ -468,6 +468,14 @@ NS5_ITERS = int(os.environ.get("NS5_ITERS", "12"))
 WD_AUX = float(os.environ.get("WD_AUX", "0.0"))  # AdamW WD on embed + lm_head matrices (scalars stay at 0)
 EMBED_INIT_STD = float(os.environ.get("EMBED_INIT_STD", "1.0"))  # default preserves baseline N(0,1)
 LOGIT_SOFTCAP = float(os.environ.get("LOGIT_SOFTCAP", "15.0"))  # default = 15 (current hardcoded value); soft-cap value c in f(x) = c·x / sqrt(x^2+c^2)
+# PR #1323: per-structural-kind body Muon β dispatch, cooldown-phase-gated.
+# Mults are applied to group["mu"] for attn-body vs mlp-body params only when
+# current_step >= MUON_ATTN_MLP_COOLDOWN_START_STEP. At default (both = 1.0),
+# x * 1.0 == x exactly in IEEE float, so the math is bytewise-identical to baseline.
+MUON_ATTN_BETA_MULT_COOLDOWN = float(os.environ.get("MUON_ATTN_BETA_MULT_COOLDOWN", "1.0"))
+MUON_MLP_BETA_MULT_COOLDOWN = float(os.environ.get("MUON_MLP_BETA_MULT_COOLDOWN", "1.0"))
+# Cooldown boundary defaults to set_hparams's cooldown_frac=0.7 boundary at train_steps=3175 (953).
+MUON_ATTN_MLP_COOLDOWN_START_STEP = int(os.environ.get("MUON_ATTN_MLP_COOLDOWN_START_STEP", "953"))
 
 
 def zeropower_via_newtonschulz5(G: Tensor) -> Tensor:
@@ -652,6 +660,30 @@ class Muon(torch.optim.Optimizer):
                     self.attn_soap_kind[id(p)] = "v"
                 elif n.endswith(".attn.proj.weight"):
                     self.attn_soap_kind[id(p)] = "proj"
+        # PR #1323: classify body params by structural kind (attn-block vs mlp-block)
+        # for cooldown-phase β dispatch. Split must be exhaustive AND disjoint over
+        # body_params; assertion is load-bearing for the IEEE-identity-at-default
+        # structural exemption argument.
+        self.attn_body_params: set = set()
+        self.mlp_body_params: set = set()
+        for n, p in named_params:
+            if (n.endswith(".attn.q.weight") or n.endswith(".attn.k.weight")
+                or n.endswith(".attn.v.weight") or n.endswith(".attn.proj.weight")):
+                self.attn_body_params.add(p)
+            elif n.endswith(".mlp.fc.weight") or n.endswith(".mlp.proj.weight"):
+                self.mlp_body_params.add(p)
+        all_body = {p for _, p in named_params}
+        missing = all_body - self.attn_body_params - self.mlp_body_params
+        overlap = self.attn_body_params & self.mlp_body_params
+        assert not missing, (
+            f"PR #1323 body param split not exhaustive: missing {len(missing)} params "
+            f"(attn={len(self.attn_body_params)}, mlp={len(self.mlp_body_params)}, "
+            f"total={len(all_body)}); names of missing: "
+            + ", ".join(n for n, p in named_params if p in missing)
+        )
+        assert not overlap, f"PR #1323 attn and mlp body param sets overlap: {len(overlap)} params"
+        self._step_count: int = 0
+        self._last_dispatch_active: bool = False
         params = sorted([p for _, p in named_params], key=lambda x: x.size(), reverse=True)
         defaults = dict(lr=lr, weight_decay=weight_decay, mu=mu)
         super().__init__(params, defaults)
@@ -660,6 +692,13 @@ class Muon(torch.optim.Optimizer):
     def step(self):
         world_size = dist.get_world_size()
         rank = dist.get_rank()
+        # PR #1323: per-kind β dispatch fires only during the cooldown phase. At
+        # default mults (1.0/1.0), the multiplication is the IEEE multiplicative
+        # identity, so the math is bytewise-identical to baseline.
+        current_step = self._step_count
+        self._step_count += 1
+        dispatch_active = current_step >= MUON_ATTN_MLP_COOLDOWN_START_STEP
+        self._last_dispatch_active = dispatch_active
         for group in self.param_groups:
             params = group["params"]
             params_pad = params + [torch.empty_like(params[-1])] * (world_size - len(params) % world_size)
@@ -692,8 +731,15 @@ class Muon(torch.optim.Optimizer):
                                 state["trust_cos_row"] = 1.0
                                 state["trust_cos_col"] = 1.0
                     grad = p.grad
-                    state["momentum"].lerp_(grad, 1 - group["mu"])
-                    momentum_update = grad.lerp(state["momentum"], group["mu"])
+                    # PR #1323: per-structural-kind β dispatch (cooldown phase only).
+                    mu = group["mu"]
+                    if dispatch_active:
+                        if p in self.attn_body_params:
+                            mu = group["mu"] * MUON_ATTN_BETA_MULT_COOLDOWN
+                        elif p in self.mlp_body_params:
+                            mu = group["mu"] * MUON_MLP_BETA_MULT_COOLDOWN
+                    state["momentum"].lerp_(grad, 1 - mu)
+                    momentum_update = grad.lerp(state["momentum"], mu)
                     use_soap = p in self.soap_params
                     use_attn_soap = p in self.attn_soap_params
                     # SOAP precondition applied to momentum BEFORE NS5+contra+NorMuon
@@ -774,6 +820,44 @@ class Muon(torch.optim.Optimizer):
             out[f"{kind}/on_fraction"] = agg["on"] / kn
             out[f"{kind}/mean_cos_row"] = sum(crs) / kn
             out[f"{kind}/mean_cos_col"] = sum(ccs) / kn
+        return out
+
+    def body_kind_stats(self) -> dict[str, float]:
+        """Per-structural-kind body Muon stats (PR #1323).
+
+        Returns keys like 'muon_attn/momentum_norm', 'muon_mlp/grad_rms' etc.
+        The momentum buffer is post-update (this is called after opt.step()).
+        """
+        out: dict[str, float] = {}
+        out["muon_attn/count"] = len(self.attn_body_params)
+        out["muon_mlp/count"] = len(self.mlp_body_params)
+        out["muon_dispatch/active"] = int(self._last_dispatch_active)
+        out["muon_dispatch/step_count"] = self._step_count
+        for kind, params in (("attn", self.attn_body_params), ("mlp", self.mlp_body_params)):
+            if not params:
+                continue
+            mom_norm_sq = 0.0
+            param_norm_sq = 0.0
+            param_numel = 0
+            grad_norm_sq = 0.0
+            grad_numel = 0
+            for p in params:
+                st = self.state.get(p)
+                if st is not None and "momentum" in st:
+                    mom_norm_sq += float(st["momentum"].float().pow(2).sum().item())
+                param_norm_sq += float(p.float().pow(2).sum().item())
+                param_numel += p.numel()
+                if p.grad is not None:
+                    grad_norm_sq += float(p.grad.float().pow(2).sum().item())
+                    grad_numel += p.grad.numel()
+            prefix = f"muon_{kind}"
+            out[f"{prefix}/momentum_norm"] = mom_norm_sq ** 0.5
+            out[f"{prefix}/param_norm"] = param_norm_sq ** 0.5
+            if param_numel:
+                out[f"{prefix}/param_rms"] = (param_norm_sq / param_numel) ** 0.5
+            if grad_numel:
+                out[f"{prefix}/grad_rms"] = (grad_norm_sq / grad_numel) ** 0.5
+                out[f"{prefix}/grad_norm"] = grad_norm_sq ** 0.5
         return out
 
 
@@ -866,6 +950,9 @@ if dist.get_rank() == 0:
             "optimizer/attn_soap_trust_threshold": ATTN_SOAP_TRUST_THRESHOLD,
             "optimizer/ns5_iters": NS5_ITERS,
             "optimizer/wd_aux": WD_AUX,
+            "optimizer/muon_attn_beta_mult_cooldown": MUON_ATTN_BETA_MULT_COOLDOWN,
+            "optimizer/muon_mlp_beta_mult_cooldown": MUON_MLP_BETA_MULT_COOLDOWN,
+            "optimizer/muon_attn_mlp_cooldown_start_step": MUON_ATTN_MLP_COOLDOWN_START_STEP,
             "optimizer/recipe": "contra-muon + normuon-lite + soap-on-mlp + soap-on-attn-trust-gate (pre-NS5, record #14 + record #16)",
         },
     )
@@ -1059,6 +1146,10 @@ for trial_idx in range(args.num_trials):
                     stats = opt.trust_gate_stats()
                     if stats:
                         wandb.log(prefixed("train/attn_soap_trust_gate", stats), step=wandb_step)
+                if hasattr(opt, "body_kind_stats"):
+                    body_stats = opt.body_kind_stats()
+                    if body_stats:
+                        wandb.log({f"train/{k}": v for k, v in body_stats.items()}, step=wandb_step)
         if dist.get_rank() == 0 and telemetry_due:
             log_weight_telemetry(
                 model=model,
