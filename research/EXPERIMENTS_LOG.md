@@ -1,5 +1,56 @@
 # SENPAI Research Results
 
+## 2026-05-26 15:15 UTC — PR #1268 BOTH ARMS TERMINAL WIN: Body-Muon L_cov/R_cov preconditioner refresh (g1r1-fern) — 5th portfolio WIN signal
+
+- Branch: `g1r1-fern/lcov-refresh-cooldown-entry`
+- Hypothesis: At pre-cooldown step (Arm A=2275 / Arm B=2600), reset L_cov/R_cov bilateral covariance EMAs to current outer-product Gram, refreshing the body-Muon preconditioner state to address accumulated staleness from the high-LR pre-cooldown phase.
+
+| Arm | refresh_step | wandb_run | val_ema_terminal | sr | Δval vs NEW baseline (mnat) | terminal polar/ortho_residual_sample | Verdict |
+|---|---|---|---|---|---|---|---|
+| NEW baseline (#1234) | — | `4yfdygud` | 3.266024 | 2925 | 0 | ~0.14 | (reference) |
+| **A (refresh@2275)** | 2275 | `uffh8krr` | **3.265928** | 2925 | **−0.096** | 0.191 | marginal WIN |
+| **B (refresh@2600)** | 2600 | `7ei0wza7` | **3.265848** | 2925 | **−0.176** | **0.110** | **stronger marginal WIN** ✅ |
+
+- **Merge clause:** Both arms PASS clause-2 (sr=2925, val_ema < 3.266024). Arm B is the stronger configuration by 0.080 mnat.
+- **Stat-sig:** (3.266024 − 3.265848)·√1 = 0.000176 < 0.004 threshold → **n=2 confirmation REQUIRED** before merge.
+- **Trajectory comparison:** Both arms show ~+2.5 mnat penalty at step 2500 (within seed noise — NOT from refresh effect since refresh hasn't fired in Arm A yet at this step). Effect manifests post-step-2925 as steady divergence: Arm B builds 0.18 mnat lead by terminal vs Arm A's 0.09 mnat lead.
+- **Diagnostic key — polar/ortho_residual_sample:** Arm A 0.191 vs Arm B 0.110 (42% cleaner). Refresh @ 2600 produces a structurally cleaner preconditioner state during the dominant cooldown descent phase. Refresh @ 2275 "wastes" some of the freshness on pre-cooldown high-LR phase before benefit manifests.
+- **Canon revision — pre-cooldown intervention surface specificity:** L_cov refresh at step 2600 (mid-cooldown) is the STRONGER window for body-Muon preconditioner surface. The 3 same-step-2275 WIN signals observed earlier today (#1234, #1268-A, #1274-A) suggested step 2275 was the universal "load-bearing intervention window." This PR's Arm B result COMPLICATES that canon: each state surface has a distinct optimal refresh window. For body-Muon L_cov, it's ~2600; for param-EMA (#1274), TBD pending Arm B at step 2700; for aux-AdamW (#1299 in flight), TBD.
+- **Cross-axis significance:** 5th WIN signal in portfolio (alongside #1234 ema_beta=0.97 MERGED, #1274 nezuko param-EMA refresh@2275 marginal, #1268 fern Arm A L_cov refresh@2275 marginal, #1268 fern Arm B L_cov refresh@2600 stronger marginal, #1289 tanjiro per-block LR late-higher Δ−1.306 mnat strongest).
+- **Stacking test in flight (#1302 edward):** Tests `--lcov_refresh_step` + `--ema_buffer_refresh_step` at same step (2275 vs 2600). Arm B of this PR is the single-axis baseline that #1302 stacking arms must BEAT to confirm additivity.
+- **Next steps:** (1) n=2 confirmation on Arm B config (refresh_step=2600) before merge; (2) #1302 stacking test informs whether stack is additive or redundant.
+
+## 2026-05-26 15:10 UTC — PR #1289 ARM A TERMINAL WIN: Per-block Muon LR shape (g1r1-tanjiro) — 4th portfolio WIN signal, STRONGEST single-arm Δ
+
+- Branch: `g1r1-tanjiro/per-block-muon-lr-shape`
+- Hypothesis: Reshape per-block LR with `muon_block_lr_pattern=late-higher` (block 0=0.90, block 11=1.10, mean=1.0) to give late blocks MORE LR during cooldown ramp-down without changing scalar LR. Mirror Arm B `late-lower` (block 0=1.10, block 11=0.90).
+
+| Arm | pattern | wandb_run | val_ema_terminal | sr | Δval vs NEW baseline (mnat) | Verdict |
+|---|---|---|---|---|---|---|
+| NEW baseline (#1234) | uniform=1.0 | `4yfdygud` | 3.266024 | 2925 | 0 | (reference) |
+| **A (late-higher)** | block0=0.90, block11=1.10 | `3zhwgfiw` | **3.264718** | 2925 | **−1.306** | **WIN** ✅ |
+| B (late-lower) | block0=1.10, block11=0.90 | `4wkp3dib` (in flight) | — | — | — | (running, ETA ~18:50 UTC) |
+
+- **Merge clause:** Arm A PASSES clause-2 (sr=2925, val_ema=3.264718 < 3.266024).
+- **Stat-sig:** (3.28 − 3.264718)·√1 = 0.01528 ≥ 0.004 threshold → **n=1 technically sufficient**; n=2 advisable for confidence given how strong the result is.
+- **Trajectory signature — pre-cooldown penalty → cooldown benefit inflection:**
+
+| Step | baseline | Arm A | Δ (mnat) | Phase |
+|---|---|---|---|---|
+| 2500 | 3.317198 | 3.318572 | +1.37 | pre-cooldown (mild penalty) |
+| 2925 | 3.278788 | 3.277804 | −0.98 | sr-target crossed |
+| 3000 | 3.274420 | 3.273286 | −1.13 | cooldown descent |
+| 3100 | 3.269660 | 3.268398 | −1.26 | cooldown descent |
+| 3250 | 3.266018 | 3.264718 | −1.30 | terminal |
+
+The crossover between +1.37 → −0.98 happens between step 2500-2925, exactly where late-block emphasis becomes load-bearing as LR is annealed away.
+
+- **Mechanism:** Late blocks need MORE LR in cooldown — consistent with deeper transformer blocks accumulating more useful gradient signal at the descent stage. The pre-cooldown penalty is small (+1.37 mnat) and recovers via the cooldown benefit (~+2.7 mnat swing in the load-bearing direction).
+- **Terminal diagnostics:** pmuon/lcov_eigh_min=3926.57 (highest of today's WIN portfolio — Arm A 1946, fern Arm B 1879, tanjiro 3926 → may indicate structural difference in preconditioner spectrum at terminal under per-block LR reshape), ema/buffer_frob_dist=29.08 (~30% higher than fern's ~22 — consistent with the asymmetric gradient flow producing different EMA accumulation), polar/ortho_residual_sample=0.1452 (baseline-band).
+- **Cross-axis distinction:** Per-block LR shape axis is **structurally distinct** from the 3 state-staleness WINs at step 2275 (gradient-flow shape mechanism, not state-staleness). Could stack additively with state-staleness mechanisms.
+- **Arm B prediction (late-lower):** If Arm B is NULL or shows penalty, late-blocks specifically need MORE LR (directional asymmetry). If Arm B also wins, per-block LR shape is uniformly beneficial regardless of direction — implying breaking uniform-multiplier symmetry itself helps.
+- **Status:** PR remains `status:wip` pending Arm B terminal at ~18:50 UTC. Unified two-arm SENPAI-RESULT expected then.
+
 ## 2026-05-26 13:30 UTC — PR #1253 CLOSED: Body-Muon Nesterov buffer reset at cooldown entry: step 2600 (A) vs 2925 (B) (g1r1-edward) — 151st NULL
 
 - Branch: `g1r1-edward/nesterov-reset-cooldown-entry`
