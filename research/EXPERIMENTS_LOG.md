@@ -1,3 +1,40 @@
+## 2026-05-26 21:15 — PR #1305: H182 fern per-block LR (calib=200, exp=0.25) gentle round-1 + (calib=400, exp=0.5) LATER-calib axis — CLOSED (41st NULL/NEG closure + programme finding #17: calibration-timing axis is NARROW)
+
+- Branch: `g1r3-fern/h182-per-block-lr-calib200-exp025`
+- Hypothesis: Fill two H162 grid cells — gentle exponent at round-1 anchor (calib=200, exp=0.25) and LATER calibration at sweet exponent (calib=400, exp=0.5) — to localize whether the H162 round-1 signal is robust to nearby anchor choices.
+- Results:
+
+  | Arm | exp/calib | W&B | val/loss | FFS | Verdict |
+  |---|---|---|---|---|---|
+  | arm_a CTRL | 0/— | `fly93y28` | 3.26357 | 3125 | baseline replicate |
+  | arm_b | 0.25/200 | `3nfwbmho` | 3.26406 | 3150 | NULL val / NEG FFS |
+  | arm_c | 0.5/400 | `5xcayccg` | 3.26361 | 3150 | TIE val / NEG FFS |
+
+- Conclusion: Both new grid cells produced NULL on val (within H174 noise envelope) and NEG +25 on FFS within-chain. The calibration-timing axis is **NARROW** — only (calib=200, exp=0.5) round-1 ever showed any signal, and H180 multi-seed already dissolved that into noise. Programme finding #17: per-block LR mechanism has at most one narrow sweet spot at the H174 noise floor.
+- CTRL drift n=17: distribution ~28% at 3125, ~71% at 3150, ~1% at 3175.
+
+---
+
+## 2026-05-26 21:10 — PR #1309: H184 nezuko recalibration RESCUE for heavy-exp brittleness (calib=100, exp ∈ {0.5, 1.0}, recal=500) — CLOSED (40th NULL/NEG closure + 2 programme findings: #15 recal at sweet=HARMFUL, #16 recal at heavy=POSITIVE-FEEDBACK-DIVERGENCE)
+
+- Branch: `g1r3-nezuko/h184-per-block-lr-recal-rescue`
+- Hypothesis: Test whether mid-training recalibration of the per-block LR multipliers (every 500 steps) rescues exp=1.0 from H175's bounded-NEG and improves exp=0.5 over static.
+- Results:
+
+  | Arm | exp/calib/recal | W&B | val/loss | FFS | Verdict |
+  |---|---|---|---|---|---|
+  | arm_a CTRL | — | 4× crashed | — | — | infra-induced, skipped |
+  | arm_b RECAL_SWEET | 0.5/100/500 | `2ji8f3dk` | 3.26520 | 3175 | NEG +25 vs static H181 |
+  | arm_c RECAL_HEAVY | 1.0/100/500 | `ms13uam9` | **4.96471** | **-1** | **CATASTROPHIC DIVERGENCE** |
+
+- Mechanism evidence (student-supplied): arm_c `rms_disparity` ratio exploded 3848× (4.046 → 15565.798); `mult_range` grew from [0.392, 1.587] at step 100 to [0.319, 4961.260] at step 3100. Divergence onset at recal4 (step 2100) — exactly when mult_max first crossed 100×. Positive feedback loop: rms_avg/rms_block → huge mult → disruptive updates → bigger mult next recal.
+- arm_b vs H181 (static counterpart, 3-seed mean): arm_b FFS=3175 vs H181 FFS=3150 → recalibration is mildly HARMFUL even at sweet exp=0.5, likely because static "freezes in" beneficial heterogeneity.
+- Programme finding #15: recalibration at sweet exp=0.5 is mildly HARMFUL (+25 FFS vs static H181).
+- Programme finding #16: recalibration at heavy exp=1.0 triggers POSITIVE FEEDBACK LOOP via unbounded `mult_i = rms_avg/rms_i` formula. 4-orders-of-magnitude multiplier explosion.
+- Conclusion: H162 per-block LR mechanism is fundamentally limited to (a) exp ≈ 0.5 regime AND (b) static (recal=0) multipliers. Both conditions required. exp ≥ 0.75 + recal > 0 is closed dead end.
+
+---
+
 ## 2026-05-26 19:15 — PR #1298: H181 alphonse 3-trial multi-seed CONFIRMATION of H162-v2 calib=100 exp=0.5 — CLOSED (39th NULL/NEG closure + programme finding #14: H162 anchor pair MULTI-SEED RESOLUTION complete)
 
 - Branch: `g1r3-alphonse/h181-3trial-multiseed-h162v2-calib100`
