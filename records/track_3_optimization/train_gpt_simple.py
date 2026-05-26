@@ -72,6 +72,15 @@ def parse_args():
     parser.add_argument("--muonh_agc_eps", type=float, default=float(os.environ.get("MUONH_AGC_EPS", "1e-3")))
     parser.add_argument("--aux_adamw_eps", type=float, default=float(os.environ.get("AUX_ADAMW_EPS", "1e-10")),
                         help="Aux AdamW eps (default 1e-10 = baseline). Standard PyTorch is 1e-8.")
+    # H172: AdamWAtan2 — replace α/(sqrt(v)+eps) with α·(2/π)·atan2(m_hat, sqrt(v_hat))
+    # on selected aux subsystem(s). Per Everett & Xiao 2024 (Google DeepMind):
+    # bias-corrected moments, no eps, smooth saturation at ±1, decoupled WD.
+    # use_atan2=0 keeps the baseline AdamW path (fused) bit-identically.
+    parser.add_argument("--use_atan2", type=int, default=int(os.environ.get("USE_ATAN2", "0")), choices=[0, 1],
+                        help="Enable AdamWAtan2 for aux groups (replaces α/(sqrt(v)+eps) with α·(2/π)·atan2(m, sqrt(v))).")
+    parser.add_argument("--atan2_target", type=str, default=os.environ.get("ATAN2_TARGET", "lm_head_only"),
+                        choices=["lm_head_only", "embed_only", "both"],
+                        help="Which aux AdamW subgroups to route to AdamWAtan2. No-op when --use_atan2=0.")
     # β2 schedule on aux AdamW (embed/lm_head/scalars). Mutates param_groups[*]['betas']
     # each step. constant = baseline (fused=True kept); cooldown_ramp = fused=False so
     # PyTorch reads the updated betas from the param_group on every .step() call.
@@ -747,6 +756,159 @@ class MuonH(torch.optim.Optimizer):
         self._last_norm_to_radius_max = max_n_over_r
 
 
+class AdamWAtan2(torch.optim.Optimizer):
+    """AdamW with atan2 second-moment normalization (Everett & Xiao 2024).
+
+    Update rule (per parameter, after decoupled weight decay):
+        u = (2/π) · atan2(m_hat, sqrt(v_hat))
+        p ← p − lr · u
+
+    where m_hat, v_hat are bias-corrected first/second moments. No eps required:
+    atan2(0,0) = 0 by IEEE 754. Output |u| ∈ [0, 1], so |update| ≤ lr regardless of v.
+
+    State is held in float32 even when params are bf16, matching PyTorch AdamW's
+    default. Diagnostics over the most recent step are stored in
+    ``self.last_step_stats[group_name]`` and are only computed when
+    ``self.collect_diagnostics`` is True (per-step .item() syncs are expensive on
+    embed-sized tensors).
+    """
+    def __init__(self, params, lr=3e-3, betas=(0.9, 0.99), weight_decay=0.0):
+        defaults = dict(lr=lr, betas=betas, weight_decay=weight_decay)
+        super().__init__(params, defaults)
+        self.collect_diagnostics = False
+        self.last_step_stats: dict[str, dict[str, float]] = {}
+
+    @torch.no_grad()
+    def step(self, closure=None):
+        loss = None
+        if closure is not None:
+            with torch.enable_grad():
+                loss = closure()
+        for group in self.param_groups:
+            beta1, beta2 = group["betas"]
+            lr = group["lr"]
+            wd = group["weight_decay"]
+            group_name = group.get("name", "unnamed")
+            stats_chunks: list[tuple[Tensor, Tensor, Tensor, Tensor, int]] = []  # (abs_u_sum, sat_count, v_min, v_max, numel)
+            for p in group["params"]:
+                if p.grad is None:
+                    continue
+                state = self.state[p]
+                if len(state) == 0:
+                    state["step"] = 0
+                    state["exp_avg"] = torch.zeros_like(p, dtype=torch.float32)
+                    state["exp_avg_sq"] = torch.zeros_like(p, dtype=torch.float32)
+                state["step"] += 1
+                t = state["step"]
+                m, v = state["exp_avg"], state["exp_avg_sq"]
+                g = p.grad.to(torch.float32)
+                m.mul_(beta1).add_(g, alpha=1.0 - beta1)
+                v.mul_(beta2).addcmul_(g, g, value=1.0 - beta2)
+                bc1 = 1.0 - beta1 ** t
+                bc2 = 1.0 - beta2 ** t
+                m_hat = m / bc1
+                v_hat = v / bc2
+                u = (2.0 / math.pi) * torch.atan2(m_hat, torch.sqrt(v_hat))
+                if wd != 0.0:
+                    p.data.mul_(1.0 - lr * wd)
+                p.data.add_(u.to(p.dtype), alpha=-lr)
+                if self.collect_diagnostics:
+                    abs_u = u.abs()
+                    stats_chunks.append((
+                        abs_u.sum(),
+                        (abs_u > 0.9).sum(),
+                        v.min(),
+                        v.max(),
+                        u.numel(),
+                    ))
+            if self.collect_diagnostics and stats_chunks:
+                total_abs = sum(c[0] for c in stats_chunks)
+                total_sat = sum(c[1] for c in stats_chunks)
+                v_min_t = torch.stack([c[2] for c in stats_chunks]).min()
+                v_max_t = torch.stack([c[3] for c in stats_chunks]).max()
+                total_numel = sum(c[4] for c in stats_chunks)
+                mean_abs = float(total_abs.item()) / max(1, total_numel)
+                self.last_step_stats[group_name] = {
+                    "atan2_value_mean": mean_abs,
+                    "saturated_fraction": float(total_sat.item()) / max(1, total_numel),
+                    "v_min": float(v_min_t.item()),
+                    "v_max": float(v_max_t.item()),
+                    "effective_lr_mean": lr * mean_abs,
+                }
+        return loss
+
+
+def compute_adamw_aux_diagnostics(opt: torch.optim.Optimizer, group_names: set[str]) -> dict[str, dict[str, float]]:
+    """For each named param_group of an AdamW optimizer in ``group_names``, compute
+    H172 atan2-comparison diagnostics from its current m/v state:
+      - atan2_value_mean:       mean |(2/π) atan2(m_hat, sqrt(v_hat))| (counterfactual)
+      - saturated_fraction:     fraction where that magnitude exceeds 0.9
+      - v_min, v_max:           v range
+      - effective_lr_mean:      group lr × atan2_value_mean
+      - m_over_sqrtv_clipped_at_1_fraction: fraction where |m_hat / (sqrt(v_hat)+eps)| > 1
+                                            (i.e., where AdamW's per-element step would
+                                            already exceed the atan2 saturation cap).
+    Returns {} for groups that have not yet produced state (e.g., step 0).
+    """
+    out: dict[str, dict[str, float]] = {}
+    for group in opt.param_groups:
+        name = group.get("name")
+        if name not in group_names:
+            continue
+        beta1, beta2 = group["betas"]
+        eps = group.get("eps", 1e-10)
+        lr = group["lr"]
+        abs_u_sum = None
+        sat_count = None
+        ratio_clip_count = None
+        v_min_t = None
+        v_max_t = None
+        numel_total = 0
+        for p in group["params"]:
+            state = opt.state.get(p, {})
+            if "exp_avg" not in state or "exp_avg_sq" not in state:
+                continue
+            step_val = state.get("step", 0)
+            if torch.is_tensor(step_val):
+                t = int(step_val.item())
+            else:
+                t = int(step_val)
+            if t <= 0:
+                continue
+            m = state["exp_avg"].to(torch.float32)
+            v = state["exp_avg_sq"].to(torch.float32)
+            bc1 = 1.0 - beta1 ** t
+            bc2 = 1.0 - beta2 ** t
+            m_hat = m / bc1
+            v_hat = v / bc2
+            sqrt_v_hat = torch.sqrt(v_hat)
+            u = (2.0 / math.pi) * torch.atan2(m_hat, sqrt_v_hat)
+            abs_u = u.abs()
+            ratio = m_hat.abs() / (sqrt_v_hat + eps)
+            sum_chunk = abs_u.sum()
+            sat_chunk = (abs_u > 0.9).sum()
+            ratio_clip_chunk = (ratio > 1.0).sum()
+            v_min_chunk = v.min()
+            v_max_chunk = v.max()
+            abs_u_sum = sum_chunk if abs_u_sum is None else abs_u_sum + sum_chunk
+            sat_count = sat_chunk if sat_count is None else sat_count + sat_chunk
+            ratio_clip_count = ratio_clip_chunk if ratio_clip_count is None else ratio_clip_count + ratio_clip_chunk
+            v_min_t = v_min_chunk if v_min_t is None else torch.minimum(v_min_t, v_min_chunk)
+            v_max_t = v_max_chunk if v_max_t is None else torch.maximum(v_max_t, v_max_chunk)
+            numel_total += u.numel()
+        if numel_total > 0 and abs_u_sum is not None:
+            mean_abs = float(abs_u_sum.item()) / numel_total
+            out[name] = {
+                "atan2_value_mean": mean_abs,
+                "saturated_fraction": float(sat_count.item()) / numel_total,
+                "m_over_sqrtv_clipped_at_1_fraction": float(ratio_clip_count.item()) / numel_total,
+                "v_min": float(v_min_t.item()),
+                "v_max": float(v_max_t.item()),
+                "effective_lr_mean": lr * mean_abs,
+            }
+    return out
+
+
 ########################################
 #                Setup                 #
 ########################################
@@ -850,6 +1012,8 @@ if dist.get_rank() == 0:
             "muonh_mu_schedule": args.muonh_mu_schedule,
             "muonh_mu_start": args.muonh_mu_start,
             "muonh_mu_end": args.muonh_mu_end,
+            "use_atan2": int(args.use_atan2),
+            "atan2_target": args.atan2_target,
         },
     )
 
@@ -925,20 +1089,58 @@ for trial_idx in range(args.num_trials):
     # fused AdamW reads betas from param_groups on every .step(), but to avoid any
     # silent-failure-mode risk we use fused=False whenever the β2 schedule is active.
     # constant schedule keeps fused=True so arm_a is bitwise-identical to baseline.
+    #
+    # H172: when --use_atan2=1, route the aux subgroup(s) selected by
+    # --atan2_target to AdamWAtan2 (replaces α/(sqrt(v)+eps) with α·(2/π)·atan2(m, sqrt(v))).
+    # The non-routed groups remain on fused AdamW exactly as in baseline, so arm_a CTRL
+    # (use_atan2=0) is bit-identical to baseline.
     _aux_fused = (args.aux_beta2_schedule == "constant")
-    optimizer1 = AdamW([dict(params=[model.embed.weight], lr=0.3, name="adam_embed"),
-                        dict(params=[model.proj.weight], lr=1/320, name="adam_lm_head"),
-                        dict(params=[p for p in model.parameters() if p.ndim < 2], lr=0.01, name="adam_scalars")],
-                       betas=(0.8, args.aux_beta2_start), eps=args.aux_adamw_eps, weight_decay=0, fused=_aux_fused)
+    _all_aux_group_specs = [
+        dict(params=[model.embed.weight], lr=0.3, name="adam_embed"),
+        dict(params=[model.proj.weight], lr=1/320, name="adam_lm_head"),
+        dict(params=[p for p in model.parameters() if p.ndim < 2], lr=0.01, name="adam_scalars"),
+    ]
+    _atan2_target_to_names = {
+        "lm_head_only": {"adam_lm_head"},
+        "embed_only":   {"adam_embed"},
+        "both":         {"adam_embed", "adam_lm_head"},
+    }
+    if args.use_atan2:
+        _atan2_names = _atan2_target_to_names[args.atan2_target]
+        adamw_specs = [g for g in _all_aux_group_specs if g["name"] not in _atan2_names]
+        atan2_specs = [g for g in _all_aux_group_specs if g["name"] in _atan2_names]
+    else:
+        adamw_specs = _all_aux_group_specs
+        atan2_specs = []
+    optimizer1 = AdamW(adamw_specs,
+                       betas=(0.8, args.aux_beta2_start), eps=args.aux_adamw_eps,
+                       weight_decay=0, fused=_aux_fused)
+    optimizer_atan2 = None
+    if atan2_specs:
+        optimizer_atan2 = AdamWAtan2(atan2_specs,
+                                     betas=(0.8, args.aux_beta2_start),
+                                     weight_decay=0.0)
     optimizer2 = MuonH([p for p in model.blocks.parameters() if p.ndim >= 2],
                        lr=args.muonh_lr, weight_decay=0.0, mu=0.95,
                        hyperball=True, budget_mult=args.muonh_budget_mult,
                        mode=args.muonh_mode)
     optimizer2.param_groups[0]["name"] = "muonh_blocks"
-    optimizers = [optimizer1, optimizer2]
-    # AGC targets: AdamW aux groups (embed, lm_head, scalars). Built from optimizer1
-    # param groups to track exactly the same params AdamW updates.
+    optimizers = [optimizer1]
+    if optimizer_atan2 is not None:
+        optimizers.append(optimizer_atan2)
+    optimizers.append(optimizer2)
+    if trial_idx == 0:
+        atan2_mode = "AdamWAtan2" if args.use_atan2 else "AdamW (baseline)"
+        atan2_groups_str = sorted(_atan2_names) if args.use_atan2 else "[]"
+        print0(f"[H172 INIT] aux atan2 = {'on' if args.use_atan2 else 'off'}, "
+               f"target = {args.atan2_target}, atan2_groups = {atan2_groups_str}, "
+               f"path = {atan2_mode}", console=True)
+    # AGC targets: AdamW aux groups (embed, lm_head, scalars). Built from the aux
+    # optimizer param groups so AGC tracks every aux parameter — including any
+    # routed through AdamWAtan2 under --use_atan2=1.
     aux_params_for_agc = [p for g in optimizer1.param_groups for p in g["params"]]
+    if optimizer_atan2 is not None:
+        aux_params_for_agc += [p for g in optimizer_atan2.param_groups for p in g["params"]]
     # Inner-MuonH AGC targets: block 2D weights consumed by MuonH. Clipped BEFORE
     # the MuonH momentum buffer integrates the gradient.
     muonh_params_for_agc = [p for g in optimizer2.param_groups for p in g["params"]]
@@ -955,6 +1157,10 @@ for trial_idx in range(args.num_trials):
     for group in optimizer1.param_groups:
         group["cooldown_frac"] = aux_cooldown_frac
         group["cooldown_shape"] = "linear"
+    if optimizer_atan2 is not None:
+        for group in optimizer_atan2.param_groups:
+            group["cooldown_frac"] = aux_cooldown_frac
+            group["cooldown_shape"] = "linear"
     for group in optimizer2.param_groups:
         group["cooldown_frac"] = h_cooldown_frac
         group["cooldown_shape"] = args.muonh_cooldown_shape
@@ -1004,6 +1210,9 @@ for trial_idx in range(args.num_trials):
             b2 = args.aux_beta2_start
         for g in optimizer1.param_groups:
             g["betas"] = (g["betas"][0], b2)
+        if optimizer_atan2 is not None:
+            for g in optimizer_atan2.param_groups:
+                g["betas"] = (g["betas"][0], b2)
         # MuonH µ schedule (H109): 'off' is a no-op — mu stays at the MuonH
         # default 0.95 and we skip the param_group write so arm_a is bit-identical
         # to baseline. 'linear' ramps mu_start → mu_end across all train_steps.
@@ -1169,6 +1378,10 @@ for trial_idx in range(args.num_trials):
         muonh_agc_stats = adaptive_gradient_clip(
             muonh_params_for_agc, args.muonh_agc_clip_ratio, eps=args.muonh_agc_eps,
         )
+        # H172: have AdamWAtan2 collect per-step diagnostics on telemetry steps only,
+        # so the .item() syncs are not on the hot path.
+        if optimizer_atan2 is not None:
+            optimizer_atan2.collect_diagnostics = bool(dist.get_rank() == 0 and telemetry_due)
         for opt in optimizers:
             opt.step()
         # Log warmup telemetry every 10 steps during warmup (and at telemetry events
@@ -1209,6 +1422,43 @@ for trial_idx in range(args.num_trials):
                 muonh_metrics["train/muonh/agc/scale_mean"] = muonh_agc_stats["agc_scale_mean"]
             if len(muonh_metrics) > 2:
                 wandb.log(muonh_metrics, step=wandb_step)
+        # H172: log atan2 diagnostics for AdamWAtan2 groups and the AdamW
+        # counterfactual (m/sqrt(v) > 1 clip fraction) for the AdamW aux groups.
+        if dist.get_rank() == 0 and telemetry_due:
+            atan2_metrics: dict[str, float] = {"trial": trial_idx, "train/step": train_step}
+            # Map group name → metric prefix for the diagnostic series.
+            _aux_prefix = {"adam_lm_head": "lm_head", "adam_embed": "embed"}
+            # AdamWAtan2 path: read last-step stats stashed by the optimizer.
+            if optimizer_atan2 is not None:
+                for group_name, stats in optimizer_atan2.last_step_stats.items():
+                    short = _aux_prefix.get(group_name)
+                    if short is None:
+                        continue
+                    for key, value in stats.items():
+                        atan2_metrics[f"atan2/{short}/{key}"] = value
+            # AdamW counterfactual: compute the same atan2 / m-over-sqrtv stats
+            # on optimizer1 (the AdamW aux optimizer) for the groups that are NOT
+            # routed to AdamWAtan2 this arm. arm_a CTRL logs both lm_head and embed.
+            if args.use_atan2:
+                adamw_compare_names = {"adam_embed", "adam_lm_head"} - _atan2_target_to_names[args.atan2_target]
+            else:
+                adamw_compare_names = {"adam_embed", "adam_lm_head"}
+            for group_name, stats in compute_adamw_aux_diagnostics(optimizer1, adamw_compare_names).items():
+                short = _aux_prefix.get(group_name)
+                if short is None:
+                    continue
+                for key, value in stats.items():
+                    atan2_metrics[f"adamw_compare/{short}/{key}"] = value
+            if len(atan2_metrics) > 2:
+                wandb.log(atan2_metrics, step=wandb_step)
+            # Always log H172 mode flags (cheap, lets us slice runs in W&B).
+            wandb.log({
+                "trial": trial_idx,
+                "train/step": train_step,
+                "h172/use_atan2": int(args.use_atan2),
+                "h172/atan2_lm_head": int("adam_lm_head" in _atan2_target_to_names[args.atan2_target] and args.use_atan2),
+                "h172/atan2_embed": int("adam_embed" in _atan2_target_to_names[args.atan2_target] and args.use_atan2),
+            }, step=wandb_step)
         if dist.get_rank() == 0 and telemetry_due:
             log_weight_telemetry(
                 model=model,
