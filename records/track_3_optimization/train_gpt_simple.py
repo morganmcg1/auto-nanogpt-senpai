@@ -83,6 +83,26 @@ def parse_args():
              "muall=musoft + non-residual block 2D weights also scaled by 1/sqrt(L); "
              "smallconst=std=1e-3 depth-independent.",
     )
+    parser.add_argument(
+        "--aux_optimizer",
+        type=str,
+        default="adamw",
+        choices=["adamw", "adan"],
+        help="Optimizer for aux groups (embed, lm_head, scalars). "
+             "'adamw' is the existing default; 'adan' swaps in Adan "
+             "(Adaptive Nesterov Momentum, Xie et al. 2022) using "
+             "Adam-style β convention to match the official sail-sg/Adan reference.",
+    )
+    parser.add_argument(
+        "--adan_betas",
+        type=float,
+        nargs=3,
+        default=[0.98, 0.92, 0.99],
+        metavar=("BETA1", "BETA2", "BETA3"),
+        help="Adan β1, β2, β3 (only used when --aux_optimizer adan). "
+             "Adam-style convention: high β = slow EMA. β2=0 disables the "
+             "Nesterov gradient-difference correction (mechanism falsifier).",
+    )
     args = parser.parse_args()
     args.num_trials = args.num_trials if args.num_trials is not None else (args.legacy_num_trials or 1)
     args.wandb_tags = [tag.strip() for tag in args.wandb_tags.split(",") if tag.strip()]
@@ -566,6 +586,69 @@ def soap_update_preconditioner(grad, state, shampoo_beta=SOAP_BETA2, preconditio
     state["soap_step"] += 1
 
 
+class AdanAux(torch.optim.Optimizer):
+    """Adan: Adaptive Nesterov Momentum Algorithm (Xie et al. 2022, arXiv:2208.06677).
+
+    Convention follows the official sail-sg/Adan reference (Adam-style β):
+      m_t = β1·m_{t-1} + (1-β1)·g_t          (first moment EMA of g)
+      v_t = β2·v_{t-1} + (1-β2)·(g_t - g_{t-1})  (gradient-difference EMA)
+      u_t = g_t + β2·(g_t - g_{t-1})          (Nesterov-corrected gradient)
+      n_t = β3·n_{t-1} + (1-β3)·u_t²          (second-moment EMA of u)
+      update = (m_t/bc1 + β2·v_t/bc2) / (√(n_t/bc3) + eps)
+      p_{t+1} = (1 - lr·wd)·p_t - lr·update     (decoupled WD, AdamW-style)
+    Defaults β=(0.98, 0.92, 0.99) are paper recommendations (slow EMAs).
+    Setting β2=0 cleanly degenerates Adan to Adam-without-Nesterov (mechanism falsifier).
+    """
+
+    def __init__(self, params, lr=1e-3, betas=(0.98, 0.92, 0.99),
+                 eps=1e-8, weight_decay=0.0):
+        defaults = dict(lr=lr, betas=betas, eps=eps, weight_decay=weight_decay)
+        super().__init__(params, defaults)
+
+    @torch.no_grad()
+    def step(self):
+        for group in self.param_groups:
+            beta1, beta2, beta3 = group["betas"]
+            lr = group["lr"]
+            eps = group["eps"]
+            wd = group["weight_decay"]
+            for p in group["params"]:
+                if p.grad is None:
+                    continue
+                grad = p.grad
+                state = self.state[p]
+                if len(state) == 0:
+                    state["step"] = 0
+                    state["m"] = torch.zeros_like(grad)
+                    state["v"] = torch.zeros_like(grad)
+                    state["n"] = torch.zeros_like(grad)
+                    state["prev_grad"] = grad.clone()  # d_1 = 0 at first step
+
+                state["step"] += 1
+                step_t = state["step"]
+                m, v, n = state["m"], state["v"], state["n"]
+
+                d = grad - state["prev_grad"]
+                u = grad.add(d, alpha=beta2)  # u_t = g + β2·d
+
+                m.mul_(beta1).add_(grad, alpha=1 - beta1)
+                v.mul_(beta2).add_(d, alpha=1 - beta2)
+                n.mul_(beta3).addcmul_(u, u, value=1 - beta3)
+
+                bc1 = 1 - beta1 ** step_t
+                bc2 = 1 - beta2 ** step_t
+                bc3 = 1 - beta3 ** step_t
+
+                denom = (n / bc3).sqrt_().add_(eps)
+                update_dir = (m / bc1).add_(v, alpha=beta2 / bc2)
+
+                if wd != 0:
+                    p.mul_(1 - lr * wd)
+                p.addcdiv_(update_dir, denom, value=-lr)
+
+                state["prev_grad"].copy_(grad)
+
+
 class Muon(torch.optim.Optimizer):
     SOAP_MLP_SUFFIXES = (".mlp.fc.weight", ".mlp.proj.weight")
     SOAP_ATTN_SUFFIXES = (".attn.q.weight", ".attn.k.weight", ".attn.v.weight", ".attn.proj.weight")
@@ -765,6 +848,8 @@ if dist.get_rank() == 0:
             "wd_schedule": args.wd_schedule,
             "lr_scalars": args.lr_scalars,
             "depth_init_mode": args.depth_init_mode,
+            "aux_optimizer": args.aux_optimizer,
+            "adan_betas": list(args.adan_betas),
         },
     )
 
@@ -837,10 +922,22 @@ for trial_idx in range(args.num_trials):
     print0(f"[init] mode={args.depth_init_mode}  L={NUM_LAYERS}  block_residual_attn.proj_std={_ex_resid_std:.6f}", console=True)
 
     # create the optimizer(s)
-    optimizer1 = AdamW([dict(params=[model.embed.weight], lr=0.3, name="adam_embed"),
-                        dict(params=[model.proj.weight], lr=1/320, name="adam_lm_head"),
-                        dict(params=[p for p in model.parameters() if p.ndim < 2], lr=args.lr_scalars, name="adam_scalars")],
-                       betas=(0.8, 0.95), eps=1e-10, weight_decay=0, fused=True)
+    scalar_params = [p for p in model.parameters() if p.ndim < 2]
+    if args.aux_optimizer == "adamw":
+        optimizer1 = AdamW([dict(params=[model.embed.weight], lr=0.3, name="adam_embed"),
+                            dict(params=[model.proj.weight], lr=1/320, name="adam_lm_head"),
+                            dict(params=scalar_params, lr=args.lr_scalars, name="adam_scalars")],
+                           betas=(0.8, 0.95), eps=1e-10, weight_decay=0, fused=True)
+    elif args.aux_optimizer == "adan":
+        adan_b = tuple(args.adan_betas)
+        optimizer1 = AdanAux(
+            [dict(params=[model.embed.weight], lr=0.3, betas=adan_b, name="adan_embed"),
+             dict(params=[model.proj.weight], lr=1/320, betas=adan_b, name="adan_lm_head"),
+             dict(params=scalar_params, lr=args.lr_scalars, betas=adan_b, name="adan_scalars")],
+            eps=1e-8, weight_decay=0,
+        )
+    else:
+        raise ValueError(f"Unknown aux_optimizer: {args.aux_optimizer}")
     named_blocks = [(n, p) for n, p in model.blocks.named_parameters() if p.ndim >= 2]
     mlp_named = [(n, p) for n, p in named_blocks
                  if n.endswith(".mlp.fc.weight") or n.endswith(".mlp.proj.weight")]
