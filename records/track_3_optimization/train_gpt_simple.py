@@ -593,6 +593,15 @@ NANOGPT_SENPAI_SEED = int(_SENPAI_SEED_RAW) if _SENPAI_SEED_RAW != "" else None
 # `embed.weight -= lr_embed * lambda * (embed.weight - embed_init_snapshot)`.
 # At lambda=0 the hook is a no-op and behavior is bit-identical to the merged stack.
 NANOGPT_EMBED_INIT_ANCHOR_LAMBDA = float(os.environ.get("NANOGPT_EMBED_INIT_ANCHOR_LAMBDA", "0.0"))
+# Body Muon momentum buffer periodic reset (#1191). When INTERVAL > 0, every N optimizer
+# steps zero the body Muon momentum buffer (SGDR-style warm restart on optimizer state).
+# When AT_COOLDOWN_START=1, perform a one-shot reset at the cooldown start step
+# (int(NANOGPT_NS_COOLDOWN_START_FRAC * train_steps)). Both at 0 → bit-identical no-op.
+NANOGPT_BODY_MUON_RESET_INTERVAL = int(os.environ.get("NANOGPT_BODY_MUON_RESET_INTERVAL", "0"))
+NANOGPT_BODY_MUON_RESET_AT_COOLDOWN_START = int(os.environ.get("NANOGPT_BODY_MUON_RESET_AT_COOLDOWN_START", "0"))
+_BODY_MUON_RESET_ACTIVE = (
+    NANOGPT_BODY_MUON_RESET_INTERVAL > 0 or NANOGPT_BODY_MUON_RESET_AT_COOLDOWN_START != 0
+)
 
 
 def get_ns_coef_at_iter(iter_idx: int, total_iters: int, schedule: str) -> tuple[float, float, float]:
@@ -824,6 +833,10 @@ print0(f"  Effective Muon base LRs: attn={0.035*NANOGPT_MUON_ATTN_LR_MULT:.5f} m
 print0(f"EMBED_INIT_ANCHOR_LAMBDA: {NANOGPT_EMBED_INIT_ANCHOR_LAMBDA} "
        f"({'ACTIVE' if NANOGPT_EMBED_INIT_ANCHOR_LAMBDA > 0 else 'INACTIVE (bit-identical fallback)'})",
        console=True)
+print0(f"BODY_MUON_RESET: interval={NANOGPT_BODY_MUON_RESET_INTERVAL} "
+       f"at_cooldown_start={NANOGPT_BODY_MUON_RESET_AT_COOLDOWN_START} "
+       f"({'ACTIVE' if _BODY_MUON_RESET_ACTIVE else 'INACTIVE (bit-identical fallback)'})",
+       console=True)
 if NS_ITERS_COOLDOWN > 0:
     print0(f"NS_SCHEDULE: ns_iters={NS_ITERS} -> ns_iters_cooldown={NS_ITERS_COOLDOWN} "
            f"at fraction {NS_COOLDOWN_START_FRAC} of train_steps "
@@ -896,6 +909,9 @@ if dist.get_rank() == 0:
             "nanogpt_ns_stochastic_cooldown": NANOGPT_NS_STOCHASTIC_COOLDOWN,
             "senpai_seed": NANOGPT_SENPAI_SEED if NANOGPT_SENPAI_SEED is not None else -1,
             "nanogpt_embed_init_anchor_lambda": NANOGPT_EMBED_INIT_ANCHOR_LAMBDA,
+            "nanogpt_body_muon_reset_interval": NANOGPT_BODY_MUON_RESET_INTERVAL,
+            "nanogpt_body_muon_reset_at_cooldown_start": NANOGPT_BODY_MUON_RESET_AT_COOLDOWN_START,
+            "nanogpt_body_muon_reset_active": int(_BODY_MUON_RESET_ACTIVE),
         },
     )
 
@@ -976,6 +992,9 @@ for trial_idx in range(args.num_trials):
     grad_clip_triggers_body = 0
     grad_clip_triggers_aux = 0
     grad_clip_triggers_global = 0
+    # Body Muon momentum reset bookkeeping (#1191).
+    body_muon_reset_count = 0
+    body_muon_last_reset_step = 0
     for opt in optimizers:
         for group in opt.param_groups:
             group["initial_lr"] = group["lr"]
@@ -1205,6 +1224,55 @@ for trial_idx in range(args.num_trials):
             if len(ns_iters_history) > 100:
                 del ns_iters_history[:-100]
             ns_cumulative_iters += ns_iters_this_step
+        # Body Muon momentum buffer telemetry (#1191): computed BEFORE opt.step() so the
+        # measurement reflects buffer-vs-gradient freshness using the *original* grad,
+        # since muon_update mutates p.grad in-place via Nesterov lerp.
+        body_muon_telemetry: dict | None = None
+        if _BODY_MUON_RESET_ACTIVE and telemetry_due and step > 0:
+            local_buf_sq = torch.zeros((), device=device, dtype=torch.float64)
+            local_grad_sq = torch.zeros((), device=device, dtype=torch.float64)
+            local_dot = torch.zeros((), device=device, dtype=torch.float64)
+            world_size = dist.get_world_size()
+            rank = dist.get_rank()
+            for group in optimizer2.param_groups:
+                params = group["params"]
+                for base_i in range(0, len(params), world_size):
+                    if base_i + rank < len(params):
+                        p = params[base_i + rank]
+                        state = optimizer2.state.get(p)
+                        if state is not None and "momentum" in state and p.grad is not None:
+                            buf32 = state["momentum"].to(torch.float64)
+                            grad32 = p.grad.to(torch.float64)
+                            local_buf_sq += buf32.square().sum()
+                            local_grad_sq += grad32.square().sum()
+                            local_dot += (buf32 * grad32).sum()
+            agg = torch.stack([local_buf_sq, local_grad_sq, local_dot])
+            dist.all_reduce(agg, op=dist.ReduceOp.SUM)
+            tot_buf_sq, tot_grad_sq, tot_dot = (float(x) for x in agg.tolist())
+            denom = math.sqrt(max(tot_buf_sq, 0.0)) * math.sqrt(max(tot_grad_sq, 0.0))
+            cosine = tot_dot / denom if denom > 1e-30 else 0.0
+            body_muon_telemetry = {
+                "buf_norm": math.sqrt(max(tot_buf_sq, 0.0)),
+                "buf_to_grad_cosine": cosine,
+            }
+        # Body Muon momentum buffer reset (#1191). Both env vars 0 → bit-identical no-op.
+        # Reset BEFORE opt.step() so the upcoming Muon update starts from a zero buffer.
+        # The first periodic reset fires at step=INTERVAL (skipping step 0, which has an
+        # uninitialized buffer anyway). Arm D fires once at the cooldown-start step.
+        if _BODY_MUON_RESET_ACTIVE:
+            reset_due = False
+            if NANOGPT_BODY_MUON_RESET_INTERVAL > 0 and step > 0 and step % NANOGPT_BODY_MUON_RESET_INTERVAL == 0:
+                reset_due = True
+            if NANOGPT_BODY_MUON_RESET_AT_COOLDOWN_START != 0 and step == cooldown_start_step:
+                reset_due = True
+            if reset_due:
+                for group in optimizer2.param_groups:
+                    for p in group["params"]:
+                        state = optimizer2.state.get(p)
+                        if state is not None and "momentum" in state:
+                            state["momentum"].zero_()
+                body_muon_reset_count += 1
+                body_muon_last_reset_step = step
         for opt in optimizers:
             opt.step()
         # Init-anchored WD on embed (#847, env-var-gated). After both optimizers
@@ -1326,6 +1394,22 @@ for trial_idx in range(args.num_trials):
                 }.get(NS_COEF_SCHEDULE, -1),
             })
             wandb.log(ns_metrics, step=wandb_step)
+        # Body Muon momentum reset telemetry (#1191). Logged only when the feature is
+        # active so the bit-identical merged-stack baseline adds no extra W&B keys.
+        if dist.get_rank() == 0 and telemetry_due and _BODY_MUON_RESET_ACTIVE:
+            bm_metrics = {
+                "trial": trial_idx,
+                "train/step": train_step,
+                "body_muon/reset_count": body_muon_reset_count,
+                "body_muon/steps_since_reset": step - body_muon_last_reset_step,
+                "body_muon/reset_interval": NANOGPT_BODY_MUON_RESET_INTERVAL,
+                "body_muon/reset_at_cooldown_start": NANOGPT_BODY_MUON_RESET_AT_COOLDOWN_START,
+                "body_muon/last_reset_step": body_muon_last_reset_step,
+            }
+            if body_muon_telemetry is not None:
+                bm_metrics["body_muon/buf_norm"] = body_muon_telemetry["buf_norm"]
+                bm_metrics["body_muon/buf_to_grad_cosine"] = body_muon_telemetry["buf_to_grad_cosine"]
+            wandb.log(bm_metrics, step=wandb_step)
         if dist.get_rank() == 0 and telemetry_due:
             log_weight_telemetry(
                 model=model,
