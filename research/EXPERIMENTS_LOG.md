@@ -1,3 +1,18 @@
+## 2026-05-26 01:15 UTC — ADVISOR SELF-CORRECTION: PRODIGY_AUX spec error (cycle 71 mid-256)
+
+### #1230 alphonse PRODIGY_AUX — Advisor-side spec error caught by student pre-confirmation
+- **What happened**: Disabled-check passed `3pvfqofe` val@200=4.08347 ∈ [4.075, 4.090] ✓. Arm A `aq2gbuwr` (canonical PR spec) diverged catastrophically: `d_t` exceeded kill-gate threshold of 100 by step ~25, reached 26,905 by step 250 → val=NaN. Killed at step 455.
+- **Student diagnosis (publication-grade)**: PR-body algorithm spec was mis-specified vs canonical Prodigy in two key places:
+  1. **Wrong inner product**: PR used `<g_0, g_t>` (initial-gradient inner product). Canonical Prodigy uses `<g_t, p_0 − p_t>` (gradient · position delta from initialization). The initial-gradient version has `r_0 ≈ d_0·||g_0||² ≠ 0` so `d_t` jumps immediately instead of staying at `d_init` until parameters move (the auto-warmup property).
+  2. **No decay on `r_t`**: PR used `r_t = r_{t-1} + d_t·<g_0,g_t>` (monotone-growing sum). Canonical Prodigy applies `beta3` decay to BOTH `r_t` and `s_t`: `r_t = beta3·r_{t-1} + d_t·lr·<g_t, p_0-p_t>`. Without decay, `r_t` grows linearly in t → `d_t` grows linearly in t → divergence guaranteed.
+  3. **Mis-described `beta3=0` as vanilla D-Adapt**: Canonical Prodigy default is `beta3 ≈ sqrt(beta2) ≈ 0.975` (with AUX AdamW beta2=0.95), NOT 0.0.
+- **Citations (student-provided)**: konstmish/prodigy line 265 (`delta_numerator += (d / d0) * dlr * torch.dot(sliced_grad, p0.data - p.data.flatten()[::slice_p])`) + line 296 (`group[d_numerator] *= beta3`) + Mishchenko & Defazio 2024 Algorithm 3.
+- **Advisor verdict**: Accepted as advisor-side spec error. Sent updated canonical spec with `<g_t, p_0-p_t>` inner product + `beta3` decay on both r_t and s_t + corrected arms (Arm A beta3=sqrt(0.95)≈0.975, Arm B beta3=0.99). Label flipped back to status:wip. Disabled-check parity preserved (no re-run needed). Storage cost noted: `p_0` for AUX params ≈ 320 MB fp32 acceptable on B200.
+- **Process learning**: Second advisor self-correction in cycle 71. Previously: askeladd #1196 kill-gate mis-calibration (gave kill gates derived from absolute target loss rather than baseline trajectory at named step + noise margin). Now: PRODIGY_AUX spec algorithm transcription error (PR body algorithm did not match canonical reference impl). **Discipline going forward**: for any optimizer mechanism with auxiliary state (running accumulators, lower-bound estimators, etc.), advisor MUST cross-check the spec against a reference implementation (paper Algorithm box + canonical code) before sending the PR. Math derivation alone is insufficient — sign/decay/normalization details are load-bearing.
+- **Cross-check value**: Student's disabled-check parity + kill-gate trigger + mathematical root-cause derivation prevented wasted GPU time on Arm B (which would have diverged the same way, only ~10× slower). Cost: ~15 min GPU time for Arm A divergence. Saved: ~70 min Arm B + ~15 min reaction loop. Net: positive 70+ min vs blindly running both arms.
+
+---
+
 ## 2026-05-26 00:30 UTC — CAUTIOUS FAMILY BILATERAL SATURATED (cycle 71 mid-255)
 
 ### #1205 alphonse CAUTIOUS_AUX CLOSED (155th refuted, 42nd family-level closure, 7th SATURATED MECHANISM LAYER)
