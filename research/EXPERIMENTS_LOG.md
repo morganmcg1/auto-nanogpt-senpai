@@ -1,3 +1,25 @@
+## 2026-05-26 22:20 — PR #1313: H186 frieren per-block LR recalibration EXTREMES at peak anchor (calib=100, exp=0.5, recal ∈ {100, 1500}) — CLOSED (44th NULL/NEG closure + 🎯 programme finding #21 NEW MECHANISM: calibration ∩ validation step coincidence spike unifies #20)
+
+- Branch: `g1r3-frieren/h186-per-block-lr-recal-extremes-peak`
+- Hypothesis: Test recalibration extremes (recal=100 HYPER vs recal=1500 LOW_FREQ) at peak rms_disparity anchor (calib=100, exp=0.5). Predicted outcomes: both arms WIN (recal helps tracking), one WIN one NEG (interval matters), or both NULL.
+- Results:
+
+  | Arm | exp/calib/recal | W&B | val/loss (s3325) | best_val | best_step | FFS | calib events | Verdict |
+  |---|---|---|---|---|---|---|---|---|
+  | arm_a CTRL | 0.0/200/0 | `pk3wxzbz` | 3.26578 | 3.26578 | 3325 | 3150 | 0 | CTRL drift n=20 |
+  | arm_b HYPER | 0.5/100/100 | `i7iuynsq` | 3.30348 | **3.27281** | 3275 | 3175 | 33 | NEG val (artifact-inflated), NEG +25 FFS |
+  | arm_c LOW_FREQ | 0.5/100/1500 | `a8oc94cs` | 3.26403 | 3.26403 | 3325 | 3150 | 3 | TIE val (within σ), TIE FFS |
+
+- Outcome: No arm beats baseline FFS=3125 or H174 soft WIN val=3.262867. 44th NULL/NEG closure.
+- **🎯 Programme finding #21 (NEW MECHANISM — BIG)**: **Calibration ∩ validation step coincidence spike** — when `should_calibrate` fires at SAME step as validation event, val/loss spikes +0.02 to +0.07 transiently and recovers within ~25 steps. Mechanism: MuonH momentum buffer sized for OLD LRs; calibration rewrites `initial_lr`/`lr`; next step applies new LRs against momentum integrated under old schedule → mis-scaled parameter update → transient val spike. Evidence: arm_b 9 val∩calib coincidences ALL show +0.02 to +0.07 spike vs arm_a same-step; off-coincidence events show NO spike (Δ +0.003).
+- **🎯 Unification with #20**: H185 step-3100 val_loss spike IS THE SAME MECHANISM as #21. Late-cooldown LR is smaller → relative jump from old→new multiplier is larger → momentum × new_LR mis-scaling more pronounced → bigger transient spike. **#20 and #21 are unified into single artifact.**
+- **Implications for per-block LR axis closure**: arm_b best_val 3.27281 at step 3275 is essentially at arm_a parity (Δ < 0.007 within noise). The "recal is harmful" pattern (programme findings #15, #19) is PARTIALLY measurement artifact. Closure verdict STILL HOLDS — even artifact-corrected, underlying trajectory is at parity (no WIN signal).
+- **Compute overhead (gate #5)**: arm_b 33 calib events = 1908.77 ms/step (−0.01% vs CTRL 1908.88). Recalibration is essentially FREE.
+- **Bit-id gate (gate #1)**: ALL 3 arms `step:0/3325 val_loss:10.82583` ✓
+- Excellent student analysis identified the artifact across 9 coincidence points + 2 in arm_c, plus mechanism explanation (momentum buffer × LR mismatch) and 4 suggested follow-ups including the artifact fix (defer multiplier OR scale momentum by `new_lr/old_lr`).
+
+---
+
 ## 2026-05-26 21:35 — PR #1311: H185 askeladd per-block LR FINE-GRAINED recal interval at peak anchor (calib=100, exp=0.5, recal ∈ {250, 750}) — CLOSED (43rd NULL/NEG closure + 2 programme findings: #19 per-block LR recal ALWAYS pays +25 FFS at peak anchor across 4-point sweep, #20 late-cooldown recal is FFS-killer via +0.044 val_loss spike at step 3100)
 
 - Branch: `g1r3-askeladd/h185-per-block-lr-recal-fine-grained-interval`
