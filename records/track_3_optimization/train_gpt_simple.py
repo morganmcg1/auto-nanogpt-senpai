@@ -87,15 +87,30 @@ def parse_args():
     # 'linear' ramps µ across all train_steps. 'cooldown_ramp' stays at mu_start until
     # cooldown starts (using h_cooldown_frac), then ramps linearly across the cooldown.
     parser.add_argument("--muonh_mu_schedule", type=str, default=os.environ.get("MUONH_MU_SCHEDULE", "off"),
-                        choices=["off", "linear", "cooldown_ramp"],
+                        choices=["off", "linear", "cooldown_ramp", "linear_recover"],
                         help="Schedule for inner MuonH momentum coefficient µ. "
                              "'off' (default) = static muonh_mu=0.95, bit-identical to baseline. "
                              "'linear' = linear ramp from muonh_mu_start to muonh_mu_end across all train_steps. "
-                             "'cooldown_ramp' = static muonh_mu_start until cooldown begins, then linear ramp to muonh_mu_end over cooldown.")
+                             "'cooldown_ramp' = static muonh_mu_start until cooldown begins, then linear ramp to muonh_mu_end over cooldown. "
+                             "'linear_recover' = linear ramp from muonh_mu_start to muonh_mu_dip across the first "
+                             "(1 - muonh_mu_recover_frac) of training, then linear recover from muonh_mu_dip to "
+                             "muonh_mu_end across the final muonh_mu_recover_frac of training.")
     parser.add_argument("--muonh_mu_start", type=float, default=float(os.environ.get("MUONH_MU_START", "0.95")),
-                        help="Starting value of µ schedule (used by linear and cooldown_ramp modes).")
+                        help="Starting value of µ schedule (used by linear, cooldown_ramp, and linear_recover modes).")
     parser.add_argument("--muonh_mu_end", type=float, default=float(os.environ.get("MUONH_MU_END", "0.98")),
-                        help="Ending value of µ schedule (used by linear and cooldown_ramp modes).")
+                        help="Ending value of µ schedule (used by linear, cooldown_ramp, and linear_recover modes).")
+    parser.add_argument("--muonh_mu_dip", type=float,
+                        default=float(os.environ.get("MUONH_MU_DIP", "0.0")),
+                        help="Dip value for linear_recover µ schedule. The schedule linearly ramps from "
+                             "muonh_mu_start to muonh_mu_dip over the first (1 - muonh_mu_recover_frac) of "
+                             "training, then linearly recovers from muonh_mu_dip to muonh_mu_end over "
+                             "the final muonh_mu_recover_frac of training. Only used when "
+                             "--muonh_mu_schedule linear_recover. Default 0.0 is sentinel; set to e.g. 0.84 "
+                             "to dip during mid-training.")
+    parser.add_argument("--muonh_mu_recover_frac", type=float,
+                        default=float(os.environ.get("MUONH_MU_RECOVER_FRAC", "0.33")),
+                        help="Fraction of training (from end) used for mu recovery in linear_recover mode. "
+                             "Matches but is independent of LR cooldown structure. Default 0.33.")
     parser.add_argument("--body_init", type=str, default=os.environ.get("BODY_INIT", "default"),
                         choices=["default", "orthogonal_fnorm_matched", "orthogonal_bottom_damp"],
                         help="Initialization scheme for body MuonH 2D weights (attn.q/k/v, attn.proj, mlp.fc, mlp.proj). "
@@ -850,6 +865,8 @@ if dist.get_rank() == 0:
             "muonh_mu_schedule": args.muonh_mu_schedule,
             "muonh_mu_start": args.muonh_mu_start,
             "muonh_mu_end": args.muonh_mu_end,
+            "muonh_mu_dip": args.muonh_mu_dip,
+            "muonh_mu_recover_frac": args.muonh_mu_recover_frac,
         },
     )
 
@@ -1021,6 +1038,19 @@ for trial_idx in range(args.num_trials):
                 else:
                     cooldown_prog = (progress - cooldown_start_frac) / h_cooldown_frac
                     mu_t = args.muonh_mu_start + cooldown_prog * (args.muonh_mu_end - args.muonh_mu_start)
+            elif args.muonh_mu_schedule == "linear_recover":
+                # NEW: dip during main phase, recover during the final muonh_mu_recover_frac.
+                # Decoupled from h_cooldown_frac (which is hardcoded 1.0 here) so the mechanism
+                # follows the PR analysis: arm_c hits mu_dip at progress=(1-recover_frac), then
+                # recovers to mu_end at progress=1.0.
+                mu_recover_frac = args.muonh_mu_recover_frac
+                dip_end_frac = 1.0 - mu_recover_frac
+                if progress < dip_end_frac:
+                    dip_prog = progress / max(1e-9, dip_end_frac)
+                    mu_t = args.muonh_mu_start + dip_prog * (args.muonh_mu_dip - args.muonh_mu_start)
+                else:
+                    recover_prog = (progress - dip_end_frac) / max(1e-9, mu_recover_frac)
+                    mu_t = args.muonh_mu_dip + recover_prog * (args.muonh_mu_end - args.muonh_mu_dip)
             else:
                 raise ValueError(f"unknown muonh_mu_schedule: {args.muonh_mu_schedule}")
             for g in optimizer2.param_groups:
