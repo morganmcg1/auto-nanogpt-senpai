@@ -1284,11 +1284,12 @@ for trial_idx in range(args.num_trials):
                 print0(f"[H162 PER-BLOCK LR] step {train_step}: "
                        f"rms_disparity={max(rms_per_block)/min(rms_per_block):.3f} "
                        f"mult_range=[{min(multipliers):.3f}, {max(multipliers):.3f}]", console=True)
-        # H176 probe: log grad-RMS disparity at fixed diagnostic steps without
-        # mutating per-block LRs. Compares calibration-step measurement quality
-        # (step 50 during warmup vs step 100 post-warmup vs later steady-state).
+        # H178 probe: log grad-RMS disparity at fixed diagnostic steps without
+        # mutating per-block LRs. Probes mid-warmup (50), post-warmup (100), and
+        # steady-state (500, 1000, 2000, 3000) for direct comparison with the
+        # arm_b ULTRA_EARLY calibration measurement at step 25.
         elif (args.muonh_per_block_lr_exponent > 0.0
-              and train_step in (100, 500, 1000, 2000, 3000)):
+              and train_step in (50, 100, 500, 1000, 2000, 3000)):
             _, _rms_per_block, _rms_avg = compute_per_block_lr_multipliers(
                 model, args.muonh_per_block_lr_exponent)
             if dist.get_rank() == 0:
@@ -1299,7 +1300,7 @@ for trial_idx in range(args.num_trials):
                     "train/per_block_lr/rms_disparity_probe": _disparity,
                     "train/per_block_grad_rms_avg_probe": _rms_avg,
                 }, step=wandb_step)
-                print0(f"[H176 RMS PROBE] step {train_step}: rms_disparity={_disparity:.3f} "
+                print0(f"[H178 RMS PROBE] step {train_step}: rms_disparity={_disparity:.3f} "
                        f"rms_avg={_rms_avg:.3e}", console=True)
         # AGC on inner MuonH gradient: clip BEFORE the momentum buffer integrates
         # the reduced gradient. No-op (bit-identical) when clip_ratio <= 0.
