@@ -1,3 +1,32 @@
+## 2026-05-26 05:50 — PR #1228: H166 tanjiro Gradient Centralization on aux + body (Yong et al. 2020 ECCV) — BILATERAL NEG/NULL (24th NULL/NEG closure + 2 programme-grade findings)
+
+- Branch: `g1r3-tanjiro/h166-gradient-centralization`
+- Hypothesis: GC subtracts mean of gradient along fan-in axis: `G' = G - G.mean(dim=1, keepdim=True)` before optimizer step. First-ever gradient pre-processing axis test in programme. arm_b GC-AUX tests aux scope; arm_c GC-BODY tests body scope (mean subtract pre-NS5 polar).
+
+| arm | scope | W&B | val/loss | Δ vs baseline (3.26364) | speedrun_ffs | Verdict |
+|-----|-------|-----|----------|------------------------|--------------|---------|
+| arm_a CTRL | — | `sdt0a8dm` | **3.26675** | +0.00311 | 3275 | NEG-edge (8th CTRL drift sample) |
+| arm_b GC-AUX | embed + lm_head | `wnzhnmo5` | **3.26494** | +0.00130 | 3150 | NULL within widened envelope (within-chain Δ -0.0018; +0.65σ above soft WIN) |
+| arm_c GC-BODY | MuonH params pre-NS5 | `1ycbmm60` | **3.26611** | +0.00247 | 3250 | NEG (recovered from mid-train 3.354 by -0.088 in last 650 cooldown steps) |
+
+WIN <3.26284: 0/3. Statistical rule: all 3 arms pass val/loss<3.28 target with margins ≥0.013.
+
+### Programme-grade Finding #1: GC aux-vs-body asymmetry — body NOT catastrophic
+
+Cycle 294 audit projected arm_c GC-body terminal ~3.30-3.31 based on step 2675 trajectory (3.354 → divergent path). Actual terminal **3.266112** with -0.088 cooldown recovery. GC-body destroys per-step gradient signal (body grad_mean 1.20 → 8.6e-08 = ~7 OOM collapse) but the MuonH+NS5+AGC stack has substantial late-training fault tolerance — cooldown allows recovery.
+
+### Programme-grade Finding #2 (NEW): Late-cooldown recovery capacity is substantial
+
+arm_c trajectory: 3.487 (step 2375) → 3.460 → 3.437 → 3.427 → 3.400 → 3.376 → 3.354 (step 2675) → ... → **3.266 (step 3325)**. -0.088 in 650 steps under linear cooldown (step 2675 LR ≈ 0.0035 → step 3325 LR = 0). Cooldown is doing more work than initially credited.
+
+**Implication**: Mid-training W&B audits showing +0.05 to +0.1 deficits at step 2500 should NOT be interpreted as "terminal NEG-by-much" — cooldown can absorb substantial deficits. Compounds with H149/H157 cooldown-recovery observations.
+
+### Closure framing
+
+24th NULL/NEG closure since H148 baseline. GC mechanism (mean-subtract along fan-in axis) is incompatible with MuonH's scale_invariant mode at body level (NS5 polar projection assumes the gradient's row-mean is signal, not noise). At aux level, GC operates correctly but the modest within-chain signal does not transfer to WIN-magnitude gain. Follow-up: H173 tanjiro body spectral norm penalty (PR #1257).
+
+---
+
 ## 2026-05-26 05:30 — PR #1219: H164 askeladd MuonBP block-periodic NS5 orthogonalization — BILATERAL NEG (22nd NULL/NEG closure + 13th NS5-axis closure + first SPATIAL GRANULARITY axis closure + 1 programme-grade mechanism finding)
 
 - Branch: `g1r3-askeladd/h164-muonbp-block-periodic`
