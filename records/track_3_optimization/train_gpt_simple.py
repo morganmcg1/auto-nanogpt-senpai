@@ -64,6 +64,12 @@ def parse_args():
     parser.add_argument("--muon_lr", type=float, default=0.035,
                         help="Base learning rate for body-Muon optimizer (matrix params in blocks). "
                              "Default 0.035 matches the merged baseline.")
+    parser.add_argument("--muon_block_lr_pattern", type=str, default="none",
+                        choices=["none", "late-higher", "late-lower"],
+                        help="Per-block Muon LR shape: none=uniform, "
+                             "late-higher=0.9 (block 0) → 1.1 (block 11), "
+                             "late-lower=1.1 (block 0) → 0.9 (block 11). "
+                             "Mean LR preserved across blocks.")
     args = parser.parse_args()
     args.num_trials = args.num_trials if args.num_trials is not None else (args.legacy_num_trials or 1)
     args.wandb_tags = [tag.strip() for tag in args.wandb_tags.split(",") if tag.strip()]
@@ -582,8 +588,12 @@ class Muon(torch.optim.Optimizer):
                         if 0 < ratio < TARGET_UW:
                             floor_fired_count += 1
                             update.mul_(TARGET_UW / ratio)
-                    p.mul_(1 - group["lr"] * group["weight_decay"])
-                    p.add_(update, alpha=-group["lr"])
+                    lr_eff = group["lr"]
+                    param_lr_mults = getattr(self, "_param_lr_mults", None)
+                    if param_lr_mults is not None:
+                        lr_eff = lr_eff * param_lr_mults.get(id(p), 1.0)
+                    p.mul_(1 - lr_eff * group["weight_decay"])
+                    p.add_(update, alpha=-lr_eff)
                 dist.all_gather(params_pad[base_i:base_i + world_size], params_pad[base_i + rank])
         self._floor_diag = {"fired": floor_fired_count, "eligible": floor_eligible_count}
         self._polar_diag = polar_diag
@@ -720,6 +730,7 @@ if dist.get_rank() == 0:
             "ema_warmup_steps": args.ema_warmup_steps,
             "ema_beta_target": args.ema_beta_target if args.ema_beta_target is not None else 0.0,
             "ema_dynamic_ramp_active": int(args.ema_beta_target is not None and args.ema_beta > 0),
+            "muon_block_lr_pattern": args.muon_block_lr_pattern,
         },
     )
 
@@ -759,6 +770,36 @@ for trial_idx in range(args.num_trials):
                       lr=args.muon_lr, weight_decay=0.025, beta_cov=0.95, gamma=PMUON_GAMMA)
     optimizer2.param_groups[0]["name"] = "muon_blocks"
     print0(f"body-Muon optimizer: lr={args.muon_lr} weight_decay=0.025 beta_cov=0.95 gamma={PMUON_GAMMA}")
+
+    # Per-block Muon LR shape: mean-preserving linear ramp across block index.
+    # block_mults sum to NUM_LAYERS × 1.0 exactly, so mean LR is unchanged vs uniform.
+    NUM_LAYERS = 12
+    param_lr_mults = None
+    block_mults = None
+    b0_lr_mult = 1.0
+    b11_lr_mult = 1.0
+    if args.muon_block_lr_pattern != "none":
+        if args.muon_block_lr_pattern == "late-higher":
+            lo, hi = 0.90, 1.10
+        elif args.muon_block_lr_pattern == "late-lower":
+            lo, hi = 1.10, 0.90
+        block_mults = [lo + (hi - lo) * (i / (NUM_LAYERS - 1)) for i in range(NUM_LAYERS)]
+        param_lr_mults = {}
+        for name, p in model.named_parameters():
+            if p.ndim >= 2 and name.startswith("blocks."):
+                idx = int(name.split(".")[1])
+                param_lr_mults[id(p)] = block_mults[idx]
+        b0_lr_mult = block_mults[0]
+        b11_lr_mult = block_mults[NUM_LAYERS - 1]
+        if dist.get_rank() == 0:
+            print0(f"per-block Muon LR pattern: {args.muon_block_lr_pattern}", console=True)
+            for i, m in enumerate(block_mults):
+                print0(f"  block {i}: lr_mult={m:.4f} -> effective_lr={args.muon_lr * m:.5f}",
+                       console=True)
+            wandb.log({f"muon_block_lr_mult/block_{i}": m for i, m in enumerate(block_mults)},
+                      step=0)
+    optimizer2._param_lr_mults = param_lr_mults
+
     optimizers = [optimizer1, optimizer2]
     assert set(p for opt in optimizers for group in opt.param_groups
                for p in group["params"]) == set(model.parameters())
@@ -1038,6 +1079,16 @@ for trial_idx in range(args.num_trials):
                 "train/cooldown/lr_multiplier": sched_eta,
                 "train/cooldown/power_gamma": COOLDOWN_POWER,
             }, step=wandb_step)
+            if param_lr_mults is not None:
+                muon_group_lr = optimizer2.param_groups[0]["lr"]
+                wandb.log({
+                    "trial": trial_idx,
+                    "train/step": train_step,
+                    "muon_block_lr/effective_block_0": muon_group_lr * b0_lr_mult,
+                    "muon_block_lr/effective_block_11": muon_group_lr * b11_lr_mult,
+                    "muon_block_lr/group_lr": muon_group_lr,
+                    "muon_block_lr/ratio_b11_over_b0": b11_lr_mult / b0_lr_mult,
+                }, step=wandb_step)
             if ema_params is not None:
                 wandb.log({
                     "trial": trial_idx,
