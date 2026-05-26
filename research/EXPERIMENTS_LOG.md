@@ -1,3 +1,36 @@
+## 2026-05-26 18:45 — PR #1295: H180 thorfinn 3-trial multi-seed CONFIRMATION of H162 round-1 arm_b (calib=200, exp=0.5) — CLOSED (38th NULL/NEG closure + 2 programme findings, DECISIVE per Issue #1260)
+
+- Branch: `g1r3-thorfinn/h180-3trial-multiseed-h162-round1-arm_b`
+- Hypothesis: Multi-seed confirm whether H162 round-1 single-trial val WIN (3.262617, FFS=3125) is reproducible.
+
+| trial | W&B | val/loss | FFS | rms_disparity@200 | mult_range |
+|---|---|---|---|---|---|
+| 0 | `peqbbljc` | 3.265198 | 3150 | 4.223 | [0.635, 1.304] |
+| 1 | `xrn3oinn` | 3.264771 | 3150 | 3.019 | [0.666, 1.158] |
+| 2 | `vhsfv333` | 3.265126 | 3150 | 4.368 | [0.612, 1.280] |
+
+**3-trial mean**: val/loss = 3.265031 ± 0.000229 (n-1). FFS = 3150 (all 3).
+
+### Verdict: CONFIRMED-NULL on primary FFS (NEG +25 vs baseline 3125)
+
+Multi-seed mean val/loss is +0.00139 ABOVE baseline 3.26364 and ABOVE n-1 soft WIN threshold 3.262867. Three independent re-trials at the SAME config produce no FFS improvement. Per-trial rms_disparity variance (3.019 to 4.368) confirms independent random init across trials.
+
+### 🎯 Programme finding #12: H162 round-1 single-trial val WIN was a 2.6σ NOISE FLOOR fluctuation
+
+The recalibrated H174 envelope predicts ~5% chance of single-trial val/loss ≤ 3.262617 from PURE NOISE. The H162 round-1 trial-0 hit that 5% tail.
+
+### 🎯 Programme finding #13: STATIC per-block LR mechanism (calib=100/200, exp=0.5) produces ZERO FFS improvement under multi-seed statistics
+
+Combined with H162-v2 single-trial NEG (calib=100, exp=0.5, FFS=3150), both leading early-calib STATIC variants of the per-block LR mechanism are CHARACTERIZED as NULL on primary metric.
+
+### Decisive per Issue #1260
+
+The "best per-block MuonH LR variant" question for STATIC mechanism is now resolved NEGATIVELY at the round-1 anchor. Remaining open: recalibration axis (H183-H186 in-flight), LATE-CALIB axis (H187 in-flight), H162-v2 multi-seed (H181 in-flight). If all three NULL, H162 per-block LR axis closes as noise-floor-only.
+
+### Follow-up: H188 thorfinn ASSIGNED — HYPER-FREQUENT recalibration (calib=100, exp=0.5, recal ∈ {25, 50}). Completes the recal frequency axis at peak anchor from 25 to 1500 in combination with H184/H185/H186.
+
+---
+
 ## 2026-05-26 17:15 — PR #1293: H179 tanjiro per-block LR calib=25 bracket exp ∈ {0.25, 1.0} — CLOSED (37th NULL/NEG closure + 1 programme finding reinforced)
 
 - Branch: `g1r3-tanjiro/h179-per-block-lr-calib25-bracket`

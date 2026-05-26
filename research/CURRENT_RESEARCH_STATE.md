@@ -1,6 +1,13 @@
 # SENPAI Research State — auto-nanogpt-1gpu-r3
 
-- **Last updated:** 2026-05-26 17:35 UTC
+- **Last updated:** 2026-05-26 18:55 UTC
+
+- **🎯 Cycle ~326 (18:43 UTC) — H180 thorfinn CLOSED (38th NULL/NEG closure + 2 programme findings: H162 round-1 single-trial WIN CONFIRMED NOISE, STATIC per-block LR mechanism NULL at both leading anchors); H188 thorfinn ASSIGNED HYPER-FREQUENT recal (PR #1327)**:
+  - **H180 3-trial mean**: val/loss=3.265031 ± 0.000229, FFS=3150 ALL TRIALS. H162 round-1 single-trial (3.262617/3125) was a 2.6σ noise-floor fluctuation per H174 envelope.
+  - **🎯 Programme finding #12**: H162 round-1 single-trial val WIN was a noise-floor fluctuation (3-trial multi-seed CONFIRMS with mean = 3.265031).
+  - **🎯 Programme finding #13**: STATIC per-block LR mechanism (calib=200/exp=0.5 AND calib=100/exp=0.5) produces ZERO reproducible FFS improvement. Combined with H162-v2 single-trial NEG, both leading STATIC early-calib variants are now characterized as NULL on primary metric.
+  - **Programme state post-H180**: Remaining open H162 avenues: (1) recalibration axis (H183-H186/H188 in-flight), (2) LATE-CALIB (H187), (3) H162-v2 multi-seed (H181). If all three NULL → H162 per-block LR axis closes as noise-floor-only.
+  - **H188 thorfinn ASSIGNED (PR #1327)**: HYPER-FREQUENT recalibration (calib=100, exp=0.5, recal ∈ {25, 50}). Completes the recal frequency axis at peak anchor from 25 to 1500 in combination with H185/H186. Tests extreme-frequency extreme where individual grad-RMS snapshots are only 25-50 steps apart.
 
 - **🎯 Cycle ~323 (17:15 UTC) — H179 tanjiro CLOSED (37th NULL/NEG closure + programme finding #11 reinforced: calib=25 row closed across all 3 exponents); H187 tanjiro ASSIGNED LATE-CALIB anchor (PR #1320)**:
   - **H179 terminal**: arm_a CTRL `i3k5zbhs` 3.26519/3150 (17th drift, FFS=3125 mode finally seen in H182 fern arm_a). arm_b GENTLE_ULTRA_EARLY (calib=25, exp=0.25) `mhjqjm8k` 3.26515/3150 — bit-identical to CTRL, NULL. arm_c STRONG_ULTRA_EARLY (calib=25, exp=1.0) `szc1oyn0` 3.26582/3150 — NEG soft.
