@@ -736,8 +736,18 @@ class Muon(torch.optim.Optimizer):
                     if dispatch_active:
                         if p in self.attn_body_params:
                             mu = group["mu"] * MUON_ATTN_BETA_MULT_COOLDOWN
+                            assert 0.0 < mu < 1.0, (
+                                f"PR #1323 attn mu_kind={mu:.4f} out of (0,1) range — "
+                                f"multiplier {MUON_ATTN_BETA_MULT_COOLDOWN} too aggressive "
+                                f"at group_mu={group['mu']:.4f}"
+                            )
                         elif p in self.mlp_body_params:
                             mu = group["mu"] * MUON_MLP_BETA_MULT_COOLDOWN
+                            assert 0.0 < mu < 1.0, (
+                                f"PR #1323 mlp mu_kind={mu:.4f} out of (0,1) range — "
+                                f"multiplier {MUON_MLP_BETA_MULT_COOLDOWN} too aggressive "
+                                f"at group_mu={group['mu']:.4f}"
+                            )
                     state["momentum"].lerp_(grad, 1 - mu)
                     momentum_update = grad.lerp(state["momentum"], mu)
                     use_soap = p in self.soap_params
