@@ -10,6 +10,7 @@ import sys
 with open(sys.argv[0]) as f:
     code = f.read() # read the code of this file ASAP, for logging
 import argparse
+import math
 import uuid
 import time
 from pathlib import Path
@@ -82,6 +83,25 @@ def parse_args():
              "mumedium=std=sqrt(0.33)/(L*sqrt(fan_in)); "
              "muall=musoft + non-residual block 2D weights also scaled by 1/sqrt(L); "
              "smallconst=std=1e-3 depth-independent.",
+    )
+    parser.add_argument(
+        "--grad_norm_lr_mode",
+        type=str,
+        default="none",
+        choices=["none", "linear", "sqrt", "log", "inverse"],
+        help="Per-step multiplicative gain on Muon body LR, conditioned on the pre-NS "
+             "raw grad-norm ratio g_norm / EMA(g_norm). "
+             "none=baseline (gain=1.0); "
+             "linear=clip(ratio, 0.5, 2.0); "
+             "sqrt=clip(sqrt(ratio), 0.7, 1.4); "
+             "log=clip(1+log(ratio), 0.5, 2.0); "
+             "inverse=clip(1/ratio, 0.5, 2.0) (FALSIFIER, must hurt if linear helps).",
+    )
+    parser.add_argument(
+        "--grad_norm_ema_beta",
+        type=float,
+        default=0.95,
+        help="EMA beta for per-block pre-NS grad-norm baseline used by --grad_norm_lr_mode.",
     )
     args = parser.parse_args()
     args.num_trials = args.num_trials if args.num_trials is not None else (args.legacy_num_trials or 1)
@@ -571,7 +591,8 @@ class Muon(torch.optim.Optimizer):
     SOAP_ATTN_SUFFIXES = (".attn.q.weight", ".attn.k.weight", ".attn.v.weight", ".attn.proj.weight")
 
     def __init__(self, named_params, lr=0.02, weight_decay=0, mu=0.95,
-                 soap_attn=False, trust_threshold=0.0):
+                 soap_attn=False, trust_threshold=0.0,
+                 grad_norm_lr_mode="none", grad_norm_ema_beta=0.95):
         # `named_params` can be either:
         #   (a) list of (name, param) tuples → single param group (legacy form)
         #   (b) list of dicts {"named_params": [(name, param), ...], "lr": ?, "weight_decay": ?, "mu": ?, "name": ?}
@@ -594,6 +615,11 @@ class Muon(torch.optim.Optimizer):
         self.trust_threshold = float(trust_threshold)
         self.use_trust_gate = soap_attn
         self.cos_sims_buffer: dict[str, Tensor] = {}
+        valid_modes = {"none", "linear", "sqrt", "log", "inverse"}
+        if grad_norm_lr_mode not in valid_modes:
+            raise ValueError(f"unknown grad_norm_lr_mode {grad_norm_lr_mode}")
+        self.grad_norm_lr_mode = grad_norm_lr_mode
+        self.grad_norm_ema_beta = float(grad_norm_ema_beta)
 
         param_groups = []
         for g in groups_raw:
@@ -610,6 +636,25 @@ class Muon(torch.optim.Optimizer):
         defaults = dict(lr=lr, weight_decay=weight_decay, mu=mu)
         super().__init__(param_groups, defaults)
 
+    def _compute_lr_gain(self, g_norm_t: Tensor, g_norm_ema_t: Tensor) -> Tensor:
+        """Compute per-block LR-gain tensor from pre-NS grad-norm ratio.
+
+        Clipping bounds match the predeclared sweep in PR #1206.
+        """
+        mode = self.grad_norm_lr_mode
+        if mode == "none":
+            return torch.ones_like(g_norm_t)
+        ratio = g_norm_t / (g_norm_ema_t + 1e-12)
+        if mode == "linear":
+            return ratio.clamp(0.5, 2.0)
+        if mode == "sqrt":
+            return ratio.sqrt().clamp(0.7, 1.4)
+        if mode == "log":
+            return (1.0 + ratio.clamp_min(1e-6).log()).clamp(0.5, 2.0)
+        if mode == "inverse":
+            return (1.0 / ratio.clamp_min(1e-6)).clamp(0.5, 2.0)
+        raise ValueError(f"unknown grad_norm_lr_mode {mode}")
+
     @torch.no_grad()
     def step(self):
         self.cos_sims_buffer = {}
@@ -618,12 +663,18 @@ class Muon(torch.optim.Optimizer):
         for group in self.param_groups:
             params = group["params"]
             norm_sum = torch.zeros((), device=params[0].device, dtype=torch.float32)
+            gnorm_sum = torch.zeros((), device=params[0].device, dtype=torch.float32)
+            gnorm_ema_sum = torch.zeros((), device=params[0].device, dtype=torch.float32)
+            gain_sum = torch.zeros((), device=params[0].device, dtype=torch.float32)
+            gain_t_list: list[Tensor] = []
             params_pad = params + [torch.empty_like(params[-1])] * (world_size - len(params) % world_size)
             for base_i in range(0, len(params), world_size):
                 if base_i + rank < len(params):
                     p = params[base_i + rank]
                     state = self.state[p]
                     use_soap = p in self.soap_params
+                    # Pre-NS, pre-momentum raw grad norm — captured BEFORE any state mutation
+                    g_norm_t = p.grad.detach().float().norm()
                     if len(state) == 0:
                         state["momentum"] = torch.zeros_like(p)
                         if use_soap:
@@ -633,6 +684,13 @@ class Muon(torch.optim.Optimizer):
                             state["q_row"] = None
                             state["q_col"] = None
                             state["soap_step"] = 0
+                        state["g_norm_ema_t"] = g_norm_t.detach().clone()
+                    else:
+                        state["g_norm_ema_t"].mul_(self.grad_norm_ema_beta).add_(
+                            g_norm_t, alpha=1.0 - self.grad_norm_ema_beta
+                        )
+                    g_norm_ema_t = state["g_norm_ema_t"]
+                    gain_t = self._compute_lr_gain(g_norm_t, g_norm_ema_t)
                     if use_soap:
                         state["momentum"].lerp_(p.grad, 1 - group["mu"])
                         raw_nesterov = p.grad.lerp(state["momentum"], group["mu"])
@@ -651,11 +709,23 @@ class Muon(torch.optim.Optimizer):
                     else:
                         update = muon_update(p.grad, state["momentum"], mu=group["mu"])
                     norm_sum.add_(update.float().norm())
+                    gnorm_sum.add_(g_norm_t)
+                    gnorm_ema_sum.add_(g_norm_ema_t)
+                    gain_sum.add_(gain_t)
+                    gain_t_list.append(gain_t.detach().clone())
                     p.mul_(1 - group["lr"] * group["weight_decay"])
-                    p.add_(update, alpha=-group["lr"])
+                    if self.grad_norm_lr_mode == "none":
+                        p.add_(update, alpha=-group["lr"])
+                    else:
+                        update.mul_(gain_t.to(update.dtype))
+                        p.add_(update, alpha=-group["lr"])
                 dist.all_gather(params_pad[base_i:base_i + world_size], params_pad[base_i + rank])
             group["_step_norm_sum"] = norm_sum
             group["_step_norm_count"] = len(params)
+            group["_step_gnorm_sum"] = gnorm_sum
+            group["_step_gnorm_ema_sum"] = gnorm_ema_sum
+            group["_step_gain_sum"] = gain_sum
+            group["_step_gain_t_list"] = gain_t_list
 
     def get_step_update_norms(self) -> dict[str, float]:
         """Return per-group mean Frobenius norm of the most recent step's updates.
@@ -678,6 +748,43 @@ class Muon(torch.optim.Optimizer):
                 mean = float(norm_sum.item()) / count
             name = group.get("name", f"group_{g_idx}")
             result[name] = mean
+        return result
+
+    def get_step_gnlr_stats(self) -> dict[str, dict[str, float]]:
+        """Return per-group pre-NS grad-norm conditioning stats for the most recent step.
+
+        Each value dict has: grad_norm_mean, grad_norm_ema_mean, lr_gain_mean, lr_gain_p95.
+        Cross-rank means use all_reduce SUM/count; p95 is computed on the rank-local gain
+        tensor (single-rank-only stat).
+        """
+        world_size = dist.get_world_size()
+        result: dict[str, dict[str, float]] = {}
+        for g_idx, group in enumerate(self.param_groups):
+            count = group.get("_step_norm_count", 0)
+            gnorm_sum = group.get("_step_gnorm_sum", None)
+            gnorm_ema_sum = group.get("_step_gnorm_ema_sum", None)
+            gain_sum = group.get("_step_gain_sum", None)
+            gain_t_list = group.get("_step_gain_t_list", [])
+            if gnorm_sum is None or count == 0:
+                continue
+            sums = torch.stack([gnorm_sum, gnorm_ema_sum, gain_sum])
+            if world_size > 1:
+                dist.all_reduce(sums, op=dist.ReduceOp.SUM)
+            gn_mean = float(sums[0].item()) / count
+            ge_mean = float(sums[1].item()) / count
+            gg_mean = float(sums[2].item()) / count
+            if gain_t_list:
+                gains_t = torch.stack(gain_t_list)
+                gain_p95 = float(gains_t.quantile(0.95).item())
+            else:
+                gain_p95 = float("nan")
+            name = group.get("name", f"group_{g_idx}")
+            result[name] = {
+                "grad_norm_mean": gn_mean,
+                "grad_norm_ema_mean": ge_mean,
+                "lr_gain_mean": gg_mean,
+                "lr_gain_p95": gain_p95,
+            }
         return result
 
 
@@ -765,6 +872,8 @@ if dist.get_rank() == 0:
             "wd_schedule": args.wd_schedule,
             "lr_scalars": args.lr_scalars,
             "depth_init_mode": args.depth_init_mode,
+            "grad_norm_lr_mode": args.grad_norm_lr_mode,
+            "grad_norm_ema_beta": args.grad_norm_ema_beta,
         },
     )
 
@@ -853,6 +962,8 @@ for trial_idx in range(args.num_trials):
             dict(named_params=attn_named, lr=args.lr_attn, weight_decay=args.wd_attn, name="muon_attn"),
         ],
         soap_attn=args.soap_attn, trust_threshold=args.soap_trust_threshold,
+        grad_norm_lr_mode=args.grad_norm_lr_mode,
+        grad_norm_ema_beta=args.grad_norm_ema_beta,
     )
     optimizers = [optimizer1, optimizer2]
     assert set(p for opt in optimizers for group in opt.param_groups
@@ -1011,6 +1122,7 @@ for trial_idx in range(args.num_trials):
             opt.step()
         if telemetry_due:
             update_norms = optimizer2.get_step_update_norms()
+            gnlr_stats = optimizer2.get_step_gnlr_stats()
             current_lrs = {group.get("name", f"group_{i}"): group["lr"]
                            for i, group in enumerate(optimizer2.param_groups)}
             current_wds = {group.get("name", f"group_{i}"): group.get("weight_decay", 0.0)
@@ -1026,6 +1138,31 @@ for trial_idx in range(args.num_trials):
                 per_group_metrics["train/wd_mlp_now"] = current_wds.get("muon_mlp", 0.0)
                 per_group_metrics["train/wd_attn_now"] = current_wds.get("muon_attn", 0.0)
                 per_group_metrics["train/wd_schedule_progress"] = train_step / train_steps
+                # Per-group conditioning diagnostics
+                agg_gn_sum, agg_ge_sum, agg_gg_sum = 0.0, 0.0, 0.0
+                agg_count = 0
+                for gname, gstats in gnlr_stats.items():
+                    per_group_metrics[f"muon_body/{gname}/grad_norm_mean"] = gstats["grad_norm_mean"]
+                    per_group_metrics[f"muon_body/{gname}/grad_norm_ema_mean"] = gstats["grad_norm_ema_mean"]
+                    per_group_metrics[f"muon_body/{gname}/lr_gain_mean"] = gstats["lr_gain_mean"]
+                    per_group_metrics[f"muon_body/{gname}/lr_gain_p95"] = gstats["lr_gain_p95"]
+                    group_count = next((g.get("_step_norm_count", 0)
+                                        for g in optimizer2.param_groups
+                                        if g.get("name") == gname), 0)
+                    agg_gn_sum += gstats["grad_norm_mean"] * group_count
+                    agg_ge_sum += gstats["grad_norm_ema_mean"] * group_count
+                    agg_gg_sum += gstats["lr_gain_mean"] * group_count
+                    agg_count += group_count
+                if agg_count > 0:
+                    per_group_metrics["muon_body/grad_norm_mean"] = agg_gn_sum / agg_count
+                    per_group_metrics["muon_body/grad_norm_ema_mean"] = agg_ge_sum / agg_count
+                    per_group_metrics["muon_body/lr_gain_mean"] = agg_gg_sum / agg_count
+                all_gain_tensors: list[Tensor] = []
+                for group in optimizer2.param_groups:
+                    all_gain_tensors.extend(group.get("_step_gain_t_list", []))
+                if all_gain_tensors:
+                    aggregate_p95 = float(torch.stack(all_gain_tensors).quantile(0.95).item())
+                    per_group_metrics["muon_body/lr_gain_p95"] = aggregate_p95
                 wandb.log(per_group_metrics, step=wandb_step)
         if dist.get_rank() == 0 and optimizer2.cos_sims_buffer:
             cs_names = list(optimizer2.cos_sims_buffer.keys())
