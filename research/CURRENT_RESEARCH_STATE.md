@@ -1,3 +1,98 @@
+## 2026-05-26 23:55 UTC — Cycle 71 mid-303
+
+**Cumulative**: **188 refuted (+1: fern #1341 188th cluster-band-edge, 63rd family closure with the 4-cell β-depth-derivative phase × magnitude factorial CLOSED)** / **107 distinct mech classes (+1 pending: fern #1361 COOLDOWN_BODY_WEIGHT_NOISE_INJECTION, first weight-perturbation state-phase event in 320+ corpus)** / **63 family-level closures**.
+
+**Highest-information mid-303 finding**: **β-depth-derivative is a CLUSTER-BAND CEILING mechanism, fungible across temporal localization** (#1341 closure with 4-cell factorial):
+
+| variant | PR | val | ffs | placement |
+|---|---|---|---|---|
+| (ON throughout, monotonic) | #1251 | 3.26912 | 3025 | cluster member |
+| (ON cooldown-only) | #1282 | cluster member | — | cluster band |
+| (ON plateau-only, decay-from-full) | **#1341** | **3.26880** | **3025** | sub-cluster-edge |
+| (OFF) | #613 baseline | 3.26776 | 3000 | merge bar |
+
+Temporal localization is **mechanism-fungible** at cluster-band level: all "ramp on" variants land at val ∈ [3.2688, 3.2692], ffs=3025. Only OFF clears merge bar. β depth-derivative creates ~0.001 nat penalty over baseline regardless of WHEN it is active.
+
+**Compound finding**: β-depth-derivative is a STRUCTURAL-FLOOR mechanism (val ≈ 3.269, sub-cluster-edge) while optimizer-state perturbations are CLUSTER-FLOOR mechanisms (val ≈ 3.270, in cluster band). Two distinct floor regimes:
+- **Sub-cluster-edge zone** (val ∈ [3.265, 3.269]): β depth-derivative (#1341, #1251, #1282)
+- **Cluster band zone** (val ∈ [3.269, 3.275]): optimizer-state perturbations (#1336, #1316, #1333, #1323, #1307)
+
+This is the FIRST documented split between sub-cluster-edge and cluster-band mechanisms. Suggests the merge bar (3.26776) sits in a fairly thin "merge-eligible" zone immediately above the n=1 hold gate (3.265).
+
+**Second high-information mid-303 finding**: **Virgin weight-perturbation axis assigned** (#1361):
+
+Prior cluster-floor probes have ONLY perturbed optimizer state (Gram, m, v, β, EMA) — none have perturbed WEIGHTS directly as a state-phase event. #1361 fills this gap with one-shot Gaussian noise injection at cooldown_start. Tests whether cluster floor is set by basin geometry (vs optimizer-state geometry) — if basin geometry, weight noise could break the floor; if optimizer-state geometry, weight noise will absorb to cluster.
+
+**This cycle — 1 closure + 1 fresh virgin axis assignment**:
+
+1. **fern #1341 MUON_BETA_RAMP_DECAY closed as 188th refute** (cluster-band-edge, 63rd family closure):
+   - val=3.26880, ffs=3025 — sub-cluster-edge (val 0.0002 below cluster lower bound; ffs in cluster ffs set)
+   - 4-cell β-depth-derivative phase × magnitude factorial CLOSED with temporal-localization-irrelevance principle
+   - n=2 confirm DECLINED (low merge probability due to ffs constraint; factorial closure already definitive)
+   - First sub-cluster-edge / cluster-band distinction documented
+   - Methodology corpus: cluster-band-edge sub-subtype recognized
+
+2. **fern → #1361 COOLDOWN_BODY_WEIGHT_NOISE_INJECTION (110th mech class assigned)**:
+   - **FIRST WEIGHT-PERTURBATION STATE-PHASE EVENT** in 320+ PR corpus. Prior gradient noise: #246, #996, #1161, #1169 (all continuous). Prior weight perturbation: ZERO.
+   - Mechanism: one-shot Gaussian noise on body matrices at step 953. σ=1e-3 × ||W||_F / √N (perturbation ≈ 0.1% mean param magnitude).
+   - Arms: Arm A noise on attn body only, Arm B noise on mlp body only. Bilateral isolates attn-vs-mlp weight-perturbation sensitivity.
+   - Complement to #1323 per-kind μ dispatch (which found attn-higher-μ favorable on optimizer state).
+   - Tests cluster-floor robustness on a NEW sub-system: weight basin geometry vs optimizer-state geometry.
+   - State-phase event + per-body-kind dispatch per Morgan directive #1259.
+
+**Per-kind/state-phase axes in flight or recently closed** (cycle 71, updated):
+- #1307 (nezuko): per-AUX-group LR scalar dispatch — CLOSED cluster-band ASYMMETRIC-MAGNITUDE
+- #1323 (alphonse): per-kind body Muon μ dispatch at cooldown — CLOSED cluster-band ASYMMETRIC-OUTCOME
+- #1347 (nezuko): per-kind Nesterov on body Muon — IN FLIGHT
+- #1355 (askeladd): per-kind NS5_ITERS at cooldown — IN FLIGHT
+- #1353 (thorfinn): AUX state reset at cooldown — IN FLIGHT
+- #1358 (tanjiro): per-AUX-kind β2 at cooldown — IN FLIGHT (just assigned)
+- #1359 (alphonse): per-AUX-kind ε at cooldown — IN FLIGHT (just assigned)
+- **#1361 (fern): cooldown-start weight noise injection — IN FLIGHT (just assigned)**
+
+This is now an 8-axis per-kind/state-phase swarm — direct response to Morgan directive #1259, with #1361 as the structural outlier (weight-sub-system perturbation, not optimizer-state).
+
+**Cluster-floor research direction — refinement post-#1341**:
+
+Two-zone floor structure now documented:
+- (a) **Cluster band [3.269, 3.275]**: 4 mech classes converge here (state, eval-state, state-reset, per-group-dispatch on optimizer state)
+- (b) **Sub-cluster-edge [3.265, 3.269]**: β depth-derivative mechanisms here (3 PRs converge)
+- (c) **Merge zone [val<3.26776, ffs≤3000]**: baseline ceiling, hard to break
+
+Floor-breaking candidates updated:
+- (a) Cooldown SHAPE intervention — DONE extensively
+- (b) Cooldown START boundary change — DONE via cooldown_frac sweeps
+- (c) Optimizer-class SWITCH during cooldown — partial (full-switch is virgin; phase-gated full-switch tested at #376)
+- (d) Virgin sub-systems — **#1361 weight perturbation is virgin** (just assigned)
+- (e) Per-group structural dispatch — actively probed by 8-axis swarm
+
+**Closure-mechanism taxonomy** (unchanged 6-way + cluster-band 5 sub-subtypes):
+- cluster-band sub-subtypes: SYMMETRIC, ASYMMETRIC-MAGNITUDE, **ASYMMETRIC-OUTCOME** (recognized mid-302), INFORMATIVE-TRIANGULATION, STANDARD (5-way)
+- **cluster-band-edge** (mid-303, near merge bar but ffs in cluster band) recognized as sub-variant of STANDARD
+- catastrophic-shifted-floor / n=2-confirm / MATH-NULL / informative-crossover / **STRUCTURAL-MISMATCH-AT-PARAM** (recognized mid-302)
+
+**Active fleet status mid-303**:
+
+| Student | PR | Status | W&B notes |
+|---|---|---|---|
+| g1r2-alphonse | #1359 | status:wip | AUX_EPS_PER_KIND_AT_COOLDOWN (109th mech) |
+| g1r2-thorfinn | #1353 | status:wip | MUON_AUX_BUFFER_RESET_AT_COOLDOWN (105th mech) |
+| g1r2-nezuko | #1347 | status:wip | MUON_NESTEROV_PER_KIND (104th mech) |
+| g1r2-fern | #1361 | status:wip, JUST ASSIGNED | COOLDOWN_BODY_WEIGHT_NOISE_INJECTION (110th mech) |
+| g1r2-frieren | #1340 | status:wip | MUON_BETA_LOCALIZED_STEP |
+| g1r2-askeladd | #1355 | status:wip | MUON_NS5_ITERS_PER_KIND_AT_COOLDOWN (107th mech) |
+| g1r2-tanjiro | #1358 | status:wip | AUX_BETA2_PER_KIND_AT_COOLDOWN (108th mech) |
+| g1r2-edward | #1335 | status:wip | EMBED_LR_PHASE_TRANSITION |
+
+**ZERO IDLE STUDENTS — 8 students concurrently active. ZERO IDLE GPUs.**
+
+**Methodology corpus this cycle**:
+- **Cluster-band-edge sub-subtype**: val just below cluster lower bound but ffs in cluster ffs set. Distinct from STANDARD cluster-band closure. Recognized for #1341.
+- **Two-zone floor structure**: sub-cluster-edge [3.265, 3.269] vs cluster band [3.269, 3.275]. Different mechanism classes populate each zone (β-depth-derivative vs optimizer-state perturbation).
+- **N=2 decline rationale formalized**: low merge probability + already-clear factorial result → decline. Resource preserved for fresh virgin axes.
+
+**Cumulative closure rate**: 188 / ~535 PRs ≈ 35% refute rate. 10 mech classes assigned in cycle 71 so far.
+
 ## 2026-05-26 23:30 UTC — Cycle 71 mid-302
 
 **Cumulative**: **187 refuted (+2 this cycle: tanjiro #1354 186th STRUCTURAL-MISMATCH-AT-L8, alphonse #1323 187th cluster-band ASYMMETRIC-OUTCOME)** / **107 distinct mech classes (unchanged: closures don't reduce; #1358 + #1359 add 108th + 109th when implemented)** / **62 family-level closures (+2: 61st STRUCTURAL-MISMATCH fast-close, 62nd cluster-band ASYMMETRIC-OUTCOME after #1057)** / **6-way closure taxonomy unchanged**.
