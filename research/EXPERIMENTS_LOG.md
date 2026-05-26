@@ -3,6 +3,28 @@
 This file logs experiment outcomes as PRs land. The historical track 3
 leaderboard is captured in `/BASELINE.md`.
 
+## 2026-05-26 11:15 UTC — PR #1246: Gradient Centralization Pre-NS5 (askeladd) — CLOSED productive-MARGINAL (40th no-merge)
+
+- Branch: `g1r4-askeladd/grad-centralization-pre-ns5`
+- Hypothesis: Gradient Centralization (Yong 2020, arXiv:2004.01461) applied to body Muon matrices BEFORE NS5 polar decomposition. Three GC variants × Newton-Muon stack composition: B row-center (per-output-row zero-mean over d_in), C col-center (per-input-col zero-mean over d_out), D both. Mechanism-distinct from Newton-Muon right-precondition (additive vs multiplicative), composes orthogonally.
+
+| Arm | NANOGPT_GRAD_CENTRALIZE | val/loss | fs | Δ_paired_val | Δ_paired_fs | Verdict |
+|:---:|:---:|:---:|:---:|:---:|:---:|---|
+| A ctrl | none | 3.26750 | 3200 | (ref) | (ref) | drift +0.00136 PASS-strong |
+| **B row** | row | **3.26601** | **3175** | **−0.00149** | **−25** | **PRODUCTIVE-MARGINAL** (Δ ∈ [−0.002, −0.001] band, val ≤ baseline by 0.00013, fs matches baseline exactly) |
+| C col | col | 3.27273 | 3250 | +0.00523 | +50 | PRODUCTIVE-NEG |
+| D both | both | 3.27465 | 3275 | +0.00715 | +75 | PRODUCTIVE-NEG (D−B=+0.00864 NON-super-additive) |
+
+- **Pre-staged decision tree application** (advisor stale_wip ack #3): Δ_paired ≤ −0.002 AND val_B ≤ 3.26614 → PP n=3 (NOT triggered, Δ=−0.00149 above bar by 0.00051); Δ_paired ∈ [−0.002, −0.001] → productive-MARGINAL close (**TRIGGERED**); D Δ ≤ B Δ by ≥0.0005 → compound super-additive (NOT triggered, D−B=+0.00864 NON-super-additive).
+- **GC firing strength telemetry** (rel_change = ||G_pre − G_post|| / ||G_pre||): Arm B row 0.174→0.080 mean / 0.521 max (**strong**, comfortably above 0.05 threshold); Arm C col 0.040→0.030 / 0.102 (**weak**, gradients already near-column-zero-mean); Arm D both 0.180→0.109 / 0.470 (dominated by row component). Validates mechanism IS firing for B/D but body Muon col-mean structure is weak.
+- **Row vs col asymmetry mechanism**: body Muon gradients have strong row-mean structure (3-4× col rel_change). Per-output-row systematic bias exists (subtractable, helpful); per-input-col gradients already near-zero-mean (forcing col-zero-mean removes useful variance without regularization win).
+- **Compound destroys composition**: D both = +0.00715 vs B row = −0.00149. Col-centering AFTER row-centering destroys NS5 polynomial conditioning — the second mean-removal pass shifts the matrix in a way that interacts unfavorably with the NS5 polynomial's spectral assumptions.
+- **First non-NM-internal compositional NM-stack extension showing FAVORABLE-MARGINAL direction**: Joins #1240 Arm B (max_d=4096, Δ=−0.00232) and Arm D compound (Δ=−0.00287) as the third compositional NM-stack extension showing favorable direction. Difference: #1240 Arms B/D crossed the −0.002 signal threshold and are PP-escalated; GC row-center sits below escalation bar at Δ=−0.00149.
+- **FFS readout (Issue #1261 directive)**: fs_B=3175 matches baseline exactly — GC row-center does NOT improve FFS, only marginally improves val. Therefore NOT a "help before target crossing" mechanism per directive — close-without-escalation is directive-correct.
+- **Cross-PR context**: GRADIENT-CENTRALIZATION-PRE-NS5 axis FAVORABLE-MARGINAL 1-closure observation (not a fence — direction-correct but sub-threshold). May revisit if NM mechanism characterization (currently in flight #1288 BETA + #1291 EPS sweeps) unlocks compositional super-additivity with GC.
+- **Student excellence**: clean `_centralize_grad` implementation with bit-identical fallback verified by Arm A drift gate, comprehensive `rel_change` telemetry that quantitatively explained the B vs C spread, mechanism interpretation tying col-center failure to weak col-mean structure, honest pre-PP-escalation reading per pre-staged decision tree.
+- **W&B run IDs**: `dlckw2vq / jlij845f / i0uo4z8v / g26xvln4` (Arms A/B/C/D)
+
 ## 2026-05-26 10:43 UTC — PR #1243: AdEMAMix-aux dual-EMA first moment (frieren) — CLOSED productive-NEG (39th no-merge)
 
 - Branch: `g1r4-frieren/ademamix-aux`
