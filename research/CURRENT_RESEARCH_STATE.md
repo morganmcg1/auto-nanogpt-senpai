@@ -1,3 +1,53 @@
+## 2026-05-26 21:10 UTC — Cycle 71 mid-298
+
+**Cumulative**: **182 refuted (+1: nezuko #1307 182nd cluster-band ASYMMETRIC-MAGNITUDE)** / **104 distinct mech classes (+1: nezuko #1347 MUON_NESTEROV_PER_KIND)** / **58 family-level closures (+1: per-AUX-group LR scalar dispatch)** / **6-way closure taxonomy unchanged** (ASYMMETRIC-MAGNITUDE is a sub-subtype of cluster-band, not warranting 7th top-level entry).
+
+**This cycle — 1 closure + 1 reassignment + 1 incident-ACK + 1 active-fleet heartbeat update**:
+
+1. **nezuko #1307 AUX_BIASES_LR_BOOST closed as 182nd refute** (cluster-band ASYMMETRIC-MAGNITUDE sub-subtype):
+   - Student posted Arm B terminal SENPAI-RESULT following recovery prompt: val=**3.27376** ffs=**3075** (`m6bonjso`).
+   - Bilateral: Arm A 2.0× val=**3.26934** ffs=**3025** (cluster lower edge, ≈ empirical RNG-floor); Arm B 0.5× val=3.27376 ffs=3075 (mid-cluster). Arm B regresses ~3.8× more than Arm A.
+   - **Cluster-band ASYMMETRIC-MAGNITUDE** sub-subtype distinct from #1312 ASYMMETRIC-OUTCOME (where one arm clusters/one regresses catastrophically): here BOTH arms within cluster band but with asymmetric magnitude within the band.
+   - **Structural finding**: bias subspace asymmetry direction = boost (2.0×) less harmful than suppress (0.5×). Biases tolerate over-LR better than under-LR. Corroborated by per-AUX-group grad_rms telemetry: bias_rms decays 16.64→5.64 over training while other_scalars_rms grows 44.66→71.80 — biases approach low-magnitude steady state, gains accumulate.
+   - Future-direction (NOT this PR): per-AUX-group LR SCHEDULES rather than scalar dispatch may capture this trajectory asymmetry; bias LR could decay while gains LR could increase. Per-AUX-group LR scalar dispatch axis CLOSED as 58th family closure.
+   - 95th mech class closed.
+
+2. **nezuko → #1347 MUON_NESTEROV_PER_KIND (104th mech class assigned)**:
+   - First per-structural-kind Nesterov-form dispatch in 320+ PR corpus.
+   - **New axis intersection**: per-kind (#1323 axis) × Nesterov form (#1306/#1336 axis). Tests whether the Nesterov phase asymmetry from #1306 ALSO has kind asymmetry.
+   - Hypothesis: attention params (q/k/v/proj) carry sharp directional signal from token interactions and may benefit from Nesterov's anticipatory lookahead; MLP params (fc/proj) carry diffuse channel-mixing signal where heavy-ball's pure momentum may be more stable.
+   - Single Arm A: Nesterov-on-attn + HB-on-MLP. ~20 LoC. IEEE-identity disabled-check at default both-zero. Single-canary structural exemption tier.
+   - Hold gate: TIGHTENED `val ≤ 3.265 AND ffs ≤ 3000`.
+   - Telemetry: attn/mlp update_norm ratio over training tells us whether Nesterov on attn produces qualitatively different update magnitudes than HB on mlp — load-bearing diagnostic for kind-asymmetry hypothesis.
+
+3. **frieren #1340 INCIDENT — duplicate torchrun ACKed**:
+   - Two concurrent `arm_a_late_boost` processes detected on same GPU at 20:38. Student SIGTERMed earlier launcher (`flpyjp6b`), kept canonical (`42xysn6w`). GPU throughput restored: 4200ms → 1830ms step_avg.
+   - Arithmetic correctness verified: separate torchrun PIDs → independent process state (model/optimizer/RNG) → canonical run's per-step computations are correct, only wallclock was slowed for first ~13 min.
+   - No restart needed. Continuing canonical run; ETA ~91 min remaining.
+   - **Methodology corpus addition: duplicate-launch detection protocol**: on student wake, query `ps aux | grep torchrun` to count active processes for same PR; SIGTERM earlier launches keeping later launches (more likely to have latest env vars); document kill in next heartbeat.
+
+4. **Active fleet status (8 PRs in flight)**:
+   - edward #1335 Arm A step 1000/3175 — phase event firing CONFIRMED at step 953 (embed LR step DOWN by ~50% post-event verified via `train/aux/embed_lr` 0.3→0.14686 = expected 0.3×0.5×cooldown_frac(1000)=0.1469).
+   - thorfinn #1336 Arm A step 1192/3175 pre-cooldown phase, healthy.
+   - alphonse #1323 Arm A revised step 2092/3175 — kill gates 1500/2000 cleared, on healthy cooldown trajectory.
+   - askeladd #1333 launching Arm A after authorization.
+   - fern #1341 implementing MUON_BETA_RAMP_DECAY from advisor's from-scratch specs.
+   - frieren #1340 canonical run continuing post-incident.
+   - tanjiro #1316 Arm B running (Polyak α=0.99).
+   - nezuko #1347 just assigned.
+
+**Methodology corpus addition this cycle**:
+
+1. **duplicate-launch detection protocol** (from frieren #1340 incident).
+2. **researcher-agent recommendations must be cross-checked against closed PR corpus before assignment**: researcher recommended MUON_NS_COEFF_PHASE_GATE this cycle but #1057 NS5_COEF_SCHEDULE (29th mech class) had already closed this axis. Always grep open AND closed PRs by axis name before honoring researcher recommendations.
+
+**ZERO IDLE STUDENTS — 8 students concurrently active**.
+
+**Closure-mechanism taxonomy refinement** (cluster-band sub-subtypes):
+- cluster-band SYMMETRIC: both arms within band, similar magnitudes
+- cluster-band ASYMMETRIC-MAGNITUDE (NEW from #1307): both arms within band, asymmetric magnitudes — directional gradient on axis even though both fail merge bar
+- (Distinct from ASYMMETRIC-OUTCOME from #1312: one clusters, one regresses catastrophically)
+
 ## 2026-05-26 20:55 UTC — Cycle 71 mid-297
 
 **Cumulative**: **181 refuted (unchanged)** / **103 distinct mech classes (unchanged)** / **57 family-level closures (unchanged)** / **6-way closure taxonomy unchanged**.
