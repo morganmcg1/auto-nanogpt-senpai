@@ -1,3 +1,70 @@
+## 2026-05-26 02:10 UTC — NEZUKO #1226 POD-BROKEN HOLD (student-led cross-pod control) + FRIEREN #1220 ARM A TERMINAL refute (cycle 71 mid-258)
+
+### #1226 nezuko AUX_CLIP_NORM — POD-BROKEN HOLD (3rd pod-broken hold cycle 71 joining tanjiro #793 + edward #702)
+
+- **Background**: Advisor mis-diagnosed 4 disabled-check NaN runs at 23:58 UTC + 01:51 UTC as implementation-bug requiring early-return guard fix. Student investigated alternative hypothesis: pod-state corruption.
+
+- **Student-led cross-pod control investigation (publication-grade)**:
+  
+  | # | Run ID | Config | nonfinite | val_loss |
+  |---|--------|--------|-----------|----------|
+  | 1 | `rrzc2hlz` | AUX_CLIP_NORM=0 (pre-fix) | 91.11% | NaN @125 |
+  | 2 | **`n5e1f8fg` `aux-clip-norm-baseline-sanity`** | **true baseline, no PR diff** | **91.11%** | NaN @125 |
+  | 3 | `c82x9k6r` | AUX_CLIP_NORM=0 (post-fix) | 91.11% | NaN @125 |
+  | 4 | `7f4yqp5m` | AUX_CLIP_NORM=0 (post-fix) | 91.11% | NaN @125 |
+  | 5 | `hz72y4pz` | AUX_CLIP_NORM=0, 25-step canary | 91.01% | NaN @25 |
+
+  Run 2 (`n5e1f8fg`) is the **smoking gun**: this run carried no PR diff at all (env var never read, no clip block compiled in) and produced the identical 91.11% non-finite fingerprint. The failure path cannot be the PR diff — it is upstream.
+
+- **Additional cross-checks performed by student**:
+  1. Other r2 students train cleanly on their own pods (alphonse `prodigy-aux-arm-A-canonical-sqrt095`, fern `wd-body-depth-arm-A-up` at step 3325 with finite grads at step 1) — rules out branch-level code corruption.
+  2. Basic CUDA matmul `(2048,768) @ (768,50304)` returns 100% finite gradients — GPU not fundamentally dead, corruption is CUDA-state/driver level.
+  3. Last healthy run on this pod: `5yxmzico` `cautious-muon-disabled-check` 2026-05-25 16:35 UTC val_best=4.089 (in band).
+  4. First broken run: `9wpbuaqy` `cautious-muon-disabled-check` 2026-05-25 20:34 UTC.
+  5. Pod corruption window: ~5h 25m.
+  6. Same fingerprint family as #768 g1r2-tanjiro and #692 g1r2-edward.
+  7. Student filed issue #1239 cross-linked to #768/#692 for human pod remediation.
+
+- **Implementation status (ACCEPTED on review, no further changes needed)**:
+  - Patch at commit `548e188`. Early-return guard at TOP of clip routine wraps entire block — `AUX_CLIP_NORM=0.0` byte-identical to baseline path.
+  - `wandb.config.update({"aux_clip_norm": value})` deterministic fingerprint.
+  - AUX-isolated to `optimizer1.param_groups` (AdamW for embed + lm_head + scalars); Muon body untouched (preserves NS5 polar input, avoiding #860 GLOBAL_GRAD_CLIP failure mode).
+  - Telemetry `aux_clip_norm/grad_norm_pre`, `clip_active`, `max_norm` logged at step 1, every 100, and final.
+
+- **Advisor decision**: PR HELD as 3rd pod-broken hold (joining #793 tanjiro + #702 edward). When pod #1239 is remediated, student will run 200-step canary first; if pass, launch disabled-check then Arm A tight clip (1.0) + Arm B loose clip (5.0). Label reverted to `status:wip` + draft.
+
+- **Process learning — advisor pipeline gap**: The default diagnosis on disabled-check NaN is implementation-bug. But the advisor pipeline should additionally check: is the fingerprint CONFIG-INDEPENDENT (same %non-finite across runs with different env vars) or CONFIG-DEPENDENT (varies with config)? Config-independent fingerprint → pod-state. Config-dependent fingerprint → implementation bug. In this case, all 5 runs showed identical 91.11% fingerprint regardless of patch state → config-independent → pod-state. Memory `[[pod-broken-axis-misattribution]]` updated with this case study as the canonical exemplar of student-led successful cross-pod control.
+
+- **Advisor mis-attribution events in cycle 71 to date**:
+  1. askeladd #1196 kill-gate mis-calibration (target loss vs baseline trajectory)
+  2. alphonse #1230 first Prodigy spec (inner product + missing decay; mid-256)
+  3. alphonse #1230 second Prodigy spec (linear-in-d vs quadratic-in-d; mid-257)
+  4. **nezuko #1226 pod-state mis-diagnosed as implementation-bug (mid-258 NEW)**
+
+  Pattern: advisor pipeline has high false-positive rate on implementation-bug diagnosis vs pod-state when disabled-check NaN repeats; student-led cross-pod control is the canonical disambiguating test.
+
+- **Student value-add**: Prevented further implementation-fix iterations on a broken pod (~30-60 min wasted GPU avoided). Established cross-pod control as standard diagnostic. Filed pod remediation issue #1239.
+
+### #1220 frieren SHAMPOO_MUON_BODY Arm A terminal val=3.27641 — SHIFTED-FLOOR refute trending
+
+- **Branch**: `g1r2-frieren/shampoo-muon-body`
+- **Arm A run**: `1p4a21zr` `g1r2-frieren/shampoo-muon-body-arm-A-freq50` (KRON_PRECOND_FREQ=50, SHAMPOO_EPS=1e-6)
+- **Result**: FULL 3175 steps val=**3.27641** vs baseline merge bar 3.26776 → **Δ+0.00865 SHIFTED-FLOOR refute** (clear-miss with floor-cluster proximity)
+- **Trajectory**: On-track throughout, no kill-gate breaches
+- **Status**: Advisor check-in comment sent at 02:08 UTC requesting terminal SENPAI-RESULT submission. Awaiting Arm B (`KRON_PRECOND_FREQ=100`) status update from student.
+- **Likely closure**: 17th SHIFTED-FLOOR if Arm B follows same pattern, 43rd family-level closure on SHAMPOO_MUON_BODY-PRE-NS5-{FREQ=50,100} family (78th mech class).
+
+### #1224 fern WD_BODY_DEPTH Arm A POD-CRASH at step 1200 (canary pending)
+
+- **Branch**: `g1r2-fern/wd-body-depth-arm-A-up`
+- **Run**: `o3e36ubt` state=`crashed` at step 1200, last val log step 1125 val=3.6367
+- **Trajectory was on-track**: step 1000 kill gate 3.71 vs actual 3.66 ✓ clearing by 0.05; step 1500 gate 3.58 projected clear
+- **NOT kill-gate breach** — looks like pod-level crash, isolated one run not the 5/5 nezuko fingerprint
+- **Advisor decision**: Send fern canary instructions (200-step vanilla baseline). If pass, re-launch Arm A + parallel Arm B. If fail, file pod-broken issue and HOLD.
+- **Awaiting**: fern canary result before declaring 4th pod-broken hold.
+
+---
+
 ## 2026-05-26 01:55 UTC — ADVISOR SELF-CORRECTION #2 on PRODIGY_AUX: paper Algorithm 3 ≠ konstmish/prodigy reference impl (cycle 71 mid-257)
 
 ### #1230 alphonse PRODIGY_AUX — SECOND advisor-side spec error caught by student pre-confirmation
