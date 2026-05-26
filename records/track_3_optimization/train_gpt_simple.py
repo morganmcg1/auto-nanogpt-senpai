@@ -70,6 +70,12 @@ def parse_args():
                              "late-higher=0.9 (block 0) → 1.1 (block 11), "
                              "late-lower=1.1 (block 0) → 0.9 (block 11). "
                              "Mean LR preserved across blocks.")
+    parser.add_argument("--lcov_refresh_step", type=int, default=0,
+                        help="If >0, refresh body-Muon L_cov+R_cov bilateral preconditioner state "
+                             "at this step (zero both matrices immediately after optimizer2.step()).")
+    parser.add_argument("--paramema_refresh_step", type=int, default=0,
+                        help="If >0, reset (zero) the param-EMA buffer at this step, immediately "
+                             "after the current step's EMA accumulation.")
     args = parser.parse_args()
     args.num_trials = args.num_trials if args.num_trials is not None else (args.legacy_num_trials or 1)
     args.wandb_tags = [tag.strip() for tag in args.wandb_tags.split(",") if tag.strip()]
@@ -1021,6 +1027,28 @@ for trial_idx in range(args.num_trials):
             )
         for opt in optimizers:
             opt.step()
+        # L_cov + R_cov bilateral preconditioner state refresh (PR #1268 fern wiring).
+        # Fires immediately AFTER optimizer2.step() so this step's accumulation is wiped
+        # and the next step restarts L/R from zero (clamp eps=1e-12 keeps matrix_neg_power stable).
+        if args.lcov_refresh_step > 0 and step == args.lcov_refresh_step:
+            pre_spec = pmuon_spectral_diag(optimizer2, PMUON_GAMMA) if dist.get_rank() == 0 else {}
+            for group in optimizer2.param_groups:
+                for p in group["params"]:
+                    state = optimizer2.state.get(p, None)
+                    if state is not None and "L" in state:
+                        state["L"].zero_()
+                        state["R"].zero_()
+            if dist.get_rank() == 0:
+                wandb.log({
+                    "trial": trial_idx,
+                    "train/step": train_step,
+                    "lcov_refresh/fired": 1,
+                    "lcov_refresh/step": step,
+                    "lcov_refresh/lcov_eigh_min_pre": pre_spec.get("pmuon/lcov_eigh_min", float("nan")),
+                    "lcov_refresh/lcov_eigh_max_pre": pre_spec.get("pmuon/lcov_eigh_max", float("nan")),
+                    "lcov_refresh/rcov_eigh_min_pre": pre_spec.get("pmuon/rcov_eigh_min", float("nan")),
+                    "lcov_refresh/rcov_eigh_max_pre": pre_spec.get("pmuon/rcov_eigh_max", float("nan")),
+                }, step=wandb_step)
         # EMA buffer update on body-Muon matrix params.
         # During warmup: track params live (no averaging) so post-warmup buffer is
         # seeded with stable, non-zero params (handles proj zero-init bias and lets
@@ -1040,6 +1068,26 @@ for trial_idx in range(args.num_trials):
                 lerp_w = 1.0 - ema_beta_t_now
                 for ema_p, p in zip(ema_params, optimizer2.param_groups[0]["params"]):
                     ema_p.lerp_(p.detach().float(), lerp_w)
+        # param-EMA buffer refresh (PR #1274 nezuko wiring).
+        # Fires immediately AFTER the current step's EMA accumulation so the just-updated
+        # buffer is zeroed; the cooldown lerp rebuilds it from zero over the remaining steps.
+        if (args.paramema_refresh_step > 0
+                and step == args.paramema_refresh_step
+                and ema_params is not None):
+            sq_sum_pre = 0.0
+            for ema_p in ema_params:
+                sq_sum_pre += float(ema_p.square().sum().item())
+            buffer_frob_pre = sq_sum_pre ** 0.5
+            for ema_p in ema_params:
+                ema_p.zero_()
+            if dist.get_rank() == 0:
+                wandb.log({
+                    "trial": trial_idx,
+                    "train/step": train_step,
+                    "ema_refresh/fired": 1,
+                    "ema_refresh/step": step,
+                    "ema/buffer_frob_pre": buffer_frob_pre,
+                }, step=wandb_step)
         if dist.get_rank() == 0 and telemetry_due:
             log_weight_telemetry(
                 model=model,
