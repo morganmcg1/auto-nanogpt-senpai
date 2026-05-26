@@ -3,6 +3,39 @@
 Log of completed/reviewed experiment PRs in chronological order. Wave 1
 results pending student execution.
 
+## 2026-05-26 12:10 UTC — PR #1238: nezuko SPAM spike-aware momentum reset on Muon body — **CLOSED clean-NEG** [FFS-PRIMARY]
+
+- **Branch:** `g1r5-nezuko/spam-muon-body`
+- **Student:** g1r5-nezuko
+- **Hypothesis:** Detect gradient-norm spikes via EMA ratio, zero Muon momentum on spike > threshold × EMA. Five-cell threshold sweep (5/10★/20/50 + ctrl=1000 never-triggers). Tests whether cooldown-phase momentum contamination from gradient spikes explains training instability.
+
+### FFS-primary verdict
+
+| Cell | threshold | val_loss   | FFS  | resets | max_ratio | W&B id   | Δ vs ctrl (σ_single=0.000593) |
+|:----:|:---------:|:----------:|:----:|:------:|:---------:|:---------|:------------------------------|
+| A    | 1000 (ctrl)| 3.2610390  | 3025 | 0      | 0.98      | sbrgx9bf | baseline                      |
+| B    | 5         | 3.2622280  | 3050 | **66** | 17.66     | 6nls5f67 | **+2.01σ (HARM)**             |
+| C★   | 10        | 3.2608395  | 3025 | 15     | 16.49     | zu3jamff | −0.34σ (noise; FAILS n=1 gate)|
+| D    | 20        | 3.2618240  | 3025 | 3      | 20.81     | dh71v3p8 | +1.32σ (n=1 noise)            |
+| E    | 50        | 3.2607620  | 3025 | 0      | 1.02      | hide4gwx | −0.47σ (noise; inside A-E band)|
+
+- **FFS verdict:** 4/5 cells at FFS=3025 baseline-EXACT. Cell B (thr=5) slipped to FFS=3050 from heavy reset rate. Cell C★ PRIMARY fails n=1 gate (val=3.260840 > 3.260628 gate by +0.000212). No Phase 2. **Clean-NEG.**
+
+### Key mechanism findings (★)
+
+1. **A vs E define the no-op noise band.** Both produce 0 resets (mechanically identical). |Δ|=0.000277=0.47σ_single = pure seed noise. Cell C (15 resets) lies INSIDE this band — indistinguishable from no-op SPAM.
+
+2. **Spikes are init-only, not training-time.** Cell B: 62/64 resets occur in steps ≤908 (rampup). After step ~20 the EMA stabilizes; max spike_ratio collapses below 1.05 for ALL cells. ZERO resets in cooldown phase (>2600) across every cell with thr≤50.
+
+3. **EMA warmup artifact mechanism.** g_norm_ema seeded by first observed norm; next ~10 gradients during LR rampup have legitimately different magnitudes that look like 5×–20× spikes against the ~1-sample baseline. Resetting zeroes out curvature-rich momentum at the most informative point in training (explains Cell B +2.01σ harm).
+
+4. **NS5 upstream-absorbs spike contamination.** Where real magnitude variation occurs post-rampup, the orthogonalization step renormalizes spectra to unit so directional contamination doesn't accumulate. SPAM mechanism upstream-suppressed by the NS5 stack.
+
+5. **★ 7th Muon-body preprocessing axis closure** (joins #823 SignMuon, #932 per-layer NS iter, #1042 soft NS mixing, #1096 per-group mu, #1151 GC, #1183 Heavy-Ball, #1238 SPAM). Body update path resists ALL forms of momentum-buffer or gradient preprocessing surgery.
+
+- **★ Pattern continuation:** SPAM paper measured GPT-2 on 100k+ steps without NS-style spectral normalization. On this 3250-step stack with NS5 + Muon, late-phase spikes ≥5× EMA simply don't occur. Mechanism upstream-suppressed.
+- **Assigned nezuko → #1294 mu-cooldown-decay** (crossing-phase redesign; decay Muon momentum β during cooldown 0.95→0.0; tests whether persistent memory hurts directed descent; fresh FFS-targeted axis)
+
 ## 2026-05-26 09:50 UTC — PR #1200: edward orth-scheme alternatives to NS5 polynomial — **CLOSED clean-NEG** [FFS-PRIMARY]
 
 - **Branch:** `g1r5-edward/orth-scheme-alternatives`
