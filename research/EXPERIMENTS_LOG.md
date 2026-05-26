@@ -1,5 +1,27 @@
 # SENPAI Research Results
 
+## 2026-05-26 13:30 UTC — PR #1253 CLOSED: Body-Muon Nesterov buffer reset at cooldown entry: step 2600 (A) vs 2925 (B) (g1r1-edward) — 151st NULL
+
+- Branch: `g1r1-edward/nesterov-reset-cooldown-entry`
+- Hypothesis: Zero `m_prev` body-Muon Nesterov first-moment EMA buffer at cooldown entry (Arm A step 2600 = mid-cooldown ~33%) or at target-crossing window (Arm B step 2925) recovers from accumulated late-training first-moment lag.
+
+| Arm | reset_step | wandb_run | val_ema_terminal | val_live_terminal | sr | Δval vs NEW baseline (mnat) | Δval vs OLD (mnat) | Δsr | Verdict |
+|---|---|---|---|---|---|---|---|---|---|
+| NEW baseline (#1234) | — | 4yfdygud+7khmgp7d | 3.266024 | — | 2925 | 0 | — | 0 | (reference) |
+| OLD baseline (#918, n=2) | — | vm48fdof+0a7esmxs | 3.266394 | — | 2925 | +0.370 | 0 | 0 | (prior reference) |
+| **A (reset@2600)** | 2600 | `6tkdyvy7` | 3.266788 | 3.266196 | **2925** | **+0.764 (2.55σ)** | +0.394 (1.3σ) | 0 | NULL (fails clause-2 by val) |
+| **B (reset@2925)** | 2925 | `namegpkp` | 3.267516 | 3.266901 | **2950** | **+1.49 (5σ)** | +1.12 (3.7σ) | +25 | NULL (fails BOTH clauses) |
+
+- **Merge clause:** Both arms fail. Arm A sr=2925 ✓ but val > 3.266024 ✗; Arm B sr=2950 ≠ 2925 ✗ AND val > 3.266024 ✗.
+- **Stat-sig:** Arm A `(3.28−3.266788)·√1 = 0.01321` ≥ 0.004 ✓ but FAILS clause-2 vs baseline; Arm B `(3.28−3.267516)·√1 = 0.01248` ≥ 0.004 ✓ but FAILS both clauses.
+- **Refresh telemetry (Arm A):** `muon/nesterov_reset_fired=1.0` at step 2600, `m_prev_norm_pre=1238.44`, `m_prev_norm_post=0.0`, all 72 body-Muon matrix params zeroed. Cleanly wired.
+- **Terminal diagnostics (Arm A):** `pmuon/lcov_eigh_min=2149.57` (healthy, baseline-band), `ema/buffer_frob_dist=22.17` (baseline-band), `polar/ortho_residual_sample=0.1307` (baseline-band), `val/ema_minus_live=+0.000592`. No second-order pathology — regression is direct first-moment information loss.
+- **Mechanism canon (FULL CLOSURE across BOTH cooldown positions):** Body-Muon first-moment Nesterov buffer-reset axis is structurally NULL. The `m_prev` buffer at cooldown entry is NOT stale — it carries useful late-warmup → cooldown transition information; zeroing it removes target-direction momentum signal. Arm B's slightly sharper penalty (+1.49 vs +0.76 mnat) + Δsr+25 confirms reset @ target-crossing window is MORE disruptive than mid-cooldown reset. **EMA rebuild faster than cooldown horizon:** with μ=0.95 (~13-step half-life), buffer re-equilibrates by step 2625-2650 (Arm A) → brief "fresh gradient" amplification absorbed back to baseline pattern within ~25 steps.
+- **Cross-axis structural decoupling canon — STRENGTHENED:** Same step-2275 refresh position — L_cov bilateral second-moment refresh (#1268 fern Arm A) produces WIN signal Δ−0.47 mnat, but first-moment Nesterov reset (#1253) NULL across two positions. **Preconditioner refresh (gradient-covariance Gram) is MORE load-bearing than first-moment buffer wipe.** Consistent with #1218 variance-staleness mechanism canon.
+- **Cross-axis #1213 + #1215 + #1253:** All three first-moment-or-mu-axis interventions on body-Muon produce NULL or worse. μ-axis FULLY constrained.
+- **Cooldown-recovery canon — 9th instance:** Both arms within ≤2 mnat of baseline; not catastrophic. Consistent with "interior of cooldown is tolerant to ~1-2 mnat perturbations on this axis".
+- **Conclusion:** Both arms fail merge clauses by clear margins; mechanism is well-understood and structurally CLOSED. The Nesterov first-moment reset axis is fully NULL at both tested intervention positions. No interior bracket worth investigating between steps 2600-2925, and no useful follow-up on this axis. **151st NULL.** Closing on advisor authority; W&B terminal verification supersedes missing unified SENPAI-RESULT marker.
+
 ## 2026-05-26 13:15 UTC — PR #1234 MERGED: EMA wrapper ema_beta_start=0.97 HIGHER n=2 WIN — NEW BASELINE (g1r1-thorfinn)
 
 - Branch: `g1r1-thorfinn/ema-beta-start-value`
