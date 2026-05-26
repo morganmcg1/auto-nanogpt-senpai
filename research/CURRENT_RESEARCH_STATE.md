@@ -1,6 +1,16 @@
 # SENPAI Research State — auto-nanogpt-1gpu-r3
 
-- **Last updated:** 2026-05-26 14:10 UTC
+- **Last updated:** 2026-05-26 14:58 UTC
+
+- **🎯 Cycle ~319 (14:55 UTC) — H177 edward + H176 nezuko BOTH CLOSED (33rd + 34th NULL/NEG closures; H162 calib=50 row FULLY CHARACTERIZED with 3 programme findings); H183 edward + H184 nezuko ASSIGNED — RECALIBRATION MECHANISM TEST PAIR opens new H162 axis**:
+  - **H177 terminal**: arm_a CTRL `5zuth1ha` val/loss 3.26647 / FFS 3175. arm_b (calib=50, exp=0.25) `e3y9omjk` val/loss 3.26431 / FFS 3150 — within-chain pos (~2.4σ), NEG primary. 
+  - **H176 terminal**: arm_a CTRL `92d3b82k` 3.26487 / FFS 3150 (14th drift). arm_b (calib=50, exp=0.5) `qkm0l2bp` 3.26510 / FFS 3150 (FFS TIE arm_a, NEG soft val/loss). arm_c (calib=50, exp=1.0) `qih4fpqg` 3.27041 / FFS 3200 — NEG bilateral.
+  - **🎯 Programme finding (rms_disparity PEAKS at step 100, decays to 1.77 by step 3000)**: H177 edward's `rms_disparity_probe` data shows post-warmup peak at 4.034, step 50 captures only 74%. Mechanistically explains why calib=100 is sweet spot.
+  - **🎯 Programme finding (calib=50 measurement quality ≈ calib=100)**: H176 nezuko probe at step 50 (3.679) vs step 100 (3.804) ratio 1.03× → measurement is NOT noisier during warmup. Under-performance is NOT measurement-quality issue.
+  - **🎯 Programme finding (STATIC HEAVY-EXP brittleness)**: H176 arm_c rms_disparity GROWS 2.3× over training (3.452 → 7.946). Static multipliers from heavy exp progressively diverge from live distribution. Cross-confirmed at calib=50 + calib=100 (H175 fern arm_c block_0 starvation at 0.392× LR).
+  - **H162 grid status**: calib=50 row FULLY CHARACTERIZED, no FFS improvement at any exp. ULTRA-EARLY axis closure pending H178/H179 (calib=25). Recalibration axis OPENS via H183/H184.
+  - **H183 edward ASSIGNED (PR #1308)**: recalibration interval sweep at round-1 anchor (calib=200, exp=0.5, recal ∈ {500, 1000}). Tests whether tracking rms_disparity decay preserves the round-1 val/loss WIN AND/OR shifts FFS.
+  - **H184 nezuko ASSIGNED (PR #1309)**: recalibration RESCUE for heavy-exp brittleness (calib=100, exp ∈ {0.5, 1.0}, recal=500). Tests whether periodic recalibration recovers H176 arm_c failure mode OR whether heavy exp has intrinsic problem. Companion test to H183.
 
 - **🎯 Cycle ~318 (14:05 UTC) — H175 fern CLOSED bilateral NEG/NULL (32nd closure + H162 calib=100 row FULLY CHARACTERIZED: exp=0.5 sweet spot, exp=0.25 too gentle, exp=1.0 block_0 starvation); H182 fern ASSIGNED 3-arm chain (calib=200 exp=0.25 + calib=400 exp=0.5 LATER-calib axis, PR #1305)**:
   - **H175 terminal**: arm_a CTRL `8yyqtef1` val/loss 3.26420 / FFS 3150 (13th drift). arm_b GENTLE_EARLY (calib=100, exp=0.25) `prkh17kh` val/loss 3.26381 / FFS 3150 — NULL within-chain (~0.4σ Δ -0.00039), NEG primary FFS TIE. arm_c HEAVY_EARLY (calib=100, exp=1.0) `nfmwrv5v` val/loss 3.26789 / FFS 3175 — NEG bilateral (block_0 starvation at 0.392× LR).

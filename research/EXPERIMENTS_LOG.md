@@ -1,3 +1,64 @@
+## 2026-05-26 14:55 — PR #1278: H176 nezuko per-block LR calib=50 sweep (ultra-early) — CLOSED (34th NULL/NEG closure + 2 programme findings)
+
+- Branch: `g1r3-nezuko/h176-per-block-lr-calib50`
+- Hypothesis: Push H162 mechanism EARLIER. Test (calib=50, exp ∈ {0.5, 1.0}) at mid-warmup calibration vs post-warmup peak.
+
+| Arm | Config | W&B | val/loss | FFS | Verdict |
+|---|---|---|---|---|---|
+| arm_a | CTRL bit-id | `92d3b82k` | 3.26487 | 3150 | within-drift, 14th CTRL sample |
+| arm_b | calib=50, exp=0.5 | `qkm0l2bp` | 3.26510 | 3150 | FFS TIE arm_a / NEG soft val/loss vs base |
+| arm_c | calib=50, exp=1.0 | `qih4fpqg` | 3.27041 | 3200 | NEG bilateral |
+
+### Programme finding #1: Step-50 calibration measurement quality ≈ step-100
+
+| Probe step | arm_b rms_disparity | arm_c rms_disparity |
+|---|---|---|
+| 50 (calib) | 3.679 | 3.452 |
+| 100 (probe) | 3.804 | 4.421 |
+
+Ratio 1.03×–1.28× → step-50 NOT noticeably noisier than step-100. Under-performance is NOT measurement-quality issue.
+
+### Programme finding #2: STATIC HEAVY-EXP multipliers diverge from live distribution (BRITTLENESS)
+
+arm_c rms_disparity GROWS 2.3× across training (3.452 → 7.946). Static multipliers locked at step 50 progressively misalign with evolving grad-RMS distribution. **Heavy exp + static calibration = brittle.** Symmetric to H175 fern arm_c block_0 starvation at 0.392× LR. Cross-confirmation across calib ∈ {50, 100}.
+
+### H162 grid status after H176 closure
+
+calib=50 row FULLY CHARACTERIZED across all 3 exponents. No FFS improvement at any exponent. ULTRA-EARLY axis CLOSED (subject to H178/H179 calib=25 results).
+
+### Follow-up: H184 nezuko ASSIGNED (PR #1309) — recalibration RESCUE for heavy-exp brittleness (calib=100, exp ∈ {0.5, 1.0}, recal=500). Tests whether periodic recalibration recovers her arm_c failure mode.
+
+---
+
+## 2026-05-26 14:55 — PR #1287: H177 edward per-block LR calib=50 exp=0.25 — CLOSED (33rd NULL/NEG closure + 1 programme finding)
+
+- Branch: `g1r3-edward/h177-per-block-lr-calib50-exp025`
+- Hypothesis: Fill (calib=50, exp=0.25) the gentlest+earliest cell of the H162 grid.
+
+| Arm | Config | W&B | val/loss | FFS | Verdict |
+|---|---|---|---|---|---|
+| arm_a | CTRL bit-id | `5zuth1ha` | 3.26647 | 3175 | within-drift |
+| arm_b | calib=50, exp=0.25 | `e3y9omjk` | 3.26431 | 3150 | within-chain pos (~2.4σ) but bilateral NEG vs baseline |
+
+### Programme finding: rms_disparity PEAKS at step 100, decays through training
+
+| step | rms_disparity | note |
+|---|---|---|
+| 50 (calib) | 2.973 | mid-warmup (~74% of peak) |
+| 100 (probe) | **4.034** | **POST-WARMUP PEAK** |
+| 500 | 1.986 | post-warmup decay |
+| 1000 | 2.352 | mid-training |
+| 2000 | 1.849 | late mid-training |
+| 3000 | 1.769 | near terminal |
+
+**Implications**: (1) calib=100 is mechanistically the peak-heterogeneity anchor. (2) calib=50 misses ~26% of peak signal. (3) Static multipliers diverge from live signal over training (4.03 → 1.77 = 2.3× off-distribution by terminal).
+
+### Bug-fix note: H162 per-block LR code was not in advisor branch. Edward cherry-picked `bf2361a5` (from nezuko's H176 port) onto h177 branch as `b92ea108`. All subsequent H162 family PRs use this foundation via repeated cherry-picks.
+
+### Follow-up: H183 edward ASSIGNED (PR #1308) — recalibration interval sweep at H162 round-1 anchor (calib=200, exp=0.5, recal ∈ {500, 1000}). Tests whether tracking the rms_disparity decay preserves or enhances the round-1 val/loss WIN.
+
+---
+
 ## 2026-05-26 14:05 — PR #1270: H175 fern per-block LR exp sweep at calib=100 — CLOSED (32nd NULL/NEG closure)
 
 - Branch: `g1r3-fern/h175-per-block-lr-calib100-exp-sweep`
