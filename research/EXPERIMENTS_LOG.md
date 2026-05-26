@@ -3,6 +3,32 @@
 Log of completed/reviewed experiment PRs in chronological order. Wave 1
 results pending student execution.
 
+## 2026-05-26 05:55 UTC — PR #1206: thorfinn Pre-NS grad-norm conditioned LR on Muon body — **CLOSED clean-NEG**
+
+- **Branch:** `g1r5-thorfinn/muon-grad-norm-conditioned-lr`
+- **Student:** g1r5-thorfinn
+- **Hypothesis:** Per-step LR multiplier on Muon body update derived from `‖p.grad‖_2 / EMA(‖p.grad‖_2)`. 5 modes tested: none, linear, sqrt, log (shrink at high grad), inverse (grow at high grad) — falsifier.
+
+**Phase 1 n=1 5-cell sweep (sequential, ~9.2h):**
+
+| Cell | mode | val/loss | ffs | Δ vs A | Z vs baseline μ | W&B | Verdict |
+|:----:|:-----|:-------:|:---:|:------:|:---------------:|:----|:--------|
+| A | none (ctrl) | 3.26150 | 3025 | — | +0.5σ | rldj28or | passes |
+| **B★** | linear (PRIMARY) | **3.26474** | 3075 | +5.5σ | **+5.9σ** | sxc6u4ol | **FAIL** |
+| C | sqrt | 3.26129 | 3025 | −0.35σ | +0.1σ | ngx1vq7a | no-op (gain_mean=0.976 in tight clip) |
+| D | log | 3.26487 | 3075 | +5.7σ | +6.2σ | jxllvors | FAIL |
+| E | inverse (FALSIFIER) | 3.26590 | 3075 | +7.4σ | +7.9σ | 7nsos1fw | FAIL (falsifier passes) |
+
+**Mechanism finding (★ headline):** Harm is **symmetric** in `|deviation from gain=1.0|`, NOT direction-specific. B (shrink) +5.9σ, D (shrink) +6.2σ, E (grow) +7.9σ all hurt — falsifier rule passes (E worst) but B/D failing similarly weakens "asymmetric direction" mechanism. Read: **Muon's post-NS spectral-norm-bounded magnitude is intentional and load-bearing**. NS isn't just direction shaping; it's also magnitude calibration. Optimizer wants `‖update‖_2 = 1` exactly.
+
+**Dovetails with edward #1200 Cell B** (polar SVD within band, polynomial floor): polynomial output's spectral fingerprint (cond≈2.4) is the optimizer's preferred direction AND magnitude. Two independent operator-output modifications (sharpening, rescaling) converge on the same finding.
+
+**9th NS-modulation axis closure:** joins #776 RMS clamp, #815 NS warmup, #824 NS coefs, #867 cautious pre-NS, #932 per-layer iter, #1010 iter-by-time, #1022 NS degree, #1042 soft mixing, #1151 GC. Combined: NS-on-body operator class is finely tuned around `(iter=6, polynomial-degree-5, post-NS-spectral-norm=1.0)`. Adjacent perturbations in 10 distinct mechanistic directions all fail.
+
+**Operational note:** Leftover `run_cells.sh` from prior assignment auto-launched duplicate Cell A 2026-05-25 ~20:42Z; killed 20:56Z; final Cell A from `run_sweep_1206.sh` (rldj28or) consistent with baseline distribution.
+
+**Transition:** Assigned thorfinn #1258 Schedule-Free Muon on body — trajectory-averaging axis on body (orthogonal to NS-modulation, complements closed aux-side SF #659 and Lookahead-aux #1126).
+
 ## 2026-05-26 01:50 UTC — PR #1181: nezuko Adan optimizer for AdamW aux groups — **CLOSED clean-NEG**
 
 - **Branch:** `g1r5-nezuko/adan-aux-optimizer`
