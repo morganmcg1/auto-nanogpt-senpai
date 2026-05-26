@@ -602,6 +602,13 @@ NANOGPT_NEWTON_MUON_UPDATE_PERIOD = int(os.environ.get("NANOGPT_NEWTON_MUON_UPDA
 NANOGPT_NEWTON_MUON_BETA = float(os.environ.get("NANOGPT_NEWTON_MUON_BETA", "0.95"))
 NANOGPT_NEWTON_MUON_EPS = float(os.environ.get("NANOGPT_NEWTON_MUON_EPS", "1e-4"))
 NANOGPT_NEWTON_MUON_MAX_D_IN = int(os.environ.get("NANOGPT_NEWTON_MUON_MAX_D_IN", "1024"))
+# Window-bounded Newton-Muon activation (#1280, see also #1277 nezuko parallel H1 start-step
+# impl). Defaults START_STEP=0 END_STEP=10^9 → window covers all training, bit-identical to
+# always-on NM. NM precondition (and EMA update) is gated to active when
+# START_STEP <= train_step < END_STEP. R buffer initializes fresh from current activations
+# on first in-window step ("R" not in state) and is unused / preserved when window closes.
+NANOGPT_NEWTON_MUON_START_STEP = int(os.environ.get("NANOGPT_NEWTON_MUON_START_STEP", "0"))
+NANOGPT_NEWTON_MUON_END_STEP = int(os.environ.get("NANOGPT_NEWTON_MUON_END_STEP", "1000000000"))
 
 # Global per-parameter input-activation cache populated by forward hooks. Keyed by
 # id(weight_param) → tensor of shape (B*T, d_in) on device. Only populated when
@@ -746,6 +753,7 @@ class Muon(torch.optim.Optimizer):
                  newton_precond: bool = False, newton_beta: float = 0.95,
                  newton_eps: float = 1e-4, newton_update_period: int = 10,
                  newton_max_d_in: int = 1024,
+                 newton_start_step: int = 0, newton_end_step: int = 1_000_000_000,
                  newton_input_cache: dict | None = None):
         assert isinstance(params, list) and len(params) >= 1
         if isinstance(params[0], dict):
@@ -786,6 +794,16 @@ class Muon(torch.optim.Optimizer):
         self.newton_max_d_in = int(newton_max_d_in)
         self.newton_input_cache = newton_input_cache if newton_input_cache is not None else {}
         self._newton_step_count = 0
+        # Window-bounded NM activation (#1280). NM precondition is gated to
+        # active when newton_start_step <= current_train_step < newton_end_step.
+        # current_train_step is updated by the training loop before each step()
+        # via set_current_train_step(). Defaults make every step in-window
+        # → bit-identical to always-on NM.
+        self.newton_start_step = int(newton_start_step)
+        self.newton_end_step = int(newton_end_step)
+        self.current_train_step = 0
+        # Reset each step() — used by the training loop to emit window telemetry.
+        self._nm_active_this_step: bool = False
         # Accumulator dict reset each step() — read by the training loop after
         # step() for W&B logging. Keys: cond_max, cond_min, cond_sum, cond_n,
         # inv_sqrt_norm_sum, precond_ratio_sum, precond_ratio_n, applied_n.
@@ -797,6 +815,10 @@ class Muon(torch.optim.Optimizer):
 
     def set_ns_iters_this_step(self, ns_iters: int) -> None:
         self.ns_iters_this_step = int(ns_iters)
+
+    def set_current_train_step(self, train_step: int) -> None:
+        """Inform Muon of the current (1-indexed) training step for NM window gating."""
+        self.current_train_step = int(train_step)
 
     def _apply_newton_precondition(self, p, grad, state):
         """Right-precondition grad by (X^T X)^{-1/2} for body Muon matrices.
@@ -885,7 +907,19 @@ class Muon(torch.optim.Optimizer):
         # Reset spectral_stats at the start of each step; only the rank that
         # owns the tracked parameter on this round-robin shard will repopulate.
         self.spectral_stats = None
+        # Window-bounded NM activation (#1280). nm_active is True only when the
+        # configured [start, end) window includes the current training step.
+        # Defaults (start=0, end=10^9) keep every step in-window, so the precond
+        # path is bit-identical to always-on NM.
+        nm_active = (
+            self.newton_precond
+            and self.current_train_step >= self.newton_start_step
+            and self.current_train_step < self.newton_end_step
+        )
+        self._nm_active_this_step = nm_active
         if self.newton_precond:
+            # Step counter still ticks every Muon.step() to preserve EMA refresh
+            # cadence relative to optimizer time (matches default bit-identity).
             self._newton_step_count += 1
             self.newton_telemetry = {}
         for group in self.param_groups:
@@ -903,7 +937,7 @@ class Muon(torch.optim.Optimizer):
                     # gradients (matches paper pipeline order: G @ R^{-1/2}
                     # -> momentum -> v normalization -> NS5 -> update).
                     grad_for_update = p.grad
-                    if self.newton_precond:
+                    if nm_active:
                         g_precond = self._apply_newton_precondition(p, p.grad, state)
                         if g_precond is not None:
                             grad_for_update = g_precond
@@ -984,7 +1018,8 @@ print0(
     f"lr_scale={NANOGPT_NEWTON_MUON_LR_SCALE} "
     f"update_period={NANOGPT_NEWTON_MUON_UPDATE_PERIOD} "
     f"beta={NANOGPT_NEWTON_MUON_BETA} eps={NANOGPT_NEWTON_MUON_EPS} "
-    f"max_d_in={NANOGPT_NEWTON_MUON_MAX_D_IN}",
+    f"max_d_in={NANOGPT_NEWTON_MUON_MAX_D_IN} "
+    f"window=[{NANOGPT_NEWTON_MUON_START_STEP}, {NANOGPT_NEWTON_MUON_END_STEP})",
     console=True,
 )
 if NS_ITERS_COOLDOWN > 0:
@@ -1105,6 +1140,8 @@ if dist.get_rank() == 0:
             "nanogpt_newton_muon_beta": NANOGPT_NEWTON_MUON_BETA,
             "nanogpt_newton_muon_eps": NANOGPT_NEWTON_MUON_EPS,
             "nanogpt_newton_muon_max_d_in": NANOGPT_NEWTON_MUON_MAX_D_IN,
+            "nanogpt_newton_muon_start_step": NANOGPT_NEWTON_MUON_START_STEP,
+            "nanogpt_newton_muon_end_step": NANOGPT_NEWTON_MUON_END_STEP,
         },
     )
 
@@ -1171,6 +1208,8 @@ for trial_idx in range(args.num_trials):
         newton_eps=NANOGPT_NEWTON_MUON_EPS,
         newton_update_period=NANOGPT_NEWTON_MUON_UPDATE_PERIOD,
         newton_max_d_in=NANOGPT_NEWTON_MUON_MAX_D_IN,
+        newton_start_step=NANOGPT_NEWTON_MUON_START_STEP,
+        newton_end_step=NANOGPT_NEWTON_MUON_END_STEP,
         newton_input_cache=_newton_input_cache,
     )
     print0(f"MUON_PARAM_COUNTS: attn={len(muon_attn_params)} mlp={len(muon_mlp_params)} "
@@ -1428,6 +1467,9 @@ for trial_idx in range(args.num_trials):
         # (gated to avoid per-param CUDA syncs on the hot path).
         if getattr(optimizer2, "newton_precond", False):
             optimizer2.newton_telemetry_due = bool(telemetry_due)
+            # Inform NM of the current training step so window-bounded activation
+            # (#1280) can gate the precondition on this step.
+            optimizer2.set_current_train_step(train_step)
         for opt in optimizers:
             opt.step()
         # === Newton-Muon (#1138) per-step telemetry. ===
@@ -1442,10 +1484,18 @@ for trial_idx in range(args.num_trials):
         ):
             tel = optimizer2.newton_telemetry
             applied = tel.get("applied_n", 0)
+            nm_window_active = int(getattr(optimizer2, "_nm_active_this_step", False))
+            window_steps_remaining = max(
+                0, NANOGPT_NEWTON_MUON_END_STEP - train_step
+            )
             newton_metrics = {
                 "trial": trial_idx,
                 "train/step": train_step,
                 "newton_muon/params_preconditioned": applied,
+                "newton_muon/window_start_cfg": NANOGPT_NEWTON_MUON_START_STEP,
+                "newton_muon/window_end_cfg": NANOGPT_NEWTON_MUON_END_STEP,
+                "newton_muon/window_active": nm_window_active,
+                "newton_muon/window_steps_remaining": window_steps_remaining,
             }
             cond_n = tel.get("cond_n", 0)
             if cond_n > 0:
