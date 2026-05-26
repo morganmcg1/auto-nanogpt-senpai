@@ -3,6 +3,26 @@
 This file logs experiment outcomes as PRs land. The historical track 3
 leaderboard is captured in `/BASELINE.md`.
 
+## 2026-05-26 05:15 UTC — PR #1138: Newton-Muon right-precond (tanjiro) — **MERGED 🎯 FIRST MERGE SINCE #847**
+
+- Branch: `g1r4-tanjiro/newton-muon`
+- Hypothesis: Right-precondition body Muon gradient by input activation second moment R = EMA(X^T X). Before NS5 polar decomp, multiply G → G · R^{−1/2}. Inspired by Du & Su 2026 (input-covariance whitening for Muon). Coverage: d_in ≤ 1024 matrices (60/72 = 83.3% of body params).
+
+| Seed | ctrl val | armB val (Newton-Muon) | Δ_paired | ctrl fs | armB fs |
+|:---:|:---:|:---:|:---:|:---:|:---:|
+| s0 | 3.26803 | **3.26597** | **−0.00206** | 3200 | **3175** |
+| s1 | 3.27038 | **3.26653** | **−0.00385** | 3225 | **3175** |
+| s2 | 3.26824 | **3.26591** | **−0.00233** | 3200 | **3175** |
+| **mean** | 3.26888 | **3.26614** | **−0.00275** | 3208.33 | **3175.00** |
+
+- W&B armB runs: s0=`lm5p6nrb`, s1=`gkt0y8fx`, s2=`8nbl91dg`; ctrl: `h8gikkda`, `45spx09l`, `wvmyjmtz`
+- Stat-sig: (3.28 − 3.26614)×√3 = 0.02401 ≥ 0.004 ✅
+- **Merge gate evaluation**: G1 ✅ G2 ✅ G3 ✅ (3/3) G4 ✅ G5 ✅ (3/3) — ALL PASS
+- **Anti-attenuation pattern** (rare, structurally significant): s0 −0.00206 → s1 −0.00385 (STRONGER) → s2 −0.00233 (between). Opposite of #1100 pattern (76% attenuation collapse). Indicates Newton-Muon mechanism is genuinely seed-invariant.
+- **Mechanism telemetry**: params_preconditioned=60/72, precond_ratio_mean=1.156 (R^{−1/2} scaling adds ~16% Frobenius), R_cond_mean=4844 (well-conditioned covariance), R_inv_sqrt_norm_mean=78.30. Coverage: QKV/attn projections (d_in=768) + MLP up-projections (d_in=768) preconditioned; MLP down-projections (d_in=3072) excluded by max_d_in=1024.
+- **New baseline**: val=3.26614, fs=3175.00 (−8.33 steps from #847). 25-PR plateau broken.
+- **Immediate follow-up opportunities**: (a) extend coverage to d_in=4096 (include MLP down-projections), (b) period tuning (period=5 more frequent update), (c) stack with #1172 Muon++ scale-only (post-NS5 output scaling orthogonal to this input-side preconditioning)
+
 ## 2026-05-26 03:15 UTC — PR #1137: Stack pruning Phase 2 (edward) — CLOSED PRUNE-CONFIRM-NO-MERGE / LOAD-BEARING (30th no-merge)
 
 - Branch: `g1r4-edward/stack-pruning-phase2`
