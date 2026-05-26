@@ -1288,7 +1288,7 @@ for trial_idx in range(args.num_trials):
         # mutating per-block LRs. Compares calibration-step measurement quality
         # (step 50 during warmup vs step 100 post-warmup vs later steady-state).
         elif (args.muonh_per_block_lr_exponent > 0.0
-              and train_step in (100, 500, 1000, 2000, 3000)):
+              and train_step in (100, 250, 500, 1000, 1500, 2000, 2500, 3000)):
             _, _rms_per_block, _rms_avg = compute_per_block_lr_multipliers(
                 model, args.muonh_per_block_lr_exponent)
             if dist.get_rank() == 0:
