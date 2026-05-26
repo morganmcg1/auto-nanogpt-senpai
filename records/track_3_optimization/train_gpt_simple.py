@@ -468,6 +468,8 @@ NS5_ITERS = int(os.environ.get("NS5_ITERS", "12"))
 WD_AUX = float(os.environ.get("WD_AUX", "0.0"))  # AdamW WD on embed + lm_head matrices (scalars stay at 0)
 EMBED_INIT_STD = float(os.environ.get("EMBED_INIT_STD", "1.0"))  # default preserves baseline N(0,1)
 LOGIT_SOFTCAP = float(os.environ.get("LOGIT_SOFTCAP", "15.0"))  # default = 15 (current hardcoded value); soft-cap value c in f(x) = c·x / sqrt(x^2+c^2)
+# Per-AUX-group gradient norm clip (PR #1226). 0.0 = disabled (bytewise inert: code path skipped entirely).
+AUX_CLIP_NORM = float(os.environ.get("AUX_CLIP_NORM", "0.0"))
 
 
 def zeropower_via_newtonschulz5(G: Tensor) -> Tensor:
@@ -866,6 +868,7 @@ if dist.get_rank() == 0:
             "optimizer/attn_soap_trust_threshold": ATTN_SOAP_TRUST_THRESHOLD,
             "optimizer/ns5_iters": NS5_ITERS,
             "optimizer/wd_aux": WD_AUX,
+            "optimizer/aux_clip_norm": AUX_CLIP_NORM,
             "optimizer/recipe": "contra-muon + normuon-lite + soap-on-mlp + soap-on-attn-trust-gate (pre-NS5, record #14 + record #16)",
         },
     )
@@ -1051,6 +1054,22 @@ for trial_idx in range(args.num_trials):
                 train_steps=train_steps,
                 wandb_step=wandb_step,
             )
+        # PR #1226 AUX_CLIP_NORM: per-AUX-group gradient norm clip.
+        # When disabled (AUX_CLIP_NORM == 0.0) the entire block is skipped,
+        # making it byte-identical to baseline. The clip operates ONLY on
+        # optimizer1 (AdamW for embed + lm_head + scalars); Muon body grads
+        # in optimizer2 are untouched, so NS5 still receives raw input.
+        if AUX_CLIP_NORM > 0.0:
+            aux_params = [p for group in optimizer1.param_groups for p in group["params"] if p.grad is not None]
+            if aux_params:
+                aux_grad_norm_pre = torch.nn.utils.clip_grad_norm_(aux_params, max_norm=AUX_CLIP_NORM)
+                if dist.get_rank() == 0 and (train_step % 100 == 0 or train_step == 1 or train_step == train_steps):
+                    aux_grad_norm_pre_val = float(aux_grad_norm_pre.item())
+                    wandb.log({
+                        "aux_clip_norm/grad_norm_pre": aux_grad_norm_pre_val,
+                        "aux_clip_norm/clip_active": float(aux_grad_norm_pre_val > AUX_CLIP_NORM),
+                        "aux_clip_norm/max_norm": AUX_CLIP_NORM,
+                    }, step=wandb_step)
         for opt in optimizers:
             opt.step()
         if dist.get_rank() == 0 and telemetry_due:
