@@ -109,6 +109,18 @@ def parse_args():
     parser.add_argument("--body_init_bottom_layers", type=int,
                         default=int(os.environ.get("BODY_INIT_BOTTOM_LAYERS", "6")),
                         help="Number of bottom layers to damp for --body_init=orthogonal_bottom_damp (default 6 = bottom half of 12 layers).")
+    # H168: AdaBelief on aux groups (Zhuang et al. 2020, NeurIPS oral). Replaces
+    # AdamW's v_t = β2·v_{t-1} + (1-β2)·g_t² with s_t = β2·s_{t-1} + (1-β2)·(g_t - m_t)² + eps.
+    # Tracks variance of gradients around momentum estimate instead of gradient magnitude.
+    # use_adabelief=0 (default) keeps fused AdamW path bit-id with baseline.
+    parser.add_argument("--use_adabelief", type=int, default=int(os.environ.get("USE_ADABELIEF", "0")),
+                        help="If 1, replace aux AdamW with AdaBeliefAdamW on groups named in --adabelief_target. "
+                             "Default 0 = baseline (fused AdamW, bit-identical).")
+    parser.add_argument("--adabelief_target", type=str, default=os.environ.get("ADABELIEF_TARGET", "none"),
+                        choices=["none", "lm_head_only", "embed_only", "both"],
+                        help="Which aux groups get the AdaBelief (g-m)² second-moment formulation. "
+                             "Non-target groups stay on AdamW's g² formulation (via the same non-fused custom step). "
+                             "Default 'none' = no group uses AdaBelief (no-op when --use_adabelief 0).")
     args = parser.parse_args()
     args.num_trials = args.num_trials if args.num_trials is not None else (args.legacy_num_trials or 1)
     args.wandb_tags = [tag.strip() for tag in args.wandb_tags.split(",") if tag.strip()]
@@ -747,6 +759,103 @@ class MuonH(torch.optim.Optimizer):
         self._last_norm_to_radius_max = max_n_over_r
 
 
+class AdaBeliefAdamW(torch.optim.AdamW):
+    """AdamW with optional per-group AdaBelief second-moment formulation.
+
+    AdaBelief (Zhuang et al. 2020, NeurIPS oral; arxiv 2010.07468 eq. 9):
+    replace v_t = β2·v_{t-1} + (1-β2)·g_t² with
+            s_t = β2·s_{t-1} + (1-β2)·(g_t - m_t)² + eps
+    where m_t is the (post-update) first-moment estimate. s_t tracks the variance of
+    the gradient signal around its momentum estimate: small when gradients are
+    "predictable" (g ≈ m) → larger effective step; large when gradients are noisy
+    → smaller effective step. eps appears both inside the s_t update and inside
+    the denominator (paper Algorithm 2).
+
+    This class subclasses AdamW for __init__ convenience but overrides step()
+    entirely with a non-fused Python implementation. Per alphonse H160 closure,
+    non-fused AdamW is bit-id with fused at this scale. Groups whose `name` is in
+    `adabelief_target_groups` use the AdaBelief s_t formulation; all other groups
+    use the standard AdamW v_t formulation but still travel through this custom
+    step path. With `adabelief_target_groups=set()` the class is functionally
+    equivalent to a non-fused AdamW.
+
+    Last-step diagnostics (one dict per AdaBelief target group, keyed by group
+    name) are stored on `self._last_diagnostics` so the training loop can log them
+    at telemetry events without paying the cost on every step.
+    """
+
+    def __init__(self, *args, adabelief_target_groups=None, **kwargs):
+        kwargs.pop("fused", None)
+        super().__init__(*args, fused=False, **kwargs)
+        self.adabelief_target_groups = set(adabelief_target_groups or [])
+        self._last_diagnostics: dict[str, dict[str, float]] = {}
+
+    @torch.no_grad()
+    def step(self, closure=None):
+        loss = None
+        if closure is not None:
+            with torch.enable_grad():
+                loss = closure()
+        for group in self.param_groups:
+            group_name = group.get("name", "")
+            use_adabelief = group_name in self.adabelief_target_groups
+            beta1, beta2 = group["betas"]
+            lr = group["lr"]
+            eps = group["eps"]
+            wd = group["weight_decay"]
+            group_diag: dict[str, float] = {}
+            for p in group["params"]:
+                if p.grad is None:
+                    continue
+                g = p.grad
+                state = self.state[p]
+                if "step" not in state:
+                    state["step"] = 0
+                    state["exp_avg"] = torch.zeros_like(p)
+                    state["exp_avg_sq"] = torch.zeros_like(p)
+                state["step"] += 1
+                t = state["step"]
+                m = state["exp_avg"]
+                v = state["exp_avg_sq"]
+                # m_t = β1·m_{t-1} + (1-β1)·g_t
+                m.mul_(beta1).add_(g, alpha=1 - beta1)
+                if use_adabelief and p.ndim >= 1:
+                    # AdaBelief: s_t = β2·s_{t-1} + (1-β2)·(g_t - m_t)² + eps
+                    diff = g - m
+                    v.mul_(beta2).addcmul_(diff, diff, value=1 - beta2).add_(eps)
+                else:
+                    # Standard AdamW: v_t = β2·v_{t-1} + (1-β2)·g²
+                    v.mul_(beta2).addcmul_(g, g, value=1 - beta2)
+                # Bias correction
+                bc1 = 1 - beta1 ** t
+                bc2 = 1 - beta2 ** t
+                m_hat = m / bc1
+                v_hat = v / bc2
+                denom = v_hat.sqrt().add_(eps)
+                # Diagnostics for AdaBelief target groups on 2D weights
+                # (embed.weight / proj.weight). Cheap: a few reductions per
+                # tensor, logged at telemetry events from the training loop.
+                if use_adabelief and p.ndim == 2:
+                    diff_for_diag = g - m
+                    g_row_norm = g.norm(dim=-1).clamp_min(1e-30)
+                    diff_row_norm = diff_for_diag.norm(dim=-1)
+                    ratio_per_row = (diff_row_norm / g_row_norm).mean()
+                    eff_step = lr * m_hat / denom
+                    group_diag = {
+                        "v_mean": float(v.mean().item()),
+                        "v_max": float(v.max().item()),
+                        "grad_minus_m_norm_ratio": float(ratio_per_row.item()),
+                        "effective_step_norm": float(eff_step.norm().item()),
+                        "effective_step_rms": float(eff_step.square().mean().sqrt().item()),
+                    }
+                # Decoupled weight decay then AdamW-style step.
+                p.data.mul_(1 - lr * wd)
+                p.data.addcdiv_(m_hat, denom, value=-lr)
+            if group_diag:
+                self._last_diagnostics[group_name] = group_diag
+        return loss
+
+
 ########################################
 #                Setup                 #
 ########################################
@@ -791,6 +900,7 @@ if args.muonh_agc_clip_ratio > 0:
     print0(f"AGC ENABLED on inner MuonH gradient: clip_ratio={args.muonh_agc_clip_ratio} eps={args.muonh_agc_eps}", console=True)
 else:
     print0("AGC DISABLED on inner MuonH gradient (clip_ratio=0)", console=True)
+print0(f"[H168] use_adabelief={args.use_adabelief} adabelief_target={args.adabelief_target}", console=True)
 print0("="*100)
 
 val_tokens = 20 * 524288
@@ -850,7 +960,16 @@ if dist.get_rank() == 0:
             "muonh_mu_schedule": args.muonh_mu_schedule,
             "muonh_mu_start": args.muonh_mu_start,
             "muonh_mu_end": args.muonh_mu_end,
+            "use_adabelief": args.use_adabelief,
+            "adabelief_target": args.adabelief_target,
         },
+    )
+    # Per chain-launch verification gate (H168 PR): force explicit config payload
+    # so the W&B config tab shows distinct use_adabelief/adabelief_target values
+    # across the 3 arms, independent of whether they exist in the init() dict.
+    wandb.config.update(
+        {"use_adabelief": args.use_adabelief, "adabelief_target": args.adabelief_target},
+        allow_val_change=True,
     )
 
 for trial_idx in range(args.num_trials):
@@ -925,11 +1044,34 @@ for trial_idx in range(args.num_trials):
     # fused AdamW reads betas from param_groups on every .step(), but to avoid any
     # silent-failure-mode risk we use fused=False whenever the β2 schedule is active.
     # constant schedule keeps fused=True so arm_a is bitwise-identical to baseline.
-    _aux_fused = (args.aux_beta2_schedule == "constant")
-    optimizer1 = AdamW([dict(params=[model.embed.weight], lr=0.3, name="adam_embed"),
-                        dict(params=[model.proj.weight], lr=1/320, name="adam_lm_head"),
-                        dict(params=[p for p in model.parameters() if p.ndim < 2], lr=0.01, name="adam_scalars")],
-                       betas=(0.8, args.aux_beta2_start), eps=args.aux_adamw_eps, weight_decay=0, fused=_aux_fused)
+    # H168: when AdaBelief is enabled, use AdaBeliefAdamW (non-fused custom step)
+    # for optimizer1. arm_a (use_adabelief=0) keeps the fused AdamW path bit-id
+    # with the H148 baseline. arm_b/arm_c flip a single subsystem (lm_head or
+    # embed) to the AdaBelief s_t = (g-m)² + eps formulation; the other aux
+    # groups still travel through the custom step but use the AdamW v_t = g²
+    # update (path bit-id with fused at this scale per alphonse H160).
+    _aux_fused = (args.aux_beta2_schedule == "constant" and not args.use_adabelief)
+    _aux_group_defs = [
+        dict(params=[model.embed.weight], lr=0.3, name="adam_embed"),
+        dict(params=[model.proj.weight], lr=1/320, name="adam_lm_head"),
+        dict(params=[p for p in model.parameters() if p.ndim < 2], lr=0.01, name="adam_scalars"),
+    ]
+    if args.use_adabelief:
+        adabelief_target_groups: set[str] = set()
+        if args.adabelief_target == "lm_head_only":
+            adabelief_target_groups = {"adam_lm_head"}
+        elif args.adabelief_target == "embed_only":
+            adabelief_target_groups = {"adam_embed"}
+        elif args.adabelief_target == "both":
+            adabelief_target_groups = {"adam_embed", "adam_lm_head"}
+        optimizer1 = AdaBeliefAdamW(
+            _aux_group_defs,
+            betas=(0.8, args.aux_beta2_start), eps=args.aux_adamw_eps, weight_decay=0,
+            adabelief_target_groups=adabelief_target_groups,
+        )
+    else:
+        optimizer1 = AdamW(_aux_group_defs,
+                           betas=(0.8, args.aux_beta2_start), eps=args.aux_adamw_eps, weight_decay=0, fused=_aux_fused)
     optimizer2 = MuonH([p for p in model.blocks.parameters() if p.ndim >= 2],
                        lr=args.muonh_lr, weight_decay=0.0, mu=0.95,
                        hyperball=True, budget_mult=args.muonh_budget_mult,
@@ -1209,6 +1351,19 @@ for trial_idx in range(args.num_trials):
                 muonh_metrics["train/muonh/agc/scale_mean"] = muonh_agc_stats["agc_scale_mean"]
             if len(muonh_metrics) > 2:
                 wandb.log(muonh_metrics, step=wandb_step)
+        # H168: AdaBelief diagnostics. Logged at every telemetry event so the
+        # per-arm divergence check at step 100 (verification gate) has the data
+        # it needs in W&B. The diagnostics are populated by AdaBeliefAdamW.step()
+        # for the AdaBelief target group(s) only, so this block is a no-op when
+        # use_adabelief=0 or no target group exists.
+        if dist.get_rank() == 0 and telemetry_due and isinstance(optimizer1, AdaBeliefAdamW):
+            ab_metrics = {"trial": trial_idx, "train/step": train_step}
+            for group_name, diag in optimizer1._last_diagnostics.items():
+                short = group_name.replace("adam_", "")
+                for key, val in diag.items():
+                    ab_metrics[f"adabelief/{short}/{key}"] = val
+            if len(ab_metrics) > 2:
+                wandb.log(ab_metrics, step=wandb_step)
         if dist.get_rank() == 0 and telemetry_due:
             log_weight_telemetry(
                 model=model,
