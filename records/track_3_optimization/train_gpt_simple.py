@@ -468,6 +468,16 @@ NS5_ITERS = int(os.environ.get("NS5_ITERS", "12"))
 WD_AUX = float(os.environ.get("WD_AUX", "0.0"))  # AdamW WD on embed + lm_head matrices (scalars stay at 0)
 EMBED_INIT_STD = float(os.environ.get("EMBED_INIT_STD", "1.0"))  # default preserves baseline N(0,1)
 LOGIT_SOFTCAP = float(os.environ.get("LOGIT_SOFTCAP", "15.0"))  # default = 15 (current hardcoded value); soft-cap value c in f(x) = c·x / sqrt(x^2+c^2)
+# Per-layer Muon β1 depth ramp. MUON_BETA_DEPTH_RAMP applies an always-on
+# center-preserved ramp: per-block mu_offset = ramp * depth_pos, where
+# depth_pos linearly maps block_idx 0..(num_blocks-1) to [-1, +1] so the
+# fleet-mean offset across blocks is zero. MUON_BETA_DEPTH_RAMP_COOLDOWN_ONLY
+# uses the same depth_pos shape but only activates at step >=
+# round(train_steps * MU_COOLDOWN_START) (PR #1282; uses MU_COOLDOWN_START
+# numerically as a step fraction, not as a phase boundary).
+# Both zero -> no per-layer param_groups created (bytewise-inert baseline path).
+MUON_BETA_DEPTH_RAMP = float(os.environ.get("MUON_BETA_DEPTH_RAMP", "0.0"))
+MUON_BETA_DEPTH_RAMP_COOLDOWN_ONLY = float(os.environ.get("MUON_BETA_DEPTH_RAMP_COOLDOWN_ONLY", "0.0"))
 
 
 def zeropower_via_newtonschulz5(G: Tensor) -> Tensor:
@@ -866,6 +876,8 @@ if dist.get_rank() == 0:
             "optimizer/attn_soap_trust_threshold": ATTN_SOAP_TRUST_THRESHOLD,
             "optimizer/ns5_iters": NS5_ITERS,
             "optimizer/wd_aux": WD_AUX,
+            "optimizer/muon_beta_depth_ramp": MUON_BETA_DEPTH_RAMP,
+            "optimizer/muon_beta_depth_ramp_cooldown_only": MUON_BETA_DEPTH_RAMP_COOLDOWN_ONLY,
             "optimizer/recipe": "contra-muon + normuon-lite + soap-on-mlp + soap-on-attn-trust-gate (pre-NS5, record #14 + record #16)",
         },
     )
@@ -905,12 +917,44 @@ for trial_idx in range(args.num_trials):
     optimizer2 = Muon([(n, p) for n, p in model.blocks.named_parameters() if p.ndim >= 2],
                       lr=MUON_LR, weight_decay=MUON_WEIGHT_DECAY, mu=MU)
     optimizer2.param_groups[0]["name"] = "muon_blocks"
+    # Per-layer split for β1 depth ramp (PR #1251 + #1282). Only activated when
+    # at least one ramp env var is non-zero; otherwise the baseline single-group
+    # path is preserved bytewise.
+    if MUON_BETA_DEPTH_RAMP != 0.0 or MUON_BETA_DEPTH_RAMP_COOLDOWN_ONLY != 0.0:
+        blocks_named_params = [(n, p) for n, p in model.blocks.named_parameters() if p.ndim >= 2]
+        block_idx_by_param: dict[int, int] = {}
+        for name, p in blocks_named_params:
+            block_idx_by_param[id(p)] = int(name.split(".", 1)[0])
+        num_blocks = len(model.blocks)
+        layer_params: dict[int, list] = {i: [] for i in range(num_blocks)}
+        for _, p in blocks_named_params:
+            layer_params[block_idx_by_param[id(p)]].append(p)
+        mid = (num_blocks - 1) / 2.0
+        half_span = mid if num_blocks > 1 else 1.0
+        optimizer2.param_groups.clear()
+        for i in range(num_blocks):
+            params_sorted = sorted(layer_params[i], key=lambda x: x.size(), reverse=True)
+            depth_pos = (i - mid) / half_span
+            optimizer2.add_param_group(dict(
+                params=params_sorted,
+                lr=MUON_LR,
+                weight_decay=MUON_WEIGHT_DECAY,
+                mu=MU,
+                name=f"muon_block_{i}",
+                depth_pos=depth_pos,
+            ))
     optimizers = [optimizer1, optimizer2]
     assert set(p for opt in optimizers for group in opt.param_groups
                for p in group["params"]) == set(model.parameters())
     for opt in optimizers:
         for group in opt.param_groups:
             group["initial_lr"] = group["lr"]
+
+    # Per-layer β1 depth ramp threshold (PR #1282). Using MU_COOLDOWN_START
+    # numerically as a step fraction: step >= round(train_steps * MU_COOLDOWN_START)
+    # gates the cooldown-only depth ramp. With MU_COOLDOWN_START=0.95 and
+    # train_steps=3175, this activates at step 3016 (last 5% of training).
+    beta_ramp_start_step = round(train_steps * MU_COOLDOWN_START)
 
     # learning rate schedule: stable then decay
     def set_hparams(step, cooldown_frac=0.7):
@@ -931,11 +975,20 @@ for trial_idx in range(args.num_trials):
                 cur_mu = MU_COOLDOWN_START + (MU_COOLDOWN_END - MU_COOLDOWN_START) * t
         else:
             cur_mu = MU + (MU_END - MU) * progress
+        in_beta_ramp_cooldown = step >= beta_ramp_start_step
         for opt in optimizers:
             for group in opt.param_groups:
                 group["lr"] = group["initial_lr"] * eta
-                if group.get("name") == "muon_blocks":
-                    group["mu"] = cur_mu
+                if "mu" in group:
+                    if "depth_pos" in group:
+                        always_offset = MUON_BETA_DEPTH_RAMP * group["depth_pos"]
+                        cooldown_offset = (
+                            MUON_BETA_DEPTH_RAMP_COOLDOWN_ONLY * group["depth_pos"]
+                            if in_beta_ramp_cooldown else 0.0
+                        )
+                        group["mu"] = cur_mu + always_offset + cooldown_offset
+                    else:
+                        group["mu"] = cur_mu
 
 
     ########################################
