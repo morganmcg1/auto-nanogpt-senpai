@@ -1,3 +1,49 @@
+## 2026-05-26 10:50 UTC — Cycle 71 mid-278
+
+**Cumulative**: 165 refuted / 89 distinct mech classes / 51 family-level closures / 7 SATURATED MECHANISM LAYERS + 3 SATURATED LANES / 14 refute-signature classes / 7 CATASTROPHIC-SHIFTED-FLOOR (unchanged from mid-277)
+
+**This cycle**: frieren #1285 code-review gate caught an **advisor-spec arithmetic error** — the first inverted-case-catch of cycle 71 where the student's cross-check found my spec wrong, not their implementation wrong.
+
+- **#1285 frieren MUON_LR_BETA_PAIRED_DEPTH_RAMP — code-review gate ARM A AUTHORIZED with 1-line patch correction**: 12th successful pre-launch code-review gate application; **2nd inverted-case (advisor-spec arithmetic error) of cycle 71** (after the #1230 Prodigy aux-state spec catch earlier). Student verified against actual #1251 commit message (`mu_layer(l, t) = cur_mu_global(t) + MUON_BETA_DEPTH_RAMP * (l/(L-1) - 0.5)`) and the logged `optim/muon_mu_offset/muon_blocks_l0 = -0.02` from #1251 Arm A `ufkanf0u`, both showing `depth_pos ∈ [-0.5, +0.5]` form. My spec used `(l - (L-1)/2) / ((L-1)/2)` → range [-1, +1], doubling the per-layer magnitude vs #1250/#1251 baseline. This breaks the additive-null prediction framework that motivated the paired test.
+  
+  Decision: switch to #1250/#1251 form (`depth_pos = l/(L-1) - 0.5`, range [-0.5, +0.5]) via 1-line patch. Bytewise-inert disabled-check `1qf59q7k` val@200=4.0845 (cu12.8 band) remains valid post-patch. Arm A authorized after fix; Arm B sequential.
+
+- **Post-hoc note for #1282 thorfinn (in-flight)**: thorfinn #1282 uses the same [-1, +1] form (`depth_pos = (i - mid) / half_span`) — same arithmetic error as my #1285 spec. The per-layer β offset in #1282 is 2× larger per unit ramp than #1251's was, but integrated offset × duration is ~10× smaller because cooldown is only 159/3175 steps. #1282 is still scientifically meaningful as a phase-gated test — just at a different per-step magnitude than #1251. Will note in #1282 results review when terminal.
+
+**Updated #1285 prediction framework (interpretation 2 — [-0.5, +0.5] form)**:
+
+| Outcome | Arm A val | Interpretation |
+|---|---|---|
+| Additive null | ~3.27148 (Δ=+0.00372 = Δ_LR+Δ_β from #1250+#1251 Arm A) | Independent axes, family saturates at FFS=3025 cluster |
+| Constructive synergy | <3.27000 | Interaction favorable; n=2 confirm warranted |
+| Cancel | ~3.26900 | Anti-interaction; potential merge |
+| Destructive | >3.27200 | Axes amplify each other in favorable direction |
+
+Mirror predictions for Arm B (regression sums of #1250 Arm B Δ=+0.01314 and #1251 Arm B Δ=+0.01359):
+| Outcome | Arm B val | Interpretation |
+|---|---|---|
+| Additive null | ~3.28406 | Independent-axes confirmed bilaterally |
+| Sub-additive | ~3.275-3.28 | Anti-interaction in unfavorable direction |
+| Super-additive | >3.285 | Synergistic harm |
+
+**Active fleet (mid-278 post-cycle)**:
+- edward #1264 LATE_NORMUON_VARIANCE_RESET — Arm A in-flight (factorial cell V-only)
+- fern #1267 LATE_COOLDOWN_MOMENTUM_RESET — Arm A in-flight (factorial cell M-only)
+- askeladd #1271 SOAP_TRUST_DEPTH_RAMP — Arm A in-flight
+- thorfinn #1282 MUON_BETA_DEPTH_RAMP_COOLDOWN_ONLY — Arm A launching (10:15 UTC)
+- alphonse #1283 MUON_COMBINED_LATE_RESET — Arm A launching (10:15 UTC)
+- **frieren #1285 MUON_LR_BETA_PAIRED_DEPTH_RAMP — Arm A AUTHORIZED post 1-line patch correction** ← THIS CYCLE
+- 2 pod-broken holds: tanjiro #793 (awaiting CompleteP impl) + nezuko #1226 (Arm B in-flight)
+
+**ZERO IDLE STUDENTS** — 3 in-flight + 2 launching + 1 just-authorized + 1 in-flight nezuko + 1 hold tanjiro
+
+**Methodological observations mid-278**:
+- **12 pre-launch code-review gate applications cycle 71**: 2 inverted-case-catches (#1230 Prodigy aux-state spec error + #1285 depth_pos arithmetic error) + 10 clean validations. **Bidirectional verification methodology proves itself again** — the gate catches advisor errors as well as student errors. Recurring pattern: cross-PR formula drift when PRs reuse infrastructure described in prose rather than re-derived from W&B-verified prior code.
+- **Cross-PR formula drift diagnostic now formalized**: when a PR description references "identical to PR #X infrastructure," cross-check against either (a) the merged commit message of PR #X or (b) the logged telemetry from PR #X's W&B run. Prose descriptions are insufficient — they may misrepresent the math. (Reference for future advisor specs.)
+- **Inverted-case-catch counter**: 2/12 (~17%) of cycle 71 code-review gate applications caught advisor errors, not student errors. Validates the gate as a bidirectional check, not just a student-implementation verifier.
+
+---
+
 ## 2026-05-26 10:15 UTC — Cycle 71 mid-277
 
 **Cumulative**: 165 refuted (unchanged from mid-276) / 89 distinct mech classes (unchanged) / 51 family-level closures (unchanged) / 7 SATURATED MECHANISM LAYERS + 3 SATURATED LANES / 14 refute-signature classes / 7 CATASTROPHIC-SHIFTED-FLOOR
