@@ -1,3 +1,66 @@
+## 2026-05-26 22:05 UTC — Cycle 71 mid-299
+
+**Cumulative**: **183 refuted (+1: thorfinn #1336 183rd cluster-band INFORMATIVE-TRIANGULATION)** / **105 distinct mech classes (+1: thorfinn #1353 MUON_AUX_BUFFER_RESET_AT_COOLDOWN)** / **59 family-level closures (+1: Nesterov-form binary phase-gate axis fully triangulated)** / **6-way closure taxonomy unchanged**.
+
+**Highest-information cycle-71 structural finding to date**: **the cluster floor at val ≈ 3.270 is robust to mid-training Nesterov-form perturbations**. Floor is set by terminal/cooldown-phase dynamics, NOT plateau-phase optimizer choice.
+
+**This cycle — 1 closure (highest-information refute of cycle 71) + 1 reassignment**:
+
+1. **thorfinn #1336 MUON_NESTEROV_INVERSE_PHASE_GATE closed as 183rd refute** (cluster-band INFORMATIVE-TRIANGULATION sub-subtype):
+   - Arm A inverse_cooldown (`yryb7xu4`) val=**3.26995** ffs=**3025**. Cluster member, fails merge bar by +0.00219 val / +25 ffs.
+   - **Phase-axis fully triangulated** — three points on Nesterov-form binary gate:
+     - #1306 Arm B always-ON: val=3.27197 ffs=3025
+     - #1306 Arm A cooldown_only-ON: val=3.27002 ffs=3025
+     - #1336 Arm A inverse_cooldown (cooldown_only-OFF): val=3.26995 ffs=3025
+   - **Mechanism IS real**: pre-cooldown (step 2500) inverse_cooldown matched always-Nesterov within noise, 0.0075 below cooldown-only-Nesterov. Plateau Nesterov benefit reproducibly real across 3 runs.
+   - **Phase-switch firing signature verified**: `train/body_muon/momentum_update_norm_mean` showed clean step-DOWN at step 3016 (225.84 → 213.30 → 182.23 → 189.42 → 216.85), opposite direction from #1306 Arm A's step-UP.
+   - **Crossover-decisive step 3000**: inverse_cooldown ahead of both #1306 arms (3.28006 vs 3.28102/3.28182), then converged to Arm A trajectory through cooldown without crossover penalty.
+   - 96th mech class closed; mech #1306 (MUON_NESTEROV_PHASE_GATE) status now CLOSED-AXIS not just closed-arm.
+   - 59th family-level closure (Nesterov-form binary phase-gate AXIS triangulated).
+   - Student execution exemplary: pre-cooldown phase tracking, momentum_update_norm telemetry, cross-arm crossover analysis.
+
+2. **thorfinn → #1353 MUON_AUX_BUFFER_RESET_AT_COOLDOWN (105th mech class assigned)**:
+   - First state-phase event on AUX-Adam state in 320+ PR corpus. Body-side state-phase axis (#1267/#1283/#1316/#1333) explored; AUX-side virgin territory.
+   - Mechanism: at step 953 (cycle-71 cooldown_frac=0.7 boundary, consistent with #1333/#1335/#1336/#1341 PR boundary convention), reset `exp_avg`/`exp_avg_sq`/`step` for all AUX-Adam param groups (adam_embed, adam_lm_head, adam_scalars).
+   - Hypothesis: AUX-Adam's accumulated 1st/2nd moment estimates over-fit to plateau-phase grad statistics; reset at step 953 lets AdamW re-acclimate to the cooldown-phase grad regime.
+   - **Family-level meta-test**: if #1353 AUX-Adam reset closes as cluster-band AND #1333 SOAP Gram reset closes as cluster-band, the family finding extends: **all mid-training state resets at step 953 land in cluster band** (cluster floor robust to ALL mid-training optimizer-state perturbations, not just Nesterov). If AUX-Adam reset DOES break floor, the discriminating mechanism is "AUX-Adam state staleness specifically" — major mechanism discovery.
+   - Single Arm A. ~12 LoC. Branch-isolated structural exemption tier (same as #1306 / #1333).
+   - Hold gate TIGHTENED `val ≤ 3.265 AND ffs ≤ 3000`.
+
+**Closure-mechanism taxonomy refinement** (cluster-band sub-subtypes):
+- cluster-band SYMMETRIC: both arms within band, similar magnitudes (numerous prior)
+- cluster-band ASYMMETRIC-MAGNITUDE (from #1307): both arms within band, asymmetric magnitudes
+- cluster-band INFORMATIVE-TRIANGULATION (NEW from #1336): multi-arm exploration on a phase-axis triangulates all binary gate variants into the same cluster, closing the AXIS not just the arm
+- (Distinct from ASYMMETRIC-OUTCOME from #1312: one clusters one regresses catastrophically)
+
+**Methodology corpus addition this cycle**:
+
+1. **Phase-axis triangulation principle**: when a multi-arm binary phase-gate (always-ON, cooldown-only-ON, cooldown-only-OFF/inverse_cooldown) all cluster at the same band, the AXIS is closed (not just the individual arms). Future mechanism PRs on the same phase-axis should justify how they differ structurally (e.g., #1316 Polyak is eval-state not training-state; #1333 SOAP Gram is state-reset not blend-switch). Joins cycle-71 canon alongside #1324 (cluster-break-vs-RNG), #1341 (closed-refutes-do-not-propagate-code), #1347 (PR-pseudocode-vs-actual-code).
+
+**Active fleet status mid-299**:
+
+| Student | PR | Status | W&B notes |
+|---|---|---|---|
+| g1r2-alphonse | #1323 | status:wip, Arm A running step 2092+ | MUON_BODY_ATTN_MLP_BETA_PHASE_DISPATCH (cleared 1500/2000 gates) |
+| g1r2-thorfinn | #1353 | status:wip, just assigned | MUON_AUX_BUFFER_RESET_AT_COOLDOWN (105th mech, AUX-side state-phase) |
+| g1r2-nezuko | #1347 | status:wip, implementation pending advisor clarification | MUON_NESTEROV_PER_KIND (Interp A clarified, MUON_HB_ATTN/MLP semantics) |
+| g1r2-fern | #1341 | status:wip, implementation pending | MUON_BETA_RAMP_DECAY (specs delivered) |
+| g1r2-frieren | #1340 | status:wip, Arm A canonical run continuing | MUON_BETA_LOCALIZED_STEP post-incident step 500+ |
+| g1r2-askeladd | #1333 | status:wip, Arm A launching | ATTN_SOAP_GRAM_REINIT_AT_COOLDOWN (100th mech) |
+| g1r2-tanjiro | #1316 | status:wip, Arm B running | MUON_BODY_POLYAK_AVERAGING (Arm A terminal cluster) |
+| g1r2-edward | #1335 | status:wip, Arm A step 1500+ | EMBED_LR_PHASE_TRANSITION (phase event firing confirmed step 953) |
+
+**ZERO IDLE STUDENTS — 8 students concurrently active.**
+
+**Cluster-floor research direction** (post-#1336 most load-bearing finding):
+
+The cluster floor at val ≈ 3.270 is now the cycle's central research target. Three orthogonal axes are being probed to test the floor's robustness:
+- **State-phase resets at step 953**: #1333 SOAP Gram + #1353 AUX-Adam buffer — both target the cooldown_frac=0.7 boundary on different state axes
+- **State-phase events post-step-953**: #1335 embed LR + #1336 Nesterov form (closed) — phase asymmetry on continuous-state mechanisms
+- **Per-depth/per-kind structural intervention**: #1341 β-ramp-decay + #1340 β-localized + #1323 per-kind β + #1347 per-kind Nesterov — depth/kind-graded interventions
+
+If ALL these refute as cluster-band, the meta-finding is "**cluster floor is invariant under both state-phase perturbations and structural depth/kind interventions**" — pointing toward harder interventions: (a) actual cooldown SHAPE change (cosine→trapezoid/cosine→linear), (b) cooldown START boundary change (currently hardcoded at 30% via cooldown_frac=0.7 in `set_hparams`), (c) optimizer-class switch during cooldown, or (d) early termination + best-checkpoint recovery.
+
 ## 2026-05-26 21:10 UTC — Cycle 71 mid-298
 
 **Cumulative**: **182 refuted (+1: nezuko #1307 182nd cluster-band ASYMMETRIC-MAGNITUDE)** / **104 distinct mech classes (+1: nezuko #1347 MUON_NESTEROV_PER_KIND)** / **58 family-level closures (+1: per-AUX-group LR scalar dispatch)** / **6-way closure taxonomy unchanged** (ASYMMETRIC-MAGNITUDE is a sub-subtype of cluster-band, not warranting 7th top-level entry).
