@@ -1,3 +1,84 @@
+## 2026-05-26 05:10 UTC — FRIEREN #1220 SHAMPOO_MUON_BODY CLOSED (158th refuted, 45th family-level closure, Class-3-pre-NS5 bilateral structured Kron preconditioner family 1/1, 18th SHIFTED-FLOOR, AUX+body Kronecker preconditioner LANE now bilaterally saturated 2/2 families) + FRIEREN #1250 MUON_LR_DEPTH_RAMP assigned NEW 81st distinct mech class (cycle 71 mid-261)
+
+### #1220 frieren SHAMPOO_MUON_BODY — CLOSED, 158th refuted, 45th family-level closure, 18th SHIFTED-FLOOR
+
+- **Hypothesis**: Class-3 pre-NS5 bilateral structured Kronecker preconditioner on body Muon gradient. Apply `G' = (L_t + ε I)^{-1/4} G (R_t + ε I)^{-1/4}` BEFORE feeding to Muon's momentum buffer (pre-NS5, pre-momentum). Theory: NS5 polar projects to operator norm 1 — pre-conditioning gradient's singular vectors with Shampoo Kronecker factors reshapes the SVD basis NS5 collapses TO, distinct from PMuon (#82/#187 post-NS5 bilateral) which reshapes the polar OUTPUT direction.
+
+- **Terminal results** (n=1):
+
+| Arm | Config | wandb_run_id | val@3175 | ffs | Δ vs baseline (3.26776/3000) | g_frob_ratio median | Outcome |
+|-----|--------|--------------|----------|-----|------------------------------|---------------------|---------|
+| Disabled-check | SHAMPOO_MUON_BODY=0 | (earlier) | val@200=4.083 | — | within RNG envelope | n/a | parity ✓ |
+| Arm A | PRECOND_FREQ=50 ε=1e-6 | `59m15x20` | **3.27080** | 3025 | +0.00304 | 0.10 | SHIFTED-FLOOR |
+| Arm B | PRECOND_FREQ=100 ε=1e-6 | `pvoqhwnw` | **3.27340** | -1 | +0.00564 | 0.10 | SHIFTED-FLOOR |
+
+- **Verdict**: REFUTED — SHIFTED-FLOOR (18th in cycle 71). Both arms within floor-cluster band [3.267, 3.273], neither clears merge bar val_mean < 3.26776, neither n=1 hold gate val ≤ 3.27 (Arm A clears val gate but ffs=3025>3000; Arm B misses both). Monotonicity: frequency-50 (more aggressive) beats frequency-100 (less aggressive) by Δ=−0.00260 — preconditioner staleness IS load-bearing within Class-3, more current factors marginally helpful.
+
+- **Diagnostic g_frob_ratio**: median 0.10 across both arms (10× below target band [0.5, 2.0]). Shampoo preconditioner is over-attenuating gradient magnitude pre-momentum — the L^{-1/4} G R^{-1/4} damping is way too aggressive at our regime. L_max condition numbers reach 6e+11 (Arm A) / 4.4e+11 (Arm B), confirming severe Kronecker factor ill-conditioning.
+
+- **Mechanistic interpretation**: Class-3 bilateral structured Kronecker preconditioner on body Muon at 3175-step budget is **structurally suboptimal under tight-budget regime**, mirroring [[spec-cross-check-reference-impl]] new insight from #1230 PRODIGY_AUX closure. The Shampoo theory (Gupta 2018, Morwani 2024) assumes p-th-root inverse converges to a well-conditioned preconditioner over many steps — at our 3175-step budget, L_t/R_t are still high-condition number when applied. NS5's polar projection then operates on a near-rank-deficient preconditioned gradient.
+
+- **Saturated lane update**: **Kronecker preconditioner LANE now bilaterally saturated 2/2 families**:
+  - **AUX**: #1216 PSGD_KRON_AUX (Li & Mahoney 2015 PSGD) — Kronecker-factored whitening on embed/lm_head — closed cycle 71 mid-260
+  - **Body**: #1220 SHAMPOO_MUON_BODY (Gupta 2018 Shampoo) — Class-3 bilateral Kron on body matmul — closed this entry
+  
+  Combined with [[saturated-aux-adaptive-lane]] designation, Kronecker preconditioner is now a **closed lane** across both optimizer groups. Future structured-preconditioner proposals must EXIT the Kronecker abstraction (e.g., low-rank only, full-rank Cholesky, or non-factored). The lane SATURATION COUNTS:
+  - SATURATED MECHANISM LAYERS: 7 (NS5 polynomial 6/6, Momentum LIFECYCLE 4/4, Momentum INTERPRETATION 5/5, Post-NS5 update space 4/4, Variance reduction 8/8, Schedule-on-frozen-scalar 5/5, AUX bilateral multi-mechanism)
+  - SATURATED LANES: 2 (AUX adaptive-LR/preconditioner 2 families closed [Kron AUX + Prodigy], **Kronecker preconditioner bilateral lane 2 families [#1216 + #1220] NEW**)
+
+- **Frieren 4th consecutive within-student validation**: #1124 MUON_LOOKAHEAD → #1142 MUON_LOOKAHEAD_COOLDOWN_GATE → #1216 (PSGD assigned to thorfinn, frieren submitted disabled-check workaround) → #1220 SHAMPOO_MUON_BODY → now pivoting to depth-LR axis (#1250). Frieren has cleanly closed weight-space-averaging + bilateral-Kron-preconditioner families across 4 consecutive PRs, all with publication-grade mechanism interpretation. Lane pivot OFF Kron preconditioner is forced; pivot onto spatial-LR-asymmetry is the new directive.
+
+### #1250 frieren MUON_LR_DEPTH_RAMP — NEW assignment, 81st distinct mechanism class
+
+- **Hypothesis**: Center-preserving depth-ramp multiplier on body Muon LR. For each transformer layer `l ∈ {0..11}`, set `lr_effective(l) = MUON_LR × (1 + MUON_LR_DEPTH_RAMP × (l/(L-1) - 0.5))`. The mean-preserving construction isolates **depth-LR-asymmetry** signal from net LR scale. With ramp=0.3, layer 0 LR = 0.034, layer 11 LR = 0.046 — 1.35× top-to-bottom ratio, mean exactly preserved at MUON_LR=0.04.
+
+- **Mechanism class**: 81st distinct mechanism class — FIRST spatial-LR-asymmetry-on-body-Muon in 320-PR corpus. Anti-duplication grep clean: `MUON_LR_DEPTH`, `LR_DEPTH_BODY`, `DEPTH_LR_RAMP`, `layer_lr_scale`, `MUON_LAYER_LR`, `per_layer_lr`, `LAYER_WISE_LR`, `DEPTH_SCALED`, `MUON_BODY_DEPTH` — all 0 hits.
+
+- **Theoretical motivation**:
+  - μP (Yang 2022 arXiv:2203.03466) + SP² (Bordelon 2024 arXiv:2310.02244): effective signal-to-noise ratio per layer decreases with depth (backprop attenuation through more intervening operators). Deeper layers under-train at uniform global LR.
+  - Counter-force: deeper layers have higher activation variance from residual stream accumulation → larger LR risks overshoot.
+  - Two-arm design tests directionality of this two-force balance.
+
+- **Distinct from in-flight WD_BODY_DEPTH (fern #1224)**:
+  - Same THEORETICAL family (μP/SP² depth-dependent SNR) but **mathematically orthogonal axes** in the update equation: `θ_{t+1} = θ_t - lr·NS5(g) - lr·wd·θ_t`. WD ramps the regularization pull-toward-zero per layer; LR ramps the gradient-step magnitude per layer. Both can co-exist in a final stack.
+  - First spatial-asymmetry mechanism family with 2 concurrent in-flight axes (WD + LR). If both refute symmetrically, the spatial-asymmetry-on-body-Muon mechanism layer closes cleanly. If one passes, learn directionality of body-Muon spatial preference.
+
+- **Arms** (sequential after disabled-check, single GPU):
+  - **Arm A**: MUON_LR_DEPTH_RAMP=+0.3 (deeper = higher LR, μP-direction)
+  - **Arm B**: MUON_LR_DEPTH_RAMP=-0.3 (shallower = higher LR, anti-μP direction)
+  - Disabled-check: MUON_LR_DEPTH_RAMP=0.0 must reproduce baseline val@200 ∈ [4.075, 4.090]
+
+- **Kill gates**: baseline-trajectory + 0.01 margin per [[kill-gates-from-baseline]] — val@500 > 3.86 kill, val@1000 > 3.72 kill, val@1500 > 3.59 kill, val@2000 > 3.49 kill, val@2500 > 3.40 kill, val@3000 > 3.32 kill.
+
+- **Predicted result distribution**: 50% floor-cluster close-miss (both arms symmetric SHIFTED-FLOOR), 25% directional refute (one arm passes, one regresses, symmetric Δ), 20% symmetric 3-decimal-match (would echo #1064 ORTHOGONAL_BODY_INIT's "axis irrelevant" finding for the depth-LR axis), 5% catastrophic (unlikely with mean-preserving construction).
+
+### Methodology
+
+- **Lane saturation diagnostic methodology**: this is the 2nd explicit SATURATED LANE designation in cycle 71 ([1] AUX adaptive-LR/preconditioner #1216+#1230 + [2] Kronecker preconditioner bilateral #1216+#1220). LANE-level closure is portfolio-level guidance distinct from mechanism-layer refute; it directs future advisor toward axes structurally outside the closed lane (here: not factored preconditioners, period).
+
+- **#1220 took 4 attempts at spec across alphonse + frieren** — Class-3 bilateral Kron has high transcription-risk like #1230 PRODIGY_AUX. Both PRs validated the [[spec-cross-check-reference-impl]] pre-launch code-review gate.
+
+- **Spatial-schedule mechanism family emerging**: WD_BODY_DEPTH (fern #1224) + MUON_LR_DEPTH_RAMP (frieren #1250) form 2 concurrent in-flight axes in this family. Future spatial-schedule candidates include BETA_DEPTH (depth-ramp on Muon β1), CONTRA_DEPTH (depth-ramp on contra-correction), each with the same μP/SP² theoretical motivation but distinct math operators.
+
+### Cycle 71 at mid-261
+- 158 refuted axes / 81 distinct mech classes / 45 family-level closures
+- 7 SATURATED MECHANISM LAYERS + **2 SATURATED LANES** (4 families)
+- 10 refute-signature classes
+- **18 SHIFTED-FLOOR** + 4 CATASTROPHIC-SHIFTED-FLOOR + 1 FROZEN-AUX-SLOW-RAMP
+- 5 pre-launch student catches + 3 advisor self-corrections + 2 student-side audit catches
+
+### Fleet at mid-261
+- 3 pod-broken holds (tanjiro #793 + edward #702 + nezuko #1226)
+- 5 active WIPs:
+  - frieren #1250 MUON_LR_DEPTH_RAMP NEW (just assigned)
+  - fern #1224 WD_BODY_DEPTH Arm A step ~1000 healthy
+  - askeladd #1225 MUON_BETA_END Arm A val=3.27101 SENPAI-RESULT pending + Arm B `d8lt6izv` in flight
+  - thorfinn #1245 DOWG_BODY_MUON disabled-check `uvhd26ht` val@200=4.09011 PASS ✓ + Arm A (DoG canonical) launching now
+  - alphonse #1248 NOVOGRAD_BODY_MUON disabled-check launching
+- ZERO IDLE STUDENTS at advisor level
+
+---
+
 ## 2026-05-26 04:10 UTC — ALPHONSE #1230 PRODIGY_AUX CLOSED (157th refuted, CATASTROPHIC closure, FROZEN-AUX-SLOW-RAMP 10th refute-signature class, 2nd SATURATED LANE entry) + ALPHONSE #1248 NOVOGRAD_BODY_MUON assigned (80th distinct mech class) (cycle 71 mid-260)
 
 ### #1230 alphonse PRODIGY_AUX — CLOSED, 157th refuted, 44th family-level closure
