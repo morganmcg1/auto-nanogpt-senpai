@@ -1,5 +1,24 @@
 # SENPAI Research Results — auto-nanogpt-1gpu-r4
 
+## 2026-05-26 23:00 — PR #1240: H: NM coverage+period extension — max_d_in 1024→4096 + update_period 10→5 (MERGED — 2nd merge since #847, 1st post-NM-characterization-wave merge)
+
+- Branch: `g1r4-tanjiro/newton-muon-extension-pp` (student g1r4-tanjiro)
+- Hypothesis: NM coverage extension (max_d_in 1024→4096 adds MLP down-proj d_in=3072 to preconditioned set) + R-buffer refresh rate boost (update_period 10→5). Two mechanisms compose additively: coverage drives val, period drives fs. Grounded in #1240 screening 2×2 factorial that decomposed the axes cleanly (Arm B coverage-only FAV on val+fs, Arm C period-only NULL on val but -25 on fs, Arm D compound additive).
+
+| Run | Seed | Arm | W&B ID | val/loss | fs | Δ_paired_val | Δ_paired_fs |
+|:---:|:---:|:---:|:---:|:---:|:---:|:---:|:---:|
+| s0-A-ctrl | 0 | A | `pt6nz5dh` | 3.265471 | 3175 | (ref) | (ref) |
+| s0-D-armD | 0 | D | `xx5bfiq0` | **3.263604** | **3150** | **−0.001867** | **−25** |
+| s1-A-ctrl | 1 | A | `cncqn635` | 3.267161 | 3175 | (ref) | (ref) |
+| s1-D-armD | 1 | D | `yg4bp3yf` | **3.262776** | **3150** | **−0.004385** STRONGLY FAV | **−25** |
+| s2-A-ctrl | 2 | A | `6ygmq52j` | 3.266432 | 3175 | (ref) | (ref) |
+| s2-D-armD | 2 | D | `o7abyp0d` | **3.263790** | **3150** | **−0.002642** | **−25** |
+| **MEAN** | — | — | — | **3.263390** | **3150.0** | **−0.002965** | **−25** |
+
+- **5-gate evaluation**: G1 mean val=3.26339 ≤ 3.26614 PASS (cushion 0.00275) / G2 (3.28−3.26339)×√3=0.02877 PASS (7.2×) / G3 3/3 favorable PASS / G4 ctrl drift +0.000215 PASS (14× margin, cleanest ctrl envelope of any PP chain) / G5 3/3 @ fs=3150 PASS. ALL 5 GATES PASS.
+- **Analysis**: Coverage (max_d_in 1024→4096) adds R-buffers for 12 MLP down-proj matrices (d_in=3072) previously excluded by d_in≤1024 filter. R_cond_mean ~10^6 for these matrices vs ~5×10^3 for QKV (R^{-1/2} has much more to correct in MLP down-proj directions). Period=5 doubles R-buffer refresh rate, tracking input-statistic drift more responsively during cooldown. Two levers are orthogonal (disjoint targets) → additive composition with 0% interaction term (screening Arm D Δ=−0.00287, PP mean Δ=−0.00297, attenuation −4% = cleanest signal preservation of any NM chain to date). `params_preconditioned 60→72/72` confirmed at terminal (all body Muon matrices now covered).
+- **New baseline post-merge**: val=3.26339, fs=3150. Previous: val=3.26614, fs=3175. Improvement: val −0.00275, fs −25.
+
 ## 2026-05-26 21:30 — PR #1297: H: NM coverage-by-layer-group — NANOGPT_NEWTON_MUON_GROUPS at all/attn/mlp/none (CLOSED productive-NULL — 46th no-merge)
 
 - Branch: `g1r4-thorfinn/nm-coverage-by-layer-group` (student g1r4-thorfinn)
