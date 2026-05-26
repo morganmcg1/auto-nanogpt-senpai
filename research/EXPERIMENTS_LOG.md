@@ -3,6 +3,44 @@
 Log of completed/reviewed experiment PRs in chronological order. Wave 1
 results pending student execution.
 
+## 2026-05-26 22:00 UTC — PR #1279: tanjiro SOAP `PRECOND_FREQ=16` pruning ablation — **CLOSED clean-NEG** [FFS-PRIMARY]
+
+- **Branch:** `g1r5-tanjiro/soap-precond-freq-pruning`
+- **Hypothesis:** Test whether SOAP eigenbasis Q-matrix refresh frequency `PRECOND_FREQ=16` (hardcoded line 28) is FFS-load-bearing under directive #1262 stack-simplification framing. Two competing mechanisms: (a) higher-freq → tighter cond → earlier FFS; (b) lower-freq → stable basis → less rotation noise → earlier FFS.
+- **5-cell design:** A=16 ctrl / B★=32 PRIMARY half-as-often / C=8 twice-as-often / D=64 4× less often / E=4 falsifier 4× more often.
+- **Results (FFS-primary):**
+
+| Cell | freq | FFS | val/loss | Δ vs ctrl (σ_single) | q_refresh_total | step_avg | Verdict |
+|:----:|:----:|:---:|:--------:|:-------:|:---------------:|:--------:|:--------|
+| A | 16 (ctrl) | 3050 | 3.26196 | +1.25σ vs baseline | 14688 | 1898ms | baseline n=1 noise |
+| **B★** | **32** | **3025** | **3.26070** | **−0.88σ — baseline-EXACT** | **7344 (½)** | **1873ms** | **half SOAP compute, identical FFS** |
+| C | 8 | 3025 | 3.26151 | +0.49σ | 29304 | 1950ms | within FFS noise |
+| D | 64 | 3075 | 3.26494 | **+6.27σ** | 3672 | 1865ms | **first val degradation — staleness cliff** |
+| E | 4 falsifier | 3025 | 3.25895 | −3.83σ | 58536 | 2058ms | val-cosmetic only no FFS gain |
+
+Baseline: μ_4=3.261221, σ_single=0.000593, FFS=3025 (PR #699 musoft `zp6gvwv5`, n=4).
+
+W&B runs: A `l9sqpuff` | **B★ `xhod3ndy`** | C `etnmre2w` | D `md10gvc3` | E `helfvaeo`. Group: `g1r5-tanjiro/soap-precond-freq-pruning`.
+
+Full FFS curve: All cells track identically until step ~2875 (loss=3.30). FFS-bin separation only appears at the 3.28 crossing window — exactly where cooldown LR-decay rapidly changes the loss surface.
+
+- **Verdict: clean-NEG stack-simplification candidate at freq=32, no n=4 promotion per directive.**
+  - Cell B★ FFS=3025 = baseline-exact NOT earlier → does NOT clear FFS-primary alive gate (≤2975) → no n=4 (per #1188 lesson)
+  - Cell B★ halves SOAP-internals compute (7344 vs 14688 refreshes) at zero FFS cost — wall-clock simplification, not speed candidate
+  - Cell D=64 first val degradation +6.3σ marks the staleness cliff between 32 and 64
+  - **7th stack-component pruning closure under FFS-primary directive #1262.**
+- **Mechanism (4 findings):**
+  1. **PRECOND_FREQ is FFS-cosmetic across [4, 32].** Q matrices are slow-moving — `row_gg`/`col_gg` EMA'd with `shampoo_beta=SOAP_BETA2=0.90` (half-life ~6.6 steps). Refreshing every 4, 8, 16, or 32 steps samples basically the same Q rotation; slow-moving curvature direction captured well below the Nyquist rate of refresh.
+  2. **Staleness cliff between 32 and 64.** At freq=64, Q lags enough that during the rapid cooldown crossing (steps 2800-3050) the optimizer is preconditioning with a Q that's 64 LR-decayed steps stale. Val/loss penalty +6.3σ is the first sharp signal in the sweep.
+  3. **Cell E=4 over-refresh val-cosmetic only at edge of crossing window.** Tighter preconditioner during cooldown gives val/loss −3.8σ but FFS-bin granularity is 25 steps and val/loss tightening doesn't translate to crossing 3.28 any earlier than step 3025 (bin floor). Confirms hypothesis's "more refresh is val-cosmetic" branch.
+  4. **PRECOND_FREQ=32 is a clean ~2× SOAP-internals compute simplification at zero FFS cost.** Wall-clock saving without quality cost — but doesn't move FFS so doesn't qualify for merge under FFS-primary. Stored as simplification claim for end-of-round portfolio review.
+- **★ SOAP-internals pruning programme complete:** combined with #914 (refresh-freeze NEG), #1053 (asymmetric Q refresh NEG), #979 (`exp_avg_sq` scaling NEG), #936 (Q-scope structural), #1273 (`--soap_attn` load-bearing) — all 6 axes of SOAP internals are now tested at FFS scale. **SOAP internals are tightly tuned and load-bearing in all axes except refresh cadence which has slack** (freq=32 viable simplification).
+- **Connection to earlier closures:** Cell A=3050 vs B/C/E=3025 reflects n=1 FFS-bin variance (25-step granularity). The n=4 baseline `zp6gvwv5` was 4-seed mean; Cell A single trial at 3050 is within expected single-trial spread (n=1 noise floor ~1 FFS bin = 25 steps). Confirms #1188 regression-to-mean calibration constant (~2.7 mNats noise floor) and #1276 fern observation "FFS locked by state accumulated through first ~3000 steps."
+
+**Action:** Closed clean-NEG. **Assigned tanjiro → #1330 AdamW aux EPS pruning** (★ completes AdamW aux (β1, β2, ε) trio under FFS-primary; tests hardcoded `eps=1e-10` line 843 via new `--adamw_aux_eps` CLI arg; 5-cell A=1e-10 ctrl / B★=1e-8 PyTorch Adam default 100× larger PRIMARY / C=1e-12 100× smaller / D=1e-6 / E=1e-4 falsifier; specifically probes whether lm_head's small-update regime (lr=1/320) is sensitive to denominator regularizer; pairs with #1310 β1 + #1321 β2 → joint test of "is the AdamW (0.8, 0.95, 1e-10) tuple FFS-load-bearing?").
+
+---
+
 ## 2026-05-26 21:15 UTC — PR #1276: fern `cooldown_frac` pruning ablation — **CLOSED clean-NEG-INVERTED** [FFS-PRIMARY]
 
 - **Branch:** `g1r5-fern/cooldown-frac-pruning`
