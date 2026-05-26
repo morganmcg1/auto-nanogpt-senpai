@@ -1,3 +1,53 @@
+## 2026-05-26 09:40 UTC — Cycle 71 mid-275
+
+**Cumulative**: 164 refuted (alphonse #1248 CLOSED as 164th, BILATERAL-SYMMETRIC-SHIFTED-FLOOR) / 88 distinct mech classes (alphonse #1283 MUON_COMBINED_LATE_RESET NEW — completes 2×2 factorial with #1264 + #1267 at step 2540 phase boundary) / **50th family-level closure** (NovoGrad/pre-NS5 normalization family closes bilaterally — both β2 values reach same floor confirming NS5 downstream redundancy) / 7 SATURATED MECHANISM LAYERS + 3 SATURATED LANES / 14 refute-signature classes / 7 CATASTROPHIC-SHIFTED-FLOOR
+
+**This cycle**:
+- **#1248 alphonse NOVOGRAD_BODY_MUON CLOSED**: 164th refute, 50th family-level closure. Arm A `k6ch2snl` val=3.27141 ffs=3025 (FFS-PRIMARY cluster 5th member) + Arm B `h0hzb6c5` val=3.27161 ffs=3050 (cluster-adjacent). **BILATERAL-SYMMETRIC-SHIFTED-FLOOR**: both arms cluster within Δval=0.0002 despite β2 spanning ~6× range (0.5 → 0.95) — β2 magnitude irrelevant for final convergence. Diagnostic: NS5 polar projection downstream normalizes spectral norm to ~1, structurally subsuming NovoGrad's pre-momentum scalar `1/√v` rescaling. Mechanism is active (v_ratio 1000-2000× inter-layer spread throughout training) but effect on final update magnitude wiped out by NS5. **Structural redundancy refute** distinct from "mechanism inactive". Pre-NS5 normalization family confirmed saturating.
+- **#1283 alphonse MUON_COMBINED_LATE_RESET assigned**: 88th distinct mech class — completes 2×2 factorial cell `(M_reset=✓, V_reset=✓)` at step 2540 phase boundary. Joins existing cells:
+  - `(–,–)` baseline (#613)
+  - `(M, –)` fern #1267 (momentum-only)
+  - `(–, V)` edward #1264 (variance-only)
+  - `(M, V)` alphonse #1283 NEW (combined)
+  
+  Methodology extension: **decoupled-mechanism pair design → factorial design**. Diagnostically valuable outcomes are the disagreements between {singleton, singleton} and combined — distinguishes independent effects from interaction effects. Arms: A=zero (full reset) paired with fern A + edward A; B=scale=0.5 paired with fern B + edward B (cell-aligned).
+
+**FFS-PRIMARY-REFUTE cluster grows to 5 members** (with alphonse #1248 Arm A added):
+| PR | Mechanism | Arm | val | Δ | ffs |
+|---|---|---|---|---|---|
+| #1251 thorfinn | β1 depth-ramp +0.04 | A | 3.26912 | +0.00136 | 3025 |
+| #1224 fern | WD body depth | B | 3.26982 | +0.00206 | 3025 |
+| #1250 frieren | LR body depth +0.3 | A | 3.27012 | +0.00236 | 3025 |
+| #1248 alphonse | NovoGrad β2=0.95 canonical | A | 3.27141 | +0.00365 | 3025 |
+| #1248 alphonse | NovoGrad β2=0.5 (cluster-adjacent) | B | 3.27161 | +0.00385 | 3050 |
+
+Within-cluster val spread now 0.00229 across 5 unrelated mechanisms; cluster IS the n=1 null behavior for LOGIT_SOFTCAP=20.0 stack. Cluster prediction holds; merge-bar candidates near this cluster must validate with n=2 + show ffs improvement, not just val tight to baseline.
+
+**Active fleet (mid-275 post-cycle)**:
+- frieren #1250 MUON_LR_DEPTH_RAMP — Arm B RAMP=-0.3 in-flight, ETA ~09:30 UTC (terminal soon)
+- edward #1264 LATE_NORMUON_VARIANCE_RESET — Arm A in-flight, step ~1500 (factorial cell B)
+- fern #1267 LATE_COOLDOWN_MOMENTUM_RESET — Arm A in-flight, step ~600+ (factorial cell C)
+- askeladd #1271 SOAP_TRUST_DEPTH_RAMP — Arm A authorized, launching
+- thorfinn #1282 MUON_BETA_DEPTH_RAMP_COOLDOWN_ONLY — NEW, awaiting disabled-check + code-review gate
+- **alphonse #1283 MUON_COMBINED_LATE_RESET — NEW, awaiting disabled-check + code-review gate (factorial cell D)**
+- 2 pod-broken holds: tanjiro #793 (awaiting CompleteP impl) + nezuko #1226 (Arm B in-flight, Option B approved)
+
+**ZERO IDLE STUDENTS** — 4 in-flight + 2 NEW awaiting-launch + 1 in-flight (nezuko) + 1 hold (tanjiro)
+
+**Aligned with Morgan #1259 directive**:
+- 5× depth/per-group (#1250 LR + #1271 SOAP_TRUST attn + #793 CompleteP + #1282 phase-gated spatial-β)
+- 5× state-phase changes (#1264/#1267 paired reset event + #1283 combined-reset 2×2 cell + #1282 cooldown phase-gating)
+- 0× scalar HP-only sweeps
+- 0× saturated lanes added (#1248 closure adds to NovoGrad/pre-NS5-normalization family — saturating but not lane-level)
+
+**Methodological observations**:
+- **Decoupled-mechanism pair design → factorial design**: alphonse #1283 promotes the {#1264, #1267} pair to a 2×2 factorial cell, enabling clean independence-vs-interaction analysis at step 2540. First explicit factorial extension of the decoupled methodology in the corpus.
+- **Pre-NS5 normalization family saturating** (#1248 closure): NS5 downstream normalizes spectral norm to ~1, structurally subsuming any pre-NS5 scalar rescaling. Future proposals in this family should pre-justify how they would survive NS5 downstream. Per-row pre-NS5 mechanisms haven't been tested separately but risk same redundancy.
+- **FFS-PRIMARY cluster prediction working**: 5 unrelated mechanisms all bottom at the same val/ffs floor, confirming structural n=1 noise floor. Merge-bar should adjust to require breaking out of cluster (Δval < -0.0015 or ffs ≤ 3000).
+- Pre-launch code-review gate 9 successful applications cycle 71 (#1230 cycle 1 + #1230 cycle 2 + #1248 cold-start + #1251 + #1254 + #1264 + #1267 + #1271 + #1283-prep).
+
+---
+
 ## 2026-05-26 09:15 UTC — Cycle 71 mid-274
 
 **Cumulative**: 163 refuted (thorfinn #1251 CLOSED as 163rd, 14th refute-signature class **ASYMMETRIC-DIRECTIONAL-REFUTE** introduced) / 87 distinct mech classes (thorfinn #1282 MUON_BETA_DEPTH_RAMP_COOLDOWN_ONLY NEW — first phase-gated spatial-schedule in 320-PR corpus) / 49 family-level closures (#1251 closure adds spatial-β to the spatial-schedule family group) / 7 SATURATED MECHANISM LAYERS + 3 SATURATED LANES / **14 refute-signature classes** / 7 CATASTROPHIC-SHIFTED-FLOOR (thorfinn #1251 Arm B added — 6th cooldown-tail-collapse instance)
