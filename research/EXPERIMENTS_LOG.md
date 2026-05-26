@@ -3,6 +3,30 @@
 This file logs experiment outcomes as PRs land. The historical track 3
 leaderboard is captured in `/BASELINE.md`.
 
+## 2026-05-26 12:30 UTC — PR #1231: Body Muon momentum bias correction (thorfinn) — CLOSED productive-NEG (41st no-merge)
+
+- Branch: `g1r4-thorfinn/body-muon-bias-correction`
+- Hypothesis (2-arm post-#1138 confirmation, sent back from cycle 332): Adam-style m_t / (1 − β^t) bias correction applied to body Muon momentum buffer before NS5 polar decomposition. PRE-#1138 chain (cycle 330) showed favorable within-chain Δ=−0.00294 on warmup100 variant; compositional confirmation test on post-#1138 stack (with NM active) to validate whether mechanism composes with NM right-precondition or is stack-dependent.
+
+| Arm | Config | val/loss | fs | Δ_paired_val | Δ_paired_fs | Verdict |
+|:---:|---|:---:|:---:|:---:|:---:|---|
+| **A′ ctrl** | post-#1138, NM=on, BIAS=0 | **3.26611** | **3175** | (ref) | (ref) | drift −0.00003 EXCEPTIONALLY CLEAN (cleanest single-seed in cohort) |
+| **C′ warmup100** | post-#1138, NM=on, BIAS=1 β=0.95 warmup=100 | 3.26809 | 3200 | **+0.00198** | **+25** | **PRODUCTIVE-NEG** (row-4 conditions both satisfied) |
+
+- **Pre-staged 4-row decision tree row 4 TRIGGERED**: Δ_paired = +0.00198 ≥ +0.0015 fence threshold AND val_C′ = 3.26809 > 3.26764 (baseline + 0.0015 ceiling).
+- **🎯 HEADLINE — STACK-DEPENDENT SIGN-REVERSAL**: PRE-#1138 (NM=off) Δ=−0.00294 FAVORABLE → POST-#1138 (NM=on) Δ=+0.00198 NEG. Δ-of-Δ = +0.00492 across stacks (~4σ swing, far above noise envelope 2σ ≈ 0.0024).
+- **Mechanism interpretation (excellent student narrative)**:
+  - Newton-Muon: `grad → R^{−1/2}·grad` (pre-EMA, right-side input preconditioning)
+  - Bias correction: `m_t → m_t / (1 − β^t)` (post-EMA, magnitude scaling)
+  - When NM OFF: bias amplification (20× step 1 → 1.4× step 25 → 1.006× step 100) genuinely corrects momentum-undersize
+  - When NM ON: R^{−1/2} already reshapes gradient magnitude into well-conditioned scale → additional bias-amplification produces over-magnified m_t entering NS5 → perturbs polar direction during critical first-cooldown approach (cooldown_start_frac=0.7 ↔ step 2345)
+  - Telemetry confirms correction_ratio fired correctly: 20.0× at step 1 → 1.0060× at step 100, then off
+- **Hypothesis 3 (compositional NM-stack mechanism) REJECTED at this seed**; Hypothesis 1 (cooldown-boundary perturbation) consistent with +25 fs slowdown.
+- **Arm A′ drift −0.00003** is the **cleanest single-seed ctrl reproduction observed in entire post-#847 cohort** — removes any "favorable seed draw" confound from the original PRE-#1138 Arm A finding, confirms post-#1138 stack is reproducible under fresh seeds.
+- **BODY-MUON-MOMENTUM-BIAS-CORRECTION axis fenced on post-#1138 stack at warmup100 timing variant** — joins #1240 Arm B/D (max_d=4096 / compound, NM-orthogonal composition validation FAVORABLE) and #1246 GC-row (Δ=−0.00149 MARGINAL favorable, NM-orthogonal compositional 1-closure observation) as **3 post-#1138 NM-compositional data points** showing the cleanest pattern: NM-orthogonal mechanisms compose (FAVORABLE), NM-duplicating mechanisms interfere (NEG, this PR).
+- **Student excellence**: clean rebase from PRE-#1138 to POST-#1138 stack (`2fa1057`), zero conflicts because bias correction was implemented in separate `muon_update_bias_corrected()` function, careful composition verification with NM via boot logs (`BODY_MUON_BIAS_CORRECTION: INACTIVE (bit-identical fallback)` when off), bit-identical fallback verified via Arm A drift gate, telemetry confirmed mechanism fired during steps 1-100, honest cross-stack sign-reversal narrative tied to mechanism ordering in optimizer pipeline.
+- **W&B run IDs**: `7brkbmfj / 0j3tu1id` (Arms A′/C′). Bonus reference: prior PRE-#1138 chain `z8a9bml5 / whzela9x` (Arms A/B) for cross-stack comparison.
+
 ## 2026-05-26 11:15 UTC — PR #1246: Gradient Centralization Pre-NS5 (askeladd) — CLOSED productive-MARGINAL (40th no-merge)
 
 - Branch: `g1r4-askeladd/grad-centralization-pre-ns5`
