@@ -3,6 +3,28 @@
 This file logs experiment outcomes as PRs land. The historical track 3
 leaderboard is captured in `/BASELINE.md`.
 
+## 2026-05-26 10:43 UTC — PR #1243: AdEMAMix-aux dual-EMA first moment (frieren) — CLOSED productive-NEG (39th no-merge)
+
+- Branch: `g1r4-frieren/ademamix-aux`
+- Hypothesis: AdEMAMix dual-EMA first moment (Pagliardini 2024, arXiv:2409.03137) — `(m_fast + α·m_slow) / (sqrt(v_hat) + ε)` replacing standard AdamW's `m_fast_hat / (sqrt(v_hat) + ε)` for aux groups. 4-arm design tests FIRST-MOMENT-DUAL-EMA axis on post-#1138 stack: B lm_head α=5 mech-lead + C all-aux α=5 scope expansion + D lm_head α=2 sensitivity. Mechanism-distinct from saturated MAGNITUDE-PRESERVING-DENOMINATOR cluster (modifies first-moment numerator, not second-moment denominator).
+
+| Arm | NANOGPT_ADEMAMIX_GROUPS | α | val/loss | fs | Δ_paired_val | Δ_paired_fs | Verdict |
+|:---:|---|:---:|:---:|:---:|:---:|:---:|---|
+| A ctrl | empty | — | **3.26688** | **3175** | (ref) | (ref) | drift +0.00074 PASS-strong (fs matches baseline exactly) |
+| B mech-lead | lm_head | 5.0 | 3.26921 | 3200 | +0.00233 | +25 | NULL-band borderline (just above +0.0015 ceiling) |
+| C all-aux | lm_head,embed,scalars | 5.0 | 3.27086 | 3225 | +0.00398 | +50 | PRODUCTIVE-NEG (scope-monotone-regressive) |
+| D | lm_head | 2.0 | 3.26658 | 3175 | −0.00030 | 0 | NULL |
+
+- **Signal threshold (Δ ≤ −0.002 → PP n=3)**: NOT MET by any arm. Arm D at −0.00030 inside NULL band.
+- **Scope-monotone regression (B → C)**: expanding to embed+scalars makes regression WORSE by +0.00165. Matches AdaBelief scope-catastrophic pattern (#1210) but milder (well below +0.01 cliff). Consistent with **EMBED_INIT_ANCHOR_LAMBDA=0.001 regularization being hostile to slow-EMA blending on embeddings** — slow EMA inertia fights the anchor's drift constraint.
+- **α scaling kills mechanism in both directions**: α=5 (paper-recommended) → mild regression; α=2 → NULL (effectively AdamW within noise). No useful α ∈ [2, 5] window — confirms FIRST-MOMENT-DUAL-EMA blend at β3=0.9999 horizon is NOT a positive lever on this stack.
+- **Mechanism interpretation**: Slow EMA's effective horizon ~10k steps (β3=0.9999) exceeds 3350-step training, so m_slow always in early-averaging regime. At α=5 slow-EMA contribution biases update direction enough to mildly slow convergence; at α=2 contribution vanishes within noise. Post-#1138 stack already well-tuned for single β1=0.8 EMA — adding second EMA at different horizon adds no useful information.
+- **Telemetry confirms mechanism engages cleanly**: `slow_contribution = α·||m_slow|| / (||m_fast|| + α·||m_slow||)` ratio rising over training as expected per Pagliardini et al — mechanism not failing to fire, just not helping.
+- **Cross-PR context — 9-mechanism lm_head/aux optimizer-zoo cluster now fully characterized**: #1100 WD / #1153 Cautious / #1155 MARS / #1175 v_min / #1192 row-norm / #1210 AdaBelief / #1232 Power AdamW / #1233 Lion / #1243 AdEMAMix — all NULL or PRODUCTIVE-NEG on this stack. FIRST-MOMENT-DUAL-EMA axis joins as the 9th distinct mechanism fence.
+- **Directive alignment (Issue #1261)**: Last aux-zoo data point in flight — all subsequent assignments NM-aligned per directive. **frieren REASSIGNED #1288 NM R-buffer EMA horizon sweep** (uses existing `NANOGPT_NEWTON_MUON_BETA` env var, zero new code, 4-arm β=0.90/0.95/0.99/0.999).
+- **Student excellence**: clean AdEMAMixAdamW wrapper with bit-identical fused-AdamW fallback when GROUPS=empty, careful telemetry (slow_contribution ratio), 50-step smoke validation, honest mechanism analysis tying scope-regression to embed-anchor hostility, deferred β3=0.999 short-horizon follow-up per directive.
+- **W&B run IDs**: `8mgqvzgo / f09opgih / df2vybe8 / xp3k7fhl` (Arms A/B/C/D)
+
 ## 2026-05-26 10:30 UTC — PR #1233: Lion sign-optimizer for lm_head (fern) — CLOSED productive-NEG (38th no-merge)
 
 - Branch: `g1r4-fern/lion-lm-head`
