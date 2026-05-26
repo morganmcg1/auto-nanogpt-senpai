@@ -1,3 +1,71 @@
+## 2026-05-26 23:10 UTC — Cycle 71 mid-301
+
+**Cumulative**: **185 refuted (+1: askeladd #1333 185th cluster-band single-arm, 100th mech class CLOSED)** / **107 distinct mech classes (+1: askeladd #1355 MUON_NS5_ITERS_PER_KIND_AT_COOLDOWN, first per-kind NS5_ITERS dispatch in 320+ corpus)** / **60 family-level closures (unchanged; single-arm closure does not warrant family closure)** / **6-way closure taxonomy unchanged**.
+
+**Highest-information mid-301 finding**: **Cluster-floor robustness principle now extends to THREE distinct mechanism CLASSES**:
+- **#1336 (Nesterov-form phase-axis)**: state mechanism
+- **#1316 (eval-state Polyak averaging)**: eval-state mechanism
+- **#1333 (SOAP Gram reset at cooldown)**: state-reset mechanism
+
+All three classes converge on cluster floor val ≈ 3.270 with ffs ∈ {3025, 3050, 3075}. The floor is now characterized as **mechanism-class-agnostic** across at least 3 structurally distinct intervention types.
+
+**This cycle — 1 closure (3rd cluster-floor-class refute) + 1 reassignment (FRESH per-kind state-phase combo)**:
+
+1. **askeladd #1333 ATTN_SOAP_GRAM_REINIT_AT_COOLDOWN closed as 185th refute** (cluster-band single-arm, 100th mech class CLOSED):
+   - Single-arm Arm A: val=**3.27008** ffs=**3025** (`cg9d4g4y`). 0.00232 above merge bar.
+   - Both axes in cluster band: val ∈ (3.269, 3.275) ✓, ffs ∈ {3025, 3050, 3075} ✓.
+   - **Mechanism verification PERFECT**: gram_reinit fired exactly once at step 953, count=48 (12 layers × 4 kinds), bit-identical at step 0.
+   - **Structural finding** (HIGH-INFO): **post-reset gram norms settle to substantially smaller magnitudes than pre-reset** (q: 773k→0.5M, k: 364k→0.25M, v: 4.1M→2.2M, proj: 11M→7.1M). The cooldown-phase gradient correlation structure is FUNDAMENTALLY DIFFERENT from the plateau-phase regime — SOAP preconditioning does more work in plateau than in cooldown.
+   - **Val trajectory finding**: post-reset perturbation step 1000: +0.005, then settles into systematic +0.001 to +0.002 drift through terminal. Drift NEVER collapses back to baseline → integrated cost of cooldown-phase re-accumulation regime is +0.00232.
+   - 100th mech class CLOSED.
+
+2. **askeladd → #1355 MUON_NS5_ITERS_PER_KIND_AT_COOLDOWN (107th mech class assigned)**:
+   - **FIRST PER-KIND NS5_ITERS DISPATCH** in 320+ PR corpus. #713 tested per-DEPTH NS5_ITERS (DEPTH ≠ KIND).
+   - **Combines TWO mechanism axes per human directive #1259**: per-kind (depth/per-group) + state-phase event (cooldown-start trigger). Directly addresses Morgan's "avoid plain scalar sweeps; prioritize depth/per-group or state-phase".
+   - Mechanism: plateau (step 0-953) uses uniform NS5_ITERS=14. At step 953, switch to per-kind:
+     - Arm A: attn=12, mlp=16 (attn lighter, mlp heavier)
+     - Arm B: attn=16, mlp=12 (attn heavier, mlp lighter)
+   - **Rationale**: attn params are rank-light (token interaction); MLP params are rank-rich (channel mixing). Optimal orthogonalization may differ by kind. Per #1333 telemetry, cooldown-phase grad structure differs from plateau — per-kind dispatch tests whether this asymmetry maps to NS5 strength.
+   - Branch-isolated structural exemption tier (default-OFF env vars short-circuit).
+   - Hold gate TIGHTENED `val ≤ 3.265 AND ffs ≤ 3000`.
+
+**Cluster-floor research direction — refinement post-#1333**:
+
+The cluster floor at val ≈ 3.270 is now characterized by THREE distinct mechanism-class closures. The remaining floor-breaking candidates:
+- (a) **Cooldown SHAPE intervention** (cosine→trapezoid/linear/exp) — untested structurally
+- (b) **Cooldown START boundary change** — untested
+- (c) **Optimizer-class SWITCH during cooldown** — partial (some optimizer variants tested, but not phase-gated)
+- (d) **Virgin axes** — tanjiro's #1354 LAG (time-shifted gradient, 106th mech) probes this
+- (e) **Per-group structural dispatch with phase-gating** — askeladd's #1355 NS5_ITERS_PER_KIND (107th mech) probes this
+- (f) **Continued state-phase exploration** with sub-cluster acceleration as explicit goal
+
+#1354 (LAG) and #1355 (per-kind NS5) are the two structurally-novel probes in flight; both fall into (d) and (e). Their outcomes will determine whether the cluster-floor principle extends to virgin-axis interventions and per-group cooldown-phase dispatch.
+
+**Closure-mechanism taxonomy** (unchanged 6-way + cluster-band sub-subtypes):
+- cluster-band SYMMETRIC / ASYMMETRIC-MAGNITUDE / INFORMATIVE-TRIANGULATION / **single-arm STANDARD** (4 sub-subtypes, +1 implicit single-arm category recognized post-#1333)
+- catastrophic-shifted-floor / n=2-confirm / MATH-NULL / informative-crossover / ASYMMETRIC-OUTCOME
+
+**Active fleet status mid-301**:
+
+| Student | PR | Status | W&B notes |
+|---|---|---|---|
+| g1r2-alphonse | #1323 | status:wip, Arm A continuing | MUON_BODY_ATTN_MLP_BETA_PHASE_DISPATCH |
+| g1r2-thorfinn | #1353 | status:wip, implementing | MUON_AUX_BUFFER_RESET_AT_COOLDOWN (105th mech) |
+| g1r2-nezuko | #1347 | status:wip, implementing | MUON_NESTEROV_PER_KIND (Interp A) |
+| g1r2-fern | #1341 | status:wip, implementing | MUON_BETA_RAMP_DECAY |
+| g1r2-frieren | #1340 | status:wip, Arm A canonical | MUON_BETA_LOCALIZED_STEP |
+| g1r2-askeladd | #1355 | status:wip, JUST ASSIGNED | MUON_NS5_ITERS_PER_KIND_AT_COOLDOWN (107th mech) |
+| g1r2-tanjiro | #1354 | status:wip, just assigned | MUON_BODY_GRAD_LAG (106th mech, virgin LAG axis) |
+| g1r2-edward | #1335 | status:wip, Arm A continuing | EMBED_LR_PHASE_TRANSITION |
+
+**ZERO IDLE STUDENTS — 8 students concurrently active. ZERO IDLE GPUs.**
+
+**Methodology corpus this cycle**:
+- **Per-kind ≠ per-depth** (corpus refinement): #713 per-block-NS5-ITERS is per-DEPTH (early/late layer split); #1355 is per-KIND (attn/mlp split). These are ORTHOGONAL axes. Future PRs should distinguish carefully.
+- **Single-arm cluster-band recognized as implicit sub-subtype** (cluster-band STANDARD, no asymmetry info). Distinct from bilateral SYMMETRIC / ASYMMETRIC-MAGNITUDE / INFORMATIVE-TRIANGULATION.
+
+**Cumulative closure rate**: 185 / ~525 PRs = ~35% refute rate; merged ≈ 1-3%. 7 mech classes assigned in cycle 71 (#1340, #1341, #1347, #1353, #1354, #1355, + open #1282 etc).
+
 ## 2026-05-26 22:35 UTC — Cycle 71 mid-300
 
 **Cumulative**: **184 refuted (+1: tanjiro #1316 184th cluster-band ASYMMETRIC-MAGNITUDE, second eval-state family closure after #1057)** / **106 distinct mech classes (+1: tanjiro #1354 MUON_BODY_GRAD_LAG, first time-lagged gradient mechanism in 320+ PR corpus)** / **60 family-level closures (+1: eval-state Polyak averaging family closed by trajectory analysis)** / **6-way closure taxonomy unchanged**.
