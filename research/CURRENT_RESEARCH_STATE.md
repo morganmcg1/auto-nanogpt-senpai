@@ -1,3 +1,76 @@
+## 2026-05-26 14:30 UTC — Cycle 71 mid-286
+
+**Cumulative**: **169 refuted (unchanged)** / **93 distinct mech classes (unchanged)** / **53 family-level closures (unchanged)**. **Pending closure**: alphonse #1283 (n=2 confirm authorized), thorfinn #1282 (bilateral terminal awaiting SENPAI-RESULT), nezuko #1226 (bilateral terminal awaiting SENPAI-RESULT).
+
+**Inflection point — FIRST n=2 CONFIRM AUTHORIZED IN CYCLE 71 (since cluster-break investigation began mid-282)**:
+
+**alphonse #1283 MUON_COMBINED_LATE_RESET — bilateral terminal posted, Arm B authorized for n=2 confirm**:
+- Arm A (zero) `yco0nkpy`: val=**3.26975** ffs=**3025** — cluster member 10th
+- Arm B (scale=0.5) `8cslkce9`: val=**3.26842** ffs=**3000** — **clears n=1 hold gate** (val ≤ 3.27 AND ffs ≤ 3000)
+- Arm B is **closest-to-baseline n=1 in entire state-reset family** (7 prior arms across fern + edward + alphonse). Δ vs baseline = +0.00066. For n=2 mean to clear merge bar, seed=1 needs val_seed1 < 3.26710.
+- Student's 2×2 factorial analysis: "additive marginal, no super-additive synergy" — M-only dominates V-only at scale=0.5; combined cell stays at-or-near best singleton.
+- **Per Morgan #1259 directive** ("prioritize state-phase mechanism changes"), n=2 confirm justified despite single-PR refute under merge bar — state-reset is the cycle 71 most-tested optimizer-state-phase family
+- Alphonse re-launched as Arm B seed=1 (NOT reassigned). PR stays `status:wip`.
+- Outcome decision tree: val_seed1 < 3.26710 → MERGE CANDIDATE; val_seed1 ∈ [3.26710, 3.27] → 170th refute; val_seed1 > 3.27 → 170th refute family-wide saturation
+
+**thorfinn #1282 MUON_BETA_DEPTH_RAMP_COOLDOWN_ONLY — bilateral terminal in W&B, awaiting SENPAI-RESULT post**:
+- Arm A `rawvrotv` (+0.04 cooldown-only): val=**3.27111** ffs=**3025** — cluster member 11th
+- Arm B `b980zd71` (-0.04 inverse cooldown-only): val=**3.26978** ffs=**3025** — cluster member 12th
+- **Bilateral cluster-member outcome** — neither direction breaks cluster band. Heartbeat-request sent with suggested SENPAI-RESULT format.
+- Anomaly: new run `wehhrzkn` step 150 active — student asked to clarify (3rd seed n=2 confirm? bug-fix? accidental?). Pending response.
+
+**nezuko #1226 AUX_CLIP_NORM — Arm A=1.0 terminal in W&B, awaiting SENPAI-RESULT post**:
+- Arm A=1.0 `g18v4uii` (tight clip): val=**3.27182** ffs=**3050** — cluster member 13th
+- Combined with Arm B=5.0 (loose, posted 09:54Z): bilateral both-arms-cluster outcome
+- Resolves the 11:57Z mechanism question: **AUX clip is a kill-switch only**, threshold within (1.0, 5.0) does not differentially affect convergence
+- Anomaly: duplicate run `dwe1xx1v` step 625 still running — student asked to clarify and kill if accidental
+
+**Active fleet status mid-286**:
+
+| Student | PR | Status | W&B notes |
+|---|---|---|---|
+| g1r2-alphonse | #1283 | status:wip, n=2 confirm authorized | Arm B seed=1 launch authorized 14:25Z |
+| g1r2-thorfinn | #1282 | status:wip, terminal posted to W&B | bilateral cluster-members; wehhrzkn anomaly to clarify |
+| g1r2-nezuko | #1226 | status:wip, terminal posted to W&B | bilateral cluster-members; dwe1xx1v anomaly to clarify |
+| g1r2-fern | #1296 | status:wip, Arm A in-flight | `vxcvdgt0` step 800 val 3.724, ETA ~36 min |
+| g1r2-frieren | #1285 | status:wip, Arm B in-flight | `sx14oojd` step 1375 val 3.749, ETA ~30 min |
+| g1r2-askeladd | #1301 | status:wip, pre-launch gate | disabled-check posted, awaiting Arm A launch |
+| g1r2-tanjiro | #1303 | status:wip, disabled-check running | `mnzcyx80` step 150 val 4.42, expected cu13 [4.065, 4.095] |
+| g1r2-edward | #1304 | status:wip, disabled-check running | `jgarrh82` step 75 val 10.83 (pre-warmup) |
+
+**ZERO IDLE STUDENTS** — 8 students concurrently active, all running training or pre-launch verification. Maximum count maintained.
+
+**FFS-PRIMARY-REFUTE cluster — pending update to 13 members (after thorfinn 11+12 and nezuko 13 SENPAI-RESULT posts)**:
+
+| # | PR | Arm | Mechanism | val | ffs |
+|---|---|---|---|---|---|
+| 1 | thorfinn #1251 | A | β1 depth-ramp +0.05 always-on | 3.26912 | 3025 |
+| 2 | fern #1224 | B | DEPTH_DEP_WD AUX inverse ramp | 3.26978 | 3050 |
+| 3 | nezuko #1226 | B | AUX_CLIP_NORM clip=5.0 | 3.26956 | 3025 |
+| 4 | frieren #1250 | A | MUON_LR depth-ramp +favorable | 3.27042 | 3025 |
+| 5 | alphonse #1248 | A | NovoGrad β2=0.99 favorable | 3.27040 | 3025 |
+| 6 | alphonse #1248 | B | NovoGrad β2=0.95 falsify | 3.27176 | 3050 |
+| 7 | askeladd #1271 | B | SOAP_TRUST_DEPTH_RAMP -0.15 | 3.27001 | 3025 |
+| 8 | thorfinn #1282 | A | β1 cooldown-only +0.04 | 3.27111 | 3025 |
+| 9 | thorfinn #1282 | B | β1 cooldown-only -0.04 inverse | 3.26978 | 3025 |
+| 10 | alphonse #1283 | A | combined M+V late reset zero | 3.26975 | 3025 |
+| 11 | edward #1264 | A+B(×2) | LATE_NORMUON_RESET zero/half | 3.27184 (n=3) | 3050 |
+| 12 | nezuko #1226 | A | AUX_CLIP_NORM clip=1.0 | 3.27182 | 3050 |
+| 13 | alphonse #1283 | B (n=1) | combined M+V late reset scale=0.5 | 3.26842* | 3000* |
+
+*alphonse Arm B at ffs=3000 is the cluster-break-pattern signature (also see fern #1267 A+B). Cluster band: val ∈ (3.26842, 3.27219) × ffs ∈ {3000, 3025, 3050} across 13 unrelated mechanism families.
+
+**Methodological synthesis (cycle 71 mid-286)**:
+
+- **First n=2 confirm authorization since mid-282 cluster-break investigation**: alphonse Arm B is the cleanest n=1 result for n=2 testing. Authorized despite student's "refute under merge bar" conclusion because val Δ=+0.00066 is at the edge of detectability vs baseline n=2 RNG spread (~0.001).
+- **State-reset family pattern crystallized**: scale=0.5 mode consistently outperforms zero mode within each mechanism (M-only, V-only, combined M+V). Reading: half-magnitude perturbation preserves enough signal that the EMA quickly re-converges, while zero perturbation requires the EMA to re-warm from scratch over ~14-20 steps (β2=0.95 half-life). The dominant axis is *partial-vs-full* state perturbation, not *which-buffer*.
+- **Cluster band tightens with 13 members at lower bound 3.26842 (alphonse B n=1)** — if alphonse Arm B n=2 confirms above-baseline, the cluster has its tightest n=2-confirmed lower edge yet, strengthening the "structural property of LOGIT_SOFTCAP=20.0 stack" hypothesis.
+- **Pre-launch code-review gate count**: 15 successful applications cycle 71 (now including thorfinn #1282 + nezuko clip-loose-protocol + alphonse #1283 + askeladd #1301 + edward #1304 pending + tanjiro #1303 pending).
+
+**Wake schedule**: ~30-45 min for alphonse Arm B seed=1 launch confirmation + thorfinn SENPAI-RESULT + nezuko SENPAI-RESULT + fern #1296 LATE_LR_PULSE Arm A terminal (ETA 36 min) + frieren #1285 Arm B terminal (ETA 30 min) + edward #1304 + tanjiro #1303 disabled-check verification.
+
+---
+
 ## 2026-05-26 14:00 UTC — Cycle 71 mid-285
 
 **Cumulative**: **169 refuted (+2 from 167)** / **91 distinct mech classes (+2: 90 LATE_LR_PULSE pre-launch already counted at mid-283; 91 ATTN_SOAP_TRUST_PER_KIND already counted at mid-284; 92 LR_COMPENSATED_COMPLETP newly counted, 93 WD_BODY_DEPTH newly counted at this entry)** / **53 family-level closures (+1: state-buffer-reset family closed by n=3 bilateral edward + bilateral fern + cluster alphonse cross-comparison)**.
