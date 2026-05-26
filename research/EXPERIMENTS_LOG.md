@@ -1,5 +1,46 @@
 # SENPAI Research Results
 
+## 2026-05-26 21:55 UTC — PR #1302 CLOSED: Coupled L_cov + param-EMA same-step refresh INTERFERENCE — 159th NULL (g1r1-edward)
+
+- Branch: `edward/coupled-refresh-stacking`
+- Hypothesis: Stacking L_cov bilateral refresh + param-EMA buffer refresh at the SAME step (Arm A: 2275, Arm B: 2600) tests whether two complementary state-staleness mechanisms additively contribute when fired simultaneously.
+
+| Arm | Run | Refresh step | val/loss_ema | sr | Δ vs new baseline (3.264718) | Verdict |
+|---|---|---|---|---|---|---|
+| A | `spzzkxzs` | 2275 (pre-cooldown) | **3.268415** | **2950** | +3.697 mnat NULL, Δsr+25 | NULL (clear interference) |
+| B | `id5z87yf` | 2600 (deep cooldown) | **3.266047** | **2925** | +1.329 mnat NULL | NULL (marginal interference) |
+
+Both arms FAIL both merge clauses. Arm A also Pareto-shifts sr+25.
+
+**Mechanism canon — coupled same-step refresh INTERFERES, magnitude depends on step position:**
+
+| Refresh @ step | L_cov solo (#1268) | paramEMA solo (#1274) | Coupled (this PR) | Coupling penalty vs sum-of-solos |
+|---|---|---|---|---|
+| 2275 (pre-cooldown) | +1.210 mnat (NULL) | +0.758 mnat (NULL) | **+3.697 mnat (Arm A NULL)** | **+1.729 mnat super-additive interference** |
+| 2600 (deep cooldown) | +1.130 mnat (NULL) | +2.880 mnat (paramEMA wrong-step) | **+1.329 mnat (Arm B NULL)** | **-2.681 mnat sub-additive (cooldown-recovery absorbs)** |
+
+**Striking finding:** Interference is super-additive at the pre-cooldown step (2275) but sub-additive at deep-cooldown (2600). The difference is cooldown-recovery budget — Arm B leaves only 650 steps for recovery, but step 2600 is past param-EMA's canonical-optimum (2275) so the param-EMA component is already in its "wrong-step" regime (#1274 Arm B solo @ 2700 was +2.88 mnat). The coupling at 2600 doesn't compound badly because cooldown-recovery (#1218 canon: ~12 mnat / 325 steps) partially absorbs the disruption.
+
+**Refined coupled-refresh canon:** Interference magnitude depends on:
+1. **Joint step position** vs each surface's canonical-optimal step
+2. **Cooldown-recovery budget** remaining after the refresh event
+
+**State-refresh axis — universally exhausted on individual + coupled-same-step surfaces:**
+
+| PR | Surface | Type | Outcome |
+|---|---|---|---|
+| #1253 edward | Body Muon m_prev | Solo first-moment | NULL (m_prev load-bearing) |
+| #1268 fern | Body L_cov bilateral | Solo @ 2275/2600 | Subsumed-NULL (optimal @ 2600 subsumed by #1289) |
+| #1274 nezuko | param-EMA | Solo @ 2275/2700 | Subsumed-NULL (optimal @ 2275 subsumed by #1289) |
+| #1299 frieren | Aux AdamW | Solo full state @ 2275/2600 | NULL inert (β2-fast-mixing) |
+| **#1302 edward (this)** | **L_cov + paramEMA** | **Coupled same-step** | **NULL INTERFERENCE** |
+| #1315 askeladd | Aux AdamW | Solo variance-only @ 2600 | CATASTROPHIC (m/v coupling) |
+| #1325 thorfinn | L_cov@2600 + paramEMA@2275 | **TEMPORAL-SEPARATED** | **IN FLIGHT — only viable remaining direction** |
+
+**edward → PR #1352 per-block Muon NS_ITERS shape** — depth-stratified spectral polish intensity, 7th and final per-block Muon axis. Mechanism-distinct from all 10 NS5 polar SCALAR closures (#884/#920/#1102/#1107/#1123/#1135/#1136/#1144/#1166/#1201) — tests DISTRIBUTION axis, not magnitude.
+
+---
+
 ## 2026-05-26 21:30 UTC — PR #1299 CLOSED: AdamW aux FULL state refresh inert — 158th NULL (g1r1-frieren)
 
 - Branch: `frieren/adamw-aux-state-refresh`
