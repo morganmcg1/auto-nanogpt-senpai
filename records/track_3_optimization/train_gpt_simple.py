@@ -64,6 +64,13 @@ def parse_args():
     parser.add_argument("--muon_lr", type=float, default=0.035,
                         help="Base learning rate for body-Muon optimizer (matrix params in blocks). "
                              "Default 0.035 matches the merged baseline.")
+    parser.add_argument("--muon_mu_target", type=float, default=0.95,
+                        help="If different from base mu (0.95), linearly ramp body-Muon Nesterov mu "
+                             "from 0.95 to this value over the last MU_COOLDOWN_FRAC of training. "
+                             "Default 0.95 disables the schedule.")
+    parser.add_argument("--mu_cooldown_frac", type=float, default=0.2,
+                        help="Fraction of training (final window) over which to ramp body-Muon mu "
+                             "linearly toward --muon_mu_target. Default 0.2 = last 20%% of steps.")
     args = parser.parse_args()
     args.num_trials = args.num_trials if args.num_trials is not None else (args.legacy_num_trials or 1)
     args.wandb_tags = [tag.strip() for tag in args.wandb_tags.split(",") if tag.strip()]
@@ -534,13 +541,37 @@ def pmuon_update(
 
 
 class Muon(torch.optim.Optimizer):
-    def __init__(self, params, lr=0.02, weight_decay=0, mu=0.95, beta_cov=0.95, gamma=PMUON_GAMMA,
+    def __init__(self, params, lr=0.02, weight_decay=0, mu=0.95, mu_target=0.95,
+                 mu_cooldown_frac=0.2, beta_cov=0.95, gamma=PMUON_GAMMA,
                  ns_a=NS_A, ns_b=NS_B, ns_c=NS_C):
         assert isinstance(params, list) and len(params) >= 1 and isinstance(params[0], torch.nn.Parameter)
         params = sorted(params, key=lambda x: x.size(), reverse=True)
-        defaults = dict(lr=lr, weight_decay=weight_decay, mu=mu, beta_cov=beta_cov, gamma=gamma,
+        defaults = dict(lr=lr, weight_decay=weight_decay, mu=mu, mu_target=mu_target,
+                        mu_cooldown_frac=mu_cooldown_frac, beta_cov=beta_cov, gamma=gamma,
                         ns_a=ns_a, ns_b=ns_b, ns_c=ns_c)
         super().__init__(params, defaults)
+        # Set by the training loop before each step so we can compute the mu ramp.
+        self._current_step = 0
+        self._train_steps_total = 1
+        self._last_effective_mu = float("nan")
+        self._last_mu_cooldown_progress = float("nan")
+
+    def _effective_mu(self, group):
+        mu_base = group["mu"]
+        mu_target = group["mu_target"]
+        if mu_target == mu_base:
+            return mu_base, 0.0
+        frac = group["mu_cooldown_frac"]
+        total = max(1, self._train_steps_total)
+        cooldown_len = max(1, int(round(total * frac)))
+        cooldown_start = total - cooldown_len
+        step_num = self._current_step
+        if step_num < cooldown_start:
+            return mu_base, 0.0
+        progress = (step_num - cooldown_start) / cooldown_len
+        progress = max(0.0, min(1.0, progress))
+        effective_mu = mu_base + (mu_target - mu_base) * progress
+        return effective_mu, progress
 
     @torch.no_grad()
     def step(self):
@@ -551,7 +582,12 @@ class Muon(torch.optim.Optimizer):
         floor_fired_count = 0
         floor_eligible_count = 0
         polar_diag: dict = {}
+        last_eff_mu = float("nan")
+        last_progress = float("nan")
         for group in self.param_groups:
+            effective_mu, mu_cooldown_progress = self._effective_mu(group)
+            last_eff_mu = effective_mu
+            last_progress = mu_cooldown_progress
             params = group["params"]
             params_pad = params + [torch.empty_like(params[-1])] * (world_size - len(params) % world_size)
             for base_i in range(0, len(params), world_size):
@@ -567,7 +603,7 @@ class Muon(torch.optim.Optimizer):
                         state["momentum"],
                         state["L"],
                         state["R"],
-                        mu=group["mu"],
+                        mu=effective_mu,
                         beta_cov=group["beta_cov"],
                         gamma=group["gamma"],
                         ns_a=group["ns_a"],
@@ -587,6 +623,8 @@ class Muon(torch.optim.Optimizer):
                 dist.all_gather(params_pad[base_i:base_i + world_size], params_pad[base_i + rank])
         self._floor_diag = {"fired": floor_fired_count, "eligible": floor_eligible_count}
         self._polar_diag = polar_diag
+        self._last_effective_mu = last_eff_mu
+        self._last_mu_cooldown_progress = last_progress
 
 
 def pmuon_spectral_diag(optimizer: torch.optim.Optimizer, gamma: float) -> dict[str, float]:
@@ -720,6 +758,10 @@ if dist.get_rank() == 0:
             "ema_warmup_steps": args.ema_warmup_steps,
             "ema_beta_target": args.ema_beta_target if args.ema_beta_target is not None else 0.0,
             "ema_dynamic_ramp_active": int(args.ema_beta_target is not None and args.ema_beta > 0),
+            "muon_mu_base": 0.95,
+            "muon_mu_target": args.muon_mu_target,
+            "mu_cooldown_frac": args.mu_cooldown_frac,
+            "muon_mu_schedule_active": int(args.muon_mu_target != 0.95),
         },
     )
 
@@ -756,9 +798,12 @@ for trial_idx in range(args.num_trials):
                         dict(params=[p for p in model.parameters() if p.ndim < 2], lr=0.025, name="adam_scalars")],
                        betas=(0.8, 0.95), eps=1e-10, weight_decay=0, fused=True)
     optimizer2 = Muon([p for p in model.blocks.parameters() if p.ndim >= 2],
-                      lr=args.muon_lr, weight_decay=0.025, beta_cov=0.95, gamma=PMUON_GAMMA)
+                      lr=args.muon_lr, weight_decay=0.025, beta_cov=0.95, gamma=PMUON_GAMMA,
+                      mu_target=args.muon_mu_target, mu_cooldown_frac=args.mu_cooldown_frac)
     optimizer2.param_groups[0]["name"] = "muon_blocks"
-    print0(f"body-Muon optimizer: lr={args.muon_lr} weight_decay=0.025 beta_cov=0.95 gamma={PMUON_GAMMA}")
+    optimizer2._train_steps_total = train_steps
+    print0(f"body-Muon optimizer: lr={args.muon_lr} weight_decay=0.025 beta_cov=0.95 gamma={PMUON_GAMMA} "
+           f"mu_target={args.muon_mu_target} mu_cooldown_frac={args.mu_cooldown_frac}")
     optimizers = [optimizer1, optimizer2]
     assert set(p for opt in optimizers for group in opt.param_groups
                for p in group["params"]) == set(model.parameters())
@@ -978,6 +1023,7 @@ for trial_idx in range(args.num_trials):
                 train_steps=train_steps,
                 wandb_step=wandb_step,
             )
+        optimizer2._current_step = step
         for opt in optimizers:
             opt.step()
         # EMA buffer update on body-Muon matrix params.
@@ -1037,6 +1083,15 @@ for trial_idx in range(args.num_trials):
                 "train/cooldown/cooldown_progress": sched_cooldown_progress,
                 "train/cooldown/lr_multiplier": sched_eta,
                 "train/cooldown/power_gamma": COOLDOWN_POWER,
+            }, step=wandb_step)
+            wandb.log({
+                "trial": trial_idx,
+                "train/step": train_step,
+                "muon/effective_mu": optimizer2._last_effective_mu,
+                "muon/mu_cooldown_progress": optimizer2._last_mu_cooldown_progress,
+                "muon/mu_base": optimizer2.param_groups[0].get("mu", float("nan")),
+                "muon/mu_target": optimizer2.param_groups[0].get("mu_target", float("nan")),
+                "muon/mu_cooldown_frac": optimizer2.param_groups[0].get("mu_cooldown_frac", float("nan")),
             }, step=wandb_step)
             if ema_params is not None:
                 wandb.log({
