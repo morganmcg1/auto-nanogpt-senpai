@@ -1,6 +1,16 @@
 # SENPAI Research State — auto-nanogpt-1gpu-r3
 
-- **Last updated:** 2026-05-26 15:55 UTC
+- **Last updated:** 2026-05-26 17:35 UTC
+
+- **🎯 Cycle ~323 (17:15 UTC) — H179 tanjiro CLOSED (37th NULL/NEG closure + programme finding #11 reinforced: calib=25 row closed across all 3 exponents); H187 tanjiro ASSIGNED LATE-CALIB anchor (PR #1320)**:
+  - **H179 terminal**: arm_a CTRL `i3k5zbhs` 3.26519/3150 (17th drift, FFS=3125 mode finally seen in H182 fern arm_a). arm_b GENTLE_ULTRA_EARLY (calib=25, exp=0.25) `mhjqjm8k` 3.26515/3150 — bit-identical to CTRL, NULL. arm_c STRONG_ULTRA_EARLY (calib=25, exp=1.0) `szc1oyn0` 3.26582/3150 — NEG soft.
+  - **🎯 Programme finding #11 REINFORCED**: Cross-PR evidence confirms rms_disparity at step 25 is ~1.2 (vs ~4.0 at step 100) REGARDLESS of exponent. Mechanism acts as near-no-op at calib=25 across exp ∈ {0.25, 0.5, 1.0}. calib<50 ENTIRELY PRUNED from future per-block LR search.
+  - **H162 calib=25 row fully characterized**: All 3 exponents (0.25/0.5/1.0) closed as NULL/NEG. calib<50 pruned.
+  - **H187 tanjiro ASSIGNED (PR #1320)**: LATE-CALIB anchor (calib ∈ {1000, 2000}, exp=0.5, recal=0). Tests Issue #1260 "act before crossing window" theme. Calibrates when rms_disparity is in peak-growth phase (per H176 static-disparity probe: 6.4 at step 2000 vs 4.0 at step 100). Unexplored complement of EARLY-CALIB region.
+  - **H183 edward stale_wip RESOLVED**: Normal arm-chain transition. arm_a CTRL terminal (val=3.2662, FFS=3150). arm_b RECAL_500 (exp=0.5, calib=200, recal=500) running at 35%.
+  - **H184 nezuko double-process RESOLVED**: Student killed both duplicate arm_a processes (pod restart 16:29 UTC) and chose Option B — skip CTRL, launch arm_b RECAL_SWEET (exp=0.5, calib=100, recal=500) directly. arm_b now running.
+  - **H180 thorfinn multi-seed preliminary** (2/3 trials): trial-0 val=3.2652/FFS=3150, trial-1 val=3.2648/FFS=3150, mean=3.2650 — **does NOT confirm H162 round-1 soft WIN**. Multi-seed mean NEG soft on val, FFS=3150 both. Important programme finding: H162 round-1 single-trial val/loss WIN was noise-floor fluctuation, not reproducible mechanism signal.
+  - **H182 fern arm_a terminal**: val=3.263574/FFS=3125 (17th drift, **BASELINE MODE** — breaks recent FFS=3150 streak, confirms FFS=3125 is reproducible ~28% of time per H174).
 
 - **🎯 Cycle ~321 (15:50 UTC) — H178 frieren CLOSED (36th NULL/NEG closure + 1 programme finding: step 25 BELOW rms_disparity measurement quality floor); H186 frieren ASSIGNED recalibration EXTREMES at peak anchor (PR #1313)**:
   - **H178 terminal**: arm_a CTRL `gtwcf4ap` 3.26460/3150 (16th drift). arm_b ULTRA_EARLY (calib=25, exp=0.5) `4i6tvgdh` 3.26429/3150 — NEG soft bilateral, FFS TIE arm_a, near-no-op mechanism.

@@ -1,3 +1,44 @@
+## 2026-05-26 17:15 — PR #1293: H179 tanjiro per-block LR calib=25 bracket exp ∈ {0.25, 1.0} — CLOSED (37th NULL/NEG closure + 1 programme finding reinforced)
+
+- Branch: `g1r3-tanjiro/h179-per-block-lr-calib25-bracket`
+- Hypothesis: Close H162 calib=25 row by bracketing exp=0.5 (H178) with gentle (0.25) and heavy (1.0) variants.
+
+| Arm | Config | W&B | val/loss | Δ vs CTRL | FFS | Verdict |
+|---|---|---|---|---|---|---|
+| arm_a CTRL | exp=0.0, calib=200 | `i3k5zbhs` | 3.26519 | — | 3150 | 17th drift sample (+0.83σ vs H174 envelope) |
+| arm_b GENTLE_ULTRA_EARLY | exp=0.25, calib=25 | `mhjqjm8k` | 3.26515 | -0.00004 | 3150 | bit-identical to CTRL → NULL |
+| arm_c STRONG_ULTRA_EARLY | exp=1.0, calib=25 | `szc1oyn0` | 3.26582 | +0.00063 | 3150 | NEG soft |
+
+### Programme finding #11 (reinforced from H178): rms_disparity measurement-quality floor sits BETWEEN step 25 and step 50
+
+Cross-PR evidence at step 25 (mid-warmup, LR ramp 25/100):
+
+| PR | exp | rms_disparity @ calib | mult_range | spread_ratio |
+|---|---|---|---|---|
+| H178 frieren | 0.5 | 1.358 | [0.920, 1.073] | 1.17× |
+| H179 tanjiro arm_b | 0.25 | 1.213 | [0.975, 1.023] | 1.05× |
+| H179 tanjiro arm_c | 1.0 | 1.191 | [0.930, 1.108] | 1.19× |
+
+vs step 50 (H176 arm_c, exp=1.0): rms_disparity ≈ 3.4-3.9 (3× larger). vs step 100 (H177 peak): rms_disparity = 4.034.
+
+**At step 25, multipliers cluster near identity REGARDLESS of exponent.** Mechanism cannot act because there is nothing meaningful to measure (gradient signal dominated by warmup ramp not steady-state heterogeneity).
+
+### H162 calib=25 row CLOSED across all 3 exponents
+
+| calib | exp=0.25 | exp=0.5 | exp=1.0 |
+|---|---|---|---|
+| **25** | **H179_b NULL** | **H178 NEG soft** | **H179_c NEG soft** |
+| 50 | H177 NEG | H176_b FFS TIE | H176_c NEG block_0 starve |
+| 100 | H175_b NULL | H162-v2 NULL/WIN single trial | H175_c NEG block_0 starve |
+| 200 | H182_b ⏳ | H162-round1 single trial val WIN / H180 multi-seed CONFIRMING NEG | H162-v2 NEG |
+| 400 | — | H182_c ⏳ | — |
+
+**Calib<50 entirely pruned from future per-block LR search.** Minimum useful calibration anchor is step 50.
+
+### Follow-up: H187 tanjiro ASSIGNED — LATE-CALIB anchor exploration (calib ∈ {1000, 2000}, exp=0.5, recal=0). Tests Issue #1260 "act before crossing window" theme via the unexplored complement of our currently-saturated EARLY-CALIB region.
+
+---
+
 ## 2026-05-26 15:50 — PR #1292: H178 frieren per-block LR calib=25 exp=0.5 — CLOSED (36th NULL/NEG closure + 1 programme finding)
 
 - Branch: `g1r3-frieren/h178-per-block-lr-calib25-exp05`
