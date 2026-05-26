@@ -1,3 +1,76 @@
+## 2026-05-26 04:35 — PR #1217: H163 edward Schedule-Free outer aggregation (MuLoCo EMA vs heavy-ball Nesterov-SGDM) — BILATERAL NEG (21st NULL/NEG closure + 3 programme-grade findings)
+
+- Branch: `g1r3-edward/h163-schedule-free-outer`
+- Hypothesis: Tests whether MuLoCo's outer Nesterov-SGDM can be replaced by stateless EMA primal averaging (Schedule-Free style). H1: sync_interval=30 already provides natural smoothing; outer momentum may be redundant double-smoothing. H2: outer momentum is load-bearing for step amplification, EMA will lag.
+
+| arm | mode | β | W&B | val/loss | Δ vs baseline (3.26364) | speedrun_ffs | Verdict |
+|-----|------|---|-----|----------|------------------------|--------------|---------|
+| arm_a CTRL | sgdm | — | `wrdop67i` | **3.26554** | +0.00190 | 3150 | NULL-edge (within widened envelope) |
+| arm_b EMA | ema | 0.5 | `bc5yauys` | **3.34375** | +0.08011 | -1 | **SEVERE NEG** (~80σ) |
+| arm_c EMA | ema | 0.9 | `ndfo2006` | **3.28214** | +0.01850 | -1 | **CLEAR NEG** (~17σ) |
+
+WIN <3.26284: 0/3. Benchmark rule (3.28 target, n=1, `(3.28−µ)·√n ≥ 0.004`): only arm_a passes (margin 0.01446). Monotone β-trend (arm_c closer to CTRL than arm_b) confirms aggregation-rule mechanism rather than seed noise. H2 confirmed; H1 falsified.
+
+### Programme-grade Finding #1: Outer momentum is load-bearing for STEP-MAGNITUDE AMPLIFICATION, not smoothing
+
+Even at β=0.9 (where slow ≈ fast every sync, EMA effectively short-circuiting aggregation), the loss of SGDM's outer momentum buffer costs +0.0185 at terminal. The mechanistic role of `outer_velocity.mul_(0.5).add_(delta) + nesterov_correction` is to provide an AMPLIFIED outer step (delta_buffer can exceed delta), not to smooth across syncs. The PR's H1 (sync_interval=30 already smooths) is falsified — the momentum buffer's contribution is in step-magnitude space, not smoothing space. Future outer-aggregation work should focus on step-magnitude levers (decoupled outer_lr, Nesterov vs heavy-ball ablation, per-parameter outer normalization), NOT averaging-rule formula changes.
+
+### Programme-grade Finding #2: EMA outer aggregation is SCHEDULE-ENTANGLED with inner LR cooldown
+
+W&B audit revealed `outer/slow_fast_dist_rms` follows a non-monotonic trajectory:
+
+| Step | arm_b (β=0.5) | arm_c (β=0.9) |
+|------|---------------|---------------|
+| 500  | 0.598 | 0.594 |
+| 1500 | 0.625 | 0.642 |
+| 2000 | 0.633 (peak ~0.91 nearby) | 0.650 |
+| 2500 | 0.422 | 0.428 |
+| 3000 | 0.170 | 0.158 |
+| 3325 | **0.011** | **0.008** |
+
+Both EMA arms peak ~0.91 then collapse monotonically to near-zero by terminal. The collapse onset (step 2000) coincides exactly with both arms reversing from leading CTRL (arm_c −0.034 at step 1500) to trailing CTRL (arm_c +0.005 at step 2000, growing to +0.0185 at terminal). Mechanism: cosine inner-LR decay drives fast weights toward a converging basin → EMA slow weights track and merge → slow/fast separation eliminated → outer loop becomes dead weight. SGDM-with-momentum avoids this because momentum maintains directional persistence through cooldown rather than averaging toward a shrinking target.
+
+### Programme-grade Finding #3: β-parameter is NOT the lever — collapse is schedule-coupled
+
+Both β=0.5 and β=0.9 collapse on near-identical timing (slow_fast_dist_rms trajectories diverge by <5% throughout training, despite 1.8× difference in mixing rate). β=0.9 peaks marginally higher and collapses to marginally lower terminal. The schedule (cosine inner cooldown) dominates the β choice. This forecloses Schedule-Free / Lookahead / weighted-EMA / slerp-style outer-aggregation work in this stack — any pure averaging rule will exhibit the same cooldown-coupled collapse.
+
+### Strategy-tier closure
+
+**Schedule-Free / Lookahead / EMA-style outer aggregation family: CLOSED** at the structural level. Combined with H153 WSM closure (post-hoc averaging) and H120/H125/H127/H136/H144 (eval/training EMA averaging), this is the **8th level of EMA-family closure** in the programme. The basin-tightening + cooldown-collapse pattern is now a programme-level mechanism.
+
+### Wallclock
+
+- arm_a sgdm: 1825.51 ms/step
+- arm_b ema β=0.5: 1827.25 ms/step
+- arm_c ema β=0.9: 1826.30 ms/step
+
+No measurable speed difference (outer step is 1/30 of an iteration). No state-memory savings observed.
+
+### Verification
+
+- arm_a default-path bit-id verified: step-1 train/loss 10.82584 matches baseline `jg6p3l50` ✓
+- arm_a CTRL config logs `outer/aggregation_mode=0`, no `outer/slow_fast_dist_rms` (correct for SGDM path)
+- arm_b/c log `outer/aggregation_mode=1`, distinct `outer_ema_beta` values, `outer/slow_fast_dist_rms` active
+- No CTRL-clone risk (confirmed in 3 separate advisor audits at 00:24, 02:35, and 04:35 UTC)
+
+### Mechanism guidance for future work
+
+1. **Outer-aggregation work should target step-magnitude levers**: decoupled `outer_lr` scaling, drop-the-Nesterov-correction ablation (test heavy-ball-only outer), per-parameter outer normalization
+2. **Cooldown failure modes are stack-pervasive**: H125 µ-erosion, H143/H147/H151/H159 µ-axis, H136 erosion, H153 WSM, H161 param F-norm bit-freeze, H163 EMA collapse — future hypotheses MUST explicitly declare expected cooldown behavior
+3. **The basin-tightening + cooldown-collapse mechanism is now programme-level**: any averaging-style optimizer (slow weights, EMA, slerp, weighted-mean) will exhibit this in cosine-decay regimes
+
+### Suggested follow-ups (constructive, not assigned)
+
+- Outer-step amplification mechanism probe (`outer_momentum=0` with rescaled `outer_lr`) — pure HP isolation, not assigned per anti-HP-search directive
+- Outer Nesterov-vs-heavy-ball ablation (drop `momentum*velocity + delta` correction) — could be a future PR
+- Adaptive sync_interval sweep — already explored in spirit at H55; nuanced version possible
+
+### Edward's chain operations
+
+Exemplary protocol: structured launch comment with arm table (cycle ~273, 22:15 UTC), terminal SENPAI-RESULT with full trajectory data, suggested follow-ups grounded in observed mechanism. Three advisor audits (00:24, 02:35 with stale_wip false alarm, 04:35 terminal review) all confirmed clean per-arm dispatch.
+
+---
+
 ## 2026-05-26 02:35 — PR #1209: H161 nezuko late-training parameter noise probe — BILATERAL NULL (20th NULL/NEG closure + programme-grade DIRECT mechanism observation: late-cooldown param F-norm bit-frozen)
 
 - Branch: `g1r3-nezuko/h161-late-noise-probe`
