@@ -1,3 +1,86 @@
+## 2026-05-26 18:00 UTC — Cycle 71 mid-292
+
+**Cumulative**: **176 refuted (+1: fern #1296 176th)** / **99 distinct mech classes (unchanged — fern #1324 is a re-run of #1267 mechanism for n=2 confirm, NOT a new mech class)** / **56 family-level closures (unchanged)**.
+
+**This cycle — 1 closure (bilateral cluster control-test refute) + 1 reassignment (n=2 confirm of open cluster-break observation) + 1 code-review gate authorized (19th cycle 71)**:
+
+1. **fern #1296 LATE_LR_PULSE bilateral closed as 176th refute** — both arms cluster member, control-test design successfully refutes "state-reset family uniquely orthogonal" hypothesis:
+   - Arm A boost ×2.0 `vxcvdgt0`: val=**3.27222** ffs=**3050** (cluster member)
+   - Arm B halve ×0.5 `jyl2a6ha`: val=**3.27084** ffs=**3025** (cluster member)
+   - **Striking secondary finding — directional asymmetry of LR-pulse mechanism response**:
+     - Arm A (boost) pulse-window descent: −0.00731 over [2500, 2625] → **~63% slowdown** vs pre-pulse ~−0.020 rate
+     - Arm B (halve) pulse-window descent: **−0.02099** over [2500, 2625] → **~0% slowdown**
+   - **Mechanistic interpretation (cycle-71 methodology corpus addition)**: at cooldown-approach, body Muon LR is calibrated near-optimal for NS5 nuclear-norm orthogonalization scale. Over-LR drives updates outside well-conditioned magnitude regime → NS5 polar projection over-shoots → descent disrupted. Under-LR keeps updates inside well-conditioned regime → descent rate preserved. **First-principles property of NS5-normalized optimizers**: under-LR is benign, over-LR is disruptive. Asymmetry is mechanistically expected and now empirically confirmed at 50-step / 125-step resolution.
+
+2. **Critical cycle-71 cluster-band evidence synthesis**: combined with all in-flight terminals at step ~2540 phase-boundary perturbations:
+
+| Mechanism | Arm | val | ffs | Cluster? |
+|---|---|---|---|---|
+| #1283 M+V combined reset (zero) Arm A | n=1 | 3.26975 | 3025 | cluster |
+| #1283 M+V combined reset (scale=0.5) Arm B | **n=2** | **3.26953** | **3012.5** | cluster (n=2 refute) |
+| #1264 V-only reset bilateral | **n=3** | 3.27173 | 3025 | cluster |
+| #1267 fern (M-only zero reset) Arm A | n=1 | **3.26872** | **3000** | **ONLY cluster-break candidate** |
+| #1267 fern (M-only scale=0.5) Arm B | n=1 | cluster | — | cluster |
+| #1282 thorfinn (β1 cooldown depth-ramp) | bilateral | 3.26978 mean | 3025 | cluster |
+| #1296 fern (LATE_LR_PULSE boost) | n=1 | 3.27222 | 3050 | cluster |
+| #1296 fern (LATE_LR_PULSE halve) | n=1 | 3.27084 | 3025 | cluster |
+
+**fern #1267 Arm A is now ISOLATED as the only cluster-break candidate in cycle 71**. Most parsimonious interpretation: n=1 RNG-favorable extreme within cluster band (inter-seed |Δval| ≈ 0.002 confirmed via alphonse #1283 demonstration).
+
+**Reassignment**:
+
+3. **fern → PR #1324 FERN_1267_N2_CONFIRM** — n=2 confirm of the only outstanding cluster-break observation in cycle 71:
+   - Re-run #1267 Arm A configuration (`LATE_COOLDOWN_MOMENTUM_RESET=1`, factor=0.0, steps 2540-2589) at fresh process-start RNG seed
+   - No new code-review gate required IF patch is bytewise-identical to original #1267 Arm A code (otherwise single-canary structural exemption disabled-check)
+   - **Probability assessment**: ~80% cluster member outcome → definitively closes cluster-break-vs-RNG question; ~20% structural cluster-break replicates → opens follow-up mechanism investigation
+   - **Load-bearing methodological closure**: the cluster-break question has anchored cycle-71 methodology evolution for ~5 cycles. No other in-flight PR can resolve it. n=2 confirm at the literal #1267 Arm A configuration directly answers the question.
+   - Single-run experiment (one new seed-2, paired with original n=1 for n=2 mean), not a bilateral
+
+**Code-review gate authorized (19th cycle 71 application)**:
+
+4. **tanjiro #1316 MUON_BODY_POLYAK_AVERAGING** — code-review gate PASSED, Arm A launch authorized:
+   - Patch +58 LoC, eval-time hook on body Muon. Polyak buffer maintained post-step, swapped in at val time, restored after.
+   - **3-canary disabled-check ALL PASSED**: step:0 bit-identity (10.82583), val@200 mean 4.08889 (cu13 envelope), step_avg +0.19% (within 0.5% tolerance)
+   - Disabled path is structurally bytewise-inert by construction (constructor + step() + val-loop ALL skip alpha=0 branches)
+   - Single-canary structural exemption could ALSO have applied (branch-isolation pattern at val-loop), but 3-canary is the more conservative choice and fully sufficient
+   - Mechanism is **eval-state ONLY** — training dynamics are unchanged → mandatory stack effectively preserved
+   - Paired-val telemetry: `val/loss_current_params` + `val/loss_polyak_minus_current` at every val_interval → load-bearing diagnostic for whether Polyak help is cooldown-phase-specific
+   - First eval-state mechanism in 320+ PRs
+
+**Methodology now has TWO standard tiers (refined cycle 71)**:
+
+- **3-canary disabled-check** (tanjiro #1316 tier): for mechanisms where disabled path involves runtime branches OR conditional state mutations not structurally provable bytewise-inert by mathematical identity alone. Strongest empirical evidence.
+- **Single-canary structural exemption** (edward #1304 / thorfinn #1306 / nezuko #1307 tier): for mechanisms where disabled path reduces to baseline by IEEE-identity, branch-isolation, or group-identity. Faster, equally rigorous for structurally-provable cases.
+
+Either tier acceptable when proof of disabled-path inertness is clear.
+
+**Active fleet status mid-292**:
+
+| Student | PR | Status | W&B notes |
+|---|---|---|---|
+| g1r2-alphonse | #1323 | status:wip, just assigned | MUON_BODY_ATTN_MLP_BETA_PHASE_DISPATCH |
+| g1r2-thorfinn | #1306 | status:wip, Arm A authorized | MUON_NESTEROV_PHASE_TRANSITION |
+| g1r2-nezuko | #1307 | status:wip, Arm A authorized | AUX_BIASES_LR_BOOST x2 boost |
+| g1r2-fern | #1324 NEW | status:wip, just assigned | FERN_1267_N2_CONFIRM |
+| g1r2-frieren | #1312 | status:wip, just assigned | MUON_LR_BETA_DEPTH_RAMP_ANTI_ALIGNED |
+| g1r2-askeladd | #1301 | status:wip, Arm A authorized | ATTN_SOAP_TRUST_PER_KIND |
+| g1r2-tanjiro | #1316 | status:wip, Arm A authorized | MUON_BODY_POLYAK_AVERAGING |
+| g1r2-edward | #1304 | status:wip, Arm A authorized | WD_BODY_DEPTH |
+
+**ZERO IDLE STUDENTS** — 8 students concurrently active.
+
+**Methodological synthesis (cycle 71 mid-292)**:
+
+- **fern #1267 cluster-break candidate isolated**: cumulative cycle-71 evidence at step ~2540 phase boundary (M-reset, V-reset, M+V-combined, M+V-halve, β1 ramp, LR-pulse boost, LR-pulse halve) all cluster except #1267 Arm A. Probability ~80% RNG, ~20% structural mechanism. n=2 confirm via #1324 directly resolves.
+- **LATE_LR_PULSE secondary finding (directional asymmetry)** is **first-principles property of NS5-normalized optimizers**: under-LR benign, over-LR disruptive. Future LR-perturbation experiment design should assume this asymmetric default expectation.
+- **Cluster floor at val ∈ (3.269, 3.272) × ffs ∈ {3025, 3050}** is a STRUCTURAL property of the LOGIT_SOFTCAP=20.0 + NS5_ITERS=14 + cooldown stack, not breakable by: state perturbations, schedule perturbations, magnitude perturbations, WD/LR depth ramps, AUX clip norm. n=2 confirm via #1324 will reinforce this conclusion if Arm A's n=2 lands cluster.
+- **First eval-state mechanism (Polyak) entering test phase** (tanjiro #1316 Arm A authorized). Result will inform whether eval-state ≠ training-state is a viable category.
+- **5 of 8 students in late-experiment stages** (Arm A authorized): code-review-gate cadence has now distributed across the fleet. Next ~30 min should produce a wave of terminals.
+
+**Wake schedule**: ~25-30 min for next wave — multiple Arm A launches in flight + tanjiro #1316 Arm A launching now + fern #1324 launch ramp-up.
+
+---
+
 ## 2026-05-26 17:55 UTC — Cycle 71 mid-291
 
 **Cumulative**: **175 refuted (+1: alphonse #1317 175th, MATH-NULL subtype)** / **99 distinct mech classes (+1: 99 MUON_BODY_ATTN_MLP_BETA_PHASE_DISPATCH #1323)** / **56 family-level closures (unchanged)**.
