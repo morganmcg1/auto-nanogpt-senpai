@@ -6,6 +6,7 @@ It was prepared as a simplified version of the speedrun for use in neural net op
 """
 
 import os
+import re
 import sys
 with open(sys.argv[0]) as f:
     code = f.read() # read the code of this file ASAP, for logging
@@ -464,6 +465,7 @@ SOAP_PRECOND_FREQ = 10
 ATTN_SOAP_BETA2 = 0.90
 ATTN_SOAP_PRECOND_FREQ = 10
 ATTN_SOAP_TRUST_THRESHOLD = float(os.environ.get("ATTN_SOAP_TRUST_THRESHOLD", "0.9"))
+ATTN_SOAP_TRUST_DEPTH_RAMP = float(os.environ.get("ATTN_SOAP_TRUST_DEPTH_RAMP", "0.0"))
 NS5_ITERS = int(os.environ.get("NS5_ITERS", "12"))
 WD_AUX = float(os.environ.get("WD_AUX", "0.0"))  # AdamW WD on embed + lm_head matrices (scalars stay at 0)
 EMBED_INIT_STD = float(os.environ.get("EMBED_INIT_STD", "1.0"))  # default preserves baseline N(0,1)
@@ -642,6 +644,10 @@ class Muon(torch.optim.Optimizer):
         }
         # Track which sub-type each attention-SOAP param is (q/k/v/proj) for per-type telemetry.
         self.attn_soap_kind: dict[int, str] = {}
+        # Track layer index for each attention-SOAP param (parsed from name "{l}.attn.{...}.weight"
+        # since named_params comes from model.blocks.named_parameters()).
+        self.attn_soap_layer_idx: dict[int, int] = {}
+        _block_pat = re.compile(r"(\d+)\.attn\.")
         for n, p in named_params:
             if p in self.attn_soap_params:
                 if n.endswith(".attn.q.weight"):
@@ -652,6 +658,9 @@ class Muon(torch.optim.Optimizer):
                     self.attn_soap_kind[id(p)] = "v"
                 elif n.endswith(".attn.proj.weight"):
                     self.attn_soap_kind[id(p)] = "proj"
+                m = _block_pat.search(n)
+                if m is not None:
+                    self.attn_soap_layer_idx[id(p)] = int(m.group(1))
         params = sorted([p for _, p in named_params], key=lambda x: x.size(), reverse=True)
         defaults = dict(lr=lr, weight_decay=weight_decay, mu=mu)
         super().__init__(params, defaults)
@@ -714,18 +723,28 @@ class Muon(torch.optim.Optimizer):
                     if use_soap:
                         soap_refresh(grad, state)
                     elif use_attn_soap:
+                        if ATTN_SOAP_TRUST_DEPTH_RAMP != 0.0:
+                            L = 12
+                            l = self.attn_soap_layer_idx.get(id(p), 0)
+                            depth_pos = l / (L - 1) - 0.5
+                            param_trust = ATTN_SOAP_TRUST_THRESHOLD + ATTN_SOAP_TRUST_DEPTH_RAMP * depth_pos
+                        else:
+                            param_trust = ATTN_SOAP_TRUST_THRESHOLD
                         soap_refresh(grad, state, beta2=ATTN_SOAP_BETA2,
                                      refresh_freq=ATTN_SOAP_PRECOND_FREQ,
                                      use_trust_gate=True,
-                                     trust_threshold=ATTN_SOAP_TRUST_THRESHOLD)
+                                     trust_threshold=param_trust)
                 dist.all_gather(params_pad[base_i:base_i + world_size], params_pad[base_i + rank])
 
     def trust_gate_stats(self) -> dict[str, float]:
-        """Return aggregate + per-weight-type trust-gate telemetry across attention SOAP params.
+        """Return aggregate + per-weight-type + per-depth-quartile trust-gate telemetry.
 
         Aggregate keys: count, on_fraction, mean_cos_row/col, min_cos_row/col.
         Per-type keys (kind in {q, k, v, proj}):
           {kind}/count, {kind}/on_fraction, {kind}/mean_cos_row, {kind}/mean_cos_col.
+        Per-depth-quartile keys (quartile in {shallow, mid_shallow, mid_deep, deep}):
+          depth/{quartile}/count, depth/{quartile}/on_fraction,
+          depth/{quartile}/mean_cos_row, depth/{quartile}/mean_cos_col.
         """
         cos_rows: list[float] = []
         cos_cols: list[float] = []
@@ -736,6 +755,13 @@ class Muon(torch.optim.Optimizer):
             "v": {"on": 0, "cos_row": [], "cos_col": []},
             "proj": {"on": 0, "cos_row": [], "cos_col": []},
         }
+        by_depth: dict[str, dict[str, list[float] | int]] = {
+            "shallow": {"on": 0, "cos_row": [], "cos_col": []},
+            "mid_shallow": {"on": 0, "cos_row": [], "cos_col": []},
+            "mid_deep": {"on": 0, "cos_row": [], "cos_col": []},
+            "deep": {"on": 0, "cos_row": [], "cos_col": []},
+        }
+        depth_labels = ["shallow", "mid_shallow", "mid_deep", "deep"]  # layers 0-2, 3-5, 6-8, 9-11
         for p in self.attn_soap_params:
             state = self.state.get(p)
             if state is None or "trust_gate" not in state:
@@ -753,6 +779,13 @@ class Muon(torch.optim.Optimizer):
                 by_kind[kind]["cos_col"].append(cc)
                 if on:
                     by_kind[kind]["on"] += 1
+            layer_idx = self.attn_soap_layer_idx.get(id(p))
+            if layer_idx is not None:
+                quartile = depth_labels[min(layer_idx // 3, 3)]
+                by_depth[quartile]["cos_row"].append(cr)
+                by_depth[quartile]["cos_col"].append(cc)
+                if on:
+                    by_depth[quartile]["on"] += 1
         counts = len(cos_rows)
         if counts == 0:
             return {}
@@ -764,6 +797,16 @@ class Muon(torch.optim.Optimizer):
             "min_cos_row": min(cos_rows),
             "min_cos_col": min(cos_cols),
         }
+        for quartile, agg in by_depth.items():
+            crs = agg["cos_row"]
+            ccs = agg["cos_col"]
+            dn = len(crs)
+            if dn == 0:
+                continue
+            out[f"depth/{quartile}/count"] = dn
+            out[f"depth/{quartile}/on_fraction"] = agg["on"] / dn
+            out[f"depth/{quartile}/mean_cos_row"] = sum(crs) / dn
+            out[f"depth/{quartile}/mean_cos_col"] = sum(ccs) / dn
         for kind, agg in by_kind.items():
             crs = agg["cos_row"]
             ccs = agg["cos_col"]
@@ -864,6 +907,7 @@ if dist.get_rank() == 0:
             "optimizer/attn_soap_beta2": ATTN_SOAP_BETA2,
             "optimizer/attn_soap_precond_freq": ATTN_SOAP_PRECOND_FREQ,
             "optimizer/attn_soap_trust_threshold": ATTN_SOAP_TRUST_THRESHOLD,
+            "optimizer/attn_soap_trust_depth_ramp": ATTN_SOAP_TRUST_DEPTH_RAMP,
             "optimizer/ns5_iters": NS5_ITERS,
             "optimizer/wd_aux": WD_AUX,
             "optimizer/recipe": "contra-muon + normuon-lite + soap-on-mlp + soap-on-attn-trust-gate (pre-NS5, record #14 + record #16)",
