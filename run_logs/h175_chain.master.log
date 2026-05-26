@@ -1,0 +1,8 @@
+[chain] start 20260526T083237Z
+[chain] launch arm_a 20260526T083237Z
+[chain] arm_a exit=0 20260526T102245Z
+[chain] launch arm_b 20260526T102245Z
+[chain] arm_b exit=0 20260526T121130Z
+[chain] launch arm_c 20260526T121130Z
+[chain] arm_c exit=0 20260526T140012Z
+[chain] done 20260526T140012Z rcs=0,0,0
