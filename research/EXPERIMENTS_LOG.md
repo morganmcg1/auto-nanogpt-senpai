@@ -1,3 +1,82 @@
+## 2026-05-26 02:30 UTC — THORFINN #1216 PSGD_KRON_AUX CLOSED (156th refuted, AUX SATURATED LANE) + ALPHONSE #1230 PRE-LAUNCH CODE-REVIEW GATE PASSED + THORFINN #1245 DOWG_BODY_MUON assigned (cycle 71 mid-259)
+
+### #1216 thorfinn PSGD_KRON_AUX — CLOSED, 156th refuted, 43rd family-level closure (PSGD-KRON-AUX-PRECOND-FREQ-IN-{50,100} 1/1)
+
+- **Hypothesis**: Half-Kronecker-factored AUX preconditioner (Li & Mahoney 2015/2023 arXiv:1512.04202) — maintain triangular L on smaller dim + diagonal on vocab dim with Lie-group damped Newton updates at PRECOND_FREQ=50/100, applied as multiplicative whitening on AUX (embed/lm_head/scalars) AdamW gradients pre-step.
+- **Terminal results**:
+
+| Arm | Wandb run | Config | val_loss | ffs | Δ vs merge bar 3.26776 | Verdict |
+|-----|-----------|--------|----------|-----|----------------------|---------|
+| A | 59m15x20 | PRECOND_FREQ=50, damp=1e-4 | 3.27080 | 3025 | **+0.00304** | SHIFTED-FLOOR (17th instance, floor-cluster touch) |
+| B | pvoqhwnw | PRECOND_FREQ=100, damp=1e-3 | 3.27340 | 3050 | **+0.00564** | SHIFTED-FLOOR |
+
+- **Mechanism finding**: Frequency monotone "less aggressive winning" pattern (lower freq=50 produced marginally better val than freq=100), both inside floor-cluster band [3.267, 3.273] but neither crossing merge bar. PSGD's near-isotropic conditioning on AUX produced no break-through over baseline AdamW. Wall-time +1.97% from refresh-step overhead with no productivity payoff. Closure-signature: 43rd family-level closure absorbs PSGD_KRON_AUX-PRECOND-FREQ-IN-{50,100} as 1/1 monotonic family.
+- **Campaign-level finding — AUX SATURATED LANE**: Across #1108 AMSGrad / #1174 AdamW-NESTEROV / #199 AdEMAMix / #569 AdaBelief / #742 RAdam / #872 PARTIAL_PRECOND / #993 ADAMW_BIAS_CORRECT / #903 AdamW β2 / multiple AUX_LR sweeps + now #1216 PSGD_KRON_AUX, the AUX path (embed + lm_head + scalars) has been **bilaterally + multi-mechanism saturated** for adaptive-LR/preconditioner mechanisms. AUX is now an **explicit saturated lane** — first lane-level designation in campaign (distinct from saturated mechanism layer = mechanism-class refute, saturated lane = portfolio-level guidance for research-direction selection). Future advisor assignments should de-prioritize AUX-side adaptive mechanisms in favor of body-side / schedule-side / init-side mechanisms not yet bilaterally-saturated.
+- **Student trajectory**: thorfinn 5th consecutive within-student validation #1134 (SOAP body Gram-eigenbasis refresh, saturated) → #1159 (SOAP gram-drift-against-last-refresh, saturated) → #1195 (SWD_MUON post-NS5 rank-1 spectral decay, saturated mechanism layer) → #1216 (PSGD_KRON_AUX, saturated lane) → #1245 (DOWG_BODY_MUON pivot OFF AUX lane onto body parameter-free step-size).
+
+### #1230 alphonse PRODIGY_AUX — PRE-LAUNCH CODE-REVIEW GATE PASSED, Arm A green-lit
+
+- **Background**: After two consecutive advisor-side spec errors (mid-256 first spec: `<g_0,g_t>` + missing β3 decay → Arm A divergence; mid-257 second spec: paper-strict linear-in-d weighting → Arm A FROZEN-AUX-NO-RAMP), advisor process-improvement adopted: spec authority delegated to student + pre-launch code-review gate.
+- **Pre-launch code-review gate process**:
+  1. Student `g1r2-alphonse` posted comprehensive konstmish parity table with line numbers at 02:16 UTC + patch diff.
+  2. Advisor line-by-line review at 02:22 UTC against `konstmish/prodigy` reference impl line numbers.
+  3. Patch APPROVED green-lit Arm A launch with no GPU time spent on broken spec.
+- **Patch verification (advisor's parity table review)**:
+
+| Check | Status |
+|-------|--------|
+| `(d/d_0)` quadratic-in-d on r_t (line 114) | ✓ |
+| `(d/d_0)` quadratic-in-d on s_t (line 144) | ✓ |
+| β3 decay on r_t (line 85) | ✓ |
+| β3 decay on s_t (alpha-add chain) | ✓ |
+| Signed inner-product `<g_t, p_0-p_t>` | ✓ |
+| OLD d for param update (matches konstmish strict, prevents step-1 d_t leakage into update at high β3) | ✓ |
+| Early-return guard at TOP of routine before any tensor allocation (lesson from #1226 nezuko parity bug) | ✓ |
+| Disabled-check `3pvfqofe` val@200=4.08347 still valid (no code-path change when PRODIGY_AUX=0) | ✓ |
+
+- **Process-improvement outcome**: 0 GPU wasted on third potential spec error + 1 cycle of code-review back-and-forth before any compute, demonstrating delegation + pre-launch code-review gate combination is the right discipline for high-transcription-risk axes. Pre-launch code-review gate now adopted as **standard for any optimizer mechanism with auxiliary state** (Prodigy / Shampoo / PSGD / Schedule-Free family / etc.) going forward — student posts patch diff with cite-trail BEFORE launching, advisor reviews against reference impl.
+- **Arms unchanged**: Arm A β3=sqrt(0.95)≈0.9747 konstmish default + Arm B β3=0.99 longer memory.
+- **Storage**: ~616 MB fp32 p_0 on B200 (comfortable).
+- **Student trajectory**: alphonse 11th consecutive within-student validation #1148→#1165→#1194→#1205→#1230(spec#1 caught)→#1230(spec#2 caught)→#1230(patch approved) — strongest spec-auditor in student fleet across **three consecutive iterations on a single PR**, two student-side catches + one process-improvement adoption.
+
+### #1245 thorfinn DOWG_BODY_MUON — NEW ASSIGNMENT (79th distinct mech class, FIRST parameter-free step size on body Muon)
+
+- **Hypothesis**: Apply DoG/DoWG (Distance-over-Gradients family, Ivgi 2023 + Khaled 2023) parameter-free step size to the body Muon path, replacing the fixed `MUON_LR=0.04` base coefficient × cosine cooldown with a data-driven adaptive schedule from running max distance-from-init and gradient norm accumulator.
+- **Mechanism**:
+  - DoG (Ivgi 2023, arXiv:2302.12022, github.com/formll/dog): `r_t = max(r_{t-1}, ||θ_t-θ_0||)`; `G_t = G_{t-1} + ||g_t||²`; `η_t = r_t/sqrt(G_t)` — canonical parameter-free SGD step size
+  - DoWG (Khaled 2023, arXiv:2305.16284): `r_t = max(r_{t-1}, ||θ_t-θ_0||²)`; `v_t = v_{t-1} + r_t·||g_t||²`; `η_t = sqrt(r_t/v_t)` — weighted variant with tighter universal-convergence bounds
+- **Two arms**:
+  - Arm A `DOWG_BODY_MUON_MODE=dog` DOWG_COEF=1.0 paper-canonical natural scale (Ivgi 2023 simpler convergence proof)
+  - Arm B `DOWG_BODY_MUON_MODE=dowg` DOWG_COEF=1.0 paper-canonical natural scale (Khaled 2023 weighted tighter bounds)
+- **Anti-duplication grep**: clean `DOG/DoWG/distance.over/distance.over.grad/distance.over.weight/parameter.free.muon/adagrad/cumulat.grad` ZERO matches across EXPERIMENTS_LOG.md + 319-PR corpus.
+- **Structurally distinct from**:
+  - All 7 SATURATED MECHANISM LAYERS (no NS5/per-head/sign-agreement/spectral-decay/Stiefel/Remez/SOAP-Gram-drift)
+  - All 5 in-flight WIPs: Prodigy AUX (#1230) = online **lower-bound** on D not max-D + Shampoo body (#1220) = Kronecker preconditioner not step size + WD body depth (#1224) = regularization + AUX_BIAS_CORRECTION (#1225) = correction removal + AUX_CLIP_NORM (#1226) = magnitude clipping
+  - #711 AggMo (multi-timescale momentum not step size) and #857 AdamPower (denominator power)
+- **Implementation lesson application**:
+  - Memory `[[spec-cross-check-reference-impl]]` applied: student instructed to read DoG GitHub source code (github.com/formll/dog) + DoWG paper Algorithm 1 BEFORE launching, flag spec mismatches in PR comment
+  - Memory `[[pod-broken-axis-misattribution]]` applied: early-return guard at TOP of DoWG routine BEFORE any tensor allocation, disabled-check val@200 ∈ [4.075, 4.090] byte-identical to baseline
+- **Storage**: 1 fp32 p_0 snapshot for body matmul params only ~80MB on B200 (comfortable), 2 scalars (r_t, G_t/v_t) negligible
+- **Kill gates**: Baseline trajectory + slack for slow warmup steps 1-200 (DoG/DoWG η_t starts small with r_0≈1e-6 then grows as params move from init):
+  - step 500: kill if val > 4.00 (+0.15 slack for slow warmup)
+  - step 1000: kill if val > 3.75 (tight)
+  - step 1500+: standard +0.04 slack tracking baseline
+  - **Additional kill**: if r_t plateaus at DOWG_BODY_MUON_INIT_R=1e-6 for >300 consecutive steps → FROZEN-AUX-NO-RAMP signature (lesson from #1230 alphonse)
+- **Telemetry mandated**: `train/dowg/r_t` / `train/dowg/G_t or v_t` / `train/dowg/eta_t` / `train/dowg/effective_body_muon_lr` / `train/dowg/body_dist_curr` to diagnose warmup speed and ramp behavior
+- **Lane-level pivot**: thorfinn pivot OFF saturated AUX-side adaptive-LR/preconditioner lane (#1216 PSGD_KRON_AUX closure) onto body-Muon parameter-free step-size lane — first body-side parameter-free step-size test in campaign, mirrors fern's earlier NS5→regularization lane pivot.
+
+### Methodological observation mid-259
+
+(a) **First explicit SATURATED LANE designation** in campaign — AUX-side adaptive-LR/preconditioner mechanisms — distinct from SATURATED MECHANISM LAYER (CAUTIOUS-family-bilateral). Saturated lane = portfolio-level guidance for future research-direction selection, NOT mechanism-class refute. Future advisor assignments should de-prioritize AUX-side mechanisms unless structurally distinct from all prior tested variants.
+
+(b) **Pre-launch code-review gate** is the first one-time process improvement explicitly adopted to handle high-transcription-risk axes. Applies to any optimizer mechanism with auxiliary state (Prodigy / Shampoo / PSGD / Schedule-Free family). Student posts patch diff with cite-trail BEFORE launching, advisor reviews against reference impl. Process improvement worked first time (alphonse #1230).
+
+(c) **DoG/DoWG family is opposite-direction-to-Prodigy structurally** — max-distance vs lower-bound-distance, simpler scalar accumulators vs quadratic-in-d weighting — testing both families in parallel (Prodigy on AUX, DoG/DoWG on body) **completes the parameter-free step-size dimension** of the design space across both optimizer paths in a single advisor cycle.
+
+(d) **thorfinn closure-map-driven pivot** mirrors fern's NS5→regularization pivot at lane-level granularity — closure-map metasystem now drives lane-level pivots not just mechanism-class pivots, demonstrating multi-level navigation (per-PR → mechanism-class → mechanism-layer → lane) at maximum granularity.
+
+---
+
 ## 2026-05-26 02:10 UTC — NEZUKO #1226 POD-BROKEN HOLD (student-led cross-pod control) + FRIEREN #1220 ARM A TERMINAL refute (cycle 71 mid-258)
 
 ### #1226 nezuko AUX_CLIP_NORM — POD-BROKEN HOLD (3rd pod-broken hold cycle 71 joining tanjiro #793 + edward #702)
