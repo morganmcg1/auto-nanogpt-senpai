@@ -836,6 +836,28 @@ for trial_idx in range(args.num_trials):
     _ex_resid_std = _resid_proj_std(768, args.depth_init_mode, NUM_LAYERS) if args.depth_init_mode != "ctrl" else 0.0
     print0(f"[init] mode={args.depth_init_mode}  L={NUM_LAYERS}  block_residual_attn.proj_std={_ex_resid_std:.6f}", console=True)
 
+    # Init-time residual-injection param-norm telemetry (one number per group)
+    if dist.get_rank() == 0:
+        _attn_resid_norms = [float(p.data.norm().item()) for n, p in model.named_parameters()
+                             if n.startswith("blocks.") and n.endswith(".attn.proj.weight")]
+        _mlp_resid_norms = [float(p.data.norm().item()) for n, p in model.named_parameters()
+                            if n.startswith("blocks.") and n.endswith(".mlp.proj.weight")]
+        def _p95(xs):
+            return sorted(xs)[max(0, int(0.95 * (len(xs) - 1)))] if xs else 0.0
+        init_metrics = {
+            "trial": trial_idx,
+            "init/resid_attn_proj_norm_mean": sum(_attn_resid_norms) / max(1, len(_attn_resid_norms)),
+            "init/resid_attn_proj_norm_p95": _p95(_attn_resid_norms),
+            "init/resid_attn_proj_norm_max": max(_attn_resid_norms) if _attn_resid_norms else 0.0,
+            "init/resid_mlp_proj_norm_mean": sum(_mlp_resid_norms) / max(1, len(_mlp_resid_norms)),
+            "init/resid_mlp_proj_norm_p95": _p95(_mlp_resid_norms),
+            "init/resid_mlp_proj_norm_max": max(_mlp_resid_norms) if _mlp_resid_norms else 0.0,
+        }
+        wandb.log(init_metrics, step=trial_idx * (train_steps + 1))
+        print0(f"[init] resid_attn_proj_norm_mean={init_metrics['init/resid_attn_proj_norm_mean']:.6f}"
+               f"  resid_mlp_proj_norm_mean={init_metrics['init/resid_mlp_proj_norm_mean']:.6f}",
+               console=True)
+
     # create the optimizer(s)
     optimizer1 = AdamW([dict(params=[model.embed.weight], lr=0.3, name="adam_embed"),
                         dict(params=[model.proj.weight], lr=1/320, name="adam_lm_head"),
@@ -907,6 +929,9 @@ for trial_idx in range(args.num_trials):
     best_val_loss = float("inf")
     best_val_step = -1
     first_step_to_target = -1
+    first_step_to_3_40 = -1
+    first_step_to_3_35 = -1
+    first_step_to_3_30 = -1
     slope_interval = max(1, round(train_steps * SLOPE_FRACTION))
     slope_window_steps = max(100, slope_interval)
     train_loss_history: list[tuple[int, float]] = []
@@ -940,6 +965,12 @@ for trial_idx in range(args.num_trials):
                     best_val_step = step
                 if first_step_to_target < 0 and val_loss_float <= TARGET_VAL_LOSS:
                     first_step_to_target = step
+                if first_step_to_3_40 < 0 and val_loss_float <= 3.40:
+                    first_step_to_3_40 = step
+                if first_step_to_3_35 < 0 and val_loss_float <= 3.35:
+                    first_step_to_3_35 = step
+                if first_step_to_3_30 < 0 and val_loss_float <= 3.30:
+                    first_step_to_3_30 = step
                 metrics = {
                     "trial": trial_idx,
                     "val/step": step,
@@ -949,6 +980,9 @@ for trial_idx in range(args.num_trials):
                     "val/target_margin": TARGET_VAL_LOSS - val_loss_float,
                     "val/single_run_stat_sig_margin": TARGET_VAL_LOSS - val_loss_float - STAT_SIG_DELTA,
                     "speedrun/first_step_to_target": first_step_to_target,
+                    "speedrun/first_step_to_3_40": first_step_to_3_40,
+                    "speedrun/first_step_to_3_35": first_step_to_3_35,
+                    "speedrun/first_step_to_3_30": first_step_to_3_30,
                     "speedrun/reached_target": int(first_step_to_target >= 0),
                     "time/train_seconds": training_time,
                     "time/step_avg_ms": 1000 * step_avg,
@@ -1093,6 +1127,9 @@ for trial_idx in range(args.num_trials):
             "speedrun/final_best_val_loss": best_val_loss,
             "speedrun/final_best_val_step": best_val_step,
             "speedrun/final_first_step_to_target": first_step_to_target,
+            "speedrun/final_first_step_to_3_40": first_step_to_3_40,
+            "speedrun/final_first_step_to_3_35": first_step_to_3_35,
+            "speedrun/final_first_step_to_3_30": first_step_to_3_30,
             "speedrun/final_reached_target": int(first_step_to_target >= 0),
         }, step=(trial_idx + 1) * (train_steps + 1) - 1)
 
