@@ -121,6 +121,17 @@ def parse_args():
                         help="Which aux groups get the AdaBelief (g-m)² second-moment formulation. "
                              "Non-target groups stay on AdamW's g² formulation (via the same non-fused custom step). "
                              "Default 'none' = no group uses AdaBelief (no-op when --use_adabelief 0).")
+    # H168 advisor cycle ~290 patch: eps has structurally different roles in
+    # AdamW (denominator soft floor) vs AdaBelief (s_t recurrence floor that
+    # accumulates to eps·(1-β2^t)/(1-β2) ≈ 100·eps at β2=0.99). Zhuang et al.
+    # 2020 Table 5 uses eps=1e-16 for NLP transformer experiments; --aux_adamw_eps
+    # 1e-6 would render AdaBelief's variance mechanism inert. This flag overrides
+    # the eps used inside AdaBeliefAdamW.step() for AdaBelief target groups only;
+    # non-target groups (and arm_a) continue to use --aux_adamw_eps.
+    parser.add_argument("--aux_adabelief_eps", type=float,
+                        default=float(os.environ.get("AUX_ADABELIEF_EPS", "1e-16")),
+                        help="eps used inside AdaBelief s_t recurrence and denominator for AdaBelief "
+                             "target groups only. Default 1e-16 per Zhuang et al. 2020 NLP transformer setup.")
     args = parser.parse_args()
     args.num_trials = args.num_trials if args.num_trials is not None else (args.legacy_num_trials or 1)
     args.wandb_tags = [tag.strip() for tag in args.wandb_tags.split(",") if tag.strip()]
@@ -784,10 +795,16 @@ class AdaBeliefAdamW(torch.optim.AdamW):
     at telemetry events without paying the cost on every step.
     """
 
-    def __init__(self, *args, adabelief_target_groups=None, **kwargs):
+    def __init__(self, *args, adabelief_target_groups=None, adabelief_eps=1e-16, **kwargs):
         kwargs.pop("fused", None)
         super().__init__(*args, fused=False, **kwargs)
         self.adabelief_target_groups = set(adabelief_target_groups or [])
+        # H168 cycle ~290 patch: AdaBelief eps is decoupled from AdamW eps because
+        # the s_t recurrence floor accumulates to eps·(1-β2^t)/(1-β2). For
+        # AdaBelief target groups, this eps replaces group['eps'] in BOTH the s_t
+        # recurrence AND the denominator. Non-target groups continue to use
+        # group['eps'] (the standard AdamW eps).
+        self.adabelief_eps = float(adabelief_eps)
         self._last_diagnostics: dict[str, dict[str, float]] = {}
 
     @torch.no_grad()
@@ -801,7 +818,10 @@ class AdaBeliefAdamW(torch.optim.AdamW):
             use_adabelief = group_name in self.adabelief_target_groups
             beta1, beta2 = group["betas"]
             lr = group["lr"]
-            eps = group["eps"]
+            # H168 cycle ~290 patch: use adabelief_eps inside the s_t recurrence
+            # and denominator for AdaBelief target groups only. Non-target groups
+            # keep the AdamW group eps.
+            eps = self.adabelief_eps if use_adabelief else group["eps"]
             wd = group["weight_decay"]
             group_diag: dict[str, float] = {}
             for p in group["params"]:
@@ -841,12 +861,24 @@ class AdaBeliefAdamW(torch.optim.AdamW):
                     diff_row_norm = diff_for_diag.norm(dim=-1)
                     ratio_per_row = (diff_row_norm / g_row_norm).mean()
                     eff_step = lr * m_hat / denom
+                    v_mean_val = float(v.mean().item())
+                    # H168 cycle ~290 patch gate #6: v_mean_eps_ratio =
+                    # v_mean / (eps·(1-β2^t)/(1-β2)). The denominator is the
+                    # closed-form eps-floor contribution to s_t over t steps.
+                    # Ratio ≥ 10 → variance signal dominates s_t. Ratio ≈ 1 →
+                    # eps recurrence floor dominates and the AdaBelief mechanism
+                    # is inert.
+                    eps_floor = eps * (1.0 - beta2 ** t) / max(1.0 - beta2, 1e-30)
+                    v_mean_eps_ratio = v_mean_val / eps_floor if eps_floor > 0 else float("inf")
                     group_diag = {
-                        "v_mean": float(v.mean().item()),
+                        "v_mean": v_mean_val,
                         "v_max": float(v.max().item()),
                         "grad_minus_m_norm_ratio": float(ratio_per_row.item()),
                         "effective_step_norm": float(eff_step.norm().item()),
                         "effective_step_rms": float(eff_step.square().mean().sqrt().item()),
+                        "eps_floor": eps_floor,
+                        "v_mean_eps_ratio": v_mean_eps_ratio,
+                        "eps_used": eps,
                     }
                 # Decoupled weight decay then AdamW-style step.
                 p.data.mul_(1 - lr * wd)
@@ -900,7 +932,7 @@ if args.muonh_agc_clip_ratio > 0:
     print0(f"AGC ENABLED on inner MuonH gradient: clip_ratio={args.muonh_agc_clip_ratio} eps={args.muonh_agc_eps}", console=True)
 else:
     print0("AGC DISABLED on inner MuonH gradient (clip_ratio=0)", console=True)
-print0(f"[H168] use_adabelief={args.use_adabelief} adabelief_target={args.adabelief_target}", console=True)
+print0(f"[H168] use_adabelief={args.use_adabelief} adabelief_target={args.adabelief_target} aux_adabelief_eps={args.aux_adabelief_eps}", console=True)
 print0("="*100)
 
 val_tokens = 20 * 524288
@@ -962,13 +994,15 @@ if dist.get_rank() == 0:
             "muonh_mu_end": args.muonh_mu_end,
             "use_adabelief": args.use_adabelief,
             "adabelief_target": args.adabelief_target,
+            "aux_adabelief_eps": args.aux_adabelief_eps,
         },
     )
     # Per chain-launch verification gate (H168 PR): force explicit config payload
     # so the W&B config tab shows distinct use_adabelief/adabelief_target values
     # across the 3 arms, independent of whether they exist in the init() dict.
     wandb.config.update(
-        {"use_adabelief": args.use_adabelief, "adabelief_target": args.adabelief_target},
+        {"use_adabelief": args.use_adabelief, "adabelief_target": args.adabelief_target,
+         "aux_adabelief_eps": args.aux_adabelief_eps},
         allow_val_change=True,
     )
 
@@ -1068,6 +1102,7 @@ for trial_idx in range(args.num_trials):
             _aux_group_defs,
             betas=(0.8, args.aux_beta2_start), eps=args.aux_adamw_eps, weight_decay=0,
             adabelief_target_groups=adabelief_target_groups,
+            adabelief_eps=args.aux_adabelief_eps,
         )
     else:
         optimizer1 = AdamW(_aux_group_defs,
