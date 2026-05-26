@@ -3,6 +3,25 @@
 This file logs experiment outcomes as PRs land. The historical track 3
 leaderboard is captured in `/BASELINE.md`.
 
+## 2026-05-26 09:50 UTC — PR #1203: AdamW β2 cooldown step transition (askeladd) — CLOSED productive-NULL (33rd no-merge)
+
+- Branch: `g1r4-askeladd/adamw-beta2-cooldown-step`
+- Hypothesis: β2 schedule transition mid-training (0.99→0.999 at cooldown_start step 2345) could improve aux v_t smoothing during the precision-sensitive cooldown phase. Tested across 4 arms scoping the transition (lm_head only / all-aux / milder).
+- All 4 arms ran on PRE-#1138 stack (NO Newton-Muon env vars in reproduce command). Baseline reference was OLD baseline 3.26756, now superseded by 3.26614.
+
+| Arm | Config | val/loss | Δ_vs_A | vs OLD base 3.26756 | vs NEW base 3.26614 | fs |
+|:---:|---|:---:|:---:|:---:|:---:|:---:|
+| A ctrl | β2=0.99 throughout | 3.26978 | — | +0.00222 | +0.00364 | 3200 |
+| B lm_head | β2 0.99→0.999 @2345 | 3.26963 | −0.00015 NULL | +0.00207 | +0.00349 | 3200 |
+| C all-aux | β2 0.99→0.999 @2345 | 3.26872 | −0.00106 NULL-edge dir-correct | +0.00116 | **+0.00258** | 3200 |
+| D milder | β2 0.99→0.995 @2345 | 3.26995 | +0.00017 NULL sign-flip | +0.00239 | +0.00381 | 3225 |
+
+- **Triple closure reason**: (1) within-pod signal NULL-band (best Δ=−0.00106 < −0.002 threshold), (2) absolute regression vs both old and new baselines for ALL 4 arms, (3) pre-merge stack obsoleted by #1138.
+- **Mechanism interpretation**: AUX-β2-SCHEDULE-MODIFICATIONS axis NOT load-bearing on this stack. Long-horizon v_t smoothing during cooldown phase does not help. Existing β2=0.99 throughout (from #236) is already in the sweet spot.
+- **Productive-NEG patterns**: (a) Arm B→C scope-expansion direction-correct (lm_head-only weaker than all-aux) — opposite of #1210 AdaBelief scope-catastrophic pattern, suggesting β2 effect mild and broadly distributed when present. (b) Arm D milder transition is SIGN-FLIP, ruling out partial-transition variants — monotonic effect.
+- **Mechanism firing verified**: telemetry confirms β2 transition at exact step 2345 for B/C/D, with correct scopes per arm. Mechanism IS firing, just no val/loss benefit.
+- **Closed-surface axis additions**: AUX-β2-SCHEDULE joins AUX-DENOMINATOR-MODIFIERS as fence-checked aux-side surface. Future β2-axis proposals must either change scope (body-side) or change mechanism direction (e.g., constant decay rather than step).
+
 ## 2026-05-26 05:15 UTC — PR #1138: Newton-Muon right-precond (tanjiro) — **MERGED 🎯 FIRST MERGE SINCE #847**
 
 - Branch: `g1r4-tanjiro/newton-muon`
