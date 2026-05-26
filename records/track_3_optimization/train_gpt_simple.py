@@ -633,6 +633,17 @@ def _make_newton_input_hook(weight_param: "torch.Tensor", max_d_in: int):
 
     return hook
 
+# Lion sign-optimizer on lm_head only (#1233, env-var-gated). When LM_HEAD_LION=1
+# the lm_head (model.proj.weight) is removed from optimizer1 (AdamW) and stepped
+# instead by a hand-rolled Lion implementation. At LM_HEAD_LION=0 the lm_head
+# stays in AdamW and behavior is bit-identical to the merged stack.
+LM_HEAD_LION = int(os.environ.get("NANOGPT_LM_HEAD_LION", "0"))
+LM_HEAD_LION_LR = float(os.environ.get("NANOGPT_LM_HEAD_LION_LR", "0.001"))
+LM_HEAD_LION_BETA1 = float(os.environ.get("NANOGPT_LM_HEAD_LION_BETA1", "0.9"))
+LM_HEAD_LION_BETA2 = float(os.environ.get("NANOGPT_LM_HEAD_LION_BETA2", "0.99"))
+LM_HEAD_LION_WD = float(os.environ.get("NANOGPT_LM_HEAD_LION_WD", "0.0"))
+LM_HEAD_LION_CAUTIOUS = int(os.environ.get("NANOGPT_LM_HEAD_LION_CAUTIOUS", "0"))
+
 
 def get_ns_coef_at_iter(iter_idx: int, total_iters: int, schedule: str) -> tuple[float, float, float]:
     """Return (a, b, c) for NS iter iter_idx of total_iters.
@@ -933,6 +944,50 @@ class Muon(torch.optim.Optimizer):
                 dist.all_gather(params_pad[base_i:base_i + world_size], params_pad[base_i + rank])
 
 
+class LionStep:
+    """Lion optimizer step (Chen et al. 2023, https://arxiv.org/abs/2302.06675).
+
+    Use-then-update momentum semantics: compute direction
+    `sign(beta1*m + (1-beta1)*g)`, apply update `param -= lr * direction`
+    (with decoupled WD `param *= 1 - lr*wd`), then update momentum
+    `m = beta2*m + (1-beta2)*g`. The cautious variant masks updates whose
+    sign disagrees with the current gradient sign and re-normalizes so the
+    expected step magnitude is preserved.
+    """
+
+    def __init__(self, beta1: float, beta2: float):
+        self.beta1 = float(beta1)
+        self.beta2 = float(beta2)
+        self.m: Tensor | None = None
+        self.last_sign_agree_rate: float = float("nan")
+        self.last_cautious_frac: float = float("nan")
+
+    @torch.no_grad()
+    def step(self, param: Tensor, grad: Tensor, lr: float, wd: float,
+             cautious: bool = False) -> None:
+        if self.m is None:
+            self.m = torch.zeros_like(param)
+        # Direction uses momentum BEFORE the EMA update (Chen et al. Appendix A).
+        update_blend = self.m.mul(self.beta1).add_(grad, alpha=1.0 - self.beta1)
+        update_dir = update_blend.sign()
+        raw_sign = grad.sign()
+        self.last_sign_agree_rate = float((update_dir == raw_sign).float().mean().item())
+        if cautious:
+            mask = (update_dir * grad > 0).to(update_dir.dtype)
+            cautious_mean = mask.mean()
+            self.last_cautious_frac = float(cautious_mean.item())
+            frac = cautious_mean.clamp(min=1e-6)
+            update_dir = update_dir * mask / frac
+        else:
+            self.last_cautious_frac = 1.0
+        # EMA update on the persistent momentum buffer (in place).
+        self.m.mul_(self.beta2).add_(grad, alpha=1.0 - self.beta2)
+        # Decoupled WD then sign step.
+        if wd != 0.0:
+            param.data.mul_(1.0 - lr * wd)
+        param.data.add_(update_dir.to(param.dtype), alpha=-lr)
+
+
 ########################################
 #                Setup                 #
 ########################################
@@ -987,6 +1042,10 @@ print0(
     f"max_d_in={NANOGPT_NEWTON_MUON_MAX_D_IN}",
     console=True,
 )
+print0(f"LM_HEAD_LION: {LM_HEAD_LION} "
+       f"({'ACTIVE' if LM_HEAD_LION else 'INACTIVE (lm_head stays in AdamW)'}) "
+       f"lr={LM_HEAD_LION_LR} beta1={LM_HEAD_LION_BETA1} beta2={LM_HEAD_LION_BETA2} "
+       f"wd={LM_HEAD_LION_WD} cautious={LM_HEAD_LION_CAUTIOUS}", console=True)
 if NS_ITERS_COOLDOWN > 0:
     print0(f"NS_SCHEDULE: ns_iters={NS_ITERS} -> ns_iters_cooldown={NS_ITERS_COOLDOWN} "
            f"at fraction {NS_COOLDOWN_START_FRAC} of train_steps "
@@ -1105,6 +1164,12 @@ if dist.get_rank() == 0:
             "nanogpt_newton_muon_beta": NANOGPT_NEWTON_MUON_BETA,
             "nanogpt_newton_muon_eps": NANOGPT_NEWTON_MUON_EPS,
             "nanogpt_newton_muon_max_d_in": NANOGPT_NEWTON_MUON_MAX_D_IN,
+            "nanogpt_lm_head_lion": LM_HEAD_LION,
+            "nanogpt_lm_head_lion_lr": LM_HEAD_LION_LR,
+            "nanogpt_lm_head_lion_beta1": LM_HEAD_LION_BETA1,
+            "nanogpt_lm_head_lion_beta2": LM_HEAD_LION_BETA2,
+            "nanogpt_lm_head_lion_wd": LM_HEAD_LION_WD,
+            "nanogpt_lm_head_lion_cautious": LM_HEAD_LION_CAUTIOUS,
         },
     )
 
@@ -1147,10 +1212,22 @@ for trial_idx in range(args.num_trials):
                f"snapshot_shape={tuple(embed_init_snapshot.shape)}", console=True)
 
     # create the optimizer(s)
-    optimizer1 = AdamW([dict(params=[model.embed.weight], lr=0.3 * NANOGPT_ADAMW_EMBED_LR_MULT, name="adam_embed"),
-                        dict(params=[model.proj.weight], lr=(1/320) * NANOGPT_ADAMW_LM_HEAD_LR_MULT, name="adam_lm_head"),
-                        dict(params=[p for p in model.parameters() if p.ndim < 2], lr=0.01 * NANOGPT_ADAMW_SCALAR_LR_MULT, name="adam_scalars")],
-                       betas=(0.8, NANOGPT_ADAMW_BETA2), eps=1e-10, weight_decay=0, fused=True)
+    # When LM_HEAD_LION=1 the lm_head (model.proj.weight) is removed from the
+    # AdamW param groups and is stepped instead by the Lion sign optimizer below.
+    adamw_groups = [
+        dict(params=[model.embed.weight], lr=0.3 * NANOGPT_ADAMW_EMBED_LR_MULT, name="adam_embed"),
+    ]
+    if not LM_HEAD_LION:
+        adamw_groups.append(
+            dict(params=[model.proj.weight], lr=(1/320) * NANOGPT_ADAMW_LM_HEAD_LR_MULT, name="adam_lm_head")
+        )
+    adamw_groups.append(
+        dict(params=[p for p in model.parameters() if p.ndim < 2], lr=0.01 * NANOGPT_ADAMW_SCALAR_LR_MULT, name="adam_scalars")
+    )
+    optimizer1 = AdamW(adamw_groups, betas=(0.8, NANOGPT_ADAMW_BETA2), eps=1e-10, weight_decay=0, fused=True)
+    lion_lm_head: LionStep | None = None
+    if LM_HEAD_LION:
+        lion_lm_head = LionStep(beta1=LM_HEAD_LION_BETA1, beta2=LM_HEAD_LION_BETA2)
     # Per-block-type Muon param split: attn (q/k/v/proj) vs mlp (fc/proj).
     # When both multipliers = 1.0, behavior is bit-identical to the prior single-group setup
     # (NS orthogonalization is per-matrix; the split only changes how groups are indexed).
@@ -1182,13 +1259,21 @@ for trial_idx in range(args.num_trials):
     ns_iters_history: list[int] = []
     ns_cumulative_iters = 0
     optimizers = [optimizer1, optimizer2]
+    expected_optim_params = set(model.parameters())
+    if LM_HEAD_LION:
+        # lm_head is stepped by lion_lm_head, not by any torch.optim.Optimizer.
+        expected_optim_params = expected_optim_params - {model.proj.weight}
     assert set(p for opt in optimizers for group in opt.param_groups
-               for p in group["params"]) == set(model.parameters())
+               for p in group["params"]) == expected_optim_params
     # Per-group grad-clip param lists (#708). Body = Muon-orthogonalized matrices;
     # aux = AdamW embed + lm_head + scalars. Reuses the same lists the optimizers
     # were constructed from so the split cannot drift.
     body_clip_params = muon_attn_params + muon_mlp_params
     aux_clip_params = [p for g in optimizer1.param_groups for p in g["params"]]
+    if LM_HEAD_LION:
+        # lm_head is no longer in optimizer1; include it in aux_clip_params so the
+        # joint AUX clip semantics (embed + lm_head + scalars) match the baseline.
+        aux_clip_params = aux_clip_params + [model.proj.weight]
     assert set(body_clip_params) | set(aux_clip_params) == set(model.parameters())
     assert not (set(body_clip_params) & set(aux_clip_params))
     # Cumulative clip-trigger counters across the trial for mechanism reading.
@@ -1202,6 +1287,9 @@ for trial_idx in range(args.num_trials):
     # learning rate schedule: stable then decay.
     # All groups follow the default linear-to-zero cooldown except the
     # adam_embed group, which can be remapped via NANOGPT_EMBED_COOLDOWN_SHAPE.
+    # When LM_HEAD_LION=1 the Lion lm_head LR follows the same linear-decay shape
+    # as the (otherwise) AdamW lm_head group: lr = LM_HEAD_LION_LR * eta_default.
+    schedule_state = {"lm_head_lion_lr": 0.0}
     def set_hparams(step, cooldown_frac=0.7):
         progress = step / train_steps
         assert 0 <= progress < 1
@@ -1227,6 +1315,7 @@ for trial_idx in range(args.num_trials):
                     group["lr"] = group["initial_lr"] * eta_embed
                 else:
                     group["lr"] = group["initial_lr"] * eta_default
+        schedule_state["lm_head_lion_lr"] = LM_HEAD_LION_LR * eta_default if LM_HEAD_LION else 0.0
 
 
     ########################################
@@ -1428,6 +1517,19 @@ for trial_idx in range(args.num_trials):
         # (gated to avoid per-param CUDA syncs on the hot path).
         if getattr(optimizer2, "newton_precond", False):
             optimizer2.newton_telemetry_due = bool(telemetry_due)
+        # Lion sign-step on lm_head (#1233). Runs alongside optimizer1/2: lm_head is
+        # not in optimizer1's param groups when LM_HEAD_LION=1, so AdamW never touches
+        # it. Gradient has already been all-reduced and joint-AUX-clipped above.
+        if lion_lm_head is not None:
+            lm_head_param = model.proj.weight
+            if lm_head_param.grad is not None:
+                lion_lm_head.step(
+                    param=lm_head_param,
+                    grad=lm_head_param.grad.detach(),
+                    lr=schedule_state["lm_head_lion_lr"],
+                    wd=LM_HEAD_LION_WD,
+                    cautious=bool(LM_HEAD_LION_CAUTIOUS),
+                )
         for opt in optimizers:
             opt.step()
         # === Newton-Muon (#1138) per-step telemetry. ===
@@ -1531,6 +1633,26 @@ for trial_idx in range(args.num_trials):
                 step=train_step,
                 wandb_step=wandb_step,
             )
+        # Lion lm_head telemetry (#1233). Logged only when the Lion path is active.
+        if lion_lm_head is not None and dist.get_rank() == 0 and telemetry_due:
+            m_norm = (
+                float(lion_lm_head.m.norm().item())
+                if lion_lm_head.m is not None
+                else 0.0
+            )
+            wandb.log({
+                "trial": trial_idx,
+                "train/step": train_step,
+                "lm_head/lion_active": 1,
+                "lm_head/lion_m_norm": m_norm,
+                "lm_head/lion_current_lr": schedule_state["lm_head_lion_lr"],
+                "lm_head/lion_sign_agree_rate": lion_lm_head.last_sign_agree_rate,
+                "lm_head/lion_cautious_frac": lion_lm_head.last_cautious_frac,
+                "lm_head/lion_beta1": lion_lm_head.beta1,
+                "lm_head/lion_beta2": lion_lm_head.beta2,
+                "lm_head/lion_wd": LM_HEAD_LION_WD,
+                "lm_head/lion_cautious": int(LM_HEAD_LION_CAUTIOUS),
+            }, step=wandb_step)
         if dist.get_rank() == 0 and telemetry_due:
             ns_metrics = {
                 "trial": trial_idx,
