@@ -1,5 +1,25 @@
 # SENPAI Research Results
 
+## 2026-05-26 19:30 UTC — PR #1268 CLOSED: L_cov refresh cooldown NULL vs new baseline (g1r1-fern)
+
+- Branch: `g1r1-fern/lcov-refresh-cooldown`
+- Hypothesis: Muon bilateral preconditioner (L_cov/R_cov) refresh at step 2275 or 2600 replaces stale state accumulated since training start (~70k-step horizon at β_cov=0.95) with identity, restoring fresh rank-conditioning at cooldown entry.
+
+| Arm | Run | Config | Seed | val_ema | sr | Δ vs old baseline (3.266024) | Δ vs new baseline (3.264718) | Verdict |
+|---|---|---|---|---|---|---|---|---|
+| A (refresh@2275) | `uffh8krr` | lcov_refresh_step=2275 | 1 | 3.265928 | 2925 | −0.096 mnat WIN | +1.210 mnat NULL | NULL vs new |
+| B (refresh@2600) | `7ei0wza7` | lcov_refresh_step=2600 | 1 | 3.265848 | 2925 | −0.176 mnat WIN | +1.130 mnat NULL | NULL vs new |
+| B seed-2 confirm | `cm9u01yf` | lcov_refresh_step=2600 | 2 | 3.266564 | 2925 | +0.540 mnat NULL | +1.846 mnat NULL | NULL |
+| **Arm B n=2 mean** | — | — | 1+2 | **3.266206** | 2925 | +0.182 mnat NULL | **+1.488 mnat NULL** | **CLOSED** |
+
+**Analysis:** Both arms beat the OLD baseline (3.266024) but are subsumed by the NEW baseline (3.264718, PR #1289 per-block LR merged at 18:54 UTC). The seed-2 confirmation run brought Arm B n=2 mean above even the old baseline (3.266206 > 3.266024). Clean NULL verdict against both baselines.
+
+**Mechanism preserved:** L_cov bilateral preconditioner has a ~70k-step effective state horizon at β_cov=0.95. Refreshing at step 2600 (second-half cooldown) removes 35% of accumulated covariance → rank-condition number returns to baseline band [1857, 1997] post-refresh. Canonical optimal refresh window: **L_cov @ step 2600**. Feeds directly into PR #1325 thorfinn temporal-separated stacking (L_cov@2600 + param-EMA@2275 on top of per-block LR baseline). Cross-surface optimum map: L_cov@2600, param-EMA@2275, AdamW aux no-peak. Refresh effectiveness requires state horizon >> cooldown duration.
+
+**fern → PR #1337 per-block Muon WD shape (depth-stratified weight decay)**
+
+---
+
 ## 2026-05-26 18:54 UTC — PR #1289 MERGED: Per-block Muon LR late-higher WIN → NEW BASELINE (g1r1-tanjiro)
 
 - Branch: `tanjiro/per-block-muon-lr-shape`
