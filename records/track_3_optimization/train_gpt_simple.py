@@ -64,6 +64,12 @@ def parse_args():
     parser.add_argument("--muon_lr", type=float, default=0.035,
                         help="Base learning rate for body-Muon optimizer (matrix params in blocks). "
                              "Default 0.035 matches the merged baseline.")
+    parser.add_argument("--mu_attn", type=float, default=0.95,
+                        help="Body-Muon EMA-Nesterov mu for attention projections (q/k/v/proj). "
+                             "Default 0.95 matches uniform baseline.")
+    parser.add_argument("--mu_mlp", type=float, default=0.95,
+                        help="Body-Muon EMA-Nesterov mu for MLP projections (fc/proj). "
+                             "Default 0.95 matches uniform baseline.")
     args = parser.parse_args()
     args.num_trials = args.num_trials if args.num_trials is not None else (args.legacy_num_trials or 1)
     args.wandb_tags = [tag.strip() for tag in args.wandb_tags.split(",") if tag.strip()]
@@ -536,8 +542,13 @@ def pmuon_update(
 class Muon(torch.optim.Optimizer):
     def __init__(self, params, lr=0.02, weight_decay=0, mu=0.95, beta_cov=0.95, gamma=PMUON_GAMMA,
                  ns_a=NS_A, ns_b=NS_B, ns_c=NS_C):
-        assert isinstance(params, list) and len(params) >= 1 and isinstance(params[0], torch.nn.Parameter)
-        params = sorted(params, key=lambda x: x.size(), reverse=True)
+        assert isinstance(params, list) and len(params) >= 1
+        if isinstance(params[0], torch.nn.Parameter):
+            params = sorted(params, key=lambda x: x.size(), reverse=True)
+        else:
+            # List of param_group dicts: sort within each group, keep group structure.
+            for g in params:
+                g["params"] = sorted(g["params"], key=lambda x: x.size(), reverse=True)
         defaults = dict(lr=lr, weight_decay=weight_decay, mu=mu, beta_cov=beta_cov, gamma=gamma,
                         ns_a=ns_a, ns_b=ns_b, ns_c=ns_c)
         super().__init__(params, defaults)
@@ -716,6 +727,8 @@ if dist.get_rank() == 0:
             "power_cooldown_gamma": COOLDOWN_POWER,
             "cooldown_frac": 0.7,
             "muon_method": MUON_METHOD,
+            "muon_mu_attn": args.mu_attn,
+            "muon_mu_mlp": args.mu_mlp,
             "ema_beta": args.ema_beta,
             "ema_warmup_steps": args.ema_warmup_steps,
             "ema_beta_target": args.ema_beta_target if args.ema_beta_target is not None else 0.0,
@@ -755,10 +768,25 @@ for trial_idx in range(args.num_trials):
                         dict(params=[model.proj.weight], lr=1/160, name="adam_lm_head"),
                         dict(params=[p for p in model.parameters() if p.ndim < 2], lr=0.025, name="adam_scalars")],
                        betas=(0.8, 0.95), eps=1e-10, weight_decay=0, fused=True)
-    optimizer2 = Muon([p for p in model.blocks.parameters() if p.ndim >= 2],
-                      lr=args.muon_lr, weight_decay=0.025, beta_cov=0.95, gamma=PMUON_GAMMA)
-    optimizer2.param_groups[0]["name"] = "muon_blocks"
-    print0(f"body-Muon optimizer: lr={args.muon_lr} weight_decay=0.025 beta_cov=0.95 gamma={PMUON_GAMMA}")
+    body_muon_baseline_set = set(p for p in model.blocks.parameters() if p.ndim >= 2)
+    body_attn_params = [p for n, p in model.named_parameters()
+                        if p.requires_grad and "blocks." in n and ".attn." in n and p.dim() >= 2]
+    body_mlp_params = [p for n, p in model.named_parameters()
+                       if p.requires_grad and "blocks." in n and ".mlp." in n and p.dim() >= 2]
+    assert set(body_attn_params + body_mlp_params) == body_muon_baseline_set, \
+        "mu-per-type split must preserve the existing body-Muon param set"
+    assert len(set(body_attn_params).intersection(body_mlp_params)) == 0, \
+        "attn/mlp body-Muon groups must be disjoint"
+    optimizer2 = Muon([
+        {"params": body_attn_params, "mu": args.mu_attn},
+        {"params": body_mlp_params, "mu": args.mu_mlp},
+    ], lr=args.muon_lr, weight_decay=0.025, beta_cov=0.95, gamma=PMUON_GAMMA)
+    optimizer2.param_groups[0]["name"] = "muon_attn"
+    optimizer2.param_groups[1]["name"] = "muon_mlp"
+    body_muon_params = [p for g in optimizer2.param_groups for p in g["params"]]
+    print0(f"body-Muon optimizer: lr={args.muon_lr} weight_decay=0.025 beta_cov=0.95 gamma={PMUON_GAMMA} "
+           f"mu_attn={args.mu_attn} mu_mlp={args.mu_mlp} "
+           f"|attn|={len(body_attn_params)} |mlp|={len(body_mlp_params)}")
     optimizers = [optimizer1, optimizer2]
     assert set(p for opt in optimizers for group in opt.param_groups
                for p in group["params"]) == set(model.parameters())
@@ -774,7 +802,7 @@ for trial_idx in range(args.num_trials):
     # ema_beta (base) to ema_beta_target as the LR multiplier decays to 0.
     ema_params = None
     if args.ema_beta > 0:
-        ema_params = [p.detach().float().clone() for p in optimizer2.param_groups[0]["params"]]
+        ema_params = [p.detach().float().clone() for p in body_muon_params]
 
     # learning rate schedule: stable then power-law cooldown (gamma = COOLDOWN_POWER)
     def compute_lr_mult(step, cooldown_frac=0.7):
@@ -853,6 +881,8 @@ for trial_idx in range(args.num_trials):
             # (since EMA is what we'd ship); val_loss_live is the unmodified train model.
             val_loss_live_float = float("nan")
             buffer_frob_dist = float("nan")
+            buffer_frob_dist_attn = float("nan")
+            buffer_frob_dist_mlp = float("nan")
             if ema_params is not None:
                 val_loss_live = torch.zeros((), device=device)
                 with torch.no_grad():
@@ -865,14 +895,24 @@ for trial_idx in range(args.num_trials):
             # Swap in EMA weights (body-Muon matrix params only) for the eval pass.
             train_bufs = None
             if ema_params is not None:
-                train_bufs = [p.detach().clone() for p in optimizer2.param_groups[0]["params"]]
-                # Compute Frobenius distance ||ema - live|| across all body-Muon params.
+                train_bufs = [p.detach().clone() for p in body_muon_params]
+                # Compute Frobenius distance ||ema - live|| across all body-Muon params, split by type.
                 sq_sum = 0.0
-                for ema_p, p in zip(ema_params, optimizer2.param_groups[0]["params"]):
+                sq_sum_attn = 0.0
+                sq_sum_mlp = 0.0
+                n_attn = len(optimizer2.param_groups[0]["params"])
+                for idx, (ema_p, p) in enumerate(zip(ema_params, body_muon_params)):
                     diff = (ema_p - p.detach().float())
-                    sq_sum += float(diff.square().sum().item())
+                    sq = float(diff.square().sum().item())
+                    sq_sum += sq
+                    if idx < n_attn:
+                        sq_sum_attn += sq
+                    else:
+                        sq_sum_mlp += sq
                 buffer_frob_dist = sq_sum ** 0.5
-                for ema_p, p in zip(ema_params, optimizer2.param_groups[0]["params"]):
+                buffer_frob_dist_attn = sq_sum_attn ** 0.5
+                buffer_frob_dist_mlp = sq_sum_mlp ** 0.5
+                for ema_p, p in zip(ema_params, body_muon_params):
                     p.data.copy_(ema_p.to(p.dtype))
             val_loss = torch.zeros((), device=device)
             with torch.no_grad():
@@ -884,7 +924,7 @@ for trial_idx in range(args.num_trials):
             val_loss_float = float(val_loss.item())
             # Restore train weights immediately after eval so subsequent backward passes use them.
             if train_bufs is not None:
-                for train_p, p in zip(train_bufs, optimizer2.param_groups[0]["params"]):
+                for train_p, p in zip(train_bufs, body_muon_params):
                     p.data.copy_(train_p)
             if dist.get_rank() == 0:
                 val_loss_history.append((step, val_loss_float))
@@ -917,6 +957,8 @@ for trial_idx in range(args.num_trials):
                     # delta in mnat (millinats) for legibility in the dashboard.
                     metrics["ema/delta_ema_minus_live_mnat"] = (val_loss_float - val_loss_live_float) * 1000.0
                     metrics["ema/buffer_frob_dist"] = buffer_frob_dist
+                    metrics["muon/buffer_frob_dist_attn"] = buffer_frob_dist_attn
+                    metrics["muon/buffer_frob_dist_mlp"] = buffer_frob_dist_mlp
                     metrics["ema/lr_mult_t"] = lr_mult_now
                     metrics["ema/beta_t"] = beta_t_now
                     metrics["ema/beta_target"] = (args.ema_beta_target if args.ema_beta_target is not None
@@ -989,7 +1031,7 @@ for trial_idx in range(args.num_trials):
         ema_lr_mult_now = float("nan")
         if ema_params is not None:
             if step < args.ema_warmup_steps:
-                for ema_p, p in zip(ema_params, optimizer2.param_groups[0]["params"]):
+                for ema_p, p in zip(ema_params, body_muon_params):
                     ema_p.copy_(p.detach().float())
                 ema_beta_t_now = args.ema_beta
                 ema_lr_mult_now = compute_lr_mult(step)
@@ -997,7 +1039,7 @@ for trial_idx in range(args.num_trials):
                 ema_lr_mult_now = compute_lr_mult(step)
                 ema_beta_t_now = compute_ema_beta_t(step)
                 lerp_w = 1.0 - ema_beta_t_now
-                for ema_p, p in zip(ema_params, optimizer2.param_groups[0]["params"]):
+                for ema_p, p in zip(ema_params, body_muon_params):
                     ema_p.lerp_(p.detach().float(), lerp_w)
         if dist.get_rank() == 0 and telemetry_due:
             log_weight_telemetry(
@@ -1037,6 +1079,27 @@ for trial_idx in range(args.num_trials):
                 "train/cooldown/cooldown_progress": sched_cooldown_progress,
                 "train/cooldown/lr_multiplier": sched_eta,
                 "train/cooldown/power_gamma": COOLDOWN_POWER,
+            }, step=wandb_step)
+            # Per-tensor-type body-Muon mu + first-moment buffer norm telemetry.
+            m_sq_attn = 0.0
+            m_sq_mlp = 0.0
+            for gi, group in enumerate(optimizer2.param_groups):
+                for p in group["params"]:
+                    state = optimizer2.state.get(p, None)
+                    if state is None or "momentum" not in state:
+                        continue
+                    m_sq = float(state["momentum"].detach().float().square().sum().item())
+                    if gi == 0:
+                        m_sq_attn += m_sq
+                    else:
+                        m_sq_mlp += m_sq
+            wandb.log({
+                "trial": trial_idx,
+                "train/step": train_step,
+                "muon/mu_attn": optimizer2.param_groups[0]["mu"],
+                "muon/mu_mlp": optimizer2.param_groups[1]["mu"],
+                "muon/m_norm_attn": m_sq_attn ** 0.5,
+                "muon/m_norm_mlp": m_sq_mlp ** 0.5,
             }, step=wandb_step)
             if ema_params is not None:
                 wandb.log({
