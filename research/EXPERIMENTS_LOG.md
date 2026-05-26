@@ -3,6 +3,29 @@
 This file logs experiment outcomes as PRs land. The historical track 3
 leaderboard is captured in `/BASELINE.md`.
 
+## 2026-05-26 13:30 UTC — PR #1231: Body Muon momentum bias correction (thorfinn) — SENT BACK for 2-arm post-#1138 confirmation rerun
+
+- Branch: `g1r4-thorfinn/body-muon-bias-correction`
+- Hypothesis: Apply Adam-style bias correction `m_t / (1−β^t)` to body Muon's single β=0.95 momentum buffer BEFORE NS5 polar decomp. NS5-INPUT-MAGNITUDE-CORRECTING axis (fresh, mechanism-distinct from all 5 prior body-side closures).
+- All 4 arms ran on **PRE-#1138 stack** (chain launched before #1138 merge at 01:57 UTC). Within-chain Δ_paired_vs_A valid since all 4 arms share same Newton-Muon-off baseline. Absolute val comparison vs production baseline 3.26614 muddled.
+
+| Arm | Config | val/loss | fs | Δ_paired_val | Δ_paired_fs | Verdict |
+|:---:|---|:---:|:---:|:---:|:---:|---|
+| A ctrl | `BIAS_CORRECTION=0` (off path) | 3.27025 | 3225 | (ref) | (ref) | drift +0.00269 vs PRE-#1138 ref 3.26756 — within ±0.003 gate |
+| B full | `BETA=0.95`, `WARMUP_STEPS=0` always-on | 3.27002 | 3225 | −0.00023 | 0 | NULL band |
+| **C warmup100** | `BETA=0.95`, `WARMUP_STEPS=100` | **3.26731** | **3200** | **−0.00294** | **−25** | **FAVORABLE within-chain** (above signal threshold ≤−0.002) |
+| D beta099 | `BETA=0.99`, `WARMUP_STEPS=0` always-on | 3.27233 | 3250 | +0.00208 | +25 | PRODUCTIVE-NEG |
+
+- **Within-chain headline**: Arm C warmup100 Δ_paired_val=−0.00294 + Δ_paired_fs=−25 favorable, above signal threshold. Below PRE-#1138 ref baseline 3.26756 by 0.00025. **Above production baseline 3.26614 by +0.00117** → cannot merge as-is (G1 FAIL on production baseline).
+- **Mechanism interpretation (student's honest framing)**: At step 100+, β=0.95^100 ≈ 0.006 → correction factor ≈ 1.006, essentially identity. The favorable Δ must come from either (a) tiny perturbation at cooldown-entry boundary nudging trajectory off marginal cooldown path, (b) random single-seed noise, or (c) genuinely compositional mechanism with Newton-Muon. Student flagged this as fragile-n=1.
+- **Arm B vs C vs D pattern**: Always-on β=0.95 (Arm B) NULL-band, always-on β=0.99 (Arm D) PRODUCTIVE-NEG, warmup100 β=0.95 (Arm C) FAVORABLE → continuous activation through cooldown is harmful (Arm D longer-EMA correction stays large through cooldown, pushes Nesterov blend off-direction), warmup100 SKIPS the unstable early window AND most cooldown-window activation.
+- **Decision**: Send back for 2-arm post-#1138 confirmation rerun (Arm A' ctrl + Arm C' warmup100, both with Newton-Muon active). Tests whether favorable Δ replicates on production stack and whether absolute val drops below 3.26614.
+  - If Δ_paired(C', A') ≤ −0.002 AND val_C' ≤ 3.26614 → **PP n=3 escalation** (first compositional NM-stack candidate since #1138)
+  - If Δ_paired(C', A') ∈ [−0.002, −0.001] → productive-MARGINAL close (mechanism attenuates against Newton-Muon)
+  - If |Δ_paired(C', A')| ≤ 0.0015 → productive-NULL close (PRE-#1138 favorable was cooldown-boundary noise)
+- **Directive alignment**: Body-Muon-axis bias correction is NM-aligned per Issue #1261 (operates on body Muon momentum, composes with Newton-Muon right-precondition at different pipeline position).
+- **W&B run IDs**: PRE-#1138 chain `z8a9bml5/whzela9x/3f564s7i/8qnmdv8i` (Arms A/B/C/D respectively)
+
 ## 2026-05-26 09:50 UTC — PR #1203: AdamW β2 cooldown step transition (askeladd) — CLOSED productive-NULL (33rd no-merge)
 
 - Branch: `g1r4-askeladd/adamw-beta2-cooldown-step`
