@@ -109,6 +109,21 @@ def parse_args():
     parser.add_argument("--body_init_bottom_layers", type=int,
                         default=int(os.environ.get("BODY_INIT_BOTTOM_LAYERS", "6")),
                         help="Number of bottom layers to damp for --body_init=orthogonal_bottom_damp (default 6 = bottom half of 12 layers).")
+    # H170: one-shot AdamW v-buffer (exp_avg_sq) reset on aux groups at cooldown entry.
+    # Mechanism-targeted at the H161 "bit-frozen param F-norm" finding — the aux AdamW v
+    # buffer accumulates per-element curvature over ~60% stable phase, becoming non-uniform
+    # enough that the cooldown LR schedule cannot move high-v elements. A one-shot
+    # rebalance at cooldown entry releases that bit-freeze. Default 'off' is no-op.
+    parser.add_argument("--aux_v_reset_mode", type=str, default="off",
+                        choices=["off", "iso", "partial"],
+                        help="Aux AdamW v-buffer reset mode at cooldown entry: off=no reset (default, bit-id), "
+                             "iso=full reset to per-tensor mean (v_std_post=0), "
+                             "partial=50/50 mix with mean (v_new = (1-alpha)*v + alpha*v_mean).")
+    parser.add_argument("--aux_v_reset_step", type=int, default=-1,
+                        help="train_step at which to perform v-reset. -1 = auto-detect from aux cooldown "
+                             "entry (int((1 - aux_cooldown_frac) * train_steps) + 1).")
+    parser.add_argument("--aux_v_reset_partial_alpha", type=float, default=0.5,
+                        help="For partial mode: v_new = (1-alpha)*v + alpha*v_mean (alpha=0.5 default).")
     args = parser.parse_args()
     args.num_trials = args.num_trials if args.num_trials is not None else (args.legacy_num_trials or 1)
     args.wandb_tags = [tag.strip() for tag in args.wandb_tags.split(",") if tag.strip()]
@@ -747,6 +762,72 @@ class MuonH(torch.optim.Optimizer):
         self._last_norm_to_radius_max = max_n_over_r
 
 
+@torch.no_grad()
+def reset_aux_v_buffer_and_log(aux_optimizer, mode, partial_alpha, model, eps,
+                                trial_idx, train_step, wandb_step, log_metrics):
+    """H170: One-shot AdamW exp_avg_sq reset on aux param groups.
+
+    iso mode: v.fill_(v.mean()) → v_std_post = 0 exactly.
+    partial mode: v_new = (1-alpha)*v + alpha*v.mean() → mean preserved, std scaled by (1-alpha).
+
+    Pre/post telemetry (embed + lm_head): v_mean, v_std, and the cross-element
+    effective-LR spread sqrt((v_max + eps) / (v_min + eps)) — the actual
+    bit-freeze signal. The reset is performed on every rank; only rank 0 logs.
+    """
+    if mode == "off":
+        return
+    metrics = {
+        "trial": trial_idx,
+        "train/step": train_step,
+        "aux_v_reset/triggered_at_step": train_step,
+    }
+
+    target_params = {"embed": model.embed.weight, "lm_head": model.proj.weight}
+
+    def _v_stats(v):
+        v_mean = float(v.mean().item())
+        v_std = float(v.std(unbiased=False).item())
+        v_max = float(v.max().item())
+        v_min = float(v.min().item())
+        spread = ((v_max + eps) / max(v_min + eps, 1e-30)) ** 0.5
+        return v_mean, v_std, spread
+
+    if log_metrics:
+        for name, p in target_params.items():
+            state = aux_optimizer.state.get(p, {})
+            if "exp_avg_sq" not in state:
+                continue
+            v_mean, v_std, spread = _v_stats(state["exp_avg_sq"])
+            metrics[f"aux_v_reset/{name}/v_mean_pre"] = v_mean
+            metrics[f"aux_v_reset/{name}/v_std_pre"] = v_std
+            metrics[f"aux_v_reset/{name}/effective_lr_spread_pre"] = spread
+
+    for group in aux_optimizer.param_groups:
+        for p in group["params"]:
+            state = aux_optimizer.state.get(p, {})
+            if "exp_avg_sq" not in state:
+                continue
+            v = state["exp_avg_sq"]
+            v_mean_scalar = float(v.mean().item())
+            if mode == "iso":
+                v.fill_(v_mean_scalar)
+            elif mode == "partial":
+                v.mul_(1.0 - partial_alpha).add_(v_mean_scalar * partial_alpha)
+            else:
+                raise ValueError(f"unknown aux_v_reset_mode: {mode}")
+
+    if log_metrics:
+        for name, p in target_params.items():
+            state = aux_optimizer.state.get(p, {})
+            if "exp_avg_sq" not in state:
+                continue
+            v_mean, v_std, spread = _v_stats(state["exp_avg_sq"])
+            metrics[f"aux_v_reset/{name}/v_mean_post"] = v_mean
+            metrics[f"aux_v_reset/{name}/v_std_post"] = v_std
+            metrics[f"aux_v_reset/{name}/effective_lr_spread_post"] = spread
+        wandb.log(metrics, step=wandb_step)
+
+
 ########################################
 #                Setup                 #
 ########################################
@@ -850,6 +931,9 @@ if dist.get_rank() == 0:
             "muonh_mu_schedule": args.muonh_mu_schedule,
             "muonh_mu_start": args.muonh_mu_start,
             "muonh_mu_end": args.muonh_mu_end,
+            "aux_v_reset_mode": args.aux_v_reset_mode,
+            "aux_v_reset_step": args.aux_v_reset_step,
+            "aux_v_reset_partial_alpha": args.aux_v_reset_partial_alpha,
         },
     )
 
@@ -958,6 +1042,23 @@ for trial_idx in range(args.num_trials):
     for group in optimizer2.param_groups:
         group["cooldown_frac"] = h_cooldown_frac
         group["cooldown_shape"] = args.muonh_cooldown_shape
+
+    # H170: resolve aux v-reset step. -1 means auto-detect from aux cooldown entry,
+    # i.e. the first train_step (1-indexed) at which the aux LR schedule enters
+    # the cooldown branch. Derived from aux_cooldown_frac so it stays correct
+    # under different train_steps. For train_steps=3325, aux_cooldown_frac=0.4
+    # this resolves to 1996 (matching step=1995 where progress first hits 0.6).
+    if args.aux_v_reset_step == -1:
+        aux_v_reset_resolved_step = int((1.0 - aux_cooldown_frac) * train_steps) + 1
+    else:
+        aux_v_reset_resolved_step = args.aux_v_reset_step
+    print0(
+        f"[H170 aux_v_reset_mode={args.aux_v_reset_mode}] resolved train_step: "
+        f"{aux_v_reset_resolved_step} (auto={args.aux_v_reset_step == -1})",
+        console=True,
+    )
+    if dist.get_rank() == 0 and trial_idx == 0 and wandb.run is not None:
+        wandb.run.summary["aux_v_reset/resolved_step"] = aux_v_reset_resolved_step
 
     # learning rate schedule: stable then decay, with per-group cooldown_frac.
     # Within the cooldown phase, eta decays from 1 → 0 in one of three shapes.
@@ -1171,6 +1272,24 @@ for trial_idx in range(args.num_trials):
         )
         for opt in optimizers:
             opt.step()
+        # H170: one-shot AdamW v-buffer reset on aux groups at cooldown entry.
+        # Fires once when train_step matches the resolved step, AFTER opt.step()
+        # at that iteration completes and BEFORE the next iteration begins. Mode
+        # 'off' (default) is gated out earlier so this branch is bit-identical
+        # to baseline when disabled.
+        if (args.aux_v_reset_mode != "off"
+                and train_step == aux_v_reset_resolved_step):
+            reset_aux_v_buffer_and_log(
+                aux_optimizer=optimizer1,
+                mode=args.aux_v_reset_mode,
+                partial_alpha=args.aux_v_reset_partial_alpha,
+                model=model,
+                eps=args.aux_adamw_eps,
+                trial_idx=trial_idx,
+                train_step=train_step,
+                wandb_step=wandb_step,
+                log_metrics=(dist.get_rank() == 0),
+            )
         # Log warmup telemetry every 10 steps during warmup (and at telemetry events
         # afterwards) so we capture the warmup curve at high resolution. Cheap since
         # it's just two floats.
