@@ -3,6 +3,32 @@
 Log of completed/reviewed experiment PRs in chronological order. Wave 1
 results pending student execution.
 
+## 2026-05-26 20:30 UTC — PR #1275: askeladd `--lr_scalars` pruning ablation — **CLOSED clean-NEG-mixed** [FFS-PRIMARY]
+
+- **Branch:** `g1r5-askeladd/lr-scalars-pruning`
+- **Hypothesis:** Test whether `--lr_scalars 0.03` (mandatory flag controlling AdamW LR for the 1D scalars group: LN gains + biases) is FFS-load-bearing or val-loss-cosmetic.
+- **5-cell design:** A=0.03 ctrl / B★=0.0 freeze PRIMARY / C=0.015 half / D=0.06 double / E=0.10 over-LR falsifier.
+- **Results (FFS-primary):**
+
+| Cell | `--lr_scalars` | FFS | val/loss | Δ vs ctrl (σ_single) | `ln_gain_norm` | Verdict |
+|:----:|:--------------:|:---:|:--------:|:-------:|:--------------:|:--------|
+| A | 0.03 (ctrl) | 3025 | 3.26162 | 0 | 204.5 | baseline-exact |
+| B★ | **0.0 (frozen)** | **−1 NEVER** | **3.28900** | **+46σ_single** | 141.3 (frozen at init) | **CATASTROPHIC structural** |
+| C | 0.015 | 3050 | 3.26252 | +1.51σ | 159.1 | within FFS noise |
+| D | 0.06 | 3050 | 3.26232 | +1.18σ | 357.0 | within FFS noise |
+| E | 0.10 (3.3× ctrl) | 3075 | 3.26545 | +6.46σ | 590.7 | mild +50 FFS — **falsifier missed** |
+
+- **Verdict:** `--lr_scalars` is **HALF FFS-LOAD-BEARING (flag must stay nonzero), HALF COSMETIC (value insensitive in 6.7× range)**. **5th stack-component pruning closure**.
+- **Mechanism (3 findings):**
+  1. **1D scalars group MUST train.** Freezing (lr=0) is fatal to FFS — model never reaches val ≤ 3.28 within 3250 steps (stalls at 3.28900). LN gains + biases encode forward-pass scale per layer and are not redundant capacity.
+  2. **Value within [0.015, 0.10] is val-cosmetic.** All 4 nonzero cells reach val/loss < 3.266 and FFS within [3025, 3075] — optimizer rescues moderately mis-tuned scalar LR. Spans 6.7× range with sub-millinat val/loss spread.
+  3. **Asymmetric to zero vs over-LR.** Going to 0 catastrophic (+0.027 val), going to 0.10 (3.3× ctrl) mild (+0.004 val). Rules out catastrophic over-LR failure mode for scalars; points to scalars as "warmup multiplier" for LN gains — once gains have moved from init by ANY amount, FFS holds.
+- **LN gain norm drift:** scales linearly with `lr_scalars`: 141.3 (frozen) → 159.1 → 204.5 (ctrl) → 357.0 → 590.7 (4.2× span across cells). Yet val/loss only +0.004 across non-frozen cells. **Magnitude is FFS-load-bearing only in sense that ≠init is required, not in fine-tunable sense.**
+- **Cell E falsifier rule informative:** advisor predicted Cell E (0.10) would catastrophe; observed +50 FFS / +0.004 val only. Rules out catastrophic over-LR; scalars are robust to overshooting. Suggests there is no fine-tunable lever for FFS via `--lr_scalars` alone.
+- **Closure decision per FFS-primary directive:** No n=4 promotion (no cell beat ctrl FFS). Flag stays in stack (cannot freeze). Value sweep saturated — closing on this evidence. The unique structural finding (Cell B catastrophic) is the report.
+- **Suggested follow-ups (from student):** (1) lr_scalars=0.001 to localize freeze threshold (narrow scalar HP search — REJECTED per directive); (2) gains-only vs biases-only decomposition (moderate — sub-group structural); (3) scalars LR schedule (warm-up high, decay) — **ADVISOR PICKED for askeladd #1326 as decoupled scalars cooldown**: directly tests whether scalars schedule shape benefits from decoupling from body schedule.
+- **W&B runs:** A `pdw6uibs`, B `yog23cpf`, C `cuvx2k7e`, D `87014283`, E `2er31epy`.
+
 ## 2026-05-26 19:30 UTC — PR #1272: alphonse `--wd_schedule ramp_down` pruning ablation — **CLOSED clean-NEG-graded** [FFS-PRIMARY]
 
 - **Branch:** `g1r5-alphonse/wd-schedule-pruning`
