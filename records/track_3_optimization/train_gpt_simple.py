@@ -602,6 +602,27 @@ NANOGPT_NEWTON_MUON_UPDATE_PERIOD = int(os.environ.get("NANOGPT_NEWTON_MUON_UPDA
 NANOGPT_NEWTON_MUON_BETA = float(os.environ.get("NANOGPT_NEWTON_MUON_BETA", "0.95"))
 NANOGPT_NEWTON_MUON_EPS = float(os.environ.get("NANOGPT_NEWTON_MUON_EPS", "1e-4"))
 NANOGPT_NEWTON_MUON_MAX_D_IN = int(os.environ.get("NANOGPT_NEWTON_MUON_MAX_D_IN", "1024"))
+# Coverage-by-layer-group selector (#1297). Picks which body Muon groups get NM applied.
+# "all":  NM applies to both muon_attn and muon_mlp groups (current behavior, default)
+# "attn": NM applies only to muon_attn group (muon_mlp uses legacy unconditioned Muon)
+# "mlp":  NM applies only to muon_mlp group (muon_attn uses legacy unconditioned Muon)
+# "none": NM disabled entirely (diagnostic — reproduces pre-#1138 baseline path when
+#         combined with NANOGPT_NEWTON_MUON=1; hook registration is also skipped so
+#         the path is bit-identical to NANOGPT_NEWTON_MUON=0).
+NANOGPT_NEWTON_MUON_GROUPS = os.environ.get("NANOGPT_NEWTON_MUON_GROUPS", "all").lower()
+assert NANOGPT_NEWTON_MUON_GROUPS in ("all", "attn", "mlp", "none"), \
+    f"NANOGPT_NEWTON_MUON_GROUPS must be one of all/attn/mlp/none, got {NANOGPT_NEWTON_MUON_GROUPS!r}"
+_NEWTON_MUON_GROUPS_MAP = {
+    "all":  ("muon_attn", "muon_mlp"),
+    "attn": ("muon_attn",),
+    "mlp":  ("muon_mlp",),
+    "none": (),
+}
+NANOGPT_NEWTON_MUON_ACTIVE_GROUPS = _NEWTON_MUON_GROUPS_MAP[NANOGPT_NEWTON_MUON_GROUPS]
+# Effective NM enable flag: requires NEWTON_MUON=1 AND a non-empty active-group set.
+# When False, the optimizer's newton_precond is also False and forward hooks are not
+# registered, so the path is bit-identical to the pre-#1138 baseline.
+NANOGPT_NEWTON_MUON_ENABLED = bool(NANOGPT_NEWTON_MUON) and NANOGPT_NEWTON_MUON_GROUPS != "none"
 
 # Global per-parameter input-activation cache populated by forward hooks. Keyed by
 # id(weight_param) → tensor of shape (B*T, d_in) on device. Only populated when
@@ -746,6 +767,7 @@ class Muon(torch.optim.Optimizer):
                  newton_precond: bool = False, newton_beta: float = 0.95,
                  newton_eps: float = 1e-4, newton_update_period: int = 10,
                  newton_max_d_in: int = 1024,
+                 newton_active_groups=("muon_attn", "muon_mlp"),
                  newton_input_cache: dict | None = None):
         assert isinstance(params, list) and len(params) >= 1
         if isinstance(params[0], dict):
@@ -784,6 +806,10 @@ class Muon(torch.optim.Optimizer):
         self.newton_eps = float(newton_eps)
         self.newton_update_period = int(newton_update_period)
         self.newton_max_d_in = int(newton_max_d_in)
+        # Per-group NM gate (#1297). Only param_groups whose "name" is in this set
+        # actually run the right-preconditioning. Other groups run legacy Muon
+        # (the path that produced the pre-#1138 baseline).
+        self.newton_active_groups = frozenset(newton_active_groups)
         self.newton_input_cache = newton_input_cache if newton_input_cache is not None else {}
         self._newton_step_count = 0
         # Accumulator dict reset each step() — read by the training loop after
@@ -890,6 +916,12 @@ class Muon(torch.optim.Optimizer):
             self.newton_telemetry = {}
         for group in self.param_groups:
             params = group["params"]
+            # Per-group NM gate (#1297). When this group's name isn't in the active
+            # set, fall through to the legacy unconditioned Muon path even if
+            # newton_precond=True (e.g. attn-only or mlp-only arms).
+            group_nm_enabled = (
+                self.newton_precond and group.get("name") in self.newton_active_groups
+            )
             params_pad = params + [torch.empty_like(params[-1])] * (world_size - len(params) % world_size)
             for base_i in range(0, len(params), world_size):
                 if base_i + rank < len(params):
@@ -903,7 +935,7 @@ class Muon(torch.optim.Optimizer):
                     # gradients (matches paper pipeline order: G @ R^{-1/2}
                     # -> momentum -> v normalization -> NS5 -> update).
                     grad_for_update = p.grad
-                    if self.newton_precond:
+                    if group_nm_enabled:
                         g_precond = self._apply_newton_precondition(p, p.grad, state)
                         if g_precond is not None:
                             grad_for_update = g_precond
@@ -984,7 +1016,10 @@ print0(
     f"lr_scale={NANOGPT_NEWTON_MUON_LR_SCALE} "
     f"update_period={NANOGPT_NEWTON_MUON_UPDATE_PERIOD} "
     f"beta={NANOGPT_NEWTON_MUON_BETA} eps={NANOGPT_NEWTON_MUON_EPS} "
-    f"max_d_in={NANOGPT_NEWTON_MUON_MAX_D_IN}",
+    f"max_d_in={NANOGPT_NEWTON_MUON_MAX_D_IN} "
+    f"groups={NANOGPT_NEWTON_MUON_GROUPS} "
+    f"active_groups=[{','.join(NANOGPT_NEWTON_MUON_ACTIVE_GROUPS)}] "
+    f"effective_enabled={NANOGPT_NEWTON_MUON_ENABLED}",
     console=True,
 )
 if NS_ITERS_COOLDOWN > 0:
@@ -1016,7 +1051,7 @@ model = GPT(vocab_size=50304, num_layers=12, model_dim=768).cuda()
 # with the latest microbatch's input activations. When NEWTON_MUON=0 we skip
 # hook registration entirely, leaving the path bit-identical to baseline.
 _newton_hook_handles: list = []
-if NANOGPT_NEWTON_MUON:
+if NANOGPT_NEWTON_MUON_ENABLED:
     muon_attn_param_ids = {
         id(p) for n, p in model.blocks.named_parameters()
         if p.ndim >= 2 and ".attn." in n
@@ -1025,12 +1060,19 @@ if NANOGPT_NEWTON_MUON:
         id(p) for n, p in model.blocks.named_parameters()
         if p.ndim >= 2 and ".mlp." in n
     }
-    muon_param_ids = muon_attn_param_ids | muon_mlp_param_ids
+    # Per-group hook gating (#1297). Only register hooks on layer groups that
+    # actually have NM enabled — saves a forward-hook per inactive matrix and
+    # keeps the compiled graph minimal on attn-only / mlp-only arms.
+    active_muon_param_ids: set[int] = set()
+    if "muon_attn" in NANOGPT_NEWTON_MUON_ACTIVE_GROUPS:
+        active_muon_param_ids |= muon_attn_param_ids
+    if "muon_mlp" in NANOGPT_NEWTON_MUON_ACTIVE_GROUPS:
+        active_muon_param_ids |= muon_mlp_param_ids
     _newton_hook_count = 0
     _newton_hook_skipped_d_in = 0
     for name, module in model.named_modules():
         w = getattr(module, "weight", None)
-        if isinstance(w, torch.nn.Parameter) and id(w) in muon_param_ids:
+        if isinstance(w, torch.nn.Parameter) and id(w) in active_muon_param_ids:
             # Skip registering hooks on modules whose input dim exceeds the cap;
             # they would never be preconditioned anyway, and the hook itself
             # already shortcircuits, but avoiding registration saves graph nodes.
@@ -1045,7 +1087,8 @@ if NANOGPT_NEWTON_MUON:
                 _newton_hook_skipped_d_in += 1
     print0(
         f"NEWTON_MUON: hooks registered for {_newton_hook_count} parameter modules "
-        f"(skipped {_newton_hook_skipped_d_in} d_in>{NANOGPT_NEWTON_MUON_MAX_D_IN})",
+        f"(skipped {_newton_hook_skipped_d_in} d_in>{NANOGPT_NEWTON_MUON_MAX_D_IN}) "
+        f"active_groups=[{','.join(NANOGPT_NEWTON_MUON_ACTIVE_GROUPS)}]",
         console=True,
     )
 
@@ -1105,6 +1148,9 @@ if dist.get_rank() == 0:
             "nanogpt_newton_muon_beta": NANOGPT_NEWTON_MUON_BETA,
             "nanogpt_newton_muon_eps": NANOGPT_NEWTON_MUON_EPS,
             "nanogpt_newton_muon_max_d_in": NANOGPT_NEWTON_MUON_MAX_D_IN,
+            "nanogpt_newton_muon_groups": NANOGPT_NEWTON_MUON_GROUPS,
+            "nanogpt_newton_muon_active_groups": ",".join(NANOGPT_NEWTON_MUON_ACTIVE_GROUPS),
+            "nanogpt_newton_muon_enabled": int(NANOGPT_NEWTON_MUON_ENABLED),
         },
     )
 
@@ -1166,11 +1212,12 @@ for trial_idx in range(args.num_trials):
               lr=0.035 * NANOGPT_MUON_MLP_LR_MULT * NANOGPT_NEWTON_MUON_LR_SCALE,
               name="muon_mlp")],
         weight_decay=0.025,
-        newton_precond=bool(NANOGPT_NEWTON_MUON),
+        newton_precond=NANOGPT_NEWTON_MUON_ENABLED,
         newton_beta=NANOGPT_NEWTON_MUON_BETA,
         newton_eps=NANOGPT_NEWTON_MUON_EPS,
         newton_update_period=NANOGPT_NEWTON_MUON_UPDATE_PERIOD,
         newton_max_d_in=NANOGPT_NEWTON_MUON_MAX_D_IN,
+        newton_active_groups=NANOGPT_NEWTON_MUON_ACTIVE_GROUPS,
         newton_input_cache=_newton_input_cache,
     )
     print0(f"MUON_PARAM_COUNTS: attn={len(muon_attn_params)} mlp={len(muon_mlp_params)} "
