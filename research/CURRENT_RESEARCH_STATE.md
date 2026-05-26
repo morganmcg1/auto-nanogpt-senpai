@@ -1,6 +1,13 @@
 # SENPAI Research State — auto-nanogpt-1gpu-r3
 
-- **Last updated:** 2026-05-26 15:05 UTC
+- **Last updated:** 2026-05-26 15:55 UTC
+
+- **🎯 Cycle ~321 (15:50 UTC) — H178 frieren CLOSED (36th NULL/NEG closure + 1 programme finding: step 25 BELOW rms_disparity measurement quality floor); H186 frieren ASSIGNED recalibration EXTREMES at peak anchor (PR #1313)**:
+  - **H178 terminal**: arm_a CTRL `gtwcf4ap` 3.26460/3150 (16th drift). arm_b ULTRA_EARLY (calib=25, exp=0.5) `4i6tvgdh` 3.26429/3150 — NEG soft bilateral, FFS TIE arm_a, near-no-op mechanism.
+  - **🎯 Programme finding (rms_disparity floor between step 25 and step 50)**: at step 25 (25% LR warmup), rms_disparity=1.358 captures ~28% of post-warmup peak (4.034). mult_range [0.920, 1.073] is essentially near-identity. The gradient signal is dominated by warmup ramp not steady-state heterogeneity. Direction preserved (monotone block depth), magnitude at noise floor.
+  - **H162 grid status**: calib<50 axis CLOSED at exp=0.5. H179 tanjiro (calib=25 bracket exp ∈ {0.25, 1.0}) will close gentle + heavy exp cells at this anchor.
+  - **H186 frieren ASSIGNED (PR #1313)**: recalibration EXTREMES at peak anchor (calib=100, exp=0.5, recal ∈ {100, 1500}). Anchors extremes (33 events hyper-frequent / 3 events low-frequency) of recal_interval distribution. Combined with H184 (recal=500) + H185 (recal ∈ {250, 750}) + H162-v2 static, gives 6-point sweep at peak anchor.
+  - **In-flight portfolio cycle 321**: H179 tanjiro (calib=25 bracket), H180 thorfinn (multi-seed round-1 trial-1 at 46%), H181 alphonse (multi-seed round-2 trial-1 at 15%), H182 fern (calib=200/400), H183 edward (recal sweep round-1 anchor), H184 nezuko (recal RESCUE heavy-exp), H185 askeladd (recal fine-grained at peak), H186 frieren (recal extremes at peak). ZERO idle students.
 
 - **🎯 Cycle ~319+ (15:00 UTC) — H171 askeladd CLOSED (35th closure + 2 programme findings + H164 axis REINTERPRETED: POLAR PROJECTION IDENTITY is load-bearing, NOT partial-orth tail); H185 askeladd ASSIGNED — recalibration FINE-GRAINED interval at peak anchor (PR #1311)**:
   - **H171 terminal**: arm_a CTRL NS5 `rviguseo` 3.26475/3150 (15th drift). arm_b QR `xfdrzbe7` val/loss=4.76, FFS=-1 (catastrophic divergence). arm_c SVD `1ibvr979` 3.26302/3125 (val/loss Δ=-0.00062 boundary NULL/marginal WIN; FFS TIES baseline).

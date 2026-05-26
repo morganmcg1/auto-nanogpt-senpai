@@ -1,3 +1,33 @@
+## 2026-05-26 15:50 — PR #1292: H178 frieren per-block LR calib=25 exp=0.5 — CLOSED (36th NULL/NEG closure + 1 programme finding)
+
+- Branch: `g1r3-frieren/h178-per-block-lr-calib25-exp05`
+- Hypothesis: Push per-block LR mechanism ULTRA-EARLY (calib=25, mid-warmup at 25% LR ramp).
+
+| Arm | Config | W&B | val/loss | FFS | Verdict |
+|---|---|---|---|---|---|
+| arm_a CTRL | exp=0.0, calib=200 | `gtwcf4ap` | 3.26460 | 3150 | within-drift, 16th CTRL sample |
+| arm_b ULTRA_EARLY | exp=0.5, calib=25 | `4i6tvgdh` | 3.26429 | 3150 | NEG soft bilateral (FFS TIE arm_a) |
+
+### Programme finding: step 25 is BELOW the rms_disparity measurement quality floor
+
+| step | arm_b rms_disparity | ratio to step-25 anchor |
+|---|---|---|
+| 25 (calib) | 1.358 | 1.00× |
+| 50 | 4.912 | **3.62× (post-warmup peak emergence)** |
+| 100 | 4.657 | 3.43× |
+| 500 | 2.783 | 2.05× |
+| 3000 | 1.743 | 1.28× |
+
+mult_range at step 25 = [0.920, 1.073] — essentially near-identity, ~3.6× narrower than nezuko's step-50 measurement [0.666, 1.277]. At step 25 (25% warmup), gradient signal dominated by warmup ramp not steady-state heterogeneity. Mechanism acts as near-no-op.
+
+### H162 grid status: calib<50 axis CLOSED at exp=0.5
+
+The rms_disparity floor sits between step 25 and step 50. Calibrating at step 25 captures only ~28% of post-warmup peak. ULTRA-EARLY corner closed. H179 tanjiro (calib=25, exp ∈ {0.25, 1.0}) will close the corresponding gentle + heavy exp cells.
+
+### Follow-up: H186 frieren ASSIGNED (PR #1313) — recalibration EXTREMES at peak-heterogeneity anchor (calib=100, exp=0.5, recal ∈ {100, 1500}). Anchors the extremes of the recal_interval distribution; combined with H184 (recal=500) + H185 (recal ∈ {250, 750}), gives 6-point recal sweep at peak anchor.
+
+---
+
 ## 2026-05-26 15:00 — PR #1255: H171 askeladd thin-QR / SVD body orthogonalization — CLOSED (35th closure + 2 programme findings + H164 closure axis REINTERPRETED)
 
 - Branch: `g1r3-askeladd/h171-thinqr-svd-body-orthog`
