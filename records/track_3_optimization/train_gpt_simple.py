@@ -64,6 +64,9 @@ def parse_args():
     parser.add_argument("--muon_lr", type=float, default=0.035,
                         help="Base learning rate for body-Muon optimizer (matrix params in blocks). "
                              "Default 0.035 matches the merged baseline.")
+    parser.add_argument("--muon_mu", type=float, default=0.95,
+                        help="Nesterov momentum for body-Muon (mu in m_blend = (1-mu^2)g + mu^2*m_prev). "
+                             "Default 0.95. Set to 0.0 to disable Nesterov (raw gradient -> NS5 polar).")
     args = parser.parse_args()
     args.num_trials = args.num_trials if args.num_trials is not None else (args.legacy_num_trials or 1)
     args.wandb_tags = [tag.strip() for tag in args.wandb_tags.split(",") if tag.strip()]
@@ -703,6 +706,7 @@ if dist.get_rank() == 0:
             "slope_fraction": SLOPE_FRACTION,
             # PMuon (bilateral covariance preconditioning, record #18) hyperparameters.
             "muon_lr": args.muon_lr,
+            "muon_mu": args.muon_mu,
             "muon_weight_decay": 0.025,
             "pmuon_beta_cov": 0.95,
             "pmuon_gamma": PMUON_GAMMA,
@@ -756,9 +760,10 @@ for trial_idx in range(args.num_trials):
                         dict(params=[p for p in model.parameters() if p.ndim < 2], lr=0.025, name="adam_scalars")],
                        betas=(0.8, 0.95), eps=1e-10, weight_decay=0, fused=True)
     optimizer2 = Muon([p for p in model.blocks.parameters() if p.ndim >= 2],
-                      lr=args.muon_lr, weight_decay=0.025, beta_cov=0.95, gamma=PMUON_GAMMA)
+                      lr=args.muon_lr, weight_decay=0.025, beta_cov=0.95, gamma=PMUON_GAMMA,
+                      mu=args.muon_mu)
     optimizer2.param_groups[0]["name"] = "muon_blocks"
-    print0(f"body-Muon optimizer: lr={args.muon_lr} weight_decay=0.025 beta_cov=0.95 gamma={PMUON_GAMMA}")
+    print0(f"body-Muon optimizer: lr={args.muon_lr} weight_decay=0.025 beta_cov=0.95 gamma={PMUON_GAMMA} mu={args.muon_mu}")
     optimizers = [optimizer1, optimizer2]
     assert set(p for opt in optimizers for group in opt.param_groups
                for p in group["params"]) == set(model.parameters())
