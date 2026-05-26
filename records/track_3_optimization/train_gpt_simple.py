@@ -468,9 +468,19 @@ NS5_ITERS = int(os.environ.get("NS5_ITERS", "12"))
 WD_AUX = float(os.environ.get("WD_AUX", "0.0"))  # AdamW WD on embed + lm_head matrices (scalars stay at 0)
 EMBED_INIT_STD = float(os.environ.get("EMBED_INIT_STD", "1.0"))  # default preserves baseline N(0,1)
 LOGIT_SOFTCAP = float(os.environ.get("LOGIT_SOFTCAP", "15.0"))  # default = 15 (current hardcoded value); soft-cap value c in f(x) = c·x / sqrt(x^2+c^2)
+# Per-kind NS5_ITERS dispatch with cooldown-start activation (PR #1355): from
+# step == MUON_NS5_PER_KIND_STEP onward, dispatch NS5 polynomial iteration count
+# by structural kind (attn vs mlp) on body Muon params. Disabled by default —
+# when MUON_NS5_PER_KIND_AT_COOLDOWN is 0 / unset, the per-kind branch is
+# unreachable and ns5_iters_eff stays at NS5_ITERS for every param (bytewise
+# identical baseline code path).
+MUON_NS5_PER_KIND_AT_COOLDOWN = bool(int(os.environ.get("MUON_NS5_PER_KIND_AT_COOLDOWN", "0")))
+MUON_NS5_ITERS_ATTN_COOLDOWN = int(os.environ.get("MUON_NS5_ITERS_ATTN_COOLDOWN", str(NS5_ITERS)))
+MUON_NS5_ITERS_MLP_COOLDOWN = int(os.environ.get("MUON_NS5_ITERS_MLP_COOLDOWN", str(NS5_ITERS)))
+MUON_NS5_PER_KIND_STEP = int(os.environ.get("MUON_NS5_PER_KIND_STEP", "953"))
 
 
-def zeropower_via_newtonschulz5(G: Tensor) -> Tensor:
+def zeropower_via_newtonschulz5(G: Tensor, ns5_iters: int | None = None) -> Tensor:
     assert G.ndim >= 2
     X = G.bfloat16()
     if G.size(-2) > G.size(-1):
@@ -480,7 +490,8 @@ def zeropower_via_newtonschulz5(G: Tensor) -> Tensor:
     X = X / (X.norm(dim=(-2, -1), keepdim=True) + 1e-7)
     # Perform the NS iterations, not optimizing for wallclock speed
     a, b, c = 2, -1.5, 0.5
-    for _ in range(NS5_ITERS):
+    iters = NS5_ITERS if ns5_iters is None else ns5_iters
+    for _ in range(iters):
         A = X @ X.mT
         B = b * A + c * A @ A
         X = a * X + B @ X
@@ -504,10 +515,10 @@ def scale_to_unit_operator_norm(G: Tensor, eps: float = 1e-10) -> Tensor:
     return G / op_norm.to(G.dtype)
 
 
-def contra_normuon_update(momentum_update, second_moment, beta2=NORMUON_BETA2):
+def contra_normuon_update(momentum_update, second_moment, beta2=NORMUON_BETA2, ns5_iters: int | None = None):
     """Contra-Muon + NorMuon-lite: NS5 -> contra subtraction -> per-row variance normalize."""
     normalized_grad = scale_to_unit_operator_norm(momentum_update.clone())
-    update = zeropower_via_newtonschulz5(momentum_update)
+    update = zeropower_via_newtonschulz5(momentum_update, ns5_iters=ns5_iters)
     opower_fro = update.norm()
     # Contra correction: subtract CONTRA_MUON / 2 * op-norm-normalized momentum.
     update = update - CONTRA_MUON / 2 * normalized_grad
@@ -655,9 +666,19 @@ class Muon(torch.optim.Optimizer):
         params = sorted([p for _, p in named_params], key=lambda x: x.size(), reverse=True)
         defaults = dict(lr=lr, weight_decay=weight_decay, mu=mu)
         super().__init__(params, defaults)
+        # Per-step counter for the per-kind NS5_ITERS cooldown-start dispatch
+        # (PR #1355). Incremented at the end of step() so it equals the current
+        # training step k (0-indexed) during the k-th call to step().
+        self._step_counter = 0
 
     @torch.no_grad()
     def step(self):
+        # Per-kind NS5_ITERS dispatch trigger (PR #1355). Cached once per step
+        # so all params in this step see a consistent dispatch decision.
+        per_kind_active = (
+            MUON_NS5_PER_KIND_AT_COOLDOWN
+            and self._step_counter >= MUON_NS5_PER_KIND_STEP
+        )
         world_size = dist.get_world_size()
         rank = dist.get_rank()
         for group in self.param_groups:
@@ -700,8 +721,20 @@ class Muon(torch.optim.Optimizer):
                     # (matches public record #14/16 — pre-NS5 placement).
                     if use_soap or use_attn_soap:
                         momentum_update = soap_precondition(momentum_update, state)
+                    # Per-kind NS5_ITERS dispatch (PR #1355): from step >=
+                    # MUON_NS5_PER_KIND_STEP, swap the global NS5_ITERS for a
+                    # kind-specific count (attn vs mlp body Muon params). When
+                    # per_kind_active is False, ns5_iters_eff is None and
+                    # zeropower_via_newtonschulz5 falls back to NS5_ITERS.
+                    ns5_iters_eff: int | None = None
+                    if per_kind_active:
+                        if use_attn_soap:
+                            ns5_iters_eff = MUON_NS5_ITERS_ATTN_COOLDOWN
+                        elif use_soap:
+                            ns5_iters_eff = MUON_NS5_ITERS_MLP_COOLDOWN
                     # NS5 + contra + NorMuon row variance on (possibly SOAP-preconditioned) momentum.
-                    update = contra_normuon_update(momentum_update, state["second_moment"])
+                    update = contra_normuon_update(momentum_update, state["second_moment"],
+                                                   ns5_iters=ns5_iters_eff)
                     # u/w-floor: scale up if u/w < TARGET_UW; leave alone otherwise.
                     p_fro = p.float().norm().clamp_min(1e-8)
                     u_fro = update.float().norm().clamp_min(1e-8)
@@ -719,6 +752,11 @@ class Muon(torch.optim.Optimizer):
                                      use_trust_gate=True,
                                      trust_threshold=ATTN_SOAP_TRUST_THRESHOLD)
                 dist.all_gather(params_pad[base_i:base_i + world_size], params_pad[base_i + rank])
+        # PR #1355 per-kind NS5_ITERS cooldown-start counter: increment AFTER
+        # the update so _step_counter == k during the k-th call to step(),
+        # making >= MUON_NS5_PER_KIND_STEP align with the outer train-loop
+        # step variable (matches #1333 step == 953 convention).
+        self._step_counter += 1
 
     def trust_gate_stats(self) -> dict[str, float]:
         """Return aggregate + per-weight-type trust-gate telemetry across attention SOAP params.
@@ -866,6 +904,10 @@ if dist.get_rank() == 0:
             "optimizer/attn_soap_trust_threshold": ATTN_SOAP_TRUST_THRESHOLD,
             "optimizer/ns5_iters": NS5_ITERS,
             "optimizer/wd_aux": WD_AUX,
+            "optimizer/muon_ns5_per_kind_at_cooldown": MUON_NS5_PER_KIND_AT_COOLDOWN,
+            "optimizer/muon_ns5_iters_attn_cooldown": MUON_NS5_ITERS_ATTN_COOLDOWN,
+            "optimizer/muon_ns5_iters_mlp_cooldown": MUON_NS5_ITERS_MLP_COOLDOWN,
+            "optimizer/muon_ns5_per_kind_step": MUON_NS5_PER_KIND_STEP,
             "optimizer/recipe": "contra-muon + normuon-lite + soap-on-mlp + soap-on-attn-trust-gate (pre-NS5, record #14 + record #16)",
         },
     )
@@ -984,6 +1026,12 @@ for trial_idx in range(args.num_trials):
                     best_val_step = step
                 if first_step_to_target < 0 and val_loss_float <= TARGET_VAL_LOSS:
                     first_step_to_target = step
+                # PR #1355 per-kind NS5_ITERS telemetry — reflects whether the
+                # per-kind branch is currently active at this val cadence and
+                # which per-kind iter counts each side is using.
+                per_kind_now = MUON_NS5_PER_KIND_AT_COOLDOWN and step >= MUON_NS5_PER_KIND_STEP
+                ns5_iters_attn_active = MUON_NS5_ITERS_ATTN_COOLDOWN if per_kind_now else NS5_ITERS
+                ns5_iters_mlp_active = MUON_NS5_ITERS_MLP_COOLDOWN if per_kind_now else NS5_ITERS
                 metrics = {
                     "trial": trial_idx,
                     "val/step": step,
@@ -996,6 +1044,9 @@ for trial_idx in range(args.num_trials):
                     "speedrun/reached_target": int(first_step_to_target >= 0),
                     "time/train_seconds": training_time,
                     "time/step_avg_ms": 1000 * step_avg,
+                    "train/body_muon/ns5_iters_attn_active": ns5_iters_attn_active,
+                    "train/body_muon/ns5_iters_mlp_active": ns5_iters_mlp_active,
+                    "train/body_muon/ns5_iters_per_kind_active": 1.0 if per_kind_now else 0.0,
                 }
                 metrics.update(prefixed("val/slope", loss_slope_stats(val_loss_history, slope_window_steps)))
                 wandb.log(metrics, step=trial_idx * (train_steps + 1) + step)
