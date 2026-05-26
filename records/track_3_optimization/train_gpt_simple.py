@@ -455,6 +455,13 @@ MU_COOLDOWN_END = float(os.environ.get("MU_COOLDOWN_END", "0.95"))
 MU_WARMUP_STEPS = int(os.environ.get("MU_WARMUP_STEPS", "0"))
 MU_WARMUP_START = float(os.environ.get("MU_WARMUP_START", "0.85"))
 MUON_LR = float(os.environ.get("MUON_LR", "0.0375"))
+# PR #1254 (MUON_POST_NS5_MOMENTUM): swap NS5/EMA order on body Muon. When enabled,
+# NS5+contra+NORMUON is applied to the raw grad first (after SOAP precondition if
+# applicable), and the resulting orthogonalized direction is EMA'd into a new
+# post_ns5_buffer which itself becomes the update. MUON_POST_NS5_MU<0 keeps the
+# default schedule mu; otherwise it overrides mu with a constant for Arm B.
+MUON_POST_NS5_MOMENTUM = int(os.environ.get("MUON_POST_NS5_MOMENTUM", "0"))
+MUON_POST_NS5_MU = float(os.environ.get("MUON_POST_NS5_MU", "-1.0"))
 MUON_WEIGHT_DECAY = 0.025  # nominal; Muon.step does not apply explicit wd (u/w-floor replaces it)
 TARGET_UW = 0.35
 NORMUON_BETA2 = 0.95
@@ -692,16 +699,29 @@ class Muon(torch.optim.Optimizer):
                                 state["trust_cos_row"] = 1.0
                                 state["trust_cos_col"] = 1.0
                     grad = p.grad
-                    state["momentum"].lerp_(grad, 1 - group["mu"])
-                    momentum_update = grad.lerp(state["momentum"], group["mu"])
                     use_soap = p in self.soap_params
                     use_attn_soap = p in self.attn_soap_params
-                    # SOAP precondition applied to momentum BEFORE NS5+contra+NorMuon
-                    # (matches public record #14/16 — pre-NS5 placement).
-                    if use_soap or use_attn_soap:
-                        momentum_update = soap_precondition(momentum_update, state)
-                    # NS5 + contra + NorMuon row variance on (possibly SOAP-preconditioned) momentum.
-                    update = contra_normuon_update(momentum_update, state["second_moment"])
+                    if MUON_POST_NS5_MOMENTUM:
+                        # PR #1254 post-NS5 EMA path: apply (optional SOAP) -> NS5+contra+NORMUON
+                        # to the raw grad, then EMA the orthogonalized direction into post_ns5_buffer.
+                        ns5_input = grad
+                        if use_soap or use_attn_soap:
+                            ns5_input = soap_precondition(ns5_input, state)
+                        ns5_unit = contra_normuon_update(ns5_input, state["second_moment"])
+                        if "post_ns5_buffer" not in state:
+                            state["post_ns5_buffer"] = torch.zeros_like(grad)
+                        mu_post = group["mu"] if MUON_POST_NS5_MU < 0 else MUON_POST_NS5_MU
+                        state["post_ns5_buffer"].lerp_(ns5_unit, 1.0 - mu_post)
+                        update = state["post_ns5_buffer"]
+                    else:
+                        state["momentum"].lerp_(grad, 1 - group["mu"])
+                        momentum_update = grad.lerp(state["momentum"], group["mu"])
+                        # SOAP precondition applied to momentum BEFORE NS5+contra+NorMuon
+                        # (matches public record #14/16 — pre-NS5 placement).
+                        if use_soap or use_attn_soap:
+                            momentum_update = soap_precondition(momentum_update, state)
+                        # NS5 + contra + NorMuon row variance on (possibly SOAP-preconditioned) momentum.
+                        update = contra_normuon_update(momentum_update, state["second_moment"])
                     # u/w-floor: scale up if u/w < TARGET_UW; leave alone otherwise.
                     p_fro = p.float().norm().clamp_min(1e-8)
                     u_fro = update.float().norm().clamp_min(1e-8)
@@ -775,6 +795,35 @@ class Muon(torch.optim.Optimizer):
             out[f"{kind}/mean_cos_row"] = sum(crs) / kn
             out[f"{kind}/mean_cos_col"] = sum(ccs) / kn
         return out
+
+    def post_ns5_buffer_stats(self) -> dict[str, float]:
+        """PR #1254 telemetry: per-tensor Frobenius and operator norm of post_ns5_buffer
+        across all body matmul params. Returns {} when the post-NS5 path is disabled or
+        no buffer has been allocated yet."""
+        fro: list[float] = []
+        op_max: list[float] = []
+        rank_sqrt_target: list[float] = []
+        for group in self.param_groups:
+            for p in group["params"]:
+                state = self.state.get(p)
+                if state is None or "post_ns5_buffer" not in state:
+                    continue
+                buf = state["post_ns5_buffer"]
+                fro.append(buf.float().norm().item())
+                # min(rows, cols) gives the rank ceiling for a unit-op-norm contributor
+                rank_sqrt_target.append(min(buf.size(-2), buf.size(-1)) ** 0.5)
+                # max abs entry is a cheap proxy for op-norm without re-running power iter
+                op_max.append(buf.abs().max().item())
+        n = len(fro)
+        if n == 0:
+            return {}
+        return {
+            "count": n,
+            "mean_fro": sum(fro) / n,
+            "max_fro": max(fro),
+            "mean_fro_over_sqrt_rank": sum(f / r for f, r in zip(fro, rank_sqrt_target)) / n,
+            "mean_abs_max": sum(op_max) / n,
+        }
 
 
 ########################################
@@ -1059,6 +1108,10 @@ for trial_idx in range(args.num_trials):
                     stats = opt.trust_gate_stats()
                     if stats:
                         wandb.log(prefixed("train/attn_soap_trust_gate", stats), step=wandb_step)
+                if hasattr(opt, "post_ns5_buffer_stats"):
+                    pns5_stats = opt.post_ns5_buffer_stats()
+                    if pns5_stats:
+                        wandb.log(prefixed("train/post_ns5_buffer", pns5_stats), step=wandb_step)
         if dist.get_rank() == 0 and telemetry_due:
             log_weight_telemetry(
                 model=model,
