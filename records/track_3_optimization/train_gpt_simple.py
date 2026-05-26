@@ -468,6 +468,12 @@ NS5_ITERS = int(os.environ.get("NS5_ITERS", "12"))
 WD_AUX = float(os.environ.get("WD_AUX", "0.0"))  # AdamW WD on embed + lm_head matrices (scalars stay at 0)
 EMBED_INIT_STD = float(os.environ.get("EMBED_INIT_STD", "1.0"))  # default preserves baseline N(0,1)
 LOGIT_SOFTCAP = float(os.environ.get("LOGIT_SOFTCAP", "15.0"))  # default = 15 (current hardcoded value); soft-cap value c in f(x) = c·x / sqrt(x^2+c^2)
+# MUON_COMBINED_LATE_RESET (PR #1283): one-shot reset of body Muon momentum + second_moment
+# at a configurable phase boundary, completing the 2x2 factorial with #1264 (V) and #1267 (M).
+MUON_LATE_RESET_BOTH = int(os.environ.get("MUON_LATE_RESET_BOTH", "0"))
+MUON_LATE_RESET_BOTH_MODE = os.environ.get("MUON_LATE_RESET_BOTH_MODE", "zero")  # "zero" | "scale"
+MUON_LATE_RESET_BOTH_SCALE = float(os.environ.get("MUON_LATE_RESET_BOTH_SCALE", "0.5"))
+MUON_LATE_RESET_BOTH_STEP = int(os.environ.get("MUON_LATE_RESET_BOTH_STEP", "2540"))
 
 
 def zeropower_via_newtonschulz5(G: Tensor) -> Tensor:
@@ -866,6 +872,10 @@ if dist.get_rank() == 0:
             "optimizer/attn_soap_trust_threshold": ATTN_SOAP_TRUST_THRESHOLD,
             "optimizer/ns5_iters": NS5_ITERS,
             "optimizer/wd_aux": WD_AUX,
+            "optimizer/muon_late_reset_both": MUON_LATE_RESET_BOTH,
+            "optimizer/muon_late_reset_both_mode": MUON_LATE_RESET_BOTH_MODE,
+            "optimizer/muon_late_reset_both_scale": MUON_LATE_RESET_BOTH_SCALE,
+            "optimizer/muon_late_reset_both_step": MUON_LATE_RESET_BOTH_STEP,
             "optimizer/recipe": "contra-muon + normuon-lite + soap-on-mlp + soap-on-attn-trust-gate (pre-NS5, record #14 + record #16)",
         },
     )
@@ -1051,6 +1061,33 @@ for trial_idx in range(args.num_trials):
                 train_steps=train_steps,
                 wandb_step=wandb_step,
             )
+        # MUON_COMBINED_LATE_RESET (PR #1283): one-shot reset of body Muon momentum + second_moment.
+        # Targets optimizer2 (body Muon) only; does NOT touch optimizer1 (AUX) or attn_soap state.
+        if MUON_LATE_RESET_BOTH and step == MUON_LATE_RESET_BOTH_STEP:
+            num_momentum_reset = 0
+            num_second_moment_reset = 0
+            for group in optimizer2.param_groups:
+                for p in group["params"]:
+                    state = optimizer2.state.get(p, {})
+                    if "momentum" in state:
+                        if MUON_LATE_RESET_BOTH_MODE == "zero":
+                            state["momentum"].zero_()
+                        else:
+                            state["momentum"].mul_(MUON_LATE_RESET_BOTH_SCALE)
+                        num_momentum_reset += 1
+                    if "second_moment" in state:
+                        if MUON_LATE_RESET_BOTH_MODE == "zero":
+                            state["second_moment"].zero_()
+                        else:
+                            state["second_moment"].mul_(MUON_LATE_RESET_BOTH_SCALE)
+                        num_second_moment_reset += 1
+            if dist.get_rank() == 0:
+                wandb.log({
+                    "muon_combined_late_reset/fired": 1,
+                    "muon_combined_late_reset/momentum_buffers_reset": num_momentum_reset,
+                    "muon_combined_late_reset/second_moment_buffers_reset": num_second_moment_reset,
+                    "muon_combined_late_reset/step": step,
+                }, step=wandb_step)
         for opt in optimizers:
             opt.step()
         if dist.get_rank() == 0 and telemetry_due:
