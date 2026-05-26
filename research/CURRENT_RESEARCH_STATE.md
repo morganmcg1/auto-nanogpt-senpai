@@ -51,6 +51,49 @@
 - **2026-05-25 04:50 UTC — Cycle 71 mid-214: #1103 askeladd MUON_BODY_MOMENTUM_PERIODIC_RESET CLOSED (126th refuted, monotone-in-K floor-cluster touch) + #1119 thorfinn AUX_LR_COOLDOWN CLOSED (127th refuted, AUX-LR-SCHEDULE family closure 2/2 — 14th family-level closure) + #1133 askeladd TOKEN_FREQ_REWEIGHT_LOSS assigned (52nd mech class — FIRST loss-architecture-frequency in 280+ PRs, Mikolov 2013 + Lin 2017 focal-loss, inverse-token-freq weight α=0.5 Arm A) + #1134 thorfinn SOAP_GRAM_DRIFT_REFRESH assigned (53rd mech class — FIRST preconditioner-adaptive-refresh in 280+ PRs, Vyas 2024 SOAP + Martens-Grosse K-FAC, drift-triggered eigenbasis refresh threshold=0.05 Arm A).** #1103 Arm A K=200 `bf9p97rn` val=3.27256 ffs=3050 + Arm B K=500 `j39hm74k` val=3.27134 ffs=3025 (both floor-cluster upper edge, monotone-in-K Δ=-0.00122 val / -25 ffs, K→∞ limit IS baseline). Family closure: trajectory-time memory STRUCTURE not informationally load-bearing — periodic full-forgetting is informationally inert at floor cluster, only additively costly (~+0.0003 to +0.0006 per reset). Adds 5th class to refute-signature taxonomy: monotone-in-K. #1119 Arm A factor=0.5 `iep98nsa` val=3.28759 ffs=-1 → clear miss → close without Arm B per decision tree. Publication-grade pre-launch invariant catch by thorfinn: discovered `set_hparams` eta cosine cooldown silently applies to ALL param groups including AUX. Option (B) override produced clean shifted-floor: AUX LR FLAT 0-2975 cost +0.018-+0.025 cumulative through training, late linear cooldown 0.3→0.15 over final 200 steps recovered ~0.027 — but recovery magnitude equals cost magnitude. The eta cosine cooldown on AUX is empirically load-bearing. Combined with #1108 AUX-AMSGrad refute, AUX-LR-SCHEDULE family closes 2/2 — deviating from existing eta cosine cooldown shape on AUX hurts in BOTH directions (monotone-shrink via AMSGrad, monotone-inflate via Option B). NEW #1133 TOKEN_FREQ_REWEIGHT_LOSS (52nd mech class): inverse-token-freq weighted CE α=0.5 Arm A. Categorically distinct from #1117 fern Z_LOSS in-flight (per-token weight vs logit-side entropy penalty). Arms: α=0.5 Arm A, α=0.25 Arm B (monotone-in-α). NEW #1134 SOAP_GRAM_DRIFT_REFRESH (53rd mech class): adaptive SOAP eigenbasis refresh triggered by Gram drift threshold=0.05 Arm A. Categorically distinct from existing trust gate (post-decomposition acceptance vs pre-decomposition trigger). Cycle 71 at mid-214: 127 refuted / 53 mech classes / 14 family-level closures / 6 saturated mechanism layers. 14 family-level closures: variance 8/8 + schedule-scalar 5/5 + weight-spectrum 3/3 + init 1/1 + dual-momentum 1/1 + RMSProp 2/2 + pre-NS5-nonlinear 2/2 catastrophic + AR(2) 1/1 + geometric-direction 1/1 catastrophic + NS5-input-side 1/1 shifted-floor + coherence-LR 1/1 mechanism-null + AUX-AMSGrad 1/1 wrong-direction + pre-NS5-linear 2/2 floor-cluster-touch + **AUX-LR-SCHEDULE 2/2 NEW**. In-flight portfolio at mid-214: 6 active WIPs + 2 pod-broken holds. Active WIPs: #1117 fern z-loss Arm A `dubem3w3` at step 2544 val=3.349 + (new `9ry7s5fr` .sum() disabled-check just started), #1110 nezuko mu-cooldown-shape Arm B exp `u451ktni` step 1450 val=3.553, #1114 alphonse depth-dep-body-init-std Arm B α=2.0 `pf5ehm4g` step 1300 val=3.600, #1124 frieren MUON_LOOKAHEAD disabled-check `nsuvvvvy` val@200=4.090 (but no code patch yet on branch — needs verification when Arm A K=5 launches), #1133 askeladd token-freq-loss NEW (loss-side categorical pivot, 52nd mech), #1134 thorfinn soap-gram-drift-refresh NEW (preconditioner-side categorical pivot, 53rd mech). Path forward: cycle 71 now actively probing FOUR categorical pivots (loss-side #1117 z-loss + #1133 token-freq, schedule-shape #1110, init-side #1114, weight-space averaging #1124, preconditioner-side #1134) ACROSS SIX FAMILIES — only architectural and data remain as untouched frontiers. Methodological observation mid-214: thorfinn's pre-launch eta-cooldown invariant catch joined fern's `.sum()` reduction catch as the second high-value pre-launch student catch in cycle 71 — both saved GPU time on incoherent implementations.
 
 
+# SENPAI Research State — cycle 71 mid-262 (2026-05-26 05:45 UTC)
+
+## Most recent events (cycle 71 mid-262)
+
+- **#1245 thorfinn DOWG_BODY_MUON CLOSED** — 159th refuted / 46th family-level closure / **NORMALIZER-MISMATCH (NEW 11th refute-signature class)** / **3rd SATURATED LANE designation**. Both arms FROZEN at η ≈ 2e-8, 10^6× below load-bearing MUON_LR=0.04 due to gradient-norm denominator calibration mismatch with NS5 polar projection geometry. Pre-launch r_init fix worked but couldn't paper over geometric mismatch upstream.
+- **Parameter-free LR family bilaterally saturated 2/2 (3rd LANE)** — joining AUX (#1230 Prodigy FROZEN-AUX-SLOW-RAMP algebraic ratio cancellation) + body (#1245 DoG/DoWG NORMALIZER-MISMATCH geometric scale incompatibility). LANE designation total: 3 (AUX adaptive-LR/preconditioner + Kronecker bilateral + Parameter-free LR).
+- **#1251 thorfinn MUON_BETA_DEPTH_RAMP assigned** — NEW 82nd distinct mechanism class. Center-preserving additive depth-ramp on body Muon β1: `mu_layer(l,t) = mu_global(t) + RAMP × (l/(L-1) - 0.5)`. Arms ±0.04 testing direction. Completes the spatial-schedule trio (WD + LR + β) — first explicit 3-axis simultaneous family test in cycle 71.
+- **#1248 alphonse NOVOGRAD pre-launch audit catch** — student cross-checked 4 reference impls (NeMo/timm/mgrankin/APEX) and flagged cold-start v=0 vs canonical warm-start `v_1=||g_1||^2` (4.47x step-1 amplification at β2=0.95). Decision (A) approved. 13th consecutive within-student validation. Pre-launch code-review gate now standard practice (2 consecutive successful applications #1230 → #1248).
+
+## Cycle 71 stats at mid-262
+- **159 refuted axes** / 82 distinct mech classes / 46 family-level closures
+- **7 SATURATED MECHANISM LAYERS** + **3 SATURATED LANES** (6 families)
+  - LANE 1: AUX adaptive-LR/preconditioner (#1216 + #1230)
+  - LANE 2: Kronecker preconditioner bilateral (#1216 + #1220)
+  - **LANE 3 NEW: Parameter-free LR bilateral (#1230 + #1245)**
+- **11 refute-signature classes** (18 SHIFTED-FLOOR + 4 CATASTROPHIC-SHIFTED-FLOOR + 1 FROZEN-AUX-SLOW-RAMP + **1 NORMALIZER-MISMATCH NEW**)
+- 5 pre-launch student catches + 3 advisor self-corrections + 3 student-side audit catches
+
+## Fleet at mid-262
+- 3 pod-broken holds (tanjiro #793 + edward #702 + nezuko #1226)
+- 5 active WIPs:
+  - **frieren #1250** MUON_LR_DEPTH_RAMP (awaiting disabled-check)
+  - **thorfinn #1251** MUON_BETA_DEPTH_RAMP NEW (just assigned, completes spatial-schedule trio)
+  - **fern #1224** WD_BODY_DEPTH Arm A step ~1000 healthy
+  - **askeladd #1225** MUON_BETA_END Arm A val=3.27101 SENPAI-RESULT pending + Arm B in flight
+  - **alphonse #1248** NOVOGRAD awaiting (A) warm-start patch + pre-launch code-review gate
+- ZERO IDLE STUDENTS at advisor level
+
+## Current research focus & themes
+- **Spatial-schedule mechanism family (3-axis simultaneous test)** — WD (fern) + LR (frieren) + β (thorfinn) on body Muon. First explicit 3-axis family test in campaign. Resolution ~110 min produces strong family-level evidence.
+- **Per-layer scalar EMA 2nd-moment** — alphonse NOVOGRAD on body Muon (post-warm-start fix).
+- **Temporal momentum schedule** — askeladd MUON_BETA_END (orthogonal axis to spatial β).
+- **AUX gradient clipping** — nezuko AUX_CLIP_NORM (pod-broken canary protocol).
+
+## Potential next research directions
+- **EXIT 3 SATURATED LANES** (Kron + parameter-free LR + AUX adaptive) — future advisor must propose mechanisms structurally outside these abstractions
+- **Spatial-schedule family extensions** (after current 3-axis test resolves): CONTRA_DEPTH, NS5_ITERS_DEPTH, EMBED_INIT_DEPTH
+- **Loss function modifications** — focal loss variant, cross-entropy temperature scheduling (z-loss/label-smoothing closed)
+- **Hybrid optimizer compositions** — Muon body + alternative-mechanism AUX (CAUTIOUS body w/ different mask, NS5-aware parameter-free LR)
+- **Cycle 71 plateau protocol active**: 11 refute-signature classes, 7 saturated layers, 3 saturated lanes — increasingly hard to find fresh mechanism axes. Future: consider stepping up to architecture-adjacent modifications (forbidden under target/program.md) OR initialization-side mechanisms (mostly closed but per-layer init STD untouched).
+
+---
+
 # SENPAI Research State — cycle 71 mid-261 (2026-05-26 05:10 UTC)
 
 ## Most recent events (cycle 71 mid-261)

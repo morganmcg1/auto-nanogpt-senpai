@@ -1,3 +1,85 @@
+## 2026-05-26 05:45 UTC — THORFINN #1245 DOWG_BODY_MUON CLOSED (159th refuted, 46th family-level closure, NORMALIZER-MISMATCH NEW 11th refute-signature class, parameter-free LR lane bilaterally saturated 3rd LANE designation) + THORFINN #1251 MUON_BETA_DEPTH_RAMP assigned NEW 82nd distinct mech class (spatial-schedule trio completed WD+LR+β) + ALPHONSE #1248 PRE-LAUNCH AUDIT-CATCH cold-start vs canonical warm-start spec deviation (NeMo/timm/APEX cross-checked) → decision (A) green-lit (cycle 71 mid-262)
+
+### #1245 thorfinn DOWG_BODY_MUON — CLOSED, 159th refuted, 46th family-level closure, 11th refute-signature class (NORMALIZER-MISMATCH NEW)
+
+- **Hypothesis**: DoG (Ivgi 2023 arXiv:2302.12022) / DoWG (Khaled 2023 arXiv:2305.16284) Distance-over-Gradients parameter-free step size on body Muon. Single global r_t (distance-from-init bound) + G_t/v_t (cumulative gradient norm²) per body matmul → η_t = r_t/sqrt(G_t) (DoG) or sqrt(r_t/v_t) (DoWG, paper-canonical natural-scale COEF=1.0).
+- **Pre-launch fix** (load-bearing): `r_init = reps_rel × (1 + ||θ_0||)` scaling per Ivgi 2023 §3.2 — prevented `r_t` freeze at bare reps_rel=1e-6. Cosine cooldown REMOVED for muon_blocks groups only (AdamW AUX retains). DoWG `denom = sqrt(v_t) + eps` numerical stability.
+- **Terminal results** (n=1):
+
+| Arm | Mode | wandb_run_id | val@end | ffs | Outcome |
+|-----|------|--------------|---------|-----|---------|
+| Disabled-check | DOWG_BODY_MUON=0 | `uvhd26ht` | val@200=4.09011 | — | parity ✓ (within RNG band) |
+| Arm A | DoG canonical COEF=1.0 | `s7wpsx3u` | FROZEN | -1 | CATASTROPHIC NORMALIZER-MISMATCH kill |
+| Arm B | DoWG weighted COEF=1.0 | `mca6ctai` | FROZEN | -1 | CATASTROPHIC NORMALIZER-MISMATCH kill |
+
+- **Verdict**: REFUTED — CATASTROPHIC, NORMALIZER-MISMATCH (NEW 11th refute-signature class). Both arms froze at η ≈ 2e-8, 10^6 below load-bearing MUON_LR=0.04. v_t accumulator reached ~10^12 by step 100 confirming `||g||²` scale matches raw-gradient SGD geometry NOT Muon-orthogonalized geometry.
+- **Algebraic root cause** (student's textbook analysis): DoG/DoWG's gradient-norm denominator `√(Σ ||g_i||²)` ~ √(t × 1e12) is calibrated for raw-gradient SGD step magnitudes (~1e-3 to ~1), but Muon's effective step is `η · NS5(g)` where `||NS5(g)||_op ≈ 1` independent of `||g||`. Natural-scale `COEF=1.0` produces η ≈ 2e-8 — 10^6× too small. **Mechanism-level structural incompatibility, not initial-state issue.**
+- **NEW refute-signature class — NORMALIZER-MISMATCH**: 11th refute-signature class joining the diagnostic taxonomy. Generalizes: ANY parameter-free LR estimator with a `||g||`-based normalizer cannot be naively dropped onto an orthogonalized-update optimizer (Muon, NS5 family, Schmidt-orthogonalized momentum). The pre-launch `r_init` fix prevented the worst case (r_t bare-freeze at 1e-6) but couldn't paper over the geometric mismatch upstream.
+- **Class-level closure: Parameter-free LR family bilaterally saturated 2/2 (3rd SATURATED LANE designation)**:
+  - **AUX**: #1230 Prodigy AUX FROZEN-AUX-SLOW-RAMP (algebraic d_hat ratio cancellation)
+  - **Body Muon**: #1245 DoG/DoWG NORMALIZER-MISMATCH (this PR, geometric scale incompatibility)
+  
+  Both directions structurally incompatible with speedrun budget + optimizer geometry. **Parameter-free LR is now the 3rd SATURATED LANE** joining AUX adaptive-LR/preconditioner (#1216+#1230) + Kronecker preconditioner bilateral (#1216+#1220). Future parameter-free-LR proposals must use NS5-aware normalizers AND prove they don't degenerate to vanilla schedule.
+- **Thorfinn 5th consecutive within-student validation**: #1134 → #1159 → #1195 → #1216 (PSGD collaboration) → #1245 DOWG. Strong analytical pivots across three structural lane saturations consecutively. Reassigned to #1251 MUON_BETA_DEPTH_RAMP — pivot off Kron + parameter-free lanes onto spatial-schedule family.
+- **Methodological merit**: thorfinn's mechanistic interpretation (publication-grade) memorialized as the NORMALIZER-MISMATCH refute-signature class definition. Pre-launch code-review gate worked as designed (fix landed) but couldn't save mechanism-level mismatch — adds nuance to [[spec-cross-check-reference-impl]]: gate catches transcription errors and spec deviations, NOT geometric/algebraic root incompatibilities.
+
+### #1248 alphonse NOVOGRAD_BODY_MUON — PRE-LAUNCH AUDIT CATCH (cold-start vs canonical warm-start), decision (A) green-lit
+
+- **Disabled-check result**: `pu0axfdu` val@200=4.08539 ✓ PASS (within [4.075, 4.090] band, +0.00192 vs sister-PR #1230 disabled-check).
+- **Pre-launch audit**: alphonse cross-checked NeMo / timm / mgrankin / NVIDIA APEX NovoGrad reference impls — all unanimously warm-start `v_1 = ||g_1||^2`. PR spec uses cold-start v=0 which causes 4.47x step-1 amplification at β2=0.95 (because v_1 = (1-β2) × ||g_1||^2 = 0.05 × ||g_1||^2 → 1/sqrt(v_1) = sqrt(20)/||g_1|| ≈ 4.47/||g_1||).
+- **Decision requested**: (A) apply warm-start fix, (B) keep cold-start per PR literal, (C) sweep both.
+- **Advisor verdict (A) APPROVED**: 3rd consecutive within-student validation under [[spec-cross-check-reference-impl]] pre-launch code-review gate. Patch is 4 lines, zero GPU cost, eliminates spec-deviation that matches the #1230 PRODIGY class. Student should use `state["novograd_initialized"]` python-side bool flag (preferred over `.item()` first-step sync).
+- **Process learning**: cycle 71 has now 3 advisor self-corrections + 3 student-side audit catches on optimizer mechanisms with auxiliary state. Pre-launch code-review gate (introduced cycle 71 mid-257) now standard practice — worked first time on #1230, worked again on #1248. Two consecutive successful applications validate the methodology.
+- **Alphonse 13th consecutive within-student validation** across 3 PRs (3 spec audits on #1230 + 1 cold-start audit on #1248). Strongest spec-auditor in fleet.
+- **Resumption**: alphonse to apply 4-line patch, post diff for code-review gate, advisor approves, launch Arm A (β2=0.95) then Arm B (β2=0.5) sequentially. Disabled-check parity preserved per `if NOVOGRAD_MUON:` guard.
+
+### #1251 thorfinn MUON_BETA_DEPTH_RAMP — NEW assignment, 82nd distinct mechanism class, spatial-schedule trio completed
+
+- **Hypothesis**: Center-preserving additive depth-ramp on body Muon momentum coefficient `mu` (β1). For each transformer layer `l ∈ {0..11}`, mu_layer(l, t) = mu_global(t) + MUON_BETA_DEPTH_RAMP × (l/(L-1) - 0.5). With ramp=0.04: layer 0 = 0.93, layer 11 = 0.97 (mean = 0.95 exactly preserved through warmup/main/cooldown phases).
+- **Mechanism class**: 82nd distinct mechanism class — FIRST spatial-β-asymmetry-on-body-Muon in 320-PR corpus. Anti-duplication grep clean: `MUON_BETA_DEPTH`, `DEPTH_BETA`, `BETA_LAYER`, `MU_DEPTH`, `per_layer_beta`, etc. — all 0 hits.
+- **Spatial-schedule mechanism family completion**: joins fern's WD_BODY_DEPTH (#1224) + frieren's MUON_LR_DEPTH_RAMP (#1250) as 3rd spatial-asymmetry axis on body Muon. Three mathematically orthogonal axes in update equation `θ_{t+1} = θ_t - lr·NS5(lerp(g, m, mu)) - lr·wd·θ_t`:
+  - WD ramps regularization pull-toward-zero per layer (fern)
+  - LR ramps gradient-step magnitude per layer (frieren)
+  - **β1 ramps momentum smoothing weight per layer (thorfinn)**
+  
+  **First explicit 3-axis simultaneous family test in cycle 71 campaign.** If all 3 refute symmetrically, spatial-asymmetry-on-body-Muon mechanism layer closes cleanly (akin to NS5 polynomial 6/6 family closure pattern). If any pass, learn which axis is load-bearing in body Muon spatial preference.
+- **Distinct from MUON_BETA_END (askeladd #1225)**: temporal schedule of β1 in cooldown tail vs spatial schedule across all phases — temporal vs spatial mechanism axes orthogonal.
+- **Arms** (sequential after disabled-check, single GPU):
+  - **Arm A**: MUON_BETA_DEPTH_RAMP=+0.04 (deeper = higher β1, μP-direction: more momentum smoothing for noisier deep-layer gradients)
+  - **Arm B**: MUON_BETA_DEPTH_RAMP=-0.04 (shallower = higher β1, anti-μP)
+  - Disabled-check: MUON_BETA_DEPTH_RAMP=0.0 must reproduce baseline val@200 ∈ [4.075, 4.090]
+- **Kill gates**: baseline-trajectory + 0.01 margin standard.
+- **Predicted result distribution**: 50% floor-cluster close-miss (symmetric SHIFTED-FLOOR), 25% directional refute, 20% symmetric 3-decimal-match (echoes #1064 ORTHOGONAL_BODY_INIT for the depth-β axis), 5% catastrophic (unlikely with mean-preserving ±0.02 spread).
+- **Coordination opportunity**: per-layer param-group splitting required by both #1250 (frieren LR) and #1251 (thorfinn β) — students can share infrastructure if one lands first.
+
+### Cycle 71 at mid-262
+- **159 refuted axes** / 82 distinct mech classes / 46 family-level closures
+- **7 SATURATED MECHANISM LAYERS** + **3 SATURATED LANES** (6 families)
+  - LANE 1: AUX adaptive-LR/preconditioner = #1216 PSGD_KRON_AUX + #1230 Prodigy
+  - LANE 2: Kronecker preconditioner bilateral = #1216 PSGD_KRON_AUX + #1220 SHAMPOO_MUON_BODY
+  - **LANE 3 NEW**: Parameter-free LR bilateral = #1230 Prodigy AUX + #1245 DoG/DoWG body
+- **11 refute-signature classes** (18 SHIFTED-FLOOR + 4 CATASTROPHIC-SHIFTED-FLOOR + 1 FROZEN-AUX-SLOW-RAMP + **1 NORMALIZER-MISMATCH NEW**)
+- 5 pre-launch student catches + 3 advisor self-corrections + 3 student-side audit catches (3rd: alphonse #1248 cold-start)
+
+### Fleet at mid-262
+- 3 pod-broken holds (tanjiro #793 + edward #702 + nezuko #1226)
+- 5 active WIPs:
+  - **frieren #1250** MUON_LR_DEPTH_RAMP (just assigned, awaiting disabled-check)
+  - **thorfinn #1251** MUON_BETA_DEPTH_RAMP NEW (just assigned, completes spatial-schedule trio)
+  - **fern #1224** WD_BODY_DEPTH Arm A step ~1000 healthy
+  - **askeladd #1225** MUON_BETA_END Arm A val=3.27101 SENPAI-RESULT pending + Arm B `d8lt6izv` in flight
+  - **alphonse #1248** NOVOGRAD_BODY_MUON awaiting (A) warm-start patch + pre-launch code-review gate (~5 min)
+- ZERO IDLE STUDENTS at advisor level
+
+### Methodology
+
+- **3rd SATURATED LANE designation in cycle 71** — parameter-free LR family bilaterally tested across AUX (Prodigy) and body (DoG/DoWG) with two algebraically distinct root causes (ratio cancellation vs normalizer mismatch). Combined LANE designations: AUX adaptive-LR/preconditioner + Kronecker preconditioner + Parameter-free LR. Future advisor must EXIT all three abstractions for fresh mechanism axes.
+- **NORMALIZER-MISMATCH (11th refute-signature class)**: distinct from FROZEN-AUX-SLOW-RAMP (algebraic in Prodigy) and CATASTROPHIC-SHIFTED-FLOOR (val divergence). NORMALIZER-MISMATCH = mechanism-level structural incompatibility between estimator calibration and optimizer geometry. Adds nuance to spec-cross-check methodology: the [[spec-cross-check-reference-impl]] gate catches TRANSCRIPTION errors and SPEC deviations, NOT geometric/algebraic root incompatibilities. Future pre-launch audits must additionally check estimator-vs-optimizer GEOMETRY compatibility.
+- **Spatial-schedule mechanism family (NEW 7th saturation candidate)**: 3 concurrent in-flight axes (WD/LR/β) form first explicit 3-axis simultaneous family test in campaign. Resolution within ~110 min will produce strong family-level evidence (all-pass / mixed / all-fail), informing future spatial-asymmetry candidate axes (CONTRA_DEPTH, NS5_ITERS_DEPTH, EMBED_INIT_DEPTH).
+- **Pre-launch code-review gate now standard practice**: 2 consecutive successful applications (#1230 → #1248). Both caught load-bearing spec deviations pre-launch saving ~150 min combined GPU.
+
+---
+
 ## 2026-05-26 05:10 UTC — FRIEREN #1220 SHAMPOO_MUON_BODY CLOSED (158th refuted, 45th family-level closure, Class-3-pre-NS5 bilateral structured Kron preconditioner family 1/1, 18th SHIFTED-FLOOR, AUX+body Kronecker preconditioner LANE now bilaterally saturated 2/2 families) + FRIEREN #1250 MUON_LR_DEPTH_RAMP assigned NEW 81st distinct mech class (cycle 71 mid-261)
 
 ### #1220 frieren SHAMPOO_MUON_BODY — CLOSED, 158th refuted, 45th family-level closure, 18th SHIFTED-FLOOR
