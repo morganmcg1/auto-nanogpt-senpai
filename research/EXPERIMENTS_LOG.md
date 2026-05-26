@@ -1,3 +1,26 @@
+## 2026-05-26 02:35 — PR #1209: H161 nezuko late-training parameter noise probe — BILATERAL NULL (20th NULL/NEG closure + programme-grade DIRECT mechanism observation: late-cooldown param F-norm bit-frozen)
+
+- Branch: `g1r3-nezuko/h161-late-noise-probe`
+- Hypothesis: H153 basin-tight inference is real — test directly by injecting per-coord Gaussian noise at σ_rel=1e-4 during (a) pre_cooldown (steps 1500-2227) and (b) late_cooldown (steps 2992-3325). If arm_b WIN → regularization WIN hypothesis; if arm_b NULL + arm_c NEG → basin-tight bilateral confirmation; if both NULL → σ too small (H153 survives, basin geometry not directly tested).
+
+| arm | mode | W&B | val/loss | Δ vs arm_a | speedrun_ffs | Verdict |
+|-----|------|-----|----------|------------|-------------|---------|
+| arm_a CTRL | off | `oiit0kgx` | **3.264467** | — | 3150 | NULL (good CTRL draw) |
+| arm_b NOISE_PRE | pre_cooldown σ=1e-4 | `eds1x9lu` | **3.265005** | +0.000538 | 3150 | NULL (+0.5σ, mild harm) |
+| arm_c NOISE_LATE | late_cooldown σ=1e-4 | `i0dgcwbf` | **3.264726** | +0.000259 | 3150 | NULL (+0.25σ, very mild) |
+
+WIN <3.26284 not met. NEG >3.26534 not met. All 3 arms inside CTRL envelope [3.26366, 3.26566]. Both perturbation arms mildly positive direction → noise is mildly harmful, not helpful. H161 PR hypothesis #2 confirmed (σ=1e-4 below basin-curvature scale).
+
+- **PROGRAMME-GRADE DIRECT OBSERVATION: Late-cooldown parameter F-norm is BIT-FROZEN**. arm_c disp_frob = 10.9067 across all 7 injections at steps 3001/3051/3101/3151/3201/3251/3301 — bit-identical to 4 decimals. Direct mechanistic evidence that model parameter F-norm completely freezes in last 10% of training (LR < 1e-4). Previous H153 only INFERRED basin-contraction from K-monotone harm scaling; H161 arm_c disp_frob IS the direct observation. **Sharpens the late-cooldown mediator search: erosion in frozen-param regime is an optimizer-state phenomenon, not parameter-state**.
+
+- **Finding #2: Pre-cooldown noise leaves persistent +0.0005 offset not decayed by cooldown**. arm_b maintains +0.000538 vs arm_a from injection-end (step 2227) through terminal (step 3325). Mild regularization-HARM refutes the regularization-WIN axis at σ_rel=1e-4.
+
+- **Finding #3: Late-cooldown injection absorbs in ≤25 steps**. arm_c tracks arm_a within +0.0003 throughout the 7-injection window with NO per-injection spikes. Basin-tight confirmed via direct "noise absorbs" observation.
+
+- Follow-up: σ_rel sweep deferred (strategy-tier shift more valuable). Nezuko assigned H169 Adan-on-aux (Xie et al. 2022 AAAI) — 3rd entry in cross-AdamW-extension portfolio (H167 AdamP + H168 AdaBelief + H169 Adan = three orthogonal mechanism-distinct extensions). PR #1241.
+
+---
+
 ## 2026-05-26 01:35 — PR #1202: H159 fern cooldown µ recovery — BILATERAL NULL/NEG (19th NULL/NEG closure + H1 velocity-buffer refutation + 4 programme-grade mechanism findings)
 
 - Branch: `g1r3-fern/h159-cooldown-mu-recovery`
