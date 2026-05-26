@@ -468,6 +468,18 @@ NS5_ITERS = int(os.environ.get("NS5_ITERS", "12"))
 WD_AUX = float(os.environ.get("WD_AUX", "0.0"))  # AdamW WD on embed + lm_head matrices (scalars stay at 0)
 EMBED_INIT_STD = float(os.environ.get("EMBED_INIT_STD", "1.0"))  # default preserves baseline N(0,1)
 LOGIT_SOFTCAP = float(os.environ.get("LOGIT_SOFTCAP", "15.0"))  # default = 15 (current hardcoded value); soft-cap value c in f(x) = c·x / sqrt(x^2+c^2)
+# DoG/DoWG parameter-free step size on body Muon (PR #1245).
+# When DOWG_BODY_MUON=1 the body Muon LR is overridden by the DoG (Ivgi 2023,
+# arXiv:2302.12022) or DoWG (Khaled 2023, arXiv:2305.16284) eta derived from
+# running max distance-from-init / gradient-norm accumulator, REPLACING the
+# cosine cooldown schedule (advisor verdict 2026-05-26: schedule replaced
+# wholesale so DoG/DoWG's implicit 1/sqrt(G_t) decay handles cooldown).
+DOWG_BODY_MUON = int(os.environ.get("DOWG_BODY_MUON", "0"))
+DOWG_BODY_MUON_MODE = os.environ.get("DOWG_BODY_MUON_MODE", "dog")  # "dog" | "dowg"
+DOWG_BODY_MUON_COEF = float(os.environ.get("DOWG_BODY_MUON_COEF", "1.0"))
+# reps_rel from formll/dog: r_t init = reps_rel * (1 + ||theta_0||) scales to model size.
+DOWG_BODY_MUON_INIT_R = float(os.environ.get("DOWG_BODY_MUON_INIT_R", "1e-6"))
+DOWG_BODY_MUON_EPS = 1e-12
 
 
 def zeropower_via_newtonschulz5(G: Tensor) -> Tensor:
@@ -655,6 +667,91 @@ class Muon(torch.optim.Optimizer):
         params = sorted([p for _, p in named_params], key=lambda x: x.size(), reverse=True)
         defaults = dict(lr=lr, weight_decay=weight_decay, mu=mu)
         super().__init__(params, defaults)
+        # DoG/DoWG state — lazy-init in update_dowg_lr() on first call. All
+        # attributes are inert when DOWG_BODY_MUON=0 (early-return guard inside
+        # update_dowg_lr ensures no tensor allocation in disabled mode).
+        self._dowg_initialized = False
+        self._dowg_p0: list[Tensor] | None = None
+        self._dowg_state: dict[str, float] = {}
+        self._dowg_init_x_norm: float = 0.0
+        self._dowg_telemetry: dict[str, float] = {}
+
+    @torch.no_grad()
+    def update_dowg_lr(self):
+        """If DOWG_BODY_MUON=1, override group['lr'] with DoG/DoWG-derived eta.
+
+        Called from set_hparams() AFTER backward + grad all-reduce, so p.grad is
+        synced across ranks and p reflects the current point theta_t.
+
+        DoG (Ivgi 2023):
+            r_t = max(r_{t-1}, ||theta_t - theta_0||)
+            G_t = G_{t-1} + ||g_t||^2
+            eta = r_t / sqrt(G_t)
+
+        DoWG (Khaled 2023):
+            r_t = max(r_{t-1}, ||theta_t - theta_0||^2)   # SQUARED
+            v_t = v_{t-1} + r_t * ||g_t||^2
+            eta = sqrt(r_t) / (sqrt(v_t) + eps)
+
+        Both use formll/dog init scaling: r_t init = reps_rel * (1 + ||theta_0||)
+        to prevent FROZEN-AUX-NO-RAMP at small reps_rel (advisor verdict).
+        """
+        if not DOWG_BODY_MUON:
+            return  # Early return BEFORE any tensor allocation (disabled-check parity)
+
+        params = self.param_groups[0]["params"]
+        if not self._dowg_initialized:
+            self._dowg_p0 = [p.detach().clone() for p in params]
+            init_x_norm_sq = sum(p.float().pow(2).sum().item() for p in params)
+            init_x_norm = init_x_norm_sq ** 0.5
+            r_init = DOWG_BODY_MUON_INIT_R * (1.0 + init_x_norm)
+            if DOWG_BODY_MUON_MODE == "dog":
+                self._dowg_state["r"] = r_init
+                self._dowg_state["G"] = 0.0
+            elif DOWG_BODY_MUON_MODE == "dowg":
+                self._dowg_state["r"] = r_init ** 2  # squared-distance init
+                self._dowg_state["v"] = 0.0
+            else:
+                raise ValueError(f"Unknown DOWG_BODY_MUON_MODE: {DOWG_BODY_MUON_MODE!r}")
+            self._dowg_init_x_norm = init_x_norm
+            self._dowg_initialized = True
+
+        dist_sq = 0.0
+        grad_sq = 0.0
+        for p, p0 in zip(params, self._dowg_p0):
+            dist_sq += (p - p0).float().pow(2).sum().item()
+            if p.grad is not None:
+                grad_sq += p.grad.float().pow(2).sum().item()
+        body_dist_curr = dist_sq ** 0.5
+
+        if DOWG_BODY_MUON_MODE == "dog":
+            self._dowg_state["r"] = max(self._dowg_state["r"], body_dist_curr)
+            self._dowg_state["G"] += grad_sq
+            eta = self._dowg_state["r"] / (self._dowg_state["G"] + DOWG_BODY_MUON_EPS) ** 0.5
+            accum_key, accum_val = "G_t", self._dowg_state["G"]
+        else:  # dowg
+            self._dowg_state["r"] = max(self._dowg_state["r"], dist_sq)
+            self._dowg_state["v"] += self._dowg_state["r"] * grad_sq
+            # rka97/dowg reference: denom = sqrt(v_t) + eps, NOT sqrt(v_t + eps).
+            eta = (self._dowg_state["r"] ** 0.5) / (self._dowg_state["v"] ** 0.5 + DOWG_BODY_MUON_EPS)
+            accum_key, accum_val = "v_t", self._dowg_state["v"]
+
+        effective_lr = DOWG_BODY_MUON_COEF * eta
+        for group in self.param_groups:
+            group["lr"] = effective_lr
+
+        self._dowg_telemetry = {
+            "train/dowg/r_t": self._dowg_state["r"],
+            f"train/dowg/{accum_key}": accum_val,
+            "train/dowg/eta_t": eta,
+            "train/dowg/effective_body_muon_lr": effective_lr,
+            "train/dowg/body_dist_curr": body_dist_curr,
+            "train/dowg/grad_norm_sq": grad_sq,
+            "train/dowg/init_x_norm": self._dowg_init_x_norm,
+        }
+
+    def dowg_telemetry(self) -> dict[str, float]:
+        return dict(self._dowg_telemetry) if self._dowg_telemetry else {}
 
     @torch.no_grad()
     def step(self):
@@ -866,6 +963,10 @@ if dist.get_rank() == 0:
             "optimizer/attn_soap_trust_threshold": ATTN_SOAP_TRUST_THRESHOLD,
             "optimizer/ns5_iters": NS5_ITERS,
             "optimizer/wd_aux": WD_AUX,
+            "optimizer/dowg_body_muon": DOWG_BODY_MUON,
+            "optimizer/dowg_body_muon_mode": DOWG_BODY_MUON_MODE,
+            "optimizer/dowg_body_muon_coef": DOWG_BODY_MUON_COEF,
+            "optimizer/dowg_body_muon_init_r": DOWG_BODY_MUON_INIT_R,
             "optimizer/recipe": "contra-muon + normuon-lite + soap-on-mlp + soap-on-attn-trust-gate (pre-NS5, record #14 + record #16)",
         },
     )
@@ -936,6 +1037,13 @@ for trial_idx in range(args.num_trials):
                 group["lr"] = group["initial_lr"] * eta
                 if group.get("name") == "muon_blocks":
                     group["mu"] = cur_mu
+        # DoG/DoWG override for body Muon (PR #1245): replaces cosine eta for
+        # the muon_blocks group only. AdamW groups keep cosine. When
+        # DOWG_BODY_MUON=0 the inner early-return makes this a no-op call.
+        if DOWG_BODY_MUON:
+            for opt in optimizers:
+                if hasattr(opt, "update_dowg_lr"):
+                    opt.update_dowg_lr()
 
 
     ########################################
@@ -1059,6 +1167,10 @@ for trial_idx in range(args.num_trials):
                     stats = opt.trust_gate_stats()
                     if stats:
                         wandb.log(prefixed("train/attn_soap_trust_gate", stats), step=wandb_step)
+                if DOWG_BODY_MUON and hasattr(opt, "dowg_telemetry"):
+                    dowg_stats = opt.dowg_telemetry()
+                    if dowg_stats:
+                        wandb.log(dowg_stats, step=wandb_step)
         if dist.get_rank() == 0 and telemetry_due:
             log_weight_telemetry(
                 model=model,
