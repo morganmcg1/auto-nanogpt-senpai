@@ -1,3 +1,96 @@
+## 2026-05-26 14:00 UTC — Cycle 71 mid-285
+
+**Cumulative**: **169 refuted (+2 from 167)** / **91 distinct mech classes (+2: 90 LATE_LR_PULSE pre-launch already counted at mid-283; 91 ATTN_SOAP_TRUST_PER_KIND already counted at mid-284; 92 LR_COMPENSATED_COMPLETP newly counted, 93 WD_BODY_DEPTH newly counted at this entry)** / **53 family-level closures (+1: state-buffer-reset family closed by n=3 bilateral edward + bilateral fern + cluster alphonse cross-comparison)**.
+
+**This cycle — 2 PR closures**:
+
+1. **tanjiro #793 DEPTH_DEP_MUON_LR closed as 168th refute** — catastrophic-shifted-floor 8th pattern:
+   - Arm A terminal `28m6hy7g`: val=**3.28671**, ffs=**-1** (target 3.28 never reached)
+   - PR-body's first predicted outcome confirmed verbatim — CompleteP canonical power-law (DEPTH_DEP_EXP=0.5, depth_lr_mult range 0.2887 → 1.0000, mean=0.6453) drives effective mean body Muon LR ≈ 0.0258 (35% below baseline 0.04)
+   - Mechanism mathematically correct, hypothesis-level refute (not execution-level)
+
+2. **edward #1264 LATE_NORMUON_RESET closed as 169th refute** — bilateral n=3 clean refute, **STATE-BUFFER-RESET FAMILY-WIDE CLOSURE** (52nd family-level closure → 53rd via this closure):
+   - Arm A (`instant`, zero_()) `2809gqfq`: val=3.27173 ffs=3050 — cluster member 10th
+   - Arm B-1 (`scale=0.5`) `45qckr5f`: val=3.27159 ffs=3050 — cluster member
+   - Arm B-2 (`scale=0.5`, accidental n=2) `zzachqug`: val=3.27219 ffs=3050 — cluster member
+   - Mean (n=3): val=**3.27184**, ffs=**3050**, within-run val span **0.0006**, identical FFS
+   - **Cluster-break interpretation 1 resolved**: combined with bilateral fern #1267 (M-only) + alphonse #1283 (M+V combined) all refuting — fern A+B's ffs=3000 anomaly conclusively classified as **n=1 RNG correlation**, NOT state-reset family structural orthogonality
+   - State-buffer-staleness lane saturated — Frobenius rescale in `contra_normuon_update` absorbs both zero_() and scale=0.5 perturbations equally; post-reset descent matches pre-reset trajectory
+
+**Reassignments (2 students reassigned)**:
+
+1. **tanjiro → PR #1303 LR_COMPENSATED_COMPLETP (92nd mech class)** — direct 1-knob follow-up to his #793 catastrophic refute:
+   - Same depth_lr_mult code path, MUON_LR pre-scaled by 1/0.6453 = 1.55× → MUON_LR=0.062
+   - Mean effective LR matched to baseline (0.04), per-layer asymmetric pattern preserved
+   - Isolates "mean LR drop" confound from "per-layer asymmetric pattern is bad" hypothesis
+   - Single-arm test (forward direction only — inverse direction already covered by #1250 + #1285)
+   - No disabled-check required (identical code path to #793, only MUON_LR scalar differs)
+
+2. **edward → PR #1304 WD_BODY_DEPTH (93rd mech class)** — first per-layer dispatch on CONTRA_MUON in 320+ PRs:
+   - Anti-duplication confirmed: 0 corpus hits on WD_BODY_DEPTH, LAYER_WD, WD_DEPTH, DEPTH_WD, wd_layer, WD_RAMP (15+ spelling variants checked)
+   - μP/SP² theoretical motivation: depth-correlated effective gradient signal → uniform CONTRA_MUON over-regularizes shallow, under-regularizes deep
+   - Arm A: WD_BODY_DEPTH=0.5 (increasing ramp, μP-aligned direction)
+   - Arm B: WD_BODY_DEPTH=-0.3 (falsifying inverse, sequential after Arm A)
+   - Pre-launch code-review gate required (15th application cycle 71)
+   - Bytewise-inert disabled path via WD_BODY_DEPTH=0.0 default
+
+**Fleet status mid-285 (full count)**:
+
+| Student | PR | Status | W&B notes |
+|---|---|---|---|
+| g1r2-tanjiro | #1303 NEW | draft, just assigned | LR_COMPENSATED_COMPLETP — student picks up on next poll |
+| g1r2-edward | #1304 NEW | draft, just assigned | WD_BODY_DEPTH — student picks up on next poll |
+| g1r2-fern | #1296 | status:wip, Arm A authorized | LATE_LR_PULSE Arm A `vxcvdgt0` running, just launched at ~13:35Z |
+| g1r2-askeladd | #1301 | status:wip, pre-launch gate | ATTN_SOAP_TRUST_PER_KIND, disabled-check run `v2ewz1ge` posted, awaiting full launch |
+| g1r2-alphonse | #1283 | status:wip, Arm B in-flight | step ~2875 val 3.293, ETA ~10 min to terminal |
+| g1r2-thorfinn | #1282 | status:wip, Arm B in-flight | step ~2825 val 3.311, ETA ~12 min to terminal (running high) |
+| g1r2-nezuko | #1226 | status:wip, Arm A in-flight | step ~2950 val 3.288, ETA ~7 min to terminal |
+| g1r2-frieren | #1285 | status:wip, Arm B in-flight | Arm B launched ~14Z, step 450 |
+
+**ZERO IDLE STUDENTS — 8 students concurrently active**. Maximum count maintained.
+
+**FFS-PRIMARY-REFUTE cluster — 10 members (band tightened)**:
+
+| # | Closure date | PR | Arm | Mechanism | val | ffs |
+|---|---|---|---|---|---|---|
+| 1 | 2026-05-25 | thorfinn #1251 | A | β1 depth-ramp +0.05 | 3.26912 | 3025 |
+| 2 | 2026-05-25 | fern #1224 | B | DEPTH_DEP_WD AUX inverse ramp | 3.26978 | 3050 |
+| 3 | 2026-05-25 | nezuko #1226 | B | AUX_CLIP_NORM clip=5.0 | 3.26956 | 3025 |
+| 4 | 2026-05-26 | frieren #1250 | A | MUON_LR depth-ramp +favorable | 3.27042 | 3025 |
+| 5 | 2026-05-26 | alphonse #1248 | A | NovoGrad β2=0.99 favorable | 3.27040 | 3025 |
+| 6 | 2026-05-26 | alphonse #1248 | B | NovoGrad β2=0.95 falsify | 3.27176 | 3050 |
+| 7 | 2026-05-26 | askeladd #1271 | B | SOAP_TRUST_DEPTH_RAMP -0.15 | 3.27001 | 3025 |
+| 8 | 2026-05-26 | thorfinn #1282 | A | β1 cooldown-only depth-ramp | 3.26978 | 3025 |
+| 9 | 2026-05-26 | alphonse #1283 | A | combined M+V late reset | 3.26975 | 3025 |
+| 10 | 2026-05-26 | edward #1264 | A+B(×2) | LATE_NORMUON_RESET zero_()/half | 3.27184 (n=3) | 3050 |
+
+Cluster band: val ∈ (3.26912, 3.27219) × ffs ∈ {3025, 3050}. Spread within cluster 0.00307 val across 10 unrelated mechanism families.
+
+**Methodological synthesis (cycle 71)**:
+
+- **State-buffer-reset family fully closed**: bilateral fern #1267 + bilateral alphonse #1283 + bilateral-n=3 edward #1264 — late-cooldown variance/momentum-buffer staleness is NOT load-bearing. State-phase mechanisms at the [2540, 3175] window are absorbed by per-row Frobenius rescale (NormuonOptimizer's normalization) and per-row pattern-preservation in EMA recovery.
+- **Cluster-break false-positive lesson confirmed**: n=1 each in 2-arm same-mechanism PR can produce correlated stochastic extremes that look structural but aren't. Family-wide cross-comparison (≥3 unrelated PRs) is the correct gate for cluster-break verdicts. Lone-PR cluster-breaks should be treated as unconfirmed until cross-validated.
+- **Per-kind axis is highest-information remaining dispatch axis**: askeladd #1271 telemetry showed q/k/v/proj on_fraction variance is ~25× higher than per-depth `mean_cos_row` variance. PR #1301 (active) is the direct follow-up.
+- **Per-layer CONTRA_MUON dispatch is unexplored**: 0 corpus hits across 320+ PRs. PR #1304 (newly assigned) opens this orthogonal axis.
+
+**Active research themes (cycle 71 in-flight)**:
+
+1. **LR mechanism family** (fern #1296 LATE_LR_PULSE, tanjiro #1303 LR_COMPENSATED_COMPLETP, frieren #1285 LR+β1 paired ramp Arm B)
+2. **Per-kind / per-layer dispatch family** (askeladd #1301 per-kind SOAP, edward #1304 per-layer CONTRA_MUON, nezuko #1226 per-group AUX clip Arm A)
+3. **β1 phase / depth schedule family** (thorfinn #1282 β1 cooldown-only depth ramp Arm B)
+4. **Combined-reset family** (alphonse #1283 M+V Arm B — final state-reset family-wide closure data point)
+
+**Next research directions (post-cycle-71 candidates)**:
+
+- **Per-head SOAP trust** (orthogonal axis to per-kind — if #1301 results favor v-loose, head-level granularity is next)
+- **Pre-cooldown LR dip / restart** (state-phase change at different boundary than fern's late pulse)
+- **NS5_ITERS per-depth** (per-group dispatch on orthogonalization quality, novel in corpus)
+- **AUX β2 phase transition** (state-phase mechanism for AUX, mirror of body-Muon-state work)
+
+**Wake schedule**: ~15-25 min for upcoming Arm B terminals (alphonse, thorfinn, nezuko ETA in next 7-12 min; pre-launch gates for tanjiro #1303 + edward #1304 likely ready by next wake; fern #1296 LATE_LR_PULSE Arm A first heartbeat at step 200).
+
+---
+
 ## 2026-05-26 13:25 UTC — Cycle 71 mid-284
 
 **Cumulative**: **167 refuted (+1 from 166)** / **89 distinct mech classes (unchanged)** / **52 family-level closures (+1: SOAP_TRUST_DEPTH_RAMP family closed)**. **MAJOR CYCLE-71 SYNTHESIS UPDATE** — multiple Arm A terminals + askeladd #1271 bilateral close + cluster-break family-wide cross-comparison resolving.
