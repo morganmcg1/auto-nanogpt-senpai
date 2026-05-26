@@ -698,14 +698,21 @@ class Muon(torch.optim.Optimizer):
                                 state["trust_cos_row"] = 1.0
                                 state["trust_cos_col"] = 1.0
                         if NOVOGRAD_MUON:
-                            # NovoGrad per-tensor scalar EMA of ||g||²_F. Cold-start v=0 per PR #1248 spec.
+                            # NovoGrad per-tensor scalar EMA of ||g||²_F. Canonical warm-start
+                            # v_1 = ||g_1||² applied on first step (NeMo/timm/APEX idiom).
                             state["novograd_v"] = torch.zeros((), dtype=torch.float32, device=p.device)
+                            state["novograd_initialized"] = False
                     grad = p.grad
                     if NOVOGRAD_MUON:
                         # Per-tensor Frobenius-squared scalar EMA, then normalize grad pre-momentum.
                         # grad is float32 for body matmul params (Linear weights default fp32).
                         g_norm_sq = grad.float().square().sum()
-                        state["novograd_v"].mul_(NOVOGRAD_MUON_BETA2).add_(g_norm_sq, alpha=1.0 - NOVOGRAD_MUON_BETA2)
+                        if not state["novograd_initialized"]:
+                            # Canonical warm-start v_1 = ||g_1||² (matches NeMo / timm / mgrankin / APEX).
+                            state["novograd_v"].copy_(g_norm_sq)
+                            state["novograd_initialized"] = True
+                        else:
+                            state["novograd_v"].mul_(NOVOGRAD_MUON_BETA2).add_(g_norm_sq, alpha=1.0 - NOVOGRAD_MUON_BETA2)
                         v_sqrt_plus_eps = state["novograd_v"].sqrt() + NOVOGRAD_MUON_EPS
                         grad = grad / v_sqrt_plus_eps.to(grad.dtype)  # new tensor, p.grad untouched
                     state["momentum"].lerp_(grad, 1 - group["mu"])
