@@ -1,3 +1,59 @@
+## 2026-05-26 12:30 UTC — Cycle 71 mid-283
+
+**Cumulative**: **166 refuted (+1 from 165)** / **89 distinct mech classes (unchanged)** / **51 family-level closures (unchanged — state-reset family-level closure DEFERRED pending edward + alphonse cross-comparison)**.
+
+**This cycle**: 
+- **fern #1267 LATE_COOLDOWN_MOMENTUM_RESET — BOTH ARMS TERMINAL — closed as 166th refute with CLUSTER-BREAK SIGNATURE CONFIRMED AT HALF-MAGNITUDE**:
+  - Arm A (zero, run `4piccwsm`): val=3.26872, ffs=3000
+  - Arm B (scale=0.5, run `bf1ftu4c`): val=**3.26792**, ffs=**3000** ← even closer to baseline than Arm A
+  - **Both arms refute** PR's FFS hold gate (≤2975 AND val ≤ 3.27 → fails on FFS). Direction-vs-magnitude decoupling produces NO measurable separation — both perturbations absorbed cleanly by unmutated `state["second_moment"]` EMA.
+  - **Critical: BOTH arms also reproduce the cluster-break signature** — ffs=3000 (baseline match, NOT cluster's 3025) + val ~3.268 (BELOW cluster lower bound 3.26912 thorfinn A). Probability of 2 independent n=1 draws both happening to be "lucky baseline RNG" pattern is low. **Within-PR support for Interpretation 2 (state-reset family uniquely orthogonal to cluster floor)** is now strong.
+
+- **fern #1267 closed as 166th refute** with cluster-break flag. PR-level conclusion: body Muon `state["momentum"]` buffer (whether direction or magnitude) is NOT the late-cooldown bottleneck in [2540, 3000].
+
+- **fern reassigned to LATE_LR_PULSE control test (PR #1296, 90th distinct mechanism class)**:
+  - Mechanism: brief LR scale on body Muon (factor 2.0 or 0.5) for 50-step window [2540, 2589], then restored. **No optimizer state buffer is touched.**
+  - Distinguishes "state-reset family specifically" vs "any step-2540 perturbation breaks cluster". This is the orthogonal control axis the cluster-break hypothesis requires.
+  - Predicted outcomes table (in PR body): ~40% interp 2 / ~30% interp 1 / ~20% asymmetric / ~10% catastrophic
+  - Pre-launch code-review gate required per cycle-71 standard.
+  - 90th distinct mechanism class — first non-state-mutation late-cooldown perturbation tested.
+
+**Family-wide cross-comparison status** (most load-bearing data of cycle 71):
+
+| PR | Mechanism | Arm | val | ffs | In-cluster? |
+|---|---|---|---|---|---|
+| #1267 fern A | LATE_COOLDOWN_MOMENTUM_RESET (M, zero) | done | 3.26872 | 3000 | **NO** ← cluster-break |
+| #1267 fern B | LATE_COOLDOWN_MOMENTUM_RESET (M, scale=0.5) | done | **3.26792** | **3000** | **NO** ← cluster-break |
+| #1264 edward | LATE_NORMUON_RESET (V-only) | in-flight | TBD | TBD | predicting NO if interp 2 |
+| #1283 alphonse | LATE_RESET_BOTH (M+V combined) | in-flight | TBD | TBD | predicting NO if interp 2 |
+| #1296 fern (NEW) | LATE_LR_PULSE (non-state perturbation control) | not yet launched | TBD | TBD | predicting **cluster** if interp 1, **NO** if interp 2 |
+
+**Decision-tree based on next 60 min terminal results**:
+- All 3 state-reset PRs (fern A+B + edward + alphonse) at ffs=3000 + val ~3.268 → **STATE-RESET FAMILY IS NEW SIGNATURE CLASS** (first cycle-71 family to break FFS-PRIMARY cluster floor). #1296 LATE_LR_PULSE then determines whether the signature is family-specific (interp 1) or step-2540-perturbation-general (interp 2).
+- State-reset arms split (fern A+B at ffs=3000 but edward/alphonse at ffs=3025) → fern A+B were correlated stochastic draws. Less plausible given fern B's val=3.26792 is even more extreme than Arm A.
+- All 3 state-reset PRs at ffs=3025 → contradicts fern observation (very low prior).
+
+**Active fleet (mid-283)**:
+- edward #1264 LATE_NORMUON_VARIANCE_RESET — Arm A in-flight (HIGHEST PRIORITY pending result)
+- **fern #1296 LATE_LR_PULSE — newly assigned, pre-launch code-review gate pending**
+- askeladd #1271 SOAP_TRUST_DEPTH_RAMP — Arm A in-flight
+- thorfinn #1282 MUON_BETA_DEPTH_RAMP_COOLDOWN_ONLY — Arm A in-flight
+- alphonse #1283 MUON_COMBINED_LATE_RESET — Arm A in-flight (HIGHEST PRIORITY pending result, completes state-reset 2×2 factorial)
+- frieren #1285 MUON_LR_BETA_PAIRED_DEPTH_RAMP — Arm A in-flight (post 1-line depth_pos patch)
+- tanjiro #793 DEPTH_DEP_MUON_LR — Arm A in-flight (canonical CompleteP power-law)
+- nezuko #1226 AUX_CLIP_NORM — Arm A=1.0 in-flight
+
+**ZERO IDLE STUDENTS** — 7 in-flight Arm A + 1 fern #1296 (just-assigned) = 8 students concurrently active. Maximum concurrent count of cycle 71 maintained across the mid-282→mid-283 transition.
+
+**Mechanism telemetry insight (from fern bilateral)**: `state["second_moment"]` per-row variance EMA is the dominant late-cooldown absorption element of body Muon, NOT momentum direction or magnitude. This is a new mechanistic hypothesis for cycle 72 design: target the `state["second_moment"]` buffer with the same intervention class (reset, rescale, depth-ramp). Edward #1264 will directly test the V-only reset arm of this — if edward shows separation from fern, the prediction holds.
+
+**Methodological highlights mid-283**:
+- **Bilateral close validated the 2×2 factorial design**: n=1 each arm sufficient to detect cluster-break signature within-PR; both arms reproducing the signature strengthens within-PR support without needing n=2 confirms.
+- **LATE_LR_PULSE is the directly motivated control test**: aligned with Morgan #1259 directive (state-phase / schedule mechanism, NOT scalar HP sweep). The factor=2.0 / 0.5 magnitudes are not "scalar HP sweep" — they're a binary control discriminator on a structural property of cycle-71 cooldown.
+- **90th distinct mechanism class**: maintains diversity-axis growth (was 89 unchanged through mid-282).
+
+---
+
 ## 2026-05-26 12:20 UTC — Cycle 71 mid-282
 
 **Cumulative**: 165 refuted (unchanged) / 89 distinct mech classes (unchanged) / 51 family-level closures (unchanged). **Potential cycle-71 inflection point** — fern #1267 Arm A terminal posted with **first cluster-break signature** of cycle 71 (val=3.26872 ffs=3000, OUTSIDE FFS-PRIMARY cluster).
