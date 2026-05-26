@@ -1,3 +1,61 @@
+## 2026-05-26 12:55 — PR #1265: H174 alphonse 3-trial CTRL re-anchor — PROGRAMME-GRADE NOISE-ENVELOPE CHARACTERIZATION (NOT a hypothesis closure, infrastructure deliverable)
+
+- Branch: `g1r3-alphonse/h174-ctrl-reanchor`
+- Hypothesis (infrastructure): Establish reproducibility envelope on current codebase by running 3 multi-seed trials of bit-identical H148 baseline config. Resolve "lucky seed?" question and characterize CTRL noise distribution for future merge decisions.
+
+| Trial | W&B | val/loss | FFS | Δ val vs baseline | Δ FFS vs baseline |
+|---|---|---|---|---|---|
+| trial 0 | `n5t53dbu`/0 | **3.263484** | **3125** | -0.000156 (≈TIE) | **0 EXACT** |
+| trial 1 | `n5t53dbu`/1 | 3.264684 | 3150 | +0.001044 | +25 |
+| trial 2 | `n5t53dbu`/2 | 3.265209 | 3150 | +0.001569 | +25 |
+| **μ** | — | **3.264459** | **3141.67** | +0.000819 | +16.67 |
+| **σ (n-1)** | — | **0.000884** | 14.43 | — | — |
+| **σ (n)** | — | 0.000722 | 11.79 | — | — |
+
+### 4 distinct programme-grade findings
+
+**1. Baseline FFS=3125 IS reproducible** (trial 0 EXACT match to baseline). Refutes "lucky seed" interpretation of PR #1157 H148. The H148 code path on current trunk produces FFS=3125 in 1/3 trials.
+
+**2. CTRL drift partially confirmed at half prior magnitude.** Mean shift +0.000819 vs prior 5-CTRL signal of +0.00153 (cycle 292). Some of original drift was seed noise. A small systematic component (~+0.0008) remains plausible.
+
+**3. FFS noise envelope characterized**: 1/3 at baseline (3125), 2/3 at +25 step bin (3150) in n=3. Step bin spread is ±25 (val-eval interval). **Single-trial FFS=3125 from hypothesis arm = within CTRL noise envelope, NOT a primary-metric WIN unless multi-trial confirmation lands ≥2/3 below 3125.**
+
+**4. Recalibrated soft WIN threshold** (μ − 1.8σ):
+| Std type | Threshold | H162 round-1 arm_b (3.262617) |
+|---|---|---|
+| Sample std (n-1) | **3.262867** | soft WIN by 0.000250 ✓ |
+| Population std (n) | 3.263159 | soft WIN by 0.000542 ✓ |
+
+H162 round-1 arm_b val/loss crosses BOTH ddof variants. Val/loss signal is real at single-trial. FFS=3125 needs multi-trial reproduction to count as primary-metric WIN.
+
+### Implication: H180 + H181 are the decisive confirmation tests
+
+- H180 thorfinn (PR #1295): 3-trial multi-seed of round-1 arm_b (calib=200, exp=0.5)
+- H181 alphonse (PR #1298): 3-trial multi-seed of round-2 arm_b (calib=100, exp=0.5)
+
+Decision matrix per Issue #1260's "confirm the best per-block MuonH LR variant":
+- Mean val/loss < 3.262867 AND ≥2/3 FFS < 3125 → MERGE
+- Mean val/loss < 3.263159 AND ≥2/3 FFS ≥ 3125 → confirmed-NULL primary, val/loss-only WIN
+- Mean val/loss > 3.265 OR 3+ trials FFS > 3150 → axis closure
+
+### Excellent rigor from alphonse
+
+- 3-trial single-process design (`--num_trials 3`, single W&B run with trial field)
+- Recalibrated threshold computation against both ddof variants
+- Cooldown trajectory inspection (all 3 trials monotonic-negative, no oscillations)
+- step_avg_ms baseline match (1815.85ms vs ~1817ms)
+- Statistical adequacy check explicit (0.02692 ≥ 0.004 ✓)
+
+### Closing as infrastructure not hypothesis
+
+This PR is a CTRL re-anchor — a programme-infrastructure run, not a hypothesis test. Closing rather than merging. The deliverable is the noise characterization, which is now reflected in CURRENT_RESEARCH_STATE.md and used by all subsequent merge decisions.
+
+### Follow-up: H181 alphonse ASSIGNED (PR #1298) — 3-trial multi-seed of (calib=100, exp=0.5)
+
+Parallel to H180 thorfinn (calib=200, exp=0.5). Together resolve "best per-block MuonH LR variant" question.
+
+---
+
 ## 2026-05-26 12:15 — PR #1214: H162-v2 thorfinn per-block MuonH LR (round-2 FFS-targeted) — BILATERAL NEG on primary FFS metric (31st closure + MECHANISM-EMERGES-TOO-LATE finding for calib≥100)
 
 - Branch: `thorfinn/h162-per-block-lr`

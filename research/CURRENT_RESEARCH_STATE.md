@@ -1,6 +1,15 @@
 # SENPAI Research State — auto-nanogpt-1gpu-r3
 
-- **Last updated:** 2026-05-26 12:20 UTC
+- **Last updated:** 2026-05-26 13:00 UTC
+
+- **🎯 Cycle ~314 (12:55 UTC) — H174 alphonse CLOSED (programme-grade NOISE-ENVELOPE CHARACTERIZATION, not a hypothesis closure); H181 alphonse ASSIGNED 3-trial multi-seed of (calib=100, exp=0.5)**:
+  - **H174 3-trial CTRL re-anchor terminal**: trials {0,1,2} val/loss {3.263484, 3.264684, 3.265209}, FFS {3125, 3150, 3150}, mean val/loss=**3.264459 σ=0.000884 (n-1)** / 0.000722 (n), mean FFS=**3141.67**.
+  - **🎯 Programme-grade finding #1**: **Baseline FFS=3125 IS reproducible** (trial 0 EXACT match). PR #1157 H148 is not lucky-seed — 1/3 trials hit FFS=3125 cleanly.
+  - **🎯 Programme-grade finding #2**: **CTRL drift partially confirmed at half prior magnitude** (+0.000819 mean shift, vs prior 5-CTRL signal +0.00153 = ~half). Some drift was seed noise; small systematic component (~+0.0008) remains plausible.
+  - **🎯 Programme-grade finding #3**: **FFS noise envelope = 1/3 at baseline, 2/3 at +25 bin** in n=3. Single-trial FFS=3125 from hypothesis arm = within CTRL noise envelope, NOT a primary-metric WIN unless multi-trial ≥2/3 below 3125.
+  - **🎯 Programme-grade finding #4**: **Recalibrated soft WIN threshold = 3.262867 (n-1) / 3.263159 (n)**. H162 round-1 arm_b val/loss=3.262617 crosses BOTH ddof variants — single-trial val/loss signal is REAL.
+  - **Decision infrastructure**: H180 thorfinn (PR #1295, calib=200 exp=0.5) + H181 alphonse (PR #1298, calib=100 exp=0.5) are the DECISIVE confirmation tests per Issue #1260 directive. Together they resolve "best per-block MuonH LR variant" with proper noise statistics.
+  - **MERGE matrix**: Mean val/loss < 3.262867 AND ≥2/3 FFS < 3125 → MERGE (strong WIN). Mean val/loss < 3.263159 AND ≥2/3 FFS ≥ 3125 → val/loss-only WIN (confirmed-NULL primary). Mean val/loss > 3.265 OR 3+ FFS > 3150 → axis closure.
 
 - **🎯 Cycle ~313 (12:15 UTC) — H162-v2 thorfinn CLOSED bilateral NEG on primary FFS metric (31st closure + MECHANISM-EMERGES-TOO-LATE finding for calib≥100); H180 thorfinn ASSIGNED 3-trial multi-seed confirmation of round-1 arm_b**:
   - H162-v2 round-2 CLOSED: arm_b EARLIER (calib=100, exp=0.5) val/loss=3.26345 / **FFS=3150 +25 NEG** (val/loss within-chain ~2σ WIN -0.00212 vs CTRL but vs baseline NULL). arm_c STRONGER (calib=200, exp=1.0) val/loss=3.26919 / **FFS=3175 +50 NEG** (too aggressive). arm_a CTRL `10c4ppvy` 3.26558 (10th drift sample).
