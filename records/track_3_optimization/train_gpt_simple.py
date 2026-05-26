@@ -83,6 +83,27 @@ def parse_args():
              "muall=musoft + non-residual block 2D weights also scaled by 1/sqrt(L); "
              "smallconst=std=1e-3 depth-independent.",
     )
+    parser.add_argument(
+        "--pre_ns_noise_mode",
+        type=str,
+        default="off",
+        choices=["off", "constant", "linear_decay", "cooldown_only", "warmup_only"],
+        help="Pre-NS Gaussian noise injection on Muon body matrices "
+             "(applied between Nesterov-corrected gradient and NS5 call). "
+             "off=disabled (refactor-neutral); "
+             "constant=fixed std throughout; "
+             "linear_decay=std scales from 1 to 0 over training; "
+             "cooldown_only=active only in last 20% of training; "
+             "warmup_only=active only in first 20% of training.",
+    )
+    parser.add_argument(
+        "--pre_ns_noise_std",
+        type=float,
+        default=0.0,
+        help="Base std for pre-NS noise, scale-invariant relative to gradient "
+             "Frobenius norm. Per-element std = std * ||g||_F / sqrt(numel) * schedule. "
+             "0.0 disables noise regardless of mode.",
+    )
     args = parser.parse_args()
     args.num_trials = args.num_trials if args.num_trials is not None else (args.legacy_num_trials or 1)
     args.wandb_tags = [tag.strip() for tag in args.wandb_tags.split(",") if tag.strip()]
@@ -509,10 +530,50 @@ def muon_update(grad, momentum, mu=0.95, nesterov=True):
 
 
 @torch.compile
+def muon_update_with_pre_ns_noise(grad, momentum, noise_std_t, mu=0.95, nesterov=True):
+    momentum.lerp_(grad, 1 - mu)
+    update = grad.lerp_(momentum, mu) if nesterov else momentum
+    # Pre-NS Gaussian noise injection (scale-invariant relative to ||update||_F)
+    g_norm = update.detach().float().norm() + 1e-12
+    per_elem_std = noise_std_t * g_norm / (update.numel() ** 0.5)
+    update = update + (torch.randn_like(update) * per_elem_std.to(update.dtype))
+    update = zeropower_via_newtonschulz5(update)
+    update *= max(1, grad.size(-2) / grad.size(-1))**0.5
+    return update
+
+
+@torch.compile
 def soap_ns_step(nesterov_update):
     update = zeropower_via_newtonschulz5(nesterov_update)
     update *= max(1, nesterov_update.size(-2) / nesterov_update.size(-1))**0.5
     return update
+
+
+def apply_pre_ns_noise_inplace(t: Tensor, noise_std_t: Tensor) -> Tensor:
+    """Add scale-invariant Gaussian noise to t. Returns a new tensor.
+
+    Per-element noise std = noise_std_t * ||t||_F / sqrt(numel).
+    """
+    g_norm = t.detach().float().norm() + 1e-12
+    per_elem_std = noise_std_t * g_norm / (t.numel() ** 0.5)
+    return t + (torch.randn_like(t) * per_elem_std.to(t.dtype))
+
+
+def pre_ns_noise_scale_factor(mode: str, step: int, total_steps: int) -> float:
+    """Schedule multiplier for pre-NS noise. 1.0 = full noise, 0.0 = disabled."""
+    if mode == "off":
+        return 0.0
+    if mode == "constant":
+        return 1.0
+    if mode == "linear_decay":
+        return max(0.0, 1.0 - step / max(1, total_steps))
+    if mode == "cooldown_only":
+        cooldown_start = int(0.8 * total_steps)
+        return 1.0 if step >= cooldown_start else 0.0
+    if mode == "warmup_only":
+        warmup_end = int(0.2 * total_steps)
+        return 1.0 if step < warmup_end else 0.0
+    raise ValueError(f"Unknown pre_ns_noise_mode: {mode}")
 
 
 def soap_eigenbasis(mat: Tensor) -> Tensor:
@@ -594,6 +655,12 @@ class Muon(torch.optim.Optimizer):
         self.trust_threshold = float(trust_threshold)
         self.use_trust_gate = soap_attn
         self.cos_sims_buffer: dict[str, Tensor] = {}
+        # Pre-NS noise state (set externally each step via set_pre_ns_noise_std).
+        # `_noise_std_t` is None when noise is inactive; otherwise a 0-dim float CUDA tensor.
+        self._noise_std_t: Tensor | None = None
+        self._noise_std_value: float = 0.0
+        self._noise_grad_norm_accum: float = 0.0
+        self._noise_grad_norm_count: int = 0
 
         param_groups = []
         for g in groups_raw:
@@ -610,11 +677,35 @@ class Muon(torch.optim.Optimizer):
         defaults = dict(lr=lr, weight_decay=weight_decay, mu=mu)
         super().__init__(param_groups, defaults)
 
+    def set_pre_ns_noise_std(self, std: float, device: torch.device) -> None:
+        """Set the pre-NS noise std for the next step. std=0.0 disables noise."""
+        if std > 0.0:
+            if self._noise_std_t is None:
+                self._noise_std_t = torch.zeros((), device=device, dtype=torch.float32)
+            self._noise_std_t.fill_(float(std))
+            self._noise_std_value = float(std)
+        else:
+            self._noise_std_t = None
+            self._noise_std_value = 0.0
+        # Reset per-step accumulators for telemetry.
+        self._noise_grad_norm_accum = 0.0
+        self._noise_grad_norm_count = 0
+
+    def get_pre_ns_noise_stats(self) -> dict[str, float]:
+        """Return per-step pre-NS noise stats for telemetry."""
+        stats = {"effective_std": self._noise_std_value}
+        if self._noise_grad_norm_count > 0:
+            stats["grad_norm_mean"] = self._noise_grad_norm_accum / self._noise_grad_norm_count
+        return stats
+
     @torch.no_grad()
     def step(self):
         self.cos_sims_buffer = {}
         world_size = dist.get_world_size()
         rank = dist.get_rank()
+        noise_std_t = self._noise_std_t  # snapshot for this step
+        self._noise_grad_norm_accum = 0.0
+        self._noise_grad_norm_count = 0
         for group in self.param_groups:
             params = group["params"]
             norm_sum = torch.zeros((), device=params[0].device, dtype=torch.float32)
@@ -637,9 +728,17 @@ class Muon(torch.optim.Optimizer):
                         state["momentum"].lerp_(p.grad, 1 - group["mu"])
                         raw_nesterov = p.grad.lerp(state["momentum"], group["mu"])
                         precond_nesterov = soap_precondition_momentum(raw_nesterov, state)
+                        if noise_std_t is not None:
+                            # Telemetry: capture pre-noise Frobenius norm.
+                            self._noise_grad_norm_accum += float(precond_nesterov.detach().float().norm().item())
+                            self._noise_grad_norm_count += 1
+                            precond_nesterov = apply_pre_ns_noise_inplace(precond_nesterov, noise_std_t)
                         u_soap = soap_ns_step(precond_nesterov)
                         if self.use_trust_gate:
-                            u_muon = soap_ns_step(raw_nesterov)
+                            ns_input_for_muon = raw_nesterov
+                            if noise_std_t is not None:
+                                ns_input_for_muon = apply_pre_ns_noise_inplace(raw_nesterov, noise_std_t)
+                            u_muon = soap_ns_step(ns_input_for_muon)
                             us = u_soap.float()
                             um = u_muon.float()
                             cos_sim_t = (us * um).sum() / (us.norm() * um.norm() + 1e-8)
@@ -649,7 +748,15 @@ class Muon(torch.optim.Optimizer):
                             update = u_soap
                         soap_update_preconditioner(p.grad, state)
                     else:
-                        update = muon_update(p.grad, state["momentum"], mu=group["mu"])
+                        if noise_std_t is not None:
+                            # Telemetry: capture pre-noise Frobenius norm (using p.grad as proxy).
+                            self._noise_grad_norm_accum += float(p.grad.detach().float().norm().item())
+                            self._noise_grad_norm_count += 1
+                            update = muon_update_with_pre_ns_noise(
+                                p.grad, state["momentum"], noise_std_t, mu=group["mu"]
+                            )
+                        else:
+                            update = muon_update(p.grad, state["momentum"], mu=group["mu"])
                     norm_sum.add_(update.float().norm())
                     p.mul_(1 - group["lr"] * group["weight_decay"])
                     p.add_(update, alpha=-group["lr"])
@@ -765,6 +872,8 @@ if dist.get_rank() == 0:
             "wd_schedule": args.wd_schedule,
             "lr_scalars": args.lr_scalars,
             "depth_init_mode": args.depth_init_mode,
+            "pre_ns_noise_mode": args.pre_ns_noise_mode,
+            "pre_ns_noise_std": args.pre_ns_noise_std,
         },
     )
 
@@ -892,6 +1001,10 @@ for trial_idx in range(args.num_trials):
                 group["lr"] = group["initial_lr"] * eta
                 if "initial_wd" in group and group.get("name", "").startswith("muon_"):
                     group["weight_decay"] = group["initial_wd"] * wd_mu
+        # Pre-NS noise schedule on Muon body matrices.
+        scale_factor = pre_ns_noise_scale_factor(args.pre_ns_noise_mode, step, train_steps)
+        scheduled_std = args.pre_ns_noise_std * scale_factor
+        optimizer2.set_pre_ns_noise_std(scheduled_std, device)
 
 
     ########################################
@@ -1015,6 +1128,10 @@ for trial_idx in range(args.num_trials):
                            for i, group in enumerate(optimizer2.param_groups)}
             current_wds = {group.get("name", f"group_{i}"): group.get("weight_decay", 0.0)
                            for i, group in enumerate(optimizer2.param_groups)}
+            noise_stats = optimizer2.get_pre_ns_noise_stats()
+            noise_scale_factor_now = pre_ns_noise_scale_factor(
+                args.pre_ns_noise_mode, step, train_steps
+            )
             if dist.get_rank() == 0:
                 per_group_metrics = {"trial": trial_idx, "train/step": train_step}
                 for name, mean_norm in update_norms.items():
@@ -1026,6 +1143,17 @@ for trial_idx in range(args.num_trials):
                 per_group_metrics["train/wd_mlp_now"] = current_wds.get("muon_mlp", 0.0)
                 per_group_metrics["train/wd_attn_now"] = current_wds.get("muon_attn", 0.0)
                 per_group_metrics["train/wd_schedule_progress"] = train_step / train_steps
+                # Pre-NS noise telemetry.
+                effective_std = float(noise_stats.get("effective_std", 0.0))
+                per_group_metrics["pre_ns_noise/scale_factor"] = noise_scale_factor_now
+                per_group_metrics["pre_ns_noise/effective_std"] = effective_std
+                per_group_metrics["pre_ns_noise/enabled"] = int(effective_std > 0.0)
+                if "grad_norm_mean" in noise_stats:
+                    g_norm_mean = float(noise_stats["grad_norm_mean"])
+                    per_group_metrics["pre_ns_noise/g_norm_mean"] = g_norm_mean
+                    if effective_std > 0.0:
+                        # SNR proxy: 1/effective_std (Frobenius signal/noise ratio).
+                        per_group_metrics["pre_ns_noise/snr_frob"] = 1.0 / effective_std
                 wandb.log(per_group_metrics, step=wandb_step)
         if dist.get_rank() == 0 and optimizer2.cos_sims_buffer:
             cs_names = list(optimizer2.cos_sims_buffer.keys())
