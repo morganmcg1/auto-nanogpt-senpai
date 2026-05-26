@@ -6,6 +6,7 @@ It was prepared as a simplified version of the speedrun for use in neural net op
 """
 
 import os
+import re
 import sys
 with open(sys.argv[0]) as f:
     code = f.read() # read the code of this file ASAP, for logging
@@ -468,6 +469,12 @@ NS5_ITERS = int(os.environ.get("NS5_ITERS", "12"))
 WD_AUX = float(os.environ.get("WD_AUX", "0.0"))  # AdamW WD on embed + lm_head matrices (scalars stay at 0)
 EMBED_INIT_STD = float(os.environ.get("EMBED_INIT_STD", "1.0"))  # default preserves baseline N(0,1)
 LOGIT_SOFTCAP = float(os.environ.get("LOGIT_SOFTCAP", "15.0"))  # default = 15 (current hardcoded value); soft-cap value c in f(x) = c·x / sqrt(x^2+c^2)
+# Canonical CompleteP power-law depth-dep Muon LR (arxiv 2505.01618 §3, advisor spec 2026-05-26):
+#   lr_mult[l] = ((l + 1) / L) ** DEPTH_DEP_EXP  for l in [0, L-1], L=12 (body matrices only)
+# Non-mean-preserving (deeper layers get bigger updates); arithmetic mean of mults ≈ 0.6453 at alpha=0.5,
+# yielding ~35% effective mean-LR reduction vs baseline 0.04 — intentional, tests shape + implicit eta scaling.
+DEPTH_DEP_MUON_LR = int(os.environ.get("DEPTH_DEP_MUON_LR", "0"))  # 0=disabled identity (bytewise-inert), 1=enabled
+DEPTH_DEP_EXP = float(os.environ.get("DEPTH_DEP_EXP", "0.5"))  # alpha exponent for power-law profile
 
 
 def zeropower_via_newtonschulz5(G: Tensor) -> Tensor:
@@ -652,6 +659,26 @@ class Muon(torch.optim.Optimizer):
                     self.attn_soap_kind[id(p)] = "v"
                 elif n.endswith(".attn.proj.weight"):
                     self.attn_soap_kind[id(p)] = "proj"
+        # Canonical CompleteP per-layer LR multiplier (gated on DEPTH_DEP_MUON_LR=1).
+        # named_params here come from model.blocks.named_parameters() so the leading int IS the
+        # layer index (e.g. "0.attn.q.weight", "11.mlp.proj.weight"). Body-only by construction
+        # since Muon is built with body matrices; AUX optimizer params (embed/lm_head/scalars)
+        # are not in this dict.
+        self.depth_lr_mult: dict[int, float] = {}
+        self._depth_lr_layer_of: dict[int, int] = {}
+        self._depth_lr_mult_closed_form: dict[int, float] = {}  # layer_idx -> mult (one entry per layer, for logging)
+        if DEPTH_DEP_MUON_LR:
+            num_layers = 12  # matches GPT(num_layers=12)
+            _block_pat = re.compile(r"^(\d+)\.")
+            for n, p in named_params:
+                m = _block_pat.match(n)
+                assert m is not None, f"Could not parse layer index from param name: {n!r}"
+                l = int(m.group(1))
+                assert 0 <= l < num_layers, f"layer index {l} out of range [0, {num_layers}) for {n!r}"
+                mult = ((l + 1) / num_layers) ** DEPTH_DEP_EXP
+                self.depth_lr_mult[id(p)] = mult
+                self._depth_lr_layer_of[id(p)] = l
+                self._depth_lr_mult_closed_form.setdefault(l, mult)
         params = sorted([p for _, p in named_params], key=lambda x: x.size(), reverse=True)
         defaults = dict(lr=lr, weight_decay=weight_decay, mu=mu)
         super().__init__(params, defaults)
@@ -709,7 +736,15 @@ class Muon(torch.optim.Optimizer):
                     scale = torch.where(cur_uw < TARGET_UW, TARGET_UW * p_fro / u_fro, torch.ones_like(p_fro))
                     update = update * scale.to(update.dtype)
                     # Explicit weight decay intentionally omitted (matches record #14; u/w-floor replaces wd).
-                    p.add_(update, alpha=-group["lr"])
+                    # Canonical CompleteP per-layer LR scaling (gated). Bytewise-inert when DEPTH_DEP_MUON_LR=0.
+                    if DEPTH_DEP_MUON_LR and id(p) in self.depth_lr_mult:
+                        effective_lr = group["lr"] * self.depth_lr_mult[id(p)]
+                        if not hasattr(self, "_depth_lr_mult_runtime"):
+                            self._depth_lr_mult_runtime: dict[int, float] = {}
+                        self._depth_lr_mult_runtime[self._depth_lr_layer_of[id(p)]] = self.depth_lr_mult[id(p)]
+                        p.add_(update, alpha=-effective_lr)
+                    else:
+                        p.add_(update, alpha=-group["lr"])
                     # Refresh SOAP state with the raw grad (after applying the step).
                     if use_soap:
                         soap_refresh(grad, state)
@@ -866,9 +901,18 @@ if dist.get_rank() == 0:
             "optimizer/attn_soap_trust_threshold": ATTN_SOAP_TRUST_THRESHOLD,
             "optimizer/ns5_iters": NS5_ITERS,
             "optimizer/wd_aux": WD_AUX,
+            "optimizer/depth_dep_muon_lr": DEPTH_DEP_MUON_LR,
+            "optimizer/depth_dep_exp": DEPTH_DEP_EXP,
             "optimizer/recipe": "contra-muon + normuon-lite + soap-on-mlp + soap-on-attn-trust-gate (pre-NS5, record #14 + record #16)",
         },
     )
+    # Log per-layer closed-form CompleteP multipliers once at run start so the dashboard records
+    # what each layer was supposed to receive (regardless of whether gate is on; multipliers default
+    # to 1.0 in the disabled case for comparison clarity).
+    _num_layers = 12
+    for _l in range(_num_layers):
+        _mult = ((_l + 1) / _num_layers) ** DEPTH_DEP_EXP if DEPTH_DEP_MUON_LR else 1.0
+        wandb.log({f"optimizer/depth_lr_mult_l{_l}": _mult}, step=0)
 
 for trial_idx in range(args.num_trials):
 
@@ -1059,6 +1103,13 @@ for trial_idx in range(args.num_trials):
                     stats = opt.trust_gate_stats()
                     if stats:
                         wandb.log(prefixed("train/attn_soap_trust_gate", stats), step=wandb_step)
+            # Verify runtime CompleteP multiplier matches closed-form per layer (one log per telemetry tick).
+            if DEPTH_DEP_MUON_LR:
+                for opt in optimizers:
+                    runtime_mults = getattr(opt, "_depth_lr_mult_runtime", None)
+                    if runtime_mults:
+                        for _l, _m in runtime_mults.items():
+                            wandb.log({f"optim/depth_lr_mult_actual_l{_l}": _m}, step=wandb_step)
         if dist.get_rank() == 0 and telemetry_due:
             log_weight_telemetry(
                 model=model,
