@@ -109,6 +109,18 @@ def parse_args():
     parser.add_argument("--body_init_bottom_layers", type=int,
                         default=int(os.environ.get("BODY_INIT_BOTTOM_LAYERS", "6")),
                         help="Number of bottom layers to damp for --body_init=orthogonal_bottom_damp (default 6 = bottom half of 12 layers).")
+    # H167: AdamP-on-aux. Per-row scale-invariant projection on selected AdamW aux
+    # groups to suppress weight-norm growth (Heo et al. 2020, ICLR 2021).
+    parser.add_argument("--use_adamp", type=int,
+                        default=int(os.environ.get("USE_ADAMP", "0")),
+                        help="If 1, wrap optimizer1 (AdamW aux) with AdamPAdamW. arm_a CTRL keeps fused AdamW bit-identical to baseline; only arm_b/arm_c use the AdamP code path.")
+    parser.add_argument("--adamp_target", type=str,
+                        default=os.environ.get("ADAMP_TARGET", "none"),
+                        choices=["none", "lm_head_only", "embed_only", "both"],
+                        help="Which aux groups receive AdamP per-row projection. 'lm_head_only' targets adam_lm_head, 'embed_only' targets adam_embed, 'both' targets both. Scalars are never projected (ndim<2).")
+    parser.add_argument("--adamp_delta", type=float,
+                        default=float(os.environ.get("ADAMP_DELTA", "0.1")),
+                        help="Cosine threshold above which AdamP projects the step direction orthogonal to the row (paper canonical 0.1).")
     args = parser.parse_args()
     args.num_trials = args.num_trials if args.num_trials is not None else (args.legacy_num_trials or 1)
     args.wandb_tags = [tag.strip() for tag in args.wandb_tags.split(",") if tag.strip()]
@@ -747,6 +759,90 @@ class MuonH(torch.optim.Optimizer):
         self._last_norm_to_radius_max = max_n_over_r
 
 
+# H167: AdamP-on-aux. AdamW with optional per-row AdamP projection on selected
+# param groups (Heo et al. 2020, "Slowing Down the Weight Norm Increase in
+# Momentum-Based Optimizers", ICLR 2021). Math matches torch.optim.AdamW
+# non-fused single-tensor path so untargeted groups remain numerically
+# equivalent to vanilla AdamW (path-shift bit-id at this scale per H160).
+class AdamPAdamW(torch.optim.Optimizer):
+    def __init__(self, params, lr=1e-3, betas=(0.9, 0.999), eps=1e-8,
+                 weight_decay=0.0, adamp_delta=0.1, adamp_target_group_names=None):
+        defaults = dict(lr=lr, betas=betas, eps=eps, weight_decay=weight_decay)
+        super().__init__(params, defaults)
+        self.adamp_delta = float(adamp_delta)
+        self.adamp_target_group_names = set(adamp_target_group_names or [])
+        self._last_adamp_stats: dict[str, dict[str, float]] = {}
+
+    @torch.no_grad()
+    def step(self, closure=None):
+        loss = closure() if closure is not None else None
+        new_stats: dict[str, dict[str, float]] = {}
+        for group in self.param_groups:
+            beta1, beta2 = group["betas"]
+            lr = group["lr"]
+            eps = group["eps"]
+            wd = group["weight_decay"]
+            group_name = group.get("name", "")
+            use_adamp = group_name in self.adamp_target_group_names
+            proj_active = 0
+            proj_total = 0
+            cos_sum = 0.0
+            cos_count = 0
+            fnorm_sq = 0.0
+            for p in group["params"]:
+                if p.grad is None:
+                    continue
+                grad = p.grad
+                state = self.state[p]
+                if len(state) == 0:
+                    state["step"] = 0
+                    state["exp_avg"] = torch.zeros_like(p, memory_format=torch.preserve_format)
+                    state["exp_avg_sq"] = torch.zeros_like(p, memory_format=torch.preserve_format)
+                state["step"] += 1
+                step_t = state["step"]
+                exp_avg = state["exp_avg"]
+                exp_avg_sq = state["exp_avg_sq"]
+                # AdamW decoupled weight decay (matches torch.optim.AdamW order: WD first)
+                if wd != 0:
+                    p.data.mul_(1 - lr * wd)
+                exp_avg.mul_(beta1).add_(grad, alpha=1 - beta1)
+                exp_avg_sq.mul_(beta2).addcmul_(grad, grad, value=1 - beta2)
+                bc1 = 1 - beta1 ** step_t
+                bc2 = 1 - beta2 ** step_t
+                step_size = lr / bc1
+                bc2_sqrt = math.sqrt(bc2)
+                denom = (exp_avg_sq.sqrt() / bc2_sqrt).add_(eps)
+                # step direction (what we'll add to p): -step_size * exp_avg / denom
+                step_dir = (exp_avg / denom).mul_(-step_size)
+                if use_adamp and p.ndim >= 2:
+                    w_flat = p.data.view(p.shape[0], -1).to(torch.float32)
+                    s_flat = step_dir.view(p.shape[0], -1).to(torch.float32)
+                    w_norm = w_flat.norm(dim=1, keepdim=True).clamp(min=1e-12)
+                    s_norm = s_flat.norm(dim=1, keepdim=True).clamp(min=1e-12)
+                    dot = (w_flat * s_flat).sum(dim=1, keepdim=True)
+                    cos = dot / (w_norm * s_norm)
+                    mask = (cos.abs() > self.adamp_delta).to(s_flat.dtype)
+                    coef = dot / w_norm.pow(2)
+                    s_proj = s_flat - coef * w_flat
+                    s_flat = mask * s_proj + (1 - mask) * s_flat
+                    step_dir = s_flat.view_as(p).to(step_dir.dtype)
+                    proj_active += int(mask.sum().item())
+                    proj_total += mask.numel()
+                    cos_sum += float(cos.mean().item())
+                    cos_count += 1
+                p.data.add_(step_dir)
+                if use_adamp:
+                    fnorm_sq += float(p.data.float().norm().square().item())
+            if use_adamp:
+                new_stats[group_name] = {
+                    "project_fraction": (proj_active / proj_total) if proj_total > 0 else 0.0,
+                    "cos_p_w_mean": (cos_sum / cos_count) if cos_count > 0 else 0.0,
+                    "fnorm": fnorm_sq ** 0.5,
+                }
+        self._last_adamp_stats = new_stats
+        return loss
+
+
 ########################################
 #                Setup                 #
 ########################################
@@ -850,8 +946,19 @@ if dist.get_rank() == 0:
             "muonh_mu_schedule": args.muonh_mu_schedule,
             "muonh_mu_start": args.muonh_mu_start,
             "muonh_mu_end": args.muonh_mu_end,
+            "use_adamp": int(args.use_adamp),
+            "adamp_target": args.adamp_target,
+            "adamp_delta": float(args.adamp_delta),
         },
     )
+    # H167 chain-launch verification gate: ensure W&B sees 3 distinct configs across
+    # arms even if init config caching ever short-circuits. allow_val_change=True
+    # makes this idempotent if values are already set.
+    wandb.config.update({
+        "use_adamp": int(args.use_adamp),
+        "adamp_target": args.adamp_target,
+        "adamp_delta": float(args.adamp_delta),
+    }, allow_val_change=True)
 
 for trial_idx in range(args.num_trials):
 
@@ -926,10 +1033,28 @@ for trial_idx in range(args.num_trials):
     # silent-failure-mode risk we use fused=False whenever the β2 schedule is active.
     # constant schedule keeps fused=True so arm_a is bitwise-identical to baseline.
     _aux_fused = (args.aux_beta2_schedule == "constant")
-    optimizer1 = AdamW([dict(params=[model.embed.weight], lr=0.3, name="adam_embed"),
-                        dict(params=[model.proj.weight], lr=1/320, name="adam_lm_head"),
-                        dict(params=[p for p in model.parameters() if p.ndim < 2], lr=0.01, name="adam_scalars")],
-                       betas=(0.8, args.aux_beta2_start), eps=args.aux_adamw_eps, weight_decay=0, fused=_aux_fused)
+    aux_group_specs = [dict(params=[model.embed.weight], lr=0.3, name="adam_embed"),
+                       dict(params=[model.proj.weight], lr=1/320, name="adam_lm_head"),
+                       dict(params=[p for p in model.parameters() if p.ndim < 2], lr=0.01, name="adam_scalars")]
+    if args.use_adamp == 1:
+        # H167: route through AdamPAdamW (non-fused custom step). Untargeted groups
+        # take the vanilla AdamW path; targeted groups get per-row AdamP projection.
+        _adamp_target_map = {
+            "none": set(),
+            "lm_head_only": {"adam_lm_head"},
+            "embed_only": {"adam_embed"},
+            "both": {"adam_lm_head", "adam_embed"},
+        }
+        adamp_groups = _adamp_target_map[args.adamp_target]
+        assert len(adamp_groups) > 0, "--use_adamp=1 requires --adamp_target != none"
+        optimizer1 = AdamPAdamW(aux_group_specs,
+                                betas=(0.8, args.aux_beta2_start), eps=args.aux_adamw_eps,
+                                weight_decay=0, adamp_delta=args.adamp_delta,
+                                adamp_target_group_names=adamp_groups)
+    else:
+        optimizer1 = AdamW(aux_group_specs,
+                           betas=(0.8, args.aux_beta2_start), eps=args.aux_adamw_eps,
+                           weight_decay=0, fused=_aux_fused)
     optimizer2 = MuonH([p for p in model.blocks.parameters() if p.ndim >= 2],
                        lr=args.muonh_lr, weight_decay=0.0, mu=0.95,
                        hyperball=True, budget_mult=args.muonh_budget_mult,
@@ -1171,6 +1296,26 @@ for trial_idx in range(args.num_trials):
         )
         for opt in optimizers:
             opt.step()
+        # H167: AdamP diagnostics. Logged at step 1, every 100 steps, and the
+        # terminal step. Only emitted when AdamPAdamW is in use AND the group is
+        # an AdamP target (so arm_a CTRL emits zero adamp/* keys — projection
+        # sanity gate #4).
+        adamp_due = (
+            dist.get_rank() == 0
+            and args.use_adamp == 1
+            and isinstance(optimizer1, AdamPAdamW)
+            and (train_step == 1 or train_step % 100 == 0 or train_step == train_steps)
+        )
+        if adamp_due:
+            adamp_display = {"adam_lm_head": "lm_head", "adam_embed": "embed"}
+            adamp_metrics = {"trial": trial_idx, "train/step": train_step}
+            for g_name, stats in optimizer1._last_adamp_stats.items():
+                disp = adamp_display.get(g_name, g_name)
+                adamp_metrics[f"adamp/{disp}/project_fraction"] = stats["project_fraction"]
+                adamp_metrics[f"adamp/{disp}/cos_p_w_mean"] = stats["cos_p_w_mean"]
+                adamp_metrics[f"adamp/{disp}/fnorm"] = stats["fnorm"]
+            if len(adamp_metrics) > 2:
+                wandb.log(adamp_metrics, step=wandb_step)
         # Log warmup telemetry every 10 steps during warmup (and at telemetry events
         # afterwards) so we capture the warmup curve at high resolution. Cheap since
         # it's just two floats.
