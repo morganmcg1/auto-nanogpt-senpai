@@ -56,6 +56,20 @@ def parse_args():
     parser.add_argument("--outer_lr", type=float, default=float(os.environ.get("OUTER_LR", "0.7")))
     parser.add_argument("--outer_momentum", type=float, default=float(os.environ.get("OUTER_MOMENTUM", "0.5")))
     parser.add_argument("--sync_interval", type=int, default=int(os.environ.get("SYNC_INTERVAL", "30")))
+    # H163: outer aggregation rule selector. 'sgdm' = current MuLoCo Nesterov-SGDM
+    # (bit-identical to baseline when not set). 'ema' = Schedule-Free style stateless
+    # primal averaging: slow = (1-beta)*slow + beta*fast at each sync. EMA mode
+    # ignores --outer_lr and --outer_momentum entirely; the velocity buffer is
+    # not touched (stays zero).
+    parser.add_argument("--outer_aggregation_mode", type=str,
+                        default=os.environ.get("OUTER_AGGREGATION_MODE", "sgdm"),
+                        choices=["sgdm", "ema"],
+                        help="Outer aggregation rule. 'sgdm' = MuLoCo Nesterov-SGDM (default). "
+                             "'ema' = stateless primal averaging (Schedule-Free style).")
+    parser.add_argument("--outer_ema_beta", type=float,
+                        default=float(os.environ.get("OUTER_EMA_BETA", "0.5")),
+                        help="EMA mixing coefficient when outer_aggregation_mode='ema'. "
+                             "slow = (1-beta)*slow + beta*fast at each sync point.")
     # AGC (Brock et al. 2021): per-parameter adaptive gradient clipping applied to
     # AdamW aux groups (embed, lm_head, scalars). Clips grad to clip_ratio * |param|.
     # Default 0.0 disables (no-op for bit-identical baseline).
@@ -778,8 +792,13 @@ print0("="*100)
 print0(f"Running PyTorch {torch.version.__version__} compiled for CUDA {torch.version.cuda}"
        + f" on {torch.cuda.get_device_name(device)} with world_size {dist.get_world_size()}")
 if args.use_outer_optimizer:
-    print0(f"MuLoCo outer optimizer ENABLED: outer_lr={args.outer_lr} "
-           f"outer_momentum={args.outer_momentum} sync_interval={args.sync_interval}", console=True)
+    if args.outer_aggregation_mode == "ema":
+        print0(f"MuLoCo outer optimizer ENABLED [H163 EMA mode]: "
+               f"outer_ema_beta={args.outer_ema_beta} sync_interval={args.sync_interval} "
+               f"(outer_lr/outer_momentum ignored in EMA mode)", console=True)
+    else:
+        print0(f"MuLoCo outer optimizer ENABLED [SGDM mode]: outer_lr={args.outer_lr} "
+               f"outer_momentum={args.outer_momentum} sync_interval={args.sync_interval}", console=True)
 else:
     print0("MuLoCo outer optimizer DISABLED", console=True)
 print0(f"MuonH mode={args.muonh_mode} lr={args.muonh_lr} budget_mult={args.muonh_budget_mult} cooldown_shape={args.muonh_cooldown_shape}", console=True)
@@ -839,6 +858,8 @@ if dist.get_rank() == 0:
             "muloco_outer_lr": args.outer_lr,
             "muloco_outer_momentum": args.outer_momentum,
             "muloco_sync_interval": args.sync_interval,
+            "outer_aggregation_mode": args.outer_aggregation_mode,
+            "outer_ema_beta": args.outer_ema_beta,
             "aux_agc_clip_ratio": args.aux_agc_clip_ratio,
             "aux_agc_eps": args.aux_agc_eps,
             "muonh_agc_clip_ratio": args.muonh_agc_clip_ratio,
@@ -1280,27 +1301,47 @@ for trial_idx in range(args.num_trials):
                 velocity_sq = torch.zeros((), device=device)
                 total_count = 0
             with torch.no_grad():
-                for n, p in model.named_parameters():
-                    delta = outer_anchor[n] - p.data
-                    outer_velocity[n].mul_(args.outer_momentum).add_(delta)
-                    p.data.copy_(outer_anchor[n] - args.outer_lr *
-                                 (args.outer_momentum * outer_velocity[n] + delta))
-                    outer_anchor[n].copy_(p.data)
-                    if log_outer:
-                        delta_sq = delta_sq + delta.float().square().sum()
-                        velocity_sq = velocity_sq + outer_velocity[n].float().square().sum()
-                        total_count += delta.numel()
+                if args.outer_aggregation_mode == "sgdm":
+                    # Existing MuLoCo Nesterov-SGDM behavior (bit-identical to baseline).
+                    for n, p in model.named_parameters():
+                        delta = outer_anchor[n] - p.data
+                        outer_velocity[n].mul_(args.outer_momentum).add_(delta)
+                        p.data.copy_(outer_anchor[n] - args.outer_lr *
+                                     (args.outer_momentum * outer_velocity[n] + delta))
+                        outer_anchor[n].copy_(p.data)
+                        if log_outer:
+                            delta_sq = delta_sq + delta.float().square().sum()
+                            velocity_sq = velocity_sq + outer_velocity[n].float().square().sum()
+                            total_count += delta.numel()
+                else:
+                    # H163: Schedule-Free style stateless primal averaging.
+                    # slow_new = (1 - beta) * slow + beta * fast; then copy to fast.
+                    # outer_velocity is NOT touched (stays zero) — no momentum buffer.
+                    beta = args.outer_ema_beta
+                    for n, p in model.named_parameters():
+                        delta = outer_anchor[n] - p.data  # slow - fast (for telemetry parity)
+                        outer_anchor[n].mul_(1.0 - beta).add_(p.data, alpha=beta)
+                        p.data.copy_(outer_anchor[n])
+                        if log_outer:
+                            delta_sq = delta_sq + delta.float().square().sum()
+                            velocity_sq = velocity_sq + outer_velocity[n].float().square().sum()
+                            total_count += delta.numel()
             outer_applied_steps += 1
             if log_outer:
                 delta_rms = (delta_sq.item() / max(1, total_count)) ** 0.5
                 velocity_rms = (velocity_sq.item() / max(1, total_count)) ** 0.5
-                wandb.log({
+                outer_log = {
                     "trial": trial_idx,
                     "train/step": train_step,
                     "train/muloco/outer_step": outer_applied_steps,
                     "train/muloco/delta_rms": delta_rms,
                     "train/muloco/velocity_rms": velocity_rms,
-                }, step=wandb_step)
+                    "outer/aggregation_mode": 0 if args.outer_aggregation_mode == "sgdm" else 1,
+                }
+                if args.outer_aggregation_mode == "ema":
+                    outer_log["outer/ema_beta"] = args.outer_ema_beta
+                    outer_log["outer/slow_fast_dist_rms"] = delta_rms
+                wandb.log(outer_log, step=wandb_step)
 
         approx_training_time = training_time + (time.perf_counter() - t0)
         print0(f"step:{step+1}/{train_steps} train_time:{approx_training_time:.3f}s"
