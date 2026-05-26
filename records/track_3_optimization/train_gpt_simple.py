@@ -468,6 +468,14 @@ NS5_ITERS = int(os.environ.get("NS5_ITERS", "12"))
 WD_AUX = float(os.environ.get("WD_AUX", "0.0"))  # AdamW WD on embed + lm_head matrices (scalars stay at 0)
 EMBED_INIT_STD = float(os.environ.get("EMBED_INIT_STD", "1.0"))  # default preserves baseline N(0,1)
 LOGIT_SOFTCAP = float(os.environ.get("LOGIT_SOFTCAP", "15.0"))  # default = 15 (current hardcoded value); soft-cap value c in f(x) = c·x / sqrt(x^2+c^2)
+# MUON_NESTEROV_PHASE (PR #1306): phase-gated Nesterov-form re-blend on body Muon.
+# 0 = heavy-ball always (baseline, bytewise-inert). 1 = Nesterov-form re-blend
+# (μ² weighting on past EMA) selected by MUON_NESTEROV_PHASE_MODE.
+#   "cooldown_only": Nesterov form only when step >= round(train_steps * MU_COOLDOWN_START)
+#     (with MU_COOLDOWN_START=0.95 and train_steps=3175 → step 3016, last 5%).
+#   "always": Nesterov form for every step (re-test of refuted PR #703).
+MUON_NESTEROV_PHASE = int(os.environ.get("MUON_NESTEROV_PHASE", "0"))
+MUON_NESTEROV_PHASE_MODE = os.environ.get("MUON_NESTEROV_PHASE_MODE", "cooldown_only")
 
 
 def zeropower_via_newtonschulz5(G: Tensor) -> Tensor:
@@ -693,7 +701,12 @@ class Muon(torch.optim.Optimizer):
                                 state["trust_cos_col"] = 1.0
                     grad = p.grad
                     state["momentum"].lerp_(grad, 1 - group["mu"])
-                    momentum_update = grad.lerp(state["momentum"], group["mu"])
+                    if group.get("nesterov_phase", False):
+                        # Nesterov-form re-blend (PR #1306): μ² weighting on past EMA
+                        # in place of μ. (1-μ²)*grad + μ²*past_EMA.
+                        momentum_update = grad.lerp(state["momentum"], group["mu"] * group["mu"])
+                    else:
+                        momentum_update = grad.lerp(state["momentum"], group["mu"])
                     use_soap = p in self.soap_params
                     use_attn_soap = p in self.attn_soap_params
                     # SOAP precondition applied to momentum BEFORE NS5+contra+NorMuon
@@ -866,6 +879,8 @@ if dist.get_rank() == 0:
             "optimizer/attn_soap_trust_threshold": ATTN_SOAP_TRUST_THRESHOLD,
             "optimizer/ns5_iters": NS5_ITERS,
             "optimizer/wd_aux": WD_AUX,
+            "optimizer/muon_nesterov_phase": MUON_NESTEROV_PHASE,
+            "optimizer/muon_nesterov_phase_mode": MUON_NESTEROV_PHASE_MODE,
             "optimizer/recipe": "contra-muon + normuon-lite + soap-on-mlp + soap-on-attn-trust-gate (pre-NS5, record #14 + record #16)",
         },
     )
@@ -912,6 +927,12 @@ for trial_idx in range(args.num_trials):
         for group in opt.param_groups:
             group["initial_lr"] = group["lr"]
 
+    # Nesterov phase-transition start step (PR #1306). Same gate convention as
+    # PR #1282: step >= round(train_steps * MU_COOLDOWN_START). With
+    # MU_COOLDOWN_START=0.95 and train_steps=3175, this activates at step 3016
+    # (last 5% of training, i.e., the cooldown window).
+    nesterov_phase_start_step = round(train_steps * MU_COOLDOWN_START)
+
     # learning rate schedule: stable then decay
     def set_hparams(step, cooldown_frac=0.7):
         progress = step / train_steps
@@ -931,11 +952,20 @@ for trial_idx in range(args.num_trials):
                 cur_mu = MU_COOLDOWN_START + (MU_COOLDOWN_END - MU_COOLDOWN_START) * t
         else:
             cur_mu = MU + (MU_END - MU) * progress
+        # Phase-gated Nesterov form (PR #1306). False unless MUON_NESTEROV_PHASE=1.
+        if MUON_NESTEROV_PHASE == 1:
+            if MUON_NESTEROV_PHASE_MODE == "always":
+                in_nesterov_phase = True
+            else:  # "cooldown_only"
+                in_nesterov_phase = step >= nesterov_phase_start_step
+        else:
+            in_nesterov_phase = False
         for opt in optimizers:
             for group in opt.param_groups:
                 group["lr"] = group["initial_lr"] * eta
                 if group.get("name") == "muon_blocks":
                     group["mu"] = cur_mu
+                    group["nesterov_phase"] = in_nesterov_phase
 
 
     ########################################
