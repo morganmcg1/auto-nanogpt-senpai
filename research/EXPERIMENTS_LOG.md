@@ -3,6 +3,59 @@
 Log of completed/reviewed experiment PRs in chronological order. Wave 1
 results pending student execution.
 
+## 2026-05-26 08:55 UTC — PR #1188: tanjiro depth-scaled per-block LR multiplier on Muon body — **CLOSED clean-NEG** [FFS-PRIMARY]
+
+- **Branch:** `g1r5-tanjiro/depth-scaled-muon-lr`
+- **Student:** g1r5-tanjiro
+- **Hypothesis:** Depth-scaled per-block Muon LR multiplier (Yang–Ma 2024 LLR for heavy-tailed late layers). Phase 1 5-cell sweep then n=4 confirm of best cell.
+
+### FFS-primary verdict — Phase 2 n=4 (Cell E scale=1.15, anti-LLR)
+
+| Trial | FFS | val/loss |
+|:-----:|:---:|:--------:|
+| 0 | 3050 | 3.26229 |
+| 1 | 3025 | 3.26018 |
+| 2 | 3025 | 3.26112 |
+| 3 | 3050 | 3.26183 |
+| **μ_4** | **3037.5** | **3.261355** |
+
+- **FFS verdict:** μ_4=3037.5 vs baseline 3025 = flat-to-worse (+12.5 steps, ~0.4%). 2/4 trials baseline-exact, 2/4 one val-tick slower. **No speed gain.**
+- **val/loss verdict:** μ_4=3.261355 > merge gate 3.259221 by +0.002134 → **close clean-NEG** per predeclared rules.
+- **Phase 1 → Phase 2 regression-to-mean:** Phase 1 Cell E n=1 val=3.25863 (−4.36σ_single). Phase 2 μ_4=3.261355 (+0.45σ_4). **Δ_regression = +0.002725 = +4.59σ_single.** Phase 1 outlier was lucky seed.
+- **W&B run IDs:** Phase 1 = y9qof7sq/wk2tfcon/91b3k0qa/eyu01pud/x4hbzzbn, Phase 2 = s5mz9u4z
+- **★ Mechanism finding 1:** Depth-LR axis on Muon body is **null at ±15% magnitude**. Anti-LLR Phase 1 signal does not survive resampling. The "musoft init + uniform body LR" equilibrium is approximately optimal along the depth axis.
+- **★ Mechanism finding 2 — calibration constant:** **n=1 → n=4 regression-to-mean ≈ 2.7 mNats** here. Z=−4.36σ_single val outlier with FFS-flat → does NOT replicate. Strong calibration datapoint for directive #1262: val-outliers without FFS movement should not be promoted to n=4 confirm.
+- **★ Mechanism finding 3:** Cohort variance well-calibrated (σ_4 ≈ σ_single/√4) → no anomalous noise inflation unlike #907 joint reset (1.71×).
+- **Next:** Assigned tanjiro → **#1279 SOAP precond_freq pruning** (last unexplored SOAP-internals axis; tests if PRECOND_FREQ=16 is FFS-load-bearing or compute-only-cosmetic).
+
+---
+
+## 2026-05-26 08:48 UTC — PR #1222: fern AdamP-style gradient projection on aux groups — **CLOSED clean-NEG** [FFS-PRIMARY]
+
+- **Branch:** `g1r5-fern/adamp-aux`
+- **Student:** g1r5-fern
+- **Hypothesis:** AdamP (Heo et al. 2021) orthogonal-to-W projection on scale-invariant aux params (embed, lm_head, scalars). Mechanism: removes effective-LR ramp caused by weight-norm inflation.
+
+### FFS-primary verdict
+
+| Cell | mode | **FFS** | val/loss | Δ FFS vs baseline 3025 | n=1 gate |
+|:----:|:-----|:-------:|:--------:|:----------------------:|:--------:|
+| A | off (ctrl) | 3025 | 3.26050 | 0 | PASS |
+| **B★** | **embed_lmhead** PRIMARY | 3075 | 3.26687 | +50 | **FAIL +10.6σ** |
+| C | soft_half | 3050 | 3.26208 | +25 | FAIL +1.5σ |
+| D | scalars_only | 3200 | 3.27770 | +175 | **FAIL +27.8σ** |
+| E | anti_falsifier (killed @1625) | n/a | n/a | n/a | n/a |
+
+- **FFS verdict:** Cell B PRIMARY +50 FFS, Cell D catastrophic +175 FFS. No promotion gate cleared.
+- **W&B run IDs:** A=u652acpk, B=fsd1zus1, C=afhexg0f, D=qabf8w13, E=5996x2iw
+- **★ Mechanism finding 1 — Embed gradient orthogonal to embed weight (theory falsifier):** Telemetry shows `cos(g_row, W_row)` on embed = **5e-05** (3 orders below δ=0.1 threshold). AdamP fire rate on embed = **0%** throughout training. The PR's claim "sparse-token per-row updates reinforce existing directions" is falsified empirically. **Sparse-token update geometry differs structurally from dense gradient geometry.**
+- **★ Mechanism finding 2 — lm_head parallel-to-W IS the learning signal:** AdamP fires only on lm_head (cos≈0.07, fire rate ~13%). Projecting OUT parallel component HURTS monotone-in-magnitude (B +0.0064 hard, C +0.0016 soft). For untied LM head, the column for a token mass-attracts toward the corresponding residual direction → that motion IS along W.
+- **★ Mechanism finding 3 — LN γ orthogonal projection is structurally doomed:** Cell D scalars_only +0.0172 (worst single-cell degradation). LN γ has `∂loss/∂γ_i ∝ γ_i^{-1} × ...` with defining alignment with γ. **Any future "scale-invariant projection" on LN/RMSNorm γ is structurally doomed.**
+- **★ 7th aux-axis closure** — AdamW + per-row v_t + no projection = tight floor on aux-group regime.
+- **Next:** Assigned fern → **#1276 cooldown_frac pruning** (4th stack-component pruning; only one DIRECTLY targeting crossing-window LR mechanism; cooldown_frac=0.7 hardcoded never CLI-exposed → potential FFS-positive at Cell B=0.5).
+
+---
+
 ## 2026-05-26 08:35 UTC — PR #1227: askeladd pre-NS gradient noise injection on Muon body — **CLOSED clean-NEG** [FFS-PRIMARY]
 
 - **Branch:** `g1r5-askeladd/pre-ns-noise-body`
