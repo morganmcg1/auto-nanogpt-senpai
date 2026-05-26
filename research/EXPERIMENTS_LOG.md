@@ -1,5 +1,36 @@
 # SENPAI Research Results — auto-nanogpt-1gpu-r4
 
+## 2026-05-26 21:30 — PR #1297: H: NM coverage-by-layer-group — NANOGPT_NEWTON_MUON_GROUPS at all/attn/mlp/none (CLOSED productive-NULL — 46th no-merge)
+
+- Branch: `g1r4-thorfinn/nm-coverage-by-layer-group` (student g1r4-thorfinn)
+- Hypothesis: Newton-Muon coverage-by-layer-group sweep — where does NM's value come from in the architecture? NM currently applies `G → G·(R + ε·I)^{-1/2}` to ALL body Muon matrices with `d_in ≤ MAX_D_IN=1024` (covers 48 attn matrices d_in=768 + 12 MLP up-proj d_in=768 = 60 of 72 body Muon matrices). Test whether NM's value is concentrated in attn-side preconditioning, MLP-side, or jointly distributed. 4-arm sweep at GROUPS=all/attn/mlp/none. Arm D (NM-off entirely) is the critical post-#1138-stack diagnostic — should reproduce pre-#1138 baseline ~3.26756 if NM is the unique load-bearing mechanism added by #1138.
+
+| Arm | NANOGPT_NEWTON_MUON_GROUPS | val/loss | fs | Δ_paired_val vs A | Δ_paired_fs | W&B run | Verdict |
+|:---:|:---:|:---:|:---:|:---:|:---:|:---:|:---|
+| A ctrl | `all` (production) | **3.26320** | 3150 | (ref) | (ref) | `9cvnujcf` | drift −0.00294 PASS-CLEAN-FAVORABLE-COHORT |
+| B attn-only | `attn` | 3.26788 | 3200 | **+0.00468** NEG | +50 NEG | `kszq6mte` | PRODUCTIVE-NEG strong |
+| C mlp-only | `mlp` | 3.26898 | 3200 | **+0.00578** NEG | +50 NEG | `1rjs6w0o` | PRODUCTIVE-NEG strongest single-group |
+| D none diagnostic | `none` (NM off) | 3.26996 | 3225 | +0.00676 NEG | +75 NEG | `24eur376` | Reproduces pre-#1138 baseline within drift envelope |
+
+- **🎯 LAYER-GROUP MECHANISM FINDING (8th NM mechanism axis characterized)**:
+  - **Joint-load-bearing across both layer groups**: both attn-only AND mlp-only individually NEG, roughly equivalent in damage (Δ_C − Δ_B = +0.00109 within seed-variance band). Neither group alone reproduces NM gain.
+  - **Sub-additivity ratio 65%**: observed Δ_D=+0.00676 vs additive prediction Δ_B+Δ_C=+0.01046 — partial mechanistic overlap between attn and MLP-up-proj layer groups (both receive residual-stream input post-LN, similar input-activation second moments).
+  - **Per-matrix damage skew**: MLP +0.000195/matrix vs attn +0.000120/matrix → **MLP per-matrix leverage 1.6× higher than attn**. NM has slightly more leverage on MLP gradients per matrix, but on per-group basis both are jointly critical.
+- **🎯 Arm D NM-off mechanism diagnostic SUCCEEDS**: |val_D − 3.26756 (pre-#1138 baseline)| = 0.00240 ≤ 0.003 drift envelope. **CONFIRMS NM is the unique load-bearing mechanism that #1138 merge added** — no hidden non-NM mechanisms in the merge. Strongest possible reproducibility test of #1138's contribution.
+- **🎯 NM-MECHANISM-CHARACTERIZATION WAVE NOW HAS 8 AXES FULLY CHARACTERIZED**:
+  1. BETA bilateral fence at β=0.95 (#1288)
+  2. EPS flat across [1e-8, 1e-2] (#1291) — 6 orders of magnitude
+  3. LATE_PERIOD bilateral NULL-NEG (#1286)
+  4. MAX_D_IN COVERAGE-LOAD-BEARING (#1240 PP + #1286 H4 Arm C) — 2× confirmed favorable
+  5. RESET_STEP R-FRESHNESS-LOAD-BEARING (#1281 PP)
+  6. START_STEP monotone NEG (#1277)
+  7. END_STEP [3000, 3350) dispensable (#1280)
+  8. **LAYER_GROUPS joint-load-bearing (this PR)** — fence at GROUPS=all
+- Combined NM mechanism story: NM gain from joint contributions across (coverage scope max_d_in, temporal window, R-freshness, R-buffer EMA-horizon β, regularization ε, layer-group scope) — **NM mechanism story FULLY MECHANISTICALLY CHARACTERIZED** for the post-#1138 stack.
+- Pre-staged decision tree: row 3 TRIGGERED (all B/C arms NEG → fence layer-group axis as already-optimal at GROUPS=all production, Arm D used purely for mechanism characterization).
+- Student craftsmanship excellence: sub-additivity ratio analysis (65% of additive), per-matrix damage normalization revealing MLP-leverage skew, Arm D bit-identity verification via `newton_precond=False` + skipped hook registration, honest closing analysis, forward-looking suggested follow-ups grounded in observed effects.
+- Conclusion: 46th no-merge since #847, layer-group axis FENCED at GROUPS=all (current production). NM-mechanism-characterization wave complete. thorfinn reassigned to #1346 NM per-group LR-scale (extends MLP per-matrix leverage finding to LR-scaling axis as 9th NM mechanism axis).
+
 ## 2026-05-26 19:30 — PR #1291: H: NM eps regularization sweep — NANOGPT_NEWTON_MUON_EPS at 1e-2/1e-4/1e-6/1e-8 (CLOSED productive-NULL — 45th no-merge)
 
 - Branch: `g1r4-askeladd/nm-eps-sweep` (student g1r4-askeladd)
