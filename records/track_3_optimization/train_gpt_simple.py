@@ -64,6 +64,10 @@ def parse_args():
     parser.add_argument("--muon_lr", type=float, default=0.035,
                         help="Base learning rate for body-Muon optimizer (matrix params in blocks). "
                              "Default 0.035 matches the merged baseline.")
+    parser.add_argument("--muon_nesterov_reset_step", type=int, default=0,
+                        help="Iteration step at which to zero the body-Muon Nesterov first-moment "
+                             "buffer (state['momentum']) for all body-Muon params, just before that "
+                             "step's optimizer update. 0 = disabled (default, bitwise no-op).")
     args = parser.parse_args()
     args.num_trials = args.num_trials if args.num_trials is not None else (args.legacy_num_trials or 1)
     args.wandb_tags = [tag.strip() for tag in args.wandb_tags.split(",") if tag.strip()]
@@ -720,6 +724,8 @@ if dist.get_rank() == 0:
             "ema_warmup_steps": args.ema_warmup_steps,
             "ema_beta_target": args.ema_beta_target if args.ema_beta_target is not None else 0.0,
             "ema_dynamic_ramp_active": int(args.ema_beta_target is not None and args.ema_beta > 0),
+            "muon_nesterov_reset_step": args.muon_nesterov_reset_step,
+            "muon_nesterov_reset_active": int(args.muon_nesterov_reset_step > 0),
         },
     )
 
@@ -978,6 +984,37 @@ for trial_idx in range(args.num_trials):
                 train_steps=train_steps,
                 wandb_step=wandb_step,
             )
+        # One-shot Body-Muon Nesterov buffer reset (PR #1253):
+        # If --muon_nesterov_reset_step matches this iteration's step, zero state["momentum"]
+        # for every body-Muon matrix param BEFORE that step's pmuon_update consumes it. This
+        # tests whether stale high-LR-phase momentum is load-bearing or limiting at the chosen
+        # phase boundary. The conditional is provably no-op when the flag is 0 (default).
+        if args.muon_nesterov_reset_step > 0 and step == args.muon_nesterov_reset_step:
+            sq_sum_pre = 0.0
+            n_buffers_zeroed = 0
+            for p in optimizer2.param_groups[0]["params"]:
+                state = optimizer2.state.get(p, None)
+                if state is not None and "momentum" in state:
+                    m_buf = state["momentum"]
+                    sq_sum_pre += float(m_buf.detach().float().square().sum().item())
+                    m_buf.zero_()
+                    n_buffers_zeroed += 1
+            m_prev_norm_pre_reset = sq_sum_pre ** 0.5
+            if dist.get_rank() == 0:
+                wandb.log({
+                    "trial": trial_idx,
+                    "train/step": train_step,
+                    "muon/nesterov_reset_fired": 1.0,
+                    "muon/nesterov_reset_step": float(step),
+                    "muon/m_prev_norm_pre_reset": m_prev_norm_pre_reset,
+                    "muon/m_prev_norm_post_reset": 0.0,
+                    "muon/nesterov_reset_buffers_zeroed": float(n_buffers_zeroed),
+                }, step=wandb_step)
+                print0(
+                    f"[muon-nesterov-reset] step={step} pre_norm={m_prev_norm_pre_reset:.4e} "
+                    f"buffers_zeroed={n_buffers_zeroed}",
+                    console=True,
+                )
         for opt in optimizers:
             opt.step()
         # EMA buffer update on body-Muon matrix params.
