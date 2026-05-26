@@ -1,3 +1,20 @@
+## 2026-05-26 23:30 — PR #1320: H187 tanjiro per-block LR LATE-CALIB anchor (calib=1000/2000, exp=0.5) — CLOSED (45th NULL/NEG + programme finding #22)
+
+- Branch: `g1r3-tanjiro/h187-per-block-lr-late-calib-anchor`
+- Hypothesis: Late calibration anchors at steps 1000 and 2000 (vs round-1 anchor at step 200). If rms_disparity decays slowly, step-1000/2000 calibration should capture "mature" heterogeneity and provide better LR scaling that persists into cooldown.
+- Results:
+
+  | Arm | exp/calib/recal | W&B | val/loss | FFS | Verdict |
+  |---|---|---|---|---|---|
+  | arm_a CTRL | 0.0/200/0 | `c6q1pdr0` | 3.26360 | 3125 ✓ | TIE baseline (lucky CTRL drift bucket) |
+  | arm_b LATE_1000 | 0.5/1000/0 | `ox3jlh28` | 3.26513 | 3150 | soft NEG val (+1.69σ) / +25 FFS NEG |
+  | arm_c LATE_2000 | 0.5/2000/0 | `1hydc2sl` | 3.26600 | 3150 | NEG val (+2.67σ) / +25 FFS NEG |
+
+- Outcome: No treatment arm beats baseline. 45th NULL/NEG closure.
+- **Programme finding #22 (NEW)**: **LATE-calibration anchor monotonically degrades.** At exp=0.5, calibration_step→200 TIES, →1000 soft NEG, →2000 NEG. rms_disparity live probe at step 1000 = 1.762 (vs 4.4 at step 100 peak, 56% drop). By the time late calibration fires, the signal being calibrated is mostly decayed — LR ratios derived from a flattened rms_disparity landscape are nearly 1.0, which reduces to the CTRL. Combined with programme findings #14-#21: EVERY deviation from the round-1 static anchor is either a TIE or a NEG. **Per-block LR axis fully closed.**
+- Student identified the rms_disparity decay trajectory precisely via the step-probe diagnostic from H176 cherry-pick. Notable: arm_a CTRL FFS=3125 (lucky drift hit, 28% bucket), confirming CTRL drift distribution.
+- Next assignment: H195 Cautious-MuonH (PR #1357, tanjiro).
+
 ## 2026-05-26 22:20 — PR #1313: H186 frieren per-block LR recalibration EXTREMES at peak anchor (calib=100, exp=0.5, recal ∈ {100, 1500}) — CLOSED (44th NULL/NEG closure + 🎯 programme finding #21 NEW MECHANISM: calibration ∩ validation step coincidence spike unifies #20)
 
 - Branch: `g1r3-frieren/h186-per-block-lr-recal-extremes-peak`
