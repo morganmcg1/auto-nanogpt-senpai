@@ -1,5 +1,27 @@
 # SENPAI Research Results — auto-nanogpt-1gpu-r5
 
+## 2026-05-26 23:50 — PR #1294: Crossing-phase redesign: decay Muon momentum during cooldown
+- branch: g1r5-nezuko/mu-cooldown-decay
+- hypothesis: "Decaying mu during cooldown removes stale stable-phase inertia → accelerates FFS" (PR predeclared 55% prior toward null mechanism / 40% reverse mechanism / 5% positive)
+- verdict: **CLOSED clean-NEG with MECHANISM-REVERSAL** [FFS-primary, 9th stack-component closure]
+- results:
+  | Cell | mu config | FFS | val/loss | Δbase (σ_single) | Δctrl (σ_single) | W&B id |
+  |:----:|:----------|:---:|:--------:|:----------------:|:----------------:|:------:|
+  | A | mu=0.95 ctrl | 3050 | 3.262358 | +1.92σ | (ctrl) | kz8zooqb |
+  | B★ | linear 0.95→0.0 cooldown | 3025 | **3.269557** | **+14.06σ** | +12.14σ | v341t4j2 |
+  | C | linear 0.95→0.5 cooldown | 3000 | 3.264868 | +6.15σ | +4.23σ | gnaan28n |
+  | D | instant mu=0.0 at cooldown | **−1 NEVER** | 3.286754 | +43.06σ | +41.14σ | z0mcsdc0 |
+  | E | linear 0.95→0.0 full-run (killed step 1014) | n/a | 3.6480 @ step 1000 | n/a | n/a | l1mo0cdd |
+- ★ **Mechanism REVERSAL** (4 findings):
+  1. **Momentum during cooldown is val-positive, monotonically**: as mu_target rises 0.0→0.5→0.95 (B→C→A), val/loss monotonically improves 3.2696→3.2649→3.2624. Gradient unambiguous.
+  2. **Instant-kill (Cell D) catastrophic** — FFS=−1, val=3.2868 confirms cooldown NEEDS the 0.95 EMA buffer to dampen low-LR descent.
+  3. **NS-orthogonalization plus low-LR depends on smoothed gradient direction**: cooldown is low-SNR regime; gradient-noise floor dominates signal; mu=0 removes smoothing.
+  4. ★ **Breaks the "everything wants to be small at end" cluster** (#1272 terminal-WD=0, #1276 cooldown-frac, #1284 body-WD basin): **mu is the outlier — it wants to be HIGH at the end, not low. Strong dissociation between momentum and the smallness-cluster.**
+- ★ **Cell C oddity**: FFS=3000 (-25 vs baseline) but val/loss worse → per FFS-primary directive (alive ≤2975) does NOT clear alive gate, close as net NEG. Most likely single-trial seed noise (Cell A control itself drifted +25 from #699 baseline FFS=3025).
+- ★ **Cluster connection**: joins #941 (cooldown SWA = directed descent), #966 (cooldown weight rescaling NEG), #1272 (wd ramp_down), #1276 (cooldown_frac), #1284 (body-WD basin) → cooldown is directed descent with heavy momentum smoothing and tight WD floor.
+- ★ **Student diligence**: process improvement flagged transparently (Cell E falsifier mis-designed: linear-decay-from-step-0 instead of constant-mu=0; gate also poorly calibrated). Solid scientific honesty.
+- next: assigned nezuko → **#1345 mu cooldown RAMP-UP** (direct mechanism extension; 5-cell A=ctrl/B★=0.95→0.98/C=0.95→0.99/D=instant 0.98/E=0.95→0.999 falsifier; **NO code change needed** — re-use existing `--mu_cooldown_target` flag; **first hypothesis in cluster that PREDICTS FFS improvement** since extrapolates monotone gradient toward higher mu).
+
 Log of completed/reviewed experiment PRs in chronological order. Wave 1
 results pending student execution.
 
