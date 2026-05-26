@@ -1,3 +1,57 @@
+## 2026-05-26 04:10 UTC — ALPHONSE #1230 PRODIGY_AUX CLOSED (157th refuted, CATASTROPHIC closure, FROZEN-AUX-SLOW-RAMP 10th refute-signature class, 2nd SATURATED LANE entry) + ALPHONSE #1248 NOVOGRAD_BODY_MUON assigned (80th distinct mech class) (cycle 71 mid-260)
+
+### #1230 alphonse PRODIGY_AUX — CLOSED, 157th refuted, 44th family-level closure
+
+- **Hypothesis**: Online parameter-free D-Adaptation LR estimator on AUX AdamW (Mishchenko & Defazio ICML 2024 arXiv:2306.06101 Prodigy + D-Adaptation). Maintain running lower-bound d_t on distance-from-initialization, scaling effective AUX LR as lr_t = d_t × base_lr × PRODIGY_D_COEF. Expected: auto-warmup via positive-feedback `(d/d_0)·dlr` scaling calibrated to actual loss surface geometry.
+
+- **Iteration history** (4 spec-audit + 3 GPU-run iterations across mid-256 → mid-260):
+
+| Iteration | Issue | Resolution |
+|---|---|---|
+| Arm A `aq2gbuwr` (vanilla PR spec) | d_t diverged to 26905 → NaN step ~455 | Student caught: `<g_0,g_t>` init-grad inner product → canonical `<g_t,p_0-p_t>` position-delta |
+| Arm A `q9go7e98` (paper-strict Algorithm 3) | FROZEN-AUX-NO-RAMP, d_t=1e-6 frozen for 3175 steps | Student caught: paper-strict linear-in-d weighting → canonical konstmish quadratic-in-d |
+| Arm A `dbttnp2h` (konstmish quadratic-in-d) | FROZEN-AUX-SLOW-RAMP: d_t=1e-6→2.94e-6 at step 750, bootstrap ~step 375, ~1.41× growth per 125 steps | Advisor derivation + student confirmation: algebraic cancellation in d_hat = r_t/\|s_t\|_1 |
+| Arm A `okspaqqc` (PerGroupProdigy, d_init=1e-3) | FROZEN-AUX-SLOW-RAMP: bootstrap step ~378, AUX effective LR 1/1000 baseline during pinned phase | CATASTROPHIC kill-gate breach: val@250=10.06 vs gate 4.10 (Δ+5.96) |
+
+- **Terminal results**:
+
+| Run | Config | val@250 | d_t@250 | Boot step | Verdict |
+|---|---|---|---|---|---|
+| `dbttnp2h` | konstmish in-house, d_init=1e-6 | 10.82 | 1.47e-6 | ~375 | FROZEN-AUX-SLOW-RAMP, killed step ~750 |
+| `okspaqqc` | PerGroupProdigy pip, d_init=1e-3 | 10.06 | 1.00e-3 (pinned) | ~378 | FROZEN-AUX-SLOW-RAMP, CATASTROPHIC kill-gate breach |
+
+- **Algebraic root cause** (alphonse derivation, publication-grade): The `(d/d_0)·dlr` prefactor appears in BOTH r_t and s_t, so it **algebraically cancels** in d_hat = r_t/|s_t|_1. Residual: `d_hat ≈ <g, p_0-p>/|g|_1 ≈ ||p_0-p||_∞·cos(angle(g,motion))`. Param motion bounded by `t·lr·d_t`, creating chicken-and-egg: params need large d_t to move, d_t needs motion to grow. d_init lever doesn't escape: `cos≈1e-2` at step 250, bootstrap at `t·cos=3.33/max_group_lr=11.1`→t≈370. After bootstrap, ~1.41× growth per 125 steps requires ~25k steps to reach d_t=O(1). Fundamental to Prodigy's ratio estimator structure, not transcription error.
+
+- **Key insight — generalizes**: Any Prodigy-style D-Adaptation estimator where r_t and s_t both scale by the same `f(d)·g(grad)` factor will have d_t cancel in d_hat. The konstmish "quadratic-in-d amplification" is real in per-step contribution magnitude but illusory in the d_hat estimator. This applies to any future parameter-free LR estimator using this ratio structure.
+
+- **Closure class**: CATASTROPHIC (val 10× above kill gate throughout, AUX path frozen), 44th family-level closure. **FROZEN-AUX-SLOW-RAMP** as distinct 10th refute-signature class (distinct from FROZEN-AUX-NO-RAMP = val pinned at log(V)=10.82; FROZEN-AUX-SLOW-RAMP = val moves slowly but bootstrap takes too long, kill gates breach catastrophically by Δ+6).
+
+- **SATURATED LANE update**: AUX-side adaptive-LR/preconditioner lane now has **2 mechanism families closed**:
+  1. #1216 PSGD_KRON_AUX (Kronecker whitening preconditioner) — bilateral SHIFTED-FLOOR
+  2. #1230 PRODIGY_AUX (online D-Adaptation parameter-free LR) — CATASTROPHIC + FROZEN-AUX-SLOW-RAMP
+  Pattern: AUX adaptive geometry/magnitude estimators hit fundamental scale issues (tight budget + per-group ratio preservation) regardless of preconditioner-shaped or LR-shaped mechanism.
+
+- **Process improvements this PR established**:
+  1. Pre-launch code-review gate for auxiliary-state optimizers (now standard)
+  2. `[[spec-cross-check-reference-impl]]` memory (already used by thorfinn #1245 DoG init catch)
+  3. Reference-impl parity ≠ structural suitability for tight-budget regime (NEW: algorithm porting must include regime analysis)
+  4. Drop redundant arms when algebraic derivation + reference-impl parity is established (NEW: confirmation runs are GPU waste)
+
+- **Student trajectory**: alphonse **12th consecutive within-student validation** (#1148→#1165→#1194→#1205→#1230 spec#1 caught→spec#2 caught→patch approved→d_t deadlock derivation→**final CATASTROPHIC closure with algebraic generalization**). Three consecutive iterations on #1230 at progressively deeper levels: surface spec audit → reference-impl line-by-line → algebraic-cancellation derivation. Strongest spec-auditor + analytic-derivation pattern in corpus.
+
+---
+
+### #1248 alphonse NOVOGRAD_BODY_MUON — ASSIGNED, 80th distinct mech class (FIRST per-layer-scalar-EMA-2nd-moment on body Muon in 319-PR corpus)
+
+- **Mechanism**: NovoGrad (Ginsburg et al. 2019, arXiv:1905.11286) per-layer scalar 2nd moment normalizer applied to body Muon gradients pre-momentum accumulation. Per tensor: v_l,t = β2·v_l,t-1 + (1-β2)·||g_l||²_F (one scalar per body matrix). Preconditioned grad: ĝ_l = g_l/(sqrt(v_l)+eps). Then standard Muon momentum + NS5 polar as usual. Adjusts inter-layer magnitude balance without competing with NS5's intra-layer spectral normalization.
+- **Distinct from**: #71 NorMuon (post-NS5, per-row Adafactor), #80 Muon² (per-element Adam var, refuted), #1083 RMSProp per-element (refuted), #1101 instantaneous Frobenius (refuted — NO EMA smoothing)
+- **Novel element**: EMA-smoothed per-TENSOR SCALAR (one number per body matrix, temporal smoothing is load-bearing difference from #1101's instantaneous form)
+- **Arms**: Arm A β2=0.95 (canonical) → Arm B β2=0.5 (responsive), sequential after Arm A SENPAI-RESULT
+- **Anti-duplication grep clean**: NOVOGRAD / per-layer-scalar / layer-wise-scalar zero matches in corpus
+- **NOT in**: all 7 SATURATED MECHANISM LAYERS, AUX SATURATED LANE, current in-flight WIPs
+
+---
+
 ## 2026-05-26 02:30 UTC — THORFINN #1216 PSGD_KRON_AUX CLOSED (156th refuted, AUX SATURATED LANE) + ALPHONSE #1230 PRE-LAUNCH CODE-REVIEW GATE PASSED + THORFINN #1245 DOWG_BODY_MUON assigned (cycle 71 mid-259)
 
 ### #1216 thorfinn PSGD_KRON_AUX — CLOSED, 156th refuted, 43rd family-level closure (PSGD-KRON-AUX-PRECOND-FREQ-IN-{50,100} 1/1)
