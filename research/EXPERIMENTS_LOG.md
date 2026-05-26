@@ -1,5 +1,33 @@
 # SENPAI Research Results
 
+## 2026-05-26 04:08 UTC — PR #1208 CLOSED: beta_cov bias-correction warmup (0→0.95 over 300 vs 750 steps) — 142nd NULL, β_cov/L_cov/R_cov initialization axis FULLY CLOSED across 5 PRs (g1r1-frieren)
+
+- Branch: `g1r1-frieren/beta-cov-warmup`
+- Hypothesis: linearly ramp `beta_cov` from 0 → 0.95 over the first 300 (Arm A) or 750 (Arm B) training steps. Adam-β2-style bias correction for the body-Muon preconditioner covariance EMA. Tests whether cold-start `L_cov`/`R_cov` (under-converged for first ~1/(1-0.95)=20 steps) over-aggressively scales early body-Muon updates.
+
+| Arm | warmup | wandb run | val/loss | sr | Δval (mnat) | Δsr | Verdict |
+|---|---|---|---|---|---|---|---|
+| Baseline (n=2) | — | vm48fdof / 0a7esmxs | 3.266394 | 2925 | 0 | 0 | (reference) |
+| **A (fast)** | 300 | `b2hyb08n` | **3.271470** | **3025** | **+5.08 (17σ)** | **+100** | clear NULL |
+| **B (slow)** | 750 | `4kd27gzi` | **3.270377** | **3000** | **+3.98 (13σ)** | **+75** | clear NULL |
+
+- **Predeclared merge rule:** `sr ≤ 2912.5 OR (sr=2925 AND val<3.266394)` — both arms fail both clauses.
+- **Direction:** monotone-toward-baseline (slower=better, never beats). No bracket interior — warmup→∞ converges back to baseline behavior. Mechanism-rejected, not a Pareto-shift.
+- **Mechanism canon — direction wrong:** starting from `effective_beta_cov=0` (pure outer-product covariance, no EMA decay) is LESS favorable than baseline's `beta_cov=0.95` cold-start. The eps=1e-12 clamp on `matrix_neg_power(L_cov, 0.4)` already absorbs cold-start asymmetry, and NS5 polar normalization further re-normalizes. The hypothesis posited that cold-start under-converged EMA caused over-aggressive early-update scaling, but empirically the eps+NS5 stack handles this cleanly — adding warmup REMOVES the partial smoothing that beta_cov=0.95 provides at step 1.
+- **Param-EMA redundancy:** likely interaction with #918's param-EMA warmup (β_t ramps 0.95→0.99 over steps 0–1750). The param EMA filters out early-training noise at the parameter level; adding preconditioner-level warmup double-counts the bias correction. Two-level correction is redundant rather than complementary.
+- **Mechanism safe but scheduling wrong:** no divergence, no NaN, no exploding norms in either arm. The mechanism is structurally safe — issue is direction, not stability.
+
+**β_cov / L_cov / R_cov initialization axis FULLY CLOSED across 5 PRs and 3 mechanism-distinct sub-axes:**
+- **#686 (CLOSED)** static β_cov ∈ {0.80, 0.90, 0.95, 0.99} — value scan
+- **#774 (CLOSED)** fast-mix K ∈ {20, 50} — gradient-mixing window length
+- **#822 85th (CLOSED)** L_cov/R_cov Adam-style BC (n=3 boundary informative-NULL)
+- **#893 97th (CLOSED)** m_pre first-moment BC (n=2 boundary informative-NULL)
+- **#1208 (this)** warmup schedules 0→0.95 over {300, 750} steps
+
+Combined: every initialization-state and warmup variant on the preconditioner covariance is NULL/marginal. NS5 + eps clamp + param-EMA warmup form a robust early-training stack that absorbs all tested initialization perturbations. β_cov initialization is structurally constrained — further mining deprioritized.
+
+**142nd NULL closed.** frieren → next assignment (per-tensor-type body-Muon Nesterov mu — attn vs mlp; deprioritized-but-untested axis from PR #777 closure list, mechanism-distinct from #1164 depth-stratified mu CATASTROPHIC + #1213 cooldown mu + #1215 warmup mu).
+
 ## 2026-05-26 02:00 UTC — PR #1198 CLOSED: AdamW aux weight_decay scan (0.01 vs 0.10, baseline=0) — 141st NULL, AdamW aux wd axis FULLY BRACKETED + AdamW aux family CLOSURE complete (g1r1-askeladd)
 
 - Branch: `g1r1-askeladd/aux-adamw-wd`
