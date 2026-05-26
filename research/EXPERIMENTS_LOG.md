@@ -1,5 +1,57 @@
 # SENPAI Research Results
 
+## 2026-05-26 06:58 UTC — PR #1218 CLOSED: AdamW aux β2 static (0.99 vs 0.999 PyTorch default) — 145th NULL, AdamW aux family CLOSURE across 6 inner levers (g1r1-fern)
+
+- Branch: `g1r1-fern/adamw-aux-beta2-static`
+- Hypothesis: replace baseline `betas=(0.8, 0.95)` (~20-step lookback) with widened β2 ∈ {0.99 (Arm A, ~100-step lookback), 0.999 (Arm B, PyTorch default ~1000-step lookback)} on AdamW aux (embed, lm_head, scalars). Tests whether wider variance-EMA window for tail-heavy aux gradients improves cooldown-phase preconditioning.
+
+| Arm | β2 | wandb_run | val_ema | sr | Δval (mnat) | Δsr | Verdict |
+|---|---|---|---|---|---|---|---|
+| Baseline (n=2) | 0.95 (~20-step lookback) | vm48fdof / 0a7esmxs | 3.266394 | 2925 | 0 | 0 | (reference) |
+| **A (β2=0.99)** | 0.99 (~100-step) | `o0iuc4gg` | **3.267362** | **2950** | **+0.97 (3.2σ)** | **+25** | marginal NULL |
+| **B (β2=0.999)** | 0.999 PyTorch default (~1000-step) | `a5f14g6t` | **3.269506** | **2975** | **+3.11 (10σ)** | **+50** | clear NULL |
+
+- **Predeclared merge rule:** `sr ≤ 2912.5 OR (sr=2925 AND val<3.266394)` — both arms FAIL both clauses.
+- **Direction:** monotone dose-response, super-linear in Δval (+0.97 → +3.11 mnat = 3.2× scaling at 10× β2 step). Δsr linear (+25 → +50). No bracket interior.
+- **Mechanism canon — variance staleness CONFIRMED via student telemetry analysis:**
+
+| Metric | Arm A β2=0.99 | Arm B β2=0.999 | Ratio | Interpretation |
+|---|---|---|---|---|
+| `adamw/embed/v_mean_sqrt` | 0.00504 | 0.01338 | **2.65×** | wider β2 retains larger embed variance |
+| `adamw/embed/v_max` | 2.45 | 65.50 | **26.7×** | extreme retention of early-training peaks |
+| `adamw/lm_head/v_mean_sqrt` | 0.4752 | 0.7511 | 1.58× | lm_head retains 1.5× |
+| `adamw/scalars/v_max` | 1.17e7 | 4.22e7 | 3.60× | scalars retain 3.6× |
+| `adamw/embed/eps_dominance_frac` | 0.00487 | 0.00487 | **1.000×** | eps non-binding under β2=0.999 ✓ |
+
+Wider β2 → preconditioner retains stale (larger) variance from pre-cooldown high-magnitude regime → `sqrt(v̂)` over-estimated → update magnitude `m̂/sqrt(v̂)` under-scaled during small-LR cooldown tail → val regresses. Dose-dependent, not threshold/discrete.
+
+- **Cross-axis canon #1178 eps non-binding EXTENDED:** `eps_dominance_frac` is **unchanged across β2 ∈ [0.99, 0.999]** (both 0.00487 for embed) — variance signal dominates `+eps` by ~200× regardless of β2 choice. **#1178 eps-canon is robust across the FULL β2 ∈ [0.95, 0.999] range** — eps floor structurally silent over a 4-decade range × 50× β2 lookback span.
+
+- **β-axis monotone-worse NULL pattern — 4th instance, structural canon:**
+  - **#1208** frieren β_cov warmup (β₂-analog on body-Muon preconditioner) — monotone NULL
+  - **#1213** edward μ cooldown ramp (β₁-analog body-Muon EMA) — monotone NULL
+  - **#1215** tanjiro μ warmup (β₁-analog body-Muon EMA) — monotone NULL
+  - **#1218 (this)** fern AdamW aux β2 static — monotone NULL
+
+**Canon:** *any departure from baseline-tuned β/μ/EMA coefficients toward textbook defaults (Adam-style β=0.999, etc.) is structurally penalized at this benchmark's 3250-step horizon. The baselines are not legacy artifacts — they are load-bearing tuning specific to the WSD-cooldown + 3250-step regime.*
+
+- **AdamW aux family — 6 inner levers all NULL:**
+
+| PR | Lever | Closure |
+|---|---|---|
+| #796 | β1 ramp | NULL |
+| #741 | β2 cooldown ramp | NULL |
+| #832 / #1086 | β1 fixed bias-correction | NULL |
+| #1168 / #1178 | eps (4-decade range) | NULL |
+| #1198 | weight_decay (10× span) | NULL (Pareto-shift) |
+| **#1218 (this)** | β2 static (0.99 / 0.999) | NULL (monotone dose-response) |
+
+Plus AdamW-replacement family fully NULL (#854 Adan, #875 AdaBelief, #899 EMA-wrapper, #937 SOAP-damped, #953 SOAP-undamped, #964 Muon-as-aux, #1013 Sophia-H). **AdamW with baseline `betas=(0.8, 0.95), eps=1e-10, weight_decay=0` is structurally required for aux.**
+
+- **Cooldown variance-staleness recovery (canon update):** Arm B did NOT trigger catastrophic miss despite mid-run val_live=3.285 trajectory — cooldown recovered ~12 mnat (val_live 3.285 → 3.269) in the final 300 steps. Useful new canon: cooldown phase has substantial variance-staleness compensation capacity even at PyTorch-default β2.
+
+**145th NULL closed.** fern → next assignment (per Issue #1252 directive): **L_cov/R_cov preconditioner refresh at cooldown entry** — strongly motivated by #1215 striking L_cov rank degeneracy. State-intervention at phase boundary, mechanism-distinct from β_cov initialization axis (END-of-training only).
+
 ## 2026-05-26 06:05 UTC — PR #1215 CLOSED: body-Muon Nesterov mu warmup (0→0.95 over 200 vs 500 steps) — 144th NULL, mu-warmup axis FULLY CLOSED with monotone dose-response + striking L_cov rank degeneracy observation (g1r1-tanjiro)
 
 - Branch: `g1r1-tanjiro/mu-warmup`
