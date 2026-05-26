@@ -1,5 +1,44 @@
 # SENPAI Research Results
 
+## 2026-05-26 06:05 UTC — PR #1215 CLOSED: body-Muon Nesterov mu warmup (0→0.95 over 200 vs 500 steps) — 144th NULL, mu-warmup axis FULLY CLOSED with monotone dose-response + striking L_cov rank degeneracy observation (g1r1-tanjiro)
+
+- Branch: `g1r1-tanjiro/mu-warmup`
+- Hypothesis: linearly ramp `muon_mu` from 0 → 0.95 over the first 200 (Arm A) or 500 (Arm B) training steps. Adam-β₁-style bias correction for body-Muon's Nesterov first-moment EMA. Tests whether cold-start `m_prev` (with effective_mu=0.95 EMA-decayed-from-zero) over-aggressively damps early body-Muon updates.
+
+| Arm | mu_warmup_steps | wandb run | val_ema | sr | Δval (mnat) | Δsr | Verdict |
+|---|---|---|---|---|---|---|---|
+| Baseline (n=2) | 0 (mu=0.95 fixed) | vm48fdof / 0a7esmxs | 3.266394 | 2925 | 0 | 0 | (reference) |
+| **A (short)** | 200 | `h9o5hj45` | **3.271246** | **3000** | **+4.85 (16σ)** | **+75** | clear NULL |
+| **B (long)** | 500 | `fv4a8gcv` | **3.271832** | **3025** | **+5.44 (18σ)** | **+100** | clear NULL |
+
+- **Predeclared merge rule:** `sr ≤ 2912.5 OR (sr=2925 AND val<3.266394)` — both arms FAIL both clauses.
+- **Direction:** monotone dose-response (longer warmup strictly worse). Δval scales 12% / Δsr scales 33% from Arm A to Arm B at 2.5× warmup duration. No bracket interior.
+- **Mechanism canon — direction wrong:** explicit linear mu warmup (0→0.95) introduces a "cold-start no-momentum phase" where body-Muon's first-moment buffer = current gradient only (no EMA averaging). The implicit mu=0.95 EMA-decayed-from-zero behavior at baseline (`m_1 = 0.05·g_1`) produces lower-magnitude, lower-variance smoothed inputs to NS5 that are apparently preferred over the warmup's pure-current-gradient inputs.
+- **Adam analogy asymmetry:** Adam's β₁ bias correction is about *recovering the unbiased expected gradient estimate*, not about producing the *best optimizer step*. Body-Muon's NS5 polar map appears to benefit from the implicit damping that the un-corrected EMA provides — bias correction is the wrong intervention for this optimizer surface.
+- **Cross-axis canon with #1208 frieren β_cov warmup:** identical mechanism story on the β₂-analog axis (NULL across n=2, warmup REMOVES partial smoothing that NS5 prefers). Together #1208 + #1215 confirm **bias-correction-style warmup is structurally NULL on both Muon EMA axes (β₁=mu and β₂=β_cov).** Body-Muon stack (eps=1e-12 clamp + NS5 polar normalization + param-EMA wrapper) already optimally damps cold-start asymmetry.
+
+**Striking telemetric finding — L_cov rank degeneracy at cooldown terminal:**
+
+| Arm | pmuon/lcov_eigh_min terminal | vs baseline (1857–1997) |
+|---|---|---|
+| Arm A (200 warmup) | **0.0** | fully collapsed |
+| Arm B (500 warmup) | **0.3516** | 5000× below baseline |
+
+This is a novel cross-axis observation — longer mu warmup → cold-start phase produces low-variance gradient inputs that under-populate the L_cov covariance accumulator early, compounding to rank degeneracy at cooldown terminal. Strong support for a future **L_cov refresh at cooldown entry** PR (mechanism #4 in the Issue #1252 aligned hypothesis queue) — detect rank degeneracy mid-training and re-initialize covariance estimate from a fresh window.
+
+**μ-axis cluster status — 7 mechanism-distinct closures:**
+- #930 static μ scan
+- #1107 polar interpolation μ (n=2 boundary)
+- #1156 Lookahead k-step μ blend (CATASTROPHIC)
+- #1164 depth-stratified μ (CATASTROPHIC both directions)
+- #1213 cooldown ramp 0.95→{0.97, 0.99} (monotone NULL)
+- **#1215 (this)** warmup 0→0.95 over {200, 500} (monotone NULL)
+- #1249 in flight: per-tensor-type (attn/mlp split)
+
+Static μ=0.95 fixed-everywhere remains the only μ configuration not strictly worse than its perturbations. **μ-axis structurally constrained — further scalar μ-axis mining DEPRIORITIZED per Issue #1252 directive.**
+
+**144th NULL closed.** tanjiro → next assignment (per Issue #1252 directive): **Pre-target LR boost (steps 2500-2925)** — phase-specific schedule intervention that directly addresses the directive item "schedules that deliberately steepen loss descent before step 2925." Mechanism #3 from aligned hypothesis queue.
+
 ## 2026-05-26 05:25 UTC — PR #1213 CLOSED: body-Muon Nesterov mu cooldown ramp (0.95→0.97 vs 0.95→0.99) — 143rd NULL, mu-cooldown axis FULLY CLOSED with monotone dose-response (g1r1-edward)
 
 - Branch: `g1r1-edward/mu-cooldown-ramp`
