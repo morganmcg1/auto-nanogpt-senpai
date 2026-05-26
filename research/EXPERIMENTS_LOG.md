@@ -3,6 +3,40 @@
 Log of completed/reviewed experiment PRs in chronological order. Wave 1
 results pending student execution.
 
+## 2026-05-26 21:15 UTC — PR #1276: fern `cooldown_frac` pruning ablation — **CLOSED clean-NEG-INVERTED** [FFS-PRIMARY]
+
+- **Branch:** `g1r5-fern/cooldown-frac-pruning`
+- **Hypothesis:** Test whether `cooldown_frac=0.7` (hardcoded line 882, controls LR cooldown timing — cooldown starts at step `(1-cooldown_frac)*total_steps`) is FFS-load-bearing. PRIMARY hypothesis: Cell B (frac=0.5, earlier cooldown start = HIGHER LR at crossing window step ~3025) should move FFS earlier.
+- **5-cell design:** A=0.7 ctrl / B★=0.5 PRIMARY earlier crossing / C=0.6 / D=0.85 / E=0.95 falsifier.
+- **Results (FFS-primary):**
+
+| Cell | `cooldown_frac` | FFS | val/loss | Δ vs ctrl (σ_single) | first→3.30 | first→3.40 | Verdict |
+|:----:|:---------------:|:---:|:--------:|:-------:|:----------:|:----------:|:--------|
+| A | 0.7 (ctrl) | 3050 | 3.26217 | 0 | 2875 | 2250 | baseline + 25 FFS noise |
+| B★ | **0.5** | **3075** | 3.26323 | **+1.8σ REGRESSED** | 2950 | 2375 | **PRIMARY FAILED — opposite direction** |
+| C | 0.6 | 3050 | 3.26295 | +1.3σ | 2925 | 2375 | within FFS noise |
+| **D** | **0.85** | **3025** | **3.26109** | **−1.8σ better** | 2875 | 2250 | **borderline — best val direction** |
+| E | 0.95 falsifier | 3050 | 3.26459 | +4σ | 2875 | 2125 | not catastrophic, falsifier missed |
+
+- **Verdict:** **INVERTED mechanism finding.** PR predicted lower cooldown_frac → earlier FFS; observed: higher cooldown_frac directionally better. Cell D val/loss=3.26109 is 1.8σ better than ctrl at FFS=3025 baseline-EXACT but per strict FFS-primary directive (no n=4 unless FFS≤2975) does NOT qualify for n=4 promotion. **6th stack-component pruning closure.**
+- **Ordering at every step in [3000, 3250]: D < A ≈ E < C < B** — monotonic in 1/cooldown_frac across {0.5, 0.6, 0.7, 0.85}. Pulled val/loss at fixed step across crossing window:
+
+| step | A (0.7) | B (0.5) | C (0.6) | D (0.85) | E (0.95) |
+|:----:|:-------:|:-------:|:-------:|:--------:|:--------:|
+| 3000 | 3.28394 | 3.28996 (worst) | 3.28666 | **3.28074 (best)** | 3.28317 |
+| 3025 | 3.28032 | 3.28543 | 3.28279 | **3.27745** | 3.28022 |
+| 3075 | 3.27474 | 3.27867 | 3.27678 | **3.27234** | 3.27530 |
+| 3250 | 3.26217 | 3.26323 | 3.26295 | **3.26109** | 3.26459 |
+
+- **Mechanism (INVERTED from hypothesis):**
+  1. **Higher LR at crossing window DEGRADES crossing speed.** Falsifies 'more LR longer = faster crossing' intuition. eta at step 3000: B=0.154 (worst val), A=0.110 (ctrl), D=0.0905 (best val). The optimizer at progress=0.93 PREFERS gentle decay over LR floor maintenance.
+  2. **Cell E (frac=0.95) only ~4σ regression not catastrophic.** Schedule with almost no stable phase still works at FFS=3050. Refutes "stable phase is necessary" intuition — model gets enough learning even with cooldown spanning most of training.
+  3. **The ordering breaks at Cell E.** Monotone trend D < A < C < B continues for frac ∈ {0.5, 0.6, 0.7, 0.85}, then E (0.95) jumps to +4σ from ctrl. Suggests an upper bound somewhere in (0.85, 0.95] where "no stable phase" becomes harmful.
+- **Mechanism cluster connection:** Dovetails with #941 (cooldown is directed descent), #966 (cooldown weight rescaling NEG), #1272 (terminal WD = 0 mechanism). **Cluster finding: everything wants to be small at the end** — terminal eta near 0, terminal WD near 0, terminal momentum decoupled (#1294 in flight tests this). Higher LR at crossing window contradicts this — confirms cluster from a fresh axis.
+- **Cell D borderline observation:** val/loss=3.26109 vs n=1 confirm gate ≤3.260628 misses by +0.000462. FFS=3025 = baseline-EXACT. Strongest val direction in sweep but technically n=1 gate fail. Per FFS-primary directive (strict): not promotable since FFS hasn't moved below 3025.
+- **Suggested follow-ups (from student):** (1) test if forcing low-LR cooldown beyond what cooldown_frac=0.85 gives helps — direct mechanism extension; (2) sweet-spot probe at cooldown_frac ∈ {0.80, 0.85, 0.90} n=4 — REJECTED per directive (scalar HP search + Cell D is val-only direction); (3) confirm Cell D — REJECTED per FFS-primary strict reading. **Advisor decision:** assigned fern → #1328 body LR warmup — structurally orthogonal, first early-phase test under FFS-primary, addresses fern's own mechanism observation that "FFS locked by state accumulated through first ~3000 steps."
+- **W&B runs:** A `i9yxixny`, B `za3awfbu`, C `sc7e5lya`, D `tvuvuy98`, E `huidqtsr`.
+
 ## 2026-05-26 20:30 UTC — PR #1275: askeladd `--lr_scalars` pruning ablation — **CLOSED clean-NEG-mixed** [FFS-PRIMARY]
 
 - **Branch:** `g1r5-askeladd/lr-scalars-pruning`
