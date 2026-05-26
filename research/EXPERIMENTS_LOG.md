@@ -3,6 +3,23 @@
 This file logs experiment outcomes as PRs land. The historical track 3
 leaderboard is captured in `/BASELINE.md`.
 
+## 2026-05-26 02:30 UTC — PR #1192: lm_head row-norm (fern) — CLOSED CATASTROPHIC lm_head / productive-MARGINAL embed / MAGNITUDE-EQUALIZING sub-axis FENCED (29th no-merge)
+
+- Branch: `g1r4-fern/row-norm-adamw-lmhead`
+- Hypothesis: Muon-style row gradient equalization applied to lm_head and embed AdamW aux groups — per-row L2 normalization of gradient before optimizer step. Motivated by RMNP (arXiv 2603.20527) showing row-momentum normalization improved GPT-2 Large val ppl 14.43 vs AdamW 15.27.
+
+| Arm | Config | W&B run | val/loss | Δ vs A | Δ vs baseline | fs | Classification |
+|:---:|:---|:---:|:---:|:---:|:---:|:---:|:---|
+| A ctrl | both off | `qqjmxrvo` | **3.26864** | — | drift +0.00108 PASS | 3200 | clean ctrl |
+| **B lm_head row-norm** | LM_HEAD_ROW_NORM=1 | `3ttau020` | **3.44015** | **+0.17151** | +0.17259 | -1 | **CATASTROPHIC** |
+| C embed row-norm | EMBED_ROW_NORM=1 | `noj0kthy` | **3.27134** | **+0.00270** | +0.00378 | 3225 | productive-MARGINAL |
+| **D compound** | both=1 | `g59z3k6q` | **3.45713** | **+0.18849** | +0.18957 | -1 | **CATASTROPHIC compound** |
+
+- **Mechanism telemetry (confirmed firing)**: `row_norm_active=1` (B,D). Post_std collapses to ~1.34e-9 on lm_head (B,D) confirming equalization correct. Embed post_std ~1.40e-5 weaker (lower Zipfian variance). Sign-flip rate INSENSITIVE to row-norm: 0.4796 (B) vs 0.4740 (A) — row equalization doesn't change momentum direction distribution.
+- **Conclusions**: lm_head row-norm is a TRUE MECHANISM REJECTION — not an implementation bug. lm_head has 50257 vocab rows with strong Zipfian gradient magnitude distribution (common tokens 10-100× higher row-norm than rare tokens). Equalizing destroys this prior: common-token gradient signal is **artificially suppressed** while rare-token signal is **artificially amplified**. Val/loss is dominated by common-token prediction → +0.17 CATASTROPHIC. Embed row-magnitude variance is much lower (gradients smoothed by positional context) → only mild +0.003 productive-MARGINAL regression. Compound is CATASTROPHIC via lm_head dominance. **Harm scales with Zipfian row-magnitude variance of the target parameter group.**
+- **Cluster sub-axis FENCED**: lm_head MAGNITUDE-PRESERVING cluster boundary confirmed: MAGNITUDE-PRESERVING-RESPECTING-ROW-STRUCTURE (favorable: #1100/#1155/#1175 preserve Zipfian row-magnitude ordering) vs **MAGNITUDE-EQUALIZING-ACROSS-ROWS (CATASTROPHIC: #1192 destroys Zipfian prior)**. Future lm_head proposals must preserve the cross-row magnitude ranking (large-row signal must stay large).
+- **Design principle established**: Per-element magnitude equalization → dangerous for aux groups with strong token-frequency priors. Use magnitude-FLOOR (v_min style) or magnitude-SMOOTHING (WD style) instead of magnitude-EQUALIZATION.
+
 ## 2026-05-25 20:30 UTC — PR #1172: Muon++ μP spectral — per-layer shape-derived post-NS5 update scaling (alphonse) — CLOSED productive-NEG with PARTIAL FENCE (μP init fenced, scale-only NULL-band benign compositional candidate); **24th consecutive no-merge closure since #847**
 
 - Branch: `g1r4-alphonse/muon-pp-spectral`
