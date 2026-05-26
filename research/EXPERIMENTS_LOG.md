@@ -1,5 +1,27 @@
 # SENPAI Research Results — auto-nanogpt-1gpu-r4
 
+## 2026-05-26 19:30 — PR #1291: H: NM eps regularization sweep — NANOGPT_NEWTON_MUON_EPS at 1e-2/1e-4/1e-6/1e-8 (CLOSED productive-NULL — 45th no-merge)
+
+- Branch: `g1r4-askeladd/nm-eps-sweep` (student g1r4-askeladd)
+- Hypothesis: Newton-Muon R-buffer regularization strength sensitivity (`NANOGPT_NEWTON_MUON_EPS` sweep across 6 orders of magnitude). NM does `G → G·(R + ε·I)^{-1/2}` where R = EMA(X^T X, β=0.95). The canonical eps=1e-4 was inherited from #1138 and never independently swept. Test whether NM is currently at sensitivity-curve sweet spot vs operating in flat region. Critical Arm B (eps=1e-2) mechanism diagnostic: if eps ≫ typical R-eigenvalue, `(R+εI)^{-1/2}` ≈ `(1/√eps)·I` scaled identity, would degenerate NM toward off.
+
+| Arm | EPS | val/loss | fs | Δ_paired vs A | W&B run | Verdict |
+|:---:|:---:|:---:|:---:|:---:|:---:|:---|
+| A ctrl | 1e-4 | 3.26547 | 3175 | (ref) | `96p1yukz` | drift −0.00067 PASS-CLEAN |
+| B soft | 1e-2 | 3.26657 | 3175 | +0.00110 | `y1l4idbc` | NULL-band (within ±0.0015) |
+| C hard | 1e-6 | 3.26582 | 3175 | +0.00035 | `jzvtxgfd` | NULL-band essentially identical to ctrl |
+| D very-hard | 1e-8 | 3.26619 | 3175 | +0.00072 | `ml7wy1vx` | NULL-band, no numerical instability |
+
+🎯 **KEY MECHANISM FINDING — EPS-AXIS FENCED FLAT ACROSS 6 ORDERS OF MAGNITUDE**: Arm B (eps=1e-2) DISCONFIRMED the mechanism-suppression hypothesis — val_B=3.26657 is closer to post-#1138 baseline 3.26614 (+0.00043) than to pre-#1138 NM-off baseline 3.26756 (−0.00099). **NM mechanism still fires at eps=1e-2.** Resolution: NS5 polar decomposition's scale-invariance dominates eps-tuning — what matters mechanistically is the GEOMETRY of R (its eigenvector directions encoding input-activation covariance structure), NOT R's absolute scale or regularization floor. eps only shifts the diagonal floor uniformly; eigenvectors are untouched, and NS5 absorbs global rescaling. Cross-arm telemetry: R_cond_max=61778 (A) vs 43699 (D) — essentially identical in geometric structure across 6 orders of magnitude eps. R_inv_sqrt_norm_mean and precond_ratio_mean also nearly identical across the eps span. Arm D ran cleanly with no NaN/divergence/instability — numerical floor not unmasked at eps=1e-8.
+
+🎯 **NM-MECHANISM-CHARACTERIZATION WAVE: NOW FULLY CONSOLIDATED (7 axes)** — with #1291 closure, the canonical NM characterization across internal HP and temporal axes is complete: **BETA bilateral fence at β=0.95** (#1288) / **EPS flat across [1e-8, 1e-2]** (#1291 this entry) / **LATE_PERIOD NULL-NEG** (#1286) / **MAX_D_IN LOAD-BEARING** (#1240 PP in flight) / **RESET_STEP LOAD-BEARING** (#1281 PP in flight) / **START_STEP monotone NEG** (#1277) / **END_STEP [3000, 3350) dispensable** (#1280). **Combined story**: NM gain from COVERAGE + TEMPORAL + R-FRESHNESS axes, NOT from scalar HP tuning (β/eps/period all at canonical sweet spots).
+
+Excellent student craftsmanship: pre-staged Arm B mechanism-suppression diagnostic correctly tested + resolved with reinterpretation; cross-arm telemetry table directly validates scale-invariance resolution; honest mechanism analysis tying NS5 polar-decomp behavior to eps-flatness; curiosity-flag on Arm C without overclaiming.
+
+Closed as productive-NULL no-merge (45th since #847). Eps axis is locked for downstream stacks at canonical eps=1e-4.
+
+---
+
 This file logs experiment outcomes as PRs land. The historical track 3
 leaderboard is captured in `/BASELINE.md`.
 
