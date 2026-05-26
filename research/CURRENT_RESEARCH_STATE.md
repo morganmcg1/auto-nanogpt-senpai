@@ -1,3 +1,70 @@
+## 2026-05-26 15:55 UTC — Cycle 71 mid-289
+
+**Cumulative**: **173 refuted (+1: tanjiro #1303 173rd)** / **97 distinct mech classes (+1: 97 MUON_BODY_POLYAK_AVERAGING #1316)** / **56 family-level closures (+1: CompleteP / per-layer-asymmetric-LR family)**.
+
+**This cycle — 1 closure + 1 family-wide closure + 1 reassignment + 1 code-review gate (18th cycle 71)**:
+
+1. **tanjiro #1303 LR_COMPENSATED_COMPLETP closed as 173rd refute** — catastrophic-shifted-floor 10th + **CompleteP / per-layer-asymmetric-LR family-wide closure (56th)**:
+   - Arm A `mnzcyx80` (MUON_LR=0.062, DEPTH_DEP_EXP=0.5): val=**3.28255** ffs=**−1** (target 3.28 never reached)
+   - **Load-bearing self-correction by tanjiro**: PR-body's "mean(mults)=0.6453" is `sqrt(5/12)` (5th-layer mult), NOT arithmetic mean. True mean = 0.7036; exact-mean compensation should have been MUON_LR=0.0569. This test was actually "asymmetric pattern + 9.06% mean-LR boost" — STRONGER evidence against per-layer asymmetric pattern since mean was above baseline.
+   - Closes family across 5 distinct mechanism PRs: #793 naive depth_lr_mult (catastrophic 8th), #1303 mean-compensated depth_lr_mult (catastrophic 10th), #1250 LR depth-ramp scalar (cluster member), #1285 paired LR+β1 ramp (Arm A above-cluster regression, Arm B catastrophic-shifted-floor)
+   - **Hypothesis space "per-depth LR scaling beats scalar at speedrun" empirically closed for this codebase**
+
+**Reassignment**:
+
+2. **tanjiro → PR #1316 MUON_BODY_POLYAK_AVERAGING (97th mech class)** — TRUE ORTHOGONAL pivot:
+   - Polyak (EMA) of body Muon params, evaluated with θ_avg instead of θ_current
+   - **Does NOT touch training dynamics** — only modifies eval-state
+   - First Polyak/SWA/EMA-of-params mechanism in 320+ PR corpus
+   - Arms: α=0.95 (heavy avg, ~20-step window), α=0.99 (light avg, ~100-step window)
+   - Builds on tanjiro's math expertise WITHOUT retreading depth-ramp territory
+   - State-mutation at eval-time → requires 3-canary disabled-check (NOT structural exemption, since eval-time swap is conditional)
+
+**Code-review gate authorized (18th cycle 71 application)**:
+
+3. **nezuko #1307 AUX_BIASES_LR_BOOST** — code-review gate PASSED, Arm A launch authorized:
+   - Patch `51aa971` ~10 LoC: splits `adam_scalars` into `adam_biases` (73 params) + `adam_other_scalars` (26 params); env-var `AUX_BIASES_LR_MULT` (default 1.0)
+   - **Single canary structural exemption** (3rd consecutive): AdamW-group-identity at MULT=1.0 — both groups share lr=0.01 → per-param trajectory bit-identical to previous single-group construction → val@200=4.08105 (cu12.8 envelope) + step:0 bit-identity (10.82583) sufficient
+   - Per-group telemetry: `aux_adam/biases/grad_rms|max_abs|param_count` for differential dynamics analysis
+   - Arm A: MULT=2.0 (boost); Arm B: MULT=0.5 (suppression)
+
+**Single-canary structural exemption precedent now established (3 consecutive PRs)**:
+
+| PR | Mechanism | Identity proof type |
+|---|---|---|
+| #1304 edward WD_BODY_DEPTH | per-layer body Muon WD ramp | IEEE-identity (`1.0 + 0.0*x = 1.0` exactly) |
+| #1306 thorfinn MUON_NESTEROV_PHASE_TRANSITION | phase-gated Nesterov form | branch-isolated (`get(.., False)` → original path) |
+| #1307 nezuko AUX_BIASES_LR_BOOST | per-AUX-group bias LR dispatch | AdamW-group-identity (same hyperparams across split groups) |
+
+**Refined methodology**: single canary suffices IF the disabled path is **provably bytewise-inert by mathematical identity** (IEEE-identity, branch-isolated, or group-identity). 3-canary required for mechanisms where disabled path is approximate (numerical equivalence, conditional state mutations).
+
+**Active fleet status mid-289**:
+
+| Student | PR | Status | W&B notes |
+|---|---|---|---|
+| g1r2-alphonse | #1283 | status:wip, n=2 confirm authorized | Option 1 confirmed; launch confirmation pending |
+| g1r2-thorfinn | #1306 | status:wip, Arm A authorized | MUON_NESTEROV_PHASE_TRANSITION |
+| g1r2-nezuko | #1307 | status:wip, Arm A authorized | AUX_BIASES_LR_BOOST x2 boost |
+| g1r2-fern | #1296 | status:wip, in-flight | LATE_LR_PULSE Arm A |
+| g1r2-frieren | #1312 | draft, just assigned | MUON_LR_BETA_DEPTH_RAMP_ANTI_ALIGNED |
+| g1r2-askeladd | #1301 | status:wip, Arm A authorized | ATTN_SOAP_TRUST_PER_KIND |
+| g1r2-tanjiro | #1316 NEW | draft, just assigned | MUON_BODY_POLYAK_AVERAGING |
+| g1r2-edward | #1304 | status:wip, Arm A authorized | WD_BODY_DEPTH |
+
+**ZERO IDLE STUDENTS** — 8 students concurrently active.
+
+**Methodological synthesis (cycle 71 mid-289)**:
+
+- **CompleteP / per-layer-asymmetric-LR family closure** (56th family-level): the FIFTH closed mechanism family. Joins MUON_BETA_DEPTH_RAMP, AUX_CLIP_NORM, state-buffer-reset, SOAP_TRUST_DEPTH_RAMP, and now CompleteP. Cycle 71 has been remarkably productive at family-level closures (5 families closed in ~6 hours of session work).
+- **Tanjiro's mean-LR arithmetic correction**: PR-body templates for depth-ramp PRs need to compute arithmetic mean numerically (not assume sqrt-mid). This methodology fix is recorded for future PR design.
+- **"per-depth optimizer parameter scaling" hypothesis space appears closed for this codebase** — at least on the LR axis. Open questions: per-depth WD (edward #1304 in-flight), per-depth SOAP refresh (untested), per-depth NS5 iters (untested), per-AUX-group LR (nezuko #1307 just authorized).
+- **Polyak averaging is a structurally NEW axis** — first eval-state mechanism in 320+ PRs. If Arm A or B wins, opens an entire family of "eval-state ≠ training-state" mechanisms (cooldown-only Polyak, per-group Polyak, lower-frequency Polyak, etc.)
+- **Code-review gate cadence**: 18 successful applications cycle 71 in <14 days. Protocol is firmly established and refined (structural exemption recognition now standard).
+
+**Wake schedule**: ~25-40 min for next batch of terminals — alphonse Arm B n=2 launch confirmation (overdue), thorfinn #1306 Arm A launch, askeladd #1301 Arm A launch, edward #1304 Arm A launch, fern #1296 LATE_LR_PULSE Arm A terminal.
+
+---
+
 ## 2026-05-26 15:30 UTC — Cycle 71 mid-288
 
 **Cumulative**: **172 refuted (+1: frieren #1285 172nd)** / **96 distinct mech classes (+1: 96 MUON_LR_BETA_DEPTH_RAMP_ANTI_ALIGNED #1312)** / **55 family-level closures (unchanged — paired-depth-ramp family closure DEFERRED pending anti-aligned outcome)**.
