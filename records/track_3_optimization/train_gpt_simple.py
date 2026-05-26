@@ -64,6 +64,9 @@ def parse_args():
     parser.add_argument("--muon_lr", type=float, default=0.035,
                         help="Base learning rate for body-Muon optimizer (matrix params in blocks). "
                              "Default 0.035 matches the merged baseline.")
+    parser.add_argument("--muon_mu_warmup_steps", type=int, default=0,
+                        help="Steps to linearly ramp body-Muon Nesterov momentum mu from 0 to its "
+                             "configured value (Adam-style β1 bias correction). 0 = no warmup (baseline).")
     args = parser.parse_args()
     args.num_trials = args.num_trials if args.num_trials is not None else (args.legacy_num_trials or 1)
     args.wandb_tags = [tag.strip() for tag in args.wandb_tags.split(",") if tag.strip()]
@@ -535,12 +538,13 @@ def pmuon_update(
 
 class Muon(torch.optim.Optimizer):
     def __init__(self, params, lr=0.02, weight_decay=0, mu=0.95, beta_cov=0.95, gamma=PMUON_GAMMA,
-                 ns_a=NS_A, ns_b=NS_B, ns_c=NS_C):
+                 ns_a=NS_A, ns_b=NS_B, ns_c=NS_C, mu_warmup_steps=0):
         assert isinstance(params, list) and len(params) >= 1 and isinstance(params[0], torch.nn.Parameter)
         params = sorted(params, key=lambda x: x.size(), reverse=True)
         defaults = dict(lr=lr, weight_decay=weight_decay, mu=mu, beta_cov=beta_cov, gamma=gamma,
-                        ns_a=ns_a, ns_b=ns_b, ns_c=ns_c)
+                        ns_a=ns_a, ns_b=ns_b, ns_c=ns_c, mu_warmup_steps=mu_warmup_steps)
         super().__init__(params, defaults)
+        self._step_count = 0
 
     @torch.no_grad()
     def step(self):
@@ -551,7 +555,16 @@ class Muon(torch.optim.Optimizer):
         floor_fired_count = 0
         floor_eligible_count = 0
         polar_diag: dict = {}
+        effective_mu = 0.0
+        warmup = 0
         for group in self.param_groups:
+            # Mu warmup (Adam-style β1 bias correction): linearly ramp mu from 0 to its
+            # configured value over the first `mu_warmup_steps` optimizer steps.
+            warmup = group.get("mu_warmup_steps", 0)
+            if warmup > 0 and self._step_count < warmup:
+                effective_mu = group["mu"] * (self._step_count / warmup)
+            else:
+                effective_mu = group["mu"]
             params = group["params"]
             params_pad = params + [torch.empty_like(params[-1])] * (world_size - len(params) % world_size)
             for base_i in range(0, len(params), world_size):
@@ -567,7 +580,7 @@ class Muon(torch.optim.Optimizer):
                         state["momentum"],
                         state["L"],
                         state["R"],
-                        mu=group["mu"],
+                        mu=effective_mu,
                         beta_cov=group["beta_cov"],
                         gamma=group["gamma"],
                         ns_a=group["ns_a"],
@@ -587,6 +600,14 @@ class Muon(torch.optim.Optimizer):
                 dist.all_gather(params_pad[base_i:base_i + world_size], params_pad[base_i + rank])
         self._floor_diag = {"fired": floor_fired_count, "eligible": floor_eligible_count}
         self._polar_diag = polar_diag
+        self._mu_diag = {
+            "effective_mu": float(effective_mu),
+            "warmup_steps": int(warmup),
+            "step_count": int(self._step_count),
+            "warmup_progress": (min(1.0, self._step_count / warmup) if warmup > 0 else 1.0),
+            "in_warmup": int(warmup > 0 and self._step_count < warmup),
+        }
+        self._step_count += 1
 
 
 def pmuon_spectral_diag(optimizer: torch.optim.Optimizer, gamma: float) -> dict[str, float]:
@@ -720,6 +741,7 @@ if dist.get_rank() == 0:
             "ema_warmup_steps": args.ema_warmup_steps,
             "ema_beta_target": args.ema_beta_target if args.ema_beta_target is not None else 0.0,
             "ema_dynamic_ramp_active": int(args.ema_beta_target is not None and args.ema_beta > 0),
+            "muon_mu_warmup_steps": args.muon_mu_warmup_steps,
         },
     )
 
@@ -756,9 +778,11 @@ for trial_idx in range(args.num_trials):
                         dict(params=[p for p in model.parameters() if p.ndim < 2], lr=0.025, name="adam_scalars")],
                        betas=(0.8, 0.95), eps=1e-10, weight_decay=0, fused=True)
     optimizer2 = Muon([p for p in model.blocks.parameters() if p.ndim >= 2],
-                      lr=args.muon_lr, weight_decay=0.025, beta_cov=0.95, gamma=PMUON_GAMMA)
+                      lr=args.muon_lr, weight_decay=0.025, beta_cov=0.95, gamma=PMUON_GAMMA,
+                      mu_warmup_steps=args.muon_mu_warmup_steps)
     optimizer2.param_groups[0]["name"] = "muon_blocks"
-    print0(f"body-Muon optimizer: lr={args.muon_lr} weight_decay=0.025 beta_cov=0.95 gamma={PMUON_GAMMA}")
+    print0(f"body-Muon optimizer: lr={args.muon_lr} weight_decay=0.025 beta_cov=0.95 gamma={PMUON_GAMMA} "
+           f"mu_warmup_steps={args.muon_mu_warmup_steps}")
     optimizers = [optimizer1, optimizer2]
     assert set(p for opt in optimizers for group in opt.param_groups
                for p in group["params"]) == set(model.parameters())
@@ -1017,6 +1041,17 @@ for trial_idx in range(args.num_trials):
                     "train/uw_floor/eligible": eligible,
                     "train/uw_floor/fired": fired,
                     "train/uw_floor/fired_fraction": (fired / eligible) if eligible > 0 else 0.0,
+                }, step=wandb_step)
+            mu_diag = getattr(optimizer2, "_mu_diag", None)
+            if mu_diag is not None:
+                wandb.log({
+                    "trial": trial_idx,
+                    "train/step": train_step,
+                    "muon/effective_mu": mu_diag["effective_mu"],
+                    "muon/mu_warmup_progress": mu_diag["warmup_progress"],
+                    "muon/mu_warmup_steps": mu_diag["warmup_steps"],
+                    "muon/mu_step_count": mu_diag["step_count"],
+                    "muon/mu_in_warmup": mu_diag["in_warmup"],
                 }, step=wandb_step)
             polar_diag = getattr(optimizer2, "_polar_diag", None)
             if polar_diag and "residual" in polar_diag:
