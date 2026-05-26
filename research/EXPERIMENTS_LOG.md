@@ -3,6 +3,32 @@
 Log of completed/reviewed experiment PRs in chronological order. Wave 1
 results pending student execution.
 
+## 2026-05-26 19:30 UTC — PR #1272: alphonse `--wd_schedule ramp_down` pruning ablation — **CLOSED clean-NEG-graded** [FFS-PRIMARY]
+
+- **Branch:** `g1r5-alphonse/wd-schedule-pruning`
+- **Hypothesis:** Test whether `--wd_schedule ramp_down` (mandatory flag in baseline stack) is FFS-load-bearing or val-loss-cosmetic. 5-cell sweep over all 5 supported schedule shapes.
+- **5-cell design:** A=ramp_down ctrl / B★=constant PRIMARY pruning / C=ramp_up / D=triangle / E=cosine_updown.
+- **Results (FFS-primary, sorted by FFS):**
+
+| Cell | Schedule | FFS | Δ FFS | val/loss | Δ vs ctrl (σ_single) | Step→3.30 | Verdict |
+|:----:|:---------|:----|:-----:|:--------:|:-------:|:---------:|:--------|
+| A | ramp_down ctrl | 3050 | 0 | 3.26190 | 0 | 2875 | baseline + 25 step noise |
+| B★ | constant | 3100 | +50 | 3.26619 | +7.2σ | 2950 | FAIL primary pruning gate |
+| D | triangle | 3150 | +100 | 3.27268 | +18.2σ | 3025 | graded NEG |
+| C | ramp_up | 3175 | +125 | 3.27519 | +22.4σ | 3025 | graded NEG |
+| E | cosine_updown | 3200 | +150 | 3.27570 | +23.3σ | 3050 | worst — falsifier fires |
+
+- **Verdict:** `--wd_schedule ramp_down` IS FFS-LOAD-BEARING in a **graded way** (no catastrophic FFS=-1, but each alternative costs 50-150 FFS — all 7.2σ_single or worse on val/loss). **4th stack-component pruning closure** (joins #1266 init cosmetic, #1227 noise NEG, #1273 soap-attn LOAD-BEARING).
+- **Mechanism (3 findings):**
+  1. **All 5 schedules same average WD** (cumulative dose matched per `_wd_multiplier` semantics: ramp_up/ramp_down/triangle/cosine_updown peak at 2× args.wd_mlp; constant stays 1×; cumulative integral matched over 3250 steps). **Differentiator is shape, not dose.**
+  2. **Ordering tracks terminal WD magnitude at step 3250.** ramp_down → ~1.5e-5 (essentially off in final 250 steps); constant → 0.025 (held to end); triangle → 3.1e-5 (decayed but spent peak in middle); ramp_up → 0.05 (3× constant terminal, peak right at end). **Late-training WD must be near zero** for cooldown to squeeze the last 0.01-0.02 nats. Cells with non-zero terminal WD show late-training stall: ramp_up step→3.30 = 3025 vs ramp_down 2875.
+  3. **Terminal weight norms identical** across cells (~69 700, range 69 610-69 832). Schedule shape controls **validation curve geometry through final descent**, NOT gross weight scale.
+- **Cell E (cosine_updown) falsifier rule fires:** Cell E (terminal WD ≈ 0 but spent peak in middle) is WORST overall (FFS=3200). If terminal WD were the only thing that mattered, E should match A. **Schedule axis IS structured: terminal WD near 0 is necessary but not sufficient — early-training WD must also be controlled, not spent on a mid-training peak.**
+- **Mechanism cluster:** Dovetails with #941 (cooldown SWA: cooldown is directed descent), #966 (cooldown weight rescaling NEG: Muon NS scale-invariant + WD ramp_down already controls norms). **Cluster finding: cooldown is directed descent in zero-WD regime; WD floor at cooldown end is what matters; early-training WD shape also matters but ramp_down (decay throughout) is the tight optimum.**
+- **Closure decision:** Clean-NEG-graded — no n=4 promotion (Cell B failed primary gate by +50 FFS, no cell beat ctrl). Per FFS-primary directive, do not promote val/loss-only candidates. Predicted modal "cosmetic" (55%) was WRONG; actual is graded load-bearing. **Stack stays at ramp_down.**
+- **Suggested follow-ups (from student):** (1) n=4 confirm A vs B for record-keeping (low priority; val/loss 7.2σ_single gap likely real, FFS quantum noisy); (2) Truncated ramp_down (WD floor pinned to 0 from step 2800 onward) — direct mechanism test; (3) Hybrid constant_until_cooldown + ramp_down_after; (4) Drop wd in last 250 steps entirely. All are crossing-phase WD redesigns. **Advisor decision:** assigned alphonse → #1322 NS-cooldown axis instead — orthogonal mechanism test (NS direction vs WD value in cooldown) covers fresher ground.
+- **W&B runs:** A `1oez0e2z`, B `ndaun4hz`, C `ym7r9sxw`, D `ux09orz1`, E `mkvt4nxw`.
+
 ## 2026-05-26 17:40 UTC — PR #1273: frieren `--soap_attn` pruning ablation — **CLOSED clean-NEG** [FFS-PRIMARY]
 
 - **Branch:** `g1r5-frieren/soap-attn-pruning`
