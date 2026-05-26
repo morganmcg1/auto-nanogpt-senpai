@@ -3,6 +3,30 @@
 This file logs experiment outcomes as PRs land. The historical track 3
 leaderboard is captured in `/BASELINE.md`.
 
+## 2026-05-26 18:50 UTC — PR #1288: NM R-buffer EMA horizon sweep BETA (frieren) — CLOSED productive-NULL (44th no-merge)
+
+- Branch: `g1r4-frieren/nm-r-buffer-beta-sweep`
+- Hypothesis: Sweep `NANOGPT_NEWTON_MUON_BETA` (R-buffer EMA horizon) across 4 orders of magnitude to characterize the load-bearing optimum and test whether canonical β=0.95 (~20-step horizon) is at a true sweet spot or merely a convenient default. 4-arm chain on post-#1138 stack.
+
+| Arm | β | Effective horizon | val/loss | fs | Δ_paired_val | Δ_paired_fs | Verdict |
+|:---:|:---:|:---:|:---:|:---:|:---:|:---:|---|
+| **A ctrl** | 0.95 | ~20 steps | **3.26525** | **3175** | (ref) | (ref) | drift −0.00089 PASS-CLEAN |
+| **B long** | 0.99 | ~100 steps | 3.26837 | 3200 | **+0.00312** | +25 | PRODUCTIVE-NEG (above +0.0015 fence) |
+| **C short** | 0.90 | ~10 steps | 3.26725 | 3200 | **+0.00200** | +25 | PRODUCTIVE-NEG |
+| **D very-long** | 0.999 | ~1000 steps | 3.26869 | 3200 | **+0.00344** | +25 | PRODUCTIVE-NEG (monotone-worse with longer horizon vs B) |
+
+- **Pre-staged decision tree resolution**: all 3 off-arms ≥ +0.0015 fence threshold → productive-NULL on β-axis. β fully fenced bilaterally at canonical β=0.95.
+- **🎯 Headline finding — monotone-worse-with-longer-horizon on long side**: D Δ=+0.00344 > B Δ=+0.00312, confirming long-side mechanism is **R-buffer adaptation lag at cooldown distribution shift**. Short side C Δ=+0.00200 also NEG but less severe — canonical β=0.95 is at the load-bearing optimum, post-#1138 stack tolerates faster R-buffer adaptation better than slower (1.5× asymmetric).
+- **Mechanism telemetry validates story** (final-step NM stats):
+  - R_inv_sqrt_norm_mean: A=78.13 / B=63.08 / D=46.80 — **monotone DECREASE with longer β** → R becomes WEAKER preconditioner under long horizons → under-preconditioning in late training
+  - precond_ratio_mean: A=1.099 (near-unit sweet spot) / B=0.990 (slightly under) / D=0.927 (clearly under-preconditioned)
+  - R_cond_max: C=236378 ≫ A=62k ≫ B=34k ≈ D=34k — confirms β=0.90 over-reacts to step-level gradient noise (highest per-step conditioning noise)
+  - precond_ratio_mean asymmetry: A=1.099 (near-unit) / C=1.122 (over-preconditioned from noise) / B=0.990 (under) / D=0.927 (clearly under) — confirms mechanism in both directions
+- **🎯 NM-mechanism-characterization wave NOW FULLY CONSOLIDATED**: BETA bilateral fence (this PR) + EPS flat (#1291) + LATE_PERIOD bilateral fence (#1286 + #1240) + MAX_D_IN COVERAGE-AXIS LOAD-BEARING (#1240 always-on + #1286 late-only both FAVORABLE + PP escalating) + RESET_STEP R-FRESHNESS LOAD-BEARING (#1281 H2 PP in flight) + START_STEP monotone NEG (#1277 H1) + END_STEP [3000, 3350) dispensable (#1280 H3). Combined mechanism story: NM gain comes from **COVERAGE expansion + TEMPORAL continuity + R-FRESHNESS at cooldown**, NOT from scalar HP tuning.
+- **Suggested follow-up #2 PURSUED (R-buffer SCHEDULE β-as-a-function-of-step)**: frieren's telemetry directly motivates this — R under-preconditions in late training (R_inv_sqrt_norm drops monotonically with β). Hypothesis: β=0.95 early → β=0.90 during cooldown restores preconditioning when gradient stats shift. **frieren REASSIGNED #1320 NM β-schedule** to test this exact mechanism.
+- **Student excellence**: clean 4-arm chain with race-safe untracked train_gpt_simple.py copy pattern, comprehensive telemetry analysis tying R_inv_sqrt_norm and precond_ratio_mean to mechanism, asymmetric monotone-pattern observation revealing under-preconditioning vs over-conditioning failure modes, suggested β-schedule follow-up grounded in telemetry not speculation.
+- **W&B run IDs**: `f9g6idx9 / ckm56hjl / i67m35of / knn2b1oq` (Arms A/B/C/D)
+
 ## 2026-05-26 17:21 UTC — PR #1280: H3 Pre-crossing burst NM (alphonse) — CLOSED productive-NULL (43rd no-merge)
 
 - Branch: `g1r4-alphonse/pre-crossing-burst-nm`
