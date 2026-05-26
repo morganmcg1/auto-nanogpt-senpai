@@ -3,6 +3,24 @@
 This file logs experiment outcomes as PRs land. The historical track 3
 leaderboard is captured in `/BASELINE.md`.
 
+## 2026-05-26 14:50 UTC — PR #1232: Power AdamW (p-norm denominator) for lm_head (nezuko) — CLOSED productive-NEG (35th no-merge)
+
+- Branch: `g1r4-nezuko/power-adamw-lm-head`
+- Hypothesis: Generalize AdamW's L2 denominator `√v_t` to p-norm `v_t^{1/p}` where `v_t = E[|g|^p]`. For Zipfian lm_head gradient distributions, p<2 (e.g. 1.5, 1.0) should reduce outlier damping and amplify common-token gradient signal.
+
+| Arm | p | val/loss | fs | Δ_paired_val | Δ_paired_fs | Verdict |
+|:---:|:---:|:---:|:---:|:---:|:---:|---|
+| A ctrl | 2.0 | 3.26726 | 3200 | (ref) | (ref) | drift +0.00112 vs new baseline 3.26614 PASS-strong |
+| B p=1.5 | 1.5 | 3.27074 | 3225 | +0.00348 | +25 | PRODUCTIVE-NEG |
+| C p=1.0 | 1.0 | 3.27120 | 3225 | +0.00394 | +25 | PRODUCTIVE-NEG (most regressive) |
+| D p=3.0 | 3.0 | 3.26881 | 3200 | +0.00155 | 0 | PRODUCTIVE-NEG (boundary) |
+
+- **Bilateral fence at p=2.0 CONFIRMED 3-direction**. p<2 side degrades ~2.3× faster than p>2 side (B+C mean Δ=+0.0037 vs D Δ=+0.0016 on similar |p−2| steps).
+- **Mechanism interpretation**: Canonical p=2 RMS denominator is theoretically optimal for lm_head Zipfian gradient distribution. p<2 increases effective step size in common-token directions → overshoots loss minimum for frequent-token rows. p>2 over-damps slightly. Asymmetry confirms under-damping is more harmful than over-damping.
+- **AUX-DENOMINATOR-EXPONENT-MODIFYING axis fully closed** — joins the MAGNITUDE-PRESERVING-DENOMINATOR cluster saturation (#1100 WD / #1155 MARS / #1153 D-Cautious / #1175 v_min / #1210 AdaBelief / now #1232 p-fence). **6 mechanisms now converging on canonical Adam denominator being load-bearing for lm_head**.
+- **Directive alignment (Issue #1261)**: This was the final fencing characterization of the saturated cluster's denominator-exponent sub-axis. **nezuko reassigned to #1277 H1 Step-gated Newton-Muon** (NM_START_STEP sweep at 0/2000/2200/2400) per directive bullet (1) "Newton-Muon only after X".
+- **W&B run IDs**: `oq5a0el8 / 3qxp8y7f / calfem1s / qq97hu48` (Arms A/B/C/D)
+
 ## 2026-05-26 13:30 UTC — PR #1231: Body Muon momentum bias correction (thorfinn) — SENT BACK for 2-arm post-#1138 confirmation rerun
 
 - Branch: `g1r4-thorfinn/body-muon-bias-correction`
