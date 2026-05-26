@@ -1,3 +1,43 @@
+## 2026-05-26 06:30 — PR #1214: H162 thorfinn Per-block MuonH LR (gradient-RMS sharpness proxy) — ROUND-1 SENT BACK (val/loss WIN but FFS TIES baseline; H162-v2 directive per human Issue #1260)
+
+- Branch: `thorfinn/h162-per-block-lr`
+- Hypothesis: Transformer blocks exhibit heterogeneous Hessian sharpness (Wang et al. ICML 2025, arXiv:2410.12855); a single grad-RMS calibration at end-of-warmup (step 200) assigns per-block LR multipliers `(rms_avg/rms_block)^exp` for the rest of training.
+
+| arm | exponent | calib_step | recal_int | W&B | val/loss | Δ vs baseline (3.26364) | FFS (primary) | Δ FFS vs baseline (3125) | Verdict |
+|-----|---------|-----------|-----------|-----|---------|------------------------|---------------|--------------------------|---------|
+| arm_a CTRL | 0 | 200 | 0 | `2i5k6gz3` | 3.264308 | -0.00033 | 3150 | +25 | NULL/NEG-edge (drift sample) |
+| arm_b PRIMARY | 0.5 | 200 | 0 | `54jq3f6i` | **3.262617** | -0.00102 (val/loss WIN, 0.22σ) | **3125** | **±0 (TIES)** | **val/loss-only — NOT FFS WIN, NOT MERGED** |
+| arm_c DYNAMIC | 0.5 | 200 | 500 | `q3glnr2v` | 3.271250 | +0.00761 | unknown | NEG | NEG (recal at step 3200 caused +0.042 spike) |
+
+WIN threshold for primary metric: **FFS < 3125**. arm_b TIES baseline FFS, so no primary-metric improvement. val/loss WIN is real (1.7σ within-chain, 0.22σ above soft WIN threshold 3.26284) — but secondary metric.
+
+### Mechanism: REAL but late-compounding
+
+Per-block LR multipliers active from step 200: range [0.652, 1.214] (block_0 LOWEST mult ~0.65 due to HIGHEST grad-RMS; block_6 HIGHEST mult ~1.21). rms_disparity 3.13× at step 200 (above 1.1 null gate by 2.85×). spread_max_over_min = 1.77× constant after calibration. Mechanism IS load-bearing but val/loss gain materializes only at/after target crossing (steps 3000-3125) → FFS not improved.
+
+### Recent CTRL drift context
+
+arm_a CTRL FFS=3150 (vs baseline FFS=3125 = +25 steps). arm_b within-chain FFS advantage of 25 steps (3125 vs 3150) brings arm_b BACK to baseline FFS, not below. CTRL drift has worsened FFS modestly in the recent codebase — H162 mechanism counteracts this drift but doesn't push below the original baseline.
+
+### Human Issue #1260 directive (verbatim)
+
+> "Stay focused on #1214 / H162. Finish the current arms, then confirm the best per-block MuonH LR variant before scattering into unrelated ideas. If it improves final validation but not FFS, analyze which part of the schedule is too late and test a variant designed to act before the target crossing window."
+
+### H162-v2 send-back instructions (PR #1214 returned to status:wip)
+
+3-arm chain testing "act before target crossing window":
+- **arm_a CTRL**: bit-id baseline (exp=0)
+- **arm_b EARLIER**: `--muonh_per_block_lr_exponent 0.5 --muonh_per_block_calibration_step 100 --muonh_per_block_recalibrate_interval 0` (act 100 steps earlier, post-warmup immediate)
+- **arm_c STRONGER**: `--muonh_per_block_lr_exponent 1.0 --muonh_per_block_calibration_step 200 --muonh_per_block_recalibrate_interval 0` (~2× multiplier range vs exp=0.5)
+
+Required terminal report: 3-arm table with FFS, val/loss, val/single_run_stat_sig_margin per arm; SENPAI-RESULT must use `primary_metric.name="speedrun/final_first_step_to_target"`.
+
+### Closure framing
+
+Round-1 axis not closed — mechanism is real, only the schedule timing needs tuning. Plateau focus: per human Issue #1260, no new "scatter" hypotheses assigned until H162-v2 confirms or definitively closes.
+
+---
+
 ## 2026-05-26 05:50 — PR #1228: H166 tanjiro Gradient Centralization on aux + body (Yong et al. 2020 ECCV) — BILATERAL NEG/NULL (24th NULL/NEG closure + 2 programme-grade findings)
 
 - Branch: `g1r3-tanjiro/h166-gradient-centralization`
