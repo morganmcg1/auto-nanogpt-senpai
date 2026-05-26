@@ -229,6 +229,17 @@ def log_training_telemetry(
         metrics.update(prefixed(f"train/grad_type/{module_type}", aggregate_stats(tensors)))
     for name, grad in grads:
         metrics.update(prefixed(f"train/grad_param/{clean_metric_name(name)}", tensor_stats(grad)))
+    # EMBED_LR_PHASE_TRANSITION (#1335): explicit embed-axis aliases for fast cross-arm comparison.
+    for opt in optimizers:
+        for group in opt.param_groups:
+            if group.get("name") == "adam_embed":
+                metrics["train/aux/embed_lr"] = group["lr"]
+    for name, p in model.named_parameters():
+        if name == "embed.weight":
+            metrics["train/aux/embed_param_norm"] = float(p.data.detach().float().norm().item())
+            if p.grad is not None:
+                metrics["train/aux/embed_grad_norm"] = float(p.grad.detach().float().norm().item())
+    metrics["train/embed_lr_phase/active"] = int(step >= EMBED_LR_PHASE_STEP)
     wandb.log(metrics, step=wandb_step)
 
 
@@ -468,6 +479,10 @@ NS5_ITERS = int(os.environ.get("NS5_ITERS", "12"))
 WD_AUX = float(os.environ.get("WD_AUX", "0.0"))  # AdamW WD on embed + lm_head matrices (scalars stay at 0)
 EMBED_INIT_STD = float(os.environ.get("EMBED_INIT_STD", "1.0"))  # default preserves baseline N(0,1)
 LOGIT_SOFTCAP = float(os.environ.get("LOGIT_SOFTCAP", "15.0"))  # default = 15 (current hardcoded value); soft-cap value c in f(x) = c·x / sqrt(x^2+c^2)
+# EMBED_LR_PHASE_TRANSITION (#1335): single-step phase event multiplying adam_embed group LR by
+# EMBED_LR_PHASE_FACTOR for all steps >= EMBED_LR_PHASE_STEP. Default factor=1.0 is IEEE identity.
+EMBED_LR_PHASE_FACTOR = float(os.environ.get("EMBED_LR_PHASE_FACTOR", "1.0"))
+EMBED_LR_PHASE_STEP = int(os.environ.get("EMBED_LR_PHASE_STEP", "953"))
 
 
 def zeropower_via_newtonschulz5(G: Tensor) -> Tensor:
@@ -866,6 +881,8 @@ if dist.get_rank() == 0:
             "optimizer/attn_soap_trust_threshold": ATTN_SOAP_TRUST_THRESHOLD,
             "optimizer/ns5_iters": NS5_ITERS,
             "optimizer/wd_aux": WD_AUX,
+            "optimizer/embed_lr_phase_factor": EMBED_LR_PHASE_FACTOR,
+            "optimizer/embed_lr_phase_step": EMBED_LR_PHASE_STEP,
             "optimizer/recipe": "contra-muon + normuon-lite + soap-on-mlp + soap-on-attn-trust-gate (pre-NS5, record #14 + record #16)",
         },
     )
@@ -936,6 +953,10 @@ for trial_idx in range(args.num_trials):
                 group["lr"] = group["initial_lr"] * eta
                 if group.get("name") == "muon_blocks":
                     group["mu"] = cur_mu
+                # EMBED_LR_PHASE_TRANSITION (#1335): scale adam_embed LR by factor for steps >= phase step.
+                # factor=1.0 is IEEE identity; only adam_embed (model.embed.weight) is affected.
+                if group.get("name") == "adam_embed" and step >= EMBED_LR_PHASE_STEP:
+                    group["lr"] = group["lr"] * EMBED_LR_PHASE_FACTOR
 
 
     ########################################
