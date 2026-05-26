@@ -83,6 +83,13 @@ def parse_args():
              "muall=musoft + non-residual block 2D weights also scaled by 1/sqrt(L); "
              "smallconst=std=1e-3 depth-independent.",
     )
+    parser.add_argument("--muon_lr_depth_scale", type=float, default=1.0,
+                        help="Per-block Muon body LR multiplier: "
+                             "lr_block_idx = lr_base × scale ** (block_idx / (n_blocks - 1)). "
+                             "1.0 = no-op (single group, identical to baseline). "
+                             "<1.0 = LLR direction (later layers get less LR). "
+                             ">1.0 = anti-LLR (later layers get more LR). "
+                             "Affects all Muon body matrices (mlp.fc, mlp.proj, attn.q/k/v/proj).")
     args = parser.parse_args()
     args.num_trials = args.num_trials if args.num_trials is not None else (args.legacy_num_trials or 1)
     args.wandb_tags = [tag.strip() for tag in args.wandb_tags.split(",") if tag.strip()]
@@ -606,6 +613,8 @@ class Muon(torch.optim.Optimizer):
             }
             if "name" in g:
                 g_dict["name"] = g["name"]
+            if "lr_scale" in g:
+                g_dict["lr_scale"] = g["lr_scale"]
             param_groups.append(g_dict)
         defaults = dict(lr=lr, weight_decay=weight_decay, mu=mu)
         super().__init__(param_groups, defaults)
@@ -765,6 +774,7 @@ if dist.get_rank() == 0:
             "wd_schedule": args.wd_schedule,
             "lr_scalars": args.lr_scalars,
             "depth_init_mode": args.depth_init_mode,
+            "muon_lr_depth_scale": args.muon_lr_depth_scale,
         },
     )
 
@@ -847,11 +857,38 @@ for trial_idx in range(args.num_trials):
     attn_named = [(n, p) for n, p in named_blocks
                   if not (n.endswith(".mlp.fc.weight") or n.endswith(".mlp.proj.weight"))]
     assert len(mlp_named) + len(attn_named) == len(named_blocks)
+
+    # Per-block depth-scaled LR groups. With muon_lr_depth_scale=1.0 the scale
+    # factors are all 1.0, so splitting one group into many is mathematically
+    # a no-op (each group's lr/wd/mu are identical to the unsplit baseline).
+    def _block_idx(name: str) -> int:
+        # named_blocks come from model.blocks.named_parameters() → names like
+        # "0.attn.q.weight", "11.mlp.fc.weight".
+        return int(name.split(".", 1)[0])
+
+    muon_group_dicts = []
+    for block_idx in range(NUM_LAYERS):
+        if NUM_LAYERS > 1:
+            scale_factor = args.muon_lr_depth_scale ** (block_idx / (NUM_LAYERS - 1))
+        else:
+            scale_factor = 1.0
+        mlp_block = [(n, p) for n, p in mlp_named if _block_idx(n) == block_idx]
+        attn_block = [(n, p) for n, p in attn_named if _block_idx(n) == block_idx]
+        assert len(mlp_block) == 2, f"expected 2 mlp params per block, got {len(mlp_block)} at idx {block_idx}"
+        assert len(attn_block) == 4, f"expected 4 attn params per block, got {len(attn_block)} at idx {block_idx}"
+        muon_group_dicts.append(dict(
+            named_params=mlp_block, lr=args.lr_mlp, weight_decay=args.wd_mlp,
+            name=f"muon_mlp_b{block_idx:02d}", lr_scale=scale_factor,
+        ))
+        muon_group_dicts.append(dict(
+            named_params=attn_block, lr=args.lr_attn, weight_decay=args.wd_attn,
+            name=f"muon_attn_b{block_idx:02d}", lr_scale=scale_factor,
+        ))
+    print0(f"[muon_lr_depth_scale] scale={args.muon_lr_depth_scale}  "
+           f"per-block factors: b00={1.0:.4f}, b{NUM_LAYERS-1:02d}={args.muon_lr_depth_scale:.4f}  "
+           f"({2*NUM_LAYERS} param groups)", console=True)
     optimizer2 = Muon(
-        [
-            dict(named_params=mlp_named,  lr=args.lr_mlp,  weight_decay=args.wd_mlp,  name="muon_mlp"),
-            dict(named_params=attn_named, lr=args.lr_attn, weight_decay=args.wd_attn, name="muon_attn"),
-        ],
+        muon_group_dicts,
         soap_attn=args.soap_attn, trust_threshold=args.soap_trust_threshold,
     )
     optimizers = [optimizer1, optimizer2]
@@ -889,7 +926,8 @@ for trial_idx in range(args.num_trials):
         wd_mu = _wd_multiplier(step, train_steps, args.wd_schedule)
         for opt in optimizers:
             for group in opt.param_groups:
-                group["lr"] = group["initial_lr"] * eta
+                lr_scale = group.get("lr_scale", 1.0)
+                group["lr"] = group["initial_lr"] * eta * lr_scale
                 if "initial_wd" in group and group.get("name", "").startswith("muon_"):
                     group["weight_decay"] = group["initial_wd"] * wd_mu
 
@@ -1023,8 +1061,9 @@ for trial_idx in range(args.num_trials):
                     per_group_metrics[f"train/lr/{name}"] = lr
                 for name, wd in current_wds.items():
                     per_group_metrics[f"train/wd/{name}"] = wd
-                per_group_metrics["train/wd_mlp_now"] = current_wds.get("muon_mlp", 0.0)
-                per_group_metrics["train/wd_attn_now"] = current_wds.get("muon_attn", 0.0)
+                # wd is identical across blocks; pick block-0 as the representative
+                per_group_metrics["train/wd_mlp_now"] = current_wds.get("muon_mlp_b00", current_wds.get("muon_mlp", 0.0))
+                per_group_metrics["train/wd_attn_now"] = current_wds.get("muon_attn_b00", current_wds.get("muon_attn", 0.0))
                 per_group_metrics["train/wd_schedule_progress"] = train_step / train_steps
                 wandb.log(per_group_metrics, step=wandb_step)
         if dist.get_rank() == 0 and optimizer2.cos_sims_buffer:
