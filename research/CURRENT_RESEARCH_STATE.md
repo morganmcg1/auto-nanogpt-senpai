@@ -1,3 +1,79 @@
+## 2026-05-26 22:35 UTC — Cycle 71 mid-300
+
+**Cumulative**: **184 refuted (+1: tanjiro #1316 184th cluster-band ASYMMETRIC-MAGNITUDE, second eval-state family closure after #1057)** / **106 distinct mech classes (+1: tanjiro #1354 MUON_BODY_GRAD_LAG, first time-lagged gradient mechanism in 320+ PR corpus)** / **60 family-level closures (+1: eval-state Polyak averaging family closed by trajectory analysis)** / **6-way closure taxonomy unchanged**.
+
+**Highest-information mid-300 finding**: **Cluster-floor robustness principle now generalizes across mechanism CLASSES.** Two structurally distinct mechanisms — Nesterov-form phase-axis (#1336 INFORMATIVE-TRIANGULATION) and eval-state Polyak averaging (#1316 ASYMMETRIC-MAGNITUDE) — converge on the same cluster floor at val ≈ 3.270. The floor is **mechanism-class-agnostic**: any mid-training perturbation, regardless of axis (state vs eval-state, momentum-form vs averaging), gets absorbed by cooldown dynamics.
+
+**This cycle — 1 closure (highest-info eval-state closure) + 1 reassignment (NEW virgin axis)**:
+
+1. **tanjiro #1316 MUON_BODY_POLYAK_AVERAGING closed as 184th refute** (cluster-band ASYMMETRIC-MAGNITUDE sub-subtype, 60th family closure):
+   - Arm A (α=0.95, ~20-step window): val(Polyak)=**3.26955** ffs=**3000** (`5asmyz1j`). 0.00179 above merge bar, baseline ffs.
+   - Arm B (α=0.99, ~100-step window): val(Polyak)=**3.27184** ffs=**3000** (`hetje6py`). 0.00408 above merge bar, baseline ffs.
+   - Both arms at baseline ffs=3000; α=0.95 < α=0.99 systematically (shorter EMA preserves more current-params signal). ASYMMETRIC-MAGNITUDE direction: shorter EMA window wins.
+   - **Structural finding** (HIGH-INFO three-phase decomposition, identical across α):
+     1. Warmup (step 0-200): α=0.99 buffer dragged by initial random params; Polyak *worse* than current.
+     2. Mid-training peak (step 500-2000): both arms show robust Δ ∈ [-0.04, -0.07]; mechanism is genuinely beneficial during noisy plateau.
+     3. Cooldown collapse (step 2540-3175): Δ shrinks monotonically; both arms cross to Δ>0 at step 3125; terminal Δ ≈ +0.0001 (A) / +0.0006 (B) — Polyak marginally WORSE than current.
+   - **Mechanism-level explanation**: cooldown is itself a smoother (MU 0.95→0.90, cosine LR decay slows params). EMA smoothing becomes redundant at terminal; meanwhile buffer carries weight on pre-cooldown (worse) params → buffer lags slightly worse than current.
+   - **Cluster-floor compound** (with #1336): two distinct mechanism CLASSES converge on the same floor. The floor is set by cooldown dynamics, NOT plateau-phase optimizer choice OR plateau-phase eval-state choice.
+   - 97th mech class closed.
+   - **Eval-state Polyak averaging family CLOSED at terminal merge bar contract.**
+
+2. **tanjiro → #1354 MUON_BODY_GRAD_LAG (106th mech class assigned)**:
+   - **VIRGIN AXIS in 320+ PR corpus**: zero prior PRs touch time-lagged gradient (greps for `LAG|DELAY|HORIZON|SHIFT|TIME_LAG|ADASHIFT` returned ZERO).
+   - **New axis**: decouples EMA window CENTER from EMA window SIZE. All prior μ/β1/β2 sweeps changed SIZE; lag changes CENTER independently.
+   - Mechanism: ring buffer of L=8 recent gradients per body Muon param. Buffer update uses `grad_{t-L}` instead of `grad_t`; step still uses `grad_t` (current).
+   - Bilateral on phase-gate sub-axis:
+     - Arm A: always-ON lag (full training) — pure mechanism test
+     - Arm B: plateau-only lag (disabled at cooldown_start step 953) — cluster-floor robustness control
+   - **Decorrelation hypothesis**: standard Nesterov-EMA has high cosine_sim between buffer and current grad; lag DECORRELATES, providing implicit noise reduction in the update.
+   - Memory: ~3.2 GB extra VRAM (L=8 × |body Muon params|). Peak ≈ 41 GB / 96 GB. In budget.
+   - Telemetry: `momentum_grad_lag_cosine` (decorrelation evidence), `momentum_grad_lag_norm_ratio`.
+   - Hold gate TIGHTENED `val ≤ 3.265 AND ffs ≤ 3000`.
+
+**Cluster-floor research direction post-#1316**:
+
+The cluster floor at val ≈ 3.270 is now characterized by TWO compound findings:
+- **#1336 (Nesterov-form phase-axis triangulated)**: plateau-phase momentum-form perturbations absorbed
+- **#1316 (eval-state Polyak)**: plateau-phase eval-state averaging absorbed
+
+This narrows the prediction space substantially. **All mid-training plateau perturbations** (regardless of mechanism class) tend to be absorbed by the cooldown. Floor-breaking requires either:
+- (a) Direct cooldown SHAPE intervention (cosine→trapezoid/linear/exp)
+- (b) Cooldown START boundary change (cooldown_frac=0.7 → other values)
+- (c) Optimizer-class SWITCH during cooldown (Muon→SOAP, Muon→AdamW)
+- (d) Early termination + best-checkpoint recovery
+- (e) **NEW UNTESTED**: virgin axes like LAG (#1354) that introduce structurally NEW dimensions not previously sampled
+
+#1354 falls into (e) — virgin-axis exploration. If LAG breaks the floor, the mechanism would be the first dimension-introducing intervention to do so.
+
+**Closure-mechanism taxonomy** (unchanged 6-way):
+- cluster-band SYMMETRIC / ASYMMETRIC-MAGNITUDE / INFORMATIVE-TRIANGULATION (3 sub-subtypes)
+- catastrophic-shifted-floor
+- n=2-confirm
+- MATH-NULL
+- informative-crossover
+- ASYMMETRIC-OUTCOME
+
+**Active fleet status mid-300**:
+
+| Student | PR | Status | W&B notes |
+|---|---|---|---|
+| g1r2-alphonse | #1323 | status:wip, Arm A running step 2092+ | MUON_BODY_ATTN_MLP_BETA_PHASE_DISPATCH |
+| g1r2-thorfinn | #1353 | status:wip, just assigned | MUON_AUX_BUFFER_RESET_AT_COOLDOWN (105th mech, AUX-side state-phase) |
+| g1r2-nezuko | #1347 | status:wip, implementation pending | MUON_NESTEROV_PER_KIND (Interp A clarified) |
+| g1r2-fern | #1341 | status:wip, implementation pending | MUON_BETA_RAMP_DECAY |
+| g1r2-frieren | #1340 | status:wip, Arm A canonical | MUON_BETA_LOCALIZED_STEP |
+| g1r2-askeladd | #1333 | status:wip, Arm A launching | ATTN_SOAP_GRAM_REINIT_AT_COOLDOWN (100th mech) |
+| g1r2-tanjiro | #1354 | status:wip, JUST ASSIGNED | MUON_BODY_GRAD_LAG (106th mech, virgin LAG axis) |
+| g1r2-edward | #1335 | status:wip, Arm A step 1500+ | EMBED_LR_PHASE_TRANSITION |
+
+**ZERO IDLE STUDENTS — 8 students concurrently active. ZERO IDLE GPUs.**
+
+**Methodology corpus this cycle**: no new rules (cycle-71 canon stable). Confirmed application of:
+- **list-experiments-before-assign rule** (memory): identified that MOMENTUM_RESET axis at cooldown is already extensively closed (#1029, #1103, #1267, #1283), pivoted to LAG axis instead → assigned virgin-axis mechanism rather than duplicate-axis assignment.
+
+**Cumulative closure rate**: 184 refutes from ~520 PRs over the program = ~35% refute rate; merged ≈ 1-3% (the floor's narrowness is the reason). 6 mech classes assigned in cycle 71 so far (#1340, #1341, #1347, #1353, #1354, plus open #1282 etc).
+
 ## 2026-05-26 22:05 UTC — Cycle 71 mid-299
 
 **Cumulative**: **183 refuted (+1: thorfinn #1336 183rd cluster-band INFORMATIVE-TRIANGULATION)** / **105 distinct mech classes (+1: thorfinn #1353 MUON_AUX_BUFFER_RESET_AT_COOLDOWN)** / **59 family-level closures (+1: Nesterov-form binary phase-gate axis fully triangulated)** / **6-way closure taxonomy unchanged**.
