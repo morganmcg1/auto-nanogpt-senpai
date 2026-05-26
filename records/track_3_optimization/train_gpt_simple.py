@@ -109,6 +109,13 @@ def parse_args():
     parser.add_argument("--body_init_bottom_layers", type=int,
                         default=int(os.environ.get("BODY_INIT_BOTTOM_LAYERS", "6")),
                         help="Number of bottom layers to damp for --body_init=orthogonal_bottom_damp (default 6 = bottom half of 12 layers).")
+    # H166: Gradient Centralization (Yong et al. 2020, ECCV). Subtract per-output-unit
+    # gradient mean (mean over fan-in axis) BEFORE AGC/optimizer. Bit-id when use_gc=0.
+    parser.add_argument("--use_gc", type=int, default=int(os.environ.get("USE_GC", "0")),
+                        help="If 1, apply gradient centralization to 2D+ grads on selected target before AGC/optimizer. 0 = disabled (bit-id baseline).")
+    parser.add_argument("--gc_target", type=str, default=os.environ.get("GC_TARGET", "aux"),
+                        choices=["aux", "body", "both"],
+                        help="Which params receive GC. 'aux' = embed.weight + lm_head (model.proj.weight); 'body' = MuonH-managed block weights; 'both' = aux + body. Scalars (1D) are always skipped.")
     args = parser.parse_args()
     args.num_trials = args.num_trials if args.num_trials is not None else (args.legacy_num_trials or 1)
     args.wandb_tags = [tag.strip() for tag in args.wandb_tags.split(",") if tag.strip()]
@@ -645,6 +652,35 @@ def adaptive_gradient_clip(parameters, clip_ratio: float, eps: float = 1e-3):
     return stats
 
 
+@torch.no_grad()
+def gradient_row_mean_abs(grad: Tensor) -> float:
+    """Mean absolute value of per-output-unit row means (mean over fan-in axis).
+
+    For a gradient of shape (d_out, d_in, ...), computes the mean over all dims
+    >= 1 (the fan-in axes), yielding a vector of length d_out. Returns the mean
+    of absolute values of those row means. This is the GC mechanism signal:
+    pre-centralization should be non-trivial, post-centralization should be ~0.
+    """
+    if grad is None or grad.ndim < 2:
+        return 0.0
+    row_means = grad.detach().float().mean(dim=tuple(range(1, grad.ndim)))
+    return float(row_means.abs().mean().item())
+
+
+@torch.no_grad()
+def gradient_centralize_(parameters):
+    """In-place per-output-unit gradient centralization for 2D+ tensors.
+
+    For each parameter with a 2D+ gradient G, subtracts the mean of G over
+    dims 1..ndim-1 (fan-in axes), zeroing the per-output-unit row sum.
+    Skips 1D parameters (no fan-in axis to centralize). Yong et al. 2020.
+    """
+    for p in parameters:
+        if p.grad is None or p.grad.ndim < 2:
+            continue
+        p.grad.sub_(p.grad.mean(dim=tuple(range(1, p.grad.ndim)), keepdim=True))
+
+
 def scale_invariant_update_(param, update, lr, eps=1e-10):
     """Always-active hyperball step: rescale update to param's current norm scale,
     take the step, then renormalise the result back onto the sphere of radius
@@ -791,6 +827,7 @@ if args.muonh_agc_clip_ratio > 0:
     print0(f"AGC ENABLED on inner MuonH gradient: clip_ratio={args.muonh_agc_clip_ratio} eps={args.muonh_agc_eps}", console=True)
 else:
     print0("AGC DISABLED on inner MuonH gradient (clip_ratio=0)", console=True)
+print0(f"[H166] use_gc={args.use_gc} gc_target={args.gc_target}", console=True)
 print0("="*100)
 
 val_tokens = 20 * 524288
@@ -850,8 +887,11 @@ if dist.get_rank() == 0:
             "muonh_mu_schedule": args.muonh_mu_schedule,
             "muonh_mu_start": args.muonh_mu_start,
             "muonh_mu_end": args.muonh_mu_end,
+            "use_gc": args.use_gc,
+            "gc_target": args.gc_target,
         },
     )
+    wandb.config.update({"use_gc": args.use_gc, "gc_target": args.gc_target}, allow_val_change=True)
 
 for trial_idx in range(args.num_trials):
 
@@ -1159,6 +1199,41 @@ for trial_idx in range(args.num_trials):
                 train_steps=train_steps,
                 wandb_step=wandb_step,
             )
+        # H166: Gradient Centralization. Subtract per-output-unit gradient mean
+        # (mean over fan-in axes) on 2D+ grads BEFORE AGC/optimizer. Bit-id when
+        # use_gc=0 (no GC code path executes on the gradient).
+        gc_due = (train_step % 100 == 0 or step == 0 or train_step == train_steps)
+        gc_metrics = {}
+        if dist.get_rank() == 0 and gc_due:
+            # Always measure pre-GC row mean so arm_a (CTRL) has matching diagnostics
+            # to compare against arm_b/arm_c GC-active runs.
+            gc_metrics["gc/aux_embed/grad_mean_pre"] = gradient_row_mean_abs(model.embed.weight.grad)
+            gc_metrics["gc/aux_lm_head/grad_mean_pre"] = gradient_row_mean_abs(model.proj.weight.grad)
+            body_pre_means = [
+                gradient_row_mean_abs(p.grad)
+                for p in muonh_params_for_agc if p.grad is not None and p.grad.ndim >= 2
+            ]
+            gc_metrics["gc/body/grad_mean_pre"] = (
+                sum(body_pre_means) / len(body_pre_means) if body_pre_means else 0.0
+            )
+        if args.use_gc:
+            if args.gc_target in ("aux", "both"):
+                gradient_centralize_([model.embed.weight, model.proj.weight])
+            if args.gc_target in ("body", "both"):
+                gradient_centralize_(muonh_params_for_agc)
+        if dist.get_rank() == 0 and gc_due:
+            gc_metrics["gc/aux_embed/grad_mean_post"] = gradient_row_mean_abs(model.embed.weight.grad)
+            gc_metrics["gc/aux_lm_head/grad_mean_post"] = gradient_row_mean_abs(model.proj.weight.grad)
+            body_post_means = [
+                gradient_row_mean_abs(p.grad)
+                for p in muonh_params_for_agc if p.grad is not None and p.grad.ndim >= 2
+            ]
+            gc_metrics["gc/body/grad_mean_post"] = (
+                sum(body_post_means) / len(body_post_means) if body_post_means else 0.0
+            )
+            gc_metrics["trial"] = trial_idx
+            gc_metrics["train/step"] = train_step
+            wandb.log(gc_metrics, step=wandb_step)
         # AGC on aux AdamW groups: clip per-param grad to clip_ratio * |param|.
         # No-op (bit-identical) when args.aux_agc_clip_ratio <= 0.
         agc_stats = adaptive_gradient_clip(
