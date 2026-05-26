@@ -1,3 +1,71 @@
+## 2026-05-26 16:10 UTC — Cycle 71 mid-290
+
+**Cumulative**: **174 refuted (+1: alphonse #1283 174th)** / **98 distinct mech classes (+1: 98 AUX_BIAS_CORRECTION_PHASE_OFF #1317)** / **56 family-level closures (unchanged — state-buffer-reset already counted mid-285, now definitively n=2-confirmed)**.
+
+**This cycle — 1 closure (n=2 confirm refute) + 1 reassignment + 1 family closure CONFIRMATION**:
+
+1. **alphonse #1283 MUON_COMBINED_LATE_RESET Arm B closed as 174th refute (n=2 confirm above merge bar)** — **state-buffer-reset 2×2 factorial family DEFINITIVELY CLOSED**:
+   - Arm B seed-1 `8cslkce9`: val=**3.26842** ffs=**3000** (n=1 hold-gate pass at +0.00066)
+   - Arm B seed-2 `x0ovofwi`: val=**3.27064** ffs=**3025** (above 3.27 threshold)
+   - **n=2 mean**: val=**3.26953** ffs=**3012.5** — **FAILS merge bar by +0.00177 val AND +12.5 ffs**
+   - Decision-tree fire: `val_seed2 = 3.27064 > 3.27 → 174th refute, n=2 RNG-noisy mechanism`
+   - **n=1 hold-pass at 3.26842 was RNG-favorable** within natural inter-seed spread (inter-seed |Δval| = 0.00222, ~2× baseline n=2 spread)
+   - **First explicit 2×2 factorial in corpus closes definitively negative**:
+
+| Subset | Mode | Closure |
+|---|---|---|
+| M-only | zero / scale=0.5 | bilateral n=1 (#1267 fern) |
+| V-only | zero / scale=0.5 | bilateral n=3 (#1264 edward) |
+| M+V combined | zero | n=1 cluster member (#1283 Arm A) |
+| **M+V combined** | **scale=0.5** | **n=2 refute (#1283 Arm B)** |
+
+   - State-buffer staleness at 80% phase boundary IS NOT the late-descent bottleneck under any tested intervention shape
+
+2. **n=2 confirm methodology validated**: alphonse's fresh-process verification (step:0 val_loss=10.82583 bit-identical across all 3 runs; trajectory divergence by step 100) confirms **process-start torch RNG + CUDA non-determinism IS the implicit seed mechanism**. Gold-standard template for cycle 71+ n=2 confirms. Important corollary: future close-to-baseline n=1 hold-passes require n=2 before merge-candidate framing.
+
+**Reassignment**:
+
+3. **alphonse → PR #1317 AUX_BIAS_CORRECTION_PHASE_OFF (98th mech class)** — first state-phase change on AUX (AdamW) bias correction axis:
+   - Disable Adam bias correction during specific training phase (cooldown OR warmup, bilateral)
+   - Distinct from #1225 AUX_BIAS_CORRECTION_OFF (uniform off, refuted) — phase-gated mechanism
+   - Mathematical motivation: at step 3175 with β2=0.999, β2^3175 ≈ 0.043, so bias correction divisor = 1/(1-0.043) ≈ **1.045 (4.5% scale correction)** near end of training — potentially over-correcting since v buffer has stabilized
+   - Arm A: AUX_BIAS_CORRECTION_PHASE_OFF=1 (disable during cooldown, steps ≥ 3016)
+   - Arm B: AUX_BIAS_CORRECTION_PHASE_OFF=2 (disable during warmup, steps < 200, falsification control — expected catastrophic)
+   - Maps to alphonse's state-phase boundary expertise from M+V late reset / factorial design (~10 LoC patch)
+   - **Morgan #1259-aligned**: state-phase × AUX-moment-estimation axis (NOT scalar HP sweep)
+   - Pre-launch code-review gate required (state-mutating dispatch within AdamW step) — may qualify for single-canary structural exemption depending on patch implementation
+
+**Cluster lower-bound update**:
+
+- Pre-mid-290: cluster lower edge = 3.26842 (alphonse #1283 Arm B seed-1, treated as n=1 cluster member)
+- Post-mid-290: that observation is **n=2-refuted RNG noise**. Effective cluster lower bound now back to **3.26912** (other n=1 cluster members). The "cluster lower bound" semantically reframed: **lowest n=1 sample observed across cluster band, with n=2 confirming RNG vs structural distinction**.
+
+**Active fleet status mid-290**:
+
+| Student | PR | Status | W&B notes |
+|---|---|---|---|
+| g1r2-alphonse | #1317 NEW | draft, just assigned | AUX_BIAS_CORRECTION_PHASE_OFF |
+| g1r2-thorfinn | #1306 | status:wip, Arm A authorized | MUON_NESTEROV_PHASE_TRANSITION |
+| g1r2-nezuko | #1307 | status:wip, Arm A authorized | AUX_BIASES_LR_BOOST x2 boost |
+| g1r2-fern | #1296 | status:wip, in-flight | LATE_LR_PULSE Arm A |
+| g1r2-frieren | #1312 | draft, just assigned | MUON_LR_BETA_DEPTH_RAMP_ANTI_ALIGNED |
+| g1r2-askeladd | #1301 | status:wip, Arm A authorized | ATTN_SOAP_TRUST_PER_KIND |
+| g1r2-tanjiro | #1316 | draft, just assigned | MUON_BODY_POLYAK_AVERAGING |
+| g1r2-edward | #1304 | status:wip, Arm A authorized | WD_BODY_DEPTH |
+
+**ZERO IDLE STUDENTS** — 8 students concurrently active.
+
+**Methodological synthesis (cycle 71 mid-290)**:
+
+- **State-buffer-reset 2×2 factorial — first definitively-closed factorial in corpus**: 4 cells × 2 modes × {n=1, n=2, n=3} sampling all refute. Family closure n=2-confirmed. Cycle 71 methodology is now the template: **factorial-design with bilateral arms** is the highest-confidence closure pattern.
+- **Cluster band semantics refined**: cluster membership at n=1 is "best-guess null position" but does NOT preclude RNG-favorable extremes. Future near-merge n=1 results (val ∈ [3.268, 3.270] at ffs ≤ 3000) must be n=2-confirmed before merge-candidate framing — alphonse's seed-1 at 3.26842 was the closest-to-baseline n=1 ever observed in cycle 71 AND n=2-refuted.
+- **AUX-moment-estimation axis newly opened**: AUX_BIAS_CORRECTION_PHASE_OFF is the first state-phase mechanism on AdamW's mathematical structure (not just LR/WD scaling). Mathematical motivation: bias-correction divisor 1.045 at termination, 5.5 during warmup → distinct effective LR profiles in those phases. Distinct mechanism axis from per-AUX-group LR (#1307) and uniform AUX bias correction off (#1225 refuted).
+- **n=2 confirm protocol crystallized** (3rd n=2 confirm in cycle 71 — after edward #1264 V-only, fern #1267 M-only, alphonse #1283 M+V): triggered when n=1 hold-passes within [3.268, 3.270] at ffs ≤ 3000. Process-start RNG is implicit seed; no --seed flag, no manual_seed needed. Fresh-process verification (step:0 bit-identity) is the safety check.
+
+**Wake schedule**: ~20-25 min for next terminals — thorfinn #1306 / edward #1304 / askeladd #1301 / nezuko #1307 Arm A launches expected. fern #1296 LATE_LR_PULSE Arm A terminal overdue. alphonse #1317 + frieren #1312 + tanjiro #1316 in pre-launch (code-review gates pending for tanjiro + alphonse).
+
+---
+
 ## 2026-05-26 15:55 UTC — Cycle 71 mid-289
 
 **Cumulative**: **173 refuted (+1: tanjiro #1303 173rd)** / **97 distinct mech classes (+1: 97 MUON_BODY_POLYAK_AVERAGING #1316)** / **56 family-level closures (+1: CompleteP / per-layer-asymmetric-LR family)**.
