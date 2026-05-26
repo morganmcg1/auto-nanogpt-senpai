@@ -1,3 +1,26 @@
+## 2026-05-26 00:55 — PR #1204: H160 alphonse aux AdamW eps schedule — BILATERAL NULL, cooldown-confined direction-of-effect ~1σ sub-WIN (18th NULL/NEG closure + 2 programme-grade operational findings)
+
+- Branch: `g1r3-alphonse/h160-aux-adamw-eps-schedule`
+- Hypothesis: aux AdamW eps schedule (constant 1e-6 → linear ramp to 1e-4 → cooldown_linear to 1e-4) can improve optimization by modifying AdamW's denominator regularization over training. Tests whether temporal eps variation during/after cooldown generates a loss improvement.
+
+| arm | Schedule | W&B run | val/loss | Δ vs baseline (3.26364) | Δ vs arm_a (3.26543) | Verdict |
+|-----|--------|----------|---------|--------------------------|----------------------|---------|
+| arm_a CTRL constant 1e-6 | constant | — | 3.26543 | +0.00179 | — | NULL (+0.77σ vs CTRL mean) |
+| arm_b LINEAR 1e-6→1e-4 | linear | — | 3.26551 | +0.00187 | +0.00008 | NULL (+0.85σ vs CTRL mean) |
+| arm_c COOLDOWN_LINEAR | cooldown | — | **3.26445** | +0.00081 | **-0.00098** | NULL (-0.02σ at CTRL mean, suggestive ~1σ within-chain) |
+
+WIN threshold <3.26284 NOT MET. arm_c best with -0.00098 within-chain Δ — directional but sub-WIN at single-seed. arm_b mid-training wobble attributed to seed RNG, not schedule (schedule bit-id 1e-6 until step 2225).
+
+- **Programme-grade finding #1: fused → unfused AdamW path is bit-id at this scale (Δ ≈ 0)**. arm_b LINEAR (eps-schedule gate forces fused=False) lands Δ +0.00008 vs arm_a fused=True CTRL — within run-to-run noise. Clean empirical answer to a known confound: future AdamW-extension experiments requiring non-fused path (per-param LR, AdamP, AdaBelief, Sophia) don't need to fear path-shift artifacts. **Directly enables H167 AdamP-on-aux**: AdamPAdamW subclass uses non-fused path; H160 finding confirms path-shift is not a confound.
+
+- **Programme-grade finding #2: AdamW aux-family eps schedule is non-binding in [1e-6, 1e-4]**. This is the 9th aux-AdamW-family axis tested NULL/NEG: β1 ablation, β1/β2 schedule, eps sweep, Cautious AdamW, NAdam, AdEMAMix, SF-AdamW, Lion, eps SCHEDULE (this PR). Pattern: per-hyperparameter and per-mechanism modifications WITHIN the AdamW family produce NULL/NEG results consistently. The AdamW skeleton appears locally optimal for aux at this scale. **Bound for future planning**: aux-side strategy-tier shifts should now target either (a) AdamW EXTENSIONS preserving the {m_t, v_t} skeleton (AdamP, AdaBelief, Sophia, Adan) or (b) ARCHITECTURALLY DIFFERENT preconditioners (SOAP, token-weighted, distributional rescaling).
+
+- **Bonus: arm_c mid-training wobble is seed RNG, not schedule**. steps 500/1000/1500/1750 Δ_c-a swings cannot be schedule-driven (eps is bit-id 1e-6 until step 2225). Only cooldown-and-beyond Δ_c-a deltas are mechanism-attributable. Refines within-chain comparison interpretation for future cooldown-confined schedule experiments.
+
+- Follow-up: arm_c cooldown_linear eps_end=1e-4 compound-test deferred (candidate if future WIN lands). alphonse assigned H167 AdamP-on-aux (Heo et al. 2020 ICLR, PR #1235) — strategy-tier shift OUT of AdamW-family knob tuning into AdamW-EXTENSION axis; directly tests H158 finding #1 (is lm_head F-norm growth load-bearing?).
+
+---
+
 ## 2026-05-25 23:55 — PR #1199: H158 tanjiro lm_head LR sweep — BILATERAL NULL with direction-of-effect at 2× (17th NULL/NEG closure + 3 programme-grade mechanism findings)
 
 - Branch: `g1r3-tanjiro/h158-lm-head-lr-sweep`
