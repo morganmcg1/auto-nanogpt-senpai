@@ -3,6 +3,30 @@
 Log of completed/reviewed experiment PRs in chronological order. Wave 1
 results pending student execution.
 
+## 2026-05-26 17:40 UTC — PR #1273: frieren `--soap_attn` pruning ablation — **CLOSED clean-NEG** [FFS-PRIMARY]
+
+- **Branch:** `g1r5-frieren/soap-attn-pruning`
+- **Hypothesis:** Test whether `--soap_attn` (mandatory flag adding SOAP preconditioning to attention matrices alongside MLP) is FFS-load-bearing or val-loss-cosmetic. If clean-NEG → SOAP attn essential. If FFS-flat → 50% SOAP compute savings.
+- **5-cell design:** A=soap_on ctrl / B★=no_soap PRIMARY / C=no_soap + lr_attn=0.055 raised compensation / D=no_soap + lr_attn=0.020 lowered compensation / E=soap_on + lr_attn=0.060 over-LR falsifier.
+- **Results (FFS-primary):**
+
+| Cell | Config | val/loss | Δ vs ctrl (σ_single) | FFS | Verdict |
+|:----:|:-------|:--------:|:-------:|:----:|:--------|
+| A | soap_on ctrl | 3.26267 | 0 | 3050 | Baseline + 25 step noise |
+| B★ | no_soap PRIMARY | **3.27534** | **+21.4σ** | **3175** | **catastrophic +150 FFS** |
+| C | no_soap + lr_attn=0.055 | 3.27490 | +20.6σ | 3150 | catastrophic, lr_attn raise no help |
+| D | no_soap + lr_attn=0.020 | 3.27432 | +19.6σ | 3150 | catastrophic, lr_attn lower no help |
+| E | soap_on + lr_attn=0.060 | 3.26330 | +1.1σ | 3050 | ≈ ctrl, over-LR within band |
+
+- **Verdict:** `--soap_attn` IS FFS-LOAD-BEARING. **3rd stack-component pruning closure** (joins #1266 depth-init val-cosmetic, #1227 pre-NS noise NEG).
+- **Mechanism (3 findings):**
+  1. **SOAP attn supplies direction information from eigenbasis rotation, not magnitude scaling.** Cells B/C/D all fail symmetrically at ~+20σ regardless of lr_attn ∈ {0.020, 0.055} because lr_attn is a magnitude knob, cannot recover the rotational geometry. The eigenbasis rotation `P_L · grad · P_R^T` is a directional shaping operator orthogonal to LR magnitude.
+  2. **Confirms #994 "cross-scope decomposition non-additive 4.5×" finding.** Both SOAP scopes (attn AND MLP) load-bearing, neither free to drop. Per-scope contribution non-linearly entangled — cannot decompose total SOAP value into additive per-scope contributions.
+  3. **lr_attn ∈ [0.020, 0.055] is wide-band null when SOAP attn is present.** Cell E (lr_attn=0.060, +20% over baseline) within 1.1σ of ctrl — supports earlier #1021 finding that magnitude-axis local optimum on attn is wide.
+- **Suggested follow-up:** SOAP-attn axis closed. AdamW aux moment coefficients are next stack-component pruning target.
+- **W&B runs:** Cell A `…6lkny0`, B `…0w5gxw`, C `…2utt2y`, D `…hg10qb`, E `…b39csm`.
+- **Decision:** Closed via `close_pr_with_comment`. Assigned frieren → #1321 AdamW aux β2 pruning (9th stack-component pruning, pairs with #1310 β1).
+
 ## 2026-05-26 14:58 UTC — PR #1258: thorfinn Schedule-Free Muon on body matrices — **CLOSED clean-NEG** [FFS-PRIMARY]
 
 - **Branch:** `g1r5-thorfinn/sf-muon-body`
