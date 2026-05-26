@@ -64,6 +64,8 @@ def parse_args():
     parser.add_argument("--muon_lr", type=float, default=0.035,
                         help="Base learning rate for body-Muon optimizer (matrix params in blocks). "
                              "Default 0.035 matches the merged baseline.")
+    parser.add_argument("--aux_state_reset_step", type=int, default=0,
+                        help="If >0, reset AdamW aux optimizer state (m_t, v_t, step) at this step.")
     args = parser.parse_args()
     args.num_trials = args.num_trials if args.num_trials is not None else (args.legacy_num_trials or 1)
     args.wandb_tags = [tag.strip() for tag in args.wandb_tags.split(",") if tag.strip()]
@@ -589,6 +591,44 @@ class Muon(torch.optim.Optimizer):
         self._polar_diag = polar_diag
 
 
+def adamw_aux_diag(optimizer: torch.optim.Optimizer, eps: float = 1e-10) -> dict[str, float]:
+    # Per-group AdamW state diagnostics (v_max, v_mean_sqrt, eps_dominance_frac).
+    # Cross-reference: PR #1218 variance-staleness canon; PR #1178 eps_dominance_frac canon.
+    if dist.get_rank() != 0:
+        return {}
+    metrics: dict[str, float] = {}
+    for group in optimizer.param_groups:
+        group_name = group.get("name", "")
+        if not group_name.startswith("adam_"):
+            continue
+        short = group_name.replace("adam_", "")
+        v_maxes: list[float] = []
+        v_sums: list[float] = []
+        v_counts: list[int] = []
+        eps_dom_count = 0
+        elt_total = 0
+        for p in group["params"]:
+            s = optimizer.state.get(p, None)
+            if not s or "exp_avg_sq" not in s:
+                continue
+            v = s["exp_avg_sq"].detach().float()
+            v_maxes.append(float(v.max().item()))
+            v_sqrt = v.clamp_min(0).sqrt()
+            v_sums.append(float(v_sqrt.sum().item()))
+            v_counts.append(int(v.numel()))
+            eps_dom_count += int((v_sqrt <= eps).sum().item())
+            elt_total += int(v.numel())
+        if not v_maxes:
+            continue
+        metrics[f"adamw/{short}/v_max"] = max(v_maxes)
+        total_elements = sum(v_counts)
+        if total_elements > 0:
+            metrics[f"adamw/{short}/v_mean_sqrt"] = sum(v_sums) / total_elements
+        if elt_total > 0:
+            metrics[f"adamw/{short}/eps_dom_frac"] = eps_dom_count / elt_total
+    return metrics
+
+
 def pmuon_spectral_diag(optimizer: torch.optim.Optimizer, gamma: float) -> dict[str, float]:
     # Post-whitening spectral diagnostic on the first PMuon-managed param (largest
     # by sort order). Re-evaluated against current L_cov, R_cov, momentum state.
@@ -925,6 +965,7 @@ for trial_idx in range(args.num_trials):
                     metrics["ema/active"] = int(step >= args.ema_warmup_steps)
                     metrics["ema/warmup_steps"] = args.ema_warmup_steps
                 metrics.update(prefixed("val/slope", loss_slope_stats(val_loss_history, slope_window_steps)))
+                metrics.update(adamw_aux_diag(optimizer1))
                 wandb.log(metrics, step=trial_idx * (train_steps + 1) + step)
             print0(f"step:{step}/{train_steps} val_loss:{val_loss:.5f} train_time:{training_time:.3f}s"
                    + f" step_avg:{1000*step_avg:.2f}ms", console=True)
@@ -978,6 +1019,31 @@ for trial_idx in range(args.num_trials):
                 train_steps=train_steps,
                 wandb_step=wandb_step,
             )
+        if args.aux_state_reset_step > 0 and step == args.aux_state_reset_step:
+            aux_reset_count = 0
+            for group in optimizer1.param_groups:
+                for p in group["params"]:
+                    if p in optimizer1.state:
+                        s = optimizer1.state[p]
+                        if "exp_avg" in s:
+                            s["exp_avg"].zero_()
+                        if "exp_avg_sq" in s:
+                            s["exp_avg_sq"].zero_()
+                        if "step" in s:
+                            if torch.is_tensor(s["step"]):
+                                s["step"].zero_()
+                            else:
+                                s["step"] = 0
+                        aux_reset_count += 1
+            print0(f"AdamW aux state reset at step {step}: zeroed {aux_reset_count} param states "
+                   f"(m_t, v_t, step counter)", console=True)
+            if dist.get_rank() == 0:
+                wandb.log({
+                    "trial": trial_idx,
+                    "aux_state_reset/fired": 1.0,
+                    "aux_state_reset/step": step,
+                    "aux_state_reset/params_reset": aux_reset_count,
+                }, step=wandb_step)
         for opt in optimizers:
             opt.step()
         # EMA buffer update on body-Muon matrix params.
