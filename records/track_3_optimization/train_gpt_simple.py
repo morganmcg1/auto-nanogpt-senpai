@@ -1364,6 +1364,36 @@ for trial_idx in range(args.num_trials):
                     ab_metrics[f"adabelief/{short}/{key}"] = val
             if len(ab_metrics) > 2:
                 wandb.log(ab_metrics, step=wandb_step)
+        # H168: aux AdamW state telemetry (works for both fused AdamW and the
+        # custom AdaBeliefAdamW step). Same metric name across arm_a / arm_b /
+        # arm_c so the cross-arm comparison at step 100 (verification gate)
+        # reads the same field. For AdaBelief target groups, exp_avg_sq stores
+        # s_t = β2·s_{t-1} + (1-β2)·(g-m)² + eps; otherwise standard v_t = β2·v_{t-1} + (1-β2)·g².
+        if dist.get_rank() == 0 and telemetry_due:
+            aux_state_metrics = {"trial": trial_idx, "train/step": train_step}
+            short_by_param: dict[int, str] = {
+                id(model.embed.weight): "embed",
+                id(model.proj.weight): "lm_head",
+            }
+            for group in optimizer1.param_groups:
+                for p in group["params"]:
+                    short = short_by_param.get(id(p))
+                    if short is None:
+                        continue
+                    st = optimizer1.state.get(p, {})
+                    v = st.get("exp_avg_sq")
+                    if v is None:
+                        continue
+                    vf = v.detach().float()
+                    aux_state_metrics[f"aux/{short}/exp_avg_sq_mean"] = float(vf.mean().item())
+                    aux_state_metrics[f"aux/{short}/exp_avg_sq_max"] = float(vf.max().item())
+                    aux_state_metrics[f"aux/{short}/exp_avg_sq_rms"] = float(vf.square().mean().sqrt().item())
+                    m = st.get("exp_avg")
+                    if m is not None:
+                        mf = m.detach().float()
+                        aux_state_metrics[f"aux/{short}/exp_avg_rms"] = float(mf.square().mean().sqrt().item())
+            if len(aux_state_metrics) > 2:
+                wandb.log(aux_state_metrics, step=wandb_step)
         if dist.get_rank() == 0 and telemetry_due:
             log_weight_telemetry(
                 model=model,
