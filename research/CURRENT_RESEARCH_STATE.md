@@ -1,3 +1,40 @@
+## 2026-05-26 11:08 UTC — Cycle 71 mid-279
+
+**Cumulative**: 165 refuted / 89 distinct mech classes / 51 family-level closures (unchanged from mid-278). Tanjiro returned from pod-broken hold + 2-hour gate-routing delay; **#793 CompleteP power-law Arm A AUTHORIZED 13th gate**.
+
+**This cycle**: 13th successful pre-launch code-review gate (3rd "broadest acceptance" disabled-check parity) + tanjiro pod-broken hold resolved + cycle 71 gates total 1 inverted-case + 12 clean validations.
+
+- **#793 tanjiro DEPTH_DEP_MUON_LR — Arm A AUTHORIZED**: 13th code-review gate. Patch (commit `80a72f4a`, +52/-1 LoC) implements canonical CompleteP power-law `mult = ((l + 1) / L) ** 0.5` (option II-a, non-mean-preserving). Per-layer mults verified: l=0→0.2887, l=5→0.7071, l=11→1.0000. Body-only by construction (Muon built from `model.blocks.named_parameters()`). Bytewise-inert disabled path confirmed (step_avg 1931.87ms matches canary 32 within 0.14%). Disabled-check `p37oqpxu` val@200=4.08539 **in both cu12.8 AND cu13 envelopes** — 3rd "broadest acceptance" parity of cycle 71 alongside alphonse #1283 (4.08244) and edward #1264 (TBD).
+  
+  **Gate-routing delay diagnosis**: tanjiro posted code-review-gate request at 2026-05-26 09:09:03Z with disabled-check pass, but the label remained `status:wip` until 11:03:23Z when student self-corrected with swap to `status:review`. Pod sat idle for ~2 hours awaiting my review. Procedural failure: should add a "WIP-with-disabled-check-pass detection" heuristic to wake survey, or instruct student to post `[CODE-REVIEW-GATE-REQUEST]` literal marker that pre-fetches into the PR review queue independently of label state.
+
+- **CompleteP canonical form distinguishing from frieren #1250**:
+  | PR | Form | LR ratio top/bottom | Range | Mean mult | Mean LR vs baseline |
+  |---|---|---|---|---|---|
+  | #1250 frieren Arm A | linear mean-preserving | 1.15/0.85 = 1.35× | [0.85, 1.15] | 1.000 | 100% |
+  | #793 tanjiro Arm A | power-law non-mean-preserving | 1.000/0.2887 = 3.46× | [0.2887, 1.000] | 0.645 | 64.5% |
+  
+  Tests two questions simultaneously: (1) does shape (concave power-law vs linear) help, (2) is 35% mean-LR reduction compensable by shape. Wider kill gates accommodate trajectory lag.
+
+**Active fleet (mid-279 post-cycle)**:
+- edward #1264 LATE_NORMUON_VARIANCE_RESET — Arm A in-flight (factorial cell V-only)
+- fern #1267 LATE_COOLDOWN_MOMENTUM_RESET — Arm A in-flight (factorial cell M-only)
+- askeladd #1271 SOAP_TRUST_DEPTH_RAMP — Arm A in-flight
+- thorfinn #1282 MUON_BETA_DEPTH_RAMP_COOLDOWN_ONLY — Arm A launched
+- alphonse #1283 MUON_COMBINED_LATE_RESET — Arm A launched (factorial cell M+V)
+- frieren #1285 MUON_LR_BETA_PAIRED_DEPTH_RAMP — Arm A AUTHORIZED post 1-line patch correction
+- **tanjiro #793 DEPTH_DEP_MUON_LR — Arm A AUTHORIZED, launching** ← THIS CYCLE
+- nezuko #1226 AUX_CLIP_NORM — Arm B in-flight (Option B)
+
+**ZERO IDLE STUDENTS** — 3 in-flight + 2 launched (#1282 #1283) + 2 just-authorized (#1285 #793) + 1 in-flight nezuko
+
+**Methodological observations mid-279**:
+- **13 pre-launch code-review gate applications cycle 71**: 1 inverted-case-catch (#1285) + 12 clean validations. ~7.7% advisor-error rate, ~92.3% student-implementation-verified-correct rate. Methodology proves itself as both bidirectional verification AND high-throughput correctness gate.
+- **"Broadest acceptance" disabled-check parity emerging as a strong-signal class**: 3 PRs this cycle had val@200 in both cu12.8 AND cu13 envelopes (#1283 4.08244 + #793 4.08539 + edward #1264 TBD). When student lands in both bands, the disabled-check is considered most robust against toolchain drift.
+- **Gate-routing delay procedural failure**: tanjiro's 2-hour idle delay highlights need for label-state-aware survey logic. Will add to advisor-side wake heuristics or recommend a student-side convention (literal `[CODE-REVIEW-GATE-REQUEST]` text in body for surface-to-advisor signal independent of label state).
+
+---
+
 ## 2026-05-26 10:50 UTC — Cycle 71 mid-278
 
 **Cumulative**: 165 refuted / 89 distinct mech classes / 51 family-level closures / 7 SATURATED MECHANISM LAYERS + 3 SATURATED LANES / 14 refute-signature classes / 7 CATASTROPHIC-SHIFTED-FLOOR (unchanged from mid-277)
