@@ -3,6 +3,45 @@
 Log of completed/reviewed experiment PRs in chronological order. Wave 1
 results pending student execution.
 
+## 2026-05-26 07:10 UTC — PR #1211: alphonse v_t pruning ablation on AdamW aux groups — **CLOSED clean-NEG** [FFS-PRIMARY]
+
+- **Branch:** `g1r5-alphonse/aux-v-ablation`
+- **Student:** g1r5-alphonse
+- **Hypothesis:** Pruning ablation — is the AdamW v_t denominator (2nd-moment adaptation) load-bearing on aux groups? 5-cell sweep across `--aux_v_mode ∈ {adam, fixed_one, l1_running, adam_fast_beta2, adam_huge_eps}`.
+
+**FFS-primary results (per human directive issue #1262):**
+
+| Cell | aux_v_mode | **FFS** | val/loss | Δ FFS vs baseline (3025) |
+|:----:|:-----------|:-------:|:--------:|:------------------------:|
+| A | adam (ctrl) | 3050 | 3.26308 | +25 |
+| **B ★** | fixed_one | **−1** | 8.31 | **catastrophic (diverged from step 0)** |
+| C | l1_running | 3050 | 3.26343 | +25 (parity) |
+| D | adam_fast_beta2 | 3075 | 3.26616 | +50 |
+| E | adam_huge_eps | **−1** | 3.29097 | **−1 (3.28 never crossed)** |
+
+**Verdict:** FFS dead across all cells. Cell B catastrophic (loss diverges from step 0). No FFS movement to <3000. **Close clean-NEG with mechanism finding**, no n=4 confirm per FFS-primary directive.
+
+**★ Refined mechanism (falsifier broken → telemetry rescue):** PR predicted E (`adam_huge_eps`, eps=1.0) would drown `v_t` and ≈ B (`fixed_one`). Falsifier broke 5 unit-of-loss apart. aux_v telemetry resolved it: for lm_head, `sqrt(v_hat)≈2` → adding eps=1.0 pushes denom 0.96→2.34 (damping) but **per-row magnitude signal preserved**. Cell B replaces denom with scalar 1.0 every row, killing per-row adaptation entirely. **Load-bearing property of v_t on aux is per-row gradient-magnitude normalization**, not "a denominator that grows with g."
+
+**7th aux-side closure** — Aux family fully saturated:
+| PR | Hypothesis | Status |
+|:--:|:-----------|:------:|
+| h160 Cautious | NEG |
+| h152 Lion | NEG |
+| h144 AdEmaMix | NEG |
+| h160 ADopt | NEG |
+| #1131 AdaBelief | NEG |
+| #1181 Adan | NEG |
+| **#1211** v_t pruning | **NEG (Cell B catastrophic)** |
+
+**Combined verdict: AdamW + per-row v_t is a tight floor on aux groups.** No replacement family beats it; pruning the v_t denominator catastrophically breaks training. Aux-optimizer-family axis fully closed under per-row-v frame.
+
+**Operational note:** Cell B SIGTERM'd at step 938 initially; rerun (y8gz4lnu) is canonical.
+
+**Caveat:** Cell A landed at +3.14σ above baseline μ (AuxAdamW.adam vs fused-AdamW numerical drift); within-sweep cell-vs-A comparisons remain clean.
+
+**Transition:** Assigned alphonse #1266 depth_init_mode pruning ablation (FFS-targeted; sweep all 5 modes ctrl/musoft★/mumedium/muall/smallconst; tests "is musoft FFS-load-bearing or val-loss-cosmetic?" — first stack-component pruning under new FFS-primary framing).
+
 ## 2026-05-26 05:55 UTC — PR #1206: thorfinn Pre-NS grad-norm conditioned LR on Muon body — **CLOSED clean-NEG**
 
 - **Branch:** `g1r5-thorfinn/muon-grad-norm-conditioned-lr`
