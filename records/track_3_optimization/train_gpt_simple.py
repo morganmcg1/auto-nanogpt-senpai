@@ -218,6 +218,7 @@ def log_training_telemetry(
     if weight_norm:
         metrics["train/grad/grad_to_weight_norm"] = grad_stats.get("norm", 0.0) / weight_norm
     metrics.update(prefixed("train/grad/all", grad_stats))
+    muon_body_mus: list[float] = []
     for opt_idx, opt in enumerate(optimizers):
         for group_idx, group in enumerate(opt.param_groups):
             group_name = group.get("name", f"optimizer_{opt_idx}_group_{group_idx}")
@@ -225,6 +226,17 @@ def log_training_telemetry(
             metrics[f"train/weight_decay/{group_name}"] = group.get("weight_decay", 0.0)
             if "mu" in group:
                 metrics[f"train/mu/{group_name}"] = group["mu"]
+            if group_name == "muon_blocks" or group_name.startswith("muon_blocks_l"):
+                muon_body_mus.append(float(group["mu"]))
+                if "layer_idx" in group:
+                    l = group["layer_idx"]
+                    metrics[f"optim/muon_mu_layer_{l}"] = float(group["mu"])
+                if "mu_offset" in group:
+                    metrics[f"optim/muon_mu_offset/{group_name}"] = float(group["mu_offset"])
+    if muon_body_mus:
+        metrics["optim/muon_mu_mean"] = sum(muon_body_mus) / len(muon_body_mus)
+        metrics["optim/muon_mu_top_bottom"] = max(muon_body_mus) - min(muon_body_mus)
+        metrics["optim/muon_mu_groups"] = len(muon_body_mus)
     for module_type, tensors in grouped_by_type(grads, module_types).items():
         metrics.update(prefixed(f"train/grad_type/{module_type}", aggregate_stats(tensors)))
     for name, grad in grads:
@@ -455,6 +467,14 @@ MU_COOLDOWN_END = float(os.environ.get("MU_COOLDOWN_END", "0.95"))
 MU_WARMUP_STEPS = int(os.environ.get("MU_WARMUP_STEPS", "0"))
 MU_WARMUP_START = float(os.environ.get("MU_WARMUP_START", "0.85"))
 MUON_LR = float(os.environ.get("MUON_LR", "0.0375"))
+# Center-preserving depth-ramp ADDITIVE OFFSET on per-layer body Muon momentum (β1).
+# When non-zero, splits body-Muon param group into per-layer subgroups (one per
+# transformer block) and applies an additive mu offset
+#     mu_layer(l, t) = cur_mu_global(t) + MUON_BETA_DEPTH_RAMP * (l/(L-1) - 0.5)
+# preserving the arithmetic mean across layers (so the global schedule shape is
+# unchanged in average). MUON_BETA_DEPTH_RAMP=0.0 keeps the single-group baseline
+# byte-for-byte.
+MUON_BETA_DEPTH_RAMP = float(os.environ.get("MUON_BETA_DEPTH_RAMP", "0.0"))
 MUON_WEIGHT_DECAY = 0.025  # nominal; Muon.step does not apply explicit wd (u/w-floor replaces it)
 TARGET_UW = 0.35
 NORMUON_BETA2 = 0.95
@@ -627,7 +647,8 @@ def soap_precondition(update, state, beta2=SOAP_BETA2, eps=1e-8):
 
 
 class Muon(torch.optim.Optimizer):
-    def __init__(self, named_params, lr=MUON_LR, weight_decay=MUON_WEIGHT_DECAY, mu=MU):
+    def __init__(self, named_params, lr=MUON_LR, weight_decay=MUON_WEIGHT_DECAY, mu=MU,
+                 num_layers: int | None = None, mu_depth_ramp: float = 0.0):
         assert isinstance(named_params, list) and len(named_params) >= 1
         # MLP weights receive SOAP preconditioning (PR #78 / public record #14).
         self.soap_params = {
@@ -652,9 +673,36 @@ class Muon(torch.optim.Optimizer):
                     self.attn_soap_kind[id(p)] = "v"
                 elif n.endswith(".attn.proj.weight"):
                     self.attn_soap_kind[id(p)] = "proj"
-        params = sorted([p for _, p in named_params], key=lambda x: x.size(), reverse=True)
-        defaults = dict(lr=lr, weight_decay=weight_decay, mu=mu)
-        super().__init__(params, defaults)
+        defaults = dict(lr=lr, weight_decay=weight_decay, mu=mu, mu_offset=0.0)
+        if mu_depth_ramp != 0.0:
+            # Split into per-layer subgroups for spatial β1 (mu) depth-ramp.
+            # Names like "0.attn.q.weight" → layer index 0; mean-preserving offset
+            # mu_layer(l) = mu + mu_depth_ramp * (l/(L-1) - 0.5).
+            assert num_layers is not None and num_layers >= 2, "mu_depth_ramp requires num_layers>=2"
+            layer_params: dict[int, list[Tensor]] = {l: [] for l in range(num_layers)}
+            for n, p in named_params:
+                layer_idx = int(n.split(".", 1)[0])
+                assert 0 <= layer_idx < num_layers, f"layer index {layer_idx} out of range for {n}"
+                layer_params[layer_idx].append(p)
+            param_groups: list[dict] = []
+            for l in range(num_layers):
+                params_l = sorted(layer_params[l], key=lambda x: x.size(), reverse=True)
+                assert len(params_l) > 0, f"no body matmul params found for layer {l}"
+                depth_pos = (l / (num_layers - 1)) - 0.5  # -0.5 .. +0.5
+                offset_l = mu_depth_ramp * depth_pos
+                param_groups.append(dict(
+                    params=params_l,
+                    lr=lr,
+                    weight_decay=weight_decay,
+                    mu=mu + offset_l,
+                    mu_offset=offset_l,
+                    name=f"muon_blocks_l{l}",
+                    layer_idx=l,
+                ))
+            super().__init__(param_groups, defaults)
+        else:
+            params = sorted([p for _, p in named_params], key=lambda x: x.size(), reverse=True)
+            super().__init__(params, defaults)
 
     @torch.no_grad()
     def step(self):
@@ -856,6 +904,7 @@ if dist.get_rank() == 0:
             "optimizer/mu_warmup_steps": MU_WARMUP_STEPS,
             "optimizer/mu_warmup_start": MU_WARMUP_START,
             "optimizer/muon_lr": MUON_LR,
+            "optimizer/muon_beta_depth_ramp": MUON_BETA_DEPTH_RAMP,
             "optimizer/muon_weight_decay_nominal": MUON_WEIGHT_DECAY,
             "optimizer/target_uw": TARGET_UW,
             "optimizer/normuon_beta2": NORMUON_BETA2,
@@ -903,8 +952,11 @@ for trial_idx in range(args.num_trials):
                         dict(params=[p for p in model.parameters() if p.ndim < 2], lr=0.01, name="adam_scalars")],
                        betas=(0.8, 0.95), eps=1e-10, weight_decay=0, fused=True)
     optimizer2 = Muon([(n, p) for n, p in model.blocks.named_parameters() if p.ndim >= 2],
-                      lr=MUON_LR, weight_decay=MUON_WEIGHT_DECAY, mu=MU)
-    optimizer2.param_groups[0]["name"] = "muon_blocks"
+                      lr=MUON_LR, weight_decay=MUON_WEIGHT_DECAY, mu=MU,
+                      num_layers=len(model.blocks),
+                      mu_depth_ramp=MUON_BETA_DEPTH_RAMP)
+    if MUON_BETA_DEPTH_RAMP == 0.0:
+        optimizer2.param_groups[0]["name"] = "muon_blocks"
     optimizers = [optimizer1, optimizer2]
     assert set(p for opt in optimizers for group in opt.param_groups
                for p in group["params"]) == set(model.parameters())
@@ -934,8 +986,11 @@ for trial_idx in range(args.num_trials):
         for opt in optimizers:
             for group in opt.param_groups:
                 group["lr"] = group["initial_lr"] * eta
-                if group.get("name") == "muon_blocks":
-                    group["mu"] = cur_mu
+                # Match both single-group ("muon_blocks") and per-layer subgroups
+                # ("muon_blocks_l{i}") created by the MUON_BETA_DEPTH_RAMP path.
+                name = group.get("name", "")
+                if name == "muon_blocks" or name.startswith("muon_blocks_l"):
+                    group["mu"] = cur_mu + group.get("mu_offset", 0.0)
 
 
     ########################################
