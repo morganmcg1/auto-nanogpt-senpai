@@ -1,5 +1,28 @@
 # SENPAI Research Results — auto-nanogpt-1gpu-r4
 
+## 2026-05-26 23:55 — PR #1319: H5 NM burst sub-window decomposition — localize load-bearing 300-step segment in [2400, 3000) (CLOSED productive-MARGINAL — 47th no-merge)
+
+- Branch: `g1r4-alphonse/nm-burst-subwindow` (student g1r4-alphonse)
+- Hypothesis: Decompose #1280 H3 Arm B [2400, 3000) into finer 300-step sub-windows to localize the load-bearing phase. Arm A always-on ctrl (salvaged from prior #1280 chain, identical [0, 1e9) config). Arm B [2700, 3000) post-2700 burst, Arm C [2800, 3100) cooldown-transition-spanning, Arm D [2500, 2800) middle-segment anchor near `NS_COOLDOWN_START_FRAC=0.7 × 3350 = 2345`.
+
+| Arm | Window | NM-active steps | val/loss | fs | Δ_paired_val vs A | W&B run | Verdict |
+|:---:|---|:---:|:---:|:---:|:---:|:---:|:---|
+| A ctrl | `[0, 1e9)` always-on | 3350 | 3.26823 | 3200 | (ref) | `39ogmtxg` | drift +0.00209 PASS |
+| B post-2700 | `[2700, 3000)` 300-step | 300 | 3.26862 | 3200 | +0.00039 NULL | `llz9r94f` | NULL-band |
+| **C transition-spanning** | `[2800, 3100)` 300-step | 300 | **3.26780** | 3200 | **−0.000428 NULL-FAV-noise** | `t844d64h` | best arm but sub-threshold |
+| **D middle-anchor** | `[2500, 2800)` 300-step | 300 | **3.27173** | **3225** | **+0.00350 NEG** | `65j4bnha` | strongest within-chain harm |
+
+- **🎯 6-WINDOW COMBINED CHARACTERIZATION (#1280 + #1319)**: 6 NM-window data points spanning 300-1000 step widths. Monotone pattern w.r.t. "does NM-active window strictly contain step ~3000 (bf16 cooldown completion)?":
+  - **2 spanning windows** (#1280 D [2200, 3200), #1319 C [2800, 3100)) → Δ ∈ [−0.0007, −0.0004] NULL-FAV
+  - **2 edge-at-3000 windows** (#1280 B [2400, 3000), #1319 B [2700, 3000)) → Δ ∈ [+0.0004, +0.0007] flat-NULL
+  - **2 pre-3000-only windows** (#1280 C [2400, 2700), #1319 D [2500, 2800)) → Δ ∈ [+0.0016, +0.0035] borderline-NEG to NEG
+- **🎯 Strongest within-chain signal**: C − D = −0.00393 (9.2× threshold). Middle-segment Arm D NEG centered near `NS_COOLDOWN_START_FRAC=2345` *contradicts* "NM around cooldown_start anchor" and *strengthens* "NM around cooldown_completion ~step 3000" interpretation.
+- **Cross-chain mechanism convergence**: #1319 D NEG centered on 2345 aligns with #1281 H2 RESET=2345 4-way cross-chain consolidation (3/4 replications at NULL near baseline → consistent with "around 2345 is NOT favorable"); cooldown-transition-spanning favorable trend aligns with #1286 H4 LATE_MAX_D_IN R-buffer-coverage finding (R-buffer quality at distribution shift is load-bearing).
+- **No merge under post-#1240 baseline 3.26339**: best Arm C val=3.26780 is +0.00441 over → G1 fails by wide margin. The 6-window grid is high-information *mechanism* characterization but not a merge candidate — always-on schedule remains minimum-sufficient under post-#1138 stack.
+- **Decision tree resolution**: Row 1/2 NOT TRIGGERED (no arm cleared baseline). Row 3 ASYMMETRIC: C beats D by 0.00393 (above threshold) but C beats B by 0.000818 (sub-threshold) → falls back to productive-MARGINAL per student's recommended close, advisor agreed.
+- Student craftsmanship excellence: chain restart from runner-script carryover bug (frozen `/tmp` scripts reproducing OLD #1280 windows bit-identically), Arm C window-logic recovery from missing cherry-pick on branch state, sparkline verification of `newton_muon/window_active` toggling correctly at each arm's window boundaries, comprehensive 6-window grid synthesis with monotone-by-cooldown-coverage pattern interpretation.
+- Conclusion: 47th no-merge since #847. Sub-window axis FENCED as mechanism-characterized but not as merge candidate. alphonse reassigned to #1360 NM R-power preconditioning sweep (α-exponent virgin axis — 9th NM mechanism axis under directive cluster).
+
 ## 2026-05-26 23:00 — PR #1240: H: NM coverage+period extension — max_d_in 1024→4096 + update_period 10→5 (MERGED — 2nd merge since #847, 1st post-NM-characterization-wave merge)
 
 - Branch: `g1r4-tanjiro/newton-muon-extension-pp` (student g1r4-tanjiro)
