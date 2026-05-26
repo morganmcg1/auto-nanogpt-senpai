@@ -1,3 +1,65 @@
+## 2026-05-26 13:25 UTC — Cycle 71 mid-284
+
+**Cumulative**: **167 refuted (+1 from 166)** / **89 distinct mech classes (unchanged)** / **52 family-level closures (+1: SOAP_TRUST_DEPTH_RAMP family closed)**. **MAJOR CYCLE-71 SYNTHESIS UPDATE** — multiple Arm A terminals + askeladd #1271 bilateral close + cluster-break family-wide cross-comparison resolving.
+
+**This cycle — askeladd #1271 BILATERAL CLOSE as 167th refute**:
+- Arm A (+0.15 ramp, shallow loose / deep strict): val=**3.27627**, ffs=**3100** — **REGRESSION (above cluster)**
+- Arm B (−0.15 ramp, shallow strict / deep loose): val=**3.27001**, ffs=**3025** — **CLUSTER MEMBER (7th)**
+- Refute under merge bar. SOAP_TRUST_DEPTH_RAMP family closed (52nd family-level closure).
+- **Key telemetry finding (load-bearing for next cycle)**: per-depth `mean_cos_row` is FLAT (~0.89 across all quartiles in both arms) — there is no intrinsic depth-dependent SOAP stability signal for the gate to exploit. The depth-axis trust-ramp imposes asymmetry on a symmetric substrate.
+- **Per-kind variance dwarfs per-depth variance**: q/k/v/proj on_fraction ranges 0.42–1.0 (Δ=0.58), while per-depth-quartile `mean_cos_row` range is ~0.01. **Per-kind axis is ~25× higher signal than depth axis** — next test direction.
+- **v-projection systematic-lower-on_fraction signature**: v=0.583 (Arm A) and 0.417 (Arm B), other kinds higher. v projections are gate-bottlenecked.
+
+**Reassignment: askeladd → PR #1301 ATTN_SOAP_TRUST_PER_KIND (91st mech class)**:
+- Direct telemetry-driven follow-up: separate trust threshold for v projections (0.70 loose vs 0.95 strict), others fixed at 0.85.
+- Pre-launch code-review gate required.
+- Predicted outcomes: Arm A (v-loose) is MERGE CANDIDATE path if v wants more refreshes; Arm B (v-strict) tests opposite direction. 91st distinct mechanism class.
+
+**Cluster-break family-wide cross-comparison — DECISIVE UPDATE** (interp 1 now stronger):
+
+| PR | Mechanism | Arm | val | ffs | Cluster fit |
+|---|---|---|---|---|---|
+| #1267 fern (closed) | M-only reset | A | 3.26872 | 3000 | **NO (below)** |
+| #1267 fern (closed) | M-only reset | B | 3.26792 | 3000 | **NO (below)** |
+| #1264 edward (in-flight) | V-only reset | A | 3.27173 | TBD | preliminary IN |
+| #1283 alphonse (Arm B in-flight) | M+V combined reset | A | **3.26975** | **3025** | **IN cluster** |
+| #1282 thorfinn (Arm B in-flight) | β1 cooldown depth-ramp | A | **3.26978** | **3025** | **IN cluster** |
+| #1271 askeladd (closed) | SOAP_TRUST_DEPTH_RAMP -0.15 | B | 3.27001 | 3025 | **IN cluster** |
+| #1285 frieren (Arm A done, awaiting post) | combined LR+β1 ramp +favorable | A | 3.27500 | 3100 | **ABOVE (regression)** |
+| #793 tanjiro (Arm A done, awaiting post) | DEPTH_DEP_MUON_LR CompleteP power-law | A | 3.28670 | **-1** | **MISSED TARGET** (catastrophic 8th) |
+
+**Cluster-break hypothesis verdict** — leaning interpretation 1 (RNG correlation):
+- fern A+B at ffs=3000 were correlated stochastic draws (both n=1, single mechanism, same code path)
+- alphonse (M+V combined reset) — a fellow state-reset family member — landed in cluster
+- This is contrary to interpretation 2 (state-reset family uniquely orthogonal) prediction
+- Edward final ffs awaited; alphonse Arm B + thorfinn Arm B in-flight for bilateral confirmation
+- **PR #1296 LATE_LR_PULSE (fern's next assignment) still valuable** as orthogonal axis: tests whether step-2540 perturbation matters at all, independent of state-mutation question
+
+**4 silent students prompted at mid-284**:
+1. **tanjiro #793**: Arm A val=3.2867 + ffs=-1 (catastrophic-shifted-floor 8th). Single-arm test per PR design. Heartbeat request sent + suggested terminal SENPAI-RESULT format. Will close as 168th refute when posted.
+2. **frieren #1285**: Arm A val=3.2750 + ffs=3100 (above-cluster regression, 2nd of cycle 71). Heartbeat request sent + Arm B launch decision flagged. Recommended bilateral close per design.
+3. **alphonse #1283 + thorfinn #1282**: Arm A terminals visible in W&B + Arm B in-flight. Both will post bilateral terminal SENPAI-RESULTs at Arm B finish (no advisor nudge needed; standard pattern).
+4. **askeladd #1271**: already posted, closed at mid-284.
+
+**Active fleet at mid-284**:
+- alphonse #1283 Arm A done (val=3.26975 ffs=3025), Arm B running (~step 2350)
+- thorfinn #1282 Arm A done (val=3.26978 ffs=3025), Arm B running (~step 2300)
+- edward #1264 Arm A done (val=3.27173, ffs TBD — likely cluster), need student SENPAI-RESULT post
+- nezuko #1226 Arm A=1.0 in-flight (~step 1100, started 12:04Z, ETA ~13:55Z)
+- frieren #1285 Arm A done (val=3.2750 ffs=3100), Arm B not yet launched
+- tanjiro #793 single-arm done (val=3.2867 ffs=-1), awaiting terminal SENPAI-RESULT
+- **askeladd #1301 newly assigned** (per-kind SOAP test)
+- fern #1296 LATE_LR_PULSE, pre-launch code-review gate pending
+
+**ZERO IDLE STUDENTS — 8 students concurrently active.** Maximum concurrent count maintained.
+
+**Methodological observations mid-284**:
+- **Multi-PR Arm A terminal cluster in 1 hour window (09:20–13:20Z)**: 6 Arm A terminals (askeladd, edward, alphonse, thorfinn, frieren, tanjiro). 3 in cluster, 2 regressions above cluster, 1 catastrophic-missed-target. Single-day diversity of refute signatures.
+- **Cluster-break "false positive" pattern**: fern A+B were the only state-reset Arm A results at ffs=3000. Alphonse's combined M+V reset landing at ffs=3025 (cluster member) is strong evidence that fern A+B were correlated stochastic baseline-draws, not a structural cluster-break signature. Important methodological lesson: n=1 each in a 2-arm same-mechanism PR can produce correlated extremes that LOOK structural but aren't.
+- **Telemetry-driven reassignment (PR #1301)**: askeladd's own bilateral telemetry directly motivates the next test (per-kind axis). This is the highest-quality follow-up pathway — consequence-of-observation rather than speculation.
+
+---
+
 ## 2026-05-26 12:30 UTC — Cycle 71 mid-283
 
 **Cumulative**: **166 refuted (+1 from 165)** / **89 distinct mech classes (unchanged)** / **51 family-level closures (unchanged — state-reset family-level closure DEFERRED pending edward + alphonse cross-comparison)**.
