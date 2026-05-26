@@ -64,11 +64,26 @@ def parse_args():
     parser.add_argument("--muon_lr", type=float, default=0.035,
                         help="Base learning rate for body-Muon optimizer (matrix params in blocks). "
                              "Default 0.035 matches the merged baseline.")
+    parser.add_argument("--pre_target_lr_boost", type=float, default=1.0,
+                        help="Multiplicative LR boost on body-Muon ONLY during the pre-target-crossing "
+                             "window [pre_target_boost_start_step, pre_target_boost_end_step). "
+                             "Default 1.0 = no boost (no-op). Must be >= 1.0.")
+    parser.add_argument("--pre_target_boost_start_step", type=int, default=0,
+                        help="Inclusive start step for pre-target LR boost window.")
+    parser.add_argument("--pre_target_boost_end_step", type=int, default=0,
+                        help="Exclusive end step for pre-target LR boost window. "
+                             "Default 0 (with default start=0) yields an empty window = no boost.")
     args = parser.parse_args()
     args.num_trials = args.num_trials if args.num_trials is not None else (args.legacy_num_trials or 1)
     args.wandb_tags = [tag.strip() for tag in args.wandb_tags.split(",") if tag.strip()]
     if args.telemetry_interval < 1 or args.histogram_interval < 1:
         raise ValueError("--telemetry_interval and --histogram_interval must be positive")
+    if args.pre_target_lr_boost < 1.0:
+        raise ValueError("--pre_target_lr_boost must be >= 1.0")
+    if args.pre_target_boost_start_step < 0 or args.pre_target_boost_end_step < 0:
+        raise ValueError("--pre_target_boost_*_step must be >= 0")
+    if args.pre_target_boost_end_step > 0 and args.pre_target_boost_start_step >= args.pre_target_boost_end_step:
+        raise ValueError("--pre_target_boost_start_step must be < --pre_target_boost_end_step")
     return args
 
 
@@ -720,6 +735,11 @@ if dist.get_rank() == 0:
             "ema_warmup_steps": args.ema_warmup_steps,
             "ema_beta_target": args.ema_beta_target if args.ema_beta_target is not None else 0.0,
             "ema_dynamic_ramp_active": int(args.ema_beta_target is not None and args.ema_beta > 0),
+            "pre_target_lr_boost": args.pre_target_lr_boost,
+            "pre_target_boost_start_step": args.pre_target_boost_start_step,
+            "pre_target_boost_end_step": args.pre_target_boost_end_step,
+            "pre_target_boost_active": int(args.pre_target_lr_boost > 1.0
+                                            and args.pre_target_boost_end_step > args.pre_target_boost_start_step),
         },
     )
 
@@ -814,7 +834,15 @@ for trial_idx in range(args.num_trials):
         for opt in optimizers:
             for group in opt.param_groups:
                 group["lr"] = group["initial_lr"] * eta
-        return progress, cooldown_progress, eta
+        # Pre-target LR boost: multiply body-Muon (optimizer2) group LRs by boost
+        # factor when step ∈ [start, end). AdamW aux (optimizer1) unaffected.
+        # Default boost=1.0 makes this branch a structural no-op (guard is `> 1.0`).
+        boost_active = (args.pre_target_lr_boost > 1.0
+                        and args.pre_target_boost_start_step <= step < args.pre_target_boost_end_step)
+        if boost_active:
+            for group in optimizer2.param_groups:
+                group["lr"] *= args.pre_target_lr_boost
+        return progress, cooldown_progress, eta, boost_active
 
 
     ########################################
@@ -951,7 +979,7 @@ for trial_idx in range(args.num_trials):
         dist.all_reduce(step_loss, op=dist.ReduceOp.SUM)
         train_loss = float((step_loss / batch_size).item())
         # set optimization hyperparameters and take a step
-        sched_progress, sched_cooldown_progress, sched_eta = set_hparams(step)
+        sched_progress, sched_cooldown_progress, sched_eta, sched_boost_active = set_hparams(step)
         train_step = step + 1
         telemetry_due = (step == 0 or (step + 1) % args.telemetry_interval == 0 or step + 1 == train_steps)
         histogram_due = (step == 0 or (step + 1) % args.histogram_interval == 0 or step + 1 == train_steps)
@@ -1038,6 +1066,18 @@ for trial_idx in range(args.num_trials):
                 "train/cooldown/lr_multiplier": sched_eta,
                 "train/cooldown/power_gamma": COOLDOWN_POWER,
             }, step=wandb_step)
+            if args.pre_target_lr_boost > 1.0:
+                body_muon_effective_lr = optimizer2.param_groups[0]["lr"]
+                wandb.log({
+                    "trial": trial_idx,
+                    "train/step": train_step,
+                    "pre_target_boost/active": 1.0 if sched_boost_active else 0.0,
+                    "pre_target_boost/multiplier": args.pre_target_lr_boost,
+                    "pre_target_boost/start_step": args.pre_target_boost_start_step,
+                    "pre_target_boost/end_step": args.pre_target_boost_end_step,
+                    "pre_target_boost/effective_lr": body_muon_effective_lr,
+                    "pre_target_boost/baseline_lr": optimizer2.param_groups[0]["initial_lr"] * sched_eta,
+                }, step=wandb_step)
             if ema_params is not None:
                 wandb.log({
                     "trial": trial_idx,
