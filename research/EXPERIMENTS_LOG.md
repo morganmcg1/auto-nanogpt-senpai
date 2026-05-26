@@ -3,6 +3,53 @@
 Log of completed/reviewed experiment PRs in chronological order. Wave 1
 results pending student execution.
 
+## 2026-05-26 08:20 UTC — PR #1266: alphonse depth-init-mode pruning ablation — **CLOSED clean-NEG** [FFS-PRIMARY]
+
+- **Branch:** `g1r5-alphonse/depth-init-pruning`
+- **Student:** g1r5-alphonse
+- **Hypothesis:** Pruning ablation — is `--depth_init_mode musoft` FFS-load-bearing or val-loss-cosmetic? 5-cell sweep across all available depth_init_mode values. *(Data reuse from PR #699 identical-command sweep, transparently disclosed by student.)*
+
+| Cell | depth_init_mode | FFS | val/loss | Δ FFS |
+|:----:|:---------------|:---:|:--------:|:-----:|
+| A | musoft (ctrl) | 3025 | 3.26129 | 0 |
+| **B★** | ctrl (zero-init residual) | **3025** | 3.26178 | 0 |
+| C | mumedium | 3025 | 3.26180 | 0 |
+| D | muall | 3075 | 3.26546 | +50 |
+| E | smallconst (falsifier) | 3050 | 3.26253 | +25 |
+
+- **FFS verdict:** ALL cells FFS ∈ [3025, 3075] — baseline-flat. musoft is val-loss-cosmetic at FFS scale.
+- **Pre-crossing trajectory uniformity:** step→3.40=2250, step→3.35=2625, step→3.30=2875 **identical across ALL 5 cells** — optimizer convergence is completely insensitive to init mode in the pre-crossing phase.
+- **★ Mechanism finding:** init axis is the least load-bearing component probed so far. Even the "Other (5%)" predeclared outcome triggered: smallconst (std=1e-3, depth-independent) did NOT catastrophically fail (FFS=3050). Cell D (muall) is the only mode that moves the needle — harmful (+50 FFS, +0.00417 val/loss): extending depth-scaling to non-residual weights is destructive.
+- **★ Stack simplification:** musoft can be dropped in favor of ctrl with zero FFS penalty and <σ_single val/loss cost.
+- **W&B run IDs:** A=kktt9fle, B=tockmprc, C=05qti19t, D=okls6sis, E=h3yg0dtz (from PR #699 identical sweep)
+- **Operational note:** Student reused PR #699 identical-command data (transparent disclosure). Accepted once given: byte-identical command + code, decisive FFS readout. Not a precedent for vague reuse.
+- **Next:** Assigned alphonse → **#1272 wd-schedule-pruning** (is `--wd_schedule ramp_down` FFS-load-bearing? 5-cell sweep: ramp_down ctrl / constant★ / ramp_up / triangle / cosine_updown)
+
+---
+
+## 2026-05-26 08:20 UTC — PR #1221: frieren LAMB trust ratio on Muon body matrices — **CLOSED clean-NEG** [FFS-PRIMARY]
+
+- **Branch:** `g1r5-frieren/lamb-trust-ratio-body`
+- **Student:** g1r5-frieren
+- **Hypothesis:** LAMB-style per-layer `‖W‖_F / ‖update‖_F` trust ratio applied post-NS to Muon body matrices to enable cross-layer LR balance.
+
+| Cell | mode | FFS | val/loss | Δ vs baseline μ |
+|:----:|:-----|:---:|:--------:|:---------------:|
+| A | off (ctrl) | 3025 | 3.261378 | +0.27σ |
+| **B★** | lamb_clipped | **3025** | 3.260813 | **−0.69σ** |
+| C | lamb_unclipped | crashed NaN step~875 | — | killed |
+| D | weight_only | 3050 | 3.261882 | +1.11σ |
+| E | inverse (falsifier) | 3050 | 3.263135 | +3.22σ |
+
+- **FFS verdict:** ALL surviving cells FFS ∈ [3025, 3050] — baseline-flat. Cell B fails n=1 confirm gate by +0.000185.
+- **★★ Sharp saturation mechanism:** Trust ratio saturates at UPPER CLIP 2.0 from step ~800 onward. `‖W‖_F` grows during training while `‖update‖_F ≈ √(min(m,n))` is fixed post-NS → ratio → > 2.0 globally. Cell B ≈ uniform 2× lr_mlp boost for ~95% of training, NOT per-layer balance. Cell D (weight_only) behaves identically — `‖update‖_F` denominator not load-bearing once saturated. Cell C (unclipped) catastrophically diverges (trust ratio explodes to 7.3×10¹² by step 750) — clipping IS load-bearing.
+- **★ Mechanism dovetails with edward #1200 + thorfinn #1206:** Both found NS spectral-norm-bounded magnitude is intentional and load-bearing (`‖update‖_2 = 1` exactly). Three independent body-modification PRs converge: NS magnitude calibration is the bottleneck for cross-layer balance mechanisms.
+- **★ 1st cross-layer balance axis closure** — distinct from the 9-closure NS-modulation family; trust-ratio family is FFS-dead because saturation collapses per-layer signal.
+- **W&B run IDs:** A=dyfhatgy, B=6m7mpu9w, C=5b0ns87t, D=5e6llr7d, E=jgf5wwhq
+- **Next:** Assigned frieren → **#1273 soap-attn-pruning** (is `--soap_attn` FFS-load-bearing? 5-cell: soap_on ctrl / no_soap★ / no_soap+lr_attn_raised / no_soap+lr_attn_lowered / soap_on+over_lr falsifier)
+
+---
+
 ## 2026-05-26 07:10 UTC — PR #1211: alphonse v_t pruning ablation on AdamW aux groups — **CLOSED clean-NEG** [FFS-PRIMARY]
 
 - **Branch:** `g1r5-alphonse/aux-v-ablation`
