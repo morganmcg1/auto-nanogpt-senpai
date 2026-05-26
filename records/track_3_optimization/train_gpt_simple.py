@@ -64,6 +64,10 @@ def parse_args():
     parser.add_argument("--muon_lr", type=float, default=0.035,
                         help="Base learning rate for body-Muon optimizer (matrix params in blocks). "
                              "Default 0.035 matches the merged baseline.")
+    parser.add_argument("--beta_cov_warmup_steps", type=int, default=0,
+                        help="Linearly ramp body-Muon L_cov/R_cov EMA decay (beta_cov) from 0 to "
+                             "the configured beta_cov over this many optimizer steps. 0=disabled "
+                             "(baseline behavior, beta_cov fixed throughout training).")
     args = parser.parse_args()
     args.num_trials = args.num_trials if args.num_trials is not None else (args.legacy_num_trials or 1)
     args.wandb_tags = [tag.strip() for tag in args.wandb_tags.split(",") if tag.strip()]
@@ -535,12 +539,14 @@ def pmuon_update(
 
 class Muon(torch.optim.Optimizer):
     def __init__(self, params, lr=0.02, weight_decay=0, mu=0.95, beta_cov=0.95, gamma=PMUON_GAMMA,
-                 ns_a=NS_A, ns_b=NS_B, ns_c=NS_C):
+                 ns_a=NS_A, ns_b=NS_B, ns_c=NS_C, beta_cov_warmup_steps=0):
         assert isinstance(params, list) and len(params) >= 1 and isinstance(params[0], torch.nn.Parameter)
         params = sorted(params, key=lambda x: x.size(), reverse=True)
         defaults = dict(lr=lr, weight_decay=weight_decay, mu=mu, beta_cov=beta_cov, gamma=gamma,
-                        ns_a=ns_a, ns_b=ns_b, ns_c=ns_c)
+                        ns_a=ns_a, ns_b=ns_b, ns_c=ns_c,
+                        beta_cov_warmup_steps=beta_cov_warmup_steps)
         super().__init__(params, defaults)
+        self._step_count = 0
 
     @torch.no_grad()
     def step(self):
@@ -551,7 +557,15 @@ class Muon(torch.optim.Optimizer):
         floor_fired_count = 0
         floor_eligible_count = 0
         polar_diag: dict = {}
+        last_effective_beta_cov = float("nan")
         for group in self.param_groups:
+            warmup = group.get("beta_cov_warmup_steps", 0)
+            beta_cov_full = group["beta_cov"]
+            if warmup > 0 and self._step_count < warmup:
+                effective_beta_cov = beta_cov_full * (self._step_count / warmup)
+            else:
+                effective_beta_cov = beta_cov_full
+            last_effective_beta_cov = float(effective_beta_cov)
             params = group["params"]
             params_pad = params + [torch.empty_like(params[-1])] * (world_size - len(params) % world_size)
             for base_i in range(0, len(params), world_size):
@@ -568,7 +582,7 @@ class Muon(torch.optim.Optimizer):
                         state["L"],
                         state["R"],
                         mu=group["mu"],
-                        beta_cov=group["beta_cov"],
+                        beta_cov=effective_beta_cov,
                         gamma=group["gamma"],
                         ns_a=group["ns_a"],
                         ns_b=group["ns_b"],
@@ -587,6 +601,8 @@ class Muon(torch.optim.Optimizer):
                 dist.all_gather(params_pad[base_i:base_i + world_size], params_pad[base_i + rank])
         self._floor_diag = {"fired": floor_fired_count, "eligible": floor_eligible_count}
         self._polar_diag = polar_diag
+        self._effective_beta_cov = last_effective_beta_cov
+        self._step_count += 1
 
 
 def pmuon_spectral_diag(optimizer: torch.optim.Optimizer, gamma: float) -> dict[str, float]:
@@ -705,6 +721,7 @@ if dist.get_rank() == 0:
             "muon_lr": args.muon_lr,
             "muon_weight_decay": 0.025,
             "pmuon_beta_cov": 0.95,
+            "beta_cov_warmup_steps": args.beta_cov_warmup_steps,
             "pmuon_gamma": PMUON_GAMMA,
             "pmuon_gamma_power": PMUON_GAMMA,
             "ns_iterations": NS_ITERS,
@@ -756,9 +773,11 @@ for trial_idx in range(args.num_trials):
                         dict(params=[p for p in model.parameters() if p.ndim < 2], lr=0.025, name="adam_scalars")],
                        betas=(0.8, 0.95), eps=1e-10, weight_decay=0, fused=True)
     optimizer2 = Muon([p for p in model.blocks.parameters() if p.ndim >= 2],
-                      lr=args.muon_lr, weight_decay=0.025, beta_cov=0.95, gamma=PMUON_GAMMA)
+                      lr=args.muon_lr, weight_decay=0.025, beta_cov=0.95, gamma=PMUON_GAMMA,
+                      beta_cov_warmup_steps=args.beta_cov_warmup_steps)
     optimizer2.param_groups[0]["name"] = "muon_blocks"
-    print0(f"body-Muon optimizer: lr={args.muon_lr} weight_decay=0.025 beta_cov=0.95 gamma={PMUON_GAMMA}")
+    print0(f"body-Muon optimizer: lr={args.muon_lr} weight_decay=0.025 beta_cov=0.95 "
+           f"gamma={PMUON_GAMMA} beta_cov_warmup_steps={args.beta_cov_warmup_steps}")
     optimizers = [optimizer1, optimizer2]
     assert set(p for opt in optimizers for group in opt.param_groups
                for p in group["params"]) == set(model.parameters())
@@ -1037,6 +1056,16 @@ for trial_idx in range(args.num_trials):
                 "train/cooldown/cooldown_progress": sched_cooldown_progress,
                 "train/cooldown/lr_multiplier": sched_eta,
                 "train/cooldown/power_gamma": COOLDOWN_POWER,
+            }, step=wandb_step)
+            effective_beta_cov_now = getattr(optimizer2, "_effective_beta_cov", float("nan"))
+            wandb.log({
+                "trial": trial_idx,
+                "train/step": train_step,
+                "muon/effective_beta_cov": effective_beta_cov_now,
+                "muon/beta_cov_warmup_steps": args.beta_cov_warmup_steps,
+                "muon/beta_cov_warmup_active": int(args.beta_cov_warmup_steps > 0
+                                                   and getattr(optimizer2, "_step_count", 0)
+                                                   <= args.beta_cov_warmup_steps),
             }, step=wandb_step)
             if ema_params is not None:
                 wandb.log({
