@@ -1,5 +1,34 @@
 # SENPAI Research Results
 
+## 2026-05-26 12:52 UTC — PR #1249 CLOSED: Body-Muon per-tensor-type Nesterov μ (attn=0.93/mlp=0.97 vs attn=0.97/mlp=0.93) — 150th NULL, per-tensor splitting axis structurally closed across TARGET_UW + μ, pipeline-position amplification canon (g1r1-frieren)
+
+- Branch: `g1r1-frieren/mu-per-type`
+- Hypothesis: Split body-Muon's Nesterov μ (baseline 0.95 uniform) per tensor type. Tests whether attn and mlp gradient temporal structures differ — was deprioritized-but-untested at PR #777 closure.
+
+| Arm | mu_attn / mu_mlp | wandb_run | val_ema_terminal | sr | Δval (mnat) | Δsr | Verdict |
+|---|---|---|---|---|---|---|---|
+| Baseline n=2 | 0.95 uniform | vm48fdof+0a7esmxs | 3.266394 | 2925 | 0 | 0 | (reference) |
+| **A (mlp-HIGHER)** | 0.93 / 0.97 | `5asc4rry` | **3.308180** | **−1 (MISSED)** | **+41.79 (139σ)** | — | CATASTROPHIC NULL |
+| **B (mlp-LOWER)** | 0.97 / 0.93 | `gpro2wky` | **3.273180** | **3050** | **+6.78 (23σ)** | **+125** | mild NULL |
+
+- **Merge rule:** Both arms fail. Arm A MISSED 3.28 target; Arm B sr=3050, val>baseline.
+- **Per-tensor splitting axis structurally closed** across both load-bearing levers (TARGET_UW #1242 + μ #1249). Bilateral whitening + NS5 polar absorbs per-type magnitude/EMA differences only on uniform values; any per-type asymmetry is rejected by pre-NS5 first-moment EMA misalignment when one tensor type has dominant param mass.
+- **Asymmetric param-mass mechanism canon (NEW, cross-axis with #1242):**
+
+| Axis | Position | Δval mlp-HIGHER | Δval mlp-LOWER | Ratio |
+|---|---|---|---|---|
+| TARGET_UW (#1242) | post-NS5 floor | +4.62 mnat | +2.39 mnat | **1.93×** |
+| Nesterov μ (#1249) | pre-NS5 first-moment | **+41.79 mnat** | +6.78 mnat | **6.2×** |
+| Amplification | pre-NS5 vs post-NS5 | **9.0×** | 2.8× | — |
+
+- **Pipeline-position canon extended (cross-axis with #1136):** Perturbations upstream of NS5 amplify penalty ~9× vs equivalent perturbations downstream. **Pre-NS5 perturbations are catastrophic; post-NS5 perturbations are bounded.**
+- **Striking secondary finding:** Arm B `pmuon/lcov_eigh_min=1.51` (1400× collapse vs Arm A 2103.73) yet val BETTER. Rank conditioning DECOUPLED from val in cooldown regime. Cross-axis with #1168 thorfinn canon.
+- **Cooldown-recovery saturation canon (NEW):** Arm A at step 1750=+66 mnat above baseline → terminal +42 mnat (recovered only 24 mnat). **For perturbations >25 mnat at warmup-end, cooldown cannot recover.** Saturation threshold consistent with #1116 DOWN arm, #1164 fast-deep.
+- **Bug-fix:** Student frieren contributed senpai-pr-guard.py fix (commit 497a2f3) — `require_terminal_result` parse error accumulation bug.
+- **Next:** #129x frieren → AdamW aux variance state refresh at cooldown entry (mirror of #1268 fern L_cov refresh on aux pipeline; directive-aligned state intervention on AUX surface — first state-intervention on AUX pipeline).
+
+---
+
 ## 2026-05-26 11:30 UTC — PR #1268 fern L_cov/R_cov refresh Arm A MARGINAL n=1 WIN SIGNAL (HOLD merge; n=2 + Arm B required)
 
 - Branch: `g1r1-fern/lcov-refresh-cooldown`
