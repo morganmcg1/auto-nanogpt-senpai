@@ -1,3 +1,72 @@
+## 2026-05-26 20:30 UTC — Cycle 71 mid-295
+
+**Cumulative**: **180 refuted (+1: frieren #1312 180th)** / **102 distinct mech classes (+1: 102nd MUON_BETA_LOCALIZED_STEP #1340)** / **57 family-level closures (unchanged)** / **6-way closure taxonomy (+1: ASYMMETRIC-OUTCOME from #1312)**.
+
+**This cycle — 1 closure + 1 send-back + 2 code-review authorizations + 1 reassignment**:
+
+1. **frieren #1312 MUON_LR_BETA_DEPTH_RAMP_ANTI_ALIGNED closed as 180th refute — ASYMMETRIC-OUTCOME subtype (NEW 6th taxonomy entry)**:
+   - Arm A (+LR/−β, LR-favorable + β-unfavorable): val=**3.27960** ffs=**3175** — above-cluster regression
+   - Arm B (−LR/+β, LR-unfavorable + β-favorable): val=**3.27020** ffs=**3025** — cluster member
+   - **ASYMMETRIC-OUTCOME**: one arm clusters, one regresses — neither pure cluster-band (both cluster) nor catastrophic (both regress). Third branch of pre-registered outcome tree.
+   - **β-favorable direction is DOMINANT**: `(LR=0, β=+0.04)` (#1251 val=3.26912) ≈ `(LR=−0.3, β=+0.04)` (this PR Arm B val=3.27020) — Δ=0.0011, within RNG noise. LR depth-ramp axis near-inert under β-favorable depth-ramp.
+   - **First super-additive-HELP in cycle 71**: Arm B beats additive null by Δ=−0.0037 (observed 3.27020 vs null prediction 3.27385).
+   - **Anti-aligned breaks stuck-cooldown**: both arms retain healthy descent terminal slopes (−2.0e-4, −1.9e-4) vs #1285 −− cell stuck-cooldown (near-zero). Anti-aligned partial-cancels direction-aligned co-amplification on shared per-layer effective-update axis.
+   - **Combined 2×2 factorial** (with #1285): all 4 cells + #1251 center anchor fully mapped. LR×β paired-depth-ramp 2×2 factorial DEFINITIVELY CLOSED.
+
+2. **alphonse #1323 MUON_BODY_ATTN_MLP_BETA_PHASE_DISPATCH — send-back (mechanism-math defect, NOT a refute)**:
+   - Arm A kill-gate trip at step 1000 (val=4.07961, +0.386 nats from step 875) due to multiplier-magnitude bug: `mu = 0.95 × 1.1 = 1.045 > 1` made Muon momentum lerp an amplifier. Momentum norm exploded 74× in 47 steps.
+   - Mechanism class (per-structural-kind body Muon β dispatch) still UNTESTED at safe magnitudes.
+   - Send-back: revised multipliers 1.03/0.97 + safety assertion `assert 0.0 < mu_kind < 1.0`. PR kept open (99th mech class).
+   - **New methodology rule added**: Muon mu_kind = mu × MULT must stay in (0,1); max safe MULT ≈ 1/MU_COOLDOWN_START ≈ 1.04; always assert post-multiplication.
+
+3. **edward #1335 EMBED_LR_PHASE_TRANSITION code-review gate PASSED (22nd cycle-71)** — bilateral authorized:
+   - Commit `2732604b`, +21 LoC. IEEE-identity at default factor=1.0. adam_embed group surgical targeting verified. Canary `fcgu12zu` step:0 val=10.82583 exact match ✓, step:125 within cu13 process-start RNG band ✓.
+   - **torch 2.10/cu128 NaN-at-step-125 bug encountered and fixed by student** (pip reinstall to torch 2.12.0+cu130). Methodology rule: `requirements.txt` pins broken torch==2.10; correct version is 2.12.0+cu130.
+   - Arm A (factor=0.5) launched. Arm B (factor=2.0) pending sequential launch after Arm A terminal.
+
+4. **thorfinn #1336 MUON_NESTEROV_INVERSE_PHASE_GATE code-review gate PASSED (21st cycle-71)** — Arm A authorized:
+   - Commit `3e350bdb`, branch-isolated identity at default MUON_NESTEROV_PHASE=0. Canary `vsm2lejk` step:0 val=10.82583 bit-identical ✓, step:200 val=4.08916 inside cu12.8 envelope ✓.
+   - Single Arm A (inverse_cooldown): Nesterov-form ACTIVE plateau, INACTIVE cooldown. ~40% merge probability.
+   - `momentum_update_norm_mean` telemetry pre-added; step-3016 phase switch should show step-DOWN signal.
+
+5. **frieren → #1340 MUON_BETA_LOCALIZED_STEP (102nd mech class)** — locality discriminator on β-favorable mechanism:
+   - **Hypothesis**: cluster-band entry signal from #1251 (monotonic-linear β-up ramp → val=3.26912 ffs=3025) may be late-layer-localized vs monotonic-depth-gradient. Step-function dispatch (early-half ↓, late-half ↑ vs early-half ↑, late-half ↓) at same range as #1251 (±0.02 mean-preserving).
+   - Arm A late-localized (β_l0..l5=0.93, β_l6..l11=0.97) vs Arm B early-localized (β_l0..l5=0.97, β_l6..l11=0.93).
+   - **Discriminator**: if BOTH arms cluster at ~#1251 → locality inert (mean β-shift dominant). If ONLY late-localized clusters → H1 confirmed. If NEITHER clusters → monotonic-ramp geometry required.
+   - Completes LR×β 2×2 factorial with 3-sub-axis dissection: direction × magnitude × locality.
+   - Morgan #1259-aligned: per-group depth-dispatch testing specific state mechanism, NOT scalar sweep.
+
+**Closure-mechanism taxonomy now 6-way**:
+1. cluster-band (both arms cluster, mechanism inert)
+2. catastrophic-shifted-floor (both arms regress >0.04)
+3. n=2-confirm (n=1 cluster-band-edge requiring n=2 disambiguation)
+4. MATH-NULL (#1317 alphonse — hypothesis nulled before launch by parameter math)
+5. informative-crossover (#1306 thorfinn — pre/post-cooldown arm crossover)
+6. **ASYMMETRIC-OUTCOME (NEW from #1312)** — one arm clusters, other above-cluster regresses, with directional-dominance finding
+
+**Active fleet status mid-295**:
+
+| Student | PR | Status | W&B notes |
+|---|---|---|---|
+| g1r2-alphonse | #1323 | status:wip, send-back active | MUON_BODY_ATTN_MLP_BETA_PHASE_DISPATCH (revised mults 1.03/0.97) |
+| g1r2-thorfinn | #1336 | status:wip, Arm A authorized | MUON_NESTEROV_INVERSE_PHASE_GATE (~40% merge prob, ETA ~110 min) |
+| g1r2-nezuko | #1307 | status:wip, Arm A running | AUX_BIASES_LR_BOOST x2 boost |
+| g1r2-fern | #1324 | status:wip, Arm running | FERN_1267_N2_CONFIRM (n=2 of only cycle-71 cluster-break candidate) |
+| g1r2-frieren | #1340 NEW | status:wip, just assigned | MUON_BETA_LOCALIZED_STEP (102nd mech, locality discriminator) |
+| g1r2-askeladd | #1333 | status:wip, running | ATTN_SOAP_GRAM_REINIT_AT_COOLDOWN (100th mech) |
+| g1r2-tanjiro | #1316 | status:wip, Arm A running | MUON_BODY_POLYAK_AVERAGING (eval-state) |
+| g1r2-edward | #1335 | status:wip, Arm A running | EMBED_LR_PHASE_TRANSITION (101st mech) |
+
+**ZERO IDLE STUDENTS** — 8 students concurrently active.
+
+**Next expected arrivals**:
+- #1316 tanjiro (POLYAK_AVERAGING): Arm A terminal ETA ~60-90 min
+- #1307 nezuko (AUX_BIASES_LR_BOOST): Arm A terminal ETA ~60-90 min
+- #1324 fern (1267_N2_CONFIRM): terminal ETA ~90-120 min
+- #1336 thorfinn (NESTEROV_INVERSE): Arm A terminal ETA ~60-90 min (highest-priority, ~40% merge prob)
+- #1333 askeladd (SOAP_GRAM_REINIT): terminal ETA ~120-150 min
+- #1335 edward (EMBED_LR_PHASE): Arm A terminal ETA ~90-120 min
+
 ## 2026-05-26 18:25 UTC — Cycle 71 mid-294
 
 **Cumulative**: **179 refuted (+2: edward #1304 178th + thorfinn #1306 179th)** / **101 distinct mech classes (+1: 101 EMBED_LR_PHASE_TRANSITION #1335)** / **57 family-level closures (+1: 57 per-layer body-Muon-WD axis closed via #1304 bilateral)**.
