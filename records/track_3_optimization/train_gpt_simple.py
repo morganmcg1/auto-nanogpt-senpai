@@ -468,6 +468,13 @@ NS5_ITERS = int(os.environ.get("NS5_ITERS", "12"))
 WD_AUX = float(os.environ.get("WD_AUX", "0.0"))  # AdamW WD on embed + lm_head matrices (scalars stay at 0)
 EMBED_INIT_STD = float(os.environ.get("EMBED_INIT_STD", "1.0"))  # default preserves baseline N(0,1)
 LOGIT_SOFTCAP = float(os.environ.get("LOGIT_SOFTCAP", "15.0"))  # default = 15 (current hardcoded value); soft-cap value c in f(x) = c·x / sqrt(x^2+c^2)
+# PR #1354: time-lagged gradient ring buffer for body Muon momentum (106th mech class).
+# Decouples the EMA window CENTER from the window SIZE: state["momentum"].lerp_(grad_{t-L}, 1-mu)
+# instead of state["momentum"].lerp_(grad_t, 1-mu). Step itself still uses current grad.
+# MUON_GRAD_LAG_STEPS=0 (default) disables the mechanism (bit-identical to baseline).
+MUON_GRAD_LAG_STEPS = int(os.environ.get("MUON_GRAD_LAG_STEPS", "0"))
+# Phase-gate: disable lag at this step (Arm B = 953 cooldown_start; -1 = never disable / Arm A).
+MUON_GRAD_LAG_DISABLE_AT_STEP = int(os.environ.get("MUON_GRAD_LAG_DISABLE_AT_STEP", "-1"))
 
 
 def zeropower_via_newtonschulz5(G: Tensor) -> Tensor:
@@ -655,11 +662,18 @@ class Muon(torch.optim.Optimizer):
         params = sorted([p for _, p in named_params], key=lambda x: x.size(), reverse=True)
         defaults = dict(lr=lr, weight_decay=weight_decay, mu=mu)
         super().__init__(params, defaults)
+        self._step_counter = 0
 
     @torch.no_grad()
     def step(self):
+        self._step_counter += 1
         world_size = dist.get_world_size()
         rank = dist.get_rank()
+        # PR #1354: phase-gate the lagged-grad mechanism on the body Muon momentum buffer.
+        lag_enabled = MUON_GRAD_LAG_STEPS > 0
+        lag_active = lag_enabled and (
+            MUON_GRAD_LAG_DISABLE_AT_STEP < 0 or self._step_counter < MUON_GRAD_LAG_DISABLE_AT_STEP
+        )
         for group in self.param_groups:
             params = group["params"]
             params_pad = params + [torch.empty_like(params[-1])] * (world_size - len(params) % world_size)
@@ -692,7 +706,35 @@ class Muon(torch.optim.Optimizer):
                                 state["trust_cos_row"] = 1.0
                                 state["trust_cos_col"] = 1.0
                     grad = p.grad
-                    state["momentum"].lerp_(grad, 1 - group["mu"])
+                    # PR #1354: route buffer update through a lagged-grad ring buffer when active.
+                    # The STEP itself still uses current grad — only the buffer's input is lagged.
+                    if lag_enabled:
+                        if lag_active:
+                            if "grad_history" not in state:
+                                state["grad_history"] = [None] * MUON_GRAD_LAG_STEPS
+                                state["grad_history_idx"] = 0
+                            idx = state["grad_history_idx"]
+                            delayed_grad = state["grad_history"][idx]
+                            state["grad_history"][idx] = grad.clone()
+                            state["grad_history_idx"] = (idx + 1) % MUON_GRAD_LAG_STEPS
+                            effective_grad = delayed_grad if delayed_grad is not None else grad
+                        else:
+                            if "grad_history" in state:
+                                del state["grad_history"]
+                                del state["grad_history_idx"]
+                            effective_grad = grad
+                    else:
+                        effective_grad = grad
+                    state["momentum"].lerp_(effective_grad, 1 - group["mu"])
+                    if lag_enabled:
+                        # Telemetry: cosine sim and norm ratio between buffer (post-update)
+                        # and current grad. Lag mechanism SHOULD reduce cosine sim (decorrelation).
+                        g_f = grad.float().reshape(-1)
+                        m_f = state["momentum"].float().reshape(-1)
+                        g_n = g_f.norm().clamp_min(1e-10)
+                        m_n = m_f.norm().clamp_min(1e-10)
+                        state["lag_cos_sim_t"] = ((g_f @ m_f) / (g_n * m_n)).detach()
+                        state["lag_norm_ratio_t"] = (m_n / g_n).detach()
                     momentum_update = grad.lerp(state["momentum"], group["mu"])
                     use_soap = p in self.soap_params
                     use_attn_soap = p in self.attn_soap_params
@@ -775,6 +817,38 @@ class Muon(torch.optim.Optimizer):
             out[f"{kind}/mean_cos_row"] = sum(crs) / kn
             out[f"{kind}/mean_cos_col"] = sum(ccs) / kn
         return out
+
+    def grad_lag_stats(self) -> dict[str, float]:
+        """PR #1354 telemetry: aggregate cosine sim and norm ratio between
+        body Muon momentum buffer (post-update) and current grad across all body params."""
+        if MUON_GRAD_LAG_STEPS <= 0:
+            return {}
+        cos_sims: list[float] = []
+        norm_ratios: list[float] = []
+        for group in self.param_groups:
+            for p in group["params"]:
+                state = self.state.get(p)
+                if state is None or "lag_cos_sim_t" not in state:
+                    continue
+                cos_sims.append(float(state["lag_cos_sim_t"].item()))
+                norm_ratios.append(float(state["lag_norm_ratio_t"].item()))
+        n = len(cos_sims)
+        if n == 0:
+            return {}
+        lag_active = (
+            MUON_GRAD_LAG_DISABLE_AT_STEP < 0 or self._step_counter < MUON_GRAD_LAG_DISABLE_AT_STEP
+        )
+        return {
+            "count": n,
+            "lag_active": int(lag_active),
+            "step_counter": self._step_counter,
+            "momentum_grad_lag_cosine": sum(cos_sims) / n,
+            "momentum_grad_lag_cosine_min": min(cos_sims),
+            "momentum_grad_lag_cosine_max": max(cos_sims),
+            "momentum_grad_lag_norm_ratio": sum(norm_ratios) / n,
+            "momentum_grad_lag_norm_ratio_min": min(norm_ratios),
+            "momentum_grad_lag_norm_ratio_max": max(norm_ratios),
+        }
 
 
 ########################################
@@ -866,6 +940,8 @@ if dist.get_rank() == 0:
             "optimizer/attn_soap_trust_threshold": ATTN_SOAP_TRUST_THRESHOLD,
             "optimizer/ns5_iters": NS5_ITERS,
             "optimizer/wd_aux": WD_AUX,
+            "train/body_muon/grad_lag_steps": MUON_GRAD_LAG_STEPS,
+            "train/body_muon/grad_lag_disable_at_step": MUON_GRAD_LAG_DISABLE_AT_STEP,
             "optimizer/recipe": "contra-muon + normuon-lite + soap-on-mlp + soap-on-attn-trust-gate (pre-NS5, record #14 + record #16)",
         },
     )
@@ -1059,6 +1135,10 @@ for trial_idx in range(args.num_trials):
                     stats = opt.trust_gate_stats()
                     if stats:
                         wandb.log(prefixed("train/attn_soap_trust_gate", stats), step=wandb_step)
+                if hasattr(opt, "grad_lag_stats"):
+                    stats = opt.grad_lag_stats()
+                    if stats:
+                        wandb.log(prefixed("train/body_muon", stats), step=wandb_step)
         if dist.get_rank() == 0 and telemetry_due:
             log_weight_telemetry(
                 model=model,
