@@ -1,5 +1,27 @@
 # SENPAI Research Results
 
+## 2026-05-26 11:30 UTC — PR #1268 fern L_cov/R_cov refresh Arm A MARGINAL n=1 WIN SIGNAL (HOLD merge; n=2 + Arm B required)
+
+- Branch: `g1r1-fern/lcov-refresh-cooldown`
+- Hypothesis: At step 2275 (Arm A) or 2600 (Arm B), reset L_cov/R_cov preconditioner EMAs to current Gram matrices — tests whether stale gradient-covariance state from pre-cooldown high-LR phase slows cooldown descent. Mechanism #4 from aligned hypothesis queue (Issue #1252 directive — state intervention, not coefficient sweep).
+
+| Arm | refresh_step | wandb_run | val_ema_terminal | val_ema@2925 | sr | Δval (mnat) | Δsr | Status |
+|---|---|---|---|---|---|---|---|---|
+| Baseline n=2 | — | vm48fdof+0a7esmxs | 3.266394 | — | 2925 | 0 | 0 | (reference) |
+| **A (refresh@2275)** | 2275 | `uffh8krr` | **3.265928** | 3.278982 | **2925** | **−0.466 (1.55σ)** | 0 | **🟢 MARGINAL n=1 WIN signal** |
+| B (refresh@2600) | 2600 | `7ei0wza7` | running (step 75) | — | — | — | — | ETA ~15:21 UTC |
+
+- **Merge clause check (Arm A n=1):**
+  - Clause-2 (`sr=2925 AND val<3.266394`): **PASSES** ✓ (sr=2925, val_ema=3.265928 < baseline)
+  - Marginal n=1 threshold: Δval=0.000466 < 0.001 → **n=2 confirmation REQUIRED** per session canon
+- **lcov_refresh fired successfully at step 2275:** `pmuon/lcov_eigh_min` recovery 1614.67 → 1946.34 confirms intervention wired correctly. Refresh delivers ~20% rank-eigenvalue recovery from pre-cooldown low-eigenvalue regime.
+- **Cooldown-recovery canon — 7th instance:** At step 2925, val_ema=3.278982 was 12.6 mnat ABOVE baseline at that step. Cooldown recovered 13 mnat in 325 steps → terminal 3.265928 BELOW baseline. Pattern matches #1242 (~15 mnat) / #1229 (~45 mnat) / #1218 (~12 mnat) / #1201 (~40 mnat). Mid-run val_ema at sr-crossing is PRELIMINARY; terminal val_ema authoritative.
+- **2nd WIN signal in 9-PR portfolio:** Alongside #1234 thorfinn Arm B (β_start=0.97 HIGHER) `7khmgp7d` seed-2 in flight (ETA terminal ~12:42 UTC). Structurally ORTHOGONAL mechanism axes: #1234 OUTER EMA-wrapper β_start (parameter smoothing) vs #1268 INNER preconditioner state refresh (gradient covariance). Could potentially STACK if both confirm n=2.
+- **Hold notice:** DO NOT merge Arm A until both: (1) Arm B reaches terminal (full PR design honored), (2) n=2 confirmation completes. Sequential confirmation: Arm B → decide n=2 seed-2 strategy → run on better arm.
+- **Mechanism context:** Strongly motivated by #1215 striking observation `pmuon/lcov_eigh_min=0.0` at terminal under mu_warmup → L_cov rank degeneracy is a real failure mode. Refresh at cooldown entry directly addresses Issue #1252 directive item "optimizer-state resets/rescaling at phase boundaries."
+
+---
+
 ## 2026-05-26 10:56 UTC — PR #1242 CLOSED: Per-tensor-type TARGET_UW (attn=0.30,mlp=0.40 vs attn=0.40,mlp=0.30) — 149th NULL, per-tensor TARGET_UW asymmetric U-shape canon, firing-fraction structural finding (g1r1-askeladd)
 
 - Branch: `g1r1-askeladd/target-uw-per-type`
