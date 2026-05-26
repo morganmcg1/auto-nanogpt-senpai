@@ -1,11 +1,12 @@
 #!/usr/bin/env bash
 # Lion lm_head 4-arm sequential chain: A (ctrl) -> B (LR=1e-3) -> C (LR=5e-4) -> D (cautious LR=1e-3).
 # All arms: SENPAI_SEED=0, NANOGPT_TRAIN_STEPS=3350.
+# Post-#1138 stack: Newton-Muon right-precond on body Muon is now part of baseline.
 set -u
 LOG_DIR="lion_lm_head_logs"
 mkdir -p "$LOG_DIR"
 
-# Shared base env (post-#847 baseline stack).
+# Shared base env (post-#1138 baseline stack).
 export NANOGPT_GRAD_CLIP=10.0
 export NANOGPT_GRAD_CLIP_BODY=10.0
 export NANOGPT_GRAD_CLIP_AUX=5.0
@@ -21,6 +22,13 @@ export NANOGPT_ADAMW_EMBED_LR_MULT=1.5
 export NANOGPT_MUON_ATTN_LR_MULT=0.80
 export NANOGPT_MUON_MLP_LR_MULT=1.20
 export NANOGPT_EMBED_INIT_ANCHOR_LAMBDA=0.001
+# Newton-Muon (#1138) — new baseline component on body Muon. Mechanism-orthogonal
+# to Lion lm_head (body vs aux), enabled for ctrl drift gate against the
+# new 3.26614 baseline.
+export NANOGPT_NEWTON_MUON=1
+export NANOGPT_NEWTON_MUON_LR_SCALE=1.0
+export NANOGPT_NEWTON_MUON_UPDATE_PERIOD=10
+export NANOGPT_NEWTON_MUON_MAX_D_IN=1024
 export SENPAI_SEED=0
 export NANOGPT_TRAIN_STEPS=3350
 export STUDENT_NAME=g1r4-fern
