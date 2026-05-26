@@ -61,6 +61,9 @@ def parse_args():
                              "--ema_beta_target during cooldown, coupling β to the LR schedule. "
                              "Requires --ema_beta>0. β_t = ema_beta + (ema_beta_target - ema_beta) "
                              "× (1 - lr_mult_t).")
+    parser.add_argument("--ema_buffer_refresh_step", type=int, default=-1,
+                        help="Step at which to copy current params into ema_params "
+                             "(resets buffer EMA state). -1=disabled.")
     parser.add_argument("--muon_lr", type=float, default=0.035,
                         help="Base learning rate for body-Muon optimizer (matrix params in blocks). "
                              "Default 0.035 matches the merged baseline.")
@@ -980,6 +983,31 @@ for trial_idx in range(args.num_trials):
             )
         for opt in optimizers:
             opt.step()
+        # Pre-target parameter-EMA buffer refresh (mech #7 nezuko)
+        # Copy current params into ema_params at a specified step, effectively
+        # zeroing the buffer's "memory" relative to live weights. The subsequent
+        # lerp at the same step is a mathematical no-op (β·p + (1-β)·p = p);
+        # from step+1 onward the buffer rebuilds from cooldown-phase params only.
+        if (args.ema_buffer_refresh_step >= 0
+                and step == args.ema_buffer_refresh_step
+                and ema_params is not None):
+            pre_buffer_frob = float("nan")
+            pre_buffer_max_diff = float("nan")
+            if dist.get_rank() == 0 and len(ema_params) > 0:
+                ema_p = ema_params[0]
+                p = optimizer2.param_groups[0]["params"][0]
+                diff = ema_p - p.detach().float()
+                pre_buffer_frob = float(torch.norm(diff).item())
+                pre_buffer_max_diff = float(diff.abs().max().item())
+            for ema_p, p in zip(ema_params, optimizer2.param_groups[0]["params"]):
+                ema_p.copy_(p.detach().float())
+            if dist.get_rank() == 0:
+                wandb.log({
+                    "ema_refresh/fired": 1,
+                    "ema_refresh/step": step,
+                    "ema_refresh/buffer_frob_pre": pre_buffer_frob,
+                    "ema_refresh/buffer_max_diff_pre": pre_buffer_max_diff,
+                }, step=wandb_step)
         # EMA buffer update on body-Muon matrix params.
         # During warmup: track params live (no averaging) so post-warmup buffer is
         # seeded with stable, non-zero params (handles proj zero-init bias and lets
