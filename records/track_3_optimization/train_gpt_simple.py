@@ -468,6 +468,10 @@ NS5_ITERS = int(os.environ.get("NS5_ITERS", "12"))
 WD_AUX = float(os.environ.get("WD_AUX", "0.0"))  # AdamW WD on embed + lm_head matrices (scalars stay at 0)
 EMBED_INIT_STD = float(os.environ.get("EMBED_INIT_STD", "1.0"))  # default preserves baseline N(0,1)
 LOGIT_SOFTCAP = float(os.environ.get("LOGIT_SOFTCAP", "15.0"))  # default = 15 (current hardcoded value); soft-cap value c in f(x) = c·x / sqrt(x^2+c^2)
+# Linear depth-ramp on Muon body contra-correction strength.
+# effective_contra(l) = CONTRA_MUON * (1 + WD_BODY_DEPTH * l/(L-1)) for body block l in [0, L-1].
+# 0.0 = disabled (uniform CONTRA_MUON, bytewise-identical to baseline).
+WD_BODY_DEPTH = float(os.environ.get("WD_BODY_DEPTH", "0.0"))
 
 
 def zeropower_via_newtonschulz5(G: Tensor) -> Tensor:
@@ -504,13 +508,20 @@ def scale_to_unit_operator_norm(G: Tensor, eps: float = 1e-10) -> Tensor:
     return G / op_norm.to(G.dtype)
 
 
-def contra_normuon_update(momentum_update, second_moment, beta2=NORMUON_BETA2):
-    """Contra-Muon + NorMuon-lite: NS5 -> contra subtraction -> per-row variance normalize."""
+def contra_normuon_update(momentum_update, second_moment, beta2=NORMUON_BETA2, contra_muon=None):
+    """Contra-Muon + NorMuon-lite: NS5 -> contra subtraction -> per-row variance normalize.
+
+    `contra_muon` overrides the global `CONTRA_MUON` so callers can pass a
+    per-param effective strength (e.g. depth-ramped). When `None`, falls back to
+    the module-level `CONTRA_MUON` so existing callers stay bytewise-identical.
+    """
+    if contra_muon is None:
+        contra_muon = CONTRA_MUON
     normalized_grad = scale_to_unit_operator_norm(momentum_update.clone())
     update = zeropower_via_newtonschulz5(momentum_update)
     opower_fro = update.norm()
-    # Contra correction: subtract CONTRA_MUON / 2 * op-norm-normalized momentum.
-    update = update - CONTRA_MUON / 2 * normalized_grad
+    # Contra correction: subtract contra_muon / 2 * op-norm-normalized momentum.
+    update = update - contra_muon / 2 * normalized_grad
     update = update * opower_fro / torch.clamp(update.norm(), min=1e-10)
     update *= max(1, update.size(-2) / update.size(-1))**0.5
     # NorMuon-lite per-row (or per-col) variance EMA + renormalize back to original Frobenius norm.
@@ -652,6 +663,15 @@ class Muon(torch.optim.Optimizer):
                     self.attn_soap_kind[id(p)] = "v"
                 elif n.endswith(".attn.proj.weight"):
                     self.attn_soap_kind[id(p)] = "proj"
+        # Track per-param block (layer) index for depth-ramp on contra-correction.
+        # Names from model.blocks.named_parameters() start with "<idx>.", e.g. "0.attn.q.weight".
+        self.layer_idx: dict[int, int] = {}
+        for n, p in named_params:
+            head = n.split(".", 1)[0]
+            assert head.isdigit(), f"Muon body param name has non-integer block prefix: {n!r}"
+            self.layer_idx[id(p)] = int(head)
+        # Largest block index + 1 — body depth used for the WD_BODY_DEPTH ramp denominator.
+        self.num_body_layers = max(self.layer_idx.values()) + 1 if self.layer_idx else 1
         params = sorted([p for _, p in named_params], key=lambda x: x.size(), reverse=True)
         defaults = dict(lr=lr, weight_decay=weight_decay, mu=mu)
         super().__init__(params, defaults)
@@ -701,7 +721,13 @@ class Muon(torch.optim.Optimizer):
                     if use_soap or use_attn_soap:
                         momentum_update = soap_precondition(momentum_update, state)
                     # NS5 + contra + NorMuon row variance on (possibly SOAP-preconditioned) momentum.
-                    update = contra_normuon_update(momentum_update, state["second_moment"])
+                    # Per-param depth-ramp on contra strength: contra(l) = CONTRA_MUON * (1 + WD_BODY_DEPTH * l/(L-1)).
+                    # When WD_BODY_DEPTH=0.0 the multiplier collapses to 1.0 -> bytewise-identical to baseline.
+                    layer_idx = self.layer_idx[id(p)]
+                    L = self.num_body_layers
+                    depth_frac = layer_idx / (L - 1) if L > 1 else 0.0
+                    effective_contra = CONTRA_MUON * (1.0 + WD_BODY_DEPTH * depth_frac)
+                    update = contra_normuon_update(momentum_update, state["second_moment"], contra_muon=effective_contra)
                     # u/w-floor: scale up if u/w < TARGET_UW; leave alone otherwise.
                     p_fro = p.float().norm().clamp_min(1e-8)
                     u_fro = update.float().norm().clamp_min(1e-8)
@@ -719,6 +745,25 @@ class Muon(torch.optim.Optimizer):
                                      use_trust_gate=True,
                                      trust_threshold=ATTN_SOAP_TRUST_THRESHOLD)
                 dist.all_gather(params_pad[base_i:base_i + world_size], params_pad[base_i + rank])
+
+    def wd_body_depth_stats(self) -> dict[str, float]:
+        """Per-layer effective contra strength under the WD_BODY_DEPTH depth-ramp.
+
+        Returns keys including ``effective_contra_layer_{0,mid,last}`` and
+        ``body_param_count``. Mid layer = floor((L-1)/2) for L=12 -> layer 5.
+        """
+        L = self.num_body_layers
+        if L < 1:
+            return {}
+        out: dict[str, float] = {
+            "num_body_layers": L,
+            "wd_body_depth": WD_BODY_DEPTH,
+            "body_param_count": len(self.layer_idx),
+        }
+        for label, l in (("layer_0", 0), ("layer_mid", (L - 1) // 2), ("layer_last", L - 1)):
+            depth_frac = l / (L - 1) if L > 1 else 0.0
+            out[f"effective_contra_{label}"] = CONTRA_MUON * (1.0 + WD_BODY_DEPTH * depth_frac)
+        return out
 
     def trust_gate_stats(self) -> dict[str, float]:
         """Return aggregate + per-weight-type trust-gate telemetry across attention SOAP params.
@@ -847,6 +892,7 @@ if dist.get_rank() == 0:
             "slope_fraction": SLOPE_FRACTION,
             "train_steps_cli": args.train_steps,
             "optimizer/contra_muon": CONTRA_MUON,
+            "optimizer/wd_body_depth": WD_BODY_DEPTH,
             "optimizer/mu": MU,
             "optimizer/mu_start": MU,
             "optimizer/mu_end": MU_END,
@@ -1059,6 +1105,10 @@ for trial_idx in range(args.num_trials):
                     stats = opt.trust_gate_stats()
                     if stats:
                         wandb.log(prefixed("train/attn_soap_trust_gate", stats), step=wandb_step)
+                if hasattr(opt, "wd_body_depth_stats"):
+                    stats = opt.wd_body_depth_stats()
+                    if stats:
+                        wandb.log(prefixed("wd_body_depth", stats), step=wandb_step)
         if dist.get_rank() == 0 and telemetry_due:
             log_weight_telemetry(
                 model=model,
