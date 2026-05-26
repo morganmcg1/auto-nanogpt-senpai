@@ -109,6 +109,21 @@ def parse_args():
     parser.add_argument("--body_init_bottom_layers", type=int,
                         default=int(os.environ.get("BODY_INIT_BOTTOM_LAYERS", "6")),
                         help="Number of bottom layers to damp for --body_init=orthogonal_bottom_damp (default 6 = bottom half of 12 layers).")
+    # H165 MGUP-on-AdamW-aux (Da Chang & Yuan NeurIPS 2025, cross-family extension of H155 cos(m,g) finding).
+    # Per-row over the vocab axis on embed.weight and lm_head.weight (both (V=50304, D=768)).
+    # 0 = disabled, bit-identical to baseline. 1 = enabled (switches embed+lm_head off fused AdamW).
+    parser.add_argument("--use_mgup_aux", type=int,
+                        default=int(os.environ.get("USE_MGUP_AUX", "0")),
+                        help="Enable MGUP per-row on AdamW aux groups (embed.weight + lm_head.weight). 0 = disabled (bit-id baseline).")
+    parser.add_argument("--mgup_aux_k", type=float,
+                        default=float(os.environ.get("MGUP_AUX_K", "0.5")),
+                        help="MGUP aux top-k fraction over vocab rows: top-k%% rows by cos(m,g) get lr*(1+alpha).")
+    parser.add_argument("--mgup_aux_alpha", type=float,
+                        default=float(os.environ.get("MGUP_AUX_ALPHA", "0.5")),
+                        help="MGUP aux high-lr boost: lr_high = lr * (1 + alpha).")
+    parser.add_argument("--mgup_aux_beta", type=float,
+                        default=float(os.environ.get("MGUP_AUX_BETA", "0.5")),
+                        help="MGUP aux low-lr suppression: lr_low = lr * beta. Must be > 0.")
     args = parser.parse_args()
     args.num_trials = args.num_trials if args.num_trials is not None else (args.legacy_num_trials or 1)
     args.wandb_tags = [tag.strip() for tag in args.wandb_tags.split(",") if tag.strip()]
@@ -747,6 +762,117 @@ class MuonH(torch.optim.Optimizer):
         self._last_norm_to_radius_max = max_n_over_r
 
 
+class MGUPAdamW(torch.optim.Optimizer):
+    """AdamW with optional MGUP per-row lr scaling (Da Chang & Yuan, NeurIPS 2025).
+
+    Hand-rolled AdamW (decoupled weight decay, bias correction) so we can apply a
+    per-row learning-rate scale on 2D tensors. For each 2D param, before the
+    parameter update, compute per-row cos(m_t, g_t). Top-k%% of rows (by cosine)
+    get lr * (1 + alpha); the rest get lr * beta. Rows are along dim=0 of the
+    tensor (vocab axis for embed.weight (V, D) and lm_head.weight (V, D)).
+
+    When use_mgup=False, the math is plain AdamW and matches torch.optim.AdamW
+    (non-fused, foreach=False path) bit-for-bit modulo floating-point order.
+
+    1D params (scalars / biases) and any tensor with ndim < 2 always use the
+    plain AdamW update (no per-row scaling).
+
+    MGUP warmup: cos(m, g) is meaningless when m_t≈0 (first few steps). Gate the
+    scaling to step >= mgup_warmup_steps; below that, use scale=1.0 everywhere.
+    """
+    def __init__(self, params, lr=1e-3, betas=(0.9, 0.999), eps=1e-8, weight_decay=0.0,
+                 use_mgup=False, mgup_k=0.5, mgup_alpha=0.5, mgup_beta=0.5,
+                 mgup_warmup_steps=10):
+        defaults = dict(lr=lr, betas=betas, eps=eps, weight_decay=weight_decay,
+                        use_mgup=use_mgup, mgup_k=mgup_k, mgup_alpha=mgup_alpha,
+                        mgup_beta=mgup_beta, mgup_warmup_steps=mgup_warmup_steps)
+        super().__init__(params, defaults)
+        # Per-tensor MGUP diagnostics, keyed by param id, reset each step.
+        self._last_mgup_stats = {}
+
+    @torch.no_grad()
+    def step(self):
+        self._last_mgup_stats = {}
+        for group in self.param_groups:
+            lr = group["lr"]
+            beta1, beta2 = group["betas"]
+            eps = group["eps"]
+            wd = group["weight_decay"]
+            use_mgup = group["use_mgup"]
+            mgup_k = group["mgup_k"]
+            mgup_alpha = group["mgup_alpha"]
+            mgup_beta = group["mgup_beta"]
+            mgup_warmup_steps = group["mgup_warmup_steps"]
+            group_name = group.get("name", "")
+            for p in group["params"]:
+                if p.grad is None:
+                    continue
+                grad = p.grad
+                state = self.state[p]
+                if len(state) == 0:
+                    state["step"] = 0
+                    state["exp_avg"] = torch.zeros_like(p, memory_format=torch.preserve_format)
+                    state["exp_avg_sq"] = torch.zeros_like(p, memory_format=torch.preserve_format)
+                state["step"] += 1
+                step = state["step"]
+                exp_avg = state["exp_avg"]
+                exp_avg_sq = state["exp_avg_sq"]
+
+                # AdamW first/second moment update (in place).
+                exp_avg.mul_(beta1).add_(grad, alpha=1 - beta1)
+                exp_avg_sq.mul_(beta2).addcmul_(grad, grad, value=1 - beta2)
+
+                bias_correction1 = 1.0 - beta1 ** step
+                bias_correction2 = 1.0 - beta2 ** step
+                step_size = lr / bias_correction1
+                denom_factor = math.sqrt(bias_correction2)
+
+                # AdamW decoupled weight decay (applied before parameter update).
+                if wd != 0:
+                    p.data.mul_(1 - lr * wd)
+
+                # Update direction (same for plain AdamW and MGUP — only the per-row lr scale differs).
+                denom = (exp_avg_sq.sqrt() / denom_factor).add_(eps)
+                update = exp_avg / denom
+
+                mgup_active = (
+                    use_mgup
+                    and p.ndim == 2
+                    and step >= mgup_warmup_steps
+                )
+                if mgup_active:
+                    # Per-row cos(m, g) over dim=1 (D axis). m and g are already on
+                    # device. Use float32 to avoid bfloat16 dot-product noise.
+                    m_rows = exp_avg.float()
+                    g_rows = grad.float()
+                    m_norm = m_rows.norm(dim=1)
+                    g_norm = g_rows.norm(dim=1)
+                    denom_cos = (m_norm * g_norm).clamp_min(1e-12)
+                    cos_per_row = (m_rows * g_rows).sum(dim=1) / denom_cos
+                    # Top-k threshold (top mgup_k fraction get the high boost).
+                    q = torch.tensor(1.0 - mgup_k, device=cos_per_row.device,
+                                     dtype=cos_per_row.dtype).clamp(0.0, 1.0)
+                    threshold = torch.quantile(cos_per_row, q)
+                    high_mask = cos_per_row >= threshold
+                    row_scale = torch.where(
+                        high_mask,
+                        cos_per_row.new_full((), 1.0 + mgup_alpha),
+                        cos_per_row.new_full((), mgup_beta),
+                    )
+                    # Apply per-row lr by scaling the update; broadcast over D.
+                    p.data.add_(update * row_scale.unsqueeze(1).to(update.dtype),
+                                alpha=-step_size)
+                    self._last_mgup_stats[id(p)] = {
+                        "mean_cos": float(cos_per_row.mean().item()),
+                        "pos_frac": float((cos_per_row > 0).float().mean().item()),
+                        "high_frac": float(high_mask.float().mean().item()),
+                        "threshold": float(threshold.item()),
+                        "name": group_name,
+                    }
+                else:
+                    p.data.add_(update, alpha=-step_size)
+
+
 ########################################
 #                Setup                 #
 ########################################
@@ -850,6 +976,11 @@ if dist.get_rank() == 0:
             "muonh_mu_schedule": args.muonh_mu_schedule,
             "muonh_mu_start": args.muonh_mu_start,
             "muonh_mu_end": args.muonh_mu_end,
+            # H165 MGUP-on-AdamW-aux CLI knobs (cross-family test of H155 cos(m,g) finding)
+            "use_mgup_aux": args.use_mgup_aux,
+            "mgup_aux_k": args.mgup_aux_k,
+            "mgup_aux_alpha": args.mgup_aux_alpha,
+            "mgup_aux_beta": args.mgup_aux_beta,
         },
     )
 
@@ -926,19 +1057,47 @@ for trial_idx in range(args.num_trials):
     # silent-failure-mode risk we use fused=False whenever the β2 schedule is active.
     # constant schedule keeps fused=True so arm_a is bitwise-identical to baseline.
     _aux_fused = (args.aux_beta2_schedule == "constant")
-    optimizer1 = AdamW([dict(params=[model.embed.weight], lr=0.3, name="adam_embed"),
-                        dict(params=[model.proj.weight], lr=1/320, name="adam_lm_head"),
-                        dict(params=[p for p in model.parameters() if p.ndim < 2], lr=0.01, name="adam_scalars")],
-                       betas=(0.8, args.aux_beta2_start), eps=args.aux_adamw_eps, weight_decay=0, fused=_aux_fused)
+    # H165 MGUP-on-AdamW-aux: when use_mgup_aux=1, switch embed+lm_head off fused
+    # AdamW onto a hand-rolled AdamW that supports per-row lr scaling. Scalars
+    # stay on fused AdamW (no per-row partition makes sense at ndim<2). When
+    # use_mgup_aux=0, keep the original 3-group fused AdamW for bit-identity
+    # with baseline jg6p3l50.
+    if args.use_mgup_aux:
+        optimizer1 = MGUPAdamW(
+            [dict(params=[model.embed.weight], lr=0.3, name="adam_embed"),
+             dict(params=[model.proj.weight], lr=1/320, name="adam_lm_head")],
+            betas=(0.8, args.aux_beta2_start), eps=args.aux_adamw_eps, weight_decay=0,
+            use_mgup=True, mgup_k=args.mgup_aux_k, mgup_alpha=args.mgup_aux_alpha,
+            mgup_beta=args.mgup_aux_beta, mgup_warmup_steps=10,
+        )
+        optimizer_scalars = AdamW(
+            [dict(params=[p for p in model.parameters() if p.ndim < 2], lr=0.01, name="adam_scalars")],
+            betas=(0.8, args.aux_beta2_start), eps=args.aux_adamw_eps, weight_decay=0, fused=_aux_fused,
+        )
+        if dist.get_rank() == 0:
+            print0(f"[H165] MGUP-on-AdamW-aux enabled: k={args.mgup_aux_k}, "
+                   f"lr_high={1.0+args.mgup_aux_alpha:.3f}x, lr_low={args.mgup_aux_beta:.3f}x"
+                   f" on embed+lm_head per-row (warmup=10 steps)", console=True)
+    else:
+        optimizer1 = AdamW([dict(params=[model.embed.weight], lr=0.3, name="adam_embed"),
+                            dict(params=[model.proj.weight], lr=1/320, name="adam_lm_head"),
+                            dict(params=[p for p in model.parameters() if p.ndim < 2], lr=0.01, name="adam_scalars")],
+                           betas=(0.8, args.aux_beta2_start), eps=args.aux_adamw_eps, weight_decay=0, fused=_aux_fused)
+        optimizer_scalars = None
+        if dist.get_rank() == 0:
+            print0(f"[H165] MGUP-on-AdamW-aux disabled (bit-id baseline)", console=True)
     optimizer2 = MuonH([p for p in model.blocks.parameters() if p.ndim >= 2],
                        lr=args.muonh_lr, weight_decay=0.0, mu=0.95,
                        hyperball=True, budget_mult=args.muonh_budget_mult,
                        mode=args.muonh_mode)
     optimizer2.param_groups[0]["name"] = "muonh_blocks"
     optimizers = [optimizer1, optimizer2]
-    # AGC targets: AdamW aux groups (embed, lm_head, scalars). Built from optimizer1
-    # param groups to track exactly the same params AdamW updates.
-    aux_params_for_agc = [p for g in optimizer1.param_groups for p in g["params"]]
+    if optimizer_scalars is not None:
+        optimizers.append(optimizer_scalars)
+    # AGC targets: AdamW aux groups (embed, lm_head, scalars). Built from the
+    # optimizers covering aux params (optimizer1 + optional optimizer_scalars).
+    aux_aux_opts = [optimizer1] + ([optimizer_scalars] if optimizer_scalars is not None else [])
+    aux_params_for_agc = [p for opt in aux_aux_opts for g in opt.param_groups for p in g["params"]]
     # Inner-MuonH AGC targets: block 2D weights consumed by MuonH. Clipped BEFORE
     # the MuonH momentum buffer integrates the gradient.
     muonh_params_for_agc = [p for g in optimizer2.param_groups for p in g["params"]]
@@ -952,9 +1111,10 @@ for trial_idx in range(args.num_trials):
     # embed / head keep learning for the first ~60% of training.
     h_cooldown_frac = 1.0
     aux_cooldown_frac = 0.4
-    for group in optimizer1.param_groups:
-        group["cooldown_frac"] = aux_cooldown_frac
-        group["cooldown_shape"] = "linear"
+    for opt in aux_aux_opts:
+        for group in opt.param_groups:
+            group["cooldown_frac"] = aux_cooldown_frac
+            group["cooldown_shape"] = "linear"
     for group in optimizer2.param_groups:
         group["cooldown_frac"] = h_cooldown_frac
         group["cooldown_shape"] = args.muonh_cooldown_shape
@@ -1002,8 +1162,9 @@ for trial_idx in range(args.num_trials):
                 b2 = args.aux_beta2_start + prog * (args.aux_beta2_end - args.aux_beta2_start)
         else:
             b2 = args.aux_beta2_start
-        for g in optimizer1.param_groups:
-            g["betas"] = (g["betas"][0], b2)
+        for opt in aux_aux_opts:
+            for g in opt.param_groups:
+                g["betas"] = (g["betas"][0], b2)
         # MuonH µ schedule (H109): 'off' is a no-op — mu stays at the MuonH
         # default 0.95 and we skip the param_group write so arm_a is bit-identical
         # to baseline. 'linear' ramps mu_start → mu_end across all train_steps.
@@ -1207,6 +1368,29 @@ for trial_idx in range(args.num_trials):
                 muonh_metrics["train/muonh/agc/max_ratio"] = muonh_agc_stats["agc_max_ratio"]
                 muonh_metrics["train/muonh/agc/scale_min"] = muonh_agc_stats["agc_scale_min"]
                 muonh_metrics["train/muonh/agc/scale_mean"] = muonh_agc_stats["agc_scale_mean"]
+            # H165 MGUP-aux telemetry: per-tensor cos(m, g) statistics from the
+            # MGUPAdamW step that just ran (only present when use_mgup_aux=1 and
+            # step >= warmup). Key signal: embed/lm_head pos_frac (>=0.5 means the
+            # positive-mode regime exists, so MGUP-aux should work).
+            if telemetry_due and args.use_mgup_aux and isinstance(optimizer1, MGUPAdamW):
+                # Map param id -> group name from optimizer1.
+                for group in optimizer1.param_groups:
+                    gname = group.get("name", "")
+                    for p in group["params"]:
+                        st = optimizer1._last_mgup_stats.get(id(p))
+                        if st is None:
+                            continue
+                        # Friendly tag: "embed" or "lm_head".
+                        if gname == "adam_embed":
+                            tag = "embed"
+                        elif gname == "adam_lm_head":
+                            tag = "lm_head"
+                        else:
+                            tag = gname or "aux"
+                        muonh_metrics[f"mgup_aux/{tag}_mean_cos"] = st["mean_cos"]
+                        muonh_metrics[f"mgup_aux/{tag}_pos_frac"] = st["pos_frac"]
+                        muonh_metrics[f"mgup_aux/{tag}_high_frac"] = st["high_frac"]
+                        muonh_metrics[f"mgup_aux/{tag}_threshold"] = st["threshold"]
             if len(muonh_metrics) > 2:
                 wandb.log(muonh_metrics, step=wandb_step)
         if dist.get_rank() == 0 and telemetry_due:
