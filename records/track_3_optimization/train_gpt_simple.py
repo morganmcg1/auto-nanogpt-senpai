@@ -28,6 +28,135 @@ STAT_SIG_DELTA = 0.004
 SLOPE_FRACTION = 0.10
 
 
+# H169: Adan-on-aux optimizer subclass.
+# Applies the Adan update rule (Xie et al. 2022, arXiv:2208.06677) to param
+# groups whose 'name' is in adan_target_groups, and falls back to standard
+# non-fused AdamW for all other groups.
+#
+# Update rule verified against the official sail-sg/Adan implementation:
+#   - Coefficient for g_diff in second moment is beta2 (NOT 1-beta2).
+#   - step_size_diff = lr * beta2 / bias_correction2  (NOT (1-beta2)/bc2).
+#   - Step 1: prev_grad initialised to g_1 so g_diff = g_1 - g_1 = 0.
+#   - Weight decay: post-update division  param /= (1 + lr * wd).
+#   - Since optimizer1 uses weight_decay=0, the wd term is a no-op here.
+class AdanAdamW(torch.optim.AdamW):
+    """AdamW subclass that applies Adan to named param groups.
+
+    Parameters
+    ----------
+    adan_target_groups : set[str]
+        Param-group 'name' values that should use the Adan update rule.
+        All other groups use the standard AdamW rule (non-fused path).
+    adan_beta1, adan_beta2, adan_beta3 : float
+        Adan-specific EMA coefficients.  Defaults follow the paper.
+    """
+
+    def __init__(self, *args, adan_target_groups=None,
+                 adan_beta1: float = 0.98,
+                 adan_beta2: float = 0.92,
+                 adan_beta3: float = 0.99,
+                 **kwargs):
+        super().__init__(*args, **kwargs)
+        self.adan_target_groups: set = set(adan_target_groups or [])
+        self.adan_beta1 = adan_beta1
+        self.adan_beta2 = adan_beta2
+        self.adan_beta3 = adan_beta3
+
+    @torch.no_grad()
+    def step(self, closure=None):
+        loss = None
+        if closure is not None:
+            with torch.enable_grad():
+                loss = closure()
+
+        for group in self.param_groups:
+            use_adan = group.get("name") in self.adan_target_groups
+            lr = group["lr"]
+            eps = group["eps"]
+            wd = group["weight_decay"]
+            beta1_aw, beta2_aw = group["betas"]
+
+            for p in group["params"]:
+                if p.grad is None:
+                    continue
+                g = p.grad
+
+                state = self.state[p]
+                if len(state) == 0:
+                    state["step"] = 0
+                    if use_adan:
+                        state["exp_avg"] = torch.zeros_like(p)
+                        state["exp_avg_diff"] = torch.zeros_like(p)
+                        state["exp_avg_sq"] = torch.zeros_like(p)
+                        # Initialised to g_1 so g_diff = 0 on the first step.
+                        state["prev_grad"] = g.clone()
+                    else:
+                        state["exp_avg"] = torch.zeros_like(p)
+                        state["exp_avg_sq"] = torch.zeros_like(p)
+
+                state["step"] += 1
+                t = state["step"]
+
+                if use_adan:
+                    b1 = self.adan_beta1
+                    b2 = self.adan_beta2
+                    b3 = self.adan_beta3
+                    m = state["exp_avg"]
+                    v = state["exp_avg_diff"]
+                    n = state["exp_avg_sq"]
+                    g_prev = state["prev_grad"]
+
+                    # g_diff = g_t - g_{t-1}; equals 0 on first step (g_prev == g_1).
+                    g_diff = g - g_prev
+
+                    # m_t = beta1 * m_{t-1} + (1 - beta1) * g_t
+                    m.mul_(b1).add_(g, alpha=1.0 - b1)
+                    # v_t = beta2 * v_{t-1} + (1 - beta2) * g_diff
+                    v.mul_(b2).add_(g_diff, alpha=1.0 - b2)
+                    # n_t = beta3 * n_{t-1} + (1 - beta3) * (g_t + beta2 * g_diff)^2
+                    # Note: coefficient is beta2, NOT (1 - beta2) — verified against
+                    # the official sail-sg/Adan implementation.
+                    g_eff = g.add(g_diff, alpha=b2)   # g_t + beta2 * (g_t - g_{t-1})
+                    n.mul_(b3).addcmul_(g_eff, g_eff, value=1.0 - b3)
+
+                    # Bias corrections
+                    bc1 = 1.0 - b1 ** t
+                    bc2 = 1.0 - b2 ** t
+                    bc3_sqrt = math.sqrt(1.0 - b3 ** t)
+
+                    # Denominator: sqrt(n_t) / sqrt(1 - beta3^t) + eps
+                    denom = (n.sqrt() / bc3_sqrt).add_(eps)
+
+                    # Parameter update:
+                    #   p -= (lr / bc1) * m / denom
+                    #   p -= (lr * beta2 / bc2) * v / denom
+                    p.addcdiv_(m, denom, value=-lr / bc1)
+                    p.addcdiv_(v, denom, value=-lr * b2 / bc2)
+
+                    # Post-update weight decay: p /= (1 + lr * wd)
+                    # (official Adan default no_prox=False).  No-op when wd=0.
+                    if wd != 0.0:
+                        p.div_(1.0 + lr * wd)
+
+                    # Store g_t for next step's g_diff.
+                    state["prev_grad"].copy_(g)
+
+                else:
+                    # Standard AdamW (non-fused, inline).
+                    m = state["exp_avg"]
+                    vsq = state["exp_avg_sq"]
+                    m.mul_(beta1_aw).add_(g, alpha=1.0 - beta1_aw)
+                    vsq.mul_(beta2_aw).addcmul_(g, g, value=1.0 - beta2_aw)
+                    bc1 = 1.0 - beta1_aw ** t
+                    bc2 = 1.0 - beta2_aw ** t
+                    denom = (vsq.sqrt() / math.sqrt(bc2)).add_(eps)
+                    p.addcdiv_(m, denom, value=-lr / bc1)
+                    if wd != 0.0:
+                        p.mul_(1.0 - lr * wd)
+
+        return loss
+
+
 def parse_args():
     parser = argparse.ArgumentParser(description="Modded-NanoGPT optimizer speedrun trainer")
     parser.add_argument("legacy_num_trials", nargs="?", type=int, help="Backward-compatible positional trial count")
@@ -109,6 +238,17 @@ def parse_args():
     parser.add_argument("--body_init_bottom_layers", type=int,
                         default=int(os.environ.get("BODY_INIT_BOTTOM_LAYERS", "6")),
                         help="Number of bottom layers to damp for --body_init=orthogonal_bottom_damp (default 6 = bottom half of 12 layers).")
+    # H169: Adan-on-aux
+    parser.add_argument("--use_adan", type=int, default=int(os.environ.get("USE_ADAN", "0")),
+                        help="0 = standard fused AdamW aux (CTRL, bit-identical to baseline); "
+                             "1 = use AdanAdamW for the aux param groups specified by --adan_target.")
+    parser.add_argument("--adan_target", type=str, default=os.environ.get("ADAN_TARGET", "none"),
+                        choices=["lm_head_only", "embed_only", "both", "none"],
+                        help="Which aux param groups to apply the Adan update rule to. "
+                             "'lm_head_only' = adam_lm_head group; "
+                             "'embed_only' = adam_embed group; "
+                             "'both' = both groups; "
+                             "'none' = no groups (pure AdamW, meaningful only with --use_adan 1 as a sanity check).")
     args = parser.parse_args()
     args.num_trials = args.num_trials if args.num_trials is not None else (args.legacy_num_trials or 1)
     args.wandb_tags = [tag.strip() for tag in args.wandb_tags.split(",") if tag.strip()]
@@ -850,8 +990,12 @@ if dist.get_rank() == 0:
             "muonh_mu_schedule": args.muonh_mu_schedule,
             "muonh_mu_start": args.muonh_mu_start,
             "muonh_mu_end": args.muonh_mu_end,
+            "h169_use_adan": args.use_adan,
+            "h169_adan_target": args.adan_target,
         },
     )
+
+print0(f"[H169] use_adan={args.use_adan} adan_target={args.adan_target}", console=True)
 
 for trial_idx in range(args.num_trials):
 
@@ -925,11 +1069,35 @@ for trial_idx in range(args.num_trials):
     # fused AdamW reads betas from param_groups on every .step(), but to avoid any
     # silent-failure-mode risk we use fused=False whenever the β2 schedule is active.
     # constant schedule keeps fused=True so arm_a is bitwise-identical to baseline.
-    _aux_fused = (args.aux_beta2_schedule == "constant")
-    optimizer1 = AdamW([dict(params=[model.embed.weight], lr=0.3, name="adam_embed"),
-                        dict(params=[model.proj.weight], lr=1/320, name="adam_lm_head"),
-                        dict(params=[p for p in model.parameters() if p.ndim < 2], lr=0.01, name="adam_scalars")],
-                       betas=(0.8, args.aux_beta2_start), eps=args.aux_adamw_eps, weight_decay=0, fused=_aux_fused)
+    # H169: when use_adan=1 we must use non-fused (Adan groups have no fused path).
+    _aux_fused = (args.aux_beta2_schedule == "constant") and (args.use_adan == 0)
+    _aux_param_groups = [
+        dict(params=[model.embed.weight], lr=0.3, name="adam_embed"),
+        dict(params=[model.proj.weight], lr=1/320, name="adam_lm_head"),
+        dict(params=[p for p in model.parameters() if p.ndim < 2], lr=0.01, name="adam_scalars"),
+    ]
+    if args.use_adan == 1:
+        # Map --adan_target to the set of param-group names that should use Adan.
+        _adan_group_map = {
+            "lm_head_only": {"adam_lm_head"},
+            "embed_only":   {"adam_embed"},
+            "both":         {"adam_embed", "adam_lm_head"},
+            "none":         set(),
+        }
+        _adan_targets = _adan_group_map[args.adan_target]
+        optimizer1 = AdanAdamW(
+            _aux_param_groups,
+            betas=(0.8, args.aux_beta2_start),
+            eps=args.aux_adamw_eps,
+            weight_decay=0,
+            fused=False,
+            adan_target_groups=_adan_targets,
+        )
+        print0(f"[H169] AdanAdamW active; adan_target_groups={_adan_targets}", console=True)
+    else:
+        optimizer1 = AdamW(_aux_param_groups,
+                           betas=(0.8, args.aux_beta2_start), eps=args.aux_adamw_eps,
+                           weight_decay=0, fused=_aux_fused)
     optimizer2 = MuonH([p for p in model.blocks.parameters() if p.ndim >= 2],
                        lr=args.muonh_lr, weight_decay=0.0, mu=0.95,
                        hyperball=True, budget_mult=args.muonh_budget_mult,
@@ -1169,6 +1337,58 @@ for trial_idx in range(args.num_trials):
         muonh_agc_stats = adaptive_gradient_clip(
             muonh_params_for_agc, args.muonh_agc_clip_ratio, eps=args.muonh_agc_eps,
         )
+        # H169: Adan diagnostics — read BEFORE opt.step() so prev_grad still holds
+        # g_{t-1}. After opt.step() the buffer is overwritten to g_t (which would
+        # make g_diff == 0 trivially). v_t / n_t buffers logged here are the pre-step
+        # (t-1) snapshot; for EMA buffers this is ~equivalent to the post-step value.
+        adan_log_due = (
+            dist.get_rank() == 0
+            and args.use_adan == 1
+            and train_step % 100 == 0
+        )
+        if adan_log_due:
+            adan_metrics = {"trial": trial_idx, "train/step": train_step}
+            for opt in optimizers:
+                if isinstance(opt, AdanAdamW):
+                    for group in opt.param_groups:
+                        gname = group.get("name", "")
+                        if gname not in opt.adan_target_groups:
+                            continue
+                        g_diff_norms = []
+                        g_norms = []
+                        v_norms = []
+                        n_means = []
+                        v_sq_means = []
+                        for p in group["params"]:
+                            if p.grad is None:
+                                continue
+                            state = opt.state.get(p, {})
+                            if "exp_avg_diff" not in state:
+                                continue
+                            g = p.grad.float()
+                            g_diff = g - state["prev_grad"].float()
+                            v = state["exp_avg_diff"].float()
+                            n = state["exp_avg_sq"].float()
+                            g_norm = g.norm().item()
+                            g_diff_norm = g_diff.norm().item()
+                            g_norms.append(g_norm)
+                            g_diff_norms.append(g_diff_norm)
+                            v_norms.append(v.norm().item())
+                            n_means.append(n.mean().item())
+                            v_sq_means.append((v * v).mean().item())
+                        if g_norms:
+                            total_g = sum(g_norms)
+                            total_gdiff = sum(g_diff_norms)
+                            ratio = total_gdiff / (total_g + 1e-12)
+                            mean_v_norm = sum(v_norms) / len(v_norms)
+                            mean_n = sum(n_means) / len(n_means)
+                            mean_vsq = sum(v_sq_means) / len(v_sq_means)
+                            n_vs_vt = mean_n / (mean_vsq + 1e-12)
+                            adan_metrics[f"train/adan/{gname}/g_diff_norm_ratio"] = ratio
+                            adan_metrics[f"train/adan/{gname}/v_norm"] = mean_v_norm
+                            adan_metrics[f"train/adan/{gname}/n_vs_v_t_ratio"] = n_vs_vt
+            if len(adan_metrics) > 2:
+                wandb.log(adan_metrics, step=wandb_step)
         for opt in optimizers:
             opt.step()
         # Log warmup telemetry every 10 steps during warmup (and at telemetry events
