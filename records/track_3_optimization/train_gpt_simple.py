@@ -14,12 +14,159 @@ import uuid
 import time
 from pathlib import Path
 
+import math
 import torch
 from torch import Tensor, nn
 from torch.optim import AdamW
 import torch.nn.functional as F
 import torch.distributed as dist
 import wandb
+try:
+    from prodigyopt import Prodigy as _ProdigyOpt
+except ImportError:
+    _ProdigyOpt = None
+
+
+class PerGroupProdigy(torch.optim.Optimizer):
+    """Prodigy variant that supports per-group base LR ratios (PR #1230).
+
+    Mirrors konstmish/prodigy step() but uses per-group group_lr in dlr_g, so the
+    baseline AUX ratios (embed 0.3, lm_head 1/320, scalars 0.01) survive Prodigy's
+    online d_t magnitude estimator. Same d_t shared across groups; per-group
+    update magnitude = d_t * group_lr * bias_correction.
+    """
+
+    def __init__(self, params, betas=(0.9, 0.999), beta3=None, eps=1e-8,
+                 weight_decay=0, decouple=True, use_bias_correction=False,
+                 safeguard_warmup=False, d0=1e-6, d_coef=1.0,
+                 growth_rate=float("inf"), slice_p=1):
+        if not 0.0 < d0:
+            raise ValueError(f"Invalid d0: {d0}")
+        defaults = dict(lr=1.0, betas=betas, beta3=beta3, eps=eps,
+                        weight_decay=weight_decay, d=d0, d0=d0, d_max=d0,
+                        d_numerator=0.0, d_coef=d_coef, k=0,
+                        growth_rate=growth_rate,
+                        use_bias_correction=use_bias_correction,
+                        decouple=decouple, safeguard_warmup=safeguard_warmup,
+                        slice_p=slice_p)
+        self.d0 = d0
+        super().__init__(params, defaults)
+
+    @torch.no_grad()
+    def step(self, closure=None):
+        loss = None
+        if closure is not None:
+            with torch.enable_grad():
+                loss = closure()
+
+        group0 = self.param_groups[0]
+        use_bc = group0["use_bias_correction"]
+        beta1, beta2 = group0["betas"]
+        beta3 = group0["beta3"]
+        if beta3 is None:
+            beta3 = math.sqrt(beta2)
+        k = group0["k"]
+        d = group0["d"]
+        d_max = group0["d_max"]
+        d_coef = group0["d_coef"]
+        d0 = group0["d0"]
+        growth_rate = group0["growth_rate"]
+
+        if use_bc:
+            bc = ((1.0 - beta2 ** (k + 1)) ** 0.5) / (1.0 - beta1 ** (k + 1))
+        else:
+            bc = 1.0
+
+        d_numerator = group0["d_numerator"] * beta3
+        delta_numerator = 0.0
+        d_denom = 0.0
+
+        for group in self.param_groups:
+            decay = group["weight_decay"]
+            eps = group["eps"]
+            group_lr = group["lr"]
+            safeguard_warmup = group["safeguard_warmup"]
+            slice_p = group["slice_p"]
+            decouple = group["decouple"]
+
+            dlr_g = d * group_lr * bc
+
+            for p in group["params"]:
+                if p.grad is None:
+                    continue
+                grad = p.grad.data
+                if decay != 0 and not decouple:
+                    grad = grad.add(p.data, alpha=decay)
+                state = self.state[p]
+                if "step" not in state:
+                    state["step"] = 0
+                    state["s"] = torch.zeros_like(p.data.flatten()[::slice_p]).detach()
+                    if p.any():
+                        state["p0"] = p.flatten()[::slice_p].detach().clone()
+                    else:
+                        state["p0"] = torch.tensor(0, device=p.device, dtype=p.dtype)
+                    if beta1 > 0:
+                        state["exp_avg"] = torch.zeros_like(p.data).detach()
+                    state["exp_avg_sq"] = torch.zeros_like(p.data).detach()
+
+                exp_avg_sq = state["exp_avg_sq"]
+                s = state["s"]
+                p0 = state["p0"]
+
+                if group_lr > 0.0:
+                    sliced_grad = grad.flatten()[::slice_p]
+                    delta_numerator += (d / d0) * dlr_g * torch.dot(
+                        sliced_grad, p0.data - p.data.flatten()[::slice_p]
+                    ).item()
+                    if beta1 > 0:
+                        exp_avg = state["exp_avg"]
+                        exp_avg.mul_(beta1).add_(grad, alpha=d * (1 - beta1))
+                    exp_avg_sq.mul_(beta2).addcmul_(grad, grad, value=d * d * (1 - beta2))
+                    if safeguard_warmup:
+                        s.mul_(beta3).add_(sliced_grad, alpha=((d / d0) * d))
+                    else:
+                        s.mul_(beta3).add_(sliced_grad, alpha=((d / d0) * dlr_g))
+                    d_denom += s.abs().sum().item()
+
+        d_hat = d
+        if d_denom == 0:
+            return loss
+
+        global_d_numerator = d_numerator + delta_numerator
+        global_d_denom = d_denom
+        d_hat = d_coef * global_d_numerator / global_d_denom
+        if d == d0:
+            d = max(d, d_hat)
+        d_max = max(d_max, d_hat)
+        d = min(d_max, d * growth_rate)
+
+        for group in self.param_groups:
+            group["d_numerator"] = global_d_numerator
+            group["d_denom"] = global_d_denom
+            group["d"] = d
+            group["d_max"] = d_max
+            group["d_hat"] = d_hat
+            decay = group["weight_decay"]
+            decouple = group["decouple"]
+            group_lr = group["lr"]
+            dlr_g = d * group_lr * bc
+            for p in group["params"]:
+                if p.grad is None:
+                    continue
+                state = self.state[p]
+                exp_avg_sq = state["exp_avg_sq"]
+                state["step"] += 1
+                denom = exp_avg_sq.sqrt().add_(d * group["eps"])
+                if decay != 0 and decouple:
+                    p.data.add_(p.data, alpha=-decay * dlr_g)
+                if beta1 > 0:
+                    exp_avg = state["exp_avg"]
+                    p.data.addcdiv_(exp_avg, denom, value=-dlr_g)
+                else:
+                    p.data.addcdiv_(p.grad.data, denom, value=-dlr_g * d)
+            group["k"] = k + 1
+
+        return loss
 
 TARGET_VAL_LOSS = 3.28
 STAT_SIG_DELTA = 0.004
@@ -468,6 +615,18 @@ NS5_ITERS = int(os.environ.get("NS5_ITERS", "12"))
 WD_AUX = float(os.environ.get("WD_AUX", "0.0"))  # AdamW WD on embed + lm_head matrices (scalars stay at 0)
 EMBED_INIT_STD = float(os.environ.get("EMBED_INIT_STD", "1.0"))  # default preserves baseline N(0,1)
 LOGIT_SOFTCAP = float(os.environ.get("LOGIT_SOFTCAP", "15.0"))  # default = 15 (current hardcoded value); soft-cap value c in f(x) = c·x / sqrt(x^2+c^2)
+# PRODIGY_AUX (PR #1230, Mishchenko & Defazio 2024 arXiv:2306.06101): online
+# D-Adaptation parameter-free LR estimator. When enabled, replaces the AUX AdamW
+# optimizer with prodigyopt.Prodigy (konstmish reference impl, Option D fallback
+# after in-house transcription proved fundamentally limited by chicken-and-egg
+# warmup deadlock with d_0=1e-6 on 3175-step budgets). PRODIGY_AUX=0 is byte-
+# identical to baseline (Prodigy path not constructed, no state).
+PRODIGY_AUX = int(os.environ.get("PRODIGY_AUX", "0"))
+PRODIGY_BETA3 = os.environ.get("PRODIGY_BETA3", "")  # "" -> default sqrt(beta2)
+PRODIGY_D_COEF = float(os.environ.get("PRODIGY_D_COEF", "1.0"))
+PRODIGY_D_INIT = float(os.environ.get("PRODIGY_D_INIT", "1e-6"))
+PRODIGY_SAFEGUARD_WARMUP = int(os.environ.get("PRODIGY_SAFEGUARD_WARMUP", "0"))
+PRODIGY_USE_BIAS_CORRECTION = int(os.environ.get("PRODIGY_USE_BIAS_CORRECTION", "1"))
 
 
 def zeropower_via_newtonschulz5(G: Tensor) -> Tensor:
@@ -866,6 +1025,13 @@ if dist.get_rank() == 0:
             "optimizer/attn_soap_trust_threshold": ATTN_SOAP_TRUST_THRESHOLD,
             "optimizer/ns5_iters": NS5_ITERS,
             "optimizer/wd_aux": WD_AUX,
+            "optimizer/prodigy_aux": PRODIGY_AUX,
+            "optimizer/prodigy_beta3": PRODIGY_BETA3 if PRODIGY_BETA3 != "" else "sqrt(beta2)",
+            "optimizer/prodigy_d_coef": PRODIGY_D_COEF,
+            "optimizer/prodigy_d_init": PRODIGY_D_INIT,
+            "optimizer/prodigy_safeguard_warmup": PRODIGY_SAFEGUARD_WARMUP,
+            "optimizer/prodigy_use_bias_correction": PRODIGY_USE_BIAS_CORRECTION,
+            "optimizer/prodigy_impl": "per_group_prodigy" if PRODIGY_AUX == 1 else "disabled",
             "optimizer/recipe": "contra-muon + normuon-lite + soap-on-mlp + soap-on-attn-trust-gate (pre-NS5, record #14 + record #16)",
         },
     )
@@ -898,10 +1064,32 @@ for trial_idx in range(args.num_trials):
             raise Exception(f"Uninitialized parameter: {name}")
 
     # create the optimizer(s)
-    optimizer1 = AdamW([dict(params=[model.embed.weight], lr=0.3, name="adam_embed", weight_decay=WD_AUX),
-                        dict(params=[model.proj.weight], lr=1/320, name="adam_lm_head", weight_decay=WD_AUX),
-                        dict(params=[p for p in model.parameters() if p.ndim < 2], lr=0.01, name="adam_scalars")],
-                       betas=(0.8, 0.95), eps=1e-10, weight_decay=0, fused=True)
+    if PRODIGY_AUX == 1:
+        # Option D + per-group lr patch (PR #1230). PerGroupProdigy preserves the
+        # baseline 0.3/1/320/0.01 per-group LR ratios; the shared d_t scales all
+        # group LRs equally (effective_lr_g = group_lr * d_t * bias_correction).
+        _prodigy_beta3_arg = None if PRODIGY_BETA3 == "" else float(PRODIGY_BETA3)
+        optimizer1 = PerGroupProdigy(
+            [
+                dict(params=[model.embed.weight], lr=0.3, name="prodigy_embed", weight_decay=WD_AUX),
+                dict(params=[model.proj.weight], lr=1/320, name="prodigy_lm_head", weight_decay=WD_AUX),
+                dict(params=[p for p in model.parameters() if p.ndim < 2], lr=0.01, name="prodigy_scalars", weight_decay=0),
+            ],
+            betas=(0.8, 0.95),
+            beta3=_prodigy_beta3_arg,
+            eps=1e-10,
+            decouple=True,
+            use_bias_correction=bool(PRODIGY_USE_BIAS_CORRECTION),
+            safeguard_warmup=bool(PRODIGY_SAFEGUARD_WARMUP),
+            d0=PRODIGY_D_INIT,
+            d_coef=PRODIGY_D_COEF,
+            slice_p=1,
+        )
+    else:
+        optimizer1 = AdamW([dict(params=[model.embed.weight], lr=0.3, name="adam_embed", weight_decay=WD_AUX),
+                            dict(params=[model.proj.weight], lr=1/320, name="adam_lm_head", weight_decay=WD_AUX),
+                            dict(params=[p for p in model.parameters() if p.ndim < 2], lr=0.01, name="adam_scalars")],
+                           betas=(0.8, 0.95), eps=1e-10, weight_decay=0, fused=True)
     optimizer2 = Muon([(n, p) for n, p in model.blocks.named_parameters() if p.ndim >= 2],
                       lr=MUON_LR, weight_decay=MUON_WEIGHT_DECAY, mu=MU)
     optimizer2.param_groups[0]["name"] = "muon_blocks"
@@ -911,6 +1099,10 @@ for trial_idx in range(args.num_trials):
     for opt in optimizers:
         for group in opt.param_groups:
             group["initial_lr"] = group["lr"]
+
+    # Prodigy AUX (PR #1230, Option D): prodigyopt.Prodigy is constructed above
+    # when PRODIGY_AUX=1. Telemetry uses optimizer's internal d/d_max/d_hat state.
+    using_prodigy_aux = (PRODIGY_AUX == 1)
 
     # learning rate schedule: stable then decay
     def set_hparams(step, cooldown_frac=0.7):
@@ -1030,6 +1222,12 @@ for trial_idx in range(args.num_trials):
         histogram_due = (step == 0 or (step + 1) % args.histogram_interval == 0 or step + 1 == train_steps)
         slope_due = (train_step % slope_interval == 0 or train_step == train_steps)
         wandb_step = trial_idx * (train_steps + 1) + train_step
+
+        # Prodigy AUX (PR #1230, Option D): prodigyopt manages d_t internally during
+        # its step(). Pre-step telemetry reads the current d from optimizer1's first
+        # group (set on the previous step). Post-step we log the new d_t after
+        # optimizer1.step() runs below.
+
         if dist.get_rank() == 0:
             train_loss_history.append((train_step, train_loss))
         if dist.get_rank() == 0 and slope_due:
@@ -1053,6 +1251,25 @@ for trial_idx in range(args.num_trials):
             )
         for opt in optimizers:
             opt.step()
+        # Prodigy telemetry: read internal state after optimizer1.step() (PR #1230).
+        if using_prodigy_aux and dist.get_rank() == 0 and telemetry_due:
+            grp0 = optimizer1.param_groups[0]
+            d_now = grp0.get("d", float("nan"))
+            tel = {
+                "trial": trial_idx,
+                "train/step": train_step,
+                "train/prodigy/d_t": d_now,
+                "train/prodigy/d_max": grp0.get("d_max", float("nan")),
+                "train/prodigy/d_hat": grp0.get("d_hat", float("nan")),
+                "train/prodigy/d_numerator": grp0.get("d_numerator", float("nan")),
+                "train/prodigy/d_denom": grp0.get("d_denom", float("nan")),
+                "train/prodigy/k": grp0.get("k", 0),
+            }
+            for grp in optimizer1.param_groups:
+                name = grp.get("name", "prodigy_group")
+                tel[f"train/prodigy/lr_schedule_{name}"] = grp["lr"]
+                tel[f"train/prodigy/effective_lr_{name}"] = grp["lr"] * d_now
+            wandb.log(tel, step=wandb_step)
         if dist.get_rank() == 0 and telemetry_due:
             for opt in optimizers:
                 if hasattr(opt, "trust_gate_stats"):
