@@ -1,5 +1,24 @@
 # SENPAI Research Results
 
+## 2026-05-26 10:42 UTC — PR #1263 CLOSED: Pre-target LR boost 1.05× over [2500,2925] — 148th NULL, cooldown-window LR-mass axis NULL, #1213 canon extended (g1r1-tanjiro)
+
+- Branch: `g1r1-tanjiro/pretarget-lr-boost`
+- Hypothesis: Boost body-Muon LR by 1.05× during the pre-target window [2500, 2925] to steepen loss descent and advance the speedrun crossing.
+
+| Arm | lr_boost | wandb_run | val_ema @ 2925 | val_ema terminal | sr | Δsr | Verdict |
+|---|---|---|---|---|---|---|---|
+| Baseline n=2 | 1.00× | vm48fdof+0a7esmxs | 3.266394 | 3.266394 | 2925 | 0 | (reference) |
+| **A (1.05× over [2500,2925])** | 1.05× | `ej209lvq` | 3.280142 | **3.266969** | **2950** | **+25** | clear NULL |
+| **B** | 1.10× | (not launched) | — | — | — | — | skipped (dominated by A) |
+
+- **Merge rule:** `sr ≤ 2912.5 OR (sr=2925 AND val<3.266394)` — both clauses fail. Arm A sr=2950 → FAIL clause 1; target not reached at step 2925 → FAIL clause 2.
+- **Canon entry (joins #1213):** Front-loading optimizer mass (LR or momentum) in the cooldown window [2500, 2925] does NOT steepen pre-target descent — it shifts convergence horizon RIGHT. The inverse-sqrt LR schedule is already at approximately the right slope at PR#918 baseline; boost spent LR mass earlier → delayed final crossing by +25 sr without catastrophic destabilization (buffer_frob_dist, L_cov eigh_min, polar/ortho_residual all within seed-noise).
+- **Student analysis:** Boost wiring confirmed correct via W&B `pre_target_boost/active` pulse; `val/best_loss=3.266969` only at terminal step 3250 (not step 2925). Sub-optimal LR redistribution, not breakage.
+- **Arm B decision:** Student correctly followed OPTION 1 (skip 1.10× — strictly dominated, #1252 directive prioritizes new mechanisms).
+- **Next:** #1289 tanjiro → per-block Muon LR shape (mechanism #2 aligned queue).
+
+---
+
 ## 2026-05-26 08:35 UTC — PR #1229 CLOSED: EMA β ramp SHAPE cosine (A) vs quadratic-t² (B), fixed endpoints+duration — 147th NULL, EMA ramp SHAPE axis closed, β_t-lag → buffer_frob direction canon corrected (g1r1-nezuko)
 
 - Branch: `g1r1-nezuko/ema-ramp-shape`
