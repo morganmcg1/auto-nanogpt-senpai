@@ -1,3 +1,68 @@
+## 2026-05-26 15:30 UTC — Cycle 71 mid-288
+
+**Cumulative**: **172 refuted (+1: frieren #1285 172nd)** / **96 distinct mech classes (+1: 96 MUON_LR_BETA_DEPTH_RAMP_ANTI_ALIGNED #1312)** / **55 family-level closures (unchanged — paired-depth-ramp family closure DEFERRED pending anti-aligned outcome)**.
+
+**This cycle — 1 closure + 1 reassignment + 3 code-review gates authorized cycle 71**:
+
+1. **frieren #1285 MUON_LR_BETA_PAIRED_DEPTH_RAMP closed as 172nd refute** — bilateral destructive interference, NEW refute subclass:
+   - Arm A (favorable, LR=+0.3 × β=+0.04) `x993a16e`: val=**3.27501** ffs=**3100** — **above-cluster regression** (3rd of cycle 71)
+   - Arm B (unfavorable, LR=-0.3 × β=-0.04) `sx14oojd`: val=**3.33354** ffs=**-1** — **catastrophic-shifted-floor 9th**
+   - Bilateral terminal mean: val=**3.30428**, ffs=**3100** (Arm A only reached target)
+   - **NEW refute subclass — bilateral destructive interference**: both arms super-additively above additive null
+     - Arm A: +0.00353 above null (mild, within n=1 noise band)
+     - Arm B: +0.04948 above null (catastrophic, 3× null deviation)
+   - **Mechanism hypothesis (frieren-proposed)**: "LR depth-ramp and β1 depth-ramp are NOT orthogonal; they are partial duplicates of the same per-layer effective update magnitude axis"
+   - **Implications for cluster band**: if mechanism hypothesis is correct, the 13-member cluster reflects multiple single-axis-tweaks of the same underlying "per-layer effective update magnitude" — explains why so many distinct mechanisms converge on similar (cluster) outcomes
+   - **paired-depth-ramp family-level closure DEFERRED** pending anti-aligned variant test (reassignment) — need to discriminate direction-aligned vs axis-stacking mechanism
+
+**Reassignment**:
+
+2. **frieren → PR #1312 MUON_LR_BETA_DEPTH_RAMP_ANTI_ALIGNED (96th mech class)** — frieren's own most-informative follow-up #1:
+   - Anti-aligned pairings: Arm A (LR favorable + β unfavorable), Arm B (LR unfavorable + β favorable)
+   - **Completes the 2×2 LR_RAMP × β_RAMP factorial** (++ from #1285 Arm A, -- from #1285 Arm B, +- from THIS Arm A, -+ from THIS Arm B)
+   - Outcome predictions:
+     - Both arms near additive null (~3.27402, ~3.27385) → **direction-aligned destructive interference confirmed**, paired-depth-ramp family closes
+     - Both arms super-additively destructive → **axis-stacking mechanism confirmed**, broader family closure
+     - Asymmetric → unexpected structure, deeper investigation
+   - **No new code-review gate required**: #1285 infra supports independent signs on the two axes by construction — sign flip only
+   - ~3.5 hours total wallclock for bilateral
+   - Diagnostic-value-dominant, not merge-bar-dominant
+
+**Code-review gates this cycle (3 cycle-71 applications in rapid succession)**:
+
+- askeladd #1301 ATTN_SOAP_TRUST_PER_KIND (15th application, 3-canary disabled-check methodology)
+- edward #1304 WD_BODY_DEPTH (16th application, single canary with IEEE-identity disabled path: `1.0 + 0.0*x = 1.0` exactly)
+- thorfinn #1306 MUON_NESTEROV_PHASE_TRANSITION (17th application, single canary with branch-isolated disabled path: `group.get("nesterov_phase", False)` → False → baseline path)
+
+**3-canary vs 1-canary methodology — structural exemption documented**: PRs with provably bytewise-inert disabled paths (IEEE-identity OR branch-isolated) can use single canary. 3-canary remains default for state-mutating mechanisms without such structural guarantees. This refinement preserves the rigor while not gatekeeping clean structural patches.
+
+**Active fleet status mid-288**:
+
+| Student | PR | Status | W&B notes |
+|---|---|---|---|
+| g1r2-alphonse | #1283 | status:wip, n=2 confirm authorized | Option 1 confirmed 14:29Z; launch confirmation pending |
+| g1r2-thorfinn | #1306 | status:wip, Arm A authorized | MUON_NESTEROV_PHASE_TRANSITION authorized 15:08Z |
+| g1r2-nezuko | #1307 | status:wip, draft | AUX_BIASES_LR_BOOST — student picks up on next poll |
+| g1r2-fern | #1296 | status:wip, Arm A | LATE_LR_PULSE Arm A in-flight |
+| g1r2-frieren | #1312 NEW | draft, just assigned | MUON_LR_BETA_DEPTH_RAMP_ANTI_ALIGNED — student picks up on next poll |
+| g1r2-askeladd | #1301 | status:wip, Arm A authorized | code-review gate passed 14:35Z |
+| g1r2-tanjiro | #1303 | status:wip, in-flight | LR_COMPENSATED_COMPLETP terminal ETA |
+| g1r2-edward | #1304 | status:wip, Arm A authorized | code-review gate passed 15:00Z |
+
+**ZERO IDLE STUDENTS** — 8 students concurrently active. Maximum count maintained.
+
+**Methodological synthesis (cycle 71 mid-288)**:
+
+- **NEW REFUTE SUBCLASS — bilateral destructive interference**: paired-mechanism PRs where both arms super-additively exceed additive null. First instance: frieren #1285. Distinct from singleton-refute or singleton-cluster signatures.
+- **Cluster-band-bottleneck hypothesis**: frieren's #1285 mechanism analysis suggests the 13-member cluster band reflects ONE underlying "per-layer effective update magnitude" axis being tweaked by multiple distinct PRs. Anti-aligned pairing test (#1312) is direct discriminator.
+- **2×2 factorial coverage methodology**: paired-mechanism PRs benefit from completing the full 2×2 (same-direction + anti-aligned), as the 4-cell map provides structural insight that pair-only or 2-arm-bilateral cannot. Future paired-mechanism designs should target 4-cell coverage by default OR include explicit anti-aligned follow-up plan.
+- **Code-review gate cadence**: 17 successful applications cycle 71 in <14 days. The protocol is now firmly established as default for all dispatch-altering and state-mutating PRs.
+- **Branch-isolated vs IEEE-identity disabled paths**: both qualify for single-canary exemption. Documented for future reference — saves ~30 min × 2 canary runs for clean structural patches.
+
+**Wake schedule**: ~30-45 min for next batch of terminals/launches — fern #1296 (LATE_LR_PULSE Arm A may be terminal soon), alphonse n=2 launch confirmation expected, thorfinn/edward/askeladd Arm A launches expected within 15 min, tanjiro #1303 terminal ETA.
+
+---
+
 ## 2026-05-26 14:50 UTC — Cycle 71 mid-287
 
 **Cumulative**: **171 refuted (+2: thorfinn #1282 170th, nezuko #1226 171st)** / **95 distinct mech classes (+2: 94 MUON_NESTEROV_PHASE_TRANSITION #1306, 95 AUX_BIASES_LR_BOOST #1307)** / **55 family-level closures (+2: 54 MUON_BETA_DEPTH_RAMP family-cooldown-only-axis via #1282, 55 AUX_CLIP_NORM family via #1226)**.
