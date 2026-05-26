@@ -64,6 +64,8 @@ def parse_args():
     parser.add_argument("--muon_lr", type=float, default=0.035,
                         help="Base learning rate for body-Muon optimizer (matrix params in blocks). "
                              "Default 0.035 matches the merged baseline.")
+    parser.add_argument("--lcov_refresh_step", type=int, default=-1,
+                        help="Step at which to zero L_cov/R_cov state on body-Muon (-1=disabled)")
     args = parser.parse_args()
     args.num_trials = args.num_trials if args.num_trials is not None else (args.legacy_num_trials or 1)
     args.wandb_tags = [tag.strip() for tag in args.wandb_tags.split(",") if tag.strip()]
@@ -978,6 +980,27 @@ for trial_idx in range(args.num_trials):
                 train_steps=train_steps,
                 wandb_step=wandb_step,
             )
+        if args.lcov_refresh_step >= 0 and step == args.lcov_refresh_step:
+            pre_lcov_eigh_min = float("nan")
+            pre_rcov_eigh_min = float("nan")
+            for group in optimizer2.param_groups:
+                for p in group["params"]:
+                    state = optimizer2.state[p]
+                    if "L" in state and state["L"].numel() > 0:
+                        if pre_lcov_eigh_min != pre_lcov_eigh_min:
+                            L_sym = 0.5 * (state["L"] + state["L"].T)
+                            R_sym = 0.5 * (state["R"] + state["R"].T)
+                            pre_lcov_eigh_min = float(torch.linalg.eigvalsh(L_sym)[0].item())
+                            pre_rcov_eigh_min = float(torch.linalg.eigvalsh(R_sym)[0].item())
+                        state["L"].zero_()
+                        state["R"].zero_()
+            if dist.get_rank() == 0:
+                wandb.log({
+                    "lcov_refresh/fired": 1,
+                    "lcov_refresh/step": step,
+                    "lcov_refresh/lcov_eigh_min_pre": pre_lcov_eigh_min,
+                    "lcov_refresh/rcov_eigh_min_pre": pre_rcov_eigh_min,
+                }, step=wandb_step)
         for opt in optimizers:
             opt.step()
         # EMA buffer update on body-Muon matrix params.
