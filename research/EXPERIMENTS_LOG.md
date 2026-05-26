@@ -1,3 +1,28 @@
+## 2026-05-26 01:35 — PR #1202: H159 fern cooldown µ recovery — BILATERAL NULL/NEG (19th NULL/NEG closure + H1 velocity-buffer refutation + 4 programme-grade mechanism findings)
+
+- Branch: `g1r3-fern/h159-cooldown-mu-recovery`
+- Hypothesis: H1 velocity-buffer late-LR coupling as mediator of mid-training-lead-erosion. If low µ during cooldown causes v_t to forget mid-training gradients, raising µ back in the final 33% (0.84→0.90 recovery) should preserve them. Tests by adding `linear_recover` µ schedule (0.95→0.84 dip at step 2228, recover to 0.90 at step 3325).
+
+| arm | µ schedule | final µ | W&B | val/loss | Δ vs baseline | Δ vs arm_a | Verdict |
+|-----|-----------|---------|-----|----------|---------------|-------------|---------|
+| arm_a CTRL | linear→0.90 | 0.90000 | `q97obh73` | 3.26584 | +0.00220 | — | NULL |
+| arm_b H143_REPLICA | linear→0.84 | 0.84000 | `e6tkwmfa` | 3.26826 | +0.00462 | +0.00242 | NEG (9th erosion replication) |
+| arm_c LINEAR_RECOVER | 0.95→0.84→0.90 | 0.89995 | `785ermjl` | **3.26828** | +0.00464 | +0.00244 | NEG (≡ arm_b within +0.00002) |
+
+WIN threshold <3.26284 NOT MET. arm_c terminal Δ vs arm_b = +0.00002 — within numerical noise. Recovery to µ=0.90 confers ZERO val_loss benefit despite ending at arm_a's terminal µ.
+
+- **Programme-grade finding #1: H1 velocity-buffer late-LR coupling REFUTED as erosion mediator**. arm_c ≡ arm_b at terminal despite µ recovery to arm_a's level. The velocity-buffer slow-decay-at-low-LR story does NOT explain the erosion. Eliminates the leading muonh-side mediator candidate. µ-mechanism axis CLOSED (H125 + H143/H151 + H159 = 3 independent replications, exhausted).
+
+- **Programme-grade finding #2: µ trajectory shape > µ endpoint (path-dependence in µ axis)**. arm_a and arm_c both end at µ=0.90 but differ by 0.00244 in val/loss. Compounds with H150 init path-dependence + H158 LR recoverability into programme map: LR-axis is cooldown-recoverable; µ-axis and init-axis are path-dependent.
+
+- **Programme-grade finding #3: Cleanest cooldown-localized erosion signal ever observed (10th replication)**. arm_b leads arm_a from step 500 through step 3125 by ~0.005-0.020, loses 0.00309 in the last 200 steps (last 6% of training, LR < 1e-4 regime). **Erosion is steeply localized to LR < 1e-4 regime — this is the sharpest temporal constraint on the mediator search yet.** AdamW β2=0.99 second-moment accumulating tiny cooldown gradients fits this timing (v_t becomes stale-magnitude-dominated exactly when |g|² ≪ v_t under low LR).
+
+- **Programme-grade finding #4: AGC 10th independent confirmation of orthogonality to outcome**. scale_mean differs substantially across arms; val_loss outcomes do NOT track AGC magnitude. AGC is a stability mechanism, NOT a tuning mechanism — future AGC-related hypotheses should focus on stability boundaries only.
+
+- Follow-up: µ axis closed. Fern assigned H168 AdaBelief-on-aux (Zhuang et al. 2020 NeurIPS oral) — strategy-tier shift; tests whether the aux-side erosion mediator is variance-driven (second-moment FORMULATION) vs magnitude-driven (second-moment SCHEDULE). PR #1237.
+
+---
+
 ## 2026-05-26 00:55 — PR #1204: H160 alphonse aux AdamW eps schedule — BILATERAL NULL, cooldown-confined direction-of-effect ~1σ sub-WIN (18th NULL/NEG closure + 2 programme-grade operational findings)
 
 - Branch: `g1r3-alphonse/h160-aux-adamw-eps-schedule`
