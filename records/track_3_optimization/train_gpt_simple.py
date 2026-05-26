@@ -225,6 +225,13 @@ def log_training_telemetry(
             metrics[f"train/weight_decay/{group_name}"] = group.get("weight_decay", 0.0)
             if "mu" in group:
                 metrics[f"train/mu/{group_name}"] = group["mu"]
+            group_grads = [(group_name, p.grad) for p in group["params"] if p.grad is not None]
+            if group_grads:
+                group_stats = aggregate_stats(group_grads)
+                metrics[f"train/aux_adam/{group_name}/grad_norm"] = group_stats.get("norm", 0.0)
+                metrics[f"train/aux_adam/{group_name}/grad_rms"] = group_stats.get("rms", 0.0)
+                metrics[f"train/aux_adam/{group_name}/grad_max_abs"] = group_stats.get("max_abs", 0.0)
+                metrics[f"train/aux_adam/{group_name}/param_count"] = len(group["params"])
     for module_type, tensors in grouped_by_type(grads, module_types).items():
         metrics.update(prefixed(f"train/grad_type/{module_type}", aggregate_stats(tensors)))
     for name, grad in grads:
@@ -468,6 +475,7 @@ NS5_ITERS = int(os.environ.get("NS5_ITERS", "12"))
 WD_AUX = float(os.environ.get("WD_AUX", "0.0"))  # AdamW WD on embed + lm_head matrices (scalars stay at 0)
 EMBED_INIT_STD = float(os.environ.get("EMBED_INIT_STD", "1.0"))  # default preserves baseline N(0,1)
 LOGIT_SOFTCAP = float(os.environ.get("LOGIT_SOFTCAP", "15.0"))  # default = 15 (current hardcoded value); soft-cap value c in f(x) = c·x / sqrt(x^2+c^2)
+AUX_BIASES_LR_MULT = float(os.environ.get("AUX_BIASES_LR_MULT", "1.0"))  # 1.0 = no-op (biases stay at adam_scalars lr); splits .bias params into adam_biases group
 
 
 def zeropower_via_newtonschulz5(G: Tensor) -> Tensor:
@@ -866,6 +874,7 @@ if dist.get_rank() == 0:
             "optimizer/attn_soap_trust_threshold": ATTN_SOAP_TRUST_THRESHOLD,
             "optimizer/ns5_iters": NS5_ITERS,
             "optimizer/wd_aux": WD_AUX,
+            "optimizer/aux_biases_lr_mult": AUX_BIASES_LR_MULT,
             "optimizer/recipe": "contra-muon + normuon-lite + soap-on-mlp + soap-on-attn-trust-gate (pre-NS5, record #14 + record #16)",
         },
     )
@@ -898,9 +907,26 @@ for trial_idx in range(args.num_trials):
             raise Exception(f"Uninitialized parameter: {name}")
 
     # create the optimizer(s)
+    # Split adam_scalars into biases (ends with ".bias") and other 1-D scalars (e.g. RMSNorm.gains).
+    # With AUX_BIASES_LR_MULT=1.0 this is mathematically identical to the previous single-group
+    # construction (same lr/betas/eps/wd); MULT≠1.0 dispatches a per-AUX-group bias LR.
+    adam_biases_params = []
+    adam_other_scalars_params = []
+    for name, p in model.named_parameters():
+        if p.ndim >= 2 or name.endswith(".weight"):
+            continue
+        if name.endswith(".bias"):
+            adam_biases_params.append(p)
+        else:
+            adam_other_scalars_params.append(p)
+    bias_lr = 0.01 * AUX_BIASES_LR_MULT
+    print0(f"adam_biases: count={len(adam_biases_params)} lr={bias_lr} (AUX_BIASES_LR_MULT={AUX_BIASES_LR_MULT})", console=True)
+    print0(f"adam_other_scalars: count={len(adam_other_scalars_params)} lr=0.01", console=True)
+    assert len(adam_biases_params) > 0, "adam_biases group is empty — bias-split patch did nothing"
     optimizer1 = AdamW([dict(params=[model.embed.weight], lr=0.3, name="adam_embed", weight_decay=WD_AUX),
                         dict(params=[model.proj.weight], lr=1/320, name="adam_lm_head", weight_decay=WD_AUX),
-                        dict(params=[p for p in model.parameters() if p.ndim < 2], lr=0.01, name="adam_scalars")],
+                        dict(params=adam_biases_params, lr=bias_lr, name="adam_biases"),
+                        dict(params=adam_other_scalars_params, lr=0.01, name="adam_other_scalars")],
                        betas=(0.8, 0.95), eps=1e-10, weight_decay=0, fused=True)
     optimizer2 = Muon([(n, p) for n, p in model.blocks.named_parameters() if p.ndim >= 2],
                       lr=MUON_LR, weight_decay=MUON_WEIGHT_DECAY, mu=MU)
