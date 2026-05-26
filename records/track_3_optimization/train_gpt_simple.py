@@ -10,6 +10,7 @@ import sys
 with open(sys.argv[0]) as f:
     code = f.read() # read the code of this file ASAP, for logging
 import argparse
+import math
 import uuid
 import time
 from pathlib import Path
@@ -61,6 +62,11 @@ def parse_args():
                              "--ema_beta_target during cooldown, coupling β to the LR schedule. "
                              "Requires --ema_beta>0. β_t = ema_beta + (ema_beta_target - ema_beta) "
                              "× (1 - lr_mult_t).")
+    parser.add_argument("--ema_ramp_shape", type=str, default="linear",
+                        choices=["linear", "cosine", "quadratic"],
+                        help="Shape of the EMA β ramp applied to linear_progress=(1-lr_mult_t). "
+                             "linear (baseline): p=lp; cosine: p=0.5*(1-cos(π*lp)); "
+                             "quadratic: p=lp**2. Only active when --ema_beta_target is set.")
     parser.add_argument("--muon_lr", type=float, default=0.035,
                         help="Base learning rate for body-Muon optimizer (matrix params in blocks). "
                              "Default 0.035 matches the merged baseline.")
@@ -720,6 +726,7 @@ if dist.get_rank() == 0:
             "ema_warmup_steps": args.ema_warmup_steps,
             "ema_beta_target": args.ema_beta_target if args.ema_beta_target is not None else 0.0,
             "ema_dynamic_ramp_active": int(args.ema_beta_target is not None and args.ema_beta > 0),
+            "ema_ramp_shape": args.ema_ramp_shape,
         },
     )
 
@@ -788,15 +795,31 @@ for trial_idx in range(args.num_trials):
         w = 1.0 - cooldown_progress
         return w ** COOLDOWN_POWER
 
+    def compute_ema_ramp_progress(step):
+        """Shape-mapped progress p ∈ [0,1] used to interpolate β from base→target.
+        linear_progress = (1 - lr_mult_t). Option A per PR #1229 advisor decision:
+        the shape function is applied on top of the LR-coupled progress, keeping
+        --ema_ramp_shape linear bitwise-equal to the merged baseline."""
+        linear_progress = 1.0 - compute_lr_mult(step)
+        linear_progress = max(0.0, min(1.0, linear_progress))
+        shape = args.ema_ramp_shape
+        if shape == "linear":
+            return linear_progress
+        if shape == "cosine":
+            return 0.5 * (1.0 - math.cos(math.pi * linear_progress))
+        if shape == "quadratic":
+            return linear_progress * linear_progress
+        raise ValueError(f"unknown ema_ramp_shape: {shape}")
+
     def compute_ema_beta_t(step):
-        """Dynamic β_t = β_base + (β_target - β_base) × (1 - lr_mult_t).
+        """Dynamic β_t = β_base + (β_target - β_base) × shape((1 - lr_mult_t)).
         Returns β_base when β_target unset; clamped to [β_base, β_target]."""
         if args.ema_beta <= 0:
             return 1.0  # EMA disabled; sentinel
         if args.ema_beta_target is None:
             return args.ema_beta
-        lr_mult = compute_lr_mult(step)
-        beta_t = args.ema_beta + (args.ema_beta_target - args.ema_beta) * (1.0 - lr_mult)
+        p = compute_ema_ramp_progress(step)
+        beta_t = args.ema_beta + (args.ema_beta_target - args.ema_beta) * p
         lo = min(args.ema_beta, args.ema_beta_target)
         hi = max(args.ema_beta, args.ema_beta_target)
         return max(lo, min(hi, beta_t))
@@ -909,6 +932,7 @@ for trial_idx in range(args.num_trials):
                 if ema_params is not None:
                     lr_mult_now = compute_lr_mult(step)
                     beta_t_now = compute_ema_beta_t(step)
+                    ramp_p_now = compute_ema_ramp_progress(step)
                     metrics["val/loss_live"] = val_loss_live_float
                     metrics["val/ema_minus_live"] = val_loss_float - val_loss_live_float
                     metrics["ema/val_loss_ema"] = val_loss_float
@@ -924,6 +948,7 @@ for trial_idx in range(args.num_trials):
                     metrics["ema/n_eff"] = 1.0 / max(1e-12, (1.0 - beta_t_now))
                     metrics["ema/active"] = int(step >= args.ema_warmup_steps)
                     metrics["ema/warmup_steps"] = args.ema_warmup_steps
+                    metrics["ema/ramp_shape_progress"] = ramp_p_now
                 metrics.update(prefixed("val/slope", loss_slope_stats(val_loss_history, slope_window_steps)))
                 wandb.log(metrics, step=trial_idx * (train_steps + 1) + step)
             print0(f"step:{step}/{train_steps} val_loss:{val_loss:.5f} train_time:{training_time:.3f}s"
@@ -1039,6 +1064,7 @@ for trial_idx in range(args.num_trials):
                 "train/cooldown/power_gamma": COOLDOWN_POWER,
             }, step=wandb_step)
             if ema_params is not None:
+                ramp_p_train_now = compute_ema_ramp_progress(step) if args.ema_beta_target is not None else float("nan")
                 wandb.log({
                     "trial": trial_idx,
                     "train/step": train_step,
@@ -1052,6 +1078,7 @@ for trial_idx in range(args.num_trials):
                     "ema/warmup_steps": args.ema_warmup_steps,
                     "ema/active_train": int(step >= args.ema_warmup_steps),
                     "ema/ramp_enabled": int(args.ema_beta_target is not None),
+                    "ema/ramp_shape_progress_train": ramp_p_train_now,
                 }, step=wandb_step)
         if dist.get_rank() == 0 and (train_step % 100 == 0 or train_step == train_steps):
             spec = pmuon_spectral_diag(optimizer2, PMUON_GAMMA)
