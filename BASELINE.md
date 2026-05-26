@@ -7,7 +7,31 @@ Statistical rule: `(3.28 - mu) * sqrt(n) >= 0.004`.
 
 ## Local baseline (auto-nanogpt-1gpu-r1)
 
-### 2026-05-24 02:50 UTC — PR #918: Body-Muon LR retune to 0.040 (thorfinn n=2 WIN) (g1r1-thorfinn) ← CURRENT BEST
+### 2026-05-26 13:15 UTC — PR #1234: EMA wrapper ema_beta_start=0.97 HIGHER (thorfinn n=2 WIN) (g1r1-thorfinn) ← CURRENT BEST
+
+- **speedrun/final_first_step_to_target:** 2925 (n=2 — seed-1 `4yfdygud` 2925, seed-2 `7khmgp7d` 2925; both seeds independently hit sr=2925)
+- **val/loss_ema:** 3.266024 (n=2 mean — seed-1 `4yfdygud` 3.266018, seed-2 `7khmgp7d` 3.266029)
+- **stat-sig margin:** (3.28 − 3.266024)·√2 = 0.01977 ≥ 0.004 ✓ (4.94×)
+- **Δ vs PR #918 baseline:** 0 sr-steps (tied at 2925), −0.000370 val (−0.370 mnat improvement)
+- **W&B runs:** seed-1 `4yfdygud`, seed-2 `7khmgp7d` (group `g1r1-thorfinn-ema-beta-start`); Arm A (ema_beta=0.92 LOWER) `6h2udxlc` NULL at val=3.267095 sr=2950 (+0.70 mnat, Δsr+25).
+- **Key config:** all PR #918 config + `--ema_beta 0.97` (changed from 0.95). `--ema_warmup_steps 1750 --ema_beta_target 0.99 --muon_lr 0.040` unchanged.
+- **Mechanism:** Higher `ema_beta` start (0.97 vs 0.95 at LR_mult=1) narrows the initial averaging window at the beginning of the β_t ramp (LR_mult=1 → 0.97, LR_mult=0 → 0.99). Narrower initial averaging produces a +5.76% improvement in terminal `pmuon/lcov_eigh_min` (2038 vs 1927 at n=2 means) — better-conditioned preconditioner at terminal. Mechanism reproduces tightly across seeds: within-arm seed-to-seed `lcov_eigh_min` variance is +1.6% (within #1168 noise band of 3-13%), and `val/loss_ema` seed spread is only 0.011 mnat (Δ=3.266018 vs 3.266029 — bitwise-near). **Asymmetric response confirms `ema_beta` start axis is NOT symmetric around 0.95:** LOWER (0.92) costs +0.70 mnat / Δsr+25, while HIGHER (0.97) gains −0.37 mnat at sr=2925. `ema_beta` and `ema_beta_target` are decoupled axes (different response shapes despite both modulating β values in same cooldown phase).
+- **Statistical thresholds (updated with new baseline):** n=1 win: sr ≤ 2912.5 OR (sr=2925 AND val_ema < 3.266024). **n=1 stat-sig threshold: val ≤ 3.276** (unchanged formula). **Marginal band: Δsr ≤ 25 OR Δval ≤ 0.001** (unchanged structure).
+- **Reproduce:**
+  ```bash
+  cd target
+  torchrun --standalone --nproc_per_node=1 \
+    records/track_3_optimization/train_gpt_simple.py --num_trials 1 \
+    --ema_beta 0.97 --ema_warmup_steps 1750 --ema_beta_target 0.99 \
+    --muon_lr 0.040 \
+    --wandb_name "baseline-reproduction-pr1234" \
+    --wandb_group "baseline-reproduction"
+  ```
+- **Notes:** `ema_beta` start axis (0.92/0.95/0.97 three-point scan) confirms monotone WIN direction toward HIGHER values. Fine-scan {0.975, 0.98, 0.985} toward `ema_beta_target=0.99` may yield additional margin, but diminishing returns expected as start→target gap narrows. Cross-axis: #1268 fern L_cov/R_cov refresh Arm A also produced a marginal n=1 WIN (Δ−0.466 mnat, sr=2925) — different mechanism (preconditioner state refresh vs EMA β parameter). If both confirm independently, stacking (ema_beta=0.97 + L_cov refresh) is a natural follow-up.
+
+---
+
+### 2026-05-24 02:50 UTC — PR #918: Body-Muon LR retune to 0.040 (thorfinn n=2 WIN) (g1r1-thorfinn)
 
 - **speedrun/final_first_step_to_target:** 2925 (n=2 mean — seed-1 2925, seed-2 2925; both seeds independently hit sr=2925)
 - **val/loss:** 3.266394 (n=2 mean — seed-1 `vm48fdof` 3.265863, seed-2 `0a7esmxs` 3.266925)
