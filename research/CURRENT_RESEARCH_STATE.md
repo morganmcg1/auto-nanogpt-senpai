@@ -1,3 +1,52 @@
+## 2026-05-26 10:00 UTC — Cycle 71 mid-276
+
+**Cumulative**: 165 refuted (frieren #1250 CLOSED as 165th, **2nd ASYMMETRIC-DIRECTIONAL-REFUTE** confirms 14th class as recurring pattern) / 89 distinct mech classes (frieren #1285 MUON_LR_BETA_PAIRED_DEPTH_RAMP NEW — first paired-depth-ramp in 320-PR corpus, ASYMMETRIC pair-interaction test) / **51 family-level closures** (MUON_LR_DEPTH_RAMP axis closes bilaterally, completes ASYMMETRIC pair with #1251 β1 depth ramp) / 7 SATURATED MECHANISM LAYERS + 3 SATURATED LANES / 14 refute-signature classes / 7 CATASTROPHIC-SHIFTED-FLOOR (Arm B #1250 NOT catastrophic; was consistent-lag throughout, distinct from #1251 cooldown-tail collapse)
+
+**This cycle**:
+- **#1250 frieren MUON_LR_DEPTH_RAMP CLOSED**: 165th refute, 51st family-level closure. Arm A `4oswee0c` val=3.27012 ffs=3025 (FFS-PRIMARY cluster member, already counted) + Arm B `9talftoy` val=3.28090 ffs=-1 (regression, never crossed target). **2nd ASYMMETRIC-DIRECTIONAL-REFUTE** with consistent-lag sub-pattern (vs #1251 Arm B cooldown-tail collapse sub-pattern). Two consecutive spatial-schedule axes (LR + β1) both show identical ASYMMETRIC pattern in the SAME favorable direction: **deeper-layers-higher-magnitude**.
+  
+  Theoretical alignment: μP/CompleteP scaling theory predicts deeper layers need proportionally larger updates due to residual stream variance d^0.5 growth. Both LR and β1 affect effective update magnitude in cooldown phase. Empirical confirmation across 2 axes is strong signal.
+  
+  **Structural implication for FFS-PRIMARY cluster**: deeper-higher-magnitude is the consistent favorable direction, but ±15% ramp (LR) and ±0.04 (β1) are too small magnitude to break FFS=3025 floor. #793 (CompleteP power-law) tests stronger asymmetry (3.46× LR ratio); #1285 (paired) tests interaction.
+
+- **#1285 frieren MUON_LR_BETA_PAIRED_DEPTH_RAMP assigned**: 89th distinct mech class — first paired-depth-ramp test in 320-PR corpus. Tests whether LR and β1 ASYMMETRIC effects are independent (additive null → stays in FFS-PRIMARY cluster) or interacting (compound → breaks floor; or cancel → marginally cluster-aligned). Arms: A=favorable (LR ramp=+0.3, β ramp=+0.04 both deeper-higher) + B=unfavorable (both deeper-lower) — paired control test.
+
+  Methodology: extends ASYMMETRIC-DIRECTIONAL refute analysis to interaction-effect test. If Arm A breaks FFS=3025 floor → constructive synergy detected, n=2 confirm next. If lands in cluster → confirms independent additive effects, family saturates.
+
+**FFS-PRIMARY-REFUTE cluster — unchanged at 5 members** (frieren #1250 Arm A already counted in mid-275):
+| PR | Mechanism | Arm | val | Δ | ffs |
+|---|---|---|---|---|---|
+| #1251 thorfinn | β1 depth-ramp +0.04 | A | 3.26912 | +0.00136 | 3025 |
+| #1224 fern | WD body depth | B | 3.26982 | +0.00206 | 3025 |
+| #1250 frieren | LR body depth +0.3 | A | 3.27012 | +0.00236 | 3025 |
+| #1248 alphonse | NovoGrad β2=0.95 | A | 3.27141 | +0.00365 | 3025 |
+| #1248 alphonse | NovoGrad β2=0.5 | B | 3.27161 | +0.00385 | 3050 (cluster-adjacent) |
+
+**Active fleet (mid-276 post-cycle)**:
+- edward #1264 LATE_NORMUON_VARIANCE_RESET — Arm A in-flight, factorial cell (M=–, V=✓)
+- fern #1267 LATE_COOLDOWN_MOMENTUM_RESET — Arm A in-flight, factorial cell (M=✓, V=–)
+- askeladd #1271 SOAP_TRUST_DEPTH_RAMP — Arm A launching
+- thorfinn #1282 MUON_BETA_DEPTH_RAMP_COOLDOWN_ONLY — NEW, awaiting disabled-check + code-review gate
+- alphonse #1283 MUON_COMBINED_LATE_RESET — NEW, awaiting disabled-check + code-review gate, factorial cell (M=✓, V=✓)
+- **frieren #1285 MUON_LR_BETA_PAIRED_DEPTH_RAMP — NEW, awaiting disabled-check + code-review gate, ASYMMETRIC pair-interaction test**
+- 2 pod-broken holds: tanjiro #793 (awaiting CompleteP impl) + nezuko #1226 (Arm B in-flight, Option B approved)
+
+**ZERO IDLE STUDENTS** — 3 in-flight + 3 NEW awaiting-launch + 1 in-flight (nezuko) + 1 hold (tanjiro)
+
+**Aligned with Morgan #1259 directive**:
+- 6× depth/per-group: #1271 SOAP_TRUST attn + #793 CompleteP + #1282 phase-gated spatial-β + #1285 paired LR+β depth (NEW)
+- 5× state-phase changes: #1264/#1267 paired reset event + #1283 combined-reset 2×2 cell + #1282 cooldown phase-gating
+- 0× scalar HP-only sweeps
+- 0× saturated lanes added (#1250 closure adds to ASYMMETRIC-DIRECTIONAL recurring pattern; #1248 closure also doesn't saturate lanes)
+
+**Methodological observations**:
+- **ASYMMETRIC-DIRECTIONAL-REFUTE confirmed as recurring class** (not one-off): two independent spatial-schedule axes both exhibit the same pattern in the same direction. Suggests 14th refute-signature class will continue to apply to future depth-asymmetric mechanisms. Sub-patterns identified: cooldown-tail-collapse (#1251) and consistent-lag (#1250) — both yield Arm B regression but at different trajectory shapes.
+- **Interaction-effect test methodology emerging**: alphonse #1283 (2×2 factorial on state-reset) and frieren #1285 (paired-axis on spatial-schedule) both test interactions among individually-refuted axes. New methodological pattern for cycle 71+: when ≥2 axes in same family share an ASYMMETRIC/refute pattern, the paired/combined test is the natural next step before declaring family saturation.
+- **#1250 vs #1251 trajectory shape diagnostic**: Arm B of both PRs ended at val ≈ 3.28 with ffs=-1, but trajectory differed: #1251 collapsed in cooldown-tail (last 175 steps), #1250 lagged throughout. This is a fertile diagnostic for future ASYMMETRIC-DIRECTIONAL analysis — cooldown-tail vs consistent-lag implies different phase × mechanism interactions.
+- Pre-launch code-review gate 9 successful applications cycle 71. #1285 will be 10th.
+
+---
+
 ## 2026-05-26 09:40 UTC — Cycle 71 mid-275
 
 **Cumulative**: 164 refuted (alphonse #1248 CLOSED as 164th, BILATERAL-SYMMETRIC-SHIFTED-FLOOR) / 88 distinct mech classes (alphonse #1283 MUON_COMBINED_LATE_RESET NEW — completes 2×2 factorial with #1264 + #1267 at step 2540 phase boundary) / **50th family-level closure** (NovoGrad/pre-NS5 normalization family closes bilaterally — both β2 values reach same floor confirming NS5 downstream redundancy) / 7 SATURATED MECHANISM LAYERS + 3 SATURATED LANES / 14 refute-signature classes / 7 CATASTROPHIC-SHIFTED-FLOOR
