@@ -468,6 +468,8 @@ NS5_ITERS = int(os.environ.get("NS5_ITERS", "12"))
 WD_AUX = float(os.environ.get("WD_AUX", "0.0"))  # AdamW WD on embed + lm_head matrices (scalars stay at 0)
 EMBED_INIT_STD = float(os.environ.get("EMBED_INIT_STD", "1.0"))  # default preserves baseline N(0,1)
 LOGIT_SOFTCAP = float(os.environ.get("LOGIT_SOFTCAP", "15.0"))  # default = 15 (current hardcoded value); soft-cap value c in f(x) = c·x / sqrt(x^2+c^2)
+# Polyak / SWA-style EMA of body Muon params, used at eval time only. 0 disables. PR #1316.
+MUON_POLYAK_ALPHA = float(os.environ.get("MUON_POLYAK_ALPHA", "0.0"))
 
 
 def zeropower_via_newtonschulz5(G: Tensor) -> Tensor:
@@ -655,6 +657,15 @@ class Muon(torch.optim.Optimizer):
         params = sorted([p for _, p in named_params], key=lambda x: x.size(), reverse=True)
         defaults = dict(lr=lr, weight_decay=weight_decay, mu=mu)
         super().__init__(params, defaults)
+        # Polyak / SWA-style buffer for body params (eval-time smoothing only).
+        self.polyak_alpha = MUON_POLYAK_ALPHA
+        self.polyak_buffer: dict[int, Tensor] = {}
+        if self.polyak_alpha > 0:
+            for p in params:
+                self.polyak_buffer[id(p)] = p.data.detach().clone()
+            if dist.is_initialized() and dist.get_world_size() > 1:
+                for p in params:
+                    dist.broadcast(self.polyak_buffer[id(p)], 0)
 
     @torch.no_grad()
     def step(self):
@@ -719,6 +730,24 @@ class Muon(torch.optim.Optimizer):
                                      use_trust_gate=True,
                                      trust_threshold=ATTN_SOAP_TRUST_THRESHOLD)
                 dist.all_gather(params_pad[base_i:base_i + world_size], params_pad[base_i + rank])
+        if self.polyak_alpha > 0:
+            for group in self.param_groups:
+                for p in group["params"]:
+                    self.polyak_buffer[id(p)].mul_(self.polyak_alpha).add_(p.data, alpha=(1 - self.polyak_alpha))
+
+    def polyak_divergence(self) -> float:
+        """||θ_avg - θ_current||_F / ||θ_current||_F across all body params."""
+        if self.polyak_alpha <= 0 or not self.polyak_buffer:
+            return 0.0
+        diff_sq = 0.0
+        curr_sq = 0.0
+        for group in self.param_groups:
+            for p in group["params"]:
+                buf = self.polyak_buffer[id(p)].float()
+                pf = p.data.float()
+                diff_sq += float((buf - pf).square().sum().item())
+                curr_sq += float(pf.square().sum().item())
+        return (diff_sq ** 0.5) / max(curr_sq ** 0.5, 1e-10)
 
     def trust_gate_stats(self) -> dict[str, float]:
         """Return aggregate + per-weight-type trust-gate telemetry across attention SOAP params.
@@ -866,6 +895,7 @@ if dist.get_rank() == 0:
             "optimizer/attn_soap_trust_threshold": ATTN_SOAP_TRUST_THRESHOLD,
             "optimizer/ns5_iters": NS5_ITERS,
             "optimizer/wd_aux": WD_AUX,
+            "optimizer/muon_polyak_alpha": MUON_POLYAK_ALPHA,
             "optimizer/recipe": "contra-muon + normuon-lite + soap-on-mlp + soap-on-attn-trust-gate (pre-NS5, record #14 + record #16)",
         },
     )
@@ -969,6 +999,25 @@ for trial_idx in range(args.num_trials):
             last_val_step = step
             training_time += time_since_last_val
             model.eval()
+            polyak_enabled = optimizer2.polyak_alpha > 0
+            # When Polyak averaging is enabled, also evaluate val_loss with current params
+            # (telemetry only); the primary val_loss comes from the Polyak buffer state.
+            val_loss_current_float = None
+            saved_body_params = None
+            if polyak_enabled:
+                val_loss_current = torch.zeros((), device=device)
+                with torch.no_grad():
+                    assert len(val_inputs) % mbs == 0
+                    for i in range(len(val_inputs) // mbs):
+                        val_loss_current += model(val_inputs[i*mbs:(i+1)*mbs], val_targets[i*mbs:(i+1)*mbs])
+                dist.all_reduce(val_loss_current, op=dist.ReduceOp.SUM)
+                val_loss_current /= val_tokens
+                val_loss_current_float = float(val_loss_current.item())
+                saved_body_params = {id(p): p.data.detach().clone()
+                                     for group in optimizer2.param_groups for p in group["params"]}
+                for group in optimizer2.param_groups:
+                    for p in group["params"]:
+                        p.data.copy_(optimizer2.polyak_buffer[id(p)])
             val_loss = torch.zeros((), device=device)
             with torch.no_grad():
                 assert len(val_inputs) % mbs == 0
@@ -977,6 +1026,11 @@ for trial_idx in range(args.num_trials):
             dist.all_reduce(val_loss, op=dist.ReduceOp.SUM)
             val_loss /= val_tokens
             val_loss_float = float(val_loss.item())
+            if polyak_enabled:
+                for group in optimizer2.param_groups:
+                    for p in group["params"]:
+                        p.data.copy_(saved_body_params[id(p)])
+                saved_body_params = None
             if dist.get_rank() == 0:
                 val_loss_history.append((step, val_loss_float))
                 if val_loss_float < best_val_loss:
@@ -997,6 +1051,10 @@ for trial_idx in range(args.num_trials):
                     "time/train_seconds": training_time,
                     "time/step_avg_ms": 1000 * step_avg,
                 }
+                if polyak_enabled:
+                    metrics["val/loss_current_params"] = val_loss_current_float
+                    metrics["val/loss_polyak_minus_current"] = val_loss_float - val_loss_current_float
+                    metrics["train/body_muon/polyak_divergence"] = optimizer2.polyak_divergence()
                 metrics.update(prefixed("val/slope", loss_slope_stats(val_loss_history, slope_window_steps)))
                 wandb.log(metrics, step=trial_idx * (train_steps + 1) + step)
             print0(f"step:{step}/{train_steps} val_loss:{val_loss:.5f} train_time:{training_time:.3f}s"
