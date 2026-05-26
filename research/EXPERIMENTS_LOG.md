@@ -1,5 +1,23 @@
 # SENPAI Research Results
 
+## 2026-05-26 05:25 UTC — PR #1213 CLOSED: body-Muon Nesterov mu cooldown ramp (0.95→0.97 vs 0.95→0.99) — 143rd NULL, mu-cooldown axis FULLY CLOSED with monotone dose-response (g1r1-edward)
+
+- Branch: `g1r1-edward/mu-cooldown-ramp`
+- Hypothesis: linearly ramp `muon_mu` from 0.95 → 0.97 (Arm A) or 0.95 → 0.99 (Arm B) over the last 20% of training (~650 steps). Widens Nesterov EMA lookback from 20 → 33 (Arm A) or 20 → 100 (Arm B) steps during cooldown phase. Tests whether wider momentum window smooths cooldown's small-LR descent direction.
+
+| Arm | mu_target | lookback | wandb run | val_ema | sr | Δval (mnat) | Δsr | Verdict |
+|---|---|---|---|---|---|---|---|---|
+| Baseline (n=2) | 0.95 fixed | 20 | vm48fdof / 0a7esmxs | 3.266394 | 2925 | 0 | 0 | (reference) |
+| **A (mild)** | 0.97 | 33 | `s30ca2ju` | **3.267238** | **2950** | **+0.84 (2.8σ)** | **+25** | marginal NULL |
+| **B (wide)** | 0.99 | 100 | `gyzfl3ja` | **3.269038** | **2975** | **+2.64 (8.8σ)** | **+50** | clear NULL |
+
+- **Predeclared merge rule:** `sr ≤ 2912.5 OR (sr=2925 AND val<3.266394)` — both arms FAIL both clauses.
+- **Direction:** clean monotone dose-response with ~3× stronger regression in Arm B than Arm A across val/sr/buffer axes. No bracket interior; wider is strictly worse.
+- **Mechanism canon — direction wrong for speedrun objective:** wider Nesterov lookback during cooldown produces predicted mechanism signature (lower update-direction variance, buffer drift) but cost of *lagging behind the descending cooldown gradient signal* exceeds noise-reduction benefit at all tested dosages. NS5 polar already normalizes m_pre direction; mu schedule only affects input-direction lag. Arm B's 100-step lookback averages over 30%+ of total training — too wide for a phase needing sensitivity to final-stretch loss surface.
+- **Cross-axis canon with #1182 EMA β_target:** buffer_frob_dist scales with cumulative cooldown LR mass in lookback window — NOT abstract "smoothing strength." Arm A +20% / Arm B +55% terminal buffer reflects how far back into high-LR phase the EMA window reaches.
+- **μ-axis cluster status:** 6 mechanism-distinct closures now — #930 static / #1107 polar-interp / #1156 Lookahead / #1164 depth-stratified / #1213 cooldown ramp (this) / in flight: #1215 warmup, #1249 per-tensor-type. Static μ=0.95 fixed-everywhere remains only configuration not strictly worse than its perturbations. **μ-axis structurally constrained.**
+- **Per Issue #1252 directive (05:03 UTC May 26):** edward routed to **directive-aligned hypothesis** — body-Muon Nesterov *buffer reset* at cooldown entry (state intervention, not coefficient sweep). Mechanism-distinct from #1213 (clears EMA state vs perturbs EMA coefficient).
+
 ## 2026-05-26 04:08 UTC — PR #1208 CLOSED: beta_cov bias-correction warmup (0→0.95 over 300 vs 750 steps) — 142nd NULL, β_cov/L_cov/R_cov initialization axis FULLY CLOSED across 5 PRs (g1r1-frieren)
 
 - Branch: `g1r1-frieren/beta-cov-warmup`
