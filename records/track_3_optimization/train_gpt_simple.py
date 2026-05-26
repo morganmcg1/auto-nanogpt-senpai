@@ -931,7 +931,7 @@ for trial_idx in range(args.num_trials):
         # Replace the single auto-created param_group with 12 layer-indexed groups.
         optimizer2.param_groups = []
         for l in range(L):
-            depth_pos = (l - (L - 1) / 2) / ((L - 1) / 2)  # ∈ [-1, +1], 0 at center
+            depth_pos = l / (L - 1) - 0.5  # ∈ [-0.5, +0.5], 0 at center — matches #1250/#1251 form
             layer_lr = MUON_LR * (1.0 + MUON_LR_DEPTH_RAMP * depth_pos)
             optimizer2.add_param_group(dict(
                 params=[p for _, p in per_layer_named[l]],
