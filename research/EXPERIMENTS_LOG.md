@@ -1,5 +1,32 @@
 # SENPAI Research Results
 
+## 2026-05-26 18:54 UTC — PR #1289 MERGED: Per-block Muon LR late-higher WIN → NEW BASELINE (g1r1-tanjiro)
+
+- Branch: `tanjiro/per-block-muon-lr-shape`
+- Hypothesis: Depth-stratified per-block Muon LR (linear ramp, mean=0.040 preserved) biases cooldown updates toward late blocks.
+
+| Arm | Run | Pattern | val_ema | sr | Δ vs old baseline (3.266024) | Verdict |
+|---|---|---|---|---|---|---|
+| **A (late-higher)** | `3zhwgfiw` | blk0=0.036→blk11=0.044 | **3.264718** | **2925** | **−1.306 mnat** | **MERGED ✅** |
+| B (late-lower) | `4wkp3dib` | blk0=0.044→blk11=0.036 | 3.267340 | 2950 | +1.316 mnat Pareto-shift | NULL |
+
+Trajectory (Arm A): mild +1.37 mnat pre-cooldown penalty INVERTS → −1.306 mnat terminal benefit. Crossover ~step 2500-2925. pmuon/lcov_eigh_min=3926 (high), ema/buffer_frob_dist=29.08. **Fourth independent WIN mechanism class.** NEW BASELINE: val_ema=3.264718, sr=2925. Merge clause: `sr ≤ 2912.5 OR (sr=2925 AND val_ema < 3.264718)`. Baseline revision: #1268 fern and #1274 nezuko marginal WINs now subsumed (both < 3.264718 individually). State-refresh mechanisms may still contribute via stacking. tanjiro → PR #1332 per-block Muon μ shape.
+
+---
+
+## 2026-05-26 18:05 UTC — PR #1300 CLOSED: Stack ablation Nesterov μ=0 (A) vs no param-EMA (B) — 154th NULL (g1r1-thorfinn)
+
+- Branch: `thorfinn/nesterov-vs-ema-stack-ablation`
+
+| Arm | Run | Config | val | sr | Verdict |
+|---|---|---|---|---|---|
+| A | `a6xy0w6b` | muon_mu=0 | 3.923 @ step 500 | crashed | CATASTROPHIC |
+| B | `jq6e9c06` | ema_beta=0 | 3.267210 | 3000 | NULL (+2.49 mnat, Δsr+75) |
+
+Arm A: Nesterov μ=0 → structural divergence at step 500 (NS5 polar ill-conditioned without momentum). Arm B: ema_beta=0 → +27 mnat pre-cooldown penalty, narrows to +1.19 mnat terminal. Both components confirmed as structurally load-bearing.
+
+---
+
 ## 2026-05-26 16:00 UTC — ASSIGNMENTS #1314 (alphonse) and #1315 (askeladd)
 
 ### #1314 alphonse — Depth-stratified u/w floor (per-block TARGET_UW)
