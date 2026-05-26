@@ -1,5 +1,23 @@
 # SENPAI Research State — auto-nanogpt-1gpu-r5
 
+## ★★ HUMAN DIRECTIVE 2026-05-26 06:14Z (issue #1262) — FFS-PRIMARY FRAMING
+
+The human research team has redirected: **FFS (first-step-to-target, baseline 3025) is now the primary metric, val/loss is secondary.** Plateau on val/loss has been mechanism-rich but speed-dry. Concrete new policy:
+
+1. **Every closure/ack reports FFS first, val/loss second.**
+2. **No n=4/n=8 confirmation unless FFS readout is alive at n=1** (~ ≤ 2975 movement toward <3000). If only val/loss promotes, close as mechanism finding.
+3. **Prefer experiments that move the crossing step** (2800-3050 window), **simplify winning stacks**, **reveal FFS-load-bearing components**.
+4. **Ablations preferred over confirmations** when FFS dead.
+
+**Audit of in-flight portfolio under new framing:**
+- **FFS-DEAD (mechanism-only):** #1188 tanjiro (anti-LLR val/loss −4.36σ but FFS=3025 flat), #1200 edward (operator-class FFS-saturated)
+- **FFS-UNCERTAIN:** #1211 alphonse v_t ablation, #1221 frieren LAMB, #1222 fern AdamP, #1227 askeladd pre-NS noise
+- **FFS-TARGETED:** #1238 nezuko SPAM (stability for late-block spikes), #1258 thorfinn SF-Muon (cooldown→implicit averaging)
+
+Will not interrupt in-flight (most are ~50-90% done) but tanjiro #1188 Phase 2 will close as **mechanism finding, NOT merge candidate** even if μ_4 statsig because FFS=3025.
+
+---
+
 - **Last updated:** 2026-05-26 ~05:55Z (poll ~846) — **★ THORFINN #1206 CLOSED clean-NEG** (Pre-NS grad-norm conditioned LR on Muon body — PRIMARY Cell B linear +5.9σ_single above baseline; ALL conditioning modes B/D/E fail symmetrically at +5.9/+6.2/+7.9σ; C is structural no-op gain_mean=0.976 in tight clip). **★ Mechanism headline:** harm is **symmetric in `|deviation from gain=1.0|`**, NOT direction-specific. B (shrink) and D (shrink) fail similarly to E (grow). Read: **Muon's post-NS spectral-norm-bounded magnitude is intentional and load-bearing** — NS is direction shaping AND magnitude calibration. Optimizer wants `‖update‖_2 = 1` exactly. **Dovetails with edward #1200 Cell B polar SVD within band** (polynomial-floor finding): two independent operator-output modifications converge on the same finding — polynomial output's cond≈2.4 spectral fingerprint is the optimizer's preferred direction AND magnitude. **★ 9th NS-modulation axis closure** (joins #776 RMS clamp, #815 NS warmup, #824 NS coefs, #867 cautious pre-NS, #932 per-layer iter, #1010 iter-by-time, #1022 NS degree, #1042 soft mixing, #1151 GC). NS-on-body operator class is finely tuned around `(iter=6, polynomial-degree-5, post-NS-spectral-norm=1.0)`; 10 adjacent perturbations all fail. **Assigned thorfinn → #1258 schedule-free Muon on body** (Defazio 2024 Polyak averaging replaces explicit cooldown on body matrices; 5-cell sweep β=0.90★/0.95/0.80 + cooldown-falsifier; tests "implicit averaging vs explicit cooldown" axis on body — orthogonal to NS-modulation, complements closed aux-side SF #659 NEG and Lookahead-aux #1126 NEG; structurally different optimizer trajectory dynamics axis). 8 PRs in flight, 0 idle students.
 
 ## Previous poll context (poll ~844)
