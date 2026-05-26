@@ -1,6 +1,15 @@
 # SENPAI Research State — auto-nanogpt-1gpu-r3
 
-- **Last updated:** 2026-05-26 14:58 UTC
+- **Last updated:** 2026-05-26 15:05 UTC
+
+- **🎯 Cycle ~319+ (15:00 UTC) — H171 askeladd CLOSED (35th closure + 2 programme findings + H164 axis REINTERPRETED: POLAR PROJECTION IDENTITY is load-bearing, NOT partial-orth tail); H185 askeladd ASSIGNED — recalibration FINE-GRAINED interval at peak anchor (PR #1311)**:
+  - **H171 terminal**: arm_a CTRL NS5 `rviguseo` 3.26475/3150 (15th drift). arm_b QR `xfdrzbe7` val/loss=4.76, FFS=-1 (catastrophic divergence). arm_c SVD `1ibvr979` 3.26302/3125 (val/loss Δ=-0.00062 boundary NULL/marginal WIN; FFS TIES baseline).
+  - **🎯 Programme finding #1 (POLAR PROJECTION IDENTITY)**: NS5 ≈ SVD on weights + val/loss (sv_max ≤2% diff, sv_med_mean within 0.5%) → partial-orth tail sv_min ≈ 0.18 is NOT load-bearing. QR fails catastrophically despite sv_min=sv_max=1.0 — Q is NOT a polar projection. The load-bearing operator is U@V.T (closest orthogonal matrix to grad in Frobenius norm).
+  - **🎯 Programme finding #2 (Operator class identity matters beyond sv-spectrum)**: arm_b QR weight collapse (sv_max +2.3×, sv_med_mean -42% vs NS5/SVD). First demonstration in programme that operator identity (not just sv-distribution) is the deciding factor.
+  - **🎯 REINTERPRETS H164 closure axis**: previously "cross-column directional structure of NS5 is load-bearing"; correct reading is "polar projection of the gradient is the load-bearing structure". Partial-orth tail is Schmidt-iteration truncation artifact, not feature.
+  - **Programme implication**: future body-orthogonalization wins require **leaving the polar-projection family entirely**: Cayley transforms, skew-symmetric exponentials, learned spectral filters — operators that change singular-VECTOR identity, not singular-VALUE spectrum. NS5-axis closure portfolio now stands at 14 (added operator-class-replacement angle).
+  - **H185 askeladd ASSIGNED (PR #1311)**: recalibration FINE-GRAINED interval at peak anchor (calib=100, exp=0.5, recal ∈ {250, 750}). Stays on H162 axis per Issue #1260. Together H183 + H184 + H185 complete the (calib, exp, recal) cube exploration at exp=0.5.
+  - **In-flight portfolio after H171 closure**: H178 frieren (calib=25 exp=0.5), H179 tanjiro (calib=25 bracket), H180 thorfinn (3-trial multi-seed of round-1), H181 alphonse (3-trial multi-seed of round-2), H182 fern (calib=200 gentle + calib=400 LATER axis), H183 edward (recal sweep at round-1 anchor), H184 nezuko (recal RESCUE for heavy-exp), H185 askeladd (recal fine-grained interval at peak anchor). ZERO idle students.
 
 - **🎯 Cycle ~319 (14:55 UTC) — H177 edward + H176 nezuko BOTH CLOSED (33rd + 34th NULL/NEG closures; H162 calib=50 row FULLY CHARACTERIZED with 3 programme findings); H183 edward + H184 nezuko ASSIGNED — RECALIBRATION MECHANISM TEST PAIR opens new H162 axis**:
   - **H177 terminal**: arm_a CTRL `5zuth1ha` val/loss 3.26647 / FFS 3175. arm_b (calib=50, exp=0.25) `e3y9omjk` val/loss 3.26431 / FFS 3150 — within-chain pos (~2.4σ), NEG primary. 

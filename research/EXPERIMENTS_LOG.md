@@ -1,3 +1,36 @@
+## 2026-05-26 15:00 — PR #1255: H171 askeladd thin-QR / SVD body orthogonalization — CLOSED (35th closure + 2 programme findings + H164 closure axis REINTERPRETED)
+
+- Branch: `g1r3-askeladd/h171-thinqr-svd-body-orthog`
+- Hypothesis: Test NS5's partial-orth tail (sv_min ≈ 0.18) for load-bearing-ness by replacing with full-orth operators (QR, SVD).
+
+| Arm | Method | W&B | val/loss | FFS | Verdict |
+|---|---|---|---|---|---|
+| arm_a CTRL | NS5 | `rviguseo` | 3.26475 | 3150 | within-drift |
+| arm_b | QR | `xfdrzbe7` | **4.76** | **-1** | catastrophic divergence (never crossed 3.28) |
+| arm_c | SVD | `1ibvr979` | 3.26302 | 3125 | val/loss Δ=-0.00062 vs base (boundary NULL/marginal soft WIN); FFS TIES base |
+
+### Programme finding #1: POLAR PROJECTION IDENTITY (U@V.T) is load-bearing, NOT the partial-orth tail
+
+NS5 ≈ SVD on weights + val/loss (sv_max ≤2% diff, sv_med_mean within 0.5%) → partial-orth tail sv_min ≈ 0.18 is NOT mechanistically required. SVD removes the tail entirely (sv_min = 1.0 exact) and trains equivalently. QR fails catastrophically despite sv_min = sv_max = 1.0 (same as SVD) → the deciding factor is NOT singular-value distribution, it's the **operator identity**: U @ V.T is the closest orthogonal matrix to grad in Frobenius norm; Q-from-QR is the column-space basis but not gradient direction structure.
+
+**REINTERPRETS H164 closure axis**: previously framed as "cross-column directional structure of NS5 is load-bearing"; correct reading is "the polar projection of the gradient is the load-bearing structure". The partial-orth tail of NS5 is a Schmidt-iteration truncation artifact, not a feature.
+
+### Programme finding #2: QR is fundamentally different operator class from polar projection
+
+arm_b weight collapse (sv_max +2.3×, sv_med_mean -42% vs NS5/SVD) demonstrates first within-programme failure where operator class identity matters BEYOND sv-spectrum. Definitive failure mode at scale.
+
+### Programme implication
+
+Future body-orthogonalization wins require **leaving the polar-projection family entirely**: Cayley transforms, skew-symmetric exponentials, learned spectral filters — operators that change the singular-VECTOR identity, not just the singular-VALUE spectrum. NS5-axis closure portfolio now stands at 14 (added operator-class-replacement angle).
+
+### Closure justification
+
+arm_c SVD val/loss 3.26302 is at the boundary (NULL at n-1 ddof, marginal soft WIN at n-ddof; -0.5σ from H174 trial-0). FFS=3125 TIES baseline. SVD wallclock 2.37× NS5 — even if a WIN held under multi-seed, throughput cost makes SVD non-competitive. Per Issue #1260 directive (val/loss WIN + FFS TIE pattern is NOT mergeable), this closes the SVD axis.
+
+### Follow-up: H185 askeladd ASSIGNED (PR #1311) — recalibration FINE-GRAINED interval at peak-heterogeneity anchor (calib=100, exp=0.5, recal ∈ {250, 750}). Stays on H162 axis per Issue #1260 directive. Together H183 + H184 + H185 complete the (calib, exp, recal) cube exploration at exp=0.5.
+
+---
+
 ## 2026-05-26 14:55 — PR #1278: H176 nezuko per-block LR calib=50 sweep (ultra-early) — CLOSED (34th NULL/NEG closure + 2 programme findings)
 
 - Branch: `g1r3-nezuko/h176-per-block-lr-calib50`
