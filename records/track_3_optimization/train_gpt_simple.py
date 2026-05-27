@@ -454,6 +454,22 @@ MU_COOLDOWN_END = float(os.environ.get("MU_COOLDOWN_END", "0.95"))
 # entirely and exactly reproduces the prior cooldown-only schedule.
 MU_WARMUP_STEPS = int(os.environ.get("MU_WARMUP_STEPS", "0"))
 MU_WARMUP_START = float(os.environ.get("MU_WARMUP_START", "0.85"))
+# Pre-target depth-half momentum drop (PR #1470): split body Muon block params
+# into two depth halves (early=blocks 0-5, late=blocks 6-11). For global_step in
+# [PRE_TARGET_DEPTH_HALF_MU_DROP_START, PRE_TARGET_DEPTH_HALF_MU_DROP_END), the
+# half selected by PRE_TARGET_DEPTH_HALF_MU_DROP_SCOPE ("early" or "late") gets
+# its scheduled mu shifted by PRE_TARGET_DEPTH_HALF_MU_DROP_DELTA (always
+# negative for this PR). When disabled (=0, default), the Muon param-group
+# layout collapses to the original single-group form and the trajectory
+# bit-matches baseline.
+PRE_TARGET_DEPTH_HALF_MU_DROP_ENABLED = int(os.environ.get("PRE_TARGET_DEPTH_HALF_MU_DROP_ENABLED", "0"))
+PRE_TARGET_DEPTH_HALF_MU_DROP_START = int(os.environ.get("PRE_TARGET_DEPTH_HALF_MU_DROP_START", "2750"))
+PRE_TARGET_DEPTH_HALF_MU_DROP_END = int(os.environ.get("PRE_TARGET_DEPTH_HALF_MU_DROP_END", "2950"))
+PRE_TARGET_DEPTH_HALF_MU_DROP_DELTA = float(os.environ.get("PRE_TARGET_DEPTH_HALF_MU_DROP_DELTA", "-0.05"))
+PRE_TARGET_DEPTH_HALF_MU_DROP_SCOPE = os.environ.get("PRE_TARGET_DEPTH_HALF_MU_DROP_SCOPE", "early")
+assert PRE_TARGET_DEPTH_HALF_MU_DROP_SCOPE in ("early", "late"), (
+    f"PRE_TARGET_DEPTH_HALF_MU_DROP_SCOPE must be 'early' or 'late', "
+    f"got {PRE_TARGET_DEPTH_HALF_MU_DROP_SCOPE!r}")
 MUON_LR = float(os.environ.get("MUON_LR", "0.0375"))
 MUON_WEIGHT_DECAY = 0.025  # nominal; Muon.step does not apply explicit wd (u/w-floor replaces it)
 TARGET_UW = 0.35
@@ -652,9 +668,35 @@ class Muon(torch.optim.Optimizer):
                     self.attn_soap_kind[id(p)] = "v"
                 elif n.endswith(".attn.proj.weight"):
                     self.attn_soap_kind[id(p)] = "proj"
-        params = sorted([p for _, p in named_params], key=lambda x: x.size(), reverse=True)
+        self.depth_half_mode = bool(PRE_TARGET_DEPTH_HALF_MU_DROP_ENABLED)
         defaults = dict(lr=lr, weight_decay=weight_decay, mu=mu)
-        super().__init__(params, defaults)
+        if self.depth_half_mode:
+            # Split block params into two depth halves: blocks 0-5 ("early") and
+            # blocks 6-11 ("late"). The block_idx is the first dotted segment of
+            # the parameter name (model.blocks is an nn.ModuleList).
+            early_named: list = []
+            late_named: list = []
+            for n, p in named_params:
+                head = n.split(".", 1)[0]
+                assert head.isdigit(), f"unexpected param name (no block index): {n!r}"
+                block_idx = int(head)
+                if block_idx < 6:
+                    early_named.append((n, p))
+                else:
+                    late_named.append((n, p))
+            assert early_named and late_named, "depth-half split produced empty side"
+            early_params = sorted([p for _, p in early_named], key=lambda x: x.size(), reverse=True)
+            late_params = sorted([p for _, p in late_named], key=lambda x: x.size(), reverse=True)
+            super().__init__(
+                [
+                    dict(params=early_params, depth_half="early"),
+                    dict(params=late_params, depth_half="late"),
+                ],
+                defaults,
+            )
+        else:
+            params = sorted([p for _, p in named_params], key=lambda x: x.size(), reverse=True)
+            super().__init__(params, defaults)
 
     @torch.no_grad()
     def step(self):
@@ -855,6 +897,11 @@ if dist.get_rank() == 0:
             "optimizer/mu_cooldown_end": MU_COOLDOWN_END,
             "optimizer/mu_warmup_steps": MU_WARMUP_STEPS,
             "optimizer/mu_warmup_start": MU_WARMUP_START,
+            "optimizer/pre_target_depth_half_mu_drop_enabled": PRE_TARGET_DEPTH_HALF_MU_DROP_ENABLED,
+            "optimizer/pre_target_depth_half_mu_drop_start": PRE_TARGET_DEPTH_HALF_MU_DROP_START,
+            "optimizer/pre_target_depth_half_mu_drop_end": PRE_TARGET_DEPTH_HALF_MU_DROP_END,
+            "optimizer/pre_target_depth_half_mu_drop_delta": PRE_TARGET_DEPTH_HALF_MU_DROP_DELTA,
+            "optimizer/pre_target_depth_half_mu_drop_scope": PRE_TARGET_DEPTH_HALF_MU_DROP_SCOPE,
             "optimizer/muon_lr": MUON_LR,
             "optimizer/muon_weight_decay_nominal": MUON_WEIGHT_DECAY,
             "optimizer/target_uw": TARGET_UW,
@@ -904,7 +951,11 @@ for trial_idx in range(args.num_trials):
                        betas=(0.8, 0.95), eps=1e-10, weight_decay=0, fused=True)
     optimizer2 = Muon([(n, p) for n, p in model.blocks.named_parameters() if p.ndim >= 2],
                       lr=MUON_LR, weight_decay=MUON_WEIGHT_DECAY, mu=MU)
-    optimizer2.param_groups[0]["name"] = "muon_blocks"
+    if optimizer2.depth_half_mode:
+        for group in optimizer2.param_groups:
+            group["name"] = f"muon_blocks_{group['depth_half']}"
+    else:
+        optimizer2.param_groups[0]["name"] = "muon_blocks"
     optimizers = [optimizer1, optimizer2]
     assert set(p for opt in optimizers for group in opt.param_groups
                for p in group["params"]) == set(model.parameters())
@@ -931,11 +982,31 @@ for trial_idx in range(args.num_trials):
                 cur_mu = MU_COOLDOWN_START + (MU_COOLDOWN_END - MU_COOLDOWN_START) * t
         else:
             cur_mu = MU + (MU_END - MU) * progress
+        scheduled_mu = cur_mu
+        depth_half_active = bool(
+            PRE_TARGET_DEPTH_HALF_MU_DROP_ENABLED
+            and PRE_TARGET_DEPTH_HALF_MU_DROP_START <= step < PRE_TARGET_DEPTH_HALF_MU_DROP_END
+        )
+        early_mu = scheduled_mu
+        late_mu = scheduled_mu
+        if depth_half_active:
+            if PRE_TARGET_DEPTH_HALF_MU_DROP_SCOPE == "early":
+                early_mu = scheduled_mu + PRE_TARGET_DEPTH_HALF_MU_DROP_DELTA
+            else:
+                late_mu = scheduled_mu + PRE_TARGET_DEPTH_HALF_MU_DROP_DELTA
+            assert 0.0 < early_mu < 1.0, f"early_mu out of (0,1): {early_mu} at step {step}"
+            assert 0.0 < late_mu < 1.0, f"late_mu out of (0,1): {late_mu} at step {step}"
         for opt in optimizers:
             for group in opt.param_groups:
                 group["lr"] = group["initial_lr"] * eta
-                if group.get("name") == "muon_blocks":
+                gname = group.get("name", "")
+                if gname == "muon_blocks":
                     group["mu"] = cur_mu
+                elif gname == "muon_blocks_early":
+                    group["mu"] = early_mu
+                elif gname == "muon_blocks_late":
+                    group["mu"] = late_mu
+        return scheduled_mu, early_mu, late_mu, depth_half_active
 
 
     ########################################
@@ -1024,7 +1095,27 @@ for trial_idx in range(args.num_trials):
         dist.all_reduce(step_loss, op=dist.ReduceOp.SUM)
         train_loss = float((step_loss / batch_size).item())
         # set optimization hyperparameters and take a step
-        set_hparams(step)
+        scheduled_mu, early_mu, late_mu, depth_half_active = set_hparams(step)
+        if (PRE_TARGET_DEPTH_HALF_MU_DROP_ENABLED
+                and step == PRE_TARGET_DEPTH_HALF_MU_DROP_START
+                and dist.get_rank() == 0):
+            print0(
+                f"[PRE_TARGET_DEPTH_HALF_MU_DROP] step={step}"
+                f" scope={PRE_TARGET_DEPTH_HALF_MU_DROP_SCOPE}"
+                f" delta={PRE_TARGET_DEPTH_HALF_MU_DROP_DELTA}"
+                f" scheduled_mu={scheduled_mu:.5f}"
+                f" early_mu={early_mu:.5f}"
+                f" late_mu={late_mu:.5f}",
+                console=True,
+            )
+            for gi, group in enumerate(optimizer2.param_groups):
+                gname = group.get("name", f"group_{gi}")
+                print0(
+                    f"  {gname} effective_mu={group['mu']:.5f}"
+                    f" depth_half={group.get('depth_half', '-')}"
+                    f" n_params={len(group['params'])}",
+                    console=True,
+                )
         train_step = step + 1
         telemetry_due = (step == 0 or (step + 1) % args.telemetry_interval == 0 or step + 1 == train_steps)
         histogram_due = (step == 0 or (step + 1) % args.histogram_interval == 0 or step + 1 == train_steps)
@@ -1051,6 +1142,17 @@ for trial_idx in range(args.num_trials):
                 train_steps=train_steps,
                 wandb_step=wandb_step,
             )
+            wandb.log({
+                "train/body_muon/scheduled_mu": scheduled_mu,
+                "train/body_muon/effective_mu_early_half": early_mu,
+                "train/body_muon/effective_mu_late_half": late_mu,
+                "train/body_muon/depth_half_active": int(depth_half_active),
+                "train/body_muon/depth_half_delta_applied": (
+                    (early_mu - scheduled_mu) if depth_half_active
+                    and PRE_TARGET_DEPTH_HALF_MU_DROP_SCOPE == "early"
+                    else ((late_mu - scheduled_mu) if depth_half_active else 0.0)
+                ),
+            }, step=wandb_step)
         for opt in optimizers:
             opt.step()
         if dist.get_rank() == 0 and telemetry_due:
