@@ -83,6 +83,14 @@ def parse_args():
              "muall=musoft + non-residual block 2D weights also scaled by 1/sqrt(L); "
              "smallconst=std=1e-3 depth-independent.",
     )
+    parser.add_argument("--ema_beta", type=float, default=0.0,
+                        help="EMA decay for eval-only Polyak-Ruppert averaging of model weights. "
+                             "0 disables (default). Typical values: 0.99 (~100-step window), "
+                             "0.999 (~1000-step window), 0.9999 (~10000-step window). "
+                             "When >0, validation uses EMA weights; training trajectory is unaffected.")
+    parser.add_argument("--ema_start_step", type=int, default=0,
+                        help="Step at which to start EMA accumulation. EMA is lazy-initialized to "
+                             "the current live weights at this step. Default 0 (from training start).")
     args = parser.parse_args()
     args.num_trials = args.num_trials if args.num_trials is not None else (args.legacy_num_trials or 1)
     args.wandb_tags = [tag.strip() for tag in args.wandb_tags.split(",") if tag.strip()]
@@ -765,6 +773,9 @@ if dist.get_rank() == 0:
             "wd_schedule": args.wd_schedule,
             "lr_scalars": args.lr_scalars,
             "depth_init_mode": args.depth_init_mode,
+            "ema_beta": args.ema_beta,
+            "ema_start_step": args.ema_start_step,
+            "ema_effective_window": (1.0 / (1.0 - args.ema_beta)) if 0.0 < args.ema_beta < 1.0 else None,
         },
     )
 
@@ -901,6 +912,11 @@ for trial_idx in range(args.num_trials):
     train_loader = distributed_data_generator("data/fineweb10B/fineweb_train_*.bin", batch_size)
     for p in model.parameters():
         dist.broadcast(p.detach(), 0)
+    # EMA state for eval-only Polyak-Ruppert averaging. Lazy-initialized at
+    # args.ema_start_step so that the EMA snapshot equals the live weights at
+    # that moment (avoids contamination from random initialization).
+    ema_state = None
+    ema_enabled = args.ema_beta > 0
     # start the clock
     training_time = 0
     last_val_step = 0
@@ -924,6 +940,17 @@ for trial_idx in range(args.num_trials):
             step_avg = time_since_last_val / (step - last_val_step) if step > 0 else float("nan")
             last_val_step = step
             training_time += time_since_last_val
+            # If EMA is active, swap live → EMA weights for the primary val pass.
+            # `val/loss` is computed against whichever weights are in the model at
+            # eval time (this is the experimental contract — eval-only Polyak-Ruppert).
+            ema_active = ema_enabled and ema_state is not None
+            saved_live = None
+            if ema_active:
+                saved_live = {n: p.detach().clone() for n, p in model.named_parameters() if n in ema_state}
+                with torch.no_grad():
+                    for n, p in model.named_parameters():
+                        if n in ema_state:
+                            p.copy_(ema_state[n])
             model.eval()
             val_loss = torch.zeros((), device=device)
             with torch.no_grad():
@@ -933,6 +960,21 @@ for trial_idx in range(args.num_trials):
             dist.all_reduce(val_loss, op=dist.ReduceOp.SUM)
             val_loss /= val_tokens
             val_loss_float = float(val_loss.item())
+            # Dual-eval diagnostic: restore live weights and run a second val pass
+            # to record what the live (non-EMA) trajectory looks like.
+            live_val_loss_float = None
+            if ema_active:
+                with torch.no_grad():
+                    for n, p in model.named_parameters():
+                        if n in saved_live:
+                            p.copy_(saved_live[n])
+                live_val_loss = torch.zeros((), device=device)
+                with torch.no_grad():
+                    for i in range(len(val_inputs) // mbs):
+                        live_val_loss += model(val_inputs[i*mbs:(i+1)*mbs], val_targets[i*mbs:(i+1)*mbs])
+                dist.all_reduce(live_val_loss, op=dist.ReduceOp.SUM)
+                live_val_loss /= val_tokens
+                live_val_loss_float = float(live_val_loss.item())
             if dist.get_rank() == 0:
                 val_loss_history.append((step, val_loss_float))
                 if val_loss_float < best_val_loss:
@@ -953,9 +995,14 @@ for trial_idx in range(args.num_trials):
                     "time/train_seconds": training_time,
                     "time/step_avg_ms": 1000 * step_avg,
                 }
+                if ema_active:
+                    metrics["ema/eval_val_loss"] = val_loss_float
+                    metrics["live/eval_val_loss"] = live_val_loss_float
+                    metrics["ema/eval_minus_live"] = val_loss_float - live_val_loss_float
                 metrics.update(prefixed("val/slope", loss_slope_stats(val_loss_history, slope_window_steps)))
                 wandb.log(metrics, step=trial_idx * (train_steps + 1) + step)
-            print0(f"step:{step}/{train_steps} val_loss:{val_loss:.5f} train_time:{training_time:.3f}s"
+            ema_msg = f" live_val_loss:{live_val_loss_float:.5f}" if live_val_loss_float is not None else ""
+            print0(f"step:{step}/{train_steps} val_loss:{val_loss:.5f}{ema_msg} train_time:{training_time:.3f}s"
                    + f" step_avg:{1000*step_avg:.2f}ms", console=True)
             model.train()
             # start the clock again
@@ -1009,6 +1056,16 @@ for trial_idx in range(args.num_trials):
             )
         for opt in optimizers:
             opt.step()
+        # EMA update (eval-only Polyak-Ruppert): track an averaged copy of
+        # weights without perturbing training. Lazy-init at args.ema_start_step.
+        if ema_enabled and step >= args.ema_start_step:
+            with torch.no_grad():
+                if ema_state is None:
+                    ema_state = {n: p.detach().clone() for n, p in model.named_parameters()}
+                else:
+                    for n, p in model.named_parameters():
+                        if n in ema_state:
+                            ema_state[n].mul_(args.ema_beta).add_(p.detach(), alpha=1.0 - args.ema_beta)
         if telemetry_due:
             update_norms = optimizer2.get_step_update_norms()
             current_lrs = {group.get("name", f"group_{i}"): group["lr"]
@@ -1027,6 +1084,30 @@ for trial_idx in range(args.num_trials):
                 per_group_metrics["train/wd_attn_now"] = current_wds.get("muon_attn", 0.0)
                 per_group_metrics["train/wd_schedule_progress"] = train_step / train_steps
                 wandb.log(per_group_metrics, step=wandb_step)
+        # EMA diff-norm telemetry: per-parameter ||live - ema||_2 / ||live||_2,
+        # then p50/p95 across all params. Tracks how far EMA lags the live trajectory.
+        if telemetry_due and ema_enabled and ema_state is not None:
+            if dist.get_rank() == 0:
+                ratios = []
+                with torch.no_grad():
+                    for n, p in model.named_parameters():
+                        if n in ema_state:
+                            live_norm = p.detach().norm().item()
+                            diff_norm = (p.detach() - ema_state[n]).norm().item()
+                            if live_norm > 0:
+                                ratios.append(diff_norm / live_norm)
+                if ratios:
+                    ratios_sorted = sorted(ratios)
+                    p50 = ratios_sorted[len(ratios_sorted) // 2]
+                    p95_idx = min(len(ratios_sorted) - 1, int(len(ratios_sorted) * 0.95))
+                    p95 = ratios_sorted[p95_idx]
+                    wandb.log({
+                        "trial": trial_idx,
+                        "train/step": train_step,
+                        "ema/diff_norm_p50": p50,
+                        "ema/diff_norm_p95": p95,
+                        "ema/diff_norm_max": ratios_sorted[-1],
+                    }, step=wandb_step)
         if dist.get_rank() == 0 and optimizer2.cos_sims_buffer:
             cs_names = list(optimizer2.cos_sims_buffer.keys())
             cs_tensors = list(optimizer2.cos_sims_buffer.values())
