@@ -83,6 +83,9 @@ def parse_args():
              "muall=musoft + non-residual block 2D weights also scaled by 1/sqrt(L); "
              "smallconst=std=1e-3 depth-independent.",
     )
+    parser.add_argument("--adamw_aux_beta1", type=float, default=0.8,
+                        help="beta1 for the AdamW aux optimizer (embed + lm_head + scalars). "
+                             "Hardcoded 0.8 historically; ablated under PR #1310.")
     args = parser.parse_args()
     args.num_trials = args.num_trials if args.num_trials is not None else (args.legacy_num_trials or 1)
     args.wandb_tags = [tag.strip() for tag in args.wandb_tags.split(",") if tag.strip()]
@@ -765,6 +768,7 @@ if dist.get_rank() == 0:
             "wd_schedule": args.wd_schedule,
             "lr_scalars": args.lr_scalars,
             "depth_init_mode": args.depth_init_mode,
+            "adamw_aux_beta1": args.adamw_aux_beta1,
         },
     )
 
@@ -840,7 +844,7 @@ for trial_idx in range(args.num_trials):
     optimizer1 = AdamW([dict(params=[model.embed.weight], lr=0.3, name="adam_embed"),
                         dict(params=[model.proj.weight], lr=1/320, name="adam_lm_head"),
                         dict(params=[p for p in model.parameters() if p.ndim < 2], lr=args.lr_scalars, name="adam_scalars")],
-                       betas=(0.8, 0.95), eps=1e-10, weight_decay=0, fused=True)
+                       betas=(args.adamw_aux_beta1, 0.95), eps=1e-10, weight_decay=0, fused=True)
     named_blocks = [(n, p) for n, p in model.blocks.named_parameters() if p.ndim >= 2]
     mlp_named = [(n, p) for n, p in named_blocks
                  if n.endswith(".mlp.fc.weight") or n.endswith(".mlp.proj.weight")]
@@ -907,6 +911,8 @@ for trial_idx in range(args.num_trials):
     best_val_loss = float("inf")
     best_val_step = -1
     first_step_to_target = -1
+    ffs_curve_thresholds = (3.40, 3.35, 3.30, 3.28)
+    ffs_curve_steps = {th: -1 for th in ffs_curve_thresholds}
     slope_interval = max(1, round(train_steps * SLOPE_FRACTION))
     slope_window_steps = max(100, slope_interval)
     train_loss_history: list[tuple[int, float]] = []
@@ -940,6 +946,9 @@ for trial_idx in range(args.num_trials):
                     best_val_step = step
                 if first_step_to_target < 0 and val_loss_float <= TARGET_VAL_LOSS:
                     first_step_to_target = step
+                for th in ffs_curve_thresholds:
+                    if ffs_curve_steps[th] < 0 and val_loss_float <= th:
+                        ffs_curve_steps[th] = step
                 metrics = {
                     "trial": trial_idx,
                     "val/step": step,
@@ -953,6 +962,8 @@ for trial_idx in range(args.num_trials):
                     "time/train_seconds": training_time,
                     "time/step_avg_ms": 1000 * step_avg,
                 }
+                for th in ffs_curve_thresholds:
+                    metrics[f"speedrun/first_step_to_{th:.2f}"] = ffs_curve_steps[th]
                 metrics.update(prefixed("val/slope", loss_slope_stats(val_loss_history, slope_window_steps)))
                 wandb.log(metrics, step=trial_idx * (train_steps + 1) + step)
             print0(f"step:{step}/{train_steps} val_loss:{val_loss:.5f} train_time:{training_time:.3f}s"
@@ -1009,6 +1020,24 @@ for trial_idx in range(args.num_trials):
             )
         for opt in optimizers:
             opt.step()
+        if telemetry_due and dist.get_rank() == 0:
+            adam_exp_avg_metrics = {"trial": trial_idx, "train/step": train_step}
+            for group in optimizer1.param_groups:
+                group_name = group.get("name", "adam_group")
+                norms_sq = []
+                count = 0
+                for p in group["params"]:
+                    st = optimizer1.state.get(p)
+                    if st is not None and "exp_avg" in st:
+                        ea = st["exp_avg"]
+                        norms_sq.append(float(ea.detach().pow(2).sum().item()))
+                        count += int(ea.numel())
+                if count > 0:
+                    total_sq = sum(norms_sq)
+                    adam_exp_avg_metrics[f"{group_name}/exp_avg_norm"] = total_sq ** 0.5
+                    adam_exp_avg_metrics[f"{group_name}/exp_avg_rms"] = (total_sq / count) ** 0.5
+            if len(adam_exp_avg_metrics) > 2:
+                wandb.log(adam_exp_avg_metrics, step=wandb_step)
         if telemetry_due:
             update_norms = optimizer2.get_step_update_norms()
             current_lrs = {group.get("name", f"group_{i}"): group["lr"]
