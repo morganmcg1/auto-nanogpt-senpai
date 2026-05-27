@@ -468,6 +468,10 @@ NS5_ITERS = int(os.environ.get("NS5_ITERS", "12"))
 WD_AUX = float(os.environ.get("WD_AUX", "0.0"))  # AdamW WD on embed + lm_head matrices (scalars stay at 0)
 EMBED_INIT_STD = float(os.environ.get("EMBED_INIT_STD", "1.0"))  # default preserves baseline N(0,1)
 LOGIT_SOFTCAP = float(os.environ.get("LOGIT_SOFTCAP", "15.0"))  # default = 15 (current hardcoded value); soft-cap value c in f(x) = c·x / sqrt(x^2+c^2)
+# POST_TARGET_BODY_MUON_M_RESET: one-shot zero of body Muon momentum buffer at a
+# configurable dispatch step in the post-target window (extends alphonse #1461).
+POST_TARGET_BODY_MUON_M_RESET_ENABLED = int(os.environ.get("POST_TARGET_BODY_MUON_M_RESET_ENABLED", "0"))
+POST_TARGET_BODY_MUON_M_RESET_STEP = int(os.environ.get("POST_TARGET_BODY_MUON_M_RESET_STEP", "2925"))
 
 
 def zeropower_via_newtonschulz5(G: Tensor) -> Tensor:
@@ -867,6 +871,8 @@ if dist.get_rank() == 0:
             "optimizer/ns5_iters": NS5_ITERS,
             "optimizer/wd_aux": WD_AUX,
             "optimizer/recipe": "contra-muon + normuon-lite + soap-on-mlp + soap-on-attn-trust-gate (pre-NS5, record #14 + record #16)",
+            "optimizer/post_target_body_muon_m_reset_enabled": POST_TARGET_BODY_MUON_M_RESET_ENABLED,
+            "optimizer/post_target_body_muon_m_reset_step": POST_TARGET_BODY_MUON_M_RESET_STEP,
         },
     )
 
@@ -1053,6 +1059,72 @@ for trial_idx in range(args.num_trials):
             )
         for opt in optimizers:
             opt.step()
+        if POST_TARGET_BODY_MUON_M_RESET_ENABLED and step == POST_TARGET_BODY_MUON_M_RESET_STEP:
+            body_m_norm_before_sq = 0.0
+            body_param_count = 0
+            for group in optimizer2.param_groups:
+                if group.get("name") != "muon_blocks":
+                    continue
+                for p in group["params"]:
+                    state = optimizer2.state.get(p, {})
+                    if "momentum" in state:
+                        body_m_norm_before_sq += float(state["momentum"].float().pow(2).sum().item())
+                        body_param_count += 1
+            aux_m_norm_before_sq = 0.0
+            aux_param_count = 0
+            for group in optimizer1.param_groups:
+                for p in group["params"]:
+                    state = optimizer1.state.get(p, {})
+                    if "exp_avg" in state:
+                        aux_m_norm_before_sq += float(state["exp_avg"].float().pow(2).sum().item())
+                        aux_param_count += 1
+            body_m_norm_before = body_m_norm_before_sq ** 0.5
+            aux_m_norm_before = aux_m_norm_before_sq ** 0.5
+            params_reset = 0
+            for group in optimizer2.param_groups:
+                if group.get("name") != "muon_blocks":
+                    continue
+                for p in group["params"]:
+                    state = optimizer2.state.get(p, {})
+                    if "momentum" in state:
+                        state["momentum"].zero_()
+                        params_reset += 1
+            body_m_norm_after_sq = 0.0
+            for group in optimizer2.param_groups:
+                if group.get("name") != "muon_blocks":
+                    continue
+                for p in group["params"]:
+                    state = optimizer2.state.get(p, {})
+                    if "momentum" in state:
+                        body_m_norm_after_sq += float(state["momentum"].float().pow(2).sum().item())
+            aux_m_norm_after_sq = 0.0
+            for group in optimizer1.param_groups:
+                for p in group["params"]:
+                    state = optimizer1.state.get(p, {})
+                    if "exp_avg" in state:
+                        aux_m_norm_after_sq += float(state["exp_avg"].float().pow(2).sum().item())
+            body_m_norm_after = body_m_norm_after_sq ** 0.5
+            aux_m_norm_after = aux_m_norm_after_sq ** 0.5
+            assert abs(aux_m_norm_before - aux_m_norm_after) < 1e-6, (
+                f"AUX m-norm changed during body Muon m-reset: before={aux_m_norm_before}, after={aux_m_norm_after}"
+            )
+            if dist.get_rank() == 0:
+                print0(
+                    f"[POST_TARGET_BODY_MUON_M_RESET] body Muon momentum reset at step={step} "
+                    f"(params={params_reset}; body_m_norm_before={body_m_norm_before:.4f}; "
+                    f"body_m_norm_after={body_m_norm_after:.4f}; aux_m_norm_unchanged={aux_m_norm_before:.4f}; "
+                    f"step counter and LR schedule preserved)",
+                    console=True,
+                )
+                wandb.log({
+                    "trial": trial_idx,
+                    "train/muon_m_reset/dispatch_fired": 1,
+                    "train/muon_m_reset/params_reset_count": params_reset,
+                    "train/muon_m_reset/body_m_norm_before": body_m_norm_before,
+                    "train/muon_m_reset/body_m_norm_after": body_m_norm_after,
+                    "train/muon_m_reset/aux_m_norm_at_reset": aux_m_norm_before,
+                    "train/muon_m_reset/aux_m_norm_after": aux_m_norm_after,
+                }, step=wandb_step)
         if dist.get_rank() == 0 and telemetry_due:
             for opt in optimizers:
                 if hasattr(opt, "trust_gate_stats"):
