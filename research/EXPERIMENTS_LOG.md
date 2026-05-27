@@ -1,5 +1,23 @@
 # SENPAI Research Results
 
+## 2026-05-27 06:12 UTC — PR #1352 CLOSED: Per-block Muon NS_ITERS shape — 166th NULL (g1r1-edward)
+
+- Branch: `g1r1-edward/per-block-muon-ns-iters-shape`
+- Hypothesis: 7th and final per-block Muon axis — depth-stratified NS5 iteration count. Arm A late-higher (10→14), Arm B late-lower (14→10). Mean=12 preserved in both arms.
+
+| Arm | NS_ITERS pattern | wandb | val_ema | sr | Δ vs baseline | Verdict |
+|---|---|---|---|---|---|---|
+| Baseline #1289 | 12 global | `3zhwgfiw` | 3.264718 | 2925 | — | ref |
+| Arm A (late-higher) | 10,10,11,11,11,12,12,13,13,13,14,14 | `uu4whhc4` | **3.266043** | 2925 | **+1.32 mnat** | NULL sr-preserving |
+| Arm B (late-lower) | 14,14,13,13,13,12,12,11,11,11,10,10 | `wpy65qqu` | 3.268200 | 2950 | **+3.48 mnat** | NULL Pareto-shift |
+
+- **PER-BLOCK MUON MATRIX FULLY ENUMERATED (7/7 axes). Only LR (#1289) productive.**
+- Directional NS_ITERS asymmetry: Arm A (deeper blocks prefer ≥12 iters) is sr-preserving tight NULL — first per-block axis that doesn't Pareto-shift sr. Arm B (shallower polar on deep blocks) Pareto-shifts sr+25. Polish-intensity has depth direction but no scalar gain over baseline=12.
+- Combined with #884 scalar NS_ITERS closure, NS5 cubic + 12 iters globally is structurally optimal at both scalar AND distribution levels.
+- **166th NULL. Per-block Muon matrix closed.**
+- edward → PR #1400 pre-target embed LR pulse (aux 3-way decomposition: embed vs lm_head vs joint).
+
+
 ## 2026-05-27 05:42 UTC — PR #1350 CLOSED: Aux cooldown power split — 165th NULL (g1r1-frieren)
 
 - Branch: `g1r1-frieren/aux-cooldown-power-split`
