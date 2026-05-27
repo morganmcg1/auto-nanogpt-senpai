@@ -1,3 +1,86 @@
+## 2026-05-27 03:05 UTC — Cycle 71 mid-309
+
+**Cumulative**: **192 refuted** / **107 distinct mech classes** / **67 family-level closures** (unchanged — 4 Arm A terminals now posted, all Arm B pending bilateral).
+
+**Highest-information mid-309 finding**: **edward #1364 Arm A sub-cluster-edge with baseline-matching FFS=3000** — strongest direction-asymmetry inversion signal in 320+ PR corpus. **WD-axis effect on embed AUX is sharper than LR-axis effect** on the privileged FFS dimension.
+
+### This cycle's terminals:
+
+**1. edward #1364 Arm A `a7lz7y25` TERMINAL — SUB-CLUSTER-EDGE FFS=3000 (BEST sub-cluster-edge FFS in corpus)**:
+- val=**3.26836**, **ffs=3000** ← matches baseline FFS exactly
+- Δ vs merge bar val: +0.00060 (failed val merge bar by 6 bps)
+- ffs=3000 ∈ {3000} — first sub-cluster-edge member with ffs=3000 (prior members: #1335 ffs=3025, #1359 ffs=3050, #1341 ffs=3050)
+- Arm A configuration: per-AUX-kind embed WD → 0 at cooldown_start (no regularization, "over-direction" analog on WD axis)
+- Strong confirmation of direction-asymmetry inversion principle: "less regularization on embed AUX helps" — exactly mirroring the LR-axis prediction that "over-LR helps embed AUX"
+- Sub-cluster-edge FFS sharper than embed-LR axis (#1335 Arm B over-LR was sub-cluster-edge ffs=3025)
+- **WD-axis effect > LR-axis effect on FFS dimension** for embed AUX
+
+**Direction-asymmetry inversion principle (mid-304) now MULTI-AXIS confirmed on embed AUX**:
+- LR-axis (#1335): over-LR helps embed AUX, under-LR hurts → sub-cluster-edge ffs=3025 over-LR
+- **WD-axis (#1364, this cycle): less-WD helps embed AUX, more-WD predicted to hurt → sub-cluster-edge ffs=3000 less-WD**
+- Both axes confirm relaxing constraint → privileged-zone landing
+- Pending Arm B (WD→0.005, 5× regularization) for bilateral asymmetry confirmation; predicted above-cluster regression
+
+**2. frieren #1366 Arm A `vmzdxn5m` TERMINAL — CLUSTER STANDARD**:
+- val=**3.27320**, ffs=**3050**
+- val ∈ [3.269, 3.275] cluster band; ffs=3050 cluster member
+- Arm A configuration: lm_head AUX LR × 0.5 (under-LR direction on lm_head)
+- Cluster STANDARD landing consistent with embed Arm A under-LR cluster STANDARD pattern at #1335
+- Arm B (over-LR 2.0×) is the load-bearing test: if AUX-class-universal direction-asymmetry inversion holds, Arm B → privileged zone (mirror embed Arm B sub-cluster-edge)
+- Pending Arm B for the AUX-class-universal vs embed-specific dichotomy
+
+### Mass terminal batch summary (mid-308 + mid-309): 4 Arm A terminals in 35 min
+
+| PR | mech axis | Arm A val | Arm A ffs | zone | Arm B status |
+|---|---|---|---|---|---|
+| #1355 (askeladd) | per-kind body Muon NS5_iters | 3.26873 | 3025 | sub-cluster-edge | LAUNCHED `fz4jyrdu` step 1175 |
+| #1361 (fern) | weight-perturbation σ=1e-3 attn | 3.27125 | 3025 | cluster STANDARD | LAUNCHED `rvnz4dvl` step 1425 |
+| #1364 (edward) | per-AUX-kind embed WD → 0 | **3.26836** | **3000** | **sub-cluster-edge (best FFS)** | **PENDING LAUNCH (this cycle)** |
+| #1366 (frieren) | per-AUX-kind lm_head LR × 0.5 | 3.27320 | 3050 | cluster STANDARD | **PENDING LAUNCH (this cycle)** |
+
+### Other in-flight runs (W&B confirmed mid-309):
+
+| PR | run | step | val | health |
+|---|---|---|---|---|
+| #1367 thorfinn Arm A | `214kjjcq` | 3125/3175 | 3.27252 | terminal in ~2 min (cluster trajectory) |
+| #1369 nezuko Arm A restart | `5knjrcsu` | 1825/3175 | 3.50686 | recovering well |
+| #1358 tanjiro Arm B retry | `a5z06qrx` | 1200/3175 | 3.63639 | on-track (label swapped back to wip) |
+| #1359 alphonse Arm B | `1z7zu0pu` | 2500/3175 | 3.34614 | on-track |
+| #1355 askeladd Arm B | `fz4jyrdu` | 1175/3175 | 3.63508 | on-track |
+| #1361 fern Arm B | `rvnz4dvl` | 1425/3175 | 3.56865 | on-track |
+
+### AUX-kind × direction-of-effect grid — pending Arm B refinement:
+
+| sub-system | optimizer | axis | direction | source | finding |
+|---|---|---|---|---|---|
+| body Muon (#1296) | Muon | LR | under helps | closed | INVERSION baseline |
+| embed AUX (#1335) | AdamW | LR | over helps | closed | sub-cluster-edge ffs=3025 over-LR |
+| **embed AUX (#1364)** | **AdamW** | **WD** | **less-WD helps** | **Arm A terminal** | **sub-cluster-edge ffs=3000 less-WD** |
+| lm_head AUX (#1366) | AdamW | LR | under cluster STANDARD | Arm A terminal | Arm B (over) TBD |
+| scalars AUX (#1367) | AdamW | LR | TESTING | Arm A in flight (~98%) | terminal in ~2 min |
+| body Muon (#1355) | Muon | NS5_iters | attn-lighter sub-cluster-edge | Arm A terminal | Arm B (attn-heavier inverted) in flight |
+
+### Methodology corpus this cycle:
+- **Multi-axis direction-asymmetry on embed AUX** (NEW): direction-asymmetry inversion principle extends from LR-axis to WD-axis on embed AUX. Two orthogonal proofs of "relaxing constraint → privileged-zone landing" on embed v-normalized AdamW.
+- **Sub-cluster-edge FFS gradient principle** (NEW): sub-cluster-edge zone has internal FFS structure (3000, 3025, 3050). #1364 ffs=3000 is the strongest FFS result in the zone (matching baseline FFS). The FFS sub-axis is a finer discriminator than val/loss alone.
+
+### Active fleet status mid-309:
+
+| Student | PR | Status | W&B notes |
+|---|---|---|---|
+| g1r2-edward | #1364 | status:wip | **Arm A TERMINAL sub-cluster-edge val=3.26836 ffs=3000** ← strongest FFS — Arm B (WD 5×) nudged |
+| g1r2-frieren | #1366 | status:wip | **Arm A TERMINAL cluster STANDARD val=3.27320 ffs=3050** — Arm B (over-LR 2.0×) nudged |
+| g1r2-askeladd | #1355 | status:wip | Arm A terminal sub-cluster-edge; Arm B `fz4jyrdu` in flight step 1175 |
+| g1r2-fern | #1361 | status:wip | Arm A terminal cluster STANDARD; Arm B `rvnz4dvl` in flight step 1425 |
+| g1r2-thorfinn | #1367 | status:wip | Arm A terminal in ~2 min (step 3125 val=3.27252 cluster trajectory) |
+| g1r2-tanjiro | #1358 | status:wip (label restored) | Arm B retry `a5z06qrx` step 1200 (was incorrectly status:review) |
+| g1r2-alphonse | #1359 | status:wip | Arm B `1z7zu0pu` step 2500 |
+| g1r2-nezuko | #1369 | status:wip | Arm A restart `5knjrcsu` step 1825 (recovering from SIGTERM) |
+
+**ZERO IDLE STUDENTS — 8 students concurrently active. ZERO IDLE GPUs.**
+
+**Cumulative closure rate**: 192 / ~535 PRs ≈ 35% refute rate. Expecting 4-6 closures in next 1-2 cycles (Arm B completions).
+
 ## 2026-05-27 02:30 UTC — Cycle 71 mid-308
 
 **Cumulative**: **192 refuted** / **107 distinct mech classes** / **67 family-level closures** (unchanged this cycle — 2 Arm A terminals posted, Arm B pending bilateral).
