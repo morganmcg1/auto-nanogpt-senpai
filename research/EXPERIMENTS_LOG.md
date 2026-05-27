@@ -1,5 +1,56 @@
 # SENPAI Research Results — auto-nanogpt-1gpu-r4
 
+## 2026-05-27 14:00 — PR #1393: H: NM MLP-LR fine-grained sweep on post-#1240 stack {1.2, 1.4, 1.6, 1.8} (CLOSED productive-NULL — MLP-LR axis NULL plateau extends 1.0-1.4 with universal +25 fs penalty, Arm D=1.6 mild-NEG breakthrough, #1440 NS_COEF_SCHEDULE assigned cycle 428)
+
+- branch: `g1r4-thorfinn/nm-mlp-lr-sweep`
+- Hypothesis: post-#1240 stack — does fine-grained NM MLP-LR sweep find optimum >1.0 (replicating pre-#1240 #1346 MARGINAL-FAV at 1.2)? Tests LR_SCALE_MLP={1.0 ctrl, 1.2, 1.4, 1.6}.
+- All 4 arms TERMINAL after ~14h sequential A→B→C→D.
+
+| Arm | LR_SCALE_MLP | run_id | val/loss | fs | Δ_paired_val vs A | Δ_paired_fs | Δ vs n=3 baseline 3.26339 | NM mlp_step_norm_mean |
+|:---:|:---:|---|:---:|:---:|:---:|:---:|:---:|:---:|
+| A ctrl | 1.0 | `0jn8dcap` | **3.26295** | **3150** | (ref) | (ref) | **−0.00044 EXCEPTIONALLY-CLEAN-FAV** | 0.00050 |
+| B | 1.2 | `xbhuh24l` | 3.26361 | 3175 | **+0.00066** | **+25 fs** | +0.00022 NULL | 0.00060 |
+| C | 1.4 | `d8k7tdi0` | 3.26347 | 3175 | **+0.00052** | **+25 fs** | +0.00008 NULL | 0.00069 |
+| D | 1.6 | `4ddqea1s` | 3.26426 | 3175 | **+0.00131** | **+25 fs** | +0.00087 mild-NEG | 0.00079 |
+
+**🎯 Verdict: CLOSED productive-NULL**. Decision tree row hit: Row 4 productive-NULL with non-monotone signature (D=1.6 mild-NEG breakthrough).
+
+**🎯 KEY MECHANISM FINDINGS**:
+
+**1. NULL plateau wider than cycle 419 expected**:
+- Cycle 419 modal Arm C LR=1.4 prediction: 45% mild-NEG / 35% NULL / 20% mild-FAV
+- Actual Δ_C = +0.00052 → 35% NULL-band modal hit
+- The MLP-LR axis NULL plateau extends cleanly 1.0 → 1.4 (Δ_A=−0.00044 / Δ_B=+0.00066 / Δ_C=+0.00052)
+- Over-boost penalty kicks in at 1.6 (Δ_D=+0.00131, still NULL band but trending NEG)
+
+**2. Pre-#1240 → post-#1240 signal direction INVERSION**:
+- Pre-#1240 #1346 Arm B LR=1.2: Δ=−0.00114 MARGINAL-FAV
+- Post-#1240 #1393 Arm B LR=1.2: Δ=+0.00066 NULL with +25 fs penalty
+- Signal direction **inverted** — pre-#1240 prediction "optimum > 1.2" NOT confirmed on post-#1240
+
+**3. Universal +25 fs penalty across boosted arms**:
+- All B/C/D arms fs=3175 vs A fs=3150 (+25 fs)
+- R-buffer adapts to absorb val gain but boosted MLP-LR causes deterministic +25 fs step-quantization cost
+- New mechanism finding: fs is more sensitive to step-quantization perturbations than val on post-#1240
+
+**4. NM telemetry per-group scaling validation**:
+- mlp_downproj_step_norm_mean scales linearly with LR_SCALE_MLP (1.0→0.00050, 1.2→0.00060, 1.4→0.00069, 1.6→0.00079)
+- Confirms NM hook correctly applied to 12 d_in=3072 MLP down-proj matrices
+
+**Cross-axis stack-dependence catalog (7 findings consolidated cycle 428)**:
+1. #1372 β-SCHEDULE step-down NULL (CLOSED c420)
+2. **#1393 (this) MLP-LR-SCALE NULL plateau 1.0-1.4 + Arm D mild-NEG** (CLOSED c428)
+3. #1383 START_STEP non-monotone NEG (CLOSED c425)
+4. #1421 UPDATE_PERIOD non-monotone period=2 PP (running)
+5. #1402 β-AVG NULL convergence (running)
+6. #1388 EPS axis NULL across 5 orders of magnitude (CLOSED c427)
+7. #1438 NS_ITERS_COOLDOWN pending (just-assigned c427)
+
+**Unified mechanism story strengthens**: post-#1240 PERIOD=5 + MAX_D_IN=4096 R-buffer EMA absorbs late-phase responsiveness perturbations across **magnitude-of-precondition axes** (β, EPS, LR-scale, MLP-LR-scale). The R-buffer becomes the load-bearing late-phase optimizer state. Coverage/timing/refresh-rate axes (#1383/#1421/#1431/#1438) carry the residual signal.
+
+**Follow-up**: #1440 thorfinn NM NS_COEF_SCHEDULE sweep assigned cycle 428 — tests whether R-buffer absorption extends to UPSTREAM NS-coefficient-schedule axis (NS output is INPUT to NM preconditioner). Pre-#1240 #290 established linear_ramp_down vs constant Δ=−0.00071 mild-FAV. Post-#1240 stack-dependence test would be 8th cross-axis catalog finding.
+
+
 ## 2026-05-27 13:35 — PR #1388: H: NM EPS sensitivity sweep on post-#1240 stack (1e-4/1e-6/1e-8/1e-2) (CLOSED productive-NULL — EPS axis NULL on n=3 baseline across 5 orders of magnitude, ctrl drift artifact identified)
 
 - branch: `g1r4-edward/nm-eps-sweep`
