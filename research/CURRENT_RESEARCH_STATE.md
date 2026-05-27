@@ -1,3 +1,58 @@
+## 2026-05-28 00:10 UTC — Cycle 71 mid-324 EXTENSION — 20-way cross-axis grid (post-target wave-2; 219 refuted; depth/per-kind asymmetric directions confirmed)
+
+**Cumulative**: **219 refuted** / **138 distinct mech classes** / **93 family-level closures**.
+
+### PRs closed this wave (3 closures, post-target window axis):
+
+| PR | student | mechanism | outcome |
+|---|---|---|---|
+| **alphonse #1432** | alphonse | POST_TARGET_BODY_LR_BURST (×0.85 vs ×1.15 in [2950,3175]) | **217th** — bidirectional cluster STANDARD; uniform LR direction-symmetric (no asymmetry signal) |
+| **fern #1428** | fern | EVAL_SLOT_LR_BURST_DEPTH_DISPATCH (early-half vs late-half ×1.15 in [2850,3050]) | **218th** — **depth-direction asymmetric**: early-half (blocks 0-5) better than late-half by Δ=−0.00187 val (2.4× magnitude of other depth-axis readings) |
+| **thorfinn #1443** | thorfinn | POST_TARGET_PER_KIND_LR (attn×1.15/MLP×0.85 vs reverse in [2950,3175]) | **219th** — **per-kind direction asymmetric**: attn-up favored Δ=−0.00161 val, +25 ffs (consistent direction across pre/post window with #1419) |
+
+### NEW PRINCIPLES established (Cycle 71 cluster-floor extension):
+
+- **Depth-axis direction-asymmetric (early > late)**: fern #1428 Δ=−0.00187 — largest depth-direction gap in Cycle 71. Late-cooldown body Muon LR boost preferentially benefits early-block (0-5) gradient updates over late-block (6-11). Implies depth-localized polish/refinement signal is concentrated at lower-depth in the post-target window.
+- **Per-kind axis attn-favored across mechanism×window**: thorfinn #1419 (pre-target NS5 axis) + thorfinn #1443 (post-target LR axis) BOTH show attn-up direction marginally better. Attn pathway is more LR-sensitive than MLP pathway during late-cooldown.
+
+### 20-way cross-axis cluster-floor saturation grid (cumulative, pre-2950 + post-2950 perturbations):
+
+| axis | reading direction | mid-324 sub-axis | direction-asymmetric? |
+|---|---|---|---|
+| LR-magnitude (pre, post) | anti-monotonic / symmetric | uniform | NO |
+| NS5-quality (pre, post) | weak anti-monotonic / weak | uniform | NO |
+| Momentum-DROP (pre) | magnitude-monotonic | uniform | n/a (drop-only) |
+| Per-kind LR (pre, post) | weak asymmetric **attn-up** | per-kind | YES (consistent) |
+| Per-kind NS5 (pre, post) | weak asymmetric attn-up | per-kind | YES (consistent) |
+| **Depth-half LR (post)** | **early-half preferred** | **depth-half** | **YES (largest gap)** |
+| Per-block NS5 (pre, post) | shallowing direction better | per-block | YES |
+| m-reset (cross-AUX) | direction-IDENTICAL | discrete | NO (noise-floor) |
+| AUX-LARS | direction-IDENTICAL | LARS | NO (noise-floor) |
+| α-hybrid (cross-AUX) | HUMP/discrete-topology | α-blend | YES (HUMP only at α≠0,∞) |
+
+**Conservation-law candidate (uniform axes) + direction-asymmetric (per-kind, depth-half, per-block)** — clean taxonomy now established. Cluster band {3.265, 3.278} × FFS {3025, 3125} saturated across 20+ orthogonal mechanisms.
+
+### 3 fresh post-target assignments (state-phase + depth-asymmetric chase, all 8 students still active):
+
+| PR | student | mechanism | rationale |
+|---|---|---|---|
+| **alphonse #1461** | alphonse | POST_TARGET_BODY_MUON_M_RESET (m-reset at step 2950 vs 3050) | 133rd mech class — discrete state-phase reset on body Muon momentum |
+| **fern #1463** | fern | POST_TARGET_DEPTH_HALF_MUON_M_RESET (early-half vs late-half blocks 0-5/6-11) | 134th mech class — extends fern #1428 depth-axis asymmetric finding to state-phase axis |
+| **thorfinn #1465** | thorfinn | POST_TARGET_GRAD_CENTRALIZATION (body Muon GC at step 2950 vs 3050) | 135th mech class — gradient transform applied per-step within window; tests "drift-controllability" mechanism not yet tried |
+
+### Still-active fleet (8 students, ZERO IDLE):
+
+- **alphonse #1461** — POST_TARGET_BODY_MUON_M_RESET — Arm A step 1375 (running)
+- **fern #1463** — POST_TARGET_DEPTH_HALF_MUON_M_RESET — disabled canary step 80
+- **thorfinn #1465** — POST_TARGET_GRAD_CENTRALIZATION — disabled canary step 75
+- **edward #1436** — POST_TARGET_NS5_QUALITY — Arm B terminal val=3.27269 ffs=3050 (Arm A 3.26991/3025), bilateral data ready, awaiting student SENPAI-RESULT post
+- **askeladd #1450** — POST_TARGET_PER_BLOCK_NS5 — Arm A terminal val=3.27279 ffs=3050, Arm B `arm_b_post_deepening` step 175 running
+- **nezuko #1449** — POST_TARGET_AUX_M_RESET_TIMING — Arm B step 800
+- **tanjiro #1439** — CROSS_AUX_KIND_HYBRID_ALPHA_HUMP — Arm B step 1925
+- **frieren #1444** — POST_TARGET_MU — Arm B step 2750 (approaching terminal ETA ~35 min)
+
+---
+
 ## 2026-05-27 15:30 UTC — Cycle 71 mid-324 (14-way cross-axis grid; 2 more closures wave; 216 refuted + post-target 7-axis matrix)
 
 **Cumulative**: **216 refuted** / **138 distinct mech classes** / **90 family-level closures**.
