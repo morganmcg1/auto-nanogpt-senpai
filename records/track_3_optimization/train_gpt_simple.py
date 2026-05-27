@@ -67,6 +67,11 @@ def parse_args():
     parser.add_argument("--ns_iter", type=int, default=12,
                         help="Number of Newton-Schulz iterations in zeropower_via_newtonschulz5. "
                              "Default 12 (current hardcoded value). Lower = less orthogonal but faster.")
+    parser.add_argument("--ns_iter_cooldown", type=int, default=-1,
+                        help="NS iterations during cooldown phase (progress >= 1 - cooldown_frac, "
+                             "i.e. step >= ~0.3*train_steps with cooldown_frac=0.7). "
+                             "-1 = use --ns_iter throughout (no change). 0 = skip NS entirely "
+                             "(spectral-norm clamp still applied via line in zeropower_via_newtonschulz5).")
     parser.add_argument("--lr_scalars", type=float, default=0.01,
                         help="LR for AdamW adam_scalars group (RMSNorm gains; "
                              "params with ndim < 2). Default 0.01 — hardcoded, "
@@ -93,6 +98,16 @@ def parse_args():
 
 args = parse_args()
 NS_ITER = args.ns_iter
+NS_ITER_COOLDOWN = args.ns_iter_cooldown
+# Mutable counter the NS function reads each call; set per-step by the main loop.
+_NS_ITER_CURRENT = NS_ITER
+COOLDOWN_FRAC = 0.7  # matches set_hparams default; cooldown starts at progress >= 1 - COOLDOWN_FRAC
+# Steps at which to probe NS pre/post-update norms and orth error. Steps are 1-indexed
+# (match `train_step = step + 1`). Cooldown LR phase actually starts at step ~975 with
+# cooldown_frac=0.7. 500/900 are pre-cooldown references; 2000+ are in cooldown.
+NS_PROBE_STEPS = {500, 900, 2000, 2275, 2500, 2800, 3000, 3250}
+# Representative body 2D weight to probe; always present in the GPT model used here.
+NS_PROBE_PARAM_NAME = "blocks.0.attn.q.weight"
 
 
 def clean_metric_name(name: str) -> str:
@@ -490,7 +505,7 @@ def zeropower_via_newtonschulz5(G: Tensor) -> Tensor:
     X = X / (X.norm(dim=(-2, -1), keepdim=True) + 1e-7)
     # Perform the NS iterations, not optimizing for wallclock speed
     a, b, c = 2, -1.5, 0.5
-    for _ in range(NS_ITER):
+    for _ in range(_NS_ITER_CURRENT):
         A = X @ X.mT
         B = b * A + c * A @ A
         X = a * X + B @ X
@@ -498,6 +513,22 @@ def zeropower_via_newtonschulz5(G: Tensor) -> Tensor:
     if G.size(-2) > G.size(-1):
         X = X.mT
     return X
+
+def _ns_orth_error(x: Tensor) -> float:
+    """Compute ‖X X^T − I‖_F / sqrt(min_dim) for orthogonality probe.
+
+    Uses the smaller-Gram side so the comparison is to a small identity.
+    """
+    x = x.detach().float()
+    if x.size(-2) <= x.size(-1):
+        d = x.size(-2)
+        gram = x @ x.mT
+    else:
+        d = x.size(-1)
+        gram = x.mT @ x
+    eye = torch.eye(d, device=x.device, dtype=x.dtype)
+    return float((gram - eye).norm().item() / (d ** 0.5))
+
 
 @torch.compile
 def muon_update(grad, momentum, mu=0.95, nesterov=True):
@@ -756,6 +787,8 @@ if dist.get_rank() == 0:
             "soap_beta2": SOAP_BETA2,
             "soap_precond_freq": PRECOND_FREQ,
             "ns_iter": NS_ITER,
+            "ns_iter_cooldown": NS_ITER_COOLDOWN,
+            "cooldown_frac": COOLDOWN_FRAC,
             "soap_attn_enabled": bool(args.soap_attn),
             "soap_trust_threshold": float(args.soap_trust_threshold),
             "lr_mlp": args.lr_mlp,
@@ -907,6 +940,10 @@ for trial_idx in range(args.num_trials):
     best_val_loss = float("inf")
     best_val_step = -1
     first_step_to_target = -1
+    # FFS-curve early thresholds — first val step at which val/loss crosses below these.
+    # 3.28 is TARGET_VAL_LOSS already tracked via first_step_to_target.
+    NS_FFS_CURVE_THRESHOLDS = (3.40, 3.35, 3.30)
+    first_step_to_threshold: dict[float, int] = {t: -1 for t in NS_FFS_CURVE_THRESHOLDS}
     slope_interval = max(1, round(train_steps * SLOPE_FRACTION))
     slope_window_steps = max(100, slope_interval)
     train_loss_history: list[tuple[int, float]] = []
@@ -940,6 +977,9 @@ for trial_idx in range(args.num_trials):
                     best_val_step = step
                 if first_step_to_target < 0 and val_loss_float <= TARGET_VAL_LOSS:
                     first_step_to_target = step
+                for _t in NS_FFS_CURVE_THRESHOLDS:
+                    if first_step_to_threshold[_t] < 0 and val_loss_float <= _t:
+                        first_step_to_threshold[_t] = step
                 metrics = {
                     "trial": trial_idx,
                     "val/step": step,
@@ -950,6 +990,8 @@ for trial_idx in range(args.num_trials):
                     "val/single_run_stat_sig_margin": TARGET_VAL_LOSS - val_loss_float - STAT_SIG_DELTA,
                     "speedrun/first_step_to_target": first_step_to_target,
                     "speedrun/reached_target": int(first_step_to_target >= 0),
+                    **{f"speedrun/first_step_to_{_t:g}": first_step_to_threshold[_t]
+                       for _t in NS_FFS_CURVE_THRESHOLDS},
                     "time/train_seconds": training_time,
                     "time/step_avg_ms": 1000 * step_avg,
                 }
@@ -981,6 +1023,12 @@ for trial_idx in range(args.num_trials):
         train_loss = float((step_loss / batch_size).item())
         # set optimization hyperparameters and take a step
         set_hparams(step)
+        # Switch NS iteration count for cooldown phase if --ns_iter_cooldown is set
+        progress = step / train_steps
+        if NS_ITER_COOLDOWN >= 0 and progress >= (1.0 - COOLDOWN_FRAC):
+            _NS_ITER_CURRENT = NS_ITER_COOLDOWN
+        else:
+            _NS_ITER_CURRENT = NS_ITER
         train_step = step + 1
         telemetry_due = (step == 0 or (step + 1) % args.telemetry_interval == 0 or step + 1 == train_steps)
         histogram_due = (step == 0 or (step + 1) % args.histogram_interval == 0 or step + 1 == train_steps)
@@ -1007,6 +1055,25 @@ for trial_idx in range(args.num_trials):
                 train_steps=train_steps,
                 wandb_step=wandb_step,
             )
+        # NS pre/post probe at specific steps (rank-0 only; grads are all-reduced so identical across ranks).
+        # Done BEFORE opt.step() because Muon mutates p.grad in-place via lerp_.
+        if dist.get_rank() == 0 and train_step in NS_PROBE_STEPS:
+            _probe_param = dict(model.named_parameters()).get(NS_PROBE_PARAM_NAME)
+            if _probe_param is not None and _probe_param.grad is not None:
+                with torch.no_grad():
+                    _g = _probe_param.grad.detach().clone()
+                    _pre_norm = float(_g.float().norm().item())
+                    _x = zeropower_via_newtonschulz5(_g)
+                    _post_norm = float(_x.float().norm().item())
+                    _orth = _ns_orth_error(_x)
+                wandb.log({
+                    "trial": trial_idx,
+                    "train/step": train_step,
+                    "train/update_norm_pre_ns": _pre_norm,
+                    "train/update_norm_post_ns": _post_norm,
+                    "train/orth_error_post_ns": _orth,
+                    "train/ns_probe_iter": _NS_ITER_CURRENT,
+                }, step=wandb_step)
         for opt in optimizers:
             opt.step()
         if telemetry_due:
@@ -1026,6 +1093,10 @@ for trial_idx in range(args.num_trials):
                 per_group_metrics["train/wd_mlp_now"] = current_wds.get("muon_mlp", 0.0)
                 per_group_metrics["train/wd_attn_now"] = current_wds.get("muon_attn", 0.0)
                 per_group_metrics["train/wd_schedule_progress"] = train_step / train_steps
+                per_group_metrics["train/ns_iter_current"] = _NS_ITER_CURRENT
+                per_group_metrics["train/ns_iter_cooldown_active"] = int(
+                    NS_ITER_COOLDOWN >= 0 and progress >= (1.0 - COOLDOWN_FRAC)
+                )
                 wandb.log(per_group_metrics, step=wandb_step)
         if dist.get_rank() == 0 and optimizer2.cos_sims_buffer:
             cs_names = list(optimizer2.cos_sims_buffer.keys())
@@ -1094,6 +1165,8 @@ for trial_idx in range(args.num_trials):
             "speedrun/final_best_val_step": best_val_step,
             "speedrun/final_first_step_to_target": first_step_to_target,
             "speedrun/final_reached_target": int(first_step_to_target >= 0),
+            **{f"speedrun/final_first_step_to_{_t:g}": first_step_to_threshold[_t]
+               for _t in NS_FFS_CURVE_THRESHOLDS},
         }, step=(trial_idx + 1) * (train_steps + 1) - 1)
 
 if dist.get_rank() == 0:
