@@ -71,6 +71,9 @@ def parse_args():
                         help="LR for AdamW adam_scalars group (RMSNorm gains; "
                              "params with ndim < 2). Default 0.01 — hardcoded, "
                              "never ablated. ~20K params total in this model.")
+    parser.add_argument("--adamw_aux_eps", type=float, default=1e-10,
+                        help="AdamW aux optimizer eps (denominator regularizer). "
+                             "Default 1e-10 (hardcoded baseline). PyTorch Adam default is 1e-8.")
     parser.add_argument(
         "--depth_init_mode",
         type=str,
@@ -765,6 +768,7 @@ if dist.get_rank() == 0:
             "wd_schedule": args.wd_schedule,
             "lr_scalars": args.lr_scalars,
             "depth_init_mode": args.depth_init_mode,
+            "adamw_aux_eps": args.adamw_aux_eps,
         },
     )
 
@@ -840,7 +844,7 @@ for trial_idx in range(args.num_trials):
     optimizer1 = AdamW([dict(params=[model.embed.weight], lr=0.3, name="adam_embed"),
                         dict(params=[model.proj.weight], lr=1/320, name="adam_lm_head"),
                         dict(params=[p for p in model.parameters() if p.ndim < 2], lr=args.lr_scalars, name="adam_scalars")],
-                       betas=(0.8, 0.95), eps=1e-10, weight_decay=0, fused=True)
+                       betas=(0.8, 0.95), eps=args.adamw_aux_eps, weight_decay=0, fused=True)
     named_blocks = [(n, p) for n, p in model.blocks.named_parameters() if p.ndim >= 2]
     mlp_named = [(n, p) for n, p in named_blocks
                  if n.endswith(".mlp.fc.weight") or n.endswith(".mlp.proj.weight")]
@@ -1026,6 +1030,33 @@ for trial_idx in range(args.num_trials):
                 per_group_metrics["train/wd_mlp_now"] = current_wds.get("muon_mlp", 0.0)
                 per_group_metrics["train/wd_attn_now"] = current_wds.get("muon_attn", 0.0)
                 per_group_metrics["train/wd_schedule_progress"] = train_step / train_steps
+                # AdamW aux eps telemetry: sqrt(v) for lm_head (small-LR group)
+                # eps acts as denominator floor: update = grad / (sqrt(v) + eps).
+                # If sqrt(v) >> eps everywhere, eps is cosmetic.
+                lm_head_state = optimizer1.state.get(model.proj.weight, None)
+                if lm_head_state is not None and "exp_avg_sq" in lm_head_state:
+                    sqrt_v_flat = lm_head_state["exp_avg_sq"].flatten().float().sqrt()
+                    # torch.quantile has a ~16M element limit; lm_head is ~38M.
+                    # Subsample with a stride to keep ~500k elements for percentiles.
+                    n_elem = sqrt_v_flat.numel()
+                    if n_elem > 500_000:
+                        stride = max(1, n_elem // 500_000)
+                        sqrt_v_sample = sqrt_v_flat[::stride]
+                    else:
+                        sqrt_v_sample = sqrt_v_flat
+                    sqrt_v_p50 = float(sqrt_v_sample.quantile(0.5).item())
+                    sqrt_v_p01 = float(sqrt_v_sample.quantile(0.01).item())
+                    sqrt_v_min = float(sqrt_v_flat.min().item())
+                    eps_eff = float(args.adamw_aux_eps)
+                    per_group_metrics["adamw/eps_eff"] = eps_eff
+                    per_group_metrics["adamw/sqrt_v_lm_head_p50"] = sqrt_v_p50
+                    per_group_metrics["adamw/sqrt_v_lm_head_p01"] = sqrt_v_p01
+                    per_group_metrics["adamw/sqrt_v_lm_head_min"] = sqrt_v_min
+                    if sqrt_v_p50 > 0:
+                        per_group_metrics["adamw/eps_to_sqrtv_ratio_lm_head_p50"] = eps_eff / sqrt_v_p50
+                    if sqrt_v_min > 0:
+                        per_group_metrics["adamw/eps_to_sqrtv_ratio_lm_head_min"] = eps_eff / sqrt_v_min
+                    per_group_metrics["adamw/lm_head_weight_norm"] = float(model.proj.weight.detach().float().norm().item())
                 wandb.log(per_group_metrics, step=wandb_step)
         if dist.get_rank() == 0 and optimizer2.cos_sims_buffer:
             cs_names = list(optimizer2.cos_sims_buffer.keys())
