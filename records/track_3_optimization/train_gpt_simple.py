@@ -109,6 +109,16 @@ def parse_args():
     parser.add_argument("--body_init_bottom_layers", type=int,
                         default=int(os.environ.get("BODY_INIT_BOTTOM_LAYERS", "6")),
                         help="Number of bottom layers to damp for --body_init=orthogonal_bottom_damp (default 6 = bottom half of 12 layers).")
+    # H192: Functional SAM on lm_head ONLY (Logit-SAM). When > 0, after the usual
+    # forward+backward we (i) compute grad_S = ∂S/∂W of the function-space statistic
+    # S = mean over (B,T) of var(logits, dim=vocab) w.r.t. W = model.proj.weight, then
+    # (ii) ε = rho * grad_S / ‖grad_S‖, perturb W → W+ε, (iii) redo forward+backward,
+    # keep only the perturbed-point grad on W (other params keep their unperturbed grads),
+    # (iv) restore W. 0.0 = OFF (bit-identical to baseline).
+    parser.add_argument("--lmhead_fsam_rho", type=float,
+                        default=float(os.environ.get("LMHEAD_FSAM_RHO", "0.0")),
+                        help="Functional SAM perturbation radius for lm_head (model.proj.weight). "
+                             "0.0 = off (baseline bit-identical).")
     args = parser.parse_args()
     args.num_trials = args.num_trials if args.num_trials is not None else (args.legacy_num_trials or 1)
     args.wandb_tags = [tag.strip() for tag in args.wandb_tags.split(",") if tag.strip()]
@@ -535,9 +545,27 @@ class GPT(nn.Module):
         x = self.norm1(self.embed(inputs))
         for block in self.blocks:
             x = block(x)
-        logits = self.proj(self.norm2(x)).float()
+        hidden = self.norm2(x)
+        logits = self.proj(hidden).float()
         logits = 15 * logits * (logits.square() + 15**2).rsqrt()
-        return F.cross_entropy(logits.view(targets.numel(), -1), targets.view(-1), reduction="sum")
+        loss = F.cross_entropy(logits.view(targets.numel(), -1), targets.view(-1), reduction="sum")
+        return loss, hidden
+
+
+# H192 FSAM helpers. Compiled so inductor fuses linear+softcap+(var|CE) the same
+# way it fuses GPT.forward — without fusion the uncompiled path materializes the
+# 13.2 GB fp32 (B,T,vocab) logits and OOMs on a 95 GB GPU.
+@torch.compile(dynamic=False)
+def _fsam_var_statistic(hidden: Tensor, W: Tensor) -> Tensor:
+    logits = F.linear(hidden, W.type_as(hidden), None).float()
+    return logits.var(dim=-1).mean()
+
+
+@torch.compile(dynamic=False)
+def _fsam_lm_head_loss(hidden: Tensor, W: Tensor, b: Tensor, target: Tensor) -> Tensor:
+    logits = F.linear(hidden, W.type_as(hidden), b.type_as(hidden)).float()
+    logits = 15 * logits * (logits.square() + 15**2).rsqrt()
+    return F.cross_entropy(logits.view(target.numel(), -1), target.view(-1), reduction="sum")
 
 
 ########################################
@@ -850,6 +878,7 @@ if dist.get_rank() == 0:
             "muonh_mu_schedule": args.muonh_mu_schedule,
             "muonh_mu_start": args.muonh_mu_start,
             "muonh_mu_end": args.muonh_mu_end,
+            "lmhead_fsam_rho": args.lmhead_fsam_rho,
         },
     )
 
@@ -1081,7 +1110,8 @@ for trial_idx in range(args.num_trials):
             with torch.no_grad():
                 assert len(val_inputs) % mbs == 0
                 for i in range(len(val_inputs) // mbs):
-                    val_loss += model(val_inputs[i*mbs:(i+1)*mbs], val_targets[i*mbs:(i+1)*mbs])
+                    val_loss_mb, _ = model(val_inputs[i*mbs:(i+1)*mbs], val_targets[i*mbs:(i+1)*mbs])
+                    val_loss += val_loss_mb
             dist.all_reduce(val_loss, op=dist.ReduceOp.SUM)
             val_loss /= val_tokens
             val_loss_float = float(val_loss.item())
@@ -1122,9 +1152,17 @@ for trial_idx in range(args.num_trials):
         # accumulate across microbatches in case we are running with fewer than 8 gpus
         assert len(inputs) % mbs == 0
         step_loss = torch.zeros((), device=device)
+        # H192: when FSAM is on, cache per-microbatch hidden states (output of model.norm2)
+        # so the FSAM block can compute grad_S and the perturbed-point lm_head gradient
+        # WITHOUT re-running the body. .detach().clone() makes the cache safe to use after
+        # backward frees the autograd graph (storage stays alive via our reference).
+        fsam_hidden_cache: list[Tensor] = []
+        capture_hidden_for_fsam = args.lmhead_fsam_rho > 0.0
         for i in range(len(inputs) // mbs):
-            loss = model(inputs[i*mbs:(i+1)*mbs], targets[i*mbs:(i+1)*mbs])
+            loss, hidden_mb = model(inputs[i*mbs:(i+1)*mbs], targets[i*mbs:(i+1)*mbs])
             step_loss += loss.detach()
+            if capture_hidden_for_fsam:
+                fsam_hidden_cache.append(hidden_mb.detach().clone())
             loss.backward()
         for name, p in model.named_parameters():
             assert p.grad is not None, name
@@ -1158,6 +1196,95 @@ for trial_idx in range(args.num_trials):
                 step=train_step,
                 train_steps=train_steps,
                 wandb_step=wandb_step,
+            )
+        # H192 Functional SAM on lm_head ONLY (Logit-SAM). Perturbs W=model.proj.weight
+        # along grad of function-space statistic S = mean over (B,T) of var(logits, vocab),
+        # then recomputes lm_head's gradient at W+ε. Other params keep their unperturbed
+        # gradients automatically because we never re-run the body (cached hiddens from
+        # the original forward feed the perturbed lm_head ops). 0.0 = OFF (bit-identical
+        # to baseline).
+        fsam_telemetry: dict[str, float] = {}
+        if args.lmhead_fsam_rho > 0.0:
+            lm_head_W = model.proj.weight
+            lm_head_b = model.proj.bias
+            n_microbatches = len(fsam_hidden_cache)
+
+            # A) ∂S/∂W from cached hiddens (detached from body graph). Variance is
+            # bias-invariant so we omit lm_head_b here. _fsam_var_statistic is
+            # torch.compile'd so inductor fuses linear+var like the main forward.
+            # Average over local microbatches, then across ranks.
+            grad_S = torch.zeros_like(lm_head_W)
+            for hidden in fsam_hidden_cache:
+                statistic = _fsam_var_statistic(hidden, lm_head_W)
+                g_mb, = torch.autograd.grad(statistic, lm_head_W, retain_graph=False)
+                grad_S.add_(g_mb)
+            grad_S /= n_microbatches
+            dist.all_reduce(grad_S, op=dist.ReduceOp.SUM)
+            grad_S /= dist.get_world_size()
+
+            grad_S_norm_val = float(grad_S.norm().item())
+
+            if grad_S_norm_val < 1e-8:
+                # Degenerate (e.g. uniform logits at step 0 when lm_head is zero-init).
+                # Skip the perturbation; leave grads at unperturbed-point values.
+                fsam_telemetry = {
+                    "train/fsam/grad_S_norm": grad_S_norm_val,
+                    "train/fsam/epsilon_norm": 0.0,
+                    "train/fsam/lmhead_grad_delta_norm": 0.0,
+                }
+            else:
+                epsilon = grad_S.mul(args.lmhead_fsam_rho / grad_S_norm_val)
+                epsilon_norm_val = float(epsilon.norm().item())
+
+                # Save lm_head_W.grad (already all-reduced) for delta telemetry and
+                # zero it in place so the perturbed backward accumulates from zero.
+                # Body grads are untouched by the perturbed pass (we never re-run the
+                # body). lm_head_b also gets a perturbed-point grad from the
+                # cross-entropy backward; we save + restore it so the optimizer steps
+                # on the unperturbed bias gradient.
+                original_lmhead_grad = lm_head_W.grad.clone()
+                lm_head_W.grad.zero_()
+                original_lmhead_b_grad = lm_head_b.grad.clone()
+                lm_head_b.grad.zero_()
+
+                # Perturb in place.
+                lm_head_W.data.add_(epsilon)
+
+                # Perturbed forward+backward on cached hidden — only lm_head linear,
+                # softcap, and cross-entropy are evaluated. Body is never re-run.
+                # _fsam_lm_head_loss is compiled so inductor fuses these ops the
+                # same way it fuses the main forward (uncompiled path materializes
+                # 13.2 GB fp32 logits and OOMs).
+                for i, hidden in enumerate(fsam_hidden_cache):
+                    tgt_mb = targets[i*mbs:(i+1)*mbs]
+                    loss_perturbed = _fsam_lm_head_loss(
+                        hidden, lm_head_W, lm_head_b, tgt_mb,
+                    )
+                    loss_perturbed.backward()
+                dist.all_reduce(lm_head_W.grad, op=dist.ReduceOp.SUM)
+
+                lmhead_grad_delta_norm = float(
+                    (lm_head_W.grad - original_lmhead_grad).norm().item()
+                )
+
+                # Restore lm_head_b grad (we don't apply FSAM to the bias) and lm_head
+                # weights (the optimizer steps from the unperturbed W using the
+                # FSAM-aware grad).
+                lm_head_b.grad = original_lmhead_b_grad
+                lm_head_W.data.sub_(epsilon)
+
+                fsam_telemetry = {
+                    "train/fsam/grad_S_norm": grad_S_norm_val,
+                    "train/fsam/epsilon_norm": epsilon_norm_val,
+                    "train/fsam/lmhead_grad_delta_norm": lmhead_grad_delta_norm,
+                }
+
+            # Free cached hiddens for this step.
+            fsam_hidden_cache.clear()
+        if dist.get_rank() == 0 and telemetry_due and fsam_telemetry:
+            wandb.log(
+                {"trial": trial_idx, "train/step": train_step, **fsam_telemetry},
+                step=wandb_step,
             )
         # AGC on aux AdamW groups: clip per-param grad to clip_ratio * |param|.
         # No-op (bit-identical) when args.aux_agc_clip_ratio <= 0.
