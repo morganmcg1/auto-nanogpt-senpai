@@ -109,6 +109,13 @@ def parse_args():
     parser.add_argument("--body_init_bottom_layers", type=int,
                         default=int(os.environ.get("BODY_INIT_BOTTOM_LAYERS", "6")),
                         help="Number of bottom layers to damp for --body_init=orthogonal_bottom_damp (default 6 = bottom half of 12 layers).")
+    # H215 (compose of H207 state-reset + H203 cosine cooldown). Default 0 = disabled
+    # (no code path changes -> bit-identical to baseline).
+    parser.add_argument("--body_momentum_reset_step", type=int,
+                        default=int(os.environ.get("BODY_MOMENTUM_RESET_STEP", "0")),
+                        help="Step at which to zero out MuonH body momentum buffer (one-shot reset). "
+                             "0 = off (baseline bit-identical). LR is NOT modified. "
+                             "Tests state perturbation decoupled from LR modulation.")
     args = parser.parse_args()
     args.num_trials = args.num_trials if args.num_trials is not None else (args.legacy_num_trials or 1)
     args.wandb_tags = [tag.strip() for tag in args.wandb_tags.split(",") if tag.strip()]
@@ -681,6 +688,19 @@ class MuonH(torch.optim.Optimizer):
         self._last_norm_to_radius_max = 0.0
 
     @torch.no_grad()
+    def reset_momentum(self):
+        """H207/H215: zero out the Nesterov ``momentum`` state tensor for every body
+        param. Preserves ``hyperball_radius`` and all other state entries; only
+        the inertial buffer is wiped. Used for the one-shot mid-training state
+        perturbation decoupled from LR modulation.
+        """
+        for group in self.param_groups:
+            for p in group["params"]:
+                state = self.state[p]
+                if "momentum" in state:
+                    state["momentum"].zero_()
+
+    @torch.no_grad()
     def step(self):
         world_size = dist.get_world_size()
         rank = dist.get_rank()
@@ -850,6 +870,7 @@ if dist.get_rank() == 0:
             "muonh_mu_schedule": args.muonh_mu_schedule,
             "muonh_mu_start": args.muonh_mu_start,
             "muonh_mu_end": args.muonh_mu_end,
+            "body_momentum_reset_step": args.body_momentum_reset_step,
         },
     )
 
@@ -1169,6 +1190,23 @@ for trial_idx in range(args.num_trials):
         muonh_agc_stats = adaptive_gradient_clip(
             muonh_params_for_agc, args.muonh_agc_clip_ratio, eps=args.muonh_agc_eps,
         )
+        # H215 (H207 mechanism composed on cosine baseline): one-shot MuonH body
+        # momentum reset. Fires exactly once at step == body_momentum_reset_step,
+        # BEFORE opt.step() so the wiped buffer is what muon_update reads on
+        # this step. LR and all other state (hyperball_radius, MuLoCo
+        # outer_velocity, AdamW aux state) are untouched. Default reset_step=0
+        # -> branch never True (bit-identical to baseline).
+        body_momentum_reset_fired = 0
+        if args.body_momentum_reset_step > 0 and step == args.body_momentum_reset_step:
+            for opt in optimizers:
+                if isinstance(opt, MuonH):
+                    opt.reset_momentum()
+            body_momentum_reset_fired = 1
+            if dist.get_rank() == 0:
+                print0(f"H215: MuonH body momentum reset at step {step} (train_step={train_step})",
+                       console=True)
+                wandb.log({"trial": trial_idx, "train/step": train_step,
+                           "train/body_momentum_reset_fired": 1.0}, step=wandb_step)
         for opt in optimizers:
             opt.step()
         # Log warmup telemetry every 10 steps during warmup (and at telemetry events
@@ -1179,7 +1217,13 @@ for trial_idx in range(args.num_trials):
             and step < args.muonh_warmup_steps + 50
             and (step == 0 or (step + 1) % 10 == 0)
         )
-        if dist.get_rank() == 0 and (telemetry_due or warmup_due):
+        # H215: extra-dense momentum-norm logging in a 50-step window around the
+        # reset event, to capture the drop-and-recovery profile at high resolution.
+        body_momentum_norm_due = (
+            args.body_momentum_reset_step > 0
+            and abs(step - args.body_momentum_reset_step) <= 50
+        )
+        if dist.get_rank() == 0 and (telemetry_due or warmup_due or body_momentum_norm_due):
             muonh_metrics = {"trial": trial_idx, "train/step": train_step}
             muonh_metrics["aux/beta2"] = aux_beta2
             muonh_metrics["train/muonh_mu"] = muonh_mu_t
@@ -1191,6 +1235,21 @@ for trial_idx in range(args.num_trials):
                         muonh_metrics["train/muonh/norm_to_radius_max"] = opt._last_norm_to_radius_max
                     muonh_metrics["train/muonh/warmup_factor"] = muonh_warmup_factor
                     muonh_metrics["train/muonh/effective_lr"] = opt.param_groups[0]["lr"]
+                    # H215: body momentum buffer norm, aggregated over all body
+                    # params with state. Drops sharply at reset_step then
+                    # re-grows as momentum.lerp_(grad, 1-mu) re-accumulates.
+                    if body_momentum_norm_due:
+                        sq_sum = 0.0
+                        n_bufs = 0
+                        for group in opt.param_groups:
+                            for p in group["params"]:
+                                st = opt.state.get(p, None)
+                                if st is not None and "momentum" in st:
+                                    sq_sum += float(st["momentum"].float().pow(2).sum().item())
+                                    n_bufs += 1
+                        if n_bufs > 0:
+                            muonh_metrics["train/muonh/body_momentum_norm_total"] = sq_sum ** 0.5
+                            muonh_metrics["train/muonh/body_momentum_norm_mean"] = (sq_sum / n_bufs) ** 0.5
             if telemetry_due and args.aux_agc_clip_ratio > 0 and agc_stats["agc_total"] > 0:
                 muonh_metrics["train/agc/active_fraction"] = agc_stats["agc_clipped"] / agc_stats["agc_total"]
                 muonh_metrics["train/agc/clipped_count"] = agc_stats["agc_clipped"]
