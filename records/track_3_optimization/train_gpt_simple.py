@@ -468,6 +468,9 @@ NS5_ITERS = int(os.environ.get("NS5_ITERS", "12"))
 WD_AUX = float(os.environ.get("WD_AUX", "0.0"))  # AdamW WD on embed + lm_head matrices (scalars stay at 0)
 EMBED_INIT_STD = float(os.environ.get("EMBED_INIT_STD", "1.0"))  # default preserves baseline N(0,1)
 LOGIT_SOFTCAP = float(os.environ.get("LOGIT_SOFTCAP", "15.0"))  # default = 15 (current hardcoded value); soft-cap value c in f(x) = c·x / sqrt(x^2+c^2)
+AUX_LM_HEAD_WD_PHASE_DISPATCH = int(os.environ.get("AUX_LM_HEAD_WD_PHASE_DISPATCH", "0"))
+AUX_LM_HEAD_WD_COOLDOWN = float(os.environ.get("AUX_LM_HEAD_WD_COOLDOWN", "-1.0"))  # negative = inactive
+AUX_LM_HEAD_WD_PHASE_STEP = int(os.environ.get("AUX_LM_HEAD_WD_PHASE_STEP", "953"))
 
 
 def zeropower_via_newtonschulz5(G: Tensor) -> Tensor:
@@ -936,6 +939,10 @@ for trial_idx in range(args.num_trials):
                 group["lr"] = group["initial_lr"] * eta
                 if group.get("name") == "muon_blocks":
                     group["mu"] = cur_mu
+                if AUX_LM_HEAD_WD_PHASE_DISPATCH and step >= AUX_LM_HEAD_WD_PHASE_STEP:
+                    if group.get("name") == "adam_lm_head":
+                        if AUX_LM_HEAD_WD_COOLDOWN >= 0.0:
+                            group["weight_decay"] = AUX_LM_HEAD_WD_COOLDOWN
 
 
     ########################################
