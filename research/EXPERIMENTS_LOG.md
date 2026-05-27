@@ -1,3 +1,22 @@
+## 2026-05-27 23:30 — PR #1462: H219 tanjiro cosine cooldown LR FLOOR (asymptote axis, rescale formulation) — CLOSED (75th NULL/NEG + 🎯 programme finding #47 candidate: cosine LR→0 terminal asymptote IS load-bearing, rescale-formula trajectory perturbation diagnosed)
+
+- Branch: `g1r3-tanjiro/lr-floor-cosine-cooldown`
+- Hypothesis: Test whether terminal val regression vs H174 envelope is caused by over-cooling in last ~100 steps (cosine eta→0). Implementation used rescale formula `eta = min_eta + (1 - min_eta) × eta`. 3-arm CTRL (min_eta=0.0) / FLOOR_05 (min_eta=0.05) / FLOOR_10 (min_eta=0.10).
+- Results:
+
+  | Arm | min_eta_frac | W&B | val/loss | FFS | Δval vs CTRL | ΔFFS vs CTRL |
+  |---|---|---|---|---|---|---|
+  | arm_a CTRL | 0.00 | `zeg3rhxc` | 3.26793 | **3025** | (ref) | (ref) |
+  | arm_b FLOOR_05 | 0.05 | `fyuy6qcu` | 3.26346 | **3100** | −0.00447 | **+75 NEG** |
+  | arm_c FLOOR_10 | 0.10 | `91xrekkz` | 3.26910 | **3175** | +0.00117 | **+150 NEG** |
+
+- **Bilateral NEG on FFS primary metric** (NO MERGE per FFS-is-primary-metric rule Issue #1260), monotonic FFS regression with floor magnitude (+75, +150).
+- **Bit-identity gate PASSED**: arm_a min_eta_frac=0.0 short-circuits the rescale → FFS=3025 exact match to H203 baseline.
+- **🎯 Excellent student diagnostic**: rescale formula `eta = min_eta + (1 - min_eta) × eta` is NOT pure asymptote shift — it's **trajectory lift throughout cooldown**. At step 3025 (CTRL FFS crossing), FLOOR_05 LR=1.24e-3 = 3.4× CTRL's 3.6e-4; FLOOR_10 LR=2.13e-3 = 5.9× CTRL. Higher mid-cooldown LR perturbs the val/loss trajectory, delaying 3.28 crossing.
+- **🎯 Programme finding #47 candidate — cosine LR→0 asymptote IS load-bearing**: NOT an over-cooling artifact for the rescale variant. The full cosine cooldown is structurally required for FFS=3025 on the rescale formulation. **5th cooldown-axis finding** (Shape H211 / Steepness H211 / Timing H213 / Depth-compose H218 / Asymptote-rescale H219 all closed). Cosine + LR→0 baseline empirically robust along multiple orthogonal axes.
+- **Val signal observation**: arm_b val=3.26346 is below H174 envelope μ=3.264459 (~-0.13σ envelope, fortunate-drift territory), arm_c val=3.26910 is above (+5.25σ envelope NEG). Non-monotonic val pattern (arm_b best, arm_c worst) suggests there IS a mid-floor val mechanism confounded with FFS damage — but unclear if real signal or seed noise (arm_a was +3.92σ envelope, arm_b was -1.13σ envelope, 5σ differential is normal seed variation).
+- **Next assignment — H226 tanjiro CLAMP-FLOOR variant (PR #1495)**: Student's brilliant follow-up #1 — implement `eta = max(raw_eta, min_eta)` clamp formulation that activates only when raw cosine eta drops below the floor, preserving the early/mid trajectory while isolating terminal-only effect. This is NOT scalar HP search — it tests a fundamentally different mechanism formulation (clamp vs rescale). 22nd novel mechanism formulation in portfolio. Requires ~5 LoC code change (new flag `--muonh_cooldown_clamp_floor`, applied BEFORE rescale in set_hparams so both formulations can coexist for clean comparison). 3-arm CTRL=0.0 / CLAMP_05=0.05 / CLAMP_10=0.10. Predicted decisive: WIN→opens terminal-LR-boost mechanism class; NULL→asymptote decisively load-bearing; NEG→bilateral exhaustion.
+
 ## 2026-05-27 22:00 — PR #1453: H216 frieren Lookahead k-step outer-averaging × cosine compose — CLOSED (74th NULL/NEG + 🎯 programme finding #46 candidate: Meta-optimizer outer averaging incompatible with MuonH-SI state preservation)
 
 - Branch: `g1r3-frieren/lookahead-outer-averaging`

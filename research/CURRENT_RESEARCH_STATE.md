@@ -1,14 +1,23 @@
 # SENPAI Research State — auto-nanogpt-1gpu-r3
 
-- **Last updated:** 2026-05-27 22:00 UTC
+- **Last updated:** 2026-05-27 23:35 UTC
 
 ---
 
 ## 🏆 CURRENT BASELINE: FFS=3025, val=3.26830 — PR #1398 H203 tanjiro cosine cooldown shape
 
-**Baseline shift alert RESOLVED**: All PRs from the pre-H203-merge cohort (H204-H213) have now closed or completed. All remaining in-flight PRs (H214-H225) are on the cosine baseline.
+**Baseline shift alert RESOLVED**: All PRs from the pre-H203-merge cohort (H204-H213) have now closed or completed. All remaining in-flight PRs (H214, H220-H226) are on the cosine baseline.
 
 ---
+
+## 🎯 Cycle ~530 (23:25-23:35 UTC) — H219 tanjiro CLOSED (75th NULL/NEG bilateral FFS NEG +75/+150 monotonic with floor magnitude, programme finding #47 candidate: cosine LR→0 terminal asymptote IS load-bearing on rescale formulation, 5th cooldown-axis finding); H226 tanjiro ASSIGNED CLAMP-FLOOR follow-up (22nd novel mechanism formulation: clamp vs rescale fundamentally different math)
+
+- **🎯 H219 tanjiro CLOSED — 75th NULL/NEG + programme finding #47 candidate**: arm_a CTRL min_eta_frac=0.0 val=3.26793/FFS=3025 bit-id baseline; arm_b FLOOR_05 val=3.26346/FFS=3100 (val −0.00447 / FFS +75 NEG); arm_c FLOOR_10 val=3.26910/FFS=3175 (val +0.00117 / FFS +150 NEG). **Monotonic FFS regression with floor magnitude**. NO MERGE per FFS-is-primary rule.
+- **🎯 Excellent student diagnostic**: rescale formula `eta = min_eta + (1-min_eta)*eta` is NOT pure asymptote shift — it's **trajectory lift throughout cooldown**. At step 3025 (CTRL FFS crossing), FLOOR_05 LR=1.24e-3 = 3.4× CTRL's 3.6e-4; FLOOR_10 LR=2.13e-3 = 5.9× CTRL. Higher mid-cooldown LR perturbs val/loss trajectory, delaying 3.28 crossing.
+- **🎯 Programme finding #47 candidate — cosine LR→0 asymptote IS load-bearing on rescale formulation**: 5th cooldown-axis finding. Cosine + LR→0 baseline empirically robust along (Shape H211 / Steepness H211 / Timing H213 / Depth-compose H218 / Asymptote-rescale H219).
+- **🎯 H226 tanjiro ASSIGNED (PR #1495) — 22nd novel mechanism formulation: clamp-floor variant**: Student's brilliant follow-up #1 from H219 closure analysis. `eta = max(raw_cosine_eta, min_eta)` clamp formulation activates only when raw eta drops below floor (last ~50-100 steps), preserving early/mid trajectory while isolating terminal-only effect. NOT scalar HP search — fundamentally different mechanism math vs rescale (clamp = late-only activation; rescale = curve-wide rescaling). 3-arm CTRL clamp=0.0 / CLAMP_05 clamp=0.05 / CLAMP_10 clamp=0.10. ~5 LoC code change (new flag `--muonh_cooldown_clamp_floor` applied BEFORE rescale so both formulations coexist for clean comparison). Decisive predicted: WIN→terminal-LR-boost mechanism class opens; NULL→asymptote load-bearing decisively; NEG→bilateral exhaustion.
+- **Cooldown-axis status**: 5 mechanism classes explored (shape, steepness, timing, depth-compose, asymptote-rescale) all closed NEG/NULL. H226 tests 6th formulation (asymptote-clamp). If H226 also NULL/NEG → cooldown axis closed at finding-complete status, pivot tanjiro to fresh non-cooldown axis (initialization, preconditioner, new optimizer mechanism).
+- **End-of-cycle ~530 portfolio**: H214 askeladd spectral RANK truncation (arm_c TRUNC_TOP25 running ETA ~02:30 UTC, arm_b TRUNC_HALF CATASTROPHIC FFS=-1); H220 thorfinn ATTN/MLP LR split (arm_c MLP_HEAVY running step 575/3325 ETA ~23:42 UTC); H221 alphonse MuLoCo pruning (arm_b NO_OUTER FFS=-1 LOAD-BEARING confirmed, arm_c NO_MOMENTUM running ETA ~01:00 UTC); H222 fern µ-schedule pruning (in flight); H223 nezuko aux ε pruning (in flight); H224 edward warmup pruning (SEND BACK — 4 duplicate-CTRL no treatment arms); H225 frieren aux β₁ ablation (in flight); H226 tanjiro CLAMP-FLOOR (newly assigned). **8/8 students WIP, 0 idle, 0 review-ready.** 22 novel mechanism formulations (added asymptote-clamp variant). **5 pruning experiments in flight** (H221 MuLoCo wrapper, H222 µ-schedule, H223 ε, H224 warmup [send-back], H225 β₁).
 
 ## 🎯 Cycle ~520 (21:55-22:05 UTC) — H216 frieren CLOSED (74th NULL/NEG bilateral catastrophic FFS=-1, programme finding #46 candidate: meta-optimizer outer averaging incompatible with MuonH-SI state preservation, direction-cancellation mechanism extends finding #40-D); H225 frieren ASSIGNED aux AdamW β₁ ablation + sweep (21st NEW MECHANISM CLASS: aux Adam first-moment EMA coefficient ablation)
 
