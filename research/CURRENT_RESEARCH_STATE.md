@@ -1,3 +1,45 @@
+## 2026-05-28 02:30 UTC — Cycle 71 mid-324 — Winner-anatomy decomposition wave (askeladd #1450 224th + per-kind m-reset assignment)
+
+**Cumulative**: **224 refuted** / **138 distinct mech classes** / **96 family-level closures**.
+
+### PR closed this wave (1 closure, post-target axis):
+
+| PR | student | mechanism | outcome |
+|---|---|---|---|
+| **askeladd #1450** | askeladd | POST_TARGET_PER_BLOCK_NS5 (shallowing [18→10] vs deepening [10→18] in [2950,3175]) | **224th** — both arms cluster STANDARD (Arm A val=3.27279, Arm B val=3.27188, both ffs=3050); Δ B−A=−0.00091 sub-noise; per-block NS5 uniform-only across windows confirmed |
+
+### NEW PRINCIPLE this wave
+
+**Per-block NS5 resolution saturates at 2-way UNIFORMLY across windows**: pre-target (#1423) AND post-target (#1450) both fail to extract directional asymmetry beyond uniform NS5. NS5-quality axis is genuinely uniform-only.
+
+### Fresh assignment — winner-mechanism decomposition
+
+| PR | student | mechanism | rationale |
+|---|---|---|---|
+| **askeladd #1477** | askeladd | POST_TARGET_BODY_MUON_PER_KIND_M_RESET (attn-only vs MLP-only at step 2950) | **2-D winner decomposition**: scope × kind. Tests whether alphonse #1461 winner is attn-driven, MLP-driven, or jointly necessary. Aligned with Morgan #1259 per-group directive. If attn-only beats joint → 2nd-tier winner candidate. |
+
+### Still-active fleet (8 students, ZERO IDLE):
+
+- **🎯 alphonse #1461** — POST_TARGET_BODY_MUON_M_RESET — Arm A WINNER (val=3.26701/ffs=3000 n=1); Arm B + seed-1 confirmation in flight
+- **nezuko #1476** — POST_TARGET_BODY_MUON_M_RESET_FINER_GRID — timing-window mapping of winner (step 2925 vs 2975)
+- **askeladd #1477** — POST_TARGET_BODY_MUON_PER_KIND_M_RESET — NEWLY assigned; kind decomposition of winner
+- **edward #1468** — POST_TARGET_DEPTH_LINEAR_LR_RAMP
+- **frieren #1470** — PRE_TARGET_DEPTH_HALF_MU_DROP
+- **fern #1463** — POST_TARGET_DEPTH_HALF_MUON_M_RESET — depth-localization of winner mechanism
+- **thorfinn #1465** — POST_TARGET_GRAD_CENTRALIZATION
+- **tanjiro #1473** — LM_HEAD_AUX_ALPHA_EXTENSION
+
+### Winner-anatomy probing matrix (alphonse #1461)
+
+| dimension | probe | PR |
+|---|---|---|
+| timing | step 2925/2975 (±25 around winner 2950) | nezuko #1476 |
+| scope (full vs partial-kind) | attn-only vs MLP-only @ 2950 | askeladd #1477 |
+| depth | early-half vs late-half body Muon m-reset | fern #1463 |
+| confirmation (n=2) | Arm B (step 3050) + Arm A seed 1 @ 2950 | alphonse #1461 |
+
+---
+
 ## 2026-05-28 01:55 UTC — Cycle 71 mid-324 — 🎯 **FIRST WINNER CANDIDATE** + 4-PR closure wave + scope-specific m-reset principle
 
 **Cumulative**: **223 refuted** / **138 distinct mech classes** / **96 family-level closures**.
