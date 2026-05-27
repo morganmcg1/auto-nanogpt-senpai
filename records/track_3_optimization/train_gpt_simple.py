@@ -465,13 +465,23 @@ ATTN_SOAP_BETA2 = 0.90
 ATTN_SOAP_PRECOND_FREQ = 10
 ATTN_SOAP_TRUST_THRESHOLD = float(os.environ.get("ATTN_SOAP_TRUST_THRESHOLD", "0.9"))
 NS5_ITERS = int(os.environ.get("NS5_ITERS", "12"))
+# POST_TARGET_NS_ITERS_DISPATCH (PR #1436): override body Muon NS_ITERS inside a
+# window covering the post-target descent / FFS slot. Window default [2950, 3175].
+# When ENABLED=1, body Muon Newton-Schulz uses VALUE inside the window and the
+# global NS5_ITERS outside. AUX optimizer (AdamW) is untouched.
+POST_TARGET_NS_ITERS_ENABLED = int(os.environ.get("POST_TARGET_NS_ITERS_ENABLED", "0"))
+POST_TARGET_NS_ITERS_VALUE = int(os.environ.get("POST_TARGET_NS_ITERS_VALUE", "10"))
+POST_TARGET_NS_ITERS_START = int(os.environ.get("POST_TARGET_NS_ITERS_START", "2950"))
+POST_TARGET_NS_ITERS_END = int(os.environ.get("POST_TARGET_NS_ITERS_END", "3175"))
 WD_AUX = float(os.environ.get("WD_AUX", "0.0"))  # AdamW WD on embed + lm_head matrices (scalars stay at 0)
 EMBED_INIT_STD = float(os.environ.get("EMBED_INIT_STD", "1.0"))  # default preserves baseline N(0,1)
 LOGIT_SOFTCAP = float(os.environ.get("LOGIT_SOFTCAP", "15.0"))  # default = 15 (current hardcoded value); soft-cap value c in f(x) = c·x / sqrt(x^2+c^2)
 
 
-def zeropower_via_newtonschulz5(G: Tensor) -> Tensor:
+def zeropower_via_newtonschulz5(G: Tensor, ns_iters: int = None) -> Tensor:
     assert G.ndim >= 2
+    if ns_iters is None:
+        ns_iters = NS5_ITERS
     X = G.bfloat16()
     if G.size(-2) > G.size(-1):
         X = X.mT
@@ -480,7 +490,7 @@ def zeropower_via_newtonschulz5(G: Tensor) -> Tensor:
     X = X / (X.norm(dim=(-2, -1), keepdim=True) + 1e-7)
     # Perform the NS iterations, not optimizing for wallclock speed
     a, b, c = 2, -1.5, 0.5
-    for _ in range(NS5_ITERS):
+    for _ in range(ns_iters):
         A = X @ X.mT
         B = b * A + c * A @ A
         X = a * X + B @ X
@@ -504,10 +514,10 @@ def scale_to_unit_operator_norm(G: Tensor, eps: float = 1e-10) -> Tensor:
     return G / op_norm.to(G.dtype)
 
 
-def contra_normuon_update(momentum_update, second_moment, beta2=NORMUON_BETA2):
+def contra_normuon_update(momentum_update, second_moment, beta2=NORMUON_BETA2, ns_iters: int = None):
     """Contra-Muon + NorMuon-lite: NS5 -> contra subtraction -> per-row variance normalize."""
     normalized_grad = scale_to_unit_operator_norm(momentum_update.clone())
-    update = zeropower_via_newtonschulz5(momentum_update)
+    update = zeropower_via_newtonschulz5(momentum_update, ns_iters=ns_iters)
     opower_fro = update.norm()
     # Contra correction: subtract CONTRA_MUON / 2 * op-norm-normalized momentum.
     update = update - CONTRA_MUON / 2 * normalized_grad
@@ -655,11 +665,38 @@ class Muon(torch.optim.Optimizer):
         params = sorted([p for _, p in named_params], key=lambda x: x.size(), reverse=True)
         defaults = dict(lr=lr, weight_decay=weight_decay, mu=mu)
         super().__init__(params, defaults)
+        # Step index for NS5 dispatch — set externally before each step().
+        self.current_step: int = 0
+        # Telemetry from the most recent step() call.
+        self.last_effective_ns_iters: int = NS5_ITERS
+        self.last_post_target_ns_active: bool = False
+        self.last_polish_residual_mean: float | None = None
+        self.last_polish_residual_max: float | None = None
+        self.last_polish_residual_count: int = 0
 
     @torch.no_grad()
     def step(self):
         world_size = dist.get_world_size()
         rank = dist.get_rank()
+        # POST_TARGET_NS_ITERS dispatch: override NS5 iter count inside window.
+        step_idx = self.current_step
+        if (POST_TARGET_NS_ITERS_ENABLED
+                and POST_TARGET_NS_ITERS_START <= step_idx < POST_TARGET_NS_ITERS_END):
+            effective_ns_iters = POST_TARGET_NS_ITERS_VALUE
+            post_target_ns_active = True
+        else:
+            effective_ns_iters = NS5_ITERS
+            post_target_ns_active = False
+        self.last_effective_ns_iters = effective_ns_iters
+        self.last_post_target_ns_active = post_target_ns_active
+        # Compute polish residual only inside diagnostic window
+        # (POST_TARGET_NS_ITERS_START - 50, POST_TARGET_NS_ITERS_END) to keep
+        # cost negligible during the bulk of training.
+        diag_window = (POST_TARGET_NS_ITERS_ENABLED
+                       and (POST_TARGET_NS_ITERS_START - 50) <= step_idx < POST_TARGET_NS_ITERS_END)
+        residual_sum = 0.0
+        residual_max = 0.0
+        residual_count = 0
         for group in self.param_groups:
             params = group["params"]
             params_pad = params + [torch.empty_like(params[-1])] * (world_size - len(params) % world_size)
@@ -701,7 +738,31 @@ class Muon(torch.optim.Optimizer):
                     if use_soap or use_attn_soap:
                         momentum_update = soap_precondition(momentum_update, state)
                     # NS5 + contra + NorMuon row variance on (possibly SOAP-preconditioned) momentum.
-                    update = contra_normuon_update(momentum_update, state["second_moment"])
+                    if diag_window:
+                        # Capture pure NS5 output before contra+NorMuon to measure orthogonality
+                        # defect (the canonical "polish residual" of the Newton-Schulz iteration).
+                        ns5_out = zeropower_via_newtonschulz5(momentum_update, ns_iters=effective_ns_iters)
+                        Xn = ns5_out.float()
+                        # Rescale to approximate unit spectral norm so residual is comparable
+                        # across param shapes: NS5 output has Frobenius ≈ sqrt(min(m,n)) when
+                        # well-orthogonalized, so divide by that to get ~unit spectral norm.
+                        m_dim, n_dim = Xn.size(-2), Xn.size(-1)
+                        small = min(m_dim, n_dim)
+                        Xn = Xn / Xn.norm().clamp_min(1e-8) * small**0.5
+                        if m_dim <= n_dim:
+                            gram = Xn @ Xn.mT
+                            eye = torch.eye(m_dim, device=Xn.device, dtype=Xn.dtype)
+                        else:
+                            gram = Xn.mT @ Xn
+                            eye = torch.eye(n_dim, device=Xn.device, dtype=Xn.dtype)
+                        residual = float((gram - eye).norm().item() / small**0.5)
+                        del ns5_out, Xn, gram, eye
+                        residual_sum += residual
+                        if residual > residual_max:
+                            residual_max = residual
+                        residual_count += 1
+                    update = contra_normuon_update(momentum_update, state["second_moment"],
+                                                   ns_iters=effective_ns_iters)
                     # u/w-floor: scale up if u/w < TARGET_UW; leave alone otherwise.
                     p_fro = p.float().norm().clamp_min(1e-8)
                     u_fro = update.float().norm().clamp_min(1e-8)
@@ -719,6 +780,28 @@ class Muon(torch.optim.Optimizer):
                                      use_trust_gate=True,
                                      trust_threshold=ATTN_SOAP_TRUST_THRESHOLD)
                 dist.all_gather(params_pad[base_i:base_i + world_size], params_pad[base_i + rank])
+        # Finalize polish-residual telemetry. residual_sum/count are local-rank-only;
+        # all-reduce so all ranks see the global mean/max (needed for rank-0 logging).
+        if diag_window and residual_count > 0:
+            stats = torch.tensor([residual_sum, float(residual_max), float(residual_count)],
+                                 device=p.device, dtype=torch.float64)
+            dist.all_reduce(stats, op=dist.ReduceOp.SUM)
+            sum_global, _max_sum, count_global = stats.tolist()
+            # max via separate reduce (SUM of max is wrong; do a MAX reduce).
+            max_t = torch.tensor(float(residual_max), device=p.device, dtype=torch.float64)
+            dist.all_reduce(max_t, op=dist.ReduceOp.MAX)
+            if count_global > 0:
+                self.last_polish_residual_mean = sum_global / count_global
+                self.last_polish_residual_max = float(max_t.item())
+                self.last_polish_residual_count = int(count_global)
+            else:
+                self.last_polish_residual_mean = None
+                self.last_polish_residual_max = None
+                self.last_polish_residual_count = 0
+        else:
+            self.last_polish_residual_mean = None
+            self.last_polish_residual_max = None
+            self.last_polish_residual_count = 0
 
     def trust_gate_stats(self) -> dict[str, float]:
         """Return aggregate + per-weight-type trust-gate telemetry across attention SOAP params.
@@ -865,6 +948,10 @@ if dist.get_rank() == 0:
             "optimizer/attn_soap_precond_freq": ATTN_SOAP_PRECOND_FREQ,
             "optimizer/attn_soap_trust_threshold": ATTN_SOAP_TRUST_THRESHOLD,
             "optimizer/ns5_iters": NS5_ITERS,
+            "optimizer/post_target_ns_iters_enabled": POST_TARGET_NS_ITERS_ENABLED,
+            "optimizer/post_target_ns_iters_value": POST_TARGET_NS_ITERS_VALUE,
+            "optimizer/post_target_ns_iters_start": POST_TARGET_NS_ITERS_START,
+            "optimizer/post_target_ns_iters_end": POST_TARGET_NS_ITERS_END,
             "optimizer/wd_aux": WD_AUX,
             "optimizer/recipe": "contra-muon + normuon-lite + soap-on-mlp + soap-on-attn-trust-gate (pre-NS5, record #14 + record #16)",
         },
@@ -1051,8 +1138,40 @@ for trial_idx in range(args.num_trials):
                 train_steps=train_steps,
                 wandb_step=wandb_step,
             )
+        # Inform Muon optimizer of the current step index so it can dispatch NS5.
+        for opt in optimizers:
+            if isinstance(opt, Muon):
+                opt.current_step = step
         for opt in optimizers:
             opt.step()
+        # POST_TARGET_NS_ITERS dispatch boundary diagnostics (rank 0 only).
+        if dist.get_rank() == 0 and POST_TARGET_NS_ITERS_ENABLED:
+            if step == POST_TARGET_NS_ITERS_START:
+                print0(f"[POST_TARGET_NS_ITERS] step={step} value={POST_TARGET_NS_ITERS_VALUE}"
+                       f" active=True (baseline={NS5_ITERS})", console=True)
+            elif step == POST_TARGET_NS_ITERS_END:
+                print0(f"[POST_TARGET_NS_ITERS] step={step} active=False"
+                       f" (restored baseline NS_ITERS={NS5_ITERS})", console=True)
+        # Per-step NS5 telemetry from the body Muon optimizer — sparse: only in
+        # diagnostic window (50 steps before activation through window end) to
+        # verify dispatch + polish-residual signal without log spam.
+        ns_diag_window = (POST_TARGET_NS_ITERS_ENABLED
+                          and (POST_TARGET_NS_ITERS_START - 50) <= step < POST_TARGET_NS_ITERS_END)
+        if dist.get_rank() == 0 and ns_diag_window:
+            for opt in optimizers:
+                if not isinstance(opt, Muon):
+                    continue
+                ns_metrics = {
+                    "trial": trial_idx,
+                    "train/step": train_step,
+                    "train/body_muon/effective_ns_iters": opt.last_effective_ns_iters,
+                    "train/body_muon/post_target_ns_active": int(opt.last_post_target_ns_active),
+                }
+                if opt.last_polish_residual_mean is not None:
+                    ns_metrics["train/body_muon/polish_residual_mean"] = opt.last_polish_residual_mean
+                    ns_metrics["train/body_muon/polish_residual_max"] = opt.last_polish_residual_max
+                    ns_metrics["train/body_muon/polish_residual_count"] = opt.last_polish_residual_count
+                wandb.log(ns_metrics, step=wandb_step)
         if dist.get_rank() == 0 and telemetry_due:
             for opt in optimizers:
                 if hasattr(opt, "trust_gate_stats"):
