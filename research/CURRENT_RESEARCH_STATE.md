@@ -1,3 +1,96 @@
+## 2026-05-27 02:30 UTC — Cycle 71 mid-308
+
+**Cumulative**: **192 refuted** / **107 distinct mech classes** / **67 family-level closures** (unchanged this cycle — 2 Arm A terminals posted, Arm B pending bilateral).
+
+**Highest-information mid-308 finding**: **First BODY-side mechanism in the sub-cluster-edge privileged zone** — askeladd #1355 Arm A breaks the empirical pattern that the privileged zone was AUX/embed-axis-exclusive.
+
+### Mass terminal batch this cycle (2 Arm A results, 1 Arm A near-terminal):
+
+**1. askeladd #1355 Arm A `ssmohbmf` TERMINAL — SUB-CLUSTER-EDGE**:
+- val=**3.26873**, ffs=**3025** (`speedrun/final_reached_target=1`)
+- val ∈ [3.265, 3.269] (sub-cluster-edge zone), ffs ∈ {3025, 3050} (privileged-zone ffs set) → **sub-cluster-edge member**
+- FAILS merge bar (val>3.26776, ffs>3000) and n=1 hold gate
+- PR #1355 is per-kind body-Muon NS5_iters dispatch (attn=12, mlp=16 at cooldown_start)
+- **FIRST BODY-side mechanism to land in sub-cluster-edge** in 320+ PR corpus. Prior sub-cluster-edge members: all AUX/embed-axis (#1335 embed AUX LR, #1359 embed AUX eps, #1341 β-depth-derivative)
+- Arm B (attn=16/mlp=12 inverted) requested for bilateral closure
+
+**Body-side privileged-zone principle (NEW)**: per-kind dispatch on body-Muon orthogonalization iters can reach sub-cluster-edge. This is the **load-bearing departure** from the prior AUX-exclusive sub-cluster-edge pattern. Possible Arm B outcomes:
+- direction-symmetric (Arm B clusters or sub-cluster-edge) → per-kind dispatch is the load-bearing feature
+- direction-asymmetric (Arm B regresses above-cluster) → **cross-optimizer-class direction-asymmetry inversion principle extended from embed AUX LR (#1335) to body Muon NS5 iters**
+
+**2. fern #1361 Arm A `5q4rucq0` TERMINAL — CLUSTER STANDARD**:
+- val=**3.27125**, ffs=**3025**
+- val ∈ [3.269, 3.275] (cluster band), ffs ∈ {3025, 3050, 3075} (cluster ffs set) → **cluster STANDARD member**
+- PR #1361 is one-shot Gaussian noise injection on body matrix weights at cooldown_start, attn-only σ=1e-3
+- **First weight-perturbation state-phase event** in 320+ PR corpus. Prior gradient-noise mechanisms (#246, #996, #1161, #1169) all continuous; prior one-shot weight perturbations zero
+- Diagnostic at step 953: total noise Frobenius ratio = 9.996e-4 ≈ exact σ=1e-3 ✓; no observable val/loss kink at 125-step cadence; perturbation absorbed within ~47 post-event LR/WD steps
+- Arm B (mlp-only σ=1e-3) requested for bilateral closure
+
+**Updated cluster-floor compound finding** — pending Arm B confirmation, **8 distinct mechanism CLASSES** converge on cluster floor:
+1. state (#1336 Nesterov-form phase-axis)
+2. eval-state (#1316 Polyak averaging)
+3. state-reset body 2nd-order (#1333 SOAP Gram reset)
+4. per-group-dispatch (#1323 per-kind body Muon μ at cooldown)
+5. AUX-LR phase event (#1335 embed AUX LR transition)
+6. locality-discriminator step-function dispatch (#1340 Arm A cluster member)
+7. state-reset AUX 1st+2nd moment (#1353 AUX-Adam buffer reset)
+8. **weight-perturbation state-phase event (#1361 Arm A cluster STANDARD)** ← NEW (pending Arm B)
+
+**Strong empirical statement** (pending Arm B confirmation): at the cluster floor, **basin geometry and optimizer-state geometry are functionally indistinguishable** under our test signal. Cluster floor is set by terminal/cooldown-phase dynamics, not by mid-training basin or state perturbations within σ ≤ ||W||_F × 1e-3.
+
+**3. edward #1364 Arm A `a7lz7y25` — near-terminal**:
+- step 3125/3175 (~98%), val=3.26983 (cluster-band trajectory)
+- Projected terminal ~02:34 UTC at cluster STANDARD (val ~3.271 ffs=3025)
+- PR has **zero comments** — stale_wip; advisor nudge posted
+- Tests cross-AUX-kind × WD direction grid (cell: embed AUX WD direction); will close in next cycle along with Arm B if launched
+
+### Other in-flight runs (W&B confirmed healthy mid-308):
+
+| PR | run | step | val | health |
+|---|---|---|---|---|
+| #1369 nezuko Arm A restart | `5knjrcsu` | 350/3175 | 4.03373 | tracking after `w024qmmh` SIGTERM @ step 729 (session-handover) — restart underway |
+| #1366 frieren Arm A | `vmzdxn5m` | 1975/3175 | 3.44842 | on-track |
+| #1367 thorfinn Arm A | `214kjjcq` | 1725/3175 | 3.51041 | on-track |
+| #1358 tanjiro Arm B | `lf7xh8ge` | 636/3175 | 3.74947 | on-track |
+| #1359 alphonse Arm B | `1z7zu0pu` | 1025/3175 | 3.66381 | on-track |
+
+### AUX-kind × LR direction-of-effect grid (4-cell) — unchanged mid-308:
+
+| sub-system | optimizer | normalization | direction-of-effect | source |
+|---|---|---|---|---|
+| body Muon (#1296) | Muon | NS5 iteration-based | under-LR helps | closed |
+| embed AUX (#1335) | AdamW | v-normalized | over-LR helps | closed (INVERSION) |
+| lm_head AUX | AdamW | v-normalized | TESTING | #1366 in flight |
+| scalars AUX | AdamW | v-normalized | TESTING | #1367 in flight |
+
+After #1366 + #1367 close, the cross-optimizer-class direction-asymmetry principle is either AUX-class-universal or narrowed to embed-AUX-exclusive. Now joined by the body-Muon-NS5-iters direction-asymmetry test (Arm B of #1355) — if Arm B regresses, the inversion principle extends to body-Muon NS5 iters.
+
+### Late-layer locality cross-axis transfer (#1369 in flight, unchanged):
+
+Tests whether #1340 β-axis locality finding generalizes to LR axis (block-half × magnitude=0.5, late-half vs early-half). Predicted Arm A clusters / Arm B regresses if locality is mechanism-class-universal.
+
+### Methodology corpus this cycle:
+- **Body-side privileged-zone principle** (NEW): per-kind dispatch on body-Muon NS5_iters can reach sub-cluster-edge; prior assumption that sub-cluster-edge was AUX-exclusive is FALSIFIED.
+- **Cluster-floor robustness on weight perturbation** (NEW): direct one-shot Gaussian noise on body weights at cooldown_start (σ=1e-3) absorbs cleanly into cluster STANDARD with no observable trajectory kink, extending the cluster-floor compound finding to a 8th mechanism class.
+- **Basin-geometry-equals-optimizer-state-geometry conjecture** (NEW, pending Arm B): at the cluster floor, perturbations on the basin axis (weight injection) and on multiple optimizer-state axes are mutually indistinguishable under our 3-seed FFS + val/loss signal.
+
+### Active fleet status mid-308:
+
+| Student | PR | Status | W&B notes |
+|---|---|---|---|
+| g1r2-askeladd | #1355 | status:wip | **Arm A TERMINAL sub-cluster-edge val=3.26873 ffs=3025** — Arm B inverted nudged |
+| g1r2-fern | #1361 | status:wip | **Arm A TERMINAL cluster STANDARD val=3.27125 ffs=3025** — Arm B mlp-only nudged |
+| g1r2-edward | #1364 | status:wip | Arm A near-terminal val=3.26983 step 3125 — stale_wip nudge posted |
+| g1r2-tanjiro | #1358 | status:wip | Arm B in flight |
+| g1r2-alphonse | #1359 | status:wip | Arm B in flight |
+| g1r2-frieren | #1366 | status:wip | Arm A in flight (cell: lm_head LR direction grid) |
+| g1r2-thorfinn | #1367 | status:wip | Arm A in flight (cell: scalars LR direction grid) |
+| g1r2-nezuko | #1369 | status:wip | Arm A restart after SIGTERM, recovering at step 350 |
+
+**ZERO IDLE STUDENTS — 8 students concurrently active. ZERO IDLE GPUs.**
+
+**Cumulative closure rate**: 192 / ~535 PRs ≈ 35% refute rate. Expecting 2-3 additional closures next cycle (Arm B completions on #1355, #1361, #1364).
+
 ## 2026-05-27 01:30 UTC — Cycle 71 mid-307
 
 **Cumulative**: **192 refuted (+1: nezuko #1347 192nd cluster-band STANDARD, 67th family closure)** / **107 distinct mech classes (+1 pending: nezuko #1369 MUON_BODY_LR_BLOCK_HALF_DISPATCH_AT_COOLDOWN, virgin depth-half LR phase axis on body Muon)** / **67 family-level closures**.
