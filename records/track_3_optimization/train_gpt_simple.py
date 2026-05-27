@@ -80,6 +80,10 @@ def parse_args():
                              "Ablation flag for isolating paramEMA-only contribution.")
     parser.add_argument("--seed", type=int, default=1,
                         help="Random seed for torch/numpy/python. Default 1 matches baseline seed.")
+    parser.add_argument("--aux_pretarget_lm_head_lr_mult", type=float, default=1.0,
+                        help="Multiplier for lm_head AdamW LR during pre-target window "
+                             "(steps 2500-2924 inclusive). embed_lr and scalars_lr unchanged. "
+                             "Body Muon LR unchanged. Default=1.0 (no pulse).")
     args = parser.parse_args()
     args.num_trials = args.num_trials if args.num_trials is not None else (args.legacy_num_trials or 1)
     args.wandb_tags = [tag.strip() for tag in args.wandb_tags.split(",") if tag.strip()]
@@ -751,6 +755,9 @@ if dist.get_rank() == 0:
             "paramema_refresh_step": args.paramema_refresh_step,
             "paramema_refresh_only": int(args.paramema_refresh_only),
             "seed": args.seed,
+            "aux_pretarget_lm_head_lr_mult": args.aux_pretarget_lm_head_lr_mult,
+            "aux_pretarget_lm_head_pulse_start": 2500,
+            "aux_pretarget_lm_head_pulse_end_exclusive": 2925,
         },
     )
 
@@ -880,9 +887,20 @@ for trial_idx in range(args.num_trials):
             cooldown_progress = (progress - (1 - cooldown_frac)) / cooldown_frac
             w = 1.0 - cooldown_progress  # equivalent to (1 - progress) / cooldown_frac
             eta = w ** COOLDOWN_POWER
+        # Phase-window lm_head LR pulse: boost ONLY the adam_lm_head AdamW group
+        # during the pre-target window (steps 2500–2924 inclusive). embed_lr,
+        # scalars_lr, and body Muon LR are unaffected — this isolates the
+        # lm_head-dominant canon established by PR #1399 (frieren) and PR #1400
+        # (edward), and dose-responds at multipliers > 1.20.
+        lm_head_pulse_active = (
+            args.aux_pretarget_lm_head_lr_mult != 1.0 and 2500 <= step < 2925
+        )
         for opt in optimizers:
             for group in opt.param_groups:
-                group["lr"] = group["initial_lr"] * eta
+                eta_eff = eta
+                if lm_head_pulse_active and group.get("name") == "adam_lm_head":
+                    eta_eff = eta * args.aux_pretarget_lm_head_lr_mult
+                group["lr"] = group["initial_lr"] * eta_eff
         return progress, cooldown_progress, eta
 
 
@@ -1025,6 +1043,11 @@ for trial_idx in range(args.num_trials):
         telemetry_due = (step == 0 or (step + 1) % args.telemetry_interval == 0 or step + 1 == train_steps)
         histogram_due = (step == 0 or (step + 1) % args.histogram_interval == 0 or step + 1 == train_steps)
         slope_due = (train_step % slope_interval == 0 or train_step == train_steps)
+        # Boundary verification steps for the lm_head LR pulse window — force a
+        # diagnostic log here so the {2499, 2500, 2501, 2710, 2924, 2925, 2926}
+        # checkpoints requested in the PR are always present even when they
+        # miss the regular telemetry interval.
+        lm_head_pulse_boundary_step = step in (2499, 2500, 2501, 2710, 2924, 2925, 2926)
         wandb_step = trial_idx * (train_steps + 1) + train_step
         if dist.get_rank() == 0:
             train_loss_history.append((train_step, train_loss))
@@ -1159,6 +1182,29 @@ for trial_idx in range(args.num_trials):
                 "ema_refresh/only": int(args.paramema_refresh_only),
                 "lcov_refresh/fired": lcov_refresh_fired_total,
                 "lcov_refresh/target_step": -1,
+            }, step=wandb_step)
+        if dist.get_rank() == 0 and (telemetry_due or lm_head_pulse_boundary_step):
+            # lm_head LR pulse diagnostics — visible on every telemetry tick and
+            # forcibly at the boundary verification steps requested in the PR.
+            # Logs realized group["lr"] for each AdamW group + Muon group so we
+            # can verify (a) pulse fired in 2500–2924, (b) at the right
+            # multiplier, and (c) embed / scalars / Muon are unaffected.
+            pulse_active = int(
+                args.aux_pretarget_lm_head_lr_mult != 1.0 and 2500 <= step < 2925
+            )
+            wandb.log({
+                "trial": trial_idx,
+                "train/step": train_step,
+                "lm_head_pulse/active": pulse_active,
+                "lm_head_pulse/configured_mult": args.aux_pretarget_lm_head_lr_mult,
+                "lm_head_pulse/effective_mult": (
+                    args.aux_pretarget_lm_head_lr_mult if pulse_active else 1.0
+                ),
+                "lm_head_pulse/boundary_step": int(lm_head_pulse_boundary_step),
+                "optim/adam_embed_lr": optimizer1.param_groups[0]["lr"],
+                "optim/adam_lm_head_lr": optimizer1.param_groups[1]["lr"],
+                "optim/adam_scalars_lr": optimizer1.param_groups[2]["lr"],
+                "optim/muon_blocks_lr": optimizer2.param_groups[0]["lr"],
             }, step=wandb_step)
         if dist.get_rank() == 0 and (train_step % 100 == 0 or train_step == train_steps):
             spec = pmuon_spectral_diag(optimizer2, PMUON_GAMMA)
