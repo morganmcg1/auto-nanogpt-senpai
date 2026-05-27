@@ -96,6 +96,12 @@ def parse_args():
                         help="Starting value of µ schedule (used by linear and cooldown_ramp modes).")
     parser.add_argument("--muonh_mu_end", type=float, default=float(os.environ.get("MUONH_MU_END", "0.98")),
                         help="Ending value of µ schedule (used by linear and cooldown_ramp modes).")
+    parser.add_argument("--aux_cooldown_frac", type=float,
+                        default=float(os.environ.get("AUX_COOLDOWN_FRAC", "0.4")),
+                        help="Fraction of training spent in aux AdamW LR cooldown. "
+                             "Default 0.4 = baseline (cools last 40%% of training). "
+                             "0.0 = no cooldown (constant aux LR throughout). "
+                             "1.0 = full cooldown from step 0 (matches MuonH h_cooldown_frac=1.0).")
     parser.add_argument("--body_init", type=str, default=os.environ.get("BODY_INIT", "default"),
                         choices=["default", "orthogonal_fnorm_matched", "orthogonal_bottom_damp"],
                         help="Initialization scheme for body MuonH 2D weights (attn.q/k/v, attn.proj, mlp.fc, mlp.proj). "
@@ -850,6 +856,7 @@ if dist.get_rank() == 0:
             "muonh_mu_schedule": args.muonh_mu_schedule,
             "muonh_mu_start": args.muonh_mu_start,
             "muonh_mu_end": args.muonh_mu_end,
+            "aux_cooldown_frac": args.aux_cooldown_frac,
         },
     )
 
@@ -948,10 +955,10 @@ for trial_idx in range(args.num_trials):
         for group in opt.param_groups:
             group["initial_lr"] = group["lr"]
     # Per-group cooldown_frac: MuonH groups use full linear cooldown from step 0
-    # (h_cooldown_frac=1.0); AdamW aux groups use a shorter cooldown so the
-    # embed / head keep learning for the first ~60% of training.
+    # (h_cooldown_frac=1.0); AdamW aux groups use a configurable cooldown so the
+    # embed / head can keep learning for part of training. H194 sweeps this axis.
     h_cooldown_frac = 1.0
-    aux_cooldown_frac = 0.4
+    aux_cooldown_frac = args.aux_cooldown_frac
     for group in optimizer1.param_groups:
         group["cooldown_frac"] = aux_cooldown_frac
         group["cooldown_shape"] = "linear"
@@ -1191,6 +1198,9 @@ for trial_idx in range(args.num_trials):
                         muonh_metrics["train/muonh/norm_to_radius_max"] = opt._last_norm_to_radius_max
                     muonh_metrics["train/muonh/warmup_factor"] = muonh_warmup_factor
                     muonh_metrics["train/muonh/effective_lr"] = opt.param_groups[0]["lr"]
+            # H194: aux LR telemetry — visualises the cooldown_frac sweep.
+            for g in optimizer1.param_groups:
+                muonh_metrics[f"train/aux_lr/{g['name'].replace('adam_', '')}"] = g["lr"]
             if telemetry_due and args.aux_agc_clip_ratio > 0 and agc_stats["agc_total"] > 0:
                 muonh_metrics["train/agc/active_fraction"] = agc_stats["agc_clipped"] / agc_stats["agc_total"]
                 muonh_metrics["train/agc/clipped_count"] = agc_stats["agc_clipped"]
