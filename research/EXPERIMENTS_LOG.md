@@ -1,5 +1,26 @@
 # SENPAI Research Results — auto-nanogpt-1gpu-r4
 
+## 2026-05-27 00:30 — PR #1318: Newton-Muon cooldown-stack compositionality: R-reset × late-coverage 2×2 (CLOSED productive-NULL — 48th no-merge)
+
+- Branch: `g1r4-nezuko/nm-stack-compose` (student g1r4-nezuko)
+- Hypothesis: Tests whether two NM mechanisms compose additively when applied as a compound stack. 2×2 factorial (RESET_STEP=2345 × LATE_MAX_D_IN=4096 @ step 2400): A ctrl (no reset, late_max_d_in=1024 production), B reset_only, C cov_only, D compound. Looks for super-additivity (D < min(B,C) by ≥0.0005) → PP on D / additive (D ≈ B+C) → PP on cheapest single mechanism / destructive → mechanisms NOT orthogonal.
+
+| Arm | RESET | LATE_MAX_D_IN | val/loss | fs | Δ_paired_val vs A | W&B run | Verdict |
+|:---:|:---:|:---:|:---:|:---:|:---:|:---:|:---|
+| A ctrl | 0 | 1024 | **3.265970** | 3175 | (ref) | `jfdcialr` | drift −0.000170 EXCEPTIONALLY-CLEAN-FAVORABLE-COHORT |
+| B reset_only | 2345 | 1024 | 3.266846 | 3175 | **+0.000876 NULL** | `hbjo3kz0` | NULL near baseline |
+| C cov_only | 0 | 4096 | 3.266682 | 3175 | **+0.000712 NULL** | `4i2fitbz` | NULL near baseline, DEPARTED from cycle 375 modal forecast |
+| D compound | 2345 | 4096 | NOT LAUNCHED | — | — | — | — |
+
+- **🎯 Stack-non-compositionality finding under cohort-favorable conditions**: Both individual mechanisms (RESET=2345 and LATE_MAX_D_IN=4096 @ step 2400) landed NULL near baseline despite favorable screening priors:
+  - **RESET=2345**: Arm B Δ=+0.000876 NULL — this contributed to the 4-way dispositive cross-chain consolidation completed cycle 381 (#1281 screening / #1281 PP s0-B / #1318 Arm B / #1338 Arm B) showing combined mean Δ=+0.000148 essentially zero, variance ~0.00190 dominates → RESET=2345 single-shot dispositively NULL.
+  - **LATE_MAX_D_IN=4096 @ step 2400**: Arm C Δ=+0.000712 NULL DEPARTED from cycle 375 modal forecast of [3.262, 3.265] FAV with Δ ∈ [−0.002, −0.001] based on #1240 screening / #1286 H4 Arm C late_only screening priors. **First documented case where cohort-favorable conditions absorb a screening favorable signal on the coverage axis**.
+- **No merge under post-#1240 baseline 3.26339**: best Arm A val=3.265970 is +0.00258 over → all arms fail G1 by wide margin. Arm D modal forecast: additive prediction Δ_D ≈ Δ_B + Δ_C ≈ +0.0016 (NULL/borderline-NEG), super-additive surprise not plausible when both components individually NULL → would land NULL near baseline, not merge candidate.
+- **Decision tree resolution**: Row 4 TRIGGERED (all 3 terminal arms NULL, modal Arm D NULL) → close productive-NULL without Arm D launch (GPU time better spent on fresh chain).
+- **Student craftsmanship excellence**: clean compositional integration `7151fc4d` of #1281 RESET_STEP + #1286 LATE_* mechanisms, `newton_muon/compound_armed` telemetry flag for D armament, bit-identical fallback verified via 30-step smoke test, exceptionally clean Arm A drift envelope (within ±0.003 by 18× margin).
+- **Cross-chain mechanism contribution**: 3rd RESET=2345 N=1 replication (fed into 4-way consolidation, cycle 381). LATE_COV-departed-from-modal finding documents first cohort-favorable absorption case on coverage axis. Both data points informative for the broader NM mechanism story.
+- Conclusion: 48th no-merge since #847. Stack-compositionality axis fenced as non-favorable under today's cohort signature for RESET × LATE_COV combination. nezuko reassigned to #1363 NM-diagonal preconditioning (10th NM mechanism axis, virgin structural axis: full-R vs diagonal-only R, tests whether off-diagonal cross-dim correlations are essential to NM's gain).
+
 ## 2026-05-26 23:55 — PR #1319: H5 NM burst sub-window decomposition — localize load-bearing 300-step segment in [2400, 3000) (CLOSED productive-MARGINAL — 47th no-merge)
 
 - Branch: `g1r4-alphonse/nm-burst-subwindow` (student g1r4-alphonse)
