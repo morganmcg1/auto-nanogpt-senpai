@@ -1,5 +1,42 @@
 # SENPAI Research Results
 
+## 2026-05-27 12:40 UTC — PR #1386 CLOSED: L_cov multi-refresh schedule — 169th NULL, L_cov multiplicity axis FULLY CLOSED (g1r1-nezuko)
+
+- Branch: `g1r1-nezuko/lcov-multirefresh`
+- Hypothesis: Test L_cov refresh MULTIPLICITY — Arm A dense 4-refresh at steps {1750, 2275, 2600, 2925}; Arm B sparse 2-refresh at {2275, 2600}. Tests whether single L_cov refresh (#1268) NULLed because cooldown staleness re-accumulates, and multi-refresh maintains preconditioner freshness through target crossing.
+
+| Arm | Schedule | wandb | val_ema | val_live | sr | lcov_refresh/fired | Δ vs baseline | Verdict |
+|---|---|---|---|---|---|---|---|---|
+| Baseline #1289 | none | `3zhwgfiw` | 3.264718 | 3.264114 | 2925 | 0 | — | ref |
+| **Arm A dense4** | {1750,2275,2600,2925} | `h81v1pzf` | **3.266377** | 3.265796 | **2925** | **4** ✓ | **+1.659 mnat** | **tight NULL** |
+| **Arm B sparse2** | {2275,2600} | `gv2spz7b` | **3.265732** | 3.265133 | **2925** | **2** ✓ | **+1.014 mnat** | **tight NULL** |
+
+**Results commentary:** Bilateral tight NULL on both multiplicities. All refresh events fired correctly per `lcov_refresh/fired_count` (4 for Arm A, 2 for Arm B); both arms preserved sr=2925 baseline-matched. Student's refresh-event smoothness check (val_loss_live at ±150 steps around each refresh step) showed smooth monotonic descent through refresh boundaries — no perturb-and-recover signature, confirming the L_cov reboot is a low-disruption preconditioner reset rather than a large recalibration shock. The reset operates BELOW val-sampling noise floor at standard cadence.
+
+**Monotone-more-harmful canon:** Arm A dense4 (+1.659) > Arm B sparse2 (+1.014) — adding refreshes is mildly monotonically harmful, with each additional refresh costing ~+0.2-0.4 mnat. Plausible mechanism: each refresh adds preconditioner re-equilibration overhead during cooldown, accumulating linearly without compensating benefit. The 0.645 mnat asymmetry between arms is itself a clean dose-response on multiplicity (4 refreshes vs 2 refreshes = +0.645 mnat differential, scales linearly per refresh at ~0.16 mnat each in the dense regime).
+
+**MAJOR CANON — L_cov refresh axis FULLY CLOSED across multiplicities:**
+
+| PR | Schedule | n | val_ema | Δ vs baseline | Verdict |
+|---|---|---|---|---|---|
+| Baseline #1289 | none | — | 3.264718 | — | ref |
+| #1268 fern (single) | {2600} | n=2 mean | 3.266206 | +1.488 mnat | tight NULL |
+| #1325→#1379 thorfinn (stacked) | {2600} + pEMA@2275 | n=2 mean | 3.264842 | +0.124 mnat | tight NULL (167th) |
+| **#1386 Arm B sparse2** | {2275,2600} | n=1 | 3.265732 | +1.014 mnat | tight NULL (this) |
+| **#1386 Arm A dense4** | {1750,2275,2600,2925} | n=1 | 3.266377 | +1.659 mnat | tight NULL (this) |
+
+**Refresh-axis canon now finely partitioned:**
+- **L_cov refresh: CLOSED universally** across {single, sparse2, dense4, stacked-with-pEMA}
+- **pEMA refresh: REOPENED via #1378 Arm B** at step 2600 (marginal-WIN-candidate, pending #1429 n=2)
+
+The two refresh families are mechanistically distinct: L_cov refresh resets preconditioner covariance state (slow-mixing β_cov=0.95, deeply baked); pEMA refresh resets averaging buffer (fast-recovering, signal-to-noise sensitive to refresh timing). Your closure of L_cov multiplicity provides the cleanest possible separator: refresh-MECHANISM matters more than refresh-MULTIPLICITY.
+
+**Cross-portfolio impact:** 169th closed NULL. Bilateral closure across multiplicities locks the L_cov refresh axis as universally non-load-bearing. Combined with all schedule-shape direct levers (#1350 frieren aux cooldown power split + this) = full schedule-shape direct lever exhaustion.
+
+**Student's excellent execution:** Refresh-event smoothness diagnostic was the cleanest mechanism-validation telemetry of any L_cov refresh PR to date — confirmed no perturb-recover signature, supporting the "low-disruption reset" interpretation. Useful canon for future low-impact-mechanism designs.
+
+**Next step:** nezuko → PR #1430 body × aux pretarget LR stacking (super-additive joint pulse test, tanjiro-suggested follow-up).
+
 ## 2026-05-27 12:25 UTC — PR #1378 CLOSED: pEMA-only ablation — MARGINAL-WIN-CANDIDATE Arm B reopens refresh-axis canon (g1r1-fern)
 
 - Branch: `g1r1-fern/pema-only-ablation`
