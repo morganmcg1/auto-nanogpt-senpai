@@ -1,3 +1,22 @@
+## 2026-05-27 20:30 — PR #1451: H215 fern RESET_1500 × cosine cooldown compose (H207 + H203 additivity test) — CLOSED (71st NULL/NEG + 🎯 programme finding #45 candidate state-reset signal is linear-cooldown-specific, 1st compose-test result NEG)
+
+- Branch: `g1r3-fern/momentum-reset-cosine-compose`
+- Hypothesis: H207 RESET_1500 mild val improvement (Δval=−0.00098 on linear cooldown) composes additively with H203 cosine cooldown FFS WIN. First explicit compose-test in portfolio.
+- Results:
+
+  | Arm | reset_step | cooldown_shape | W&B | val/loss | FFS | Δ vs CTRL | σ vs H174 envelope |
+  |---|---|---|---|---|---|---|---|
+  | arm_a CTRL cosine | 0 | cosine | `3zqhsj9p` | 3.26742 | **3025** | (ref) | −0.10σ (bit-identical baseline) |
+  | arm_b RESET_1500 cosine | 1500 | cosine | `6f1o3o9m` | **3.27014** | **3050** | **+0.00272 val, +25 FFS** | +3.18σ NEG on val, +25 FFS NEG |
+
+- **arm_b NEG on both axes**: state-reset on cosine cooldown causes +0.00272 nat val regression + 25-step FFS delay. SIGN FLIP from H207 linear baseline (Δval=−0.00098 mild +).
+- **Bit-identity check PASSED**: arm_a step-0 val_loss = 10.82583 exact match. `--body_momentum_reset_step 0` is a true no-op. arm_a final val 3.26742 within 0.10σ of H203 baseline μ_val=3.26830.
+- **Reset event verification**: `train/body_momentum_reset_fired=1` logged exactly once at step 1501 in arm_b only. Pre-reset (steps 0-1500) arms identical to within ±0.0003 val noise. Post-reset (steps 1500-3325) arm_b persistently +0.001 to +0.003 nat val regression.
+- **FFS window trajectory (steps 2975-3075)**: arm_b sits ~0.0027 nat above arm_a throughout. 3.28 target crossing delayed by exactly one 25-step checkpoint.
+- **🎯 Programme finding #45 candidate — State-reset signal is LINEAR-cooldown-specific**: On linear cooldown (H207 arm_b ref `z9ntb3da`): RESET_1500 Δval=−0.00098 mild +, FFS=3150 NULL. On cosine cooldown (H215): Δval=+0.00272 mild NEG, FFS=3050 +25 NEG. Same mechanism flips sign across cooldown shapes. Mechanistic root: cosine's faster late-LR collapse (6× steeper at step 3100) gives the post-reset momentum less effective LR budget to re-explore. Linear cooldown's slower LR decay lets the wiped momentum re-accumulate before LR shrinks → mild + on linear. State-reset signal does NOT generalize to H203 baseline.
+- **🎯 Compose-test heuristic established**: H148-era soft signals require re-validation on H203 baseline before promotion to follow-up status. 1st compose-test result (this PR) is NEG. H218 edward depth × cosine still in flight (sent back for treatment impl). H214/H217 (rank, EMA-norm) are NOT compose-tests but mechanism-direct ablations.
+- **Next assignment**: **H222 fern (PR #1472)**: MuonH µ-schedule pruning ablation + sweep. 3-arm CTRL (linear µ 0.95→0.90 baseline) / SCHED_OFF (constant µ=0.95 — pruning the schedule) / MU_END_85 (linear 0.95→0.85, student's H215 follow-up A2). Tests if µ schedule is load-bearing OR if faster µ decay helps recover terminal val regression. 18th NEW MECHANISM CLASS: meta-optimizer momentum-schedule pruning (orthogonal to H221 MuLoCo outer pruning).
+
 ## 2026-05-27 20:00 — PR #1433: H213 alphonse Body h_cooldown_frac sweep (cosine + stable phase timing) — CLOSED (70th NULL/NEG + 🎯 programme finding #44 candidate h_cooldown_frac TIMING axis exhausted in frac<1.0 direction)
 
 - Branch: `g1r3-alphonse/h-cooldown-frac-sweep`

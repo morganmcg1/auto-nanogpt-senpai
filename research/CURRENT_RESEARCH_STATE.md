@@ -1,12 +1,21 @@
 # SENPAI Research State — auto-nanogpt-1gpu-r3
 
-- **Last updated:** 2026-05-27 20:05 UTC
+- **Last updated:** 2026-05-27 20:30 UTC
 
 ---
 
 ## 🏆 CURRENT BASELINE: FFS=3025, val=3.26830 — PR #1398 H203 tanjiro cosine cooldown shape
 
-**Baseline shift alert RESOLVED**: All PRs from the pre-H203-merge cohort (H204-H213) have now closed or completed (H204-H213 all closed NULL/NEG). All remaining in-flight PRs (H214-H221) are on the cosine baseline.
+**Baseline shift alert RESOLVED**: All PRs from the pre-H203-merge cohort (H204-H213) have now closed or completed (H204-H213 all closed NULL/NEG). All remaining in-flight PRs (H214-H222) are on the cosine baseline.
+
+---
+
+## 🎯 Cycle ~490 (20:25-20:35 UTC) — H215 fern CLOSED (71st NULL/NEG, state-reset × cosine compose NEG bilaterally, programme finding #45 candidate state-reset signal LINEAR-cooldown-specific, 1st compose-test result NEG); H222 fern ASSIGNED MuonH µ-schedule pruning ablation (18th NEW MECHANISM CLASS: meta-optimizer momentum-schedule pruning)
+
+- **🎯 H215 fern CLOSED — 71st NULL/NEG + programme finding #45 candidate**: arm_a CTRL cosine val=3.26742/FFS=3025 bit-identical (step-0 val 10.82583 exact match to H203 baseline), arm_b RESET_1500 × cosine val=3.27014/FFS=3050 (Δval=+0.00272 mild NEG +3.18σ, +25 FFS NEG). **State-reset signal flips sign across cooldown shapes**: H207 linear baseline arm_b Δval=−0.00098 mild +, H215 cosine baseline arm_b Δval=+0.00272 mild NEG. Mechanistic root: cosine's faster late-LR collapse (6× steeper at step 3100) gives post-reset momentum less effective LR budget to re-explore. Linear's slower decay absorbs the perturbation.
+- **🎯 Programme finding #45 candidate — State-reset signal is LINEAR-cooldown-specific**: H148-era soft signals do NOT generalize automatically to H203 cosine baseline. 1st explicit compose-test result NEG. **Compose-test heuristic established**: H148-era mild-positive signals require re-validation on cosine baseline before promotion to follow-up status. Compose-test portfolio: 1 NEG (H215 state-reset × cosine), 1 in-flight (H218 edward depth × cosine, sent back for treatment impl).
+- **🎯 H222 fern ASSIGNED (PR #1472) — 18th NEW MECHANISM CLASS: meta-optimizer momentum-schedule pruning**: Per launch directive ("pruning ablations of complex stacks"). 3-arm CTRL (linear µ 0.95→0.90 baseline) / SCHED_OFF (`muonh_mu_schedule=off`, constant µ=0.95 — full µ-schedule pruning) / MU_END_85 (linear 0.95→0.85, fern's own H215 follow-up A2 — faster µ decay for "fresher inertial state late"). Tests two questions: (a) is the µ schedule load-bearing or vestigial complexity inherited from H109? (b) does pushing µ_end lower help recover H203 terminal val regression? Companion to H221 alphonse MuLoCo outer-Nesterov pruning — orthogonal mechanism (inner µ schedule vs outer optimizer wrapper).
+- **End-of-cycle ~490 portfolio**: H214 askeladd spectral RANK truncation (in flight); H216 frieren Lookahead (sent back — implementation missing, awaiting student); H217 nezuko EMA-norm blend diagnostic (in flight); H218 edward depth GROW × cosine compose (sent back — implementation missing, awaiting student); H219 tanjiro LR FLOOR (in flight); H220 thorfinn ATTN/MLP LR split (in flight); H221 alphonse MuLoCo pruning ablation (in flight); H222 fern µ-schedule pruning (newly assigned). **8/8 students WIP, 0 idle, 0 review-ready.** 18 novel mechanism classes (added inner µ-schedule pruning).
 
 ---
 
