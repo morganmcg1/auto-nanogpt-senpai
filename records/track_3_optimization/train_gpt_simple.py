@@ -469,6 +469,20 @@ WD_AUX = float(os.environ.get("WD_AUX", "0.0"))  # AdamW WD on embed + lm_head m
 EMBED_INIT_STD = float(os.environ.get("EMBED_INIT_STD", "1.0"))  # default preserves baseline N(0,1)
 LOGIT_SOFTCAP = float(os.environ.get("LOGIT_SOFTCAP", "15.0"))  # default = 15 (current hardcoded value); soft-cap value c in f(x) = c·x / sqrt(x^2+c^2)
 
+# LARS trust-ratio dispatch on AUX (AdamW embed/lm_head) at cooldown_start (PR #1405).
+# When enabled, the AdamW update on the dispatched AUX group is rescaled by
+# trust_ratio = ||w|| / ||u||  (clamped to [CLIP_MIN, CLIP_MAX]). This is the
+# cross-optimizer-class follow-up to PR #1389 (LARS-on-body-Muon NULL/catastrophic):
+# AUX paths lack the Muon u/w-floor so trust-ratio should produce a genuine signal.
+AUX_LARS_TRUST_RATIO_ENABLED = int(os.environ.get("AUX_LARS_TRUST_RATIO_ENABLED", "0"))
+AUX_LARS_TRUST_RATIO_STEP = int(os.environ.get("AUX_LARS_TRUST_RATIO_STEP", "953"))
+AUX_LARS_TRUST_RATIO_KIND = os.environ.get("AUX_LARS_TRUST_RATIO_KIND", "embed")  # "embed" | "lm_head"
+AUX_LARS_TRUST_RATIO_CLIP_MIN = float(os.environ.get("AUX_LARS_TRUST_RATIO_CLIP_MIN", "0.1"))
+AUX_LARS_TRUST_RATIO_CLIP_MAX = float(os.environ.get("AUX_LARS_TRUST_RATIO_CLIP_MAX", "10.0"))
+if AUX_LARS_TRUST_RATIO_KIND not in ("embed", "lm_head"):
+    raise ValueError(f"AUX_LARS_TRUST_RATIO_KIND must be 'embed' or 'lm_head', got {AUX_LARS_TRUST_RATIO_KIND!r}")
+_AUX_LARS_TARGET_GROUP_NAME = "adam_embed" if AUX_LARS_TRUST_RATIO_KIND == "embed" else "adam_lm_head"
+
 
 def zeropower_via_newtonschulz5(G: Tensor) -> Tensor:
     assert G.ndim >= 2
@@ -624,6 +638,96 @@ def soap_precondition(update, state, beta2=SOAP_BETA2, eps=1e-8):
     precond = q_row @ (projected / state["exp_avg_sq"].sqrt().add(eps)) @ q_col.T
     precond.mul_(update_f.norm() / precond.norm().clamp_min(eps))
     return precond.to(update.dtype)
+
+
+@torch.no_grad()
+def aux_lars_step_with_telemetry(optimizer: torch.optim.Optimizer, step: int,
+                                  log_extra_telemetry: bool = False) -> dict:
+    """Run optimizer.step() with optional LARS trust-ratio scaling on the dispatched AUX group.
+
+    When AUX_LARS_TRUST_RATIO_ENABLED and step >= AUX_LARS_TRUST_RATIO_STEP, the
+    matched group (adam_embed or adam_lm_head per AUX_LARS_TRUST_RATIO_KIND) has its
+    AdamW update rescaled by trust_ratio = ||w|| / ||u|| clamped to [CLIP_MIN, CLIP_MAX].
+    Implemented post-hoc: capture pre-step weights, run standard AdamW step, recover the
+    AdamW update direction from the realized delta, recompute the LARS-scaled update,
+    and overwrite p.data. Math:
+      AdamW:        w_after = (1 - lr*wd) * w_before - lr * adamw_step
+      delta       = (1 - lr*wd) * w_before - w_after                         (= lr * adamw_step)
+      LARS:         w_after_new = (1 - lr*wd) * w_before - lr * tr * adamw_step
+                              = (1 - lr*wd) * w_before - tr * delta
+    Returns a telemetry dict keyed by group name; empty when LARS is inactive.
+    """
+    if not AUX_LARS_TRUST_RATIO_ENABLED or step < AUX_LARS_TRUST_RATIO_STEP:
+        optimizer.step()
+        return {}
+
+    pre_step: list[tuple[dict, list[tuple[torch.Tensor, torch.Tensor]], float, float]] = []
+    for group in optimizer.param_groups:
+        if group.get("name") != _AUX_LARS_TARGET_GROUP_NAME:
+            continue
+        cloned = [(p, p.data.clone()) for p in group["params"] if p.grad is not None]
+        if cloned:
+            pre_step.append((group, cloned, float(group["lr"]), float(group.get("weight_decay", 0.0))))
+
+    optimizer.step()
+
+    telemetry: dict[str, dict] = {}
+    for group, params_clone, lr, wd in pre_step:
+        name = group.get("name", "")
+        decay_factor = 1.0 - lr * wd
+        trust_ratios: list[float] = []
+        row_means: list[float] = []
+        row_mins: list[float] = []
+        row_maxs: list[float] = []
+        row_stds: list[float] = []
+        row_counts: list[int] = []
+        lr_safe = max(lr, 1e-12)
+        for p, w_before in params_clone:
+            w_after = p.data
+            delta = decay_factor * w_before - w_after  # = lr * adamw_step
+            adamw_step_vec = delta / lr_safe
+            w_before_f = w_before.float()
+            adamw_step_f = adamw_step_vec.float()
+            w_norm = w_before_f.norm()
+            u_norm = adamw_step_f.norm()
+            tr_tensor = (w_norm / (u_norm + 1e-12)).clamp(
+                AUX_LARS_TRUST_RATIO_CLIP_MIN, AUX_LARS_TRUST_RATIO_CLIP_MAX
+            )
+            tr = float(tr_tensor.item())
+            trust_ratios.append(tr)
+            if log_extra_telemetry and w_before.ndim == 2:
+                w_row_norm = w_before_f.norm(dim=1)
+                u_row_norm = adamw_step_f.norm(dim=1)
+                row_tr = (w_row_norm / (u_row_norm + 1e-12)).clamp(
+                    AUX_LARS_TRUST_RATIO_CLIP_MIN, AUX_LARS_TRUST_RATIO_CLIP_MAX
+                )
+                row_means.append(float(row_tr.mean().item()))
+                row_mins.append(float(row_tr.min().item()))
+                row_maxs.append(float(row_tr.max().item()))
+                row_stds.append(float(row_tr.std(unbiased=False).item()) if row_tr.numel() > 1 else 0.0)
+                row_counts.append(int(row_tr.numel()))
+            p.data.copy_(decay_factor * w_before - tr * delta)
+        if not trust_ratios:
+            continue
+        tr_tensor_all = torch.tensor(trust_ratios)
+        group_telemetry = {
+            "active": 1,
+            "param_count": len(trust_ratios),
+            "mean_trust_ratio": float(tr_tensor_all.mean().item()),
+            "min_trust_ratio": float(tr_tensor_all.min().item()),
+            "max_trust_ratio": float(tr_tensor_all.max().item()),
+            "std_trust_ratio": float(tr_tensor_all.std(unbiased=False).item()) if len(trust_ratios) > 1 else 0.0,
+        }
+        if row_counts:
+            group_telemetry.update({
+                "row_count": sum(row_counts),
+                "row_mean_trust_ratio": sum(row_means) / len(row_means),
+                "row_min_trust_ratio": min(row_mins),
+                "row_max_trust_ratio": max(row_maxs),
+                "row_std_trust_ratio": sum(row_stds) / len(row_stds),
+            })
+        telemetry[name] = group_telemetry
+    return telemetry
 
 
 class Muon(torch.optim.Optimizer):
@@ -866,6 +970,11 @@ if dist.get_rank() == 0:
             "optimizer/attn_soap_trust_threshold": ATTN_SOAP_TRUST_THRESHOLD,
             "optimizer/ns5_iters": NS5_ITERS,
             "optimizer/wd_aux": WD_AUX,
+            "optimizer/aux_lars_trust_ratio_enabled": AUX_LARS_TRUST_RATIO_ENABLED,
+            "optimizer/aux_lars_trust_ratio_step": AUX_LARS_TRUST_RATIO_STEP,
+            "optimizer/aux_lars_trust_ratio_kind": AUX_LARS_TRUST_RATIO_KIND,
+            "optimizer/aux_lars_trust_ratio_clip_min": AUX_LARS_TRUST_RATIO_CLIP_MIN,
+            "optimizer/aux_lars_trust_ratio_clip_max": AUX_LARS_TRUST_RATIO_CLIP_MAX,
             "optimizer/recipe": "contra-muon + normuon-lite + soap-on-mlp + soap-on-attn-trust-gate (pre-NS5, record #14 + record #16)",
         },
     )
@@ -1051,14 +1160,20 @@ for trial_idx in range(args.num_trials):
                 train_steps=train_steps,
                 wandb_step=wandb_step,
             )
-        for opt in optimizers:
-            opt.step()
+        aux_lars_telemetry = aux_lars_step_with_telemetry(
+            optimizer1, step, log_extra_telemetry=(dist.get_rank() == 0 and telemetry_due),
+        )
+        optimizer2.step()
         if dist.get_rank() == 0 and telemetry_due:
             for opt in optimizers:
                 if hasattr(opt, "trust_gate_stats"):
                     stats = opt.trust_gate_stats()
                     if stats:
                         wandb.log(prefixed("train/attn_soap_trust_gate", stats), step=wandb_step)
+            if aux_lars_telemetry:
+                for group_name, stats in aux_lars_telemetry.items():
+                    wandb.log(prefixed(f"train/aux_lars/{group_name}", stats), step=wandb_step)
+                wandb.log({"train/aux_lars/dispatched_step": step}, step=wandb_step)
         if dist.get_rank() == 0 and telemetry_due:
             log_weight_telemetry(
                 model=model,
