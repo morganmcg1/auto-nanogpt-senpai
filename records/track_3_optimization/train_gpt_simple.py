@@ -70,6 +70,13 @@ def parse_args():
                              "late-higher=0.9 (block 0) → 1.1 (block 11), "
                              "late-lower=1.1 (block 0) → 0.9 (block 11). "
                              "Mean LR preserved across blocks.")
+    parser.add_argument("--aux_beta2_pulse_value", type=float, default=0.95,
+                        help="Override beta2 for ALL aux AdamW groups during pulse window. "
+                             "0.95 = no pulse (baseline). Applies to adam_embed, adam_lm_head, adam_scalars.")
+    parser.add_argument("--aux_beta2_pulse_window_start", type=int, default=2500,
+                        help="First step at which aux AdamW beta2 pulse is active (inclusive).")
+    parser.add_argument("--aux_beta2_pulse_window_end", type=int, default=2925,
+                        help="First step after aux AdamW beta2 pulse window (exclusive).")
     args = parser.parse_args()
     args.num_trials = args.num_trials if args.num_trials is not None else (args.legacy_num_trials or 1)
     args.wandb_tags = [tag.strip() for tag in args.wandb_tags.split(",") if tag.strip()]
@@ -1019,6 +1026,18 @@ for trial_idx in range(args.num_trials):
                 train_steps=train_steps,
                 wandb_step=wandb_step,
             )
+        # Aux AdamW beta2 phase-window pulse (PR #1407): temporarily override
+        # betas[1] on the 3 aux AdamW groups inside the pulse window. Fused AdamW
+        # reads betas from param_group["betas"] each step, so per-step override
+        # is safe. v_t carries over continuously; only the decay rate changes.
+        in_aux_beta2_window = (
+            args.aux_beta2_pulse_window_start <= step < args.aux_beta2_pulse_window_end
+        )
+        target_aux_beta2 = args.aux_beta2_pulse_value if in_aux_beta2_window else 0.95
+        for group in optimizer1.param_groups:
+            if group.get("name") in ("adam_embed", "adam_lm_head", "adam_scalars"):
+                old_b1 = group["betas"][0]
+                group["betas"] = (old_b1, target_aux_beta2)
         for opt in optimizers:
             opt.step()
         # EMA buffer update on body-Muon matrix params.
@@ -1104,6 +1123,41 @@ for trial_idx in range(args.num_trials):
                     "ema/active_train": int(step >= args.ema_warmup_steps),
                     "ema/ramp_enabled": int(args.ema_beta_target is not None),
                 }, step=wandb_step)
+        # Aux AdamW beta2 pulse telemetry (PR #1407). Logs at the regular
+        # telemetry tick AND at the exact pre/post pulse-window boundary steps
+        # (which fall between telemetry ticks) so the boundary fires are clean.
+        boundary_aux_beta2 = step in (
+            args.aux_beta2_pulse_window_start - 1,
+            args.aux_beta2_pulse_window_start,
+            args.aux_beta2_pulse_window_end - 1,
+            args.aux_beta2_pulse_window_end,
+        )
+        if dist.get_rank() == 0 and (telemetry_due or boundary_aux_beta2):
+            embed_group = next(
+                (g for g in optimizer1.param_groups if g.get("name") == "adam_embed"),
+                None,
+            )
+            embed_v_norm = float("nan")
+            aux_beta2_now = float("nan")
+            embed_lr_now = float("nan")
+            if embed_group is not None and len(embed_group["params"]) > 0:
+                aux_beta2_now = float(embed_group["betas"][1])
+                embed_lr_now = float(embed_group["lr"])
+                p_embed = embed_group["params"][0]
+                state = optimizer1.state.get(p_embed, {})
+                if "exp_avg_sq" in state:
+                    embed_v_norm = float(state["exp_avg_sq"].norm().item())
+            wandb.log({
+                "trial": trial_idx,
+                "train/step": train_step,
+                "adamw/aux_beta2": aux_beta2_now,
+                "adamw/aux_beta2_pulse_active": int(in_aux_beta2_window),
+                "adamw/embed_v_norm": embed_v_norm,
+                "adamw/embed_lr": embed_lr_now,
+                "adamw/aux_beta2_pulse_value_cfg": args.aux_beta2_pulse_value,
+                "adamw/aux_beta2_pulse_window_start_cfg": args.aux_beta2_pulse_window_start,
+                "adamw/aux_beta2_pulse_window_end_cfg": args.aux_beta2_pulse_window_end,
+            }, step=wandb_step)
         if dist.get_rank() == 0 and (train_step % 100 == 0 or train_step == train_steps):
             spec = pmuon_spectral_diag(optimizer2, PMUON_GAMMA)
             if spec:
