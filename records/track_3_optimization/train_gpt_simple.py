@@ -109,6 +109,16 @@ def parse_args():
     parser.add_argument("--body_init_bottom_layers", type=int,
                         default=int(os.environ.get("BODY_INIT_BOTTOM_LAYERS", "6")),
                         help="Number of bottom layers to damp for --body_init=orthogonal_bottom_damp (default 6 = bottom half of 12 layers).")
+    # H195 Cautious masking (Liang et al. 2024, arXiv:2411.16085). After the
+    # optimizer produces an update direction, mask out entries where the sign
+    # of the raw gradient and the update disagree, then renormalize so the
+    # average update magnitude is preserved. Default off = bit-identical baseline.
+    parser.add_argument("--cautious_body", action="store_true",
+                        help="Apply Cautious mask to MuonH body updates after NS5 orthogonalization.")
+    parser.add_argument("--cautious_aux", action="store_true",
+                        help="Apply Cautious mask to aux AdamW updates (embed/lm_head/scalars). "
+                             "When set, the aux groups use a manual CautiousAdamW step instead of "
+                             "torch.optim.AdamW.")
     args = parser.parse_args()
     args.num_trials = args.num_trials if args.num_trials is not None else (args.legacy_num_trials or 1)
     args.wandb_tags = [tag.strip() for tag in args.wandb_tags.split(",") if tag.strip()]
@@ -667,18 +677,30 @@ class MuonH(torch.optim.Optimizer):
     rescale the update to the param's current norm scale, then renormalise the
     new param back onto the sphere of radius ||initial param||. Holds Frobenius
     norm exactly constant; weight_decay must be 0.
+
+    cautious=True (H195, Liang et al. 2024, arXiv:2411.16085): after NS5 returns
+    ``update``, mask out entries where sign(raw_grad) and sign(update) disagree
+    and renormalize so the mean magnitude is preserved. ``raw_grad`` is cloned
+    BEFORE ``muon_update`` runs, because ``muon_update`` modifies p.grad in-place
+    via the Nesterov ``grad.lerp_(momentum, mu)`` line. cautious=False is
+    bit-identical to the baseline path.
     """
     def __init__(self, params, lr=0.018, weight_decay=0.0, mu=0.95,
-                 hyperball=True, budget_mult=1.0, mode="clip"):
+                 hyperball=True, budget_mult=1.0, mode="clip", cautious=False):
         assert isinstance(params, list) and len(params) >= 1 and isinstance(params[0], torch.nn.Parameter)
         assert mode in ("clip", "scale_invariant")
         params = sorted(params, key=lambda x: x.size(), reverse=True)
         defaults = dict(lr=lr, weight_decay=weight_decay, mu=mu,
-                        hyperball=hyperball, budget_mult=budget_mult, mode=mode)
+                        hyperball=hyperball, budget_mult=budget_mult, mode=mode,
+                        cautious=cautious)
         super().__init__(params, defaults)
         self._last_active_fraction = 0.0
         self._last_radius_to_norm_max = 0.0
         self._last_norm_to_radius_max = 0.0
+        self._last_cautious_mask_mean = 0.0
+        self._last_cautious_mask_min = 1.0
+        self._last_cautious_mask_max = 0.0
+        self._last_cautious_count = 0
 
     @torch.no_grad()
     def step(self):
@@ -688,12 +710,21 @@ class MuonH(torch.optim.Optimizer):
         total_count_local = 0
         max_r_over_n_local = 0.0
         max_n_over_r_local = 0.0
+        # H195 Cautious telemetry: collect per-param mask-fraction stats locally
+        # then reduce across ranks. mask_frac = fraction of entries with
+        # sign(raw_grad) == sign(NS5_update). 100% means the mask is a no-op,
+        # 0% would zero the update entirely.
+        cautious_frac_sum_local = 0.0
+        cautious_frac_min_local = 1.0
+        cautious_frac_max_local = 0.0
+        cautious_count_local = 0
         for group in self.param_groups:
             params = group["params"]
             params_pad = params + [torch.empty_like(params[-1])] * (world_size - len(params) % world_size)
             hb = group["hyperball"]
             budget_mult = group["budget_mult"]
             mode = group["mode"]
+            cautious = group["cautious"]
             for base_i in range(0, len(params), world_size):
                 if base_i + rank < len(params):
                     p = params[base_i + rank]
@@ -702,7 +733,28 @@ class MuonH(torch.optim.Optimizer):
                         state["momentum"] = torch.zeros_like(p)
                         if hb:
                             state["hyperball_radius"] = p.data.norm().item() * budget_mult
+                    # Clone the raw gradient BEFORE muon_update mutates it
+                    # in-place (the Nesterov line ``grad.lerp_(momentum, mu)``
+                    # overwrites p.grad with the Nesterov-interpolated momentum).
+                    if cautious:
+                        raw_grad = p.grad.clone()
                     update = muon_update(p.grad, state["momentum"], mu=group["mu"])
+                    if cautious:
+                        # mask: 1 where sign agrees, 0 where it disagrees (incl. zeros).
+                        # Renormalize so mean magnitude is preserved (mask /= mask.mean()).
+                        sign_agree = (raw_grad.sign() * update.sign()) > 0
+                        mask = sign_agree.to(update.dtype)
+                        frac = mask.mean()
+                        frac_val = float(frac.item())
+                        # Clamp denominator to avoid div-by-zero when frac=0.
+                        mask = mask / frac.clamp(min=1e-8)
+                        update = update * mask
+                        cautious_frac_sum_local += frac_val
+                        cautious_count_local += 1
+                        if frac_val < cautious_frac_min_local:
+                            cautious_frac_min_local = frac_val
+                        if frac_val > cautious_frac_max_local:
+                            cautious_frac_max_local = frac_val
                     if hb and mode == "scale_invariant":
                         # Always-active variant: norm is held at initial value by construction.
                         scale_invariant_update_(p.data, update, group["lr"])
@@ -737,14 +789,148 @@ class MuonH(torch.optim.Optimizer):
             total_count = float(counts[1].item())
             max_r_over_n = float(ratios[0].item())
             max_n_over_r = float(ratios[1].item())
+            # Reduce cautious mask stats across ranks: sum/count for mean,
+            # min/max for spread.
+            c_sum = torch.tensor([cautious_frac_sum_local, float(cautious_count_local)],
+                                 device="cuda", dtype=torch.float64)
+            dist.all_reduce(c_sum, op=dist.ReduceOp.SUM)
+            c_minmax = torch.tensor([cautious_frac_min_local, cautious_frac_max_local],
+                                    device="cuda", dtype=torch.float64)
+            dist.all_reduce(c_minmax[:1], op=dist.ReduceOp.MIN)
+            dist.all_reduce(c_minmax[1:], op=dist.ReduceOp.MAX)
+            cautious_frac_sum = float(c_sum[0].item())
+            cautious_count = float(c_sum[1].item())
+            cautious_frac_min = float(c_minmax[0].item())
+            cautious_frac_max = float(c_minmax[1].item())
         else:
             clip_count = float(clip_count_local)
             total_count = float(total_count_local)
             max_r_over_n = max_r_over_n_local
             max_n_over_r = max_n_over_r_local
+            cautious_frac_sum = cautious_frac_sum_local
+            cautious_count = float(cautious_count_local)
+            cautious_frac_min = cautious_frac_min_local
+            cautious_frac_max = cautious_frac_max_local
         self._last_active_fraction = clip_count / total_count if total_count > 0 else 0.0
         self._last_radius_to_norm_max = max_r_over_n
         self._last_norm_to_radius_max = max_n_over_r
+        if cautious_count > 0:
+            self._last_cautious_mask_mean = cautious_frac_sum / cautious_count
+            self._last_cautious_mask_min = cautious_frac_min
+            self._last_cautious_mask_max = cautious_frac_max
+            self._last_cautious_count = int(cautious_count)
+        else:
+            self._last_cautious_mask_mean = 0.0
+            self._last_cautious_mask_min = 1.0
+            self._last_cautious_mask_max = 0.0
+            self._last_cautious_count = 0
+
+
+class CautiousAdamW(torch.optim.Optimizer):
+    """Manual AdamW (decoupled weight decay) with optional Cautious masking
+    (Liang et al. 2024, arXiv:2411.16085).
+
+    Used only when ``--cautious_aux`` is set (H195 arm_c). The aux groups still
+    use ``torch.optim.AdamW`` for arm_a/arm_b so the baseline path is unchanged.
+
+    State (``exp_avg``, ``exp_avg_sq``) is stored in float32 regardless of param
+    dtype to keep the running averages numerically stable for the bf16 embed.
+    fused AdamW also accumulates in fp32 internally, so this matches the
+    baseline's precision behavior up to small reduction-order differences.
+
+    On every step the param_group's ``betas`` and ``lr`` are read fresh so the
+    existing β2-cooldown schedule and per-group LR cooldown keep working.
+    """
+
+    def __init__(self, params, lr=1e-3, betas=(0.9, 0.999), eps=1e-8,
+                 weight_decay=0.0, cautious=False):
+        defaults = dict(lr=lr, betas=betas, eps=eps,
+                        weight_decay=weight_decay, cautious=cautious)
+        super().__init__(params, defaults)
+        self._last_cautious_mask_mean = 0.0
+        self._last_cautious_mask_min = 1.0
+        self._last_cautious_mask_max = 0.0
+        self._last_cautious_count = 0
+
+    @torch.no_grad()
+    def step(self):
+        cautious_frac_sum_local = 0.0
+        cautious_frac_min_local = 1.0
+        cautious_frac_max_local = 0.0
+        cautious_count_local = 0
+        for group in self.param_groups:
+            beta1, beta2 = group["betas"]
+            lr = group["lr"]
+            eps = group["eps"]
+            wd = group["weight_decay"]
+            cautious = group["cautious"]
+            for p in group["params"]:
+                if p.grad is None:
+                    continue
+                grad = p.grad
+                state = self.state[p]
+                if len(state) == 0:
+                    state["step"] = 0
+                    state["exp_avg"] = torch.zeros_like(p, dtype=torch.float32)
+                    state["exp_avg_sq"] = torch.zeros_like(p, dtype=torch.float32)
+                state["step"] += 1
+                step = state["step"]
+                exp_avg = state["exp_avg"]
+                exp_avg_sq = state["exp_avg_sq"]
+
+                # Upcast grad to fp32 for state arithmetic. bf16 embed grads
+                # otherwise compound rounding error in exp_avg over 3325 steps.
+                if grad.dtype != torch.float32:
+                    grad_fp32 = grad.to(torch.float32)
+                else:
+                    grad_fp32 = grad
+
+                # Decoupled weight decay (AdamW). wd=0 baseline => no-op.
+                if wd != 0:
+                    p.data.mul_(1 - lr * wd)
+
+                # Update first/second moment running averages.
+                exp_avg.lerp_(grad_fp32, 1 - beta1)
+                exp_avg_sq.mul_(beta2).addcmul_(grad_fp32, grad_fp32, value=1 - beta2)
+
+                bias_correction1 = 1 - beta1 ** step
+                bias_correction2 = 1 - beta2 ** step
+                bias_correction2_sqrt = math.sqrt(bias_correction2)
+                denom = exp_avg_sq.sqrt().div_(bias_correction2_sqrt).add_(eps)
+                update_direction = exp_avg / denom  # fp32
+
+                if cautious:
+                    # sign(update_direction) == sign(exp_avg) because denom>0.
+                    sign_agree = (grad_fp32.sign() * exp_avg.sign()) > 0
+                    mask = sign_agree.to(torch.float32)
+                    frac = mask.mean()
+                    frac_val = float(frac.item())
+                    mask.div_(frac.clamp(min=1e-8))
+                    update_direction = update_direction * mask
+                    cautious_frac_sum_local += frac_val
+                    cautious_count_local += 1
+                    if frac_val < cautious_frac_min_local:
+                        cautious_frac_min_local = frac_val
+                    if frac_val > cautious_frac_max_local:
+                        cautious_frac_max_local = frac_val
+
+                step_size = lr / bias_correction1
+                if p.dtype != torch.float32:
+                    update_direction = update_direction.to(p.dtype)
+                p.data.add_(update_direction, alpha=-step_size)
+
+        # AdamW state is the same on all ranks (each rank applies the same
+        # full update to the same params), so the per-rank mask stats are also
+        # the same. No all-reduce needed.
+        self._last_cautious_count = cautious_count_local
+        if cautious_count_local > 0:
+            self._last_cautious_mask_mean = cautious_frac_sum_local / cautious_count_local
+            self._last_cautious_mask_min = cautious_frac_min_local
+            self._last_cautious_mask_max = cautious_frac_max_local
+        else:
+            self._last_cautious_mask_mean = 0.0
+            self._last_cautious_mask_min = 1.0
+            self._last_cautious_mask_max = 0.0
 
 
 ########################################
@@ -791,6 +977,7 @@ if args.muonh_agc_clip_ratio > 0:
     print0(f"AGC ENABLED on inner MuonH gradient: clip_ratio={args.muonh_agc_clip_ratio} eps={args.muonh_agc_eps}", console=True)
 else:
     print0("AGC DISABLED on inner MuonH gradient (clip_ratio=0)", console=True)
+print0(f"H195 cautious_body={args.cautious_body} cautious_aux={args.cautious_aux}", console=True)
 print0("="*100)
 
 val_tokens = 20 * 524288
@@ -850,6 +1037,8 @@ if dist.get_rank() == 0:
             "muonh_mu_schedule": args.muonh_mu_schedule,
             "muonh_mu_start": args.muonh_mu_start,
             "muonh_mu_end": args.muonh_mu_end,
+            "cautious_body": bool(args.cautious_body),
+            "cautious_aux": bool(args.cautious_aux),
         },
     )
 
@@ -926,14 +1115,26 @@ for trial_idx in range(args.num_trials):
     # silent-failure-mode risk we use fused=False whenever the β2 schedule is active.
     # constant schedule keeps fused=True so arm_a is bitwise-identical to baseline.
     _aux_fused = (args.aux_beta2_schedule == "constant")
-    optimizer1 = AdamW([dict(params=[model.embed.weight], lr=0.3, name="adam_embed"),
-                        dict(params=[model.proj.weight], lr=1/320, name="adam_lm_head"),
-                        dict(params=[p for p in model.parameters() if p.ndim < 2], lr=0.01, name="adam_scalars")],
-                       betas=(0.8, args.aux_beta2_start), eps=args.aux_adamw_eps, weight_decay=0, fused=_aux_fused)
+    if args.cautious_aux:
+        # arm_c: swap PyTorch AdamW for the manual Cautious-AdamW so we can
+        # mask the update direction by sign(grad)*sign(update). Same hparams,
+        # fp32 state, decoupled wd=0.
+        optimizer1 = CautiousAdamW(
+            [dict(params=[model.embed.weight], lr=0.3, name="adam_embed"),
+             dict(params=[model.proj.weight], lr=1/320, name="adam_lm_head"),
+             dict(params=[p for p in model.parameters() if p.ndim < 2], lr=0.01, name="adam_scalars")],
+            betas=(0.8, args.aux_beta2_start), eps=args.aux_adamw_eps,
+            weight_decay=0, cautious=True,
+        )
+    else:
+        optimizer1 = AdamW([dict(params=[model.embed.weight], lr=0.3, name="adam_embed"),
+                            dict(params=[model.proj.weight], lr=1/320, name="adam_lm_head"),
+                            dict(params=[p for p in model.parameters() if p.ndim < 2], lr=0.01, name="adam_scalars")],
+                           betas=(0.8, args.aux_beta2_start), eps=args.aux_adamw_eps, weight_decay=0, fused=_aux_fused)
     optimizer2 = MuonH([p for p in model.blocks.parameters() if p.ndim >= 2],
                        lr=args.muonh_lr, weight_decay=0.0, mu=0.95,
                        hyperball=True, budget_mult=args.muonh_budget_mult,
-                       mode=args.muonh_mode)
+                       mode=args.muonh_mode, cautious=args.cautious_body)
     optimizer2.param_groups[0]["name"] = "muonh_blocks"
     optimizers = [optimizer1, optimizer2]
     # AGC targets: AdamW aux groups (embed, lm_head, scalars). Built from optimizer1
@@ -1189,8 +1390,24 @@ for trial_idx in range(args.num_trials):
                         muonh_metrics["train/muonh/active_fraction"] = opt._last_active_fraction
                         muonh_metrics["train/muonh/radius_to_norm_max"] = opt._last_radius_to_norm_max
                         muonh_metrics["train/muonh/norm_to_radius_max"] = opt._last_norm_to_radius_max
+                        # H195 Cautious body telemetry. mask_fraction_mean = average
+                        # sign-agreement rate across all body params; min/max = spread.
+                        # Only meaningful when --cautious_body is on; otherwise the
+                        # per-step counters stay at their init values.
+                        if args.cautious_body and opt._last_cautious_count > 0:
+                            muonh_metrics["train/cautious_body/mask_fraction_mean"] = opt._last_cautious_mask_mean
+                            muonh_metrics["train/cautious_body/mask_fraction_min"] = opt._last_cautious_mask_min
+                            muonh_metrics["train/cautious_body/mask_fraction_max"] = opt._last_cautious_mask_max
                     muonh_metrics["train/muonh/warmup_factor"] = muonh_warmup_factor
                     muonh_metrics["train/muonh/effective_lr"] = opt.param_groups[0]["lr"]
+                if isinstance(opt, CautiousAdamW) and telemetry_due:
+                    # H195 Cautious aux telemetry. Aux groups (embed + lm_head +
+                    # scalars). mask_fraction_mean averaged across the 3 groups
+                    # (effective ~per-param when scalars dominate the count).
+                    if opt._last_cautious_count > 0:
+                        muonh_metrics["train/cautious_aux/mask_fraction_mean"] = opt._last_cautious_mask_mean
+                        muonh_metrics["train/cautious_aux/mask_fraction_min"] = opt._last_cautious_mask_min
+                        muonh_metrics["train/cautious_aux/mask_fraction_max"] = opt._last_cautious_mask_max
             if telemetry_due and args.aux_agc_clip_ratio > 0 and agc_stats["agc_total"] > 0:
                 muonh_metrics["train/agc/active_fraction"] = agc_stats["agc_clipped"] / agc_stats["agc_total"]
                 muonh_metrics["train/agc/clipped_count"] = agc_stats["agc_clipped"]
