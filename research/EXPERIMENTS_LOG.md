@@ -1,5 +1,36 @@
 # SENPAI Research Results — auto-nanogpt-1gpu-r5
 
+## 2026-05-27 11:05 — PR #1368: Per-group β1 decoupling on AdamW aux scalars (thorfinn) [n=1 STRONG, sent back for n=4 confirm]
+- branch: g1r5-thorfinn/scalars-beta1-decouple
+- hypothesis: "AdamW aux scalars (1D LN gains + biases, low per-element SNR) want HIGHER β1 than embed/lm_head (2D high-SNR matrices); the narrow basin established by uniform-β1 #1310 was matrices-driven, not scalars-driven"
+- verdict: **★★ FIRST FFS-POSITIVE n=1 OF R5 CYCLE — SENT BACK FOR n=4 CONFIRM** (do NOT close; awaiting confirmation)
+- results (5-cell sweep, all n=1 full 3250 steps, W&B verified by advisor):
+  | Cell | scalars_β1 / matrices_β1 | FFS | val/loss | Δbase (σ_single) | gate check | W&B id |
+  |:----:|:------------------------:|:---:|:--------:|:----------------:|:----------:|:------:|
+  | A | 0.8 / 0.8 (ctrl uniform) | 3025 | 3.26001 | −0.36σ (sanity) | n=1 gate −0.000618 ✅ | c0rjs67h |
+  | **B★** | **0.95 / 0.8 PRIMARY** | **3000** ⬇25 | **3.25786** | **−5.79σ** | **n=1 gate −0.002768 ✅** | zg0dkec1 |
+  | C | 0.9 / 0.8 | 3025 | 3.26113 | +1.5σ | n=1 gate −0.000498 ≈ | jgfn23nd |
+  | D | 0.5 / 0.8 | 3075 ⬆50 | 3.26505 | +8.5σ | n=1 gate +0.004422 ❌ | e5gf9g94 |
+  | E | 0.99 / 0.8 falsifier | 3025 | 3.26148 | +2.5σ | n=1 gate +0.000852 ≈ | 5zc4sj9a |
+
+- mechanism findings (5):
+  1. **★★ STRONG DISSOCIATION confirmed** — Cell E (scalars β1=0.99) flat at FFS=3025 vs **#1310 Cell D (uniform β1=0.99 → FFS=−1 NEVER, val=3.289 +47σ_single catastrophic)**. The narrow basin in #1310 was driven by embed/lm_head; scalars have a much WIDER β1 basin and tolerate even β1=0.99 with no measurable harm.
+  2. **Asymmetric reversal**: Cell D (β1=0.5) hurts (+50 FFS, +0.005 val) while Cell E (β1=0.99) flat — scalars want MORE memory (heavier smoothing), not less. Matches classical signal-processing prior: lower-SNR signals want heavier smoothing.
+  3. **★ FFS-curve cooldown localization**: All cells identical until step 2875 (val=3.30); the decoupling effect lives entirely in the cooldown window (steps 2875→FFS). Joins crossing-phase cluster — but THIS time with FFS-POSITIVE movement, unlike #1322/#1326/#1294/#1345 all FFS-negative.
+  4. **Mechanism dissociation class joins #1275** — scalars are a distinct cluster from 2D matrices that want their own (LR, β1) corner. Two independent FFS-positive dissociation findings (#1275 lr_scalars=0.03, #1368 scalars_beta1=0.95) — strongly suggests scalars_beta2 may also be FFS-positive at a different value (student suggestion #4).
+  5. **Predictions vs outcome**: PRIMARY 35% (B FFS≤3025 with val improvement) HIT at the strong end; SURPRISE 5% partially confirmed (asymmetric basin — B improves AND E flat rather than catastrophic). The genuinely novel finding (NOT in predictions): FFS curve identical up to val=3.30 across cells.
+
+- cluster connections:
+  - **First FFS-positive n=1 of the entire R5 cycle** after 17 stack-component closures (15 clean-NEG / 2 val-improvement-but-FFS-flat). Plateau-breaking signal.
+  - **Crossing-phase decoupling cluster extends to 5 members + first FFS-POSITIVE direction**: #1294 mu DOWN (NEG), #1345 mu UP (NEG), #1322 NS-iter cooldown (NEG), #1326 scalars-LR cooldown (NEG), **#1368 scalars β1 (POSITIVE n=1)**. Cluster is no longer purely FFS-dead — per-group decoupling IS a fresh FFS axis.
+  - **Per-group dissociation pattern (now n=2)**: #1275 lr_scalars (FFS-NEG but val-cosmetic-positive) → #1368 scalars β1 (FFS-POSITIVE). Pattern suggests scalars are a separable optimizer cluster.
+
+- decision (FFS-primary, sent back for n=4 confirm):
+  - **Cell B★ FFS=3000 hits predeclared promotion gate (≤3000)**; val=3.25786 well below n=1 confirm gate (3.260628, margin −0.002768 ≈ 4.7σ_single).
+  - Sent back to thorfinn with explicit n=4 confirm instructions: only Cell B (`--scalars_beta1 0.95 --num_trials 4`), need μ_4(val) ≤ 3.259221 AND at least 2/4 with FFS ≤ 3025.
+  - After confirm: merge as new baseline (FFS=3000, val ~3.258 projected). Follow-up cycles: joint (lr_scalars × β1), scalars_β2 dissociation, matrices β1 isolation (re-examine #1310).
+  - If confirm fails: close clean-NEG-WAS-VAL-COSMETIC; still strong mechanism finding.
+
 ## 2026-05-27 06:35 — PR #1345: mu cooldown RAMP-UP mechanism extension (nezuko)
 - branch: g1r5-nezuko/mu-cooldown-rampup
 - hypothesis: "Boost Muon mu UP during cooldown extends #1294's monotone gradient (0.0→0.5→0.95) toward FFS-positive direction" (PR predeclared 25% FFS-positive B★, 30% null, 20% diminishing returns, 15% catastrophic E, 10% non-monotone)
