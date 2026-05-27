@@ -465,12 +465,19 @@ ATTN_SOAP_BETA2 = 0.90
 ATTN_SOAP_PRECOND_FREQ = 10
 ATTN_SOAP_TRUST_THRESHOLD = float(os.environ.get("ATTN_SOAP_TRUST_THRESHOLD", "0.9"))
 NS5_ITERS = int(os.environ.get("NS5_ITERS", "12"))
+# MU_NS_ITERS_PER_KIND_DISPATCH (PR #1419): per-matrix-kind body Muon NS5 iters at cooldown_start.
+# When enabled at the start step, dispatch ns_iters separately for attn (.attn.q/k/v/proj.weight)
+# vs mlp (.mlp.fc/proj.weight) body Muon params. Other params keep NS5_ITERS.
+MU_NS_ITERS_PER_KIND_ENABLED = int(os.environ.get("MU_NS_ITERS_PER_KIND_ENABLED", "0"))
+MU_NS_ITERS_PER_KIND_ATTN = int(os.environ.get("MU_NS_ITERS_PER_KIND_ATTN", "12"))
+MU_NS_ITERS_PER_KIND_MLP = int(os.environ.get("MU_NS_ITERS_PER_KIND_MLP", "16"))
+MU_NS_ITERS_PER_KIND_START_STEP = int(os.environ.get("MU_NS_ITERS_PER_KIND_START_STEP", "953"))
 WD_AUX = float(os.environ.get("WD_AUX", "0.0"))  # AdamW WD on embed + lm_head matrices (scalars stay at 0)
 EMBED_INIT_STD = float(os.environ.get("EMBED_INIT_STD", "1.0"))  # default preserves baseline N(0,1)
 LOGIT_SOFTCAP = float(os.environ.get("LOGIT_SOFTCAP", "15.0"))  # default = 15 (current hardcoded value); soft-cap value c in f(x) = c·x / sqrt(x^2+c^2)
 
 
-def zeropower_via_newtonschulz5(G: Tensor) -> Tensor:
+def zeropower_via_newtonschulz5(G: Tensor, ns_iters: int | None = None) -> Tensor:
     assert G.ndim >= 2
     X = G.bfloat16()
     if G.size(-2) > G.size(-1):
@@ -480,7 +487,8 @@ def zeropower_via_newtonschulz5(G: Tensor) -> Tensor:
     X = X / (X.norm(dim=(-2, -1), keepdim=True) + 1e-7)
     # Perform the NS iterations, not optimizing for wallclock speed
     a, b, c = 2, -1.5, 0.5
-    for _ in range(NS5_ITERS):
+    iters = NS5_ITERS if ns_iters is None else ns_iters
+    for _ in range(iters):
         A = X @ X.mT
         B = b * A + c * A @ A
         X = a * X + B @ X
@@ -504,10 +512,10 @@ def scale_to_unit_operator_norm(G: Tensor, eps: float = 1e-10) -> Tensor:
     return G / op_norm.to(G.dtype)
 
 
-def contra_normuon_update(momentum_update, second_moment, beta2=NORMUON_BETA2):
+def contra_normuon_update(momentum_update, second_moment, beta2=NORMUON_BETA2, ns_iters: int | None = None):
     """Contra-Muon + NorMuon-lite: NS5 -> contra subtraction -> per-row variance normalize."""
     normalized_grad = scale_to_unit_operator_norm(momentum_update.clone())
-    update = zeropower_via_newtonschulz5(momentum_update)
+    update = zeropower_via_newtonschulz5(momentum_update, ns_iters=ns_iters)
     opower_fro = update.norm()
     # Contra correction: subtract CONTRA_MUON / 2 * op-norm-normalized momentum.
     update = update - CONTRA_MUON / 2 * normalized_grad
@@ -642,6 +650,10 @@ class Muon(torch.optim.Optimizer):
         }
         # Track which sub-type each attention-SOAP param is (q/k/v/proj) for per-type telemetry.
         self.attn_soap_kind: dict[int, str] = {}
+        # PR #1419: per-matrix-kind body-Muon NS5 iters dispatch. Build id(p) -> kind map
+        # using .attn.* / .mlp.* suffixes (unambiguous in this model — attn.proj vs mlp.proj
+        # differ on the .attn / .mlp prefix-of-suffix).
+        self.muon_kind: dict[int, str] = {}
         for n, p in named_params:
             if p in self.attn_soap_params:
                 if n.endswith(".attn.q.weight"):
@@ -652,9 +664,34 @@ class Muon(torch.optim.Optimizer):
                     self.attn_soap_kind[id(p)] = "v"
                 elif n.endswith(".attn.proj.weight"):
                     self.attn_soap_kind[id(p)] = "proj"
+            if (n.endswith(".attn.q.weight") or n.endswith(".attn.k.weight")
+                    or n.endswith(".attn.v.weight") or n.endswith(".attn.proj.weight")):
+                self.muon_kind[id(p)] = "attn"
+            elif n.endswith(".mlp.fc.weight") or n.endswith(".mlp.proj.weight"):
+                self.muon_kind[id(p)] = "mlp"
+        # Current optimizer step (training loop updates via set_global_step before each .step()).
+        self.global_step: int = 0
+        # Track whether we've emitted the one-time dispatch diagnostic.
+        self._per_kind_diag_logged: bool = False
         params = sorted([p for _, p in named_params], key=lambda x: x.size(), reverse=True)
         defaults = dict(lr=lr, weight_decay=weight_decay, mu=mu)
         super().__init__(params, defaults)
+
+    def set_global_step(self, step: int) -> None:
+        self.global_step = step
+
+    def get_ns_iters_for_param(self, p) -> int | None:
+        """Return per-kind NS5 iters for body-Muon param p, or None to use the global NS5_ITERS."""
+        if not MU_NS_ITERS_PER_KIND_ENABLED:
+            return None
+        if self.global_step < MU_NS_ITERS_PER_KIND_START_STEP:
+            return None
+        kind = self.muon_kind.get(id(p))
+        if kind == "attn":
+            return MU_NS_ITERS_PER_KIND_ATTN
+        if kind == "mlp":
+            return MU_NS_ITERS_PER_KIND_MLP
+        return None
 
     @torch.no_grad()
     def step(self):
@@ -701,7 +738,8 @@ class Muon(torch.optim.Optimizer):
                     if use_soap or use_attn_soap:
                         momentum_update = soap_precondition(momentum_update, state)
                     # NS5 + contra + NorMuon row variance on (possibly SOAP-preconditioned) momentum.
-                    update = contra_normuon_update(momentum_update, state["second_moment"])
+                    per_kind_ns = self.get_ns_iters_for_param(p)
+                    update = contra_normuon_update(momentum_update, state["second_moment"], ns_iters=per_kind_ns)
                     # u/w-floor: scale up if u/w < TARGET_UW; leave alone otherwise.
                     p_fro = p.float().norm().clamp_min(1e-8)
                     u_fro = update.float().norm().clamp_min(1e-8)
@@ -865,6 +903,10 @@ if dist.get_rank() == 0:
             "optimizer/attn_soap_precond_freq": ATTN_SOAP_PRECOND_FREQ,
             "optimizer/attn_soap_trust_threshold": ATTN_SOAP_TRUST_THRESHOLD,
             "optimizer/ns5_iters": NS5_ITERS,
+            "optimizer/mu_ns_iters_per_kind_enabled": MU_NS_ITERS_PER_KIND_ENABLED,
+            "optimizer/mu_ns_iters_per_kind_attn": MU_NS_ITERS_PER_KIND_ATTN,
+            "optimizer/mu_ns_iters_per_kind_mlp": MU_NS_ITERS_PER_KIND_MLP,
+            "optimizer/mu_ns_iters_per_kind_start_step": MU_NS_ITERS_PER_KIND_START_STEP,
             "optimizer/wd_aux": WD_AUX,
             "optimizer/recipe": "contra-muon + normuon-lite + soap-on-mlp + soap-on-attn-trust-gate (pre-NS5, record #14 + record #16)",
         },
@@ -905,6 +947,17 @@ for trial_idx in range(args.num_trials):
     optimizer2 = Muon([(n, p) for n, p in model.blocks.named_parameters() if p.ndim >= 2],
                       lr=MUON_LR, weight_decay=MUON_WEIGHT_DECAY, mu=MU)
     optimizer2.param_groups[0]["name"] = "muon_blocks"
+    # PR #1419 one-time diagnostic: report per-kind body-Muon param count split.
+    if MU_NS_ITERS_PER_KIND_ENABLED:
+        attn_count = sum(1 for k in optimizer2.muon_kind.values() if k == "attn")
+        mlp_count = sum(1 for k in optimizer2.muon_kind.values() if k == "mlp")
+        other_count = sum(1 for g in optimizer2.param_groups for p in g["params"]) - attn_count - mlp_count
+        print0(
+            f"MU_NS_ITERS_PER_KIND: {attn_count} attn params (NS={MU_NS_ITERS_PER_KIND_ATTN}),"
+            f" {mlp_count} mlp params (NS={MU_NS_ITERS_PER_KIND_MLP}),"
+            f" {other_count} other body-Muon params (NS={NS5_ITERS}); dispatch starts at step {MU_NS_ITERS_PER_KIND_START_STEP}",
+            console=True,
+        )
     optimizers = [optimizer1, optimizer2]
     assert set(p for opt in optimizers for group in opt.param_groups
                for p in group["params"]) == set(model.parameters())
@@ -1052,6 +1105,8 @@ for trial_idx in range(args.num_trials):
                 wandb_step=wandb_step,
             )
         for opt in optimizers:
+            if hasattr(opt, "set_global_step"):
+                opt.set_global_step(step)
             opt.step()
         if dist.get_rank() == 0 and telemetry_due:
             for opt in optimizers:
