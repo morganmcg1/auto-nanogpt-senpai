@@ -1,3 +1,21 @@
+## 2026-05-27 07:30 — PR #1362: H196 thorfinn Gradient Centralization on body grads (Yong et al. 2020) — CLOSED (54th NULL/NEG + 🎯 programme finding #29)
+
+- Branch: `g1r3-thorfinn/grad-centralization`
+- Hypothesis: Apply Gradient Centralization (Yong et al. 2020) to body grads (subtract row-mean before optimizer step). Test on body alone (arm_b) and on body+aux (arm_c).
+- Results:
+
+  | Arm | gc_body | gc_aux | W&B | val/loss | FFS | row_mean_fraction (mean) | Class |
+  |---|---|---|---|---|---|---|---|
+  | arm_a CTRL | False | False | `kmgowal1` | 3.26580 | 3150 | n/a | NULL (typical CTRL, +1.51σ) |
+  | arm_b GC_BODY | True | False | `6dttxtzb` | 3.26674 | 3175 | body 0.85% | mild NEG (+2.58σ, +25 FFS) |
+  | arm_c GC_ALL | True | True | `jzr4f5le` | 3.26793 | 3175 | body 1.50%, aux 1.40% | mild NEG (+3.92σ, +25 FFS, marginally worse than b) |
+
+- Outcome: No WIN. **54th NULL/NEG.** Both treatment arms in the 2% FFS tail (3175). arm_c marginally worse than arm_b.
+- **🎯 Programme finding #29 — Gradient-mean preconditioners are mechanistically NULL in pre-LN transformers**: body_row_mean_fraction stayed at 0.85% mean (max 1.76% across all steps), well below the 5% "meaningfully non-zero" threshold. Mechanism: pre-LN transformer body activations have ~zero row-mean by construction (each F.rms_norm enforces this on activations); gradients inherited backward also have ~zero row-mean. GC subtracts a near-zero quantity → bit-exact but at the numerical floor. Yong et al. 2020 designed GC for ResNet-era architectures (Conv, no pre-norm) where row-mean was a real component.
+- **Side-finding worth filing**: aux_row_mean_fraction GROWS from 0.1% to 2.3% over training (embed/lm_head accumulate row-mean during training, presumably because token frequency creates asymmetric column-update intensity). Still below 5% leverage threshold, but suggests aux-row-mean dynamics differ from body and could be a separate (not yet successful) preconditioning attack surface.
+- **Cross-finding consolidation with H191 (49th NULL, AdaMuon body) and H195 (53rd NULL, Cautious body)**: the body's NS5 polar projection is so dominant that ALL per-element body operations (per-element second-moment scaling H191, direction-filtering mask H195, gradient-mean centering H196) either fight it or are null. **Body-side mechanism headroom must be spectral-aware** (manipulating NS5 itself or operating in polar basis), not per-element.
+- Next assignment: H204 thorfinn aux AdamW β₂ cooldown-ramp sweep (PR #1401) — different mechanism class (schedule reformulation on aux second-moment timescale). Tests whether late-cooldown wants different β₂ than peak phase. Zero code changes.
+
 ## 2026-05-27 05:30 — PR #1357: H195 tanjiro Cautious-MuonH body updates (Liang et al. 2024) — CLOSED (53rd NULL/NEG + 🎯 programme finding #28)
 
 - Branch: `g1r3-tanjiro/cautious-muonh`
