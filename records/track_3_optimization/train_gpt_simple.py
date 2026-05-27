@@ -109,6 +109,13 @@ def parse_args():
     parser.add_argument("--body_init_bottom_layers", type=int,
                         default=int(os.environ.get("BODY_INIT_BOTTOM_LAYERS", "6")),
                         help="Number of bottom layers to damp for --body_init=orthogonal_bottom_damp (default 6 = bottom half of 12 layers).")
+    # H196: Gradient Centralization (Yong et al. 2020, arXiv:2004.01461). Subtracts
+    # per-output-row mean from gradient buffer before momentum/NS5 (body) or AdamW
+    # (aux). No-op (bit-identical) when both flags off — the default.
+    parser.add_argument("--gc_body", action="store_true",
+                        help="Apply Gradient Centralization to MuonH body grads BEFORE momentum/NS5.")
+    parser.add_argument("--gc_aux", action="store_true",
+                        help="Apply Gradient Centralization to aux AdamW grads (embed, lm_head, scalars) BEFORE AdamW step.")
     args = parser.parse_args()
     args.num_trials = args.num_trials if args.num_trials is not None else (args.legacy_num_trials or 1)
     args.wandb_tags = [tag.strip() for tag in args.wandb_tags.split(",") if tag.strip()]
@@ -645,6 +652,44 @@ def adaptive_gradient_clip(parameters, clip_ratio: float, eps: float = 1e-3):
     return stats
 
 
+@torch.no_grad()
+def gradient_centralization(parameters, collect_telemetry: bool = False):
+    """Yong et al. 2020 Gradient Centralization (arXiv:2004.01461).
+
+    For each parameter p with ndim >= 2, subtract the per-output-row mean from
+    p.grad in place: g <- g - g.mean(dim=tuple(range(1, ndim)), keepdim=True).
+    For 2D weight W of shape [d_out, d_in], this is equivalent to subtracting
+    g.mean(dim=1, keepdim=True) — the per-output-row mean over the input axis.
+    No-op for params with ndim < 2 (biases / gains).
+
+    When collect_telemetry=True, returns row-mean and grad norm-squared sums so
+    callers can derive ||row_mean||_F and the row-mean-to-grad fraction.
+    Otherwise the function avoids GPU sync entirely.
+    """
+    stats: dict[str, float] = {"gc_total": 0, "gc_applied": 0}
+    if collect_telemetry:
+        row_mean_sq = torch.zeros((), device="cuda", dtype=torch.float32)
+        grad_sq = torch.zeros((), device="cuda", dtype=torch.float32)
+    for p in parameters:
+        if p.grad is None:
+            continue
+        stats["gc_total"] += 1
+        g = p.grad
+        if g.ndim < 2:
+            continue
+        dims = tuple(range(1, g.ndim))
+        row_mean = g.mean(dim=dims, keepdim=True)
+        if collect_telemetry:
+            row_mean_sq = row_mean_sq + row_mean.float().square().sum()
+            grad_sq = grad_sq + g.float().square().sum()
+        g.sub_(row_mean)
+        stats["gc_applied"] += 1
+    if collect_telemetry:
+        stats["gc_row_mean_norm_sq"] = float(row_mean_sq.item())
+        stats["gc_grad_norm_sq"] = float(grad_sq.item())
+    return stats
+
+
 def scale_invariant_update_(param, update, lr, eps=1e-10):
     """Always-active hyperball step: rescale update to param's current norm scale,
     take the step, then renormalise the result back onto the sphere of radius
@@ -791,6 +836,10 @@ if args.muonh_agc_clip_ratio > 0:
     print0(f"AGC ENABLED on inner MuonH gradient: clip_ratio={args.muonh_agc_clip_ratio} eps={args.muonh_agc_eps}", console=True)
 else:
     print0("AGC DISABLED on inner MuonH gradient (clip_ratio=0)", console=True)
+if args.gc_body or args.gc_aux:
+    print0(f"H196 Gradient Centralization ENABLED: gc_body={args.gc_body} gc_aux={args.gc_aux}", console=True)
+else:
+    print0("H196 Gradient Centralization DISABLED (gc_body=False, gc_aux=False)", console=True)
 print0("="*100)
 
 val_tokens = 20 * 524288
@@ -850,6 +899,8 @@ if dist.get_rank() == 0:
             "muonh_mu_schedule": args.muonh_mu_schedule,
             "muonh_mu_start": args.muonh_mu_start,
             "muonh_mu_end": args.muonh_mu_end,
+            "gc_body": bool(args.gc_body),
+            "gc_aux": bool(args.gc_aux),
         },
     )
 
@@ -1169,6 +1220,18 @@ for trial_idx in range(args.num_trials):
         muonh_agc_stats = adaptive_gradient_clip(
             muonh_params_for_agc, args.muonh_agc_clip_ratio, eps=args.muonh_agc_eps,
         )
+        # H196 Gradient Centralization: subtract per-output-row mean from gradient
+        # AFTER AGC and BEFORE momentum/NS5 (body) or AdamW (aux). gc_aux runs first
+        # so the loop ordering matches the optimizer ordering below. Both flags
+        # default off → no-op, bit-identical to baseline.
+        aux_gc_stats = (
+            gradient_centralization(aux_params_for_agc, collect_telemetry=telemetry_due)
+            if args.gc_aux else {"gc_total": 0, "gc_applied": 0}
+        )
+        body_gc_stats = (
+            gradient_centralization(muonh_params_for_agc, collect_telemetry=telemetry_due)
+            if args.gc_body else {"gc_total": 0, "gc_applied": 0}
+        )
         for opt in optimizers:
             opt.step()
         # Log warmup telemetry every 10 steps during warmup (and at telemetry events
@@ -1207,6 +1270,27 @@ for trial_idx in range(args.num_trials):
                 muonh_metrics["train/muonh/agc/max_ratio"] = muonh_agc_stats["agc_max_ratio"]
                 muonh_metrics["train/muonh/agc/scale_min"] = muonh_agc_stats["agc_scale_min"]
                 muonh_metrics["train/muonh/agc/scale_mean"] = muonh_agc_stats["agc_scale_mean"]
+            # H196 GC telemetry: ||row_mean||_F (pre-GC) and the fraction it
+            # represents of ||g||_F. Logged only on telemetry_due so the GPU sync
+            # in gradient_centralization() also fires only on telemetry_due.
+            if telemetry_due and args.gc_body and "gc_grad_norm_sq" in body_gc_stats:
+                body_grad_norm = body_gc_stats["gc_grad_norm_sq"] ** 0.5
+                body_row_mean_norm = body_gc_stats["gc_row_mean_norm_sq"] ** 0.5
+                muonh_metrics["train/gc/body_row_mean_norm"] = body_row_mean_norm
+                muonh_metrics["train/gc/body_grad_norm"] = body_grad_norm
+                muonh_metrics["train/gc/body_row_mean_fraction"] = (
+                    body_row_mean_norm / max(body_grad_norm, 1e-30)
+                )
+                muonh_metrics["train/gc/body_applied_count"] = body_gc_stats["gc_applied"]
+            if telemetry_due and args.gc_aux and "gc_grad_norm_sq" in aux_gc_stats:
+                aux_grad_norm = aux_gc_stats["gc_grad_norm_sq"] ** 0.5
+                aux_row_mean_norm = aux_gc_stats["gc_row_mean_norm_sq"] ** 0.5
+                muonh_metrics["train/gc/aux_row_mean_norm"] = aux_row_mean_norm
+                muonh_metrics["train/gc/aux_grad_norm"] = aux_grad_norm
+                muonh_metrics["train/gc/aux_row_mean_fraction"] = (
+                    aux_row_mean_norm / max(aux_grad_norm, 1e-30)
+                )
+                muonh_metrics["train/gc/aux_applied_count"] = aux_gc_stats["gc_applied"]
             if len(muonh_metrics) > 2:
                 wandb.log(muonh_metrics, step=wandb_step)
         if dist.get_rank() == 0 and telemetry_due:
