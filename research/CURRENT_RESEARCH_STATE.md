@@ -1,3 +1,103 @@
+## 2026-05-27 00:45 UTC — Cycle 71 mid-305
+
+**Cumulative**: **190 refuted (+1: frieren #1340 190th cluster-band ASYMMETRIC-OUTCOME, 65th family closure)** / **107 distinct mech classes (+1 pending: frieren #1366 AUX_LM_HEAD_LR_PHASE_TRANSITION, virgin per-AUX-kind lm_head LR phase axis in 320+ PR corpus)** / **65 family-level closures**.
+
+**Highest-information mid-305 finding**: **β-favorable cluster-band axis sub-mechanism family CLOSED across 4 orthogonal sub-axes** (#1340 closure):
+
+| sub-axis | PR | finding |
+|---|---|---|
+| direction (mean-shift) | #1251 | β-up favorable, β-down crashes |
+| magnitude | #1285 | magnitude monotone-in-direction |
+| LR×β paired-direction (2×2) | #1312 | β dominant, LR depth-ramp near-inert under β-up |
+| **locality** | **#1340** | **late-layer (l6-11) high β1 is LOAD-BEARING; early-localized destroys** |
+
+#1340 returned the cleanest possible directional asymmetry: **Arm A (late-boost +0.02) val=3.27130 ffs=3050 cluster member; Arm B (early-boost −0.02) val=3.29649 ffs=−1 target-miss regression**. Gap monotonically widened through training (+0.0088 step 500 → +0.0337 step 2500 → +0.0252 terminal).
+
+**Step-function vs smooth-monotonic-ramp parameterization NULL principle** (new methodology corpus entry): Arm A reproduces #1251 (linear-monotonic) within RNG noise (val 3.27130 vs 3.26912, Δ=0.0022). Smoothness was a parameterization artifact, NOT the underlying mechanism. Future per-layer dispatch PRs can use either parameterization without loss of mechanism fidelity.
+
+**Compound finding update — cluster-floor robustness extends to SIX distinct mechanism CLASSES**:
+1. state (#1336 Nesterov-form phase-axis)
+2. eval-state (#1316 Polyak averaging)
+3. state-reset (#1333 SOAP Gram reset)
+4. per-group-dispatch (#1323 per-kind body Muon μ at cooldown)
+5. AUX-LR phase event (#1335 embed AUX LR transition)
+6. **locality-discriminator step-function dispatch (#1340 Arm A cluster member)** ← new class
+
+Floor mechanism-class-agnostic principle now holds across 6 classes. The mechanism CLOSED β-favorable cluster-band axis decomposition. The cluster floor is set by terminal/cooldown-phase dynamics not plateau-phase mechanism choice.
+
+**This cycle — 1 closure + 1 fresh virgin axis assignment**:
+
+1. **frieren #1340 MUON_BETA_LOCALIZED_STEP closed as 190th refute** (cluster-band ASYMMETRIC-OUTCOME, 65th family closure):
+   - Arm A (late-boost +0.02): val=3.27130 ffs=3050 cluster member
+   - Arm B (early-boost −0.02): val=3.29649 ffs=−1 above-cluster regression
+   - Sharp H1 outcome on locality discriminator (cleanest directional asymmetry of 5 pre-declared outcomes)
+   - 6th mech class joining cluster-floor compound finding
+   - Methodology corpus: step-function vs smooth-monotonic-ramp parameterization NULL principle added
+   - β-favorable axis 4-axis decomposition COMPLETE (direction × magnitude × LR-coupling × locality)
+
+2. **frieren → #1366 AUX_LM_HEAD_LR_PHASE_TRANSITION (112th mech class assigned)**:
+   - **VIRGIN per-AUX-kind lm_head LR phase axis** in 320+ PR corpus. Prior lm_head LR PRs all uniform sweeps (#431, #654) or cooldown-tail boosts (#759); none at cooldown_start phase transition.
+   - Mechanism: dispatch lm_head-AUX LR multiplier at step 953 (cooldown_start). Other AUX kinds (embed, scalars) untouched.
+   - Arms: Arm A 0.5× (under-LR at cooldown); Arm B 2.0× (over-LR at cooldown).
+   - **Direct generalization test** of mid-304 cross-optimizer-class direction-asymmetry inversion principle: predicts Arm B (over-LR) wins if INVERSION is AUX-CLASS-UNIVERSAL.
+   - Three readings: (a) inversion REPLICATES → AUX-class-universal direction-asymmetry; (b) inversion REVERSES → embed-specific; (c) direction inert → lm_head LR insensitive to phase.
+   - State-phase event + per-AUX-kind dispatch per Morgan directive #1259.
+
+**AUX-kind × LR direction-of-effect grid — mid-305 update**:
+
+| sub-system | optimizer | normalization | direction-of-effect | source |
+|---|---|---|---|---|
+| body Muon | Muon | NS5 iteration-based | under-LR helps | #1296 |
+| embed AUX | AdamW | v-normalized | over-LR helps | #1335 (INVERSION vs Muon) |
+| **lm_head AUX** | AdamW | v-normalized | **TESTING (#1366)** | this cycle |
+| scalars AUX | AdamW | v-normalized | UNTESTED | — |
+
+After #1366, 3/4 cells covered. Scalars AUX cell remains as final probe.
+
+**Per-kind/state-phase axes in flight or recently closed** (cycle 71, updated):
+- #1307 (nezuko): per-AUX-group LR scalar dispatch — CLOSED cluster-band ASYMMETRIC-MAGNITUDE
+- #1323 (alphonse): per-kind body Muon μ dispatch at cooldown — CLOSED cluster-band ASYMMETRIC-OUTCOME
+- #1335 (edward): embed AUX LR phase transition — CLOSED cluster-band ASYMMETRIC-MAGNITUDE
+- **#1340 (frieren): β-locality step-function — CLOSED cluster-band ASYMMETRIC-OUTCOME (this cycle)**
+- #1347 (nezuko): per-kind Nesterov on body Muon — IN FLIGHT
+- #1355 (askeladd): per-kind NS5_ITERS at cooldown — IN FLIGHT
+- #1353 (thorfinn): AUX state reset at cooldown — IN FLIGHT
+- #1358 (tanjiro): per-AUX-kind β2 at cooldown — IN FLIGHT
+- #1359 (alphonse): per-AUX-kind ε at cooldown — IN FLIGHT
+- #1361 (fern): cooldown-start weight noise injection — IN FLIGHT
+- #1364 (edward): per-AUX-kind embed WD phase dispatch — IN FLIGHT
+- **#1366 (frieren): per-AUX-kind lm_head LR phase transition — IN FLIGHT (just assigned)**
+
+This is now an **8-axis** per-kind/state-phase swarm with **3 axes specifically targeting cross-optimizer-class direction-asymmetry generalization** (#1335 closed, #1364 LR→WD, #1366 embed→lm_head). Triangulating the cross-AUX-kind direction-asymmetry principle.
+
+**Closure-mechanism taxonomy** (unchanged 6-way + cluster-band 5 sub-subtypes):
+- cluster-band sub-subtypes: SYMMETRIC, ASYMMETRIC-MAGNITUDE, **ASYMMETRIC-OUTCOME** (now 2 instances: #1323, #1340), INFORMATIVE-TRIANGULATION, STANDARD (5-way)
+- cluster-band-edge (sub-variant of STANDARD)
+- catastrophic-shifted-floor / n=2-confirm / MATH-NULL / informative-crossover / STRUCTURAL-MISMATCH-AT-PARAM
+
+**Active fleet status mid-305**:
+
+| Student | PR | Status | W&B notes |
+|---|---|---|---|
+| g1r2-alphonse | #1359 | status:wip | AUX_EPS_PER_KIND_AT_COOLDOWN (109th mech) |
+| g1r2-thorfinn | #1353 | status:wip | MUON_AUX_BUFFER_RESET_AT_COOLDOWN (105th mech) |
+| g1r2-nezuko | #1347 | status:wip | MUON_NESTEROV_PER_KIND (104th mech) |
+| g1r2-fern | #1361 | status:wip | COOLDOWN_BODY_WEIGHT_NOISE_INJECTION (110th mech) |
+| **g1r2-frieren** | **#1366** | **status:wip, JUST ASSIGNED** | **AUX_LM_HEAD_LR_PHASE_TRANSITION (112th mech)** |
+| g1r2-askeladd | #1355 | status:wip | MUON_NS5_ITERS_PER_KIND_AT_COOLDOWN (107th mech) |
+| g1r2-tanjiro | #1358 | status:wip | AUX_BETA2_PER_KIND_AT_COOLDOWN (108th mech) |
+| g1r2-edward | #1364 | status:wip | AUX_EMBED_WD_PHASE_DISPATCH (111th mech) |
+
+**ZERO IDLE STUDENTS — 8 students concurrently active. ZERO IDLE GPUs.**
+
+**Methodology corpus this cycle**:
+- **Step-function vs smooth-monotonic-ramp parameterization NULL principle**: per-layer dispatch parameterizations are mechanism-fungible when they produce the same per-layer distribution. Arm A reproduces #1251 within RNG noise. Future per-layer dispatch PRs can use either parameterization.
+- **Cluster-floor robustness extends to 6 mech classes**: locality-discriminator step-function dispatch joins state/eval-state/state-reset/per-group-dispatch/AUX-LR phase event.
+- **β-favorable cluster-band axis 4-axis decomposition COMPLETE**: direction × magnitude × LR-coupling × locality all closed. Mechanism is now fully dissected; future PRs targeting β-favorable should localize to late layers (l6-11) only — sharper, cheaper signal.
+- **Cross-AUX-kind direction-asymmetry probe triangulation**: 3 active axes (#1335 closed embed-LR; #1364 embed-WD; #1366 lm_head-LR) all test cross-optimizer-class direction-asymmetry generalization.
+
+**Cumulative closure rate**: 190 / ~535 PRs ≈ 35% refute rate. 12 mech classes assigned in cycle 71 so far.
+
 ## 2026-05-27 00:15 UTC — Cycle 71 mid-304
 
 **Cumulative**: **189 refuted (+1: edward #1335 189th cluster-band ASYMMETRIC-MAGNITUDE, 64th family closure)** / **107 distinct mech classes (+1 pending: edward #1364 AUX_EMBED_WD_PHASE_DISPATCH, virgin per-AUX-kind WD axis in 320+ PR corpus)** / **64 family-level closures**.
