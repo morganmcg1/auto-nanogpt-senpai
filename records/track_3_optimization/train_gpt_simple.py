@@ -602,6 +602,11 @@ NANOGPT_NEWTON_MUON_UPDATE_PERIOD = int(os.environ.get("NANOGPT_NEWTON_MUON_UPDA
 NANOGPT_NEWTON_MUON_BETA = float(os.environ.get("NANOGPT_NEWTON_MUON_BETA", "0.95"))
 NANOGPT_NEWTON_MUON_EPS = float(os.environ.get("NANOGPT_NEWTON_MUON_EPS", "1e-4"))
 NANOGPT_NEWTON_MUON_MAX_D_IN = int(os.environ.get("NANOGPT_NEWTON_MUON_MAX_D_IN", "1024"))
+# Per-group NM LR scaling (#1297 layer-group mechanism finding: MLP per-matrix damage 1.6× attn).
+# These multiply NANOGPT_NEWTON_MUON_LR_SCALE for muon_attn and muon_mlp groups respectively.
+# Default 1.0 for both = bit-identical to current production.
+NANOGPT_NEWTON_MUON_LR_SCALE_ATTN = float(os.environ.get("NANOGPT_NEWTON_MUON_LR_SCALE_ATTN", "1.0"))
+NANOGPT_NEWTON_MUON_LR_SCALE_MLP = float(os.environ.get("NANOGPT_NEWTON_MUON_LR_SCALE_MLP", "1.0"))
 
 # Global per-parameter input-activation cache populated by forward hooks. Keyed by
 # id(weight_param) → tensor of shape (B*T, d_in) on device. Only populated when
@@ -982,9 +987,13 @@ print0(f"EMBED_INIT_ANCHOR_LAMBDA: {NANOGPT_EMBED_INIT_ANCHOR_LAMBDA} "
 print0(
     f"NEWTON_MUON: use_precond={'True' if NANOGPT_NEWTON_MUON else 'False'} "
     f"lr_scale={NANOGPT_NEWTON_MUON_LR_SCALE} "
+    f"lr_scale_attn={NANOGPT_NEWTON_MUON_LR_SCALE_ATTN} "
+    f"lr_scale_mlp={NANOGPT_NEWTON_MUON_LR_SCALE_MLP} "
     f"update_period={NANOGPT_NEWTON_MUON_UPDATE_PERIOD} "
     f"beta={NANOGPT_NEWTON_MUON_BETA} eps={NANOGPT_NEWTON_MUON_EPS} "
-    f"max_d_in={NANOGPT_NEWTON_MUON_MAX_D_IN}",
+    f"max_d_in={NANOGPT_NEWTON_MUON_MAX_D_IN} "
+    f"effective_lr: attn={0.035*NANOGPT_MUON_ATTN_LR_MULT*NANOGPT_NEWTON_MUON_LR_SCALE*NANOGPT_NEWTON_MUON_LR_SCALE_ATTN:.5f} "
+    f"mlp={0.035*NANOGPT_MUON_MLP_LR_MULT*NANOGPT_NEWTON_MUON_LR_SCALE*NANOGPT_NEWTON_MUON_LR_SCALE_MLP:.5f}",
     console=True,
 )
 if NS_ITERS_COOLDOWN > 0:
@@ -1101,6 +1110,8 @@ if dist.get_rank() == 0:
             "nanogpt_embed_init_anchor_lambda": NANOGPT_EMBED_INIT_ANCHOR_LAMBDA,
             "nanogpt_newton_muon": NANOGPT_NEWTON_MUON,
             "nanogpt_newton_muon_lr_scale": NANOGPT_NEWTON_MUON_LR_SCALE,
+            "nanogpt_newton_muon_lr_scale_attn": NANOGPT_NEWTON_MUON_LR_SCALE_ATTN,
+            "nanogpt_newton_muon_lr_scale_mlp": NANOGPT_NEWTON_MUON_LR_SCALE_MLP,
             "nanogpt_newton_muon_update_period": NANOGPT_NEWTON_MUON_UPDATE_PERIOD,
             "nanogpt_newton_muon_beta": NANOGPT_NEWTON_MUON_BETA,
             "nanogpt_newton_muon_eps": NANOGPT_NEWTON_MUON_EPS,
@@ -1160,10 +1171,10 @@ for trial_idx in range(args.num_trials):
                        if p.ndim >= 2 and ".mlp." in n]
     optimizer2 = Muon(
         [dict(params=muon_attn_params,
-              lr=0.035 * NANOGPT_MUON_ATTN_LR_MULT * NANOGPT_NEWTON_MUON_LR_SCALE,
+              lr=0.035 * NANOGPT_MUON_ATTN_LR_MULT * NANOGPT_NEWTON_MUON_LR_SCALE * NANOGPT_NEWTON_MUON_LR_SCALE_ATTN,
               name="muon_attn"),
          dict(params=muon_mlp_params,
-              lr=0.035 * NANOGPT_MUON_MLP_LR_MULT * NANOGPT_NEWTON_MUON_LR_SCALE,
+              lr=0.035 * NANOGPT_MUON_MLP_LR_MULT * NANOGPT_NEWTON_MUON_LR_SCALE * NANOGPT_NEWTON_MUON_LR_SCALE_MLP,
               name="muon_mlp")],
         weight_decay=0.025,
         newton_precond=bool(NANOGPT_NEWTON_MUON),
