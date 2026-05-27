@@ -71,6 +71,9 @@ def parse_args():
                         help="LR for AdamW adam_scalars group (RMSNorm gains; "
                              "params with ndim < 2). Default 0.01 — hardcoded, "
                              "never ablated. ~20K params total in this model.")
+    parser.add_argument("--adamw_aux_wd", type=float, default=0.0,
+                        help="AdamW aux optimizer weight_decay applied uniformly to embed, "
+                             "lm_head, scalars groups. Default 0.0 (hardcoded baseline).")
     parser.add_argument(
         "--depth_init_mode",
         type=str,
@@ -840,7 +843,7 @@ for trial_idx in range(args.num_trials):
     optimizer1 = AdamW([dict(params=[model.embed.weight], lr=0.3, name="adam_embed"),
                         dict(params=[model.proj.weight], lr=1/320, name="adam_lm_head"),
                         dict(params=[p for p in model.parameters() if p.ndim < 2], lr=args.lr_scalars, name="adam_scalars")],
-                       betas=(0.8, 0.95), eps=1e-10, weight_decay=0, fused=True)
+                       betas=(0.8, 0.95), eps=1e-10, weight_decay=args.adamw_aux_wd, fused=True)
     named_blocks = [(n, p) for n, p in model.blocks.named_parameters() if p.ndim >= 2]
     mlp_named = [(n, p) for n, p in named_blocks
                  if n.endswith(".mlp.fc.weight") or n.endswith(".mlp.proj.weight")]
@@ -911,6 +914,14 @@ for trial_idx in range(args.num_trials):
     slope_window_steps = max(100, slope_interval)
     train_loss_history: list[tuple[int, float]] = []
     val_loss_history: list[tuple[int, float]] = []
+    # Capture initial scalars-group p50 norm for #1334 kill-gate (Cell B scalars-collapse check)
+    initial_scalars_p50 = 0.0
+    for _g in optimizer1.param_groups:
+        if _g.get("name") == "adam_scalars":
+            _norms = sorted(float(p.detach().norm().item()) for p in _g["params"])
+            if _norms:
+                initial_scalars_p50 = _norms[len(_norms) // 2]
+            break
     dist.barrier()
     t0 = time.perf_counter()
     for step in range(train_steps + 1):
@@ -957,6 +968,39 @@ for trial_idx in range(args.num_trials):
                 wandb.log(metrics, step=trial_idx * (train_steps + 1) + step)
             print0(f"step:{step}/{train_steps} val_loss:{val_loss:.5f} train_time:{training_time:.3f}s"
                    + f" step_avg:{1000*step_avg:.2f}ms", console=True)
+            # ---- #1334 early-kill gates (Cell B, D, E) ----
+            # All ranks have identical val_loss_float (post all_reduce). Check on every rank
+            # so sys.exit happens collectively without rank-0 dependence.
+            _akw = float(args.adamw_aux_wd)
+            _kill = False
+            _kill_reason = ""
+            if step == 1000 and abs(_akw - 0.1) < 1e-9 and val_loss_float > 4.5:
+                _kill = True
+                _kill_reason = f"CELL_E wd=0.1 step=1000 val_loss={val_loss_float:.4f} > 4.5"
+            elif step == 1000 and abs(_akw - 0.025) < 1e-9 and val_loss_float > 4.0:
+                _kill = True
+                _kill_reason = f"CELL_D wd=0.025 step=1000 val_loss={val_loss_float:.4f} > 4.0"
+            elif step == 1500 and abs(_akw - 0.01) < 1e-9 and val_loss_float > 3.80:
+                # Need to also confirm scalars-norm collapsed below 0.5 * init.
+                _curr_scalars_p50 = 0.0
+                for _g in optimizer1.param_groups:
+                    if _g.get("name") == "adam_scalars":
+                        _norms = sorted(float(p.detach().norm().item()) for p in _g["params"])
+                        if _norms:
+                            _curr_scalars_p50 = _norms[len(_norms) // 2]
+                        break
+                if initial_scalars_p50 > 0 and _curr_scalars_p50 < 0.5 * initial_scalars_p50:
+                    _kill = True
+                    _kill_reason = (f"CELL_B wd=0.01 step=1500 val_loss={val_loss_float:.4f} > 3.80 "
+                                    f"AND scalars_p50={_curr_scalars_p50:.4f} < 0.5*init={0.5*initial_scalars_p50:.4f}")
+            if _kill:
+                print0(f"[KILL-GATE FIRED] {_kill_reason}; aborting trial.", console=True)
+                if dist.get_rank() == 0:
+                    wandb.log({"kill_gate/fired": 1, "kill_gate/step": step,
+                               "kill_gate/val_loss": val_loss_float,
+                               "kill_gate/adamw_aux_wd": _akw}, step=trial_idx * (train_steps + 1) + step)
+                dist.barrier()
+                sys.exit(0)
             model.train()
             # start the clock again
             dist.barrier()
@@ -1026,6 +1070,17 @@ for trial_idx in range(args.num_trials):
                 per_group_metrics["train/wd_mlp_now"] = current_wds.get("muon_mlp", 0.0)
                 per_group_metrics["train/wd_attn_now"] = current_wds.get("muon_attn", 0.0)
                 per_group_metrics["train/wd_schedule_progress"] = train_step / train_steps
+                # AdamW aux per-group param norms (median across tensors) for #1334 WD pruning
+                per_group_metrics["adamw/wd_eff"] = args.adamw_aux_wd
+                for group in optimizer1.param_groups:
+                    gname = group.get("name", "adam_unknown")
+                    norms = [float(p.detach().norm().item()) for p in group["params"] if p is not None]
+                    if norms:
+                        norms_sorted = sorted(norms)
+                        median_norm = norms_sorted[len(norms_sorted) // 2]
+                        total_norm = float(sum(n * n for n in norms) ** 0.5)
+                        per_group_metrics[f"adamw/{gname}_norm_p50"] = median_norm
+                        per_group_metrics[f"adamw/{gname}_norm_total"] = total_norm
                 wandb.log(per_group_metrics, step=wandb_step)
         if dist.get_rank() == 0 and optimizer2.cos_sims_buffer:
             cs_names = list(optimizer2.cos_sims_buffer.keys())
