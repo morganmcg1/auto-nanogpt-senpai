@@ -468,6 +468,18 @@ NS5_ITERS = int(os.environ.get("NS5_ITERS", "12"))
 WD_AUX = float(os.environ.get("WD_AUX", "0.0"))  # AdamW WD on embed + lm_head matrices (scalars stay at 0)
 EMBED_INIT_STD = float(os.environ.get("EMBED_INIT_STD", "1.0"))  # default preserves baseline N(0,1)
 LOGIT_SOFTCAP = float(os.environ.get("LOGIT_SOFTCAP", "15.0"))  # default = 15 (current hardcoded value); soft-cap value c in f(x) = c·x / sqrt(x^2+c^2)
+# PR #1358: per-AUX-kind β2 dispatch at cooldown_start. When disabled, code path
+# is identity-pass (no group["betas"] override) and all 3 AUX groups inherit
+# optimizer-level betas=(0.8, 0.95). Pre-event step < AUX_BETA2_KIND_STEP also
+# gates the override off so pre-cooldown trajectory bit-matches baseline.
+AUX_BETA2_PER_KIND_AT_COOLDOWN = int(os.environ.get("AUX_BETA2_PER_KIND_AT_COOLDOWN", "0"))
+AUX_BETA2_EMBED_COOLDOWN = float(os.environ.get("AUX_BETA2_EMBED_COOLDOWN", "0.95"))
+AUX_BETA2_LM_HEAD_COOLDOWN = float(os.environ.get("AUX_BETA2_LM_HEAD_COOLDOWN", "0.95"))
+AUX_BETA2_SCALARS_COOLDOWN = float(os.environ.get("AUX_BETA2_SCALARS_COOLDOWN", "0.95"))
+AUX_BETA2_KIND_STEP = int(os.environ.get("AUX_BETA2_KIND_STEP", "953"))
+assert 0.0 < AUX_BETA2_EMBED_COOLDOWN < 1.0, "AUX_BETA2_EMBED_COOLDOWN must be in (0,1)"
+assert 0.0 < AUX_BETA2_LM_HEAD_COOLDOWN < 1.0, "AUX_BETA2_LM_HEAD_COOLDOWN must be in (0,1)"
+assert 0.0 < AUX_BETA2_SCALARS_COOLDOWN < 1.0, "AUX_BETA2_SCALARS_COOLDOWN must be in (0,1)"
 
 
 def zeropower_via_newtonschulz5(G: Tensor) -> Tensor:
@@ -931,11 +943,20 @@ for trial_idx in range(args.num_trials):
                 cur_mu = MU_COOLDOWN_START + (MU_COOLDOWN_END - MU_COOLDOWN_START) * t
         else:
             cur_mu = MU + (MU_END - MU) * progress
+        aux_beta2_active = bool(AUX_BETA2_PER_KIND_AT_COOLDOWN) and step >= AUX_BETA2_KIND_STEP
         for opt in optimizers:
             for group in opt.param_groups:
                 group["lr"] = group["initial_lr"] * eta
                 if group.get("name") == "muon_blocks":
                     group["mu"] = cur_mu
+                if aux_beta2_active:
+                    name = group.get("name", "")
+                    if name == "adam_embed":
+                        group["betas"] = (0.8, AUX_BETA2_EMBED_COOLDOWN)
+                    elif name == "adam_lm_head":
+                        group["betas"] = (0.8, AUX_BETA2_LM_HEAD_COOLDOWN)
+                    elif name == "adam_scalars":
+                        group["betas"] = (0.8, AUX_BETA2_SCALARS_COOLDOWN)
 
 
     ########################################
@@ -997,6 +1018,22 @@ for trial_idx in range(args.num_trials):
                     "time/train_seconds": training_time,
                     "time/step_avg_ms": 1000 * step_avg,
                 }
+                aux_beta2_active = bool(AUX_BETA2_PER_KIND_AT_COOLDOWN) and step >= AUX_BETA2_KIND_STEP
+                metrics["aux/beta2_active"] = int(aux_beta2_active)
+                _aux_short = {"adam_embed": "embed", "adam_lm_head": "lm_head", "adam_scalars": "scalars"}
+                for group in optimizer1.param_groups:
+                    short = _aux_short.get(group.get("name", ""))
+                    if short is None:
+                        continue
+                    betas = group.get("betas", optimizer1.defaults.get("betas", (0.8, 0.95)))
+                    metrics[f"aux/beta2_{short}"] = float(betas[1])
+                    v_sq_sum = 0.0
+                    for p in group["params"]:
+                        st = optimizer1.state.get(p, {})
+                        v = st.get("exp_avg_sq")
+                        if v is not None:
+                            v_sq_sum += float(v.detach().double().square().sum().item())
+                    metrics[f"aux/v_norm_{short}"] = v_sq_sum ** 0.5
                 metrics.update(prefixed("val/slope", loss_slope_stats(val_loss_history, slope_window_steps)))
                 wandb.log(metrics, step=trial_idx * (train_steps + 1) + step)
             print0(f"step:{step}/{train_steps} val_loss:{val_loss:.5f} train_time:{training_time:.3f}s"
