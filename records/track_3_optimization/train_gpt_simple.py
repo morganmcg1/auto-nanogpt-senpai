@@ -602,6 +602,16 @@ NANOGPT_NEWTON_MUON_UPDATE_PERIOD = int(os.environ.get("NANOGPT_NEWTON_MUON_UPDA
 NANOGPT_NEWTON_MUON_BETA = float(os.environ.get("NANOGPT_NEWTON_MUON_BETA", "0.95"))
 NANOGPT_NEWTON_MUON_EPS = float(os.environ.get("NANOGPT_NEWTON_MUON_EPS", "1e-4"))
 NANOGPT_NEWTON_MUON_MAX_D_IN = int(os.environ.get("NANOGPT_NEWTON_MUON_MAX_D_IN", "1024"))
+# Newton-Muon R-buffer reset schedule (#1281 single-shot + multi-shot extension).
+# RESET_STEP: single step at which to clear R EMA buffers (0 = disabled).
+# RESET_STEPS: comma-separated list of steps (overrides single-shot when non-empty).
+NANOGPT_NEWTON_MUON_RESET_STEP = int(os.environ.get("NANOGPT_NEWTON_MUON_RESET_STEP", "0"))
+_NM_RESET_STEPS_STR = os.environ.get("NANOGPT_NEWTON_MUON_RESET_STEPS", "")
+NANOGPT_NEWTON_MUON_RESET_STEPS = (
+    {int(s.strip()) for s in _NM_RESET_STEPS_STR.split(",") if s.strip()}
+    if _NM_RESET_STEPS_STR.strip()
+    else ({NANOGPT_NEWTON_MUON_RESET_STEP} if NANOGPT_NEWTON_MUON_RESET_STEP else set())
+)
 
 # Global per-parameter input-activation cache populated by forward hooks. Keyed by
 # id(weight_param) → tensor of shape (B*T, d_in) on device. Only populated when
@@ -798,6 +808,27 @@ class Muon(torch.optim.Optimizer):
     def set_ns_iters_this_step(self, ns_iters: int) -> None:
         self.ns_iters_this_step = int(ns_iters)
 
+    def reset_newton_state(self) -> int:
+        """Clear Newton-Muon R EMA + inv-sqrt for every param.
+
+        Next call to _apply_newton_precondition() takes the fresh-init path
+        (state["R"] = R_new.clone()) instead of EMA, effectively restarting
+        the right-preconditioner from scratch against current X. Returns the
+        number of params whose R state was cleared (for telemetry).
+        """
+        n_cleared = 0
+        for group in self.param_groups:
+            for p in group["params"]:
+                state = self.state.get(p)
+                if state is None:
+                    continue
+                had_R = state.pop("R", None) is not None
+                state.pop("R_inv_sqrt", None)
+                state.pop("_R_vals_clamped", None)
+                if had_R:
+                    n_cleared += 1
+        return n_cleared
+
     def _apply_newton_precondition(self, p, grad, state):
         """Right-precondition grad by (X^T X)^{-1/2} for body Muon matrices.
 
@@ -984,7 +1015,8 @@ print0(
     f"lr_scale={NANOGPT_NEWTON_MUON_LR_SCALE} "
     f"update_period={NANOGPT_NEWTON_MUON_UPDATE_PERIOD} "
     f"beta={NANOGPT_NEWTON_MUON_BETA} eps={NANOGPT_NEWTON_MUON_EPS} "
-    f"max_d_in={NANOGPT_NEWTON_MUON_MAX_D_IN}",
+    f"max_d_in={NANOGPT_NEWTON_MUON_MAX_D_IN} "
+    f"reset_steps={sorted(NANOGPT_NEWTON_MUON_RESET_STEPS) if NANOGPT_NEWTON_MUON_RESET_STEPS else 'none'}",
     console=True,
 )
 if NS_ITERS_COOLDOWN > 0:
@@ -1105,6 +1137,10 @@ if dist.get_rank() == 0:
             "nanogpt_newton_muon_beta": NANOGPT_NEWTON_MUON_BETA,
             "nanogpt_newton_muon_eps": NANOGPT_NEWTON_MUON_EPS,
             "nanogpt_newton_muon_max_d_in": NANOGPT_NEWTON_MUON_MAX_D_IN,
+            "nanogpt_newton_muon_reset_step": NANOGPT_NEWTON_MUON_RESET_STEP,
+            "nanogpt_newton_muon_reset_steps": ",".join(
+                str(s) for s in sorted(NANOGPT_NEWTON_MUON_RESET_STEPS)
+            ),
         },
     )
 
@@ -1195,6 +1231,8 @@ for trial_idx in range(args.num_trials):
     grad_clip_triggers_body = 0
     grad_clip_triggers_aux = 0
     grad_clip_triggers_global = 0
+    # Newton-Muon R-buffer reset bookkeeping (#1338).
+    nm_total_resets = 0
     for opt in optimizers:
         for group in opt.param_groups:
             group["initial_lr"] = group["lr"]
@@ -1428,6 +1466,29 @@ for trial_idx in range(args.num_trials):
         # (gated to avoid per-param CUDA syncs on the hot path).
         if getattr(optimizer2, "newton_precond", False):
             optimizer2.newton_telemetry_due = bool(telemetry_due)
+        # Newton-Muon R-buffer reset (#1281 single-shot, #1338 multi-shot). Fires
+        # BEFORE optimizer.step() so the upcoming step takes the fresh-init path
+        # in _apply_newton_precondition (R rebuilt from current X, no EMA carry).
+        if (
+            getattr(optimizer2, "newton_precond", False)
+            and NANOGPT_NEWTON_MUON_RESET_STEPS
+            and step in NANOGPT_NEWTON_MUON_RESET_STEPS
+        ):
+            n_cleared = optimizer2.reset_newton_state()
+            nm_total_resets += 1
+            if dist.get_rank() == 0:
+                print0(
+                    f"NM_RESET: step={step} cleared_R_params={n_cleared} "
+                    f"total_resets={nm_total_resets}",
+                    console=True,
+                )
+                wandb.log({
+                    "trial": trial_idx,
+                    "train/step": train_step,
+                    "train/nm/multi_reset_triggered_at_step": step,
+                    "train/nm/total_resets": nm_total_resets,
+                    "train/nm/cleared_R_params": n_cleared,
+                }, step=wandb_step)
         for opt in optimizers:
             opt.step()
         # === Newton-Muon (#1138) per-step telemetry. ===
