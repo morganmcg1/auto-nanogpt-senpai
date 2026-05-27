@@ -1,3 +1,55 @@
+## 2026-05-27 15:30 UTC — Cycle 71 mid-324 (14-way cross-axis grid; 2 more closures wave; 216 refuted + post-target 7-axis matrix)
+
+**Cumulative**: **216 refuted** / **138 distinct mech classes** / **90 family-level closures**.
+
+### PRs closed this cycle wave (2 closures):
+
+| PR | student | mechanism | outcome |
+|---|---|---|---|
+| **nezuko #1422** | nezuko | cross-AUX-kind m-reset universality bilateral (lm_head-only vs joint embed+lm_head) | **215th** — H1 universal mechanism confirmed, joint=single noise floor Δ=0.00006; H2 embed-specific refuted |
+| **askeladd #1423** | askeladd | per-block monotonic NS5 dispatch bilateral (deepening 10→18 vs shallowing 18→10) | **216th** — shallowing marginally better (Δ=0.00223 val, −25 ffs); 12-way = 2-way resolution saturation confirmed |
+
+### Cross-AUX-kind m-reset universality finding (nezuko #1422):
+- Arm A (lm_head AUX m-reset): val=3.26983, ffs=3025
+- Arm B (joint embed+lm_head m-reset): val=3.26977, ffs=3025
+- **Joint = single at noise floor** (Δ=0.00006) — m-axis is non-additive direction-IDENTICAL
+- NEW PRINCIPLE: m-reset mechanism operates at AUX-mode-collapse threshold reached identically across embed/lm_head AUX targeting
+
+### Per-block NS5 dispatch resolution saturation (askeladd #1423):
+- Arm A (deepening 10→18): val=3.27267, ffs=3050
+- Arm B (shallowing 18→10): val=3.27044, ffs=3025
+- **12-way shallowing reproduces #1391 2-way shallowing at Δ=0.00026** — resolution saturation confirmed at 2-way half-block
+- Per-block NS5 dispatch shallowing preference: max useful resolution = 2-way
+
+### 14-way cross-axis cluster-floor grid (cumulative, all pre-2950 perturbations):
+
+All 14 PRs: LR×1.25, LR×1.5, NS5=18, NS5=22, μ−0.05, μ−0.10, LARS-embed, LARS-lm_head, per-kind NS5×2, per-block NS5×2, m-reset-lm_head, m-reset-joint. **NONE achieves FFS < 3000.** Pre-2950 axis exhausted across LR/NS5/momentum/AUX-LARS/per-kind/per-block/AUX-m-reset.
+
+### 2 new assignments (post-target window focus, 7-axis grid expanding):
+
+| PR | student | mechanism | rationale |
+|---|---|---|---|
+| **nezuko #1449** | nezuko | POST_TARGET_AUX_M_RESET_TIMING (joint m-reset step 2975 vs 3025) | post-target m-axis timing dispatch; first post-target discrete-jump state-phase mechanism |
+| **askeladd #1450** | askeladd | POST_TARGET_PER_BLOCK_NS5_DISPATCH (shallowing vs deepening in [2950,3175]) | extends pre-target per-block direction to post-target window |
+
+### Active post-target window 7-axis mechanism matrix (mid-324 PIVOT fleet):
+
+| PR | student | mechanism | axis | window |
+|---|---|---|---|---|
+| **alphonse #1432** | alphonse | POST_TARGET_BODY_LR_BURST ×0.85/×1.15 | uniform LR | [2950, 3175] |
+| **fern #1428** | fern | EVAL_SLOT_LR_BURST_DEPTH_DISPATCH ×1.15 | depth-half LR | [2850, 3050] |
+| **edward #1436** | edward | POST_TARGET_NS5_QUALITY (NS5=10/18) | uniform NS5 | [2950, 3175] |
+| **thorfinn #1443** | thorfinn | POST_TARGET_PER_KIND_LR (attn×1.15/MLP×0.85) | per-kind LR | [2950, 3175] |
+| **frieren #1444** | frieren | POST_TARGET_MU (μ DROP −0.05 vs BOOST +0.05) | momentum | [2950, 3175] |
+| **nezuko #1449** | nezuko | POST_TARGET_AUX_M_RESET_TIMING (step 2975 vs 3025) | discrete m-reset | step-point |
+| **askeladd #1450** | askeladd | POST_TARGET_PER_BLOCK_NS5_DISPATCH (shallowing vs deepening) | per-block NS5 | [2950, 3175] |
+
+Plus active ongoing: **tanjiro #1439** (CROSS_AUX_KIND_HYBRID_ALPHA_HUMP — universality of mid-320 hump on lm_head AUX).
+
+**8 students concurrently active, ZERO IDLE.**
+
+---
+
 ## 2026-05-27 14:10 UTC — Cycle 71 mid-324 (12-way cross-axis grid; H4-monotonic + per-kind axis closed; 4 PRs closed wave; 214 refuted)
 
 **Cumulative**: **214 refuted** / **136 distinct mech classes** / **88 family-level closures**.
