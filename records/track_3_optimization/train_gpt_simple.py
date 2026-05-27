@@ -70,6 +70,11 @@ def parse_args():
                              "late-higher=0.9 (block 0) → 1.1 (block 11), "
                              "late-lower=1.1 (block 0) → 0.9 (block 11). "
                              "Mean LR preserved across blocks.")
+    parser.add_argument("--muon_block_ns_iters_pattern", type=str, default="none",
+                        choices=["none", "late-higher", "late-lower"],
+                        help="Per-block Muon NS5 iteration count shape: 'late-higher' ramps "
+                             "iters up from block 0 (10) to block 11 (14), mean=12 (baseline); "
+                             "'late-lower' ramps down. Integer rounded.")
     args = parser.parse_args()
     args.num_trials = args.num_trials if args.num_trials is not None else (args.legacy_num_trials or 1)
     args.wandb_tags = [tag.strip() for tag in args.wandb_tags.split(",") if tag.strip()]
@@ -505,6 +510,7 @@ def pmuon_update(
     ns_a: float = NS_A,
     ns_b: float = NS_B,
     ns_c: float = NS_C,
+    ns_iters: int = NS_ITERS,
     polar_diag: dict | None = None,
 ) -> Tensor:
     # Streaming raw (unnormalized) bilateral covariance EMAs in fp32.
@@ -519,7 +525,7 @@ def pmuon_update(
     R_neg = matrix_neg_power(R_cov, gamma, eps)
     m_pre = (L_neg @ update.float()) @ R_neg
 
-    polar = zeropower_via_newtonschulz5(m_pre.to(update.dtype), a=ns_a, b=ns_b, c=ns_c)
+    polar = zeropower_via_newtonschulz5(m_pre.to(update.dtype), a=ns_a, b=ns_b, c=ns_c, iters=ns_iters)
     # Sample ortho residual ||X X^T - I||_F on the polar output (before spectral scaling).
     # Only the first eligible parameter per step writes — keeps cost ~O(d^2) once per step.
     if polar_diag is not None and "residual" not in polar_diag:
@@ -535,6 +541,7 @@ def pmuon_update(
         polar_diag["residual"] = float(torch.linalg.norm(gram - eye).item())
         polar_diag["sample_rows"] = m
         polar_diag["sample_cols"] = n
+        polar_diag["ns_iters"] = ns_iters
     update = polar * (max(1, grad.size(-2) / grad.size(-1)) ** 0.5)
     return update
 
@@ -568,6 +575,11 @@ class Muon(torch.optim.Optimizer):
                         state["momentum"] = torch.zeros_like(p)
                         state["L"] = torch.zeros(p.shape[0], p.shape[0], device=p.device, dtype=torch.float32)
                         state["R"] = torch.zeros(p.shape[1], p.shape[1], device=p.device, dtype=torch.float32)
+                    # Per-block ns_iters override (defaults to global NS_ITERS)
+                    ns_iters_eff = NS_ITERS
+                    param_ns_iters_mults = getattr(self, "_param_ns_iters_mults", None)
+                    if param_ns_iters_mults is not None:
+                        ns_iters_eff = param_ns_iters_mults.get(id(p), NS_ITERS)
                     update = pmuon_update(
                         p.grad,
                         state["momentum"],
@@ -579,6 +591,7 @@ class Muon(torch.optim.Optimizer):
                         ns_a=group["ns_a"],
                         ns_b=group["ns_b"],
                         ns_c=group["ns_c"],
+                        ns_iters=ns_iters_eff,
                         polar_diag=polar_diag,
                     )
                     floor_eligible_count += 1
@@ -799,6 +812,28 @@ for trial_idx in range(args.num_trials):
             wandb.log({f"muon_block_lr_mult/block_{i}": m for i, m in enumerate(block_mults)},
                       step=0)
     optimizer2._param_lr_mults = param_lr_mults
+
+    # Per-block Muon NS_ITERS shape: integer linear ramp around baseline NS_ITERS=12
+    param_ns_iters_mults = None
+    block_ns_iters = None
+    if args.muon_block_ns_iters_pattern != "none":
+        if args.muon_block_ns_iters_pattern == "late-higher":
+            lo, hi = 10, 14
+        elif args.muon_block_ns_iters_pattern == "late-lower":
+            lo, hi = 14, 10
+        block_ns_iters = [round(lo + (hi - lo) * (i / (NUM_LAYERS - 1))) for i in range(NUM_LAYERS)]
+        param_ns_iters_mults = {}
+        for name, p in model.named_parameters():
+            if p.ndim >= 2 and name.startswith("blocks."):
+                idx = int(name.split(".")[1])
+                param_ns_iters_mults[id(p)] = block_ns_iters[idx]
+        if dist.get_rank() == 0:
+            print0(f"per-block Muon NS_ITERS pattern: {args.muon_block_ns_iters_pattern}", console=True)
+            for i, it in enumerate(block_ns_iters):
+                print0(f"  block {i}: ns_iters={it}", console=True)
+            wandb.log({f"muon_block_ns_iters/block_{i}": it for i, it in enumerate(block_ns_iters)},
+                      step=0)
+    optimizer2._param_ns_iters_mults = param_ns_iters_mults
 
     optimizers = [optimizer1, optimizer2]
     assert set(p for opt in optimizers for group in opt.param_groups
