@@ -1,3 +1,77 @@
+## 2026-05-27 10:10 UTC — Cycle 71 mid-321 (Nesterov-phase geometry-conditional principle; AUX-side Nesterov axis CLOSED across both kinds)
+
+**Cumulative**: **206 refuted (+1 this wake)** / **128 distinct mech classes (+1 fresh #1419)** / **80 family-level closures (+1)**.
+
+**Closure this wake** (1 bilateral terminal — completes cross-optimizer-class Nesterov-phase universality test):
+
+| PR | student | mech | bilateral data | closure |
+|---|---|---|---|---|
+| **#1397** | thorfinn | AUX Nesterov-phase at cooldown_start (cross-AUX-kind) | Arm A (embed only) val=3.27038 ffs=3025 cluster STANDARD +0.00138 above edge 3.269; Arm B (embed+lm_head) val=3.27120 ffs=3025 cluster STANDARD +0.00220 above edge; Δ(B−A)=+0.00082 sub-noise | **206th** cluster STANDARD H0-confirmed bilateral; Nesterov benefit is **geometry-conditional**, not phase-conditional |
+
+### MAJOR FINDING — Nesterov-phase axis is OPTIMIZER-CLASS-SPECIFIC (cross-optimizer-class universality test complete)
+
+| optimizer class | Nesterov-phase outcome | mechanism |
+|---|---|---|
+| **body Muon** (#1306) | helpful at cooldown_start | look-ahead amplifies direction of orthogonalized update |
+| **AUX embed** (#1397A) | NULL at cooldown_start | per-coord √v denominator absorbs look-ahead; per-coord magnitude already normalized |
+| **AUX embed+lm_head** (#1397B) | NULL at cooldown_start | same as A; cross-AUX-kind broader coverage does NOT compound |
+
+**REFINED PRINCIPLE (mid-321)**: **Nesterov benefit is geometry-conditional, not phase-conditional.** Orthogonalized updates (body Muon) gain from look-ahead direction-amplification; v-normalized updates (AUX AdamW) wash out the look-ahead through per-coord adaptive denominator. Phase-localization at cooldown_start does NOT recover any benefit on AUX side — extends negative finding from #527/#817 (NAdamW full-training null on AUX) to phase-gated setting.
+
+**Connects to mid-320 discrete-topology-jump framing**: AUX v-normalization is the load-bearing structural mechanism (tanjiro #1390); Nesterov re-blend is a **smooth perturbation around the AdamW operating point**, which mid-320 predicted to be null on v-normalized AUX. Mid-321 closure is consistent with mid-320 prediction (cross-axis methodology principle confirmed).
+
+### Cycle 71 cross-optimizer-class universality landscape (post #1397)
+
+| axis | body Muon (orthogonalized) | AUX embed (v-norm) | AUX lm_head (v-norm) |
+|---|---|---|---|
+| LR-phase | (mandatory stack) | sharpest direction-asym (#1335) | medium direction-asym (#1366) |
+| WD-phase | sym/displacement (#1396) | sym/privileged (#1364) | asym/conventional (#1392) |
+| β2-phase | not tested | null (#1358) | modest helpful (#1358) |
+| **Nesterov-phase** | **helpful (#1306)** | **null (#1397A)** | **null (#1397B)** |
+| sign-SGD (discrete-jump) | not tested | mild-regression (#1390A) | not tested |
+
+Cross-optimizer-class axes consistently exhibit kind-dependent direction-structure; body Muon orthogonalization geometry behaves distinctly from AUX v-normalization geometry.
+
+### FFS-burst grid status (mid-321, unchanged — all 3 axes in flight)
+
+| PR | mechanism | Arm A | Arm B | status |
+|---|---|---|---|---|
+| alphonse #1408 | LR-magnitude burst | ×1.25 | ×1.5 | running |
+| edward #1411 | NS5-quality burst | =18 | =22 | running |
+| frieren #1414 | momentum DROP burst | −0.05 | −0.10 | running |
+
+### Fresh assignment (1 idle student → 1 new PR; first per-kind decomposition axis):
+
+| PR | student | mech | purpose |
+|---|---|---|---|
+| **#1419** | thorfinn | MU_NS_ITERS_PER_KIND_DISPATCH (128th mech, virgin per-kind orthogonalization-quality axis) | Body Muon NS5 differs between attn matrices (Q, K, V, attn output proj) and MLP matrices (MLP up, down) at cooldown_start=953. Arm A: attn=12, MLP=16 (attn-light, MLP-heavy). Arm B: attn=16, MLP=12 (attn-heavy, MLP-light). Tests whether attn vs MLP have kind-asymmetric orthogonalization quality requirements during cooldown. Per Morgan #1259 (depth/per-group preferred). Orthogonal to edward #1411 (window-localized, all kinds) and askeladd #1391 (per-block-half, position-based). |
+
+### Cycle 71 cumulative findings (post mid-321)
+
+- **10 cluster-floor compound mechanism classes** all saturate val~3.268-3.269 / ffs 3000-3025
+- **NEW PRINCIPLE (mid-321)**: Nesterov-phase is geometry-conditional, not phase-conditional — orthogonalized geometry gains, v-normalized geometry is null
+- **Cross-sub-system WD-axis grid 3-of-3 COMPLETE**: direction-structure is sub-system-property-bound (mid-319)
+- **NEW PRINCIPLE (mid-320)**: discrete-topology-jump vs smooth-perturbation framing — v-normalization removal exposes hidden load-bearing structure that smooth perturbations (ε/β2/LR/WD/Nesterov) cannot
+- **Cross-axis methodology**: mid-320 predicted Nesterov null on v-norm AUX; mid-321 confirms (smooth-perturbation framework correctly predicts cross-axis behavior)
+- **FFS-burst grid (mid-319)**: 3-way orthogonal triangulation active (LR-magnitude × NS5-quality × momentum-decay) in pre-target-crossing window [2750, 2950]
+- **LARS NULL-by-construction principle** (cycle-71 corpus-level methodology): trust-ratio NULL when ||u||/||w|| pre-equalized
+- **Direction-asymmetry inversion**: param-count-gated on AUX side; sub-system-property-bound across body × AUX
+
+### In-flight student PRs (8 concurrent):
+
+- **alphonse #1408** (LR-magnitude FFS burst on body Muon)
+- **askeladd #1391** (body NS5 per-block-half depth×NS5 extension)
+- **edward #1411** (NS5-quality FFS burst on body Muon)
+- **fern #1405** (AUX LARS trust-ratio cross-class contrapositive)
+- **frieren #1414** (momentum-DROP FFS burst on body Muon)
+- **nezuko #1404** (AUX param state-reset m-only/v-only decomposition of #1353)
+- **tanjiro #1417** (embed AUX continuous α-hybrid AdamW/sign-SGD)
+- **thorfinn #1419** (NEW — body Muon NS5 per-kind dispatch at cooldown_start)
+
+ZERO IDLE. 8 concurrent active.
+
+---
+
 ## 2026-05-27 09:50 UTC — Cycle 71 mid-320 (v-normalization mild-load-bearing principle; discrete-topology-jump vs smooth-perturbation framing)
 
 **Cumulative**: **205 refuted (+1 this wake)** / **127 distinct mech classes (+1 fresh #1417)** / **79 family-level closures (no new closure this wake — sign-SGD axis is mid-investigation in a larger update-rule family including the just-assigned α-hybrid)**.
