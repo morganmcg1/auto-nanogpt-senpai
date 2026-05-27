@@ -1,3 +1,73 @@
+## 2026-05-27 09:35 UTC — Cycle 71 mid-319 (cross-sub-system WD grid 3-of-3 COMPLETE; FFS-burst grid 3-way triangulation)
+
+**Cumulative**: **204 refuted (+1 this wake)** / **126 distinct mech classes (+1 fresh #1414)** / **79 family-level closures (+1)**.
+
+**Closure this wake** (1 bilateral terminal — completes cross-sub-system WD-axis grid 3-of-3):
+
+| PR | student | mech | bilateral data | closure |
+|---|---|---|---|---|
+| **#1396** | frieren | body Muon WD phase event at cooldown_start | Arm A (WD=0.001) val=3.26939 ffs=3025; Arm B (WD=0.005 5×) val=3.26969 ffs=3025; Δ(B−A)=−0.00030 SEED NOISE | **204th** cluster-band-edge SYMMETRIC magnitude-INSENSITIVE; cross-sub-system WD grid 3-of-3 COMPLETE |
+
+### MAJOR FINDING — cross-sub-system WD-axis grid 3-of-3 + direction-structure principle refined
+
+| sub-system | WD-axis direction | both-arms zone | privilege level | mechanism |
+|---|---|---|---|---|
+| **embed AUX** (#1364) | SYMMETRIC privileged | sub-cluster-edge [3.265, 3.269] | HELPFUL | sparse one-hot input gradient × WD-phase boundary |
+| **lm_head AUX** (#1392) | ASYMMETRIC conventional | A=sub-edge-upper, B=cluster STANDARD | A mild help, B significant hurt | dense gradient kind-coherent asymmetry |
+| **body Muon** (#1396 this) | SYMMETRIC magnitude-INSENSITIVE | cluster-band-edge [3.269, 3.275] | MILDLY DISRUPTIVE | orthogonalization stabilizes matrix structure; WD adds uniform phase-boundary displacement |
+
+**REFINED PRINCIPLE (mid-319)**: Direction-symmetric WD-axis behavior emerges where the optimizer geometry has a **structural stabilization mechanism**:
+- embed AUX: sparse gradient structure → sym with HELPFUL displacement (privileged-zone)
+- body Muon: Newton-Schulz orthogonalization → sym with NEUTRAL/disruptive displacement (cluster-band-edge)
+
+Direction-asymmetric WD-axis behavior emerges where the optimizer geometry has **NO structural stabilization**:
+- lm_head AUX: dense AdamW with no kind-specific structure → asym conventional (less-WD modestly helps, over-WD significantly hurts)
+
+This is the cleanest principle so far for predicting how a new sub-system × direction-axis cell will land before testing.
+
+### FFS-burst grid expanding to 3-way (mid-319)
+
+3-way orthogonal triangulation of body Muon update characteristics in pre-target-crossing window [2750, 2950]:
+
+| PR | mechanism | acts on | Arm A | Arm B |
+|---|---|---|---|---|
+| alphonse #1408 | LR-magnitude burst | step size | ×1.25 | ×1.5 |
+| edward #1411 | NS5-quality burst | update direction precision | =18 | =22 |
+| **frieren #1414 (NEW)** | momentum DROP | gradient EMA responsiveness | −0.05 | −0.10 |
+
+All three target the SAME window with DIFFERENT mechanisms. Whichever lands sub-cluster-edge first identifies the FFS rate-limiter axis. If multiple show FFS-active, they may compound. If all null, cluster floor is structurally bounded by something other than pre-crossing window optimizer characteristics.
+
+### Fresh assignment (1 idle student → 1 new PR):
+
+| PR | student | mech | purpose |
+|---|---|---|---|
+| **#1414** | frieren | MU_MOMENTUM_FFS_BURST_DISPATCH (126th mech, FFS-primary, virgin gradient-EMA-responsiveness phase axis) | Drop body Muon momentum in [2750, 2950]. Arm A: μ −= 0.05. Arm B: μ −= 0.10. Tests whether momentum decay schedule is FFS-limiting. **3rd axis of FFS-burst grid** — completes orthogonal triangulation (LR×NS5×momentum). Per Morgan #1261 + cycle 71 FFS-pivot. |
+
+### Cycle 71 cumulative findings (post mid-319)
+
+- **10 cluster-floor compound mechanism classes** all saturate val~3.268-3.269 / ffs 3000-3025
+- **Cross-sub-system WD-axis grid 3-of-3 COMPLETE**: direction-structure is sub-system-property-bound (embed sym/privileged, body sym/displacement, lm_head asym/conventional); direction-symmetry emerges where structural stabilization exists
+- **Cross-AUX-kind LR-axis grid COMPLETE param-count-monotonic**: embed sharpest → lm_head medium → scalars null
+- **FFS-burst grid (mid-319)**: 3-way orthogonal triangulation (LR-magnitude × NS5-quality × momentum-decay) in pre-target-crossing window [2750, 2950]
+- **LARS NULL-by-construction principle** (cycle-71 corpus-level methodology): trust-ratio NULL when ||u||/||w|| pre-equalized; applies to entire LARS/LAMB family across v-normalized optimizers
+- **Depth-half locality β1-axis-SPECIFIC**: LR at 3.0× ratio catastrophic in both directions
+- **Direction-asymmetry inversion**: param-count-gated on AUX side; sub-system-property-bound across body × AUX
+
+### In-flight student PRs (8 concurrent):
+
+- **alphonse #1408** (LR-magnitude FFS burst on body Muon)
+- **askeladd #1391** (body NS5 per-block-half depth×NS5 extension)
+- **edward #1411** (NS5-quality FFS burst on body Muon)
+- **fern #1405** (AUX LARS trust-ratio cross-class contrapositive)
+- **frieren #1414** (NEW — momentum-DROP FFS burst on body Muon)
+- **nezuko #1404** (AUX param state-reset m-only/v-only decomposition of #1353)
+- **tanjiro #1390** (embed AUX sign-SGD update-rule virgin)
+- **thorfinn #1397** (AUX Nesterov phase at cooldown — cross-optimizer-class)
+
+ZERO IDLE. 8 concurrent active.
+
+---
+
 ## 2026-05-27 09:20 UTC — Cycle 71 mid-318 (per-AUX-kind direction-symmetry is EMBED-SPECIFIC; FFS-burst grid expanding)
 
 **Cumulative**: **203 refuted (+1 this wake)** / **125 distinct mech classes (+1 fresh #1411)** / **78 family-level closures (+1)**.
