@@ -468,6 +468,18 @@ NS5_ITERS = int(os.environ.get("NS5_ITERS", "12"))
 WD_AUX = float(os.environ.get("WD_AUX", "0.0"))  # AdamW WD on embed + lm_head matrices (scalars stay at 0)
 EMBED_INIT_STD = float(os.environ.get("EMBED_INIT_STD", "1.0"))  # default preserves baseline N(0,1)
 LOGIT_SOFTCAP = float(os.environ.get("LOGIT_SOFTCAP", "15.0"))  # default = 15 (current hardcoded value); soft-cap value c in f(x) = c·x / sqrt(x^2+c^2)
+# PR #1468: post-target depth-linear LR ramp on body Muon param groups.
+# When ENABLED and START <= step < END, each block's Muon LR is multiplied by a depth-linear factor
+# interpolating between HI (block 0 for "front_up") and LO (block 11 for "front_up"). Continuous
+# refinement of fern #1428 depth-half reading.
+POST_TARGET_DEPTH_LR_RAMP_ENABLED = int(os.environ.get("POST_TARGET_DEPTH_LR_RAMP_ENABLED", "0"))
+POST_TARGET_DEPTH_LR_RAMP_START   = int(os.environ.get("POST_TARGET_DEPTH_LR_RAMP_START", "2950"))
+POST_TARGET_DEPTH_LR_RAMP_END     = int(os.environ.get("POST_TARGET_DEPTH_LR_RAMP_END", "3175"))
+POST_TARGET_DEPTH_LR_RAMP_LO      = float(os.environ.get("POST_TARGET_DEPTH_LR_RAMP_LO", "0.85"))
+POST_TARGET_DEPTH_LR_RAMP_HI      = float(os.environ.get("POST_TARGET_DEPTH_LR_RAMP_HI", "1.15"))
+POST_TARGET_DEPTH_LR_RAMP_DIR     = os.environ.get("POST_TARGET_DEPTH_LR_RAMP_DIR", "front_up")  # "front_up"=block0->HI, block11->LO; "front_down"=reverse
+assert POST_TARGET_DEPTH_LR_RAMP_DIR in ("front_up", "front_down"), \
+    f"POST_TARGET_DEPTH_LR_RAMP_DIR must be 'front_up' or 'front_down', got {POST_TARGET_DEPTH_LR_RAMP_DIR!r}"
 
 
 def zeropower_via_newtonschulz5(G: Tensor) -> Tensor:
@@ -652,9 +664,23 @@ class Muon(torch.optim.Optimizer):
                     self.attn_soap_kind[id(p)] = "v"
                 elif n.endswith(".attn.proj.weight"):
                     self.attn_soap_kind[id(p)] = "proj"
-        params = sorted([p for _, p in named_params], key=lambda x: x.size(), reverse=True)
+        # Per-block param groups (PR #1468): named_params come from model.blocks.named_parameters(),
+        # so the first dotted segment is the block index (0 = closest to embed, 11 = closest to lm_head).
+        # Grouping by block exposes a per-depth LR knob that the post-target depth-linear ramp uses.
+        block_groups: dict[int, list[Tensor]] = {}
+        for n, p in named_params:
+            block_idx = int(n.split(".", 1)[0])
+            block_groups.setdefault(block_idx, []).append(p)
+        param_groups = []
+        for block_idx in sorted(block_groups.keys()):
+            params = sorted(block_groups[block_idx], key=lambda x: x.size(), reverse=True)
+            param_groups.append({
+                "params": params,
+                "block_idx": block_idx,
+                "name": f"muon_block_{block_idx}",
+            })
         defaults = dict(lr=lr, weight_decay=weight_decay, mu=mu)
-        super().__init__(params, defaults)
+        super().__init__(param_groups, defaults)
 
     @torch.no_grad()
     def step(self):
@@ -866,6 +892,12 @@ if dist.get_rank() == 0:
             "optimizer/attn_soap_trust_threshold": ATTN_SOAP_TRUST_THRESHOLD,
             "optimizer/ns5_iters": NS5_ITERS,
             "optimizer/wd_aux": WD_AUX,
+            "optimizer/post_target_depth_lr_ramp_enabled": POST_TARGET_DEPTH_LR_RAMP_ENABLED,
+            "optimizer/post_target_depth_lr_ramp_start": POST_TARGET_DEPTH_LR_RAMP_START,
+            "optimizer/post_target_depth_lr_ramp_end": POST_TARGET_DEPTH_LR_RAMP_END,
+            "optimizer/post_target_depth_lr_ramp_lo": POST_TARGET_DEPTH_LR_RAMP_LO,
+            "optimizer/post_target_depth_lr_ramp_hi": POST_TARGET_DEPTH_LR_RAMP_HI,
+            "optimizer/post_target_depth_lr_ramp_dir": POST_TARGET_DEPTH_LR_RAMP_DIR,
             "optimizer/recipe": "contra-muon + normuon-lite + soap-on-mlp + soap-on-attn-trust-gate (pre-NS5, record #14 + record #16)",
         },
     )
@@ -904,7 +936,7 @@ for trial_idx in range(args.num_trials):
                        betas=(0.8, 0.95), eps=1e-10, weight_decay=0, fused=True)
     optimizer2 = Muon([(n, p) for n, p in model.blocks.named_parameters() if p.ndim >= 2],
                       lr=MUON_LR, weight_decay=MUON_WEIGHT_DECAY, mu=MU)
-    optimizer2.param_groups[0]["name"] = "muon_blocks"
+    # Each Muon param_group is auto-named muon_block_{block_idx}. Per-depth LR ramp keys off "block_idx".
     optimizers = [optimizer1, optimizer2]
     assert set(p for opt in optimizers for group in opt.param_groups
                for p in group["params"]) == set(model.parameters())
@@ -931,10 +963,26 @@ for trial_idx in range(args.num_trials):
                 cur_mu = MU_COOLDOWN_START + (MU_COOLDOWN_END - MU_COOLDOWN_START) * t
         else:
             cur_mu = MU + (MU_END - MU) * progress
+        # PR #1468: depth-linear LR ramp active in [START, END). Multiplier per block_idx
+        # uses base = initial_lr * eta, so the ramp does not compound across steps and
+        # auto-deactivates outside the window (set_hparams re-resets lr every call).
+        apply_depth_ramp = (
+            POST_TARGET_DEPTH_LR_RAMP_ENABLED
+            and POST_TARGET_DEPTH_LR_RAMP_START <= step < POST_TARGET_DEPTH_LR_RAMP_END
+        )
         for opt in optimizers:
             for group in opt.param_groups:
-                group["lr"] = group["initial_lr"] * eta
-                if group.get("name") == "muon_blocks":
+                base_lr = group["initial_lr"] * eta
+                if apply_depth_ramp and "block_idx" in group:
+                    t = group["block_idx"] / 11.0  # n_blocks - 1
+                    if POST_TARGET_DEPTH_LR_RAMP_DIR == "front_up":
+                        mult = POST_TARGET_DEPTH_LR_RAMP_HI * (1 - t) + POST_TARGET_DEPTH_LR_RAMP_LO * t
+                    else:  # front_down
+                        mult = POST_TARGET_DEPTH_LR_RAMP_LO * (1 - t) + POST_TARGET_DEPTH_LR_RAMP_HI * t
+                    group["lr"] = base_lr * mult
+                else:
+                    group["lr"] = base_lr
+                if "block_idx" in group:
                     group["mu"] = cur_mu
 
 
@@ -1030,6 +1078,35 @@ for trial_idx in range(args.num_trials):
         histogram_due = (step == 0 or (step + 1) % args.histogram_interval == 0 or step + 1 == train_steps)
         slope_due = (train_step % slope_interval == 0 or train_step == train_steps)
         wandb_step = trial_idx * (train_steps + 1) + train_step
+        # PR #1468: post-target depth-LR ramp bookend telemetry (activation + last active step).
+        if POST_TARGET_DEPTH_LR_RAMP_ENABLED and dist.get_rank() == 0:
+            ramp_phase = None
+            if step == POST_TARGET_DEPTH_LR_RAMP_START:
+                ramp_phase = "activation"
+            elif step == POST_TARGET_DEPTH_LR_RAMP_END - 1:
+                ramp_phase = "last_active"
+            if ramp_phase is not None:
+                print0(
+                    f"[POST_TARGET_DEPTH_LR_RAMP] step={step} phase={ramp_phase} "
+                    f"dir={POST_TARGET_DEPTH_LR_RAMP_DIR} hi={POST_TARGET_DEPTH_LR_RAMP_HI} "
+                    f"lo={POST_TARGET_DEPTH_LR_RAMP_LO}",
+                    console=True,
+                )
+                ramp_metrics = {"trial": trial_idx, "train/step": step,
+                                "train/post_target_depth_ramp/phase_step": step}
+                for group in optimizer2.param_groups:
+                    if "block_idx" not in group:
+                        continue
+                    b = group["block_idx"]
+                    eff_lr = group["lr"]
+                    mult = eff_lr / group["initial_lr"] if group["initial_lr"] else 0.0
+                    print0(
+                        f"  block_{b:02d} effective_lr={eff_lr:.6f} mult_vs_initial={mult:.4f}",
+                        console=True,
+                    )
+                    ramp_metrics[f"train/post_target_depth_ramp/effective_lr_per_block_{b}"] = eff_lr
+                    ramp_metrics[f"train/post_target_depth_ramp/mult_per_block_{b}"] = mult
+                wandb.log(ramp_metrics, step=wandb_step)
         if dist.get_rank() == 0:
             train_loss_history.append((train_step, train_loss))
         if dist.get_rank() == 0 and slope_due:
