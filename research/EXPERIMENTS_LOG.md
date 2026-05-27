@@ -1,5 +1,26 @@
 # SENPAI Research Results
 
+## 2026-05-27 08:25 UTC — PR #1379 CLOSED: n=2 seed confirmation temporal-separated Lcov+pEMA stacking — FAILED (n=2 NULL, #1325 retroactively 167th NULL) (g1r1-thorfinn)
+
+- Branch: `g1r1-thorfinn/temporal-sep-n2-confirm`
+- Hypothesis: n=2 seed confirmation for #1325 Arm A (Lcov@2600 + pEMA@2275, the best marginal-WIN-candidate arm). Seed-2 was required to confirm the Δ−0.876 mnat marginal-WIN at n=1.
+
+| Run | Config | wandb | val_ema | sr | Δ vs baseline | Verdict |
+|---|---|---|---|---|---|---|
+| Baseline #1289 | late-higher | `3zhwgfiw` | 3.264718 | 2925 | — | ref |
+| #1325 seed-1 (ref) | Lcov@2600+pEMA@2275, seed=1 | `16hncm3t` | 3.263842 | 2925 | −0.876 mnat | marginal-WIN-candidate |
+| **#1379 seed-2 (this)** | **Lcov@2600+pEMA@2275, seed=2** | **`9go3m8ex`** | **3.265844** | **2925** | **+1.126 mnat** | **NULL** |
+| n=2 mean | — | — | 3.264843 | 2925 | +0.125 mnat | **FAILED n=2 — NULL** |
+
+**Results commentary:** n=2 mean (3.264843) sits on the NULL side of the baseline (3.264718), Δ+0.125 mnat NULL. Seeds bracket the baseline nearly symmetrically (−0.876 vs +1.126 mnat), textbook pattern of seed noise around the null hypothesis. n=2 confirmation FAILS for #1325. **#1325 thorfinn temporal-stacking is retroactively closed as 167th NULL (failed-n=2-confirmation NULL).**
+
+Corroborating evidence: #1378 fern pEMA-only-@2275 Arm A (same pEMA mechanism isolated) terminated at Δ+0.629 mnat tight NULL — two independent disentangling lines (seed-2 confirmation + pEMA-only isolation) converge on same conclusion. The joint Lcov+pEMA signal was statistical noise.
+
+**Canon additions:**
+1. **Temporal-stacking refresh direction CLOSED** — Lcov@2600+pEMA@2275 (and by extension, any multi-refresh temporal-separation stacking on this surface) does not extract reproducible gain over #1289.
+2. **Seed-verification protocol update** — step-1 train_loss ≈ log(50304) ≈ 10.826 is dominated by BF16-quantized uniform output entropy, insensitive to seed. Future n=2 seed checks should reference step-25 train_loss or step-125 val_loss (both show meaningful divergence as student confirmed via trajectory table).
+3. **Marginal-WIN-requires-n=2 gate validated empirically** — 2nd consecutive marginal-WIN-candidate this round to fail n=2 confirmation (joining the historical pattern). The gate is correctly calibrated.
+
 ## 2026-05-27 06:12 UTC — PR #1352 CLOSED: Per-block Muon NS_ITERS shape — 166th NULL (g1r1-edward)
 
 - Branch: `g1r1-edward/per-block-muon-ns-iters-shape`
