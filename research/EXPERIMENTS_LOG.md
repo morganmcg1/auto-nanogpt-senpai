@@ -1,5 +1,41 @@
 # SENPAI Research Results — auto-nanogpt-1gpu-r5
 
+## 2026-05-27 04:30 — PR #1330: AdamW aux eps pruning ablation (tanjiro)
+- branch: g1r5-tanjiro/adamw-aux-eps-pruning
+- hypothesis: "AdamW aux eps=1e-10 (hardcoded line 843) is either FFS-load-bearing in lm_head small-update regime or value-cosmetic across [1e-12, 1e-8]" (PR predeclared 55% all-cosmetic / 25% D/E catastrophic / 15% mixed / 5% surprise)
+- verdict: **CLOSED clean-NEG-WIDE-COSMETIC** [FFS-primary, 15th stack-component closure]
+- results (5-cell sweep):
+  | Cell | eps | FFS | val/loss | Δbase (σ_single) | W&B id |
+  |:----:|:---:|:---:|:--------:|:----------------:|:------:|
+  | A | 1e-10 (ctrl) | 3025 | 3.26045 | −1.30σ | bs7m8y7q |
+  | **B★** | **1e-8** | **3025** | **3.26049** | **−1.23σ** | ynfpdrr2 |
+  | C | 1e-12 | 3025 | 3.26028 | −1.59σ | f25u29np |
+  | D | 1e-6 | 3050 | 3.26257 | +2.27σ | 2fc7ttxr |
+  | **E (falsifier)** | **1e-4** | **3025** | **3.25925** | **−2.32σ** | 4xfbvi92 |
+
+- mechanism findings (4):
+  1. **eps COSMETIC across 8 orders of magnitude [1e-12, 1e-4]** — telemetry `sqrt_v_lm_head_p50 ≈ 0.61` dominates eps for ~99% of directions. Denominator is sqrt(v)+eps and sqrt(v) >> eps for nearly all directions in any reasonable eps band.
+  2. **FALSIFIER DIDN'T FALSIFY** — Cell E (1e-4) was predicted catastrophic but tied baseline FFS and posted LOWEST val/loss (3.25925, below n=1 gate of 3.260628). Per FFS-primary directive #1262, this is NOT alive (FFS=3025 not ≤2975); val/loss alone insufficient.
+  3. **Dose-response ONLY in `lm_head_weight_norm`** — monotone 806→817→806→749→730 across A/B/C/D/E. Larger eps damps low-v direction updates → lm_head grows less. Real mechanism but doesn't propagate to FFS/val at this scale; quantitative slack in lm_head training intensity exists.
+  4. **AdamW aux tetrad 3/4 CLOSED with mixed signature**: β1 narrow-basin load-bearing (#1310), β2 monotone-prefers-higher (#1321), ε WIDE-COSMETIC (this). Joint claim emerging: `(0.8, 0.95, 1e-10)` tuple has 2/3 elements value-cosmetic with only β1 narrowly tight.
+
+- cluster connections:
+  - **AdamW aux tetrad almost closed**: only wd (#1334, in flight) remains. If wd closes NEG too, the AdamW aux block could be defaulted to PyTorch values with zero FFS impact.
+  - **Dose-response without FFS impact** is a recurring signature in the cluster — see #1326 askeladd scalars cooldown (timing dose-response without FFS), #1276 fern cooldown_frac (LR-at-crossing dose-response without FFS-positive). Suggests the FFS-load-bearing components are NARROW and ORTHOGONAL to broad dose-response axes.
+
+- decision (FFS-primary):
+  - No Cell ≤ 2975 → **no n=4 promotion per directive #1262**.
+  - Cell E val=3.25925 below n=1 gate but FFS=3025 not alive — student correctly noted this doesn't qualify.
+  - Close clean-NEG with wide-cosmetic mechanism finding.
+
+- follow-up assignment: tanjiro → **#1387 LM_HEAD-LR pruning**:
+  - FIRST SENPAI test of hardcoded `lr=1/320 = 0.003125` on the `adam_lm_head` group (line 841).
+  - lm_head currently has LOWEST aux LR (96× smaller than embed lr=0.3, 9.6× smaller than scalars lr=0.03).
+  - Cross-cluster with #1275 scalars-LR finding (scalars wanted HIGHER not lower) — does lm_head follow the same direction?
+  - 5-cell A=1/320 ctrl / B★=1/160 (2×) PRIMARY / C=1/80 (4×) / D=1/640 (0.5×) / E=1/40 (8×) falsifier.
+  - Adds `--lr_lm_head` CLI flag, replaces hardcoded 1/320 on line 841.
+  - Telemetry: `lm_head_weight_norm`, `lm_head_grad_norm_p50`, `lm_head_update_norm_p50`.
+
 ## 2026-05-27 02:15 — PR #1326: Scalars LR cooldown decoupling (askeladd)
 - branch: g1r5-askeladd/scalars-lr-cooldown
 - hypothesis: "Body matrices (Muon+SOAP groups) and scalars (LN gains+biases, ~150 params) have DIFFERENT optimal cooldown phases — scalars can stay at full LR longer because their per-element gradient is high-SNR and stale-inertia is less of a risk" (PR predeclared 50% prior toward null mechanism, 30% reverse, 20% positive)
