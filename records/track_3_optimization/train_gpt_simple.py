@@ -71,6 +71,12 @@ def parse_args():
                         help="LR for AdamW adam_scalars group (RMSNorm gains; "
                              "params with ndim < 2). Default 0.01 — hardcoded, "
                              "never ablated. ~20K params total in this model.")
+    parser.add_argument("--adamw_aux_beta2", type=float, default=0.95,
+                        help="AdamW aux 2nd-moment EMA decay (beta2). Default 0.95 "
+                             "(current hardcoded value). Controls how quickly v_t "
+                             "forgets past gradient magnitudes on the aux optimizer "
+                             "(embed, lm_head, scalars). Higher = more stable, "
+                             "lower = more reactive to recent gradients.")
     parser.add_argument(
         "--depth_init_mode",
         type=str,
@@ -765,6 +771,8 @@ if dist.get_rank() == 0:
             "wd_schedule": args.wd_schedule,
             "lr_scalars": args.lr_scalars,
             "depth_init_mode": args.depth_init_mode,
+            "adamw_aux_beta1": 0.8,
+            "adamw_aux_beta2": args.adamw_aux_beta2,
         },
     )
 
@@ -840,7 +848,7 @@ for trial_idx in range(args.num_trials):
     optimizer1 = AdamW([dict(params=[model.embed.weight], lr=0.3, name="adam_embed"),
                         dict(params=[model.proj.weight], lr=1/320, name="adam_lm_head"),
                         dict(params=[p for p in model.parameters() if p.ndim < 2], lr=args.lr_scalars, name="adam_scalars")],
-                       betas=(0.8, 0.95), eps=1e-10, weight_decay=0, fused=True)
+                       betas=(0.8, args.adamw_aux_beta2), eps=1e-10, weight_decay=0, fused=True)
     named_blocks = [(n, p) for n, p in model.blocks.named_parameters() if p.ndim >= 2]
     mlp_named = [(n, p) for n, p in named_blocks
                  if n.endswith(".mlp.fc.weight") or n.endswith(".mlp.proj.weight")]
@@ -1027,6 +1035,39 @@ for trial_idx in range(args.num_trials):
                 per_group_metrics["train/wd_attn_now"] = current_wds.get("muon_attn", 0.0)
                 per_group_metrics["train/wd_schedule_progress"] = train_step / train_steps
                 wandb.log(per_group_metrics, step=wandb_step)
+        if telemetry_due and dist.get_rank() == 0:
+            aux_metrics = {
+                "trial": trial_idx,
+                "train/step": train_step,
+                "adamw_aux/beta2_eff": float(args.adamw_aux_beta2),
+            }
+            aux_eps = 1e-10
+            for group in optimizer1.param_groups:
+                group_name = group.get("name", "adam_unknown")
+                v_sum = 0.0
+                v_sq_sum = 0.0
+                v_count = 0
+                v_max_val = 0.0
+                sqrt_v_sum = 0.0
+                for p in group["params"]:
+                    state = optimizer1.state.get(p, None)
+                    if state is None or "exp_avg_sq" not in state:
+                        continue
+                    v = state["exp_avg_sq"].detach().float()
+                    v_sum += float(v.sum().item())
+                    v_sq_sum += float(v.square().sum().item())
+                    v_count += int(v.numel())
+                    v_max_val = max(v_max_val, float(v.max().item()))
+                    sqrt_v_sum += float(v.sqrt().sum().item())
+                if v_count == 0:
+                    continue
+                sqrt_v_mean = sqrt_v_sum / v_count
+                aux_metrics[f"adamw_aux/v_t_norm/{group_name}"] = v_sq_sum ** 0.5
+                aux_metrics[f"adamw_aux/v_t_mean/{group_name}"] = v_sum / v_count
+                aux_metrics[f"adamw_aux/v_t_max/{group_name}"] = v_max_val
+                aux_metrics[f"adamw_aux/sqrt_v_t_mean/{group_name}"] = sqrt_v_mean
+                aux_metrics[f"adamw_aux/effective_lr/{group_name}"] = group["lr"] / (sqrt_v_mean + aux_eps)
+            wandb.log(aux_metrics, step=wandb_step)
         if dist.get_rank() == 0 and optimizer2.cos_sims_buffer:
             cs_names = list(optimizer2.cos_sims_buffer.keys())
             cs_tensors = list(optimizer2.cos_sims_buffer.values())
