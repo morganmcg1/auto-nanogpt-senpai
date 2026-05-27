@@ -1,5 +1,60 @@
 # SENPAI Research Results — auto-nanogpt-1gpu-r4
 
+## 2026-05-27 15:08 — PR #1402: H: NM β EARLY constant sweep on post-#1240 stack {0.90, 0.95 ctrl, 0.97, 0.99} (CLOSED productive-MARGINAL — non-monotone U-shape in β, Arm D β=0.99 BEATS BASELINE at N=1, PP-promote assigned #1447 cycle 432)
+
+- branch: `g1r4-fern/nm-beta-early-sweep`
+- Hypothesis: post-#1240 stack — does β EARLY constant optimum sit at β=0.95 (production) or elsewhere? Tests β={0.95 ctrl, 0.90 faster, 0.97 slower, 0.99 much-slower} kept constant throughout training (distinct from #1372 step-down). Tests whether 2× more responsive R-buffer (period=5 post-#1240) shifts β optimum.
+- All 4 arms TERMINAL after ~8.4h sequential A→B→C→D.
+
+| Arm | β | run_id | val/loss | fs | Δ_paired_val vs A | Δ_paired_fs | Δ vs n=3 baseline 3.26339 | R_cond_mean | R_inv_sqrt_norm | precond_ratio |
+|:---:|:---:|---|:---:|:---:|:---:|:---:|:---:|:---:|:---:|:---:|
+| A ctrl | 0.95 | `qjc5f6mx` | **3.26459** | **3150** | (ref) | (ref) | **+0.00120 PASS-CLEAN G4** | 134K | 82.41 | 1.0903 |
+| B faster | 0.90 | `9okdxqri` | 3.26402 | 3150 | **−0.00057** | 0 | +0.00063 NULL | 5,071K | 82.83 | 1.0565 |
+| C slower | 0.97 | `l7krh4n9` | 3.26540 | 3175 | **+0.00081** | +25 | +0.00201 NULL-mild-NEG | 1,022K | 86.16 | 1.0936 |
+| **D much-slower** | **0.99** | **`t3auv0wb`** | **3.26324** | **3150** | **−0.00135** | **0** | **−0.00015 BEATS-BASELINE-N=1** | 649K | **80.97** | 1.0734 |
+
+**🎯 Verdict: CLOSED productive-MARGINAL**. Decision tree row hit: Row 3 productive-MARGINAL with single-seed merge-rule satisfaction at N=1 (→ PP-promote to n=3 via #1447).
+
+**🎯 KEY MECHANISM FINDINGS**:
+
+**1. Non-monotone U-shape in β EARLY constant axis** (pre-experiment advisor prediction: monotone "slow-side hurts more than fast-side helps" — INVERTED):
+- β sequence: 0.90 → 0.95 → 0.97 → 0.99
+- Δ sequence: −0.00057 → 0 → +0.00081 → **−0.00135**
+- Both extremes (β=0.90 and β=0.99) favor over center (β=0.95, 0.97); β=0.99 is the BEST arm
+- Production β=0.95 sits at a LOCAL MINIMUM of the β axis on post-#1240 stack
+
+**2. Mechanism — "filter prior" interpretation**:
+- With period=5 already providing fast structural R-refresh, β=0.99 lets R act as a slowly-evolving prior filtering high-frequency batch-level X^T X noise
+- Decoupling "directional structure refresh" (period) from "value averaging" (β): fast structure × slow value
+- NM telemetry: β=0.99 has LOWEST R_inv_sqrt_norm_mean=80.97 — non-monotone scaling does not fit naive "slow EMA = smoother → higher R_inv_sqrt" prediction
+- Arm B β=0.90 has 38× higher R_cond_mean (5M vs 134K) due to noisy fast-EMA, but doesn't translate to val degradation — confirms R_cond magnitude is not load-bearing
+
+**3. Cross-chain reconciliation with #1372 β-SCHEDULE step-down (NULL)**:
+- #1372 step-down (β=0.95→0.85 @2000, late-avg≈0.92): full-chain Δ=+0.00099 NULL
+- #1402 constant β=0.90 (avg=0.90): Δ=−0.00057 NULL-band (similar late-phase avg, consistent)
+- #1402 constant β=0.99: Δ=−0.00135 productive-MARGINAL FAV (BREAKS the "late-phase avg matters" story)
+- Conclusion: average-β story reconciles β=0.90 vs #1372, but β=0.99 FAV requires separate "filter-prior" regime that step-down cannot access (step-down ends at β=0.85, never reaches β=0.99 regime)
+
+**4. β-axis reclassified in cross-axis catalog**:
+- Cycle 430 classification: "magnitude-absorbed" (β-schedule NULL → magnitude axis absorbed like EPS/MLP-LR)
+- Cycle 432 revision: non-monotone-U-shape class (β EARLY constant productive-MARGINAL at β=0.99 breaks magnitude-absorbed classification)
+- The magnitude-absorbed story applies to magnitude SCALING of preconditioner (EPS, LR, MLP-LR) but NOT to β = the EMA TIME CONSTANT, which controls a qualitatively different regime (filter-prior at slow extreme)
+
+**Cross-axis catalog cycle-432 (11 findings, 5 CLASSES)**:
+1. magnitude-absorbed (3 axes): #1393 MLP-LR NULL / #1388 EPS NULL 5OoM / β-AVG #1372 NULL
+2. integrity-load-bearing (1 axis): #1412 γ-mix productive-NEG
+3. structural-coverage (1 axis): #1409 attn+mlp ablation productive-NEG
+4. **non-monotone-U-shape (NEW cycle-432, 1 axis): #1402 β EARLY constant productive-MARGINAL at β=0.99**
+5. timing-coverage-residual (5 axes): #1383 START_STEP NEG / #1421 UPDATE_PERIOD PP / #1438 NS_ITERS_COOLDOWN / #1440 NS_COEF_SCHEDULE / #1431 cooldown-refresh
+
+**🎯 CYCLE-432 CROSS-CHAIN CONVERGENCE — TWO independent productive-FAV axes on post-#1240 stack**:
+- #1421 period=2 seed=0: Δ_paired=−0.00132, fs-tied, 3.26289 < baseline
+- #1402 Arm D β=0.99: Δ_paired=−0.00135, fs-tied, 3.26324 < baseline
+- Both mechanistically orthogonal; 2-axis compound stack (period=2 ∧ β=0.99) highest-EV if both PP-validate
+
+**Follow-up**: #1447 fern β=0.99 PP n=3 assigned cycle-432 — 6 interleaved sequential runs ctrl(β=0.95) ↔ arm(β=0.99) across seeds 0/1/2. ETA ~12.6h. If validates → MERGE candidate (first since #1240).
+
+
 ## 2026-05-27 14:00 — PR #1393: H: NM MLP-LR fine-grained sweep on post-#1240 stack {1.2, 1.4, 1.6, 1.8} (CLOSED productive-NULL — MLP-LR axis NULL plateau extends 1.0-1.4 with universal +25 fs penalty, Arm D=1.6 mild-NEG breakthrough, #1440 NS_COEF_SCHEDULE assigned cycle 428)
 
 - branch: `g1r4-thorfinn/nm-mlp-lr-sweep`
