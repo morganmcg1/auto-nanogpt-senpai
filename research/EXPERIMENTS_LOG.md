@@ -1,3 +1,26 @@
+## 2026-05-27 21:00 — PR #1454: H217 nezuko EMA-normalized blend diagnostic (H208 mechanism N vs D resolution) — CLOSED (72nd NULL/NEG + 🎯 programme finding #40-D graduates: post-NS5 EMA damage is direction-bias-dominated, not norm-cancellation)
+
+- Branch: `g1r3-nezuko/ema-norm-blend`
+- Hypothesis: H208 post-NS5 EMA showed +25 FFS NEG with `ema_norm_ratio=0.21-0.75` (NOT 1.0). Two candidate damage mechanisms: (N) NORM-cancellation vs (D) DIRECTION-bias. H217 isolates these by renormalizing EMA buffer to |U_t| Frobenius norm before blending.
+- Results:
+
+  | Arm | α | normalize | W&B | val/loss | FFS | Δval vs CTRL | ΔFFS vs CTRL |
+  |---|---|---|---|---|---|---|---|
+  | arm_a CTRL | 1.0 | 0 | `a2g1zjvf` | 3.26969 | **3050** | (ref) | (ref, +25 soft bit-id drift) |
+  | arm_b EMA_NORM | 0.7 | 1 | `2za3mmjk` | **3.27139** | **3100** | **+0.00170** | **+50 NEG** |
+
+- **arm_a bit-identity gate PASSED**: step-0 val_loss=10.82583 exact match to H203 baseline. arm_a FFS=3050 confirms 3rd instance of soft bit-id drift (H213 alphonse, H217 nezuko arm_a both FFS=3050; H212 thorfinn arm_a FFS=3025 exact). Drift consistent with ~0.34σ FFS noise floor.
+- **arm_b telemetry — DECISIVE for mechanism (D)**:
+  - `ema_norm_ratio` mean=0.5964 (matched smoking-gun prediction 0.21-0.75) — confirmed EMA buffer is ~60% of |U_t| pre-renorm
+  - `renormalized` always 1.0 — norm preservation fired reliably
+  - `current_vs_ema_cos_sim` mean=0.5365 — temporal directions only weakly aligned (large angular deflection in raw EMA)
+  - `blend_vs_current_cos_sim` mean=0.9529 → **~17.6° direction deflection in final blend even AFTER norm preservation**
+- **🎯 Programme finding #40-D graduates** (refines finding #40 from H208): Post-NS5 EMA damage is **DIRECTION-BIAS-dominated**, not norm-cancellation. The persistent ~17.6° rotation lives in the temporal-direction signal itself (averaging across orthogonal post-NS5 directions cancels in direction space, not norm). Cannot be erased by norm correction.
+- **10-mechanism NS5-axis cross-finding consolidated** (extends 8-mechanism from H205): H191 AdaMuon + H193 NS5-iters + H195 Cautious + H196 GC + H199 Dual-EMA + H201 grad-noise + H205 Soft Polar + H206 polynomial-path + **H208 vanilla post-NS5 EMA + H217 norm-preserved post-NS5 EMA**. ALL NULL/NEG on body update spectral content modification.
+- **Excellent diagnostic execution by nezuko**: Single-variable comparison (normalize=0 vs normalize=1) cleanly distinguished the two candidate mechanisms. Bit-identity gate passed. Telemetry comprehensive. arm_b lagged by +50 FFS (within predicted NEG-DIRECTION range), validating mechanism (D).
+- **Suggested follow-up rejection (advisor)**: α-sweep on normalized EMA correctly abandoned — mechanism D cannot be inverted by α. Anti-EMA staleness diagnostic is interesting scientifically but doesn't affect merge decisions on this stack.
+- **Next assignment**: **H223 nezuko (PR #1474)**: aux AdamW ε ablation + sweep. 3-arm CTRL ε=1e-6 (current baseline) / EPS_1E8 ε=1e-8 (PyTorch default — pruning the non-default customization) / EPS_1E4 ε=1e-4 (eps-dominated denominator). 19th NEW MECHANISM CLASS: aux numerical-conditioning hyperparameter ablation. Tests if ε=1e-6 is load-bearing for embed numerical stability or vestigial customization.
+
 ## 2026-05-27 20:30 — PR #1451: H215 fern RESET_1500 × cosine cooldown compose (H207 + H203 additivity test) — CLOSED (71st NULL/NEG + 🎯 programme finding #45 candidate state-reset signal is linear-cooldown-specific, 1st compose-test result NEG)
 
 - Branch: `g1r3-fern/momentum-reset-cosine-compose`

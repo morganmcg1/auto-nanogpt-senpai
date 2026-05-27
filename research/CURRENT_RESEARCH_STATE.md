@@ -1,14 +1,22 @@
 # SENPAI Research State — auto-nanogpt-1gpu-r3
 
-- **Last updated:** 2026-05-27 20:30 UTC
+- **Last updated:** 2026-05-27 21:00 UTC
 
 ---
 
 ## 🏆 CURRENT BASELINE: FFS=3025, val=3.26830 — PR #1398 H203 tanjiro cosine cooldown shape
 
-**Baseline shift alert RESOLVED**: All PRs from the pre-H203-merge cohort (H204-H213) have now closed or completed (H204-H213 all closed NULL/NEG). All remaining in-flight PRs (H214-H222) are on the cosine baseline.
+**Baseline shift alert RESOLVED**: All PRs from the pre-H203-merge cohort (H204-H213) have now closed or completed (H204-H213 all closed NULL/NEG). All remaining in-flight PRs (H214-H223) are on the cosine baseline.
 
 ---
+
+## 🎯 Cycle ~500 (20:55-21:05 UTC) — H217 nezuko CLOSED (72nd NULL/NEG, EMA-norm preservation does NOT rescue +50 FFS lag, programme finding #40-D graduates: post-NS5 EMA damage is direction-bias-dominated not norm-cancellation, 10-mechanism NS5-axis cross-finding consolidated); H223 nezuko ASSIGNED aux AdamW ε ablation (19th NEW MECHANISM CLASS: aux numerical-conditioning hyperparameter ablation)
+
+- **🎯 H217 nezuko CLOSED — 72nd NULL/NEG + programme finding #40-D graduates**: arm_a CTRL (α=1.0, normalize=0) val=3.26969/FFS=3050 (+25 soft bit-id drift, step-0 val 10.82583 PASS); arm_b EMA_NORM (α=0.7, β=0.9, normalize=1) val=3.27139/FFS=3100 (+0.00170 val NEG, +50 FFS NEG). Norm-preservation rescued |U_ema|=|U_t| Frobenius equality but did NOT rescue +50 FFS lag.
+- **🎯 Decisive telemetry**: blend_vs_current_cos_sim=0.953 → ~17.6° direction deflection even AFTER norm preservation. The rotation lives in temporal-direction signal itself (averaging across orthogonal post-NS5 directions causes cancellation IN DIRECTION SPACE), not in norm. Mechanism (D) DIRECTION-BIAS confirmed; finding #40-D graduates from candidate to programme finding.
+- **🎯 10-mechanism NS5-axis cross-finding consolidated** (extends 8-mechanism from H205): H191 AdaMuon + H193 NS5-iters + H195 Cautious + H196 GC + H199 Dual-EMA + H201 grad-noise + H205 Soft Polar + H206 polynomial-path + **H208 vanilla post-NS5 EMA + H217 norm-preserved post-NS5 EMA**. ALL NULL/NEG on body update spectral content modification. STOP generating post-NS5 spectral-axis hypotheses.
+- **🎯 H223 nezuko ASSIGNED (PR #1474) — 19th NEW MECHANISM CLASS: aux AdamW numerical-conditioning hyperparameter ablation**: Per launch directive ("pruning ablations of complex stacks" + "schedule ideas"). The aux uses ε=1e-6 (non-default vs PyTorch 1e-8) — inherited from H148+ baseline, never directly ablated. 3-arm CTRL (ε=1e-6 bit-identical baseline) / EPS_1E8 (ε=1e-8 PyTorch default — pruning the customization) / EPS_1E4 (ε=1e-4 eps-dominated denominator). Tests if ε=1e-6 is load-bearing for embed numerical stability (sparse rare-token gradients) or vestigial customization. Zero code changes required (flag exists).
+- **End-of-cycle ~500 portfolio**: H214 askeladd spectral RANK truncation (in flight); H216 frieren Lookahead (sent back — implementation missing); H218 edward depth GROW × cosine compose (sent back — implementation missing); H219 tanjiro LR FLOOR (in flight); H220 thorfinn ATTN/MLP LR split (in flight); H221 alphonse MuLoCo pruning (in flight); H222 fern µ-schedule pruning (in flight); H223 nezuko aux ε ablation (newly assigned). **8/8 students WIP, 0 idle, 0 review-ready.** 19 novel mechanism classes (added aux numerical-conditioning HP ablation). **3 pruning-of-complex-stack experiments in flight** (H221 MuLoCo wrapper, H222 µ-schedule, H223 ε customization).
 
 ## 🎯 Cycle ~490 (20:25-20:35 UTC) — H215 fern CLOSED (71st NULL/NEG, state-reset × cosine compose NEG bilaterally, programme finding #45 candidate state-reset signal LINEAR-cooldown-specific, 1st compose-test result NEG); H222 fern ASSIGNED MuonH µ-schedule pruning ablation (18th NEW MECHANISM CLASS: meta-optimizer momentum-schedule pruning)
 
