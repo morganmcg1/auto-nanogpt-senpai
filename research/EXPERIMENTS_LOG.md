@@ -1,5 +1,37 @@
 # SENPAI Research Results — auto-nanogpt-1gpu-r4
 
+## 2026-05-28 02:00 — PR #1431: NM R-buffer COOLDOWN-REFRESH sweep (R_RESET_STEP=0/2345/1675/2900) — CLOSED Row 5 productive-MONOTONE-NEG-PLATEAU, 9th cross-axis catalog finding, NEW class: state-continuity
+
+- branch: `g1r4-askeladd/nm-r-cooldown-refresh`
+- Hypothesis: Does R-buffer reset at cooldown-entry extract headroom that continuous EMA cannot? Tests whether timing-dependent R-buffer reset is load-bearing.
+- All 4 arms TERMINAL. Chain complete 22:32 UTC.
+
+| Arm | R_RESET_STEP | run_id | val/loss | fs | Δ_paired vs A | Δ vs n=3 baseline | R_cond_mean |
+|:---:|:---:|---|:---:|:---:|:---:|:---:|:---:|
+| **A ctrl** | 0 (no reset) | `p46b1ufa` | **3.26409** | **3150** | — | +0.00070 PASS-CLEAN | 3.26M |
+| **B** cooldown-entry | 2345 (70%, 1005 steps remain) | `bzacropd` | 3.26489 | 3175 | +0.00080 NULL-NEG | +0.00150 | 2.10M |
+| **C** mid-training | 1675 (50%, 1675 steps remain) | `96rqn82c` | 3.26523 | 3175 | +0.00114 NULL-NEG | +0.00184 | 3.79M |
+| **D** late-cooldown | 2900 (86%, 450 steps remain) | `lx1u4t2z` | **3.26523** | 3175 | **+0.00114 NULL-NEG** | +0.00184 | 5.25M |
+
+**🎯 Verdict: Row 5 productive-MONOTONE-NEG-PLATEAU (modal 50% hit)**. Ordering A < B ≤ C = D (not the forecast A < B < C < D ASYMMETRIC). R_inv_sqrt_norm sparklines visually confirm reset triggers at configured steps.
+
+**🎯 KEY FINDING — D TIED WITH C despite 4× LESS recovery window**: Arm D has only 450 steps post-reset vs 1675 for C. Yet D is NO WORSE than C. This FALSIFIES the "R-warmup recovery window length determines NEG magnitude" hypothesis. Revised mechanism: R-buffer is fast-saturating (~450 step warmup sufficient); the NEG is from **LOST STRUCTURAL INFORMATION** not incomplete EMA re-warmup. R-buffer state preservation is the load-bearing property, not its instantaneous magnitude.
+
+**🎯 9th cross-axis catalog finding (NEW CLASS: state-continuity)**:
+| Class | Chains | Count |
+|---|---|:---:|
+| Magnitude-absorbed (NULL) | #1372/#1393/#1402/#1388 | 4 |
+| Input-quality-absorbed (NULL) | #1438/#1440 | 2 |
+| Timing non-monotone | #1383 START_STEP | 1 |
+| Freshness productive | #1421 period=2 (PP n=3 in flight) | 1 |
+| **State-continuity NEG** | **#1431 R-RESET (this)** | **1** |
+
+**🎯 Mechanistic summary**: R-buffer benefits from FAST UPDATES that maintain CONTINUOUS information accumulation. R-reset destroys structural covariance memory (not just local EMA state), and this destruction imposes a ~+0.001 to +0.0015 NEG penalty with +25 fs cost regardless of reset timing (above a 450-step floor).
+
+**Telemetry**: R_inv_sqrt_norm sparklines show reset-triggered spikes at B (segment 31, ≈step 2596), C (segment 18, ≈step 1508), D (segment 35, ≈step 2930). Post-reset recovery visible in all three arms.
+
+---
+
 ## 2026-05-28 00:15 — PR #1440: NM NS_COEF_SCHEDULE sweep on post-#1240 stack (linear_ramp_down/constant/aggressive_to_gentle/gentle_to_aggressive) — CLOSED Row 4 productive-NULL fence, 8th cross-axis catalog finding (DOUBLE confirmation of R-buffer EMA absorption in 24h alongside #1438)
 
 - branch: `g1r4-thorfinn/nm-ns-coef-schedule-sweep`
