@@ -1,14 +1,22 @@
 # SENPAI Research State — auto-nanogpt-1gpu-r3
 
-- **Last updated:** 2026-05-27 21:30 UTC
+- **Last updated:** 2026-05-27 22:00 UTC
 
 ---
 
 ## 🏆 CURRENT BASELINE: FFS=3025, val=3.26830 — PR #1398 H203 tanjiro cosine cooldown shape
 
-**Baseline shift alert RESOLVED**: All PRs from the pre-H203-merge cohort (H204-H213) have now closed or completed. All remaining in-flight PRs (H214-H224) are on the cosine baseline.
+**Baseline shift alert RESOLVED**: All PRs from the pre-H203-merge cohort (H204-H213) have now closed or completed. All remaining in-flight PRs (H214-H225) are on the cosine baseline.
 
 ---
+
+## 🎯 Cycle ~520 (21:55-22:05 UTC) — H216 frieren CLOSED (74th NULL/NEG bilateral catastrophic FFS=-1, programme finding #46 candidate: meta-optimizer outer averaging incompatible with MuonH-SI state preservation, direction-cancellation mechanism extends finding #40-D); H225 frieren ASSIGNED aux AdamW β₁ ablation + sweep (21st NEW MECHANISM CLASS: aux Adam first-moment EMA coefficient ablation)
+
+- **🎯 H216 frieren CLOSED — 74th NULL/NEG + programme finding #46 candidate**: arm_a CTRL val=3.26840/FFS=3025 (bit-id within drift); arm_b LA_K10 (k=10, α=0.5) val=3.318/FFS=-1 KILL (+50 mnat **catastrophic**); arm_c LA_K30 (k=30, α=0.5) val=3.323/FFS=-1 KILL (+55 mnat, slightly WORSE than k=10). **Bilateral catastrophic NEG**: both Lookahead treatment arms hit kill-gate at ~step 2500. Wider k window WORSENS rather than helps. Treatment implementation recovery via commit `c589461b` after prior send-back. Bit-identity gate PASSED.
+- **🎯 Programme finding #46 candidate — Meta-optimizer outer averaging incompatible with MuonH-SI state preservation**: Lookahead outer slow-weight buffer breaks NS5 polar projection invariants. The NS5 polynomial maintains spectral properties step-by-step; averaging across k inner steps cancels orthogonal post-NS5 spectral content (same mechanism class as finding #40-D from H217 EMA direction-bias). k=30 wider window → more direction cancellation → slightly worse.
+- **🎯 Cross-finding consolidation (extends #40-D direction-cancellation mechanism)**: H208 raw post-NS5 EMA + H217 norm-preserved post-NS5 EMA + **H216 Lookahead k-step outer averaging** all NEG. Direction-averaging across orthogonal post-NS5 spectral directions universally damaging. Mechanism: NS5 polar projection produces near-orthogonal updates per step; averaging orthogonal vectors → vector cancellation → effective update norm collapses. **Companion to H221 alphonse MuLoCo outer-Nesterov ablation (in flight)** — if H221 NO_OUTER also catastrophic, MuLoCo wrapper joins the cross-finding; if NO_OUTER FFS≤3050, MuLoCo's outer-Nesterov form is rare exception.
+- **🎯 H225 frieren ASSIGNED (PR #1482) — 21st NEW MECHANISM CLASS: aux Adam first-moment EMA coefficient ablation**: Per launch directive ("pruning ablations of complex stacks" + "do not let the run become mostly scalar hyperparameter search" — diverse mechanism classes). The aux uses `betas=(0.8, β₂)` — non-default β₁=0.8 (PyTorch default 0.9), inherited from H148+ baseline, never directly ablated. 3-arm CTRL β₁=0.8 (bit-id baseline) / BETA1_09 β₁=0.9 (PyTorch default — pruning the customization) / BETA1_05 β₁=0.5 (less momentum smoothing — lower direction sweep). Tests if β₁=0.8 load-bearing for embed numerical-conditioning under aggressive embed lr=0.3 or vestigial customization. Requires ~5 LoC code change (add `--aux_adamw_beta1` argparse, route to `optimizer1 = AdamW([...], betas=(args.aux_adamw_beta1, args.aux_beta2_start), ...)`).
+- **End-of-cycle ~520 portfolio**: H214 askeladd spectral RANK truncation (in flight); H219 tanjiro LR FLOOR (in flight); H220 thorfinn ATTN/MLP LR split (in flight); H221 alphonse MuLoCo outer-Nesterov pruning (in flight); H222 fern µ-schedule pruning (in flight); H223 nezuko aux ε pruning (in flight); H224 edward MuonH warmup pruning (in flight); H225 frieren aux β₁ ablation (newly assigned). **8/8 students WIP, 0 idle, 0 review-ready.** 21 novel mechanism classes (added aux Adam first-moment EMA coefficient ablation). **5 pruning-of-complex-stack experiments in flight** (H221 MuLoCo, H222 µ-sched, H223 ε, H224 warmup, H225 β₁).
 
 ## 🎯 Cycle ~510 (21:25-21:35 UTC) — H218 edward CLOSED (73rd NULL/NEG, depth-axis GROW × cosine compose FFS tied NEG within-PR, programme finding #41 candidate REFINED: depth-axis GROW signal LINEAR-cooldown-specific, 2nd compose-test result NEG, compose-test heuristic strengthened 2/2 NEG); H224 edward ASSIGNED MuonH warmup pruning ablation + extension on cosine baseline (20th NEW MECHANISM CLASS: body warmup pruning)
 

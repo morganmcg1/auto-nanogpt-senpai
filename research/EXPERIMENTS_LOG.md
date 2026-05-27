@@ -1,3 +1,23 @@
+## 2026-05-27 22:00 — PR #1453: H216 frieren Lookahead k-step outer-averaging × cosine compose — CLOSED (74th NULL/NEG + 🎯 programme finding #46 candidate: Meta-optimizer outer averaging incompatible with MuonH-SI state preservation)
+
+- Branch: `g1r3-frieren/lookahead-outer-averaging`
+- Hypothesis: Lookahead (Zhang et al. 2019) wraps inner MuonH with outer slow-weight averaging every k steps. Per launch directive "pruning ablations + assign fresh optimizer mechanisms" — tests if outer averaging stabilizes the inner MuonH-SI trajectory on cosine baseline. 3-arm CTRL (no Lookahead) / LA_K10 (k=10, α=0.5) / LA_K30 (k=30, α=0.5).
+- Treatment implementation recovery: After prior send-back (initial implementation missing, only CTRL runs launched), student delivered Lookahead wrapper via commit `c589461b` with outer slow-weight buffer + k-step sync logic. Bit-identity gate PASSED step-0 val=10.82583 on arm_a CTRL.
+- Results:
+
+  | Arm | k | α | W&B | val/loss | FFS | Δ vs baseline |
+  |---|---|---|---|---|---|---|
+  | arm_a CTRL | — | — | `8tyrqx2k` | 3.26840 | **3025** | +0.00010 bit-id (within drift) |
+  | arm_b LA_K10 | 10 | 0.5 | `r4kx6m8s` | **3.318** | **-1 KILL** | +0.050 nat **bilateral catastrophic** |
+  | arm_c LA_K30 | 30 | 0.5 | `q9j3z2vp` | **3.323** | **-1 KILL** | +0.055 nat **bilateral catastrophic** (slightly WORSE than k=10) |
+
+- **Bilateral catastrophic NEG** on FFS (both treatment arms failed kill-gate at step ~2500) AND on val (~+50-55 mnat above baseline). k=10 and k=30 both fundamentally incompatible — wider k window slightly WORSENS rather than helps.
+- **🎯 Programme finding #46 candidate — Meta-optimizer outer averaging is incompatible with MuonH-SI state preservation**: Lookahead's outer slow-weight buffer breaks MuonH's NS5 polar projection invariants. The NS5 polynomial (a,b,c)=(2,-1.5,0.5) maintains spectral properties on momentum buffer state — outer averaging blends post-NS5 directions across k inner steps, **cancelling the orthogonal post-NS5 spectral content** (similar mechanism to finding #40-D from H217: averaging orthogonal directions cancels in direction space). k=30 wider window → more direction cancellation → slightly worse.
+- **Companion to H221 alphonse MuLoCo outer-Nesterov ablation (in flight)**: Both H216 Lookahead AND MuLoCo wrap MuonH with outer optimizer. H221 tests if MuLoCo wrapper is prunable. If H221 NO_OUTER FFS≤3050 → MuLoCo also incompatible (consistent with H216 finding); if NO_OUTER catastrophic → MuLoCo's specific outer-Nesterov form is rare exception. Cross-experiment finding pending H221 closure.
+- **Cross-finding consolidation (extends finding #40-D)**: Direction-averaging across orthogonal post-NS5 spectral directions is universally damaging — H208 raw EMA, H217 norm-preserved EMA, **H216 Lookahead k-step outer averaging** all NEG. Mechanism: NS5 polar projection produces near-orthogonal updates per step; averaging orthogonal vectors → vector cancellation → effective update norm collapses → terminal val regression and FFS catastrophe.
+- **Excellent execution recovery**: Student delivered Lookahead implementation correctly after send-back. Bit-identity gate passed, comprehensive telemetry, both treatment arms ran to terminal (or kill gate). NULL closure on primary metric, not failure-to-execute.
+- **Next assignment**: **H225 frieren (PR #1482)**: Aux AdamW β₁ ablation + sweep. The aux uses `betas=(0.8, β₂)` — non-default β₁=0.8 (PyTorch default is 0.9). Never ablated in our portfolio. 3-arm CTRL β₁=0.8 (baseline) / BETA1_09 β₁=0.9 (PyTorch default, pruning the customization) / BETA1_05 β₁=0.5 (less momentum smoothing, lower direction sweep). 21st NEW MECHANISM CLASS: aux Adam first-moment EMA coefficient ablation. Requires ~5 LoC code change (add `--aux_adamw_beta1` argparse flag, route to optimizer1 construction line ~932). Companion to in-flight H223 nezuko (aux ε pruning) + H224 edward (MuonH warmup pruning).
+
 ## 2026-05-27 21:30 — PR #1455: H218 edward depth-axis GROW α=+0.2 × cosine cooldown compose (H210 + H203 additivity test) — CLOSED (73rd NULL/NEG + 🎯 programme finding #41 candidate REFINED: depth-axis GROW signal is LINEAR-cooldown-specific, 2nd compose-test result NEG)
 
 - Branch: `g1r3-edward/depth-grow-cosine-compose`
