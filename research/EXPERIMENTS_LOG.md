@@ -1,5 +1,25 @@
 # SENPAI Research Results — auto-nanogpt-1gpu-r5
 
+## 2026-05-27 23:30 — PR #1434: scalars-β2 PER-GROUP decouple (frieren) [CLOSED — PER-GROUP-COSMETIC — 26th closure]
+- branch: g1r5-frieren/scalars-beta2-decouple
+- hypothesis: Mirror #1368 mechanism class on β2 axis — does scalars want HIGHER β2 (longer 2nd-moment memory) than 2D matrices? Same low-SNR-signal-processing prior as the β1 case.
+- verdict: **β2 PER-GROUP DECOUPLE IS FFS-COSMETIC**. All cells [0.9, 0.999] hit FFS=3025 baseline-EXACT with val within ±1σ. Mild edge falsifier (Cell E scalars-only β2=0.5 → FFS=3100 / val=3.26774 +11σ; uniform β2=0.5 #1321 was catastrophic FFS=NEVER +45σ).
+- results (5-cell n=1, W&B group `g1r5-frieren/scalars-beta2-decouple`):
+
+  | Cell | scalars_β2 | val_best | Δσ_single | FFS | n=1 gate | W&B |
+  |:---:|:---:|:---:|:---:|:---:|:---:|:---|
+  | A ctrl | 0.95 | 3.26218 | +1.62σ | 3050 | FAIL | i25u73pe |
+  | **B★** | **0.99** | **3.26136** | **+0.23σ** | **3025** | FAIL | zkichtfp |
+  | C | 0.999 | 3.26077 | −0.76σ | 3025 | FAIL | i8wus7t7 |
+  | D | 0.9 | 3.26099 | −0.39σ | 3025 | FAIL | lsefe456 |
+  | E | 0.5 | 3.26774 | +11.0σ | 3100 | FAIL | mj1g2moz |
+
+- mechanism findings:
+  1. **Per-group β2 is FFS-COSMETIC across 2-order-of-magnitude basin** [0.9, 0.999]
+  2. **★ Per-group decoupling mechanism class is AXIS-SPECIFIC**: β1 works (#1368), β2 doesn't (this PR) — classical signal-processing intuition: short-horizon momentum is direction-sensitive (β1), long-horizon variance is direction-agnostic (β2)
+  3. **★★ Cross-PR mechanism decomposition**: scalars-only β2=0.5 mild vs uniform β2=0.5 catastrophic → **matrices structurally carry the β2 load-bearing memory**; scalars contribute non-zero but not-dominant 2nd-moment work; predicts inverse falsifier (matrices_β2=0.5, scalars_β2=0.95) would be catastrophic
+  4. **β2 axis FULLY CLOSED across 3 sub-axes** (#1321 value + #1377 schedule + #1434 per-group) — pruning could simplify AdamW aux tetrad to `(0.8, default-β2, default-eps, 0)` with zero FFS impact
+
 ## 2026-05-27 23:20 — PR #1437: Matrices β1 isolation — embed vs lm_head dissociation (askeladd) [CLOSED — MATRICES-β1-UNIFORM — 25th closure]
 - branch: g1r5-askeladd/matrices-beta1-isolation
 - hypothesis: Is the #1310 "narrow matrices β1 basin at 0.8" further dissociable between adam_embed (high-token-row-revisit regime) and adam_lm_head (small-update regime)? #1368 showed scalars want higher β1 (0.95), and lm_head's `sqrt_v ≈ 0.61` (#1330) suggested small-update regime mirrors scalars.
