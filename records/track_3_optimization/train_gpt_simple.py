@@ -109,6 +109,11 @@ def parse_args():
     parser.add_argument("--body_init_bottom_layers", type=int,
                         default=int(os.environ.get("BODY_INIT_BOTTOM_LAYERS", "6")),
                         help="Number of bottom layers to damp for --body_init=orthogonal_bottom_damp (default 6 = bottom half of 12 layers).")
+    parser.add_argument("--muonh_ns5_iters_final_window", type=int,
+                        default=int(os.environ.get("MUONH_NS5_ITERS_FINAL_WINDOW", "12")),
+                        help="NS5 iteration count for the FINAL window (last 200 steps, "
+                             "approximately the FFS crossing zone). Default 12 = bit-identical baseline. "
+                             "Range: 6-20.")
     args = parser.parse_args()
     args.num_trials = args.num_trials if args.num_trials is not None else (args.legacy_num_trials or 1)
     args.wandb_tags = [tag.strip() for tag in args.wandb_tags.split(",") if tag.strip()]
@@ -544,7 +549,7 @@ class GPT(nn.Module):
 #              Optimizer               #
 ########################################
 
-def zeropower_via_newtonschulz5(G: Tensor) -> Tensor:
+def zeropower_via_newtonschulz5(G: Tensor, num_iters: int = 12) -> Tensor:
     assert G.ndim >= 2
     X = G.bfloat16()
     if G.size(-2) > G.size(-1):
@@ -554,7 +559,7 @@ def zeropower_via_newtonschulz5(G: Tensor) -> Tensor:
     X = X / (X.norm(dim=(-2, -1), keepdim=True) + 1e-7)
     # Perform the NS iterations, not optimizing for wallclock speed
     a, b, c = 2, -1.5, 0.5
-    for _ in range(12):
+    for _ in range(num_iters):
         A = X @ X.mT
         B = b * A + c * A @ A
         X = a * X + B @ X
@@ -564,10 +569,10 @@ def zeropower_via_newtonschulz5(G: Tensor) -> Tensor:
     return X
 
 @torch.compile
-def muon_update(grad, momentum, mu=0.95, nesterov=True):
+def muon_update(grad, momentum, mu=0.95, nesterov=True, ns5_iters: int = 12):
     momentum.lerp_(grad, 1 - mu)
     update = grad.lerp_(momentum, mu) if nesterov else momentum
-    update = zeropower_via_newtonschulz5(update)
+    update = zeropower_via_newtonschulz5(update, num_iters=ns5_iters)
     update *= max(1, grad.size(-2) / grad.size(-1))**0.5
     return update
 
@@ -579,7 +584,7 @@ class Muon(torch.optim.Optimizer):
         super().__init__(params, defaults)
 
     @torch.no_grad()
-    def step(self):
+    def step(self, ns5_iters: int = 12):
         world_size = dist.get_world_size()
         rank = dist.get_rank()
         for group in self.param_groups:
@@ -591,7 +596,7 @@ class Muon(torch.optim.Optimizer):
                     state = self.state[p]
                     if len(state) == 0:
                         state["momentum"] = torch.zeros_like(p)
-                    update = muon_update(p.grad, state["momentum"], mu=group["mu"])
+                    update = muon_update(p.grad, state["momentum"], mu=group["mu"], ns5_iters=ns5_iters)
                     p.mul_(1 - group["lr"] * group["weight_decay"])
                     p.add_(update, alpha=-group["lr"])
                 dist.all_gather(params_pad[base_i:base_i + world_size], params_pad[base_i + rank])
@@ -681,7 +686,7 @@ class MuonH(torch.optim.Optimizer):
         self._last_norm_to_radius_max = 0.0
 
     @torch.no_grad()
-    def step(self):
+    def step(self, ns5_iters: int = 12):
         world_size = dist.get_world_size()
         rank = dist.get_rank()
         clip_count_local = 0
@@ -702,7 +707,7 @@ class MuonH(torch.optim.Optimizer):
                         state["momentum"] = torch.zeros_like(p)
                         if hb:
                             state["hyperball_radius"] = p.data.norm().item() * budget_mult
-                    update = muon_update(p.grad, state["momentum"], mu=group["mu"])
+                    update = muon_update(p.grad, state["momentum"], mu=group["mu"], ns5_iters=ns5_iters)
                     if hb and mode == "scale_invariant":
                         # Always-active variant: norm is held at initial value by construction.
                         scale_invariant_update_(p.data, update, group["lr"])
@@ -850,6 +855,8 @@ if dist.get_rank() == 0:
             "muonh_mu_schedule": args.muonh_mu_schedule,
             "muonh_mu_start": args.muonh_mu_start,
             "muonh_mu_end": args.muonh_mu_end,
+            "muonh_ns5_iters_final_window": args.muonh_ns5_iters_final_window,
+            "ns5_iters_cooldown": args.muonh_ns5_iters_final_window,
         },
     )
 
@@ -1169,8 +1176,21 @@ for trial_idx in range(args.num_trials):
         muonh_agc_stats = adaptive_gradient_clip(
             muonh_params_for_agc, args.muonh_agc_clip_ratio, eps=args.muonh_agc_eps,
         )
+        # H193: NS5 iteration count in the FFS-crossing window (last 200 steps).
+        # train_step ranges over [1, train_steps]; we switch on the final 200 steps
+        # inclusive of the boundary. Default flag=12 keeps arm_a bit-identical.
+        ns5_iters_this_step = (
+            args.muonh_ns5_iters_final_window
+            if train_step >= train_steps - 200
+            else 12
+        )
+        if dist.get_rank() == 0 and train_step == max(1, train_steps - 200) and ns5_iters_this_step != 12:
+            print0(f"[H193] NS5 iters switched to {ns5_iters_this_step} at step {train_step} (train_steps={train_steps}, window=last 200 steps)", console=True)
         for opt in optimizers:
-            opt.step()
+            if isinstance(opt, (Muon, MuonH)):
+                opt.step(ns5_iters=ns5_iters_this_step)
+            else:
+                opt.step()
         # Log warmup telemetry every 10 steps during warmup (and at telemetry events
         # afterwards) so we capture the warmup curve at high resolution. Cheap since
         # it's just two floats.
@@ -1262,6 +1282,58 @@ for trial_idx in range(args.num_trials):
             if radius_sample:
                 print0(f"[H148 body_init={args.body_init}] hyperball radii: {radius_sample}",
                        console=True)
+        # H193: NS5 final-window telemetry. Log iters_final_window at five
+        # checkpoints across the final window (advisor wire-check request) plus
+        # the polar_gap_estimate probe at window_start+75 (step 3200 when
+        # train_steps=3325) on ONE body param: the ratio
+        # ||NS5_n(G) - NS5_2n(G)|| / ||NS5_n(G)||. Small (<1e-3) = bf16 floor;
+        # large (>1e-2) = real polar gap.
+        h193_window_start = max(1, train_steps - 200)
+        h193_probe_step = h193_window_start + 75  # 3200 when train_steps=3325
+        # 5 checkpoints across the [window_start, train_steps] window so the
+        # arm-vs-arm iter count is W&B-visible at fine resolution. For default
+        # train_steps=3325: 3125, 3175, 3225, 3275, 3325.
+        h193_log_steps = {
+            h193_window_start,
+            h193_window_start + 50,
+            h193_window_start + 100,
+            h193_window_start + 150,
+            train_steps,
+            h193_probe_step,
+        }
+        h193_log_due = dist.get_rank() == 0 and train_step in h193_log_steps
+        if h193_log_due:
+            h193_metrics = {
+                "trial": trial_idx,
+                "train/step": train_step,
+                "ns5/iters_final_window": ns5_iters_this_step,
+                "ns5/iters_final_window_flag": args.muonh_ns5_iters_final_window,
+            }
+            if train_step == h193_probe_step:
+                probe_param = None
+                for opt in optimizers:
+                    if isinstance(opt, MuonH):
+                        for g in opt.param_groups:
+                            for p in g["params"]:
+                                if p.grad is not None and p.ndim == 2:
+                                    probe_param = p
+                                    break
+                            if probe_param is not None:
+                                break
+                    if probe_param is not None:
+                        break
+                if probe_param is not None:
+                    with torch.no_grad():
+                        n_iters = ns5_iters_this_step
+                        g = probe_param.grad.detach().clone()
+                        ns_n = zeropower_via_newtonschulz5(g.clone(), num_iters=n_iters)
+                        ns_2n = zeropower_via_newtonschulz5(g.clone(), num_iters=2 * n_iters)
+                        gap_num = float((ns_n.float() - ns_2n.float()).norm().item())
+                        gap_den = float(ns_n.float().norm().item()) + 1e-12
+                        h193_metrics["ns5/polar_gap_estimate"] = gap_num / gap_den
+                        h193_metrics["ns5/polar_gap_probe_iters"] = n_iters
+                        h193_metrics["ns5/polar_gap_probe_param_numel"] = int(probe_param.numel())
+            wandb.log(h193_metrics, step=wandb_step)
         model.zero_grad(set_to_none=True)
 
         # MuLoCo outer Nesterov step (Algorithm 1, K=1). Fires every sync_interval
