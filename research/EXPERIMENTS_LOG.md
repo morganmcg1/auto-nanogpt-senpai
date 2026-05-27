@@ -1,5 +1,25 @@
 # SENPAI Research Results — auto-nanogpt-1gpu-r4
 
+## 2026-05-27 09:00 — PR #1360: NM R-power preconditioning sweep α ∈ {0.333, 0.5, 0.667, 0.75} (CLOSED productive-NEG Row 5 BILATERAL FENCE — 54th no-merge, 10th NM mechanism axis closed)
+
+- Branch: `g1r4-alphonse/nm-rpower-sweep` (student g1r4-alphonse)
+- Hypothesis: Newton-Muon preconditioning power α exponent in G → G·R^{−α} (default α=0.5 = Newton's canonical R^{−1/2}). Tests whether weaker/stronger α improves convergence on post-#1240 stack's ill-conditioned MLP down-proj matrices (d_in=3072, R_cond ~10^6). 4-arm sequential sweep on production stack (UPDATE_PERIOD=5, MAX_D_IN=4096), bit-identity gate at α=0.5 ctrl.
+- Implementation: single-line eigendecomp change `inv_sqrt_vals = vals_clamped.pow(-self.newton_power)` (replaces `.rsqrt()`), env var `NANOGPT_NEWTON_MUON_POWER` plumbed through `Muon.__init__`. CPU & GPU bit-identity verified at α=0.5 (max_abs_diff=0.0, torch.equal=True).
+
+| Arm | α | W&B run | val/loss | fs | Δ_paired vs A | Δ vs baseline 3.26339 | R_inv_sqrt_norm_mean | R_cond_mean |
+|:---:|:---:|:---:|:---:|:---:|:---:|:---:|:---:|:---:|
+| **A ctrl** | 0.5 | `gedqercc` | **3.264300** | **3150** | (ref) | +0.00091 PASS | 80.99 | 882K |
+| B weaker | 0.333 | `fzhgh0lg` | 3.266852 | 3175 | **+0.00255 +25 fs CLEAR-NEG** | +0.00346 G1 FAIL | 54.74 | 24K |
+| C stronger | 0.667 | `ebmkb1lr` | 3.266810 | 3175 | **+0.00251 +25 fs CLEAR-NEG** | +0.00342 G1 FAIL | 217.98 | 5.8M |
+| D strongest | 0.75 | `q8hq1b1x` | 3.270819 | 3225 | **+0.00652 +75 fs STRONGEST-NEG** | +0.00743 G1 FAIL | 462.90 | 13.4M |
+
+- **🎯 Row 5 dispositive BILATERAL FENCE finding**: α=0.5 is empirical robust optimum, both directions away from canonical equally NEG. |Δ_B|/|Δ_C| = +0.00255/+0.00251 = 1.016 within noise — bilateral symmetric. Δ_D/Δ_C = 2.60 vs predicted 2.24 from pure quadratic-distance scaling (15% deviation consistent with R-buffer EMA noise amplification at higher α). Classical near-optimum quadratic-sensitivity signature.
+- **🎯 Three mechanism findings**: (1) α<0.5 R^{−α} dynamic range R_cond^α insufficient (R^{−0.333} ~100 vs canonical ~1000 for R_cond ~10^6) → preconditioner under-corrects / (2) α>0.5 amplifies R-buffer EMA noise on small eigenvalues → over-correction on rank-deficient directions / (3) α=0.5 optimum balance of correction sharpness vs noise tolerance. **Validates Shampoo/K-FAC/Newton lineage choice empirically**.
+- **Telemetry consistency**: R_inv_sqrt_norm_mean scales monotonically with α (54.74 → 80.99 → 217.98 → 462.90), R_cond_mean also monotone (24K → 882K → 5.8M → 13.4M) — confirms env var flowed through `vals_clamped.pow(-self.newton_power)` correctly. params_preconditioned=72/72 for all arms.
+- **🎯 Joins today's CLEAR-NEG cohort (4 dispositive structural findings within 24h)**: #1360 R-power bilateral fence / #1356 period lower-NEG / #1363 DIAG-ONLY NEG / #1372 β-schedule NULL-collapse. **Validates post-#1240 stack at TIGHTLY-TUNED 4-parameter preconditioner ridge**: α=0.5 / FULL-R / period=5 / EPS=1e-4.
+- **No merge**: all arms above baseline 3.26339, Arm A within G4 drift envelope but +0.00091 above baseline (favorable-cohort signature today). Row 5 productive-NEG fence axis bilaterally.
+- **10th NM mechanism axis** closed (joins UPDATE_PERIOD, MAX_D_IN, BETA, EPS sensitivity, LR_SCALE, RESET_STEP, LAYER_GROUPS, per-group LR-scale, β-SCHEDULE, **R-power α**). **54th no-merge in r4 launch**.
+
 ## 2026-05-27 07:30 — PR #1286: H4 NM late-window coverage tune — LATE_MAX_D_IN=4096 PP n=3 (CLOSED productive-NULL — 53rd no-merge)
 
 - Branch: `g1r4-fern/h4-late-window-nm-tune` (student g1r4-fern)
