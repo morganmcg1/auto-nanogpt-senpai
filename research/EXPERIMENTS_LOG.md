@@ -1,3 +1,20 @@
+## 2026-05-27 01:30 — PR #1329: H189 alphonse per-block LR FREQUENT recal at round-1 anchor (recal=100/250) — CLOSED (47th NULL/NEG)
+
+- Branch: `g1r3-alphonse/h189-per-block-lr-recal-round1-anchor-frequent`
+- Hypothesis: Test FREQUENT recalibration at round-1 anchor (calib=200, exp=0.5, recal ∈ {100, 250}). Complements H183 (recal ∈ {500, 1000}) for 4-point coverage at this anchor.
+- Results:
+
+  | Arm | exp/calib/recal | W&B | val/loss (final / best) | FFS | Verdict |
+  |---|---|---|---|---|---|
+  | arm_a CTRL | 0.0/200/0 | `ihqjywqv` | 3.26551 | 3150 | CTRL drift n=20 |
+  | arm_b RECAL_100 | 0.5/200/100 | `piffv928` | 3.30175 / 3.27288 | 3175 | NEG +25 FFS, NEG +0.036 final-val (artifact-dominated) |
+  | arm_c RECAL_250 | 0.5/200/250 | `r7ew3lfu` | 3.26786 | 3150 | TIE FFS, NEG +0.002 val (artifact-clean) |
+
+- Outcome: No primary WIN. 47th NULL/NEG closure.
+- **Artifact decomposition (rigorous)**: arm_b per-25-step val trajectory clearly shows the programme finding #21 artifact: step 3100 (recal coincidence) val=3.32864 spike, step 3275 (no recal) val=3.27288 best, step 3300 (recal coincidence) val=3.33202 spike. arm_b best-val 3.27288 = +0.00737 vs CTRL (~8.3σ NEG even artifact-corrected). arm_c at recal=250 has 1/10 the coincidence frequency → artifact-clean val=3.26786 = +0.00235 (~2.7σ NEG).
+- **At calib=200 anchor (round-1)**: 4-point recal sweep now complete — recal ∈ {100, 250, 500, 1000} all NEG. Combined with calib=100 anchor sweep (recal ∈ {25, 50, 100, 250, 500, 750, 1500}): per-block LR axis FULLY EXHAUSTED.
+- Next assignment: H197 MuLoCo outer Nesterov ablation + outer_lr scan (PR #1370, alphonse).
+
 ## 2026-05-27 00:45 — PR #1327: H188 thorfinn per-block LR HYPER-FREQUENT recal (recal=25/50) — CLOSED (46th NULL/NEG + programme finding #23)
 
 - Branch: `g1r3-thorfinn/h188-per-block-lr-hyper-frequent-recal`
