@@ -1,5 +1,27 @@
 # SENPAI Research Results
 
+## 2026-05-28 00:00 UTC — PR #1496 askeladd: Cooldown LR shape (cosine vs sigmoid) — ASSIGNED
+
+- Branch: `g1r1-askeladd/cooldown-shape`
+- Hypothesis: Shape-family alternatives to current power-1.4 cooldown. Arm A: cosine (`0.5*(1+cos(π*cp))`). Arm B: sigmoid (`1/(1+exp((cp-0.4)*10))`). No prior PR has tested non-power-law decay curve families. Addresses human researcher directive "Schedules that deliberately steepen loss descent before step 2925." Both on full canonical baseline (late-higher LR + pEMA @ 2600).
+- Status: **ASSIGNED**
+
+---
+
+## 2026-05-27 23:37 UTC — PR #1452 askeladd: Aux scalars-only LR phase-window pulse — CLOSED NULL
+
+- Branch: `g1r1-askeladd/aux-scalars-only-pulse`
+- Hypothesis: scalars-only LR phase-window pulse in steps [2500, 2925). Completes 3-way aux LR decomp.
+
+| Arm | mult | W&B | val_loss_ema | sr | Δ vs baseline (3.263938) | Verdict |
+|---|---|---|---|---|---|---|
+| A | ×1.30 boost | `9hj0t9f7` | 3.267820 | 2950 | +3.882 mnat | NULL/REGRESSION |
+| B | ×0.70 reduce | `gcsabf25` | 3.264811 | 2925 | +0.873 mnat | NULL |
+
+**Conclusion:** Bilateral NULL with directional asymmetry — boost direction causes clear regression, reduce is mildly inert. **3-way aux LR decomp CLOSED:** embed (bilateral NULL, #1400), scalars (bilateral NULL, this PR), lm_head only direction-productive at n=1 (since failed n=2 in #1410). Aux LR phase-window mechanism class fully retired. Pulse-fire verification clean (param-class isolation confirmed, scalars LR ratio 1.30/0.70 exact, embed/lm_head bit-identical between arms).
+
+---
+
 ## 2026-05-27 22:30 UTC — PR #1487 edward: Aux Adam m/v state reset @ step 2600 — ASSIGNED
 
 - Branch: `g1r1-edward/adam-mv-reset`
