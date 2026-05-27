@@ -70,6 +70,14 @@ def parse_args():
                              "late-higher=0.9 (block 0) → 1.1 (block 11), "
                              "late-lower=1.1 (block 0) → 0.9 (block 11). "
                              "Mean LR preserved across blocks.")
+    parser.add_argument("--paramema_refresh_step", type=int, default=-1,
+                        help="If >0, refresh paramEMA buffer to live params at this step "
+                             "(resets accumulated EMA history). -1=disabled. Requires "
+                             "--ema_beta>0.")
+    parser.add_argument("--paramema_refresh_only", action="store_true",
+                        help="If set, run paramEMA refresh at --paramema_refresh_step but "
+                             "DISABLE L_cov refresh (lcov_refresh_step treated as -1). "
+                             "Ablation flag for isolating paramEMA-only contribution.")
     args = parser.parse_args()
     args.num_trials = args.num_trials if args.num_trials is not None else (args.legacy_num_trials or 1)
     args.wandb_tags = [tag.strip() for tag in args.wandb_tags.split(",") if tag.strip()]
@@ -731,6 +739,8 @@ if dist.get_rank() == 0:
             "ema_beta_target": args.ema_beta_target if args.ema_beta_target is not None else 0.0,
             "ema_dynamic_ramp_active": int(args.ema_beta_target is not None and args.ema_beta > 0),
             "muon_block_lr_pattern": args.muon_block_lr_pattern,
+            "paramema_refresh_step": args.paramema_refresh_step,
+            "paramema_refresh_only": int(args.paramema_refresh_only),
         },
     )
 
@@ -816,6 +826,14 @@ for trial_idx in range(args.num_trials):
     ema_params = None
     if args.ema_beta > 0:
         ema_params = [p.detach().float().clone() for p in optimizer2.param_groups[0]["params"]]
+
+    # paramEMA refresh state: when --paramema_refresh_step>0, the buffer is reset
+    # to live params at that step. ema_refresh/fired stays at 0 until then.
+    # lcov_refresh/fired is always 0 here (L_cov refresh is not implemented in this
+    # branch); --paramema_refresh_only is the ablation lever asserting that.
+    ema_refresh_fired_total = 0
+    ema_refresh_step_logged = -1
+    lcov_refresh_fired_total = 0
 
     # learning rate schedule: stable then power-law cooldown (gamma = COOLDOWN_POWER)
     def compute_lr_mult(step, cooldown_frac=0.7):
@@ -1040,6 +1058,20 @@ for trial_idx in range(args.num_trials):
                 lerp_w = 1.0 - ema_beta_t_now
                 for ema_p, p in zip(ema_params, optimizer2.param_groups[0]["params"]):
                     ema_p.lerp_(p.detach().float(), lerp_w)
+            # paramEMA refresh: at --paramema_refresh_step, overwrite EMA buffer
+            # with current live params (zeroing the accumulated EMA history).
+            # This runs AFTER the normal lerp update so the refresh is the final
+            # state for the step. Fires once; subsequent steps lerp normally from
+            # the refreshed buffer.
+            if (args.paramema_refresh_step > 0
+                    and step == args.paramema_refresh_step):
+                for ema_p, p in zip(ema_params, optimizer2.param_groups[0]["params"]):
+                    ema_p.copy_(p.detach().float())
+                ema_refresh_fired_total = 1
+                ema_refresh_step_logged = step
+                if dist.get_rank() == 0:
+                    print0(f"paramEMA refresh fired at step={step} "
+                           f"(buffer reset to live params)", console=True)
         if dist.get_rank() == 0 and telemetry_due:
             log_weight_telemetry(
                 model=model,
@@ -1104,6 +1136,20 @@ for trial_idx in range(args.num_trials):
                     "ema/active_train": int(step >= args.ema_warmup_steps),
                     "ema/ramp_enabled": int(args.ema_beta_target is not None),
                 }, step=wandb_step)
+            # paramEMA refresh + L_cov refresh diagnostics. ema_refresh/fired
+            # latches to 1 at and after --paramema_refresh_step; lcov_refresh/fired
+            # is always 0 in this branch (L_cov refresh not implemented). The
+            # --paramema_refresh_only flag is recorded for run filtering.
+            wandb.log({
+                "trial": trial_idx,
+                "train/step": train_step,
+                "ema_refresh/fired": ema_refresh_fired_total,
+                "ema_refresh/step": ema_refresh_step_logged,
+                "ema_refresh/target_step": args.paramema_refresh_step,
+                "ema_refresh/only": int(args.paramema_refresh_only),
+                "lcov_refresh/fired": lcov_refresh_fired_total,
+                "lcov_refresh/target_step": -1,
+            }, step=wandb_step)
         if dist.get_rank() == 0 and (train_step % 100 == 0 or train_step == train_steps):
             spec = pmuon_spectral_diag(optimizer2, PMUON_GAMMA)
             if spec:
