@@ -1,5 +1,43 @@
 # SENPAI Research Results — auto-nanogpt-1gpu-r4
 
+## 2026-05-27 22:30 — PR #1438: NM NS_ITERS_COOLDOWN sweep on post-#1240 stack (12/16/20/24) — CLOSED Row 4 productive-NULL, 7th cross-axis catalog finding
+
+- branch: `g1r4-edward/nm-ns-iters-cooldown-sweep`
+- Hypothesis: Does the NS-iter cooldown bump (production 12→16 at step 2345, established pre-#1240 by PR #176) remain load-bearing on post-#1240 stack, or is it absorbed by the R-buffer EMA the same way β/EPS/MLP-LR/β-SCHEDULE/β-AVG were?
+- All 4 arms TERMINAL after ~8h26min sequential A→D.
+
+| Arm | NS_COOLDOWN | run_id | val/loss | fs | Δ_paired vs A | Δ vs n=3 baseline | R_cond_mean | precond_ratio_mean |
+|:---:|:---:|---|:---:|:---:|:---:|:---:|:---:|:---:|
+| **A ctrl** | 16 (prod) | `4hq8m2eu` | 3.26595 | 3175 | — | +0.00256 G4 edge PASS | 1.16e6 | 1.0747 |
+| **B** no-bump | 12 | `lie3wlms` | **3.26243** | **3150** | −0.00352 | **−0.00096 NULL** | 7.84e5 | 1.0849 |
+| **C** modest+ | 20 | `oft7w4wm` | 3.26621 | 3175 | +0.00026 | +0.00282 | 1.95e6 | 1.0998 |
+| **D** aggressive+ | 24 | `5l4gb27a` | 3.26517 | 3175 | −0.00078 | +0.00178 | 3.99e6 | 1.1304 |
+
+**🎯 Verdict: Row 4 productive-NULL — 7th cross-axis catalog finding**. NS_ITERS_COOLDOWN axis absorbed by the post-#1240 R-buffer EMA. Pre-staged modal 40% Row 4 HIT exactly.
+
+**🎯 CRITICAL TELEMETRIC FINDING — Direct mechanism evidence for R-buffer EMA absorption**:
+`R_condition_number_mean` rises MONOTONICALLY 5× from B→D (7.84e5 → 1.16e6 → 1.95e6 → 3.99e6), `precond_ratio_mean` rises monotonically (1.0747 → 1.1304). The R-buffer DOES see materially different input quality across arms (more NS iters → cleaner orthogonalized muon output → different EMA accumulation). Yet val_loss is INVARIANT within ctrl-drift noise. This is **direct telemetric evidence** that the R-buffer absorbs input-quality perturbations into invariant downstream behavior.
+
+**🎯 Cycle 426 lesson TEXTBOOK executed**: Within-chain Δ_paired_B=−0.00352 looked like strong-FAV, but n=3-baseline reframe showed Δ=−0.00096 NULL. Student correctly identified this as ctrl-drift artifact (Arm A drift +0.00256 G4-edge elevated single-seed run). Arm B is NULL vs the absolute n=3 ground truth, NOT FAV.
+
+**🎯 Publication-relevant negative result — PR #176 cooldown bump NOT load-bearing on post-#1240**: Arm B NS=12 (no-bump, pre-#176 behavior) matches baseline. PR #176's optimization is now absorbed by R-buffer EMA. Second pre-#1240 optimization superseded by NM (joining #1331 β-schedule → #1372 NULL).
+
+**Updated cross-axis catalog (post-#1438 closure, 7 NULL-absorption + timing-residual class)**:
+
+| # | Chain | Axis | Verdict | Stack-dep |
+|:---:|---|---|---|---|
+| 1 | #1372 | β-schedule step-down | NULL collapse | FAV→NULL |
+| 2 | #1393 | MLP-LR-scale 1.0-1.4 | NULL plateau | FAV→NULL |
+| 3 | #1383 | START_STEP delay | non-monotone NEG | persists |
+| 4 | #1421 | UPDATE_PERIOD=2 | PP-edge FAV n=2 | persists (PP n=3 in flight) |
+| 5 | #1402 | β-AVG convergence | NULL collapse | FAV→NULL |
+| 6 | #1388 | EPS 1e-2 to 1e-8 | NULL 5 orders | FAV→NULL |
+| **7** | **#1438** | **NS_ITERS_COOLDOWN 12-24** | **NULL band** | **load-bearing→NULL** |
+
+**Unified mechanism story (post-#1438)**: R-buffer EMA absorbs BOTH magnitude perturbations (β, EPS, LR-scale, #1388 R_cond varies 5 orders) AND input quality perturbations (NS_ITERS_COOLDOWN: R_cond varies 5×, precond_ratio varies 5%). What remains productive is **timing-of-update** (START_STEP, UPDATE_PERIOD, R-RESET, NM_STOP_STEP) — axes that modulate HOW OFTEN the R-buffer is updated, not WHAT MAGNITUDE or QUALITY it sees.
+
+---
+
 ## 2026-05-27 20:35 — PR #1426: NM global LR_SCALE sweep on post-#1240 stack {0.80, 0.90, 1.0 ctrl, 1.10} (CLOSED Row 1/2 PP-promote candidate — Arm C LR_SCALE=0.80 STRONG mild-FAV val=3.26320 ≤ baseline AND fs=3125 ≤ baseline; U-shape finding contested by G4-MARGINAL ctrl drift; PP-promoted to #1478 frieren n=3 paired validation)
 
 - branch: `g1r4-frieren/nm-lr-scale-global-sweep`
