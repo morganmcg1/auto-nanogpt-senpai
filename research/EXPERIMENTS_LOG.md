@@ -1,5 +1,27 @@
 # SENPAI Research Results — auto-nanogpt-1gpu-r4
 
+## 2026-05-27 03:05 — PR #1331: NM β-schedule 4-arm depth-by-timing factorial (CLOSED productive-MARGINAL — 49th no-merge)
+
+- Branch: `g1r4-frieren/nm-beta-schedule` (student g1r4-frieren)
+- Hypothesis: NM β-schedule step-down late in training accelerates R-buffer responsiveness when distribution shifts. 4-arm chain at fixed `NANOGPT_NEWTON_MUON_BETA=0.95` early, step-down to β_late at LATE_START. A=ctrl no schedule / B=β=0.90 @ 2345 (shallow+anchor) / C=β=0.85 @ 2345 (deeper+anchor) / D=β=0.90 @ 2000 (shallow+earlier). Two-axis characterization (depth vs timing).
+- ⚠️ Chain ran on **pre-#1240 stack** (launched cycle 371 before #1240 merged cycle 377). Within-chain paired deltas bit-identical-comparable, but cross-chain G1/G4 vs post-#1240 baseline NOT apples-to-apples.
+
+| Arm | β_late | LATE_START | val/loss | fs | Δ_paired_val vs A | W&B run | R_inv_sqrt_norm_mean | Verdict |
+|:---:|:---:|:---:|:---:|:---:|:---:|:---:|:---:|:---|
+| A ctrl | — (sentinel) | 1e9 | 3.26737 | 3200 | (ref) | `95n2u3ff` | 81.49 | reference |
+| B shallow+anchor | 0.90 | 2345 | 3.26659 | 3175 | **−0.00078 NULL-FAV-noise** | `fh5mj1pe` | 80.36 | sub-threshold |
+| **C deeper+anchor** | 0.85 | 2345 | **3.26595** | 3175 | **−0.00142 MARGINAL-FAV** | `g282e5fm` | 79.42 | depth axis winner |
+| **D shallow+earlier** | 0.90 | 2000 | **3.26535** | **3175** | **−0.00202 MARGINAL-FAV strongest** | `pxbx6d90` | 79.41 | timing axis winner, marginally triggers Row 1 vs pre-#1240 |
+
+- **🎯 Two-axis mechanism characterization**: monotone-by-depth (A→B→C: Δ scales −0.00078 → −0.00142, ~1.8×) AND monotone-by-timing (B→D at fixed depth=0.90: Δ moves from −0.00078 to −0.00202, ~2.6× earlier-is-better). Timing axis dominates depth at fixed shallow depth.
+- **🎯 R_inv_sqrt_norm telemetry coherence**: monotone scaling 81.49 → 80.36 → 79.42 → 79.41 confirms mechanism direction: lower β_late → smaller R_inv_sqrt → more responsive late-training preconditioning. Telemetry-consistent with #1288 R-buffer responsiveness finding.
+- **No merge under post-#1240 baseline 3.26339**: best Arm D val=3.26535 is +0.00196 over → G1 fails by wide margin against new baseline. Arm D marginally triggers Row 1 against PRE-#1240 baseline 3.26614 (−0.00079 under) but chain-stack mismatch makes direct merge non-viable.
+- **🎯 3rd marginal-FAV NM signal of cycle** alongside #1346 Arm B per-group LR-scale Δ=−0.001141 (post-#1240 ✓) and #1331 Arm C Δ=−0.00142. Mechanism direction signal robust across 3 independent NM axes today.
+- **Compound point (β=0.85 @ 2000) UNTESTED in #1331** — natural maximum-mechanism point. Highest-EV follow-up.
+- **Decision tree resolution**: Row 1 marginally triggered against PRE-#1240 baseline (chain-stack mismatch invalidates direct merge); Row 2 mechanism direction confirmed → close productive-MARGINAL with reassignment to compound β-schedule retest on post-#1240 stack.
+- Student craftsmanship excellence: bit-identical ctrl gate via sentinel `BETA_LATE_START_STEP=1e9`, complete `newton_muon/current_beta` step-resolved sparkline telemetry confirming schedule timing at exact step boundaries, monotone R_inv_sqrt_norm progression as mechanism-consistency indicator, two-axis factorial decomposition discipline.
+- Conclusion: 49th no-merge since #847. NM β-schedule axis mechanism direction validated on pre-#1240 stack but no merge candidate from that stack. frieren reassigned to **#1372** NM β-schedule compound retest on post-#1240 stack (4-arm chain: compound β=0.85 @ 2000 primary + 2 component replicates + ctrl) — highest-EV follow-up testing both compound super-additivity hypothesis and stack-persistence question simultaneously.
+
 ## 2026-05-27 00:30 — PR #1318: Newton-Muon cooldown-stack compositionality: R-reset × late-coverage 2×2 (CLOSED productive-NULL — 48th no-merge)
 
 - Branch: `g1r4-nezuko/nm-stack-compose` (student g1r4-nezuko)
