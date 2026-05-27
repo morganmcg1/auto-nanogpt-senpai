@@ -96,6 +96,16 @@ def parse_args():
                         help="Starting value of µ schedule (used by linear and cooldown_ramp modes).")
     parser.add_argument("--muonh_mu_end", type=float, default=float(os.environ.get("MUONH_MU_END", "0.98")),
                         help="Ending value of µ schedule (used by linear and cooldown_ramp modes).")
+    parser.add_argument("--aux_cooldown_frac", type=float,
+                        default=float(os.environ.get("AUX_COOLDOWN_FRAC", "0.4")),
+                        help="Fraction of training spent in aux AdamW LR cooldown. "
+                             "Default 0.4 = baseline (cools last 40%% of training). "
+                             "0.0 = no cooldown (constant aux LR throughout). "
+                             "1.0 = full cooldown from step 0 (matches MuonH h_cooldown_frac=1.0).")
+    parser.add_argument("--aux_schedule_free", action="store_true",
+                        help="Use Schedule-Free AdamW (Defazio NeurIPS 2024) for aux groups. "
+                             "Replaces standard AdamW + cooldown with parameter interpolation. "
+                             "Defaults off (bit-identical to baseline).")
     parser.add_argument("--body_init", type=str, default=os.environ.get("BODY_INIT", "default"),
                         choices=["default", "orthogonal_fnorm_matched", "orthogonal_bottom_damp"],
                         help="Initialization scheme for body MuonH 2D weights (attn.q/k/v, attn.proj, mlp.fc, mlp.proj). "
@@ -747,6 +757,110 @@ class MuonH(torch.optim.Optimizer):
         self._last_norm_to_radius_max = max_n_over_r
 
 
+class AdamWScheduleFree(torch.optim.Optimizer):
+    """Schedule-Free AdamW (Defazio et al. NeurIPS 2024 arXiv:2405.15682).
+
+    Maintains primary iterate z and Polyak-Ruppert average x. Forward pass uses
+    interpolated y = (1-beta1)*z + beta1*x. Gradient is computed at y. Optimizer
+    updates z; x is the cumulative weighted average. At eval time, swap p.data
+    to x (the average). At train time, p.data is y.
+
+    No LR schedule cooldown is needed — interpolation provides implicit averaging.
+    """
+
+    def __init__(self, params, lr=0.0025, betas=(0.9, 0.999), eps=1e-8,
+                 weight_decay=0.0, warmup_steps=0, r=0.0, weight_lr_power=2.0):
+        defaults = dict(lr=lr, betas=betas, eps=eps, weight_decay=weight_decay,
+                        warmup_steps=warmup_steps, r=r, weight_lr_power=weight_lr_power,
+                        k=0, train_mode=True, weight_sum=0.0, lr_max=-1.0)
+        super().__init__(params, defaults)
+
+    @torch.no_grad()
+    def eval(self):
+        for group in self.param_groups:
+            beta1, _ = group["betas"]
+            if not group["train_mode"]:
+                continue
+            for p in group["params"]:
+                state = self.state[p]
+                if "z" in state:
+                    p.data.copy_(state["x"])
+            group["train_mode"] = False
+
+    @torch.no_grad()
+    def train(self):
+        for group in self.param_groups:
+            beta1, _ = group["betas"]
+            if group["train_mode"]:
+                continue
+            for p in group["params"]:
+                state = self.state[p]
+                if "z" in state:
+                    p.data.mul_(beta1).add_(state["z"], alpha=1.0 - beta1)
+            group["train_mode"] = True
+
+    @torch.no_grad()
+    def step(self, closure=None):
+        loss = closure() if closure is not None else None
+        for group in self.param_groups:
+            lr = group["lr"]
+            beta1, beta2 = group["betas"]
+            eps = group["eps"]
+            weight_decay = group["weight_decay"]
+            warmup_steps = group["warmup_steps"]
+            r = group["r"]
+            weight_lr_power = group["weight_lr_power"]
+            k = group["k"]
+
+            if warmup_steps > 0:
+                sched = min(1.0, (k + 1) / warmup_steps)
+            else:
+                sched = 1.0
+            lr_effective = lr * sched
+            group["lr_max"] = max(group["lr_max"], lr_effective)
+            lr_max = group["lr_max"]
+
+            weight = (k + 1) ** r * (lr_max ** weight_lr_power)
+            weight_sum = group["weight_sum"] + weight
+            group["weight_sum"] = weight_sum
+            ckp1 = weight / weight_sum if weight_sum > 0 else 0.0
+
+            bias_correction2 = 1.0 - beta2 ** (k + 1)
+
+            assert group["train_mode"], "must call .train() before .step()"
+
+            for p in group["params"]:
+                if p.grad is None:
+                    continue
+                grad = p.grad
+                state = self.state[p]
+
+                if "z" not in state:
+                    state["z"] = p.data.clone()
+                    state["x"] = p.data.clone()
+                    state["v"] = torch.zeros_like(p.data)
+
+                z = state["z"]
+                x = state["x"]
+                v = state["v"]
+
+                v.mul_(beta2).addcmul_(grad, grad, value=1.0 - beta2)
+                v_hat_sqrt = (v / bias_correction2).sqrt().add_(eps)
+
+                if weight_decay > 0:
+                    z.sub_(p.data, alpha=lr_effective * weight_decay)
+                z.addcdiv_(grad, v_hat_sqrt, value=-lr_effective)
+
+                if ckp1 > 0:
+                    x.mul_(1.0 - ckp1).add_(z, alpha=ckp1)
+
+                p.data.copy_(x).mul_(beta1).add_(z, alpha=1.0 - beta1)
+
+            group["k"] = k + 1
+
+        return loss
+
+
 ########################################
 #                Setup                 #
 ########################################
@@ -850,6 +964,8 @@ if dist.get_rank() == 0:
             "muonh_mu_schedule": args.muonh_mu_schedule,
             "muonh_mu_start": args.muonh_mu_start,
             "muonh_mu_end": args.muonh_mu_end,
+            "aux_cooldown_frac": args.aux_cooldown_frac,
+            "aux_schedule_free": args.aux_schedule_free,
         },
     )
 
@@ -926,10 +1042,18 @@ for trial_idx in range(args.num_trials):
     # silent-failure-mode risk we use fused=False whenever the β2 schedule is active.
     # constant schedule keeps fused=True so arm_a is bitwise-identical to baseline.
     _aux_fused = (args.aux_beta2_schedule == "constant")
-    optimizer1 = AdamW([dict(params=[model.embed.weight], lr=0.3, name="adam_embed"),
-                        dict(params=[model.proj.weight], lr=1/320, name="adam_lm_head"),
-                        dict(params=[p for p in model.parameters() if p.ndim < 2], lr=0.01, name="adam_scalars")],
-                       betas=(0.8, args.aux_beta2_start), eps=args.aux_adamw_eps, weight_decay=0, fused=_aux_fused)
+    if args.aux_schedule_free:
+        optimizer1 = AdamWScheduleFree(
+            [dict(params=[model.embed.weight], lr=0.3, name="adam_embed"),
+             dict(params=[model.proj.weight], lr=1/320, name="adam_lm_head"),
+             dict(params=[p for p in model.parameters() if p.ndim < 2], lr=0.01, name="adam_scalars")],
+            betas=(0.8, args.aux_beta2_start), eps=args.aux_adamw_eps,
+            weight_decay=0.0, warmup_steps=0)
+    else:
+        optimizer1 = AdamW([dict(params=[model.embed.weight], lr=0.3, name="adam_embed"),
+                            dict(params=[model.proj.weight], lr=1/320, name="adam_lm_head"),
+                            dict(params=[p for p in model.parameters() if p.ndim < 2], lr=0.01, name="adam_scalars")],
+                           betas=(0.8, args.aux_beta2_start), eps=args.aux_adamw_eps, weight_decay=0, fused=_aux_fused)
     optimizer2 = MuonH([p for p in model.blocks.parameters() if p.ndim >= 2],
                        lr=args.muonh_lr, weight_decay=0.0, mu=0.95,
                        hyperball=True, budget_mult=args.muonh_budget_mult,
@@ -948,10 +1072,10 @@ for trial_idx in range(args.num_trials):
         for group in opt.param_groups:
             group["initial_lr"] = group["lr"]
     # Per-group cooldown_frac: MuonH groups use full linear cooldown from step 0
-    # (h_cooldown_frac=1.0); AdamW aux groups use a shorter cooldown so the
-    # embed / head keep learning for the first ~60% of training.
+    # (h_cooldown_frac=1.0); AdamW aux groups use a configurable cooldown so the
+    # embed / head can keep learning for part of training.
     h_cooldown_frac = 1.0
-    aux_cooldown_frac = 0.4
+    aux_cooldown_frac = args.aux_cooldown_frac
     for group in optimizer1.param_groups:
         group["cooldown_frac"] = aux_cooldown_frac
         group["cooldown_shape"] = "linear"
@@ -1076,6 +1200,8 @@ for trial_idx in range(args.num_trials):
             step_avg = time_since_last_val / (step - last_val_step) if step > 0 else float("nan")
             last_val_step = step
             training_time += time_since_last_val
+            if args.aux_schedule_free:
+                optimizer1.eval()
             model.eval()
             val_loss = torch.zeros((), device=device)
             with torch.no_grad():
@@ -1109,6 +1235,8 @@ for trial_idx in range(args.num_trials):
                 wandb.log(metrics, step=trial_idx * (train_steps + 1) + step)
             print0(f"step:{step}/{train_steps} val_loss:{val_loss:.5f} train_time:{training_time:.3f}s"
                    + f" step_avg:{1000*step_avg:.2f}ms", console=True)
+            if args.aux_schedule_free:
+                optimizer1.train()
             model.train()
             # start the clock again
             dist.barrier()
@@ -1191,6 +1319,31 @@ for trial_idx in range(args.num_trials):
                         muonh_metrics["train/muonh/norm_to_radius_max"] = opt._last_norm_to_radius_max
                     muonh_metrics["train/muonh/warmup_factor"] = muonh_warmup_factor
                     muonh_metrics["train/muonh/effective_lr"] = opt.param_groups[0]["lr"]
+            for g in optimizer1.param_groups:
+                muonh_metrics[f"train/aux_lr/{g['name'].replace('adam_', '')}"] = g["lr"]
+            if args.aux_schedule_free:
+                # H202: Schedule-Free telemetry. Log group-0 (embed) state — primary
+                # signal that the SF mechanism is live (z != x ⇒ averaging gap > 0).
+                sf_group = optimizer1.param_groups[0]
+                muonh_metrics[f"train/sf/weight_sum_{sf_group['name'].replace('adam_', '')}"] = sf_group["weight_sum"]
+                muonh_metrics[f"train/sf/lr_max_{sf_group['name'].replace('adam_', '')}"] = sf_group["lr_max"]
+                k = sf_group["k"]
+                lr_max = sf_group["lr_max"]
+                weight_sum = sf_group["weight_sum"]
+                weight = (k + 1) ** sf_group["r"] * (lr_max ** sf_group["weight_lr_power"]) if lr_max > 0 else 0.0
+                ckp1 = weight / (weight_sum + weight) if (weight_sum + weight) > 0 else 0.0
+                muonh_metrics[f"train/sf/ckp1_{sf_group['name'].replace('adam_', '')}"] = ckp1
+                muonh_metrics["train/sf/k"] = k
+                # ||z - x|| per group: primary live-or-degenerate signal.
+                with torch.no_grad():
+                    for g in optimizer1.param_groups:
+                        name_clean = g["name"].replace("adam_", "")
+                        diff_sq = torch.zeros((), device=device, dtype=torch.float32)
+                        for p in g["params"]:
+                            st = optimizer1.state.get(p, {})
+                            if "z" in st and "x" in st:
+                                diff_sq = diff_sq + (st["z"].float() - st["x"].float()).pow(2).sum()
+                        muonh_metrics[f"train/sf/z_minus_x_norm_{name_clean}"] = float(diff_sq.sqrt().item())
             if telemetry_due and args.aux_agc_clip_ratio > 0 and agc_stats["agc_total"] > 0:
                 muonh_metrics["train/agc/active_fraction"] = agc_stats["agc_clipped"] / agc_stats["agc_total"]
                 muonh_metrics["train/agc/clipped_count"] = agc_stats["agc_clipped"]
