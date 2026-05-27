@@ -5816,3 +5816,40 @@ In-flight as of 03:35Z (all WIP, 8 students busy, 0 idle):
   - Pre-target depth axes (edward #1492 tests one direction)
   - Cross-axis frontiers in the cooldown window (different mu/lr/state-phase joint mechanisms)
 
+
+## 2026-05-27 23:35Z — Cycle 71 mid-326 update — WINNER CANDIDATE REFUTED AT n=2
+
+### 🎯 alphonse #1461 POST_TARGET_BODY_MUON_M_RESET CLOSED (229th refute) — confirmed n=2 cluster STANDARD
+- seed-0 Arm A val=3.26701, ffs=3000 (winner candidate, n=1, margin 0.00899)
+- seed-1 Arm A val=3.27112, ffs=3025
+- **n=2 Arm A mean: val=3.26907, ffs=3012.5** vs baseline #613 (val=3.26776, ffs=3000)
+- **Δ = +0.00130 val + +12.5 ffs — FAILS merge bar both axes**
+- Arm B n=1 (step 3050): val=3.27011, ffs=3025 (cluster STANDARD upper)
+- At n=2, Arm A and Arm B collapse into same cluster band; apparent timing-sensitivity from seed-0 alone (Δ=+0.00310) was a seed artifact
+
+### NEW PRINCIPLES established
+1. **Single-seed wins in cluster floor band UNRELIABLE at n=2.** (3.28 − μ)·√n ≥ 0.004 at n=1 doesn't prove reproducibility — only "not clearly above noise."
+2. **Cluster floor minimum detectable improvement at n=2 ≈ Δ=+0.00130 val + 12.5 ffs.** Effective MDE floor for single-pulse state-phase mechanisms.
+3. **Body Muon m-reset UNIVERSALITY confirmed at n=2:** AUX scope (nezuko #1422) AND body scope (this #1461) all cluster STANDARD at n=2. m-reset is timing-broad noise-floor mechanism in this cluster.
+4. **Apparent timing-sensitivity from n=1 collapses at n=2** — the post-target dispatch window [2925, 3050] is noise-equivalent across timings.
+
+### Cycle 71 cumulative tally
+- **229 refuted / 138 mech classes / 99 family closures**
+- ZERO confirmed winners surviving n=2 confirmation
+- Post-target single-pulse state-phase axis FULLY EXHAUSTED at this calibration
+
+### Fresh assignment
+- **alphonse #1494**: PRE_COOLDOWN_BODY_MUON_M_RESET (140th mech class) — cross-window timing probe extending nezuko #1476's matrix to pre-cooldown steps. Arms: step 2700 (clearly pre-cooldown) vs step 2750 (cooldown approach). Maps the timing axis boundary in pre-target direction. Closes the timing axis or finds a sub-band worth deeper exploration.
+
+### Winner-anatomy probes still informative
+- Even though alphonse #1461 winner is refuted, the in-flight probes (nezuko #1476 timing, askeladd #1477 kind, thorfinn #1485 magnitude, fern #1491 compound, frieren #1489 cross-window depth, edward #1492 pre-target depth-LR ramp, alphonse #1494 pre-cooldown timing) map the **CLUSTER FLOOR GEOMETRY** — its shape across timing × kind × magnitude × depth × compound × cross-window. This geometry will inform the next structural pivot (which mechanism class deserves fresh exploration).
+
+### Strategic pivot — cycle 71 noise floor characterized
+The cycle 71 has been at a noise floor for 229 refutes. The newly-characterized MDE at n=2 (~Δ=+0.00130 val) sets a sharper bar for future merges. Going forward:
+1. Map cluster floor geometry via in-flight probes (5+ PRs in flight)
+2. Identify which axes show structure vs which are flat noise
+3. Pivot to structurally different mechanisms after cluster geometry is mapped
+4. Possible structural pivots: bigger architectural changes, multi-pulse/periodic mechanisms, decoupled cooldown schedules, gradient-axis interventions other than m-reset, optimizer-state replacement (not just zeroing)
+
+8 students concurrently active, ZERO IDLE.
+
