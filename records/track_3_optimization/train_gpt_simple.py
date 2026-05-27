@@ -455,6 +455,13 @@ MU_COOLDOWN_END = float(os.environ.get("MU_COOLDOWN_END", "0.95"))
 MU_WARMUP_STEPS = int(os.environ.get("MU_WARMUP_STEPS", "0"))
 MU_WARMUP_START = float(os.environ.get("MU_WARMUP_START", "0.85"))
 MUON_LR = float(os.environ.get("MUON_LR", "0.0375"))
+# Body Muon block-half LR phase dispatch (PR #1369): at BODY_LR_BLOCK_HALF_STEP, dispatch
+# step-function on body Muon LR across block-halves (l0-5 vs l6-11). Magnitude=0.5 with
+# direction=+1 -> late half (l6-11) x1.5, early half (l0-5) x0.5; direction=-1 swaps.
+# Default direction=0 short-circuits the new code path (bytewise-identical to baseline).
+BODY_LR_BLOCK_HALF_MAGNITUDE = float(os.environ.get("BODY_LR_BLOCK_HALF_MAGNITUDE", "0.0"))
+BODY_LR_BLOCK_HALF_STEP = int(os.environ.get("BODY_LR_BLOCK_HALF_STEP", "953"))
+BODY_LR_BLOCK_HALF_DIRECTION = int(os.environ.get("BODY_LR_BLOCK_HALF_DIRECTION", "0"))
 MUON_WEIGHT_DECAY = 0.025  # nominal; Muon.step does not apply explicit wd (u/w-floor replaces it)
 TARGET_UW = 0.35
 NORMUON_BETA2 = 0.95
@@ -652,6 +659,17 @@ class Muon(torch.optim.Optimizer):
                     self.attn_soap_kind[id(p)] = "v"
                 elif n.endswith(".attn.proj.weight"):
                     self.attn_soap_kind[id(p)] = "proj"
+        # Per-body-Muon-param block index map (PR #1369 — block-half LR phase dispatch).
+        # named_params comes from model.blocks.named_parameters(), so names are e.g.
+        # "0.attn.q.weight" — the leading dot-separated segment is the block index.
+        self.block_idx_map: dict[int, int] = {}
+        for n, p in named_params:
+            try:
+                self.block_idx_map[id(p)] = int(n.split(".", 1)[0])
+            except (ValueError, IndexError):
+                pass
+        # Current training step, set by the global set_hparams() each iteration.
+        self.current_step = 0
         params = sorted([p for _, p in named_params], key=lambda x: x.size(), reverse=True)
         defaults = dict(lr=lr, weight_decay=weight_decay, mu=mu)
         super().__init__(params, defaults)
@@ -709,7 +727,17 @@ class Muon(torch.optim.Optimizer):
                     scale = torch.where(cur_uw < TARGET_UW, TARGET_UW * p_fro / u_fro, torch.ones_like(p_fro))
                     update = update * scale.to(update.dtype)
                     # Explicit weight decay intentionally omitted (matches record #14; u/w-floor replaces wd).
-                    p.add_(update, alpha=-group["lr"])
+                    # Body block-half LR phase dispatch (PR #1369). When DIRECTION=0 (default) the
+                    # branch is skipped entirely -> alpha = -group["lr"] (bytewise-identical baseline).
+                    alpha = -group["lr"]
+                    if BODY_LR_BLOCK_HALF_DIRECTION != 0 and self.current_step >= BODY_LR_BLOCK_HALF_STEP:
+                        block_idx = self.block_idx_map.get(id(p))
+                        if block_idx is not None:
+                            is_late = block_idx >= 6
+                            late_boost = (BODY_LR_BLOCK_HALF_DIRECTION == 1)
+                            boost_sign = 1 if (is_late == late_boost) else -1
+                            alpha = alpha * (1.0 + boost_sign * BODY_LR_BLOCK_HALF_MAGNITUDE)
+                    p.add_(update, alpha=alpha)
                     # Refresh SOAP state with the raw grad (after applying the step).
                     if use_soap:
                         soap_refresh(grad, state)
@@ -856,6 +884,9 @@ if dist.get_rank() == 0:
             "optimizer/mu_warmup_steps": MU_WARMUP_STEPS,
             "optimizer/mu_warmup_start": MU_WARMUP_START,
             "optimizer/muon_lr": MUON_LR,
+            "optimizer/body_lr_block_half_magnitude": BODY_LR_BLOCK_HALF_MAGNITUDE,
+            "optimizer/body_lr_block_half_step": BODY_LR_BLOCK_HALF_STEP,
+            "optimizer/body_lr_block_half_direction": BODY_LR_BLOCK_HALF_DIRECTION,
             "optimizer/muon_weight_decay_nominal": MUON_WEIGHT_DECAY,
             "optimizer/target_uw": TARGET_UW,
             "optimizer/normuon_beta2": NORMUON_BETA2,
@@ -936,6 +967,9 @@ for trial_idx in range(args.num_trials):
                 group["lr"] = group["initial_lr"] * eta
                 if group.get("name") == "muon_blocks":
                     group["mu"] = cur_mu
+            # Stamp current training step on Muon so step() can gate block-half LR dispatch (PR #1369).
+            if hasattr(opt, "block_idx_map"):
+                opt.current_step = step
 
 
     ########################################
@@ -998,6 +1032,21 @@ for trial_idx in range(args.num_trials):
                     "time/step_avg_ms": 1000 * step_avg,
                 }
                 metrics.update(prefixed("val/slope", loss_slope_stats(val_loss_history, slope_window_steps)))
+                # Per-block-half body Muon LR telemetry (PR #1369). Reflects the post-dispatch
+                # multiplier vs the baseline group["lr"], so we can confirm the phase transition.
+                body_muon_lr = next(
+                    (g["lr"] for opt in optimizers for g in opt.param_groups
+                     if g.get("name") == "muon_blocks"),
+                    float("nan"),
+                )
+                if step >= BODY_LR_BLOCK_HALF_STEP and BODY_LR_BLOCK_HALF_DIRECTION != 0:
+                    late_sign = 1 if BODY_LR_BLOCK_HALF_DIRECTION == 1 else -1
+                    early_sign = -late_sign
+                    metrics["train/muon/lr_l0_l5"] = body_muon_lr * (1.0 + early_sign * BODY_LR_BLOCK_HALF_MAGNITUDE)
+                    metrics["train/muon/lr_l6_l11"] = body_muon_lr * (1.0 + late_sign * BODY_LR_BLOCK_HALF_MAGNITUDE)
+                else:
+                    metrics["train/muon/lr_l0_l5"] = body_muon_lr
+                    metrics["train/muon/lr_l6_l11"] = body_muon_lr
                 wandb.log(metrics, step=trial_idx * (train_steps + 1) + step)
             print0(f"step:{step}/{train_steps} val_loss:{val_loss:.5f} train_time:{training_time:.3f}s"
                    + f" step_avg:{1000*step_avg:.2f}ms", console=True)
