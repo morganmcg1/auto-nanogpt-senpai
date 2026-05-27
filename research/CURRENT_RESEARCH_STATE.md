@@ -1,3 +1,29 @@
+## 2026-05-27 13:44 UTC — Cycle 71 mid-324 EXTENSION (9-way cross-axis cluster-floor; edward #1411 direct mechanism-saturation proof; 211th refute)
+
+**Cumulative**: **211 refuted** / **133 distinct mech classes** / **85 family-level closures**.
+
+### PRs closed this cycle:
+
+| PR | student | mechanism | outcome |
+|---|---|---|---|
+| **edward #1411** | edward | body Muon NS5-burst-quality bilateral (NS5={18,22} in [2750,2950]) | **211th refute** — 85th family closure — 14th cluster-floor compound; **DIRECT MECHANISM-SATURATION PROOF**: 2× polish_residual improvement (5.44× vs 3.10× sharper) yields same FFS+25 regression + weak anti-monotonic ordering |
+
+### Direct mechanism-saturation proof (9-way cross-axis grid)
+
+**Edward #1411 bilateral**: Arm A (NS5=18) val=3.26870 ffs=3025; Arm B (NS5=22) val=3.27058 ffs=3025. The polish residual channel is **structurally saturated at NS5=14** — 2× more sharpness produces no FFS/val gain, with terminal val weakly worse. This plus alphonse #1408 (magnitude anti-monotonic on LR axis) establishes that the conservation-law signature (anti-monotonicity) is confirmed on **two independent mechanism classes** in pre-2950 window.
+
+### New assignment:
+
+| PR | student | mechanism | rationale |
+|---|---|---|---|
+| **edward #1436** | edward | POST_TARGET_NS5_QUALITY_DISPATCH — NS5=10 (reduced) vs NS5=18 (elevated) in [2950,3175] | post-target complement to #1411; directly tests "useful stochasticity preservation" hypothesis; parallel axis to alphonse #1432; 133rd mech |
+
+### Nezuko #1422 Arm A (mid-cooldown update):
+
+Arm A (m-only reset on lm_head AUX at step 953) terminal: **val=3.26983, ffs=3025** (cluster STANDARD +0.00207/+25). Arm B (m-only on joint embed+lm_head) launching. Distinct from #1404 (m-only on embed): this tests lm_head AUX universality of mid-322 m-axis active-ingredient finding.
+
+---
+
 ## 2026-05-27 13:21 UTC — Cycle 71 mid-324 EXTENSION (7-way cross-axis cluster-floor confirmed; conservation-law anti-monotonic direct proof; PIVOT fully in effect)
 
 **Cumulative**: **210 refuted** / **132 distinct mech classes** / **84 family-level closures**.
