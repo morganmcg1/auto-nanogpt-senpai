@@ -1,3 +1,21 @@
+## 2026-05-27 02:35 — PR #1348: H192 edward Functional SAM on lm_head (Logit-FSAM rho=0.01) — CLOSED (48th NULL/NEG + programme finding #24)
+
+- Branch: `g1r3-edward/h192-logit-fsam-lmhead`
+- Hypothesis: Functional SAM (Singh et al. ICML 2025, arXiv:2405.13234) on `model.proj.weight` only — perturb in `∇_W var(logits)` direction (function-space sharpness) rather than `∇L/‖∇L‖` (weight-space), sidestepping LLM 'logit hijacking' failure mode. Target lm_head only based on H158 programme finding (lm_head F-norm brittleness).
+- Results:
+
+  | Arm | rho | W&B | val/loss | FFS | step_avg_ms | Verdict |
+  |---|---|---|---|---|---|---|
+  | arm_a CTRL | 0.00 | `cy0pad5y` | 3.26548 | 3150 | 1920ms | borderline NEG (typical CTRL drift) |
+  | arm_b LOGIT_FSAM | 0.01 | `g88owhw1` | 3.26526 | 3150 | 2499ms (1.30× CTRL) | NULL (Δval=-0.00022 vs CTRL, ~0.25σ) |
+
+- Cross-step val/loss trajectory (FSAM minus CTRL): -0.00034 at step 3050, peak -0.00046 at step 3100 (FFS-crossing window), decaying to -0.00021 by step 3325. **Consistent negative delta at every checkpoint** — FSAM mechanism is firing in the correct direction.
+- FSAM telemetry: `grad_S_norm`=0.1145, `epsilon_norm`=0.0100 (matches rho), **`lmhead_grad_delta_norm`=38.86** (large sharpness-aware gradient perturbation). Mechanism is NOT a no-op.
+- Outcome: No primary WIN. 48th NULL/NEG closure. **Logit-FSAM axis closed.**
+- **🎯 Programme finding #24**: Function-space sharpness on lm_head is mechanistically detectable AND modifiable, but **does NOT translate to FFS improvement**. Interpretations: (a) lm_head sharpness is not actually FFS-binding (different mechanism class than H158 LR-brittleness), OR (b) logit-variance gradient direction is orthogonal to CE descent direction (FSAM steers AWAY from optimal trajectory). Either way, function-space sharpness regularization is the wrong target.
+- **Cumulative pattern across OFF-axis portfolio**: Every experimental arm so far TIES within-chain CTRL at FFS=3150 (typical CTRL drift). All 4 perturbation/scaling/projection-tightness/schedule directions show consistent NULL pattern. Suggests bottleneck is NOT in optimizer-state dynamics.
+- Next assignment: H198 edward EMA-averaged weights for evaluation (Polyak-Ruppert, PR #1371) — **NEW MECHANISM CLASS: val/loss measurement noise hypothesis**, first time testing whether bottleneck is in val measurement noise rather than optimizer dynamics.
+
 ## 2026-05-27 01:30 — PR #1329: H189 alphonse per-block LR FREQUENT recal at round-1 anchor (recal=100/250) — CLOSED (47th NULL/NEG)
 
 - Branch: `g1r3-alphonse/h189-per-block-lr-recal-round1-anchor-frequent`
