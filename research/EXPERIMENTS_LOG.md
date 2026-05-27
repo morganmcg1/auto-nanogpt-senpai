@@ -1,5 +1,40 @@
 # SENPAI Research Results — auto-nanogpt-1gpu-r5
 
+## 2026-05-27 13:30 — PR #1377: AdamW aux β2 SCHEDULE — cooldown 0.95→0.99 ramp (frieren)
+- branch: g1r5-frieren/adamw-aux-beta2-schedule
+- hypothesis: "AdamW aux β2 schedule (constant vs cooldown-localized ramps) is FFS-load-bearing — preserving high β2 during cooldown maintains v_t magnitudes so effective_lr does not collapse"
+- verdict: **CLOSED clean-NEG-WASHED-OUT** [FFS-primary, 18th stack-component closure under directive #1262]
+- results (5-cell sweep, all n=1 full 3250 steps, W&B verified by advisor — all 5 runs match exactly):
+  | Cell | Schedule | β2_low | β2_high | val_best | FFS | Δbase (σ_single) | n=1 gate | W&B id |
+  |:----:|:---:|:------:|:-------:|:--------:|:---:|:-----------------:|:--------:|:------:|
+  | A (ctrl) | constant | 0.95 | 0.95 | 3.26016 | 3025 | −1.79σ | PASS | er7prqnd |
+  | **B★** | **linear_ramp** | **0.95** | **0.99** | 3.26123 | 3025 | +0.02σ | FAIL | 7dd63ld1 |
+  | C | linear_ramp | 0.95 | 0.98 | 3.26120 | 3025 | −0.04σ | FAIL | vnxl8ek7 |
+  | D | instant_step | 0.95 | 0.99 | 3.26003 | 3025 | −2.01σ | PASS | c2rivonf |
+  | E (falsifier) | reverse_ramp | 0.99 | 0.95 | 3.26158 | 3025 | +0.60σ | FAIL | nky27wkn |
+
+- mechanism findings (5):
+  1. **Cooldown 2nd-moment preservation NOT confirmed**. B/D never moved FFS; E falsifier didn't fire catastrophically. The #1321 Cell D val improvement at high β2 is now most likely seed-noise artifact at fixed FFS=3025, not load-bearing cooldown structure.
+  2. **Schedule SHAPE doesn't matter when terminal β2 is fixed**. D (β2=0.99 for ~70% of training) vs B (averaging ~0.97) differ by only 2σ_single — within seed noise. EMA half-life 13.5→69 steps doesn't register on crossing speed.
+  3. **Falsifier washout breaks cooldown-localization claim** — Cell E reverse-ramp val only +0.60σ from baseline; if cooldown β2 were structurally load-bearing, E should drop val materially.
+  4. **Pairs with #1321** to FULLY prune AdamW aux β2 axis: value pruning (#1321: 0.90/0.92/0.95/0.99 all FFS=3025) + schedule pruning (this PR: constant/linear/instant/reverse all FFS=3025). β2 converged to "fully FFS-cosmetic" within [0.90, 0.99].
+  5. ★ **Breaks cooldown-tightening localization for AdamW aux**: body-side cooldown axes (#1272 WD, #1276 cooldown_frac, #1284 body-WD, #1294 mu-cooldown) all show value-sensitive structure with narrow basins and asymmetric cliffs. AdamW aux β2 schedule shows nothing — cooldown-tightening is **BODY-side** mechanism, not aux-side.
+
+- cluster connections:
+  - **Crossing-phase decoupling cluster now 5 NEG + 1 POSITIVE**: #1294 (mu DOWN), #1345 (mu UP), #1322 (NS-iter cooldown), #1326 (scalars-LR cooldown), #1377 (β2 cooldown shape), #1368 (scalars-β1 POSITIVE pending). Uniform cooldown HP-schedules across all axes FFS-dead; per-group decoupling is the only fresh FFS direction.
+  - **AdamW aux tetrad updated**: β1 #1310 NARROW-BASIN-load-bearing (matrices) + scalars=0.95 wide basin (#1368 dissociation pending); β2 #1321+#1377 FULLY-COSMETIC across value AND schedule; ε wide-cosmetic; wd confirms-default. β1 is ONLY load-bearing axis on matrices; β2 doesn't move FFS anywhere on uniform optimizer.
+
+- student excellence: Schedule decomposition (linear/instant/reverse) is exactly the right falsifier design; W&B `adamw_aux/beta2_current` history at 5 checkpoints proves implementation correctness across all 4 schedule shapes; Cell E reverse-ramp catastrophe prediction was a sharp test designed precisely to falsify the hypothesis.
+
+- decision (FFS-primary, directive #1262): No Cell ≤ 2975 → no n=4 promotion. Both per-PR rules fired (B FFS=3025 ⇒ value-cosmetic; E FFS<3050 ⇒ schedule axis washed out). Close clean-NEG-WASHED-OUT. 18th stack-component closure of FFS-primary cycle.
+
+- follow-up assignment: frieren → **#1434 scalars β2 PER-GROUP decoupling** (fresh axis; uniform β2 axis fully closed but per-group dissociation untested):
+  - Mirror #1368 mechanism class on β2 axis — does adam_scalars group also want HIGHER β2 than 2D matrices?
+  - 5-cell A=0.95 ctrl uniform / B★=0.99 PRIMARY mirror of #1368 / C=0.999 extreme bracket / D=0.9 lower bracket / E=0.5 falsifier.
+  - Same signal-processing prior as #1368: low-SNR scalars want heavier 2nd-moment smoothing.
+  - New CLI flag `--scalars_beta2` with default 0.95 (no-op) overriding adam_scalars group betas.
+  - If confirms: per-group decoupling mechanism class generalizes across BOTH AdamW moments — extremely strong cross-axis stack-positive signal.
+
 ## 2026-05-27 11:05 — PR #1368: Per-group β1 decoupling on AdamW aux scalars (thorfinn) [n=1 STRONG, sent back for n=4 confirm]
 - branch: g1r5-thorfinn/scalars-beta1-decouple
 - hypothesis: "AdamW aux scalars (1D LN gains + biases, low per-element SNR) want HIGHER β1 than embed/lm_head (2D high-SNR matrices); the narrow basin established by uniform-β1 #1310 was matrices-driven, not scalars-driven"
