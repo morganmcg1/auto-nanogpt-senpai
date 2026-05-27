@@ -468,6 +468,22 @@ NS5_ITERS = int(os.environ.get("NS5_ITERS", "12"))
 WD_AUX = float(os.environ.get("WD_AUX", "0.0"))  # AdamW WD on embed + lm_head matrices (scalars stay at 0)
 EMBED_INIT_STD = float(os.environ.get("EMBED_INIT_STD", "1.0"))  # default preserves baseline N(0,1)
 LOGIT_SOFTCAP = float(os.environ.get("LOGIT_SOFTCAP", "15.0"))  # default = 15 (current hardcoded value); soft-cap value c in f(x) = c·x / sqrt(x^2+c^2)
+# Continuous α-interpolation between AdamW and sign-SGD on AUX param group (PR #1417 embed; #1439 lm_head; #1473 lm_head bilateral α-extension)
+# denom = sqrt(v_hat + alpha * |m_hat|) + eps  (α=0 → AdamW, α→∞ → sign-SGD)
+# CROSS_AUX_KIND_HYBRID_ALPHA_KIND selects which AUX param group(s) receive the dispatch: "embed", "lm_head", or "joint" (both).
+CROSS_AUX_KIND_HYBRID_ALPHA_ENABLED = int(os.environ.get("CROSS_AUX_KIND_HYBRID_ALPHA_ENABLED", "0"))
+CROSS_AUX_KIND_HYBRID_ALPHA_VALUE = float(os.environ.get("CROSS_AUX_KIND_HYBRID_ALPHA_VALUE", "0.0"))
+CROSS_AUX_KIND_HYBRID_ALPHA_KIND = os.environ.get("CROSS_AUX_KIND_HYBRID_ALPHA_KIND", "lm_head")
+CROSS_AUX_KIND_HYBRID_ALPHA_START = int(os.environ.get("CROSS_AUX_KIND_HYBRID_ALPHA_START", "953"))
+assert CROSS_AUX_KIND_HYBRID_ALPHA_KIND in ("embed", "lm_head", "joint"), (
+    f"CROSS_AUX_KIND_HYBRID_ALPHA_KIND must be 'embed', 'lm_head', or 'joint', got {CROSS_AUX_KIND_HYBRID_ALPHA_KIND!r}"
+)
+if CROSS_AUX_KIND_HYBRID_ALPHA_KIND == "embed":
+    CROSS_AUX_KIND_HYBRID_TARGET_GROUPS = ("adam_embed",)
+elif CROSS_AUX_KIND_HYBRID_ALPHA_KIND == "lm_head":
+    CROSS_AUX_KIND_HYBRID_TARGET_GROUPS = ("adam_lm_head",)
+else:
+    CROSS_AUX_KIND_HYBRID_TARGET_GROUPS = ("adam_embed", "adam_lm_head")
 
 
 def zeropower_via_newtonschulz5(G: Tensor) -> Tensor:
@@ -866,6 +882,11 @@ if dist.get_rank() == 0:
             "optimizer/attn_soap_trust_threshold": ATTN_SOAP_TRUST_THRESHOLD,
             "optimizer/ns5_iters": NS5_ITERS,
             "optimizer/wd_aux": WD_AUX,
+            "optimizer/cross_aux_kind_hybrid_alpha_enabled": CROSS_AUX_KIND_HYBRID_ALPHA_ENABLED,
+            "optimizer/cross_aux_kind_hybrid_alpha_value": CROSS_AUX_KIND_HYBRID_ALPHA_VALUE,
+            "optimizer/cross_aux_kind_hybrid_alpha_start": CROSS_AUX_KIND_HYBRID_ALPHA_START,
+            "optimizer/cross_aux_kind_hybrid_alpha_kind": CROSS_AUX_KIND_HYBRID_ALPHA_KIND,
+            "optimizer/cross_aux_kind_hybrid_target_groups": ",".join(CROSS_AUX_KIND_HYBRID_TARGET_GROUPS),
             "optimizer/recipe": "contra-muon + normuon-lite + soap-on-mlp + soap-on-attn-trust-gate (pre-NS5, record #14 + record #16)",
         },
     )
@@ -1051,8 +1072,58 @@ for trial_idx in range(args.num_trials):
                 train_steps=train_steps,
                 wandb_step=wandb_step,
             )
+        hybrid_active = bool(CROSS_AUX_KIND_HYBRID_ALPHA_ENABLED) and step >= CROSS_AUX_KIND_HYBRID_ALPHA_START
+        if hybrid_active:
+            hybrid_snapshot = {p: p.data.clone() for group in optimizer1.param_groups
+                               if group.get("name") in CROSS_AUX_KIND_HYBRID_TARGET_GROUPS for p in group["params"]}
+        else:
+            hybrid_snapshot = None
         for opt in optimizers:
             opt.step()
+        hybrid_update_rms_val = 0.0
+        hybrid_denom_rms_val = 0.0
+        if hybrid_snapshot is not None:
+            update_rms_accum = 0.0
+            denom_rms_accum = 0.0
+            update_rms_count = 0
+            alpha = CROSS_AUX_KIND_HYBRID_ALPHA_VALUE
+            for group in optimizer1.param_groups:
+                if group.get("name") not in CROSS_AUX_KIND_HYBRID_TARGET_GROUPS:
+                    continue
+                lr = group["lr"]
+                wd = group["weight_decay"]
+                beta1, beta2 = group["betas"]
+                eps = group["eps"]
+                for p in group["params"]:
+                    state = optimizer1.state[p]
+                    if "exp_avg" not in state:
+                        continue
+                    m_t = state["exp_avg"]
+                    v_t = state["exp_avg_sq"]
+                    step_num = state["step"]
+                    step_num_f = float(step_num.item() if torch.is_tensor(step_num) else step_num)
+                    m_hat = m_t / (1 - beta1 ** step_num_f)
+                    v_hat = v_t / (1 - beta2 ** step_num_f)
+                    denom = (v_hat + alpha * m_hat.abs()).sqrt().add(eps)
+                    hybrid_update = m_hat / denom
+                    p.data.copy_(hybrid_snapshot[p])
+                    p.data.add_(hybrid_update, alpha=-lr)
+                    p.data.mul_(1 - lr * wd)
+                    update_rms_accum += float(hybrid_update.mul(lr).square().mean().sqrt().item())
+                    denom_rms_accum += float(denom.square().mean().sqrt().item())
+                    update_rms_count += 1
+            if update_rms_count > 0:
+                hybrid_update_rms_val = update_rms_accum / update_rms_count
+                hybrid_denom_rms_val = denom_rms_accum / update_rms_count
+        if dist.get_rank() == 0 and telemetry_due:
+            wandb.log({
+                "trial": trial_idx,
+                "train/step": train_step,
+                f"{CROSS_AUX_KIND_HYBRID_ALPHA_KIND}/hybrid_active": int(hybrid_active),
+                f"{CROSS_AUX_KIND_HYBRID_ALPHA_KIND}/hybrid_alpha": CROSS_AUX_KIND_HYBRID_ALPHA_VALUE,
+                f"{CROSS_AUX_KIND_HYBRID_ALPHA_KIND}/hybrid_update_rms": hybrid_update_rms_val,
+                f"{CROSS_AUX_KIND_HYBRID_ALPHA_KIND}/hybrid_denom_rms": hybrid_denom_rms_val,
+            }, step=wandb_step)
         if dist.get_rank() == 0 and telemetry_due:
             for opt in optimizers:
                 if hasattr(opt, "trust_gate_stats"):
@@ -1098,3 +1169,4 @@ for trial_idx in range(args.num_trials):
 if dist.get_rank() == 0:
     wandb.finish()
 dist.destroy_process_group()
+
