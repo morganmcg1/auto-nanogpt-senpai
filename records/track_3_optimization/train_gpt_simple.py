@@ -70,6 +70,15 @@ def parse_args():
                              "late-higher=0.9 (block 0) → 1.1 (block 11), "
                              "late-lower=1.1 (block 0) → 0.9 (block 11). "
                              "Mean LR preserved across blocks.")
+    parser.add_argument("--lm_head_lr_pulse_mult", type=float, default=1.0,
+                        help="Multiplicative factor on adam_lm_head group LR during steps "
+                             "[lm_head_lr_pulse_window_start, lm_head_lr_pulse_window_end) only. "
+                             "1.0 = no pulse. Applies only to the adam_lm_head group, "
+                             "leaving adam_embed and adam_scalars unmodified.")
+    parser.add_argument("--lm_head_lr_pulse_window_start", type=int, default=2500,
+                        help="Inclusive start step (loop index) for the lm_head LR pulse window.")
+    parser.add_argument("--lm_head_lr_pulse_window_end", type=int, default=2925,
+                        help="Exclusive end step (loop index) for the lm_head LR pulse window.")
     args = parser.parse_args()
     args.num_trials = args.num_trials if args.num_trials is not None else (args.legacy_num_trials or 1)
     args.wandb_tags = [tag.strip() for tag in args.wandb_tags.split(",") if tag.strip()]
@@ -731,6 +740,9 @@ if dist.get_rank() == 0:
             "ema_beta_target": args.ema_beta_target if args.ema_beta_target is not None else 0.0,
             "ema_dynamic_ramp_active": int(args.ema_beta_target is not None and args.ema_beta > 0),
             "muon_block_lr_pattern": args.muon_block_lr_pattern,
+            "lm_head_lr_pulse_mult": args.lm_head_lr_pulse_mult,
+            "lm_head_lr_pulse_window_start": args.lm_head_lr_pulse_window_start,
+            "lm_head_lr_pulse_window_end": args.lm_head_lr_pulse_window_end,
         },
     )
 
@@ -856,6 +868,18 @@ for trial_idx in range(args.num_trials):
             for group in opt.param_groups:
                 group["lr"] = group["initial_lr"] * eta
         return progress, cooldown_progress, eta
+
+    def apply_lm_head_lr_pulse(step):
+        """Apply --lm_head_lr_pulse_mult to the adam_lm_head AdamW group when
+        step ∈ [start, end). Other AdamW groups (embed, scalars) and Muon are
+        left untouched. Returns whether the pulse fired this step."""
+        active = (args.lm_head_lr_pulse_window_start <= step
+                  < args.lm_head_lr_pulse_window_end)
+        if active and args.lm_head_lr_pulse_mult != 1.0:
+            for group in optimizer1.param_groups:
+                if group.get("name") == "adam_lm_head":
+                    group["lr"] = group["lr"] * args.lm_head_lr_pulse_mult
+        return active
 
 
     ########################################
@@ -993,7 +1017,28 @@ for trial_idx in range(args.num_trials):
         train_loss = float((step_loss / batch_size).item())
         # set optimization hyperparameters and take a step
         sched_progress, sched_cooldown_progress, sched_eta = set_hparams(step)
+        lm_head_pulse_active = apply_lm_head_lr_pulse(step)
         train_step = step + 1
+        if dist.get_rank() == 0:
+            # Per-step AdamW group-LR snapshot so pulse boundary verification
+            # at exact steps (2499/2500/2501/2924/2925/2926) is available even
+            # between telemetry intervals.
+            adamw_lr_metrics = {
+                "trial": trial_idx,
+                "train/step": train_step,
+                "adamw/lm_head_lr_pulse_active": int(lm_head_pulse_active),
+                "adamw/lm_head_lr_pulse_mult_param": args.lm_head_lr_pulse_mult,
+            }
+            for group in optimizer1.param_groups:
+                gname = group.get("name", "")
+                if gname == "adam_lm_head":
+                    adamw_lr_metrics["adamw/lm_head_lr"] = group["lr"]
+                elif gname == "adam_embed":
+                    adamw_lr_metrics["adamw/embed_lr"] = group["lr"]
+                elif gname == "adam_scalars":
+                    adamw_lr_metrics["adamw/scalars_lr"] = group["lr"]
+            wandb.log(adamw_lr_metrics,
+                      step=trial_idx * (train_steps + 1) + train_step)
         telemetry_due = (step == 0 or (step + 1) % args.telemetry_interval == 0 or step + 1 == train_steps)
         histogram_due = (step == 0 or (step + 1) % args.histogram_interval == 0 or step + 1 == train_steps)
         slope_due = (train_step % slope_interval == 0 or train_step == train_steps)
