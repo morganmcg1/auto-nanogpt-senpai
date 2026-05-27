@@ -468,6 +468,13 @@ NS5_ITERS = int(os.environ.get("NS5_ITERS", "12"))
 WD_AUX = float(os.environ.get("WD_AUX", "0.0"))  # AdamW WD on embed + lm_head matrices (scalars stay at 0)
 EMBED_INIT_STD = float(os.environ.get("EMBED_INIT_STD", "1.0"))  # default preserves baseline N(0,1)
 LOGIT_SOFTCAP = float(os.environ.get("LOGIT_SOFTCAP", "15.0"))  # default = 15 (current hardcoded value); soft-cap value c in f(x) = c·x / sqrt(x^2+c^2)
+# PR #1432: POST_TARGET_BODY_LR_BURST — body Muon LR multiplier perturbation in
+# the POST-TARGET window [START, END) (default [2950, 3175]). Composes
+# multiplicatively with the cosine cooldown schedule produced by set_hparams.
+POST_TARGET_BODY_LR_BURST_ENABLED = int(os.environ.get("POST_TARGET_BODY_LR_BURST_ENABLED", "0"))
+POST_TARGET_BODY_LR_BURST_FACTOR = float(os.environ.get("POST_TARGET_BODY_LR_BURST_FACTOR", "0.85"))
+POST_TARGET_BODY_LR_BURST_START = int(os.environ.get("POST_TARGET_BODY_LR_BURST_START", "2950"))
+POST_TARGET_BODY_LR_BURST_END = int(os.environ.get("POST_TARGET_BODY_LR_BURST_END", "3175"))
 
 
 def zeropower_via_newtonschulz5(G: Tensor) -> Tensor:
@@ -866,6 +873,10 @@ if dist.get_rank() == 0:
             "optimizer/attn_soap_trust_threshold": ATTN_SOAP_TRUST_THRESHOLD,
             "optimizer/ns5_iters": NS5_ITERS,
             "optimizer/wd_aux": WD_AUX,
+            "optimizer/post_target_body_lr_burst_enabled": POST_TARGET_BODY_LR_BURST_ENABLED,
+            "optimizer/post_target_body_lr_burst_factor": POST_TARGET_BODY_LR_BURST_FACTOR,
+            "optimizer/post_target_body_lr_burst_start": POST_TARGET_BODY_LR_BURST_START,
+            "optimizer/post_target_body_lr_burst_end": POST_TARGET_BODY_LR_BURST_END,
             "optimizer/recipe": "contra-muon + normuon-lite + soap-on-mlp + soap-on-attn-trust-gate (pre-NS5, record #14 + record #16)",
         },
     )
@@ -1025,6 +1036,38 @@ for trial_idx in range(args.num_trials):
         train_loss = float((step_loss / batch_size).item())
         # set optimization hyperparameters and take a step
         set_hparams(step)
+        # PR #1432: POST_TARGET_BODY_LR_BURST — apply body Muon LR multiplier in
+        # the post-target window AFTER set_hparams has already set the cosine
+        # cooldown LR. This composes multiplicatively with the existing schedule.
+        post_target_burst_active = False
+        body_muon_effective_lr = None
+        if POST_TARGET_BODY_LR_BURST_ENABLED and POST_TARGET_BODY_LR_BURST_START <= step < POST_TARGET_BODY_LR_BURST_END:
+            post_target_burst_active = True
+            for group in optimizer2.param_groups:
+                if group.get("name") == "muon_blocks":
+                    cooldown_baseline_lr = group["lr"]
+                    group["lr"] = cooldown_baseline_lr * POST_TARGET_BODY_LR_BURST_FACTOR
+                    body_muon_effective_lr = group["lr"]
+                    if step == POST_TARGET_BODY_LR_BURST_START:
+                        print0(
+                            f"[POST_TARGET_BODY_LR_BURST] step={step} factor={POST_TARGET_BODY_LR_BURST_FACTOR} "
+                            f"active=True (cooldown baseline lr={cooldown_baseline_lr:.6g}, "
+                            f"effective={body_muon_effective_lr:.6g})",
+                            console=True,
+                        )
+        else:
+            for group in optimizer2.param_groups:
+                if group.get("name") == "muon_blocks":
+                    body_muon_effective_lr = group["lr"]
+                    if (
+                        POST_TARGET_BODY_LR_BURST_ENABLED
+                        and step == POST_TARGET_BODY_LR_BURST_END
+                    ):
+                        print0(
+                            f"[POST_TARGET_BODY_LR_BURST] step={step} active=False "
+                            f"(restored cooldown baseline lr={body_muon_effective_lr:.6g})",
+                            console=True,
+                        )
         train_step = step + 1
         telemetry_due = (step == 0 or (step + 1) % args.telemetry_interval == 0 or step + 1 == train_steps)
         histogram_due = (step == 0 or (step + 1) % args.histogram_interval == 0 or step + 1 == train_steps)
@@ -1032,6 +1075,25 @@ for trial_idx in range(args.num_trials):
         wandb_step = trial_idx * (train_steps + 1) + train_step
         if dist.get_rank() == 0:
             train_loss_history.append((train_step, train_loss))
+        # PR #1432: per-step body Muon burst telemetry in the [2900, 3175] window
+        # so we can verify the multiplier is active at the expected steps.
+        if (
+            dist.get_rank() == 0
+            and POST_TARGET_BODY_LR_BURST_ENABLED
+            and 2900 <= step < POST_TARGET_BODY_LR_BURST_END
+        ):
+            wandb.log(
+                {
+                    "trial": trial_idx,
+                    "train/step": train_step,
+                    "train/body_muon/post_target_burst_active": int(post_target_burst_active),
+                    "train/body_muon/effective_lr": body_muon_effective_lr if body_muon_effective_lr is not None else 0.0,
+                    "train/body_muon/post_target_burst_factor": (
+                        POST_TARGET_BODY_LR_BURST_FACTOR if post_target_burst_active else 1.0
+                    ),
+                },
+                step=wandb_step,
+            )
         if dist.get_rank() == 0 and slope_due:
             slope_metrics = {
                 "trial": trial_idx,
