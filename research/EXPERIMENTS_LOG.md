@@ -1,5 +1,26 @@
 # SENPAI Research Results — auto-nanogpt-1gpu-r4
 
+## 2026-05-27 05:50 — PR #1346: NM per-group LR scale — differential attn-vs-MLP NM LR scaling (CLOSED productive-MARGINAL — 52nd no-merge)
+
+- Branch: `g1r4-thorfinn/nm-per-group-lr-scale` (student g1r4-thorfinn)
+- Hypothesis: 4-arm chain testing whether NM benefits from differential LR scaling per layer group on pre-#1240 stack. Validates #1297 per-matrix MLP-leverage finding (MLP +0.000195/matrix vs attn +0.000120/matrix → 1.6× leverage). Arms: A=(1.0, 1.0) ctrl / B=(1.0, 1.2) mlp-boost / C=(1.0, 0.8) mlp-damp / D=(1.2, 1.0) attn-boost.
+- ⚠️ Chain ran on **pre-#1240 stack** for ctrl-comparability. Within-chain paired deltas bit-identical-comparable; cross-chain G1 vs post-#1240 baseline NOT apples-to-apples.
+
+| Arm | LR_SCALE_ATTN | LR_SCALE_MLP | W&B run | val/loss | fs | Δ_paired_val vs A | Δ_paired_fs | Verdict |
+|:---:|:---:|:---:|---|:---:|:---:|:---:|:---:|---|
+| A ctrl | 1.0 | 1.0 | `hikw4tzr` | 3.26558 | 3175 | (ref) | (ref) | drift +0.00219 PASS-CLEAN |
+| **B mlp-boost** | 1.0 | 1.2 | `rxkm9jwm` | **3.26444** | 3175 | **−0.00114 MARGINAL-FAV** | 0 | cleanest paired-FAV signal post-#1240 |
+| **C mlp-damp** | 1.0 | 0.8 | `jgzj5ala` | **3.26831** | **3200** | **+0.00273 ADVERSE** | **+25** | MLP-damp under-supplies |
+| **D attn-boost** | 1.2 | 1.0 | `wfsqbt23` | **3.26828** | **3200** | **+0.00270 ADVERSE** | **+25** | attn-NM at/above optimum |
+
+- **🎯 Three mechanism findings**: (1) MLP-LR monotone-favorable with asymmetric damping cost — damp(0.8)=+0.00273 / ctrl=0 / boost(1.2)=−0.00114, |Δ_C|/|Δ_B|=2.39× damping 2.4× more damaging than boost helps, indicating optimum > 1.2 / (2) Attn-LR ADVERSE on boost Δ_D=+0.00270 → RULES OUT joint headroom hypothesis / (3) Striking symmetry |Δ_C|/|Δ_D|=0.989 — LR-deviation cost landscape locally symmetric but offset by group: production below MLP optimum and above attn optimum by roughly equivalent amounts.
+- **🎯 Validates #1297 per-matrix MLP-leverage finding direction**: MLP +0.000195/matrix vs attn +0.000120/matrix (1.6× per-matrix leverage). Extends from layer-group ablation (presence/absence) to within-group LR scaling. Direction matches.
+- **No merge under post-#1240 baseline 3.26339**: best Arm B val=3.26444 = +0.00105 over baseline → G1 FAIL at n=1. PP attenuation modal ~50% → P(MERGE) at n=3 PP ~15-20%. On post-#1240 stack with 12 additional MLP down-proj matrices at d_in=3072 (R_cond ~10^6), MLP-LR boost should have MORE leverage — direct merge feasibility on production stack the key open question.
+- **Decision tree resolution**: Row 5 NEG-D variant (MLP-only headroom triggered, attn-side at/above optimum, joint headroom RULED OUT).
+- **Cross-chain convergence — 3 marginal-FAV NM signals today**: #1331 Arm C β=0.85 deeper Δ=−0.00142 / #1346 Arm B MLP-boost Δ=−0.00114 / #1372 frieren compound-β β=0.85 @ 2000 in-flight. Three NM axes simultaneously showing same-direction marginal-FAV — strong evidence NM mechanism has multiple independent levers each carrying ~−0.001 individual headroom. Potential future super-additive combo chain.
+- **9th NM mechanism axis closed productive-MARGINAL**. thorfinn reassigned to **#1393 NM MLP-LR fine-grained sweep on post-#1240 stack {1.2, 1.4, 1.6, 1.8}** — student's #1 follow-up recommendation, localizes optimum on production stack. Asymmetric damping cost (2.4×) signals optimum > 1.2 — sweep characterizes where it actually peaks. Any arm beating 3.26339 = direct merge candidate.
+- Conclusion: 52nd no-merge since #847. MLP-LR axis directionally productive on pre-#1240 stack; production-stack replication + optimum localization is highest-EV follow-up.
+
 ## 2026-05-27 05:15 — PR #1281: PP n=3 RESET=2345 single-shot on pre-#1240 stack (CLOSED productive-NULL — 51st no-merge)
 
 - Branch: `g1r4-edward/nm-reset-buffer-step-2345-pp-n3` (student g1r4-edward)
