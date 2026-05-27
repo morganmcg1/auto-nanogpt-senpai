@@ -465,13 +465,22 @@ ATTN_SOAP_BETA2 = 0.90
 ATTN_SOAP_PRECOND_FREQ = 10
 ATTN_SOAP_TRUST_THRESHOLD = float(os.environ.get("ATTN_SOAP_TRUST_THRESHOLD", "0.9"))
 NS5_ITERS = int(os.environ.get("NS5_ITERS", "12"))
+# Per-block-half body Muon NS5 iterations dispatch (PR #1391, cycle 71).
+# When enabled, after BODY_NS5_PER_BLOCK_HALF_STEP, body blocks use different NS5
+# iteration counts for the early half (l0-l5) vs late half (l6-l11). Default
+# values match NS5_ITERS so unset/zero overrides leave behavior unchanged.
+BODY_NS5_PER_BLOCK_HALF_ENABLED = int(os.environ.get("BODY_NS5_PER_BLOCK_HALF_ENABLED", "0"))
+BODY_NS5_PER_BLOCK_HALF_STEP = int(os.environ.get("BODY_NS5_PER_BLOCK_HALF_STEP", "953"))
+BODY_NS5_EARLY_HALF_ITERS = int(os.environ.get("BODY_NS5_EARLY_HALF_ITERS", str(NS5_ITERS)))  # l0-l5
+BODY_NS5_LATE_HALF_ITERS = int(os.environ.get("BODY_NS5_LATE_HALF_ITERS", str(NS5_ITERS)))    # l6-l11
 WD_AUX = float(os.environ.get("WD_AUX", "0.0"))  # AdamW WD on embed + lm_head matrices (scalars stay at 0)
 EMBED_INIT_STD = float(os.environ.get("EMBED_INIT_STD", "1.0"))  # default preserves baseline N(0,1)
 LOGIT_SOFTCAP = float(os.environ.get("LOGIT_SOFTCAP", "15.0"))  # default = 15 (current hardcoded value); soft-cap value c in f(x) = c·x / sqrt(x^2+c^2)
 
 
-def zeropower_via_newtonschulz5(G: Tensor) -> Tensor:
+def zeropower_via_newtonschulz5(G: Tensor, ns5_iters: int | None = None) -> Tensor:
     assert G.ndim >= 2
+    iters = NS5_ITERS if ns5_iters is None else ns5_iters
     X = G.bfloat16()
     if G.size(-2) > G.size(-1):
         X = X.mT
@@ -480,7 +489,7 @@ def zeropower_via_newtonschulz5(G: Tensor) -> Tensor:
     X = X / (X.norm(dim=(-2, -1), keepdim=True) + 1e-7)
     # Perform the NS iterations, not optimizing for wallclock speed
     a, b, c = 2, -1.5, 0.5
-    for _ in range(NS5_ITERS):
+    for _ in range(iters):
         A = X @ X.mT
         B = b * A + c * A @ A
         X = a * X + B @ X
@@ -504,10 +513,10 @@ def scale_to_unit_operator_norm(G: Tensor, eps: float = 1e-10) -> Tensor:
     return G / op_norm.to(G.dtype)
 
 
-def contra_normuon_update(momentum_update, second_moment, beta2=NORMUON_BETA2):
+def contra_normuon_update(momentum_update, second_moment, beta2=NORMUON_BETA2, ns5_iters=None):
     """Contra-Muon + NorMuon-lite: NS5 -> contra subtraction -> per-row variance normalize."""
     normalized_grad = scale_to_unit_operator_norm(momentum_update.clone())
-    update = zeropower_via_newtonschulz5(momentum_update)
+    update = zeropower_via_newtonschulz5(momentum_update, ns5_iters=ns5_iters)
     opower_fro = update.norm()
     # Contra correction: subtract CONTRA_MUON / 2 * op-norm-normalized momentum.
     update = update - CONTRA_MUON / 2 * normalized_grad
@@ -652,6 +661,19 @@ class Muon(torch.optim.Optimizer):
                     self.attn_soap_kind[id(p)] = "v"
                 elif n.endswith(".attn.proj.weight"):
                     self.attn_soap_kind[id(p)] = "proj"
+        # Per-block-half NS5 dispatch (PR #1391): parse block index from each param
+        # name. Body params are named e.g. "0.attn.q.weight" or "11.mlp.fc.weight"
+        # when constructed from model.blocks.named_parameters(). Non-block params
+        # get block_idx=-1 and never participate in the dispatch.
+        self.block_idx: dict[int, int] = {}
+        for n, p in named_params:
+            head = n.split(".", 1)[0]
+            try:
+                self.block_idx[id(p)] = int(head)
+            except ValueError:
+                self.block_idx[id(p)] = -1
+        # Optimizer step counter for gating the cooldown_start dispatch.
+        self._step_counter = 0
         params = sorted([p for _, p in named_params], key=lambda x: x.size(), reverse=True)
         defaults = dict(lr=lr, weight_decay=weight_decay, mu=mu)
         super().__init__(params, defaults)
@@ -700,8 +722,21 @@ class Muon(torch.optim.Optimizer):
                     # (matches public record #14/16 — pre-NS5 placement).
                     if use_soap or use_attn_soap:
                         momentum_update = soap_precondition(momentum_update, state)
+                    # Per-block-half NS5 iters dispatch (PR #1391): after the
+                    # cooldown_start step, body blocks with idx in [0,12) take
+                    # different iteration counts for early (l0-l5) vs late
+                    # (l6-l11) halves. When disabled, all params use NS5_ITERS.
+                    block_idx = self.block_idx.get(id(p), -1)
+                    if (BODY_NS5_PER_BLOCK_HALF_ENABLED
+                            and self._step_counter >= BODY_NS5_PER_BLOCK_HALF_STEP
+                            and 0 <= block_idx < 12):
+                        ns5_iters_p = (BODY_NS5_EARLY_HALF_ITERS if block_idx < 6
+                                       else BODY_NS5_LATE_HALF_ITERS)
+                    else:
+                        ns5_iters_p = NS5_ITERS
                     # NS5 + contra + NorMuon row variance on (possibly SOAP-preconditioned) momentum.
-                    update = contra_normuon_update(momentum_update, state["second_moment"])
+                    update = contra_normuon_update(momentum_update, state["second_moment"],
+                                                   ns5_iters=ns5_iters_p)
                     # u/w-floor: scale up if u/w < TARGET_UW; leave alone otherwise.
                     p_fro = p.float().norm().clamp_min(1e-8)
                     u_fro = update.float().norm().clamp_min(1e-8)
@@ -719,6 +754,7 @@ class Muon(torch.optim.Optimizer):
                                      use_trust_gate=True,
                                      trust_threshold=ATTN_SOAP_TRUST_THRESHOLD)
                 dist.all_gather(params_pad[base_i:base_i + world_size], params_pad[base_i + rank])
+        self._step_counter += 1
 
     def trust_gate_stats(self) -> dict[str, float]:
         """Return aggregate + per-weight-type trust-gate telemetry across attention SOAP params.
@@ -865,6 +901,10 @@ if dist.get_rank() == 0:
             "optimizer/attn_soap_precond_freq": ATTN_SOAP_PRECOND_FREQ,
             "optimizer/attn_soap_trust_threshold": ATTN_SOAP_TRUST_THRESHOLD,
             "optimizer/ns5_iters": NS5_ITERS,
+            "optimizer/body_ns5_per_block_half_enabled": BODY_NS5_PER_BLOCK_HALF_ENABLED,
+            "optimizer/body_ns5_per_block_half_step": BODY_NS5_PER_BLOCK_HALF_STEP,
+            "optimizer/body_ns5_early_half_iters": BODY_NS5_EARLY_HALF_ITERS,
+            "optimizer/body_ns5_late_half_iters": BODY_NS5_LATE_HALF_ITERS,
             "optimizer/wd_aux": WD_AUX,
             "optimizer/recipe": "contra-muon + normuon-lite + soap-on-mlp + soap-on-attn-trust-gate (pre-NS5, record #14 + record #16)",
         },
@@ -1059,6 +1099,13 @@ for trial_idx in range(args.num_trials):
                     stats = opt.trust_gate_stats()
                     if stats:
                         wandb.log(prefixed("train/attn_soap_trust_gate", stats), step=wandb_step)
+            ns5_active = int(BODY_NS5_PER_BLOCK_HALF_ENABLED
+                             and train_step >= BODY_NS5_PER_BLOCK_HALF_STEP)
+            wandb.log({
+                "body/ns5_per_block_half_active": ns5_active,
+                "body/ns5_iters_early": (BODY_NS5_EARLY_HALF_ITERS if ns5_active else NS5_ITERS),
+                "body/ns5_iters_late": (BODY_NS5_LATE_HALF_ITERS if ns5_active else NS5_ITERS),
+            }, step=wandb_step)
         if dist.get_rank() == 0 and telemetry_due:
             log_weight_telemetry(
                 model=model,
