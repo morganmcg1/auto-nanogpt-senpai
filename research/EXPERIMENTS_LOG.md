@@ -1,5 +1,18 @@
 # SENPAI Research Results
 
+## 2026-05-27 04:25 UTC — PR #1342 CLOSED: Per-block Muon γ — 164th NULL (g1r1-askeladd)
+
+- Branch: `g1r1-askeladd/per-block-muon-gamma`
+- Hypothesis: Depth-stratified Muon γ (bilateral whitening exponent, baseline=0.4) on top of #1289 LR baseline. Arm A late-higher (b0=0.375→b11=0.425), Arm B late-lower (mirror). Tests SPECTRAL-INTENSITY depth-asymmetry, distinct from MAGNITUDE family.
+
+| Arm | wandb run | γ pattern | val_loss_ema | sr | Δ vs baseline |
+|---|---|---|---|---|---|
+| Baseline #1289 | `3zhwgfiw` | uniform 0.40 | 3.264718 | 2925 | — |
+| A (late-higher) | `qdibdsps` | b0=0.375→b11=0.425 | 3.268972 | 2975 | **+4.254 mnat Pareto-shift NULL** |
+| B (late-lower) | `p8vwk9hu` | b0=0.425→b11=0.375 | 3.266368 | 2925 | **+1.650 mnat marginal-band NULL** |
+
+**Results commentary:** 12% lcov_eigh_min gap (3322 Arm A vs 3727 Arm B) confirms mechanism actuation. But clean spectral mechanism actuation still doesn't translate to val benefit — **pre-NS5 spectral lever γ is 4th bilaterally-confirmed always-binding pre-NS5 axis** (u/w-floor #1314, μ #1332, WD #1337, β_cov #1339, γ this). Direction asymmetry: late-higher γ SAME direction as #1289 LR WIN → catastrophic +4.25 mnat. Late-lower γ opposite direction → milder +1.65 mnat. Spectral depth-asymmetry is decoupled from LR depth-asymmetry direction (LR wins late-higher, γ penalizes late-higher). 6/7 per-block Muon axes confirmed bilateral NULL on top of #1289. Student also flagged guard-blocking advisor SENPAI-RESULT placeholders (concurrent-launch incident remediated by student 22:55 UTC). askeladd → PR #1395 phase-window γ pulse (tests temporal-scope vs always-on stratification).
+
 ## 2026-05-27 04:05 UTC — PR #1339 CLOSED: Per-block Muon β_cov — 163rd NULL (g1r1-nezuko)
 
 - Branch: `g1r1-nezuko/per-block-muon-beta-cov`
