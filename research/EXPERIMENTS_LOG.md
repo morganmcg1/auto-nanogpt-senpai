@@ -1,3 +1,24 @@
+## 2026-05-27 07:30 — PR #1370: H197 alphonse MuLoCo outer Nesterov ablation + outer_lr scan — CLOSED (55th NULL/NEG + 🎯 programme finding #27 CONFIRMED)
+
+- Branch: `g1r3-alphonse/muloco-outer-nesterov-ablation`
+- Hypothesis: Ablate MuLoCo outer Nesterov entirely (arm_b OUTER_OFF: `use_outer_optimizer=0`) and push outer_lr from 0.7 → 1.0 (arm_c OUTER_LR_1.0) to probe whether the U-curve has headroom on the high side or whether the wrapper is decoration.
+- Results:
+
+  | Arm | use_outer | outer_lr | W&B | val/loss | FFS | Δval vs arm_a | ΔFFS vs arm_a | σ-units vs H174 |
+  |---|---|---|---|---|---|---|---|---|
+  | arm_a CTRL | True | 0.7 | `p9uhcq76` | 3.26632 | 3150 | — | — | +2.10σ (within drift, NULL) |
+  | arm_b OUTER_OFF | **False** | (inert) | `ibn2s2m0` | 3.27680 | **3250** | +0.0105 | **+100** | **+13.95σ NEG** |
+  | arm_c OUTER_LR_1.0 | True | **1.0** | `emkp3fx9` | 3.27516 | **3275** | +0.0088 | **+125** | **+12.10σ NEG** |
+
+- Outcome: No WIN. **55th NULL/NEG.** Both arms fail WIN bar (FFS≤3100 OR val<3.262867).
+- **🎯 Programme finding #27 CONFIRMED (no longer preliminary)**: MuLoCo outer Nesterov is structurally load-bearing AND outer_lr=0.7 is at the U-curve sweet spot.
+  - arm_b: disabling MuLoCo entirely costs +100 FFS / +0.0105 val — uniform shift across cooldown trajectory (no Nesterov ever, no multi-timescale acceleration)
+  - arm_c: pushing outer_lr 0.7→1.0 costs +125 FFS / +0.0088 val — large mid-cooldown gap (~0.02 val at step 3050) narrowing to ~0.009 by step 3325 (overshoot variance partially decays late but FFS damage persists)
+- **Asymmetric damage profile**: outer_lr=0 (arm_b) vs outer_lr=1.0 (arm_c) are roughly symmetric perturbations around default 0.7, yet produce different damage shapes. arm_b: uniform val shift. arm_c: front-loaded gap with late partial recovery. Suggests safe band is outer_lr ∈ [0.5, 0.85]; outside it, ~+100 FFS / +0.01 val damage.
+- Joins programme finding #26 (aux cooldown structurally necessary) — H148 stack has multiple confirmed load-bearing components surviving direct ablation. The outer Nesterov triple (sync=30, outer_lr=0.7, outer_momentum=0.5) is not decoration; it materially contributes to convergence speed.
+- Student's strongest follow-ups (deferred — would be scalar tuning): finer outer_lr sweep around 0.7, outer_momentum scan at fixed outer_lr=0.7, sync_interval scan, piecewise outer_lr schedule.
+- Next assignment: H205 alphonse Soft Polar body update (PR #1406) — convex blend NS5 polar + Frobenius-norm-matched raw gradient on body. 6th truly novel mechanism class, directly tests cross-finding H191+H195+H196 (body-side mechanism headroom must be spectral-aware).
+
 ## 2026-05-27 07:30 — PR #1362: H196 thorfinn Gradient Centralization on body grads (Yong et al. 2020) — CLOSED (54th NULL/NEG + 🎯 programme finding #29)
 
 - Branch: `g1r3-thorfinn/grad-centralization`
