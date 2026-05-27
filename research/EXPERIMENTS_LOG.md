@@ -1,3 +1,37 @@
+## 2026-05-27 15:35 — PR #1418: H209 frieren Lion optimizer on aux groups (sign-based, no v_t state) — CLOSED (65th NULL/NEG + 🎯 programme finding #39 aux-mechanism class empirically exhausted)
+
+- Branch: `g1r3-frieren/aux-lion-optimizer`
+- Hypothesis: Replace AdamW with Lion (Chen et al. NeurIPS 2023) on aux groups (embed, lm_head, scalars). Sign-based update `sign(β₁·m + (1-β₁)·g)` with no v_t state. Tests if AdamW's per-element second moment is load-bearing for aux. 3-arm at Chen et al. LR scaling factors.
+- Results:
+
+  | Arm | aux_optimizer | aux_lr_scale | W&B | val/loss | FFS | Δval vs CTRL | σ-units |
+  |---|---|---|---|---|---|---|---|
+  | arm_a CTRL | adamw | 1.0 | `a0ol82md` | 3.26543 | **3150** | (ref) | (ref) |
+  | arm_b LION_DIV3 | lion | 0.333 | `bp8dfloe` | **3.31013** | **−1** ❌ | +0.04470 | **+50σ** |
+  | arm_c LION_DIV10 | lion | 0.1 | `mom0vguw` | **3.31545** | **−1** ❌ | +0.05002 | **+57σ** |
+
+- Both Lion arms NEVER crossed 3.28. **Non-divergent failure**: Lion trains stably but converges to a worse loss surface point. arm_c (lower LR) consistently WORSE than arm_b → refutes "lower LR rescues Lion".
+- **🎯 Programme finding #39 — aux-mechanism class empirically exhausted**: H190 MSAM + H194 cooldown + H196 GC + H202 SF + H204 β₂ schedule + **H209 Lion** = 6 distinct aux-side mechanism classes ALL NULL/NEG. AdamW + AGC + linear cooldown + β₂=0.99-constant stack is structurally optimal for H148/H203 regime. STOP generating aux-replacement or per-element aux modification hypotheses.
+- **Mechanism diagnosis (frieren)**: AdamW's √v_t per-element scaling is load-bearing for aux groups. Lion's uniform ±lr sign update treats all params identically. For embed/lm_head/scalars, frequently-updated params (high-freq tokens) need smaller steps; rarely-updated need larger. Lion lacks this differentiation → uniform +0.05 val/loss penalty throughout training. AGC interaction ruled out (arm_c LR/10 below AGC range, still NEG).
+- **Next assignment**: **H216 frieren (separate PR #1453)**: Lookahead k-step wrapper on body params. Meta-optimizer outer-averaging mechanism class untouched by MuLoCo. arm_a CTRL bit-identical, arm_b LA_K10 k=10 α=0.5, arm_c LA_K30 k=30 α=0.5 (matches MuLoCo sync_interval). Tests new outer-averaging axis.
+
+## 2026-05-27 15:30 — PR #1416: H208 nezuko Post-NS5 EMA Smoothing of body update directions — CLOSED (66th NULL/NEG + 🎯 programme finding #40 NS5 fragility asymmetry)
+
+- Branch: `g1r3-nezuko/post-ns5-ema-smoothing`
+- Hypothesis: Post-NS5 temporal EMA smoothing `U_step = α·U_t + (1-α)·U_ema` where U_ema = EMA of polar projections. 3-arm sweep at EMA decay β ∈ {disabled, 0.9, 0.99}. Tests temporal-axis smoothing in polar basis (programme finding #32 said NS5 is direction-sensitive).
+- Results:
+
+  | Arm | α | β | W&B | val/loss | FFS | Δval vs CTRL | ΔFFS |
+  |---|---|---|---|---|---|---|---|
+  | arm_a CTRL | 1.0 | — | `hcx5283v` | 3.26584 | **3150** | (ref) | (ref) |
+  | arm_b SHORT_EMA | 0.7 | 0.9 (~10-step) | `0wci5xgx` | 3.26579 | **3175** | −0.00005 (~0σ) | **+25 NEG** |
+  | arm_c LONG_EMA | 0.7 | 0.99 (~100-step) | `7drhsnnt` | 3.26816 | **3175** | +0.00232 (+2.62σ) | **+25 NEG** |
+
+- **🎯 Programme finding #40 — NS5 polar projection fragility ASYMMETRY**: H199 (pre-NS5 direction blending, 8% magnitude perturbation) → catastrophic NEG +50 FFS. **H208 (post-NS5 temporal smoothing, same α=0.7 blend factor)** → mild NEG +25 FFS. **NS5 strongly sensitive to UPSTREAM interference but only weakly sensitive to DOWNSTREAM temporal smoothing.**
+- **Smoking-gun mechanism (nezuko's analysis)**: `ema_norm_ratio = 0.21-0.75` (NOT ~1.0 as expected). Both inputs post-NS5 (σ_i ≈ 1 per step), but temporal averaging of orthogonal post-NS5 directions causes CANCELLATION → low-norm EMA buffer. The blend deflects direction by only ~1-10° (`blend_vs_current_cos_sim = 0.987-0.996`) but small consistent deflection accumulates to +25 FFS lag. Damage is UNIFORM across training (not concentrated in cooldown) → direction noise was not "useful exploration", just irrelevant variation; smoothing introduces a small consistent bias that costs convergence everywhere.
+- **NS5 4-axis characterization** (cumulative): (1) DEPTH iters convergence-floored at 12+ (H193); (2) PATH polynomial coefficients convergence-floored within family (H206 finding #37); (3) UPSTREAM pre-NS5 modifications fragile (8-mechanism cross-finding); (4) DOWNSTREAM TEMPORAL smoothing robust mild NEG (H208 finding #40, this PR). Untested: RANK truncation (H214 askeladd in flight).
+- **Next assignment**: **H217 nezuko (separate PR #1454)**: EMA-normalized blend mechanism diagnostic (nezuko's own H208 follow-up #1). Re-normalize EMA buffer to match |U_t| Frobenius norm before blend. Isolates norm-cancellation (N) vs direction-bias (D) damage mechanisms of finding #40. 2-arm CTRL vs EMA_NORM. Either outcome graduates finding #40 to either #40-N or #40-D.
+
 ## 2026-05-27 14:35 — PR #1415: H207 fern Body MuonH momentum buffer reset mid-training (state vs LR decoupling) — CLOSED (64th NULL/NEG + 🎯 programme finding #38 H200/H207 mechanism contrast)
 
 - Branch: `g1r3-fern/body-momentum-reset`
