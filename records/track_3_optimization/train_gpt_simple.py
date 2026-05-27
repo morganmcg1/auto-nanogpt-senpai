@@ -83,6 +83,12 @@ def parse_args():
              "muall=musoft + non-residual block 2D weights also scaled by 1/sqrt(L); "
              "smallconst=std=1e-3 depth-independent.",
     )
+    parser.add_argument("--layer_lr_gamma", type=float, default=1.0,
+                        help="Per-block-depth Muon body LR multiplier. Each transformer block i in [0, L-1] "
+                             "gets its body (MLP+attention) lr scaled by gamma^(L-1-i). At gamma=1.0 (default) "
+                             "all blocks share the same lr_mlp/lr_attn (matches legacy behavior). gamma<1 makes "
+                             "lower blocks slower (ULMFiT-style); gamma>1 makes lower blocks faster. With L=12, "
+                             "block 0 (bottom) scale = gamma^11 and block 11 (top) scale = 1.")
     args = parser.parse_args()
     args.num_trials = args.num_trials if args.num_trials is not None else (args.legacy_num_trials or 1)
     args.wandb_tags = [tag.strip() for tag in args.wandb_tags.split(",") if tag.strip()]
@@ -765,6 +771,7 @@ if dist.get_rank() == 0:
             "wd_schedule": args.wd_schedule,
             "lr_scalars": args.lr_scalars,
             "depth_init_mode": args.depth_init_mode,
+            "layer_lr_gamma": args.layer_lr_gamma,
         },
     )
 
@@ -842,16 +849,31 @@ for trial_idx in range(args.num_trials):
                         dict(params=[p for p in model.parameters() if p.ndim < 2], lr=args.lr_scalars, name="adam_scalars")],
                        betas=(0.8, 0.95), eps=1e-10, weight_decay=0, fused=True)
     named_blocks = [(n, p) for n, p in model.blocks.named_parameters() if p.ndim >= 2]
-    mlp_named = [(n, p) for n, p in named_blocks
-                 if n.endswith(".mlp.fc.weight") or n.endswith(".mlp.proj.weight")]
-    attn_named = [(n, p) for n, p in named_blocks
-                  if not (n.endswith(".mlp.fc.weight") or n.endswith(".mlp.proj.weight"))]
-    assert len(mlp_named) + len(attn_named) == len(named_blocks)
+    # Split into per-block (MLP, attn) param groups so each block index i gets its body LR
+    # scaled by args.layer_lr_gamma ** (NUM_LAYERS - 1 - i). At gamma=1.0 this is identical
+    # to the legacy two-group setup; at gamma != 1 lower blocks (smaller i) get scaled LR.
+    mlp_by_block: list[list[tuple[str, Tensor]]] = [[] for _ in range(NUM_LAYERS)]
+    attn_by_block: list[list[tuple[str, Tensor]]] = [[] for _ in range(NUM_LAYERS)]
+    for n, p in named_blocks:
+        block_idx = int(n.split(".", 1)[0])
+        if n.endswith(".mlp.fc.weight") or n.endswith(".mlp.proj.weight"):
+            mlp_by_block[block_idx].append((n, p))
+        else:
+            attn_by_block[block_idx].append((n, p))
+    assert sum(len(g) for g in mlp_by_block) + sum(len(g) for g in attn_by_block) == len(named_blocks)
+    muon_groups = []
+    for i in range(NUM_LAYERS):
+        block_mult = args.layer_lr_gamma ** (NUM_LAYERS - 1 - i)
+        muon_groups.append(dict(named_params=mlp_by_block[i],
+                                lr=args.lr_mlp * block_mult,
+                                weight_decay=args.wd_mlp,
+                                name=f"muon_mlp_block_{i}"))
+        muon_groups.append(dict(named_params=attn_by_block[i],
+                                lr=args.lr_attn * block_mult,
+                                weight_decay=args.wd_attn,
+                                name=f"muon_attn_block_{i}"))
     optimizer2 = Muon(
-        [
-            dict(named_params=mlp_named,  lr=args.lr_mlp,  weight_decay=args.wd_mlp,  name="muon_mlp"),
-            dict(named_params=attn_named, lr=args.lr_attn, weight_decay=args.wd_attn, name="muon_attn"),
-        ],
+        muon_groups,
         soap_attn=args.soap_attn, trust_threshold=args.soap_trust_threshold,
     )
     optimizers = [optimizer1, optimizer2]
@@ -1023,9 +1045,22 @@ for trial_idx in range(args.num_trials):
                     per_group_metrics[f"train/lr/{name}"] = lr
                 for name, wd in current_wds.items():
                     per_group_metrics[f"train/wd/{name}"] = wd
-                per_group_metrics["train/wd_mlp_now"] = current_wds.get("muon_mlp", 0.0)
-                per_group_metrics["train/wd_attn_now"] = current_wds.get("muon_attn", 0.0)
+                # WD schedule is uniform across per-block param groups; use block 0 as representative
+                per_group_metrics["train/wd_mlp_now"] = current_wds.get("muon_mlp_block_0", 0.0)
+                per_group_metrics["train/wd_attn_now"] = current_wds.get("muon_attn_block_0", 0.0)
                 per_group_metrics["train/wd_schedule_progress"] = train_step / train_steps
+                # Verification aliases for per-block-depth LR multipliers (PR #1442).
+                # Sampled at three depths so the cooldown shape × gamma scaling is visible at a glance.
+                for sample_i in (0, 5, 11):
+                    mlp_key = f"muon_mlp_block_{sample_i}"
+                    attn_key = f"muon_attn_block_{sample_i}"
+                    if mlp_key in current_lrs:
+                        per_group_metrics[f"train/lr/muon_block_{sample_i}_mlp"] = current_lrs[mlp_key]
+                    if attn_key in current_lrs:
+                        per_group_metrics[f"train/lr/muon_block_{sample_i}_attn"] = current_lrs[attn_key]
+                    # Bare alias = MLP-side block LR (the headline body-LR knob)
+                    if mlp_key in current_lrs:
+                        per_group_metrics[f"train/lr/muon_block_{sample_i}"] = current_lrs[mlp_key]
                 wandb.log(per_group_metrics, step=wandb_step)
         if dist.get_rank() == 0 and optimizer2.cos_sims_buffer:
             cs_names = list(optimizer2.cos_sims_buffer.keys())
