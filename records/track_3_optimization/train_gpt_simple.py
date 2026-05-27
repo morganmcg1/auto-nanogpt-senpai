@@ -1182,6 +1182,8 @@ for trial_idx in range(args.num_trials):
         if dist.get_rank() == 0 and (telemetry_due or warmup_due):
             muonh_metrics = {"trial": trial_idx, "train/step": train_step}
             muonh_metrics["aux/beta2"] = aux_beta2
+            muonh_metrics["train/aux_optimizer/beta2_embed"] = optimizer1.param_groups[0]["betas"][1]
+            muonh_metrics["train/aux_optimizer/beta2_lm_head"] = optimizer1.param_groups[1]["betas"][1]
             muonh_metrics["train/muonh_mu"] = muonh_mu_t
             for opt in optimizers:
                 if isinstance(opt, MuonH):
