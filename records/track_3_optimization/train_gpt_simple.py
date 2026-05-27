@@ -80,6 +80,10 @@ def parse_args():
                              "Ablation flag for isolating paramEMA-only contribution.")
     parser.add_argument("--seed", type=int, default=1,
                         help="Random seed for torch/numpy/python. Default 1 matches baseline seed.")
+    parser.add_argument("--scalars_lr_pulse_mult", type=float, default=1.0,
+                        help="Multiply adam_scalars LR by this factor during steps [2500, 2925). "
+                             "1.0=disabled; >1.0 boost direction; <1.0 reduce direction. "
+                             "Applies multiplicatively on top of the cosine cooldown schedule.")
     args = parser.parse_args()
     args.num_trials = args.num_trials if args.num_trials is not None else (args.legacy_num_trials or 1)
     args.wandb_tags = [tag.strip() for tag in args.wandb_tags.split(",") if tag.strip()]
@@ -751,6 +755,9 @@ if dist.get_rank() == 0:
             "paramema_refresh_step": args.paramema_refresh_step,
             "paramema_refresh_only": int(args.paramema_refresh_only),
             "seed": args.seed,
+            "scalars_lr_pulse_mult": args.scalars_lr_pulse_mult,
+            "scalars_lr_pulse_window_start": 2500,
+            "scalars_lr_pulse_window_end": 2925,
         },
     )
 
@@ -1021,6 +1028,25 @@ for trial_idx in range(args.num_trials):
         train_loss = float((step_loss / batch_size).item())
         # set optimization hyperparameters and take a step
         sched_progress, sched_cooldown_progress, sched_eta = set_hparams(step)
+        # --- AUX SCALARS LR PHASE-WINDOW PULSE (PR #1452, 3-way aux decomp closure) ---
+        # Apply multiplicatively on top of the cosine cooldown LR for the adam_scalars
+        # param group only. embed_lr and lm_head_lr stay on the canonical cosine schedule.
+        scalars_pulse_active = (2500 <= step < 2925 and args.scalars_lr_pulse_mult != 1.0)
+        scalars_pulse_effective_mult = args.scalars_lr_pulse_mult if scalars_pulse_active else 1.0
+        scalars_group_lr = None
+        embed_group_lr = None
+        lm_head_group_lr = None
+        for g in optimizer1.param_groups:
+            gname = g.get("name")
+            if gname == "adam_scalars":
+                if scalars_pulse_active:
+                    g["lr"] = g["lr"] * args.scalars_lr_pulse_mult
+                scalars_group_lr = g["lr"]
+            elif gname == "adam_embed":
+                embed_group_lr = g["lr"]
+            elif gname == "adam_lm_head":
+                lm_head_group_lr = g["lr"]
+        # --- END AUX SCALARS LR PHASE-WINDOW PULSE ---
         train_step = step + 1
         telemetry_due = (step == 0 or (step + 1) % args.telemetry_interval == 0 or step + 1 == train_steps)
         histogram_due = (step == 0 or (step + 1) % args.histogram_interval == 0 or step + 1 == train_steps)
@@ -1028,6 +1054,19 @@ for trial_idx in range(args.num_trials):
         wandb_step = trial_idx * (train_steps + 1) + train_step
         if dist.get_rank() == 0:
             train_loss_history.append((train_step, train_loss))
+            # Per-step scalars-LR pulse telemetry (PR #1452 verification: pulse-fire
+            # boundaries at steps 2499/2500/2501/2710/2924/2925/2926 must be observable).
+            if scalars_group_lr is not None:
+                wandb.log({
+                    "trial": trial_idx,
+                    "train/step": train_step,
+                    "optim/adam_scalars_lr": scalars_group_lr,
+                    "optim/adam_embed_lr": embed_group_lr if embed_group_lr is not None else 0.0,
+                    "optim/adam_lm_head_lr": lm_head_group_lr if lm_head_group_lr is not None else 0.0,
+                    "scalars_lr_pulse/active": int(scalars_pulse_active),
+                    "scalars_lr_pulse/effective_mult": scalars_pulse_effective_mult,
+                    "scalars_lr_pulse/param_mult": args.scalars_lr_pulse_mult,
+                }, step=wandb_step)
         if dist.get_rank() == 0 and slope_due:
             slope_metrics = {
                 "trial": trial_idx,
