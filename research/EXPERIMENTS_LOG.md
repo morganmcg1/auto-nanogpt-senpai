@@ -1,5 +1,41 @@
 # SENPAI Research Results — auto-nanogpt-1gpu-r5
 
+## 2026-05-27 14:15 — PR #1384: ADAM-EMBED per-group cooldown decoupling (askeladd)
+- branch: g1r5-askeladd/embed-cooldown-decouple
+- hypothesis: "Does adam_embed (lr=0.3, 38.6M params, highest aux LR) behave like adam_scalars (#1326 WIDE-NULL with edge-sensitivity, permissive) or like body (tight)?"
+- verdict: **CLOSED clean-NEG-WIDE-NULL-EDGE-SENSITIVITY** [FFS-primary, 19th stack-component closure]
+- results (5-cell sweep, all n=1 full 3250 steps, W&B verified by advisor):
+  | Cell | embed_cooldown_frac | FFS | val/loss | Δbase (σ_single) | reached | W&B id |
+  |:----:|:------------------:|:---:|:--------:|:----------------:|:-------:|:------:|
+  | A | None (shared 0.7) | 3050 | 3.262344 | +1.89σ | 1 | sd7f4fhv |
+  | **B★** | **-1 (no cooldown)** | **3075** | **3.264772** | **+5.99σ** | 1 | ae1ndnfp |
+  | C | 0.5 (early) | **3025** | **3.260230** | **−1.67σ** | 1 | nnhhssyt |
+  | D | 0.85 (late) | 3050 | 3.263752 | +4.27σ | 1 | kzvyqv4j |
+  | **E** | **-2 (anti-ramp)** | **3150** | **3.272629** | **+19.24σ** | 1 | hnbn2qut |
+
+- mechanism findings (4):
+  1. **WIDE-BAND-NULL on embed_cooldown_frac ∈ {0.5, 0.7, 0.85}** all FFS ∈ [3025, 3050] — embed is permissive on cooldown TIMING within the body of valid fractions, just like scalars. Tight-basin prediction REJECTED.
+  2. **Edge sensitivity to ABSENCE of cooldown (Cell B +5.99σ, +25 FFS)** — embed *can* survive without cooldown but pays measurable penalty. Much milder than scalars-constant +10.6σ in #1326 — points to embed's larger parameter pool (38.6M vs scalars' ~150) and dominant-feature dynamics (each token row revisited hundreds of times per epoch) giving more robustness to suboptimal scheduling.
+  3. **Edge catastrophe on anti-ramp direction (Cell E +19.24σ, +100 FFS)** — ramping embed LR UP during cooldown sharply incompatible with the rest of the stack shutting down. Same direction-of-failure as scalars #1326 (which had +29.4σ), with magnitude attenuation matching the constant-LR finding.
+  4. ★ **Cross-cluster structural inference**: 2 of 3 aux groups (scalars #1326, embed #1384) live in the crossing-phase decoupling cluster with WIDE-NULL + edge-sensitivity. Body (mu #1294 + #1345) shows monotone-tightening with sharp two-sided basin. Joint claim: **auxiliary groups are PERMISSIVE on cooldown TIMING with edge-direction sensitivity; body is TIGHTLY-coupled** on cooldown shape. The optimizer stack has per-component-decoupled structure on aux-side timing but coupled body-side timing.
+
+- cluster connections:
+  - **5th crossing-phase decoupling closure**: #1294 mu DOWN, #1345 mu UP, #1322 NS-iter cooldown, #1326 scalars-LR cooldown, #1377 β2 schedule, #1384 embed-LR cooldown — joint claim: uniform cooldown HP-schedule has no FFS-positive movement available across all tested axes (aux WIDE-NULL or body tight-coupled).
+  - **Per-group decoupling cluster** still 1 FFS-positive (#1368 scalars-β1 n=1, pending n=4) + 0 FFS-positive on TIMING dimension (aux-side WIDE-NULL on cooldown_frac).
+  - **Cell C val=3.260230 below baseline by 1.67σ_single** but FFS=3025 baseline-EXACT — within seed noise; no n=4 promotion per directive #1262.
+
+- student excellence: Pre-registered predictions (a 60% / b 25% / c 15%) cleanly resolved at outcome — prediction (a) WIDE-NULL with edge-sensitivity confirmed at 60% prior; (b) tight-basin REJECTED; (c) FFS-positive REJECTED. Cross-PR comparison table (scalars vs embed vs mu) sharpens the cluster structural claim.
+
+- decision (FFS-primary, directive #1262): No Cell ≤ 2975 → no n=4 promotion. Cell C val improvement is within seed noise at fixed FFS. Close clean-NEG-WIDE-NULL-EDGE-SENSITIVITY. 19th stack-component closure.
+
+- follow-up assignment: askeladd → **#1437 matrices β1 isolation** (★ pivot from cluster completion to fresh per-group AXIS):
+  - Tests whether the "matrices" β1 basin (#1310 narrow-tight at 0.8) is further dissociable between adam_embed and adam_lm_head — completes per-group β1 picture
+  - Background: #1310 closed UNIFORM β1=0.8 as matrices-driven; #1368 found scalars want HIGHER (0.95) wider basin; embed vs lm_head dissociation NEVER tested
+  - 5-cell A=0.8/0.8 ctrl uniform / **B★=0.8/0.95 PRIMARY** lm_head dissociation (small-update regime mirror of scalars finding) / C=0.95/0.8 embed dissociation / D=0.95/0.95 joint matrices both want higher / E=0.5/0.5 falsifier
+  - New CLI flags `--embed_beta1` and `--lm_head_beta1` (default 0.8) override per-group betas on adam_embed and adam_lm_head only; scalars untouched
+  - Strict FFS-alive gate B★ ≤ 2975 for n=4 promotion per directive #1262
+  - 30%/20%/35% priors on lm_head dissociation FFS-positive / embed dissociation FFS-positive / no internal dissociation; completes per-group β1 picture either way
+
 ## 2026-05-27 13:30 — PR #1377: AdamW aux β2 SCHEDULE — cooldown 0.95→0.99 ramp (frieren)
 - branch: g1r5-frieren/adamw-aux-beta2-schedule
 - hypothesis: "AdamW aux β2 schedule (constant vs cooldown-localized ramps) is FFS-load-bearing — preserving high β2 during cooldown maintains v_t magnitudes so effective_lr does not collapse"
