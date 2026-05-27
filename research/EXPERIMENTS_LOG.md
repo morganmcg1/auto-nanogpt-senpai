@@ -1,3 +1,25 @@
+## 2026-05-27 18:30 — PR #1427: H212 thorfinn Aux LR cooldown shape sweep (mirror H203 BODY cosine WIN to AUX axis) — CLOSED (69th NULL/NEG + 🎯 programme finding #43 candidate AUX cooldown shape axis EXHAUSTED with bilateral body/aux asymmetry)
+
+- Branch: `g1r3-thorfinn/aux-cooldown-shape-sweep`
+- Hypothesis: Mirror H203 BODY cosine WIN to AUX axis. New `--aux_cooldown_shape` flag (2-line code change) exposes the linear-vs-cosine-vs-sqrt choice on aux groups (embed, lm_head, scalars), which currently use hardcoded linear over last 40% of training (aux_cooldown_frac=0.4). All arms use `--muonh_cooldown_shape cosine` (H203 baseline).
+- Results:
+
+  | Arm | aux_shape | muonh_shape | W&B | val/loss | FFS | Δval vs CTRL | σ vs H174 envelope |
+  |---|---|---|---|---|---|---|---|
+  | arm_a CTRL | linear | cosine | `i7iujjfr` | 3.26832 | **3025** | (ref) | +4.37σ (bit-identical baseline) |
+  | arm_b AUX_COSINE | cosine | cosine | `v3najc72` | **3.27100** | **3025** | +0.00268 (+3.03σ) | +7.40σ NULL on FFS, mild val NEG |
+  | arm_c AUX_SQRT | sqrt | cosine | `7sgd3yga` | 3.26884 | **3125** | +0.00052 (+0.59σ) | +4.96σ NEG on FFS |
+
+- **arm_b AUX_COSINE: FFS=3025 NULL but +3σ val NEG**. Cosine cooldown shape has ZERO FFS benefit on aux axis (vs +125 FFS improvement on BODY in H203). Cosine compresses aux LR collapse INTO steps 3025-3325 window — aux gradient flow disrupted right after target crossing → terminal val regression +0.00268. Mechanistic reason: aux uses `cooldown_frac=0.4` (only last 40%), so cosine compression happens entirely AFTER FFS crossing.
+- **arm_c AUX_SQRT: FFS=3125 mild NEG (-100 steps)**. sqrt slow decay keeps aux LR artificially elevated past target-crossing zone → delays FFS by 100 steps. NOT catastrophic (unlike H203 BODY sqrt FFS=-1) because aux LR has smaller magnitude and aux cooldown window is bounded — the failure mode is delayed-decay, not divergent training.
+- **🎯 Programme finding #43 candidate — AUX cooldown shape axis EXHAUSTED, linear confirmed optimal**. **Bilateral asymmetry vs BODY axis (H203)**:
+  - BODY wants cosine (H203 WIN: FFS 3150→3025)
+  - AUX wants linear (H212: cosine NULL + val NEG, sqrt NEG)
+  - Different optimal shapes per param group → cooldown design is NOT one-size-fits-all
+  - Mechanistic root: cooldown_frac differs (body=1.0, aux=0.4), so "where cooldown happens relative to FFS" differs
+- **7-mechanism aux cross-finding** (extends finding #39 from 6 to 7): H190 MSAM + H194 cooldown + H196 GC + H202 SF + H204 β₂-sched + H209 Lion + H212 aux-cosine/sqrt = 7 mechanisms NULL/NEG on aux. AdamW + AGC + linear-cooldown + β₂=0.99 stack is structurally optimal for aux.
+- **Next assignment**: **H220 thorfinn (separate PR)**: ATTN vs MLP LR multiplier split — fresh TYPE-axis intervention orthogonal to H210 DEPTH-axis. Splits body params into attn (qk, vo, proj) vs MLP (fc, proj) param groups with separate LR multipliers.
+
 ## 2026-05-27 17:35 — PR #1424: H211 tanjiro Cosine² cooldown shape + LR-up follow-up — CLOSED (68th NULL/NEG + 🎯 programme finding #42 candidate cooldown shape-steepness axis fully exhausted)
 
 - Branch: `g1r3-tanjiro/cosine-squared-cooldown-lr-up`

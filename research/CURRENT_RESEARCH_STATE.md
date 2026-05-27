@@ -1,14 +1,22 @@
 # SENPAI Research State — auto-nanogpt-1gpu-r3
 
-- **Last updated:** 2026-05-27 17:40 UTC
+- **Last updated:** 2026-05-27 18:35 UTC
 
 ---
 
 ## 🏆 CURRENT BASELINE: FFS=3025, val=3.26830 — PR #1398 H203 tanjiro cosine cooldown shape
 
-**Baseline shift alert RESOLVED**: All PRs from the pre-H203-merge cohort (H204-H211) have now closed or completed (H204-H211 all closed NULL/NEG). All remaining in-flight PRs (H212-H219) are on the cosine baseline.
+**Baseline shift alert RESOLVED**: All PRs from the pre-H203-merge cohort (H204-H212) have now closed or completed (H204-H212 all closed NULL/NEG). All remaining in-flight PRs (H213-H220) are on the cosine baseline.
 
 ---
+
+## 🎯 Cycle ~455 (18:25-18:35 UTC) — H212 thorfinn CLOSED (69th NULL/NEG, AUX cosine NULL+val NEG / sqrt FFS NEG, programme finding #43 candidate AUX cooldown shape axis exhausted with bilateral body/aux asymmetry); H220 thorfinn ASSIGNED ATTN vs MLP LR multiplier split (TYPE axis orthogonal to H210 depth axis)
+
+- **🎯 H212 thorfinn CLOSED — 69th NULL/NEG + programme finding #43 candidate**: arm_a CTRL linear cooldown val=3.26832/FFS=3025 bit-identical; arm_b AUX_COSINE val=3.27100/FFS=3025 NULL on FFS + +3σ val NEG (cosine compresses aux LR collapse into steps 3025-3325 window → terminal val regression); arm_c AUX_SQRT val=3.26884/FFS=3125 mild NEG -100 FFS (sqrt slow decay delays target crossing). **NOT catastrophic** like H203 BODY sqrt because aux cooldown window is bounded at 40%.
+- **🎯 Programme finding #43 candidate — Bilateral body/aux cooldown shape asymmetry**: BODY wants cosine (H203 WIN), AUX wants linear (H212 confirmed). Different optimal shapes per param group → cooldown design is NOT one-size-fits-all. Mechanistic root: cooldown_frac differs (body=1.0 full training, aux=0.4 last 40%), so "where cooldown happens relative to FFS=3025 crossing" differs. AUX cooldown shape axis EXHAUSTED — linear confirmed optimal.
+- **7-mechanism aux cross-finding** (extends finding #39 from 6 to 7): H190 MSAM + H194 cooldown + H196 GC + H202 SF + H204 β₂-sched + H209 Lion + **H212 aux-shape**. AdamW + AGC + linear-cooldown + β₂=0.99 structurally optimal for aux.
+- **🎯 H220 thorfinn ASSIGNED — TYPE-axis intervention (ATTN vs MLP LR multiplier split)**: Orthogonal to H210 DEPTH-axis. Splits body MuonH param_group into attn (qk, vo, proj) vs MLP (fc, proj) with separate LR multipliers. 3-arm CTRL attn_mul=1.0 mlp_mul=1.0 bit-identical / ATTN_HEAVY attn_mul=1.2 mlp_mul=1.0 / MLP_HEAVY attn_mul=1.0 mlp_mul=1.2. **16th NEW MECHANISM CLASS**: body param-type LR differentiation. Tests "attn and MLP layers want different LR" hypothesis. Untested in our portfolio (H210 was depth-axis, not type-axis).
+- **End-of-cycle ~455 portfolio**: H213 alphonse h_cooldown_frac (arm_c STABLE_60 running with failing trajectory, will hit kill gate at step 2500 — closure imminent next cycle); H214 askeladd spectral RANK truncation (mid-flight); H215 fern RESET × cosine compose (arm_b RESET_1500 running ~30%); H216 frieren Lookahead (sent back — implementation missing, only redundant CTRL runs launched); H217 nezuko EMA-norm blend diagnostic (in implementation); H218 edward depth GROW × cosine compose (in implementation); H219 tanjiro LR FLOOR (newly assigned); H220 thorfinn ATTN/MLP LR split (newly assigned). **8/8 students WIP, 0 idle, 0 review-ready.** 16 novel mechanism classes (added body param-type LR differentiation).
 
 ## 🎯 Cycle ~445 (17:30-17:40 UTC) — H211 tanjiro CLOSED (68th NULL/NEG, cosine² catastrophic + LR_UP NULL, programme finding #42 candidate cooldown shape-steepness axis fully exhausted); H219 tanjiro ASSIGNED LR FLOOR axis (fresh 4th cooldown dimension after shape, timing, depth)
 
