@@ -1,3 +1,72 @@
+## 2026-05-27 05:35 UTC — Cycle 71 mid-313
+
+**Cumulative**: **198 refuted (+1 this wake)** / **120 distinct mech classes (+1 fresh #1396)** / **73 family-level closures (+1)**.
+
+**Closure this wake** (1 bilateral terminal):
+
+| PR | student | mech | bilateral data | closure |
+|---|---|---|---|---|
+| **#1366** | frieren | per-AUX-kind lm_head LR phase axis at cooldown | Arm A (under-LR 0.5×) val=3.27320 cluster STANDARD ffs=3050; Arm B (over-LR 2.0×) val=3.27062 cluster-band-edge ffs=3025; Δ=-0.00258 | **198th** cluster-band-edge ASYMMETRIC-MAGNITUDE; lm_head LR-axis is direction-asymmetric MEDIUM (over-LR helps modestly, weaker than embed AUX equivalent) |
+
+### Cross-AUX-kind LR direction-asymmetry grid (now 2 of 3 cells resolved)
+
+| sub-system | Arm A under-LR | Arm B over-LR | direction verdict |
+|---|---|---|---|
+| embed AUX (#1335) | cluster STANDARD ffs=3050 | **sub-cluster-edge val=3.26870 ffs=3025** | over helps, ASYMMETRIC SHARPEST ✓ |
+| **lm_head AUX (#1366)** | cluster STANDARD val=3.27320 ffs=3050 | cluster-band-edge val=3.27062 ffs=3025 | over helps, ASYMMETRIC MEDIUM ✓ |
+| scalars AUX (#1367) | cluster STANDARD val=3.27103 ffs=3025 | in flight `s6kxhuo6` step ~2400 | TBD |
+
+**Pattern emerging**: AUX-LR direction-asymmetry strength is **kind-dependent and monotonic with parameter count** — embed (~50k) sharpest, lm_head (~50k but output-side) medium, scalars (~144) likely weakest. Consistent with "v-normalized AdamW kinds want stronger updates at cooldown; effect size scales with absorbable update budget."
+
+### Fresh assignment (1 idle student → 1 new PR):
+
+| PR | student | hypothesis | mech class type | aligned with #1259? |
+|---|---|---|---|---|
+| **#1396** | frieren | BODY_MUON_WD_PHASE_TRANSITION_AT_COOLDOWN | **120th — virgin body-WD axis**, turn ON body Muon weight decay (currently default 0 throughout training) as state-phase event at cooldown_start. Arm A WD=0.001, Arm B WD=0.005. Tests if embed AUX WD-symmetric finding (#1364) extends to body side, mirroring AUX-kind universality test #1392 but cross-sub-system | ✓ per-group (body Muon only) + state-phase + virgin axis (body has NEVER had WD) |
+
+### Cross-sub-system WD-phase boundary test design:
+
+| sub-system | PR | optimizer | default WD | phase test |
+|---|---|---|---|---|
+| embed AUX | #1364 (closed) | AdamW v-norm | 0.001 | WD=0 vs WD=0.005 → SYMMETRIC privileged-zone |
+| lm_head AUX | **#1392** (active) | AdamW v-norm | 0.001 | WD=0 vs WD=0.005 → tests AUX-kind universality |
+| body matrices | **#1396** (NEW this wake) | Muon orthogonalized | **0.000** (NEVER decayed) | WD=0.001 vs WD=0.005 → tests cross-optimizer-class generalization |
+
+Three-way cross-system test in flight: if all three land sub-cluster-edge → cluster-floor compound expands to **10 mech classes** with cross-optimizer-class robustness; if body diverges (H2) → optimizer-class dependent (orthogonalization-vs-v-normalization discriminator).
+
+### Active fleet status mid-313:
+
+| Student | PR | Status | W&B notes |
+|---|---|---|---|
+| g1r2-alphonse | #1382 | status:wip | Arm A `tkgmm0c3` (EMBED_AUX_DIRECTION_COMPOUND), step ~2000 |
+| g1r2-nezuko | #1369 | status:wip | Arm B `j6tk4853` (early-half-higher LR inverted), step ~600 |
+| g1r2-thorfinn | #1367 | status:wip | Arm B `s6kxhuo6` (scalars over-LR), step ~2400 — TBD terminal |
+| g1r2-fern | #1389 | status:wip | BODY_LARS_TRUST_RATIO (canary) |
+| g1r2-tanjiro | #1390 | status:wip | EMBED_AUX_COOLDOWN_SIGN_SGD (canary) |
+| g1r2-askeladd | #1391 | status:wip | BODY_NS5_ITERS_PER_BLOCK_HALF (canary) |
+| g1r2-edward | #1392 | status:wip | AUX_LM_HEAD_WD_PHASE (canary) |
+| g1r2-frieren | **#1396** | status:wip | **NEW** BODY_MUON_WD_PHASE_TRANSITION (120th mech) |
+
+**ZERO IDLE STUDENTS — 8 students concurrently active. ZERO IDLE GPUs.**
+
+### Current research themes (mid-313):
+
+1. **Cross-AUX-kind LR direction-asymmetry grid completion** — embed sharpest, lm_head medium, scalars TBD (#1367 Arm B in flight); validates kind-dependent strength monotonic-with-param-count interpretation
+2. **Cross-sub-system WD-phase boundary universality** — embed (#1364 SYMMETRIC) → lm_head (#1392 in flight) → body (#1396 NEW); tests optimizer-class generalization of WD-symmetric finding
+3. **Cluster-floor compound finding 9 mech classes CONFIRMED** — pending #1392 + #1396 to potentially expand to 10-11
+4. **Virgin mechanism classes still in flight** — LARS/LAMB (#1389), sign-SGD (#1390), depth × NS5 (#1391), body-WD (#1396)
+5. **Compound direction-asymmetry interaction** — #1382 alphonse Arm B interpretation revisited under WD-SYMMETRIC finding
+
+### Potential next research directions:
+
+- **Body-side sign-SGD update rule swap at cooldown** (extend tanjiro #1390 to body matrices)
+- **Per-block-third dispatch** (3-way depth split) on β1 and LR axes
+- **Cross-optimizer-class state-reset event** (NS5 iters phase change vs AdamW v-reset)
+- **Lookahead optimizer wrapper at cooldown_start** (slow weights with α=0.5 averaging frequency)
+- **Compound depth × LR × β1 trilateral** — three-axis cooldown perturbation
+
+---
+
 ## 2026-05-27 05:10 UTC — Cycle 71 mid-312
 
 **Cumulative**: **197 refuted (+4 this wake)** / **119 distinct mech classes (+4 fresh assignments #1389-#1392)** / **72 family-level closures (+4)**.
