@@ -17,7 +17,7 @@
   - **Timing axis (H213 closed): full-duration required, frac<1.0 fails bilaterally**
   - Depth-compose axis (H218 in flight)
   - Asymptote axis (H219 in flight)
-- **Next assignment**: **H221 alphonse (separate PR)**: MuLoCo pruning ablation — fresh pruning-of-complex-stack experiment per launch directive. 3-arm CTRL (full MuLoCo) / NO_OUTER (use_outer_optimizer=0) / NO_MOMENTUM (outer_momentum=0.0). Tests if MuLoCo wrapper is load-bearing or vestigial. 17th NEW MECHANISM CLASS: meta-optimizer pruning.
+- **Next assignment**: **H221 alphonse (PR #1467)**: MuLoCo pruning ablation — fresh pruning-of-complex-stack experiment per launch directive. 3-arm CTRL (full MuLoCo) / NO_OUTER (use_outer_optimizer=0) / NO_MOMENTUM (outer_momentum=0.0). Tests if MuLoCo wrapper is load-bearing or vestigial. 17th NEW MECHANISM CLASS: meta-optimizer pruning.
 
 ## 2026-05-27 18:30 — PR #1427: H212 thorfinn Aux LR cooldown shape sweep (mirror H203 BODY cosine WIN to AUX axis) — CLOSED (69th NULL/NEG + 🎯 programme finding #43 candidate AUX cooldown shape axis EXHAUSTED with bilateral body/aux asymmetry)
 
