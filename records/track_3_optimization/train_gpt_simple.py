@@ -469,6 +469,13 @@ WD_AUX = float(os.environ.get("WD_AUX", "0.0"))  # AdamW WD on embed + lm_head m
 EMBED_INIT_STD = float(os.environ.get("EMBED_INIT_STD", "1.0"))  # default preserves baseline N(0,1)
 LOGIT_SOFTCAP = float(os.environ.get("LOGIT_SOFTCAP", "15.0"))  # default = 15 (current hardcoded value); soft-cap value c in f(x) = c·x / sqrt(x^2+c^2)
 
+# PR #1463: depth-half body Muon momentum reset at a single post-target dispatch step.
+# Zeros the Muon 'momentum' EMA buffer for params on either the EARLY-half (blocks 0-5)
+# or LATE-half (blocks 6-11) of the body block stack at the dispatch step.
+POST_TARGET_DEPTH_HALF_MUON_M_RESET_ENABLED = int(os.environ.get("POST_TARGET_DEPTH_HALF_MUON_M_RESET_ENABLED", "0"))
+POST_TARGET_DEPTH_HALF_MUON_M_RESET_STEP = int(os.environ.get("POST_TARGET_DEPTH_HALF_MUON_M_RESET_STEP", "2950"))
+POST_TARGET_DEPTH_HALF_MUON_M_RESET_SCOPE = os.environ.get("POST_TARGET_DEPTH_HALF_MUON_M_RESET_SCOPE", "early")  # "early" or "late"
+
 
 def zeropower_via_newtonschulz5(G: Tensor) -> Tensor:
     assert G.ndim >= 2
@@ -652,6 +659,13 @@ class Muon(torch.optim.Optimizer):
                     self.attn_soap_kind[id(p)] = "v"
                 elif n.endswith(".attn.proj.weight"):
                     self.attn_soap_kind[id(p)] = "proj"
+        # Map each param to its body block index (PR #1463 depth-half m-reset dispatch).
+        # named_params here comes from model.blocks.named_parameters(), so n is e.g. "7.attn.q.weight".
+        self.param_to_block_idx: dict[int, int] = {}
+        for n, p in named_params:
+            head = n.split(".", 1)[0]
+            if head.isdigit():
+                self.param_to_block_idx[id(p)] = int(head)
         params = sorted([p for _, p in named_params], key=lambda x: x.size(), reverse=True)
         defaults = dict(lr=lr, weight_decay=weight_decay, mu=mu)
         super().__init__(params, defaults)
@@ -776,6 +790,47 @@ class Muon(torch.optim.Optimizer):
             out[f"{kind}/mean_cos_col"] = sum(ccs) / kn
         return out
 
+    @torch.no_grad()
+    def reset_momentum_by_half(self, scope: str) -> int:
+        """Zero out the 'momentum' EMA buffer for params on the given depth-half (PR #1463).
+
+        scope='early' -> blocks 0-5; scope='late' -> blocks 6-11. Returns # params reset.
+        Params whose state has not yet been allocated (e.g. dispatched before first step) are skipped.
+        """
+        target_blocks = set(range(0, 6)) if scope == "early" else set(range(6, 12))
+        n_reset = 0
+        for group in self.param_groups:
+            for p in group["params"]:
+                block_idx = self.param_to_block_idx.get(id(p))
+                if block_idx is None or block_idx not in target_blocks:
+                    continue
+                state = self.state.get(p)
+                if state is None or "momentum" not in state:
+                    continue
+                state["momentum"].zero_()
+                n_reset += 1
+        return n_reset
+
+    @torch.no_grad()
+    def m_buffer_norms_by_half(self) -> dict[str, float]:
+        """Return Frobenius norm of the 'momentum' EMA buffer aggregated by depth-half (PR #1463)."""
+        sq_early = 0.0
+        sq_late = 0.0
+        for group in self.param_groups:
+            for p in group["params"]:
+                block_idx = self.param_to_block_idx.get(id(p))
+                if block_idx is None:
+                    continue
+                state = self.state.get(p)
+                if state is None or "momentum" not in state:
+                    continue
+                sq = float(state["momentum"].float().pow(2).sum().item())
+                if block_idx < 6:
+                    sq_early += sq
+                else:
+                    sq_late += sq
+        return {"early": sq_early ** 0.5, "late": sq_late ** 0.5}
+
 
 ########################################
 #                Setup                 #
@@ -867,6 +922,9 @@ if dist.get_rank() == 0:
             "optimizer/ns5_iters": NS5_ITERS,
             "optimizer/wd_aux": WD_AUX,
             "optimizer/recipe": "contra-muon + normuon-lite + soap-on-mlp + soap-on-attn-trust-gate (pre-NS5, record #14 + record #16)",
+            "optimizer/post_target_depth_half_muon_m_reset_enabled": POST_TARGET_DEPTH_HALF_MUON_M_RESET_ENABLED,
+            "optimizer/post_target_depth_half_muon_m_reset_step": POST_TARGET_DEPTH_HALF_MUON_M_RESET_STEP,
+            "optimizer/post_target_depth_half_muon_m_reset_scope": POST_TARGET_DEPTH_HALF_MUON_M_RESET_SCOPE,
         },
     )
 
@@ -1051,6 +1109,30 @@ for trial_idx in range(args.num_trials):
                 train_steps=train_steps,
                 wandb_step=wandb_step,
             )
+        # PR #1463: depth-half body Muon m-reset dispatch + verification logging.
+        depth_half_m_reset_window = 2925 <= step <= 2975
+        dispatch_fired = 0
+        params_reset_count = 0
+        if (POST_TARGET_DEPTH_HALF_MUON_M_RESET_ENABLED
+                and step == POST_TARGET_DEPTH_HALF_MUON_M_RESET_STEP):
+            scope = POST_TARGET_DEPTH_HALF_MUON_M_RESET_SCOPE
+            target_blocks = list(range(0, 6)) if scope == "early" else list(range(6, 12))
+            params_reset_count = optimizer2.reset_momentum_by_half(scope)
+            dispatch_fired = 1
+            print0(f"[POST_TARGET_DEPTH_HALF_MUON_M_RESET] scope={scope} "
+                   f"blocks={target_blocks} params_reset={params_reset_count} at step={step}",
+                   console=True, log=True)
+        if dist.get_rank() == 0 and depth_half_m_reset_window:
+            m_norms = optimizer2.m_buffer_norms_by_half()
+            wandb.log({
+                "trial": trial_idx,
+                "train/step": train_step,
+                "train/depth_half_muon_m_reset/dispatch_fired": dispatch_fired,
+                "train/depth_half_muon_m_reset/params_reset_count": params_reset_count,
+                "train/depth_half_muon_m_reset/scope_is_early": int(POST_TARGET_DEPTH_HALF_MUON_M_RESET_SCOPE == "early"),
+                "train/muon/m_norm_early": m_norms["early"],
+                "train/muon/m_norm_late": m_norms["late"],
+            }, step=wandb_step)
         for opt in optimizers:
             opt.step()
         if dist.get_rank() == 0 and telemetry_due:
