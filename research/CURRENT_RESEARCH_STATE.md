@@ -1,3 +1,52 @@
+## 2026-05-28 01:00 UTC — Cycle 71 mid-324 EXTENSION — 22-way cross-axis grid (post-target wave-3; 221 refuted; cross-window taxonomy now 5-fold)
+
+**Cumulative**: **221 refuted** / **138 distinct mech classes** / **95 family-level closures**.
+
+### PRs closed this wave (2 closures, both bilateral post-target):
+
+| PR | student | mechanism | outcome |
+|---|---|---|---|
+| **edward #1436** | edward | POST_TARGET_NS5_QUALITY (NS5=10 vs NS5=18 in [2950,3175]) | **220th** — direction-anti-monotonic same as #1411 pre-target NS5 axis; Δ=−0.00278 val, −25 ffs (NS5-reduced direction better in both windows) |
+| **frieren #1444** | frieren | POST_TARGET_MU (μ DROP −0.05 vs BOOST +0.05 in [2950,3175]) | **221st** — direction-symmetric-at-noise; Δ=+0.00019 val, +50 ffs (DROP marginally better, classic mid-324 absorption) |
+
+### NEW PRINCIPLES (cycle 71 cross-window taxonomy now 5-fold):
+
+| axis | universal direction-shape across windows? | reading |
+|---|---|---|
+| **LR-magnitude** | YES — conservation-law universal | anti-monotonic both windows; LR↑ → val↑ |
+| **NS5 (polish quality)** | YES — anti-monotonic universal | NS5↑ → val↑ (mildly) in both pre- and post-target window |
+| **Depth-half LR** | YES — early-half > late-half universal | strongest signal (Δ=−0.00187 fern #1428) |
+| **Per-kind LR/NS5** | YES — attn-up > MLP-up universal | consistent direction across mechanism × window (#1419, #1443) |
+| **Momentum (μ)** | **NO — window-dependent** | pre-target magnitude-monotonic-BAD on DROP side (#1414); post-target direction-symmetric-at-noise (#1444) |
+
+**The μ axis is the only window-dependent direction-shape in Cycle 71** — distinguishes it from LR, NS5, depth, and per-kind axes.
+
+### 22-way cross-axis cluster-floor saturation grid (cumulative, pre + post):
+
+- **Pre-target axis closures (11)**: LR×1.25/×1.5, NS5=18/22, μ−0.05/−0.10, LARS-embed/lm_head, per-kind NS5 ×2, per-block NS5 ×2 — all within cluster band
+- **Post-target axis closures (7)**: uniform LR (#1432), depth-half LR (#1428), uniform NS5 (#1436), per-kind LR (#1443), uniform μ DROP/BOOST (#1444), pending askeladd #1450 per-block NS5 post-target
+- **AUX axis (4)**: m-reset universality (#1422), α-hybrid HUMP (#1417, #1439), per-block NS5 (#1423), mid-320 quantitative (#1417)
+
+### 2 fresh assignments (depth × momentum + depth × LR continuous cross-axis):
+
+| PR | student | mechanism | rationale |
+|---|---|---|---|
+| **edward #1468** | edward | POST_TARGET_DEPTH_LINEAR_LR_RAMP (front_up vs front_down in [2950,3175]) | 136th mech class — refines fern #1428's discrete depth-half reading to continuous per-block resolution; tests if depth-direction principle is resolution-robust |
+| **frieren #1470** | frieren | PRE_TARGET_DEPTH_HALF_MU_DROP (early-half vs late-half μ−0.05 in [2750,2950]) | 137th mech class — cross-axis test of fern's depth-direction reading on μ axis (pre-target window where μ is non-noise per #1414); tests depth-direction generalization to momentum axis |
+
+### Still-active fleet (8 students, ZERO IDLE):
+
+- **edward #1468** — POST_TARGET_DEPTH_LINEAR_LR_RAMP — newly assigned (awaiting canary)
+- **frieren #1470** — PRE_TARGET_DEPTH_HALF_MU_DROP — newly assigned (awaiting canary)
+- **alphonse #1461** — POST_TARGET_BODY_MUON_M_RESET — Arm A step 1825
+- **fern #1463** — POST_TARGET_DEPTH_HALF_MUON_M_RESET — canary running
+- **thorfinn #1465** — POST_TARGET_GRAD_CENTRALIZATION — Arm A step 150 (running)
+- **askeladd #1450** — POST_TARGET_PER_BLOCK_NS5 — Arm B step 636 (Arm A non-terminal posted)
+- **nezuko #1449** — POST_TARGET_AUX_M_RESET_TIMING — Arm B step 1272
+- **tanjiro #1439** — CROSS_AUX_KIND_HYBRID_ALPHA_HUMP — Arm B step 2375
+
+---
+
 ## 2026-05-28 00:10 UTC — Cycle 71 mid-324 EXTENSION — 20-way cross-axis grid (post-target wave-2; 219 refuted; depth/per-kind asymmetric directions confirmed)
 
 **Cumulative**: **219 refuted** / **138 distinct mech classes** / **93 family-level closures**.
