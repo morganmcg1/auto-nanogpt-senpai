@@ -468,6 +468,13 @@ NS5_ITERS = int(os.environ.get("NS5_ITERS", "12"))
 WD_AUX = float(os.environ.get("WD_AUX", "0.0"))  # AdamW WD on embed + lm_head matrices (scalars stay at 0)
 EMBED_INIT_STD = float(os.environ.get("EMBED_INIT_STD", "1.0"))  # default preserves baseline N(0,1)
 LOGIT_SOFTCAP = float(os.environ.get("LOGIT_SOFTCAP", "15.0"))  # default = 15 (current hardcoded value); soft-cap value c in f(x) = c·x / sqrt(x^2+c^2)
+# PR #1408: short pre-target-crossing LR burst on body Muon only. When enabled,
+# multiplies the body Muon group LR by MU_LR_FFS_BURST_FACTOR for optimizer
+# steps in [START, END). AUX (embed/lm_head/scalars AdamW) paths untouched.
+MU_LR_FFS_BURST_ENABLED = int(os.environ.get("MU_LR_FFS_BURST_ENABLED", "0"))
+MU_LR_FFS_BURST_FACTOR = float(os.environ.get("MU_LR_FFS_BURST_FACTOR", "1.25"))
+MU_LR_FFS_BURST_START = int(os.environ.get("MU_LR_FFS_BURST_START", "2750"))
+MU_LR_FFS_BURST_END = int(os.environ.get("MU_LR_FFS_BURST_END", "2950"))
 
 
 def zeropower_via_newtonschulz5(G: Tensor) -> Tensor:
@@ -866,6 +873,10 @@ if dist.get_rank() == 0:
             "optimizer/attn_soap_trust_threshold": ATTN_SOAP_TRUST_THRESHOLD,
             "optimizer/ns5_iters": NS5_ITERS,
             "optimizer/wd_aux": WD_AUX,
+            "optimizer/mu_lr_ffs_burst_enabled": MU_LR_FFS_BURST_ENABLED,
+            "optimizer/mu_lr_ffs_burst_factor": MU_LR_FFS_BURST_FACTOR,
+            "optimizer/mu_lr_ffs_burst_start": MU_LR_FFS_BURST_START,
+            "optimizer/mu_lr_ffs_burst_end": MU_LR_FFS_BURST_END,
             "optimizer/recipe": "contra-muon + normuon-lite + soap-on-mlp + soap-on-attn-trust-gate (pre-NS5, record #14 + record #16)",
         },
     )
@@ -931,11 +942,18 @@ for trial_idx in range(args.num_trials):
                 cur_mu = MU_COOLDOWN_START + (MU_COOLDOWN_END - MU_COOLDOWN_START) * t
         else:
             cur_mu = MU + (MU_END - MU) * progress
+        # PR #1408: pre-target-crossing LR burst on body Muon only.
+        body_muon_burst_active = (
+            MU_LR_FFS_BURST_ENABLED
+            and MU_LR_FFS_BURST_START <= step < MU_LR_FFS_BURST_END
+        )
         for opt in optimizers:
             for group in opt.param_groups:
                 group["lr"] = group["initial_lr"] * eta
                 if group.get("name") == "muon_blocks":
                     group["mu"] = cur_mu
+                    if body_muon_burst_active:
+                        group["lr"] = group["lr"] * MU_LR_FFS_BURST_FACTOR
 
 
     ########################################
@@ -984,6 +1002,18 @@ for trial_idx in range(args.num_trials):
                     best_val_step = step
                 if first_step_to_target < 0 and val_loss_float <= TARGET_VAL_LOSS:
                     first_step_to_target = step
+                # PR #1408 FFS-burst telemetry: capture body Muon effective LR at
+                # eval-grid checkpoints (covers heartbeat steps 2750/2950/2975/3000).
+                burst_active_at_step = int(
+                    MU_LR_FFS_BURST_ENABLED
+                    and MU_LR_FFS_BURST_START <= step < MU_LR_FFS_BURST_END
+                )
+                body_muon_effective_lr = float("nan")
+                for opt in optimizers:
+                    for group in opt.param_groups:
+                        if group.get("name") == "muon_blocks":
+                            body_muon_effective_lr = float(group["lr"])
+                            break
                 metrics = {
                     "trial": trial_idx,
                     "val/step": step,
@@ -996,6 +1026,8 @@ for trial_idx in range(args.num_trials):
                     "speedrun/reached_target": int(first_step_to_target >= 0),
                     "time/train_seconds": training_time,
                     "time/step_avg_ms": 1000 * step_avg,
+                    "train/body_muon/ffs_burst_active": burst_active_at_step,
+                    "train/body_muon/effective_lr": body_muon_effective_lr,
                 }
                 metrics.update(prefixed("val/slope", loss_slope_stats(val_loss_history, slope_window_steps)))
                 wandb.log(metrics, step=trial_idx * (train_steps + 1) + step)
@@ -1041,6 +1073,16 @@ for trial_idx in range(args.num_trials):
             slope_metrics.update(prefixed("train/slope", loss_slope_stats(train_loss_history, slope_window_steps)))
             wandb.log(slope_metrics, step=wandb_step)
         if dist.get_rank() == 0 and telemetry_due:
+            # PR #1408 FFS-burst telemetry: tag this step's body Muon LR with the
+            # burst-active flag so post-hoc analysis can verify the boost window.
+            burst_active_now = int(
+                MU_LR_FFS_BURST_ENABLED
+                and MU_LR_FFS_BURST_START <= step < MU_LR_FFS_BURST_END
+            )
+            wandb.log({
+                "trial": trial_idx,
+                "train/body_muon/ffs_burst_active": burst_active_now,
+            }, step=wandb_step)
             log_training_telemetry(
                 model=model,
                 optimizers=optimizers,
