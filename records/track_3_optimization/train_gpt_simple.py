@@ -469,6 +469,18 @@ WD_AUX = float(os.environ.get("WD_AUX", "0.0"))  # AdamW WD on embed + lm_head m
 EMBED_INIT_STD = float(os.environ.get("EMBED_INIT_STD", "1.0"))  # default preserves baseline N(0,1)
 LOGIT_SOFTCAP = float(os.environ.get("LOGIT_SOFTCAP", "15.0"))  # default = 15 (current hardcoded value); soft-cap value c in f(x) = c·x / sqrt(x^2+c^2)
 
+# Per-AUX-kind Adam ε dispatch at cooldown_start (PR #1359, 109th mech).
+# When AUX_EPS_PER_KIND_AT_COOLDOWN=0 the dispatch is identity-pass and all
+# 3 AUX groups inherit optimizer-level eps=1e-10 unchanged (bit-exact baseline).
+AUX_EPS_PER_KIND_AT_COOLDOWN = int(os.environ.get("AUX_EPS_PER_KIND_AT_COOLDOWN", "0"))
+AUX_EPS_EMBED_COOLDOWN = float(os.environ.get("AUX_EPS_EMBED_COOLDOWN", "1e-10"))
+AUX_EPS_LM_HEAD_COOLDOWN = float(os.environ.get("AUX_EPS_LM_HEAD_COOLDOWN", "1e-10"))
+AUX_EPS_SCALARS_COOLDOWN = float(os.environ.get("AUX_EPS_SCALARS_COOLDOWN", "1e-10"))
+AUX_EPS_KIND_STEP = int(os.environ.get("AUX_EPS_KIND_STEP", "953"))  # cooldown_start ≈ round(3175 × 0.30)
+assert AUX_EPS_EMBED_COOLDOWN > 0.0, "AUX_EPS_EMBED_COOLDOWN must be > 0"
+assert AUX_EPS_LM_HEAD_COOLDOWN > 0.0, "AUX_EPS_LM_HEAD_COOLDOWN must be > 0"
+assert AUX_EPS_SCALARS_COOLDOWN > 0.0, "AUX_EPS_SCALARS_COOLDOWN must be > 0"
+
 
 def zeropower_via_newtonschulz5(G: Tensor) -> Tensor:
     assert G.ndim >= 2
@@ -866,6 +878,11 @@ if dist.get_rank() == 0:
             "optimizer/attn_soap_trust_threshold": ATTN_SOAP_TRUST_THRESHOLD,
             "optimizer/ns5_iters": NS5_ITERS,
             "optimizer/wd_aux": WD_AUX,
+            "optimizer/aux_eps_per_kind_at_cooldown": AUX_EPS_PER_KIND_AT_COOLDOWN,
+            "optimizer/aux_eps_embed_cooldown": AUX_EPS_EMBED_COOLDOWN,
+            "optimizer/aux_eps_lm_head_cooldown": AUX_EPS_LM_HEAD_COOLDOWN,
+            "optimizer/aux_eps_scalars_cooldown": AUX_EPS_SCALARS_COOLDOWN,
+            "optimizer/aux_eps_kind_step": AUX_EPS_KIND_STEP,
             "optimizer/recipe": "contra-muon + normuon-lite + soap-on-mlp + soap-on-attn-trust-gate (pre-NS5, record #14 + record #16)",
         },
     )
@@ -931,11 +948,21 @@ for trial_idx in range(args.num_trials):
                 cur_mu = MU_COOLDOWN_START + (MU_COOLDOWN_END - MU_COOLDOWN_START) * t
         else:
             cur_mu = MU + (MU_END - MU) * progress
+        # Per-AUX-kind ε dispatch active only post-cooldown_start when flag set.
+        aux_eps_active = bool(AUX_EPS_PER_KIND_AT_COOLDOWN) and (step >= AUX_EPS_KIND_STEP)
         for opt in optimizers:
             for group in opt.param_groups:
                 group["lr"] = group["initial_lr"] * eta
                 if group.get("name") == "muon_blocks":
                     group["mu"] = cur_mu
+                if aux_eps_active:
+                    name = group.get("name", "")
+                    if name == "adam_embed":
+                        group["eps"] = AUX_EPS_EMBED_COOLDOWN
+                    elif name == "adam_lm_head":
+                        group["eps"] = AUX_EPS_LM_HEAD_COOLDOWN
+                    elif name == "adam_scalars":
+                        group["eps"] = AUX_EPS_SCALARS_COOLDOWN
 
 
     ########################################
@@ -998,6 +1025,32 @@ for trial_idx in range(args.num_trials):
                     "time/step_avg_ms": 1000 * step_avg,
                 }
                 metrics.update(prefixed("val/slope", loss_slope_stats(val_loss_history, slope_window_steps)))
+                # Per-AUX-kind ε telemetry (PR #1359). aux_eps_active reflects the
+                # mechanism gate; eps_{embed,lm_head,scalars} are the currently
+                # applied per-group ε (post-dispatch when active, optimizer
+                # default 1e-10 otherwise). v_norm_embed, eps_dominance_embed,
+                # and effective_denom_min_embed inspect the embed group's
+                # AdamW exp_avg_sq state to characterize the v-magnitude regime.
+                aux_eps_active_log = int(bool(AUX_EPS_PER_KIND_AT_COOLDOWN) and step >= AUX_EPS_KIND_STEP)
+                aux_eps_metrics = {"aux/eps_active": aux_eps_active_log}
+                for opt in optimizers:
+                    for group in opt.param_groups:
+                        gname = group.get("name", "")
+                        if gname in ("adam_embed", "adam_lm_head", "adam_scalars"):
+                            kind = gname.replace("adam_", "")
+                            aux_eps_metrics[f"aux/eps_{kind}"] = float(group.get("eps", 1e-10))
+                            if gname == "adam_embed":
+                                p_embed = group["params"][0]
+                                st = opt.state.get(p_embed, {})
+                                v = st.get("exp_avg_sq", None)
+                                if v is not None and v.numel() > 0:
+                                    eps_e = float(group.get("eps", 1e-10))
+                                    v_f = v.detach().float()
+                                    sqrt_v = v_f.sqrt()
+                                    aux_eps_metrics["aux/v_norm_embed"] = float(v_f.norm().item())
+                                    aux_eps_metrics["aux/eps_dominance_embed"] = float((sqrt_v < eps_e).float().mean().item())
+                                    aux_eps_metrics["aux/effective_denom_min_embed"] = float((sqrt_v + eps_e).min().item())
+                metrics.update(aux_eps_metrics)
                 wandb.log(metrics, step=trial_idx * (train_steps + 1) + step)
             print0(f"step:{step}/{train_steps} val_loss:{val_loss:.5f} train_time:{training_time:.3f}s"
                    + f" step_avg:{1000*step_avg:.2f}ms", console=True)
