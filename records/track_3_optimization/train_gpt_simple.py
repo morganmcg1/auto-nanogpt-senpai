@@ -109,6 +109,14 @@ def parse_args():
     parser.add_argument("--body_init_bottom_layers", type=int,
                         default=int(os.environ.get("BODY_INIT_BOTTOM_LAYERS", "6")),
                         help="Number of bottom layers to damp for --body_init=orthogonal_bottom_damp (default 6 = bottom half of 12 layers).")
+    # H198: Polyak-Ruppert EMA of parameters used only during validation passes.
+    # 0.0 = off (bit-identical to baseline). Maintains an EMA of ALL parameters and
+    # swaps it in for val forward passes; training trajectory is unchanged.
+    parser.add_argument("--body_ema_decay", type=float,
+                        default=float(os.environ.get("BODY_EMA_DECAY", "0.0")),
+                        help="EMA decay for evaluation-only parameter averaging. "
+                             "0.0 = off (bit-identical to baseline). Typical 0.99-0.9999. "
+                             "Applied to all parameters; only used during val forward passes.")
     args = parser.parse_args()
     args.num_trials = args.num_trials if args.num_trials is not None else (args.legacy_num_trials or 1)
     args.wandb_tags = [tag.strip() for tag in args.wandb_tags.split(",") if tag.strip()]
@@ -850,6 +858,7 @@ if dist.get_rank() == 0:
             "muonh_mu_schedule": args.muonh_mu_schedule,
             "muonh_mu_start": args.muonh_mu_start,
             "muonh_mu_end": args.muonh_mu_end,
+            "body_ema_decay": args.body_ema_decay,
         },
     )
 
@@ -1053,6 +1062,17 @@ for trial_idx in range(args.num_trials):
         outer_velocity = None
     outer_applied_steps = 0
 
+    # H198: Polyak-Ruppert EMA of params for val-only forward passes. When decay=0.0
+    # the dict stays empty and every EMA-touching branch below is a no-op (arm_a is
+    # bit-identical to baseline). When decay>0 we maintain an EMA over ALL params and
+    # only swap it in during the val forward; the training trajectory on `param.data`
+    # is unchanged.
+    param_ema: dict[str, Tensor] = {}
+    if args.body_ema_decay > 0.0:
+        with torch.no_grad():
+            for name, p in model.named_parameters():
+                param_ema[name] = p.data.clone().detach()
+
     # start the clock
     training_time = 0
     last_val_step = 0
@@ -1077,6 +1097,14 @@ for trial_idx in range(args.num_trials):
             last_val_step = step
             training_time += time_since_last_val
             model.eval()
+            # H198: swap EMA params in for the val forward (training params restored after).
+            # When decay=0.0 param_ema is empty and saved_params stays empty → no-op.
+            saved_params: dict[str, Tensor] = {}
+            if args.body_ema_decay > 0.0 and param_ema:
+                with torch.no_grad():
+                    for name, p in model.named_parameters():
+                        saved_params[name] = p.data.clone()
+                        p.data.copy_(param_ema[name])
             val_loss = torch.zeros((), device=device)
             with torch.no_grad():
                 assert len(val_inputs) % mbs == 0
@@ -1085,6 +1113,41 @@ for trial_idx in range(args.num_trials):
             dist.all_reduce(val_loss, op=dist.ReduceOp.SUM)
             val_loss /= val_tokens
             val_loss_float = float(val_loss.item())
+            # H198: optional second val forward on raw (non-EMA) params for direct
+            # smoothed-vs-raw comparison. Dense at EVERY val step in the FFS window
+            # (steps 3000-train_steps) so we capture raw val at the same steps where
+            # the EMA val crosses (or fails to cross) 3.28; sparser elsewhere every
+            # 250 steps. Only meaningful when EMA is active.
+            val_loss_no_ema_float: float | None = None
+            if saved_params:
+                in_ffs_window = 3000 <= step <= train_steps
+                no_ema_due = (
+                    step == train_steps
+                    or in_ffs_window
+                    or (not in_ffs_window and step % 250 == 0)
+                )
+                if no_ema_due:
+                    with torch.no_grad():
+                        for name, p in model.named_parameters():
+                            p.data.copy_(saved_params[name])
+                    val_loss_no_ema = torch.zeros((), device=device)
+                    with torch.no_grad():
+                        for i in range(len(val_inputs) // mbs):
+                            val_loss_no_ema += model(val_inputs[i*mbs:(i+1)*mbs],
+                                                     val_targets[i*mbs:(i+1)*mbs])
+                    dist.all_reduce(val_loss_no_ema, op=dist.ReduceOp.SUM)
+                    val_loss_no_ema /= val_tokens
+                    val_loss_no_ema_float = float(val_loss_no_ema.item())
+                    # restore EMA swap so the next "restore" branch below is symmetric
+                    with torch.no_grad():
+                        for name, p in model.named_parameters():
+                            p.data.copy_(param_ema[name])
+            # H198: restore current (training) params before resuming training.
+            if saved_params:
+                with torch.no_grad():
+                    for name, p in model.named_parameters():
+                        p.data.copy_(saved_params[name])
+                saved_params.clear()
             if dist.get_rank() == 0:
                 val_loss_history.append((step, val_loss_float))
                 if val_loss_float < best_val_loss:
@@ -1105,6 +1168,9 @@ for trial_idx in range(args.num_trials):
                     "time/train_seconds": training_time,
                     "time/step_avg_ms": 1000 * step_avg,
                 }
+                if val_loss_no_ema_float is not None:
+                    metrics["val/loss_no_ema"] = val_loss_no_ema_float
+                    metrics["val/loss_ema_delta"] = val_loss_float - val_loss_no_ema_float
                 metrics.update(prefixed("val/slope", loss_slope_stats(val_loss_history, slope_window_steps)))
                 wandb.log(metrics, step=trial_idx * (train_steps + 1) + step)
             print0(f"step:{step}/{train_steps} val_loss:{val_loss:.5f} train_time:{training_time:.3f}s"
@@ -1300,6 +1366,31 @@ for trial_idx in range(args.num_trials):
                     "train/muloco/outer_step": outer_applied_steps,
                     "train/muloco/delta_rms": delta_rms,
                     "train/muloco/velocity_rms": velocity_rms,
+                }, step=wandb_step)
+
+        # H198: EMA update. Runs after every inner step AND after the MuLoCo outer
+        # sync (so EMA tracks the post-MuLoCo live state, identical to what val sees
+        # in CTRL). Logs param drift at telemetry intervals so we can see EMA tracking.
+        if args.body_ema_decay > 0.0 and param_ema:
+            decay = args.body_ema_decay
+            log_drift = (dist.get_rank() == 0 and telemetry_due)
+            drift_sq = 0.0
+            drift_count = 0
+            with torch.no_grad():
+                for name, p in model.named_parameters():
+                    ema = param_ema[name]
+                    if log_drift:
+                        drift_sq += float((p.data.float() - ema.float()).square().sum().item())
+                        drift_count += p.numel()
+                    ema.mul_(decay).add_(p.data, alpha=1.0 - decay)
+            if log_drift:
+                drift_rms = (drift_sq / max(1, drift_count)) ** 0.5
+                wandb.log({
+                    "trial": trial_idx,
+                    "train/step": train_step,
+                    "train/ema/decay": decay,
+                    "train/ema/param_l2_drift": drift_sq ** 0.5,
+                    "train/ema/param_drift_rms": drift_rms,
                 }, step=wandb_step)
 
         approx_training_time = training_time + (time.perf_counter() - t0)
