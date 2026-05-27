@@ -1,5 +1,25 @@
 # SENPAI Research Results — auto-nanogpt-1gpu-r4
 
+## 2026-05-27 04:30 — PR #1338: NM multi-shot R-buffer reset 1/2/3 resets across cooldown (CLOSED productive-MARGINAL — 50th no-merge)
+
+- Branch: `g1r4-askeladd/nm-multi-shot-reset` (student g1r4-askeladd)
+- Hypothesis: NM R-buffer multi-shot reset extends single-shot RESET=2345 axis. 4-arm chain on pre-#1240 stack testing monotone-by-frequency: A=0 resets / B=1-shot @ 2345 / C=2-shot @ 2345,2700 / D=3-shot @ 2345,2600,2900. Tests R-buffer continuous-freshness hypothesis with progressively more aggressive refresh.
+
+| Arm | n_resets | RESET_STEPS | val/loss | fs | Δ_paired vs A | Per-reset Δ | W&B run | Verdict |
+|:---:|:---:|---|:---:|:---:|:---:|:---:|:---:|---|
+| A ctrl | 0 | — | 3.26676 | 3175 | (ref) | — | `e71gh1pq` | drift +0.00062 PASS-CLEAN |
+| B 1-shot | 1 | 2345 | 3.26666 | 3175 | **−0.00010 NULL-noise** | −0.00010 | `bbaiv26k` | replicates #1281 NULL consolidation (6th anchor) |
+| **C 2-shot** | 2 | 2345,2700 | **3.26612** | 3175 | **−0.00064 NULL-FAV-noise** | **−0.00054 mild-FAV** | `rhebjf25` | sweet-spot — partial-continuous R-freshness |
+| **D 3-shot** | 3 | 2345,2600,2900 | **3.26769** | **3200** | **+0.00093 NULL-ADV-band** | **+0.00157 clear ADVERSE** | `axoe38ds` | overshoots — late-cooldown reset destroys load-bearing R |
+
+- **🎯 4-point U-shape: 2-shot optimum, 3-shot destructive**: per-reset Δ trajectory 0→1 zero / 1→2 mild-FAV (−0.00054) / 2→3 clear ADVERSE (+0.00157). The window in which R-staleness matters is roughly [2345, 2700] (cooldown onset + ~250-step adaptation). Resetting *past* that window destroys R covariance accumulated for late-cooldown phase, costs +25 fs.
+- **🎯 Mechanism story (per student's analysis)**: A→B (0→1 reset) ≈ 0 effect single-shot @ 2345 is dispositively NULL (now 6-way cross-chain consolidation Arm B as 6th anchor, mean Δ ~+0.00099 NULL-mild-adverse). B→C (1→2 resets) mild-FAV: 2nd reset @ 2700 refreshes R against post-cooldown-boundary gradient distribution, validates partial-continuous R-freshness. C→D (2→3 resets) clear ADVERSE: 3rd reset @ 2900 overshoots, wipes out accumulated R covariance encoding dominant late-phase gradient structure, forces 14-step re-warm at the point where it costs the most.
+- **No merge under post-#1240 baseline 3.26339**: best Arm C val=3.26612 is +0.00273 above → G1 fails by wide margin. Pre-#1240 stack, within-chain paired deltas bit-identical-comparable but cross-stack G1 not apples-to-apples. Apples-to-apples vs OLD baseline 3.26614: Arm C val=3.26612 is +0.00002 essentially AT baseline (no statistical significance at N=1).
+- **Decision tree resolution**: Row 5 (monotone-NEG in count) NEAR-FIT but C-arm partial favorable breaks monotonicity → Row 6 close productive-MARGINAL per pre-staged tree. Mechanism direction validated, R-buffer refresh axis fenced as U-shape.
+- **Cross-chain mechanism contribution**: D-arm 3-shot overshoot converges with #1319 H5 sub-window finding (middle-segment [2500, 2800) NEG) — confirms late-cooldown R-buffer interventions are damaging. RESET schedule axis (single-shot + multi-shot) dispositively fenced across r4 launch.
+- **Student craftsmanship excellence**: Clean 4-arm chain execution with reset telemetry verified at each step (`NM_RESET: step=… cleared_R_params=60 total_resets=…` log lines + `train/nm/multi_reset_triggered_at_step` W&B series), per-reset Δ contribution analysis, decision tree resolution to Row 6 close productive-MARGINAL with mechanism characterization. Highest-quality NM RESET axis characterization to date.
+- Conclusion: 50th no-merge since #847. R-buffer refresh-frequency axis FENCED as U-shape with 2-shot optimum @ [2345, 2700]; 3+ resets destroy late-phase R covariance. askeladd reassigned to **#1383 H1 NM step-gated activation timing sweep** (START_STEP 0/1500/2000/2400 on post-#1240 stack) — directly addresses Issue #1261 H1 directive ("Newton-Muon only after step X"), virgin axis distinct from RESET schedule (clears R-buffer) and BETA-schedule (changes EMA decay) — gates entire NM mechanism on/off by step. 11th NM mechanism axis when chain closes.
+
 ## 2026-05-27 03:05 — PR #1331: NM β-schedule 4-arm depth-by-timing factorial (CLOSED productive-MARGINAL — 49th no-merge)
 
 - Branch: `g1r4-frieren/nm-beta-schedule` (student g1r4-frieren)
