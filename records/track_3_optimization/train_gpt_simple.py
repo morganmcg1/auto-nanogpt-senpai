@@ -10,6 +10,7 @@ import sys
 with open(sys.argv[0]) as f:
     code = f.read() # read the code of this file ASAP, for logging
 import argparse
+import math
 import uuid
 import time
 from pathlib import Path
@@ -71,6 +72,19 @@ def parse_args():
                         help="LR for AdamW adam_scalars group (RMSNorm gains; "
                              "params with ndim < 2). Default 0.01 — hardcoded, "
                              "never ablated. ~20K params total in this model.")
+    parser.add_argument(
+        "--lr_cooldown_shape",
+        type=str,
+        default="linear",
+        choices=["linear", "cosine", "concave", "convex", "step"],
+        help="Decay shape applied to all optimizer LRs during the cooldown window "
+             "(last cooldown_frac of training). x = (progress - (1 - cooldown_frac)) / cooldown_frac. "
+             "linear: eta = 1 - x (current default); "
+             "cosine: eta = 0.5 * (1 + cos(pi * x)); "
+             "concave: eta = sqrt(1 - x) (drops fast, stays low); "
+             "convex: eta = (1 - x)^2 (stays high, crashes late); "
+             "step: eta = 1 if x < 0.8 else 0 (falsifier - no decay until last 20% of cooldown).",
+    )
     parser.add_argument(
         "--depth_init_mode",
         type=str,
@@ -765,6 +779,7 @@ if dist.get_rank() == 0:
             "wd_schedule": args.wd_schedule,
             "lr_scalars": args.lr_scalars,
             "depth_init_mode": args.depth_init_mode,
+            "lr_cooldown_shape": args.lr_cooldown_shape,
         },
     )
 
@@ -879,19 +894,35 @@ for trial_idx in range(args.num_trials):
             raise ValueError(f"Unknown wd_schedule: {schedule}")
 
     # learning rate schedule: stable then decay
+    def _cooldown_eta(x, shape):
+        if shape == "linear":
+            return 1.0 - x
+        elif shape == "cosine":
+            return 0.5 * (1.0 + math.cos(math.pi * x))
+        elif shape == "concave":
+            return math.sqrt(max(0.0, 1.0 - x))
+        elif shape == "convex":
+            return (1.0 - x) ** 2
+        elif shape == "step":
+            return 1.0 if x < 0.8 else 0.0
+        else:
+            raise ValueError(f"Unknown lr_cooldown_shape: {shape}")
+
     def set_hparams(step, cooldown_frac=0.7):
         progress = step / train_steps
         assert 0 <= progress < 1
         if progress < 1 - cooldown_frac:
             eta = 1.0
         else:
-            eta = (1 - progress) / cooldown_frac
+            x = (progress - (1 - cooldown_frac)) / cooldown_frac
+            eta = _cooldown_eta(x, args.lr_cooldown_shape)
         wd_mu = _wd_multiplier(step, train_steps, args.wd_schedule)
         for opt in optimizers:
             for group in opt.param_groups:
                 group["lr"] = group["initial_lr"] * eta
                 if "initial_wd" in group and group.get("name", "").startswith("muon_"):
                     group["weight_decay"] = group["initial_wd"] * wd_mu
+        return eta
 
 
     ########################################
@@ -980,7 +1011,7 @@ for trial_idx in range(args.num_trials):
         dist.all_reduce(step_loss, op=dist.ReduceOp.SUM)
         train_loss = float((step_loss / batch_size).item())
         # set optimization hyperparameters and take a step
-        set_hparams(step)
+        eta_actual = set_hparams(step)
         train_step = step + 1
         telemetry_due = (step == 0 or (step + 1) % args.telemetry_interval == 0 or step + 1 == train_steps)
         histogram_due = (step == 0 or (step + 1) % args.histogram_interval == 0 or step + 1 == train_steps)
@@ -1026,6 +1057,7 @@ for trial_idx in range(args.num_trials):
                 per_group_metrics["train/wd_mlp_now"] = current_wds.get("muon_mlp", 0.0)
                 per_group_metrics["train/wd_attn_now"] = current_wds.get("muon_attn", 0.0)
                 per_group_metrics["train/wd_schedule_progress"] = train_step / train_steps
+                per_group_metrics["cooldown_shape/eta_at_step"] = eta_actual
                 wandb.log(per_group_metrics, step=wandb_step)
         if dist.get_rank() == 0 and optimizer2.cos_sims_buffer:
             cs_names = list(optimizer2.cos_sims_buffer.keys())
