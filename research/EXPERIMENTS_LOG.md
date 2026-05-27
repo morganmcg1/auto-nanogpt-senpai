@@ -1,3 +1,20 @@
+## 2026-05-27 05:30 — PR #1357: H195 tanjiro Cautious-MuonH body updates (Liang et al. 2024) — CLOSED (53rd NULL/NEG + 🎯 programme finding #28)
+
+- Branch: `g1r3-tanjiro/cautious-muonh`
+- Hypothesis: Apply Cautious masking (Liang et al. ICML 2025, arXiv:2411.16085) to MuonH body updates after NS5 orthogonalization. `mask = (sign(grad) * sign(NS5_update) > 0).float()` filters out sign-disagreement entries before parameter step.
+- Results:
+
+  | Arm | cautious_body | cautious_aux | W&B | val/loss | FFS | mask_fraction (mean) | Class |
+  |---|---|---|---|---|---|---|---|
+  | arm_a CTRL | False | False | `em6fpyjp` | 3.26599 | 3150 | n/a | NULL (typical CTRL drift, +1.74σ) |
+  | arm_b CAUTIOUS_BODY | True | False | `om8lex75` | **3.28961** | **-1 (NEVER)** | body 0.658 | **catastrophic NEG (+29σ above CTRL μ)** |
+  | arm_c CAUTIOUS_ALL | True | True | `fk8mtb8u` | **3.30266** | **-1 (NEVER)** | body 0.658, aux 0.708 | **WORSE NEG (+43σ)** |
+
+- Outcome: No WIN. **53rd NULL/NEG.** arm_c monotonically worse than arm_b — adding Cautious to aux compounds the harm.
+- **🎯 Programme finding #28 — Cautious masking is mechanistically INCOMPATIBLE with NS5-based MuonH**: Update suppression compounds: NS5 polar projection inverts sign on ~50% of body directions (intrinsic to spectral basis reshape); Cautious mask then filters those out PLUS noise-driven sign disagreements → mask_fraction~0.658 (vs theoretical 0.50 if only NS5). Effective update fraction ≈ 32-35%, starving body of gradient signal. Loss plateaus ~0.025 above target. **Generalization with H191 (AdaMuon body, per-element second-moment also fought NS5)**: Any per-element body update modifier that depends on raw-gradient direction will compound destructively with NS5 polar projection — the polar projection IS the body's preconditioning.
+- Programme implication: This NEG is mechanistically meaningful, not just a noise NULL. With H191 and H195 closures, we now have **two distinct classes of body modifiers** confirmed incompatible with MuonH-SI: per-element scaling (AdaMuon) and direction-filtering masks (Cautious). Both fight the spectral constraint NS5 imposes.
+- Next assignment: H203 tanjiro MuonH body cooldown SHAPE sweep (PR #1398) — different mechanism class (schedule reformulation, not body-update-modifier). Tests whether `linear` cooldown shape is optimal vs `cosine` (slow→fast late) vs `sqrt` (fast→slow late). Zero code changes — flag already in place.
+
 ## 2026-05-27 03:45 — PR #1351: H194 frieren aux AdamW cooldown fraction sweep — CLOSED (52nd NULL/NEG + 🎯 programme finding #26)
 
 - Branch: `g1r3-frieren/h194-aux-cooldown-frac-sweep`
