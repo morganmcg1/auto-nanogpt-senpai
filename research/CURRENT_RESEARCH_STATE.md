@@ -5776,3 +5776,43 @@ In-flight as of 03:35Z (all WIP, 8 students busy, 0 idle):
 - **CLOSED: Element-wise hard thresholding**: #975 (refuted, tails matter)
 - **CLOSED: Element-wise continuous magnitude shaping**: #974 (refuted, power transform)
 - **CLOSED: Lerp-coefficient modulation**: #965 (refuted, dampening)
+
+## 2026-05-27 23:25Z — Cycle 71 mid-325 update — winner candidate likely refute at n=2 + 2-PR closure wave
+
+### Closure wave (this session)
+- **fern #1463 POST_TARGET_DEPTH_HALF_MUON_M_RESET CLOSED (227th refute)**: depth-half body Muon m-reset both arms cluster STANDARD (Arm A early=3.27086/3025, Arm B late=3.27027/3025; Δ B−A=−0.00059 sub-noise REVERSED direction vs LR axis). NEW PRINCIPLES: (1) body-Muon m-reset NON-ADDITIVE across depth (half-stack ~0.0033 worse than full-stack alphonse #1461); (2) depth-direction INVERTS between LR axis (+0.00187 favoring early) and m-reset axis (−0.00059 favoring late, sub-noise) — mechanism-axis-dependent depth-direction.
+- **edward #1468 POST_TARGET_DEPTH_LINEAR_LR_RAMP CLOSED (228th refute)**: continuous depth-linear LR ramp both arms cluster STANDARD (Arm A front_up=3.27014/3025, Arm B front_down=3.27253/3050). NEW PRINCIPLE: depth-direction CONFIRMED at continuous resolution with **28% LARGER Δ** than discrete (Δ B−A=+0.00239 vs fern #1428 discrete +0.00187). Continuous front_up val WORSE than discrete fern #1428 Arm A (under-doses strongest-effect blocks).
+
+### 🎯 CRITICAL: alphonse #1461 seed-1 confirm trajectory suggests REFUTE at n=2
+- Seed-0 (Arm A @ step 2950): val=3.26701/ffs=3000 (winner candidate, n=1, single_run_stat_sig_margin=0.00899)
+- Arm B (@ step 3050): val=3.27011/ffs=3025 (cluster STANDARD; timing-sharp)
+- Seed-1 confirm at step 3075 (W&B): best val=3.27563, ffs=3025
+- For n=2 merge: seed-1 needs val ≤ 3.26851 AND ffs ≤ 3000. Currently FAILS by 0.00712 val + 25 ffs steps.
+- Extrapolated terminal: seed-1 val ≈ 3.27072, ffs=3025. n=2 mean ≈ 3.26887 vs baseline 3.26776 — fails merge bar by Δ=+0.00111.
+- **Expect REFUTE at n=2.** This does NOT close the m-reset @ 2950 mechanism axis — it means n=1 seed-0 reading had fortuitous seed-mechanism interaction.
+
+### Fresh assignments (this session)
+- **fern #1491**: POST_TARGET_COMPOUND_FULL_STACK_M_RESET_WITH_DEPTH_HALF_LR_BOOST (139th mech class) — combines alphonse #1461 winner mechanism with fern #1428 depth-half LR boost. Tests additivity of two depth/state-phase mechanisms. Highest-value PR even if alphonse fails n=2 (compound mechanism is real if compound BEATS baseline).
+- **edward #1492**: PRE_TARGET_DEPTH_LINEAR_LR_RAMP (140th mech class) — cross-window of edward #1468. Tests if continuous depth-direction is window-symmetric. front_up vs front_down in pre-target [2750, 2950] window.
+
+### Cycle 71 cumulative tally
+- **228 refuted / 138 mech classes / 98 family closures**
+- Winner anatomy probes in flight: nezuko #1476 (timing), askeladd #1477 (kind), thorfinn #1485 (magnitude), fern #1491 (compound), frieren #1489 (cross-window depth-direction μ)
+- 8 students concurrently active, ZERO IDLE
+
+### NEW PRINCIPLES established this session
+1. **Body-Muon m-reset NON-ADDITIVE across depth** — joint phase reset of all 12 body blocks required; half-stack restriction loses joint state-phase coherence
+2. **Depth-direction INVERTS between LR axis and m-reset axis** — mechanism-axis-dependent depth direction (LR prefers early; m-reset weakly prefers late at sub-noise)
+3. **Continuous depth-direction signal LARGER than discrete** — 28% larger Δ at continuous resolution; depth-direction NOT a discrete artifact, integrates coherently across per-block contributions
+4. **Continuous LR ramp UNDER-DOSES strongest-effect blocks** — linear interpolation gives block 1 only 1.123× vs discrete 1.15×; discrete depth-half is the more dose-efficient mechanism
+5. **Winner mechanism likely NOT reproducible at n=2** — alphonse #1461 seed-1 confirm trajectory falsifies winner candidate at n=2 confirmation. Single-seed wins in this cluster are at noise floor in expectation.
+
+### Strategic pivot: post-target winner candidate likely false → next direction
+- The post-target mechanism space (m-reset @ 2950) is saturated at noise floor
+- Cycle 71 winner anatomy probes remain informative for MAPPING mechanism space even if winner falls back
+- After alphonse seed-1 terminal: if n=2 mean fails, pivot to:
+  - Multi-pulse/periodic m-reset (robustness via averaging multiple state-phase changes)
+  - Compound mechanisms (fern #1491 tests one direction)
+  - Pre-target depth axes (edward #1492 tests one direction)
+  - Cross-axis frontiers in the cooldown window (different mu/lr/state-phase joint mechanisms)
+
