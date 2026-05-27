@@ -468,6 +468,10 @@ NS5_ITERS = int(os.environ.get("NS5_ITERS", "12"))
 WD_AUX = float(os.environ.get("WD_AUX", "0.0"))  # AdamW WD on embed + lm_head matrices (scalars stay at 0)
 EMBED_INIT_STD = float(os.environ.get("EMBED_INIT_STD", "1.0"))  # default preserves baseline N(0,1)
 LOGIT_SOFTCAP = float(os.environ.get("LOGIT_SOFTCAP", "15.0"))  # default = 15 (current hardcoded value); soft-cap value c in f(x) = c·x / sqrt(x^2+c^2)
+# Per-AUX-kind LR phase transition on scalars at cooldown_frac=0.7 boundary (PR #1367).
+# Default 1.0 = inert (IEEE-identity at factor=1.0 → bytewise-identical to baseline).
+SCALARS_LR_PHASE_FACTOR = float(os.environ.get("SCALARS_LR_PHASE_FACTOR", "1.0"))
+SCALARS_LR_PHASE_STEP = int(os.environ.get("SCALARS_LR_PHASE_STEP", "953"))
 
 
 def zeropower_via_newtonschulz5(G: Tensor) -> Tensor:
@@ -936,6 +940,9 @@ for trial_idx in range(args.num_trials):
                 group["lr"] = group["initial_lr"] * eta
                 if group.get("name") == "muon_blocks":
                     group["mu"] = cur_mu
+                # Per-AUX-kind scalars LR phase transition (PR #1367).
+                if step >= SCALARS_LR_PHASE_STEP and group.get("name") == "adam_scalars":
+                    group["lr"] = group["lr"] * SCALARS_LR_PHASE_FACTOR
 
 
     ########################################
@@ -998,6 +1005,11 @@ for trial_idx in range(args.num_trials):
                     "time/step_avg_ms": 1000 * step_avg,
                 }
                 metrics.update(prefixed("val/slope", loss_slope_stats(val_loss_history, slope_window_steps)))
+                # Per-group LR telemetry (PR #1367 verification of scalars LR phase dispatch)
+                for opt in optimizers:
+                    for group in opt.param_groups:
+                        gname = group.get("name", "unnamed")
+                        metrics[f"lr/{gname}"] = group["lr"]
                 wandb.log(metrics, step=trial_idx * (train_steps + 1) + step)
             print0(f"step:{step}/{train_steps} val_loss:{val_loss:.5f} train_time:{training_time:.3f}s"
                    + f" step_avg:{1000*step_avg:.2f}ms", console=True)
