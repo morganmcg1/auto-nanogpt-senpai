@@ -602,6 +602,10 @@ NANOGPT_NEWTON_MUON_UPDATE_PERIOD = int(os.environ.get("NANOGPT_NEWTON_MUON_UPDA
 NANOGPT_NEWTON_MUON_BETA = float(os.environ.get("NANOGPT_NEWTON_MUON_BETA", "0.95"))
 NANOGPT_NEWTON_MUON_EPS = float(os.environ.get("NANOGPT_NEWTON_MUON_EPS", "1e-4"))
 NANOGPT_NEWTON_MUON_MAX_D_IN = int(os.environ.get("NANOGPT_NEWTON_MUON_MAX_D_IN", "1024"))
+# Step-gated NM (#1383): if >0, Newton preconditioning is off for steps < START_STEP
+# (no R accumulation, no apply). Default 0 = always-on. Gate uses 1-indexed step counter
+# matching train_step, so START_STEP=2400 first activates NM at train_step=2400.
+NANOGPT_NEWTON_MUON_START_STEP = int(os.environ.get("NANOGPT_NEWTON_MUON_START_STEP", "0"))
 
 # Global per-parameter input-activation cache populated by forward hooks. Keyed by
 # id(weight_param) → tensor of shape (B*T, d_in) on device. Only populated when
@@ -746,6 +750,7 @@ class Muon(torch.optim.Optimizer):
                  newton_precond: bool = False, newton_beta: float = 0.95,
                  newton_eps: float = 1e-4, newton_update_period: int = 10,
                  newton_max_d_in: int = 1024,
+                 newton_start_step: int = 0,
                  newton_input_cache: dict | None = None):
         assert isinstance(params, list) and len(params) >= 1
         if isinstance(params[0], dict):
@@ -784,6 +789,9 @@ class Muon(torch.optim.Optimizer):
         self.newton_eps = float(newton_eps)
         self.newton_update_period = int(newton_update_period)
         self.newton_max_d_in = int(newton_max_d_in)
+        # Step-gated activation (#1383): if >0, NM is off (no R accumulation, no apply)
+        # for self._newton_step_count < newton_start_step. Default 0 = always-on.
+        self.newton_start_step = int(newton_start_step)
         self.newton_input_cache = newton_input_cache if newton_input_cache is not None else {}
         self._newton_step_count = 0
         # Accumulator dict reset each step() — read by the training loop after
@@ -809,6 +817,11 @@ class Muon(torch.optim.Optimizer):
         are guarded behind self.newton_telemetry_due (set by the training loop
         before step()) — async-only path on non-telemetry steps.
         """
+        # Step gate (#1383): when newton_start_step > 0, skip NM entirely until the
+        # 1-indexed step counter reaches the threshold. Returning None means no R
+        # buffer accumulation, no eigendecomp, no apply — vanilla Muon during skip.
+        if self._newton_step_count < self.newton_start_step:
+            return None
         if p.ndim != 2:
             return None
         d_out, d_in = grad.shape
@@ -984,7 +997,8 @@ print0(
     f"lr_scale={NANOGPT_NEWTON_MUON_LR_SCALE} "
     f"update_period={NANOGPT_NEWTON_MUON_UPDATE_PERIOD} "
     f"beta={NANOGPT_NEWTON_MUON_BETA} eps={NANOGPT_NEWTON_MUON_EPS} "
-    f"max_d_in={NANOGPT_NEWTON_MUON_MAX_D_IN}",
+    f"max_d_in={NANOGPT_NEWTON_MUON_MAX_D_IN} "
+    f"start_step={NANOGPT_NEWTON_MUON_START_STEP}",
     console=True,
 )
 if NS_ITERS_COOLDOWN > 0:
@@ -1105,6 +1119,7 @@ if dist.get_rank() == 0:
             "nanogpt_newton_muon_beta": NANOGPT_NEWTON_MUON_BETA,
             "nanogpt_newton_muon_eps": NANOGPT_NEWTON_MUON_EPS,
             "nanogpt_newton_muon_max_d_in": NANOGPT_NEWTON_MUON_MAX_D_IN,
+            "nanogpt_newton_muon_start_step": NANOGPT_NEWTON_MUON_START_STEP,
         },
     )
 
@@ -1171,6 +1186,7 @@ for trial_idx in range(args.num_trials):
         newton_eps=NANOGPT_NEWTON_MUON_EPS,
         newton_update_period=NANOGPT_NEWTON_MUON_UPDATE_PERIOD,
         newton_max_d_in=NANOGPT_NEWTON_MUON_MAX_D_IN,
+        newton_start_step=NANOGPT_NEWTON_MUON_START_STEP,
         newton_input_cache=_newton_input_cache,
     )
     print0(f"MUON_PARAM_COUNTS: attn={len(muon_attn_params)} mlp={len(muon_mlp_params)} "
