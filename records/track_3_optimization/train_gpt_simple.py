@@ -468,6 +468,14 @@ NS5_ITERS = int(os.environ.get("NS5_ITERS", "12"))
 WD_AUX = float(os.environ.get("WD_AUX", "0.0"))  # AdamW WD on embed + lm_head matrices (scalars stay at 0)
 EMBED_INIT_STD = float(os.environ.get("EMBED_INIT_STD", "1.0"))  # default preserves baseline N(0,1)
 LOGIT_SOFTCAP = float(os.environ.get("LOGIT_SOFTCAP", "15.0"))  # default = 15 (current hardcoded value); soft-cap value c in f(x) = c·x / sqrt(x^2+c^2)
+# PR #1389: LARS-style trust-ratio dispatch on body Muon at cooldown_start.
+# When enabled, after Newton-Schulz + contra + NorMuon + u/w-floor finalize the
+# body-Muon update tensor, multiply it by clamp(||w||/||u||, CLIP_MIN, CLIP_MAX)
+# before the SGD-style param add. Default ENABLED=0 is IEEE-identity to baseline.
+BODY_LARS_TRUST_RATIO_ENABLED = int(os.environ.get("BODY_LARS_TRUST_RATIO_ENABLED", "0"))
+BODY_LARS_TRUST_RATIO_STEP = int(os.environ.get("BODY_LARS_TRUST_RATIO_STEP", "953"))
+BODY_LARS_TRUST_RATIO_CLIP_MIN = float(os.environ.get("BODY_LARS_TRUST_RATIO_CLIP_MIN", "0.1"))
+BODY_LARS_TRUST_RATIO_CLIP_MAX = float(os.environ.get("BODY_LARS_TRUST_RATIO_CLIP_MAX", "10.0"))
 
 
 def zeropower_via_newtonschulz5(G: Tensor) -> Tensor:
@@ -655,11 +663,20 @@ class Muon(torch.optim.Optimizer):
         params = sorted([p for _, p in named_params], key=lambda x: x.size(), reverse=True)
         defaults = dict(lr=lr, weight_decay=weight_decay, mu=mu)
         super().__init__(params, defaults)
+        # PR #1389: LARS trust-ratio dispatch state.
+        self._step_count = 0
+        self._last_step_lars_active = False
+        self._last_step_trust_ratios: list[Tensor] = []
 
     @torch.no_grad()
     def step(self):
         world_size = dist.get_world_size()
         rank = dist.get_rank()
+        cur_step = self._step_count
+        self._step_count += 1
+        lars_active_this_step = (BODY_LARS_TRUST_RATIO_ENABLED and cur_step >= BODY_LARS_TRUST_RATIO_STEP)
+        self._last_step_lars_active = bool(lars_active_this_step)
+        self._last_step_trust_ratios = []
         for group in self.param_groups:
             params = group["params"]
             params_pad = params + [torch.empty_like(params[-1])] * (world_size - len(params) % world_size)
@@ -709,7 +726,20 @@ class Muon(torch.optim.Optimizer):
                     scale = torch.where(cur_uw < TARGET_UW, TARGET_UW * p_fro / u_fro, torch.ones_like(p_fro))
                     update = update * scale.to(update.dtype)
                     # Explicit weight decay intentionally omitted (matches record #14; u/w-floor replaces wd).
-                    p.add_(update, alpha=-group["lr"])
+                    # PR #1389: LARS-style trust-ratio scaling on body Muon update.
+                    # When disabled, the else branch is IEEE-identity to baseline.
+                    if lars_active_this_step:
+                        w_norm = p.float().norm().clamp_min(1e-8)
+                        u_norm = update.float().norm().clamp_min(1e-8)
+                        trust_ratio = (w_norm / u_norm).clamp(
+                            min=BODY_LARS_TRUST_RATIO_CLIP_MIN,
+                            max=BODY_LARS_TRUST_RATIO_CLIP_MAX,
+                        )
+                        self._last_step_trust_ratios.append(trust_ratio.detach())
+                        update = update * trust_ratio.to(update.dtype)
+                        p.add_(update, alpha=-group["lr"])
+                    else:
+                        p.add_(update, alpha=-group["lr"])
                     # Refresh SOAP state with the raw grad (after applying the step).
                     if use_soap:
                         soap_refresh(grad, state)
@@ -775,6 +805,24 @@ class Muon(torch.optim.Optimizer):
             out[f"{kind}/mean_cos_row"] = sum(crs) / kn
             out[f"{kind}/mean_cos_col"] = sum(ccs) / kn
         return out
+
+    def lars_telemetry_stats(self) -> dict[str, float]:
+        """PR #1389: report body-Muon LARS trust-ratio activity and statistics."""
+        if not BODY_LARS_TRUST_RATIO_ENABLED:
+            return {}
+        if not self._last_step_lars_active:
+            return {"active": 0.0}
+        if not self._last_step_trust_ratios:
+            return {"active": 1.0}
+        trs = torch.stack(self._last_step_trust_ratios).float().cpu()
+        return {
+            "active": 1.0,
+            "param_count": float(trs.numel()),
+            "mean_trust_ratio": float(trs.mean().item()),
+            "min_trust_ratio": float(trs.min().item()),
+            "max_trust_ratio": float(trs.max().item()),
+            "std_trust_ratio": float(trs.std(unbiased=False).item()) if trs.numel() > 1 else 0.0,
+        }
 
 
 ########################################
@@ -1059,6 +1107,10 @@ for trial_idx in range(args.num_trials):
                     stats = opt.trust_gate_stats()
                     if stats:
                         wandb.log(prefixed("train/attn_soap_trust_gate", stats), step=wandb_step)
+                if hasattr(opt, "lars_telemetry_stats"):
+                    stats = opt.lars_telemetry_stats()
+                    if stats:
+                        wandb.log(prefixed("train/body_lars", stats), step=wandb_step)
         if dist.get_rank() == 0 and telemetry_due:
             log_weight_telemetry(
                 model=model,
