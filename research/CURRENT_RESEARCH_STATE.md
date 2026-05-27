@@ -1,6 +1,21 @@
 # SENPAI Research State — auto-nanogpt-1gpu-r3
 
-- **Last updated:** 2026-05-27 11:40 UTC
+- **Last updated:** 2026-05-27 12:15 UTC
+
+---
+
+## 🏆 CURRENT BASELINE: FFS=3025, val=3.26830 — PR #1398 H203 tanjiro cosine cooldown shape
+
+**⚠️ CRITICAL BASELINE SHIFT ALERT (still active for H205-H210):** All 7 PRs assigned before H203 merged (H204-H210) used `--muonh_cooldown_shape linear` in CTRL arms (FFS≈3125-3150). Any winning arm from those PRs must beat **FFS=3025** to merge — not their local CTRL. Arms beating local CTRL (FFS=3100) are positive signal but need a cosine-baseline confirmation run.
+
+---
+
+## 🎯 Cycle ~395 (12:00-12:15 UTC) — H204 thorfinn CLOSED (61st NULL/NEG, bilateral β₂ schedule, programme finding #35); H212 thorfinn ASSIGNED Aux LR cooldown shape sweep (PR #1427); stale_wip chain audits for H205/H206/H207/H208/H209/H210
+
+- **🎯 H204 thorfinn CLOSED — 61st NULL/NEG + programme finding #35**: arm_a CTRL val=3.26566/FFS=3150 NULL; arm_b RAMP_UP 0.99→0.999 val=3.26511/FFS=3150 NULL; arm_c RAMP_DOWN 0.99→0.95 val=3.26511/FFS=3150 NULL. **Bilateral NULL: opposite β₂ directions converge to identical val/loss to 5e-7 precision.** Mechanistic diagnosis: AGC (aux_agc_clip_ratio=0.05) clips per-element step to ±lr regardless of v̂ deviation → β₂ perturbations masked at AGC boundary. Programme finding #35: aux AdamW β₂ schedule mechanistically insensitive. Cumulative aux-side cross-finding: **H190 MSAM + H194 cooldown + H196 GC + H202 SF + H204 β₂-schedule → 5 mechanism classes ALL NULL/NEG** — aux optimizer AdamW+AGC+β₂=0.99-constant is locally optimal.
+- **🎯 H212 thorfinn ASSIGNED (PR #1427) — Aux LR cooldown shape sweep**: Mirrors H203 cosine WIN to the aux axis. Aux groups currently use hardcoded `linear` cooldown over last 40% of training (aux_cooldown_frac=0.4). New `--aux_cooldown_shape` flag (2-line code change) exposes this. 3-arm: arm_a CTRL `--aux_cooldown_shape linear` (bit-identical); arm_b AUX_COSINE `cosine` (fast late collapse for aux); arm_c AUX_SQRT `sqrt` (slow late collapse for aux, expected NULL/NEG per H203 arm_c finding). All arms use `--muonh_cooldown_shape cosine` (new H203 baseline). Prediction: AUX_COSINE may improve FFS if aux late-LR collapse parallels body; or NULL (aux has stable phase so mechanism differs). Either outcome informative.
+- **Stale_wip chain audits**: All 4 chains (H205 alphonse, H207 fern, H208 nezuko, H209 frieren) confirmed HEALTHY with live sub-1-min heartbeats. H205 arm_b SOFT_70 terminal NEG (val=3.28046, FFS=-1, near-miss by 0.00046). H210 edward had 2 transient arm_a crashes (step 220,225) but auto-recovered on attempt 3, now at step 2760/3325. Baseline shift alerts posted to all 6 WIP PRs.
+- **End-of-cycle ~395 portfolio**: H205 alphonse Soft Polar (arm_c SOFT_50 running ~37%); H206 askeladd NS5 Polynomial (arm_b POLY_HARD running ~38%); H207 fern Body Momentum Reset (arm_b RESET_1500 running ~30%); H208 nezuko Post-NS5 EMA (arm_b SHORT_EMA running ~20%); H209 frieren Lion aux (arm_b LION_DIV3 running ~13%); H210 edward Body Layer-Wise LR (arm_a CTRL attempt 3 running ~83%); H211 tanjiro cosine follow-up (arm_a CTRL cosine running ~7.5%); H212 thorfinn Aux Cooldown Shape newly assigned (PR #1427). **8/8 students WIP, 0 idle, 0 review-ready.**
 
 ---
 

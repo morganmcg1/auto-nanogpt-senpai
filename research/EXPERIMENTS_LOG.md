@@ -1,3 +1,23 @@
+## 2026-05-27 12:05 — PR #1401: H204 thorfinn Aux AdamW β₂ cooldown-ramp sweep (0.99 → 0.999 / 0.95) — CLOSED (61st NULL/NEG + 🎯 programme finding #35)
+
+- Branch: `g1r3-thorfinn/aux-beta2-ramp`
+- Hypothesis: Late-cooldown aux AdamW β₂ dynamics are a binding constraint on FFS. Two opposite-direction ramps test: (1) RAMP_UP 0.99→0.999 reduces noise in second-moment estimate (smoother v̂); (2) RAMP_DOWN 0.99→0.95 increases second-moment responsiveness (finer v̂ window). Single variable change, all other H148/H203 config preserved.
+- Results:
+
+  | Arm | β₂ end | W&B | val/loss | FFS | Δ val vs CTRL | Class |
+  |---|---|---|---|---|---|---|
+  | arm_a CTRL β₂=0.99 const | 0.99 | `aafl5on1` | 3.26566 | 3150 | 0.0 (+1.36σ H174) | NULL (high-side CTRL drift) |
+  | arm_b RAMP_UP 0.99→0.999 | 0.99899 | `qokreqt1` | **3.26511** | **3150** | −0.00055 (−0.62σ) | NULL (CTRL drift) |
+  | arm_c RAMP_DOWN 0.99→0.95 | 0.95003 | `dqwa2eux` | **3.26511** | **3150** | −0.00055 (−0.62σ) | NULL (CTRL drift) |
+
+- **Bilateral NULL mechanics**: Opposite ramps converge to **identical** val/loss (3.26511) to 5e-7 float precision. Both arms land at FFS=3150, max |Δ| vs CTRL = 0.00055 (0.62σ vs H174 σ=0.000884). The bilateral symmetry eliminates noise as an explanation — second-moment timescale genuinely has no signal at this operating point.
+- **🎯 Programme finding #35 (61st NULL/NEG): aux AdamW β₂ schedule mechanistically insensitive**: Changing v̂ timescale in either direction produces identical outcomes. The student's mechanistic diagnosis: **AGC is the binding constraint** (aux_agc_clip_ratio=0.05 clamps per-element step to ±lr regardless of v̂ deviation), masking β₂ sensitivity. Per-element step = `lr × m̂ / (√v̂ + ε)` is clipped before it reaches the weight — any perturbation in v̂ that would have pushed the step outside the AGC envelope gets clipped to the same effective step size.
+- **β₂ trajectory verification**: Live β₂_embed logging confirmed ramps fired as designed. arm_b reached 0.99899 at step 3325 (≈0.999 target), arm_c reached 0.95003 (≈0.95 target). Fused/unfused path overhead was +0.19%/+0.26% (effectively zero, dominated by AGC+cooldown operations not AdamW kernel).
+- **Cumulative aux-side cross-finding**: H190 MSAM + H194 cooldown + H196 GC + H202 SF + H204 β₂-schedule → **5 mechanism classes ALL NULL/NEG** confirms aux optimizer AdamW+AGC+cosine_body+β₂=0.99-constant is locally optimal. aux optimizer headroom is empirically near-zero.
+- **vs new baseline**: arm_a CTRL used `--muonh_cooldown_shape linear` (pre-H203 assignment). FFS=3150 vs new baseline FFS=3025 → all 3 arms NULL.
+- **Student's suggested follow-ups**: (1) aux AGC scan (aux_agc_clip_ratio∈{0.03,0.05,0.10}) — not pursuing (scalar hyperparam search, AGC binding is likely irreversible at this operating point); (2) aux ε schedule during cooldown; (3) joint aux+body cooldown perturbation. Noted for future reference.
+- **Next assignment**: H212 thorfinn Aux LR cooldown shape sweep (PR #1427) — mirror H203 cosine WIN to aux axis. arm_a CTRL `--aux_cooldown_shape linear`; arm_b AUX_COSINE `cosine`; arm_c AUX_SQRT `sqrt`. All arms use `--muonh_cooldown_shape cosine` (new H203 baseline). Requires new `--aux_cooldown_shape` argparse flag (2-line code change).
+
 ## 2026-05-27 11:35 — PR #1398: H203 tanjiro MuonH body cooldown SHAPE sweep (linear / cosine / sqrt) — **MERGED** 🎉 (NEW BASELINE: FFS=3025, val=3.26830)
 
 - Branch: `g1r3-tanjiro/muonh-cooldown-shape`
