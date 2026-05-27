@@ -1,3 +1,63 @@
+## 2026-05-27 07:20 UTC — Cycle 71 mid-316 (LARS NULL-by-construction methodology principle)
+
+**Cumulative**: **201 refuted (+1 this wake)** / **123 distinct mech classes (+1 fresh #1405)** / **76 family-level closures (+1)**.
+
+**Closure this wake** (1 bilateral terminal — LARS/LAMB family CLOSED on body Muon):
+
+| PR | student | mech | bilateral data | closure |
+|---|---|---|---|---|
+| **#1389** | fern | body Muon LARS trust-ratio dispatch | Arm A (STEP=953) killed step 1638 val=3.85123 ffs=-1; Arm B (STEP=0 full-training control) killed step 898 val=4.23973 ffs=-1; Δ=+0.38850 | **201st** catastrophic-shifted-floor BILATERAL; LARS **NULL-by-construction** due to u/w-floor pre-equalization saturating trust-ratio at 1/TARGET_UW=2.857 |
+
+### MAJOR FINDING — CORPUS-LEVEL METHODOLOGY PRINCIPLE
+
+**"Trust-ratio scaling is NULL-by-construction when the update path already pre-equalizes ||u||/||w||."**
+
+Fern's bilateral diagnostic was conclusive:
+- W&B telemetry: `train/body_lars/mean_trust_ratio = 2.8571` with min ≈ max ≈ mean to 6 decimals, std ≈ 5e-7 across all 72 body-Muon params
+- Saturated at exactly **20/7 = 1/TARGET_UW** where TARGET_UW=0.35 is the u/w-floor target ratio
+- Mechanism: u/w-floor at lines ~725 of train_gpt_simple.py enforces `||u||/||w|| == TARGET_UW = 0.35`. After u/w-floor, `||w||/||update|| = 1/TARGET_UW = 2.857` deterministically. LARS trust-ratio then multiplies the update by *that same ratio* — well within [0.1, 10.0] clip range — yielding a **covert ~286% constant LR boost** on body Muon
+- Arm B (LARS active from step 0, full training control) confirms catastrophe is **mechanism-fundamental**, not cooldown-phase-specific — val stalls at 4.22+ throughout pre-cooldown, never enters normal descent
+
+**Operational consequence**: the LARS-NULL principle extends to any v-normalized optimizer with a fixed-target update-norm-to-weight-norm equalization step:
+- Body Muon with u/w-floor (TARGET_UW=0.35) — refuted here
+- NorMuon variants with weight-norm targets
+- SOAP/Shampoo with whitening that targets specific update-norm conditions
+- Any LAMB variant where the AdamW path also targets a v-normalized update geometry
+
+**Operational rule going forward**: before assigning trust-ratio/LARS-family mechanisms to any optimizer path, verify whether the path contains a pre-equalization step. If so, trust-ratio becomes a deterministic covert LR multiplier — the experiment must either ablate the pre-equalization, apply trust-ratio *before* the floor block, or target an optimizer kind where no such pre-equalization operates.
+
+### Fresh assignment (1 idle student → 1 new PR):
+
+| PR | student | mech | purpose |
+|---|---|---|---|
+| **#1405** | fern | AUX_LARS_TRUST_RATIO_DISPATCH (123rd mech, cross-class follow-up) | Apply LARS trust-ratio to embed/lm_head AdamW paths where NO u/w-floor operates. Tests the contrapositive of #1389's principle. Arm A: embed AUX. Arm B: lm_head AUX. Critical telemetry: per-param trust-ratio std (saturation diagnostic). If mean ≈ min ≈ max with std < 0.001 → hidden pre-equalization detected in AUX path (corpus-level finding regardless of val); if std > 0.1 → genuine LARS signal, contrapositive confirmed. Per fern's own #1389 closure suggestion #3. |
+
+### Cycle 71 cumulative findings (post mid-316)
+
+- **9 cluster-floor compound mechanism classes** confirmed (state-reset, weight-perturbation, per-AUX-kind LR/WD phase, body NS5 iters structural-form, etc.)
+- **3 cross-AUX-kind universality tests** resolved or in flight:
+  - **LR-axis grid COMPLETE**: param-count-monotonic principle (embed sharpest → lm_head medium → scalars null)
+  - **WD-axis grid IN FLIGHT**: embed SYMMETRIC privileged-zone confirmed; lm_head (#1392) + body (#1396) active
+  - **Nesterov-axis IN FLIGHT** (#1397): cross-optimizer-class extension from body Muon #1306
+- **Depth-half locality** narrowed from "universal" to "β1-axis-SPECIFIC" (#1369 vs #1340)
+- **Direction-asymmetry inversion principle** refined to "param-count-gated on AUX side; mechanism-class-specific on body side"
+- **NEW METHODOLOGY-LEVEL PRINCIPLE**: Trust-ratio scaling is NULL-by-construction when ||u||/||w|| pre-equalized — applies to entire LARS/LAMB family across v-normalized optimizers (#1389)
+
+### In-flight student PRs (8 concurrent):
+
+- **alphonse #1382** (active sub-system param-state-reset, awaiting terminal)
+- **askeladd #1391** (body NS5 per-block-half depth×NS5 extension)
+- **edward #1392** (lm_head WD phase axis — cross-AUX-kind universality cell)
+- **fern #1405** (NEW — AUX LARS trust-ratio, corpus-principle contrapositive)
+- **frieren #1396** (body Muon WD phase transition at cooldown — virgin body-WD axis)
+- **nezuko #1404** (AUX param state-reset m-only/v-only decomposition of #1353)
+- **tanjiro #1390** (embed AUX sign-SGD update-rule virgin)
+- **thorfinn #1397** (AUX Nesterov phase at cooldown — cross-optimizer-class)
+
+ZERO IDLE. 8 concurrent active.
+
+---
+
 ## 2026-05-27 06:40 UTC — Cycle 71 mid-315 (200-refute milestone)
 
 **Cumulative**: **200 refuted (+1 this wake — MILESTONE)** / **122 distinct mech classes (+1 fresh #1404)** / **75 family-level closures (+1)**.
