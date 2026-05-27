@@ -468,6 +468,85 @@ NS5_ITERS = int(os.environ.get("NS5_ITERS", "12"))
 WD_AUX = float(os.environ.get("WD_AUX", "0.0"))  # AdamW WD on embed + lm_head matrices (scalars stay at 0)
 EMBED_INIT_STD = float(os.environ.get("EMBED_INIT_STD", "1.0"))  # default preserves baseline N(0,1)
 LOGIT_SOFTCAP = float(os.environ.get("LOGIT_SOFTCAP", "15.0"))  # default = 15 (current hardcoded value); soft-cap value c in f(x) = c·x / sqrt(x^2+c^2)
+# AUX_NESTEROV_PHASE_DISPATCH (PR #1397): phase-gated NAdamW (Nesterov-form) re-blend on AUX AdamW per kind.
+# 0 = baseline AdamW path via torch.optim.AdamW (fused), bytewise-inert.
+# 1 = hand-written AdamW step on optimizer1 that swaps to NAdamW form for the named groups when
+#     global_step >= AUX_NESTEROV_PHASE_STEP. NAdamW replaces the m_hat numerator with
+#     (beta1*m_t + (1-beta1)*g_t) / bc1 (Dozat 2016), preserving the EMA update of m and v.
+# KINDS supports: "embed", "embed,lm_head", "all" (= embed,lm_head,scalars).
+AUX_NESTEROV_PHASE_DISPATCH = int(os.environ.get("AUX_NESTEROV_PHASE_DISPATCH", "0"))
+AUX_NESTEROV_PHASE_STEP = int(os.environ.get("AUX_NESTEROV_PHASE_STEP", "953"))
+AUX_NESTEROV_PHASE_KINDS = os.environ.get("AUX_NESTEROV_PHASE_KINDS", "embed")
+
+
+def _parse_aux_nesterov_group_names(kinds_str: str) -> set[str]:
+    if kinds_str == "all":
+        return {"adam_embed", "adam_lm_head", "adam_scalars"}
+    return {f"adam_{k.strip()}" for k in kinds_str.split(",") if k.strip()}
+
+
+AUX_NESTEROV_GROUP_NAMES = (
+    _parse_aux_nesterov_group_names(AUX_NESTEROV_PHASE_KINDS)
+    if AUX_NESTEROV_PHASE_DISPATCH
+    else set()
+)
+
+
+@torch.no_grad()
+def aux_adamw_step_with_phase_nesterov(opt: torch.optim.Optimizer, global_step: int) -> None:
+    """Hand-written AdamW step with optional NAdamW (Nesterov form) per group.
+
+    For groups whose name is in AUX_NESTEROV_GROUP_NAMES AND global_step >= AUX_NESTEROV_PHASE_STEP,
+    the parameter update uses (beta1*m + (1-beta1)*grad) in place of m as the bias-corrected
+    first-moment numerator. All other groups follow standard decoupled AdamW. The m/v EMA updates
+    are unchanged in both branches.
+
+    Math (per parameter, t = state["step"] AFTER increment):
+        m  <- beta1 * m + (1 - beta1) * g
+        v  <- beta2 * v + (1 - beta2) * g^2
+        bc1 = 1 - beta1^t ; bc2 = 1 - beta2^t
+        denom = sqrt(v) / sqrt(bc2) + eps
+        p  <- p * (1 - lr * weight_decay)                       # decoupled wd
+        if nesterov:
+            p <- p - (lr / bc1) * (beta1 * m + (1 - beta1) * g) / denom
+        else:
+            p <- p - (lr / bc1) * m / denom                      # standard AdamW
+    """
+    apply_phase = global_step >= AUX_NESTEROV_PHASE_STEP
+    for group in opt.param_groups:
+        name = group.get("name", "")
+        apply_nesterov = apply_phase and (name in AUX_NESTEROV_GROUP_NAMES)
+        lr = group["lr"]
+        beta1, beta2 = group["betas"]
+        eps = group["eps"]
+        weight_decay = group["weight_decay"]
+        for p in group["params"]:
+            if p.grad is None:
+                continue
+            grad = p.grad
+            state = opt.state[p]
+            if "exp_avg" not in state:
+                state["step"] = 0
+                state["exp_avg"] = torch.zeros_like(p, memory_format=torch.preserve_format)
+                state["exp_avg_sq"] = torch.zeros_like(p, memory_format=torch.preserve_format)
+            state["step"] += 1
+            t = state["step"]
+            m = state["exp_avg"]
+            v = state["exp_avg_sq"]
+            m.mul_(beta1).add_(grad, alpha=1 - beta1)
+            v.mul_(beta2).addcmul_(grad, grad, value=1 - beta2)
+            bc1 = 1 - beta1 ** t
+            bc2 = 1 - beta2 ** t
+            step_size = lr / bc1
+            bc2_sqrt = bc2 ** 0.5
+            if weight_decay != 0:
+                p.data.mul_(1 - lr * weight_decay)
+            denom = (v.sqrt() / bc2_sqrt).add_(eps)
+            if apply_nesterov:
+                m_nesterov = beta1 * m + (1 - beta1) * grad
+                p.data.addcdiv_(m_nesterov, denom, value=-step_size)
+            else:
+                p.data.addcdiv_(m, denom, value=-step_size)
 
 
 def zeropower_via_newtonschulz5(G: Tensor) -> Tensor:
@@ -866,6 +945,10 @@ if dist.get_rank() == 0:
             "optimizer/attn_soap_trust_threshold": ATTN_SOAP_TRUST_THRESHOLD,
             "optimizer/ns5_iters": NS5_ITERS,
             "optimizer/wd_aux": WD_AUX,
+            "optimizer/aux_nesterov_phase_dispatch": AUX_NESTEROV_PHASE_DISPATCH,
+            "optimizer/aux_nesterov_phase_step": AUX_NESTEROV_PHASE_STEP,
+            "optimizer/aux_nesterov_phase_kinds": AUX_NESTEROV_PHASE_KINDS,
+            "optimizer/aux_nesterov_group_names": sorted(AUX_NESTEROV_GROUP_NAMES),
             "optimizer/recipe": "contra-muon + normuon-lite + soap-on-mlp + soap-on-attn-trust-gate (pre-NS5, record #14 + record #16)",
         },
     )
@@ -1052,7 +1135,10 @@ for trial_idx in range(args.num_trials):
                 wandb_step=wandb_step,
             )
         for opt in optimizers:
-            opt.step()
+            if AUX_NESTEROV_PHASE_DISPATCH and opt is optimizer1:
+                aux_adamw_step_with_phase_nesterov(opt, step)
+            else:
+                opt.step()
         if dist.get_rank() == 0 and telemetry_due:
             for opt in optimizers:
                 if hasattr(opt, "trust_gate_stats"):
