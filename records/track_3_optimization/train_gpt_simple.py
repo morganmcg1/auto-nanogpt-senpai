@@ -454,6 +454,15 @@ MU_COOLDOWN_END = float(os.environ.get("MU_COOLDOWN_END", "0.95"))
 # entirely and exactly reproduces the prior cooldown-only schedule.
 MU_WARMUP_STEPS = int(os.environ.get("MU_WARMUP_STEPS", "0"))
 MU_WARMUP_START = float(os.environ.get("MU_WARMUP_START", "0.85"))
+# Body Muon momentum FFS burst dispatch (PR #1414): drop scheduled momentum by
+# MU_MOMENTUM_FFS_BURST_DROP for global_step in [MU_MOMENTUM_FFS_BURST_START,
+# MU_MOMENTUM_FFS_BURST_END). Outside the window the momentum follows the
+# existing warmup/plateau/cooldown schedule untouched. When disabled (=0,
+# default), this branch is a no-op and step-0 trajectory bit-matches baseline.
+MU_MOMENTUM_FFS_BURST_ENABLED = int(os.environ.get("MU_MOMENTUM_FFS_BURST_ENABLED", "0"))
+MU_MOMENTUM_FFS_BURST_DROP = float(os.environ.get("MU_MOMENTUM_FFS_BURST_DROP", "0.05"))
+MU_MOMENTUM_FFS_BURST_START = int(os.environ.get("MU_MOMENTUM_FFS_BURST_START", "2750"))
+MU_MOMENTUM_FFS_BURST_END = int(os.environ.get("MU_MOMENTUM_FFS_BURST_END", "2950"))
 MUON_LR = float(os.environ.get("MUON_LR", "0.0375"))
 MUON_WEIGHT_DECAY = 0.025  # nominal; Muon.step does not apply explicit wd (u/w-floor replaces it)
 TARGET_UW = 0.35
@@ -855,6 +864,10 @@ if dist.get_rank() == 0:
             "optimizer/mu_cooldown_end": MU_COOLDOWN_END,
             "optimizer/mu_warmup_steps": MU_WARMUP_STEPS,
             "optimizer/mu_warmup_start": MU_WARMUP_START,
+            "optimizer/mu_momentum_ffs_burst_enabled": MU_MOMENTUM_FFS_BURST_ENABLED,
+            "optimizer/mu_momentum_ffs_burst_drop": MU_MOMENTUM_FFS_BURST_DROP,
+            "optimizer/mu_momentum_ffs_burst_start": MU_MOMENTUM_FFS_BURST_START,
+            "optimizer/mu_momentum_ffs_burst_end": MU_MOMENTUM_FFS_BURST_END,
             "optimizer/muon_lr": MUON_LR,
             "optimizer/muon_weight_decay_nominal": MUON_WEIGHT_DECAY,
             "optimizer/target_uw": TARGET_UW,
@@ -931,11 +944,19 @@ for trial_idx in range(args.num_trials):
                 cur_mu = MU_COOLDOWN_START + (MU_COOLDOWN_END - MU_COOLDOWN_START) * t
         else:
             cur_mu = MU + (MU_END - MU) * progress
+        scheduled_mu = cur_mu
+        burst_active = bool(
+            MU_MOMENTUM_FFS_BURST_ENABLED
+            and MU_MOMENTUM_FFS_BURST_START <= step < MU_MOMENTUM_FFS_BURST_END
+        )
+        if burst_active:
+            cur_mu = max(0.0, min(0.999, cur_mu - MU_MOMENTUM_FFS_BURST_DROP))
         for opt in optimizers:
             for group in opt.param_groups:
                 group["lr"] = group["initial_lr"] * eta
                 if group.get("name") == "muon_blocks":
                     group["mu"] = cur_mu
+        return cur_mu, scheduled_mu, burst_active
 
 
     ########################################
@@ -1024,7 +1045,7 @@ for trial_idx in range(args.num_trials):
         dist.all_reduce(step_loss, op=dist.ReduceOp.SUM)
         train_loss = float((step_loss / batch_size).item())
         # set optimization hyperparameters and take a step
-        set_hparams(step)
+        cur_mu, scheduled_mu, burst_active = set_hparams(step)
         train_step = step + 1
         telemetry_due = (step == 0 or (step + 1) % args.telemetry_interval == 0 or step + 1 == train_steps)
         histogram_due = (step == 0 or (step + 1) % args.histogram_interval == 0 or step + 1 == train_steps)
@@ -1051,6 +1072,12 @@ for trial_idx in range(args.num_trials):
                 train_steps=train_steps,
                 wandb_step=wandb_step,
             )
+            wandb.log({
+                "train/body_muon/momentum_burst_active": int(burst_active),
+                "train/body_muon/effective_momentum": cur_mu,
+                "train/body_muon/scheduled_momentum": scheduled_mu,
+                "train/body_muon/momentum_burst_drop_applied": (scheduled_mu - cur_mu),
+            }, step=wandb_step)
         for opt in optimizers:
             opt.step()
         if dist.get_rank() == 0 and telemetry_due:
