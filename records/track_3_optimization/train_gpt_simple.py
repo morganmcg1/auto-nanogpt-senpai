@@ -469,6 +469,13 @@ WD_AUX = float(os.environ.get("WD_AUX", "0.0"))  # AdamW WD on embed + lm_head m
 EMBED_INIT_STD = float(os.environ.get("EMBED_INIT_STD", "1.0"))  # default preserves baseline N(0,1)
 LOGIT_SOFTCAP = float(os.environ.get("LOGIT_SOFTCAP", "15.0"))  # default = 15 (current hardcoded value); soft-cap value c in f(x) = c·x / sqrt(x^2+c^2)
 
+# PR #1422: AUX m-only reset cross-AUX-kind dispatch (extends #1404 to lm_head and joint kinds).
+# One-shot zero of AdamW exp_avg ("m") on selected AUX param-group(s) at AUX_M_RESET_CROSS_KIND_STEP.
+# Step counter is NOT touched — bias-correction continues from original step count (matches #1404 Arm A).
+AUX_M_RESET_CROSS_KIND_DISPATCH = int(os.environ.get("AUX_M_RESET_CROSS_KIND_DISPATCH", "0"))
+AUX_M_RESET_CROSS_KIND_TARGETS = os.environ.get("AUX_M_RESET_CROSS_KIND_TARGETS", "lm_head")  # "lm_head" or "embed,lm_head"
+AUX_M_RESET_CROSS_KIND_STEP = int(os.environ.get("AUX_M_RESET_CROSS_KIND_STEP", "953"))
+
 
 def zeropower_via_newtonschulz5(G: Tensor) -> Tensor:
     assert G.ndim >= 2
@@ -866,6 +873,9 @@ if dist.get_rank() == 0:
             "optimizer/attn_soap_trust_threshold": ATTN_SOAP_TRUST_THRESHOLD,
             "optimizer/ns5_iters": NS5_ITERS,
             "optimizer/wd_aux": WD_AUX,
+            "optimizer/aux_m_reset_cross_kind_dispatch": AUX_M_RESET_CROSS_KIND_DISPATCH,
+            "optimizer/aux_m_reset_cross_kind_targets": AUX_M_RESET_CROSS_KIND_TARGETS,
+            "optimizer/aux_m_reset_cross_kind_step": AUX_M_RESET_CROSS_KIND_STEP,
             "optimizer/recipe": "contra-muon + normuon-lite + soap-on-mlp + soap-on-attn-trust-gate (pre-NS5, record #14 + record #16)",
         },
     )
@@ -1051,6 +1061,36 @@ for trial_idx in range(args.num_trials):
                 train_steps=train_steps,
                 wandb_step=wandb_step,
             )
+        if AUX_M_RESET_CROSS_KIND_DISPATCH and step == AUX_M_RESET_CROSS_KIND_STEP:
+            target_group_names = {
+                f"adam_{t.strip()}"
+                for t in AUX_M_RESET_CROSS_KIND_TARGETS.split(",")
+                if t.strip()
+            }
+            reset_groups = []
+            reset_param_count = 0
+            for opt in optimizers:
+                for group in opt.param_groups:
+                    if group.get("name") in target_group_names:
+                        for p in group["params"]:
+                            state = opt.state[p]
+                            if "exp_avg" in state:
+                                state["exp_avg"].zero_()
+                                reset_param_count += 1
+                        reset_groups.append(group["name"])
+            print0(
+                f"[AUX_M_RESET_CROSS_KIND] m-only reset on groups={reset_groups} "
+                f"(params={reset_param_count}) at step={step} "
+                f"(targets={AUX_M_RESET_CROSS_KIND_TARGETS}; step counter preserved)",
+                console=True,
+            )
+            if dist.get_rank() == 0:
+                wandb.log({
+                    "trial": trial_idx,
+                    "aux_m_reset_cross_kind/step_fired": step,
+                    "aux_m_reset_cross_kind/n_groups_reset": len(reset_groups),
+                    "aux_m_reset_cross_kind/n_params_reset": reset_param_count,
+                }, step=wandb_step)
         for opt in optimizers:
             opt.step()
         if dist.get_rank() == 0 and telemetry_due:
