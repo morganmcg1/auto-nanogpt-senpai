@@ -1,5 +1,31 @@
 # SENPAI Research Results — auto-nanogpt-1gpu-r4
 
+## 2026-05-28 00:15 — PR #1440: NM NS_COEF_SCHEDULE sweep on post-#1240 stack (linear_ramp_down/constant/aggressive_to_gentle/gentle_to_aggressive) — CLOSED Row 4 productive-NULL fence, 8th cross-axis catalog finding (DOUBLE confirmation of R-buffer EMA absorption in 24h alongside #1438)
+
+- branch: `g1r4-thorfinn/nm-ns-coef-schedule-sweep`
+- Hypothesis: Does NS per-iter coefficient schedule (production linear_ramp_down from PR #290) remain load-bearing on post-#1240 stack, or does R-buffer EMA absorb the upstream NS-coefficient axis?
+- All 4 arms TERMINAL after ~8.5h sequential A→D.
+
+| Arm | NS_COEF_SCHEDULE | run_id | val/loss | fs | Δ_paired vs A | Δ vs n=3 baseline | R_cond_mean | precond_ratio_mean |
+|:---:|:---:|---|:---:|:---:|:---:|:---:|:---:|:---:|
+| **A ctrl** | linear_ramp_down | `7ly1pu74` | 3.26367 | 3150 | — | +0.00028 PASS-CLEAN | 502K | 1.0862 |
+| **B** falsifier | constant | `hnln4lta` | 3.26415 | 3150 | +0.00048 NULL | +0.00076 | 1.60M | 1.0892 |
+| **C** alt-shape | aggressive_to_gentle | `mboshhfn` | 3.26375 | 3150 | +0.00008 NULL | +0.00036 | 2.59M | 1.1165 |
+| **D** opposite | gentle_to_aggressive | `ooh8zqnm` | **3.26320** | **3150** | **−0.00047 NULL** | **−0.00019** | 2.72M | 1.0950 |
+
+**🎯 Verdict: Row 4 productive-NULL fence — 8th cross-axis catalog finding**. NS_COEF_SCHEDULE axis absorbed by post-#1240 R-buffer EMA. Pre-staged modal 35% Row 4 HIT exactly. **fs IDENTICAL across all 4 arms** at 3150.
+
+**🎯 DOUBLE CONFIRMATION — Direct telemetric evidence for R-buffer EMA absorption (24h, 2nd instance after #1438)**:
+`R_condition_number_mean` rises MONOTONICALLY 5.4× from A→D (502K → 2.72M). Arm C R_cond_max=1.62e8 vs Arm A 3.47e7. `precond_ratio_mean` rises (1.086 → 1.117 peak at C). The R-buffer DOES see materially different input NS-output quality across arms, yet val_loss INVARIANT within ±0.0005 across all arms. SAME PATTERN as #1438 NS_ITERS_COOLDOWN 5× R_cond spread / val invariant.
+
+**🎯 Interpretation**: R-buffer EMA absorbs BOTH the NUMBER of NS orthogonalization steps (#1438) AND the SHAPE/DIRECTION of the NS polynomial coefficients (#1440). Two orthogonal upstream NS-output axes both absorbed. The R-buffer is self-correcting for upstream NS-output quality.
+
+**🎯 Pre-#1240 optimization absorbed**: PR #290 linear_ramp_down NS coef schedule was established via n=3 paired-pod confirmation (Δ_paired=−0.00071 mild-FAV). Does NOT persist on post-#1240 stack — Arm B constant = Δ_paired=+0.00048 NULL.
+
+**🎯 Arm D observation**: gentle_to_aggressive (OPPOSITE direction to production) val=3.26320 ≤ baseline 3.26339 by −0.00019. Within NULL band, single-seed N=1, cycle-440 SIGN-FLIP precedent rules out PP-promote at this magnitude.
+
+---
+
 ## 2026-05-27 22:30 — PR #1438: NM NS_ITERS_COOLDOWN sweep on post-#1240 stack (12/16/20/24) — CLOSED Row 4 productive-NULL, 7th cross-axis catalog finding
 
 - branch: `g1r4-edward/nm-ns-iters-cooldown-sweep`
