@@ -1,5 +1,42 @@
 # SENPAI Research Results
 
+## 2026-05-27 12:25 UTC — PR #1378 CLOSED: pEMA-only ablation — MARGINAL-WIN-CANDIDATE Arm B reopens refresh-axis canon (g1r1-fern)
+
+- Branch: `g1r1-fern/pema-only-ablation`
+- Hypothesis: Disentangle the #1325 thorfinn marginal-WIN (Lcov@2600 + pEMA@2275 stack) by running pEMA-refresh-only (no Lcov refresh) at each of the two canonical steps. Tests whether pEMA-refresh alone extracts the original stacked-WIN signal or whether the L_cov+pEMA pairing is mechanistically necessary.
+
+| Arm | Mechanism | wandb | val_ema | val_live | sr | Δ vs baseline | Verdict |
+|---|---|---|---|---|---|---|---|
+| Baseline #1289 | none | `3zhwgfiw` | 3.264718 | 3.264114 | 2925 | — | ref |
+| #1325 thorfinn (seed-1) | Lcov@2600+pEMA@2275 | `16hncm3t` | 3.263842 | — | 2925 | −0.876 mnat | marginal WIN (failed n=2) |
+| #1379 thorfinn (seed-2) | Lcov@2600+pEMA@2275 | `9go3m8ex` | 3.265844 | — | 2925 | +1.126 mnat | seed-2 NULL |
+| **Arm A** (this) | **pEMA-only @ 2275** | **`scg8wq17`** | **3.265347** | 3.264756 | **2925** | **+0.629 mnat** | **tight NULL (as forecast)** |
+| **Arm B** (this) | **pEMA-only @ 2600** | **`y4nxof1m`** | **3.263562** | 3.262971 | **2875** | **−1.155 mnat / Δsr=−50** | **MARGINAL-WIN-CANDIDATE (UNEXPECTED)** |
+
+**Results commentary:** Arm A confirms the converging-NULL forecast — pEMA-only-refresh at the canonical 2275 step does NOT extract the #1325 marginal-WIN. Combined with #1379 seed-2 NULL on the full Lcov+pEMA stack, this would have closed the refresh-axis as 169th NULL. **Arm B CONTRADICTS the converging-NULL forecast** — pEMA-only-refresh at step 2600 (Lcov's canonical step) shows substantial Δsr=−50 + Δval=−1.155 mnat. The merge gate (`sr ≤ 2912.5 OR (sr=2925 AND val_ema < 3.264718)`) is PASSED by Arm B with 37.5 steps of sr margin; Δval=1.155 mnat sits just above the 1.0 mnat marginal-noise floor, so n=2 confirmation is required (matching the #1365→#1410 alphonse pattern). Refresh diagnostics clean both arms: `ema_refresh/fired=1` at the prescribed step, `lcov_refresh/fired=0`, EMA buffer frob_dist recovers to baseline-band 30 by terminal. Arm B's step-2625 EMA-buffer transient (val_ema 3.316 → recovers to 3.27 by step 2900) is the expected zero-out artifact, NOT run failure.
+
+**MAJOR CANON — pEMA-refresh-STEP asymmetry hypothesis (refresh-axis RE-OPENED):**
+The 1.785 mnat asymmetry between Arm A (pEMA@2275: 3.265347) and Arm B (pEMA@2600: 3.263562) at single-seed-each is portfolio-significant evidence. If pEMA-only was uniformly NULL, both arms should be baseline-band; instead the 325-step gap in refresh timing produces a sign-flip on the Δval signal. Two competing interpretations:
+
+1. **(Real mechanism — late-cooldown signal-to-noise)**: At step 2600, live params already encode useful cooldown trajectory. Zeroing EMA history at that moment lets the buffer re-accumulate ONLY high-quality late-cooldown updates (better signal-to-noise than averaging across all training history). Step 2275 is too early — refresh discards useful pre-cooldown EMA before the late-cooldown trajectory is baked in.
+2. **(Noise)**: Single-seed n=1 result; val crossing at step 2875 is only 0.13 mnat below TARGET=3.28 (a fragile crossing); baseline run-to-run variance ~2 mnat per #1325→#1379 → ±1.155 mnat fluctuation plausibly drawn from same noise distribution.
+
+Striking comparison: Arm B (3.263562) is at-least-as-good as #1325 seed-1 stack (3.263842), with SIMPLER mechanism (pEMA-only-@-2600, no Lcov). If this WIN survives n=2, it suggests the original #1325 mechanism was pEMA-refresh-AT-step-2600, NOT temporal-pairing or L_cov refresh.
+
+**Cross-portfolio impact:**
+- **REFRESH-AXIS CANON RE-OPENED.** Was about to fully close pending #1378 Arm B and #1379 seed-2 → both required for closure. Arm B WIN-candidate reopens.
+- pEMA-refresh-step is now an active marginal-WIN direction alongside aux-LR-phase-window (#1365 joint, #1399 lm_head-only).
+- Disentanglement matrix completed for refresh-mechanism × refresh-step (pEMA only, Lcov disabled): 2275 NULL, 2600 WIN-candidate.
+
+**Student's suggested follow-ups (preserved for future assignment):**
+1. **n=2 confirmation of Arm B** at seed-2 — ASSIGNED as PR #1429 fern.
+2. Refresh-step sweep at 2500/2700/2800/2900 — discriminate "step 2600 is special" vs "any late-cooldown refresh works" via inverted-bathtub vs monotone-later.
+3. Mechanism probe at step 2600 — measure `ema_minus_live` Frobenius norm before vs after refresh; correlate with WIN magnitude across step sweep.
+4. Re-examine #1325 retroactive close — compare pEMA-only-@2600 (this Arm B, 3.263562) to pEMA-only-@2275-WITH-Lcov-@2600 (#1325 Arm A, 3.263842) in a future ablation.
+5. Arm A asymmetry probe — +0.629 mnat regression slightly larger than zero-mean noise; could indicate refreshing pEMA too early (step 2275) is actively harmful (discards useful EMA history).
+
+**Next step:** fern → PR #1429 n=2 seed-2 confirmation of Arm B (`--paramema_refresh_only --paramema_refresh_step 2600 --seed 2`). If WIN confirmed, pEMA-refresh-@-2600 becomes simplest extracted late-cooldown mechanism. If NULL, joins #1325→#1379 pattern as seed-1 noise collapse.
+
 ## 2026-05-27 11:55 UTC — PR #1376 CLOSED: Pre-target body Muon LR pulse — bilateral tight NULL (g1r1-tanjiro)
 
 - Branch: `g1r1-tanjiro/pretarget-body-muon-lr-pulse`
