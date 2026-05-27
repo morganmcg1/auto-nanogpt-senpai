@@ -468,6 +468,11 @@ NS5_ITERS = int(os.environ.get("NS5_ITERS", "12"))
 WD_AUX = float(os.environ.get("WD_AUX", "0.0"))  # AdamW WD on embed + lm_head matrices (scalars stay at 0)
 EMBED_INIT_STD = float(os.environ.get("EMBED_INIT_STD", "1.0"))  # default preserves baseline N(0,1)
 LOGIT_SOFTCAP = float(os.environ.get("LOGIT_SOFTCAP", "15.0"))  # default = 15 (current hardcoded value); soft-cap value c in f(x) = c·x / sqrt(x^2+c^2)
+# Continuous α-interpolation between AdamW and sign-SGD on embed AUX (PR #1417, 127th mech)
+# denom = sqrt(v_hat + alpha * |m_hat|) + eps  (α=0 → AdamW, α→∞ → sign-SGD)
+EMBED_AUX_ADAM_SIGN_HYBRID_ENABLED = int(os.environ.get("EMBED_AUX_ADAM_SIGN_HYBRID_ENABLED", "0"))
+EMBED_AUX_ADAM_SIGN_HYBRID_ALPHA = float(os.environ.get("EMBED_AUX_ADAM_SIGN_HYBRID_ALPHA", "0.1"))
+EMBED_AUX_ADAM_SIGN_HYBRID_START_STEP = int(os.environ.get("EMBED_AUX_ADAM_SIGN_HYBRID_START_STEP", "953"))
 
 
 def zeropower_via_newtonschulz5(G: Tensor) -> Tensor:
@@ -866,6 +871,9 @@ if dist.get_rank() == 0:
             "optimizer/attn_soap_trust_threshold": ATTN_SOAP_TRUST_THRESHOLD,
             "optimizer/ns5_iters": NS5_ITERS,
             "optimizer/wd_aux": WD_AUX,
+            "optimizer/embed_aux_adam_sign_hybrid_enabled": EMBED_AUX_ADAM_SIGN_HYBRID_ENABLED,
+            "optimizer/embed_aux_adam_sign_hybrid_alpha": EMBED_AUX_ADAM_SIGN_HYBRID_ALPHA,
+            "optimizer/embed_aux_adam_sign_hybrid_start_step": EMBED_AUX_ADAM_SIGN_HYBRID_START_STEP,
             "optimizer/recipe": "contra-muon + normuon-lite + soap-on-mlp + soap-on-attn-trust-gate (pre-NS5, record #14 + record #16)",
         },
     )
@@ -1051,8 +1059,61 @@ for trial_idx in range(args.num_trials):
                 train_steps=train_steps,
                 wandb_step=wandb_step,
             )
+        hybrid_active = bool(EMBED_AUX_ADAM_SIGN_HYBRID_ENABLED) and step >= EMBED_AUX_ADAM_SIGN_HYBRID_START_STEP
+        if hybrid_active:
+            embed_snapshot = {p: p.data.clone() for group in optimizer1.param_groups
+                              if group.get("name") == "adam_embed" for p in group["params"]}
+        else:
+            embed_snapshot = None
         for opt in optimizers:
             opt.step()
+        hybrid_update_rms_val = 0.0
+        hybrid_denom_rms_val = 0.0
+        if embed_snapshot is not None:
+            update_rms_accum = 0.0
+            denom_rms_accum = 0.0
+            update_rms_count = 0
+            alpha = EMBED_AUX_ADAM_SIGN_HYBRID_ALPHA
+            for group in optimizer1.param_groups:
+                if group.get("name") != "adam_embed":
+                    continue
+                lr = group["lr"]
+                wd = group["weight_decay"]
+                beta1, beta2 = group["betas"]
+                eps = group["eps"]
+                for p in group["params"]:
+                    state = optimizer1.state[p]
+                    if "exp_avg" not in state:
+                        continue
+                    m_t = state["exp_avg"]
+                    v_t = state["exp_avg_sq"]
+                    step_num = state["step"]
+                    step_num_f = float(step_num.item() if torch.is_tensor(step_num) else step_num)
+                    # bias-correct m_t and v_t
+                    m_hat = m_t / (1 - beta1 ** step_num_f)
+                    v_hat = v_t / (1 - beta2 ** step_num_f)
+                    # Hybrid denom: sqrt(v_hat + alpha * |m_hat|) + eps
+                    denom = (v_hat + alpha * m_hat.abs()).sqrt().add(eps)
+                    hybrid_update = m_hat / denom
+                    # Restore pre-step weights, then apply hybrid update + WD (decoupled)
+                    p.data.copy_(embed_snapshot[p])
+                    p.data.add_(hybrid_update, alpha=-lr)
+                    p.data.mul_(1 - lr * wd)
+                    update_rms_accum += float(hybrid_update.mul(lr).square().mean().sqrt().item())
+                    denom_rms_accum += float(denom.square().mean().sqrt().item())
+                    update_rms_count += 1
+            if update_rms_count > 0:
+                hybrid_update_rms_val = update_rms_accum / update_rms_count
+                hybrid_denom_rms_val = denom_rms_accum / update_rms_count
+        if dist.get_rank() == 0 and telemetry_due:
+            wandb.log({
+                "trial": trial_idx,
+                "train/step": train_step,
+                "embed/hybrid_active": int(hybrid_active),
+                "embed/hybrid_alpha": EMBED_AUX_ADAM_SIGN_HYBRID_ALPHA,
+                "embed/hybrid_update_rms": hybrid_update_rms_val,
+                "embed/hybrid_denom_rms": hybrid_denom_rms_val,
+            }, step=wandb_step)
         if dist.get_rank() == 0 and telemetry_due:
             for opt in optimizers:
                 if hasattr(opt, "trust_gate_stats"):
