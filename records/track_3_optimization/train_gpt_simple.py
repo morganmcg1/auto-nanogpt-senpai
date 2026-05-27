@@ -469,6 +469,11 @@ WD_AUX = float(os.environ.get("WD_AUX", "0.0"))  # AdamW WD on embed + lm_head m
 EMBED_INIT_STD = float(os.environ.get("EMBED_INIT_STD", "1.0"))  # default preserves baseline N(0,1)
 LOGIT_SOFTCAP = float(os.environ.get("LOGIT_SOFTCAP", "15.0"))  # default = 15 (current hardcoded value); soft-cap value c in f(x) = c·x / sqrt(x^2+c^2)
 
+# POST_TARGET_BODY_MUON_M_RESET (PR #1461): one-shot zero of body Muon momentum buffer
+# at a dispatch step. Step counter and cosine cooldown LR schedule are preserved.
+POST_TARGET_MUON_M_RESET_ENABLED = int(os.environ.get("POST_TARGET_MUON_M_RESET_ENABLED", "0"))
+POST_TARGET_MUON_M_RESET_STEP = int(os.environ.get("POST_TARGET_MUON_M_RESET_STEP", "2950"))
+
 
 def zeropower_via_newtonschulz5(G: Tensor) -> Tensor:
     assert G.ndim >= 2
@@ -866,6 +871,8 @@ if dist.get_rank() == 0:
             "optimizer/attn_soap_trust_threshold": ATTN_SOAP_TRUST_THRESHOLD,
             "optimizer/ns5_iters": NS5_ITERS,
             "optimizer/wd_aux": WD_AUX,
+            "optimizer/post_target_muon_m_reset_enabled": POST_TARGET_MUON_M_RESET_ENABLED,
+            "optimizer/post_target_muon_m_reset_step": POST_TARGET_MUON_M_RESET_STEP,
             "optimizer/recipe": "contra-muon + normuon-lite + soap-on-mlp + soap-on-attn-trust-gate (pre-NS5, record #14 + record #16)",
         },
     )
@@ -1051,6 +1058,37 @@ for trial_idx in range(args.num_trials):
                 train_steps=train_steps,
                 wandb_step=wandb_step,
             )
+        muon_m_reset_fired = 0
+        muon_m_reset_params = 0
+        if (POST_TARGET_MUON_M_RESET_ENABLED
+                and step == POST_TARGET_MUON_M_RESET_STEP):
+            for group in optimizer2.param_groups:
+                for p in group["params"]:
+                    st = optimizer2.state.get(p, None)
+                    if st is not None and "momentum" in st:
+                        st["momentum"].zero_()
+                        muon_m_reset_params += 1
+            muon_m_reset_fired = 1
+            if dist.get_rank() == 0:
+                print0(
+                    f"[POST_TARGET_MUON_M_RESET] body Muon momentum reset at step={step}"
+                    f" (params={muon_m_reset_params}; step counter and LR schedule preserved)",
+                    console=True,
+                )
+        if (POST_TARGET_MUON_M_RESET_ENABLED
+                and dist.get_rank() == 0
+                and abs(step - POST_TARGET_MUON_M_RESET_STEP) <= 25):
+            m_norm_sq = 0.0
+            for group in optimizer2.param_groups:
+                for p in group["params"]:
+                    st = optimizer2.state.get(p, None)
+                    if st is not None and "momentum" in st:
+                        m_norm_sq += float(st["momentum"].detach().float().square().sum().item())
+            wandb.log({
+                "train/muon_m_reset/dispatch_fired": muon_m_reset_fired,
+                "train/muon_m_reset/params_reset_count": muon_m_reset_params,
+                "train/muon/m_norm_post_dispatch": m_norm_sq ** 0.5,
+            }, step=wandb_step)
         for opt in optimizers:
             opt.step()
         if dist.get_rank() == 0 and telemetry_due:
