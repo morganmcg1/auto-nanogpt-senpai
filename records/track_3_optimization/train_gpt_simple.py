@@ -71,6 +71,10 @@ def parse_args():
                         help="LR for AdamW adam_scalars group (RMSNorm gains; "
                              "params with ndim < 2). Default 0.01 — hardcoded, "
                              "never ablated. ~20K params total in this model.")
+    parser.add_argument("--lr_embed", type=float, default=0.3,
+                        help="LR for AdamW adam_embed group (model.embed.weight). "
+                             "Default 0.3 — hardcoded, never ablated. "
+                             "Compensates for per-row sparsity in embedding gradients.")
     parser.add_argument(
         "--depth_init_mode",
         type=str,
@@ -764,6 +768,7 @@ if dist.get_rank() == 0:
             "wd_attn": args.wd_attn,
             "wd_schedule": args.wd_schedule,
             "lr_scalars": args.lr_scalars,
+            "lr_embed": args.lr_embed,
             "depth_init_mode": args.depth_init_mode,
         },
     )
@@ -837,7 +842,7 @@ for trial_idx in range(args.num_trials):
     print0(f"[init] mode={args.depth_init_mode}  L={NUM_LAYERS}  block_residual_attn.proj_std={_ex_resid_std:.6f}", console=True)
 
     # create the optimizer(s)
-    optimizer1 = AdamW([dict(params=[model.embed.weight], lr=0.3, name="adam_embed"),
+    optimizer1 = AdamW([dict(params=[model.embed.weight], lr=args.lr_embed, name="adam_embed"),
                         dict(params=[model.proj.weight], lr=1/320, name="adam_lm_head"),
                         dict(params=[p for p in model.parameters() if p.ndim < 2], lr=args.lr_scalars, name="adam_scalars")],
                        betas=(0.8, 0.95), eps=1e-10, weight_decay=0, fused=True)
@@ -1007,6 +1012,12 @@ for trial_idx in range(args.num_trials):
                 train_steps=train_steps,
                 wandb_step=wandb_step,
             )
+        if telemetry_due and dist.get_rank() == 0:
+            embed_w_pre = model.embed.weight.detach().clone()
+            embed_grad_pre = model.embed.weight.grad.detach().clone() if model.embed.weight.grad is not None else None
+        else:
+            embed_w_pre = None
+            embed_grad_pre = None
         for opt in optimizers:
             opt.step()
         if telemetry_due:
@@ -1026,7 +1037,31 @@ for trial_idx in range(args.num_trials):
                 per_group_metrics["train/wd_mlp_now"] = current_wds.get("muon_mlp", 0.0)
                 per_group_metrics["train/wd_attn_now"] = current_wds.get("muon_attn", 0.0)
                 per_group_metrics["train/wd_schedule_progress"] = train_step / train_steps
+                # AdamW aux group telemetry — embed/lm_head/scalars per-group state
+                # Aux LR exposed via separate keys to ease cross-PR analysis with
+                # #1275 (scalars), #1387 (lm_head), #1394 (this PR — embed).
+                for name, lr in {g.get("name", f"adam_{i}"): g["lr"]
+                                 for i, g in enumerate(optimizer1.param_groups)}.items():
+                    per_group_metrics[f"train/lr_aux/{name}"] = lr
+                if embed_w_pre is not None:
+                    embed_w_now = model.embed.weight.detach().float()
+                    embed_update = embed_w_now - embed_w_pre.float()
+                    per_group_metrics["adamw/embed_weight_norm"] = float(embed_w_now.norm().item())
+                    per_group_metrics["adamw/embed_update_norm"] = float(embed_update.norm().item())
+                    row_norms = embed_w_now.norm(dim=-1)
+                    per_group_metrics["adamw/embed_row_norm_p50"] = float(row_norms.median().item())
+                    per_group_metrics["adamw/embed_row_norm_p95"] = float(row_norms.quantile(0.95).item())
+                    update_row_norms = embed_update.norm(dim=-1)
+                    per_group_metrics["adamw/embed_update_row_norm_p50"] = float(update_row_norms.median().item())
+                    per_group_metrics["adamw/embed_update_row_norm_p95"] = float(update_row_norms.quantile(0.95).item())
+                    if embed_grad_pre is not None:
+                        per_group_metrics["adamw/embed_grad_norm"] = float(embed_grad_pre.float().norm().item())
+                        # rows that received any gradient signal this step
+                        per_group_metrics["adamw/embed_row_visit_fraction"] = float(
+                            (embed_grad_pre.abs().sum(dim=-1) > 0).float().mean().item()
+                        )
                 wandb.log(per_group_metrics, step=wandb_step)
+                del embed_w_pre, embed_grad_pre
         if dist.get_rank() == 0 and optimizer2.cos_sims_buffer:
             cs_names = list(optimizer2.cos_sims_buffer.keys())
             cs_tensors = list(optimizer2.cos_sims_buffer.values())
