@@ -1,3 +1,38 @@
+## 2026-05-27 03:00 — PR #1343: H190 fern Momentum-SAM on aux AdamW — CLOSED (🎯 50th NULL/NEG MILESTONE)
+
+- Branch: `g1r3-fern/aux-msam-noniterating`
+- Hypothesis: Apply Momentum-SAM (Becker et al. NeurIPS 2025) to aux AdamW groups (embed/lm_head/scalars). Perturb in `m₁ / ‖m₁‖` direction (momentum direction; data-free, optimizer-state-based). Zero-overhead variant.
+- Results:
+
+  | Arm | rho | W&B | val/loss | FFS | Δσ vs H174 μ | Class |
+  |---|---|---|---|---|---|---|
+  | arm_a CTRL | 0.0 | `h5570lpz` | 3.26604 | 3150 | +1.79σ | NULL (typical CTRL drift) |
+  | arm_b MSAM_RHO_0.01 | 0.01 | `izrla9ju` | **3.26474** | **3150** | +0.32σ | NULL (best aux-MSAM, no signal) |
+  | arm_c MSAM_RHO_0.05 | 0.05 | `u8re97pq` | 3.27151 | **3200** | +7.98σ | **hard NEG** (rho-monotonic harm) |
+
+- Outcome: No WIN. **50th NULL/NEG MILESTONE.** aux-MSAM axis closed.
+- **Mechanism analysis**: Monotonic degradation with rho is the OPPOSITE of hypothesis prediction. A productive sharpness regularizer should improve with rho; instead, rho=0.05 = hard NEG (FFS+50). aux is already well-conditioned by existing stack (AGC clip ratio 0.05 + ε=1e-6 + linear β2 schedule). No slack for SAM-style perturbation to find a flatter basin.
+- **🎯 50 NULL/NEG plateau pattern characterized**: Every OFF-axis experimental arm TIES within-chain CTRL at FFS=3150 OR goes hard NEG when intensity increases. Programme finding (preliminary): H148 baseline occupies tight local optimum where Newton-Schulz polar projection + AGC on aux + linear cooldown + MuLoCo outer Nesterov collectively constrain the optimizer-state space such that small perturbations are zero-sum or harmful. **Bottleneck is elsewhere**: either val measurement noise (H198 in flight) OR fundamentally different mechanism class.
+- Plateau Protocol engaged. Researcher-agent consulted for fresh ideas.
+- Next assignment: H200 fern Mid-Training LR Warm Restart on body (PR #1374) — first TRAJECTORY-DISRUPTION experiment; single cosine dip+recovery at step 1500/1200 to escape flat-basin trap.
+
+## 2026-05-27 02:55 — PR #1344: H191 nezuko AdaMuon per-element second-moment on NS5 body — CLOSED (49th NULL/NEG)
+
+- Branch: `g1r3-nezuko/adamuon-body-secondmoment`
+- Hypothesis: Apply AdaMuon per-element second-moment scaling (arXiv 2507.11005) to MuonH body grads PRE-NS5. Test if per-element rescaling improves polar projection target direction.
+- Results:
+
+  | Arm | β2 | W&B | val/loss | FFS | Δσ vs H174 μ | Class |
+  |---|---|---|---|---|---|---|
+  | arm_a CTRL | n/a | `uy3jhg3y` | 3.26439 | 3150 | -0.08σ | NULL (typical CTRL drift) |
+  | arm_b ADAMUON_β2_0.999 | 0.999 | `lutqye8w` | 3.26594 | 3150 | +1.68σ | NEG-leaning |
+  | arm_c ADAMUON_β2_0.99 | 0.99 | `x9a6zj6z` | 3.26621 | 3150 | +1.98σ | NEG-leaning |
+
+- Outcome: No WIN. 49th NULL/NEG closure. AdaMuon body axis closed.
+- **Mechanism analysis**: Per-element second-moment scaling is structurally incompatible with MuonH-SI's spectral-norm/hyperball constraint. β2=0.999 → CoV ≈ 0.002, mechanism collapses to no-op via NS5 F-norm renormalization. β2=0.99 → runaway element-scale dispersion distorts polar projection target → consistent NEG +1.98σ. Per-element preconditioning fights NS5's spectral-norm lock.
+- **Mechanistically coherent follow-up**: spectral second-moment variant (per-singular-value, not per-element) — but deferred given plateau depth.
+- Next assignment: H199 nezuko Dual-EMA on MuonH body momentum (PR #1373) — first DIRECTION-blend experiment (fast β_f=0.95 + slow β_s=0.999) before NS5; per-element-free, only first-moment direction blend.
+
 ## 2026-05-27 02:35 — PR #1348: H192 edward Functional SAM on lm_head (Logit-FSAM rho=0.01) — CLOSED (48th NULL/NEG + programme finding #24)
 
 - Branch: `g1r3-edward/h192-logit-fsam-lmhead`
