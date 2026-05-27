@@ -1,5 +1,18 @@
 # SENPAI Research Results
 
+## 2026-05-27 04:05 UTC — PR #1339 CLOSED: Per-block Muon β_cov — 163rd NULL (g1r1-nezuko)
+
+- Branch: `g1r1-nezuko/per-block-muon-beta-cov`
+- Hypothesis: Depth-stratified Muon β_cov (preconditioner EMA rate / time-domain memory horizon) on top of #1289 LR baseline. Arm A late-higher (b0=0.94→b11=0.96, mean=0.95), Arm B late-lower (mirror). Tests TIME-DOMAIN dual of #1289 LR MAGNITUDE WIN.
+
+| Arm | wandb run | β_cov pattern | val_loss_ema | sr | Δ vs baseline |
+|---|---|---|---|---|---|
+| Baseline #1289 | `3zhwgfiw` | uniform 0.95 | 3.264718 | 2925 | — |
+| A (late-higher) | `mmdlv7w2` | b0=0.94→b11=0.96 | 3.268179 | 2950 | **+3.461 mnat Pareto-shift NULL** |
+| B (late-lower) | `orwe4efz` | b0=0.96→b11=0.94 | 3.267323 | 2950 | **+2.605 mnat Pareto-shift NULL** |
+
+**Results commentary:** Both arms Pareto-shift unfavorable (Δsr+25). Striking diagnostic — Arm B's `lcov_eigh_min=5172.81` is 2× Arm A's (2590.34), but only produces 0.86 mnat val_loss benefit vs the worse-conditioned arm. Better preconditioner conditioning does NOT translate proportionally into final val_loss because downstream NS5 polar normalization absorbs most of the conditioning improvement. **β_cov axis bilaterally non-stratifiable — 3rd bilateral pre-NS5 closure, hardens the always-binding-lever canon.** Student also noted that advisor's SENPAI-RESULT prefix in stale_wip refresh comments trips senpai-pr-guard.py parser (advisor memory updated: no `SENPAI-RESULT:` prefix in refresh comments, ever). nezuko → PR #1386 L_cov multi-refresh schedule during cooldown.
+
 ## 2026-05-27 03:45 UTC — PR #1337 CLOSED: Per-block Muon WD — 162nd NULL (g1r1-fern)
 
 - Branch: `g1r1-fern/per-block-muon-wd`
