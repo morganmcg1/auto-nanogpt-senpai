@@ -1,3 +1,58 @@
+## 2026-05-27 08:45 UTC — Cycle 71 mid-317 (FFS-primary pivot, cluster-floor confirmed STRUCTURAL ceiling)
+
+**Cumulative**: **202 refuted (+1 this wake)** / **124 distinct mech classes (+1 fresh #1408)** / **77 family-level closures (+1)**.
+
+**Closure this wake** (1 bilateral terminal — direction-asymmetry-COMPOUND family CLOSED at saturation):
+
+| PR | student | mech | bilateral data | closure |
+|---|---|---|---|---|
+| **#1382** | alphonse | embed AUX LR×WD direction-COMPOUND | Arm A (privileged ×1.5+WD→0) val=3.26873 ffs=3000; Arm B (anti ×0.667+WD=0.005) val=3.26997 ffs=3025; Δ=+0.00124 | **202nd** H0 SATURATED BILATERAL; cluster-floor compound additive H1 refuted; FFS ties baseline; **9th cluster-floor compound mech class confirms saturation** |
+
+### MAJOR FINDING — CLUSTER FLOOR IS A STRUCTURAL CEILING
+
+9 cluster-floor compound mechanism classes all saturate at val ~3.268-3.269 / ffs 3000-3025. Two-axis compounds within the SAME optimizer kind (embed AUX × LR×WD here) do NOT exceed best single-axis prior (#1364 val=3.26836 ffs=3000) within n=1 noise (Δ=+0.00037).
+
+**Implication**: the cluster floor at val~3.268 is a **structural ceiling**, not a knob-dependent one. No further FFS or val improvement is achievable by stacking more axes WITHIN one optimizer kind (embed AUX). The rate-limiter is the **cooldown ramp SHAPE itself** (steps 2500-3000 where val descends 3.34→3.28).
+
+### PIVOT — FFS-PRIMARY EXPERIMENTAL FRAME per Morgan #1252/#1261/#1262
+
+Cycle 71 has been **val-primary** so far. Morgan directives are explicit:
+- **#1252**: "short phase-specific mechanisms active only before the target crossing window"
+- **#1261**: "short burst before expected crossing"
+- **#1262**: "If final val improves but FFS stalls/regresses, treat it as mechanism insight, not a speed candidate. Report FFS first."
+
+The cluster-floor val saturation reveals val is no longer the productive lever. **FFS movement** (target crossing at step 2950 or 2975 vs current 3000) is the next achievable axis. This requires phase-specific mechanisms in the **pre-target-crossing window** (steps ~2500-3000), not knob-stacking in mid-training.
+
+### Fresh assignment (1 idle student → 1 new PR):
+
+| PR | student | mech | purpose |
+|---|---|---|---|
+| **#1408** | alphonse | MU_LR_FFS_BURST_DISPATCH (124th mech, FFS-primary, virgin pre-crossing-window phase axis) | Short LR burst on body Muon active only in [2750, 2950]. Arm A: ×1.25 mild boost. Arm B: ×1.5 strong boost. Per Morgan #1261 directive ("short burst before expected crossing") + alphonse's own #1382 closure suggestion ("cooldown ramp is rate-limiting structural element"). FFS-PRIMARY readout: ffs ≤ 2975 = success. **First FFS-targeted experiment of cycle 71.** |
+
+### Cycle 71 cumulative findings (post mid-317)
+
+- **9 cluster-floor compound mechanism classes** all saturate at val ~3.268 / ffs 3000-3025 → cluster floor STRUCTURAL ceiling, not knob-dependent
+- **Param-count-monotonic AUX-LR direction-asymmetry** (embed sharpest → lm_head medium → scalars null)
+- **Depth-half locality** is β1-axis-SPECIFIC (LR-axis catastrophic in both directions at 3.0× ratio)
+- **Trust-ratio scaling NULL-by-construction** when ||u||/||w|| is pre-equalized (LARS/LAMB family closure across v-normalized optimizers)
+- **Single-kind multi-axis compound family CLOSED** at cluster-floor saturation (within-kind axis-stacking refuted)
+- **NEW PIVOT (mid-317)**: cluster floor is structural; FFS movement is next axis; pre-crossing-window phase mechanisms (Morgan #1261) are now the highest-priority experimental frame
+
+### In-flight student PRs (8 concurrent):
+
+- **alphonse #1408** (NEW — FFS-PRIMARY pre-crossing LR burst on body Muon)
+- **askeladd #1391** (body NS5 per-block-half depth×NS5 extension)
+- **edward #1392** (lm_head WD phase axis — cross-AUX-kind universality cell)
+- **fern #1405** (AUX LARS trust-ratio cross-class contrapositive)
+- **frieren #1396** (body Muon WD phase transition at cooldown — virgin body-WD axis)
+- **nezuko #1404** (AUX param state-reset m-only/v-only decomposition of #1353)
+- **tanjiro #1390** (embed AUX sign-SGD update-rule virgin)
+- **thorfinn #1397** (AUX Nesterov phase at cooldown — cross-optimizer-class)
+
+ZERO IDLE. 8 concurrent active. **NEXT WAVE PRIORITY**: shift portfolio toward FFS-PRIMARY pre-crossing-window mechanisms as cluster-floor compound family closes out.
+
+---
+
 ## 2026-05-27 07:20 UTC — Cycle 71 mid-316 (LARS NULL-by-construction methodology principle)
 
 **Cumulative**: **201 refuted (+1 this wake)** / **123 distinct mech classes (+1 fresh #1405)** / **76 family-level closures (+1)**.
