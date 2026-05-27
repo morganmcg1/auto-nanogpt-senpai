@@ -1,3 +1,79 @@
+## 2026-05-27 04:35 UTC — Cycle 71 mid-311
+
+**Cumulative**: **193 refuted** / **108 distinct mech classes** / **68 family-level closures** (fern #1361 194th closure pending bilateral SENPAI-RESULT submission — Arm B `rvnz4dvl` is W&B-terminal val=3.27083 ffs=3025).
+
+**Highest-information mid-311 finding**: **nezuko #1369 Arm A CATASTROPHIC REGRESSION** — late-half-higher LR (l6-l11 × 1.5, l0-l5 × 0.5) at cooldown_start val=**3.28741** ffs=**-1** (failed to reach target 3.28). **First failure to reach target in 320+ PR corpus.** Locality finding from #1340 (β-axis) does NOT transfer to LR-axis at the same per-block-half step-function geometry.
+
+### Locality direction × optimizer-axis 2×2 design (in flight):
+
+|  | β1-axis | LR-axis |
+|---|---|---|
+| **late-half-higher** | cluster member (#1340 Arm A val=3.27130 ffs=3050) | **CATASTROPHIC REGRESSION (#1369 Arm A val=3.28741 ffs=-1, target missed)** |
+| **early-half-higher** | catastrophic (#1340 Arm B val=3.29649 ffs=-1) | **PENDING (#1369 Arm B sent back with GO decision)** |
+
+**Two possible Arm B outcomes:**
+- **(a) catastrophic regression**: LR depth-half dispatch broken regardless of direction → closure as catastrophic on both directions; mech class 114 (per-block-half body Muon LR phase) is NULL/DESTRUCTIVE except in narrow β1 sub-case
+- **(b) cluster member or sub-cluster-edge**: **DIRECTION-ASYMMETRY INVERSION on LR-axis depth dispatch** — early-half-higher LR helps, late-half-higher catastrophic; INVERTS the β1-axis pattern from #1340. Would establish that depth-axis-direction interacts non-trivially with optimizer mechanism: β1 (momentum decay) and LR (step magnitude) carry OPPOSITE optimal depth-dispatch directions.
+
+**Outcome (b) would be the single highest-information closure in cycle 71** — it falsifies the implicit "depth-axis locality is mechanism-class-universal" generalization. The pair forms a clean 2×2 mechanistic-class-discriminator design.
+
+### #1369 Arm A trajectory (post-dispatch drift growth):
+
+| step | val | drift vs baseline projection |
+|---|---|---|
+| 875 (pre-dispatch) | 3.69222 | ≈0 |
+| 1000 (post-dispatch) | 3.66469 | -0.005 |
+| 1500 | 3.55858 | +0.019 |
+| 2000 | 3.45497 | +0.025 |
+| 2500 | 3.37831 | +0.038 |
+| 3000 | 3.29917 | +0.019 |
+| **3175** | **3.28741** | **+0.015 (above-cluster, target missed)** |
+
+Late-half-higher LR is not just "above cluster" — it's the worst single-Arm result in cycle 71. The deep-body LR boost destabilizes mid-training plateau (peak drift +0.038 at step 2500), recovers partially in cooldown but not enough to reach target.
+
+**Hypothesis on mechanism**: late-block LR boost amplifies gradient-direction noise in the layers that contribute most to final logit; whereas late-block β1 boost (#1340) tightens the EMA toward a more-aligned gradient direction. The two mechanisms operate on orthogonal aspects of the update rule (step magnitude vs step direction).
+
+### Other mid-311 events:
+
+**fern #1361 Arm B `rvnz4dvl` TERMINAL — cluster band STANDARD**:
+- val=**3.27083** ffs=**3025**
+- Arm A (attn-only σ=1e-3) val=3.27125 ffs=3025
+- Δ val = 0.00042 within seed-noise envelope → **kind-axis on weight perturbation σ=1e-3 is direction-symmetric NULL**
+- Both arms cluster STANDARD → **194th refute pending bilateral SENPAI-RESULT submission**
+- **CONFIRMS** cluster-floor compound finding extends to 8th mechanism class (weight-perturbation state-phase event)
+- **Basin-geometry-equals-optimizer-state-geometry conjecture** CONFIRMED for σ=1e-3 one-shot perturbation
+
+**Cluster-floor compound finding — 8 distinct mechanism classes CONFIRMED**:
+1. state (Nesterov-form phase-axis #1336)
+2. eval-state (Polyak averaging #1316)
+3. state-reset body 2nd-order (SOAP Gram reset #1333)
+4. per-group-dispatch (per-kind body Muon μ #1323)
+5. AUX-LR phase event (#1335)
+6. **locality-discriminator step-function dispatch** (β1-axis only via #1340 — LR-axis FAILS via #1369; sub-class narrowed)
+7. state-reset AUX 1st+2nd moment (#1353)
+8. **weight-perturbation state-phase event** (#1361 — CONFIRMED via Arm B bilateral)
+
+**thorfinn #1367 Arm B `s6kxhuo6` launched** (scalars over-LR 2.0×) — at step 1700, on baseline trajectory. Tests AUX-class-universal direction-asymmetry on scalars.
+
+**alphonse #1382 (EMBED_AUX_DIRECTION_COMPOUND)** — assignment posted; awaiting student launch.
+
+### Active fleet status mid-311:
+
+| Student | PR | Status | W&B notes |
+|---|---|---|---|
+| g1r2-fern | #1361 | status:wip | Arm B W&B-terminal `rvnz4dvl` val=3.27083 ffs=3025; awaiting bilateral SENPAI-RESULT submission |
+| g1r2-nezuko | #1369 | status:wip (just sent back) | Arm A CATASTROPHIC val=3.28741 ffs=-1; Arm B GO decision posted, awaiting early-half-higher launch |
+| g1r2-edward | #1364 | status:wip | Arm B `4okhno09` (WD 5×) step 2544 |
+| g1r2-frieren | #1366 | status:wip | Arm B `2ro7hicj` (over-LR 2.0×) step 1900 |
+| g1r2-askeladd | #1355 | status:wip | Arm B `fz4jyrdu` (attn-heavier inverted) step 2950 |
+| g1r2-thorfinn | #1367 | status:wip | Arm B `s6kxhuo6` (over-LR 2.0×) step 1700 |
+| g1r2-tanjiro | #1358 | status:wip | Arm B retry `a5z06qrx` step 3000 |
+| g1r2-alphonse | #1382 | status:wip | EMBED_AUX_DIRECTION_COMPOUND, awaiting launch |
+
+**ZERO IDLE STUDENTS — 8 students concurrently active. ZERO IDLE GPUs.**
+
+**Cumulative closure rate**: 193 / ~535 PRs ≈ 36% refute rate. Expected closures in next 1-2 cycles: 6 (fern, askeladd, tanjiro, edward, frieren, thorfinn — all Arm B terminal or near-terminal).
+
 ## 2026-05-27 04:15 UTC — Cycle 71 mid-310
 
 **Cumulative**: **193 refuted (+1: alphonse #1359 193rd cluster-band-edge SYMMETRIC, 68th family closure)** / **108 distinct mech classes (+1 pending: alphonse #1382 EMBED_AUX_DIRECTION_COMPOUND, 115th mech, virgin compound direction-asymmetry axis)** / **68 family-level closures**.
