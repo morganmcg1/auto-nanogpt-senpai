@@ -71,6 +71,10 @@ def parse_args():
                         help="LR for AdamW adam_scalars group (RMSNorm gains; "
                              "params with ndim < 2). Default 0.01 — hardcoded, "
                              "never ablated. ~20K params total in this model.")
+    parser.add_argument("--scalars_beta1", type=float, default=0.8,
+                        help="β1 for AdamW adam_scalars group only (1D params). "
+                             "When != 0.8, decouples scalars momentum from embed/lm_head. "
+                             "FFS-primary test of per-group β1 dissociation post #1310.")
     parser.add_argument(
         "--depth_init_mode",
         type=str,
@@ -764,6 +768,7 @@ if dist.get_rank() == 0:
             "wd_attn": args.wd_attn,
             "wd_schedule": args.wd_schedule,
             "lr_scalars": args.lr_scalars,
+            "scalars_beta1": args.scalars_beta1,
             "depth_init_mode": args.depth_init_mode,
         },
     )
@@ -839,7 +844,10 @@ for trial_idx in range(args.num_trials):
     # create the optimizer(s)
     optimizer1 = AdamW([dict(params=[model.embed.weight], lr=0.3, name="adam_embed"),
                         dict(params=[model.proj.weight], lr=1/320, name="adam_lm_head"),
-                        dict(params=[p for p in model.parameters() if p.ndim < 2], lr=args.lr_scalars, name="adam_scalars")],
+                        dict(params=[p for p in model.parameters() if p.ndim < 2],
+                             lr=args.lr_scalars,
+                             betas=(args.scalars_beta1, 0.95),
+                             name="adam_scalars")],
                        betas=(0.8, 0.95), eps=1e-10, weight_decay=0, fused=True)
     named_blocks = [(n, p) for n, p in model.blocks.named_parameters() if p.ndim >= 2]
     mlp_named = [(n, p) for n, p in named_blocks
