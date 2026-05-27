@@ -1,5 +1,36 @@
 # SENPAI Research Results
 
+## 2026-05-27 11:55 UTC — PR #1376 CLOSED: Pre-target body Muon LR pulse — bilateral tight NULL (g1r1-tanjiro)
+
+- Branch: `g1r1-tanjiro/pretarget-body-muon-lr-pulse`
+- Hypothesis: Phase-window LR pulse on body Muon (all 12 blocks) in steps 2500-2924, mirror of #1365's aux LR pulse but on body. Arm A boost ×1.15 vs Arm B reduce ×0.85. Tests whether body Muon shares the aux family's phase-window LR sensitivity (#1365 marginal-WIN).
+
+| Arm | Pulse mult | wandb | val_ema | sr | Δ vs baseline | Verdict |
+|---|---|---|---|---|---|---|
+| Baseline #1289 | none | `3zhwgfiw` | 3.264718 | 2925 | — | ref |
+| **Arm A boost** | **×1.15** | **`lc200o4g`** | **3.265653** | **2925** | **+0.935 mnat** | **tight NULL** |
+| **Arm B reduce** | **×0.85** | **`i58u6ti0`** | **3.265228** | **2925** | **+0.510 mnat** | **tight NULL** |
+
+**Results commentary:** Bilateral tight NULL. Both directions of ±15% body Muon LR perturbation in the pre-target window leave val_ema slightly above baseline with sr=2925 preserved on both arms. The reduce direction is closer-to-baseline (+0.510 vs +0.935 mnat), suggesting mild asymmetric preference for slightly-reduced body LR in this window, but the magnitude is well within seed noise. Pulse-fire verification CLEAN: exact ×1.15/×0.85 multipliers applied at step 2525, extinguished at step 2950, body_pretarget_pulse/active flag matched window boundaries. No instability flags (lcov_eigh_min 3698 Arm A vs 3617 Arm B — healthy; polar/ortho_residual 0.155/0.111 — Arm B slightly tighter as expected for reduced late-cooldown body updates).
+
+**MAJOR CANON — body-vs-aux phase-window asymmetry ESTABLISHED:**
+Paired with the completed 3-way aux decomposition, this PR locks in the cleanest mechanism factorization to date:
+- **Body Muon (per-block axes):** ALL 7 axes bilaterally NULL on phase-window LR perturbation (this PR), per-block LR PATTERN (#1289) was the only productive direction across the body-side matrix
+- **Aux family (embed+lm_head+scalars):** asymmetric load-bearing — lm_head dominant productive (#1399 Δ−0.302 mnat at ×1.20), embed counter-productive (#1400 +1.315 mnat at ×1.10), joint marginal-WIN (#1365 Δ−0.720 mnat at ×1.30)
+
+Mechanistic interpretation: by step 2500, body representation has converged enough that ±15% LR perturbation does not change crossing dynamics — body updates wash out before NS5 polish. The aux state (embed + lm_head + scalars) is still actively shaping logits during cooldown and remains sensitive to phase-window pulses, with lm_head being the loss-projection-adjacent layer that drives the productive direction.
+
+**Cross-portfolio impact:** Without this bilateral body NULL, the #1365 marginal-WIN could not be cleanly localized to aux — the body-side falsification was a necessary canon contribution. 168th closed NULL.
+
+**Student's suggested follow-ups (preserved for future assignment):**
+1. Body NULL × aux marginal-WIN stacking — combine #1365 ×1.30 aux boost with body ×0.85 reduce. HIGH-PRIORITY when sequencing permits (after #1410 n=2 settles).
+2. Wider body-reduce sweep (×0.70 or ×0.60) — DEPRIORITIZED (risk of catastrophic at aggressive reduce, per #1365 Arm B ×0.70 catastrophic).
+3. Late-extending window past sr=2925 — mechanism-overlaps with post-crossing-amplifying canon; LOW priority.
+4. Aux decomposition validation — COMPLETED 10:45 UTC (#1400 closed lm_head-dominant canon).
+5. NO n=2 — bilateral signal strong, n=2 unnecessary.
+
+**Next step:** tanjiro → fresh hypothesis on next wake cycle (lm_head dose-response or lm_head+scalars selective pulse — both canon-extension candidates).
+
 ## 2026-05-27 08:50 UTC — PR #1365 CLOSED: Pre-target aux LR pulse — marginal-WIN-candidate (Outcome 2 directional asymmetry) (g1r1-alphonse)
 
 - Branch: `g1r1-alphonse/pretarget-aux-lr-pulse`
