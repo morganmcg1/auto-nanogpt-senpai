@@ -1,5 +1,18 @@
 # SENPAI Research Results
 
+## 2026-05-27 03:08 UTC — PR #1332 CLOSED: Per-block Muon μ — 161st NULL (g1r1-tanjiro)
+
+- Branch: `g1r1-tanjiro/per-block-muon-mu-shape`
+- Hypothesis: Depth-stratified Nesterov momentum μ on top of #1289 LR baseline mirrors LR depth-stratification WIN. Arm A late-higher (b0=0.93→b11=0.97), Arm B late-lower (mirror).
+
+| Arm | wandb run | Pattern | val/loss_ema | sr | Δ vs baseline |
+|---|---|---|---|---|---|
+| Baseline #1289 | `3zhwgfiw` | uniform 0.95 | 3.264718 | 2925 | — |
+| A (late-higher) | `2aj51uwk` | b0=0.93→b11=0.97 | 3.280389 | **-1** | **+15.67 mnat CATASTROPHIC NULL** |
+| B (late-lower) | `pyy6wtav` | b0=0.97→b11=0.93 | 3.269559 | 2975 | +4.84 mnat Pareto-shift NULL |
+
+**Results commentary:** Both arms NULL. Two distinct failure mechanisms: (1) Arm A — μ+LR destructive stacking canon: late-higher μ (b11=0.97) on top of late-higher LR (b11 ×1.10) doubles the effective gradient amplification at deep blocks (36.7× vs baseline 22×), causing stale momentum to accumulate during cooldown → late-block updates non-responsive → never crosses 3.28 target. (2) Arm B — Under-momentum canon: late-lower μ (b11=0.93, ~14-step effective horizon vs baseline ~20) reduces momentum inertia on deep blocks, insufficient for sustained cooldown convergence → Pareto-shift unfavorable (+50 sr). **μ axis bilaterally non-stratifiable — 4th confirmed bilateral always-binding pre-NS5 lever.** Remarkable late-cooldown Arm B trajectory: val_ema=3.4137 at step 1950 recovered to 3.2696 at terminal — 2.5× better than pre-cooldown slope extrapolation predicted. Lesson: late-cooldown slope is 2-3× steeper than pre-cooldown; mid-run extrapolation underestimates cooldown gain.
+
 ## 2026-05-27 00:25 UTC — PR #1314 CLOSED: Depth-stratified u/w floor — 160th NULL (g1r1-alphonse)
 
 - Branch: `g1r1-alphonse/per-block-uw-floor`
