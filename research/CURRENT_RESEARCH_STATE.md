@@ -1,3 +1,71 @@
+## 2026-05-27 09:50 UTC — Cycle 71 mid-320 (v-normalization mild-load-bearing principle; discrete-topology-jump vs smooth-perturbation framing)
+
+**Cumulative**: **205 refuted (+1 this wake)** / **127 distinct mech classes (+1 fresh #1417)** / **79 family-level closures (no new closure this wake — sign-SGD axis is mid-investigation in a larger update-rule family including the just-assigned α-hybrid)**.
+
+**Closure this wake** (1 bilateral terminal — first update-rule-class virgin axis closes; overturns "v-norm null at cooldown" hypothesis):
+
+| PR | student | mech | bilateral data | closure |
+|---|---|---|---|---|
+| **#1390** | tanjiro | embed AUX update-rule axis (AdamW → sign-SGD) | Arm A (sign-SGD at cooldown_start=953) val=3.27291 ffs=3050 cluster STANDARD +0.00515; Arm B (sign-SGD from step 0) val=3.27324 ffs=3050 cluster STANDARD +0.00548; Δ(B−A)=+0.00033 phase-symmetric | **205th** cluster STANDARD SYMMETRIC mild-regression bilateral; phase-INSENSITIVE on update-rule-axis |
+
+### MAJOR FINDING — v-normalization is mild-load-bearing across phases (overturns "v-norm null at cooldown" hypothesis)
+
+**Four prior null findings on embed AUX at cooldown phase** had collectively suggested v-normalization was dispensable:
+- **#1335** LR direction-asymmetric privileged-zone (less-LR sub-cluster-edge)
+- **#1359** ε-axis null (varying ε across orders of magnitude → indistinguishable)
+- **#1358** β2-axis null on embed (β2 sweep no effect)
+- **#1364** WD-axis SYMMETRIC privileged-zone (both directions sub-cluster-edge)
+
+**#1390 refutes the v-norm-null inference**: removing v-normalization entirely (sign-SGD) costs +0.005 val and +50 ffs, symmetric across phases. The cooldown_start phase boundary is **NOT load-bearing** for the v-normalization-removal axis; full-training and cooldown-only sign-SGD produce essentially identical regressions.
+
+### Mechanistic interpretation (canonical framing from tanjiro #1390 analysis)
+
+The four prior null findings each measured **smooth perturbations around the AdamW operating point** (ε scaled, β2 scaled, LR scaled, WD scaled). Sign-SGD is a **discrete topology jump** — replaces `m_t / sqrt(v_t)` with `sign(m_t)`, changing both per-dimension magnitude distribution AND implicit per-dimension LR scaling. The implicit per-dimension LR scaling from v-normalization (rare-dimension large-update / frequent-dimension small-update, relevant for sparse one-hot vocab inputs) is doing **modest but real load-bearing work** that smooth ε/β2/WD perturbations don't expose.
+
+**Corollary methodology principle**: future cycle-71 perturbation experiments on AUX must distinguish whether they're testing **smooth-around-operating-point variations** or **discrete-topology jumps**. The former tend to be null (consistent with the 4 prior closures); the latter expose hidden load-bearing structure.
+
+**Subtle observation** (student-noted): Arm B (sign-SGD full training) tracks slightly better than Arm A at mid-training (step 1000-2500, Δ ~0.005-0.025) then converges to identical final by step 3000+. Hints that v-norm is **more load-bearing in low-LR cooldown than high-LR warmup** — non-trivial mechanistic insight worth follow-up.
+
+### FFS-burst grid status (mid-320, unchanged from mid-319 — all 3 axes in flight)
+
+3-way orthogonal triangulation of body Muon update characteristics in pre-target-crossing window [2750, 2950]:
+
+| PR | mechanism | Arm A | Arm B | status |
+|---|---|---|---|---|
+| alphonse #1408 | LR-magnitude burst | ×1.25 | ×1.5 | running |
+| edward #1411 | NS5-quality burst | =18 | =22 | running |
+| frieren #1414 | momentum DROP burst | −0.05 | −0.10 | running |
+
+### Fresh assignment (1 idle student → 1 new PR; first continuous-interpolation-axis):
+
+| PR | student | mech | purpose |
+|---|---|---|---|
+| **#1417** | tanjiro | EMBED_AUX_ADAM_SIGN_HYBRID_DISPATCH (127th mech, virgin continuous-axis decomposition of update-rule family) | Continuous α-interpolation `m_t / sqrt(v_t + α · \|m_t\|)` on embed AUX at cooldown_start=953. Arm A α=0.1 (small sign blend, near-AdamW), Arm B α=1.0 (significant sign blend, halfway). Decomposes +0.005 sign-SGD regression along AdamW↔sign-SGD continuous axis. If non-monotonic with sweet spot → continuous interpolation discovers privileged-zone the discrete endpoints miss. Direct follow-up from #1390. |
+
+### Cycle 71 cumulative findings (post mid-320)
+
+- **10 cluster-floor compound mechanism classes** all saturate val~3.268-3.269 / ffs 3000-3025
+- **Cross-sub-system WD-axis grid 3-of-3 COMPLETE**: direction-structure is sub-system-property-bound
+- **NEW PRINCIPLE (mid-320)**: discrete-topology-jump vs smooth-perturbation framing — v-normalization removal exposes hidden load-bearing structure that smooth ε/β2/LR/WD perturbations cannot
+- **FFS-burst grid (mid-319)**: 3-way orthogonal triangulation active (LR-magnitude × NS5-quality × momentum-decay) in pre-target-crossing window [2750, 2950]
+- **LARS NULL-by-construction principle** (cycle-71 corpus-level methodology): trust-ratio NULL when ||u||/||w|| pre-equalized
+- **Direction-asymmetry inversion**: param-count-gated on AUX side; sub-system-property-bound across body × AUX
+
+### In-flight student PRs (8 concurrent):
+
+- **alphonse #1408** (LR-magnitude FFS burst on body Muon)
+- **askeladd #1391** (body NS5 per-block-half depth×NS5 extension)
+- **edward #1411** (NS5-quality FFS burst on body Muon)
+- **fern #1405** (AUX LARS trust-ratio cross-class contrapositive)
+- **frieren #1414** (momentum-DROP FFS burst on body Muon)
+- **nezuko #1404** (AUX param state-reset m-only/v-only decomposition of #1353)
+- **tanjiro #1417** (NEW — embed AUX continuous α-hybrid AdamW/sign-SGD, virgin interpolation axis)
+- **thorfinn #1397** (AUX Nesterov phase at cooldown — cross-optimizer-class)
+
+ZERO IDLE. 8 concurrent active.
+
+---
+
 ## 2026-05-27 09:35 UTC — Cycle 71 mid-319 (cross-sub-system WD grid 3-of-3 COMPLETE; FFS-burst grid 3-way triangulation)
 
 **Cumulative**: **204 refuted (+1 this wake)** / **126 distinct mech classes (+1 fresh #1414)** / **79 family-level closures (+1)**.
