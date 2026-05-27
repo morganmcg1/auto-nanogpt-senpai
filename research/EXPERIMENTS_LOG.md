@@ -5180,3 +5180,62 @@ New assignment: PR #521 — gradient clipping sweep (first-ever clipping in this
 - **Gate**: μ_n=1 ≤ 3.260628 → P2 n=4. μ_n=4 ≤ 3.259221 → merge.
 
 
+
+## 2026-05-27 04:05 — PR #1321: AdamW aux β2 pruning ablation [FFS-primary, 11th stack-component closure]
+
+- Branch: `g1r5-frieren/adamw-aux-beta2-pruning`
+- Student: g1r5-frieren
+- Hypothesis: Hardcoded `betas=(0.8, 0.95)` on AdamW aux line 843. Test whether β2=0.95 is FFS-load-bearing by sweeping toward Muon momentum value (0.90 align with Muon mu) and bracketing higher/lower. **5-cell pruning ablation** with new `--adamw_aux_beta2` CLI arg applied unified across embed+lm_head+scalars.
+- Pairs with #1310 thorfinn β1 (closed poll ~863) → completes AdamW aux β1/β2 pair.
+
+### Results — 5-cell FFS-first table
+
+| Cell | β2 | FFS | val/loss | Δval vs ctrl-A | σ_single | run_id |
+|:---:|:---:|:---:|:---:|:---:|:---:|:---:|
+| A (ctrl) | 0.95 | 3050 | 3.262031 | — | +1.36σ (within-PR ctrl 25 steps above global baseline) | `9cmy5qv9` |
+| **B★ (primary)** | 0.90 | **3075** | 3.264364 | +0.00233 | +5.30σ — **PRIMARY FAILED** | `cnlxorqd` |
+| C (bracket) | 0.92 | 3050 | 3.261541 | −0.00049 | +0.54σ noise | `dntj8zu5` |
+| **D (overstable)** | **0.99** | **3025** | **3.261115** | −0.00091 | −0.18σ — BEST val, FFS=baseline-EXACT | `7tlmom02` |
+| E (falsifier) | 0.50 | **−1 NEVER** | 3.287794 | +0.02576 | +44.7σ — catastrophic | `zb18eufg` |
+
+### Per-cell val/loss at crossing window (first to reach 3.28)
+
+| step | A (0.95) | B (0.90) | C (0.92) | D (0.99) | E (0.5) |
+|:----:|:--------:|:--------:|:--------:|:--------:|:--------:|
+| 3025 | 3.28293 | 3.28526 | 3.28252 | **3.27899** ✓ | — |
+| 3050 | 3.27999 | 3.28236 | 3.27970 | 3.27622 | — |
+| 3075 | 3.27732 | **3.27966** ✓ | 3.27700 | 3.27355 | — |
+| 3250 (final) | 3.262031 | 3.264364 | 3.261541 | 3.261115 | 3.287794 |
+
+### Under FFS-primary directive #1262: **No n=4 promotion**
+
+Cell D FFS=3025 matches global baseline-EXACT but is NOT FFS-alive (alive threshold ≤2975). Per directive: "no n=4/n=8 confirmation unless FFS readout alive at n=1." This is a val-cosmetic improvement at fixed FFS, not a promotable signal. Closed as clean-NEG-MECHANISM-INVERSION.
+
+### 4 mechanism findings
+
+1. **PRIMARY HYPOTHESIS FALSIFIED**: β2=0.90 (faster forgetting) is FFS-WORSE not FFS-equal. The pruning ablation morphed into a mechanism inversion — the load-bearing direction points HIGHER, not lower.
+
+2. **MONOTONE FFS structure in β2** across {0.90, 0.92, 0.95, 0.99}: as β2 ↑ (longer 2nd-moment memory), FFS ↓ (improves: 3075 → 3050 → 3050 → 3025). This is the strongest evidence the axis is real and not seed noise.
+
+3. **★★ β1/β2 DISSOCIATION (cross-PR with #1310 thorfinn)** — β1 wants SHORT memory (sweet spot 0.8, half-life ~3 steps), β2 wants LONG memory (best 0.99, half-life ~70 steps). This **recovers the classical Adam intuition** that m̂ tracks current gradient direction (short horizon) while v̂ tracks gradient scale (long horizon). The two AdamW aux β's want OPPOSITE memory horizons — they are NOT redundant or symmetric in this regime.
+
+4. **Cooldown 2nd-moment preservation** mechanism confirmed: higher β2 keeps v_t closer to pre-cooldown gradient magnitudes during LR→0 phase, so effective_lr = lr / (sqrt(v_t) + eps) does not collapse as quickly. Falsifier E (β2=0.5) confirms v_t adequate smoothing is structurally NECESSARY — without it, never crosses target (DNF at val=3.288). Aux groups (lm_head, scalars) need bigger effective step during cooldown to finish crossing.
+
+### W&B telemetry evidence for mechanism #4
+
+- `adamw_aux/sqrt_v_t_mean/adam_lm_head` final: E=1.39 (β2=0.5 tracks instantaneous grad²) vs A/D ≪ this (long memory averages)
+- `adamw_aux/effective_lr/adam_lm_head` at step 3250: E≈0 (collapsed), D ≫ others at crossing window — confirms longer-memory β2 maintains crossing-phase effective LR
+
+### Cluster connections
+
+- **AdamW aux tetrad HALF-CLOSED**: β1 (#1310 narrow basin, sweet spot 0.8) + β2 (#1321 monotone, best 0.99) closed under FFS-primary; ε (#1330 4/5 done, E running) + wd (#1334 4/5 done, E running) imminent.
+- **β1/β2 dissociation** is the cleanest 2-component finding this round — preserves Adam's classical role separation despite aggressive scalar HP optimization.
+- **11th stack-component pruning closure** under FFS-primary directive.
+
+### Closure
+
+clean-NEG-MECHANISM-INVERSION. Stack-component pruning programme continues; AdamW aux family approaches closure.
+
+### Follow-up assigned
+
+frieren → **#1377 adamw-aux-β2-SCHEDULE** (★ FIRST schedule test in AdamW aux family — directly tests cooldown 2nd-moment preservation mechanism by introducing β2 as schedule rather than fixed value; 5-cell A=β2=0.95 constant ctrl / B★=linear ramp 0.95→0.99 over cooldown PRIMARY / C=linear ramp 0.95→0.98 over cooldown / D=instant step-up β2=0.99 at cooldown start step 975 / E=falsifier reverse ramp 0.99→0.95 over cooldown; small code change `--adamw_aux_beta2_schedule` flag; **predicts FFS<3025** if entire #1321 Cell D benefit is from cooldown phase only; cross-cluster with #941+#966+#1272 "cooldown is directed descent in zero-WD regime"; **first schedule candidate that could move FFS-alive**).
