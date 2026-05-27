@@ -6,6 +6,7 @@ It was prepared as a simplified version of the speedrun for use in neural net op
 """
 
 import os
+import re
 import sys
 with open(sys.argv[0]) as f:
     code = f.read() # read the code of this file ASAP, for logging
@@ -465,12 +466,41 @@ ATTN_SOAP_BETA2 = 0.90
 ATTN_SOAP_PRECOND_FREQ = 10
 ATTN_SOAP_TRUST_THRESHOLD = float(os.environ.get("ATTN_SOAP_TRUST_THRESHOLD", "0.9"))
 NS5_ITERS = int(os.environ.get("NS5_ITERS", "12"))
+# MU_NS_ITERS_PER_BLOCK_MONOTONIC_DISPATCH (PR #1423): when enabled and global_step
+# >= MU_NS_ITERS_PER_BLOCK_MONOTONIC_START_STEP, body Muon orthogonalization NS5
+# iters are a monotonic per-block function (12 blocks). "deepening" = shallow→deep
+# NS5↑ ([10..18]), "shallowing" = shallow→deep NS5↓ ([18..10]). Mean = 14.0 in
+# either profile.
+MU_NS_ITERS_PER_BLOCK_MONOTONIC_ENABLED = int(os.environ.get("MU_NS_ITERS_PER_BLOCK_MONOTONIC_ENABLED", "0"))
+MU_NS_ITERS_PER_BLOCK_PROFILE = os.environ.get("MU_NS_ITERS_PER_BLOCK_PROFILE", "deepening")
+MU_NS_ITERS_PER_BLOCK_MONOTONIC_START_STEP = int(os.environ.get("MU_NS_ITERS_PER_BLOCK_MONOTONIC_START_STEP", "953"))
+_MU_NS_DEEPENING = [10, 11, 12, 13, 14, 14, 15, 15, 16, 17, 17, 18]
+_MU_NS_SHALLOWING = [18, 17, 17, 16, 15, 15, 14, 14, 13, 12, 11, 10]
 WD_AUX = float(os.environ.get("WD_AUX", "0.0"))  # AdamW WD on embed + lm_head matrices (scalars stay at 0)
 EMBED_INIT_STD = float(os.environ.get("EMBED_INIT_STD", "1.0"))  # default preserves baseline N(0,1)
 LOGIT_SOFTCAP = float(os.environ.get("LOGIT_SOFTCAP", "15.0"))  # default = 15 (current hardcoded value); soft-cap value c in f(x) = c·x / sqrt(x^2+c^2)
 
 
-def zeropower_via_newtonschulz5(G: Tensor) -> Tensor:
+def get_ns_iters_for_block(global_step: int, block_idx: int | None) -> int:
+    """Return NS5 iter count for a body Muon param given its block index and the current step.
+
+    Falls through to the global NS5_ITERS when the per-block monotonic dispatch is
+    disabled, before the start step, or when the block index can't be resolved.
+    """
+    if (
+        MU_NS_ITERS_PER_BLOCK_MONOTONIC_ENABLED
+        and global_step >= MU_NS_ITERS_PER_BLOCK_MONOTONIC_START_STEP
+        and block_idx is not None
+        and 0 <= block_idx < 12
+    ):
+        if MU_NS_ITERS_PER_BLOCK_PROFILE == "deepening":
+            return _MU_NS_DEEPENING[block_idx]
+        if MU_NS_ITERS_PER_BLOCK_PROFILE == "shallowing":
+            return _MU_NS_SHALLOWING[block_idx]
+    return NS5_ITERS
+
+
+def zeropower_via_newtonschulz5(G: Tensor, ns_iters: int = NS5_ITERS) -> Tensor:
     assert G.ndim >= 2
     X = G.bfloat16()
     if G.size(-2) > G.size(-1):
@@ -480,7 +510,7 @@ def zeropower_via_newtonschulz5(G: Tensor) -> Tensor:
     X = X / (X.norm(dim=(-2, -1), keepdim=True) + 1e-7)
     # Perform the NS iterations, not optimizing for wallclock speed
     a, b, c = 2, -1.5, 0.5
-    for _ in range(NS5_ITERS):
+    for _ in range(ns_iters):
         A = X @ X.mT
         B = b * A + c * A @ A
         X = a * X + B @ X
@@ -504,10 +534,10 @@ def scale_to_unit_operator_norm(G: Tensor, eps: float = 1e-10) -> Tensor:
     return G / op_norm.to(G.dtype)
 
 
-def contra_normuon_update(momentum_update, second_moment, beta2=NORMUON_BETA2):
+def contra_normuon_update(momentum_update, second_moment, beta2=NORMUON_BETA2, ns_iters: int = NS5_ITERS):
     """Contra-Muon + NorMuon-lite: NS5 -> contra subtraction -> per-row variance normalize."""
     normalized_grad = scale_to_unit_operator_norm(momentum_update.clone())
-    update = zeropower_via_newtonschulz5(momentum_update)
+    update = zeropower_via_newtonschulz5(momentum_update, ns_iters=ns_iters)
     opower_fro = update.norm()
     # Contra correction: subtract CONTRA_MUON / 2 * op-norm-normalized momentum.
     update = update - CONTRA_MUON / 2 * normalized_grad
@@ -642,6 +672,11 @@ class Muon(torch.optim.Optimizer):
         }
         # Track which sub-type each attention-SOAP param is (q/k/v/proj) for per-type telemetry.
         self.attn_soap_kind: dict[int, str] = {}
+        # PR #1423: track block index per param for per-block NS5 dispatch. Param
+        # names from `model.blocks.named_parameters()` are prefixed with the
+        # ModuleList index, e.g. "0.attn.q.weight" or "11.mlp.fc.weight".
+        self.param_block_idx: dict[int, int] = {}
+        _block_idx_re = re.compile(r"^(\d+)\.")
         for n, p in named_params:
             if p in self.attn_soap_params:
                 if n.endswith(".attn.q.weight"):
@@ -652,9 +687,15 @@ class Muon(torch.optim.Optimizer):
                     self.attn_soap_kind[id(p)] = "v"
                 elif n.endswith(".attn.proj.weight"):
                     self.attn_soap_kind[id(p)] = "proj"
+            m = _block_idx_re.match(n)
+            if m:
+                self.param_block_idx[id(p)] = int(m.group(1))
         params = sorted([p for _, p in named_params], key=lambda x: x.size(), reverse=True)
         defaults = dict(lr=lr, weight_decay=weight_decay, mu=mu)
         super().__init__(params, defaults)
+        # PR #1423: training-loop sets this before calling step() to drive
+        # per-block NS5 dispatch (and any future step-dependent NS5 hooks).
+        self.global_step: int = 0
 
     @torch.no_grad()
     def step(self):
@@ -701,7 +742,9 @@ class Muon(torch.optim.Optimizer):
                     if use_soap or use_attn_soap:
                         momentum_update = soap_precondition(momentum_update, state)
                     # NS5 + contra + NorMuon row variance on (possibly SOAP-preconditioned) momentum.
-                    update = contra_normuon_update(momentum_update, state["second_moment"])
+                    # PR #1423: per-block NS5 dispatch when MU_NS_ITERS_PER_BLOCK_MONOTONIC_ENABLED.
+                    ns_iters = get_ns_iters_for_block(self.global_step, self.param_block_idx.get(id(p)))
+                    update = contra_normuon_update(momentum_update, state["second_moment"], ns_iters=ns_iters)
                     # u/w-floor: scale up if u/w < TARGET_UW; leave alone otherwise.
                     p_fro = p.float().norm().clamp_min(1e-8)
                     u_fro = update.float().norm().clamp_min(1e-8)
@@ -865,6 +908,9 @@ if dist.get_rank() == 0:
             "optimizer/attn_soap_precond_freq": ATTN_SOAP_PRECOND_FREQ,
             "optimizer/attn_soap_trust_threshold": ATTN_SOAP_TRUST_THRESHOLD,
             "optimizer/ns5_iters": NS5_ITERS,
+            "optimizer/mu_ns_iters_per_block_monotonic_enabled": MU_NS_ITERS_PER_BLOCK_MONOTONIC_ENABLED,
+            "optimizer/mu_ns_iters_per_block_profile": MU_NS_ITERS_PER_BLOCK_PROFILE,
+            "optimizer/mu_ns_iters_per_block_monotonic_start_step": MU_NS_ITERS_PER_BLOCK_MONOTONIC_START_STEP,
             "optimizer/wd_aux": WD_AUX,
             "optimizer/recipe": "contra-muon + normuon-lite + soap-on-mlp + soap-on-attn-trust-gate (pre-NS5, record #14 + record #16)",
         },
@@ -905,6 +951,27 @@ for trial_idx in range(args.num_trials):
     optimizer2 = Muon([(n, p) for n, p in model.blocks.named_parameters() if p.ndim >= 2],
                       lr=MUON_LR, weight_decay=MUON_WEIGHT_DECAY, mu=MU)
     optimizer2.param_groups[0]["name"] = "muon_blocks"
+    # PR #1423: one-time diagnostic — verify block index extraction on body Muon params.
+    if dist.get_rank() == 0 and trial_idx == 0:
+        body_block_names = [(n, optimizer2.param_block_idx.get(id(p), None))
+                            for n, p in model.blocks.named_parameters() if p.ndim >= 2]
+        n_resolved = sum(1 for _, b in body_block_names if b is not None)
+        block_indices_seen = sorted({b for _, b in body_block_names if b is not None})
+        sample = body_block_names[:3] + body_block_names[-3:]
+        print0(
+            f"PR#1423 body-muon block-index resolution: {n_resolved}/{len(body_block_names)} params,"
+            f" blocks={block_indices_seen}, sample={sample}",
+            console=True,
+        )
+        if MU_NS_ITERS_PER_BLOCK_MONOTONIC_ENABLED:
+            profile_arr = (_MU_NS_DEEPENING if MU_NS_ITERS_PER_BLOCK_PROFILE == "deepening"
+                           else _MU_NS_SHALLOWING)
+            print0(
+                f"MU_NS_ITERS_PER_BLOCK_MONOTONIC enabled: profile={MU_NS_ITERS_PER_BLOCK_PROFILE},"
+                f" start_step={MU_NS_ITERS_PER_BLOCK_MONOTONIC_START_STEP},"
+                f" blocks 0-11 → {profile_arr}",
+                console=True,
+            )
     optimizers = [optimizer1, optimizer2]
     assert set(p for opt in optimizers for group in opt.param_groups
                for p in group["params"]) == set(model.parameters())
@@ -1051,7 +1118,23 @@ for trial_idx in range(args.num_trials):
                 train_steps=train_steps,
                 wandb_step=wandb_step,
             )
+        # PR #1423: thread current step into Muon optimizers so per-block NS5
+        # dispatch can decide ns_iters per param based on global_step.
+        if (
+            dist.get_rank() == 0
+            and MU_NS_ITERS_PER_BLOCK_MONOTONIC_ENABLED
+            and step == MU_NS_ITERS_PER_BLOCK_MONOTONIC_START_STEP
+        ):
+            profile_arr = (_MU_NS_DEEPENING if MU_NS_ITERS_PER_BLOCK_PROFILE == "deepening"
+                           else _MU_NS_SHALLOWING)
+            print0(
+                f"PR#1423 MU_NS_ITERS_PER_BLOCK_MONOTONIC active at step={step}:"
+                f" profile={MU_NS_ITERS_PER_BLOCK_PROFILE}, blocks 0-11 → {profile_arr}",
+                console=True,
+            )
         for opt in optimizers:
+            if isinstance(opt, Muon):
+                opt.global_step = step
             opt.step()
         if dist.get_rank() == 0 and telemetry_due:
             for opt in optimizers:
