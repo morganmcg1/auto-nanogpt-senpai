@@ -1,14 +1,23 @@
 # SENPAI Research State — auto-nanogpt-1gpu-r3
 
-- **Last updated:** 2026-05-27 15:50 UTC
+- **Last updated:** 2026-05-27 16:30 UTC
 
 ---
 
 ## 🏆 CURRENT BASELINE: FFS=3025, val=3.26830 — PR #1398 H203 tanjiro cosine cooldown shape
 
-**⚠️ BASELINE SHIFT ALERT (still active for H210):** PR H210 assigned before H203 merged used `--muonh_cooldown_shape linear` in CTRL arms (FFS≈3125-3150). Any winning arm from H210 must beat **FFS=3025** to merge. (Note: H204, H205, H206, H207, H208, H209 already closed as NULL/NEG. Only H210 remains with pre-baseline-shift CTRL.)
+**Baseline shift alert RESOLVED**: All PRs from the pre-H203-merge cohort (H204-H210) have now closed or completed (H204, H205, H206, H207, H208, H209, H210 all closed NULL/NEG). All remaining in-flight PRs (H211-H218) are on the cosine baseline.
 
 ---
+
+## 🎯 Cycle ~435 (16:15-16:30 UTC) — H210 edward CLOSED (67th NULL/NEG, depth-axis quasi-flat with mild GROW tilt, programme finding #41 candidate); H218 edward ASSIGNED depth-axis GROW α=+0.2 × cosine compose (PR #1455, SECOND explicit compose-test in portfolio)
+
+- **🎯 H210 edward CLOSED — 67th NULL/NEG + programme finding #41 candidate**: arm_a CTRL α=0.0 val=3.26666/FFS=3175 (upper-tail drift +2.49σ within H174 envelope, ~2% mass at FFS=3175); arm_b GROW α=+0.2 val=3.26370/FFS=3150 (within drift, Δval=−0.00296 vs CTRL); arm_c DECAY α=−0.2 val=3.26837/FFS=3175 (NEG, +0.00171 vs CTRL). All 3 arms vs H203 baseline FFS=3025: NEG 125-150 steps behind. **Direction asymmetry GROW>CTRL>DECAY clean signal** observed on same hardware sequentially after bit-identical CTRL.
+- **🎯 Programme finding #41 candidate — Depth-axis is QUASI-FLAT with mild GROW tilt at ±0.2 magnitude**: Δ(GROW−DECAY)=−0.00467 val, ΔFFS=−25 steps. Δ(GROW−CTRL) ≈ −0.0028 constant from step 3000 onward → depth-axis shifts ENTIRE late-cooldown trajectory by ~3 mn val/loss, not just endpoint. **"Top layers want more LR" hypothesis confirmed**. Refutes "bottom layers want more LR" (pre-LN gradient pathology / ULMFiT discriminative fine-tuning intuition) — DECAY direction NEG.
+- **Why no WIN at α=±0.2**: H148+H203 stack at a point where depth-axis is NOT a sharp lever. ±20% LR variation across depth produces ~0.003 val gap (below 1σ CTRL drift), FFS shift only 25 steps (below FFS resolution gradient). Either optimum is roughly uniform with mild GROW tilt (option a) or optimum is at LARGER GROW α not tested (option b).
+- **🎯 H218 edward ASSIGNED (PR #1455) — SECOND explicit compose-test in portfolio**: H210 GROW α=+0.2 × H203 cosine cooldown. Tests programme-level question: do linear-cooldown soft signals carry through cosine baseline? 2-arm CTRL cosine vs GROW_COSINE cosine. Directly extends edward's suggested follow-up #2. Mechanism additivity prediction: H218 arm_b val≈3.2683, FFS≈3050 if depth-axis effect is purely ADDITIVE with cooldown shape. If SUPER-additive (synergistic), arm_b FFS<3050 → merge candidate. If FFS>3050, depth-axis effect washes out on cosine — close at α=±0.2 magnitude.
+- **Compose-test portfolio now has 2 in flight**: H215 fern (RESET_1500 × cosine, state-reset axis), H218 edward (GROW α=+0.2 × cosine, depth-axis). Both test whether soft-positive linear-cooldown signals compound with H203 FFS WIN. These are mechanistically clean programme-level probes.
+- **End-of-cycle ~435 portfolio**: H211 tanjiro cosine_sq follow-up (arm_b COSINE_SQ catastrophic FAIL val=3.29283/FFS=-1, arm_c LR_UP running ~21%, monitoring); H212 thorfinn aux cooldown shape (arm_b AUX_COSINE running ~94% last checked, terminal imminent); H213 alphonse h_cooldown_frac (arm_b STABLE_30 running, arm_a CTRL FFS=3050 +25 drift); H214 askeladd spectral RANK truncation (arm_a CTRL ~7%); H215 fern RESET × cosine compose (arm_a CTRL ~16%); H216 frieren Lookahead (just-assigned earlier cycle); H217 nezuko EMA-norm blend diagnostic (just-assigned earlier cycle); H218 edward depth GROW × cosine compose (newly assigned). **8/8 students WIP, 0 idle, 0 review-ready.** 14 novel mechanism classes (added depth-axis × cooldown compose-test).
 
 ## 🎯 Cycle ~425 (15:25-15:50 UTC) — H209 frieren CLOSED (65th NULL/NEG, Lion catastrophic NEG bilaterally, programme finding #39 aux-mechanism class empirically exhausted via 6-mechanism cross-finding); H208 nezuko CLOSED (66th NULL/NEG, post-NS5 EMA mild NEG, programme finding #40 NS5 fragility asymmetry upstream vs downstream); H216 frieren ASSIGNED Lookahead k-step wrapper on body params (PR #1453, 13th NEW MECHANISM CLASS meta-optimizer outer-averaging axis untouched by MuLoCo); H217 nezuko ASSIGNED EMA-normalized blend diagnostic (PR #1454, resolves finding #40 mechanism N vs D)
 

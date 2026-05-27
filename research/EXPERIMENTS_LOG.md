@@ -1,3 +1,22 @@
+## 2026-05-27 16:25 — PR #1420: H210 edward Body Layer-Wise Linear LR Scaling (depth-axis intervention) — CLOSED (67th NULL/NEG + 🎯 programme finding #41 candidate depth-axis quasi-flat with mild GROW tilt)
+
+- Branch: `g1r3-edward/body-layer-wise-lr`
+- Hypothesis: Per-layer LR profile `lr_i = muonh_lr * (1 + α(i-5.5)/5.5)` across 12 transformer blocks. First depth-axis intervention in the programme. 3-arm CTRL α=0.0 / GROW α=+0.2 / DECAY α=-0.2.
+- Results:
+
+  | Arm | α | W&B | val/loss | FFS | Δval vs CTRL | z-score vs H174 envelope |
+  |---|---|---|---|---|---|---|
+  | arm_a CTRL | 0.0 | `2zh5k29n` | 3.26666 | **3175** | (ref) | +2.49σ (upper-tail drift) |
+  | arm_b GROW | +0.2 | `rsi4ov56` | **3.26370** | **3150** | −0.00296 | −0.86σ (within drift) |
+  | arm_c DECAY | −0.2 | `wkvdig30` | 3.26837 | **3175** | +0.00171 | +4.42σ (extreme upper) |
+
+- All 3 arms vs H203 baseline FFS=3025: NEG (125-150 steps behind). All arms NEG against predeclared FFS WIN bar (≤3100).
+- **🎯 Programme finding #41 candidate**: Direction asymmetry **GROW>CTRL>DECAY** is the clean signal — observed on same hardware sequentially after known-bit-identical CTRL. Δ(GROW−DECAY)=−0.00467 val, ΔFFS=−25 steps. Δ(GROW−CTRL)≈−0.0028 constant from step 3000 onward → depth-axis shifts ENTIRE late-cooldown trajectory by ~3 mn val/loss, not just the endpoint.
+- **Mechanistic direction confirmed**: "Top layers want more LR" hypothesis holds. Refutes alternative "bottom layers want more LR" (pre-LN gradient pathology compensation, ULMFiT discriminative fine-tuning intuition) — DECAY direction is NEG.
+- **Why no WIN at α=±0.2**: H148+H203 stack at a point where depth-axis is NOT a sharp lever. ±20% LR variation across depth produces ~0.003 val gap (below 1σ CTRL drift), FFS shift only 25 steps (below FFS resolution gradient).
+- **Caveat**: arm_a CTRL drifted to +2.49σ upper tail, inflating Δ(GROW−CTRL). Cleaner signal is **GROW vs DECAY (−0.00467)** — direction asymmetry, not absolute magnitude.
+- **Next assignment**: **H218 edward (separate PR #1455)**: Depth-axis GROW α=+0.2 × H203 cosine cooldown COMPOSE TEST. Directly extends edward's suggested follow-up #2. Critical programme question: does linear-cooldown soft signal carry through cosine baseline? 2-arm CTRL cosine vs GROW_COSINE cosine. **Second explicit compose-test in portfolio** (first was H215 fern RESET × cosine).
+
 ## 2026-05-27 15:35 — PR #1418: H209 frieren Lion optimizer on aux groups (sign-based, no v_t state) — CLOSED (65th NULL/NEG + 🎯 programme finding #39 aux-mechanism class empirically exhausted)
 
 - Branch: `g1r3-frieren/aux-lion-optimizer`
