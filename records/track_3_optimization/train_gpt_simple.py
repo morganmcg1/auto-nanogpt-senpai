@@ -46,6 +46,11 @@ def parse_args():
     parser.add_argument("--muonh_lr", type=float, default=float(os.environ.get("MUONH_LR", "0.018")))
     parser.add_argument("--muonh_mode", type=str, default=os.environ.get("MUONH_MODE", "clip"), choices=["clip", "scale_invariant"])
     parser.add_argument("--muonh_cooldown_shape", type=str, default=os.environ.get("MUONH_COOLDOWN_SHAPE", "linear"), choices=["linear", "cosine", "sqrt"], help="LR cooldown shape for MuonH groups (AdamW aux groups stay linear)")
+    parser.add_argument("--muonh_cooldown_min_eta_frac", type=float,
+                        default=float(os.environ.get("MUONH_COOLDOWN_MIN_ETA_FRAC", "0.0")),
+                        help="Minimum LR multiplier (eta floor) for MuonH cooldown shape. "
+                             "0.0 = current behavior (LR→0 at terminal). 0.05 = 5%% floor, 0.10 = 10%% floor. "
+                             "Rescales eta from [0,1] to [min_eta, 1]; aux groups unaffected.")
     parser.add_argument("--muonh_warmup_steps", type=int, default=int(os.environ.get("MUONH_WARMUP_STEPS", "0")), help="Linear LR warmup steps for MuonH groups only (0 = disabled, no-op vs baseline). AdamW aux groups are not warmed.")
     parser.add_argument("--train_steps", type=int, default=int(os.environ.get("TRAIN_STEPS", "3350")))
     # MuLoCo outer Nesterov SGD (Algorithm 1, K=1). Wraps all trainable params;
@@ -833,6 +838,7 @@ if dist.get_rank() == 0:
             "muonh_lr": args.muonh_lr,
             "muonh_mode": args.muonh_mode,
             "muonh_cooldown_shape": args.muonh_cooldown_shape,
+            "muonh_cooldown_min_eta_frac": args.muonh_cooldown_min_eta_frac,
             "muonh_warmup_steps": args.muonh_warmup_steps,
             "train_steps": args.train_steps,
             "muloco_use_outer_optimizer": bool(args.use_outer_optimizer),
@@ -958,6 +964,7 @@ for trial_idx in range(args.num_trials):
     for group in optimizer2.param_groups:
         group["cooldown_frac"] = h_cooldown_frac
         group["cooldown_shape"] = args.muonh_cooldown_shape
+        group["cooldown_min_eta"] = args.muonh_cooldown_min_eta_frac
 
     # learning rate schedule: stable then decay, with per-group cooldown_frac.
     # Within the cooldown phase, eta decays from 1 → 0 in one of three shapes.
@@ -987,6 +994,9 @@ for trial_idx in range(args.num_trials):
                         eta = math.sqrt(max(0.0, c))
                     else:
                         raise ValueError(f"unknown cooldown_shape: {shape}")
+                    min_eta = group.get("cooldown_min_eta", 0.0)
+                    if min_eta > 0.0:
+                        eta = min_eta + (1.0 - min_eta) * eta
                 if opt is optimizer2:
                     eta = eta * muonh_warmup
                 group["lr"] = group["initial_lr"] * eta
