@@ -468,6 +468,11 @@ NS5_ITERS = int(os.environ.get("NS5_ITERS", "12"))
 WD_AUX = float(os.environ.get("WD_AUX", "0.0"))  # AdamW WD on embed + lm_head matrices (scalars stay at 0)
 EMBED_INIT_STD = float(os.environ.get("EMBED_INIT_STD", "1.0"))  # default preserves baseline N(0,1)
 LOGIT_SOFTCAP = float(os.environ.get("LOGIT_SOFTCAP", "15.0"))  # default = 15 (current hardcoded value); soft-cap value c in f(x) = c·x / sqrt(x^2+c^2)
+# PR #1382: EMBED_AUX_DIRECTION_COMPOUND_AT_COOLDOWN — combined LR × WD direction-asymmetry
+# dispatch on the AdamW adam_embed param group at cooldown. Identity defaults preserve baseline.
+EMBED_AUX_COMPOUND_LR_FACTOR = float(os.environ.get("EMBED_AUX_COMPOUND_LR_FACTOR", "1.0"))
+EMBED_AUX_COMPOUND_WD_ABS = float(os.environ.get("EMBED_AUX_COMPOUND_WD_ABS", "-1.0"))  # negative = inactive
+EMBED_AUX_COMPOUND_STEP = int(os.environ.get("EMBED_AUX_COMPOUND_STEP", "953"))
 
 
 def zeropower_via_newtonschulz5(G: Tensor) -> Tensor:
@@ -866,6 +871,11 @@ if dist.get_rank() == 0:
             "optimizer/attn_soap_trust_threshold": ATTN_SOAP_TRUST_THRESHOLD,
             "optimizer/ns5_iters": NS5_ITERS,
             "optimizer/wd_aux": WD_AUX,
+            "optimizer/embed_init_std": EMBED_INIT_STD,
+            "optimizer/logit_softcap": LOGIT_SOFTCAP,
+            "optimizer/embed_aux_compound_lr_factor": EMBED_AUX_COMPOUND_LR_FACTOR,
+            "optimizer/embed_aux_compound_wd_abs": EMBED_AUX_COMPOUND_WD_ABS,
+            "optimizer/embed_aux_compound_step": EMBED_AUX_COMPOUND_STEP,
             "optimizer/recipe": "contra-muon + normuon-lite + soap-on-mlp + soap-on-attn-trust-gate (pre-NS5, record #14 + record #16)",
         },
     )
@@ -934,6 +944,10 @@ for trial_idx in range(args.num_trials):
         for opt in optimizers:
             for group in opt.param_groups:
                 group["lr"] = group["initial_lr"] * eta
+                if step >= EMBED_AUX_COMPOUND_STEP and group.get("name", "") == "adam_embed":
+                    group["lr"] = group["lr"] * EMBED_AUX_COMPOUND_LR_FACTOR
+                    if EMBED_AUX_COMPOUND_WD_ABS >= 0.0:
+                        group["weight_decay"] = EMBED_AUX_COMPOUND_WD_ABS
                 if group.get("name") == "muon_blocks":
                     group["mu"] = cur_mu
 
