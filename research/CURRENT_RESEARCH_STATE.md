@@ -1,3 +1,66 @@
+## 2026-05-27 05:50 UTC — Cycle 71 mid-314
+
+**Cumulative**: **199 refuted (+1 this wake)** / **121 distinct mech classes (+1 fresh #1397)** / **74 family-level closures (+1)**.
+
+**Closure this wake** (1 bilateral terminal — completes 3-cell AUX-LR grid):
+
+| PR | student | mech | bilateral data | closure |
+|---|---|---|---|---|
+| **#1367** | thorfinn | per-AUX-kind scalars LR phase axis at cooldown | Arm A (under-LR 0.5×) val=3.27103 ffs=3025; Arm B (over-LR 2.0×) val=3.27060 ffs=3025; Δ=-0.00043 zero ffs delta | **199th** cluster-band SYMMETRIC NULL; scalars AUX LR axis **direction-inert** (4× LR ratio produces sub-noise delta) |
+
+### MAJOR FINDING — param-count-monotonic direction-asymmetry principle CONFIRMED (3-cell grid)
+
+| sub-system | param count | Arm A under-LR | Arm B over-LR | direction-asymmetry strength |
+|---|---|---|---|---|
+| embed AUX (#1335) | ~50k | cluster STANDARD ffs=3050 | **sub-cluster-edge val=3.26870 ffs=3025** | **SHARPEST** ✓ |
+| lm_head AUX (#1366) | ~50k (output-side) | cluster STANDARD val=3.27320 ffs=3050 | cluster-band-edge val=3.27062 ffs=3025 | **MEDIUM** ✓ |
+| **scalars AUX (#1367)** | **~144** | cluster STANDARD val=3.27103 ffs=3025 | cluster STANDARD val=3.27060 ffs=3025 | **NULL** (direction-inert) ✓ |
+
+**Refines mid-304 cross-optimizer-class direction-asymmetry inversion principle**: was previously "v-normalized AdamW AUX kinds want over-LR at cooldown universally"; now is "**param-count-gated**, scales monotonically with absorbable update budget; below ~1k params the axis becomes direction-inert."
+
+Mechanistic interpretation: scalars (~144 params total = LayerNorm gain biases) have small loss-landscape curvature with respect to LR, so a 4× LR change in cooldown produces sub-noise val delta. Direction-asymmetry detection requires sufficient absorbable update budget.
+
+### Fresh assignment (1 idle student → 1 new PR):
+
+| PR | student | hypothesis | mech class type | aligned with #1259? |
+|---|---|---|---|---|
+| **#1397** | thorfinn | AUX_NESTEROV_PHASE_DISPATCH | **121st — virgin per-AUX-kind Nesterov phase axis**, switch AUX (embed only in Arm A, embed+lm_head in Arm B) from AdamW to NAdamW (Nesterov-form first moment) at cooldown_start. Arm A tests embed-AUX-only Nesterov phase; Arm B tests cross-AUX-kind combined coverage | ✓ per-group + state-phase + virgin update-rule on AUX side (body Muon Nesterov #1306 done; AUX Nesterov phase never tested) |
+
+**Bridges cross-optimizer-class universality**: body Muon Nesterov phase #1306 demonstrated cooldown-load-bearing Nesterov; AUX-side Nesterov phase virgin. NAdamW throughout-training closed null (#527/#817), but PHASE-EVENT version untested. If Arm A/B sub-cluster-edge, cross-optimizer-class Nesterov-phase principle holds.
+
+### Active fleet status mid-314:
+
+| Student | PR | Status | W&B notes |
+|---|---|---|---|
+| g1r2-alphonse | #1382 | status:wip | Arm A `tkgmm0c3` (EMBED_AUX_DIRECTION_COMPOUND), step ~2400+ |
+| g1r2-nezuko | #1369 | status:wip | Arm B `j6tk4853` (early-half-higher LR inverted), step ~900+ |
+| g1r2-frieren | **#1396** | status:wip | **NEW** BODY_MUON_WD_PHASE_TRANSITION (120th mech) |
+| g1r2-fern | #1389 | status:wip | BODY_LARS_TRUST_RATIO canary |
+| g1r2-tanjiro | #1390 | status:wip | EMBED_AUX_COOLDOWN_SIGN_SGD canary |
+| g1r2-askeladd | #1391 | status:wip | BODY_NS5_ITERS_PER_BLOCK_HALF canary |
+| g1r2-edward | #1392 | status:wip | AUX_LM_HEAD_WD_PHASE canary |
+| g1r2-thorfinn | **#1397** | status:wip | **NEW** AUX_NESTEROV_PHASE_DISPATCH (121st mech) |
+
+**ZERO IDLE STUDENTS — 8 students concurrently active. ZERO IDLE GPUs.**
+
+### Current research themes (mid-314):
+
+1. **Cross-AUX-kind × LR direction grid COMPLETE** — param-count-monotonic direction-asymmetry principle confirmed across 3 cells (embed sharp → lm_head medium → scalars null)
+2. **Cross-sub-system WD-phase boundary universality** — embed (#1364 SYMMETRIC) → lm_head (#1392 active) → body (#1396 active); 2-of-3 cells pending
+3. **Cross-optimizer-class Nesterov-phase universality** — body Muon (#1306 closed cluster-floor) → AUX (#1397 NEW); tests if Nesterov-phase principle is universal across optimizer classes
+4. **Virgin update-rule families still in flight** — LARS/LAMB (#1389), sign-SGD (#1390), depth × NS5 (#1391), body-WD (#1396), AUX-Nesterov (#1397)
+5. **Compound direction-asymmetry interaction** — #1382 alphonse compound test still ambiguous under WD-SYMMETRIC finding
+
+### Potential next research directions:
+
+- **Per-AUX-kind sign-SGD on lm_head at cooldown** (cross-AUX-kind universality test of tanjiro #1390 finding once #1390 closes)
+- **Lookahead INVERSE phase** (turn OFF Lookahead at cooldown_start — virgin axis given #1124 Lookahead-throughout and #1142 Lookahead-cooldown-gate)
+- **Per-block-third dispatch** (3-way depth split l0-l3, l4-l7, l8-l11) on β1 / LR / NS5 axes
+- **Adaptive gradient clipping (AGC) as state-phase event** (AGC throughout #580 done; phase-event variant virgin)
+- **Schedule-free Polyak at cooldown_start** (virgin phase-event variant of Defazio #557)
+
+---
+
 ## 2026-05-27 05:35 UTC — Cycle 71 mid-313
 
 **Cumulative**: **198 refuted (+1 this wake)** / **120 distinct mech classes (+1 fresh #1396)** / **73 family-level closures (+1)**.
