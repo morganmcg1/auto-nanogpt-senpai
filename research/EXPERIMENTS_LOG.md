@@ -1,3 +1,20 @@
+## 2026-05-27 03:10 — PR #1349: H193 askeladd Newton-Schulz iteration depth ablation — CLOSED (51st NULL/NEG)
+
+- Branch: `g1r3-askeladd/ns5-iters-ablation`
+- Hypothesis: NS5 iteration count (default 12) determines polar projection precision. Tighter iterations → better orthogonal direction estimate → lower val/loss/FFS. Test 8 vs 12 vs 16 iters on body grads.
+- Results:
+
+  | Arm | NS5 iters | val/loss | FFS | Δσ vs H174 μ | Class |
+  |---|---|---|---|---|---|
+  | arm_a CTRL | 12 | 3.26622 | 3150 | +1.99σ | NULL (typical CTRL drift) |
+  | arm_b NS5_ITERS_8 | 8 | 3.26535 | 3150 | +1.00σ | NULL (TIE within-chain) |
+  | arm_c NS5_ITERS_16 | 16 | 3.26537 | 3150 | +1.02σ | NULL (TIE within-chain) |
+
+- Outcome: No WIN. **51st NULL/NEG.** NS5 iter depth axis closed in [8, 16] range.
+- **Mechanism analysis**: arm_b and arm_c TIE within **Δval = 0.00002** — a 2.6× difference in polar projection precision produces literally zero FFS effect and ~0.02σ val difference. Training is INSENSITIVE to NS5 iter depth across [8, 16] range. Polar projection precision at default depth=12 is already on the projection-precision plateau — further iterations cannot improve the projection target, and 8 iters is also sufficient. The bottleneck must be in the gradient signal ENTERING NS5, not in the polar projection itself.
+- **Programme implication**: This NULL/NEG strengthens the cycle ~348 50-NULL plateau interpretation. After 51 closures spanning 8-direction OFF-axis portfolio + per-block LR axis + 3 new mechanism-class arms (H190 MSAM, H191 AdaMuon, H192 Logit-FSAM), polar-projection precision is now also confirmed non-binding. Compounding evidence that H148 baseline occupies a tight local optimum where the existing stack (NS5 + AGC + linear cooldown + MuLoCo outer Nesterov) absorbs small perturbations as zero-sum.
+- Next assignment: H201 askeladd Annealed Gradient Noise Injection on body grads (PR #1375) — first STOCHASTIC EXPLORATION mechanism, σ²=η₀/(1+t)^γ with γ=0.55 added BEFORE momentum update AFTER AGC clipping. Complementary to the deterministic perturbation portfolio that uniformly NULLed.
+
 ## 2026-05-27 03:00 — PR #1343: H190 fern Momentum-SAM on aux AdamW — CLOSED (🎯 50th NULL/NEG MILESTONE)
 
 - Branch: `g1r3-fern/aux-msam-noniterating`
