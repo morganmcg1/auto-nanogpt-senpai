@@ -70,6 +70,9 @@ def parse_args():
                              "late-higher=0.9 (block 0) → 1.1 (block 11), "
                              "late-lower=1.1 (block 0) → 0.9 (block 11). "
                              "Mean LR preserved across blocks.")
+    parser.add_argument("--pmuon_gamma_pulse_delta", type=float, default=0.0,
+                        help="Delta added to PMUON_GAMMA during steps 2700-2900 only. "
+                             "0.0 = no pulse (default). Applied uniformly across all blocks.")
     args = parser.parse_args()
     args.num_trials = args.num_trials if args.num_trials is not None else (args.legacy_num_trials or 1)
     args.wandb_tags = [tag.strip() for tag in args.wandb_tags.split(",") if tag.strip()]
@@ -731,6 +734,9 @@ if dist.get_rank() == 0:
             "ema_beta_target": args.ema_beta_target if args.ema_beta_target is not None else 0.0,
             "ema_dynamic_ramp_active": int(args.ema_beta_target is not None and args.ema_beta > 0),
             "muon_block_lr_pattern": args.muon_block_lr_pattern,
+            "pmuon_gamma_pulse_delta": args.pmuon_gamma_pulse_delta,
+            "pmuon_gamma_pulse_window_start": 2700,
+            "pmuon_gamma_pulse_window_end": 2900,
         },
     )
 
@@ -998,6 +1004,20 @@ for trial_idx in range(args.num_trials):
         histogram_due = (step == 0 or (step + 1) % args.histogram_interval == 0 or step + 1 == train_steps)
         slope_due = (train_step % slope_interval == 0 or train_step == train_steps)
         wandb_step = trial_idx * (train_steps + 1) + train_step
+        # Phase-window γ pulse for body-Muon (PR #1395). Uniform across blocks.
+        # Override the L_cov^(-γ)/R_cov^(-γ) preconditioner exponent in [2700, 2900).
+        gamma_in_pulse = (args.pmuon_gamma_pulse_delta != 0.0 and 2700 <= step < 2900)
+        gamma_eff = PMUON_GAMMA + (args.pmuon_gamma_pulse_delta if gamma_in_pulse else 0.0)
+        for group in optimizer2.param_groups:
+            group["gamma"] = gamma_eff
+        if dist.get_rank() == 0:
+            wandb.log({
+                "trial": trial_idx,
+                "train/step": train_step,
+                "pmuon/gamma_eff": gamma_eff,
+                "pmuon/gamma_in_pulse": int(gamma_in_pulse),
+                "pmuon/gamma_pulse_delta": args.pmuon_gamma_pulse_delta,
+            }, step=wandb_step)
         if dist.get_rank() == 0:
             train_loss_history.append((train_step, train_loss))
         if dist.get_rank() == 0 and slope_due:
@@ -1105,7 +1125,7 @@ for trial_idx in range(args.num_trials):
                     "ema/ramp_enabled": int(args.ema_beta_target is not None),
                 }, step=wandb_step)
         if dist.get_rank() == 0 and (train_step % 100 == 0 or train_step == train_steps):
-            spec = pmuon_spectral_diag(optimizer2, PMUON_GAMMA)
+            spec = pmuon_spectral_diag(optimizer2, gamma_eff)
             if spec:
                 spec["trial"] = trial_idx
                 spec["train/step"] = train_step
