@@ -468,6 +468,10 @@ NS5_ITERS = int(os.environ.get("NS5_ITERS", "12"))
 WD_AUX = float(os.environ.get("WD_AUX", "0.0"))  # AdamW WD on embed + lm_head matrices (scalars stay at 0)
 EMBED_INIT_STD = float(os.environ.get("EMBED_INIT_STD", "1.0"))  # default preserves baseline N(0,1)
 LOGIT_SOFTCAP = float(os.environ.get("LOGIT_SOFTCAP", "15.0"))  # default = 15 (current hardcoded value); soft-cap value c in f(x) = c·x / sqrt(x^2+c^2)
+# PR #1449: POST_TARGET_AUX_M_RESET — m-only reset on AUX optimizer at a post-target window step, timing-dispatched
+POST_TARGET_AUX_M_RESET_ENABLED = int(os.environ.get("POST_TARGET_AUX_M_RESET_ENABLED", "0"))
+POST_TARGET_AUX_M_RESET_STEP = int(os.environ.get("POST_TARGET_AUX_M_RESET_STEP", "2975"))
+POST_TARGET_AUX_M_RESET_TARGETS = os.environ.get("POST_TARGET_AUX_M_RESET_TARGETS", "embed,lm_head")
 
 
 def zeropower_via_newtonschulz5(G: Tensor) -> Tensor:
@@ -866,6 +870,9 @@ if dist.get_rank() == 0:
             "optimizer/attn_soap_trust_threshold": ATTN_SOAP_TRUST_THRESHOLD,
             "optimizer/ns5_iters": NS5_ITERS,
             "optimizer/wd_aux": WD_AUX,
+            "optimizer/post_target_aux_m_reset_enabled": POST_TARGET_AUX_M_RESET_ENABLED,
+            "optimizer/post_target_aux_m_reset_step": POST_TARGET_AUX_M_RESET_STEP,
+            "optimizer/post_target_aux_m_reset_targets": POST_TARGET_AUX_M_RESET_TARGETS,
             "optimizer/recipe": "contra-muon + normuon-lite + soap-on-mlp + soap-on-attn-trust-gate (pre-NS5, record #14 + record #16)",
         },
     )
@@ -1051,6 +1058,55 @@ for trial_idx in range(args.num_trials):
                 train_steps=train_steps,
                 wandb_step=wandb_step,
             )
+        # PR #1449: POST_TARGET_AUX_M_RESET — m-only reset on AUX optimizer
+        # at dispatch step (before opt.step()). m-only is symmetric-safe vs v-only
+        # which trips bias-correction asymmetry (see PR #1404 Arm B).
+        dispatch_fired = 0
+        params_reset_count = 0
+        if (POST_TARGET_AUX_M_RESET_ENABLED
+                and step == POST_TARGET_AUX_M_RESET_STEP):
+            target_kinds = [k.strip() for k in POST_TARGET_AUX_M_RESET_TARGETS.split(",") if k.strip()]
+            matched_group_names = []
+            for group in optimizer1.param_groups:
+                gname = group.get("name", "").lower()
+                if any(kind in gname for kind in target_kinds):
+                    matched_group_names.append(group.get("name"))
+                    for p in group["params"]:
+                        st = optimizer1.state.get(p, {})
+                        if "exp_avg" in st:
+                            st["exp_avg"].zero_()
+                            params_reset_count += 1
+                        # NOTE: do not zero exp_avg_sq — v-only reset trips bias-correction
+                        # asymmetry (collapses denominator ~1000x). Step counter preserved.
+            dispatch_fired = 1
+            if dist.get_rank() == 0:
+                print(
+                    f"[POST_TARGET_AUX_M_RESET] m-only reset on groups={matched_group_names}"
+                    f" (params={params_reset_count}) at step={step}"
+                    f" (targets={POST_TARGET_AUX_M_RESET_TARGETS}; step counter preserved)",
+                    flush=True,
+                )
+        in_post_target_aux_m_reset_window = (
+            POST_TARGET_AUX_M_RESET_ENABLED
+            and abs(step - POST_TARGET_AUX_M_RESET_STEP) <= 25
+        )
+        if dist.get_rank() == 0 and in_post_target_aux_m_reset_window:
+            window_target_kinds = [k.strip() for k in POST_TARGET_AUX_M_RESET_TARGETS.split(",") if k.strip()]
+            m_sq_sum = 0.0
+            for group in optimizer1.param_groups:
+                gname = group.get("name", "").lower()
+                if any(kind in gname for kind in window_target_kinds):
+                    for p in group["params"]:
+                        st = optimizer1.state.get(p, {})
+                        if "exp_avg" in st:
+                            m_sq_sum += float(st["exp_avg"].pow(2).sum().item())
+            wandb.log({
+                "train/aux_m_reset/dispatch_fired": dispatch_fired,
+                "train/aux_m_reset/params_reset_count": params_reset_count,
+                "train/aux/m_norm_post_dispatch": m_sq_sum ** 0.5,
+                "train/step": train_step,
+                "trial": trial_idx,
+            }, step=wandb_step)
         for opt in optimizers:
             opt.step()
         if dist.get_rank() == 0 and telemetry_due:
