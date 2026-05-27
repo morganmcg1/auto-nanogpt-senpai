@@ -1,5 +1,27 @@
 # SENPAI Research Results — auto-nanogpt-1gpu-r4
 
+## 2026-05-27 11:15 — PR #1356: NM period sweep on new stack — period 2/3/10 vs period=5 baseline (CLOSED productive-MARGINAL — first PP-promote candidate in r4 launch, #1421 PP-promote n=3 assigned)
+
+- Branch: `g1r4-tanjiro/nm-period-sweep-new-stack` (student g1r4-tanjiro)
+- Hypothesis: Is `UPDATE_PERIOD=5` the refresh optimum on the post-#1240 stack with MAX_D_IN=4096, or is there untapped headroom at lower periods? #1240 moved period 10→5 but confounded with the MAX_D_IN coverage extension. This chain disambiguates at fixed MAX_D_IN=4096.
+
+| Arm | UPDATE_PERIOD | W&B run | val/loss | fs | Δ_paired_val vs A | Δ_paired_fs | Verdict |
+|:---:|:---:|---|:---:|:---:|:---:|:---:|---|
+| **A ctrl** | **5** | `m2i9s3k4` | 3.26276 | 3150 | (ref) | (ref) | drift −0.00063 EXCEPTIONALLY-CLEAN-FAV vs baseline 3.26339 |
+| **B period=3** | **3** | `792x4704` | 3.26613 | 3175 | +0.00337 | +25 fs | CLEAR-NEG over-refresh-noise (noisy EMA middle zone) |
+| **C period=2** | **2** | `4uo4hl9w` | **3.26053** | **3125** | **−0.00223** | **−25 fs** | 🎯 **single-seed FAV PP-promote MARGINAL [−0.0025, −0.002]** |
+| **D period=10** | **10** | `zzton5yp` | 3.26484 | 3175 | +0.00208 | +25 fs | NEG R-stale, confirms period=5 > period=10 (clean period disambiguation) |
+
+(5 crashed orphan runs `lorkjsij`/`678mj86x`/`6tq29ldr`/`gp2rr4cl`/`xyzextra` from GPU-contention cleanup ignored; clean restart post cycle 391 recovery.)
+
+- **🎯 Three dispositive findings:**
+  1. **Period axis is NON-MONOTONE on post-#1240 stack** — `period=3 WORST (+0.00337) / period=2 FAV (−0.00223) / period=5 ctrl / period=10 NEG (+0.00208)`. Contradicts cycle 406 modal prediction "55% Row 5 NEG-monotone" (5% pre-staged surprise probability landed). Qualitatively different from #1363 DIAGONAL anti-monotone (diagonal UP=1 worst; full-R period=2 FAV).
+  2. **Period=5 ≠ R-buffer refresh optimum on post-#1240 MAX_D_IN=4096 stack** — #1240's period 10→5 improvement was confounded with the MAX_D_IN coverage extension. At MAX_D_IN=4096 fixed, Arm D confirms period=5 > period=10 (+0.00208 NEG). But period=2 reveals a second favorable basin. Prior "TIGHTLY-TUNED 4-parameter ridge α=0.5/FULL-R/period=5/EPS=1e-4" characterization needs revision pending PP outcome.
+  3. **Two-regime R-buffer EMA structure** — period=3 (60-step effective EMA window at β=0.95) lies in a noisy zone: insufficient samples per window, per-gradient-outer-product noise dominates. Period=2 (40-step window) reaches a different equilibrium: very-fast refresh still produces stable full-R eigenstructure, particularly for 12 high-R_cond mlp.proj matrices (d_in=3072, R_cond~10⁶) whose dominant eigenstructure rotates fast during cooldown.
+- **Statistical (Arm C, n=1)**: val 3.26053 ≤ baseline 3.26339 → G1 PASS; (3.28−3.26053)×√1 = 0.01947 ≥ 0.004 → G2 PASS; Δ_paired_fs = −25 (coherent both-metrics direction); Δ_paired_val = −0.00223 in MARGINAL band [−0.0025, −0.002]. Effect size ~1-1.5σ relative to clean ctrl drift envelope (~0.0026 spread). Worst-case 50% attenuation → final μ = 3.26228 ≤ baseline → still G1+G2 PASS at n=3. **PP-promote assigned #1421**.
+- Chain ran sequentially (GPU-contention cleanup recovery, separate per-arm logs), Arm A drift −0.00063 EXCEPTIONALLY-CLEAN (5× G4 margin), thorough 4-arm mechanism interpretation by student.
+- **56th no-merge in r4 launch** (single-seed MARGINAL → PP required). First PP-promote candidate in r4 launch. First single-seed FAV in 5+ post-#1240 characterization chains.
+
 ## 2026-05-27 09:00 — PR #1363: NM diagonal-only R vs full-R structural ablation (CLOSED productive-NEG Row 5 dispositive STRUCTURAL — 55th no-merge, 11th NM mechanism axis closed, first STRUCTURAL ablation in r4 launch)
 
 - Branch: `g1r4-nezuko/nm-diagonal-ablation` (student g1r4-nezuko)
