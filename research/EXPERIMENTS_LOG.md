@@ -1,5 +1,56 @@
 # SENPAI Research Results
 
+## 2026-05-27 13:30 UTC — PR #1410 CLOSED: n=2 seed-2 confirmation of #1365 aux LR pulse — n=2 FAILED (g1r1-alphonse)
+
+- Branch: `alphonse/n2-confirm-aux-pulse-arm-a`
+- Hypothesis: n=2 seed-2 confirmation of #1365 alphonse Arm A (joint aux LR phase-window pulse ×1.30 in steps 2500-2924). Tests whether the n=1 marginal-WIN-candidate Δ−0.720 mnat survives a different random seed.
+
+| Metric | Baseline #1289 (3zhwgfiw) | Seed-1 #1365 (ipovq4m5) | Seed-2 this run (53ln5na6) | n=2 mean |
+|---|---|---|---|---|
+| `val/loss_ema` | 3.264718 | 3.263998 | **3.266437** | **3.265218** |
+| `val/loss_live` | 3.264114 | 3.263395 | 3.265836 | 3.264615 |
+| `speedrun/first_step_to_target` | 2925 | 2925 | **2925** | — |
+| `single_run_stat_sig_margin` vs 3.28 | — | — | 0.009562 ≥ 0.004 ✓ | — |
+| Δ vs baseline | — | −0.720 mnat (marginal-WIN-candidate) | **+1.719 mnat (regression)** | **+0.500 mnat (NULL)** |
+
+**Results commentary:** seed-2 (`53ln5na6`) val_ema=3.266437 is +1.719 mnat ABOVE baseline (regression). The n=2 mean across seed-1 and seed-2 is 3.265218, ABOVE baseline (3.264718) → FAILS merge gate. Seed-2 val_ema is also above the NULL-gate threshold of 3.265438. **The #1365 Arm A marginal-WIN-candidate is hereby retroactively CLOSED as failed-n=2-confirmation NULL.** This is the SECOND consecutive marginal-WIN n=2 collapse in the portfolio (after #1325 → #1379).
+
+**Pulse-fire telemetry — CLEAN execution:**
+- Window: Python steps [2500, 2925), 425 steps total (13.08% of training).
+- `pulse/active=1` and `pulse/effective_mult=1.3` verified across all 3 aux groups (`adam_embed`, `adam_lm_head`, `adam_scalars`) at wandb steps 2525-2925.
+- Pulse extinguished cleanly at step 2950: `pulse/active=0`, `effective_mult=1.0`.
+- Multiplier ratio at boundary: lr/aux_lr_embed jump 0.06357 → 0.07881 ≈ ×1.3 ✓.
+
+**Seed-flag verification** (per #1379 canon, step-25 train_loss):
+- Seed-1: step-25 train_loss = 5.961228
+- Seed-2: step-25 train_loss = 5.979760 (DIFFERS — seed flag working correctly)
+- Step-1 train_loss = 10.82584 IDENTICAL (BF16 uniform-output regime, expected)
+
+**Duplicate-process operational hygiene:** Student found two duplicate processes at session start (PIDs 2037224 and 2041332 competing for the same GPU at 6 sec/step). Killed the later/slower 2041332, preserving canonical 09:01-UTC-started `53ln5na6`. Duplicate `2gsv4y0l` (crashed at step 200) properly excluded from wandb_run_ids in SENPAI-RESULT.
+
+**MAJOR CANON — n=2 collapse pattern established:**
+
+| Original marginal-WIN | n=1 Δ | n=2 confirmation | n=2 Δ mean | Verdict |
+|---|---|---|---|---|
+| #1325 thorfinn Lcov+pEMA stack | −0.876 mnat | #1379 seed-2 | +0.124 mnat | n=2 FAIL |
+| **#1365 alphonse aux LR pulse joint ×1.30** | **−0.720 mnat** | **#1410 seed-2 (this)** | **+0.500 mnat** | **n=2 FAIL** |
+| #1378 fern pEMA-only @ 2600 | −1.155 mnat (Δsr=−50) | #1429 fern seed-2 (in flight) | TBD | TBD |
+| #1399 frieren lm_head-only ×1.20 | −0.302 mnat | n=2 not yet assigned | TBD | TBD |
+
+**Pattern recognition:** Marginal-WIN-candidates with Δ ≤ 1.0 mnat at n=1 and Δsr=0 are collapsing to NULL at n=2 with high probability. The single surviving candidate (#1378 fern Arm B) has BOTH a Δval AND Δsr improvement (50-step sr improvement is much harder to explain by seed noise than val-only signal).
+
+**Mechanism canon impact:**
+- **Lm_head-dominant 3-way aux decomp canon (10:45 UTC) WEAKENED.** #1399 lm_head-only (Δ−0.302) and #1400 embed-only (Δ+1.315) are now both suspect of seed-noise.
+- **#1425 tanjiro lm_head dose-response IS now critical** — if ×1.30 and ×1.40 both fail to extract gain, the aux LR phase-window mechanism class is fundamentally not load-bearing at this magnitude.
+- **#1430 nezuko body × aux stacking premise WEAKENED** — one of the stacking anchors (#1365 marginal-WIN) just failed n=2.
+- **Highest-confidence remaining direction: #1378 Arm B pEMA-refresh @ 2600** (n=2 via #1429 in flight).
+
+**Cross-portfolio impact:** This is the strongest negative evidence yet that the "aux LR phase-window pulse" mechanism class is mechanism-orthogonal to the speedrun benchmark at the tested magnitudes. The portfolio shifts toward (a) mechanism-orthogonal axes (gradient direction precision, schedule shape, optimizer state hard-reset) and (b) higher-confidence Δsr-coupled candidates like #1378 Arm B.
+
+**Excellent execution:** Student's seed-flag verification (step-25 train_loss canon), pulse-fire telemetry, and duplicate-process hygiene were the model report for n=2 confirmations. This is the canonical pattern going forward.
+
+**Next step:** alphonse → PR #1435 body Muon NS_ITERS phase-window pulse (mechanism-orthogonal to LR — tests gradient direction precision axis).
+
 ## 2026-05-27 12:40 UTC — PR #1386 CLOSED: L_cov multi-refresh schedule — 169th NULL, L_cov multiplicity axis FULLY CLOSED (g1r1-nezuko)
 
 - Branch: `g1r1-nezuko/lcov-multirefresh`
