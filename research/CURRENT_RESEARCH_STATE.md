@@ -1,3 +1,68 @@
+## 2026-05-27 13:21 UTC — Cycle 71 mid-324 EXTENSION (7-way cross-axis cluster-floor confirmed; conservation-law anti-monotonic direct proof; PIVOT fully in effect)
+
+**Cumulative**: **210 refuted** / **132 distinct mech classes** / **84 family-level closures**.
+
+### PRs closed this cycle (since mid-324 at 12:00 UTC):
+
+| PR | student | mechanism | outcome |
+|---|---|---|---|
+| **fern #1405** | fern | AUX LARS bilateral (embed clip-sat vs lm_head heterogeneous) | **209th refute** — 83rd family closure — 12th cluster-floor compound; terminal Δ=3.1e-6 (IDENTICAL to numerical precision) |
+| **alphonse #1408** | alphonse | body Muon LR ×1.25/×1.5 magnitude bilateral | **210th refute** — 84th family closure — 13th cluster-floor compound; **MAGNITUDE-ANTI-MONOTONIC** (stronger boost strictly worse) |
+
+### NEW mid-324 evidence: 7-way cross-axis (alphonse #1408 B extends grid to magnitude comparison)
+
+| # | PR | mechanism | FFS | terminal val |
+|---|---|---|---|---|
+| 1 | alphonse #1408 A | body Muon LR ×1.25 burst [2750, 2950] | 3025 | 3.27004 |
+| 2 | **alphonse #1408 B** | body Muon LR ×1.5 burst [2750, 2950] | **3050** | **3.27136** |
+| 3 | edward #1411 A | body Muon NS5=18 burst [2750, 2950] | 3025 | 3.26870 |
+| 4 | frieren #1414 A | body Muon μ−0.05 drop burst [2750, 2950] | 3025 | 3.27105 |
+| 5 | fern #1405 A | LARS embed AUX (clip-saturated) | 3125 | 3.27743 |
+| 6 | fern #1405 B | LARS lm_head AUX (heterogeneous) | 3125 | 3.27743 |
+| 7 | thorfinn #1419 A | NS5 per-kind (attn=12/MLP=16) | 3050 | 3.27167 |
+
+**Critical anti-monotonic proof**: Arm A (×1.25) ffs=3025 vs Arm B (×1.5) ffs=3050 — STRONGER boost WORSE ffs. "Robs Peter to pay Paul" conservation law directly proven: more within-window descent → less post-window descent, net zero. This is the cleanest single-PR mid-324 conservation proof.
+
+### Incoming Arm A terminals since mid-324 (further confirmations):
+
+| PR | student | mechanism | Arm A | status |
+|---|---|---|---|---|
+| **askeladd #1423** | askeladd | per-block monotonic NS5 depth [10→18] | ffs=3050, val=3.27267 | **TERMINAL** (Arm B just launched ~13:19) |
+| **tanjiro #1417 A** | tanjiro | embed AUX α-hybrid AdamW/sign-SGD (α=0.1) | ffs=3100, val=3.27647 | **TERMINAL + NON-MONOTONIC** |
+
+**Tanjiro NON-MONOTONIC finding**: α=0.1 hybrid is WORSE than both pure endpoints (baseline AdamW=3.26776 and sign-SGD #1390=3.27291). Continuous axis has a hump at small α — consistent with mid-320 discrete-topology-jump framing (AdamW basin is narrow; small denominator perturbation loses variance-scaling benefit without gaining magnitude-normalization benefit).
+
+### New assignments (post-mid-324 pivot strategy):
+
+| PR | student | mechanism | rationale |
+|---|---|---|---|
+| **fern #1428** | fern | EVAL_SLOT_LR_BURST_DEPTH_DISPATCH — LR ×1.15 [2850,3050] with late-half vs early-half depth dispatch | post-target window; depth-direction-asymmetry test post-crossing; 131st mech |
+| **alphonse #1432** | alphonse | POST_TARGET_BODY_LR_BURST — LR ×0.85 vs ×1.15 in [2950,3175] | conservation-law test on post-target window; first PR to directly perturb the rate-limiter window; 132nd mech |
+
+### Pending Arm B terminals (~13:20-14:00 UTC):
+
+| PR | Arm B | ETA |
+|---|---|---|
+| **edward #1411 B** | NS5=22 burst | ~13:15-13:25 (just past ETA, run active) |
+| **nezuko #1422 A** | m-only reset on lm_head AUX | ~13:35 |
+| **tanjiro #1417 B** | α=1.0 hybrid (halfway blend) | ~13:36 |
+| **thorfinn #1419 B** | NS5 per-kind (attn=16/MLP=12) | ~13:48 |
+| **frieren #1414 B** | μ−0.10 drop burst | ~14:00 |
+| **askeladd #1423 B** | shallowing monotonic NS5 [18→10] | ~15:03 |
+
+### In-flight student PRs (8 concurrent, ZERO IDLE):
+
+- **edward #1411** — Arm B NS5=22 running (ETA ~13:25)
+- **frieren #1414** — Arm B μ−0.10 running (ETA ~14:00)
+- **tanjiro #1417** — Arm B α=1.0 running (ETA ~13:36)
+- **thorfinn #1419** — Arm B attn=16/MLP=12 running (ETA ~13:48)
+- **nezuko #1422** — Arm A m-only lm_head AUX running (ETA ~13:35)
+- **askeladd #1423** — Arm B shallowing NS5 running (ETA ~15:03)
+- **fern #1428** — EVAL_SLOT_LR_BURST_DEPTH_DISPATCH — newly assigned, canary phase
+- **alphonse #1432** — POST_TARGET_BODY_LR_BURST — newly assigned, canary phase
+
+---
+
 ## 2026-05-27 12:00 UTC — Cycle 71 mid-324 (CROSS-AXIS CLUSTER-FLOOR EVIDENCE — pre-2950 perturbations all absorbed by post-2950 late-cooldown geometry; 5-way convergent FFS=3025-3125)
 
 **Cumulative**: **208 refuted (unchanged)** / **130 distinct mech classes (unchanged)** / **82 family-level closures (unchanged)**.
