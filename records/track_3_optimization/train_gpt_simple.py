@@ -465,6 +465,15 @@ ATTN_SOAP_BETA2 = 0.90
 ATTN_SOAP_PRECOND_FREQ = 10
 ATTN_SOAP_TRUST_THRESHOLD = float(os.environ.get("ATTN_SOAP_TRUST_THRESHOLD", "0.9"))
 NS5_ITERS = int(os.environ.get("NS5_ITERS", "12"))
+# POST_TARGET_PER_KIND_LR_DISPATCH (PR #1443): per-matrix-kind body-Muon LR multiplier
+# applied only within [START, END) step window. attn (.attn.q/k/v/proj.weight) and
+# mlp (.mlp.fc/proj.weight) matrices receive different multipliers vs the baseline
+# cosine cooldown schedule. Other body-Muon params (if any) keep the baseline LR.
+POST_TARGET_PER_KIND_LR_ENABLED = int(os.environ.get("POST_TARGET_PER_KIND_LR_ENABLED", "0"))
+POST_TARGET_PER_KIND_LR_ATTN_FACTOR = float(os.environ.get("POST_TARGET_PER_KIND_LR_ATTN_FACTOR", "1.15"))
+POST_TARGET_PER_KIND_LR_MLP_FACTOR = float(os.environ.get("POST_TARGET_PER_KIND_LR_MLP_FACTOR", "0.85"))
+POST_TARGET_PER_KIND_LR_START = int(os.environ.get("POST_TARGET_PER_KIND_LR_START", "2950"))
+POST_TARGET_PER_KIND_LR_END = int(os.environ.get("POST_TARGET_PER_KIND_LR_END", "3175"))
 WD_AUX = float(os.environ.get("WD_AUX", "0.0"))  # AdamW WD on embed + lm_head matrices (scalars stay at 0)
 EMBED_INIT_STD = float(os.environ.get("EMBED_INIT_STD", "1.0"))  # default preserves baseline N(0,1)
 LOGIT_SOFTCAP = float(os.environ.get("LOGIT_SOFTCAP", "15.0"))  # default = 15 (current hardcoded value); soft-cap value c in f(x) = c·x / sqrt(x^2+c^2)
@@ -642,6 +651,9 @@ class Muon(torch.optim.Optimizer):
         }
         # Track which sub-type each attention-SOAP param is (q/k/v/proj) for per-type telemetry.
         self.attn_soap_kind: dict[int, str] = {}
+        # PR #1443: per-matrix-kind body-Muon LR dispatch within post-target window.
+        # Build id(p) -> kind map using .attn.* / .mlp.* suffixes.
+        self.muon_kind: dict[int, str] = {}
         for n, p in named_params:
             if p in self.attn_soap_params:
                 if n.endswith(".attn.q.weight"):
@@ -652,9 +664,32 @@ class Muon(torch.optim.Optimizer):
                     self.attn_soap_kind[id(p)] = "v"
                 elif n.endswith(".attn.proj.weight"):
                     self.attn_soap_kind[id(p)] = "proj"
+            if (n.endswith(".attn.q.weight") or n.endswith(".attn.k.weight")
+                    or n.endswith(".attn.v.weight") or n.endswith(".attn.proj.weight")):
+                self.muon_kind[id(p)] = "attn"
+            elif n.endswith(".mlp.fc.weight") or n.endswith(".mlp.proj.weight"):
+                self.muon_kind[id(p)] = "mlp"
+        # Current optimizer step (training loop updates via set_global_step before each .step()).
+        self.global_step: int = 0
         params = sorted([p for _, p in named_params], key=lambda x: x.size(), reverse=True)
         defaults = dict(lr=lr, weight_decay=weight_decay, mu=mu)
         super().__init__(params, defaults)
+
+    def set_global_step(self, step: int) -> None:
+        self.global_step = step
+
+    def get_lr_factor_for_param(self, p) -> float:
+        """Return per-kind LR multiplier for body-Muon param p, or 1.0 if dispatch inactive."""
+        if not POST_TARGET_PER_KIND_LR_ENABLED:
+            return 1.0
+        if not (POST_TARGET_PER_KIND_LR_START <= self.global_step < POST_TARGET_PER_KIND_LR_END):
+            return 1.0
+        kind = self.muon_kind.get(id(p))
+        if kind == "attn":
+            return POST_TARGET_PER_KIND_LR_ATTN_FACTOR
+        if kind == "mlp":
+            return POST_TARGET_PER_KIND_LR_MLP_FACTOR
+        return 1.0
 
     @torch.no_grad()
     def step(self):
@@ -709,7 +744,9 @@ class Muon(torch.optim.Optimizer):
                     scale = torch.where(cur_uw < TARGET_UW, TARGET_UW * p_fro / u_fro, torch.ones_like(p_fro))
                     update = update * scale.to(update.dtype)
                     # Explicit weight decay intentionally omitted (matches record #14; u/w-floor replaces wd).
-                    p.add_(update, alpha=-group["lr"])
+                    # PR #1443: per-kind LR factor applied only within post-target window.
+                    lr_per_param = group["lr"] * self.get_lr_factor_for_param(p)
+                    p.add_(update, alpha=-lr_per_param)
                     # Refresh SOAP state with the raw grad (after applying the step).
                     if use_soap:
                         soap_refresh(grad, state)
@@ -865,6 +902,11 @@ if dist.get_rank() == 0:
             "optimizer/attn_soap_precond_freq": ATTN_SOAP_PRECOND_FREQ,
             "optimizer/attn_soap_trust_threshold": ATTN_SOAP_TRUST_THRESHOLD,
             "optimizer/ns5_iters": NS5_ITERS,
+            "optimizer/post_target_per_kind_lr_enabled": POST_TARGET_PER_KIND_LR_ENABLED,
+            "optimizer/post_target_per_kind_lr_attn_factor": POST_TARGET_PER_KIND_LR_ATTN_FACTOR,
+            "optimizer/post_target_per_kind_lr_mlp_factor": POST_TARGET_PER_KIND_LR_MLP_FACTOR,
+            "optimizer/post_target_per_kind_lr_start": POST_TARGET_PER_KIND_LR_START,
+            "optimizer/post_target_per_kind_lr_end": POST_TARGET_PER_KIND_LR_END,
             "optimizer/wd_aux": WD_AUX,
             "optimizer/recipe": "contra-muon + normuon-lite + soap-on-mlp + soap-on-attn-trust-gate (pre-NS5, record #14 + record #16)",
         },
@@ -905,6 +947,18 @@ for trial_idx in range(args.num_trials):
     optimizer2 = Muon([(n, p) for n, p in model.blocks.named_parameters() if p.ndim >= 2],
                       lr=MUON_LR, weight_decay=MUON_WEIGHT_DECAY, mu=MU)
     optimizer2.param_groups[0]["name"] = "muon_blocks"
+    # PR #1443 one-time diagnostic: report per-kind body-Muon param-count split.
+    if POST_TARGET_PER_KIND_LR_ENABLED:
+        attn_count = sum(1 for k in optimizer2.muon_kind.values() if k == "attn")
+        mlp_count = sum(1 for k in optimizer2.muon_kind.values() if k == "mlp")
+        other_count = sum(1 for g in optimizer2.param_groups for p in g["params"]) - attn_count - mlp_count
+        print0(
+            f"POST_TARGET_PER_KIND_LR: {attn_count} attn params (×{POST_TARGET_PER_KIND_LR_ATTN_FACTOR}),"
+            f" {mlp_count} mlp params (×{POST_TARGET_PER_KIND_LR_MLP_FACTOR}),"
+            f" {other_count} other body-Muon params (×1.0);"
+            f" dispatch active in [{POST_TARGET_PER_KIND_LR_START}, {POST_TARGET_PER_KIND_LR_END})",
+            console=True,
+        )
     optimizers = [optimizer1, optimizer2]
     assert set(p for opt in optimizers for group in opt.param_groups
                for p in group["params"]) == set(model.parameters())
@@ -1052,7 +1106,24 @@ for trial_idx in range(args.num_trials):
                 wandb_step=wandb_step,
             )
         for opt in optimizers:
+            if hasattr(opt, "set_global_step"):
+                opt.set_global_step(step)
             opt.step()
+        # PR #1443: per-step dispatch telemetry inside the post-target window (with small padding before).
+        if (dist.get_rank() == 0 and POST_TARGET_PER_KIND_LR_ENABLED
+                and (POST_TARGET_PER_KIND_LR_START - 50) <= step < POST_TARGET_PER_KIND_LR_END):
+            in_window = int(POST_TARGET_PER_KIND_LR_START <= step < POST_TARGET_PER_KIND_LR_END)
+            schedule_lr = optimizer2.param_groups[0]["lr"]
+            attn_factor = POST_TARGET_PER_KIND_LR_ATTN_FACTOR if in_window else 1.0
+            mlp_factor = POST_TARGET_PER_KIND_LR_MLP_FACTOR if in_window else 1.0
+            wandb.log({
+                "train/body_muon/per_kind_lr_active": in_window,
+                "train/body_muon/schedule_lr": schedule_lr,
+                "train/body_muon/attn_lr_effective": schedule_lr * attn_factor,
+                "train/body_muon/mlp_lr_effective": schedule_lr * mlp_factor,
+                "train/body_muon/attn_lr_factor": attn_factor,
+                "train/body_muon/mlp_lr_factor": mlp_factor,
+            }, step=wandb_step)
         if dist.get_rank() == 0 and telemetry_due:
             for opt in optimizers:
                 if hasattr(opt, "trust_gate_stats"):
