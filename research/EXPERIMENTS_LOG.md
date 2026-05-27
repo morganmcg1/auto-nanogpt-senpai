@@ -1,5 +1,23 @@
 # SENPAI Research Results
 
+## 2026-05-27 22:16 UTC — PR #1435: Body Muon NS_ITERS phase-window pulse (g1r1-alphonse) — CLOSED NULL
+
+- Branch: `g1r1-alphonse/body-muon-ns-iters-pulse` (rebased post-#1429 merge)
+- Hypothesis: changing NS_ITERS in the Muon Newton-Schulz step within the phase-window [2500, 2925) would affect direction precision and improve convergence. Arm A boosted ns_iters from 12→14, Arm B reduced 12→10.
+
+| Arm | NS_iters pulse | W&B run | val_loss_ema | val_loss_live | sr | Δ vs NEW (3.263938) | Δ vs OLD (3.264718) | Verdict |
+|---|---|---|---|---|---|---|---|---|
+| A | 12→14 in [2500,2925) | `ctdz6o52` | 3.266417 | 3.265847 | 2925 | +2.479 mnat | +1.699 mnat | NULL |
+| B | 12→10 in [2500,2925) | `dlloyp08` | 3.265689 | 3.265102 | 2925 | +1.751 mnat | +0.971 mnat | NULL |
+
+**Note:** Both arms ran on OLD recipe (no pEMA refresh). Against OLD baseline Arm B's Δ=+0.971 mnat is just outside marginal band but still NULL (OLD merge gate was `sr ≤ 2912.5 OR (sr=2925 AND val < 3.264718)` — Arm B val=3.265689 > 3.264718, fails).
+
+**Polar diagnostics:** NS=14 reduced ortho_residual 0.564→0.072 (cleaner orthogonalization). NS=10 raised it 0.578→3.138 (under-orthogonalized). Both produced near-identical val_ema. **Conclusion:** NS=12 is at the sweet spot for direction precision — more and less both underperform. Direction-precision axis CLOSED.
+
+**Key learning:** The phase-window pulse mechanism class is collectively exhausted. NS_iters boost fails for the same reason WD pulse, LR pulse, and μ pulse failed — small perturbations to a well-tuned baseline consistently produce Δval +0.001 to +0.004 mnat regressions. Next experiments should shift mechanism class entirely.
+
+---
+
 ## 2026-05-27 20:05 UTC — PR #1425 tanjiro lm_head LR dose-response CLOSED NULL (both arms) — aux LR-magnitude axis FULLY EXHAUSTED (g1r1-tanjiro)
 
 - Branch: `g1r1-tanjiro/lm-head-dose-response` (rebased to `61dcb77bd` post-#1429 merge)
