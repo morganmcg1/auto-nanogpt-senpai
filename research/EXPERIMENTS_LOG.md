@@ -1,5 +1,47 @@
 # SENPAI Research Results
 
+## 2026-05-27 20:05 UTC — PR #1425 tanjiro lm_head LR dose-response CLOSED NULL (both arms) — aux LR-magnitude axis FULLY EXHAUSTED (g1r1-tanjiro)
+
+- Branch: `g1r1-tanjiro/lm-head-dose-response` (rebased to `61dcb77bd` post-#1429 merge)
+- Hypothesis: extends #1399 lm_head-only ×1.20 marginal-WIN-candidate (Δ−0.302 mnat vs old baseline) into a 3-point dose-response curve {×1.20, ×1.30, ×1.40} to test whether the apparent gain at ×1.20 scales monotonically with multiplier (confirming a real mechanism) OR is seed-noise (collapses non-monotonically).
+
+| Arm | mult | W&B run | val_loss_ema | val_loss_live | sr | Δ vs OLD (3.264718) | Δ vs NEW (3.263938) | Verdict |
+|---|---|---|---|---|---|---|---|---|
+| A | ×1.30 | `2fkycdm0` | 3.264910 | 3.264295 | 2925 | +0.192 mnat | **+0.972 mnat NULL** | NULL |
+| B | ×1.40 | `xc242j9w` | 3.265588 | 3.264976 | 2925 | +0.870 mnat | **+1.650 mnat NULL** | NULL |
+
+**Dose-response curve (vs NEW baseline 3.263938):**
+
+| Mult | Source | val_ema | Δ vs new baseline | Verdict |
+|---|---|---|---|---|
+| ×1.20 | #1399 frieren | 3.264416 | +0.478 mnat | NULL (was marginal-WIN vs OLD only) |
+| **×1.30** | **#1425 Arm A** | **3.264910** | **+0.972** | **NULL** |
+| **×1.40** | **#1425 Arm B** | **3.265588** | **+1.650** | **NULL (worst)** |
+
+**MONOTONICALLY DEGRADING dose-response across all 3 magnitudes vs new baseline.** The marginal "WIN-candidate" at ×1.20 against OLD baseline was within seed noise; against the tighter NEW baseline (n=2 mean), the entire LR-magnitude axis is NULL across ×1.20-×1.40.
+
+**Pulse-fire verification** — solid. Both arms verified pulse fired correctly: Arm A realized boost 1.298× at step 2500 (target 1.30), Arm B 1.398× (target 1.40); pulse deactivated cleanly at step 2925; embed_lr / scalars_lr / muon_blocks_lr bit-identical between arms (mechanism-orthogonality confirmed).
+
+**Cross-portfolio canon impact — aux LR-magnitude axis fully exhausted:**
+
+| Sub-axis | n=1 result | n=2 status | Net verdict |
+|---|---|---|---|
+| joint aux ×1.30 (#1365) | Δ−0.720 mnat | COLLAPSED (#1410, Δ+0.500) | seed-noise |
+| lm_head-only ×1.20 (#1399) | Δ−0.302 mnat | not pursued (below margin) | NULL vs new baseline (Δ+0.478) |
+| **lm_head-only ×1.30 (this Arm A)** | **Δ+0.192 (OLD) / +0.972 (NEW)** | n/a | **NULL** |
+| **lm_head-only ×1.40 (this Arm B)** | **Δ+0.870 (OLD) / +1.650 (NEW)** | n/a | **NULL** |
+| embed-only ×1.10/×0.90 (#1400) | bilateral +1.3 mnat | n/a | bilateral NULL |
+| scalars-only ×1.30 (#1452 Arm A) | Δ+3.882 vs new | n/a | NULL (terminal 19:32 UTC) |
+| scalars-only ×0.70 (#1452 Arm B) | TBD (mid-run) | n/a | TBD |
+
+The aux LR-magnitude phase-window pulse mechanism class is now CONFIRMED non-productive across joint, lm_head-only (×1.20-×1.40), embed-only, and scalars-only (×1.30) sub-axes. **The mechanism class is dead** modulo the in-flight scalars ×0.70 Arm B (≈+2-3 mnat NULL likely on current trajectory).
+
+**Closure rationale:** Both arms fail merge gate against new baseline by Δ ≥ +0.972 mnat — n=2 confirmation cannot rescue (would need μ ≤ 3.260 to clear).
+
+**Portfolio pivot:** Mechanism class shifting from aux LR-magnitude (exhausted) → refresh-axis (productive frontier per #1429 confirmed n=2 WIN). Active refresh-axis PRs: #1457 (step-position 2500/2750), #1458 (× ema_beta_target), #1459 (step-position 2850/2900). Will assign tanjiro a fresh optimizer-state-reset hypothesis to broaden the productive-mechanism investigation.
+
+---
+
 ## 2026-05-27 17:20 UTC — PR #1429 MERGED as new baseline: pEMA-only refresh @ step 2600 n=2 WIN (g1r1-fern)
 
 - Branch: `g1r1-fern/pema-only-2600-n2-seed2`
