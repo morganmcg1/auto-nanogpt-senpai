@@ -83,6 +83,16 @@ def parse_args():
              "muall=musoft + non-residual block 2D weights also scaled by 1/sqrt(L); "
              "smallconst=std=1e-3 depth-independent.",
     )
+    parser.add_argument("--lion_aux", action="store_true",
+                        help="Replace AdamW with Lion (Chen 2023, arxiv:2302.06675) on the "
+                             "aux param groups (embed, lm_head, scalars). Lion is sign-based "
+                             "with a single momentum buffer, structurally distinct from "
+                             "AdamW's per-coord adaptive-magnitude scaling.")
+    parser.add_argument("--lion_lr_scale", type=float, default=0.33,
+                        help="Multiplicative LR scaling for Lion vs the AdamW aux baseline LRs. "
+                             "Paper recommends 0.33 for short training, 0.10 for default. "
+                             "Sign updates have ~constant magnitude regardless of grad size, "
+                             "so the per-param LR must be smaller than AdamW's by this factor.")
     args = parser.parse_args()
     args.num_trials = args.num_trials if args.num_trials is not None else (args.legacy_num_trials or 1)
     args.wandb_tags = [tag.strip() for tag in args.wandb_tags.split(",") if tag.strip()]
@@ -681,6 +691,115 @@ class Muon(torch.optim.Optimizer):
         return result
 
 
+class Lion(torch.optim.Optimizer):
+    """Lion: EvoLved Sign Momentum (Chen et al. 2023, arxiv:2302.06675).
+
+    update_t = sign(β1 · m_{t-1} + (1 - β1) · g_t)
+    p_t      = p_{t-1} - lr · (update_t + wd · p_{t-1})
+    m_t      = β2 · m_{t-1} + (1 - β2) · g_t
+
+    Single momentum buffer per param (vs 2 for Adam). Two distinct betas: β1 mixes
+    momentum with current grad to *compute* the update, β2 is the buffer EMA. The
+    update is the sign of a fast-mixing EMA, so the per-step move has constant
+    magnitude `lr` per coord regardless of gradient size.
+    """
+
+    def __init__(self, params, lr=1e-4, betas=(0.9, 0.99), weight_decay=0.0):
+        defaults = dict(lr=lr, betas=betas, weight_decay=weight_decay)
+        super().__init__(params, defaults)
+        self._telemetry_due = False
+
+    def set_telemetry_due(self, due: bool):
+        self._telemetry_due = bool(due)
+
+    @torch.no_grad()
+    def step(self, closure=None):
+        loss = closure() if closure is not None else None
+        for group in self.param_groups:
+            lr = group["lr"]
+            b1, b2 = group["betas"]
+            wd = group["weight_decay"]
+            # Telemetry accumulators (scalar tensors on first param's device)
+            device = group["params"][0].device if group["params"] else None
+            update_sqnorm = torch.zeros((), device=device, dtype=torch.float32) if device is not None else None
+            grad_sqnorm = torch.zeros((), device=device, dtype=torch.float32) if device is not None else None
+            sign_flip_sum = torch.zeros((), device=device, dtype=torch.float32) if device is not None else None
+            sign_flip_total = 0
+            param_count = 0
+            for p in group["params"]:
+                if p.grad is None:
+                    continue
+                g = p.grad
+                state = self.state[p]
+                if "m" not in state:
+                    state["m"] = torch.zeros_like(p)
+                m = state["m"]
+                # update direction is sign of (β1·m + (1-β1)·g) — uses CURRENT m
+                update = (m.mul(b1).add(g, alpha=1.0 - b1)).sign_()
+                if self._telemetry_due:
+                    upd_f = update.float()
+                    update_sqnorm.add_((upd_f * upd_f).sum())
+                    g_f = g.float()
+                    grad_sqnorm.add_((g_f * g_f).sum())
+                    if "prev_sign" in state:
+                        sign_flip_sum.add_((update != state["prev_sign"]).float().sum())
+                        sign_flip_total += update.numel()
+                    state["prev_sign"] = update.clone()
+                # decoupled weight decay (rolled into the update tensor)
+                if wd > 0:
+                    update.add_(p, alpha=wd)
+                p.add_(update, alpha=-lr)
+                # update momentum buffer for next step (separate β2)
+                m.mul_(b2).add_(g, alpha=1.0 - b2)
+                param_count += 1
+            group["_lion_update_sqnorm"] = update_sqnorm if self._telemetry_due else None
+            group["_lion_grad_sqnorm"] = grad_sqnorm if self._telemetry_due else None
+            group["_lion_sign_flip_sum"] = sign_flip_sum if self._telemetry_due else None
+            group["_lion_sign_flip_total"] = sign_flip_total
+            group["_lion_param_count"] = param_count
+        return loss
+
+    def get_step_telemetry(self) -> dict[str, dict[str, float]]:
+        """Return per-group Lion telemetry from the most recent step().
+
+        Only populated when set_telemetry_due(True) was called before step().
+        Dict maps group name -> {update_norm, grad_norm, grad_to_update_ratio,
+        sign_flip_rate}. update_norm is the *raw* sign-update Frobenius norm
+        (NOT multiplied by lr), so it tracks how many coords were active.
+        """
+        world_size = dist.get_world_size()
+        result: dict[str, dict[str, float]] = {}
+        for g_idx, group in enumerate(self.param_groups):
+            update_sq = group.get("_lion_update_sqnorm", None)
+            grad_sq = group.get("_lion_grad_sqnorm", None)
+            sf_sum = group.get("_lion_sign_flip_sum", None)
+            sf_total = group.get("_lion_sign_flip_total", 0)
+            count = group.get("_lion_param_count", 0)
+            if update_sq is None or count == 0:
+                continue
+            if world_size > 1:
+                update_sq = update_sq.clone()
+                grad_sq = grad_sq.clone() if grad_sq is not None else None
+                sf_sum = sf_sum.clone() if sf_sum is not None else None
+                dist.all_reduce(update_sq, op=dist.ReduceOp.SUM)
+                if grad_sq is not None:
+                    dist.all_reduce(grad_sq, op=dist.ReduceOp.SUM)
+                if sf_sum is not None:
+                    dist.all_reduce(sf_sum, op=dist.ReduceOp.SUM)
+            update_norm = float(update_sq.sqrt().item())
+            grad_norm = float(grad_sq.sqrt().item()) if grad_sq is not None else 0.0
+            ratio = update_norm / grad_norm if grad_norm > 0 else 0.0
+            sign_flip_rate = (float(sf_sum.item()) / sf_total) if (sf_sum is not None and sf_total > 0) else 0.0
+            name = group.get("name", f"lion_group_{g_idx}")
+            result[name] = {
+                "update_norm": update_norm,
+                "grad_norm": grad_norm,
+                "grad_to_update_ratio": ratio,
+                "sign_flip_rate": sign_flip_rate,
+            }
+        return result
+
+
 ########################################
 #                Setup                 #
 ########################################
@@ -765,6 +884,8 @@ if dist.get_rank() == 0:
             "wd_schedule": args.wd_schedule,
             "lr_scalars": args.lr_scalars,
             "depth_init_mode": args.depth_init_mode,
+            "lion_aux": bool(args.lion_aux),
+            "lion_lr_scale": float(args.lion_lr_scale) if args.lion_aux else None,
         },
     )
 
@@ -837,10 +958,28 @@ for trial_idx in range(args.num_trials):
     print0(f"[init] mode={args.depth_init_mode}  L={NUM_LAYERS}  block_residual_attn.proj_std={_ex_resid_std:.6f}", console=True)
 
     # create the optimizer(s)
-    optimizer1 = AdamW([dict(params=[model.embed.weight], lr=0.3, name="adam_embed"),
-                        dict(params=[model.proj.weight], lr=1/320, name="adam_lm_head"),
-                        dict(params=[p for p in model.parameters() if p.ndim < 2], lr=args.lr_scalars, name="adam_scalars")],
-                       betas=(0.8, 0.95), eps=1e-10, weight_decay=0, fused=True)
+    aux_lr_embed = 0.3
+    aux_lr_lm_head = 1 / 320
+    aux_lr_scalars = args.lr_scalars
+    if args.lion_aux:
+        # Lion replaces AdamW on the aux groups. Per Chen 2023 §5: lr_lion ≈ lr_adam * scale
+        # (scale ~ 1/3 to 1/10), wd_lion ≈ wd_adam / scale to keep effective wd*lr fixed.
+        # Existing AdamW aux runs use weight_decay=0 → wd_lion stays 0 too.
+        lion_scale = args.lion_lr_scale
+        optimizer1 = Lion(
+            [
+                dict(params=[model.embed.weight], lr=aux_lr_embed * lion_scale, name="lion_embed"),
+                dict(params=[model.proj.weight], lr=aux_lr_lm_head * lion_scale, name="lion_lm_head"),
+                dict(params=[p for p in model.parameters() if p.ndim < 2],
+                     lr=aux_lr_scalars * lion_scale, name="lion_scalars"),
+            ],
+            betas=(0.9, 0.99), weight_decay=0,
+        )
+    else:
+        optimizer1 = AdamW([dict(params=[model.embed.weight], lr=aux_lr_embed, name="adam_embed"),
+                            dict(params=[model.proj.weight], lr=aux_lr_lm_head, name="adam_lm_head"),
+                            dict(params=[p for p in model.parameters() if p.ndim < 2], lr=aux_lr_scalars, name="adam_scalars")],
+                           betas=(0.8, 0.95), eps=1e-10, weight_decay=0, fused=True)
     named_blocks = [(n, p) for n, p in model.blocks.named_parameters() if p.ndim >= 2]
     mlp_named = [(n, p) for n, p in named_blocks
                  if n.endswith(".mlp.fc.weight") or n.endswith(".mlp.proj.weight")]
@@ -1007,6 +1146,8 @@ for trial_idx in range(args.num_trials):
                 train_steps=train_steps,
                 wandb_step=wandb_step,
             )
+        if args.lion_aux and isinstance(optimizer1, Lion):
+            optimizer1.set_telemetry_due(telemetry_due)
         for opt in optimizers:
             opt.step()
         if telemetry_due:
@@ -1027,6 +1168,17 @@ for trial_idx in range(args.num_trials):
                 per_group_metrics["train/wd_attn_now"] = current_wds.get("muon_attn", 0.0)
                 per_group_metrics["train/wd_schedule_progress"] = train_step / train_steps
                 wandb.log(per_group_metrics, step=wandb_step)
+            if args.lion_aux and isinstance(optimizer1, Lion):
+                lion_stats = optimizer1.get_step_telemetry()
+                if dist.get_rank() == 0 and lion_stats:
+                    lion_metrics = {"trial": trial_idx, "train/step": train_step}
+                    for group_name, stats in lion_stats.items():
+                        suffix = group_name.replace("lion_", "")
+                        lion_metrics[f"lion/update_norm/{suffix}"] = stats["update_norm"]
+                        lion_metrics[f"lion/grad_norm/{suffix}"] = stats["grad_norm"]
+                        lion_metrics[f"lion/grad_to_update_ratio/{suffix}"] = stats["grad_to_update_ratio"]
+                        lion_metrics[f"lion/sign_flip_rate/{suffix}"] = stats["sign_flip_rate"]
+                    wandb.log(lion_metrics, step=wandb_step)
         if dist.get_rank() == 0 and optimizer2.cos_sims_buffer:
             cs_names = list(optimizer2.cos_sims_buffer.keys())
             cs_tensors = list(optimizer2.cos_sims_buffer.values())
