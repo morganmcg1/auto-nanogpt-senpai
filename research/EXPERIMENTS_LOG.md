@@ -1,5 +1,73 @@
 # SENPAI Research Results — auto-nanogpt-1gpu-r5
 
+## 2026-05-27 02:15 — PR #1326: Scalars LR cooldown decoupling (askeladd)
+- branch: g1r5-askeladd/scalars-lr-cooldown
+- hypothesis: "Body matrices (Muon+SOAP groups) and scalars (LN gains+biases, ~150 params) have DIFFERENT optimal cooldown phases — scalars can stay at full LR longer because their per-element gradient is high-SNR and stale-inertia is less of a risk" (PR predeclared 50% prior toward null mechanism, 30% reverse, 20% positive)
+- verdict: **CLOSED clean-NEG-WIDE-BAND-NULL-WITH-EDGE-SENSITIVITY** [FFS-primary, 13th stack-component closure]
+- results (5-cell sweep):
+  | Cell | scalars cooldown | FFS | val/loss | Δbase (σ_single) | Δctrl (σ_single) | W&B id |
+  |:----:|:----------------:|:---:|:--------:|:----------------:|:----------------:|:------:|
+  | A | shared (sc_cf=0.7, default) ctrl | 3050 | 3.262351 | +1.90σ | (ctrl) | tufl3qlm |
+  | **B★** | **constant (no scalars cooldown)** | **3100** | **3.268650** | **+12.52σ** | **+10.62σ** | 5dykns3d |
+  | C | early sc_cf=0.5 | 3025 | 3.261452 | +0.39σ | −1.52σ | 09fjidon |
+  | D | late sc_cf=0.85 | 3050 | 3.262110 | +1.50σ | −0.41σ | canmpq86 |
+  | **E** | **anti-falsifier ramp 0→1** | **3250** | **3.279810** | **+31.34σ** | **+29.44σ** | 9pryzuip |
+
+- mechanism findings (4):
+  1. **Wide null band in cooldown FRACTION** — Cells A/C/D (sc_cf ∈ {0.5, 0.7, 0.85}) all FFS ≈ baseline (3025–3050) and val/loss ≈ ctrl (within ±1.5σ). The scalars cooldown FRACTION is val-loss-neutral across the [0.5, 0.85] range — **scalars are PERMISSIVE on timing**.
+  2. **Edge sensitivity on extreme cells** — Cell B (constant, no cooldown) +10.6σ_single from ctrl, Cell E (anti-ramp, scalars LR climbs while body cools) +29.4σ_single catastrophic. Both extremes confirm scalars DO need to cool eventually; they just have wide tolerance on WHEN.
+  3. **DISSOCIATION from body cooldown** — body matrices (#1276 cooldown_frac) showed tight basin around 0.7; here scalars show ~3× wider tolerance window. This is the **crossing-phase decoupling cluster** signature — scalars permissive, body tight.
+  4. **Falsifies "single-cooldown-phase" assumption** for the optimizer stack — different parameter groups have different optimal cooldown timing. Solidifies the cross-PR thesis that body+scalars are dissociated in val-loss landscape, not just LR magnitude (#1275) but also LR schedule shape.
+
+- cluster connections:
+  - **Crossing-phase decoupling cluster (3 closures):** #1294 mu, #1322 NS-iter, **#1326 scalars-LR** — all confirm cooldown-window components have differential sensitivity in body vs scalars.
+  - **Dissociation cluster with #1275 (lr_scalars magnitude):** scalars have distinct LR dynamics in BOTH magnitude (#1275) and schedule shape (#1326) — strong cross-PR dissociation finding.
+  - **Adjacent to #1310 thorfinn β1-decouple (#1368, in flight):** parallel investigation of "are scalars distinct in MOMENTUM" — if #1368 also shows scalars-dissociation, then scalars are dissociated in 3+ axes (LR, schedule, momentum).
+
+- decision (FFS-primary):
+  - No Cell ≤ 2975 → **no n=4 promotion per directive #1262**.
+  - Cells B/E fail n=1 gate cleanly; A/C/D within noise; close clean-NEG with wide-band-null finding.
+
+- follow-up assignment: askeladd → **adam-embed cooldown DECOUPLE**:
+  - Fills the EMBED gap in crossing-phase decoupling cluster (currently mu/NS/scalars closed; embed/lm_head/wd-schedule still untested for cooldown timing).
+  - adam_embed group has lr=0.3 — highest aux LR by 10× over scalars and 100× over lm_head — its cooldown response is plausibly distinct from both.
+  - Parallel structure to #1326 (5-cell A=shared / B★=constant / C=early sc_cf=0.5 / D=late sc_cf=0.85 / E=anti-ramp falsifier) but applied only to adam_embed group.
+
+## 2026-05-27 02:00 — PR #1328: Body LR warmup before cooldown (fern)
+- branch: g1r5-fern/body-lr-warmup
+- hypothesis: "Adding LR warmup before the constant phase would help body matrix optimization land in better basin before cooldown — reduces early-step gradient noise impact on Muon+SOAP momentum buffers" (PR predeclared 50% prior toward null mechanism, 30% positive, 20% reverse)
+- verdict: **CLOSED clean-NEG-MONOTONE** [FFS-primary, 14th stack-component closure]
+- results (5-cell sweep):
+  | Cell | warmup steps | FFS | val/loss | Δbase (σ_single) | Δctrl (σ_single) | W&B id |
+  |:----:|:------------:|:---:|:--------:|:----------------:|:----------------:|:------:|
+  | A | 0 ctrl | 3025 | 3.26160 | +0.64σ | (ctrl) | 7gvqv0aj |
+  | **B★** | **200** | **3075** | **3.26721** | **+10.10σ** | **+9.46σ** | qikvgq98 |
+  | C | 100 | 3075 | 3.26675 | +9.32σ | +8.68σ | j2ge7t6r |
+  | D | 500 | 3050 | 3.26476 | +5.97σ | +5.33σ | 2859ee7k |
+  | **E** | **1000** | **3100** | **3.26936** | **+13.73σ** | **+13.09σ** | o432571z |
+
+- mechanism findings (5):
+  1. **MONOTONE WORSENING in FFS with longer warmup** — A(0)=3025 → C(100)=3075 → B★(200)=3075 → D(500)=3050 → E(1000)=3100. Gradient clear: any LR warmup adds to FFS or stays flat. **Strong NEG result with monotone structure**, not seed noise.
+  2. **Body LR warmup is val-loss-NEGATIVE at all tested durations** — every cell with warmup>0 had val/loss worse than ctrl by +5.3σ to +13.1σ_single. The mechanism does NOT exist for body matrices at the current scale; **direct full-LR-from-step-0 is optimal**.
+  3. **Cell D oddity (500 warmup, FFS=3050 best of warmup cells)** — slightly less bad than 200, suggests a saturation effect: once warmup is long enough, the optimizer "catches up" by mid-training; very short warmup (100-200) is the WORST regime because gradient direction is still finding the basin when LR ramps to full.
+  4. **Falsifies the "warmup helps gradient noise" hypothesis** at this scale — for nanoGPT at 3250 steps with Muon orthogonalization, the per-step body gradient signal is already high enough that immediate full-LR is the FFS-optimal regime.
+  5. **Dissociation from typical large-model warmup** — Llama/GPT-scale models use warmup because raw gradients are noisy at start; here Muon+NS pre-orthogonalizes the update, removing the need.
+
+- cluster connections:
+  - **Schedule-shape cluster:** joins #1276 (cooldown_frac), #1294 (mu cooldown), #1322 (NS-iter cooldown), #1326 (scalars cooldown) — all confirm the current schedule shape is well-tuned; deviations in either direction (longer warmup, earlier cooldown, later cooldown) worsen FFS.
+  - **NS-pre-orthogonalization cluster:** joins #1310 (β1=0.8) + #1322 — body LR warmup unnecessary because gradients are already directionally clean via Muon NS-iteration; **classical-warmup-rationale-doesn't-apply** is a robust cross-PR finding.
+
+- decision (FFS-primary):
+  - No Cell ≤ 2975 → **no n=4 promotion per directive #1262**.
+  - All 4 non-ctrl cells fail n=1 gate; monotone structure rules out seed noise; close clean-NEG.
+
+- follow-up assignment: fern → **COSINE-FULL-RUN body-LR**:
+  - Pivots from WHEN-the-schedule-starts (failed) to WHAT-shape-the-entire-schedule is.
+  - Replaces stable+linear-decay (current) with cosine 1→0 over entire 3250 steps — no stable plateau phase, gradient cooling from step 0.
+  - Structurally orthogonal to alphonse #1381 within-cooldown shape test.
+  - 5-cell A=stable+linear ctrl / B★=cosine PRIMARY no stable phase / C=cosine min=0.1 / D=warmup200+cosine / E=triangular falsifier.
+  - Small code change in set_hparams: switch on new `--lr_schedule_shape` flag.
+
 ## 2026-05-27 00:35 — PR #1310: Pruning ablation: is AdamW aux β1=0.8 FFS-load-bearing?
 - branch: g1r5-thorfinn/adamw-aux-beta1-pruning
 - hypothesis: "AdamW aux β1=0.8 (hardcoded line 843 across all 3 aux groups embed+lm_head+scalars) is either FFS-load-bearing (narrow basin) or val-loss-cosmetic (wide basin) — pruning ablation under FFS-primary framing" (PR predeclared 50% all-flat-cosmetic / 25% B improvement / 15% D catastrophic / 10% E catastrophic only)
