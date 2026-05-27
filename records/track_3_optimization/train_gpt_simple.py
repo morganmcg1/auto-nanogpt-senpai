@@ -109,6 +109,21 @@ def parse_args():
     parser.add_argument("--body_init_bottom_layers", type=int,
                         default=int(os.environ.get("BODY_INIT_BOTTOM_LAYERS", "6")),
                         help="Number of bottom layers to damp for --body_init=orthogonal_bottom_damp (default 6 = bottom half of 12 layers).")
+    # H206: Newton-Schulz polynomial coefficient sweep. Baseline (a,b,c)=(2.0, -1.5, 0.5).
+    # One-parameter family preserving p(1)=1 and p'(1)=0: a=(3+2c)/2, b=-(1+4c)/2.
+    parser.add_argument("--ns5_poly_a", type=float,
+                        default=float(os.environ.get("NS5_POLY_A", "2.0")),
+                        help="Newton-Schulz polynomial coefficient a (linear term). "
+                             "Baseline (a,b,c)=(2.0, -1.5, 0.5). One-parameter family "
+                             "with p(1)=1, p'(1)=0: a=(3+2c)/2, b=-(1+4c)/2.")
+    parser.add_argument("--ns5_poly_b", type=float,
+                        default=float(os.environ.get("NS5_POLY_B", "-1.5")),
+                        help="Newton-Schulz polynomial coefficient b (cubic term). "
+                             "Baseline -1.5. See --ns5_poly_a.")
+    parser.add_argument("--ns5_poly_c", type=float,
+                        default=float(os.environ.get("NS5_POLY_C", "0.5")),
+                        help="Newton-Schulz polynomial coefficient c (quintic term). "
+                             "Baseline 0.5. See --ns5_poly_a.")
     args = parser.parse_args()
     args.num_trials = args.num_trials if args.num_trials is not None else (args.legacy_num_trials or 1)
     args.wandb_tags = [tag.strip() for tag in args.wandb_tags.split(",") if tag.strip()]
@@ -544,7 +559,7 @@ class GPT(nn.Module):
 #              Optimizer               #
 ########################################
 
-def zeropower_via_newtonschulz5(G: Tensor) -> Tensor:
+def zeropower_via_newtonschulz5(G: Tensor, a: float = 2.0, b: float = -1.5, c: float = 0.5) -> Tensor:
     assert G.ndim >= 2
     X = G.bfloat16()
     if G.size(-2) > G.size(-1):
@@ -553,7 +568,6 @@ def zeropower_via_newtonschulz5(G: Tensor) -> Tensor:
     # Ensure spectral norm is at most 1
     X = X / (X.norm(dim=(-2, -1), keepdim=True) + 1e-7)
     # Perform the NS iterations, not optimizing for wallclock speed
-    a, b, c = 2, -1.5, 0.5
     for _ in range(12):
         A = X @ X.mT
         B = b * A + c * A @ A
@@ -564,18 +578,21 @@ def zeropower_via_newtonschulz5(G: Tensor) -> Tensor:
     return X
 
 @torch.compile
-def muon_update(grad, momentum, mu=0.95, nesterov=True):
+def muon_update(grad, momentum, mu=0.95, nesterov=True,
+                ns5_a: float = 2.0, ns5_b: float = -1.5, ns5_c: float = 0.5):
     momentum.lerp_(grad, 1 - mu)
     update = grad.lerp_(momentum, mu) if nesterov else momentum
-    update = zeropower_via_newtonschulz5(update)
+    update = zeropower_via_newtonschulz5(update, a=ns5_a, b=ns5_b, c=ns5_c)
     update *= max(1, grad.size(-2) / grad.size(-1))**0.5
     return update
 
 class Muon(torch.optim.Optimizer):
-    def __init__(self, params, lr=0.02, weight_decay=0, mu=0.95):
+    def __init__(self, params, lr=0.02, weight_decay=0, mu=0.95,
+                 ns5_a=2.0, ns5_b=-1.5, ns5_c=0.5):
         assert isinstance(params, list) and len(params) >= 1 and isinstance(params[0], torch.nn.Parameter)
         params = sorted(params, key=lambda x: x.size(), reverse=True)
-        defaults = dict(lr=lr, weight_decay=weight_decay, mu=mu)
+        defaults = dict(lr=lr, weight_decay=weight_decay, mu=mu,
+                        ns5_a=ns5_a, ns5_b=ns5_b, ns5_c=ns5_c)
         super().__init__(params, defaults)
 
     @torch.no_grad()
@@ -591,7 +608,10 @@ class Muon(torch.optim.Optimizer):
                     state = self.state[p]
                     if len(state) == 0:
                         state["momentum"] = torch.zeros_like(p)
-                    update = muon_update(p.grad, state["momentum"], mu=group["mu"])
+                    update = muon_update(p.grad, state["momentum"], mu=group["mu"],
+                                         ns5_a=group.get("ns5_a", 2.0),
+                                         ns5_b=group.get("ns5_b", -1.5),
+                                         ns5_c=group.get("ns5_c", 0.5))
                     p.mul_(1 - group["lr"] * group["weight_decay"])
                     p.add_(update, alpha=-group["lr"])
                 dist.all_gather(params_pad[base_i:base_i + world_size], params_pad[base_i + rank])
@@ -669,12 +689,14 @@ class MuonH(torch.optim.Optimizer):
     norm exactly constant; weight_decay must be 0.
     """
     def __init__(self, params, lr=0.018, weight_decay=0.0, mu=0.95,
-                 hyperball=True, budget_mult=1.0, mode="clip"):
+                 hyperball=True, budget_mult=1.0, mode="clip",
+                 ns5_a=2.0, ns5_b=-1.5, ns5_c=0.5):
         assert isinstance(params, list) and len(params) >= 1 and isinstance(params[0], torch.nn.Parameter)
         assert mode in ("clip", "scale_invariant")
         params = sorted(params, key=lambda x: x.size(), reverse=True)
         defaults = dict(lr=lr, weight_decay=weight_decay, mu=mu,
-                        hyperball=hyperball, budget_mult=budget_mult, mode=mode)
+                        hyperball=hyperball, budget_mult=budget_mult, mode=mode,
+                        ns5_a=ns5_a, ns5_b=ns5_b, ns5_c=ns5_c)
         super().__init__(params, defaults)
         self._last_active_fraction = 0.0
         self._last_radius_to_norm_max = 0.0
@@ -702,7 +724,10 @@ class MuonH(torch.optim.Optimizer):
                         state["momentum"] = torch.zeros_like(p)
                         if hb:
                             state["hyperball_radius"] = p.data.norm().item() * budget_mult
-                    update = muon_update(p.grad, state["momentum"], mu=group["mu"])
+                    update = muon_update(p.grad, state["momentum"], mu=group["mu"],
+                                         ns5_a=group.get("ns5_a", 2.0),
+                                         ns5_b=group.get("ns5_b", -1.5),
+                                         ns5_c=group.get("ns5_c", 0.5))
                     if hb and mode == "scale_invariant":
                         # Always-active variant: norm is held at initial value by construction.
                         scale_invariant_update_(p.data, update, group["lr"])
@@ -850,6 +875,9 @@ if dist.get_rank() == 0:
             "muonh_mu_schedule": args.muonh_mu_schedule,
             "muonh_mu_start": args.muonh_mu_start,
             "muonh_mu_end": args.muonh_mu_end,
+            "ns5_poly_a": args.ns5_poly_a,
+            "ns5_poly_b": args.ns5_poly_b,
+            "ns5_poly_c": args.ns5_poly_c,
         },
     )
 
@@ -933,7 +961,8 @@ for trial_idx in range(args.num_trials):
     optimizer2 = MuonH([p for p in model.blocks.parameters() if p.ndim >= 2],
                        lr=args.muonh_lr, weight_decay=0.0, mu=0.95,
                        hyperball=True, budget_mult=args.muonh_budget_mult,
-                       mode=args.muonh_mode)
+                       mode=args.muonh_mode,
+                       ns5_a=args.ns5_poly_a, ns5_b=args.ns5_poly_b, ns5_c=args.ns5_poly_c)
     optimizer2.param_groups[0]["name"] = "muonh_blocks"
     optimizers = [optimizer1, optimizer2]
     # AGC targets: AdamW aux groups (embed, lm_head, scalars). Built from optimizer1
