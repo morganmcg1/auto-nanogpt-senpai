@@ -468,6 +468,12 @@ NS5_ITERS = int(os.environ.get("NS5_ITERS", "12"))
 WD_AUX = float(os.environ.get("WD_AUX", "0.0"))  # AdamW WD on embed + lm_head matrices (scalars stay at 0)
 EMBED_INIT_STD = float(os.environ.get("EMBED_INIT_STD", "1.0"))  # default preserves baseline N(0,1)
 LOGIT_SOFTCAP = float(os.environ.get("LOGIT_SOFTCAP", "15.0"))  # default = 15 (current hardcoded value); soft-cap value c in f(x) = c·x / sqrt(x^2+c^2)
+# PR #1396: body Muon WD phase-event dispatch. Default identity (no body WD).
+# When DISPATCH=1 and step >= PHASE_STEP, set body Muon group["weight_decay"]
+# to BODY_MUON_WD_COOLDOWN; Muon.step() then applies decoupled WD shrink.
+BODY_MUON_WD_PHASE_DISPATCH = int(os.environ.get("BODY_MUON_WD_PHASE_DISPATCH", "0"))
+BODY_MUON_WD_COOLDOWN = float(os.environ.get("BODY_MUON_WD_COOLDOWN", "-1.0"))
+BODY_MUON_WD_PHASE_STEP = int(os.environ.get("BODY_MUON_WD_PHASE_STEP", "953"))
 
 
 def zeropower_via_newtonschulz5(G: Tensor) -> Tensor:
@@ -708,7 +714,12 @@ class Muon(torch.optim.Optimizer):
                     cur_uw = u_fro / p_fro
                     scale = torch.where(cur_uw < TARGET_UW, TARGET_UW * p_fro / u_fro, torch.ones_like(p_fro))
                     update = update * scale.to(update.dtype)
-                    # Explicit weight decay intentionally omitted (matches record #14; u/w-floor replaces wd).
+                    # Body Muon decoupled WD (PR #1396): default group["weight_decay"]=0 ⇒ identity.
+                    # When the phase-event dispatch sets a non-zero WD post-cooldown_start,
+                    # shrink p by (1 − lr·wd) BEFORE adding the update, matching AdamW convention.
+                    wd = group["weight_decay"]
+                    if wd > 0:
+                        p.mul_(1 - group["lr"] * wd)
                     p.add_(update, alpha=-group["lr"])
                     # Refresh SOAP state with the raw grad (after applying the step).
                     if use_soap:
@@ -857,6 +868,9 @@ if dist.get_rank() == 0:
             "optimizer/mu_warmup_start": MU_WARMUP_START,
             "optimizer/muon_lr": MUON_LR,
             "optimizer/muon_weight_decay_nominal": MUON_WEIGHT_DECAY,
+            "optimizer/body_muon_wd_phase_dispatch": BODY_MUON_WD_PHASE_DISPATCH,
+            "optimizer/body_muon_wd_cooldown": BODY_MUON_WD_COOLDOWN,
+            "optimizer/body_muon_wd_phase_step": BODY_MUON_WD_PHASE_STEP,
             "optimizer/target_uw": TARGET_UW,
             "optimizer/normuon_beta2": NORMUON_BETA2,
             "optimizer/soap_beta2": SOAP_BETA2,
@@ -905,6 +919,9 @@ for trial_idx in range(args.num_trials):
     optimizer2 = Muon([(n, p) for n, p in model.blocks.named_parameters() if p.ndim >= 2],
                       lr=MUON_LR, weight_decay=MUON_WEIGHT_DECAY, mu=MU)
     optimizer2.param_groups[0]["name"] = "muon_blocks"
+    # PR #1396: explicit reset so the disabled-canary identity-pass holds even though
+    # Muon.step() now applies decoupled WD when group["weight_decay"]>0.
+    optimizer2.param_groups[0]["weight_decay"] = 0.0
     optimizers = [optimizer1, optimizer2]
     assert set(p for opt in optimizers for group in opt.param_groups
                for p in group["params"]) == set(model.parameters())
@@ -936,6 +953,10 @@ for trial_idx in range(args.num_trials):
                 group["lr"] = group["initial_lr"] * eta
                 if group.get("name") == "muon_blocks":
                     group["mu"] = cur_mu
+                    if (BODY_MUON_WD_PHASE_DISPATCH
+                            and step >= BODY_MUON_WD_PHASE_STEP
+                            and BODY_MUON_WD_COOLDOWN >= 0.0):
+                        group["weight_decay"] = BODY_MUON_WD_COOLDOWN
 
 
     ########################################
