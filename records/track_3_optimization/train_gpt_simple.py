@@ -6,6 +6,7 @@ It was prepared as a simplified version of the speedrun for use in neural net op
 """
 
 import os
+import re
 import sys
 with open(sys.argv[0]) as f:
     code = f.read() # read the code of this file ASAP, for logging
@@ -468,6 +469,12 @@ NS5_ITERS = int(os.environ.get("NS5_ITERS", "12"))
 WD_AUX = float(os.environ.get("WD_AUX", "0.0"))  # AdamW WD on embed + lm_head matrices (scalars stay at 0)
 EMBED_INIT_STD = float(os.environ.get("EMBED_INIT_STD", "1.0"))  # default preserves baseline N(0,1)
 LOGIT_SOFTCAP = float(os.environ.get("LOGIT_SOFTCAP", "15.0"))  # default = 15 (current hardcoded value); soft-cap value c in f(x) = c·x / sqrt(x^2+c^2)
+# Per-structural-kind Nesterov-form dispatch (PR #1347).
+# Baseline Muon body uses Nesterov-EMA form `u = (1-µ)*g + µ*buf`. Setting flag=1
+# switches the matching kind to plain heavy-ball-EMA `u = buf` (buf is the EMA of g).
+# Default both=0 preserves baseline (IEEE-identical disabled path).
+MUON_HB_ATTN = int(os.environ.get("MUON_HB_ATTN", "0"))  # 0=Nesterov-EMA (baseline), 1=HB-EMA on attn q/k/v/proj
+MUON_HB_MLP = int(os.environ.get("MUON_HB_MLP", "0"))    # 0=Nesterov-EMA (baseline), 1=HB-EMA on mlp fc/proj
 
 
 def zeropower_via_newtonschulz5(G: Tensor) -> Tensor:
@@ -652,9 +659,49 @@ class Muon(torch.optim.Optimizer):
                     self.attn_soap_kind[id(p)] = "v"
                 elif n.endswith(".attn.proj.weight"):
                     self.attn_soap_kind[id(p)] = "proj"
+        # Per-kind Nesterov-form dispatch map (PR #1347).
+        # True  -> use HB-EMA form `u = buf`
+        # False -> use Nesterov-EMA form `u = (1-µ)*g + µ*buf` (baseline)
+        # named_params come from `model.blocks.named_parameters()`, so names start
+        # with the block index, e.g. "0.attn.q.weight", "11.mlp.proj.weight".
+        self.param_use_hb: dict[int, bool] = {}
+        self.param_muon_kind: dict[int, str] = {}  # "attn" | "mlp" | "other"
+        block_re = re.compile(r"^\d+\.")
+        for n, p in named_params:
+            if not block_re.match(n):
+                self.param_use_hb[id(p)] = False
+                self.param_muon_kind[id(p)] = "other"
+            elif ".attn." in n:
+                self.param_use_hb[id(p)] = bool(MUON_HB_ATTN)
+                self.param_muon_kind[id(p)] = "attn"
+            elif ".mlp." in n:
+                self.param_use_hb[id(p)] = bool(MUON_HB_MLP)
+                self.param_muon_kind[id(p)] = "mlp"
+            else:
+                self.param_use_hb[id(p)] = False
+                self.param_muon_kind[id(p)] = "other"
+        self.hb_attn_count = sum(
+            1 for n, p in named_params
+            if block_re.match(n) and ".attn." in n and bool(MUON_HB_ATTN)
+        )
+        self.hb_mlp_count = sum(
+            1 for n, p in named_params
+            if block_re.match(n) and ".mlp." in n and bool(MUON_HB_MLP)
+        )
+        self.attn_param_count = sum(
+            1 for n, _ in named_params if block_re.match(n) and ".attn." in n
+        )
+        self.mlp_param_count = sum(
+            1 for n, _ in named_params if block_re.match(n) and ".mlp." in n
+        )
         params = sorted([p for _, p in named_params], key=lambda x: x.size(), reverse=True)
         defaults = dict(lr=lr, weight_decay=weight_decay, mu=mu)
         super().__init__(params, defaults)
+        # Telemetry accumulators for per-kind momentum_update norms (PR #1347).
+        # Keep sums on GPU to avoid forcing a sync on every Muon param per step;
+        # `.item()` happens only inside update_norm_stats at telemetry_due.
+        self._update_norm_sum: dict[str, torch.Tensor] = {}
+        self._update_norm_count: dict[str, int] = {"attn": 0, "mlp": 0, "other": 0}
 
     @torch.no_grad()
     def step(self):
@@ -693,7 +740,17 @@ class Muon(torch.optim.Optimizer):
                                 state["trust_cos_col"] = 1.0
                     grad = p.grad
                     state["momentum"].lerp_(grad, 1 - group["mu"])
-                    momentum_update = grad.lerp(state["momentum"], group["mu"])
+                    # Per-kind Nesterov/HB dispatch (PR #1347). At default both-zero
+                    # the dict lookup is always False -> baseline Nesterov-EMA path.
+                    if self.param_use_hb.get(id(p), False):
+                        momentum_update = state["momentum"]
+                    else:
+                        momentum_update = grad.lerp(state["momentum"], group["mu"])
+                    kind = self.param_muon_kind.get(id(p), "other")
+                    if kind not in self._update_norm_sum:
+                        self._update_norm_sum[kind] = torch.zeros((), device=p.device, dtype=torch.float32)
+                    self._update_norm_sum[kind].add_(momentum_update.float().norm())
+                    self._update_norm_count[kind] += 1
                     use_soap = p in self.soap_params
                     use_attn_soap = p in self.attn_soap_params
                     # SOAP precondition applied to momentum BEFORE NS5+contra+NorMuon
@@ -719,6 +776,27 @@ class Muon(torch.optim.Optimizer):
                                      use_trust_gate=True,
                                      trust_threshold=ATTN_SOAP_TRUST_THRESHOLD)
                 dist.all_gather(params_pad[base_i:base_i + world_size], params_pad[base_i + rank])
+
+    def kind_dispatch_counts(self) -> dict[str, float]:
+        """Static per-kind dispatch counts for HB-vs-Nesterov-EMA selection (PR #1347)."""
+        return {
+            "hb_attn_count": float(self.hb_attn_count),
+            "hb_mlp_count": float(self.hb_mlp_count),
+            "attn_param_count": float(self.attn_param_count),
+            "mlp_param_count": float(self.mlp_param_count),
+        }
+
+    def update_norm_stats(self) -> dict[str, float]:
+        """Mean ||momentum_update|| per structural kind since the last call. Resets accumulators."""
+        out: dict[str, float] = {}
+        for kind in ("attn", "mlp", "other"):
+            c = self._update_norm_count[kind]
+            if c > 0 and kind in self._update_norm_sum:
+                out[f"{kind}/momentum_update_norm_mean"] = (self._update_norm_sum[kind] / c).item()
+                out[f"{kind}/momentum_update_count"] = float(c)
+                self._update_norm_sum[kind].zero_()
+            self._update_norm_count[kind] = 0
+        return out
 
     def trust_gate_stats(self) -> dict[str, float]:
         """Return aggregate + per-weight-type trust-gate telemetry across attention SOAP params.
@@ -866,6 +944,8 @@ if dist.get_rank() == 0:
             "optimizer/attn_soap_trust_threshold": ATTN_SOAP_TRUST_THRESHOLD,
             "optimizer/ns5_iters": NS5_ITERS,
             "optimizer/wd_aux": WD_AUX,
+            "optimizer/muon_hb_attn": MUON_HB_ATTN,
+            "optimizer/muon_hb_mlp": MUON_HB_MLP,
             "optimizer/recipe": "contra-muon + normuon-lite + soap-on-mlp + soap-on-attn-trust-gate (pre-NS5, record #14 + record #16)",
         },
     )
@@ -1059,6 +1139,14 @@ for trial_idx in range(args.num_trials):
                     stats = opt.trust_gate_stats()
                     if stats:
                         wandb.log(prefixed("train/attn_soap_trust_gate", stats), step=wandb_step)
+                if hasattr(opt, "update_norm_stats"):
+                    norms = opt.update_norm_stats()
+                    if norms:
+                        wandb.log(prefixed("train/muon", norms), step=wandb_step)
+                if hasattr(opt, "kind_dispatch_counts"):
+                    counts = opt.kind_dispatch_counts()
+                    if counts:
+                        wandb.log(prefixed("train/muon", counts), step=wandb_step)
         if dist.get_rank() == 0 and telemetry_due:
             log_weight_telemetry(
                 model=model,
