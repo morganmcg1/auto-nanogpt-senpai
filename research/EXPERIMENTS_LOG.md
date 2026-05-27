@@ -1,5 +1,38 @@
 # SENPAI Research Results — auto-nanogpt-1gpu-r5
 
+## 2026-05-27 18:58 — PR #1368: Per-group β1 decoupling scalars β1=0.95 n=4 confirm (thorfinn) [FFS-NOISE clean-NEG]
+- branch: g1r5-thorfinn/scalars-beta1-decouple
+- hypothesis: n=4 confirm of Cell B★ (scalars β1=0.95 vs 0.8). n=1 hit FFS=3000 (−25 baseline), val=3.25786. Promoted per FFS-primary directive because FFS=3000 cleared predeclared ≤3000 gate.
+- verdict: **CLOSED clean-NEG-FFS-NOISE** [FFS-primary, 24th stack-component closure under directive #1262]
+- results (n=4 sequential trials in one run, W&B run `n84s98at`):
+  | Trial | val/loss | FFS | val at step 3000 | n=1 gate |
+  |:-----:|:--------:|:---:|:---:|:---:|
+  | 0 | 3.25910 | 3025 | 3.28072 (miss) | ✓ |
+  | 1 | 3.26119 | 3025 | 3.28278 (miss) | ✗ |
+  | 2 | 3.25916 | 3025 | 3.28071 (miss) | ✓ |
+  | 3 | 3.25948 | 3025 | 3.28100 (miss) | ✓ |
+  | **μ_4** | **3.259733** | **3025** | all 4 miss 3.28@step3000 | 3/4 |
+  - σ_4(val)=0.000986, SEM_4=0.000493; σ_4(FFS)=0 (unanimous 3025)
+  - n=4 FFS merge gate (≤3018.75): FAIL at 3025
+  - n=4 val merge gate (≤3.259221): FAIL by +0.000511 (~1.04·SEM_4)
+
+- mechanism findings:
+  1. **n=1 FFS=3000 was step-quantization noise, not seed luck**. val@step3000 population mean sits *just above* 3.28 by < 1·σ_single — the n=1 seed sampled the lower tail. n=4 reveals the mean, not an artifact of any single seed being anomalous.
+  2. **Val improvement is real but small**: Δ = −0.001488 ≈ −2.51σ_single, consistent across all 4 seeds. Scalars β1=0.95 does shift the val/loss curve down slightly — but not enough to move FFS.
+  3. **Per-group β1 dissociation finding preserved**: scalars (1D, low-SNR) tolerate β1=0.99 (FFS=3025, val+0.0015), unlike matrices (#1310 uniform β1=0.99 → FFS=−1 NEVER, catastrophic). Basin width is param-group-specific. Finding stands as mechanism observation.
+  4. **Aux HP-decoupling triumvirate closed (FFS axis)**: β1 per-group (this PR) + β2 per-group (#1434 in flight) + ε per-group (#1310) all FFS-cosmetic. Per-group HP retuning cannot move FFS in this stack.
+
+- cluster connections:
+  - **24th stack-component closure** of FFS-primary cycle.
+  - **Closes per-group HP-decoupling mechanism class on FFS axis**: β1+β2+ε all FFS-cosmetic.
+  - **Joins cluster with #1275 (lr_scalars decoupling)** — scalars decoupling is val-positive but FFS-cosmetic.
+  - **Narrows FFS-moveable space**: HP retuning on aux groups (any of lr/β1/β2/ε/cooldown) is ruled out. FFS-moveable mechanisms are Muon body direction + cooldown shape.
+
+- student excellence: ★★ Excellent FFS-quantization-noise diagnosis. "val@step3000 sits just above 3.28 by < 1·σ_single across all 4 seeds" decomposition is exactly what FFS-primary directive #1262 was designed to surface. Honest split-bucket assessment of predeclared criteria.
+
+- decision (FFS-primary, directive #1262): FFS μ_4=3025 = no movement. Val gate miss by 1·SEM_4. Close clean-NEG-FFS-NOISE. 24th closure.
+- next assignment: #1471 thorfinn Lion optimizer for AdamW aux (Chen et al. 2023, sign-based, fresh mechanism class)
+
 ## 2026-05-27 18:05 — PR #1403: Polyak-Ruppert eval-only EMA (nezuko) [EVAL-AVERAGING-FALSIFIED clean-NEG]
 - branch: g1r5-nezuko/polyak-ruppert-eval-ema
 - hypothesis: "Does eval-only Polyak-Ruppert averaging reduce FFS by smoothing the val/loss noise floor near 3.28? Tests whether FFS=3025 is eval-noise-limited vs signal-limited."

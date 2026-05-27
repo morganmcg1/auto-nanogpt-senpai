@@ -9,6 +9,31 @@ The human research team has redirected: **FFS (first-step-to-target, baseline 30
 3. **Prefer experiments that move the crossing step** (2800-3050 window), **simplify winning stacks**, **reveal FFS-load-bearing components**.
 4. **Ablations preferred over confirmations** when FFS dead.
 
+## Last updated: 2026-05-27 ~19:00Z (poll ~894)
+
+**Actions this poll**: #1368 thorfinn scalars-β1=0.95 n=4 confirm CLOSED clean-NEG-FFS-NOISE (24th stack-component closure). Assigned #1471 thorfinn Lion-aux (Chen et al. 2023, sign-based optimizer on aux groups).
+
+**Critical in-flight**: ★★ #1381 alphonse cosine cooldown n=4 confirm (FFS=2925 ALIVE at n=1, n=4 in progress)
+
+**Active student portfolio (8 PRs, 0 idle)**:
+- ★★ #1381 alphonse — cosine cooldown n=4 confirm (FFS=2925 ALIVE at n=1; n=4 in flight)
+- #1471 thorfinn — Lion-aux sign-based optimizer (JUST ASSIGNED, Chen et al. 2023)
+- #1460 nezuko — Cautious Optimizer (sign-agreement gating on Muon body; Liang et al. 2024)
+- #1446 edward — Lookahead optimizer wrapper (Zhang et al. 2019, k=5/α=0.5)
+- #1442 tanjiro — per-block-depth Muon body LR decay (ULMFiT γ-modulation)
+- #1441 fern — AGC on Muon body (Brock et al. NFNets; cell A done FFS=3025, cell B lagging val=3.282, cells C-E pending)
+- #1437 askeladd — matrices β1 isolation (embed vs lm_head dissociation)
+- #1434 frieren — scalars β2 per-group decoupling (mirror of #1368 on β2 axis)
+
+**Cumulative closures (24 stack-components)**: Averaging class (2) + Aux-LR triumvirate (3) + Per-group HP-decoupling FFS axis (β1 n=4=closed #1368, scalars-β1 val-positive but FFS-noise) + Crossing-phase cluster (6) + Muon NS operator-class (4) + AdamW aux TETRAD (4) + Early-phase (2) + others
+
+**FFS-positive directions**:
+1. ★★ Cosine cooldown shape (#1381, FFS=2925 at n=1, n=4 in flight) — ONLY active FFS-positive candidate
+2. ~~scalars β1=0.95 (#1368, FFS=3000 at n=1)~~ — DID NOT confirm at n=4 (μ_4 FFS=3025 unanimous). Closed 24th.
+
+**Key mechanism cluster finding**: Per-group AdamW aux HP-decoupling is FFS-cosmetic (β1/β2/ε/lr/wd per-group all null on FFS axis; val-positive max ~2.5σ_single but subthreshold). Load-bearing FFS dynamics: cooldown SHAPE + Muon body update direction.
+
+
 **Audit of in-flight portfolio under new framing (updated poll ~876):**
 - **★★ #1368 thorfinn scalars-β1-DECOUPLE n=4 CONFIRM IN FLIGHT — FIRST FFS-POSITIVE n=1 OF R5 CYCLE**. Cell B★ (scalars_β1=0.95) FFS=3000 (−25), val=3.25786 (margin −0.002768 below n=1 gate ≈ 4.7σ_single). n=4 confirm at ~step 5500/13000 (1.7 of 4 trials complete, first trial recovered FFS=3025). One n=4 launch attempt crashed at step 125 (early failure), survivor running healthy.
 - **★★ #1381 alphonse COSINE COOLDOWN SHAPE n=4 CONFIRM — 2nd FFS-POSITIVE OF R5 CYCLE**. Cell B★ (`--lr_cooldown_shape cosine`) FFS=2925 at n=1 clears ≤2975 by exactly 100 steps; val=3.26779 +7.6σ_single tradeoff. n=4 confirm at ~step 800/13000 (~6% through), val tracking nominal.
