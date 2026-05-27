@@ -454,6 +454,17 @@ MU_COOLDOWN_END = float(os.environ.get("MU_COOLDOWN_END", "0.95"))
 # entirely and exactly reproduces the prior cooldown-only schedule.
 MU_WARMUP_STEPS = int(os.environ.get("MU_WARMUP_STEPS", "0"))
 MU_WARMUP_START = float(os.environ.get("MU_WARMUP_START", "0.85"))
+# Body Muon momentum POST-TARGET window perturbation (PR #1444): add
+# POST_TARGET_MU_DELTA to the scheduled momentum for global_step in
+# [POST_TARGET_MU_START, POST_TARGET_MU_END). Bidirectional: negative=drop
+# (more responsiveness), positive=boost (more EMA smoothing). Outside the
+# window the momentum follows the existing warmup/plateau/cooldown schedule
+# untouched. When disabled (=0, default) this branch is a no-op and step-0
+# trajectory bit-matches baseline.
+POST_TARGET_MU_ENABLED = int(os.environ.get("POST_TARGET_MU_ENABLED", "0"))
+POST_TARGET_MU_DELTA = float(os.environ.get("POST_TARGET_MU_DELTA", "-0.05"))
+POST_TARGET_MU_START = int(os.environ.get("POST_TARGET_MU_START", "2950"))
+POST_TARGET_MU_END = int(os.environ.get("POST_TARGET_MU_END", "3175"))
 MUON_LR = float(os.environ.get("MUON_LR", "0.0375"))
 MUON_WEIGHT_DECAY = 0.025  # nominal; Muon.step does not apply explicit wd (u/w-floor replaces it)
 TARGET_UW = 0.35
@@ -855,6 +866,10 @@ if dist.get_rank() == 0:
             "optimizer/mu_cooldown_end": MU_COOLDOWN_END,
             "optimizer/mu_warmup_steps": MU_WARMUP_STEPS,
             "optimizer/mu_warmup_start": MU_WARMUP_START,
+            "optimizer/post_target_mu_enabled": POST_TARGET_MU_ENABLED,
+            "optimizer/post_target_mu_delta": POST_TARGET_MU_DELTA,
+            "optimizer/post_target_mu_start": POST_TARGET_MU_START,
+            "optimizer/post_target_mu_end": POST_TARGET_MU_END,
             "optimizer/muon_lr": MUON_LR,
             "optimizer/muon_weight_decay_nominal": MUON_WEIGHT_DECAY,
             "optimizer/target_uw": TARGET_UW,
@@ -931,11 +946,19 @@ for trial_idx in range(args.num_trials):
                 cur_mu = MU_COOLDOWN_START + (MU_COOLDOWN_END - MU_COOLDOWN_START) * t
         else:
             cur_mu = MU + (MU_END - MU) * progress
+        scheduled_mu = cur_mu
+        post_target_mu_active = bool(
+            POST_TARGET_MU_ENABLED
+            and POST_TARGET_MU_START <= step < POST_TARGET_MU_END
+        )
+        if post_target_mu_active:
+            cur_mu = max(0.50, min(0.99, cur_mu + POST_TARGET_MU_DELTA))
         for opt in optimizers:
             for group in opt.param_groups:
                 group["lr"] = group["initial_lr"] * eta
                 if group.get("name") == "muon_blocks":
                     group["mu"] = cur_mu
+        return cur_mu, scheduled_mu, post_target_mu_active
 
 
     ########################################
@@ -1024,8 +1047,23 @@ for trial_idx in range(args.num_trials):
         dist.all_reduce(step_loss, op=dist.ReduceOp.SUM)
         train_loss = float((step_loss / batch_size).item())
         # set optimization hyperparameters and take a step
-        set_hparams(step)
+        cur_mu, scheduled_mu, post_target_mu_active = set_hparams(step)
         train_step = step + 1
+        # Per-step post-target momentum diagnostic logging in [2900, POST_TARGET_MU_END)
+        if dist.get_rank() == 0 and 2900 <= step < POST_TARGET_MU_END:
+            mu_delta_applied = cur_mu - scheduled_mu
+            wandb.log({
+                "train/body_muon/post_target_mu_active": int(post_target_mu_active),
+                "train/body_muon/scheduled_mu": scheduled_mu,
+                "train/body_muon/effective_mu": cur_mu,
+                "train/body_muon/mu_delta_applied": mu_delta_applied,
+            }, step=trial_idx * (train_steps + 1) + train_step)
+            if step == POST_TARGET_MU_START and POST_TARGET_MU_ENABLED:
+                print0(f"[POST_TARGET_MU] step={step} delta={POST_TARGET_MU_DELTA:+.3f} active=True"
+                       f" (scheduled={scheduled_mu:.4f}, effective={cur_mu:.4f})", console=True)
+            if step + 1 == POST_TARGET_MU_END and POST_TARGET_MU_ENABLED:
+                print0(f"[POST_TARGET_MU] step={step+1} active=False"
+                       f" (scheduled cooldown mu resumes)", console=True)
         telemetry_due = (step == 0 or (step + 1) % args.telemetry_interval == 0 or step + 1 == train_steps)
         histogram_due = (step == 0 or (step + 1) % args.histogram_interval == 0 or step + 1 == train_steps)
         slope_due = (train_step % slope_interval == 0 or train_step == train_steps)
