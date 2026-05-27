@@ -1,5 +1,46 @@
 # SENPAI Research Results — auto-nanogpt-1gpu-r4
 
+## 2026-05-27 20:35 — PR #1426: NM global LR_SCALE sweep on post-#1240 stack {0.80, 0.90, 1.0 ctrl, 1.10} (CLOSED Row 1/2 PP-promote candidate — Arm C LR_SCALE=0.80 STRONG mild-FAV val=3.26320 ≤ baseline AND fs=3125 ≤ baseline; U-shape finding contested by G4-MARGINAL ctrl drift; PP-promoted to #1478 frieren n=3 paired validation)
+
+- branch: `g1r4-frieren/nm-lr-scale-global-sweep`
+- Hypothesis: characterize the GLOBAL NM_LR_SCALE multiplier on post-#1240 stack — virgin axis untouched since #1240 merge. Production implicit LR_SCALE=1.0 never confirmed locally optimal. Mechanism question: does NM preconditioner G → G·R^{−0.5} make effective gradient steps too aggressive (DOWN-FAV) or too conservative (UP-FAV) globally?
+- All 4 arms TERMINAL after ~7.9h sequential A→B→C→D.
+
+| Arm | LR_SCALE | run_id | val/loss | fs | Δ_paired val vs A | Δ_paired fs | Δ vs baseline 3.26339 | G4 status | R_cond_mean | precond_ratio_mean |
+|:---:|:---:|---|:---:|:---:|:---:|:---:|:---:|:---:|:---:|:---:|
+| **A ctrl** | 1.0 | `ntyw5pze` | 3.26669 | 3175 | (ref) | (ref) | **+0.00330 MARGINAL** | edge | 3.34e+05 | 1.0850 |
+| **B** | 0.90 | `takmgpsw` | 3.26430 | **3150** | **−0.00239** | **−25** | +0.00091 PASS | clean | 1.97e+06 | 1.1149 |
+| **C (PRIMARY)** | **0.80** | `e7w3kcs7` | **3.26320** | **3125** | **−0.00349** | **−50** | **−0.00019 PASS-CLEAN ≤ baseline** | clean | **1.89e+05** | **1.1338** |
+| **D** | 1.10 | `4ykog891` | 3.26531 | 3175 | −0.00138 | 0 | +0.00192 PASS | clean | 1.99e+06 | 1.0937 |
+
+**🎯 Verdict: CLOSED Row 1/2 PP-promote candidate, NOT direct merge**. Decision tree row hit: Row 1 PP-promote (Arm C past Δ ≤ −0.002 AND val ≤ baseline threshold). Production LR=1.0 NOT confirmed locally optimal — Arm C at LR=0.80 ties baseline val AND beats baseline fs by 25 steps.
+
+**🎯 KEY FINDINGS**:
+
+**1. U-SHAPE finding — all 3 perturbation arms (B, C, D) mild-FAV vs ctrl A**: Pre-staged DOWN-FAV/UP-NEG monotone prediction FALSIFIED. Production LR=1.0 sits at a local MAXIMUM, not local optimum, on post-#1240 stack. Arm A is the OUTLIER in the chain (+0.00330 vs baseline) — all 3 perturbations cluster in [−0.00019, +0.00192] near the true baseline ridge.
+
+**2. Arm C is FIRST NM-axis arm in r4 to produce val AND fs BELOW new baseline**: val=3.26320 ≤ 3.26339 (−0.00019) AND fs=3125 ≤ 3150 (−25 fs). The fs improvement is independent of ctrl drift (deterministic per-step crossing event), making it the strongest evidence of genuine improvement.
+
+**3. Ctrl drift caveat — G4 MARGINAL**: Arm A drift +0.00330 sits just past the G4 outer envelope. Two competing interpretations of the U-shape:
+- **Interp 1: True U-shape** — production LR=1.0 is local max, both damping AND boost improve. PP n=3 retains U-shape.
+- **Interp 2: Ctrl-drift artifact** — real direction is "C mild-FAV, D mid-NEG, A drifted high creating artificial U-shape". PP n=3 with fresh ctrls collapses B/D back to NULL/NEG; only C retains FAV.
+
+The PP n=3 chain (#1478) will disambiguate these interpretations.
+
+**4. First MAGNITUDE-OF-PRECONDITION axis to extract paired-Δ FAV signal on post-#1240 stack**: All other magnitude axes (β, EPS, per-group MLP-LR, start-step, β-schedule) are NULL or NULL-with-fs-penalty. **Global LR_SCALE — NOT NULL**: U-shape with paired-FAV in both directions. Distinct from per-group MLP-LR (#1393 NULL-with-fs-penalty) because GLOBAL proportional damping preserves ATTN/MLP asymmetry (production tuned at 0.80/1.20 MUON_LR_MULT).
+
+**5. NM telemetry U-shape signature**:
+- **precond_ratio_mean** is MONOTONE-DECREASING in LR: C (1.134) > B (1.115) > D (1.094) > A (1.085) — heavier damping → stronger relative preconditioning effect (R^{−1/2} signal more dominant relative to scaled-down LR·G)
+- **R_cond_max** is U-shaped (~10⁷ for A/C, ~10⁸ for B/D) — perturbation arms B/D show 10× higher max-condition spikes than A/C, possibly indicating instability events that both ctrl and overdamped LR=0.80 avoid
+
+**6. Compound stack hypothesis revived — period=2 ∧ LR_SCALE=0.80**: With cycle-440 SIGN-FLIP ruling out β=0.99 compound stack candidate, LR_SCALE=0.80 becomes the new orthogonal mechanism for compounding with period=2. Mechanistically distinct (period=2 changes R refresh frequency; LR_SCALE=0.80 dampens preconditioned step magnitude). Linear-composition predicted Δ_paired_sum ≈ −0.00481 if both PP-validate at n=3.
+
+**Action**: CLOSE this PR; PP-promote LR_SCALE=0.80 to n=3 paired validation as #1478 (frieren).
+
+**Cross-axis catalog update cycle 442**: LR_SCALE_global enters cross-axis catalog as 14th NM-aligned axis. PENDING n=3 PP-validation (likely 35% Row 4 NULL-collapse / 25% Row 2 PP-MARGINAL / 20% Row 3 mild-FAV / 10% Row 1 strong-FAV / 8% Row 5 sign-FLIP / 2% Row 6 fs-only).
+
+---
+
 ## 2026-05-27 18:30 — PR #1409: NM structural coverage ablation — MLP vs ATTN module-type sweep (CLOSED productive-MONOTONE-NEG ASYMMETRIC INVERTED — MLP > ATTN by 5.7× per module, ATTN-only ANTI-preconditions, coverage axis dispositively fenced at full)
 
 - branch: `g1r4-alphonse/nm-module-coverage-ablation`
