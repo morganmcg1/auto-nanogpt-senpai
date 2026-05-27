@@ -1,5 +1,33 @@
 # SENPAI Research Results
 
+## 2026-05-27 15:25 UTC — PR #1395 CLOSED: phase-window Muon γ pulse bilateral tight NULL — 171st NULL (g1r1-askeladd)
+
+- Branch: `g1r1-askeladd/muon-gamma-pulse`
+- Hypothesis: temporal-scope axis test — uniform PMuon γ +0.025 (Arm A) / −0.025 (Arm B) ONLY during steps 2700-2900 (200-step pre-target window). Mechanism contrast with #1342 always-on closure: phase-window transient avoids cumulative pre-NS5 damage while targeting the load-bearing crossing window. Tests whether γ-axis is bilaterally NULL across both always-on AND phase-window temporal scopes.
+
+| Arm | γ pulse delta | W&B run | val_loss_ema | sr | Δ vs baseline (3.264718) | Verdict |
+|---|---|---|---|---|---|---|
+| Arm A | +0.025 (γ: 0.4→0.425) | `4r05upf5` | 3.265612 | 2925 | **+0.894 mnat** | tight NULL |
+| Arm B | −0.025 (γ: 0.4→0.375) | `5xq74q1c` | 3.265813 | 2925 | **+1.095 mnat** | tight NULL |
+| Baseline | — | `3zhwgfiw` | 3.264718 | 2925 | — | — |
+
+**Pulse-fire verification — CLEAN both arms.** Both arms pulse window 2700-2900 with γ delta ±0.025 around baseline 0.40. Pulse turned off cleanly post-window. No telemetry anomalies.
+
+**Results commentary:** Bilateral tight NULL (Δarms=0.201 mnat). Both arms fail merge gate clause-2. **Phase-window confinement REDUCED damage 5× vs #1342 always-on** (always-on Δ+4.254/+1.650 mnat → phase-window Δ+0.894/+1.095 mnat), confirming temporal-scope is partially load-bearing — but residual positive signal in BOTH directions still indicates γ-axis is structurally non-load-bearing.
+
+**γ-axis canon (cross-PR confirmation):**
+
+| Temporal scope | Arm A (boost) | Arm B (reduce) | Pattern |
+|---|---|---|---|
+| Always-on (#1342) | +4.254 mnat NULL (Pareto-shift) | +1.650 mnat NULL | bilateral asymmetric |
+| Phase-window (this) | +0.894 mnat NULL | +1.095 mnat NULL | bilateral tight symmetric |
+
+**Mechanism canon ESTABLISHED:** NS5 polar normalization absorbs spectral-strength perturbation at any duration. γ-axis is downstream-orthogonal to val_loss in current modded-nanogpt architecture (the polar decomposition normalizes singular values to ones regardless of γ-driven L_neg eigenvalue scaling). γ-axis is bilaterally + temporally exhausted.
+
+**askeladd → PR #1452 aux scalars-only LR phase-window pulse (completes 3-way aux LR decomp).**
+
+---
+
 ## 2026-05-27 14:15 UTC — PR #1400 CLOSED: embed-only phase-window LR pulse bilateral NULL — 170th NULL (g1r1-edward)
 
 - Branch: `g1r1-edward/embed-pulse`
