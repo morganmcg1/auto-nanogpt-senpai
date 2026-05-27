@@ -109,6 +109,31 @@ def parse_args():
     parser.add_argument("--body_init_bottom_layers", type=int,
                         default=int(os.environ.get("BODY_INIT_BOTTOM_LAYERS", "6")),
                         help="Number of bottom layers to damp for --body_init=orthogonal_bottom_damp (default 6 = bottom half of 12 layers).")
+    # H199 Dual-EMA on MuonH body momentum: maintain a slow EMA of raw body
+    # gradients alongside the fast momentum buffer, then blend the two as the
+    # NS5 polar projection input. alpha=1.0 is the baseline (no slow EMA
+    # allocated, no blend, bit-identical hot path).
+    parser.add_argument("--body_dual_ema_alpha", type=float,
+                        default=float(os.environ.get("BODY_DUAL_EMA_ALPHA", "1.0")),
+                        help="Blend factor for body grad direction. "
+                             "alpha=1.0 = pure fast momentum (baseline, bit-identical). "
+                             "alpha<1.0 = blend with slow EMA: g_blend = alpha*fast + (1-alpha)*slow_ema. "
+                             "Suggested values 0.3, 0.5.")
+    parser.add_argument("--body_dual_ema_beta_slow", type=float,
+                        default=float(os.environ.get("BODY_DUAL_EMA_BETA_SLOW", "0.999")),
+                        help="Decay for the slow EMA of raw body gradients (default 0.999, ~1000-step window).")
+    parser.add_argument("--body_dual_ema_eval_only", type=int,
+                        default=int(os.environ.get("BODY_DUAL_EMA_EVAL_ONLY", "0")),
+                        help="If 1, slow EMA is computed and its statistics are logged, but the blend is not "
+                             "applied (NS5 input stays at the baseline Nesterov(fast, grad) value). "
+                             "Use for telemetry sanity-check runs. Only meaningful when alpha<1.0.")
+    parser.add_argument("--body_dual_ema_match_magnitude", type=int,
+                        default=int(os.environ.get("BODY_DUAL_EMA_MATCH_MAGNITUDE", "0")),
+                        help="If 1, per-param rescale slow_ema to match the fast momentum's Frobenius "
+                             "norm before blending: g_blend = alpha*fast + (1-alpha) * slow * (|fast|/|slow|). "
+                             "This makes the slow EMA contribute meaningfully when |slow| << |fast| "
+                             "(empirically slow_to_fast_ratio ~ 0.08 in late cooldown). Only active when "
+                             "alpha<1.0 and eval_only=0.")
     args = parser.parse_args()
     args.num_trials = args.num_trials if args.num_trials is not None else (args.legacy_num_trials or 1)
     args.wandb_tags = [tag.strip() for tag in args.wandb_tags.split(",") if tag.strip()]
@@ -571,6 +596,50 @@ def muon_update(grad, momentum, mu=0.95, nesterov=True):
     update *= max(1, grad.size(-2) / grad.size(-1))**0.5
     return update
 
+
+@torch.compile
+def muon_update_dualema(grad, momentum, slow_ema, alpha, beta_s, mu=0.95, nesterov=True):
+    """H199 Dual-EMA variant of muon_update.
+
+    Maintains both the fast momentum buffer (existing) and a slow EMA of raw
+    gradients, then blends them as the input to the Nesterov lerp before NS5.
+    alpha=1.0 reduces to muon_update; we still allow it here for completeness
+    but the caller should prefer muon_update for that case to stay bit-identical.
+
+    The slow EMA update happens before grad is mutated by the Nesterov lerp,
+    so slow_ema sees the original reduced gradient.
+    """
+    momentum.lerp_(grad, 1 - mu)
+    slow_ema.mul_(beta_s).add_(grad, alpha=1.0 - beta_s)
+    blended_fast = alpha * momentum + (1.0 - alpha) * slow_ema
+    update = grad.lerp_(blended_fast, mu) if nesterov else blended_fast
+    update = zeropower_via_newtonschulz5(update)
+    update *= max(1, grad.size(-2) / grad.size(-1))**0.5
+    return update
+
+
+@torch.compile
+def muon_update_dualema_match(grad, momentum, slow_ema, alpha, beta_s, mu=0.95, nesterov=True, eps=1e-8):
+    """H199 Dual-EMA variant with per-param magnitude-matched slow contribution.
+
+    Same as muon_update_dualema, but the slow_ema is rescaled per-tensor to the
+    fast momentum's Frobenius norm BEFORE blending. This keeps the slow
+    direction information but ensures the blend isn't dominated by |fast| when
+    |slow| << |fast| (empirically slow_to_fast_ratio ~ 0.08 in late cooldown).
+
+    blended_fast = alpha * momentum + (1 - alpha) * slow_ema * (|momentum| / |slow_ema|)
+    """
+    momentum.lerp_(grad, 1 - mu)
+    slow_ema.mul_(beta_s).add_(grad, alpha=1.0 - beta_s)
+    fast_norm = momentum.norm().clamp_min(eps)
+    slow_norm = slow_ema.norm().clamp_min(eps)
+    scale = fast_norm / slow_norm
+    blended_fast = alpha * momentum + (1.0 - alpha) * (slow_ema * scale)
+    update = grad.lerp_(blended_fast, mu) if nesterov else blended_fast
+    update = zeropower_via_newtonschulz5(update)
+    update *= max(1, grad.size(-2) / grad.size(-1))**0.5
+    return update
+
 class Muon(torch.optim.Optimizer):
     def __init__(self, params, lr=0.02, weight_decay=0, mu=0.95):
         assert isinstance(params, list) and len(params) >= 1 and isinstance(params[0], torch.nn.Parameter)
@@ -669,7 +738,9 @@ class MuonH(torch.optim.Optimizer):
     norm exactly constant; weight_decay must be 0.
     """
     def __init__(self, params, lr=0.018, weight_decay=0.0, mu=0.95,
-                 hyperball=True, budget_mult=1.0, mode="clip"):
+                 hyperball=True, budget_mult=1.0, mode="clip",
+                 dual_ema_alpha=1.0, dual_ema_beta_slow=0.999, dual_ema_eval_only=False,
+                 dual_ema_match_magnitude=False):
         assert isinstance(params, list) and len(params) >= 1 and isinstance(params[0], torch.nn.Parameter)
         assert mode in ("clip", "scale_invariant")
         params = sorted(params, key=lambda x: x.size(), reverse=True)
@@ -679,6 +750,20 @@ class MuonH(torch.optim.Optimizer):
         self._last_active_fraction = 0.0
         self._last_radius_to_norm_max = 0.0
         self._last_norm_to_radius_max = 0.0
+        # H199 Dual-EMA configuration. When dual_ema_alpha == 1.0, no slow_ema
+        # buffer is allocated, no blend is computed, and the inner update path
+        # is bit-identical to baseline. dual_ema_eval_only=True maintains the
+        # slow_ema buffer for telemetry but does not apply the blend.
+        # dual_ema_match_magnitude=True per-param rescales slow_ema to |fast|
+        # before blending so the slow direction contributes meaningfully when
+        # |slow| << |fast|.
+        self.dual_ema_alpha = float(dual_ema_alpha)
+        self.dual_ema_beta_slow = float(dual_ema_beta_slow)
+        self.dual_ema_eval_only = bool(dual_ema_eval_only)
+        self.dual_ema_match_magnitude = bool(dual_ema_match_magnitude)
+        self.dual_ema_active = (self.dual_ema_alpha < 1.0)
+        # Telemetry stash, updated by compute_dual_ema_telemetry().
+        self._last_dual_ema_telemetry: dict[str, float] = {}
 
     @torch.no_grad()
     def step(self):
@@ -702,7 +787,31 @@ class MuonH(torch.optim.Optimizer):
                         state["momentum"] = torch.zeros_like(p)
                         if hb:
                             state["hyperball_radius"] = p.data.norm().item() * budget_mult
-                    update = muon_update(p.grad, state["momentum"], mu=group["mu"])
+                        if self.dual_ema_active:
+                            state["slow_ema"] = torch.zeros_like(p)
+                    if self.dual_ema_active:
+                        if self.dual_ema_eval_only:
+                            # Maintain slow_ema for telemetry but keep the
+                            # baseline NS5 input path. The raw grad must feed
+                            # slow_ema BEFORE muon_update mutates grad.
+                            state["slow_ema"].mul_(self.dual_ema_beta_slow).add_(
+                                p.grad, alpha=1.0 - self.dual_ema_beta_slow
+                            )
+                            update = muon_update(p.grad, state["momentum"], mu=group["mu"])
+                        elif self.dual_ema_match_magnitude:
+                            update = muon_update_dualema_match(
+                                p.grad, state["momentum"], state["slow_ema"],
+                                self.dual_ema_alpha, self.dual_ema_beta_slow,
+                                mu=group["mu"],
+                            )
+                        else:
+                            update = muon_update_dualema(
+                                p.grad, state["momentum"], state["slow_ema"],
+                                self.dual_ema_alpha, self.dual_ema_beta_slow,
+                                mu=group["mu"],
+                            )
+                    else:
+                        update = muon_update(p.grad, state["momentum"], mu=group["mu"])
                     if hb and mode == "scale_invariant":
                         # Always-active variant: norm is held at initial value by construction.
                         scale_invariant_update_(p.data, update, group["lr"])
@@ -745,6 +854,76 @@ class MuonH(torch.optim.Optimizer):
         self._last_active_fraction = clip_count / total_count if total_count > 0 else 0.0
         self._last_radius_to_norm_max = max_r_over_n
         self._last_norm_to_radius_max = max_n_over_r
+
+    @torch.no_grad()
+    def compute_dual_ema_telemetry(self) -> dict[str, float]:
+        """H199 telemetry: per-call aggregate norms and cosine sims across all
+        body matrices that own a slow_ema buffer. Returns an empty dict when
+        dual-EMA is inactive. Caller is responsible for calling at the desired
+        cadence (e.g., once per telemetry_interval steps).
+
+        When dual_ema_match_magnitude=True, the reported blend reflects the
+        per-tensor rescaled slow contribution (slow_scaled = slow * |fast|/|slow|).
+        """
+        if not self.dual_ema_active:
+            return {}
+        alpha = self.dual_ema_alpha
+        match_magnitude = self.dual_ema_match_magnitude
+        eps = 1e-8
+        fast_norm_sq = 0.0
+        slow_norm_sq = 0.0
+        fast_dot_slow = 0.0
+        blend_norm_sq = 0.0
+        blend_dot_fast = 0.0
+        count = 0
+        for group in self.param_groups:
+            for p in group["params"]:
+                state = self.state.get(p, {})
+                if "slow_ema" not in state or "momentum" not in state:
+                    continue
+                fast = state["momentum"].detach().to(torch.float32)
+                slow = state["slow_ema"].detach().to(torch.float32)
+                if match_magnitude:
+                    fnorm = float(fast.norm().item())
+                    snorm = float(slow.norm().item())
+                    scale = fnorm / max(snorm, eps)
+                    slow_for_blend = slow * scale
+                else:
+                    slow_for_blend = slow
+                blend = alpha * fast + (1.0 - alpha) * slow_for_blend
+                fast_norm_sq += float(fast.square().sum().item())
+                slow_norm_sq += float(slow.square().sum().item())
+                fast_dot_slow += float((fast * slow).sum().item())
+                blend_norm_sq += float(blend.square().sum().item())
+                blend_dot_fast += float((blend * fast).sum().item())
+                count += 1
+        if count == 0:
+            self._last_dual_ema_telemetry = {}
+            return {}
+        fast_norm = fast_norm_sq ** 0.5
+        slow_norm = slow_norm_sq ** 0.5
+        blend_norm = blend_norm_sq ** 0.5
+        cos_sim = (
+            fast_dot_slow / (fast_norm * slow_norm)
+            if fast_norm > 0 and slow_norm > 0 else 0.0
+        )
+        blend_vs_fast_cos_sim = (
+            blend_dot_fast / (blend_norm * fast_norm)
+            if blend_norm > 0 and fast_norm > 0 else 0.0
+        )
+        out = {
+            "train/dual_ema/fast_norm": fast_norm,
+            "train/dual_ema/slow_norm": slow_norm,
+            "train/dual_ema/blend_norm": blend_norm,
+            "train/dual_ema/cos_sim": cos_sim,
+            "train/dual_ema/blend_vs_fast_cos_sim": blend_vs_fast_cos_sim,
+            "train/dual_ema/slow_to_fast_ratio": slow_norm / fast_norm if fast_norm > 0 else 0.0,
+            "train/dual_ema/blend_to_fast_ratio": blend_norm / fast_norm if fast_norm > 0 else 0.0,
+            "train/dual_ema/match_magnitude_active": 1.0 if match_magnitude else 0.0,
+            "train/dual_ema/param_count": count,
+        }
+        self._last_dual_ema_telemetry = out
+        return out
 
 
 ########################################
@@ -791,6 +970,17 @@ if args.muonh_agc_clip_ratio > 0:
     print0(f"AGC ENABLED on inner MuonH gradient: clip_ratio={args.muonh_agc_clip_ratio} eps={args.muonh_agc_eps}", console=True)
 else:
     print0("AGC DISABLED on inner MuonH gradient (clip_ratio=0)", console=True)
+if args.body_dual_ema_alpha < 1.0:
+    if args.body_dual_ema_eval_only:
+        mode_str = "EVAL_ONLY (telemetry, no blend)"
+    elif args.body_dual_ema_match_magnitude:
+        mode_str = "ACTIVE+MAGNITUDE_MATCHED (slow rescaled to |fast|)"
+    else:
+        mode_str = "ACTIVE (un-normalized blend)"
+    print0(f"H199 Dual-EMA body momentum ENABLED [{mode_str}]: alpha={args.body_dual_ema_alpha} "
+           f"beta_slow={args.body_dual_ema_beta_slow}", console=True)
+else:
+    print0("H199 Dual-EMA body momentum DISABLED (alpha=1.0, bit-identical baseline)", console=True)
 print0("="*100)
 
 val_tokens = 20 * 524288
@@ -850,6 +1040,11 @@ if dist.get_rank() == 0:
             "muonh_mu_schedule": args.muonh_mu_schedule,
             "muonh_mu_start": args.muonh_mu_start,
             "muonh_mu_end": args.muonh_mu_end,
+            "body_init": args.body_init,
+            "body_dual_ema_alpha": args.body_dual_ema_alpha,
+            "body_dual_ema_beta_slow": args.body_dual_ema_beta_slow,
+            "body_dual_ema_eval_only": int(args.body_dual_ema_eval_only),
+            "body_dual_ema_match_magnitude": int(args.body_dual_ema_match_magnitude),
         },
     )
 
@@ -933,7 +1128,11 @@ for trial_idx in range(args.num_trials):
     optimizer2 = MuonH([p for p in model.blocks.parameters() if p.ndim >= 2],
                        lr=args.muonh_lr, weight_decay=0.0, mu=0.95,
                        hyperball=True, budget_mult=args.muonh_budget_mult,
-                       mode=args.muonh_mode)
+                       mode=args.muonh_mode,
+                       dual_ema_alpha=args.body_dual_ema_alpha,
+                       dual_ema_beta_slow=args.body_dual_ema_beta_slow,
+                       dual_ema_eval_only=bool(args.body_dual_ema_eval_only),
+                       dual_ema_match_magnitude=bool(args.body_dual_ema_match_magnitude))
     optimizer2.param_groups[0]["name"] = "muonh_blocks"
     optimizers = [optimizer1, optimizer2]
     # AGC targets: AdamW aux groups (embed, lm_head, scalars). Built from optimizer1
@@ -1189,6 +1388,8 @@ for trial_idx in range(args.num_trials):
                         muonh_metrics["train/muonh/active_fraction"] = opt._last_active_fraction
                         muonh_metrics["train/muonh/radius_to_norm_max"] = opt._last_radius_to_norm_max
                         muonh_metrics["train/muonh/norm_to_radius_max"] = opt._last_norm_to_radius_max
+                        if opt.dual_ema_active:
+                            muonh_metrics.update(opt.compute_dual_ema_telemetry())
                     muonh_metrics["train/muonh/warmup_factor"] = muonh_warmup_factor
                     muonh_metrics["train/muonh/effective_lr"] = opt.param_groups[0]["lr"]
             if telemetry_due and args.aux_agc_clip_ratio > 0 and agc_stats["agc_total"] > 0:
