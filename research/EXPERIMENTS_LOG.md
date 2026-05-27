@@ -1,3 +1,24 @@
+## 2026-05-27 09:35 — PR #1373: H199 nezuko Dual-EMA on MuonH body momentum (pre-NS5 direction blend) — CLOSED (58th NULL/NEG + 🎯 programme finding #32)
+
+- Branch: `g1r3-nezuko/dual-ema-body-momentum`
+- Hypothesis: Maintain slow EMA (β_s=0.999, ~1000-step window) of raw body gradients alongside fast momentum; blend `α*fast + (1-α)*slow` BEFORE NS5 polar projection. Tests if direction-blending pre-NS5 carries productive signal.
+- Design pivot during execution: arm_c switched from predeclared α=0.3 un-norm to α=0.5 MAGMATCH after arm_b telemetry showed slow_to_fast_ratio ~0.08 made un-norm blend effectively no-op. Magnitude-matched blend preserves slow direction information at meaningful magnitude.
+- Results:
+
+  | Arm | α | mag-match | W&B | val/loss | FFS | Δval vs CTRL | σ-units vs H174 | Class |
+  |---|---|---|---|---|---|---|---|---|
+  | arm_a CTRL | 1.0 | — | `l5ys1qwl` | 3.26568 | 3150 | 0.0 | +1.4σ | NULL (typical CTRL) |
+  | arm_b BLEND_0.5 un-norm | 0.5 | off | `85lklhmh` | 3.27264 | **3200** | +0.00696 | **+9.3σ NEG** | NEG +50 FFS |
+  | arm_c BLEND_0.5 MAGMATCH | 0.5 | on | `d3c2gjvj` | **3.31177** | **-1 (never)** | +0.04609 | **+53.5σ HARD NEG** | catastrophic NEG |
+
+- Outcome: No WIN. **58th NULL/NEG.** arm_c never crossed 3.28 target (terminal val=3.31177, 0.032 above target after full cooldown). arm_b NEG by +50 FFS.
+- **🎯 Programme finding #32 — Pre-NS5 direction blending is mechanistically incompatible**: Slow EMA and fast EMA decorrelate over training (cos_sim 0.84→0.30) confirming slow EMA captures a *different* direction. But monotone NEG with blend intensity:
+  - **un-norm** (slow ~8% of fast magnitude → blend_vs_fast_cos_sim=0.999): +50 FFS NEG. Even 8%-magnitude noisy direction injected pre-NS5 derails polar projection.
+  - **magmatch** (blend_vs_fast_cos_sim=0.814, ~36° direction change): +53.5σ HARD NEG. Magnitude-matched blend completely derails NS5 convergence.
+  - NS5 is **more sensitive** to input direction perturbation than dwarf-ratio suggested.
+- **Cross-finding consolidation H191+H195+H196+H199+H201 (now 5 confirmations)**: ALL per-element body modifications pre-NS5 mechanistically incompatible with polar projection — H191 (per-element second-moment), H195 (direction-filtering mask), H196 (gradient-mean centering), H199 (per-element direction blending, this PR), H201 (additive Gaussian noise). Polar projection IS the body's preconditioning; any pre-NS5 gradient processing fights it. **Programme conclusion**: stop generating PRE-NS5 per-element-modification hypotheses; productive search space is post-NS5 (H205, H208) or spectral-aware NS5 itself (H206) or state-axis decoupled (H207).
+- Student's suggested follow-up #4 → next assignment: **H208 nezuko Post-NS5 EMA Smoothing of body update directions** (PR #1416) — temporal smoothing in polar basis. Both inputs to blend are post-NS5 (σ_i ≈ 1 uniform), so doesn't fight polar projection. NEW MECHANISM CLASS = TEMPORAL post-NS5 smoothing, distinct from H205 SPATIAL post-NS5 blend (with raw gradient).
+
 ## 2026-05-27 09:13 — PR #1374: H200 fern Mid-Training LR Warm Restart on body — CLOSED (57th NULL/NEG + 🎯 programme finding #31)
 
 - Branch: `g1r3-fern/mid-training-lr-warm-restart`
