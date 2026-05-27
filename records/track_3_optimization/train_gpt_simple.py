@@ -70,6 +70,19 @@ def parse_args():
                              "Same formula as aux AGC: clip_scale = min(1, ratio * param_norm / grad_norm). "
                              "0.0 = disabled (default).")
     parser.add_argument("--muonh_agc_eps", type=float, default=float(os.environ.get("MUONH_AGC_EPS", "1e-3")))
+    # H191 AdaMuon (arXiv:2507.11005): per-element second-moment EMA on the NS5-
+    # orthogonalized MuonH body update, with F-norm renormalization to preserve the
+    # MuonH-SI hyperball radius. Default off = bit-identical to baseline.
+    parser.add_argument("--muonh_adamuon", type=int,
+                        default=int(os.environ.get("MUONH_ADAMUON", "0")),
+                        choices=[0, 1],
+                        help="AdaMuon: per-element second moment on NS5 updates. 0=off (baseline bit-identical).")
+    parser.add_argument("--muonh_adamuon_beta2", type=float,
+                        default=float(os.environ.get("MUONH_ADAMUON_BETA2", "0.999")),
+                        help="AdaMuon beta2 for v_elem EMA.")
+    parser.add_argument("--muonh_adamuon_eps", type=float,
+                        default=float(os.environ.get("MUONH_ADAMUON_EPS", "1e-8")),
+                        help="AdaMuon eps for v_elem denominator.")
     parser.add_argument("--aux_adamw_eps", type=float, default=float(os.environ.get("AUX_ADAMW_EPS", "1e-10")),
                         help="Aux AdamW eps (default 1e-10 = baseline). Standard PyTorch is 1e-8.")
     # β2 schedule on aux AdamW (embed/lm_head/scalars). Mutates param_groups[*]['betas']
@@ -669,16 +682,27 @@ class MuonH(torch.optim.Optimizer):
     norm exactly constant; weight_decay must be 0.
     """
     def __init__(self, params, lr=0.018, weight_decay=0.0, mu=0.95,
-                 hyperball=True, budget_mult=1.0, mode="clip"):
+                 hyperball=True, budget_mult=1.0, mode="clip",
+                 adamuon=False, adamuon_beta2=0.999, adamuon_eps=1e-8):
         assert isinstance(params, list) and len(params) >= 1 and isinstance(params[0], torch.nn.Parameter)
         assert mode in ("clip", "scale_invariant")
         params = sorted(params, key=lambda x: x.size(), reverse=True)
         defaults = dict(lr=lr, weight_decay=weight_decay, mu=mu,
-                        hyperball=hyperball, budget_mult=budget_mult, mode=mode)
+                        hyperball=hyperball, budget_mult=budget_mult, mode=mode,
+                        adamuon=adamuon, adamuon_beta2=adamuon_beta2, adamuon_eps=adamuon_eps)
         super().__init__(params, defaults)
         self._last_active_fraction = 0.0
         self._last_radius_to_norm_max = 0.0
         self._last_norm_to_radius_max = 0.0
+        # H191 AdaMuon telemetry: aggregated across all params handled by this
+        # rank in the last step(). Zero when adamuon is disabled.
+        self._last_adamuon_v_elem_mean = 0.0
+        self._last_adamuon_v_elem_std = 0.0
+        self._last_adamuon_elem_scale_mean = 0.0
+        self._last_adamuon_elem_scale_std = 0.0
+        self._last_adamuon_orig_norm_mean = 0.0
+        self._last_adamuon_scaled_norm_mean = 0.0
+        self._last_adamuon_param_count = 0
 
     @torch.no_grad()
     def step(self):
@@ -688,12 +712,23 @@ class MuonH(torch.optim.Optimizer):
         total_count_local = 0
         max_r_over_n_local = 0.0
         max_n_over_r_local = 0.0
+        # H191 AdaMuon per-step accumulators (mean across params handled here).
+        adamuon_param_count_local = 0
+        adamuon_v_elem_mean_sum = 0.0
+        adamuon_v_elem_std_sum = 0.0
+        adamuon_elem_scale_mean_sum = 0.0
+        adamuon_elem_scale_std_sum = 0.0
+        adamuon_orig_norm_sum = 0.0
+        adamuon_scaled_norm_sum = 0.0
         for group in self.param_groups:
             params = group["params"]
             params_pad = params + [torch.empty_like(params[-1])] * (world_size - len(params) % world_size)
             hb = group["hyperball"]
             budget_mult = group["budget_mult"]
             mode = group["mode"]
+            adamuon = group.get("adamuon", False)
+            adamuon_beta2 = group.get("adamuon_beta2", 0.999)
+            adamuon_eps = group.get("adamuon_eps", 1e-8)
             for base_i in range(0, len(params), world_size):
                 if base_i + rank < len(params):
                     p = params[base_i + rank]
@@ -703,6 +738,30 @@ class MuonH(torch.optim.Optimizer):
                         if hb:
                             state["hyperball_radius"] = p.data.norm().item() * budget_mult
                     update = muon_update(p.grad, state["momentum"], mu=group["mu"])
+                    # H191 AdaMuon: per-element second-moment EMA on the NS5-
+                    # orthogonalized update, with F-norm renormalization. Default off
+                    # bypasses this branch entirely so the path is bit-identical to
+                    # baseline.
+                    if adamuon:
+                        if "v_elem" not in state:
+                            state["v_elem"] = torch.ones_like(p.data)
+                            state["adamuon_step"] = 0
+                        state["adamuon_step"] += 1
+                        v_elem = state["v_elem"]
+                        v_elem.mul_(adamuon_beta2).addcmul_(update, update, value=1.0 - adamuon_beta2)
+                        bc = 1.0 - adamuon_beta2 ** state["adamuon_step"]
+                        orig_norm = update.norm().clamp_min(1e-30)
+                        elem_scale = 1.0 / (v_elem.sqrt() / math.sqrt(bc) + adamuon_eps)
+                        update = update * elem_scale
+                        new_norm = update.norm().clamp_min(1e-30)
+                        update = update * (orig_norm / new_norm)
+                        adamuon_param_count_local += 1
+                        adamuon_v_elem_mean_sum += float(v_elem.mean().item())
+                        adamuon_v_elem_std_sum += float(v_elem.std(unbiased=False).item())
+                        adamuon_elem_scale_mean_sum += float(elem_scale.mean().item())
+                        adamuon_elem_scale_std_sum += float(elem_scale.std(unbiased=False).item())
+                        adamuon_orig_norm_sum += float(orig_norm.item())
+                        adamuon_scaled_norm_sum += float(new_norm.item())
                     if hb and mode == "scale_invariant":
                         # Always-active variant: norm is held at initial value by construction.
                         scale_invariant_update_(p.data, update, group["lr"])
@@ -737,14 +796,54 @@ class MuonH(torch.optim.Optimizer):
             total_count = float(counts[1].item())
             max_r_over_n = float(ratios[0].item())
             max_n_over_r = float(ratios[1].item())
+            adamuon_packed = torch.tensor([
+                adamuon_param_count_local,
+                adamuon_v_elem_mean_sum,
+                adamuon_v_elem_std_sum,
+                adamuon_elem_scale_mean_sum,
+                adamuon_elem_scale_std_sum,
+                adamuon_orig_norm_sum,
+                adamuon_scaled_norm_sum,
+            ], device="cuda", dtype=torch.float64)
+            dist.all_reduce(adamuon_packed, op=dist.ReduceOp.SUM)
+            adamuon_param_count = float(adamuon_packed[0].item())
+            adamuon_v_elem_mean_total = float(adamuon_packed[1].item())
+            adamuon_v_elem_std_total = float(adamuon_packed[2].item())
+            adamuon_elem_scale_mean_total = float(adamuon_packed[3].item())
+            adamuon_elem_scale_std_total = float(adamuon_packed[4].item())
+            adamuon_orig_norm_total = float(adamuon_packed[5].item())
+            adamuon_scaled_norm_total = float(adamuon_packed[6].item())
         else:
             clip_count = float(clip_count_local)
             total_count = float(total_count_local)
             max_r_over_n = max_r_over_n_local
             max_n_over_r = max_n_over_r_local
+            adamuon_param_count = float(adamuon_param_count_local)
+            adamuon_v_elem_mean_total = adamuon_v_elem_mean_sum
+            adamuon_v_elem_std_total = adamuon_v_elem_std_sum
+            adamuon_elem_scale_mean_total = adamuon_elem_scale_mean_sum
+            adamuon_elem_scale_std_total = adamuon_elem_scale_std_sum
+            adamuon_orig_norm_total = adamuon_orig_norm_sum
+            adamuon_scaled_norm_total = adamuon_scaled_norm_sum
         self._last_active_fraction = clip_count / total_count if total_count > 0 else 0.0
         self._last_radius_to_norm_max = max_r_over_n
         self._last_norm_to_radius_max = max_n_over_r
+        self._last_adamuon_param_count = adamuon_param_count
+        if adamuon_param_count > 0:
+            inv_n = 1.0 / adamuon_param_count
+            self._last_adamuon_v_elem_mean = adamuon_v_elem_mean_total * inv_n
+            self._last_adamuon_v_elem_std = adamuon_v_elem_std_total * inv_n
+            self._last_adamuon_elem_scale_mean = adamuon_elem_scale_mean_total * inv_n
+            self._last_adamuon_elem_scale_std = adamuon_elem_scale_std_total * inv_n
+            self._last_adamuon_orig_norm_mean = adamuon_orig_norm_total * inv_n
+            self._last_adamuon_scaled_norm_mean = adamuon_scaled_norm_total * inv_n
+        else:
+            self._last_adamuon_v_elem_mean = 0.0
+            self._last_adamuon_v_elem_std = 0.0
+            self._last_adamuon_elem_scale_mean = 0.0
+            self._last_adamuon_elem_scale_std = 0.0
+            self._last_adamuon_orig_norm_mean = 0.0
+            self._last_adamuon_scaled_norm_mean = 0.0
 
 
 ########################################
@@ -791,6 +890,10 @@ if args.muonh_agc_clip_ratio > 0:
     print0(f"AGC ENABLED on inner MuonH gradient: clip_ratio={args.muonh_agc_clip_ratio} eps={args.muonh_agc_eps}", console=True)
 else:
     print0("AGC DISABLED on inner MuonH gradient (clip_ratio=0)", console=True)
+if args.muonh_adamuon:
+    print0(f"H191 AdaMuon ENABLED on MuonH body: beta2={args.muonh_adamuon_beta2} eps={args.muonh_adamuon_eps}", console=True)
+else:
+    print0("H191 AdaMuon DISABLED on MuonH body (bit-identical baseline)", console=True)
 print0("="*100)
 
 val_tokens = 20 * 524288
@@ -850,6 +953,9 @@ if dist.get_rank() == 0:
             "muonh_mu_schedule": args.muonh_mu_schedule,
             "muonh_mu_start": args.muonh_mu_start,
             "muonh_mu_end": args.muonh_mu_end,
+            "muonh_adamuon": int(args.muonh_adamuon),
+            "muonh_adamuon_beta2": args.muonh_adamuon_beta2,
+            "muonh_adamuon_eps": args.muonh_adamuon_eps,
         },
     )
 
@@ -933,7 +1039,10 @@ for trial_idx in range(args.num_trials):
     optimizer2 = MuonH([p for p in model.blocks.parameters() if p.ndim >= 2],
                        lr=args.muonh_lr, weight_decay=0.0, mu=0.95,
                        hyperball=True, budget_mult=args.muonh_budget_mult,
-                       mode=args.muonh_mode)
+                       mode=args.muonh_mode,
+                       adamuon=bool(args.muonh_adamuon),
+                       adamuon_beta2=args.muonh_adamuon_beta2,
+                       adamuon_eps=args.muonh_adamuon_eps)
     optimizer2.param_groups[0]["name"] = "muonh_blocks"
     optimizers = [optimizer1, optimizer2]
     # AGC targets: AdamW aux groups (embed, lm_head, scalars). Built from optimizer1
@@ -1191,6 +1300,18 @@ for trial_idx in range(args.num_trials):
                         muonh_metrics["train/muonh/norm_to_radius_max"] = opt._last_norm_to_radius_max
                     muonh_metrics["train/muonh/warmup_factor"] = muonh_warmup_factor
                     muonh_metrics["train/muonh/effective_lr"] = opt.param_groups[0]["lr"]
+                    # H191 AdaMuon telemetry (only meaningful when adamuon=1).
+                    if telemetry_due and opt._last_adamuon_param_count > 0:
+                        muonh_metrics["train/adamuon/v_elem_mean"] = opt._last_adamuon_v_elem_mean
+                        muonh_metrics["train/adamuon/v_elem_std"] = opt._last_adamuon_v_elem_std
+                        muonh_metrics["train/adamuon/elem_scale_mean"] = opt._last_adamuon_elem_scale_mean
+                        muonh_metrics["train/adamuon/elem_scale_std"] = opt._last_adamuon_elem_scale_std
+                        muonh_metrics["train/adamuon/orig_norm_mean"] = opt._last_adamuon_orig_norm_mean
+                        muonh_metrics["train/adamuon/scaled_norm_mean"] = opt._last_adamuon_scaled_norm_mean
+                        muonh_metrics["train/adamuon/norm_ratio"] = (
+                            opt._last_adamuon_scaled_norm_mean
+                            / max(opt._last_adamuon_orig_norm_mean, 1e-30)
+                        )
             if telemetry_due and args.aux_agc_clip_ratio > 0 and agc_stats["agc_total"] > 0:
                 muonh_metrics["train/agc/active_fraction"] = agc_stats["agc_clipped"] / agc_stats["agc_total"]
                 muonh_metrics["train/agc/clipped_count"] = agc_stats["agc_clipped"]
