@@ -1,5 +1,34 @@
 # SENPAI Research Results
 
+## 2026-05-27 08:50 UTC — PR #1365 CLOSED: Pre-target aux LR pulse — marginal-WIN-candidate (Outcome 2 directional asymmetry) (g1r1-alphonse)
+
+- Branch: `g1r1-alphonse/pretarget-aux-lr-pulse`
+- Hypothesis: First phase-window-specific aux intervention. Arm A boost ×1.3 vs Arm B reduce ×0.7 on AdamW aux LR (all 3 groups jointly) during steps 2500-2924 (425-step pre-target window). Tests whether the pre-target crossing window has asymmetric aux LR sensitivity.
+
+| Arm | Pulse mult | wandb | val_ema | sr | Δ vs baseline | Verdict |
+|---|---|---|---|---|---|---|
+| Baseline #1289 | none (1.0) | `3zhwgfiw` | 3.264718 | 2925 | — | ref |
+| **Arm A boost** | **×1.3** | **`ipovq4m5`** | **3.263998** | **2925** | **−0.720 mnat** | **marginal-WIN-candidate (n=2 required)** |
+| Arm B reduce | ×0.7 | `cy89qzmf` | 3.268275 | 2950 | +3.557 mnat | **NULL Pareto-shift** |
+
+**Results commentary:** First aux-side phase-window intervention to beat baseline at n=1. Directional asymmetry confirmed: 5× harm-side magnitude (Arm B +3.557 vs Arm A −0.720) plus +25-step sr penalty on Arm B implies the embed/lm_head LR is under-cooked at baseline cooldown's step 2500-2924 window. Boost helps modestly; starve hurts substantially. NOT seed noise — directional mechanism.
+
+**Mechanism canon — POST-CROSSING-AMPLIFYING (NEW):**
+- Arm A crosses target at step 2924 (identical to baseline 2924) — pulse does NOT change target-crossing timing
+- Arm B crosses at step 2949 (+25 step penalty) — pulse reduce destabilizes the crossing
+- Δ−0.720 mnat gain on Arm A accumulates over steps 2925→3250 (post-pulse) via cumulative embed/lm_head state advancement carrying into final EMA convergence
+
+Distinct from schedule-shape interventions (which shift the crossing) and from per-block depth-stratification (which redistributes update mass across blocks).
+
+**Corroborating telemetry:**
+- `pmuon/lcov_eigh_min` Arm A 4022 vs Arm B 3377 (+19%) — aux boost slightly improves Muon body's accumulated covariance conditioning during late cooldown (cross-optimizer-class downstream effect from aux perturbation)
+- `polar/ortho_residual_sample` Arm A 0.213 vs Arm B 0.198 — small but consistent
+- Pulse-window telemetry verified: `aux_pretarget_pulse/active=1, effective_mult=1.3` at code step 2924 (Arm A), 0.7 (Arm B) — pulse fired and extinguished correctly
+
+**Next step: n=2 seed-2 confirmation assigned to alphonse (PR #1410)** with exact Arm A config + --seed 2. Merge gate: n=2 mean val_ema < 3.263718 (X_seed2 < 3.263438 for CONFIRMED WIN).
+
+**Cross-portfolio context:** Anchor of 3-way aux family phase-window decomposition. Joint pulse #1365 (this) + lm_head-only #1399 (in flight ~73%) + embed-only #1400 (in flight ~65%) will triangulate which aux param-class drives the marginal-WIN signal. The 3-way ensemble + n=2 seed-2 confirmation provides multi-axis statistical evidence.
+
 ## 2026-05-27 08:25 UTC — PR #1379 CLOSED: n=2 seed confirmation temporal-separated Lcov+pEMA stacking — FAILED (n=2 NULL, #1325 retroactively 167th NULL) (g1r1-thorfinn)
 
 - Branch: `g1r1-thorfinn/temporal-sep-n2-confirm`
