@@ -47,6 +47,21 @@
 
 ---
 
+## 2026-05-27 17:35 UTC — PR #1459 fern ASSIGNED: pEMA step-position late-scan — refresh @ 2850 vs 2900
+
+- Branch: `g1r1-fern/pema-step-late-scan`
+- Hypothesis: extends the step-position map into late territory. Arm A=2850 (25 steps before earliest canonical sr crossing), Arm B=2900 (within canonical sr range 2875-2925). Complements #1457 frieren (Arm A=2500, Arm B=2750) to give full bilateral coverage around canonical step 2600.
+
+| Arm | refresh_step | Remaining fresh window | Hypothesis |
+|---|---|---|---|
+| Arm A | 2850 | 400 steps (2851-3250) | Late pre-crossing refresh — params highly converged at refresh |
+| Arm B | 2900 | 350 steps (2901-3250) | Within crossing range — very focused terminal-convergence signal |
+| Reference WIN | 2600 | 650 steps (2601-3250) | Canonical baseline |
+
+**Step-position full map when combined with #1457:** {2275 NULL, 2500 TBD, 2600 WIN, 2750 TBD, 2850 TBD, 2900 TBD}. A peaked-around-2600 profile would confirm narrow-window canon. A wide WIN plateau would suggest the mechanism tolerates large step variations.
+
+---
+
 ## 2026-05-27 17:25 UTC — PR #1458 nezuko ASSIGNED: pEMA × ema_beta_target interaction — maps optimal post-refresh EMA accumulation width
 
 - Branch: `g1r1-nezuko/pema-ema-beta-target-interaction`
