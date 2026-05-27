@@ -1,3 +1,100 @@
+## 2026-05-27 01:30 UTC — Cycle 71 mid-307
+
+**Cumulative**: **192 refuted (+1: nezuko #1347 192nd cluster-band STANDARD, 67th family closure)** / **107 distinct mech classes (+1 pending: nezuko #1369 MUON_BODY_LR_BLOCK_HALF_DISPATCH_AT_COOLDOWN, virgin depth-half LR phase axis on body Muon)** / **67 family-level closures**.
+
+**Highest-information mid-307 finding**: **Kind-axis is NOT the Nesterov-helps axis** (#1347 closure):
+
+#1347 single-arm Nesterov-EMA on attn / HB-EMA on mlp → val=**3.27048** ffs=**3025** cluster member. Per-kind structural-form dispatch is **functionally distinct** (attn/mlp update-norm ratio swung 0.89 → 1.53 over training, ~70% range shift; HB-EMA on mlp produces ~50% smaller updates than Nesterov-EMA on attn at plateau) but **val-loss-irrelevant**.
+
+**Mechanistic refinement**: the signal that thorfinn #1306 detected (Nesterov helps plateau, HB-style helps cooldown via cooldown-only-Nesterov arm) is **phase-coupled**, not **kind-coupled**. Per-kind dispatch was a reasonable alternate slicing of the underlying phase asymmetry but missed: the axis is time-based (plateau vs cooldown), not structure-based (attn vs mlp).
+
+Cleanest separation in cycle-71 corpus between "mechanism is functional" and "mechanism is load-bearing for val/loss." Adds **diagnostic update-norm-ratio plateau** to the canon of optimizer telemetry readings.
+
+**Mechanism class disposition**: #1347 mech class 104 (per-kind structural-form dispatch) joins cluster-floor compound finding as a SUB-CLASS of per-group-dispatch (class #4 via #1323). No NEW mech class added — cluster-floor remains at 7 distinct mech CLASSES. Within per-group-dispatch class, multiple sub-axes (μ via #1323, Nesterov-form via #1347, soon NS5_iters via #1355) all converge cluster.
+
+**This cycle — 1 closure + 1 fresh virgin axis assignment**:
+
+1. **nezuko #1347 MUON_NESTEROV_PER_KIND closed as 192nd refute** (cluster-band STANDARD single-arm, 67th family closure):
+   - val=3.27048 ffs=3025 cluster member
+   - Per-kind dispatch IS functionally distinct (update-norm ratio 1.5× plateau) but val-loss-irrelevant
+   - Kind-axis ≠ Nesterov-helps-axis principle (refines #1306 finding to phase-coupled, not kind-coupled)
+   - Within per-group-dispatch class umbrella; no new mech class for cluster-floor
+   - Methodology corpus: "functional ≠ load-bearing" diagnostic principle, update-norm-ratio plateau telemetry read
+
+2. **nezuko → #1369 MUON_BODY_LR_BLOCK_HALF_DISPATCH_AT_COOLDOWN (114th mech class assigned)**:
+   - **VIRGIN per-block-half body Muon LR phase axis** in 320+ PR corpus. Prior depth-LR PRs: continuous monotonic ramps (e.g., #1304 was per-block WD not half-step LR; #1312 was LR×β paired-direction not half-step LR). No prior step-function at block-half boundary on body Muon LR at cooldown_start.
+   - **Direct generalization test of #1340 late-layer locality finding from β-axis to LR-axis**.
+   - Arms: Arm A (late-half-higher: l6-l11 × 1.5, l0-l5 × 0.5); Arm B (early-half-higher: inverted). Magnitude=0.5 gives 3× ratio between halves.
+   - Predicted (per #1340 mechanism-class-universal hypothesis): Arm A clusters / Arm B regresses (sharp asymmetric outcome).
+   - Three readings: (a) confirms locality is mechanism-class-universal across optimizer HPs; (b) refines to β-axis-specific; (c) inverts on LR (surprising).
+   - State-phase event + per-block-half dispatch per Morgan directive #1259.
+
+**Late-layer locality finding — extension axes in flight**:
+
+| sub-axis | PR | finding |
+|---|---|---|
+| β1 (smooth ramp) | #1251 | late-high cluster member |
+| β1 (step-function) | #1340 | late-high cluster member; early-high crashes |
+| **LR (step-function block-half)** | **#1369** | **TESTING (just assigned)** |
+| WD | UNTESTED | — |
+| μ | UNTESTED (#1323 was per-kind not per-half) | — |
+
+After #1369 closes, locality principle will be either confirmed mechanism-class-universal or narrowed to β-axis-specific.
+
+**AUX-kind × LR direction-of-effect grid** (unchanged mid-307):
+
+| sub-system | optimizer | normalization | direction-of-effect | source |
+|---|---|---|---|---|
+| body Muon (#1296) | Muon | NS5 iteration-based | under-LR helps | closed |
+| embed AUX (#1335) | AdamW | v-normalized | over-LR helps | closed (INVERSION) |
+| lm_head AUX | AdamW | v-normalized | TESTING | #1366 in flight |
+| scalars AUX | AdamW | v-normalized | TESTING | #1367 in flight |
+
+**Per-kind/state-phase axes in flight or recently closed** (cycle 71, updated):
+- #1307 (nezuko): per-AUX-group LR scalar dispatch — CLOSED cluster-band ASYMMETRIC-MAGNITUDE
+- #1323 (alphonse): per-kind body Muon μ dispatch at cooldown — CLOSED cluster-band ASYMMETRIC-OUTCOME
+- #1335 (edward): embed AUX LR phase transition — CLOSED cluster-band ASYMMETRIC-MAGNITUDE
+- #1340 (frieren): β-locality step-function — CLOSED cluster-band ASYMMETRIC-OUTCOME
+- #1353 (thorfinn): AUX state reset at cooldown — CLOSED cluster-band STANDARD
+- **#1347 (nezuko): per-kind Nesterov on body Muon — CLOSED cluster-band STANDARD (this cycle)**
+- #1355 (askeladd): per-kind NS5_ITERS at cooldown — IN FLIGHT
+- #1358 (tanjiro): per-AUX-kind β2 at cooldown — IN FLIGHT
+- #1359 (alphonse): per-AUX-kind ε at cooldown — IN FLIGHT
+- #1361 (fern): cooldown-start weight noise injection — IN FLIGHT
+- #1364 (edward): per-AUX-kind embed WD phase dispatch — IN FLIGHT
+- #1366 (frieren): per-AUX-kind lm_head LR phase transition — IN FLIGHT
+- #1367 (thorfinn): per-AUX-kind scalars LR phase transition — IN FLIGHT
+- **#1369 (nezuko): per-block-half body Muon LR phase dispatch — IN FLIGHT (just assigned)**
+
+This is now an **8-axis** per-kind/state-phase swarm. 6 closed in cycle-71 mid-axis, 8 still in flight. #1369 is **first depth-half phase dispatch on body** (orthogonal to all 8 per-AUX-kind / per-attn-vs-mlp / weight-perturbation axes).
+
+**Closure-mechanism taxonomy** (unchanged):
+- cluster-band sub-subtypes: SYMMETRIC, ASYMMETRIC-MAGNITUDE, ASYMMETRIC-OUTCOME, INFORMATIVE-TRIANGULATION, **STANDARD** (now n=multiple: #1333, #1336, #1307, #1353, #1347)
+- cluster-band-edge (sub-variant of STANDARD)
+- catastrophic-shifted-floor / n=2-confirm / MATH-NULL / informative-crossover / STRUCTURAL-MISMATCH-AT-PARAM
+
+**Active fleet status mid-307**:
+
+| Student | PR | Status | W&B notes |
+|---|---|---|---|
+| g1r2-alphonse | #1359 | status:wip | AUX_EPS_PER_KIND_AT_COOLDOWN (109th mech) |
+| g1r2-thorfinn | #1367 | status:wip | AUX_SCALARS_LR_PHASE_TRANSITION (113th mech) |
+| **g1r2-nezuko** | **#1369** | **status:wip, JUST ASSIGNED** | **MUON_BODY_LR_BLOCK_HALF_DISPATCH_AT_COOLDOWN (114th mech)** |
+| g1r2-fern | #1361 | status:wip | COOLDOWN_BODY_WEIGHT_NOISE_INJECTION (110th mech) |
+| g1r2-frieren | #1366 | status:wip | AUX_LM_HEAD_LR_PHASE_TRANSITION (112th mech) |
+| g1r2-askeladd | #1355 | status:wip | MUON_NS5_ITERS_PER_KIND_AT_COOLDOWN (107th mech) |
+| g1r2-tanjiro | #1358 | status:wip | AUX_BETA2_PER_KIND_AT_COOLDOWN (108th mech) |
+| g1r2-edward | #1364 | status:wip | AUX_EMBED_WD_PHASE_DISPATCH (111th mech) |
+
+**ZERO IDLE STUDENTS — 8 students concurrently active. ZERO IDLE GPUs.**
+
+**Methodology corpus this cycle**:
+- **Functional ≠ load-bearing diagnostic principle**: per-kind dispatch can produce 70% range shift in update-norm ratio (functionally distinct) without val/loss signal. The axis is time-based (plateau vs cooldown per #1306), not structure-based (attn vs mlp).
+- **Update-norm-ratio plateau telemetry**: the attn/mlp update-norm ratio plateau at ~1.5 from step 1750 onwards is a clean phase-stable signal added to canonical optimizer telemetry readings (alongside per-block β1 #1340, cosine_sim trajectory #1354).
+- **Late-layer locality cross-axis transfer test in flight**: #1369 tests whether #1340 β-axis locality generalizes to LR axis. After closure, locality principle will be either mechanism-class-universal or β-axis-specific.
+
+**Cumulative closure rate**: 192 / ~535 PRs ≈ 35% refute rate. 14 mech classes assigned in cycle 71 so far.
+
 ## 2026-05-27 01:15 UTC — Cycle 71 mid-306
 
 **Cumulative**: **191 refuted (+1: thorfinn #1353 191st cluster-band STANDARD, 66th family closure)** / **107 distinct mech classes (+1 pending: thorfinn #1367 AUX_SCALARS_LR_PHASE_TRANSITION, completes 4-cell AUX-kind × LR direction grid)** / **66 family-level closures**.
