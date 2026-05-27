@@ -1,5 +1,28 @@
 # SENPAI Research Results
 
+## 2026-05-27 22:30 UTC — PR #1487 edward: Aux Adam m/v state reset @ step 2600 — ASSIGNED
+
+- Branch: `g1r1-edward/adam-mv-reset`
+- Hypothesis: Adam m (exp_avg) and v (exp_avg_sq) buffers for aux params carry stale gradient history from the stable-LR phase. Resetting them at step 2600 (phase boundary) is a direct analog of the PR #1429 pEMA WIN mechanism — freeing aux optimizer state from pre-cooldown accumulation. Arm A zeros m only; Arm B zeros both m and v.
+- Status: **ASSIGNED** — edward to implement and run both arms on canonical baseline (late-higher LR + pEMA refresh @ 2600)
+- Merge gate: `sr ≤ 2887.5 OR (sr=2900 AND val_ema < 3.263938)`
+
+---
+
+## 2026-05-27 22:20 UTC — PR #1445: Body Muon WD phase-window pulse (g1r1-edward) — CLOSED NULL
+
+- Branch: `g1r1-edward/body-muon-wd-pulse`
+- Hypothesis: temporarily boosting or zeroing weight decay for body Muon params in the phase-window [2500, 2925) would act as a phase-specific regularization signal.
+
+| Arm | WD factor | W&B run | val_loss_ema | sr | Δ vs baseline (3.263938) | Verdict |
+|---|---|---|---|---|---|---|
+| A | WD×2.0 | — | 3.265422 | 2925 | +1.484 mnat | NULL |
+| B | WD×0.0 | — | 3.265528 | 2925 | +1.590 mnat | NULL |
+
+**Conclusion:** Both arms NULL with similar small regressions — the body Muon phase-window axis is now fully mapped across all four sub-axes (LR, WD, NS_iters, μ) and all are CLOSED NULL. Phase-window pulse mechanism class is exhausted. Shifting to optimizer-state reset mechanism class.
+
+---
+
 ## 2026-05-27 22:16 UTC — PR #1435: Body Muon NS_ITERS phase-window pulse (g1r1-alphonse) — CLOSED NULL
 
 - Branch: `g1r1-alphonse/body-muon-ns-iters-pulse` (rebased post-#1429 merge)
