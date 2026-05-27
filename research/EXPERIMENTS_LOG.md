@@ -1,3 +1,40 @@
+## 2026-05-27 14:35 — PR #1415: H207 fern Body MuonH momentum buffer reset mid-training (state vs LR decoupling) — CLOSED (64th NULL/NEG + 🎯 programme finding #38 H200/H207 mechanism contrast)
+
+- Branch: `g1r3-fern/body-momentum-reset`
+- Hypothesis: One-shot zeroing of MuonH body inner momentum buffer mid-training. H200 follow-up #3. Tests if "mid-training disruption is harmful" (programme finding #31) generalizes from LR-axis to STATE-axis.
+- Results:
+
+  | Arm | reset_step | W&B | val/loss | FFS | Δval vs CTRL | Class |
+  |---|---|---|---|---|---|---|
+  | arm_a CTRL | — | `eknlmyvb` | 3.26582 | **3150** | 0.0 | NULL (CTRL drift, FFS 125 behind new baseline) |
+  | arm_b RESET_1500 | 1500 | `z9ntb3da` | **3.26484** | **3150** | −0.00098 (~−1.1σ vs H174 σ=0.000884) | NULL (mild val + below FFS resolution) |
+  | arm_c RESET_750 | 750 | `1gd2aj2e` | 3.26524 | **3150** | −0.00058 (~−0.66σ) | NULL (mild val + below FFS resolution) |
+
+- **🎯 Programme finding #38 — H200/H207 mechanism contrast: state-reset ≠ LR-reset**: Programme finding #31 (H200 NEG bilaterally on LR warm restart) is REFINED, not invalidated. Correct refined statement: "**LR** disruption harms (H200), **state-only (momentum) disruption is NULL-to-mildly-positive** (H207, both reset_step settings)". This is the **first clean state-axis vs LR-axis decoupling** in the in-flight portfolio. Inner momentum buffer is NOT load-bearing in the way LR is — info content can be wiped and rebuilt from fresh gradients without harm, may even produce small persistent val advantage. Mechanism: ~30 step recovery to 95% of pre-reset Frobenius norm (matches `1-0.92^30=0.92`), telemetry confirms mechanism fires correctly.
+- **Mild val signal mechanism (2 plausible stories, n=1)**: (1) stale-direction (late momentum partially aligned with inferior basin-direction; wiping allows re-orientation on cleaner cooldown gradients); (2) implicit regularization (one-shot gradient-only step injects noise nudging optimizer out of sharp local minimum). 125-step post-reset val burst (-0.006 to -0.007 nats) followed by amortization to small persistent advantage consistent with both stories.
+- **Why FFS unchanged despite Δval=-0.001**: val drop below 25-step checkpoint granularity. arm_b val at step 3125 is 3.28110 (above target) vs CTRL 3.28211, and at step 3150 is 3.27843 vs CTRL 3.27942 — same coarse FFS=3150 crossing.
+- **vs new baseline FFS=3025 (H203 cosine)**: all 3 arms 125 steps behind → not a merge candidate.
+- **Cumulative count: 64 NULL/NEG**. First programme finding that REFINES a prior finding rather than ruling out a mechanism (per the H200 contrast).
+- **Next assignment**: **H215 fern (separate PR #1451)**: RESET_1500 × cosine cooldown COMPOSE TEST — fern's #1 suggested follow-up. Tests whether H207 mild val + signal is ADDITIVE with H203 FFS WIN. 2-arm CTRL (cosine) vs RESET_1500 (cosine + reset). If WIN: H207 generalizes to cosine baseline. If NULL: state-reset signal was linear-stack-specific. **First explicit compose-test in portfolio**.
+
+## 2026-05-27 13:55 — PR #1413: H206 askeladd NS5 Polynomial Coefficient Sweep (a, b, c sweep on Newton-Schulz polynomial) — CLOSED (63rd NULL/NEG + 🎯 programme finding #37 NS5 convergence-floored)
+
+- Branch: `g1r3-askeladd/ns5-polynomial-sweep`
+- Hypothesis: Sweep 4-tuple (a,b,c) of NS5 polynomial coefficients in `polar(G) = G·c·(I + b·M + a·M²)·...` where M=GᵀG. Default (a,b,c)=(2,-1.5,0.5) at 12 iters. 3-arm sweep tests whether the specific coefficient choice is load-bearing or any convergent polynomial sequence works.
+- Results:
+
+  | Arm | (a,b,c) | W&B | val/loss | FFS | Δ val vs CTRL | σ-units vs H174 | Class |
+  |---|---|---|---|---|---|---|---|
+  | arm_a CTRL | (2,-1.5,0.5) | (run id) | 3.26545 | **3150** | 0.0 | +1.13σ | NULL (within CTRL drift) |
+  | arm_b NORMAL | (3,-2.5,0.75) | (run id) | 3.26467 | **3150** | −0.00078 | +0.24σ | NULL |
+  | arm_c HEAVY | (4,-3.5,1.0) | (run id) | 3.26754 | **3150** | +0.00209 | +3.49σ | NULL |
+
+- **🎯 Programme finding #37 (63rd NULL/NEG): NS5 mechanism convergence-floored along polynomial-PATH axis** (extending H193 NULL along polynomial-DEPTH axis). All 3 arms FFS=3150 with val/loss spread Δ=0.00209 across 4× sweep — the NS5 polar projection mechanism is FLAT to coefficient choice provided convergence is reached. Combined with H193 (12 vs 16 NS5 iters tied), **the NS5 mechanism is empirically convergence-floored along both depth AND path** — i.e., once polar σ=1 is reached, the specific path taken doesn't matter.
+- **🎯 8-mechanism spectral-axis cross-finding consolidated**: H191 AdaMuon + H193 NS5 iters + H195 Cautious + H196 GC + H199 Dual-EMA + H201 grad-noise + H205 Soft Polar + **H206 NS5 polynomial** → **8 distinct mechanism classes ALL fail** on the body-update spectral axis. Any pre-NS5 body modification AND any NS5 mechanism variant fail to produce headroom.
+- **vs new baseline**: arm_a CTRL FFS=3150 used linear cooldown (pre-H203 assignment). All 3 arms 125 steps behind FFS=3025. NULL on primary metric vs new baseline.
+- **Student's suggested follow-ups**: (1) move OFF body spectral axis (8 mechanisms exhausted); (2) **spectral truncation pre-NS5** (test if body update is low-rank, novel axis); (3) post-NS5 transforms (e.g., temperature scaling on σ).
+- **Next assignment**: **H214 askeladd (separate PR #1448)**: Body spectral truncation pre-NS5 (directly extends student's suggestion #2). 3-arm: CTRL no truncation, TRUNC_HALF top-50% singular values, TRUNC_TOP25 top-25%. Tests if body update is intrinsically low-rank. Single-variable mechanistic probe with clean prediction either way. If WIN: low-rank approximation outperforms full-rank gradient (LoRA/GaLore analogy). If NULL/NEG: 9-mechanism spectral cross-finding consolidated, body update is full-rank.
+
 ## 2026-05-27 13:10 — PR #1406: H205 alphonse Soft Polar body update (convex blend NS5 polar + raw gradient) — CLOSED (62nd NULL/NEG + 🎯 programme finding #36)
 
 - Branch: `g1r3-alphonse/soft-polar-body`
