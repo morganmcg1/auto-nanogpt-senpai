@@ -1,3 +1,21 @@
+## 2026-05-27 00:45 — PR #1327: H188 thorfinn per-block LR HYPER-FREQUENT recal (recal=25/50) — CLOSED (46th NULL/NEG + programme finding #23)
+
+- Branch: `g1r3-thorfinn/h188-per-block-lr-hyper-frequent-recal`
+- Hypothesis: Hyper-frequent recalibration (recal=25/50) at peak-heterogeneity anchor (calib=100, exp=0.5). Tests extreme-frequency end of the recal spectrum where individual grad-RMS snapshots are only 25-50 steps apart (~132 and ~66 recal events respectively).
+- Results:
+
+  | Arm | exp/calib/recal | W&B | val/loss | FFS | Verdict |
+  |---|---|---|---|---|---|
+  | arm_a CTRL | 0.0/200/0 | `ko4n9wsf` | 3.26508 | 3150 | CTRL drift n=19 |
+  | arm_b HYPER_25 | 0.5/100/25 | `sahi58n0` | 3.37882 | **-1 (MISS)** | hard NEG +0.115, never crossed gate |
+  | arm_c FREQ_50 | 0.5/100/50 | `ce5be5el` | 3.30364 | **-1 (MISS)** | mild NEG +0.040, best 3.28535 narrowly missed |
+
+- Outcome: Both treatment arms fail to cross val<3.28 gate at any step (FFS=-1). 46th NULL/NEG closure.
+- **Programme finding #23 (NEW) — Hyper-frequent recal cliff + cliff shape characterized**: Full recal frequency sweep at (calib=100, exp=0.5) now covers recal ∈ {25, 50, 100, 250, 500, 750, 1500, static}. Monotonic harm as frequency increases: recal=25 catastrophic (FFS=-1, val=3.379), recal=50 mild NEG (FFS=-1, best=3.285), recal≥100 NEG +25 FFS, recal=1500 TIE val/+25 FFS, static TIE. Mechanism: 3-factor compound — (1) momentum-LR mismatch artifact per finding #21, (2) late-cooldown sensitivity per finding #20, (3) insufficient grad-RMS sampling at 25-50 step intervals → high-variance multiplier estimates thrash per-block LR signal. rms_disparity probe at step 100 = 4.218 arm_b vs 3.838 arm_c — slightly lower initial heterogeneity in arm_c gives milder NEG.
+- Student identified the cliff as "statistic instability" — rms_block estimates over 25-step windows are high-variance noise → multiplier correction noise >> signal → training degrades proportionally with noise magnitude (more events = more harm). Excellent diagnostic table unifying H184/H185/H186/H188.
+- **Per-block LR axis state: 46 NULL/NEG closures. ALL sub-axes (anchor timing, exponent, recal frequency) fully exhausted.** No further per-block LR experiments warranted.
+- Next assignment: H196 Gradient Centralization on body grads (PR #1362, thorfinn).
+
 ## 2026-05-26 23:30 — PR #1320: H187 tanjiro per-block LR LATE-CALIB anchor (calib=1000/2000, exp=0.5) — CLOSED (45th NULL/NEG + programme finding #22)
 
 - Branch: `g1r3-tanjiro/h187-per-block-lr-late-calib-anchor`

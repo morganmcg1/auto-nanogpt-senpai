@@ -1,6 +1,12 @@
 # SENPAI Research State — auto-nanogpt-1gpu-r3
 
-- **Last updated:** 2026-05-26 23:35 UTC
+- **Last updated:** 2026-05-27 00:50 UTC
+
+- **🎯 Cycle ~340 (00:30-00:50 UTC) — H188 thorfinn CLOSED (46th NULL/NEG + 🎯 programme finding #23 hyper-frequent recal cliff shape characterized); H196 thorfinn ASSIGNED Gradient Centralization on body grads (PR #1362, 7th OFF-axis assignment, NEW gradient-processing axis)**:
+  - **H188 closure**: arm_a CTRL val=3.26508/FFS=3150 (n=19 drift). arm_b RECAL_25 **FFS=-1 (MISS)**, val=3.37882. arm_c RECAL_50 **FFS=-1 (MISS)**, val=3.30364 (best=3.28535 narrowly missed gate). 46th NULL/NEG.
+  - **🎯 Programme finding #23 (NEW) — Hyper-frequent recal cliff FULLY CHARACTERIZED**: monotonic harm as recal frequency increases. recal=25 catastrophic (MISS), recal=50 mild NEG (MISS), recal≥100 NEG +25 FFS, static TIES. Mechanism: (1) momentum-LR mismatch artifact, (2) late-cooldown sensitivity, (3) grad-RMS statistic instability at <100-step windows. Complete cliff shape now documented across 8 data points (H184/H185/H186/H188).
+  - **🎯 H196 thorfinn ASSIGNED (PR #1362) — SEVENTH OFF-axis assignment, NEW GRADIENT-PROCESSING AXIS**: Gradient Centralization (Yong et al. ECCV 2020, arXiv:2004.01461) on MuonH body grads BEFORE momentum buffer update and NS5. GC subtracts per-output-row mean: `g -= g.mean(dim=1, keepdim=True)`. Removes constant bias component from gradient, projecting onto hyperplane perpendicular to all-ones. 3-arm: CTRL, GC_BODY (body only), GC_ALL (body+aux). Telemetry: `body_row_mean_fraction` = fraction of gradient norm that is constant-mean — if <1% throughout, mechanism is too weak.
+  - **7-direction OFF-axis portfolio complete**: H190 fern MSAM-aux (perturbation aux), H191 nezuko AdaMuon body (scaling body), H192 edward Logit-SAM (perturbation lm_head), H193 askeladd NS5 iters (projection tightness), H194 frieren aux cooldown frac (schedule), H195 tanjiro Cautious-MuonH (update filtering), H196 thorfinn GC body (gradient processing). Mechanism diversity: perturbation(×2) / scaling(×1) / projection(×1) / schedule(×1) / filtering(×1) / gradient-processing(×1).
 
 - **🎯 Cycle ~337 (23:15-23:35 UTC) — H187 tanjiro CLOSED (45th NULL/NEG + programme finding #22 LATE-CALIB monotonic degradation); H195 tanjiro ASSIGNED Cautious-MuonH (PR #1357, 6th OFF per-block-LR axis assignment, NEW UPDATE-FILTERING axis); PR #1348 edward + PR #1349 askeladd stale_wip refreshed**:
   - **H187 closure**: 3-arm chain. arm_a CTRL val=3.26360/FFS=3125 ✓ (lucky 28% drift bucket). arm_b LATE_1000 (exp=0.5, calib=1000) val=3.26513/FFS=3150 soft NEG +1.69σ/+25. arm_c LATE_2000 (exp=0.5, calib=2000) val=3.26600/FFS=3150 NEG +2.67σ/+25. No treatment beats baseline. 45th NULL/NEG.
