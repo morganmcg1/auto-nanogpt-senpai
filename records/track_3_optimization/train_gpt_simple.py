@@ -468,6 +468,8 @@ NS5_ITERS = int(os.environ.get("NS5_ITERS", "12"))
 WD_AUX = float(os.environ.get("WD_AUX", "0.0"))  # AdamW WD on embed + lm_head matrices (scalars stay at 0)
 EMBED_INIT_STD = float(os.environ.get("EMBED_INIT_STD", "1.0"))  # default preserves baseline N(0,1)
 LOGIT_SOFTCAP = float(os.environ.get("LOGIT_SOFTCAP", "15.0"))  # default = 15 (current hardcoded value); soft-cap value c in f(x) = c·x / sqrt(x^2+c^2)
+EMBED_AUX_SIGN_SGD_ENABLED = int(os.environ.get("EMBED_AUX_SIGN_SGD_ENABLED", "0"))
+EMBED_AUX_SIGN_SGD_STEP = int(os.environ.get("EMBED_AUX_SIGN_SGD_STEP", "953"))
 
 
 def zeropower_via_newtonschulz5(G: Tensor) -> Tensor:
@@ -1051,8 +1053,47 @@ for trial_idx in range(args.num_trials):
                 train_steps=train_steps,
                 wandb_step=wandb_step,
             )
+        sign_sgd_active = bool(EMBED_AUX_SIGN_SGD_ENABLED) and step >= EMBED_AUX_SIGN_SGD_STEP
+        if sign_sgd_active:
+            embed_snapshot = {p: p.data.clone() for group in optimizer1.param_groups
+                              if group.get("name") == "adam_embed" for p in group["params"]}
+        else:
+            embed_snapshot = None
         for opt in optimizers:
             opt.step()
+        sign_sgd_update_rms_val = 0.0
+        if embed_snapshot is not None:
+            update_rms_accum = 0.0
+            update_rms_count = 0
+            for group in optimizer1.param_groups:
+                if group.get("name") != "adam_embed":
+                    continue
+                lr = group["lr"]
+                wd = group["weight_decay"]
+                beta1, _ = group["betas"]
+                for p in group["params"]:
+                    state = optimizer1.state[p]
+                    if "exp_avg" not in state:
+                        continue
+                    m_t = state["exp_avg"]
+                    step_num = state["step"]
+                    step_num_f = float(step_num.item() if torch.is_tensor(step_num) else step_num)
+                    m_t_corrected = m_t / (1 - beta1 ** step_num_f)
+                    sign_update = m_t_corrected.sign()
+                    p.data.copy_(embed_snapshot[p])
+                    p.data.add_(sign_update, alpha=-lr)
+                    p.data.mul_(1 - lr * wd)
+                    update_rms_accum += float(sign_update.mul(lr).square().mean().sqrt().item())
+                    update_rms_count += 1
+            if update_rms_count > 0:
+                sign_sgd_update_rms_val = update_rms_accum / update_rms_count
+        if dist.get_rank() == 0 and telemetry_due:
+            wandb.log({
+                "trial": trial_idx,
+                "train/step": train_step,
+                "embed/sign_sgd_active": int(sign_sgd_active),
+                "embed/sign_sgd_update_rms": sign_sgd_update_rms_val,
+            }, step=wandb_step)
         if dist.get_rank() == 0 and telemetry_due:
             for opt in optimizers:
                 if hasattr(opt, "trust_gate_stats"):
