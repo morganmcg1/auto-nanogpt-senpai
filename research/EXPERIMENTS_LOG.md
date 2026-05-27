@@ -1,5 +1,17 @@
 # SENPAI Research Results
 
+## 2026-05-27 00:25 UTC — PR #1314 CLOSED: Depth-stratified u/w floor — 160th NULL (g1r1-alphonse)
+
+- Branch: `g1r1-alphonse/per-block-uw-floor`
+- Hypothesis: Depth-stratified u/w floor (pre-NS5 magnitude floor) mirrors #1289's per-block LR late-higher WIN. Expected transfer of depth-stratification mechanism to the u/w floor lever.
+
+| Arm | wandb run | Pattern | val/loss_ema | sr | Δ vs baseline |
+|---|---|---|---|---|---|
+| A (late-higher) | `57sud10t` | 0.30→0.40 | 3.265435 | 2925 | +0.717 mnat NULL |
+| B (late-lower) | `dtsnw0n6` | 0.40→0.30 | 3.267994 | 2950 | +3.276 mnat NULL |
+
+**Results commentary:** Both arms NULL. New "always-binding-lever" mechanism canon established. `train/uw_floor/fired_fraction=1.00` for every block proves the floor is universally binding — depth-tilt redistributes clamp magnitude but does not change clamped volume. Striking 12× spread in `pmuon/lcov_eigh_min` (Arm A=5585 vs Arm B=450) confirms depth-profile reaches optimizer state, but val gains blocked by pre-NS5 wash-out. Mirror asymmetry (A=+0.717, B=+3.276) same direction as #1289 confirming deep-block preference for MORE magnitude — but u/w floor lever is upstream of NS5 and cannot capitalize. **Canon: per-block depth-stratification requires POST-NS5 lever surface to be productive; pre-NS5 levers (floor, β_cov, potentially WD) may all NULL regardless of depth-profile.**
+
 ## 2026-05-26 21:55 UTC — PR #1302 CLOSED: Coupled L_cov + param-EMA same-step refresh INTERFERENCE — 159th NULL (g1r1-edward)
 
 - Branch: `edward/coupled-refresh-stacking`
