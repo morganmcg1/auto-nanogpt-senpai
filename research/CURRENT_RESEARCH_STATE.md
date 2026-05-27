@@ -1,3 +1,78 @@
+## 2026-05-27 10:50 UTC — Cycle 71 mid-323 (NS5-iters depth-axis direction-SYMMETRIC mild; 2×3 depth × optimizer-axis table closes another cell)
+
+**Cumulative**: **208 refuted (+1 this wake)** / **130 distinct mech classes (+1 fresh #1423)** / **82 family-level closures (+1)**.
+
+**Closure this wake** (1 bilateral terminal — depth × NS5 cell closes direction-symmetric):
+
+| PR | student | mech | bilateral data | closure |
+|---|---|---|---|---|
+| **#1391** | askeladd | body Muon depth-half NS5 dispatch at cooldown_start | Arm A (LATE=16/EARLY=12) val=3.27070 ffs=3025; Arm B (EARLY=16/LATE=12) val=3.26930 ffs=3025; Δ(B−A)=−0.00140 sub-noise direction-SYMMETRIC | **208th** cluster-floor compound SYMMETRIC sub-cluster-edge; 11th cluster-floor compound mech class |
+
+### MAJOR FINDING — Cycle-71 2×3 depth × optimizer-axis table updated; NS5 axis direction-SYMMETRIC mild (qualitatively different from β1 and LR)
+
+| depth-dispatch direction | **β1-axis** | **LR-axis** | **NS5-iters axis** |
+|---|---|---|---|
+| late-half-higher | cluster (#1340A) | **CATASTROPHIC** (#1369A) | sub-cluster-edge ffs=3025 (#1391A) |
+| early-half-higher | catastrophic (#1340B) | PENDING (#1369B) | sub-cluster-edge ffs=3025 (#1391B) |
+
+**NEW PRINCIPLE (mid-323)**: **NS5-iters depth-axis is direction-SYMMETRIC mild** at half-block granularity — qualitatively different from β1-axis (strongly direction-asymmetric: late-high cluster, early-high catastrophic) and LR-axis (strongly direction-asymmetric: late-high catastrophic).
+
+**Mechanistic interpretation**: NS5 orthogonalization is a **stability/quality knob**, not a step-size or momentum-decay knob. The half-block depth-axis isn't a load-bearing dimension for orthogonalization quality — both directions land at the same sub-cluster-edge as per-kind #1355 reference. The mechanism is the **perturbation itself**, not its direction.
+
+### Cross-axis taxonomy (post mid-323)
+
+| axis | behavior | mechanism |
+|---|---|---|
+| **β1-axis depth** | direction-asymmetric (late-high cluster, early-high catastrophic) | EMA temporal decay rate carries depth-priority signal |
+| **LR-axis depth** | direction-asymmetric (late-high catastrophic) | step magnitude carries strong depth-priority signal |
+| **NS5-iters axis depth** (this) | direction-SYMMETRIC mild | orthogonalization quality saturates at NS5≥12; no depth-direction signal at half-block |
+| **WD-axis cross-subsystem** | sub-system-property-bound (mid-319) | structural stabilization mechanism determines symmetry |
+| **Nesterov-phase** | optimizer-class-specific (mid-321) | orthogonalized geometry helpful, v-norm null |
+| **m-vs-v reset** | sub-axis decomposition (mid-322) | m active, v catastrophic via bias-correction inconsistency |
+
+### #1408 alphonse status: heartbeat-requested (pod healthy)
+
+Pod inspection shows alphonse pod at GPU=100% utilization (iteration 2253), actively training, but no PR heartbeats since PR creation 2h ago. Posted ADVISOR heartbeat-request comment. Label moved back to status:wip. Will check next wake.
+
+### FFS-burst grid status (mid-323, unchanged — all 3 axes still in flight):
+
+| PR | mechanism | Arm A | Arm B | status |
+|---|---|---|---|---|
+| alphonse #1408 | LR-magnitude burst | ×1.25 | ×1.5 | running (heartbeat-requested) |
+| edward #1411 | NS5-quality burst | =18 | =22 | running |
+| frieren #1414 | momentum DROP burst | −0.05 | −0.10 | running |
+
+### Fresh assignment (1 idle student → 1 new PR; finer-grain depth axis directly testing #1391 finding):
+
+| PR | student | mech | purpose |
+|---|---|---|---|
+| **#1423** | askeladd | MU_NS_ITERS_PER_BLOCK_MONOTONIC_DISPATCH (130th mech, virgin per-block 12-way monotonic depth-profile NS5 axis) | Per-block (not per-half) NS5 dispatch with linear monotonic profile at cooldown_start. Arm A: shallow=10 → deep=18 (NS5↑ with depth). Arm B: shallow=18 → deep=10 (NS5↓ with depth). Mean=14.0 both arms. Tests whether half-block direction-symmetry holds at finer granularity, or specific layers carry direction signal masked by half-block averaging. Per Morgan #1259 (depth/per-group preferred). Direct follow-up from #1391. |
+
+### Cycle 71 cumulative findings (post mid-323)
+
+- **11 cluster-floor compound mechanism classes** all saturate val~3.268-3.269 / ffs 3000-3025
+- **NEW PRINCIPLE (mid-323)**: NS5-iters depth-axis is direction-SYMMETRIC mild (NS5 = stability/quality knob, not step-size/decay knob)
+- **NEW PRINCIPLE (mid-322)**: mechanistic decomposition principle — joint-multi-axis privileged-zone effects decompose into active sub-axis + masked-catastrophe sub-axis
+- **NEW PRINCIPLE (mid-321)**: Nesterov-phase is geometry-conditional, not phase-conditional
+- **NEW PRINCIPLE (mid-320)**: discrete-topology-jump vs smooth-perturbation framing (3-cell confirmed: tanjiro #1390 mild, thorfinn #1397 null, nezuko #1404 catastrophic)
+- **Cross-sub-system WD-axis grid 3-of-3 COMPLETE** (mid-319): direction-structure is sub-system-property-bound
+- **FFS-burst grid (mid-319)**: 3-way orthogonal triangulation active (LR-magnitude × NS5-quality × momentum-decay) in window [2750, 2950]
+
+### In-flight student PRs (8 concurrent):
+
+- **alphonse #1408** (LR-magnitude FFS burst on body Muon — heartbeat-requested)
+- **askeladd #1423** (NEW — per-block monotonic NS5 depth profile at cooldown_start)
+- **edward #1411** (NS5-quality FFS burst on body Muon)
+- **fern #1405** (AUX LARS trust-ratio cross-class contrapositive)
+- **frieren #1414** (momentum-DROP FFS burst on body Muon)
+- **nezuko #1422** (m-only AUX reset cross-kind universality at cooldown_start)
+- **tanjiro #1417** (embed AUX continuous α-hybrid AdamW/sign-SGD)
+- **thorfinn #1419** (body Muon NS5 per-kind dispatch at cooldown_start)
+
+ZERO IDLE. 8 concurrent active.
+
+---
+
 ## 2026-05-27 10:30 UTC — Cycle 71 mid-322 (joint m+v reset DECOMPOSES into m-axis active + v-axis catastrophic; sub-axis decomposition family LAUNCHED)
 
 **Cumulative**: **207 refuted (+1 this wake — bilateral decomposition outcome)** / **129 distinct mech classes (+1 fresh #1422)** / **81 family-level closures (+1)**.
