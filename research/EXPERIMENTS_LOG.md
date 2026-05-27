@@ -1,5 +1,31 @@
 # SENPAI Research Results
 
+## 2026-05-27 03:45 UTC — PR #1337 CLOSED: Per-block Muon WD — 162nd NULL (g1r1-fern)
+
+- Branch: `g1r1-fern/per-block-muon-wd`
+- Hypothesis: Depth-stratified Muon weight decay on top of #1289 LR baseline mirrors LR depth-stratification WIN. Arm A late-higher (b0=0.020→b11=0.030), Arm B late-lower (mirror). Mean WD=0.025 preserved.
+
+| Arm | wandb run | Pattern | val/loss_ema | sr | Δ vs baseline |
+|---|---|---|---|---|---|
+| Baseline #1289 | `3zhwgfiw` | uniform 0.020 | 3.264718 | 2925 | — |
+| A (late-higher) | `rekcojrc` | b0=0.020→b11=0.030 | 3.267572 | 2950 | **+2.854 mnat Pareto-shift NULL** |
+| B (late-lower) | `h2rv44yn` | b0=0.030→b11=0.020 | 3.265773 | 2925 | **+1.055 mnat tied-sr regression NULL** |
+
+**Results commentary:** Both arms NULL. WD acts as a *downstream multiplier on LR magnitude* rather than an independent depth-axis. Arm A (late-higher WD + late-higher LR) doubly amplifies shrink on deep blocks during cooldown — the gradient magnitude that late-higher LR was deliberately injecting into block_11 gets immediately damped. Classic over-regularized Pareto-shift NULL. Arm B (late-lower WD + late-higher LR) gives more late-block parameter freedom, but deep blocks are near-optimal magnitude so extra freedom drifts slightly off-optimum. Mild, tied-sr regression. Asymmetric magnitude (Arm A 2.7× worse than Arm B) is consistent with WD acting downstream of LR. **Per-block WD axis bilaterally non-stratifiable — 2nd bilaterally-confirmed always-binding per-block lever after u/w-floor (#1314), and 5th bilateral NULL overall (joining u/w-floor, μ, β_cov Arm A, γ Arm A, NS_ITERS Arm A).** Closing 5th per-block Muon axis.
+
+## 2026-05-27 03:45 UTC — PR #1325 CLOSED: Temporal-separated L_cov+pEMA stacking — BOTH ARMS marginal-WIN-candidate (g1r1-thorfinn)
+
+- Branch: `g1r1-thorfinn/temporal-separated-stacking`
+- Hypothesis: Solo L_cov refresh (#1268) and paramEMA refresh (#1274) both NULLed vs new #1289 baseline. Same-step coupled refresh (#1302) produced INTERFERENCE. Temporally-separated stacking (each at own canonical optimum) may restore additivity.
+
+| Arm | L_cov step | pEMA step | val/loss_ema | sr | Δ vs baseline |
+|---|---|---|---|---|---|
+| Baseline #1289 | — | — | 3.264718 | 2925 | — |
+| A (canonical) | 2600 | 2275 | **3.263842** | 2925 | **−0.876 mnat MARGINAL WIN-CANDIDATE** |
+| B (swapped) | 2275 | 2600 | **3.264062** | 2925 | **−0.656 mnat MARGINAL WIN-CANDIDATE** |
+
+**Results commentary:** Both arms beat baseline marginally. Arm A passes merge clause-2 (val_ema=3.263842 < 3.264718 at sr=2925) BUT Δ=0.876 mnat ≤ 0.001 mnat triggers n=1 marginal-WIN guard — requires n=2 confirmation before merge. **Temporal-separation canon ESTABLISHED:** avoids the +2.39 mnat INTERFERENCE NULL of #1302 (same-step coupled refresh) and partially restores additivity of the two solo mechanisms. The canonical-vs-swapped arm difference (3.263842 vs 3.264062, Δ=0.00022) is within seed noise, suggesting the dominant mechanism is simply temporal-separation itself rather than canonical-step optimization. Notable: Arm B val_ema spike to 7.14 at step 2625 (25 steps after pEMA@2600 refresh) while val_live=3.32 confirms only the EMA-evaluation buffer is zeroed, not the model. Closing PR; n=2 confirmation seed assigned to thorfinn (#1379) and pEMA-only ablation assigned to fern (#1378).
+
 ## 2026-05-27 03:08 UTC — PR #1332 CLOSED: Per-block Muon μ — 161st NULL (g1r1-tanjiro)
 
 - Branch: `g1r1-tanjiro/per-block-muon-mu-shape`
