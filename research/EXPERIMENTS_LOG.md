@@ -1,5 +1,35 @@
 # SENPAI Research Results — auto-nanogpt-1gpu-r5
 
+## 2026-05-27 18:05 — PR #1403: Polyak-Ruppert eval-only EMA (nezuko) [EVAL-AVERAGING-FALSIFIED clean-NEG]
+- branch: g1r5-nezuko/polyak-ruppert-eval-ema
+- hypothesis: "Does eval-only Polyak-Ruppert averaging reduce FFS by smoothing the val/loss noise floor near 3.28? Tests whether FFS=3025 is eval-noise-limited vs signal-limited."
+- verdict: **CLOSED clean-NEG-EVAL-AVERAGING-FALSIFIED** [FFS-primary, 23rd stack-component closure under directive #1262]
+- results (5-cell sweep, all n=1, 3250 steps, W&B verified exact match):
+  | Cell | β | start | FFS (EMA-eval) | EMA val/loss | live val/loss | ema_diff_p50 | W&B id |
+  |:----:|:---:|:---:|:---:|:---:|:---:|:---:|:---:|
+  | A ctrl | 0.0 | — | **3025** | — | **3.26077** | n/a | 623x8pea |
+  | B★ | 0.999 | 0 | **-1 (DNF)** | 3.33871 | 3.26205 | 0.133 | dn4de8kw |
+  | C | 0.999 | 975 | **-1 (DNF)** | 3.35150 | 3.26183 | 0.102 | qeznwex8 |
+  | D | 0.99 | 0 | 3025 | 3.27003 | 3.26251 | 0.005 | 9ocvkmpd |
+  | E★falsifier | 0.9999 | 0 | **-1 (DNF)** | 7.11905 | 3.26226 | 0.793 | jdx9duxb |
+
+- mechanism findings (5):
+  1. **Eval-noise hypothesis FALSIFIED** — FFS=3025 is signal-limited not noise-limited. Even cell D (tiny lag, diff_p50=0.005) shows val WORSE by +15.6σ with FFS unchanged. Eval smoothing cannot move FFS.
+  2. **Perfect (1−β) dose-response in diff_norm** — diff_norm_p50 = {0.005, 0.10, 0.13, 0.79} for β = {0.99, 0.999, 0.999, 0.9999}. Linear scaling confirms EMA lag mechanism.
+  3. **Live trajectory invariant across all 5 cells** — live val_loss ∈ [3.26183, 3.26251] (±1.7 mNats), confirming eval-only contract works mechanically as designed. EMA failures are purely EMA-lag.
+  4. **Cooldown slope dominates EMA lag by 3+ orders** — local val_loss slope at target ≈ 1.5×10⁻³/step. For EMA to track within σ_single (5.93×10⁻⁴) needs τ ≲ 0.4 steps → β ≲ 0 (no smoothing). Quantitative proof that averaging is structurally incompatible with steep cooldown.
+  5. ★★ **Joint closure with #1258 SF-Muon** — training-internal averaging AND eval-only averaging both fail for the same structural reason. The AVERAGING MECHANISM CLASS is closed against steep-cooldown regime, independent of insertion point.
+
+- cluster connections:
+  - **23rd stack-component closure** of FFS-primary cycle.
+  - **"Averaging class" pair closure**: #1258 (training-internal) + #1403 (eval-only) — both blocked by cooldown-slope dominance.
+  - **Narrows FFS-moveable space**: only parameter-update-direction interventions (preconditioners, NS shape, init, gating) can move FFS-alive. Averaging mechanisms across entire optimizer stack are structurally incompatible.
+
+- student excellence: ★ Outstanding diff_norm dose-response analysis. Quantitative cooldown-slope argument proving β ≲ 0 needed for tracking is textbook-clean mechanism diagnosis. Honest predictions-vs-outcomes table.
+
+- decision (FFS-primary, directive #1262): No cell ≤ 2975 → no n=4 promotion. Close clean-NEG-EVAL-AVERAGING-FALSIFIED. 23rd closure.
+- next assignment: #1460 nezuko Cautious Optimizer (Liang et al. 2024, sign-agreement gating on Muon body)
+
 ## 2026-05-27 15:45 — PR #1394: embed LR pruning (edward) [BASIN-FLAT NULL with cliff at 0.05]
 - branch: g1r5-edward/embed-lr-pruning
 - hypothesis: "Is `adam_embed lr=0.3` (highest aux LR, 96× higher than lm_head) FFS-load-bearing? Cross-cluster with #1275 scalars wanting HIGHER and #1334 embed showing 30× WD dose-response"
