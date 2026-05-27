@@ -1,14 +1,21 @@
 # SENPAI Research State — auto-nanogpt-1gpu-r3
 
-- **Last updated:** 2026-05-27 12:15 UTC
+- **Last updated:** 2026-05-27 13:15 UTC
 
 ---
 
 ## 🏆 CURRENT BASELINE: FFS=3025, val=3.26830 — PR #1398 H203 tanjiro cosine cooldown shape
 
-**⚠️ CRITICAL BASELINE SHIFT ALERT (still active for H205-H210):** All 7 PRs assigned before H203 merged (H204-H210) used `--muonh_cooldown_shape linear` in CTRL arms (FFS≈3125-3150). Any winning arm from those PRs must beat **FFS=3025** to merge — not their local CTRL. Arms beating local CTRL (FFS=3100) are positive signal but need a cosine-baseline confirmation run.
+**⚠️ BASELINE SHIFT ALERT (still active for H206-H210):** PRs H206-H210 assigned before H203 merged used `--muonh_cooldown_shape linear` in CTRL arms (FFS≈3125-3150). Any winning arm from those PRs must beat **FFS=3025** to merge — not their local CTRL. Arms beating local CTRL (FFS=3100) are positive signal but need a cosine-baseline confirmation run. (Note: H204 and H205 already closed as NULL/NEG.)
 
 ---
+
+## 🎯 Cycle ~400 (13:00-13:15 UTC) — H205 alphonse CLOSED (62nd NULL/NEG, Soft Polar NS5 σ=1 load-bearing, programme finding #36 + 6-mechanism cross-finding consolidated); H213 alphonse ASSIGNED Body h_cooldown_frac sweep with cosine (PR #1433)
+
+- **🎯 H205 alphonse CLOSED — 62nd NULL/NEG + programme finding #36**: arm_a CTRL α=1.0 val=3.26506/FFS=3150 NULL bit-identical; arm_b SOFT_70 α=0.7 val=3.28046/FFS=-1 catastrophic NEG (missed target by 0.00046, +18σ); arm_c SOFT_50 α=0.5 val=3.29448/FFS=-1 WORSE catastrophic NEG (+34σ). **Monotonic degradation with α relaxation** rules out 'sweet spot' for soft polar. Spectral telemetry confirmed mechanism fired correctly (cos_sim 0.95/0.92, effective σ range [0.023, 0.112], u_polar_frob ≈ √768). NS5 σ=1 polar projection is structurally load-bearing, not over-engineered stability.
+- **🎯 6-mechanism cross-finding consolidated**: H191 AdaMuon + H195 Cautious + H196 GC + H199 Dual-EMA + H201 grad-noise + **H205 Soft Polar** → 6 distinct mechanism classes ALL fail at modifying body update direction's spectral content. Combined with H193 NULL (NS5 iters 8 vs 16 tied), **NS5 body-update mechanism class is empirically exhausted** for H148 stack. STOP generating pre-NS5/NS5 body modification hypotheses.
+- **🎯 H213 alphonse ASSIGNED (PR #1433) — Body h_cooldown_frac sweep with cosine shape**: Explicitly listed as a follow-up in H203 BASELINE.md notes ("future follow-ups: cosine_squared, quad, cosine × reduced h_cooldown_frac"). H211 tests cosine_squared shape; H213 tests cosine × reduced h_cooldown_frac timing (orthogonal axis). arm_a CTRL frac=1.0 bit-identical to current baseline; arm_b STABLE_30 frac=0.7 (stable first 30% + cosine cooldown last 70%); arm_c STABLE_60 frac=0.4 (stable first 60% + cosine cooldown last 40%, matches aux_cooldown_frac). At step 3025 (current FFS), arm_c body LR ~6.5× higher than arm_a then 300 steps to collapse to 0 — substantially sharper late cooldown. Compounding potential if both H211 and H213 improve.
+- **End-of-cycle ~400 portfolio**: H206 askeladd NS5 Polynomial (arm_b POLY_HARD running); H207 fern Body Momentum Reset (arm_b RESET_1500 running); H208 nezuko Post-NS5 EMA (arm_b SHORT_EMA running); H209 frieren Lion aux (arm_b LION_DIV3 running); H210 edward Body Layer-Wise LR (arm_a CTRL attempt-3 near terminal); H211 tanjiro cosine follow-up (arm_a CTRL cosine running); H212 thorfinn Aux Cooldown Shape (newly assigned); H213 alphonse Body h_cooldown_frac (newly assigned). **8/8 students WIP, 0 idle, 0 review-ready.** Two newly-assigned PRs (H212, H213) both require small `--*_cooldown_*` argparse code changes mirroring/extending the H203 cosine WIN.
 
 ## 🎯 Cycle ~395 (12:00-12:15 UTC) — H204 thorfinn CLOSED (61st NULL/NEG, bilateral β₂ schedule, programme finding #35); H212 thorfinn ASSIGNED Aux LR cooldown shape sweep (PR #1427); stale_wip chain audits for H205/H206/H207/H208/H209/H210
 

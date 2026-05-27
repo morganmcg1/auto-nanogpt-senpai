@@ -1,3 +1,22 @@
+## 2026-05-27 13:10 — PR #1406: H205 alphonse Soft Polar body update (convex blend NS5 polar + raw gradient) — CLOSED (62nd NULL/NEG + 🎯 programme finding #36)
+
+- Branch: `g1r3-alphonse/soft-polar-body`
+- Hypothesis: Convex blend of NS5 polar update U with Frobenius-norm-matched raw gradient direction. SVD interpretation: effective σ_i = α + (1-α)·σ̂_i, where σ̂ is normalized raw σ. Tests whether NS5's σ=1 polar constraint is over-engineered stability OR the active ingredient of the body update.
+- Results:
+
+  | Arm | α | W&B | val/loss | FFS | Δ val vs CTRL | σ-units vs H174 | Class |
+  |---|---|---|---|---|---|---|---|
+  | arm_a CTRL | 1.0 | `dcn9woka` | **3.26506** | **3150** | 0.0 | +0.68σ | NULL (bit-identical) |
+  | arm_b SOFT_70 | 0.7 | `ol00newq` | 3.28046 | **-1** ❌ | +0.01540 | +18.10σ | catastrophic NEG (missed by 0.00046) |
+  | arm_c SOFT_50 | 0.5 | `zj48g3qb` | 3.29448 | **-1** ❌ | +0.02942 | +33.96σ | WORSE catastrophic NEG |
+
+- **Mechanism verification (spectral telemetry)**: blend_vs_polar_cos_sim = 0.95 at α=0.7 / 0.92 at α=0.5 (mechanism IS firing, less than 1.0 means direction deflection). effective_σ range [0.023, 0.112] confirms non-uniform spectrum vs polar σ=1. u_polar_frob ≈ 27.7 ≈ √768 ✓ (polar matrix Frobenius norm correctness check).
+- **🎯 Programme finding #36 (62nd NULL/NEG): NS5 polar σ=1 constraint is structurally load-bearing**: Monotonic degradation with α relaxation rules out 'sweet spot'. The σ=1 polar fixed point is the *active ingredient*, not over-engineered stability. Frobenius-matched raw direction carries valid spectral information in principle (rank-preserving, σ-faithful) but injects spectral structure fighting the H148-tuned attractor (orthogonal init + AGC + warmup + cooldown all assume σ=1 polar updates).
+- **🎯 6-mechanism cross-finding consolidated**: H191 AdaMuon + H195 Cautious + H196 GC + H199 Dual-EMA + H201 grad-noise + **H205 Soft Polar** → 6 distinct mechanism classes ALL fail. **Any modification to body update direction's spectral content fails**. Combined with H193 NULL (NS5 iters 8 vs 16 tied), the NS5 body-update mechanism class is **empirically exhausted** for H148.
+- **vs new baseline**: arm_a CTRL FFS=3150 (linear cooldown) is now 125 steps behind FFS=3025 (H203 cosine baseline). All 3 arms NULL/NEG vs new baseline.
+- **Student's suggested follow-ups**: (1) Stop attacking pre-NS5/NS5 body mechanism — cross-finding statistically robust (n=6); (2) Pivot to post-polar transforms (e.g., spectral-aware LR scaling); (3) Pivot to body NULL-space (schedule reformulations, measurement-side); (4) Note baseline shift to FFS=3025.
+- **Next assignment**: H213 alphonse Body h_cooldown_frac sweep with cosine shape (PR #1433) — explicitly listed as a follow-up in H203's BASELINE.md notes. Tests WHEN body cooldown starts (timing) vs H203's WHAT shape (shape). arm_a CTRL h_cooldown_frac=1.0 bit-identical; arm_b STABLE_30 h_cooldown_frac=0.7 (stable first 30%); arm_c STABLE_60 h_cooldown_frac=0.4 (stable first 60%, matches aux_cooldown_frac). At step 3025, arm_c holds body LR ~6.5× higher than arm_a then has only 300 steps to collapse — sharper late cooldown. Compounding potential with H211 cosine_squared if both improve.
+
 ## 2026-05-27 12:05 — PR #1401: H204 thorfinn Aux AdamW β₂ cooldown-ramp sweep (0.99 → 0.999 / 0.95) — CLOSED (61st NULL/NEG + 🎯 programme finding #35)
 
 - Branch: `g1r3-thorfinn/aux-beta2-ramp`
