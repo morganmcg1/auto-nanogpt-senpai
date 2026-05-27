@@ -1,5 +1,103 @@
 # SENPAI Research Results
 
+## 2026-05-27 17:10 UTC — PR #1399 frieren lm_head-only LR pulse CLOSED marginal-WIN-candidate WITHOUT MERGE — below margin + dose-response non-monotonic (g1r1-frieren)
+
+- Branch: `g1r1-frieren/lm-head-lr-pulse`
+- Hypothesis: aux lm_head-only LR pulse in steps 2500-2924 — Arm A ×1.20 boost, Arm B ×0.80 reduce. Tests param-class isolation within aux family.
+
+| Arm | lm_head LR mult | W&B run | val_loss_ema | sr | Δ vs baseline (3.264718) | Verdict |
+|---|---|---|---|---|---|---|
+| Arm A | ×1.20 boost | `uawnwfpy` | 3.264416 | 2925 | **−0.302 mnat marginal-WIN-candidate** | Below margin canon |
+| Arm B | ×0.80 reduce | `pxyyjwja` | 3.268242 | **2950 (+25 Pareto-shift)** | **+3.524 mnat NULL** | Pareto-shift regression |
+| Baseline #1289 | ×1.00 | `3zhwgfiw` | 3.264718 | 2925 | — | — |
+
+**Pulse-fire CLEAN both arms.** lm_head_lr=1.586e-3 (×1.197 boost @ step 2501) Arm A, =1.058e-3 (×0.80 reduce on step-2501 cosine-decayed baseline 1.321e-3) Arm B. embed/scalars LR bit-identical to baseline — param-class isolation verified.
+
+**Closure rationale — DO NOT request n=2 confirmation:**
+
+1. **Δ−0.302 mnat well below 1.0 mnat margin canon** — within seed-noise floor.
+2. **Recent 2/2 n=2 collapse pattern** on aux marginal-WIN-candidates: #1325→#1379 collapsed (Δ−0.876 → +0.125), #1365→#1410 collapsed (Δ−0.720 → +0.500). Prior probability of n=2 confirming a Δ−0.302 candidate is now substantially below 50%.
+3. **#1425 dose-response in flight** is more informative than redundant n=2 of ×1.20. If lm_head canon is robust, ×1.30 should yield Δ < −0.302 and ×1.40 should yield Δ < −0.302 as well. Arm A of #1425 already terminated NULL Δ+0.182 mnat at ×1.30 — **non-monotonic dose-response detected**, suggesting #1399 Δ−0.302 is seed-driven.
+
+**Directional asymmetry CONFIRMED:** boost-mild-productive (Δ−0.302) vs reduce-strongly-harmful (Δ+3.524 + sr-shift) is the same asymmetry pattern as #1365 joint-aux (Δ−0.720 boost vs Δ+3.557 reduce). However, the asymmetric magnitude does NOT rescue the boost direction from below-margin-noise canon when the n=2 collapse rate is high.
+
+**Aux LR-magnitude axis status (post-#1399 closure):**
+
+| PR | Aux param subset | Mult | Δ val_ema (mnat) | n=2 status |
+|---|---|---|---|---|
+| #1365 alphonse | joint aux | ×1.30 | −0.720 (n=1) → +0.500 (n=2) | COLLAPSED |
+| #1399 frieren (this) | lm_head-only | ×1.20 | −0.302 (n=1) | **CLOSED no n=2** |
+| #1400 edward | embed-only | ×1.10 | +1.315 (n=1) | bilateral NULL, CLOSED |
+| #1425 tanjiro | lm_head-only Arm A | ×1.30 | +0.182 (n=1) | TERMINAL NULL |
+| #1425 tanjiro | lm_head-only Arm B | ×1.40 | in flight | ETA ~20:00 UTC |
+| #1410 alphonse | joint aux n=2 confirm | ×1.30 seed-2 | +1.719 | COLLAPSED |
+| #1452 askeladd | scalars-only | ×1.30/×0.70 | awaiting pickup | — |
+
+**Canon implication:** the aux LR-magnitude axis is increasingly looking like seed-noise-driven across the canonical pulse window 2500-2924. The productive mechanism class is shifting from aux LR-magnitude (unraveling) to refresh-axis (#1429 just confirmed at n=2). **Portfolio attention pivoting toward refresh-axis exploration** (PR #1457 step-position ablation) and stacking experiments.
+
+**frieren → PR #1457 pEMA refresh STEP-POSITION ablation.**
+
+---
+
+## 2026-05-27 17:08 UTC — PR #1425 tanjiro lm_head LR dose-response Arm A TERMINAL NULL — non-monotonic dose-response (g1r1-tanjiro)
+
+- Branch: `g1r1-tanjiro/lm-head-lr-dose-response`
+- Hypothesis: lm_head-only LR dose-response — Arm A ×1.30 (matches joint #1365 mult, direct param-class comparison), Arm B ×1.40 (higher mult dose-response).
+
+| Arm | lm_head LR mult | W&B run | val_loss_ema | sr | Δ vs baseline (3.264718) | Verdict |
+|---|---|---|---|---|---|---|
+| Arm A | ×1.30 | `2fkycdm0` | 3.2649 | 2925 | **+0.182 mnat NULL** | sr-preserve regression |
+| Arm B | ×1.40 | `xc242j9w` | in flight (step ~1025/3250) | — | — | ETA terminal ~20:00 UTC |
+| Baseline #1289 | ×1.00 | `3zhwgfiw` | 3.264718 | 2925 | — | — |
+
+**NON-MONOTONIC DOSE-RESPONSE detected:** lm_head-only ×1.20 (Δ−0.302 mnat, #1399 Arm A) does NOT extend monotonically to ×1.30 (Δ+0.182 mnat, this PR Arm A). If the lm_head LR mechanism were robust, gain should scale with multiplier — instead the dose-response inverts at the ×1.20→×1.30 boundary.
+
+**Cross-PR dose-response matrix on lm_head LR boost direction:**
+
+| Source | Mult | val_loss_ema | Δ vs baseline (mnat) |
+|---|---|---|---|
+| #1289 baseline | ×1.00 | 3.264718 | 0.000 |
+| #1399 Arm A | ×1.20 | 3.264416 | **−0.302 (marginal-WIN-candidate)** |
+| **#1425 Arm A (this)** | **×1.30** | **3.264900** | **+0.182 (NULL regression)** |
+| #1425 Arm B (this) | ×1.40 | in flight | — |
+| #1365 joint aux (lm_head moves with embed) | ×1.30 | 3.263998 | **−0.720 (n=1) collapsed at n=2** |
+
+**Mechanism interpretation:** the non-monotonic dose-response combined with the n=2 collapse pattern of #1365 strongly suggests that any marginal gain in the lm_head-only-pulse axis is seed-noise-driven rather than mechanism-driven. If lm_head were genuinely load-bearing, larger boosts should produce larger gains (assuming the basin is on the boost side); instead gains evaporate at ×1.30 and seed-driven noise dominates the signal.
+
+**Combined with #1410 joint-aux n=2 collapse + #1399 below-margin marginal + this NON-MONOTONIC dose-response,** the aux LR-magnitude axis is increasingly looking like seed-noise-driven across the canonical pulse window. Arm B ×1.40 outcome will provide the bilateral confirmation — if also NULL, the lm_head canon is FULLY WEAKENED.
+
+**Major portfolio implication:** productive mechanism class is shifting from aux LR-magnitude (unraveling) to refresh-axis (#1429 just confirmed at n=2). Portfolio attention pivoting toward refresh-axis exploration (PR #1457 step-position ablation) and stacking experiments.
+
+---
+
+## 2026-05-27 17:10 UTC — PR #1457 frieren ASSIGNED: pEMA refresh STEP-POSITION ablation — maps productive zone around step 2600
+
+- Branch: `g1r1-frieren/pema-refresh-step-position`
+- Hypothesis: maps the productive zone around step 2600 (canonical pEMA-refresh productive step from #1378/#1429 n=2 confirmation). Step-position is the load-bearing variable per #1378 Arm A vs Arm B asymmetry (Δ+0.629 NULL @ step 2275 vs Δ−1.155 WIN @ step 2600).
+
+| Arm | refresh_step | refresh_only flag | Hypothesis |
+|---|---|---|---|
+| Arm A | 2500 | `--paramema_refresh_only` | entrance to canonical pulse window — tests whether productive zone extends 100 steps earlier |
+| Arm B | 2750 | `--paramema_refresh_only` | 175 steps before target crossing — tests whether productive zone extends 150 steps later |
+| Reference | 2600 | (from #1429 n=2 mean) | val_ema ≈ 3.263931, sr=2900, Δ−0.787 mnat WIN |
+
+**Mechanism-distinct from in-flight work:**
+- #1425 tanjiro lm_head LR dose-response — aux LR-axis
+- #1452 askeladd scalars-only aux LR pulse — aux LR-axis
+- #1435 alphonse body Muon NS_ITERS pulse — body Muon polish-axis
+- #1445 edward body Muon WD pulse — body Muon regularization-axis
+- #1456 thorfinn body Muon μ pulse — body Muon momentum-axis
+- #1457 frieren pEMA refresh step-position (this) — **refresh-axis step-position mapping** (orthogonal to all)
+
+**Forecasts:**
+- Bilateral WIN (both Δ < −0.4 mnat): wide productive zone, refresh-axis tolerant to step shifts ±150
+- Both NULL: step 2600 is sharp peak, refresh-axis is narrow-window
+- Asymmetric (one WIN one NULL): directional sensitivity — productive zone has unilateral edge
+
+**Issue #1252 phase-specific aligned.** Independent canon-mapping value regardless of #1425 outcome — uses orthogonal mechanism axis.
+
+---
+
 ## 2026-05-27 16:48 UTC — PR #1429 fern n=2 seed-2 confirmation of #1378 Arm B pEMA-refresh @ 2600 — STRONG WIN-CANDIDATE (awaiting student SENPAI-RESULT post)
 
 - Branch: `g1r1-fern/pema-only-2600-n2-seed2`
