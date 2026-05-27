@@ -67,6 +67,10 @@ def parse_args():
     parser.add_argument("--ns_iter", type=int, default=12,
                         help="Number of Newton-Schulz iterations in zeropower_via_newtonschulz5. "
                              "Default 12 (current hardcoded value). Lower = less orthogonal but faster.")
+    parser.add_argument("--lr_warmup_steps_body", type=int, default=0,
+                        help="Linear warmup steps for Muon body LR (eta_body ramps 1/N -> 1.0 over first N steps). "
+                             "0 = no warmup (current default). Applies only to muon_mlp / muon_attn groups; "
+                             "AdamW aux groups keep the unchanged trapezoidal schedule.")
     parser.add_argument("--lr_scalars", type=float, default=0.01,
                         help="LR for AdamW adam_scalars group (RMSNorm gains; "
                              "params with ndim < 2). Default 0.01 — hardcoded, "
@@ -878,19 +882,27 @@ for trial_idx in range(args.num_trials):
         else:
             raise ValueError(f"Unknown wd_schedule: {schedule}")
 
-    # learning rate schedule: stable then decay
+    # learning rate schedule: optional body warmup, then stable, then cooldown
     def set_hparams(step, cooldown_frac=0.7):
         progress = step / train_steps
         assert 0 <= progress < 1
-        if progress < 1 - cooldown_frac:
-            eta = 1.0
+        warmup_steps = args.lr_warmup_steps_body
+        if warmup_steps > 0 and step < warmup_steps:
+            eta_body = (step + 1) / warmup_steps  # linear ramp 1/N -> 1.0
+        elif progress < 1 - cooldown_frac:
+            eta_body = 1.0
         else:
-            eta = (1 - progress) / cooldown_frac
+            eta_body = (1 - progress) / cooldown_frac
+        if progress < 1 - cooldown_frac:
+            eta_aux = 1.0
+        else:
+            eta_aux = (1 - progress) / cooldown_frac
         wd_mu = _wd_multiplier(step, train_steps, args.wd_schedule)
         for opt in optimizers:
             for group in opt.param_groups:
-                group["lr"] = group["initial_lr"] * eta
-                if "initial_wd" in group and group.get("name", "").startswith("muon_"):
+                is_body = group.get("name", "").startswith("muon_")
+                group["lr"] = group["initial_lr"] * (eta_body if is_body else eta_aux)
+                if "initial_wd" in group and is_body:
                     group["weight_decay"] = group["initial_wd"] * wd_mu
 
 
