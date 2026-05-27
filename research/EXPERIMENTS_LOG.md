@@ -1,5 +1,26 @@
 # SENPAI Research Results — auto-nanogpt-1gpu-r5
 
+## 2026-05-27 23:48 — PR #1442: Per-block-depth Muon body LR decay (tanjiro) [CLOSED — PER-BLOCK-LR-MUSOFT-ABSORBED — 27th closure]
+- branch: g1r5-tanjiro/per-block-lr-decay
+- hypothesis: Test ULMFiT-style γ^(L-block_idx) per-block LR decay on Muon body — does the depth prior of "lower layers process more general features, need lower LR" transfer from fine-tuning to pretraining-from-scratch?
+- verdict: **CLEAN-NEG WITH JOINT-LOAD-BEARING FINDING**. γ=1.0 IS local optimum; monotone-in-|γ-1| degradation; γ=1.15 falsifier DNF as predicted. **Key cross-PR claim: musoft init absorbs the depth prior** — per-block-LR and depth-init are NOT independent knobs.
+- results (5-cell n=1, W&B group `g1r5-tanjiro/per-block-lr-decay`):
+
+  | Cell | γ | val/loss | ΔFFS vs A | Δval (σ_single) | FFS | W&B |
+  |:---:|:---:|:---:|:---:|:---:|:---:|:---|
+  | A ctrl | 1.00 | 3.26222 | — | — | 3050 | 4hptkse2 |
+  | **B★** | **0.95** | **3.26550** | **0** | **+5.53σ** | **3050** | xlzn73dv |
+  | C | 1.05 | 3.26726 | +50 | +8.50σ | 3100 | g0r7tzyp |
+  | D | 0.90 | 3.27750 | +150 | +25.77σ | 3200 | rqw5inj7 |
+  | E falsifier | 1.15 | 3.28717 | DNF | +42.07σ | -1 | o5mtx3lh |
+
+- mechanism findings:
+  1. **γ=1.0 IS local optimum**: monotone-in-|γ-1| degradation; asymmetric sign (γ>1 hurts harder than γ<1 at matched offset)
+  2. **★★ musoft init absorbs the depth prior**: musoft's 1/√L residual-writer std already encodes depth-scaling; adding any further per-block LR modulation is redundant or harmful
+  3. **ULMFiT prior does NOT transfer to pretraining-from-scratch**: fine-tuning's "preserve lower-layer features" doesn't apply when representations are still being formed
+  4. **NS-orthogonalization normalizes spectral content independent of upstream scale**: all cells converge to update_norm ≈ 38-40 at step 0; the per-block LR translates 1:1 into effective parameter step size, confirming the LR multiplier is the operational change (not gradient magnitude)
+  5. **Cross-cluster: depth-prior is a JOINT-LOAD-BEARING 2-knob unit** (musoft + uniform body LR) — pruning either alone is harmful, pruning both simultaneously is the only way to test depth-prior removal
+
 ## 2026-05-27 23:30 — PR #1434: scalars-β2 PER-GROUP decouple (frieren) [CLOSED — PER-GROUP-COSMETIC — 26th closure]
 - branch: g1r5-frieren/scalars-beta2-decouple
 - hypothesis: Mirror #1368 mechanism class on β2 axis — does scalars want HIGHER β2 (longer 2nd-moment memory) than 2D matrices? Same low-SNR-signal-processing prior as the β1 case.

@@ -9,26 +9,28 @@ The human research team has redirected: **FFS (first-step-to-target, baseline 30
 3. **Prefer experiments that move the crossing step** (2800-3050 window), **simplify winning stacks**, **reveal FFS-load-bearing components**.
 4. **Ablations preferred over confirmations** when FFS dead.
 
-## Last updated: 2026-05-27 ~23:30Z (poll ~900)
+## Last updated: 2026-05-27 ~23:48Z (poll ~901)
 
-**Actions this poll**: ★ Close #1434 frieren scalars-β2 PER-GROUP-COSMETIC [26th stack-component closure]. **β2 axis now FULLY CLOSED across 3 sub-axes** (value × schedule × per-group). Per-group decoupling mechanism class is **AXIS-SPECIFIC**: β1 works (#1368 FFS-positive), β2 cosmetic. Excellent cross-cluster mechanism inference from frieren: scalars-only β2=0.5 mild (+11σ) vs uniform β2=0.5 catastrophic (#1321 FFS=NEVER +45σ) → "matrices structurally carry the β2 load-bearing memory; scalars are perturbable". ★ Assigned #1493 frieren Quasi-Hyperbolic Momentum (QHM) on Muon body (Ma & Yarats ICLR 2019; blends gradient with momentum BEFORE NS-orthogonalization; fresh axis distinct from closed mu-cooldown β-schedule axes and from in-flight AFTER-NS modifiers AGC/Lookahead/Cautious). Issue #1480 still awaiting human response (>2h open; Reading-C default already in flight).
+**Actions this poll**: ★ Close #1442 tanjiro PER-BLOCK-LR-MUSOFT-ABSORBED [27th stack-component closure]. γ=1.0 (uniform body LR) IS local optimum — both directions degrade monotonically with |γ-1|, asymmetric (γ>1 hurts harder), E falsifier DNF. **Key cross-PR joint-load-bearing finding: musoft init absorbs the depth prior** — musoft + uniform body LR is a 2-knob unit that can't be modulated independently. ULMFiT depth prior doesn't transfer to pretraining-from-scratch at this scale. ★ Assigned #1497 tanjiro Gradient Centralization on Muon body (Yong et al. ECCV 2020; row-mean removal pre-momentum/NS; structurally distinct from closed mu-schedules and in-flight AGC/Lookahead/Cautious/QHM/per-block-LR which respectively clip/average/gate/blend/scale rather than centralize). Issue #1480 still awaiting human response.
 
 **Critical pending**: Issue #1480 human merge guidance — #1381 (FFS-POSITIVE, FIRST OF R5) held in status:review; Reading-C parallel arm #1481 in flight.
 
 **Active student portfolio (8 PRs, 0 idle)**:
 - ★★★ #1381 alphonse — **cosine cooldown n=4 TERMINAL — μ_4(FFS)=2944, FFS-ALIVE, val +15σ regression**; status:review, HOLD pending issue #1480 human guidance
 - ★ #1481 alphonse — cosine × cooldown_frac joint sweep (Reading-C parallel arm)
-- #1493 frieren — QHM Muon body (gradient × momentum blend pre-NS; ICLR 2019; 5 cells ν ∈ {1.0 ctrl, 0.85, 0.7 paper, 0.5, 0.3 falsifier})
+- #1497 tanjiro — Gradient Centralization on Muon body (row-mean pre-NS; ECCV 2020; 5 cells ctrl/row-mean B★/col-mean/scope-extend/falsifier)
+- #1493 frieren — QHM Muon body (gradient × momentum blend pre-NS; ICLR 2019)
 - #1490 askeladd — AdEMAMix on AdamW aux (fast+slow EMA mixture NeurIPS 2024)
 - #1471 thorfinn — Lion-aux sign-based optimizer (Chen et al. 2023; sequential sweep running)
 - #1460 nezuko — Cautious Optimizer (Liang et al. 2024; in flight)
 - #1446 edward — Lookahead optimizer wrapper (Zhang et al. 2019; in flight)
-- #1442 tanjiro — per-block-depth Muon body LR decay (ULMFiT γ-modulation; in flight)
 - #1441 fern — AGC on Muon body (Brock et al. NFNets; cells in flight)
 
-**Cumulative closures (26 stack-components, ZERO merges in R5 to date)**: Averaging class (2) + Aux-LR triumvirate (3) + Per-group HP-decoupling tetrad β1+β2+ε+lr+β2-pergroup (5) + Crossing-phase cluster (6) + Muon NS operator-class (4) + AdamW aux core (3) + Early-phase (2) + Matrices-β1-isolation (1) + others
+**Cumulative closures (27 stack-components, ZERO merges in R5 to date)**: Averaging class (2) + Aux-LR triumvirate (3) + Per-group HP-decoupling tetrad β1+β2+ε+lr+β2-pergroup (5) + Crossing-phase cluster (6) + Muon NS operator-class (4) + AdamW aux core (3) + Early-phase (2) + Matrices-β1-isolation (1) + Per-block-LR (1) + others
 
-**β2 axis FULLY CLOSED across 3 sub-axes** (poll ~900): value #1321 + schedule #1377 + per-group #1434 — all FFS-cosmetic. Predictive next-step from #1434 mechanism: matrices_β2=0.5 with scalars_β2=0.95 (inverse falsifier) should be CATASTROPHIC, validating "matrices structurally carry β2 load-bearing memory". Not assigning this now — keep on followup shortlist.
+**β2 axis FULLY CLOSED across 3 sub-axes** (poll ~900): value #1321 + schedule #1377 + per-group #1434 — all FFS-cosmetic.
+
+**Depth-prior cluster status** (poll ~901): musoft init + uniform body LR is a JOINT-LOAD-BEARING 2-knob unit (#1266 init + #1442 per-block-LR closures). Either alone cannot be modulated without harm — they encode the same depth-scaling prior. Future depth-prior work would need to test BOTH simultaneously.
 
 **FFS-positive directions**:
 1. ★★★ Cosine cooldown shape (#1381 n=4 TERMINAL μ_4(FFS)=2943.75 ALIVE; val regression +15σ; HOLD for #1480)
