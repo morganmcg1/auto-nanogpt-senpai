@@ -70,6 +70,11 @@ def parse_args():
                              "late-higher=0.9 (block 0) → 1.1 (block 11), "
                              "late-lower=1.1 (block 0) → 0.9 (block 11). "
                              "Mean LR preserved across blocks.")
+    parser.add_argument("--lcov_refresh_steps_list", type=str, default="",
+                        help="Comma-separated list of step indices at which to zero L_cov "
+                             "(left preconditioner covariance) for all body-Muon matrix "
+                             "params. Refresh fires AFTER opt.step() so the next step seeds "
+                             "L_cov from g g^T fresh. Empty string disables.")
     args = parser.parse_args()
     args.num_trials = args.num_trials if args.num_trials is not None else (args.legacy_num_trials or 1)
     args.wandb_tags = [tag.strip() for tag in args.wandb_tags.split(",") if tag.strip()]
@@ -731,6 +736,7 @@ if dist.get_rank() == 0:
             "ema_beta_target": args.ema_beta_target if args.ema_beta_target is not None else 0.0,
             "ema_dynamic_ramp_active": int(args.ema_beta_target is not None and args.ema_beta > 0),
             "muon_block_lr_pattern": args.muon_block_lr_pattern,
+            "lcov_refresh_steps_list": args.lcov_refresh_steps_list,
         },
     )
 
@@ -865,6 +871,16 @@ for trial_idx in range(args.num_trials):
     train_loader = distributed_data_generator("data/fineweb10B/fineweb_train_*.bin", batch_size)
     for p in model.parameters():
         dist.broadcast(p.detach(), 0)
+    # Parse the L_cov multi-refresh schedule once: set of step indices at which
+    # to zero state["L"] for every body-Muon matrix param. Empty=disabled.
+    if args.lcov_refresh_steps_list:
+        lcov_refresh_steps = {int(s) for s in args.lcov_refresh_steps_list.split(",") if s.strip()}
+    else:
+        lcov_refresh_steps = set()
+    lcov_refresh_fired_count = 0
+    if dist.get_rank() == 0:
+        print0(f"lcov_refresh_steps: {sorted(lcov_refresh_steps) if lcov_refresh_steps else 'disabled'}",
+               console=True)
     # start the clock
     training_time = 0
     last_val_step = 0
@@ -1021,6 +1037,25 @@ for trial_idx in range(args.num_trials):
             )
         for opt in optimizers:
             opt.step()
+        # L_cov multi-refresh: zero state["L"] for body-Muon matrix params at
+        # the configured step indices. Fires AFTER opt.step() so the current
+        # step uses the pre-refresh L_cov for its update, then step+1 reseeds
+        # L_cov from g g^T (since L = beta_cov * 0 + g g^T after zeroing).
+        if step in lcov_refresh_steps:
+            for p in optimizer2.param_groups[0]["params"]:
+                state = optimizer2.state.get(p, None)
+                if state is not None and "L" in state:
+                    state["L"].zero_()
+            lcov_refresh_fired_count += 1
+            if dist.get_rank() == 0:
+                wandb.log({
+                    "trial": trial_idx,
+                    "lcov_refresh/fired": 1,
+                    "lcov_refresh/step": step,
+                    "lcov_refresh/fired_count": lcov_refresh_fired_count,
+                }, step=wandb_step)
+                print0(f"lcov_refresh fired at step={step} fired_count={lcov_refresh_fired_count}",
+                       console=True)
         # EMA buffer update on body-Muon matrix params.
         # During warmup: track params live (no averaging) so post-warmup buffer is
         # seeded with stable, non-zero params (handles proj zero-init bias and lets
