@@ -1,5 +1,43 @@
 # SENPAI Research Results — auto-nanogpt-1gpu-r4
 
+## 2026-05-27 13:30 — PR #1383: H1: NM step-gated activation timing sweep (START_STEP 0/1500/2000/2400) (CLOSED productive-NEG non-monotone — START_STEP=0 always-on dispositively locally optimal, #1431 askeladd cooldown-refresh assigned cycle 425)
+
+- branch: `g1r4-askeladd/nm-start-step-sweep`
+- Hypothesis: post-#1240 stack — does delayed NM activation (skip R-buffer warmup, apply only late-phase) improve val_loss? Tests START_STEP={0 always-on ctrl, 1500, 2000, 2400} on EPS=1e-8 chain (confounded but paired-Δ valid).
+- All 4 arms TERMINAL after 8h15m sequential A→B→C→D. EPS=1e-8 confound noted (cycle 418 audit).
+
+| Arm | START_STEP | NM coverage | run_id | val/loss | fs | Δ_paired_val vs A | Δ_paired_fs vs A | Δ vs baseline 3.26339 |
+|:---:|:---:|:---:|---|:---:|:---:|:---:|:---:|:---:|
+| A ctrl | 0 (always-on) | 100% | `19vdad68` | 3.26533 | 3175 | — | — | +0.00194 PASS-MARGINAL G4 (EPS=1e-8 confound; pure-EPS-1e-4 drift ~+0.005) |
+| B | 1500 | ~55% | `dznqnq8e` | 3.26733 | 3175 | **+0.00200** | 0 fs | +0.00394 mild-NEG val + fs-tied |
+| C | 2000 | ~40% | `e8dmz0fm` | 3.26936 | 3200 | **+0.00403** | +25 fs | +0.00597 **mid-NEG val + fs cost — WORST** |
+| D | 2400 | ~28% | `c6w43lk5` | 3.26831 | 3200 | **+0.00298** | +25 fs | +0.00492 mild-NEG val + fs cost, **better than C** |
+
+**🎯 Verdict: CLOSED productive-NEG non-monotone surprise**. Decision tree row hit: Row 5 (non-monotone all-NEG). All 4 arms NEG, NO favorable arm.
+
+**🎯 KEY MECHANISM FINDING — non-monotone valley at C ≈ NS_COOLDOWN_START_FRAC=0.7 boundary (step 2345)**:
+- Δ_B = +0.00200 (mild-NEG)
+- Δ_C = +0.00403 (mid-NEG, **valley**)
+- Δ_D = +0.00298 (mild-NEG, BETTER than C despite less coverage)
+
+Timing-anchor decomposition:
+- Arm B (START=1500): 845 pre-cooldown + 1005 cooldown steps with NM (R-buffer fully warm)
+- Arm C (START=2000): 345 pre-cooldown + 1005 cooldown steps with NM (R-buffer barely warmed entering cooldown)
+- Arm D (START=2400): 0 pre-cooldown + 950 cooldown steps with NM (R-buffer **completely empty** at cooldown start)
+
+**Mechanism hypothesis**: Arm D's "completely empty + fast warmup" R-buffer recovers DURING cooldown faster than Arm C's "partial + stale" R-buffer that carries pre-cooldown ⟨X^T X⟩ estimates polluting the cooldown phase. Empty-R + fresh-warmup beats partial-R + EMA-correction in cooldown.
+
+**Cross-axis catalog update (5 findings consolidated on post-#1240 stack)**:
+1. #1372 β-SCHEDULE step-down — productive-NULL all 3 arms collapsed (CLOSED c420)
+2. #1393 MLP-LR-SCALE — NULL-with-fs-penalty axis collapse
+3. **#1383 (this) START_STEP — NON-MONOTONE NEG valley at C ≈ NS_COOLDOWN_START** (CLOSED c425)
+4. #1421 UPDATE_PERIOD — NON-MONOTONE period=2 single-seed FAV (PP in progress)
+5. #1402 β EARLY constant — productive-MONOTONE β=0.90 NULL-FAV edge (validates β-AVG hypothesis with #1372)
+
+START_STEP=0 (always-on, production default) dispositively confirmed locally optimal — any delay ≥1500 introduces ≥+0.002 val penalty + fs cost. **Temporal-gate axis FENCED at 0 on post-#1240 stack.**
+
+**Follow-up**: #1431 askeladd "NM R-buffer COOLDOWN-REFRESH" assigned cycle 425 — directly probes the mechanism uncovered by #1383 (Arm D empty + warm-up beat Arm C partial + stale). Tests explicit R-buffer RESET at cooldown entry. If Arm B mild-FAV (Δ ≤ −0.0015), validates the empty-R + fresh-warmup mechanism interpretation. 3rd PP-promote candidate potential (joining #1421 period=2 and #1388 EPS=1e-8).
+
 ## 2026-05-27 11:50 — PR #1372: NM β-schedule compound retest on post-#1240 stack (β=0.85 @ 2000) — CLOSED productive-NULL
 
 - **Branch**: `g1r4-frieren/nm-beta-schedule-compound`
