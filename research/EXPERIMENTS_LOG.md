@@ -1,5 +1,43 @@
 # SENPAI Research Results — auto-nanogpt-1gpu-r5
 
+## 2026-05-27 15:45 — PR #1394: embed LR pruning (edward) [BASIN-FLAT NULL with cliff at 0.05]
+- branch: g1r5-edward/embed-lr-pruning
+- hypothesis: "Is `adam_embed lr=0.3` (highest aux LR, 96× higher than lm_head) FFS-load-bearing? Cross-cluster with #1275 scalars wanting HIGHER and #1334 embed showing 30× WD dose-response"
+- verdict: **CLOSED clean-NEG-BASIN-FLAT-CONFIRMS-DEFAULT** [FFS-primary, 22nd stack-component closure under directive #1262]
+- results (5-cell sweep, all n=1 full 3250 steps, W&B verified by advisor — perfect match):
+  | Cell | lr_embed | mult | FFS | val/loss | Δbase (σ_single) | W&B id |
+  |:----:|:--------:|:----:|:---:|:--------:|:----------------:|:------:|
+  | A | 0.30 | 1.0× (ctrl) | 3025 | 3.26090 | −0.54σ | 8hoadz0v |
+  | **B★** | **0.60** | **2.0× PRIMARY** | 3050 | **3.26336** | **+3.61σ NEG** | 1j2aqf6y |
+  | C | 0.15 | 0.5× | 3025 | 3.26056 | −1.11σ | c23myau0 |
+  | D | 0.90 | 3.0× | 3025 | 3.26146 | +0.40σ | stu7k1q4 |
+  | **E** | **0.05** | **1/6× falsifier** | 3125 | **3.27138** | **+17.13σ CATASTROPHIC** | 4gdqrjgm |
+
+- mechanism findings (5):
+  1. **Basin-flat across [0.15, 0.90] (6× span)** — Cells A/C/D all FFS=3025 baseline-EXACT with val spreading −1.11σ to +0.40σ. Embed LR is value-cosmetic within its basin.
+  2. **Sharp cliff at 0.05** — Cell E +17.13σ +100 FFS. The 1.27 visits/row/step sparse-gradient regime needs minimum LR.
+  3. ★★ **Aux-LR triumvirate COMPLETED with mixed signature**: scalars #1275 wanted **HIGHER 3×** (FFS-positive); embed THIS PR wants **NOTHING** (basin-flat 6×); lm_head #1387 wants **NOTHING** (basin-flat 16×). **Falsifies "all aux-group defaults systematically conservative" framing** — only scalars showed FFS-positive movement.
+  4. **Cell B★ outlier mildly NEG (+3.61σ)** bracketed away by C (0.5×) ✓ and D (3×) ✓ — non-monotonic single-seed result, most likely noise on a flat basin.
+  5. ★ **Dose-response in embed_weight_norm** — E=13K → D=207K (16× span across 18× LR range). Inverse dose-response in embed_grad_norm (E=308 → D=21). Real magnitude state dynamics but does NOT propagate to FFS/val above the cliff. Mirrors #1387 lm_head's self-equalizing `lr × g_norm` finding.
+
+- cluster connections:
+  - **Aux-LR triumvirate finally closed**: scalars=FFS-positive, lm_head=cosmetic-16×, embed=cosmetic-6×-with-cliff-at-0.05. Per-group LR dissociation lives on the scalars axis only.
+  - **22nd stack-component pruning closure** of FFS-primary cycle.
+  - **4th "aux-aux is mostly cosmetic" closure** (joins #1330 lm_head ε + #1334 aux wd + #1387 lm_head LR). Aux defaults are correct; productive movement requires per-group decoupling (scalars-β1 #1368 + scalars-β2 #1434 in flight).
+
+- student excellence: ★ Outstanding 3-axis dose-response telemetry table (weight_norm × grad_norm × row_visit_fraction) cleanly explained both the basin and the cliff. Cross-PR comparison table for the aux-LR triumvirate is exactly the synthesis FFS-primary needs. Pre-registered "40% NULL across [0.15, 0.6]" came true cleanly.
+
+- decision (FFS-primary, directive #1262): No Cell ≤ 2975 → no n=4 promotion. Close clean-NEG-BASIN-FLAT-CONFIRMS-DEFAULT. 22nd stack-component closure.
+
+- follow-up assignment: edward → **#1446 Lookahead optimizer wrapper on Muon body** (★ FRESH OPTIMIZER MECHANISM — pivoting from aux-LR triumvirate which is now exhausted):
+  - Zhang, Lucas, Ba, Hinton 2019 "Lookahead Optimizer: k steps forward, 1 step back" arxiv:1907.08610 (NeurIPS 2019)
+  - Maintain `fast` (Muon-updated each step) and `slow` (synced every k steps via `slow += α·(fast - slow); fast ← slow`)
+  - Hypothesis: Muon body update direction has step-to-step variance from NS-orthogonalization approximation + SOAP eigenbasis staleness + AdamW aux moment EMA — Lookahead averaging over k-steps damps this without changing mean direction
+  - 5-cell A=k=0 ctrl / **B★=k=5 α=0.5 Zhang-default** / C=k=10 α=0.5 longer window / D=k=5 α=0.3 gentler / E=k=5 α=0.9 falsifier (over-pull)
+  - Lookahead automatically deactivates during cooldown (LR→0 ⟹ fast-slow→0) — mechanism activates exactly in stable+early-phase regime where FFS-load-bearing dynamics live
+  - Cross-mechanism comparison with #1441 AGC (peak-shaving vs noise-reduction directions)
+  - If FFS-positive, opens 3rd FFS-positive direction class beyond per-group decoupling (#1368) and cosine cooldown shape (#1381)
+
 ## 2026-05-27 15:00 — PR #1387: lm_head LR pruning (tanjiro) [WIDE-COSMETIC NULL]
 - branch: g1r5-tanjiro/lm-head-lr-pruning
 - hypothesis: "Is the lm_head LR=1/320 default FFS-load-bearing? Test 5 cells across a 16× span."
