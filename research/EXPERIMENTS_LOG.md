@@ -1,3 +1,25 @@
+## 2026-05-27 21:30 — PR #1455: H218 edward depth-axis GROW α=+0.2 × cosine cooldown compose (H210 + H203 additivity test) — CLOSED (73rd NULL/NEG + 🎯 programme finding #41 candidate REFINED: depth-axis GROW signal is LINEAR-cooldown-specific, 2nd compose-test result NEG)
+
+- Branch: `g1r3-edward/depth-grow-cosine-compose`
+- Hypothesis: H210 GROW α=+0.2 (top layers boosted) × H203 cosine cooldown — does mild depth-axis val signal compound with cosine FFS WIN?
+- Treatment implementation recovery: After prior send-back (treatment missing, only CTRL launches), student re-added `--body_layer_lr_alpha` argparse + per-layer MuonH param-group construction via commit `94476a45`. Bit-identity gate PASSED step-0 val 10.82583.
+- Results:
+
+  | Arm | body_layer_lr_alpha | W&B | val/loss | FFS | Δ vs baseline | Δ within-PR |
+  |---|---|---|---|---|---|---|
+  | arm_a CTRL | 0.0 | `c6jtl1pn` | 3.26730 | **3025** | −0.00100 (−1.13σ, fortunate drift below H174 mean) | (ref) |
+  | arm_b GROW_COSINE | 0.2 | `f96wdubq` | 3.26793 | **3025** | −0.00037 (within H174 envelope) | **+0.00063 NEG within-PR** |
+
+- **FFS tied at 3025 across both arms** → no improvement on primary metric → NO MERGE per FFS-is-primary-metric rule (Issue #1260 directive).
+- **Within-PR signal Δ(arm_b - arm_a) = +0.00063 NEG**: arm_b is +0.00063 nat above arm_a CTRL despite treatment. arm_a was a fortunate drift -1.13σ below H174 mean; arm_b moved BACK toward H174 mean at -0.42σ. Depth-axis GROW signal does NOT amplify cosine baseline.
+- **🎯 Programme finding #41 candidate REFINED — depth-axis GROW signal is LINEAR-cooldown-specific** (mirroring finding #45 from H215 state-reset):
+  - H210 linear baseline: GROW α=+0.2 → Δval=−0.00296 mild + vs CTRL (within drift)
+  - H218 cosine baseline: GROW α=+0.2 → Δval=+0.00063 NEG within-PR
+  - 2nd compose-test result NEG (1st: H215 state-reset). H148-era mild-positive signals consistently FAIL to generalize to H203 cosine baseline.
+- **Compose-test heuristic strengthened (2/2 NEG)**: H148-era soft signals require re-validation on cosine baseline before merge consideration. Two distinct mechanisms (state-reset + depth-axis) both flip sign across cooldown shapes. Mechanistic root candidate: cosine's faster late-LR collapse (6× steeper at step 3100) leaves less LR budget for perturbed trajectories to recover.
+- **Excellent execution recovery**: Student delivered correctly after send-back. Bit-identity gate passed, both arms ran to terminal, telemetry comprehensive. NULL closure on primary metric, not a failure-to-execute.
+- **Next assignment**: **H224 edward (PR #1479)**: MuonH warmup pruning ablation + extension on cosine baseline. H131 closed warmup_steps∈{50,100,250} as non-binding on LINEAR baseline — never tested below 50 (pruning) AND never re-validated on cosine. 3-arm CTRL (warmup=100) / WARMUP_OFF (warmup=0, pruning ablation) / WARMUP_400 (warmup=400, extension). 20th NEW MECHANISM CLASS: body warmup pruning. Zero code changes required.
+
 ## 2026-05-27 21:00 — PR #1454: H217 nezuko EMA-normalized blend diagnostic (H208 mechanism N vs D resolution) — CLOSED (72nd NULL/NEG + 🎯 programme finding #40-D graduates: post-NS5 EMA damage is direction-bias-dominated, not norm-cancellation)
 
 - Branch: `g1r3-nezuko/ema-norm-blend`

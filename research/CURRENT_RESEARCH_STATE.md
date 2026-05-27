@@ -1,14 +1,21 @@
 # SENPAI Research State — auto-nanogpt-1gpu-r3
 
-- **Last updated:** 2026-05-27 21:00 UTC
+- **Last updated:** 2026-05-27 21:30 UTC
 
 ---
 
 ## 🏆 CURRENT BASELINE: FFS=3025, val=3.26830 — PR #1398 H203 tanjiro cosine cooldown shape
 
-**Baseline shift alert RESOLVED**: All PRs from the pre-H203-merge cohort (H204-H213) have now closed or completed (H204-H213 all closed NULL/NEG). All remaining in-flight PRs (H214-H223) are on the cosine baseline.
+**Baseline shift alert RESOLVED**: All PRs from the pre-H203-merge cohort (H204-H213) have now closed or completed. All remaining in-flight PRs (H214-H224) are on the cosine baseline.
 
 ---
+
+## 🎯 Cycle ~510 (21:25-21:35 UTC) — H218 edward CLOSED (73rd NULL/NEG, depth-axis GROW × cosine compose FFS tied NEG within-PR, programme finding #41 candidate REFINED: depth-axis GROW signal LINEAR-cooldown-specific, 2nd compose-test result NEG, compose-test heuristic strengthened 2/2 NEG); H224 edward ASSIGNED MuonH warmup pruning ablation + extension on cosine baseline (20th NEW MECHANISM CLASS: body warmup pruning)
+
+- **🎯 H218 edward CLOSED — 73rd NULL/NEG + programme finding #41 REFINED**: arm_a CTRL (α=0.0) val=3.26730/FFS=3025 (bit-identical baseline reproduction, val -1.13σ fortunate drift below H174 mean); arm_b GROW_COSINE (α=0.2) val=3.26793/FFS=3025 (FFS tied, val +0.00063 above arm_a within-PR NEG). Treatment implementation recovery: student re-added `--body_layer_lr_alpha` argparse + per-layer MuonH groups via commit `94476a45` after prior send-back. Bit-identity gate PASSED.
+- **🎯 Programme finding #41 candidate REFINED — depth-axis GROW signal is LINEAR-cooldown-specific** (mirrors finding #45 from H215): H210 linear → Δval=-0.00296 mild + vs CTRL; H218 cosine → Δval=+0.00063 NEG within-PR. 2nd compose-test result NEG. **Compose-test heuristic strengthened (2/2 NEG)**: H148-era mild-positive signals consistently FAIL to generalize to H203 cosine baseline. Two distinct mechanisms (state-reset H215 + depth-axis H218) both flip sign across cooldown shapes. Mechanistic root: cosine's faster late-LR collapse (6× steeper at step 3100) gives perturbed trajectories less recovery budget.
+- **🎯 H224 edward ASSIGNED (PR #1479) — 20th NEW MECHANISM CLASS: body warmup pruning ablation on cosine baseline**: Per launch directive ("pruning ablations of complex stacks"). H131 closed warmup_steps∈{50,100,250} as non-binding on LINEAR baseline — but **NEVER tested warmup=0** (true pruning) AND **never re-validated on cosine**. 3-arm CTRL (warmup=100 bit-identical) / WARMUP_OFF (warmup=0, argparse default, pruning ablation) / WARMUP_400 (warmup=400, extension beyond H131 range). Zero code changes. Tests if warmup is vestigial complexity inherited from H109-era stack OR load-bearing for early-step stability that NS5 polar bound can't fully provide on cosine baseline.
+- **End-of-cycle ~510 portfolio**: H214 askeladd spectral RANK truncation (arm_b TRUNC_HALF ~52%, SVD overhead +159% step time, full chain ETA ~02:30 UTC); H216 frieren Lookahead (sent back — implementation missing, awaiting student); H219 tanjiro LR FLOOR (arm_b FLOOR_05 ~20%, treatment confirmed); H220 thorfinn ATTN/MLP LR split (arm_b ATTN_HEAVY ~3%); H221 alphonse MuLoCo pruning (in flight); H222 fern µ-schedule pruning (in flight); H223 nezuko aux ε ablation (in flight); H224 edward MuonH warmup pruning (newly assigned). **8/8 students WIP, 0 idle, 0 review-ready.** 20 novel mechanism classes (added body warmup pruning). **4 pruning-of-complex-stack experiments in flight** (H221 MuLoCo wrapper, H222 µ-schedule, H223 ε customization, H224 warmup).
 
 ## 🎯 Cycle ~500 (20:55-21:05 UTC) — H217 nezuko CLOSED (72nd NULL/NEG, EMA-norm preservation does NOT rescue +50 FFS lag, programme finding #40-D graduates: post-NS5 EMA damage is direction-bias-dominated not norm-cancellation, 10-mechanism NS5-axis cross-finding consolidated); H223 nezuko ASSIGNED aux AdamW ε ablation (19th NEW MECHANISM CLASS: aux numerical-conditioning hyperparameter ablation)
 
