@@ -70,6 +70,11 @@ def parse_args():
                              "late-higher=0.9 (block 0) → 1.1 (block 11), "
                              "late-lower=1.1 (block 0) → 0.9 (block 11). "
                              "Mean LR preserved across blocks.")
+    parser.add_argument("--muon_block_gamma_pattern", type=str, default="none",
+                        choices=["none", "late-higher", "late-lower"],
+                        help="Per-block Muon gamma shape: 'late-higher' ramps gamma up from "
+                             "block 0 (0.375) to block 11 (0.425), mean=0.400 (baseline); "
+                             "'late-lower' ramps down. Block index parsed from name 'blocks.<i>.*'.")
     args = parser.parse_args()
     args.num_trials = args.num_trials if args.num_trials is not None else (args.legacy_num_trials or 1)
     args.wandb_tags = [tag.strip() for tag in args.wandb_tags.split(",") if tag.strip()]
@@ -568,6 +573,10 @@ class Muon(torch.optim.Optimizer):
                         state["momentum"] = torch.zeros_like(p)
                         state["L"] = torch.zeros(p.shape[0], p.shape[0], device=p.device, dtype=torch.float32)
                         state["R"] = torch.zeros(p.shape[1], p.shape[1], device=p.device, dtype=torch.float32)
+                    gamma_eff = group["gamma"]
+                    param_gamma_mults = getattr(self, "_param_gamma_mults", None)
+                    if param_gamma_mults is not None:
+                        gamma_eff = param_gamma_mults.get(id(p), gamma_eff)
                     update = pmuon_update(
                         p.grad,
                         state["momentum"],
@@ -575,7 +584,7 @@ class Muon(torch.optim.Optimizer):
                         state["R"],
                         mu=group["mu"],
                         beta_cov=group["beta_cov"],
-                        gamma=group["gamma"],
+                        gamma=gamma_eff,
                         ns_a=group["ns_a"],
                         ns_b=group["ns_b"],
                         ns_c=group["ns_c"],
@@ -731,6 +740,7 @@ if dist.get_rank() == 0:
             "ema_beta_target": args.ema_beta_target if args.ema_beta_target is not None else 0.0,
             "ema_dynamic_ramp_active": int(args.ema_beta_target is not None and args.ema_beta > 0),
             "muon_block_lr_pattern": args.muon_block_lr_pattern,
+            "muon_block_gamma_pattern": args.muon_block_gamma_pattern,
         },
     )
 
@@ -799,6 +809,29 @@ for trial_idx in range(args.num_trials):
             wandb.log({f"muon_block_lr_mult/block_{i}": m for i, m in enumerate(block_mults)},
                       step=0)
     optimizer2._param_lr_mults = param_lr_mults
+
+    # Per-block Muon gamma shape: linear ramp around baseline gamma=PMUON_GAMMA.
+    # Stores ABSOLUTE gamma values (not multipliers) — parallels per-block β_cov convention.
+    param_gamma_mults = None
+    block_gammas = None
+    if args.muon_block_gamma_pattern != "none":
+        if args.muon_block_gamma_pattern == "late-higher":
+            lo_g, hi_g = 0.375, 0.425
+        elif args.muon_block_gamma_pattern == "late-lower":
+            lo_g, hi_g = 0.425, 0.375
+        block_gammas = [lo_g + (hi_g - lo_g) * (i / (NUM_LAYERS - 1)) for i in range(NUM_LAYERS)]
+        param_gamma_mults = {}
+        for name, p in model.named_parameters():
+            if p.ndim >= 2 and name.startswith("blocks."):
+                idx = int(name.split(".")[1])
+                param_gamma_mults[id(p)] = block_gammas[idx]
+        if dist.get_rank() == 0:
+            print0(f"per-block Muon gamma pattern: {args.muon_block_gamma_pattern}", console=True)
+            for i, g in enumerate(block_gammas):
+                print0(f"  block {i}: gamma={g:.4f}", console=True)
+            wandb.log({f"muon_block_gamma/block_{i}": g for i, g in enumerate(block_gammas)},
+                      step=0)
+    optimizer2._param_gamma_mults = param_gamma_mults
 
     optimizers = [optimizer1, optimizer2]
     assert set(p for opt in optimizers for group in opt.param_groups
