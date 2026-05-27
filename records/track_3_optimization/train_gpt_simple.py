@@ -109,6 +109,14 @@ def parse_args():
     parser.add_argument("--body_init_bottom_layers", type=int,
                         default=int(os.environ.get("BODY_INIT_BOTTOM_LAYERS", "6")),
                         help="Number of bottom layers to damp for --body_init=orthogonal_bottom_damp (default 6 = bottom half of 12 layers).")
+    parser.add_argument("--body_polar_blend", type=float,
+                        default=float(os.environ.get("BODY_POLAR_BLEND", "1.0")),
+                        help="H205 soft polar body update: convex blend between NS5 polar projection and "
+                             "Frobenius-norm-matched raw gradient direction inside muon_update. "
+                             "1.0 (default) = pure polar (bit-identical to baseline), "
+                             "0.5 = balanced, 0.0 = raw direction only. Tests whether partially preserving "
+                             "singular-value structure of the gradient improves body convergence "
+                             "(cross-finding H191+H195+H196: body headroom must be spectral-aware).")
     args = parser.parse_args()
     args.num_trials = args.num_trials if args.num_trials is not None else (args.legacy_num_trials or 1)
     args.wandb_tags = [tag.strip() for tag in args.wandb_tags.split(",") if tag.strip()]
@@ -564,12 +572,62 @@ def zeropower_via_newtonschulz5(G: Tensor) -> Tensor:
     return X
 
 @torch.compile
-def muon_update(grad, momentum, mu=0.95, nesterov=True):
+def muon_update(grad, momentum, mu=0.95, nesterov=True, polar_blend: float = 1.0):
     momentum.lerp_(grad, 1 - mu)
     update = grad.lerp_(momentum, mu) if nesterov else momentum
-    update = zeropower_via_newtonschulz5(update)
-    update *= max(1, grad.size(-2) / grad.size(-1))**0.5
-    return update
+    # H205: optionally blend NS5 polar projection with Frobenius-norm-matched raw
+    # direction. polar_blend=1.0 keeps the original code path bit-identical.
+    if polar_blend < 1.0:
+        update_raw_frob = update.norm(dim=(-2, -1), keepdim=True) + 1e-7
+        update_raw_normed = update / update_raw_frob
+    U = zeropower_via_newtonschulz5(update)
+    if polar_blend < 1.0:
+        U_polar_frob = U.norm(dim=(-2, -1), keepdim=True) + 1e-7
+        U_polar_unit = U / U_polar_frob
+        blended_unit = polar_blend * U_polar_unit + (1.0 - polar_blend) * update_raw_normed
+        blended_frob = blended_unit.norm(dim=(-2, -1), keepdim=True) + 1e-7
+        U = blended_unit * (U_polar_frob / blended_frob)
+    U *= max(1, grad.size(-2) / grad.size(-1))**0.5
+    return U
+
+@torch.no_grad()
+def _polar_blend_probe(grad: Tensor, momentum: Tensor, mu: float,
+                      polar_blend: float) -> dict[str, float]:
+    """H205 telemetry probe — runs OUTSIDE the @torch.compile'd muon_update on
+    a clone of the inputs so it never disturbs training. Returns the spectral
+    fingerprint of the blended update for one sample matrix.
+
+    Sigma values reported are of the *unit-Frobenius* blended tensor (before the
+    final rescale-to-U_polar_frob), since the rescale only changes overall
+    magnitude, not the σ ratio that distinguishes polar (σ=1) from raw (σ ∝ Σ_i).
+    """
+    g = grad.detach().float().clone()
+    m = momentum.detach().float().clone()
+    # Reproduce the exact muon_update math (sans .compile and sans in-place).
+    m.lerp_(g, 1 - mu)
+    update = g.lerp(m, mu)
+    update_raw_frob = update.norm() + 1e-7
+    update_raw_normed = update / update_raw_frob
+    U = zeropower_via_newtonschulz5(update).float()
+    U_polar_frob = U.norm() + 1e-7
+    U_polar_unit = U / U_polar_frob
+    blended_unit = polar_blend * U_polar_unit + (1.0 - polar_blend) * update_raw_normed
+    # Cosine similarity between blended (post-restore) and U_polar — invariant
+    # under uniform scaling, so we measure it in unit-Frobenius space directly.
+    cos_sim = float((blended_unit * U_polar_unit).sum().item())
+    # Singular values of blended_unit — reflect the closed-form
+    # σ_new ∈ [α, α + (1-α)·σ_max_norm].
+    sv = torch.linalg.svdvals(blended_unit)
+    return {
+        "u_polar_frob": float(U_polar_frob.item()),
+        "raw_frob": float(update_raw_frob.item()),
+        "blend_vs_polar_cos_sim": cos_sim,
+        "effective_sigma_min": float(sv.min().item()),
+        "effective_sigma_max": float(sv.max().item()),
+        "effective_sigma_mean": float(sv.mean().item()),
+        "polar_blend": polar_blend,
+    }
+
 
 class Muon(torch.optim.Optimizer):
     def __init__(self, params, lr=0.02, weight_decay=0, mu=0.95):
@@ -669,16 +727,23 @@ class MuonH(torch.optim.Optimizer):
     norm exactly constant; weight_decay must be 0.
     """
     def __init__(self, params, lr=0.018, weight_decay=0.0, mu=0.95,
-                 hyperball=True, budget_mult=1.0, mode="clip"):
+                 hyperball=True, budget_mult=1.0, mode="clip", polar_blend=1.0):
         assert isinstance(params, list) and len(params) >= 1 and isinstance(params[0], torch.nn.Parameter)
         assert mode in ("clip", "scale_invariant")
         params = sorted(params, key=lambda x: x.size(), reverse=True)
         defaults = dict(lr=lr, weight_decay=weight_decay, mu=mu,
-                        hyperball=hyperball, budget_mult=budget_mult, mode=mode)
+                        hyperball=hyperball, budget_mult=budget_mult, mode=mode,
+                        polar_blend=polar_blend)
         super().__init__(params, defaults)
         self._last_active_fraction = 0.0
         self._last_radius_to_norm_max = 0.0
         self._last_norm_to_radius_max = 0.0
+        # H205: when set to True by the train loop, MuonH.step samples one body
+        # matrix's grad+momentum BEFORE muon_update consumes them and computes
+        # blend telemetry on a clone (no impact on training). Reset to False
+        # after each step.
+        self._collect_polar_telemetry = False
+        self._last_polar_blend_telemetry: dict[str, float] = {}
 
     @torch.no_grad()
     def step(self):
@@ -688,12 +753,15 @@ class MuonH(torch.optim.Optimizer):
         total_count_local = 0
         max_r_over_n_local = 0.0
         max_n_over_r_local = 0.0
+        collect_polar_telemetry = self._collect_polar_telemetry
+        polar_telemetry: dict[str, float] = {}
         for group in self.param_groups:
             params = group["params"]
             params_pad = params + [torch.empty_like(params[-1])] * (world_size - len(params) % world_size)
             hb = group["hyperball"]
             budget_mult = group["budget_mult"]
             mode = group["mode"]
+            polar_blend = group["polar_blend"]
             for base_i in range(0, len(params), world_size):
                 if base_i + rank < len(params):
                     p = params[base_i + rank]
@@ -702,7 +770,17 @@ class MuonH(torch.optim.Optimizer):
                         state["momentum"] = torch.zeros_like(p)
                         if hb:
                             state["hyperball_radius"] = p.data.norm().item() * budget_mult
-                    update = muon_update(p.grad, state["momentum"], mu=group["mu"])
+                    # H205 telemetry probe: on the first param of the first group
+                    # (rank 0), compute blend stats on a CLONE of grad+momentum
+                    # before muon_update consumes them in-place. Probe runs only
+                    # when telemetry is requested AND blend mechanism is live.
+                    if (collect_polar_telemetry and polar_blend < 1.0
+                            and base_i == 0 and rank == 0 and not polar_telemetry):
+                        polar_telemetry = _polar_blend_probe(
+                            p.grad, state["momentum"], group["mu"], polar_blend
+                        )
+                    update = muon_update(p.grad, state["momentum"],
+                                         mu=group["mu"], polar_blend=polar_blend)
                     if hb and mode == "scale_invariant":
                         # Always-active variant: norm is held at initial value by construction.
                         scale_invariant_update_(p.data, update, group["lr"])
@@ -745,6 +823,10 @@ class MuonH(torch.optim.Optimizer):
         self._last_active_fraction = clip_count / total_count if total_count > 0 else 0.0
         self._last_radius_to_norm_max = max_r_over_n
         self._last_norm_to_radius_max = max_n_over_r
+        # H205: store telemetry from probe (rank 0 only; train loop only logs on rank 0).
+        if polar_telemetry:
+            self._last_polar_blend_telemetry = polar_telemetry
+        self._collect_polar_telemetry = False
 
 
 ########################################
@@ -791,6 +873,11 @@ if args.muonh_agc_clip_ratio > 0:
     print0(f"AGC ENABLED on inner MuonH gradient: clip_ratio={args.muonh_agc_clip_ratio} eps={args.muonh_agc_eps}", console=True)
 else:
     print0("AGC DISABLED on inner MuonH gradient (clip_ratio=0)", console=True)
+if args.body_polar_blend < 1.0:
+    print0(f"H205 SOFT POLAR ENABLED: body_polar_blend={args.body_polar_blend} "
+           f"(blend NS5 polar projection with Frobenius-normed raw gradient direction)", console=True)
+else:
+    print0(f"H205 SOFT POLAR DISABLED (body_polar_blend=1.0, bit-identical to pure polar)", console=True)
 print0("="*100)
 
 val_tokens = 20 * 524288
@@ -850,6 +937,8 @@ if dist.get_rank() == 0:
             "muonh_mu_schedule": args.muonh_mu_schedule,
             "muonh_mu_start": args.muonh_mu_start,
             "muonh_mu_end": args.muonh_mu_end,
+            "body_init": args.body_init,
+            "body_polar_blend": args.body_polar_blend,
         },
     )
 
@@ -933,7 +1022,7 @@ for trial_idx in range(args.num_trials):
     optimizer2 = MuonH([p for p in model.blocks.parameters() if p.ndim >= 2],
                        lr=args.muonh_lr, weight_decay=0.0, mu=0.95,
                        hyperball=True, budget_mult=args.muonh_budget_mult,
-                       mode=args.muonh_mode)
+                       mode=args.muonh_mode, polar_blend=args.body_polar_blend)
     optimizer2.param_groups[0]["name"] = "muonh_blocks"
     optimizers = [optimizer1, optimizer2]
     # AGC targets: AdamW aux groups (embed, lm_head, scalars). Built from optimizer1
@@ -1169,6 +1258,12 @@ for trial_idx in range(args.num_trials):
         muonh_agc_stats = adaptive_gradient_clip(
             muonh_params_for_agc, args.muonh_agc_clip_ratio, eps=args.muonh_agc_eps,
         )
+        # H205: arm the polar-blend telemetry probe on rank 0 before stepping
+        # so MuonH can sample grad/momentum BEFORE muon_update consumes them.
+        if dist.get_rank() == 0 and telemetry_due:
+            for opt in optimizers:
+                if isinstance(opt, MuonH):
+                    opt._collect_polar_telemetry = True
         for opt in optimizers:
             opt.step()
         # Log warmup telemetry every 10 steps during warmup (and at telemetry events
@@ -1191,6 +1286,10 @@ for trial_idx in range(args.num_trials):
                         muonh_metrics["train/muonh/norm_to_radius_max"] = opt._last_norm_to_radius_max
                     muonh_metrics["train/muonh/warmup_factor"] = muonh_warmup_factor
                     muonh_metrics["train/muonh/effective_lr"] = opt.param_groups[0]["lr"]
+                    # H205: polar_blend probe telemetry — emitted only when blend < 1.0
+                    if telemetry_due and opt._last_polar_blend_telemetry:
+                        for k, v in opt._last_polar_blend_telemetry.items():
+                            muonh_metrics[f"train/polar_blend/{k}"] = v
             if telemetry_due and args.aux_agc_clip_ratio > 0 and agc_stats["agc_total"] > 0:
                 muonh_metrics["train/agc/active_fraction"] = agc_stats["agc_clipped"] / agc_stats["agc_total"]
                 muonh_metrics["train/agc/clipped_count"] = agc_stats["agc_clipped"]
