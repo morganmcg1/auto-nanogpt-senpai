@@ -72,6 +72,14 @@ def parse_args():
                              "params with ndim < 2). Default 0.01 — hardcoded, "
                              "never ablated. ~20K params total in this model.")
     parser.add_argument(
+        "--embed_cooldown_frac",
+        type=float,
+        default=None,
+        help="If set, override cooldown_frac for adam_embed group only "
+             "(None = inherit global 0.7). Special value -1 means 'no cooldown' (constant LR). "
+             "Special value -2 means 'anti-ramp' (LR ramps UP from 0->1 across cooldown window).",
+    )
+    parser.add_argument(
         "--depth_init_mode",
         type=str,
         default="ctrl",
@@ -765,6 +773,7 @@ if dist.get_rank() == 0:
             "wd_schedule": args.wd_schedule,
             "lr_scalars": args.lr_scalars,
             "depth_init_mode": args.depth_init_mode,
+            "embed_cooldown_frac": args.embed_cooldown_frac,
         },
     )
 
@@ -883,13 +892,33 @@ for trial_idx in range(args.num_trials):
         progress = step / train_steps
         assert 0 <= progress < 1
         if progress < 1 - cooldown_frac:
-            eta = 1.0
+            eta_default = 1.0
         else:
-            eta = (1 - progress) / cooldown_frac
+            eta_default = (1 - progress) / cooldown_frac
+
+        embed_cf = args.embed_cooldown_frac
+        if embed_cf is None:
+            eta_embed = eta_default
+        elif embed_cf == -1:
+            eta_embed = 1.0
+        elif embed_cf == -2:
+            if progress < 1 - cooldown_frac:
+                eta_embed = 1.0
+            else:
+                eta_embed = 1.0 - ((1 - progress) / cooldown_frac)
+        else:
+            if progress < 1 - embed_cf:
+                eta_embed = 1.0
+            else:
+                eta_embed = (1 - progress) / embed_cf
+
         wd_mu = _wd_multiplier(step, train_steps, args.wd_schedule)
         for opt in optimizers:
             for group in opt.param_groups:
-                group["lr"] = group["initial_lr"] * eta
+                if group.get("name") == "adam_embed":
+                    group["lr"] = group["initial_lr"] * eta_embed
+                else:
+                    group["lr"] = group["initial_lr"] * eta_default
                 if "initial_wd" in group and group.get("name", "").startswith("muon_"):
                     group["weight_decay"] = group["initial_wd"] * wd_mu
 
