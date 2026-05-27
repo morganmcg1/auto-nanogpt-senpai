@@ -1,5 +1,29 @@
 # SENPAI Research Results — auto-nanogpt-1gpu-r4
 
+## 2026-05-27 07:30 — PR #1286: H4 NM late-window coverage tune — LATE_MAX_D_IN=4096 PP n=3 (CLOSED productive-NULL — 53rd no-merge)
+
+- Branch: `g1r4-fern/h4-late-window-nm-tune` (student g1r4-fern)
+- Hypothesis: 2×2 mini-factorial decomposition (only Arm C late-coverage promoted to PP n=3) testing whether NM coverage gain (#1240's MAX_D_IN=1024→4096) is per-window load-bearing or only needs to be active in the late window (after step 2400). PP n=3 with 6 interleaved sequential seeds 0/1/2 ctrl-vs-late-coverage.
+- ⚠️ Chain ran on **pre-#1240 stack** (UPDATE_PERIOD=10, MAX_D_IN=1024 baseline). Within-chain paired deltas bit-identical-comparable; cross-chain G1 vs post-#1240 baseline NOT apples-to-apples.
+
+| Pod | Seed | Arm | W&B run | val/loss | fs | Δ_paired vs A | Sign |
+|---|:---:|---|---|:---:|:---:|:---:|:---:|
+| s0-A | 0 | ctrl | `qzuvy6wa` | 3.266322 | 3175 | (ref) | — |
+| s0-C | 0 | LATE_MAX_D_IN=4096 | `957t6w8u` | 3.265627 | 3175 | **−0.000695 NULL-FAV** | ↓ |
+| s1-A | 1 | ctrl | `9it76841` | 3.265393 | 3175 | (ref) | — |
+| s1-C | 1 | LATE_MAX_D_IN=4096 | `bkl9s3yi` | 3.265921 | 3175 | **+0.000528 NULL-ADV** | ↑ |
+| s2-A | 2 | ctrl | `g1iuhcu8` | 3.266273 | 3175 | (ref) | — |
+| s2-C | 2 | LATE_MAX_D_IN=4096 | `8fw447mr` | **3.265704** | 3175 | **−0.000569 NULL-FAV** | ↓ |
+
+- **n=3 PP statistics**: mean Δ_paired_val=**−0.000245** NULL-band-FAV (within |Δ|≤0.0015 by 6× margin); sign distribution 2/3 favorable 1/3 adverse — direction-inconsistent across seeds. FFS uniformly stable at fs=3175 across all 6 runs.
+- **🎯 4th PP attenuation pattern dispositively cataloged — NULL-collapse (95% attenuation)**: screening Δ=−0.00188 (cycle 363) collapsed to PP terminal Δ=−0.000245 = +87% magnitude collapse. PP catalog complete: #1240 enhancement (−18% strengthens) / #1281 cohort-reversal (+153%) / **#1286 NULL-collapse (95%)** / #1318 cohort-absorption.
+- **🎯 Late-vs-always-on coverage mechanism dissociation finding** (established cycle 389, confirmed at PP terminal): late-only LATE_MAX_D_IN=4096 NULL collapse contrasts sharply with #1240's strong ALWAYS-ON coverage signal. Mechanism: 12 additional MLP down-proj matrices (d_in=3072, R_cond ~10^6) need R-buffers populated EARLY (across pre-step-2400, ~71% of training) to develop coherent preconditioning statistics; activating at step 2400 gives insufficient R-buffer mass.
+- **🎯 PP attenuation noise-floor insight**: 3 of 4 documented PP-escalated screening signals collapsed to NULL or reversed at PP terminal. Single-seed screening Δ ∈ [−0.002, +0.002] should NOT be treated as definitive mechanism direction — requires PP n=3 confirmation. Only signals Δ ≤ −0.003 (#1240 magnitude class) are robust under PP escalation. Practical implication for r4 workflow.
+- **No merge under post-#1240 baseline 3.26339**: mean val_C 3.265751 = +0.002361 over baseline → G1 FAIL by wide margin. vs OLD baseline 3.26614: −0.000389 below baseline NULL-band (no statistical merge). Cross-stack G1 confounded anyway.
+- **Decision tree resolution**: Row 3 productive-NULL triggered, all |Δ| within NULL band, direction inconsistent across seeds → dispositively closes late-only coverage axis as no-mechanism-signal.
+- **High-information productive-NULL**: directly informs that "late-window-only X" axes on coverage-class mechanisms are **dead-ends going forward** — saves GPU time on similar experiments.
+- Conclusion: 53rd no-merge since #847. Late-only coverage axis fenced. fern reassigned to **#1402 NM β EARLY constant sweep on post-#1240 stack {0.85, 0.90, 0.95 ctrl, 0.99}** — virgin no-code-change axis distinct from β-SCHEDULE step-down work (#1331/#1372). Tests whether constant-β EARLY at 0.95 is global optimum or whether different R-EMA decay rate from step 0 helps on responsive post-#1240 stack (2× more responsive R-buffer from period=5).
+
 ## 2026-05-27 05:50 — PR #1346: NM per-group LR scale — differential attn-vs-MLP NM LR scaling (CLOSED productive-MARGINAL — 52nd no-merge)
 
 - Branch: `g1r4-thorfinn/nm-per-group-lr-scale` (student g1r4-thorfinn)
