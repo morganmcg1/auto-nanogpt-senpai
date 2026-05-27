@@ -469,6 +469,18 @@ WD_AUX = float(os.environ.get("WD_AUX", "0.0"))  # AdamW WD on embed + lm_head m
 EMBED_INIT_STD = float(os.environ.get("EMBED_INIT_STD", "1.0"))  # default preserves baseline N(0,1)
 LOGIT_SOFTCAP = float(os.environ.get("LOGIT_SOFTCAP", "15.0"))  # default = 15 (current hardcoded value); soft-cap value c in f(x) = c·x / sqrt(x^2+c^2)
 
+# Cooldown body weight noise injection (PR #1361): one-shot Gaussian perturbation
+# of body matrix weights at cooldown_start. When COOLDOWN_BODY_NOISE_INJECT=0
+# (default), the injection branch is gated off and the pre-event trajectory
+# bit-matches baseline (IEEE-identity disabled-check property).
+COOLDOWN_BODY_NOISE_INJECT = int(os.environ.get("COOLDOWN_BODY_NOISE_INJECT", "0"))
+COOLDOWN_BODY_NOISE_SIGMA = float(os.environ.get("COOLDOWN_BODY_NOISE_SIGMA", "0.001"))
+COOLDOWN_BODY_NOISE_KIND = os.environ.get("COOLDOWN_BODY_NOISE_KIND", "all")  # "attn", "mlp", or "all"
+COOLDOWN_BODY_NOISE_STEP = int(os.environ.get("COOLDOWN_BODY_NOISE_STEP", "953"))  # round(3175 * 0.30)
+COOLDOWN_BODY_NOISE_SEED = int(os.environ.get("COOLDOWN_BODY_NOISE_SEED", "42"))
+assert COOLDOWN_BODY_NOISE_SIGMA >= 0.0
+assert COOLDOWN_BODY_NOISE_KIND in ("attn", "mlp", "all")
+
 
 def zeropower_via_newtonschulz5(G: Tensor) -> Tensor:
     assert G.ndim >= 2
@@ -866,6 +878,11 @@ if dist.get_rank() == 0:
             "optimizer/attn_soap_trust_threshold": ATTN_SOAP_TRUST_THRESHOLD,
             "optimizer/ns5_iters": NS5_ITERS,
             "optimizer/wd_aux": WD_AUX,
+            "noise/cooldown_body_inject": COOLDOWN_BODY_NOISE_INJECT,
+            "noise/cooldown_body_sigma": COOLDOWN_BODY_NOISE_SIGMA,
+            "noise/cooldown_body_kind": COOLDOWN_BODY_NOISE_KIND,
+            "noise/cooldown_body_step": COOLDOWN_BODY_NOISE_STEP,
+            "noise/cooldown_body_seed": COOLDOWN_BODY_NOISE_SEED,
             "optimizer/recipe": "contra-muon + normuon-lite + soap-on-mlp + soap-on-attn-trust-gate (pre-NS5, record #14 + record #16)",
         },
     )
@@ -1030,6 +1047,62 @@ for trial_idx in range(args.num_trials):
         histogram_due = (step == 0 or (step + 1) % args.histogram_interval == 0 or step + 1 == train_steps)
         slope_due = (train_step % slope_interval == 0 or train_step == train_steps)
         wandb_step = trial_idx * (train_steps + 1) + train_step
+
+        # PR #1361: one-shot weight noise injection at cooldown_start.
+        # Fires ONCE at step == COOLDOWN_BODY_NOISE_STEP. Deterministic per seed.
+        if COOLDOWN_BODY_NOISE_INJECT and step == COOLDOWN_BODY_NOISE_STEP:
+            noise_gen = torch.Generator(device=device)
+            noise_gen.manual_seed(COOLDOWN_BODY_NOISE_SEED + trial_idx)
+            noise_metrics = {
+                "trial": trial_idx,
+                "train/step": train_step,
+                "noise_inject/step": step,
+                "noise_inject/sigma": COOLDOWN_BODY_NOISE_SIGMA,
+                "noise_inject/kind_attn": int(COOLDOWN_BODY_NOISE_KIND in ("attn", "all")),
+                "noise_inject/kind_mlp": int(COOLDOWN_BODY_NOISE_KIND in ("mlp", "all")),
+            }
+            n_perturbed = 0
+            total_noise_sq = 0.0
+            total_weight_sq = 0.0
+            with torch.no_grad():
+                for name, p in model.blocks.named_parameters():
+                    if p.ndim < 2:
+                        continue
+                    is_attn = any(k in name for k in ("attn.qkv", "attn.proj", "attn.q", "attn.k", "attn.v", "attn.o"))
+                    is_mlp = any(k in name for k in ("mlp.fc", "mlp.proj", "mlp.up", "mlp.down", "mlp.c_fc", "mlp.c_proj"))
+                    kind_match = (
+                        (COOLDOWN_BODY_NOISE_KIND == "all") or
+                        (COOLDOWN_BODY_NOISE_KIND == "attn" and is_attn) or
+                        (COOLDOWN_BODY_NOISE_KIND == "mlp" and is_mlp)
+                    )
+                    if not kind_match:
+                        continue
+                    param_norm_pre = float(p.float().norm().item())
+                    scale = COOLDOWN_BODY_NOISE_SIGMA * param_norm_pre / (p.numel() ** 0.5)
+                    noise = torch.randn(p.shape, generator=noise_gen, dtype=p.dtype, device=p.device) * scale
+                    p.add_(noise)
+                    param_norm_post = float(p.float().norm().item())
+                    noise_norm = float(noise.float().norm().item())
+                    clean = clean_metric_name(name)
+                    noise_metrics[f"noise_inject/{clean}/norm_pre"] = param_norm_pre
+                    noise_metrics[f"noise_inject/{clean}/norm_post"] = param_norm_post
+                    noise_metrics[f"noise_inject/{clean}/noise_norm"] = noise_norm
+                    n_perturbed += 1
+                    total_noise_sq += noise_norm ** 2
+                    total_weight_sq += param_norm_pre ** 2
+            noise_metrics["noise_inject/n_perturbed"] = n_perturbed
+            noise_metrics["noise_inject/total_noise_frob"] = total_noise_sq ** 0.5
+            noise_metrics["noise_inject/total_weight_frob_pre"] = total_weight_sq ** 0.5
+            if total_weight_sq > 0:
+                noise_metrics["noise_inject/noise_to_weight_ratio"] = (total_noise_sq / total_weight_sq) ** 0.5
+            if dist.get_rank() == 0:
+                wandb.log(noise_metrics, step=wandb_step)
+            print0(
+                f"[noise inject @ step {step}] sigma={COOLDOWN_BODY_NOISE_SIGMA} kind={COOLDOWN_BODY_NOISE_KIND} "
+                f"n_perturbed={n_perturbed} total_noise_frob={total_noise_sq**0.5:.6f} "
+                f"total_weight_frob_pre={total_weight_sq**0.5:.6f}",
+                console=True,
+            )
         if dist.get_rank() == 0:
             train_loss_history.append((train_step, train_loss))
         if dist.get_rank() == 0 and slope_due:
