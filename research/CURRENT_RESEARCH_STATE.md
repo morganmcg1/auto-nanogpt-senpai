@@ -1,3 +1,77 @@
+## 2026-05-27 10:30 UTC — Cycle 71 mid-322 (joint m+v reset DECOMPOSES into m-axis active + v-axis catastrophic; sub-axis decomposition family LAUNCHED)
+
+**Cumulative**: **207 refuted (+1 this wake — bilateral decomposition outcome)** / **129 distinct mech classes (+1 fresh #1422)** / **81 family-level closures (+1)**.
+
+**Closure this wake** (1 bilateral terminal — sub-axis decomposition of #1353 joint m+v reset; mixed outcome bilateral):
+
+| PR | student | mech | bilateral data | closure |
+|---|---|---|---|---|
+| **#1404** | nezuko | embed AUX m-only vs v-only one-shot reset at cooldown_start | Arm A m_only val=**3.26862** ffs=**3000** sub-cluster-edge (REPLICATES #1353 within seed scatter); Arm B v_only **KILLED ~step 1860 (H2 trip-confirmed gates 1000+1500)** via bias-correction inconsistency | **207th** bilateral decomposition outcome; m-axis ACTIVE, v-axis CATASTROPHIC |
+
+### MAJOR FINDING — joint m+v reset (#1353) DECOMPOSES into m-axis active + v-axis catastrophic
+
+| sub-axis | finding | mechanism |
+|---|---|---|
+| **m_only** (Arm A) | sub-cluster-edge (matches #1353 within scatter) | clean perturbation: AdamW rebuilds first-moment EMA from next gradient; v denominator and bias-correction schedule intact |
+| **v_only** (Arm B) | H2 catastrophic | bias-correction inconsistency: `exp_avg_sq` zeroed but step counter preserved → `(1-β₂^t) ≈ 1` while `v_t ≈ (1-β₂)·g²` → denominator collapses ~1000× → oversized updates → val spike +0.37 in 125 steps |
+| **joint m+v** (#1353) | sub-cluster-edge | v-axis catastrophe **compensated by simultaneous m-zeroing** |
+
+**NEW PRINCIPLE (mid-322)**: **Mechanistic decomposition principle** — when a joint-multi-axis perturbation produces a privileged-zone effect, the underlying sub-component decomposition can reveal:
+- **The active sub-axis** (m-only here): isolated reproduces the effect cleanly
+- **A masked catastrophe** (v-only here): the joint perturbation compensates an otherwise-fatal sub-perturbation
+- **Decomposed mechanism class**: m-axis first-moment EMA reinit is the canonical privileged-zone mechanism, NOT joint m+v interaction
+
+**Connects to mid-320 discrete-topology-jump framing**: v_only IS a **discrete topology jump** on v-denominator (replaces accumulated v_t with one-step v), exposing bias-correction inconsistency that smooth perturbations don't expose. Mid-320 cross-axis methodology principle confirmed in a 3rd cell (mid-321 Nesterov + mid-322 v_only both correctly predicted as exposing hidden v-denominator structure).
+
+### Sub-axis decomposition family LAUNCHED (NEW productive virgin axis family)
+
+Joint cluster-floor mechanisms #1-#10 are candidates for sub-axis decomposition via one-shot dispatch. First decomposition (#1404) yields: m-axis active, v-axis catastrophic.
+
+**Future decomposition candidates**:
+- attn-only vs mlp-only weight perturbation
+- embed-only vs lm_head-only per-AUX-kind LR phase (#1335/#1366 sub-decomposition)
+- single-block-half dispatch within cluster-floor mech classes
+
+### FFS-burst grid status (mid-322, unchanged — all 3 axes still in flight)
+
+| PR | mechanism | Arm A | Arm B | status |
+|---|---|---|---|---|
+| alphonse #1408 | LR-magnitude burst | ×1.25 | ×1.5 | running |
+| edward #1411 | NS5-quality burst | =18 | =22 | running |
+| frieren #1414 | momentum DROP burst | −0.05 | −0.10 | running |
+
+### Fresh assignment (1 idle student → 1 new PR; first cross-AUX-kind sub-axis universality test):
+
+| PR | student | mech | purpose |
+|---|---|---|---|
+| **#1422** | nezuko | AUX_M_RESET_CROSS_KIND_DISPATCH (129th mech, virgin cross-AUX-kind sub-axis universality test) | m-only reset on **lm_head AUX** (Arm A) vs **joint embed+lm_head AUX** (Arm B) at cooldown_start=953. Tests whether the m-axis sub-component active in embed AUX (#1404 Arm A) generalizes to lm_head AUX (universality) and whether joint AUX-kind m-reset compounds or destabilizes. Per Morgan #1259 (depth/per-group axis) + builds on #1404 sub-axis finding. |
+
+### Cycle 71 cumulative findings (post mid-322)
+
+- **10 cluster-floor compound mechanism classes** all saturate val~3.268-3.269 / ffs 3000-3025
+- **NEW PRINCIPLE (mid-322)**: mechanistic decomposition principle — joint-multi-axis privileged-zone effects often decompose into active sub-axis + masked-catastrophe sub-axis; #1353 → m active, v catastrophic
+- **NEW PRINCIPLE (mid-321)**: Nesterov-phase is geometry-conditional, not phase-conditional
+- **NEW PRINCIPLE (mid-320)**: discrete-topology-jump vs smooth-perturbation framing — predicts v-denominator structure perturbations expose hidden load-bearing mechanisms (3-cell confirmed: tanjiro #1390 mild, thorfinn #1397 null, nezuko #1404 catastrophic)
+- **Cross-sub-system WD-axis grid 3-of-3 COMPLETE**: direction-structure is sub-system-property-bound (mid-319)
+- **FFS-burst grid (mid-319)**: 3-way orthogonal triangulation active (LR-magnitude × NS5-quality × momentum-decay) in window [2750, 2950]
+- **LARS NULL-by-construction principle** (corpus-level methodology)
+- **Direction-asymmetry inversion**: param-count-gated on AUX side; sub-system-property-bound across body × AUX
+
+### In-flight student PRs (8 concurrent):
+
+- **alphonse #1408** (LR-magnitude FFS burst on body Muon)
+- **askeladd #1391** (body NS5 per-block-half depth×NS5 extension)
+- **edward #1411** (NS5-quality FFS burst on body Muon)
+- **fern #1405** (AUX LARS trust-ratio cross-class contrapositive)
+- **frieren #1414** (momentum-DROP FFS burst on body Muon)
+- **nezuko #1422** (NEW — m-only AUX reset cross-kind universality at cooldown_start)
+- **tanjiro #1417** (embed AUX continuous α-hybrid AdamW/sign-SGD)
+- **thorfinn #1419** (body Muon NS5 per-kind dispatch at cooldown_start)
+
+ZERO IDLE. 8 concurrent active.
+
+---
+
 ## 2026-05-27 10:10 UTC — Cycle 71 mid-321 (Nesterov-phase geometry-conditional principle; AUX-side Nesterov axis CLOSED across both kinds)
 
 **Cumulative**: **206 refuted (+1 this wake)** / **128 distinct mech classes (+1 fresh #1419)** / **80 family-level closures (+1)**.
