@@ -1,5 +1,55 @@
 # SENPAI Research Results — auto-nanogpt-1gpu-r4
 
+## 2026-05-27 11:50 — PR #1372: NM β-schedule compound retest on post-#1240 stack (β=0.85 @ 2000) — CLOSED productive-NULL
+
+- **Branch**: `g1r4-frieren/nm-beta-schedule-compound`
+- **Student**: g1r4-frieren
+- **Hypothesis**: Test whether the compound point (β=0.85 @ step 2000) combining #1331's depth-winner + timing-winner super-adds on post-#1240 stack (UPDATE_PERIOD=5 + MAX_D_IN=4096).
+- **EPS=1e-8 confound noted**: All 4 arms ran with NANOGPT_NEWTON_MUON_EPS=1e-8 (vs script default 1e-4). Within-chain paired Δ comparisons remain valid; Arm A drift +0.00005 vs baseline 3.26339 dispositively confirmed EPS=1e-8 effect is effectively NULL on this chain.
+
+### Results — chain TERMINAL, all 4 arms
+
+| Arm | β_early | β_late | LATE_START | W&B run | val/loss | fs | Δ_paired_val vs A | Δ_paired_fs | precond_ratio_mean | R_inv_sqrt_norm_mean | Verdict |
+|:---:|:---:|:---:|:---:|---|:---:|:---:|:---:|:---:|:---:|:---:|---|
+| A ctrl | 0.95 | — sentinel | 1e9 | `lwi7w7mt` | 3.26344 | 3150 | (ref) | (ref) | 1.0951 | 404.10 | drift +0.00005 EXCEPTIONALLY-CLEAN G4 |
+| B compound | 0.95 | 0.85 | 2000 | `94g7qceq` | 3.26409 | 3150 | +0.00065 | 0 fs | 1.0960 | 810.92 | NULL-band fs-tied |
+| C timing-only | 0.95 | 0.90 | 2000 | `mityxr0d` | 3.26452 | 3150 | +0.00108 | 0 fs | **1.2441** | 396.85 | NULL-band fs-tied |
+| D depth-only | 0.95 | 0.85 | 2345 | `drqjwc86` | 3.26443 | 3150 | +0.00099 | 0 fs | 1.0973 | 1073.53 | NULL-band fs-tied |
+
+### Analysis
+
+**Closure direction**: Row 4 productive-NULL stack-dependence. β-schedule axis fully fenced on post-#1240 stack regardless of (depth, timing, compound) decomposition. All 3 treatment arms land NULL-band (|Δ| ≤ 0.0015), fs identically tied with ctrl at 3150. No actionable headroom remains within axis.
+
+**G1 check**: All 3 treatment arms FAIL by +0.00065 to +0.00113 vs baseline 3.26339. Fence direction NULL not adverse — mechanism collapses cleanly without destabilization.
+
+**Cross-stack stack-dependence consolidation**:
+- Pre-#1240 stack (#1331): β=0.90 @ 2000 timing Δ=−0.00202 MARGINAL-FAV, β=0.85 @ 2345 depth Δ=−0.00142 MARGINAL-FAV
+- Post-#1240 stack (this): β=0.90 @ 2000 Δ=+0.00108 NULL, β=0.85 @ 2345 Δ=+0.00099 NULL, β=0.85 @ 2000 compound Δ=+0.00065 NULL
+- Δ shift across stacks: +0.00310 (timing) and +0.00241 (depth) — both pre-#1240 favorable arms transition to NULL on post-#1240 stack
+
+**Mechanism interpretation**: Post-#1240 `UPDATE_PERIOD=5` (vs pre-#1240 `=10`) provides 2× more responsive R-buffer refresh, fully absorbing the late-phase responsiveness benefit that the explicit β step-down recovered on pre-#1240. The β-schedule and R-buffer-period axes are NOT independent — they are coupled through the late-phase preconditioner responsiveness mechanism. When R-buffer refresh is already aggressive (period=5), explicit β step-down adds no additional headroom in any combination.
+
+**NM telemetry insight**: Arm C (β=0.90 timing-only) showed 13.6% higher `precond_ratio_mean` (1.2441 vs ctrl 1.0951) yet landed NULL on val. This is the only arm where the preconditioner-ratio metric diverges meaningfully from ctrl. Hints that `precond_ratio_mean` may diverge from val_loss in some β configurations — useful diagnostic signal for future axis-survival monitoring.
+
+**Arm B/D R_inv_sqrt_norm_mean** (810.92 / 1073.53) are 2-2.6× Arm A (404.10) — larger R-buffer magnitudes do NOT correlate with favorable val on post-#1240 stack. Confirms R-buffer magnitude is not load-bearing; refresh frequency via period is.
+
+### Cross-axis stack-dependence catalog (4 findings consolidated)
+
+This finding joins:
+1. **#1372 (this)** β-SCHEDULE pre→post NULL collapse dispositive 3/3 perturbations NULL fs-tied
+2. #1393 (in flight) MLP-LR-SCALE NULL-with-fs-penalty +25 fs at LR=1.2
+3. #1383 (in flight) START_STEP gate mild-NEG fs-tied
+4. #1421 (PP-promote) UPDATE_PERIOD axis NON-MONOTONE, period=2 single-seed FAV Δ=−0.00223
+
+Unified mechanism story: Post-#1240 stack's responsive R-buffer absorbs late-phase optimizer responsiveness that pre-#1240 stack required EXPLICIT schedule/LR scaling to extract. The PERIOD axis itself is non-monotone — even more responsive (period=2) extracts FURTHER mechanism via #1421.
+
+### Conclusion
+
+11th NM mechanism axis characterized as productive-NULL on post-#1240 stack. Joins period=3 over-refresh CLEAR-NEG, R-power α=0.333 CLEAR-NEG, DIAG-ONLY CLEAR-NEG in characterizing post-#1240 ridge geometry. Future post-#1240 axis tests should default-predict NULL collapse for axes that recover late-phase responsiveness; predict FAV for axes that extract NEW mechanism (period refinement, R-buffer init, alternative preconditioner shapes).
+
+Possible follow-up if #1421 period=2 PP-validates: β-schedule retest on period=2 stack to test whether even-more-responsive R-buffer further fences or re-introduces schedule benefit at different scale.
+
+
 ## 2026-05-27 11:15 — PR #1356: NM period sweep on new stack — period 2/3/10 vs period=5 baseline (CLOSED productive-MARGINAL — first PP-promote candidate in r4 launch, #1421 PP-promote n=3 assigned)
 
 - Branch: `g1r4-tanjiro/nm-period-sweep-new-stack` (student g1r4-tanjiro)
