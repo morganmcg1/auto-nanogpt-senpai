@@ -225,6 +225,9 @@ def log_training_telemetry(
             metrics[f"train/weight_decay/{group_name}"] = group.get("weight_decay", 0.0)
             if "mu" in group:
                 metrics[f"train/mu/{group_name}"] = group["mu"]
+        if isinstance(opt, Muon):
+            for layer_key, beta_eff in opt.per_block_mu().items():
+                metrics[f"train/mu_per_block/{layer_key}"] = beta_eff
     for module_type, tensors in grouped_by_type(grads, module_types).items():
         metrics.update(prefixed(f"train/grad_type/{module_type}", aggregate_stats(tensors)))
     for name, grad in grads:
@@ -455,6 +458,13 @@ MU_COOLDOWN_END = float(os.environ.get("MU_COOLDOWN_END", "0.95"))
 MU_WARMUP_STEPS = int(os.environ.get("MU_WARMUP_STEPS", "0"))
 MU_WARMUP_START = float(os.environ.get("MU_WARMUP_START", "0.85"))
 MUON_LR = float(os.environ.get("MUON_LR", "0.0375"))
+# Per-layer Muon β1 dispatch (PR #1251 infra + PR #1340 step extension).
+# Linear depth ramp: offset_linear(l) = MUON_BETA_DEPTH_RAMP * (l/11 - 0.5) ∈ [-RAMP/2, +RAMP/2].
+MUON_BETA_DEPTH_RAMP = float(os.environ.get("MUON_BETA_DEPTH_RAMP", "0.0"))
+# Step-function discriminator on β-favorable depth signal. Sign-symmetric mean-preserving:
+# early blocks (0-5) get -MAGNITUDE, late blocks (6-11) get +MAGNITUDE. PR #1340.
+# Default 0.0 = inert (bytewise-identical to baseline by IEEE-identity at offset=0).
+MUON_BETA_STEP_MAGNITUDE = float(os.environ.get("MUON_BETA_STEP_MAGNITUDE", "0.0"))
 MUON_WEIGHT_DECAY = 0.025  # nominal; Muon.step does not apply explicit wd (u/w-floor replaces it)
 TARGET_UW = 0.35
 NORMUON_BETA2 = 0.95
@@ -652,6 +662,24 @@ class Muon(torch.optim.Optimizer):
                     self.attn_soap_kind[id(p)] = "v"
                 elif n.endswith(".attn.proj.weight"):
                     self.attn_soap_kind[id(p)] = "proj"
+        # Per-param β1 offset (PR #1251 linear depth ramp + PR #1340 step-function).
+        # named_params come from model.blocks.named_parameters(), so block index is leading
+        # element of the dotted name ("0.attn.q.weight" -> block 0). Offset added to the
+        # group-level mu in step() to give per-layer β1 dispatch on body Muon.
+        self.param_beta_offset: dict[int, float] = {}
+        self.param_block_idx: dict[int, int] = {}
+        for n, p in named_params:
+            try:
+                block_idx = int(n.split('.')[0])
+            except (ValueError, IndexError):
+                block_idx = 0
+            offset_linear = MUON_BETA_DEPTH_RAMP * (block_idx / 11.0 - 0.5)
+            step_sign = 1.0 if block_idx >= 6 else -1.0
+            offset_step = MUON_BETA_STEP_MAGNITUDE * step_sign
+            offset = offset_linear + offset_step
+            assert -0.05 < offset < 0.05, f"β offset {offset:.4f} too aggressive at block {block_idx}"
+            self.param_beta_offset[id(p)] = offset
+            self.param_block_idx[id(p)] = block_idx
         params = sorted([p for _, p in named_params], key=lambda x: x.size(), reverse=True)
         defaults = dict(lr=lr, weight_decay=weight_decay, mu=mu)
         super().__init__(params, defaults)
@@ -692,8 +720,11 @@ class Muon(torch.optim.Optimizer):
                                 state["trust_cos_row"] = 1.0
                                 state["trust_cos_col"] = 1.0
                     grad = p.grad
-                    state["momentum"].lerp_(grad, 1 - group["mu"])
-                    momentum_update = grad.lerp(state["momentum"], group["mu"])
+                    # PR #1251 / #1340: per-param β1 with optional depth-ramp + step-function offset.
+                    # offset is constant per param; defaults to 0.0 (no offset, IEEE-identical).
+                    mu_param = group["mu"] + self.param_beta_offset.get(id(p), 0.0)
+                    state["momentum"].lerp_(grad, 1 - mu_param)
+                    momentum_update = grad.lerp(state["momentum"], mu_param)
                     use_soap = p in self.soap_params
                     use_attn_soap = p in self.attn_soap_params
                     # SOAP precondition applied to momentum BEFORE NS5+contra+NorMuon
@@ -719,6 +750,23 @@ class Muon(torch.optim.Optimizer):
                                      use_trust_gate=True,
                                      trust_threshold=ATTN_SOAP_TRUST_THRESHOLD)
                 dist.all_gather(params_pad[base_i:base_i + world_size], params_pad[base_i + rank])
+
+    def per_block_mu(self) -> dict[str, float]:
+        """Return per-block effective β1 (group mu + per-block offset) for telemetry."""
+        if not self.param_groups:
+            return {}
+        base_mu = self.param_groups[0].get("mu", 0.0)
+        out: dict[str, float] = {}
+        seen: set[int] = set()
+        for group in self.param_groups:
+            for p in group["params"]:
+                block_idx = self.param_block_idx.get(id(p))
+                if block_idx is None or block_idx in seen:
+                    continue
+                seen.add(block_idx)
+                offset = self.param_beta_offset.get(id(p), 0.0)
+                out[f"l{block_idx}"] = base_mu + offset
+        return out
 
     def trust_gate_stats(self) -> dict[str, float]:
         """Return aggregate + per-weight-type trust-gate telemetry across attention SOAP params.
@@ -856,6 +904,8 @@ if dist.get_rank() == 0:
             "optimizer/mu_warmup_steps": MU_WARMUP_STEPS,
             "optimizer/mu_warmup_start": MU_WARMUP_START,
             "optimizer/muon_lr": MUON_LR,
+            "optimizer/muon_beta_depth_ramp": MUON_BETA_DEPTH_RAMP,
+            "optimizer/muon_beta_step_magnitude": MUON_BETA_STEP_MAGNITUDE,
             "optimizer/muon_weight_decay_nominal": MUON_WEIGHT_DECAY,
             "optimizer/target_uw": TARGET_UW,
             "optimizer/normuon_beta2": NORMUON_BETA2,
