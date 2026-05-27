@@ -70,6 +70,11 @@ def parse_args():
                              "late-higher=0.9 (block 0) → 1.1 (block 11), "
                              "late-lower=1.1 (block 0) → 0.9 (block 11). "
                              "Mean LR preserved across blocks.")
+    parser.add_argument("--body_pretarget_lr_mult", type=float, default=1.0,
+                        help="Multiplier on body (Muon) LR during pre-target window "
+                             "steps 2500-2924 only. 1.0 = baseline (no effect). "
+                             "Applied on top of the standard WSD schedule AND per-block "
+                             "LR multipliers from --muon_block_lr_pattern. Aux AdamW LR unchanged.")
     args = parser.parse_args()
     args.num_trials = args.num_trials if args.num_trials is not None else (args.legacy_num_trials or 1)
     args.wandb_tags = [tag.strip() for tag in args.wandb_tags.split(",") if tag.strip()]
@@ -731,6 +736,9 @@ if dist.get_rank() == 0:
             "ema_beta_target": args.ema_beta_target if args.ema_beta_target is not None else 0.0,
             "ema_dynamic_ramp_active": int(args.ema_beta_target is not None and args.ema_beta > 0),
             "muon_block_lr_pattern": args.muon_block_lr_pattern,
+            "body_pretarget_lr_mult": args.body_pretarget_lr_mult,
+            "body_pretarget_window_start": 2500,
+            "body_pretarget_window_end": 2925,
         },
     )
 
@@ -852,9 +860,16 @@ for trial_idx in range(args.num_trials):
             cooldown_progress = (progress - (1 - cooldown_frac)) / cooldown_frac
             w = 1.0 - cooldown_progress  # equivalent to (1 - progress) / cooldown_frac
             eta = w ** COOLDOWN_POWER
-        for opt in optimizers:
+        for opt_idx, opt in enumerate(optimizers):
             for group in opt.param_groups:
-                group["lr"] = group["initial_lr"] * eta
+                eta_eff = eta
+                # Body pre-target LR pulse: opt_idx==1 is body Muon (optimizer2).
+                # Active only in window steps 2500..2924; outside window the
+                # standard WSD eta applies. Per-block multipliers (#1289) compose
+                # via Muon's _param_lr_mults inside its optimizer.step().
+                if opt_idx == 1 and args.body_pretarget_lr_mult != 1.0 and 2500 <= step < 2925:
+                    eta_eff = eta * args.body_pretarget_lr_mult
+                group["lr"] = group["initial_lr"] * eta_eff
         return progress, cooldown_progress, eta
 
 
@@ -1079,6 +1094,18 @@ for trial_idx in range(args.num_trials):
                 "train/cooldown/lr_multiplier": sched_eta,
                 "train/cooldown/power_gamma": COOLDOWN_POWER,
             }, step=wandb_step)
+            if args.body_pretarget_lr_mult != 1.0:
+                pulse_active = int(2500 <= step < 2925)
+                wandb.log({
+                    "trial": trial_idx,
+                    "train/step": train_step,
+                    "body_pretarget_pulse/active": pulse_active,
+                    "body_pretarget_pulse/effective_mult": (
+                        args.body_pretarget_lr_mult if pulse_active else 1.0
+                    ),
+                    "body_pretarget_pulse/configured_mult": args.body_pretarget_lr_mult,
+                    "body_pretarget_pulse/muon_blocks_lr": optimizer2.param_groups[0]["lr"],
+                }, step=wandb_step)
             if param_lr_mults is not None:
                 muon_group_lr = optimizer2.param_groups[0]["lr"]
                 wandb.log({
