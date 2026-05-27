@@ -602,6 +602,16 @@ NANOGPT_NEWTON_MUON_UPDATE_PERIOD = int(os.environ.get("NANOGPT_NEWTON_MUON_UPDA
 NANOGPT_NEWTON_MUON_BETA = float(os.environ.get("NANOGPT_NEWTON_MUON_BETA", "0.95"))
 NANOGPT_NEWTON_MUON_EPS = float(os.environ.get("NANOGPT_NEWTON_MUON_EPS", "1e-4"))
 NANOGPT_NEWTON_MUON_MAX_D_IN = int(os.environ.get("NANOGPT_NEWTON_MUON_MAX_D_IN", "1024"))
+# NM R-EMA-SCHEDULE (#1331): optional β switch at a configurable training step.
+# When BETA_LATE is set, R-buffer EMA β switches from NEWTON_MUON_BETA to
+# BETA_LATE once train step >= BETA_LATE_START_STEP. R itself is NOT reset or
+# rescaled; only future EMA-blend weights change. Unset → constant-β behavior,
+# bit-identical to the pre-#1331 path.
+_NEWTON_BETA_LATE_RAW = os.environ.get("NANOGPT_NEWTON_MUON_BETA_LATE", "")
+NANOGPT_NEWTON_MUON_BETA_LATE = float(_NEWTON_BETA_LATE_RAW) if _NEWTON_BETA_LATE_RAW != "" else None
+NANOGPT_NEWTON_MUON_BETA_LATE_START_STEP = int(
+    os.environ.get("NANOGPT_NEWTON_MUON_BETA_LATE_START_STEP", "1000000000")
+)
 
 # Global per-parameter input-activation cache populated by forward hooks. Keyed by
 # id(weight_param) → tensor of shape (B*T, d_in) on device. Only populated when
@@ -746,6 +756,8 @@ class Muon(torch.optim.Optimizer):
                  newton_precond: bool = False, newton_beta: float = 0.95,
                  newton_eps: float = 1e-4, newton_update_period: int = 10,
                  newton_max_d_in: int = 1024,
+                 newton_beta_late: float | None = None,
+                 newton_beta_late_start_step: int = 1000000000,
                  newton_input_cache: dict | None = None):
         assert isinstance(params, list) and len(params) >= 1
         if isinstance(params[0], dict):
@@ -784,8 +796,16 @@ class Muon(torch.optim.Optimizer):
         self.newton_eps = float(newton_eps)
         self.newton_update_period = int(newton_update_period)
         self.newton_max_d_in = int(newton_max_d_in)
+        # R-EMA β schedule (#1331). When newton_beta_late is None, β stays constant
+        # at newton_beta for the whole run (bit-identical to pre-#1331 path).
+        self.newton_beta_late = float(newton_beta_late) if newton_beta_late is not None else None
+        self.newton_beta_late_start_step = int(newton_beta_late_start_step)
         self.newton_input_cache = newton_input_cache if newton_input_cache is not None else {}
         self._newton_step_count = 0
+        # 0-indexed training step set by the training loop just before step().
+        # Used to decide whether the R-EMA β switch in #1331 has engaged yet.
+        self.newton_train_step: int = 0
+        self._current_beta: float = float(newton_beta)
         # Accumulator dict reset each step() — read by the training loop after
         # step() for W&B logging. Keys: cond_max, cond_min, cond_sum, cond_n,
         # inv_sqrt_norm_sum, precond_ratio_sum, precond_ratio_n, applied_n.
@@ -797,6 +817,10 @@ class Muon(torch.optim.Optimizer):
 
     def set_ns_iters_this_step(self, ns_iters: int) -> None:
         self.ns_iters_this_step = int(ns_iters)
+
+    def set_newton_train_step(self, step: int) -> None:
+        """Set the 0-indexed training step so the R-EMA β schedule (#1331) can engage."""
+        self.newton_train_step = int(step)
 
     def _apply_newton_precondition(self, p, grad, state):
         """Right-precondition grad by (X^T X)^{-1/2} for body Muon matrices.
@@ -831,7 +855,7 @@ class Muon(torch.optim.Optimizer):
             if "R" not in state:
                 state["R"] = R_new.clone()
             else:
-                b = self.newton_beta
+                b = self._current_beta
                 state["R"].mul_(b).add_(R_new, alpha=1.0 - b)
             # Symmetric eigendecomp -> inverse square root with eigenvalue floor.
             try:
@@ -888,6 +912,15 @@ class Muon(torch.optim.Optimizer):
         if self.newton_precond:
             self._newton_step_count += 1
             self.newton_telemetry = {}
+            # R-EMA β schedule (#1331): switch to β_late once train step crosses
+            # newton_beta_late_start_step. When BETA_LATE is unset this branch is
+            # never taken and β stays constant (bit-identical to pre-#1331).
+            if (self.newton_beta_late is not None
+                    and self.newton_train_step >= self.newton_beta_late_start_step):
+                self._current_beta = self.newton_beta_late
+            else:
+                self._current_beta = self.newton_beta
+            self.newton_telemetry["current_beta"] = self._current_beta
         for group in self.param_groups:
             params = group["params"]
             params_pad = params + [torch.empty_like(params[-1])] * (world_size - len(params) % world_size)
@@ -979,12 +1012,20 @@ print0(f"  Effective Muon base LRs: attn={0.035*NANOGPT_MUON_ATTN_LR_MULT:.5f} m
 print0(f"EMBED_INIT_ANCHOR_LAMBDA: {NANOGPT_EMBED_INIT_ANCHOR_LAMBDA} "
        f"({'ACTIVE' if NANOGPT_EMBED_INIT_ANCHOR_LAMBDA > 0 else 'INACTIVE (bit-identical fallback)'})",
        console=True)
+_beta_late_banner = (
+    f"beta_late={NANOGPT_NEWTON_MUON_BETA_LATE} "
+    f"beta_late_start_step={NANOGPT_NEWTON_MUON_BETA_LATE_START_STEP} "
+    f"(R-EMA schedule ACTIVE)"
+    if NANOGPT_NEWTON_MUON_BETA_LATE is not None
+    else "beta_late=unset (R-EMA schedule INACTIVE — constant beta throughout)"
+)
 print0(
     f"NEWTON_MUON: use_precond={'True' if NANOGPT_NEWTON_MUON else 'False'} "
     f"lr_scale={NANOGPT_NEWTON_MUON_LR_SCALE} "
     f"update_period={NANOGPT_NEWTON_MUON_UPDATE_PERIOD} "
     f"beta={NANOGPT_NEWTON_MUON_BETA} eps={NANOGPT_NEWTON_MUON_EPS} "
-    f"max_d_in={NANOGPT_NEWTON_MUON_MAX_D_IN}",
+    f"max_d_in={NANOGPT_NEWTON_MUON_MAX_D_IN} "
+    f"{_beta_late_banner}",
     console=True,
 )
 if NS_ITERS_COOLDOWN > 0:
@@ -1105,6 +1146,12 @@ if dist.get_rank() == 0:
             "nanogpt_newton_muon_beta": NANOGPT_NEWTON_MUON_BETA,
             "nanogpt_newton_muon_eps": NANOGPT_NEWTON_MUON_EPS,
             "nanogpt_newton_muon_max_d_in": NANOGPT_NEWTON_MUON_MAX_D_IN,
+            "nanogpt_newton_muon_beta_late": (
+                NANOGPT_NEWTON_MUON_BETA_LATE
+                if NANOGPT_NEWTON_MUON_BETA_LATE is not None
+                else -1.0
+            ),
+            "nanogpt_newton_muon_beta_late_start_step": NANOGPT_NEWTON_MUON_BETA_LATE_START_STEP,
         },
     )
 
@@ -1171,6 +1218,8 @@ for trial_idx in range(args.num_trials):
         newton_eps=NANOGPT_NEWTON_MUON_EPS,
         newton_update_period=NANOGPT_NEWTON_MUON_UPDATE_PERIOD,
         newton_max_d_in=NANOGPT_NEWTON_MUON_MAX_D_IN,
+        newton_beta_late=NANOGPT_NEWTON_MUON_BETA_LATE,
+        newton_beta_late_start_step=NANOGPT_NEWTON_MUON_BETA_LATE_START_STEP,
         newton_input_cache=_newton_input_cache,
     )
     print0(f"MUON_PARAM_COUNTS: attn={len(muon_attn_params)} mlp={len(muon_mlp_params)} "
@@ -1419,6 +1468,9 @@ for trial_idx in range(args.num_trials):
         else:
             ns_iters_this_step = ns_iters_deterministic
         optimizer2.set_ns_iters_this_step(ns_iters_this_step)
+        # #1331: stash 0-indexed training step so Muon.step() can evaluate the
+        # R-EMA β schedule (no-op when NANOGPT_NEWTON_MUON_BETA_LATE is unset).
+        optimizer2.set_newton_train_step(step)
         if dist.get_rank() == 0:
             ns_iters_history.append(ns_iters_this_step)
             if len(ns_iters_history) > 100:
@@ -1446,6 +1498,9 @@ for trial_idx in range(args.num_trials):
                 "trial": trial_idx,
                 "train/step": train_step,
                 "newton_muon/params_preconditioned": applied,
+                "newton_muon/current_beta": tel.get(
+                    "current_beta", NANOGPT_NEWTON_MUON_BETA
+                ),
             }
             cond_n = tel.get("cond_n", 0)
             if cond_n > 0:
