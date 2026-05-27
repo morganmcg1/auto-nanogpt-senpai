@@ -109,6 +109,20 @@ def parse_args():
     parser.add_argument("--body_init_bottom_layers", type=int,
                         default=int(os.environ.get("BODY_INIT_BOTTOM_LAYERS", "6")),
                         help="Number of bottom layers to damp for --body_init=orthogonal_bottom_damp (default 6 = bottom half of 12 layers).")
+    # H208: Post-NS5 EMA smoothing of body update directions. Temporal smoothing
+    # in polar basis: both blend inputs are POST-NS5 (sigma_i ~ 1). Distinct from
+    # H199 (pre-NS5 direction blending, NEG) and H205 (post-NS5 spatial blend).
+    parser.add_argument("--body_post_ns5_ema_alpha", type=float,
+                        default=float(os.environ.get("BODY_POST_NS5_EMA_ALPHA", "1.0")),
+                        help="Blend coefficient for post-NS5 update direction. "
+                             "1.0 = bit-identical baseline (no EMA, no buffer allocated). "
+                             "<1.0 enables blend: U_step = alpha*U_current + (1-alpha)*U_ema. "
+                             "Both inputs are post-NS5 (already polar-projected, sigma_i=1).")
+    parser.add_argument("--body_post_ns5_ema_beta", type=float,
+                        default=float(os.environ.get("BODY_POST_NS5_EMA_BETA", "0.9")),
+                        help="EMA decay coefficient for post-NS5 update direction. "
+                             "0.9 ~ 10-step window; 0.99 ~ 100-step window; 0.999 ~ 1000-step window. "
+                             "Used only when --body_post_ns5_ema_alpha < 1.0.")
     args = parser.parse_args()
     args.num_trials = args.num_trials if args.num_trials is not None else (args.legacy_num_trials or 1)
     args.wandb_tags = [tag.strip() for tag in args.wandb_tags.split(",") if tag.strip()]
@@ -669,16 +683,24 @@ class MuonH(torch.optim.Optimizer):
     norm exactly constant; weight_decay must be 0.
     """
     def __init__(self, params, lr=0.018, weight_decay=0.0, mu=0.95,
-                 hyperball=True, budget_mult=1.0, mode="clip"):
+                 hyperball=True, budget_mult=1.0, mode="clip",
+                 post_ns5_ema_alpha=1.0, post_ns5_ema_beta=0.9):
         assert isinstance(params, list) and len(params) >= 1 and isinstance(params[0], torch.nn.Parameter)
         assert mode in ("clip", "scale_invariant")
         params = sorted(params, key=lambda x: x.size(), reverse=True)
         defaults = dict(lr=lr, weight_decay=weight_decay, mu=mu,
-                        hyperball=hyperball, budget_mult=budget_mult, mode=mode)
+                        hyperball=hyperball, budget_mult=budget_mult, mode=mode,
+                        post_ns5_ema_alpha=post_ns5_ema_alpha,
+                        post_ns5_ema_beta=post_ns5_ema_beta)
         super().__init__(params, defaults)
         self._last_active_fraction = 0.0
         self._last_radius_to_norm_max = 0.0
         self._last_norm_to_radius_max = 0.0
+        # H208: post-NS5 EMA telemetry (aggregated across body params at rank 0).
+        self._last_post_ns5_ema_active = 0.0
+        self._last_post_ns5_ema_blend_vs_current_cos = 1.0
+        self._last_post_ns5_ema_current_vs_ema_cos = 1.0
+        self._last_post_ns5_ema_norm_ratio = 1.0
 
     @torch.no_grad()
     def step(self):
@@ -688,12 +710,24 @@ class MuonH(torch.optim.Optimizer):
         total_count_local = 0
         max_r_over_n_local = 0.0
         max_n_over_r_local = 0.0
+        # H208: post-NS5 EMA telemetry accumulators (rank-local; sums of cos sims
+        # and norm ratios across body params owned by this rank).
+        ema_active_any = False
+        ema_count_local = 0
+        ema_blend_vs_current_cos_sum = 0.0
+        ema_current_vs_ema_cos_sum = 0.0
+        ema_norm_ratio_sum = 0.0
         for group in self.param_groups:
             params = group["params"]
             params_pad = params + [torch.empty_like(params[-1])] * (world_size - len(params) % world_size)
             hb = group["hyperball"]
             budget_mult = group["budget_mult"]
             mode = group["mode"]
+            post_ns5_ema_alpha = group.get("post_ns5_ema_alpha", 1.0)
+            post_ns5_ema_beta = group.get("post_ns5_ema_beta", 0.9)
+            ema_enabled = post_ns5_ema_alpha < 1.0
+            if ema_enabled:
+                ema_active_any = True
             for base_i in range(0, len(params), world_size):
                 if base_i + rank < len(params):
                     p = params[base_i + rank]
@@ -702,7 +736,33 @@ class MuonH(torch.optim.Optimizer):
                         state["momentum"] = torch.zeros_like(p)
                         if hb:
                             state["hyperball_radius"] = p.data.norm().item() * budget_mult
+                        if ema_enabled:
+                            state["post_ns5_ema"] = torch.zeros_like(p)
                     update = muon_update(p.grad, state["momentum"], mu=group["mu"])
+                    # H208: post-NS5 EMA smoothing. Both inputs are POST-NS5
+                    # (already polar-projected, sigma_i ~ 1). Temporal smoothing
+                    # in polar basis — distinct from pre-NS5 blending (H199) and
+                    # post-NS5 spatial cross-spectrum blending (H205).
+                    if ema_enabled and "post_ns5_ema" in state:
+                        ema_buf = state["post_ns5_ema"]
+                        # update EMA buffer with current post-NS5 direction
+                        ema_buf.mul_(post_ns5_ema_beta).add_(update, alpha=(1.0 - post_ns5_ema_beta))
+                        # telemetry (computed before blend overwrites update)
+                        cur_norm = update.norm()
+                        ema_norm = ema_buf.norm()
+                        denom = (cur_norm * ema_norm).clamp_min(1e-30)
+                        cos_cur_vs_ema = float((update * ema_buf).sum().div(denom).item())
+                        norm_ratio = float((ema_norm / cur_norm.clamp_min(1e-30)).item())
+                        # blend: alpha*current + (1-alpha)*EMA
+                        blended = post_ns5_ema_alpha * update + (1.0 - post_ns5_ema_alpha) * ema_buf
+                        blend_norm = blended.norm()
+                        denom_b = (cur_norm * blend_norm).clamp_min(1e-30)
+                        cos_blend_vs_cur = float((update * blended).sum().div(denom_b).item())
+                        update = blended
+                        ema_count_local += 1
+                        ema_blend_vs_current_cos_sum += cos_blend_vs_cur
+                        ema_current_vs_ema_cos_sum += cos_cur_vs_ema
+                        ema_norm_ratio_sum += norm_ratio
                     if hb and mode == "scale_invariant":
                         # Always-active variant: norm is held at initial value by construction.
                         scale_invariant_update_(p.data, update, group["lr"])
@@ -737,14 +797,37 @@ class MuonH(torch.optim.Optimizer):
             total_count = float(counts[1].item())
             max_r_over_n = float(ratios[0].item())
             max_n_over_r = float(ratios[1].item())
+            # H208 EMA telemetry: sum cos sims & norm ratios across all ranks,
+            # then divide by total ema-active param count.
+            ema_stats = torch.tensor(
+                [ema_blend_vs_current_cos_sum, ema_current_vs_ema_cos_sum,
+                 ema_norm_ratio_sum, float(ema_count_local)],
+                device="cuda", dtype=torch.float64)
+            dist.all_reduce(ema_stats, op=dist.ReduceOp.SUM)
+            ema_blend_vs_current_cos_sum = float(ema_stats[0].item())
+            ema_current_vs_ema_cos_sum = float(ema_stats[1].item())
+            ema_norm_ratio_sum = float(ema_stats[2].item())
+            ema_count_total = float(ema_stats[3].item())
         else:
             clip_count = float(clip_count_local)
             total_count = float(total_count_local)
             max_r_over_n = max_r_over_n_local
             max_n_over_r = max_n_over_r_local
+            ema_count_total = float(ema_count_local)
         self._last_active_fraction = clip_count / total_count if total_count > 0 else 0.0
         self._last_radius_to_norm_max = max_r_over_n
         self._last_norm_to_radius_max = max_n_over_r
+        # H208: finalize EMA telemetry. If ema disabled (alpha=1.0), values stay
+        # at safe defaults (active=0, cos sims=1.0, norm_ratio=1.0).
+        self._last_post_ns5_ema_active = 1.0 if ema_active_any else 0.0
+        if ema_count_total > 0:
+            self._last_post_ns5_ema_blend_vs_current_cos = ema_blend_vs_current_cos_sum / ema_count_total
+            self._last_post_ns5_ema_current_vs_ema_cos = ema_current_vs_ema_cos_sum / ema_count_total
+            self._last_post_ns5_ema_norm_ratio = ema_norm_ratio_sum / ema_count_total
+        else:
+            self._last_post_ns5_ema_blend_vs_current_cos = 1.0
+            self._last_post_ns5_ema_current_vs_ema_cos = 1.0
+            self._last_post_ns5_ema_norm_ratio = 1.0
 
 
 ########################################
@@ -783,6 +866,11 @@ if args.use_outer_optimizer:
 else:
     print0("MuLoCo outer optimizer DISABLED", console=True)
 print0(f"MuonH mode={args.muonh_mode} lr={args.muonh_lr} budget_mult={args.muonh_budget_mult} cooldown_shape={args.muonh_cooldown_shape}", console=True)
+if args.body_post_ns5_ema_alpha < 1.0:
+    print0(f"H208 post-NS5 EMA ENABLED: alpha={args.body_post_ns5_ema_alpha} beta={args.body_post_ns5_ema_beta} "
+           f"(~{1.0/(1.0-args.body_post_ns5_ema_beta):.0f}-step window)", console=True)
+else:
+    print0("H208 post-NS5 EMA DISABLED (alpha=1.0, bit-identical baseline path)", console=True)
 if args.aux_agc_clip_ratio > 0:
     print0(f"AGC ENABLED on aux AdamW groups: clip_ratio={args.aux_agc_clip_ratio} eps={args.aux_agc_eps}", console=True)
 else:
@@ -850,6 +938,8 @@ if dist.get_rank() == 0:
             "muonh_mu_schedule": args.muonh_mu_schedule,
             "muonh_mu_start": args.muonh_mu_start,
             "muonh_mu_end": args.muonh_mu_end,
+            "body_post_ns5_ema_alpha": args.body_post_ns5_ema_alpha,
+            "body_post_ns5_ema_beta": args.body_post_ns5_ema_beta,
         },
     )
 
@@ -933,7 +1023,9 @@ for trial_idx in range(args.num_trials):
     optimizer2 = MuonH([p for p in model.blocks.parameters() if p.ndim >= 2],
                        lr=args.muonh_lr, weight_decay=0.0, mu=0.95,
                        hyperball=True, budget_mult=args.muonh_budget_mult,
-                       mode=args.muonh_mode)
+                       mode=args.muonh_mode,
+                       post_ns5_ema_alpha=args.body_post_ns5_ema_alpha,
+                       post_ns5_ema_beta=args.body_post_ns5_ema_beta)
     optimizer2.param_groups[0]["name"] = "muonh_blocks"
     optimizers = [optimizer1, optimizer2]
     # AGC targets: AdamW aux groups (embed, lm_head, scalars). Built from optimizer1
@@ -1189,6 +1281,12 @@ for trial_idx in range(args.num_trials):
                         muonh_metrics["train/muonh/active_fraction"] = opt._last_active_fraction
                         muonh_metrics["train/muonh/radius_to_norm_max"] = opt._last_radius_to_norm_max
                         muonh_metrics["train/muonh/norm_to_radius_max"] = opt._last_norm_to_radius_max
+                        # H208: post-NS5 EMA telemetry. Defaults stay at active=0,
+                        # cos sims=1.0, norm_ratio=1.0 for arm_a CTRL alpha=1.0.
+                        muonh_metrics["train/post_ns5_ema/active"] = opt._last_post_ns5_ema_active
+                        muonh_metrics["train/post_ns5_ema/blend_vs_current_cos_sim"] = opt._last_post_ns5_ema_blend_vs_current_cos
+                        muonh_metrics["train/post_ns5_ema/current_vs_ema_cos_sim"] = opt._last_post_ns5_ema_current_vs_ema_cos
+                        muonh_metrics["train/post_ns5_ema/ema_norm_ratio"] = opt._last_post_ns5_ema_norm_ratio
                     muonh_metrics["train/muonh/warmup_factor"] = muonh_warmup_factor
                     muonh_metrics["train/muonh/effective_lr"] = opt.param_groups[0]["lr"]
             if telemetry_due and args.aux_agc_clip_ratio > 0 and agc_stats["agc_total"] > 0:
