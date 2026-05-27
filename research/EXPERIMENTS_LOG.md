@@ -1,3 +1,22 @@
+## 2026-05-27 11:35 — PR #1398: H203 tanjiro MuonH body cooldown SHAPE sweep (linear / cosine / sqrt) — **MERGED** 🎉 (NEW BASELINE: FFS=3025, val=3.26830)
+
+- Branch: `g1r3-tanjiro/muonh-cooldown-shape`
+- Hypothesis: Sweep body MuonH inner LR cooldown shape. Current baseline uses `linear`; test whether `cosine` (front-loads LR, collapses late) or `sqrt` (maintains high LR throughout) improve FFS.
+- Results:
+
+  | Arm | shape | W&B | val/loss | FFS | step_avg_ms | Δval vs CTRL | Class |
+  |---|---|---|---|---|---|---|---|
+  | arm_a CTRL | linear | `i9ie6h7j` | 3.26528 | 3150 | 1907.65 | 0.0 | NULL (within CTRL drift) |
+  | arm_b BODY_COSINE | **cosine** | `pyea3zd1` | 3.26830 | **3025** | 1907.28 | +0.00302 | **🏆 FFS WIN** (-125 vs CTRL, -100 vs H148 baseline) |
+  | arm_c BODY_SQRT | sqrt | `n3ept5um` | 3.29370 | -1 (never) | 1908.45 | +0.02842 | catastrophic FAIL |
+
+- **arm_b WIN mechanics**: Cosine shape maintains LR near peak for first ~70% of training, then collapses aggressively in final 30%. At step 3100, cosine LR is 6× lower than linear (0.00020 vs 0.00122). Trajectory crossover at ~step 3275 (cosine leads by 0.005-0.025 nats from step 2750 through 3200, then linear overtakes in last ~50 steps due to sustained moderate LR). Cosine crosses 3.28 at step 3025; linear crosses at step 3150. Terminal val regression (3.26830 vs CTRL 3.26528) because cosine has essentially stopped learning after step ~3100.
+- **arm_c catastrophic FAIL mechanism**: sqrt maintains LR ≥ 3× linear throughout most of cooldown (step 3100: sqrt LR = 3.8× linear). Gradient noise dominates; val/loss asymptotes at 3.293 well above target. Rules out "more late-LR helps" direction entirely.
+- **Outcome**: **MERGED as new baseline (cycle ~390).** New baseline: FFS=3025, val/loss=3.26830, W&B `pyea3zd1`. FFS WIN bar for future PRs: **≤3000** (must beat FFS=3025).
+- **⚠️ BASELINE SHIFT ALERT**: All 7 in-flight PRs (H204-H210) used `--muonh_cooldown_shape linear` in their CTRL arms (FFS≈3125-3150). Any arm showing improvement over linear CTRL must now ALSO beat the new cosine baseline FFS=3025 to be a merge candidate. PRs with, e.g., FFS=3100 vs linear CTRL are still potentially valuable mechanism finds — but need re-test on cosine baseline to get merge credit.
+- **Student's analysis**: Excellent 3-arm analysis with full LR-profile verification table and FFS-window trajectory. Identified mechanism clearly: "cosine front-loads val_loss reduction, linear catches up in last steps". Correctly flagged val/loss vs FFS trade-off and suggested cosine_squared and cosine × reduced h_cooldown_frac as follow-ups.
+- **Next assignment**: H211 tanjiro cosine² shape + LR-up follow-up (PR #1424) — arm_a CTRL cosine (new baseline); arm_b COSINE_SQ `η=(0.5*(1+cos(πc)))²` (steeper collapse, tests FFS < 3025 vs catastrophic fail boundary); arm_c LR_UP cosine + muonh_lr=0.020 (tests terminal val recovery).
+
 ## 2026-05-27 10:10 — PR #1371: H198 edward EMA-averaged weights for evaluation (Polyak-Ruppert) — CLOSED (60th NULL/NEG + 🎯 programme finding #34)
 
 - Branch: `g1r3-edward/ema-eval-body-weights`

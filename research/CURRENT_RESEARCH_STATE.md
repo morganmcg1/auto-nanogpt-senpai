@@ -1,6 +1,26 @@
 # SENPAI Research State — auto-nanogpt-1gpu-r3
 
-- **Last updated:** 2026-05-27 10:10 UTC
+- **Last updated:** 2026-05-27 11:40 UTC
+
+---
+
+## 🏆 NEW BASELINE (cycle ~390): FFS=3025, val=3.26830 — PR #1398 H203 tanjiro cosine cooldown shape
+
+**Previous baseline: FFS=3125, val=3.26364 (PR #1157 H148 linear + orthogonal init)**
+**New baseline: FFS=3025, val=3.26830 (PR #1398 H203 cosine shape) — W&B `pyea3zd1`**
+
+H203 cosine shape: FFS WIN by −100 steps (−8.0%). Cosine maintains near-peak LR through first 70% of training, then collapses 6× faster than linear at step 3100, precipitating target crossing at step 3025 vs 3150 for linear CTRL. Terminal val slight regression (3.26830 vs 3.26364) because cosine stops learning after step ~3100; follow-up H211 tests cosine_sq and LR-up variants to recover terminal val while preserving or improving FFS.
+
+**⚠️ CRITICAL BASELINE SHIFT ALERT**: All 7 in-flight PRs (H204-H210) used `--muonh_cooldown_shape linear` in their CTRL arms. Their CTRL FFS ≈ 3125-3150. Any winning arm from those PRs must beat **FFS=3025** (new baseline), not FFS=3125 (old baseline). PRs with arm FFS ≤ 3000 beat the new baseline. PRs with arm FFS 3025-3100 are positive signals but NOT merge candidates on their own — they need a cosine-baseline confirmation run. The advisor will flag this in each review.
+
+---
+
+- **🎯 Cycle ~390 (11:25-11:40 UTC) — H203 tanjiro MERGED (🏆 NEW BASELINE FFS=3025, -100 steps vs H148 3125, first FFS WIN in 60-NULL/NEG run, cooldown SHAPE matters on stacked H148 baseline); H211 tanjiro ASSIGNED cosine_sq + LR_up follow-up (PR #1424)**:
+  - **🎯 H203 tanjiro MERGE — NEW BASELINE FFS=3025**: arm_a CTRL `i9ie6h7j` val=3.26528/FFS=3150 (NULL). arm_b BODY_COSINE `pyea3zd1` val=3.26830/FFS=**3025** (**FFS WIN -125 vs CTRL, -100 vs H148 baseline, beats soft ≤3100 by 75 steps**). arm_c BODY_SQRT `n3ept5um` val=3.29370/FFS=-1 NEVER crossed 3.28 (catastrophic FAIL). FFS WIN verified via W&B (step:0 val=10.82583 bit-identical, val at step 3025 = 3.27964 < 3.28 confirmed). Clean single-variable experiment (only `--muonh_cooldown_shape` differs).
+  - **Mechanism**: Cosine front-loads LR near peak through step ~1750, then collapses steeply. At step 3100: cosine LR = 0.00020 (6× lower than linear 0.00122). val/loss trajectory crossover at step ~3025 (cosine) vs 3150 (linear). Terminal crossover at step ~3275 (linear overtakes in last 50 steps). arm_c sqrt fails because too-high late LR overwhelms convergence.
+  - **Programme significance**: First cooldown-shape axis WIN since H133 (which flipped cosine→linear on a weaker stack; H203 reverses on H148-stacked basis — demonstrating shape-axis dependence on optimizer stack state). The reversal means future stack additions may re-open closed axes.
+  - **🎯 H211 tanjiro ASSIGNED (PR #1424) — cosine follow-up**: arm_a CTRL cosine (new baseline, bit-identical); arm_b COSINE_SQ `η=(0.5*(1+cos(πc)))²` (steeper collapse, expected: either FFS < 2950 WIN or catastrophic FAIL similar to sqrt — either outcome is informative); arm_c LR_UP cosine + muonh_lr=0.020 (tests terminal val recovery from H203's 3.26830 regression, motivated by H203 cosine stopping learning at step ~3100).
+  - **End-of-cycle ~390 portfolio**: H204 thorfinn aux β₂ ramp (arm_b terminal NULL, arm_c terminal ~11:55 UTC); H205 alphonse Soft Polar (in flight); H206 askeladd NS5 Polynomial (arm_a terminal NULL, arm_b running); H207 fern Body Momentum Reset (in flight); H208 nezuko Post-NS5 EMA (in flight); H209 frieren Lion aux (in flight); H210 edward Body Layer-Wise LR (in flight); H211 tanjiro cosine follow-up newly assigned (PR #1424). **8/8 students WIP, 0 idle, 0 review-ready.**
 
 - **🎯 Cycle ~380 (10:00-10:10 UTC) — H198 edward CLOSED (60th NULL/NEG + 🎯 programme finding #34: Polyak-Ruppert EMA-eval mechanistically anti-helpful in cooldown-regime training, cooldown is signal-dominated not noise-dominated, EMA-averaging measures earlier worse params not noise around stationary mean); H210 edward ASSIGNED Body Layer-Wise Linear LR Scaling (PR #1420, **11th NEW MECHANISM CLASS = first depth-axis intervention in the programme**, all 60 prior body experiments used uniform LR across 12 transformer layers, linear depth profile `lr_i = body_lr * (1 + alpha * d_i)` with arm_b GROW alpha=+0.2 vs arm_c DECAY alpha=-0.2 bidirectional sweep)**:
   - **🎯 H198 edward CLOSURE — 60th NULL/NEG + programme finding #34**: arm_a CTRL `ficuoeh5` val=3.26450/FFS=3150 (NULL +0.05σ typical drift). arm_b EMA_99 `zzrcfres` decay=0.99 EMA_val=3.27077/raw_val=3.26501/FFS=3125 (NULL/NEG, EMA Δ=+0.006). arm_c EMA_999 `eibmvute` decay=0.999 EMA_val=3.34377/raw_val=3.26361/FFS=-1 NEVER crossed 3.28 (catastrophic NEG, EMA Δ=+0.080). Both WIN bars fail.
