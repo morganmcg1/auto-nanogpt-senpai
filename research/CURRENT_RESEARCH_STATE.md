@@ -9,29 +9,34 @@ The human research team has redirected: **FFS (first-step-to-target, baseline 30
 3. **Prefer experiments that move the crossing step** (2800-3050 window), **simplify winning stacks**, **reveal FFS-load-bearing components**.
 4. **Ablations preferred over confirmations** when FFS dead.
 
-## Last updated: 2026-05-27 ~19:00Z (poll ~894)
+## Last updated: 2026-05-27 ~21:30Z (poll ~898)
 
-**Actions this poll**: #1368 thorfinn scalars-β1=0.95 n=4 confirm CLOSED clean-NEG-FFS-NOISE (24th stack-component closure). Assigned #1471 thorfinn Lion-aux (Chen et al. 2023, sign-based optimizer on aux groups).
+**Actions this poll**: ★★★ #1381 alphonse cosine cooldown n=4 confirm TERMINAL — **FIRST FFS-POSITIVE MERGE CANDIDATE OF R5**. μ_4(FFS) = 2943.75 (−81 from baseline, FFS-alive ≤2975 cleared by 31 steps margin; 4/4 trials FFS≤2950), μ_4(val) = 3.270215 (+15σ_single regression). HELD in status:review pending human guidance (issue #1480 opened — Reading-A merge / B hold / C parallelize). Assigned #1481 alphonse cosine × cooldown_frac joint sweep as Reading-C parallel arm.
 
-**Critical in-flight**: ★★ #1381 alphonse cosine cooldown n=4 confirm (FFS=2925 ALIVE at n=1, n=4 in progress)
+**Critical pending**: Issue #1480 human merge guidance — default if no response in 4-6h is Reading-C (already actioned via #1481).
 
 **Active student portfolio (8 PRs, 0 idle)**:
-- ★★ #1381 alphonse — cosine cooldown n=4 confirm (FFS=2925 ALIVE at n=1; n=4 in flight)
-- #1471 thorfinn — Lion-aux sign-based optimizer (JUST ASSIGNED, Chen et al. 2023)
-- #1460 nezuko — Cautious Optimizer (sign-agreement gating on Muon body; Liang et al. 2024)
-- #1446 edward — Lookahead optimizer wrapper (Zhang et al. 2019, k=5/α=0.5)
-- #1442 tanjiro — per-block-depth Muon body LR decay (ULMFiT γ-modulation)
-- #1441 fern — AGC on Muon body (Brock et al. NFNets; cell A done FFS=3025, cell B lagging val=3.282, cells C-E pending)
-- #1437 askeladd — matrices β1 isolation (embed vs lm_head dissociation)
-- #1434 frieren — scalars β2 per-group decoupling (mirror of #1368 on β2 axis)
+- ★★★ #1381 alphonse — **cosine cooldown n=4 TERMINAL — μ_4(FFS)=2944, FFS-ALIVE, val +15σ regression**; status:review, HOLD pending issue #1480 human guidance
+- ★ #1481 alphonse — cosine × cooldown_frac joint sweep (Reading-C parallel arm; 5 cells cooldown_frac ∈ {0.7, 0.6, 0.5, 0.4, 0.3}, FFS-primary screening)
+- #1471 thorfinn — Lion-aux sign-based optimizer (Chen et al. 2023; Cell A control in flight)
+- #1460 nezuko — Cautious Optimizer (Liang et al. 2024; Cell B in flight)
+- #1446 edward — Lookahead optimizer wrapper (Zhang et al. 2019; Cell D in flight)
+- #1442 tanjiro — per-block-depth Muon body LR decay (ULMFiT γ-modulation; Cell D in flight)
+- #1441 fern — AGC on Muon body (Brock et al. NFNets; redirected D'(λ=1.0) and E'(λ=5.0) upper-λ)
+- #1437 askeladd — matrices β1 isolation (Cell D in flight, eb=lh=0.95)
+- #1434 frieren — scalars β2 per-group decoupling (Cell D in flight, β2=0.9)
 
-**Cumulative closures (24 stack-components)**: Averaging class (2) + Aux-LR triumvirate (3) + Per-group HP-decoupling FFS axis (β1 n=4=closed #1368, scalars-β1 val-positive but FFS-noise) + Crossing-phase cluster (6) + Muon NS operator-class (4) + AdamW aux TETRAD (4) + Early-phase (2) + others
+**Cumulative closures (24 stack-components, ZERO merges in R5 to date)**: Averaging class (2) + Aux-LR triumvirate (3) + Per-group HP-decoupling tetrad β1+β2+ε+lr (4) + Crossing-phase cluster (6) + Muon NS operator-class (4) + AdamW aux core (3) + Early-phase (2) + others
 
 **FFS-positive directions**:
-1. ★★ Cosine cooldown shape (#1381, FFS=2925 at n=1, n=4 in flight) — ONLY active FFS-positive candidate
-2. ~~scalars β1=0.95 (#1368, FFS=3000 at n=1)~~ — DID NOT confirm at n=4 (μ_4 FFS=3025 unanimous). Closed 24th.
+1. ★★★ Cosine cooldown shape (#1381 n=4 TERMINAL μ_4(FFS)=2943.75 ALIVE; val regression +15σ; HOLD for #1480)
+2. ★ Cosine × cooldown_frac joint sweep (#1481 parallel exploration; predicts val-recovery zone at cooldown_frac ∈ [0.4, 0.6])
 
-**Key mechanism cluster finding**: Per-group AdamW aux HP-decoupling is FFS-cosmetic (β1/β2/ε/lr/wd per-group all null on FFS axis; val-positive max ~2.5σ_single but subthreshold). Load-bearing FFS dynamics: cooldown SHAPE + Muon body update direction.
+**Key mechanism cluster finding**: Per-group AdamW aux HP-decoupling is FFS-cosmetic (β1/β2/ε/lr/wd per-group all null on FFS axis; val-positive max ~2.5σ_single but subthreshold). Load-bearing FFS dynamics confirmed: **cooldown SHAPE** (now FFS-positive +81 steps) + Muon body update direction (still untested in R5; the 7 in-flight non-cosine PRs test 5 different update-direction mechanisms — Lion, Cautious, Lookahead, AGC, per-block-LR).
+
+**Open questions for #1480**:
+- Does FFS-primary directive #1262 override the statsig val-floor gate (μ_4 ≤ 3.259221)? Literal reading says yes; conservative reading says val floor is invariant.
+- If FFS-primary merges break val floor, does the cycle accept val regression as the price of FFS gain compounding?
 
 
 **Audit of in-flight portfolio under new framing (updated poll ~876):**

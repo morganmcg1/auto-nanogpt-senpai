@@ -1,5 +1,46 @@
 # SENPAI Research Results — auto-nanogpt-1gpu-r5
 
+## 2026-05-27 21:24 — PR #1381: Cosine cooldown LR DECAY SHAPE n=4 confirm (alphonse) [★★★ FFS-ALIVE — HELD for human merge guidance]
+- branch: g1r5-alphonse/cooldown-lr-decay-shape
+- hypothesis: n=4 confirm of Cell B★ (cosine cooldown shape) — n=1 had hit FFS=2925 (−100 from baseline). Promoted per FFS-primary directive #1262.
+- verdict: **★★★ FIRST FFS-POSITIVE MERGE CANDIDATE OF R5** — n=4 confirms μ_4(FFS) = 2943.75 (FFS-alive ≤2975 gate cleared by 31 steps), with val regression +15σ_single. **HELD in status:review** pending human merge-guidance issue #1480 (Reading-A merge / B hold / C parallelize default).
+- results (n=4 sequential trials in one run, W&B run `suc03s6j`):
+
+  | Trial | FFS | val_loss@3250 | val@2925 | val@2950 |
+  |:-----:|:---:|:------:|:-----:|:----:|
+  | 0 | 2950 | 3.27057 | 3.28059 | 3.27886 |
+  | 1 | 2950 | 3.27010 | 3.28009 | 3.27850 |
+  | 2 | 2925 | 3.26993 | 3.27986 | 3.27822 |
+  | 3 | 2950 | 3.27026 | 3.28027 | 3.27856 |
+  | **μ_4** | **2943.75** | **3.270215** | — | — |
+
+  - σ_4(FFS) = 12.50 (very tight); σ_4(val) = 0.000272 (very tight)
+  - 4/4 trials clear FFS ≤ 2950 (cell A-criterion); 4/4 clear FFS ≤ 2975 (strict FFS-alive)
+  - **n=4 FFS merge gate (≤3018.75): PASS** by −75 steps margin
+  - **FFS-alive directive (≤2975): PASS** by −31.25 steps margin
+  - **n=4 val merge gate (≤3.259221): FAIL** by +0.011 (+18.5·SEM_4)
+
+- mechanism findings:
+  1. **The FFS-vs-val tradeoff is mechanism-coherent**. cosine eta at step 2925 (cooldown_frac=0.7) is ~0.050, vs linear eta at same step ~0.143. Cosine front-loads the model into low-LR regime ~150 steps earlier than linear → advances 3.28 crossing → FFS-positive. But less time in mid-eta (0.1-0.4) descent zone → val_loss penalty.
+  2. **The n=1 vs n=4 difference (FFS=2925 vs μ_4=2943.75) is one val-eval-step's margin of ~0.0006**. At step 2925: trial 2 alone is below 3.28 (3.27986); trials 0/1/3 are all above by < 0.001. At step 2950: all 4 trials below. The n=4 distribution is well-behaved, not bimodal. n=1 sampling caught the lowest-tail seed.
+  3. **σ_4(val)=0.000272 ≪ σ_single=0.000593** indicates the val regression is structural (not seed jitter). The +0.009 is the deterministic effect of choosing cosine over linear.
+  4. **Cross-PR consistency**: fern #1385 (full-run cosine) hit FFS=2925 at n=1 with consistent mechanism but worse val tradeoff. Cosine-IN-COOLDOWN isolation gives much better val by preserving stable-phase descent.
+  5. **Kill gates audit (all 4 trials × 4 checkpoint steps = 16/16 PASS)**: step 500 ≤ 5.5, step 1125 ≤ 4.0, step 2375 ≤ 3.40, step 3125 ≤ 3.32 all cleared with margin.
+
+- joint context:
+  - This is the **first n=4-confirmed FFS-positive of R5** in 24 closure attempts (all 24 closed clean-NEG or FFS-noise).
+  - Cluster: cooldown-shape is FFS-load-bearing. Linear → cosine drop-off changes eta-decay curvature; convex (1-x)² also hit FFS=2925 at n=1 (same FFS gain but worse val from steep-late drop). Concave √(1-x) hit FFS=3225 (FFS-negative, eta stays HIGH at crossing).
+  - Predicted next-frontier: cosine × cooldown_frac joint sweep (see #1481 follow-up). The cooldown_frac=0.7 default may be suboptimal for cosine; shorter cooldown_frac could preserve FFS gain while restoring mid-eta descent time for val recovery.
+
+- decision rule application:
+  - Per advisor's predeclared promote-comment criteria: "FFS-ALIVE confirmed: μ_4≤2975 AND ≥2/4 trials FFS≤2950 → STRONG FFS-positive finding" — both met cleanly (4/4 trials ≤ 2950, μ_4 = 2943.75).
+  - Per advisor's promised "advisor will discuss merge vs val-tradeoff with human team": **OPENED ISSUE #1480** asking for guidance on Reading-A (literal FFS-primary merge) vs Reading-B (val-floor invariant hold) vs Reading-C (parallelize via #1481 joint cooldown_frac sweep).
+  - Default action while waiting (no response in 4-6h): Reading-C — assigned #1481 alphonse cosine × cooldown_frac joint sweep as the parallel exploration arm.
+
+- follow-up assignments: #1481 alphonse cosine × cooldown_frac joint sweep (5 cells cooldown_frac ∈ {0.7, 0.6, 0.5, 0.4, 0.3}, FFS-primary screening; the cell with FFS≤2975 AND lowest val is the val-recovery winner).
+
+- exceptional student work: ★★★ The student's report was textbook on all axes — predeclared FFS-alive criteria met cleanly, all 4 trials reported without cherry-picking, σ_4 analysis showed val regression is structural not jitter, the per-trial val trajectory analysis decomposed "FFS=2925 vs 2950 is one val-eval-step margin", cross-PR mechanism corroboration with #1385 documented, kill-gate audit 16/16 PASS table, and three concrete follow-up suggestions tied to the discovered mechanism. The decomposition "val regression characterized as σ_single units AND σ_μ4 units" demonstrated correct n=4 statistical reasoning.
+
 ## 2026-05-27 18:58 — PR #1368: Per-group β1 decoupling scalars β1=0.95 n=4 confirm (thorfinn) [FFS-NOISE clean-NEG]
 - branch: g1r5-thorfinn/scalars-beta1-decouple
 - hypothesis: n=4 confirm of Cell B★ (scalars β1=0.95 vs 0.8). n=1 hit FFS=3000 (−25 baseline), val=3.25786. Promoted per FFS-primary directive because FFS=3000 cleared predeclared ≤3000 gate.
