@@ -602,6 +602,11 @@ NANOGPT_NEWTON_MUON_UPDATE_PERIOD = int(os.environ.get("NANOGPT_NEWTON_MUON_UPDA
 NANOGPT_NEWTON_MUON_BETA = float(os.environ.get("NANOGPT_NEWTON_MUON_BETA", "0.95"))
 NANOGPT_NEWTON_MUON_EPS = float(os.environ.get("NANOGPT_NEWTON_MUON_EPS", "1e-4"))
 NANOGPT_NEWTON_MUON_MAX_D_IN = int(os.environ.get("NANOGPT_NEWTON_MUON_MAX_D_IN", "1024"))
+# Per-group NM LR scaling (#1346 layer-group LR sweep). Multiplies the global
+# NANOGPT_NEWTON_MUON_LR_SCALE for muon_attn and muon_mlp groups independently.
+# Default 1.0 for both = bit-identical to pre-PR production stack.
+NANOGPT_NEWTON_MUON_LR_SCALE_ATTN = float(os.environ.get("NANOGPT_NEWTON_MUON_LR_SCALE_ATTN", "1.0"))
+NANOGPT_NEWTON_MUON_LR_SCALE_MLP = float(os.environ.get("NANOGPT_NEWTON_MUON_LR_SCALE_MLP", "1.0"))
 
 # Global per-parameter input-activation cache populated by forward hooks. Keyed by
 # id(weight_param) → tensor of shape (B*T, d_in) on device. Only populated when
@@ -794,6 +799,12 @@ class Muon(torch.optim.Optimizer):
         # to enable the sync-y per-param diagnostics; False otherwise to keep
         # the GPU pipeline async (item() calls block the CPU and serialize work).
         self.newton_telemetry_due: bool = False
+        # Optional set of id(p) values for MLP down-projection matrices
+        # (d_in=3072). When set, Muon.step() records the L2 norm of the
+        # NM-scaled step (= lr * orthogonalized update) applied to each one on
+        # telemetry-due steps, into newton_telemetry["mlp_downproj_step_norms"].
+        # Left None by default = bit-identical baseline (no extra telemetry).
+        self.mlp_downproj_param_ids: set | None = None
 
     def set_ns_iters_this_step(self, ns_iters: int) -> None:
         self.ns_iters_this_step = int(ns_iters)
@@ -910,6 +921,16 @@ class Muon(torch.optim.Optimizer):
                     update = muon_update(grad_for_update, state["momentum"], state["v"],
                                          ns_iters=ns_iters,
                                          mu=group["mu"], beta2=group["beta2"], eps=group["eps"])
+                    if (
+                        self.newton_telemetry_due
+                        and self.mlp_downproj_param_ids is not None
+                        and id(p) in self.mlp_downproj_param_ids
+                    ):
+                        # Frobenius norm of the actually-applied step (lr * update).
+                        # Single .item() per MLP down-proj param on telemetry-due
+                        # steps; off-cadence steps stay sync-free.
+                        step_norm = float((group["lr"] * update.detach().float()).norm().item())
+                        self.newton_telemetry.setdefault("mlp_downproj_step_norms", []).append(step_norm)
                     if spectral_target is not None and p is spectral_target:
                         # Singular values of the orthogonalized (post-NS) update.
                         # Multiplied by max(1, fan_in/fan_out)**0.5 inside muon_update;
@@ -982,9 +1003,13 @@ print0(f"EMBED_INIT_ANCHOR_LAMBDA: {NANOGPT_EMBED_INIT_ANCHOR_LAMBDA} "
 print0(
     f"NEWTON_MUON: use_precond={'True' if NANOGPT_NEWTON_MUON else 'False'} "
     f"lr_scale={NANOGPT_NEWTON_MUON_LR_SCALE} "
+    f"lr_scale_attn={NANOGPT_NEWTON_MUON_LR_SCALE_ATTN} "
+    f"lr_scale_mlp={NANOGPT_NEWTON_MUON_LR_SCALE_MLP} "
     f"update_period={NANOGPT_NEWTON_MUON_UPDATE_PERIOD} "
     f"beta={NANOGPT_NEWTON_MUON_BETA} eps={NANOGPT_NEWTON_MUON_EPS} "
-    f"max_d_in={NANOGPT_NEWTON_MUON_MAX_D_IN}",
+    f"max_d_in={NANOGPT_NEWTON_MUON_MAX_D_IN} "
+    f"effective_lr: attn={0.035*NANOGPT_MUON_ATTN_LR_MULT*NANOGPT_NEWTON_MUON_LR_SCALE*NANOGPT_NEWTON_MUON_LR_SCALE_ATTN:.5f} "
+    f"mlp={0.035*NANOGPT_MUON_MLP_LR_MULT*NANOGPT_NEWTON_MUON_LR_SCALE*NANOGPT_NEWTON_MUON_LR_SCALE_MLP:.5f}",
     console=True,
 )
 if NS_ITERS_COOLDOWN > 0:
@@ -1101,6 +1126,8 @@ if dist.get_rank() == 0:
             "nanogpt_embed_init_anchor_lambda": NANOGPT_EMBED_INIT_ANCHOR_LAMBDA,
             "nanogpt_newton_muon": NANOGPT_NEWTON_MUON,
             "nanogpt_newton_muon_lr_scale": NANOGPT_NEWTON_MUON_LR_SCALE,
+            "nanogpt_newton_muon_lr_scale_attn": NANOGPT_NEWTON_MUON_LR_SCALE_ATTN,
+            "nanogpt_newton_muon_lr_scale_mlp": NANOGPT_NEWTON_MUON_LR_SCALE_MLP,
             "nanogpt_newton_muon_update_period": NANOGPT_NEWTON_MUON_UPDATE_PERIOD,
             "nanogpt_newton_muon_beta": NANOGPT_NEWTON_MUON_BETA,
             "nanogpt_newton_muon_eps": NANOGPT_NEWTON_MUON_EPS,
@@ -1160,10 +1187,10 @@ for trial_idx in range(args.num_trials):
                        if p.ndim >= 2 and ".mlp." in n]
     optimizer2 = Muon(
         [dict(params=muon_attn_params,
-              lr=0.035 * NANOGPT_MUON_ATTN_LR_MULT * NANOGPT_NEWTON_MUON_LR_SCALE,
+              lr=0.035 * NANOGPT_MUON_ATTN_LR_MULT * NANOGPT_NEWTON_MUON_LR_SCALE * NANOGPT_NEWTON_MUON_LR_SCALE_ATTN,
               name="muon_attn"),
          dict(params=muon_mlp_params,
-              lr=0.035 * NANOGPT_MUON_MLP_LR_MULT * NANOGPT_NEWTON_MUON_LR_SCALE,
+              lr=0.035 * NANOGPT_MUON_MLP_LR_MULT * NANOGPT_NEWTON_MUON_LR_SCALE * NANOGPT_NEWTON_MUON_LR_SCALE_MLP,
               name="muon_mlp")],
         weight_decay=0.025,
         newton_precond=bool(NANOGPT_NEWTON_MUON),
@@ -1175,6 +1202,15 @@ for trial_idx in range(args.num_trials):
     )
     print0(f"MUON_PARAM_COUNTS: attn={len(muon_attn_params)} mlp={len(muon_mlp_params)} "
            f"(expected 48 attn / 24 mlp for 12-layer block stack)", console=True)
+    # MLP down-projection matrices (d_in=3072) — population most directly
+    # affected by NM under the post-#1240 stack (max_d_in=4096). Telemetry only.
+    mlp_downproj_ids = {
+        id(p) for n, p in model.blocks.named_parameters()
+        if p.ndim >= 2 and n.endswith(".mlp.proj.weight")
+    }
+    optimizer2.mlp_downproj_param_ids = mlp_downproj_ids
+    print0(f"MLP_DOWNPROJ_TELEMETRY: tracking {len(mlp_downproj_ids)} mlp.proj.weight "
+           f"matrices (expected 12 for 12-layer stack)", console=True)
     # Track orthogonalized-update spectrum on first block's attention q.weight
     # to surface NS-schedule effects in W&B telemetry.
     optimizer2.spectral_telemetry_param = model.blocks[0].attn.q.weight
@@ -1462,6 +1498,24 @@ for trial_idx in range(args.num_trials):
             if ratio_n > 0:
                 newton_metrics["newton_muon/precond_ratio_mean"] = (
                     tel["precond_ratio_sum"] / ratio_n
+                )
+            downproj_norms = tel.get("mlp_downproj_step_norms")
+            if downproj_norms:
+                # Mean / std L2 norm of NM-scaled steps applied to the 12
+                # mlp.proj.weight matrices this optimizer step. Per-arm tracking
+                # for LR sweep mechanism reading (#1393).
+                norms_t = torch.tensor(downproj_norms, dtype=torch.float64)
+                newton_metrics["newton_muon/mlp_downproj_step_norm_mean"] = (
+                    float(norms_t.mean().item())
+                )
+                newton_metrics["newton_muon/mlp_downproj_step_norm_std"] = (
+                    float(norms_t.std(unbiased=False).item())
+                )
+                newton_metrics["newton_muon/mlp_downproj_step_norm_max"] = (
+                    float(norms_t.max().item())
+                )
+                newton_metrics["newton_muon/mlp_downproj_step_norm_min"] = (
+                    float(norms_t.min().item())
                 )
             wandb.log(newton_metrics, step=wandb_step)
         # Init-anchored WD on embed (#847, env-var-gated). After both optimizers
