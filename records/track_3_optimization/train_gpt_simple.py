@@ -469,6 +469,13 @@ WD_AUX = float(os.environ.get("WD_AUX", "0.0"))  # AdamW WD on embed + lm_head m
 EMBED_INIT_STD = float(os.environ.get("EMBED_INIT_STD", "1.0"))  # default preserves baseline N(0,1)
 LOGIT_SOFTCAP = float(os.environ.get("LOGIT_SOFTCAP", "15.0"))  # default = 15 (current hardcoded value); soft-cap value c in f(x) = c·x / sqrt(x^2+c^2)
 
+# PR #1404 — m-only vs v-only sub-decomposition of #1353 joint AUX state reset at cooldown_start (embed AUX only).
+# One-shot: at step == AUX_PARAM_STATE_RESET_DECOMP_STEP, zero exp_avg ("m_only") or exp_avg_sq ("v_only") on
+# the adam_embed param group. Step counter is preserved (bias-correction continues from original step count).
+AUX_PARAM_STATE_RESET_DECOMP_DISPATCH = int(os.environ.get("AUX_PARAM_STATE_RESET_DECOMP_DISPATCH", "0"))
+AUX_PARAM_STATE_RESET_DECOMP_STEP = int(os.environ.get("AUX_PARAM_STATE_RESET_DECOMP_STEP", "953"))
+AUX_PARAM_STATE_RESET_DECOMP_MODE = os.environ.get("AUX_PARAM_STATE_RESET_DECOMP_MODE", "none")  # "m_only" | "v_only" | "none"
+
 
 def zeropower_via_newtonschulz5(G: Tensor) -> Tensor:
     assert G.ndim >= 2
@@ -866,6 +873,9 @@ if dist.get_rank() == 0:
             "optimizer/attn_soap_trust_threshold": ATTN_SOAP_TRUST_THRESHOLD,
             "optimizer/ns5_iters": NS5_ITERS,
             "optimizer/wd_aux": WD_AUX,
+            "optimizer/aux_param_state_reset_decomp_dispatch": AUX_PARAM_STATE_RESET_DECOMP_DISPATCH,
+            "optimizer/aux_param_state_reset_decomp_step": AUX_PARAM_STATE_RESET_DECOMP_STEP,
+            "optimizer/aux_param_state_reset_decomp_mode": AUX_PARAM_STATE_RESET_DECOMP_MODE,
             "optimizer/recipe": "contra-muon + normuon-lite + soap-on-mlp + soap-on-attn-trust-gate (pre-NS5, record #14 + record #16)",
         },
     )
@@ -1051,6 +1061,21 @@ for trial_idx in range(args.num_trials):
                 train_steps=train_steps,
                 wandb_step=wandb_step,
             )
+        if (AUX_PARAM_STATE_RESET_DECOMP_DISPATCH
+                and step == AUX_PARAM_STATE_RESET_DECOMP_STEP
+                and AUX_PARAM_STATE_RESET_DECOMP_MODE in ("m_only", "v_only")):
+            for group in optimizer1.param_groups:
+                if group.get("name") != "adam_embed":
+                    continue
+                for p in group["params"]:
+                    state = optimizer1.state.get(p, {})
+                    if AUX_PARAM_STATE_RESET_DECOMP_MODE == "m_only" and "exp_avg" in state:
+                        state["exp_avg"].zero_()
+                    elif AUX_PARAM_STATE_RESET_DECOMP_MODE == "v_only" and "exp_avg_sq" in state:
+                        state["exp_avg_sq"].zero_()
+            if dist.get_rank() == 0:
+                print0(f"[AUX_PARAM_STATE_RESET_DECOMP] mode={AUX_PARAM_STATE_RESET_DECOMP_MODE}"
+                       f" step={step} on adam_embed (step counter preserved)", console=True)
         for opt in optimizers:
             opt.step()
         if dist.get_rank() == 0 and telemetry_due:
