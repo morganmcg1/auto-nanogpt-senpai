@@ -1,3 +1,95 @@
+## 2026-05-27 01:15 UTC — Cycle 71 mid-306
+
+**Cumulative**: **191 refuted (+1: thorfinn #1353 191st cluster-band STANDARD, 66th family closure)** / **107 distinct mech classes (+1 pending: thorfinn #1367 AUX_SCALARS_LR_PHASE_TRANSITION, completes 4-cell AUX-kind × LR direction grid)** / **66 family-level closures**.
+
+**Highest-information mid-306 finding**: **Cluster-floor robustness extends to SEVEN distinct mechanism CLASSES** (#1353 closure):
+
+#1353 single-arm AUX-Adam buffer reset (101 params: embed + lm_head + scalars exp_avg + exp_avg_sq + step) at cooldown_frac=0.7 boundary → val=**3.27068** ffs=**3025** cluster member. Smooth monotone descent across reset boundary; no slope kink, no rebound, no plateau. The optimizer absorbed the reset cleanly.
+
+**Updated compound finding** — 7 mechanism CLASSES converge on cluster floor:
+
+1. state (#1336 Nesterov-form phase-axis)
+2. eval-state (#1316 Polyak averaging)
+3. state-reset body 2nd-order (#1333 SOAP Gram reset)
+4. per-group-dispatch (#1323 per-kind body Muon μ at cooldown)
+5. AUX-LR phase event (#1335 embed AUX LR transition)
+6. locality-discriminator step-function dispatch (#1340 Arm A cluster member)
+7. **state-reset AUX 1st+2nd moment (#1353 this — AUX-Adam buffer reset)** ← new class
+
+**Multi-axis state-reset cluster-floor closure principle** (new methodology corpus entry): cross-state-axis reset at cooldown_frac=0.7 boundary lands cluster across (body-Muon-momentum × AUX-Adam-1st+2nd-moment × SOAP-Gram) axes. State staleness across all optimizer sub-systems is FALSIFIED as cluster-floor discriminator. The floor is set by terminal/cooldown-phase dynamics, not by mid-training state accumulation patterns.
+
+**This cycle — 1 closure + 1 fresh virgin axis assignment**:
+
+1. **thorfinn #1353 MUON_AUX_BUFFER_RESET_AT_COOLDOWN closed as 191st refute** (cluster-band STANDARD single-arm, 66th family closure):
+   - val=3.27068 ffs=3025 cluster member
+   - Reset fired cleanly: count=101, all AUX-Adam params zeroed at step 953, no step_avg overhead
+   - Smooth absorption of perturbation; no slope kink at reset boundary
+   - 7th mech class joining cluster-floor compound finding
+   - Methodology corpus: multi-axis state-reset cluster-floor closure principle added
+
+2. **thorfinn → #1367 AUX_SCALARS_LR_PHASE_TRANSITION (113th mech class assigned)**:
+   - **VIRGIN per-AUX-kind scalars LR phase axis** in 320+ PR corpus. Prior scalars-related PRs: AUX_BIASES_LR_BOOST (#1307, uniform throughout training); no phase-event on scalars LR.
+   - Mechanism: dispatch scalars-AUX LR multiplier at step 953 (cooldown_start). Other AUX kinds (embed, lm_head) untouched.
+   - Arms: Arm A 0.5× (under-LR at cooldown); Arm B 2.0× (over-LR at cooldown).
+   - **Completes 4-cell AUX-kind × LR direction grid**: body Muon (#1296 under-LR helps) + embed AUX (#1335 over-LR helps) + lm_head AUX (#1366 in flight) + scalars AUX (#1367 this).
+   - After #1366 + #1367 terminate, mid-304 cross-optimizer-class direction-asymmetry inversion principle will be either confirmed AUX-class-universal or narrowed to embed-specific.
+   - State-phase event + per-AUX-kind dispatch per Morgan directive #1259.
+
+**AUX-kind × LR direction-of-effect grid — mid-306 update**:
+
+| sub-system | optimizer | normalization | direction-of-effect | source |
+|---|---|---|---|---|
+| body Muon | Muon | NS5 iteration-based | under-LR helps | #1296 closed |
+| embed AUX | AdamW | v-normalized | over-LR helps | #1335 closed (INVERSION) |
+| lm_head AUX | AdamW | v-normalized | TESTING | #1366 in flight |
+| **scalars AUX** | AdamW | v-normalized | **TESTING** | **#1367 just assigned** |
+
+Grid is now 4/4 cells in flight or closed — **complete triangulation underway**.
+
+**Per-kind/state-phase axes in flight or recently closed** (cycle 71, updated):
+- #1307 (nezuko): per-AUX-group LR scalar dispatch — CLOSED cluster-band ASYMMETRIC-MAGNITUDE
+- #1323 (alphonse): per-kind body Muon μ dispatch at cooldown — CLOSED cluster-band ASYMMETRIC-OUTCOME
+- #1335 (edward): embed AUX LR phase transition — CLOSED cluster-band ASYMMETRIC-MAGNITUDE
+- #1340 (frieren): β-locality step-function — CLOSED cluster-band ASYMMETRIC-OUTCOME
+- **#1353 (thorfinn): AUX state reset at cooldown — CLOSED cluster-band STANDARD (this cycle)**
+- #1347 (nezuko): per-kind Nesterov on body Muon — IN FLIGHT
+- #1355 (askeladd): per-kind NS5_ITERS at cooldown — IN FLIGHT
+- #1358 (tanjiro): per-AUX-kind β2 at cooldown — IN FLIGHT
+- #1359 (alphonse): per-AUX-kind ε at cooldown — IN FLIGHT
+- #1361 (fern): cooldown-start weight noise injection — IN FLIGHT
+- #1364 (edward): per-AUX-kind embed WD phase dispatch — IN FLIGHT
+- #1366 (frieren): per-AUX-kind lm_head LR phase transition — IN FLIGHT
+- **#1367 (thorfinn): per-AUX-kind scalars LR phase transition — IN FLIGHT (just assigned)**
+
+This is now an **8-axis** per-kind/state-phase swarm with **4 axes specifically targeting cross-optimizer-class direction-asymmetry generalization** (#1335 closed, #1364 LR→WD, #1366 embed→lm_head, #1367 embed→scalars). 4-cell AUX-kind × LR grid is COMPLETE in flight.
+
+**Closure-mechanism taxonomy** (unchanged 6-way + cluster-band 5 sub-subtypes):
+- cluster-band sub-subtypes: SYMMETRIC, ASYMMETRIC-MAGNITUDE, ASYMMETRIC-OUTCOME, INFORMATIVE-TRIANGULATION, **STANDARD** (now n=multiple, instances grown to include #1333, #1336, #1307, #1353)
+- cluster-band-edge (sub-variant of STANDARD)
+- catastrophic-shifted-floor / n=2-confirm / MATH-NULL / informative-crossover / STRUCTURAL-MISMATCH-AT-PARAM
+
+**Active fleet status mid-306**:
+
+| Student | PR | Status | W&B notes |
+|---|---|---|---|
+| g1r2-alphonse | #1359 | status:wip | AUX_EPS_PER_KIND_AT_COOLDOWN (109th mech) |
+| **g1r2-thorfinn** | **#1367** | **status:wip, JUST ASSIGNED** | **AUX_SCALARS_LR_PHASE_TRANSITION (113th mech)** |
+| g1r2-nezuko | #1347 | status:wip | MUON_NESTEROV_PER_KIND (104th mech) |
+| g1r2-fern | #1361 | status:wip | COOLDOWN_BODY_WEIGHT_NOISE_INJECTION (110th mech) |
+| g1r2-frieren | #1366 | status:wip | AUX_LM_HEAD_LR_PHASE_TRANSITION (112th mech) |
+| g1r2-askeladd | #1355 | status:wip | MUON_NS5_ITERS_PER_KIND_AT_COOLDOWN (107th mech) |
+| g1r2-tanjiro | #1358 | status:wip | AUX_BETA2_PER_KIND_AT_COOLDOWN (108th mech) |
+| g1r2-edward | #1364 | status:wip | AUX_EMBED_WD_PHASE_DISPATCH (111th mech) |
+
+**ZERO IDLE STUDENTS — 8 students concurrently active. ZERO IDLE GPUs.**
+
+**Methodology corpus this cycle**:
+- **Multi-axis state-reset cluster-floor closure principle**: cross-state-axis reset (body Muon momentum, SOAP Gram, AUX-Adam 1st+2nd moment) at cooldown_frac=0.7 all converge cluster. State staleness across all optimizer sub-systems is FALSIFIED as cluster-floor discriminator.
+- **Cluster-floor robustness extends to 7 mech classes**: state-reset AUX 1st+2nd moment joins state/eval-state/state-reset-body/per-group-dispatch/AUX-LR phase event/locality-discriminator step-function dispatch.
+- **AUX-kind × LR direction grid COMPLETE in flight**: 4/4 cells (body Muon + 3 AUX kinds) covered. Triangulation underway for cross-optimizer-class direction-asymmetry inversion principle.
+
+**Cumulative closure rate**: 191 / ~535 PRs ≈ 35% refute rate. 13 mech classes assigned in cycle 71 so far.
+
 ## 2026-05-27 00:45 UTC — Cycle 71 mid-305
 
 **Cumulative**: **190 refuted (+1: frieren #1340 190th cluster-band ASYMMETRIC-OUTCOME, 65th family closure)** / **107 distinct mech classes (+1 pending: frieren #1366 AUX_LM_HEAD_LR_PHASE_TRANSITION, virgin per-AUX-kind lm_head LR phase axis in 320+ PR corpus)** / **65 family-level closures**.
