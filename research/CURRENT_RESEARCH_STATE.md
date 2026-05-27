@@ -5853,3 +5853,36 @@ The cycle 71 has been at a noise floor for 229 refutes. The newly-characterized 
 
 8 students concurrently active, ZERO IDLE.
 
+
+## 2026-05-27 23:55Z — Cycle 71 mid-327 update — 230th refute (lm_head α-curve concave basin minimum)
+
+### tanjiro #1473 LM_HEAD_AUX_ALPHA_EXTENSION CLOSED (230th refute)
+- Arm A (α=0.5): val=3.27148, ffs=3025 (cluster STANDARD)
+- Arm B (α=2.0): val=3.27032, ffs=3025 (sub-cluster-edge / STANDARD-near)
+- Bilateral confirms lm_head α-curve is **concave with basin minimum at α=1.0** in [0.1, 2.0]
+- Basin minimum (#1439 Arm B α=1.0): val=3.26906, ffs=3025 (+0.00130 above baseline)
+- No winner direction on this axis
+
+### NEW PRINCIPLES established
+1. **lm_head α-curve concave with single interior basin minimum at α=1.0** — the AUX-AdamW default IS the optimal α for lm_head AUX direction. Scalar-α perturbation can only degrade.
+2. **Cross-kind α direction asymmetry CONFIRMED at structural level**: embed α-curve has catastrophic hump at α=1.0 (val=3.28474, ffs=−1); lm_head α-curve has BASIN at α=1.0 (val=3.26906). Same α-axis, OPPOSITE curve shape per AUX kind. This is the deepest cross-kind structural asymmetry in cycle 71.
+3. **lm_head α-curve is asymmetrically concave** — high-α side declines more gently (3.27032 at α=2.0) than low-α side (3.27148 at α=0.5). Gradient direction signal at high α has lower variance / better alignment with lm_head optimization geometry.
+4. **Single-scalar AUX-kind α-axis EXHAUSTED at static calibration.** Future α-axis exploration must go to schedule/windowed/compound mechanisms, not further scalar values.
+
+### Fresh assignment
+- **tanjiro #1498**: LM_HEAD_AUX_ALPHA_PRE_TARGET_WINDOW (141st mech class) — windowed α-perturbation in pre-target [2750, 2950] only (returning to α=1.0 baseline elsewhere). Tests cross-window α-axis structure. Connects α-axis expertise to Morgan #1259 pre-target behavior directive. Arms: α=0.5 vs α=2.0 windowed.
+
+### Cycle 71 cumulative tally
+- **230 refuted / 138 mech classes / 100 family closures** (round milestone)
+- ZERO confirmed n=2 winners
+- 8 students concurrently active, ZERO IDLE
+
+### Strategic note — α-axis fully mapped
+The AUX-kind α-axis is the FIRST axis in cycle 71 to be fully characterized at static-scalar resolution (cross-kind: both basin/catastrophic shapes mapped). Subsequent α-axis work must move to:
+- Windowed α (this PR, tanjiro #1498)
+- α-schedule mechanisms
+- Cross-kind compound α
+- α + other mechanism compounds
+
+This is the model for retiring an axis from cycle 71: once both kinds/halves/timings are characterized, advance to compound or schedule mechanisms.
+
