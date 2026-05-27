@@ -71,6 +71,14 @@ def parse_args():
                         help="LR for AdamW adam_scalars group (RMSNorm gains; "
                              "params with ndim < 2). Default 0.01 — hardcoded, "
                              "never ablated. ~20K params total in this model.")
+    parser.add_argument("--scalars_cooldown_mode", type=str, default="shared",
+                        choices=["shared", "constant", "early", "late", "anti"],
+                        help="Cooldown schedule mode for adam_scalars group. "
+                             "shared=same eta as body (current behavior); "
+                             "constant=no cooldown (eta=1 throughout); "
+                             "early=cooldown_frac=0.5 (starts at 0.5*total); "
+                             "late=cooldown_frac=0.85 (starts at 0.15*total); "
+                             "anti=linear ramp from 0 to 1 over full run (falsifier).")
     parser.add_argument(
         "--depth_init_mode",
         type=str,
@@ -882,13 +890,32 @@ for trial_idx in range(args.num_trials):
     def set_hparams(step, cooldown_frac=0.7):
         progress = step / train_steps
         assert 0 <= progress < 1
+        # Body LR schedule (current behavior — applies to all groups except adam_scalars
+        # when --scalars_cooldown_mode != "shared")
         if progress < 1 - cooldown_frac:
-            eta = 1.0
+            eta_body = 1.0
         else:
-            eta = (1 - progress) / cooldown_frac
+            eta_body = (1 - progress) / cooldown_frac
+        # Scalars LR schedule (decoupled per --scalars_cooldown_mode)
+        mode = args.scalars_cooldown_mode
+        if mode == "shared":
+            eta_scalars = eta_body
+        elif mode == "constant":
+            eta_scalars = 1.0
+        elif mode == "early":
+            sc_cf = 0.5
+            eta_scalars = 1.0 if progress < 1 - sc_cf else (1 - progress) / sc_cf
+        elif mode == "late":
+            sc_cf = 0.85
+            eta_scalars = 1.0 if progress < 1 - sc_cf else (1 - progress) / sc_cf
+        elif mode == "anti":
+            eta_scalars = progress
+        else:
+            raise ValueError(f"Unknown scalars_cooldown_mode: {mode}")
         wd_mu = _wd_multiplier(step, train_steps, args.wd_schedule)
         for opt in optimizers:
             for group in opt.param_groups:
+                eta = eta_scalars if group.get("name") == "adam_scalars" else eta_body
                 group["lr"] = group["initial_lr"] * eta
                 if "initial_wd" in group and group.get("name", "").startswith("muon_"):
                     group["weight_decay"] = group["initial_wd"] * wd_mu
