@@ -72,6 +72,20 @@ def parse_args():
     parser.add_argument("--muonh_agc_eps", type=float, default=float(os.environ.get("MUONH_AGC_EPS", "1e-3")))
     parser.add_argument("--aux_adamw_eps", type=float, default=float(os.environ.get("AUX_ADAMW_EPS", "1e-10")),
                         help="Aux AdamW eps (default 1e-10 = baseline). Standard PyTorch is 1e-8.")
+    # H190 MSAM (Momentum-SAM, Becker et al. NeurIPS 2025, arXiv:2401.12033) on aux
+    # AdamW. We follow Algorithm 1 from the paper: the perturbation persists across
+    # step boundaries so the gradient is computed at the perturbed point w̃ = w − ρ·v/‖v‖,
+    # and the optimizer step is taken from the unperturbed w. (The PR's "perturb-step-
+    # unperturb within one step" snippet is mathematically a no-op under our wd=0 aux
+    # AdamW, since AdamW's update is independent of p.data when wd=0; this
+    # implementation realises the actual MSAM mechanism.) rho=0.0 = off, bit-identical.
+    parser.add_argument("--aux_msam_rho", type=float, default=float(os.environ.get("AUX_MSAM_RHO", "0.0")),
+                        help="MSAM perturbation radius for aux AdamW. Perturbation = ρ·exp_avg/‖exp_avg‖ "
+                             "applied as w̃ = w − perturbation before forward/backward, restored before "
+                             "optimizer.step(). 0.0 = off (bit-identical to baseline).")
+    parser.add_argument("--aux_msam_start_step", type=int, default=int(os.environ.get("AUX_MSAM_START_STEP", "0")),
+                        help="Step at which MSAM perturbation begins. 0 = from the first step that has "
+                             "an exp_avg buffer (i.e., step 1 onward).")
     # β2 schedule on aux AdamW (embed/lm_head/scalars). Mutates param_groups[*]['betas']
     # each step. constant = baseline (fused=True kept); cooldown_ramp = fused=False so
     # PyTorch reads the updated betas from the param_group on every .step() call.
@@ -791,6 +805,11 @@ if args.muonh_agc_clip_ratio > 0:
     print0(f"AGC ENABLED on inner MuonH gradient: clip_ratio={args.muonh_agc_clip_ratio} eps={args.muonh_agc_eps}", console=True)
 else:
     print0("AGC DISABLED on inner MuonH gradient (clip_ratio=0)", console=True)
+if args.aux_msam_rho > 0:
+    print0(f"MSAM ENABLED on aux AdamW (paper-correct, Becker et al. NeurIPS 2025): "
+           f"rho={args.aux_msam_rho} start_step={args.aux_msam_start_step}", console=True)
+else:
+    print0("MSAM DISABLED on aux AdamW (rho=0)", console=True)
 print0("="*100)
 
 val_tokens = 20 * 524288
@@ -847,6 +866,8 @@ if dist.get_rank() == 0:
             "aux_beta2_schedule": args.aux_beta2_schedule,
             "aux_beta2_start": args.aux_beta2_start,
             "aux_beta2_end": args.aux_beta2_end,
+            "aux_msam_rho": args.aux_msam_rho,
+            "aux_msam_start_step": args.aux_msam_start_step,
             "muonh_mu_schedule": args.muonh_mu_schedule,
             "muonh_mu_start": args.muonh_mu_start,
             "muonh_mu_end": args.muonh_mu_end,
@@ -1119,6 +1140,32 @@ for trial_idx in range(args.num_trials):
 
         # --------------- TRAINING SECTION -----------------
         inputs, targets = next(train_loader)
+        # H190 MSAM perturbation (aux AdamW only). Apply BEFORE forward/backward so
+        # the gradient is computed at the perturbed point w̃ = w − ρ·exp_avg/‖exp_avg‖
+        # (Algorithm 1 in Becker et al. NeurIPS 2025). The perturbation lives only
+        # across the forward/backward pass — we restore w right after grad all_reduce
+        # so AGC, optimizer.step(), telemetry, and MuLoCo all see the true w. This
+        # matches the paper's two-step structure (gradient at w̃, step from w).
+        # No-op (rho=0) leaves the dict empty so the unperturb loop is skipped.
+        msam_perturbations: dict[Tensor, Tensor] = {}
+        msam_m1_norm_sum = 0.0
+        msam_m1_norm_count = 0
+        msam_pert_norm_sum = 0.0
+        if args.aux_msam_rho > 0.0 and step >= args.aux_msam_start_step:
+            for p in aux_params_for_agc:
+                opt_state = optimizer1.state.get(p, {})
+                if "exp_avg" not in opt_state:
+                    continue  # m1 not yet initialised (true on step 0)
+                m1 = opt_state["exp_avg"]
+                m1_norm_val = float(m1.norm().item())
+                msam_m1_norm_sum += m1_norm_val
+                msam_m1_norm_count += 1
+                if m1_norm_val < 1e-8:
+                    continue
+                perturbation = m1.mul(args.aux_msam_rho / m1_norm_val)
+                p.data.sub_(perturbation)
+                msam_perturbations[p] = perturbation
+                msam_pert_norm_sum += float(perturbation.norm().item())
         # accumulate across microbatches in case we are running with fewer than 8 gpus
         assert len(inputs) % mbs == 0
         step_loss = torch.zeros((), device=device)
@@ -1130,6 +1177,11 @@ for trial_idx in range(args.num_trials):
             assert p.grad is not None, name
             dist.all_reduce(p.grad, op=dist.ReduceOp.SUM)
         dist.all_reduce(step_loss, op=dist.ReduceOp.SUM)
+        # H190 MSAM unperturb: restore w = w̃ + ρ·exp_avg/‖exp_avg‖ before optimizer.step()
+        # so AdamW steps from the true parameter location (Algorithm 1 step 2 of Becker
+        # et al.). Empty dict when MSAM is disabled — bit-identical to baseline.
+        for p, perturbation in msam_perturbations.items():
+            p.data.add_(perturbation)
         train_loss = float((step_loss / batch_size).item())
         # set optimization hyperparameters and take a step
         muonh_warmup_factor, aux_beta2, muonh_mu_t = set_hparams(step)
@@ -1207,6 +1259,14 @@ for trial_idx in range(args.num_trials):
                 muonh_metrics["train/muonh/agc/max_ratio"] = muonh_agc_stats["agc_max_ratio"]
                 muonh_metrics["train/muonh/agc/scale_min"] = muonh_agc_stats["agc_scale_min"]
                 muonh_metrics["train/muonh/agc/scale_mean"] = muonh_agc_stats["agc_scale_mean"]
+            if telemetry_due and args.aux_msam_rho > 0.0 and msam_m1_norm_count > 0:
+                muonh_metrics["train/msam/aux_m1_norm_mean"] = msam_m1_norm_sum / msam_m1_norm_count
+                muonh_metrics["train/msam/aux_perturbed_count"] = len(msam_perturbations)
+                muonh_metrics["train/msam/aux_total_count"] = msam_m1_norm_count
+                if len(msam_perturbations) > 0:
+                    muonh_metrics["train/msam/aux_perturbation_norm_mean"] = (
+                        msam_pert_norm_sum / len(msam_perturbations)
+                    )
             if len(muonh_metrics) > 2:
                 wandb.log(muonh_metrics, step=wandb_step)
         if dist.get_rank() == 0 and telemetry_due:
