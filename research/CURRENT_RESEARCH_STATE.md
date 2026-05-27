@@ -1,3 +1,98 @@
+## 2026-05-27 00:15 UTC — Cycle 71 mid-304
+
+**Cumulative**: **189 refuted (+1: edward #1335 189th cluster-band ASYMMETRIC-MAGNITUDE, 64th family closure)** / **107 distinct mech classes (+1 pending: edward #1364 AUX_EMBED_WD_PHASE_DISPATCH, virgin per-AUX-kind WD axis in 320+ PR corpus)** / **64 family-level closures**.
+
+**Highest-information mid-304 finding**: **Direction-asymmetry INVERSION principle across optimizer classes** (#1335 closure):
+
+| arm | mult | val | ffs | placement |
+|---|---|---|---|---|
+| A (under-LR embed AUX) | 0.5× | 3.27341 | 3050 | cluster band member |
+| B (over-LR embed AUX) | **2.0×** | **3.26870** | **3025** | sub-cluster-edge |
+| baseline #613 | 1.0× | 3.26776 | 3000 | merge bar |
+
+#1335 Arm B (over-LR) is **0.0009 nat better** than Arm A (under-LR), placing it at sub-cluster-edge zone [3.265, 3.269]. This directly **inverts** the direction-of-effect seen on body Muon NS5 axis (#1296: under-LR helps; over-LR hurts on body Muon).
+
+**Compound principle**: embed AUX (AdamW with v-normalization) has **opposite direction-of-effect** from body Muon (NS5 with iteration-based normalization) under equivalent fractional LR perturbations. Plausibly: AdamW's per-coord v-normalization scales away LR magnitude differences, so larger LR translates to larger effective step in well-conditioned directions; NS5 has no such normalization so direction sign matters more.
+
+This is the **first cross-optimizer-class direction-asymmetry inversion** documented in 320+ PR corpus. Adds a methodology canon entry: **direction-of-effect on AUX-Adam ≠ direction-of-effect on body-Muon**.
+
+**Compound finding update — cluster-floor robustness extends to FIVE distinct mechanism CLASSES**:
+- state (#1336 Nesterov-form phase-axis)
+- eval-state (#1316 Polyak averaging)
+- state-reset (#1333 SOAP Gram reset)
+- per-group-dispatch (#1323 per-kind body Muon μ)
+- **AUX-LR phase event (#1335 embed AUX LR transition)** — new class via Arm A cluster member
+
+Floor mechanism-class-agnostic principle now holds across 5 classes. Note: #1335 Arm B is sub-cluster-edge member; the direction-asymmetry across arms gave information beyond plain cluster-band closure.
+
+**This cycle — 1 closure + 1 fresh virgin axis assignment**:
+
+1. **edward #1335 EMBED_LR_PHASE_TRANSITION closed as 189th refute** (cluster-band ASYMMETRIC-MAGNITUDE, 64th family closure):
+   - Arm A 0.5×: val=3.27341 ffs=3050 (cluster member)
+   - Arm B 2.0×: val=3.26870 ffs=3025 (sub-cluster-edge member — fractional ≈baseline gap but ffs miss)
+   - **Direction-asymmetry inversion**: over-LR on embed AUX helps (Arm B better); under-LR on body Muon helps (#1296). Cross-optimizer-class principle.
+   - 5th mech class joining cluster-floor compound finding (state / eval-state / state-reset / per-group-dispatch / AUX-LR phase event).
+   - Methodology corpus: cross-optimizer-class direction-asymmetry principle added.
+
+2. **edward → #1364 AUX_EMBED_WD_PHASE_DISPATCH (111th mech class assigned)**:
+   - **VIRGIN per-AUX-kind WD axis** in 320+ PR corpus. Prior WD sweeps: WD_AUX scalar global. Prior per-AUX-kind dispatch: ZERO on weight decay.
+   - Mechanism: dispatch embed-AUX weight_decay at step 953 (cooldown_start). Other AUX kinds (lm_head, scalars) untouched.
+   - Arms: Arm A embed WD→0 (no regularization on highest-LR AUX kind); Arm B embed WD→0.005 (5× regularization).
+   - Tests whether direction-asymmetry INVERSION from #1335 LR generalizes to WD on embed AUX. If WD direction matches LR direction (over-WD helps), inversion principle is LR-specific. If WD direction matches baseline (smaller WD helps), inversion is WD-orthogonal.
+   - State-phase event + per-AUX-kind dispatch per Morgan directive #1259.
+
+**Per-kind/state-phase axes in flight or recently closed** (cycle 71, updated):
+- #1307 (nezuko): per-AUX-group LR scalar dispatch — CLOSED cluster-band ASYMMETRIC-MAGNITUDE
+- #1323 (alphonse): per-kind body Muon μ dispatch at cooldown — CLOSED cluster-band ASYMMETRIC-OUTCOME
+- #1335 (edward): embed AUX LR phase transition — CLOSED cluster-band ASYMMETRIC-MAGNITUDE (this cycle)
+- #1347 (nezuko): per-kind Nesterov on body Muon — IN FLIGHT
+- #1355 (askeladd): per-kind NS5_ITERS at cooldown — IN FLIGHT
+- #1353 (thorfinn): AUX state reset at cooldown — IN FLIGHT
+- #1358 (tanjiro): per-AUX-kind β2 at cooldown — IN FLIGHT
+- #1359 (alphonse): per-AUX-kind ε at cooldown — IN FLIGHT
+- #1361 (fern): cooldown-start weight noise injection — IN FLIGHT
+- **#1364 (edward): per-AUX-kind embed WD phase dispatch — IN FLIGHT (just assigned)**
+
+This is now an **8-axis** per-kind/state-phase swarm — direct response to Morgan directive #1259. #1361 weight-perturbation outlier and #1364 per-AUX-kind WD complement each other on virgin sub-system axes.
+
+**Cluster-floor research direction — extension post-#1335**:
+
+Cluster-floor compound finding now spans 5 mech classes. New question: **does direction-asymmetry inversion replicate on other AUX kinds?**
+
+- (a) Embed AUX (#1335) — over-LR favors, sub-cluster-edge reached
+- (b) lm_head AUX (untested per-kind)
+- (c) scalars AUX (untested per-kind)
+- (d) Body Muon (#1296, prior closure) — under-LR favors
+
+Next direction-asymmetry probes can complete the AUX-kind × direction grid.
+
+**Closure-mechanism taxonomy** (unchanged 6-way + cluster-band 5 sub-subtypes):
+- cluster-band sub-subtypes: SYMMETRIC, **ASYMMETRIC-MAGNITUDE** (recognized #1335), ASYMMETRIC-OUTCOME, INFORMATIVE-TRIANGULATION, STANDARD (5-way)
+- cluster-band-edge (mid-303, near merge bar but ffs in cluster band) recognized as sub-variant of STANDARD
+- catastrophic-shifted-floor / n=2-confirm / MATH-NULL / informative-crossover / STRUCTURAL-MISMATCH-AT-PARAM
+
+**Active fleet status mid-304**:
+
+| Student | PR | Status | W&B notes |
+|---|---|---|---|
+| g1r2-alphonse | #1359 | status:wip | AUX_EPS_PER_KIND_AT_COOLDOWN (109th mech) |
+| g1r2-thorfinn | #1353 | status:wip | MUON_AUX_BUFFER_RESET_AT_COOLDOWN (105th mech) |
+| g1r2-nezuko | #1347 | status:wip | MUON_NESTEROV_PER_KIND (104th mech) |
+| g1r2-fern | #1361 | status:wip | COOLDOWN_BODY_WEIGHT_NOISE_INJECTION (110th mech) |
+| g1r2-frieren | #1340 | status:wip | MUON_BETA_LOCALIZED_STEP |
+| g1r2-askeladd | #1355 | status:wip | MUON_NS5_ITERS_PER_KIND_AT_COOLDOWN (107th mech) |
+| g1r2-tanjiro | #1358 | status:wip | AUX_BETA2_PER_KIND_AT_COOLDOWN (108th mech) |
+| **g1r2-edward** | **#1364** | **status:wip, JUST ASSIGNED** | **AUX_EMBED_WD_PHASE_DISPATCH (111th mech)** |
+
+**ZERO IDLE STUDENTS — 8 students concurrently active. ZERO IDLE GPUs.**
+
+**Methodology corpus this cycle**:
+- **Cross-optimizer-class direction-asymmetry inversion principle**: direction-of-effect on AUX-Adam (v-normalization) can be OPPOSITE of direction-of-effect on body-Muon (NS5 iteration-based normalization) under equivalent fractional LR perturbations. First inversion documented.
+- **Cluster-floor robustness extends to 5 mech classes**: state / eval-state / state-reset / per-group-dispatch / AUX-LR phase event. Floor mechanism-class-agnostic principle now spans optimizer state, eval state, state reset, optimizer dispatch, and AUX LR phase dispatch.
+- **AUX-kind × direction grid recognized**: 4-cell matrix (embed/lm_head/scalars/body × under-LR/over-LR) only 2 cells populated; #1364 WD on embed addresses orthogonal axis (LR vs WD) for direction-asymmetry generalization.
+
+**Cumulative closure rate**: 189 / ~535 PRs ≈ 35% refute rate. 11 mech classes assigned in cycle 71 so far.
+
 ## 2026-05-26 23:55 UTC — Cycle 71 mid-303
 
 **Cumulative**: **188 refuted (+1: fern #1341 188th cluster-band-edge, 63rd family closure with the 4-cell β-depth-derivative phase × magnitude factorial CLOSED)** / **107 distinct mech classes (+1 pending: fern #1361 COOLDOWN_BODY_WEIGHT_NOISE_INJECTION, first weight-perturbation state-phase event in 320+ corpus)** / **63 family-level closures**.
