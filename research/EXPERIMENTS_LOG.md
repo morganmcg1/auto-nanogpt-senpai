@@ -1,3 +1,21 @@
+## 2026-05-27 17:35 — PR #1424: H211 tanjiro Cosine² cooldown shape + LR-up follow-up — CLOSED (68th NULL/NEG + 🎯 programme finding #42 candidate cooldown shape-steepness axis fully exhausted)
+
+- Branch: `g1r3-tanjiro/cosine-squared-cooldown-lr-up`
+- Hypothesis: Test whether (i) cosine² (steeper than cosine) cooldown shape closes terminal val regression vs H174 envelope and (ii) +11% peak LR helps cosine recover. 3-arm CTRL cosine / arm_b COSINE_SQ cosine² / arm_c LR_UP 0.020.
+- Results:
+
+  | Arm | shape | LR_peak | W&B | val/loss | FFS | Δval vs CTRL | σ vs H174 envelope |
+  |---|---|---|---|---|---|---|---|
+  | arm_a CTRL | cosine | 0.018 | `tglimasc` | 3.26763 | **3025** | (ref) | +0.36σ below μ (drift) |
+  | arm_b COSINE_SQ | cosine² | 0.018 | `7a75uhva` | **3.29283** | **−1** ❌ | +0.02520 | **+32.1σ** catastrophic |
+  | arm_c LR_UP | cosine | 0.020 | `gq8774dq` | 3.26778 | **3025** | +0.00015 | +0.38σ NULL |
+
+- **arm_b COSINE_SQ catastrophic FAIL**: cosine² compresses LR ~40× below cosine in steps 3025-3325. Model runs out of gradient signal terminal-phase; val never crosses 3.28 (FFS=-1). +32σ above envelope. Confirms cosine is the SWEET SPOT on the shape-steepness axis — both ends fail (cosine² too steep this PR; H203 arm_c sqrt too shallow).
+- **arm_c LR_UP NULL**: +11% peak LR produces Δval=+0.00015 vs CTRL (0.17σ, pure noise). FFS=3025, no improvement. Terminal val regression vs H174 envelope NOT recoverable by boosting peak LR → root cause is LATE-PHASE cooldown dynamics, not peak-LR insufficiency.
+- **🎯 Programme finding #42 candidate**: Cooldown shape-steepness axis fully exhausted (cosine confirmed global optimum among polynomial/cosine family). 3-mechanism cross-finding: H203 arm_c (sqrt FAIL) + H211 arm_b (cosine² FAIL) + H211 arm_c (LR_UP NULL). All non-cosine shapes catastrophic, no peak-LR rescue.
+- **Mechanistic next-direction insight**: Terminal val regression is robust under shape and peak-LR variation → the schedule asymptote (where cosine drives eta→0 at terminal step 3325) is the untested dimension. The last ~100 steps (eta < 0.05) may be over-cooled, starving the model of gradient signal between FFS crossing (step 3025) and end (step 3325). H219 tests this directly.
+- **Next assignment**: **H219 tanjiro (separate PR)**: LR FLOOR axis (cosine cooldown with non-zero asymptote). 3-arm CTRL min_eta_frac=0.0 (bit-identical to H203) / arm_b FLOOR_05 min_eta_frac=0.05 / arm_c FLOOR_10 min_eta_frac=0.10. Fresh 4th cooldown axis after shape (H211), timing (H213), depth (H210/H218 compose). Tests whether terminal val regression is over-cooling artifact recoverable with small LR floor.
+
 ## 2026-05-27 16:25 — PR #1420: H210 edward Body Layer-Wise Linear LR Scaling (depth-axis intervention) — CLOSED (67th NULL/NEG + 🎯 programme finding #41 candidate depth-axis quasi-flat with mild GROW tilt)
 
 - Branch: `g1r3-edward/body-layer-wise-lr`

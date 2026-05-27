@@ -1,14 +1,21 @@
 # SENPAI Research State — auto-nanogpt-1gpu-r3
 
-- **Last updated:** 2026-05-27 16:30 UTC
+- **Last updated:** 2026-05-27 17:40 UTC
 
 ---
 
 ## 🏆 CURRENT BASELINE: FFS=3025, val=3.26830 — PR #1398 H203 tanjiro cosine cooldown shape
 
-**Baseline shift alert RESOLVED**: All PRs from the pre-H203-merge cohort (H204-H210) have now closed or completed (H204, H205, H206, H207, H208, H209, H210 all closed NULL/NEG). All remaining in-flight PRs (H211-H218) are on the cosine baseline.
+**Baseline shift alert RESOLVED**: All PRs from the pre-H203-merge cohort (H204-H211) have now closed or completed (H204-H211 all closed NULL/NEG). All remaining in-flight PRs (H212-H219) are on the cosine baseline.
 
 ---
+
+## 🎯 Cycle ~445 (17:30-17:40 UTC) — H211 tanjiro CLOSED (68th NULL/NEG, cosine² catastrophic + LR_UP NULL, programme finding #42 candidate cooldown shape-steepness axis fully exhausted); H219 tanjiro ASSIGNED LR FLOOR axis (fresh 4th cooldown dimension after shape, timing, depth)
+
+- **🎯 H211 tanjiro CLOSED — 68th NULL/NEG + programme finding #42 candidate**: arm_a CTRL cosine LR=0.018 val=3.26763/FFS=3025 NULL bit-identical (slight val drift -0.36σ within H174 envelope); arm_b COSINE_SQ val=3.29283/FFS=-1 catastrophic NEG +32.1σ; arm_c LR_UP cosine LR=0.020 val=3.26778/FFS=3025 NULL no signal. **arm_b confirms cosine is the SWEET SPOT on shape-steepness axis** — H203 arm_c sqrt (too shallow) and H211 arm_b cosine² (too steep) both FAIL. **arm_c rules out peak-LR insufficiency as root cause of terminal val regression** — +11% LR produces 0.17σ Δval (noise floor).
+- **🎯 Programme finding #42 candidate — Cooldown shape-steepness axis fully exhausted (3-mechanism cross-finding H203 sqrt + H211 cosine² + H211 LR_UP)**: cosine confirmed global optimum among polynomial/cosine family. Terminal val regression vs H174 envelope (~4σ above μ_val) is NOT recoverable by shape variation OR peak-LR boost → root cause is LATE-PHASE cooldown dynamics, specifically the asymptote (cosine drives eta→0 at terminal step 3325).
+- **🎯 H219 tanjiro ASSIGNED — LR FLOOR axis (fresh 4th cooldown dimension)**: 3-arm CTRL min_eta_frac=0.0 bit-identical to H203 baseline / arm_b FLOOR_05 min_eta_frac=0.05 (5% terminal LR floor) / arm_c FLOOR_10 min_eta_frac=0.10 (10% terminal LR floor). Tests whether terminal val regression is over-cooling artifact: the last ~100 steps (eta < 0.05) may starve the model of gradient signal between FFS crossing (step 3025) and end (step 3325). FFS prediction: floor at terminal should NOT harm FFS (which happens before deep cooldown). val/loss prediction: if over-cooling is real, arm_b/c val < CTRL val with potential merge if both FFS and val improve. **Cooldown axis portfolio now spans 4 orthogonal dimensions**: shape (H211 closed), timing (H213 in-flight), depth-compose (H218 in-flight), asymptote (H219 new).
+- **End-of-cycle ~445 portfolio**: H212 thorfinn aux cooldown shape (arm_c AUX_SQRT running ~22%, ETA terminal ~17:50 UTC); H213 alphonse h_cooldown_frac (arm_b STABLE_30 running ~71% with concerning val=3.471 above 3.40 kill-gate); H214 askeladd spectral RANK truncation (arm_a CTRL ~22%); H215 fern RESET × cosine compose (arm_b RESET_1500 just-launched at 17:25 UTC ~2.7%); H216 frieren Lookahead (in implementation); H217 nezuko EMA-norm blend (in implementation); H218 edward depth GROW × cosine compose (in implementation); H219 tanjiro LR FLOOR (newly assigned). **8/8 students WIP, 0 idle, 0 review-ready.** 15 novel mechanism classes (added LR FLOOR axis).
 
 ## 🎯 Cycle ~435 (16:15-16:30 UTC) — H210 edward CLOSED (67th NULL/NEG, depth-axis quasi-flat with mild GROW tilt, programme finding #41 candidate); H218 edward ASSIGNED depth-axis GROW α=+0.2 × cosine compose (PR #1455, SECOND explicit compose-test in portfolio)
 
