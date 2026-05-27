@@ -109,6 +109,13 @@ def parse_args():
     parser.add_argument("--body_init_bottom_layers", type=int,
                         default=int(os.environ.get("BODY_INIT_BOTTOM_LAYERS", "6")),
                         help="Number of bottom layers to damp for --body_init=orthogonal_bottom_damp (default 6 = bottom half of 12 layers).")
+    parser.add_argument("--body_layer_lr_alpha", type=float,
+                        default=float(os.environ.get("BODY_LAYER_LR_ALPHA", "0.0")),
+                        help="Linear depth-axis LR scaling for body MuonH groups. "
+                             "lr_i = muonh_lr * (1 + alpha * d_i) where d_i = (i - 5.5)/5.5. "
+                             "0.0 = uniform (bit-identical to baseline). "
+                             "Positive alpha: top layer gets more LR. "
+                             "Negative alpha: bottom layer gets more LR.")
     args = parser.parse_args()
     args.num_trials = args.num_trials if args.num_trials is not None else (args.legacy_num_trials or 1)
     args.wandb_tags = [tag.strip() for tag in args.wandb_tags.split(",") if tag.strip()]
@@ -670,9 +677,14 @@ class MuonH(torch.optim.Optimizer):
     """
     def __init__(self, params, lr=0.018, weight_decay=0.0, mu=0.95,
                  hyperball=True, budget_mult=1.0, mode="clip"):
-        assert isinstance(params, list) and len(params) >= 1 and isinstance(params[0], torch.nn.Parameter)
+        assert isinstance(params, list) and len(params) >= 1
         assert mode in ("clip", "scale_invariant")
-        params = sorted(params, key=lambda x: x.size(), reverse=True)
+        if isinstance(params[0], dict):
+            for group in params:
+                group["params"] = sorted(group["params"], key=lambda x: x.size(), reverse=True)
+        else:
+            assert isinstance(params[0], torch.nn.Parameter)
+            params = sorted(params, key=lambda x: x.size(), reverse=True)
         defaults = dict(lr=lr, weight_decay=weight_decay, mu=mu,
                         hyperball=hyperball, budget_mult=budget_mult, mode=mode)
         super().__init__(params, defaults)
@@ -850,6 +862,7 @@ if dist.get_rank() == 0:
             "muonh_mu_schedule": args.muonh_mu_schedule,
             "muonh_mu_start": args.muonh_mu_start,
             "muonh_mu_end": args.muonh_mu_end,
+            "body_layer_lr_alpha": args.body_layer_lr_alpha,
         },
     )
 
@@ -930,11 +943,32 @@ for trial_idx in range(args.num_trials):
                         dict(params=[model.proj.weight], lr=1/320, name="adam_lm_head"),
                         dict(params=[p for p in model.parameters() if p.ndim < 2], lr=0.01, name="adam_scalars")],
                        betas=(0.8, args.aux_beta2_start), eps=args.aux_adamw_eps, weight_decay=0, fused=_aux_fused)
-    optimizer2 = MuonH([p for p in model.blocks.parameters() if p.ndim >= 2],
-                       lr=args.muonh_lr, weight_decay=0.0, mu=0.95,
-                       hyperball=True, budget_mult=args.muonh_budget_mult,
-                       mode=args.muonh_mode)
-    optimizer2.param_groups[0]["name"] = "muonh_blocks"
+    # H210/H218: Body layer-wise LR scaling.
+    # When alpha=0.0, fall back to single-group construction for bit-identity.
+    if args.body_layer_lr_alpha == 0.0:
+        optimizer2 = MuonH([p for p in model.blocks.parameters() if p.ndim >= 2],
+                           lr=args.muonh_lr, weight_decay=0.0, mu=0.95,
+                           hyperball=True, budget_mult=args.muonh_budget_mult,
+                           mode=args.muonh_mode)
+        optimizer2.param_groups[0]["name"] = "muonh_blocks"
+    else:
+        num_layers = len(model.blocks)
+        half_span = (num_layers - 1) / 2.0
+        body_param_groups = []
+        for layer_idx in range(num_layers):
+            layer_body_params = [p for p in model.blocks[layer_idx].parameters() if p.ndim >= 2]
+            if not layer_body_params:
+                continue
+            normalized_depth = (layer_idx - half_span) / half_span
+            scale = 1.0 + args.body_layer_lr_alpha * normalized_depth
+            body_param_groups.append(dict(
+                params=layer_body_params,
+                lr=args.muonh_lr * scale,
+                name=f"muonh_layer{layer_idx:02d}",
+            ))
+        optimizer2 = MuonH(body_param_groups, weight_decay=0.0, mu=0.95,
+                           hyperball=True, budget_mult=args.muonh_budget_mult,
+                           mode=args.muonh_mode)
     optimizers = [optimizer1, optimizer2]
     # AGC targets: AdamW aux groups (embed, lm_head, scalars). Built from optimizer1
     # param groups to track exactly the same params AdamW updates.
@@ -958,6 +992,16 @@ for trial_idx in range(args.num_trials):
     for group in optimizer2.param_groups:
         group["cooldown_frac"] = h_cooldown_frac
         group["cooldown_shape"] = args.muonh_cooldown_shape
+
+    # H210/H218 telemetry: per-layer body LR config (only fires when alpha != 0.0,
+    # otherwise the single-group baseline path renders this no-op).
+    if args.body_layer_lr_alpha != 0.0 and trial_idx == 0 and dist.get_rank() == 0:
+        h210_layer_lrs = {}
+        for group in optimizer2.param_groups:
+            h210_layer_lrs[group.get("name", "muonh_blocks")] = group["lr"]
+        wandb.log({f"h210/layer_lr/{k}": v for k, v in h210_layer_lrs.items()}, step=0)
+        print0(f"[H210 body_layer_lr_alpha={args.body_layer_lr_alpha}] "
+               f"layer LRs: {h210_layer_lrs}", console=True)
 
     # learning rate schedule: stable then decay, with per-group cooldown_frac.
     # Within the cooldown phase, eta decays from 1 → 0 in one of three shapes.
