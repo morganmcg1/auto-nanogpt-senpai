@@ -1,3 +1,93 @@
+## 2026-05-27 05:10 UTC — Cycle 71 mid-312
+
+**Cumulative**: **197 refuted (+4 this wake)** / **119 distinct mech classes (+4 fresh assignments #1389-#1392)** / **72 family-level closures (+4)**.
+
+**Closures this wake** (4 bilateral terminals):
+
+| PR | student | mech | bilateral data | closure |
+|---|---|---|---|---|
+| **#1361** | fern | weight-perturbation σ=1e-3 attn/mlp at cooldown | Arm A val=3.27125 vs Arm B val=3.27083, both cluster STANDARD ffs=3025 | **194th** cluster-band SYMMETRIC; **8th mech class in cluster-floor compound CONFIRMED** |
+| **#1358** | tanjiro | per-AUX-kind β2=0.99 at cooldown | Arm A (embed) val=3.27123 cluster vs Arm B (lm_head) val=3.26897 sub-cluster-edge boundary; Δ=-0.00226 | **195th** cluster-band-edge ASYMMETRIC-MAGNITUDE; β2-axis on AdamW is **kind-dependent** (lm_head-tighter helps modestly, embed-tighter null) |
+| **#1355** | askeladd | per-kind body Muon NS5 iters at cooldown | Arm A (mlp-tight 16, attn-loose 12) val=3.26873 sub-cluster-edge ffs=3025; Arm B (attn-tight 16, mlp-loose 12) val=3.27081 cluster STANDARD; Δ=+0.00208 | **196th** cluster-band-edge ASYMMETRIC-MAGNITUDE; **first body-side privileged-zone landing in cycle 71**; structural-form discriminator on body Muon |
+| **#1364** | edward | embed AUX WD-phase at cooldown | Arm A WD=0 val=3.26836 ffs=3000 vs Arm B WD=0.005 val=3.26826 ffs=3025; Δ=-0.00010 (within noise) | **197th** sub-cluster-edge SYMMETRIC; **CRITICAL REVISION: WD-axis on embed AUX is direction-SYMMETRIC** (both directions land sub-cluster-edge) |
+
+### CRITICAL CYCLE-71 PRINCIPLE REVISION (from edward #1364 bilateral)
+
+The mid-309 closure note interpreted #1364 Arm A as confirming "WD-axis direction-asymmetric (less-WD helps)". **The bilateral data overturns that**: Arm B (WD=0.005, 5× regularization, predicted catastrophic) actually lands sub-cluster-edge val=3.26826, marginally better than Arm A. **The WD-axis on embed AUX at cooldown is direction-SYMMETRIC**: any WD perturbation off default (0.001) at the cooldown boundary kicks the trajectory toward sub-cluster-edge.
+
+### Revised cycle-71 direction-axis grid on embed AUX
+
+| axis | direction-of-effect | privileged-zone? |
+|---|---|---|
+| LR | **ASYMMETRIC** — over (2.0×) helps, under (0.5×) cluster | over → ffs=3025 ✓ |
+| WD | **SYMMETRIC** — both less (=0) and over (5×) help equivalently | both → ffs=3000-3025 ✓ |
+| ε | NULL (#1359) | — |
+| β2 | NULL on embed (#1358 Arm A); modest on lm_head (#1358 Arm B sub-cluster-edge boundary) | — kind-dependent |
+
+**New principle**: direction-asymmetry on embed AUX is **axis-specific** — LR-axis carries true asymmetry, WD-axis carries direction-symmetric privileged-zone displacement. Both "help" at cooldown_start but via different mechanisms (LR: step-magnitude phase boost; WD: regularization phase perturbation).
+
+### Updated cluster-floor compound finding — 9 mech classes (was 8)
+
+1. state phase (Nesterov-form #1336)
+2. eval-state (Polyak #1316)
+3. state-reset body 2nd-order (SOAP Gram #1333)
+4. per-group-dispatch (per-kind body Muon μ #1323)
+5. AUX-LR phase event (#1335; ASYMMETRIC over helps)
+6. locality-discriminator step-function dispatch (β1-axis only via #1340; LR-axis FAILS via #1369)
+7. state-reset AUX 1st+2nd moment (#1353)
+8. weight-perturbation state-phase event (#1361 — kind axis SYMMETRIC)
+9. **AUX-WD phase boundary perturbation** (#1364 this — direction-SYMMETRIC privileged-zone)
+
+### Other wake events:
+
+**edward #1364 Arm B `4okhno09` TERMINAL**: val=3.26826 ffs=3025. Bilateral SENPAI-RESULT posted by student → closed as 197th refute with revised WD-axis-SYMMETRIC interpretation.
+
+**alphonse #1382 Arm A `tkgmm0c3` LAUNCHED** at 04:41Z (EMBED_AUX_DIRECTION_COMPOUND, LR×1.5 + WD→0 compound). NOTE: H2 prediction (Arm B catastrophic compound) is now ambiguous given WD-axis SYMMETRIC finding — Arm B (LR×0.667 + WD=0.005) tests "LR anti-privileged + WD other-privileged-direction" not "both anti-privileged". Interpretation of Arm B result needs the revised principle.
+
+**askeladd bilateral closure was posted by student** at 04:35Z; closed by advisor immediately as 196th refute.
+
+### Fresh assignments (4 idle students → 4 new PRs):
+
+| PR | student | hypothesis | mech class type | aligned with #1259? |
+|---|---|---|---|---|
+| **#1389** | fern | BODY_LARS_TRUST_RATIO_DISPATCH_AT_COOLDOWN | **116th — virgin LARS/LAMB family**, per-block trust-ratio (\|w\|/\|g\|) scaling on body Muon at cooldown_start. Arm B controls cooldown-specific vs full-training | ✓ per-block + state-phase + new mechanism axis (gradient/weight magnitude normalization) |
+| **#1390** | tanjiro | EMBED_AUX_COOLDOWN_SIGN_SGD | **117th — virgin update-rule axis**, switch embed AUX from AdamW to sign(m_t)+WD at cooldown_start. Tests whether v-normalization is load-bearing in cooldown specifically | ✓ state-phase + per-group + update-rule mech class |
+| **#1391** | askeladd | BODY_NS5_ITERS_PER_BLOCK_HALF_AT_COOLDOWN | **118th — depth × NS5-iters extension**, late-half-tighter (Arm A) vs early-half-tighter (Arm B) NS5 iters on body Muon. Completes 2×3 depth × {β1, LR, NS5} design | ✓ depth dispatch + state-phase + structural-form |
+| **#1392** | edward | AUX_LM_HEAD_WD_PHASE_DISPATCH | **119th — AUX-kind universality test**, WD=0 vs WD=0.005 on **lm_head** instead of embed; tests if direction-symmetric privileged-zone is AUX-kind-universal | ✓ per-group + state-phase + direct follow-up to revised mid-312 principle |
+
+### Active fleet status mid-312:
+
+| Student | PR | Status | W&B notes |
+|---|---|---|---|
+| g1r2-alphonse | #1382 | status:wip | Arm A `tkgmm0c3` launched 04:41Z (EMBED_AUX_DIRECTION_COMPOUND) |
+| g1r2-nezuko | #1369 | status:wip | Arm A CATASTROPHIC val=3.28741 ffs=-1; Arm B `j6tk4853` launched (early-half-higher LR inverted), step 225 |
+| g1r2-frieren | #1366 | status:wip | Arm B `2ro7hicj` (lm_head over-LR) step 2600 val=3.352 — kill-gate concern, likely cluster-band-edge or above |
+| g1r2-thorfinn | #1367 | status:wip | Arm B `s6kxhuo6` (scalars over-LR) step 2350 val=3.388 — kill-gate concern, borderline |
+| g1r2-fern | **#1389** | status:wip | **NEW** BODY_LARS_TRUST_RATIO_DISPATCH (LARS virgin) |
+| g1r2-tanjiro | **#1390** | status:wip | **NEW** EMBED_AUX_COOLDOWN_SIGN_SGD (update-rule virgin) |
+| g1r2-askeladd | **#1391** | status:wip | **NEW** BODY_NS5_ITERS_PER_BLOCK_HALF (depth × NS5) |
+| g1r2-edward | **#1392** | status:wip | **NEW** AUX_LM_HEAD_WD_PHASE (AUX-kind universality) |
+
+**ZERO IDLE STUDENTS — 8 students concurrently active. ZERO IDLE GPUs.**
+
+### Current research themes (mid-312):
+
+1. **WD-axis direction-SYMMETRY discovery on embed AUX** — most important finding of cycle 71 to date; forces revision of direction-asymmetry inversion principle from "axis-universal" to "axis-specific"
+2. **Cluster-floor compound finding expands to 9 mech classes** — multi-axis cluster-floor robustness is one of the most reproducible properties of this baseline
+3. **Depth-axis × optimizer-axis 2×3 design** — β1, LR, NS5-iters across late/early-half-higher dispatch; #1369 Arm B + #1391 Arm A/B close remaining pending cells
+4. **AUX-kind universality of WD direction-symmetric privileged-zone** — #1392 lm_head test will determine if embed-WD-SYMMETRIC is embed-specific or AUX-kind-universal
+5. **Virgin mechanism classes** — LARS/LAMB family (#1389), sign-SGD update rule (#1390)
+
+### Potential next research directions:
+
+- **Lion / variance-free update rules on body Muon at cooldown** (extends sign-SGD idea to body side)
+- **Schedule-free optimizer at cooldown** (replace decay schedule with weight-averaging at cooldown_start)
+- **NS5 polynomial order/coefficient family swap** (alternative orthogonalization families: Higham polynomial, Jordan polynomial)
+- **Per-block-third dispatch** (3-way depth split: l0-l3, l4-l7, l8-l11) on β1 and LR axes — extension of binary 2×2 design
+- **Compound depth × LR × β1 trilateral test** — three-axis cooldown perturbation; tests interaction terms
+
+---
+
 ## 2026-05-27 04:35 UTC — Cycle 71 mid-311
 
 **Cumulative**: **193 refuted** / **108 distinct mech classes** / **68 family-level closures** (fern #1361 194th closure pending bilateral SENPAI-RESULT submission — Arm B `rvnz4dvl` is W&B-terminal val=3.27083 ffs=3025).
