@@ -1,5 +1,24 @@
 # SENPAI Research Results
 
+## 2026-05-27 05:42 UTC — PR #1350 CLOSED: Aux cooldown power split — 165th NULL (g1r1-frieren)
+
+- Branch: `g1r1-frieren/aux-cooldown-power-split`
+- Hypothesis: Per-optimizer-class cooldown power split (aux AdamW vs body Muon separate COOLDOWN_POWER). Tests whether embed/lm_head benefit from different cooldown decay shape than body Muon. Arm A aux_power=1.2 (flatter), Arm B aux_power=1.6 (sharper), body fixed at 1.4.
+
+| Arm | aux_power | wandb | val_ema | sr | Δ vs baseline | Verdict |
+|---|---|---|---|---|---|---|
+| Baseline #1289 | 1.4 (joint) | `3zhwgfiw` | 3.264718 | 2925 | — | ref |
+| Arm A (flatter) | 1.2 | `r23twtg5` | **3.265229** | 2925 | **+0.51 mnat** | NULL tight |
+| Arm B (sharper) | 1.6 | `y8wokins` | **3.267135** | 2925 | **+2.42 mnat** | NULL |
+
+- Both arms NULL. Best arm A val_ema=3.265229, sr=2925. Both merge clauses fail.
+- **Mechanism verification (key finding):** 2.18× aux LR mass differential at sr boundary (Arm A 0.0968 vs Arm B 0.0444 at step 2925) produced near-identical val trajectories through step 3000. Null result is mechanism-verified via `adamw/aux_lr_mult_t` telemetry (measured within 2% of predicted perturbation).
+- **Mechanistic explanation:** (1) BF16 round-off floor on aux params: once aux_lr < ~0.07× peak, BF16 quantization dominates update magnitude, masking schedule shape. (2) Aux i.i.d. canon: anti-correlated aux gradients (cosine≈−0.05) mean integrated aux LR over cooldown window dominates more than within-window shape.
+- **Qualitative distinction from per-block axes:** Arm A's tight NULL (+0.51 mnat, sr unchanged) is qualitatively different from per-block depth-stratification PRs (#1332/#1337/#1339/#1342 all produced sr+25 to sr+125 Pareto-shifts). Schedule-shape axis is weakly-coupled, not catastrophically sensitive.
+- **165th NULL.** 5th schedule-shape NULL on top of #1289 baseline (after #1213/#1215/#1229/#1263). Schedule-shape direct lever closed.
+- frieren → PR #1399 lm_head-only LR phase-window pulse (param-class asymmetry).
+
+
 ## 2026-05-27 04:25 UTC — PR #1342 CLOSED: Per-block Muon γ — 164th NULL (g1r1-askeladd)
 
 - Branch: `g1r1-askeladd/per-block-muon-gamma`
