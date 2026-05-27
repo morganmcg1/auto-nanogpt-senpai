@@ -1,5 +1,39 @@
 # SENPAI Research Results — auto-nanogpt-1gpu-r5
 
+## 2026-05-27 00:35 — PR #1310: Pruning ablation: is AdamW aux β1=0.8 FFS-load-bearing?
+- branch: g1r5-thorfinn/adamw-aux-beta1-pruning
+- hypothesis: "AdamW aux β1=0.8 (hardcoded line 843 across all 3 aux groups embed+lm_head+scalars) is either FFS-load-bearing (narrow basin) or val-loss-cosmetic (wide basin) — pruning ablation under FFS-primary framing" (PR predeclared 50% all-flat-cosmetic / 25% B improvement / 15% D catastrophic / 10% E catastrophic only)
+- verdict: **CLOSED clean-NEG-NARROW-BASIN** [FFS-primary, 10th stack-component pruning closure]
+- results:
+  | Cell | β1 | FFS | val/loss | Δbase (σ_single) | Δctrl (σ_single) | W&B id |
+  |:----:|:--:|:---:|:--------:|:----------------:|:----------------:|:------:|
+  | A | 0.8 ctrl | 3025 | 3.260702 | −0.88σ | (ctrl) | (run-A) |
+  | **B ★** | **0.95** | **3050** | **3.263942** | **+4.59σ** | **+5.47σ** | (run-B) |
+  | C | 0.90 | 3025 | 3.261201 | −0.03σ | +0.85σ | (run-C) |
+  | **D** | **0.99** | **−1 NEVER** | **3.289474** | **+47.5σ** | **+48.4σ** | (run-D) |
+  | **E** | **0.0** | **3175** | **3.275737** | **+24.5σ** | **+25.4σ** | (run-E) |
+
+- mechanism findings (4):
+  1. **Sweet spot at β1=0.8 with narrow basin width ≤0.10** — Cell C β1=0.9 within noise (Δctrl +0.85σ), but Cell B β1=0.95 already +4.59σ_single. The "1-σ width" of the basin is much narrower than the 50% prior assumed.
+  2. **Asymmetric cliffs** — upper β1=0.99 catastrophic (FFS=−1, val=3.289 +47.5σ), lower β1=0.0 bad-but-recoverable (FFS=3175, val=3.276 +24.5σ). Upper-cliff sharpness suggests over-momentum stalls training; lower-cliff falsifies "momentum is irrelevant" — pure-gradient hurts but doesn't break.
+  3. **Half-life ~3 steps preferred** for AdamW aux groups — short memory aligns with high-SNR matrix gradients (embed weights 50257×768, lm_head 768×50257); these 2D matrices average over many tokens per step, so the per-step gradient signal is already low-noise → AdamW aux doesn't need additional smoothing.
+  4. **Falsifies PR's 50% prior** "all FFS ∈ [3025, 3150]" — basin is far narrower than expected; pruning ablation REVEALED load-bearing, not cosmetic. Strong NEG closure of "is uniform β1 free parameter?" question.
+
+- cluster connections:
+  - **AdamW aux tetrad** now half-closed: β1 narrow-basin load-bearing (this PR); β2 (#1321) + ε (#1330) + wd (#1334) in flight. If all three further close NEG → the AdamW (0.8, 0.95, 1e-10, 0) tuple is precisely tuned and FFS-load-bearing in every term.
+  - **Cross-stack convergence with #1284 body-WD**: both narrow basins with asymmetric cliffs (cooldown-phase tightening pattern). Suggests "narrow basin with cliffs" is a common signature of well-tuned hyperparameters at FFS scale.
+
+- decision (FFS-primary):
+  - Cell A FFS=3025 baseline-EXACT; no Cell ≤ 2975 → **no n=4 promotion per directive #1262**.
+  - All 3 non-ctrl, non-A cells fail n=1 gate symmetrically → close clean-NEG with mechanism finding.
+
+- follow-up assignment: thorfinn → **#1368 scalars-β1 DECOUPLE**:
+  - First per-group β1 decoupling test in cycle.
+  - Probes whether the narrow #1310 basin was driven by all 3 groups uniformly, or specifically by embed/lm_head (high-SNR 2D matrices). Scalars (1D LN gains + biases, ~150 params) are lower-SNR per-element; classical signal-processing prior favors heavier smoothing (higher β1) for noisier signals.
+  - Cross-cluster: #1275 (lr_scalars) closure showed scalars have distinct LR dynamics from 2D matrices — β1 decoupling probes the same dissociation in momentum space.
+  - 5-cell sweep: A=0.8 ctrl uniform / **B★=0.95 scalars only PRIMARY** / C=0.9 / D=0.5 / E=0.99 falsifier.
+  - Adds `--scalars_beta1` CLI flag with group-level betas override on the adam_scalars group only; embed and lm_head inherit the optimizer-level (0.8, 0.95) default.
+
 ## 2026-05-26 23:50 — PR #1294: Crossing-phase redesign: decay Muon momentum during cooldown
 - branch: g1r5-nezuko/mu-cooldown-decay
 - hypothesis: "Decaying mu during cooldown removes stale stable-phase inertia → accelerates FFS" (PR predeclared 55% prior toward null mechanism / 40% reverse mechanism / 5% positive)
