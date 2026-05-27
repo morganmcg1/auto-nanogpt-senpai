@@ -602,6 +602,8 @@ NANOGPT_NEWTON_MUON_UPDATE_PERIOD = int(os.environ.get("NANOGPT_NEWTON_MUON_UPDA
 NANOGPT_NEWTON_MUON_BETA = float(os.environ.get("NANOGPT_NEWTON_MUON_BETA", "0.95"))
 NANOGPT_NEWTON_MUON_EPS = float(os.environ.get("NANOGPT_NEWTON_MUON_EPS", "1e-4"))
 NANOGPT_NEWTON_MUON_MAX_D_IN = int(os.environ.get("NANOGPT_NEWTON_MUON_MAX_D_IN", "1024"))
+NANOGPT_NEWTON_MUON_MLP_ENABLED = int(os.environ.get("NANOGPT_NEWTON_MUON_MLP_ENABLED", "1"))
+NANOGPT_NEWTON_MUON_ATTN_ENABLED = int(os.environ.get("NANOGPT_NEWTON_MUON_ATTN_ENABLED", "1"))
 
 # Global per-parameter input-activation cache populated by forward hooks. Keyed by
 # id(weight_param) → tensor of shape (B*T, d_in) on device. Only populated when
@@ -984,7 +986,9 @@ print0(
     f"lr_scale={NANOGPT_NEWTON_MUON_LR_SCALE} "
     f"update_period={NANOGPT_NEWTON_MUON_UPDATE_PERIOD} "
     f"beta={NANOGPT_NEWTON_MUON_BETA} eps={NANOGPT_NEWTON_MUON_EPS} "
-    f"max_d_in={NANOGPT_NEWTON_MUON_MAX_D_IN}",
+    f"max_d_in={NANOGPT_NEWTON_MUON_MAX_D_IN} "
+    f"mlp_enabled={NANOGPT_NEWTON_MUON_MLP_ENABLED} "
+    f"attn_enabled={NANOGPT_NEWTON_MUON_ATTN_ENABLED}",
     console=True,
 )
 if NS_ITERS_COOLDOWN > 0:
@@ -1020,11 +1024,11 @@ if NANOGPT_NEWTON_MUON:
     muon_attn_param_ids = {
         id(p) for n, p in model.blocks.named_parameters()
         if p.ndim >= 2 and ".attn." in n
-    }
+    } if NANOGPT_NEWTON_MUON_ATTN_ENABLED else set()
     muon_mlp_param_ids = {
         id(p) for n, p in model.blocks.named_parameters()
         if p.ndim >= 2 and ".mlp." in n
-    }
+    } if NANOGPT_NEWTON_MUON_MLP_ENABLED else set()
     muon_param_ids = muon_attn_param_ids | muon_mlp_param_ids
     _newton_hook_count = 0
     _newton_hook_skipped_d_in = 0
@@ -1105,6 +1109,8 @@ if dist.get_rank() == 0:
             "nanogpt_newton_muon_beta": NANOGPT_NEWTON_MUON_BETA,
             "nanogpt_newton_muon_eps": NANOGPT_NEWTON_MUON_EPS,
             "nanogpt_newton_muon_max_d_in": NANOGPT_NEWTON_MUON_MAX_D_IN,
+            "nanogpt_newton_muon_mlp_enabled": NANOGPT_NEWTON_MUON_MLP_ENABLED,
+            "nanogpt_newton_muon_attn_enabled": NANOGPT_NEWTON_MUON_ATTN_ENABLED,
         },
     )
 
