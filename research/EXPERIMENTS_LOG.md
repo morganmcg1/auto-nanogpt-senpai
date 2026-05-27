@@ -1,5 +1,49 @@
 # SENPAI Research Results — auto-nanogpt-1gpu-r5
 
+## 2026-05-27 05:15 — PR #1334: AdamW aux weight_decay pruning ablation (edward)
+- branch: g1r5-edward/adamw-aux-wd-pruning
+- hypothesis: "AdamW aux `weight_decay=0` (hardcoded line 843) is either FFS-load-bearing flag (any wd>0 monotone-harms) or moderately-bounded basin near 0 with value-cosmetic small-wd cell" (PR predeclared 60% catastrophic via scalars collapse / 25% gradual-monotone / 10% null / 5% surprise FFS-positive)
+- verdict: **CLOSED clean-NEG-CONFIRMS-DEFAULT** [FFS-primary, 16th stack-component closure]
+- results (5-cell sweep):
+  | Cell | wd | FFS | val/loss | Δbase (σ_single) | W&B id |
+  |:----:|:--:|:---:|:--------:|:----------------:|:------:|
+  | A | 0.0 (ctrl) | 3025 | 3.25981 | baseline | adbszdmw |
+  | C | 0.001 | 3025 | 3.26117 | +2.3σ | odbjhj9v |
+  | **B★** | **0.01** | **3075** | **3.26258** | **+4.7σ** | eodhdpxg |
+  | D | 0.025 | 3200 | 3.27751 | +29.8σ | qjl4vbo9 |
+  | **E (falsifier)** | **0.1** | **−1** | **3.30594** | **+77.8σ** | xl1xezre |
+
+- mechanism findings (5):
+  1. **Monotone dose-response in `scalars_norm_p50`** A→E: 21.3 → 20.4 → 13.4 → 8.9 → 3.5. Direct cross-PR confirmation of #1275 mechanism — AdamW aux WD>0 mechanically opposes the drift LN gains MUST do for the network to learn.
+  2. **Embed compression by 30×** A→E: 69632 → 51712 → 13440 → 6656 → 2288. Embed has high-magnitude state (likely token-frequency-weighted), making it the most WD-sensitive component.
+  3. **lm_head largely unaffected until wd=0.1** A→E: 801 → 795 → 788 → 755 → 585. lm_head has narrow band of WD tolerance; explains why #1330 eps wide-cosmetic finding showed lm_head-specific dose-response (lm_head sits in a stiff regime).
+  4. **PRIMARY hypothesis (60% prior) FALSIFIED** — Cell B (wd=0.01) was supposed to be catastrophic via scalars collapse; instead gradual harm (+50 FFS / +4.7σ). The 25% gradual-monotone prior fired.
+  5. ★★ **AdamW aux tetrad FULLY CLOSED (4/4) — mixed signature confirmed:**
+     - β1 (#1310 thorfinn) — narrow-basin VALUE-load-bearing (sweet spot 0.8, width ≤0.10)
+     - β2 (#1321 frieren) — monotone VALUE-prefers-higher (best 0.99, baseline-EXACT)
+     - ε (#1330 tanjiro) — WIDE-COSMETIC across 8 orders of magnitude
+     - wd (this PR) — FLAG-load-bearing (wd=0 required; any wd>0 monotone-harm via scalar drift opposition)
+     - **Joint claim**: AdamW aux tuple `(0.8, 0.95, 1e-10, 0)` is half-load-bearing (β1+wd) and half-cosmetic (β2 cosmetic-monotone, ε wide). Pruning would simplify to `(0.8, 0.99, default-eps, 0)` with zero FFS impact.
+
+- cluster connections:
+  - **AdamW aux tetrad CLOSED** — 4/4 components characterized. Block cannot be defaulted wholesale due to β1+wd tight; but β2+ε have slack for future schedule work (#1377 frieren β2-schedule in flight).
+  - **3-component telemetry methodology** — student's `scalars_norm/embed/lm_head` triple was the BEST cross-PR mechanism confirmation in recent closures. Directly attributed harm to #1275 mechanism prediction with monotone evidence.
+  - **Aux-LR triumvirate emerging**: scalars (#1275 CLOSED, wanted higher), lm_head (#1387 in flight), embed (#1394 just assigned this poll).
+
+- decision (FFS-primary):
+  - No Cell ≤ 2975 → **no n=4 promotion per directive #1262**.
+  - wd=0 hardcoded default IS load-bearing — confirms existing stack default; no FFS movement available on this axis.
+  - Close clean-NEG-CONFIRMS-DEFAULT with strong mechanism evidence.
+
+- follow-up assignment: edward → **#1394 EMBED-LR pruning**:
+  - FIRST SENPAI test of hardcoded `lr=0.3` on the `adam_embed` group (line 840) — HIGHEST aux LR, never tested.
+  - embed has 96× higher LR than lm_head (1/320=0.003125) and 10× higher than scalars (0.03).
+  - Cross-cluster with #1334 finding: embed showed 30× compression dose-response under WD — magnitude state is dynamically loose, suggesting LR axis has slack to test.
+  - Cross-cluster with #1275 scalars-LR (wanted HIGHER) — does embed follow same direction?
+  - 5-cell A=0.3 ctrl / B★=0.6 (2×) PRIMARY higher / C=0.15 (0.5×) lower / D=0.9 (3×) aggressive / E=0.05 (~1/6×) falsifier.
+  - Adds `--lr_embed` CLI flag, replaces hardcoded 0.3 on line 840.
+  - With #1387 (tanjiro lm_head) and this PR, the embed/lm_head/scalars LR triumvirate will be FFS-known.
+
 ## 2026-05-27 04:30 — PR #1330: AdamW aux eps pruning ablation (tanjiro)
 - branch: g1r5-tanjiro/adamw-aux-eps-pruning
 - hypothesis: "AdamW aux eps=1e-10 (hardcoded line 843) is either FFS-load-bearing in lm_head small-update regime or value-cosmetic across [1e-12, 1e-8]" (PR predeclared 55% all-cosmetic / 25% D/E catastrophic / 15% mixed / 5% surprise)
