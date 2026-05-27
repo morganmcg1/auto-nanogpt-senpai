@@ -1,3 +1,24 @@
+## 2026-05-27 20:00 — PR #1433: H213 alphonse Body h_cooldown_frac sweep (cosine + stable phase timing) — CLOSED (70th NULL/NEG + 🎯 programme finding #44 candidate h_cooldown_frac TIMING axis exhausted in frac<1.0 direction)
+
+- Branch: `g1r3-alphonse/h-cooldown-frac-sweep`
+- Hypothesis: Body cosine cooldown applied to a shorter tail (frac<1.0) with stable peak LR phase first. Tests cooldown TIMING axis (orthogonal to H211 shape axis and H210 depth axis).
+- Results:
+
+  | Arm | h_cooldown_frac | W&B | val/loss | FFS | Δ vs baseline | σ vs H174 envelope |
+  |---|---|---|---|---|---|---|
+  | arm_a CTRL | 1.0 | `q4c6yvgo` | 3.26862 | **3050** | +25 (soft bit-id drift) | +0.47σ |
+  | arm_b STABLE_30 | 0.7 | `4onl3mwp` | **3.27765** | **3225** | **+200 NEG** | **+6.5σ NEG val** |
+  | arm_c STABLE_60 | 0.4 | `27d9wcpm` | 3.514 @step2500 | **−1 ❌** | catastrophic | killed at gate |
+
+- **arm_b STABLE_30 NEG**: 30% stable + 70% cosine cooldown produces FFS=3225 (+200 vs baseline). Compressing cosine into 70% tail also raises terminal val by +6.5σ. Stable phase at peak LR delays the LR descent needed for convergence.
+- **arm_c STABLE_60 CATASTROPHIC**: 60% stable + 40% cooldown — val=3.514 at step 2500 (kill gate). At step 3025 baseline FFS crossing point, arm_c body LR was ~6.5× higher than CTRL — too sharp a late cooldown after too-long stable phase.
+- **🎯 Programme finding #44 candidate — h_cooldown_frac TIMING axis exhausted in frac<1.0 direction**: Compressing cosine cooldown into shorter tail is bilaterally NEG. **Full-duration cosine from step 0 (frac=1.0) is structurally load-bearing**. The gradual LR descent throughout training, not just a compressed tail phase, is required for H148+H203 stack. This is the 4th cooldown dimension finding:
+  - Shape axis (H211 closed): cosine sweet spot, cosine²/sqrt fail
+  - **Timing axis (H213 closed): full-duration required, frac<1.0 fails bilaterally**
+  - Depth-compose axis (H218 in flight)
+  - Asymptote axis (H219 in flight)
+- **Next assignment**: **H221 alphonse (separate PR)**: MuLoCo pruning ablation — fresh pruning-of-complex-stack experiment per launch directive. 3-arm CTRL (full MuLoCo) / NO_OUTER (use_outer_optimizer=0) / NO_MOMENTUM (outer_momentum=0.0). Tests if MuLoCo wrapper is load-bearing or vestigial. 17th NEW MECHANISM CLASS: meta-optimizer pruning.
+
 ## 2026-05-27 18:30 — PR #1427: H212 thorfinn Aux LR cooldown shape sweep (mirror H203 BODY cosine WIN to AUX axis) — CLOSED (69th NULL/NEG + 🎯 programme finding #43 candidate AUX cooldown shape axis EXHAUSTED with bilateral body/aux asymmetry)
 
 - Branch: `g1r3-thorfinn/aux-cooldown-shape-sweep`

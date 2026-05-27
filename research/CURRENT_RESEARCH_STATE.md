@@ -1,14 +1,21 @@
 # SENPAI Research State — auto-nanogpt-1gpu-r3
 
-- **Last updated:** 2026-05-27 18:35 UTC
+- **Last updated:** 2026-05-27 20:05 UTC
 
 ---
 
 ## 🏆 CURRENT BASELINE: FFS=3025, val=3.26830 — PR #1398 H203 tanjiro cosine cooldown shape
 
-**Baseline shift alert RESOLVED**: All PRs from the pre-H203-merge cohort (H204-H212) have now closed or completed (H204-H212 all closed NULL/NEG). All remaining in-flight PRs (H213-H220) are on the cosine baseline.
+**Baseline shift alert RESOLVED**: All PRs from the pre-H203-merge cohort (H204-H213) have now closed or completed (H204-H213 all closed NULL/NEG). All remaining in-flight PRs (H214-H221) are on the cosine baseline.
 
 ---
+
+## 🎯 Cycle ~470 (19:55-20:05 UTC) — H213 alphonse CLOSED (70th NULL/NEG, h_cooldown_frac<1.0 bilaterally NEG/catastrophic, programme finding #44 candidate timing axis exhausted in frac<1.0 direction); H221 alphonse ASSIGNED MuLoCo pruning ablation (17th NEW MECHANISM CLASS: meta-optimizer pruning per launch directive)
+
+- **🎯 H213 alphonse CLOSED — 70th NULL/NEG + programme finding #44 candidate**: arm_a CTRL frac=1.0 val=3.26862/FFS=3050 (+25 soft bit-id drift within envelope); arm_b STABLE_30 frac=0.7 val=3.27765/FFS=3225 NEG (+200 FFS, +6.5σ val); arm_c STABLE_60 frac=0.4 val=3.514@step2500 KILLED at gate FFS=-1 catastrophic. **Compressing cosine cooldown into shorter tail (frac<1.0) is bilaterally NEG** — stable phase at peak LR delays the LR descent needed for convergence.
+- **🎯 Programme finding #44 candidate — h_cooldown_frac TIMING axis exhausted in frac<1.0 direction**: Full-duration cosine from step 0 (frac=1.0) is structurally load-bearing. Gradual LR descent throughout training is required, not a compressed tail. **4th cooldown dimension finding**: Shape (H211 closed cosine sweet spot) + **Timing (H213 closed frac=1.0 load-bearing)** + Depth-compose (H218 in flight) + Asymptote (H219 in flight).
+- **🎯 H221 alphonse ASSIGNED — 17th NEW MECHANISM CLASS: meta-optimizer pruning ablation**: Per launch directive ("Assign fresh optimizer mechanisms, preconditioners, schedule ideas, initialization ideas, and **pruning ablations of complex stacks**"). 3-arm CTRL (full MuLoCo `use_outer_optimizer=1, outer_momentum=0.5, sync_interval=30`) / NO_OUTER (`use_outer_optimizer=0`, full MuLoCo pruned) / NO_MOMENTUM (`outer_momentum=0.0`, Nesterov component isolated). Tests if MuLoCo outer-Nesterov wrapper is load-bearing or vestigial complexity from public record #13. If NO_OUTER FFS≤3050 → MuLoCo prunable for complexity reduction. If catastrophic → MuLoCo load-bearing reconfirmed. NO_MOMENTUM isolates the Nesterov piece specifically.
+- **End-of-cycle ~470 portfolio**: H214 askeladd spectral RANK truncation (mid-flight); H215 fern RESET × cosine compose (arm_b RESET_1500 in flight); H216 frieren Lookahead (sent back — implementation missing, awaiting student); H217 nezuko EMA-norm blend diagnostic (arm_b EMA_NORM in flight ~50% by now); H218 edward depth GROW × cosine compose (sent back — implementation missing, awaiting student); H219 tanjiro LR FLOOR (newly assigned cycle ~445); H220 thorfinn ATTN/MLP LR split (newly assigned cycle ~455); H221 alphonse MuLoCo pruning ablation (newly assigned). **8/8 students WIP, 0 idle, 0 review-ready.** 17 novel mechanism classes (added meta-optimizer pruning).
 
 ## 🎯 Cycle ~455 (18:25-18:35 UTC) — H212 thorfinn CLOSED (69th NULL/NEG, AUX cosine NULL+val NEG / sqrt FFS NEG, programme finding #43 candidate AUX cooldown shape axis exhausted with bilateral body/aux asymmetry); H220 thorfinn ASSIGNED ATTN vs MLP LR multiplier split (TYPE axis orthogonal to H210 depth axis)
 
