@@ -1,3 +1,62 @@
+## 2026-05-27 14:10 UTC — Cycle 71 mid-324 (12-way cross-axis grid; H4-monotonic + per-kind axis closed; 4 PRs closed wave; 214 refuted)
+
+**Cumulative**: **214 refuted** / **136 distinct mech classes** / **88 family-level closures**.
+
+### PRs closed this cycle wave (4 closures):
+
+| PR | student | mechanism | outcome |
+|---|---|---|---|
+| **edward #1411** | edward | NS5-burst-quality bilateral (NS5={18,22}) | **211th** — mechanism-saturation proof (2× quality → no FFS/val gain + weak anti-monotonic) |
+| **tanjiro #1417** | tanjiro | continuous α-hybrid AdamW/sign-SGD on embed AUX | **212th** — NON-MONOTONIC HUMP with **catastrophic ffs=−1** on α=1.0 |
+| **thorfinn #1419** | thorfinn | per-kind NS5 cross-kind (attn/MLP swap) | **213th** — weak direction-asymmetric (attn-heavy marginally better, sub-noise) |
+| **frieren #1414** | frieren | momentum-DROP bilateral (−0.05/−0.10) | **214th** — **H4 MAGNITUDE-MONOTONIC** (stronger drop strictly worse, linear extrapolation ~0.0005 val per −0.01 drop) |
+
+### Cycle 71 4-axis FFS-burst taxonomy (post-wave):
+
+| axis | direction-pattern | scale | conservation reading |
+|---|---|---|---|
+| **LR-magnitude** (alphonse #1408) | anti-monotonic | Δ=0.00132 per ×0.25 | conservation-law: extra within-window descent → less post-window descent |
+| **NS5-quality** (edward #1411) | weak anti-monotonic | Δ=0.00188 per +4 NS5 | saturation at NS5≥14 |
+| **Momentum-DROP** (frieren #1414) | **MAGNITUDE-MONOTONIC** | Δ=0.00226 per −0.05 μ drop | **monotonic-bad**: pure regression, no conservation |
+| **Per-kind NS5** (thorfinn #1419) | weak direction-asymmetric | Δ=0.00069 sub-noise | direction-symmetric mild |
+
+**The momentum-DROP axis is structurally distinct** — only axis with clean magnitude-monotonic regression. LR/NS5 have conservation-law or saturation; momentum has no within-window benefit to conserve. **Third axis category**: monotonic-degrading.
+
+### Mid-320 quantitative refinement (tanjiro #1417 5-point α-curve):
+
+| α | val/loss | ffs | reading |
+|---|---|---|---|
+| 0.0 (AdamW) | 3.26776 | 3000 | basin |
+| 0.1 | 3.27647 | 3100 | climbing hump |
+| 1.0 | **3.28474** | **−1 KILL** | hump apex (target never reached) |
+| ∞ (sign-SGD) | 3.27291 | 3050 | sign basin |
+
+**Quantitative discrete-topology-jump confirmed**: formula-space "halfway" produces trajectory-space "off the cliff". AdamW basin is steep-walled and narrow; sign-SGD basin is shallow-walled.
+
+### 4 new assignments (post-wave, all post-target window + cross-axis):
+
+| PR | student | mechanism | rationale |
+|---|---|---|---|
+| **edward #1436** | edward | POST_TARGET_NS5_QUALITY_DISPATCH (NS5=10/18 in [2950,3175]) | post-target NS5 conservation test + stochasticity preservation hypothesis |
+| **tanjiro #1439** | tanjiro | CROSS_AUX_KIND_HYBRID_ALPHA_HUMP (lm_head AUX α=0.1/1.0) | universality test of mid-320 hump topology |
+| **thorfinn #1443** | thorfinn | POST_TARGET_PER_KIND_LR (attn×1.15/MLP×0.85 vs reverse in [2950,3175]) | post-target + per-kind LR cross-axis |
+| **frieren #1444** | frieren | POST_TARGET_MU (μ DROP −0.05 vs BOOST +0.05 in [2950,3175]) | first momentum-BOOST corpus test; H4 reversal test |
+
+### Active fleet (8 concurrent, ZERO IDLE):
+
+- **alphonse #1432** — POST_TARGET_BODY_LR_BURST ×0.85/×1.15 — canary phase
+- **fern #1428** — EVAL_SLOT_LR_BURST_DEPTH_DISPATCH — canary phase
+- **edward #1436** — POST_TARGET_NS5_QUALITY_DISPATCH — canary phase
+- **tanjiro #1439** — CROSS_AUX_KIND_HYBRID_ALPHA_HUMP — Arm A launched (run 85o9nu1u, ETA ~5-6h bilateral)
+- **thorfinn #1443** — POST_TARGET_PER_KIND_LR — newly assigned
+- **frieren #1444** — POST_TARGET_MU — newly assigned
+- **nezuko #1422** — m-only reset on lm_head AUX — Arm A terminal (val=3.26983 ffs=3025), Arm B running ETA ~14:55
+- **askeladd #1423** — per-block NS5 dispatch — Arm A terminal (val=3.27267 ffs=3050), Arm B running ETA ~15:03
+
+**Post-target window 4-axis mechanism matrix forming**: LR (alphonse #1432), LR-depth-half (fern #1428), NS5 (edward #1436), per-kind LR (thorfinn #1443), momentum (frieren #1444). If any breaks mid-324, the others provide axis-specific localization.
+
+---
+
 ## 2026-05-27 13:55 UTC — Cycle 71 mid-320 + mid-324 (tanjiro #1417 NON-MONOTONIC HUMP DIRECT QUANTITATIVE PROOF; first ffs=-1 catastrophic; 212th refute)
 
 **Cumulative**: **212 refuted** / **134 distinct mech classes** / **86 family-level closures**.
