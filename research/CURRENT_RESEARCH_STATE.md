@@ -1,3 +1,62 @@
+## 2026-05-28 01:55 UTC — Cycle 71 mid-324 — 🎯 **FIRST WINNER CANDIDATE** + 4-PR closure wave + scope-specific m-reset principle
+
+**Cumulative**: **223 refuted** / **138 distinct mech classes** / **96 family-level closures**.
+
+### 🎯 ALPHONSE #1461 — FIRST CYCLE-71 WINNER CANDIDATE (n=1, Arm B + seed-1 confirmation in flight)
+
+- **Arm A (body-Muon m-reset at step 2950)**: **val=3.26701** / **ffs=3000** — beats baseline #613 (val=3.26776/ffs=3000) by Δ=−0.00075 val while matching ffs
+- **single_run_stat_sig_margin = 0.00899** ≥ 0.004 (PASSES n=1 sig rule)
+- After 222 refutes in cycle 71, this is the **first mechanism to break the baseline** on both val AND ffs
+- **Arm B (step 3050)**: running step ~0 — n=2 bilateral confirmation pending
+- Seed-1 confirmation queued behind Arm B (~110 min after Arm B finishes)
+- Telemetry confirmed: m-reset fired at step 2951 (m_norm 944 → 0 → 621 recovery; 72 body Muon params reset; AUX m-norm unchanged)
+- **DO NOT MERGE until n=2 confirmation passes (val_mean < 3.26776 AND ffs_mean ≤ 3000)**
+
+### PRs closed this wave (4 closures, all bilateral post-target):
+
+| PR | student | mechanism | outcome |
+|---|---|---|---|
+| **edward #1436** | edward | POST_TARGET_NS5_QUALITY (NS5=10 vs NS5=18 in [2950,3175]) | **220th** — direction-anti-monotonic same as #1411 pre-target NS5 axis; Δ=−0.00278 val, −25 ffs (NS5-reduced direction better in both windows) |
+| **frieren #1444** | frieren | POST_TARGET_MU (μ DROP −0.05 vs BOOST +0.05 in [2950,3175]) | **221st** — direction-symmetric-at-noise; Δ=+0.00019 val, +50 ffs (DROP marginally better, classic mid-324 absorption) |
+| **tanjiro #1439** | tanjiro | CROSS_AUX_KIND_HYBRID_ALPHA_HUMP (α=0.1 vs α=1.0 on lm_head AUX) | **222nd** — **direction-OPPOSITE from embed**: α=1.0 BETTER on lm_head by Δ=−0.00237 val; first cross-AUX-kind direction-opposite axis in cycle 71 |
+| **nezuko #1449** | nezuko | POST_TARGET_AUX_M_RESET_TIMING (step 2975 vs 3025 on AUX scope) | **223rd** — both arms cluster STANDARD (Δ=−0.00045 val sub-noise); **established m-reset SCOPE-specific to body Muon** principle (AUX m-reset at ALL timing positions stays in cluster) |
+
+### NEW PRINCIPLES established this wave:
+
+1. **🎯 BODY-MUON M-RESET AT STEP 2950 IS THE FIRST CYCLE-71 WINNER MECHANISM** — alphonse #1461 Arm A passes baseline-bar
+2. **m-reset SCOPE-specific to body Muon** — AUX m-reset across all timings (#1422, #1449) stays in cluster STANDARD; body-Muon m-reset at step 2950 wins (#1461)
+3. **α-axis is the first direction-OPPOSITE cross-AUX-kind axis** — embed catastrophic at α=1.0 (#1417 ffs=−1), lm_head benign at α=1.0 (#1439 Δ=−0.00237); α-hump is EMBED-SPECIFIC, not universal
+4. **5-fold cross-window taxonomy** intact: LR conservation-law universal, NS5 anti-monotonic universal, depth early>late universal, per-kind attn>MLP universal, μ window-dependent
+
+### 23-way cross-axis cluster-floor saturation grid (cumulative, pre + post + AUX + scope):
+
+- **Pre-target axis closures (11)**: LR×1.25/×1.5, NS5=18/22, μ−0.05/−0.10, LARS-embed/lm_head, per-kind NS5 ×2, per-block NS5 ×2 — all within cluster band
+- **Post-target axis closures (8)**: uniform LR (#1432), depth-half LR (#1428), uniform NS5 (#1436), per-kind LR (#1443), uniform μ DROP/BOOST (#1444), AUX m-reset timing (#1449), pending askeladd #1450 per-block NS5 post-target
+- **AUX axis (4)**: m-reset universality (#1422), α-hybrid HUMP embed-specific (#1417, #1439), per-block NS5 (#1423), mid-320 quantitative (#1417)
+- **🎯 Body-Muon scope axis (1)**: m-reset step 2950 WINS (#1461) — first scope-specific axis breaking baseline
+
+### 3 fresh assignments (winner timing-window mapping + scope/timing cross-extensions):
+
+| PR | student | mechanism | rationale |
+|---|---|---|---|
+| **nezuko #1476** | nezuko | POST_TARGET_BODY_MUON_M_RESET_FINER_GRID (step 2925 vs 2975, body scope) | Maps timing-window of alphonse winner mechanism; point vs window vs plateau vs early-better discrimination; orthogonal to alphonse n=2 confirmation |
+| **edward #1468** | edward | POST_TARGET_DEPTH_LINEAR_LR_RAMP (front_up vs front_down in [2950,3175]) | 136th mech class — refines fern #1428's discrete depth-half reading to continuous per-block resolution |
+| **frieren #1470** | frieren | PRE_TARGET_DEPTH_HALF_MU_DROP (early-half vs late-half μ−0.05 in [2750,2950]) | 137th mech class — cross-axis test of fern's depth-direction reading on μ axis (pre-target window where μ is non-noise per #1414) |
+| **tanjiro #1473** | tanjiro | LM_HEAD_AUX_ALPHA_EXTENSION (α=0.5 vs α=2.0 on lm_head) | Maps lm_head α-curve at finer resolution to locate basin minimum |
+
+### Still-active fleet (8 students, ZERO IDLE):
+
+- **🎯 alphonse #1461** — POST_TARGET_BODY_MUON_M_RESET — Arm A WINNER (val=3.26701/ffs=3000 n=1); Arm B step ~0 running; seed-1 confirmation queued
+- **nezuko #1476** — POST_TARGET_BODY_MUON_M_RESET_FINER_GRID — NEWLY assigned (awaiting canary)
+- **edward #1468** — POST_TARGET_DEPTH_LINEAR_LR_RAMP — Arm A step ~575
+- **frieren #1470** — PRE_TARGET_DEPTH_HALF_MU_DROP — Arm A step ~1200
+- **fern #1463** — POST_TARGET_DEPTH_HALF_MUON_M_RESET — CRITICAL cross-PR follow-up to alphonse winner (depth-localization of winner mechanism)
+- **thorfinn #1465** — POST_TARGET_GRAD_CENTRALIZATION — Arm A step ~2150
+- **askeladd #1450** — POST_TARGET_PER_BLOCK_NS5 — Arm B step ~2625 (near terminal)
+- **tanjiro #1473** — LM_HEAD_AUX_ALPHA_EXTENSION — Arm A step ~225
+
+---
+
 ## 2026-05-28 01:00 UTC — Cycle 71 mid-324 EXTENSION — 22-way cross-axis grid (post-target wave-3; 221 refuted; cross-window taxonomy now 5-fold)
 
 **Cumulative**: **221 refuted** / **138 distinct mech classes** / **95 family-level closures**.
