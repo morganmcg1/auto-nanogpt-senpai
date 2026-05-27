@@ -37,6 +37,11 @@ NS_C = 0.0
 NS_ITERS = 12
 MUON_METHOD = "pmuon-uw-floor-power-cool-1p2-ns-coef-cubic-gamma-power-0p4"
 
+# Pre-target LR pulse window (PR #1430: body × aux stacking; matches the prior
+# tanjiro #1376 / alphonse #1365 conventions of `2500 <= loop_step < 2925`).
+PRETARGET_PULSE_STEP_START = 2500
+PRETARGET_PULSE_STEP_END_EXCLUSIVE = 2925
+
 
 def parse_args():
     parser = argparse.ArgumentParser(description="Modded-NanoGPT optimizer speedrun trainer")
@@ -70,6 +75,20 @@ def parse_args():
                              "late-higher=0.9 (block 0) → 1.1 (block 11), "
                              "late-lower=1.1 (block 0) → 0.9 (block 11). "
                              "Mean LR preserved across blocks.")
+    parser.add_argument("--body_pretarget_lr_mult", type=float, default=1.0,
+                        help="Multiplier on body (Muon) group LR during pre-target window "
+                             "loop_step in [2500, 2924] inclusive. 1.0 = baseline (no effect). "
+                             "Applied on top of the standard WSD schedule AND per-block "
+                             "LR multipliers from --muon_block_lr_pattern. Composes with "
+                             "--aux_pretarget_lr_mult for cross-surface stacking tests "
+                             "(re-implementation of PR #1376 tanjiro body pulse).")
+    parser.add_argument("--aux_pretarget_lr_mult", type=float, default=1.0,
+                        help="Multiplier on aux (AdamW) group LRs — embed, lm_head, scalars — "
+                             "during pre-target window loop_step in [2500, 2924] inclusive. "
+                             "1.0 = baseline. Applied jointly to all three AdamW groups on "
+                             "top of the standard WSD schedule. Composes with "
+                             "--body_pretarget_lr_mult (re-implementation of PR #1365 "
+                             "alphonse aux pulse).")
     args = parser.parse_args()
     args.num_trials = args.num_trials if args.num_trials is not None else (args.legacy_num_trials or 1)
     args.wandb_tags = [tag.strip() for tag in args.wandb_tags.split(",") if tag.strip()]
@@ -731,6 +750,10 @@ if dist.get_rank() == 0:
             "ema_beta_target": args.ema_beta_target if args.ema_beta_target is not None else 0.0,
             "ema_dynamic_ramp_active": int(args.ema_beta_target is not None and args.ema_beta > 0),
             "muon_block_lr_pattern": args.muon_block_lr_pattern,
+            "body_pretarget_lr_mult": args.body_pretarget_lr_mult,
+            "aux_pretarget_lr_mult": args.aux_pretarget_lr_mult,
+            "pretarget_pulse_window_start": PRETARGET_PULSE_STEP_START,
+            "pretarget_pulse_window_end_exclusive": PRETARGET_PULSE_STEP_END_EXCLUSIVE,
         },
     )
 
@@ -852,9 +875,23 @@ for trial_idx in range(args.num_trials):
             cooldown_progress = (progress - (1 - cooldown_frac)) / cooldown_frac
             w = 1.0 - cooldown_progress  # equivalent to (1 - progress) / cooldown_frac
             eta = w ** COOLDOWN_POWER
-        for opt in optimizers:
+        # Pre-target LR pulse window: optimizers[0]=AdamW aux (embed, lm_head,
+        # scalars), optimizers[1]=body Muon. Both pulses fire/extinguish at the
+        # same loop_step boundaries [START, END_EXCLUSIVE). body-Muon per-block
+        # multipliers (#1289) compose multiplicatively inside Muon.step().
+        pulse_active = (PRETARGET_PULSE_STEP_START <= step <
+                        PRETARGET_PULSE_STEP_END_EXCLUSIVE)
+        body_mult = args.body_pretarget_lr_mult if pulse_active else 1.0
+        aux_mult = args.aux_pretarget_lr_mult if pulse_active else 1.0
+        for opt_idx, opt in enumerate(optimizers):
             for group in opt.param_groups:
-                group["lr"] = group["initial_lr"] * eta
+                if opt_idx == 0:
+                    eta_eff = eta * aux_mult
+                elif opt_idx == 1:
+                    eta_eff = eta * body_mult
+                else:
+                    eta_eff = eta
+                group["lr"] = group["initial_lr"] * eta_eff
         return progress, cooldown_progress, eta
 
 
@@ -1079,6 +1116,25 @@ for trial_idx in range(args.num_trials):
                 "train/cooldown/lr_multiplier": sched_eta,
                 "train/cooldown/power_gamma": COOLDOWN_POWER,
             }, step=wandb_step)
+            if args.body_pretarget_lr_mult != 1.0 or args.aux_pretarget_lr_mult != 1.0:
+                pulse_active = (PRETARGET_PULSE_STEP_START <= step <
+                                PRETARGET_PULSE_STEP_END_EXCLUSIVE)
+                body_eff = args.body_pretarget_lr_mult if pulse_active else 1.0
+                aux_eff = args.aux_pretarget_lr_mult if pulse_active else 1.0
+                wandb.log({
+                    "trial": trial_idx,
+                    "train/step": train_step,
+                    "body_pretarget_pulse/active": int(pulse_active),
+                    "body_pretarget_pulse/mult": body_eff,
+                    "body_pretarget_pulse/configured_mult": args.body_pretarget_lr_mult,
+                    "body_pretarget_pulse/muon_blocks_lr": optimizer2.param_groups[0]["lr"],
+                    "aux_pretarget_pulse/active": int(pulse_active),
+                    "aux_pretarget_pulse/mult": aux_eff,
+                    "aux_pretarget_pulse/configured_mult": args.aux_pretarget_lr_mult,
+                    "aux_lr/embed_lr": optimizer1.param_groups[0]["lr"],
+                    "aux_lr/lm_head_lr": optimizer1.param_groups[1]["lr"],
+                    "aux_lr/scalars_lr": optimizer1.param_groups[2]["lr"],
+                }, step=wandb_step)
             if param_lr_mults is not None:
                 muon_group_lr = optimizer2.param_groups[0]["lr"]
                 wandb.log({
