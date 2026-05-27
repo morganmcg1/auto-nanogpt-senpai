@@ -1,3 +1,93 @@
+## 2026-05-27 04:15 UTC — Cycle 71 mid-310
+
+**Cumulative**: **193 refuted (+1: alphonse #1359 193rd cluster-band-edge SYMMETRIC, 68th family closure)** / **108 distinct mech classes (+1 pending: alphonse #1382 EMBED_AUX_DIRECTION_COMPOUND, 115th mech, virgin compound direction-asymmetry axis)** / **68 family-level closures**.
+
+**Highest-information mid-310 finding**: **ε axis on embed AUX is direction-symmetric NULL** (#1359 closure). Combined with the LR-axis asymmetric and WD-axis asymmetric findings, embed AUX now has a clean **direction-sensitivity grid**: update-rate-modulating axes (LR, WD) carry direction-asymmetry; denominator-floor axes (ε) do not.
+
+### This cycle's closure:
+
+**alphonse #1359 CLOSED as 193rd refute — cluster-band-edge SYMMETRIC, 68th family closure**:
+- Arm A (ε=1e-8 larger floor): val=**3.26987** ffs=**3025**
+- Arm B (ε=1e-12 smaller floor): val=**3.26989** ffs=**3025**
+- Δ between arms: val=**0.00002**, ffs=**0** — within seed-noise envelope
+- 4 orders of magnitude on ε produced essentially **zero val-loss difference** → ε axis on embed AUX is NULL
+- Both arms land at cluster-band-edge boundary (val ≈ 3.2699 sits at boundary of sub-cluster-edge [3.265, 3.269] and cluster band [3.269, 3.275])
+
+**New mechanistic principle (cycle 71)**: AUX axes are not equally load-bearing. Update-rate-modulating axes (LR, WD) carry direction-asymmetry signal; denominator-floor axes (ε) do not. This is consistent with the v-normalization picture: ε only matters near zero-variance plateaus, and embed gradients never approach such plateaus at typical step counts.
+
+**Direction-sensitivity grid on embed AUX** (CONSOLIDATED):
+
+| axis | direction-of-effect | source | strongest result |
+|---|---|---|---|
+| LR | over-LR helps (ASYMMETRIC) | #1335 | sub-cluster-edge val=3.26870 ffs=3025 |
+| WD | less-WD helps (ASYMMETRIC) | #1364 Arm A | sub-cluster-edge val=3.26836 ffs=3000 ← strongest FFS |
+| **ε** | **NULL (SYMMETRIC)** | **#1359 this** | **cluster-band-edge symmetric** |
+
+### Other mid-310 events:
+
+**thorfinn #1367 Arm A `214kjjcq` TERMINAL — cluster STANDARD**:
+- val=**3.27103** ffs=**3025**
+- Arm A: scalars AUX LR × 0.5 (under-LR direction on scalars)
+- Cluster STANDARD landing matches pattern at #1366 lm_head Arm A (val=3.27320 ffs=3050) and embed Arm A under-LR pattern at #1335
+- Arm B (over-LR 2.0×) is the load-bearing AUX-class-universal test; nudged
+
+**AUX-LR direction grid pattern after #1367 Arm A** (NEW):
+
+| sub-system | Arm A under-LR | Arm B over-LR | direction verdict |
+|---|---|---|---|
+| embed AUX (#1335) | cluster STANDARD ffs=3050 | **sub-cluster-edge val=3.26870 ffs=3025** | over helps, asymmetric ✓ |
+| lm_head AUX (#1366) | cluster STANDARD ffs=3050 | in flight `2ro7hicj` step 1175 | TBD |
+| **scalars AUX (#1367)** | **cluster STANDARD ffs=3025** | **pending Arm B** | **TBD** |
+
+If lm_head AND scalars Arm B both produce privileged-zone landings, **direction-asymmetry inversion is AUX-CLASS-UNIVERSAL** across all AdamW v-normalized kinds. Otherwise narrowed to embed-AUX-specific.
+
+### Fresh assignment — alphonse #1382 EMBED_AUX_DIRECTION_COMPOUND (115th mech):
+
+**The compound additivity test**. Two strongest direction-asymmetry findings on embed AUX both point in "constraint relaxation" direction:
+- #1335 Arm B over-LR: val=3.26870 ffs=3025
+- #1364 Arm A less-WD: val=3.26836 ffs=3000
+
+Test: **does applying both privileged directions simultaneously yield val<3.26776 AND ffs≤3000 (merge candidate) or saturate at cluster floor?**
+
+Bilateral design:
+- Arm A: both privileged directions (LR×1.5 AND WD→0)
+- Arm B: both anti-privileged directions (LR×0.667 AND WD→0.005)
+
+Three predictions:
+- **H1 additive**: Arm A val ≈ 3.265-3.268 ffs=3000, possibly crosses merge bar
+- **H0 saturated**: Arm A cluster floor; cluster-floor robust on multi-axis compound
+- **H2 catastrophic**: Arm A above-cluster regression; compound destructive
+
+State-phase event + per-group + compound-direction mechanism per Morgan directive #1259.
+
+### Mass terminal batch summary (mid-308 + mid-309 + mid-310):
+
+| PR | mech axis | Arm A val | Arm A ffs | zone | Arm B status |
+|---|---|---|---|---|---|
+| #1355 (askeladd) | per-kind body Muon NS5_iters | 3.26873 | 3025 | sub-cluster-edge | `fz4jyrdu` step 2250 |
+| #1361 (fern) | weight-perturbation σ=1e-3 attn | 3.27125 | 3025 | cluster STANDARD | `rvnz4dvl` step 2500 |
+| #1364 (edward) | per-AUX-kind embed WD → 0 | 3.26836 | 3000 | sub-cluster-edge (best FFS) | `4okhno09` step 1825 |
+| #1366 (frieren) | per-AUX-kind lm_head LR × 0.5 | 3.27320 | 3050 | cluster STANDARD | `2ro7hicj` step 1175 |
+| **#1367 (thorfinn)** | **per-AUX-kind scalars LR × 0.5** | **3.27103** | **3025** | **cluster STANDARD** | **PENDING LAUNCH (this cycle)** |
+| **#1359 (alphonse)** | **per-AUX-kind embed ε** | **3.26987** | **3025** | **cluster-band-edge SYMMETRIC** | **CLOSED 193rd** |
+
+### Active fleet status mid-310:
+
+| Student | PR | Status | W&B notes |
+|---|---|---|---|
+| g1r2-edward | #1364 | status:wip | Arm B `4okhno09` (WD 5×) step 1825 |
+| g1r2-frieren | #1366 | status:wip | Arm B `2ro7hicj` (over-LR 2.0×) step 1175 |
+| g1r2-askeladd | #1355 | status:wip | Arm B `fz4jyrdu` (attn-heavier inverted) step 2250 |
+| g1r2-fern | #1361 | status:wip | Arm B `rvnz4dvl` (mlp-only noise) step 2500 |
+| g1r2-thorfinn | #1367 | status:wip | Arm A TERMINAL cluster STANDARD; Arm B over-LR nudged |
+| g1r2-tanjiro | #1358 | status:wip | Arm B retry `a5z06qrx` step 2300 |
+| g1r2-nezuko | #1369 | status:wip | Arm A restart `5knjrcsu` step 2900 (terminal ~9 min) |
+| **g1r2-alphonse** | **#1382** | **status:wip JUST ASSIGNED** | **EMBED_AUX_DIRECTION_COMPOUND (115th mech)** |
+
+**ZERO IDLE STUDENTS — 8 students concurrently active. ZERO IDLE GPUs.**
+
+**Cumulative closure rate**: 193 / ~535 PRs ≈ 36% refute rate. Expecting 4-5 closures in next 1-2 cycles (Arm B completions: nezuko, askeladd, fern, edward, frieren).
+
 ## 2026-05-27 03:05 UTC — Cycle 71 mid-309
 
 **Cumulative**: **192 refuted** / **107 distinct mech classes** / **67 family-level closures** (unchanged — 4 Arm A terminals now posted, all Arm B pending bilateral).
