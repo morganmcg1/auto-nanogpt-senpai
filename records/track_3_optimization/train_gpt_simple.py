@@ -70,6 +70,12 @@ def parse_args():
                              "late-higher=0.9 (block 0) → 1.1 (block 11), "
                              "late-lower=1.1 (block 0) → 0.9 (block 11). "
                              "Mean LR preserved across blocks.")
+    parser.add_argument("--aux_cooldown_power", type=float, default=None,
+                        help="Override COOLDOWN_POWER for AdamW aux optimizer only. "
+                             "Body Muon retains COOLDOWN_POWER=1.4. "
+                             "Set None to use COOLDOWN_POWER for both (baseline). "
+                             "Arm A: 1.2 (aux flatter cooldown, ~+50%% LR mass @ step 2925). "
+                             "Arm B: 1.6 (aux sharper cooldown, ~-33%% LR mass @ step 2925).")
     args = parser.parse_args()
     args.num_trials = args.num_trials if args.num_trials is not None else (args.legacy_num_trials or 1)
     args.wandb_tags = [tag.strip() for tag in args.wandb_tags.split(",") if tag.strip()]
@@ -845,17 +851,22 @@ for trial_idx in range(args.num_trials):
     def set_hparams(step, cooldown_frac=0.7):
         progress = step / train_steps
         assert 0 <= progress < 1
+        aux_power = args.aux_cooldown_power if args.aux_cooldown_power is not None else COOLDOWN_POWER
         if progress < 1 - cooldown_frac:
-            eta = 1.0
+            eta_body = 1.0
+            eta_aux = 1.0
             cooldown_progress = 0.0
         else:
             cooldown_progress = (progress - (1 - cooldown_frac)) / cooldown_frac
             w = 1.0 - cooldown_progress  # equivalent to (1 - progress) / cooldown_frac
-            eta = w ** COOLDOWN_POWER
-        for opt in optimizers:
-            for group in opt.param_groups:
-                group["lr"] = group["initial_lr"] * eta
-        return progress, cooldown_progress, eta
+            eta_body = w ** COOLDOWN_POWER
+            eta_aux = w ** aux_power
+        # optimizer1 = AdamW (aux: embed + lm_head + scalars), optimizer2 = Muon (body)
+        for group in optimizer1.param_groups:
+            group["lr"] = group["initial_lr"] * eta_aux
+        for group in optimizer2.param_groups:
+            group["lr"] = group["initial_lr"] * eta_body
+        return progress, cooldown_progress, eta_body
 
 
     ########################################
@@ -965,6 +976,18 @@ for trial_idx in range(args.num_trials):
                     metrics["ema/n_eff"] = 1.0 / max(1e-12, (1.0 - beta_t_now))
                     metrics["ema/active"] = int(step >= args.ema_warmup_steps)
                     metrics["ema/warmup_steps"] = args.ema_warmup_steps
+                # Aux cooldown telemetry: aux_power_t and per-step aux LR multiplier.
+                aux_power_t = (args.aux_cooldown_power if args.aux_cooldown_power is not None
+                               else COOLDOWN_POWER)
+                if step < train_steps:
+                    progress_val = step / train_steps
+                    if progress_val < 1 - 0.7:
+                        aux_lr_mult_now = 1.0
+                    else:
+                        w_val = 1.0 - (progress_val - 0.3) / 0.7
+                        aux_lr_mult_now = w_val ** aux_power_t
+                    metrics["adamw/aux_lr_mult_t"] = aux_lr_mult_now
+                    metrics["adamw/aux_cooldown_power_t"] = aux_power_t
                 metrics.update(prefixed("val/slope", loss_slope_stats(val_loss_history, slope_window_steps)))
                 wandb.log(metrics, step=trial_idx * (train_steps + 1) + step)
             print0(f"step:{step}/{train_steps} val_loss:{val_loss:.5f} train_time:{training_time:.3f}s"
