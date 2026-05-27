@@ -83,6 +83,22 @@ def parse_args():
              "muall=musoft + non-residual block 2D weights also scaled by 1/sqrt(L); "
              "smallconst=std=1e-3 depth-independent.",
     )
+    parser.add_argument(
+        "--adamw_aux_beta2_schedule",
+        type=str,
+        default="constant",
+        choices=["constant", "linear_ramp", "instant_step", "reverse_ramp"],
+        help="Schedule for AdamW aux beta2 across all 3 aux groups "
+             "(adam_embed, adam_lm_head, adam_scalars). "
+             "constant=beta2_low throughout (current behavior at 0.95); "
+             "linear_ramp=beta2_low->beta2_high linearly over cooldown window; "
+             "instant_step=beta2_low in stable, beta2_high at cooldown onset; "
+             "reverse_ramp=beta2_high->beta2_low linearly over cooldown (falsifier).",
+    )
+    parser.add_argument("--adamw_aux_beta2_low", type=float, default=0.95,
+                        help="AdamW aux beta2 during stable phase (and target for reverse_ramp end). Default 0.95.")
+    parser.add_argument("--adamw_aux_beta2_high", type=float, default=0.99,
+                        help="AdamW aux beta2 target for cooldown end (linear_ramp, instant_step). Default 0.99.")
     args = parser.parse_args()
     args.num_trials = args.num_trials if args.num_trials is not None else (args.legacy_num_trials or 1)
     args.wandb_tags = [tag.strip() for tag in args.wandb_tags.split(",") if tag.strip()]
@@ -765,6 +781,9 @@ if dist.get_rank() == 0:
             "wd_schedule": args.wd_schedule,
             "lr_scalars": args.lr_scalars,
             "depth_init_mode": args.depth_init_mode,
+            "adamw_aux_beta2_schedule": args.adamw_aux_beta2_schedule,
+            "adamw_aux_beta2_low": args.adamw_aux_beta2_low,
+            "adamw_aux_beta2_high": args.adamw_aux_beta2_high,
         },
     )
 
@@ -840,7 +859,7 @@ for trial_idx in range(args.num_trials):
     optimizer1 = AdamW([dict(params=[model.embed.weight], lr=0.3, name="adam_embed"),
                         dict(params=[model.proj.weight], lr=1/320, name="adam_lm_head"),
                         dict(params=[p for p in model.parameters() if p.ndim < 2], lr=args.lr_scalars, name="adam_scalars")],
-                       betas=(0.8, 0.95), eps=1e-10, weight_decay=0, fused=True)
+                       betas=(0.8, args.adamw_aux_beta2_low), eps=1e-10, weight_decay=0, fused=True)
     named_blocks = [(n, p) for n, p in model.blocks.named_parameters() if p.ndim >= 2]
     mlp_named = [(n, p) for n, p in named_blocks
                  if n.endswith(".mlp.fc.weight") or n.endswith(".mlp.proj.weight")]
@@ -878,6 +897,25 @@ for trial_idx in range(args.num_trials):
         else:
             raise ValueError(f"Unknown wd_schedule: {schedule}")
 
+    def _adamw_aux_beta2(step, total_steps, schedule, low, high, cooldown_frac):
+        progress = step / total_steps
+        cooldown_start = 1.0 - cooldown_frac
+        if progress < cooldown_start:
+            return low
+        cp = (progress - cooldown_start) / cooldown_frac
+        if cp > 1.0:
+            cp = 1.0
+        if schedule == "constant":
+            return low
+        elif schedule == "linear_ramp":
+            return low + (high - low) * cp
+        elif schedule == "instant_step":
+            return high
+        elif schedule == "reverse_ramp":
+            return high - (high - low) * cp
+        else:
+            raise ValueError(f"Unknown adamw_aux_beta2_schedule: {schedule}")
+
     # learning rate schedule: stable then decay
     def set_hparams(step, cooldown_frac=0.7):
         progress = step / train_steps
@@ -887,11 +925,21 @@ for trial_idx in range(args.num_trials):
         else:
             eta = (1 - progress) / cooldown_frac
         wd_mu = _wd_multiplier(step, train_steps, args.wd_schedule)
+        beta2_now = _adamw_aux_beta2(
+            step, train_steps,
+            args.adamw_aux_beta2_schedule,
+            args.adamw_aux_beta2_low,
+            args.adamw_aux_beta2_high,
+            cooldown_frac,
+        )
         for opt in optimizers:
             for group in opt.param_groups:
                 group["lr"] = group["initial_lr"] * eta
                 if "initial_wd" in group and group.get("name", "").startswith("muon_"):
                     group["weight_decay"] = group["initial_wd"] * wd_mu
+        for group in optimizer1.param_groups:
+            group["betas"] = (group["betas"][0], beta2_now)
+        return beta2_now
 
 
     ########################################
@@ -980,7 +1028,7 @@ for trial_idx in range(args.num_trials):
         dist.all_reduce(step_loss, op=dist.ReduceOp.SUM)
         train_loss = float((step_loss / batch_size).item())
         # set optimization hyperparameters and take a step
-        set_hparams(step)
+        beta2_now = set_hparams(step)
         train_step = step + 1
         telemetry_due = (step == 0 or (step + 1) % args.telemetry_interval == 0 or step + 1 == train_steps)
         histogram_due = (step == 0 or (step + 1) % args.histogram_interval == 0 or step + 1 == train_steps)
@@ -1026,6 +1074,7 @@ for trial_idx in range(args.num_trials):
                 per_group_metrics["train/wd_mlp_now"] = current_wds.get("muon_mlp", 0.0)
                 per_group_metrics["train/wd_attn_now"] = current_wds.get("muon_attn", 0.0)
                 per_group_metrics["train/wd_schedule_progress"] = train_step / train_steps
+                per_group_metrics["adamw_aux/beta2_current"] = beta2_now
                 wandb.log(per_group_metrics, step=wandb_step)
         if dist.get_rank() == 0 and optimizer2.cos_sims_buffer:
             cs_names = list(optimizer2.cos_sims_buffer.keys())
