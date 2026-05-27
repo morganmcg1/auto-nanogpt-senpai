@@ -1,3 +1,89 @@
+## 2026-05-27 12:00 UTC — Cycle 71 mid-324 (CROSS-AXIS CLUSTER-FLOOR EVIDENCE — pre-2950 perturbations all absorbed by post-2950 late-cooldown geometry; 5-way convergent FFS=3025-3125)
+
+**Cumulative**: **208 refuted (unchanged)** / **130 distinct mech classes (unchanged)** / **82 family-level closures (unchanged)**.
+
+**MAJOR CROSS-AXIS FINDING** — paradigmatic cluster-floor evidence emerging across 5 mechanistically distinct mid-cooldown perturbation arms, all converging to **same FFS slot or worse** despite different telemetry shapes:
+
+| PR | mechanism | window | mid-window val behavior | terminal FFS | terminal val | reading |
+|---|---|---|---|---|---|---|
+| **alphonse #1408 Arm A** | body Muon LR ×1.25 burst | [2750, 2950] | val derivative steeper (0.021 drop in 200 steps) | **3025** (+25 vs baseline) | 3.27004 | H1 refuted; within-window mechanism real but snaps back post-2950 |
+| **edward #1411 Arm A** | body Muon NS5=18 burst | [2750, 2950] | polish_residual_mean dropped 3.1× (orthogonalization 3× sharper) | **3025** (+25 vs baseline) | 3.26870 | H0 saturation; within-window quality real but doesn't shift FFS slot |
+| **frieren #1414 Arm A** | body Muon momentum DROP −0.05 burst | [2750, 2950] | val descent slightly slower (mechanism reversed) | **3025** (+25 vs baseline) | 3.27105 | H4 convention reversed; mechanism fires cleanly, just doesn't accelerate |
+| **fern #1405 Arm A** | LARS on embed AUX from cooldown_start (clip-saturated) | step 953+ | trust-ratio saturates at CLIP_MAX=10.0; effectively 10× LR boost on embed | **3125** (+125 vs baseline) | 3.27743 | LARS degenerates to constant multiplier; mild regression |
+| **fern #1405 Arm B** | LARS on lm_head AUX from cooldown_start (heterogeneous) | step 953+ | row_std=0.5-0.9, GENUINE per-vocab-row signal; val descent 0.05 below Arm A at step 1250 | **3125** (+125 vs baseline) | 3.27743 (IDENTICAL to Arm A within 3e-6) | mid-cooldown speedup converges to Arm A by step 2750 |
+
+### NEW PRINCIPLE (mid-324) — Pre-2950 cooldown perturbations are absorbed by post-2950 late-cooldown geometry
+
+**5-way convergent evidence** across mechanistically distinct axes (LR-magnitude × NS5-quality × momentum-decay × LARS-clip-saturated × LARS-heterogeneous) shows that ANY mid-cooldown perturbation — burst-window or phase-change at cooldown_start — gets ABSORBED into the cluster-floor trajectory by step 2950+. The terminal val and FFS are determined by **post-2950 cooldown geometry**, NOT by:
+- Pre-crossing LR magnitude (alphonse refuted)
+- Pre-crossing orthogonalization quality (edward refuted)
+- Pre-crossing momentum decay (frieren refuted)
+- Mid-cooldown LR multiplier (fern Arm A refuted)
+- Mid-cooldown per-row LARS scaling (fern Arm B refuted; CRITICAL: distinct telemetry but identical terminal)
+
+**Most striking single piece of evidence**: fern #1405 Arm A (LARS clip-saturated, embed) and Arm B (LARS heterogeneous, lm_head) have DIFFERENT mid-trajectory profiles (Arm B ahead by 0.05 at step 1250, mean trust-ratio 0.29 vs 10.0) but **IDENTICAL terminal val (3.277434 vs 3.277431, difference 3e-6)** and **IDENTICAL FFS (3125)**. Two mechanistically distinct LARS regimes converge to within numerical precision at termination.
+
+**Mechanistic interpretation**: The cluster-floor is structurally bound by the **late-cooldown LR schedule shape (post-2950)**, which determines:
+1. The exact step at which the eval-grid checkpoint slot for val ≤ 3.28 lands (FFS)
+2. The terminal val/loss at step 3175 (decided by remaining post-FFS descent in ~150 steps)
+
+The mechanism for breaking the cluster-floor MUST target **post-target-crossing geometry**, not pre-crossing perturbations. Specifically:
+- `MU_COOLDOWN_END` (currently 0.90) — shape of late-cooldown LR
+- Post-crossing eta schedule (step 2975-3175)
+- Cross-eval-slot acceleration in [2850, 3050] (straddling the FFS slot)
+- Post-3000 quality knobs that affect the [3000, 3175] descent rate
+
+### Cross-axis taxonomy table (post mid-324)
+
+| axis | behavior | mechanism | absorbed by post-2950? |
+|---|---|---|---|
+| **β1-axis depth** | direction-asymmetric | EMA temporal decay rate carries depth signal | partially (asym mech, half-depth direction matters) |
+| **LR-axis depth** | direction-asymmetric | step magnitude carries strong depth signal | partially |
+| **NS5-iters axis depth** | direction-SYMMETRIC mild | orthogonalization quality saturates at NS5≥12 | yes (#1391 + #1423 pending) |
+| **WD-axis cross-subsystem** | sub-system-property-bound | structural stabilization mechanism | n/a (not a burst axis) |
+| **Nesterov-phase** | optimizer-class-specific | orthogonalized helpful, v-norm null | n/a |
+| **m-vs-v reset** | sub-axis decomposition | m active, v catastrophic | partially (m mild, v breaks) |
+| **FFS-burst grid (Arm A)** | 3-way convergent FFS=3025 | LR-magnitude × NS5-quality × momentum-decay | **YES — fully absorbed** |
+| **AUX LARS cross-class** | 2-way convergent FFS=3125 | clip-saturated × heterogeneous | **YES — identical terminal val to 3e-6** |
+
+### Implication for next-wave research direction (post mid-324)
+
+**Pivot strategy**: stop testing pre-2950 perturbations. The cluster-floor saturation is bound by post-2950 cooldown geometry. Future experiments should target:
+
+1. **MU_COOLDOWN_END knob sweep**: 0.85 / 0.88 / 0.92 — bend the END of cooldown, not the start (per alphonse #1408 suggested follow-up #1)
+2. **Post-crossing LR shape**: separate eta schedule in [2975, 3175] from pre-crossing schedule
+3. **Cross-eval-slot acceleration**: burst window [2850, 3050] straddling FFS slot (per alphonse suggested follow-up #2)
+4. **Late-cooldown stability mechanisms**: drift/freeze post-3000 weight updates, late-stage WD modulation
+5. **Eval-grid micro-positioning**: per-step LR adjustments in [3000, 3030] to land FFS at 2975 instead of 3025
+
+### Pending Arm B confirmations (~13:00-13:35 UTC):
+
+| PR | Arm B | ETA | expected |
+|---|---|---|---|
+| **alphonse #1408 B** | ×1.5 LR burst | 12:58 UTC | strong-confirm H0 if FFS≥3025; cluster-floor evidence 6-way |
+| **edward #1411 B** | NS5=22 burst | ~13:08 UTC | confirm H0 (saturation) if FFS≥3025; over-orthogonalization if FFS catastrophic |
+| **frieren #1414 B** | μ−0.10 drop burst | ~13:35 UTC | confirm H4 if FFS regressed worse; cluster-floor evidence 7-way |
+| **fern #1405** | bilateral terminal SENPAI-RESULT | imminent (Arm B finished, awaiting student post) | cross-AUX-kind closure |
+
+### thorfinn #1419 status: heartbeat-requested (pod healthy GPU=100% iter 2142)
+
+Same pattern as #1408/#1411/#1414 stale_wip false-alarm. Pod confirmed iterating, no SENPAI-RESULT yet posted. Posted ADVISOR heartbeat-request with note about strategic importance given the 3-way FFS-burst grid convergence.
+
+### In-flight student PRs (8 concurrent):
+
+- **alphonse #1408** (LR-magnitude FFS burst — Arm A terminal H1 refuted, Arm B running ETA 12:58)
+- **askeladd #1423** (per-block monotonic NS5 depth profile at cooldown_start — no comments yet)
+- **edward #1411** (NS5-quality FFS burst — Arm A terminal H0 leaning, Arm B running ETA ~13:08)
+- **fern #1405** (AUX LARS cross-class — Arm A terminal + Arm B finished per W&B, SENPAI-RESULT post imminent)
+- **frieren #1414** (momentum-DROP FFS burst — Arm A terminal H4, Arm B running ETA ~13:35)
+- **nezuko #1422** (m-only AUX reset cross-kind universality — no comments yet)
+- **tanjiro #1417** (embed AUX continuous α-hybrid — no comments yet)
+- **thorfinn #1419** (body Muon NS5 per-kind — heartbeat-requested)
+
+ZERO IDLE. 8 concurrent active.
+
+---
+
 ## 2026-05-27 10:50 UTC — Cycle 71 mid-323 (NS5-iters depth-axis direction-SYMMETRIC mild; 2×3 depth × optimizer-axis table closes another cell)
 
 **Cumulative**: **208 refuted (+1 this wake)** / **130 distinct mech classes (+1 fresh #1423)** / **82 family-level closures (+1)**.
