@@ -70,6 +70,10 @@ def parse_args():
                              "late-higher=0.9 (block 0) → 1.1 (block 11), "
                              "late-lower=1.1 (block 0) → 0.9 (block 11). "
                              "Mean LR preserved across blocks.")
+    parser.add_argument("--aux_pretarget_lr_mult", type=float, default=1.0,
+                        help="Multiplier on aux (AdamW) LR during pre-target window "
+                             "steps 2500–2924 only. 1.0 = baseline (no effect). "
+                             "Applied on top of the standard WSD schedule. Body Muon LR unchanged.")
     args = parser.parse_args()
     args.num_trials = args.num_trials if args.num_trials is not None else (args.legacy_num_trials or 1)
     args.wandb_tags = [tag.strip() for tag in args.wandb_tags.split(",") if tag.strip()]
@@ -852,9 +856,16 @@ for trial_idx in range(args.num_trials):
             cooldown_progress = (progress - (1 - cooldown_frac)) / cooldown_frac
             w = 1.0 - cooldown_progress  # equivalent to (1 - progress) / cooldown_frac
             eta = w ** COOLDOWN_POWER
-        for opt in optimizers:
+        # optimizers[0] = optimizer1 (AdamW aux: embed, lm_head, scalars).
+        # optimizers[1] = optimizer2 (body Muon). Pulse fires only for opt_idx==0
+        # during steps 2500–2924 inclusive; body Muon LR is unaffected.
+        for opt_idx, opt in enumerate(optimizers):
             for group in opt.param_groups:
-                group["lr"] = group["initial_lr"] * eta
+                eta_eff = eta
+                if opt_idx == 0 and args.aux_pretarget_lr_mult != 1.0:
+                    if 2500 <= step < 2925:
+                        eta_eff = eta * args.aux_pretarget_lr_mult
+                group["lr"] = group["initial_lr"] * eta_eff
         return progress, cooldown_progress, eta
 
 
@@ -1079,6 +1090,24 @@ for trial_idx in range(args.num_trials):
                 "train/cooldown/lr_multiplier": sched_eta,
                 "train/cooldown/power_gamma": COOLDOWN_POWER,
             }, step=wandb_step)
+            # Log effective aux LR for each AdamW group so the pulse window is
+            # visible in the LR trajectory. group["lr"] = initial_lr * eta_eff.
+            aux_lr_log = {
+                "trial": trial_idx,
+                "train/step": train_step,
+                "lr/aux_lr_embed": optimizer1.param_groups[0]["lr"],
+                "lr/aux_lr_lm_head": optimizer1.param_groups[1]["lr"],
+                "lr/aux_lr_scalars": optimizer1.param_groups[2]["lr"],
+                "lr/muon_group_lr": optimizer2.param_groups[0]["lr"],
+            }
+            if args.aux_pretarget_lr_mult != 1.0:
+                pulse_active = int(2500 <= step < 2925)
+                aux_lr_log["aux_pretarget_pulse/active"] = pulse_active
+                aux_lr_log["aux_pretarget_pulse/effective_mult"] = (
+                    args.aux_pretarget_lr_mult if pulse_active else 1.0
+                )
+                aux_lr_log["aux_pretarget_pulse/configured_mult"] = args.aux_pretarget_lr_mult
+            wandb.log(aux_lr_log, step=wandb_step)
             if param_lr_mults is not None:
                 muon_group_lr = optimizer2.param_groups[0]["lr"]
                 wandb.log({
