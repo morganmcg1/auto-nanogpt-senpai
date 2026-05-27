@@ -1,5 +1,26 @@
 # SENPAI Research Results — auto-nanogpt-1gpu-r4
 
+## 2026-05-27 05:15 — PR #1281: PP n=3 RESET=2345 single-shot on pre-#1240 stack (CLOSED productive-NULL — 51st no-merge)
+
+- Branch: `g1r4-edward/nm-reset-buffer-step-2345-pp-n3` (student g1r4-edward)
+- Hypothesis: PP n=3 single-shot RESET=2345 on pre-#1240 stack — 6 interleaved sequential seeds 0/1/2 ctrl-vs-RESET extending #1281 from earlier n=2 paired-pod ADVERSE direction (Δ_n2=+0.001893) to n=3 statistical confirmation.
+
+| Pod | Seed | Arm | val/loss | fs | Δ_paired vs ctrl | W&B run | Verdict |
+|:---:|:---:|:---|:---:|:---:|:---:|:---:|---|
+| s0-A ctrl | 0 | no-reset | 3.265875 | 3175 | (ref) | `74bz0v3l` | within OLD baseline envelope |
+| s0-B reset | 0 | RESET=2345 | 3.267814 | 3175 | **+0.001939 mild-ADV** | `oyzr8lkh` | adverse direction |
+| s1-A ctrl | 1 | no-reset | 3.265676 | 3175 | (ref) | `mwgxfa5s` | within OLD baseline envelope |
+| s1-B reset | 1 | RESET=2345 | 3.267522 | 3175 | **+0.001846 mild-ADV** | `f8ihy23a` | adverse direction |
+| s2-A ctrl | 2 | no-reset | 3.265675 | 3175 | (ref) | `jt1lv9b0` | within OLD baseline envelope |
+| **s2-B reset** | 2 | RESET=2345 | **3.265469** | 3175 | **−0.000206 NULL-FAV** | `ltmfvkrf` | direction flips at n=3 |
+
+- **🎯 n=3 mean Δ_paired = +0.001193 NULL-band** (within |Δ|≤0.0015 threshold), s2 reverses direction from s0/s1. Original n=2 paired-pod direction (+0.001893 ADVERSE) collapses to NULL on n=3 — **4th "cohort-reversal" PP attenuation pattern** documented in r4 alongside #1240 enhancement / #1286 NULL-collapse / #1318 cohort-absorption.
+- **🎯 6-replication cross-chain RESET=2345 fence consolidation**: Combines with cross-chain RESET=2345 replications across r4 launch (#1281 n=3 / #1319 single-shot / #1338 1-shot / 3 other anchor ctrls) → 6-way mean Δ ~+0.000350 NULL — **RESET=2345 single-shot DISPOSITIVELY FENCED productive-NULL** across r4. Single-shot R-buffer reset at cooldown onset (step 2345) does NOT improve over no-reset baseline.
+- **No merge**: ctrl mean 3.265742 ≈ OLD baseline 3.26614 (within G4 envelope), reset mean 3.266935 close. Cross-stack G1 vs post-#1240 baseline 3.26339 confounded — N=3 statistics give SE ~0.0007, MoE 95% ~±0.0014. Productive-NULL.
+- **🎯 Cohort-reversal mechanism documentation**: n=2→n=3 direction-reversal indicates per-seed RESET response is noisy (some seeds favorable, some adverse) — single-shot RESET interventions are at noise floor on pre-#1240 stack. Combined with #1319 H5 sub-window finding (middle-segment NEG, [2500, 2800)), the *fixed* RESET=2345 timing may not be optimal — adaptive/distribution-shift-triggered RESET worth a future axis.
+- **Statistical capstone of H2 directive cluster RESET_STEP axis** (Issue #1261 H2): all RESET_STEP variants (single-shot at 2345 / multi-shot 1-2-3-shot / H5 sub-window) FENCED across r4 launch. Productive evidence that R-buffer is *load-bearing for late-phase* but single-shot resets are insufficient interventions.
+- Conclusion: 51st no-merge since #847. RESET axis dispositively fenced productive-NULL with 6-replication consolidation. Student craftsmanship: clean 6-pod sequential execution with paired-pod telemetry. edward reassigned to **#1388 NM EPS sensitivity sweep on post-#1240 stack** (1e-4/1e-6/1e-8/1e-2) — 12th NM mechanism axis when chain closes. Virgin axis controlling preconditioning aggressiveness vs numerical stability, well-motivated by ill-conditioned MLP matrices (R_cond ~10^6) from #1240 stack.
+
 ## 2026-05-27 04:30 — PR #1338: NM multi-shot R-buffer reset 1/2/3 resets across cooldown (CLOSED productive-MARGINAL — 50th no-merge)
 
 - Branch: `g1r4-askeladd/nm-multi-shot-reset` (student g1r4-askeladd)
