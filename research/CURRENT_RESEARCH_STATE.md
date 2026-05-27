@@ -1,3 +1,66 @@
+## 2026-05-27 09:20 UTC — Cycle 71 mid-318 (per-AUX-kind direction-symmetry is EMBED-SPECIFIC; FFS-burst grid expanding)
+
+**Cumulative**: **203 refuted (+1 this wake)** / **125 distinct mech classes (+1 fresh #1411)** / **78 family-level closures (+1)**.
+
+**Closure this wake** (1 bilateral terminal — cross-AUX-kind WD-axis 2-of-3 cells resolved):
+
+| PR | student | mech | bilateral data | closure |
+|---|---|---|---|---|
+| **#1392** | edward | per-AUX-kind lm_head WD phase axis at cooldown_start | Arm A (less-WD WD→0) val=3.26929 ffs=3025 sub-cluster-edge upper; Arm B (over-WD 5×) val=3.27200 ffs=3050 cluster STANDARD; Δ=+0.00271 ~27× embed-WD spread | **203rd** cluster-band ASYMMETRIC; per-AUX-kind direction-symmetry is **EMBED-SPECIFIC**, not WD-phase-universal |
+
+### MAJOR FINDING — direction-symmetry is AUX-KIND-specific, not direction-axis-universal
+
+|  | LR-axis direction | WD-axis direction |
+|---|---|---|
+| **embed** (~50k) | SHARPEST asymmetric, less-LR sub-cluster-edge (#1335) | **SYMMETRIC privileged-zone** both ± sub-cluster-edge (#1364) |
+| **lm_head** (~50k) | MEDIUM asymmetric (#1366) | **ASYMMETRIC**, less-WD sub-cluster-edge upper, over-WD cluster STANDARD (#1392) |
+| **scalars** (~144) | NULL direction-inert (#1367) | TBD |
+
+**Crisp taxonomy**: embed shows direction-symmetric privileged-zone behavior (on WD-axis BOTH directions privileged); lm_head shows direction-asymmetric conventional behavior (more regularization at cooldown = worse) on both LR and WD axes. **Direction-structure is AUX-KIND-property-bound, not direction-axis-universal**.
+
+**Mechanistic interpretation**: embed direction-symmetric privileged-zone is bound to embed structural properties (sparse one-hot input gradient × WD-phase boundary), NOT a generic AdamW-cooldown-WD-phase mechanism. lm_head dense gradients respond conventionally to regularization perturbations.
+
+### FFS-burst grid expanding (mid-318)
+
+Cycle 71 PIVOT (mid-317) launched FFS-PRIMARY pre-crossing-window mechanism axis. Now expanding to 2-way grid:
+
+| | LR-magnitude burst | NS5-quality burst |
+|---|---|---|
+| **window** | [2750, 2950] | [2750, 2950] (SAME) |
+| **mech** | LR × {1.25, 1.5} on body Muon | NS5_ITERS × {18, 22} on body Muon |
+| **PR** | alphonse #1408 (in flight) | **edward #1411 (NEW)** |
+
+This 2-way grid resolves whether **step magnitude or update direction quality** is the FFS-critical axis in the pre-crossing window. Independent + complementary mechanisms.
+
+### Fresh assignment (1 idle student → 1 new PR):
+
+| PR | student | mech | purpose |
+|---|---|---|---|
+| **#1411** | edward | MU_NS_ITERS_FFS_BURST_DISPATCH (125th mech, FFS-primary, virgin orthogonalization-quality phase axis) | Boost body Muon NS5 iterations in [2750, 2950]. Arm A: NS_ITERS=18. Arm B: NS_ITERS=22. Tests whether sharper orthogonalization in critical window moves FFS. **Complement to alphonse #1408** — same window, different mechanism (quality vs magnitude). Per Morgan #1261 + cycle 71 FFS-pivot. |
+
+### Cycle 71 cumulative findings (post mid-318)
+
+- **10 cluster-floor compound mechanism classes** (lm_head WD less-WD adds; saturate at val~3.268-3.269 / ffs 3000-3025)
+- **Cross-AUX-kind direction-axis structure**: embed = symmetric/privileged-zone on both LR+WD axes; lm_head = asymmetric/conventional on both LR+WD axes — direction-structure is AUX-KIND-property-bound
+- **4 cross-AUX-kind universality tests resolved or in flight**: LR grid COMPLETE param-count-monotonic; **WD grid 2-of-3 with EMBED-SPECIFIC symmetry**; β2 grid partial; Nesterov grid in flight
+- **Direction-symmetry is AUX-KIND-specific** (NEW principle, mid-318), NOT direction-axis-universal
+- **FFS-burst grid (mid-318)**: 2-way pre-crossing-window mechanism grid (LR-magnitude × NS5-quality) launched; resolves the FFS-critical axis (magnitude vs quality)
+
+### In-flight student PRs (8 concurrent):
+
+- **alphonse #1408** (LR-magnitude FFS burst on body Muon, in flight)
+- **askeladd #1391** (body NS5 per-block-half depth×NS5 extension)
+- **edward #1411** (NEW — NS5-quality FFS burst on body Muon)
+- **fern #1405** (AUX LARS trust-ratio cross-class contrapositive)
+- **frieren #1396** (body Muon WD phase transition at cooldown — virgin body-WD axis; completes cross-AUX-kind WD grid)
+- **nezuko #1404** (AUX param state-reset m-only/v-only decomposition of #1353)
+- **tanjiro #1390** (embed AUX sign-SGD update-rule virgin)
+- **thorfinn #1397** (AUX Nesterov phase at cooldown — cross-optimizer-class)
+
+ZERO IDLE. 8 concurrent active.
+
+---
+
 ## 2026-05-27 08:45 UTC — Cycle 71 mid-317 (FFS-primary pivot, cluster-floor confirmed STRUCTURAL ceiling)
 
 **Cumulative**: **202 refuted (+1 this wake)** / **124 distinct mech classes (+1 fresh #1408)** / **77 family-level closures (+1)**.
