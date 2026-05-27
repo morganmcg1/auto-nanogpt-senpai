@@ -469,6 +469,18 @@ WD_AUX = float(os.environ.get("WD_AUX", "0.0"))  # AdamW WD on embed + lm_head m
 EMBED_INIT_STD = float(os.environ.get("EMBED_INIT_STD", "1.0"))  # default preserves baseline N(0,1)
 LOGIT_SOFTCAP = float(os.environ.get("LOGIT_SOFTCAP", "15.0"))  # default = 15 (current hardcoded value); soft-cap value c in f(x) = c·x / sqrt(x^2+c^2)
 
+# Eval-slot LR burst (PR #1428): scale body Muon LR by EVAL_SLOT_LR_BURST_MULT
+# for the selected depth-half (late=blocks 6-11 or early=blocks 0-5) during
+# steps in [START, END). Tests whether a post-target-crossing-window LR
+# perturbation can shift the cluster-floor FFS slot.
+EVAL_SLOT_LR_BURST_ENABLED = int(os.environ.get("EVAL_SLOT_LR_BURST_ENABLED", "0"))
+EVAL_SLOT_LR_BURST_MULT = float(os.environ.get("EVAL_SLOT_LR_BURST_MULT", "1.15"))
+EVAL_SLOT_LR_BURST_START = int(os.environ.get("EVAL_SLOT_LR_BURST_START", "2850"))
+EVAL_SLOT_LR_BURST_END = int(os.environ.get("EVAL_SLOT_LR_BURST_END", "3050"))
+EVAL_SLOT_LR_BURST_DEPTH_HALF = os.environ.get("EVAL_SLOT_LR_BURST_DEPTH_HALF", "late")
+assert EVAL_SLOT_LR_BURST_DEPTH_HALF in ("late", "early"), \
+    f"EVAL_SLOT_LR_BURST_DEPTH_HALF must be 'late' or 'early', got {EVAL_SLOT_LR_BURST_DEPTH_HALF!r}"
+
 
 def zeropower_via_newtonschulz5(G: Tensor) -> Tensor:
     assert G.ndim >= 2
@@ -866,6 +878,11 @@ if dist.get_rank() == 0:
             "optimizer/attn_soap_trust_threshold": ATTN_SOAP_TRUST_THRESHOLD,
             "optimizer/ns5_iters": NS5_ITERS,
             "optimizer/wd_aux": WD_AUX,
+            "optimizer/eval_slot_lr_burst_enabled": EVAL_SLOT_LR_BURST_ENABLED,
+            "optimizer/eval_slot_lr_burst_mult": EVAL_SLOT_LR_BURST_MULT,
+            "optimizer/eval_slot_lr_burst_start": EVAL_SLOT_LR_BURST_START,
+            "optimizer/eval_slot_lr_burst_end": EVAL_SLOT_LR_BURST_END,
+            "optimizer/eval_slot_lr_burst_depth_half": EVAL_SLOT_LR_BURST_DEPTH_HALF,
             "optimizer/recipe": "contra-muon + normuon-lite + soap-on-mlp + soap-on-attn-trust-gate (pre-NS5, record #14 + record #16)",
         },
     )
@@ -904,7 +921,36 @@ for trial_idx in range(args.num_trials):
                        betas=(0.8, 0.95), eps=1e-10, weight_decay=0, fused=True)
     optimizer2 = Muon([(n, p) for n, p in model.blocks.named_parameters() if p.ndim >= 2],
                       lr=MUON_LR, weight_decay=MUON_WEIGHT_DECAY, mu=MU)
-    optimizer2.param_groups[0]["name"] = "muon_blocks"
+    if EVAL_SLOT_LR_BURST_ENABLED:
+        # Split body Muon into early-half (blocks 0-5) and late-half (blocks 6-11)
+        # param groups so the burst window can scale group["lr"] for one depth-half.
+        import re as _re_burst
+        body_named = [(n, p) for n, p in model.blocks.named_parameters() if p.ndim >= 2]
+        name_by_id = {id(p): n for n, p in body_named}
+        src_params = list(optimizer2.param_groups[0]["params"])
+        early_params, late_params = [], []
+        for p in src_params:
+            n = name_by_id[id(p)]
+            m = _re_burst.match(r"^(\d+)\.", n)
+            if m is None:
+                raise ValueError(f"Unexpected body param name (no leading block index): {n}")
+            block_idx = int(m.group(1))
+            if 0 <= block_idx < 6:
+                early_params.append(p)
+            elif 6 <= block_idx < 12:
+                late_params.append(p)
+            else:
+                raise ValueError(f"Block index {block_idx} outside [0, 12) for param {n}")
+        early_params = sorted(early_params, key=lambda x: x.size(), reverse=True)
+        late_params = sorted(late_params, key=lambda x: x.size(), reverse=True)
+        assert len(early_params) > 0 and len(late_params) > 0, \
+            f"Depth-half split produced empty group: early={len(early_params)} late={len(late_params)}"
+        optimizer2.param_groups = [
+            dict(params=early_params, lr=MUON_LR, weight_decay=MUON_WEIGHT_DECAY, mu=MU, name="muon_blocks_early"),
+            dict(params=late_params, lr=MUON_LR, weight_decay=MUON_WEIGHT_DECAY, mu=MU, name="muon_blocks_late"),
+        ]
+    else:
+        optimizer2.param_groups[0]["name"] = "muon_blocks"
     optimizers = [optimizer1, optimizer2]
     assert set(p for opt in optimizers for group in opt.param_groups
                for p in group["params"]) == set(model.parameters())
@@ -931,11 +977,18 @@ for trial_idx in range(args.num_trials):
                 cur_mu = MU_COOLDOWN_START + (MU_COOLDOWN_END - MU_COOLDOWN_START) * t
         else:
             cur_mu = MU + (MU_END - MU) * progress
+        body_muon_group_names = ("muon_blocks", "muon_blocks_early", "muon_blocks_late")
         for opt in optimizers:
             for group in opt.param_groups:
                 group["lr"] = group["initial_lr"] * eta
-                if group.get("name") == "muon_blocks":
+                if group.get("name") in body_muon_group_names:
                     group["mu"] = cur_mu
+        # Eval-slot LR burst: scale body Muon LR for selected depth-half during window
+        if EVAL_SLOT_LR_BURST_ENABLED and EVAL_SLOT_LR_BURST_START <= step < EVAL_SLOT_LR_BURST_END:
+            target_name = "muon_blocks_late" if EVAL_SLOT_LR_BURST_DEPTH_HALF == "late" else "muon_blocks_early"
+            for group in optimizer2.param_groups:
+                if group.get("name") == target_name:
+                    group["lr"] *= EVAL_SLOT_LR_BURST_MULT
 
 
     ########################################
@@ -1025,6 +1078,18 @@ for trial_idx in range(args.num_trials):
         train_loss = float((step_loss / batch_size).item())
         # set optimization hyperparameters and take a step
         set_hparams(step)
+        if EVAL_SLOT_LR_BURST_ENABLED and dist.get_rank() == 0:
+            if step == EVAL_SLOT_LR_BURST_START:
+                print0(
+                    f"[EVAL_SLOT_LR_BURST] step={step} depth_half={EVAL_SLOT_LR_BURST_DEPTH_HALF} "
+                    f"mult={EVAL_SLOT_LR_BURST_MULT} burst_active=True",
+                    console=True,
+                )
+            elif step == EVAL_SLOT_LR_BURST_END:
+                print0(
+                    f"[EVAL_SLOT_LR_BURST] step={step} burst_active=False (restored baseline)",
+                    console=True,
+                )
         train_step = step + 1
         telemetry_due = (step == 0 or (step + 1) % args.telemetry_interval == 0 or step + 1 == train_steps)
         histogram_due = (step == 0 or (step + 1) % args.histogram_interval == 0 or step + 1 == train_steps)
@@ -1032,6 +1097,20 @@ for trial_idx in range(args.num_trials):
         wandb_step = trial_idx * (train_steps + 1) + train_step
         if dist.get_rank() == 0:
             train_loss_history.append((train_step, train_loss))
+            if EVAL_SLOT_LR_BURST_ENABLED:
+                burst_active = int(EVAL_SLOT_LR_BURST_START <= step < EVAL_SLOT_LR_BURST_END)
+                burst_metrics = {
+                    "trial": trial_idx,
+                    "train/step": train_step,
+                    "train/eval_slot_lr_burst/active": burst_active,
+                }
+                for group in optimizer2.param_groups:
+                    gn = group.get("name", "")
+                    if gn == "muon_blocks_early":
+                        burst_metrics["train/eval_slot_lr_burst/effective_lr_early_half"] = group["lr"]
+                    elif gn == "muon_blocks_late":
+                        burst_metrics["train/eval_slot_lr_burst/effective_lr_late_half"] = group["lr"]
+                wandb.log(burst_metrics, step=wandb_step)
         if dist.get_rank() == 0 and slope_due:
             slope_metrics = {
                 "trial": trial_idx,
