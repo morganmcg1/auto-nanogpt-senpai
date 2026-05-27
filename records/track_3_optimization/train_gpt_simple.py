@@ -70,6 +70,12 @@ def parse_args():
                              "late-higher=0.9 (block 0) → 1.1 (block 11), "
                              "late-lower=1.1 (block 0) → 0.9 (block 11). "
                              "Mean LR preserved across blocks.")
+    parser.add_argument("--muon_block_mu_pattern", type=str, default="none",
+                        choices=["none", "late-higher", "late-lower"],
+                        help="Per-block Muon Nesterov momentum (mu) shape: none=uniform 0.95, "
+                             "late-higher=0.93 (block 0) → 0.97 (block 11), "
+                             "late-lower=0.97 (block 0) → 0.93 (block 11). "
+                             "Mean mu preserved across blocks (=0.95).")
     args = parser.parse_args()
     args.num_trials = args.num_trials if args.num_trials is not None else (args.legacy_num_trials or 1)
     args.wandb_tags = [tag.strip() for tag in args.wandb_tags.split(",") if tag.strip()]
@@ -568,12 +574,16 @@ class Muon(torch.optim.Optimizer):
                         state["momentum"] = torch.zeros_like(p)
                         state["L"] = torch.zeros(p.shape[0], p.shape[0], device=p.device, dtype=torch.float32)
                         state["R"] = torch.zeros(p.shape[1], p.shape[1], device=p.device, dtype=torch.float32)
+                    mu_eff = group["mu"]
+                    param_mu_values = getattr(self, "_param_mu_values", None)
+                    if param_mu_values is not None:
+                        mu_eff = param_mu_values.get(id(p), mu_eff)
                     update = pmuon_update(
                         p.grad,
                         state["momentum"],
                         state["L"],
                         state["R"],
-                        mu=group["mu"],
+                        mu=mu_eff,
                         beta_cov=group["beta_cov"],
                         gamma=group["gamma"],
                         ns_a=group["ns_a"],
@@ -731,6 +741,7 @@ if dist.get_rank() == 0:
             "ema_beta_target": args.ema_beta_target if args.ema_beta_target is not None else 0.0,
             "ema_dynamic_ramp_active": int(args.ema_beta_target is not None and args.ema_beta > 0),
             "muon_block_lr_pattern": args.muon_block_lr_pattern,
+            "muon_block_mu_pattern": args.muon_block_mu_pattern,
         },
     )
 
@@ -799,6 +810,34 @@ for trial_idx in range(args.num_trials):
             wandb.log({f"muon_block_lr_mult/block_{i}": m for i, m in enumerate(block_mults)},
                       step=0)
     optimizer2._param_lr_mults = param_lr_mults
+
+    # Per-block Muon Nesterov momentum (mu) shape: mean-preserving linear ramp across block index.
+    # Mean mu preserved at 0.95 (baseline) via symmetric ramp around 0.95.
+    base_mu = 0.95
+    param_mu_values = None
+    block_mus = None
+    b0_mu = base_mu
+    b11_mu = base_mu
+    if args.muon_block_mu_pattern != "none":
+        if args.muon_block_mu_pattern == "late-higher":
+            lo_mu, hi_mu = 0.93, 0.97
+        elif args.muon_block_mu_pattern == "late-lower":
+            lo_mu, hi_mu = 0.97, 0.93
+        block_mus = [lo_mu + (hi_mu - lo_mu) * (i / (NUM_LAYERS - 1)) for i in range(NUM_LAYERS)]
+        param_mu_values = {}
+        for name, p in model.named_parameters():
+            if p.ndim >= 2 and name.startswith("blocks."):
+                idx = int(name.split(".")[1])
+                param_mu_values[id(p)] = block_mus[idx]
+        b0_mu = block_mus[0]
+        b11_mu = block_mus[NUM_LAYERS - 1]
+        if dist.get_rank() == 0:
+            print0(f"per-block Muon mu pattern: {args.muon_block_mu_pattern}", console=True)
+            for i, m in enumerate(block_mus):
+                print0(f"  block {i}: mu={m:.4f}", console=True)
+            wandb.log({f"muon_block_mu/block_{i:02d}": m for i, m in enumerate(block_mus)},
+                      step=0)
+    optimizer2._param_mu_values = param_mu_values
 
     optimizers = [optimizer1, optimizer2]
     assert set(p for opt in optimizers for group in opt.param_groups
@@ -1088,6 +1127,14 @@ for trial_idx in range(args.num_trials):
                     "muon_block_lr/effective_block_11": muon_group_lr * b11_lr_mult,
                     "muon_block_lr/group_lr": muon_group_lr,
                     "muon_block_lr/ratio_b11_over_b0": b11_lr_mult / b0_lr_mult,
+                }, step=wandb_step)
+            if param_mu_values is not None:
+                wandb.log({
+                    "trial": trial_idx,
+                    "train/step": train_step,
+                    "muon_block_mu/effective_block_0": b0_mu,
+                    "muon_block_mu/effective_block_11": b11_mu,
+                    "muon_block_mu/diff_b11_minus_b0": b11_mu - b0_mu,
                 }, step=wandb_step)
             if ema_params is not None:
                 wandb.log({
