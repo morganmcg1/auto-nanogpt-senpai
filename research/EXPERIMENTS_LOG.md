@@ -1,5 +1,71 @@
 # SENPAI Research Results
 
+## 2026-05-27 17:20 UTC — PR #1429 MERGED as new baseline: pEMA-only refresh @ step 2600 n=2 WIN (g1r1-fern)
+
+- Branch: `g1r1-fern/pema-only-2600-n2-seed2`
+- Hypothesis: n=2 seed-2 confirmation of #1378 Arm B (pEMA-refresh @ step 2600, `--paramema_refresh_only`, `--paramema_refresh_step 2600`). First n=2 confirmation SUCCESS after two consecutive marginal-WIN collapses.
+
+| Metric | Seed-1 #1378 `y4nxof1m` | Seed-2 #1429 `fek06bk7` | n=2 mean | Baseline #1289 |
+|---|---|---|---|---|
+| val_loss_ema | 3.2635624 | 3.2643132 | **3.263938** | 3.264718 |
+| sr | 2875 | 2925 | **2900** | 2925 |
+| Δ vs baseline (mnat) | −1.156 | −0.405 | **−0.780 WIN** | — |
+| Individual merge gate | ✓ sr-clause (sr=2875 ≤ 2912.5) | ✓ val-clause (val < 3.264718 at sr=2925) | ✓ both clauses | — |
+| ema_refresh/fired @ 2600 | 1 ✓ | 1 ✓ | — | — |
+| Stat-sig (3.28-μ)·√2 | — | — | 0.02272 ≥ 0.004 ✓ | — |
+
+**MERGED as new baseline. Updated merge clause: `sr ≤ 2887.5 OR (sr=2900 AND val_ema < 3.263938)`**
+
+**Mechanism canon — ESTABLISHED:** pEMA refresh at step 2600 is a one-shot zero of the EVAL-MODE param-averaging buffer mid-cooldown. The fresh EMA buffer accumulates only high-quality late-cooldown updates (steps 2601-3250). NOT an optimizer-state mechanism (orthogonal to LR-pulse axis). Refresh-step-POSITION is the load-bearing variable: pEMA @ 2275 NULL (+0.629 mnat, #1378 Arm A), pEMA @ 2600 WIN (−0.780 mnat n=2 mean, this). 1.409 mnat asymmetry confirms step-position dominance.
+
+**Cross-Pareto confirmation:** UNUSUALLY STRONG. Seed-1 passes via sr-improvement (sr=2875), seed-2 passes via val-improvement (val=3.264313 < 3.264718 at sr=2925). Different Pareto axes confirm mechanism robustness across seeds.
+
+**This is the 6th consecutive baseline improvement (PR #68→#94→#137→#193→...→#1289→#1429) and the first in the refresh-axis mechanism class.**
+
+---
+
+## 2026-05-27 17:22 UTC — PR #1430 CLOSED: body × aux pretarget LR stacking NULL — stacking premise doubly undermined (g1r1-nezuko)
+
+- Branch: `g1r1-nezuko/body-aux-stacking`
+- Hypothesis: body ×0.85 reduce + aux ×1.30 boost in steps 2500-2924. Premise: body-reduce gives aux "trajectory slack"; aux-boost exploits slack — super-additive via mechanism-orthogonal optimizer surfaces.
+
+| Arm | Config | W&B run | val_loss_ema | sr | Δ vs OLD baseline (3.264718) | Δ vs NEW baseline (3.263938) | Verdict |
+|---|---|---|---|---|---|---|---|
+| Arm A | body ×0.85 + aux ×1.30 | `vftcmvc5` | 3.2660 | 2925 | +1.282 mnat NULL | **+2.062 mnat NULL** | CLEAR NULL |
+| Arm B | body ×0.85 + aux ×1.20 | not launched | — | — | — | — | not needed |
+| NEW Baseline #1429 | — | `fek06bk7` | **3.263938** | **2900** | — | — | — |
+
+**Closure rationale — stacking premise doubly undermined:**
+
+1. **aux ×1.30 joint component FAILED n=2 (#1410):** The stacking was premised on #1365 aux ×1.30 being a WIN. After #1410's n=2 collapse (Δ−0.720 → +0.500), aux ×1.30 joint is a CONFIRMED NULL. This PR was always stacking a NULL on a NULL.
+2. **aux LR-magnitude axis unraveling:** #1399 lm_head-only ×1.20 (Δ−0.302, below margin) → #1425 Arm A ×1.30 (Δ+0.182 NULL, non-monotonic dose-response). The aux LR phase-window mechanism is increasingly seed-noise-driven.
+3. **New baseline harder to beat:** PR #1429 merged → Arm A is +2.062 mnat above new baseline.
+
+**Canon contribution:** Body × aux phase-window LR stacking: DOUBLY-NULL. Confirms individual component NULLs (body LR phase-window #1376, aux LR joint n=2 #1410) are not rescued by cross-surface interaction. The "trajectory slack" mechanism does not materialize.
+
+**nezuko → PR #1458 pEMA × ema_beta_target interaction.**
+
+---
+
+## 2026-05-27 17:25 UTC — PR #1458 nezuko ASSIGNED: pEMA × ema_beta_target interaction — maps optimal post-refresh EMA accumulation width
+
+- Branch: `g1r1-nezuko/pema-ema-beta-target-interaction`
+- Hypothesis: ema_beta_target=0.99 (PR #1234 WIN) was tuned WITHOUT pEMA refresh. With pEMA @ 2600, the fresh 650-step accumulation window may benefit from different final-β smoothing. Tests N_eff=67 (Arm A, 0.985) vs N_eff=200 (Arm B, 0.995) vs baseline N_eff=100 (0.99).
+
+| Arm | ema_beta_target | N_eff at terminal | Post-refresh window | Hypothesis |
+|---|---|---|---|---|
+| Arm A | 0.985 | 67 steps | 650 steps fresh | More responsive — closer to terminal params |
+| **Baseline** | **0.99** | **100 steps** | **650 steps** | — |
+| Arm B | 0.995 | 200 steps | 650 steps fresh | Wider smoother average — captures more of fresh window |
+
+Both arms: `--muon_lr 0.040 --ema_beta 0.97 --ema_warmup_steps 1750 --ema_beta_target <value> --muon_block_lr_pattern late-higher --paramema_refresh_only --paramema_refresh_step 2600`
+
+**Mechanism motivation:** pEMA WIN is specifically about fresh EMA capturing high-quality late-cooldown signal. The ema_beta_target controls how fast the fresh buffer builds up and how widely it averages. Baseline N_eff=100 was not tuned for the pEMA-refresh context. Non-trivial interaction expected.
+
+**Orthogonal to all in-flight:** #1457 (step-position), #1456 (body μ), #1452 (scalars LR), #1445 (body WD), #1435 (body NS_ITERS), #1425 (lm_head LR dose-response).
+
+---
+
 ## 2026-05-27 17:10 UTC — PR #1399 frieren lm_head-only LR pulse CLOSED marginal-WIN-candidate WITHOUT MERGE — below margin + dose-response non-monotonic (g1r1-frieren)
 
 - Branch: `g1r1-frieren/lm-head-lr-pulse`
