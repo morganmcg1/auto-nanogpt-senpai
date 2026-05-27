@@ -70,6 +70,13 @@ def parse_args():
                              "late-higher=0.9 (block 0) → 1.1 (block 11), "
                              "late-lower=1.1 (block 0) → 0.9 (block 11). "
                              "Mean LR preserved across blocks.")
+    parser.add_argument("--embed_lr_pulse_mult", type=float, default=1.0,
+                        help="Multiplicative factor on adam_embed group LR during the pulse window only. "
+                             "1.0 = no pulse. Applies only to the adam_embed group, not lm_head or scalars.")
+    parser.add_argument("--embed_lr_pulse_window_start", type=int, default=2500,
+                        help="First step (inclusive) of the embed LR pulse window.")
+    parser.add_argument("--embed_lr_pulse_window_end", type=int, default=2925,
+                        help="Last step (exclusive) of the embed LR pulse window.")
     args = parser.parse_args()
     args.num_trials = args.num_trials if args.num_trials is not None else (args.legacy_num_trials or 1)
     args.wandb_tags = [tag.strip() for tag in args.wandb_tags.split(",") if tag.strip()]
@@ -731,6 +738,9 @@ if dist.get_rank() == 0:
             "ema_beta_target": args.ema_beta_target if args.ema_beta_target is not None else 0.0,
             "ema_dynamic_ramp_active": int(args.ema_beta_target is not None and args.ema_beta > 0),
             "muon_block_lr_pattern": args.muon_block_lr_pattern,
+            "embed_lr_pulse_mult": args.embed_lr_pulse_mult,
+            "embed_lr_pulse_window_start": args.embed_lr_pulse_window_start,
+            "embed_lr_pulse_window_end": args.embed_lr_pulse_window_end,
         },
     )
 
@@ -993,6 +1003,15 @@ for trial_idx in range(args.num_trials):
         train_loss = float((step_loss / batch_size).item())
         # set optimization hyperparameters and take a step
         sched_progress, sched_cooldown_progress, sched_eta = set_hparams(step)
+        # Embed-only phase-window LR pulse (PR #1400). Multiply the adam_embed
+        # group's LR by args.embed_lr_pulse_mult only during the configured window;
+        # other aux groups (adam_lm_head, adam_scalars) and body-Muon are untouched.
+        embed_pulse_active = (args.embed_lr_pulse_window_start <= step <
+                              args.embed_lr_pulse_window_end)
+        if embed_pulse_active and args.embed_lr_pulse_mult != 1.0:
+            for group in optimizer1.param_groups:
+                if group.get("name") == "adam_embed":
+                    group["lr"] = group["initial_lr"] * sched_eta * args.embed_lr_pulse_mult
         train_step = step + 1
         telemetry_due = (step == 0 or (step + 1) % args.telemetry_interval == 0 or step + 1 == train_steps)
         histogram_due = (step == 0 or (step + 1) % args.histogram_interval == 0 or step + 1 == train_steps)
@@ -1000,6 +1019,25 @@ for trial_idx in range(args.num_trials):
         wandb_step = trial_idx * (train_steps + 1) + train_step
         if dist.get_rank() == 0:
             train_loss_history.append((train_step, train_loss))
+            # Per-step embed pulse telemetry: log every step so boundary
+            # transitions (e.g. step 2499→2500 and 2924→2925) are precisely
+            # captured for verification. Three scalars per step is negligible.
+            embed_lr_now = float("nan")
+            lm_head_lr_now = float("nan")
+            for group in optimizer1.param_groups:
+                gname = group.get("name")
+                if gname == "adam_embed":
+                    embed_lr_now = float(group["lr"])
+                elif gname == "adam_lm_head":
+                    lm_head_lr_now = float(group["lr"])
+            wandb.log({
+                "trial": trial_idx,
+                "train/step": train_step,
+                "adamw/loop_step": step,
+                "adamw/embed_lr": embed_lr_now,
+                "adamw/lm_head_lr": lm_head_lr_now,
+                "adamw/embed_lr_pulse_active": int(embed_pulse_active),
+            }, step=wandb_step)
         if dist.get_rank() == 0 and slope_due:
             slope_metrics = {
                 "trial": trial_idx,
