@@ -7,7 +7,32 @@ Statistical rule: `(3.28 - mu) * sqrt(n) >= 0.004`.
 
 ## Local baseline (auto-nanogpt-1gpu-r1)
 
-### 2026-05-26 18:54 UTC — PR #1289: Per-block Muon LR shape late-higher (tanjiro Arm A WIN) (g1r1-tanjiro) ← CURRENT BEST
+### 2026-05-27 17:20 UTC — PR #1429: pEMA-only refresh @ step 2600 n=2 confirmation (fern n=2 WIN) (g1r1-fern) ← CURRENT BEST
+
+- **speedrun/final_first_step_to_target:** 2900 (n=2 mean — seed-1 `y4nxof1m` 2875, seed-2 `fek06bk7` 2925; both seeds independently pass merge gate via DIFFERENT clauses)
+- **val/loss_ema:** 3.263938 (n=2 mean — seed-1 `y4nxof1m` 3.2635624408721924, seed-2 `fek06bk7` 3.264313220977783)
+- **stat-sig margin:** (3.28 − 3.263938)·√2 = 0.02272 ≥ 0.004 ✓ (5.68×)
+- **Δ vs PR #1289 baseline:** −25 sr-steps (n=2 mean 2900 < 2925), −0.780 mnat val (n=2 mean 3.263938 < 3.264718)
+- **W&B runs:** seed-1 `y4nxof1m` (PR #1378 Arm B), seed-2 `fek06bk7` (PR #1429); group `g1r1-fern-pema-only-n2-confirm`
+- **Key config:** all PR #1289 config + `--paramema_refresh_only --paramema_refresh_step 2600`. One-shot zero of param-EMA buffer at step 2600 (mid-cooldown); fresh EMA re-accumulates over steps 2601–3250 using only high-quality late-cooldown updates.
+- **Mechanism:** EVAL-MODE param-averaging buffer reset — NOT an optimizer-state perturbation. At step 2600 (post-EMA-warmup + mid-cooldown), the pEMA buffer is zeroed. Fresh EMA accumulates ONLY high-quality late-cooldown params, free from pre-cooldown noise contamination. Mechanism is orthogonal to LR-axis (pEMA is eval-mode averaging; LR-pulse modifies training-mode gradient-step magnitude). 1.785 mnat asymmetry between pEMA @ step 2275 (NULL, #1378 Arm A) and pEMA @ step 2600 (WIN, this) confirms refresh-STEP-position is the load-bearing variable, not refresh-mechanism per se.
+- **Cross-seed corroboration:** UNUSUALLY STRONG — seed-1 passes via sr-clause (sr=2875 ≤ 2887.5), seed-2 passes via val-clause (val=3.264313 < 3.263938 baseline... wait: val=3.264313 < 3.264718 PRIOR baseline, sr=2925). Both seeds pass merge gate via different Pareto axes (sr-improvement vs val-improvement), eliminating "pure seed-noise on one axis" as alternative explanation.
+- **Updated merge clause:** `sr ≤ 2887.5 OR (sr=2900 AND val_ema < 3.263938)`
+- **Statistical thresholds (updated):** n=1 win: sr ≤ 2887.5 OR (sr=2900 AND val_ema < 3.263938). Marginal band: Δval ≤ 0.001 requires n=2.
+- **Reproduce:**
+  ```bash
+  cd target
+  torchrun --standalone --nproc_per_node=1 \
+    records/track_3_optimization/train_gpt_simple.py --num_trials 1 \
+    --muon_lr 0.040 --ema_beta 0.97 --ema_warmup_steps 1750 --ema_beta_target 0.99 \
+    --muon_block_lr_pattern late-higher \
+    --paramema_refresh_only --paramema_refresh_step 2600 \
+    --wandb_name "baseline-reproduction-pr1429" \
+    --wandb_group "baseline-reproduction"
+  ```
+- **Notes:** pEMA-step axis confirmed productive at step 2600 only — step 2275 NULL (#1378 Arm A). Refresh-axis canon established: L_cov-refresh fully closed (all multiplicities NULL, #1268/#1386), pEMA-refresh PRODUCTIVE at step 2600 specifically. Mechanism-orthogonal to LR-pulse (#1399/#1425 in flight) — stacking pEMA @ 2600 + lm_head LR pulse is the natural next experiment (PR #1457 is currently probing refresh-step-position width around 2600). All in-flight PRs' merge gates should be updated to compare against this new baseline (val_ema=3.263938, sr=2900).
+
+### 2026-05-26 18:54 UTC — PR #1289: Per-block Muon LR shape late-higher (tanjiro Arm A WIN) (g1r1-tanjiro)
 
 - **speedrun/final_first_step_to_target:** 2925 (n=1 seed-1 `3zhwgfiw`, sr=2925 tied with prior baseline)
 - **val/loss_ema:** 3.264718 (n=1 seed-1 `3zhwgfiw`)

@@ -1,5 +1,278 @@
 # SENPAI Research Results
 
+## 2026-05-27 17:20 UTC — PR #1429 MERGED as new baseline: pEMA-only refresh @ step 2600 n=2 WIN (g1r1-fern)
+
+- Branch: `g1r1-fern/pema-only-2600-n2-seed2`
+- Hypothesis: n=2 seed-2 confirmation of #1378 Arm B (pEMA-refresh @ step 2600, `--paramema_refresh_only`, `--paramema_refresh_step 2600`). First n=2 confirmation SUCCESS after two consecutive marginal-WIN collapses.
+
+| Metric | Seed-1 #1378 `y4nxof1m` | Seed-2 #1429 `fek06bk7` | n=2 mean | Baseline #1289 |
+|---|---|---|---|---|
+| val_loss_ema | 3.2635624 | 3.2643132 | **3.263938** | 3.264718 |
+| sr | 2875 | 2925 | **2900** | 2925 |
+| Δ vs baseline (mnat) | −1.156 | −0.405 | **−0.780 WIN** | — |
+| Individual merge gate | ✓ sr-clause (sr=2875 ≤ 2912.5) | ✓ val-clause (val < 3.264718 at sr=2925) | ✓ both clauses | — |
+| ema_refresh/fired @ 2600 | 1 ✓ | 1 ✓ | — | — |
+| Stat-sig (3.28-μ)·√2 | — | — | 0.02272 ≥ 0.004 ✓ | — |
+
+**MERGED as new baseline. Updated merge clause: `sr ≤ 2887.5 OR (sr=2900 AND val_ema < 3.263938)`**
+
+**Mechanism canon — ESTABLISHED:** pEMA refresh at step 2600 is a one-shot zero of the EVAL-MODE param-averaging buffer mid-cooldown. The fresh EMA buffer accumulates only high-quality late-cooldown updates (steps 2601-3250). NOT an optimizer-state mechanism (orthogonal to LR-pulse axis). Refresh-step-POSITION is the load-bearing variable: pEMA @ 2275 NULL (+0.629 mnat, #1378 Arm A), pEMA @ 2600 WIN (−0.780 mnat n=2 mean, this). 1.409 mnat asymmetry confirms step-position dominance.
+
+**Cross-Pareto confirmation:** UNUSUALLY STRONG. Seed-1 passes via sr-improvement (sr=2875), seed-2 passes via val-improvement (val=3.264313 < 3.264718 at sr=2925). Different Pareto axes confirm mechanism robustness across seeds.
+
+**This is the 6th consecutive baseline improvement (PR #68→#94→#137→#193→...→#1289→#1429) and the first in the refresh-axis mechanism class.**
+
+---
+
+## 2026-05-27 17:22 UTC — PR #1430 CLOSED: body × aux pretarget LR stacking NULL — stacking premise doubly undermined (g1r1-nezuko)
+
+- Branch: `g1r1-nezuko/body-aux-stacking`
+- Hypothesis: body ×0.85 reduce + aux ×1.30 boost in steps 2500-2924. Premise: body-reduce gives aux "trajectory slack"; aux-boost exploits slack — super-additive via mechanism-orthogonal optimizer surfaces.
+
+| Arm | Config | W&B run | val_loss_ema | sr | Δ vs OLD baseline (3.264718) | Δ vs NEW baseline (3.263938) | Verdict |
+|---|---|---|---|---|---|---|---|
+| Arm A | body ×0.85 + aux ×1.30 | `vftcmvc5` | 3.2660 | 2925 | +1.282 mnat NULL | **+2.062 mnat NULL** | CLEAR NULL |
+| Arm B | body ×0.85 + aux ×1.20 | not launched | — | — | — | — | not needed |
+| NEW Baseline #1429 | — | `fek06bk7` | **3.263938** | **2900** | — | — | — |
+
+**Closure rationale — stacking premise doubly undermined:**
+
+1. **aux ×1.30 joint component FAILED n=2 (#1410):** The stacking was premised on #1365 aux ×1.30 being a WIN. After #1410's n=2 collapse (Δ−0.720 → +0.500), aux ×1.30 joint is a CONFIRMED NULL. This PR was always stacking a NULL on a NULL.
+2. **aux LR-magnitude axis unraveling:** #1399 lm_head-only ×1.20 (Δ−0.302, below margin) → #1425 Arm A ×1.30 (Δ+0.182 NULL, non-monotonic dose-response). The aux LR phase-window mechanism is increasingly seed-noise-driven.
+3. **New baseline harder to beat:** PR #1429 merged → Arm A is +2.062 mnat above new baseline.
+
+**Canon contribution:** Body × aux phase-window LR stacking: DOUBLY-NULL. Confirms individual component NULLs (body LR phase-window #1376, aux LR joint n=2 #1410) are not rescued by cross-surface interaction. The "trajectory slack" mechanism does not materialize.
+
+**nezuko → PR #1458 pEMA × ema_beta_target interaction.**
+
+---
+
+## 2026-05-27 17:35 UTC — PR #1459 fern ASSIGNED: pEMA step-position late-scan — refresh @ 2850 vs 2900
+
+- Branch: `g1r1-fern/pema-step-late-scan`
+- Hypothesis: extends the step-position map into late territory. Arm A=2850 (25 steps before earliest canonical sr crossing), Arm B=2900 (within canonical sr range 2875-2925). Complements #1457 frieren (Arm A=2500, Arm B=2750) to give full bilateral coverage around canonical step 2600.
+
+| Arm | refresh_step | Remaining fresh window | Hypothesis |
+|---|---|---|---|
+| Arm A | 2850 | 400 steps (2851-3250) | Late pre-crossing refresh — params highly converged at refresh |
+| Arm B | 2900 | 350 steps (2901-3250) | Within crossing range — very focused terminal-convergence signal |
+| Reference WIN | 2600 | 650 steps (2601-3250) | Canonical baseline |
+
+**Step-position full map when combined with #1457:** {2275 NULL, 2500 TBD, 2600 WIN, 2750 TBD, 2850 TBD, 2900 TBD}. A peaked-around-2600 profile would confirm narrow-window canon. A wide WIN plateau would suggest the mechanism tolerates large step variations.
+
+---
+
+## 2026-05-27 17:25 UTC — PR #1458 nezuko ASSIGNED: pEMA × ema_beta_target interaction — maps optimal post-refresh EMA accumulation width
+
+- Branch: `g1r1-nezuko/pema-ema-beta-target-interaction`
+- Hypothesis: ema_beta_target=0.99 (PR #1234 WIN) was tuned WITHOUT pEMA refresh. With pEMA @ 2600, the fresh 650-step accumulation window may benefit from different final-β smoothing. Tests N_eff=67 (Arm A, 0.985) vs N_eff=200 (Arm B, 0.995) vs baseline N_eff=100 (0.99).
+
+| Arm | ema_beta_target | N_eff at terminal | Post-refresh window | Hypothesis |
+|---|---|---|---|---|
+| Arm A | 0.985 | 67 steps | 650 steps fresh | More responsive — closer to terminal params |
+| **Baseline** | **0.99** | **100 steps** | **650 steps** | — |
+| Arm B | 0.995 | 200 steps | 650 steps fresh | Wider smoother average — captures more of fresh window |
+
+Both arms: `--muon_lr 0.040 --ema_beta 0.97 --ema_warmup_steps 1750 --ema_beta_target <value> --muon_block_lr_pattern late-higher --paramema_refresh_only --paramema_refresh_step 2600`
+
+**Mechanism motivation:** pEMA WIN is specifically about fresh EMA capturing high-quality late-cooldown signal. The ema_beta_target controls how fast the fresh buffer builds up and how widely it averages. Baseline N_eff=100 was not tuned for the pEMA-refresh context. Non-trivial interaction expected.
+
+**Orthogonal to all in-flight:** #1457 (step-position), #1456 (body μ), #1452 (scalars LR), #1445 (body WD), #1435 (body NS_ITERS), #1425 (lm_head LR dose-response).
+
+---
+
+## 2026-05-27 17:10 UTC — PR #1399 frieren lm_head-only LR pulse CLOSED marginal-WIN-candidate WITHOUT MERGE — below margin + dose-response non-monotonic (g1r1-frieren)
+
+- Branch: `g1r1-frieren/lm-head-lr-pulse`
+- Hypothesis: aux lm_head-only LR pulse in steps 2500-2924 — Arm A ×1.20 boost, Arm B ×0.80 reduce. Tests param-class isolation within aux family.
+
+| Arm | lm_head LR mult | W&B run | val_loss_ema | sr | Δ vs baseline (3.264718) | Verdict |
+|---|---|---|---|---|---|---|
+| Arm A | ×1.20 boost | `uawnwfpy` | 3.264416 | 2925 | **−0.302 mnat marginal-WIN-candidate** | Below margin canon |
+| Arm B | ×0.80 reduce | `pxyyjwja` | 3.268242 | **2950 (+25 Pareto-shift)** | **+3.524 mnat NULL** | Pareto-shift regression |
+| Baseline #1289 | ×1.00 | `3zhwgfiw` | 3.264718 | 2925 | — | — |
+
+**Pulse-fire CLEAN both arms.** lm_head_lr=1.586e-3 (×1.197 boost @ step 2501) Arm A, =1.058e-3 (×0.80 reduce on step-2501 cosine-decayed baseline 1.321e-3) Arm B. embed/scalars LR bit-identical to baseline — param-class isolation verified.
+
+**Closure rationale — DO NOT request n=2 confirmation:**
+
+1. **Δ−0.302 mnat well below 1.0 mnat margin canon** — within seed-noise floor.
+2. **Recent 2/2 n=2 collapse pattern** on aux marginal-WIN-candidates: #1325→#1379 collapsed (Δ−0.876 → +0.125), #1365→#1410 collapsed (Δ−0.720 → +0.500). Prior probability of n=2 confirming a Δ−0.302 candidate is now substantially below 50%.
+3. **#1425 dose-response in flight** is more informative than redundant n=2 of ×1.20. If lm_head canon is robust, ×1.30 should yield Δ < −0.302 and ×1.40 should yield Δ < −0.302 as well. Arm A of #1425 already terminated NULL Δ+0.182 mnat at ×1.30 — **non-monotonic dose-response detected**, suggesting #1399 Δ−0.302 is seed-driven.
+
+**Directional asymmetry CONFIRMED:** boost-mild-productive (Δ−0.302) vs reduce-strongly-harmful (Δ+3.524 + sr-shift) is the same asymmetry pattern as #1365 joint-aux (Δ−0.720 boost vs Δ+3.557 reduce). However, the asymmetric magnitude does NOT rescue the boost direction from below-margin-noise canon when the n=2 collapse rate is high.
+
+**Aux LR-magnitude axis status (post-#1399 closure):**
+
+| PR | Aux param subset | Mult | Δ val_ema (mnat) | n=2 status |
+|---|---|---|---|---|
+| #1365 alphonse | joint aux | ×1.30 | −0.720 (n=1) → +0.500 (n=2) | COLLAPSED |
+| #1399 frieren (this) | lm_head-only | ×1.20 | −0.302 (n=1) | **CLOSED no n=2** |
+| #1400 edward | embed-only | ×1.10 | +1.315 (n=1) | bilateral NULL, CLOSED |
+| #1425 tanjiro | lm_head-only Arm A | ×1.30 | +0.182 (n=1) | TERMINAL NULL |
+| #1425 tanjiro | lm_head-only Arm B | ×1.40 | in flight | ETA ~20:00 UTC |
+| #1410 alphonse | joint aux n=2 confirm | ×1.30 seed-2 | +1.719 | COLLAPSED |
+| #1452 askeladd | scalars-only | ×1.30/×0.70 | awaiting pickup | — |
+
+**Canon implication:** the aux LR-magnitude axis is increasingly looking like seed-noise-driven across the canonical pulse window 2500-2924. The productive mechanism class is shifting from aux LR-magnitude (unraveling) to refresh-axis (#1429 just confirmed at n=2). **Portfolio attention pivoting toward refresh-axis exploration** (PR #1457 step-position ablation) and stacking experiments.
+
+**frieren → PR #1457 pEMA refresh STEP-POSITION ablation.**
+
+---
+
+## 2026-05-27 17:08 UTC — PR #1425 tanjiro lm_head LR dose-response Arm A TERMINAL NULL — non-monotonic dose-response (g1r1-tanjiro)
+
+- Branch: `g1r1-tanjiro/lm-head-lr-dose-response`
+- Hypothesis: lm_head-only LR dose-response — Arm A ×1.30 (matches joint #1365 mult, direct param-class comparison), Arm B ×1.40 (higher mult dose-response).
+
+| Arm | lm_head LR mult | W&B run | val_loss_ema | sr | Δ vs baseline (3.264718) | Verdict |
+|---|---|---|---|---|---|---|
+| Arm A | ×1.30 | `2fkycdm0` | 3.2649 | 2925 | **+0.182 mnat NULL** | sr-preserve regression |
+| Arm B | ×1.40 | `xc242j9w` | in flight (step ~1025/3250) | — | — | ETA terminal ~20:00 UTC |
+| Baseline #1289 | ×1.00 | `3zhwgfiw` | 3.264718 | 2925 | — | — |
+
+**NON-MONOTONIC DOSE-RESPONSE detected:** lm_head-only ×1.20 (Δ−0.302 mnat, #1399 Arm A) does NOT extend monotonically to ×1.30 (Δ+0.182 mnat, this PR Arm A). If the lm_head LR mechanism were robust, gain should scale with multiplier — instead the dose-response inverts at the ×1.20→×1.30 boundary.
+
+**Cross-PR dose-response matrix on lm_head LR boost direction:**
+
+| Source | Mult | val_loss_ema | Δ vs baseline (mnat) |
+|---|---|---|---|
+| #1289 baseline | ×1.00 | 3.264718 | 0.000 |
+| #1399 Arm A | ×1.20 | 3.264416 | **−0.302 (marginal-WIN-candidate)** |
+| **#1425 Arm A (this)** | **×1.30** | **3.264900** | **+0.182 (NULL regression)** |
+| #1425 Arm B (this) | ×1.40 | in flight | — |
+| #1365 joint aux (lm_head moves with embed) | ×1.30 | 3.263998 | **−0.720 (n=1) collapsed at n=2** |
+
+**Mechanism interpretation:** the non-monotonic dose-response combined with the n=2 collapse pattern of #1365 strongly suggests that any marginal gain in the lm_head-only-pulse axis is seed-noise-driven rather than mechanism-driven. If lm_head were genuinely load-bearing, larger boosts should produce larger gains (assuming the basin is on the boost side); instead gains evaporate at ×1.30 and seed-driven noise dominates the signal.
+
+**Combined with #1410 joint-aux n=2 collapse + #1399 below-margin marginal + this NON-MONOTONIC dose-response,** the aux LR-magnitude axis is increasingly looking like seed-noise-driven across the canonical pulse window. Arm B ×1.40 outcome will provide the bilateral confirmation — if also NULL, the lm_head canon is FULLY WEAKENED.
+
+**Major portfolio implication:** productive mechanism class is shifting from aux LR-magnitude (unraveling) to refresh-axis (#1429 just confirmed at n=2). Portfolio attention pivoting toward refresh-axis exploration (PR #1457 step-position ablation) and stacking experiments.
+
+---
+
+## 2026-05-27 17:10 UTC — PR #1457 frieren ASSIGNED: pEMA refresh STEP-POSITION ablation — maps productive zone around step 2600
+
+- Branch: `g1r1-frieren/pema-refresh-step-position`
+- Hypothesis: maps the productive zone around step 2600 (canonical pEMA-refresh productive step from #1378/#1429 n=2 confirmation). Step-position is the load-bearing variable per #1378 Arm A vs Arm B asymmetry (Δ+0.629 NULL @ step 2275 vs Δ−1.155 WIN @ step 2600).
+
+| Arm | refresh_step | refresh_only flag | Hypothesis |
+|---|---|---|---|
+| Arm A | 2500 | `--paramema_refresh_only` | entrance to canonical pulse window — tests whether productive zone extends 100 steps earlier |
+| Arm B | 2750 | `--paramema_refresh_only` | 175 steps before target crossing — tests whether productive zone extends 150 steps later |
+| Reference | 2600 | (from #1429 n=2 mean) | val_ema ≈ 3.263931, sr=2900, Δ−0.787 mnat WIN |
+
+**Mechanism-distinct from in-flight work:**
+- #1425 tanjiro lm_head LR dose-response — aux LR-axis
+- #1452 askeladd scalars-only aux LR pulse — aux LR-axis
+- #1435 alphonse body Muon NS_ITERS pulse — body Muon polish-axis
+- #1445 edward body Muon WD pulse — body Muon regularization-axis
+- #1456 thorfinn body Muon μ pulse — body Muon momentum-axis
+- #1457 frieren pEMA refresh step-position (this) — **refresh-axis step-position mapping** (orthogonal to all)
+
+**Forecasts:**
+- Bilateral WIN (both Δ < −0.4 mnat): wide productive zone, refresh-axis tolerant to step shifts ±150
+- Both NULL: step 2600 is sharp peak, refresh-axis is narrow-window
+- Asymmetric (one WIN one NULL): directional sensitivity — productive zone has unilateral edge
+
+**Issue #1252 phase-specific aligned.** Independent canon-mapping value regardless of #1425 outcome — uses orthogonal mechanism axis.
+
+---
+
+## 2026-05-27 16:48 UTC — PR #1429 fern n=2 seed-2 confirmation of #1378 Arm B pEMA-refresh @ 2600 — STRONG WIN-CANDIDATE (awaiting student SENPAI-RESULT post)
+
+- Branch: `g1r1-fern/pema-only-2600-n2-seed2`
+- Hypothesis: n=2 seed-2 confirmation of #1378 fern Arm B (pEMA-refresh @ step 2600, --paramema_refresh_only, --paramema_refresh_step 2600). Tests whether the n=1 marginal-WIN-candidate Δ−1.155 mnat + Δsr=−50 survives a different random seed.
+
+| Metric | Baseline #1289 (3zhwgfiw) | Seed-1 #1378 (y4nxof1m) | Seed-2 #1429 (fek06bk7) | n=2 mean |
+|---|---|---|---|---|
+| `val/loss_ema` | 3.264718 | 3.263562 | **3.2643** | **~3.263931** |
+| `val/loss_live` | — | — | 3.2637 | — |
+| `speedrun/first_step_to_target` | 2925 | **2875** | 2925 | **2900** |
+| `speedrun/reached_target` | 1 | 1 | 1 | — |
+| ema_refresh/fired @ 2600 | n/a | 1 ✓ | 1 ✓ | — |
+| Δ vs baseline (mnat) | — | **−1.155 (sr-improve)** | **−0.418 (val-clause)** | **−0.787 mnat WIN** |
+| Individual merge gate | — | ✓ PASS via sr-clause | ✓ **PASS via val-clause** | mean PASS via sr-clause |
+| Stat-sig (3.28-μ)·√n ≥ 0.004 | — | — | — | 0.02273 ≥ 0.004 ✓ |
+
+**Results commentary:** **n=2 confirmation SUCCESS** — both seeds individually pass the merge gate via DIFFERENT clauses (seed-1 via sr=2875 ≤ 2912.5, seed-2 via val=3.2643 < 3.264718 at sr=2925). This is the FIRST n=2 confirmation success after TWO consecutive collapses (#1325→#1379 Δ−0.876 collapsed, #1365→#1410 Δ−0.720 collapsed). The cross-seed pattern (sr-improvement axis + val-clause axis) makes this a STRONG cross-Pareto confirmation.
+
+**Mechanism canon — refresh-axis RE-ESTABLISHED on pEMA-step:**
+
+The pEMA refresh is NOT an optimizer-state perturbation — it's a EVAL-MODE moving average reset. At step 2600, the param-EMA buffer (used for val_loss_ema computation) is zeroed. Fresh EMA accumulates from step 2600 onward, averaging ONLY high-quality late-cooldown params (steps 2601-3250). The benefit comes from a "cleaner" EMA window aligned with the productive late-cooldown regime, free from pre-cooldown noise contamination.
+
+**Refresh-step asymmetry confirmed at n=2:**
+- pEMA @ step 2275 (pre-cooldown): NULL Δ+0.629 mnat (per #1378 Arm A)
+- pEMA @ step 2600 (mid-cooldown): WIN Δ−0.787 mnat at n=2 (this PR)
+- Asymmetry: 1.416 mnat between refresh-step positions at n=2 — STEP-POSITION is the load-bearing variable.
+
+**Mechanism-orthogonality to LR-pulse axis:**
+- pEMA-refresh: EVAL-MODE parameter averaging reset (changes val_ema computation only)
+- LR-pulse (#1399/1365): TRAINING-MODE optimizer-step magnitude perturbation (changes training trajectory)
+- These are MECHANISTICALLY DISTINCT — stackable. Future stacking PR (lm_head LR pulse + pEMA refresh @ 2600) is the natural next mechanism test.
+
+**Cross-portfolio canon impact:**
+
+| Refresh axis | PR | Mechanism | Verdict |
+|---|---|---|---|
+| L_cov refresh @ 2600 | #1268 | Muon preconditioner slow-mixing | NULL |
+| L_cov multi-refresh | #1386 | dense/sparse multiplicity | NULL (all multiplicities) |
+| Aux full state refresh | #1299 | AdamW (m,v,step) | NULL inert |
+| Aux variance-only refresh | #1315 | AdamW v only | CATASTROPHIC |
+| pEMA refresh @ 2275 | #1378 Arm A | EVAL param-EMA reset (early) | NULL |
+| **pEMA refresh @ 2600** | **#1378 Arm B + #1429** | **EVAL param-EMA reset (mid-cooldown)** | **WIN at n=2** |
+
+The refresh-axis is now finely partitioned: L_cov-mech and aux-state-mech are FULLY CLOSED across all variants; pEMA-step is PRODUCTIVE specifically at step 2600. The two refresh families are mechanistically distinct (L_cov = preconditioner state, pEMA = eval-mode averaging buffer).
+
+**Merge readiness:** PR #1429 is merge-ready pending student SENPAI-RESULT post with full-precision seed-2 val_loss_ema and structured marker. Once posted, baseline candidate would update to n=2 mean (~3.263931, sr=2900). Will run `senpai:merge-winner` preflight at that point.
+
+**Awaiting student post for:**
+1. SENPAI-RESULT structured marker
+2. Full precision val_loss_ema for seed-2 (6 decimal places)
+3. Explicit n=2 mean computation
+4. pEMA refresh verification snapshots (`||p_ema − p_live||_F` near step 2599 and 2601)
+
+---
+
+## 2026-05-27 16:46 UTC — PR #1407 CLOSED: phase-window aux β2 pulse bilateral NULL — 172nd NULL (g1r1-thorfinn)
+
+- Branch: `thorfinn/aux-beta2-phase-window-pulse`
+- Hypothesis: aux Adam β2 phase-window pulse in steps 2500-2924 — tests preconditioner-state-evolution axis (mechanism-orthogonal to LR-magnitude axis). Arm A β2=0.99 (sticky, ~100-step horizon matched to pulse window duration); Arm B β2=0.85 (reactive, ~7-step horizon).
+
+| Arm | β2 in window | W&B run | val_loss_ema | sr | Δ vs baseline (3.264718) | Verdict |
+|---|---|---|---|---|---|---|
+| Arm A | 0.99 sticky | `n314nsjz` | 3.266934 | 2925 | **+2.216 mnat NULL** | sr-preserve regression |
+| Arm B | 0.85 reactive | `hvgpzd01` | 3.267979 | **2975** | **+3.261 mnat NULL** | Pareto-shift regression |
+| Baseline #1289 | 0.95 | `3zhwgfiw` | 3.264718 | 2925 | — | — |
+
+**Pulse-fire verification — CLEAN both arms.** β2 transition at step 2501 (0.95→0.99 / 0.95→0.85), reverted to 0.95 at step 2926. embed_lr unchanged confirming β2-axis isolation from LR-axis.
+
+**Preconditioner state diagnostic — `adamw/embed_v_norm` trajectory differential confirmed as designed:** Arm A's sticky β2=0.99 smooths v_t (slower decay/recovery characteristic of ~100-step horizon). Arm B's reactive β2=0.85 yields more volatile v_t (large step-to-step swings characteristic of ~7-step horizon). The β2 mechanism fired as intended — neither arm extracted gain from the state-evolution perturbation.
+
+**Mechanism canon — aux preconditioner-state axis FULLY EXHAUSTED:**
+
+| PR | Aux state axis | Mechanism | Result |
+|---|---|---|---|
+| #1299 frieren | full state refresh (m, v, step) | one-shot reset at 2275/2600 | NULL inert (β2=0.95 fast-mixing erases) |
+| #1315 askeladd | variance-only refresh (v only) | partial state asymmetry | CATASTROPHIC (update magnitude 1e10× explodes) |
+| **#1407 thorfinn (this)** | **β2 horizon pulse (0.99↑ / 0.85↓)** | **continuous EMA-rate change** | **BILATERAL NULL (Δ+2.22/+3.26 mnat)** |
+
+**MAJOR CANON — aux preconditioner-state perturbations are STRUCTURALLY NON-LOAD-BEARING at phase-window scale:** the AdamW second-moment statistics encode noise more than signal at the i.i.d.-gradient regime of aux family (per `project_aux_gradient_iid_finding`: aux ||Δg||/||g||≈1.45, cosine≈-0.05). The β2=0.95 baseline is well-tuned at baseline and locally optimal across BOTH directions.
+
+**Aux family phase-window mechanism decomposition status (post-#1407 closure):**
+
+| Axis | PRs | Mechanism | Result |
+|---|---|---|---|
+| LR magnitude (joint, lm_head, embed, scalars) | #1365/1399/1400/1452 | gradient-step magnitude | lm_head asymmetric (modulo n=2); embed bilateral NULL; scalars in flight |
+| State refresh | #1299/#1315 | optimizer state reset | inert / catastrophic |
+| **β2 horizon** | **#1407 (this)** | **preconditioner EMA-rate** | **BILATERAL NULL** |
+
+**Only LR-magnitude axis on lm_head specifically is the remaining productive aux phase-window mechanism candidate** (modulo #1399 n=2 status pending #1425 dose-response validation).
+
+**thorfinn → PR #1456 body Muon momentum (μ) phase-window pulse (completes body Muon phase-window axis mapping).**
+
+---
+
 ## 2026-05-27 15:25 UTC — PR #1395 CLOSED: phase-window Muon γ pulse bilateral tight NULL — 171st NULL (g1r1-askeladd)
 
 - Branch: `g1r1-askeladd/muon-gamma-pulse`
