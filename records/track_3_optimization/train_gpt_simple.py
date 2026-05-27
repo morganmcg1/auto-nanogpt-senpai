@@ -109,6 +109,21 @@ def parse_args():
     parser.add_argument("--body_init_bottom_layers", type=int,
                         default=int(os.environ.get("BODY_INIT_BOTTOM_LAYERS", "6")),
                         help="Number of bottom layers to damp for --body_init=orthogonal_bottom_damp (default 6 = bottom half of 12 layers).")
+    # H216: Lookahead (Zhang et al. 2019, arXiv:1907.08610). Wraps the body
+    # (MuonH-managed) params with slow weights updated every k fast steps:
+    # slow_t = slow_{t-k} + α(fast_t - slow_{t-k}); fast_t ← slow_t (reset).
+    # Operates strictly within a single replica, after opt.step() and before
+    # zero_grad(). Aux groups (embed, lm_head, scalars, biases) are NOT wrapped.
+    # When --lookahead_enabled 0, the code path is bit-identical to baseline.
+    parser.add_argument("--lookahead_enabled", type=int,
+                        default=int(os.environ.get("LOOKAHEAD_ENABLED", "0")),
+                        help="Enable Lookahead wrapper on body params (1=on, 0=off, bit-identical when off).")
+    parser.add_argument("--lookahead_k", type=int,
+                        default=int(os.environ.get("LOOKAHEAD_K", "10")),
+                        help="Lookahead sync interval (number of fast steps between slow updates).")
+    parser.add_argument("--lookahead_alpha", type=float,
+                        default=float(os.environ.get("LOOKAHEAD_ALPHA", "0.5")),
+                        help="Lookahead α: slow_t = slow_{t-k} + α(fast_t - slow_{t-k}).")
     args = parser.parse_args()
     args.num_trials = args.num_trials if args.num_trials is not None else (args.legacy_num_trials or 1)
     args.wandb_tags = [tag.strip() for tag in args.wandb_tags.split(",") if tag.strip()]
@@ -1053,6 +1068,25 @@ for trial_idx in range(args.num_trials):
         outer_velocity = None
     outer_applied_steps = 0
 
+    # H216 Lookahead slow-weight init (body params only — those managed by
+    # optimizer2 / MuonH). Skipping by `id(p) in muonh_param_ids` is robust:
+    # the PR's "name does not contain 'lm_head'" filter would have included
+    # `proj.weight` (the LM head) since it is not named lm_head in this model.
+    # When --lookahead_enabled 0, this block is a no-op and the path is
+    # bit-identical to the baseline.
+    lookahead_state: list[tuple[str, Tensor, Tensor]] = []
+    lookahead_sync_count = 0
+    if args.lookahead_enabled:
+        muonh_param_ids = {id(p) for g in optimizer2.param_groups for p in g["params"]}
+        for name, p in model.named_parameters():
+            if id(p) in muonh_param_ids:
+                lookahead_state.append((name, p, p.detach().clone()))
+        print0(
+            f"[H216 lookahead] enabled on {len(lookahead_state)} body params, "
+            f"k={args.lookahead_k}, alpha={args.lookahead_alpha}",
+            console=True,
+        )
+
     # start the clock
     training_time = 0
     last_val_step = 0
@@ -1171,6 +1205,29 @@ for trial_idx in range(args.num_trials):
         )
         for opt in optimizers:
             opt.step()
+        # H216 Lookahead sync (body params only). Fires every k fast steps,
+        # AFTER opt.step() and BEFORE zero_grad(). Slow update is in weight
+        # basis: slow ← slow + α(fast − slow); then fast.data ← slow (reset).
+        # Bit-identical to baseline when --lookahead_enabled 0.
+        lookahead_due = (
+            args.lookahead_enabled
+            and (step + 1) % args.lookahead_k == 0
+        )
+        if lookahead_due:
+            with torch.no_grad():
+                for _name, fast_p, slow_p in lookahead_state:
+                    slow_p.add_(fast_p.data - slow_p, alpha=args.lookahead_alpha)
+                    fast_p.data.copy_(slow_p)
+            lookahead_sync_count += 1
+            if dist.get_rank() == 0:
+                wandb.log({
+                    "trial": trial_idx,
+                    "train/step": train_step,
+                    "train/lookahead/synced": 1.0,
+                    "train/lookahead/sync_count": lookahead_sync_count,
+                    "train/lookahead/k": args.lookahead_k,
+                    "train/lookahead/alpha": args.lookahead_alpha,
+                }, step=wandb_step)
         # Log warmup telemetry every 10 steps during warmup (and at telemetry events
         # afterwards) so we capture the warmup curve at high resolution. Cheap since
         # it's just two floats.
