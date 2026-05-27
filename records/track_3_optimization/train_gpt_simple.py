@@ -469,9 +469,25 @@ WD_AUX = float(os.environ.get("WD_AUX", "0.0"))  # AdamW WD on embed + lm_head m
 EMBED_INIT_STD = float(os.environ.get("EMBED_INIT_STD", "1.0"))  # default preserves baseline N(0,1)
 LOGIT_SOFTCAP = float(os.environ.get("LOGIT_SOFTCAP", "15.0"))  # default = 15 (current hardcoded value); soft-cap value c in f(x) = c·x / sqrt(x^2+c^2)
 
+# POST_TARGET_PER_BLOCK_NS5_DISPATCH (PR #1450): per-block NS5 depth profile applied
+# continuously in [START, END) post-target window. Profile is keyed off block index
+# (0..11) parsed from named parameter strings like "0.attn.q.weight". When
+# POST_TARGET_PER_BLOCK_NS5_ENABLED=0 the code path early-returns to the baseline
+# uniform NS5_ITERS so the disabled-check stays byte-identical to baseline.
+POST_TARGET_PER_BLOCK_NS5_ENABLED = int(os.environ.get("POST_TARGET_PER_BLOCK_NS5_ENABLED", "0"))
+POST_TARGET_PER_BLOCK_NS5_PROFILE = os.environ.get("POST_TARGET_PER_BLOCK_NS5_PROFILE", "shallowing")
+POST_TARGET_PER_BLOCK_NS5_START = int(os.environ.get("POST_TARGET_PER_BLOCK_NS5_START", "2950"))
+POST_TARGET_PER_BLOCK_NS5_END = int(os.environ.get("POST_TARGET_PER_BLOCK_NS5_END", "3175"))
+POST_TARGET_PER_BLOCK_NS5_PROFILES = {
+    "shallowing": [18, 17, 17, 16, 15, 15, 14, 14, 13, 12, 11, 10],
+    "deepening":  [10, 11, 12, 13, 14, 14, 15, 15, 16, 17, 17, 18],
+}
 
-def zeropower_via_newtonschulz5(G: Tensor) -> Tensor:
+
+def zeropower_via_newtonschulz5(G: Tensor, ns5_iters: int | None = None) -> Tensor:
     assert G.ndim >= 2
+    if ns5_iters is None:
+        ns5_iters = NS5_ITERS
     X = G.bfloat16()
     if G.size(-2) > G.size(-1):
         X = X.mT
@@ -480,7 +496,7 @@ def zeropower_via_newtonschulz5(G: Tensor) -> Tensor:
     X = X / (X.norm(dim=(-2, -1), keepdim=True) + 1e-7)
     # Perform the NS iterations, not optimizing for wallclock speed
     a, b, c = 2, -1.5, 0.5
-    for _ in range(NS5_ITERS):
+    for _ in range(ns5_iters):
         A = X @ X.mT
         B = b * A + c * A @ A
         X = a * X + B @ X
@@ -504,10 +520,10 @@ def scale_to_unit_operator_norm(G: Tensor, eps: float = 1e-10) -> Tensor:
     return G / op_norm.to(G.dtype)
 
 
-def contra_normuon_update(momentum_update, second_moment, beta2=NORMUON_BETA2):
+def contra_normuon_update(momentum_update, second_moment, beta2=NORMUON_BETA2, ns5_iters: int | None = None):
     """Contra-Muon + NorMuon-lite: NS5 -> contra subtraction -> per-row variance normalize."""
     normalized_grad = scale_to_unit_operator_norm(momentum_update.clone())
-    update = zeropower_via_newtonschulz5(momentum_update)
+    update = zeropower_via_newtonschulz5(momentum_update, ns5_iters=ns5_iters)
     opower_fro = update.norm()
     # Contra correction: subtract CONTRA_MUON / 2 * op-norm-normalized momentum.
     update = update - CONTRA_MUON / 2 * normalized_grad
@@ -652,9 +668,57 @@ class Muon(torch.optim.Optimizer):
                     self.attn_soap_kind[id(p)] = "v"
                 elif n.endswith(".attn.proj.weight"):
                     self.attn_soap_kind[id(p)] = "proj"
+        # Per-block index map for POST_TARGET_PER_BLOCK_NS5_DISPATCH (PR #1450).
+        # Names from model.blocks.named_parameters() look like "0.attn.q.weight",
+        # "11.mlp.fc.weight" — leading integer is the block index.
+        self.block_idx_by_pid: dict[int, int] = {}
+        for n, p in named_params:
+            head = n.split(".", 1)[0]
+            if head.isdigit():
+                self.block_idx_by_pid[id(p)] = int(head)
+        # Time-gated dispatch needs to know the current global step. Updated each
+        # outer-loop step via set_hparams; defaults to 0 so debug/tiny runs work.
+        self._current_step: int = 0
         params = sorted([p for _, p in named_params], key=lambda x: x.size(), reverse=True)
         defaults = dict(lr=lr, weight_decay=weight_decay, mu=mu)
         super().__init__(params, defaults)
+
+    def _ns5_iters_for_param(self, p) -> int:
+        """Return per-param NS5 iters, applying POST_TARGET_PER_BLOCK_NS5 profile when active."""
+        if not POST_TARGET_PER_BLOCK_NS5_ENABLED:
+            return NS5_ITERS
+        step = self._current_step
+        if not (POST_TARGET_PER_BLOCK_NS5_START <= step < POST_TARGET_PER_BLOCK_NS5_END):
+            return NS5_ITERS
+        block_idx = self.block_idx_by_pid.get(id(p))
+        if block_idx is None or not (0 <= block_idx < 12):
+            return NS5_ITERS
+        profile = POST_TARGET_PER_BLOCK_NS5_PROFILES.get(POST_TARGET_PER_BLOCK_NS5_PROFILE)
+        if profile is None:
+            return NS5_ITERS
+        return profile[block_idx]
+
+    def per_block_ns5_stats(self) -> dict[str, float]:
+        """Telemetry: per-block NS5 dispatch state for current step."""
+        active = int(POST_TARGET_PER_BLOCK_NS5_ENABLED
+                     and POST_TARGET_PER_BLOCK_NS5_START <= self._current_step < POST_TARGET_PER_BLOCK_NS5_END)
+        early: list[int] = []
+        late: list[int] = []
+        for group in self.param_groups:
+            for p in group["params"]:
+                block_idx = self.block_idx_by_pid.get(id(p))
+                if block_idx is None or not (0 <= block_idx < 12):
+                    continue
+                ns5 = self._ns5_iters_for_param(p)
+                if block_idx < 6:
+                    early.append(ns5)
+                else:
+                    late.append(ns5)
+        return {
+            "per_block_ns5_active": float(active),
+            "mean_ns5_iters_early_half": (sum(early) / len(early)) if early else float("nan"),
+            "mean_ns5_iters_late_half": (sum(late) / len(late)) if late else float("nan"),
+        }
 
     @torch.no_grad()
     def step(self):
@@ -701,7 +765,10 @@ class Muon(torch.optim.Optimizer):
                     if use_soap or use_attn_soap:
                         momentum_update = soap_precondition(momentum_update, state)
                     # NS5 + contra + NorMuon row variance on (possibly SOAP-preconditioned) momentum.
-                    update = contra_normuon_update(momentum_update, state["second_moment"])
+                    update = contra_normuon_update(
+                        momentum_update, state["second_moment"],
+                        ns5_iters=self._ns5_iters_for_param(p),
+                    )
                     # u/w-floor: scale up if u/w < TARGET_UW; leave alone otherwise.
                     p_fro = p.float().norm().clamp_min(1e-8)
                     u_fro = update.float().norm().clamp_min(1e-8)
@@ -865,6 +932,10 @@ if dist.get_rank() == 0:
             "optimizer/attn_soap_precond_freq": ATTN_SOAP_PRECOND_FREQ,
             "optimizer/attn_soap_trust_threshold": ATTN_SOAP_TRUST_THRESHOLD,
             "optimizer/ns5_iters": NS5_ITERS,
+            "optimizer/post_target_per_block_ns5_enabled": POST_TARGET_PER_BLOCK_NS5_ENABLED,
+            "optimizer/post_target_per_block_ns5_profile": POST_TARGET_PER_BLOCK_NS5_PROFILE,
+            "optimizer/post_target_per_block_ns5_start": POST_TARGET_PER_BLOCK_NS5_START,
+            "optimizer/post_target_per_block_ns5_end": POST_TARGET_PER_BLOCK_NS5_END,
             "optimizer/wd_aux": WD_AUX,
             "optimizer/recipe": "contra-muon + normuon-lite + soap-on-mlp + soap-on-attn-trust-gate (pre-NS5, record #14 + record #16)",
         },
@@ -936,6 +1007,9 @@ for trial_idx in range(args.num_trials):
                 group["lr"] = group["initial_lr"] * eta
                 if group.get("name") == "muon_blocks":
                     group["mu"] = cur_mu
+            # Propagate current global step to Muon for time-gated per-block NS5 dispatch.
+            if isinstance(opt, Muon):
+                opt._current_step = step
 
 
     ########################################
@@ -1032,6 +1106,17 @@ for trial_idx in range(args.num_trials):
         wandb_step = trial_idx * (train_steps + 1) + train_step
         if dist.get_rank() == 0:
             train_loss_history.append((train_step, train_loss))
+        # POST_TARGET_PER_BLOCK_NS5 (PR #1450): per-step diagnostic in [2925, 3175].
+        if dist.get_rank() == 0 and 2925 <= step <= POST_TARGET_PER_BLOCK_NS5_END:
+            muon_opt = next((o for o in optimizers if isinstance(o, Muon)), None)
+            if muon_opt is not None:
+                wandb.log(prefixed("train/body_muon", muon_opt.per_block_ns5_stats()), step=wandb_step)
+            if (POST_TARGET_PER_BLOCK_NS5_ENABLED and step == POST_TARGET_PER_BLOCK_NS5_START
+                    and POST_TARGET_PER_BLOCK_NS5_PROFILE in POST_TARGET_PER_BLOCK_NS5_PROFILES):
+                prof = POST_TARGET_PER_BLOCK_NS5_PROFILES[POST_TARGET_PER_BLOCK_NS5_PROFILE]
+                print0(f"[POST_TARGET_PER_BLOCK_NS5] profile={POST_TARGET_PER_BLOCK_NS5_PROFILE} "
+                       f"activated at step {step}: block_0={prof[0]} -> block_11={prof[-1]}",
+                       console=True)
         if dist.get_rank() == 0 and slope_due:
             slope_metrics = {
                 "trial": trial_idx,
