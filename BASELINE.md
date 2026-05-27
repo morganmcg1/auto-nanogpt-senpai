@@ -17,7 +17,7 @@ So a single non-cherry-picked run needs `mu < 3.276`; `n=4` runs need
 
 ## Current baseline (this branch)
 
-**Merged 2026-05-25 ~16:15 UTC — PR #1157 edward H148 Body init orthogonal (F-norm matched).** Replaces random Gaussian body init (`normal_(std=0.026–0.031)`) with `torch.nn.init.orthogonal_` rescaled to preserve each weight's default F-norm exactly — thereby preserving MuonH hyperball radius (R = ‖p‖₀ × budget_mult) identically to CTRL. Isolates init-direction from init-magnitude. Persistent −0.00164 val/loss advantage holds at every single checkpoint after step 1250 (37/37 consecutive checkpoints), including through LINEAR cooldown — **first init-axis win and first cooldown-persistent-advantage in 155 hypotheses**. The win is NOT "start at sv=1.0 NS5 attractor" (arm_c gain=1.0 pure-orthogonal was SEVERE NEG 3.30295 due to uncontrolled hyperball perturbation); it is "orthogonal direction at preserved magnitude". AGC profiles arm_a vs arm_b are identical — orthogonal-direction init does not perturb the gradient-norm envelope. Stacks on all previous wins: MuLoCo × MuonH-SI + dual AGC + LR warmup + aux eps=1e-6 + aux β2=0.99 + µ-schedule (0.95→0.90) + LINEAR cooldown.
+**Merged 2026-05-27 ~11:35 UTC — PR #1398 tanjiro H203 MuonH body cooldown SHAPE = cosine.** Swaps the MuonH inner LR cooldown shape from `linear` back to `cosine` on the fully-stacked H148 baseline. Cosine concentrates LR near peak for the first ~70% of cooldown, then collapses aggressively in the final 30% — at step 3100 cosine LR is 6× lower than linear, precipitating target crossing **125 steps earlier (FFS 3025 vs 3150 for CTRL)**. The cosine vs linear comparison from H133 was run WITHOUT the H148 orthogonal-init + µ-schedule stack; the stacked H148 configuration sits closer to the convergence basin, making faster late-LR collapse beneficial now where it was harmful pre-stack. Terminal val/loss (3.26830) is a slight regression vs H148 terminal (3.26364) because cosine nearly stops learning after step ~3100 (LR ≈ 0.0002) while linear keeps gradients flowing — future follow-ups (cosine_squared, quad, cosine × reduced h_cooldown_frac) may recover the terminal val/loss while preserving or improving FFS. arm_c sqrt catastrophic FAIL (val=3.29370, never reached target) confirms slow late decay is universally harmful. **First cooldown-shape axis win since H133** (H133 flipped linear→cosine; H203 flips it back on a stronger stack).
 
 | Field | Value |
 | --- | --- |
@@ -25,8 +25,8 @@ So a single non-cherry-picked run needs `mu < 3.276`; `n=4` runs need
 | Architecture | GPT-768/12L, vocab 50304, ctx 1024 — fixed |
 | Batch size | `8 * 64 * 1024 = 524288` tokens/step — fixed |
 | Main optimizer | `MuonH(lr=0.018, weight_decay=0, mode='scale_invariant')` on blocks ndim≥2 |
-| **Body init** | **`--body_init orthogonal_fnorm_matched`** (was `default` normal_) |
-| MuonH inner cooldown shape | `--muonh_cooldown_shape linear` |
+| Body init | `--body_init orthogonal_fnorm_matched` |
+| **MuonH inner cooldown shape** | **`--muonh_cooldown_shape cosine`** (was `linear` in H148) |
 | MuonH µ schedule | `--muonh_mu_schedule linear --muonh_mu_start 0.95 --muonh_mu_end 0.90` |
 | Aux AdamW β2 | `--aux_beta2_schedule constant --aux_beta2_start 0.99` |
 | Aux AdamW eps | `--aux_adamw_eps 1e-6` |
@@ -34,13 +34,13 @@ So a single non-cherry-picked run needs `mu < 3.276`; `n=4` runs need
 | Aux AGC | `--aux_agc_clip_ratio 0.05` |
 | MuonH warmup | `--muonh_warmup_steps 100` |
 | Outer wrapper | `MuLoCo(outer_lr=0.7, outer_momentum=0.5, sync_interval=30)` |
-| `val/loss` | **3.26364** (n=1 trial; 0.00183 below prior baseline 3.26547) |
-| `speedrun/final_first_step_to_target` | **3125** (n=1) |
-| stat margin | `(3.28 − 3.26364) × √1 = 0.01636` ≥ 0.004 ✓ |
-| Baseline W&B run | `jg6p3l50` |
-| Baseline PR | [#1157](https://github.com/morganmcg1/modded-nanogpt-senpai/pull/1157) |
+| `val/loss` | **3.26830** (n=1 trial; slight regression from H148 3.26364, FFS is the primary metric) |
+| `speedrun/final_first_step_to_target` | **3025** (n=1; **−100 steps vs H148 baseline 3125**) |
+| stat margin | `(3.28 − 3.26830) × √1 = 0.01170` ≥ 0.004 ✓ |
+| Baseline W&B run | `pyea3zd1` |
+| Baseline PR | [#1398](https://github.com/morganmcg1/modded-nanogpt-senpai/pull/1398) |
 
-### Reproduce orthogonal body init + LINEAR cooldown + AGC + MuLoCo × MuonH-SI baseline
+### Reproduce cosine cooldown + orthogonal body init + AGC + MuLoCo × MuonH-SI baseline
 
 ```bash
 cd target/
@@ -48,7 +48,7 @@ torchrun --standalone --nproc_per_node=1 \
   records/track_3_optimization/train_gpt_simple.py \
   --num_trials 1 --train_steps 3325 \
   --muonh_mode scale_invariant \
-  --muonh_cooldown_shape linear \
+  --muonh_cooldown_shape cosine \
   --muonh_warmup_steps 100 \
   --use_outer_optimizer 1 \
   --outer_lr 0.7 --outer_momentum 0.5 --sync_interval 30 \
@@ -58,9 +58,22 @@ torchrun --standalone --nproc_per_node=1 \
   --aux_beta2_schedule constant --aux_beta2_start 0.99 \
   --muonh_mu_schedule linear --muonh_mu_start 0.95 --muonh_mu_end 0.90 \
   --body_init orthogonal_fnorm_matched \
-  --wandb_name "g1r3-<student>/h148-baseline-confirm" \
-  --wandb_group "g1r3-h148-baseline-confirm"
+  --wandb_name "g1r3-<student>/h203-baseline-confirm" \
+  --wandb_group "g1r3-h203-baseline-confirm"
 ```
+
+---
+
+## Previous baseline — PR #1157 edward H148 Body init orthogonal (F-norm matched) (2026-05-25 ~16:15 UTC)
+
+**Merged 2026-05-25 ~16:15 UTC — PR #1157 edward H148 Body init orthogonal (F-norm matched).** Replaces random Gaussian body init (`normal_(std=0.026–0.031)`) with `torch.nn.init.orthogonal_` rescaled to preserve each weight's default F-norm exactly. Persistent −0.00164 val/loss advantage holds at every single checkpoint after step 1250. val/loss=3.26364, FFS=3125. Superseded by PR #1398.
+
+| Field | Value |
+| --- | --- |
+| `val/loss` | **3.26364** (n=1) |
+| `speedrun/final_first_step_to_target` | **3125** (n=1) |
+| Baseline W&B run | `jg6p3l50` |
+| Baseline PR | [#1157](https://github.com/morganmcg1/modded-nanogpt-senpai/pull/1157) |
 
 ---
 
