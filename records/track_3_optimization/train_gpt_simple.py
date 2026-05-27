@@ -109,6 +109,20 @@ def parse_args():
     parser.add_argument("--body_init_bottom_layers", type=int,
                         default=int(os.environ.get("BODY_INIT_BOTTOM_LAYERS", "6")),
                         help="Number of bottom layers to damp for --body_init=orthogonal_bottom_damp (default 6 = bottom half of 12 layers).")
+    # H200 mid-training warm restart on MuonH body LR. Single dip-and-recovery centered
+    # at restart_step. Default 0 = disabled (multiplier=1.0 always → bit-identical to baseline).
+    parser.add_argument("--body_lr_warm_restart_step", type=int,
+                        default=int(os.environ.get("BODY_LR_WARM_RESTART_STEP", "0")),
+                        help="Step at which to begin the mid-training warm restart dip on body (MuonH) LR. "
+                             "0 = off (baseline bit-identical). Suggested values 1200, 1500.")
+    parser.add_argument("--body_lr_warm_restart_min_frac", type=float,
+                        default=float(os.environ.get("BODY_LR_WARM_RESTART_MIN_FRAC", "0.3")),
+                        help="Minimum LR multiplier at the bottom of the warm restart dip "
+                             "(as fraction of the cooldown-scheduled LR at that step).")
+    parser.add_argument("--body_lr_warm_restart_half_width", type=int,
+                        default=int(os.environ.get("BODY_LR_WARM_RESTART_HALF_WIDTH", "150")),
+                        help="Number of steps from start of dip to bottom (and bottom to recovery). "
+                             "Total restart window = 2 × half_width.")
     args = parser.parse_args()
     args.num_trials = args.num_trials if args.num_trials is not None else (args.legacy_num_trials or 1)
     args.wandb_tags = [tag.strip() for tag in args.wandb_tags.split(",") if tag.strip()]
@@ -118,6 +132,30 @@ def parse_args():
 
 
 args = parse_args()
+
+
+def warm_restart_multiplier(step: int, restart_step: int, min_frac: float, half_width: int) -> float:
+    """H200 single mid-training warm restart on body (MuonH) LR.
+
+    Returns a multiplier in [min_frac, 1.0]:
+    - 1.0 outside window [restart_step - half_width, restart_step + half_width)
+    - Linear dip from 1.0 → min_frac over [restart_step - half_width, restart_step]
+    - Linear recovery from min_frac → 1.0 over [restart_step, restart_step + half_width]
+
+    When restart_step <= 0 (disabled) the multiplier is always 1.0, so the body LR is
+    bit-identical to the cooldown-scheduled baseline.
+    """
+    if restart_step <= 0 or half_width <= 0:
+        return 1.0
+    dip_start = restart_step - half_width
+    dip_end = restart_step + half_width
+    if step < dip_start or step >= dip_end:
+        return 1.0
+    if step < restart_step:
+        progress = (step - dip_start) / half_width
+        return 1.0 - (1.0 - min_frac) * progress
+    progress = (step - restart_step) / half_width
+    return min_frac + (1.0 - min_frac) * progress
 
 
 def clean_metric_name(name: str) -> str:
@@ -850,6 +888,9 @@ if dist.get_rank() == 0:
             "muonh_mu_schedule": args.muonh_mu_schedule,
             "muonh_mu_start": args.muonh_mu_start,
             "muonh_mu_end": args.muonh_mu_end,
+            "body_lr_warm_restart_step": args.body_lr_warm_restart_step,
+            "body_lr_warm_restart_min_frac": args.body_lr_warm_restart_min_frac,
+            "body_lr_warm_restart_half_width": args.body_lr_warm_restart_half_width,
         },
     )
 
@@ -971,6 +1012,14 @@ for trial_idx in range(args.num_trials):
             muonh_warmup = min(1.0, (step + 1) / args.muonh_warmup_steps)
         else:
             muonh_warmup = 1.0
+        # H200 body-LR warm restart multiplier (MuonH groups only). 1.0 when disabled
+        # (restart_step <= 0) → bit-identical to baseline.
+        body_warm_restart_mult = warm_restart_multiplier(
+            step,
+            args.body_lr_warm_restart_step,
+            args.body_lr_warm_restart_min_frac,
+            args.body_lr_warm_restart_half_width,
+        )
         for opt in optimizers:
             for group in opt.param_groups:
                 cooldown_frac = group["cooldown_frac"]
@@ -988,7 +1037,7 @@ for trial_idx in range(args.num_trials):
                     else:
                         raise ValueError(f"unknown cooldown_shape: {shape}")
                 if opt is optimizer2:
-                    eta = eta * muonh_warmup
+                    eta = eta * muonh_warmup * body_warm_restart_mult
                 group["lr"] = group["initial_lr"] * eta
         # Aux β2 schedule: ramp β2 from start to end linearly across the aux
         # cooldown phase (last aux_cooldown_frac of training). constant schedule
@@ -1027,7 +1076,7 @@ for trial_idx in range(args.num_trials):
                 g["mu"] = mu_t
         else:
             mu_t = 0.95
-        return muonh_warmup, b2, mu_t
+        return muonh_warmup, b2, mu_t, body_warm_restart_mult
 
 
     ########################################
@@ -1132,7 +1181,7 @@ for trial_idx in range(args.num_trials):
         dist.all_reduce(step_loss, op=dist.ReduceOp.SUM)
         train_loss = float((step_loss / batch_size).item())
         # set optimization hyperparameters and take a step
-        muonh_warmup_factor, aux_beta2, muonh_mu_t = set_hparams(step)
+        muonh_warmup_factor, aux_beta2, muonh_mu_t, body_warm_restart_mult = set_hparams(step)
         train_step = step + 1
         telemetry_due = (step == 0 or (step + 1) % args.telemetry_interval == 0 or step + 1 == train_steps)
         histogram_due = (step == 0 or (step + 1) % args.histogram_interval == 0 or step + 1 == train_steps)
@@ -1179,10 +1228,18 @@ for trial_idx in range(args.num_trials):
             and step < args.muonh_warmup_steps + 50
             and (step == 0 or (step + 1) % 10 == 0)
         )
-        if dist.get_rank() == 0 and (telemetry_due or warmup_due):
+        # H200 dense logging during the warm-restart dip window so the dip-and-recovery
+        # curve is captured at high resolution. No-op when restart disabled.
+        warm_restart_due = (
+            args.body_lr_warm_restart_step > 0
+            and abs(step - args.body_lr_warm_restart_step) <= args.body_lr_warm_restart_half_width + 10
+            and (step % 10 == 0)
+        )
+        if dist.get_rank() == 0 and (telemetry_due or warmup_due or warm_restart_due):
             muonh_metrics = {"trial": trial_idx, "train/step": train_step}
             muonh_metrics["aux/beta2"] = aux_beta2
             muonh_metrics["train/muonh_mu"] = muonh_mu_t
+            muonh_metrics["train/body_lr/warm_restart_multiplier"] = body_warm_restart_mult
             for opt in optimizers:
                 if isinstance(opt, MuonH):
                     if telemetry_due:
@@ -1191,6 +1248,7 @@ for trial_idx in range(args.num_trials):
                         muonh_metrics["train/muonh/norm_to_radius_max"] = opt._last_norm_to_radius_max
                     muonh_metrics["train/muonh/warmup_factor"] = muonh_warmup_factor
                     muonh_metrics["train/muonh/effective_lr"] = opt.param_groups[0]["lr"]
+                    muonh_metrics["train/body_lr"] = opt.param_groups[0]["lr"]
             if telemetry_due and args.aux_agc_clip_ratio > 0 and agc_stats["agc_total"] > 0:
                 muonh_metrics["train/agc/active_fraction"] = agc_stats["agc_clipped"] / agc_stats["agc_total"]
                 muonh_metrics["train/agc/clipped_count"] = agc_stats["agc_clipped"]
