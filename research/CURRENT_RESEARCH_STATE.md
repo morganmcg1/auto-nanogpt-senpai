@@ -1,3 +1,78 @@
+## 2026-05-27 06:40 UTC — Cycle 71 mid-315 (200-refute milestone)
+
+**Cumulative**: **200 refuted (+1 this wake — MILESTONE)** / **122 distinct mech classes (+1 fresh #1404)** / **75 family-level closures (+1)**.
+
+**Closure this wake** (1 bilateral terminal — 2×2 (β1, LR) × (late, early) depth-dispatch grid completes):
+
+| PR | student | mech | bilateral data | closure |
+|---|---|---|---|---|
+| **#1369** | nezuko | per-block-half body Muon LR phase dispatch | Arm A (late-high-LR) val=3.28741 ffs=-1 FAILED TARGET; Arm B (early-high-LR) val=3.30576 ffs=-1 FAILED TARGET; Δ=+0.01835 | **200th** catastrophic-shifted-floor BOTH DIRECTIONS; depth-half locality is **β1-AXIS-SPECIFIC**, NOT mechanism-class-universal |
+
+### MAJOR FINDING — 2×2 (β1, LR) × (late, early) DEPTH-DISPATCH GRID COMPLETE
+
+|  | β1-axis (β=0.85↔0.95 dispatch from #1340) | LR-axis (1.5×↔0.5× dispatch, #1369) |
+|---|---|---|
+| **late-half-higher** | **cluster** (val=3.27130, ffs=3050) ✓ | **regress** (val=3.28741, ffs=-1) ✗ |
+| **early-half-higher** | **catastrophic** (val=3.29649, ffs=-1) ✗ | **catastrophic** (val=3.30576, ffs=-1) ✗ |
+
+**Refines mid-310 locality direction inversion principle**: was "locality direction-of-effect carries via the dispatched optimizer axis" → now "**depth-half locality is β1-AXIS-SPECIFIC**; LR-axis at 3.0× ratio is catastrophic in both directions at cooldown phase." The β-axis tolerates 3.0× ratio with late-half-higher direction working; LR-axis at same ratio fails uniformly.
+
+**New mechanistic principle**: depth-axis-direction interacts non-trivially with the underlying optimizer mechanism class. The "depth-half locality is mechanism-class-universal" hypothesis is FALSIFIED. β1 controls **what** the update tracks (gradient EMA timescale); LR controls **how big** the step is (magnitude). A 1.5× LR boost during cooldown phase pushes layers past the fine-tuning regime regardless of which half.
+
+### 200-refute milestone — cycle 71 status
+
+- **9 cluster-floor compound mechanism classes** confirmed
+- **3 cross-AUX-kind universality tests** resolved or in flight (LR-grid complete with param-count-monotonic principle; WD-grid in flight; Nesterov-grid in flight)
+- **Depth-half locality** narrowed from "universal" to "β1-axis-specific"
+- **Direction-asymmetry inversion principle** refined to "param-count-gated on AUX side; mechanism-class-specific on body side"
+
+### Fresh assignment (1 idle student → 1 new PR):
+
+| PR | student | hypothesis | mech class type | aligned with #1259? |
+|---|---|---|---|---|
+| **#1404** | nezuko | AUX_PARAM_STATE_RESET_DECOMP_DISPATCH | **122nd — virgin sub-decomposition axis**, decomposes #1353's joint m+v state-reset cluster-floor mechanism into m-only (Arm A) vs v-only (Arm B) on embed AUX at cooldown_start. Tests which moment is load-bearing | ✓ per-group + state-phase + sub-mechanism decomposition (NOT scalar HP sweep — tests sub-component of confirmed cluster-floor mech) |
+
+This sub-decomposition framework is a virgin axis family that could be applied to other joint cluster-floor mechanisms (weight-perturbation #1361 attn/mlp split, per-AUX-kind LR phase embed/lm_head split, etc.) once the m vs v finding lands.
+
+### Active fleet status mid-315:
+
+| Student | PR | Status | W&B notes |
+|---|---|---|---|
+| g1r2-alphonse | #1382 | status:wip | Arm A `tkgmm0c3` (EMBED_AUX_DIRECTION_COMPOUND), likely near-terminal |
+| g1r2-thorfinn | #1397 | status:wip | NEW AUX_NESTEROV_PHASE_DISPATCH (121st mech) — canary |
+| g1r2-frieren | #1396 | status:wip | BODY_MUON_WD_PHASE_TRANSITION (120th mech) — canary |
+| g1r2-fern | #1389 | status:wip | BODY_LARS_TRUST_RATIO canary |
+| g1r2-tanjiro | #1390 | status:wip | EMBED_AUX_COOLDOWN_SIGN_SGD canary |
+| g1r2-askeladd | #1391 | status:wip | BODY_NS5_ITERS_PER_BLOCK_HALF canary |
+| g1r2-edward | #1392 | status:wip | AUX_LM_HEAD_WD_PHASE canary |
+| g1r2-nezuko | **#1404** | status:wip | **NEW** AUX_PARAM_STATE_RESET_DECOMP (122nd mech) |
+
+**ZERO IDLE STUDENTS — 8 students concurrently active. ZERO IDLE GPUs.**
+
+### Student infrastructure fix — ACK
+
+nezuko #1369 included a `senpai-pr-guard.py` fix (code-block-aware SENPAI-RESULT scanning) — addresses a latent bug where template SENPAI-RESULT examples in fenced code blocks of advisor comments would be parsed as live markers and block `mark_ready_for_review`. Fix is conservative (~8 LoC). ACK'd in closure comment.
+
+### Current research themes (mid-315):
+
+1. **200-refute milestone reached** — cycle 71 has accumulated 9 cluster-floor compound mechanism classes; depth-half locality narrowed to β1-axis-specific
+2. **Joint mechanism sub-decomposition** — new virgin axis family started with #1404 (m vs v on #1353's joint reset)
+3. **Cross-sub-system WD-phase boundary universality** — embed (#1364 SYMMETRIC) → lm_head (#1392 active) → body (#1396 active)
+4. **Cross-optimizer-class Nesterov-phase universality** — body Muon (#1306 closed) → AUX (#1397 active)
+5. **AUX-LR direction grid COMPLETE** with param-count-monotonic principle
+6. **Direction-asymmetry compound** — alphonse #1382 in flight (under revised WD-SYMMETRIC interpretation)
+
+### Potential next research directions:
+
+- **Sub-decomposition of other joint cluster-floor mechs**: weight-perturbation #1361 (attn-only vs mlp-only), per-AUX-kind LR phase (embed-only vs lm_head-only compound interaction)
+- **Per-block-half WD-axis dispatch** (complete 3-axis grid: β1, LR, WD on depth-half dispatch design)
+- **Late-only depth dispatch** (apply β1 boost ONLY to l8-l11, NOT to l6-l7) — fine-grained depth structure test
+- **Lookahead INVERSE phase** (turn OFF Lookahead at cooldown_start)
+- **Schedule-free Polyak at cooldown_start** (virgin phase-event variant)
+- **AGC as state-phase event** (AGC throughout #580 done; phase-event variant virgin)
+
+---
+
 ## 2026-05-27 05:50 UTC — Cycle 71 mid-314
 
 **Cumulative**: **199 refuted (+1 this wake)** / **121 distinct mech classes (+1 fresh #1397)** / **74 family-level closures (+1)**.
