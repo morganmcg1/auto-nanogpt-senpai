@@ -1,5 +1,104 @@
 # SENPAI Research Results — auto-nanogpt-1gpu-r5
 
+## 2026-05-27 15:00 — PR #1387: lm_head LR pruning (tanjiro) [WIDE-COSMETIC NULL]
+- branch: g1r5-tanjiro/lm-head-lr-pruning
+- hypothesis: "Is the lm_head LR=1/320 default FFS-load-bearing? Test 5 cells across a 16× span."
+- verdict: **CLOSED clean-NEG-WIDE-COSMETIC** [FFS-primary, 21st stack-component closure under directive #1262]
+- results (5-cell sweep, all n=1 full 3250 steps, W&B verified by advisor):
+  | Cell | lr_lm_head | mult | val/loss | FFS | Δbase (σ_single) | W&B id |
+  |:----:|:----------:|:----:|:--------:|:---:|:----------------:|:------:|
+  | A | 0.003125 (1/320) | 1.0× | 3.26294 | 3050 | +2.9σ | g9rqvbsw |
+  | **B★** | **0.00625 (1/160)** | **2.0×** | **3.26193** | **3025** | **+1.2σ** | a6lqrblb |
+  | C | 0.0125 (1/80) | 4.0× | 3.26200 | 3050 | +1.3σ | 4h9k6dh8 |
+  | D | 0.0015625 (1/640) | 0.5× | 3.26224 | 3050 | +1.7σ | xdo38w59 |
+  | E | 0.025 (1/40) | 8.0× | 3.26211 | 3050 | +1.5σ | h88aaba4 |
+
+- mechanism findings (5):
+  1. **Wide cosmetic basin confirmed across 16×** — A/B/C/D/E val all within 1.7σ_single. lm_head LR is not FFS-load-bearing and not val-load-bearing in this regime.
+  2. ★ **Self-equalizing weight-norm/grad-norm feedback discovered** — proj weight norm scales near-linearly with LR (E is 8× LR → 7.24× weight norm) and grad norm scales inversely (E grad norm = 0.13× of A). The product `lr × g_norm` converges to ~35–38 across cells. **The lm_head autoregulates** through this feedback loop.
+  3. **Cross-mechanism alignment with eps #1330** — lm_head telemetry is dose-responsive to upstream knobs without propagating to val/FFS. Consistent downstream-decoupled axis.
+  4. **Scalars/lm_head dissociation confirmed**: scalars #1275 wanted 3× higher LR (FFS-positive); lm_head wants nothing across 16×. The "AdamW aux defaults are systematically too conservative" hypothesis **does NOT generalize from scalars → lm_head**. Per-group dissociation reinforced.
+  5. **Predicted B★ at 2× was best-of-cells** — directionally sensible but not gate-clearing. 2× is the safest interior point in the basin.
+
+- cluster connections:
+  - **3rd dissociation finding** between scalars vs other aux groups (LR #1275 + β1 #1368 + lm_head LR NULL here). Scalars cluster is mechanistically distinct from {embed, lm_head} aux clusters.
+  - **Closes lm_head LR axis at 21st stack-component pruning**. Pairs with #1330 lm_head eps NULL → lm_head consistently downstream-decoupled.
+  - **Falsifies "all aux groups have similar headroom" framing** — embed (probably load-bearing), scalars (FFS-positive), lm_head (cosmetic).
+
+- student excellence: ★ Weight-norm/grad-norm dose-response analysis with `lr × g_norm ≈ 35–38` cross-cell product is a clean mechanistic explanation, not just "didn't matter". Pre-registered "OPPOSITE direction from scalars #1275" framing was exactly right.
+
+- decision (FFS-primary, directive #1262): No Cell ≤ 2975 → no n=4 promotion. Close clean-NEG-WIDE-COSMETIC. 21st stack-component closure.
+
+- follow-up assignment: tanjiro → **#1442 per-block-depth body LR decay** (★ fresh OPTIMIZER MECHANISM — pivoting from aux-LR axes which are exhausted):
+  - Tests γ^(L-block_idx) modulator on Muon body LR per transformer block (12 blocks total)
+  - ULMFiT-style layer-wise LR but applied to pretraining-from-scratch (untested in this regime)
+  - 5-cell A=1.0 ctrl / **B★=0.95 ULMFiT-style** (lower blocks slower) / C=1.05 inverse / D=0.90 steep / E=1.15 falsifier
+  - Pairs with musoft init prior: does init's depth-scaling want a matching LR-depth-scale?
+
+## 2026-05-27 14:55 — PR #1385: Full-run cosine LR schedule (fern) [FFS-POSITIVE BUT VAL-COSTLY, covered by #1381]
+- branch: g1r5-fern/cosine-full-run-body-lr
+- hypothesis: "Cosine LR schedule from step 0→0 instead of stable+linear may be FFS-positive (monotone decay reaches target faster) — tests whether the stable phase is structurally needed"
+- verdict: **CLOSED MECHANISM-FINDING-COVERED-BY-#1381** [FFS-primary, 20th stack-component closure under directive #1262]
+- results (5-cell sweep, all n=1 full 3250 steps, W&B verified by advisor):
+  | Cell | shape | FFS | val/loss | Δbase (σ_single) | reached | W&B id |
+  |:----:|:-----:|:---:|:--------:|:----------------:|:-------:|:------:|
+  | A | stable_linear (ctrl) | 3050 | 3.262024 | +1.35σ | ✓ | x4p1op6b |
+  | **B★** | **cosine** | **2925** | **3.273922** | **+21.4σ** | ✓ | 0eg3lwoh |
+  | C | cosine_min01 | 3075 | 3.270521 | +15.7σ | ✓ | lif96ji2 |
+  | D | warmup_cosine | DNR | 3.280369 | +32.3σ | ✗ | hhk9v4lk |
+  | E | triangular (falsifier) | DNR | 3.306759 | +76.8σ | ✗ | wxnalgq8 |
+
+- mechanism findings (5):
+  1. ★★ **FFS-positive but val-negative SPLIT confirmed** — cosine (Cell B) hits FFS=2925 (FFS-alive) AND pays +21.4σ_single val penalty. Falsifies "stable_linear is uniformly load-bearing" framing — stable phase is val-positive but FFS-counterproductive.
+  2. **Cell B val plateaus near 3.274** — never gets close to baseline 3.261. Cosine's monotone-decreasing LR from step 0 reaches threshold faster but exhausts directed-descent budget too soon.
+  3. **Cell C (cosine_min01) dominated by Cell B** — adding 0.1 floor doesn't help; floor achieved late.
+  4. **Cell D (warmup_cosine) DNR** — 200-step linear warmup eats early progress; consistent with #1328 monotone-worse warmup finding.
+  5. **Cell E (triangular) decisively falsified at +76.8σ** — inverted-V wastes first ~1625 steps ramping up, never sustains high-LR descent.
+
+- cross-PR mechanism alignment with alphonse #1381:
+  - **fern Cell B (full-run cosine) and alphonse Cell B (cosine-cooldown-only) both hit FFS=2925** with mechanism-coherent val trajectories through steps 1500→2925 (within ~0.005 of each other)
+  - Divergence happens AFTER FFS crossing: alphonse's stable-phase-preserved cosine continues descending (final 3.26779) while fern's full-run cosine plateaus (final 3.27392)
+  - **The stable phase is val-load-bearing** — removing it pays substantial val cost without buying additional FFS
+  - **Cosine SHAPE is FFS-load-bearing IN THE COOLDOWN WINDOW only** — full-run application is NOT additionally productive (val-costly without FFS gain)
+
+- cluster connections:
+  - **2nd FFS-positive direction this poll** (alongside alphonse #1381 same mechanism class)
+  - **3rd FFS-positive of R5 cycle** (after #1368 scalars-β1 and #1381 cosine cooldown)
+  - **20th stack-component pruning closure**: documents shape-localization mechanism (cosine works in cooldown window, NOT in stable window)
+
+- student excellence: ★ SPLIT pattern recognition (FFS-positive vs val-negative) is exactly what FFS-primary directive #1262 needs — explicit framing of the tradeoff lets the advisor make the right cross-PR decision (productive shape lives in cooldown only). Pre-registered "deserves its own directive clarification" was prescient.
+
+- decision (FFS-primary, directive #1262): Cell B FFS-alive at n=1 BUT paired against alphonse #1381 Cell B (same FFS=2925, better val=3.26779 vs 3.27392) — alphonse's instantiation being confirmed at n=4. Closing as MECHANISM-FINDING rather than running concurrent n=4 confirms to maximize GPU throughput on the productive direction. 20th stack-component closure.
+
+- follow-up assignment: fern → **#1441 AGC (Adaptive Gradient Clipping) on Muon body** (★ fresh OPTIMIZER MECHANISM — pivoting from schedule axis):
+  - Tests AGC per-parameter `||grad||/||param|| ≤ λ` clipping on body matrices (Brock et al. NFNets, arxiv:2102.06171)
+  - 5-cell A=0 ctrl / **B★=0.01 NFNets-default** / C=0.005 tighter / D=0.02 looser / E=0.001 falsifier (over-clip)
+  - Mechanism question: does the Muon body suffer early-training gradient bursts that AGC can damp without reducing late-training capacity?
+
+## 2026-05-27 14:50 — PR #1381: Cooldown LR decay SHAPE (alphonse) [SENT BACK FOR n=4 CONFIRM]
+- branch: g1r5-alphonse/cooldown-lr-decay-shape
+- hypothesis: "Cooldown shape (linear/cosine/concave/convex/step) is FFS-load-bearing within the cooldown window — tests cluster prediction 'directed descent through low-LR regime is load-bearing'"
+- verdict: **★★ STRONG FFS-POSITIVE at n=1 (B★ cosine FFS=2925 clears ≤2975 by 100 steps); SENT BACK FOR n=4 CONFIRM** per directive #1262
+- results (5-cell sweep, all n=1, W&B verified by advisor):
+  | Cell | shape | FFS | val/loss | Δbase (σ_single) | W&B id |
+  |:----:|:-----:|:---:|:--------:|:----------------:|:------:|
+  | A (ctrl) | linear | 3050 | 3.26327 | +3.5σ | ayktp1y8 |
+  | **B★** | **cosine** | **2925** | **3.26779** | **+7.6σ** | gpnw92c8 |
+  | C | concave √(1-x) | 3225 | 3.27412 | +19.0σ | lhtc8jns |
+  | **D** | **convex (1-x)²** | **2925** | **3.27441** | **+19.2σ** | 5zksggst |
+  | E | step (0.8) | DNF | 3.43395 | +291σ | 135ixnti |
+
+- mechanism findings:
+  - **TWO FFS-alive cells (B cosine + D convex both FFS=2925)** — cluster mechanism confirmed: "directed descent through low-LR regime is load-bearing"
+  - Cluster prediction empirically supported via **geometrically-convex shape** (D (1-x)²); student noted concave/convex behavioral inversion in PR labels (functions correctly named but description swapped) — the "drop fast and stay low" shape (D) and the smooth-decay shape (B) both clear FFS
+  - **Cell C (concave, keeps eta high) FFS=3225 WORST** — confirms cluster: high-eta during cooldown sharply hurts FFS
+  - **Cell E (step, no descent) DNF at +291σ** — falsifier fired as predicted: pure plateau then collapse never enters low-eta descent regime
+  - **Cross-PR corroboration**: fern #1385 Cell B (full-run cosine) ALSO hit FFS=2925 with mechanism-coherent val trajectory through steps 1500→2925 — TWO independent students converge on same FFS endpoint
+
+- decision (FFS-primary, directive #1262): FFS-alive at n=1 ⇒ **n=4 promotion REQUIRED**. Cell B cosine has best FFS:val tradeoff (+7.6σ val vs D's +19.2σ). Sent back for `--num_trials 4 --lr_cooldown_shape cosine` confirm; val tradeoff will be characterized at n=4 for human review.
+
+- student excellence: Cluster prediction sharpening (cosine vs convex both win, concave + step both lose) provides clean cross-shape mechanism evidence; concave/convex labeling self-correction in the report is high-quality scientific honesty.
+
 ## 2026-05-27 14:15 — PR #1384: ADAM-EMBED per-group cooldown decoupling (askeladd)
 - branch: g1r5-askeladd/embed-cooldown-decouple
 - hypothesis: "Does adam_embed (lr=0.3, 38.6M params, highest aux LR) behave like adam_scalars (#1326 WIDE-NULL with edge-sensitivity, permissive) or like body (tight)?"
