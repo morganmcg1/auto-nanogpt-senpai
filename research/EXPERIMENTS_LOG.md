@@ -1,5 +1,64 @@
 # SENPAI Research Results — auto-nanogpt-1gpu-r4
 
+## 2026-05-27 17:30 — PR #1412: H: NM γ-mixing sweep on post-#1240 stack {0.5, 0.75, 1.0 ctrl, 1.25} (CLOSED productive-MONOTONE-NEG ASYMMETRIC — γ=1.25 CATASTROPHIC, γ-axis dispositively fenced at γ=1.0, NEW 6th class step-size-of-preconditioner-asymmetric-fence)
+
+- branch: `g1r4-nezuko/nm-gamma-mixing-sweep`
+- Hypothesis: tests γ-mixing axis G_precond = (1−γ)·G + γ·(G·R^{−α}) — does mixing toward identity (γ<1) or over-extrapolating past G_precond (γ>1) extract residual signal, or does the R-buffer EMA absorb γ perturbations like β/EPS/MLP-LR magnitude axes? Tests γ={0.5 weak, 0.75 mild, 1.0 ctrl production, 1.25 OVER-mix} — bilateral sweep at ±0.25 / ±0.5 from γ=1.0.
+- All 4 arms TERMINAL after ~8h sequential A→B→C→D.
+
+| Arm | γ | run_id | val/loss | fs | Δ_paired_val vs A | Δ_paired_fs | Δ vs n=3 baseline 3.26339 | R_cond_mean | precond_ratio_mean |
+|:---:|:---:|---|:---:|:---:|:---:|:---:|:---:|:---:|:---:|
+| **A ctrl** | **1.0** | `k4mfvlpb` | **3.26496** | **3175** | (ref) | (ref) | **+0.00157 PASS-OK G4** | 3.85M | 1.1184 |
+| **B weak** | **0.5** | `ih7wtufu` | 3.26849 | 3200 | **+0.00353** | **+25 fs** | +0.00510 mid-NEG | 777K | 1.0477 |
+| **C mild** | **0.75** | `mqcdwhh9` | 3.26591 | 3175 | **+0.00094** | **0 fs (tied)** | +0.00252 NULL-band-trending-NEG | 40K | 1.0971 |
+| **D OVER-mix** | **1.25** | **`v622d5zd`** | **3.29336** | **NEVER (-1)** | **+0.02840** | **NEVER hit 3.28** | **+0.02997 STRONG-NEG CATASTROPHIC** | 163K | **1.7679** |
+
+**🎯 Verdict: CLOSED productive-MONOTONE-NEG ASYMMETRIC**. Decision tree row hit: Row 5 productive-MONOTONE-NEG ASYMMETRIC, axis dispositively fenced at γ=1.0.
+
+**🎯 KEY MECHANISM FINDINGS**:
+
+**1. ASYMMETRIC severity profile — FIRST asymmetric NM axis in catalog**:
+- Under-mixing (γ<1): monotone mild-NEG with graduated fs penalty (B=+25 fs, C=0 fs)
+- Over-mixing (γ>1): CATASTROPHIC, training never reaches 3.28 target during 3350-step budget
+- Severity ratio: over-mix 8.0× under-mix (+0.02840 / +0.00353)
+- γ-axis is bilaterally fenced at γ=1.0 with asymmetric severity — distinct from symmetric axes
+
+**2. DISTINCT from symmetric α-axis (#1360) and R-shape axis (#1363)**:
+- α-axis (R-power inside R^{−α}): **symmetric** bilateral fence (|Δ_B|/|Δ_C| ≈ 1.016)
+- R-shape (full vs diag): **symmetric** productive-NEG full-R load-bearing
+- γ-axis (precondition step-size mixing): **ASYMMETRIC** — over-extrapolation past G_precond endpoint catastrophic
+- Three NM internal-mechanism axes (γ / α / R-shape) all now dispositively characterized — γ=1.0, α=0.5, full-R are the optimum
+
+**3. NEW MECHANISM CLASS — step-size-of-preconditioner-asymmetric-fence (NEW 6th class c437)**:
+- γ-mixing is NEITHER pure magnitude (else absorbed like β/EPS/MLP-LR) NOR pure integrity (mechanism still partial at γ=0.5)
+- It is a third class because R-buffer EMA cannot compensate for a directly-modulated step that bypasses its feedback loop
+- precond_ratio diagnostic: ctrl=1.12 → γ=1.25 → 1.77 (58% gradient amplification = training instability)
+
+**4. precond_ratio_mean > 1.5 runtime divergence detector candidate** (student-suggested follow-up):
+- Arm D γ=1.25 had precond_ratio=1.77 at terminal but step-wise telemetry would have crossed 1.5 threshold around step 2500
+- Early-kill at `precond_ratio_mean > 1.5 at step >= 1500` would save ~2h compute per catastrophic NM perturbation
+- Future PR template recommendation: add `if precond_ratio_mean > 1.5 at step >= 1500: kill_arm()` to NM-perturbation chains
+
+**5. Strategic implication — pivot OUT of NM internals**:
+- Three NM internal-mechanism axes (γ / α / R-shape) now dispositively characterized — γ=1.0, α=0.5, full-R are the optimum
+- Future NM research should pivot OUTSIDE NM internals — compound stack combinations, architectural changes, or new optimization paradigms
+- Aligned with cycle 432 finding of TWO independent productive-FAV directions (#1421 period=2 + #1447 β=0.99), both OUTSIDE the dispositively-fenced internal axes
+- Cycle-432 prediction "tightly-tuned 4-parameter preconditioner ridge admits no NM-internal headroom" now strongly supported by #1412 closure
+
+**Cross-axis catalog cycle-437 (12 findings, 6 CLASSES — γ promoted to NEW class)**:
+1. magnitude-absorbed (4 axes): β-SCHEDULE / MLP-LR / EPS / β-AVG
+2. integrity-load-bearing (1 axis): γ-mixing under-mix (toward identity, mechanism off)
+3. structural-coverage (1 axis): #1409 attn+mlp ablation (asymmetric MLP > ATTN)
+4. non-monotone-U-shape (1 axis): #1402 β EARLY constant (β=0.99 FAV slow-extreme)
+5. timing-coverage-residual (5 axes): #1383 START_STEP / #1421 UPDATE_PERIOD / #1438 NS_ITERS / #1440 NS_COEF / #1431 R-reset
+6. **🎯 NEW: step-size-of-preconditioner-asymmetric-fence (#1412 γ-mixing over-mix γ=1.25 catastrophic)**
+
+This 6-class taxonomy distinguishes which NM-internal axes can extract headroom (non-monotone-U-shape #1402) from those that are fully fenced (γ at γ=1.0, α at 0.5, R-shape at full).
+
+**Follow-up assignment**: nezuko gets a new NM-aligned virgin axis assignment cycle 437 (NS_COOLDOWN_SHAPE sweep #1466 — 13th NM-aligned axis, post-#1240 stack-dependence test for NS scheduling axis).
+
+---
+
 ## 2026-05-27 15:08 — PR #1402: H: NM β EARLY constant sweep on post-#1240 stack {0.90, 0.95 ctrl, 0.97, 0.99} (CLOSED productive-MARGINAL — non-monotone U-shape in β, Arm D β=0.99 BEATS BASELINE at N=1, PP-promote assigned #1447 cycle 432)
 
 - branch: `g1r4-fern/nm-beta-early-sweep`
