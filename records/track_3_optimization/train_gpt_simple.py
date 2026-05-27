@@ -469,6 +469,15 @@ WD_AUX = float(os.environ.get("WD_AUX", "0.0"))  # AdamW WD on embed + lm_head m
 EMBED_INIT_STD = float(os.environ.get("EMBED_INIT_STD", "1.0"))  # default preserves baseline N(0,1)
 LOGIT_SOFTCAP = float(os.environ.get("LOGIT_SOFTCAP", "15.0"))  # default = 15 (current hardcoded value); soft-cap value c in f(x) = c·x / sqrt(x^2+c^2)
 
+# POST_TARGET_GRAD_CENTRALIZATION (PR #1465): apply Gradient Centralization
+# (Yong et al. 2020) to body Muon gradients within a step window. Subtract the
+# per-output-channel gradient mean BEFORE optimizer step so it propagates into
+# Muon's momentum buffer + NS5 orthogonalization. Only applies to params with
+# ndim >= 2 (Linear/Conv weights). AUX Adam gradients are NOT modified.
+POST_TARGET_GRAD_CENTRALIZATION_ENABLED = int(os.environ.get("POST_TARGET_GRAD_CENTRALIZATION_ENABLED", "0"))
+POST_TARGET_GRAD_CENTRALIZATION_STEP = int(os.environ.get("POST_TARGET_GRAD_CENTRALIZATION_STEP", "2950"))
+POST_TARGET_GRAD_CENTRALIZATION_END = int(os.environ.get("POST_TARGET_GRAD_CENTRALIZATION_END", "3175"))
+
 
 def zeropower_via_newtonschulz5(G: Tensor) -> Tensor:
     assert G.ndim >= 2
@@ -866,6 +875,9 @@ if dist.get_rank() == 0:
             "optimizer/attn_soap_trust_threshold": ATTN_SOAP_TRUST_THRESHOLD,
             "optimizer/ns5_iters": NS5_ITERS,
             "optimizer/wd_aux": WD_AUX,
+            "optimizer/post_target_gc_enabled": POST_TARGET_GRAD_CENTRALIZATION_ENABLED,
+            "optimizer/post_target_gc_step": POST_TARGET_GRAD_CENTRALIZATION_STEP,
+            "optimizer/post_target_gc_end": POST_TARGET_GRAD_CENTRALIZATION_END,
             "optimizer/recipe": "contra-muon + normuon-lite + soap-on-mlp + soap-on-attn-trust-gate (pre-NS5, record #14 + record #16)",
         },
     )
@@ -1026,6 +1038,54 @@ for trial_idx in range(args.num_trials):
         # set optimization hyperparameters and take a step
         set_hparams(step)
         train_step = step + 1
+
+        # POST_TARGET_GRAD_CENTRALIZATION (PR #1465): subtract per-output-channel
+        # mean from body Muon gradients within the configured window. Applied
+        # AFTER all-reduce and BEFORE optimizer step so the centralized gradient
+        # flows into Muon's momentum buffer + NS5 orthogonalization. Diagnostic
+        # logging window [2925, 3175] brackets the active window for baselining.
+        post_target_gc_active = (
+            POST_TARGET_GRAD_CENTRALIZATION_ENABLED
+            and POST_TARGET_GRAD_CENTRALIZATION_STEP <= step <= POST_TARGET_GRAD_CENTRALIZATION_END
+        )
+        post_target_gc_diagnostic = (
+            POST_TARGET_GRAD_CENTRALIZATION_ENABLED and 2925 <= step <= 3175
+        )
+        if post_target_gc_active or post_target_gc_diagnostic:
+            params_centralized = 0
+            grad_sq_pre = 0.0
+            grad_sq_post = 0.0
+            mean_sq = 0.0
+            is_rank0 = dist.get_rank() == 0
+            for group in optimizer2.param_groups:
+                for p in group["params"]:
+                    if p.grad is None:
+                        continue
+                    g = p.grad
+                    if post_target_gc_diagnostic and is_rank0:
+                        grad_sq_pre += float(g.float().pow(2).sum().item())
+                    if post_target_gc_active and g.ndim >= 2:
+                        g_mean_per_ch = g.mean(dim=tuple(range(1, g.ndim)), keepdim=True)
+                        if post_target_gc_diagnostic and is_rank0:
+                            numel_per_ch = g.numel() // g.size(0)
+                            mean_sq += float((g_mean_per_ch.float().pow(2).sum() * numel_per_ch).item())
+                        p.grad = g - g_mean_per_ch
+                        params_centralized += 1
+                    if post_target_gc_diagnostic and is_rank0:
+                        grad_sq_post += float(p.grad.float().pow(2).sum().item())
+            if post_target_gc_diagnostic and is_rank0:
+                wandb.log({
+                    "trial": trial_idx,
+                    "train/step": train_step,
+                    "train/gc/active": int(post_target_gc_active),
+                    "train/gc/params_centralized_count": params_centralized,
+                    "train/gc/grad_norm_pre_gc": grad_sq_pre ** 0.5,
+                    "train/gc/grad_norm_post_gc": grad_sq_post ** 0.5,
+                    "train/gc/grad_mean_norm": mean_sq ** 0.5,
+                }, step=trial_idx * (train_steps + 1) + train_step)
+            if post_target_gc_active and step % 25 == 0:
+                print0(f"[POST_TARGET_GRAD_CENTRALIZATION] step={step} params_centralized={params_centralized}", console=True)
+
         telemetry_due = (step == 0 or (step + 1) % args.telemetry_interval == 0 or step + 1 == train_steps)
         histogram_due = (step == 0 or (step + 1) % args.histogram_interval == 0 or step + 1 == train_steps)
         slope_due = (train_step % slope_interval == 0 or train_step == train_steps)
