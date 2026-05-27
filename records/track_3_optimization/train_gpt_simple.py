@@ -109,6 +109,16 @@ def parse_args():
     parser.add_argument("--body_init_bottom_layers", type=int,
                         default=int(os.environ.get("BODY_INIT_BOTTOM_LAYERS", "6")),
                         help="Number of bottom layers to damp for --body_init=orthogonal_bottom_damp (default 6 = bottom half of 12 layers).")
+    parser.add_argument("--aux_optimizer", type=str,
+                        default=os.environ.get("AUX_OPTIMIZER", "adamw"),
+                        choices=["adamw", "lion"],
+                        help="Aux groups optimizer. 'adamw' = baseline (bit-identical when default). "
+                             "'lion' = sign-based update (Chen et al. 2023, no v_t state).")
+    parser.add_argument("--aux_lr_scale", type=float,
+                        default=float(os.environ.get("AUX_LR_SCALE", "1.0")),
+                        help="Multiplicative scale on aux LRs (all 3 groups). 1.0 = baseline. "
+                             "Used to test Lion at scaled LRs (Lion typically uses lr 3-10x smaller than AdamW). "
+                             "Does NOT modify body MuonH LR.")
     args = parser.parse_args()
     args.num_trials = args.num_trials if args.num_trials is not None else (args.legacy_num_trials or 1)
     args.wandb_tags = [tag.strip() for tag in args.wandb_tags.split(",") if tag.strip()]
@@ -571,6 +581,49 @@ def muon_update(grad, momentum, mu=0.95, nesterov=True):
     update *= max(1, grad.size(-2) / grad.size(-1))**0.5
     return update
 
+class Lion(torch.optim.Optimizer):
+    """Lion optimizer (EvoLved Sign Momentum, Chen et al. NeurIPS 2023, arXiv:2302.06675).
+
+    Update rule:
+        update = sign(beta1 * m_{t-1} + (1 - beta1) * g_t)        # sign of fast interpolation
+        m_t = beta2 * m_{t-1} + (1 - beta2) * g_t                  # slow momentum integration
+        p_t = p_{t-1} - lr * (update + weight_decay * p_{t-1})    # decoupled weight decay
+
+    No second-moment buffer. Half the memory of AdamW.
+
+    Implementation follows the official reference (lucidrains/lion-pytorch and
+    google/automl/lion).
+    """
+    def __init__(self, params, lr=1e-4, betas=(0.9, 0.99), weight_decay=0.0):
+        defaults = dict(lr=lr, betas=betas, weight_decay=weight_decay)
+        super().__init__(params, defaults)
+
+    @torch.no_grad()
+    def step(self, closure=None):
+        loss = None
+        if closure is not None:
+            with torch.enable_grad():
+                loss = closure()
+        for group in self.param_groups:
+            lr = group["lr"]
+            beta1, beta2 = group["betas"]
+            weight_decay = group["weight_decay"]
+            for p in group["params"]:
+                if p.grad is None:
+                    continue
+                g = p.grad
+                state = self.state[p]
+                if len(state) == 0:
+                    state["m"] = torch.zeros_like(p)
+                m = state["m"]
+                update = m.clone().mul_(beta1).add_(g, alpha=1 - beta1).sign_()
+                if weight_decay != 0:
+                    p.mul_(1 - lr * weight_decay)
+                p.add_(update, alpha=-lr)
+                m.mul_(beta2).add_(g, alpha=1 - beta2)
+        return loss
+
+
 class Muon(torch.optim.Optimizer):
     def __init__(self, params, lr=0.02, weight_decay=0, mu=0.95):
         assert isinstance(params, list) and len(params) >= 1 and isinstance(params[0], torch.nn.Parameter)
@@ -850,6 +903,8 @@ if dist.get_rank() == 0:
             "muonh_mu_schedule": args.muonh_mu_schedule,
             "muonh_mu_start": args.muonh_mu_start,
             "muonh_mu_end": args.muonh_mu_end,
+            "aux_optimizer": args.aux_optimizer,
+            "aux_lr_scale": args.aux_lr_scale,
         },
     )
 
@@ -925,11 +980,24 @@ for trial_idx in range(args.num_trials):
     # fused AdamW reads betas from param_groups on every .step(), but to avoid any
     # silent-failure-mode risk we use fused=False whenever the β2 schedule is active.
     # constant schedule keeps fused=True so arm_a is bitwise-identical to baseline.
-    _aux_fused = (args.aux_beta2_schedule == "constant")
-    optimizer1 = AdamW([dict(params=[model.embed.weight], lr=0.3, name="adam_embed"),
-                        dict(params=[model.proj.weight], lr=1/320, name="adam_lm_head"),
-                        dict(params=[p for p in model.parameters() if p.ndim < 2], lr=0.01, name="adam_scalars")],
-                       betas=(0.8, args.aux_beta2_start), eps=args.aux_adamw_eps, weight_decay=0, fused=_aux_fused)
+    # Aux LR scaling (H209): multiplicative scale on aux LRs. 1.0 = baseline.
+    _aux_lr_embed = 0.3 * args.aux_lr_scale
+    _aux_lr_lmhead = (1/320) * args.aux_lr_scale
+    _aux_lr_scalars = 0.01 * args.aux_lr_scale
+    if args.aux_optimizer == "adamw":
+        _aux_fused = (args.aux_beta2_schedule == "constant")
+        optimizer1 = AdamW([dict(params=[model.embed.weight], lr=_aux_lr_embed, name="adam_embed"),
+                            dict(params=[model.proj.weight], lr=_aux_lr_lmhead, name="adam_lm_head"),
+                            dict(params=[p for p in model.parameters() if p.ndim < 2], lr=_aux_lr_scalars, name="adam_scalars")],
+                           betas=(0.8, args.aux_beta2_start), eps=args.aux_adamw_eps, weight_decay=0, fused=_aux_fused)
+    elif args.aux_optimizer == "lion":
+        # Lion: same betas convention (0.8, 0.99 by default). No eps; no v_t state.
+        optimizer1 = Lion([dict(params=[model.embed.weight], lr=_aux_lr_embed, name="lion_embed"),
+                           dict(params=[model.proj.weight], lr=_aux_lr_lmhead, name="lion_lm_head"),
+                           dict(params=[p for p in model.parameters() if p.ndim < 2], lr=_aux_lr_scalars, name="lion_scalars")],
+                          betas=(0.8, args.aux_beta2_start), weight_decay=0)
+    else:
+        raise ValueError(f"Unknown aux_optimizer: {args.aux_optimizer}")
     optimizer2 = MuonH([p for p in model.blocks.parameters() if p.ndim >= 2],
                        lr=args.muonh_lr, weight_decay=0.0, mu=0.95,
                        hyperball=True, budget_mult=args.muonh_budget_mult,
@@ -1183,6 +1251,10 @@ for trial_idx in range(args.num_trials):
             muonh_metrics = {"trial": trial_idx, "train/step": train_step}
             muonh_metrics["aux/beta2"] = aux_beta2
             muonh_metrics["train/muonh_mu"] = muonh_mu_t
+            muonh_metrics["train/aux_lr_scale"] = args.aux_lr_scale
+            # Log per-aux-group LR so we can see Lion vs AdamW LR profiles directly.
+            for g in optimizer1.param_groups:
+                muonh_metrics[f"train/lr/{g.get('name','aux_group')}"] = g["lr"]
             for opt in optimizers:
                 if isinstance(opt, MuonH):
                     if telemetry_due:
