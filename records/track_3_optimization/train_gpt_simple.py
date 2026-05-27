@@ -109,6 +109,19 @@ def parse_args():
     parser.add_argument("--body_init_bottom_layers", type=int,
                         default=int(os.environ.get("BODY_INIT_BOTTOM_LAYERS", "6")),
                         help="Number of bottom layers to damp for --body_init=orthogonal_bottom_damp (default 6 = bottom half of 12 layers).")
+    # H201: Annealed Gaussian gradient noise injection on body grads (Neelakantan et al. 2015).
+    # Inject zero-mean Gaussian noise into body (MuonH) gradients after AGC, before momentum
+    # update. Anneal schedule σ²(t) = eta0 / (1 + t)^gamma. Default eta0=0 is a no-op,
+    # bit-identical to baseline (no noise tensor allocated, no randn call).
+    parser.add_argument("--body_grad_noise_eta0", type=float,
+                        default=float(os.environ.get("BODY_GRAD_NOISE_ETA0", "0.0")),
+                        help="Initial gradient noise scale eta0 for MuonH body grads. "
+                             "0.0 = off (bit-identical to baseline). σ²(t) = eta0 / (1 + t)^gamma. "
+                             "Typical values 0.001-0.01.")
+    parser.add_argument("--body_grad_noise_gamma", type=float,
+                        default=float(os.environ.get("BODY_GRAD_NOISE_GAMMA", "0.55")),
+                        help="Decay exponent for gradient noise anneal (Neelakantan default 0.55). "
+                             "Larger gamma = faster anneal.")
     args = parser.parse_args()
     args.num_trials = args.num_trials if args.num_trials is not None else (args.legacy_num_trials or 1)
     args.wandb_tags = [tag.strip() for tag in args.wandb_tags.split(",") if tag.strip()]
@@ -645,6 +658,41 @@ def adaptive_gradient_clip(parameters, clip_ratio: float, eps: float = 1e-3):
     return stats
 
 
+@torch.no_grad()
+def inject_body_grad_noise(parameters, eta0: float, gamma: float, train_step: int):
+    """H201: Annealed Gaussian gradient noise injection (Neelakantan et al. 2015, arXiv:1511.06807).
+
+    Adds zero-mean Gaussian noise N(0, σ²(t)) to each body param's gradient in-place,
+    AFTER any AGC clipping and BEFORE the MuonH momentum buffer integrates the grad.
+    Anneal schedule: σ²(t) = eta0 / (1 + t)^gamma.
+
+    No-op (returns sigma=0, allocates no noise tensor) when eta0 <= 0 -> bit-identical.
+    """
+    if eta0 <= 0:
+        return 0.0
+    sigma_sq = eta0 / ((1.0 + train_step) ** gamma)
+    sigma = sigma_sq ** 0.5
+    for p in parameters:
+        if p.grad is None:
+            continue
+        p.grad.add_(torch.randn_like(p.grad) * sigma)
+    return sigma
+
+
+@torch.no_grad()
+def body_grad_norm_sq(parameters):
+    """Total squared L2 norm of body grads, summed across all params.
+    One CUDA sync. Used for noise telemetry (g_clean_norm vs g_noisy_norm)."""
+    acc = torch.zeros((), device="cuda", dtype=torch.float64)
+    n_elems = 0
+    for p in parameters:
+        if p.grad is None:
+            continue
+        acc += p.grad.detach().double().pow(2).sum()
+        n_elems += p.grad.numel()
+    return float(acc.item()), n_elems
+
+
 def scale_invariant_update_(param, update, lr, eps=1e-10):
     """Always-active hyperball step: rescale update to param's current norm scale,
     take the step, then renormalise the result back onto the sphere of radius
@@ -791,6 +839,10 @@ if args.muonh_agc_clip_ratio > 0:
     print0(f"AGC ENABLED on inner MuonH gradient: clip_ratio={args.muonh_agc_clip_ratio} eps={args.muonh_agc_eps}", console=True)
 else:
     print0("AGC DISABLED on inner MuonH gradient (clip_ratio=0)", console=True)
+if args.body_grad_noise_eta0 > 0:
+    print0(f"BODY GRAD NOISE ENABLED (H201): eta0={args.body_grad_noise_eta0} gamma={args.body_grad_noise_gamma}", console=True)
+else:
+    print0("BODY GRAD NOISE DISABLED (eta0=0)", console=True)
 print0("="*100)
 
 val_tokens = 20 * 524288
@@ -850,6 +902,8 @@ if dist.get_rank() == 0:
             "muonh_mu_schedule": args.muonh_mu_schedule,
             "muonh_mu_start": args.muonh_mu_start,
             "muonh_mu_end": args.muonh_mu_end,
+            "body_grad_noise_eta0": args.body_grad_noise_eta0,
+            "body_grad_noise_gamma": args.body_grad_noise_gamma,
         },
     )
 
@@ -1169,6 +1223,17 @@ for trial_idx in range(args.num_trials):
         muonh_agc_stats = adaptive_gradient_clip(
             muonh_params_for_agc, args.muonh_agc_clip_ratio, eps=args.muonh_agc_eps,
         )
+        # H201: Anneal Gaussian noise on body grads, AFTER AGC and BEFORE MuonH momentum
+        # integrates the reduced grad. Bit-identical when eta0=0. Stats only computed on
+        # telemetry events to amortise the CUDA syncs.
+        log_noise_due = telemetry_due and args.body_grad_noise_eta0 > 0
+        if log_noise_due:
+            g_clean_sq, n_grad_elems = body_grad_norm_sq(muonh_params_for_agc)
+        noise_sigma = inject_body_grad_noise(
+            muonh_params_for_agc, args.body_grad_noise_eta0, args.body_grad_noise_gamma, train_step,
+        )
+        if log_noise_due:
+            g_noisy_sq, _ = body_grad_norm_sq(muonh_params_for_agc)
         for opt in optimizers:
             opt.step()
         # Log warmup telemetry every 10 steps during warmup (and at telemetry events
@@ -1207,6 +1272,18 @@ for trial_idx in range(args.num_trials):
                 muonh_metrics["train/muonh/agc/max_ratio"] = muonh_agc_stats["agc_max_ratio"]
                 muonh_metrics["train/muonh/agc/scale_min"] = muonh_agc_stats["agc_scale_min"]
                 muonh_metrics["train/muonh/agc/scale_mean"] = muonh_agc_stats["agc_scale_mean"]
+            if telemetry_due and args.body_grad_noise_eta0 > 0:
+                # H201 gradient noise telemetry. Expected noise norm² = sigma² * n_elems
+                # (since each noise element is N(0, sigma²) independent).
+                expected_noise_sq = (noise_sigma ** 2) * n_grad_elems
+                muonh_metrics["train/grad_noise/sigma_current"] = noise_sigma
+                muonh_metrics["train/grad_noise/g_clean_norm"] = g_clean_sq ** 0.5
+                muonh_metrics["train/grad_noise/g_noisy_norm"] = g_noisy_sq ** 0.5
+                muonh_metrics["train/grad_noise/noise_norm_expected"] = expected_noise_sq ** 0.5
+                muonh_metrics["train/grad_noise/noise_to_grad_ratio"] = (
+                    expected_noise_sq / max(g_clean_sq, 1e-30)
+                ) ** 0.5
+                muonh_metrics["train/grad_noise/n_elems"] = n_grad_elems
             if len(muonh_metrics) > 2:
                 wandb.log(muonh_metrics, step=wandb_step)
         if dist.get_rank() == 0 and telemetry_due:
