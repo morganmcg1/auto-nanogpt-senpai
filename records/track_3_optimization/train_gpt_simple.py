@@ -468,6 +468,8 @@ NS5_ITERS = int(os.environ.get("NS5_ITERS", "12"))
 WD_AUX = float(os.environ.get("WD_AUX", "0.0"))  # AdamW WD on embed + lm_head matrices (scalars stay at 0)
 EMBED_INIT_STD = float(os.environ.get("EMBED_INIT_STD", "1.0"))  # default preserves baseline N(0,1)
 LOGIT_SOFTCAP = float(os.environ.get("LOGIT_SOFTCAP", "15.0"))  # default = 15 (current hardcoded value); soft-cap value c in f(x) = c·x / sqrt(x^2+c^2)
+AUX_BUFFER_RESET_AT_COOLDOWN = int(os.environ.get("AUX_BUFFER_RESET_AT_COOLDOWN", "0"))  # 0=disabled (baseline), 1=enabled
+AUX_BUFFER_RESET_STEP = int(os.environ.get("AUX_BUFFER_RESET_STEP", "953"))  # cycle-71 cooldown_frac=0.7 boundary
 
 
 def zeropower_via_newtonschulz5(G: Tensor) -> Tensor:
@@ -535,6 +537,26 @@ def soap_eigenbasis(mat: Tensor, eps: float = 1e-30) -> Tensor:
         evals, q = evals.float(), q.float()
     # Descending order so column 0 always corresponds to the dominant direction.
     return torch.flip(q, [1])
+
+
+def aux_buffer_reset(optimizer):
+    """Zero AUX-Adam exp_avg/exp_avg_sq/step buffers across all param groups; returns count reset."""
+    reset_count = 0
+    for group in optimizer.param_groups:
+        for p in group["params"]:
+            state = optimizer.state.get(p, {})
+            if state:
+                if "exp_avg" in state:
+                    state["exp_avg"].zero_()
+                if "exp_avg_sq" in state:
+                    state["exp_avg_sq"].zero_()
+                if "step" in state:
+                    if isinstance(state["step"], torch.Tensor):
+                        state["step"].zero_()
+                    else:
+                        state["step"] = 0
+                reset_count += 1
+    return reset_count
 
 
 def soap_basis_qr(row_gg, col_gg, q_row, q_col, exp_avg_sq):
@@ -1051,6 +1073,14 @@ for trial_idx in range(args.num_trials):
                 train_steps=train_steps,
                 wandb_step=wandb_step,
             )
+        if AUX_BUFFER_RESET_AT_COOLDOWN and step == AUX_BUFFER_RESET_STEP:
+            n_reset = aux_buffer_reset(optimizer1)
+            if dist.get_rank() == 0:
+                wandb.log({
+                    "train/aux_buffer_reset/active": 1.0,
+                    "train/aux_buffer_reset/count": n_reset,
+                    "train/aux_buffer_reset/step_fired": step,
+                }, step=wandb_step)
         for opt in optimizers:
             opt.step()
         if dist.get_rank() == 0 and telemetry_due:
