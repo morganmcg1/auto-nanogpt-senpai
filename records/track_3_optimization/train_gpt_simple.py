@@ -71,6 +71,13 @@ def parse_args():
                         help="LR for AdamW adam_scalars group (RMSNorm gains; "
                              "params with ndim < 2). Default 0.01 — hardcoded, "
                              "never ablated. ~20K params total in this model.")
+    parser.add_argument("--scalars_beta2", type=float, default=0.95,
+                        help="AdamW beta2 (2nd-moment EMA) override for the "
+                             "adam_scalars group only (1D LayerNorm gains + "
+                             "biases + token-position scalars). Default 0.95 = "
+                             "no-op matching optimizer-level beta2. Embed and "
+                             "lm_head groups inherit (0.8, 0.95). PR #1388 "
+                             "tests per-group beta2 dissociation.")
     parser.add_argument(
         "--depth_init_mode",
         type=str,
@@ -269,6 +276,10 @@ def log_training_telemetry(
             group_name = group.get("name", f"optimizer_{opt_idx}_group_{group_idx}")
             metrics[f"train/lr/{group_name}"] = group["lr"]
             metrics[f"train/weight_decay/{group_name}"] = group.get("weight_decay", 0.0)
+            betas = group.get("betas")
+            if betas is not None and group_name.startswith("adam_"):
+                metrics[f"adamw_aux/beta1_current/{group_name}"] = float(betas[0])
+                metrics[f"adamw_aux/beta2_current/{group_name}"] = float(betas[1])
     for module_type, tensors in grouped_by_type(grads, module_types).items():
         metrics.update(prefixed(f"train/grad_type/{module_type}", aggregate_stats(tensors)))
     for name, grad in grads:
@@ -764,6 +775,7 @@ if dist.get_rank() == 0:
             "wd_attn": args.wd_attn,
             "wd_schedule": args.wd_schedule,
             "lr_scalars": args.lr_scalars,
+            "scalars_beta2": args.scalars_beta2,
             "depth_init_mode": args.depth_init_mode,
         },
     )
@@ -839,7 +851,8 @@ for trial_idx in range(args.num_trials):
     # create the optimizer(s)
     optimizer1 = AdamW([dict(params=[model.embed.weight], lr=0.3, name="adam_embed"),
                         dict(params=[model.proj.weight], lr=1/320, name="adam_lm_head"),
-                        dict(params=[p for p in model.parameters() if p.ndim < 2], lr=args.lr_scalars, name="adam_scalars")],
+                        dict(params=[p for p in model.parameters() if p.ndim < 2], lr=args.lr_scalars,
+                             name="adam_scalars", betas=(0.8, args.scalars_beta2))],
                        betas=(0.8, 0.95), eps=1e-10, weight_decay=0, fused=True)
     named_blocks = [(n, p) for n, p in model.blocks.named_parameters() if p.ndim >= 2]
     mlp_named = [(n, p) for n, p in named_blocks
