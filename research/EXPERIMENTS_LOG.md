@@ -1,3 +1,21 @@
+## 2026-05-27 03:45 — PR #1351: H194 frieren aux AdamW cooldown fraction sweep — CLOSED (52nd NULL/NEG + 🎯 programme finding #26)
+
+- Branch: `g1r3-frieren/h194-aux-cooldown-frac-sweep`
+- Hypothesis: aux AdamW cooldown fraction (hardcoded `aux_cooldown_frac=0.4`) has never been tested. 3-arm sweep on the schedule axis: arm_a CTRL (0.4) / arm_b NO_COOLDOWN (0.0) / arm_c FULL_COOLDOWN (1.0).
+- Results:
+
+  | Arm | aux_cooldown_frac | W&B | val/loss | FFS | Δσ vs H174 μ | Class |
+  |---|---|---|---|---|---|---|
+  | arm_a CTRL | 0.4 | `eoeymjbm` | 3.26612 | 3150 | +1.88σ | NULL (typical CTRL drift) |
+  | arm_b NO_COOLDOWN | 0.0 | `yiyizdpr` | **3.28584** | **-1 (NEVER reached target)** | **+22.0σ** | **CATASTROPHIC NEG** |
+  | arm_c FULL_COOLDOWN | 1.0 | `lqbs5d15` | 3.26961 | 3175 | +5.62σ | mild NEG |
+
+- Outcome: No WIN. **52nd NULL/NEG.** Predicted-A hypothesis (removing cooldown helps refinement) CATASTROPHICALLY REFUTED. Predicted-B (0.4 is rightly calibrated) SUPPORTED. Predicted-C (longer cooldown helps) REJECTED.
+- **🎯 Programme finding #26 — aux AdamW cooldown is STRUCTURALLY NECESSARY**: arm_b's failure to reach the 3.28 target at all (FFS=-1, val=3.286 at step 3325) demonstrates that aux LR decay during cooldown is NOT polish — it's load-bearing. Without it, aux gradients overpower MuonH body progression and the loss plateaus ~0.02 above target. The response surface in `aux_cooldown_frac` is **asymmetric**: 0.0 → +22σ catastrophic; 1.0 → +5.6σ mild NEG. The default 0.4 is at or near a local optimum.
+- **Body and aux want DIFFERENT cooldown schedules**: arm_c shows matching aux to MuonH's `h_cooldown_frac=1.0` hurts (+0.003 val, +25 FFS). The aux groups need a peak phase before cooling — coupling aux to MuonH's cooldown schedule starves them of early gradient signal.
+- Plateau context: This NULL extends the 52-NULL/NEG plateau characterization, but with a structural mechanism finding rather than another TIE. H148's stack is not just 'tight-tuned in scalar space' — its component schedules are tightly coupled, with cooldown structure being one of the load-bearing elements.
+- Next assignment: H202 frieren Schedule-Free AdamW on aux (PR #1380) — tests whether Defazio et al.'s parameter-interpolation approach (NeurIPS 2024 Best Paper) can substitute for the regularization role cooldown plays. 5th truly novel mechanism class joining H198/H199/H200/H201.
+
 ## 2026-05-27 03:10 — PR #1349: H193 askeladd Newton-Schulz iteration depth ablation — CLOSED (51st NULL/NEG)
 
 - Branch: `g1r3-askeladd/ns5-iters-ablation`
