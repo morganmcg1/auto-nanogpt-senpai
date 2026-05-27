@@ -468,6 +468,10 @@ NS5_ITERS = int(os.environ.get("NS5_ITERS", "12"))
 WD_AUX = float(os.environ.get("WD_AUX", "0.0"))  # AdamW WD on embed + lm_head matrices (scalars stay at 0)
 EMBED_INIT_STD = float(os.environ.get("EMBED_INIT_STD", "1.0"))  # default preserves baseline N(0,1)
 LOGIT_SOFTCAP = float(os.environ.get("LOGIT_SOFTCAP", "15.0"))  # default = 15 (current hardcoded value); soft-cap value c in f(x) = c·x / sqrt(x^2+c^2)
+# Per-AUX-kind LR phase transition on lm_head at cooldown_frac=0.7 boundary (PR #1366).
+# Default 1.0 = inert (IEEE-identity at factor=1.0). Applies at step >= LM_HEAD_LR_PHASE_STEP.
+LM_HEAD_LR_PHASE_FACTOR = float(os.environ.get("LM_HEAD_LR_PHASE_FACTOR", "1.0"))
+LM_HEAD_LR_PHASE_STEP = int(os.environ.get("LM_HEAD_LR_PHASE_STEP", "953"))
 
 
 def zeropower_via_newtonschulz5(G: Tensor) -> Tensor:
@@ -866,6 +870,8 @@ if dist.get_rank() == 0:
             "optimizer/attn_soap_trust_threshold": ATTN_SOAP_TRUST_THRESHOLD,
             "optimizer/ns5_iters": NS5_ITERS,
             "optimizer/wd_aux": WD_AUX,
+            "optimizer/lm_head_lr_phase_factor": LM_HEAD_LR_PHASE_FACTOR,
+            "optimizer/lm_head_lr_phase_step": LM_HEAD_LR_PHASE_STEP,
             "optimizer/recipe": "contra-muon + normuon-lite + soap-on-mlp + soap-on-attn-trust-gate (pre-NS5, record #14 + record #16)",
         },
     )
@@ -936,6 +942,9 @@ for trial_idx in range(args.num_trials):
                 group["lr"] = group["initial_lr"] * eta
                 if group.get("name") == "muon_blocks":
                     group["mu"] = cur_mu
+                # Per-AUX-kind lm_head LR phase transition (#1366).
+                if step >= LM_HEAD_LR_PHASE_STEP and group.get("name") == "adam_lm_head":
+                    group["lr"] = group["lr"] * LM_HEAD_LR_PHASE_FACTOR
 
 
     ########################################
