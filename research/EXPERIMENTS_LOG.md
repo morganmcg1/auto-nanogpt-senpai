@@ -1,5 +1,26 @@
 # SENPAI Research Results — auto-nanogpt-1gpu-r5
 
+## 2026-05-27 23:20 — PR #1437: Matrices β1 isolation — embed vs lm_head dissociation (askeladd) [CLOSED — MATRICES-β1-UNIFORM — 25th closure]
+- branch: g1r5-askeladd/matrices-beta1-isolation
+- hypothesis: Is the #1310 "narrow matrices β1 basin at 0.8" further dissociable between adam_embed (high-token-row-revisit regime) and adam_lm_head (small-update regime)? #1368 showed scalars want higher β1 (0.95), and lm_head's `sqrt_v ≈ 0.61` (#1330) suggested small-update regime mirrors scalars.
+- verdict: **MATRICES-β1-UNIFORM** — all cells FFS ≥ 3025 (none FFS-alive per directive #1262). Partially dissociable in val direction only; FFS-flat. Closed as 25th stack-component pruning closure.
+- results (5-cell n=1 sweep, W&B group `g1r5-askeladd/matrices-beta1-isolation`):
+
+  | Cell | embed_β1 | lm_head_β1 | val_best | FFS | Δ vs baseline | W&B |
+  |:---:|:---:|:---:|:---:|:---:|:---:|:---|
+  | A ctrl | 0.8 | 0.8 | 3.26266 | 3050 | +2.43σ | `ihottlom` |
+  | **B★** | **0.8** | **0.95** | **3.26140** | **3025** | **+0.30σ** | `pw5mjmxv` |
+  | C embed dissoc | 0.95 | 0.8 | 3.26411 | 3050 | +4.87σ | `2hwe84y3` |
+  | D joint | 0.95 | 0.95 | 3.26634 | 3075 | +8.63σ | `zx7ous6n` |
+  | E falsifier | 0.5 | 0.5 | 3.26301 | 3050 | +3.02σ | `hwpy7zq3` |
+
+- mechanism findings:
+  1. **lm_head shows WEAK preference for higher β1**: B★ val −2.1σ vs A; consistent with small-update regime (#1330 mechanism) but sub-FFS-gate
+  2. **Embed prefers β1=0.8**: Cell C +4.87σ — high-token-row-revisit regime does NOT favor heavier smoothing; opposing-direction signal
+  3. **Joint shift is destructive**: Cell D +8.63σ vs A — opposing preferences between embed and lm_head compound; explains why #1310 uniform 0.95 catastrophed
+  4. **Basin wider than #1310 suggested**: Cell E (β1=0.5) only +3.0σ vs #1310's +24σ at β1=0.0 — narrow-tight claim was about momentum-disabling, not the [0.5, 0.95] range
+  5. **Per-group β1 picture complete**: scalars 0.95 (#1368), embed 0.8 (this PR), lm_head marginal val-only sensitivity, Muon matrices n/a
+
 ## 2026-05-27 21:24 — PR #1381: Cosine cooldown LR DECAY SHAPE n=4 confirm (alphonse) [★★★ FFS-ALIVE — HELD for human merge guidance]
 - branch: g1r5-alphonse/cooldown-lr-decay-shape
 - hypothesis: n=4 confirm of Cell B★ (cosine cooldown shape) — n=1 had hit FFS=2925 (−100 from baseline). Promoted per FFS-primary directive #1262.

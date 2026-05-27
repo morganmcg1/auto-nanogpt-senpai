@@ -9,24 +9,24 @@ The human research team has redirected: **FFS (first-step-to-target, baseline 30
 3. **Prefer experiments that move the crossing step** (2800-3050 window), **simplify winning stacks**, **reveal FFS-load-bearing components**.
 4. **Ablations preferred over confirmations** when FFS dead.
 
-## Last updated: 2026-05-27 ~21:30Z (poll ~898)
+## Last updated: 2026-05-27 ~23:20Z (poll ~899)
 
-**Actions this poll**: ★★★ #1381 alphonse cosine cooldown n=4 confirm TERMINAL — **FIRST FFS-POSITIVE MERGE CANDIDATE OF R5**. μ_4(FFS) = 2943.75 (−81 from baseline, FFS-alive ≤2975 cleared by 31 steps margin; 4/4 trials FFS≤2950), μ_4(val) = 3.270215 (+15σ_single regression). HELD in status:review pending human guidance (issue #1480 opened — Reading-A merge / B hold / C parallelize). Assigned #1481 alphonse cosine × cooldown_frac joint sweep as Reading-C parallel arm.
+**Actions this poll**: ★ Close #1437 askeladd MATRICES-β1-UNIFORM [25th stack-component closure]. All 5 cells FFS ≥ 3025 (none FFS-alive). B★ (lm_head=0.95) best cell at val=3.26140 / FFS=3025 — matrices β1 basin is FFS-uniform, partially dissociable in val direction only. Joint shift (Cell D) is destructive — opposing preferences between embed (wants 0.8) and lm_head (weak preference for 0.95) confirmed. Per-group β1 picture now complete. ★ Assigned #1490 askeladd AdEMAMix on AdamW aux (Pagliardini NeurIPS 2024; fast+slow EMA mixture; fresh optimizer mechanism). Issue #1480 still awaiting human response (>2h open; Reading-C default already in flight via #1481).
 
-**Critical pending**: Issue #1480 human merge guidance — default if no response in 4-6h is Reading-C (already actioned via #1481).
+**Critical pending**: Issue #1480 human merge guidance — #1381 (FFS-POSITIVE, FIRST OF R5) held in status:review; Reading-C parallel arm #1481 in flight.
 
 **Active student portfolio (8 PRs, 0 idle)**:
 - ★★★ #1381 alphonse — **cosine cooldown n=4 TERMINAL — μ_4(FFS)=2944, FFS-ALIVE, val +15σ regression**; status:review, HOLD pending issue #1480 human guidance
 - ★ #1481 alphonse — cosine × cooldown_frac joint sweep (Reading-C parallel arm; 5 cells cooldown_frac ∈ {0.7, 0.6, 0.5, 0.4, 0.3}, FFS-primary screening)
-- #1471 thorfinn — Lion-aux sign-based optimizer (Chen et al. 2023; Cell A control in flight)
-- #1460 nezuko — Cautious Optimizer (Liang et al. 2024; Cell B in flight)
-- #1446 edward — Lookahead optimizer wrapper (Zhang et al. 2019; Cell D in flight)
-- #1442 tanjiro — per-block-depth Muon body LR decay (ULMFiT γ-modulation; Cell D in flight)
-- #1441 fern — AGC on Muon body (Brock et al. NFNets; redirected D'(λ=1.0) and E'(λ=5.0) upper-λ)
-- #1437 askeladd — matrices β1 isolation (Cell D in flight, eb=lh=0.95)
-- #1434 frieren — scalars β2 per-group decoupling (Cell D in flight, β2=0.9)
+- #1490 askeladd — AdEMAMix on AdamW aux (fast+slow EMA mixture NeurIPS 2024; 5 cells ctrl/β3=0.9999 α=5/α=2/β3=0.999/β3=0.99 falsifier)
+- #1471 thorfinn — Lion-aux sign-based optimizer (Chen et al. 2023; Cell A control complete, sequential sweep running)
+- #1460 nezuko — Cautious Optimizer (Liang et al. 2024; in flight)
+- #1446 edward — Lookahead optimizer wrapper (Zhang et al. 2019; in flight)
+- #1442 tanjiro — per-block-depth Muon body LR decay (ULMFiT γ-modulation; cells in flight)
+- #1441 fern — AGC on Muon body (Brock et al. NFNets; Cell C complete FFS=3200, cells in flight)
+- #1434 frieren — scalars β2 per-group decoupling (in flight)
 
-**Cumulative closures (24 stack-components, ZERO merges in R5 to date)**: Averaging class (2) + Aux-LR triumvirate (3) + Per-group HP-decoupling tetrad β1+β2+ε+lr (4) + Crossing-phase cluster (6) + Muon NS operator-class (4) + AdamW aux core (3) + Early-phase (2) + others
+**Cumulative closures (25 stack-components, ZERO merges in R5 to date)**: Averaging class (2) + Aux-LR triumvirate (3) + Per-group HP-decoupling tetrad β1+β2+ε+lr (4) + Crossing-phase cluster (6) + Muon NS operator-class (4) + AdamW aux core (3) + Early-phase (2) + Matrices-β1-isolation (1) + others
 
 **FFS-positive directions**:
 1. ★★★ Cosine cooldown shape (#1381 n=4 TERMINAL μ_4(FFS)=2943.75 ALIVE; val regression +15σ; HOLD for #1480)
