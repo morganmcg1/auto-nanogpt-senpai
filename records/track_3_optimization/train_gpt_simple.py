@@ -80,6 +80,12 @@ def parse_args():
                              "Ablation flag for isolating paramEMA-only contribution.")
     parser.add_argument("--seed", type=int, default=1,
                         help="Random seed for torch/numpy/python. Default 1 matches baseline seed.")
+    parser.add_argument("--body_pretarget_mu", type=float, default=None,
+                        help="Override body-Muon momentum (μ) uniformly across all body blocks "
+                             "during the pre-target pulse window [window_start, window_end). "
+                             "None = baseline μ=0.95 throughout. Set e.g. 0.97 (sticky) or 0.93 (reactive).")
+    parser.add_argument("--body_pretarget_mu_window_start", type=int, default=2500)
+    parser.add_argument("--body_pretarget_mu_window_end", type=int, default=2925)
     args = parser.parse_args()
     args.num_trials = args.num_trials if args.num_trials is not None else (args.legacy_num_trials or 1)
     args.wandb_tags = [tag.strip() for tag in args.wandb_tags.split(",") if tag.strip()]
@@ -751,6 +757,10 @@ if dist.get_rank() == 0:
             "paramema_refresh_step": args.paramema_refresh_step,
             "paramema_refresh_only": int(args.paramema_refresh_only),
             "seed": args.seed,
+            "body_pretarget_mu": (args.body_pretarget_mu if args.body_pretarget_mu is not None else 0.95),
+            "body_pretarget_mu_enabled": int(args.body_pretarget_mu is not None),
+            "body_pretarget_mu_window_start": args.body_pretarget_mu_window_start,
+            "body_pretarget_mu_window_end": args.body_pretarget_mu_window_end,
         },
     )
 
@@ -1024,6 +1034,18 @@ for trial_idx in range(args.num_trials):
         train_step = step + 1
         telemetry_due = (step == 0 or (step + 1) % args.telemetry_interval == 0 or step + 1 == train_steps)
         histogram_due = (step == 0 or (step + 1) % args.histogram_interval == 0 or step + 1 == train_steps)
+        # μ-pulse sentinel steps: extra wandb logs at the pulse boundaries so the
+        # pulse can be verified post-hoc without scrolling through dense telemetry.
+        mu_sentinel_steps = {
+            args.body_pretarget_mu_window_start - 1,
+            args.body_pretarget_mu_window_start,
+            args.body_pretarget_mu_window_start + 1,
+            (args.body_pretarget_mu_window_start + args.body_pretarget_mu_window_end) // 2,
+            args.body_pretarget_mu_window_end - 1,
+            args.body_pretarget_mu_window_end,
+            args.body_pretarget_mu_window_end + 1,
+        }
+        mu_telemetry_due = (telemetry_due or step in mu_sentinel_steps)
         slope_due = (train_step % slope_interval == 0 or train_step == train_steps)
         wandb_step = trial_idx * (train_steps + 1) + train_step
         if dist.get_rank() == 0:
@@ -1047,6 +1069,17 @@ for trial_idx in range(args.num_trials):
                 train_steps=train_steps,
                 wandb_step=wandb_step,
             )
+        # body-Muon μ phase-window pulse (PR #1456):
+        # If --body_pretarget_mu is set, override μ on all body Muon param groups
+        # inside [window_start, window_end), else hold baseline μ=0.95.
+        mu_pulse_target = 0.95
+        mu_pulse_active = 0
+        if args.body_pretarget_mu is not None:
+            in_mu_window = (args.body_pretarget_mu_window_start <= step < args.body_pretarget_mu_window_end)
+            mu_pulse_target = args.body_pretarget_mu if in_mu_window else 0.95
+            mu_pulse_active = int(in_mu_window)
+            for group in optimizer2.param_groups:
+                group["mu"] = mu_pulse_target
         for opt in optimizers:
             opt.step()
         # EMA buffer update on body-Muon matrix params.
@@ -1082,6 +1115,30 @@ for trial_idx in range(args.num_trials):
                 if dist.get_rank() == 0:
                     print0(f"paramEMA refresh fired at step={step} "
                            f"(buffer reset to live params)", console=True)
+        # μ-pulse telemetry (PR #1456): log actual μ value and momentum-buffer
+        # norm on a sample body-Muon param at sentinel steps + every telemetry_due.
+        if dist.get_rank() == 0 and mu_telemetry_due:
+            current_body_mu = float(optimizer2.param_groups[0]["mu"])
+            body_momentum_norm = float("nan")
+            sample_param_shape = ""
+            for p in optimizer2.param_groups[0]["params"]:
+                state = optimizer2.state.get(p, None)
+                if state and "momentum" in state:
+                    body_momentum_norm = float(state["momentum"].detach().norm().item())
+                    sample_param_shape = f"{tuple(p.shape)}"
+                    break
+            wandb.log({
+                "trial": trial_idx,
+                "train/step": train_step,
+                "muon/body_mu": current_body_mu,
+                "muon/body_mu_pulse_active": mu_pulse_active,
+                "muon/body_mu_pulse_target": mu_pulse_target,
+                "muon/body_mu_window_start": args.body_pretarget_mu_window_start,
+                "muon/body_mu_window_end": args.body_pretarget_mu_window_end,
+                "muon/body_mu_arg": (args.body_pretarget_mu if args.body_pretarget_mu is not None else float("nan")),
+                "muon/body_momentum_norm": body_momentum_norm,
+                "muon/body_mu_is_sentinel": int(step in mu_sentinel_steps),
+            }, step=wandb_step)
         if dist.get_rank() == 0 and telemetry_due:
             log_weight_telemetry(
                 model=model,
