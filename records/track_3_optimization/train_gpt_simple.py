@@ -602,6 +602,9 @@ NANOGPT_NEWTON_MUON_UPDATE_PERIOD = int(os.environ.get("NANOGPT_NEWTON_MUON_UPDA
 NANOGPT_NEWTON_MUON_BETA = float(os.environ.get("NANOGPT_NEWTON_MUON_BETA", "0.95"))
 NANOGPT_NEWTON_MUON_EPS = float(os.environ.get("NANOGPT_NEWTON_MUON_EPS", "1e-4"))
 NANOGPT_NEWTON_MUON_MAX_D_IN = int(os.environ.get("NANOGPT_NEWTON_MUON_MAX_D_IN", "1024"))
+# γ-mixing coefficient: G_mixed = (1−γ)·G + γ·G_precond. γ=1.0 → full NM (bit-identical
+# to pre-#1410 code via short-circuit branch). γ=0.0 → vanilla Muon. γ>1.0 → over-extrapolation.
+NANOGPT_NEWTON_MUON_MIXING_GAMMA = float(os.environ.get("NANOGPT_NEWTON_MUON_MIXING_GAMMA", "1.0"))
 
 # Global per-parameter input-activation cache populated by forward hooks. Keyed by
 # id(weight_param) → tensor of shape (B*T, d_in) on device. Only populated when
@@ -746,6 +749,7 @@ class Muon(torch.optim.Optimizer):
                  newton_precond: bool = False, newton_beta: float = 0.95,
                  newton_eps: float = 1e-4, newton_update_period: int = 10,
                  newton_max_d_in: int = 1024,
+                 newton_mixing_gamma: float = 1.0,
                  newton_input_cache: dict | None = None):
         assert isinstance(params, list) and len(params) >= 1
         if isinstance(params[0], dict):
@@ -784,6 +788,7 @@ class Muon(torch.optim.Optimizer):
         self.newton_eps = float(newton_eps)
         self.newton_update_period = int(newton_update_period)
         self.newton_max_d_in = int(newton_max_d_in)
+        self.newton_mixing_gamma = float(newton_mixing_gamma)
         self.newton_input_cache = newton_input_cache if newton_input_cache is not None else {}
         self._newton_step_count = 0
         # Accumulator dict reset each step() — read by the training loop after
@@ -850,7 +855,12 @@ class Muon(torch.optim.Optimizer):
             return None
         # G @ R_inv_sqrt: float32 matmul, then cast back to grad dtype.
         g32 = grad.float()
-        g_precond32 = g32 @ R_inv_sqrt
+        g_precond32_full = g32 @ R_inv_sqrt
+        gamma = self.newton_mixing_gamma
+        if gamma == 1.0:
+            g_precond32 = g_precond32_full
+        else:
+            g_precond32 = (1.0 - gamma) * g32 + gamma * g_precond32_full
         tel = self.newton_telemetry
         tel["applied_n"] = tel.get("applied_n", 0) + 1
         # Only force CUDA syncs for telemetry on telemetry-due steps. The rest
@@ -984,7 +994,8 @@ print0(
     f"lr_scale={NANOGPT_NEWTON_MUON_LR_SCALE} "
     f"update_period={NANOGPT_NEWTON_MUON_UPDATE_PERIOD} "
     f"beta={NANOGPT_NEWTON_MUON_BETA} eps={NANOGPT_NEWTON_MUON_EPS} "
-    f"max_d_in={NANOGPT_NEWTON_MUON_MAX_D_IN}",
+    f"max_d_in={NANOGPT_NEWTON_MUON_MAX_D_IN} "
+    f"mixing_gamma={NANOGPT_NEWTON_MUON_MIXING_GAMMA}",
     console=True,
 )
 if NS_ITERS_COOLDOWN > 0:
@@ -1105,6 +1116,7 @@ if dist.get_rank() == 0:
             "nanogpt_newton_muon_beta": NANOGPT_NEWTON_MUON_BETA,
             "nanogpt_newton_muon_eps": NANOGPT_NEWTON_MUON_EPS,
             "nanogpt_newton_muon_max_d_in": NANOGPT_NEWTON_MUON_MAX_D_IN,
+            "nanogpt_newton_muon_mixing_gamma": NANOGPT_NEWTON_MUON_MIXING_GAMMA,
         },
     )
 
@@ -1171,6 +1183,7 @@ for trial_idx in range(args.num_trials):
         newton_eps=NANOGPT_NEWTON_MUON_EPS,
         newton_update_period=NANOGPT_NEWTON_MUON_UPDATE_PERIOD,
         newton_max_d_in=NANOGPT_NEWTON_MUON_MAX_D_IN,
+        newton_mixing_gamma=NANOGPT_NEWTON_MUON_MIXING_GAMMA,
         newton_input_cache=_newton_input_cache,
     )
     print0(f"MUON_PARAM_COUNTS: attn={len(muon_attn_params)} mlp={len(muon_mlp_params)} "
