@@ -70,6 +70,9 @@ def parse_args():
                              "late-higher=0.9 (block 0) → 1.1 (block 11), "
                              "late-lower=1.1 (block 0) → 0.9 (block 11). "
                              "Mean LR preserved across blocks.")
+    parser.add_argument("--body_pretarget_wd_mult", type=float, default=1.0,
+                        help="Multiply body-Muon weight_decay by this factor during steps [2500, 2925). "
+                             "1.0=disabled; 2.0=double WD; 0.0=zero WD during pre-target window.")
     args = parser.parse_args()
     args.num_trials = args.num_trials if args.num_trials is not None else (args.legacy_num_trials or 1)
     args.wandb_tags = [tag.strip() for tag in args.wandb_tags.split(",") if tag.strip()]
@@ -731,6 +734,10 @@ if dist.get_rank() == 0:
             "ema_beta_target": args.ema_beta_target if args.ema_beta_target is not None else 0.0,
             "ema_dynamic_ramp_active": int(args.ema_beta_target is not None and args.ema_beta > 0),
             "muon_block_lr_pattern": args.muon_block_lr_pattern,
+            "body_pretarget_wd_mult": args.body_pretarget_wd_mult,
+            "body_pretarget_wd_pulse_steps": "[2500, 2925)",
+            "body_pretarget_wd_baseline": 0.025,
+            "body_pretarget_wd_in_pulse": 0.025 * args.body_pretarget_wd_mult,
         },
     )
 
@@ -770,6 +777,12 @@ for trial_idx in range(args.num_trials):
                       lr=args.muon_lr, weight_decay=0.025, beta_cov=0.95, gamma=PMUON_GAMMA)
     optimizer2.param_groups[0]["name"] = "muon_blocks"
     print0(f"body-Muon optimizer: lr={args.muon_lr} weight_decay=0.025 beta_cov=0.95 gamma={PMUON_GAMMA}")
+    if args.body_pretarget_wd_mult != 1.0:
+        print0(f"body-Muon WD phase-window pulse ACTIVE: mult={args.body_pretarget_wd_mult} "
+               f"steps=[2500, 2925) in_pulse_wd={0.025 * args.body_pretarget_wd_mult} "
+               f"baseline_wd=0.025", console=True)
+    else:
+        print0("body-Muon WD phase-window pulse DISABLED (mult=1.0)")
 
     # Per-block Muon LR shape: mean-preserving linear ramp across block index.
     # block_mults sum to NUM_LAYERS × 1.0 exactly, so mean LR is unchanged vs uniform.
@@ -993,6 +1006,14 @@ for trial_idx in range(args.num_trials):
         train_loss = float((step_loss / batch_size).item())
         # set optimization hyperparameters and take a step
         sched_progress, sched_cooldown_progress, sched_eta = set_hparams(step)
+        # Body-Muon WD phase-window pulse: at step 2500 activate the multiplier,
+        # at step 2925 restore baseline. Mutating param_groups[0]["weight_decay"]
+        # propagates through Muon.step()'s `p.mul_(1 - lr_eff * group["weight_decay"])`.
+        if step == 2500 and args.body_pretarget_wd_mult != 1.0:
+            optimizer2.param_groups[0]["weight_decay"] = 0.025 * args.body_pretarget_wd_mult
+        if step == 2925 and args.body_pretarget_wd_mult != 1.0:
+            optimizer2.param_groups[0]["weight_decay"] = 0.025
+        body_wd_pulse_active = int(2500 <= step < 2925 and args.body_pretarget_wd_mult != 1.0)
         train_step = step + 1
         telemetry_due = (step == 0 or (step + 1) % args.telemetry_interval == 0 or step + 1 == train_steps)
         histogram_due = (step == 0 or (step + 1) % args.histogram_interval == 0 or step + 1 == train_steps)
@@ -1000,6 +1021,13 @@ for trial_idx in range(args.num_trials):
         wandb_step = trial_idx * (train_steps + 1) + train_step
         if dist.get_rank() == 0:
             train_loss_history.append((train_step, train_loss))
+            wandb.log({
+                "trial": trial_idx,
+                "optim/step": step,
+                "optim/body_wd": optimizer2.param_groups[0]["weight_decay"],
+                "optim/body_wd_pulse_active": body_wd_pulse_active,
+                "optim/body_wd_mult_config": args.body_pretarget_wd_mult,
+            }, step=wandb_step)
         if dist.get_rank() == 0 and slope_due:
             slope_metrics = {
                 "trial": trial_idx,
