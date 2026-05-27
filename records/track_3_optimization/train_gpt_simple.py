@@ -70,6 +70,11 @@ def parse_args():
                              "late-higher=0.9 (block 0) → 1.1 (block 11), "
                              "late-lower=1.1 (block 0) → 0.9 (block 11). "
                              "Mean LR preserved across blocks.")
+    parser.add_argument("--muon_block_beta_cov_pattern", type=str, default="none",
+                        choices=["none", "late-higher", "late-lower"],
+                        help="Per-block Muon beta_cov shape: 'late-higher' ramps beta_cov up from "
+                             "block 0 (0.94) to block 11 (0.96), mean=0.95 (baseline); "
+                             "'late-lower' ramps down.")
     args = parser.parse_args()
     args.num_trials = args.num_trials if args.num_trials is not None else (args.legacy_num_trials or 1)
     args.wandb_tags = [tag.strip() for tag in args.wandb_tags.split(",") if tag.strip()]
@@ -568,13 +573,17 @@ class Muon(torch.optim.Optimizer):
                         state["momentum"] = torch.zeros_like(p)
                         state["L"] = torch.zeros(p.shape[0], p.shape[0], device=p.device, dtype=torch.float32)
                         state["R"] = torch.zeros(p.shape[1], p.shape[1], device=p.device, dtype=torch.float32)
+                    beta_cov_eff = group["beta_cov"]
+                    param_beta_cov_mults = getattr(self, "_param_beta_cov_mults", None)
+                    if param_beta_cov_mults is not None and id(p) in param_beta_cov_mults:
+                        beta_cov_eff = param_beta_cov_mults[id(p)]
                     update = pmuon_update(
                         p.grad,
                         state["momentum"],
                         state["L"],
                         state["R"],
                         mu=group["mu"],
-                        beta_cov=group["beta_cov"],
+                        beta_cov=beta_cov_eff,
                         gamma=group["gamma"],
                         ns_a=group["ns_a"],
                         ns_b=group["ns_b"],
@@ -731,6 +740,7 @@ if dist.get_rank() == 0:
             "ema_beta_target": args.ema_beta_target if args.ema_beta_target is not None else 0.0,
             "ema_dynamic_ramp_active": int(args.ema_beta_target is not None and args.ema_beta > 0),
             "muon_block_lr_pattern": args.muon_block_lr_pattern,
+            "muon_block_beta_cov_pattern": args.muon_block_beta_cov_pattern,
         },
     )
 
@@ -799,6 +809,34 @@ for trial_idx in range(args.num_trials):
             wandb.log({f"muon_block_lr_mult/block_{i}": m for i, m in enumerate(block_mults)},
                       step=0)
     optimizer2._param_lr_mults = param_lr_mults
+
+    # Per-block Muon beta_cov shape: linear ramp around baseline beta_cov=0.95.
+    # Unlike per-block LR (multiplier), per-block beta_cov stores absolute values.
+    param_beta_cov_mults = None
+    block_beta_covs = None
+    b0_beta_cov = 0.95
+    b11_beta_cov = 0.95
+    if args.muon_block_beta_cov_pattern != "none":
+        if args.muon_block_beta_cov_pattern == "late-higher":
+            lo_bc, hi_bc = 0.94, 0.96
+        elif args.muon_block_beta_cov_pattern == "late-lower":
+            lo_bc, hi_bc = 0.96, 0.94
+        block_beta_covs = [lo_bc + (hi_bc - lo_bc) * (i / (NUM_LAYERS - 1)) for i in range(NUM_LAYERS)]
+        param_beta_cov_mults = {}
+        for name, p in model.named_parameters():
+            if p.ndim >= 2 and name.startswith("blocks."):
+                idx = int(name.split(".")[1])
+                param_beta_cov_mults[id(p)] = block_beta_covs[idx]
+        b0_beta_cov = block_beta_covs[0]
+        b11_beta_cov = block_beta_covs[NUM_LAYERS - 1]
+        if dist.get_rank() == 0:
+            print0(f"per-block Muon beta_cov pattern: {args.muon_block_beta_cov_pattern}", console=True)
+            for i, b in enumerate(block_beta_covs):
+                print0(f"  block {i}: beta_cov={b:.4f} (state horizon ~{1/(1-b):.1f} steps)",
+                       console=True)
+            wandb.log({f"muon_block_beta_cov/block_{i}": b for i, b in enumerate(block_beta_covs)},
+                      step=0)
+    optimizer2._param_beta_cov_mults = param_beta_cov_mults
 
     optimizers = [optimizer1, optimizer2]
     assert set(p for opt in optimizers for group in opt.param_groups
@@ -1088,6 +1126,15 @@ for trial_idx in range(args.num_trials):
                     "muon_block_lr/effective_block_11": muon_group_lr * b11_lr_mult,
                     "muon_block_lr/group_lr": muon_group_lr,
                     "muon_block_lr/ratio_b11_over_b0": b11_lr_mult / b0_lr_mult,
+                }, step=wandb_step)
+            if param_beta_cov_mults is not None:
+                wandb.log({
+                    "trial": trial_idx,
+                    "train/step": train_step,
+                    "muon_block_beta_cov/effective_block_0": b0_beta_cov,
+                    "muon_block_beta_cov/effective_block_11": b11_beta_cov,
+                    "muon_block_beta_cov/state_horizon_b0": 1.0 / (1.0 - b0_beta_cov),
+                    "muon_block_beta_cov/state_horizon_b11": 1.0 / (1.0 - b11_beta_cov),
                 }, step=wandb_step)
             if ema_params is not None:
                 wandb.log({
