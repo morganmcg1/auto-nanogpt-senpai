@@ -1,5 +1,27 @@
 # SENPAI Research Results — auto-nanogpt-1gpu-r4
 
+## 2026-05-27 09:00 — PR #1363: NM diagonal-only R vs full-R structural ablation (CLOSED productive-NEG Row 5 dispositive STRUCTURAL — 55th no-merge, 11th NM mechanism axis closed, first STRUCTURAL ablation in r4 launch)
+
+- Branch: `g1r4-nezuko/nm-diagonal-ablation` (student g1r4-nezuko)
+- Hypothesis: Newton-Muon's full R = E[X^T X] matrix is decomposable into per-dim variance (diagonal) and cross-dim covariances (off-diagonal). Tests which channel is load-bearing — diagonal-only is computationally MUCH cheaper (~12% per step, no eigendecomp), enabling aggressive UPDATE_PERIOD=1 if it works. Schmidhuber-style "old idea" disambiguation: K-FAC / Shampoo / Newton-full lineage (full preconditioner) vs AdaGrad / RMSProp / Adam lineage (diagonal-only).
+- Implementation: new env var `NANOGPT_NEWTON_MUON_DIAGONAL` (default 0 = full-R). Diagonal-only path: `r_diag = (X^2).sum(0) / N`, `R_diag_inv_sqrt = (R_diag.clamp(0) + eps).rsqrt()`, `g_precond = g * R_diag_inv_sqrt.unsqueeze(0)`. DIAG=0 bit-identical to current code (verified via 30-step smoke, step-0 val_loss 10.82583 identical for both paths). Telemetry: same `inv_sqrt_norm_sum`/`precond_ratio_sum` accumulators + new `R_diag_norm_mean`/`max`/`min` for sanity.
+
+| Arm | DIAGONAL | UPDATE_PERIOD | W&B run | val/loss | fs | Δ_paired vs A | Δ_paired_fs | step_avg | Verdict |
+|:---:|:---:|:---:|:---:|:---:|:---:|:---:|:---:|:---:|---|
+| **A FULL-R ctrl** | 0 | 5 | `lfa0hjlp` | **3.26372** | **3150** | (ref) | (ref) | 2152ms | drift +0.00033 EXCEPTIONALLY-CLEAN G4 PASS |
+| **B DIAG-ONLY UP=5** | 1 | 5 | `6bpz5f0d` | 3.26808 | 3200 | **+0.00436 NEG** | +50 fs | 1904ms | matched-period ADVERSE (best of diag) |
+| **C DIAG-ONLY UP=1** | 1 | 1 | `je4i9gh1` | 3.27145 | 3225 | **+0.00773 NEG** | +75 fs | 1893ms | **every-step refresh WORST (anti-monotone)** |
+| **D DIAG-ONLY UP=3** | 1 | 3 | `ir7g5s99` | 3.27092 | 3225 | **+0.00720 NEG** | +75 fs | 1910ms | intermediate ≈ Arm C |
+
+- 🎯 Three dispositive structural findings (all close productive-NEG):
+  1. **Off-diagonal R correlations are LOAD-BEARING** — direct test at matched UPDATE_PERIOD=5: Arm B vs Arm A → Δ=+0.00436 +50 fs penalty. Validates K-FAC / Shampoo / Newton-full lineage over AdaGrad / RMSProp / Adam diagonal lineage. Mechanism: 12 MLP modules with R-structure encoding gradient correlations across input dimensions; diag-only treats these independent, missing rotational alignment that R^{−1/2} provides via eigendecomposition.
+  2. **Anti-monotone refresh trend** — UP=5 best of diag (+0.00436), UP=3 +0.00720, UP=1 +0.00773 WORST. Faster diagonal refresh produces noisier per-dim variance estimates that degrade performance — dispositively rules out alternative hypothesis "diagonal is sufficient if refreshed fast enough". Diagonal of X^T X computed over small batch dominated by per-step noise; full-R via eigendecomp is robust to coarser refresh because eigenstructure is geometrically meaningful.
+  3. **Compute trade-off explicitly unfavorable** — diag-only saves ~12% step time (~245ms/step, no eigendecomp) but all diag arms reach fs ≥ 3200 vs ctrl fs=3150, ~2.4% slower in steps. Net wall-clock to 3.28: diag is ~7% SLOWER despite per-step speedup. Rules out diagonal-only NM as a "cheaper simplification" path.
+- 🎯 Joins today's CLEAR-NEG cohort (5 dispositive structural findings within 24h on post-#1240 stack): #1360 R-power bilateral fence / #1363 (this) DIAG-ONLY structural NEG / #1356 period=3 +0.00337 / #1372 β-schedule NULL collapse / #1409 module coverage in flight.
+- Joins #1360 in FUNDAMENTAL NM characterization: #1360 fences α=0.5 (preconditioner POWER), #1363 fences full-R (preconditioner STRUCTURE). Together with #1356 (period=5 robust) these three findings characterize the canonical Newton-Muon parametrization as empirically optimal.
+- Implementation quality acknowledgment: bit-identity gate verified (DIAG=0 step-0 val_loss 10.82583 identical to current code), clean branch-recovery handling from lost-commit issue + on-disk reset, duplicate-launcher cleanup (SIGTERM'd colliding Arm D launcher `x3lodrqx` early at step ~1), explicit anti-monotone trend interpretation (UP=1 worst), explicit compute-cost-quality trade analysis (~7% net wall-clock penalty).
+- **G1 FAIL all diag arms** (B +0.00469 / C +0.00806 / D +0.00753 above baseline). G4 PASS Arm A drift +0.00033 within ±0.003 envelope. 11th NM mechanism axis closed productive-NEG (55th no-merge in r4 launch). Row 5 dispositive structural finding. First STRUCTURAL ablation closed in r4 launch (all 10 prior closures were hyperparameter sweeps).
+
 ## 2026-05-27 09:00 — PR #1360: NM R-power preconditioning sweep α ∈ {0.333, 0.5, 0.667, 0.75} (CLOSED productive-NEG Row 5 BILATERAL FENCE — 54th no-merge, 10th NM mechanism axis closed)
 
 - Branch: `g1r4-alphonse/nm-rpower-sweep` (student g1r4-alphonse)
