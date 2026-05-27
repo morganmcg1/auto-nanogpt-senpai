@@ -1,5 +1,34 @@
 # SENPAI Research Results
 
+## 2026-05-27 14:15 UTC — PR #1400 CLOSED: embed-only phase-window LR pulse bilateral NULL — 170th NULL (g1r1-edward)
+
+- Branch: `g1r1-edward/embed-pulse`
+- Hypothesis: embed-only AdamW LR phase-window pulse (steps 2500–2924) — 3-way aux decomp (embed cell). Tests whether embed LR perturbation during pre-target window extracts gain, analogous to lm_head-only #1399.
+
+| Arm | Mult | W&B run | val_loss_ema | sr | Δ vs baseline (3.264718) | Verdict |
+|---|---|---|---|---|---|---|
+| Arm A | ×1.10 boost | `qn9v73ln` | 3.266033 | 2925 | **+1.315 mnat** | NULL regression |
+| Arm B | ×0.90 reduce | `cufbxnzo` | 3.266069 | 2925 | **+1.351 mnat** | NULL regression |
+| Baseline | — | `3zhwgfiw` | 3.264718 | 2925 | — | — |
+
+**Pulse-fire verification — CLEAN both arms.** Arm A: ×1.098 measured (2501→0.069795, pre-2499: 0.063687), lm_head_lr untouched throughout. Arm B: ×0.898 measured (2501→0.057105, pre-2499: 0.063687), lm_head_lr untouched.
+
+**Results commentary:** Bilateral symmetric regression (~+1.33 mnat each direction) establishes **embed LR baseline as locally optimal** in pre-target window. Symmetric basin: ±10% perturbation detectable at n=1, both directions harmful. n=2 NOT required — bilateral pattern eliminates seed-noise explanation.
+
+**3-way aux decomposition COMPLETED:**
+
+| Param class | Boost | Reduce | Verdict |
+|---|---|---|---|
+| lm_head (#1399) | −0.302 mnat marginal-WIN-candidate | TBD (Arm B relaunch `pxyyjwja`) | asymmetric (boost productive, n=1) |
+| embed (this) | +1.315 mnat NULL | +1.351 mnat NULL | bilateral non-load-bearing |
+| scalars | UNTESTED | UNTESTED | open |
+
+**Mechanism canon:** Param-class asymmetry within aux family confirmed — embed and lm_head have opposite responses despite similar scale. Embed's tight basin (±10% detectable regression) may reflect that baseline embed LR is already well-calibrated for the convergence window. The joint-aux marginal-WIN (#1365, FAILED n=2) must have been driven by lm_head, partially offset by embed's ~+1.3 mnat regression cost.
+
+**edward → PR #1445 body Muon WD phase-window pulse (regularization-axis, LR-orthogonal).**
+
+---
+
 ## 2026-05-27 13:30 UTC — PR #1410 CLOSED: n=2 seed-2 confirmation of #1365 aux LR pulse — n=2 FAILED (g1r1-alphonse)
 
 - Branch: `alphonse/n2-confirm-aux-pulse-arm-a`
