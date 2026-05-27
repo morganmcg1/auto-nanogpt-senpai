@@ -602,6 +602,11 @@ NANOGPT_NEWTON_MUON_UPDATE_PERIOD = int(os.environ.get("NANOGPT_NEWTON_MUON_UPDA
 NANOGPT_NEWTON_MUON_BETA = float(os.environ.get("NANOGPT_NEWTON_MUON_BETA", "0.95"))
 NANOGPT_NEWTON_MUON_EPS = float(os.environ.get("NANOGPT_NEWTON_MUON_EPS", "1e-4"))
 NANOGPT_NEWTON_MUON_MAX_D_IN = int(os.environ.get("NANOGPT_NEWTON_MUON_MAX_D_IN", "1024"))
+# Diagonal-only NM (#1363). When 1, the right-precondition R is collapsed to its
+# diagonal (per-dim activation variance only, no cross-dim correlations). The
+# expensive eigendecomposition is skipped — inv-sqrt is a per-coord rsqrt and
+# G is rescaled column-wise. When 0 (default), full-R eigendecomp path runs.
+NANOGPT_NEWTON_MUON_DIAGONAL = int(os.environ.get("NANOGPT_NEWTON_MUON_DIAGONAL", "0"))
 
 # Global per-parameter input-activation cache populated by forward hooks. Keyed by
 # id(weight_param) → tensor of shape (B*T, d_in) on device. Only populated when
@@ -746,6 +751,7 @@ class Muon(torch.optim.Optimizer):
                  newton_precond: bool = False, newton_beta: float = 0.95,
                  newton_eps: float = 1e-4, newton_update_period: int = 10,
                  newton_max_d_in: int = 1024,
+                 newton_diagonal: bool = False,
                  newton_input_cache: dict | None = None):
         assert isinstance(params, list) and len(params) >= 1
         if isinstance(params[0], dict):
@@ -784,6 +790,7 @@ class Muon(torch.optim.Optimizer):
         self.newton_eps = float(newton_eps)
         self.newton_update_period = int(newton_update_period)
         self.newton_max_d_in = int(newton_max_d_in)
+        self.newton_diagonal = bool(newton_diagonal)
         self.newton_input_cache = newton_input_cache if newton_input_cache is not None else {}
         self._newton_step_count = 0
         # Accumulator dict reset each step() — read by the training loop after
@@ -818,11 +825,62 @@ class Muon(torch.optim.Optimizer):
         x = self.newton_input_cache.get(pid)
         if x is None:
             return None
-        # Update R EMA + eigendecomp every newton_update_period steps (and at first call).
+        # Update R EMA every newton_update_period steps (and at first call).
         update_R = (
-            "R" not in state
+            ("R" not in state and "R_diag" not in state)
             or (self._newton_step_count % self.newton_update_period == 1)
         )
+        if self.newton_diagonal:
+            # ===== DIAGONAL-ONLY PATH (#1363) =====
+            # R collapses to its diagonal: per-dim activation variance only.
+            # inv-sqrt becomes a per-coord rsqrt; G is rescaled column-wise.
+            if update_R:
+                x32 = x.float()
+                n = x32.shape[0]
+                r_diag_new = (x32 * x32).sum(0) / float(n)
+                if "R_diag" not in state:
+                    state["R_diag"] = r_diag_new.clone()
+                else:
+                    b = self.newton_beta
+                    state["R_diag"].mul_(b).add_(r_diag_new, alpha=1.0 - b)
+                R_diag_clamped = state["R_diag"].clamp(min=0.0) + self.newton_eps
+                state["R_diag_inv_sqrt"] = R_diag_clamped.rsqrt()
+                state["_R_diag_clamped"] = R_diag_clamped
+            R_diag_inv_sqrt = state.get("R_diag_inv_sqrt")
+            if R_diag_inv_sqrt is None:
+                return None
+            g32 = grad.float()
+            g_precond32 = g32 * R_diag_inv_sqrt.unsqueeze(0)
+            tel = self.newton_telemetry
+            tel["applied_n"] = tel.get("applied_n", 0) + 1
+            if self.newton_telemetry_due:
+                R_diag_clamped = state.get("_R_diag_clamped")
+                if R_diag_clamped is not None:
+                    diag_max = float(R_diag_clamped.max().item())
+                    diag_min = float(R_diag_clamped.min().item())
+                    cond = diag_max / max(diag_min, 1e-30)
+                    tel["cond_max"] = max(tel.get("cond_max", 0.0), cond)
+                    tel["cond_min"] = min(tel.get("cond_min", float("inf")), cond)
+                    tel["cond_sum"] = tel.get("cond_sum", 0.0) + cond
+                    tel["cond_n"] = tel.get("cond_n", 0) + 1
+                    tel["R_diag_max_max"] = max(tel.get("R_diag_max_max", 0.0), diag_max)
+                    tel["R_diag_min_min"] = min(tel.get("R_diag_min_min", float("inf")), diag_min)
+                    tel["R_diag_norm_sum"] = tel.get("R_diag_norm_sum", 0.0) + float(
+                        state["R_diag"].norm().item()
+                    )
+                    tel["R_diag_n"] = tel.get("R_diag_n", 0) + 1
+                tel["inv_sqrt_norm_sum"] = tel.get("inv_sqrt_norm_sum", 0.0) + float(
+                    R_diag_inv_sqrt.norm().item()
+                )
+                g_norm = float(g32.norm().item())
+                if g_norm > 1e-30:
+                    tel["precond_ratio_sum"] = (
+                        tel.get("precond_ratio_sum", 0.0)
+                        + float(g_precond32.norm().item()) / g_norm
+                    )
+                    tel["precond_ratio_n"] = tel.get("precond_ratio_n", 0) + 1
+            return g_precond32.to(grad.dtype)
+        # ===== FULL-R PATH (default) =====
         if update_R:
             x32 = x.float()
             # R_new = (X^T X) / N, shape (d_in, d_in) in float32 for eigendecomp stability.
@@ -984,7 +1042,8 @@ print0(
     f"lr_scale={NANOGPT_NEWTON_MUON_LR_SCALE} "
     f"update_period={NANOGPT_NEWTON_MUON_UPDATE_PERIOD} "
     f"beta={NANOGPT_NEWTON_MUON_BETA} eps={NANOGPT_NEWTON_MUON_EPS} "
-    f"max_d_in={NANOGPT_NEWTON_MUON_MAX_D_IN}",
+    f"max_d_in={NANOGPT_NEWTON_MUON_MAX_D_IN} "
+    f"diagonal={'True' if NANOGPT_NEWTON_MUON_DIAGONAL else 'False'}",
     console=True,
 )
 if NS_ITERS_COOLDOWN > 0:
@@ -1105,6 +1164,7 @@ if dist.get_rank() == 0:
             "nanogpt_newton_muon_beta": NANOGPT_NEWTON_MUON_BETA,
             "nanogpt_newton_muon_eps": NANOGPT_NEWTON_MUON_EPS,
             "nanogpt_newton_muon_max_d_in": NANOGPT_NEWTON_MUON_MAX_D_IN,
+            "nanogpt_newton_muon_diagonal": NANOGPT_NEWTON_MUON_DIAGONAL,
         },
     )
 
@@ -1171,6 +1231,7 @@ for trial_idx in range(args.num_trials):
         newton_eps=NANOGPT_NEWTON_MUON_EPS,
         newton_update_period=NANOGPT_NEWTON_MUON_UPDATE_PERIOD,
         newton_max_d_in=NANOGPT_NEWTON_MUON_MAX_D_IN,
+        newton_diagonal=bool(NANOGPT_NEWTON_MUON_DIAGONAL),
         newton_input_cache=_newton_input_cache,
     )
     print0(f"MUON_PARAM_COUNTS: attn={len(muon_attn_params)} mlp={len(muon_mlp_params)} "
@@ -1463,6 +1524,14 @@ for trial_idx in range(args.num_trials):
                 newton_metrics["newton_muon/precond_ratio_mean"] = (
                     tel["precond_ratio_sum"] / ratio_n
                 )
+            # Diag-only telemetry (#1363): populated only when NANOGPT_NEWTON_MUON_DIAGONAL=1.
+            diag_n = tel.get("R_diag_n", 0)
+            if diag_n > 0:
+                newton_metrics["newton_muon/R_diag_norm_mean"] = (
+                    tel["R_diag_norm_sum"] / diag_n
+                )
+                newton_metrics["newton_muon/R_diag_max"] = tel["R_diag_max_max"]
+                newton_metrics["newton_muon/R_diag_min"] = tel["R_diag_min_min"]
             wandb.log(newton_metrics, step=wandb_step)
         # Init-anchored WD on embed (#847, env-var-gated). After both optimizers
         # have stepped, apply `p -= lr_embed * lambda * (p - p_init)`. Order vs
