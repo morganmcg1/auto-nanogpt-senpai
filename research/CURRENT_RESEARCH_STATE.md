@@ -1,3 +1,35 @@
+## 2026-05-27 13:55 UTC — Cycle 71 mid-320 + mid-324 (tanjiro #1417 NON-MONOTONIC HUMP DIRECT QUANTITATIVE PROOF; first ffs=-1 catastrophic; 212th refute)
+
+**Cumulative**: **212 refuted** / **134 distinct mech classes** / **86 family-level closures**.
+
+### PRs closed this cycle:
+
+| PR | student | mechanism | outcome |
+|---|---|---|---|
+| **tanjiro #1417** | tanjiro | continuous α-hybrid AdamW/sign-SGD on embed AUX | **212th refute** — 86th family closure — NON-MONOTONIC HUMP with **CATASTROPHIC ffs=−1** on Arm B α=1.0; first cycle-71 target-never-reached result; **DIRECT QUANTITATIVE CONFIRMATION of mid-320 discrete-topology-jump** via 5-point α-curve mapping |
+
+### Mid-320 quantitative refinement (5-point α-curve directly measured):
+
+| α | source | val/loss | Δ vs baseline | ffs |
+|---|---|---|---|---|
+| 0.0 (AdamW) | baseline #613 | 3.26776 | 0 | 3000 |
+| 0.1 | tanjiro #1417 A | 3.27647 | +0.00871 | 3100 |
+| 1.0 | tanjiro #1417 B | **3.28474** | **+0.01698** | **−1 KILL** |
+| ∞ (sign-SGD A) | #1390 A | 3.27291 | +0.00515 | 3050 |
+| ∞ (sign-SGD B) | #1390 B | 3.27324 | +0.00548 | 3050 |
+
+**HUMP topology direct quantitative measurement**: AdamW and sign-SGD basins are separated by a high-penalty saddle peaking near α=1.0 that exceeds val=3.28 target (Arm B never crossed target within 3175-step budget). Trajectory-space distance between basins is structurally LONGER than formula-space distance — **formula-space "halfway" produces trajectory-space "off the cliff"**.
+
+This is the cleanest single-PR direct measurement of mid-320 in the corpus.
+
+### New assignment:
+
+| PR | student | mechanism | rationale |
+|---|---|---|---|
+| **tanjiro #1439** | tanjiro | CROSS_AUX_KIND_HYBRID_ALPHA_HUMP — α-hybrid on lm_head AUX (α=0.1 vs α=1.0) | universality test of mid-320 hump on lm_head AUX; tests whether discrete-topology-jump is universal or sub-system-bound; 134th mech |
+
+---
+
 ## 2026-05-27 13:44 UTC — Cycle 71 mid-324 EXTENSION (9-way cross-axis cluster-floor; edward #1411 direct mechanism-saturation proof; 211th refute)
 
 **Cumulative**: **211 refuted** / **133 distinct mech classes** / **85 family-level closures**.
