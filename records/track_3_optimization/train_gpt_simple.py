@@ -35,6 +35,10 @@ NS_A = 1.5
 NS_B = -0.5
 NS_C = 0.0
 NS_ITERS = 12
+# Phase-window pulse for body Muon NS5 iteration count (PR #1435).
+# Half-open window [START, END) measured in raw iteration step.
+BODY_PRETARGET_NS_ITERS_WINDOW_START = 2500
+BODY_PRETARGET_NS_ITERS_WINDOW_END = 2925
 MUON_METHOD = "pmuon-uw-floor-power-cool-1p2-ns-coef-cubic-gamma-power-0p4"
 
 
@@ -80,6 +84,14 @@ def parse_args():
                              "Ablation flag for isolating paramEMA-only contribution.")
     parser.add_argument("--seed", type=int, default=1,
                         help="Random seed for torch/numpy/python. Default 1 matches baseline seed.")
+    parser.add_argument("--body_pretarget_ns_iters", type=int, default=None,
+                        help="If set, override body-Muon Newton-Schulz iteration "
+                             "count during pulse window "
+                             f"[{BODY_PRETARGET_NS_ITERS_WINDOW_START}, "
+                             f"{BODY_PRETARGET_NS_ITERS_WINDOW_END}). "
+                             "Outside the window, body Muon uses baseline "
+                             f"NS_ITERS={NS_ITERS}. Aux AdamW (embed/lm_head/"
+                             "scalars) is unaffected. None disables the pulse.")
     args = parser.parse_args()
     args.num_trials = args.num_trials if args.num_trials is not None else (args.legacy_num_trials or 1)
     args.wandb_tags = [tag.strip() for tag in args.wandb_tags.split(",") if tag.strip()]
@@ -522,6 +534,7 @@ def pmuon_update(
     ns_a: float = NS_A,
     ns_b: float = NS_B,
     ns_c: float = NS_C,
+    ns_iters: int = NS_ITERS,
     polar_diag: dict | None = None,
 ) -> Tensor:
     # Streaming raw (unnormalized) bilateral covariance EMAs in fp32.
@@ -536,7 +549,7 @@ def pmuon_update(
     R_neg = matrix_neg_power(R_cov, gamma, eps)
     m_pre = (L_neg @ update.float()) @ R_neg
 
-    polar = zeropower_via_newtonschulz5(m_pre.to(update.dtype), a=ns_a, b=ns_b, c=ns_c)
+    polar = zeropower_via_newtonschulz5(m_pre.to(update.dtype), a=ns_a, b=ns_b, c=ns_c, iters=ns_iters)
     # Sample ortho residual ||X X^T - I||_F on the polar output (before spectral scaling).
     # Only the first eligible parameter per step writes — keeps cost ~O(d^2) once per step.
     if polar_diag is not None and "residual" not in polar_diag:
@@ -552,6 +565,11 @@ def pmuon_update(
         polar_diag["residual"] = float(torch.linalg.norm(gram - eye).item())
         polar_diag["sample_rows"] = m
         polar_diag["sample_cols"] = n
+        polar_diag["iters_used"] = int(ns_iters)
+        # Update-magnitude probe lets us verify NS_ITERS perturbs DIRECTION,
+        # not magnitude: the polar map is approximately norm-preserving so
+        # ||polar||_F should be (close to) sqrt(min(m, n)) across iters values.
+        polar_diag["polar_frob_norm"] = float(Xf.norm().item())
     update = polar * (max(1, grad.size(-2) / grad.size(-1)) ** 0.5)
     return update
 
@@ -574,6 +592,9 @@ class Muon(torch.optim.Optimizer):
         floor_fired_count = 0
         floor_eligible_count = 0
         polar_diag: dict = {}
+        # Phase-window NS_ITERS override (PR #1435). Set by the training loop
+        # before each step; falls back to baseline NS_ITERS outside the window.
+        ns_iters_effective = int(getattr(self, "_effective_ns_iters_for_step", NS_ITERS))
         for group in self.param_groups:
             params = group["params"]
             params_pad = params + [torch.empty_like(params[-1])] * (world_size - len(params) % world_size)
@@ -596,6 +617,7 @@ class Muon(torch.optim.Optimizer):
                         ns_a=group["ns_a"],
                         ns_b=group["ns_b"],
                         ns_c=group["ns_c"],
+                        ns_iters=ns_iters_effective,
                         polar_diag=polar_diag,
                     )
                     floor_eligible_count += 1
@@ -614,6 +636,7 @@ class Muon(torch.optim.Optimizer):
                 dist.all_gather(params_pad[base_i:base_i + world_size], params_pad[base_i + rank])
         self._floor_diag = {"fired": floor_fired_count, "eligible": floor_eligible_count}
         self._polar_diag = polar_diag
+        self._ns_iters_used = ns_iters_effective
 
 
 def pmuon_spectral_diag(optimizer: torch.optim.Optimizer, gamma: float) -> dict[str, float]:
@@ -751,6 +774,12 @@ if dist.get_rank() == 0:
             "paramema_refresh_step": args.paramema_refresh_step,
             "paramema_refresh_only": int(args.paramema_refresh_only),
             "seed": args.seed,
+            "body_pretarget_ns_iters": (args.body_pretarget_ns_iters
+                                        if args.body_pretarget_ns_iters is not None
+                                        else NS_ITERS),
+            "body_pretarget_ns_iters_set": int(args.body_pretarget_ns_iters is not None),
+            "body_pretarget_ns_iters_window_start": BODY_PRETARGET_NS_ITERS_WINDOW_START,
+            "body_pretarget_ns_iters_window_end": BODY_PRETARGET_NS_ITERS_WINDOW_END,
         },
     )
 
@@ -1021,6 +1050,18 @@ for trial_idx in range(args.num_trials):
         train_loss = float((step_loss / batch_size).item())
         # set optimization hyperparameters and take a step
         sched_progress, sched_cooldown_progress, sched_eta = set_hparams(step)
+        # Body-Muon NS_ITERS phase-window pulse (PR #1435). Window measured in
+        # raw iteration step `step`. Override applies to body-Muon NS5 polar
+        # iteration loop only; aux AdamW (embed/lm_head/scalars) unaffected.
+        in_body_ns_iters_pulse = (
+            args.body_pretarget_ns_iters is not None
+            and BODY_PRETARGET_NS_ITERS_WINDOW_START <= step < BODY_PRETARGET_NS_ITERS_WINDOW_END
+        )
+        configured_body_ns_iters = (args.body_pretarget_ns_iters
+                                    if args.body_pretarget_ns_iters is not None
+                                    else NS_ITERS)
+        effective_body_ns_iters = configured_body_ns_iters if in_body_ns_iters_pulse else NS_ITERS
+        optimizer2._effective_ns_iters_for_step = effective_body_ns_iters
         train_step = step + 1
         telemetry_due = (step == 0 or (step + 1) % args.telemetry_interval == 0 or step + 1 == train_steps)
         histogram_due = (step == 0 or (step + 1) % args.histogram_interval == 0 or step + 1 == train_steps)
@@ -1028,6 +1069,22 @@ for trial_idx in range(args.num_trials):
         wandb_step = trial_idx * (train_steps + 1) + train_step
         if dist.get_rank() == 0:
             train_loss_history.append((train_step, train_loss))
+            # Per-step pulse fields: small scalar payload, logged every step so
+            # the SENPAI-RESULT verifier can read the exact value at any iter.
+            wandb.log({
+                "trial": trial_idx,
+                "train/step": train_step,
+                "body_pretarget_ns_iters/iter_step": step,
+                "body_pretarget_ns_iters/active": int(in_body_ns_iters_pulse),
+                "body_pretarget_ns_iters/configured_value": int(configured_body_ns_iters),
+                "body_pretarget_ns_iters/effective_value": int(effective_body_ns_iters),
+                "body_pretarget_ns_iters/window_start": BODY_PRETARGET_NS_ITERS_WINDOW_START,
+                "body_pretarget_ns_iters/window_end": BODY_PRETARGET_NS_ITERS_WINDOW_END,
+                "optim/body_ns_iters_active": int(in_body_ns_iters_pulse),
+                "optim/body_ns_iters_pulse_active": int(in_body_ns_iters_pulse),
+                "optim/body_ns_iters_configured_value": int(configured_body_ns_iters),
+                "optim/body_ns_iters_effective_value": int(effective_body_ns_iters),
+            }, step=wandb_step)
         if dist.get_rank() == 0 and slope_due:
             slope_metrics = {
                 "trial": trial_idx,
@@ -1112,6 +1169,8 @@ for trial_idx in range(args.num_trials):
                     "polar/ns_coef_a": NS_A,
                     "polar/ns_coef_b": NS_B,
                     "polar/ns_coef_c": NS_C,
+                    "polar/iters_used": polar_diag.get("iters_used", NS_ITERS),
+                    "polar/polar_frob_norm": polar_diag.get("polar_frob_norm", 0.0),
                 }, step=wandb_step)
             wandb.log({
                 "trial": trial_idx,
