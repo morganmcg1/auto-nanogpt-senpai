@@ -1,3 +1,23 @@
+## 2026-05-27 09:50 — PR #1380: H202 frieren Schedule-Free AdamW on aux (Defazio NeurIPS 2024) — CLOSED (59th NULL/NEG + 🎯 programme finding #33)
+
+- Branch: `g1r3-frieren/schedule-free-aux`
+- Hypothesis: Replace AdamW + cooldown on aux groups with Schedule-Free AdamW (Defazio NeurIPS 2024 Best Paper, arXiv:2405.15682) — `y_t = (1-β₁)·z_t + β₁·x_t` interpolation with primary iterate z, Polyak-Ruppert average x, eval point x. Tests H194 follow-up: can SF averaging substitute for cooldown's regularization role?
+- Results:
+
+  | Arm | aux_SF | aux_cd_frac | W&B | val/loss | FFS | step_avg_ms | Δ val vs CTRL | σ-units vs H174 | Class |
+  |---|---|---|---|---|---|---|---|---|---|
+  | arm_a CTRL | False | 0.4 | `kz0t9xj5` | 3.26454 | 3150 | 1909.83 | 0.0 | +2.0σ | NULL (typical CTRL) |
+  | arm_b SF_NO_COOL | True | 0.0 | `b9namjv0` | **3.34711** | **-1 (never)** | 1911.78 | +0.08257 | **+93σ catastrophic NEG** | catastrophic NEG |
+  | arm_c SF_KEEP_COOL | True | 0.4 | `gd3e6gh1` | **3.35790** | **-1 (never)** | 1913.02 | +0.09336 | **+107σ catastrophic NEG (WORSE)** | catastrophic NEG |
+
+- Outcome: No WIN. **59th NULL/NEG.** Both SF arms NEVER crossed 3.28 target (terminal val ≥ 3.347). All verification gates passed (bit-identity at step 0, SF live, LR schedules correct) — clean mechanism failure, not implementation bug.
+- **🎯 Programme finding #33 — Schedule-Free AdamW formulation mechanistically incompatible with H148 aux stack at aux_lr=0.3 regime**: z-x norm grows essentially monotonically (148/149 step-pair increases) to 87353 by terminal — for context, embed weight init L2 norm ≈ 124, so z drifted ~700× initial weight norm from x. SF contraction property (z, x stay close because gradient at y interpolates) is VIOLATED throughout. **aux_lr=0.3 is ~300× outside Defazio's design regime** (paper uses lr~1e-3 to 1e-4). x (simple Polyak-Ruppert average) lags by ~half total trajectory; eval at p=x is at midpoint of z, not at useful late-training point.
+- **Critical compound failure**: arm_c WORSE than arm_b. Cooldown shrinks z's late updates but `weight = lr_max² = 0.09` is fixed throughout → early peak-LR z values dominate the average; late steps' z contribute "less useful" updates with same weight → mean is poisoned by early high-LR z. Refutes any "SF + cooldown should compound" narrative.
+- **Cross-finding with H194 (programme finding #26)**: aux cooldown structurally necessary reinforced. SF + no cooldown was **WORSE than naive cooldown removal** (H194 arm_b val=3.28584 vs H202 arm_b val=3.34711, +0.061 val gap). SF actively destroys aux trajectory in this regime, not just fails to compensate.
+- **Cross-finding with cumulative aux modifications (H190 MSAM aux NEG monotone, H196 GC aux NULL pre-LN, H202 SF aux catastrophic NEG)**: Aux-side modification headroom is very narrow. AdamW + AGC + linear cooldown + β₂=0.99 stack is locally optimal. H204 thorfinn aux β₂ ramp tests last untouched schedule axis on aux.
+- Student's suggested follow-ups: (1) SF with retuned lr_max — abandons H148 LR tuning, LOW priority; (2) tail-averaging — band-aid for "x stuck at midpoint" but doesn't address regime mismatch, LOW; (3) **SF on body** instead of aux — body lr=0.05 closer to SF design regime, MEDIUM; (4) 2-arm CTRL vs EMA-eval-only — already covered by H198 in flight.
+- Next assignment: **H209 frieren Lion optimizer on aux groups** (PR #1418) — NEW MECHANISM CLASS = sign-based optimizer replacement (Chen et al. NeurIPS 2023, arXiv:2302.06675). Drops AdamW's per-element second moment v_t entirely; tests whether v_t is load-bearing or AdamW is over-engineered for aux. arm_a CTRL adamw, arm_b LION_DIV3 aux_lr/3 (Chen et al. lower bound), arm_c LION_DIV10 aux_lr/10 (upper bound). Tests Lion within design regime where SF was outside. If Lion fails too → aux-side optimizer replacement uniformly destructive; if Lion works → AdamW over-engineered.
+
 ## 2026-05-27 09:35 — PR #1373: H199 nezuko Dual-EMA on MuonH body momentum (pre-NS5 direction blend) — CLOSED (58th NULL/NEG + 🎯 programme finding #32)
 
 - Branch: `g1r3-nezuko/dual-ema-body-momentum`
