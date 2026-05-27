@@ -5239,3 +5239,65 @@ clean-NEG-MECHANISM-INVERSION. Stack-component pruning programme continues; Adam
 ### Follow-up assigned
 
 frieren → **#1377 adamw-aux-β2-SCHEDULE** (★ FIRST schedule test in AdamW aux family — directly tests cooldown 2nd-moment preservation mechanism by introducing β2 as schedule rather than fixed value; 5-cell A=β2=0.95 constant ctrl / B★=linear ramp 0.95→0.99 over cooldown PRIMARY / C=linear ramp 0.95→0.98 over cooldown / D=instant step-up β2=0.99 at cooldown start step 975 / E=falsifier reverse ramp 0.99→0.95 over cooldown; small code change `--adamw_aux_beta2_schedule` flag; **predicts FFS<3025** if entire #1321 Cell D benefit is from cooldown phase only; cross-cluster with #941+#966+#1272 "cooldown is directed descent in zero-WD regime"; **first schedule candidate that could move FFS-alive**).
+
+## 2026-05-27 04:10 — PR #1322: NS-iter cooldown low pruning ablation [FFS-primary, 12th stack-component closure]
+
+- Branch: `g1r5-alphonse/ns-iter-cooldown-low`
+- Student: g1r5-alphonse
+- Hypothesis: Tests whether NS_ITER<6 during cooldown is FFS-load-bearing. Does NS orthonormalization preserve its load-bearing role when gradient signal becomes clean (low-LR regime)? **5-cell ablation** with new `--ns_iter_cooldown` CLI flag, threshold step 975 (last 70% of training = cooldown decay phase).
+- Completes #1010 asymmetric ablation which tested only iter>6.
+
+### Results — 5-cell FFS-first table
+
+| Cell | `--ns_iter_cooldown` | FFS | val/loss | Δval / σ_single | post-NS orth_err @step 2000 | wall (s) | run_id |
+|:---:|:---:|:---:|:---:|:---:|:---:|:---:|:---:|
+| **A (ctrl)** | -1 (=6 throughout) | **3025** | 3.260967 | 0σ baseline | (pre-cd ref: 0.768) | 6135 | `pf9uef5y` |
+| **B★ (primary)** | **0** | **−1 DNF** | 3.343360 | **+138.9σ CATASTROPHIC** | 0.999 (no orth) | 6040 | `293p3sul` |
+| C | 2 | **−1 DNF** | 3.280723 | +33.3σ catastrophic | 0.989 (barely orth) | 6072 | `m0f48ehh` |
+| D | 4 | 3050 | 3.265142 | +7.0σ mild NEG | 0.911 (partial) | 6108 | `hn9dcoxa` |
+| E | 12 | 3050 | 3.262339 | +2.3σ within noise | 0.099 (near-perfect) | 6246 (+1.8%) | `pmlax06w` |
+
+### FFS-curve milestones (step at which val/loss first reaches threshold)
+
+| Cell | step→3.40 | step→3.35 | step→3.30 | step→3.28 (target) |
+|:----:|:---------:|:---------:|:---------:|:-----------------:|
+| A | (normal) | (normal) | ~2925 | **3025** ✓ |
+| B (iter=0) | 2250 | 3025 | **DNF** | **DNF** (best 3.343) |
+| C (iter=2) | 2000 | 2500 | 2950 | **DNF** (best 3.281) |
+| D (iter=4) | 2250 | 2625 | 2925 | **3050** |
+| E (iter=12) | 2250 | 2625 | 2925 | **3050** |
+
+### Under FFS-primary directive #1262: **no n=4 promotion**
+
+No cell reaches FFS-alive (≤2975). Closing as clean-NEG mechanism finding.
+
+### 5 mechanism findings
+
+1. **HARD NS-QUALITY FLOOR between iter=4 and iter=6 during cooldown.** Iter≤2 catastrophic DNF (+33–138σ), iter=4 still NEG (+7σ), iter=6 baseline, iter=12 within noise. The cooldown crossing through 3.30→3.28 specifically depends on NS direction-shaping being NEAR-COMPLETE (orth_err ≤ 0.91).
+
+2. **Muon's directional update is necessary even when LR→0.** Cell B (iter=0) reaches val=3.34 at step 3025 — still descending at normal pace through 3.40→3.35 — then STALLS in the final 225 steps. Without NS, the spectral-norm-clamped raw gradient is well-aligned enough to get to 3.35 but not 3.28. **NS is the cooldown-crossing mechanism, not just an early-phase shaper.**
+
+3. **Cell C (iter=2) is at the operational edge.** Curve looks healthy through 3.35 (faster than A!), but stalls 0.7 mNats below target. orth_err≈0.99 = "barely orthogonalized" = enough for stable training, not enough for final descent. **Iter=2 is the most informative cell** — locates the failure threshold sharply.
+
+4. **Joint with #1010 (asymmetric upper-side):** full iter-by-time picture in cooldown is now a **clear bowl** — iter ∈ {0, 2} catastrophic; iter ∈ {4, 8} mild NEG; iter=6 optimum; iter ∈ {10, 12} mild NEG. The ns_iter axis is FULLY closed on both sides — the existing default is the sharp tight optimum.
+
+5. **NS dissociates magnitude from direction:** post-NS spectral norm varies dramatically (B≈1.0, C≈3.5, D≈9.8, baseline≈15.6, E≈27.5) but FFS only collapses where direction fidelity collapses (orth_err > 0.95). **Dissociates magnitude from direction** — NS output magnitude scales with iter count but is downstream of direction quality. Confirms #1206 finding that NS provides both, but **direction is the FFS-load-bearing one**.
+
+### Cluster connections
+
+- **12th stack-component pruning closure** under FFS-primary directive
+- **Joins #1042 (post-NS soft mixing NEG) + #1206 (pre-NS conditioning NEG)** — NS quality cannot be reduced in any direction (input, output, internal)
+- **With #1010 (upper-side iter ablation) → ns_iter-by-time axis FULLY closed** — symmetric tight optimum at iter=6
+- **Crossing-phase decoupling cluster:** alongside #1294 mu-cooldown-decay (closed, mu wants HIGH at end), #1326 askeladd scalars decoupled cooldown (in flight) — 3 cooldown-phase decompositions converge: cooldown crossing is fragile and component-tightly-tuned, NOT a "single LR knob" regime
+
+### Student diligence
+
+CRITICAL diligence: caught arithmetic error in original PR body — verbal references said "step 2275" (last 30%) but code uses `progress >= (1.0 - 0.7) = 0.3` → step 975 (last 70% of training is cooldown decay phase). Saved hours of misaligned experiment time and yielded clean Option A result. Also detected diff.patch reverted on disk after launch (in-memory copy preserved) — re-applied to ensure Cells C/D/E inherit same code path.
+
+### Closure
+
+clean-NEG-VALUE-SENSITIVE-WITH-SHARP-FLOOR. Stack-component pruning programme continues; NS-modulation axes fully closed.
+
+### Follow-up assigned
+
+alphonse → **#1381 cooldown-LR-DECAY-SHAPE** (★ FRESH cooldown axis — tests whether LR decay SHAPE during cooldown window is FFS-load-bearing; currently linear `eta=(1−progress)/cooldown_frac` is the default but decay SHAPE has never been swept; 5-cell A=linear ctrl / B★=cosine PRIMARY smoothness / C=concave sqrt(1−x) steep-early gentle-late / D=convex (1−x)² gentle-early steep-late / E=falsifier step-decay eta=1 until last 20% then 0 abruptly; small code change in `set_hparams` switch on new `--lr_cooldown_shape` flag; **predicts C concave FFS<3025** if "everything wants small at end" cluster #1276+#941+#966+#1272 mechanism is right — concave drops fast to low-LR regime then stays there; **first cooldown SHAPE candidate for FFS-alive movement**).
