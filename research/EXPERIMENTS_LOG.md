@@ -1,3 +1,39 @@
+## 2026-05-27 09:13 — PR #1374: H200 fern Mid-Training LR Warm Restart on body — CLOSED (57th NULL/NEG + 🎯 programme finding #31)
+
+- Branch: `g1r3-fern/mid-training-lr-warm-restart`
+- Hypothesis: Single mid-training body LR warm restart (dip→recovery via multiplicative factor) at step ~1500 escapes flat-basin trap. SGDR-inspired but ONE restart not cyclic.
+- Results:
+
+  | Arm | restart_step | min_frac | half_width | W&B | val/loss | FFS | Δval vs CTRL | σ-units vs H174 | Class |
+  |---|---|---|---|---|---|---|---|---|---|
+  | arm_a CTRL | 0 (off) | — | — | `te88y026` | 3.26543 | 3150 | 0.0 | +0.79σ | NULL (within H174 envelope) |
+  | arm_b RESTART_1500 | 1500 | 0.3 | 150 | `faxaezso` | 3.26692 | **3175** | +0.00149 | **+1.69σ NEG** | NEG +25 FFS |
+  | arm_c RESTART_1200 | 1200 | 0.3 | 150 | `z03t7kb1` | 3.26810 | **3175** | +0.00267 | **+3.02σ NEG** | NEG +25 FFS (worse than arm_b) |
+
+- Outcome: No WIN. **57th NULL/NEG.** Both restart arms exceeded CTRL drift envelope on val (σ_val=0.000884). FFS WIN (≤3100) not crossed; soft WIN threshold (3.262867) not crossed.
+- **🎯 Programme finding #31 — Single mid-training body LR warm restart is mechanistically harmful**: mechanism fired exactly as designed (dip→recovery shape visible in val trajectories — e.g. arm_b val=3.50639 at step 1500 vs CTRL=3.57156 at same step confirms multiplier hit 0.3). But post-recovery trajectory carries +0.001-0.003 persistent loss offset throughout entire FFS window. Earlier restart (arm_c step 1200) is STRICTLY WORSE than later restart (arm_b step 1500) — **monotonic NEG with disruption magnitude**. Momentum buffer survives the dip but params drift to worse region during low-LR phase; insufficient late-stage LR budget to recover.
+- **No evidence of flat-basin escape**: If H148 baseline were in a sub-optimal basin, post-restart trajectory should have entered a *better* basin and produced *lower* late-cooldown loss. Instead both arms produced strictly higher loss across entire post-restart phase.
+- **Cross-finding consolidation (H191 + H195 + H196 + H200 + H201)**: Five distinct optimizer-side perturbation mechanisms — per-element second moment (H191), direction-filtering mask (H195), gradient-mean centering (H196), additive Gaussian noise (H201), LR warm restart (H200) — all confirmed NULL or NEG. **The 57-NULL/NEG plateau is consistent with H148 being at a sharp/narrow global optimum on this loss surface; the optimizer-state space is locally exhausted.** Next direction: spectral-aware mechanisms (H205 Soft Polar already running, H206 NS5 polynomial sweep newly assigned).
+- Student's suggested follow-ups: (1) smaller-magnitude restart (LOW priority — monotonic NEG suggests gentler = smaller NEG), (2) late-cooldown micro-restart (LOW priority — programme finding #22 LATE-CALIB indicates late perturbations are monotonically harmful), (3) **momentum buffer reset at step 1500** (MEDIUM priority — state perturbation decoupled from LR modulation), (4) accept "no flat-basin trap" and move to changing loss surface (architecture/data/init blocked by benchmark contract).
+- Next assignment: **H207 fern Body MuonH Momentum Buffer Reset** (PR #1415) — directly implements fern's own suggested follow-up #3. Tests state perturbation decoupled from LR modulation. NEW MECHANISM CLASS = state-reset.
+
+## 2026-05-27 09:07 — PR #1375: H201 askeladd Annealed Gradient Noise Injection on body grads — CLOSED (56th NULL/NEG + 🎯 programme finding #30)
+
+- Branch: `g1r3-askeladd/grad-noise-injection`
+- Hypothesis: Inject annealed Gaussian noise on body grads (Neelakantan et al. 2015, arXiv:1511.06807) — σ²=η₀/(1+t)^γ with γ=0.55. Tests stochastic exploration complementary to deterministic perturbation portfolio.
+- Results:
+
+  | Arm | η₀ | W&B | val/loss | FFS | noise_to_grad_ratio | Class |
+  |---|---|---|---|---|---|---|
+  | arm_a CTRL | 0 | (~CTRL drift) | 3.26447 | 3150 | — | NULL (within H174, +0.18σ) |
+  | arm_b NOISE_LOW | **0.001** | (terminal) | **3.56814** | **-1 (NEVER)** | 0.56–2.5 throughout training | **catastrophic NEG (+343σ)** |
+  | arm_c NOISE_HIGH | **0.01** | (terminal) | **3.82437** | **-1 (NEVER)** | 1.7–8.1 throughout training | **WORSE NEG** |
+
+- Outcome: No WIN. **56th NULL/NEG.** arm_b and arm_c both catastrophic NEG — never crossed 3.28 target. Worst single-experiment NEG damage of the programme so far.
+- **🎯 Programme finding #30 — Neelakantan-style additive Gaussian noise injection is mechanistically incompatible with NS5-style spectral preconditioners**: noise_to_grad_ratio stays 0.56-2.5 (arm_b) or 1.7-8.1 (arm_c) THROUGHOUT training. Post-NS5 effective gradient magnitudes are too small (singular values → 1 by polar projection) to absorb additive raw-gradient-scale noise. The noise overwhelms the signal at all training phases.
+- **Cross-finding consolidation with H191 (per-element AdaMuon), H195 (Cautious masking), H196 (Gradient Centralization)**: ALL per-element body modifications that depend on raw-gradient information are mechanistically incompatible with the NS5 polar projection that follows. The post-NS5 update has uniform singular values (σ→1) so any operation that requires raw-gradient magnitude/direction structure either fights NS5 or destroys signal-to-noise. Body-side mechanism headroom must be **spectral-aware** (manipulating NS5 itself or operating in polar basis), not per-element.
+- Next assignment: **H206 askeladd NS5 Polynomial Coefficient Sweep** (PR #1413) — directly probes the NS5 mechanism. One-parameter family `a=(3+2c)/2, b=-(1+4c)/2` preserving p(1)=1 and p'(1)=0. Tests if the *path* to polar projection matters even when the fixed point σ=1 is unchanged. Likely NULL extension of H193 (iter count non-binding) but a NULL outcome graduates programme finding to: NS5 mechanism is convergence-floored, only fixed point matters.
+
 ## 2026-05-27 07:30 — PR #1370: H197 alphonse MuLoCo outer Nesterov ablation + outer_lr scan — CLOSED (55th NULL/NEG + 🎯 programme finding #27 CONFIRMED)
 
 - Branch: `g1r3-alphonse/muloco-outer-nesterov-ablation`
