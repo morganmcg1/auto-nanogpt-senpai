@@ -1,5 +1,47 @@
 # SENPAI Research Results — auto-nanogpt-1gpu-r4
 
+## 2026-05-27 13:35 — PR #1388: H: NM EPS sensitivity sweep on post-#1240 stack (1e-4/1e-6/1e-8/1e-2) (CLOSED productive-NULL — EPS axis NULL on n=3 baseline across 5 orders of magnitude, ctrl drift artifact identified)
+
+- branch: `g1r4-edward/nm-eps-sweep`
+- Hypothesis: post-#1240 stack — does NM EPS sensitivity matter? Tests EPS={1e-4 ctrl, 1e-6, 1e-8, 1e-2} on production stack to characterize preconditioner numerical-floor axis.
+- All 4 arms TERMINAL after ~13h sequential A→B→C→D.
+
+| Arm | EPS | run_id | val/loss | fs | Δ_paired_val vs A | Δ_paired_fs vs A | Δ vs n=3 baseline 3.26339 | R_cond_mean | precond_ratio |
+|:---:|:---:|---|:---:|:---:|:---:|:---:|:---:|:---:|:---:|
+| A ctrl | 1e-4 | `0v9rzbbc` | 3.26606 | 3175 | — | — | +0.00267 PASS-OK G4 (noisy edge) | 3.43e+05 | 1.0768 |
+| B | 1e-6 | `skhqe63r` | 3.26377 | 3150 | −0.00229 | −25 fs | +0.00038 NULL-band | 5.50e+07 | 1.10924 |
+| C | 1e-8 | `56nkipuf` | **3.26263** | 3150 | −0.00343 | −25 fs | −0.00076 NULL-band | 1.09e+09 | 1.076 |
+| D | 1e-2 | `ki0a3tkk` | 3.26312 | 3150 | −0.00294 | −25 fs | −0.00027 NULL-band | 4.36e+04 | 1.01941 |
+
+**🎯 Verdict: CLOSED productive-NULL**. Decision tree row hit: Row 4 productive-NULL.
+
+**🎯 KEY MECHANISM FINDING — Ctrl drift artifact identified, cycle 418 strong-FAV interpretation REVERSED**:
+
+Cycle 418 interpretation (within-chain paired Δ vs noisy Arm A): "Arm C 1e-8 STRONG-FAV Δ_paired_val=−0.00343" → led to PP-promote candidate queue priority 2.
+
+Cycle 426 reinterpretation (reframing against n=3 baseline 3.26339): all 4 arms cluster within ±0.001 of baseline. **Arm A ctrl is the noisy outlier** at +0.00267 on the G4 PASS-OK edge. The "strong-FAV" reading was a CTRL DRIFT ARTIFACT, not a real EPS-axis signal.
+
+**🎯 Mechanism finding (revised)**: NM precondition magnitude is **NOT load-bearing** on val/loss for post-#1240 stack:
+- R_cond_mean varies 5 orders of magnitude (4.4e4 → 1.1e9) across EPS={1e-2, 1e-4, 1e-6, 1e-8}
+- precond_ratio_mean varies from 1.019 (near-identity, Arm D heavy regularization) to 1.109 (most aggressive, Arm B)
+- Yet val/loss spread is only 0.003 — **R-buffer EMA self-corrects across the full EPS regime, and the late-phase R-buffer state is what matters, not the precondition magnitude.**
+
+**Cross-axis stack-dependence catalog now 6 findings consolidated**:
+1. #1372 β-SCHEDULE step-down NULL (CLOSED c420)
+2. #1393 MLP-LR-SCALE NULL plateau wider than expected (TERMINAL c427)
+3. #1383 START_STEP non-monotone NEG valley at cooldown anchor (CLOSED c425)
+4. #1421 UPDATE_PERIOD non-monotone period=2 PP (running n=3)
+5. #1402 β-AVG NULL convergence (5 findings — TERMINAL Arm D running ~10%)
+6. **#1388 (this) EPS axis NULL across 5 orders of magnitude** (CLOSED c427)
+
+**Unified mechanism story**: post-#1240 PERIOD=5 + MAX_D_IN=4096 R-buffer absorbs late-phase responsiveness perturbations. Magnitude-of-precondition axes (β, EPS, LR-scale) all converge on NULL. Coverage/timing/refresh-rate axes carry the residual signal.
+
+**🎯 PP-promote queue revision (cycle-427)**: #1388 EPS=1e-8 PP-promote CANCELLED. Revised queue: #1421 period=2 → #1431 cooldown-refresh → ~~#1388 EPS=1e-8~~ → #1426 LR_SCALE → #1412 γ-mixing → #1402 β.
+
+**Diagnostic value**: 5-orders-of-magnitude EPS sweep with val invariance is a publication-worthy negative result for NM preconditioner sensitivity characterization, even though no merge candidate emerged. R_cond_mean range 4.4e4 → 1.1e9 with val invariance demonstrates the chain's diagnostic value.
+
+**Follow-up**: #1438 edward NM NS_ITERS_COOLDOWN sweep assigned cycle 427 — tests NS-iter coverage axis (upstream of NM, modifies INPUT to R-buffer estimation during cooldown). Probes whether R-buffer absorbs NS-coverage axis like it does MLP-LR / EPS / β. PR #176 pre-#1240 established NS=16 cooldown saturation; this chain retests on post-#1240 stack.
+
 ## 2026-05-27 13:30 — PR #1383: H1: NM step-gated activation timing sweep (START_STEP 0/1500/2000/2400) (CLOSED productive-NEG non-monotone — START_STEP=0 always-on dispositively locally optimal, #1431 askeladd cooldown-refresh assigned cycle 425)
 
 - branch: `g1r4-askeladd/nm-start-step-sweep`
