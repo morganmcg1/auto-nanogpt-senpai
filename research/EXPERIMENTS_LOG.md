@@ -1,3 +1,22 @@
+## 2026-05-27 10:10 — PR #1371: H198 edward EMA-averaged weights for evaluation (Polyak-Ruppert) — CLOSED (60th NULL/NEG + 🎯 programme finding #34)
+
+- Branch: `g1r3-edward/ema-eval-body-weights`
+- Hypothesis: Maintain EMA of all parameters during training; swap EMA params in for val passes only. Training trajectory bit-identical to baseline; only the val measurement uses EMA-smoothed weights. Tests whether late-cooldown val/loss measurement is noise-dominated (EMA smoothing would reduce FFS) vs signal-dominated (EMA would bias UP).
+- Results:
+
+  | Arm | W&B | decay | val_EMA | val_raw | EMA Δ | FFS | step_avg_ms | Class |
+  |---|---|---|---|---|---|---|---|---|
+  | arm_a CTRL | `ficuoeh5` | 0.0 | 3.26450 | n/a | n/a | 3150 | 1919.88 | NULL (typical CTRL drift, +0.05σ) |
+  | arm_b EMA_99 | `zzrcfres` | 0.99 | **3.27077** | 3.26501 | **+0.00576** | **3125** | 1920.65 | NULL/NEG (EMA bias) |
+  | arm_c EMA_999 | `eibmvute` | 0.999 | **3.34377** | 3.26361 | **+0.08016** | **-1 (never)** | 1920.62 | catastrophic NEG (EMA lag) |
+
+- Outcome: No WIN. **60th NULL/NEG.** Best raw val=3.26361 (arm_c, within CTRL drift envelope); best FFS=3125 (arm_b, within CTRL drift distribution). Both WIN bars fail: val<3.262867 missed by +0.0007 (within CTRL σ=0.000884); FFS≤3100 missed by +25.
+- **🎯 Programme finding #34 — Polyak-Ruppert EMA-eval mechanistically anti-helpful in cooldown-regime training**: The mechanism actually works as predicted on the way IN to the FFS window (EMA Δ negative in steps 3000-3150, shifting EMA crossing of 3.28 forward by 25 steps relative to raw) but produces net bias UP at terminal (+0.006 for arm_b, +0.080 for arm_c). Cooldown is **signal-dominated**, not noise-dominated: any backward-looking averaging is biased UP because EMA window contains higher-loss earlier-step params. There's no symmetric oscillation around a stationary mean for EMA to denoise. arm_c EMA_999 (~1000-step window) lags catastrophically because EMA at terminal averages most of cooldown's monotonic descent.
+- **Strong telemetric evidence**: arm_b EMA Δ sign-flips at step ~3150-3175 (EMA<raw → EMA>raw) is the smoking gun. `train/ema/param_l2_drift` at terminal: arm_b=23,617 (window ~100); arm_c=65,696 (window ~1000), 2.8× larger drift confirming arm_c averages further back in cooldown. Both arms' raw val within CTRL drift envelope (arm_c raw val=3.26361 actually best CTRL-drift draw of the 3) → training trajectory unchanged, only measurement biased.
+- **Cross-finding consolidation cumulative through cycle ~380**: 60-NULL/NEG plateau spans (a) 5-mechanism pre-NS5 per-element body cross-finding H191+H195+H196+H199+H201; (b) aux-side modification narrow band H190+H194+H196+H202; (c) body schedule perturbation H200; (d) measurement-side H198 (this PR). The H148 stack sits at a sharp/narrow global optimum requiring spectral-aware, post-NS5, depth-axis, or state-decoupled interventions to find headroom. **Depth-axis is the last untouched conventional intervention surface.**
+- Student's suggested follow-ups: (1) shorter decay (0.95, 0.9) — likely smaller version of same NEG; (2) forward-looking EMA-eval — violates train_steps contract; (3) stop scope on measurement-side. Edward's honest analysis correctly identified the measurement-side class is exhausted.
+- Next assignment: **H210 edward Body Layer-Wise Linear LR Scaling** (PR #1420) — **FIRST DEPTH-AXIS INTERVENTION IN PROGRAMME**, 11th NEW MECHANISM CLASS. `lr_i = body_lr * (1 + alpha * d_i)` where `d_i = (layer_idx - 5.5)/5.5 ∈ [-1,+1]`. arm_a CTRL alpha=0.0 (bit-identical fallback single-group); arm_b GROW alpha=+0.2 (top layer 1.2×, bottom 0.8×); arm_c DECAY alpha=-0.2 (bottom 1.2×, top 0.8×). All 60 prior body-side experiments used UNIFORM depth LR; H210 tests whether transformer depths benefit from different LRs in cooldown (consistent with ULMFiT discriminative fine-tuning rationale and pre-LN gradient pathology hypotheses).
+
 ## 2026-05-27 09:50 — PR #1380: H202 frieren Schedule-Free AdamW on aux (Defazio NeurIPS 2024) — CLOSED (59th NULL/NEG + 🎯 programme finding #33)
 
 - Branch: `g1r3-frieren/schedule-free-aux`
