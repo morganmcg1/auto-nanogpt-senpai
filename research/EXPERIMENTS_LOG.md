@@ -1,5 +1,45 @@
 # SENPAI Research Results — auto-nanogpt-1gpu-r5
 
+## 2026-05-27 06:35 — PR #1345: mu cooldown RAMP-UP mechanism extension (nezuko)
+- branch: g1r5-nezuko/mu-cooldown-rampup
+- hypothesis: "Boost Muon mu UP during cooldown extends #1294's monotone gradient (0.0→0.5→0.95) toward FFS-positive direction" (PR predeclared 25% FFS-positive B★, 30% null, 20% diminishing returns, 15% catastrophic E, 10% non-monotone)
+- verdict: **CLOSED clean-NEG-LOCAL-OPTIMUM-CONFIRMED** [FFS-primary, 17th stack-component closure]
+- results (5-cell sweep, all n=1 full 3250 steps):
+  | Cell | mu_cooldown_target | FFS | val/loss | Δbase (σ_single) | W&B id |
+  |:----:|:------------------:|:---:|:--------:|:----------------:|:------:|
+  | A | 0.95 ctrl (no flag) | 3025 | 3.26099 | baseline | csf62klj |
+  | **B★** | **0.95 → 0.98 ramp** | **3075** | **3.26488** | **+6.6σ** | i3wt0z66 |
+  | C | 0.95 → 0.99 ramp | 3150 | 3.27202 | +18.6σ | qofqe4yt |
+  | D | instant 0.98 at cooldown | 3050 | 3.26401 | +5.1σ | 8sxq354w |
+  | **E (falsifier)** | **0.95 → 0.999 ramp** | **−1** | **3.28745** | **+44.6σ** | 5lgijsx8 |
+
+- mechanism findings (5):
+  1. **Two-sided rejection (cross-PR with #1294)**: combined val-vs-mu curve {0.0: 3.2696, 0.5: 3.2649, 0.95: 3.2624★, 0.98: 3.26488, 0.99: 3.27202, 0.999: 3.28745} monotone-worsens in both directions. mu=0.95 is local optimum at FFS scale.
+  2. **Monotone-worsening with mu UP** across {0.98, 0.99, 0.999} → val {3.26488, 3.27202, 3.28745} → FFS {3075, 3150, NEVER}. Over-smoothing wall sits between 0.99 and 0.999 (eff look-back ~1000 steps at mu=0.999 exceeds cooldown window).
+  3. **D-paradox** (instant 0.98 ≈ Cell A while ramp 0.95→0.98 worse): instant jump itself is mu-neutral when target close to base, but sustained excursion via ramp accumulates higher-mu integral and hurts. Directional asymmetry > schedule shape.
+  4. **PRIMARY 25% prior FALSIFIED** by direction inversion — #1294's monotone gradient was approaching, not climbing past, the optimum at 0.95. Common-mode misread of monotone-toward-optimum patterns as extrapolatable.
+  5. ★★ **Stale-momentum-during-cooldown mechanism confirmed**: cooldown updates are *signal-limited* not noise-limited. Higher mu = longer memory = stale-stable-phase inertia incompatible with cooldown's rapid LR contraction. EMA buffer at 0.95 maximally extracts available smoothing.
+
+- cluster connections:
+  - **mu cooldown axis FULLY CLOSED** — joins #1294 (mu DOWN) for two-sided rejection. No fresh-axis movement available on mu-schedule during cooldown.
+  - **Crossing-phase decoupling cluster now 4 closures + 1 in flight**: #1294 (mu DOWN), #1345 (mu UP), #1322 (NS-iter cooldown), #1326 (scalars-LR cooldown), #1384 (embed-cooldown in flight). Joint claim: cooldown-window optimal = steady-state optimal across all tested axes; cooldown HP-schedule has no FFS-positive movement.
+  - **Stale-momentum mechanism is the FIFTH "everything wants to be small at end" cluster member** (#1276 cooldown_frac, #966 cooldown rescaling, #1272 wd-schedule, #1284 body WD, #1345 mu). All cooldown-window HPs prefer values that minimize state inertia at terminal.
+
+- student excellence: **Pre-registered interpretation rows fired correctly** — "Cell B val > Cell A → mu=0.95 is local optimum" predeclared rule cleanly captured the outcome. Suggested follow-ups #1 (close mu mechanism direction) and #4 (don't merge code change) both correct and adopted; advisor branch stays minimal (revert/skip commit 79fc951).
+
+- decision (FFS-primary):
+  - No Cell ≤ 2975 → no n=4 promotion per directive #1262.
+  - Two-sided rejection from #1294 + #1345 closes the entire mu cooldown direction.
+  - Close clean-NEG-LOCAL-OPTIMUM-CONFIRMED.
+
+- follow-up assignment: nezuko → **#1403 Polyak-Ruppert eval-only EMA**:
+  - FRESH OPTIMIZER MECHANISM (not HP search) per directive #1262 preference for "fresh mechanisms, preconditioners, schedule ideas, and pruning ablations."
+  - Tests whether eval-only Polyak-Ruppert averaging reduces FFS by smoothing val/loss noise floor (which may bound crossing-step variance ±25 steps from seed alone).
+  - **Structurally distinct from SF-Muon #1258 NEG** (training-internal averaging fails because cooldown LR→0 collapses averaging window). This PR keeps training optimizer untouched; only eval reads from EMA.
+  - 5-cell A=off ctrl / B★=β=0.999 from step 0 PRIMARY / C=β=0.999 from cooldown / D=β=0.99 / E=β=0.9999 falsifier over-smoothing.
+  - Predicts FFS<2975 if FFS is eval-noise-limited; FFS>3025 if signal-limited (lag mechanism). Falsifiable on which regime FFS=3025 is in.
+  - First FRESH MECHANISM in flight since #1258 closed — high potential as first FFS-positive candidate of the plateau era.
+
 ## 2026-05-27 05:15 — PR #1334: AdamW aux weight_decay pruning ablation (edward)
 - branch: g1r5-edward/adamw-aux-wd-pruning
 - hypothesis: "AdamW aux `weight_decay=0` (hardcoded line 843) is either FFS-load-bearing flag (any wd>0 monotone-harms) or moderately-bounded basin near 0 with value-cosmetic small-wd cell" (PR predeclared 60% catastrophic via scalars collapse / 25% gradual-monotone / 10% null / 5% surprise FFS-positive)
