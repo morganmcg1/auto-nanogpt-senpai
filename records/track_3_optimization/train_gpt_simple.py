@@ -465,12 +465,26 @@ ATTN_SOAP_BETA2 = 0.90
 ATTN_SOAP_PRECOND_FREQ = 10
 ATTN_SOAP_TRUST_THRESHOLD = float(os.environ.get("ATTN_SOAP_TRUST_THRESHOLD", "0.9"))
 NS5_ITERS = int(os.environ.get("NS5_ITERS", "12"))
+# FFS-burst dispatch on body Muon NS5 iteration count: optionally raise NS iter
+# count inside [START, END) step window to sharpen orthogonalization quality
+# during the pre-target-crossing window (PR #1411).
+MU_NS_ITERS_FFS_BURST_ENABLED = int(os.environ.get("MU_NS_ITERS_FFS_BURST_ENABLED", "0"))
+MU_NS_ITERS_FFS_BURST_VALUE = int(os.environ.get("MU_NS_ITERS_FFS_BURST_VALUE", "18"))
+MU_NS_ITERS_FFS_BURST_START = int(os.environ.get("MU_NS_ITERS_FFS_BURST_START", "2750"))
+MU_NS_ITERS_FFS_BURST_END = int(os.environ.get("MU_NS_ITERS_FFS_BURST_END", "2950"))
 WD_AUX = float(os.environ.get("WD_AUX", "0.0"))  # AdamW WD on embed + lm_head matrices (scalars stay at 0)
 EMBED_INIT_STD = float(os.environ.get("EMBED_INIT_STD", "1.0"))  # default preserves baseline N(0,1)
 LOGIT_SOFTCAP = float(os.environ.get("LOGIT_SOFTCAP", "15.0"))  # default = 15 (current hardcoded value); soft-cap value c in f(x) = c·x / sqrt(x^2+c^2)
 
 
-def zeropower_via_newtonschulz5(G: Tensor) -> Tensor:
+def get_ns_iters_for_step(global_step: int) -> int:
+    if (MU_NS_ITERS_FFS_BURST_ENABLED
+            and MU_NS_ITERS_FFS_BURST_START <= global_step < MU_NS_ITERS_FFS_BURST_END):
+        return MU_NS_ITERS_FFS_BURST_VALUE
+    return NS5_ITERS
+
+
+def zeropower_via_newtonschulz5(G: Tensor, n_iters: int | None = None) -> Tensor:
     assert G.ndim >= 2
     X = G.bfloat16()
     if G.size(-2) > G.size(-1):
@@ -480,7 +494,8 @@ def zeropower_via_newtonschulz5(G: Tensor) -> Tensor:
     X = X / (X.norm(dim=(-2, -1), keepdim=True) + 1e-7)
     # Perform the NS iterations, not optimizing for wallclock speed
     a, b, c = 2, -1.5, 0.5
-    for _ in range(NS5_ITERS):
+    iters = NS5_ITERS if n_iters is None else n_iters
+    for _ in range(iters):
         A = X @ X.mT
         B = b * A + c * A @ A
         X = a * X + B @ X
@@ -488,6 +503,20 @@ def zeropower_via_newtonschulz5(G: Tensor) -> Tensor:
     if G.size(-2) > G.size(-1):
         X = X.mT
     return X
+
+
+def ns_polish_residual(X: Tensor) -> float:
+    """Frobenius residual of orthogonality: ||X^T X - I||_F / sqrt(k) where k=min(m,n).
+    Operates on an NS5-orthogonalized matrix; lower is more orthogonal."""
+    Xf = X.float()
+    m, n_ = Xf.size(-2), Xf.size(-1)
+    if m <= n_:
+        XtX = Xf @ Xf.mT
+    else:
+        XtX = Xf.mT @ Xf
+    k = XtX.size(-1)
+    eye = torch.eye(k, device=XtX.device, dtype=XtX.dtype)
+    return float(((XtX - eye).norm() / (k ** 0.5)).item())
 
 
 def scale_to_unit_operator_norm(G: Tensor, eps: float = 1e-10) -> Tensor:
@@ -504,10 +533,17 @@ def scale_to_unit_operator_norm(G: Tensor, eps: float = 1e-10) -> Tensor:
     return G / op_norm.to(G.dtype)
 
 
-def contra_normuon_update(momentum_update, second_moment, beta2=NORMUON_BETA2):
-    """Contra-Muon + NorMuon-lite: NS5 -> contra subtraction -> per-row variance normalize."""
+def contra_normuon_update(momentum_update, second_moment, beta2=NORMUON_BETA2,
+                          ns_iters: int | None = None,
+                          compute_residual: bool = False):
+    """Contra-Muon + NorMuon-lite: NS5 -> contra subtraction -> per-row variance normalize.
+
+    Returns (update, residual_or_None). ``residual`` is the NS5 polish residual measured
+    on the orthogonalized update before contra subtraction (None when compute_residual=False).
+    """
     normalized_grad = scale_to_unit_operator_norm(momentum_update.clone())
-    update = zeropower_via_newtonschulz5(momentum_update)
+    update = zeropower_via_newtonschulz5(momentum_update, n_iters=ns_iters)
+    residual = ns_polish_residual(update) if compute_residual else None
     opower_fro = update.norm()
     # Contra correction: subtract CONTRA_MUON / 2 * op-norm-normalized momentum.
     update = update - CONTRA_MUON / 2 * normalized_grad
@@ -523,7 +559,7 @@ def contra_normuon_update(momentum_update, second_moment, beta2=NORMUON_BETA2):
     update = update * second_moment.clamp_min(1e-10).rsqrt().to(update.dtype)
     vnorm_new = update.norm().clamp_min(1e-10)
     update = update * (vnorm / vnorm_new)
-    return update
+    return update, residual
 
 
 def soap_eigenbasis(mat: Tensor, eps: float = 1e-30) -> Tensor:
@@ -655,11 +691,24 @@ class Muon(torch.optim.Optimizer):
         params = sorted([p for _, p in named_params], key=lambda x: x.size(), reverse=True)
         defaults = dict(lr=lr, weight_decay=weight_decay, mu=mu)
         super().__init__(params, defaults)
+        # FFS-burst dispatch state (PR #1411). global_step is set externally by the
+        # training loop before each call to step(); telemetry fields below are
+        # populated each step so the training loop can log them.
+        self._global_step = 0
+        self._last_effective_ns_iters = NS5_ITERS
+        self._last_burst_active = 0
+        self._compute_residual = False
+        self._last_residual_stats: dict[str, float] = {"mean": 0.0, "max": 0.0, "count": 0}
 
     @torch.no_grad()
     def step(self):
         world_size = dist.get_world_size()
         rank = dist.get_rank()
+        effective_ns_iters = get_ns_iters_for_step(self._global_step)
+        self._last_effective_ns_iters = effective_ns_iters
+        self._last_burst_active = int(effective_ns_iters != NS5_ITERS)
+        compute_residual = self._compute_residual
+        residual_values: list[float] = []
         for group in self.param_groups:
             params = group["params"]
             params_pad = params + [torch.empty_like(params[-1])] * (world_size - len(params) % world_size)
@@ -701,7 +750,13 @@ class Muon(torch.optim.Optimizer):
                     if use_soap or use_attn_soap:
                         momentum_update = soap_precondition(momentum_update, state)
                     # NS5 + contra + NorMuon row variance on (possibly SOAP-preconditioned) momentum.
-                    update = contra_normuon_update(momentum_update, state["second_moment"])
+                    update, residual = contra_normuon_update(
+                        momentum_update, state["second_moment"],
+                        ns_iters=effective_ns_iters,
+                        compute_residual=compute_residual,
+                    )
+                    if residual is not None:
+                        residual_values.append(residual)
                     # u/w-floor: scale up if u/w < TARGET_UW; leave alone otherwise.
                     p_fro = p.float().norm().clamp_min(1e-8)
                     u_fro = update.float().norm().clamp_min(1e-8)
@@ -719,6 +774,44 @@ class Muon(torch.optim.Optimizer):
                                      use_trust_gate=True,
                                      trust_threshold=ATTN_SOAP_TRUST_THRESHOLD)
                 dist.all_gather(params_pad[base_i:base_i + world_size], params_pad[base_i + rank])
+        if compute_residual:
+            if residual_values:
+                local_sum = sum(residual_values)
+                local_max = max(residual_values)
+                local_count = len(residual_values)
+            else:
+                local_sum, local_max, local_count = 0.0, 0.0, 0
+            if world_size > 1:
+                # Aggregate across ranks (each rank processes a disjoint slice of params).
+                first_param = next(iter(self.state.keys()), None)
+                dev = first_param.device if first_param is not None else torch.device("cuda")
+                sum_count = torch.tensor([local_sum, float(local_count)], device=dev, dtype=torch.float32)
+                dist.all_reduce(sum_count, op=dist.ReduceOp.SUM)
+                max_t = torch.tensor([local_max], device=dev, dtype=torch.float32)
+                dist.all_reduce(max_t, op=dist.ReduceOp.MAX)
+                gsum = float(sum_count[0].item())
+                gcount = int(sum_count[1].item())
+                gmax = float(max_t[0].item())
+            else:
+                gsum, gmax, gcount = local_sum, local_max, local_count
+            self._last_residual_stats = {
+                "mean": (gsum / gcount) if gcount > 0 else 0.0,
+                "max": gmax,
+                "count": gcount,
+            }
+
+    def ns_iters_stats(self) -> dict[str, float]:
+        """Return FFS-burst NS5 iteration telemetry (PR #1411)."""
+        stats: dict[str, float] = {
+            "effective_ns_iters": float(self._last_effective_ns_iters),
+            "burst_active": float(self._last_burst_active),
+        }
+        rs = self._last_residual_stats
+        if rs.get("count", 0) > 0:
+            stats["polish_residual_mean"] = float(rs["mean"])
+            stats["polish_residual_max"] = float(rs["max"])
+            stats["polish_residual_count"] = float(rs["count"])
+        return stats
 
     def trust_gate_stats(self) -> dict[str, float]:
         """Return aggregate + per-weight-type trust-gate telemetry across attention SOAP params.
@@ -865,6 +958,10 @@ if dist.get_rank() == 0:
             "optimizer/attn_soap_precond_freq": ATTN_SOAP_PRECOND_FREQ,
             "optimizer/attn_soap_trust_threshold": ATTN_SOAP_TRUST_THRESHOLD,
             "optimizer/ns5_iters": NS5_ITERS,
+            "optimizer/mu_ns_iters_ffs_burst_enabled": MU_NS_ITERS_FFS_BURST_ENABLED,
+            "optimizer/mu_ns_iters_ffs_burst_value": MU_NS_ITERS_FFS_BURST_VALUE,
+            "optimizer/mu_ns_iters_ffs_burst_start": MU_NS_ITERS_FFS_BURST_START,
+            "optimizer/mu_ns_iters_ffs_burst_end": MU_NS_ITERS_FFS_BURST_END,
             "optimizer/wd_aux": WD_AUX,
             "optimizer/recipe": "contra-muon + normuon-lite + soap-on-mlp + soap-on-attn-trust-gate (pre-NS5, record #14 + record #16)",
         },
@@ -1052,6 +1149,10 @@ for trial_idx in range(args.num_trials):
                 wandb_step=wandb_step,
             )
         for opt in optimizers:
+            if hasattr(opt, "_global_step"):
+                opt._global_step = step
+            if hasattr(opt, "_compute_residual"):
+                opt._compute_residual = telemetry_due
             opt.step()
         if dist.get_rank() == 0 and telemetry_due:
             for opt in optimizers:
@@ -1059,6 +1160,10 @@ for trial_idx in range(args.num_trials):
                     stats = opt.trust_gate_stats()
                     if stats:
                         wandb.log(prefixed("train/attn_soap_trust_gate", stats), step=wandb_step)
+                if hasattr(opt, "ns_iters_stats"):
+                    ns_stats = opt.ns_iters_stats()
+                    if ns_stats:
+                        wandb.log(prefixed("train/body_muon/ns_iters", ns_stats), step=wandb_step)
         if dist.get_rank() == 0 and telemetry_due:
             log_weight_telemetry(
                 model=model,
