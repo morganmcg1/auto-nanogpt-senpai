@@ -819,9 +819,11 @@ class Muon(torch.optim.Optimizer):
         if x is None:
             return None
         # Update R EMA + eigendecomp every newton_update_period steps (and at first call).
+        # Use (n-1) % period == 0 so period=1 refreshes every step.
+        # For period>=2, behavior is bit-identical to the previous (n % period == 1) form.
         update_R = (
             "R" not in state
-            or (self._newton_step_count % self.newton_update_period == 1)
+            or ((self._newton_step_count - 1) % self.newton_update_period == 0)
         )
         if update_R:
             x32 = x.float()
