@@ -469,6 +469,22 @@ WD_AUX = float(os.environ.get("WD_AUX", "0.0"))  # AdamW WD on embed + lm_head m
 EMBED_INIT_STD = float(os.environ.get("EMBED_INIT_STD", "1.0"))  # default preserves baseline N(0,1)
 LOGIT_SOFTCAP = float(os.environ.get("LOGIT_SOFTCAP", "15.0"))  # default = 15 (current hardcoded value); soft-cap value c in f(x) = c·x / sqrt(x^2+c^2)
 
+# PR #1491: compound (alphonse #1461 full-stack body Muon m-reset @ step 2950)
+# + (#1428 depth-half body Muon LR boost ×1.15 in [START, END)). Both fire
+# independently at the same dispatch step (2950). The depth-half LR boost
+# applies continuously across the window; the m-reset is a one-shot zeroing of
+# the 'momentum' EMA for ALL body Muon params at the dispatch step.
+POST_TARGET_MUON_M_RESET_ENABLED = int(os.environ.get("POST_TARGET_MUON_M_RESET_ENABLED", "0"))
+POST_TARGET_MUON_M_RESET_STEP = int(os.environ.get("POST_TARGET_MUON_M_RESET_STEP", "2950"))
+
+EVAL_SLOT_LR_BURST_DEPTH_DISPATCH_ENABLED = int(os.environ.get("EVAL_SLOT_LR_BURST_DEPTH_DISPATCH_ENABLED", "0"))
+EVAL_SLOT_LR_BURST_DEPTH_DISPATCH_SCOPE = os.environ.get("EVAL_SLOT_LR_BURST_DEPTH_DISPATCH_SCOPE", "early")
+EVAL_SLOT_LR_BURST_DEPTH_DISPATCH_MULT = float(os.environ.get("EVAL_SLOT_LR_BURST_DEPTH_DISPATCH_MULT", "1.15"))
+EVAL_SLOT_LR_BURST_DEPTH_DISPATCH_START = int(os.environ.get("EVAL_SLOT_LR_BURST_DEPTH_DISPATCH_START", "2950"))
+EVAL_SLOT_LR_BURST_DEPTH_DISPATCH_END = int(os.environ.get("EVAL_SLOT_LR_BURST_DEPTH_DISPATCH_END", "3175"))
+assert EVAL_SLOT_LR_BURST_DEPTH_DISPATCH_SCOPE in ("early", "late"), \
+    f"EVAL_SLOT_LR_BURST_DEPTH_DISPATCH_SCOPE must be 'early' or 'late', got {EVAL_SLOT_LR_BURST_DEPTH_DISPATCH_SCOPE!r}"
+
 
 def zeropower_via_newtonschulz5(G: Tensor) -> Tensor:
     assert G.ndim >= 2
@@ -776,6 +792,35 @@ class Muon(torch.optim.Optimizer):
             out[f"{kind}/mean_cos_col"] = sum(ccs) / kn
         return out
 
+    @torch.no_grad()
+    def reset_all_momentum(self) -> int:
+        """Zero out the 'momentum' EMA for every body Muon param (alphonse #1461 / PR #1491).
+
+        Returns the count of params whose state was actually reset. Params whose state
+        has not yet been allocated (none on rank 0 after >=1 step) are skipped.
+        """
+        n_reset = 0
+        for group in self.param_groups:
+            for p in group["params"]:
+                state = self.state.get(p)
+                if state is None or "momentum" not in state:
+                    continue
+                state["momentum"].zero_()
+                n_reset += 1
+        return n_reset
+
+    @torch.no_grad()
+    def m_buffer_norm_total(self) -> float:
+        """Frobenius norm of the 'momentum' EMA buffer across all body Muon params (PR #1491)."""
+        sq = 0.0
+        for group in self.param_groups:
+            for p in group["params"]:
+                state = self.state.get(p)
+                if state is None or "momentum" not in state:
+                    continue
+                sq += float(state["momentum"].float().pow(2).sum().item())
+        return sq ** 0.5
+
 
 ########################################
 #                Setup                 #
@@ -867,6 +912,13 @@ if dist.get_rank() == 0:
             "optimizer/ns5_iters": NS5_ITERS,
             "optimizer/wd_aux": WD_AUX,
             "optimizer/recipe": "contra-muon + normuon-lite + soap-on-mlp + soap-on-attn-trust-gate (pre-NS5, record #14 + record #16)",
+            "optimizer/post_target_muon_m_reset_enabled": POST_TARGET_MUON_M_RESET_ENABLED,
+            "optimizer/post_target_muon_m_reset_step": POST_TARGET_MUON_M_RESET_STEP,
+            "optimizer/eval_slot_lr_burst_depth_dispatch_enabled": EVAL_SLOT_LR_BURST_DEPTH_DISPATCH_ENABLED,
+            "optimizer/eval_slot_lr_burst_depth_dispatch_scope": EVAL_SLOT_LR_BURST_DEPTH_DISPATCH_SCOPE,
+            "optimizer/eval_slot_lr_burst_depth_dispatch_mult": EVAL_SLOT_LR_BURST_DEPTH_DISPATCH_MULT,
+            "optimizer/eval_slot_lr_burst_depth_dispatch_start": EVAL_SLOT_LR_BURST_DEPTH_DISPATCH_START,
+            "optimizer/eval_slot_lr_burst_depth_dispatch_end": EVAL_SLOT_LR_BURST_DEPTH_DISPATCH_END,
         },
     )
 
@@ -904,7 +956,37 @@ for trial_idx in range(args.num_trials):
                        betas=(0.8, 0.95), eps=1e-10, weight_decay=0, fused=True)
     optimizer2 = Muon([(n, p) for n, p in model.blocks.named_parameters() if p.ndim >= 2],
                       lr=MUON_LR, weight_decay=MUON_WEIGHT_DECAY, mu=MU)
-    optimizer2.param_groups[0]["name"] = "muon_blocks"
+    if EVAL_SLOT_LR_BURST_DEPTH_DISPATCH_ENABLED:
+        # PR #1491 (reused from #1428): split body Muon into early-half (blocks 0-5)
+        # and late-half (blocks 6-11) param groups so the burst window can scale
+        # group["lr"] for one depth-half.
+        import re as _re_burst
+        body_named = [(n, p) for n, p in model.blocks.named_parameters() if p.ndim >= 2]
+        name_by_id = {id(p): n for n, p in body_named}
+        src_params = list(optimizer2.param_groups[0]["params"])
+        early_params, late_params = [], []
+        for p in src_params:
+            n = name_by_id[id(p)]
+            m = _re_burst.match(r"^(\d+)\.", n)
+            if m is None:
+                raise ValueError(f"Unexpected body param name (no leading block index): {n}")
+            block_idx = int(m.group(1))
+            if 0 <= block_idx < 6:
+                early_params.append(p)
+            elif 6 <= block_idx < 12:
+                late_params.append(p)
+            else:
+                raise ValueError(f"Block index {block_idx} outside [0, 12) for param {n}")
+        early_params = sorted(early_params, key=lambda x: x.size(), reverse=True)
+        late_params = sorted(late_params, key=lambda x: x.size(), reverse=True)
+        assert len(early_params) > 0 and len(late_params) > 0, \
+            f"Depth-half split produced empty group: early={len(early_params)} late={len(late_params)}"
+        optimizer2.param_groups = [
+            dict(params=early_params, lr=MUON_LR, weight_decay=MUON_WEIGHT_DECAY, mu=MU, name="muon_blocks_early"),
+            dict(params=late_params, lr=MUON_LR, weight_decay=MUON_WEIGHT_DECAY, mu=MU, name="muon_blocks_late"),
+        ]
+    else:
+        optimizer2.param_groups[0]["name"] = "muon_blocks"
     optimizers = [optimizer1, optimizer2]
     assert set(p for opt in optimizers for group in opt.param_groups
                for p in group["params"]) == set(model.parameters())
@@ -931,11 +1013,23 @@ for trial_idx in range(args.num_trials):
                 cur_mu = MU_COOLDOWN_START + (MU_COOLDOWN_END - MU_COOLDOWN_START) * t
         else:
             cur_mu = MU + (MU_END - MU) * progress
+        body_muon_group_names = ("muon_blocks", "muon_blocks_early", "muon_blocks_late")
         for opt in optimizers:
             for group in opt.param_groups:
                 group["lr"] = group["initial_lr"] * eta
-                if group.get("name") == "muon_blocks":
+                if group.get("name") in body_muon_group_names:
                     group["mu"] = cur_mu
+        # PR #1491 (from #1428): scale body Muon LR for the selected depth-half
+        # during the window [START, END). Applies continuously (every step),
+        # not one-shot — preserves cosine cooldown shape beneath it.
+        if (EVAL_SLOT_LR_BURST_DEPTH_DISPATCH_ENABLED
+                and EVAL_SLOT_LR_BURST_DEPTH_DISPATCH_START <= step < EVAL_SLOT_LR_BURST_DEPTH_DISPATCH_END):
+            target_name = ("muon_blocks_early"
+                           if EVAL_SLOT_LR_BURST_DEPTH_DISPATCH_SCOPE == "early"
+                           else "muon_blocks_late")
+            for group in optimizer2.param_groups:
+                if group.get("name") == target_name:
+                    group["lr"] *= EVAL_SLOT_LR_BURST_DEPTH_DISPATCH_MULT
 
 
     ########################################
@@ -1051,6 +1145,47 @@ for trial_idx in range(args.num_trials):
                 train_steps=train_steps,
                 wandb_step=wandb_step,
             )
+        # PR #1491: compound dispatch + per-step telemetry in [2925, 2975].
+        compound_log_window = 2925 <= step <= 2975
+        m_reset_dispatch_fired = 0
+        m_reset_params_count = 0
+        m_norm_before_reset = float("nan")
+        m_norm_after_reset = float("nan")
+        if (POST_TARGET_MUON_M_RESET_ENABLED
+                and step == POST_TARGET_MUON_M_RESET_STEP):
+            m_norm_before_reset = optimizer2.m_buffer_norm_total()
+            m_reset_params_count = optimizer2.reset_all_momentum()
+            m_norm_after_reset = optimizer2.m_buffer_norm_total()
+            m_reset_dispatch_fired = 1
+            print0(f"[POST_TARGET_MUON_M_RESET] step={step} params_reset={m_reset_params_count} "
+                   f"m_norm_before={m_norm_before_reset:.4e} m_norm_after={m_norm_after_reset:.4e}",
+                   console=True, log=True)
+        depth_half_lr_active = int(
+            EVAL_SLOT_LR_BURST_DEPTH_DISPATCH_ENABLED
+            and EVAL_SLOT_LR_BURST_DEPTH_DISPATCH_START <= step < EVAL_SLOT_LR_BURST_DEPTH_DISPATCH_END
+        )
+        if dist.get_rank() == 0 and compound_log_window:
+            compound_metrics = {
+                "trial": trial_idx,
+                "train/step": train_step,
+                "train/m_reset/dispatch_fired": m_reset_dispatch_fired,
+                "train/m_reset/params_reset": m_reset_params_count,
+                "train/m_reset/m_norm_total": optimizer2.m_buffer_norm_total(),
+                "train/depth_half_lr/active": depth_half_lr_active,
+                "train/depth_half_lr/scope_is_early": int(EVAL_SLOT_LR_BURST_DEPTH_DISPATCH_SCOPE == "early"),
+            }
+            for group in optimizer2.param_groups:
+                gn = group.get("name", "")
+                if gn == "muon_blocks_early":
+                    compound_metrics["train/depth_half_lr/effective_lr_early_half"] = group["lr"]
+                elif gn == "muon_blocks_late":
+                    compound_metrics["train/depth_half_lr/effective_lr_late_half"] = group["lr"]
+                elif gn == "muon_blocks":
+                    compound_metrics["train/depth_half_lr/effective_lr_uniform"] = group["lr"]
+            if m_reset_dispatch_fired:
+                compound_metrics["train/m_reset/m_norm_before_reset"] = m_norm_before_reset
+                compound_metrics["train/m_reset/m_norm_after_reset"] = m_norm_after_reset
+            wandb.log(compound_metrics, step=wandb_step)
         for opt in optimizers:
             opt.step()
         if dist.get_rank() == 0 and telemetry_due:
