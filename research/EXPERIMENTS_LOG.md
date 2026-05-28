@@ -1,5 +1,31 @@
 # SENPAI Research Results — auto-nanogpt-1gpu-r4
 
+## 2026-05-28 03:28 — PR #1466: NM-aligned NS_COOLDOWN_SHAPE sweep — **CLOSED Row 4 productive-NULL (11th cross-axis catalog finding)**
+
+- branch: `g1r4-nezuko/nm-ns-cooldown-shape-sweep`
+- Hypothesis: Does the SHAPE of NS_ITERS_COOLDOWN ramping (12→16) produce FAV vs production `late_peak`? Tests step (constant high), linear_ramp (12→20 smooth), two_stage (14/18 midpoint).
+
+| Arm | Shape | run_id | val/loss | fs | Δ_paired vs A | Δ vs baseline 3.26310 | R_cond_mean | precond_ratio_mean | params_prec |
+|:---:|:---:|---|:---:|:---:|:---:|:---:|:---:|:---:|:---:|
+| A ctrl | late_peak | `5vh3aj2e` | 3.26537 | 3175 | (ref) | +0.00227 G4-MARGINAL | 841,350 | 1.10234 | 72 |
+| B | step | `oyhzke5c` | 3.26685 | 3175 | +0.00148 | +0.00375 | 1,193,683 | 1.10148 | 72 |
+| C | linear_ramp | `k3wcgg47` | **3.26454** | 3175 | **−0.00083** | +0.00144 | 3,146,464 | 1.0958 | 72 |
+| D | two_stage | `t7n85sxw` | 3.26476 | 3175 | −0.00061 | +0.00166 | 2,232,729 | 1.074 | 72 |
+
+**Verdict: Row 4 productive-NULL absorption — NS-axis FULLY ABSORBED.** No arm beats new baseline 3.26310 (best Arm C +0.00144 NEG); all fs=3175 (+25 NEG vs baseline 3150); within-chain |Δ_paired| ≤ 0.0015 for all 3 perturbation arms. Production `late_peak` CONFIRMED ROBUST.
+
+**Telemetric mechanism evidence**: R_cond_mean varies 3.7× (841K → 3.15M) but val_loss invariant — direct evidence R-buffer EMA absorbs NS-shape perturbations. Matches #1438 (5× ladder) and #1440 (5.4× ladder) absorption patterns.
+
+**🎯 11th cross-axis catalog finding — NS-axis triple-NULL convergence COMPLETE**:
+1. #1438 NS_ITERS_COOLDOWN magnitude → NULL c447
+2. #1440 NS_COEF_SCHEDULE coef-shape → NULL c448
+3. #1466 NS_COOLDOWN_SHAPE ramp-shape → NULL c458 (this)
+
+R-buffer EMA absorbs ALL upstream NS-quality perturbations across iteration count, coefficient schedule, and ramp shape. **Catalog post-c458 = 11 findings 6 classes**: 5 magnitude-NULL + 3 NS-axis-NULL + 1 timing-non-monotone-NEG (#1383) + 1 freshness-FAV-MERGED (#1421) + 1 state-continuity-NEG (#1431) + 1 temporal-coverage-NEG (#1469 pending).
+
+W&B runs: 5vh3aj2e, oyhzke5c, k3wcgg47, t7n85sxw (group `g1r4-nezuko/nm-ns-cooldown-shape-sweep`)
+
+
 ## 2026-05-27 23:57 — PR #1421: PP-promote n=3: NM UPDATE_PERIOD=2 — **MERGED ✅ FIRST MERGE ON POST-#1240 STACK**
 
 - branch: `g1r4-tanjiro/nm-period2-pp-promote`
