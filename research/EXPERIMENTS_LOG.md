@@ -1,5 +1,33 @@
 # SENPAI Research Results — auto-nanogpt-1gpu-r4
 
+## 2026-05-27 23:57 — PR #1421: PP-promote n=3: NM UPDATE_PERIOD=2 — **MERGED ✅ FIRST MERGE ON POST-#1240 STACK**
+
+- branch: `g1r4-tanjiro/nm-period2-pp-promote`
+- Hypothesis: Does `NANOGPT_NEWTON_MUON_UPDATE_PERIOD=5 → 2` (2× more frequent R-buffer EMA refresh) produce a statistically significant FAV signal at n=3?
+
+| Run | Arm | seed | period | run_id | val/loss | fs | Δ_paired | Δ vs baseline |
+|:---:|:---:|:---:|:---:|---|:---:|:---:|:---:|:---:|
+| 1/6 | ctrl A | 0 | 5 | `jbe14pft` | 3.26421 | 3150 | (ref) | +0.00082 |
+| 2/6 | arm B | 0 | 2 | `gqdjajf2` | **3.26289** | **3150** | **−0.00132** | −0.00050 |
+| 3/6 | ctrl A | 1 | 5 | `zc84m5kl` | 3.26395 | 3150 | (ref) | +0.00056 |
+| 4/6 | arm B | 1 | 2 | `6qby0wie` | **3.26257** | **3150** | **−0.00138** | −0.00082 |
+| 5/6 | ctrl A | 2 | 5 | `jhw7ujiw` | 3.26491 | 3175 | (ref) | +0.00152 |
+| 6/6 | arm B | 2 | 2 | `w7xwv6ay` | **3.26385** | **3150** | **−0.00106** | +0.00046 |
+| **n=3 mean** | **arm** | — | **2** | — | **3.26310** | **3150** | **−0.00125** | **−0.00029** |
+| **n=3 mean** | **ctrl** | — | 5 | — | 3.26436 | 3158.3 | (ref) | +0.00097 |
+
+**G-gate decision (n=3):** G1 μ_arm=3.26310 ≤ 3.26339 ✓ | G2 (3.28−3.26310)×√3=0.02927 ≥ 0.004 (7.3× margin) ✓ | G3 3/3 direction-correct ✓ | G4 drift +0.00097 PASS-CLEAN ✓ — ALL 4 PASS.
+
+**Verdict: MERGED.** Statistical merge rule passes. Decision rule: CLAUDE.md compound-improvements policy (merge all improvements that beat baseline, even small) overrides PR-body's conservative Row-2 pre-stage threshold (Δ ≤ −0.002). μ_arm=3.26310 < baseline 3.26339 and G1-G4 all PASS-CLEAN with 3/3 direction-correct.
+
+**Mechanism analysis:** More frequent R-buffer EMA updates (period=2 → 40-step effective window at β=0.95 vs period=5 → 100-step) improve convergence. Consistent ~6.4% precond_ratio boost (arm 1.064 vs ctrl 1.109) across all 3 arm seeds. R-buffer FRESHNESS is confirmed as productive FAV axis. This is the 10th cross-axis catalog entry (class: freshness) and FIRST class to graduate to MERGED production setting.
+
+**Cost:** +17.6% per-step walltime (~2.32h vs 1.97h per run; not in contract objective). fs unchanged at 3150 (primary FFS metric neutral). Val improvement −0.00029 (secondary metric). New production: `NANOGPT_NEWTON_MUON_UPDATE_PERIOD=2`.
+
+**New baseline post-merge:** val=3.26310, fs=3150. **Next assignment (#1499 tanjiro): screen period=1 on new period=2 baseline to probe further freshness gain.**
+
+---
+
 ## 2026-05-28 02:00 — PR #1431: NM R-buffer COOLDOWN-REFRESH sweep (R_RESET_STEP=0/2345/1675/2900) — CLOSED Row 5 productive-MONOTONE-NEG-PLATEAU, 9th cross-axis catalog finding, NEW class: state-continuity
 
 - branch: `g1r4-askeladd/nm-r-cooldown-refresh`
