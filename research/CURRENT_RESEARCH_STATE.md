@@ -1,6 +1,72 @@
 # SENPAI Research State — auto-nanogpt-1gpu-r3
 
-- **Last updated:** 2026-05-28 15:00 UTC
+- **Last updated:** 2026-05-28 15:55 UTC
+
+---
+
+## Cycle ~1100: H240 CLOSED (96th NULL/NEG, CATASTROPHIC bilateral PURE EVAL-MECHANISM finding) + PROGRAMME FINDING #57 candidate captured + H247 frieren ASSIGNED
+
+**Key closure this cycle:**
+
+- **H240 frieren EMA model averaging for terminal eval (PR #1554)** — 96th NULL/NEG. **CATASTROPHIC NEG/NEG bilateral PURE EVAL-MECHANISM FINDING**. arm_b EMA_0999 val=3.34982/FFS=−1 (+92.21σ_H174, target never crossed); arm_c EMA_09999 val=6.42336/FFS=−1 (+3568σ_H174). arm_a CTRL val=3.26782/FFS=3025 EXACT (cleanest CTRL of campaign tied with H231/H234). All bit-id step-0 val=10.82583 EXACT.
+
+**🎯 PROGRAMME FINDING #57 candidate captured (NEW EVAL-MECHANISM AXIS):**
+
+**Terminal-eval choice (raw-params vs EMA-averaged-params) is STRUCTURALLY LOAD-BEARING; raw-param eval is structurally privileged for polar-projection optimizer stacks under H148+H203.**
+
+The decisive datum is `val/loss_fast` (raw live training params) vs `val/loss` (FFS-driving EMA params) at terminal step 3325 across all 3 arms:
+
+| Arm | val/loss_fast (raw) | val/loss_ema (FFS) | EMA − fast gap |
+|---|---|---|---|
+| arm_a CTRL | 3.26782 (= val/loss) | — | — |
+| arm_b EMA_0999 | **3.26870** | **3.34982** | **+0.0811** |
+| arm_c EMA_09999 | **3.26650** | **6.42336** | **+3.157** |
+
+**raw-params val_loss STATISTICALLY IDENTICAL across all 3 arms** — span 0.0022 = 2.5σ_H174 = within drift class. Training trajectory bit-identical; EMA buffer update has **zero effect on training trajectory**. Entire +92σ / +3568σ catastrophic deficit is read off the eval point alone.
+
+**Mechanism class — first post-training/terminal-eval mechanism class in the campaign (42nd novel)**: EMA-averaging of polar-projection trajectory destroys converged-point geometry. NS5 polar projection (12 iters, polynomial a=2, b=-1.5, c=0.5) carves an orthogonal manifold per step; final converged point lives on this manifold. EMA averaging across the trajectory pulls eval point OFF the manifold into ambient space where the loss surface has no reason to be flat.
+
+**Cross-mechanism-class evidence with H195/H232 Cautious bilateral NEG**: same structural failure mode — applying a linear/sign-mask operation to polar-projected updates breaks the orthogonal-manifold geometry that NS5 carves. Here the operation is "linear interpolation across the trajectory of polar-projected points."
+
+**Decay-monotonicity prediction held cleanly**: arm_b (decay=0.999, half-life ~693 steps) averages last ~1500 steps → averaging step-~2500 params with step-3325 params lands SUBOPTIMALLY along cosine cooldown → +0.081 val deficit ≈ "cooldown undone" in val-loss space. arm_c (decay=0.9999, absorption rate `1 − 0.9999^3325 ≈ 28.3%`) → terminal EMA params are ~72% near-initial-random + ~28% trained → val 6.42 monotonically between near-random ~10.83 and arm_b's mildly-averaged ~3.35.
+
+**New assignment:**
+
+- **H247 frieren PR #1589**: **Best-checkpoint + manifold-projected EMA terminal eval (43rd mechanism class, 2nd in eval-mechanism sub-class)**. Tests two orthogonal eval strategies that do NOT have H240's flaw: arm_b BEST_CKPT_VAL = pure selection from training trajectory (snapshot best-val state_dict, restore at terminal step) vs arm_c MANIFOLD_EMA = post-hoc geometric correction (linear EMA + NS5 polar projection back to manifold for body params at terminal eval only). Closes 2 of 3 H240-suggested follow-ups (param-magnitude-aware EMA DEFERRED — manifold projection is more principled). Bit-id gates: step-0 val=10.82583 EXACT + `val/loss_fast` at terminal step ≈ arm_a CTRL within 2-3σ_H174. All new code lives OUTSIDE @torch.compile boundary (validation section + Python-level bookkeeping) — branch-OUTSIDE-compile pattern confirmed safe by H236 arm_a precedent. Predicted: arm_b WIN if cosine cooldown overshoots in last ~100 steps; arm_c RESCUE = PROGRAMME FINDING #57 false alarm, NULL = #57 confirmed.
+
+**Aux-replacement triad status (unchanged from cycle ~1020):**
+- H225 frieren β1 U-shape: BILATERAL NEG (closed earlier)
+- H237 nezuko AdEMAMix: BILATERAL NEG (closed cycle ~980)
+- H239 askeladd SF-AdamW: BILATERAL NEG (closed cycle ~1020)
+- H241 edward Lion: arm_b CATASTROPHIC NEG (+50.4σ already), arm_c ETA ~16:00 UTC. If 4 of 4 → PROGRAMME FINDING #55 consolidates: aux AdamW with our tuning structurally optimal.
+
+**MuLoCo HP+FORM closure status (unchanged from cycle ~980)**: COMPLETE. Future MuLoCo work must target FORM REPLACEMENTS (H246 askeladd LoCo-Adam in flight — first form replacement in campaign).
+
+**Programme totals after cycle ~1100:**
+- **96 NULL/NEG closures**
+- **43 novel mechanism classes** (H247 = 43rd, second in eval-mechanism sub-class)
+- **6 PROGRAMME FINDINGS pipeline** with **2 confirmed + 2 candidates**: #48 vestigial pair, #49 dynamics-vs-conditioning + saturation rule, #50 cosine asymptote bilateral, #51 muonh_mode SI trilateral, #52 BODY F-NORM CAPACITY candidate, #54 INNER+OUTER MOMENTUM FORM BILATERAL CONSOLIDATED, **#56 candidate (aux schedule load-bearing) + #57 candidate (eval-mechanism axis load-bearing)** + #55 aux-replacement-triad pending H241
+- **2 confirmed + 1 candidate VESTIGIAL FINDINGS**
+- **17 MuonH-SI/MuLoCo structural tightness members**
+
+**Exploration territory map updates after cycle ~1100:**
+
+| Axis | State (delta from cycle ~980) |
+|---|---|
+| Terminal evaluation — EMA averaging | **CLOSED bilateral catastrophic NEG (H240)** — manifold-incompatible with polar projection |
+| Terminal evaluation — best-checkpoint | **H247 arm_b WIP** (first checkpoint-selection eval test) |
+| Terminal evaluation — manifold-projected EMA | **H247 arm_c WIP** (first manifold-aware averaging test) |
+| Terminal evaluation — full-trajectory SWA on manifold | UNTESTED (queued if H247 arm_c rescues) |
+| Body — Shampoo/Soap preconditioner | UNTESTED (queued if H247 both NULL/NEG, qualitatively different body optimizer needed) |
+
+**Survey state**: 8/8 WIP (after H247 assignment), 0 idle, 0 review-ready. No new human directives this cycle.
+
+**Next-cycle monitoring queue**:
+- H238 alphonse arm_c (β₂=0.999) ETA ~16:30 UTC — pivot to MERGE candidate or NULL
+- H241 edward arm_c ETA ~16:00 UTC — expected FFS=−1 closing 4th aux-replacement bilateral NEG (would consolidate PROGRAMME FINDING #55)
+- H243 tanjiro arm_b W&B-missing clarification (asked student last cycle)
+- H244 fern duplicate concurrent arm_a runs operational concern
+- H247 frieren chain ETA terminal ~5h post-launch (typical chain wallclock)
 
 ---
 

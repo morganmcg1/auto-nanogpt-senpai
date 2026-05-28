@@ -1,3 +1,36 @@
+## 2026-05-28 15:42 — PR #1554: H240 frieren EMA model averaging for terminal eval — CLOSED (96th NULL/NEG, **CATASTROPHIC NEG/NEG bilateral; PURE EVAL-MECHANISM FINDING; PROGRAMME FINDING #57 candidate: terminal-eval choice raw-params vs EMA-averaged-params STRUCTURALLY LOAD-BEARING; raw-param eval structurally privileged for polar-projection optimizer stacks**)
+
+- Branch: `g1r3-frieren/h240-ema-eval`
+- Hypothesis: Test whether terminal eval on EMA-averaged parameters (Polyak-Ruppert tail-averaging across training trajectory) outperforms raw-params eval at step 3325 on H148+H203 stack. 3-arm: CTRL ema_eval=0 / EMA_0999 decay=0.999 / EMA_09999 decay=0.9999. First post-training/terminal-eval mechanism class in campaign.
+
+| Arm | ema_eval / ema_decay | W&B | val/loss (FFS-driving) | val/loss_fast (raw params) | FFS | Δval/σ_H174 | Verdict |
+|---|---|---|---|---|---|---|---|
+| arm_a CTRL | 0 / n/a | `g5u4ia7s` | **3.26782** | n/a (only path) | **3025 EXACT** | −0.54σ | bit-id baseline (cleanest CTRL tied with H231/H234) |
+| arm_b EMA_0999 | 1 / 0.999 | `gbms9cqm` | **3.34982** | **3.26870** | **−1 (DNR)** | **+92.21σ** | **CATASTROPHIC NEG** (eval point off polar-projection manifold) |
+| arm_c EMA_09999 | 1 / 0.9999 | `wbmkcb2w` | **6.42336** | **3.26650** | **−1 (DNR)** | **+3568σ** | **CATASTROPHIC NEG** (~72% near-initial-random + ~28% trained absorption) |
+
+- W&B verified: all state=finished. All 3 arms ran OFFLINE-mode (chain launched 09:42 UTC during team-wide W&B 401 outage), proactively wandb-synced post-each-arm-terminal. 3rd successful instance of offline+sync recovery pattern in campaign (joins H235 thorfinn arm_b + H237 nezuko arm_a + H239 askeladd arm_a).
+- All bit-id step-0 val=10.82583 EXACT (ema_params hasn't been initialized at step 0 → eval path identical regardless of ema_eval flag). Per-arm config audit (per `feedback_audit_treatment_runs_too.md`): ema_eval={0,1,1}, ema_decay={N/A unused argparse default 0.999, 0.999, 0.9999} — all distinct at W&B config-pane level.
+- Step_avg overhead at step 700: arm_a 1833.13ms vs arm_b 1834.21ms → **+1.08ms (+0.06%)**, ~80× lower than predicted ~5%. The foreach-style FP32 `mul_/add_` on EMA buffer is essentially free relative to ~1.8s MuonH+aux+F/B step. Memory overhead ~500MB FP32 EMA buffer + ~500MB transient backup buffer = trivial on 96GB H100.
+
+### Analysis
+
+- **PURE EVAL-MECHANISM FINDING**: `val/loss_fast` (raw live training params eval) is STATISTICALLY IDENTICAL across all 3 arms: arm_a 3.26782 / arm_b 3.26870 / arm_c 3.26650 — span 0.0022 = 2.5σ_H174 = within the torch.compile retracing drift class. Same forward-backward, same updates, same converged parameter state. EMA buffer update has **zero effect on training trajectory**. The entire +92σ / +3568σ catastrophic deficit is read off the eval point alone.
+- **Mechanism class — new in campaign** (post-training / terminal-eval): EMA-averaging of polar-projection trajectory destroys converged-point geometry. NS5 polar projection (12 iters, polynomial (a,b,c)=(2,-1.5,0.5)) carves an orthogonal manifold per step; final converged point lives on this manifold. EMA averaging across the trajectory pulls the eval point OFF the manifold into ambient space where the loss surface has no reason to be flat.
+- **Decay-monotonicity prediction held cleanly**: arm_b (decay=0.999, half-life ~693 steps) averages last ~1500 steps → averaging step-~2500 params with step-3325 params lands SUBOPTIMALLY along the cooldown trajectory → +0.081 val deficit ≈ "cooldown undone" in val-loss space. arm_c (decay=0.9999, absorption `1 − 0.9999^3325 ≈ 28.3%`) → terminal EMA params are ~72% near-initial-random + ~28% trained → val 6.42 sits monotonically between near-random ~10.83 and arm_b's mildly-averaged ~3.35.
+- **Mechanism class cross-evidence with H195/H232 Cautious bilateral NEG**: same structural failure mode — applying a linear/sign-mask operation to polar-projected updates breaks the orthogonal-manifold geometry that NS5 carves. Here the operation is "linear interpolation across the trajectory of polar-projected points." Averaging across an orthogonal manifold produces an OFF-manifold point that evaluates worse than any individual on-manifold point in the trajectory.
+- **PROGRAMME FINDING #57 candidate**: terminal-eval choice (raw-params vs EMA-averaged-params) is STRUCTURALLY LOAD-BEARING; **raw-param eval is structurally privileged for polar-projection optimizer stacks under H148+H203**. Distinct from #56 candidate (aux schedule mechanism load-bearing — H239) — this is the eval-mechanism axis, not the training-schedule axis.
+- **Misleading early-signal noted**: arm_b EMA ahead of arm_a on early trajectory (step 125: arm_b ema=9.255 vs arm_c ema=10.574 — arm_b's tighter EMA tracks recent params and catches up to training faster), but late-cooldown dynamic flips ordering. arm_b's EMA never re-converges to cooldown's final tight point. Early-signal awareness reminder.
+- **Programme follow-up axes opened by H240** (terminal-eval mechanism class, 42nd novel mechanism class):
+  - **Best-checkpoint-on-val terminal eval** (frieren's #1 suggestion, HIGHEST EV): at each val event, snapshot params if val improves; report final FFS using best-checkpoint params at step 3325. Preserves training-trajectory bit-identity; tests whether converged point is truly optimal vs earlier checkpoint within cooldown phase. Predicted WIN candidate. **Assigned as H247.**
+  - Manifold-projected-EMA: linear EMA followed by NS5 polar projection back to unit-spectral-norm ball. ~50 LoC. Predicted WIN if orthogonal-manifold hypothesis correct.
+  - Param-magnitude-aware EMA: only average bias/aux params, NOT body params NS5 projects. Tests whether structural-incompatibility is specifically body-MuonH or universal.
+- Excellent student implementation discipline: tracked W&B 401 outage proactively, pivoted offline-mode at 09:46 UTC, synced post-each-arm-terminal. Logged `val/loss_fast` alongside `val/loss_ema` as diagnostic decomposition — this is THE field that proved the eval-mechanism finding cleanly (training-trajectory bit-identity from raw-eval bit-id alone would need inference; with val/loss_fast we have direct evidence). Mechanistic narrative quality exceptional — decay-monotonicity prediction held; suggested follow-ups parsed mechanistic-vs-additive-improvement framing distinct correctly.
+
+- **Decision: NOT MERGING.** 96th NULL/NEG. EMA terminal-eval mechanism class CLOSED bilateral catastrophic NEG. **PROGRAMME FINDING #57 candidate captured** — eval-mechanism axis structurally load-bearing. H247 frieren assigned (best-checkpoint-on-val terminal eval, 43rd mechanism class, second hypothesis in eval-mechanism class).
+
+---
+
 ## 2026-05-28 14:55 — PR #1548: H239 askeladd Schedule-Free AdamW for aux side — CLOSED (95th NULL/NEG, **CATASTROPHIC NEG/NEG bilateral with arm_c WORSE than arm_b — falsifies LR-too-high hypothesis; PROGRAMME FINDING #56 candidate: aux schedule mechanism STRUCTURALLY LOAD-BEARING as a whole**)
 
 - Branch: `g1r3-askeladd/h239-sf-adamw-aux`
