@@ -462,6 +462,12 @@ SOAP_BETA2 = 0.90
 SOAP_PRECOND_FREQ = 10
 # Attention SOAP (record #16) hyperparameters
 ATTN_SOAP_BETA2 = 0.90
+# Per-kind attn-SOAP beta2 dispatch (default disabled — single global beta2 path)
+PER_KIND_ATTN_SOAP_BETA2_ENABLED = int(os.environ.get("PER_KIND_ATTN_SOAP_BETA2_ENABLED", 0))
+ATTN_SOAP_BETA2_Q = float(os.environ.get("ATTN_SOAP_BETA2_Q", ATTN_SOAP_BETA2))
+ATTN_SOAP_BETA2_K = float(os.environ.get("ATTN_SOAP_BETA2_K", ATTN_SOAP_BETA2))
+ATTN_SOAP_BETA2_V = float(os.environ.get("ATTN_SOAP_BETA2_V", ATTN_SOAP_BETA2))
+ATTN_SOAP_BETA2_PROJ = float(os.environ.get("ATTN_SOAP_BETA2_PROJ", ATTN_SOAP_BETA2))
 ATTN_SOAP_PRECOND_FREQ = 10
 ATTN_SOAP_TRUST_THRESHOLD = float(os.environ.get("ATTN_SOAP_TRUST_THRESHOLD", "0.9"))
 NS5_ITERS = int(os.environ.get("NS5_ITERS", "12"))
@@ -714,7 +720,19 @@ class Muon(torch.optim.Optimizer):
                     if use_soap:
                         soap_refresh(grad, state)
                     elif use_attn_soap:
-                        soap_refresh(grad, state, beta2=ATTN_SOAP_BETA2,
+                        if PER_KIND_ATTN_SOAP_BETA2_ENABLED:
+                            kind = self.attn_soap_kind.get(id(p), "q")
+                            if kind == "q":
+                                _beta2 = ATTN_SOAP_BETA2_Q
+                            elif kind == "k":
+                                _beta2 = ATTN_SOAP_BETA2_K
+                            elif kind == "v":
+                                _beta2 = ATTN_SOAP_BETA2_V
+                            else:  # proj
+                                _beta2 = ATTN_SOAP_BETA2_PROJ
+                        else:
+                            _beta2 = ATTN_SOAP_BETA2
+                        soap_refresh(grad, state, beta2=_beta2,
                                      refresh_freq=ATTN_SOAP_PRECOND_FREQ,
                                      use_trust_gate=True,
                                      trust_threshold=ATTN_SOAP_TRUST_THRESHOLD)
@@ -862,6 +880,11 @@ if dist.get_rank() == 0:
             "optimizer/soap_beta2": SOAP_BETA2,
             "optimizer/soap_precond_freq": SOAP_PRECOND_FREQ,
             "optimizer/attn_soap_beta2": ATTN_SOAP_BETA2,
+            "optimizer/attn_soap_beta2_q": ATTN_SOAP_BETA2_Q,
+            "optimizer/attn_soap_beta2_k": ATTN_SOAP_BETA2_K,
+            "optimizer/attn_soap_beta2_v": ATTN_SOAP_BETA2_V,
+            "optimizer/attn_soap_beta2_proj": ATTN_SOAP_BETA2_PROJ,
+            "optimizer/per_kind_attn_soap_beta2_enabled": PER_KIND_ATTN_SOAP_BETA2_ENABLED,
             "optimizer/attn_soap_precond_freq": ATTN_SOAP_PRECOND_FREQ,
             "optimizer/attn_soap_trust_threshold": ATTN_SOAP_TRUST_THRESHOLD,
             "optimizer/ns5_iters": NS5_ITERS,
