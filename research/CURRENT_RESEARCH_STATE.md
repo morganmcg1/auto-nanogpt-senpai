@@ -9,7 +9,27 @@ The human research team has redirected: **FFS (first-step-to-target, baseline 30
 3. **Prefer experiments that move the crossing step** (2800-3050 window), **simplify winning stacks**, **reveal FFS-load-bearing components**.
 4. **Ablations preferred over confirmations** when FFS dead.
 
-## Last updated: 2026-05-28 ~19:25Z (poll ≈1020, ★★ TRIPLE-PR POLL — 1 closure + 2 n=4 confirm requests + 1 new assignment)
+## Last updated: 2026-05-28 ~20:15Z (poll ≈1027, ★ edward axis closure + new assignment — 42nd R5 closure)
+
+**Actions this poll**:
+1. ★ **CLOSED #1563 edward NS-scale-exp** [42nd R5 closure] — clean null axis: all 5 cells FFS ∈ {2925, 2950} = 1 grid step apart. exp=0 falsifier landed at FFS=2950 (ctrl baseline floor) — **scaling-law catastrophic-NEG prediction FALSIFIED**. Post-NS aspect-ratio scale factor `max(1, m/n)**exp` is below FFS quantization noise floor at this benchmark scale across [0, 1.0].
+2. ★ **ASSIGNED #1615 edward Muon body momentum decoupling** (`g1r5-edward/mu-mlp-attn-decouple`) — fresh axis explicitly listed in memory as remaining after mu_cooldown 3-sided closure. Decouples per-group `--mu_mlp` vs `--mu_attn` at fixed mu=0.95 default. Mechanism: SOAP-Muon cos_sim ~0.884 (MLP) vs ~0.798 (attn) — weaker attn alignment means accumulated momentum carries more directional error; reducing `mu_attn` shortens look-back window, giving per-step SOAP corrections more influence. Structural analogue to edward's own winning #162 lr_mlp/lr_attn decoupling. 5-cell sweep: A=ctrl(0.95/0.95), B★=primary(0.95/0.85 attn-reduced), C=intermediate(0.95/0.90), D=both-reduced(0.90/0.85), E=falsifier(0.85/0.95 inverted MLP-only). Two-flag implementation; Muon class already supports per-group `mu` via dict-of-groups interface (no class change needed).
+
+**Ongoing in flight** (20:15Z snapshot):
+- **★★★ #1564 fern SOAP Gram trace-norm Trial 4** (`ixqmqe2j`): in flight, ETA terminus **~20:20Z** — IMMINENT CRITICAL merge-gate readout. n=3 already at FFS=2925 σ_3=0
+- **#1586 thorfinn body wd_mlp fine re-tune**: Cells A=B done (A FFS=2925, B FFS=2950), C in flight, D pending — full sweep ETA ~22:00Z
+- **#1565 tanjiro trust-gate-schedule**: Cells B/C/D done (B=D=2925, C=2950, val-positive shifts), Cell E in flight ETA ~20:30Z
+- **#1612 askeladd ns-poly-coeffs**: just assigned poll ~1020
+- **#1609 nezuko ns-iter-depth-schedule**: just assigned poll ~1010
+- **#1615 edward mu-mlp-attn-decouple**: just assigned this poll
+- **#1555 frieren aux-cd-shape n=4 confirm**: starting (sent back poll ~1020)
+- **#1533 alphonse EMA-eval rebase + n=4 confirm**: starting (sent back poll ~1020)
+
+All 8 students remain productively occupied. Zero idle.
+
+---
+
+## Prior poll snapshot (~1020, 2026-05-28 ~19:25Z, ★★ TRIPLE-PR POLL — 1 closure + 2 n=4 confirm requests + 1 new assignment)
 
 **Actions this poll**:
 1. ★ **CLOSED #1549 askeladd aux-LR-warmup** [41st R5 closure] — monotone clean-NEG: A(0)=2950, D(50)=3000, B(100)=2975, C(200)=3075, E(500)=NEVER catastrophic. Replicates #1072 (fern embed/lm_head warmup) with scalars-group extension confirming no protective effect. Cell A clean 5th-sample baseline reproducer.

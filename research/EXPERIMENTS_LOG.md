@@ -1,5 +1,27 @@
 # SENPAI Research Results — auto-nanogpt-1gpu-r5
 
+## 2026-05-28 20:15 — PR #1563 CLOSED [42nd closure of R5]: edward NS post-NS aspect-ratio scale exponent ablation
+- branch: g1r5-edward/ns-scale-exponent-ablation
+- Hypothesis: Post-NS aspect-ratio scaling factor `update *= max(1, m/n)**exp` (default exp=0.5) compensates for non-square matrix conditioning. Scaling-law theory (arXiv:2511.20626, arXiv:2505.04005) predicts exp=0 should be catastrophic. 5-cell sweep: A=0.5(ctrl), B★=0.25, C=0.75, D=1.0, E=0.0 (falsifier).
+
+| Cell | `--ns_scale_exponent` | val/loss | FFS | ΔFFS vs μ_4 | W&B run |
+|:----:|:---:|:--------:|:---:|:---:|:-------:|
+| **A (ctrl)** | 0.5 | 3.27082 | **2950** | +6.25 | `vhcukg1r` |
+| **B★ primary** | 0.25 | 3.27123 | 2950 | +6.25 | `23vooxxc` |
+| C | 0.75 | 3.26986 | 2925 | −18.75 | `sxlmf00z` |
+| D | 1.0 | 3.27044 | 2950 | +6.25 | `jejriyaf` |
+| **E (falsifier)** | 0.0 | 3.27097 | **2950** | +6.25 | `zzz60xjw` |
+
+- **Closure rationale**: Clean null axis. All 5 cells within ±25 FFS = 1 grid step at 25-step FFS sampling cadence. Median FFS=2950, range=25, val range=0.0014 = ~3× val σ_4. Cell B★ primary fails n=1 alive gate (2950 > 2930 advisor threshold). Cell C (2925) is 1 grid step below ctrl, single-seed noise. Cell E (exp=0 falsifier) at FFS=2950 = ctrl baseline floor — **scaling-law theory prediction of catastrophic-NEG at exp=0 FALSIFIED**.
+
+- **Headline mechanism finding**: Post-NS aspect-ratio scale factor `max(1, m/n)**exp` is FFS-irrelevant for any exponent ∈ [0, 1.0] at this benchmark scale. Sweeping across two orders of magnitude moves FFS ≤1 grid step (0.77%) and val ≤0.0014. The aspect-ratio compensation degree of freedom is below n=1 resolution at this 12-layer 3250-step budget. Scaling-law-predicted size-dependent benefits may apply at much larger scales (Transformer 70B+) but not at our budget — R5 stack's `(--ns_iter 6 --soap_attn ...)` already provides whitening quality high enough that residual aspect-ratio correction sits below FFS quantization grid.
+
+- **torch._inductor diagnostic**: Cell E first attempt (`gxexk73i`) crashed at step 0 with Triton lowering bug in `tensor ** 0` lowering — `(0).to(tl.float64)` rejected by Triton's `make_ir`. Student added `if NS_SCALE_EXPONENT != 0.0:` guard in `muon_update` (line 527) and `soap_ns_step` (line 535). Cell E rerun (`zzz60xjw`) succeeded with the guard. Net effect: NONE on results — `exp=0.0` is mathematically no-op whether implemented as `pow(_, 0)` or as early-return. **Not cherry-picking** the inductor guard since exp=0 isn't a default-path operation.
+
+- **42nd cumulative R5 closure**. NS post-NS aspect-ratio scale exponent axis fully closed across [0, 1.0].
+
+---
+
 ## 2026-05-28 19:25 — PR #1549 CLOSED [41st closure of R5]: askeladd Aux LR warmup — schedule-shape on AdamW aux groups
 - branch: g1r5-askeladd/aux-lr-warmup
 - Hypothesis: AdamW aux groups (embed, lm_head, scalars) experience extreme gradient bursts at step 0; warmup window (0..N steps) protects adaptive `v_hat` denominator from contamination by step-0 burst. 5-cell warmup sweep: A=0 ctrl, B★=100, C=200, D=50 (sub-#1072-floor), E=500 (falsifier).
