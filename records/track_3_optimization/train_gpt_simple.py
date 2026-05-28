@@ -602,6 +602,7 @@ NANOGPT_NEWTON_MUON_UPDATE_PERIOD = int(os.environ.get("NANOGPT_NEWTON_MUON_UPDA
 NANOGPT_NEWTON_MUON_BETA = float(os.environ.get("NANOGPT_NEWTON_MUON_BETA", "0.95"))
 NANOGPT_NEWTON_MUON_EPS = float(os.environ.get("NANOGPT_NEWTON_MUON_EPS", "1e-4"))
 NANOGPT_NEWTON_MUON_MAX_D_IN = int(os.environ.get("NANOGPT_NEWTON_MUON_MAX_D_IN", "1024"))
+NANOGPT_NEWTON_MUON_TIKHONOV_GAMMA = float(os.environ.get("NANOGPT_NEWTON_MUON_TIKHONOV_GAMMA", "0.0"))
 
 # Global per-parameter input-activation cache populated by forward hooks. Keyed by
 # id(weight_param) → tensor of shape (B*T, d_in) on device. Only populated when
@@ -833,9 +834,20 @@ class Muon(torch.optim.Optimizer):
             else:
                 b = self.newton_beta
                 state["R"].mul_(b).add_(R_new, alpha=1.0 - b)
+            # Tikhonov regularization: R_reg = R + gamma * (tr(R)/d_in) * I.
+            # Applied only at eigendecomp time; state["R"] EMA buffer is unmodified.
+            if NANOGPT_NEWTON_MUON_TIKHONOV_GAMMA > 0.0:
+                n_dim = state["R"].shape[0]
+                trace_mean = state["R"].diagonal().mean()
+                lambda_reg = NANOGPT_NEWTON_MUON_TIKHONOV_GAMMA * trace_mean
+                R_for_decomp = state["R"] + lambda_reg * torch.eye(
+                    n_dim, device=state["R"].device, dtype=state["R"].dtype
+                )
+            else:
+                R_for_decomp = state["R"]
             # Symmetric eigendecomp -> inverse square root with eigenvalue floor.
             try:
-                vals, vecs = torch.linalg.eigh(state["R"])
+                vals, vecs = torch.linalg.eigh(R_for_decomp)
                 vals_clamped = vals.clamp(min=0.0) + self.newton_eps
                 inv_sqrt_vals = vals_clamped.rsqrt()
                 # R_inv_sqrt = V * diag(inv_sqrt_vals) * V^T (symmetric).
@@ -984,7 +996,8 @@ print0(
     f"lr_scale={NANOGPT_NEWTON_MUON_LR_SCALE} "
     f"update_period={NANOGPT_NEWTON_MUON_UPDATE_PERIOD} "
     f"beta={NANOGPT_NEWTON_MUON_BETA} eps={NANOGPT_NEWTON_MUON_EPS} "
-    f"max_d_in={NANOGPT_NEWTON_MUON_MAX_D_IN}",
+    f"max_d_in={NANOGPT_NEWTON_MUON_MAX_D_IN} "
+    f"tikhonov_gamma={NANOGPT_NEWTON_MUON_TIKHONOV_GAMMA}",
     console=True,
 )
 if NS_ITERS_COOLDOWN > 0:
@@ -1105,6 +1118,7 @@ if dist.get_rank() == 0:
             "nanogpt_newton_muon_beta": NANOGPT_NEWTON_MUON_BETA,
             "nanogpt_newton_muon_eps": NANOGPT_NEWTON_MUON_EPS,
             "nanogpt_newton_muon_max_d_in": NANOGPT_NEWTON_MUON_MAX_D_IN,
+            "nanogpt_newton_muon_tikhonov_gamma": NANOGPT_NEWTON_MUON_TIKHONOV_GAMMA,
         },
     )
 
