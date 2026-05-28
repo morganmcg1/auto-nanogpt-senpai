@@ -9,9 +9,24 @@ The human research team has redirected: **FFS (first-step-to-target, baseline 30
 3. **Prefer experiments that move the crossing step** (2800-3050 window), **simplify winning stacks**, **reveal FFS-load-bearing components**.
 4. **Ablations preferred over confirmations** when FFS dead.
 
-## Last updated: 2026-05-28 ~18:14Z (poll ≈995, edward Cell D + tanjiro Cell D terminal — both axes closing FFS-neutral)
+## Last updated: 2026-05-28 ~18:35Z (poll ≈1000, ★★★ FERN TRIAL 3 FFS=2925 — n=3 perfect reproduction)
 
-**Actions this poll**: STATE-DOC UPDATE ONLY (no PR action). 2 new terminal cells since poll ~990:
+**Actions this poll**: STATE-DOC UPDATE ONLY (no PR action). **★★★ MAJOR SIGNAL UPGRADE**: **fern #1564 SOAP Gram trace-norm Trial 3 terminal also FFS=2925** — n=3 mean=2925, σ_3=0 perfect reproduction across 3 independent seeds. Combined with Trials 1+2 also at 2925, this is a 3-of-3 clean reproduction at -18.75 steps below new baseline μ_4=2944 (≈ -1.5σ_4). Trial 4 has just started (`ixqmqe2j` val=10.83 at step 9873 = fresh model init for trial 4). ETA Trial 4 terminus ~20:23Z.
+
+**Predeclared merge-gate readout**: μ_4(FFS) ≤ ~2918.75 strict 2σ_4 effect-size gate vs new floor. n=3 mean=2925 currently +6.25 above strict gate but σ_3=0 perfect-quantization-floor is informative on its own — vs baseline floor where 1 of 4 trials at 2925, 3 of 4 at 2950, fern's 3-of-3 at 2925 is a clean pattern shift below baseline noise. **Trial 4 outcome critical**: if FFS=2925 → mean=2925 σ_4=0 (still +6.25 above strict gate but maximally consistent); if FFS=2900 (next step-quantization down) → mean=2918.75 σ_4=12.5 (meets strict gate exactly); if FFS=2950 → mean=2931.25 σ_4=12.5 (within 1σ_4 of baseline, weak signal); if FFS=-1 → kills signal.
+
+**Other newly-terminal this window (18:14-18:35Z)**:
+- **#1579 nezuko Cell B `zgv1paid` tau=0.04 TERMINAL**: val=5.541, **FFS=-1** ★ confirmed catastrophic divergence. Cell C `cowc9r70` just started (step 70 val=10.83 init); will likely also diverge (LogitNorm hypothesis appears DOA). Pattern: A=ctrl tau=0 FFS=2925, B=tau=0.04 FFS=-1 → tau≠0 destroys training even at smallest nonzero value tested. **LogitNorm axis closing-catastrophic-NEG**.
+- **#1563 edward Cell E `zzz60xjw` rerun (exp=0 falsifier)**: step 849 val=3.71 — STILL LEARNING (vs baseline at step 849 val ~4.5). exp=0 = no aspect-ratio scaling at all; surprisingly stable, but slow. May or may not cross 3.28 before step 3250. ETA terminus ~19:50Z.
+
+**Still in flight**:
+- **#1586 thorfinn Cell B (wd_mlp=0.022)**: step 2601/3250 val=3.335 ETA ~18:57Z
+- **#1549 askeladd Cell E (warmup=500 falsifier)**: still offline, no W&B sync visible since Cell D 17:30Z sync
+- **#1555 frieren aux-cooldown-shape sweep**: still offline, ETA sweep terminus ~18:41Z (since 09:41Z start)
+
+No new student comments or human issues. Same 8 students WIP.
+
+**Prior poll** (~995, 2026-05-28 ~18:14Z, edward Cell D + tanjiro Cell D terminal — both axes closing FFS-neutral): STATE-DOC UPDATE ONLY (no PR action). 2 new terminal cells since poll ~990:
 - **#1563 edward NS-SCALE-EXP Cell D `jejriyaf` exp=1.0**: val=3.2704, **FFS=2950** — baseline-noise. Cell E (exp=0 falsifier) crashed first attempt (gxexk73i step 1 init-val), rerun `zzz60xjw` running step 221 val=4.49 (learning slowly without aspect-ratio scaling). 4-cell pattern: A(exp=0.5)=2950, B(exp=0.25)=2950, C(exp=0.75)=2925, D(exp=1.0)=2950 — **all within σ_single ±25 of new baseline μ_4=2944**. **NS post-NS aspect-ratio scale exponent axis is FFS-NEUTRAL across [0.25, 1.0]**. Closing-on-deck pending Cell E falsifier (exp=0). Expected verdict: NS-scale-exp absorbed by NS+optimizer system, perturbation invisible above noise.
 - **#1565 tanjiro TRUST-GATE-SCHEDULE Cell D `xtp8y6xm` peak=0.3 ramp=0.25**: val=3.2690, **FFS=2925** — within σ_single noise of baseline. 4-cell pattern: A(peak=0 ctrl)=2925, B(peak=0.3 ramp=0.15)=2925, C(peak=0.5 ramp=0.15)=2950, D(peak=0.3 ramp=0.25)=2925 — **all within σ_single ±25 of new baseline μ_4=2944**, with Cell A baseline-reproducer at 2925. **Trust-gate-schedule axis is FFS-NEUTRAL across [peak∈{0, 0.3, 0.5}, ramp∈{0.15, 0.25}] sample grid**. Cell E ETA ~19:53Z to confirm closure. Note: Cell A=ctrl peak=0 (gate OFF entirely) also at FFS=2925, so this confirms baseline floor for tanjiro's seed.
 
