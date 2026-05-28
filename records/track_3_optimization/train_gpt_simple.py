@@ -602,6 +602,13 @@ NANOGPT_NEWTON_MUON_UPDATE_PERIOD = int(os.environ.get("NANOGPT_NEWTON_MUON_UPDA
 NANOGPT_NEWTON_MUON_BETA = float(os.environ.get("NANOGPT_NEWTON_MUON_BETA", "0.95"))
 NANOGPT_NEWTON_MUON_EPS = float(os.environ.get("NANOGPT_NEWTON_MUON_EPS", "1e-4"))
 NANOGPT_NEWTON_MUON_MAX_D_IN = int(os.environ.get("NANOGPT_NEWTON_MUON_MAX_D_IN", "1024"))
+# Structural-coverage gate (#1520): restrict Newton-Muon to a subset of module
+# classes. Valid values: "all" (default, all 72 body modules), "attn" (48 ATTN
+# modules), "mlp" (24 MLP modules). Params outside the target class skip hook
+# registration; Muon.step() then falls back to the non-NM path (no cached X).
+NANOGPT_NEWTON_MUON_TARGETS = os.environ.get("NANOGPT_NEWTON_MUON_TARGETS", "all").lower()
+assert NANOGPT_NEWTON_MUON_TARGETS in {"all", "attn", "mlp"}, \
+    f"NANOGPT_NEWTON_MUON_TARGETS must be one of all/attn/mlp, got {NANOGPT_NEWTON_MUON_TARGETS!r}"
 
 # Global per-parameter input-activation cache populated by forward hooks. Keyed by
 # id(weight_param) → tensor of shape (B*T, d_in) on device. Only populated when
@@ -984,7 +991,8 @@ print0(
     f"lr_scale={NANOGPT_NEWTON_MUON_LR_SCALE} "
     f"update_period={NANOGPT_NEWTON_MUON_UPDATE_PERIOD} "
     f"beta={NANOGPT_NEWTON_MUON_BETA} eps={NANOGPT_NEWTON_MUON_EPS} "
-    f"max_d_in={NANOGPT_NEWTON_MUON_MAX_D_IN}",
+    f"max_d_in={NANOGPT_NEWTON_MUON_MAX_D_IN} "
+    f"targets={NANOGPT_NEWTON_MUON_TARGETS}",
     console=True,
 )
 if NS_ITERS_COOLDOWN > 0:
@@ -1025,7 +1033,18 @@ if NANOGPT_NEWTON_MUON:
         id(p) for n, p in model.blocks.named_parameters()
         if p.ndim >= 2 and ".mlp." in n
     }
-    muon_param_ids = muon_attn_param_ids | muon_mlp_param_ids
+    # Structural-coverage filter (#1520). TARGETS="all" keeps both sets (72 mods,
+    # bit-identical to pre-#1520). TARGETS="attn" keeps ATTN-only (48 mods).
+    # TARGETS="mlp" keeps MLP-only (24 mods). Filtered-out modules have no hook
+    # registered, so no X cache, so Muon.step() falls back to the non-NM update
+    # for those params (R^{-0.5} preconditioning skipped — equivalent to NM=0
+    # for those modules only).
+    if NANOGPT_NEWTON_MUON_TARGETS == "attn":
+        muon_param_ids = muon_attn_param_ids
+    elif NANOGPT_NEWTON_MUON_TARGETS == "mlp":
+        muon_param_ids = muon_mlp_param_ids
+    else:
+        muon_param_ids = muon_attn_param_ids | muon_mlp_param_ids
     _newton_hook_count = 0
     _newton_hook_skipped_d_in = 0
     for name, module in model.named_modules():
@@ -1045,7 +1064,8 @@ if NANOGPT_NEWTON_MUON:
                 _newton_hook_skipped_d_in += 1
     print0(
         f"NEWTON_MUON: hooks registered for {_newton_hook_count} parameter modules "
-        f"(skipped {_newton_hook_skipped_d_in} d_in>{NANOGPT_NEWTON_MUON_MAX_D_IN})",
+        f"(skipped {_newton_hook_skipped_d_in} d_in>{NANOGPT_NEWTON_MUON_MAX_D_IN}) "
+        f"targets={NANOGPT_NEWTON_MUON_TARGETS}",
         console=True,
     )
 
@@ -1105,6 +1125,7 @@ if dist.get_rank() == 0:
             "nanogpt_newton_muon_beta": NANOGPT_NEWTON_MUON_BETA,
             "nanogpt_newton_muon_eps": NANOGPT_NEWTON_MUON_EPS,
             "nanogpt_newton_muon_max_d_in": NANOGPT_NEWTON_MUON_MAX_D_IN,
+            "nanogpt_newton_muon_targets": NANOGPT_NEWTON_MUON_TARGETS,
         },
     )
 
