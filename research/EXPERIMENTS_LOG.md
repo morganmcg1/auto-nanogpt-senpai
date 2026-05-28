@@ -1,5 +1,34 @@
 # SENPAI Research Results
 
+## 2026-05-28 06:55 UTC — PR #1532 edward: Aux Adam β2 transient-INCREASE pulse @ cooldown onset — ASSIGNED
+
+- Branch: `g1r1-edward/aux-b2-pulse`
+- Hypothesis: Transiently INCREASE aux Adam β2 from 0.95 → target at cooldown onset (step 975), giving v buffer "more averaging room as gradient signal gets quieter." Direct opposite direction from #1407 (transient-DECREASE NULL). Motivated by #1487 mechanism finding that v-reset arm was STRICTLY WORSE than m-only arm (v buffer is load-bearing and optimizer WANTS more smoothing, not less).
+- Arm A: `--aux_b2_pulse_step 975 --aux_b2_pulse_target 0.97` (mild: β2 0.95→0.97, horizon ~33 steps)
+- Arm B: `--aux_b2_pulse_step 975 --aux_b2_pulse_target 0.99` (strong: β2 0.95→0.99, horizon ~100 steps — near bias-correction-on regime)
+- Mechanism: Keeps v buffer intact (produces-mode, unlike #1487 zero-reset). Adjusts decay rate to improve smoothing during cooldown's decreasing gradient-noise phase. Respects produce/consume buffer distinction from #1487 post-mortem. Implementation ~10 LOC: at step 975 update `optimizer1.param_groups[*]['betas']`.
+- Status: **ASSIGNED** — PR #1532
+
+---
+
+## 2026-05-28 06:50 UTC — PR #1487 edward: Aux Adam m/v state reset @ step 2600 — CLOSED BILATERAL NULL
+
+- Branch: `g1r1-edward/adam-mv-reset`
+- Hypothesis: Mechanism-analog of PR #1429 pEMA WIN — zero aux Adam momentum (m) and/or variance (v) buffers at step 2600 to "refresh" the optimizer state at the same phase boundary.
+
+| Arm | W&B | val/loss_ema | sr | Δval (mnat) | Δsr | Gate |
+|---|---|---|---|---|---|---|
+| Baseline (#1429 n=2) | y4nxof1m / fek06bk7 | 3.263938 | 2900 | 0 | 0 | — |
+| Arm A m-only @ 2600 | znvhprrt | 3.264677 | 2925 | +0.74 | +25 | ❌ |
+| Arm B m+v @ 2600 | msey6dxt | 3.266129 | 2925 | +2.19 | +25 | ❌ |
+
+- **Decision: CLOSED NULL.** Clean monotonic direction signal (Arm B m+v strictly worse than Arm A m-only by +1.45 mnat) — v-reset adds incremental harm on top of m-reset. n=1 sufficient; n=2 would not change call.
+- **Mechanism analysis (student post-mortem):** pEMA refresh (#1429 WIN) = consume-mode buffer (uniform-weight eval-only running mean) where stale entries are additive contamination — clearing recovers signal. Adam m/v = produce-mode buffer (exponentially-decayed train-mode state, β2=0.95) where history is immediately consumed by next update. By step 2600, gradients before step ~2540 (v) are weighted <1% — decay has already done the "refresh." Zeroing destroys recent adaptation rather than recovering stale-free signal.
+- **Canon addition:** Aux Adam state-reset axis CLOSED bilateral NULL. Joint with #1407 (aux β2 phase-pulse NULL), #1399/#1400/#1452 (aux LR phase-pulse NULL). **Aux optimizer adaptive-state perturbation axis fully exhausted.**
+- **Key mechanistic frame for programme:** produce-mode vs consume-mode buffer asymmetry. Only consume-mode buffers (pEMA) benefit from one-shot refresh at step 2600. Produce-mode buffers (Adam m/v, Muon m_prev) are hurt by zero-reset because decay has already done the "refresh."
+
+---
+
 ## 2026-06-28 06:40 UTC — PR #1531 thorfinn: Aux Adam Adaptive Gradient Clipping (AGC) — ASSIGNED
 
 - Branch: `g1r1-thorfinn/aux-agc`
