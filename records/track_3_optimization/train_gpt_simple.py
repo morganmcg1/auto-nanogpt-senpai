@@ -83,6 +83,17 @@ def parse_args():
              "muall=musoft + non-residual block 2D weights also scaled by 1/sqrt(L); "
              "smallconst=std=1e-3 depth-independent.",
     )
+    parser.add_argument("--cautious_body", action="store_true",
+                        help="Apply cautious mask (Liang et al. 2024, arxiv:2411.16085) to Muon body "
+                             "updates after Newton-Schulz. Zeros out coordinates where the NS-orthogonalized "
+                             "update disagrees in sign with the current gradient, then rescales by 1/mask.mean() "
+                             "to preserve average update magnitude.")
+    parser.add_argument("--cautious_aux", action="store_true",
+                        help="Apply cautious mask to AdamW aux updates (embed/lm_head/scalars) after "
+                             "computing m_hat / (sqrt(v_hat) + eps).")
+    parser.add_argument("--cautious_inverse_body", action="store_true",
+                        help="Falsifier: apply INVERSE mask to Muon body updates "
+                             "(keep coords where update*grad < 0, zero where they agree).")
     args = parser.parse_args()
     args.num_trials = args.num_trials if args.num_trials is not None else (args.legacy_num_trials or 1)
     args.wandb_tags = [tag.strip() for tag in args.wandb_tags.split(",") if tag.strip()]
@@ -508,6 +519,34 @@ def muon_update(grad, momentum, mu=0.95, nesterov=True):
     return update
 
 
+def cautious_mask(update: Tensor, grad: Tensor, eps: float = 1e-8, inverse: bool = False):
+    """Apply cautious masking from Liang et al. 2024 (arxiv:2411.16085).
+
+    Zero out coordinates of `update` where its sign disagrees with `grad`, then
+    rescale by 1/mask.mean() to preserve average update magnitude. Returns the
+    masked-rescaled update plus a stats dict (GPU tensors) for telemetry.
+
+    If `inverse=True`, the mask is flipped: keep only DISAGREEING coordinates
+    (used by the cell-E falsifier).
+    """
+    prod = update.float() * grad.float()
+    if inverse:
+        mask_bool = prod < 0
+    else:
+        mask_bool = prod > 0
+    mask = mask_bool.to(update.dtype)
+    mask_mean = mask.mean()
+    norm_before = update.float().norm()
+    masked = update * mask
+    norm_after = masked.float().norm()
+    scaled = masked * mask_mean.clamp(min=eps).reciprocal()
+    stats = {
+        "mask_mean": mask_mean,
+        "norm_ratio": norm_after / norm_before.clamp(min=eps),
+    }
+    return scaled, stats
+
+
 @torch.compile
 def soap_ns_step(nesterov_update):
     update = zeropower_via_newtonschulz5(nesterov_update)
@@ -571,7 +610,8 @@ class Muon(torch.optim.Optimizer):
     SOAP_ATTN_SUFFIXES = (".attn.q.weight", ".attn.k.weight", ".attn.v.weight", ".attn.proj.weight")
 
     def __init__(self, named_params, lr=0.02, weight_decay=0, mu=0.95,
-                 soap_attn=False, trust_threshold=0.0):
+                 soap_attn=False, trust_threshold=0.0,
+                 cautious=False, cautious_inverse=False):
         # `named_params` can be either:
         #   (a) list of (name, param) tuples → single param group (legacy form)
         #   (b) list of dicts {"named_params": [(name, param), ...], "lr": ?, "weight_decay": ?, "mu": ?, "name": ?}
@@ -594,6 +634,12 @@ class Muon(torch.optim.Optimizer):
         self.trust_threshold = float(trust_threshold)
         self.use_trust_gate = soap_attn
         self.cos_sims_buffer: dict[str, Tensor] = {}
+        self.cautious = bool(cautious)
+        self.cautious_inverse = bool(cautious_inverse)
+        assert not (self.cautious and self.cautious_inverse), \
+            "cautious and cautious_inverse are mutually exclusive"
+        # per-step telemetry buffer: param_name -> {mask_mean: Tensor, norm_ratio: Tensor}
+        self.cautious_stats_buffer: dict[str, dict[str, Tensor]] = {}
 
         param_groups = []
         for g in groups_raw:
@@ -613,6 +659,7 @@ class Muon(torch.optim.Optimizer):
     @torch.no_grad()
     def step(self):
         self.cos_sims_buffer = {}
+        self.cautious_stats_buffer = {}
         world_size = dist.get_world_size()
         rank = dist.get_rank()
         for group in self.param_groups:
@@ -633,6 +680,9 @@ class Muon(torch.optim.Optimizer):
                             state["q_row"] = None
                             state["q_col"] = None
                             state["soap_step"] = 0
+                    # Save the original gradient for the cautious mask BEFORE muon_update
+                    # potentially mutates p.grad in-place via grad.lerp_(...).
+                    grad_for_mask = p.grad.clone() if (self.cautious or self.cautious_inverse) else None
                     if use_soap:
                         state["momentum"].lerp_(p.grad, 1 - group["mu"])
                         raw_nesterov = p.grad.lerp(state["momentum"], group["mu"])
@@ -650,6 +700,9 @@ class Muon(torch.optim.Optimizer):
                         soap_update_preconditioner(p.grad, state)
                     else:
                         update = muon_update(p.grad, state["momentum"], mu=group["mu"])
+                    if self.cautious or self.cautious_inverse:
+                        update, c_stats = cautious_mask(update, grad_for_mask, inverse=self.cautious_inverse)
+                        self.cautious_stats_buffer[self.param_names[id(p)]] = c_stats
                     norm_sum.add_(update.float().norm())
                     p.mul_(1 - group["lr"] * group["weight_decay"])
                     p.add_(update, alpha=-group["lr"])
@@ -679,6 +732,72 @@ class Muon(torch.optim.Optimizer):
             name = group.get("name", f"group_{g_idx}")
             result[name] = mean
         return result
+
+
+class CautiousAdamW(torch.optim.Optimizer):
+    """AdamW with optional per-coordinate cautious masking (Liang et al. 2024).
+
+    With ``cautious=True``, the AdamW update direction ``m_hat / (sqrt(v_hat) + eps)``
+    is masked to zero on coordinates whose sign disagrees with the current gradient
+    and rescaled by ``1/mask.mean()`` to preserve average update magnitude. With
+    ``cautious_inverse=True``, the mask is flipped (cell-E falsifier). With both
+    flags False, the optimizer behaves as standard AdamW (per-tensor reference
+    implementation, equivalent to torch.optim.AdamW with fused=False).
+    """
+
+    def __init__(self, params, lr=1e-3, betas=(0.9, 0.999), eps=1e-8,
+                 weight_decay=0.0, cautious=False, cautious_inverse=False):
+        defaults = dict(lr=lr, betas=betas, eps=eps, weight_decay=weight_decay)
+        super().__init__(params, defaults)
+        self.cautious = bool(cautious)
+        self.cautious_inverse = bool(cautious_inverse)
+        assert not (self.cautious and self.cautious_inverse), \
+            "cautious and cautious_inverse are mutually exclusive"
+        # group_name -> list of {mask_mean, norm_ratio} GPU tensors (one per param in the group)
+        self.cautious_stats_buffer: dict[str, list[dict[str, Tensor]]] = {}
+
+    @torch.no_grad()
+    def step(self):
+        self.cautious_stats_buffer = {}
+        do_mask = self.cautious or self.cautious_inverse
+        for g_idx, group in enumerate(self.param_groups):
+            lr = group["lr"]
+            beta1, beta2 = group["betas"]
+            eps = group["eps"]
+            wd = group.get("weight_decay", 0.0)
+            name = group.get("name", f"adam_group_{g_idx}")
+            for p in group["params"]:
+                if p.grad is None:
+                    continue
+                g = p.grad
+                state = self.state[p]
+                if len(state) == 0:
+                    state["step"] = 0
+                    state["exp_avg"] = torch.zeros_like(p)
+                    state["exp_avg_sq"] = torch.zeros_like(p)
+                state["step"] += 1
+                t = state["step"]
+                m = state["exp_avg"]
+                v = state["exp_avg_sq"]
+                # AdamW stepweight decay (applied to params before moment-based update)
+                if wd != 0:
+                    p.data.mul_(1 - lr * wd)
+                # update moment estimates
+                m.lerp_(g, 1 - beta1)
+                v.mul_(beta2).addcmul_(g, g, value=1 - beta2)
+                bc1 = 1 - beta1 ** t
+                bc2 = 1 - beta2 ** t
+                # denom = sqrt(v) / sqrt(bc2) + eps  (== sqrt(v_hat) + eps)
+                denom = v.sqrt().div_(bc2 ** 0.5).add_(eps)
+                if do_mask:
+                    # explicit update tensor so we can mask BEFORE applying LR
+                    update = (m / bc1) / denom
+                    masked, c_stats = cautious_mask(update, g, inverse=self.cautious_inverse)
+                    p.data.add_(masked, alpha=-lr)
+                    self.cautious_stats_buffer.setdefault(name, []).append(c_stats)
+                else:
+                    # standard AdamW: p -= (lr / bc1) * m / denom
+                    p.data.addcdiv_(m, denom, value=-lr / bc1)
 
 
 ########################################
@@ -765,6 +884,9 @@ if dist.get_rank() == 0:
             "wd_schedule": args.wd_schedule,
             "lr_scalars": args.lr_scalars,
             "depth_init_mode": args.depth_init_mode,
+            "cautious_body": bool(args.cautious_body),
+            "cautious_aux": bool(args.cautious_aux),
+            "cautious_inverse_body": bool(args.cautious_inverse_body),
         },
     )
 
@@ -837,10 +959,16 @@ for trial_idx in range(args.num_trials):
     print0(f"[init] mode={args.depth_init_mode}  L={NUM_LAYERS}  block_residual_attn.proj_std={_ex_resid_std:.6f}", console=True)
 
     # create the optimizer(s)
-    optimizer1 = AdamW([dict(params=[model.embed.weight], lr=0.3, name="adam_embed"),
-                        dict(params=[model.proj.weight], lr=1/320, name="adam_lm_head"),
-                        dict(params=[p for p in model.parameters() if p.ndim < 2], lr=args.lr_scalars, name="adam_scalars")],
-                       betas=(0.8, 0.95), eps=1e-10, weight_decay=0, fused=True)
+    optimizer1 = CautiousAdamW(
+        [
+            dict(params=[model.embed.weight], lr=0.3, name="adam_embed"),
+            dict(params=[model.proj.weight], lr=1/320, name="adam_lm_head"),
+            dict(params=[p for p in model.parameters() if p.ndim < 2],
+                 lr=args.lr_scalars, name="adam_scalars"),
+        ],
+        betas=(0.8, 0.95), eps=1e-10, weight_decay=0,
+        cautious=args.cautious_aux,
+    )
     named_blocks = [(n, p) for n, p in model.blocks.named_parameters() if p.ndim >= 2]
     mlp_named = [(n, p) for n, p in named_blocks
                  if n.endswith(".mlp.fc.weight") or n.endswith(".mlp.proj.weight")]
@@ -853,6 +981,7 @@ for trial_idx in range(args.num_trials):
             dict(named_params=attn_named, lr=args.lr_attn, weight_decay=args.wd_attn, name="muon_attn"),
         ],
         soap_attn=args.soap_attn, trust_threshold=args.soap_trust_threshold,
+        cautious=args.cautious_body, cautious_inverse=args.cautious_inverse_body,
     )
     optimizers = [optimizer1, optimizer2]
     assert set(p for opt in optimizers for group in opt.param_groups
@@ -1060,6 +1189,52 @@ for trial_idx in range(args.num_trials):
                 trust_metrics["trust/cos_sim_mean_attn"] = sum(attn_vals) / len(attn_vals)
                 trust_metrics["trust/fired_count_attn"] = fired_attn
             wandb.log(trust_metrics, step=wandb_step)
+        if dist.get_rank() == 0 and telemetry_due and (optimizer2.cautious_stats_buffer or optimizer1.cautious_stats_buffer):
+            cautious_metrics = {"trial": trial_idx, "train/step": train_step}
+            # Muon body: param_name -> {mask_mean, norm_ratio}
+            if optimizer2.cautious_stats_buffer:
+                body_names = list(optimizer2.cautious_stats_buffer.keys())
+                body_mask_means = torch.stack([
+                    optimizer2.cautious_stats_buffer[n]["mask_mean"] for n in body_names
+                ]).detach().cpu().float()
+                body_norm_ratios = torch.stack([
+                    optimizer2.cautious_stats_buffer[n]["norm_ratio"] for n in body_names
+                ]).detach().cpu().float()
+                mlp_idx = [i for i, n in enumerate(body_names)
+                           if any(n.endswith(suf) for suf in Muon.SOAP_MLP_SUFFIXES)]
+                attn_idx = [i for i, n in enumerate(body_names)
+                            if any(n.endswith(suf) for suf in Muon.SOAP_ATTN_SUFFIXES)]
+                cautious_metrics["cautious/mask_mean_body_p50"] = float(body_mask_means.median().item())
+                cautious_metrics["cautious/mask_mean_body_mean"] = float(body_mask_means.mean().item())
+                cautious_metrics["cautious/mask_mean_body_p25"] = float(body_mask_means.quantile(0.25).item())
+                cautious_metrics["cautious/mask_mean_body_p75"] = float(body_mask_means.quantile(0.75).item())
+                cautious_metrics["cautious/mask_mean_body_min"] = float(body_mask_means.min().item())
+                cautious_metrics["cautious/mask_mean_body_max"] = float(body_mask_means.max().item())
+                cautious_metrics["cautious/effective_update_norm_ratio_body"] = float(body_norm_ratios.mean().item())
+                cautious_metrics["cautious/sign_agreement_rate_body"] = float(body_mask_means.mean().item())
+                if mlp_idx:
+                    cautious_metrics["cautious/mask_mean_mlp_p50"] = float(body_mask_means[mlp_idx].median().item())
+                    cautious_metrics["cautious/mask_mean_mlp_mean"] = float(body_mask_means[mlp_idx].mean().item())
+                if attn_idx:
+                    cautious_metrics["cautious/mask_mean_attn_p50"] = float(body_mask_means[attn_idx].median().item())
+                    cautious_metrics["cautious/mask_mean_attn_mean"] = float(body_mask_means[attn_idx].mean().item())
+            # AdamW aux: group_name -> list of {mask_mean, norm_ratio}
+            if optimizer1.cautious_stats_buffer:
+                aux_means = []
+                aux_ratios = []
+                for gname, stat_list in optimizer1.cautious_stats_buffer.items():
+                    g_means = torch.stack([s["mask_mean"] for s in stat_list]).detach().cpu().float()
+                    g_ratios = torch.stack([s["norm_ratio"] for s in stat_list]).detach().cpu().float()
+                    cautious_metrics[f"cautious/mask_mean_{gname}"] = float(g_means.mean().item())
+                    cautious_metrics[f"cautious/norm_ratio_{gname}"] = float(g_ratios.mean().item())
+                    aux_means.append(g_means)
+                    aux_ratios.append(g_ratios)
+                if aux_means:
+                    all_means = torch.cat(aux_means)
+                    all_ratios = torch.cat(aux_ratios)
+                    cautious_metrics["cautious/mask_mean_aux_mean"] = float(all_means.mean().item())
+                    cautious_metrics["cautious/effective_update_norm_ratio_aux"] = float(all_ratios.mean().item())
+            wandb.log(cautious_metrics, step=wandb_step)
         if dist.get_rank() == 0 and telemetry_due:
             log_weight_telemetry(
                 model=model,
