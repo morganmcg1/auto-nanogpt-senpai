@@ -468,6 +468,9 @@ NS5_ITERS = int(os.environ.get("NS5_ITERS", "12"))
 WD_AUX = float(os.environ.get("WD_AUX", "0.0"))  # AdamW WD on embed + lm_head matrices (scalars stay at 0)
 EMBED_INIT_STD = float(os.environ.get("EMBED_INIT_STD", "1.0"))  # default preserves baseline N(0,1)
 LOGIT_SOFTCAP = float(os.environ.get("LOGIT_SOFTCAP", "15.0"))  # default = 15 (current hardcoded value); soft-cap value c in f(x) = c·x / sqrt(x^2+c^2)
+# PR #1512 (frieren): body-Muon m-from-grad direction-axis probe. -1 disables.
+M_FROM_GRAD_STEP = int(os.environ.get("M_FROM_GRAD_STEP", "-1"))
+M_FROM_GRAD_SIGN = os.environ.get("M_FROM_GRAD_SIGN", "none")  # "plus", "minus", or "none"
 
 
 def zeropower_via_newtonschulz5(G: Tensor) -> Tensor:
@@ -1051,6 +1054,44 @@ for trial_idx in range(args.num_trials):
                 train_steps=train_steps,
                 wandb_step=wandb_step,
             )
+        # PR #1512 (frieren) — m-from-grad dispatcher. Fires AFTER backward/all-reduce, BEFORE opt.step()
+        # so the current step's gradient is available and the modified momentum drives this step.
+        # Body Muon only (optimizer2 group "muon_blocks"). Muon state key is "momentum".
+        if step == M_FROM_GRAD_STEP and M_FROM_GRAD_SIGN in ("plus", "minus"):
+            sign = 1.0 if M_FROM_GRAD_SIGN == "plus" else -1.0
+            params_modified = 0
+            m_norm_before_sum = 0.0
+            m_norm_after_sum = 0.0
+            grad_norm_sum = 0.0
+            for group in optimizer2.param_groups:
+                if group.get("name") != "muon_blocks":
+                    continue
+                for p in group["params"]:
+                    if p.grad is None:
+                        continue
+                    state = optimizer2.state.get(p, None)
+                    if state is None or "momentum" not in state:
+                        continue
+                    buf = state["momentum"]
+                    m_norm_before_sum += float(buf.norm().item())
+                    g = p.grad.detach()
+                    grad_norm_sum += float(g.norm().item())
+                    buf.copy_(g.to(buf.dtype) * sign)
+                    m_norm_after_sum += float(buf.norm().item())
+                    params_modified += 1
+            if dist.get_rank() == 0:
+                wandb.log({
+                    "m_from_grad/dispatch_fired": 1,
+                    "m_from_grad/sign": sign,
+                    "m_from_grad/params_modified": params_modified,
+                    "m_from_grad/m_norm_before_total": m_norm_before_sum,
+                    "m_from_grad/m_norm_after_total": m_norm_after_sum,
+                    "m_from_grad/grad_norm_total": grad_norm_sum,
+                    "m_from_grad/step_at_dispatch": step,
+                }, step=wandb_step)
+                print0(f"[m_from_grad] step={step} sign={M_FROM_GRAD_SIGN} params_modified={params_modified}"
+                       f" m_norm_before={m_norm_before_sum:.6f} m_norm_after={m_norm_after_sum:.6f}"
+                       f" grad_norm={grad_norm_sum:.6f}", console=True)
         for opt in optimizers:
             opt.step()
         if dist.get_rank() == 0 and telemetry_due:
