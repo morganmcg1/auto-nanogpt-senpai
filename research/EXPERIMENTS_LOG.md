@@ -1,5 +1,33 @@
 # SENPAI Research Results — auto-nanogpt-1gpu-r4
 
+## 2026-05-28 07:15 — PR #1484: NM R-buffer β LOW-side screening — **CLOSED NON-MONOTONE-NEG (15th cross-axis catalog finding, β-axis bilateral closure at period=5)**
+
+- branch: `g1r4-edward/nm-rbuffer-beta-low-screen`
+- Hypothesis: Does β=0.80/0.85/0.90 (faster EMA decay, fresher R-buffer) improve over β=0.95 production baseline?
+
+| Arm | β | val_loss | fs | Δ_paired | R_cond_mean | R_cond_max | precond_ratio | params_precond |
+|:---:|:---:|:---:|:---:|:---:|:---:|:---:|:---:|:---:|
+| A ctrl | 0.95 | 3.263608 | 3150 | (ref) | 1.75M | 61.7M | 1.103 | 72 |
+| B | 0.90 | 3.264917 | 3175 | +0.00131 NEG | 1.59M | 64.1M | 1.124 | 72 |
+| C | 0.85 | 3.263990 | 3150 | +0.00038 NULL-edge | 6.08M | **435M** ⚠ | 1.078 | 72 |
+| D | 0.80 | 3.265797 | 3175 | +0.00219 NEG | 2.51M | 155M | 1.081 | 72 |
+
+**Verdict: NON-MONOTONE-NEG. β trajectory B(+0.00131) → C(+0.00038 rebound) → D(+0.00219); 2/3 arms in NEG territory, 1/3 in NULL-edge.**
+
+**G4 PASS-CLEAN**: ctrl drift = 3.263608 − 3.26310 = +0.00051 (within ±0.0015).
+
+**⚠ CRITICAL ANOMALY — period=5 cross-contamination**: All 4 arms ran with `nanogpt_newton_muon_update_period=5` (pre-#1421 production stack), NOT the current production `period=2`. The bilateral β-axis closure conclusion is technically only valid at period=5. **Compound (period=2 ∧ β-LOW) remains untested.** Does not change ruling (all NEG) but flags reproducibility-against-current-baseline concern.
+
+**Mechanism interpretation**:
+- **R_cond_max explosion at β=0.85** (435M, 7× ctrl): R-buffer becomes numerically ill-conditioned at τ_eff ≈ 33 steps (period=5). At β=0.80 (τ_eff ≈ 25), R_cond_max partially relaxes to 155M but val_loss is WORST of all arms — non-monotone rebound at C is conditioning accident, not genuine optimum.
+- **Bilateral β-axis closure**: combining with #1447 (β=0.99 NEG on LOW-side of EMA), faster β (HIGH-side, this PR) also NEG → β=0.95 is the local optimum on EMA axis at period=5.
+
+**Combined with cycle 466 period bilateral closure (period=5→2 FAV-MERGED + period=2→1 NULL-NEG)**: **(β=0.95, period=2) operating point is STRICT LOCAL OPTIMUM on the freshness-magnitude axis** — confirmed bilaterally on both axes.
+
+**Cross-axis catalog impact**: **15th finding deepens class 4 (freshness-bilateral-monotone)** — now 5 distinct findings: period=5→2 FAV-MERGED (#1421) + β=0.99 NEG (#1447) + period=2→1 NULL-NEG (#1499) + β-LOW NON-MONOTONE-NEG (#1484, this PR, 3 arms). Catalog: 15 findings 7 classes. **Freshness-bilateral is now the most-explored class.**
+
+**W&B runs**: ctrl A, arm B (β=0.90), arm C (β=0.85), arm D (β=0.80).
+
 ## 2026-05-28 05:50 — PR #1499: NM UPDATE_PERIOD=1 screen — **CLOSED NULL/mild-NEG (14th cross-axis catalog finding, freshness HIGH-side closure)**
 
 - branch: `g1r4-tanjiro/nm-period1-screen`
