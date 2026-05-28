@@ -1,5 +1,37 @@
 # SENPAI Research State — auto-nanogpt-1gpu-r1
 
+- **Last update: 2026-05-28 15:13 UTC**
+- **🎯 PLATEAU BROKEN: #1532 edward Arm B strong β₂ pulse — WIN CANDIDATE!** `9coyk2ke` terminal: val_ema=**3.26218** (−1.76 mnat vs baseline 3.263938), sr=**2875** (−25 steps vs baseline 2900). **Both merge gate clauses pass.** Mechanism: aux Adam β₂ pulse 0.95→0.99 @ step 975 (cooldown onset). Amplitude-sensitive — Arm A weaker pulse (β₂=0.97) was NULL (+1.06 mnat). Awaiting student SENPAI-RESULT marker + seed-2 confirmation run. Estimated seed-2 ETA: ~19:00 UTC.
+- **Today's progression**: 7 NULLs → 1 WIN. Plateau Protocol escalation (researcher-agent dispatched at 13:30 UTC) is moot for now — direct mechanism hit. New baseline locks once seed-2 confirms.
+- **Axes closed today** (May 28, all NULL):
+  - #1524 tanjiro stable-pulse shape (2-point sweep)
+  - #1531 thorfinn AGC aux raw grads (warm-start canon documented)
+  - #1510 frieren per-block NS_ITERS bilateral
+  - #1507 fern pEMA β ramp bilateral
+  - #1508 nezuko cooldown LR floor bilateral
+  - #1535 alphonse pEMA aux-extend Arm A (Arm B in flight)
+  - #1561 frieren Nesterov Arm A (Arm B in flight)
+- **Active portfolio (post-WIN state, 8 students engaged):**
+  - **#1532 edward**: Arm B WIN CANDIDATE confirmed at val_ema=3.26218, sr=2875. Awaiting student marker + seed-2 launch.
+  - **#1576 tanjiro**: Schedule-Free AMUSE — picked up 13:59 UTC, in flight ETA ~17:30 UTC
+  - **#1573 thorfinn**: warmup-only AGC t_off ∈ {500,1500} — in flight
+  - **#1535 alphonse**: pEMA aux-extend Arm B heavier β=0.995 — in flight ETA ~15:20 UTC
+  - **#1542 askeladd**: β_t decouple earlier ramp Arm B — in flight ETA ~16:00 UTC
+  - **#1559 fern**: pEMA post-refresh β_target decouple — Arm A NULL terminal (sr=2925, val=3.2655) per W&B; awaiting student sync + Arm B
+  - **#1560 nezuko**: aux Adam LR cooldown timing — Arm A NULL terminal (sr=2925, val=3.2659) per W&B; awaiting student sync + Arm B
+  - **#1561 frieren**: Muon Nesterov — Arm A NULL terminal (sr=2925, val=3.26655) per student; Arm B in flight ETA ~18:30 UTC
+- **Key mechanism insight from WIN**:
+  - **β₂ schedule on aux Adam matters at cooldown onset.** The aux optimizer (embed + lm_head + scalars) entering cooldown with "more momentum memory" (β₂=0.99 vs canonical 0.95) compounds favorably through the cooldown trajectory. Body Muon's cooldown sees a smoother aux gradient signal because β₂ smoothing is more aggressive.
+  - **Amplitude is critical**: Arm A (β₂=0.97 weaker) NULL, Arm B (β₂=0.99 stronger) WIN. The mechanism is monotone in pulse strength up to β₂=0.99.
+  - **Future axes opened by this WIN**: β₂=0.995 (even stronger?), β₁ pulse (instead of/in addition to β₂), pulse timing variation (step 850/900/1000/1100), pulse dwell window (single-step vs multi-step decay), aux-only LR ramp at cooldown onset, body Muon momentum schedule modulation.
+- **Pending advisor work post-WIN merge**:
+  - Cleanup PR to prune deprecated/superseded flags after edward merge
+  - Compound stacking: β₂ pulse + (pEMA refresh already in canon, fern post-refresh β if any future WIN)
+  - Researcher-agent's RESEARCH_IDEAS_2026-05-28_13:30.md — ideas remain valid for future assignment
+- **All 8 students engaged. Zero idle.**
+
+---
+
 - **Last update: 2026-05-28 13:35 UTC**
 - **Current baseline:** val_ema=3.263938, sr=2900 (PR #1429, pEMA refresh @ step 2600). Merge gate: `sr ≤ 2887.5 OR (sr=2900 AND val_ema < 3.263938)`.
 - **⚠️ PLATEAU — 7 NULLs confirmed today.** All cluster within +1 to +3 mnat of baseline at sr=2925. Plateau Protocol active — researcher-agent dispatched for bold fresh hypotheses (results expected ~14:10 UTC).

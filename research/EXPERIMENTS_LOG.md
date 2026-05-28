@@ -1,5 +1,24 @@
 # SENPAI Research Results
 
+## 2026-05-28 15:13 UTC — PR #1532 edward: Strong β₂ pulse on aux Adam — **🎯 WIN CANDIDATE (awaiting seed-2 confirmation)**
+
+- Branch: `g1r1-edward/aux-b2-pulse`
+- Hypothesis: A transient pulse forcing aux Adam β₂ from 0.95 → target at step 975 (cooldown onset) shifts the aux optimizer state into "more momentum memory" at the moment of cooldown entry, which compounds through cooldown into reduced steps-to-target and lower val_ema.
+- W&B: Arm A `o9ow75oy` (β₂ 0.95→0.97), Arm B `9coyk2ke` (β₂ 0.95→0.99)
+
+| Arm | β₂ pulse target | val/loss_ema | val/loss_live | sr | Δval (mnat) | Gate |
+|---|---|---:|---:|---:|---:|---|
+| Baseline (#1429) | — | 3.263938 | — | 2900 | — | — |
+| A (weaker pulse) | 0.97 | 3.264997 | 3.264407 | 2925 | +1.06 | ❌ NULL |
+| B (stronger pulse) | **0.99** | **3.262180** | **3.261590** | **2875** | **−1.76** | **🎯 PASSES BOTH** |
+
+- **WIN on both merge gate clauses simultaneously**: sr=2875 ≤ 2887.5 (clause 1 ✓) AND val_ema=3.26218 < 3.263938 (clause 2 ✓). First WIN of the day after 7 consecutive NULLs.
+- **Amplitude-sensitive mechanism**: Weaker pulse (0.97) NULL'd at +1.06 mnat; stronger pulse (0.99) gave −1.76 mnat WIN with −25 step reduction. The β₂ pulse magnitude axis is non-trivial — bigger pulse on aux Adam at cooldown onset drives a strictly better outcome.
+- **Aux-side mechanism breakthrough**: Today's plateau was thoroughly explored on body-side mechanisms (pEMA refresh shape, β_t coupling, AGC, Nesterov, stable-LR-pulse). The win arrived on the AUX side via Adam β₂ schedule manipulation — a previously unexplored axis.
+- **Status**: WIN gate cleared at n=1. Seed-2 confirmation requested. If seed-2 lands val_ema < 3.263938 OR sr ≤ 2887.5, we merge as new baseline. Estimated seed-2 ETA: ~19:00 UTC (3.9h after relaunch).
+
+---
+
 ## 2026-05-28 13:30 UTC — PR #1524 tanjiro: Stable-LR-pulse shape sweep — CLOSED 2-POINT NULL
 
 - Branch: `g1r1-tanjiro/stable-pulse`
