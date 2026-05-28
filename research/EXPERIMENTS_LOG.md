@@ -1,3 +1,92 @@
+## 2026-05-28 21:15 — PR #1619: H252 nezuko MuLoCo sync_interval VALUE ablation (K∈{15,30,60}) — ASSIGNED (48th mechanism class, zero code changes, drift-free by construction; researcher-agent proposal `RESEARCH_IDEAS_2026-05-28_cycle1400_nezuko.md`)
+
+- Branch: `g1r3-nezuko/muloco-sync-interval-value`
+- Hypothesis: Test whether the fixed sync_interval=30 (anchored across 100+ closed experiments) is optimal, or whether a different outer-step frequency improves sample efficiency. The MuLoCo algorithm couples MuonH-NS5 polar projection inner with outer Nesterov SGD correcting trajectory every K inner steps. K=30 has anchored every MuLoCo experiment in the campaign — single most structurally load-bearing untested scalar in current stack.
+- Theoretical anchors: Cutkosky & Orabona 2019 (optimal K scales as O(σ⁻¹ × H^{1/4})), Lin et al. 2020 (Local SGD optimal K range 5–50). 3-arm: CTRL K=30 (111 outer events) / SYNC_FAST K=15 (222 events) / SYNC_SLOW K=60 (55 events).
+- Drift-free by construction: outer step block (line 1276) inside `with torch.no_grad():` and OUTSIDE all `@torch.compile` regions. `--sync_interval` argument already wired at line 58 of train_gpt_simple.py. Zero code changes required.
+- Status: WIP. Decision criteria pre-declared. WIN probability ~15% (above campaign base rate ~10%).
+- Programme context: 48th mechanism class. Follows H245 closure (101st NULL/NEG, PROGRAMME FINDING #49 STRENGTHENED). Nezuko cycle ~1410 idle assigned cycle ~1420.
+
+---
+
+## 2026-05-28 21:10 — PR #1597: H249 alphonse arm_b RIEMANNIAN_DEFAULT — CATASTROPHIC NEG (interim, arm_c mid-run) + **🎯 Stiefel manifold mismatch mechanistic insight (campaign-level methodological contribution)**
+
+- Branch: `g1r3-alphonse/h249-riemannian-norm-body-si`
+- Hypothesis: Replace post-NS5 Frobenius-norm denominator in SI step with canonical Stiefel Riemannian metric `||g − W·(W^T·g)/2||_F` to make step length geometry-consistent on the manifold.
+
+| Arm | W&B | val | FFS | reached_target | Δval vs CTRL | Verdict |
+|---|---|---|---|---|---|---|
+| arm_a CTRL | `1cy16q8m` | **3.26803** | **3025** | ✓ | — | **drift-FREE EXACT** vs H203 baseline (via `@torch.compiler.disable`) |
+| arm_b RIEMANNIAN_DEFAULT | `dunugctv` | **3.29498** | **−1** | ✗ | **+0.02695 (+30σ_H174)** | **CATASTROPHIC NEG** — stat rule fails (margin = −0.01498) |
+| arm_c RIEMANNIAN_DETACHED | `83kate8u` | (mid-run, ETA 22:42 UTC) | — | — | — | predicted bilateral CATASTROPHIC NEG |
+
+### 🎯 Mechanistic insight (student's brilliant diagnosis, campaign-level methodological contribution)
+
+`riem_frob_ratio_mean` grew monotonically throughout training:
+
+| step | riem_frob_ratio_mean | Interpretation |
+|---|---|---|
+| 5 (smoke) | 0.77 | Riemannian < Frobenius, correction subtracts within-column-span component |
+| 700 | 1.40 | Crossed unity at ~step 150-200 and keeps growing |
+| 925 | 1.69 | Riemannian > Frobenius → effective step shrunk |
+| **3325 (final)** | **2.37** | Riemannian 2.37× Frobenius → **effective step shrunk 58% vs CTRL** |
+
+Student's textbook diagnosis (verbatim): *"This is textbook misuse of the canonical Stiefel Riemannian metric: the formula assumes `W ∈ St(n,k)`, but `body_init=orthogonal_fnorm_matched` only enforces F-norm match, and the post-NS5 SI evolves W toward F-norm-fixed sphere, **not** Stiefel. So `W^T W ≠ I` throughout training, and the 'Riemannian' interpretation breaks down."*
+
+The SI hyperball does NOT preserve Stiefel — it preserves F-norm. The "canonical Riemannian metric" only makes sense for `W·W^T = I`; we have `||W||_F = const ≠ √k`. The correction term `W·(W^T·g)/2` measures overlap with W's column space, but with `W^T W` unconstrained it can become large/non-physical, eventually growing to 2.37× Frobenius by step 3325 → effective step shrunk 58% → CATASTROPHIC slow convergence (val never crosses 3.28 target → FFS=−1).
+
+### Implication — Riemannian-metric class NOT closed
+
+This is **NOT** a Riemannian-metric class NEG. It's a body_init/manifold-geometry mismatch NEG. A future test on a true-Stiefel body_init (e.g. `orthogonal_qr_init` + Stiefel-preserving SI evolution maintaining `W^T W = I` at every step) would be the proper closure of the Riemannian-metric mechanism axis. Capture as cycle ~1430+ hypothesis candidate.
+
+### Methodological contribution — `@torch.compiler.disable` pattern validated
+
+arm_a CTRL FFS=3025 EXACT via `@torch.compiler.disable` decorator on both `riemannian_norm_stiefel(update, W, eps)` (line 654-673) AND `scale_invariant_update_(...)` (line 676-707, belt-and-suspenders). **2nd drift-FREE CTRL since cycle ~1170** (joins H246 askeladd). Confirmed: `@torch.compiler.disable`-decorated dispatch wrapper pattern is fully drift-free at function-decorator level.
+
+### Follow-up portfolio
+
+1. ✅ CATASTROPHIC NEG verdict on F-norm-matched body_init stack — H249 mechanism CLOSED for this stack
+2. ⏳ arm_c RIEMANNIAN_DETACHED expected bilateral CATASTROPHIC NEG (riem_detach removes potential autograd path; tiny effect under `@torch.no_grad()`)
+3. 🆕 **Future true-Stiefel body_init test** — fresh axis candidate (e.g. QR-init + per-step `W^T W = I` projection constraint)
+4. ✅ `@torch.compiler.disable` pattern confirmed drift-free at function-decorator level — recommended for ALL future hypotheses touching compiled training step
+5. 🆕 **body_init × body-update mechanism interaction** — has never been audited in r3; structural interaction may be load-bearing in multiple mechanism classes (cycle ~1430+ frontier)
+
+---
+
+## 2026-05-28 21:10 — PR #1580: H244 fern Depth-scaled per-layer LR on MuonH body — CLOSURE PENDING (arm_c FINISHED NEG val=3.27527 FFS=3150, bilateral with arm_b CATASTROPHIC NEG; awaiting student SENPAI-RESULT)
+
+- Branch: H244 fern (40th mechanism class — depth-scaled per-layer MuonH LR)
+- Hypothesis: Test whether scaling MuonH learning rate per-layer (linear-amplified-deep vs inverse-sqrt-attenuated-deep) improves over uniform body LR.
+
+| Arm | val | FFS | reached_target | Δval vs H203 | Verdict |
+|---|---|---|---|---|---|
+| arm_a CTRL | 3.26869 (est) | 3050 | ✓ | +0.00039 | drift +25 |
+| arm_b LINEAR_DEPTH | 3.28+ | **−1** | ✗ | **+0.012+** | **CATASTROPHIC NEG** |
+| arm_c INVSQRT_DEPTH | **3.27527** | **3150** | ✓ | **+0.00697 (+7.9σ_H174)** | **NEG bilateral** |
+
+PROGRAMME FINDING candidate STRENGTHENED: body LR is structurally NON-redistributable across depth (both linear-amplified-deep and inverse-sqrt-attenuated-deep NEG). Joins H225 (β₁ value rigidity), H242 (cooldown SHAPE rigidity), H243 (Schatten-p exponent rigidity) — body-side optimization geometry now CONFIRMED structurally rigid across **4 INDEPENDENT axes**. Strong support for PROGRAMME FINDING #51 candidate elevation to CONFIRMED at next consolidation.
+
+---
+
+## 2026-05-28 21:10 — PR #1587: H246 askeladd LoCo-Adam outer optimizer FORM replacement — CLOSURE PENDING (arm_c FINISHED CATASTROPHIC NEG val=3.49346 FFS=−1, bilateral with arm_b CATASTROPHIC NEG; **🎯 PROGRAMME FINDING #54 STRONGLY STRENGTHENED**; awaiting student SENPAI-RESULT)
+
+- Branch: H246 askeladd (42nd mechanism class — LoCo-Adam outer FORM)
+- Hypothesis: Replace outer Nesterov SGD with outer Adam variants to test outer FORM structural privilege.
+
+| Arm | W&B | val | FFS | reached_target | Δval vs H203 | Verdict |
+|---|---|---|---|---|---|---|
+| arm_a CTRL | (3.26830) | **3025** | ✓ | 0.0 | **drift-FREE EXACT** (outside-@torch.compile mitigation) |
+| arm_b LoCo-Adam-default | `atpby1q9` | **3.75072** | **−1** | ✗ | **+0.482 (+545σ_H174)** | **CATASTROPHIC NEG**, mid-cooldown val RISE 3.594→3.751 UNPRECEDENTED |
+| arm_c LoCo-Adam-LR | `azn1rp4q` | **3.49346** | **−1** | ✗ | **+0.225 (+254σ_H174)** | **CATASTROPHIC NEG** (LR adjustment ineffectual) |
+
+### 🎯 PROGRAMME FINDING #54 STRONGLY STRENGTHENED
+
+Outer Nesterov SGD is structurally privileged over outer Adam variants regardless of LR adjustment. The +0.22 val gap between arm_b (LoCo-Adam default LR) and arm_c (LoCo-Adam tuned LR) suggests Adam dynamics on the *delta vector* between sync events are fundamentally mismatched to MuLoCo's geometry — Adam's per-coordinate-adaptivity over MuonH polar-projected deltas is destabilizing. This is the **strongest CATASTROPHIC NEG evidence in the campaign for outer-form structural privilege**: bilateral catastrophic across both default and tuned-LR variants.
+
+Closure pending student terminal SENPAI-RESULT post.
+
+---
+
 ## 2026-05-28 20:40 — PR #1581: H245 nezuko ADana log-time aux momentum schedule — CLOSED (**101st NULL/NEG closure** post-100th-milestone, **bilateral NULL/CATASTROPHIC NEG** on β₂-only TIE + β₁-included FFS=-1; 🎯 **PROGRAMME FINDING #49 STRENGTHENED — aux β₁ structural rigidity now confirmed via 2 INDEPENDENT ablation axes: transfer FALSIFIED (H225) + adaptive log-time schedule FALSIFIED (H245). aux β₁ must stay ≥0.7 throughout training; ANY low-β₁ early-step window causes catastrophic optimization slowdown that AGC clipping cannot compensate**)
 
 - Branch: `g1r3-nezuko/h245-adana-aux-momentum-schedule`

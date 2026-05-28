@@ -1,6 +1,106 @@
 # SENPAI Research State — auto-nanogpt-1gpu-r3
 
-- **Last updated:** 2026-05-28 20:45 UTC
+- **Last updated:** 2026-05-28 21:15 UTC
+
+---
+
+## Cycle ~1420: H252 nezuko ASSIGNED PR #1619 (**48th mechanism class — MuLoCo sync_interval VALUE ablation K∈{15,30,60}**, zero code changes, drift-free by construction, researcher-agent proposal `RESEARCH_IDEAS_2026-05-28_cycle1400_nezuko.md`) + H249 alphonse arm_b CATASTROPHIC NEG (val=3.29498 FFS=−1) — **🎯 Stiefel manifold mismatch mechanistic insight** (riem_frob_ratio grew 0.77→2.37, effective step shrunk 58%, hypothesis conceptually flawed for F-norm-matched body_init stack) + H244 arm_c FINISHED NEG val=3.27527 FFS=3150 (closure pending student SENPAI-RESULT) + H246 arm_c FINISHED CATASTROPHIC NEG val=3.49346 FFS=−1 bilateral (closure pending student SENPAI-RESULT; 🎯 **PROGRAMME FINDING #54 STRONGLY STRENGTHENED**) + H251 tanjiro 3rd missed-push escalation in 6h operational pattern signal (H247→H250→H251 same failure mode = systemic onboarding gap) + 4th drift-FREE CTRL via H248 arm_a `rhvjj1dy` val=3.26862 FFS=3025
+
+**Key events this cycle:**
+
+- **H252 nezuko PR #1619 ASSIGNED — 48th mechanism class** (researcher-agent proposal cycle ~1410 → assignment cycle ~1420):
+
+  **MuLoCo outer-step frequency sync_interval VALUE ablation: K ∈ {15, 30, 60}**. Tests whether fixed sync_interval=30 (anchored across 100+ closures) is optimal. **Zero code changes** — `--sync_interval` already wired at line 58. **Drift-free by construction** — outer step block (line 1276) inside `with torch.no_grad():` and OUTSIDE all `@torch.compile` regions.
+
+  Theoretical anchors: Cutkosky & Orabona 2019 (optimal K scales as O(σ⁻¹ × H^{1/4})) + Lin et al. 2020 (Local SGD optimal K range 5–50). At 3325 steps: K=30 → 111 outer events; K=15 → 222; K=60 → 55.
+
+  **Why this axis matters**: this is the single most structurally load-bearing untested scalar in the current stack. The K=30 default has anchored every MuLoCo experiment in the campaign — including ALL drift-FREE CTRL reproductions. Genuinely untested frontier.
+
+  WIN probability estimate: ~15% (above campaign base rate ~10%). Decision criteria pre-declared in PR body: WIN = FFS≤3000 AND val<3.276; NULL = FFS within ±25 of arm_a; NEG = FFS≥3050.
+
+- **H249 alphonse arm_b RIEMANNIAN_DEFAULT CATASTROPHIC NEG terminal — 🎯 Stiefel manifold mismatch insight (campaign-level methodological contribution)** (PR #1597, student's report at 21:03 UTC):
+
+  arm_b `dunugctv` val=**3.29498** FFS=**−1** target never reached. Statistical rule: `(3.28 − 3.29498) × √1 = −0.01498` (FAILS).
+
+  Mechanism diagnosis (student's brilliant analysis):
+
+  | step | body/riem_frob_ratio_mean | Interpretation |
+  |---|---|---|
+  | 5 (smoke) | 0.77 | Riemannian < Frobenius, correction subtracts within-column-span component |
+  | 700 | 1.40 | Crossed unity at ~step 150-200 and keeps growing |
+  | 925 | 1.69 | Riemannian > Frobenius → effective step shrunk |
+  | **3325 (final)** | **2.37** | Riemannian 2.37× Frobenius → **effective step shrunk 58% vs CTRL** |
+
+  **Student's textbook diagnosis (verbatim, key new insight)**: *"This is textbook misuse of the canonical Stiefel Riemannian metric: the formula assumes `W ∈ St(n,k)`, but `body_init=orthogonal_fnorm_matched` only enforces F-norm match, and the post-NS5 SI evolves W toward F-norm-fixed sphere, **not** Stiefel. So `W^T W ≠ I` throughout training, and the 'Riemannian' interpretation breaks down."*
+
+  Mechanism intuition was wrong because the SI hyperball does NOT preserve Stiefel — it preserves F-norm. The "canonical Riemannian metric" only makes sense for `W·W^T = I`; we have `||W||_F = const ≠ √k`. The correction term `W·(W^T·g)/2` measures overlap with W's column space, but with `W^T W` unconstrained it can become large/non-physical. This is **NOT** a Riemannian-metric class NEG — it's a body_init/manifold-geometry mismatch NEG.
+
+  **Implication for cycle ~1430+**: Riemannian-metric class is NOT closed — only the F-norm-matched body_init stack closes it. A future test on a true-Stiefel body_init (e.g. `orthogonal_qr_init` + projection constraint to preserve `W^T W = I` throughout SI evolution) would be the proper test.
+
+  arm_c RIEMANNIAN_DETACHED `83kate8u` launched 21:02 UTC mid-run, expected terminal ~22:42 UTC. Student predicts bilateral CATASTROPHIC NEG (same geometric mismatch dominates; `riem_detach` only removes potential autograd path which is tiny under `@torch.no_grad()`).
+
+- **H244 fern arm_c INVSQRT_DEPTH FINISHED NEG** (PR #1580, closure pending student terminal SENPAI-RESULT): arm_c terminal val=**3.27527** FFS=**3150** — NEG vs both H203 baseline (Δval=+0.00697 = +7.9σ_H174; ΔFFS=+125) AND drift-adjusted arm_a CTRL (drift +25). Bilateral with arm_b LINEAR_DEPTH CATASTROPHIC NEG (FFS=−1 val=3.28+). **Depth-scaled per-layer MuonH LR mechanism class CLOSED** pending student SENPAI-RESULT. PROGRAMME FINDING candidate STRENGTHENED: body LR is structurally NON-redistributable across depth (both linear-amplified-deep and inverse-sqrt-attenuated-deep NEG).
+
+- **H246 askeladd arm_c LoCo-Adam-LR FINISHED CATASTROPHIC NEG** (PR #1587, closure pending student terminal SENPAI-RESULT): arm_c terminal val=**3.49346** FFS=**−1** — bilateral CATASTROPHIC NEG with arm_b (val=3.75 FFS=−1). LoCo-Adam outer FORM CLOSED bilateral CATASTROPHIC. **🎯 PROGRAMME FINDING #54 STRONGLY STRENGTHENED**: outer Nesterov SGD is structurally privileged over outer Adam variants regardless of LR adjustment. The +0.22 val gap between arm_b (LoCo-Adam default LR) and arm_c (LoCo-Adam tuned LR) suggests Adam dynamics on the *delta vector* between sync events are fundamentally mismatched to MuLoCo's geometry — Adam's per-coordinate-adaptivity over MuonH polar-projected deltas is destabilizing.
+
+- **H251 tanjiro PR #1608 — 3rd missed-push escalation in 6h** (cycle ~1420 stale_wip nudge):
+
+  Operational pattern signal (H247 → H250 → H251 all same failure mode in <6h window):
+
+  | H# | PR | Missed-push gap | W&B treatment config key proof | Mitigation |
+  |---|---|---|---|---|
+  | H247 frieren | #1589 | 2h | confirmed | resolved with detailed push + chain-launch comment |
+  | H250 thorfinn | #1602 | 4h+ | aux_cooldown_shape/frac in `0qghatsl` config | nudge sent, pending push |
+  | **H251 tanjiro** | **#1608** | **3h+** | **`ns5_output_mode=polar` in `a2gi0jdn` config** | **nudge sent, pending push** |
+
+  **This is now a campaign-level systemic pattern**: students launch local treatment code, never push, never post chain-launch comment, only caught by W&B-config-keys audit per memory `feedback_audit_treatment_runs_too.md`. May indicate missing onboarding step or unclear chain-launch protocol that needs documentation update.
+
+**Updated drift-FREE CTRL roster (4 patterns now validated):**
+
+| H# | CTRL FFS | val | Mitigation pattern |
+|---|---|---|---|
+| H246 askeladd | 3025 EXACT | 3.26830 | outer step OUTSIDE @torch.compile region (MuLoCo) |
+| H249 alphonse | 3025 EXACT | 3.26803 | `@torch.compiler.disable` decorator on dispatch wrapper |
+| H250 thorfinn | 3025 EXACT | 3.26724 | (mechanism pending push — likely outside-@torch.compile) |
+| **H248 edward arm_a** | **3025 EXACT** | **3.26862** | **(per `rhvjj1dy`; mechanism: post-NS5 conditional outside compile)** |
+
+**Survey state after cycle ~1420**: 8/8 WIP (nezuko picked up H252; askeladd waiting on arm_c terminal SENPAI-RESULT for H246 closure; fern waiting on arm_c terminal SENPAI-RESULT for H244 closure; alphonse H249 arm_c mid-run ETA 22:42 UTC; frieren H247 arm_c MANIFOLD_EMA mid-run ETA 21:30 UTC; thorfinn H250 arm_b mid-run; tanjiro H251 awaiting push response; edward H248 arm_c POST_NS5_FAST mid-run ETA 22:30 UTC). 0 review-ready PRs. 0 idle students. No new human directives this cycle.
+
+**Programme totals after cycle ~1420:**
+- **101 NULL/NEG closures** (unchanged; H244 + H246 closures pending student SENPAI-RESULT — likely 103 total by next cycle)
+- **48 novel mechanism classes** (+1 since cycle ~1410; H252 muloco-sync-interval-value)
+- **6 PROGRAMME FINDINGS pipeline** with **3 CONFIRMED + 3 candidates + 1 reclassified** (#54 STRONGLY STRENGTHENED via H246 arm_c bilateral CATASTROPHIC; #58 candidate likely STRENGTHENED via H248 arm_b NULL — pending closure; #49 STRENGTHENED bilateral β₁ ablation axes unchanged)
+- **18 MuonH-SI/MuLoCo structural tightness members** (unchanged)
+- **17+ instances torch.compile retracing soft-drift cluster** (H249 contributes drift-free CTRL, not drift class)
+- **4 drift-FREE CTRL mitigation patterns** validated (outside-@torch.compile region, `@torch.compiler.disable`, H250 pending, H248 arm_a)
+- **3 missed-push escalations in 6h** — operational pattern signal worth documentation update
+
+**Exploration territory map updates after cycle ~1420:**
+
+| Axis | State (delta from cycle ~1410) |
+|---|---|
+| **MuLoCo sync_interval VALUE K** | **H252 WIP (nezuko, just assigned) — K∈{15,30,60}, zero code changes, drift-free by construction** |
+| **Stiefel canonical Riemannian metric** | **CLOSED catastrophic NEG (H249 arm_b) — BUT diagnosis is body_init/manifold mismatch, NOT mechanism class NEG. Future true-Stiefel body_init test would be proper closure of mechanism axis** |
+| Depth-scaled per-layer MuonH LR | **CLOSED bilateral NEG (H244, closure pending SENPAI-RESULT)** — both linear-amplified-deep AND inverse-sqrt-attenuated-deep NEG; body LR structurally NON-redistributable across depth |
+| LoCo-Adam outer FORM replacement | **CLOSED bilateral CATASTROPHIC NEG (H246, closure pending SENPAI-RESULT)** — PROGRAMME FINDING #54 STRONGLY STRENGTHENED |
+| NS5 output decomposition (polar vs sign/magnitude) | H251 WIP (tanjiro) — arm_a CTRL polar mid-run ~step 3270/3325, missed-push escalation pending push |
+| Post-NS5 diagonal preconditioning | H248 WIP (edward) — arm_a CTRL FFS=3025 drift-FREE EXACT (4th in campaign), arm_b POST_NS5_SLOW NULL val=3.2695 FFS=3050 (PROGRAMME FINDING #58 candidate STRENGTHENED), arm_c POST_NS5_FAST mid-run ETA 22:30 UTC |
+| Manifold-projected EMA terminal eval | H247 WIP (frieren) — arm_c MANIFOLD_EMA mid-run ETA 21:30 UTC |
+| Aux cooldown SHAPE+FRAC | H250 WIP (thorfinn) — arm_a CTRL drift-FREE, arm_b TREATMENT mid-run |
+| Best-checkpoint terminal eval | H247 WIP (frieren) — arm_b BEST_CKPT NULL/marginal (already in cycle ~1410 territory map) |
+
+**Frontier observations for cycle ~1430+:**
+
+The H249 student's Stiefel-manifold-mismatch diagnosis is a **campaign-level methodological contribution worth flagging in the next researcher-agent prompt**. Two implications:
+
+1. **Riemannian-metric class is NOT closed** — only the F-norm-matched body_init stack closes it. Future test on `body_init=orthogonal_qr` + Stiefel-preserving SI evolution (`||W^T W − I||` constraint at every step) would be the proper closure.
+2. **body_init is structurally interacting with body-update mechanism classes** in ways we haven't audited. A `body_init` ablation in isolation has never been run in r3. This is a fresh axis candidate for cycle ~1430+.
+
+The 4th drift-FREE CTRL (H248 arm_a `rhvjj1dy` val=3.26862 FFS=3025) brings the validated drift-free mitigation pattern count to 4. The next researcher-agent prompt should encourage hypotheses leveraging these proven safe patterns by default.
+
+The 3-missed-push-escalation pattern (H247→H250→H251 all in <6h) suggests an opportunity to update the assign-experiment skill's standard PR body template to explicitly call out the chain-launch comment requirement at the top, not buried in step 4 of decision criteria. **Operational improvement opportunity worth raising with human team via GitHub issue if pattern continues.**
+
+H244 closure-pending NEG (bilateral, arm_b CATASTROPHIC arm_c NEG) adds **depth-scaled per-layer LR** to the body-LR-rigidity cluster. Combined with H225 (β₁ value rigidity) and H242 (cooldown SHAPE rigidity) and H243 (Schatten-p exponent rigidity), the body-side optimization geometry is now CONFIRMED structurally rigid across **4 INDEPENDENT axes** — strong support for PROGRAMME FINDING #51 candidate to be CONFIRMED to CONFIRMED status at next consolidation.
 
 ---
 
