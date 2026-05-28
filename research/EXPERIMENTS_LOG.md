@@ -1,3 +1,34 @@
+## 2026-05-28 04:00 — PR #1482: H225 frieren Aux AdamW beta1 ablation — CLOSED (82nd NULL/NEG, bilateral NEG U-shape — beta1=0.8 is LOAD-BEARING sweet spot, contrast with vestigial H223/H224 findings)
+
+- Branch: `g1r3-frieren/aux-adamw-beta1-ablation`
+- Hypothesis: Is `aux_adamw_beta1=0.8` customization (non-default; PyTorch AdamW default is 0.9) load-bearing for FFS, or is it vestigial like H223 eps and H224 warmup? Pruning to PyTorch default plus lower-direction sweep on cosine baseline.
+- Results (n=1 each, train_steps=3325):
+
+  | Arm | aux_adamw_beta1 | W&B | val/loss | FFS | Δval vs CTRL | Δσ_H174 | Verdict |
+  |---|---|---|---|---|---|---|---|
+  | arm_a CTRL | 0.8 (baseline) | z3aihvif | 3.26825 | **3025** | (baseline within drift) | — | bit-id-class reproduces H203 |
+  | arm_b BETA1_09 | 0.9 (PyTorch default) | 3de37gf6 | 3.27102 | 3075 | +0.00277 | +3.13σ | **mild NEG (+50 FFS)** |
+  | arm_c BETA1_05 | 0.5 (lower direction) | h3okq4g3 | 3.27348 | 3125 | +0.00523 | +5.92σ | **decisive NEG (+100 FFS)** |
+
+- Bit-id gate: arm_a step-0 val=10.82583 (exact baseline match); val=3.26825 = H203 baseline (3.26830) − 0.00005, within H174 drift (σ_val=0.000884). FFS=3025 exact match. ✅
+- **Bilateral NEG U-shape — beta1=0.8 customization IS LOAD-BEARING**:
+  - arm_b BETA1_09 (PyTorch default 0.9): first-moment EMA over-smooths under aggressive embed lr=0.3 schedule; delays responsiveness to rapidly-changing gradient direction during early training. +50 FFS / +3.13σ val NEG.
+  - arm_c BETA1_05 (lower 0.5): insufficient smoothing of high-LR aux groups (embed/lm_head/scalars are few-parameter, high-LR); per-step noise dominates. +100 FFS / +5.92σ val NEG, ~2x magnitude.
+  - **Asymmetric U-shape**: under-smoothing (0.5) ~2x worse than over-smoothing (0.9); optimum bracket approximately [0.7, 0.85] on lower side.
+- **Programme finding #49 candidate — DYNAMICS vs CONDITIONING HEURISTIC**: H225 (load-bearing) contrasts cleanly with H223 (vestigial) and H224 (vestigial) to yield a useful programme heuristic:
+
+  | HP class | Examples | Verdict | Mechanism |
+  |---|---|---|---|
+  | **Optimization dynamics** | aux_adamw_beta1 (H225), aux_beta2_schedule (existing) | **LOAD-BEARING** | EMA timescale couples directly with LR schedule shape and aux group sparsity |
+  | **Numerical conditioning** | aux_adamw_eps (H223) | VESTIGIAL | wide flat plateau in v_t denominator; v_t never small enough for eps to matter |
+  | **Early-phase damping** | muonh_warmup_steps (H224) | VESTIGIAL | NS5 polar projection self-stabilizes cold-start; AGC catches residual large updates |
+
+  **Heuristic**: dynamics HPs tend LOAD-BEARING (worth keeping customizations); conditioning HPs tend VESTIGIAL (safe to revert to library defaults). Useful prior going forward — focus future pruning attempts on conditioning slots, retain customizations on dynamics slots.
+- **Cumulative MuonH-SI structural tightness cross-finding now 6 mechanism classes confirmed load-bearing**: H216 Lookahead k=10/30 catastrophic, H221 NO_OUTER catastrophic, H221 NO_MOMENTUM catastrophic 2.9x worse, H222 SCHED_OFF +75 FFS NEG, H222 MU_END_85 mild val NEG, **H225 BETA1 bilateral NEG U-shape**. Every component of the H148+H203 baseline stack tested so far in the "dynamics" category contributes materially.
+- Closure verdict: DO NOT MERGE. Keep aux_adamw_beta1=0.8 as documented load-bearing customization.
+- **Excellent student mechanistic analysis** — clean U-shape diagnosis, identified asymmetry, predicted programme heuristic. Student-proposed follow-up (beta1 × embed_lr 2D coupling sweep at 9 cells) noted as deferred (scalar HP search, anti-launch-directive).
+- Next assignment: H233 frieren (PR #1517) — MuLoCo sync_interval axis ablation. Last untested HP in the MuLoCo outer Nesterov triple (outer_lr=0.7, outer_momentum=0.5 already tested catastrophic to remove; sync_interval=30 never directly swept; H197 closure listed as deferred). Zero code changes — argparse flag already exists. 3-arm CTRL sync_interval=30 (bit-id) / SYNC_15 (denser cadence) / SYNC_60 (sparser cadence). Probes whether structural-cadence HP aligns with dynamics (load-bearing per H221 NO_OUTER catastrophic) or with conditioning (vestigial wallclock-savings candidate).
+
 ## 2026-05-28 03:20 — PR #1479: H224 edward MuonH warmup pruning ablation — CLOSED (81st NULL/NEG, 🎯 2nd VESTIGIAL FINDING in H148+H203 stack — warmup_steps=100 customization vestigial, warmup_steps=400 upper-bound NEG)
 
 - Branch: `g1r3-edward/muonh-warmup-pruning`

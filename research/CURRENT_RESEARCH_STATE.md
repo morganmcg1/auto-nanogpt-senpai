@@ -1,6 +1,49 @@
 # SENPAI Research State — auto-nanogpt-1gpu-r3
 
-- **Last updated:** 2026-05-28 03:25 UTC
+- **Last updated:** 2026-05-28 04:05 UTC
+
+---
+
+## Cycle ~600: H225 frieren CLOSED (82nd NULL/NEG, bilateral NEG U-shape, beta1=0.8 LOAD-BEARING) + H233 frieren ASSIGNED (PR #1517 MuLoCo sync_interval axis — 29th NEW MECHANISM CLASS)
+
+**Programme totals**: 82 NULL/NEG · 29 novel mechanism classes (H148+H203 stack ablation) · **2 VESTIGIAL FINDINGS** (H223 eps, H224 warmup) · **6 MuonH-SI structural tightness members** confirmed load-bearing (H216, H221 NO_OUTER, H221 NO_MOMENTUM, H222 SCHED_OFF, H222 MU_END_85, H225 BETA1) · **9-mechanism body spectral-axis cross-finding** (H214 consolidated)
+
+### H225 frieren CLOSURE — bilateral NEG U-shape, beta1=0.8 LOAD-BEARING
+
+3-arm aux AdamW beta1 ablation. arm_a CTRL (0.8) val=3.26825/FFS=3025 bit-id reproduces H203 baseline. arm_b BETA1_09 (PyTorch default 0.9) val=3.27102/FFS=3075 +50 FFS mild NEG +3.13σ. arm_c BETA1_05 (lower direction 0.5) val=3.27348/FFS=3125 +100 FFS decisive NEG +5.92σ. Clean U-shape, asymmetric (under-smoothing ~2x worse than over-smoothing). beta1=0.8 customization IS LOAD-BEARING, joins the MuonH-SI structural tightness cross-finding column. Optimum bracket [0.7, 0.85] on lower side.
+
+### Programme finding #49 candidate — DYNAMICS vs CONDITIONING heuristic
+
+H225 (load-bearing) contrasts cleanly with H223 (vestigial) and H224 (vestigial) to yield a useful prune-target heuristic:
+
+| HP class | Verdict | Examples |
+|---|---|---|
+| **Optimization dynamics** (EMA timescale, momentum, schedule shape) | **LOAD-BEARING** | aux_adamw_beta1 (H225) |
+| **Numerical conditioning** (eps, denominators, clipping floors) | VESTIGIAL | aux_adamw_eps (H223) |
+| **Early-phase damping** (warmup, ramps) | VESTIGIAL | muonh_warmup_steps (H224) |
+
+Useful prior: focus future pruning attempts on conditioning slots; retain customizations on dynamics slots.
+
+### H233 frieren ASSIGNMENT — MuLoCo sync_interval axis (29th NEW MECHANISM CLASS)
+
+Last untested HP in the MuLoCo outer Nesterov triple (outer_lr=0.7, outer_momentum=0.5 tested catastrophic to remove; sync_interval=30 never directly swept). H197 closure noted as deferred follow-up. H55 was MuLoCo OFF binary, not cadence sweep. Zero code changes — argparse flag already exists at line 58.
+
+3-arm sweep: arm_a CTRL sync_interval=30 (bit-id) / arm_b SYNC_15 (2x denser cadence) / arm_c SYNC_60 (0.5x sparser cadence). Probes whether structural-cadence HP aligns with dynamics (predicted load-bearing per H221 NO_OUTER catastrophic) or conditioning (vestigial wallclock-savings candidate). Decision criteria documented for 5 outcome classes.
+
+### End-of-cycle portfolio (8/8 WIP, 0 idle)
+
+| H# | Student | PR | Axis | Status |
+|---|---|---|---|---|
+| H226 | tanjiro | #1495 | CLAMP-FLOOR asymptote isolation | arm_a 98% terminal imminent |
+| H227 | thorfinn | #1501 | Body initialization | arm_a FFS=3025 FINISHED; arm_b BOTTOM_DAMP 5%; arm_c pending |
+| H228 | alphonse | #1503 | MuonH body weight decay | in flight |
+| H229 | fern | #1506 | MuonH inner Nesterov vs Polyak | in flight |
+| H230 | nezuko | #1509 | MuonH NS5 polynomial iter count | in flight |
+| H231 | askeladd | #1511 | MuonH mode (clip vs scale_invariant) | in flight |
+| H232 | edward | #1513 | Post-NS5 Cautious-Muon (mechanism class) | in flight |
+| **H233** | **frieren** | **#1517** | **MuLoCo sync_interval (newly assigned)** | **just dispatched** |
+
+29 novel mechanism classes through 233 hypotheses. 0 idle students. Next termination wave expected ~04:00-06:00 UTC (H226 arm_a, then sequential chain follow-ups).
 
 ---
 
