@@ -109,6 +109,9 @@ def parse_args():
     parser.add_argument("--body_init_bottom_layers", type=int,
                         default=int(os.environ.get("BODY_INIT_BOTTOM_LAYERS", "6")),
                         help="Number of bottom layers to damp for --body_init=orthogonal_bottom_damp (default 6 = bottom half of 12 layers).")
+    parser.add_argument("--embed_init_std", type=float,
+                        default=float(os.environ.get("EMBED_INIT_STD", "1.0")),
+                        help="Token embedding init std for w.normal_(std=...). Default 1.0 preserves bit-identity with baseline (which used w.normal_() = std=1.0). GPT-2 convention is 0.02.")
     args = parser.parse_args()
     args.num_trials = args.num_trials if args.num_trials is not None else (args.legacy_num_trials or 1)
     args.wandb_tags = [tag.strip() for tag in args.wandb_tags.split(",") if tag.strip()]
@@ -850,6 +853,10 @@ if dist.get_rank() == 0:
             "muonh_mu_schedule": args.muonh_mu_schedule,
             "muonh_mu_start": args.muonh_mu_start,
             "muonh_mu_end": args.muonh_mu_end,
+            "body_init": args.body_init,
+            "body_init_bottom_damp_factor": args.body_init_bottom_damp_factor,
+            "body_init_bottom_layers": args.body_init_bottom_layers,
+            "embed_init_std": args.embed_init_std,
         },
     )
 
@@ -878,7 +885,7 @@ for trial_idx in range(args.num_trials):
             if name == "proj.weight":
                 w.zero_()  # LM head: keep zero like starter
             elif name == "embed.weight":
-                w.normal_()  # token embedding: default torch init
+                w.normal_(std=args.embed_init_std)  # token embedding: configurable init std (default 1.0 = baseline behavior)
             elif "attn.proj" in name or "mlp.proj" in name or "mlp.fc" in name or "attn." in name:
                 # Body 2D weights — subject to init-axis sweep.
                 if "attn.proj" in name:
