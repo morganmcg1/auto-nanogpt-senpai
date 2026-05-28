@@ -109,6 +109,16 @@ def parse_args():
     parser.add_argument("--body_init_bottom_layers", type=int,
                         default=int(os.environ.get("BODY_INIT_BOTTOM_LAYERS", "6")),
                         help="Number of bottom layers to damp for --body_init=orthogonal_bottom_damp (default 6 = bottom half of 12 layers).")
+    parser.add_argument("--aux_optimizer", type=str, default=os.environ.get("AUX_OPTIMIZER", "adamw"),
+                        choices=["adamw", "sf_adamw"],
+                        help="Aux optimizer class. 'adamw' (default) = existing scheduled AdamW path, bit-identical to baseline. "
+                             "'sf_adamw' = Schedule-Free AdamW (Defazio et al. NeurIPS 2024, arXiv 2405.15682) with constant LR, no schedule.")
+    parser.add_argument("--aux_sf_lr", type=float, default=float(os.environ.get("AUX_SF_LR", "0.3")),
+                        help="Embed-group constant LR for Schedule-Free AdamW (replaces scheduled aux LR peak when aux_optimizer=sf_adamw). "
+                             "lm_head and scalars LRs are scaled proportionally relative to baseline embed=0.3.")
+    parser.add_argument("--aux_sf_warmup_steps", type=int, default=int(os.environ.get("AUX_SF_WARMUP_STEPS", "0")),
+                        help="Optional warmup for SF-AdamW Polyak weighting (paper recommends 0 for most cases). "
+                             "Caps c_t = 1/max(t, warmup+1) so early-step Polyak averages don't react too aggressively to the first few z_t.")
     args = parser.parse_args()
     args.num_trials = args.num_trials if args.num_trials is not None else (args.legacy_num_trials or 1)
     args.wandb_tags = [tag.strip() for tag in args.wandb_tags.split(",") if tag.strip()]
@@ -747,6 +757,123 @@ class MuonH(torch.optim.Optimizer):
         self._last_norm_to_radius_max = max_n_over_r
 
 
+class ScheduleFreeAdamW(torch.optim.Optimizer):
+    """Schedule-Free AdamW — Defazio et al. NeurIPS 2024 Oral (arXiv 2405.15682).
+
+    Replaces scheduled AdamW. The gradient is evaluated at an interpolated point
+    y_t = (1-β1)*z_t + β1*x_t each step, where:
+      - z_t is the Adam-style gradient-driven state.
+      - x_t is the Polyak-Ruppert averaged parameter (used at evaluation time).
+    No LR schedule is needed — constant lr is the canonical configuration.
+
+    Per-param state (fp32 buffers, matches PyTorch fused AdamW state precision):
+      z — gradient-driven update target (z_t)
+      v — second-moment EMA (v_t)
+      x — Polyak-averaged parameter (x_t)
+
+    p.data convention:
+      - During training (self._train_mode=True): p.data holds y_t.
+        Forward/backward passes compute gradient at y_t.
+      - During evaluation: call .eval() to swap p.data ← x_t.
+        Call .train() to restore p.data ← (1-β1)*z_t + β1*x_t before next train step.
+
+    Algorithm (post-backward, given grad g at y_t):
+      1. v_t = β2 * v_{t-1} + (1-β2) * g²
+      2. denom = sqrt(v_t / (1-β2^t)) + ε
+      3. z_t = z_{t-1} - lr * (g/denom + wd*y_t)
+      4. c_t = 1 / max(t, warmup_steps+1)         Polyak-Ruppert weight
+      5. x_t = (1-c_t) * x_{t-1} + c_t * z_t      Polyak average (online)
+      6. y_{t+1} = (1-β1) * z_t + β1 * x_t        for next forward pass
+      7. p.data ← y_{t+1}
+    """
+    def __init__(self, params, lr=0.3, betas=(0.8, 0.99), eps=1e-6,
+                 weight_decay=0.0, warmup_steps=0):
+        defaults = dict(lr=lr, betas=betas, eps=eps, weight_decay=weight_decay,
+                        warmup_steps=warmup_steps)
+        super().__init__(params, defaults)
+        # p.data holds y_t in training mode; x_t in eval mode.
+        self._train_mode = True
+        self._step_count = 0
+
+    @torch.no_grad()
+    def eval(self):
+        """Swap p.data → x_t for validation. Idempotent. No-op at step 0 (state not yet initialized; p.data == x_0 == y_0 by construction)."""
+        if not self._train_mode:
+            return
+        for group in self.param_groups:
+            for p in group["params"]:
+                state = self.state[p]
+                if "x" in state:
+                    p.data.copy_(state["x"].to(p.data.dtype))
+        self._train_mode = False
+
+    @torch.no_grad()
+    def train(self):
+        """Restore p.data ← y_t = (1-β1)*z_t + β1*x_t for next train step. Idempotent. No-op at step 0."""
+        if self._train_mode:
+            return
+        for group in self.param_groups:
+            beta1 = group["betas"][0]
+            for p in group["params"]:
+                state = self.state[p]
+                if "z" in state and "x" in state:
+                    y = beta1 * state["x"] + (1 - beta1) * state["z"]
+                    p.data.copy_(y.to(p.data.dtype))
+        self._train_mode = True
+
+    @torch.no_grad()
+    def x_z_distance_l2(self) -> float:
+        """Aggregate L2 distance between x_t and z_t across all SF params. Telemetry only."""
+        total_sq = 0.0
+        for group in self.param_groups:
+            for p in group["params"]:
+                state = self.state[p]
+                if "x" not in state or "z" not in state:
+                    continue
+                total_sq += float((state["x"] - state["z"]).pow(2).sum().item())
+        return total_sq ** 0.5
+
+    @torch.no_grad()
+    def step(self):
+        assert self._train_mode, "SF-AdamW step() called in eval mode — call .train() first"
+        self._step_count += 1
+        t = self._step_count
+        for group in self.param_groups:
+            lr = group["lr"]
+            beta1, beta2 = group["betas"]
+            eps = group["eps"]
+            wd = group["weight_decay"]
+            warmup = group["warmup_steps"]
+            for p in group["params"]:
+                if p.grad is None:
+                    continue
+                g = p.grad.to(torch.float32)
+                state = self.state[p]
+                if "z" not in state:
+                    # First step initialization: x_0 = z_0 = current p.data (= initial y_0 by construction).
+                    state["z"] = p.data.detach().to(torch.float32).clone()
+                    state["v"] = torch.zeros_like(p.data, dtype=torch.float32)
+                    state["x"] = p.data.detach().to(torch.float32).clone()
+                z, v, x = state["z"], state["v"], state["x"]
+                y = p.data.to(torch.float32)
+                # 1. v_t = β2*v_{t-1} + (1-β2)*g²
+                v.mul_(beta2).addcmul_(g, g, value=1 - beta2)
+                # 2. denom = sqrt(v_t / (1-β2^t)) + ε
+                bias_correction2 = 1 - beta2 ** t
+                denom = (v / bias_correction2).sqrt_().add_(eps)
+                # 3. z_t = z_{t-1} - lr * (g/denom + wd*y_t)
+                z.addcdiv_(g, denom, value=-lr)
+                if wd != 0:
+                    z.add_(y, alpha=-lr * wd)
+                # 4. c_t = 1 / max(t, warmup+1)
+                c_t = 1.0 / max(t, warmup + 1)
+                # 5. x_t = (1-c_t)*x_{t-1} + c_t*z_t
+                x.mul_(1 - c_t).add_(z, alpha=c_t)
+                # 6,7. y_{t+1} = (1-β1)*z_t + β1*x_t; p.data ← y_{t+1}
+                new_y = beta1 * x + (1 - beta1) * z
+                p.data.copy_(new_y.to(p.data.dtype))
+
+
 ########################################
 #                Setup                 #
 ########################################
@@ -791,6 +918,12 @@ if args.muonh_agc_clip_ratio > 0:
     print0(f"AGC ENABLED on inner MuonH gradient: clip_ratio={args.muonh_agc_clip_ratio} eps={args.muonh_agc_eps}", console=True)
 else:
     print0("AGC DISABLED on inner MuonH gradient (clip_ratio=0)", console=True)
+if args.aux_optimizer == "sf_adamw":
+    print0(f"Aux optimizer = Schedule-Free AdamW (Defazio et al. NeurIPS 2024): "
+           f"aux_sf_lr={args.aux_sf_lr} warmup_steps={args.aux_sf_warmup_steps}. "
+           f"Aux LR schedule DISABLED (constant LR).", console=True)
+else:
+    print0(f"Aux optimizer = AdamW (scheduled, baseline path)", console=True)
 print0("="*100)
 
 val_tokens = 20 * 524288
@@ -850,6 +983,9 @@ if dist.get_rank() == 0:
             "muonh_mu_schedule": args.muonh_mu_schedule,
             "muonh_mu_start": args.muonh_mu_start,
             "muonh_mu_end": args.muonh_mu_end,
+            "aux_optimizer": args.aux_optimizer,
+            "aux_sf_lr": args.aux_sf_lr,
+            "aux_sf_warmup_steps": args.aux_sf_warmup_steps,
         },
     )
 
@@ -925,11 +1061,24 @@ for trial_idx in range(args.num_trials):
     # fused AdamW reads betas from param_groups on every .step(), but to avoid any
     # silent-failure-mode risk we use fused=False whenever the β2 schedule is active.
     # constant schedule keeps fused=True so arm_a is bitwise-identical to baseline.
+    # H239: --aux_optimizer sf_adamw switches to Schedule-Free AdamW with constant
+    # LR (no schedule). All three aux groups are scaled proportionally relative to
+    # the baseline embed=0.3 peak; sf_scale = aux_sf_lr / 0.3.
     _aux_fused = (args.aux_beta2_schedule == "constant")
-    optimizer1 = AdamW([dict(params=[model.embed.weight], lr=0.3, name="adam_embed"),
-                        dict(params=[model.proj.weight], lr=1/320, name="adam_lm_head"),
-                        dict(params=[p for p in model.parameters() if p.ndim < 2], lr=0.01, name="adam_scalars")],
-                       betas=(0.8, args.aux_beta2_start), eps=args.aux_adamw_eps, weight_decay=0, fused=_aux_fused)
+    if args.aux_optimizer == "sf_adamw":
+        sf_scale = args.aux_sf_lr / 0.3
+        optimizer1 = ScheduleFreeAdamW(
+            [dict(params=[model.embed.weight], lr=0.3 * sf_scale, name="adam_embed"),
+             dict(params=[model.proj.weight], lr=(1/320) * sf_scale, name="adam_lm_head"),
+             dict(params=[p for p in model.parameters() if p.ndim < 2], lr=0.01 * sf_scale, name="adam_scalars")],
+            betas=(0.8, args.aux_beta2_start), eps=args.aux_adamw_eps,
+            weight_decay=0, warmup_steps=args.aux_sf_warmup_steps,
+        )
+    else:
+        optimizer1 = AdamW([dict(params=[model.embed.weight], lr=0.3, name="adam_embed"),
+                            dict(params=[model.proj.weight], lr=1/320, name="adam_lm_head"),
+                            dict(params=[p for p in model.parameters() if p.ndim < 2], lr=0.01, name="adam_scalars")],
+                           betas=(0.8, args.aux_beta2_start), eps=args.aux_adamw_eps, weight_decay=0, fused=_aux_fused)
     optimizer2 = MuonH([p for p in model.blocks.parameters() if p.ndim >= 2],
                        lr=args.muonh_lr, weight_decay=0.0, mu=0.95,
                        hyperball=True, budget_mult=args.muonh_budget_mult,
@@ -972,6 +1121,10 @@ for trial_idx in range(args.num_trials):
         else:
             muonh_warmup = 1.0
         for opt in optimizers:
+            # H239: SF-AdamW uses a constant LR by design (no schedule). Leave
+            # group["lr"] at its initial value for SF-AdamW aux groups.
+            if isinstance(opt, ScheduleFreeAdamW):
+                continue
             for group in opt.param_groups:
                 cooldown_frac = group["cooldown_frac"]
                 if progress < 1 - cooldown_frac:
@@ -1076,6 +1229,9 @@ for trial_idx in range(args.num_trials):
             step_avg = time_since_last_val / (step - last_val_step) if step > 0 else float("nan")
             last_val_step = step
             training_time += time_since_last_val
+            # H239: swap p.data → x_t for SF-AdamW eval (no-op for AdamW path).
+            if isinstance(optimizer1, ScheduleFreeAdamW):
+                optimizer1.eval()
             model.eval()
             val_loss = torch.zeros((), device=device)
             with torch.no_grad():
@@ -1110,6 +1266,9 @@ for trial_idx in range(args.num_trials):
             print0(f"step:{step}/{train_steps} val_loss:{val_loss:.5f} train_time:{training_time:.3f}s"
                    + f" step_avg:{1000*step_avg:.2f}ms", console=True)
             model.train()
+            # H239: restore p.data → y_t for next train step. No-op for AdamW path.
+            if isinstance(optimizer1, ScheduleFreeAdamW):
+                optimizer1.train()
             # start the clock again
             dist.barrier()
             t0 = time.perf_counter()
@@ -1198,6 +1357,13 @@ for trial_idx in range(args.num_trials):
                 muonh_metrics["train/agc/max_ratio"] = agc_stats["agc_max_ratio"]
                 muonh_metrics["train/agc/scale_min"] = agc_stats["agc_scale_min"]
                 muonh_metrics["train/agc/scale_mean"] = agc_stats["agc_scale_mean"]
+            # H239: Schedule-Free AdamW state telemetry. Track L2 distance between
+            # the Polyak-averaged x_t and gradient-driven z_t. Grows then stabilizes
+            # as training converges (x_t is the running average, z_t is the
+            # gradient-driven sweep). A useful diagnostic for SF convergence.
+            if telemetry_due and isinstance(optimizer1, ScheduleFreeAdamW):
+                muonh_metrics["train/aux/sf_x_z_distance_l2"] = optimizer1.x_z_distance_l2()
+                muonh_metrics["train/aux/sf_step_count"] = optimizer1._step_count
             if args.muonh_agc_clip_ratio > 0 and muonh_agc_stats["agc_total"] > 0:
                 muonh_metrics["train/muonh/agc/fraction_active"] = (
                     muonh_agc_stats["agc_clipped"] / muonh_agc_stats["agc_total"]
