@@ -10,6 +10,7 @@ import sys
 with open(sys.argv[0]) as f:
     code = f.read() # read the code of this file ASAP, for logging
 import argparse
+import math
 import uuid
 import time
 from pathlib import Path
@@ -25,6 +26,21 @@ TARGET_VAL_LOSS = 3.28
 STAT_SIG_DELTA = 0.004
 SLOPE_FRACTION = 0.10
 COOLDOWN_POWER = 1.4
+
+
+def _eta_from_cooldown_progress(cp, shape="power", power=COOLDOWN_POWER):
+    """cp in [0, 1] is cooldown_progress. Returns the LR multiplier (eta)."""
+    cp = max(0.0, min(1.0, cp))
+    if shape == "power":
+        w = 1.0 - cp
+        return w ** power
+    elif shape == "cosine":
+        return 0.5 * (1.0 + math.cos(math.pi * cp))
+    elif shape == "sigmoid":
+        return 1.0 / (1.0 + math.exp((cp - 0.4) * 10.0))
+    else:
+        raise ValueError(f"unknown cooldown_shape: {shape}")
+
 PMUON_GAMMA = 0.4  # PMuon bilateral whitening exponent (PR #202 arm A WIN; was 0.3 baseline)
 
 # Newton-Schulz quintic polar map coefficients f(x) = a*x + b*x^3 + c*x^5.
@@ -78,6 +94,10 @@ def parse_args():
                         help="If set, run paramEMA refresh at --paramema_refresh_step but "
                              "DISABLE L_cov refresh (lcov_refresh_step treated as -1). "
                              "Ablation flag for isolating paramEMA-only contribution.")
+    parser.add_argument("--cooldown_shape", type=str, default="power",
+                        choices=["power", "cosine", "sigmoid"],
+                        help="Cooldown decay shape. power=w**COOLDOWN_POWER (current default). "
+                             "cosine=0.5*(1+cos(pi*cp)). sigmoid=1/(1+exp((cp-0.4)*10)).")
     parser.add_argument("--seed", type=int, default=1,
                         help="Random seed for torch/numpy/python. Default 1 matches baseline seed.")
     args = parser.parse_args()
@@ -742,6 +762,7 @@ if dist.get_rank() == 0:
             "target_uw": 0.35,
             "power_cooldown_gamma": COOLDOWN_POWER,
             "cooldown_frac": 0.7,
+            "cooldown_shape": args.cooldown_shape,
             "muon_method": MUON_METHOD,
             "ema_beta": args.ema_beta,
             "ema_warmup_steps": args.ema_warmup_steps,
@@ -790,6 +811,11 @@ for trial_idx in range(args.num_trials):
                       lr=args.muon_lr, weight_decay=0.025, beta_cov=0.95, gamma=PMUON_GAMMA)
     optimizer2.param_groups[0]["name"] = "muon_blocks"
     print0(f"body-Muon optimizer: lr={args.muon_lr} weight_decay=0.025 beta_cov=0.95 gamma={PMUON_GAMMA}")
+    _sampled_cps = [0.0, 0.2, 0.4, 0.6, 0.8, 1.0]
+    _sampled_etas = [_eta_from_cooldown_progress(cp, shape=args.cooldown_shape) for cp in _sampled_cps]
+    _eta_table = " ".join(f"cp={cp:.1f}:eta={eta:.4f}" for cp, eta in zip(_sampled_cps, _sampled_etas))
+    print0(f"cooldown schedule: shape={args.cooldown_shape} (power={COOLDOWN_POWER}) "
+           f"sampled-eta: {_eta_table}", console=True)
 
     # Per-block Muon LR shape: mean-preserving linear ramp across block index.
     # block_mults sum to NUM_LAYERS × 1.0 exactly, so mean LR is unchanged vs uniform.
@@ -845,7 +871,7 @@ for trial_idx in range(args.num_trials):
     ema_refresh_step_logged = -1
     lcov_refresh_fired_total = 0
 
-    # learning rate schedule: stable then power-law cooldown (gamma = COOLDOWN_POWER)
+    # learning rate schedule: stable then cooldown (shape selected by --cooldown_shape)
     def compute_lr_mult(step, cooldown_frac=0.7):
         """Pure: LR multiplier (eta) at `step`. Matches set_hparams."""
         if step >= train_steps:
@@ -854,8 +880,7 @@ for trial_idx in range(args.num_trials):
         if progress < 1 - cooldown_frac:
             return 1.0
         cooldown_progress = (progress - (1 - cooldown_frac)) / cooldown_frac
-        w = 1.0 - cooldown_progress
-        return w ** COOLDOWN_POWER
+        return _eta_from_cooldown_progress(cooldown_progress, shape=args.cooldown_shape)
 
     def compute_ema_beta_t(step):
         """Dynamic β_t = β_base + (β_target - β_base) × (1 - lr_mult_t).
@@ -878,8 +903,7 @@ for trial_idx in range(args.num_trials):
             cooldown_progress = 0.0
         else:
             cooldown_progress = (progress - (1 - cooldown_frac)) / cooldown_frac
-            w = 1.0 - cooldown_progress  # equivalent to (1 - progress) / cooldown_frac
-            eta = w ** COOLDOWN_POWER
+            eta = _eta_from_cooldown_progress(cooldown_progress, shape=args.cooldown_shape)
         for opt in optimizers:
             for group in opt.param_groups:
                 group["lr"] = group["initial_lr"] * eta
