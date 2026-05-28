@@ -78,6 +78,18 @@ def parse_args():
                         help="If set, run paramEMA refresh at --paramema_refresh_step but "
                              "DISABLE L_cov refresh (lcov_refresh_step treated as -1). "
                              "Ablation flag for isolating paramEMA-only contribution.")
+    parser.add_argument("--aux_v_reset_step", type=int, default=-1,
+                        help="If >=0, reset aux Adam variance buffer (exp_avg_sq) at this "
+                             "Python iteration step (matching --paramema_refresh_step "
+                             "convention). The reset fires AFTER opt.step() for that "
+                             "iteration. -1=disabled. Mode set by --aux_v_reset_mode.")
+    parser.add_argument("--aux_v_reset_mode", type=str, default="zero",
+                        choices=["zero", "mean"],
+                        help="Aux Adam v-reset mode applied at --aux_v_reset_step: "
+                             "'zero' fills exp_avg_sq with 0 (most aggressive, restarts "
+                             "variance estimation from scratch); 'mean' fills each tensor "
+                             "with its per-tensor mean (preserves magnitude, removes "
+                             "per-parameter spatial structure).")
     parser.add_argument("--seed", type=int, default=1,
                         help="Random seed for torch/numpy/python. Default 1 matches baseline seed.")
     args = parser.parse_args()
@@ -235,6 +247,70 @@ def sample_tensor(tensor: Tensor, max_samples: int) -> Tensor:
         values = values[idx]
     values = values[torch.isfinite(values)]
     return values.cpu()
+
+
+def aux_adam_state_audit(optimizer: torch.optim.Optimizer) -> dict[str, dict[str, float]]:
+    """Snapshot aux-Adam state stats per param group's first parameter.
+
+    Returns a dict keyed by group name with: state step counter, exp_avg_sq
+    norm/mean/max/min, exp_avg norm/mean, bias-correction factors, lr, and
+    bias-corrected effective LR rms = lr * rms(1/(sqrt(v_hat)+eps)) plus
+    update-step-size rms = lr * rms(m_hat/(sqrt(v_hat)+eps)).
+    """
+    audit: dict[str, dict[str, float]] = {}
+    for opt_idx, group in enumerate(optimizer.param_groups):
+        gname = group.get("name", f"group_{opt_idx}")
+        if not group["params"]:
+            continue
+        p = group["params"][0]
+        state = optimizer.state.get(p, {})
+        if "exp_avg_sq" not in state:
+            audit[gname] = {
+                "step": 0.0,
+                "exp_avg_sq_norm": 0.0,
+                "exp_avg_sq_mean": 0.0,
+                "exp_avg_sq_max": 0.0,
+                "exp_avg_sq_min": 0.0,
+                "exp_avg_norm": 0.0,
+                "exp_avg_mean_abs": 0.0,
+                "bias_corr_m": 1.0,
+                "bias_corr_v": 1.0,
+                "eff_lr_rms": 0.0,
+                "update_step_size_rms": 0.0,
+                "lr": float(group["lr"]),
+                "populated": 0.0,
+            }
+            continue
+        v = state["exp_avg_sq"].detach().float()
+        m = state["exp_avg"].detach().float() if "exp_avg" in state else torch.zeros_like(v)
+        t_raw = state.get("step", 0)
+        t = float(t_raw.item()) if isinstance(t_raw, torch.Tensor) else float(t_raw)
+        beta1, beta2 = group["betas"]
+        eps = group["eps"]
+        lr = float(group["lr"])
+        bc1 = 1.0 - beta1 ** t if t > 0 else 1.0
+        bc2 = 1.0 - beta2 ** t if t > 0 else 1.0
+        v_hat = v / max(bc2, 1e-30)
+        m_hat = m / max(bc1, 1e-30)
+        denom = v_hat.sqrt().add_(eps)
+        eff_lr_elem = lr / denom
+        update_step = lr * m_hat / denom
+        audit[gname] = {
+            "step": t,
+            "exp_avg_sq_norm": float(v.norm().item()),
+            "exp_avg_sq_mean": float(v.mean().item()),
+            "exp_avg_sq_max": float(v.max().item()),
+            "exp_avg_sq_min": float(v.min().item()),
+            "exp_avg_norm": float(m.norm().item()),
+            "exp_avg_mean_abs": float(m.abs().mean().item()),
+            "bias_corr_m": float(bc1),
+            "bias_corr_v": float(bc2),
+            "eff_lr_rms": float(eff_lr_elem.square().mean().sqrt().item()),
+            "update_step_size_rms": float(update_step.square().mean().sqrt().item()),
+            "lr": lr,
+            "populated": 1.0,
+        }
+    return audit
 
 
 def log_training_telemetry(
@@ -750,6 +826,9 @@ if dist.get_rank() == 0:
             "muon_block_lr_pattern": args.muon_block_lr_pattern,
             "paramema_refresh_step": args.paramema_refresh_step,
             "paramema_refresh_only": int(args.paramema_refresh_only),
+            "aux_v_reset_step": args.aux_v_reset_step,
+            "aux_v_reset_mode": args.aux_v_reset_mode,
+            "aux_v_reset_active": int(args.aux_v_reset_step >= 0),
             "seed": args.seed,
         },
     )
@@ -844,6 +923,11 @@ for trial_idx in range(args.num_trials):
     ema_refresh_fired_total = 0
     ema_refresh_step_logged = -1
     lcov_refresh_fired_total = 0
+
+    # aux Adam v-buffer state-reset bookkeeping (see --aux_v_reset_step / --aux_v_reset_mode).
+    # Fires once at step==aux_v_reset_step, after opt.step() runs for that iteration.
+    aux_v_reset_fired_total = 0
+    aux_v_reset_step_logged = -1
 
     # learning rate schedule: stable then power-law cooldown (gamma = COOLDOWN_POWER)
     def compute_lr_mult(step, cooldown_frac=0.7):
@@ -1049,6 +1133,48 @@ for trial_idx in range(args.num_trials):
             )
         for opt in optimizers:
             opt.step()
+
+        # aux Adam v-buffer state reset (see --aux_v_reset_step / --aux_v_reset_mode).
+        # Fires AFTER opt.step() for the matching iteration so the reset replaces
+        # the just-updated exp_avg_sq going into the next iteration. The optimizer's
+        # internal step counter is left untouched; bias-correction continues to
+        # use the standard t schedule.
+        aux_v_reset_fired_this_step = 0
+        aux_audit_pre: dict[str, dict[str, float]] | None = None
+        aux_audit_post: dict[str, dict[str, float]] | None = None
+        if args.aux_v_reset_step >= 0 and step == args.aux_v_reset_step:
+            aux_audit_pre = aux_adam_state_audit(optimizer1)
+            n_reset = 0
+            for group in optimizer1.param_groups:
+                for p in group["params"]:
+                    state = optimizer1.state.get(p, None)
+                    if state is None or "exp_avg_sq" not in state:
+                        continue
+                    v = state["exp_avg_sq"]
+                    if args.aux_v_reset_mode == "zero":
+                        v.zero_()
+                    elif args.aux_v_reset_mode == "mean":
+                        mean_val = v.detach().float().mean().to(v.dtype)
+                        v.fill_(mean_val)
+                    else:
+                        raise ValueError(f"unknown aux_v_reset_mode: {args.aux_v_reset_mode}")
+                    n_reset += 1
+            aux_v_reset_fired_total = 1
+            aux_v_reset_step_logged = step
+            aux_v_reset_fired_this_step = 1
+            aux_audit_post = aux_adam_state_audit(optimizer1)
+            if dist.get_rank() == 0:
+                print0(f"aux v-reset fired at step={step} mode={args.aux_v_reset_mode} "
+                       f"({n_reset} params reset)", console=True)
+                for gname in aux_audit_pre:
+                    pre = aux_audit_pre[gname]
+                    post = aux_audit_post[gname]
+                    print0(f"  [{gname}] v_norm: {pre['exp_avg_sq_norm']:.6e} -> "
+                           f"{post['exp_avg_sq_norm']:.6e} | v_mean: "
+                           f"{pre['exp_avg_sq_mean']:.6e} -> {post['exp_avg_sq_mean']:.6e} | "
+                           f"eff_lr_rms: {pre['eff_lr_rms']:.6e} -> "
+                           f"{post['eff_lr_rms']:.6e}", console=True)
+
         # EMA buffer update on body-Muon matrix params.
         # During warmup: track params live (no averaging) so post-warmup buffer is
         # seeded with stable, non-zero params (handles proj zero-init bias and lets
@@ -1160,6 +1286,45 @@ for trial_idx in range(args.num_trials):
                 "lcov_refresh/fired": lcov_refresh_fired_total,
                 "lcov_refresh/target_step": -1,
             }, step=wandb_step)
+
+        # aux Adam v-reset diagnostics + state snapshot. aux_v_reset/fired latches
+        # to 1 once the reset has fired; aux_v_reset/fired_this_step is a per-step
+        # pulse useful for joining the audit pre/post snapshots back to the timeline.
+        # The state audit fires every telemetry_due step plus an explicit audit window
+        # of [aux_v_reset_step - 2, aux_v_reset_step + 5] so we capture the fine-grained
+        # pre-/post-reset trajectory the PR contract requires.
+        if dist.get_rank() == 0:
+            aux_audit_window = (args.aux_v_reset_step >= 0
+                                 and -2 <= (step - args.aux_v_reset_step) <= 5)
+            if telemetry_due or aux_audit_window or aux_v_reset_fired_this_step:
+                audit_now = aux_adam_state_audit(optimizer1)
+                flat = {
+                    "trial": trial_idx,
+                    "train/step": train_step,
+                    "aux_v_reset/fired": aux_v_reset_fired_total,
+                    "aux_v_reset/fired_this_step": aux_v_reset_fired_this_step,
+                    "aux_v_reset/step_logged": aux_v_reset_step_logged,
+                    "aux_v_reset/target_step": args.aux_v_reset_step,
+                    "aux_v_reset/mode_zero": int(args.aux_v_reset_mode == "zero"),
+                    "aux_v_reset/mode_mean": int(args.aux_v_reset_mode == "mean"),
+                }
+                for gname, info in audit_now.items():
+                    for k, v in info.items():
+                        flat[f"aux_adam/{gname}/{k}"] = v
+                wandb.log(flat, step=wandb_step)
+            if aux_v_reset_fired_this_step and aux_audit_pre is not None and aux_audit_post is not None:
+                pre_post = {
+                    "trial": trial_idx,
+                    "train/step": train_step,
+                    "aux_v_reset/fire_event": 1,
+                }
+                for gname, info in aux_audit_pre.items():
+                    for k, v in info.items():
+                        pre_post[f"aux_v_reset/pre/{gname}/{k}"] = v
+                for gname, info in aux_audit_post.items():
+                    for k, v in info.items():
+                        pre_post[f"aux_v_reset/post/{gname}/{k}"] = v
+                wandb.log(pre_post, step=wandb_step)
         if dist.get_rank() == 0 and (train_step % 100 == 0 or train_step == train_steps):
             spec = pmuon_spectral_diag(optimizer2, PMUON_GAMMA)
             if spec:
