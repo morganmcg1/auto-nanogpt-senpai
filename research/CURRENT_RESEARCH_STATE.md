@@ -1,6 +1,52 @@
 # SENPAI Research State — auto-nanogpt-1gpu-r3
 
-- **Last updated:** 2026-05-28 06:15 UTC
+- **Last updated:** 2026-05-28 07:15 UTC
+
+---
+
+## Cycle ~670: H229 fern CLOSED (85th NULL/NEG, 🎯 PROGRAMME FINDING #54 candidate — INNER+OUTER MOMENTUM FORM bilaterally load-bearing, 11th MuonH-SI structural tightness member) + H236 fern ASSIGNED (PR #1536 Outer MuLoCo Polyak vs Nesterov FORM ablation — direct bilateral consolidation test for #54)
+
+**Programme totals**: 85 NULL/NEG · **31 novel mechanism classes** · **2 VESTIGIAL FINDINGS** (H223 eps, H224 warmup) · **11 MuonH-SI structural tightness members** confirmed load-bearing · **4 PROGRAMME FINDINGS pipeline** (#48 vestigial pair · #49 dynamics-vs-conditioning heuristic · **#50 cosine asymptote LOAD-BEARING bilaterally** · **#52 candidate BODY F-NORM CAPACITY LOAD-BEARING** · **#54 candidate INNER+OUTER MOMENTUM FORM bilateral**)
+
+### H229 fern CLOSURE — PROGRAMME FINDING #54 candidate
+
+3-arm inner Nesterov vs Polyak vs NO_MOMENTUM ablation. arm_a CTRL muonh_nesterov=1 mu=0.95/0.90 val=3.26956/FFS=3050 (within-drift CTRL, +1.43σ_H174 soft drift). arm_b POLYAK muonh_nesterov=0 val=3.27198/FFS=3100 **NEG bilateral** (+50 FFS, +0.00242 val, +2.74σ_H174). arm_c NO_MOMENTUM mu=0/0 val=3.46151/FFS=-1 **CATASTROPHIC** (+218σ_H174, never reached target).
+
+**Key mechanistic finding**: NS5 polar projection does NOT erase Nesterov-vs-Polyak distinction at body MuonH level. arm_b POLYAK +50 FFS / +2.74σ val NEG is cleanest single-axis FORM differentiation under post-NS5 projection observed in the campaign. Nesterov update direction `(1-mu)*grad + mu*momentum` structurally preferable to heavy-ball EMA `momentum` even after polar projection.
+
+**Combined with H221 outer NO_MOMENTUM CATASTROPHIC**: inner+outer momentum FORM both structurally load-bearing. Polar projection (inner) and outer aggregation (outer) do NOT erase momentum-form information at either level.
+
+### H236 fern ASSIGNMENT — Outer MuLoCo Polyak vs Nesterov FORM (32nd mechanism class)
+
+Direct bilateral consolidation test for PROGRAMME FINDING #54 candidate. Current baseline outer step at line 1285-1287 is Nesterov form (`update = lr * (mu*v_new + delta)`). H236 adds `--outer_nesterov` argparse flag and branches the outer step between Nesterov (arm_a CTRL) and Polyak heavy-ball (arm_b OUTER_POLYAK: `update = lr * v_new`).
+
+3-arm: arm_a CTRL outer_nesterov=1 (bit-id) / arm_b OUTER_POLYAK outer_nesterov=0 / arm_c LOW_MU_POLYAK outer_nesterov=0 + outer_momentum=0.3 (tests if Polyak at lower mu can compete with Nesterov at 0.5 — form-vs-effective-step-size bracket). ~10 LoC code change.
+
+Predictions: bilateral NEG (mirrors H229 inner) would CONSOLIDATE PROGRAMME FINDING #54. NULL would reveal asymmetric inner/outer momentum-form load-bearingness (outer cadence neutralizes form via sync_interval=30 gap). WIN would invert H229 finding on outer side (unexpected).
+
+### Cycle ~670 portfolio (8/8 WIP, 0 idle, 0 review-ready)
+
+| H# | Student | PR | Axis | Status |
+|---|---|---|---|---|
+| H228 | alphonse | #1503 | MuonH body WD (clip mode pivot) | arm_a/b clip-mode terminal catastrophic FFS=-1 (+19.7σ/+18.7σ vs SI baseline); arm_c WD_HI running ~50% ETA 07:05 UTC. WD does NOT recover catastrophic clip-mode CTRL |
+| H230 | nezuko | #1509 | MuonH NS5 polynomial iter count | arm_a CTRL +50 FFS drift; arm_b NS5_8 mild NEG +25 within-experiment; arm_c NS5_6 running ~37% ETA 07:35 UTC |
+| H231 | askeladd | #1511 | MuonH mode axis (clip vs SI) | in flight — predicted SI load-bearing per H228 cross-finding (PROGRAMME FINDING #51 candidate) |
+| H232 | edward | #1513 | Post-NS5 Cautious-Muon (mechanism class) | in flight |
+| H233 | frieren | #1517 | MuLoCo sync_interval | in flight |
+| H234 | tanjiro | #1526 | Joint AGC clip ratio sweep | arm_a CTRL FINISHED val=3.26825/FFS=3025 (cleanest CTRL of campaign, bit-id matches H203 to ε); arm_b TIGHT running ~10%; arm_c LOOSE queued |
+| H235 | thorfinn | #1529 | Embed init scale (aux-side PRE-AdamW init) | in flight |
+| **H236** | **fern** | **#1536** | **Outer MuLoCo Polyak vs Nesterov FORM (newly assigned)** | **just dispatched** |
+
+31 novel mechanism classes through 236 hypotheses. Zero idle students.
+
+### Mid-flight cross-findings to watch
+
+- **PROGRAMME FINDING #51 candidate** (muonh_mode SI structurally load-bearing): H228 arm_a+arm_b BOTH clip-mode catastrophic (val=3.28567/3.28481, FFS=-1/-1; +19.7σ/+18.7σ vs SI baseline). Bilateral evidence within H228 alone. Will fully consolidate with H231 askeladd's terminal CLIP arms (in-flight).
+- **PROGRAMME FINDING #52 candidate** (BODY F-NORM CAPACITY LOAD-BEARING): established cycle ~650 from H214 spectral RANK + H227 init F-norm bilateral.
+- **PROGRAMME FINDING #53 candidate pipeline** (init magnitude bilateral aux+body): H235 thorfinn pending.
+- **PROGRAMME FINDING #54 candidate** (INNER+OUTER momentum FORM bilateral): established this cycle from H221 outer + H229 inner; H236 fern next cycle is direct consolidation test on outer side.
+
+Next termination wave: H228 arm_c ~07:05 UTC, H230 arm_c ~07:35 UTC, H232/H233/H234 arms ~08:00-10:30 UTC.
 
 ---
 

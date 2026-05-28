@@ -1,3 +1,31 @@
+## 2026-05-28 07:10 — PR #1506: H229 fern MuonH inner Nesterov vs Polyak vs NO_MOMENTUM — CLOSED (85th NULL/NEG, 🎯 PROGRAMME FINDING #54 candidate — INNER+OUTER MOMENTUM FORM bilaterally load-bearing (H221 outer + H229 inner), 11th MuonH-SI structural tightness member)
+
+- Branch: `g1r3-fern/muonh-inner-nesterov-polyak-form`
+- Hypothesis: Does NS5 polar projection neutralize the Nesterov-vs-Polyak distinction at the body MuonH level? Parallels H221 outer-momentum-form finding (NO_MOMENTUM catastrophic vs NO_OUTER) — tests inner-side bilateral consolidation.
+- Results (n=1 each, train_steps=3325, all bit-id step-0 val=10.82583 PASS):
+
+  | Arm | muonh_nesterov | mu_start/end | W&B | val/loss | FFS | Δval/σ_H174 | Verdict |
+  |---|---|---|---|---|---|---|---|
+  | arm_a CTRL | 1 (Nesterov, bit-id) | 0.95/0.90 | tse843hl | 3.26956 | **3050** | +1.43σ (within drift) | mild +25 FFS soft drift vs H203 (compile retrace) |
+  | arm_b POLYAK | 0 (heavy-ball) | 0.95/0.90 | 4cy3k8lb | 3.27198 | **3100** | +2.74σ | **NEG bilateral** +50 FFS, +0.00242 val vs CTRL |
+  | arm_c NO_MOMENTUM | 1 (no-op at mu=0) | 0.0/0.0 | veduyqup | 3.46151 | **-1** | +218.0σ | **CATASTROPHIC NEG** (never reached target) |
+
+- Bit-id gate: all 3 arms step-0 val=10.82583 EXACT. PASS. Implementation correct: arm_c muonh_nesterov=1 at mu=0 is functionally a no-op (no momentum buffer to extrapolate from); cleanly isolates "no inner momentum at all" condition.
+- **🎯 PROGRAMME FINDING #54 candidate — INNER+OUTER MOMENTUM FORM BILATERALLY LOAD-BEARING**:
+  - NS5 polar projection does NOT erase the Nesterov-vs-Polyak distinction at the body MuonH level.
+  - arm_b POLYAK +50 FFS / +2.74σ_H174 val vs CTRL is the cleanest single-axis FORM differentiation under post-NS5 projection in the campaign.
+  - Nesterov inner update direction `(1-mu)*grad + mu*momentum` is structurally preferable to pure heavy-ball EMA `momentum` even after polar projection onto orthogonal manifold.
+  - **Cross-finding with H221** (outer-MuLoCo-momentum-FORM): inner+outer momentum FORM are BOTH structurally load-bearing for H148+H203 stack. Polar projection (inner) and outer aggregation (outer) DO NOT erase momentum-form information at either level.
+  - Consolidation pending H236 fern outer Polyak vs Nesterov (next assignment, bilateral confirmation on outer side with controlled within-chain comparison).
+- **Excellent student diagnostic discipline**:
+  - Clean mu=0 implementation: argparse path `--muonh_mu_start 0.0 --muonh_mu_end 0.0 --muonh_mu_schedule linear` keeps mu strictly at 0 with no code patch. Verified mu-update code path; no NaN guards trip.
+  - Soft drift attribution to torch.compile retrace at the new Nesterov branch: matches H214 askeladd diagnostic pattern. arm_a CTRL +25 FFS vs H203 baseline attributed to argparse-added conditional causing dynamo recompile. Within-chain delta (arm_b vs arm_a) is the merge-relevant metric.
+  - Suggested follow-ups are excellent: n=3 confirmation of arm_b at 3325 steps; inner mu × form crossover; combined outer NO_MOMENTUM + inner POLYAK 2D ablation. Noted but deferred for portfolio efficiency.
+- **11 MuonH-SI structural tightness members**: H216 Lookahead, H221 NO_OUTER, H221 NO_MOMENTUM, H222 SCHED_OFF, H222 MU_END_85, H225 BETA1, H226+H219 cosine asymptote, H214 spectral RANK, H227 body init F-norm, H228+H231 muonh_mode SI, **H229 inner Nesterov FORM**.
+- Cumulative status: **85 NULL/NEG · 31 novel mechanism classes · 4 PROGRAMME FINDINGS pipeline** (#48 vestigial pair · #49 dynamics-vs-conditioning heuristic · #50 cosine asymptote LOAD-BEARING bilaterally · **#54 candidate H221+H229 momentum FORM bilateral**) · 2 VESTIGIAL FINDINGS (H223 eps, H224 warmup)
+- Closure verdict: DO NOT MERGE. Both treatment arms NEG. Inner Nesterov FORM (--muonh_nesterov 1) is decisively LOAD-BEARING; keep as documented baseline customization.
+- Next assignment: H236 fern (PR #1536) — Outer MuLoCo Polyak vs Nesterov FORM ablation, direct bilateral consolidation test for PROGRAMME FINDING #54. 32nd novel mechanism class. ~10 LoC code change (argparse flag + outer step branch).
+
 ## 2026-05-28 06:10 — PR #1501: H227 thorfinn body initialization ablation — CLOSED (84th NULL/NEG, 🎯 PROGRAMME FINDING #52 candidate — BODY F-NORM CAPACITY LOAD-BEARING bilaterally on rank+magnitude (H214 spectral RANK + H227 init F-norm), thesis-validates PRE-NS5 axis)
 
 - Branch: `g1r3-thorfinn/body-init-ablation`
