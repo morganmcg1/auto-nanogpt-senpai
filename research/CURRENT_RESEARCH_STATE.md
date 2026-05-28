@@ -1,6 +1,72 @@
 # SENPAI Research State — auto-nanogpt-1gpu-r3
 
-- **Last updated:** 2026-05-28 12:25 UTC
+- **Last updated:** 2026-05-28 14:45 UTC
+
+---
+
+## Cycle ~980: H237+H236 CLOSED (93rd/94th NULL/NEG) + 🎯 PROGRAMME FINDING #54 BILATERALLY CONSOLIDATED + MuLoCo HP+FORM closure COMPLETE + H244 fern + H245 nezuko ASSIGNED
+
+**Key closures this cycle:**
+
+- **H236 fern Outer MuLoCo Polyak FORM (PR #1536)** — 94th NULL/NEG, **🎯 PROGRAMME FINDING #54 BILATERALLY CONSOLIDATED**. arm_b OUTER_POLYAK +7.80σ_H174 / +125 FFS NEG, arm_c LOW_MU_POLYAK FFS=−1 catastrophic (never reached 3.28). arm_a CTRL FFS=3025 EXACT bit-id baseline match (cleanest CTRL since H213 — NOT in soft drift class because new conditional branch lives OUTSIDE @torch.compile, mechanistic evidence for argparse-conditional retracing soft-drift attribution). MuLoCo HP+FORM closure COMPLETE: outer_lr CONDITIONING (H222) + outer_momentum CATASTROPHIC (H229+H236 bilateral) + sync_interval ASYMMETRIC STRUCTURAL-CADENCE (H233) + outer FORM (H236). Future MuLoCo work must target FORM REPLACEMENTS (compressed inner-aggregation, LoCo-Adam, async cadence) or move out of MuLoCo entirely.
+
+- **H237 nezuko AdEMAMix aux replacement (PR #1539)** — 93rd NULL/NEG, bilateral NEG. arm_b ADEMAMIX_DEFAULT (β₁=0.9) +7.77σ_H174 / +125 FFS NEG, arm_c ADEMAMIX_OUR_BETA1 (β₁=0.8 carried H225 finding) +5.45σ_H174 / +75 FFS NEG. AdEMAMix-the-mechanism is the failure, not β₁=0.9 misconfig: arm_c with H225 load-bearing β₁=0.8 still NEG. 3 confounds: β₃=0.9999 slow EMA half-life >2× training budget (likely dominant), β₂=0.999 vs our load-bearing β₂=0.99, embed gradient sparsity ~88%. 2nd aux-replacement NEG confirmation (joins H225 frieren β₁ U-shape).
+
+**🎯 PROGRAMME FINDING #54 BILATERALLY CONSOLIDATED:**
+
+Under H148+H203 stack, BOTH inner momentum FORM (H229) AND outer momentum FORM (H236) are load-bearing. Polyak heavy-ball uniformly inferior to Nesterov extrapolation at both levels:
+- H229 inner FORM (after NS5 polar projection): POLYAK +50 FFS / +2.74σ_H174 NEG
+- **H236 outer FORM (after sync_interval=30 aggregation): POLYAK +125 FFS / +7.80σ_H174 NEG**
+
+**Asymmetric amplification — outer effect ~3× larger than inner effect in σ-units** despite outer step happening 30× LESS often. Mechanism: NS5 polar projection on inner side acts as **partial form-equalizer** (form differences absorbed by unit-spectral-norm renormalization). No such normalization on outer side — full magnitude difference between Nesterov `(1+μ)·v` and Polyak `v` (≈1.5× effective at μ=0.5) applied raw to anchor every sync_interval=30 steps via outer_lr=0.7 lever. Polyak is NOT a tunable-μ workaround for Nesterov (arm_c LOW_MU_POLYAK catastrophic).
+
+**New assignments:**
+
+- **H244 fern PR #1580**: Depth-scaled per-layer LR on MuonH body (40th mechanism class). First per-layer body LR experiment in campaign — all 94 closed hypotheses applied ONE uniform LR to 72 body matrices via single MuonH group. μP-style prescription: 3-arm CTRL uniform / LINEAR taper (μP, Yang 2022) / INVSQRT taper (Everett 2024). Tests whether H148+H203 single-LR structure is optimal or depth-scaling improves FFS. Distinct from all 94 closed axes (HP shape vs LR-per-layer topology).
+
+- **H245 nezuko PR #1581**: ADana log-time aux momentum schedule (41st mechanism class). First time-varying β₁/β₂ hypothesis in campaign — both betas via `β_t = 1 − δ/(δ+t)` schedule grounded in minimax-optimal anytime-convergence theory. 3-arm CTRL constant β₁=0.8 + cosine β₂ / B2ONLY schedule β₂ only with constant β₁=0.8 / BOTH schedule both betas. Distinct from H225 (scalar β₁), aux_beta2_schedule (closed: constant β₂=0.99 optimal), H237 AdEMAMix (NEG — second EMA buffer), H239 SF-AdamW (removes schedule). INTRODUCES principled schedule with single-buffer overhead.
+
+**Aux-replacement triad status:**
+- H237 AdEMAMix: **BILATERAL NEG (closed)**
+- H239 SF-AdamW: WIP askeladd (33rd, dual-time-scale schedule-free via y_t interpolation)
+- H241 Lion: WIP edward (37th, sign-based momentum)
+
+If all 3 NULL/NEG → PROGRAMME FINDING #55 candidate: aux AdamW with our tuning (β₁=0.8, β₂=0.99, ε=1e-6) is structurally optimal — three independent EMA-class replacements cannot beat it.
+
+**torch.compile retracing soft-drift class:** 8th instance through H237 (cumulative H214/H224/H229/H230/H231/H232/H233/H234/H235/H237). H236 arm_a CTRL is NOT in the drift class — its `--outer_nesterov` conditional branch lives outside @torch.compile, FFS=3025 EXACT match to baseline. This is the campaign's first **mechanistic evidence** for the argparse-conditional retracing attribution: branches outside compile boundary do NOT drift, branches inside DO drift.
+
+**Programme totals after cycle ~980:**
+- **94 NULL/NEG closures**
+- **41 novel mechanism classes** (H244 + H245 = 40th + 41st)
+- **6 PROGRAMME FINDINGS pipeline** with **#54 CONSOLIDATED today**: #48 vestigial pair, #49 dynamics-vs-conditioning + saturation rule, #50 cosine asymptote bilateral, #51 muonh_mode SI trilateral, #52 BODY F-NORM CAPACITY candidate, **#54 INNER+OUTER MOMENTUM FORM BILATERAL CONSOLIDATED**, #55 aux-replacement triad pending
+- **2 confirmed + 1 candidate VESTIGIAL FINDINGS**
+- **17 MuonH-SI/MuLoCo structural tightness members** (H236 added)
+
+**Exploration territory map after cycle ~980:**
+
+| Axis | State |
+|---|---|
+| MuonH body — mode | SI consolidated (H228+H231 bilateral, then trilateral with H242 WSD WIP) |
+| MuonH body — NS5 iter count | Consolidated |
+| MuonH body — init F-norm | Consolidated bilateral (H227+H235) |
+| MuonH body — inner momentum FORM | CONSOLIDATED bilateral (H229+H236) |
+| MuonH body — mode pivot | Trilateral consolidated |
+| MuonH body — **LR topology per layer** | H244 fern WIP (first per-layer experiment) |
+| MuonH body — AGC ratio | Consolidated load-bearing (H234) |
+| MuonH body — per-element scaling | UNTESTED (H238 alphonse AdaMuon WIP partially addresses) |
+| MuonH body — spectral exponent (Schatten-p) | H243 tanjiro WIP |
+| MuLoCo HP+FORM | **CLOSURE COMPLETE** today (H222+H229+H233+H236) |
+| MuLoCo form replacements | UNTESTED (compressed inner-agg, LoCo-Adam, async) |
+| Aux AdamW replacements | H237 AdEMAMix CLOSED bilateral NEG · H239 SF-AdamW WIP · H241 Lion WIP |
+| Aux momentum schedule | **H245 nezuko WIP** (ADana log-time, first time-varying β₁/β₂) |
+| Embed init | Consolidated (H235 WIP — vestigial candidate U-shape) |
+| Schedule cosine asymptote | Consolidated bilateral |
+| Schedule replacements | H239 SF-AdamW eliminates / H237 AdEMAMix preserves (NEG) / WSD H242 WIP |
+| Initialization F-norm-matched body | Consolidated |
+| Terminal evaluation | **H240 frieren WIP** (EMA model averaging — arm_b catastrophic in-flight signal, arm_c queued) |
+| MuonH replacements | UNTESTED — Lion (H241 aux test transfer?), Adafactor-norm, GaLore on body |
+
+**Survey state:** 8/8 WIP, 0 idle, 0 review-ready (post-closures + assignments). High-throughput cycle ahead — H240 frieren arm_c expected terminal ~15:20 UTC, H238 alphonse ETA ~16:30 UTC, H239 askeladd ~23:25 UTC, H241/H242/H243/H244/H245 chain ETAs to be confirmed at next survey.
 
 ---
 

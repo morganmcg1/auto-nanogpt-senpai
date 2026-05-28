@@ -1,3 +1,67 @@
+## 2026-05-28 14:27 — PR #1536: H236 fern Outer MuLoCo Polyak FORM — CLOSED (94th NULL/NEG, **🎯 PROGRAMME FINDING #54 BILATERALLY CONSOLIDATED** — inner+outer momentum FORM bilateral, Polyak NEG at both levels, outer effect ~3× larger than inner; MuLoCo HP+FORM closure COMPLETE)
+
+- Branch: `g1r3-fern/h236-outer-polyak-form`
+- Hypothesis: Test whether outer MuLoCo Nesterov extrapolation `θ ← θ + (1+μ)·v` is structurally load-bearing vs Polyak heavy-ball `θ ← θ + v` at the outer aggregation step (sync_interval=30). Bilateral test alongside H229 inner Nesterov FORM (already NEG +2.74σ_H174). 3-arm: CTRL Nesterov μ=0.5 / OUTER_POLYAK μ=0.5 / LOW_MU_POLYAK μ=0.3.
+
+| Arm | outer_nesterov / outer_mu | W&B | val | FFS | Δval/σ_H174 | Verdict |
+|---|---|---|---|---|---|---|
+| arm_a CTRL | True / 0.5 | `ktjozq8v` | **3.26754** | **3025** EXACT | −0.86σ (within-drift, NOT in soft drift class) | baseline EXACT |
+| arm_b OUTER_POLYAK | False / 0.5 | `np4419x6` | 3.27444 | 3150 | **+7.80σ** | **decisive NEG** (+125 FFS) |
+| arm_c LOW_MU_POLYAK | False / 0.3 | `08a914mz` | 3.28314 | **−1 (NEVER)** | **+17.6σ** | **catastrophic** (never reached 3.28 target) |
+
+- W&B verified: all state=finished, configs distinct on FORM axis (outer_nesterov={1,0,0}) and MU axis (outer_momentum={0.5,0.5,0.3}). MuLoCo telemetry at outer_step=110: velocity_rms identical between arm_a (0.01492) and arm_b (0.01510) at same μ=0.5 — buffer dynamics unchanged, difference purely in UPDATE step's application of buffer (Nesterov `(1+μ)·v` vs Polyak `v`).
+- Statistical rule arm_a `(3.28-3.26754)×√1=0.01246` ✓, arm_b `0.00556` ✓, arm_c `−0.00314` ✗ (never reached target).
+- **arm_a CTRL bit-id step-0 val=10.82583 EXACT + FFS=3025 EXACT** — cleanest CTRL since H203 baseline. arm_a is NOT in the soft +25 FFS drift class because the new `--outer_nesterov` conditional branch lives **OUTSIDE the `@torch.compile`-d inner step** → mechanistic evidence for argparse-conditional retracing soft-drift attribution (branches outside compile boundary do NOT drift; branches inside DO drift, per cumulative H214/H224/H229/H230/H231/H232/H233/H234/H235/H237).
+
+### Analysis
+
+- **🎯 PROGRAMME FINDING #54 BILATERALLY CONSOLIDATED**: Under H148+H203 stack, BOTH inner momentum FORM (H229) AND outer momentum FORM (H236) are load-bearing. Polyak heavy-ball uniformly inferior to Nesterov extrapolation at both levels:
+  - H229 inner FORM (after NS5 polar projection): POLYAK +50 FFS / +2.74σ_H174 NEG
+  - **H236 outer FORM (after sync_interval=30 aggregation): POLYAK +125 FFS / +7.80σ_H174 NEG**
+- **Asymmetric amplification — outer effect ~3× inner effect in σ-units** despite outer step happening 30× LESS often. Mechanism: NS5 polar projection on inner side acts as **partial form-equalizer** (momentum → NS5 → unit-spectral-norm update; form differences absorbed by renormalization). No such normalization on outer side — full magnitude difference between Nesterov `(1+μ)·v` and Polyak `v` (≈1.5× effective at μ=0.5) applied raw to anchor every sync_interval=30 steps via outer_lr=0.7 lever.
+- **Effective-LR equivalent reading**: Nesterov ≈ Polyak with effective outer_lr `(1+μ)·outer_lr` = 1.5× larger in delta direction. arm_c (Polyak at μ=0.3) further widens effective-step-size gap (≈1.3× vs μ=0.5 baseline 1.5×) → catastrophic outcome consistent with effective-LR reading. Polyak is NOT a tunable-μ workaround for Nesterov.
+- **MuLoCo HP+FORM closure COMPLETE** today: outer_lr CONDITIONING (H222 sweep) + outer_momentum CATASTROPHIC (H229+H236 bilateral) + sync_interval ASYMMETRIC STRUCTURAL-CADENCE (H233) + outer FORM (H236). All 4 MuLoCo axes closed. Future MuLoCo work must target FORM REPLACEMENTS (compressed inner-aggregation, LoCo-Adam, async cadence) or move out of MuLoCo entirely.
+- **17 MuonH-SI/MuLoCo structural tightness members** (H236 added): inner+outer momentum FORM bilateral consolidation enters the structural-tightness tally.
+
+- **Decision: NOT MERGING.** 94th NULL/NEG. Outer MuLoCo Polyak FORM bilateral NEG CONSOLIDATED. **PROGRAMME FINDING #54 CONFIRMED** (was candidate).
+
+---
+
+## 2026-05-28 14:27 — PR #1539: H237 nezuko AdEMAMix aux replacement — CLOSED (93rd NULL/NEG, bilateral NEG on AdEMAMix mechanism — second aux-replacement NEG confirmation after H225, dual-time-scale EMA structurally worse than tuned AdamW on H148+H203 aux side)
+
+- Branch: `g1r3-nezuko/h237-ademamix-aux`
+- Hypothesis: Test whether AdEMAMix (Pagliardini et al. 2024) dual-time-scale EMA buffer (`m_fast` β₁ + `m_slow` β₃=0.9999, blended with α=5 linear ramp) outperforms our tuned aux AdamW (β₁=0.8, β₂=0.99, ε=1e-6) as an aux-side replacement. 3-arm: CTRL adamw / ADEMAMIX_DEFAULT β₁=0.9 (paper) / ADEMAMIX_OUR_BETA1 β₁=0.8 (carry H225 finding).
+
+| Arm | aux_optimizer / β₁ | W&B | val | FFS | Δval/σ_H174 | Verdict |
+|---|---|---|---|---|---|---|
+| arm_a CTRL | adamw / 0.8 | `9np640y9` | 3.26879 | 3050 | +0.55σ (drift class +25 FFS, 8th instance) | within-noise soft drift |
+| arm_b ADEMAMIX_DEFAULT | ademamix / 0.9 | `4el5th9k` | 3.27517 | 3150 | **+7.77σ** | **decisive NEG** (+125 FFS) |
+| arm_c ADEMAMIX_OUR_BETA1 | ademamix / 0.8 | `t2i0aasf` | 3.27312 | 3100 | **+5.45σ** | **decisive NEG** (+75 FFS) |
+
+- W&B verified: all state=finished. arm_a was wandb-sync backfilled post-401-outage (live uploader died at step 250 during finalize, local stdout completed all 3325 steps cleanly; `wandb sync wandb/run-20260528_081835-9np640y9` populated full trajectory + Run Summary). 2nd instance of W&B 401 recovery via offline+sync pattern (H235 thorfinn arm_b precedent).
+- All bit-id step-0 val=10.82583 EXACT. Statistical rule all PASS but none beat baseline FFS=3025.
+- Per-arm config audit (per `feedback_audit_treatment_runs_too.md`): aux_optimizer={adamw, ademamix, ademamix}, aux_ademamix_beta1={N/A, 0.9, 0.8} — all distinct. Telemetry confirmed alpha ramp linear (Pagliardini Algorithm 1): first=0.00150, mid≈2.29, last=5.0 over 3325 steps.
+
+### Analysis
+
+- **AdEMAMix-the-mechanism is the failure, not the β₁=0.9 misconfiguration**: arm_c with our load-bearing β₁=0.8 (H225 finding) is still NEG at +5.45σ. β₁ axis remains load-bearing within AdEMAMix (arm_c −2.32σ better than arm_b on val, −50 FFS) — H225 finding transfers across EMA-structure choice — but the mechanism cost (~5σ minimum) dominates.
+- **Bilateral NEG mechanism diagnosis (3 confounds, in order of likely contribution)**:
+  1. **β₃=0.9999 slow EMA half-life ~6932 steps > 2× training budget (3325 steps)**: slow EMA never accumulates meaningful signal. Effectively functions as near-static low-magnitude drift weighted by α=5 by end. For workloads with ≤T_alpha steps, trades short-term responsive descent for near-zero-contribution buffer. **Likely dominant cost.**
+  2. **β₂=0.999 inside AdEMAMix vs our load-bearing baseline β₂=0.99**: paper-canonical β₂=0.999 does not compose with our H148+H203 v_t denominator decay timescale. Bias-correction interplay between v_t and m_slow sensitive to β₂. Confounded with mechanism axis.
+  3. **Embed gradient sparsity ~88% rows zero/step**: slow EMA at β₃=0.9999 on embed.weight rows that go many steps without gradient stays near 0 → identical to fast EMA at higher cost. AdEMAMix's promised benefit (long-horizon useful direction info) requires non-trivial gradient flow.
+- **Aux-replacement triad status** after H237 closure:
+  - H237 AdEMAMix: **BILATERAL NEG (this PR, closed)** — 32nd novel mechanism class
+  - H239 SF-AdamW: WIP askeladd (33rd, dual-time-scale schedule-free via y_t interpolation)
+  - H241 Lion: WIP edward (37th, sign-based momentum aux replacement)
+  - **If all 3 NULL/NEG → PROGRAMME FINDING #55 candidate: aux AdamW with our tuning (β₁=0.8, β₂=0.99, ε=1e-6) is structurally optimal — three independent EMA-class replacements cannot beat it.**
+- 8th instance of torch.compile argparse-conditional retracing soft-drift class confound (H214/H224/H229/H230/H231/H232/H233/H234/H235/H237).
+- Excellent student implementation: standalone `AdEMAMix` torch.optim.Optimizer subclass at lines 768-848; bit-id gate via `args.aux_optimizer=='adamw'` route; alpha ramp activated correctly per paper Algorithm 1; honest deviation note on cosine-vs-linear ramp.
+- Suggested follow-ups DEFERRED (AdEMAMix×β₂=0.99, AdEMAMix×α=1, AdEMAMix×T_alpha=10000): bilateral NEG + tight-aux-stack interpretation is cleaner programme finding. Won't chase AdEMAMix axis further unless major reframe emerges from H239/H241 outcomes.
+
+- **Decision: NOT MERGING.** 93rd NULL/NEG. AdEMAMix mechanism class closed bilateral NEG.
+
+---
+
 ## 2026-05-28 12:15 — PR #1529: H235 thorfinn Embed init scale ablation — CLOSED (91st NULL/NEG, **3rd VESTIGIAL FINDING CANDIDATE — non-monotonic U-shape**, aux-side init magnitude erased by AdamW within ~25 steps)
 
 - Branch: `g1r3-thorfinn/h235-embed-init-scale`
