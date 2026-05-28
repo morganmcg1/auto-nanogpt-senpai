@@ -1,14 +1,24 @@
 # SENPAI Research State — auto-nanogpt-1gpu-r3
 
-- **Last updated:** 2026-05-28 03:05 UTC
+- **Last updated:** 2026-05-28 03:25 UTC
 
 ---
 
 ## 🏆 CURRENT BASELINE: FFS=3025, val=3.26830 — PR #1398 H203 tanjiro cosine cooldown shape
 
-**Baseline shift alert RESOLVED**: All PRs from the pre-H203-merge cohort (H204-H213) have now closed or completed. All remaining in-flight PRs (H224-H231) are on the cosine baseline.
+**Baseline shift alert RESOLVED**: All PRs from the pre-H203-merge cohort (H204-H213) have now closed or completed. All remaining in-flight PRs (H225-H232) are on the cosine baseline.
 
 ---
+
+## 🎯 Cycle ~590 (03:15-03:25 UTC) — H224 edward CLOSED (81st NULL/NEG, 🎯 2nd VESTIGIAL FINDING — warmup_steps=100 customization vestigial on cosine baseline, FFS tied with default 0); H232 edward ASSIGNED Post-NS5 Cautious-Muon sign-mask polar-projected updates (PR #1513, 28th novel mechanism class)
+
+- **🎯 H224 edward CLOSED — 81st NULL/NEG, 2nd VESTIGIAL FINDING in H148+H203 stack**: arm_a CTRL warmup_steps=100 val=3.26910/FFS=3050 (+25 FFS soft drift vs H203 3025, within +0.9σ_H174 envelope); arm_b WARMUP_OFF warmup_steps=0 val=3.27025/FFS=3050 **NULL — FFS EXACTLY TIED, val +1.3σ_H174** → **2nd PRUNING-CANDIDATE WIN** (companion to H223 arm_b EPS_1E8); arm_c WARMUP_400 warmup_steps=400 val=3.27484/FFS=3150 NEG (+100 FFS, +6.5σ_H174 val, upper-side boundary). Bit-identity gate PASSED step-0 10.82583 exact.
+- **🎯 Mechanistic interpretation**: NS5 polar projection is self-stabilizing on cold-start gradients — WARMUP_OFF did not produce divergence or noticeable early-step instability. AGC=0.05 catches residual large updates. Warmup is one-sided plateau: NULL on lower side (0→100), NEG on upper side (400). The H131 "non-binding within [50, 250] on linear baseline" extends to "non-binding within [0, ~100] on cosine baseline, binding by 400". Upper boundary between 250 and 400.
+- **Programme finding #48 candidate**: warmup customization VESTIGIAL — code-simplification candidate. **2nd vestigial finding** (companion to H223 ε). Both H148-era customizations turn out to be vestigial: aux eps=1e-6 → safe to revert to PyTorch default 1e-8 (H223); muonh_warmup_steps=100 → safe to revert to argparse default 0 (H224).
+- **3rd numerical-conditioning candidate finding pending**: H225 frieren β₁ in flight (arm_b BETA1_09 mild NEG, arm_c BETA1_05 still running). If pattern holds, H148-era customizations sit on flat plateaus with one-sided NULL pruning and other-sided mild NEG.
+- **CTRL drift observation**: arm_a CTRL FFS=3050 is +25 off H203 baseline 3025 (+0.9σ_H174). Student suggested re-baselining H203 with n=3 trials if claiming small FFS wins. Acknowledged but deferred — current portfolio focuses on mechanism ablations where ±25 FFS is sub-threshold.
+- **🎯 H232 edward ASSIGNED (PR #1513) — 28th NEW MECHANISM CLASS: Post-NS5 Cautious-Muon (sign-mask polar-projected updates)**: Fresh optimizer mechanism class extending Cautious Optimizers (Liang et al. NeurIPS 2024) to MuonH polar projection. Different from H195 pre-NS5 cautious (NEG, masked in gradient space): H232 applies mask AFTER NS5 polar projection — in polar-projected space (unit spectral-norm orthogonal directions). Tests if sign-agreement masking helps in post-orthogonalization update direction. ~10 LoC code change with isolated `muon_update_cautious` treatment function following H214 pattern to preserve bit-identical CTRL on compiled kernel. 3-arm CTRL muonh_cautious=off (bit-id) / CAUTIOUS renormalize (mask + restore magnitude) / CAUTIOUS_NORENORM mask only (loses magnitude).
+- **End-of-cycle ~590 portfolio**: H225 frieren aux β₁ (arm_a CTRL FFS=3025 FINISHED, arm_b BETA1_09 mild NEG +50 FFS FINISHED, arm_c BETA1_05 RUNNING ~20%); H226 tanjiro CLAMP-FLOOR (arm_a CTRL ~98% terminal imminent, arm_b/c pending launch); H227 thorfinn body init (arm_a CTRL FFS=3025 FINISHED, arm_b BOTTOM_DAMP ~5%, arm_c DEFAULT pending); H228 alphonse body WD (in flight); H229 fern inner Nesterov vs Polyak (in flight); H230 nezuko NS5 iter count (in flight); H231 askeladd MuonH mode axis (in flight); H232 edward post-NS5 cautious (newly assigned). **8/8 students WIP, 0 idle, 0 review-ready.** **28 novel mechanism classes** explored. **2 VESTIGIAL FINDINGS** in pruning sweep (H223 ε, H224 warmup).
 
 ## 🎯 Cycle ~580 (02:55-03:05 UTC) — H214 askeladd CLOSED (80th NULL/NEG bilateral catastrophic, body spectral-rank axis CLOSED, 🎯 9-mechanism body spectral-axis cross-finding CONSOLIDATED — body update gradient is FULL-RANK); H231 askeladd ASSIGNED MuonH mode axis (PR #1511, 27th novel mechanism class, post-step projection mechanism clip vs scale_invariant)
 

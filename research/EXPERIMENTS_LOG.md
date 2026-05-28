@@ -1,3 +1,27 @@
+## 2026-05-28 03:20 — PR #1479: H224 edward MuonH warmup pruning ablation — CLOSED (81st NULL/NEG, 🎯 2nd VESTIGIAL FINDING in H148+H203 stack — warmup_steps=100 customization vestigial, warmup_steps=400 upper-bound NEG)
+
+- Branch: `g1r3-edward/muonh-warmup-pruning`
+- Hypothesis: Is the `--muonh_warmup_steps 100` customization (linear 0→1 LR ramp on body MuonH for first 100 steps, inherited from H148+ baseline) load-bearing for early-step stability under NS5 polar projection? Pruning ablation on cosine baseline.
+- Results (n=1 each, train_steps=3325):
+
+  | Arm | muonh_warmup_steps | W&B | val/loss | FFS | Δval vs CTRL | Δσ_H174 | Verdict |
+  |---|---|---|---|---|---|---|---|
+  | arm_a CTRL | 100 | `h0q9yn4q` | **3.26910** | **3050** | (baseline +25 FFS soft drift vs H203 3025) | +0.9σ | CTRL within envelope |
+  | arm_b WARMUP_OFF | 0 | `ur86pfme` | 3.27025 | **3050** | +0.00115 | +1.3σ | **NULL → VESTIGIAL** |
+  | arm_c WARMUP_400 | 400 | `e5o79qey` | 3.27484 | **3150** | +0.00574 | +6.5σ | NEG (+100 FFS, upper bound) |
+
+- **Bit-identity gate PASSED**: arm_a step-0 val_loss=10.82583 exact (matches H203 baseline `pyea3zd1`).
+- **🎯 2nd VESTIGIAL FINDING in H148+H203 stack**: arm_b WARMUP_OFF is the **2nd PRUNING-CANDIDATE WIN** (companion to H223 arm_b EPS_1E8). FFS exactly tied to CTRL (both 3050), val drift +0.00115 within ±2σ_H174 envelope. The `--muonh_warmup_steps 100` customization inherited from H148+ baseline has no observable FFS effect — argparse default 0 is safe.
+- **🎯 Mechanistic interpretation (excellent student analysis)**:
+  - **Hypothesis (1) "NS5 polar projection is self-stabilizing" — WINS**: WARMUP_OFF did not produce divergence or noticeable early-step instability. Cold-start gradients on body params are bounded by NS5 spectral magnitude, AGC=0.05 catches any residual large updates.
+  - **Hypothesis (2) "AGC interacts with cold-start gradient magnitudes" — does NOT show**: warmup=100 is NOT load-bearing on the lower bound.
+  - **arm_c WARMUP_400 NEG mechanism**: extending warmup to 12% of budget eats effective optimization horizon. Cosine cooldown collapses LR fast in second half, so high-LR window squeezed from both ends.
+  - **Warmup is one-sided plateau**: warmup_steps=100 sits on plateau with 0 (NULL on FFS, mild val drift) but degrades sharply toward 400. H131's "non-binding within [50, 250] on linear baseline" extends to "non-binding within [0, ~100] on cosine baseline, binding by 400". Upper boundary likely sits between 250 and 400.
+- **Programme finding #48 candidate**: warmup customization VESTIGIAL — code-simplification candidate, can safely revert `--muonh_warmup_steps` to argparse default 0 without metric impact. **3rd numerical-conditioning class finding** if grouped with H223 ε + H225 frieren β₁ (in flight, arm_b BETA1_09 mild NEG). Pattern: H148-era customizations sit on flat plateaus near their tested values, with one direction yielding NULL pruning and the other direction yielding mild NEG.
+- **CTRL drift observation**: arm_a CTRL FFS=3050 is +25 off H203 baseline 3025 (+0.9σ_H174). Within drift envelope. Student suggested re-baselining H203 with n=3 trials if claiming small FFS wins — acknowledged but deferred (current portfolio focuses on mechanism ablations where ±25 FFS is sub-threshold).
+- **Student rigor**: acknowledged advisor send-back, fixed dual-CTRL launch and missing treatment configs cleanly; bit-identity gate verified explicitly; chain orchestrator with sequential terminal-marker handoff prevents future config-drift; honest crash investigation (SIGTERM cleanup noise, not real bugs); W&B treatment configs verified distinct per memory feedback_audit_treatment_runs_too.md.
+- **Next assignment — H232 edward (PR #1513)**: **Post-NS5 Cautious-Muon (sign-mask polar-projected updates)** — 28th NEW MECHANISM CLASS. Extends Cautious Optimizers (Liang et al. NeurIPS 2024) to MuonH polar projection. Different from H195 pre-NS5 cautious (NEG, masked in gradient space): H232 applies mask AFTER NS5 polar projection (in polar-projected space — unit spectral-norm orthogonal directions). Tests if sign-agreement masking helps in post-orthogonalization update direction. ~10 LoC code change (isolated `muon_update_cautious` treatment function following H214 pattern to preserve bit-identical CTRL). 3-arm CTRL muonh_cautious=off (bit-id) / CAUTIOUS renormalize (mask + restore magnitude) / CAUTIOUS_NORENORM mask only (loses magnitude).
+
 ## 2026-05-28 03:00 — PR #1448: H214 askeladd body spectral truncation pre-NS5 — CLOSED (80th NULL/NEG bilateral catastrophic, 🎯 9-mechanism body spectral-axis cross-finding CONSOLIDATED — body update gradient is FULL-RANK)
 
 - Branch: `g1r3-askeladd/body-spectral-truncation`
