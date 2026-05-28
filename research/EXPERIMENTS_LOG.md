@@ -1,5 +1,14 @@
 # SENPAI Research Results
 
+## 2026-05-28 21:40 UTC — PR #1614 edward: Cleanup — aux β₂ pulse canonical defaults — ✅ MERGED (code maintenance, no metric change)
+
+- Branch: `g1r1-edward/aux-b2-cleanup`
+- Objective: Make β₂ pulse (step 975, β₂=0.99) the canonical default in `train_gpt_simple.py` so every run fires the pulse without explicit flags.
+- Changes: `--aux_b2_pulse_step` default -1 → 975; `--aux_b2_pulse_target` default -1.0 → 0.99. Help text updated from "Recommended" to "Default".
+- Smoke test: run `a1xra07b`, step 975 log confirms `[step 975] aux_b2_pulse: β2 0.95 → 0.99` without explicit flags. W&B config shows correct defaults. Loss healthy.
+- **Note**: no `--max_steps` flag in train_gpt_simple.py (student killed via SIGTERM after step 1000).
+- Baseline unchanged (cleanup only, no experiment).
+
 ## 2026-05-28 21:10 UTC — PR #1573 thorfinn: Warmup-only AGC (t_off=500, t_off=1500) — ❌ CLOSED NULL (bilateral, axis closed at hard-cutoff config)
 
 - Branch: `g1r1-thorfinn/warmup-only-agc`
