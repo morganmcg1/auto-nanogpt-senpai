@@ -1,3 +1,93 @@
+## 2026-05-28 12:55 UTC — Cycle 71 mid-345 — fern #1545 252nd (PER_DEPTH_HALF_SOAP_BETA2_MLP terminal STANDARD CLOSED — 5-MECHANISM FRONT_UP PRINCIPLE CONFIRMED) + fern #1575 NEW PER_KIND_ATTN_SOAP_BETA2 pivot (first per-kind q/k vs v/proj β2 dispatch within attn-SOAP layer scope across 1575+ PRs, orthogonal to depth-half axis family)
+
+**Cumulative**: **252 refuted** / **149 distinct mech classes** / **110 family-level closures**.
+
+### PR closed this wave (1 closure, terminal bilateral, confirms 5-mechanism front_up):
+
+| PR | student | mechanism | outcome |
+|---|---|---|---|
+| **fern #1545** | fern | PER_DEPTH_HALF_SOAP_BETA2_MLP (Arm A front_FAST β2=0.85 front / 0.95 back, Arm B front_SLOW β2=0.95 front / 0.85 back, MLP-SOAP 24 params) | **252nd** — Arm A val=3.27099/ffs=3025 (STANDARD), Arm B val=3.27214/ffs=3075 (STANDARD); val_mean=3.27157 fails merge bar by 0.00381. **5-mechanism front_up principle now fully confirmed: front blocks benefit from agility/scale/responsiveness/larger-state across LR-axis (#1468/#1492), NORMUON-β2 (#1537), body-init (#1541), MLP-SOAP β2 (#1545). The depth-half axis family within continuous-mechanism dispatch is mapped — pivot to per-kind/state-phase orthogonal axes.** |
+
+### 5-MECHANISM FRONT_UP PRINCIPLE — depth-half axis family fully mapped
+
+| mechanism | direction | PR | Arm A signal |
+|---|---|---|---|
+| LR ramp | front_UP | edward #1468/#1492 | sub-cluster-edge |
+| NORMUON β2 | front_FAST (lower β2) | frieren #1537 | sub-cluster-edge |
+| body Muon init scale | front_BIG | alphonse #1541 | sub-cluster-edge |
+| MLP-SOAP β2 | front_FAST (lower β2) | fern #1545 | STANDARD (closed null) |
+| (NS5 iters depth-half) | front_MORE pending | askeladd #1558 | Arm A front_FEWER STANDARD; Arm B in flight |
+
+**Implication**: depth-half partition gives consistent directional signal but consistent mean-preserving null at terminal (all 4 closed within 0.0008 of baseline mean). The depth-half axis is **saturated** as a probe form. Move to:
+1. **Per-kind partition** (q/k vs v/proj within attn-SOAP — fern #1575 NEW).
+2. **State-phase activation timing** (when to flip on/off — thorfinn #1570 in flight).
+3. **Per-block linear-ramp** (still active via edward #1562, refresh freq attn-trust).
+4. **Sub-state localization** (gram vs exp_avg_sq — thorfinn #1540 closed with signal).
+
+### Fresh assignment — first per-kind dispatch in attn-SOAP layer scope across 1575+ PRs:
+
+| PR | student | mechanism | rationale |
+|---|---|---|---|
+| **fern #1575** | fern | PER_KIND_ATTN_SOAP_BETA2 (Arm A qk_FAST: q=0.85,k=0.85,v=0.95,proj=0.95; Arm B vp_FAST: q=0.95,k=0.95,v=0.85,proj=0.85; geometric mean preserved 0.90; default ATTN_SOAP_BETA2=0.90) | **First per-kind (q/k vs v/proj) state-rule dispatch within attn-SOAP layer scope.** Prior attn-SOAP β2 PRs: #634/#394/#842 swept GLOBAL, #1569 in-flight does per-depth-half. Hypothesis: q/k feed softmax → higher-curvature gradients benefit from faster β2; v/proj carry linear value mixing → slower β2 maintains stability. Orthogonal to depth-half axis (#1569). Per Morgan #1259 per-group state-rule directive. |
+
+### Still-active fleet (8 students, ZERO IDLE):
+
+- **nezuko #1566** — PER_KIND_AUX_AMSGRAD — in flight (heartbeat sent 12:48Z)
+- **edward #1562** — PER_DEPTH_HALF_ATTN_SOAP_REFRESH — Arm A terminal STANDARD (heartbeat resolved)
+- **askeladd #1558** — PER_DEPTH_HALF_NS5_ITERS — Arm A `hojucqex` 3.27242/3050 STANDARD, Arm B in flight ETA 14:45Z
+- **tanjiro #1547** — PER_KIND_AUX_BETA1 — Arm A `4z27ovlr` 3.26997/3025 STANDARD edge, Arm B in flight ETA ~14:00Z
+- **fern #1575** — PER_KIND_ATTN_SOAP_BETA2 (NEWLY assigned)
+- **thorfinn #1570** — ATTN_SOAP_ACTIVATION_DELAY — in flight (awaiting pickup)
+- **alphonse #1568** — PER_DEPTH_HALF_MU_COOLDOWN_END — in flight (awaiting pickup)
+- **frieren #1569** — PER_DEPTH_HALF_ATTN_SOAP_BETA2 — in flight (awaiting pickup)
+
+### Updated per-depth/per-kind dispatch frontier matrix (cycle 71 mid-345):
+
+| axis | dispatch | state-phase | scope | PR |
+|---|---|---|---|---|
+| LR continuous ramp | per-block linear | window | body Muon | edward #1468/#1492 (CLOSED front_up) |
+| SOAP refresh freq MLP | per-block linear | full-run | MLP-SOAP | edward #1525 (CLOSED NULL) |
+| SOAP refresh freq ATTN-trust | per-block linear | full-run | attn-SOAP | edward #1562 (Arm A STANDARD) |
+| TARGET_UW | depth-half | windowed | body Muon | askeladd #1527 (CLOSED NULL) |
+| NORMUON β2 | depth-half | full-run | body Muon | frieren #1537 (**CLOSED front_up sub-cluster-edge**) |
+| **MLP-SOAP Gram EMA β2** | **depth-half** | **full-run** | **MLP-SOAP** | **fern #1545 (CLOSED STANDARD — bilateral NULL)** |
+| body Muon init scale | depth-half | pre-training | body Muon 48p | alphonse #1541 (**CLOSED front_BIG sub-cluster-edge**) |
+| AdamW m EMA β1 | per-kind | full-run | AUX | tanjiro #1547 (Arm A STANDARD edge, Arm B in flight) |
+| NS5 iters | depth-half | full-run | body Muon | askeladd #1558 (Arm A STANDARD, Arm B in flight) |
+| AMSGrad (v state-rule) | per-kind | full-run | AUX | nezuko #1566 (in flight) |
+| MU_COOLDOWN_END | depth-half | late-phase | body Muon | alphonse #1568 (in flight) |
+| ATTN-SOAP β2 | depth-half | full-run | attn-SOAP | frieren #1569 (in flight) |
+| ATTN-SOAP activation step | single-axis | state-phase | attn-SOAP | thorfinn #1570 (in flight) |
+| **ATTN-SOAP β2 per-kind** | **per-kind (q/k vs v/proj)** | **full-run** | **attn-SOAP** | **fern #1575 (NEWLY assigned)** |
+| SOAP state reset (sub-state) | MLP scope | event | exp_avg_sq vs gram | thorfinn #1540 (CLOSED localization signal) |
+| SOAP state reset depth-half | depth-half | event | all SOAP | fern #1519 (CLOSED) |
+| m-reset per-block | per-block | event | body Muon | askeladd #1504 (CLOSED) |
+| m-reset per-kind AUX | embed vs lm_head | event | AUX | tanjiro #1522 (CLOSED kind-ASYMMETRIC) |
+| AUX m-reset timing | single-axis | event-timing | AUX | nezuko #1528 (CLOSED NULL) |
+| v-reset / m+v joint body | none | event | body Muon | alphonse #1518 (CLOSED) |
+| AUX m+v joint | none | event | AUX | nezuko #1505 (CLOSED) |
+| m←±grad direction | none | event | body Muon | frieren #1512 (CLOSED) |
+
+**14 continuous-mechanism dispatch axes active** (added attn-SOAP β2 per-kind on q/k vs v/proj — first per-kind axis within attn-SOAP layer scope), **7 closed event/discrete**. Per-kind axis family fully untested within attn-SOAP scope before fern #1575.
+
+### Cluster-floor sub-cluster-edge band density (252-refute snapshot):
+
+**Sub-cluster-edge accumulating density [3.265, 3.269)**: 
+- alphonse Arm A `front_BIG` 3.26859 (252-refute closest to baseline 3.26776)
+- frieren Arm A `front_FAST` 3.26957
+- thorfinn Arm B `gram_only` 3.26922 (sub-state localization standout)
+
+**STANDARD band cluster [3.269, 3.275)**: still ~21-mechanism floor; fern #1545 Arm A/B both land here. No mechanism has crossed the merge bar at single-seed since PR #613.
+
+### Research focus going into mid-346:
+
+1. **Pivot AWAY from depth-half axis on continuous mechanisms.** 5 closures (LR/NORMUON-β2/body-init/MLP-SOAP-β2/NS5) confirm bilateral-NULL pattern with consistent directional signal but no cluster-edge crossing.
+2. **Per-kind axis family** is the next frontier — fern #1575 (attn-SOAP β2 per-kind) joins tanjiro #1547 (AUX β1 per-kind) and nezuko #1566 (AUX AMSGrad per-kind) and tanjiro #1522 closed (AUX m-reset embed-vs-lm_head ASYMMETRIC signal).
+3. **State-phase axis family** — thorfinn #1570 ATTN_SOAP_ACTIVATION_DELAY tests state-phase activation timing for SOAP gram bootstrapping.
+4. **Pending Arm Bs**: tanjiro #1547 ETA ~14:00Z, askeladd #1558 ETA ~14:45Z. Watch tanjiro carefully — Arm A `4z27ovlr` 3.26997/3025 STANDARD edge.
+
+---
+
 ## 2026-05-28 12:38 UTC — Cycle 71 mid-344 — thorfinn #1540 251st (POST_TARGET_SOAP_MLP_SUB_STATE_LOCALIZATION CLOSED with localization signal — gram is load-bearing) + thorfinn #1570 NEW ATTN_SOAP_ACTIVATION_DELAY pivot (first state-phase activation-timing axis on attn-trust SOAP across 1500+ PRs) + edward #1562 heartbeat sent + askeladd #1558 Arm A terminal (front_FEWER NS5 lands STANDARD)
 
 **Cumulative**: **251 refuted** / **148 distinct mech classes** / **109 family-level closures**.
