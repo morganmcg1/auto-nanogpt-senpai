@@ -78,6 +78,14 @@ def parse_args():
                         help="If set, run paramEMA refresh at --paramema_refresh_step but "
                              "DISABLE L_cov refresh (lcov_refresh_step treated as -1). "
                              "Ablation flag for isolating paramEMA-only contribution.")
+    parser.add_argument("--stable_pulse_step", type=int, default=-1,
+                        help="Center step of the mid-stable LR pulse. -1 disables (default). "
+                             "Recommended: 1600 (midpoint of stable phase 975-2275).")
+    parser.add_argument("--stable_pulse_width", type=int, default=100,
+                        help="Width of the rectangular LR pulse in steps. The pulse window is "
+                             "[stable_pulse_step - width/2, stable_pulse_step + width/2).")
+    parser.add_argument("--stable_pulse_mult", type=float, default=1.0,
+                        help="LR multiplier during the pulse window. 1.0 = no pulse (default).")
     parser.add_argument("--seed", type=int, default=1,
                         help="Random seed for torch/numpy/python. Default 1 matches baseline seed.")
     args = parser.parse_args()
@@ -750,9 +758,22 @@ if dist.get_rank() == 0:
             "muon_block_lr_pattern": args.muon_block_lr_pattern,
             "paramema_refresh_step": args.paramema_refresh_step,
             "paramema_refresh_only": int(args.paramema_refresh_only),
+            "train/pulse/step": args.stable_pulse_step,
+            "train/pulse/width": args.stable_pulse_width,
+            "train/pulse/mult": args.stable_pulse_mult,
             "seed": args.seed,
         },
     )
+    if args.stable_pulse_step >= 0:
+        _sp_half = args.stable_pulse_width / 2.0
+        _sp_lo = args.stable_pulse_step - _sp_half
+        _sp_hi = args.stable_pulse_step + _sp_half
+        print(f"pulse: step={args.stable_pulse_step} "
+              f"width={args.stable_pulse_width} mult={args.stable_pulse_mult} "
+              f"→ window [{_sp_lo}, {_sp_hi}) (multiplicative bump on natural eta)",
+              flush=True)
+    else:
+        print("pulse: disabled", flush=True)
 
 for trial_idx in range(args.num_trials):
 
@@ -852,10 +873,18 @@ for trial_idx in range(args.num_trials):
             return 0.0
         progress = step / train_steps
         if progress < 1 - cooldown_frac:
-            return 1.0
-        cooldown_progress = (progress - (1 - cooldown_frac)) / cooldown_frac
-        w = 1.0 - cooldown_progress
-        return w ** COOLDOWN_POWER
+            eta = 1.0
+        else:
+            cooldown_progress = (progress - (1 - cooldown_frac)) / cooldown_frac
+            w = 1.0 - cooldown_progress
+            eta = w ** COOLDOWN_POWER
+        if args.stable_pulse_step >= 0:
+            half = args.stable_pulse_width / 2.0
+            lo = args.stable_pulse_step - half
+            hi = args.stable_pulse_step + half
+            if lo <= step < hi:
+                eta = eta * args.stable_pulse_mult
+        return eta
 
     def compute_ema_beta_t(step):
         """Dynamic β_t = β_base + (β_target - β_base) × (1 - lr_mult_t).
@@ -880,6 +909,12 @@ for trial_idx in range(args.num_trials):
             cooldown_progress = (progress - (1 - cooldown_frac)) / cooldown_frac
             w = 1.0 - cooldown_progress  # equivalent to (1 - progress) / cooldown_frac
             eta = w ** COOLDOWN_POWER
+        if args.stable_pulse_step >= 0:
+            half = args.stable_pulse_width / 2.0
+            lo = args.stable_pulse_step - half
+            hi = args.stable_pulse_step + half
+            if lo <= step < hi:
+                eta = eta * args.stable_pulse_mult
         for opt in optimizers:
             for group in opt.param_groups:
                 group["lr"] = group["initial_lr"] * eta
@@ -1113,6 +1148,15 @@ for trial_idx in range(args.num_trials):
                     "polar/ns_coef_b": NS_B,
                     "polar/ns_coef_c": NS_C,
                 }, step=wandb_step)
+            if args.stable_pulse_step >= 0:
+                _sp_half = args.stable_pulse_width / 2.0
+                _sp_lo = args.stable_pulse_step - _sp_half
+                _sp_hi = args.stable_pulse_step + _sp_half
+                _sp_active = int(_sp_lo <= step < _sp_hi)
+            else:
+                _sp_active = 0
+            # Natural eta without the pulse — useful to disentangle pulse contribution from cooldown shape.
+            _sp_eta_natural = sched_eta / args.stable_pulse_mult if _sp_active and args.stable_pulse_mult != 0 else sched_eta
             wandb.log({
                 "trial": trial_idx,
                 "train/step": train_step,
@@ -1120,6 +1164,9 @@ for trial_idx in range(args.num_trials):
                 "train/cooldown/cooldown_progress": sched_cooldown_progress,
                 "train/cooldown/lr_multiplier": sched_eta,
                 "train/cooldown/power_gamma": COOLDOWN_POWER,
+                "train/pulse/active": _sp_active,
+                "train/pulse/eta_natural": _sp_eta_natural,
+                "train/pulse/eta_final": sched_eta,
             }, step=wandb_step)
             if param_lr_mults is not None:
                 muon_group_lr = optimizer2.param_groups[0]["lr"]
