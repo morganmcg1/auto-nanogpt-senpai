@@ -1,14 +1,29 @@
 # SENPAI Research State — auto-nanogpt-1gpu-r3
 
-- **Last updated:** 2026-05-28 00:45 UTC
+- **Last updated:** 2026-05-28 01:55 UTC
 
 ---
 
 ## 🏆 CURRENT BASELINE: FFS=3025, val=3.26830 — PR #1398 H203 tanjiro cosine cooldown shape
 
-**Baseline shift alert RESOLVED**: All PRs from the pre-H203-merge cohort (H204-H213) have now closed or completed. All remaining in-flight PRs (H214, H222-H228) are on the cosine baseline.
+**Baseline shift alert RESOLVED**: All PRs from the pre-H203-merge cohort (H204-H213) have now closed or completed. All remaining in-flight PRs (H214, H223-H229) are on the cosine baseline.
 
 ---
+
+## 🎯 Cycle ~560 (01:45-01:55 UTC) — H222 fern CLOSED (78th NULL/NEG bilateral NEG, µ-schedule LOAD-BEARING + retune direction exhausted, contributes to MuonH-SI structural tightness cross-finding); H229 fern ASSIGNED MuonH INNER Nesterov vs Polyak momentum form ablation (PR #1506, 25th novel mechanism class, companion to H221 outer momentum finding)
+
+- **🎯 H222 fern CLOSED — 78th NULL/NEG bilateral NEG**: arm_a CTRL linear µ 0.95→0.90 val=3.26818/FFS=3025 bit-identical baseline (first clean non-drift CTRL since H213); arm_b SCHED_OFF constant µ=0.95 val=3.27082/FFS=3100 (+0.00264 val NEG, +75 FFS NEG, +2.99σ vs H174 envelope); arm_c MU_END_85 linear µ 0.95→0.85 val=3.26916/FFS=3025 (val +0.00098 mild NEG, FFS tied). **Bit-identity gate PASSED step-0 10.82583 exact.**
+- **🎯 Excellent student mechanistic analysis — µ schedule IS load-bearing AND (0.95, 0.90) is approximately optimal**: arm_b (prune entirely) → +75 FFS NEG: constant µ=0.95 keeps too much momentum inertia during cooldown. arm_c (push µ_end lower) → mild val NEG: faster µ decay does NOT recover terminal val regression. (0.95, 0.90) inside local optimum bracket — 0.95→constant too sluggish, 0.95→0.85 too aggressive.
+- **🎯 MuonH-SI structural tightness cross-finding EXTENDED** (5 mechanism classes confirmed load-bearing in stack):
+  - H216 Lookahead k=10/k=30: CATASTROPHIC FFS=-1 (outer averaging substitute breaks training)
+  - H221 NO_OUTER: CATASTROPHIC FFS=-1 (removing outer Nesterov breaks)
+  - H221 NO_MOMENTUM: CATASTROPHIC FFS=-1 2.9x WORSE (removing velocity buffer breaks)
+  - **H222 SCHED_OFF: MILD NEG +75 FFS** (removing µ schedule perturbs but doesn't break)
+  - **H222 MU_END_85: MILD NEG val regression** (retuning µ_end lower doesn't help)
+  - **Magnitude ranking**: outer-Nesterov (catastrophic) >> outer momentum buffer (catastrophic) >> outer averaging substitute (catastrophic) >> µ schedule pruning (mild NEG) >> µ retune direction (mild NEG). Every component contributes; outer-Nesterov slot most load-bearing.
+- **Strategic implication**: Stop attempting to recover terminal val regression via µ-schedule axis. Future schedule experiments target OTHER mechanisms (cooldown clamp H226, aux β₁ H225, warmup H224, init H227, weight decay H228, inner momentum form H229 NEW).
+- **🎯 H229 fern ASSIGNED (PR #1506) — 25th NEW MECHANISM CLASS: MuonH INNER Nesterov vs Polyak momentum form ablation**: Per launch directive ("fresh optimizer mechanisms"). Companion to H221 outer momentum finding. The MuonH inner momentum form (line 567-571 `muon_update`) uses Nesterov-form hardcoded — `update = grad.lerp_(momentum, mu)` if nesterov, else `update = momentum`. Tests if inner Nesterov correction is load-bearing, OR if pure Polyak heavy-ball suffices when followed by NS5 polar projection (which might wash out the form difference). ~5 LoC code change (add `--muonh_nesterov` argparse flag, pass through MuonH defaults to muon_update). 3-arm CTRL nesterov=1 (bit-id) / POLYAK nesterov=0 (Nesterov OFF) / NO_MOMENTUM mu=0.0 (buffer OFF, stretch goal). Predicted: POLYAK mild NEG based on H221 parallel; NO_MOMENTUM catastrophic.
+- **End-of-cycle ~560 portfolio**: H214 askeladd spectral RANK truncation (arm_c TRUNC_TOP25 ETA ~02:00 UTC, mid-flight); H223 nezuko aux ε pruning (arm_c EPS_1E4 ETA ~03:00 UTC, arm_b EPS_1E8 VESTIGIAL finding); H224 edward warmup pruning (chain orchestrator running, arm_b WARMUP_OFF ~94% terminal imminent ETA ~02:00 UTC); H225 frieren aux β₁ ablation (arm_b BETA1_09 ETA ~02:00 UTC, arm_c BETA1_05 ETA ~03:30 UTC); H226 tanjiro CLAMP-FLOOR (arm_a CTRL ~98% terminal imminent, arm_b/c NOT yet launched — refresh comment posted requesting sequential launch); H227 thorfinn body init ablation (in flight); H228 alphonse body WD axis (in flight); H229 fern inner Nesterov vs Polyak (newly assigned). **8/8 students WIP, 0 idle, 0 review-ready.** **25 novel mechanism classes** (added MuonH inner momentum form). Programme findings count: 48+ candidates. **Major review batch expected ~02:00 UTC**: H214 arm_c + H224 arm_b + H225 arm_b all terminating within minutes of each other.
 
 ## 🎯 Cycle ~550 (00:35-00:45 UTC) — H221 alphonse CLOSED (77th NULL/NEG bilateral catastrophic FFS=-1 both arms, programme finding #46 EXTENDED: MuLoCo outer-Nesterov is non-interchangeable structural slot, NO_MOMENTUM 2.9x WORSE than NO_OUTER reveals Nesterov velocity buffer IS the mechanism); H228 alphonse ASSIGNED MuonH body WEIGHT DECAY axis (PR #1503, 24th novel mechanism class, fresh non-LR optimizer mechanism)
 

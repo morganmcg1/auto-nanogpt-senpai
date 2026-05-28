@@ -1,3 +1,28 @@
+## 2026-05-28 01:50 — PR #1472: H222 fern MuonH µ-schedule pruning ablation — CLOSED (78th NULL/NEG, bilateral NEG, µ-schedule LOAD-BEARING + retune direction exhausted, extends MuonH-SI structural tightness cross-finding)
+
+- Branch: `g1r3-fern/muonh-mu-schedule-pruning`
+- Hypothesis: Is the linear µ schedule (0.95→0.90 across 3325 steps, inherited from H109-era stack) load-bearing or vestigial complexity? Pruning ablation per launch directive ("pruning ablations of complex stacks").
+- Results:
+
+  | Arm | µ-schedule | µ_start | µ_end | W&B | val/loss | FFS | Δval vs CTRL | Verdict |
+  |---|---|---|---|---|---|---|---|---|
+  | arm_a CTRL | linear | 0.95 | 0.90 | `omb3ba77` | **3.26818** | **3025** | (bit-id baseline) | reproduces H203 |
+  | arm_b SCHED_OFF | off (const µ=0.95) | — | — | `siyvuo23` | **3.27082** | **3100** | +0.00264 | **NEG (+75 FFS, +2.99σ val)** |
+  | arm_c MU_END_85 | linear | 0.95 | 0.85 | `y3y7f0b2` | **3.26916** | **3025** | +0.00098 | **NEG by val (FFS match, val +1.11σ)** |
+
+- **Bilateral NEG**: arm_b decisive (+75 FFS, +2.99σ val), arm_c mild val NEG (FFS match but val regression vs baseline).
+- **Bit-identity gate PASSED**: arm_a step-0 val=10.82583 bit-id, FFS=3025 exact baseline match. First clean (non-+25 drift) CTRL since H213.
+- **🎯 Excellent student analysis — µ schedule IS load-bearing AND (0.95, 0.90) is local optimum**: arm_b (prune entirely) → +75 FFS NEG: constant µ=0.95 keeps too much momentum inertia during cooldown phase. arm_c (push µ_end lower) → mild val NEG: faster µ decay does NOT recover terminal val regression. (0.95, 0.90) is inside a local optimum bracket: 0.95→constant too sluggish, 0.95→0.85 too aggressive.
+- **🎯 MuonH-SI structural tightness cross-finding extended** (4 mechanism classes confirmed load-bearing):
+  - H216 Lookahead k=10/k=30: CATASTROPHIC FFS=-1 (outer averaging substitute breaks training)
+  - H221 NO_OUTER: CATASTROPHIC FFS=-1 (removing outer Nesterov breaks)
+  - H221 NO_MOMENTUM: CATASTROPHIC FFS=-1 2.9x WORSE (removing velocity buffer breaks)
+  - **H222 SCHED_OFF: MILD NEG +75 FFS** (removing µ schedule perturbs but doesn't break)
+  - **H222 MU_END_85: MILD NEG val regression** (retuning µ_end lower doesn't help)
+  - **Magnitude ranking**: outer-Nesterov (catastrophic) >> outer momentum buffer (catastrophic) >> outer averaging substitute (catastrophic) >> µ schedule pruning (mild NEG) >> µ retune direction (mild NEG). Every component contributes; outer-Nesterov slot most load-bearing.
+- **Strategic implication**: Stop attempting to recover terminal val regression via µ-schedule axis. Future schedule-axis experiments target OTHER mechanisms (cooldown variants H226, aux β₁/β₂ H225, warmup H224, init H227, weight decay H228, inner momentum form H229 NEW).
+- **Next assignment — H229 fern (PR #1506)**: MuonH INNER Nesterov vs Polyak momentum form ablation. Fresh mechanism class (25th in portfolio) — companion to H221 outer momentum form finding. Tests if inner momentum's Nesterov correction (line 569 `update = grad.lerp_(momentum, mu)` if nesterov) is load-bearing, or if pure Polyak heavy-ball suffices. ~5 LoC code change (add `--muonh_nesterov` argparse flag, pass to muon_update via MuonH defaults). 3-arm CTRL nesterov=1 (bit-id) / POLYAK nesterov=0 (Nesterov OFF) / NO_MOMENTUM mu=0.0 (buffer OFF, stretch goal — implementation may drop to 2-arm if argparse can't cleanly set mu=0).
+
 ## 2026-05-28 00:35 — PR #1467: H221 alphonse MuLoCo pruning ablation — CLOSED (77th NULL/NEG + 🎯 programme finding #46 extended: MuLoCo outer-Nesterov is a non-interchangeable structural slot, NO_MOMENTUM 2.9x WORSE than NO_OUTER reveals Nesterov velocity buffer is the mechanism)
 
 - Branch: `g1r3-alphonse/muloco-pruning-ablation`
