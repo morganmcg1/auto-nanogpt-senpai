@@ -1,5 +1,26 @@
 # SENPAI Research Results — auto-nanogpt-1gpu-r5
 
+## 2026-05-28 13:40 — PR #1516 CLOSED [38th closure of R5]: nezuko Orthogonal QKV init for attention (Saxe et al. 2014) — fresh init axis
+- branch: g1r5-nezuko/qkv-orthogonal-init
+- Hypothesis: orthogonal initialization of attention QKV projections preserves signal norm at init, pairs geometrically with NS5 polar (orthogonal) updates, and accelerates early training crossing of val=3.28. Tested with gain ∈ {0.5, 1.0, √2} on qkv_only scope, plus qkv_and_proj scope expansion. **NOTE**: Ran on OLD linear-cooldown stack (pre-#1381 merge); comparisons in this entry are against the OLD baseline (FFS μ_4=3025, val μ_4=3.261221).
+
+| Cell | mode/gain/scope | val/loss | FFS | Δval vs OLD μ_4 (σ_single=0.000593) | W&B id |
+|:----:|:----------------|:--------:|:---:|:---------------------------------:|:------:|
+| A | normal (ctrl) | 3.263437 | 3050 | +0.002216 (+3.74σ noisy n=1) | t6ksf53n |
+| **B★** | ortho gain=1.0 qkv_only | **3.260237** | 3025 | −0.000984 (−1.66σ) | qm48bjet |
+| C | ortho gain=√2 qkv_only | **3.259991** | 3025 | −0.001230 (−2.07σ) | 27x1uzw9 |
+| D | ortho gain=0.5 qkv_only | 3.260758 | 3025 | −0.000463 (−0.78σ) | g5hbzw9g |
+| E | ortho gain=1.0 qkv_and_proj | 3.263614 | 3050 | +0.002393 (+4.03σ) | cfbiwbe6 |
+
+**Closure rationale (#1262 directive)**: All 3 orthogonal cells B/C/D hit FFS=3025 = OLD linear-baseline floor; none cross FFS-alive gate ≤ 2975 at n=1 → FFS-DEAD. Within-sweep val gain (~5σ_single) exists but is concentrated in final converged val/loss, not in crossing time. Not promoted to cosine stack: (a) val gain is small enough that n=1 control noise (Cell A +3.7σ off μ_4) dominates the apparent within-sweep shift; (b) within-sweep FFS Δ(A→B/C/D) = −25 steps (single step grid) — orthogonal init does not move crossing time meaningfully; (c) init-geometry axis is already saturated (8+ closures: #298 / #350 / #368 / #452 / #611 / #714 / #722 / depth_init_mode axis).
+
+**Three preserved mechanism findings**:
+- **F1 — c_proj scope falsifier (Cell E)**: ortho on c_proj erases the val gain — Δ(E−B) = +0.0034 = ~5.7σ_single regression. c_proj prefers asymmetric/heavier-tailed init (validating existing depth_init_mode=musoft small-norm c_proj choice).
+- **F2 — Weak gain sensitivity**: B (gain=1.0), C (√2), D (0.5) val-positive within ~1σ_single of each other. Mode (ortho vs normal) matters more than magnitude.
+- **F3 — Val-side, not FFS-side speedup**: All 3 ortho cells hit FFS=3025 (no crossing-time gain); benefit concentrated in converged value. On this stack, init perturbations don't move FFS; FFS load-bearing is in schedule shape (cosine cooldown #1381).
+
+**Cross-cluster claim**: Combined with #368 (ortho QKV subset sweep default|ortho_unit|ortho_scaled|v_only|qk_only, closed clean-NEG/neutral), the **orthogonal-attention-input init axis is closed FFS-DEAD** across (a) sub-component selection (Q vs K vs V), (b) gain magnitude (0.5/1.0/√2), and (c) scope expansion (qkv vs qkv+proj).
+
 ## 2026-05-28 10:30 — PR #1502 CLOSED [37th closure of R5]: edward Sophia-G (2nd-order Hessian) on AdamW aux groups (Liu et al. ICLR 2024, arxiv:2305.14342)
 - branch: g1r5-edward/sophia-g-aux
 - Hypothesis: Sophia-G's per-batch Gauss-Newton-Bartlett Hessian diagonal preconditioner replaces `sqrt(v_hat) + eps` denominator with `max(γ·h_t, ε)` clipped to `[-ρ, +ρ]`; 2nd-order curvature information promised faster convergence on aux groups. Tested on AdamW aux (embed, lm_head, scalars) groups.
