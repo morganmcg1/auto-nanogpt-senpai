@@ -1,5 +1,29 @@
 # SENPAI Research State — auto-nanogpt-1gpu-r1
 
+- **Last update: 2026-05-28 18:28 UTC**
+- **Baseline:** PR #1429, val_ema=3.263938, sr=2900. Merge gate: `sr ≤ 2887.5 OR (sr=2900 AND val_ema < 3.263938)`.
+- **🎯 WIN CANDIDATE pending seed-2 confirmation**: #1532 edward β₂ pulse (0.95→0.99 @ step 975) — Arm B val_ema=3.26218, sr=2875. Seed-2 `09qrijtm` in flight, step ~2000/3250, ETA terminal ~19:17 UTC. Both merge gate clauses pass on seed-1. Merge pending seed-2.
+- **Active assignments (all 8 students engaged):**
+  - **#1532 edward**: seed-2 `09qrijtm` in flight, ETA 19:17 UTC
+  - **#1559 fern**: Arm A NULL (β=0.985, sr=2925, val=3.2659). Arm B (β=0.995, `594eshn4`) offline, not yet synced — 30 min past predicted terminal (17:54 UTC). Nudge sent 18:25 UTC.
+  - **#1561 frieren**: Arm A NULL (Nesterov full, sr=2925, val=3.26655). Arm B (Nesterov stable-only, ETA ~18:30 UTC) in flight, run id pending offline sync.
+  - **#1573 thorfinn**: Arm A NULL (warmup-only AGC t_off=500, sr=2925, val=3.26610). Arm B (t_off=1500, `91w0t6vu`, ETA ~20:30 UTC) in flight.
+  - **#1576 tanjiro**: Schedule-Free AMUSE, Arm B (`t39pt08a`, step ~2550) in flight — mechanism refuted in-flight (SF x-buffer becomes uniform mean; terminal ETA ~18:37 UTC). Arm A skipped per advisor approval.
+  - **#1591 alphonse**: β₂ pulse amplitude sweep — Arm A (β₂=0.995, `s68jjmrw`) step ~1300/3250, ETA ~20:00 UTC. Arm B (β₂=0.999) chained.
+  - **#1592 askeladd**: β₁ pulse on aux Adam — Arm A (`e2mzomu8`) step ~875/3250, ETA ~20:30 UTC. Arm B chained.
+  - **#1601 nezuko**: NEW — aux Adam v-buffer state-reset @ step 975 (Arm A: v=0, Arm B: v=mean). Mechanism cousin of pEMA refresh + edward WIN. Just assigned.
+- **NULLs closed today (18 total):**
+  - #1560 nezuko: aux cooldown timing bilateral NULL. Canonical coupled timing confirmed optimal.
+  - #1573 thorfinn Arm A: warmup-only AGC t_off=500 NULL (warm-start lost during steady-state).
+  - #1561 frieren Arm A: Nesterov full NULL (+2.62 mnat).
+  - #1535 alphonse, #1542 askeladd, #1524 tanjiro, #1531 thorfinn, #1510 frieren, #1507 fern, #1508 nezuko (prior closures today).
+- **Research themes:**
+  - **Primary focus: exploit edward's WIN axis** — β₂ pulse on aux Adam. Three concurrent experiments: amplitude (#1591 alphonse), moment generalization (#1592 askeladd β₁), state-reset analog (#1601 nezuko v-reset).
+  - **Mechanism characterization**: aux v-reset vs β₂ pulse distinguishes "fresh variance" vs "EMA-window-shift" mechanism — opens combinatorial stacking path.
+  - **Phase-specific mechanisms still open**: Nesterov stable-phase (frieren Arm B), AGC warmup-extended (thorfinn Arm B).
+  - **Schedule-Free refuted**: tanjiro sf-arm-b shows SF x-buffer becomes ≈ uniform mean (no late-iterate emphasis), structurally mismatched to WSD-cooldown speedrun.
+- **Post-WIN merge plan:** Once seed-2 confirms (#1532), merge edward, update baseline, assign cleanup PR, reassign edward.
+
 - **Last update: 2026-05-28 16:30 UTC**
 - **🎯 WIN CANDIDATE #1532 edward**: seed-2 `09qrijtm` launched 15:34 UTC, at step 250/3250, ETA terminal ~19:14 UTC. Merge pending seed-2 confirmation.
 - **2 more NULLs closed**: #1535 alphonse pEMA aux-extend bilateral (body-dominated refresh bump, axis closed); #1542 askeladd β_t decouple Arm B terminal (val_ema=3.2655, sr=2925, NULL — awaiting student marker).

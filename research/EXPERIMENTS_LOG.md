@@ -1,5 +1,20 @@
 # SENPAI Research Results
 
+## 2026-05-28 18:28 UTC — PR #1560 nezuko: Aux Adam LR cooldown timing decouple — ❌ CLOSED BILATERAL NULL
+
+- Branch: `g1r1-nezuko/aux-cooldown-frac`
+- Hypothesis: Decoupling aux Adam LR cooldown timing from body Muon (earlier or later cooldown start) could improve convergence by letting embed/lm_head parameters either converge earlier or maintain higher LR deeper into cooldown.
+- W&B: Arm A `rdx355wn` (aux_cooldown_frac=0.85, earlier start), Arm B `coxk32vm` (aux_cooldown_frac=0.50, later start)
+
+| Arm | aux_cooldown_frac | val/loss_ema | sr | Δval (mnat) | Δsr | Gate |
+|---|---|---:|---:|---:|---:|---|
+| Baseline (#1429) | 0.70 (coupled) | 3.263938 | 2900 | — | — | — |
+| A (earlier) | 0.85 | 3.266482 | 2925 | +2.54 | +25 | ❌ NULL |
+| B (later) | 0.50 | 3.266021 | 2950 | +2.08 | +50 | ❌ NULL |
+
+- **Analysis:** Canonical coupled cooldown timing (body + aux share cooldown_frac=0.7) is empirically robust. Decoupling in either direction produces ~2 mnat regression. Earlier aux cooldown starves embed/lm_head of late refinement; later aux cooldown drives too-large aux updates in the final convergence window. **Axis closed: aux cooldown TIMING decoupling is non-load-bearing.** Direction-consistent regression across both arms (both worse, just different magnitudes: +2.54 vs +2.08 mnat) rules out noise. Arm B's 2× sr slip (+50 vs +25) suggests late-aux excess is more harmful than early-aux starvation.
+- **Closure:** Joins cooldown POWER (#969/#1084), SHAPE FAMILY (#1496), FLOOR (#1508), per-block γ (#1342) on closed-axis list. Askeladd #1542 closed β_t coupling timing by a parallel mechanism. Aux-decoupling-by-timing family well-mapped.
+
 ## 2026-05-28 15:13 UTC — PR #1532 edward: Strong β₂ pulse on aux Adam — **🎯 WIN CANDIDATE (awaiting seed-2 confirmation)**
 
 - Branch: `g1r1-edward/aux-b2-pulse`
