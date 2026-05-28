@@ -1,14 +1,35 @@
 # SENPAI Research State — auto-nanogpt-1gpu-r3
 
-- **Last updated:** 2026-05-28 02:05 UTC
+- **Last updated:** 2026-05-28 03:05 UTC
 
 ---
 
 ## 🏆 CURRENT BASELINE: FFS=3025, val=3.26830 — PR #1398 H203 tanjiro cosine cooldown shape
 
-**Baseline shift alert RESOLVED**: All PRs from the pre-H203-merge cohort (H204-H213) have now closed or completed. All remaining in-flight PRs (H214, H224-H230) are on the cosine baseline.
+**Baseline shift alert RESOLVED**: All PRs from the pre-H203-merge cohort (H204-H213) have now closed or completed. All remaining in-flight PRs (H224-H231) are on the cosine baseline.
 
 ---
+
+## 🎯 Cycle ~580 (02:55-03:05 UTC) — H214 askeladd CLOSED (80th NULL/NEG bilateral catastrophic, body spectral-rank axis CLOSED, 🎯 9-mechanism body spectral-axis cross-finding CONSOLIDATED — body update gradient is FULL-RANK); H231 askeladd ASSIGNED MuonH mode axis (PR #1511, 27th novel mechanism class, post-step projection mechanism clip vs scale_invariant)
+
+- **🎯 H214 askeladd CLOSED — 80th NULL/NEG bilateral catastrophic**: arm_a CTRL keep_frac=1.0 (no-op) val=3.26820/FFS=3025 within-noise baseline match (vs H203 `pyea3zd1` 3.26830, Δ=-1.0e-4); arm_b TRUNC_HALF keep_frac=0.5 val=3.30651/FFS=-1 catastrophic (+0.038 val, never reached 3.28); arm_c TRUNC_TOP25 keep_frac=0.25 val=3.37976/FFS=-1 catastrophic (+0.112 val, strictly worse than arm_b). **Bilateral catastrophic with monotonic NEG profile** — more aggressive truncation lands worse.
+- **🎯 Mechanism finding — body update gradient is FULL-RANK**: Opposite signature from low-rank-gradient regimes (GaLore/LoRA work with top-k truncation). Here truncation is monotonically destructive — body update gradient information genuinely distributed across the full singular-value spectrum.
+- **🎯 9-mechanism body spectral-axis cross-finding CONSOLIDATED** (extends 8-mechanism from H206):
+  - H191 AdaMuon (pre-NS5 second moment scaling)
+  - H193 NS5 iter count (12 vs 16)
+  - H195 Cautious (pre-NS5 sign-masking)
+  - H196 Gradient Centralization
+  - H199 Dual-EMA
+  - H201 grad-noise
+  - H205 Soft Polar
+  - H206 NS5 polynomial coefficients
+  - **H214 NS5 input rank (spectral truncation) — NEW**
+  
+  ALL NULL/NEG on body update spectral content modification. Body update axis is **locally convergence-floored** at H203 baseline along all tested spectral axes.
+- **Strategic implication**: Future experiments should leave body update spectral modifications entirely. Pivot to body update **post-step projection** axis (H231) or fresh non-body axes (H224 warmup, H225 β₁, H226 cooldown clamp-floor, H227 body init, H228 body WD, H229 inner Nesterov, H230 NS5 iters).
+- **Implementation rigor**: Student refactored after `@torch.compile` re-trace drift detection, isolated `muon_update_truncated` for treatment arms while preserving bit-identical `muon_update` compiled kernel for CTRL.
+- **🎯 H231 askeladd ASSIGNED (PR #1511) — 27th NEW MECHANISM CLASS: MuonH mode axis (clip vs scale_invariant)**: Per launch directive ("pruning ablations of complex stacks"). The H148+H203 baseline uses `--muonh_mode scale_invariant` (always-on rescale + renormalize on Frobenius sphere, holds norm exactly constant). Alternative mode "clip" uses standard SGD-momentum step then project-back-to-ball **only when norm exceeds R** — fundamentally different mechanism (hard always-on vs soft late-only norm constraint). Past closures tested `hyperball=True/False` (full pruning of projection) but never the soft-vs-hard variant. **Zero code changes required** — both modes already in argparse. 3-arm CTRL scale_invariant (bit-id) / CLIP_MODE clip (soft projection) / CLIP_LOOSE clip + budget_mult=2.0 (very loose ball).
+- **End-of-cycle ~580 portfolio**: H224 edward warmup pruning (arm_b WARMUP_OFF was 94% at 01:30 UTC — should be terminal); H225 frieren aux β₁ (arm_a CTRL FFS=3025 FINISHED, arm_b BETA1_09 mild NEG +50 FFS FINISHED, arm_c BETA1_05 RUNNING ~20%); H226 tanjiro CLAMP-FLOOR (arm_a CTRL ~98% terminal imminent, arm_b/c still pending launch); H227 thorfinn body init (arm_a FFS=3025 FINISHED, arm_b BOTTOM_DAMP at 5%, arm_c DEFAULT pending); H228 alphonse body WD (in flight); H229 fern inner Nesterov vs Polyak (in flight); H230 nezuko NS5 iter count (newly assigned); H231 askeladd MuonH mode axis (newly assigned). **8/8 students WIP, 0 idle, 0 review-ready.** **27 novel mechanism classes** explored.
 
 ## 🎯 Cycle ~570 (02:00-02:05 UTC) — H223 nezuko CLOSED (79th NULL/NEG, 🎯 FIRST VESTIGIAL FINDING in H148+H203 stack — aux ε=1e-6 customization vestigial, ε=1e-4 upper-bound NEG, 2nd numerical-conditioning result); H230 nezuko ASSIGNED MuonH NS5 polynomial iteration count axis (PR #1509, 26th novel mechanism class, lower-bound test for spectral projection convergence)
 

@@ -1,3 +1,35 @@
+## 2026-05-28 03:00 — PR #1448: H214 askeladd body spectral truncation pre-NS5 — CLOSED (80th NULL/NEG bilateral catastrophic, 🎯 9-mechanism body spectral-axis cross-finding CONSOLIDATED — body update gradient is FULL-RANK)
+
+- Branch: `g1r3-askeladd/body-spectral-truncation`
+- Hypothesis: Is the body MuonH update intrinsically low-rank? Pre-NS5 SVD truncation should be neutral (if low-rank signal already concentrated) or beneficial (if NS5 amplifies noise via σ=1 polar projection on bottom singular vectors).
+- Results (n=1 each, train_steps=3325):
+
+  | Arm | body_spectral_truncate | W&B | val/loss | FFS | target_margin | Verdict |
+  |---|---|---|---|---|---|---|
+  | arm_a CTRL | 1.0 (no-op) | `wpwfcysg` | **3.26820** | **3025** | +0.01180 PASS | within-noise baseline match vs H203 3.26830 |
+  | arm_b TRUNC_HALF | 0.5 | `bq13viaw` | 3.30651 | **-1** | -0.02651 FAIL | **CATASTROPHIC NEG** (+0.038 val, never reached target) |
+  | arm_c TRUNC_TOP25 | 0.25 | `ysku91pr` | **3.37976** | **-1** | -0.09976 FAIL | **CATASTROPHIC NEG** (+0.112 val, strictly worse than arm_b) |
+
+- **Bilateral catastrophic NEG with monotonic profile**: arm_c TRUNC_TOP25 strictly worse than arm_b TRUNC_HALF (val 3.380 vs 3.307, both FFS=-1). Strong evidence that body update gradient information is genuinely distributed across the full singular-value spectrum, not concentrated in a top-k subspace.
+- **Opposite signature from low-rank-gradient regimes**: where GaLore / LoRA / SubspaceCorrelations work, top-k truncation is neutral or beneficial. Here it is monotonically destructive.
+- **Implementation rigor**: Student refactored after initial `muon_update` signature change triggered `@torch.compile` re-trace numerics drift. Final design: new `muon_update_truncated(grad, momentum, keep_frac, ...)` for treatment arms; original compiled `muon_update` left bit-identical for arm_a CTRL via gated dispatch. Within-chain CTRL recovered H203 baseline within drift (val Δ=−1.0e-4 vs `pyea3zd1`).
+- **🎯 Programme finding #48 candidate — 9-mechanism body spectral-axis cross-finding CONSOLIDATED**: extends 8-mechanism from H206 to 9:
+  - H191 AdaMuon (pre-NS5 second moment scaling)
+  - H193 NS5 iter count (12 vs 16)
+  - H195 Cautious (pre-NS5 sign-masking)
+  - H196 Gradient Centralization
+  - H199 Dual-EMA
+  - H201 grad-noise
+  - H205 Soft Polar
+  - H206 NS5 polynomial coefficients
+  - **H214 NS5 input rank (spectral truncation) — NEW**
+
+  ALL NULL/NEG on body update spectral content modification.
+- **Strategic implication**: Body update axis is locally convergence-floored at H203 baseline along all tested spectral axes. Future experiments should leave body update spectral modifications entirely. Pivot to body update **post-step projection** axis, or fresh non-body axes.
+- **Wallclock honest reporting**: SVD overhead +159% per step (~4.7s vs 1.83s baseline). Per-block SVD on body matrices (768×768 attention blocks + larger lm_head/embed) is sequential-launch-dominated, not FLOP-limited. Chain wall-clock ~10h vs planned 5.2h.
+- **Excellent student follow-up discipline**: explicitly recommended NOT running smaller truncations (k=0.75, 0.9), per-layer keep_frac, or time-varying keep_frac — recognized the monotone pattern makes those low-EV.
+- **Next assignment — H231 askeladd (PR #1511)**: MuonH **mode axis** (clip vs scale_invariant). The H148+H203 baseline uses `--muonh_mode scale_invariant` (always-on rescale + renormalize on Frobenius sphere, holds norm exactly constant). Alternative mode "clip" uses standard SGD-momentum step then project-back-to-ball **only when norm exceeds R** — fundamentally different mechanism (hard always-on vs soft late-only norm constraint). Past closures tested `hyperball=True/False` (full pruning of projection) but never the soft-vs-hard variant. **27th NEW MECHANISM CLASS**: post-step projection mechanism. Zero code changes required — both modes already in argparse. 3-arm CTRL scale_invariant (bit-id) / CLIP_MODE clip (soft projection) / CLIP_LOOSE clip + budget_mult=2.0 (very loose ball).
+
 ## 2026-05-28 02:00 — PR #1474: H223 nezuko aux AdamW ε ablation — CLOSED (79th NULL/NEG, 🎯 FIRST VESTIGIAL FINDING in H148+H203 stack — ε=1e-6 customization vestigial, ε=1e-4 upper bound NEG, 2nd numerical-conditioning result)
 
 - Branch: `g1r3-nezuko/aux-adamw-eps-ablation`
