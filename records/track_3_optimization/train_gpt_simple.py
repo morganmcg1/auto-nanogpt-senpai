@@ -602,6 +602,10 @@ NANOGPT_NEWTON_MUON_UPDATE_PERIOD = int(os.environ.get("NANOGPT_NEWTON_MUON_UPDA
 NANOGPT_NEWTON_MUON_BETA = float(os.environ.get("NANOGPT_NEWTON_MUON_BETA", "0.95"))
 NANOGPT_NEWTON_MUON_EPS = float(os.environ.get("NANOGPT_NEWTON_MUON_EPS", "1e-4"))
 NANOGPT_NEWTON_MUON_MAX_D_IN = int(os.environ.get("NANOGPT_NEWTON_MUON_MAX_D_IN", "1024"))
+# Stochastic token subsample for R-buffer update (#1534). When <1.0, compute X^T X
+# on a uniform random subset of tokens instead of the full batch — tests whether
+# outlier-driven covariance is hurting R quality. =1.0 keeps production behaviour.
+NANOGPT_NEWTON_MUON_R_SUBSAMPLE_RATIO = float(os.environ.get("NANOGPT_NEWTON_MUON_R_SUBSAMPLE_RATIO", "1.0"))
 
 # Global per-parameter input-activation cache populated by forward hooks. Keyed by
 # id(weight_param) → tensor of shape (B*T, d_in) on device. Only populated when
@@ -824,7 +828,17 @@ class Muon(torch.optim.Optimizer):
             or (self._newton_step_count % self.newton_update_period == 1)
         )
         if update_R:
-            x32 = x.float()
+            # Stochastic token subsample for R-buffer (#1534). Normalize by the
+            # subsampled token count so R scale stays comparable across ratios.
+            r_sub = NANOGPT_NEWTON_MUON_R_SUBSAMPLE_RATIO
+            if r_sub < 1.0 and x.shape[0] > 1:
+                n_tokens = x.shape[0]
+                n_sub = max(1, int(n_tokens * r_sub))
+                idx = torch.randperm(n_tokens, device=x.device)[:n_sub]
+                x_r = x[idx]
+            else:
+                x_r = x
+            x32 = x_r.float()
             # R_new = (X^T X) / N, shape (d_in, d_in) in float32 for eigendecomp stability.
             n = x32.shape[0]
             R_new = (x32.T @ x32) / float(n)
@@ -866,6 +880,10 @@ class Muon(torch.optim.Optimizer):
             tel["inv_sqrt_norm_sum"] = tel.get("inv_sqrt_norm_sum", 0.0) + float(
                 R_inv_sqrt.norm().item()
             )
+            tel["R_norm_sum"] = tel.get("R_norm_sum", 0.0) + float(
+                state["R"].norm().item()
+            )
+            tel["R_norm_n"] = tel.get("R_norm_n", 0) + 1
             # precond_ratio = ||G @ R_inv_sqrt|| / ||G||  (Frobenius norms).
             g_norm = float(g32.norm().item())
             if g_norm > 1e-30:
@@ -984,7 +1002,8 @@ print0(
     f"lr_scale={NANOGPT_NEWTON_MUON_LR_SCALE} "
     f"update_period={NANOGPT_NEWTON_MUON_UPDATE_PERIOD} "
     f"beta={NANOGPT_NEWTON_MUON_BETA} eps={NANOGPT_NEWTON_MUON_EPS} "
-    f"max_d_in={NANOGPT_NEWTON_MUON_MAX_D_IN}",
+    f"max_d_in={NANOGPT_NEWTON_MUON_MAX_D_IN} "
+    f"r_subsample_ratio={NANOGPT_NEWTON_MUON_R_SUBSAMPLE_RATIO}",
     console=True,
 )
 if NS_ITERS_COOLDOWN > 0:
@@ -1105,6 +1124,7 @@ if dist.get_rank() == 0:
             "nanogpt_newton_muon_beta": NANOGPT_NEWTON_MUON_BETA,
             "nanogpt_newton_muon_eps": NANOGPT_NEWTON_MUON_EPS,
             "nanogpt_newton_muon_max_d_in": NANOGPT_NEWTON_MUON_MAX_D_IN,
+            "nanogpt_newton_muon_r_subsample_ratio": NANOGPT_NEWTON_MUON_R_SUBSAMPLE_RATIO,
         },
     )
 
@@ -1457,6 +1477,11 @@ for trial_idx in range(args.num_trials):
             if applied > 0:
                 newton_metrics["newton_muon/R_inv_sqrt_norm_mean"] = (
                     tel["inv_sqrt_norm_sum"] / applied
+                )
+            r_norm_n = tel.get("R_norm_n", 0)
+            if r_norm_n > 0:
+                newton_metrics["newton_muon/R_norm_mean"] = (
+                    tel["R_norm_sum"] / r_norm_n
                 )
             ratio_n = tel.get("precond_ratio_n", 0)
             if ratio_n > 0:
