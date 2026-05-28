@@ -468,6 +468,14 @@ NS5_ITERS = int(os.environ.get("NS5_ITERS", "12"))
 WD_AUX = float(os.environ.get("WD_AUX", "0.0"))  # AdamW WD on embed + lm_head matrices (scalars stay at 0)
 EMBED_INIT_STD = float(os.environ.get("EMBED_INIT_STD", "1.0"))  # default preserves baseline N(0,1)
 LOGIT_SOFTCAP = float(os.environ.get("LOGIT_SOFTCAP", "15.0"))  # default = 15 (current hardcoded value); soft-cap value c in f(x) = c·x / sqrt(x^2+c^2)
+# PR #1518: post-target body-Muon second_moment buffer reset probe.
+# ENABLED gates the reset. STEP is the 0-indexed training-loop iteration at which
+# the reset fires (immediately after `optimizer2.step()` so it takes effect from
+# the NEXT optimizer step onward, matching alphonse #1461 / #1494 semantics).
+# ALSO_M=0 = Arm A (v-only reset); ALSO_M=1 = Arm B (m + v joint reset).
+POST_TARGET_BODY_MUON_V_RESET_ENABLED = int(os.environ.get("POST_TARGET_BODY_MUON_V_RESET_ENABLED", "0"))
+POST_TARGET_BODY_MUON_V_RESET_STEP = int(os.environ.get("POST_TARGET_BODY_MUON_V_RESET_STEP", "2950"))
+POST_TARGET_BODY_MUON_V_RESET_ALSO_M = int(os.environ.get("POST_TARGET_BODY_MUON_V_RESET_ALSO_M", "0"))
 
 
 def zeropower_via_newtonschulz5(G: Tensor) -> Tensor:
@@ -1053,6 +1061,54 @@ for trial_idx in range(args.num_trials):
             )
         for opt in optimizers:
             opt.step()
+        # PR #1518: post-target body-Muon second_moment buffer reset.
+        # Fires after optimizer2.step() so the next optimizer step uses zeroed state.
+        if POST_TARGET_BODY_MUON_V_RESET_ENABLED and step == POST_TARGET_BODY_MUON_V_RESET_STEP:
+            also_m = bool(POST_TARGET_BODY_MUON_V_RESET_ALSO_M)
+            pre_v_norm = 0.0
+            pre_m_norm = 0.0
+            post_v_norm = 0.0
+            post_m_norm = 0.0
+            aux_m_norm = 0.0
+            params_reset = 0
+            for group in optimizer2.param_groups:
+                for p in group["params"]:
+                    state = optimizer2.state.get(p, {})
+                    if "second_moment" not in state:
+                        continue
+                    pre_v_norm += state["second_moment"].norm().item() ** 2
+                    pre_m_norm += state["momentum"].norm().item() ** 2
+                    state["second_moment"].zero_()
+                    if also_m:
+                        state["momentum"].zero_()
+                    post_v_norm += state["second_moment"].norm().item() ** 2
+                    post_m_norm += state["momentum"].norm().item() ** 2
+                    params_reset += 1
+            for group in optimizer1.param_groups:
+                for p in group["params"]:
+                    st = optimizer1.state.get(p, {})
+                    if "exp_avg" in st:
+                        aux_m_norm += st["exp_avg"].norm().item() ** 2
+            pre_v_norm_l2 = pre_v_norm ** 0.5
+            post_v_norm_l2 = post_v_norm ** 0.5
+            pre_m_norm_l2 = pre_m_norm ** 0.5
+            post_m_norm_l2 = post_m_norm ** 0.5
+            aux_m_norm_l2 = aux_m_norm ** 0.5
+            if dist.get_rank() == 0:
+                wandb.log({
+                    "v_reset/params_reset": params_reset,
+                    "v_reset/pre_v_norm_l2": pre_v_norm_l2,
+                    "v_reset/post_v_norm_l2": post_v_norm_l2,
+                    "v_reset/pre_m_norm_l2": pre_m_norm_l2,
+                    "v_reset/post_m_norm_l2": post_m_norm_l2,
+                    "v_reset/aux_m_norm_l2": aux_m_norm_l2,
+                    "v_reset/also_m": int(also_m),
+                    "v_reset/step": step,
+                }, step=wandb_step)
+                print(f"[V_RESET] step={step} params_reset={params_reset} also_m={int(also_m)} "
+                      f"pre_v={pre_v_norm_l2:.4f} post_v={post_v_norm_l2:.4f} "
+                      f"pre_m={pre_m_norm_l2:.4f} post_m={post_m_norm_l2:.4f} "
+                      f"aux_m={aux_m_norm_l2:.4f}")
         if dist.get_rank() == 0 and telemetry_due:
             for opt in optimizers:
                 if hasattr(opt, "trust_gate_stats"):
