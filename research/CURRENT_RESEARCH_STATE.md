@@ -9,9 +9,21 @@ The human research team has redirected: **FFS (first-step-to-target, baseline 30
 3. **Prefer experiments that move the crossing step** (2800-3050 window), **simplify winning stacks**, **reveal FFS-load-bearing components**.
 4. **Ablations preferred over confirmations** when FFS dead.
 
-## Last updated: 2026-05-28 ~17:32Z (poll ≈990, multi-PR cell-batch terminus — askeladd ABCD synced, alphonse D, thorfinn A baseline-reproducer)
+## Last updated: 2026-05-28 ~18:14Z (poll ≈995, edward Cell D + tanjiro Cell D terminal — both axes closing FFS-neutral)
 
-**Actions this poll**: STATE-DOC UPDATE ONLY (no PR action). No new student comments or human issues since poll ~984. Heartbeat survey shows substantial newly-synced/terminal events across 5 sweeps. Decision: **wait for sweep terminuses** ETA 17:59Z (edward D) → 18:05Z (tanjiro D) → 18:24Z (askeladd E) → 18:28Z (fern Trial 3) → 18:57Z (thorfinn B), then re-survey for any merge-eligible candidates.
+**Actions this poll**: STATE-DOC UPDATE ONLY (no PR action). 2 new terminal cells since poll ~990:
+- **#1563 edward NS-SCALE-EXP Cell D `jejriyaf` exp=1.0**: val=3.2704, **FFS=2950** — baseline-noise. Cell E (exp=0 falsifier) crashed first attempt (gxexk73i step 1 init-val), rerun `zzz60xjw` running step 221 val=4.49 (learning slowly without aspect-ratio scaling). 4-cell pattern: A(exp=0.5)=2950, B(exp=0.25)=2950, C(exp=0.75)=2925, D(exp=1.0)=2950 — **all within σ_single ±25 of new baseline μ_4=2944**. **NS post-NS aspect-ratio scale exponent axis is FFS-NEUTRAL across [0.25, 1.0]**. Closing-on-deck pending Cell E falsifier (exp=0). Expected verdict: NS-scale-exp absorbed by NS+optimizer system, perturbation invisible above noise.
+- **#1565 tanjiro TRUST-GATE-SCHEDULE Cell D `xtp8y6xm` peak=0.3 ramp=0.25**: val=3.2690, **FFS=2925** — within σ_single noise of baseline. 4-cell pattern: A(peak=0 ctrl)=2925, B(peak=0.3 ramp=0.15)=2925, C(peak=0.5 ramp=0.15)=2950, D(peak=0.3 ramp=0.25)=2925 — **all within σ_single ±25 of new baseline μ_4=2944**, with Cell A baseline-reproducer at 2925. **Trust-gate-schedule axis is FFS-NEUTRAL across [peak∈{0, 0.3, 0.5}, ramp∈{0.15, 0.25}] sample grid**. Cell E ETA ~19:53Z to confirm closure. Note: Cell A=ctrl peak=0 (gate OFF entirely) also at FFS=2925, so this confirms baseline floor for tanjiro's seed.
+
+**Still in flight** (heartbeat 18:14Z):
+- **#1564 fern Trial 3 SOAP Gram trace-norm `ixqmqe2j`**: at _step=9315 → rel step 2815/3250 = 87% of Trial 3, **ETA ~18:21Z** (~7 min). FFS still reporting 2925 from Trials 1+2. Trial 4 ETA ~20:22Z.
+- **#1579 nezuko Cell B `zgv1paid` tau=0.04**: step 3002 val=5.55 → **catastrophic divergence**, will be FFS=-1 at terminal. Cells C/D/E likely also catastrophic.
+- **#1586 thorfinn Cell B `qyxyuhka` wd_mlp=0.022**: step 1974/3250 val=3.462. ETA ~18:35Z.
+- **#1549 askeladd Cell E** falsifier (warmup=500): still offline, ETA ~18:24Z based on wrapper sequence.
+
+**No new student comments, no new human issues**. All 8 students still WIP. **Two closing axes** (edward NS-scale-exp + tanjiro trust-gate-schedule) both clean FFS-neutral patterns; these will be 40th and 41st cumulative closures pending Cell E confirmations.
+
+**Prior poll** (~990, 2026-05-28 ~17:32Z, multi-PR cell-batch terminus — askeladd ABCD synced, alphonse D, thorfinn A baseline-reproducer): STATE-DOC UPDATE ONLY (no PR action). No new student comments or human issues since poll ~984. Heartbeat survey shows substantial newly-synced/terminal events across 5 sweeps. Decision: **wait for sweep terminuses** ETA 17:59Z (edward D) → 18:05Z (tanjiro D) → 18:24Z (askeladd E) → 18:28Z (fern Trial 3) → 18:57Z (thorfinn B), then re-survey for any merge-eligible candidates.
 
 **Newly synced/terminal this window (15:14-17:31Z)**:
 
