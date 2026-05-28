@@ -28,6 +28,7 @@ SLOPE_FRACTION = 0.10
 SOAP_BETA2 = 0.90
 PRECOND_FREQ = 16
 NS_ITER = 12  # overridden by args.ns_iter at module load
+NS_SCALE_EXPONENT: float = 0.5  # overridden by args.ns_scale_exponent
 
 
 def parse_args():
@@ -68,6 +69,10 @@ def parse_args():
     parser.add_argument("--ns_iter", type=int, default=12,
                         help="Number of Newton-Schulz iterations in zeropower_via_newtonschulz5. "
                              "Default 12 (current hardcoded value). Lower = less orthogonal but faster.")
+    parser.add_argument("--ns_scale_exponent", type=float, default=0.5,
+                        help="Exponent for the post-NS aspect-ratio scale: max(1, m/n)**exp. "
+                             "Default 0.5 (current hardcoded value). 0.0 ablates the factor; "
+                             "1.0 gives full linear aspect-ratio compensation.")
     parser.add_argument("--lr_scalars", type=float, default=0.01,
                         help="LR for AdamW adam_scalars group (RMSNorm gains; "
                              "params with ndim < 2). Default 0.01 — hardcoded, "
@@ -107,6 +112,7 @@ def parse_args():
 
 args = parse_args()
 NS_ITER = args.ns_iter
+NS_SCALE_EXPONENT = args.ns_scale_exponent
 
 
 def clean_metric_name(name: str) -> str:
@@ -518,14 +524,16 @@ def muon_update(grad, momentum, mu=0.95, nesterov=True):
     momentum.lerp_(grad, 1 - mu)
     update = grad.lerp_(momentum, mu) if nesterov else momentum
     update = zeropower_via_newtonschulz5(update)
-    update *= max(1, grad.size(-2) / grad.size(-1))**0.5
+    if NS_SCALE_EXPONENT != 0.0:
+        update *= max(1, grad.size(-2) / grad.size(-1))**NS_SCALE_EXPONENT
     return update
 
 
 @torch.compile
 def soap_ns_step(nesterov_update):
     update = zeropower_via_newtonschulz5(nesterov_update)
-    update *= max(1, nesterov_update.size(-2) / nesterov_update.size(-1))**0.5
+    if NS_SCALE_EXPONENT != 0.0:
+        update *= max(1, nesterov_update.size(-2) / nesterov_update.size(-1))**NS_SCALE_EXPONENT
     return update
 
 
@@ -770,6 +778,7 @@ if dist.get_rank() == 0:
             "soap_beta2": SOAP_BETA2,
             "soap_precond_freq": PRECOND_FREQ,
             "ns_iter": NS_ITER,
+            "ns_scale_exponent": NS_SCALE_EXPONENT,
             "soap_attn_enabled": bool(args.soap_attn),
             "soap_trust_threshold": float(args.soap_trust_threshold),
             "lr_mlp": args.lr_mlp,
