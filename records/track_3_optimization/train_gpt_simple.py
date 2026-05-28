@@ -56,6 +56,18 @@ def parse_args():
     parser.add_argument("--outer_lr", type=float, default=float(os.environ.get("OUTER_LR", "0.7")))
     parser.add_argument("--outer_momentum", type=float, default=float(os.environ.get("OUTER_MOMENTUM", "0.5")))
     parser.add_argument("--sync_interval", type=int, default=int(os.environ.get("SYNC_INTERVAL", "30")))
+    # H256: outer LR temporal schedule for MuLoCo Nesterov SGD. constant = baseline
+    # (current_outer_lr literally equals args.outer_lr → bit-identical step-0 path).
+    # cosine_matched mirrors the body MuonH cosine cooldown (h_cooldown_frac=1.0)
+    # by computing eta = 0.5 * (1 - cos(pi * (1 - step/train_steps))) → peak 0.7 → 0.
+    # linear_warmup ramps 0 → outer_lr linearly over outer_lr_warmup_steps, then constant.
+    parser.add_argument("--outer_lr_schedule", type=str,
+                        default=os.environ.get("OUTER_LR_SCHEDULE", "constant"),
+                        choices=["constant", "cosine_matched", "linear_warmup"],
+                        help="Outer LR temporal schedule for MuLoCo Nesterov SGD. constant=baseline H203 behavior.")
+    parser.add_argument("--outer_lr_warmup_steps", type=int,
+                        default=int(os.environ.get("OUTER_LR_WARMUP_STEPS", "500")),
+                        help="For linear_warmup schedule: steps to ramp outer_lr 0->args.outer_lr.")
     # AGC (Brock et al. 2021): per-parameter adaptive gradient clipping applied to
     # AdamW aux groups (embed, lm_head, scalars). Clips grad to clip_ratio * |param|.
     # Default 0.0 disables (no-op for bit-identical baseline).
@@ -839,6 +851,8 @@ if dist.get_rank() == 0:
             "muloco_outer_lr": args.outer_lr,
             "muloco_outer_momentum": args.outer_momentum,
             "muloco_sync_interval": args.sync_interval,
+            "muloco_outer_lr_schedule": args.outer_lr_schedule,
+            "muloco_outer_lr_warmup_steps": args.outer_lr_warmup_steps,
             "aux_agc_clip_ratio": args.aux_agc_clip_ratio,
             "aux_agc_eps": args.aux_agc_eps,
             "muonh_agc_clip_ratio": args.muonh_agc_clip_ratio,
@@ -1274,6 +1288,26 @@ for trial_idx in range(args.num_trials):
         # ``param.norm()`` at that step and preserves the new norm. Acceptable
         # behavior — the goal is trajectory smoothing, not strict norm invariance.
         if use_outer and train_step % args.sync_interval == 0 and train_step < train_steps:
+            # H256: outer LR temporal schedule (drift-FREE Pattern A — flag-gated branch
+            # outside @torch.compile). Compute once per outer step, before the per-param
+            # loop, so the schedule applies uniformly to all params in this sync.
+            # constant routes through the else branch and is literally args.outer_lr
+            # → bit-identical step-0 path vs baseline H203.
+            if args.outer_lr_schedule == "cosine_matched":
+                # Mirror body MuonH cosine cooldown shape (h_cooldown_frac=1.0):
+                # eta = 0.5 * (1 - cos(pi * (1 - train_step/train_steps))) → 1 → 0
+                # across all train_steps. At train_step=0 (first outer call) eta=0.
+                progress = train_step / train_steps
+                c = 1.0 - progress
+                outer_lr_eta = 0.5 * (1.0 - math.cos(math.pi * c))
+                current_outer_lr = args.outer_lr * outer_lr_eta
+            elif args.outer_lr_schedule == "linear_warmup":
+                if train_step < args.outer_lr_warmup_steps:
+                    current_outer_lr = args.outer_lr * (train_step / max(1, args.outer_lr_warmup_steps))
+                else:
+                    current_outer_lr = args.outer_lr
+            else:  # "constant" CTRL — bit-identical baseline
+                current_outer_lr = args.outer_lr
             log_outer = (dist.get_rank() == 0)
             if log_outer:
                 delta_sq = torch.zeros((), device=device)
@@ -1283,7 +1317,7 @@ for trial_idx in range(args.num_trials):
                 for n, p in model.named_parameters():
                     delta = outer_anchor[n] - p.data
                     outer_velocity[n].mul_(args.outer_momentum).add_(delta)
-                    p.data.copy_(outer_anchor[n] - args.outer_lr *
+                    p.data.copy_(outer_anchor[n] - current_outer_lr *
                                  (args.outer_momentum * outer_velocity[n] + delta))
                     outer_anchor[n].copy_(p.data)
                     if log_outer:
@@ -1300,6 +1334,7 @@ for trial_idx in range(args.num_trials):
                     "train/muloco/outer_step": outer_applied_steps,
                     "train/muloco/delta_rms": delta_rms,
                     "train/muloco/velocity_rms": velocity_rms,
+                    "train/muloco/current_outer_lr": current_outer_lr,
                 }, step=wandb_step)
 
         approx_training_time = training_time + (time.perf_counter() - t0)
