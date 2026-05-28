@@ -1,3 +1,44 @@
+## 2026-05-28 14:55 — PR #1548: H239 askeladd Schedule-Free AdamW for aux side — CLOSED (95th NULL/NEG, **CATASTROPHIC NEG/NEG bilateral with arm_c WORSE than arm_b — falsifies LR-too-high hypothesis; PROGRAMME FINDING #56 candidate: aux schedule mechanism STRUCTURALLY LOAD-BEARING as a whole**)
+
+- Branch: `g1r3-askeladd/h239-sf-adamw-aux`
+- Hypothesis: Test whether Defazio et al. NeurIPS 2024 Oral Schedule-Free AdamW (`y_t = (1-c_t)·x_t + c_t·z_t` interpolation with Polyak-Ruppert averaging, c_t=1/t) eliminates the need for the aux LR cosine cooldown schedule on H148+H203 stack. 3-arm: CTRL adamw / SF_LR_03 sf_adamw constant LR=0.3 / SF_LR_015 sf_adamw constant LR=0.15. arm_c designed to decouple "LR too high without warmup" vs "schedule structurally load-bearing".
+
+| Arm | aux_optimizer / aux_sf_lr | W&B | val | FFS | Δval/σ_H174 | Verdict |
+|---|---|---|---|---|---|---|
+| arm_a CTRL | adamw / 0.3 (unused) | `oytr9msh` | 3.26946 | 3050 | +1.31σ (10th drift class instance) | within-noise drift |
+| arm_b SF_LR_03 | sf_adamw / 0.3 | `q8hcee8s` | 3.29608 | **−1 (DNR)** | **+30.1σ** | **CATASTROPHIC NEG** |
+| arm_c SF_LR_015 | sf_adamw / 0.15 | `bdb9a24l` | 3.31868 | **−1 (DNR)** | **+55.7σ** | **CATASTROPHIC NEG (worse than arm_b)** |
+
+- W&B verified: all state=finished. arm_a offline-synced post-W&B-401 recovery (3rd instance of offline+sync pattern after H235 thorfinn arm_b + H237 nezuko arm_a). All bit-id step-0 val=10.82583 EXACT (because SF y_0=x_0=z_0 = initial params, divergence begins at step 1).
+- Statistical rule: arm_a `(3.28-3.26946)×√1=0.01054` ✓, arm_b/c FAIL (val > 3.28).
+- Per-arm config audit (per `feedback_audit_treatment_runs_too.md`): aux_optimizer={adamw, sf_adamw, sf_adamw}, aux_sf_lr={0.3 unused, 0.3, 0.15} — all distinct. SF telemetry `train/aux/sf_x_z_distance_l2` arm_b=51477.1, arm_c=26379.3 (ratio 1.95× ≈ 2× LR ratio) → algorithm executed correctly. Step_avg_ms 1828-1836 steady-state (~5-10% SF overhead bound respected — wallclock estimate was conservative not regression).
+
+### Analysis
+
+- **arm_c WORSE than arm_b at LOWER LR FALSIFIES "LR too high without warmup" hypothesis**. arm_c (LR=0.15) is +0.155 vs CTRL at step 125 vs arm_b +0.155, then arm_c stays MORE behind for every subsequent checkpoint. Lower LR does NOT rescue — the schedule mechanism IS the load-bearing piece, not the LR magnitude. Cleanest evidence in the campaign that aux schedule is structurally load-bearing.
+- **PROGRAMME FINDING #56 candidate**: aux schedule mechanism STRUCTURALLY LOAD-BEARING as a whole. Cross-validates with:
+  - H224 muonh_warmup_steps=0 NULL on BODY → body warmup VESTIGIAL
+  - H219+H226 cosine asymptote bilateral consolidated LOAD-BEARING on aux
+  - H239 schedule removal catastrophic on aux → aux schedule structural as a whole
+- **Asymmetric body-vs-aux finding**: body schedule has VESTIGIAL warmup + LOAD-BEARING cosine asymptote (mixed structure); aux schedule is LOAD-BEARING AS A WHOLE (removing entirety catastrophic regardless of LR magnitude).
+- **Mechanism diagnosis (student-provided)**:
+  1. SF-AdamW's Polyak-Ruppert averaging (c_t=1/t) assumes convex stationary optimum; NanoGPT pretraining is highly non-convex with moving optimum (warm restarts / cooldown phases = different effective optima). The 1/t averaging is too aggressive for non-stationary landscapes.
+  2. Constant LR through 3325 steps cannot accommodate embed's sparse-gradient dynamics (~88% rows zero/step). With cooldown, late-training updates are micro-adjustments on few-row-per-step active updates. SF-AdamW at constant 0.3 keeps nudging at peak amplitude → loss decay plateaus early (val=3.32 by step 3050, still falling at ~0.002/100 steps).
+  3. Half-peak LR (arm_c) is too low early before momentum accumulates → trajectory starts further behind and never catches up.
+- **Aux-replacement triad — 3 of 3 BILATERAL NEG** (H241 Lion in flight likely 4th):
+  - H225 frieren aux β1 sweep: BILATERAL NEG within AdamW
+  - H237 nezuko AdEMAMix dual time-scale: BILATERAL NEG (just closed cycle ~980)
+  - **H239 askeladd SF-AdamW schedule-free: BILATERAL NEG (this PR, just closed)**
+  - H241 edward Lion sign-based: WIP, arm_b CATASTROPHIC NEG already (+50.4σ), arm_c in flight
+  - aux_beta2_schedule sweep: constant β2=0.99 structurally optimal
+- **If H241 Lion also bilateral NEG → 4 of 4 aux replacements NEG → PROGRAMME FINDING #55 consolidates**: aux AdamW with our tuning (β1=0.8, β2=0.99, ε=1e-6, scheduled warmup+cosine) is structurally optimal.
+- 10th instance of torch.compile argparse-conditional retracing soft-drift class (H214/H224/H229/H230/H231/H232/H233/H234/H235/H237/H239). Pattern: +25 FFS / ~+1.3σ per new argparse-conditional branch inside @torch.compile.
+- Excellent student implementation: clean isolation of sf_adamw path via `args.aux_optimizer == 'sf_adamw'` gate; offline-mode W&B sync recovery discipline; per-arm step_avg_ms confirmed SF overhead claim was conservative; x↔z distance telemetry validated algorithm execution; trajectory comparison across all 3 arms at matching checkpoints.
+
+- **Decision: NOT MERGING.** 95th NULL/NEG. Schedule-Free mechanism class CLOSED bilateral NEG on aux side. PROGRAMME FINDING #56 candidate captured.
+
+---
+
 ## 2026-05-28 14:27 — PR #1536: H236 fern Outer MuLoCo Polyak FORM — CLOSED (94th NULL/NEG, **🎯 PROGRAMME FINDING #54 BILATERALLY CONSOLIDATED** — inner+outer momentum FORM bilateral, Polyak NEG at both levels, outer effect ~3× larger than inner; MuLoCo HP+FORM closure COMPLETE)
 
 - Branch: `g1r3-fern/h236-outer-polyak-form`

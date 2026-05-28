@@ -1,6 +1,49 @@
 # SENPAI Research State — auto-nanogpt-1gpu-r3
 
-- **Last updated:** 2026-05-28 14:45 UTC
+- **Last updated:** 2026-05-28 15:00 UTC
+
+---
+
+## Cycle ~1020: H239 CLOSED (95th NULL/NEG, CATASTROPHIC bilateral with arm_c WORSE than arm_b) + PROGRAMME FINDING #56 candidate captured + H246 askeladd ASSIGNED
+
+**Key closure this cycle:**
+
+- **H239 askeladd Schedule-Free AdamW aux side (PR #1548)** — 95th NULL/NEG. **CATASTROPHIC NEG/NEG bilateral**. arm_b SF_LR_03 val=3.29608/FFS=−1 (+30.1σ_H174, target never crossed); arm_c SF_LR_015 val=3.31868/FFS=−1 (+55.7σ_H174, **WORSE than arm_b at LOWER LR**). arm_c monotonically worse than arm_b at every checkpoint **falsifies the "LR too high without warmup" hypothesis** — lower LR does NOT rescue. Schedule mechanism IS the load-bearing piece, not LR magnitude. arm_a CTRL val=3.26946/FFS=3050 (+1.31σ drift class, 10th instance torch.compile retracing soft-drift cluster).
+
+**🎯 PROGRAMME FINDING #56 candidate captured:**
+
+**Aux schedule mechanism STRUCTURALLY LOAD-BEARING as a whole.** Cross-validates with:
+- H224 muonh_warmup_steps=0 NULL on BODY → body warmup VESTIGIAL
+- H219+H226 cosine asymptote bilateral consolidated LOAD-BEARING on aux
+- **H239 schedule removal catastrophic on aux** → aux schedule structural as a whole
+
+**Asymmetric body-vs-aux finding**: body schedule has VESTIGIAL warmup + LOAD-BEARING cosine asymptote (mixed structure); aux schedule is LOAD-BEARING AS A WHOLE (removing entirety catastrophic regardless of LR magnitude).
+
+**Aux-replacement triad status — 3 of 3 BILATERAL NEG, Lion likely 4th:**
+
+| Mechanism | PR | Verdict |
+|---|---|---|
+| H225 frieren aux β1 U-shape | — | BILATERAL NEG within AdamW (closed earlier) |
+| H237 nezuko AdEMAMix dual time-scale | #1539 | BILATERAL NEG (closed cycle ~980) |
+| **H239 askeladd SF-AdamW schedule-free** | **#1548 (this PR)** | **BILATERAL NEG (closed this cycle)** |
+| H241 edward Lion sign-based | #1557 | arm_b CATASTROPHIC NEG (+50.4σ), arm_c in flight |
+
+**If H241 Lion also bilateral NEG → 4 of 4 aux replacements NEG → PROGRAMME FINDING #55 consolidates**: aux AdamW with our tuning (β1=0.8, β2=0.99, ε=1e-6, scheduled warmup+cosine) is structurally optimal — four independent EMA/sign-based/schedule-free mechanism replacements cannot beat it.
+
+**torch.compile retracing soft-drift class — 10th instance:** H214/H224/H229/H230/H231/H232/H233/H234/H235/H237/H239. Pattern consistently +25 FFS / ~+1.3σ per new argparse-conditional branch inside @torch.compile. arm_a CTRL val=3.26946/FFS=3050/+1.31σ matches cluster precisely.
+
+**New assignment:**
+
+- **H246 askeladd PR #1587**: **LoCo-Adam outer optimizer FORM replacement (42nd mechanism class)**. First MuLoCo FORM REPLACEMENT in campaign per cycle ~980 territory map directive. Replaces outer Nesterov SGD `v = μ·v + Δ; p = anchor − lr·((1+μ)·v + Δ)` with outer Adam moment tracking on pseudo-gradient delta `Δ = anchor − param_post_sync`. 3-arm: CTRL outer SGD baseline / OUTER_ADAM β1=0.9 β2=0.99 ε=1e-8 outer_adam_lr=0.7 (same nominal as outer SGD lr) / OUTER_ADAM_LR re-tuned outer_adam_lr=0.3 (tests whether Adam needs smaller nominal LR than SGD given adaptive scaling). Theoretical grounding: FedOpt arXiv:2003.00295 (Reddi 2021) — server-Adam outperforms server-SGD in heterogeneous K-step local SGD; Kosson et al. arXiv:2509.10439 outer optimizer convergence theory. Distinct from H236 outer Polyak (still a weighted-average algorithm class) — H246 changes the outer ALGORITHM CLASS (SGD→Adam, per-coordinate adaptive moment tracking). Bias correction must use `outer_adam_step` counter (counts sync events, not inner steps) since outer fires every 30 inner steps.
+
+**Programme totals after cycle ~1020:**
+- **95 NULL/NEG closures**
+- **42 novel mechanism classes** (H246 LoCo-Adam outer FORM replacement = 42nd, **first MuLoCo FORM replacement** in campaign)
+- **6 PROGRAMME FINDINGS pipeline** with **#56 candidate captured today**: #48 vestigial pair, #49 dynamics-vs-conditioning + saturation rule, #50 cosine asymptote bilateral, #51 muonh_mode SI trilateral, #52 BODY F-NORM CAPACITY candidate, #54 INNER+OUTER MOMENTUM FORM BILATERAL CONSOLIDATED, **#56 NEW CANDIDATE: aux schedule structurally load-bearing as a whole** (#55 aux-replacement-triad consolidation pending H241 closure)
+- **2 confirmed + 1 candidate VESTIGIAL FINDINGS**
+- **17 MuonH-SI/MuLoCo structural tightness members**
+
+**Survey state**: 8/8 WIP (after H246 assignment), 0 idle, 0 review-ready. No new human directives this cycle.
 
 ---
 
