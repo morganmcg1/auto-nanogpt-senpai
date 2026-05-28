@@ -97,12 +97,16 @@ def parse_args():
     parser.add_argument("--muonh_mu_end", type=float, default=float(os.environ.get("MUONH_MU_END", "0.98")),
                         help="Ending value of µ schedule (used by linear and cooldown_ramp modes).")
     parser.add_argument("--body_init", type=str, default=os.environ.get("BODY_INIT", "default"),
-                        choices=["default", "orthogonal_fnorm_matched", "orthogonal_bottom_damp"],
+                        choices=["default", "orthogonal_fnorm_matched", "orthogonal_bottom_damp",
+                                 "orthogonal_qr", "orthogonal_qr_mean_fnorm"],
                         help="Initialization scheme for body MuonH 2D weights (attn.q/k/v, attn.proj, mlp.fc, mlp.proj). "
                              "'default' uses the current per-module normal_ init. "
                              "'orthogonal_fnorm_matched' uses torch.nn.init.orthogonal_ with gain rescaled to match "
                              "the F-norm of the default init for each weight (isolates init-direction from init-magnitude/hyperball). "
-                             "'orthogonal_bottom_damp' uses orthogonal_ with gain=1.0, then scales bottom-half layers by --body_init_bottom_damp_factor.")
+                             "'orthogonal_bottom_damp' uses orthogonal_ with gain=1.0, then scales bottom-half layers by --body_init_bottom_damp_factor. "
+                             "'orthogonal_qr' uses torch.nn.init.orthogonal_ with gain=1.0 (true Stiefel: unit column norms, no F-norm rescaling). "
+                             "'orthogonal_qr_mean_fnorm' uses orthogonal_(gain=1.0) then applies a single global multiplier so that the mean F-norm "
+                             "across body params matches the default normal_-init mean F-norm.")
     parser.add_argument("--body_init_bottom_damp_factor", type=float,
                         default=float(os.environ.get("BODY_INIT_BOTTOM_DAMP_FACTOR", "0.5")),
                         help="Multiplier applied to body weights in layers [0, body_init_bottom_layers) when --body_init=orthogonal_bottom_damp.")
@@ -362,6 +366,55 @@ def log_body_sv_stats(
         metrics["train/muonh/sv_med_mean"] = sum(all_med) / len(all_med)
         metrics["train/muonh/sv_med_min"] = min(all_med)
         metrics["train/muonh/sv_med_max"] = max(all_med)
+    wandb.log(metrics, step=wandb_step)
+
+
+def log_body_riem_stats(
+    model: nn.Module,
+    trial_idx: int,
+    step: int,
+    wandb_step: int,
+):
+    # H253: Riemannian-Frobenius ratio telemetry. For each body 2D weight W and
+    # its gradient g (still attached because we run before model.zero_grad), log:
+    #   riem_norm = ||g - W (W^T g) / 2||_F
+    #   frob_norm = ||g||_F
+    #   ratio     = riem_norm / frob_norm
+    # The mean across body params probes Stiefel drift over training, the central
+    # mechanism implicated by H249's effective-step diagnosis. Cheap (a few matmuls
+    # on small matrices, fired only at sv_due steps).
+    metrics = {"trial": trial_idx, "train/step": step}
+    riems: list[float] = []
+    frobs: list[float] = []
+    ratios: list[float] = []
+    for name, p in model.named_parameters():
+        if p.ndim < 2 or not name.endswith("weight"):
+            continue
+        if not (".attn." in name or ".mlp." in name):
+            continue
+        if p.grad is None:
+            continue
+        with torch.no_grad():
+            W = p.data.detach().to(torch.float32)
+            g = p.grad.detach().to(torch.float32)
+            WtG = W.transpose(-2, -1) @ g
+            riem_dir = g - 0.5 * (W @ WtG)
+            riem_norm = float(riem_dir.norm().item())
+            frob_norm = float(g.norm().item())
+            ratio = riem_norm / frob_norm if frob_norm > 0 else 0.0
+        clean = clean_metric_name(name)
+        metrics[f"body/riem_norm_param/{clean}"] = riem_norm
+        metrics[f"body/frob_norm_param/{clean}"] = frob_norm
+        metrics[f"body/riem_frob_ratio_param/{clean}"] = ratio
+        riems.append(riem_norm)
+        frobs.append(frob_norm)
+        ratios.append(ratio)
+    if ratios:
+        metrics["body/riem_norm_mean"] = sum(riems) / len(riems)
+        metrics["body/frob_norm_mean"] = sum(frobs) / len(frobs)
+        metrics["body/riem_frob_ratio_mean"] = sum(ratios) / len(ratios)
+        metrics["body/riem_frob_ratio_min"] = min(ratios)
+        metrics["body/riem_frob_ratio_max"] = max(ratios)
     wandb.log(metrics, step=wandb_step)
 
 
@@ -899,6 +952,15 @@ for trial_idx in range(args.num_trials):
                     m = re.search(r"blocks\.(\d+)\.", name)
                     if m and int(m.group(1)) < args.body_init_bottom_layers:
                         w.mul_(args.body_init_bottom_damp_factor)
+                elif args.body_init == "orthogonal_qr":
+                    # H253: true Stiefel init. W^T W = I (tall) or W W^T = I (wide); unit
+                    # column or row norms, gain=1.0, no F-norm rescaling.
+                    torch.nn.init.orthogonal_(w, gain=1.0)
+                elif args.body_init == "orthogonal_qr_mean_fnorm":
+                    # H253: true Stiefel init followed by a SINGLE global rescaling
+                    # applied after the loop completes (so the gain is computed from
+                    # the MEAN F-norm across all body params, not per-weight).
+                    torch.nn.init.orthogonal_(w, gain=1.0)
                 body_init_log.append({"name": name, "shape": tuple(w.shape),
                                       "default_fnorm": default_fnorm,
                                       "final_fnorm": w.norm().item()})
@@ -910,12 +972,54 @@ for trial_idx in range(args.num_trials):
             w.normal_(mean=1, std=0)
         else:
             raise Exception(f"Uninitialized parameter: {name}")
+    # H253 orthogonal_qr_mean_fnorm: post-loop GLOBAL rescaling. Compute one global
+    # gain = mean(default_fnorms) / mean(post_orthogonal_fnorms) across all body params
+    # and apply uniformly. This keeps the OVERALL body scale matched to the default
+    # init while preserving true-Stiefel column orthonormality up to a global scalar.
+    if args.body_init == "orthogonal_qr_mean_fnorm" and len(body_init_log) > 0:
+        default_fnorms = [e["default_fnorm"] for e in body_init_log]
+        current_fnorms = [e["final_fnorm"] for e in body_init_log]
+        mean_default = sum(default_fnorms) / len(default_fnorms)
+        mean_current = sum(current_fnorms) / len(current_fnorms)
+        global_gain = mean_default / mean_current if mean_current > 0 else 1.0
+        body_init_names = {e["name"] for e in body_init_log}
+        for name, p in model.named_parameters():
+            if name in body_init_names:
+                p.data.mul_(global_gain)
+        for e in body_init_log:
+            e["final_fnorm"] = e["final_fnorm"] * global_gain
+        if trial_idx == 0:
+            print0(f"[H253 body_init=orthogonal_qr_mean_fnorm] mean_default_fnorm={mean_default:.6f} "
+                   f"mean_orthogonal_fnorm={mean_current:.6f} global_gain={global_gain:.6f}",
+                   console=True)
+
     if trial_idx == 0:
         sample_names = ("blocks.0.attn.q.weight", "blocks.0.mlp.fc.weight",
                         "blocks.5.attn.q.weight", "blocks.5.mlp.fc.weight",
                         "blocks.11.attn.q.weight", "blocks.11.mlp.fc.weight")
         sample_rows = [e for e in body_init_log if e["name"] in sample_names]
         print0(f"[H148 body_init={args.body_init}] sample F-norms: {sample_rows}", console=True)
+        # H253: Stiefel-membership probe. For each sampled body weight, compute
+        # ||W^T W - I_n||_F / sqrt(n) (tall/square) or ||W W^T - I_m||_F / sqrt(m)
+        # (wide). At init this is 0 for true Stiefel (arm_b QR_RAW) and >0 for any
+        # F-norm-rescaled init (arm_a CTRL fnorm_matched, arm_c QR_MEAN).
+        param_by_name = dict(model.named_parameters())
+        stiefel_dev_sample = []
+        for n in sample_names:
+            if n in param_by_name:
+                w = param_by_name[n].data.detach().to(torch.float32)
+                if w.shape[0] >= w.shape[1]:
+                    inner = w.T @ w
+                    eye = torch.eye(inner.shape[0], device=inner.device, dtype=inner.dtype)
+                    dev = float((inner - eye).norm().item() / (inner.shape[0] ** 0.5))
+                else:
+                    inner = w @ w.T
+                    eye = torch.eye(inner.shape[0], device=inner.device, dtype=inner.dtype)
+                    dev = float((inner - eye).norm().item() / (inner.shape[0] ** 0.5))
+                stiefel_dev_sample.append({"name": n, "stiefel_dev": dev,
+                                           "fnorm": float(w.norm().item())})
+        print0(f"[H253 body_init={args.body_init}] Stiefel deviation (||WtW-I||_F/sqrt(n) or ||WWt-I||_F/sqrt(m)): {stiefel_dev_sample}",
+               console=True)
 
     # create the optimizer(s)
     # MuonH replaces plain Muon on the hidden 2D weights: hard hyperball projection
@@ -1236,6 +1340,14 @@ for trial_idx in range(args.num_trials):
         )
         if sv_due:
             log_body_sv_stats(
+                model=model,
+                trial_idx=trial_idx,
+                step=train_step,
+                wandb_step=wandb_step,
+            )
+            # H253: Riemannian-Frobenius ratio at the same probe points. p.grad is
+            # still attached (zero_grad runs later in the loop).
+            log_body_riem_stats(
                 model=model,
                 trial_idx=trial_idx,
                 step=train_step,
