@@ -599,6 +599,19 @@ NANOGPT_EMBED_INIT_ANCHOR_LAMBDA = float(os.environ.get("NANOGPT_EMBED_INIT_ANCH
 NANOGPT_NEWTON_MUON = int(os.environ.get("NANOGPT_NEWTON_MUON", "0"))
 NANOGPT_NEWTON_MUON_LR_SCALE = float(os.environ.get("NANOGPT_NEWTON_MUON_LR_SCALE", "1.0"))
 NANOGPT_NEWTON_MUON_UPDATE_PERIOD = int(os.environ.get("NANOGPT_NEWTON_MUON_UPDATE_PERIOD", "10"))
+# Phase-dependent NM update period (#1515). Both default to the global
+# NANOGPT_NEWTON_MUON_UPDATE_PERIOD so unset env vars reproduce production exactly.
+# When set explicitly, BODY applies for step < cooldown_start_step and COOLDOWN
+# applies for step >= cooldown_start_step, where cooldown_start_step uses
+# NANOGPT_NS_COOLDOWN_START_FRAC (same boundary as the NS schedule).
+NANOGPT_NEWTON_MUON_UPDATE_PERIOD_BODY = int(os.environ.get(
+    "NANOGPT_NEWTON_MUON_UPDATE_PERIOD_BODY",
+    str(NANOGPT_NEWTON_MUON_UPDATE_PERIOD),
+))
+NANOGPT_NEWTON_MUON_UPDATE_PERIOD_COOLDOWN = int(os.environ.get(
+    "NANOGPT_NEWTON_MUON_UPDATE_PERIOD_COOLDOWN",
+    str(NANOGPT_NEWTON_MUON_UPDATE_PERIOD),
+))
 NANOGPT_NEWTON_MUON_BETA = float(os.environ.get("NANOGPT_NEWTON_MUON_BETA", "0.95"))
 NANOGPT_NEWTON_MUON_EPS = float(os.environ.get("NANOGPT_NEWTON_MUON_EPS", "1e-4"))
 NANOGPT_NEWTON_MUON_MAX_D_IN = int(os.environ.get("NANOGPT_NEWTON_MUON_MAX_D_IN", "1024"))
@@ -798,6 +811,15 @@ class Muon(torch.optim.Optimizer):
     def set_ns_iters_this_step(self, ns_iters: int) -> None:
         self.ns_iters_this_step = int(ns_iters)
 
+    def set_newton_update_period(self, period: int) -> None:
+        """Update the R-EMA/eigendecomp refresh cadence (#1515 phase-split).
+
+        Called from the training loop before step() with the phase-appropriate
+        value (body vs cooldown). When unused, the constructor default (set from
+        NANOGPT_NEWTON_MUON_UPDATE_PERIOD) persists for every step.
+        """
+        self.newton_update_period = int(period)
+
     def _apply_newton_precondition(self, p, grad, state):
         """Right-precondition grad by (X^T X)^{-1/2} for body Muon matrices.
 
@@ -819,9 +841,14 @@ class Muon(torch.optim.Optimizer):
         if x is None:
             return None
         # Update R EMA + eigendecomp every newton_update_period steps (and at first call).
+        # Predicate uses (count - 1) % period == 0 so refresh fires at count = 1,
+        # 1 + period, 1 + 2*period, ... This is bit-identical to the prior
+        # `count % period == 1` for period >= 2, and additionally makes period=1
+        # mean "refresh every step" (the prior modulus form was off-by-one and
+        # period=1 never refreshed after the initial state — see #1515).
         update_R = (
             "R" not in state
-            or (self._newton_step_count % self.newton_update_period == 1)
+            or ((self._newton_step_count - 1) % self.newton_update_period == 0)
         )
         if update_R:
             x32 = x.float()
@@ -979,10 +1006,17 @@ print0(f"  Effective Muon base LRs: attn={0.035*NANOGPT_MUON_ATTN_LR_MULT:.5f} m
 print0(f"EMBED_INIT_ANCHOR_LAMBDA: {NANOGPT_EMBED_INIT_ANCHOR_LAMBDA} "
        f"({'ACTIVE' if NANOGPT_EMBED_INIT_ANCHOR_LAMBDA > 0 else 'INACTIVE (bit-identical fallback)'})",
        console=True)
+_nm_phase_split = (
+    NANOGPT_NEWTON_MUON_UPDATE_PERIOD_BODY != NANOGPT_NEWTON_MUON_UPDATE_PERIOD
+    or NANOGPT_NEWTON_MUON_UPDATE_PERIOD_COOLDOWN != NANOGPT_NEWTON_MUON_UPDATE_PERIOD
+)
 print0(
     f"NEWTON_MUON: use_precond={'True' if NANOGPT_NEWTON_MUON else 'False'} "
     f"lr_scale={NANOGPT_NEWTON_MUON_LR_SCALE} "
     f"update_period={NANOGPT_NEWTON_MUON_UPDATE_PERIOD} "
+    f"(body={NANOGPT_NEWTON_MUON_UPDATE_PERIOD_BODY} "
+    f"cooldown={NANOGPT_NEWTON_MUON_UPDATE_PERIOD_COOLDOWN}"
+    f"{' PHASE-SPLIT' if _nm_phase_split else ''}) "
     f"beta={NANOGPT_NEWTON_MUON_BETA} eps={NANOGPT_NEWTON_MUON_EPS} "
     f"max_d_in={NANOGPT_NEWTON_MUON_MAX_D_IN}",
     console=True,
@@ -1102,6 +1136,8 @@ if dist.get_rank() == 0:
             "nanogpt_newton_muon": NANOGPT_NEWTON_MUON,
             "nanogpt_newton_muon_lr_scale": NANOGPT_NEWTON_MUON_LR_SCALE,
             "nanogpt_newton_muon_update_period": NANOGPT_NEWTON_MUON_UPDATE_PERIOD,
+            "nanogpt_newton_muon_update_period_body": NANOGPT_NEWTON_MUON_UPDATE_PERIOD_BODY,
+            "nanogpt_newton_muon_update_period_cooldown": NANOGPT_NEWTON_MUON_UPDATE_PERIOD_COOLDOWN,
             "nanogpt_newton_muon_beta": NANOGPT_NEWTON_MUON_BETA,
             "nanogpt_newton_muon_eps": NANOGPT_NEWTON_MUON_EPS,
             "nanogpt_newton_muon_max_d_in": NANOGPT_NEWTON_MUON_MAX_D_IN,
@@ -1419,6 +1455,16 @@ for trial_idx in range(args.num_trials):
         else:
             ns_iters_this_step = ns_iters_deterministic
         optimizer2.set_ns_iters_this_step(ns_iters_this_step)
+        # Phase-dependent NM update period (#1515). cooldown_start_step uses the
+        # same NS_COOLDOWN_START_FRAC boundary so the period switch aligns with
+        # the rest of the cooldown schedule. When BODY==COOLDOWN==global default,
+        # this is a no-op (bit-identical to production).
+        nm_update_period_this_step = (
+            NANOGPT_NEWTON_MUON_UPDATE_PERIOD_COOLDOWN
+            if step >= cooldown_start_step
+            else NANOGPT_NEWTON_MUON_UPDATE_PERIOD_BODY
+        )
+        optimizer2.set_newton_update_period(nm_update_period_this_step)
         if dist.get_rank() == 0:
             ns_iters_history.append(ns_iters_this_step)
             if len(ns_iters_history) > 100:
