@@ -1,3 +1,88 @@
+## 2026-05-28 09:10 UTC — Cycle 71 mid-338 — fern #1519 244th (depth-half SOAP state reset depth-symmetric-at-noise CLOSED) + 15-mechanism cluster-floor table + PER_DEPTH_HALF_SOAP_BETA2_MLP pivot
+
+**Cumulative**: **244 refuted** / **145 distinct mech classes** / **107 family-level closures**.
+
+### PR closed this wave (1 closure, terminal bilateral):
+
+| PR | student | mechanism | outcome |
+|---|---|---|---|
+| **fern #1519** | fern | POST_TARGET_DEPTH_HALF_SOAP_STATE_RESET (Arm A early-half scope [blocks 0–5], Arm B late-half scope [blocks 6–11] at step 2950, full SOAP state: row_gg/col_gg/q_row/q_col/exp_avg_sq/soap_step) | **244th** — Arm A val=3.26823/ffs=3000 (SCE n=1), Arm B val=3.26925/ffs=3025 (SCE n=1); Δ B−A=+0.001 already visible at PRE-RESET step 2900 → seed-noise contribution, NOT reset-induced asymmetry. State-magnitude paradox: early-half row_gg norm ~3394218 vs late-half ~257588 (~13× ratio pre-reset), yet trajectories nearly identical across all 3000 steps. Directional-asymmetry hypothesis null. |
+
+### NEW PRINCIPLES this wave:
+
+1. **Depth-half SOAP state reset is DEPTH-SYMMETRIC at noise (extends #1463 m-reset depth-symmetry to SOAP state).** The depth-half reset event at step 2950 produces the same cluster-floor outcome regardless of which half is reset. This extends the depth-symmetry-at-step-2950 principle from first-moment (body-Muon m, askeladd #1504) to the full SOAP state (fern #1519).
+2. **SOAP state magnitude is NOT predictive of step-2950 reset penalty.** Early-half pre-reset row_gg ~13× larger than late-half, yet val penalties are nearly equal (+0.0005 vs +0.0015 from baseline — within seed noise at n=1). Confirms earlier principle: reset-mass ≠ val penalty (thorfinn #1514 7.32× ratio). The cluster floor absorbs the perturbation regardless of accumulated state mass.
+3. **Cluster floor extends to 15 mechanism scopes (12 distinct axes + 3 sub-arm splits).** Fern #1519 adds 2 new entries at the LOW END of the cluster floor: Arm A at +0.0005 from baseline (NEW MINIMUM, sub-cluster-edge n=1) and Arm B at +0.0015 (cluster STANDARD band). These do NOT beat the baseline because Arm A 3.26823 > merge-bar 3.26776 at n=1, and Δ B−A is seed noise.
+4. **No n=2 confirmation warranted for fern #1519.** Arm A 3.26823 − 3.26776 = +0.00047 (single-seed margin 0.01177, 10× above statsig floor). Probability of n=2 mean clearing 3.26776 is low given the +0.0005 single-seed offset and no directional asymmetry signal to anchor a second seed.
+
+### 15-mechanism cluster floor at step 2950 (FULLY SATURATED, UPDATED):
+
+| axis | source | scope | val penalty | ffs |
+|---|---|---|---|---|
+| **early-half SOAP state reset** | **fern #1519 Arm A** | **24p (blocks 0–5)** | **+0.0005** | **+0** |
+| body-Muon m-zero | alphonse #1461 | 72 | +0.0013 (n=2) | +0 |
+| **late-half SOAP state reset** | **fern #1519 Arm B** | **24p (blocks 6–11)** | **+0.0015** | **+25** |
+| body-Muon m-scale ×0.5/×2.0 | thorfinn #1485 | 72 | +0.0028/+0.0018 | +25 |
+| body-Muon m-direction ±g | frieren #1512 | 72 | +0.0024/+0.0021 | +25 |
+| body-Muon per-block m=0 | askeladd #1504 | 6/6 | +0.0014/+0.0019 | +25 |
+| AUX m+v reset | nezuko #1505 | 3 | +0.0031/catastrophic | +25/∞ |
+| AUX embed-only m | tanjiro #1522 | 1 | +0.0020 | +25 |
+| SOAP-on-MLP reset | thorfinn #1514 | 24 | +0.0033 | +25 |
+| SOAP-on-Attn-trust reset | thorfinn #1514 | 48 | +0.0046 | +50 |
+| body-Muon v-only reset | alphonse #1518 Arm A | 72 | +0.0044 | +25 |
+| body-Muon m+v joint reset | alphonse #1518 Arm B | 72 | +0.0036 | +25 |
+
+**Penalty range val ∈ [+0.0005, +0.0046], ffs ∈ {0, 25, 50}.** Cluster floor minimum now at +0.0005 (depth-half SOAP state reset, early scope). No further blanket-scope state-buffer perturbation probes at step 2950 warranted. Substate decomposition (thorfinn #1540) and sub-event-timing (nezuko #1528) are the two active follow-ups.
+
+### Fresh assignment — first per-depth-half MLP-SOAP_BETA2 probe in 1500+ PRs:
+
+| PR | student | mechanism | rationale |
+|---|---|---|---|
+| **fern #1545** | fern | PER_DEPTH_HALF_SOAP_BETA2_MLP (Arm A front_FAST [front=0.85/back=0.95, mean=0.90], Arm B front_SLOW [front=0.95/back=0.85, mean=0.90], MLP-SOAP only scope, full-run) | **First per-depth-half split of MLP-SOAP Gram-matrix EMA decay rate in 1500+ PRs.** Scalar SOAP_BETA2 swept globally 3× (#836 {0.80, 0.99} both cluster-STANDARD, #223 {0.85, 0.92}, #291 annealed-TIME 0.95→0.85) — but PER-DEPTH never. Motivation from fern #1519: early-half MLP had ~13× larger row_gg pre-reset, suggesting depth-heterogeneous gradient statistics. Per-depth β2 dispatch targets this via different EMA horizons (7-step front vs 20-step back in Arm A). Structurally orthogonal to edward #1525 (SOAP_PRECOND_FREQ: basis recompute cadence) and frieren #1537 (NORMUON_BETA2: first-moment EMA). Both soap_refresh and soap_precondition already accept beta2 kwarg. Per Morgan #1259 (per-group state-phase mechanism). |
+
+### Still-active fleet (8 students, ZERO IDLE):
+
+- **fern #1545** — PER_DEPTH_HALF_SOAP_BETA2_MLP (front_FAST vs front_SLOW per-block Gram EMA) — NEWLY assigned
+- **thorfinn #1540** — POST_TARGET_SOAP_MLP_SUB_STATE_LOCALIZATION (exp_avg_sq-only vs gram-only at step 2950) — in flight
+- **alphonse #1541** — DEPTH_HALF_BODY_MUON_INIT_SCALE (front_BIG vs front_SMALL per-block init std) — in flight
+- **frieren #1537** — PER_DEPTH_HALF_NORMUON_BETA2 (front_FAST vs front_SLOW per-block variance EMA) — in flight
+- **askeladd #1527** — POST_TARGET_DEPTH_HALF_UW_FLOOR (Arm A terminal, Arm B in flight) — awaiting terminal SENPAI-RESULT
+- **edward #1525** — DEPTH_LINEAR_SOAP_PRECOND_FREQ_MLP (Arm A terminal, Arm B in flight) — awaiting terminal SENPAI-RESULT
+- **nezuko #1528** — AUX_M_RESET_TIMING_GAP (Arm A terminal, Arm B in flight) — awaiting terminal SENPAI-RESULT
+- **tanjiro #1522** — POST_TARGET_AUX_KIND_PARTITIONED_M_RESET (Arm B in flight) — awaiting terminal SENPAI-RESULT
+
+### Sub-cluster-edge candidates (pending):
+
+| PR | student | Arm A | val | ffs | status |
+|---|---|---|---|---|---|
+| tanjiro #1522 | tanjiro | embed-only AUX m-reset @ step 2950 | **3.26978** | 3025 | Arm B in flight (lm_head-only scope) |
+
+_Note: fern #1519 Arm A (3.26823/3000) removed from candidates — depth asymmetry null, n=2 probability too low given +0.0005 offset and seed-noise Δ._
+
+### Per-block/per-depth dispatch frontier matrix (UPDATED cycle 71 mid-338):
+
+| axis | depth dispatch | state-phase | scope | PR |
+|---|---|---|---|---|
+| LR continuous ramp | per-block linear | window | body Muon | edward #1468 + #1492 (CLOSED) |
+| SOAP refresh freq | per-block linear | full-run | MLP-SOAP only | edward #1525 (Arm B in flight) |
+| TARGET_UW (u/w-floor) | depth-half | windowed | body Muon | askeladd #1527 (Arm B in flight) |
+| NORMUON β2 (variance EMA) | depth-half | full-run | body Muon | frieren #1537 (in flight) |
+| **MLP-SOAP Gram EMA β2** | **depth-half** | **full-run** | **MLP-SOAP only** | **fern #1545 (NEW)** |
+| body Muon init scale | depth-half | pre-training | body Muon 48p | alphonse #1541 (in flight) |
+| SOAP state reset (full) | per-kind | event | MLP / Attn-trust | thorfinn #1514 (CLOSED) |
+| SOAP state reset (sub-state) | (MLP scope) | event | exp_avg_sq vs gram | thorfinn #1540 (in flight) |
+| **SOAP state reset depth-half** | **depth-half** | **event** | **all SOAP kinds** | **fern #1519 (CLOSED THIS WAVE)** |
+| m-reset per-block | per-block | event | body Muon | askeladd #1504 (CLOSED) |
+| m-reset per-kind AUX | embed vs lm_head | event | AUX | tanjiro #1522 (Arm B in flight) |
+| v-reset / m+v joint | none | event | body Muon | alphonse #1518 (CLOSED) |
+| AUX m+v joint | none | event | AUX | nezuko #1505 (CLOSED) |
+| AUX m-reset timing | none | event-timing | AUX | nezuko #1528 (Arm B in flight) |
+| m←±grad direction | none | event | body Muon | frieren #1512 (CLOSED) |
+
+**State-dynamics frontier**: 5 continuous-mechanism per-block axes now active (LR-ramp CLOSED, SOAP refresh-freq Arm B in flight, NORMUON β2 in flight, UW-floor Arm B in flight, body init scale in flight, MLP-SOAP β2 NEW). Plus 6 event-axes, of which 5 CLOSED and 2 sub-variants in flight (sub-state, m-reset timing, m-reset per-kind AUX).
+
+---
+
 ## 2026-05-28 08:15 UTC — Cycle 71 mid-337 — thorfinn #1514 242nd (SOAP eigenbasis-reset per-kind CLOSED) + alphonse #1518 243rd (body-Muon v-only + within-Muon m+v compound CLOSED, 13-mechanism cluster-floor table) + SOAP MLP sub-state localization + DEPTH_HALF_INIT_SCALE pivots
 
 **Cumulative**: **243 refuted** / **145 distinct mech classes** / **107 family-level closures**.
