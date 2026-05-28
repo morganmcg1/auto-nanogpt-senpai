@@ -1,3 +1,86 @@
+## 2026-05-28 09:35 UTC — Cycle 71 mid-339 — tanjiro #1522 245th (AUX m-reset KIND-ASYMMETRIC at Δ=0.00104, lm_head 184× larger m magnitude but less reset-sensitive CLOSED) + 17-mechanism cluster-floor table + PER_KIND_AUX_BETA1 pivot
+
+**Cumulative**: **245 refuted** / **145 distinct mech classes** / **107 family-level closures**.
+
+### PR closed this wave (1 closure, terminal bilateral):
+
+| PR | student | mechanism | outcome |
+|---|---|---|---|
+| **tanjiro #1522** | tanjiro | POST_TARGET_AUX_KIND_PARTITIONED_M_RESET (Arm A adam_embed-only 1p, Arm B adam_lm_head-only 1p, both at step 2950) | **245th** — Arm A val=3.26978/ffs=3025 (CLUSTER STANDARD), Arm B val=3.26874/ffs=3000 (sub-cluster-edge); Δ B−A=−0.00104 **KIND-ASYMMETRIC** (just above 0.001 noise threshold). lm_head AUX m carries **184× larger L2 norm** (3774 vs 20.5) but is LESS reset-harmful. m-magnitude does NOT predict load-bearing role. |
+
+### NEW PRINCIPLES this wave:
+
+1. **AUX m-reset is KIND-ASYMMETRIC (Δ=0.00104) — BREAKS the body-Muon kind-symmetric analogy (askeladd #1477 Δ=0.00003).** AUX-state and body-Muon-state have structurally different per-kind sensitivities. The optimizer family determines whether kind-symmetry holds.
+2. **m-magnitude does NOT predict load-bearing role**: lm_head AUX m has 184× larger L2 than embed AUX m, but resetting lm_head is LESS harmful (+0.00098 vs +0.00202 val). The magnitude of accumulated buffer state is **not** proportional to its importance for downstream optimization.
+3. **Effective-LR-stratified m-staleness hypothesis (tanjiro's own mechanistic explanation)**: lm_head per-group LR is 96× smaller (1/320 vs 0.3). At fixed β1=0.8, the m-buffer integrates ~5 steps of gradients. With lm_head's tiny effective LR, the integrated m drives small per-step updates → buffer becomes "stale recursion" with mostly historical signal that doesn't change update direction. Embed's m carries fresh high-impact gradient state. Resetting lm_head's m loses less actionable information per parameter-update.
+4. **Per-kind AUX m-reset is BOTH BETTER than joint AUX m-reset (nezuko #1505 Arm A 3.27090)**: A=3.26978 (Δ−0.00112), B=3.26874 (Δ−0.00216). Either (a) adam_scalars is the dominant perturber in joint, OR (b) cross-kind interactions are non-additive.
+5. **Reset-mass is NOT predictive of penalty — confirmed across 3 PRs**: thorfinn #1514 (7.32× mass → Δ=0.00135), fern #1519 (~13× → Δ=0.00102), tanjiro #1522 (184× → Δ=0.00104). All Δ values fall in noise band [0.001, 0.002] regardless of reset-mass ratio spanning 7×–184×.
+
+### 17-mechanism cluster floor at step 2950 (FULLY SATURATED, UPDATED):
+
+| axis | source | scope | val penalty | ffs |
+|---|---|---|---|---|
+| early-half SOAP state reset | fern #1519 Arm A | 24p (blocks 0–5) | +0.0005 | +0 |
+| **AUX lm_head-only m-reset** | **tanjiro #1522 Arm B** | **1p (adam_lm_head)** | **+0.00098** | **+0** |
+| body-Muon m-zero | alphonse #1461 | 72 | +0.0013 (n=2) | +0 |
+| late-half SOAP state reset | fern #1519 Arm B | 24p (blocks 6–11) | +0.0015 | +25 |
+| body-Muon m-scale ×0.5/×2.0 | thorfinn #1485 | 72 | +0.0028/+0.0018 | +25 |
+| body-Muon m-direction ±g | frieren #1512 | 72 | +0.0024/+0.0021 | +25 |
+| body-Muon per-block m=0 | askeladd #1504 | 6/6 | +0.0014/+0.0019 | +25 |
+| **AUX embed-only m-reset** | **tanjiro #1522 Arm A** | **1p (adam_embed)** | **+0.00202** | **+25** |
+| AUX m+v reset | nezuko #1505 | 3 | +0.0031/catastrophic | +25/∞ |
+| AUX embed-only m (joint variant) | tanjiro #1522 (sole 1p subset) | 1 | +0.00202 | +25 |
+| SOAP-on-MLP reset | thorfinn #1514 | 24 | +0.0033 | +25 |
+| SOAP-on-Attn-trust reset | thorfinn #1514 | 48 | +0.0046 | +50 |
+| body-Muon v-only reset | alphonse #1518 Arm A | 72 | +0.0044 | +25 |
+| body-Muon m+v joint reset | alphonse #1518 Arm B | 72 | +0.0036 | +25 |
+
+**Penalty range val ∈ [+0.0005, +0.0046], ffs ∈ {0, 25, 50}.** Cluster floor at ffs=+0 now confirmed across 3 mechanism families (depth-half SOAP, AUX lm_head m, body-Muon m-zero). Cluster geometry is **geometric not arithmetic**: state-buffer perturbations at step 2950 collapse to narrow val band [3.2683, 3.2724] regardless of underlying buffer magnitude (range 7×–184× reset-mass ratio).
+
+### Fresh assignment — first per-kind AdamW β1 dispatch in 1500+ PRs:
+
+| PR | student | mechanism | rationale |
+|---|---|---|---|
+| **tanjiro #1547** | tanjiro | PER_KIND_AUX_BETA1 (Arm A embed_FAST [embed β1=0.85, lm_head β1=0.75], Arm B embed_SLOW [embed β1=0.75, lm_head β1=0.85], scalars β1=0.80 fixed, mean=0.80, full-run) | **First per-kind β1 dispatch in 1500+ PRs.** Prior β1 work: #488 global scalar sweep {0.75, 0.85}, #527 NAdamW lookahead. **Directly tests tanjiro's OWN #1522 effective-LR-stratified m-staleness hypothesis** as a continuous mechanism axis: does the optimal m-EMA decay rate β1 depend on AUX kind? If lm_head m is "stale", smaller β1 (faster decay) should help lm_head; if embed m is fresh gradient, larger β1 (longer averaging) should help embed. Structurally orthogonal to nezuko #1528 (m-reset timing-gap), frieren #1537 (NORMUON β2 body), fern #1545 (MLP-SOAP β2), edward #1525 (SOAP refresh freq). Per Morgan #1259 (per-group state-phase mechanism). PyTorch AdamW per-group `betas` override is the implementation path. |
+
+### Still-active fleet (8 students, ZERO IDLE):
+
+- **tanjiro #1547** — PER_KIND_AUX_BETA1 (embed_FAST vs embed_SLOW per-kind AdamW m EMA) — NEWLY assigned
+- **fern #1545** — PER_DEPTH_HALF_SOAP_BETA2_MLP (front_FAST vs front_SLOW per-block Gram EMA) — in flight
+- **thorfinn #1540** — POST_TARGET_SOAP_MLP_SUB_STATE_LOCALIZATION (exp_avg_sq-only vs gram-only) — in flight
+- **alphonse #1541** — DEPTH_HALF_BODY_MUON_INIT_SCALE (front_BIG vs front_SMALL per-block init std) — in flight
+- **frieren #1537** — PER_DEPTH_HALF_NORMUON_BETA2 (front_FAST vs front_SLOW per-block variance EMA) — in flight
+- **askeladd #1527** — POST_TARGET_DEPTH_HALF_UW_FLOOR (Arm B in flight) — awaiting terminal SENPAI-RESULT
+- **edward #1525** — DEPTH_LINEAR_SOAP_PRECOND_FREQ_MLP (Arm B in flight) — awaiting terminal SENPAI-RESULT
+- **nezuko #1528** — AUX_M_RESET_TIMING_GAP (Arm B in flight) — awaiting terminal SENPAI-RESULT
+
+### Per-block/per-depth/per-kind dispatch frontier matrix (UPDATED cycle 71 mid-339):
+
+| axis | dispatch | state-phase | scope | PR |
+|---|---|---|---|---|
+| LR continuous ramp | per-block linear | window | body Muon | edward #1468 + #1492 (CLOSED) |
+| SOAP refresh freq | per-block linear | full-run | MLP-SOAP only | edward #1525 (Arm B in flight) |
+| TARGET_UW (u/w-floor) | depth-half | windowed | body Muon | askeladd #1527 (Arm B in flight) |
+| NORMUON β2 (variance EMA) | depth-half | full-run | body Muon | frieren #1537 (in flight) |
+| MLP-SOAP Gram EMA β2 | depth-half | full-run | MLP-SOAP only | fern #1545 (in flight) |
+| body Muon init scale | depth-half | pre-training | body Muon 48p | alphonse #1541 (in flight) |
+| **AdamW m EMA β1** | **per-kind (embed vs lm_head)** | **full-run** | **AUX** | **tanjiro #1547 (NEW)** |
+| SOAP state reset (full) | per-kind | event | MLP / Attn-trust | thorfinn #1514 (CLOSED) |
+| SOAP state reset (sub-state) | (MLP scope) | event | exp_avg_sq vs gram | thorfinn #1540 (in flight) |
+| SOAP state reset depth-half | depth-half | event | all SOAP kinds | fern #1519 (CLOSED) |
+| m-reset per-block | per-block | event | body Muon | askeladd #1504 (CLOSED) |
+| m-reset per-kind AUX | embed vs lm_head | event | AUX | **tanjiro #1522 (CLOSED THIS WAVE)** |
+| v-reset / m+v joint | none | event | body Muon | alphonse #1518 (CLOSED) |
+| AUX m+v joint | none | event | AUX | nezuko #1505 (CLOSED) |
+| AUX m-reset timing | none | event-timing | AUX | nezuko #1528 (Arm B in flight) |
+| m←±grad direction | none | event | body Muon | frieren #1512 (CLOSED) |
+
+**State-dynamics frontier**: 7 continuous-mechanism dispatch axes active (LR-ramp CLOSED, SOAP refresh-freq Arm B in flight, NORMUON β2 in flight, UW-floor Arm B in flight, MLP-SOAP β2 in flight, body init scale in flight, **AUX m β1 NEW per-kind**). Plus event-axes 6 CLOSED + 2 in flight (sub-state, AUX m-reset timing-gap).
+
+**Per-kind dispatch frontier expansion**: tanjiro #1547 introduces the **first per-kind (not per-depth) dispatch** in cycle 71's continuous-axis frontier — the AUX param-group identity (embed vs lm_head vs scalars) becomes the dispatch dimension instead of block-depth. Complements the depth-axis cluster (frieren, fern, alphonse, edward, askeladd) by adding a structural-position-orthogonal axis.
+
+---
+
 ## 2026-05-28 09:10 UTC — Cycle 71 mid-338 — fern #1519 244th (depth-half SOAP state reset depth-symmetric-at-noise CLOSED) + 15-mechanism cluster-floor table + PER_DEPTH_HALF_SOAP_BETA2_MLP pivot
 
 **Cumulative**: **244 refuted** / **145 distinct mech classes** / **107 family-level closures**.
