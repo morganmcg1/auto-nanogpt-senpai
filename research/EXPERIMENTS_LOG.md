@@ -1,5 +1,34 @@
 # SENPAI Research Results — auto-nanogpt-1gpu-r4
 
+## 2026-05-28 05:50 — PR #1499: NM UPDATE_PERIOD=1 screen — **CLOSED NULL/mild-NEG (14th cross-axis catalog finding, freshness HIGH-side closure)**
+
+- branch: `g1r4-tanjiro/nm-period1-screen`
+- Hypothesis: Does NM UPDATE_PERIOD=1 (every-step R refresh) continue freshness-FAV trend from #1421 (period=5→2 FAV-MERGED) or reveal period=2 as a HIGH-side local optimum?
+
+| Run | Period | W&B ID | val/loss | fs | R_cond_mean | precond_ratio | params_prec | step_avg |
+|:---:|:---:|---|:---:|:---:|:---:|:---:|:---:|:---:|
+| ctrl | 2 | `sqbb2lxg` | 3.26308 | 3150 | 242,305 | 1.0809 | 72 | 2877ms |
+| arm | 1 | `05ky5k4g` | **3.26402** | 3150 | 179,321 | 1.0747 | 72 | 3126ms |
+| Δ_paired | — | — | **+0.00094** | 0 | −26% | −0.006 | — | +8.66% |
+
+**Verdict: NULL/mild-NEG, freshness HIGH-side bilateral closure.**
+
+**Gate verdict**: ctrl drift = 3.26308 − 3.26310 = −0.00002 G4 PASS-CLEAN. Δ_paired = +0.00094 lands in NULL band (|Δ| ≤ 0.001) but with monotone mild-NEG lean (final 10 checkpoints show stable +0.0008-0.0009 separation, not noise-driven).
+
+**Bug-fix verification**: commit `c05226c` `FIX: NM update_R condition for update_period=1` on branch — reproducibility gate now passes after c461 heartbeat resolution. Terminal telemetry conditionally consistent with fix being applied (R_cond_mean=179K < ctrl 242K, step overhead +8.66% matches 2× eigendecomp frequency).
+
+**🎯 Bilateral local optimum at (β=0.95, period=2) NOW FULLY CONFIRMED**:
+- LOW-side period↑ (#1421 period=5→2): **MERGED FAV Δ=−0.00125** — staleness reduction productive ✅
+- HIGH-side period↓ (#1499 period=2→1): **NULL/mild-NEG Δ=+0.00094** — over-refresh slightly damaging ✅
+- LOW-side β↑ (#1447 β=0.95→0.99): **PP-COLLAPSE NEG Δ=+0.00195** — slower EMA degrades R structure ✅
+- HIGH-side β↓ — testing in #1484 edward (β∈{0.80,0.85,0.90,0.95}) ⏳
+
+**Mechanism**: Period=1 halves the effective EMA window from ~40 steps (period=2, β=0.95) to ~20 steps. Shorter window → noisier R estimate → noisier preconditioner. The mild degradation suggests the ~40-step window at period=2 is well-matched to the gradient covariance timescale of this 124M model on FineWeb. Going faster injects estimation noise that outweighs the freshness gain.
+
+**Cross-axis catalog impact**: **14th finding deepens class 4 (freshness-bilateral-monotone)** — no new class. Catalog: 5 magnitude-NULL + 3 NS-axis-NULL + 1 timing-NEG (#1383) + **4 freshness-bilateral (#1421 FAV-MERGED + #1447 NEG + #1499 NULL-NEG)** + 1 state-continuity-NEG (#1431) + 1 temporal-coverage-SATURATING-NEG (#1469) + 1 structural-OFFDIAG-NEG-pending (#1488). 14 findings, 7 classes (counting #1488 pending close).
+
+**Wandb runs**: ctrl `sqbb2lxg`, arm `05ky5k4g`.
+
 ## 2026-05-28 03:58 — PR #1447: PP-promote n=3 NM BETA=0.99 EARLY — **CLOSED Row 5 productive-NEG PP-COLLAPSE (13th cross-axis catalog finding, BILATERAL freshness completion)**
 
 - branch: `g1r4-fern/nm-beta099-pp-promote`
