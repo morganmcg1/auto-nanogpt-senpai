@@ -96,6 +96,18 @@ def parse_args():
                         help="Starting value of µ schedule (used by linear and cooldown_ramp modes).")
     parser.add_argument("--muonh_mu_end", type=float, default=float(os.environ.get("MUONH_MU_END", "0.98")),
                         help="Ending value of µ schedule (used by linear and cooldown_ramp modes).")
+    # H244: depth-scaled per-layer LR on MuonH body. 'none' keeps the single
+    # global param group (bit-identical to baseline). 'linear' and 'invsqrt'
+    # split the body into 12 param groups (one per transformer block) with
+    # group LR = muonh_lr * lr_mult(layer_idx). Per-block grouping (all 6
+    # matrices in a block share the same multiplier).
+    parser.add_argument("--muonh_lr_taper", type=str,
+                        default=os.environ.get("MUONH_LR_TAPER", "none"),
+                        choices=["none", "linear", "invsqrt"],
+                        help="Per-block LR taper across the 12 transformer blocks. "
+                             "'none' (default, baseline) = uniform LR for all body params. "
+                             "'linear' = lr_l = lr_init * (1 - l/24). "
+                             "'invsqrt' = lr_l = lr_init / sqrt(1 + l/12).")
     parser.add_argument("--body_init", type=str, default=os.environ.get("BODY_INIT", "default"),
                         choices=["default", "orthogonal_fnorm_matched", "orthogonal_bottom_damp"],
                         help="Initialization scheme for body MuonH 2D weights (attn.q/k/v, attn.proj, mlp.fc, mlp.proj). "
@@ -670,9 +682,18 @@ class MuonH(torch.optim.Optimizer):
     """
     def __init__(self, params, lr=0.018, weight_decay=0.0, mu=0.95,
                  hyperball=True, budget_mult=1.0, mode="clip"):
-        assert isinstance(params, list) and len(params) >= 1 and isinstance(params[0], torch.nn.Parameter)
+        assert isinstance(params, list) and len(params) >= 1
         assert mode in ("clip", "scale_invariant")
-        params = sorted(params, key=lambda x: x.size(), reverse=True)
+        if isinstance(params[0], torch.nn.Parameter):
+            # Flat list of parameters (baseline path) — sort globally by size desc.
+            params = sorted(params, key=lambda x: x.size(), reverse=True)
+        else:
+            # List of param-group dicts (used by --muonh_lr_taper per-block groups).
+            # Sort params within each group so MuonH.step()'s rank-batched dispatch
+            # still processes larger matrices first inside each group.
+            for g in params:
+                assert isinstance(g, dict) and "params" in g
+                g["params"] = sorted(g["params"], key=lambda x: x.size(), reverse=True)
         defaults = dict(lr=lr, weight_decay=weight_decay, mu=mu,
                         hyperball=hyperball, budget_mult=budget_mult, mode=mode)
         super().__init__(params, defaults)
@@ -850,6 +871,7 @@ if dist.get_rank() == 0:
             "muonh_mu_schedule": args.muonh_mu_schedule,
             "muonh_mu_start": args.muonh_mu_start,
             "muonh_mu_end": args.muonh_mu_end,
+            "muonh_lr_taper": args.muonh_lr_taper,
         },
     )
 
@@ -930,11 +952,43 @@ for trial_idx in range(args.num_trials):
                         dict(params=[model.proj.weight], lr=1/320, name="adam_lm_head"),
                         dict(params=[p for p in model.parameters() if p.ndim < 2], lr=0.01, name="adam_scalars")],
                        betas=(0.8, args.aux_beta2_start), eps=args.aux_adamw_eps, weight_decay=0, fused=_aux_fused)
-    optimizer2 = MuonH([p for p in model.blocks.parameters() if p.ndim >= 2],
-                       lr=args.muonh_lr, weight_decay=0.0, mu=0.95,
-                       hyperball=True, budget_mult=args.muonh_budget_mult,
-                       mode=args.muonh_mode)
-    optimizer2.param_groups[0]["name"] = "muonh_blocks"
+    # H244: per-block LR taper across the 12 transformer blocks. 'none' keeps
+    # the original single-group construction (bit-identical CTRL).
+    if args.muonh_lr_taper == "none":
+        optimizer2 = MuonH([p for p in model.blocks.parameters() if p.ndim >= 2],
+                           lr=args.muonh_lr, weight_decay=0.0, mu=0.95,
+                           hyperball=True, budget_mult=args.muonh_budget_mult,
+                           mode=args.muonh_mode)
+        optimizer2.param_groups[0]["name"] = "muonh_blocks"
+    else:
+        muonh_param_groups = []
+        for layer_idx, block in enumerate(model.blocks):
+            block_body_params = [p for p in block.parameters() if p.ndim >= 2]
+            if not block_body_params:
+                continue
+            if args.muonh_lr_taper == "linear":
+                lr_mult = 1.0 - layer_idx / 24.0
+            elif args.muonh_lr_taper == "invsqrt":
+                lr_mult = 1.0 / math.sqrt(1.0 + layer_idx / 12.0)
+            else:
+                raise ValueError(f"unknown muonh_lr_taper: {args.muonh_lr_taper}")
+            muonh_param_groups.append({
+                "params": block_body_params,
+                "lr": args.muonh_lr * lr_mult,
+                "lr_mult": lr_mult,
+                "layer_idx": layer_idx,
+                "name": f"muonh_block_{layer_idx}",
+            })
+        optimizer2 = MuonH(muonh_param_groups,
+                           lr=args.muonh_lr, weight_decay=0.0, mu=0.95,
+                           hyperball=True, budget_mult=args.muonh_budget_mult,
+                           mode=args.muonh_mode)
+        print0(f"MuonH per-block LR taper={args.muonh_lr_taper}: "
+               f"{len(optimizer2.param_groups)} groups, "
+               f"layer 0 lr_mult={optimizer2.param_groups[0]['lr_mult']:.4f}, "
+               f"layer {len(optimizer2.param_groups)-1} lr_mult="
+               f"{optimizer2.param_groups[-1]['lr_mult']:.4f}",
+               console=True)
     optimizers = [optimizer1, optimizer2]
     # AGC targets: AdamW aux groups (embed, lm_head, scalars). Built from optimizer1
     # param groups to track exactly the same params AdamW updates.
@@ -1191,6 +1245,18 @@ for trial_idx in range(args.num_trials):
                         muonh_metrics["train/muonh/norm_to_radius_max"] = opt._last_norm_to_radius_max
                     muonh_metrics["train/muonh/warmup_factor"] = muonh_warmup_factor
                     muonh_metrics["train/muonh/effective_lr"] = opt.param_groups[0]["lr"]
+                    # H244: per-block LR taper telemetry. For taper='none' there
+                    # is a single group, so min=mean=max and the per-layer keys
+                    # collapse to one. For 'linear'/'invsqrt' the spread shows
+                    # whether the taper is alive at every telemetry event.
+                    body_lrs = [g["lr"] for g in opt.param_groups]
+                    muonh_metrics["train/muonh/body_lr_mean"] = sum(body_lrs) / len(body_lrs)
+                    muonh_metrics["train/muonh/body_lr_min"] = min(body_lrs)
+                    muonh_metrics["train/muonh/body_lr_max"] = max(body_lrs)
+                    muonh_metrics["train/muonh/num_body_groups"] = len(body_lrs)
+                    if len(body_lrs) >= 12:
+                        muonh_metrics["train/muonh/body_lr_layer_0"] = body_lrs[0]
+                        muonh_metrics["train/muonh/body_lr_layer_11"] = body_lrs[11]
             if telemetry_due and args.aux_agc_clip_ratio > 0 and agc_stats["agc_total"] > 0:
                 muonh_metrics["train/agc/active_fraction"] = agc_stats["agc_clipped"] / agc_stats["agc_total"]
                 muonh_metrics["train/agc/clipped_count"] = agc_stats["agc_clipped"]
