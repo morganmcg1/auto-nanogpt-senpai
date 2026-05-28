@@ -8276,3 +8276,78 @@ All three are state-phase or per-group mechanism axes — none are plain scalar 
 - 8 students active (4 with one-arm-terminal, 3 advancing, 1 just-launched), ZERO IDLE
 - Morgan #1259 directive fully respected — current portfolio is per-group + state-phase, no scalar sweeps
 - Next wake likely closures: thorfinn #1595 + tanjiro #1603 + alphonse #1606 (after Arm B for each) + possibly fern #1611 if Arm A completes
+
+## 2026-05-29 ~03:30Z — Cycle 71 mid-361 update — 265th refute (thorfinn #1595 SOAP early-asymmetry quantified ~28%) + thorfinn #1620 NEW PHASE_ATTN_SOAP_REFRESH_FREQ (compute reallocation axis)
+
+### thorfinn #1595 ATTN_SOAP_TERMINATION_STEP — 265th refute (CLOSED) — STRUCTURAL FINDING: SOAP early-asymmetry ~28% per step
+
+- Arm A `s3m8q1ej` (terminate_2975, last 200 SOAP-off): val=**3.26926**, ffs=3025 → **SUB-CLUSTER-EDGE** (best single-arm cycle 71, edges #1568 by Δ=−0.00066)
+- Arm B `naxmwckk` (terminate_2175, last 1000 SOAP-off): val=**3.27113**, ffs=3050 → CLUSTER STANDARD
+- val_mean=3.27020, Δ vs baseline=+0.00244 ABOVE-FLOOR, **MERGE BAR FAIL**
+- Code patch confirmed `optimizer/attn_soap_termination_step=2975/2175` in respective configs ✓
+- Statistical margin (3.28−3.27020)·√2=0.01387 ≥ 0.004 ✓ (statistically valid run, just doesn't meet merge bar)
+
+### STRUCTURAL FINDING — SOAP early-asymmetry quantified
+
+Symmetric comparison with #1570 (ACTIVATION_DELAY) at same SOAP-off step counts:
+
+| SOAP-off steps | early (#1570 delay) | late (#1595 terminate) | Δ(late − early) |
+|---|---|---|---|
+| 200 | 3.27033 | **3.26926** | **−0.00107** (late hurts 41% less) |
+| 1000 | 3.27291 | **3.27113** | **−0.00178** (late hurts 35% less) |
+
+Per-step damage rate:
+- Early SOAP removal: +0.0032 per 1000 steps
+- Late SOAP removal: +0.0023 per 1000 steps
+- **Late SOAP marginal value is ~28% lower than early SOAP per step**
+
+Mechanism interpretation (from student's analysis):
+- Early gradients carry more directional information (post-warmup, pre-cooldown peak phase)
+- Gram EMA basis warm-start develops in first ~1700 post-warmup steps and CARRIES FORWARD through cooldown
+- Late-phase refreshes use basis derived from accumulated early gradients; marginal value is lower
+- Cooldown's shrinking effective LR mutes the divergence — late SOAP IS doing real work, just less per refresh
+
+### Sub-cluster-edge cluster now 4-axis populated
+
+| PR | mechanism | best-arm val | category |
+|---|---|---|---|
+| #1568 (closed) | MU_COOLDOWN_END_FRONT per-depth-half | 3.26992 | state-phase × per-group |
+| #1577 (closed) | PER_KIND_AUX_BETA2 (lm_head_TIGHT) | 3.26992 | per-group |
+| #1603 (in-flight) | PER_KIND_AUX_BETA2_PUSH (moderate) | 3.26985 | per-group |
+| **#1595 (just closed)** | **ATTN_SOAP_TERMINATION_STEP (terminate_2975)** | **3.26926** | **state-phase** |
+
+All 4 axes land [3.26926, 3.26992] band, val_mean=3.26974. **None individually break merge bar at n=1.**
+
+### NEW FRESH AXIS — thorfinn #1620 PHASE_ATTN_SOAP_REFRESH_FREQ
+
+Direct extension of #1595 early-asymmetry finding to refresh-frequency axis. **First compute reallocation experiment in cycle 71** (prior phase axes were ON/OFF or per-kind/per-depth).
+
+Design:
+- 2-bucket time-phase dispatch with boundary at step 1500 (mid-training)
+- Arm A `early_FREQUENT` (primary): refresh_freq=5 early, refresh_freq=15 late → biases compute toward high-value early phase
+- Arm B `early_RARE` (counterfactual): refresh_freq=15 early, refresh_freq=5 late → reversed allocation
+
+If early-asymmetry generalizes to refresh-freq: Arm A < Arm B by Δ ≈ +0.0015 to +0.0030, Arm A possibly sub-cluster-edge.
+
+If NULL: refresh-freq dispatch is direction-symmetric on time-phase axis.
+
+### mid-361 active fleet snapshot
+
+| student | PR | axis | Arm A status | Arm B status |
+|---|---|---|---|---|
+| frieren | #1596 | attn-SOAP trust-threshold per-depth-half | TERMINAL 3.27246 STANDARD | running ~84% (last wake) |
+| fern | #1611 | PER_KIND_WD_AUX | running (~50% last wake) | not launched |
+| askeladd | #1613 | PER_DEPTH_HALF_MU_COOLDOWN_START | early (~13% last wake) | not launched |
+| tanjiro | #1603 | PER_KIND_AUX_BETA2_PUSH | TERMINAL 3.26985 sub-edge | running ~10% (last wake) |
+| alphonse | #1606 | PER_DEPTH_HALF_MU_COOLDOWN_END_PUSH | running ~81% (last wake) | not launched |
+| nezuko | #1616 | JOINT_OUTPUT_PROJ_BETA2_FAST | WIP | — |
+| edward | #1618 | V_ISOLATED_REFRESH (3-bucket) | WIP | — |
+| thorfinn | #1620 | PHASE_ATTN_SOAP_REFRESH_FREQ (compute reallocation) | **NEW** | — |
+
+### Strategic state
+- Cycle 71 noise floor cluster MDE: ≈Δ=+0.00130 val + 12.5 ffs at n=2
+- **265 refuted / 159 mech classes / 117 family closures**
+- ZERO confirmed n=2 winners since baseline PR #613
+- 8 students active, ZERO IDLE
+- Morgan #1259 directive fully respected — current portfolio is per-group + state-phase, no scalar sweeps
+- 4-axis sub-cluster-edge cluster (val_mean=3.26974) is the structural ceiling at single-seed; compound axes (#1616 cross-scope, #1620 compute reallocation) are the next test for breaking it
