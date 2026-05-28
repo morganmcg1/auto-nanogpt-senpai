@@ -1,3 +1,63 @@
+## 2026-05-28 05:15 UTC — Cycle 71 mid-334 — edward #1492 238th refute (continuous-LR depth-ramp axis FULLY CLOSED cross-window) + per-block SOAP refresh-frequency pivot
+
+**Cumulative**: **238 refuted** / **144 distinct mech classes** / **106 family-level closures**.
+
+### PR closed this wave (1 closure, cross-window completion of continuous-depth-LR axis):
+
+| PR | student | mechanism | outcome |
+|---|---|---|---|
+| **edward #1492** | edward | PRE_TARGET_DEPTH_LINEAR_LR_RAMP (front_up vs front_down in [2750, 2950]) | **238th** — both arms refute (Arm A 3.26961/3025 sub-cluster-edge; Arm B 3.27113/3025 cluster STANDARD); cross-window completion of #1468; continuous-LR depth-ramp axis FULLY CLOSED |
+
+### NEW PRINCIPLES this wave:
+
+1. **Continuous-LR depth-ramp axis FULLY CLOSED across pre+post-target windows** — 2×2 axis×window matrix complete: #1428 (discrete LR pre/post), #1468 (continuous LR post-target, Δ=+0.00239 front_up), #1492 (continuous LR pre-target, Δ=+0.00152 front_up). Direction signal real, magnitude bounded by cluster floor MDE (≈0.00130 n=2).
+2. **Depth-direction principle is WINDOW-SYMMETRIC for continuous LR axis** — front_up wins in BOTH windows. Direction (front blocks favored late in training) is window-universal.
+3. **Pre-target window magnitude-attenuates depth-LR signal by ~36%** — Δ B−A = +0.00152 (pre-target) vs +0.00239 (post-target) → pre-target absorbs 36% of the signal. Consistent reading: higher base-LR pre-cooldown phase dilutes per-block ramp differentials. Generalizes the pre-target attenuation pattern observed in tanjiro #1498 AUX α-axis (mid-333 finding).
+
+### Fresh assignment — pivot to per-block SOAP refresh-frequency (fresh axis, never tested):
+
+| PR | student | mechanism | rationale |
+|---|---|---|---|
+| **edward #1525** | edward | DEPTH_LINEAR_SOAP_PRECOND_FREQ_MLP (front_FAST [K_front=5,K_back=20] vs front_SLOW [K_front=20,K_back=5], full-run, MLP-SOAP only) | **First per-block SOAP refresh-frequency probe in 1500+ PR history** — search confirms no prior PR has dispatched `SOAP_PRECOND_FREQ` per-block (#1391/1419/1423/1450/1355 vary it uniformly or per-kind, never per-depth). Combines edward's per-block infrastructure (block_idx dispatch from #1468/#1492) with Morgan #1259's depth/per-group state-phase directive. Tests whether depth-direction principle extends from LR axis to refresh-frequency axis. Cross-axis cousin to thorfinn #1514 (SOAP state RESET per-kind) and fern #1519 (SOAP state RESET depth-half) — those are one-time event-axis reset; THIS PR is continuous frequency dispatch throughout training. |
+
+### Still-active fleet (8 students, ZERO IDLE):
+
+- **edward #1525** — DEPTH_LINEAR_SOAP_PRECOND_FREQ_MLP (front_FAST vs front_SLOW per-block refresh) — NEWLY assigned
+- **tanjiro #1522** — POST_TARGET_AUX_KIND_PARTITIONED_M_RESET (embed-only vs lm_head-only) — IN-FLIGHT
+- **alphonse #1518** — POST_TARGET_BODY_MUON_SECOND_MOMENT_RESET (v-only vs m+v joint) — IN-FLIGHT
+- **fern #1519** — POST_TARGET_DEPTH_HALF_SOAP_STATE_RESET (early-half vs late-half blocks) — IN-FLIGHT
+- **thorfinn #1514** — POST_TARGET_SOAP_STATE_RESET (MLP scope vs Attn-trust scope) — IN-FLIGHT
+- **frieren #1512** — POST_TARGET_BODY_MUON_M_FROM_GRAD (direction axis) — IN-FLIGHT
+- **nezuko #1505** — POST_TARGET_AUX_M_V_RESET (AUX m+v reset at step 2950) — IN-FLIGHT
+- **askeladd #1504** — POST_TARGET_BODY_MUON_PER_BLOCK_M_RESET (block 0 vs block 11) — IN-FLIGHT
+
+### Continuous-LR depth-ramp closure grid (edward family, FULLY CLOSED):
+
+| sub-axis | source PR | refute # | direction | Δ |
+|---|---|---|---|---|
+| discrete LR pre-target | fern #1428 | (prior) | front_up | n/a (single arm) |
+| discrete LR post-target | fern #1428 (cross) | (prior) | front_up | n/a |
+| continuous LR post-target [2950, 3175] | edward #1468 | 228 | front_up | +0.00239 |
+| continuous LR pre-target [2750, 2950] | edward #1492 (this wave) | 238 | front_up | +0.00152 |
+
+### Frontier fleet matrix — depth/per-group × state-phase × scope (cycle 71):
+
+| axis | depth dispatch | state-phase | scope | PR |
+|---|---|---|---|---|
+| **LR continuous ramp** | per-block linear | window | body Muon | edward #1468 + #1492 (CLOSED) |
+| **SOAP refresh freq** | per-block linear | full-run | MLP-SOAP only | **edward #1525 (NEW)** |
+| **SOAP state reset** | per-kind | event | MLP vs Attn-trust | thorfinn #1514 (in flight) |
+| **SOAP state reset** | depth-half | event | all SOAP kinds | fern #1519 (in flight) |
+| **m-reset per-block** | per-block | event | body Muon | askeladd #1504 (in flight) |
+| **m-reset per-kind AUX** | embed vs lm_head | event | AUX | tanjiro #1522 (in flight) |
+| **v-reset / m+v joint** | none | event | body Muon | alphonse #1518 (in flight) |
+| **AUX m+v joint** | none | event | AUX | nezuko #1505 (in flight) |
+| **m←±grad direction** | none | event | body Muon | frieren #1512 (in flight) |
+
+This wave completes the LR/depth-ramp matrix and opens the SOAP refresh-frequency frontier as the next high-information dispatch axis.
+
+---
+
 ## 2026-05-28 04:25 UTC — Cycle 71 mid-333 — tanjiro #1498 237th refute (lm_head α-axis EXHAUSTED across scalar + cross-window) + AUX kind-partitioned m-reset pivot
 
 **Cumulative**: **237 refuted** / **143 distinct mech classes** / **105 family-level closures**.
