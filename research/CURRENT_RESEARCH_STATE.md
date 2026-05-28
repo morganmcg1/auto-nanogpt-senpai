@@ -1,6 +1,81 @@
 # SENPAI Research State — auto-nanogpt-1gpu-r3
 
-- **Last updated:** 2026-05-28 22:30 UTC
+- **Last updated:** 2026-05-28 22:50 UTC
+
+---
+
+## Cycle ~1310: H243 CLOSED (🎯 **100th NULL/NEG closure — CAMPAIGN MILESTONE**, bilateral NULL on FFS + non-monotonic sub-noise val) + 🎯 PROGRAMME FINDING #51 candidate STRENGTHENED to 6 axes (Schatten-p exponent added) + H251 tanjiro PR #1608 ASSIGNED (47th mechanism class — NS5 polar output decomposition, direct test of student's direction-only encoding hypothesis)
+
+**Key closure this cycle:**
+
+- **H243 tanjiro fractional NS spectral exponent / Schatten-p MuonH (PR #1572)** — **🎯 100th NULL/NEG closure (CAMPAIGN MILESTONE)**, bilateral NULL on FFS + non-monotonic sub-noise val/loss pattern. arm_a CTRL p=0.0 val=3.26913/FFS=3050 (+0.94σ_H174, ~15th torch.compile retracing soft-drift instance). arm_c NSP_QUARTER p=0.25 val=3.27013/FFS=3050 (+1.13σ vs H203). arm_b NSP_HALF p=0.5 val=3.26971/FFS=3050 (+0.66σ vs H203). All 3 arms FFS=3050 EXACT — primary metric NULL bilateral. All bit-id step-0 val=10.82583 EXACT.
+
+  **Student implementation choice (campaign-level methodological contribution)**: rejected linearly-interpolated polynomial coefficients via analytical pre-screening (verified that after 12 NS5 iters all interpolated polynomials still converge to sigma=1 with deviations ~1e-3 → would give NULL for trivial mechanism reasons). Chose **spectral-norm-normalized convex blend**: F-norm-normalize G, power-iterate 5 steps on G G^T to estimate sigma_max, spectral-normalize, run NS5 12-iter (unchanged), convex blend `out = (1-p)*polar + p*X_snorm`. Preserves Schatten-p partial-whitening semantics cleanly. Future fractional-exponent hypotheses should reference this analysis to avoid the coefficient-interp trap.
+
+  **🎯 PROGRAMME FINDING #51 candidate STRENGTHENED to 6 axes** (Schatten-p exponent added):
+
+  | H# | Body axis | Mechanism class | Verdict |
+  |---|---|---|---|
+  | H230 | polynomial coefficients (a,b,c) | NS5 polynomial | NEG |
+  | H230 | NS iteration count {8,12,16} | NS convergence quality | NEG |
+  | H231 | muonh_mode=relative/clip | NS5 projection mode | trilateral NEG |
+  | H238 | AdaMuon per-element 2nd moment | per-element scaling | bilateral TIE (#58 candidate) |
+  | H242 | cooldown SHAPE WSD (cf<1.0) | schedule SHAPE | bilateral CATASTROPHIC NEG monotonic |
+  | **H243** | **Schatten-p exponent (p ∈ {0.25, 0.5})** | **polar transform geometry** | **bilateral NULL on FFS, sub-noise non-monotonic val** |
+
+  **Direction-only encoding hypothesis (student-derived)**: "the direction information carried by sign(σ_i) × u_i v_iᵀ is what's load-bearing for MuonH, not the precise magnitude redistribution among singular values. Partial whitening doesn't add information (large-σ directions already preserved through convex blend) and doesn't actively destroy it either." Sharpens PROGRAMME FINDING #51 from "polar projection as geometric prior" toward "direction-only encoder" framing. **Captured for testing in H251.**
+
+  **Non-monotonic pattern (not "phase boundary at p=0")**: val ordering arm_a (p=0) < arm_b (p=0.5) < arm_c (p=0.25). Higher-p sits closer to CTRL than mid-p, opposite of monotonic privileged-endpoint hypothesis. All gaps ≤0.001 sub-noise. NOT evidence of "p=0 structurally privileged" — consistent with run-to-run noise.
+
+  **🎯 CAMPAIGN MILESTONE: 100th NULL/NEG closure profile**: 6 PROGRAMME FINDINGS pipeline (3 CONFIRMED, 3 candidates, 1 reclassified FALSIFIED), 46 novel mechanism classes tested (47 with H251 launching), 18 MuonH-SI/MuLoCo structural-tightness members confirmed load-bearing, 15+ instances torch.compile retracing soft-drift cluster catalogued. Within-family tuning of NS5 polar projection now FULLY exhausted across 6 axes.
+
+**New assignment:**
+
+- **H251 tanjiro PR #1608**: **NS5 polar output decomposition ablation — 47th mechanism class.** Direct response to student's H243 closure suggested follow-up #3 (direction-only encoding hypothesis). Ablate whether MuonH FFS gain comes from directional component (Q-factor, polar U V^T) or magnitude component (Frobenius-norm scaling + (m/n)^0.5). 3-arm: arm_a CTRL `polar` (bit-id baseline) / arm_b `sign_only` (NS5 output unit-Frobenius normalized — strips magnitude) / arm_c `magnitude_only` (skip NS5 entirely, raw gradient unit-Frobenius normalized + (m/n)^0.5). Implementation pattern: **THREE separate top-level @torch.compile functions at module scope**, function selected via Python-scope dict lookup at startup. **Drift risk ~0** (no Python conditional in compiled region — STANDARD safe-fix pattern post-H238/H242/H246 triangulation). Theoretical grounding: Bernstein & Newhouse 2024 (arxiv:2409.20325) sign-vs-polar equivalence in symmetric case, Vyas SOAP 2024 (arxiv:2409.11321), Kosson Spectral Decoupled 2024. WIN probability ~20% with asymmetric information value (settles open uncertainties from Programme Finding #51: is the polar projection's value primarily geometric or algebraic?). First fresh axis after 6-axis Programme Finding #51 consolidation.
+
+**Survey state**: 8/8 WIP after H251 assignment (tanjiro no longer idle), 0 review-ready. No new human directives this cycle.
+
+**Programme totals after cycle ~1310:**
+- **100 NULL/NEG closures** (🎯 CAMPAIGN MILESTONE; +1 since cycle ~1270; H243 bilateral NULL on FFS)
+- **47 novel mechanism classes** (H251 = 47th)
+- **6 PROGRAMME FINDINGS pipeline** with **3 CONFIRMED + 3 candidates + 1 reclassified** (#51 candidate STRENGTHENED to 6 axes including Schatten-p exponent)
+- **18 MuonH-SI/MuLoCo structural tightness members** (unchanged, now spread across 6 PROGRAMME FINDING #51 axes)
+- **15+ instances torch.compile retracing soft-drift cluster** (H243 = 15th, conditional-skip branch trace pattern confirmed via H238/H242/H246 triangulation)
+
+**Exploration territory map updates after cycle ~1310:**
+
+| Axis | State (delta from cycle ~1270) |
+|---|---|
+| Aux optimizer replacement | CONSOLIDATED CLOSED (PROGRAMME FINDING #55) — unchanged |
+| β₁ dynamics-tier transfer across optimizer classes | FALSIFIED (PROGRAMME FINDING #49) — unchanged |
+| Pre-NS5 second-order (Shampoo/SOAP/Sophia/MARS) | CLOSED (3-leg H92+H93+H98) — unchanged |
+| Post-NS5 per-element 2nd-moment scaling | CLOSED bilateral TIE (#58 candidate via H238) — unchanged |
+| Post-NS5 diagonal preconditioning (Riemannian tangent space) | H248 WIP (edward, arm_a CTRL ~98% — chain implicitly launched) |
+| Post-NS5 Riemannian metric step-size norm | H249 WIP (alphonse) — unchanged |
+| MuonH body cooldown SHAPE (WSD vs cosine) | CLOSED bilateral CATASTROPHIC NEG monotonic (PROGRAMME FINDING #51) — unchanged |
+| Aux cooldown SHAPE+FRAC (cosine vs linear, cf={0.4, 0.6, 1.0}) | H250 WIP (thorfinn, FIRST aux SHAPE test in campaign) — unchanged |
+| **MuonH NS5 Schatten-p spectral exponent (p ∈ {0.0, 0.25, 0.5})** | **CLOSED bilateral NULL on FFS, non-monotonic sub-noise val (H243, PROGRAMME FINDING #51 candidate STRENGTHENED to 6 axes)** |
+| **NS5 output decomposition (polar vs sign_only vs magnitude_only)** | **H251 WIP (tanjiro, direct test of direction-only encoding hypothesis from H243 closure)** |
+| Best-checkpoint terminal eval | H247 WIP (frieren) — unchanged |
+| Manifold-projected EMA terminal eval | H247 WIP (frieren) — unchanged |
+| Outer optimizer FORM replacement | H246 WIP (askeladd LoCo-Adam) — unchanged |
+| Per-layer body LR | H244 WIP (fern) — unchanged |
+| Time-varying aux β₁/β₂ schedule | H245 WIP (nezuko ADana) — unchanged |
+| Body Shampoo/SOAP preconditioner | QUEUED — unchanged |
+| Eigenvalue-spectrum-constrained body init beyond F-norm | UNTESTED — unchanged |
+| Body weight orthogonality regularizer during training | UNTESTED — unchanged |
+
+**Next-cycle monitoring queue**:
+- **H244 fern depth-scaled per-layer LR** — still pending terminal SENPAI-RESULT
+- **H245 nezuko ADana log-time aux β₂** — terminal status pending; arm_a CTRL drift anomaly (+50 FFS, 2× typical class) advisor question outstanding
+- **H246 askeladd LoCo-Adam outer FORM** — chain status update needed
+- **H247 frieren best-checkpoint** — CRITICAL escalation pending (treatment never implemented per cycle ~1230 advisor flag)
+- **H248 edward post-NS5 diagonal EMA-g²** — chain implicitly launched, arm_a CTRL `rhvjj1dy` at step 3275/3325 ~98%, arm_b/c pending. Nudge sent cycle ~1310 requesting chain-launch comment + code push to PR branch + bit-id audit
+- **H249 alphonse Riemannian norm** — pending
+- **H250 thorfinn aux schedule SHAPE+FRAC** — pending student pickup
+- **H251 tanjiro NS5 output decomposition** — fresh assignment
+
+**Drift-class diagnostic confirmed via H243**: 15th cumulative instance through H214/H224/H229/H230/H231/H232/H233/H234/H235/H237/H239/H241/H242/H243/H244/H245. Student used `if ns_power <= 0.01:` early-exit branch intended as mitigation, but drift still occurred → CONFIRMS conditional-skip branch trace hypothesis (when new argparse-gated conditional evaluates to "skip the new code path" inside @torch.compile region, trace introduces drift). **H251 implementation pattern is the standard safe-fix**: three separate top-level compiled functions, dict dispatch at Python scope, NO conditional in any compiled region. Expected to be drift-FREE FFS=3025 EXACT (the H246 askeladd pattern).
 
 ---
 
