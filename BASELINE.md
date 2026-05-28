@@ -7,7 +7,31 @@ Statistical rule: `(3.28 - mu) * sqrt(n) >= 0.004`.
 
 ## Local baseline (auto-nanogpt-1gpu-r1)
 
-### 2026-05-27 17:20 UTC — PR #1429: pEMA-only refresh @ step 2600 n=2 confirmation (fern n=2 WIN) (g1r1-fern) ← CURRENT BEST
+### 2026-05-28 19:35 UTC — PR #1532: Aux Adam β₂ transient-increase pulse @ cooldown onset (edward) ← CURRENT BEST
+
+- **speedrun/final_first_step_to_target:** 2875 (n=2 mean — seed-1 `9coyk2ke` 2875, seed-2 `09qrijtm` 2875; BOTH seeds pass merge gate via sr clause)
+- **val/loss_ema:** 3.262854 (n=2 mean — seed-1 `9coyk2ke` 3.262184, seed-2 `09qrijtm` 3.263523)
+- **stat-sig margin:** (3.28 − 3.262854)·√2 = 0.02425 ≥ 0.004 ✓ (6.1×)
+- **Δ vs PR #1429 baseline:** −25 sr-steps (n=2 2875 < 2900), −1.084 mnat val (n=2 mean 3.262854 < 3.263938)
+- **W&B runs:** seed-1 `9coyk2ke`, seed-2 `09qrijtm`; group `g1r1-edward-strong-b2-pulse`
+- **Key config:** all PR #1429 config + `--aux_b2_pulse_step 975 --aux_b2_pulse_target 0.99`. At cooldown onset (step 975), aux Adam β₂ is shifted from canonical 0.95 → 0.99 (permanent step-change). The pulse causes the variance estimator to "remember" longer over the cooldown phase, producing more stable aux Adam step scaling entering LR decay.
+- **Mechanism:** AUX ADAM β₂ TRANSIENT-INCREASE PULSE. At step 975 (exact stable/cooldown phase boundary, `stable_steps = int(0.3 × 3250) = 975`), `optimizer1` (aux Adam: embed, lm_head, scalar gains/biases) β₂ is increased from canonical 0.95 to 0.99. The pulse is permanent (held to terminal). Amplitude is critical — Arm A (β₂=0.97 weaker) was NULL (+1.06 mnat), Arm B (β₂=0.99) WIN (−1.76 mnat). Mechanism is ORTHOGONAL to pEMA refresh (#1429) — stacking is the natural next experiment.
+- **Cross-seed corroboration:** STRONG — both seeds land sr=2875, both pass merge gate via clause 1 (sr ≤ 2887.5). n=2 mean val_ema=3.262854 < 3.263938 baseline passes clause 2 as well.
+- **Updated merge clause:** `sr ≤ 2862.5 OR (sr=2875 AND val_ema < 3.262854)` [stricter now — new baseline is stronger]
+- **Reproduce:**
+  ```bash
+  cd target
+  torchrun --standalone --nproc_per_node=1 \
+    records/track_3_optimization/train_gpt_simple.py --num_trials 1 \
+    --muon_lr 0.040 --ema_beta 0.97 --ema_warmup_steps 1750 --ema_beta_target 0.99 \
+    --muon_block_lr_pattern late-higher \
+    --paramema_refresh_only --paramema_refresh_step 2600 \
+    --aux_b2_pulse_step 975 --aux_b2_pulse_target 0.99 \
+    --wandb_name "baseline-reproduction-pr1532"
+  ```
+- **Notes:** β₂ pulse amplitude axis partially mapped: 0.97=NULL, 0.99=WIN. Amplitude sweep ongoing (alphonse #1591: 0.995, 0.999). β₁ pulse analog (askeladd #1592), v-buffer state reset (nezuko #1601), body Muon momentum pulse (fern #1604), β₂ timing sweep (frieren #1605), β₂ downward direction (tanjiro #1607) — all in flight to characterize mechanism scope.
+
+### 2026-05-27 17:20 UTC — PR #1429: pEMA-only refresh @ step 2600 n=2 confirmation (fern n=2 WIN) (g1r1-fern)
 
 - **speedrun/final_first_step_to_target:** 2900 (n=2 mean — seed-1 `y4nxof1m` 2875, seed-2 `fek06bk7` 2925; both seeds independently pass merge gate via DIFFERENT clauses)
 - **val/loss_ema:** 3.263938 (n=2 mean — seed-1 `y4nxof1m` 3.2635624408721924, seed-2 `fek06bk7` 3.264313220977783)
