@@ -1,3 +1,60 @@
+## 2026-05-28 03:35 UTC — Cycle 71 mid-331 — thorfinn #1485 234th refute (magnitude-axis non-monotonic) + SOAP-state-reset axis pivot
+
+**Cumulative**: **234 refuted** / **140 distinct mech classes** / **103 family-level closures**.
+
+### PR closed this wave (1 closure, magnitude axis of body-Muon m-reset family):
+
+| PR | student | mechanism | outcome |
+|---|---|---|---|
+| **thorfinn #1485** | thorfinn | POST_TARGET_BODY_MUON_M_SCALE (×0.5 vs ×2.0 at step 2950) | **234th** — magnitude-axis NON-MONOTONIC AND ASYMMETRIC; Arm A ×0.5 val=3.27057/ffs=3025 CLUSTER STANDARD, Arm B ×2.0 val=3.26959/ffs=3025 sub-cluster-edge borderline; both fail merge bar; ordering ×1.0 (3.26776) < ×0.0 (3.26907) < ×2.0 (3.26959) < ×0.5 (3.27057) |
+
+### NEW PRINCIPLES this wave:
+
+1. **Magnitude axis is non-monotonic AND asymmetric** — no-perturbation (×1.0) is best; ×0.0, ×0.5, ×2.0 all degrade by ≥+0.00131 val + 25 ffs; +25 ffs delay is CONSISTENT across all 4 magnitude variants (×0/×0.5/×1/×2 → 3000/3025/3000/3025 ffs, with ×0 the only one preserving ffs but degrading val n=2)
+2. **Alphonse #1461 winner-mechanism family is EXHAUSTED at intra-Muon scope** — 3-axis grid (timing/kind/magnitude) all refuted under terminal readings. The mechanism that produced the alphonse n=1 winner is a draw from the cluster floor, not a stable axis structure.
+3. **Post-target window is a consolidation phase, not a learning phase** — every body-Muon m-perturbation at step 2950 propagates ~25 steps before re-converging, regardless of perturbation type. This makes the post-target window a poor probing surface for m-axis interventions.
+
+### Winner-anatomy 3-axis grid CLOSED (alphonse #1461 family):
+
+| axis | source PR | outcome |
+|---|---|---|
+| timing | nezuko #1476 | REFUTED (noise-equivalent) |
+| kind | askeladd #1477 | REFUTED (kind-symmetric) |
+| **magnitude** | **thorfinn #1485 (this PR)** | **REFUTED (non-monotonic; ×1 best)** |
+| direction | frieren #1512 | IN-FLIGHT (m ← +grad / −grad / 0) |
+| cross-optimizer | nezuko #1505 | IN-FLIGHT (AUX m/v reset) |
+
+### Fresh assignment — pivot to SECOND-MOMENT state axis (orthogonal to body-Muon m family):
+
+| PR | student | mechanism | rationale |
+|---|---|---|---|
+| **thorfinn #1514** | thorfinn | POST_TARGET_SOAP_STATE_RESET (MLP scope vs Attn-trust scope) | Resets SOAP eigenbasis + Gram + exp_avg_sq + soap_step at step 2950 on a SINGLE kind of SOAP-bearing params. Fully orthogonal axis to the m-reset family (preconditioner state, not momentum buffer). 24 MLP params (Arm A) vs 48 Attn-trust params (Arm B). Two-kind scope partition matches askeladd #1477 kind-symmetry grid; expected outcome: either both cluster STANDARD (extends "post-target perturbation = +25 ffs delay" principle to second-moment state) or one kind reveals new winner candidate. |
+
+### Still-active fleet (8 students, ZERO IDLE):
+
+- **thorfinn #1514** — POST_TARGET_SOAP_STATE_RESET — NEWLY assigned (SOAP eigenbasis + Gram + exp_avg_sq reset at step 2950, MLP scope vs Attn-trust scope)
+- **frieren #1512** — POST_TARGET_BODY_MUON_M_FROM_GRAD — IN-FLIGHT (direction axis: m ← +grad / m ← −grad / m ← 0)
+- **nezuko #1505** — POST_TARGET_AUX_M_V_RESET — IN-FLIGHT (cross-optimizer axis: AUX scope m+v reset at step 2950)
+- **askeladd #1504** — POST_TARGET_BLOCK_M_RESET (block_11 scoping)
+- **alphonse #1494** — POST_TARGET_M_RESET_2750
+- **edward #1492** — PRE_TARGET_DEPTH_LR_RAMP (front_down_fix arm B)
+- **fern #1491** — POST_TARGET_COMPOUND_LATE_HALF
+- **tanjiro #1498** — LM_HEAD_AUX_ALPHA=2.0 window
+
+### Cycle-71 momentum-axis closure recap (4-PR sequence):
+
+| sub-axis | source | result | n |
+|---|---|---|---|
+| reset value (m=0) | alphonse #1461 | n=1 winner (val=3.26701/ffs=3000) | 1 |
+| reset value (m=0) confirmation | alphonse #1461 Arm B + seed-1 | n=2 mean val=3.26907 — REFUTED | 2 |
+| reset timing (±25 fine grid) | nezuko #1476 | timing-noise-equivalent (Δ=+0.00045) | 1+1 |
+| reset kind (attn vs mlp) | askeladd #1477 | kind-symmetric (Δ=+0.00033) | 1+1 |
+| reset magnitude (×0.5/×2.0) | thorfinn #1485 (THIS WAVE) | non-monotonic; ×1.0 best | 1+1 |
+
+**Open sub-axes** (in flight): direction (frieren #1512), cross-optimizer scope (nezuko #1505).
+
+---
+
 ## 2026-05-28 02:30 UTC — Cycle 71 mid-324 — Winner-anatomy decomposition wave (askeladd #1450 224th + per-kind m-reset assignment)
 
 **Cumulative**: **224 refuted** / **138 distinct mech classes** / **96 family-level closures**.
