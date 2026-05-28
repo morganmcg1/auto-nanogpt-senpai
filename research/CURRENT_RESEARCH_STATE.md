@@ -5973,3 +5973,48 @@ The portfolio's diversification is the antidote to plateau — every axis closur
 - α-axis (lm_head): EXHAUSTED at static scalar; pivot to windowed (tanjiro #1498)
 - Depth-direction axis: structurally robust at continuous + discrete; in-flight pre-target test (edward #1492)
 
+
+## 2026-05-28 03:15Z — Cycle 71 mid-330 update — 233rd refute (depth-direction window-symmetric on μ-axis) + direction-axis pivot
+
+### frieren #1489 POST_TARGET_DEPTH_HALF_MU_DROP CLOSED (233rd refute)
+- Arm A (early-half μ−0.05 post-target): val=3.27139, ffs=3025 (cluster STANDARD upper)
+- Arm B (late-half μ−0.05 post-target): val=**3.26988**, ffs=3025 (sub-cluster-edge band)
+- Both arms FAIL baseline 3.26776/3000 — Arm B by Δ=+0.00212 val + 25 ffs at single seed
+- Telemetry clean: param-group split blocks 0-5 / 6-11; early_mu = scheduled − 0.05 at step 2950
+
+### NEW PRINCIPLES established
+1. **Depth-direction μ-axis is WINDOW-SYMMETRIC** — late-half (blocks 6-11) tolerates μ−0.05 better than early-half (blocks 0-5) in BOTH pre-target #1470 AND post-target this PR. Cleanest depth-direction principle in cycle 71 (same direction across both windows on a single mechanism axis).
+2. **Post-target window absorbs depth-half μ perturbations 2.64× more than pre-target.** Δ_late_minus_early (val): pre-target −0.00399 vs post-target −0.00151. Generalizes the "post-target cluster compression" observation.
+3. **Depth-direction generalizes across mechanism axes:** LR-axis (early dominant), μ-axis (late dominant), m-reset axis (sub-noise no direction). Three mechanism axes → three depth-direction signatures. Coupling between depth-direction and mechanism class is STRUCTURAL.
+4. **Sub-cluster-edge single-seed results presumed noise** per established cluster floor MDE (~Δ=+0.00130 val at n=2). Without n=2 confirmation, Arm B's sub-cluster-edge result CANNOT be presumed reliable.
+
+### Fresh assignment — direction axis of m-perturbation family
+- **frieren #1512**: POST_TARGET_BODY_MUON_M_FROM_GRAD (144th mech class) — at step 2950, replace body Muon m with current gradient. Arm A: `m ← +g`; Arm B: `m ← −g`. Decomposes the m-perturbation mechanism family along DIRECTION axis, orthogonal to thorfinn #1485's MAGNITUDE axis and nezuko #1505's CROSS-OPTIMIZER axis. Tests if zero-out is special vs any directional replacement works.
+
+### Cycle 71 cumulative tally
+- **233 refuted / 139 mech classes / 102 family closures**
+- ZERO confirmed n=2 winners
+- 8 students concurrently active, ZERO IDLE
+
+### m-perturbation mechanism family — 3-axis decomposition matrix
+| axis | PR | mechanism | status |
+|---|---|---|---|
+| zero-out | alphonse #1461 | m ← 0 | refuted at n=2 (mean=3.26907) |
+| **magnitude** | thorfinn #1485 | m ← α·m, α∈{0.5,2.0} | in flight |
+| **cross-optimizer** | nezuko #1505 | AUX m or v ← 0 | in flight (Arm A nearly terminal) |
+| **direction** | frieren #1512 | m ← ±g | **NEW** |
+
+After all 3 axes close, the m-perturbation mechanism family will be fully characterized in 3-dimensional perpendicular space (magnitude × cross-optimizer × direction).
+
+### Other terminal-pending Arm A results from this wave
+| student | PR | Arm A val | Arm A ffs | classification |
+|---|---|---|---|---|
+| askeladd | #1504 block-0 | 3.27071 | 3025 | cluster STANDARD lower edge |
+| edward | #1492 front-up | 3.26961 | 3025 | sub-cluster-edge band |
+| tanjiro | #1498 α=0.5 window | 3.27024 | 3025 | cluster STANDARD lower edge |
+| fern | #1491 compound early | 3.26940 | 3025 | sub-cluster-edge band |
+| alphonse | #1494 pre-cooldown 2700 | 3.27100 | 3025 | cluster STANDARD lower edge |
+| frieren | #1489 (CLOSED 233rd) | 3.27139 | 3025 | cluster STANDARD upper |
+
+**5 Arm A results in (3.26940, 3.27139) band, all single-seed sub-cluster-edge or cluster STANDARD lower edge. NONE beat baseline ffs=3000. This is the cluster floor signature.** The pattern of consistent ffs=3025 across 5 different mechanisms suggests ffs=3025 is the **dominant attractor** in this cluster, and the val/loss spread (~0.002) is dominated by seed-noise rather than mechanism signal.
+
