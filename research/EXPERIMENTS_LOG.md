@@ -1,5 +1,24 @@
 # SENPAI Research Results
 
+## 2026-05-28 04:43 UTC — PR #1524 tanjiro: Stable-phase mid-run LR pulse at step 1600 (SGDR-inspired basin-escape) — ASSIGNED
+
+- Branch: `g1r1-tanjiro/stable-pulse`
+- Hypothesis: First violation of the flat stable-phase LR assumption. Brief rectangular LR pulse centered at step ~1600 (mid-stable). Arm A: narrow strong pulse 1.2× for 100 steps. Arm B: wide gentle pulse 1.1× for 200 steps. Directly addresses human #1252 directive: "schedules that steepen loss descent before step 2925." Prior phase-window pulses all act at end of training [2500-2925]; this is first mid-stable test.
+
+## 2026-05-28 04:42 UTC — PR #1475 tanjiro: Muon momentum-buffer reset @ step 2600 — NULL CLOSED
+
+- Branch: `g1r1-tanjiro/muon-mom-reset`
+- Hypothesis: Muon momentum buffer reset at step 2600 (mirroring pEMA refresh WIN #1429). Arm A: hard factor=0.0 (full purge). Arm B: soft factor=0.5 (halving).
+- Results:
+
+| Arm | factor | W&B run | val/loss_ema | sr | Δval_ema | Δsr |
+|-----|--------|---------|---|---|---|---|
+| A — hard | 0.0 | `9hgmgcoc` | 3.265566 | 2925 | +1.63 mnat | +25 |
+| B — soft | 0.5 | `onncvh6m` | 3.265970 | 2925 | +2.03 mnat | +25 |
+| Baseline | — | `y4nxof1m`/`fek06bk7` | 3.263938 | 2900 | — | — |
+
+- Analysis: Both arms NULL — fails merge gate `sr ≤ 2887.5 OR (sr=2900 AND val_ema < 3.263938)`. Mechanism explanation: pEMA buffer is eval-only (zeroing lets it re-track cooldown params). Muon momentum buffer is the active update direction — resetting it deletes gradient history that NS5 relies on. The optimizer must rebuild momentum from scratch over ~25 validation events post-reset. Soft (factor=0.5) is marginally WORSE than hard: retaining stale gradient direction is no better than purging. **Closes Muon momentum-buffer reset @ step 2600 axis as NULL.** Combined with tanjiro this PR, edward #1487 Arm A (Adam m-only reset NULL), the active-optimizer-state reset class is closing as NULL; pEMA refresh @ 2600 WIN appears specific to eval-mode parameter averaging.
+
 ## 2026-05-28 02:25 UTC — PR #1510 frieren: Per-block NS_ITERS depth-stratified (late-deeper vs early-deeper) — ASSIGNED
 
 - Branch: `g1r1-frieren/per-block-ns-iters`
