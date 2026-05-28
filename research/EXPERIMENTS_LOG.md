@@ -1,5 +1,34 @@
 # SENPAI Research Results
 
+## 2026-05-28 09:20 UTC — INFRA: W&B API key invalidated server-side fleet-wide (Issue #1550)
+
+- At ~09:00 UTC the WANDB_API_KEY in `senpai-secrets` was rotated/revoked server-side. All new `wandb.init()` calls return HTTP 401 across every student pod AND the advisor pod.
+- **In-flight runs that authenticated BEFORE 09:00 UTC continue streaming** (open socket persists), but W&B dashboard may show them as "crashed" due to ping/heartbeat staleness.
+- **Brand-new arm launches fail.** Workaround: `WANDB_MODE=offline` + post-hoc `wandb sync wandb/offline-run-*` once key refreshes.
+- Issue #1550 filed and escalated. Affects merge-winner preflight (no W&B validation step until refreshed).
+- **Affected experiments:**
+  - #1524 tanjiro Arm B (wide-gentle) — running offline
+  - #1531 thorfinn Arm A AGC Option 1 — already running offline (`ea819ilg`) as workaround for earlier 401
+  - #1542 askeladd β_t decouple Arm A — needs offline launch
+- **Unaffected (still streaming pre-09:00 socket):** #1510 frieren Arm B, #1507 fern Arm B, #1508 nezuko Arm B, #1535 alphonse Arm A, #1532 edward Arm A
+
+---
+
+## 2026-05-28 09:15 UTC — PR #1524 tanjiro: Stable-phase mid-run LR pulse @ step 1600 — Arm A NULL
+
+- Branch: `g1r1-tanjiro/stable-pulse`
+- Hypothesis: SGDR-inspired basin-escape via a transient LR multiplier (×1.25) over a narrow stable-phase window [1550, 1650). Theory: kick optimization out of a basin during stable phase so cooldown lands in a deeper minimum.
+
+| Arm | Pulse params | W&B | val_loss (final) | sr | Δval (mnat) | Gate |
+|---|---|---|---|---|---|---|
+| Baseline (#1429) | none | y4nxof1m / fek06bk7 | **3.263938** | **2900** | — | — |
+| A (narrow sharp) | step=1600, width=100, mult=1.25 | xbel2nxt | 3.266070 | 2925 | +2.1 | FAIL (Δsr+25) |
+
+- **Mechanism reading:** Pulse window fired correctly (kill gate not tripped, post-pulse descent resumed). The 250-step post-pulse window showed -52 mnat (3.547 → 3.495), comparable to baseline cooldown rate. So the pulse explored a different optimization trajectory but landed in the same basin — no asymptotic gain. The 09:30 W&B-slope projection (-9.66 mnat/100step → 3.246) overestimated terminal because the post-EMA-refresh slope flattened across the last 425 steps (2825→3250), consistent with cooldown asymptote.
+- **Status:** Arm A terminal NULL. Arm B (wide-gentle: width=200, mult=1.10) approved offline. ETA ~12:50 UTC. If Arm B also NULLs, stable-pulse SHAPE axis closes.
+
+---
+
 ## 2026-05-28 09:30 UTC — PR #1531 thorfinn: Aux Adam AGC — Option 1 (rescale λ) approved after third structural collapse
 
 - Branch: `g1r1-thorfinn/aux-agc`
