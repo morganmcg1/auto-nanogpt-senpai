@@ -1,3 +1,78 @@
+## 2026-05-28 17:00 UTC — Cycle 71 mid-352 — thorfinn #1570 258th (ATTN_SOAP_ACTIVATION_DELAY terminal STANDARD CLOSED — WEAK-ANTI-DIRECTIONAL: monotonic worsening with longer delay confirms early-gradient gram is NET-POSITIVE in trust-gated layer, trust gate effectively filters early noise) + thorfinn #1595 NEW ATTN_SOAP_TERMINATION_STEP pivot (symmetric mirror of #1570 testing whether removing LATE SOAP also monotonically hurts (uniform-value hypothesis) or reveals an asymmetry between early and late gradient gram value (late-noise hypothesis))
+
+**Cumulative**: **258 refuted** / **155 distinct mech classes** / **113 family-level closures**.
+
+### PR closed this wave (1 closure, terminal bilateral, WEAK-ANTI-DIRECTIONAL on training-time × trust-gated axis):
+
+| PR | student | mechanism | outcome |
+|---|---|---|---|
+| **thorfinn #1570** | thorfinn | ATTN_SOAP_ACTIVATION_DELAY (Arm A delay_200 SOAP starts at step 200 vs Arm B delay_1000 SOAP starts at step 1000, both reference always-on baseline) | **258th** — Arm A val=3.27033/ffs=3025 (STANDARD), Arm B val=3.27291/ffs=3050 (STANDARD); val_mean=3.27162 fails merge bar by 0.00386. **Monotonic worsening with longer delay**: baseline 3.26776 → delay_200 3.27033 (+0.00257) → delay_1000 3.27291 (+0.00515). **WEAK-ANTI-DIRECTIONAL** signal confirms early-gradient gram accumulation is positively informative in attn-trust SOAP layer scope. The trust gate (cosine > 0.85) already filters bad early updates; removing access to early gradient info doesn't "clean up" the basis. |
+
+### STRUCTURAL FINDING — trust-gated layer scope state-phase axis taxonomy
+
+| PR | mechanism | axis class | outcome direction |
+|---|---|---|---|
+| **#1562 edward** | depth-half ATTN_SOAP_REFRESH_FREQ | depth × trust-gated | REVERSED front_SLOW (Δ −0.00288) |
+| **#1570 thorfinn (this PR)** | ATTN_SOAP_ACTIVATION_DELAY | training-time × trust-gated | WEAK-ANTI-DIRECTIONAL (Δ +0.005 at 1000-step delay) |
+| **#1595 thorfinn NEW** | ATTN_SOAP_TERMINATION_STEP | training-time × trust-gated (inverse) | hypothesis pending |
+
+**Cross-axis taxonomy on trust-gated layer**: depth-axis REVERSED direction vs continuous-update class; training-time-axis WEAK-ANTI on the early-removal side. Both behaviors distinct from continuous-update class. The trust-gated layer scope produces consistently different direction signals from continuous-update layer scope.
+
+### Mirror test (informing #1595 design)
+
+**#1570 confirmed**: removing EARLY SOAP info → monotonic worsening with delay length
+**#1595 tests**: removing LATE SOAP info → uniform-value (mirror) or late-noise (asymmetry)?
+
+Symmetric design (#1595 matches #1570's SOAP-off step counts):
+- delay_200 ↔ terminate_2975 (both 200 steps SOAP-off, at different positions)
+- delay_1000 ↔ terminate_2175 (both 1000 steps SOAP-off, at different positions)
+
+**Predictions**:
+- **Uniform-value** (likely): #1595 results match #1570 (val ≈ 3.270, 3.273); confirms SOAP gram has uniform value across training; trust gate filtering symmetric.
+- **Late-noise** (low prior, high reward): #1595 results invert (val ≈ 3.267, 3.266); reveals late gradient asymmetry; **potential merge if terminate_2175 lands sub-cluster-edge**.
+
+### PR assigned this wave
+
+| PR | student | mechanism | role |
+|---|---|---|---|
+| **thorfinn #1595** | thorfinn | ATTN_SOAP_TERMINATION_STEP (Arm A terminate_2975: SOAP off for last 6% (200 steps); Arm B terminate_2175: SOAP off for last 32% (1000 steps)) | Symmetric mirror of #1570 — tests inverse hypothesis (does removing LATE SOAP also monotonically hurt?). Non-trivial merge possibility under late-noise hypothesis. |
+
+### Fleet state at end of wake 18
+
+8 students all assigned, 0 idle:
+
+| PR | student | axis | status |
+|---|---|---|---|
+| #1569 | frieren | PER_DEPTH_HALF_ATTN_SOAP_BETA2 (depth-asymmetric attn-trust SOAP β2) | WIP |
+| #1575 | fern | PER_KIND_ATTN_SOAP_BETA2 (per-kind q/k vs v/proj β2 inside attn-SOAP layer scope) | Arm A mid-flight |
+| #1577 | tanjiro | PER_KIND_AUX_BETA2 (per-AUX-kind AdamW v-EMA decay full-run) | WIP |
+| #1582 | askeladd | PER_KIND_NS5_ITERS_FULL_RUN (per-kind attn vs MLP NS5 iters dispatch) | Arm A mid-flight (~70%) |
+| #1583 | edward | PER_KIND_ATTN_SOAP_REFRESH_FREQ (per-kind q/k vs v/proj trust-gated refresh-freq) | WIP |
+| #1590 | nezuko | PER_KIND_MLP_SOAP_BETA2 (per-MLP-kind fc vs proj β2 dispatch full-run) | WIP |
+| #1594 | alphonse | PER_DEPTH_HALF_COMPOSITE_MU_COOLDOWN_END_x_BODY_INIT (composite additivity test) | WIP |
+| #1595 | thorfinn | ATTN_SOAP_TERMINATION_STEP (symmetric mirror of #1570) | WIP (fresh) |
+
+**Cycle 71 active axis-families**: **5-mechanism PER-KIND axis family** (attn-SOAP β2/refresh, MLP-SOAP β2, NS5 cross-layer, AUX β2) + 1-mechanism PER-DEPTH-HALF axis (#1569 attn-SOAP β2) + 1-mechanism COMPOSITE depth-half (#1594) + 1-mechanism TERMINATION_STEP axis (#1595 — fresh state-phase axis on trust-gated layer).
+
+### Updated mechanism direction taxonomy (cycle 71 working theory)
+
+| layer/scope | depth-half axis direction | training-time axis direction | per-kind axis direction |
+|---|---|---|---|
+| **continuous-update class** (LR ramp, NORMUON β2, MLP-SOAP β2, NS5 iters, body init) | front_up SATURATED (5 mechs) | (untested) | (in-flight: #1590 MLP-SOAP β2) |
+| **state-phase class** (MU_COOLDOWN_END) | front_LOWER STRONGEST (Δ +0.003, #1568) | (in-flight: #1595 termination_step) | (untested) |
+| **event/trust-gated class** (refresh-freq, activation) | REVERSED front_SLOW (#1562) | WEAK-ANTI (#1570) | event-class kind-asymmetric (#1562 telemetry) |
+| **AUX (AdamW) class** | (mostly N/A — AdamW kinds are not depth-stratified) | (event m-reset at cooldown #1522) | event-axis kind-asymmetric (#1522), state-rule kind-asymmetric (#1566), continuous Goldilocks (#1547), in-flight #1577 |
+
+### Potential next research directions (post-current-cycle saturation)
+
+1. **#1594 alphonse composite outcome** will determine 3+ mechanism stacking direction.
+2. **#1595 thorfinn termination outcome** will pin down uniform-vs-late-noise SOAP hypothesis.
+3. **State-phase × per-kind cross-product**: if #1568 state-phase carries 3× signal magnitude, per-kind state-phase axes (per-block cooldown_end, per-kind MU_WARMUP_START) might unlock new ground.
+4. **Trust-gated layer state-phase axes**: ATTN_SOAP_TRUST_THRESHOLD per-depth-half hasn't been tested; could complete the depth × trust-gated taxonomy.
+5. **Reversed-direction composite**: if #1562 trust-gated reversed direction and #1570 weak-anti are both confirmed, compose into front_SLOW refresh × front_HIGHER cooldown stack to test whether reversed direction is also additive.
+
+---
+
 ## 2026-05-28 16:45 UTC — Cycle 71 mid-351 — alphonse #1568 257th (PER_DEPTH_HALF_MU_COOLDOWN_END terminal STANDARD CLOSED — 7th front_up depth-half axis SATURATED, **state-phase class STRONGEST in family at Δ=+0.00315**, but no merge val_mean=3.27150 misses bar by 0.00374) + alphonse #1594 NEW PER_DEPTH_HALF_COMPOSITE_MU_COOLDOWN_END_x_BODY_INIT pivot (first composite additivity test of 7-mechanism front_up family — combines #1568 winning MU_COOLDOWN_END front_LOWER × #1541 winning BODY_INIT_SCALE front_BIG, testing whether front_up principle is additive across orthogonal mechanism classes) + askeladd #1582 heartbeat sent (Arm A `per-kind-ns5-A-attnMORE-n1` `fz2fcjsn` live at step 2226/3175 val=3.4096, per-kind code patch CONFIRMED ns5_iters_attn=18 ns5_iters_mlp=10)
 
 **Cumulative**: **257 refuted** / **154 distinct mech classes** / **113 family-level closures**.
