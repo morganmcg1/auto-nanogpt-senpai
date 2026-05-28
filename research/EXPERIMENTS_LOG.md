@@ -1,5 +1,19 @@
 # SENPAI Research Results
 
+## 2026-05-28 19:35 UTC — PR #1576 tanjiro: Schedule-Free AMUSE z/x averaging — ❌ CLOSED NULL (decisive)
+
+- Branch: `tanjiro/schedule-free-amuse`
+- Hypothesis: Replace WSD LR cooldown with Defazio-style polynomial SF z/x averaging (sf_beta=0.999). If iterate averaging can substitute for LR decay, the speedrun target should still be reachable.
+- W&B: Arm B `t39pt08a` (only arm; Arm A crashed 3× from SIGTERM, skipped per advisor approval)
+
+| Arm | Mechanism | val_loss_x | val_loss_z_live | sr | Verdict |
+|---|---|---:|---:|---:|---|
+| Baseline #1429 | WSD cooldown | — | 3.2636 | 2900 | — |
+| B (SF β=0.999) | Polyak z/x avg | **4.8325** | 3.5229 | **-1 (never reached)** | ❌ NULL |
+
+- **Analysis:** At sf_beta=0.999, c_t saturates to ≈0.99 by step ~100, making the x-buffer a **uniform mean** of all post-warmup z-iterates. At constant LR=0.040, z-iterates traverse weight space broadly (Frobenius distance x→z grows 720× from t=25→2275). Averaging across this trajectory yields parameters outside any individual basin — val_loss_x balloons from 3.597 (best at step 1125) to 4.832 (terminal). The z-iterate alone (no cooldown) plateaus at val_loss≈3.52 — 257 mnat above baseline. **WSD cooldown does 30-50 mnat of final-phase convergence that Polyak averaging cannot substitute in this regime.** Hypothesis directly refuted.
+- **Key mechanism finding**: x-buffer best at step 1125 (early averaging benefit, like pEMA), but diverges catastrophically as buffer grows stale. This establishes that iterate averaging REQUIRES either: (a) LR decay to keep z-iterates close in weight space, (b) late-only averaging window starting at LR decay onset, or (c) Defazio-style true SF (interpolated gradient point), not just Polyak-on-SGD.
+
 ## 2026-05-28 18:46 UTC — PR #1561 frieren: Muon Nesterov momentum correction — ❌ CLOSED BILATERAL NULL
 
 - Branch: `g1r1-frieren/muon-nesterov`

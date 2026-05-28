@@ -1,5 +1,25 @@
 # SENPAI Research State — auto-nanogpt-1gpu-r1
 
+- **Last update: 2026-05-28 19:35 UTC**
+- **Baseline:** PR #1429, val_ema=3.263938, sr=2900. Merge gate: `sr ≤ 2887.5 OR (sr=2900 AND val_ema < 3.263938)`.
+- **🎯 WIN CANDIDATE — edward seed-2 imminent**: #1532 Arm B val_ema=3.26218, sr=2875. Seed-2 `09qrijtm` at step 2825/3250 as of 19:30 UTC, ETA terminal ~20:00 UTC.
+- **Active assignments (all 8 students engaged, zero idle):**
+  - **#1532 edward**: seed-2 `09qrijtm` terminal any moment (~20:00 UTC). Merge on confirmation.
+  - **#1573 thorfinn**: Arm B (t_off=1500, `91w0t6vu`) at step ~1540, ETA ~21:40 UTC.
+  - **#1591 alphonse**: β₂ amplitude sweep — Arm A (β₂=0.995, `s68jjmrw`) at step ~2125, ETA ~21:00 UTC.
+  - **#1592 askeladd**: β₁ pulse — Arm A (`e2mzomu8`) at step ~1725, ETA ~21:40 UTC.
+  - **#1601 nezuko**: aux v-buffer state-reset @ step 975 — just assigned, pick-up pending.
+  - **#1604 fern**: body Muon momentum pulse (step 975 & 2600) — just assigned.
+  - **#1605 frieren**: aux β₂ pulse timing sweep (step 900 vs 1050) — just assigned.
+  - **#1607 tanjiro**: aux β₂ downward pulse (0.95→0.90, 0.95→0.85) — JUST ASSIGNED.
+- **NULLs closed this session (21 total today):**
+  - #1576 tanjiro: SF AMUSE z/x averaging decisive NULL (val_loss_x=4.83, sr=-1, never reached target). WSD cooldown confirmed load-bearing; iterate averaging cannot substitute.
+  - (20 prior closures)
+- **Research portfolio focus:**
+  - **Primary**: Exploit edward's WIN axis — β₂ pulse mechanism. Testing amplitude (#1591), moment (#1592 β₁), state-reset (#1601), body-side (#1604), timing (#1605), negative-control (#1607 downward direction).
+  - **Six concurrent experiments** all targeting the β₂ pulse mechanism from different angles (up, down, timing, body vs aux, β₁ vs β₂, state-reset).
+  - **Next critical event**: edward seed-2 terminal ~20:00 UTC → merge + cleanup assignment.
+
 - **Last update: 2026-05-28 18:46 UTC**
 - **Baseline:** PR #1429, val_ema=3.263938, sr=2900. Merge gate: `sr ≤ 2887.5 OR (sr=2900 AND val_ema < 3.263938)`.
 - **🎯 WIN CANDIDATE pending seed-2 confirmation**: #1532 edward β₂ pulse (0.95→0.99 @ step 975) — Arm B val_ema=3.26218, sr=2875. Seed-2 `09qrijtm` at step ~2575/3250, ETA terminal ~19:30 UTC.
