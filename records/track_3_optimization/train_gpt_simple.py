@@ -72,6 +72,20 @@ def parse_args():
                              "params with ndim < 2). Default 0.01 — hardcoded, "
                              "never ablated. ~20K params total in this model.")
     parser.add_argument(
+        "--use_ademamix", action="store_true",
+        help="Use AdEMAMix (mixture of two EMAs) for the three AdamW aux groups "
+             "(adam_embed, adam_lm_head, adam_scalars). Default off → AdamW baseline.",
+    )
+    parser.add_argument(
+        "--ademamix_beta3", type=float, default=0.9999,
+        help="Slow EMA decay (β3) for AdEMAMix. Paper recommendation 0.9999.",
+    )
+    parser.add_argument(
+        "--ademamix_alpha", type=float, default=5.0,
+        help="Mixing weight (α) for AdEMAMix slow EMA. Paper default 5.0. "
+             "Final update = (m1_hat + α * m2) / (sqrt(v_hat) + ε).",
+    )
+    parser.add_argument(
         "--depth_init_mode",
         type=str,
         default="ctrl",
@@ -681,6 +695,83 @@ class Muon(torch.optim.Optimizer):
         return result
 
 
+class AdEMAMixAux(torch.optim.Optimizer):
+    """AdEMAMix (Pagliardini et al., NeurIPS 2024) for AdamW-style aux groups.
+
+    Replaces the single momentum EMA with a fast + slow mixture:
+        m1 = β1 * m1 + (1 - β1) * g            # fast EMA
+        m2 = β3 * m2 + (1 - β3) * g            # slow EMA — NO bias correction (paper)
+        v  = β2 * v  + (1 - β2) * g²
+        update = (m1 / (1 - β1^t) + α * m2) / (sqrt(v / (1 - β2^t)) + ε)
+        θ -= lr * (update + wd * θ)            # decoupled WD (AdamW-style)
+    State (m1, m2, v) is kept in float32 even when params are bfloat16, since
+    β3=0.9999 means (1-β3)=1e-4 increments that would lose precision in bf16.
+    """
+
+    def __init__(self, param_groups, lr=1e-3, beta1=0.9, beta2=0.999,
+                 beta3=0.9999, alpha=5.0, eps=1e-8, weight_decay=0.0):
+        defaults = dict(lr=lr, beta1=beta1, beta2=beta2, beta3=beta3,
+                        alpha=alpha, eps=eps, weight_decay=weight_decay)
+        super().__init__(param_groups, defaults)
+
+    @torch.no_grad()
+    def step(self):
+        for group in self.param_groups:
+            lr = group["lr"]
+            beta1 = group["beta1"]
+            beta2 = group["beta2"]
+            beta3 = group["beta3"]
+            alpha = group["alpha"]
+            eps = group["eps"]
+            wd = group["weight_decay"]
+            for p in group["params"]:
+                if p.grad is None:
+                    continue
+                grad = p.grad.float()
+                state = self.state[p]
+                if len(state) == 0:
+                    state["step"] = 0
+                    state["m1"] = torch.zeros_like(p, dtype=torch.float32)
+                    state["m2"] = torch.zeros_like(p, dtype=torch.float32)
+                    state["v"]  = torch.zeros_like(p, dtype=torch.float32)
+                state["step"] += 1
+                t = state["step"]
+                m1, m2, v = state["m1"], state["m2"], state["v"]
+                m1.mul_(beta1).add_(grad, alpha=1 - beta1)
+                m2.mul_(beta3).add_(grad, alpha=1 - beta3)
+                v.mul_(beta2).addcmul_(grad, grad, value=1 - beta2)
+                bc1 = 1.0 - beta1 ** t
+                bc2 = 1.0 - beta2 ** t
+                denom = (v / bc2).sqrt_().add_(eps)
+                update = (m1 / bc1 + alpha * m2) / denom
+                if wd != 0:
+                    p.mul_(1 - lr * wd)
+                p.add_(update.to(p.dtype), alpha=-lr)
+
+    def get_m1_m2_norms(self) -> dict[str, dict[str, float]]:
+        """Return per-group {m1_norm, m2_norm, m2_lead} based on aggregated Frobenius norms.
+
+        m2_lead = ||m2|| / ||m1|| — should rise over training as the slow EMA warms up.
+        Single-rank only; the optimizer state is replicated across ranks so any rank suffices.
+        """
+        result: dict[str, dict[str, float]] = {}
+        for g_idx, group in enumerate(self.param_groups):
+            m1_sq = 0.0
+            m2_sq = 0.0
+            for p in group["params"]:
+                state = self.state.get(p)
+                if state is None or "m1" not in state:
+                    continue
+                m1_sq += float(state["m1"].square().sum().item())
+                m2_sq += float(state["m2"].square().sum().item())
+            m1_norm = m1_sq ** 0.5
+            m2_norm = m2_sq ** 0.5
+            m2_lead = m2_norm / m1_norm if m1_norm > 0 else 0.0
+            name = group.get("name", f"adam_group_{g_idx}")
+            result[name] = {"m1_norm": m1_norm, "m2_norm": m2_norm, "m2_lead": m2_lead}
+        return result
+
+
 ########################################
 #                Setup                 #
 ########################################
@@ -765,6 +856,9 @@ if dist.get_rank() == 0:
             "wd_schedule": args.wd_schedule,
             "lr_scalars": args.lr_scalars,
             "depth_init_mode": args.depth_init_mode,
+            "use_ademamix": bool(args.use_ademamix),
+            "ademamix_beta3": float(args.ademamix_beta3),
+            "ademamix_alpha": float(args.ademamix_alpha),
         },
     )
 
@@ -837,10 +931,21 @@ for trial_idx in range(args.num_trials):
     print0(f"[init] mode={args.depth_init_mode}  L={NUM_LAYERS}  block_residual_attn.proj_std={_ex_resid_std:.6f}", console=True)
 
     # create the optimizer(s)
-    optimizer1 = AdamW([dict(params=[model.embed.weight], lr=0.3, name="adam_embed"),
-                        dict(params=[model.proj.weight], lr=1/320, name="adam_lm_head"),
-                        dict(params=[p for p in model.parameters() if p.ndim < 2], lr=args.lr_scalars, name="adam_scalars")],
-                       betas=(0.8, 0.95), eps=1e-10, weight_decay=0, fused=True)
+    adam_aux_groups = [
+        dict(params=[model.embed.weight], lr=0.3, name="adam_embed"),
+        dict(params=[model.proj.weight], lr=1/320, name="adam_lm_head"),
+        dict(params=[p for p in model.parameters() if p.ndim < 2], lr=args.lr_scalars, name="adam_scalars"),
+    ]
+    if args.use_ademamix:
+        optimizer1 = AdEMAMixAux(
+            adam_aux_groups,
+            beta1=0.8, beta2=0.95,
+            beta3=args.ademamix_beta3, alpha=args.ademamix_alpha,
+            eps=1e-10, weight_decay=0,
+        )
+    else:
+        optimizer1 = AdamW(adam_aux_groups, betas=(0.8, 0.95), eps=1e-10,
+                           weight_decay=0, fused=True)
     named_blocks = [(n, p) for n, p in model.blocks.named_parameters() if p.ndim >= 2]
     mlp_named = [(n, p) for n, p in named_blocks
                  if n.endswith(".mlp.fc.weight") or n.endswith(".mlp.proj.weight")]
@@ -1015,6 +1120,8 @@ for trial_idx in range(args.num_trials):
                            for i, group in enumerate(optimizer2.param_groups)}
             current_wds = {group.get("name", f"group_{i}"): group.get("weight_decay", 0.0)
                            for i, group in enumerate(optimizer2.param_groups)}
+            ademamix_norms = (optimizer1.get_m1_m2_norms()
+                              if hasattr(optimizer1, "get_m1_m2_norms") else {})
             if dist.get_rank() == 0:
                 per_group_metrics = {"trial": trial_idx, "train/step": train_step}
                 for name, mean_norm in update_norms.items():
@@ -1026,6 +1133,10 @@ for trial_idx in range(args.num_trials):
                 per_group_metrics["train/wd_mlp_now"] = current_wds.get("muon_mlp", 0.0)
                 per_group_metrics["train/wd_attn_now"] = current_wds.get("muon_attn", 0.0)
                 per_group_metrics["train/wd_schedule_progress"] = train_step / train_steps
+                for group_name, ms in ademamix_norms.items():
+                    per_group_metrics[f"ademamix_aux/m1_norm/{group_name}"] = ms["m1_norm"]
+                    per_group_metrics[f"ademamix_aux/m2_norm/{group_name}"] = ms["m2_norm"]
+                    per_group_metrics[f"ademamix_aux/m2_lead/{group_name}"] = ms["m2_lead"]
                 wandb.log(per_group_metrics, step=wandb_step)
         if dist.get_rank() == 0 and optimizer2.cos_sims_buffer:
             cs_names = list(optimizer2.cos_sims_buffer.keys())
