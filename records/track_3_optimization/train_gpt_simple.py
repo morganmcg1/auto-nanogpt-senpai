@@ -78,12 +78,12 @@ def parse_args():
                         help="If set, run paramEMA refresh at --paramema_refresh_step but "
                              "DISABLE L_cov refresh (lcov_refresh_step treated as -1). "
                              "Ablation flag for isolating paramEMA-only contribution.")
-    parser.add_argument('--aux_b2_pulse_step', type=int, default=-1,
+    parser.add_argument('--aux_b2_pulse_step', type=int, default=975,
                         help='Step at which to switch aux Adam β2 to --aux_b2_pulse_target. '
-                             '-1 disables (default). Recommended: 975 (cooldown onset).')
-    parser.add_argument('--aux_b2_pulse_target', type=float, default=-1.0,
+                             '0 or negative disables. Default: 975 (cooldown onset, canonical WIN).')
+    parser.add_argument('--aux_b2_pulse_target', type=float, default=0.99,
                         help='New aux Adam β2 value to set at --aux_b2_pulse_step. '
-                             '-1 disables (default). Recommended: 0.97 (mild) or 0.99 (strong).')
+                             '0 or negative disables. Default: 0.99 (canonical WIN).')
     parser.add_argument("--seed", type=int, default=1,
                         help="Random seed for torch/numpy/python. Default 1 matches baseline seed.")
     args = parser.parse_args()
