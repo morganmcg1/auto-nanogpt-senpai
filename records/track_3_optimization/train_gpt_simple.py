@@ -78,6 +78,11 @@ def parse_args():
                         help="If set, run paramEMA refresh at --paramema_refresh_step but "
                              "DISABLE L_cov refresh (lcov_refresh_step treated as -1). "
                              "Ablation flag for isolating paramEMA-only contribution.")
+    parser.add_argument("--aux_cooldown_frac", type=float, default=-1.0,
+                        help="If >0, decouple aux Adam (embed/proj/scalars) LR cooldown "
+                             "from body Muon. Aux Adam uses this cooldown_frac while body "
+                             "Muon keeps the canonical 0.7. -1=disabled (couple). Aux cooldown "
+                             "starts at step train_steps*(1-aux_cooldown_frac).")
     parser.add_argument("--seed", type=int, default=1,
                         help="Random seed for torch/numpy/python. Default 1 matches baseline seed.")
     args = parser.parse_args()
@@ -750,6 +755,8 @@ if dist.get_rank() == 0:
             "muon_block_lr_pattern": args.muon_block_lr_pattern,
             "paramema_refresh_step": args.paramema_refresh_step,
             "paramema_refresh_only": int(args.paramema_refresh_only),
+            "aux_cooldown_frac": args.aux_cooldown_frac,
+            "aux_cooldown_decoupled": int(args.aux_cooldown_frac > 0),
             "seed": args.seed,
         },
     )
@@ -873,17 +880,50 @@ for trial_idx in range(args.num_trials):
     def set_hparams(step, cooldown_frac=0.7):
         progress = step / train_steps
         assert 0 <= progress < 1
+        # Body Muon (optimizer2) — canonical cooldown_frac.
         if progress < 1 - cooldown_frac:
-            eta = 1.0
+            body_eta = 1.0
             cooldown_progress = 0.0
         else:
             cooldown_progress = (progress - (1 - cooldown_frac)) / cooldown_frac
-            w = 1.0 - cooldown_progress  # equivalent to (1 - progress) / cooldown_frac
-            eta = w ** COOLDOWN_POWER
-        for opt in optimizers:
-            for group in opt.param_groups:
-                group["lr"] = group["initial_lr"] * eta
-        return progress, cooldown_progress, eta
+            body_w = 1.0 - cooldown_progress
+            body_eta = body_w ** COOLDOWN_POWER
+        # Aux Adam (optimizer1) — decoupled cooldown_frac when args.aux_cooldown_frac > 0.
+        if args.aux_cooldown_frac > 0:
+            aux_cd_frac = args.aux_cooldown_frac
+            if progress < 1 - aux_cd_frac:
+                aux_eta = 1.0
+                aux_cooldown_progress = 0.0
+            else:
+                aux_cooldown_progress = (progress - (1 - aux_cd_frac)) / aux_cd_frac
+                aux_w = 1.0 - aux_cooldown_progress
+                aux_eta = aux_w ** COOLDOWN_POWER
+        else:
+            aux_eta = body_eta
+            aux_cooldown_progress = cooldown_progress
+        for group in optimizer2.param_groups:
+            group["lr"] = group["initial_lr"] * body_eta
+        for group in optimizer1.param_groups:
+            group["lr"] = group["initial_lr"] * aux_eta
+        return progress, cooldown_progress, body_eta, aux_eta, aux_cooldown_progress
+
+    # PR #1560: verify decoupled aux-vs-body cooldown timing at startup.
+    if dist.get_rank() == 0:
+        aux_cd_eff = args.aux_cooldown_frac if args.aux_cooldown_frac > 0 else 0.7
+        body_start = int(train_steps * (1 - 0.7))
+        aux_start = int(train_steps * (1 - aux_cd_eff))
+        print0(f"cooldown timing: body_muon starts at step {body_start} "
+               f"(cooldown_frac=0.700), aux_adam starts at step {aux_start} "
+               f"(cooldown_frac={aux_cd_eff:.3f}), decoupled="
+               f"{bool(args.aux_cooldown_frac > 0)}", console=True)
+        print0("step | body_muon_mult | aux_adam_mult | aux-body", console=True)
+        for s in (488, 975, 1625, 2000, 2500, 2900, 3100, 3249):
+            if s >= train_steps:
+                continue
+            b = compute_lr_mult(s, 0.7)
+            a = compute_lr_mult(s, aux_cd_eff)
+            print0(f"  {s:4d} | {b:14.6f} | {a:13.6f} | {a-b:+8.6f}", console=True)
+
 
 
     ########################################
@@ -1020,7 +1060,8 @@ for trial_idx in range(args.num_trials):
         dist.all_reduce(step_loss, op=dist.ReduceOp.SUM)
         train_loss = float((step_loss / batch_size).item())
         # set optimization hyperparameters and take a step
-        sched_progress, sched_cooldown_progress, sched_eta = set_hparams(step)
+        (sched_progress, sched_cooldown_progress, sched_eta,
+         sched_aux_eta, sched_aux_cooldown_progress) = set_hparams(step)
         train_step = step + 1
         telemetry_due = (step == 0 or (step + 1) % args.telemetry_interval == 0 or step + 1 == train_steps)
         histogram_due = (step == 0 or (step + 1) % args.histogram_interval == 0 or step + 1 == train_steps)
@@ -1120,6 +1161,15 @@ for trial_idx in range(args.num_trials):
                 "train/cooldown/cooldown_progress": sched_cooldown_progress,
                 "train/cooldown/lr_multiplier": sched_eta,
                 "train/cooldown/power_gamma": COOLDOWN_POWER,
+                # Decoupled aux-vs-body cooldown timing (PR #1560).
+                "lr/body_muon_mult": sched_eta,
+                "lr/aux_adam_mult": sched_aux_eta,
+                "lr/aux_minus_body_mult": sched_aux_eta - sched_eta,
+                "train/cooldown/aux_cooldown_progress": sched_aux_cooldown_progress,
+                "train/cooldown/aux_cooldown_frac": (args.aux_cooldown_frac
+                                                    if args.aux_cooldown_frac > 0 else 0.7),
+                "train/cooldown/body_cooldown_frac": 0.7,
+                "train/cooldown/aux_decoupled": int(args.aux_cooldown_frac > 0),
             }, step=wandb_step)
             if param_lr_mults is not None:
                 muon_group_lr = optimizer2.param_groups[0]["lr"]
