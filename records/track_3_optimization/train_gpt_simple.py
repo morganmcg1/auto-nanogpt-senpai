@@ -465,12 +465,16 @@ ATTN_SOAP_BETA2 = 0.90
 ATTN_SOAP_PRECOND_FREQ = 10
 ATTN_SOAP_TRUST_THRESHOLD = float(os.environ.get("ATTN_SOAP_TRUST_THRESHOLD", "0.9"))
 NS5_ITERS = int(os.environ.get("NS5_ITERS", "12"))
+NS5_ITERS_FRONT = int(os.environ.get("NS5_ITERS_FRONT", str(NS5_ITERS)))
+NS5_ITERS_BACK = int(os.environ.get("NS5_ITERS_BACK", str(NS5_ITERS)))
+NS5_ITERS_DEPTH_SPLIT = int(os.environ.get("NS5_ITERS_DEPTH_SPLIT", "6"))
+NS5_ITERS_PER_BLOCK_ENABLED = ("NS5_ITERS_FRONT" in os.environ) or ("NS5_ITERS_BACK" in os.environ)
 WD_AUX = float(os.environ.get("WD_AUX", "0.0"))  # AdamW WD on embed + lm_head matrices (scalars stay at 0)
 EMBED_INIT_STD = float(os.environ.get("EMBED_INIT_STD", "1.0"))  # default preserves baseline N(0,1)
 LOGIT_SOFTCAP = float(os.environ.get("LOGIT_SOFTCAP", "15.0"))  # default = 15 (current hardcoded value); soft-cap value c in f(x) = c·x / sqrt(x^2+c^2)
 
 
-def zeropower_via_newtonschulz5(G: Tensor) -> Tensor:
+def zeropower_via_newtonschulz5(G: Tensor, ns5_iters: int = NS5_ITERS) -> Tensor:
     assert G.ndim >= 2
     X = G.bfloat16()
     if G.size(-2) > G.size(-1):
@@ -480,7 +484,7 @@ def zeropower_via_newtonschulz5(G: Tensor) -> Tensor:
     X = X / (X.norm(dim=(-2, -1), keepdim=True) + 1e-7)
     # Perform the NS iterations, not optimizing for wallclock speed
     a, b, c = 2, -1.5, 0.5
-    for _ in range(NS5_ITERS):
+    for _ in range(ns5_iters):
         A = X @ X.mT
         B = b * A + c * A @ A
         X = a * X + B @ X
@@ -504,10 +508,10 @@ def scale_to_unit_operator_norm(G: Tensor, eps: float = 1e-10) -> Tensor:
     return G / op_norm.to(G.dtype)
 
 
-def contra_normuon_update(momentum_update, second_moment, beta2=NORMUON_BETA2):
+def contra_normuon_update(momentum_update, second_moment, beta2=NORMUON_BETA2, ns5_iters=NS5_ITERS):
     """Contra-Muon + NorMuon-lite: NS5 -> contra subtraction -> per-row variance normalize."""
     normalized_grad = scale_to_unit_operator_norm(momentum_update.clone())
-    update = zeropower_via_newtonschulz5(momentum_update)
+    update = zeropower_via_newtonschulz5(momentum_update, ns5_iters=ns5_iters)
     opower_fro = update.norm()
     # Contra correction: subtract CONTRA_MUON / 2 * op-norm-normalized momentum.
     update = update - CONTRA_MUON / 2 * normalized_grad
@@ -652,6 +656,34 @@ class Muon(torch.optim.Optimizer):
                     self.attn_soap_kind[id(p)] = "v"
                 elif n.endswith(".attn.proj.weight"):
                     self.attn_soap_kind[id(p)] = "proj"
+        # Per-depth-half NS5 dispatch: track block index for each body-Muon param.
+        self.body_block_idx: dict[int, int] = {}
+        if NS5_ITERS_PER_BLOCK_ENABLED:
+            for n, p in named_params:
+                try:
+                    self.body_block_idx[id(p)] = int(n.split(".")[0])
+                except (ValueError, IndexError):
+                    self.body_block_idx[id(p)] = -1
+            # One-shot stdout dump for sanity-checking the block_idx assignment.
+            try:
+                rank = dist.get_rank() if dist.is_initialized() else 0
+            except Exception:
+                rank = 0
+            if rank == 0:
+                pairs = []
+                for n, p in named_params:
+                    bidx = self.body_block_idx.get(id(p), -1)
+                    pairs.append((bidx, n))
+                pairs.sort(key=lambda x: (x[0], x[1]))
+                print(
+                    f"[NS5_PER_DEPTH] enabled=1 front={NS5_ITERS_FRONT} back={NS5_ITERS_BACK} "
+                    f"split={NS5_ITERS_DEPTH_SPLIT}", flush=True,
+                )
+                summary = " ".join(
+                    f"b{bidx}={NS5_ITERS_FRONT if 0 <= bidx < NS5_ITERS_DEPTH_SPLIT else (NS5_ITERS_BACK if bidx >= NS5_ITERS_DEPTH_SPLIT else NS5_ITERS)}"
+                    for bidx, _ in pairs
+                )
+                print(f"[NS5_PER_DEPTH] block_idx_map: {summary}", flush=True)
         params = sorted([p for _, p in named_params], key=lambda x: x.size(), reverse=True)
         defaults = dict(lr=lr, weight_decay=weight_decay, mu=mu)
         super().__init__(params, defaults)
@@ -701,7 +733,17 @@ class Muon(torch.optim.Optimizer):
                     if use_soap or use_attn_soap:
                         momentum_update = soap_precondition(momentum_update, state)
                     # NS5 + contra + NorMuon row variance on (possibly SOAP-preconditioned) momentum.
-                    update = contra_normuon_update(momentum_update, state["second_moment"])
+                    if NS5_ITERS_PER_BLOCK_ENABLED:
+                        bidx = self.body_block_idx.get(id(p), -1)
+                        if 0 <= bidx < NS5_ITERS_DEPTH_SPLIT:
+                            ns5_local = NS5_ITERS_FRONT
+                        elif bidx >= NS5_ITERS_DEPTH_SPLIT:
+                            ns5_local = NS5_ITERS_BACK
+                        else:
+                            ns5_local = NS5_ITERS
+                        update = contra_normuon_update(momentum_update, state["second_moment"], ns5_iters=ns5_local)
+                    else:
+                        update = contra_normuon_update(momentum_update, state["second_moment"])
                     # u/w-floor: scale up if u/w < TARGET_UW; leave alone otherwise.
                     p_fro = p.float().norm().clamp_min(1e-8)
                     u_fro = update.float().norm().clamp_min(1e-8)
@@ -865,6 +907,10 @@ if dist.get_rank() == 0:
             "optimizer/attn_soap_precond_freq": ATTN_SOAP_PRECOND_FREQ,
             "optimizer/attn_soap_trust_threshold": ATTN_SOAP_TRUST_THRESHOLD,
             "optimizer/ns5_iters": NS5_ITERS,
+            "optimizer/ns5_iters_front": NS5_ITERS_FRONT,
+            "optimizer/ns5_iters_back": NS5_ITERS_BACK,
+            "optimizer/ns5_iters_depth_split": NS5_ITERS_DEPTH_SPLIT,
+            "optimizer/ns5_iters_per_block_enabled": int(NS5_ITERS_PER_BLOCK_ENABLED),
             "optimizer/wd_aux": WD_AUX,
             "optimizer/recipe": "contra-muon + normuon-lite + soap-on-mlp + soap-on-attn-trust-gate (pre-NS5, record #14 + record #16)",
         },
