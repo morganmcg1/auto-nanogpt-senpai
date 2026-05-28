@@ -83,6 +83,17 @@ def parse_args():
              "muall=musoft + non-residual block 2D weights also scaled by 1/sqrt(L); "
              "smallconst=std=1e-3 depth-independent.",
     )
+    parser.add_argument(
+        "--use_adabelief", action="store_true",
+        help="Use AdaBelief 2nd-moment (variance of belief) for AdamW aux groups. "
+             "Zhuang et al. NeurIPS 2020 arxiv:2010.07468. Default off.",
+    )
+    parser.add_argument(
+        "--adabelief_scope", type=str, default="all",
+        choices=["all", "scalars", "lm_head", "embed"],
+        help="Which aux group(s) get AdaBelief. 'all'=all 3 groups (paper default), "
+             "or restrict to a single group for scope-isolation tests.",
+    )
     args = parser.parse_args()
     args.num_trials = args.num_trials if args.num_trials is not None else (args.legacy_num_trials or 1)
     args.wandb_tags = [tag.strip() for tag in args.wandb_tags.split(",") if tag.strip()]
@@ -681,6 +692,85 @@ class Muon(torch.optim.Optimizer):
         return result
 
 
+class AdaBelief(torch.optim.Optimizer):
+    """AdaBelief optimizer (Zhuang et al., NeurIPS 2020, arxiv:2010.07468).
+
+    Replaces Adam's 2nd moment v_t = β2·v + (1-β2)·g² with the belief variance
+    s_t = β2·s + (1-β2)·(g - m_t)², plus decoupled (AdamW-style) weight decay.
+
+    Per the paper, eps=1e-16 (inside sqrt) is used instead of the standard
+    Adam 1e-10. Also tracks the standard Adam 2nd moment `v_baseline` in
+    parallel as a diagnostic (free since g is already in hand).
+    """
+
+    ADABELIEF_EPS = 1e-16
+
+    def __init__(self, param_groups, betas=(0.8, 0.95), weight_decay=0.0):
+        defaults = dict(lr=1e-3, betas=betas, eps=self.ADABELIEF_EPS,
+                        weight_decay=weight_decay)
+        super().__init__(param_groups, defaults)
+
+    @torch.no_grad()
+    def step(self):
+        for group in self.param_groups:
+            lr = group["lr"]
+            beta1, beta2 = group["betas"]
+            eps = group["eps"]
+            wd = group["weight_decay"]
+            for p in group["params"]:
+                if p.grad is None:
+                    continue
+                g = p.grad
+                state = self.state[p]
+                if len(state) == 0:
+                    state["step"] = 0
+                    state["m"] = torch.zeros_like(p, dtype=torch.float32)
+                    state["s"] = torch.zeros_like(p, dtype=torch.float32)
+                    state["v_baseline"] = torch.zeros_like(p, dtype=torch.float32)
+                state["step"] += 1
+                t = state["step"]
+                m = state["m"]
+                s = state["s"]
+                v_baseline = state["v_baseline"]
+
+                g_f = g.detach().to(torch.float32)
+                m.mul_(beta1).add_(g_f, alpha=1 - beta1)
+                surprise = g_f - m
+                s.mul_(beta2).addcmul_(surprise, surprise, value=1 - beta2)
+                v_baseline.mul_(beta2).addcmul_(g_f, g_f, value=1 - beta2)
+
+                bias1 = 1.0 - beta1 ** t
+                bias2 = 1.0 - beta2 ** t
+                denom = (s / bias2).sqrt_().add_(eps)
+                update = (m / bias1) / denom
+
+                if wd != 0:
+                    p.data.mul_(1 - lr * wd)
+                p.data.add_(update.to(p.dtype), alpha=-lr)
+
+    @torch.no_grad()
+    def get_diagnostics(self) -> dict[str, float]:
+        """Per-group s_norm, v_baseline_norm, and s_to_v_ratio for telemetry."""
+        out: dict[str, float] = {}
+        for g_idx, group in enumerate(self.param_groups):
+            name = group.get("name", f"adabelief_group_{g_idx}")
+            s_sq_sum = 0.0
+            v_sq_sum = 0.0
+            for p in group["params"]:
+                state = self.state.get(p, None)
+                if not state:
+                    continue
+                s_sq_sum += float(state["s"].pow(2).sum().item())
+                v_sq_sum += float(state["v_baseline"].pow(2).sum().item())
+            s_norm = s_sq_sum ** 0.5
+            v_norm = v_sq_sum ** 0.5
+            ratio = (s_norm / v_norm) if v_norm > 0 else 0.0
+            out[f"adabelief_aux/s_norm/{name}"] = s_norm
+            out[f"adabelief_aux/v_baseline_norm/{name}"] = v_norm
+            out[f"adabelief_aux/s_to_v_ratio/{name}"] = ratio
+        return out
+
+
 ########################################
 #                Setup                 #
 ########################################
@@ -765,6 +855,8 @@ if dist.get_rank() == 0:
             "wd_schedule": args.wd_schedule,
             "lr_scalars": args.lr_scalars,
             "depth_init_mode": args.depth_init_mode,
+            "use_adabelief": bool(args.use_adabelief),
+            "adabelief_scope": args.adabelief_scope if args.use_adabelief else "",
         },
     )
 
@@ -837,10 +929,34 @@ for trial_idx in range(args.num_trials):
     print0(f"[init] mode={args.depth_init_mode}  L={NUM_LAYERS}  block_residual_attn.proj_std={_ex_resid_std:.6f}", console=True)
 
     # create the optimizer(s)
-    optimizer1 = AdamW([dict(params=[model.embed.weight], lr=0.3, name="adam_embed"),
-                        dict(params=[model.proj.weight], lr=1/320, name="adam_lm_head"),
-                        dict(params=[p for p in model.parameters() if p.ndim < 2], lr=args.lr_scalars, name="adam_scalars")],
-                       betas=(0.8, 0.95), eps=1e-10, weight_decay=0, fused=True)
+    aux_specs = [
+        ("embed", dict(params=[model.embed.weight], lr=0.3, name="adam_embed")),
+        ("lm_head", dict(params=[model.proj.weight], lr=1/320, name="adam_lm_head")),
+        ("scalars", dict(params=[p for p in model.parameters() if p.ndim < 2],
+                         lr=args.lr_scalars, name="adam_scalars")),
+    ]
+    if not args.use_adabelief:
+        # Baseline path — identical to pre-AdaBelief code.
+        optimizer1 = AdamW([spec for _, spec in aux_specs],
+                           betas=(0.8, 0.95), eps=1e-10, weight_decay=0, fused=True)
+        aux_optimizers = [optimizer1]
+        adabelief_opt = None
+    else:
+        if args.adabelief_scope == "all":
+            belief_specs = aux_specs
+            adam_specs = []
+        else:
+            belief_specs = [(k, s) for k, s in aux_specs if k == args.adabelief_scope]
+            adam_specs = [(k, s) for k, s in aux_specs if k != args.adabelief_scope]
+        aux_optimizers = []
+        if adam_specs:
+            aux_optimizers.append(AdamW([s for _, s in adam_specs],
+                                        betas=(0.8, 0.95), eps=1e-10,
+                                        weight_decay=0, fused=True))
+        adabelief_opt = AdaBelief([s for _, s in belief_specs],
+                                  betas=(0.8, 0.95), weight_decay=0)
+        aux_optimizers.append(adabelief_opt)
+
     named_blocks = [(n, p) for n, p in model.blocks.named_parameters() if p.ndim >= 2]
     mlp_named = [(n, p) for n, p in named_blocks
                  if n.endswith(".mlp.fc.weight") or n.endswith(".mlp.proj.weight")]
@@ -854,7 +970,7 @@ for trial_idx in range(args.num_trials):
         ],
         soap_attn=args.soap_attn, trust_threshold=args.soap_trust_threshold,
     )
-    optimizers = [optimizer1, optimizer2]
+    optimizers = aux_optimizers + [optimizer2]
     assert set(p for opt in optimizers for group in opt.param_groups
                for p in group["params"]) == set(model.parameters())
     for opt in optimizers:
@@ -954,6 +1070,8 @@ for trial_idx in range(args.num_trials):
                     "time/step_avg_ms": 1000 * step_avg,
                 }
                 metrics.update(prefixed("val/slope", loss_slope_stats(val_loss_history, slope_window_steps)))
+                if adabelief_opt is not None:
+                    metrics.update(adabelief_opt.get_diagnostics())
                 wandb.log(metrics, step=trial_idx * (train_steps + 1) + step)
             print0(f"step:{step}/{train_steps} val_loss:{val_loss:.5f} train_time:{training_time:.3f}s"
                    + f" step_avg:{1000*step_avg:.2f}ms", console=True)
