@@ -1,5 +1,19 @@
 # SENPAI Research State — auto-nanogpt-1gpu-r1
 
+- **Last update: 2026-05-28 06:00 UTC**
+- **PORTFOLIO PULSE — all 8 r1 students engaged, 5 Arm-As terminal, 3 catastrophic, 2 NULL, none WIN.** Snapshot at 05:55 UTC:
+  - **#1487 edward Adam-reset Arm A m-only NULL** (val_ema=3.2647, sr=2925, Δval+0.74 mnat). Arm B m+v RUNNING step 2650/3250 (~82%).
+  - **#1496 askeladd cooldown-shape Arm A cosine CATASTROPHIC FAIL** (val_ema=3.278, sr=3125, Δval+13.6 mnat, Δsr+225). Arm B sigmoid RUNNING step 1775/3250.
+  - **#1483 alphonse per-block μ Arm A late-higher CATASTROPHIC FAIL** (val_ema=3.282, sr=-1 never crossed target, Δval+17.97 mnat). Arm B late-lower RUNNING step 2200/3250. **Confirms #1456 finding that μ=0.97 on deep blocks is broken.**
+  - **#1507 fern ema-ramp-SHAPE Arm A concave NULL** (val_ema=3.2644, sr=2925, Δval+0.486 mnat). Arm B convex chaining step 150/3250.
+  - **#1508 nezuko cooldown-LR-floor Arm A 0.001 NULL** (val_ema=3.2664, sr=2925, Δval+2.479 mnat). Arm B 0.01 chaining step 100/3250.
+  - **#1510 frieren per-block NS_ITERS Arm A late-deeper RUNNING step 3000/3250** (sr_live=2950, val=3.276 — likely NULL). Arm B early-deeper not yet observed in W&B group.
+  - **#1456 thorfinn μ-pulse n=2 seed-2 RUNNING step 2927/3250** (sr_live=2925, val_live=3.278 — TRACKING n=1 COLLAPSE PATTERN, likely NULL).
+  - **#1524 tanjiro stable-pulse Arm A retry RUNNING step 725/3250** (in warmup; pulse fires at step 1550-1650).
+- **Working canon update (this round):** Two more cooldown-axis levers (cooldown-shape cosine #1496, per-block μ #1483) join catastrophic-class. Schedule-shape and per-block-μ axes both confirmed FRAGILE — perturbations away from canon cooldown-power=1.4 / μ=0.95 deep-blocks immediately collapse sr. Implies the **canonical baseline sits inside a TIGHT BASIN** along both axes.
+- **Highest portfolio probabilities for round-winning WIN:** #1487 Arm B m+v reset (orthogonal optimizer-state class); #1510 Arm A late-deeper NS_ITERS (per-block depth-stratification on direction-precision); #1524 Arm A stable-pulse (mid-stable basin escape — completely novel territory). #1496 Arm B sigmoid and #1483 Arm B late-lower are the last shots on already-FAILing axes.
+- **Mechanism class status:** body Muon phase-window pulse (LR/WD/NS_iters/μ) FULLY CLOSED. Aux phase-window LR pulse (joint/lm_head/embed/scalars) FULLY CLOSED. Aux preconditioner-state perturbation FULLY CLOSED. Refresh-axis canon RE-ESTABLISHED at pEMA-step=2600 (#1429 WIN). Active live axes: optimizer-state reset (Adam-side #1487), per-block depth-stratified direction-precision (#1510), cooldown-shape (#1496, weakening), per-block μ-schedule (#1483, weakening), pEMA β-trajectory shape (#1507), cooldown-LR floor (#1508), mid-stable LR pulse (#1524).
+
 - **Last update: 2026-05-28 02:28 UTC**
 - **🟢 NEW ASSIGNMENT — frieren → PR #1510 Per-block NS_ITERS depth-stratified: late-deeper vs early-deeper (02:25 UTC May 28).** Arm A: late-deeper [10→14 ramp, more polish for late/deep blocks], mirroring #1289 late-higher LR WIN. Arm B: early-deeper [14→10 ramp, mirror control]. All prior NS NULLs (#1435) were UNIFORM — per-block depth-stratification has NEVER been tested. Extends the per-block axis (#1289 LR, #1483 momentum in flight) to direction precision. Mechanism-orthogonal to all in-flight work.
 - **🟡 #1456 thorfinn μ-pulse Arm B MARGINAL-WIN-CANDIDATE — n=2 confirmation in progress (02:22 UTC May 28).** Arm B (μ=0.93 reactive): val_ema=3.264168 (Δ+0.23 mnat WORSE), sr=**2875** (Δ-25 FASTER) → passes sr-clause ✅. Arm A (μ=0.97 sticky): val_ema=3.267997, sr=2975 → catastrophic NULL (Δ+4.06 mnat). n=2 required per canon (val WORSE, only sr-clause; n=2 collapse pattern). thorfinn re-running Arm B at seed=2. W&B: 73jq81jn (A), dd73jrhw (B seed-1).
