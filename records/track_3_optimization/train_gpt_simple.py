@@ -109,6 +109,12 @@ def parse_args():
     parser.add_argument("--body_init_bottom_layers", type=int,
                         default=int(os.environ.get("BODY_INIT_BOTTOM_LAYERS", "6")),
                         help="Number of bottom layers to damp for --body_init=orthogonal_bottom_damp (default 6 = bottom half of 12 layers).")
+    parser.add_argument("--body_riemannian_norm", action="store_true", default=False,
+                        help="H249: Replace Frobenius norm in SI hyperball with "
+                             "Riemannian Stiefel norm. Requires --muonh_mode=scale_invariant.")
+    parser.add_argument("--body_riem_detach", action="store_true", default=False,
+                        help="H249: Use param.detach() for W in Riemannian norm "
+                             "(no gradient through W). Only active if --body_riemannian_norm is set.")
     args = parser.parse_args()
     args.num_trials = args.num_trials if args.num_trials is not None else (args.legacy_num_trials or 1)
     args.wandb_tags = [tag.strip() for tag in args.wandb_tags.split(",") if tag.strip()]
@@ -645,12 +651,57 @@ def adaptive_gradient_clip(parameters, clip_ratio: float, eps: float = 1e-3):
     return stats
 
 
-def scale_invariant_update_(param, update, lr, eps=1e-10):
+@torch.compiler.disable
+def riemannian_norm_stiefel(update, W, eps=1e-10):
+    """Canonical Stiefel Riemannian metric norm for near-orthogonal update.
+
+    ||g||_Riem = ||g - W*(W^T*g)/2||_F
+
+    W: current weight matrix (near-orthogonal after NS5, shape [n, k])
+    update: post-NS5 update direction (shape [n, k])
+
+    NS5 emits a bfloat16 update; weights are fp32. Cast update to W's dtype
+    for the matmul so the dtypes agree. Returns the norm in W's dtype.
+    Same asymptotic order as one NS5 iteration: O(n*k*min(n,k)).
+    @torch.compiler.disable to avoid retracing soft-drift confounds.
+    """
+    update_W = update.to(W.dtype)
+    WTg = W.T @ update_W
+    correction = W @ WTg
+    g_riem = update_W - 0.5 * correction
+    riem_norm = g_riem.norm()
+    return torch.clamp(riem_norm, min=eps)
+
+
+@torch.compiler.disable
+def scale_invariant_update_(param, update, lr, eps=1e-10,
+                            riemannian=False, riem_detach=False,
+                            stats_buf=None):
     """Always-active hyperball step: rescale update to param's current norm scale,
     take the step, then renormalise the result back onto the sphere of radius
-    ||initial param||. Holds Frobenius norm exactly constant across training."""
+    ||initial param||. Holds Frobenius norm exactly constant across training.
+
+    When riemannian=True, the rescaling denominator uses the canonical Stiefel
+    Riemannian metric norm instead of the Frobenius norm (H249).
+
+    stats_buf: optional 4-element GPU tensor [frob_sum, riem_sum, ratio_sum, count]
+    accumulated across all SI calls in a step; collected via all_reduce later.
+    Non-riemannian path keeps the exact same op order as the original CTRL.
+    """
     p_norm = param.norm()
-    u_norm = update.norm()
+    if riemannian:
+        frob_norm = update.norm()
+        W = param.detach() if riem_detach else param
+        u_norm = riemannian_norm_stiefel(update, W, eps=eps)
+        if stats_buf is not None:
+            frob_safe = torch.clamp(frob_norm, min=eps)
+            stats_buf[0] += frob_norm.to(stats_buf.dtype)
+            stats_buf[1] += u_norm.to(stats_buf.dtype)
+            stats_buf[2] += (u_norm / frob_safe).to(stats_buf.dtype)
+            stats_buf[3] += torch.ones((), dtype=stats_buf.dtype, device=stats_buf.device)
+    else:
+        u_norm = update.norm()
+        # stats_buf intentionally skipped here to preserve CTRL bit-identity.
     new_param = param - lr * update * p_norm / torch.clamp(u_norm, min=eps)
     new_norm = torch.clamp(new_param.norm(), min=eps)
     param.copy_(new_param / new_norm * p_norm)
@@ -669,16 +720,21 @@ class MuonH(torch.optim.Optimizer):
     norm exactly constant; weight_decay must be 0.
     """
     def __init__(self, params, lr=0.018, weight_decay=0.0, mu=0.95,
-                 hyperball=True, budget_mult=1.0, mode="clip"):
+                 hyperball=True, budget_mult=1.0, mode="clip",
+                 riemannian=False, riem_detach=False):
         assert isinstance(params, list) and len(params) >= 1 and isinstance(params[0], torch.nn.Parameter)
         assert mode in ("clip", "scale_invariant")
         params = sorted(params, key=lambda x: x.size(), reverse=True)
         defaults = dict(lr=lr, weight_decay=weight_decay, mu=mu,
-                        hyperball=hyperball, budget_mult=budget_mult, mode=mode)
+                        hyperball=hyperball, budget_mult=budget_mult, mode=mode,
+                        riemannian=riemannian, riem_detach=riem_detach)
         super().__init__(params, defaults)
         self._last_active_fraction = 0.0
         self._last_radius_to_norm_max = 0.0
         self._last_norm_to_radius_max = 0.0
+        self._last_riem_norm_mean = 0.0
+        self._last_frob_norm_mean = 0.0
+        self._last_riem_frob_ratio_mean = 1.0
 
     @torch.no_grad()
     def step(self):
@@ -688,12 +744,15 @@ class MuonH(torch.optim.Optimizer):
         total_count_local = 0
         max_r_over_n_local = 0.0
         max_n_over_r_local = 0.0
+        si_stats_buf = torch.zeros(4, device="cuda", dtype=torch.float64)
         for group in self.param_groups:
             params = group["params"]
             params_pad = params + [torch.empty_like(params[-1])] * (world_size - len(params) % world_size)
             hb = group["hyperball"]
             budget_mult = group["budget_mult"]
             mode = group["mode"]
+            riemannian = group.get("riemannian", False)
+            riem_detach = group.get("riem_detach", False)
             for base_i in range(0, len(params), world_size):
                 if base_i + rank < len(params):
                     p = params[base_i + rank]
@@ -705,7 +764,10 @@ class MuonH(torch.optim.Optimizer):
                     update = muon_update(p.grad, state["momentum"], mu=group["mu"])
                     if hb and mode == "scale_invariant":
                         # Always-active variant: norm is held at initial value by construction.
-                        scale_invariant_update_(p.data, update, group["lr"])
+                        scale_invariant_update_(p.data, update, group["lr"],
+                                                riemannian=riemannian,
+                                                riem_detach=riem_detach,
+                                                stats_buf=si_stats_buf)
                         total_count_local += 1
                         clip_count_local += 1  # by definition projection is always active
                     else:
@@ -733,6 +795,7 @@ class MuonH(torch.optim.Optimizer):
             ratios = torch.tensor([max_r_over_n_local, max_n_over_r_local],
                                   device="cuda", dtype=torch.float64)
             dist.all_reduce(ratios, op=dist.ReduceOp.MAX)
+            dist.all_reduce(si_stats_buf, op=dist.ReduceOp.SUM)
             clip_count = float(counts[0].item())
             total_count = float(counts[1].item())
             max_r_over_n = float(ratios[0].item())
@@ -742,9 +805,21 @@ class MuonH(torch.optim.Optimizer):
             total_count = float(total_count_local)
             max_r_over_n = max_r_over_n_local
             max_n_over_r = max_n_over_r_local
+        si_frob_sum = float(si_stats_buf[0].item())
+        si_riem_sum = float(si_stats_buf[1].item())
+        si_ratio_sum = float(si_stats_buf[2].item())
+        si_count = float(si_stats_buf[3].item())
         self._last_active_fraction = clip_count / total_count if total_count > 0 else 0.0
         self._last_radius_to_norm_max = max_r_over_n
         self._last_norm_to_radius_max = max_n_over_r
+        if si_count > 0:
+            self._last_frob_norm_mean = si_frob_sum / si_count
+            self._last_riem_norm_mean = si_riem_sum / si_count
+            self._last_riem_frob_ratio_mean = si_ratio_sum / si_count
+        else:
+            self._last_frob_norm_mean = 0.0
+            self._last_riem_norm_mean = 0.0
+            self._last_riem_frob_ratio_mean = 1.0
 
 
 ########################################
@@ -791,6 +866,7 @@ if args.muonh_agc_clip_ratio > 0:
     print0(f"AGC ENABLED on inner MuonH gradient: clip_ratio={args.muonh_agc_clip_ratio} eps={args.muonh_agc_eps}", console=True)
 else:
     print0("AGC DISABLED on inner MuonH gradient (clip_ratio=0)", console=True)
+print0(f"[H249] body_riemannian_norm={args.body_riemannian_norm} body_riem_detach={args.body_riem_detach}", console=True)
 print0("="*100)
 
 val_tokens = 20 * 524288
@@ -850,6 +926,9 @@ if dist.get_rank() == 0:
             "muonh_mu_schedule": args.muonh_mu_schedule,
             "muonh_mu_start": args.muonh_mu_start,
             "muonh_mu_end": args.muonh_mu_end,
+            "body_init": args.body_init,
+            "body_riemannian_norm": bool(args.body_riemannian_norm),
+            "body_riem_detach": bool(args.body_riem_detach),
         },
     )
 
@@ -933,7 +1012,9 @@ for trial_idx in range(args.num_trials):
     optimizer2 = MuonH([p for p in model.blocks.parameters() if p.ndim >= 2],
                        lr=args.muonh_lr, weight_decay=0.0, mu=0.95,
                        hyperball=True, budget_mult=args.muonh_budget_mult,
-                       mode=args.muonh_mode)
+                       mode=args.muonh_mode,
+                       riemannian=args.body_riemannian_norm,
+                       riem_detach=args.body_riem_detach)
     optimizer2.param_groups[0]["name"] = "muonh_blocks"
     optimizers = [optimizer1, optimizer2]
     # AGC targets: AdamW aux groups (embed, lm_head, scalars). Built from optimizer1
@@ -1189,6 +1270,9 @@ for trial_idx in range(args.num_trials):
                         muonh_metrics["train/muonh/active_fraction"] = opt._last_active_fraction
                         muonh_metrics["train/muonh/radius_to_norm_max"] = opt._last_radius_to_norm_max
                         muonh_metrics["train/muonh/norm_to_radius_max"] = opt._last_norm_to_radius_max
+                        muonh_metrics["body/riem_norm_mean"] = opt._last_riem_norm_mean
+                        muonh_metrics["body/frob_norm_mean"] = opt._last_frob_norm_mean
+                        muonh_metrics["body/riem_frob_ratio_mean"] = opt._last_riem_frob_ratio_mean
                     muonh_metrics["train/muonh/warmup_factor"] = muonh_warmup_factor
                     muonh_metrics["train/muonh/effective_lr"] = opt.param_groups[0]["lr"]
             if telemetry_due and args.aux_agc_clip_ratio > 0 and agc_stats["agc_total"] > 0:
