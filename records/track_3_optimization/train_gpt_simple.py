@@ -78,6 +78,17 @@ def parse_args():
                         help="If set, run paramEMA refresh at --paramema_refresh_step but "
                              "DISABLE L_cov refresh (lcov_refresh_step treated as -1). "
                              "Ablation flag for isolating paramEMA-only contribution.")
+    parser.add_argument("--muon_nesterov", action="store_true",
+                        help="Switch body-Muon to classical momentum accumulation "
+                             "(buf = mu*buf + g) and apply Sutskever Nesterov correction "
+                             "(NS5 input = m_t + mu*(m_t - m_{t-1})) instead of the "
+                             "default lerp+lerp-Nesterov path in pmuon_update. Shifts the "
+                             "polar input from momentum-dominated to gradient-dominated.")
+    parser.add_argument("--muon_nesterov_stable_only", action="store_true",
+                        help="When --muon_nesterov is set: apply the Sutskever correction "
+                             "only during the stable phase (step < train_steps*(1-cooldown_frac)). "
+                             "Classical accumulation still applies for the whole run so the "
+                             "momentum buffer is consistent; only the correction term toggles.")
     parser.add_argument("--seed", type=int, default=1,
                         help="Random seed for torch/numpy/python. Default 1 matches baseline seed.")
     args = parser.parse_args()
@@ -85,6 +96,8 @@ def parse_args():
     args.wandb_tags = [tag.strip() for tag in args.wandb_tags.split(",") if tag.strip()]
     if args.telemetry_interval < 1 or args.histogram_interval < 1:
         raise ValueError("--telemetry_interval and --histogram_interval must be positive")
+    if args.muon_nesterov_stable_only and not args.muon_nesterov:
+        raise ValueError("--muon_nesterov_stable_only requires --muon_nesterov")
     return args
 
 
@@ -523,14 +536,54 @@ def pmuon_update(
     ns_b: float = NS_B,
     ns_c: float = NS_C,
     polar_diag: dict | None = None,
+    nesterov_sutskever: bool = False,
+    momentum_prev: Tensor | None = None,
+    apply_sutskever: bool = False,
+    nesterov_diag: dict | None = None,
 ) -> Tensor:
     # Streaming raw (unnormalized) bilateral covariance EMAs in fp32.
     g32 = grad.detach().float()
     L_cov.mul_(beta_cov).add_(g32 @ g32.T)
     R_cov.mul_(beta_cov).add_(g32.T @ g32)
 
-    momentum.lerp_(grad, 1 - mu)
-    update = grad.lerp_(momentum, mu) if nesterov else momentum
+    if nesterov_sutskever:
+        # Classical momentum accumulation: m_t = mu*m_{t-1} + g_t
+        # (no lerp factor on g, so g enters with full weight). Save m_{t-1} into
+        # momentum_prev BEFORE updating momentum so the Sutskever correction can
+        # reference it. m_pre input direction shifts from momentum-dominated
+        # (lerp path: ~0.0975*g + 0.9025*m_{t-1}) to gradient-dominated
+        # (~1.95*g + 0.9025*m_{t-1}) when apply_sutskever, or to plain classical
+        # (~1.0*g + 0.95*m_{t-1}) when apply_sutskever=False.
+        assert momentum_prev is not None
+        momentum_prev.copy_(momentum)
+        momentum.mul_(mu).add_(grad)
+        if apply_sutskever:
+            update = momentum + mu * (momentum - momentum_prev)
+        else:
+            update = momentum
+        if nesterov_diag is not None and "n_samples" not in nesterov_diag:
+            # Sample per-step Frobenius norms on first eligible param (rank 0 will
+            # be the one writing this, since the optimizer step is rank-sharded).
+            with torch.no_grad():
+                corr = mu * (momentum - momentum_prev)
+                nesterov_diag["correction_frob"] = float(corr.float().norm().item())
+                nesterov_diag["momentum_frob"] = float(momentum.float().norm().item())
+                nesterov_diag["momentum_delta_frob"] = float((momentum - momentum_prev).float().norm().item())
+                nesterov_diag["sample_rows"] = momentum.shape[0]
+                nesterov_diag["sample_cols"] = momentum.shape[1]
+                nesterov_diag["n_samples"] = 1
+                # Cosine similarity between Sutskever-corrected direction and plain m_t.
+                m_flat = momentum.float().flatten()
+                corr_flat = update.float().flatten()
+                m_norm = m_flat.norm().clamp_min(1e-12)
+                c_norm = corr_flat.norm().clamp_min(1e-12)
+                nesterov_diag["cos_sim_sutskever_vs_momentum"] = float(
+                    (m_flat @ corr_flat / (m_norm * c_norm)).item()
+                )
+    else:
+        # Existing lerp + lerp-Nesterov path (the default since PR #64 PMuon merge).
+        momentum.lerp_(grad, 1 - mu)
+        update = grad.lerp_(momentum, mu) if nesterov else momentum
 
     L_neg = matrix_neg_power(L_cov, gamma, eps)
     R_neg = matrix_neg_power(R_cov, gamma, eps)
@@ -558,12 +611,17 @@ def pmuon_update(
 
 class Muon(torch.optim.Optimizer):
     def __init__(self, params, lr=0.02, weight_decay=0, mu=0.95, beta_cov=0.95, gamma=PMUON_GAMMA,
-                 ns_a=NS_A, ns_b=NS_B, ns_c=NS_C):
+                 ns_a=NS_A, ns_b=NS_B, ns_c=NS_C, nesterov_sutskever=False):
         assert isinstance(params, list) and len(params) >= 1 and isinstance(params[0], torch.nn.Parameter)
         params = sorted(params, key=lambda x: x.size(), reverse=True)
         defaults = dict(lr=lr, weight_decay=weight_decay, mu=mu, beta_cov=beta_cov, gamma=gamma,
                         ns_a=ns_a, ns_b=ns_b, ns_c=ns_c)
         super().__init__(params, defaults)
+        self.nesterov_sutskever = nesterov_sutskever
+        # _apply_sutskever_now is toggled by the training loop each step to gate
+        # the Sutskever correction term. Classical accumulation always applies when
+        # nesterov_sutskever=True; only the correction term toggles via this flag.
+        self._apply_sutskever_now = nesterov_sutskever
 
     @torch.no_grad()
     def step(self):
@@ -574,6 +632,7 @@ class Muon(torch.optim.Optimizer):
         floor_fired_count = 0
         floor_eligible_count = 0
         polar_diag: dict = {}
+        nesterov_diag: dict = {}
         for group in self.param_groups:
             params = group["params"]
             params_pad = params + [torch.empty_like(params[-1])] * (world_size - len(params) % world_size)
@@ -585,6 +644,8 @@ class Muon(torch.optim.Optimizer):
                         state["momentum"] = torch.zeros_like(p)
                         state["L"] = torch.zeros(p.shape[0], p.shape[0], device=p.device, dtype=torch.float32)
                         state["R"] = torch.zeros(p.shape[1], p.shape[1], device=p.device, dtype=torch.float32)
+                        if self.nesterov_sutskever:
+                            state["momentum_prev"] = torch.zeros_like(p)
                     update = pmuon_update(
                         p.grad,
                         state["momentum"],
@@ -597,6 +658,10 @@ class Muon(torch.optim.Optimizer):
                         ns_b=group["ns_b"],
                         ns_c=group["ns_c"],
                         polar_diag=polar_diag,
+                        nesterov_sutskever=self.nesterov_sutskever,
+                        momentum_prev=state.get("momentum_prev"),
+                        apply_sutskever=self._apply_sutskever_now,
+                        nesterov_diag=nesterov_diag if self.nesterov_sutskever else None,
                     )
                     floor_eligible_count += 1
                     w_norm = p.norm()
@@ -614,6 +679,7 @@ class Muon(torch.optim.Optimizer):
                 dist.all_gather(params_pad[base_i:base_i + world_size], params_pad[base_i + rank])
         self._floor_diag = {"fired": floor_fired_count, "eligible": floor_eligible_count}
         self._polar_diag = polar_diag
+        self._nesterov_diag = nesterov_diag
 
 
 def pmuon_spectral_diag(optimizer: torch.optim.Optimizer, gamma: float) -> dict[str, float]:
@@ -750,6 +816,8 @@ if dist.get_rank() == 0:
             "muon_block_lr_pattern": args.muon_block_lr_pattern,
             "paramema_refresh_step": args.paramema_refresh_step,
             "paramema_refresh_only": int(args.paramema_refresh_only),
+            "muon_nesterov": int(args.muon_nesterov),
+            "muon_nesterov_stable_only": int(args.muon_nesterov_stable_only),
             "seed": args.seed,
         },
     )
@@ -787,9 +855,11 @@ for trial_idx in range(args.num_trials):
                         dict(params=[p for p in model.parameters() if p.ndim < 2], lr=0.025, name="adam_scalars")],
                        betas=(0.8, 0.95), eps=1e-10, weight_decay=0, fused=True)
     optimizer2 = Muon([p for p in model.blocks.parameters() if p.ndim >= 2],
-                      lr=args.muon_lr, weight_decay=0.025, beta_cov=0.95, gamma=PMUON_GAMMA)
+                      lr=args.muon_lr, weight_decay=0.025, beta_cov=0.95, gamma=PMUON_GAMMA,
+                      nesterov_sutskever=args.muon_nesterov)
     optimizer2.param_groups[0]["name"] = "muon_blocks"
-    print0(f"body-Muon optimizer: lr={args.muon_lr} weight_decay=0.025 beta_cov=0.95 gamma={PMUON_GAMMA}")
+    print0(f"body-Muon optimizer: lr={args.muon_lr} weight_decay=0.025 beta_cov=0.95 gamma={PMUON_GAMMA}"
+           f" nesterov_sutskever={args.muon_nesterov} stable_only={args.muon_nesterov_stable_only}")
 
     # Per-block Muon LR shape: mean-preserving linear ramp across block index.
     # block_mults sum to NUM_LAYERS × 1.0 exactly, so mean LR is unchanged vs uniform.
@@ -1047,6 +1117,16 @@ for trial_idx in range(args.num_trials):
                 train_steps=train_steps,
                 wandb_step=wandb_step,
             )
+        # Phase-gate the Sutskever Nesterov correction term. Classical accumulation
+        # (when args.muon_nesterov is set) always applies so the momentum buffer stays
+        # consistent; only the +mu*(m_t - m_{t-1}) correction toggles. Stable phase
+        # ends at train_steps*(1-cooldown_frac) = 975 (PR #1561 Arm B boundary).
+        if args.muon_nesterov:
+            stable_end_step = int(train_steps * 0.3)  # 975 for train_steps=3250
+            if args.muon_nesterov_stable_only:
+                optimizer2._apply_sutskever_now = step < stable_end_step
+            else:
+                optimizer2._apply_sutskever_now = True
         for opt in optimizers:
             opt.step()
         # EMA buffer update on body-Muon matrix params.
@@ -1113,6 +1193,23 @@ for trial_idx in range(args.num_trials):
                     "polar/ns_coef_b": NS_B,
                     "polar/ns_coef_c": NS_C,
                 }, step=wandb_step)
+            if args.muon_nesterov:
+                nesterov_diag = getattr(optimizer2, "_nesterov_diag", None)
+                applied_now = bool(getattr(optimizer2, "_apply_sutskever_now", False))
+                nesterov_log = {
+                    "trial": trial_idx,
+                    "train/step": train_step,
+                    "optimizer/nesterov_active": int(applied_now),
+                    "optimizer/nesterov_stable_only": int(args.muon_nesterov_stable_only),
+                }
+                if nesterov_diag:
+                    nesterov_log["optimizer/nesterov_correction_norm"] = nesterov_diag.get("correction_frob", 0.0)
+                    nesterov_log["optimizer/nesterov_momentum_norm"] = nesterov_diag.get("momentum_frob", 0.0)
+                    nesterov_log["optimizer/nesterov_momentum_delta_norm"] = nesterov_diag.get("momentum_delta_frob", 0.0)
+                    nesterov_log["optimizer/nesterov_cos_sim_sutskever_vs_momentum"] = nesterov_diag.get("cos_sim_sutskever_vs_momentum", 0.0)
+                    nesterov_log["optimizer/nesterov_sample_rows"] = nesterov_diag.get("sample_rows", 0)
+                    nesterov_log["optimizer/nesterov_sample_cols"] = nesterov_diag.get("sample_cols", 0)
+                wandb.log(nesterov_log, step=wandb_step)
             wandb.log({
                 "trial": trial_idx,
                 "train/step": train_step,
