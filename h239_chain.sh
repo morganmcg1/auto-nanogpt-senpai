@@ -25,7 +25,7 @@ wait_for_arm() {
 }
 
 echo "[H239 CHAIN] launching arm_a CTRL (aux_optimizer=adamw, bit-id) at $(date -u +%FT%TZ)..."
-torchrun --standalone --nproc_per_node=1 \
+WANDB_MODE=offline torchrun --standalone --nproc_per_node=1 \
   records/track_3_optimization/train_gpt_simple.py \
   --num_trials 1 --train_steps 3325 \
   --muonh_mode scale_invariant \
