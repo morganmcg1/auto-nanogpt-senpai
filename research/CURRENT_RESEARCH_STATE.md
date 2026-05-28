@@ -1,14 +1,27 @@
 # SENPAI Research State — auto-nanogpt-1gpu-r3
 
-- **Last updated:** 2026-05-28 00:35 UTC
+- **Last updated:** 2026-05-28 00:45 UTC
 
 ---
 
 ## 🏆 CURRENT BASELINE: FFS=3025, val=3.26830 — PR #1398 H203 tanjiro cosine cooldown shape
 
-**Baseline shift alert RESOLVED**: All PRs from the pre-H203-merge cohort (H204-H213) have now closed or completed. All remaining in-flight PRs (H214, H221-H227) are on the cosine baseline.
+**Baseline shift alert RESOLVED**: All PRs from the pre-H203-merge cohort (H204-H213) have now closed or completed. All remaining in-flight PRs (H214, H222-H228) are on the cosine baseline.
 
 ---
+
+## 🎯 Cycle ~550 (00:35-00:45 UTC) — H221 alphonse CLOSED (77th NULL/NEG bilateral catastrophic FFS=-1 both arms, programme finding #46 EXTENDED: MuLoCo outer-Nesterov is non-interchangeable structural slot, NO_MOMENTUM 2.9x WORSE than NO_OUTER reveals Nesterov velocity buffer IS the mechanism); H228 alphonse ASSIGNED MuonH body WEIGHT DECAY axis (PR #1503, 24th novel mechanism class, fresh non-LR optimizer mechanism)
+
+- **🎯 H221 alphonse CLOSED — 77th NULL/NEG + programme finding #46 EXTENDED**: arm_a CTRL (use_outer=True, μ=0.5) val=3.26823/FFS=3025 bit-identical baseline; arm_b NO_OUTER (use_outer=False) val=3.28276/FFS=-1 (+0.01453 val NEG, **FFS=-1 CATASTROPHIC** never crossed target); arm_c NO_MOMENTUM (use_outer=True, μ=0.0) val=3.30999/FFS=-1 (+0.04176 val NEG, **FFS=-1 CATASTROPHIC 2.9x WORSE than arm_b**). Bilateral catastrophic NEG on FFS primary metric.
+- **🎯 Excellent student mechanistic insight (arm_b > arm_c ordering)**: removing outer optimizer entirely (NO_OUTER) is LESS bad than keeping outer step but zeroing momentum (NO_MOMENTUM). **The outer optimizer's value lives in the Nesterov velocity buffer specifically, not in "doing something extra every 30 steps"**. With outer_lr=0.7 but no momentum buffer, the outer step becomes a pure SGD kick every 30 inner steps — large pure-gradient corrections without velocity damping are MORE destabilizing than skipping the outer step entirely. Momentum is not just a smoother; it IS the mechanism.
+- **🎯 Programme finding #46 EXTENDED — MuLoCo outer-Nesterov is a non-interchangeable structural slot**: refines from "meta-optimizer outer averaging incompatible with MuonH-SI" to the stronger claim:
+  - Removing it (H221 NO_OUTER) → CATASTROPHIC
+  - Substituting with Lookahead k-step averaging (H216 LA_K10/K30) → CATASTROPHIC bilateral
+  - Removing velocity buffer (H221 NO_MOMENTUM) → 2.9x WORSE CATASTROPHIC
+  - **The specific Nesterov form (μ=0.5, lr=0.7, sync=30) is finely tuned and non-interchangeable**. Outer-optimizer slot is BOTH required structurally AND specific Nesterov form required. Lookahead, NO_MOMENTUM SGD-kick are NOT interchangeable substitutes.
+- **Strategic implication**: Stop pruning the outer optimizer (both directions decisively negative). Future MuLoCo-axis experiments should be mechanism REPLACEMENTS rather than pruning — but the bar is high given the specific form requirement.
+- **🎯 H228 alphonse ASSIGNED (PR #1503) — 24th NEW MECHANISM CLASS: MuonH body WEIGHT DECAY axis ablation (fresh non-LR optimizer mechanism)**: Per launch directive ("non-LR optimizer mechanisms" + "pruning ablations of complex stacks"). Body `weight_decay=0.0` hardcoded since H148+, never directly tested in **clip mode** with hyperball=True. The historical "wd=0 because projection controls norm" rationale was settled in **scale_invariant mode** (where WD must be 0 by construction), but current baseline uses **clip mode** where WD is mathematically permitted: `p ← (1-lr*wd)*p` then `p ← p + lr*update` then `clip(||p|| ≤ R)`. ~5 LoC code change (add `--muonh_weight_decay` argparse, pass to MuonH constructor). 3-arm CTRL wd=0.0 (bit-id) / WD_LO wd=0.001 (~5.8% norm reduction over 3325 steps) / WD_HI wd=0.01 (~45% norm reduction). Tests if hyperball-WD coexist OR fight, AND if late-cooldown trajectory drift (terminal val regression vs H174 envelope) can be mitigated via param-scale-axis vs schedule-axis (H211/H213/H218/H219 all closed without recovering drift via schedule).
+- **End-of-cycle ~550 portfolio**: H214 askeladd spectral RANK truncation (arm_c TRUNC_TOP25 in flight step 1590/3325 ~48% ETA ~02:00 UTC, arm_b TRUNC_HALF FFS=-1 CATASTROPHIC); H222 fern µ-schedule pruning (arm_c MU_END_85 in flight ETA ~02:25 UTC, arm_b SCHED_OFF bilateral NEG µ-schedule LOAD-BEARING confirmed); H223 nezuko aux ε pruning (arm_c EPS_1E4 in flight ETA ~03:00 UTC, arm_b EPS_1E8 essentially identical to CTRL ε=1e-6 customization VESTIGIAL); H224 edward warmup pruning (SEND BACK awaiting student treatment arms); H225 frieren aux β₁ ablation (arm_b BETA1_09 in flight ETA ~02:00 UTC, arm_c BETA1_05 ETA ~03:30 UTC); H226 tanjiro CLAMP-FLOOR variant (in flight); H227 thorfinn body init ablation (in flight); H228 alphonse body WD axis (newly assigned). **8/8 students WIP, 0 idle, 0 review-ready.** **24 novel mechanism classes** (added MuonH body weight decay axis). Programme findings count: 48 candidates accumulated through H220.
 
 ## 🎯 Cycle ~540 (00:25-00:35 UTC) — H220 thorfinn CLOSED (76th NULL/NEG bilateral SYMMETRIC +50/+50 FFS NEG, programme finding #48 candidate: PER-TENSOR RELATIVE-LR AXIS EXHAUSTED — MuonH per-param NS5+hyperball neutralizes scale differences, 4-finding consolidation: per-block + per-depth + per-type + per-param); H227 thorfinn ASSIGNED BODY INITIALIZATION ablation (PR #1501, 23rd novel mechanism class, PRE-NS5 axis pivot, zero code changes)
 

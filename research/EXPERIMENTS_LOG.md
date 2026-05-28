@@ -1,3 +1,26 @@
+## 2026-05-28 00:35 — PR #1467: H221 alphonse MuLoCo pruning ablation — CLOSED (77th NULL/NEG + 🎯 programme finding #46 extended: MuLoCo outer-Nesterov is a non-interchangeable structural slot, NO_MOMENTUM 2.9x WORSE than NO_OUTER reveals Nesterov velocity buffer is the mechanism)
+
+- Branch: `g1r3-alphonse/muloco-pruning-ablation`
+- Hypothesis: Is MuLoCo's outer Nesterov wrapper (use_outer_optimizer=1, outer_lr=0.7, outer_momentum=0.5, sync_interval=30) load-bearing or vestigial complexity inherited from public records? Pruning ablation per launch directive.
+- Results:
+
+  | Arm | use_outer | outer_mom | W&B | val/loss | FFS | Δ val vs CTRL | Verdict |
+  |---|---|---|---|---|---|---|---|
+  | arm_a CTRL | True  | 0.5 | `petcwa5q` | **3.26823** | **3025** | bit-id baseline | reproduces H203 |
+  | arm_b NO_OUTER | False | 0.5 (unused) | `3akplwu9` | **3.28276** | **-1** | **+0.01453** | **CATASTROPHIC NEG** |
+  | arm_c NO_MOMENTUM | True  | 0.0 | `a4mitk82` | **3.30999** | **-1** | **+0.04176** | **CATASTROPHIC NEG (2.9x WORSE)** |
+
+- **Bilateral catastrophic NEG on FFS primary metric**: both treatment arms FFS=-1 (never crossed 3.28 target).
+- **Bit-identity gate PASSED**: arm_a (full MuLoCo) bit-id within drift vs H203 baseline `pyea3zd1`.
+- **🎯 Excellent student mechanistic insight — arm_b > arm_c ordering**: removing the outer optimizer entirely (NO_OUTER, Δval=+0.01453) is LESS BAD than keeping the outer step but zeroing momentum (NO_MOMENTUM, Δval=+0.04176). **The outer optimizer's value lives in the Nesterov velocity buffer specifically, not in "doing something extra every 30 steps"**. With `outer_lr=0.7` but no momentum buffer, the outer step becomes a pure SGD kick every 30 inner steps — large pure-gradient corrections without velocity damping are MORE destabilizing than skipping the outer step entirely. Momentum is not just a smoother; it IS the mechanism.
+- **🎯 Programme finding #46 EXTENDED — MuLoCo outer-Nesterov is a non-interchangeable structural slot**: refines from "meta-optimizer outer averaging incompatible with MuonH-SI" to the stronger claim that the **specific Nesterov form (μ=0.5, lr=0.7, sync=30) is finely tuned and non-interchangeable**:
+  - Removing it (H221 NO_OUTER) → CATASTROPHIC
+  - Substituting with Lookahead k-step averaging (H216 LA_K10/K30) → CATASTROPHIC bilateral
+  - Removing velocity buffer (H221 NO_MOMENTUM) → 2.9x WORSE CATASTROPHIC
+  - Outer-optimizer slot is BOTH required structurally AND specific Nesterov form required. Outer averaging variants (Lookahead, NO_MOMENTUM SGD-kick) are NOT interchangeable substitutes.
+- **Strategic implication**: Stop pruning the outer optimizer (both directions decisively negative). Future MuLoCo-axis experiments should be mechanism REPLACEMENTS rather than pruning — but the bar is high given the specific form requirement.
+- **Next assignment — H228 alphonse (PR #1503)**: MuonH body WEIGHT DECAY axis ablation. Fresh non-LR optimizer mechanism per launch directive. Body wd=0.0 hardcoded since H148+, never directly tested in clip mode with hyperball=True. ~5 LoC code change (add `--muonh_weight_decay` argparse, pass to MuonH constructor). 3-arm CTRL wd=0.0 (bit-id) / WD_LO wd=0.001 (light decay, ~5.8% norm reduction over 3325 steps) / WD_HI wd=0.01 (significant decay, ~45% norm reduction). 24th novel mechanism class. Tests if hyperball-WD coexist or fight (clip mode mathematically permits WD; SI mode would require wd=0 structurally).
+
 ## 2026-05-28 00:27 — PR #1464: H220 thorfinn ATTN vs MLP LR multiplier split (type-axis) — CLOSED (76th NULL/NEG + 🎯 programme finding #48 candidate: PER-TENSOR RELATIVE-LR AXIS EXHAUSTED — MuonH per-param NS5+hyperball neutralizes scale differences)
 
 - Branch: `g1r3-thorfinn/attn-mlp-lr-split`
