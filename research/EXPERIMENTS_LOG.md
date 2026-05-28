@@ -1,5 +1,41 @@
 # SENPAI Research Results — auto-nanogpt-1gpu-r4
 
+## 2026-05-28 03:46 — PR #1469: NM late-disable sweep NM_STOP_STEP — **CLOSED Row 5 productive-SATURATING-NEG (12th cross-axis catalog finding, NEW class temporal-coverage)**
+
+- branch: `g1r4-alphonse/nm-stop-step-sweep`
+- Hypothesis: Does turning NM off at various step thresholds (1500/2345/3000) reveal a sub-window where NM is fungible compute (NULL) or load-bearing (NEG)? Complement to #1383 START_STEP.
+
+| Arm | NM_STOP_STEP | disabled % | run_id | val/loss | fs | Δ_paired | Δ vs baseline 3.26310 | R_cond_mean | precond_ratio_mean | params_prec |
+|:---:|:---:|:---:|---|:---:|:---:|:---:|:---:|:---:|:---:|:---:|
+| A ctrl | 0 (never stop) | 0% | `83bv71k8` | **3.26370** | **3150** | (ref) | +0.00060 PASS-CLEAN | 904K | 1.124 | 72 ✓ |
+| B | 2345 (cooldown-entry) | 30.0% | `wwftdx5y` | 3.26732 | 3200 | +0.00362 STRONG-NEG | +0.00422 | **24.7M (27×)** | 0.97 inverted | **0** ⚠ |
+| C | 3000 (late-cooldown) | 10.4% | `i5v6zgkz` | 3.26797 | 3200 | **+0.00427 WORST** | +0.00487 | 3.5M (3.9×) | n/a | 0 ⚠ |
+| D | 1500 (half-training) | 55.2% | `r6qp9tz7` | 3.26788 | 3200 | +0.00418 STRONG-NEG | +0.00478 | 2.7M (3.0×) | 0.733 | 0 ⚠ |
+
+**Verdict: Row 5 productive-SATURATING-NEG. NM cooldown-phase dispositively load-bearing.**
+
+**Saturating-NEG signature (distinct from monotone)**: Disable fraction does NOT predict NEG magnitude. Ordering C +0.00427 > D +0.00418 > B +0.00362 despite C=10.4% disabled (smallest) being WORST. Damage saturates at ~+0.004 regardless of pre-cooldown disable fraction because all 3 arms forfeit cooldown-NM.
+
+**Telemetric mechanism evidence**:
+- R_cond_mean inflation 3-27× (Arm B 24.7M = 27× ctrl — partially-warmed buffer abandoned through full cooldown)
+- precond_ratio inversion in Arms B (0.97) and D (0.733) — stale gradient signature shrinks downstream gradient direction
+- params_preconditioned=0 across B/C/D — NM stops firing entirely from STOP_STEP onward
+
+**Cross-chain unification with #1431 R-RESET=2345 (NULL-NEG +0.00080)**: STOP=2345 costs **4.5× larger NEG** than RESET=2345. Dispositively shows the load-bearing operation is **APPLYING R^{-0.5} preconditioning during cooldown**, not just maintaining R-buffer state. A freshly-rewarmed R extracts most of cooldown-NM value (#1431); a fully-disabled NM path does not (#1469).
+
+**🎯 12th cross-axis catalog finding — temporal-coverage-NEG (NEW class, SATURATING sub-signature)**.
+
+Catalog post-c459 = 12 findings 6 classes:
+- 5 magnitude-absorbed-NULL: β-SCHEDULE, MLP-LR, β-AVG, EPS
+- 3 NS-axis-absorbed-NULL: NS_ITERS, NS_COEF, NS_SHAPE
+- 1 timing-non-monotone-NEG: START_STEP (#1383)
+- 1 freshness-productive-FAV-MERGED: period=2 (#1421)
+- 1 state-continuity-NEG: R-RESET (#1431)
+- 1 temporal-coverage-SATURATING-NEG (NEW): NM_STOP (#1469)
+
+W&B runs: 83bv71k8, wwftdx5y, i5v6zgkz, r6qp9tz7 (group `g1r4-alphonse/nm-stop-step-sweep`)
+
+
 ## 2026-05-28 03:28 — PR #1466: NM-aligned NS_COOLDOWN_SHAPE sweep — **CLOSED Row 4 productive-NULL (11th cross-axis catalog finding)**
 
 - branch: `g1r4-nezuko/nm-ns-cooldown-shape-sweep`
