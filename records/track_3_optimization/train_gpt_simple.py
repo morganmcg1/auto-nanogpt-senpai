@@ -602,6 +602,9 @@ NANOGPT_NEWTON_MUON_UPDATE_PERIOD = int(os.environ.get("NANOGPT_NEWTON_MUON_UPDA
 NANOGPT_NEWTON_MUON_BETA = float(os.environ.get("NANOGPT_NEWTON_MUON_BETA", "0.95"))
 NANOGPT_NEWTON_MUON_EPS = float(os.environ.get("NANOGPT_NEWTON_MUON_EPS", "1e-4"))
 NANOGPT_NEWTON_MUON_MAX_D_IN = int(os.environ.get("NANOGPT_NEWTON_MUON_MAX_D_IN", "1024"))
+NANOGPT_NEWTON_MUON_ALPHA_BODY     = float(os.environ.get("NANOGPT_NEWTON_MUON_ALPHA_BODY",     "0.5"))
+NANOGPT_NEWTON_MUON_ALPHA_COOLDOWN = float(os.environ.get("NANOGPT_NEWTON_MUON_ALPHA_COOLDOWN", "0.5"))
+NANOGPT_NEWTON_MUON_COOLDOWN_STEP  = int(os.environ.get("NANOGPT_NEWTON_MUON_COOLDOWN_STEP",  "2345"))
 
 # Global per-parameter input-activation cache populated by forward hooks. Keyed by
 # id(weight_param) → tensor of shape (B*T, d_in) on device. Only populated when
@@ -837,7 +840,12 @@ class Muon(torch.optim.Optimizer):
             try:
                 vals, vecs = torch.linalg.eigh(state["R"])
                 vals_clamped = vals.clamp(min=0.0) + self.newton_eps
-                inv_sqrt_vals = vals_clamped.rsqrt()
+                current_alpha = (
+                    NANOGPT_NEWTON_MUON_ALPHA_COOLDOWN
+                    if self._newton_step_count > NANOGPT_NEWTON_MUON_COOLDOWN_STEP
+                    else NANOGPT_NEWTON_MUON_ALPHA_BODY
+                )
+                inv_sqrt_vals = vals_clamped.pow(-current_alpha)
                 # R_inv_sqrt = V * diag(inv_sqrt_vals) * V^T (symmetric).
                 state["R_inv_sqrt"] = (vecs * inv_sqrt_vals.unsqueeze(0)) @ vecs.T
                 # Stash eigvals on-device for lazy telemetry — no sync here.
@@ -1105,6 +1113,9 @@ if dist.get_rank() == 0:
             "nanogpt_newton_muon_beta": NANOGPT_NEWTON_MUON_BETA,
             "nanogpt_newton_muon_eps": NANOGPT_NEWTON_MUON_EPS,
             "nanogpt_newton_muon_max_d_in": NANOGPT_NEWTON_MUON_MAX_D_IN,
+            "nanogpt_newton_muon_alpha_body":     NANOGPT_NEWTON_MUON_ALPHA_BODY,
+            "nanogpt_newton_muon_alpha_cooldown": NANOGPT_NEWTON_MUON_ALPHA_COOLDOWN,
+            "nanogpt_newton_muon_cooldown_step":  NANOGPT_NEWTON_MUON_COOLDOWN_STEP,
         },
     )
 
