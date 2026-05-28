@@ -47,6 +47,9 @@ def parse_args():
     parser.add_argument("--muonh_mode", type=str, default=os.environ.get("MUONH_MODE", "clip"), choices=["clip", "scale_invariant"])
     parser.add_argument("--muonh_cooldown_shape", type=str, default=os.environ.get("MUONH_COOLDOWN_SHAPE", "linear"), choices=["linear", "cosine", "sqrt"], help="LR cooldown shape for MuonH groups (AdamW aux groups stay linear)")
     parser.add_argument("--muonh_warmup_steps", type=int, default=int(os.environ.get("MUONH_WARMUP_STEPS", "0")), help="Linear LR warmup steps for MuonH groups only (0 = disabled, no-op vs baseline). AdamW aux groups are not warmed.")
+    parser.add_argument("--body_spectral_truncate", type=float,
+                        default=float(os.environ.get("BODY_SPECTRAL_TRUNCATE", "1.0")),
+                        help="Fraction of top singular values to keep pre-NS5 for body MuonH update (1.0=no truncation, 0.5=keep top-50%%, 0.25=keep top-25%%). 1.0 is bit-identical to baseline.")
     parser.add_argument("--train_steps", type=int, default=int(os.environ.get("TRAIN_STEPS", "3350")))
     # MuLoCo outer Nesterov SGD (Algorithm 1, K=1). Wraps all trainable params;
     # snapshots an anchor at trial start, then every sync_interval inner steps
@@ -571,6 +574,26 @@ def muon_update(grad, momentum, mu=0.95, nesterov=True):
     update *= max(1, grad.size(-2) / grad.size(-1))**0.5
     return update
 
+
+@torch.no_grad()
+def _spectral_truncate(G: Tensor, k: int) -> Tensor:
+    # Keep top-k singular values then reconstruct.
+    U, S, Vh = torch.linalg.svd(G, full_matrices=False)
+    return (U[..., :, :k] * S[..., :k].unsqueeze(-2)) @ Vh[..., :k, :]
+
+
+def muon_update_truncated(grad, momentum, keep_frac: float, mu=0.95, nesterov=True):
+    # H214 variant: keep top-k singular values pre-NS5. Only called when keep_frac < 1.0,
+    # so the baseline muon_update path is left bit-identical to upstream.
+    momentum.lerp_(grad, 1 - mu)
+    update = grad.lerp_(momentum, mu) if nesterov else momentum
+    full_rank = min(update.size(-2), update.size(-1))
+    k = max(1, math.ceil(keep_frac * full_rank))
+    update = _spectral_truncate(update, k)
+    update = zeropower_via_newtonschulz5(update)
+    update *= max(1, grad.size(-2) / grad.size(-1))**0.5
+    return update
+
 class Muon(torch.optim.Optimizer):
     def __init__(self, params, lr=0.02, weight_decay=0, mu=0.95):
         assert isinstance(params, list) and len(params) >= 1 and isinstance(params[0], torch.nn.Parameter)
@@ -702,7 +725,12 @@ class MuonH(torch.optim.Optimizer):
                         state["momentum"] = torch.zeros_like(p)
                         if hb:
                             state["hyperball_radius"] = p.data.norm().item() * budget_mult
-                    update = muon_update(p.grad, state["momentum"], mu=group["mu"])
+                    if args.body_spectral_truncate < 1.0:
+                        update = muon_update_truncated(p.grad, state["momentum"],
+                                                       args.body_spectral_truncate,
+                                                       mu=group["mu"])
+                    else:
+                        update = muon_update(p.grad, state["momentum"], mu=group["mu"])
                     if hb and mode == "scale_invariant":
                         # Always-active variant: norm is held at initial value by construction.
                         scale_invariant_update_(p.data, update, group["lr"])
@@ -791,6 +819,10 @@ if args.muonh_agc_clip_ratio > 0:
     print0(f"AGC ENABLED on inner MuonH gradient: clip_ratio={args.muonh_agc_clip_ratio} eps={args.muonh_agc_eps}", console=True)
 else:
     print0("AGC DISABLED on inner MuonH gradient (clip_ratio=0)", console=True)
+if args.body_spectral_truncate < 1.0:
+    print0(f"H214 body spectral truncate ENABLED: keep_frac={args.body_spectral_truncate} (top-{int(round(100*args.body_spectral_truncate))}% singular values pre-NS5)", console=True)
+else:
+    print0("H214 body spectral truncate DISABLED (keep_frac=1.0, bit-identical to baseline)", console=True)
 print0("="*100)
 
 val_tokens = 20 * 524288
@@ -834,6 +866,7 @@ if dist.get_rank() == 0:
             "muonh_mode": args.muonh_mode,
             "muonh_cooldown_shape": args.muonh_cooldown_shape,
             "muonh_warmup_steps": args.muonh_warmup_steps,
+            "body_spectral_truncate": args.body_spectral_truncate,
             "train_steps": args.train_steps,
             "muloco_use_outer_optimizer": bool(args.use_outer_optimizer),
             "muloco_outer_lr": args.outer_lr,
