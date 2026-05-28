@@ -468,6 +468,24 @@ NS5_ITERS = int(os.environ.get("NS5_ITERS", "12"))
 WD_AUX = float(os.environ.get("WD_AUX", "0.0"))  # AdamW WD on embed + lm_head matrices (scalars stay at 0)
 EMBED_INIT_STD = float(os.environ.get("EMBED_INIT_STD", "1.0"))  # default preserves baseline N(0,1)
 LOGIT_SOFTCAP = float(os.environ.get("LOGIT_SOFTCAP", "15.0"))  # default = 15 (current hardcoded value); soft-cap value c in f(x) = c·x / sqrt(x^2+c^2)
+# DEPTH_HALF_BODY_MUON_INIT_SCALE (PR #1541): per-depth-half multiplier on the
+# normally-initialized body Muon weights (attn.{q,k,v}.weight, mlp.fc.weight).
+# proj weights stay zero-init, embed stays at EMBED_INIT_STD. Multipliers act on
+# top of the per-tensor default std `0.33**0.5 / w.size(-1)**0.5`.
+BODY_INIT_SCALE_FRONT = float(os.environ.get("BODY_INIT_SCALE_FRONT", "1.0"))
+BODY_INIT_SCALE_BACK = float(os.environ.get("BODY_INIT_SCALE_BACK", "1.0"))
+BODY_INIT_DEPTH_SPLIT = int(os.environ.get("BODY_INIT_DEPTH_SPLIT", "6"))
+BODY_INIT_PER_BLOCK_ENABLED = ("BODY_INIT_SCALE_FRONT" in os.environ) or ("BODY_INIT_SCALE_BACK" in os.environ)
+
+
+def _block_idx_from_name(n: str) -> int:
+    """Parse block index from a fully-qualified parameter name like 'blocks.7.attn.q.weight'.
+    Returns -1 if the param is not in a block (embed, proj, scalars)."""
+    parts = n.split(".")
+    for i, part in enumerate(parts):
+        if part == "blocks" and i + 1 < len(parts) and parts[i + 1].isdigit():
+            return int(parts[i + 1])
+    return -1
 
 
 def zeropower_via_newtonschulz5(G: Tensor) -> Tensor:
@@ -881,21 +899,69 @@ for trial_idx in range(args.num_trials):
     train_steps = args.train_steps if args.train_steps is not None else 3175
 
     # initialize model parameters
+    per_block_init_log = {}  # name -> effective std (for step=0 telemetry)
     for name, p in model.named_parameters():
         w = p.data
         if name.endswith("weight"):
             if "proj" in name:
-                w.zero_()
+                w.zero_()  # residual-stream zero-init unchanged
+                per_block_init_log[name] = 0.0
             elif "embed" in name:
                 w.normal_(std=EMBED_INIT_STD)
+                per_block_init_log[name] = EMBED_INIT_STD
             else:
-                w.normal_(std=0.33**0.5 / w.size(-1)**0.5)  # default torch init
+                base_std = 0.33**0.5 / w.size(-1)**0.5  # default torch init
+                if BODY_INIT_PER_BLOCK_ENABLED:
+                    bidx = _block_idx_from_name(name)
+                    if bidx >= 0:
+                        mult = BODY_INIT_SCALE_FRONT if bidx < BODY_INIT_DEPTH_SPLIT else BODY_INIT_SCALE_BACK
+                    else:
+                        mult = 1.0
+                else:
+                    mult = 1.0
+                effective_std = base_std * mult
+                w.normal_(std=effective_std)
+                per_block_init_log[name] = effective_std
         elif name.endswith("bias"):
             w.zero_()
         elif name.endswith("gains"):
             w.normal_(mean=1, std=0)
         else:
             raise Exception(f"Uninitialized parameter: {name}")
+
+    # Step=0 telemetry for the per-depth-half body Muon init scale (PR #1541).
+    if BODY_INIT_PER_BLOCK_ENABLED and dist.get_rank() == 0:
+        n_front_params = 0
+        n_back_params = 0
+        front_param_norm_sum = 0.0
+        back_param_norm_sum = 0.0
+        for n, p in model.named_parameters():
+            if not n.endswith("weight"):
+                continue
+            if "proj" in n or "embed" in n:
+                continue
+            bidx = _block_idx_from_name(n)
+            if bidx < 0:
+                continue
+            pn = float(p.data.norm().item())
+            if bidx < BODY_INIT_DEPTH_SPLIT:
+                n_front_params += 1
+                front_param_norm_sum += pn
+            else:
+                n_back_params += 1
+                back_param_norm_sum += pn
+        wandb.log({
+            "body_init_per_block/enabled": 1,
+            "body_init_per_block/front_scale": BODY_INIT_SCALE_FRONT,
+            "body_init_per_block/back_scale": BODY_INIT_SCALE_BACK,
+            "body_init_per_block/split": BODY_INIT_DEPTH_SPLIT,
+            "body_init_per_block/n_params_front_scaled": n_front_params,
+            "body_init_per_block/n_params_back_scaled": n_back_params,
+            "body_init_per_block/front_norm_l1_sum": front_param_norm_sum,
+            "body_init_per_block/back_norm_l1_sum": back_param_norm_sum,
+            "body_init_per_block/front_to_back_norm_ratio": front_param_norm_sum / max(back_param_norm_sum, 1e-9),
+            "trial": trial_idx,
+        }, step=trial_idx * (train_steps + 1))
 
     # create the optimizer(s)
     optimizer1 = AdamW([dict(params=[model.embed.weight], lr=0.3, name="adam_embed", weight_decay=WD_AUX),
