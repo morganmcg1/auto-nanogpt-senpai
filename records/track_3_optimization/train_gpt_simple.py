@@ -97,6 +97,17 @@ def parse_args():
              "muall=musoft + non-residual block 2D weights also scaled by 1/sqrt(L); "
              "smallconst=std=1e-3 depth-independent.",
     )
+    parser.add_argument("--qkv_init_mode", type=str, default="normal",
+                        choices=["normal", "orthogonal"],
+                        help="Init mode for attention Q/K/V projections. "
+                             "normal=existing (musoft-scaled Gaussian); "
+                             "orthogonal=Saxe et al. orthogonal init applied AFTER musoft scaling.")
+    parser.add_argument("--qkv_init_gain", type=float, default=1.0,
+                        help="Gain passed to torch.nn.init.orthogonal_ when --qkv_init_mode=orthogonal.")
+    parser.add_argument("--qkv_init_scope", type=str, default="qkv_only",
+                        choices=["qkv_only", "qkv_and_proj"],
+                        help="Scope of orthogonal init: qkv_only=attn.q/k/v; "
+                             "qkv_and_proj=also apply to attn.proj (output projection).")
     args = parser.parse_args()
     args.num_trials = args.num_trials if args.num_trials is not None else (args.legacy_num_trials or 1)
     args.wandb_tags = [tag.strip() for tag in args.wandb_tags.split(",") if tag.strip()]
@@ -779,6 +790,9 @@ if dist.get_rank() == 0:
             "wd_schedule": args.wd_schedule,
             "lr_scalars": args.lr_scalars,
             "depth_init_mode": args.depth_init_mode,
+            "qkv_init_mode": args.qkv_init_mode,
+            "qkv_init_gain": args.qkv_init_gain,
+            "qkv_init_scope": args.qkv_init_scope,
             "lr_cooldown_shape": args.lr_cooldown_shape,
         },
     )
@@ -850,6 +864,79 @@ for trial_idx in range(args.num_trials):
     # Sanity print — will appear in W&B stdout logs
     _ex_resid_std = _resid_proj_std(768, args.depth_init_mode, NUM_LAYERS) if args.depth_init_mode != "ctrl" else 0.0
     print0(f"[init] mode={args.depth_init_mode}  L={NUM_LAYERS}  block_residual_attn.proj_std={_ex_resid_std:.6f}", console=True)
+
+    # Apply orthogonal init AFTER musoft scaling. The torch.nn.init.orthogonal_
+    # call fully overwrites w with an orthogonal matrix scaled by `gain`.
+    # PR #1516: targets QKV (and optionally proj) only; MLP untouched.
+    qkv_init_diag = {}  # block_idx -> {q,k,v,proj}: {sv_mean, sv_std, log10_cond, frob}
+    def _matrix_diag(w: Tensor) -> dict[str, float]:
+        w32 = w.detach().to(torch.float32)
+        try:
+            sv = torch.linalg.svdvals(w32)
+        except Exception:
+            sv = torch.linalg.svd(w32, full_matrices=False).S
+        sv_pos = sv.clamp_min(1e-30)
+        return {
+            "sv_mean": float(sv.mean().item()),
+            "sv_std": float(sv.std(unbiased=False).item()),
+            "sv_max": float(sv.max().item()),
+            "sv_min": float(sv.min().item()),
+            "log10_cond": float(torch.log10(sv_pos.max() / sv_pos.min()).item()),
+            "frob": float(w32.norm().item()),
+        }
+
+    # Snapshot diagnostics BEFORE orthogonal override for every cell (so we
+    # always log Cell-A normal-init structure too).
+    for block_idx, block in enumerate(model.blocks):
+        for sub in ("q", "k", "v", "proj"):
+            lin = getattr(block.attn, sub)
+            qkv_init_diag.setdefault(block_idx, {})[sub] = _matrix_diag(lin.weight.data)
+
+    if args.qkv_init_mode == "orthogonal":
+        for block_idx, block in enumerate(model.blocks):
+            torch.nn.init.orthogonal_(block.attn.q.weight, gain=args.qkv_init_gain)
+            torch.nn.init.orthogonal_(block.attn.k.weight, gain=args.qkv_init_gain)
+            torch.nn.init.orthogonal_(block.attn.v.weight, gain=args.qkv_init_gain)
+            if args.qkv_init_scope == "qkv_and_proj":
+                torch.nn.init.orthogonal_(block.attn.proj.weight, gain=args.qkv_init_gain)
+        # Re-snapshot AFTER orthogonal override so the logged diagnostics
+        # reflect the active init state.
+        for block_idx, block in enumerate(model.blocks):
+            for sub in ("q", "k", "v", "proj"):
+                lin = getattr(block.attn, sub)
+                qkv_init_diag[block_idx][sub] = _matrix_diag(lin.weight.data)
+        print0(f"[init] qkv_init_mode=orthogonal  gain={args.qkv_init_gain}  scope={args.qkv_init_scope}",
+               console=True)
+    else:
+        print0(f"[init] qkv_init_mode=normal (musoft-scaled Gaussian; no override)", console=True)
+
+    # Log init diagnostics to W&B once per trial at step=0 wandb-step.
+    if dist.get_rank() == 0:
+        init_metrics = {"trial": trial_idx}
+        sv_means = []
+        sv_stds = []
+        log10_conds = []
+        for sub in ("q", "k", "v", "proj"):
+            per_block_sv_mean = [qkv_init_diag[b][sub]["sv_mean"] for b in range(NUM_LAYERS)]
+            per_block_sv_std = [qkv_init_diag[b][sub]["sv_std"] for b in range(NUM_LAYERS)]
+            per_block_log10_cond = [qkv_init_diag[b][sub]["log10_cond"] for b in range(NUM_LAYERS)]
+            per_block_frob = [qkv_init_diag[b][sub]["frob"] for b in range(NUM_LAYERS)]
+            sv_means.extend(per_block_sv_mean)
+            sv_stds.extend(per_block_sv_std)
+            log10_conds.extend(per_block_log10_cond)
+            init_metrics[f"init/c_attn_{sub}_sv_mean"] = sum(per_block_sv_mean) / NUM_LAYERS
+            init_metrics[f"init/c_attn_{sub}_sv_std"] = sum(per_block_sv_std) / NUM_LAYERS
+            init_metrics[f"init/c_attn_{sub}_log10_cond"] = sum(per_block_log10_cond) / NUM_LAYERS
+            init_metrics[f"init/c_attn_{sub}_frob"] = sum(per_block_frob) / NUM_LAYERS
+            for b in range(NUM_LAYERS):
+                init_metrics[f"init/c_attn_{sub}_block{b}_sv_mean"] = per_block_sv_mean[b]
+                init_metrics[f"init/c_attn_{sub}_block{b}_sv_std"] = per_block_sv_std[b]
+                init_metrics[f"init/c_attn_{sub}_block{b}_log10_cond"] = per_block_log10_cond[b]
+        # Aggregate across q,k,v,proj
+        init_metrics["init/c_attn_all_sv_mean"] = sum(sv_means) / len(sv_means)
+        init_metrics["init/c_attn_all_sv_std"] = sum(sv_stds) / len(sv_stds)
+        init_metrics["init/c_attn_all_log10_cond"] = sum(log10_conds) / len(log10_conds)
+        wandb.log(init_metrics, step=trial_idx * (train_steps + 1))
 
     # create the optimizer(s)
     optimizer1 = AdamW([dict(params=[model.embed.weight], lr=0.3, name="adam_embed"),
