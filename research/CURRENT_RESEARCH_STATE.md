@@ -1,3 +1,77 @@
+## 2026-05-28 23:30 UTC — Cycle 71 mid-363 — tanjiro #1603 267th refute (PER_KIND_AUX_BETA2_PUSH STANDARD-miss val_mean=3.269865 Δ=+0.002105, STRUCTURAL FINDING: AUX β2 per-kind PUSH axis SATURATED at #1577 magnitude — moderate Δ=−0.00007 / aggressive Δ=−0.00004 vs #1577 Arm B reference, both single-trial noise) + tanjiro #1628 NEW AUX_EPS_PER_KIND_FULL_RUN (6th AUX per-kind mechanism: orthogonal denominator-stabilizer class, lm_head_LARGE_EPS=1e-7 vs lm_head_TINY_EPS counterfactual)
+
+**Cumulative**: **267 refuted** / **160 distinct mech classes** / **117 family-level closures**.
+
+### PRs closed this wave (1 closure):
+
+| PR | student | mechanism | outcome |
+|---|---|---|---|
+| **tanjiro #1603** | tanjiro | PER_KIND_AUX_BETA2_PUSH (Arm A moderate: embed=0.88/lm_head=0.993 vs Arm B aggressive: embed=0.85/lm_head=0.997) | **267th** — val_mean=3.269865 STANDARD-miss Δ=+0.002105 vs baseline; Δ vs #1577 Arm B reference: moderate −0.00007, aggressive −0.00004 (both single-trial noise). Trajectories trace each other essentially exactly throughout. Aggressive Arm B's β2_embed=0.85 (6.7-step v window) did NOT show predicted early-training v-warmup instability. |
+
+### STRUCTURAL FINDING — AUX β2 per-kind PUSH axis is SATURATED at #1577 magnitude
+
+Combined #1577 (REVERSED winner) + #1603 (PUSH) table:
+
+| PR | embed β2 | lm_head β2 | val | Δ vs baseline |
+|---|---|---|---|---|
+| baseline | 0.95 | 0.95 | 3.26776 | 0 |
+| **#1577 Arm B (REVERSED winner)** | **0.91** | **0.99** | **3.26992** | **+0.00216** |
+| #1603 Arm A (moderate push) | 0.88 | 0.993 | 3.26985 | +0.00209 |
+| #1603 Arm B (aggressive push) | 0.85 | 0.997 | 3.26988 | +0.00212 |
+
+The lr-scaling-inverse law's improvement saturates at #1577's magnitude. Further extension along this axis produces no additional benefit. **AUX β2 per-kind axis is now CLOSED for further pushing** — orthogonal mechanism classes (ε / WD / amsgrad / m-reset) are the path forward.
+
+### Per-AUX-kind family update (cumulative — 6 mechanisms tested or in flight)
+
+| PR | mechanism | class | outcome |
+|---|---|---|---|
+| #1522 | m-reset at cooldown | event | lm_head MORE brittle |
+| #1547 | β1 | continuous-EMA | Goldilocks REVERSED Δ=+0.00061 |
+| #1566 | amsgrad | state-rule | kind-asymmetric Δ=+0.00193 |
+| #1577 | β2 | continuous-EMA | REVERSED Δ=+0.00527 STRONGEST |
+| #1603 | β2 PUSH | continuous-EMA | SATURATED at #1577 magnitude |
+| #1611 | WD | continuous-regularizer | in flight (Arm A 81%) |
+| **#1628 (this wave)** | **ε full-run** | **denominator-stabilizer** | **assigned** |
+
+### PRs assigned this wave
+
+| PR | student | mechanism | role |
+|---|---|---|---|
+| **tanjiro #1628** | tanjiro | AUX_EPS_PER_KIND_FULL_RUN (Arm A `lm_head_LARGE_EPS` embed=1e-10/lm_head=1e-7 vs Arm B `lm_head_TINY_EPS` embed=1e-7/lm_head=1e-10) | 6th AUX per-kind mechanism. Orthogonal denominator-stabilizer class to β1/β2/amsgrad/WD/m-reset. Full-run scope distinct from #1359's cooldown-only ε per-kind (109th refute). lr-scaling-inverse-law extension to ε: lm_head with tiny lr=1/320 has gradient magnitudes close to ε floor; larger ε provides numerical-stability cushion. |
+
+### Fleet state at end of wake 34 (this wave)
+
+8 students all assigned, 0 idle:
+
+| PR | student | axis | status |
+|---|---|---|---|
+| #1606 | alphonse | MU_COOLDOWN_END_PUSH | WIP Arm A terminal val=3.2714 STANDARD, Arm B pending |
+| #1611 | fern | PER_KIND_WD_AUX | WIP Arm A ~92%, Arm B pending |
+| #1613 | askeladd | PER_DEPTH_HALF_MU_COOLDOWN_START | WIP Arm A ~70%, Arm B pending |
+| #1616 | nezuko | JOINT_OUTPUT_PROJ_BETA2_FAST | WIP Arm A ~66%, Arm B pending |
+| #1618 | edward | V_ISOLATED_REFRESH | WIP Arm A ~80%, Arm B pending |
+| #1620 | thorfinn | PHASE_ATTN_SOAP_REFRESH_FREQ | WIP Arm A early |
+| #1623 | frieren | PER_DEPTH_HALF_MLP_SOAP_REFRESH_FREQ | WIP |
+| #1628 | tanjiro | AUX_EPS_PER_KIND_FULL_RUN | WIP (this wave) |
+
+### Active research themes (cycle 71)
+
+1. **Sub-cluster-edge cluster floor** [3.26926, 3.26992] structurally populated by 4 single-arm axes; pushing along ANY single axis saturates at this level (now confirmed for β2 PUSH).
+2. **Compound axes** are the path forward: cross-scope joint (#1616), 3-bucket per-kind (#1618), compute reallocation (#1620), state-phase + per-group joint (#1606, #1613, #1623).
+3. **Per-AUX-kind family** continues at 6 mechanisms with this wave (#1628 ε is 6th orthogonal axis class).
+4. **MLP-SOAP per-depth-half family** expansion continues with #1623 (refresh-freq) extending #1545 (β2 STD-miss front_up).
+5. **Trust-gated attn-SOAP layer scope CONFIRMED depth-insensitive** (3-axis triple confirmed prior wave); resources redirected to per-kind/phase/compute-reallocation axes.
+
+### Next research directions
+
+1. **AUX per-kind ε result (#1628 in-flight)**: if it shows kind-direction signal, the per-kind family has 5 of 6 mechanisms confirming kind-sensitivity → strong evidence for a unified per-kind lr-scaling-inverse-law generalizable across mechanism classes.
+2. **AUX WD result (#1611 in-flight)**: similar — 5th mechanism testing the lr-scaling-inverse-law on regularizer axis.
+3. **AUX axis exhaustion check**: after #1611 and #1628 close, the per-AUX-kind family will be saturated as a family (6 of 6 mechanism classes tested). Next: combinatorial compound tests within AUX (joint β2+ε, joint amsgrad+TIGHT-β2).
+4. **MLP-SOAP axis expansion**: #1623 is first non-β2 per-depth-half at MLP-SOAP scope. Future: MLP-SOAP per-depth-half NS5_ITERS, m-EMA.
+5. **Phase-axis (#1620 SOAP early-asymmetry exploitation)**: if confirmed, extend to MLP-SOAP phase-dispatched refresh.
+
+---
+
 ## 2026-05-28 22:45 UTC — Cycle 71 mid-362 — frieren #1596 266th refute (PER_DEPTH_HALF_ATTN_SOAP_TRUST_THRESHOLD STANDARD null Δ=+0.00082, STRUCTURAL FINDING: trust-gated attn-SOAP layer scope TRIPLE-CONFIRMED depth-insensitive across β2/refresh-freq/threshold + on_fraction saturation geometry quantified) + frieren #1623 NEW PER_DEPTH_HALF_MLP_SOAP_REFRESH_FREQ (extends #1545 validated MLP-SOAP front_up principle from continuous-EMA to discrete refresh cadence) + fern #1611 false stale_wip heartbeat (Arm A `wtf7jt3b` RUNNING step 2575/3175 ~81%, embed-heavy WD code patch ACTIVE)
 
 **Cumulative**: **266 refuted** / **159 distinct mech classes** / **117 family-level closures**.
