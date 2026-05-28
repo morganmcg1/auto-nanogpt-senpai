@@ -468,6 +468,11 @@ NS5_ITERS = int(os.environ.get("NS5_ITERS", "12"))
 WD_AUX = float(os.environ.get("WD_AUX", "0.0"))  # AdamW WD on embed + lm_head matrices (scalars stay at 0)
 EMBED_INIT_STD = float(os.environ.get("EMBED_INIT_STD", "1.0"))  # default preserves baseline N(0,1)
 LOGIT_SOFTCAP = float(os.environ.get("LOGIT_SOFTCAP", "15.0"))  # default = 15 (current hardcoded value); soft-cap value c in f(x) = c·x / sqrt(x^2+c^2)
+# AUX (AdamW = optimizer1) m/v state reset dispatch (PR #1505/#1528 cross-optimizer probe).
+# AUX_M_V_RESET_STEP == -1 disables; setting to e.g. 1500 fires reset once at that step.
+# AUX_M_V_RESET_TARGET is "m" (zero exp_avg), "v" (zero exp_avg_sq), or "none" (disabled).
+AUX_M_V_RESET_STEP = int(os.environ.get("AUX_M_V_RESET_STEP", "-1"))
+AUX_M_V_RESET_TARGET = os.environ.get("AUX_M_V_RESET_TARGET", "none")
 
 
 def zeropower_via_newtonschulz5(G: Tensor) -> Tensor:
@@ -866,6 +871,8 @@ if dist.get_rank() == 0:
             "optimizer/attn_soap_trust_threshold": ATTN_SOAP_TRUST_THRESHOLD,
             "optimizer/ns5_iters": NS5_ITERS,
             "optimizer/wd_aux": WD_AUX,
+            "optimizer/aux_m_v_reset_step": AUX_M_V_RESET_STEP,
+            "optimizer/aux_m_v_reset_target": AUX_M_V_RESET_TARGET,
             "optimizer/recipe": "contra-muon + normuon-lite + soap-on-mlp + soap-on-attn-trust-gate (pre-NS5, record #14 + record #16)",
         },
     )
@@ -1053,6 +1060,56 @@ for trial_idx in range(args.num_trials):
             )
         for opt in optimizers:
             opt.step()
+        if step == AUX_M_V_RESET_STEP and AUX_M_V_RESET_TARGET in ("m", "v"):
+            state_key = "exp_avg" if AUX_M_V_RESET_TARGET == "m" else "exp_avg_sq"
+            params_reset = 0
+            norms_before: list[float] = []
+            norms_after: list[float] = []
+            step_counters_before: list[float] = []
+            step_counters_after: list[float] = []
+            # For v-reset, also zero state["step"] so bias correction matches the freshly-reset v.
+            # See PR #1404 Arm B post-mortem: raw v-reset with stale step counter collapses
+            # (1-β₂^t)≈1 → v̂≈(1-β₂)g² → denominator collapses ~1000× → catastrophic divergence.
+            also_reset_step = AUX_M_V_RESET_TARGET == "v"
+            for group in optimizer1.param_groups:
+                for p in group["params"]:
+                    state = optimizer1.state.get(p, {})
+                    if state_key in state:
+                        buf = state[state_key]
+                        norms_before.append(float(buf.norm().item()))
+                        buf.zero_()
+                        norms_after.append(float(buf.norm().item()))
+                        params_reset += 1
+                        if also_reset_step and "step" in state:
+                            step_buf = state["step"]
+                            if torch.is_tensor(step_buf):
+                                step_counters_before.append(float(step_buf.item()))
+                                step_buf.zero_()
+                                step_counters_after.append(float(step_buf.item()))
+                            else:
+                                step_counters_before.append(float(step_buf))
+                                state["step"] = 0
+                                step_counters_after.append(0.0)
+            if dist.get_rank() == 0:
+                log_dict = {
+                    "aux_reset/dispatch_fired": 1,
+                    "aux_reset/target": AUX_M_V_RESET_TARGET,
+                    "aux_reset/params_reset_count": params_reset,
+                    f"aux_reset/aux_{AUX_M_V_RESET_TARGET}_norm_before": sum(norms_before),
+                    f"aux_reset/aux_{AUX_M_V_RESET_TARGET}_norm_after": sum(norms_after),
+                    "aux_reset/step_at_reset": step,
+                }
+                if also_reset_step:
+                    log_dict["aux_reset/step_counter_mean_before"] = (
+                        sum(step_counters_before) / len(step_counters_before)
+                        if step_counters_before else -1.0
+                    )
+                    log_dict["aux_reset/step_counter_mean_after"] = (
+                        sum(step_counters_after) / len(step_counters_after)
+                        if step_counters_after else -1.0
+                    )
+                    log_dict["aux_reset/step_counter_reset_count"] = len(step_counters_before)
+                wandb.log(log_dict, step=wandb_step)
         if dist.get_rank() == 0 and telemetry_due:
             for opt in optimizers:
                 if hasattr(opt, "trust_gate_stats"):
