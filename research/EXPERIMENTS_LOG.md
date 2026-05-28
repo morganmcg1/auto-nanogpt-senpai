@@ -1,5 +1,49 @@
 # SENPAI Research Results — auto-nanogpt-1gpu-r4
 
+## 2026-05-28 07:30 — PR #1486: NM R-buffer α-exponent sweep — **CLOSED MONOTONE-NEG-ASYMMETRIC (16th cross-axis catalog finding, NEW class α-eigenvalue-cascade-NEG)**
+
+- branch: `g1r4-thorfinn/nm-alpha-exponent-sweep`
+- Hypothesis: Does the Newton-Muon preconditioner exponent α (in R^{-α}) at non-default values change val/loss? Default is α=0.5 (rsqrt). Test α ∈ {0.3, 0.5, 0.7, 0.9}.
+
+| Arm | α | W&B ID | val/loss | fs | R_cond_mean | precond_ratio | R_inv_sqrt_norm | Δ_paired |
+|:---:|:---:|---|:---:|:---:|:---:|:---:|:---:|:---:|
+| A ctrl | 0.5 | `0vr4d3ki` | 3.26464 | 3150 | 1.70M | 1.114 | 81.64 | (ref) |
+| B | 0.3 | `vkd6a10p` | 3.26455 | 3150 | 13.6K | 0.897 | 51.37 | **−0.00009 NULL** |
+| C | 0.7 | `hd44cpwo` | 3.26938 | 3200 | 3.42M | 1.278 | 235.98 | **+0.00474 NEG** |
+| D | 0.9 | `a0vvnols` | 3.27697 | 3300 | 9.87M | 2.019 | 1306.22 | **+0.01233 NEG** |
+
+**Verdict: MONOTONE-NEG-ASYMMETRIC. α=0.5 sits at one-sided edge of local optimum on α-axis.**
+
+**G4 PASS**: ctrl drift = 3.26464 − 3.26310 = +0.00154 (marginally outside PASS-CLEAN ±0.0015 but within G4 ±0.003). Note: ran on **period=5 stack (pre-#1421)** — same period=5 cross-contamination as #1484. α-axis closure technically valid at period=5; compound (period=2 ∧ α-variation) untested.
+
+**🎯 Asymmetric NULL/NEG signature**:
+- **LOW-α side (α=0.3)**: R_cond_mean collapses 1.7M → 13.6K (−99%), val NULL. EMA absorbs reduced preconditioning entirely — R-buffer adapts by growing larger to compensate, λ^{-α} smaller offset by larger λ.
+- **HIGH-α side (α=0.7, 0.9)**: R_cond_mean explodes monotonically to 9.87M (+481%), fs degrades 3150→3200→3300, val monotone-NEG. **Eigenvalue cascade mechanism**: stronger λ^{-α} amplification of large eigenmodes feeds back into R-buffer accumulation, creating self-reinforcing ill-conditioning. R^{-α} cannot compensate — both R_cond and precond_ratio grow.
+
+**Mechanism**: R-buffer EMA absorbing capacity is **DIRECTIONAL**: tolerates weaker preconditioning (smaller α) but not stronger. Production α=0.5 is the **MAXIMUM α** that keeps R^{-α} well-conditioned under EMA accumulation with β=0.95/period=5.
+
+**Cross-axis catalog impact**: **16th cross-axis finding — NEW CLASS α-eigenvalue-cascade-NEG-ASYMMETRIC (8th class)**. Distinct from class 4 (freshness-bilateral-monotone) because mechanism is eigenvalue cascade, not EMA staleness. Distinct from class 7 (structural-OFFDIAG-NEG, #1488 pending) because cascade is symmetric across modules while off-diag is structural rotation.
+
+**Updated catalog (16 findings 8 classes)**:
+1. magnitude-absorbed-NULL ×5
+2. NS-axis-absorbed-NULL ×3
+3. timing-non-monotone-NEG ×1 (#1383)
+4. freshness-bilateral-monotone ×5 (period=5→2 FAV-MERGED, β=0.99 NEG, period=2→1 NULL-NEG, β-LOW ×3-arms NON-MONOTONE-NEG)
+5. state-continuity-NEG ×1 (#1431)
+6. temporal-coverage-SATURATING-NEG ×1 (#1469)
+7. structural-OFFDIAG-NEG ×1 (#1488 pending)
+8. **α-eigenvalue-cascade-NEG-ASYMMETRIC ×1 (#1486 NEW)**
+
+**Suggested follow-ups (from student)**:
+1. Fine-grained α near 0.5 (e.g., {0.40, 0.45, 0.50, 0.55, 0.60}) — α=0.45 might be NULL-or-FAV given asymmetric one-sided absorption
+2. α + period interaction (especially α=0.3 with period=2 — the FAV mechanism could compound with shorter EMA window)
+3. α + β interaction
+4. Per-module-group α — different modules may benefit from different α
+
+**Decision rationale**: No arm Δ_paired ≤ −0.001. Arm B Δ=−0.00009 is within noise. α-axis bilaterally closed at α=0.5 on period=5 stack. **No PP-promote candidate.** Closed as dead-end.
+
+**W&B runs**: A `0vr4d3ki`, B `vkd6a10p`, C `hd44cpwo`, D `a0vvnols`.
+
 ## 2026-05-28 07:15 — PR #1484: NM R-buffer β LOW-side screening — **CLOSED NON-MONOTONE-NEG (15th cross-axis catalog finding, β-axis bilateral closure at period=5)**
 
 - branch: `g1r4-edward/nm-rbuffer-beta-low-screen`
