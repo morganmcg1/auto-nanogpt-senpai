@@ -78,6 +78,12 @@ def parse_args():
                         help="If set, run paramEMA refresh at --paramema_refresh_step but "
                              "DISABLE L_cov refresh (lcov_refresh_step treated as -1). "
                              "Ablation flag for isolating paramEMA-only contribution.")
+    parser.add_argument("--muon_mom_reset_step", type=int, default=0,
+                        help="If >0, scale Muon momentum buffer by --muon_mom_reset_factor at "
+                             "this step. 0=disabled.")
+    parser.add_argument("--muon_mom_reset_factor", type=float, default=0.0,
+                        help="Scale factor for Muon momentum reset at --muon_mom_reset_step. "
+                             "0.0=hard zero, 0.5=soft.")
     parser.add_argument("--seed", type=int, default=1,
                         help="Random seed for torch/numpy/python. Default 1 matches baseline seed.")
     args = parser.parse_args()
@@ -750,6 +756,8 @@ if dist.get_rank() == 0:
             "muon_block_lr_pattern": args.muon_block_lr_pattern,
             "paramema_refresh_step": args.paramema_refresh_step,
             "paramema_refresh_only": int(args.paramema_refresh_only),
+            "muon_mom_reset_step": args.muon_mom_reset_step,
+            "muon_mom_reset_factor": args.muon_mom_reset_factor,
             "seed": args.seed,
         },
     )
@@ -844,6 +852,9 @@ for trial_idx in range(args.num_trials):
     ema_refresh_fired_total = 0
     ema_refresh_step_logged = -1
     lcov_refresh_fired_total = 0
+    # Muon momentum-reset state: latches to 1 at --muon_mom_reset_step.
+    muon_mom_reset_fired_total = 0
+    muon_mom_reset_step_logged = -1
 
     # learning rate schedule: stable then power-law cooldown (gamma = COOLDOWN_POWER)
     def compute_lr_mult(step, cooldown_frac=0.7):
@@ -1049,6 +1060,29 @@ for trial_idx in range(args.num_trials):
             )
         for opt in optimizers:
             opt.step()
+        # Muon momentum-buffer reset: at --muon_mom_reset_step, scale Muon's
+        # per-param momentum state by --muon_mom_reset_factor (0.0=hard zero,
+        # 0.5=soft). Fires once; subsequent steps re-accumulate from late-
+        # cooldown gradients only.
+        muon_mom_reset_fired_now = 0
+        if (args.muon_mom_reset_step > 0
+                and step == args.muon_mom_reset_step):
+            reset_param_count = 0
+            for optimizer in optimizers:
+                if hasattr(optimizer, "param_groups"):
+                    for group in optimizer.param_groups:
+                        for p in group["params"]:
+                            state = optimizer.state.get(p, None)
+                            if state is not None and "momentum" in state:
+                                state["momentum"].mul_(args.muon_mom_reset_factor)
+                                reset_param_count += 1
+            muon_mom_reset_fired_total = 1
+            muon_mom_reset_step_logged = step
+            muon_mom_reset_fired_now = 1
+            if dist.get_rank() == 0:
+                print0(f"Muon momentum reset fired at step={step} "
+                       f"(factor={args.muon_mom_reset_factor}, "
+                       f"params_reset={reset_param_count})", console=True)
         # EMA buffer update on body-Muon matrix params.
         # During warmup: track params live (no averaging) so post-warmup buffer is
         # seeded with stable, non-zero params (handles proj zero-init bias and lets
@@ -1159,6 +1193,10 @@ for trial_idx in range(args.num_trials):
                 "ema_refresh/only": int(args.paramema_refresh_only),
                 "lcov_refresh/fired": lcov_refresh_fired_total,
                 "lcov_refresh/target_step": -1,
+                "muon_mom_reset/fired": muon_mom_reset_fired_total,
+                "muon_mom_reset/step": muon_mom_reset_step_logged,
+                "muon_mom_reset/target_step": args.muon_mom_reset_step,
+                "muon_mom_reset/factor": args.muon_mom_reset_factor,
             }, step=wandb_step)
         if dist.get_rank() == 0 and (train_step % 100 == 0 or train_step == train_steps):
             spec = pmuon_spectral_diag(optimizer2, PMUON_GAMMA)
