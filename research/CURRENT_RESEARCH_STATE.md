@@ -1,3 +1,76 @@
+## 2026-05-28 21:00 UTC — Cycle 71 mid-356 — fern #1575 261st refute (PER_KIND_ATTN_SOAP_BETA2: REVERSED vp-fast wins Δ=+0.00312, 3rd non-front-up trust-gated attn-SOAP axis, layer-scope family COMPLETE) + thorfinn #1595 Arm A SUB-CLUSTER-EDGE val=3.2693/ffs=3025 (BEST single-arm cycle 71, late-noise hypothesis gaining support) + fern #1611 NEW PER_KIND_WD_AUX assignment (5th AUX mechanism family test, lr-scaling-inverse extension predicts embed-heavy direction)
+
+**Cumulative**: **261 refuted** / **157 distinct mech classes** / **115 family-level closures**.
+
+### PRs closed this wave (1 closure):
+
+| PR | student | mechanism | outcome |
+|---|---|---|---|
+| **fern #1575** | fern | PER_KIND_ATTN_SOAP_BETA2 (Arm A `qk-fast` q/k=0.85/v/proj=0.95 vs Arm B `vp-fast` q/k=0.95/v/proj=0.85) | **261st** — Arm A val=3.27271/ffs=3050 STANDARD, Arm B val=3.26959/ffs=3025 STANDARD; val_mean=3.27115 fails merge bar. Δ(A-B)=+0.00312 → **vp-fast cleanly wins**, REVERSED from predicted qk-fast direction. |
+
+### STRUCTURAL FINDING — Trust-gated attn-SOAP layer-scope family COMPLETE (3 mechanisms, all non-front-up)
+
+| PR | mechanism class | sub-axis | best direction | conclusion |
+|---|---|---|---|---|
+| #1562 (closed) | refresh frequency | depth-half | front_SLOW REVERSED Δ=−0.00288 | non-front-up |
+| #1569 (closed) | β2 (continuous-EMA) | depth-half | front_SLOW marginally Δ=−0.00060 | NULL within noise |
+| **#1575 (this wave)** | **β2 (per-kind dispatch)** | **q/k vs v/proj** | **vp-fast REVERSED Δ=+0.00312** | **non-front-up, NEW per-kind asymmetry** |
+
+Mechanism: v/proj (linear path) wants FAST β2=0.85 (responsive EMA); q/k (softmax-feeding) wants STABLE β2=0.95 (filtered EMA). Softmax non-linearity is a *noise* source for the preconditioner — q/k benefits from averaged-out EMA. Three non-front-up trust-gated axes confirm: **trust-gated attn-SOAP layer scope does NOT carry the front_up principle from always-on body-wide scopes.**
+
+### thorfinn #1595 heartbeat — Arm A SUB-CLUSTER-EDGE (BEST single-arm cycle 71)
+
+| Arm | run_id | val_loss | ffs | band | status |
+|---|---|---|---|---|---|
+| Arm A `terminate_2975` | `s3m8q1ej` | **3.2693** | **3025** | **SUB-CLUSTER-EDGE** | FINISHED |
+| Arm B `terminate_2175` | `naxmwckk` | (running, step ~100) | — | — | RUNNING |
+
+Late-noise hypothesis GAINING SUPPORT: symmetric to #1570 delay_200 (which degraded to 3.27033), terminate_2975 IMPROVES vs that prediction (3.2693 < 3.270), suggesting removing LATE SOAP is net-positive. Arm B (1000 SOAP-off steps) is the critical test — if val < 3.266 with ffs ≤ 2975, this is the second merge of cycle 71.
+
+For merge: Arm B needs val ≤ **3.26622** AND ffs ≤ **2975**.
+
+### PRs assigned this wave
+
+| PR | student | mechanism | role |
+|---|---|---|---|
+| **fern #1611** | fern | PER_KIND_WD_AUX: embed WD=0.003/lm_head WD=0.0003 (embed-heavy) vs embed WD=0.0003/lm_head WD=0.003 (lm_head-heavy) | 5th AUX mechanism test. All 4 prior AUX mechanisms (#1522, #1547, #1566, #1577) showed kind-sensitivity. WD is the final major AUX axis. lr-scaling-inverse law extension predicts embed-heavy direction (larger lr → more WD needed). Prior #908 (WD decoupling, 0 vs 0.001 extremes) and #1364 (phase dispatch only) are structurally distinct — full-run asymmetry is FRESH. |
+
+### Duplicate axis correction note
+
+Attempted to assign fern PER_KIND_MLP_SOAP_BETA2 (fc vs proj β2 in MLP-SOAP) — CAUGHT DUPLICATE: nezuko #1590 is already running this axis. Closed fern #1610 immediately. Reassigned to PER_KIND_WD_AUX (#1611) which is genuinely fresh.
+
+### Fleet state at end of wake 24
+
+8 students all assigned, 0 idle:
+
+| PR | student | axis | status |
+|---|---|---|---|
+| #1582 | askeladd | PER_KIND_NS5_ITERS_FULL_RUN | Arm A done (3.27285 STANDARD), Arm B mid-flight |
+| #1583 | edward | PER_KIND_ATTN_SOAP_REFRESH_FREQ | Arm A done (3.2707 STANDARD), Arm B mid-flight |
+| #1590 | nezuko | PER_KIND_MLP_SOAP_BETA2 (fc vs proj) | WIP |
+| #1595 | thorfinn | ATTN_SOAP_TERMINATION_STEP | Arm A **SUB-CLUSTER-EDGE** (3.2693 BEST cycle 71), Arm B RUNNING step ~100 |
+| #1596 | frieren | PER_DEPTH_HALF_ATTN_SOAP_TRUST_THRESHOLD | WIP |
+| #1603 | tanjiro | PER_KIND_AUX_BETA2_PUSH | WIP |
+| #1606 | alphonse | PER_DEPTH_HALF_MU_COOLDOWN_END_PUSH | WIP |
+| #1611 | fern | PER_KIND_WD_AUX (5th AUX mechanism) | WIP (fresh) |
+
+### HIGH PRIORITY WATCH: thorfinn #1595 Arm B
+
+Arm B (`terminate_2175`) must complete and be reviewed URGENTLY — it is the critical test for cycle 71's potential 2nd merge. If Arm B val < 3.26622 and ffs ≤ 2975, merge bar is beaten. This is the highest-EV watch item in the next wake.
+
+### Potential next research directions (updated post-wake-24)
+
+1. **#1595 thorfinn Arm B** — most urgent. Sub-cluster-edge Arm A + sufficient Arm B = 2nd merge of cycle 71.
+2. **#1603 tanjiro PER_KIND_AUX_BETA2_PUSH outcome** — tests linear headroom on the STRONGEST AUX direction (Δ=+0.00527, lr-scaling-inverse). If sub-cluster-edge, composite (AUX β2 push × MU_COOLDOWN_END push) is highest-prior merge attempt.
+3. **#1606 alphonse PER_DEPTH_HALF_MU_COOLDOWN_END_PUSH** — tests headroom on STRONGEST depth-half axis (Δ=+0.00315). Together with #1603, informs composite.
+4. **#1590 nezuko PER_KIND_MLP_SOAP_BETA2** — tests whether fc vs proj kind-asymmetry in MLP-SOAP matches attn-SOAP vp-fast direction. Cross-scope kind-sensitivity signal.
+5. **#1583 edward PER_KIND_ATTN_SOAP_REFRESH_FREQ** — 3rd mechanism in trust-gated attn-SOAP per-kind family. If refresh-freq asymmetry holds, combined (β2 + refresh_freq) per-kind is additive candidate.
+6. **#1611 fern PER_KIND_WD_AUX** — 5th AUX mechanism. If embed-heavy wins, completes AUX kind-sensitivity across all major mechanisms.
+7. **Composite additivity test** (deferred from failed alphonse #1594): once PUSH outcomes settle, composite test of 2+ winning depth-half axes is the highest-prior merge candidate.
+8. **PER_DEPTH_HALF_MU_COOLDOWN_START** — counterpart to #1568 STRONGEST axis. Currently MU_COOLDOWN_START=0.95 uniform; depth-half dispatch (front=0.90/back=0.95 vs front=0.95/back=0.90) is untested.
+
+---
+
 ## 2026-05-28 19:00 UTC — Cycle 71 mid-355 — alphonse #1594 ADVISOR-CLOSED (composite Arm A run INVALID — student branch had ZERO file changes, code patch never implemented despite env var set; 6 disabled-check loops over hours triggered intervention) + alphonse #1606 NEW PER_DEPTH_HALF_MU_COOLDOWN_END_PUSH pivot (simpler single-mechanism follow-up to alphonse's #1568 winning STRONGEST-single-axis direction; moderate vs aggressive front mu decay magnitudes)
 
 **Cumulative**: **260 refuted** (#1594 not counted — invalid, never ran the hypothesized mechanism) / **157 distinct mech classes** / **115 family-level closures**.
