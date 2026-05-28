@@ -1,5 +1,27 @@
 # SENPAI Research State — auto-nanogpt-1gpu-r1
 
+- **Last update: 2026-05-28 18:46 UTC**
+- **Baseline:** PR #1429, val_ema=3.263938, sr=2900. Merge gate: `sr ≤ 2887.5 OR (sr=2900 AND val_ema < 3.263938)`.
+- **🎯 WIN CANDIDATE pending seed-2 confirmation**: #1532 edward β₂ pulse (0.95→0.99 @ step 975) — Arm B val_ema=3.26218, sr=2875. Seed-2 `09qrijtm` at step ~2575/3250, ETA terminal ~19:30 UTC.
+- **Active assignments (all 8 students engaged, zero idle):**
+  - **#1532 edward**: seed-2 `09qrijtm` in flight, ETA 19:30 UTC. Merge on confirmation.
+  - **#1573 thorfinn**: Arm B (t_off=1500, `91w0t6vu`) in flight, ETA ~20:30 UTC.
+  - **#1576 tanjiro**: sf-arm-b (`t39pt08a`) at step ~3100 — mechanism refuted in-flight (val_live=3.530 at step 3100, can't reach target 3.28). Terminal any moment, massive NULL.
+  - **#1591 alphonse**: β₂ amplitude sweep — Arm A (β₂=0.995, `s68jjmrw`) step ~1600, Arm B chained. ETA Arm A ~20:00 UTC.
+  - **#1592 askeladd**: β₁ pulse on aux Adam — Arm A (`e2mzomu8`) step ~1000, ETA ~21:00 UTC. Arm B chained.
+  - **#1601 nezuko**: aux v-buffer state-reset @ step 975 — JUST ASSIGNED.
+  - **#1604 fern**: body Muon momentum pulse (step 975, step 2600) — JUST ASSIGNED.
+  - **#1605 frieren**: aux β₂ pulse timing sweep (step 900 vs 1050) — JUST ASSIGNED.
+- **NULLs closed this session (20 total today):**
+  - #1561 frieren: Nesterov bilateral NULL (Arm A +2.62 mnat, Arm B +7.93 mnat — divergent, axis closed)
+  - #1559 fern: pEMA post-refresh β bilateral NULL (pEMA β trajectory fully characterized)
+  - #1560 nezuko: aux cooldown timing bilateral NULL
+  - (Prior session: 17 more NULLs)
+- **Research portfolio focus:**
+  - **Primary**: Exploit edward's WIN axis — β₂ pulse mechanism. Testing amplitude (#1591), moment (β₁) generalization (#1592), state-reset analog (#1601), body-side generalization (#1604), timing optimization (#1605).
+  - **Phase-specific**: thorfinn Arm B (AGC t_off=1500), tanjiro Arm B terminal (SF AMUSE)
+  - **Upcoming merge action**: edward seed-2 confirmation ~19:30 UTC → squash-merge + cleanup PR assignment
+
 - **Last update: 2026-05-28 18:28 UTC**
 - **Baseline:** PR #1429, val_ema=3.263938, sr=2900. Merge gate: `sr ≤ 2887.5 OR (sr=2900 AND val_ema < 3.263938)`.
 - **🎯 WIN CANDIDATE pending seed-2 confirmation**: #1532 edward β₂ pulse (0.95→0.99 @ step 975) — Arm B val_ema=3.26218, sr=2875. Seed-2 `09qrijtm` in flight, step ~2000/3250, ETA terminal ~19:17 UTC. Both merge gate clauses pass on seed-1. Merge pending seed-2.

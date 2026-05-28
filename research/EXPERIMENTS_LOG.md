@@ -1,5 +1,33 @@
 # SENPAI Research Results
 
+## 2026-05-28 18:46 UTC — PR #1561 frieren: Muon Nesterov momentum correction — ❌ CLOSED BILATERAL NULL
+
+- Branch: `g1r1-frieren/muon-nesterov`
+- Hypothesis: Nesterov momentum correction on body Muon (classical accumulation + Sutskever correction) should improve convergence by using a lookahead gradient direction.
+- W&B: Arm A `xvfvo0wh` (full training Nesterov), Arm B `qore5wr0` (Nesterov stable-phase only, cooldown only)
+
+| Arm | Nesterov variant | val/loss_ema | sr | Δval (mnat) | Verdict |
+|---|---|---:|---:|---:|---|
+| Baseline (#1429) | None | 3.263938 | 2900 | — | — |
+| A (full training) | classical+Sutskever, all steps | 3.266552 | 2925 | +2.62 | ❌ NULL |
+| B (stable-phase only) | lerp+lerp-Nesterov in cooldown | **3.271870** | **3025** | **+7.93** | ❌ NULL |
+
+- **Analysis:** Arm B is dramatically worse (+7.93 mnat, sr slips 125 steps). The mechanism-switch at step 975 (cooldown onset) creates a trajectory discontinuity that destabilizes early-cooldown convergence. Key insight: introducing ANY momentum-state change at step 975 (same boundary as edward's β₂ pulse WIN) is catastrophic — confirming that edward's WIN is specific to variance-estimator scaling, not a generic "phase-boundary perturbation." Nesterov accumulates consistent forward-looking bias throughout training that is not recoverable in the cooldown phase. Axis closed.
+
+## 2026-05-28 18:42 UTC — PR #1559 fern: pEMA β_target post-refresh decouple — ❌ CLOSED BILATERAL NULL
+
+- Branch: `g1r1-fern/pema-post-refresh-target`
+- Hypothesis: Decoupling β_target after pEMA refresh step 2600 (lighter 0.985 or heavier 0.995) targets the ema_minus_live +0.56 mnat observation. Lighter β shrinks the buffer-vs-live gap.
+- W&B: Arm A `hved6l5d` (β_post=0.985, lighter), Arm B `594eshn4` (β_post=0.995, heavier)
+
+| Arm | β_post_refresh | val_ema | ema_minus_live | sr | Δval (mnat) | Verdict |
+|---|---|---:|---:|---:|---:|---|
+| Baseline (#1429) | 0.99 (coupled) | 3.263938 | — | 2900 | — | — |
+| A (lighter) | 0.985 | 3.265921 | +0.374 mnat | 2925 | +1.98 | ❌ NULL |
+| B (heavier) | 0.995 | 3.267585 | +1.168 mnat | 2925 | +3.65 | ❌ NULL |
+
+- **Analysis:** ema_minus_live is monotone in β (lighter shrinks gap, heavier grows it) — mechanism behaves as predicted. But val_ema is non-monotone: lighter β narrows the gap but pushes val_live itself worse. Canonical β=0.99 IS the post-refresh optimum for val_live; any deviation breaks it. The pEMA β trajectory axis is fully characterized end-to-end (refresh STEP closed #1457/#1459, β-endpoint uniform closed #1458, β-ramp shape closed #1507, β-endpoint decoupled post-refresh closed here). No simple β perturbation in either window improves on the canon.
+
 ## 2026-05-28 18:28 UTC — PR #1560 nezuko: Aux Adam LR cooldown timing decouple — ❌ CLOSED BILATERAL NULL
 
 - Branch: `g1r1-nezuko/aux-cooldown-frac`
