@@ -1,5 +1,34 @@
 # SENPAI Research Results
 
+## 2026-05-28 09:15 UTC — PR #1542 askeladd: pEMA β_t schedule decoupling from lr_mult — ASSIGNED
+
+- Branch: `g1r1-askeladd/beta-t-decouple`
+- Hypothesis: Break the parametric coupling `β_t = β_base + (β_target - β_base) × (1 - lr_mult_t)` by introducing an independent step-based β_t schedule. Motivated directly by askeladd's own post-mortem on #1496 Arm A (cosine): cosine mid-window held more LR mass → lr_mult stayed high → β_t couldn't ramp early enough → EMA starved of high-β_t steps.
+- Arm A (decoupled-canonical-timing): β_t linearly ramps from 0.97 → 0.99 over steps [1750, 3250] — same timing endpoints as canonical but linear in step-space instead of parametrically coupled to lr_mult.
+- Arm B (decoupled-earlier-ramp): β_t linearly ramps from 0.97 → 0.99 over steps [975 (cooldown onset), 2900 (target FFS)] — β_t starts ramping at cooldown onset and reaches β_target BEFORE training ends, giving ~350 extra steps at β_target.
+- First PR to break the lr_mult coupling entirely. All prior β_t work (#841, #1229, #1507, #1234, #737) still routed β_t through lr_mult — this opens a fresh axis.
+- Status: **ASSIGNED** — PR #1542
+
+---
+
+## 2026-05-28 09:00 UTC — PR #1496 askeladd: Cooldown LR shape (cosine vs sigmoid) — CLOSED BILATERAL CATASTROPHIC NULL
+
+- Branch: `g1r1-askeladd/cooldown-shape`
+- Hypothesis: Shape-family alternatives to power-1.4 cooldown. Arm A cosine `0.5·(1+cos(π·cp))`. Arm B sigmoid `1/(1+exp(10·(cp-0.4)))`.
+
+| Arm | Shape | W&B | val/loss_ema | sr | Δval (mnat) | Gate |
+|---|---|---|---|---|---|---|
+| Baseline (#1429) | power γ=1.4 | y4nxof1m / fek06bk7 | **3.263938** | **2900** | — | — |
+| A (cosine) | 0.5·(1+cos(π·cp)) | b26zqkrn | 3.277563 | 3125 | +13.6 | ❌ FAIL (Δsr+225) |
+| B (sigmoid) | 1/(1+exp(10·(cp-0.4))) | jxelv2pi | 3.291803 | -1 | +27.9 | ❌ CATASTROPHIC (never crossed 3.28) |
+
+- **Decision: CLOSED bilateral catastrophic NULL.** Cooldown-shape FAMILY axis fully closed.
+- **Mechanism analysis (from student's eta-curve audit):** Cosine holds MORE LR mass than power-1.4 in cp=0.56-0.78 window (0.41 vs 0.34 at cp=0.56; 0.25 vs 0.22 at cp=0.67) — delays lr_mult drop → β_t can't ramp early enough → EMA starved of high-β_t late-cooldown steps. Sigmoid does opposite: crashes LR mass ~3-5× below power-1.4 from cp=0.5 onward (sigmoid at cp=0.78: 0.022 vs power-1.4's 0.124) — training starved of usable LR signal, never reaches 3.28 target.
+- **Canon addition:** Cooldown-shape FAMILY axis FULLY CLOSED. Power γ=1.4 sits at local mass-distribution optimum: enough LR mass in mid-window (more than sigmoid, less than cosine) to let the EMA ramp while still reaching target. Generalizes: ANY shape that misallocates LR mass relative to power-1.4 in the cp=0.5-0.8 window degrades performance. Joint closure with #969 (γ sweep), #1084 (piecewise γ), #1342 (per-block γ), #1099 (decoupled aux γ), #1466 (NM shape).
+- **Key structural finding:** β_t is parametrically coupled to lr_mult. This coupling was the load-bearing failure mode for Arm A — cosine shape prevented β_t from ramping independently. Motivates decoupling β_t from lr_mult as next axis (→ PR #1542).
+
+---
+
 ## 2026-05-28 07:40 UTC — PR #1535 alphonse: Differential pEMA β by parameter group (body vs aux Adam, Idea 12) — ASSIGNED
 
 - Branch: `g1r1-alphonse/pema-split`
