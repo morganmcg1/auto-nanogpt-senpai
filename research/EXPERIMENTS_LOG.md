@@ -19,6 +19,25 @@
 
 ---
 
+## 2026-05-28 16:25 UTC — PR #1535 alphonse: pEMA aux-extend β trajectory — CLOSED BILATERAL NULL
+
+- Branch: `g1r1-alphonse/pema-aux-extend`
+- Hypothesis: Extend pEMA buffer to include aux Adam parameters (embed + lm_head + scalars, 101 aux slots in addition to 72 body slots = 173 total). Arm A canonical aux β trajectory (0.97→0.99); Arm B heavier aux β (0.97→0.995). Tests whether aux-side EMA smoothing reduces refresh disruption at step 2600.
+- W&B: Arm A `eqjrzl6n` (telemetry frozen step 375 due to 09:00 UTC W&B 401; local metrics intact), Arm B `4f10tlfk` (full telemetry)
+
+| Arm | aux β | val_ema | val_live | sr | Δ vs baseline |
+|---|---|---:|---:|---:|---:|
+| Baseline (#1429, no aux pEMA) | — | 3.263938 | — | 2900 | — |
+| A (canonical) | 0.97→0.99 | 3.26689 | — | 2925 | +2.95 mnat |
+| B (heavier) | 0.97→0.995 | 3.26651 | — | 2925 | +2.57 mnat |
+
+- **Mechanism finding (load-bearing)**: refresh bump at step 2600 dominated by **body slot zeroing**, not aux. Arm A refresh bump = +6.72 mnat; Arm B refresh bump = +6.89 mnat (heavier aux β did NOT reduce disruption — slightly worse). Rules out the "aux β stabilizes pre-refresh buffer" hypothesis.
+- **Connection to today's WIN (#1532)**: edward's β₂ pulse mechanism operates on **aux Adam β₂ schedule**, not aux pEMA buffer. Two clean independent reads — pEMA scope is body-only canon, aux gets schedule-tuned via β₂ pulse.
+- **pEMA aux-extend axis CLOSED bilateral NULL.** Heavier aux β=0.995 marginally better than 0.99 (−0.38 mnat) but still +2.57 above baseline.
+- **New assignment**: alphonse → β₂ pulse amplitude extension (exploit edward's WIN axis with β₂ ∈ {0.995, 0.999}).
+
+---
+
 ## 2026-05-28 13:30 UTC — PR #1524 tanjiro: Stable-LR-pulse shape sweep — CLOSED 2-POINT NULL
 
 - Branch: `g1r1-tanjiro/stable-pulse`
