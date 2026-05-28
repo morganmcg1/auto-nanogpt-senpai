@@ -47,6 +47,12 @@ def parse_args():
     parser.add_argument("--muonh_mode", type=str, default=os.environ.get("MUONH_MODE", "clip"), choices=["clip", "scale_invariant"])
     parser.add_argument("--muonh_cooldown_shape", type=str, default=os.environ.get("MUONH_COOLDOWN_SHAPE", "linear"), choices=["linear", "cosine", "sqrt"], help="LR cooldown shape for MuonH groups (AdamW aux groups stay linear)")
     parser.add_argument("--muonh_warmup_steps", type=int, default=int(os.environ.get("MUONH_WARMUP_STEPS", "0")), help="Linear LR warmup steps for MuonH groups only (0 = disabled, no-op vs baseline). AdamW aux groups are not warmed.")
+    parser.add_argument("--muonh_attn_lr_mul", type=float,
+        default=float(os.environ.get("MUONH_ATTN_LR_MUL", "1.0")),
+        help="LR multiplier for attention 2D weights (attn.q/k/v/proj). 1.0=baseline (single-group equivalent).")
+    parser.add_argument("--muonh_mlp_lr_mul", type=float,
+        default=float(os.environ.get("MUONH_MLP_LR_MUL", "1.0")),
+        help="LR multiplier for MLP 2D weights (mlp.fc/proj). 1.0=baseline (single-group equivalent).")
     parser.add_argument("--train_steps", type=int, default=int(os.environ.get("TRAIN_STEPS", "3350")))
     # MuLoCo outer Nesterov SGD (Algorithm 1, K=1). Wraps all trainable params;
     # snapshots an anchor at trial start, then every sync_interval inner steps
@@ -670,9 +676,17 @@ class MuonH(torch.optim.Optimizer):
     """
     def __init__(self, params, lr=0.018, weight_decay=0.0, mu=0.95,
                  hyperball=True, budget_mult=1.0, mode="clip"):
-        assert isinstance(params, list) and len(params) >= 1 and isinstance(params[0], torch.nn.Parameter)
+        assert isinstance(params, list) and len(params) >= 1
         assert mode in ("clip", "scale_invariant")
-        params = sorted(params, key=lambda x: x.size(), reverse=True)
+        # Accept either a flat list of Parameters (single group) or a list of
+        # param_group dicts (multi group, e.g. attn vs mlp split). Sort each
+        # group's params by size descending so larger matrices are processed
+        # first under the world_size striding.
+        if isinstance(params[0], torch.nn.Parameter):
+            params = sorted(params, key=lambda x: x.size(), reverse=True)
+        else:
+            for g in params:
+                g["params"] = sorted(g["params"], key=lambda x: x.size(), reverse=True)
         defaults = dict(lr=lr, weight_decay=weight_decay, mu=mu,
                         hyperball=hyperball, budget_mult=budget_mult, mode=mode)
         super().__init__(params, defaults)
@@ -783,6 +797,7 @@ if args.use_outer_optimizer:
 else:
     print0("MuLoCo outer optimizer DISABLED", console=True)
 print0(f"MuonH mode={args.muonh_mode} lr={args.muonh_lr} budget_mult={args.muonh_budget_mult} cooldown_shape={args.muonh_cooldown_shape}", console=True)
+print0(f"MuonH H220 type-split: attn_lr_mul={args.muonh_attn_lr_mul} mlp_lr_mul={args.muonh_mlp_lr_mul}", console=True)
 if args.aux_agc_clip_ratio > 0:
     print0(f"AGC ENABLED on aux AdamW groups: clip_ratio={args.aux_agc_clip_ratio} eps={args.aux_agc_eps}", console=True)
 else:
@@ -834,6 +849,8 @@ if dist.get_rank() == 0:
             "muonh_mode": args.muonh_mode,
             "muonh_cooldown_shape": args.muonh_cooldown_shape,
             "muonh_warmup_steps": args.muonh_warmup_steps,
+            "muonh_attn_lr_mul": args.muonh_attn_lr_mul,
+            "muonh_mlp_lr_mul": args.muonh_mlp_lr_mul,
             "train_steps": args.train_steps,
             "muloco_use_outer_optimizer": bool(args.use_outer_optimizer),
             "muloco_outer_lr": args.outer_lr,
@@ -930,11 +947,32 @@ for trial_idx in range(args.num_trials):
                         dict(params=[model.proj.weight], lr=1/320, name="adam_lm_head"),
                         dict(params=[p for p in model.parameters() if p.ndim < 2], lr=0.01, name="adam_scalars")],
                        betas=(0.8, args.aux_beta2_start), eps=args.aux_adamw_eps, weight_decay=0, fused=_aux_fused)
-    optimizer2 = MuonH([p for p in model.blocks.parameters() if p.ndim >= 2],
-                       lr=args.muonh_lr, weight_decay=0.0, mu=0.95,
-                       hyperball=True, budget_mult=args.muonh_budget_mult,
-                       mode=args.muonh_mode)
-    optimizer2.param_groups[0]["name"] = "muonh_blocks"
+    # H220: Split body MuonH params by TYPE — attn (q/k/v/proj) vs MLP (fc/proj) — so
+    # each type can take a different LR multiplier. When both multipliers = 1.0 this is
+    # functionally identical to the single-group baseline (MuonH operates per-param:
+    # hyperball radius and NS5 projection are computed per-param; only the per-group LR
+    # differs). attn_lr_mul=mlp_lr_mul=1.0 → arm_a CTRL should be bit-identical.
+    attn_params = [p for n, p in model.blocks.named_parameters()
+                   if p.ndim >= 2 and ".attn." in n]
+    mlp_params  = [p for n, p in model.blocks.named_parameters()
+                   if p.ndim >= 2 and ".mlp."  in n]
+    all_body_2d = [p for p in model.blocks.parameters() if p.ndim >= 2]
+    _attn_ids = set(id(p) for p in attn_params)
+    _mlp_ids  = set(id(p) for p in mlp_params)
+    _all_ids  = set(id(p) for p in all_body_2d)
+    assert (_attn_ids | _mlp_ids) == _all_ids, \
+        f"Partition mismatch: {len(attn_params)} attn + {len(mlp_params)} mlp != {len(all_body_2d)} total"
+    assert len(_attn_ids & _mlp_ids) == 0, "Overlap in attn/mlp partition!"
+    if trial_idx == 0:
+        print0(f"[H220] body MuonH split: attn_params={len(attn_params)} mlp_params={len(mlp_params)} "
+               f"attn_lr_mul={args.muonh_attn_lr_mul} mlp_lr_mul={args.muonh_mlp_lr_mul}", console=True)
+    optimizer2 = MuonH(
+        [dict(params=attn_params, lr=args.muonh_lr * args.muonh_attn_lr_mul, name="muonh_attn"),
+         dict(params=mlp_params,  lr=args.muonh_lr * args.muonh_mlp_lr_mul,  name="muonh_mlp")],
+        lr=args.muonh_lr, weight_decay=0.0, mu=0.95,
+        hyperball=True, budget_mult=args.muonh_budget_mult,
+        mode=args.muonh_mode,
+    )
     optimizers = [optimizer1, optimizer2]
     # AGC targets: AdamW aux groups (embed, lm_head, scalars). Built from optimizer1
     # param groups to track exactly the same params AdamW updates.
