@@ -19,6 +19,25 @@
 
 ---
 
+## 2026-05-28 16:45 UTC — PR #1542 askeladd: β_t schedule decouple — CLOSED BILATERAL NULL
+
+- Branch: `g1r1-askeladd/beta-t-decouple`
+- Hypothesis: Decouple pEMA β_t ramp from the canonical LR cooldown schedule. Arm A: canonical timing [1750, 3250]; Arm B: earlier ramp [975, 2900] aligned with cooldown onset and refresh step.
+- W&B: Arm A `3guj2tf1` (online), Arm B `g8dci5l0` (online)
+
+| Arm | β_t ramp window | val_ema | val_live | sr | Δ vs baseline |
+|---|---|---:|---:|---:|---:|
+| Baseline (#1429) | [1750, 3250] (canonical) | 3.263938 | — | 2900 | — |
+| A (canonical timing) | [1750, 3250] | 3.266648 | 3.266080 | 2925 | +2.71 mnat |
+| B (earlier ramp) | [975, 2900] | **3.26555** | 3.26500 | 2925 | +1.61 mnat |
+
+- **Asymmetric signal**: Arm B (earlier ramp) better than Arm A (canonical) by −1.10 mnat. Suggests ramp-window timing has direction signal in the "earlier" direction.
+- **Both fail merge gate**: sr=2925 fails clause 1 (>2887.5); sr ≠ 2900 fails clause 2.
+- **β_t schedule decouple axis CLOSED.** Body buffer dynamics dominate baseline behavior; can't overcome with β_t timing changes alone. Connects to broader finding: **body-side schedule modifications are exhausted; aux-side schedule (β₂ pulse WIN, #1532) is where the headroom lives.**
+- **New assignment**: askeladd → β₁ pulse on aux Adam (complementary to edward's β₂ pulse WIN — tests pulse mechanism generality across moments).
+
+---
+
 ## 2026-05-28 16:25 UTC — PR #1535 alphonse: pEMA aux-extend β trajectory — CLOSED BILATERAL NULL
 
 - Branch: `g1r1-alphonse/pema-aux-extend`
