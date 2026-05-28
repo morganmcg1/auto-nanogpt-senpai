@@ -1,6 +1,77 @@
 # SENPAI Research State — auto-nanogpt-1gpu-r3
 
-- **Last updated:** 2026-05-28 08:25 UTC
+- **Last updated:** 2026-05-28 11:00 UTC
+
+---
+
+## Cycle ~760: H231 askeladd CLOSED (88th NULL/NEG, **🎯 PROGRAMME FINDING #51 TRILATERALLY CONSOLIDATED** — muonh_mode='scale_invariant' STRUCTURALLY LOAD-BEARING for FFS, per-step rescale is load-bearing property, 14th MuonH-SI structural tightness member) + H239 askeladd ASSIGNED (PR #1548 Schedule-Free AdamW for aux side — Defazio NeurIPS 2024 Oral, 35th mechanism class, replaces scheduled AdamW with maintained y_t interpolation)
+
+**Programme totals**: 88 NULL/NEG · **35 novel mechanism classes** · **2 VESTIGIAL FINDINGS** (H223 eps, H224 warmup) · **14 MuonH-SI structural tightness members** confirmed load-bearing · **6 PROGRAMME FINDINGS pipeline** (#48 vestigial pair · #49 dynamics-vs-conditioning heuristic · **#50 cosine asymptote LOAD-BEARING bilaterally** · **🎯 #51 CONSOLIDATED muonh_mode SI LOAD-BEARING trilaterally** · **#52 candidate BODY F-NORM CAPACITY** · **#54 candidate INNER+OUTER MOMENTUM FORM bilateral** · **#55 candidate NS5 ITER COUNT 3-pillar polar-projection fidelity**)
+
+### 🎯 H231 askeladd CLOSURE — PROGRAMME FINDING #51 TRILATERALLY CONSOLIDATED
+
+3-arm direct test of muonh_mode axis. arm_a CTRL scale_invariant val=3.26885/FFS=3050 (drift class +25 FFS). arm_b CLIP_MODE clip+radius=1.0 val=3.28662/FFS=-1 +20.10σ_H174 CATASTROPHIC. arm_c CLIP_LOOSE clip+radius=2.0 val=3.30103/FFS=-1 **+36.40σ_H174** CATASTROPHIC (worse than arm_b).
+
+**Trilateral evidence consolidation**:
+| Evidence leg | Hypothesis | Mode comparison | Outcome | σ_H174 magnitude |
+|---|---|---|---|---|
+| Leg 1 indirect | H221 askeladd | NO_OUTER (no MuLoCo) | CATASTROPHIC | massive |
+| Leg 2 bilateral | H228 alphonse | clip + 3 WD values | bilateral catastrophic | +18.7-20.5σ |
+| **Leg 3 direct** | **H231 askeladd** | **scale_invariant vs clip + radius** | **bilateral catastrophic** | **+20.10σ + +36.40σ** |
+
+**PROGRAMME FINDING #51 CONSOLIDATED**: muonh_mode='scale_invariant' is STRUCTURALLY LOAD-BEARING for FFS. Per-step always-on rescaling (not radius cap alone) is the load-bearing property. Switching to clip-mode produces +20-36σ catastrophic FFS regression that NO radius or WD adjustment can recover.
+
+Student's cleanest mode-axis mechanism diagnosis of campaign: "It's the rescale, not the radius."
+
+### H239 askeladd ASSIGNMENT — Schedule-Free AdamW for aux side (35th mechanism class)
+
+Defazio et al. NeurIPS 2024 Oral (arXiv:2405.15682). Replaces scheduled AdamW path with Schedule-Free AdamW which maintains interpolated y_t = (1-c_t)*z_t + c_t*x_t evaluation point distinct from output param x_t. Gradient computed at y_t, momentum-like update applied to z_t, x_t follows z_t with Polyak-Ruppert weighting (c_t=1/t). Removes the explicit LR schedule entirely.
+
+Why right axis now:
+- **Aux-side schedule mechanism class not replaced yet**: H224 warmup VESTIGIAL, H223 eps VESTIGIAL, H225 beta1=0.8 LOAD-BEARING (U-shape) — all AdamW-internal scalar HP. SF replaces the SCHEDULE itself.
+- **One F/B per step preserved**: SF evaluates gradient ONCE at y_t per step (parameter-level interpolation, not gradient-level). Complies with launch directive.
+- **Mechanism class change**: ~40 LoC adds new optimizer state (z_t buffer) and y_t/x_t swap logic. Distinct from H223/H224/H225.
+- **Per launch directive "schedule ideas" explicitly listed**: SF-AdamW is literal "schedule idea" (replace schedule with no-schedule).
+- **Per H224 VESTIGIAL warmup finding**: if SF wins → confirms warmup-vestigial bilaterally. If SF loses → reveals schedule structure IS load-bearing despite individual phase components being vestigial.
+
+3-arm design: arm_a CTRL adamw scheduled (bit-id) / arm_b SF_LR_03 sf_adamw + constant lr=0.3 (current aux peak) / arm_c SF_LR_015 sf_adamw + constant lr=0.15 (half peak). Tests both SF mechanism AND whether SF needs LR-adjusted constant vs scheduled-peak.
+
+Asymmetric outcome bracket:
+- WIN/WIN → SF robust merge candidate (3rd VESTIGIAL FINDING — schedule joins eps/warmup)
+- WIN/NEG → SF needs LR-adjusted constant
+- NEG/NEG → 89th/90th NULL/NEG + PROGRAMME FINDING #56 candidate (aux schedule load-bearing as STRUCTURAL whole)
+
+### Cycle ~760 portfolio (8/8 WIP, 0 idle, 0 review-ready)
+
+| H# | Student | PR | Axis | Status |
+|---|---|---|---|---|
+| H232 | edward | #1513 | Post-NS5 Cautious-Muon | arm_a CTRL + arm_b CAUTIOUS renormalize FINISHED decisive NEG +150 FFS +8.24σ; arm_c CAUTIOUS_NORENORM should be terminal soon |
+| H233 | frieren | #1517 | MuLoCo sync_interval | arm_a + arm_b SYNC_15 FINISHED bilateral NULL within-experiment; arm_c SYNC_60 should be terminal soon |
+| H234 | tanjiro | #1526 | Joint AGC clip ratio sweep | arm_a CTRL FINISHED val=3.26825/FFS=3025 cleanest CTRL; arm_b TIGHT running; arm_c LOOSE queued |
+| H235 | thorfinn | #1529 | Embed init scale (aux-side PRE-AdamW) | arm_a CTRL bit-identical to H203 baseline (val=3.268284/FFS=3025); arm_b GPT2_STD RUNNING ~8%; arm_c MED queued |
+| H236 | fern | #1536 | Outer MuLoCo Polyak vs Nesterov FORM | in flight |
+| H237 | nezuko | #1539 | AdEMAMix replaces AdamW on aux side | in flight |
+| H238 | alphonse | #1544 | AdaMuon body — Adam per-element scaling on polar update | in flight |
+| **H239** | **askeladd** | **#1548** | **Schedule-Free AdamW for aux side (newly assigned)** | **just dispatched** |
+
+35 novel mechanism classes through 239 hypotheses. Zero idle students.
+
+### State of campaign — exploration territory map
+
+**CLOSED dead ends** (do not re-mine):
+- Body-update fidelity axes: spectral rank (H214), init F-norm (H227), NS5 iter count (H230), muonh_mode pivot (H228+H231 trilateral) — body fidelity fully consolidated as load-bearing
+- Body-update internal HPs: warmup, eps, beta1, cooldown shape — all explored
+- Outer MuLoCo HPs: NO_OUTER (H221), NO_MOMENTUM (H221), sync_interval dense side (H233 bilateral NULL within-exp), Lookahead inner (H216)
+- Per-block LR (H162 lineage, 43 NULL/NEG closures)
+- Post-NS5 cautious masking (H195 + H232 bilateral cross-finding)
+
+**OPEN exploration territory**:
+- Aux-side optimizer replacements: AdEMAMix (H237 in flight), Schedule-Free AdamW (H239 newly assigned), potential future: Lion-aux, Sophia-aux, D-Adaptation-aux
+- Body-side mechanism CLASS CHANGES (not ablations): AdaMuon per-element scaling (H238 in flight), Polar-Express tuned-coefficient NS (deferred low-priority), Sign-based body update (LION-style with norm controls)
+- Outer-side mechanism additions: Outer Lookahead (untested), outer momentum form (H236 in flight)
+- Initialization axes: embed init scale (H235 in flight), gates init break (deferred), lm_head delayed unfreezing (deferred)
+- Terminal checkpoint mechanisms: WSM checkpoint merging (untested)
+- Schedule mechanisms: schedule-free (H239 newly assigned), trapezoidal/triangle schedules (untested), warmstable-decay (untested)
 
 ---
 

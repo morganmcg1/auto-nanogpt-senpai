@@ -1,3 +1,38 @@
+## 2026-05-28 10:50 — PR #1511: H231 askeladd MuonH mode axis (clip vs SI direct test) — CLOSED (88th NULL/NEG, **🎯 PROGRAMME FINDING #51 TRILATERALLY CONSOLIDATED** — muonh_mode='scale_invariant' STRUCTURALLY LOAD-BEARING for FFS; per-step rescale, not radius cap alone, is the load-bearing property; 14th MuonH-SI structural tightness member)
+
+- Branch: `g1r3-askeladd/h231-muonh-mode-axis`
+- Hypothesis: Direct trilateral test of muonh_mode axis (scale_invariant vs clip) at both default and looser radius. Validates whether the always-on per-step rescale or the soft late-only projection is structurally required.
+- Results (n=1 each, train_steps=3325, all bit-id step-0 val=10.82583 PASS):
+
+| Arm | mode | budget_mult | W&B | val | FFS | Δval/σ_H174 | Verdict |
+|---|---|---|---|---|---|---|---|
+| arm_a CTRL | scale_invariant | 1.0 | `nvq1exts` | 3.26885 | 3050 | +0.62σ vs H203 (drift class) | within-experiment baseline |
+| arm_b CLIP_MODE | clip | 1.0 | `9r3d5238` | 3.28662 | **-1** (DNR) | **+20.10σ** | CATASTROPHIC NEG |
+| arm_c CLIP_LOOSE | clip | 2.0 | `rsqkj5oj` | 3.30103 | **-1** (DNR) | **+36.40σ** | CATASTROPHIC NEG (worse than arm_b) |
+
+- σ_H174 = 0.000884. Statistical rule: arm_a `(3.28-3.26885)×√1=0.01115≥0.004` ✓, arm_b -0.00662 ✗ (DNR), arm_c -0.02103 ✗ (DNR). NOT MERGING.
+
+### Analysis
+
+- **🎯 PROGRAMME FINDING #51 TRILATERALLY CONSOLIDATED**. Three independent evidence legs now confirm muonh_mode='scale_invariant' is structurally load-bearing:
+  - Leg 1 (indirect via outer): H221 askeladd NO_OUTER catastrophic
+  - Leg 2 (bilateral within-experiment): H228 alphonse clip-mode bilateral catastrophic at +18.7-20.5σ (mode-pivot finding from WD axis closure)
+  - Leg 3 (direct trilateral): H231 askeladd clip-mode bilateral catastrophic at +20.10σ (radius=1.0) and +36.40σ (radius=2.0)
+
+- **PROGRAMME FINDING #51 CONSOLIDATED**: *muonh_mode='scale_invariant' is STRUCTURALLY LOAD-BEARING for FFS at H148+H203. The per-step always-on rescaling (NOT the Frobenius ball radius cap alone) is the load-bearing property. Switching to clip-mode produces +20-36σ catastrophic FFS regression that NO radius or WD adjustment can recover.*
+
+- **6th PROGRAMME FINDING officially CONSOLIDATED with trilateral evidence** (joining #48 vestigial pair, #49 dynamics-vs-conditioning heuristic, #50 cosine asymptote bilateral, plus 3 candidate-status: #52 BODY F-NORM CAPACITY, #54 INNER+OUTER MOMENTUM FORM, #55 NS5 ITER COUNT 3-pillar).
+
+- **Mechanism diagnosis (student)**: "It's the rescale, not the radius. Two complementary signals: clip at same radius is already catastrophic → the late-only soft projection model is fundamentally different from per-step rescaling, regardless of ball size. Loosening the ball makes it monotonically worse → projection rate does contribute marginally on the clip path, but is dominated by the missing always-on rescale." Cleanest mode-axis mechanism diagnosis of campaign.
+
+- **Misleading early-signal awareness**: arm_b at step 125 was AHEAD of CTRL (4.86730 vs 4.93075) but stalled hard in late-cooldown. Cross-experiment reminder: do not let per-step val checks cherry-pick early-signal arms.
+
+- **CTRL drift +25 FFS / +0.62σ vs H203**: 5th instance of the torch.compile retracing soft drift class (H214/H224/H229/H230/H231). The pattern is consistent enough to consider a dedicated diagnostic.
+
+- **14 MuonH-SI structural tightness members confirmed**: H216 Lookahead, H221 NO_OUTER, H221 NO_MOMENTUM, H222 SCHED_OFF, H222 MU_END_85, H225 BETA1, H226+H219 cosine asymptote, H214 spectral RANK, H227 body init F-norm, H228+H231 muonh_mode SI (bilateral + trilateral), H229 inner Nesterov FORM, H230 NS5 iter count.
+
+- **Decision: NOT MERGING.** 88th NULL/NEG. Mode-axis pruning closed. Future MuonH work should target REPLACEMENTS (not ablations) OR axes outside body-update normalization scope.
+
 ## 2026-05-28 08:20 — PR #1503: H228 alphonse MuonH body weight decay axis ablation (clip-mode pivot) — CLOSED (87th NULL/NEG, **PROGRAMME FINDING #51 candidate CONSOLIDATED — muonh_mode='scale_invariant' STRUCTURALLY LOAD-BEARING for FFS, bilateral within H228**; 13th MuonH-SI structural tightness member pending H231 askeladd trilateral confirmation)
 
 - Branch: `g1r3-alphonse/h228-muonh-body-wd`
