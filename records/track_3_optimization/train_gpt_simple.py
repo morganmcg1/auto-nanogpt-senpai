@@ -1059,24 +1059,37 @@ for trial_idx in range(args.num_trials):
                 wandb_step=wandb_step,
             )
         # Adaptive Gradient Clipping (AGC) on aux Adam param groups (optimizer1).
-        # Per-tensor clip: ||grad||_F <= lambda * ||param||_F (Brock et al., NFNets,
-        # ICML 2021). Body Muon (optimizer2) is already spectrally bounded by NS5
-        # polar normalization, so AGC is applied to aux-only by design.
+        # Per-tensor clip: ||grad||_F <= lambda * ||param||_F (Brock et al. NFNets,
+        # ICML 2021), applied only to tensors whose ||param||_F >= AGC_PARAM_NORM_MIN.
+        # The skip-when-tiny rule replaces the NFNets unit-norm 1e-3 floor with a
+        # tensor-level skip: in this codebase lm_head proj.weight, all biases, and
+        # any zero-init param (lines 778-785) start with ||W||_F = 0, which would
+        # otherwise force the clip threshold to collapse to ~0 and freeze aux
+        # updates instead of bounding outliers. Skipping AGC for not-yet-scaled
+        # params matches the spirit of the original NFNets `clamp_(min=1e-3)`
+        # safeguard while keeping the per-tensor Frobenius formulation from the PR.
+        # Body Muon (optimizer2) is already spectrally bounded by NS5 polar
+        # normalization, so AGC is applied to aux-only by design.
+        AGC_PARAM_NORM_MIN = 1e-3
         agc_fired_count = 0
+        agc_skipped_tiny = 0
         agc_max_clip_ratio = 1.0
         if args.aux_agc_lambda > 0:
             for group in optimizer1.param_groups:
                 for p in group["params"]:
                     if p.grad is None:
                         continue
-                    param_norm = p.detach().norm(p="fro") + 1e-12
-                    grad_norm = p.grad.detach().norm(p="fro") + 1e-12
+                    param_norm = float(p.detach().norm(p="fro").item())
+                    if param_norm < AGC_PARAM_NORM_MIN:
+                        agc_skipped_tiny += 1
+                        continue
+                    grad_norm = float(p.grad.detach().norm(p="fro").item()) + 1e-12
                     max_grad_norm = args.aux_agc_lambda * param_norm
                     if grad_norm > max_grad_norm:
-                        clip_ratio = float((max_grad_norm / grad_norm).item())
+                        clip_ratio = max_grad_norm / grad_norm
                         agc_max_clip_ratio = min(agc_max_clip_ratio, clip_ratio)
                         agc_fired_count += 1
-                        p.grad.mul_(max_grad_norm / grad_norm)
+                        p.grad.mul_(clip_ratio)
         agc_fired_total += agc_fired_count
         if dist.get_rank() == 0 and args.aux_agc_lambda > 0:
             wandb.log({
@@ -1084,6 +1097,7 @@ for trial_idx in range(args.num_trials):
                 "train/step": train_step,
                 "train/aux_agc/fired_count": agc_fired_count,
                 "train/aux_agc/fired_total": agc_fired_total,
+                "train/aux_agc/skipped_tiny": agc_skipped_tiny,
                 "train/aux_agc/max_clip_ratio": agc_max_clip_ratio,
                 "train/aux_agc/lambda": args.aux_agc_lambda,
             }, step=wandb_step)
