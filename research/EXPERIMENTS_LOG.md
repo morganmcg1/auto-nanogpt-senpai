@@ -1,3 +1,97 @@
+## 2026-05-28 23:10 — PR #1629: H257 alphonse Sphere parallel-transport momentum — ASSIGNED (53rd mechanism class, sphere-aware Riemannian state-evolution correction, direct response to H249 mechanistic insight)
+
+- Branch: `g1r3-alphonse/sphere-parallel-transport-momentum`
+- Hypothesis: H249's closure established that MuonH-SI weights live on F-norm-fixed sphere `S_R`, NOT Stiefel. H249's Riemannian-Stiefel norm replacement FAILED because of manifold-mismatch. H257 takes a DIFFERENT approach: instead of replacing the SI step's norm, correct the STATE EVOLUTION by parallel-transporting momentum buffer to T_{W_new} S_R after each SI step. For round sphere, parallel transport reduces to radial projection: `m_new = m - ⟨m, W_new⟩_F · W_new / ‖W_new‖_F²`.
+- Theoretical grounding: Bonnabel 2013 (arxiv:1111.5280) Riemannian SGD requires parallel transport for momentum on Riemannian manifolds. Edelman, Arias, Smith 1998 SIAM J. Matrix Anal. — for round sphere S^{nk-1}, parallel transport simplifies to radial projection.
+- 3-arm: CTRL `--sphere_pt_momentum 0` / PT_ALWAYS `--sphere_pt_momentum 1` (every step) / PT_COOLDOWN `--sphere_pt_momentum 2` (only during cosine cooldown phase).
+- Distinction from in-flight Stiefel hypotheses: H253 changes WHERE W starts (Stiefel init), H255 changes WHERE W ends (Stiefel retraction), H257 leaves W on F-norm sphere but corrects momentum evolution. Distinct from H238/H248 per-element update corrections — H257 is single-scalar momentum radial projection.
+- Drift-FREE Pattern B (`@torch.compiler.disable` decorator on helper function).
+- WIN probability: 20-35%. Conservative because SI re-normalization may already cancel radial drift "lossily but correctly" in practice. Even if NULL, closes 4th post-NS5 mechanism axis (would join H238/H248/H249 cluster).
+
+---
+
+## 2026-05-28 23:05 — PR #1597: H249 alphonse Riemannian-norm body SI projection (Stiefel manifold geometry-consistent step size) — CLOSED (**106th NULL/NEG closure**, bilateral CATASTROPHIC NEG FFS=−1 both arms, 🎯 **Stiefel-vs-sphere manifold mismatch mechanistic insight** + **PROGRAMME FINDING #58 candidate STRENGTHENED to 3 axes** + **5th canonical drift-FREE safe-fix template — Pattern B `@torch.compiler.disable` 2nd instance validated**)
+
+- Branch: H249 alphonse (45th class — Riemannian-Stiefel norm replacement in SI denominator)
+- Student terminal SENPAI-RESULT at 22:58 UTC with full 3-arm table, Brantner 2023 citation, riem_frob_ratio time series, mechanistic insight, suggested follow-ups.
+
+| Arm | run_id | step-0 val | step:3325 val | FFS | step_avg | body/riem_frob_ratio_mean (final) |
+|---|---|---|---|---|---|---|
+| arm_a CTRL Frobenius | `1cy16q8m` | 10.82583 EXACT | **3.26803** | **3025 EXACT** | 1844 ms | n/a (CTRL) |
+| arm_b RIEM_DEFAULT | `dunugctv` | 10.82583 EXACT | **3.29498** | **−1** | 1832 ms | **2.367** |
+| arm_c RIEM_DETACHED | `83kate8u` | 10.82583 EXACT | **3.29759** | **−1** | 1830 ms | 2.369 |
+
+### Statistical rule check `(3.28 − μ) × √n ≥ 0.004`
+- arm_a CTRL: `(3.28 − 3.26803) × √1 = 0.01197` ≥ 0.004 ✓ (reproduces H203 baseline 0.01170)
+- arm_b RIEM_DEFAULT: `(3.28 − 3.29498) × √1 = -0.01498` **FAILS** (negative margin — val exceeded target)
+- arm_c RIEM_DETACHED: `(3.28 − 3.29759) × √1 = -0.01759` **FAILS** (negative margin)
+
+### 🎯 Stiefel-vs-sphere manifold mismatch mechanistic insight (campaign-level finding)
+
+Canonical Stiefel Riemannian metric `g_W(X,Y) = tr(X^T (I − WW^T/2) Y)` assumes `W ∈ St(n,k)`. But:
+- `body_init=orthogonal_fnorm_matched` enforces ONLY F-norm match (gain rescaling, NOT W^T W = I)
+- SI hyperball at `scale_invariant_update_()` preserves ONLY ‖W‖_F (per-param-scalar projection back to sphere)
+- → W^T W deviates from I throughout training: **post-NS5 SI weights live on F-norm-fixed sphere, NOT Stiefel manifold**
+
+The Riemannian-Stiefel norm `‖g − W·(W^T·g)/2‖_F` measures projection of g onto WRONG tangent space when W is off-Stiefel:
+
+| step | riem_frob_ratio_mean |
+|---|---|
+| 5 (smoke) | 0.77 |
+| 700 | 1.40 |
+| 925 | 1.69 |
+| 3325 (terminal) | **2.37** |
+
+Monotonically growing throughout training. Correction term `W·(W^T·g)/2` becomes **anti-aligned with g** → Riemannian-norm denominator grows → **effective step length implicitly shrinks ~58%** vs CTRL by end of training.
+
+Per Brantner 2023 (arxiv:2305.16901): canonical Stiefel metric is only meaningful on St(n,k). Off-manifold becomes geometrically inappropriate.
+
+### 🎯 NEW campaign-level mechanism-design heuristic
+
+**"Any norm-replacement or Riemannian-aware mechanism in MuonH-SI must use the F-norm-fixed sphere metric, NOT the Stiefel metric, because SI hyperball preserves ‖W‖_F not W^T W."**
+
+The natural Riemannian metric for sphere `S_R = {W : ‖W‖_F = R}` is the round sphere metric → restricted to tangent space `T_W S_R` reduces to plain Frobenius. **Current SI hyperball's linear-chord step is approximately a true geodesic for small step sizes** (chord ≈ geodesic for θ << 1). Current Frobenius-norm step denominator IS the correct Riemannian-aware choice for sphere geometry. Any future norm-replacement attempt in SI must reduce to Frobenius on the sphere tangent space.
+
+### 🎯 PROGRAMME FINDING #58 candidate STRENGTHENED to 3 axes
+
+| Axis | Hypothesis tested | Result |
+|---|---|---|
+| Per-element second moment (AdaMuon style) | H238 alphonse | TIE/NULL |
+| Per-element diagonal EMA-g² preconditioning | H248 edward | NULL/mild-NEG monotonic |
+| **Riemannian-Stiefel norm in SI denominator** | **H249 alphonse** | **bilateral CATASTROPHIC NEG (FFS=−1)** |
+
+3 independent post-NS5 mechanism axes → all inert/harmful. If H251 tanjiro (NS5 polar output decomposition) also nulls → 4-axis closure of post-NS5 mechanism layer.
+
+### 🎯 5th canonical drift-FREE safe-fix template — Pattern B `@torch.compiler.disable` validated
+
+arm_a CTRL FFS=3025 EXACT joins template library:
+
+| Pattern | Mechanism | Examples |
+|---|---|---|
+| **A. Branch outside @torch.compile region** | New code outside compiled `muon_update` | H246, H248 |
+| **B. @torch.compiler.disable on dispatch wrapper** | Decorator on helper function + belt-and-suspenders on caller | **H249** (alphonse, now confirmed) |
+| **C. argparse dispatch in main training loop** | Outer-step variants in main loop | H246 outer |
+| **D. Plain Python in `set_hparams()`** | Hyperparameter config setter | H250 thorfinn |
+
+Alphonse's double-decorator approach (`@torch.compiler.disable` on BOTH `riemannian_norm_stiefel(update, W, eps)` AND `scale_invariant_update_()` as belt-and-suspenders) ensures no CTRL-bytecode `if riemannian:` branch is ever visible to the compiler. step_avg arm_b/c (1832ms/1830ms) within 0.7% of arm_a CTRL (1844ms) → no compile inflation, no retracing soft-drift. **Pattern B canonical recommendation for ANY future post-NS5 mechanism replacement requiring argparse dispatch.**
+
+### Direct connection to in-flight H253 askeladd
+
+H249's mechanistic insight motivates **H253 askeladd test**: if `body_init=orthogonal_qr` enforces W^T W = I at start, does SI hyperball preserve Stiefel-ness through training? If YES → Riemannian-Stiefel mechanism may be re-testable on Stiefel-preserving init. If NO → SI hyperball is structurally tied to sphere regardless of init. H253 closure will be HIGH-INFORMATION whether WIN or NEG.
+
+### Follow-up recommendations adopted
+
+- **Adopted #4 (Pattern B as canonical recommendation)**: documented in template library.
+- **Adopted #1 (SI hyperball F-norm-preserving structurally)**: documented as new mechanism-design heuristic.
+- **Adopted #3 (riem_frob_ratio as diagnostic)**: noted for future "near-Stiefel" hypotheses.
+- **Skip #2 (St-preserving body update)**: deferred to H253/H255 closure first.
+
+### Operational excellence
+
+H249 closure analysis = **gold standard for r3 mechanistic analysis**: Brantner 2023 citation, exact mathematical formulation `g_W(X,Y) = tr(X^T (I − WW^T/2) Y)`, telemetry-grounded ratio diagnostic 0.77→2.37, manifold-aware closure with explicit identification of where the implementation matched the spec but the spec was geometrically wrong. Student correctly identified hypothesis premise (W ∈ St(n,k)) as failed assumption rather than implementation bug.
+
+---
+
 ## 2026-05-28 22:45 — PR #1627: H256 edward Outer LR temporal schedule (cosine_matched/warmup) — ASSIGNED (52nd mechanism class, direct closure of H246 saw-tooth axis on GOOD-optimizer case)
 
 - Branch: `g1r3-edward/outer-lr-temporal-schedule`

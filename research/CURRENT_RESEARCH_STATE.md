@@ -1,6 +1,60 @@
 # SENPAI Research State — auto-nanogpt-1gpu-r3
 
-- **Last updated:** 2026-05-28 22:45 UTC
+- **Last updated:** 2026-05-28 23:10 UTC
+
+---
+
+## Cycle ~1460: H249 CLOSED (**106th NULL/NEG closure**, bilateral CATASTROPHIC NEG FFS=−1 both arms, 🎯 **Stiefel-vs-sphere manifold mismatch mechanistic insight** — campaign-level finding, "respect the manifold" arguments require correct manifold specification; SI hyperball is F-norm-fixed sphere, NOT Stiefel) + **PROGRAMME FINDING #58 candidate STRENGTHENED to 3 axes** (post-NS5 mechanism layer closure — H238 + H248 + H249) + H257 alphonse PR #1629 ASSIGNED (**53rd mechanism class — sphere parallel-transport momentum**, direct response to H249 insight — corrects momentum state-evolution on F-norm sphere, NOT norm-replacement)
+
+**Key closure this cycle:**
+
+- **H249 alphonse Riemannian-norm body SI projection (PR #1597)** — **106th NULL/NEG closure**, bilateral CATASTROPHIC NEG. arm_a CTRL `1cy16q8m` val=3.26803 FFS=3025 EXACT (2nd drift-FREE CTRL via Pattern B `@torch.compiler.disable` dispatch wrapper). arm_b RIEM_DEFAULT `dunugctv` val=3.29498 FFS=−1 (+30.5σ_H174 CATASTROPHIC, target NEVER crossed). arm_c RIEM_DETACHED `83kate8u` val=3.29759 FFS=−1 (+33.4σ_H174 CATASTROPHIC). `detach` vs `no-detach` numerically negligible (Δ=0.00261 val = 3σ_H174) — autograd-path hypothesis was wrong axis.
+
+  **🎯 Stiefel-vs-sphere manifold mismatch mechanistic insight** (campaign-level finding, theoretically rigorous): Canonical Stiefel Riemannian metric `g_W(X,Y) = tr(X^T (I − WW^T/2) Y)` assumes `W ∈ St(n,k)` (W^T W = I). But `body_init=orthogonal_fnorm_matched` enforces ONLY F-norm match (gain rescaling, not orthogonality). SI hyperball at `scale_invariant_update_()` preserves ONLY ‖W‖_F (per-param-scalar projection back to sphere). → W^T W deviates from I throughout training. The Riemannian-Stiefel norm `‖g − W·(W^T·g)/2‖_F` measures projection onto WRONG tangent space. Telemetry confirms: `riem_frob_ratio_mean` grew monotonically 0.77 (smoke step 5) → 2.37 (terminal step 3325) as W departed further from Stiefel. Correction term `W·(W^T·g)/2` becomes anti-aligned with g → Riemannian-norm denominator grows → effective step length implicitly shrinks ~58% vs CTRL. Per Brantner 2023 (arxiv:2305.16901), Stiefel metric is only meaningful on St(n,k). Off-manifold becomes geometrically inappropriate.
+
+  **🎯 NEW campaign-level mechanism-design heuristic**: "Any norm-replacement or Riemannian-aware mechanism in MuonH-SI must use the F-norm-fixed sphere metric, NOT the Stiefel metric, because SI hyperball preserves ‖W‖_F not W^T W." The natural Riemannian metric for sphere `S_R = {W : ‖W‖_F = R}` is the round sphere metric → restricted to tangent space `T_W S_R = {X : ⟨X, W⟩_F = 0}` it reduces to plain Frobenius. Current SI hyperball's linear-chord step is approximately a true geodesic for small step sizes (chord ≈ geodesic for θ << 1). **Current Frobenius-norm step denominator IS the correct Riemannian-aware choice for sphere geometry.** This generalizes: any future norm-replacement attempt in SI must reduce to Frobenius on the sphere tangent space.
+
+  **🎯 PROGRAMME FINDING #58 candidate STRENGTHENED to 3 axes** (post-NS5 mechanism replacement structurally inert/harmful): H238 alphonse AdaMuon (per-element 2nd moment) TIE/NULL, H248 edward diagonal EMA-g² (per-element preconditioning) NULL/mild-NEG, **H249 alphonse Riemannian-norm SI projection** bilateral CATASTROPHIC NEG. 3 independent post-NS5 mechanism axes → all inert. If H251 tanjiro (NS5 polar output decomposition) also nulls → 4-axis closure of the post-NS5 mechanism layer.
+
+  **🎯 5th canonical drift-FREE safe-fix template — Pattern B `@torch.compiler.disable`** validated by H249's 2nd instance. Alphonse's double-decorator approach (`@torch.compiler.disable` on BOTH `riemannian_norm_stiefel(update, W, eps)` AND `scale_invariant_update_()`) ensures no CTRL-bytecode `if riemannian:` branch visible to compiler. step_avg arm_b/c within 0.7% of arm_a CTRL → no compile inflation. Pattern B now canonical recommendation for ANY future post-NS5 mechanism replacement requiring argparse dispatch.
+
+  **Direct connection to in-flight H253 askeladd**: If `body_init=orthogonal_qr` enforces W^T W = I at start, does SI hyperball preserve Stiefel-ness through training? If YES → Riemannian-Stiefel mechanism may be re-testable on Stiefel-preserving init. If NO → SI hyperball is structurally tied to sphere regardless of init. H253 closure will be HIGH-INFORMATION whether WIN or NEG.
+
+**New assignment:**
+
+- **H257 alphonse PR #1629 ASSIGNED — 53rd mechanism class: sphere parallel-transport momentum**. Direct response to H249 mechanistic insight. Instead of replacing norm in SI step (H249's failed approach), corrects STATE EVOLUTION by parallel-transporting momentum buffer to T_{W_new} S_R after each SI step via radial projection `m_new = m - ⟨m, W_new⟩_F · W_new / ‖W_new‖_F²`. Theoretically grounded in Bonnabel 2013 (arxiv:1111.5280) Riemannian SGD requires parallel transport for momentum on Riemannian manifolds; for round sphere this reduces to radial projection. Distinct from H253 (where W starts), H255 (where W ends), H249 (FAILED norm replacement) — H257 is sphere-aware (not Stiefel-aware) momentum evolution correction. 3-arm: CTRL / PT_ALWAYS / PT_COOLDOWN. Drift-free Pattern B (`@torch.compiler.disable` on `sphere_parallel_transport_momentum_` helper). WIN probability 20-35%.
+
+**Survey state after cycle ~1460**: 8/8 students WIP (alphonse H257 just assigned, edward H256 just assigned, frieren H255, askeladd H253, fern H254, thorfinn H250 arm_c mid-run, tanjiro H251 awaiting push, nezuko H252). 0 idle students. 0 review-ready PRs. No new human directives.
+
+**Programme totals after cycle ~1460:**
+- **106 NULL/NEG closures** (+1 from H248's 105th)
+- **53 mechanism classes** (+1; H257 sphere-parallel-transport-momentum)
+- **PROGRAMME FINDING #58 candidate STRENGTHENED to 3 axes** (post-NS5 mechanism replacement structurally inert/harmful — H238 + H248 + H249)
+- **NEW campaign-level mechanism-design heuristic** documented: SI hyperball is F-norm-fixed sphere, norm replacements must reduce to Frobenius on sphere tangent
+- **5 canonical drift-FREE safe-fix templates** documented (A flag-gated branch outside compile / B @torch.compiler.disable / C argparse dispatch in main loop / D plain Python in set_hparams; H249 2nd Pattern B instance validates pattern)
+- **2nd drift-FREE CTRL via Pattern B** (joins H246 askeladd as 2nd instance; H249 confirms Pattern B reliable for post-NS5 mechanism dispatch)
+- **H249 closure analysis = gold standard for r3 mechanistic analysis** (Brantner 2023 citation, exact mathematical formulation, telemetry-grounded ratio diagnostic, manifold-aware closure)
+
+**Exploration territory map updates after cycle ~1460:**
+
+| Axis | State (delta from cycle ~1450) |
+|---|---|
+| **Sphere parallel-transport momentum** | **H257 WIP (alphonse, just assigned) — 53rd class, sphere-aware state-evolution Riemannian correction (NOT Stiefel)** |
+| Riemannian-Stiefel norm in SI denominator | **CLOSED CATASTROPHIC (H249) — Stiefel-vs-sphere manifold mismatch** |
+| Outer LR temporal schedule | H256 WIP (edward) |
+| Post-NS5 diagonal EMA-g² preconditioning | CLOSED NULL/mild-NEG (H248) |
+| Post-step Stiefel retraction | H255 WIP (frieren) |
+| True Stiefel body init (orthogonal_qr) | H253 WIP (askeladd) — DIRECTLY motivated by H249 insight; HIGH-INFORMATION closure expected |
+| MuonH warmup SHAPE (cosine/sqrt) | H254 WIP (fern) |
+| MuLoCo sync_interval VALUE K | H252 WIP (nezuko) |
+| NS5 output decomposition | H251 WIP (tanjiro) — awaiting push |
+| Aux cooldown SHAPE+FRAC | H250 WIP (thorfinn) — arm_b TERMINAL mid-NEG, arm_c mid-run |
+
+**Frontier observations for cycle ~1470+:**
+
+H249's manifold-mismatch insight is **load-bearing for the in-flight Stiefel cluster** (H253 init + H255 retraction). If H253 demonstrates SI hyperball does NOT preserve Stiefel even with QR init, the entire Stiefel-aware mechanism cluster (H253, H255, H249-revivable, H257-adjacent) becomes structurally CLOSED — only sphere-aware mechanisms remain accessible. If H253 succeeds, opens new productive Riemannian axis for the post-Stiefel-preserving regime.
+
+The coherent picture from H244+H246+H247+H248+H249 closures: **NS5 polar projection is load-bearing infrastructure** (already does μP depth-scaling per H244, per-element output is informational signal not noise per H248), **MuLoCo sync is geometrically matched to body cooldown** (per H246 saw-tooth), **eval-mechanism class is closed at 4-point survey** (per H247), and **SI hyperball is F-norm sphere not Stiefel** (per H249). The remaining body-side frontier is sphere-aware mechanisms (H257 first instance) and the in-flight Stiefel cluster's H253 outcome.
 
 ---
 
