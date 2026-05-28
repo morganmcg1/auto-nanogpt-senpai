@@ -460,6 +460,12 @@ TARGET_UW = 0.35
 NORMUON_BETA2 = 0.95
 SOAP_BETA2 = 0.90
 SOAP_PRECOND_FREQ = 10
+# PR #1590: per-MLP-SOAP-kind β2 dispatch (fc vs proj). Disabled by default;
+# defaults preserve SOAP_BETA2=0.90 behavior. Only the Gram-EMA decay rate in
+# soap_refresh is dispatched; soap_precondition's exp_avg_sq EMA keeps SOAP_BETA2.
+PER_KIND_MLP_SOAP_BETA2_ENABLED = int(os.environ.get("PER_KIND_MLP_SOAP_BETA2_ENABLED", "0"))
+SOAP_BETA2_FC = float(os.environ.get("SOAP_BETA2_FC", str(SOAP_BETA2)))
+SOAP_BETA2_PROJ = float(os.environ.get("SOAP_BETA2_PROJ", str(SOAP_BETA2)))
 # Attention SOAP (record #16) hyperparameters
 ATTN_SOAP_BETA2 = 0.90
 ATTN_SOAP_PRECOND_FREQ = 10
@@ -652,6 +658,15 @@ class Muon(torch.optim.Optimizer):
                     self.attn_soap_kind[id(p)] = "v"
                 elif n.endswith(".attn.proj.weight"):
                     self.attn_soap_kind[id(p)] = "proj"
+        # PR #1590: track which sub-type each MLP-SOAP param is (fc/proj) for
+        # per-kind β2 dispatch in soap_refresh.
+        self.soap_kind: dict[int, str] = {}
+        for n, p in named_params:
+            if p in self.soap_params:
+                if n.endswith(".mlp.fc.weight"):
+                    self.soap_kind[id(p)] = "fc"
+                elif n.endswith(".mlp.proj.weight"):
+                    self.soap_kind[id(p)] = "proj"
         params = sorted([p for _, p in named_params], key=lambda x: x.size(), reverse=True)
         defaults = dict(lr=lr, weight_decay=weight_decay, mu=mu)
         super().__init__(params, defaults)
@@ -712,7 +727,15 @@ class Muon(torch.optim.Optimizer):
                     p.add_(update, alpha=-group["lr"])
                     # Refresh SOAP state with the raw grad (after applying the step).
                     if use_soap:
-                        soap_refresh(grad, state)
+                        # PR #1590: per-MLP-SOAP-kind β2 dispatch (fc vs proj) of the
+                        # Gram-EMA decay rate. soap_precondition's exp_avg_sq keeps the
+                        # global SOAP_BETA2 default.
+                        if PER_KIND_MLP_SOAP_BETA2_ENABLED:
+                            kind = self.soap_kind.get(id(p), "fc")
+                            _beta2 = SOAP_BETA2_FC if kind == "fc" else SOAP_BETA2_PROJ
+                        else:
+                            _beta2 = SOAP_BETA2
+                        soap_refresh(grad, state, beta2=_beta2, refresh_freq=SOAP_PRECOND_FREQ)
                     elif use_attn_soap:
                         soap_refresh(grad, state, beta2=ATTN_SOAP_BETA2,
                                      refresh_freq=ATTN_SOAP_PRECOND_FREQ,
@@ -774,6 +797,40 @@ class Muon(torch.optim.Optimizer):
             out[f"{kind}/on_fraction"] = agg["on"] / kn
             out[f"{kind}/mean_cos_row"] = sum(crs) / kn
             out[f"{kind}/mean_cos_col"] = sum(ccs) / kn
+        return out
+
+    def per_kind_soap_stats(self) -> dict[str, float]:
+        """Per-MLP-SOAP-kind (fc/proj) Gram L2 telemetry for PR #1590.
+
+        Returns aggregate mean row_gg/col_gg L2 norms per kind across all MLP blocks,
+        plus the fc/proj ratio (key diagnostic that confirms the two projections are
+        accumulating different curvature statistics)."""
+        by_kind: dict[str, dict[str, list[float]]] = {
+            "fc": {"row": [], "col": []},
+            "proj": {"row": [], "col": []},
+        }
+        for p in self.soap_params:
+            state = self.state.get(p)
+            if state is None or "row_gg" not in state or "col_gg" not in state:
+                continue
+            kind = self.soap_kind.get(id(p))
+            if kind is None:
+                continue
+            by_kind[kind]["row"].append(state["row_gg"].float().norm().item())
+            by_kind[kind]["col"].append(state["col_gg"].float().norm().item())
+        out: dict[str, float] = {}
+        for kind, agg in by_kind.items():
+            rows = agg["row"]
+            cols = agg["col"]
+            if not rows:
+                continue
+            out[f"{kind}/count"] = len(rows)
+            out[f"{kind}/row_gg_l2_mean"] = sum(rows) / len(rows)
+            out[f"{kind}/col_gg_l2_mean"] = sum(cols) / len(cols)
+        # fc/proj ratio (key diagnostic).
+        if "fc/row_gg_l2_mean" in out and "proj/row_gg_l2_mean" in out:
+            out["ratio/row_gg_fc_over_proj"] = out["fc/row_gg_l2_mean"] / max(out["proj/row_gg_l2_mean"], 1e-12)
+            out["ratio/col_gg_fc_over_proj"] = out["fc/col_gg_l2_mean"] / max(out["proj/col_gg_l2_mean"], 1e-12)
         return out
 
 
@@ -1059,6 +1116,22 @@ for trial_idx in range(args.num_trials):
                     stats = opt.trust_gate_stats()
                     if stats:
                         wandb.log(prefixed("train/attn_soap_trust_gate", stats), step=wandb_step)
+                if PER_KIND_MLP_SOAP_BETA2_ENABLED and hasattr(opt, "per_kind_soap_stats"):
+                    k_stats = opt.per_kind_soap_stats()
+                    if k_stats:
+                        wandb.log(prefixed("train/per_kind_soap", k_stats), step=wandb_step)
+                        if train_step in (100, 2950):
+                            print0(
+                                f"[PER_KIND_MLP_SOAP_BETA2] step={train_step} "
+                                f"fc_beta2={SOAP_BETA2_FC} proj_beta2={SOAP_BETA2_PROJ} "
+                                f"fc_row_gg_l2={k_stats.get('fc/row_gg_l2_mean', float('nan')):.4e} "
+                                f"fc_col_gg_l2={k_stats.get('fc/col_gg_l2_mean', float('nan')):.4e} "
+                                f"proj_row_gg_l2={k_stats.get('proj/row_gg_l2_mean', float('nan')):.4e} "
+                                f"proj_col_gg_l2={k_stats.get('proj/col_gg_l2_mean', float('nan')):.4e} "
+                                f"ratio_row={k_stats.get('ratio/row_gg_fc_over_proj', float('nan')):.3f} "
+                                f"ratio_col={k_stats.get('ratio/col_gg_fc_over_proj', float('nan')):.3f}",
+                                console=True,
+                            )
         if dist.get_rank() == 0 and telemetry_due:
             log_weight_telemetry(
                 model=model,
