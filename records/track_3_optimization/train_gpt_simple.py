@@ -602,6 +602,12 @@ NANOGPT_NEWTON_MUON_UPDATE_PERIOD = int(os.environ.get("NANOGPT_NEWTON_MUON_UPDA
 NANOGPT_NEWTON_MUON_BETA = float(os.environ.get("NANOGPT_NEWTON_MUON_BETA", "0.95"))
 NANOGPT_NEWTON_MUON_EPS = float(os.environ.get("NANOGPT_NEWTON_MUON_EPS", "1e-4"))
 NANOGPT_NEWTON_MUON_MAX_D_IN = int(os.environ.get("NANOGPT_NEWTON_MUON_MAX_D_IN", "1024"))
+# NM LR×R_cond coupling (#1585). When both are 0, the cond_scale multiplication is
+# skipped entirely so the path is bit-identical to the Newton-Muon production path.
+# Gamma form: cond_scale = 1 / (1 + gamma * log10(R_cond)).
+# Setpoint form (used when target>0): cond_scale = min(1, sqrt(target / R_cond)).
+NANOGPT_NM_LR_COND_GAMMA = float(os.environ.get("NANOGPT_NM_LR_COND_GAMMA", "0.0"))
+NANOGPT_NM_LR_COND_TARGET = float(os.environ.get("NANOGPT_NM_LR_COND_TARGET", "0.0"))
 
 # Global per-parameter input-activation cache populated by forward hooks. Keyed by
 # id(weight_param) → tensor of shape (B*T, d_in) on device. Only populated when
@@ -746,7 +752,9 @@ class Muon(torch.optim.Optimizer):
                  newton_precond: bool = False, newton_beta: float = 0.95,
                  newton_eps: float = 1e-4, newton_update_period: int = 10,
                  newton_max_d_in: int = 1024,
-                 newton_input_cache: dict | None = None):
+                 newton_input_cache: dict | None = None,
+                 nm_lr_cond_gamma: float = 0.0,
+                 nm_lr_cond_target: float = 0.0):
         assert isinstance(params, list) and len(params) >= 1
         if isinstance(params[0], dict):
             # list-of-dicts param_groups: sort each group's params by size.
@@ -786,6 +794,12 @@ class Muon(torch.optim.Optimizer):
         self.newton_max_d_in = int(newton_max_d_in)
         self.newton_input_cache = newton_input_cache if newton_input_cache is not None else {}
         self._newton_step_count = 0
+        # NM LR×R_cond coupling (#1585). When both are 0.0 the cond_scale path is
+        # skipped entirely (bit-identical to production Newton-Muon).
+        self.nm_lr_cond_gamma = float(nm_lr_cond_gamma)
+        self.nm_lr_cond_target = float(nm_lr_cond_target)
+        self._nm_lr_cond_active = (self.nm_lr_cond_gamma > 0.0
+                                   or self.nm_lr_cond_target > 0.0)
         # Accumulator dict reset each step() — read by the training loop after
         # step() for W&B logging. Keys: cond_max, cond_min, cond_sum, cond_n,
         # inv_sqrt_norm_sum, precond_ratio_sum, precond_ratio_n, applied_n.
@@ -798,7 +812,7 @@ class Muon(torch.optim.Optimizer):
     def set_ns_iters_this_step(self, ns_iters: int) -> None:
         self.ns_iters_this_step = int(ns_iters)
 
-    def _apply_newton_precondition(self, p, grad, state):
+    def _apply_newton_precondition(self, p, grad, state, group_name: str = ""):
         """Right-precondition grad by (X^T X)^{-1/2} for body Muon matrices.
 
         Returns the preconditioned gradient (new tensor, same dtype as grad) or
@@ -808,6 +822,11 @@ class Muon(torch.optim.Optimizer):
         Telemetry .item() calls force CUDA syncs and gate GPU pipelining, so they
         are guarded behind self.newton_telemetry_due (set by the training loop
         before step()) — async-only path on non-telemetry steps.
+
+        When NM LR×R_cond coupling is active (`_nm_lr_cond_active`), the
+        preconditioned gradient is additionally scaled by `cond_scale`, computed
+        on-device from the current eigenvalue spectrum (no `.item()` sync on the
+        hot path).
         """
         if p.ndim != 2:
             return None
@@ -851,6 +870,24 @@ class Muon(torch.optim.Optimizer):
         # G @ R_inv_sqrt: float32 matmul, then cast back to grad dtype.
         g32 = grad.float()
         g_precond32 = g32 @ R_inv_sqrt
+        # === NM LR×R_cond coupling (#1585) ===
+        # When active, scale g_precond by cond_scale derived from the current
+        # eigenvalue spectrum. Compute on-device to avoid `.item()` syncs on the
+        # hot path; the multiplication is fused into the downstream pipeline.
+        cond_scale_t = None
+        if self._nm_lr_cond_active:
+            vals_clamped = state.get("_R_vals_clamped")
+            if vals_clamped is not None:
+                r_cond_t = vals_clamped.max() / vals_clamped.min().clamp(min=1e-8)
+                r_cond_t = r_cond_t.clamp(min=1.0)  # log10(1)=0 -> scale=1
+                if self.nm_lr_cond_target > 0.0:
+                    cond_scale_t = torch.minimum(
+                        torch.ones_like(r_cond_t),
+                        (self.nm_lr_cond_target / r_cond_t).sqrt(),
+                    )
+                else:
+                    cond_scale_t = 1.0 / (1.0 + self.nm_lr_cond_gamma * torch.log10(r_cond_t))
+                g_precond32 = g_precond32 * cond_scale_t
         tel = self.newton_telemetry
         tel["applied_n"] = tel.get("applied_n", 0) + 1
         # Only force CUDA syncs for telemetry on telemetry-due steps. The rest
@@ -874,6 +911,20 @@ class Muon(torch.optim.Optimizer):
                     + float(g_precond32.norm().item()) / g_norm
                 )
                 tel["precond_ratio_n"] = tel.get("precond_ratio_n", 0) + 1
+            # NM LR×R_cond coupling telemetry: sync the scalar to host and bucket
+            # by group_name so ATTN vs MLP cond_scale can be compared.
+            if cond_scale_t is not None:
+                cs = float(cond_scale_t.item())
+                tel["cond_scale_sum"] = tel.get("cond_scale_sum", 0.0) + cs
+                tel["cond_scale_n"] = tel.get("cond_scale_n", 0) + 1
+                tel["cond_scale_min"] = min(tel.get("cond_scale_min", float("inf")), cs)
+                tel["cond_scale_max"] = max(tel.get("cond_scale_max", 0.0), cs)
+                if "attn" in group_name:
+                    tel["cond_scale_attn_sum"] = tel.get("cond_scale_attn_sum", 0.0) + cs
+                    tel["cond_scale_attn_n"] = tel.get("cond_scale_attn_n", 0) + 1
+                elif "mlp" in group_name:
+                    tel["cond_scale_mlp_sum"] = tel.get("cond_scale_mlp_sum", 0.0) + cs
+                    tel["cond_scale_mlp_n"] = tel.get("cond_scale_mlp_n", 0) + 1
         return g_precond32.to(grad.dtype)
 
     @torch.no_grad()
@@ -904,7 +955,9 @@ class Muon(torch.optim.Optimizer):
                     # -> momentum -> v normalization -> NS5 -> update).
                     grad_for_update = p.grad
                     if self.newton_precond:
-                        g_precond = self._apply_newton_precondition(p, p.grad, state)
+                        g_precond = self._apply_newton_precondition(
+                            p, p.grad, state, group.get("name", "")
+                        )
                         if g_precond is not None:
                             grad_for_update = g_precond
                     update = muon_update(grad_for_update, state["momentum"], state["v"],
@@ -984,7 +1037,10 @@ print0(
     f"lr_scale={NANOGPT_NEWTON_MUON_LR_SCALE} "
     f"update_period={NANOGPT_NEWTON_MUON_UPDATE_PERIOD} "
     f"beta={NANOGPT_NEWTON_MUON_BETA} eps={NANOGPT_NEWTON_MUON_EPS} "
-    f"max_d_in={NANOGPT_NEWTON_MUON_MAX_D_IN}",
+    f"max_d_in={NANOGPT_NEWTON_MUON_MAX_D_IN} "
+    f"nm_lr_cond_gamma={NANOGPT_NM_LR_COND_GAMMA} "
+    f"nm_lr_cond_target={NANOGPT_NM_LR_COND_TARGET} "
+    f"({'ACTIVE' if (NANOGPT_NM_LR_COND_GAMMA > 0.0 or NANOGPT_NM_LR_COND_TARGET > 0.0) else 'INACTIVE (cond_scale=1.0 path)'})",
     console=True,
 )
 if NS_ITERS_COOLDOWN > 0:
@@ -1105,6 +1161,8 @@ if dist.get_rank() == 0:
             "nanogpt_newton_muon_beta": NANOGPT_NEWTON_MUON_BETA,
             "nanogpt_newton_muon_eps": NANOGPT_NEWTON_MUON_EPS,
             "nanogpt_newton_muon_max_d_in": NANOGPT_NEWTON_MUON_MAX_D_IN,
+            "nanogpt_nm_lr_cond_gamma": NANOGPT_NM_LR_COND_GAMMA,
+            "nanogpt_nm_lr_cond_target": NANOGPT_NM_LR_COND_TARGET,
         },
     )
 
@@ -1172,6 +1230,8 @@ for trial_idx in range(args.num_trials):
         newton_update_period=NANOGPT_NEWTON_MUON_UPDATE_PERIOD,
         newton_max_d_in=NANOGPT_NEWTON_MUON_MAX_D_IN,
         newton_input_cache=_newton_input_cache,
+        nm_lr_cond_gamma=NANOGPT_NM_LR_COND_GAMMA,
+        nm_lr_cond_target=NANOGPT_NM_LR_COND_TARGET,
     )
     print0(f"MUON_PARAM_COUNTS: attn={len(muon_attn_params)} mlp={len(muon_mlp_params)} "
            f"(expected 48 attn / 24 mlp for 12-layer block stack)", console=True)
@@ -1462,6 +1522,25 @@ for trial_idx in range(args.num_trials):
             if ratio_n > 0:
                 newton_metrics["newton_muon/precond_ratio_mean"] = (
                     tel["precond_ratio_sum"] / ratio_n
+                )
+            # NM LR×R_cond coupling telemetry (#1585). When inactive these stay
+            # absent so baseline runs log identical key sets.
+            cs_n = tel.get("cond_scale_n", 0)
+            if cs_n > 0:
+                newton_metrics["nm_lr_cond/cond_scale_mean"] = (
+                    tel["cond_scale_sum"] / cs_n
+                )
+                newton_metrics["nm_lr_cond/cond_scale_min"] = tel["cond_scale_min"]
+                newton_metrics["nm_lr_cond/cond_scale_max"] = tel["cond_scale_max"]
+            cs_an = tel.get("cond_scale_attn_n", 0)
+            if cs_an > 0:
+                newton_metrics["nm_lr_cond/cond_scale_attn_mean"] = (
+                    tel["cond_scale_attn_sum"] / cs_an
+                )
+            cs_mn = tel.get("cond_scale_mlp_n", 0)
+            if cs_mn > 0:
+                newton_metrics["nm_lr_cond/cond_scale_mlp_mean"] = (
+                    tel["cond_scale_mlp_sum"] / cs_mn
                 )
             wandb.log(newton_metrics, step=wandb_step)
         # Init-anchored WD on embed (#847, env-var-gated). After both optimizers
