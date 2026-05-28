@@ -97,6 +97,16 @@ def parse_args():
              "muall=musoft + non-residual block 2D weights also scaled by 1/sqrt(L); "
              "smallconst=std=1e-3 depth-independent.",
     )
+    parser.add_argument("--use_sophia_aux", action="store_true",
+                        help="Use Sophia-G (2nd-order GNB) on adam_embed and adam_lm_head "
+                             "param groups; keep AdamW on adam_scalars (PR #1502).")
+    parser.add_argument("--sophia_rho", type=float, default=0.05,
+                        help="Sophia-G clip threshold (paper default 0.05).")
+    parser.add_argument("--sophia_lr_scale", type=float, default=1.0,
+                        help="Multiplier on the existing per-group LR (lr_embed=0.3, "
+                             "lr_lm_head=1/320) when Sophia-G is enabled.")
+    parser.add_argument("--sophia_k", type=int, default=10,
+                        help="Sophia-G Hessian update frequency (paper default 10).")
     args = parser.parse_args()
     args.num_trials = args.num_trials if args.num_trials is not None else (args.legacy_num_trials or 1)
     args.wandb_tags = [tag.strip() for tag in args.wandb_tags.split(",") if tag.strip()]
@@ -695,6 +705,125 @@ class Muon(torch.optim.Optimizer):
         return result
 
 
+class SophiaG(torch.optim.Optimizer):
+    """Sophia-G (Gauss-Newton-Bartlett 2nd-order optimizer; Liu et al. ICLR 2024).
+
+    Per-batch g⊙g estimator: simpler than Hutchinson HVP, paper-reported ≤1-2%
+    deviation. Update:
+
+        m_t ← β1·m_{t-1} + (1-β1)·g_t                          (every step)
+        h_t ← β2·h_{t-1} + (1-β2)·g_t⊙g_t                       (every k steps)
+        θ_t ← θ - lr · clip(m_t / max(γ·h_t, ε), -ρ, ρ)         (clipped step)
+
+    γ defaults to ρ (matches official Liuhong99/Sophia code conflation). State
+    tensors (m, h) are kept fp32 even when params are bf16 for numerical
+    stability of the EMA accumulation over thousands of steps.
+    """
+
+    def __init__(self, param_groups, lr=1e-4, betas=(0.965, 0.99),
+                 rho=0.05, gamma=None, weight_decay=0.0, k=10, eps=1e-12):
+        if gamma is None:
+            gamma = rho
+        defaults = dict(lr=lr, betas=betas, rho=rho, gamma=gamma,
+                        weight_decay=weight_decay, k=k, eps=eps)
+        super().__init__(param_groups, defaults)
+
+    @torch.no_grad()
+    def step(self):
+        for group in self.param_groups:
+            lr = group["lr"]
+            b1, b2 = group["betas"]
+            rho = group["rho"]
+            gamma = group["gamma"]
+            wd = group["weight_decay"]
+            k = group["k"]
+            eps = group["eps"]
+
+            params = group["params"]
+            if not params:
+                continue
+            device = params[0].device
+            clip_count = torch.zeros((), device=device, dtype=torch.float64)
+            total_count = 0
+
+            for p in params:
+                if p.grad is None:
+                    continue
+                g = p.grad
+                if g.dtype != torch.float32:
+                    g = g.float()
+
+                state = self.state[p]
+                if len(state) == 0:
+                    state["step"] = 0
+                    state["m"] = torch.zeros_like(p, dtype=torch.float32)
+                    state["h"] = torch.zeros_like(p, dtype=torch.float32)
+
+                state["step"] += 1
+                m = state["m"]
+                h = state["h"]
+
+                # Decoupled WD (matches AdamW shrinkage).
+                if wd != 0.0:
+                    p.mul_(1 - lr * wd)
+
+                # 1st-moment EMA (every step).
+                m.mul_(b1).add_(g, alpha=1 - b1)
+
+                # GNB diag-Hessian EMA via per-batch g⊙g (every k steps).
+                if state["step"] % k == 0:
+                    h.mul_(b2).addcmul_(g, g, value=1 - b2)
+
+                # Clipped 2nd-order step: clip(m / max(γ·h, ε), -ρ, ρ)
+                denom = (h * gamma).clamp_min(eps)
+                pre = m / denom  # unclipped preconditioned step
+                # Diagnostic: clipped coords are where |pre| > rho (pre-clamp).
+                clip_count.add_((pre.abs() > rho).sum().double())
+                total_count += pre.numel()
+                pre.clamp_(min=-rho, max=rho)
+                p.add_(pre.to(p.dtype), alpha=-lr)
+
+            group["_step_clip_count"] = clip_count
+            group["_step_total_count"] = total_count
+
+    @torch.no_grad()
+    def get_step_diagnostics(self) -> dict[str, dict[str, float]]:
+        """Compute per-group {clip_rate, h_mean, m_norm} for W&B logging."""
+        world_size = dist.get_world_size()
+        result: dict[str, dict[str, float]] = {}
+        for g_idx, group in enumerate(self.param_groups):
+            name = group.get("name", f"group_{g_idx}")
+            clip_count = group.get("_step_clip_count", None)
+            total_count = group.get("_step_total_count", 0)
+            if clip_count is None or total_count == 0:
+                continue
+            device = group["params"][0].device
+            h_sum = torch.zeros((), device=device, dtype=torch.float64)
+            h_count = 0
+            m_sq_sum = torch.zeros((), device=device, dtype=torch.float64)
+            for p in group["params"]:
+                state = self.state.get(p, {})
+                if "h" in state:
+                    h_sum.add_(state["h"].sum().double())
+                    h_count += state["h"].numel()
+                if "m" in state:
+                    m_sq_sum.add_(state["m"].square().sum().double())
+            if world_size > 1:
+                tensors = torch.stack([clip_count, h_sum, m_sq_sum])
+                dist.all_reduce(tensors, op=dist.ReduceOp.SUM)
+                cc_val, hs_val, ms_val = (float(x.item()) for x in tensors)
+            else:
+                cc_val = float(clip_count.item())
+                hs_val = float(h_sum.item())
+                ms_val = float(m_sq_sum.item())
+            result[name] = {
+                "clip_rate": cc_val / max(1, total_count),
+                "h_mean": hs_val / max(1, h_count),
+                "m_norm": ms_val ** 0.5,
+            }
+        return result
+
+
 ########################################
 #                Setup                 #
 ########################################
@@ -780,6 +909,10 @@ if dist.get_rank() == 0:
             "lr_scalars": args.lr_scalars,
             "depth_init_mode": args.depth_init_mode,
             "lr_cooldown_shape": args.lr_cooldown_shape,
+            "use_sophia_aux": bool(args.use_sophia_aux),
+            "sophia_rho": float(args.sophia_rho),
+            "sophia_lr_scale": float(args.sophia_lr_scale),
+            "sophia_k": int(args.sophia_k),
         },
     )
 
@@ -852,10 +985,28 @@ for trial_idx in range(args.num_trials):
     print0(f"[init] mode={args.depth_init_mode}  L={NUM_LAYERS}  block_residual_attn.proj_std={_ex_resid_std:.6f}", console=True)
 
     # create the optimizer(s)
-    optimizer1 = AdamW([dict(params=[model.embed.weight], lr=0.3, name="adam_embed"),
-                        dict(params=[model.proj.weight], lr=1/320, name="adam_lm_head"),
-                        dict(params=[p for p in model.parameters() if p.ndim < 2], lr=args.lr_scalars, name="adam_scalars")],
-                       betas=(0.8, 0.95), eps=1e-10, weight_decay=0, fused=True)
+    if args.use_sophia_aux:
+        # Sophia-G on dense 2D embed + lm_head; AdamW unchanged on 1D scalars.
+        optimizer1a = SophiaG(
+            [
+                dict(params=[model.embed.weight], lr=0.3 * args.sophia_lr_scale, name="sophia_embed"),
+                dict(params=[model.proj.weight],  lr=(1/320) * args.sophia_lr_scale, name="sophia_lm_head"),
+            ],
+            betas=(0.965, 0.99), rho=args.sophia_rho, weight_decay=0,
+            k=args.sophia_k, eps=1e-12,
+        )
+        optimizer1b = AdamW(
+            [dict(params=[p for p in model.parameters() if p.ndim < 2],
+                  lr=args.lr_scalars, name="adam_scalars")],
+            betas=(0.8, 0.95), eps=1e-10, weight_decay=0, fused=True,
+        )
+        optimizer1_list = [optimizer1a, optimizer1b]
+    else:
+        optimizer1 = AdamW([dict(params=[model.embed.weight], lr=0.3, name="adam_embed"),
+                            dict(params=[model.proj.weight], lr=1/320, name="adam_lm_head"),
+                            dict(params=[p for p in model.parameters() if p.ndim < 2], lr=args.lr_scalars, name="adam_scalars")],
+                           betas=(0.8, 0.95), eps=1e-10, weight_decay=0, fused=True)
+        optimizer1_list = [optimizer1]
     named_blocks = [(n, p) for n, p in model.blocks.named_parameters() if p.ndim >= 2]
     mlp_named = [(n, p) for n, p in named_blocks
                  if n.endswith(".mlp.fc.weight") or n.endswith(".mlp.proj.weight")]
@@ -869,7 +1020,7 @@ for trial_idx in range(args.num_trials):
         ],
         soap_attn=args.soap_attn, trust_threshold=args.soap_trust_threshold,
     )
-    optimizers = [optimizer1, optimizer2]
+    optimizers = [*optimizer1_list, optimizer2]
     assert set(p for opt in optimizers for group in opt.param_groups
                for p in group["params"]) == set(model.parameters())
     for opt in optimizers:
@@ -1040,6 +1191,17 @@ for trial_idx in range(args.num_trials):
             )
         for opt in optimizers:
             opt.step()
+        if telemetry_due and args.use_sophia_aux:
+            sophia_opt = optimizers[0]
+            assert isinstance(sophia_opt, SophiaG)
+            sophia_diag = sophia_opt.get_step_diagnostics()
+            if dist.get_rank() == 0:
+                sophia_metrics = {"trial": trial_idx, "train/step": train_step}
+                for group_name, d in sophia_diag.items():
+                    sophia_metrics[f"sophia/clip_rate/{group_name}"] = d["clip_rate"]
+                    sophia_metrics[f"sophia/h_mean/{group_name}"] = d["h_mean"]
+                    sophia_metrics[f"sophia/m_norm/{group_name}"] = d["m_norm"]
+                wandb.log(sophia_metrics, step=wandb_step)
         if telemetry_due:
             update_norms = optimizer2.get_step_update_norms()
             current_lrs = {group.get("name", f"group_{i}"): group["lr"]
