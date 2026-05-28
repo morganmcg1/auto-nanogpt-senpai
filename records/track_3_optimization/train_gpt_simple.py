@@ -61,6 +61,14 @@ def parse_args():
                              "--ema_beta_target during cooldown, coupling β to the LR schedule. "
                              "Requires --ema_beta>0. β_t = ema_beta + (ema_beta_target - ema_beta) "
                              "× (1 - lr_mult_t).")
+    parser.add_argument("--ema_beta_aux", type=float, default=-1.0,
+                        help="Override --ema_beta for aux Adam param groups (embed, lm_head, "
+                             "scalars). -1 (default) = use --ema_beta for all groups. >0 = use "
+                             "this for aux only. Setting this enables aux pEMA buffer expansion.")
+    parser.add_argument("--ema_beta_aux_target", type=float, default=-1.0,
+                        help="Override --ema_beta_target for aux Adam param groups. -1 (default) "
+                             "= use --ema_beta_target for all. >0 = use this for aux only. "
+                             "Setting this enables aux pEMA buffer expansion.")
     parser.add_argument("--muon_lr", type=float, default=0.035,
                         help="Base learning rate for body-Muon optimizer (matrix params in blocks). "
                              "Default 0.035 matches the merged baseline.")
@@ -747,6 +755,9 @@ if dist.get_rank() == 0:
             "ema_warmup_steps": args.ema_warmup_steps,
             "ema_beta_target": args.ema_beta_target if args.ema_beta_target is not None else 0.0,
             "ema_dynamic_ramp_active": int(args.ema_beta_target is not None and args.ema_beta > 0),
+            "ema_beta_aux": args.ema_beta_aux,
+            "ema_beta_aux_target": args.ema_beta_aux_target,
+            "ema_aux_pema_enabled": int(args.ema_beta_aux > 0 or args.ema_beta_aux_target > 0),
             "muon_block_lr_pattern": args.muon_block_lr_pattern,
             "paramema_refresh_step": args.paramema_refresh_step,
             "paramema_refresh_only": int(args.paramema_refresh_only),
@@ -827,15 +838,50 @@ for trial_idx in range(args.num_trials):
         for group in opt.param_groups:
             group["initial_lr"] = group["lr"]
 
-    # Polyak/EMA inference weights for body-Muon matrix params (FP32 buffer).
-    # During the first args.ema_warmup_steps the buffer tracks params live
-    # (handles attn.proj/mlp.proj zero-init bias and seeds buffer with stable
-    # post-warmup params). After warmup, EMA averaging begins. If
-    # --ema_beta_target is set, the EMA β is dynamically ramped from
-    # ema_beta (base) to ema_beta_target as the LR multiplier decays to 0.
+    # Polyak/EMA inference weights buffer (FP32).
+    #
+    # Default (--ema_beta_aux<=0 and --ema_beta_aux_target<=0): body-Muon matrix
+    # params only (per #1429 canon). Aux Adam params (embed, lm_head, scalars)
+    # always use live train weights at val time.
+    #
+    # When --ema_beta_aux>0 or --ema_beta_aux_target>0: buffer expands to also
+    # cover aux Adam params and per-group β trajectories apply (body uses
+    # --ema_beta / --ema_beta_target, aux uses --ema_beta_aux / --ema_beta_aux_target).
+    #
+    # During the first args.ema_warmup_steps the buffer tracks params live so
+    # that the post-warmup buffer is seeded with stable params (handles
+    # attn.proj/mlp.proj zero-init bias). After warmup, EMA averaging begins.
     ema_params = None
+    ema_target_params = None  # list of nn.Parameter parallel to ema_params
+    ema_is_aux = None  # list[bool] parallel to ema_params (True for aux Adam group)
+    aux_pema_enabled = (args.ema_beta_aux > 0) or (args.ema_beta_aux_target > 0)
     if args.ema_beta > 0:
-        ema_params = [p.detach().float().clone() for p in optimizer2.param_groups[0]["params"]]
+        body_params = list(optimizer2.param_groups[0]["params"])
+        ema_target_params = list(body_params)
+        ema_is_aux = [False] * len(body_params)
+        if aux_pema_enabled:
+            aux_params = [p for g in optimizer1.param_groups for p in g["params"]]
+            ema_target_params.extend(aux_params)
+            ema_is_aux.extend([True] * len(aux_params))
+            ema_ids = [id(p) for p in ema_target_params]
+            assert len(ema_ids) == len(set(ema_ids)), "duplicate param in ema_target_params"
+            assert set(ema_ids) == {id(p) for p in model.parameters()}, (
+                "ema_target_params does not cover all model params when aux pEMA enabled"
+            )
+            if dist.get_rank() == 0:
+                aux_beta_base = args.ema_beta_aux if args.ema_beta_aux > 0 else args.ema_beta
+                aux_beta_target = (args.ema_beta_aux_target if args.ema_beta_aux_target > 0
+                                   else (args.ema_beta_target if args.ema_beta_target is not None
+                                         else args.ema_beta))
+                print0(f"pEMA buffer expanded to aux params: "
+                       f"body_slots={len(body_params)} aux_slots={len(aux_params)} "
+                       f"total={len(ema_target_params)}", console=True)
+                print0(f"  body β trajectory: {args.ema_beta} -> "
+                       f"{args.ema_beta_target if args.ema_beta_target is not None else args.ema_beta}",
+                       console=True)
+                print0(f"  aux  β trajectory: {aux_beta_base} -> {aux_beta_target}",
+                       console=True)
+        ema_params = [p.detach().float().clone() for p in ema_target_params]
 
     # paramEMA refresh state: when --paramema_refresh_step>0, the buffer is reset
     # to live params at that step. ema_refresh/fired stays at 0 until then.
@@ -857,18 +903,29 @@ for trial_idx in range(args.num_trials):
         w = 1.0 - cooldown_progress
         return w ** COOLDOWN_POWER
 
-    def compute_ema_beta_t(step):
-        """Dynamic β_t = β_base + (β_target - β_base) × (1 - lr_mult_t).
-        Returns β_base when β_target unset; clamped to [β_base, β_target]."""
-        if args.ema_beta <= 0:
+    def _compute_beta_t_generic(step, beta_base, beta_target):
+        """Dynamic β_t = β_base + (β_target - β_base) × (1 - lr_mult_t)."""
+        if beta_base <= 0:
             return 1.0  # EMA disabled; sentinel
-        if args.ema_beta_target is None:
-            return args.ema_beta
+        if beta_target is None or beta_target < 0:
+            return beta_base
         lr_mult = compute_lr_mult(step)
-        beta_t = args.ema_beta + (args.ema_beta_target - args.ema_beta) * (1.0 - lr_mult)
-        lo = min(args.ema_beta, args.ema_beta_target)
-        hi = max(args.ema_beta, args.ema_beta_target)
+        beta_t = beta_base + (beta_target - beta_base) * (1.0 - lr_mult)
+        lo = min(beta_base, beta_target)
+        hi = max(beta_base, beta_target)
         return max(lo, min(hi, beta_t))
+
+    def compute_ema_beta_t(step):
+        """Body-group β trajectory (canonical)."""
+        return _compute_beta_t_generic(step, args.ema_beta, args.ema_beta_target)
+
+    def compute_ema_beta_t_aux(step):
+        """Aux-group β trajectory. Falls back to body schedule when --ema_beta_aux
+        / --ema_beta_aux_target are unset (<0)."""
+        beta_aux = args.ema_beta_aux if args.ema_beta_aux > 0 else args.ema_beta
+        beta_aux_target = (args.ema_beta_aux_target if args.ema_beta_aux_target > 0
+                           else args.ema_beta_target)
+        return _compute_beta_t_generic(step, beta_aux, beta_aux_target)
 
     def set_hparams(step, cooldown_frac=0.7):
         progress = step / train_steps
@@ -922,6 +979,8 @@ for trial_idx in range(args.num_trials):
             # (since EMA is what we'd ship); val_loss_live is the unmodified train model.
             val_loss_live_float = float("nan")
             buffer_frob_dist = float("nan")
+            buffer_frob_dist_body = float("nan")
+            buffer_frob_dist_aux = float("nan")
             if ema_params is not None:
                 val_loss_live = torch.zeros((), device=device)
                 with torch.no_grad():
@@ -931,17 +990,27 @@ for trial_idx in range(args.num_trials):
                 dist.all_reduce(val_loss_live, op=dist.ReduceOp.SUM)
                 val_loss_live /= val_tokens
                 val_loss_live_float = float(val_loss_live.item())
-            # Swap in EMA weights (body-Muon matrix params only) for the eval pass.
+            # Swap in EMA weights for the eval pass. Covers all params currently
+            # tracked in ema_target_params (body-only by default; body+aux when
+            # aux pEMA is enabled).
             train_bufs = None
             if ema_params is not None:
-                train_bufs = [p.detach().clone() for p in optimizer2.param_groups[0]["params"]]
-                # Compute Frobenius distance ||ema - live|| across all body-Muon params.
-                sq_sum = 0.0
-                for ema_p, p in zip(ema_params, optimizer2.param_groups[0]["params"]):
+                train_bufs = [p.detach().clone() for p in ema_target_params]
+                # Compute split Frobenius distances ||ema - live|| for body vs aux.
+                sq_sum_body = 0.0
+                sq_sum_aux = 0.0
+                for ema_p, p, is_aux in zip(ema_params, ema_target_params, ema_is_aux):
                     diff = (ema_p - p.detach().float())
-                    sq_sum += float(diff.square().sum().item())
-                buffer_frob_dist = sq_sum ** 0.5
-                for ema_p, p in zip(ema_params, optimizer2.param_groups[0]["params"]):
+                    s = float(diff.square().sum().item())
+                    if is_aux:
+                        sq_sum_aux += s
+                    else:
+                        sq_sum_body += s
+                buffer_frob_dist_body = sq_sum_body ** 0.5
+                buffer_frob_dist_aux = sq_sum_aux ** 0.5
+                # Combined Frob distance (matches legacy body-only when aux disabled).
+                buffer_frob_dist = (sq_sum_body + sq_sum_aux) ** 0.5
+                for ema_p, p in zip(ema_params, ema_target_params):
                     p.data.copy_(ema_p.to(p.dtype))
             val_loss = torch.zeros((), device=device)
             with torch.no_grad():
@@ -953,7 +1022,7 @@ for trial_idx in range(args.num_trials):
             val_loss_float = float(val_loss.item())
             # Restore train weights immediately after eval so subsequent backward passes use them.
             if train_bufs is not None:
-                for train_p, p in zip(train_bufs, optimizer2.param_groups[0]["params"]):
+                for train_p, p in zip(train_bufs, ema_target_params):
                     p.data.copy_(train_p)
             if dist.get_rank() == 0:
                 val_loss_history.append((step, val_loss_float))
@@ -977,7 +1046,8 @@ for trial_idx in range(args.num_trials):
                 }
                 if ema_params is not None:
                     lr_mult_now = compute_lr_mult(step)
-                    beta_t_now = compute_ema_beta_t(step)
+                    beta_t_now = compute_ema_beta_t(step)  # body β (legacy)
+                    beta_aux_t_now = compute_ema_beta_t_aux(step)
                     metrics["val/loss_live"] = val_loss_live_float
                     metrics["val/ema_minus_live"] = val_loss_float - val_loss_live_float
                     metrics["ema/val_loss_ema"] = val_loss_float
@@ -986,13 +1056,30 @@ for trial_idx in range(args.num_trials):
                     # delta in mnat (millinats) for legibility in the dashboard.
                     metrics["ema/delta_ema_minus_live_mnat"] = (val_loss_float - val_loss_live_float) * 1000.0
                     metrics["ema/buffer_frob_dist"] = buffer_frob_dist
+                    metrics["ema/buffer_frob_dist_body"] = buffer_frob_dist_body
+                    metrics["ema/buffer_frob_dist_aux"] = buffer_frob_dist_aux
                     metrics["ema/lr_mult_t"] = lr_mult_now
                     metrics["ema/beta_t"] = beta_t_now
+                    metrics["ema/beta_body_t"] = beta_t_now
+                    metrics["ema/beta_aux_t"] = beta_aux_t_now
                     metrics["ema/beta_target"] = (args.ema_beta_target if args.ema_beta_target is not None
                                                   else args.ema_beta)
+                    metrics["ema/beta_aux_target"] = (args.ema_beta_aux_target if args.ema_beta_aux_target > 0
+                                                      else (args.ema_beta_target if args.ema_beta_target is not None
+                                                            else args.ema_beta))
                     metrics["ema/n_eff"] = 1.0 / max(1e-12, (1.0 - beta_t_now))
+                    metrics["ema/n_eff_body"] = 1.0 / max(1e-12, (1.0 - beta_t_now))
+                    metrics["ema/n_eff_aux"] = 1.0 / max(1e-12, (1.0 - beta_aux_t_now))
                     metrics["ema/active"] = int(step >= args.ema_warmup_steps)
                     metrics["ema/warmup_steps"] = args.ema_warmup_steps
+                    metrics["ema/aux_pema_enabled"] = int(aux_pema_enabled)
+                    metrics["ema/beta_split_active"] = int(
+                        aux_pema_enabled and (
+                            beta_aux_t_now != beta_t_now
+                            or args.ema_beta_aux > 0
+                            or args.ema_beta_aux_target > 0
+                        )
+                    )
                 metrics.update(prefixed("val/slope", loss_slope_stats(val_loss_history, slope_window_steps)))
                 wandb.log(metrics, step=trial_idx * (train_steps + 1) + step)
             print0(f"step:{step}/{train_steps} val_loss:{val_loss:.5f} train_time:{training_time:.3f}s"
@@ -1049,39 +1136,49 @@ for trial_idx in range(args.num_trials):
             )
         for opt in optimizers:
             opt.step()
-        # EMA buffer update on body-Muon matrix params.
+        # EMA buffer update (body-only or body+aux per --ema_beta_aux*).
         # During warmup: track params live (no averaging) so post-warmup buffer is
         # seeded with stable, non-zero params (handles proj zero-init bias and lets
         # the EMA window cover only the late-cooldown regime).
         # After warmup: lerp at (1 - β_t) where β_t is the dynamic cooldown-aware β.
-        ema_beta_t_now = float("nan")
+        # When aux pEMA is enabled, body and aux params receive independent β_t.
+        ema_beta_t_now = float("nan")  # body β (kept as legacy name for back-compat)
+        ema_beta_aux_t_now = float("nan")
         ema_lr_mult_now = float("nan")
         if ema_params is not None:
             if step < args.ema_warmup_steps:
-                for ema_p, p in zip(ema_params, optimizer2.param_groups[0]["params"]):
+                for ema_p, p in zip(ema_params, ema_target_params):
                     ema_p.copy_(p.detach().float())
                 ema_beta_t_now = args.ema_beta
+                ema_beta_aux_t_now = (args.ema_beta_aux if args.ema_beta_aux > 0
+                                      else args.ema_beta)
                 ema_lr_mult_now = compute_lr_mult(step)
             else:
                 ema_lr_mult_now = compute_lr_mult(step)
                 ema_beta_t_now = compute_ema_beta_t(step)
-                lerp_w = 1.0 - ema_beta_t_now
-                for ema_p, p in zip(ema_params, optimizer2.param_groups[0]["params"]):
-                    ema_p.lerp_(p.detach().float(), lerp_w)
+                ema_beta_aux_t_now = compute_ema_beta_t_aux(step)
+                lerp_w_body = 1.0 - ema_beta_t_now
+                lerp_w_aux = 1.0 - ema_beta_aux_t_now
+                for ema_p, p, is_aux in zip(ema_params, ema_target_params, ema_is_aux):
+                    w = lerp_w_aux if is_aux else lerp_w_body
+                    ema_p.lerp_(p.detach().float(), w)
             # paramEMA refresh: at --paramema_refresh_step, overwrite EMA buffer
             # with current live params (zeroing the accumulated EMA history).
             # This runs AFTER the normal lerp update so the refresh is the final
             # state for the step. Fires once; subsequent steps lerp normally from
-            # the refreshed buffer.
+            # the refreshed buffer. When aux pEMA is enabled, refresh fires on
+            # body+aux slots together (same mechanism, expanded buffer).
             if (args.paramema_refresh_step > 0
                     and step == args.paramema_refresh_step):
-                for ema_p, p in zip(ema_params, optimizer2.param_groups[0]["params"]):
+                for ema_p, p in zip(ema_params, ema_target_params):
                     ema_p.copy_(p.detach().float())
                 ema_refresh_fired_total = 1
                 ema_refresh_step_logged = step
                 if dist.get_rank() == 0:
+                    n_body = sum(1 for is_aux in ema_is_aux if not is_aux)
+                    n_aux = sum(1 for is_aux in ema_is_aux if is_aux)
                     print0(f"paramEMA refresh fired at step={step} "
-                           f"(buffer reset to live params)", console=True)
+                           f"(buffer reset: body={n_body} aux={n_aux})", console=True)
         if dist.get_rank() == 0 and telemetry_due:
             log_weight_telemetry(
                 model=model,
@@ -1132,19 +1229,38 @@ for trial_idx in range(args.num_trials):
                     "muon_block_lr/ratio_b11_over_b0": b11_lr_mult / b0_lr_mult,
                 }, step=wandb_step)
             if ema_params is not None:
+                aux_beta_base_log = (args.ema_beta_aux if args.ema_beta_aux > 0
+                                     else args.ema_beta)
+                aux_beta_target_log = (args.ema_beta_aux_target if args.ema_beta_aux_target > 0
+                                       else (args.ema_beta_target if args.ema_beta_target is not None
+                                             else args.ema_beta))
                 wandb.log({
                     "trial": trial_idx,
                     "train/step": train_step,
                     "ema/beta": args.ema_beta,
                     "ema/beta_target_param": (args.ema_beta_target if args.ema_beta_target is not None
                                               else args.ema_beta),
+                    "ema/beta_aux_base_param": aux_beta_base_log,
+                    "ema/beta_aux_target_param": aux_beta_target_log,
                     "ema/beta_t_train": ema_beta_t_now,
+                    "ema/beta_body_t_train": ema_beta_t_now,
+                    "ema/beta_aux_t_train": ema_beta_aux_t_now,
                     "ema/lr_mult_t_train": ema_lr_mult_now,
                     "ema/n_eff_train": (1.0 / max(1e-12, (1.0 - ema_beta_t_now))
                                         if ema_beta_t_now < 1.0 else float("inf")),
+                    "ema/n_eff_aux_train": (1.0 / max(1e-12, (1.0 - ema_beta_aux_t_now))
+                                            if ema_beta_aux_t_now < 1.0 else float("inf")),
                     "ema/warmup_steps": args.ema_warmup_steps,
                     "ema/active_train": int(step >= args.ema_warmup_steps),
                     "ema/ramp_enabled": int(args.ema_beta_target is not None),
+                    "ema/aux_pema_enabled": int(aux_pema_enabled),
+                    "ema/beta_split_active": int(
+                        aux_pema_enabled and (
+                            ema_beta_aux_t_now != ema_beta_t_now
+                            or args.ema_beta_aux > 0
+                            or args.ema_beta_aux_target > 0
+                        )
+                    ),
                 }, step=wandb_step)
             # paramEMA refresh + L_cov refresh diagnostics. ema_refresh/fired
             # latches to 1 at and after --paramema_refresh_step; lcov_refresh/fired
