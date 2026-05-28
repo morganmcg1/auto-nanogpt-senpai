@@ -83,6 +83,28 @@ def parse_args():
                         help="β2 at start of training (and constant β2 if schedule=constant).")
     parser.add_argument("--aux_beta2_end", type=float, default=float(os.environ.get("AUX_BETA2_END", "0.99")),
                         help="β2 at end of training (after cooldown). Only used if schedule=cooldown_ramp.")
+    # H241: aux optimizer dispatch. 'adamw' (default) is the bit-identical baseline.
+    # 'lion' switches the embed/lm_head/scalars groups to Lion (sign-based momentum).
+    # Lion-only knobs default to paper conventions and are no-ops when aux_optimizer=adamw.
+    parser.add_argument("--aux_optimizer", type=str,
+                        default=os.environ.get("AUX_OPTIMIZER", "adamw"),
+                        choices=["adamw", "lion"],
+                        help="Aux optimizer choice: 'adamw' (baseline, bit-identical) or 'lion' (sign-based).")
+    parser.add_argument("--lion_beta1", type=float,
+                        default=float(os.environ.get("LION_BETA1", "0.9")),
+                        help="Lion β1 (Polyak weight on momentum buffer when forming the update direction). Paper default 0.9.")
+    parser.add_argument("--lion_beta2", type=float,
+                        default=float(os.environ.get("LION_BETA2", "0.99")),
+                        help="Lion β2 (EMA decay for momentum buffer update). Paper default 0.99.")
+    parser.add_argument("--lion_lr_scale", type=float,
+                        default=float(os.environ.get("LION_LR_SCALE", "0.1")),
+                        help="Multiplicative scale on each aux group's baseline lr when aux_optimizer=lion. "
+                             "Paper convention: Lion needs ~10x lower lr than AdamW (default 0.1).")
+    parser.add_argument("--lion_wd_scale", type=float,
+                        default=float(os.environ.get("LION_WD_SCALE", "3.0")),
+                        help="Multiplicative scale on AdamW aux weight_decay (currently 0) for Lion's decoupled WD. "
+                             "Paper convention: Lion needs ~3-10x larger wd than AdamW. "
+                             "Since baseline aux_wd=0, this is effectively 0 — kept as a knob for future use.")
     # Inner MuonH µ schedule (H109). Static µ=0.95 baseline preserved when schedule=off.
     # 'linear' ramps µ across all train_steps. 'cooldown_ramp' stays at mu_start until
     # cooldown starts (using h_cooldown_frac), then ramps linearly across the cooldown.
@@ -747,6 +769,97 @@ class MuonH(torch.optim.Optimizer):
         self._last_norm_to_radius_max = max_n_over_r
 
 
+class Lion(torch.optim.Optimizer):
+    """Lion: EvoLved Sign Momentum (Chen et al. 2023, arXiv:2302.06675).
+
+    Update rule per param p with gradient g and buffer m:
+        p ← (1 - lr*wd) * p              # decoupled WD, multiplicative pre-step
+        c = β₁ * m + (1 - β₁) * g
+        p ← p - lr * sign(c)              # sign step (constant per-elem magnitude)
+        m ← β₂ * m + (1 - β₂) * g         # buffer update last, uses g (NOT c)
+
+    One buffer (m) vs AdamW's two (m, v). Magnitude is sign-based: every active
+    element of c contributes ±lr regardless of |g|.
+    """
+    def __init__(self, params, lr=1e-4, betas=(0.9, 0.99), weight_decay=0.0):
+        defaults = dict(lr=lr, betas=betas, weight_decay=weight_decay)
+        super().__init__(params, defaults)
+        # Device-side telemetry accumulators (read lazily at telemetry_due).
+        self._buffer_sq_dev = None
+        self._c_abs_sum_dev = None
+        self._c_count = 0
+        self._update_sq_dev = None  # = c_count since sign(c) elements have unit magnitude
+
+    @torch.no_grad()
+    def step(self, closure=None):
+        loss = None
+        if closure is not None:
+            with torch.enable_grad():
+                loss = closure()
+        # Lazy device init from first param tensor.
+        if self._buffer_sq_dev is None:
+            for grp in self.param_groups:
+                if grp["params"]:
+                    dev = grp["params"][0].device
+                    self._buffer_sq_dev = torch.zeros((), device=dev, dtype=torch.float32)
+                    self._c_abs_sum_dev = torch.zeros((), device=dev, dtype=torch.float32)
+                    self._update_sq_dev = torch.zeros((), device=dev, dtype=torch.float32)
+                    break
+        if self._buffer_sq_dev is not None:
+            self._buffer_sq_dev.zero_()
+            self._c_abs_sum_dev.zero_()
+            self._update_sq_dev.zero_()
+        c_count = 0
+        for group in self.param_groups:
+            beta1, beta2 = group["betas"]
+            lr = group["lr"]
+            wd = group["weight_decay"]
+            for p in group["params"]:
+                if p.grad is None:
+                    continue
+                state = self.state[p]
+                if len(state) == 0:
+                    state["m"] = torch.zeros_like(p)
+                m = state["m"]
+                g = p.grad
+                if wd != 0:
+                    p.data.mul_(1 - lr * wd)
+                # c = β1*m + (1-β1)*g into a NEW tensor (m must not be mutated yet).
+                c = m.mul(beta1).add(g, alpha=1 - beta1)
+                if self._c_abs_sum_dev is not None:
+                    self._c_abs_sum_dev.add_(c.detach().abs().sum().to(torch.float32))
+                c_count += int(c.numel())
+                c.sign_()  # in-place on the new c tensor (safe; m untouched)
+                p.data.add_(c, alpha=-lr)
+                # Buffer update last, uses raw g not c.
+                m.mul_(beta2).add_(g, alpha=1 - beta2)
+                if self._buffer_sq_dev is not None:
+                    self._buffer_sq_dev.add_(m.detach().square().sum().to(torch.float32))
+        self._c_count = c_count
+        if self._update_sq_dev is not None:
+            # ‖sign(c)‖₂² = number of elements with non-zero c (all ±1, but treat as full count).
+            self._update_sq_dev.fill_(float(c_count))
+        return loss
+
+    @property
+    def last_update_norm(self):
+        if self._update_sq_dev is None:
+            return 0.0
+        return float(self._update_sq_dev.item()) ** 0.5
+
+    @property
+    def last_buffer_norm(self):
+        if self._buffer_sq_dev is None:
+            return 0.0
+        return float(self._buffer_sq_dev.item()) ** 0.5
+
+    @property
+    def last_c_mean_abs(self):
+        if self._c_abs_sum_dev is None or self._c_count == 0:
+            return 0.0
+        return float(self._c_abs_sum_dev.item()) / self._c_count
+
+
 ########################################
 #                Setup                 #
 ########################################
@@ -847,6 +960,11 @@ if dist.get_rank() == 0:
             "aux_beta2_schedule": args.aux_beta2_schedule,
             "aux_beta2_start": args.aux_beta2_start,
             "aux_beta2_end": args.aux_beta2_end,
+            "aux_optimizer": args.aux_optimizer,
+            "lion_beta1": args.lion_beta1,
+            "lion_beta2": args.lion_beta2,
+            "lion_lr_scale": args.lion_lr_scale,
+            "lion_wd_scale": args.lion_wd_scale,
             "muonh_mu_schedule": args.muonh_mu_schedule,
             "muonh_mu_start": args.muonh_mu_start,
             "muonh_mu_end": args.muonh_mu_end,
@@ -926,10 +1044,33 @@ for trial_idx in range(args.num_trials):
     # silent-failure-mode risk we use fused=False whenever the β2 schedule is active.
     # constant schedule keeps fused=True so arm_a is bitwise-identical to baseline.
     _aux_fused = (args.aux_beta2_schedule == "constant")
-    optimizer1 = AdamW([dict(params=[model.embed.weight], lr=0.3, name="adam_embed"),
-                        dict(params=[model.proj.weight], lr=1/320, name="adam_lm_head"),
-                        dict(params=[p for p in model.parameters() if p.ndim < 2], lr=0.01, name="adam_scalars")],
-                       betas=(0.8, args.aux_beta2_start), eps=args.aux_adamw_eps, weight_decay=0, fused=_aux_fused)
+    # H241: aux optimizer dispatch. arm_a CTRL (--aux_optimizer adamw, default) MUST be
+    # bit-identical to baseline — the AdamW(...) call below is byte-for-byte unchanged.
+    if args.aux_optimizer == "lion":
+        # Lion uses the same 3 aux param groups but scales each group's lr by
+        # lion_lr_scale (paper convention: ~10x lower than AdamW). Lion has a
+        # single (β1, β2) pair shared across groups (no per-group betas).
+        # baseline aux weight_decay is 0, so wd = 0 * lion_wd_scale = 0.
+        baseline_aux_wd = 0.0
+        optimizer1 = Lion(
+            [dict(params=[model.embed.weight], lr=0.3 * args.lion_lr_scale, name="lion_embed"),
+             dict(params=[model.proj.weight], lr=(1/320) * args.lion_lr_scale, name="lion_lm_head"),
+             dict(params=[p for p in model.parameters() if p.ndim < 2], lr=0.01 * args.lion_lr_scale, name="lion_scalars")],
+            betas=(args.lion_beta1, args.lion_beta2),
+            weight_decay=baseline_aux_wd * args.lion_wd_scale,
+        )
+        print0(f"Aux optimizer: LION betas=({args.lion_beta1},{args.lion_beta2}) "
+               f"lr_scale={args.lion_lr_scale} effective_lrs=("
+               f"embed={0.3 * args.lion_lr_scale:.4f},"
+               f"lm_head={(1/320) * args.lion_lr_scale:.6f},"
+               f"scalars={0.01 * args.lion_lr_scale:.5f}) "
+               f"wd={baseline_aux_wd * args.lion_wd_scale}", console=True)
+    else:
+        optimizer1 = AdamW([dict(params=[model.embed.weight], lr=0.3, name="adam_embed"),
+                            dict(params=[model.proj.weight], lr=1/320, name="adam_lm_head"),
+                            dict(params=[p for p in model.parameters() if p.ndim < 2], lr=0.01, name="adam_scalars")],
+                           betas=(0.8, args.aux_beta2_start), eps=args.aux_adamw_eps, weight_decay=0, fused=_aux_fused)
+        print0(f"Aux optimizer: AdamW (baseline) eps={args.aux_adamw_eps} fused={_aux_fused}", console=True)
     optimizer2 = MuonH([p for p in model.blocks.parameters() if p.ndim >= 2],
                        lr=args.muonh_lr, weight_decay=0.0, mu=0.95,
                        hyperball=True, budget_mult=args.muonh_budget_mult,
@@ -1191,6 +1332,15 @@ for trial_idx in range(args.num_trials):
                         muonh_metrics["train/muonh/norm_to_radius_max"] = opt._last_norm_to_radius_max
                     muonh_metrics["train/muonh/warmup_factor"] = muonh_warmup_factor
                     muonh_metrics["train/muonh/effective_lr"] = opt.param_groups[0]["lr"]
+                elif isinstance(opt, Lion) and telemetry_due:
+                    # H241: Lion diagnostic telemetry. Lion uses sign-based magnitude so
+                    # update_norm should equal √(N_aux_params) when all elements active.
+                    muonh_metrics["train/aux/lion_update_norm"] = opt.last_update_norm
+                    muonh_metrics["train/aux/lion_buffer_norm"] = opt.last_buffer_norm
+                    muonh_metrics["train/aux/lion_c_mean_abs"] = opt.last_c_mean_abs
+                    muonh_metrics["train/aux/lion_lr_embed"] = opt.param_groups[0]["lr"]
+                    muonh_metrics["train/aux/lion_lr_lm_head"] = opt.param_groups[1]["lr"]
+                    muonh_metrics["train/aux/lion_lr_scalars"] = opt.param_groups[2]["lr"]
             if telemetry_due and args.aux_agc_clip_ratio > 0 and agc_stats["agc_total"] > 0:
                 muonh_metrics["train/agc/active_fraction"] = agc_stats["agc_clipped"] / agc_stats["agc_total"]
                 muonh_metrics["train/agc/clipped_count"] = agc_stats["agc_clipped"]
