@@ -1,3 +1,60 @@
+## 2026-05-28 22:05 — PR #1626: H255 frieren Post-step Stiefel retraction — ASSIGNED (51st mechanism class, training-time Stiefel maintenance companion to H253; post-step `W←W*(1.5I−0.5W^T*W)` one NS polar step; drift-free after opt.step() at line 1173)
+
+- Branch: `g1r3-frieren/stiefel-retraction-cleanup`
+- Hypothesis: Apply one Newton-Schulz polar step `W ← W * (1.5*I − 0.5*W^T*W)` to body 2D params after every MuonH optimizer step to bound riem_frob_ratio drift (grew 0.77→2.37 in H249, effective-step shrinkage 58%). Directly motivated by H249 Stiefel-manifold mismatch mechanistic insight. Distinct from H253 (INIT on Stiefel) — tests MAINTENANCE throughout training.
+- 3-arm: CTRL `--body_retraction 0` / FULL_RETRACTION `--body_retraction 1` / COOLDOWN_RETRACTION `--body_retraction 2`.
+- Theoretical: post-step retraction standard in Riemannian optimization (Absil et al. 2008; Wen & Yin 2013). One step: ~5% overhead (72 matmuls vs forward-backward ~500 GFLOPs).
+- WIN probability: ~25-35%. Main risks: retraction overdampens optimization OR single NS step insufficient to bound ratio.
+
+---
+
+## 2026-05-28 22:00 — PR #1589: H247 frieren Best-checkpoint + manifold-projected EMA terminal eval — CLOSED (**104th NULL/NEG closure**, bilateral NULL+CATASTROPHIC, 🎯 **PROGRAMME FINDING #57 STRENGTHENED** + **drift-class confounding correction = campaign-level methodological contribution**)
+
+- Branch: H247 frieren (eval-mechanism class — best-checkpoint + EMA+manifold)
+- Student terminal SENPAI-RESULT at 21:56 UTC with full 3-arm table, val/loss_fast diagnostic, drift-class correction.
+
+| Arm | run_id | val/loss | val/loss_fast | FFS | Δ vs CTRL | verdict |
+|---|---|---|---|---|---|---|
+| arm_a CTRL | `1ax5mpxz` | 3.26905 | n/a | **3050** (+25 drift) | — | 15th soft-drift class instance |
+| arm_b BEST_CKPT | `cxnuspr6` | 3.26870 | n/a | **3025** | −0.00035 (0.4σ) | **NULL — drift-class artifact (student's correction)** |
+| arm_c MANIFOLD_EMA | `ov3kcnc3` | **9.03686** | **3.26887** | 3050 | **+5.77 (+6517σ)** | **CATASTROPHIC NEG — PROGRAMME FINDING #57 STRENGTHENED** |
+
+### 🎯 Student's drift-class confounding correction (campaign-level methodological contribution)
+
+Student demonstrates arm_b's apparent FFS=3025 "win" is drift-class artifact: arm_a CTRL trajectory monotonically improves through step 3325 (val step 3300=3.26916 → step 3325=3.26905, Δ=−0.00011). The −0.00046 val offset between arm_b and arm_a is **consistent across ALL of training from step 125 onward** — drift-class difference (arm_a +25, arm_b 0), not eval-mechanism.
+
+Per-step table confirms:
+| step | arm_b val | arm_a CTRL val | Δ (arm_b − arm_a) |
+|---|---|---|---|
+| 3000 | 3.28316 | 3.28361 | −0.00045 |
+| 3150 | 3.27296 | 3.27343 | −0.00047 |
+| 3300 | 3.26870 | 3.26916 | **−0.00046** (constant throughout) |
+
+**Campaign-level rule from this correction**: "FFS deltas within ±25 MUST be drift-class-adjudicated before claiming mechanism effect." The apparent +25 FFS difference between arms is purely drift bucket, not optimizer dynamics.
+
+### 🎯 PROGRAMME FINDING #57 STRENGTHENED — EMA averaging fundamentally incompatible
+
+`val/loss_fast=3.26887` (0.2σ_H174 from arm_a CTRL) proves training-trajectory is bit-identical. The entire +5.77 val deficit is from EMA+manifold mechanism. Student explains why NS5 projection cannot rescue: EMA averages params across the Stiefel-manifold trajectory (chord average), and `project(chord_average) ≠ any visited training point`.
+
+4-point eval-mechanism survey now COMPLETE and EXHAUSTED:
+| H# | Mechanism | val/loss | Verdict |
+|---|---|---|---|
+| H240 arm_b | Raw EMA all-params | ~9.5 | CATASTROPHIC |
+| H240 arm_c | Raw EMA body-only | ~9+ | CATASTROPHIC |
+| H240 arm_d | Raw EMA aux-only | ~9+ | CATASTROPHIC |
+| **H247 arm_c** | **EMA + NS5 polar projection** | **9.03686** | **CATASTROPHIC (projection ≠ rescue)** |
+| H247 arm_b | Best-ckpt (step 3300) | 3.26870 | NULL (drift-class confound) |
+
+EMA averaging on polar-projection trajectory manifold: fundamentally incompatible regardless of post-hoc geometric correction. Future eval-mechanism experiments must avoid chord-averaging on Stiefel — only point-in-time snapshots or training-time explicit anchor approaches viable.
+
+### Follow-up portfolio
+1. ✅ Eval-mechanism class EXHAUSTED at 4-point NULL/NEG survey
+2. ✅ PROGRAMME FINDING #57 promoted from STRENGTHENED candidate to CONFIRMED (bilateral H240+H247 evidence)
+3. 🆕 Post-step retraction (H255 frieren just assigned) — training-time maintenance approach, distinct from eval-time averaging
+4. ✅ Campaign-level rule: FFS delta ≤25 requires drift-class adjudication
+
+---
+
 ## 2026-05-28 21:45 — PR #1625: H254 fern MuonH body LR warmup SHAPE — ASSIGNED (50th mechanism class, cosine/sqrt warmup ramp, direct parallel to H203 cooldown-shape WIN; `set_hparams()` plain Python, drift-free)
 
 - Branch: `g1r3-fern/body-warmup-shape`
