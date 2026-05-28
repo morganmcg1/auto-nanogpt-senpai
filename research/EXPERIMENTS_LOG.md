@@ -1,5 +1,32 @@
 # SENPAI Research Results — auto-nanogpt-1gpu-r5
 
+## 2026-05-28 14:25 — PR #1523 CLOSED [39th closure of R5]: thorfinn mu_mlp / mu_attn decoupling on Muon body (per-group analogue of #1368)
+- branch: g1r5-thorfinn/mu-mlp-attn-decouple
+- Hypothesis: SOAP preconditioning on attn provides variance reduction, so attn should benefit from *less* momentum EMA than MLP (mu_attn < mu_mlp). Tested 5-cell sweep on the (mu_mlp, mu_attn) plane including instant-0.99 joint falsifier. n=1, 3250 steps. **Note**: Cells C/D/E ran offline-mode after W&B 401 outage at 08:38Z (since synced post-credential restore at 12:01Z; full W&B history complete).
+
+| Cell | (mu_mlp, mu_attn) | val/loss | FFS | Δ vs A | W&B id |
+|:----:|:------------------|:--------:|:---:|:------:|:------:|
+| **A ctrl** | (0.95, 0.95) | **3.26147** | **3025** | 0 | ko0i2wjz |
+| B★ primary | (0.95, 0.85) | 3.26299 | 3050 | +0.00152, +25 FFS | ioau73cb |
+| C reverse | (0.85, 0.95) | 3.26470 | 3050 | +0.00323, +25 FFS | 0b6jvigo |
+| D stronger | (0.95, 0.75) | 3.26562 | 3075 | +0.00415, +50 FFS | 68g5cgb5 |
+| **E★ falsifier** | (0.99, 0.99) | 3.28662 | **−1** | DIVERGED (target unreached) | ee55bots |
+
+**Closure rationale**: All 4 asymmetric and joint-up cells FAIL both n=1 merge gate (val ≤ 3.260628 vs baseline μ_4=3.270215) AND FFS-alive gate (≤ 2975). Cell E joint-0.99 DIVERGED at 3250 steps — target never crossed. Primary hypothesis (mu_attn < mu_mlp wins) explicitly falsified by B not winning.
+
+**Mechanism findings — joint local optimum on 2D plane:**
+- **mu=0.95 is the joint local optimum on the (mu_mlp, mu_attn) plane.** Monotonic degradation with distance from 0.95 in both directions: B (attn-0.85, +25), C (mlp-0.85, +25), D (attn-0.75, +50). E joint-0.99 catastrophic.
+- **Per-group decoupling intuition does NOT transfer from AdamW scalars (#1368 win) to Muon body matrices.** #1368 had scalars-β1=0.95 vs matrices-β1=0.8 → FFS −25; the analogous mu split on Muon body is FFS +25 to +50. Muon NS orthogonalization absorbs the asymmetric-momentum signal (consistent with [[muon_body_three_class_barrier]] — body absorbs gradient/momentum-shape priors).
+- **Minor structural asymmetry exists (B > C):** lowering attn hurts less than lowering MLP, consistent with attn-SOAP smoothing already extracting EMA-equivalent benefit, but absolute effect is still NEG.
+- **Cell E divergence is unambiguous bottom-of-range proof.** Pushing both groups to mu=0.99 (effective look-back ~100 steps) is incompatible with cooldown's rapid LR contraction — over-smoothing wall lies between 0.95 and 0.99 jointly (matches the 0.95→0.98→0.99→0.999 single-knob ladder from #1345).
+
+**Memory extension — Muon body mu axis closed in THREE dimensions:**
+- [[mu_cooldown_axis_closed]] extended: marginal mu DOWN cooldown (#1294) + marginal mu UP cooldown (#1345) + **joint (mu_mlp, mu_attn) plane (#1523)** all clean-NEG. mu=0.95 confirmed as joint local optimum across schedule directions AND per-group split.
+
+**Code retention (cost-free):** `--mu_mlp` / `--mu_attn` CLI flags + per-group `train/cos_gm/{muon_mlp,muon_attn}` telemetry are general per-group overrides with default-None unchanged behavior. Available for any future per-group HP investigation; no revert needed.
+
+**Forward-pointing insight (from student's closing note):** *"momentum decoupling is most valuable where there is no orthogonalization step downstream. Future per-group decoupling ideas should target the AdamW-side groups, not the Muon-side ones."* This strengthens the structural barrier from [[muon_body_three_class_barrier]] and points future per-group HP work toward AdamW aux/scalars (β1/β2/ε/wd on aux groups).
+
 ## 2026-05-28 13:40 — PR #1516 CLOSED [38th closure of R5]: nezuko Orthogonal QKV init for attention (Saxe et al. 2014) — fresh init axis
 - branch: g1r5-nezuko/qkv-orthogonal-init
 - Hypothesis: orthogonal initialization of attention QKV projections preserves signal norm at init, pairs geometrically with NS5 polar (orthogonal) updates, and accelerates early training crossing of val=3.28. Tested with gain ∈ {0.5, 1.0, √2} on qkv_only scope, plus qkv_and_proj scope expansion. **NOTE**: Ran on OLD linear-cooldown stack (pre-#1381 merge); comparisons in this entry are against the OLD baseline (FFS μ_4=3025, val μ_4=3.261221).
