@@ -97,6 +97,10 @@ def parse_args():
              "muall=musoft + non-residual block 2D weights also scaled by 1/sqrt(L); "
              "smallconst=std=1e-3 depth-independent.",
     )
+    parser.add_argument("--logit_norm_tau", type=float, default=0.0,
+                        help="LogitNorm temperature (0=disabled). Normalizes per-token logit "
+                             "vector to unit L2 norm scaled by 1/tau before cross-entropy. "
+                             "Typical range 0.01-0.10. arXiv:2205.09310.")
     args = parser.parse_args()
     args.num_trials = args.num_trials if args.num_trials is not None else (args.legacy_num_trials or 1)
     args.wandb_tags = [tag.strip() for tag in args.wandb_tags.split(",") if tag.strip()]
@@ -487,6 +491,12 @@ class GPT(nn.Module):
             x = block(x)
         logits = self.proj(self.norm2(x)).float()
         logits = 15 * logits * (logits.square() + 15**2).rsqrt()
+        if not self.training:
+            _ln_pre = logits.norm(dim=-1)
+            self._diag_logit_norm_pre_mean = _ln_pre.mean().detach()
+            self._diag_logit_norm_pre_std = _ln_pre.std().detach()
+        if args.logit_norm_tau > 0:
+            logits = logits / (args.logit_norm_tau * logits.norm(dim=-1, keepdim=True) + 1e-8)
         return F.cross_entropy(logits.view(targets.numel(), -1), targets.view(-1), reduction="sum")
 
 
@@ -780,6 +790,7 @@ if dist.get_rank() == 0:
             "lr_scalars": args.lr_scalars,
             "depth_init_mode": args.depth_init_mode,
             "lr_cooldown_shape": args.lr_cooldown_shape,
+            "logit_norm_tau": args.logit_norm_tau,
         },
     )
 
@@ -985,6 +996,9 @@ for trial_idx in range(args.num_trials):
                     "time/step_avg_ms": 1000 * step_avg,
                 }
                 metrics.update(prefixed("val/slope", loss_slope_stats(val_loss_history, slope_window_steps)))
+                if hasattr(model, "_diag_logit_norm_pre_mean"):
+                    metrics["val/logit_norm_pre_mean"] = float(model._diag_logit_norm_pre_mean.item())
+                    metrics["val/logit_norm_pre_std"] = float(model._diag_logit_norm_pre_std.item())
                 wandb.log(metrics, step=trial_idx * (train_steps + 1) + step)
             print0(f"step:{step}/{train_steps} val_loss:{val_loss:.5f} train_time:{training_time:.3f}s"
                    + f" step_avg:{1000*step_avg:.2f}ms", console=True)
