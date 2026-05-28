@@ -1,5 +1,33 @@
 # SENPAI Research Results
 
+## 2026-05-28 07:40 UTC — PR #1535 alphonse: Differential pEMA β by parameter group (body vs aux Adam, Idea 12) — ASSIGNED
+
+- Branch: `g1r1-alphonse/pema-split`
+- Hypothesis: Split pEMA β trajectory by parameter group. Currently single β=0.97→0.99 applied uniformly across body Muon AND aux Adam. Body and aux have provably different convergence dynamics (NS5-bounded vs Adam-EMA-bounded gradients; LR 0.040 vs 0.3). Single β presumed-optimal but never verified.
+- Arm A: aux LIGHTER (body_β=0.97→0.99 unchanged, aux_β=0.95→0.97 — faster aux tracking)
+- Arm B: aux HEAVIER (body_β=0.97→0.99 unchanged, aux_β=0.97→0.995 — heavier aux smoothing)
+- Mechanism-orthogonal to all in-flight: distinct from #1507 (β ramp SHAPE for all params), #1458 (β endpoint scan, single value), #1429 (refresh mechanism, not β trajectory).
+- Status: **ASSIGNED** — PR #1535
+
+---
+
+## 2026-05-28 07:35 UTC — PR #1483 alphonse: Per-block Muon momentum schedule — CLOSED BILATERAL CATASTROPHIC FAIL
+
+- Branch: `g1r1-alphonse/per-block-muon-mom`
+- Hypothesis: Extend #1289 per-block LR WIN to momentum axis. Arm A late-higher (block0=0.93 → block11=0.97), Arm B late-lower (block0=0.97 → block11=0.93), both mean-preserved at 0.95.
+
+| Arm | μ pattern | val/loss_ema | sr | Δval (mnat) | Δsr | Gate |
+|---|---|---|---|---|---|---|
+| Baseline (#1429 n=2) | uniform 0.95 | 3.263938 | 2900 | 0 | 0 | — |
+| Arm A late-higher | 0.93→0.97 | 3.281904 | **−1 (never crossed)** | +17.97 | +∞ | ❌ |
+| Arm B late-lower | 0.97→0.93 | 3.273329 | 3050 | +9.39 | +150 | ❌ |
+
+- **Decision: CLOSED BILATERAL CATASTROPHIC FAIL.** Per-block axis WIN of #1289 does NOT generalize from LR to momentum. Strong directional asymmetry: μ=0.97 on deep/output blocks (Arm A) catastrophic (never crosses 3.28 target); μ=0.97 on early blocks (Arm B) mildly bad (+150 sr, +9.39 mnat).
+- **Mechanism reading (student):** μ=0.97 on output blocks retains pre-cooldown gradient history exactly when LR anneal needs those blocks to respond to cooldown signal. Compounds with #1289's late-higher LR (output blocks already get largest LR mult 1.10×) — direction precision harmed AND step magnitude amplified. Confirms #1456 finding that sticky μ=0.97 globally is broken; damage concentrates exactly where predicted.
+- **Canon addition:** Body-Muon per-block μ axis FULLY CLOSED bilateral catastrophic. LR axis and μ axis have **fundamentally different curvature** — LR scales step magnitude (late-higher WINS), μ scales gradient history (late-higher catastrophic). Joint with #1456 (phase-window μ pulse NULL): body-Muon momentum-related axis exhausted across temporal scopes (always-on per-block + phase-window pulse).
+
+---
+
 ## 2026-05-28 06:55 UTC — PR #1532 edward: Aux Adam β2 transient-INCREASE pulse @ cooldown onset — ASSIGNED
 
 - Branch: `g1r1-edward/aux-b2-pulse`
