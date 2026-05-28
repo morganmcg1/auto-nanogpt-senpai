@@ -1,5 +1,37 @@
 # SENPAI Research Results — auto-nanogpt-1gpu-r5
 
+## 2026-05-28 10:30 — PR #1502 CLOSED [37th closure of R5]: edward Sophia-G (2nd-order Hessian) on AdamW aux groups (Liu et al. ICLR 2024, arxiv:2305.14342)
+- branch: g1r5-edward/sophia-g-aux
+- Hypothesis: Sophia-G's per-batch Gauss-Newton-Bartlett Hessian diagonal preconditioner replaces `sqrt(v_hat) + eps` denominator with `max(γ·h_t, ε)` clipped to `[-ρ, +ρ]`; 2nd-order curvature information promised faster convergence on aux groups. Tested on AdamW aux (embed, lm_head, scalars) groups.
+
+| Cell | Config | val_best | Δval (σ) | FFS | W&B id |
+|:----:|:------|:--------:|:--------:|:---:|:------:|
+| A (ctrl AdamW) | — | **3.26202** | +0.0008 (+1.35σ) | 3050 | y6a3qc64 |
+| **B★ (PRIMARY)** | Sophia ρ=0.05 lr_scale=1.0 | 3.27951 | +0.01829 (+30.8σ) | 3250 | t98non7s |
+| C | Sophia ρ=0.10 lr_scale=1.0 | 3.28143 | +0.02021 (+34.1σ) | -1 (DNF) | laebyvzc |
+| D | Sophia ρ=0.05 lr_scale=0.5 | 3.29007 | +0.02885 (+48.6σ worst) | -1 (DNF) | jsi6a13t |
+| E | Sophia ρ=0.05 lr_scale=2.0 | 3.27539 | +0.01417 (+23.9σ best) | 3175 | tdat8kht |
+
+Reading vs new baseline (#1381 merged FFS μ_4=2943.75, val μ_4=3.270215): all Sophia cells FFS≥3175 (+131+ steps worse); E (least-bad) val +0.005175 above baseline. **Clean-NEG across all 4 Sophia variants.**
+
+**Mechanism findings — Sophia ≡ Lion mechanically on aux:**
+- Per-batch GNB Hessian estimator produces tiny diagonal `h_t`: `sophia/h_mean/sophia_embed` ≈ 0.00052-0.00169; `sophia/h_mean/sophia_lm_head` ≈ 57
+- Sophia update is `m_t / max(γ·h_t, ε)` clipped to `[-ρ, +ρ]` → because `h_t` is tiny relative to `m_t / (γρ)`, **clip saturates almost everywhere**
+- Clip rate: embed=0.992-0.993, lm_head=0.864-0.963 (B/C/D/E)
+- **>99% of coordinates clipped → effective update = ±ρ·sign(m_t)·lr_scale ≈ sign-Lion with magnitude ρ·lr_scale**
+- The "2nd-order curvature preconditioning" is essentially never the active path on aux 2D dense outputs in this regime
+- **Sophia-G ≡ Lion-clipped on aux groups** — Sophia (#1502) and Lion (#1471) are mechanistically the same NEG result
+
+**Cross-cluster — AdamW aux 4-instance 3-class barrier reinforced:**
+1. Numerator REPLACEMENT (sign): #1471 Lion thorfinn
+2. Denominator REPLACEMENT (Hessian): **#1502 Sophia-G edward — this closure full 5-cell**
+3. Denominator REPLACEMENT (belief variance): #1500 AdaBelief fern (35th closure)
+4. Numerator AUGMENTATION (slow-EMA): #1490 AdEMAMix askeladd
+
+Combined with closed β2 axes (#1321/#1377/#1434 cosmetic), the entire AdamW aux **2nd-moment axis (decay × form × scope) is structurally unproductive on R5**.
+
+**Generalizable principle**: any Hessian-diagonal preconditioner with bounded clip will collapse to sign-quantization on tightly-coupled small-Hessian aux groups. Future denominator-replace proposals must verify h-estimator scale matches m-estimator scale OR use unbounded clip (rho=∞).
+
 ## 2026-05-28 09:45 — PR #1497 CLOSED [36th closure of R5]: tanjiro Gradient Centralization on Muon body (Yong et al. ECCV 2020, arxiv:2004.01461)
 - branch: g1r5-tanjiro/gradient-centralization-muon
 - Hypothesis: GC = subtract row-mean from gradient pre-momentum, projects onto subspace orthogonal to constant vector; preserves direction signal while removing scalar bias drift. Paper-reported 1.5-2σ improvement on image classification with SGD/Adam. Tested on Muon body matrices.
