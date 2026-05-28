@@ -109,6 +109,20 @@ def parse_args():
     parser.add_argument("--body_init_bottom_layers", type=int,
                         default=int(os.environ.get("BODY_INIT_BOTTOM_LAYERS", "6")),
                         help="Number of bottom layers to damp for --body_init=orthogonal_bottom_damp (default 6 = bottom half of 12 layers).")
+    # H240: in-memory EMA model averaging for terminal/periodic val_loss evaluation.
+    # When enabled, maintain a separate ema_params buffer updated after every
+    # optimizer step as ema = decay*ema + (1-decay)*params. At each val event the
+    # ema_params are swapped into the live model to evaluate val_loss (which then
+    # drives FFS). Default ema_eval=0 is bit-identical to baseline.
+    parser.add_argument("--ema_eval", type=int, default=int(os.environ.get("EMA_EVAL", "0")),
+                        choices=[0, 1],
+                        help="Enable EMA model averaging for val_loss evaluations. "
+                             "0 (default) = no EMA buffer, no swap, no extra memory — bit-identical to baseline. "
+                             "1 = maintain ema_params and use them as the val_loss source that drives FFS.")
+    parser.add_argument("--ema_decay", type=float, default=float(os.environ.get("EMA_DECAY", "0.999")),
+                        help="EMA decay rate. Approximate half-life ~ ln(2)/(1-decay) steps. "
+                             "0.999 -> ~700 step half-life (~21pct of 3325-step training). "
+                             "0.9999 -> ~7000 step half-life (~210pct of 3325-step training).")
     args = parser.parse_args()
     args.num_trials = args.num_trials if args.num_trials is not None else (args.legacy_num_trials or 1)
     args.wandb_tags = [tag.strip() for tag in args.wandb_tags.split(",") if tag.strip()]
@@ -850,6 +864,8 @@ if dist.get_rank() == 0:
             "muonh_mu_schedule": args.muonh_mu_schedule,
             "muonh_mu_start": args.muonh_mu_start,
             "muonh_mu_end": args.muonh_mu_end,
+            "ema_eval": int(args.ema_eval),
+            "ema_decay": args.ema_decay,
         },
     )
 
@@ -1053,6 +1069,10 @@ for trial_idx in range(args.num_trials):
         outer_velocity = None
     outer_applied_steps = 0
 
+    # H240: EMA model averaging state. Lazy-init on first update after step 0.
+    # Reset per-trial so multi-trial runs do not leak averaged params across seeds.
+    ema_params = None
+
     # start the clock
     training_time = 0
     last_val_step = 0
@@ -1077,14 +1097,46 @@ for trial_idx in range(args.num_trials):
             last_val_step = step
             training_time += time_since_last_val
             model.eval()
-            val_loss = torch.zeros((), device=device)
-            with torch.no_grad():
-                assert len(val_inputs) % mbs == 0
-                for i in range(len(val_inputs) // mbs):
-                    val_loss += model(val_inputs[i*mbs:(i+1)*mbs], val_targets[i*mbs:(i+1)*mbs])
-            dist.all_reduce(val_loss, op=dist.ReduceOp.SUM)
-            val_loss /= val_tokens
-            val_loss_float = float(val_loss.item())
+
+            def _compute_val_loss_tensor():
+                vl = torch.zeros((), device=device)
+                with torch.no_grad():
+                    assert len(val_inputs) % mbs == 0
+                    for i in range(len(val_inputs) // mbs):
+                        vl += model(val_inputs[i*mbs:(i+1)*mbs], val_targets[i*mbs:(i+1)*mbs])
+                dist.all_reduce(vl, op=dist.ReduceOp.SUM)
+                vl /= val_tokens
+                return vl
+
+            # Always evaluate fast (live training) params. ema_eval=0 path is bit-id
+            # identical to baseline: no buffer, no swap, no extra forward passes.
+            val_loss = _compute_val_loss_tensor()
+            val_loss_fast_float = float(val_loss.item())
+
+            # H240: EMA val_loss. Only computed when ema_eval=1 AND the EMA buffer
+            # has been populated (i.e. after at least one opt step). At step 0 the
+            # buffer is still None so we fall through to fast-params eval and the
+            # FFS-determining val_loss matches the bit-id baseline exactly.
+            val_loss_ema_float = None
+            if args.ema_eval and ema_params is not None:
+                backup = {n: p.data.clone() for n, p in model.named_parameters()}
+                with torch.no_grad():
+                    for n, p in model.named_parameters():
+                        p.data.copy_(ema_params[n])
+                try:
+                    ema_val_loss = _compute_val_loss_tensor()
+                    val_loss_ema_float = float(ema_val_loss.item())
+                finally:
+                    with torch.no_grad():
+                        for n, p in model.named_parameters():
+                            p.data.copy_(backup[n])
+                del backup
+                # When EMA eval is active, FFS is computed from the EMA val_loss
+                # (the whole point of this hypothesis).
+                val_loss = ema_val_loss
+                val_loss_float = val_loss_ema_float
+            else:
+                val_loss_float = val_loss_fast_float
             if dist.get_rank() == 0:
                 val_loss_history.append((step, val_loss_float))
                 if val_loss_float < best_val_loss:
@@ -1096,6 +1148,7 @@ for trial_idx in range(args.num_trials):
                     "trial": trial_idx,
                     "val/step": step,
                     "val/loss": val_loss_float,
+                    "val/loss_fast": val_loss_fast_float,
                     "val/best_loss": best_val_loss,
                     "val/best_step": best_val_step,
                     "val/target_margin": TARGET_VAL_LOSS - val_loss_float,
@@ -1105,6 +1158,8 @@ for trial_idx in range(args.num_trials):
                     "time/train_seconds": training_time,
                     "time/step_avg_ms": 1000 * step_avg,
                 }
+                if val_loss_ema_float is not None:
+                    metrics["val/loss_ema"] = val_loss_ema_float
                 metrics.update(prefixed("val/slope", loss_slope_stats(val_loss_history, slope_window_steps)))
                 wandb.log(metrics, step=trial_idx * (train_steps + 1) + step)
             print0(f"step:{step}/{train_steps} val_loss:{val_loss:.5f} train_time:{training_time:.3f}s"
@@ -1301,6 +1356,20 @@ for trial_idx in range(args.num_trials):
                     "train/muloco/delta_rms": delta_rms,
                     "train/muloco/velocity_rms": velocity_rms,
                 }, step=wandb_step)
+
+        # H240: EMA model averaging update. Runs at the END of the inner-step
+        # body so ema_params tracks the same post-outer-step weights that the
+        # next iteration's val_loss eval would see. Lazy-init the buffer on the
+        # first call so step-0 val eval (which fires BEFORE any update_ema call)
+        # is bit-identical to the baseline.
+        if args.ema_eval:
+            with torch.no_grad():
+                if ema_params is None:
+                    ema_params = {n: p.data.clone() for n, p in model.named_parameters()}
+                else:
+                    one_minus_decay = 1.0 - args.ema_decay
+                    for n, p in model.named_parameters():
+                        ema_params[n].mul_(args.ema_decay).add_(p.data, alpha=one_minus_decay)
 
         approx_training_time = training_time + (time.perf_counter() - t0)
         print0(f"step:{step+1}/{train_steps} train_time:{approx_training_time:.3f}s"
