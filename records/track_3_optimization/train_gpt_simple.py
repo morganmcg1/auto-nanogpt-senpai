@@ -46,6 +46,12 @@ def parse_args():
     parser.add_argument("--muonh_lr", type=float, default=float(os.environ.get("MUONH_LR", "0.018")))
     parser.add_argument("--muonh_mode", type=str, default=os.environ.get("MUONH_MODE", "clip"), choices=["clip", "scale_invariant"])
     parser.add_argument("--muonh_cooldown_shape", type=str, default=os.environ.get("MUONH_COOLDOWN_SHAPE", "linear"), choices=["linear", "cosine", "sqrt"], help="LR cooldown shape for MuonH groups (AdamW aux groups stay linear)")
+    parser.add_argument("--muonh_cooldown_clamp_floor", type=float,
+                        default=float(os.environ.get("MUONH_COOLDOWN_CLAMP_FLOOR", "0.0")),
+                        help="Clamp-floor for MuonH cosine cooldown: eta = max(raw_eta, floor). "
+                             "0.0=current behavior (LR can reach 0), 0.05=5%% clamp activates only "
+                             "when raw cosine eta drops below 0.05. Distinct from a rescale formulation "
+                             "(this preserves the early/mid trajectory exactly).")
     parser.add_argument("--muonh_warmup_steps", type=int, default=int(os.environ.get("MUONH_WARMUP_STEPS", "0")), help="Linear LR warmup steps for MuonH groups only (0 = disabled, no-op vs baseline). AdamW aux groups are not warmed.")
     parser.add_argument("--train_steps", type=int, default=int(os.environ.get("TRAIN_STEPS", "3350")))
     # MuLoCo outer Nesterov SGD (Algorithm 1, K=1). Wraps all trainable params;
@@ -782,7 +788,7 @@ if args.use_outer_optimizer:
            f"outer_momentum={args.outer_momentum} sync_interval={args.sync_interval}", console=True)
 else:
     print0("MuLoCo outer optimizer DISABLED", console=True)
-print0(f"MuonH mode={args.muonh_mode} lr={args.muonh_lr} budget_mult={args.muonh_budget_mult} cooldown_shape={args.muonh_cooldown_shape}", console=True)
+print0(f"MuonH mode={args.muonh_mode} lr={args.muonh_lr} budget_mult={args.muonh_budget_mult} cooldown_shape={args.muonh_cooldown_shape} clamp_floor={args.muonh_cooldown_clamp_floor}", console=True)
 if args.aux_agc_clip_ratio > 0:
     print0(f"AGC ENABLED on aux AdamW groups: clip_ratio={args.aux_agc_clip_ratio} eps={args.aux_agc_eps}", console=True)
 else:
@@ -833,6 +839,7 @@ if dist.get_rank() == 0:
             "muonh_lr": args.muonh_lr,
             "muonh_mode": args.muonh_mode,
             "muonh_cooldown_shape": args.muonh_cooldown_shape,
+            "muonh_cooldown_clamp_floor": args.muonh_cooldown_clamp_floor,
             "muonh_warmup_steps": args.muonh_warmup_steps,
             "train_steps": args.train_steps,
             "muloco_use_outer_optimizer": bool(args.use_outer_optimizer),
@@ -958,6 +965,7 @@ for trial_idx in range(args.num_trials):
     for group in optimizer2.param_groups:
         group["cooldown_frac"] = h_cooldown_frac
         group["cooldown_shape"] = args.muonh_cooldown_shape
+        group["cooldown_clamp_floor"] = args.muonh_cooldown_clamp_floor
 
     # learning rate schedule: stable then decay, with per-group cooldown_frac.
     # Within the cooldown phase, eta decays from 1 → 0 in one of three shapes.
@@ -987,6 +995,11 @@ for trial_idx in range(args.num_trials):
                         eta = math.sqrt(max(0.0, c))
                     else:
                         raise ValueError(f"unknown cooldown_shape: {shape}")
+                    # H226: clamp-floor on the cooldown eta. Activates only when raw
+                    # eta drops below the floor, preserving the early/mid trajectory.
+                    clamp_floor = group.get("cooldown_clamp_floor", 0.0)
+                    if clamp_floor > 0.0:
+                        eta = max(eta, clamp_floor)
                 if opt is optimizer2:
                     eta = eta * muonh_warmup
                 group["lr"] = group["initial_lr"] * eta
