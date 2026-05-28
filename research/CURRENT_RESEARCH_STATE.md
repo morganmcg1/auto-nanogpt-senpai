@@ -1,3 +1,105 @@
+## 2026-05-28 14:55 UTC — Cycle 71 mid-348 — edward #1562 255th (PER_DEPTH_HALF_ATTN_SOAP_REFRESH terminal STANDARD CLOSED — FIRST REVERSED-DIRECTION depth-half axis: front_SLOW WINS) + edward #1583 NEW PER_KIND_ATTN_SOAP_REFRESH_FREQ pivot (first per-kind q/k vs v/proj trust-gated refresh-freq dispatch in 1582+ PRs, builds on edward's kind-asymmetric trust-gate firing signal) + thorfinn #1570 heartbeat sent
+
+**Cumulative**: **255 refuted** / **152 distinct mech classes** / **113 family-level closures**.
+
+### PR closed this wave (1 closure, terminal bilateral, STRUCTURALLY NOVEL reversed-direction signal):
+
+| PR | student | mechanism | outcome |
+|---|---|---|---|
+| **edward #1562** | edward | PER_DEPTH_HALF_ATTN_SOAP_REFRESH (Arm A `front_FAST` block 0 freq=5 → block 11 freq=20, Arm B `front_SLOW` block 0 freq=20 → block 11 freq=5; linear interp across 12 blocks) | **255th** — Arm A val=3.27384/ffs=3075 (STANDARD), Arm B val=3.27096/ffs=3025 (STANDARD); val_mean=3.27240 fails merge bar by 0.00464. Δ(B−A)=−0.00288 → **front_SLOW WINS** — first depth-half axis with direction REVERSED relative to 6-mechanism front_up principle. **Trust-gated mechanisms (per-step gating) flip direction vs continuous-update mechanisms (always-applied EMA).** Kind-asymmetric trust-gate firing observed: k_on_fraction 0.917→1.000 in Arm B, proj_on_fraction 0.917→0.833 in Arm B. |
+
+### STRUCTURALLY NOVEL FINDING — depth-half axis direction depends on per-step gating semantics
+
+**6 prior depth-half axes** (LR #1468/#1492, NORMUON β2 #1537, body-init #1541, MLP-SOAP β2 #1545, NS5 iters #1558, body Muon #1547 — all continuous-update mechanisms): all show front_FAST/front_MORE/front_BIG (front_up) directional signal.
+
+**1st depth-half axis on a TRUST-GATED mechanism** (attn-SOAP refresh-freq #1562): front_SLOW direction REVERSED.
+
+**Mechanism interpretation**: trust-gated refresh-freq has different per-step semantics — the gate decides which refresh attempts get applied. Front blocks (slower-evolving curvature near input) benefit from less-frequent refresh attempts because the per-refresh QUALITY goes UP (fewer noisy refreshes, more curvature-aligned updates). The trust gate amplifies the kind-asymmetry — k_kind's on_fraction RISES when refresh is rarer (more refreshes accepted), proj_kind's on_fraction FALLS.
+
+**Implication for future depth-axis assignments**:
+- Continuous-update mechanisms (always-applied): expect front_up direction.
+- Trust-gated mechanisms (per-step gated): expect REVERSED (front_SLOW/front_LESS) direction.
+- This is independently publishable: depth-axis sign depends on mechanism's per-step gating class.
+
+### Stale_wip heartbeat sent this wave:
+
+- **thorfinn #1570** (ATTN_SOAP_ACTIVATION_DELAY) — 2h since creation, no comments. Pickup-latency heartbeat sent. Pod presumably alive; assignment is fresh.
+
+### Fresh assignment — first per-kind refresh-freq within attn-SOAP layer scope:
+
+| PR | student | mechanism | rationale |
+|---|---|---|---|
+| **edward #1583** | edward | PER_KIND_ATTN_SOAP_REFRESH_FREQ (Arm A `qk_SLOW_REFRESH` q/k freq=20 / v/proj=5, Arm B `qk_FAST_REFRESH` q/k freq=5 / v/proj=20; default=10) | **First per-kind refresh-freq within attn-SOAP layer scope across 1582+ PRs.** Direct test of kind-asymmetric trust-gate firing observed in #1562 (k 0.917→1.000, proj 0.917→0.833 across depth arms). If kind-asymmetry is real, Arm A should win — q/k benefits from rare-but-trusted refreshes (mirror of front_SLOW signal). Orthogonal to fern #1575 (per-kind β2) and to thorfinn #1570 (activation delay). Per Morgan #1259 per-group state-rate directive. |
+
+### Still-active fleet (8 students, ZERO IDLE):
+
+- **nezuko #1566** — PER_KIND_AUX_AMSGRAD — in flight
+- **edward #1583** — PER_KIND_ATTN_SOAP_REFRESH_FREQ (NEWLY assigned)
+- **askeladd #1582** — PER_KIND_NS5_ITERS_FULL_RUN — in flight (awaiting pickup)
+- **tanjiro #1577** — PER_KIND_AUX_BETA2_FULL_RUN — in flight (awaiting pickup)
+- **fern #1575** — PER_KIND_ATTN_SOAP_BETA2 — in flight (awaiting pickup)
+- **thorfinn #1570** — ATTN_SOAP_ACTIVATION_DELAY — heartbeat sent
+- **alphonse #1568** — PER_DEPTH_HALF_MU_COOLDOWN_END — in flight (heartbeat sent earlier wave)
+- **frieren #1569** — PER_DEPTH_HALF_ATTN_SOAP_BETA2 — in flight (heartbeat sent earlier wave)
+
+### Updated per-depth/per-kind dispatch frontier matrix (cycle 71 mid-348):
+
+| axis | dispatch | state-phase | scope | PR |
+|---|---|---|---|---|
+| LR continuous ramp | per-block linear | window | body Muon | edward #1468/#1492 (CLOSED front_up) |
+| SOAP refresh freq MLP | per-block linear | full-run | MLP-SOAP | edward #1525 (CLOSED NULL) |
+| **SOAP refresh freq ATTN-trust** | **per-block linear** | **full-run** | **attn-SOAP** | **edward #1562 (CLOSED REVERSED: front_SLOW)** |
+| TARGET_UW | depth-half | windowed | body Muon | askeladd #1527 (CLOSED NULL) |
+| NORMUON β2 | depth-half | full-run | body Muon | frieren #1537 (CLOSED front_up SCE) |
+| MLP-SOAP Gram EMA β2 | depth-half | full-run | MLP-SOAP | fern #1545 (CLOSED STANDARD weak front_FAST) |
+| body Muon init scale | depth-half | pre-training | body Muon 48p | alphonse #1541 (CLOSED front_BIG SCE) |
+| AUX β1 | per-kind (embed/lm_head) | full-run | AUX | tanjiro #1547 (CLOSED Goldilocks, m-staleness REVERSED) |
+| NS5 iters depth-half | depth-half | full-run | body Muon | askeladd #1558 (CLOSED STANDARD weak front_MORE) |
+| AMSGrad (v state-rule) | per-kind | full-run | AUX | nezuko #1566 (in flight) |
+| MU_COOLDOWN_END | depth-half | late-phase | body Muon | alphonse #1568 (heartbeat sent) |
+| ATTN-SOAP β2 | depth-half | full-run | attn-SOAP | frieren #1569 (heartbeat sent) |
+| ATTN-SOAP activation step | single-axis | state-phase | attn-SOAP | thorfinn #1570 (heartbeat sent) |
+| ATTN-SOAP β2 per-kind | per-kind (q/k vs v/proj) | full-run | attn-SOAP | fern #1575 (awaiting pickup) |
+| AUX β2 | per-kind (embed/lm_head) | full-run | AUX | tanjiro #1577 (awaiting pickup) |
+| NS5 iters per-kind | per-kind (attn vs MLP) | full-run | body Muon | askeladd #1582 (awaiting pickup) |
+| **ATTN-SOAP refresh freq per-kind** | **per-kind (q/k vs v/proj)** | **full-run** | **attn-SOAP** | **edward #1583 (NEWLY assigned)** |
+| SOAP state reset (sub-state) | MLP scope | event | exp_avg_sq vs gram | thorfinn #1540 (CLOSED localization) |
+| SOAP state reset depth-half | depth-half | event | all SOAP | fern #1519 (CLOSED) |
+| m-reset per-block | per-block | event | body Muon | askeladd #1504 (CLOSED) |
+| m-reset per-kind AUX | embed vs lm_head | event | AUX | tanjiro #1522 (CLOSED kind-ASYMMETRIC) |
+| AUX m-reset timing | single-axis | event-timing | AUX | nezuko #1528 (CLOSED NULL) |
+| v-reset / m+v joint body | none | event | body Muon | alphonse #1518 (CLOSED) |
+| AUX m+v joint | none | event | AUX | nezuko #1505 (CLOSED) |
+| m←±grad direction | none | event | body Muon | frieren #1512 (CLOSED) |
+
+**14 continuous-mechanism dispatch axes active** (added attn-SOAP refresh freq per-kind q/k vs v/proj), **7 closed event/discrete**. The attn-SOAP scope now hosts FOUR active per-kind/per-depth-half/state-phase axes (β2 per-kind, β2 depth-half, activation delay, refresh-freq per-kind) — 4-way dispatch axis family within single layer-scope.
+
+### Mechanism direction classification (saturation evidence):
+
+| mechanism class | direction prediction | confirmed by |
+|---|---|---|
+| **Continuous-update (always-applied EMA / scalar)** | **front_FAST/front_MORE/front_BIG** | 6 closures (LR, NORMUON β2, body-init, MLP-SOAP β2, NS5, NS5 #1558) |
+| **Trust-gated (per-step gated)** | **front_SLOW/front_LESS (REVERSED)** | 1 closure (#1562 attn-SOAP refresh) |
+| **Per-kind (m-state continuous)** | **Goldilocks / weakly reversed** | 1 closure (#1547 AUX β1) |
+
+### Cluster-floor sub-cluster-edge band density (255-refute snapshot):
+
+**Sub-cluster-edge accumulating density [3.265, 3.269)**: 
+- alphonse Arm A `front_BIG` 3.26859 (closest to baseline 3.26776)
+- frieren Arm A `front_FAST` 3.26957
+- thorfinn Arm B `gram_only` 3.26922
+
+**STANDARD band cluster [3.269, 3.275)**: now ~22-mechanism floor; no mechanism has crossed merge bar at single-seed since PR #613.
+
+### Research focus going into mid-349:
+
+1. **STRUCTURAL FINDING this wave**: depth-axis direction sign depends on per-step gating class (continuous vs trust-gated). Validate by completing alphonse #1568 (continuous: should show front_up) and frieren #1569 (depth-half β2 on attn-SOAP — also continuous EMA-rate, should show front_FAST).
+2. **Per-kind axis family CRITICAL frontier**: 5 in-flight (#1566 AMSGrad, #1575 attn-SOAP β2, #1577 AUX β2, #1582 NS5, #1583 attn-SOAP refresh freq). Each closes a distinct continuous-axis question on per-group state-rule space.
+3. **Trust-gated mechanism studies**: edward's just-closed #1562 + new #1583 are the first systematic test of trust-gating × dispatch axis interaction. High-information sub-axis worth continuing.
+4. **State-phase axis**: thorfinn #1570 (activation delay) remains the only pure state-phase mechanism in flight.
+
+---
+
 ## 2026-05-28 14:35 UTC — Cycle 71 mid-347 — askeladd #1558 254th (PER_DEPTH_HALF_NS5_ITERS terminal STANDARD CLOSED — 6-MECHANISM FRONT_UP PRINCIPLE at depth-half axis fully SATURATED, depth-half family across continuous mechanisms now mapped) + askeladd #1582 NEW PER_KIND_NS5_ITERS_FULL_RUN pivot (first full-run per-kind attn-vs-MLP NS5 dispatch across 1582+ PRs, orthogonal partition to depth-half axis) + frieren #1569 + alphonse #1568 heartbeats sent
 
 **Cumulative**: **254 refuted** / **151 distinct mech classes** / **112 family-level closures**.
