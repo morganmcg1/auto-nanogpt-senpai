@@ -1,14 +1,23 @@
 # SENPAI Research State — auto-nanogpt-1gpu-r3
 
-- **Last updated:** 2026-05-28 01:55 UTC
+- **Last updated:** 2026-05-28 02:05 UTC
 
 ---
 
 ## 🏆 CURRENT BASELINE: FFS=3025, val=3.26830 — PR #1398 H203 tanjiro cosine cooldown shape
 
-**Baseline shift alert RESOLVED**: All PRs from the pre-H203-merge cohort (H204-H213) have now closed or completed. All remaining in-flight PRs (H214, H223-H229) are on the cosine baseline.
+**Baseline shift alert RESOLVED**: All PRs from the pre-H203-merge cohort (H204-H213) have now closed or completed. All remaining in-flight PRs (H214, H224-H230) are on the cosine baseline.
 
 ---
+
+## 🎯 Cycle ~570 (02:00-02:05 UTC) — H223 nezuko CLOSED (79th NULL/NEG, 🎯 FIRST VESTIGIAL FINDING in H148+H203 stack — aux ε=1e-6 customization vestigial, ε=1e-4 upper-bound NEG, 2nd numerical-conditioning result); H230 nezuko ASSIGNED MuonH NS5 polynomial iteration count axis (PR #1509, 26th novel mechanism class, lower-bound test for spectral projection convergence)
+
+- **🎯 H223 nezuko CLOSED — 79th NULL/NEG, FIRST VESTIGIAL FINDING in H148+H203 stack**: arm_a CTRL ε=1e-6 val=3.26747/FFS=3025 bit-id baseline; arm_b EPS_1E8 ε=1e-8 (PyTorch default) val=3.26785/FFS=3025 **NULL — FFS EXACTLY TIED, val +0.43σ_H174** → **FIRST PRUNING-CANDIDATE WIN** in H148+H203 stack; arm_c EPS_1E4 ε=1e-4 val=3.26996/FFS=3050 NEG (+25 FFS, +0.00249/+2.82σ_H174 val, upper-side boundary). Bit-identity gate PASSED step-0 10.82583 exact.
+- **🎯 FIRST VESTIGIAL FINDING significance**: All prior pruning attempts found load-bearing components (H216 Lookahead bilateral catastrophic, H221 NO_OUTER catastrophic, H221 NO_MOMENTUM 2.9x WORSE catastrophic, H222 SCHED_OFF mild NEG, H222 MU_END_85 mild NEG). H223 arm_b is the **FIRST** prunable component — aux AdamW ε=1e-6 customization can safely revert to PyTorch default ε=1e-8 without metric impact.
+- **🎯 Mechanistic insight**: ε hyperparameter has **wide flat plateau** in [1e-8, 1e-6] (≥2 orders of magnitude indifference) and **clear upper boundary** in (1e-6, 1e-4]. H123 closure rationale "ε=1e-6 + typical v_max keeps denominator stable" is mechanically true but practically irrelevant — v_t never gets small enough during embed updates for ε to dominate even at 1e-8. arm_c NEG mechanism: large ε attenuates effective update magnitude on sparse-gradient tokens, slowing convergence without reaching noise-damping regime that would help generalization.
+- **Programme finding #48 candidate**: aux AdamW ε customization VESTIGIAL — code-simplification candidate. **2nd numerical-conditioning finding** (companion to H225 frieren β₁ in flight). Decision: NOT merging as baseline change (no improvement to merge), documenting as clean pruning result for code simplification reference.
+- **🎯 H230 nezuko ASSIGNED (PR #1509) — 26th NEW MECHANISM CLASS: MuonH NS5 polynomial iteration count LOWER bound axis**: H193 tested 12 vs 16 iters (both fine, upper bound established) but lower iter counts never directly ablated. `zeropower_via_newtonschulz5` at line 547 is hardcoded `for _ in range(12)` with polynomial (a,b,c)=(2,-1.5,0.5). Tests if NS5 polar projection converges at lower iter counts (wallclock savings if NULL + spectral content sensitivity if NEG). ~5 LoC code change: add `--muonh_ns5_iters` argparse flag, thread through MuonH/muon_update/zeropower_via_newtonschulz5. 3-arm CTRL ns5_iters=12 (bit-id) / NS5_8 ns5_iters=8 (33% NS5 reduction safe pruning) / NS5_6 ns5_iters=6 (50% reduction stress test). Predicted outcomes: arm_b NULL likely (Polar-Express style work suggests 5-7 iters can suffice); arm_c either NULL (deep pruning win) or mild NEG (below convergence threshold). If catastrophic, joins MuonH-SI structural tightness finding.
+- **End-of-cycle ~570 portfolio**: H214 askeladd spectral RANK truncation (arm_c TRUNC_TOP25 ETA ~02:00 UTC, mid-flight, arm_b CATASTROPHIC); H224 edward warmup pruning (arm_b WARMUP_OFF ~94% terminal imminent ETA ~02:00 UTC, arm_c WARMUP_400 chain-queued); H225 frieren aux β₁ ablation (arm_b BETA1_09 ETA ~02:00 UTC, arm_c BETA1_05 ETA ~03:30 UTC); H226 tanjiro CLAMP-FLOOR (arm_a CTRL ~98% terminal imminent, arm_b/c launch instructions posted); H227 thorfinn body init ablation (in flight); H228 alphonse body WD axis (in flight); H229 fern inner Nesterov vs Polyak (in flight); H230 nezuko NS5 iter count (newly assigned). **8/8 students WIP, 0 idle, 0 review-ready.** **26 novel mechanism classes** explored. **Major review batch expected ~02:00 UTC**: H214 arm_c + H224 arm_b + H225 arm_b all terminating within minutes.
 
 ## 🎯 Cycle ~560 (01:45-01:55 UTC) — H222 fern CLOSED (78th NULL/NEG bilateral NEG, µ-schedule LOAD-BEARING + retune direction exhausted, contributes to MuonH-SI structural tightness cross-finding); H229 fern ASSIGNED MuonH INNER Nesterov vs Polyak momentum form ablation (PR #1506, 25th novel mechanism class, companion to H221 outer momentum finding)
 

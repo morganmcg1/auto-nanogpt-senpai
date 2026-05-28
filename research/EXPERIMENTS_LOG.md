@@ -1,3 +1,22 @@
+## 2026-05-28 02:00 — PR #1474: H223 nezuko aux AdamW ε ablation — CLOSED (79th NULL/NEG, 🎯 FIRST VESTIGIAL FINDING in H148+H203 stack — ε=1e-6 customization vestigial, ε=1e-4 upper bound NEG, 2nd numerical-conditioning result)
+
+- Branch: `g1r3-nezuko/aux-adamw-eps-ablation`
+- Hypothesis: Is the aux AdamW ε=1e-6 customization (inherited from H148+ baseline) load-bearing for embed numerical conditioning under aggressive embed lr=0.3, or vestigial complexity? Pruning ablation per launch directive.
+- Results:
+
+  | Arm | aux_adamw_eps | W&B | val/loss | FFS | Δval vs CTRL | Verdict |
+  |---|---|---|---|---|---|---|
+  | arm_a CTRL | 1e-6 | `33idc2ki` | **3.26747** | **3025** | (bit-id baseline) | reproduces H203 envelope |
+  | arm_b EPS_1E8 | 1e-8 (PyTorch default) | `b3atqhho` | **3.26785** | **3025** | +0.00038 (+0.43σ_H174) | **NULL → VESTIGIAL** |
+  | arm_c EPS_1E4 | 1e-4 | `iexjffxc` | **3.26996** | **3050** | +0.00249 (+2.82σ_H174) | NEG (+25 FFS upper bound) |
+
+- **Bit-identity gate PASSED**: step-0 val=10.82583 across all 3 arms.
+- **🎯 FIRST VESTIGIAL FINDING in H148+H203 stack**: H223 arm_b is the **FIRST PRUNING-CANDIDATE WIN** in the pruning sweep. All prior pruning attempts (H216 Lookahead, H221 NO_OUTER, H221 NO_MOMENTUM, H222 SCHED_OFF, H222 MU_END_85) found load-bearing components — H223 arm_b finds the first vestigial component. FFS exactly tied baseline, val within +0.43σ_H174 envelope.
+- **🎯 Mechanistic interpretation**: ε hyperparameter has **wide flat plateau** in [1e-8, 1e-6] (≥2 orders of magnitude indifference) and **clear upper boundary** in (1e-6, 1e-4]. H123 closure rationale "ε=1e-6 + typical v_max keeps denominator stable" is mechanically true but practically irrelevant: v_t never gets small enough during embed updates for ε to dominate the denominator, even at 1e-8. arm_c NEG mechanism: large ε attenuates effective update magnitude on sparse-gradient tokens, slowing convergence without reaching noise-damping regime that would help generalization.
+- **🎯 Programme finding #48 candidate**: aux AdamW ε customization VESTIGIAL — code-simplification candidate, can safely revert `--aux_adamw_eps` to PyTorch default 1e-8 without metric impact. 2nd numerical-conditioning finding (companion to H225 frieren β₁ in flight). If H225 BETA1_09 also NULL, coherent picture emerges: aux Adam customizations are vestigial within typical hyperparameter ranges.
+- **Strategic implication**: Not merging as a baseline change (no improvement to merge), documenting as clean pruning result. Continue pruning sweep on other components — most of the stack remains load-bearing.
+- **Next assignment — H230 nezuko (PR #1509)**: NS5 polynomial iteration count LOWER bound axis (26th NEW MECHANISM CLASS). H193 tested 12 vs 16 iters (both fine, upper bound established) but lower iter counts (8, 6) never directly ablated. `zeropower_via_newtonschulz5` at line 547 is hardcoded `for _ in range(12)` with polynomial (a,b,c)=(2,-1.5,0.5). Tests if NS5 polar projection converges at lower iter counts (wallclock savings + spectral content sensitivity). ~5 LoC code change: add `--muonh_ns5_iters` argparse flag, thread through MuonH constructor / muon_update / zeropower_via_newtonschulz5. 3-arm CTRL ns5_iters=12 (bit-id) / NS5_8 ns5_iters=8 / NS5_6 ns5_iters=6 (below-convergence stress test).
+
 ## 2026-05-28 01:50 — PR #1472: H222 fern MuonH µ-schedule pruning ablation — CLOSED (78th NULL/NEG, bilateral NEG, µ-schedule LOAD-BEARING + retune direction exhausted, extends MuonH-SI structural tightness cross-finding)
 
 - Branch: `g1r3-fern/muonh-mu-schedule-pruning`
