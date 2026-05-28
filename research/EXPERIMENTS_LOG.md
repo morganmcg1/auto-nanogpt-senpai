@@ -1,3 +1,22 @@
+## 2026-05-28 00:27 — PR #1464: H220 thorfinn ATTN vs MLP LR multiplier split (type-axis) — CLOSED (76th NULL/NEG + 🎯 programme finding #48 candidate: PER-TENSOR RELATIVE-LR AXIS EXHAUSTED — MuonH per-param NS5+hyperball neutralizes scale differences)
+
+- Branch: `g1r3-thorfinn/attn-mlp-lr-split`
+- Hypothesis: Split body MuonH param groups by type (attn vs MLP) and test ±20% LR multipliers. TYPE-axis orthogonal to H210 DEPTH-axis. 3-arm CTRL (1.0, 1.0) / ATTN_HEAVY (1.2, 1.0) / MLP_HEAVY (1.0, 1.2).
+- Results:
+
+  | Arm | attn_mul | mlp_mul | W&B | val/loss | FFS | val H174 z | ΔFFS vs CTRL |
+  |---|---|---|---|---|---|---|---|
+  | arm_a CTRL | 1.0 | 1.0 | `01u8gojp` | 3.26730 | **3025** | +3.21σ | (ref) |
+  | arm_b ATTN_HEAVY | 1.2 | 1.0 | `o5sglz8q` | 3.27061 | **3075** | +6.96σ | **+50 NEG** |
+  | arm_c MLP_HEAVY | 1.0 | 1.2 | `mnt9ieml` | 3.27016 | **3075** | +6.45σ | **+50 NEG** |
+
+- **Bilateral SYMMETRIC NEG**: both +50 FFS, both +~0.003 val. Type-axis at ±20% does not improve over FFS=3025 baseline.
+- **Bit-identity gate PASSED**: arm_a (1.0, 1.0) FFS=3025 exact match — param-group split mechanism is benign.
+- **🎯 Excellent student mechanistic analysis**: MuonH's per-param NS5 polar projection + hyperball constraint **already neutralizes scale differences** across matrix types. Per-param normalization is too strong for relative-LR multipliers (per-depth H210, per-type H220) to break through.
+- **🎯 Programme finding #48 candidate — PER-TENSOR RELATIVE-LR AXIS EXHAUSTED**: 4th finding ruling out per-tensor LR shaping (per-block H162-lineage 43+ closures + per-depth H210 + per-type H220 + per-param structural baseline). Future LR-shape experiments MUST target axes OUTSIDE per-param normalization scope (global schedule shape, initialization, weight decay, momentum schedule, or non-LR optimizer mechanisms).
+- **Bug fix collateral**: Student fixed `MuonH.__init__` to accept either flat Parameter list OR list of param_group dicts. Strict generalization unlocking future per-group MuonH experiments. Worth keeping.
+- **Next assignment — H227 thorfinn (PR #1501)**: BODY INITIALIZATION ablation. PRE-NS5 axis (operates BEFORE MuonH polar projection, OUTSIDE the per-param normalization scope that erased per-tensor LR signals). 3-arm CTRL (orthogonal_fnorm_matched baseline) / BOTTOM_DAMP (orthogonal_bottom_damp) / DEFAULT (PyTorch standard init). Zero code changes — argparse flags exist. 23rd NEW MECHANISM CLASS in portfolio. Per launch directive "initialization ideas" under-explored — FIRST initialization experiment in post-H148 portfolio.
+
 ## 2026-05-27 23:30 — PR #1462: H219 tanjiro cosine cooldown LR FLOOR (asymptote axis, rescale formulation) — CLOSED (75th NULL/NEG + 🎯 programme finding #47 candidate: cosine LR→0 terminal asymptote IS load-bearing, rescale-formula trajectory perturbation diagnosed)
 
 - Branch: `g1r3-tanjiro/lr-floor-cosine-cooldown`

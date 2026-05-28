@@ -1,14 +1,29 @@
 # SENPAI Research State — auto-nanogpt-1gpu-r3
 
-- **Last updated:** 2026-05-27 23:35 UTC
+- **Last updated:** 2026-05-28 00:35 UTC
 
 ---
 
 ## 🏆 CURRENT BASELINE: FFS=3025, val=3.26830 — PR #1398 H203 tanjiro cosine cooldown shape
 
-**Baseline shift alert RESOLVED**: All PRs from the pre-H203-merge cohort (H204-H213) have now closed or completed. All remaining in-flight PRs (H214, H220-H226) are on the cosine baseline.
+**Baseline shift alert RESOLVED**: All PRs from the pre-H203-merge cohort (H204-H213) have now closed or completed. All remaining in-flight PRs (H214, H221-H227) are on the cosine baseline.
 
 ---
+
+## 🎯 Cycle ~540 (00:25-00:35 UTC) — H220 thorfinn CLOSED (76th NULL/NEG bilateral SYMMETRIC +50/+50 FFS NEG, programme finding #48 candidate: PER-TENSOR RELATIVE-LR AXIS EXHAUSTED — MuonH per-param NS5+hyperball neutralizes scale differences, 4-finding consolidation: per-block + per-depth + per-type + per-param); H227 thorfinn ASSIGNED BODY INITIALIZATION ablation (PR #1501, 23rd novel mechanism class, PRE-NS5 axis pivot, zero code changes)
+
+- **🎯 H220 thorfinn CLOSED — 76th NULL/NEG + programme finding #48 candidate**: arm_a CTRL (attn_mul=1.0, mlp_mul=1.0) val=3.26730/FFS=3025 bit-identical baseline; arm_b ATTN_HEAVY (1.2, 1.0) val=3.27061/FFS=3075 (+0.00331 val, **+50 FFS NEG**); arm_c MLP_HEAVY (1.0, 1.2) val=3.27016/FFS=3075 (+0.00286 val, **+50 FFS NEG**). **Bilateral SYMMETRIC NEG** — both ±20% multipliers produce same +50 FFS lag and ~+0.003 val regression. Bit-identity gate PASSED.
+- **🎯 Excellent student mechanistic analysis**: MuonH's **per-param NS5 polar projection + hyperball constraint already neutralizes scale differences** across matrix types. Per-param normalization is too strong for relative-LR multipliers (per-depth H210, per-type H220) to break through — multipliers act inside the per-param normalized update space, not on raw gradient scale.
+- **🎯 Programme finding #48 candidate — PER-TENSOR RELATIVE-LR AXIS EXHAUSTED**: 4th finding ruling out per-tensor LR shaping consolidates a major mechanism class:
+  - per-block H162-lineage (43+ closures of block-level LR variation)
+  - per-depth H210 (depth-axis GROW α=±0.2 quasi-flat)
+  - per-type H220 (attn/MLP split ±20% bilateral symmetric NEG)
+  - per-param structural baseline (MuonH NS5+hyperball already optimal per-param)
+- **Strategic implication**: Future LR-shape experiments MUST target axes OUTSIDE per-param normalization scope: (a) global schedule shape (cooldown), (b) initialization (PRE-NS5), (c) weight decay, (d) momentum schedule, (e) non-LR optimizer mechanisms (preconditioners, gradient clipping forms).
+- **Bug-fix collateral**: Student fixed `MuonH.__init__` to accept either flat Parameter list OR list of param_group dicts. Strict generalization unlocking future per-group MuonH experiments. Worth keeping.
+- **🎯 H227 thorfinn ASSIGNED (PR #1501) — 23rd NEW MECHANISM CLASS: BODY INITIALIZATION ablation (PRE-NS5 axis pivot)**: Per launch directive ("initialization ideas" explicitly called out, never directly tested). Body initialization operates **PRE-NS5** (before MuonH polar projection) — sits OUTSIDE per-param normalization scope, the EXACT space where per-tensor LR signals were erased. Argparse flag `--body_init` has 3 options: baseline `orthogonal_fnorm_matched`, `orthogonal_bottom_damp`, PyTorch default. **Zero code changes required** (flags already exist). 3-arm CTRL orthogonal_fnorm_matched (bit-id baseline) / BOTTOM_DAMP orthogonal_bottom_damp (depth-modulated init) / DEFAULT PyTorch standard init (pruning ablation). Tests if init scheme is load-bearing or vestigial. Predicted: WIN→initialization is fresh mechanism class; NULL→init pruning safe; NEG→fnorm-matched load-bearing for early-step stability.
+- **Compose-test heuristic strengthened**: H148-era mild-positive signals require re-validation on cosine baseline. 2/2 NEG so far (state-reset H215, depth-axis H218).
+- **End-of-cycle ~540 portfolio**: H214 askeladd spectral RANK truncation (arm_c TRUNC_TOP25 in flight ETA ~02:30 UTC, arm_b TRUNC_HALF CATASTROPHIC FFS=-1); H221 alphonse MuLoCo pruning (arm_c NO_MOMENTUM in flight ETA ~01:00 UTC, arm_b NO_OUTER FFS=-1 LOAD-BEARING confirmed); H222 fern µ-schedule pruning (arm_c MU_END_85 in flight ETA ~02:25 UTC, arm_b SCHED_OFF FINISHED val=3.27082/FFS=3100 bilateral NEG µ-schedule load-bearing confirmed); H223 nezuko aux ε pruning (arm_c EPS_1E4 in flight ETA ~03:00 UTC, arm_b EPS_1E8 FINISHED val=3.26785/FFS=3025 **essentially identical to CTRL** ε=1e-6 customization VESTIGIAL — pruning to PyTorch default ε=1e-8 SAFE); H224 edward warmup pruning (SEND BACK — 4 duplicate CTRL runs, awaiting student treatment arms); H225 frieren aux β₁ ablation (arm_b BETA1_09 in flight ETA ~02:00 UTC, arm_c BETA1_05 ETA ~03:30 UTC); H226 tanjiro CLAMP-FLOOR variant (newly assigned cycle ~530); H227 thorfinn body init ablation (newly assigned). **8/8 students WIP, 0 idle, 0 review-ready.** **23 novel mechanism classes** (added body initialization PRE-NS5 axis). **Mid-flight pruning roundup**: 5 pruning experiments resolving — H221 MuLoCo wrapper LOAD-BEARING; H222 µ-schedule LOAD-BEARING; H223 ε customization VESTIGIAL (first prunable result); H224 warmup SEND BACK; H225 β₁ in flight.
 
 ## 🎯 Cycle ~530 (23:25-23:35 UTC) — H219 tanjiro CLOSED (75th NULL/NEG bilateral FFS NEG +75/+150 monotonic with floor magnitude, programme finding #47 candidate: cosine LR→0 terminal asymptote IS load-bearing on rescale formulation, 5th cooldown-axis finding); H226 tanjiro ASSIGNED CLAMP-FLOOR follow-up (22nd novel mechanism formulation: clamp vs rescale fundamentally different math)
 
