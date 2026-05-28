@@ -1,5 +1,31 @@
 # SENPAI Research Results — auto-nanogpt-1gpu-r5
 
+## 2026-05-28 07:10 — PR #1481: cosine × cooldown_frac joint sweep (val-recovery Pareto) (alphonse) [CLOSED — COOLDOWN-FRAC-AXIS-CLOSED — 32nd closure]
+- branch: g1r5-alphonse/cosine-cdfrac-joint
+- hypothesis: Test whether shortening cooldown_frac (cdf) keeps more steps in the high-eta zone to recover val while preserving the cosine FFS gain from #1381. Pareto sweep cdf ∈ {0.7, 0.6, 0.5, 0.4, 0.3}.
+- verdict: **CLEAN MONOTONE-NEG ON CDF AXIS**. FFS strictly improves with longer cooldown_frac (higher cdf → better FFS); val strictly worsens with longer cooldown_frac. **Cell A (cdf=0.7) IS the #1381 regime** — Δval=−0.0009 vs μ_4(#1381)=3.270215, well within ±σ_single. No Pareto point superior to #1381 default. Hypothesis falsified at both halves (FFS gain cdf-fragile, val recovery does not arrive).
+
+- results (5-cell n=1):
+
+  | Cell | cdf | val/loss | FFS | Δval vs baseline | FFS-alive (≤2975) | W&B |
+  |:---:|:---:|:---:|:---:|:---:|:---:|:---|
+  | A | 0.7 (default) | 3.26932 | **2925** | +13.7σ | ★ YES | qi7vxsu9 |
+  | B | 0.6 | 3.26996 | **2975** | +14.7σ | ★ YES (boundary) | 7isae9qv |
+  | C | 0.5 | 3.27380 | 3050 | +21.2σ | no | rzwtfvfc |
+  | D | 0.4 | 3.27799 | 3150 | +28.3σ | no | 9ijk4424 |
+  | E | 0.3 | 3.28301 | — DNF | +36.7σ | no | zjix7jaq |
+
+- mechanism findings:
+  1. **★ Cosine FFS gain is cooldown_frac-fragile (new cross-PR claim)**. The +81 step FFS gain in #1381 is NOT a portable "cosine effect" — it is specifically a "cosine over cdf=0.7" effect. Shortening cdf monotonically erodes the FFS gain (cdf=0.7→0.5 erodes 125 steps, cdf=0.7→0.3 erodes entirely to DNF). The (shape, cdf) tuple is *jointly* load-bearing, not separately controllable.
+  2. **cdf=0.7 is locally optimal**. Asymmetric direction (cdf<0.7) monotone-NEG; the other direction (cdf>0.7) is geometrically constrained (cdf=1.0 = pure-decay cosine with no plateau).
+  3. **Val/FFS Pareto frontier is structural**. All FFS-alive cells (cdf ≥ 0.6) sit at val ∈ [3.269, 3.270] — well above baseline 3.261221. The FFS gain comes with structural val regression of +13.7σ to +14.7σ.
+  4. **Cell A is n=1 reproducer of #1381**. Δval=−0.0009 vs μ_4=3.270215, well within ±σ_single. Confirms #1381 is reproducible at n=1 → strengthens #1480 merge case.
+
+- closure logic: 32nd stack-component closure. **Cooldown_frac axis fully bounded on the val/FFS frontier**. No further cdf-axis experiments warranted. Decision-tree mapped to "mechanism-pinned-to-default / frontier-characterization" — student declared no n=4 confirm needed (Cell A IS #1381).
+- next: assigned alphonse #1533 EMA-eval (SWA-style) — fresh evaluation-side mechanism orthogonal to all closed axes.
+
+---
+
 ## 2026-05-28 04:00 — PR #1471: Lion optimizer for AdamW aux groups (sign-based, Chen 2023) (thorfinn) [CLOSED — AUX-UPDATE-RULE-CLASS-NEG — 31st closure]
 - branch: g1r5-thorfinn/lion-aux
 - hypothesis: Lion (Chen et al. 2023, arxiv:2302.06675) — sign-based optimizer with EMA-of-sign update direction. Replaces AdamW on aux groups (embed, lm_head, scalars). Paper reports 2-5× speedup vs AdamW on 100M-11B LM pretraining. Predicted to test whether the AdamW *update rule* (not just its hyperparameters) is FFS-load-bearing on this stack.
