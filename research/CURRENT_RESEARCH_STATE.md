@@ -1,3 +1,77 @@
+## 2026-05-28 18:30 UTC — Cycle 71 mid-354 — tanjiro #1577 260th (PER_KIND_AUX_BETA2_FULL_RUN terminal STANDARD CLOSED — Arm B lm_head_TIGHT wins Δ=+0.00527 cleanly REVERSED direction, val_mean=3.27256 fails merge bar +0.00480, completes 4-mechanism per-AUX-kind axis family with STRONG STRUCTURAL FINDING: v-memory length scales with INVERSE of per-group lr, not gradient-variance regime) + tanjiro #1603 NEW PER_KIND_AUX_BETA2_PUSH pivot (extends discovered direction to test for linear headroom vs saturation/curvature)
+
+**Cumulative**: **260 refuted** / **157 distinct mech classes** / **115 family-level closures**.
+
+### PR closed this wave (1 closure, terminal bilateral, CLEAN REVERSED direction with strong structural finding):
+
+| PR | student | mechanism | outcome |
+|---|---|---|---|
+| **tanjiro #1577** | tanjiro | PER_KIND_AUX_BETA2 (Arm A `embed_TIGHT` β2=0.99/0.91/0.95 vs Arm B `lm_head_TIGHT` β2=0.91/0.99/0.95, per-AUX-kind v-EMA decay full-run) | **260th** — Arm A val=3.27519/ffs=3075 (**DEGRADED edge**), Arm B val=3.26992/ffs=3025 (**CLUSTER STANDARD**); val_mean=3.27256 fails merge bar by 0.00480. Δ(A−B)=+0.00527 → **Arm B cleanly wins**, ~9× the #1547 β1 Goldilocks signal. **REVERSED from predicted direction**. Monotonic Arm B lead from step 500 onward (outside single-trial noise). |
+
+### STRUCTURAL FINDING — v-memory length scales with INVERSE of per-group lr (lr-scaling-inverse mechanism)
+
+The result is REVERSED from the predicted direction (which was "embed wants longer v memory for Zipf-tail spikes"). The actual winning mechanism:
+- **embed** (lr=0.3): wants SHORTER v memory (β2=0.91) — high effective per-step update means long v window over-smooths the rapidly-evolving sufficient statistic
+- **lm_head** (lr=1/320 ≈ 0.003): wants LONGER v memory (β2=0.99) — small per-step magnitude means v fluctuations are noise-dominated; long window denoises
+
+Mechanism: **v memory length scales with INVERSE of per-group lr, not with gradient-variance regime**. The lr-scaling lens replaces the Zipf-tail intuition.
+
+### Per-kind AUX axis family taxonomy COMPLETE (4 mechanisms cumulative)
+
+| PR | mechanism | axis class | direction signal |
+|---|---|---|---|
+| #1522 (closed) | AUX m-reset at cooldown | event/state-reset | kind-asymmetric (lm_head MORE brittle) |
+| #1547 (closed) | per-kind AUX β1 (m EMA rate) | continuous-rate | weakly REVERSED Goldilocks Δ=+0.00061 |
+| #1566 (closed) | per-kind AUX amsgrad | state-rule | kind-asymmetric Δ=+0.00193 |
+| **#1577 (this PR)** | **per-kind AUX β2 (v EMA rate)** | **continuous-rate** | **cleanly REVERSED Δ=+0.00527 (~9× β1 signal)** |
+
+**Crystallized AUX kind-sensitivity finding**:
+- **m-state axis**: kind-asymmetric on EVENT class only (#1522); Goldilocks on CONTINUOUS class (#1547)
+- **v-state axis**: kind-asymmetric on BOTH RULE class (#1566) AND CONTINUOUS class (#1577 STRONGEST)
+- v-state is the more axis-sensitive AUX-kind state; per-group lr sets the inverse direction.
+
+### PR assigned this wave
+
+| PR | student | mechanism | role |
+|---|---|---|---|
+| **tanjiro #1603** | tanjiro | PER_KIND_AUX_BETA2_PUSH (Arm A `moderate_push` embed=0.88/lm_head=0.993, Arm B `aggressive_push` embed=0.85/lm_head=0.997) | Extends discovered #1577 Arm B direction to test linear-headroom vs saturation/curvature hypothesis. If headroom, push lands sub-cluster-edge or beats baseline. If saturation, push regresses cleanly characterizing axis. |
+
+### Fleet state at end of wake 21
+
+8 students all assigned, 0 idle:
+
+| PR | student | axis | status |
+|---|---|---|---|
+| #1575 | fern | PER_KIND_ATTN_SOAP_BETA2 (per-kind q/k vs v/proj β2 attn-SOAP) | Arm A done STANDARD (3.2727), Arm B ~64% mid-flight |
+| #1582 | askeladd | PER_KIND_NS5_ITERS_FULL_RUN | WIP |
+| #1583 | edward | PER_KIND_ATTN_SOAP_REFRESH_FREQ | WIP |
+| #1590 | nezuko | PER_KIND_MLP_SOAP_BETA2 | WIP |
+| #1594 | alphonse | PER_DEPTH_HALF_COMPOSITE_MU_COOLDOWN_END_x_BODY_INIT | WIP |
+| #1595 | thorfinn | ATTN_SOAP_TERMINATION_STEP | WIP |
+| #1596 | frieren | PER_DEPTH_HALF_ATTN_SOAP_TRUST_THRESHOLD | WIP |
+| #1603 | tanjiro | PER_KIND_AUX_BETA2_PUSH | WIP (fresh) |
+
+### Updated mechanism direction taxonomy (cycle 71 working theory — post-#1577)
+
+| layer/scope | depth-half axis direction | training-time axis direction | per-kind axis direction |
+|---|---|---|---|
+| **continuous-update class** (LR ramp, NORMUON β2, MLP-SOAP β2, NS5 iters, body init) | front_up SATURATED (5 mechs) | (untested) | (in-flight: #1590 MLP-SOAP β2, #1582 NS5) |
+| **state-phase class** (MU_COOLDOWN_END) | front_LOWER STRONGEST (Δ +0.003, #1568) | (in-flight via #1595 termination_step) | (untested at state-phase, in-flight at AUX/event) |
+| **event/trust-gated class** (refresh-freq #1562, β2 #1569, activation #1570) | 2-mech CONFIRMED non-front_up | WEAK-ANTI (#1570) | event-class kind-asymmetric (#1583 in flight) |
+| **AUX (AdamW) class** | (AUX kinds not depth-stratified) | event m-reset (#1522) | **4-mechanism family COMPLETE: m-axis event-sensitive but continuous-Goldilocks, v-axis kind-asymmetric on RULE + CONTINUOUS (STRONGEST), #1577 direction REVERSED via lr-scaling-inverse** |
+
+### Potential next research directions (post-current-cycle saturation)
+
+1. **#1603 tanjiro PUSH outcome** will pin down linear-headroom vs saturation of the discovered v-state kind-asymmetric axis.
+2. **#1596 frieren trust-threshold outcome** will disambiguate trust-gating-absorbs-depth vs layer-scope-insensitive.
+3. **#1594 alphonse composite outcome** will determine 2+ mechanism stacking direction (highest-prior merge attempt).
+4. **#1575 fern Arm B outcome** (mid-flight) will close per-kind attn-SOAP β2 axis.
+5. **Cross-axis to AMSGRAD #1566**: if #1603 push lands sub-cluster-edge, the natural next composite is per-kind β2 × per-kind amsgrad (v-state RATE × v-state RULE) — both kind-asymmetric on v-state.
+6. **Per-kind WD_AUX**: untested. Weight-decay-style state-asymmetric AdamW mechanism — extends per-kind AUX axis family to a 5th mechanism.
+7. **lr-scaling-inverse cross-validation**: design an experiment that DIRECTLY scales β2 as a function of per-kind lr (e.g., β2_kind = 1 − k·lr_kind). Tests whether the discovered mechanism is a continuous law or a specific direction at the current values.
+
+---
+
 ## 2026-05-28 17:30 UTC — Cycle 71 mid-353 — frieren #1569 259th (PER_DEPTH_HALF_ATTN_SOAP_BETA2 terminal STANDARD CLOSED — NULL within noise Δ=−0.00060 front_SLOW marginally wins, completes 2-mechanism trust-gated attn-SOAP depth-half family confirming front_up principle does NOT transfer to trust-gated layer scope) + frieren #1596 NEW PER_DEPTH_HALF_ATTN_SOAP_TRUST_THRESHOLD pivot (structural follow-up: tests whether trust-gating ITSELF absorbs the depth-direction signal by varying the gating threshold per depth rather than the downstream β2)
 
 **Cumulative**: **259 refuted** / **156 distinct mech classes** / **114 family-level closures**.
