@@ -47,6 +47,23 @@ def parse_args():
     parser.add_argument("--muonh_mode", type=str, default=os.environ.get("MUONH_MODE", "clip"), choices=["clip", "scale_invariant"])
     parser.add_argument("--muonh_cooldown_shape", type=str, default=os.environ.get("MUONH_COOLDOWN_SHAPE", "linear"), choices=["linear", "cosine", "sqrt"], help="LR cooldown shape for MuonH groups (AdamW aux groups stay linear)")
     parser.add_argument("--muonh_warmup_steps", type=int, default=int(os.environ.get("MUONH_WARMUP_STEPS", "0")), help="Linear LR warmup steps for MuonH groups only (0 = disabled, no-op vs baseline). AdamW aux groups are not warmed.")
+    # H243: Schatten-p partial polar projection knob for MuonH body update.
+    # ns_power=0.0 routes through the unchanged baseline zeropower_via_newtonschulz5
+    # path (bit-identical). ns_power>0 uses zeropower_fractional, a convex-blend
+    # approximation: out = (1-p)*polar + p*normalized_input, producing singular
+    # values (1-p) + p*sigma_i in [0,1]. Monotonic interpolation between full
+    # polar (p=0) and identity/spectral-normalized (p=1).
+    parser.add_argument("--muonh_ns_power", type=float,
+                        default=float(os.environ.get("MUONH_NS_POWER", "0.0")),
+                        help="Fractional Schatten-p exponent for MuonH polar step. "
+                             "0.0 (default, baseline) = full NS polar U V^T (bit-identical). "
+                             "0.5 = blend (Schatten-2 partial whitening proxy). "
+                             "0.25 = mild whitening. "
+                             "Values <=0.01 take the early-exit baseline branch.")
+    parser.add_argument("--muonh_ns_frac_steps", type=int,
+                        default=int(os.environ.get("MUONH_NS_FRAC_STEPS", "12")),
+                        help="NS iteration count for the fractional power's polar computation. "
+                             "Only used when muonh_ns_power > 0.01. Default 12 matches baseline NS5.")
     parser.add_argument("--train_steps", type=int, default=int(os.environ.get("TRAIN_STEPS", "3350")))
     # MuLoCo outer Nesterov SGD (Algorithm 1, K=1). Wraps all trainable params;
     # snapshots an anchor at trial start, then every sync_interval inner steps
@@ -571,6 +588,86 @@ def muon_update(grad, momentum, mu=0.95, nesterov=True):
     update *= max(1, grad.size(-2) / grad.size(-1))**0.5
     return update
 
+
+def zeropower_fractional(G: Tensor, p: float, steps: int = 12,
+                          power_iters: int = 5) -> Tensor:
+    """H243: Schatten-p partial polar projection via spectral-norm-normalized blend.
+
+    Computes a convex blend between the full NS5 polar (sigma=1, p=0 endpoint)
+    and the SPECTRAL-NORM-normalized input (sigma_i / sigma_max in [0, 1], p=1
+    endpoint). In singular value space:
+        sigma_out = (1-p) + p * sigma_i / sigma_max
+
+    This is NOT exact Schatten-p (true sigma_i^p) but it monotonically
+    interpolates between full polar (p=0) and a magnitude-preserving partial
+    whitening (sigma_max stays ~1, smaller sigma_i shrink toward 1-p). The
+    spectral-norm normalization is the key distinction from a Frobenius-norm
+    blend, which would just scale the polar by ~ (1-p) (essentially an LR change).
+
+    Power iteration (5 steps) on G @ G^T estimates sigma_max so the blend's
+    sigma_i term lies in [0, 1] regardless of matrix shape (square vs wide).
+    Per PR #1572, the diagnostic value is the TREND across arms (p=0 ->
+    p=0.25 -> p=0.5); a monotonic interpolation that preserves sigma_max but
+    partially attenuates the smaller singular values is exactly the Schatten-p
+    partial-whitening intuition.
+    """
+    assert G.ndim >= 2
+    X = G.bfloat16()
+    if G.size(-2) > G.size(-1):
+        X = X.mT
+
+    # F-norm normalize for NS5 numerical stability (matches baseline pre-iter step).
+    X_fnorm = X / (X.norm(dim=(-2, -1), keepdim=True) + 1e-7)
+
+    # Power iteration on X_fnorm to estimate sigma_max(X_fnorm).
+    # Deterministic init: column vector of ones / sqrt(m) — has nonzero projection
+    # on the top singular vector for generic (non-mean-zero-projected) gradients.
+    m = X_fnorm.size(-2)
+    u_shape = list(X_fnorm.shape)
+    u_shape[-1] = 1
+    u = torch.ones(u_shape, device=X_fnorm.device, dtype=X_fnorm.dtype) / (float(m) ** 0.5)
+    v = X_fnorm.mT @ u
+    v = v / (v.norm(dim=(-2, -1), keepdim=True) + 1e-7)
+    for _ in range(power_iters):
+        u = X_fnorm @ v
+        u = u / (u.norm(dim=(-2, -1), keepdim=True) + 1e-7)
+        v = X_fnorm.mT @ u
+        v = v / (v.norm(dim=(-2, -1), keepdim=True) + 1e-7)
+    sigma_max = (X_fnorm @ v).norm(dim=(-2, -1), keepdim=True)
+
+    # Spectral-normalize so sigma_max ≈ 1, others in [0, 1].
+    X_snorm = X_fnorm / (sigma_max + 1e-7)
+
+    # Compute the full polar P via standard NS5 polynomial on F-norm-normalized X.
+    P = X_fnorm.clone()
+    a, b, c = 2.0, -1.5, 0.5
+    for _ in range(steps):
+        A = P @ P.mT
+        B = b * A + c * A @ A
+        P = a * P + B @ P
+
+    # Convex blend in matrix space: sigma_out = (1-p)*1 + p*sigma_i/sigma_max.
+    out = (1.0 - p) * P + p * X_snorm
+
+    if G.size(-2) > G.size(-1):
+        out = out.mT
+    return out
+
+
+@torch.compile
+def muon_update_fractional(grad, momentum, mu=0.95, nesterov=True,
+                            ns_power=0.5, ns_steps=12):
+    """muon_update variant that routes through zeropower_fractional for p > 0.
+
+    Kept as a separate function (not a branch inside muon_update) so the p=0
+    baseline path stays on its own compiled graph and remains bit-identical."""
+    momentum.lerp_(grad, 1 - mu)
+    update = grad.lerp_(momentum, mu) if nesterov else momentum
+    update = zeropower_fractional(update, p=ns_power, steps=ns_steps)
+    update *= max(1, grad.size(-2) / grad.size(-1))**0.5
+    return update
+
+
 class Muon(torch.optim.Optimizer):
     def __init__(self, params, lr=0.02, weight_decay=0, mu=0.95):
         assert isinstance(params, list) and len(params) >= 1 and isinstance(params[0], torch.nn.Parameter)
@@ -669,12 +766,14 @@ class MuonH(torch.optim.Optimizer):
     norm exactly constant; weight_decay must be 0.
     """
     def __init__(self, params, lr=0.018, weight_decay=0.0, mu=0.95,
-                 hyperball=True, budget_mult=1.0, mode="clip"):
+                 hyperball=True, budget_mult=1.0, mode="clip",
+                 ns_power=0.0, ns_steps=12):
         assert isinstance(params, list) and len(params) >= 1 and isinstance(params[0], torch.nn.Parameter)
         assert mode in ("clip", "scale_invariant")
         params = sorted(params, key=lambda x: x.size(), reverse=True)
         defaults = dict(lr=lr, weight_decay=weight_decay, mu=mu,
-                        hyperball=hyperball, budget_mult=budget_mult, mode=mode)
+                        hyperball=hyperball, budget_mult=budget_mult, mode=mode,
+                        ns_power=ns_power, ns_steps=ns_steps)
         super().__init__(params, defaults)
         self._last_active_fraction = 0.0
         self._last_radius_to_norm_max = 0.0
@@ -694,6 +793,8 @@ class MuonH(torch.optim.Optimizer):
             hb = group["hyperball"]
             budget_mult = group["budget_mult"]
             mode = group["mode"]
+            ns_power = group.get("ns_power", 0.0)
+            ns_steps = group.get("ns_steps", 12)
             for base_i in range(0, len(params), world_size):
                 if base_i + rank < len(params):
                     p = params[base_i + rank]
@@ -702,7 +803,13 @@ class MuonH(torch.optim.Optimizer):
                         state["momentum"] = torch.zeros_like(p)
                         if hb:
                             state["hyperball_radius"] = p.data.norm().item() * budget_mult
-                    update = muon_update(p.grad, state["momentum"], mu=group["mu"])
+                    if ns_power <= 0.01:
+                        update = muon_update(p.grad, state["momentum"], mu=group["mu"])
+                    else:
+                        update = muon_update_fractional(p.grad, state["momentum"],
+                                                         mu=group["mu"],
+                                                         ns_power=ns_power,
+                                                         ns_steps=ns_steps)
                     if hb and mode == "scale_invariant":
                         # Always-active variant: norm is held at initial value by construction.
                         scale_invariant_update_(p.data, update, group["lr"])
@@ -783,6 +890,10 @@ if args.use_outer_optimizer:
 else:
     print0("MuLoCo outer optimizer DISABLED", console=True)
 print0(f"MuonH mode={args.muonh_mode} lr={args.muonh_lr} budget_mult={args.muonh_budget_mult} cooldown_shape={args.muonh_cooldown_shape}", console=True)
+if args.muonh_ns_power > 0.01:
+    print0(f"[H243] MuonH FRACTIONAL polar ENABLED: ns_power={args.muonh_ns_power} ns_frac_steps={args.muonh_ns_frac_steps} (convex-blend approximation: out = (1-p)*polar + p*X_normalized)", console=True)
+else:
+    print0(f"[H243] MuonH polar=BASELINE NS5 (ns_power={args.muonh_ns_power} <= 0.01, early-exit branch)", console=True)
 if args.aux_agc_clip_ratio > 0:
     print0(f"AGC ENABLED on aux AdamW groups: clip_ratio={args.aux_agc_clip_ratio} eps={args.aux_agc_eps}", console=True)
 else:
@@ -850,6 +961,8 @@ if dist.get_rank() == 0:
             "muonh_mu_schedule": args.muonh_mu_schedule,
             "muonh_mu_start": args.muonh_mu_start,
             "muonh_mu_end": args.muonh_mu_end,
+            "muonh_ns_power": args.muonh_ns_power,
+            "muonh_ns_frac_steps": args.muonh_ns_frac_steps,
         },
     )
 
@@ -933,7 +1046,9 @@ for trial_idx in range(args.num_trials):
     optimizer2 = MuonH([p for p in model.blocks.parameters() if p.ndim >= 2],
                        lr=args.muonh_lr, weight_decay=0.0, mu=0.95,
                        hyperball=True, budget_mult=args.muonh_budget_mult,
-                       mode=args.muonh_mode)
+                       mode=args.muonh_mode,
+                       ns_power=args.muonh_ns_power,
+                       ns_steps=args.muonh_ns_frac_steps)
     optimizer2.param_groups[0]["name"] = "muonh_blocks"
     optimizers = [optimizer1, optimizer2]
     # AGC targets: AdamW aux groups (embed, lm_head, scalars). Built from optimizer1
