@@ -1,5 +1,39 @@
 # SENPAI Research Results — auto-nanogpt-1gpu-r4
 
+## 2026-05-28 03:58 — PR #1447: PP-promote n=3 NM BETA=0.99 EARLY — **CLOSED Row 5 productive-NEG PP-COLLAPSE (13th cross-axis catalog finding, BILATERAL freshness completion)**
+
+- branch: `g1r4-fern/nm-beta099-pp-promote`
+- Hypothesis: Does β=0.95→0.99 (slower R-buffer EMA, 100-step effective window vs 20-step) replicate the #1402 N=1 single-seed FAV signal at n=3 PP?
+
+| # | Arm | seed | BETA | run_id | val/loss | fs | Δ_paired |
+|:---:|:---:|:---:|:---:|---|:---:|:---:|:---:|
+| 1 | ctrl A | 0 | 0.95 | keverpo6 | 3.26334 | 3150 | (ref) |
+| 2 | arm B | 0 | 0.99 | pflhctlg | 3.26707 | 3175 | **+0.00373 NEG** |
+| 3 | ctrl A | 1 | 0.95 | b777b3sp | 3.26413 | 3150 | (ref) |
+| 4 | arm B | 1 | 0.99 | xlnm6cs8 | 3.26627 | 3175 | **+0.00214 NEG** |
+| 5 | ctrl A | 2 | 0.95 | l92zth8s | 3.26326 | 3150 | (ref) |
+| 6 | arm B | 2 | 0.99 | ese69jtu | 3.26324 | 3150 | **−0.00002 TIED** |
+| **n=3 mean** | **arm** | — | **0.99** | — | **3.265527** | **3166.7** | **+0.00195 NEG** |
+| **n=3 mean** | **ctrl** | — | 0.95 | — | 3.263577 | 3150 | (ref drift +0.00019) |
+
+**Verdict: Row 5 productive-NEG PP-COLLAPSE. 0/3 favorable, G1+G3 FAIL.**
+
+**Gate verdict**: G1 FAIL (μ_arm 3.265527 > baseline 3.26310) / G2 PASS / G3 FAIL (0/3 favorable) / G4 EXCEPTIONAL-CLEAN (ctrl drift +0.00019).
+
+**Mechanism re-interpretation**: β=0.99 reduces R-buffer variance 10× (R_cond shrinks ~10× per NM telemetry) BUT this does NOT translate to val gain. R-buffer noise is NOT the bottleneck on post-#1240 stack — the bottleneck is the geometric structure of M·R^{-0.5}, not the smoothness of R itself.
+
+**🎯 Bilateral-monotone freshness axis CONFIRMED — production β=0.95 + period=2 is the local optimum**:
+- HIGH-side freshness ↑ (period=5→2 more frequent refresh): **#1421 FAV-MERGED Δ=−0.00125**
+- LOW-side freshness ↓ (β=0.95→0.99 slower EMA): **#1447 NEG-confirmed Δ=+0.00195**
+- Both extreme deviations NEG; only increasing refresh frequency FAV.
+
+**N=1 → n=3 sign-FLIP precedent**: #1402 single-seed Δ=−0.00135 was ctrl-anchoring noise on different baseline. Future N=1 wins in PP-MARGINAL band [−0.002, −0.001] should default to **expect sign-flip or attenuation at n=3** unless mechanism story is robust at seed-aggregate level.
+
+**🎯 13th cross-axis catalog finding — extends class 4 (freshness-productive-bilateral-monotone)**. Catalog now 13 findings 6 classes (same class count — #1447 deepens evidence on existing class).
+
+W&B runs: keverpo6, pflhctlg, b777b3sp, xlnm6cs8, l92zth8s, ese69jtu (group `g1r4-fern/nm-beta099-pp-promote`)
+
+
 ## 2026-05-28 03:46 — PR #1469: NM late-disable sweep NM_STOP_STEP — **CLOSED Row 5 productive-SATURATING-NEG (12th cross-axis catalog finding, NEW class temporal-coverage)**
 
 - branch: `g1r4-alphonse/nm-stop-step-sweep`
