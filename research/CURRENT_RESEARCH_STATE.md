@@ -1,3 +1,63 @@
+## 2026-05-28 05:50 UTC — Cycle 71 mid-335 — nezuko #1505 239th (cross-optimizer m-axis CLOSED + AUX v-reset bias-correction trap) + askeladd #1504 240th (body-Muon m-axis 6-sub-axis grid FULLY CLOSED) + UW-floor depth-half + AUX timing-gap pivots
+
+**Cumulative**: **240 refuted** / **145 distinct mech classes** / **107 family-level closures**.
+
+### PRs closed this wave (2 closures, both terminal bilateral):
+
+| PR | student | mechanism | outcome |
+|---|---|---|---|
+| **nezuko #1505** | nezuko | POST_TARGET_AUX_M_V_RESET (Arm A AUX m-reset, Arm B AUX v-reset self-consistent) | **239th** — Arm A val=3.27090/ffs=3025 cluster STANDARD; Arm B val=16.62 catastrophic divergence at step 2950 (m bias-correction transient even with step counter co-reset); cross-optimizer m-axis closed (body-Muon-specific effect) |
+| **askeladd #1504** | askeladd | POST_TARGET_BODY_MUON_PER_BLOCK_M_RESET (Arm A block 0, Arm B block 11) | **240th** — both arms cluster STANDARD (A=3.27071/3025, B=3.27033/3025); Δ B−A = −0.00038 within seed noise; body-Muon m-axis depth-symmetric at per-block extremes |
+
+### NEW PRINCIPLES this wave:
+
+1. **m-reset effect is body-Muon-specific along cross-optimizer axis** — alphonse #1461 sub-cluster-edge val=3.26701 CANNOT be reproduced by zeroing AdamW first-moment EMA at step 2950. Requires NS5 orthogonalization + Muon-specific first-moment EMA path. Sub-cluster-edge access is NOT a generic "any first-moment EMA reset" effect.
+2. **AUX v-reset in cooldown is catastrophic regardless of bias-correction strategy** — both raw v-reset (PR #1404 mechanism, ~1000× v̂-collapse) AND self-consistent variant (zero `exp_avg_sq` + `state["step"]` together, ~10× m-bias-correction transient) produce destructive divergence in cooldown LR. The bias-correction-coupled v-axis is NOT cleanly testable in cooldown without per-moment bias state (which AdamW does not have).
+3. **Body-Muon m-axis 6-sub-axis grid FULLY CLOSED** — timing × kind × magnitude × pre-cooldown × compound × per-block-extremes. The 6th sub-axis (per-block extremes, askeladd #1504) confirmed depth-symmetry: block 0 = block 11 within seed noise. m-reset perturbation acts as global state-buffer event, not per-block-localizable.
+
+### Body-Muon m-axis 6-sub-axis closure grid (alphonse #1461 family, FULLY CLOSED):
+
+| sub-axis | source PR | refute # | result |
+|---|---|---|---|
+| timing (post-cooldown fine grid) | nezuko #1476 | 232 | noise-equivalent |
+| kind (MLP vs Attn) | askeladd #1477 | 231 | kind-symmetric (Δ=0.00003) |
+| magnitude (×0.5 / ×2.0) | thorfinn #1485 | 234 | non-monotonic; ×1.0 best |
+| pre-cooldown timing (2700/2750) | alphonse #1494 | 235 | timing-invariant |
+| compound (m × depth-half LR) | fern #1491 | 236 | INTERFERES |
+| **per-block extremes (block 0 / block 11)** | **askeladd #1504 (THIS WAVE)** | **240** | **depth-symmetric, Δ=−0.00038** |
+
+### Fresh assignments — two pivot axes:
+
+| PR | student | mechanism | rationale |
+|---|---|---|---|
+| **askeladd #1527** | askeladd | POST_TARGET_DEPTH_HALF_UW_FLOOR (early_HIGH [UW=0.50] vs early_LOW [UW=0.20], windowed [2950, 3175]) | **First per-depth TARGET_UW probe in 1500+ PR history** — search confirms PRs #214, #336, #498, #601, #830, #1004, #1007, #1023 are all global-scalar sweeps; no per-depth/per-block dispatch ever tested. TARGET_UW (u/w-floor) is a body-Muon update-magnitude mechanism. Per Morgan #1259 per-group state-phase directive. Reuses askeladd's per-block infra from #1504. |
+| **nezuko #1528** | nezuko | AUX_M_RESET_TIMING_GAP (Arm A step 1500 mid-plateau, Arm B step 2700 pre-cooldown) | **Fills AUX timing-decomposition gap** — AUX state-reset tested at step 953 (#1353/#1404/#1422), step 2950 (#1505), and steps 2975/3025 (#1449). Gap between step 953 and step 2950 (steps 1500-2700) has NEVER been tested. Cross-axis cousin to body-Muon timing-invariance result (alphonse #1494). |
+
+### Still-active fleet (8 students, ZERO IDLE):
+
+- **askeladd #1527** — POST_TARGET_DEPTH_HALF_UW_FLOOR (early_HIGH vs early_LOW) — NEWLY assigned
+- **nezuko #1528** — AUX_M_RESET_TIMING_GAP (step 1500 vs step 2700) — NEWLY assigned
+- **edward #1525** — DEPTH_LINEAR_SOAP_PRECOND_FREQ_MLP (front_FAST vs front_SLOW per-block refresh) — IN-FLIGHT
+- **tanjiro #1522** — POST_TARGET_AUX_KIND_PARTITIONED_M_RESET (embed-only vs lm_head-only) — IN-FLIGHT
+- **alphonse #1518** — POST_TARGET_BODY_MUON_SECOND_MOMENT_RESET (v-only vs m+v joint) — IN-FLIGHT
+- **fern #1519** — POST_TARGET_DEPTH_HALF_SOAP_STATE_RESET (early-half vs late-half blocks) — IN-FLIGHT
+- **thorfinn #1514** — POST_TARGET_SOAP_STATE_RESET (MLP scope vs Attn-trust scope) — IN-FLIGHT
+- **frieren #1512** — POST_TARGET_BODY_MUON_M_FROM_GRAD (direction axis) — IN-FLIGHT
+
+### Cross-optimizer × scope × buffer × timing matrix (cycle 71):
+
+| timing | body-Muon m-reset | AUX m-reset | AUX v-reset |
+|---|---|---|---|
+| step 953 (cooldown_start) | not tested | #1353/#1404/#1422 closed | #1404 catastrophic |
+| step 1500 (mid-plateau) | not tested | **nezuko #1528 Arm A (NEW)** | not tested |
+| step 2700 (pre-cooldown) | alphonse #1494 cluster STANDARD | **nezuko #1528 Arm B (NEW)** | not tested |
+| step 2950 (cooldown peak) | alphonse #1461 SCE n=1 → n=2 refuted | nezuko #1505 cluster STANDARD | nezuko #1505 catastrophic |
+| step 2975/3025 (cooldown-late) | nezuko #1476 noise-equivalent | #1449 closed | not tested |
+
+This wave completes per-block m-reset extremes (askeladd #1504) and the cross-optimizer m-axis (nezuko #1505), and opens AUX timing-gap + first per-depth UW-floor as the next two unmapped axes.
+
+---
+
 ## 2026-05-28 05:15 UTC — Cycle 71 mid-334 — edward #1492 238th refute (continuous-LR depth-ramp axis FULLY CLOSED cross-window) + per-block SOAP refresh-frequency pivot
 
 **Cumulative**: **238 refuted** / **144 distinct mech classes** / **106 family-level closures**.
