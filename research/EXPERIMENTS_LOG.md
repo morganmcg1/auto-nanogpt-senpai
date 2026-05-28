@@ -1,5 +1,29 @@
 # SENPAI Research Results — auto-nanogpt-1gpu-r5
 
+## 2026-05-28 00:16 — PR #1446: Lookahead optimizer wrapper on Muon body (edward) [CLOSED — VARIANCE-REDUCTION-CLASS-CLOSED — 29th closure]
+- branch: g1r5-edward/lookahead-body
+- hypothesis: Lookahead k-step averaging (Zhang et al. NeurIPS 2019) on Muon body reduces step-to-step direction variance from NS-orthogonalization approximation + SOAP eigenbasis staleness; expected to be FFS-positive if variance-reduction is the bottleneck.
+- verdict: **CLEAN-NEG WITH α-MONOTONE INVERSION (pre-registered falsifier INVERTED)**. D (α=0.3, conservative) is catastrophic (+48.8σ, DNF); E (α=0.9, aggressive) is near-noise (+2.0σ). Snap-back magnitude `(1-α)·||fast-slow||` is the damage mechanism: every sync discards ~3.5 units of accumulated direction signal. Cooldown auto-deactivates wrapper but damage is in steps 250-2500. **Variance-reduction class fully closed on Muon body.**
+
+- results (5-cell n=1):
+
+  | Cell | k | α | val | Δval σ | FFS | ΔFFS | FFS-alive | W&B |
+  |:---:|:---:|:---:|:---:|:---:|:---:|:---:|:---:|:---|
+  | A ctrl | 0 | n/a | 3.26145 | +0.0σ | 3025 | 0 | ✗ | xy0q9ou7 |
+  | B★ | 5 | 0.5 | 3.27141 | **+16.8σ** | 3100 | +75 | ✗ | 9ceegm9i |
+  | C | 10 | 0.5 | 3.27302 | **+19.5σ** | 3100 | +75 | ✗ | jf9qkk0g |
+  | D | 5 | 0.3 | 3.29037 | **+48.8σ** | DNF | DNF | ✗ | lw2k3ufm |
+  | E | 5 | 0.9 | 3.26266 | +2.0σ | 3025 | 0 | ✗ | gl44wz65 |
+
+  Slow-fast diff `||fast-slow||` peak ~5.1 @ step 1000, collapses 8.5× to 0.60 @ step 3000 (cooldown deactivation confirmed).
+
+- mechanism findings:
+  1. **α-monotone NEG — pre-registered falsifier INVERTED**: Pre-registration predicted E (α=0.9, α→1 = fast=slow) would be worst; actual worst is D (α=0.3). The damage mechanism is snap-back `(1-α)·||fast-slow||` — "gentle" averaging discards the most accumulated signal per sync.
+  2. **Cooldown auto-deactivates wrapper too late**: By step 3000, ||fast-slow|| has collapsed 8.5× from peak. The damage occurs in mid-training steps 250-2500, which are exactly the descent-driving zone. Cooldown LR contraction eliminates the symptom but not the cause.
+  3. **★ REVISED STRUCTURAL CLAIM from cross-PR analysis** (#1441 AGC + #1446 Lookahead): Both pre-NS magnitude perturbations AND post-NS direction averaging are clean-NEG. Revised claim: **ANY tampering with the NS-orthogonalized step fails**. The bare update is high-fidelity in both direction and magnitude. "Post-NS modifiers structurally exempt" was over-stated.
+  4. **Variance-reduction class on Muon body FULLY CLOSED**: PR #581 (full-param Lookahead wrap) + PR #1446 (body-only Lookahead wrap) both clean-NEG. No variant (different k, α, sync rule, EMA decay) is worth retrying. Class exhausted.
+  5. **Implication for remaining in-flight portfolio**: Only direction-PRESERVING transforms retain non-zero prior — GC (#1497) removes row-mean (preserving) vs QHM (#1493) blends raw gradient (distorting). Cautious (#1460) gates which coordinates are applied (not tampering with magnitude within applied coords). These are the only surviving non-schedule-side modification types.
+
 ## 2026-05-28 00:08 — PR #1441: AGC (Adaptive Gradient Clipping) on Muon body matrices (fern) [CLOSED — AGC-INCOMPATIBLE-MUON-PRE-NS — 28th closure]
 - branch: g1r5-fern/agc-body-pruning
 - hypothesis: NFNets-style row-norm gradient clipping (`||grad_row||/||param_row|| ≤ λ`) on Muon body — test whether clipping early-training gradient bursts damps Muon body update variance pre-NS.

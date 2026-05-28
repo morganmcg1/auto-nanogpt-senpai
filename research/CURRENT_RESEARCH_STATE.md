@@ -9,33 +9,35 @@ The human research team has redirected: **FFS (first-step-to-target, baseline 30
 3. **Prefer experiments that move the crossing step** (2800-3050 window), **simplify winning stacks**, **reveal FFS-load-bearing components**.
 4. **Ablations preferred over confirmations** when FFS dead.
 
-## Last updated: 2026-05-28 ~00:08Z (poll ~902)
+## Last updated: 2026-05-28 ~00:16Z (poll ~903)
 
-**Actions this poll**: ★ Close #1441 fern AGC-INCOMPATIBLE [28th stack-component closure]. All λ ∈ {0.005, 0.01, 1.0, 5.0} FFS ≥ 3175 — AGC fires 100% saturated at every λ. **MAJOR STRUCTURAL FINDING: Muon body has `||grad_row||/||param_row|| ≫ 5` essentially always**; AGC's row-norm bound is permanently rescaling rather than selectively clipping, then NS-iter strips off the scale, leaving similar orthogonalized direction across λ values. Per-layer at λ=5.0 isolates mlp/fc (up-projection) as lowest-ratio class. **Cross-PR claim** (for stabilization-class future work): Muon body is post-NS-iter spectral-normalization-robust to pre-NS magnitude perturbations — stabilization should look at AFTER-NS controls (Cautious sign-gating, Lookahead averaging) not pre-NS magnitude clips. ★ Assigned #1500 fern AdaBelief on AdamW aux (Zhuang NeurIPS 2020; 2nd-moment of belief surprise (g-m)² vs gradient magnitude g²; orthogonal to all closed β2 axes which tested the *decay* of estimator — this tests the *form* of estimator).
+**Actions this poll**: ★ Close #1446 edward Lookahead VARIANCE-REDUCTION-CLASS-CLOSED [29th stack-component closure]. α-monotone-NEG (pre-registered falsifier inverted: D=α0.3 catastrophic +48.8σ, E=α0.9 near-noise +2.0σ). Snap-back magnitude `(1-α)·||fast-slow||` is the damage mechanism — every sync discards ~3.5 units of accumulated direction signal (for α=0.3). Cooldown auto-deactivates wrapper (||fast-slow|| drops 8.5× by step 3000) but too late: damage occurs in mid-training steps 250-2500. **VARIANCE-REDUCTION CLASS FULLY CLOSED on Muon body**: PR #581 (full-param Lookahead) AND #1446 (body-only Lookahead) both clean-NEG. **REVISED CROSS-PR STRUCTURAL FINDING**: "Muon body is post-NS spectral-normalization-ROBUST to pre-NS magnitude perturbations" (from #1441) AND "post-NS variance-reduction also fails" (from #1446). Revised joint claim: **the bare NS-orthogonalized step is a high-fidelity direction estimate — neither magnitude clipping (pre-NS) nor direction averaging (post-NS) improves it. Any mid-trajectory tampering discards signal.** The earlier "post-NS modifiers structurally exempt from wash-out" claim was PARTIALLY REFUTED by #1446. ★ Assigned #1502 edward Sophia-G on AdamW aux (Liu et al. ICLR 2024; Gauss-Newton-Bartlett diagonal Hessian preconditioner; 5-cell n=1 sweep: ctrl/rho0.05/rho0.10/lr-scale0.5/lr-scale2.0; first 2nd-order method tested on aux; applied ONLY to embed+lm_head, scalars stay AdamW).
 
-**Critical pending**: Issue #1480 human merge guidance — #1381 (FFS-POSITIVE, FIRST OF R5) held in status:review; Reading-C parallel arm #1481 in flight.
+**Critical pending**: Issue #1480 human merge guidance — #1381 (FFS-POSITIVE, FIRST OF R5) held in status:review; Reading-C parallel arm #1481 in flight. ~2.8h elapsed at poll ~903; default Reading-C trigger at 4-6h.
 
 **Active student portfolio (8 PRs, 0 idle)**:
 - ★★★ #1381 alphonse — **cosine cooldown n=4 TERMINAL — μ_4(FFS)=2944, FFS-ALIVE, val +15σ regression**; status:review, HOLD pending issue #1480 human guidance
 - ★ #1481 alphonse — cosine × cooldown_frac joint sweep (Reading-C parallel arm)
-- #1500 fern — AdaBelief on AdamW aux (2nd-moment estimator substitution; NeurIPS 2020; 5 cells ctrl/all-scope B★/scalars/lm_head/embed)
+- #1502 edward — Sophia-G on AdamW aux (2nd-order Hessian-diagonal; Liu et al. ICLR 2024; 5-cell rho/lr-scale sweep)
+- #1500 fern — AdaBelief on AdamW aux (2nd-moment estimator substitution; NeurIPS 2020)
 - #1497 tanjiro — Gradient Centralization on Muon body (row-mean pre-NS; ECCV 2020)
 - #1493 frieren — QHM Muon body (gradient × momentum blend pre-NS; ICLR 2019)
 - #1490 askeladd — AdEMAMix on AdamW aux (fast+slow EMA mixture NeurIPS 2024)
 - #1471 thorfinn — Lion-aux sign-based optimizer (Chen et al. 2023; sequential sweep running)
 - #1460 nezuko — Cautious Optimizer (Liang et al. 2024; in flight)
-- #1446 edward — Lookahead optimizer wrapper (Zhang et al. 2019; in flight)
 
-**Cumulative closures (28 stack-components, ZERO merges in R5 to date)**
+**Cumulative closures (29 stack-components, ZERO merges in R5 to date)**
 
 **β2 axis FULLY CLOSED across 3 sub-axes** (poll ~900): value + schedule + per-group all FFS-cosmetic.
 
 **Depth-prior cluster** (poll ~901): musoft init + uniform body LR is JOINT-LOAD-BEARING 2-knob unit.
 
-**★ NEW CROSS-PR STRUCTURAL FINDING from #1441** (poll ~902): Muon body is **post-NS-iter spectral-normalization-ROBUST** to pre-NS magnitude perturbations. Implication for stabilization-class portfolio:
-- IN-FLIGHT PRE-NS modifiers (#1493 QHM-blend, #1497 GC-center): face the NS spectral wash-out as a structural barrier — should be tested but priors are weaker
-- IN-FLIGHT POST-NS modifiers (#1460 Cautious sign-gate, #1446 Lookahead average): structurally exempt from the wash-out — higher priors for FFS movement
-- **Adam-moment-replacement axis fully tiled by 3 in-flight PRs**: AdaBelief (#1500, 2nd-moment substitution), AdEMAMix (#1490, 1st-moment augmentation), Lion-aux (#1471, sign-only update)
+**★ REVISED CROSS-PR STRUCTURAL FINDING (polls ~902-903)**: The "post-NS modifiers structurally exempt" hypothesis was PARTIALLY REFUTED by #1446 Lookahead. Revised claim:
+- **ANY tampering with the NS-orthogonalized direction fails** — pre-NS magnitude clips (#1441 AGC) AND post-NS direction averaging (#1446 Lookahead) both clean-NEG
+- **Only modifiers that change WHEN the step is taken (schedule) or WHAT signal feeds NS** (direction-preserving gradient transform) retain non-zero priors
+- IN-FLIGHT PRE-NS modifiers (#1493 QHM-blend, #1497 GC-center): QHM blends the raw gradient before NS (direction-distorting), weak prior; GC removes row-mean (direction-preserving if centered), surviving prior
+- IN-FLIGHT POST-NS modifiers (#1460 Cautious sign-gate): changes WHICH coordinates are applied but not the magnitude within applied coords; surviving prior if gating pattern is signal-correlated
+- **Adam-moment-replacement axis fully tiled by 4 in-flight PRs**: Sophia-G (#1502, 2nd-order), AdaBelief (#1500, 2nd-moment form), AdEMAMix (#1490, 1st-moment augmentation), Lion-aux (#1471, sign-only)
 
 **FFS-positive directions**:
 1. ★★★ Cosine cooldown shape (#1381 n=4 TERMINAL μ_4(FFS)=2943.75 ALIVE; val regression +15σ; HOLD for #1480)
