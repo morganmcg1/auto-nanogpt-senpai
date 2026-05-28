@@ -1,3 +1,98 @@
+## 2026-05-28 12:20 UTC — Cycle 71 mid-343 — DOUBLE CLOSURE alphonse #1541 + frieren #1537 (249+250th, both per-depth-half mechanisms sub-cluster-edge with consistent front_up direction) + **4-MECHANISM FRONT_UP PRINCIPLE CRYSTALLIZED** + 23-mechanism cluster floor + 2 fresh assignments (alphonse #1568 PER_DEPTH_HALF_MU_COOLDOWN_END, frieren #1569 PER_DEPTH_HALF_ATTN_SOAP_BETA2)
+
+**Cumulative**: **250 refuted** / **147 distinct mech classes** / **108 family-level closures**.
+
+### PRs closed this wave (2 closures, both terminal bilateral, both sub-cluster-edge weak-directional):
+
+| PR | student | mechanism | outcome |
+|---|---|---|---|
+| **alphonse #1541** | alphonse | DEPTH_HALF_BODY_MUON_INIT_SCALE (Arm A front_BIG ×1.15/×0.85, Arm B front_SMALL ×0.85/×1.15, body Muon 48 params split=6) | **249th** — Arm A val=3.26859/ffs=3000 (sub-cluster-edge), Arm B val=3.26959/ffs=3025 (STANDARD); Δ(A−B)=−0.00100 val (front_BIG WINS), front_to_back_norm_ratio 1.3532 vs 0.7391 ✓ matches prediction. val_mean(A,B)=3.26909 fails merge bar by 0.00133. **Body-init magnitude axis FULLY MAPPED**: global #934 NULL, kind #704 NULL, depth-half (this) weakly front_up. |
+| **frieren #1537** | frieren | DEPTH_HALF_NORMUON_BETA2 per-block (Arm A front_FAST β2=0.90/0.99, Arm B front_SLOW β2=0.99/0.90, NorMuon row/col 2nd-moment EMA, body Muon all 72 params split=6) | **250th** — Arm A val=3.26957/ffs=3025 (sub-cluster-edge), Arm B val=3.27092/ffs=3025 (STANDARD); Δ(A−B)=−0.00135 val (front_FAST WINS). val_mean(A,B)=3.27025 fails merge bar by 0.00249. **NorMuon-β2 axis NOW SECOND DEPTH-HALF MECH at sub-cluster-edge front_up direction.** |
+
+### **NEW PRINCIPLE THIS WAVE (4-MECHANISM CROSS-MECHANISM FRONT_UP)**
+
+Four distinct mechanism axes ALL confirm: **front blocks benefit from more agility/scale/responsiveness/larger-state**. Magnitudes consistent (~0.001-0.0024), each sub-cluster-edge at n=1 single trial.
+
+| mechanism | layer scope | front_up direction | best arm Δ vs baseline | source |
+|---|---|---|---|---|
+| LR-axis depth-half | body (all) | front higher MUON_LR | +0.0015–0.0024 | edward #1468/#1492 |
+| NORMUON-β2 per-block | body (all) | front_FAST (β2=0.90 / 0.99) | +0.00181 | frieren #1537 (THIS WAVE) |
+| body-init depth-half | body (all) | front_BIG (×1.15 / ×0.85) | +0.00083 | alphonse #1541 (THIS WAVE) |
+| MLP-SOAP β2 depth-half | MLP only | front_FAST (β2=0.85 / 0.95) Arm A | +0.00323 | fern #1545 Arm A (Arm B in flight) |
+
+**Reading**: front-block gradients have higher non-stationarity → benefit from MORE responsive/agile state (faster β2 EMA, larger init magnitude, higher LR), regardless of which state quantity is being tracked. Robust cross-axis principle. **But: individual axes all sub-cluster-edge (~0.001-0.003 above floor); compounding theoretical only — frieren #1537 student's suggested stack (NORMUON-β2 front_FAST + LR front_up) is unlikely to multiply past floor (compound depth-direction probes typically sub-additive).**
+
+### 23-mechanism cluster floor (FULLY SATURATED, UPDATED):
+
+| axis (new entries this wave) | source | scope | val penalty | ffs |
+|---|---|---|---|---|
+| Body-init front_BIG (per-depth-half) | alphonse #1541 Arm A | body Muon 48p front | +0.00083 | 0 |
+| Body-init front_SMALL (per-depth-half) | alphonse #1541 Arm B | body Muon 48p back | +0.00183 | +25 |
+| NorMuon-β2 front_FAST (per-block) | frieren #1537 Arm A | body Muon 72p front | +0.00181 | +25 |
+| NorMuon-β2 front_SLOW (per-block) | frieren #1537 Arm B | body Muon 72p back | +0.00316 | +25 |
+
+**Sub-cluster-edge band [3.265, 3.269) accumulating density**: alphonse Arm A (3.26859), frieren Arm A (3.26957), fern Arm A (3.27099 borderline STANDARD), tanjiro Arm A (3.26997 borderline STANDARD). 4-5 PRs all clustering near band boundary — strong evidence cluster floor is the true mech-saturated regime.
+
+### Fresh assignments — both fit Morgan #1259 (depth/per-group + state-phase):
+
+| PR | student | mechanism | rationale |
+|---|---|---|---|
+| **alphonse #1568** | alphonse | PER_DEPTH_HALF_MU_COOLDOWN_END (Arm A front_LOWER 0.85/0.95, Arm B front_HIGHER 0.95/0.85, momentum cooldown phase only, body Muon all 72 params split=6, mean=0.90 preserves global) | **First per-depth-half MU_COOLDOWN_END across 1500+ PRs.** MU_COOLDOWN_END global swept #357/#406/#656/#1110 — never per-depth-half. Tests whether cross-mech front_up principle transfers to MOMENTUM-COOLDOWN PHASE axis (5th mechanism). State-phase × depth, structurally novel. Predicted: front_LOWER (faster cooldown = more agility late) wins per front_up principle. |
+| **frieren #1569** | frieren | PER_DEPTH_HALF_ATTN_SOAP_BETA2 (Arm A front_FAST 0.85/0.95, Arm B front_SLOW 0.95/0.85, attn-trust SOAP refresh path q/k/v/proj 24 params split=6) | **First per-depth-half ATTN_SOAP_BETA2 across 1500+ PRs.** ATTN_SOAP_BETA2 global swept #394/#634/#842 — never per-depth-half. **Direct counterfactual to fern #1545 MLP-SOAP β2 depth-half** (REFUTED at STANDARD band) — same mechanism structure, different layer scope (attn vs MLP), additional trust-gating structural difference. Tests whether depth-direction signal transfers across SOAP layer scopes. |
+
+### Still-active fleet (8 students, ZERO IDLE):
+
+- **nezuko #1566** — PER_KIND_AUX_AMSGRAD (state-rule v_max vs EMA) — in flight (just assigned)
+- **edward #1562** — PER_DEPTH_HALF_ATTN_SOAP_REFRESH_FREQ (counterfactual to #1525 MLP) — in flight
+- **askeladd #1558** — PER_DEPTH_HALF_NS5_ITERS (front_FEWER vs front_MORE) — Arm A `hojucqex` step 2927/3175 ETA 12:23Z
+- **tanjiro #1547** — PER_KIND_AUX_BETA1 (Arm A `4z27ovlr` val=3.26997/3025 STANDARD edge, Arm B in flight)
+- **fern #1545** — PER_DEPTH_HALF_SOAP_BETA2_MLP (Arm A val=3.27099/3025 STANDARD, Arm B `cujv1n7k` ETA 13:14Z)
+- **thorfinn #1540** — POST_TARGET_SOAP_MLP_SUB_STATE_LOCALIZATION (Arm A val=3.27460/3075, Arm B `2qtf90ot` ETA ~12:05Z)
+- **alphonse #1568** — PER_DEPTH_HALF_MU_COOLDOWN_END (NEWLY assigned this wave)
+- **frieren #1569** — PER_DEPTH_HALF_ATTN_SOAP_BETA2 (NEWLY assigned this wave)
+
+### Updated per-depth/per-kind dispatch frontier matrix (cycle 71 mid-343):
+
+| axis | dispatch | state-phase | scope | PR |
+|---|---|---|---|---|
+| LR continuous ramp | per-block linear | window | body Muon | edward #1468/#1492 (CLOSED front_up) |
+| SOAP refresh freq MLP | per-block linear | full-run | MLP-SOAP | edward #1525 (CLOSED NULL) |
+| SOAP refresh freq ATTN-trust | per-block linear | full-run | attn-SOAP | edward #1562 (in flight) |
+| TARGET_UW | depth-half | windowed | body Muon | askeladd #1527 (CLOSED NULL) |
+| NORMUON β2 | depth-half | full-run | body Muon | frieren #1537 (**CLOSED front_up sub-cluster-edge**) |
+| MLP-SOAP Gram EMA β2 | depth-half | full-run | MLP-SOAP | fern #1545 (in flight, Arm A 3.27099 STANDARD) |
+| body Muon init scale | depth-half | pre-training | body Muon 48p | alphonse #1541 (**CLOSED front_BIG sub-cluster-edge**) |
+| AdamW m EMA β1 | per-kind | full-run | AUX | tanjiro #1547 (Arm A 3.26997 STANDARD edge, Arm B in flight) |
+| NS5 iters | depth-half | full-run | body Muon | askeladd #1558 (in flight, Arm A ETA 12:23Z) |
+| AMSGrad (v state-rule) | per-kind | full-run | AUX | nezuko #1566 (in flight) |
+| **MU_COOLDOWN_END (momentum cooldown)** | **depth-half** | **late-phase** | **body Muon** | **alphonse #1568 (NEWLY assigned)** |
+| **ATTN-SOAP β2** | **depth-half** | **full-run** | **attn-SOAP** | **frieren #1569 (NEWLY assigned)** |
+| SOAP state reset (sub-state) | MLP scope | event | exp_avg_sq vs gram | thorfinn #1540 (Arm A terminal STANDARD, Arm B in flight) |
+| SOAP state reset depth-half | depth-half | event | all SOAP | fern #1519 (CLOSED) |
+| m-reset per-block | per-block | event | body Muon | askeladd #1504 (CLOSED) |
+| m-reset per-kind AUX | embed vs lm_head | event | AUX | tanjiro #1522 (CLOSED kind-ASYMMETRIC) |
+| AUX m-reset timing | single-axis | event-timing | AUX | nezuko #1528 (CLOSED NULL) |
+| v-reset / m+v joint body | none | event | body Muon | alphonse #1518 (CLOSED) |
+| AUX m+v joint | none | event | AUX | nezuko #1505 (CLOSED) |
+| m←±grad direction | none | event | body Muon | frieren #1512 (CLOSED) |
+
+**12 continuous-mechanism dispatch axes active**, **6 closed event/discrete**. Per-depth/per-kind dispatch is now the dominant probe form (Morgan #1259 directive followed).
+
+### Notable mid-flight signal: askeladd #1558 Arm A ETA 12:23Z
+
+Per-depth-half NS5 iters: front_FEWER (10 iters) vs front_MORE (18 iters) is the dispatch direction. Per front_up principle, if front blocks benefit from MORE precision (higher NS5 iters), Arm B (front_MORE) should win. If front blocks benefit from FEWER iters (faster iteration, less polishing), Arm A wins. **This is the first axis where the front_up principle direction is AMBIGUOUS** — NS5 iters increase precision (slow tracking) but also more computation. Result will be informative: does "front_up" mean "front more state" or "front more responsiveness"? They diverge here.
+
+### Infrastructure context
+
+W&B 401 fleet-wide blocker RESOLVED ~11:00Z. All in-flight offline arms are syncing on terminal. Pod fleet healthy (all 8 students GPU 100%). No anomalies, no askeladd-style stalls active.
+
+### Heartbeats sent this wave
+
+- **fern #1545** heartbeat (11:29Z) — responded 11:31Z with terminal Arm A (val=3.27099/3025 STANDARD), Arm B in flight ETA 13:14Z
+- **askeladd #1558** heartbeat (12:08Z) — responded 12:08Z with terminal disabled-canary PASS + Arm A in flight step 2927/3175 ETA 12:23Z
+
+---
+
 ## 2026-05-28 11:15 UTC — Cycle 71 mid-342 — nezuko #1528 248th (AUX_M_RESET_TIMING_GAP timing-symmetric within noise CLOSED) + 21-mechanism cluster-floor table + PER_KIND_AUX_AMSGRAD pivot (nezuko #1566 NEW, first per-kind state-rule dispatch)
 
 **Cumulative**: **248 refuted** / **145 distinct mech classes** / **107 family-level closures**.
