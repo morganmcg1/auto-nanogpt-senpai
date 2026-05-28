@@ -1,3 +1,88 @@
+## 2026-05-28 16:10 UTC — Cycle 71 mid-350 — nezuko #1566 256th (PER_KIND_AUX_AMSGRAD terminal STANDARD CLOSED — kind-asymmetric direction, lm_head more brittle under STATE-RULE perturbation reinforcing #1522 m-reset pattern with OPPOSING direction signal) + nezuko #1590 NEW PER_KIND_MLP_SOAP_BETA2 pivot (first per-MLP-SOAP-kind fc vs proj β2 dispatch across 1500+ PRs; completes 5-mechanism per-kind axis family in flight)
+
+**Cumulative**: **256 refuted** / **153 distinct mech classes** / **113 family-level closures**.
+
+### PR closed this wave (1 closure, terminal bilateral, STATE-RULE kind-asymmetric NULL):
+
+| PR | student | mechanism | outcome |
+|---|---|---|---|
+| **nezuko #1566** | nezuko | PER_KIND_AUX_AMSGRAD (Arm A embed_AMSGRAD vs Arm B lm_head_AMSGRAD per-kind AdamW second-moment state-rule dispatch) | **256th** — Arm A val=3.27420/ffs=3075 (CLUSTER STANDARD), Arm B val=3.27613/ffs=3100 (DEGRADED); val_mean=3.27517 fails merge bar by 0.00741. Δ(B−A)=+0.00193 → Arm A (embed_AMSGRAD) WINS. Step-2950 v_max/v ratio: embed=609× (~24.7× LR suppression), lm_head=2255× (~47.5× LR suppression). lm_head's brittleness amplified 2× by AMSGrad max-lock breaking cooldown EMA relaxation. |
+
+### STRUCTURAL FINDING — per-kind AUX state-rule axis reinforces lm_head brittleness pattern, with OPPOSING direction from event-axis
+
+This is now the **2nd PR** to confirm lm_head's structural brittleness under AUX state perturbations, with kind-asymmetric direction varying by mechanism class:
+
+| PR | mechanism class | kind-direction signal | magnitude | Δ direction |
+|---|---|---|---|---|
+| **#1522** | event (m-reset at step 2950) | embed-only m-reset | ~0.001 | lm_head-only WINS (lm_head perturbation-resistant) |
+| **#1547** | continuous (β1 EMA rate, full-run) | lm_head_FAST | Goldilocks | weakly REVERSED from m-staleness pred |
+| **#1566** | state-rule (AMSGrad, full-run) | embed_AMSGRAD | ~0.002 | embed-only WINS (lm_head NOT perturbation-resistant) |
+
+**Cross-PR pattern**:
+- **Event-axis (#1522)**: kind-partition with lm_head MORE perturbation-resistant than embed (lm_head-only m-reset wins) — transient state intervention
+- **State-rule axis (#1566)**: kind-partition with embed MORE perturbation-resistant than lm_head (embed-only AMSGrad wins) — persistent state modification
+- **Continuous axis (#1547)**: kind-partition lands Goldilocks at merge-bar scale — magnitude perturbation
+
+The state-rule and event axes produce kind-asymmetric direction signals (~0.001-0.002 magnitude) but **opposing directions**: event-axis says "lm_head can absorb the reset," state-rule axis says "lm_head can't absorb the structural change." The continuous axis lands Goldilocks. This is consistent with **lm_head being structurally brittle to PERSISTENT state modifications but RESILIENT to TRANSIENT state interventions**.
+
+### Updated mechanism direction taxonomy (cycle 71 working theory)
+
+Cycle 71's per-kind axis family is mapping mechanism direction across THREE structural classes (revised from mid-348):
+
+| mechanism class | continuous-update kind direction | trust-gated/event kind direction | state-rule kind direction |
+|---|---|---|---|
+| depth-half axis | front_up SATURATED (6 mechs) | REVERSED (1 mech, #1562) | — (untested) |
+| per-kind AUX axis | Goldilocks (#1547 β1) | event-axis kind-asymmetric (#1522 m-reset, lm_head wins) | state-rule kind-asymmetric (#1566 AMSGrad, embed wins) |
+| per-kind attn-SOAP axis | in flight (#1575 β2) | in flight (#1583 refresh-freq) | (untested) |
+| per-kind MLP-SOAP axis | NEW IN FLIGHT (#1590 β2 — assigned this wave) | (untested) | (untested) |
+
+### PR assigned this wave
+
+| PR | student | mechanism | role |
+|---|---|---|---|
+| **nezuko #1590** | nezuko | PER_KIND_MLP_SOAP_BETA2 (Arm A fc_FAST β2=0.85/proj=0.95 vs Arm B fc_SLOW β2=0.95/proj=0.85, full-run MLP-SOAP layer) | First per-MLP-SOAP-kind β2 dispatch — counterfactual to fern #1575 attn-SOAP β2; both axes test continuous-update class per-kind axis but on DIFFERENT layer scopes (trust-gated attn-SOAP vs continuous MLP-SOAP). |
+
+### Fleet state at end of wake 16
+
+8 students all assigned, 0 idle:
+
+| PR | student | axis | status |
+|---|---|---|---|
+| #1568 | alphonse | PER_DEPTH_HALF_MU_COOLDOWN_END (depth-asymmetric momentum cooldown end) | WIP |
+| #1569 | frieren | PER_DEPTH_HALF_ATTN_SOAP_BETA2 (depth-asymmetric attn-trust SOAP β2) | WIP |
+| #1570 | thorfinn | ATTN_SOAP_ACTIVATION_DELAY (delay_200 vs delay_1000 step-N activation gate) | WIP |
+| #1575 | fern | PER_KIND_ATTN_SOAP_BETA2 (per-kind q/k vs v/proj β2 inside attn-SOAP layer scope) | Arm A mid-flight |
+| #1577 | tanjiro | PER_KIND_AUX_BETA2 (per-AUX-kind AdamW v-EMA decay full-run) | WIP |
+| #1582 | askeladd | PER_KIND_NS5_ITERS_FULL_RUN (per-kind attn vs MLP NS5 iters dispatch) | WIP |
+| #1583 | edward | PER_KIND_ATTN_SOAP_REFRESH_FREQ (per-kind q/k vs v/proj trust-gated refresh-freq) | WIP |
+| #1590 | nezuko | PER_KIND_MLP_SOAP_BETA2 (per-MLP-kind fc vs proj β2 dispatch full-run) | WIP (fresh) |
+
+**Cycle 71 active axis-families**: **5-mechanism PER-KIND axis family** spanning 4 layer scopes (attn-SOAP β2/refresh, MLP-SOAP β2, NS5 cross-layer, AUX β2) + 2-mechanism PER-DEPTH-HALF axis family (cooldown_end, attn-SOAP β2) + activation-delay axis (#1570). All five per-kind PRs test different structural state-mechanism shapes per the Morgan #1259 directive.
+
+### Cross-layer per-kind triangulation table (after #1590 closes)
+
+After all 5 per-kind PRs close, we will have a 5×3 grid mapping {layer scope} × {kind direction} that will test the **layer-scope universality of per-kind direction**:
+
+|   | continuous-update class | trust-gated class | event class |
+|---|---|---|---|
+| MLP-SOAP layer | fc vs proj (#1590) | — | — |
+| attn-SOAP layer | q/k vs v/proj (#1575) | q/k vs v/proj (#1583) | — |
+| NS5 cross-layer | attn vs MLP (#1582) | — | — |
+| AUX (AdamW) | embed/lm_head (#1547 β1) | embed/lm_head (#1577 β2) | embed/lm_head (#1522 m-reset, #1566 AMSGrad) |
+
+This grid maps whether per-kind direction is **layer-specific** or **mechanism-class-specific**.
+
+### Potential next research directions (post per-kind axis-family closure)
+
+1. **Per-kind LAYER × continuous β2 saturation**: if all 5 per-kind continuous PRs land Goldilocks, the per-kind continuous axis is a SATURATED axis class. Pivot to event or state-rule on MLP-SOAP and attn-SOAP layers.
+2. **Per-kind state-rule on attn-SOAP and MLP-SOAP**: AMSGrad-style state-rule axes on non-AUX layers (e.g., trust-gate threshold per-kind, SOAP refresh-trigger per-kind).
+3. **Cross-layer per-kind composition**: if per-kind direction is layer-specific, compose multi-layer per-kind cuts (e.g., q-FAST + fc-FAST + embed-AMSGrad).
+4. **State-phase per-kind dispatch**: combine ATTN_SOAP_ACTIVATION_DELAY (#1570 in flight) with PER_KIND dispatch — does early-vs-late activation interact with kind direction?
+5. **Per-block fine-grained dispatch**: extend depth-half to per-block (4-cell or 6-cell grid) and check whether the trust-gated direction inversion is monotonic.
+6. **Layer-scope kind-asymmetry triangulation**: once attn-SOAP per-kind PRs close, compose q/k-FAST + fc-FAST to test whether the kind-direction signal sums or cancels across layer scopes.
+
+---
+
 ## 2026-05-28 15:55 UTC — Cycle 71 mid-349 — fern #1575 stale_wip heartbeat (Arm A `arm-a-qk-fast` cpswg36g live at step 1475/~3000, val=3.5648; per-kind code patch CONFIRMED in W&B config: per_kind_attn_soap_beta2_enabled=1, β2_Q=β2_K=0.85, β2_V=β2_PROJ=0.95). No closures, no fresh assignments, no idle students — fleet remains FULLY ASSIGNED with 4-mechanism per-kind axis family in flight (#1575 fern β2, #1583 edward refresh-freq, #1582 askeladd NS5 iters, #1577 tanjiro AUX β2)
 
 **Cumulative**: **255 refuted** / **152 distinct mech classes** / **113 family-level closures**.
