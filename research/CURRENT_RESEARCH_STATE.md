@@ -1,3 +1,80 @@
+## 2026-05-28 07:35 UTC — Cycle 71 mid-336 — frieren #1512 241st (body-Muon m-perturbation 8-sub-axis grid FULLY EXHAUSTED) + per-depth-half NORMUON_BETA2 pivot
+
+**Cumulative**: **241 refuted** / **145 distinct mech classes** / **107 family-level closures**.
+
+### PR closed this wave (1 closure, terminal bilateral):
+
+| PR | student | mechanism | outcome |
+|---|---|---|---|
+| **frieren #1512** | frieren | POST_TARGET_BODY_MUON_M_FROM_GRAD (Arm A m←+g, Arm B m←−g at step 2950, direction axis) | **241st** — Arm A val=3.27047/ffs=3025, Arm B val=3.27013/ffs=3025, both above cluster STANDARD edge; Δ B−A = −0.00034 sub-noise (\|Δ\| << n=2 MDE 0.00130); direction-axis non-load-bearing |
+
+### NEW PRINCIPLES this wave:
+
+1. **Body-Muon m-perturbation 8-sub-axis grid FULLY EXHAUSTED** — direction sign of grad-injection adds no signal beyond magnitude. Both arms uniformly +0.003 WORSE than alphonse #1461 zero-out single-seed (val=3.26701), confirming the favorable-perturbation regime is **small-magnitude centered-at-zero**, not "redirect along ±g". Magnitude-mismatch (g 5.9× larger than running m) dominates over direction sign.
+2. **alphonse #1461 SCE access (transient, n=2 refuted) is now isolated as small-magnitude favorable-perturbation noise** — does not generalize across any of 8 tested sub-axes (zero / magnitude / cross-optimizer / depth-half / per-kind / timing / per-block-extremes / direction). No further single-event m-perturbation probes warranted.
+3. **Magnitude dominates direction on Muon body buffer replacement** — m_norm_before ≈ 5400 vs m_norm_after ≈ 32000 (6× injection scale); +0.003 val penalty is attributable to the magnitude bump regardless of sign. Aligns with thorfinn #1485's non-monotonic magnitude axis result (×1.0 best).
+
+### Body-Muon m-axis 8-sub-axis closure grid (alphonse #1461 family, FULLY EXHAUSTED):
+
+| sub-axis | source PR | refute # | result |
+|---|---|---|---|
+| zero-out | alphonse #1461 | 1461 anchor | n=2 refuted (val=3.26907 mean) |
+| timing (post-cooldown fine grid) | nezuko #1476 | 232 | noise-equivalent |
+| kind (MLP vs Attn) | askeladd #1477 | 231 | kind-symmetric (Δ=0.00003) |
+| magnitude (×0.5 / ×2.0) | thorfinn #1485 | 234 | non-monotonic; ×1.0 best |
+| pre-cooldown timing (2700/2750) | alphonse #1494 | 235 | timing-invariant |
+| compound (m × depth-half LR) | fern #1491 | 236 | INTERFERES |
+| cross-optimizer | nezuko #1505 | 239 | body-Muon-specific |
+| per-block extremes (block 0 / block 11) | askeladd #1504 | 240 | depth-symmetric, Δ=−0.00038 |
+| **direction (m←±g at step 2950)** | **frieren #1512 (THIS WAVE)** | **241** | **sub-noise Δ B−A; both +0.003 worse than zero-out** |
+
+### Fresh assignment — first per-block NORMUON_BETA2 probe in 1500+ PRs:
+
+| PR | student | mechanism | rationale |
+|---|---|---|---|
+| **frieren #1537** | frieren | PER_DEPTH_HALF_NORMUON_BETA2 (front_FAST [front β2=0.90, back β2=0.99] vs front_SLOW [front β2=0.99, back β2=0.90], full-run, body Muon) | **First per-block / per-depth `NORMUON_BETA2` probe in 1500+ PRs** — search confirms #71 (merged), #378, #661, #316, #263 all vary `NORMUON_BETA2` GLOBALLY or TEMPORALLY only. Per-depth dispatch is virgin axis. Mean ≈ 0.945, close to default 0.95; 10× ratio of effective lookback windows (10 vs 100 steps) gives clean depth-asymmetric signal without leaving stable β2 territory. Tests whether the per-row variance EMA window should vary with depth. Per Morgan #1259 per-group state-phase directive. Orthogonal to: edward #1525 SOAP refresh-freq, askeladd #1527 UW-floor, edward #1468/#1492 LR-axis (CLOSED), alphonse #1518 v/m+v reset EVENT-axis. |
+
+### Still-active fleet (8 students, ZERO IDLE):
+
+- **frieren #1537** — PER_DEPTH_HALF_NORMUON_BETA2 (front_FAST vs front_SLOW per-block variance EMA) — NEWLY assigned
+- **askeladd #1527** — POST_TARGET_DEPTH_HALF_UW_FLOOR (Arm A in flight, ~75% @ step 2375) — IN-FLIGHT
+- **edward #1525** — DEPTH_LINEAR_SOAP_PRECOND_FREQ_MLP (Arm A in flight, ~79% @ step 2500) — IN-FLIGHT
+- **nezuko #1528** — AUX_M_RESET_TIMING_GAP (Arm A in flight, ~28% @ step ~900) — IN-FLIGHT
+- **tanjiro #1522** — POST_TARGET_AUX_KIND_PARTITIONED_M_RESET (Arm B in flight, ~24% @ step 750) — IN-FLIGHT
+- **alphonse #1518** — POST_TARGET_BODY_MUON_SECOND_MOMENT_RESET (Arm B in flight, ~73% @ step 2325) — IN-FLIGHT
+- **fern #1519** — POST_TARGET_DEPTH_HALF_SOAP_STATE_RESET (Arm B in flight, ~70% @ step 2225) — IN-FLIGHT
+- **thorfinn #1514** — POST_TARGET_SOAP_STATE_RESET (Arm B in flight, ~80% @ step 2550) — IN-FLIGHT
+
+### Sub-cluster-edge candidates (pending Arm B for confirmation, mid-335 wave):
+
+| PR | student | Arm A | val | ffs | Arm B status |
+|---|---|---|---|---|---|
+| fern #1519 | fern | early-half SOAP state reset @ step 2950 | 3.26823 | 3000 | step 2225/3175 (~70%), ETA ~10 min from now |
+| tanjiro #1522 | tanjiro | embed-only AUX m-reset @ step 2950 | 3.26978 | 3025 | step 750/3175 (~24%), ETA ~1.5-2h |
+
+Both Arm A's pass single-seed stat-sig rule (margin ≥ 0.004). If Arm B comes back cluster STANDARD or worse, Arm A becomes candidate for n=2 confirmation seed before merge consideration.
+
+### Per-block/per-depth dispatch frontier matrix (cycle 71):
+
+| axis | depth dispatch | state-phase | scope | PR |
+|---|---|---|---|---|
+| LR continuous ramp | per-block linear | window | body Muon | edward #1468 + #1492 (CLOSED) |
+| SOAP refresh freq | per-block linear | full-run | MLP-SOAP only | edward #1525 (in flight) |
+| TARGET_UW (u/w-floor) | depth-half | windowed [2950, 3175] | body Muon | askeladd #1527 (in flight) |
+| SOAP state reset | per-kind | event | MLP vs Attn-trust | thorfinn #1514 (in flight) |
+| SOAP state reset | depth-half | event | all SOAP kinds | fern #1519 (in flight, Arm A SCE) |
+| m-reset per-block | per-block | event | body Muon | askeladd #1504 (CLOSED) |
+| m-reset per-kind AUX | embed vs lm_head | event | AUX | tanjiro #1522 (in flight, Arm A SCE) |
+| v-reset / m+v joint | none | event | body Muon | alphonse #1518 (in flight) |
+| AUX m+v joint | none | event | AUX | nezuko #1505 (CLOSED) |
+| AUX m-reset timing | none | event-timing | AUX | nezuko #1528 (in flight) |
+| m←±grad direction | none | event | body Muon | frieren #1512 (CLOSED THIS WAVE) |
+| **NORMUON variance β2** | **depth-half** | **full-run** | **body Muon** | **frieren #1537 (NEW)** |
+
+This wave completes the body-Muon m-perturbation 8-sub-axis grid (frieren #1512) and opens the first per-block `NORMUON_BETA2` (variance EMA decay) axis. The state-dynamics frontier is now populated across 3 continuous-mechanism axes (LR-ramp CLOSED, SOAP refresh-freq IN-FLIGHT, NORMUON β2 NEW) and 4 event-axes (SOAP reset, m-reset, v-reset, m←±g) on body Muon.
+
+---
+
 ## 2026-05-28 05:50 UTC — Cycle 71 mid-335 — nezuko #1505 239th (cross-optimizer m-axis CLOSED + AUX v-reset bias-correction trap) + askeladd #1504 240th (body-Muon m-axis 6-sub-axis grid FULLY CLOSED) + UW-floor depth-half + AUX timing-gap pivots
 
 **Cumulative**: **240 refuted** / **145 distinct mech classes** / **107 family-level closures**.
