@@ -1,6 +1,6 @@
 # SENPAI Research State — auto-nanogpt-1gpu-r1
 
-- **Last update: 2026-05-28 21:40 UTC**
+- **Last update: 2026-05-28 23:00 UTC**
 - **Current baseline:** PR #1532 (aux Adam β₂ pulse 0.95→0.99 @ step 975). val_ema=3.262854, sr=2875 (n=2).
 - **Canonical defaults (post #1614):** β₂ pulse fires automatically at step 975 in all new runs — no flag needed.
 - **Merge gate:** `sr ≤ 2862.5 OR (sr=2875 AND val_ema < 3.262854)`
@@ -14,7 +14,7 @@
 | #1592 | askeladd | β₁ pulse Arm B (`0xfh1ftf`) | Running step 575 | ~02:00 UTC |
 | #1601 | nezuko | Aux v-buffer mean-reset (`9lwnf7km`) | Running step 1425 | ~23:40 UTC |
 | #1604 | fern | Body Muon momentum pulse Arm A (`ingv7i6m`) | **DIVERGING** (val_ema=4.663 @ step 2300) — told to KILL; Arm B (step 2600) will chain | ~04:00 UTC (Arm B) |
-| #1605 | frieren | Aux β₂ timing step 900 Arm A (`el59buaq`) | Running step 2425, approaching terminal | ~22:45 UTC |
+| #1605 | frieren | Aux β₂ timing step 900 Arm A (`el59buaq`) → step 1050 Arm B (`unkccxcl`) | Arm A ❌ NULL (val_ema=3.265240, sr=2925); Arm B running step 100 | ~02:30 UTC (Arm B) |
 | #1607 | tanjiro | β₂ downward Arm A (`k56llb0t`, 0.90) | Running step 1850 | ~00:30 UTC |
 | #1621 | thorfinn | Linear-decay AGC (ramp widths 100 & 500) | Pick-up pending | ~07:30 UTC |
 
@@ -29,8 +29,8 @@
 | Amplitude up (0.999) | alphonse Arm B | In-flight |
 | Amplitude down (0.90) | tanjiro Arm A | In-flight |
 | Amplitude down (0.85) | tanjiro Arm B | Chained after Arm A |
-| Timing (step 900) | frieren Arm A | ~22:45 UTC terminal |
-| Timing (step 1050) | frieren Arm B | Chained after Arm A |
+| Timing (step 900) | frieren Arm A | ❌ NULL (val_ema=3.265240, sr=2925) |
+| Timing (step 1050) | frieren Arm B | Running (chained) |
 | β₁ analog | askeladd Arm A | ❌ NULL (val=3.2683) |
 | β₁ analog Arm B | askeladd Arm B | In-flight |
 | v-buffer reset | nezuko | In-flight |
@@ -52,3 +52,4 @@
 - **Body Muon momentum pulse DIVERGES**: body optimizer not tolerant of momentum `mu` pulse at step 975 — fundamentally different from aux Adam
 - **AGC warm-start is real**: warmup-only AGC captures early signal (~28 mnat at step 125), but hard cutoff discontinuity wipes the gain at terminal. Linear-decay follow-up in flight.
 - **β₂=0.995 NULL**: monotone diminishing returns — 0.99 is near-optimal, higher doesn't help
+- **β₂ pulse timing step 900 NULL**: 45 steps earlier than canon 975 worsens val_ema by +2.4 mnat — canon 975 is locally near-optimal in timing axis; step 1050 (later) still in flight
