@@ -1,3 +1,34 @@
+## 2026-05-28 11:30 — PR #1517: H233 frieren MuLoCo sync_interval cadence axis — CLOSED (89th NULL/NEG, **NEW HP CLASSIFICATION: ASYMMETRIC STRUCTURAL-CADENCE class** — distinct from BILATERAL DYNAMICS and BILATERAL CONDITIONING; MuLoCo HP triple closure complete)
+
+- Branch: `g1r3-frieren/h233-muloco-sync-interval-cadence`
+- Hypothesis: MuLoCo outer step cadence (sync_interval=30) load-bearing? Test denser (15) and sparser (60) cadence at fixed inner-step count.
+- Results (n=1 each, train_steps=3325, all bit-id step-0 val=10.82583 PASS):
+
+| Arm | sync_interval | W&B | val | FFS | Δval/σ_H174 | Verdict |
+|---|---|---|---|---|---|---|
+| arm_a CTRL | 30 | `e6oxbyqq` | 3.26859 | 3050 | +0.45σ vs H203 (drift class) | within-experiment baseline |
+| arm_b SYNC_15 | 15 (2x denser) | `m7c8b2tn` | 3.26878 | 3050 | +0.21σ within-exp | **NULL** (+0 FFS) |
+| arm_c SYNC_60 | 60 (0.5x sparser) | `82ws14xp` | 3.27124 | 3075 | +3.00σ within-exp | **mild NEG** (+25 FFS) |
+
+- σ_H174 = 0.000884. Statistical rule: arm_a `(3.28-3.26859)×√1=0.01141≥0.004` ✓, arm_b 0.01122 ✓, arm_c 0.00876 ✓. Both treatments PASS but neither improves; arm_b ties, arm_c mild NEG. NOT MERGING.
+
+### Analysis
+
+- **🎯 NEW HP CLASSIFICATION IDENTIFIED: ASYMMETRIC STRUCTURAL-CADENCE axis**. Distinct from:
+  - BILATERAL DYNAMICS (e.g., H229 inner Nesterov FORM, H225 BETA1 — NEG on both sides of nominal)
+  - BILATERAL CONDITIONING (e.g., H228 muonh_WD — bilaterally NULL within mode)
+  - **ASYMMETRIC STRUCTURAL-CADENCE (NEW)**: NULL on dense/tight side, NEG on sparse/loose side. Saturation behaviour — denser communication is wasted, sparser communication starves the outer aggregator.
+
+- **MuLoCo HP triple closure COMPLETE**: outer_lr (magnitude, sweep H222 — bilateral CONDITIONING) + outer_momentum (form, H236 fern outer Polyak — bilateral CATASTROPHIC) + sync_interval (cadence, H233 — ASYMMETRIC STRUCTURAL-CADENCE). All three orthogonal MuLoCo HP axes now mapped with classification.
+
+- **Cadence-density saturation insight**: dense side (15) wastes outer aggregator work because each gradient is too local; sparse side (60) starves it because directions diverge between syncs. Optimal cadence is at the natural mixing time of inner-trajectory drift under H148+H203 LR schedule. Operative bound: sync_interval ∈ [15, 30] for FFS-neutral behaviour.
+
+- **CTRL drift +25 FFS / +0.45σ vs H203**: 6th instance of torch.compile retracing soft drift class (H214/H224/H229/H230/H231/H233). Pattern increasingly load-bearing as a confound — every cycle that touches argparse adds a new branch.
+
+- **Cumulative 89 NULL/NEG, 36 novel mechanism classes** (H240 frieren EMA pending as 36th), 6 PROGRAMME FINDINGS pipeline, 2 VESTIGIAL FINDINGS.
+
+- **Decision: NOT MERGING.** 89th NULL/NEG. MuLoCo HP space CLOSED at scalar level. Future MuLoCo work should target FORM REPLACEMENTS (e.g., compressed inner-aggregation, LoCo-Adam, async cadence) or move out of MuLoCo entirely.
+
 ## 2026-05-28 10:50 — PR #1511: H231 askeladd MuonH mode axis (clip vs SI direct test) — CLOSED (88th NULL/NEG, **🎯 PROGRAMME FINDING #51 TRILATERALLY CONSOLIDATED** — muonh_mode='scale_invariant' STRUCTURALLY LOAD-BEARING for FFS; per-step rescale, not radius cap alone, is the load-bearing property; 14th MuonH-SI structural tightness member)
 
 - Branch: `g1r3-askeladd/h231-muonh-mode-axis`

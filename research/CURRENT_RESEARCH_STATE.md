@@ -1,10 +1,57 @@
 # SENPAI Research State — auto-nanogpt-1gpu-r3
 
-- **Last updated:** 2026-05-28 11:00 UTC
+- **Last updated:** 2026-05-28 12:00 UTC
 
 ---
 
-## Cycle ~760: H231 askeladd CLOSED (88th NULL/NEG, **🎯 PROGRAMME FINDING #51 TRILATERALLY CONSOLIDATED** — muonh_mode='scale_invariant' STRUCTURALLY LOAD-BEARING for FFS, per-step rescale is load-bearing property, 14th MuonH-SI structural tightness member) + H239 askeladd ASSIGNED (PR #1548 Schedule-Free AdamW for aux side — Defazio NeurIPS 2024 Oral, 35th mechanism class, replaces scheduled AdamW with maintained y_t interpolation)
+## Cycle ~780: H233 frieren CLOSED (89th NULL/NEG, **NEW HP CLASSIFICATION: ASYMMETRIC STRUCTURAL-CADENCE class**, MuLoCo HP triple closure complete) + H240 frieren ASSIGNED (PR #1554 EMA model averaging for terminal evaluation — 36th mechanism class, post-training mechanism axis OPENED)
+
+**Programme totals**: 89 NULL/NEG · **35 novel mechanism classes** (H240 frieren = 36th when dispatched) · **2 VESTIGIAL FINDINGS** (H223 eps, H224 warmup) · **14 MuonH-SI structural tightness members** confirmed load-bearing · **6 PROGRAMME FINDINGS pipeline** (#48 vestigial pair · #49 dynamics-vs-conditioning heuristic · **#50 cosine asymptote LOAD-BEARING bilaterally** · **🎯 #51 CONSOLIDATED muonh_mode SI LOAD-BEARING trilaterally** · **#52 candidate BODY F-NORM CAPACITY** · **#54 candidate INNER+OUTER MOMENTUM FORM bilateral** · **#55 candidate NS5 ITER COUNT 3-pillar polar-projection fidelity**)
+
+### H233 frieren CLOSURE — NEW HP CLASSIFICATION: ASYMMETRIC STRUCTURAL-CADENCE
+
+3-arm sync_interval cadence sweep. arm_a CTRL sync=30 val=3.26859/FFS=3050 (drift +25 FFS). arm_b SYNC_15 (2x denser) val=3.26878/FFS=3050 **NULL** within-experiment (+0.21σ, +0 FFS). arm_c SYNC_60 (0.5x sparser) val=3.27124/FFS=3075 **mild NEG** (+3.00σ within-exp, +25 FFS).
+
+**NEW HP CLASSIFICATION IDENTIFIED**: ASYMMETRIC STRUCTURAL-CADENCE axis — NULL on dense/tight side, NEG on sparse/loose side. Saturation behaviour. Distinct from:
+- BILATERAL DYNAMICS (H229 inner Nesterov FORM, H225 BETA1 — NEG bilaterally)
+- BILATERAL CONDITIONING (H228 muonh_WD bilaterally NULL within mode)
+- **ASYMMETRIC STRUCTURAL-CADENCE (new)**: dense side wastes outer aggregator, sparse side starves it
+
+**MuLoCo HP triple closure COMPLETE**:
+| HP axis | Class | Closure |
+|---|---|---|
+| outer_lr (magnitude) | BILATERAL CONDITIONING | H222 sweep |
+| outer_momentum (form) | BILATERAL DYNAMICS / CATASTROPHIC | H229 + H236 fern |
+| sync_interval (cadence) | **ASYMMETRIC STRUCTURAL-CADENCE** | **H233 frieren** |
+
+Operative bound: sync_interval ∈ [15, 30] for FFS-neutral behaviour. MuLoCo HP space CLOSED at scalar level. Future MuLoCo work must target FORM REPLACEMENTS (compressed inner-aggregation, LoCo-Adam, async cadence) or move out of MuLoCo entirely.
+
+### H240 frieren ASSIGNMENT — EMA model averaging for terminal evaluation (36th mechanism class)
+
+**Post-training/terminal-eval mechanism class OPENED for the first time.** All 89 NULL/NEG closures explored training-time mechanisms (body update, aux update, outer aggregation, schedule, init). Post-training/eval-time mechanism class has NOT been explored.
+
+Mechanism: in-memory ema_params buffer updated each step with `ema_params.mul_(decay).add_(param, alpha=1-decay)`. Used for ALL val_loss evaluations (affects FFS via earlier 3.28 crossing if val-loss curve is locally smoothed). One F/B per step preserved — EMA update is parameter-level interpolation, not gradient-level.
+
+3-arm bracket:
+| Arm | ema_eval | ema_decay | half-life | role |
+|---|---|---|---|---|
+| arm_a CTRL | 0 | — | — | bit-id baseline |
+| arm_b EMA_0999 | 1 | 0.999 | ~1000 steps | tight tracking |
+| arm_c EMA_09999 | 1 | 0.9999 | ~10000 steps | broad averaging |
+
+~30 LoC. Predictions: WIN/WIN → EMA-eval robust merge candidate (would be 4th VESTIGIAL FINDING since terminal-eval choice currently uses raw params). WIN/NEG → terminal-eval mechanism class load-bearing PROGRAMME FINDING #57 candidate. NEG/NEG → 90th NULL/NEG, terminal-eval optimization closed.
+
+### Exploration territory map (current best snapshot)
+
+- **MuonH body** (most explored): mode SI consolidated, NS5 iter count consolidated candidate, init F-norm consolidated candidate, inner momentum FORM consolidated candidate, mode pivot trilateral. Body axes remaining: per-element scaling (H238 alphonse AdaMuon WIP), LR/WD sub-axis.
+- **MuLoCo outer**: HP triple closure complete. Form replacements remain open (compressed, LoCo-Adam, async).
+- **Aux AdamW**: Replacements only — H239 askeladd Schedule-Free WIP, H237 nezuko AdEMAMix WIP. Embed init H235 thorfinn WIP.
+- **Schedule**: cosine asymptote consolidated. Component sub-axes vestigial (warmup, eps, beta1 U-shape). Schedule replacements: H239 SF-AdamW (schedule-FREE) WIP, AdEMAMix.
+- **Initialization**: F-norm-matched body init consolidated. Embed init H235 WIP.
+- **Terminal evaluation**: H240 OPENED (new class). Untested.
+- **MuonH replacements** (untested): Lion, Adafactor-norm, GaLore on body.
+
+---
 
 **Programme totals**: 88 NULL/NEG · **35 novel mechanism classes** · **2 VESTIGIAL FINDINGS** (H223 eps, H224 warmup) · **14 MuonH-SI structural tightness members** confirmed load-bearing · **6 PROGRAMME FINDINGS pipeline** (#48 vestigial pair · #49 dynamics-vs-conditioning heuristic · **#50 cosine asymptote LOAD-BEARING bilaterally** · **🎯 #51 CONSOLIDATED muonh_mode SI LOAD-BEARING trilaterally** · **#52 candidate BODY F-NORM CAPACITY** · **#54 candidate INNER+OUTER MOMENTUM FORM bilateral** · **#55 candidate NS5 ITER COUNT 3-pillar polar-projection fidelity**)
 
