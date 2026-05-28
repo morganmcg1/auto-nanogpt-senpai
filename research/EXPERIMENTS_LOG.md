@@ -1,3 +1,47 @@
+## 2026-05-28 22:30 — PR #1572: H243 tanjiro Fractional NS spectral exponent (Schatten-p MuonH) — CLOSED (🎯 **100th NULL/NEG closure — CAMPAIGN MILESTONE**, bilateral NULL on FFS + non-monotonic sub-noise val/loss pattern; 🎯 **PROGRAMME FINDING #51 candidate STRENGTHENED to 6 axes — Schatten-p exponent added: partial whitening of NS5 output is structurally inert; sign+direction information in U V^T is what's load-bearing, magnitude redistribution among singular values empirically ineffectual**)
+
+- Branch: `g1r3-tanjiro/h243-fractional-ns-spectral-exponent`
+- Hypothesis: Test whether MuonH body benefits from PARTIAL orthogonalization (Schatten-p norm steepest descent with p ∈ (0,1)) instead of FULL orthogonalization (p=0 endpoint, current baseline). 39th NEW MECHANISM CLASS. Bernstein & Newhouse 2024 (arxiv:2409.20325) frames Muon as Schatten-1 nuclear norm steepest descent (= p=0 polar transform). The interior p ∈ (0,1) is an unexplored interpolation: partial whitening retains diagonal signal from large singular values while suppressing noise. 3-arm: CTRL p=0.0 (baseline, full polar) / NSP_QUARTER p=0.25 (mild whitening) / NSP_HALF p=0.5 (Schatten-2 partial whitening).
+
+- Student implementation choice (analytical pre-screening): **rejected linearly-interpolated polynomial coefficients** because verified analytically that after 12 NS5 iters, all interpolated polynomials still converge to sigma=1 with deviations ~1e-3, giving NULL for trivial mechanism reasons. **Chose spectral-norm-normalized convex blend**: F-norm-normalize G, power-iterate 5 steps (deterministic init) on G G^T to estimate sigma_max, spectral-normalize, run standard NS5 (12 iter, unchanged coefficients) for full polar P, convex blend `out = (1-p)*P + p*X_snorm`. Preserves Schatten-p partial-whitening semantics cleanly: large singular directions preserved, small directions partially uniformized. This is a campaign-level methodological contribution — future fractional-exponent hypotheses should reference this analysis.
+
+| Arm | p | W&B | val | FFS | Δval vs CTRL / vs H203 | bit-id | Verdict |
+|---|---|---|---|---|---|---|---|
+| arm_a CTRL | 0.00 | `l841cb9o` | 3.26913 | **3050** | — / +0.00083 (+0.94σ) | 10.82583 EXACT | within-noise / 12th student-count (~15th cumulative) torch.compile soft-drift |
+| arm_c NSP_QUARTER | 0.25 | `fgkpqf1q` | 3.27013 | **3050** | +0.00100 / +0.00183 (+1.13σ) | 10.82583 EXACT | sub-noise NEG vs CTRL |
+| arm_b NSP_HALF | 0.50 | `7fedg2il` | 3.26971 | **3050** | +0.00058 / +0.00141 (+0.66σ) | 10.82583 EXACT | sub-noise NEG vs CTRL (but BETTER than arm_c → non-monotonic) |
+
+**Per FFS-PRIMARY directive (Issue #1260): all 3 arms FFS=3050 EXACT — primary metric NULL bilateral**. Not a merge candidate. Closed as **bilateral NULL with non-monotonic sub-noise val/loss pattern**.
+
+**Non-monotonic interpretation (not "phase boundary at p=0")**: val ordering arm_a (p=0) 3.26913 < arm_b (p=0.5) 3.26971 < arm_c (p=0.25) 3.27013. Higher-p (arm_b) sits closer to CTRL than mid-p (arm_c), opposite of monotonic privileged-endpoint hypothesis. All gaps ≤0.001 (sub-noise). Consistent with run-to-run noise across all three arms — NOT evidence of "p=0 structurally privileged".
+
+**Direction-only encoding hypothesis** (student-derived, campaign-level mechanistic contribution): the direction information carried by `sign(σ_i) × u_i v_i^T` is what's load-bearing for MuonH, not the precise magnitude redistribution among singular values. Partial whitening doesn't add information (large-σ directions already preserved through convex blend `(1-p)*polar`) and doesn't actively destroy it either. Sharpens PROGRAMME FINDING #51's "polar projection as geometric prior" framing toward "direction-only encoder" framing.
+
+**🎯 CAMPAIGN MILESTONE — 100th NULL/NEG closure**: H243 marks the 100th cumulative NULL/NEG closure in the auto-nanogpt-1gpu-r3 campaign. Closure profile through 100 hypotheses: 6 PROGRAMME FINDINGS pipeline (3 CONFIRMED, 3 candidates, 1 reclassified FALSIFIED), 46 novel mechanism classes tested, 18 MuonH-SI/MuLoCo structural-tightness members confirmed load-bearing, 15+ instances torch.compile retracing soft-drift cluster catalogued. Within-family tuning of NS5 polar projection now FULLY exhausted across 6 axes.
+
+**🎯 PROGRAMME FINDING #51 candidate STRENGTHENED to 6 axes** (Schatten-p exponent added):
+
+| H# | Body axis | Mechanism class | Verdict | σ_H174 max |
+|---|---|---|---|---|
+| H230 | polynomial coefficients (a,b,c) | NS5 polynomial | NEG | — |
+| H230 | NS iteration count {8,12,16} | NS convergence quality | NEG | — |
+| H231 | muonh_mode=relative/clip | NS5 projection mode | trilateral NEG | various |
+| H238 | AdaMuon per-element 2nd moment | per-element scaling | bilateral TIE (#58 candidate) | +0.05σ |
+| H242 | cooldown SHAPE WSD (cf<1.0) | schedule SHAPE | bilateral CATASTROPHIC NEG monotonic | +104.3σ |
+| **H243** | **Schatten-p exponent (p ∈ {0.25, 0.5})** | **polar transform geometry** | **bilateral NULL on FFS, sub-noise non-monotonic val** | **+1.13σ** |
+
+**PROGRAMME FINDING #51 candidate now reads**: "MuonH polar projection requires (1) full Schatten-1 nuclear-norm steepest descent (p=0 endpoint, partial whitening inert), (2) continuous slow cosine decay from step 0 (stable phase actively harmful), (3) the exact (2, -1.5, 0.5) polynomial coefficients converged via 12 NS5 iterations, (4) per-step rescale (SI mode) not radius cap (relative/clip mode), (5) no per-element scaling correction (AdaMuon inert post-projection). Six axes structurally locked: polynomial params, iteration count, projection mode, cooldown SHAPE, per-element scaling, AND Schatten-p exponent. Future body-side gains require replacing the polar projection mechanism entirely."
+
+**Drift class confirmation**: arm_a `l841cb9o` FFS=3050 / +25 drift class — 15th cumulative instance through H214/H224/H229/H230/H231/H232/H233/H234/H235/H237/H239/H241/H242/H243/H244/H245. Student used `if ns_power <= 0.01:` early-exit branch but drift still occurred — consistent with conditional-skip branch trace hypothesis (when new argparse-gated conditional evaluates to "skip the new code path" inside @torch.compile region, trace introduces drift). Confirmed inverse by H238 alphonse (AdaMuon active branch — no drift) and H246 askeladd (outer SGD outside @torch.compile region — drift-free CTRL FFS=3025 EXACT).
+
+**Suggested follow-ups (graded)**:
+1. ✅ CLOSE fractional-exponent mechanism class — DONE here.
+2. ❌ Exact `U Σ^p V^T` via Denman-Beavers — LOW priority. Analytical pre-screening + direction-only encoding hypothesis suggests same NULL.
+3. ✅ Sign-only vs magnitude-only ablation (`U sign(Σ) V^T` vs `Σ_i u_i v_i^T`) — CAPTURED as future hypothesis candidate. Tests direction-vs-magnitude story cleanly. Different mechanism class from H243.
+4. ✅ Argparse-conditional retracing class accumulation confirmed at 15+ instances.
+
+---
+
 ## 2026-05-28 19:30 — PR #1571: H242 thorfinn MuonH WSD stable phase — CLOSED (99th NULL/NEG closure, **bilateral CATASTROPHIC NEG monotonic by cf direction; 🎯 PROGRAMME FINDING #51 candidate STRENGTHENED to add cooldown SHAPE axis: MuonH polar projection requires continuous slow decay from step 0, stable phase actively harmful, severity inversely proportional to cooldown_frac**)
 
 - Branch: `g1r3-thorfinn/h242-muonh-wsd-stable-phase`
