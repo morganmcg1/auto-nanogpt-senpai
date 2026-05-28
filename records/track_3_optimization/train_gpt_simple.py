@@ -78,6 +78,16 @@ def parse_args():
                         help="If set, run paramEMA refresh at --paramema_refresh_step but "
                              "DISABLE L_cov refresh (lcov_refresh_step treated as -1). "
                              "Ablation flag for isolating paramEMA-only contribution.")
+    parser.add_argument("--ema_ramp_shape", type=str, default="linear",
+                        choices=["linear", "concave", "convex"],
+                        help="Shape of the pEMA β ramp from --ema_beta to --ema_beta_target during "
+                             "cooldown. linear (current): β_t = β_base + (β_target - β_base) * "
+                             "(1 - lr_mult). concave: rises fast early using (1 - lr_mult)^0.5. "
+                             "convex: rises slow early using (1 - lr_mult)^2.0.")
+    parser.add_argument("--ema_ramp_power", type=float, default=1.0,
+                        help="Exponent for the ramp shape (reserved for future power-mode flexibility). "
+                             "Currently informational only — the two named shapes (concave/convex) use "
+                             "hard-coded 0.5 / 2.0 powers.")
     parser.add_argument("--seed", type=int, default=1,
                         help="Random seed for torch/numpy/python. Default 1 matches baseline seed.")
     args = parser.parse_args()
@@ -747,6 +757,8 @@ if dist.get_rank() == 0:
             "ema_warmup_steps": args.ema_warmup_steps,
             "ema_beta_target": args.ema_beta_target if args.ema_beta_target is not None else 0.0,
             "ema_dynamic_ramp_active": int(args.ema_beta_target is not None and args.ema_beta > 0),
+            "ema_ramp_shape": args.ema_ramp_shape,
+            "ema_ramp_power": args.ema_ramp_power,
             "muon_block_lr_pattern": args.muon_block_lr_pattern,
             "paramema_refresh_step": args.paramema_refresh_step,
             "paramema_refresh_only": int(args.paramema_refresh_only),
@@ -858,14 +870,28 @@ for trial_idx in range(args.num_trials):
         return w ** COOLDOWN_POWER
 
     def compute_ema_beta_t(step):
-        """Dynamic β_t = β_base + (β_target - β_base) × (1 - lr_mult_t).
-        Returns β_base when β_target unset; clamped to [β_base, β_target]."""
+        """Dynamic β_t = β_base + (β_target - β_base) × ramp(1 - lr_mult_t).
+        Returns β_base when β_target unset; clamped to [β_base, β_target].
+        Ramp shape is set by --ema_ramp_shape:
+          linear   → ramp = progress
+          concave  → ramp = progress^0.5  (fast early rise)
+          convex   → ramp = progress^2.0  (slow early rise)
+        """
         if args.ema_beta <= 0:
             return 1.0  # EMA disabled; sentinel
         if args.ema_beta_target is None:
             return args.ema_beta
         lr_mult = compute_lr_mult(step)
-        beta_t = args.ema_beta + (args.ema_beta_target - args.ema_beta) * (1.0 - lr_mult)
+        progress = 1.0 - lr_mult  # in [0, 1] over cooldown
+        if args.ema_ramp_shape == "linear":
+            ramp = progress
+        elif args.ema_ramp_shape == "concave":
+            ramp = progress ** 0.5
+        elif args.ema_ramp_shape == "convex":
+            ramp = progress ** 2.0
+        else:
+            raise ValueError(f"unknown ema_ramp_shape: {args.ema_ramp_shape}")
+        beta_t = args.ema_beta + (args.ema_beta_target - args.ema_beta) * ramp
         lo = min(args.ema_beta, args.ema_beta_target)
         hi = max(args.ema_beta, args.ema_beta_target)
         return max(lo, min(hi, beta_t))
@@ -884,6 +910,26 @@ for trial_idx in range(args.num_trials):
             for group in opt.param_groups:
                 group["lr"] = group["initial_lr"] * eta
         return progress, cooldown_progress, eta
+
+    # pEMA β ramp shape verification: print sample β values across the cooldown so
+    # the chosen ramp shape can be audited from stdout. Each lr_mult corresponds
+    # to a step in the cooldown (cooldown_progress = 1 - lr_mult^(1/COOLDOWN_POWER)).
+    if (dist.get_rank() == 0 and args.ema_beta > 0
+            and args.ema_beta_target is not None and trial_idx == 0):
+        print0(f"pEMA β ramp shape: {args.ema_ramp_shape}  "
+               f"(β_base={args.ema_beta}, β_target={args.ema_beta_target})", console=True)
+        sample_lr_mults = [1.0, 0.8, 0.6, 0.4, 0.2, 0.0]
+        for lr_m in sample_lr_mults:
+            prog = 1.0 - lr_m
+            if args.ema_ramp_shape == "linear":
+                r = prog
+            elif args.ema_ramp_shape == "concave":
+                r = prog ** 0.5
+            elif args.ema_ramp_shape == "convex":
+                r = prog ** 2.0
+            beta_at = args.ema_beta + (args.ema_beta_target - args.ema_beta) * r
+            print0(f"  lr_mult={lr_m:.2f}  progress={prog:.2f}  "
+                   f"ramp={r:.4f}  β_t={beta_at:.5f}", console=True)
 
 
     ########################################
