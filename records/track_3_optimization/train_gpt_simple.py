@@ -46,6 +46,17 @@ def parse_args():
     parser.add_argument("--muonh_lr", type=float, default=float(os.environ.get("MUONH_LR", "0.018")))
     parser.add_argument("--muonh_mode", type=str, default=os.environ.get("MUONH_MODE", "clip"), choices=["clip", "scale_invariant"])
     parser.add_argument("--muonh_cooldown_shape", type=str, default=os.environ.get("MUONH_COOLDOWN_SHAPE", "linear"), choices=["linear", "cosine", "sqrt"], help="LR cooldown shape for MuonH groups (AdamW aux groups stay linear)")
+    # H251: NS5 polar output decomposition (sign-only vs magnitude-only vs polar CTRL).
+    # 'polar' (default) = standard NS5 polar factor, bit-identical to baseline.
+    # 'sign_only' = NS5 output unit-Frobenius normalized (strips Frobenius magnitude).
+    # 'magnitude_only' = skip NS5 loop entirely; use unit-Frobenius raw gradient direction.
+    parser.add_argument("--ns5_output_mode", type=str,
+                        default=os.environ.get("NS5_OUTPUT_MODE", "polar"),
+                        choices=["polar", "sign_only", "magnitude_only"],
+                        help="NS5 polar output decomposition mode. "
+                             "'polar' (default, baseline) = standard NS5 polar factor, bit-identical to baseline. "
+                             "'sign_only' = NS5 output unit-Frobenius normalized (strips magnitude). "
+                             "'magnitude_only' = skip NS5 loop; use unit-Frobenius raw gradient direction.")
     parser.add_argument("--muonh_warmup_steps", type=int, default=int(os.environ.get("MUONH_WARMUP_STEPS", "0")), help="Linear LR warmup steps for MuonH groups only (0 = disabled, no-op vs baseline). AdamW aux groups are not warmed.")
     parser.add_argument("--train_steps", type=int, default=int(os.environ.get("TRAIN_STEPS", "3350")))
     # MuLoCo outer Nesterov SGD (Algorithm 1, K=1). Wraps all trainable params;
@@ -563,13 +574,77 @@ def zeropower_via_newtonschulz5(G: Tensor) -> Tensor:
         X = X.mT
     return X
 
+# H251: NS5 polar output decomposition. THREE separate top-level @torch.compile
+# functions — no Python conditional inside any compiled region. Per the H238/H242/H246
+# triangulation, conditional-skip branch traces under @torch.compile cause +25 FFS
+# soft-drift; the safe-fix pattern is one compiled function per mode and dict-dispatch
+# at Python scope (outside the training loop).
 @torch.compile
-def muon_update(grad, momentum, mu=0.95, nesterov=True):
+def muon_update_polar(grad, momentum, mu=0.95, nesterov=True):
+    """Standard baseline: NS5 polar factor output. Byte-identical to legacy muon_update."""
     momentum.lerp_(grad, 1 - mu)
     update = grad.lerp_(momentum, mu) if nesterov else momentum
     update = zeropower_via_newtonschulz5(update)
     update *= max(1, grad.size(-2) / grad.size(-1))**0.5
     return update
+
+@torch.compile
+def muon_update_sign_only(grad, momentum, mu=0.95, nesterov=True):
+    """Sign-only: NS5 output unit-Frobenius normalized (strips Frobenius magnitude)."""
+    momentum.lerp_(grad, 1 - mu)
+    update = grad.lerp_(momentum, mu) if nesterov else momentum
+    update = zeropower_via_newtonschulz5(update)
+    update = update / (update.norm() + 1e-7)
+    update *= max(1, grad.size(-2) / grad.size(-1))**0.5
+    return update
+
+@torch.compile
+def muon_update_magnitude_only(grad, momentum, mu=0.95, nesterov=True):
+    """Magnitude-only: skip NS5, use unit-Frobenius raw gradient direction."""
+    momentum.lerp_(grad, 1 - mu)
+    update = grad.lerp_(momentum, mu) if nesterov else momentum
+    update = update / (update.norm() + 1e-7)
+    update *= max(1, grad.size(-2) / grad.size(-1))**0.5
+    return update
+
+# Legacy alias preserves bit-identical behavior for the Muon optimizer class below.
+muon_update = muon_update_polar
+
+_NS5_OUTPUT_MODES = {
+    "polar":          muon_update_polar,
+    "sign_only":      muon_update_sign_only,
+    "magnitude_only": muon_update_magnitude_only,
+}
+muon_update_fn = _NS5_OUTPUT_MODES[args.ns5_output_mode]
+
+
+@torch.no_grad()
+def h251_diagnostic(grad, momentum, mu, mode):
+    """H251 diagnostic on a single body param.
+
+    Returns (update_frobnorm_pre_scale, grad_cosine_to_update_pre_scale).
+    Reproduces the muon_update_fn logic on clones (no in-place mutation) and
+    excludes the trailing (m/n)^0.5 multiplier so the Frobenius-norm series is
+    directly comparable to the arm-defining unit-norm constructions.
+    """
+    g_clone = grad.detach().clone()
+    m_clone = momentum.detach().clone()
+    m_clone.lerp_(g_clone, 1 - mu)
+    update = g_clone.lerp_(m_clone, mu)  # Nesterov blend
+    if mode in ("polar", "sign_only"):
+        update = zeropower_via_newtonschulz5(update)
+        if mode == "sign_only":
+            update = update / (update.float().norm() + 1e-7)
+    else:  # magnitude_only
+        update = update / (update.float().norm() + 1e-7)
+    update_f = update.float()
+    g_f = grad.detach().float()
+    frobnorm = float(update_f.norm().item())
+    g_norm = float(g_f.norm().item())
+    u_norm = frobnorm
+    denom = g_norm * u_norm + 1e-12
+    cos = float(((g_f.flatten() @ update_f.flatten()) / denom).item())
+    return frobnorm, cos
 
 class Muon(torch.optim.Optimizer):
     def __init__(self, params, lr=0.02, weight_decay=0, mu=0.95):
@@ -702,7 +777,7 @@ class MuonH(torch.optim.Optimizer):
                         state["momentum"] = torch.zeros_like(p)
                         if hb:
                             state["hyperball_radius"] = p.data.norm().item() * budget_mult
-                    update = muon_update(p.grad, state["momentum"], mu=group["mu"])
+                    update = muon_update_fn(p.grad, state["momentum"], mu=group["mu"])
                     if hb and mode == "scale_invariant":
                         # Always-active variant: norm is held at initial value by construction.
                         scale_invariant_update_(p.data, update, group["lr"])
@@ -783,6 +858,7 @@ if args.use_outer_optimizer:
 else:
     print0("MuLoCo outer optimizer DISABLED", console=True)
 print0(f"MuonH mode={args.muonh_mode} lr={args.muonh_lr} budget_mult={args.muonh_budget_mult} cooldown_shape={args.muonh_cooldown_shape}", console=True)
+print0(f"H251 ns5_output_mode={args.ns5_output_mode} (polar=baseline, sign_only=strip-magnitude, magnitude_only=skip-NS5)", console=True)
 if args.aux_agc_clip_ratio > 0:
     print0(f"AGC ENABLED on aux AdamW groups: clip_ratio={args.aux_agc_clip_ratio} eps={args.aux_agc_eps}", console=True)
 else:
@@ -850,6 +926,7 @@ if dist.get_rank() == 0:
             "muonh_mu_schedule": args.muonh_mu_schedule,
             "muonh_mu_start": args.muonh_mu_start,
             "muonh_mu_end": args.muonh_mu_end,
+            "ns5_output_mode": args.ns5_output_mode,
         },
     )
 
@@ -1169,6 +1246,32 @@ for trial_idx in range(args.num_trials):
         muonh_agc_stats = adaptive_gradient_clip(
             muonh_params_for_agc, args.muonh_agc_clip_ratio, eps=args.muonh_agc_eps,
         )
+        # H251 diagnostic — sample one MuonH body param per telemetry tick and
+        # log update Frobenius norm + cosine(grad, update) before (m/n)^0.5 scale.
+        # Computed on clones BEFORE the step so neither grad nor momentum is mutated.
+        if dist.get_rank() == 0 and telemetry_due:
+            for opt in optimizers:
+                if isinstance(opt, MuonH):
+                    h251_logged = False
+                    for group in opt.param_groups:
+                        if h251_logged:
+                            break
+                        for p in group["params"]:
+                            if (p.ndim >= 2 and p.grad is not None
+                                    and p in opt.state and "momentum" in opt.state[p]):
+                                frobnorm, cos = h251_diagnostic(
+                                    p.grad, opt.state[p]["momentum"],
+                                    group["mu"], args.ns5_output_mode,
+                                )
+                                wandb.log({
+                                    "trial": trial_idx,
+                                    "train/step": train_step,
+                                    "train/h251_update_frobnorm": frobnorm,
+                                    "train/h251_grad_cosine_to_update": cos,
+                                }, step=wandb_step)
+                                h251_logged = True
+                                break
+                    break
         for opt in optimizers:
             opt.step()
         # Log warmup telemetry every 10 steps during warmup (and at telemetry events
