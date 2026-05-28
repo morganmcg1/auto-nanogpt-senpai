@@ -78,6 +78,12 @@ def parse_args():
                         help="If set, run paramEMA refresh at --paramema_refresh_step but "
                              "DISABLE L_cov refresh (lcov_refresh_step treated as -1). "
                              "Ablation flag for isolating paramEMA-only contribution.")
+    parser.add_argument('--aux_b2_pulse_step', type=int, default=-1,
+                        help='Step at which to switch aux Adam β2 to --aux_b2_pulse_target. '
+                             '-1 disables (default). Recommended: 975 (cooldown onset).')
+    parser.add_argument('--aux_b2_pulse_target', type=float, default=-1.0,
+                        help='New aux Adam β2 value to set at --aux_b2_pulse_step. '
+                             '-1 disables (default). Recommended: 0.97 (mild) or 0.99 (strong).')
     parser.add_argument("--seed", type=int, default=1,
                         help="Random seed for torch/numpy/python. Default 1 matches baseline seed.")
     args = parser.parse_args()
@@ -750,6 +756,8 @@ if dist.get_rank() == 0:
             "muon_block_lr_pattern": args.muon_block_lr_pattern,
             "paramema_refresh_step": args.paramema_refresh_step,
             "paramema_refresh_only": int(args.paramema_refresh_only),
+            "aux_b2_pulse_step": args.aux_b2_pulse_step,
+            "aux_b2_pulse_target": args.aux_b2_pulse_target,
             "seed": args.seed,
         },
     )
@@ -1047,6 +1055,15 @@ for trial_idx in range(args.num_trials):
                 train_steps=train_steps,
                 wandb_step=wandb_step,
             )
+        if (args.aux_b2_pulse_step > 0
+                and args.aux_b2_pulse_target > 0.0
+                and step == args.aux_b2_pulse_step):
+            old_b2 = optimizer1.param_groups[0]["betas"][1]
+            new_betas = (optimizer1.param_groups[0]["betas"][0], args.aux_b2_pulse_target)
+            for group in optimizer1.param_groups:
+                group["betas"] = new_betas
+            print0(f"[step {step}] aux_b2_pulse: β2 {old_b2} → {args.aux_b2_pulse_target}",
+                   console=True)
         for opt in optimizers:
             opt.step()
         # EMA buffer update on body-Muon matrix params.
@@ -1159,6 +1176,12 @@ for trial_idx in range(args.num_trials):
                 "ema_refresh/only": int(args.paramema_refresh_only),
                 "lcov_refresh/fired": lcov_refresh_fired_total,
                 "lcov_refresh/target_step": -1,
+                "aux_b2/current": optimizer1.param_groups[0]["betas"][1],
+                "aux_b2/pulse_step": args.aux_b2_pulse_step,
+                "aux_b2/pulse_target": args.aux_b2_pulse_target,
+                "aux_b2/fired": int(args.aux_b2_pulse_step > 0
+                                    and args.aux_b2_pulse_target > 0.0
+                                    and step >= args.aux_b2_pulse_step),
             }, step=wandb_step)
         if dist.get_rank() == 0 and (train_step % 100 == 0 or train_step == train_steps):
             spec = pmuon_spectral_diag(optimizer2, PMUON_GAMMA)
