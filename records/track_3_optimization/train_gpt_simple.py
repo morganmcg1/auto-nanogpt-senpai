@@ -80,6 +80,11 @@ def parse_args():
                              "Ablation flag for isolating paramEMA-only contribution.")
     parser.add_argument("--seed", type=int, default=1,
                         help="Random seed for torch/numpy/python. Default 1 matches baseline seed.")
+    parser.add_argument("--aux_agc_lambda", type=float, default=-1.0,
+                        help="AGC (Adaptive Gradient Clipping, Brock et al. NFNets) lambda for aux "
+                             "Adam param groups. Clips each aux tensor s.t. "
+                             "||grad||_F <= lambda * ||param||_F. -1 disables (default). "
+                             "Recommended: 0.01 (tight) or 0.05 (loose).")
     args = parser.parse_args()
     args.num_trials = args.num_trials if args.num_trials is not None else (args.legacy_num_trials or 1)
     args.wandb_tags = [tag.strip() for tag in args.wandb_tags.split(",") if tag.strip()]
@@ -751,6 +756,8 @@ if dist.get_rank() == 0:
             "paramema_refresh_step": args.paramema_refresh_step,
             "paramema_refresh_only": int(args.paramema_refresh_only),
             "seed": args.seed,
+            "aux_agc_lambda": args.aux_agc_lambda,
+            "aux_agc_enabled": int(args.aux_agc_lambda > 0),
         },
     )
 
@@ -903,6 +910,10 @@ for trial_idx in range(args.num_trials):
     slope_window_steps = max(100, slope_interval)
     train_loss_history: list[tuple[int, float]] = []
     val_loss_history: list[tuple[int, float]] = []
+    # AGC (Adaptive Gradient Clipping) running counter: cumulative number of aux
+    # tensors clipped across all steps so far. Logged per-step as
+    # train/aux_agc/fired_total to ease sentinel-step audits.
+    agc_fired_total = 0
     dist.barrier()
     t0 = time.perf_counter()
     for step in range(train_steps + 1):
@@ -1047,6 +1058,35 @@ for trial_idx in range(args.num_trials):
                 train_steps=train_steps,
                 wandb_step=wandb_step,
             )
+        # Adaptive Gradient Clipping (AGC) on aux Adam param groups (optimizer1).
+        # Per-tensor clip: ||grad||_F <= lambda * ||param||_F (Brock et al., NFNets,
+        # ICML 2021). Body Muon (optimizer2) is already spectrally bounded by NS5
+        # polar normalization, so AGC is applied to aux-only by design.
+        agc_fired_count = 0
+        agc_max_clip_ratio = 1.0
+        if args.aux_agc_lambda > 0:
+            for group in optimizer1.param_groups:
+                for p in group["params"]:
+                    if p.grad is None:
+                        continue
+                    param_norm = p.detach().norm(p="fro") + 1e-12
+                    grad_norm = p.grad.detach().norm(p="fro") + 1e-12
+                    max_grad_norm = args.aux_agc_lambda * param_norm
+                    if grad_norm > max_grad_norm:
+                        clip_ratio = float((max_grad_norm / grad_norm).item())
+                        agc_max_clip_ratio = min(agc_max_clip_ratio, clip_ratio)
+                        agc_fired_count += 1
+                        p.grad.mul_(max_grad_norm / grad_norm)
+        agc_fired_total += agc_fired_count
+        if dist.get_rank() == 0 and args.aux_agc_lambda > 0:
+            wandb.log({
+                "trial": trial_idx,
+                "train/step": train_step,
+                "train/aux_agc/fired_count": agc_fired_count,
+                "train/aux_agc/fired_total": agc_fired_total,
+                "train/aux_agc/max_clip_ratio": agc_max_clip_ratio,
+                "train/aux_agc/lambda": args.aux_agc_lambda,
+            }, step=wandb_step)
         for opt in optimizers:
             opt.step()
         # EMA buffer update on body-Muon matrix params.
