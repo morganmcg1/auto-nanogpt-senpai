@@ -67,6 +67,10 @@ def parse_args():
     parser.add_argument("--ns_iter", type=int, default=12,
                         help="Number of Newton-Schulz iterations in zeropower_via_newtonschulz5. "
                              "Default 12 (current hardcoded value). Lower = less orthogonal but faster.")
+    parser.add_argument("--mu_mlp", type=float, default=None,
+                        help="Muon body momentum for MLP groups. If None, uses the global Muon mu default (0.95).")
+    parser.add_argument("--mu_attn", type=float, default=None,
+                        help="Muon body momentum for attn groups. If None, uses the global Muon mu default (0.95).")
     parser.add_argument("--lr_scalars", type=float, default=0.01,
                         help="LR for AdamW adam_scalars group (RMSNorm gains; "
                              "params with ndim < 2). Default 0.01 — hardcoded, "
@@ -618,6 +622,8 @@ class Muon(torch.optim.Optimizer):
         for group in self.param_groups:
             params = group["params"]
             norm_sum = torch.zeros((), device=params[0].device, dtype=torch.float32)
+            cos_gm_sum = torch.zeros((), device=params[0].device, dtype=torch.float32)
+            cos_gm_count_local = 0
             params_pad = params + [torch.empty_like(params[-1])] * (world_size - len(params) % world_size)
             for base_i in range(0, len(params), world_size):
                 if base_i + rank < len(params):
@@ -633,6 +639,11 @@ class Muon(torch.optim.Optimizer):
                             state["q_row"] = None
                             state["q_col"] = None
                             state["soap_step"] = 0
+                    g_flat = p.grad.float().flatten()
+                    m_flat = state["momentum"].float().flatten()
+                    cos_gm = torch.dot(g_flat, m_flat) / (g_flat.norm() * m_flat.norm() + 1e-8)
+                    cos_gm_sum.add_(cos_gm)
+                    cos_gm_count_local += 1
                     if use_soap:
                         state["momentum"].lerp_(p.grad, 1 - group["mu"])
                         raw_nesterov = p.grad.lerp(state["momentum"], group["mu"])
@@ -656,6 +667,9 @@ class Muon(torch.optim.Optimizer):
                 dist.all_gather(params_pad[base_i:base_i + world_size], params_pad[base_i + rank])
             group["_step_norm_sum"] = norm_sum
             group["_step_norm_count"] = len(params)
+            cos_gm_count_t = torch.tensor(float(cos_gm_count_local), device=params[0].device, dtype=torch.float32)
+            group["_step_cos_gm_sum"] = cos_gm_sum
+            group["_step_cos_gm_count_t"] = cos_gm_count_t
 
     def get_step_update_norms(self) -> dict[str, float]:
         """Return per-group mean Frobenius norm of the most recent step's updates.
@@ -676,6 +690,35 @@ class Muon(torch.optim.Optimizer):
                 mean = float(ns.item()) / count
             else:
                 mean = float(norm_sum.item()) / count
+            name = group.get("name", f"group_{g_idx}")
+            result[name] = mean
+        return result
+
+    def get_step_cos_gm(self) -> dict[str, float]:
+        """Return per-group mean cosine(grad, momentum_old) from the most recent step.
+
+        Computed before each step's momentum update so it measures alignment of the
+        raw gradient with the EMA momentum buffer carried into that step. Useful
+        as a mechanism diagnostic for per-group `mu` decoupling — lower mu should
+        produce momentum that tracks the gradient more closely (higher cos).
+        """
+        world_size = dist.get_world_size()
+        result: dict[str, float] = {}
+        for g_idx, group in enumerate(self.param_groups):
+            cos_sum = group.get("_step_cos_gm_sum", None)
+            count_t = group.get("_step_cos_gm_count_t", None)
+            if cos_sum is None or count_t is None:
+                continue
+            if world_size > 1:
+                cs = cos_sum.clone()
+                ct = count_t.clone()
+                dist.all_reduce(cs, op=dist.ReduceOp.SUM)
+                dist.all_reduce(ct, op=dist.ReduceOp.SUM)
+                total = float(ct.item())
+                mean = float(cs.item()) / total if total > 0 else 0.0
+            else:
+                total = float(count_t.item())
+                mean = float(cos_sum.item()) / total if total > 0 else 0.0
             name = group.get("name", f"group_{g_idx}")
             result[name] = mean
         return result
@@ -765,6 +808,8 @@ if dist.get_rank() == 0:
             "wd_schedule": args.wd_schedule,
             "lr_scalars": args.lr_scalars,
             "depth_init_mode": args.depth_init_mode,
+            "mu_mlp_arg": args.mu_mlp,
+            "mu_attn_arg": args.mu_attn,
         },
     )
 
@@ -847,10 +892,15 @@ for trial_idx in range(args.num_trials):
     attn_named = [(n, p) for n, p in named_blocks
                   if not (n.endswith(".mlp.fc.weight") or n.endswith(".mlp.proj.weight"))]
     assert len(mlp_named) + len(attn_named) == len(named_blocks)
+    _MUON_MU_DEFAULT = 0.95
+    mu_mlp_effective = args.mu_mlp if args.mu_mlp is not None else _MUON_MU_DEFAULT
+    mu_attn_effective = args.mu_attn if args.mu_attn is not None else _MUON_MU_DEFAULT
     optimizer2 = Muon(
         [
-            dict(named_params=mlp_named,  lr=args.lr_mlp,  weight_decay=args.wd_mlp,  name="muon_mlp"),
-            dict(named_params=attn_named, lr=args.lr_attn, weight_decay=args.wd_attn, name="muon_attn"),
+            dict(named_params=mlp_named,  lr=args.lr_mlp,  weight_decay=args.wd_mlp,
+                 mu=mu_mlp_effective, name="muon_mlp"),
+            dict(named_params=attn_named, lr=args.lr_attn, weight_decay=args.wd_attn,
+                 mu=mu_attn_effective, name="muon_attn"),
         ],
         soap_attn=args.soap_attn, trust_threshold=args.soap_trust_threshold,
     )
@@ -897,6 +947,12 @@ for trial_idx in range(args.num_trials):
     ########################################
     #        Training and Validation       #
     ########################################
+
+    if dist.get_rank() == 0 and trial_idx == 0:
+        wandb.log({
+            "config/mu_mlp_effective": mu_mlp_effective,
+            "config/mu_attn_effective": mu_attn_effective,
+        }, step=0)
 
     train_loader = distributed_data_generator("data/fineweb10B/fineweb_train_*.bin", batch_size)
     for p in model.parameters():
@@ -1011,18 +1067,25 @@ for trial_idx in range(args.num_trials):
             opt.step()
         if telemetry_due:
             update_norms = optimizer2.get_step_update_norms()
+            cos_gm = optimizer2.get_step_cos_gm()
             current_lrs = {group.get("name", f"group_{i}"): group["lr"]
                            for i, group in enumerate(optimizer2.param_groups)}
             current_wds = {group.get("name", f"group_{i}"): group.get("weight_decay", 0.0)
+                           for i, group in enumerate(optimizer2.param_groups)}
+            current_mus = {group.get("name", f"group_{i}"): group.get("mu", 0.0)
                            for i, group in enumerate(optimizer2.param_groups)}
             if dist.get_rank() == 0:
                 per_group_metrics = {"trial": trial_idx, "train/step": train_step}
                 for name, mean_norm in update_norms.items():
                     per_group_metrics[f"train/update_norm/{name}"] = mean_norm
+                for name, mean_cos in cos_gm.items():
+                    per_group_metrics[f"train/cos_gm/{name}"] = mean_cos
                 for name, lr in current_lrs.items():
                     per_group_metrics[f"train/lr/{name}"] = lr
                 for name, wd in current_wds.items():
                     per_group_metrics[f"train/wd/{name}"] = wd
+                for name, mu_v in current_mus.items():
+                    per_group_metrics[f"train/mu/{name}"] = mu_v
                 per_group_metrics["train/wd_mlp_now"] = current_wds.get("muon_mlp", 0.0)
                 per_group_metrics["train/wd_attn_now"] = current_wds.get("muon_attn", 0.0)
                 per_group_metrics["train/wd_schedule_progress"] = train_step / train_steps
