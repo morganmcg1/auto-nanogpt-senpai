@@ -80,6 +80,18 @@ def parse_args():
                              "Ablation flag for isolating paramEMA-only contribution.")
     parser.add_argument("--seed", type=int, default=1,
                         help="Random seed for torch/numpy/python. Default 1 matches baseline seed.")
+    parser.add_argument("--aux_agc_lambda", type=float, default=-1.0,
+                        help="AGC (Adaptive Gradient Clipping, Brock et al. NFNets) lambda for aux "
+                             "Adam param groups. Unit-wise formulation matching the timm reference: "
+                             "per-row Frobenius for matrices, per-element for scalars/biases, with "
+                             "param_norm.clamp_(min=1e-3). Lambda is on the canonical NFNets scale; "
+                             "internally rescaled by batch_size to compensate for the sum-reduction "
+                             "loss in this codebase. -1 disables (default). "
+                             "Recommended: 0.01 (tight) or 0.05 (loose).")
+    parser.add_argument("--aux_agc_warmup_off_step", type=int, default=-1,
+                        help="If >0, disable AGC at this step (0-indexed). AGC is active for "
+                             "steps [0, aux_agc_warmup_off_step) and inactive thereafter. -1 keeps "
+                             "AGC on for the full run (constant lambda). Requires --aux_agc_lambda>0.")
     args = parser.parse_args()
     args.num_trials = args.num_trials if args.num_trials is not None else (args.legacy_num_trials or 1)
     args.wandb_tags = [tag.strip() for tag in args.wandb_tags.split(",") if tag.strip()]
@@ -751,6 +763,10 @@ if dist.get_rank() == 0:
             "paramema_refresh_step": args.paramema_refresh_step,
             "paramema_refresh_only": int(args.paramema_refresh_only),
             "seed": args.seed,
+            "aux_agc_lambda": args.aux_agc_lambda,
+            "aux_agc_enabled": int(args.aux_agc_lambda > 0),
+            "aux_agc_warmup_off_step": args.aux_agc_warmup_off_step,
+            "aux_agc_warmup_off_enabled": int(args.aux_agc_warmup_off_step > 0),
         },
     )
 
@@ -903,6 +919,7 @@ for trial_idx in range(args.num_trials):
     slope_window_steps = max(100, slope_interval)
     train_loss_history: list[tuple[int, float]] = []
     val_loss_history: list[tuple[int, float]] = []
+    agc_fired_total = 0
     dist.barrier()
     t0 = time.perf_counter()
     for step in range(train_steps + 1):
@@ -1047,6 +1064,63 @@ for trial_idx in range(args.num_trials):
                 train_steps=train_steps,
                 wandb_step=wandb_step,
             )
+        # Adaptive Gradient Clipping (AGC) on aux Adam param groups (optimizer1).
+        # Unit-wise NFNets formulation (Brock et al. ICML 2021), matching the
+        # `timm.utils.agc.adaptive_clip_grad` reference. Lambda is rescaled by
+        # batch_size internally to compensate for the sum-reduction loss
+        # (see PR #1531). When --aux_agc_warmup_off_step > 0, AGC is active for
+        # steps [0, aux_agc_warmup_off_step) only — this tests whether the
+        # PR #1531 step-125 warm-start advantage (-21.93 mnat) compounds when
+        # the steady-state cost (+1.44 mnat) is removed.
+        agc_active = (args.aux_agc_lambda > 0) and (
+            args.aux_agc_warmup_off_step <= 0
+            or step < args.aux_agc_warmup_off_step
+        )
+        agc_fired_count = 0
+        agc_fired_units = 0
+        agc_max_clip_ratio = 1.0
+        agc_lambda_eff = 0.0
+        if agc_active:
+            agc_lambda_eff = args.aux_agc_lambda * batch_size
+            for group in optimizer1.param_groups:
+                for p in group["params"]:
+                    if p.grad is None:
+                        continue
+                    g = p.grad
+                    w = p.detach()
+                    if w.ndim <= 1:
+                        param_norm = w.abs().clamp_(min=1e-3)
+                        grad_norm = g.detach().abs().clamp_(min=1e-6)
+                    elif w.ndim == 2:
+                        param_norm = w.norm(p=2, dim=1, keepdim=True).clamp_(min=1e-3)
+                        grad_norm = g.detach().norm(p=2, dim=1, keepdim=True).clamp_(min=1e-6)
+                    else:
+                        param_norm = w.norm(p="fro").clamp_(min=1e-3)
+                        grad_norm = g.detach().norm(p="fro").clamp_(min=1e-6)
+                    max_grad_norm = param_norm * agc_lambda_eff
+                    trigger = grad_norm > max_grad_norm
+                    if bool(trigger.any().item()):
+                        clipped_grad = g * (max_grad_norm / grad_norm)
+                        new_grad = torch.where(trigger, clipped_grad, g)
+                        p.grad.data.copy_(new_grad)
+                        agc_fired_count += 1
+                        agc_fired_units += int(trigger.sum().item())
+                        clip_ratio = float((max_grad_norm / grad_norm).min().item())
+                        agc_max_clip_ratio = min(agc_max_clip_ratio, clip_ratio)
+        agc_fired_total += agc_fired_count
+        if dist.get_rank() == 0 and args.aux_agc_lambda > 0:
+            wandb.log({
+                "trial": trial_idx,
+                "train/step": train_step,
+                "train/aux_agc/active": int(agc_active),
+                "train/aux_agc/fired_count": agc_fired_count,
+                "train/aux_agc/fired_total": agc_fired_total,
+                "train/aux_agc/fired_units": agc_fired_units,
+                "train/aux_agc/max_clip_ratio": agc_max_clip_ratio,
+                "train/aux_agc/lambda": args.aux_agc_lambda,
+                "train/aux_agc/lambda_effective": agc_lambda_eff,
+                "train/aux_agc/warmup_off_step": args.aux_agc_warmup_off_step,
+            }, step=wandb_step)
         for opt in optimizers:
             opt.step()
         # EMA buffer update on body-Muon matrix params.
