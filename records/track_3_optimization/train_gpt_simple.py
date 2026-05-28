@@ -83,6 +83,22 @@ def parse_args():
              "muall=musoft + non-residual block 2D weights also scaled by 1/sqrt(L); "
              "smallconst=std=1e-3 depth-independent.",
     )
+    parser.add_argument(
+        "--muon_nu", type=float, default=1.0,
+        help="QHM blend ratio for Muon body. Applies additive Quasi-Hyperbolic Momentum "
+             "(Ma & Yarats ICLR 2019 arxiv:1810.06801) on top of the existing Nesterov blend. "
+             "Implementation: blended = (1-nu)*grad + nu*nesterov_blend, fed into NS. "
+             "nu=1.0 reproduces baseline EXACTLY (no allocation, blended IS nesterov_blend). "
+             "nu<1.0 injects more fresh gradient into the NS input. "
+             "nu=0.0 is pure gradient (no momentum/Nesterov). "
+             "Effective grad weight in NS input = 1 - nu*mu (vs baseline Nesterov's 1-mu).",
+    )
+    parser.add_argument(
+        "--qhm_diagnostics_interval", type=int, default=0,
+        help="If >0, compute QHM blend diagnostics (blend_norm_ratio, grad_buf_cosine, "
+             "post_ns_blend_diff_norm) every N optimizer steps. Default 0 ties to telemetry_interval. "
+             "Costs an extra NS pass per Muon body param at diagnostic steps.",
+    )
     args = parser.parse_args()
     args.num_trials = args.num_trials if args.num_trials is not None else (args.legacy_num_trials or 1)
     args.wandb_tags = [tag.strip() for tag in args.wandb_tags.split(",") if tag.strip()]
@@ -500,9 +516,13 @@ def zeropower_via_newtonschulz5(G: Tensor) -> Tensor:
     return X
 
 @torch.compile
-def muon_update(grad, momentum, mu=0.95, nesterov=True):
+def muon_update(grad, momentum, mu=0.95, nesterov=True, nu=1.0):
     momentum.lerp_(grad, 1 - mu)
-    update = grad.lerp_(momentum, mu) if nesterov else momentum
+    if nu >= 1.0:
+        update = grad.lerp_(momentum, mu) if nesterov else momentum
+    else:
+        nesterov_blend = grad.lerp(momentum, mu) if nesterov else momentum
+        update = (1.0 - nu) * grad + nu * nesterov_blend
     update = zeropower_via_newtonschulz5(update)
     update *= max(1, grad.size(-2) / grad.size(-1))**0.5
     return update
@@ -571,7 +591,7 @@ class Muon(torch.optim.Optimizer):
     SOAP_ATTN_SUFFIXES = (".attn.q.weight", ".attn.k.weight", ".attn.v.weight", ".attn.proj.weight")
 
     def __init__(self, named_params, lr=0.02, weight_decay=0, mu=0.95,
-                 soap_attn=False, trust_threshold=0.0):
+                 soap_attn=False, trust_threshold=0.0, nu=1.0):
         # `named_params` can be either:
         #   (a) list of (name, param) tuples → single param group (legacy form)
         #   (b) list of dicts {"named_params": [(name, param), ...], "lr": ?, "weight_decay": ?, "mu": ?, "name": ?}
@@ -594,6 +614,11 @@ class Muon(torch.optim.Optimizer):
         self.trust_threshold = float(trust_threshold)
         self.use_trust_gate = soap_attn
         self.cos_sims_buffer: dict[str, Tensor] = {}
+        self.muon_nu = float(nu)
+        # QHM diagnostics: set qhm_diagnostics_enabled=True before a step() to accumulate;
+        # main loop reads qhm_diagnostics_buffer afterward then resets.
+        self.qhm_diagnostics_enabled = False
+        self.qhm_diagnostics_buffer: dict[str, float] = {}
 
         param_groups = []
         for g in groups_raw:
@@ -613,6 +638,16 @@ class Muon(torch.optim.Optimizer):
     @torch.no_grad()
     def step(self):
         self.cos_sims_buffer = {}
+        diag_active = bool(self.qhm_diagnostics_enabled) and self.muon_nu < 1.0
+        if diag_active:
+            self.qhm_diagnostics_buffer = {
+                "blend_norm_ratio_sum": 0.0,
+                "grad_buf_cosine_sum": 0.0,
+                "post_ns_blend_diff_norm_sum": 0.0,
+                "blended_norm_sum": 0.0,
+                "buf_norm_sum": 0.0,
+                "param_count": 0,
+            }
         world_size = dist.get_world_size()
         rank = dist.get_rank()
         for group in self.param_groups:
@@ -636,10 +671,34 @@ class Muon(torch.optim.Optimizer):
                     if use_soap:
                         state["momentum"].lerp_(p.grad, 1 - group["mu"])
                         raw_nesterov = p.grad.lerp(state["momentum"], group["mu"])
-                        precond_nesterov = soap_precondition_momentum(raw_nesterov, state)
-                        u_soap = soap_ns_step(precond_nesterov)
+                        # QHM: additively inject fresh gradient into the NS input.
+                        # nu=1.0 -> baseline (point to raw_nesterov, no allocation).
+                        if self.muon_nu < 1.0:
+                            raw_blended = (1.0 - self.muon_nu) * p.grad + self.muon_nu * raw_nesterov
+                        else:
+                            raw_blended = raw_nesterov
+                        if diag_active:
+                            buf_norm = raw_nesterov.float().norm()
+                            blended_norm = raw_blended.float().norm()
+                            g_f = p.grad.float()
+                            b_f = raw_nesterov.float()
+                            cos = (g_f * b_f).sum() / (g_f.norm() * b_f.norm() + 1e-12)
+                            # NS-output difference, isolated from SOAP preconditioning
+                            ns_blended = zeropower_via_newtonschulz5(raw_blended)
+                            ns_baseline = zeropower_via_newtonschulz5(raw_nesterov)
+                            ns_diff = (ns_blended.float() - ns_baseline.float()).norm()
+                            self.qhm_diagnostics_buffer["blended_norm_sum"] += float(blended_norm.item())
+                            self.qhm_diagnostics_buffer["buf_norm_sum"] += float(buf_norm.item())
+                            self.qhm_diagnostics_buffer["blend_norm_ratio_sum"] += float(
+                                (blended_norm / (buf_norm + 1e-12)).item()
+                            )
+                            self.qhm_diagnostics_buffer["grad_buf_cosine_sum"] += float(cos.item())
+                            self.qhm_diagnostics_buffer["post_ns_blend_diff_norm_sum"] += float(ns_diff.item())
+                            self.qhm_diagnostics_buffer["param_count"] += 1
+                        precond_blended = soap_precondition_momentum(raw_blended, state)
+                        u_soap = soap_ns_step(precond_blended)
                         if self.use_trust_gate:
-                            u_muon = soap_ns_step(raw_nesterov)
+                            u_muon = soap_ns_step(raw_blended)
                             us = u_soap.float()
                             um = u_muon.float()
                             cos_sim_t = (us * um).sum() / (us.norm() * um.norm() + 1e-8)
@@ -649,7 +708,7 @@ class Muon(torch.optim.Optimizer):
                             update = u_soap
                         soap_update_preconditioner(p.grad, state)
                     else:
-                        update = muon_update(p.grad, state["momentum"], mu=group["mu"])
+                        update = muon_update(p.grad, state["momentum"], mu=group["mu"], nu=self.muon_nu)
                     norm_sum.add_(update.float().norm())
                     p.mul_(1 - group["lr"] * group["weight_decay"])
                     p.add_(update, alpha=-group["lr"])
@@ -765,6 +824,8 @@ if dist.get_rank() == 0:
             "wd_schedule": args.wd_schedule,
             "lr_scalars": args.lr_scalars,
             "depth_init_mode": args.depth_init_mode,
+            "muon_nu": args.muon_nu,
+            "qhm_diagnostics_interval": args.qhm_diagnostics_interval,
         },
     )
 
@@ -853,6 +914,7 @@ for trial_idx in range(args.num_trials):
             dict(named_params=attn_named, lr=args.lr_attn, weight_decay=args.wd_attn, name="muon_attn"),
         ],
         soap_attn=args.soap_attn, trust_threshold=args.soap_trust_threshold,
+        nu=args.muon_nu,
     )
     optimizers = [optimizer1, optimizer2]
     assert set(p for opt in optimizers for group in opt.param_groups
@@ -1007,8 +1069,51 @@ for trial_idx in range(args.num_trials):
                 train_steps=train_steps,
                 wandb_step=wandb_step,
             )
+        qhm_diag_interval = args.qhm_diagnostics_interval if args.qhm_diagnostics_interval > 0 else args.telemetry_interval
+        qhm_diag_due = (
+            args.muon_nu < 1.0
+            and (step == 0 or (step + 1) % qhm_diag_interval == 0 or step + 1 == train_steps)
+        )
+        optimizer2.qhm_diagnostics_enabled = qhm_diag_due
         for opt in optimizers:
             opt.step()
+        if qhm_diag_due:
+            optimizer2.qhm_diagnostics_enabled = False
+            diag_buf = optimizer2.qhm_diagnostics_buffer
+            param_count_local = int(diag_buf.get("param_count", 0))
+            if dist.get_world_size() > 1 and param_count_local > 0:
+                # Aggregate diagnostics across ranks (each rank only processes 1/world_size of params)
+                pc_t = torch.tensor([param_count_local], device=device, dtype=torch.float32)
+                keys_to_sum = (
+                    "blend_norm_ratio_sum", "grad_buf_cosine_sum",
+                    "post_ns_blend_diff_norm_sum", "blended_norm_sum", "buf_norm_sum",
+                )
+                vals_t = torch.tensor([diag_buf[k] for k in keys_to_sum], device=device, dtype=torch.float32)
+                dist.all_reduce(pc_t, op=dist.ReduceOp.SUM)
+                dist.all_reduce(vals_t, op=dist.ReduceOp.SUM)
+                param_count_total = int(pc_t.item())
+                aggregated = {k: float(vals_t[i].item()) for i, k in enumerate(keys_to_sum)}
+            else:
+                param_count_total = param_count_local
+                aggregated = {k: diag_buf.get(k, 0.0) for k in (
+                    "blend_norm_ratio_sum", "grad_buf_cosine_sum",
+                    "post_ns_blend_diff_norm_sum", "blended_norm_sum", "buf_norm_sum",
+                )}
+            if dist.get_rank() == 0 and param_count_total > 0:
+                effective_grad_frac = 1.0 - args.muon_nu * 0.95
+                qhm_metrics = {
+                    "trial": trial_idx,
+                    "train/step": train_step,
+                    "muon_qhm/blend_grad_frac_nominal": 1.0 - args.muon_nu,
+                    "muon_qhm/blend_grad_frac_effective": effective_grad_frac,
+                    "muon_qhm/blend_norm_ratio": aggregated["blend_norm_ratio_sum"] / param_count_total,
+                    "muon_qhm/grad_buf_cosine": aggregated["grad_buf_cosine_sum"] / param_count_total,
+                    "muon_qhm/post_ns_blend_diff_norm": aggregated["post_ns_blend_diff_norm_sum"] / param_count_total,
+                    "muon_qhm/blended_norm_mean": aggregated["blended_norm_sum"] / param_count_total,
+                    "muon_qhm/buf_norm_mean": aggregated["buf_norm_sum"] / param_count_total,
+                    "muon_qhm/param_count": param_count_total,
+                }
+                wandb.log(qhm_metrics, step=wandb_step)
         if telemetry_due:
             update_norms = optimizer2.get_step_update_norms()
             current_lrs = {group.get("name", f"group_{i}"): group["lr"]
@@ -1026,6 +1131,7 @@ for trial_idx in range(args.num_trials):
                 per_group_metrics["train/wd_mlp_now"] = current_wds.get("muon_mlp", 0.0)
                 per_group_metrics["train/wd_attn_now"] = current_wds.get("muon_attn", 0.0)
                 per_group_metrics["train/wd_schedule_progress"] = train_step / train_steps
+                per_group_metrics["muon_qhm/nu"] = args.muon_nu
                 wandb.log(per_group_metrics, step=wandb_step)
         if dist.get_rank() == 0 and optimizer2.cos_sims_buffer:
             cs_names = list(optimizer2.cos_sims_buffer.keys())
