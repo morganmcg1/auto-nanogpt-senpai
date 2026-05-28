@@ -1,6 +1,66 @@
 # SENPAI Research State — auto-nanogpt-1gpu-r3
 
-- **Last updated:** 2026-05-28 21:15 UTC
+- **Last updated:** 2026-05-28 21:45 UTC
+
+---
+
+## Cycle ~1430: H246 CLOSED (**102nd NULL/NEG closure**, bilateral CATASTROPHIC NEG, 🎯 **PROGRAMME FINDING #54 STRONGLY STRENGTHENED + saw-tooth oscillation insight**) + H244 CLOSED (**103rd NULL/NEG closure**, bilateral NEG monotonic, **depth-scaled body LR structurally NON-redistributable** — 5th body-side rigidity axis + NS5 polar projection already flattens depth gradients) + H253 askeladd PR #1624 ASSIGNED (**49th mechanism class — true Stiefel body init** `orthogonal_qr`, direct closure of H249 manifold-mismatch axis) + H254 fern PR #1625 ASSIGNED (**50th mechanism class — MuonH warmup SHAPE** cosine/sqrt, direct parallel to H203 cooldown-shape WIN)
+
+**Key closures this cycle:**
+
+- **H246 askeladd LoCo-Adam outer FORM (PR #1587)** — **102nd NULL/NEG closure**, bilateral CATASTROPHIC NEG. arm_b OUTER_ADAM (lr=0.7) `atpby1q9` val=3.75072 FFS=−1 (+545σ_H174). arm_c OUTER_ADAM_LR (lr=0.3) `azn1rp4q` val=3.49346 FFS=−1 (+254σ_H174). arm_a CTRL `z52x9ti1` FFS=3025 EXACT (drift-FREE, 1st canonical outside-@torch.compile safe-fix template — H246's own pattern).
+
+  **🎯 Sync-interval-aligned saw-tooth oscillation insight** (student's terminal narrative, campaign-level methodological contribution): outer Adam step magnitude `lr/sqrt(v_hat)` does NOT cooldown with body LR cosine schedule → saw-tooth amplitude arm_b 0.225, arm_c 0.018 (12× difference with LR ratio 2.33×). Proves outer Adam is geometrically decoupled from body LR cooldown. **🎯 PROGRAMME FINDING #54 STRONGLY STRENGTHENED** — outer Nesterov SGD structurally privileged regardless of LR adjustment.
+
+- **H244 fern depth-scaled body LR (PR #1580)** — **103rd NULL/NEG closure**, bilateral NEG monotonic with taper aggressiveness. arm_b LINEAR_DEPTH `ndh1bj65` FFS=−1 val=3.28036 (+13.1σ). arm_c INVSQRT_DEPTH `77jn41sw` FFS=3150 val=3.27527 (+7.4σ). arm_a CTRL `vesz5dof` FFS=3050 drift class +25 (15th instance of soft-drift class).
+
+  **Student's key insight**: NS5 polar projection already flattens depth-dependent gradient magnitudes. The signal that μP depth-tapering balances (gradient magnitude diverging across depth) is neutralized by the polar projection in our regime — tapering LR on top subtracts genuine descent. **μP LR-taper predictions FAIL on MuonH+H203 stack** because NS5 polar projection has implicit μP-like properties. Severity is monotonic: 46% taper → CATASTROPHIC, 28% taper → meaningful NEG. **Adds 5th independent body-side rigidity axis** to PROGRAMME FINDING #51 candidate.
+
+**New assignments:**
+
+- **H253 askeladd PR #1624 ASSIGNED — 49th mechanism class: true Stiefel body init**. Tests `orthogonal_qr` (W^T W = I, unit column norms, no F-norm rescaling) and `orthogonal_qr_mean_fnorm` (true Stiefel + global mean-F-norm scaling). **Directly motivated by H249 Stiefel manifold mismatch insight** (riem_frob_ratio 0.77→2.37, effective step shrunk 58% — because `orthogonal_fnorm_matched` only enforces F-norm, not W^T W = I). Riemannian-metric mechanism class NOT closed; this is the proper closure of the body_init/manifold-geometry axis. Drift-free by construction (body_init applied before torch.compile). WIN probability ~35-45%.
+
+- **H254 fern PR #1625 ASSIGNED — 50th mechanism class: MuonH body LR warmup SHAPE** (cosine/sqrt). Tests whether cosine or sqrt warmup ramp improves FFS over linear warmup. **Direct parallel to H203 cosine cooldown SHAPE WIN** — cooldown shape was the single most impactful change in r3 (FFS 3150→3025); warmup shape is the mirror axis and has never been tested. Implementation: replace linear `(step+1)/T` with `0.5*(1-cos(π*(step+1)/T))` or `sqrt((step+1)/T)` inside `set_hparams()` (lines 970-971, plain Python, outside @torch.compile). Drift-free by construction (mirrors cooldown shape dispatch at lines 982-989). WIN probability ~30-40%.
+
+**Survey state after cycle ~1430**: 8/8 students WIP (askeladd H253, fern H254, alphonse H249 arm_c ~22:42 UTC, edward H248 arm_c ~22:30 UTC, frieren H247 arm_c ~21:30 UTC, thorfinn H250 mid-run, tanjiro H251 awaiting push, nezuko H252 just assigned). 0 idle students. 0 review-ready PRs. No new human directives this cycle.
+
+**Programme totals after cycle ~1430:**
+- **103 NULL/NEG closures** (+2 from cycle ~1420; H246 102nd + H244 103rd)
+- **50 mechanism classes** (+2 since cycle ~1420; H253 body-init-qr + H254 warmup-shape)
+- **6 PROGRAMME FINDINGS pipeline**: #54 STRONGLY STRENGTHENED bilateral CATASTROPHIC; #51 candidate strengthened to 5 body-side rigidity axes; others unchanged
+- **18 MuonH-SI/MuLoCo structural tightness members** (unchanged)
+- **17+ instances torch.compile retracing soft-drift class** (H244 arm_a 15th cumulative instance; +25/branch additive model confirmed)
+- **4 drift-FREE CTRL mitigation patterns** (unchanged since cycle ~1420)
+
+**Exploration territory map updates after cycle ~1430:**
+
+| Axis | State (delta from cycle ~1420) |
+|---|---|
+| **True Stiefel body init (orthogonal_qr)** | **H253 WIP (askeladd, just assigned) — 49th class, direct H249 mismatch closure axis** |
+| **MuonH warmup SHAPE (cosine/sqrt)** | **H254 WIP (fern, just assigned) — 50th class, mirror of H203 cooldown-shape WIN** |
+| LoCo-Adam outer FORM replacement | **CLOSED bilateral CATASTROPHIC (H246) — 102nd closure, PROGRAMME FINDING #54 STRONGLY STRENGTHENED** |
+| Depth-scaled per-layer body LR | **CLOSED bilateral NEG monotonic (H244) — 103rd closure, 5th body-side rigidity axis** |
+| MuLoCo sync_interval VALUE K | H252 WIP (nezuko) — K∈{15,30,60} zero code changes |
+| NS5 output decomposition (polar vs sign/magnitude) | H251 WIP (tanjiro) — awaiting push response after 3rd missed-push escalation |
+| Post-NS5 diagonal preconditioning | H248 WIP (edward) — arm_c POST_NS5_FAST mid-run ETA 22:30 UTC |
+| Stiefel Riemannian metric body SI step | H249 WIP (alphonse) — arm_c RIEMANNIAN_DETACHED mid-run ETA 22:42 UTC |
+| Manifold-projected EMA + best-checkpoint eval | H247 WIP (frieren) — arm_c MANIFOLD_EMA mid-run ETA 21:30 UTC |
+| Aux cooldown SHAPE+FRAC | H250 WIP (thorfinn) — arm_b TREATMENT mid-run |
+
+**Frontier observations for cycle ~1440+:**
+
+H253 and H254 represent the last two directly-motivated fresh axes in the current research plan:
+- H253 closes the H249 mismatch properly (body_init = true Stiefel vs F-norm-matched)
+- H254 closes the warmup-shape axis (symmetrical test to H203 cooldown-shape WIN)
+
+If both are NULL/NEG, the next tier should escalate to **tier 2 (larger architectural changes)**:
+- Stiefel retraction post-step (C7 from RESEARCH_IDEAS_2026-05-28_cycle1430.md) — cheap post-step cleanup
+- Per-layer heterogeneous AGC ratios (C3) — different clip ratios for body vs aux
+- Outer LR depth schedule for MuLoCo delta (C4) — distinct from H244 inner LR depth
+- Schedule-free optimization (Defazio 2024) on the aux side
+- Sync-interval fractional cosine schedule (C5) — wait for H252 result first
+
+The saw-tooth oscillation insight from H246 deserves follow-up: if outer Adam is decoupled from cooldown, could a **cooldown-aware outer Nesterov** (reducing outer_lr as body LR decays) improve on K=30 fixed outer_lr=0.7? This is structurally distinct from LoCo-Adam FORM replacement and might be cycle ~1440+ hypothesis.
 
 ---
 

@@ -1,3 +1,97 @@
+## 2026-05-28 21:45 — PR #1625: H254 fern MuonH body LR warmup SHAPE — ASSIGNED (50th mechanism class, cosine/sqrt warmup ramp, direct parallel to H203 cooldown-shape WIN; `set_hparams()` plain Python, drift-free)
+
+- Branch: `g1r3-fern/body-warmup-shape`
+- Hypothesis: Test whether cosine or sqrt MuonH body LR warmup shape improves FFS over the current linear warmup `(step+1)/T`. H203 found cosine cooldown SHAPE over linear was the most impactful single change in r3 (FFS 3150→3025). Warmup is the direct parallel axis; has never been tested in r3.
+- Implementation: add `--muonh_warmup_shape {linear,cosine,sqrt}` (default=linear, backward-compatible). Replace lines 970-971 in `set_hparams()` with shape dispatch mirroring cooldown at lines 982-989. Plain Python, outside @torch.compile — drift-free by construction.
+- 3-arm: CTRL linear / COSINE `0.5*(1-cos(π*t/T))` / SQRT `sqrt(t/T)`, all with `--muonh_warmup_steps 100`.
+- WIN probability: ~30-40%. Main risk: 100-step warmup = 3% of total training, shape may not materially affect FFS at this duration.
+
+---
+
+## 2026-05-28 21:45 — PR #1624: H253 askeladd True Stiefel body init (orthogonal_qr) — ASSIGNED (49th mechanism class, direct closure of H249 Stiefel mismatch axis; drift-free, body_init applied pre-compile)
+
+- Branch: `g1r3-askeladd/body-init-qr-stiefel`
+- Hypothesis: Replace `body_init=orthogonal_fnorm_matched` (enforces F-norm, NOT W^T W = I) with `body_init=orthogonal_qr` (true Stiefel, W^T W = I, unit column norms) to reduce riem_frob_ratio drift and effective-step-size shrinkage observed in H249.
+- H249 mechanistic grounding: riem_frob_ratio grew 0.77→2.37, effective step shrunk 58%, CATASTROPHIC NEG — diagnosed as textbook Stiefel mismatch (body_init only enforces F-norm, not Stiefel membership). This hypothesis is the direct fix.
+- Implementation: add two new `--body_init` choices: `orthogonal_qr` (gain=1.0) and `orthogonal_qr_mean_fnorm` (true Stiefel + global mean-F-norm scaling). Body_init applied before compile — inherently drift-free.
+- 3-arm: CTRL `orthogonal_fnorm_matched` / QR_RAW `orthogonal_qr` / QR_MEAN `orthogonal_qr_mean_fnorm`.
+- WIN probability: ~35-45%. Mechanistic grounding is precise; main risk is F-norm scale IS load-bearing independent of orthogonality direction.
+
+---
+
+## 2026-05-28 21:30 — PR #1580: H244 fern Depth-scaled per-layer LR on MuonH body — CLOSED (**103rd NULL/NEG closure**, bilateral NEG monotonic, 5th body-side rigidity axis; **NS5 polar projection already flattens depth-gradient magnitudes — μP LR-taper predictions FAIL on this stack**)
+
+- Branch: `g1r3-fern/h244-depth-scaled-body-lr`
+- Student report committed to PR at 21:15 UTC with full 3-arm table, W&B config audit, statistical rule check.
+
+| Arm | run_id | muonh_lr_taper | FFS | final val | Δval vs CTRL | verdict |
+|---|---|---|---|---|---|---|
+| arm_a CTRL (uniform) | `vesz5dof` | none | **3050** (+25 drift class) | 3.26879 | — | 15th soft-drift instance |
+| arm_b LINEAR_DEPTH | `ndh1bj65` | linear (46% layer-11 reduction) | **−1** | 3.28036 | **+0.01157 (+13.1σ)** | **CATASTROPHIC NEG** |
+| arm_c INVSQRT_DEPTH | `77jn41sw` | invsqrt (28% layer-11 reduction) | **3150** | 3.27527 | **+0.00648 (+7.4σ)** | **meaningful NEG** |
+
+### Analysis — Monotonic NEG gradient + μP predictions FAIL
+
+Severity is monotonic with taper aggressiveness: 46% taper → CATASTROPHIC (FFS=−1), 28% taper → meaningful NEG (+100 FFS vs CTRL). Uniform body LR is the structural optimum.
+
+**NS5 polar projection insight (campaign-level)**: μP prescribes depth-tapered LR to balance gradient magnitude divergence across depth. In our stack, the NS5 polar p=0 mapping produces approximately unit-spectrum-norm updates regardless of input gradient magnitude — it has already flattened the signal μP's depth-tapering addresses. Tapering LR on top subtracts genuine descent. **μP depth-taper predictions FAIL on MuonH+H203 stack** because the polar projection has implicit μP-like properties. Future μP-related hypotheses (depth-scaling, init-scaling, layer-wise WD) should be expected to fail unless they account for the polar projection's normalization effect.
+
+**Adds 5th independent body-side rigidity axis** to the structural-tightness cluster:
+| H# | Body axis | Mechanism class | Verdict |
+|---|---|---|---|
+| H225 | β₁ value | HP transfer | NEG (FALSIFIED) |
+| H245 | β₁ schedule | ADana log-time | CATASTROPHIC NEG (FALSIFIED) |
+| H242 | cooldown SHAPE | WSD | CATASTROPHIC NEG monotonic |
+| H243 | Schatten-p exponent | polar geometry | bilateral NULL |
+| **H244** | **per-layer LR depth allocation** | **depth scaling** | **bilateral NEG monotonic** |
+
+Combined: MuonH body update is structurally rigid across BOTH per-step polynomial transform (H243) AND per-layer LR allocation (H244). Two independent rigidity axes suggest the NS5 polar projection is doing more than NS5 — it's implicitly enforcing μP-like uniformity across layers.
+
+### Follow-up portfolio
+1. ✅ Per-layer body LR depth allocation CLOSED (both linear and invsqrt NEG)
+2. ❌ Milder taper (exponent=0.25) not worth testing — monotonic gradient is decisive
+3. 🆕 **Per-layer heterogeneous AGC ratios** (C3) as next body-side axis — distinct from LR scaling
+4. 🆕 **Layer-wise WD** (not LR) as next μP-adjacent axis — WD doesn't taper in μP theory
+
+---
+
+## 2026-05-28 21:30 — PR #1587: H246 askeladd LoCo-Adam outer optimizer FORM replacement — CLOSED (**102nd NULL/NEG closure**, bilateral CATASTROPHIC NEG, 🎯 **PROGRAMME FINDING #54 STRONGLY STRENGTHENED + sync-interval-aligned saw-tooth oscillation insight — outer Adam step magnitude decoupled from body LR cooldown**)
+
+- Branch: `g1r3-askeladd/h246-loco-adam-outer`
+- Student terminal SENPAI-RESULT at 21:05 UTC with comprehensive 3-arm results + saw-tooth diagnostic.
+
+| Arm | run_id | FFS | val/loss | best_val | Δ vs CTRL | verdict |
+|---|---|---|---|---|---|---|
+| arm_a CTRL (SGD lr=0.7) | `z52x9ti1` | **3025 EXACT** | 3.26831 | — | 0.0 | **drift-FREE, bit-id PASS** |
+| arm_b OUTER_ADAM (lr=0.7) | `atpby1q9` | **−1** | 3.75072 | 3.59027 | **+0.482 (+545σ)** | **CATASTROPHIC NEG** |
+| arm_c OUTER_ADAM_LR (lr=0.3) | `azn1rp4q` | **−1** | 3.49346 | 3.48171 | **+0.225 (+254σ)** | **CATASTROPHIC NEG** |
+
+### Analysis — Saw-tooth oscillation mechanism + PROGRAMME FINDING #54
+
+Student's saw-tooth diagnostic: outer Adam syncs produce val spikes at every 30-step sync boundary during cooldown.
+
+| step | arm_b val | arm_c val | pattern |
+|---|---|---|---|
+| 3000 | 3.71473 | 3.51121 | sync |
+| 3025 | 3.59319 ↓ | 3.48652 ↓ | best |
+| 3150 | 3.71733 ↑ | 3.49938 | sync |
+| 3175 | 3.59027 best | 3.48171 best | best |
+| 3250 | 3.75137 ↑ | 3.48753 | mid-saw |
+
+**Saw-tooth amplitude**: arm_b 0.225 (range 3.585→3.815) vs arm_c 0.018 — 12× difference with LR ratio 2.33×. Root cause: outer Adam step magnitude `lr/sqrt(v_hat)` does NOT decay as body LR cosine cooldown → 0. Inner MuonH can no longer recover from the outer Adam displacement as body LR shrinks. Effectively, outer optimizer has no cooldown schedule of its own.
+
+**PROGRAMME FINDING #54 STRONGLY STRENGTHENED**: outer Nesterov SGD structurally privileged over outer Adam regardless of LR adjustment. arm_c lr=0.3 (2.33× reduction) still +254σ NEG. Reddi et al. FedOpt server-Adam LR retuning: necessary but insufficient by orders of magnitude at K=30 MuLoCo regime.
+
+**Drift-FREE canonical template confirmed (H246 askeladd)**: outer optimizer branch ENTIRELY OUTSIDE @torch.compile region → FFS=3025 EXACT. Now canonical alongside H249 alphonse `@torch.compiler.disable` pattern.
+
+### Follow-up portfolio
+1. ✅ LoCo-Adam outer FORM CLOSED bilateral CATASTROPHIC
+2. ❌ Other outer Adam variants (Amsgrad, AdaBelief) not worth testing — mechanism is saw-tooth oscillation, not Adam hyperparameter choice
+3. 🆕 **Cooldown-aware outer Nesterov**: schedule outer_lr to follow body cosine LR decay in cooldown. Structurally distinct from FORM replacement — would address the saw-tooth root cause for non-Adam variants too. Cycle ~1440+ candidate.
+4. ✅ Drift-FREE outside-@torch.compile canonical template documented and confirmed
+
+---
+
 ## 2026-05-28 21:15 — PR #1619: H252 nezuko MuLoCo sync_interval VALUE ablation (K∈{15,30,60}) — ASSIGNED (48th mechanism class, zero code changes, drift-free by construction; researcher-agent proposal `RESEARCH_IDEAS_2026-05-28_cycle1400_nezuko.md`)
 
 - Branch: `g1r3-nezuko/muloco-sync-interval-value`
