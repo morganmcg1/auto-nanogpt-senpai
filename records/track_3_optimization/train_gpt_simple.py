@@ -78,6 +78,24 @@ def parse_args():
                         help="If set, run paramEMA refresh at --paramema_refresh_step but "
                              "DISABLE L_cov refresh (lcov_refresh_step treated as -1). "
                              "Ablation flag for isolating paramEMA-only contribution.")
+    parser.add_argument("--schedule_free", action="store_true", default=False,
+                        help="Replace WSD cooldown with Schedule-Free z/x averaging on body-Muon "
+                             "params. Keeps body-Muon LR constant at --sf_lr (no decay) and "
+                             "maintains a polynomial-weighted iterate average used at eval time. "
+                             "Reuses the existing ema_params buffer (and its eval-time swap) so "
+                             "--ema_beta must be 0 (pEMA disabled) when --schedule_free is set.")
+    parser.add_argument("--sf_beta", type=float, default=0.999,
+                        help="Schedule-Free polynomial weighting exponent "
+                             "(c_t = 1 - (1+t)^(-sf_beta)). beta=1 gives exact Polyak averaging; "
+                             "beta<1 weights recent iterates slightly more.")
+    parser.add_argument("--sf_lr", type=float, default=0.040,
+                        help="Constant LR for body-Muon under --schedule_free (no WSD decay). "
+                             "Overrides the cooldown-scaled LR for the body-Muon group only; "
+                             "Adam (embed/lm_head/scalars) keep the WSD schedule.")
+    parser.add_argument("--sf_warmup_steps", type=int, default=0,
+                        help="Steps to wait before x-buffer accumulation starts. During this "
+                             "warmup the x-buffer tracks live params; accumulation begins at "
+                             "step == sf_warmup_steps with t=0. 0 = start immediately.")
     parser.add_argument("--seed", type=int, default=1,
                         help="Random seed for torch/numpy/python. Default 1 matches baseline seed.")
     args = parser.parse_args()
@@ -85,6 +103,16 @@ def parse_args():
     args.wandb_tags = [tag.strip() for tag in args.wandb_tags.split(",") if tag.strip()]
     if args.telemetry_interval < 1 or args.histogram_interval < 1:
         raise ValueError("--telemetry_interval and --histogram_interval must be positive")
+    if args.schedule_free and args.ema_beta > 0:
+        raise ValueError("--schedule_free requires --ema_beta=0 (pEMA must be disabled; "
+                         "the x-buffer replaces the EMA buffer).")
+    if args.schedule_free and args.paramema_refresh_step > 0:
+        raise ValueError("--schedule_free is incompatible with --paramema_refresh_step "
+                         "(pEMA refresh is meaningless when pEMA is disabled).")
+    if args.sf_warmup_steps < 0:
+        raise ValueError("--sf_warmup_steps must be >= 0")
+    if not 0 < args.sf_beta <= 1:
+        raise ValueError("--sf_beta must be in (0, 1]")
     return args
 
 
@@ -750,6 +778,10 @@ if dist.get_rank() == 0:
             "muon_block_lr_pattern": args.muon_block_lr_pattern,
             "paramema_refresh_step": args.paramema_refresh_step,
             "paramema_refresh_only": int(args.paramema_refresh_only),
+            "schedule_free": int(args.schedule_free),
+            "sf_beta": args.sf_beta,
+            "sf_lr": args.sf_lr,
+            "sf_warmup_steps": args.sf_warmup_steps,
             "seed": args.seed,
         },
     )
@@ -833,9 +865,18 @@ for trial_idx in range(args.num_trials):
     # post-warmup params). After warmup, EMA averaging begins. If
     # --ema_beta_target is set, the EMA β is dynamically ramped from
     # ema_beta (base) to ema_beta_target as the LR multiplier decays to 0.
+    #
+    # Under --schedule_free the same buffer holds the SF x-iterate (polynomial-
+    # weighted average c_t*x + (1-c_t)*z, with c_t = 1 - (1+t)^(-sf_beta)).
+    # The eval-time swap below is reused unchanged.
     ema_params = None
-    if args.ema_beta > 0:
+    if args.ema_beta > 0 or args.schedule_free:
         ema_params = [p.detach().float().clone() for p in optimizer2.param_groups[0]["params"]]
+
+    # Schedule-Free state: sf_step counts post-warmup x-updates (t in the c_t
+    # formula). sf_c_t_now is the most recent c_t value, logged for diagnostics.
+    sf_step = 0
+    sf_c_t_now = float("nan")
 
     # paramEMA refresh state: when --paramema_refresh_step>0, the buffer is reset
     # to live params at that step. ema_refresh/fired stays at 0 until then.
@@ -993,6 +1034,21 @@ for trial_idx in range(args.num_trials):
                     metrics["ema/n_eff"] = 1.0 / max(1e-12, (1.0 - beta_t_now))
                     metrics["ema/active"] = int(step >= args.ema_warmup_steps)
                     metrics["ema/warmup_steps"] = args.ema_warmup_steps
+                if args.schedule_free:
+                    # Mirror the EMA-vs-live nomenclature with SF-specific aliases
+                    # so dashboards can compare the x-iterate (eval) to the z-iterate
+                    # (training) without colliding with EMA-flagged runs.
+                    metrics["sf/val_loss_x"] = val_loss_float
+                    metrics["sf/val_loss_z_live"] = val_loss_live_float
+                    metrics["sf/delta_x_minus_z"] = val_loss_float - val_loss_live_float
+                    metrics["sf/delta_x_minus_z_mnat"] = (val_loss_float - val_loss_live_float) * 1000.0
+                    metrics["sf/buffer_frob_dist"] = buffer_frob_dist
+                    metrics["sf/beta_val"] = args.sf_beta
+                    metrics["sf/lr_constant_val"] = args.sf_lr
+                    metrics["sf/x_step_t_val"] = sf_step
+                    metrics["sf/c_t_val"] = sf_c_t_now
+                    metrics["sf/accumulating_val"] = int(step >= args.sf_warmup_steps)
+                    metrics["sf/warmup_steps_val"] = args.sf_warmup_steps
                 metrics.update(prefixed("val/slope", loss_slope_stats(val_loss_history, slope_window_steps)))
                 wandb.log(metrics, step=trial_idx * (train_steps + 1) + step)
             print0(f"step:{step}/{train_steps} val_loss:{val_loss:.5f} train_time:{training_time:.3f}s"
@@ -1021,6 +1077,16 @@ for trial_idx in range(args.num_trials):
         train_loss = float((step_loss / batch_size).item())
         # set optimization hyperparameters and take a step
         sched_progress, sched_cooldown_progress, sched_eta = set_hparams(step)
+        # Schedule-Free: override the body-Muon group LR with constant sf_lr,
+        # bypassing the WSD cooldown. Adam groups (embed/lm_head/scalars) on
+        # optimizer1 keep their WSD-scaled LR; only optimizer2 (body-Muon) is
+        # held constant. The x-buffer averaging downstream provides implicit
+        # regularization in place of the LR ramp-down.
+        sf_muon_lr_now = float("nan")
+        if args.schedule_free:
+            for pg in optimizer2.param_groups:
+                pg["lr"] = args.sf_lr
+            sf_muon_lr_now = args.sf_lr
         train_step = step + 1
         telemetry_due = (step == 0 or (step + 1) % args.telemetry_interval == 0 or step + 1 == train_steps)
         histogram_due = (step == 0 or (step + 1) % args.histogram_interval == 0 or step + 1 == train_steps)
@@ -1049,39 +1115,56 @@ for trial_idx in range(args.num_trials):
             )
         for opt in optimizers:
             opt.step()
-        # EMA buffer update on body-Muon matrix params.
+        # EMA / Schedule-Free buffer update on body-Muon matrix params.
         # During warmup: track params live (no averaging) so post-warmup buffer is
         # seeded with stable, non-zero params (handles proj zero-init bias and lets
-        # the EMA window cover only the late-cooldown regime).
-        # After warmup: lerp at (1 - β_t) where β_t is the dynamic cooldown-aware β.
+        # the averaging window cover only the late-cooldown regime).
+        # After warmup, two modes share the same buffer:
+        # - EMA: lerp at (1 - β_t) where β_t is the dynamic cooldown-aware β.
+        # - Schedule-Free: lerp at (1 - c_t) where c_t = 1 - (1+t)^(-sf_beta).
         ema_beta_t_now = float("nan")
         ema_lr_mult_now = float("nan")
         if ema_params is not None:
-            if step < args.ema_warmup_steps:
-                for ema_p, p in zip(ema_params, optimizer2.param_groups[0]["params"]):
-                    ema_p.copy_(p.detach().float())
-                ema_beta_t_now = args.ema_beta
-                ema_lr_mult_now = compute_lr_mult(step)
+            if args.schedule_free:
+                # Schedule-Free x-iterate update.
+                if step < args.sf_warmup_steps:
+                    for ema_p, p in zip(ema_params, optimizer2.param_groups[0]["params"]):
+                        ema_p.copy_(p.detach().float())
+                    sf_c_t_now = 0.0
+                else:
+                    t = sf_step  # 0-based t starting at sf_warmup_steps
+                    c_t = 1.0 - (1.0 + t) ** (-args.sf_beta)
+                    sf_c_t_now = c_t
+                    lerp_w = 1.0 - c_t  # weight on new z
+                    for ema_p, p in zip(ema_params, optimizer2.param_groups[0]["params"]):
+                        ema_p.lerp_(p.detach().float(), lerp_w)
+                    sf_step += 1
             else:
-                ema_lr_mult_now = compute_lr_mult(step)
-                ema_beta_t_now = compute_ema_beta_t(step)
-                lerp_w = 1.0 - ema_beta_t_now
-                for ema_p, p in zip(ema_params, optimizer2.param_groups[0]["params"]):
-                    ema_p.lerp_(p.detach().float(), lerp_w)
-            # paramEMA refresh: at --paramema_refresh_step, overwrite EMA buffer
-            # with current live params (zeroing the accumulated EMA history).
-            # This runs AFTER the normal lerp update so the refresh is the final
-            # state for the step. Fires once; subsequent steps lerp normally from
-            # the refreshed buffer.
-            if (args.paramema_refresh_step > 0
-                    and step == args.paramema_refresh_step):
-                for ema_p, p in zip(ema_params, optimizer2.param_groups[0]["params"]):
-                    ema_p.copy_(p.detach().float())
-                ema_refresh_fired_total = 1
-                ema_refresh_step_logged = step
-                if dist.get_rank() == 0:
-                    print0(f"paramEMA refresh fired at step={step} "
-                           f"(buffer reset to live params)", console=True)
+                if step < args.ema_warmup_steps:
+                    for ema_p, p in zip(ema_params, optimizer2.param_groups[0]["params"]):
+                        ema_p.copy_(p.detach().float())
+                    ema_beta_t_now = args.ema_beta
+                    ema_lr_mult_now = compute_lr_mult(step)
+                else:
+                    ema_lr_mult_now = compute_lr_mult(step)
+                    ema_beta_t_now = compute_ema_beta_t(step)
+                    lerp_w = 1.0 - ema_beta_t_now
+                    for ema_p, p in zip(ema_params, optimizer2.param_groups[0]["params"]):
+                        ema_p.lerp_(p.detach().float(), lerp_w)
+                # paramEMA refresh: at --paramema_refresh_step, overwrite EMA buffer
+                # with current live params (zeroing the accumulated EMA history).
+                # This runs AFTER the normal lerp update so the refresh is the final
+                # state for the step. Fires once; subsequent steps lerp normally from
+                # the refreshed buffer.
+                if (args.paramema_refresh_step > 0
+                        and step == args.paramema_refresh_step):
+                    for ema_p, p in zip(ema_params, optimizer2.param_groups[0]["params"]):
+                        ema_p.copy_(p.detach().float())
+                    ema_refresh_fired_total = 1
+                    ema_refresh_step_logged = step
+                    if dist.get_rank() == 0:
+                        print0(f"paramEMA refresh fired at step={step} "
+                               f"(buffer reset to live params)", console=True)
         if dist.get_rank() == 0 and telemetry_due:
             log_weight_telemetry(
                 model=model,
@@ -1145,6 +1228,22 @@ for trial_idx in range(args.num_trials):
                     "ema/warmup_steps": args.ema_warmup_steps,
                     "ema/active_train": int(step >= args.ema_warmup_steps),
                     "ema/ramp_enabled": int(args.ema_beta_target is not None),
+                }, step=wandb_step)
+            if args.schedule_free:
+                wandb.log({
+                    "trial": trial_idx,
+                    "train/step": train_step,
+                    "sf/active": int(args.schedule_free),
+                    "sf/beta": args.sf_beta,
+                    "sf/lr_constant": args.sf_lr,
+                    "sf/muon_lr_train": sf_muon_lr_now,
+                    "sf/warmup_steps": args.sf_warmup_steps,
+                    "sf/accumulating": int(step >= args.sf_warmup_steps),
+                    "sf/x_step_t": sf_step,
+                    "sf/c_t": sf_c_t_now,
+                    "sf/one_minus_c_t": (1.0 - sf_c_t_now)
+                                        if not (sf_c_t_now != sf_c_t_now)  # NaN check
+                                        else float("nan"),
                 }, step=wandb_step)
             # paramEMA refresh + L_cov refresh diagnostics. ema_refresh/fired
             # latches to 1 at and after --paramema_refresh_step; lcov_refresh/fired
