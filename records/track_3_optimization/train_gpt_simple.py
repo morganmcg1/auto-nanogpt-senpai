@@ -72,6 +72,10 @@ def parse_args():
                         help="LR for AdamW adam_scalars group (RMSNorm gains; "
                              "params with ndim < 2). Default 0.01 — hardcoded, "
                              "never ablated. ~20K params total in this model.")
+    parser.add_argument("--aux_warmup_steps", type=int, default=0,
+                        help="Linear LR warmup steps (0->1) applied ONLY to AdamW aux groups "
+                             "(adam_embed, adam_lm_head, adam_scalars). Muon body LRs unchanged. "
+                             "Default 0 = no warmup (preserves baseline exactly).")
     parser.add_argument(
         "--lr_cooldown_shape",
         type=str,
@@ -780,6 +784,7 @@ if dist.get_rank() == 0:
             "lr_scalars": args.lr_scalars,
             "depth_init_mode": args.depth_init_mode,
             "lr_cooldown_shape": args.lr_cooldown_shape,
+            "aux_warmup_steps": args.aux_warmup_steps,
         },
     )
 
@@ -893,6 +898,11 @@ for trial_idx in range(args.num_trials):
         else:
             raise ValueError(f"Unknown wd_schedule: {schedule}")
 
+    def _aux_warmup_factor(step, warmup_steps):
+        if warmup_steps <= 0 or step >= warmup_steps:
+            return 1.0
+        return float(step) / float(warmup_steps)
+
     # learning rate schedule: stable then decay
     def _cooldown_eta(x, shape):
         if shape == "linear":
@@ -917,12 +927,15 @@ for trial_idx in range(args.num_trials):
             x = (progress - (1 - cooldown_frac)) / cooldown_frac
             eta = _cooldown_eta(x, args.lr_cooldown_shape)
         wd_mu = _wd_multiplier(step, train_steps, args.wd_schedule)
+        aux_warm = _aux_warmup_factor(step, args.aux_warmup_steps)
         for opt in optimizers:
             for group in opt.param_groups:
-                group["lr"] = group["initial_lr"] * eta
-                if "initial_wd" in group and group.get("name", "").startswith("muon_"):
+                gname = group.get("name", "")
+                lr_factor = eta * aux_warm if gname.startswith("adam_") else eta
+                group["lr"] = group["initial_lr"] * lr_factor
+                if "initial_wd" in group and gname.startswith("muon_"):
                     group["weight_decay"] = group["initial_wd"] * wd_mu
-        return eta
+        return eta, aux_warm
 
 
     ########################################
@@ -1011,7 +1024,7 @@ for trial_idx in range(args.num_trials):
         dist.all_reduce(step_loss, op=dist.ReduceOp.SUM)
         train_loss = float((step_loss / batch_size).item())
         # set optimization hyperparameters and take a step
-        eta_actual = set_hparams(step)
+        eta_actual, current_aux_warm = set_hparams(step)
         train_step = step + 1
         telemetry_due = (step == 0 or (step + 1) % args.telemetry_interval == 0 or step + 1 == train_steps)
         histogram_due = (step == 0 or (step + 1) % args.histogram_interval == 0 or step + 1 == train_steps)
@@ -1038,6 +1051,12 @@ for trial_idx in range(args.num_trials):
                 train_steps=train_steps,
                 wandb_step=wandb_step,
             )
+        if telemetry_due and dist.get_rank() == 0:
+            embed_grad = model.embed.weight.grad
+            embed_grad_p50 = (
+                float(embed_grad.detach().float().norm(dim=1).median().item())
+                if embed_grad is not None else 0.0
+            )
         for opt in optimizers:
             opt.step()
         if telemetry_due:
@@ -1046,6 +1065,8 @@ for trial_idx in range(args.num_trials):
                            for i, group in enumerate(optimizer2.param_groups)}
             current_wds = {group.get("name", f"group_{i}"): group.get("weight_decay", 0.0)
                            for i, group in enumerate(optimizer2.param_groups)}
+            adam_lrs = {group.get("name", f"adam_group_{i}"): group["lr"]
+                        for i, group in enumerate(optimizer1.param_groups)}
             if dist.get_rank() == 0:
                 per_group_metrics = {"trial": trial_idx, "train/step": train_step}
                 for name, mean_norm in update_norms.items():
@@ -1054,10 +1075,18 @@ for trial_idx in range(args.num_trials):
                     per_group_metrics[f"train/lr/{name}"] = lr
                 for name, wd in current_wds.items():
                     per_group_metrics[f"train/wd/{name}"] = wd
+                for name, lr in adam_lrs.items():
+                    per_group_metrics[f"train/lr/{name}"] = lr
                 per_group_metrics["train/wd_mlp_now"] = current_wds.get("muon_mlp", 0.0)
                 per_group_metrics["train/wd_attn_now"] = current_wds.get("muon_attn", 0.0)
                 per_group_metrics["train/wd_schedule_progress"] = train_step / train_steps
                 per_group_metrics["cooldown_shape/eta_at_step"] = eta_actual
+                per_group_metrics["train/aux_warmup_factor"] = current_aux_warm
+                per_group_metrics["train/embed_grad_norm_p50"] = embed_grad_p50
+                embed_state = optimizer1.state.get(model.embed.weight, {})
+                if "exp_avg_sq" in embed_state:
+                    vhat_sqrt = embed_state["exp_avg_sq"].detach().float().sqrt().flatten()
+                    per_group_metrics["train/embed_vhat_p50"] = float(vhat_sqrt.median().item())
                 wandb.log(per_group_metrics, step=wandb_step)
         if dist.get_rank() == 0 and optimizer2.cos_sims_buffer:
             cs_names = list(optimizer2.cos_sims_buffer.keys())
