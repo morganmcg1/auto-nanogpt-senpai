@@ -109,6 +109,17 @@ def parse_args():
     parser.add_argument("--body_init_bottom_layers", type=int,
                         default=int(os.environ.get("BODY_INIT_BOTTOM_LAYERS", "6")),
                         help="Number of bottom layers to damp for --body_init=orthogonal_bottom_damp (default 6 = bottom half of 12 layers).")
+    # H247: terminal-eval mechanism class. All branches default to 0 (bit-identical to baseline)
+    # and live OUTSIDE the @torch.compile boundary (validation section + Python bookkeeping).
+    parser.add_argument("--eval_best_ckpt", type=int, default=int(os.environ.get("EVAL_BEST_CKPT", "0")),
+                        help="If 1, snapshot best-val-loss state_dict during training and restore at terminal eval. "
+                             "0 = disabled (default, bit-identical to baseline).")
+    parser.add_argument("--eval_manifold_ema", type=int, default=int(os.environ.get("EVAL_MANIFOLD_EMA", "0")),
+                        help="If 1, maintain FP32 EMA buffer and apply NS5-manifold-projected EMA at terminal eval only. "
+                             "0 = disabled (default, bit-identical to baseline).")
+    parser.add_argument("--manifold_ema_decay", type=float,
+                        default=float(os.environ.get("MANIFOLD_EMA_DECAY", "0.999")),
+                        help="EMA decay for --eval_manifold_ema (default 0.999).")
     args = parser.parse_args()
     args.num_trials = args.num_trials if args.num_trials is not None else (args.legacy_num_trials or 1)
     args.wandb_tags = [tag.strip() for tag in args.wandb_tags.split(",") if tag.strip()]
@@ -1053,6 +1064,29 @@ for trial_idx in range(args.num_trials):
         outer_velocity = None
     outer_applied_steps = 0
 
+    # H247 terminal-eval bookkeeping. All branches no-op when both flags are 0
+    # (bit-identical to baseline). best_ckpt_state holds the CPU snapshot of the
+    # state_dict at the best val event so far. manifold_ema_buf is a per-param
+    # FP32 EMA buffer; muonh_body_param_names is the set of names that get the
+    # NS5 polar-projection treatment at terminal eval (block 2D weights, the
+    # same set MuonH optimizes).
+    best_ckpt_state = None
+    best_ckpt_step_recorded = -1
+    manifold_ema_buf: dict[str, torch.Tensor] = {}
+    muonh_body_param_names: set[str] = set()
+    if args.eval_manifold_ema:
+        for opt in optimizers:
+            if isinstance(opt, MuonH):
+                muonh_param_ids = set()
+                for pg in opt.param_groups:
+                    for p in pg["params"]:
+                        muonh_param_ids.add(id(p))
+                for n2, p2 in model.named_parameters():
+                    if id(p2) in muonh_param_ids and p2.ndim >= 2:
+                        muonh_body_param_names.add(n2)
+    live_state: dict[str, torch.Tensor] | None = None
+    val_loss_fast_float: float | None = None
+
     # start the clock
     training_time = 0
     last_val_step = 0
@@ -1076,6 +1110,52 @@ for trial_idx in range(args.num_trials):
             step_avg = time_since_last_val / (step - last_val_step) if step > 0 else float("nan")
             last_val_step = step
             training_time += time_since_last_val
+            # H247 terminal-step eval handling. Both branches no-op when their
+            # flags are 0 (bit-identical to baseline). Lives OUTSIDE the
+            # @torch.compile boundary, so no retracing risk.
+            if step == train_steps:
+                if args.eval_manifold_ema and manifold_ema_buf:
+                    # arm_c: compute val/loss_fast (raw live-params) FIRST as
+                    # bit-id diagnostic against arm_a CTRL, then swap to
+                    # EMA+NS5-projected params for the main val block below.
+                    model.eval()
+                    val_loss_fast = torch.zeros((), device=device)
+                    with torch.no_grad():
+                        assert len(val_inputs) % mbs == 0
+                        for i in range(len(val_inputs) // mbs):
+                            val_loss_fast += model(val_inputs[i*mbs:(i+1)*mbs], val_targets[i*mbs:(i+1)*mbs])
+                    dist.all_reduce(val_loss_fast, op=dist.ReduceOp.SUM)
+                    val_loss_fast /= val_tokens
+                    val_loss_fast_float = float(val_loss_fast.item())
+                    model.train()
+                    # Save live params (so we can restore after val), load
+                    # EMA params with NS5 polar projection for body 2D weights.
+                    live_state = {k: v.clone() for k, v in model.state_dict().items()}
+                    with torch.no_grad():
+                        for n, p in model.named_parameters():
+                            ema_val = manifold_ema_buf[n].to(device)
+                            if n in muonh_body_param_names:
+                                # NS5 polar projection - EXACT match to
+                                # zeropower_via_newtonschulz5 in this script
+                                # (a=2, b=-1.5, c=0.5, 12 iterations, bfloat16).
+                                X = ema_val.bfloat16()
+                                if ema_val.shape[-2] > ema_val.shape[-1]:
+                                    X = X.mT
+                                X = X / (X.norm(dim=(-2, -1), keepdim=True) + 1e-7)
+                                a_ns, b_ns, c_ns = 2, -1.5, 0.5
+                                for _ in range(12):
+                                    A_ns = X @ X.mT
+                                    B_ns = b_ns * A_ns + c_ns * A_ns @ A_ns
+                                    X = a_ns * X + B_ns @ X
+                                if ema_val.shape[-2] > ema_val.shape[-1]:
+                                    X = X.mT
+                                p.data.copy_(X.to(p.dtype))
+                            else:
+                                p.data.copy_(ema_val.to(p.dtype))
+                elif args.eval_best_ckpt and best_ckpt_state is not None:
+                    # arm_b: load best-val-loss snapshot before terminal eval.
+                    with torch.no_grad():
+                        model.load_state_dict({k: v.to(device) for k, v in best_ckpt_state.items()})
             model.eval()
             val_loss = torch.zeros((), device=device)
             with torch.no_grad():
@@ -1087,6 +1167,12 @@ for trial_idx in range(args.num_trials):
             val_loss_float = float(val_loss.item())
             if dist.get_rank() == 0:
                 val_loss_history.append((step, val_loss_float))
+                # H247 arm_b: snapshot state_dict at improving val events. Use
+                # OLD best_val_loss for the comparison (before it gets updated
+                # below), so the first improving val triggers snapshot.
+                if args.eval_best_ckpt and val_loss_float < best_val_loss:
+                    best_ckpt_state = {k: v.cpu().clone() for k, v in model.state_dict().items()}
+                    best_ckpt_step_recorded = step
                 if val_loss_float < best_val_loss:
                     best_val_loss = val_loss_float
                     best_val_step = step
@@ -1105,10 +1191,26 @@ for trial_idx in range(args.num_trials):
                     "time/train_seconds": training_time,
                     "time/step_avg_ms": 1000 * step_avg,
                 }
+                # H247 terminal-step diagnostic fields. Only logged at step==train_steps.
+                if step == train_steps:
+                    if args.eval_best_ckpt:
+                        metrics["eval/best_ckpt_restored"] = 1 if best_ckpt_state is not None else 0
+                        metrics["eval/best_ckpt_step"] = best_ckpt_step_recorded
+                    if args.eval_manifold_ema:
+                        if val_loss_fast_float is not None:
+                            metrics["val/loss_fast"] = val_loss_fast_float
+                        metrics["eval/manifold_ema_applied"] = 1
+                        metrics["eval/manifold_ema_decay"] = args.manifold_ema_decay
                 metrics.update(prefixed("val/slope", loss_slope_stats(val_loss_history, slope_window_steps)))
                 wandb.log(metrics, step=trial_idx * (train_steps + 1) + step)
             print0(f"step:{step}/{train_steps} val_loss:{val_loss:.5f} train_time:{training_time:.3f}s"
                    + f" step_avg:{1000*step_avg:.2f}ms", console=True)
+            # H247 arm_c: restore live params after terminal EMA+manifold eval
+            # so any post-val logging (final speedrun summary) sees live state.
+            if step == train_steps and args.eval_manifold_ema and live_state is not None:
+                with torch.no_grad():
+                    model.load_state_dict(live_state)
+                live_state = None
             model.train()
             # start the clock again
             dist.barrier()
@@ -1301,6 +1403,19 @@ for trial_idx in range(args.num_trials):
                     "train/muloco/delta_rms": delta_rms,
                     "train/muloco/velocity_rms": velocity_rms,
                 }, step=wandb_step)
+
+        # H247 arm_c: FP32 EMA buffer update. Runs every training step AFTER
+        # inner + (optional) outer optimizer updates so the buffer reflects the
+        # post-step model state. Lives OUTSIDE @torch.compile boundary.
+        if args.eval_manifold_ema:
+            with torch.no_grad():
+                for n, p in model.named_parameters():
+                    if n not in manifold_ema_buf:
+                        manifold_ema_buf[n] = p.data.float().clone()
+                    else:
+                        manifold_ema_buf[n].mul_(args.manifold_ema_decay).add_(
+                            p.data.float(), alpha=1.0 - args.manifold_ema_decay
+                        )
 
         approx_training_time = training_time + (time.perf_counter() - t0)
         print0(f"step:{step+1}/{train_steps} train_time:{approx_training_time:.3f}s"
