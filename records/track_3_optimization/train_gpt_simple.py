@@ -455,6 +455,18 @@ MU_COOLDOWN_END = float(os.environ.get("MU_COOLDOWN_END", "0.95"))
 MU_WARMUP_STEPS = int(os.environ.get("MU_WARMUP_STEPS", "0"))
 MU_WARMUP_START = float(os.environ.get("MU_WARMUP_START", "0.85"))
 MUON_LR = float(os.environ.get("MUON_LR", "0.0375"))
+# PRE_TARGET_DEPTH_LR_RAMP (PR #1492): continuous per-block depth-linear LR ramp on
+# Muon body in the active window [START, END). Splits the Muon body into 12 per-block
+# param groups (block_idx 0..11) only when ENABLED=1, so the disabled-canary path is
+# bytewise identical to the baseline (single muon_blocks group).
+PRE_TARGET_DEPTH_LR_RAMP_ENABLED = int(os.environ.get("PRE_TARGET_DEPTH_LR_RAMP_ENABLED", "0"))
+PRE_TARGET_DEPTH_LR_RAMP_START = int(os.environ.get("PRE_TARGET_DEPTH_LR_RAMP_START", "2750"))
+PRE_TARGET_DEPTH_LR_RAMP_END = int(os.environ.get("PRE_TARGET_DEPTH_LR_RAMP_END", "2950"))
+PRE_TARGET_DEPTH_LR_RAMP_HI = float(os.environ.get("PRE_TARGET_DEPTH_LR_RAMP_HI", "1.15"))
+PRE_TARGET_DEPTH_LR_RAMP_LO = float(os.environ.get("PRE_TARGET_DEPTH_LR_RAMP_LO", "0.85"))
+PRE_TARGET_DEPTH_LR_RAMP_DIR = os.environ.get("PRE_TARGET_DEPTH_LR_RAMP_DIR", "front_up")
+assert PRE_TARGET_DEPTH_LR_RAMP_DIR in ("front_up", "front_down"), \
+    f"PRE_TARGET_DEPTH_LR_RAMP_DIR must be 'front_up' or 'front_down' (got {PRE_TARGET_DEPTH_LR_RAMP_DIR!r})"
 MUON_WEIGHT_DECAY = 0.025  # nominal; Muon.step does not apply explicit wd (u/w-floor replaces it)
 TARGET_UW = 0.35
 NORMUON_BETA2 = 0.95
@@ -867,6 +879,12 @@ if dist.get_rank() == 0:
             "optimizer/ns5_iters": NS5_ITERS,
             "optimizer/wd_aux": WD_AUX,
             "optimizer/recipe": "contra-muon + normuon-lite + soap-on-mlp + soap-on-attn-trust-gate (pre-NS5, record #14 + record #16)",
+            "pre_target_depth_lr_ramp/enabled": PRE_TARGET_DEPTH_LR_RAMP_ENABLED,
+            "pre_target_depth_lr_ramp/start": PRE_TARGET_DEPTH_LR_RAMP_START,
+            "pre_target_depth_lr_ramp/end": PRE_TARGET_DEPTH_LR_RAMP_END,
+            "pre_target_depth_lr_ramp/hi": PRE_TARGET_DEPTH_LR_RAMP_HI,
+            "pre_target_depth_lr_ramp/lo": PRE_TARGET_DEPTH_LR_RAMP_LO,
+            "pre_target_depth_lr_ramp/dir": PRE_TARGET_DEPTH_LR_RAMP_DIR,
         },
     )
 
@@ -905,6 +923,27 @@ for trial_idx in range(args.num_trials):
     optimizer2 = Muon([(n, p) for n, p in model.blocks.named_parameters() if p.ndim >= 2],
                       lr=MUON_LR, weight_decay=MUON_WEIGHT_DECAY, mu=MU)
     optimizer2.param_groups[0]["name"] = "muon_blocks"
+    if PRE_TARGET_DEPTH_LR_RAMP_ENABLED:
+        # Split the single muon_blocks group into 12 per-block groups (block_idx 0..11) so
+        # the depth-linear ramp can apply a distinct LR per block index. World_size=1 here,
+        # so per-param updates inside Muon.step are independent of group partitioning.
+        block_to_params: dict[int, list[Tensor]] = {}
+        for name, p in model.blocks.named_parameters():
+            if p.ndim < 2:
+                continue
+            block_idx = int(name.split(".", 1)[0])
+            block_to_params.setdefault(block_idx, []).append(p)
+        base_group = optimizer2.param_groups[0]
+        base_defaults = {k: v for k, v in base_group.items() if k not in ("params", "name")}
+        new_param_groups = []
+        for block_idx in sorted(block_to_params.keys()):
+            params_block = sorted(block_to_params[block_idx], key=lambda x: x.size(), reverse=True)
+            group = dict(base_defaults)
+            group["params"] = params_block
+            group["name"] = f"muon_block_{block_idx:02d}"
+            group["block_idx"] = block_idx
+            new_param_groups.append(group)
+        optimizer2.param_groups = new_param_groups
     optimizers = [optimizer1, optimizer2]
     assert set(p for opt in optimizers for group in opt.param_groups
                for p in group["params"]) == set(model.parameters())
@@ -931,10 +970,25 @@ for trial_idx in range(args.num_trials):
                 cur_mu = MU_COOLDOWN_START + (MU_COOLDOWN_END - MU_COOLDOWN_START) * t
         else:
             cur_mu = MU + (MU_END - MU) * progress
+        ramp_active = (
+            PRE_TARGET_DEPTH_LR_RAMP_ENABLED
+            and PRE_TARGET_DEPTH_LR_RAMP_START <= step < PRE_TARGET_DEPTH_LR_RAMP_END
+        )
+        num_blocks = 12  # GPT has 12 transformer blocks
         for opt in optimizers:
             for group in opt.param_groups:
-                group["lr"] = group["initial_lr"] * eta
-                if group.get("name") == "muon_blocks":
+                base_lr = group["initial_lr"] * eta
+                if ramp_active and "block_idx" in group:
+                    frac = group["block_idx"] / (num_blocks - 1)  # 0.0 (block 0) -> 1.0 (block 11)
+                    if PRE_TARGET_DEPTH_LR_RAMP_DIR == "front_up":
+                        mult = PRE_TARGET_DEPTH_LR_RAMP_HI + (PRE_TARGET_DEPTH_LR_RAMP_LO - PRE_TARGET_DEPTH_LR_RAMP_HI) * frac
+                    else:  # front_down
+                        mult = PRE_TARGET_DEPTH_LR_RAMP_LO + (PRE_TARGET_DEPTH_LR_RAMP_HI - PRE_TARGET_DEPTH_LR_RAMP_LO) * frac
+                    group["lr"] = base_lr * mult
+                else:
+                    group["lr"] = base_lr
+                name = group.get("name", "")
+                if name == "muon_blocks" or name.startswith("muon_block_"):
                     group["mu"] = cur_mu
 
 
@@ -1025,6 +1079,20 @@ for trial_idx in range(args.num_trials):
         train_loss = float((step_loss / batch_size).item())
         # set optimization hyperparameters and take a step
         set_hparams(step)
+        if (dist.get_rank() == 0 and PRE_TARGET_DEPTH_LR_RAMP_ENABLED
+                and step in (PRE_TARGET_DEPTH_LR_RAMP_START,
+                             max(PRE_TARGET_DEPTH_LR_RAMP_START,
+                                 PRE_TARGET_DEPTH_LR_RAMP_END - 1))):
+            per_block_lr = {}
+            for group in optimizer2.param_groups:
+                if "block_idx" in group:
+                    per_block_lr[group["block_idx"]] = group["lr"]
+            print0(
+                f"step:{step} PRE_TARGET_DEPTH_LR_RAMP dir={PRE_TARGET_DEPTH_LR_RAMP_DIR} "
+                f"window=[{PRE_TARGET_DEPTH_LR_RAMP_START},{PRE_TARGET_DEPTH_LR_RAMP_END}) "
+                f"per_block_lr={per_block_lr}",
+                console=True,
+            )
         train_step = step + 1
         telemetry_due = (step == 0 or (step + 1) % args.telemetry_interval == 0 or step + 1 == train_steps)
         histogram_due = (step == 0 or (step + 1) % args.histogram_interval == 0 or step + 1 == train_steps)
