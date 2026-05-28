@@ -850,6 +850,9 @@ if dist.get_rank() == 0:
             "muonh_mu_schedule": args.muonh_mu_schedule,
             "muonh_mu_start": args.muonh_mu_start,
             "muonh_mu_end": args.muonh_mu_end,
+            "body_init": args.body_init,
+            "body_init_bottom_damp_factor": args.body_init_bottom_damp_factor,
+            "body_init_bottom_layers": args.body_init_bottom_layers,
         },
     )
 
