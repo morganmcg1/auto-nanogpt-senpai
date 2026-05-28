@@ -109,6 +109,16 @@ def parse_args():
     parser.add_argument("--body_init_bottom_layers", type=int,
                         default=int(os.environ.get("BODY_INIT_BOTTOM_LAYERS", "6")),
                         help="Number of bottom layers to damp for --body_init=orthogonal_bottom_damp (default 6 = bottom half of 12 layers).")
+    # H232: post-NS5 Cautious-Muon sign mask. Mask is applied AFTER NS5 polar
+    # projection in the polar-projected update space, not before in gradient
+    # space (H195 already tested pre-NS5 cautious and closed NEG).
+    parser.add_argument("--muonh_cautious", type=str,
+                        default=os.environ.get("MUONH_CAUTIOUS", "off"),
+                        choices=["off", "renormalize", "no_renorm"],
+                        help="Post-NS5 cautious sign-mask on MuonH updates. "
+                             "'off' (default): standard muon_update, bit-identical to baseline. "
+                             "'renormalize': mask + restore average magnitude. "
+                             "'no_renorm': mask only (loses magnitude).")
     args = parser.parse_args()
     args.num_trials = args.num_trials if args.num_trials is not None else (args.legacy_num_trials or 1)
     args.wandb_tags = [tag.strip() for tag in args.wandb_tags.split(",") if tag.strip()]
@@ -571,6 +581,30 @@ def muon_update(grad, momentum, mu=0.95, nesterov=True):
     update *= max(1, grad.size(-2) / grad.size(-1))**0.5
     return update
 
+
+# H232 isolation pattern (follows H214): treatment arms use a SEPARATE compiled
+# function so the muon_update kernel above stays bit-identical for CTRL. Returns
+# (update, mask_mean) so the optimizer can log mask survival rate per step.
+@torch.compile
+def muon_update_cautious(grad, momentum, mu=0.95, nesterov=True, renormalize=True):
+    """Post-NS5 Cautious-Muon: mask polar-projected update components whose
+    sign disagrees with the pre-NS5 (Nesterov-combined) direction. Optionally
+    renormalize to keep average magnitude comparable to CTRL."""
+    momentum.lerp_(grad, 1 - mu)
+    update = grad.lerp_(momentum, mu) if nesterov else momentum
+    update = zeropower_via_newtonschulz5(update)
+    update *= max(1, grad.size(-2) / grad.size(-1))**0.5
+    # Cautious mask: keep components where update and grad agree in sign.
+    # grad here is the (modified) Nesterov-combined input to NS5; comparison
+    # answers "did NS5 polar projection flip the sign on this component".
+    mask = (update * grad > 0).to(update.dtype)
+    mask_mean = mask.mean()
+    if renormalize:
+        update = update * mask / mask_mean.clamp_min(1e-7)
+    else:
+        update = update * mask
+    return update, mask_mean
+
 class Muon(torch.optim.Optimizer):
     def __init__(self, params, lr=0.02, weight_decay=0, mu=0.95):
         assert isinstance(params, list) and len(params) >= 1 and isinstance(params[0], torch.nn.Parameter)
@@ -669,16 +703,19 @@ class MuonH(torch.optim.Optimizer):
     norm exactly constant; weight_decay must be 0.
     """
     def __init__(self, params, lr=0.018, weight_decay=0.0, mu=0.95,
-                 hyperball=True, budget_mult=1.0, mode="clip"):
+                 hyperball=True, budget_mult=1.0, mode="clip", cautious="off"):
         assert isinstance(params, list) and len(params) >= 1 and isinstance(params[0], torch.nn.Parameter)
         assert mode in ("clip", "scale_invariant")
+        assert cautious in ("off", "renormalize", "no_renorm")
         params = sorted(params, key=lambda x: x.size(), reverse=True)
         defaults = dict(lr=lr, weight_decay=weight_decay, mu=mu,
-                        hyperball=hyperball, budget_mult=budget_mult, mode=mode)
+                        hyperball=hyperball, budget_mult=budget_mult, mode=mode,
+                        cautious=cautious)
         super().__init__(params, defaults)
         self._last_active_fraction = 0.0
         self._last_radius_to_norm_max = 0.0
         self._last_norm_to_radius_max = 0.0
+        self._last_cautious_mask_fraction = 0.0
 
     @torch.no_grad()
     def step(self):
@@ -688,12 +725,18 @@ class MuonH(torch.optim.Optimizer):
         total_count_local = 0
         max_r_over_n_local = 0.0
         max_n_over_r_local = 0.0
+        # H232: lazily allocate a GPU scalar to accumulate mask means so we only
+        # sync once per step instead of once per parameter matrix. Stays None
+        # for cautious=="off" to avoid perturbing CTRL.
+        mask_frac_sum_gpu = None
+        mask_frac_count_local = 0
         for group in self.param_groups:
             params = group["params"]
             params_pad = params + [torch.empty_like(params[-1])] * (world_size - len(params) % world_size)
             hb = group["hyperball"]
             budget_mult = group["budget_mult"]
             mode = group["mode"]
+            cautious = group["cautious"]
             for base_i in range(0, len(params), world_size):
                 if base_i + rank < len(params):
                     p = params[base_i + rank]
@@ -702,7 +745,20 @@ class MuonH(torch.optim.Optimizer):
                         state["momentum"] = torch.zeros_like(p)
                         if hb:
                             state["hyperball_radius"] = p.data.norm().item() * budget_mult
-                    update = muon_update(p.grad, state["momentum"], mu=group["mu"])
+                    # H232: dispatch outside the compiled kernel so CTRL (cautious=="off")
+                    # routes through the unmodified muon_update compiled function and
+                    # remains bit-identical to baseline.
+                    if cautious == "off":
+                        update = muon_update(p.grad, state["momentum"], mu=group["mu"])
+                    else:
+                        update, mask_mean = muon_update_cautious(
+                            p.grad, state["momentum"], mu=group["mu"],
+                            renormalize=(cautious == "renormalize"),
+                        )
+                        if mask_frac_sum_gpu is None:
+                            mask_frac_sum_gpu = torch.zeros((), device="cuda", dtype=torch.float64)
+                        mask_frac_sum_gpu.add_(mask_mean.to(torch.float64))
+                        mask_frac_count_local += 1
                     if hb and mode == "scale_invariant":
                         # Always-active variant: norm is held at initial value by construction.
                         scale_invariant_update_(p.data, update, group["lr"])
@@ -726,6 +782,8 @@ class MuonH(torch.optim.Optimizer):
                                 p.data.mul_(R / norm)
                                 clip_count_local += 1
                 dist.all_gather(params_pad[base_i:base_i + world_size], params_pad[base_i + rank])
+        # Materialize the GPU-side mask accumulator into a float once per step.
+        mask_frac_sum_local = float(mask_frac_sum_gpu.item()) if mask_frac_sum_gpu is not None else 0.0
         if world_size > 1:
             counts = torch.tensor([clip_count_local, total_count_local],
                                   device="cuda", dtype=torch.float64)
@@ -733,18 +791,28 @@ class MuonH(torch.optim.Optimizer):
             ratios = torch.tensor([max_r_over_n_local, max_n_over_r_local],
                                   device="cuda", dtype=torch.float64)
             dist.all_reduce(ratios, op=dist.ReduceOp.MAX)
+            mask_stats = torch.tensor([mask_frac_sum_local, float(mask_frac_count_local)],
+                                      device="cuda", dtype=torch.float64)
+            dist.all_reduce(mask_stats, op=dist.ReduceOp.SUM)
             clip_count = float(counts[0].item())
             total_count = float(counts[1].item())
             max_r_over_n = float(ratios[0].item())
             max_n_over_r = float(ratios[1].item())
+            mask_frac_sum = float(mask_stats[0].item())
+            mask_frac_count = float(mask_stats[1].item())
         else:
             clip_count = float(clip_count_local)
             total_count = float(total_count_local)
             max_r_over_n = max_r_over_n_local
             max_n_over_r = max_n_over_r_local
+            mask_frac_sum = mask_frac_sum_local
+            mask_frac_count = float(mask_frac_count_local)
         self._last_active_fraction = clip_count / total_count if total_count > 0 else 0.0
         self._last_radius_to_norm_max = max_r_over_n
         self._last_norm_to_radius_max = max_n_over_r
+        self._last_cautious_mask_fraction = (
+            mask_frac_sum / mask_frac_count if mask_frac_count > 0 else 0.0
+        )
 
 
 ########################################
@@ -782,7 +850,7 @@ if args.use_outer_optimizer:
            f"outer_momentum={args.outer_momentum} sync_interval={args.sync_interval}", console=True)
 else:
     print0("MuLoCo outer optimizer DISABLED", console=True)
-print0(f"MuonH mode={args.muonh_mode} lr={args.muonh_lr} budget_mult={args.muonh_budget_mult} cooldown_shape={args.muonh_cooldown_shape}", console=True)
+print0(f"MuonH mode={args.muonh_mode} lr={args.muonh_lr} budget_mult={args.muonh_budget_mult} cooldown_shape={args.muonh_cooldown_shape} cautious={args.muonh_cautious}", console=True)
 if args.aux_agc_clip_ratio > 0:
     print0(f"AGC ENABLED on aux AdamW groups: clip_ratio={args.aux_agc_clip_ratio} eps={args.aux_agc_eps}", console=True)
 else:
@@ -850,6 +918,7 @@ if dist.get_rank() == 0:
             "muonh_mu_schedule": args.muonh_mu_schedule,
             "muonh_mu_start": args.muonh_mu_start,
             "muonh_mu_end": args.muonh_mu_end,
+            "muonh_cautious": args.muonh_cautious,
         },
     )
 
@@ -933,7 +1002,7 @@ for trial_idx in range(args.num_trials):
     optimizer2 = MuonH([p for p in model.blocks.parameters() if p.ndim >= 2],
                        lr=args.muonh_lr, weight_decay=0.0, mu=0.95,
                        hyperball=True, budget_mult=args.muonh_budget_mult,
-                       mode=args.muonh_mode)
+                       mode=args.muonh_mode, cautious=args.muonh_cautious)
     optimizer2.param_groups[0]["name"] = "muonh_blocks"
     optimizers = [optimizer1, optimizer2]
     # AGC targets: AdamW aux groups (embed, lm_head, scalars). Built from optimizer1
@@ -1189,6 +1258,8 @@ for trial_idx in range(args.num_trials):
                         muonh_metrics["train/muonh/active_fraction"] = opt._last_active_fraction
                         muonh_metrics["train/muonh/radius_to_norm_max"] = opt._last_radius_to_norm_max
                         muonh_metrics["train/muonh/norm_to_radius_max"] = opt._last_norm_to_radius_max
+                        if args.muonh_cautious != "off":
+                            muonh_metrics["train/muonh/cautious_mask_fraction"] = opt._last_cautious_mask_fraction
                     muonh_metrics["train/muonh/warmup_factor"] = muonh_warmup_factor
                     muonh_metrics["train/muonh/effective_lr"] = opt.param_groups[0]["lr"]
             if telemetry_due and args.aux_agc_clip_ratio > 0 and agc_stats["agc_total"] > 0:
