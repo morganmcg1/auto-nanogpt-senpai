@@ -1,3 +1,49 @@
+## 2026-05-28 15:55 UTC — Cycle 71 mid-349 — fern #1575 stale_wip heartbeat (Arm A `arm-a-qk-fast` cpswg36g live at step 1475/~3000, val=3.5648; per-kind code patch CONFIRMED in W&B config: per_kind_attn_soap_beta2_enabled=1, β2_Q=β2_K=0.85, β2_V=β2_PROJ=0.95). No closures, no fresh assignments, no idle students — fleet remains FULLY ASSIGNED with 4-mechanism per-kind axis family in flight (#1575 fern β2, #1583 edward refresh-freq, #1582 askeladd NS5 iters, #1577 tanjiro AUX β2)
+
+**Cumulative**: **255 refuted** / **152 distinct mech classes** / **113 family-level closures**.
+
+### Wake 15 status
+
+No PRs moved to terminal status this wake. The 8 in-flight PRs are still mid-canary or mid-Arm-A. Fern #1575 was flagged `stale_wip` only by elapsed-time threshold (~2h09m since PR creation, 0 advisor-visible comments). W&B inspection confirmed fern is healthy and mid-Arm-A — 4 disabled-check warmups completed (3 harness-default + 1 student-launched), then Arm A `arm-a-qk-fast` launched at 15:02Z and is now at step 1475 with val/loss 3.5648 and GPU=100%. Heartbeat acknowledged the live arm and reminded the student of the closure path (run Arm B `arm-b-qk-slow` on same canary, post single terminal `SENPAI-RESULT` marker with both arms).
+
+**Pod-vs-PR-silence pattern noted**: fern's heartbeat-flagged stale_wip status was a false-positive — the student is actively training but hasn't posted any midflight status comments. This is a general gap in the student loop; do not extrapolate to fern being stuck.
+
+### Fleet state at end of wake 15
+
+8 students all assigned, 0 idle:
+
+| PR | student | axis | status |
+|---|---|---|---|
+| #1566 | nezuko | PER_KIND_AUX_AMSGRAD (per-kind state-rule dispatch on AdamW embed vs lm_head) | WIP |
+| #1568 | alphonse | PER_DEPTH_HALF_MU_COOLDOWN_END (depth-asymmetric momentum cooldown end) | WIP |
+| #1569 | frieren | PER_DEPTH_HALF_ATTN_SOAP_BETA2 (depth-asymmetric attn-trust SOAP β2) | WIP |
+| #1570 | thorfinn | ATTN_SOAP_ACTIVATION_DELAY (delay_200 vs delay_1000 step-N activation gate) | WIP |
+| #1575 | fern | PER_KIND_ATTN_SOAP_BETA2 (per-kind q/k vs v/proj β2 inside attn-SOAP layer scope) | **Arm A mid-flight** |
+| #1577 | tanjiro | PER_KIND_AUX_BETA2 (per-AUX-kind AdamW v-EMA decay full-run) | WIP |
+| #1582 | askeladd | PER_KIND_NS5_ITERS_FULL_RUN (per-kind attn vs MLP NS5 iters dispatch) | WIP |
+| #1583 | edward | PER_KIND_ATTN_SOAP_REFRESH_FREQ (per-kind q/k vs v/proj trust-gated refresh-freq) | WIP |
+
+**Cycle 71 active axis-families**: 4-mechanism PER-KIND axis family (β2, refresh-freq, NS5 iters, AUX β2) + 2-mechanism PER-DEPTH-HALF axis family (cooldown_end, attn-SOAP β2) + state-rule dispatch (PER_KIND_AUX_AMSGRAD) + state-phase activation (ATTN_SOAP_ACTIVATION_DELAY). All four classes test different state-mechanism shapes per the Morgan #1259 directive (no plain scalar sweeps).
+
+### Predictions for in-flight per-kind continuous axes
+
+Per the **#1547 PER_KIND_AUX_BETA1 result** (per-kind continuous axis → Goldilocks at merge-bar scale, weakly REVERSED m-staleness direction), the **per-kind continuous class is genuinely direction-uncertain at merge-bar scale**:
+
+- **#1575 fern PER_KIND_ATTN_SOAP_β2** (continuous-EMA class inside trust-gated layer scope): expect Goldilocks — both qk_FAST and qk_SLOW will land close to baseline; if either arm beats, merge. The kind-asymmetric trust-gate firing in #1562 hints that the per-kind direction may NOT match either depth-half class.
+- **#1577 tanjiro PER_KIND_AUX_β2** (continuous-EMA on orthogonal AdamW pathway): expect Goldilocks at AUX scale; embed/lm_head/scalars have different signal-to-noise profiles, so a coordinated per-kind cut may unlock an asymmetry that scalar β2 sweeps miss.
+- **#1582 askeladd PER_KIND_NS5_ITERS** (event-class, attn vs MLP cross-layer): event-class axes have been REVERSED on the depth-half axis (#1562), but attn-vs-MLP is a different cut than block-front/back — direction here tracks whether attn and MLP have asymmetric Newton-Schulz convergence requirements.
+- **#1583 edward PER_KIND_ATTN_SOAP_REFRESH** (event-class within attn-SOAP layer scope, builds directly on #1562 kind-asymmetric firing): expect ASYMMETRIC kind-direction — k-kind probably wants different freq than v/proj-kind because their on_fractions diverged at the depth boundary in #1562.
+
+### Potential next research directions (post per-kind axis-family closure)
+
+1. **Per-kind state-rule dispatch on attn-SOAP** (sibling to #1566 AMSGRAD on AdamW): could q/k use a different state-update rule than v/proj inside attn-SOAP? (e.g., gram refresh vs exp-avg-sq drift)
+2. **Per-block fine-grained dispatch (not just front/back-half)**: depth-axis already shows direction inversion across mechanism class; a per-block grid (3-way: early/mid/late) could reveal whether the inversion is monotonic or has an interior optimum.
+3. **State-phase activation timing × per-kind dispatch**: combine ATTN_SOAP_ACTIVATION_DELAY (#1570) with PER_KIND dispatch — does early-vs-late activation interact with q/k vs v/proj kind?
+4. **Mechanism-direction triangulation**: take a single layer scope (attn-SOAP) and stress-test all three dispatch axes (continuous-rate β2, event-rate refresh-freq, state-rule) — if all three converge on same kind-asymmetry direction (qk-FAST + qk-LESS-FREQUENT + qk-DIFFERENT-RULE), there's a single underlying q/k-vs-v/proj curvature signal.
+5. **Cross-scope per-kind composition**: if both #1575 (attn-SOAP β2 per-kind) and #1583 (attn-SOAP refresh per-kind) close with ASYMMETRIC direction, compose into a single PR that applies both kind-cuts simultaneously.
+
+---
+
 ## 2026-05-28 14:55 UTC — Cycle 71 mid-348 — edward #1562 255th (PER_DEPTH_HALF_ATTN_SOAP_REFRESH terminal STANDARD CLOSED — FIRST REVERSED-DIRECTION depth-half axis: front_SLOW WINS) + edward #1583 NEW PER_KIND_ATTN_SOAP_REFRESH_FREQ pivot (first per-kind q/k vs v/proj trust-gated refresh-freq dispatch in 1582+ PRs, builds on edward's kind-asymmetric trust-gate firing signal) + thorfinn #1570 heartbeat sent
 
 **Cumulative**: **255 refuted** / **152 distinct mech classes** / **113 family-level closures**.
