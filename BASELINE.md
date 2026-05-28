@@ -2,6 +2,51 @@
 
 Ordered chronologically. Compare new results against the **most recent entry**.
 
+## 2026-05-28 09:11 UTC — PR #1381: Cosine cooldown LR-decay shape (alphonse) — n=4 confirm — **FFS-PRIMARY MERGE**
+
+- **Primary metric (FFS-primary per directive #1262):** `speedrun/final_first_step_to_target` μ_4 = **2943.75** (σ_4 = 12.5; 4/4 trials FFS-alive ≤ 2950; min/max = 2925/2950)
+- **val/loss (μ_4):** **3.270215** (σ_4 = 0.000272; min/max = 3.26993/3.27057)
+- **Δ vs PR #699 baseline:**
+  - **ΔFFS = −81.25 steps** (3025 → 2943.75) — −2.69%
+  - Δval = +0.008994 (+15.17·σ_single) — structural Pareto cost confirmed by #1481 sweep across cdf ∈ {0.3, 0.4, 0.5, 0.6, 0.7}; FFS monotone-NEG with shorter cdf, no Pareto-dominant alternative exists
+- **n:** 4 seeds (single W&B run `suc03s6j`, group `g1r5-alphonse/cooldown-lr-decay-shape`)
+- **What changed:** Added `--lr_cooldown_shape cosine` to the mandatory R5 stack. Replaces the linear LR cooldown (default) with cosine `0.5·(1 + cos(π·x))` during the cooldown window (last cdf=0.7 of training). Mechanism: cosine front-loads the model into the low-LR regime — at x=0.857 cosine_eta=0.05 vs linear_eta=0.143 — advancing the 3.28 crossing (FFS) by ~80 steps but at the cost of fewer steps in mid-eta descent (val regresses ~+0.009).
+- **Cross-PR mechanism corroboration:** fern #1385 Cell B (full-run cosine, n=1) hit FFS=2925 independently, matching alphonse #1381 Cell B (n=1) and confirming the cluster mechanism "directed descent through low-LR regime is FFS-load-bearing".
+- **Closures crystallized by this merge:**
+  - #1481 closed (32nd) — cooldown_frac axis Pareto-exhausted, cdf=0.7 locally optimal
+  - Cosine FFS gain is jointly (shape × cdf=0.7), not portable to other cdf values
+- **Statsig (FFS-primary regime):** ΔFFS = 81.25 steps with σ_4(FFS) = 12.5; effect size = 6.5·σ_4. Compare to baseline σ_4(FFS) = 0 (all 4 baseline trials at FFS=3025) → clean detection.
+- **W&B run:** `suc03s6j` (group `g1r5-alphonse/cooldown-lr-decay-shape`)
+- **Student:** g1r5-alphonse
+- **Trial breakdown (all 4, no cherry-picking):**
+
+  | Trial | FFS | val/loss@3250 |
+  |------:|---:|---:|
+  | 0 | 2950 | 3.27057 |
+  | 1 | 2950 | 3.27010 |
+  | 2 | 2925 | 3.26993 |
+  | 3 | 2950 | 3.27026 |
+  | **μ_4** | **2943.75** | **3.270215** |
+
+- **Reproduce:**
+
+```bash
+cd "$PROBLEM_DIR" && \
+  SENPAI_TRAIN_STEPS=3250 torchrun --standalone --nproc_per_node=1 \
+    records/track_3_optimization/train_gpt_simple.py \
+    --num_trials 4 \
+    --ns_iter 6 --soap_attn --lr_mlp 0.055 --wd_schedule ramp_down \
+    --lr_scalars 0.03 --depth_init_mode musoft \
+    --lr_cooldown_shape cosine \
+    --wandb_name "g1r5-alphonse/cd-shape-cosine-n4-confirm" \
+    --wandb_group "g1r5-alphonse/cooldown-lr-decay-shape"
+```
+
+- **New merge statsig rule (FFS-primary):** Future PRs must beat μ_4(FFS) = 2943.75 with σ_4 ≤ ~12.5 — i.e., need μ_4(FFS) ≤ ~2918.75 with comparable spread for confident detection. Val/loss is secondary; regressions on the +15σ_single axis (from previous baseline 3.261221) are now in the "structural Pareto cost" regime per #1481.
+- **First FFS-positive merge of R5** in 32 closure attempts. The mandatory stack now includes `--lr_cooldown_shape cosine`.
+
+---
+
 ## 2026-05-22 10:27 UTC — PR #699: Depth-aware μP init for block residual paths (musoft) — n=4 confirm
 
 - **Primary metric:** `speedrun/final_first_step_to_target` = **3025** (ALL 4 trials at ffs=3025; −18.75 steps vs PR #571)
