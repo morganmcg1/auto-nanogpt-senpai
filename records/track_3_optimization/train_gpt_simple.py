@@ -70,6 +70,12 @@ def parse_args():
                              "Same formula as aux AGC: clip_scale = min(1, ratio * param_norm / grad_norm). "
                              "0.0 = disabled (default).")
     parser.add_argument("--muonh_agc_eps", type=float, default=float(os.environ.get("MUONH_AGC_EPS", "1e-3")))
+    parser.add_argument("--muonh_post_ns5_precond", action="store_true", default=False,
+                        help="Enable diagonal EMA-g² preconditioning applied after NS5 polar projection.")
+    parser.add_argument("--muonh_post_ns5_beta", type=float, default=0.999,
+                        help="EMA decay for post-NS5 squared update accumulator. Default 0.999 (slow/stable).")
+    parser.add_argument("--muonh_post_ns5_eps", type=float, default=1e-8,
+                        help="Epsilon for post-NS5 adaptive denominator. Default 1e-8.")
     parser.add_argument("--aux_adamw_eps", type=float, default=float(os.environ.get("AUX_ADAMW_EPS", "1e-10")),
                         help="Aux AdamW eps (default 1e-10 = baseline). Standard PyTorch is 1e-8.")
     # β2 schedule on aux AdamW (embed/lm_head/scalars). Mutates param_groups[*]['betas']
@@ -669,12 +675,16 @@ class MuonH(torch.optim.Optimizer):
     norm exactly constant; weight_decay must be 0.
     """
     def __init__(self, params, lr=0.018, weight_decay=0.0, mu=0.95,
-                 hyperball=True, budget_mult=1.0, mode="clip"):
+                 hyperball=True, budget_mult=1.0, mode="clip",
+                 post_ns5_precond=False, post_ns5_beta=0.999, post_ns5_eps=1e-8):
         assert isinstance(params, list) and len(params) >= 1 and isinstance(params[0], torch.nn.Parameter)
         assert mode in ("clip", "scale_invariant")
         params = sorted(params, key=lambda x: x.size(), reverse=True)
         defaults = dict(lr=lr, weight_decay=weight_decay, mu=mu,
-                        hyperball=hyperball, budget_mult=budget_mult, mode=mode)
+                        hyperball=hyperball, budget_mult=budget_mult, mode=mode,
+                        post_ns5_precond=post_ns5_precond,
+                        post_ns5_beta=post_ns5_beta,
+                        post_ns5_eps=post_ns5_eps)
         super().__init__(params, defaults)
         self._last_active_fraction = 0.0
         self._last_radius_to_norm_max = 0.0
@@ -702,7 +712,16 @@ class MuonH(torch.optim.Optimizer):
                         state["momentum"] = torch.zeros_like(p)
                         if hb:
                             state["hyperball_radius"] = p.data.norm().item() * budget_mult
+                        if group.get("post_ns5_precond", False):
+                            state["post_ns5_ema_sq"] = torch.zeros_like(p)
                     update = muon_update(p.grad, state["momentum"], mu=group["mu"])
+                    # Post-NS5 diagonal EMA-g² preconditioning (outside @torch.compile)
+                    if group.get("post_ns5_precond", False):
+                        beta_v = group.get("post_ns5_beta", 0.999)
+                        eps_v  = group.get("post_ns5_eps", 1e-8)
+                        v = state["post_ns5_ema_sq"]
+                        v.mul_(beta_v).addcmul_(update, update, value=1 - beta_v)
+                        update = update / (v.sqrt() + eps_v)
                     if hb and mode == "scale_invariant":
                         # Always-active variant: norm is held at initial value by construction.
                         scale_invariant_update_(p.data, update, group["lr"])
@@ -850,6 +869,9 @@ if dist.get_rank() == 0:
             "muonh_mu_schedule": args.muonh_mu_schedule,
             "muonh_mu_start": args.muonh_mu_start,
             "muonh_mu_end": args.muonh_mu_end,
+            "muonh_post_ns5_precond": args.muonh_post_ns5_precond,
+            "muonh_post_ns5_beta": args.muonh_post_ns5_beta,
+            "muonh_post_ns5_eps": args.muonh_post_ns5_eps,
         },
     )
 
@@ -933,7 +955,10 @@ for trial_idx in range(args.num_trials):
     optimizer2 = MuonH([p for p in model.blocks.parameters() if p.ndim >= 2],
                        lr=args.muonh_lr, weight_decay=0.0, mu=0.95,
                        hyperball=True, budget_mult=args.muonh_budget_mult,
-                       mode=args.muonh_mode)
+                       mode=args.muonh_mode,
+                       post_ns5_precond=args.muonh_post_ns5_precond,
+                       post_ns5_beta=args.muonh_post_ns5_beta,
+                       post_ns5_eps=args.muonh_post_ns5_eps)
     optimizer2.param_groups[0]["name"] = "muonh_blocks"
     optimizers = [optimizer1, optimizer2]
     # AGC targets: AdamW aux groups (embed, lm_head, scalars). Built from optimizer1
@@ -1209,6 +1234,23 @@ for trial_idx in range(args.num_trials):
                 muonh_metrics["train/muonh/agc/scale_mean"] = muonh_agc_stats["agc_scale_mean"]
             if len(muonh_metrics) > 2:
                 wandb.log(muonh_metrics, step=wandb_step)
+        # H248: post-NS5 EMA-g² preconditioner diagnostic telemetry.
+        if args.muonh_post_ns5_precond and telemetry_due and dist.get_rank() == 0:
+            _scales = []
+            for _p in model.blocks.parameters():
+                if _p.ndim >= 2:
+                    _state = optimizer2.state.get(_p, {})
+                    if "post_ns5_ema_sq" in _state:
+                        _v = _state["post_ns5_ema_sq"]
+                        _denom = (_v.sqrt() + args.muonh_post_ns5_eps)
+                        _scales.append(_denom.float())
+            if _scales:
+                _all_scales = torch.cat([s.flatten() for s in _scales])
+                wandb.log({
+                    "train/muonh/post_ns5_scale_rms": _all_scales.pow(2).mean().sqrt().item(),
+                    "train/muonh/post_ns5_scale_min": _all_scales.min().item(),
+                    "train/muonh/post_ns5_scale_max": _all_scales.max().item(),
+                }, step=wandb_step)
         if dist.get_rank() == 0 and telemetry_due:
             log_weight_telemetry(
                 model=model,
