@@ -8056,3 +8056,86 @@ After all 3 axes close, the m-perturbation mechanism family will be fully charac
 
 **5 Arm A results in (3.26940, 3.27139) band, all single-seed sub-cluster-edge or cluster STANDARD lower edge. NONE beat baseline ffs=3000. This is the cluster floor signature.** The pattern of consistent ffs=3025 across 5 different mechanisms suggests ffs=3025 is the **dominant attractor** in this cluster, and the val/loss spread (~0.002) is dominated by seed-noise rather than mechanism signal.
 
+
+## 2026-05-28 ~22:30Z — Cycle 71 mid-358 update — 263rd refute (cross-scope output-proj-fast law confirmed) + nezuko #1616 JOINT SOAP β2 assigned
+
+### Overview: mid-330 → mid-358 skip catch-up
+
+Significant number of refutes and structural findings accumulated between mid-330 and mid-358. Comprehensive tally:
+
+**Total cycle 71 count: 263 refuted / 157 mech classes / 115 family-level closures**
+
+### Key structural findings since mid-330 (condensed)
+
+**Per-kind (within-layer-type) axis family — MAJOR STRUCTURAL CLUSTER**
+
+The following per-kind axes found KIND-SENSITIVE directions:
+- #1566 PER_KIND_AUX_AMSGRAD: embed vs lm_head, kind-asymmetric Δ=+0.00193
+- #1547 PER_KIND_AUX_BETA1: embed vs lm_head, Goldilocks REVERSED Δ=+0.00061
+- #1575 PER_KIND_ATTN_SOAP_BETA2: q/k vs v/proj, REVERSED vp-fast Δ=+0.00312 (3rd strongest single-axis cycle 71)
+- #1577 PER_KIND_AUX_BETA2: embed vs lm_head, REVERSED Δ=+0.00527 **(STRONGEST single-axis, lr-scaling-inverse law: v-memory scales INVERSE with per-group lr)**
+
+Cross-kind (between-layer-type) axis: **#1582 PER_KIND_NS5_ITERS (attn vs MLP)**: direction-null (Δ=+0.00128 noise tier). NS5 sensitivity is per-DEPTH, not cross-layer-type.
+
+**KEY LAW: within-layer-type structural asymmetry drives kind-sensitivity. Cross-layer-type partitions do NOT.**
+
+**Trust-gated attn-SOAP axis family — DIRECTION-INVERTED vs continuous mechanisms**
+
+- #1562 PER_DEPTH_HALF_ATTN_SOAP_REFRESH: REVERSED front_SLOW wins Δ=−0.00288 (FIRST depth-half REVERSED-direction axis)
+- #1569 PER_DEPTH_HALF_ATTN_SOAP_BETA2: NULL within noise Δ=−0.00060 (trust-gating absorbs depth signal for β2)
+- #1583 PER_KIND_ATTN_SOAP_REFRESH_FREQ: REVERSED vp-SLOW wins (refresh-freq direction REVERSES vs β2 kind direction)
+
+**KEY PRINCIPLE: Trust-gated mechanism class INVERTS depth-half direction vs continuous mechanism class. Front-up holds for continuous; front-SLOW wins for trust-gated.**
+
+**State-phase axis — STRONGEST direction (alphonse #1568)**
+
+- PER_DEPTH_HALF_MU_COOLDOWN_END: front_LOWER wins Δ=+0.00315 (2nd strongest cycle 71, front gets MORE momentum decay at cooldown end — front-heavy cooling)
+- In-flight extension: askeladd #1613 PER_DEPTH_HALF_MU_COOLDOWN_START (state-phase orthogonal to cooldown END)
+
+**Output-projection-wants-fast law — NEW cross-scope structural law (just confirmed, mid-358)**
+
+- #1575 attn-SOAP per-kind: v/proj=0.85 FAST wins → output-projection wants shorter Gram-EMA memory
+- #1590 MLP-SOAP per-kind: proj=0.85 FAST wins → output-projection law GENERALIZES to MLP-SOAP scope
+- Both scopes are independent code paths → cross-scope law is structural, not noise
+
+### mid-358 snapshot — active fleet
+
+| student | PR | axis | status |
+|---|---|---|---|
+| thorfinn | #1595 | attn-SOAP termination step | Arm B in-flight (~70%, step 2225/3175) |
+| frieren | #1596 | attn-SOAP trust-threshold per-depth-half | Arm B in-flight (~50%, step 1575/3175) |
+| fern | #1611 | PER_KIND_WD_AUX (5th AUX mechanism, embed vs lm_head) | WIP |
+| askeladd | #1613 | PER_DEPTH_HALF_MU_COOLDOWN_START (state-phase axis) | WIP |
+| nezuko | #1616 | JOINT_OUTPUT_PROJ_BETA2_FAST (cross-scope compound law) | **NEW** |
+
+**In-flight but not-yet-started**: #1603 tanjiro PER_KIND_AUX_BETA2_PUSH, #1606 alphonse PER_DEPTH_HALF_MU_COOLDOWN_END_PUSH — check status.
+
+### Current research focus
+
+**PRIMARY AXIS: Per-kind optimizer behavior (within-layer-type kind-sensitivity)**
+
+The per-AUX-kind axis family is COMPLETE (5 mechanisms: m-reset event, β1 continuous, amsgrad state-rule, β2 continuous, WD #1611 in-flight). EVERY tested mechanism showed kind-sensitivity. The **lr-scaling-inverse law** from #1577 is the dominant structural finding.
+
+**SECONDARY AXIS: State-phase (when in training the optimizer behavior changes)**
+
+The cooldown-end phase (#1568, STRONGEST single direction) and cooldown-start phase (#1613, in-flight) are the primary state-phase axes. Trust-threshold per-depth-half (#1596) tests if the trust-gating ITSELF absorbs depth signal.
+
+**NEW COMPOUND AXIS: Cross-scope output-projection-fast law (#1616, in-flight)**
+
+Compound test of whether the output-projection-wants-fast law super-adds across attn-SOAP and MLP-SOAP scopes. Primary prediction: Arm A (joint output-FAST) val < baseline 3.26776.
+
+### Potential next research directions
+
+1. **PER_DEPTH_HALF_MU_COOLDOWN_END PUSH**: alphonse #1606 — moderate vs aggressive front mu decay at cooldown end. Follow-on to #1568 STRONGEST.
+2. **PER_KIND_AUX_BETA2 PUSH**: tanjiro #1603 — test linear headroom on lr-scaling-inverse v-state axis.
+3. **Joint depth-half × per-kind (2D dispatch)**: front/back × fc/proj → 4 β2 values. Tests compound of output-proj-fast law + front-up principle.
+4. **PER_DEPTH_HALF_MLP_SOAP_BETA2**: never tested (only attn-SOAP depth-half β2 in #1569). MLP-SOAP is NOT trust-gated → depth signal should be detectable.
+5. **Phase-gated output-proj-fast law**: apply proj-fast only during cooldown phase — tests WHEN the structural law has most leverage.
+6. **WD compound axis**: after #1611 closes, test per-kind WD × per-depth-half depth dispatch.
+
+### Strategic state
+- Cycle 71 noise floor cluster MDE: ≈Δ=+0.00130 val + 12.5 ffs at n=2
+- **263 refuted / 157 mech classes / 115 family closures**
+- ZERO confirmed n=2 winners since baseline PR #613 (cycle 71 start)
+- 5 students active (thorfinn, frieren, fern, askeladd, nezuko), ZERO IDLE
+- Human directive (Morgan #1259): prioritize depth/per-group + state-phase mechanisms; avoid plain scalar β/μ sweeps
