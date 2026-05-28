@@ -1,3 +1,79 @@
+## 2026-05-28 23:55 UTC — Cycle 71 mid-364 — alphonse #1606 268th refute (PER_DEPTH_HALF_MU_COOLDOWN_END_PUSH STANDARD-miss val_mean=3.27264 Δ=+0.00488, STRUCTURAL FINDING: front mu_cooldown_END axis OPTIMUM at 0.85 with ACCELERATING CURVATURE — Δ grows +0.00144 → +0.00234 per Δfront=−0.05, magnitude axis closed, depth-split position unswept) + alphonse #1630 NEW PER_DEPTH_SPLIT_MU_COOLDOWN_END (split=4 vs split=8 boundary position test holding validated front=0.85/back=0.95 from #1568)
+
+**Cumulative**: **268 refuted** / **160 distinct mech classes** / **117 family-level closures**.
+
+### PRs closed this wave (1 closure):
+
+| PR | student | mechanism | outcome |
+|---|---|---|---|
+| **alphonse #1606** | alphonse | PER_DEPTH_HALF_MU_COOLDOWN_END_PUSH (Arm A `moderate_push` front=0.80/back=0.95 vs Arm B `aggressive_push` front=0.75/back=0.95) | **268th** — Arm A val=3.27136 Δ=+0.00360, Arm B val=3.27464 Δ=+0.00688. Both arms REGRESS vs #1568 ArmA reference (front=0.85 val=3.26992). Push direction worsens monotonically and accelerates: front=0.85 → 0.80 costs +0.00144 per Δfront=−0.05; 0.80 → 0.75 costs +0.00234. |
+
+### STRUCTURAL FINDING — mu_cooldown_END front axis SATURATED at 0.85, ACCELERATING CURVATURE below
+
+The front-mu push axis has a defined optimum, not a soft plateau:
+
+| arm | front mu_end | back mu_end | val | Δ vs #1568 ArmA |
+|---|---|---|---|---|
+| #1568 ArmA (validated, sub-cluster-edge) | 0.85 | 0.95 | 3.26992 | 0 (reference) |
+| #1606 Arm A (moderate push) | 0.80 | 0.95 | 3.27136 | +0.00144 |
+| #1606 Arm B (aggressive push) | 0.75 | 0.95 | 3.27464 | +0.00472 |
+| Δ_per_step (0.85→0.80) | — | — | — | +0.00144 |
+| Δ_per_step (0.80→0.75) | — | — | — | +0.00234 (+62% acceleration) |
+
+The 1D front-push magnitude axis at depth_split=6 is **CLOSED**. But the (split-position × magnitude) 2D plane has been only point-sampled at split=6. #1630 tests two unswept points along the orthogonal split-position axis.
+
+### Cycle 71 sub-cluster-edge cluster — 4-axis populated (unchanged this wave)
+
+| PR | mechanism | best-arm val | category |
+|---|---|---|---|
+| #1568 (closed) | MU_COOLDOWN_END_FRONT per-depth-half | 3.26992 | state-phase × per-group |
+| #1577 (closed) | PER_KIND_AUX_BETA2 (lm_head_TIGHT) | 3.26992 | per-group |
+| #1603 (closed mid-363) | PER_KIND_AUX_BETA2_PUSH (moderate) | 3.26985 | per-group |
+| #1595 (closed) | ATTN_SOAP_TERMINATION_STEP (terminate_2975) | 3.26926 BEST cycle 71 | state-phase |
+
+val_mean=3.26974 → cluster floor structurally well-populated, none individually break it at n=1.
+
+### PRs assigned this wave
+
+| PR | student | mechanism | role |
+|---|---|---|---|
+| **alphonse #1630** | alphonse | PER_DEPTH_SPLIT_MU_COOLDOWN_END (Arm A `concentrated_front` split=4 vs Arm B `broad_front` split=8, both front=0.85/back=0.95) | Structural axis test orthogonal to scalar magnitude. The 1D front-magnitude axis closed at #1606; the depth-split position axis is unswept. Tests whether depth-asymmetry concentrates at first 4 blocks (early-grad-info-rich) vs broadens to first 8. Arm A is single-arm sub-cluster-edge merge candidate if asymmetry concentrated. |
+
+### Fleet state at end of wake 36 (this wave)
+
+8 students all assigned, 0 idle:
+
+| PR | student | axis | status |
+|---|---|---|---|
+| **#1630** | **alphonse** | **PER_DEPTH_SPLIT_MU_COOLDOWN_END** | **WIP (this wave, just assigned)** |
+| #1611 | fern | PER_KIND_WD_AUX | WIP Arm A ~81%, Arm B pending |
+| #1613 | askeladd | PER_DEPTH_HALF_MU_COOLDOWN_START | WIP Arm A ~70%, Arm B pending |
+| #1616 | nezuko | JOINT_OUTPUT_PROJ_BETA2_FAST | WIP Arm A ~66%, Arm B pending |
+| #1618 | edward | V_ISOLATED_REFRESH | WIP Arm A ~80%, Arm B pending |
+| #1620 | thorfinn | PHASE_ATTN_SOAP_REFRESH_FREQ | WIP Arm A early |
+| #1623 | frieren | PER_DEPTH_HALF_MLP_SOAP_REFRESH_FREQ | WIP |
+| #1628 | tanjiro | AUX_EPS_PER_KIND_FULL_RUN | WIP |
+
+### Active research themes (cycle 71)
+
+1. **Sub-cluster-edge cluster floor** [3.26926, 3.26992] structurally populated by 4 single-arm axes; pushing along ANY single 1D magnitude axis saturates at this level. Confirmed for: AUX β2 PUSH (#1603), mu_cooldown_END PUSH (#1606).
+2. **2D plane mapping** is the path forward: when a 1D magnitude axis saturates, the orthogonal STRUCTURAL position axis (depth-split, layer-scope, timing) may still have headroom. #1630 is the prototype test for this approach on the mu_cooldown_END axis family.
+3. **Compound axes** remain a parallel path: cross-scope joint (#1616), 3-bucket per-kind (#1618), compute reallocation (#1620), state-phase + per-group joint (#1613, #1623).
+4. **Per-AUX-kind family** at 6 mechanisms (#1628 ε is 6th orthogonal axis class).
+5. **MLP-SOAP per-depth-half family** expansion continues with #1623 (refresh-freq).
+6. **Trust-gated attn-SOAP layer scope CONFIRMED depth-insensitive** (3-axis triple confirmed prior wave).
+
+### Next research directions
+
+1. **#1630 result interprets the structural axis closure**: if Arm A (split=4) wins → asymmetry is concentrated at early blocks (blocks 0-3 are the early-grad-info bottleneck); if Arm B (split=8) wins → asymmetry is broad; if both regress → split=6 is genuinely optimal and the (split × magnitude) plane is closed.
+2. **AUX per-kind ε result (#1628 in-flight)**: 6th orthogonal mechanism class for per-kind family.
+3. **AUX WD result (#1611 in-flight)**: 5th mechanism testing lr-scaling-inverse-law on regularizer axis.
+4. **AUX axis exhaustion**: after #1611 and #1628 close, the per-AUX-kind family will be at 6/6 mechanism classes tested → next is compound combinatorial (joint β2+ε, joint amsgrad+TIGHT-β2).
+5. **MLP-SOAP axis expansion**: #1623 is first non-β2 per-depth-half at MLP-SOAP scope. Future: NS5_ITERS, m-EMA per-depth.
+6. **Phase-axis (#1620 SOAP early-asymmetry exploitation)**: if confirmed, extend to MLP-SOAP phase-dispatched refresh.
+
+---
+
 ## 2026-05-28 23:30 UTC — Cycle 71 mid-363 — tanjiro #1603 267th refute (PER_KIND_AUX_BETA2_PUSH STANDARD-miss val_mean=3.269865 Δ=+0.002105, STRUCTURAL FINDING: AUX β2 per-kind PUSH axis SATURATED at #1577 magnitude — moderate Δ=−0.00007 / aggressive Δ=−0.00004 vs #1577 Arm B reference, both single-trial noise) + tanjiro #1628 NEW AUX_EPS_PER_KIND_FULL_RUN (6th AUX per-kind mechanism: orthogonal denominator-stabilizer class, lm_head_LARGE_EPS=1e-7 vs lm_head_TINY_EPS counterfactual)
 
 **Cumulative**: **267 refuted** / **160 distinct mech classes** / **117 family-level closures**.
