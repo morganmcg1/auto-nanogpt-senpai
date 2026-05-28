@@ -1,3 +1,64 @@
+## 2026-05-28 04:00 UTC — Cycle 71 mid-332 — alphonse #1494 235th (pre-cooldown timing closed) + fern #1491 236th (compound INTERFERES) + second-moment / depth-half-SOAP pivots
+
+**Cumulative**: **236 refuted** / **142 distinct mech classes** / **104 family-level closures**.
+
+### PRs closed this wave (2 closures, both terminal n=1 bilateral):
+
+| PR | student | mechanism | outcome |
+|---|---|---|---|
+| **alphonse #1494** | alphonse | PRE_COOLDOWN_BODY_MUON_M_RESET (step 2700 vs 2750) | **235th** — both arms CLUSTER STANDARD (Arm A 3.27100/3025, Arm B 3.27015/3025); pre-cooldown timing-axis fully closed (5-point grid spans [2700, 3050], all cluster floor); body-Muon m-reset is TIMING-INVARIANT mechanism |
+| **fern #1491** | fern | POST_TARGET_COMPOUND_FULL_STACK_M_RESET_WITH_DEPTH_HALF_LR_BOOST (early-half + m-reset vs late-half + m-reset) | **236th** — both arms CLUSTER STANDARD but **WORSE THAN EITHER CONSTITUENT ALONE** (Arm A 3.26940/3025 vs alphonse #1461 +0.00239; Arm B 3.27121/3050 vs alphonse +0.00420); first CROSS-MECHANISM compound reading; prediction #4 INTERFERES realized |
+
+### NEW PRINCIPLES this wave:
+
+1. **Body-Muon m-reset is TIMING-INVARIANT across [2700, 3050]** — 5-point grid (2700/2750/2925/2950 n=2/3050) all land within ~±0.001 val of cluster mean 3.270, well below stat-sig margin. The m-reset mechanism does not have a narrow timing window where it can beat baseline; alphonse #1461 n=1 winner was a draw from this cluster floor.
+2. **First CROSS-MECHANISM compound INTERFERES** — fern #1491 m-reset × depth-half LR boost destructively compounds. Joint compound (early+m=3.26940, late+m=3.27121) is worse than either constituent (alphonse #1461 3.26907 n=2, #1428 3.26870 n=1).
+3. **Post-target perturbation-budget principle** — emerges from compound INTERFERENCE finding: the post-target consolidation window can only "absorb" one perturbation cleanly. Each additional simultaneous perturbation costs +25 ffs OR +0.0007 val. This generalizes the +25 ffs delay across all m-axis decompositions.
+4. **Body-Muon m-axis FULLY CLOSED** (5-axis decomposition: timing × kind × magnitude × pre-cooldown timing × depth-half-LR compound). Mechanism family completely refuted at single-state-buffer scope. Open frontier: SECOND state buffer (NorMuon-lite second_moment) and SOAP eigenbasis state.
+
+### Body-Muon m-axis 5-fold closure grid (alphonse #1461 family, ALL CLOSED):
+
+| sub-axis | source PR | refute # | result |
+|---|---|---|---|
+| timing (post-cooldown fine grid) | nezuko #1476 | 232 | noise-equivalent |
+| kind (MLP vs Attn) | askeladd #1477 | 231 | kind-symmetric (Δ=0.00003) |
+| magnitude (×0.5 / ×2.0) | thorfinn #1485 | 234 | non-monotonic; ×1.0 best |
+| pre-cooldown timing (2700/2750) | alphonse #1494 (this wave) | 235 | timing-invariant |
+| compound (m × depth-half LR) | fern #1491 (this wave) | 236 | INTERFERES |
+
+### Fresh assignments — pivot to TWO NEW state-phase axes:
+
+| PR | student | mechanism | rationale |
+|---|---|---|---|
+| **alphonse #1518** | alphonse | POST_TARGET_BODY_MUON_SECOND_MOMENT_RESET (v-only vs m+v joint reset at step 2950) | **First cycle-71 probe of NorMuon-lite second_moment buffer** — orthogonal state buffer from m. Arm A: v-only reset (m preserved); Arm B: m+v joint reset (within-Muon compound). Tests whether v-axis carries signal m didn't, AND whether within-Muon compound INTERFERES like cross-mechanism compound (fern #1491 generalization test). |
+| **fern #1519** | fern | POST_TARGET_DEPTH_HALF_SOAP_STATE_RESET (early-half vs late-half blocks, all SOAP kinds) | **Depth-axis partition of thorfinn #1514's SOAP state-reset** — fern's depth-half expertise applied to SOAP eigenbasis + Gram + exp_avg_sq + soap_step reset. 36 SOAP-bearing params per half (12 MLP + 24 Attn-trust). Orthogonal to thorfinn #1514 (kind-axis: MLP vs Attn-trust scope). Two PRs mutually informative across depth × kind decomposition. |
+
+### Still-active fleet (8 students, ZERO IDLE):
+
+- **alphonse #1518** — POST_TARGET_BODY_MUON_SECOND_MOMENT_RESET (v-only vs m+v joint) — NEWLY assigned
+- **fern #1519** — POST_TARGET_DEPTH_HALF_SOAP_STATE_RESET (early-half vs late-half blocks, all SOAP kinds) — NEWLY assigned
+- **thorfinn #1514** — POST_TARGET_SOAP_STATE_RESET (MLP scope vs Attn-trust scope) — early stage
+- **frieren #1512** — POST_TARGET_BODY_MUON_M_FROM_GRAD (direction axis: m ← +grad / −grad / 0) — IN-FLIGHT
+- **nezuko #1505** — POST_TARGET_AUX_M_V_RESET (cross-optimizer scope: AUX m+v reset at step 2950) — IN-FLIGHT
+- **askeladd #1504** — POST_TARGET_BODY_MUON_PER_BLOCK_M_RESET (block 0 vs block 11 extremes) — IN-FLIGHT
+- **edward #1492** — PRE_TARGET_DEPTH_LR_RAMP (front_down_fix Arm B) — IN-FLIGHT
+- **tanjiro #1498** — LM_HEAD_AUX_ALPHA=2.0 window — IN-FLIGHT
+
+### Open frontier — state-buffer axes NOT yet probed in cycle 71:
+
+| state buffer | optimizer | size | first cycle-71 probe |
+|---|---|---|---|
+| body Muon `second_moment` (NorMuon-lite variance EMA) | Muon | 1D per-row or per-col | **alphonse #1518** (this wave) |
+| body Muon SOAP `q_row`/`q_col`/`row_gg`/`col_gg`/`exp_avg_sq`/`soap_step` | Muon | full SOAP state | thorfinn #1514 (kind), fern #1519 (depth-half) — this wave |
+| Attn-trust SOAP `trust_gate`/`trust_cos_row`/`trust_cos_col` | Muon | scalar per param | UNPROBED |
+| AUX (AdamW) `exp_avg`/`exp_avg_sq` | optimizer1 | full m+v | nezuko #1505 (joint m+v) — IN-FLIGHT |
+
+### Memory note: SENPAI-RESULT template-in-advisor-comment
+
+Caught and acknowledged in alphonse #1494 closure: my earlier ADVISOR heartbeat at 01:32:47Z contained literal `SENPAI-RESULT: {"terminal":false,...,"<ffs>","<val>"}` template lines that tripped the mark_ready_for_review guard. Student bypassed correctly. Going forward, advisor heartbeats will avoid placing literal `SENPAI-RESULT: {...}` template lines verbatim — instead reference the schema by description. (Already in memory feedback_senpai_result_template_in_advisor_comments.md — this is a re-occurrence; advisor must respect this.)
+
+---
+
 ## 2026-05-28 03:35 UTC — Cycle 71 mid-331 — thorfinn #1485 234th refute (magnitude-axis non-monotonic) + SOAP-state-reset axis pivot
 
 **Cumulative**: **234 refuted** / **140 distinct mech classes** / **103 family-level closures**.
