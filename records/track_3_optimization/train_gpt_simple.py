@@ -109,6 +109,15 @@ def parse_args():
     parser.add_argument("--body_init_bottom_layers", type=int,
                         default=int(os.environ.get("BODY_INIT_BOTTOM_LAYERS", "6")),
                         help="Number of bottom layers to damp for --body_init=orthogonal_bottom_damp (default 6 = bottom half of 12 layers).")
+    # H238 AdaMuon body: Adam-style per-element second-moment scaling applied to
+    # the NS5 polar-projected MuonH update, BEFORE the SI hyperball projection.
+    # Default 0 keeps the MuonH path bit-identical to baseline (no state, no math).
+    parser.add_argument("--muonh_adamuon", type=int, default=int(os.environ.get("MUONH_ADAMUON", "0")), choices=[0, 1],
+                        help="Enable Adam-style per-element second-moment scaling on polar-projected body update.")
+    parser.add_argument("--muonh_adamuon_beta2", type=float, default=float(os.environ.get("MUONH_ADAMUON_BETA2", "0.99")),
+                        help="Beta2 EMA coefficient for AdaMuon per-element exp_avg_sq.")
+    parser.add_argument("--muonh_adamuon_eps", type=float, default=float(os.environ.get("MUONH_ADAMUON_EPS", "1e-8")),
+                        help="Eps added to sqrt(v_hat) denominator in AdaMuon body scaling.")
     args = parser.parse_args()
     args.num_trials = args.num_trials if args.num_trials is not None else (args.legacy_num_trials or 1)
     args.wandb_tags = [tag.strip() for tag in args.wandb_tags.split(",") if tag.strip()]
@@ -669,16 +678,21 @@ class MuonH(torch.optim.Optimizer):
     norm exactly constant; weight_decay must be 0.
     """
     def __init__(self, params, lr=0.018, weight_decay=0.0, mu=0.95,
-                 hyperball=True, budget_mult=1.0, mode="clip"):
+                 hyperball=True, budget_mult=1.0, mode="clip",
+                 adamuon=False, adamuon_beta2=0.99, adamuon_eps=1e-8):
         assert isinstance(params, list) and len(params) >= 1 and isinstance(params[0], torch.nn.Parameter)
         assert mode in ("clip", "scale_invariant")
         params = sorted(params, key=lambda x: x.size(), reverse=True)
         defaults = dict(lr=lr, weight_decay=weight_decay, mu=mu,
-                        hyperball=hyperball, budget_mult=budget_mult, mode=mode)
+                        hyperball=hyperball, budget_mult=budget_mult, mode=mode,
+                        adamuon=adamuon, adamuon_beta2=adamuon_beta2,
+                        adamuon_eps=adamuon_eps)
         super().__init__(params, defaults)
         self._last_active_fraction = 0.0
         self._last_radius_to_norm_max = 0.0
         self._last_norm_to_radius_max = 0.0
+        self._last_adamuon_denom_mean = 0.0
+        self._last_adamuon_denom_std = 0.0
 
     @torch.no_grad()
     def step(self):
@@ -688,12 +702,19 @@ class MuonH(torch.optim.Optimizer):
         total_count_local = 0
         max_r_over_n_local = 0.0
         max_n_over_r_local = 0.0
+        # H238 AdaMuon denom telemetry accumulators (only used when adamuon=True).
+        adamuon_denom_mean_sum = 0.0
+        adamuon_denom_std_sum = 0.0
+        adamuon_param_count = 0
         for group in self.param_groups:
             params = group["params"]
             params_pad = params + [torch.empty_like(params[-1])] * (world_size - len(params) % world_size)
             hb = group["hyperball"]
             budget_mult = group["budget_mult"]
             mode = group["mode"]
+            adamuon = bool(group["adamuon"])
+            adamuon_beta2 = group["adamuon_beta2"]
+            adamuon_eps = group["adamuon_eps"]
             for base_i in range(0, len(params), world_size):
                 if base_i + rank < len(params):
                     p = params[base_i + rank]
@@ -703,6 +724,29 @@ class MuonH(torch.optim.Optimizer):
                         if hb:
                             state["hyperball_radius"] = p.data.norm().item() * budget_mult
                     update = muon_update(p.grad, state["momentum"], mu=group["mu"])
+                    # H238 AdaMuon: per-element second-moment scaling applied to the NS5
+                    # polar-projected update, BEFORE SI hyperball projection. SI re-normalizes
+                    # the F-norm but preserves per-element relative magnitudes, so AdaMuon's
+                    # per-element scaling remains effective. exp_avg_sq is kept in fp32 to
+                    # avoid bf16 accumulation drift; update is upcast for the variance ops
+                    # and the resulting update_scaled passes through scale_invariant_update_
+                    # in fp32. Bit-id when adamuon=False: this entire branch is skipped.
+                    if adamuon:
+                        if "exp_avg_sq" not in state:
+                            state["exp_avg_sq"] = torch.zeros_like(p, dtype=torch.float32)
+                            state["adamuon_t"] = 0
+                        state["adamuon_t"] += 1
+                        t = state["adamuon_t"]
+                        update_fp = update.float()
+                        state["exp_avg_sq"].mul_(adamuon_beta2).addcmul_(
+                            update_fp, update_fp, value=1.0 - adamuon_beta2,
+                        )
+                        bias_correction = 1.0 - adamuon_beta2 ** t
+                        denom = (state["exp_avg_sq"] / bias_correction).sqrt().add_(adamuon_eps)
+                        update = update_fp / denom
+                        adamuon_denom_mean_sum += float(denom.mean().item())
+                        adamuon_denom_std_sum += float(denom.std().item())
+                        adamuon_param_count += 1
                     if hb and mode == "scale_invariant":
                         # Always-active variant: norm is held at initial value by construction.
                         scale_invariant_update_(p.data, update, group["lr"])
@@ -745,6 +789,12 @@ class MuonH(torch.optim.Optimizer):
         self._last_active_fraction = clip_count / total_count if total_count > 0 else 0.0
         self._last_radius_to_norm_max = max_r_over_n
         self._last_norm_to_radius_max = max_n_over_r
+        if adamuon_param_count > 0:
+            self._last_adamuon_denom_mean = adamuon_denom_mean_sum / adamuon_param_count
+            self._last_adamuon_denom_std = adamuon_denom_std_sum / adamuon_param_count
+        else:
+            self._last_adamuon_denom_mean = 0.0
+            self._last_adamuon_denom_std = 0.0
 
 
 ########################################
@@ -783,6 +833,10 @@ if args.use_outer_optimizer:
 else:
     print0("MuLoCo outer optimizer DISABLED", console=True)
 print0(f"MuonH mode={args.muonh_mode} lr={args.muonh_lr} budget_mult={args.muonh_budget_mult} cooldown_shape={args.muonh_cooldown_shape}", console=True)
+if args.muonh_adamuon:
+    print0(f"H238 AdaMuon ENABLED on MuonH body: beta2={args.muonh_adamuon_beta2} eps={args.muonh_adamuon_eps}", console=True)
+else:
+    print0("H238 AdaMuon DISABLED on MuonH body (bit-identical MuonH path)", console=True)
 if args.aux_agc_clip_ratio > 0:
     print0(f"AGC ENABLED on aux AdamW groups: clip_ratio={args.aux_agc_clip_ratio} eps={args.aux_agc_eps}", console=True)
 else:
@@ -850,6 +904,10 @@ if dist.get_rank() == 0:
             "muonh_mu_schedule": args.muonh_mu_schedule,
             "muonh_mu_start": args.muonh_mu_start,
             "muonh_mu_end": args.muonh_mu_end,
+            "muonh_adamuon": args.muonh_adamuon,
+            "muonh_adamuon_beta2": args.muonh_adamuon_beta2,
+            "muonh_adamuon_eps": args.muonh_adamuon_eps,
+            "body_init": args.body_init,
         },
     )
 
@@ -933,7 +991,10 @@ for trial_idx in range(args.num_trials):
     optimizer2 = MuonH([p for p in model.blocks.parameters() if p.ndim >= 2],
                        lr=args.muonh_lr, weight_decay=0.0, mu=0.95,
                        hyperball=True, budget_mult=args.muonh_budget_mult,
-                       mode=args.muonh_mode)
+                       mode=args.muonh_mode,
+                       adamuon=bool(args.muonh_adamuon),
+                       adamuon_beta2=args.muonh_adamuon_beta2,
+                       adamuon_eps=args.muonh_adamuon_eps)
     optimizer2.param_groups[0]["name"] = "muonh_blocks"
     optimizers = [optimizer1, optimizer2]
     # AGC targets: AdamW aux groups (embed, lm_head, scalars). Built from optimizer1
@@ -1189,6 +1250,9 @@ for trial_idx in range(args.num_trials):
                         muonh_metrics["train/muonh/active_fraction"] = opt._last_active_fraction
                         muonh_metrics["train/muonh/radius_to_norm_max"] = opt._last_radius_to_norm_max
                         muonh_metrics["train/muonh/norm_to_radius_max"] = opt._last_norm_to_radius_max
+                        if args.muonh_adamuon:
+                            muonh_metrics["train/muonh/adamuon_denom_mean"] = opt._last_adamuon_denom_mean
+                            muonh_metrics["train/muonh/adamuon_denom_std"] = opt._last_adamuon_denom_std
                     muonh_metrics["train/muonh/warmup_factor"] = muonh_warmup_factor
                     muonh_metrics["train/muonh/effective_lr"] = opt.param_groups[0]["lr"]
             if telemetry_due and args.aux_agc_clip_ratio > 0 and agc_stats["agc_total"] > 0:
