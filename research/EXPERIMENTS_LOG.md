@@ -1,3 +1,29 @@
+## 2026-05-28 12:15 — PR #1513: H232 edward Post-NS5 Cautious-Muon (sign-mask polar-projected updates) — CLOSED (90th NULL/NEG, bilateral NEG cross-confirms H195 pre-NS5 Cautious; cautious sign-masking incompatible with MuonH polar projection at BOTH pre-NS5 gradient space and post-NS5 polar-projected update space; 15th MuonH-SI structural tightness member)
+
+- Branch: `g1r3-edward/muonh-post-ns5-cautious`
+- Hypothesis: Cautious sign-mask applied AFTER NS5 polar projection (different from H195 which masked pre-NS5). Tests whether sign-agreement masking in the polar-projected unit-spectral-norm update space helps.
+- Results (n=1 each, train_steps=3325, all bit-id step-0 val=10.82583 PASS):
+
+| Arm | muonh_cautious | W&B | val | FFS | mask_frac | Δval/σ_H174 (within-exp) | Verdict |
+|---|---|---|---|---|---|---|---|
+| arm_a CTRL | off | `r53v45v9` | 3.27099 | 3075 | n/a | (baseline, +3.06σ vs H203 — drift class +50 FFS) | within-experiment baseline |
+| arm_b CAUTIOUS_RENORM | renormalize | `w9y106pw` | 3.27827 | 3225 | 0.7535 | **+8.24σ** | **decisive NEG** (+150 FFS) |
+| arm_c CAUTIOUS_NORENORM | no_renorm | `2vmf6bmd` | 3.27906 | 3250 | 0.7541 | **+9.13σ** | **decisive NEG** (+175 FFS) |
+
+- σ_H174 = 0.000884. Statistical rule: arm_a `(3.28-3.27099)×√1=0.00901≥0.004` ✓, arm_b 0.00173 ✗, arm_c 0.00094 ✗. arm_b/c FAIL speedrun rule. NOT MERGING.
+
+### Analysis
+
+- **Bilateral NEG mechanism class CLOSED**: post-NS5 cautious masking is harmful, with magnitude restoration accounting for very little of the harm (arm_c only +0.89σ worse than arm_b). The **masking choice itself is structurally damaging**, not the magnitude side-effect.
+- **Mask is meaningfully active, NOT decoration**: ~24.6% of post-NS5 update components have signs disagreeing with the Nesterov-combined gradient (mask_frac ≈ 0.754 → ~75% survive). Above noise. Yet removing them hurts.
+- **Cross-evidence with H195 pre-NS5 Cautious closure** (also NEG): cautious sign-masking is harmful in BOTH gradient space (pre-NS5) and polar-projected update space (post-NS5). Bilateral mechanism-incompatibility.
+- **Mechanism (student-diagnosed)**: NS5 polar projection produces a structured orthogonalized direction set with unit spectral norm. The ~25% sign-disagreement components are part of that structure, not anti-productive errors. Sign-masking destroys the orthogonal structure and produces a sign-filtered subset that is no longer a polar projection of anything coherent. Renormalization (arm_b) can't restore the missing geometry.
+- **arm_a CTRL drift +50 FFS / +3.06σ vs H203**: 7th instance of torch.compile retracing soft drift class (H214/H224/H229/H230/H231/H233/H232). Within-experiment Δ is merge-relevant; pattern increasingly load-bearing as a confound.
+- **15 MuonH-SI structural tightness members**: H216 Lookahead, H221 NO_OUTER, H221 NO_MOMENTUM, H222 SCHED_OFF, H222 MU_END_85, H225 BETA1, H226+H219 asymptote, H214 spectral RANK, H227 body init F-norm, H228+H231 muonh_mode SI (bilateral + trilateral), H229 inner Nesterov FORM, H230 NS5 iter count, H232+H195 pre/post-NS5 Cautious bilateral.
+- Excellent student implementation: isolated `muon_update_cautious` treatment function preserved bit-identical CTRL on compiled kernel per H214 pattern. mask_fraction telemetry clean. Honest analysis with student-suggested follow-up: do not pursue scheduled-mask variant given bilateral evidence.
+
+- **Decision: NOT MERGING.** 90th NULL/NEG. Cautious-mask mechanism class CLOSED bilaterally.
+
 ## 2026-05-28 11:30 — PR #1517: H233 frieren MuLoCo sync_interval cadence axis — CLOSED (89th NULL/NEG, **NEW HP CLASSIFICATION: ASYMMETRIC STRUCTURAL-CADENCE class** — distinct from BILATERAL DYNAMICS and BILATERAL CONDITIONING; MuLoCo HP triple closure complete)
 
 - Branch: `g1r3-frieren/h233-muloco-sync-interval-cadence`

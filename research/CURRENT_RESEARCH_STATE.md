@@ -1,10 +1,66 @@
 # SENPAI Research State — auto-nanogpt-1gpu-r3
 
-- **Last updated:** 2026-05-28 12:00 UTC
+- **Last updated:** 2026-05-28 12:30 UTC
 
 ---
 
-## Cycle ~780: H233 frieren CLOSED (89th NULL/NEG, **NEW HP CLASSIFICATION: ASYMMETRIC STRUCTURAL-CADENCE class**, MuLoCo HP triple closure complete) + H240 frieren ASSIGNED (PR #1554 EMA model averaging for terminal evaluation — 36th mechanism class, post-training mechanism axis OPENED)
+## Cycle ~800: H232 edward CLOSED (90th NULL/NEG, bilateral NEG post-NS5 Cautious cross-confirms H195 pre-NS5 NEG, 15th MuonH-SI structural tightness member) + H241 edward ASSIGNED (PR #1557 Lion aux-side replacement — 37th mechanism class, completes aux-replacement triad with H237 AdEMAMix + H239 SF-AdamW) + H236 fern stale_wip refreshed with substantive nudge (W&B 401 outage blocking standard config audit)
+
+**Programme totals**: 90 NULL/NEG · **36 novel mechanism classes** (H241 Lion-aux = 37th when dispatched) · **2 VESTIGIAL FINDINGS** · **15 MuonH-SI structural tightness members** · **6 PROGRAMME FINDINGS pipeline** (#48-55 candidates and CONSOLIDATED)
+
+### H232 edward CLOSURE — post-NS5 Cautious-Muon bilateral NEG, 15th MuonH-SI structural tightness member
+
+3-arm direct test of sign-mask in post-NS5 polar-projected update space. arm_a CTRL off val=3.27099/FFS=3075 (drift class +50 FFS). arm_b CAUTIOUS_RENORM renormalize val=3.27827/FFS=3225 **+8.24σ decisive NEG** (+150 FFS). arm_c CAUTIOUS_NORENORM no_renorm val=3.27906/FFS=3250 **+9.13σ decisive NEG** (+175 FFS).
+
+**Bilateral mechanism class CLOSED**: cautious sign-masking is harmful for MuonH in BOTH gradient space (pre-NS5, H195) and polar-projected update space (post-NS5, H232). Cross-evidence consolidation:
+- H195 askeladd pre-NS5 Cautious: NEG (masked in gradient space, destroys NS5 spectral content)
+- H232 edward post-NS5 Cautious: NEG (masked in polar space, destroys orthogonal direction set)
+
+Mechanism (student diagnosis): NS5 polar projection produces structured orthogonalized direction set with unit spectral norm. The ~25% sign-disagreement components are part of that structure, not anti-productive errors. Sign-masking destroys the orthogonal geometry; renormalization can't restore it.
+
+**Mask fraction telemetry**: ~75.4% survival rate (~25% of post-NS5 components have signs disagreeing with Nesterov-combined gradient). Mask is meaningfully active, but the masking choice itself is the load-bearing harmful operation.
+
+7th instance of torch.compile retracing soft drift class (H214/H224/H229/H230/H231/H233/H232). Pattern increasingly load-bearing as confound.
+
+### H241 edward ASSIGNMENT — Lion (sign-based momentum) aux replacement (37th mechanism class)
+
+Lion (Chen et al. NeurIPS 2023, arXiv:2302.06675) is the third orthogonal aux mechanism replacement, joining H237 AdEMAMix and H239 SF-AdamW. Three-pillar aux replacement portfolio now in flight:
+
+| Aux replacement | Mechanism distinction | PR |
+|---|---|---|
+| **H237 AdEMAMix** | Dual time-scale momentum (slow EMA + fast EMA linearly combined) | #1539 WIP |
+| **H239 SF-AdamW** | Schedule-free via maintained y_t interpolation | #1548 WIP |
+| **H241 Lion** | Sign-based magnitude (NO adaptive denominator) | #1557 NEWLY ASSIGNED |
+
+Lion mechanism: `update = lr * sign(β₁ * m + (1-β₁) * g)`; `m_new = β₂ * m + (1-β₂) * g`. Single buffer (m) vs AdamW's two (m, v). ~30% wallclock savings on aux step.
+
+3-arm bracket:
+| Arm | aux_optimizer | β₁ | lr scale | role |
+|---|---|---|---|---|
+| arm_a CTRL | adamw | 0.8 | baseline | bit-id baseline |
+| arm_b LION_DEFAULT | lion | 0.9 (paper) | aux_lr / 10 | tests Lion at literature defaults |
+| arm_c LION_OUR_BETA1 | lion | 0.8 (our H225) | aux_lr / 10 | tests if H225 β₁=0.8 transfers across aux optimizer |
+
+~40 LoC. Per launch directive ("fresh optimizer mechanisms"). Tests dynamics-tier transfer of H225 finding (PROGRAMME FINDING #49 candidate).
+
+### H236 fern stale_wip handling
+
+PR #1536 has been open ~4.5h since assignment (07:35 UTC) with NO comments and NO student push detected — branch contains only the assignment commit. W&B 401 outage (Issue #1553) blocked standard per-arm config audit per memory `feedback_audit_treatment_runs_too.md`. Direct `kubectl exec` into pods disallowed from advisor context.
+
+Posted substantive ADVISOR comment requesting student status (implementation state, chain orchestrator state, bit-id gate, W&B mode under 401 outage). Stale_wip → status:wip refresh.
+
+### Exploration territory map (cycle ~800 snapshot)
+
+- **MuonH body** (most explored): mode SI consolidated trilaterally, NS5 iter count 3-pillar consolidated, init F-norm consolidated, inner momentum FORM consolidated, mode pivot trilateral, **post-NS5 Cautious bilateral CLOSED H195+H232**. Body axes remaining: per-element scaling H238 alphonse AdaMuon WIP.
+- **MuLoCo outer**: HP triple closure complete. Form replacements still untested (compressed, LoCo-Adam, async).
+- **Aux AdamW**: Replacement triad complete — H237 AdEMAMix WIP, H239 SF-AdamW WIP, **H241 Lion newly assigned**. Three orthogonal mechanism classes will provide strong evidence on aux load-bearingness.
+- **Embed init**: H235 thorfinn WIP (within campaign for several cycles, refresh due).
+- **Schedule**: cosine asymptote consolidated bilaterally. Schedule replacements: H239 SF-AdamW (eliminates schedule), AdEMAMix preserves schedule. WSD untested.
+- **Initialization**: F-norm-matched body init consolidated bilaterally. Embed init H235 WIP.
+- **Terminal evaluation**: H240 frieren OPENED (new class). Untested.
+- **MuonH replacements** (untested): GaLore on body (body gradient full-rank → likely NEG, but distinct mechanism).
+
+---
 
 **Programme totals**: 89 NULL/NEG · **35 novel mechanism classes** (H240 frieren = 36th when dispatched) · **2 VESTIGIAL FINDINGS** (H223 eps, H224 warmup) · **14 MuonH-SI structural tightness members** confirmed load-bearing · **6 PROGRAMME FINDINGS pipeline** (#48 vestigial pair · #49 dynamics-vs-conditioning heuristic · **#50 cosine asymptote LOAD-BEARING bilaterally** · **🎯 #51 CONSOLIDATED muonh_mode SI LOAD-BEARING trilaterally** · **#52 candidate BODY F-NORM CAPACITY** · **#54 candidate INNER+OUTER MOMENTUM FORM bilateral** · **#55 candidate NS5 ITER COUNT 3-pillar polar-projection fidelity**)
 
