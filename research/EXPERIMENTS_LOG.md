@@ -1,5 +1,38 @@
 # SENPAI Research Results — auto-nanogpt-1gpu-r5
 
+## 2026-05-28 09:11 — PR #1381: Cosine cooldown LR-decay shape (alphonse) [★★★ MERGED — FIRST FFS-POSITIVE MERGE OF R5]
+- branch: g1r5-alphonse/cooldown-lr-decay-shape
+- hypothesis: Replace linear LR cooldown with cosine shape (`0.5·(1 + cos(π·x))`) during the last cdf=0.7 of training. Predicted to advance first-step-to-target (FFS) crossing by entering the low-LR regime earlier — at x=0.857 cosine_eta=0.05 vs linear_eta=0.143, providing ~80 fewer steps to cross val=3.28 threshold.
+- verdict: **FFS-POSITIVE CLEAN MERGE under directive #1262**. n=4 confirm met both gates (μ_4(FFS)≤2975 + 2/4 trials FFS≤2950) with 4/4 trials FFS-alive. Val regression structurally pinned by cooldown_frac Pareto sweep #1481. Merged under Reading-A authority after 14h human-silence window on issue #1480.
+
+- results (n=4 confirm, single W&B run `suc03s6j`):
+
+  | Trial | FFS | val/loss@3250 |
+  |------:|---:|---:|
+  | 0 | 2950 | 3.27057 |
+  | 1 | 2950 | 3.27010 |
+  | 2 | 2925 | 3.26993 |
+  | 3 | 2950 | 3.27026 |
+  | **μ_4** | **2943.75** | **3.270215** |
+  | σ_4 | 12.5 | 0.000272 |
+
+- Δ vs PR #699 baseline:
+  - **ΔFFS = −81.25 steps** (3025 → 2943.75), −2.69%
+  - Δval = +0.008994 (+15.17·σ_single), structural Pareto cost per #1481
+- mechanism findings:
+  1. **★ Cosine front-loads model into low-LR regime** — at cooldown progress x=0.857, cosine_eta=0.05 vs linear_eta=0.143; cosine spends meaningful steps at eta ≤ 0.1 earlier than linear → advances 3.28 crossing by ~80 steps.
+  2. **★ FFS gain is jointly (shape × cdf=0.7)** per #1481 Pareto sweep — not portable to other cooldown_frac values. The cooldown_frac axis is FULLY CLOSED (5-cell sweep across cdf ∈ {0.3, ..., 0.7}, FFS strictly monotone-NEG with shorter cdf).
+  3. **★ Val regression is structural, not seed-dependent** — n=4 σ_4(val)=0.000272 tight, all 4 trials val ∈ [3.26993, 3.27057]. Mechanism: cosine burns fewer steps in mid-eta descent zone → final val higher despite faster FFS crossing.
+  4. **Cross-PR mechanism corroboration** with fern #1385 Cell B (full-run cosine, n=1) hit FFS=2925 independently — same FFS endpoint via different mechanism instantiation, confirming "directed descent through low-LR regime is FFS-load-bearing" cluster.
+  5. **First FFS-positive merge of R5 in 32 stack-component closure attempts.** Mandatory stack now includes `--lr_cooldown_shape cosine`.
+- compounded barriers closed by this merge:
+  - 32nd closure: cooldown_frac axis (#1481) — cdf=0.7 locally optimal
+  - FFS-positive directions cluster begins: cosine cooldown shape #1381 (merged) + future schedule-shape work outside cdf knob (warmup, LR-floor, EMA-eval, aux warmup #1549, mu_mlp/attn decoupling #1523)
+- merge: 2026-05-28 09:11 UTC under Reading-A authority (issue #1480 closed). BASELINE.md updated. Future FFS comparisons against μ_4(FFS)=2943.75 with σ_4=12.5.
+- next baseline gate: μ_4(FFS) ≤ ~2918.75 (FFS) for confident FFS-positive detection at n=4.
+
+---
+
 ## 2026-05-28 09:00 — PR #1490: AdEMAMix on AdamW aux (slow-EMA mixture, NeurIPS 2024) (askeladd) [CLOSED — AUX-UPDATE-RULE-CLASS-NEG-3 — 33rd closure]
 - branch: g1r5-askeladd/ademamix-aux
 - hypothesis: AdEMAMix (Pagliardini et al. NeurIPS 2024) adds a slow EMA term `m_slow` (β3=0.9999, ~7000-step horizon) to AdamW's 1st moment with magnification factor α=5.0, multiplexing long-horizon and short-horizon momentum signals. Apply to AdamW aux groups while preserving the adaptive denominator.
