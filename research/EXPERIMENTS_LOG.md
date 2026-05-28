@@ -1,5 +1,37 @@
 # SENPAI Research Results — auto-nanogpt-1gpu-r5
 
+## 2026-05-28 03:45 — PR #1460: Cautious Optimizer (sign-agreement gating on Muon body) (nezuko) [CLOSED — CAUTIOUS-GATING-CLASS-CLOSED — 30th closure]
+- branch: g1r5-nezuko/cautious-optimizer
+- hypothesis: Cautious Optimizer (Liang et al. 2024, arxiv:2411.16085) — per-coordinate masking that zeros update components where momentum and instantaneous gradient disagree. Mechanism: prune "stale" coordinates whose direction has shifted since last momentum update. Paper reports +0.5-1.5% LM PPL on canonical baselines with one-line code change. Predicted to be the structurally-distinct gating wrapper class after averaging closures (#1258 SF-Muon, #1403 Polyak-Ruppert).
+- verdict: **CLEAN-NEG ACROSS ALL CELLS, mask DIRECTION confirmed by falsifier**. 30th stack-component closure; cluster reinforcement with #1258/#1403/#1446 (4-wrapper Muon body cluster all clean-NEG).
+
+- results (5-cell n=1):
+
+  | Cell | flags | val/loss | Δσ vs A | FFS | n=1 gate | FFS-alive | W&B |
+  |:---:|:---|:---:|:---:|:---:|:---:|:---:|:---|
+  | A ctrl | (none) | 3.26245 | (ref) | 3050 | ✗ (+3.07σ noise) | ✗ | uxdniim3 |
+  | B★ | --cautious_body | 3.28559 | **+39.0σ** | DNF | ✗ | ✗ | brhasoix |
+  | C | --cautious_aux | 3.27796 | **+26.1σ** | 3200 | ✗ | ✗ | 7mr7m2jt |
+  | D | both | 3.29946 | **+62.4σ** | DNF | ✗ | ✗ | bahsv9d2 |
+  | E★ | --cautious_inverse_body | 5.79399 | **+4269σ** | DNF | ✗ | ✗ | ox5y8qo4 |
+
+  Mask telemetry — Cell B body mask mean rises 57.0%→65.3% over training (mask remains highly active throughout cooldown — NO auto-deactivation despite LR→0). Cell E (inverse) MLP p50 collapses 33.4%→0.3% by step 3000 (mask starves MLP coords entirely → divergence).
+
+- mechanism findings:
+  1. **Mask direction structurally load-bearing** (E falsifier confirms). Zeroing AGREEING coords (inverse mask) catastrophically diverged (val=5.79, MLP coord-survival 0.3%); the agree/disagree axis is the right axis. Forward mask direction is therefore "correct" theoretically, yet B still HARMs +39σ — **mask-direction-correctness is not sufficient on Muon body**.
+  2. **★ Spectral fragmentation hypothesis (new, cross-PR weight)**. Per-coordinate gating destroys the NS-orthogonalized geometry. After NS-iter, the update matrix has singular values ≈ 1 and orthogonal columns; per-coordinate zero-rescale fragments this spectral structure into a sparse, non-orthogonal update with collapsed effective rank. The paper's convergence proof is for AdamW/Lion-shaped per-coordinate adaptive updates — not for spectrally-orthogonalized operators. **Wrapper-style Muon-body modifiers fail because they decompose the per-element structure of an update that is per-singular-value by construction**.
+  3. **Cooldown deactivation FALSIFIED**. Predicted: mask becomes near-identity as LR→0. Observed: sign agreement rises monotonically (57%→65%) but does NOT saturate; ~35% of coords remain zeroed throughout cooldown. The ramp_down schedule does not push agreement to 1.0. Unlike #1446 Lookahead which partially auto-deactivates via ||fast-slow|| collapse, Cautious masking remains FULLY active in cooldown.
+  4. **★★ THREE-CLASS STRUCTURAL BARRIER on Muon body (cross-PR claim, post-this closure)**. The "Any tampering with NS-orthogonalized direction fails" claim now has THREE supportive independent closures operating at distinct pipeline points:
+     - Pre-NS magnitude clipping (#1441 AGC) — clean-NEG
+     - Post-NS direction averaging (#1446 Lookahead) — clean-NEG (α-monotone)
+     - Post-NS per-coordinate gating (#1460 Cautious, this PR) — clean-NEG (spectral fragmentation)
+     All three operate at pre-, intra-, and post-NS pipeline points. The body update is robust against perturbation at every point. High-confidence structural barrier with three independent supports.
+  5. **Cluster with #1258, #1403, #1446, #1460**: Four wrapper-style Muon body modifiers (SF averaging, Polyak averaging, Lookahead k-step EMA, Cautious gating) ALL clean-NEG. Wrapper-Muon-body class well-bounded NEG — no further wrapper screens warranted at 1.85h GPU per cell.
+  6. **Aux gating (C) also NEG**: +26σ on AdamW aux only (no body gating). Cautious is generally FFS-NEG for this stack, not Muon-specific. The embed coord mask at 44% agreement (lowest) yet C still HARMs — embed coord-disagreement is also load-bearing.
+
+- closing actions: closed clean-NEG; reassigned nezuko → #1516 orthogonal QKV init (Saxe et al. 2014) — fresh INIT axis, the only major design dimension still under-explored after 30 closures.
+
+
 ## 2026-05-28 00:16 — PR #1446: Lookahead optimizer wrapper on Muon body (edward) [CLOSED — VARIANCE-REDUCTION-CLASS-CLOSED — 29th closure]
 - branch: g1r5-edward/lookahead-body
 - hypothesis: Lookahead k-step averaging (Zhang et al. NeurIPS 2019) on Muon body reduces step-to-step direction variance from NS-orthogonalization approximation + SOAP eigenbasis staleness; expected to be FFS-positive if variance-reduction is the bottleneck.

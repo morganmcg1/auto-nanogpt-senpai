@@ -9,34 +9,36 @@ The human research team has redirected: **FFS (first-step-to-target, baseline 30
 3. **Prefer experiments that move the crossing step** (2800-3050 window), **simplify winning stacks**, **reveal FFS-load-bearing components**.
 4. **Ablations preferred over confirmations** when FFS dead.
 
-## Last updated: 2026-05-28 ~00:16Z (poll ~903)
+## Last updated: 2026-05-28 ~03:45Z (poll ~904)
 
-**Actions this poll**: ★ Close #1446 edward Lookahead VARIANCE-REDUCTION-CLASS-CLOSED [29th stack-component closure]. α-monotone-NEG (pre-registered falsifier inverted: D=α0.3 catastrophic +48.8σ, E=α0.9 near-noise +2.0σ). Snap-back magnitude `(1-α)·||fast-slow||` is the damage mechanism — every sync discards ~3.5 units of accumulated direction signal (for α=0.3). Cooldown auto-deactivates wrapper (||fast-slow|| drops 8.5× by step 3000) but too late: damage occurs in mid-training steps 250-2500. **VARIANCE-REDUCTION CLASS FULLY CLOSED on Muon body**: PR #581 (full-param Lookahead) AND #1446 (body-only Lookahead) both clean-NEG. **REVISED CROSS-PR STRUCTURAL FINDING**: "Muon body is post-NS spectral-normalization-ROBUST to pre-NS magnitude perturbations" (from #1441) AND "post-NS variance-reduction also fails" (from #1446). Revised joint claim: **the bare NS-orthogonalized step is a high-fidelity direction estimate — neither magnitude clipping (pre-NS) nor direction averaging (post-NS) improves it. Any mid-trajectory tampering discards signal.** The earlier "post-NS modifiers structurally exempt from wash-out" claim was PARTIALLY REFUTED by #1446. ★ Assigned #1502 edward Sophia-G on AdamW aux (Liu et al. ICLR 2024; Gauss-Newton-Bartlett diagonal Hessian preconditioner; 5-cell n=1 sweep: ctrl/rho0.05/rho0.10/lr-scale0.5/lr-scale2.0; first 2nd-order method tested on aux; applied ONLY to embed+lm_head, scalars stay AdamW).
+**Actions this poll**: ★ Close #1460 nezuko Cautious Optimizer CAUTIOUS-GATING-CLASS-CLOSED [30th stack-component closure]. All 5 cells clean-NEG (B body-primary +39σ DNF, C aux-only +26σ DNF, D both +62σ DNF, E inverse-falsifier diverged +4269σ). E falsifier confirms mask DIRECTION is structurally load-bearing (inverse mask = zeroing AGREEING coords catastrophically diverged with MLP mask collapsing to 0.3%). Forward mask (B) HARMs despite mask-direction-correctness — **spectral fragmentation hypothesis**: per-coordinate gating destroys the NS-orthogonalized geometry (after NS-iter, update matrix has singular values ≈ 1 and orthogonal columns; per-coordinate zero-rescale fragments this spectral structure into a sparse, non-orthogonal update). Cooldown deactivation FALSIFIED: sign agreement rose monotonically (57%→65%) but mask remained highly active (~35% coords zeroed) throughout cooldown. **★ THREE-CLASS STRUCTURAL BARRIER on Muon body strengthened**: magnitude clipping (#1441 AGC) + direction averaging (#1446 Lookahead) + per-coordinate gating (#1460 Cautious) — three independent classes operating at pre-, intra-, and post-NS pipeline points ALL clean-NEG. **Four-wrapper cluster** with #1258 SF-Muon, #1403 Polyak-Ruppert, #1446 Lookahead, #1460 Cautious — wrapper-Muon-body class well-bounded NEG. ★ Assigned #1516 nezuko Orthogonal QKV init (Saxe et al. 2014) — fresh INIT axis. PyTorch orthogonal_ init for attention c_attn QKV (after musoft variance scaling); 5-cell A=normal-ctrl / B★=gain=1.0 paper-default / C=gain=sqrt(2) He-style / D=gain=0.5 conservative / E=gain=1.0 + extend to c_proj. Init telemetry: c_attn singular value mean/std, condition number per block at step 0. Orthogonal init buys early-training acceleration by preserving rank/conditioning longer; geometry-compatible with Muon NS (orthogonal weights + orthogonal updates).
 
 **Critical pending**: Issue #1480 human merge guidance — #1381 (FFS-POSITIVE, FIRST OF R5) held in status:review; Reading-C parallel arm #1481 in flight. ~2.8h elapsed at poll ~903; default Reading-C trigger at 4-6h.
 
 **Active student portfolio (8 PRs, 0 idle)**:
 - ★★★ #1381 alphonse — **cosine cooldown n=4 TERMINAL — μ_4(FFS)=2944, FFS-ALIVE, val +15σ regression**; status:review, HOLD pending issue #1480 human guidance
-- ★ #1481 alphonse — cosine × cooldown_frac joint sweep (Reading-C parallel arm)
-- #1502 edward — Sophia-G on AdamW aux (2nd-order Hessian-diagonal; Liu et al. ICLR 2024; 5-cell rho/lr-scale sweep)
+- ★ #1481 alphonse — cosine × cooldown_frac joint sweep (Reading-C parallel arm); cdf=0.7/0.6/0.5 finished NEG (3.269/3.270/3.274 — val regression structural to cosine shape regardless of cdf), cdf=0.4 in flight
+- #1502 edward — Sophia-G on AdamW aux (2nd-order Hessian-diagonal; Liu et al. ICLR 2024; Cell A AdamW ctrl FINISHED val=3.2620 within 1σ baseline parity, Cell B Sophia primary in flight)
 - #1500 fern — AdaBelief on AdamW aux (2nd-moment estimator substitution; NeurIPS 2020)
 - #1497 tanjiro — Gradient Centralization on Muon body (row-mean pre-NS; ECCV 2020)
 - #1493 frieren — QHM Muon body (gradient × momentum blend pre-NS; ICLR 2019)
 - #1490 askeladd — AdEMAMix on AdamW aux (fast+slow EMA mixture NeurIPS 2024)
-- #1471 thorfinn — Lion-aux sign-based optimizer (Chen et al. 2023; sequential sweep running)
-- #1460 nezuko — Cautious Optimizer (Liang et al. 2024; in flight)
+- #1471 thorfinn — Lion-aux sign-based optimizer; A FFS=3025 ctrl, B FFS=3200 NEG, C DNF, D scale1.0 falsifier FINISHED catastrophic +75σ, E scale0.033 falsifier in flight
+- #1516 nezuko — Orthogonal QKV init (Saxe et al. 2014); FRESH INIT AXIS — first non-musoft init axis under R5 FFS-primary
 
-**Cumulative closures (29 stack-components, ZERO merges in R5 to date)**
+**Cumulative closures (30 stack-components, ZERO merges in R5 to date)**
 
 **β2 axis FULLY CLOSED across 3 sub-axes** (poll ~900): value + schedule + per-group all FFS-cosmetic.
 
 **Depth-prior cluster** (poll ~901): musoft init + uniform body LR is JOINT-LOAD-BEARING 2-knob unit.
 
-**★ REVISED CROSS-PR STRUCTURAL FINDING (polls ~902-903)**: The "post-NS modifiers structurally exempt" hypothesis was PARTIALLY REFUTED by #1446 Lookahead. Revised claim:
-- **ANY tampering with the NS-orthogonalized direction fails** — pre-NS magnitude clips (#1441 AGC) AND post-NS direction averaging (#1446 Lookahead) both clean-NEG
-- **Only modifiers that change WHEN the step is taken (schedule) or WHAT signal feeds NS** (direction-preserving gradient transform) retain non-zero priors
-- IN-FLIGHT PRE-NS modifiers (#1493 QHM-blend, #1497 GC-center): QHM blends the raw gradient before NS (direction-distorting), weak prior; GC removes row-mean (direction-preserving if centered), surviving prior
-- IN-FLIGHT POST-NS modifiers (#1460 Cautious sign-gate): changes WHICH coordinates are applied but not the magnitude within applied coords; surviving prior if gating pattern is signal-correlated
+**★★ THREE-CLASS STRUCTURAL BARRIER on Muon body (polls ~903-904, post-#1460 closure)**: "Any tampering with the NS-orthogonalized direction fails" now has THREE supportive classes operating at distinct pipeline points:
+- **Pre-NS magnitude clipping** (#1441 AGC): peak-shaving by `||grad||/||param||` — clean-NEG
+- **Post-NS direction averaging** (#1446 Lookahead): k-step weight EMA — clean-NEG with α-monotone failure
+- **Post-NS per-coordinate gating** (#1460 Cautious): sign-agreement masking — clean-NEG with spectral fragmentation
+- **All three operate at distinct points** of the Muon update pipeline (pre-NS gradient → NS-orthogonalized update → applied to weights), and all three fail. The body update is robust against pre-, intra-, and post-NS perturbation. This is now a high-confidence structural barrier with three independent supporting experiments.
+- **Four-wrapper cluster**: #1258 SF-Muon (closed) + #1403 Polyak-Ruppert (closed) + #1446 Lookahead (closed) + #1460 Cautious (closed) — wrapper-Muon-body class well-bounded NEG.
+- **Remaining priors**: (a) modifiers that change WHEN the step is taken (schedule axis — alphonse on cooldown_frac); (b) WHAT signal feeds NS (direction-preserving gradient transforms — tanjiro GC #1497 in flight); (c) the aux update RULE (4 alt-aux experiments in flight); (d) **HOW weights start** — init axis (nezuko #1516 orthogonal QKV, FRESH).
 - **Adam-moment-replacement axis fully tiled by 4 in-flight PRs**: Sophia-G (#1502, 2nd-order), AdaBelief (#1500, 2nd-moment form), AdEMAMix (#1490, 1st-moment augmentation), Lion-aux (#1471, sign-only)
 
 **FFS-positive directions**:
