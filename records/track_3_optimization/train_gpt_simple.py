@@ -458,6 +458,13 @@ MUON_LR = float(os.environ.get("MUON_LR", "0.0375"))
 MUON_WEIGHT_DECAY = 0.025  # nominal; Muon.step does not apply explicit wd (u/w-floor replaces it)
 TARGET_UW = 0.35
 NORMUON_BETA2 = 0.95
+# Per-block NORMUON_BETA2 dispatch (PR #1537): front-half vs back-half body blocks
+# may benefit from different per-row variance EMA windows. When neither env var is
+# set, both default to NORMUON_BETA2 (preserves exact baseline behavior).
+NORMUON_BETA2_FRONT = float(os.environ.get("NORMUON_BETA2_FRONT", str(NORMUON_BETA2)))
+NORMUON_BETA2_BACK = float(os.environ.get("NORMUON_BETA2_BACK", str(NORMUON_BETA2)))
+NORMUON_BETA2_DEPTH_SPLIT = int(os.environ.get("NORMUON_BETA2_DEPTH_SPLIT", "6"))
+NORMUON_BETA2_PER_BLOCK_ENABLED = ("NORMUON_BETA2_FRONT" in os.environ) or ("NORMUON_BETA2_BACK" in os.environ)
 SOAP_BETA2 = 0.90
 SOAP_PRECOND_FREQ = 10
 # Attention SOAP (record #16) hyperparameters
@@ -652,6 +659,16 @@ class Muon(torch.optim.Optimizer):
                     self.attn_soap_kind[id(p)] = "v"
                 elif n.endswith(".attn.proj.weight"):
                     self.attn_soap_kind[id(p)] = "proj"
+        # Pre-compute per-param block index (leading int in "<idx>.attn|mlp.*") for
+        # PR #1537 per-depth NORMUON_BETA2 dispatch. Avoid per-step name parsing.
+        self.block_idx: dict[int, int] = {}
+        for n, p in named_params:
+            parts = n.split(".")
+            if parts and parts[0].isdigit():
+                self.block_idx[id(p)] = int(parts[0])
+            else:
+                self.block_idx[id(p)] = -1
+        self.num_blocks = max(self.block_idx.values()) + 1 if self.block_idx else 0
         params = sorted([p for _, p in named_params], key=lambda x: x.size(), reverse=True)
         defaults = dict(lr=lr, weight_decay=weight_decay, mu=mu)
         super().__init__(params, defaults)
@@ -701,7 +718,13 @@ class Muon(torch.optim.Optimizer):
                     if use_soap or use_attn_soap:
                         momentum_update = soap_precondition(momentum_update, state)
                     # NS5 + contra + NorMuon row variance on (possibly SOAP-preconditioned) momentum.
-                    update = contra_normuon_update(momentum_update, state["second_moment"])
+                    # PR #1537: per-block NORMUON_BETA2 dispatch (front/back half body blocks).
+                    if NORMUON_BETA2_PER_BLOCK_ENABLED:
+                        bidx = self.block_idx.get(id(p), 0)
+                        beta2_local = NORMUON_BETA2_FRONT if bidx < NORMUON_BETA2_DEPTH_SPLIT else NORMUON_BETA2_BACK
+                    else:
+                        beta2_local = NORMUON_BETA2
+                    update = contra_normuon_update(momentum_update, state["second_moment"], beta2=beta2_local)
                     # u/w-floor: scale up if u/w < TARGET_UW; leave alone otherwise.
                     p_fro = p.float().norm().clamp_min(1e-8)
                     u_fro = update.float().norm().clamp_min(1e-8)
@@ -859,6 +882,10 @@ if dist.get_rank() == 0:
             "optimizer/muon_weight_decay_nominal": MUON_WEIGHT_DECAY,
             "optimizer/target_uw": TARGET_UW,
             "optimizer/normuon_beta2": NORMUON_BETA2,
+            "optimizer/normuon_beta2_per_block_enabled": NORMUON_BETA2_PER_BLOCK_ENABLED,
+            "optimizer/normuon_beta2_front": NORMUON_BETA2_FRONT,
+            "optimizer/normuon_beta2_back": NORMUON_BETA2_BACK,
+            "optimizer/normuon_beta2_depth_split": NORMUON_BETA2_DEPTH_SPLIT,
             "optimizer/soap_beta2": SOAP_BETA2,
             "optimizer/soap_precond_freq": SOAP_PRECOND_FREQ,
             "optimizer/attn_soap_beta2": ATTN_SOAP_BETA2,
@@ -905,6 +932,18 @@ for trial_idx in range(args.num_trials):
     optimizer2 = Muon([(n, p) for n, p in model.blocks.named_parameters() if p.ndim >= 2],
                       lr=MUON_LR, weight_decay=MUON_WEIGHT_DECAY, mu=MU)
     optimizer2.param_groups[0]["name"] = "muon_blocks"
+    if NORMUON_BETA2_PER_BLOCK_ENABLED and dist.get_rank() == 0 and trial_idx == 0:
+        n_front = sum(1 for v in optimizer2.block_idx.values() if 0 <= v < NORMUON_BETA2_DEPTH_SPLIT)
+        n_back = sum(1 for v in optimizer2.block_idx.values() if v >= NORMUON_BETA2_DEPTH_SPLIT)
+        wandb.log({
+            "normuon_beta2_per_block/enabled": 1,
+            "normuon_beta2_per_block/front_beta2": NORMUON_BETA2_FRONT,
+            "normuon_beta2_per_block/back_beta2": NORMUON_BETA2_BACK,
+            "normuon_beta2_per_block/split": NORMUON_BETA2_DEPTH_SPLIT,
+            "normuon_beta2_per_block/n_params_front": n_front,
+            "normuon_beta2_per_block/n_params_back": n_back,
+            "normuon_beta2_per_block/num_blocks": optimizer2.num_blocks,
+        }, step=0)
     optimizers = [optimizer1, optimizer2]
     assert set(p for opt in optimizers for group in opt.param_groups
                for p in group["params"]) == set(model.parameters())
