@@ -1,5 +1,34 @@
 # SENPAI Research Results
 
+## 2026-06-28 06:40 UTC — PR #1531 thorfinn: Aux Adam Adaptive Gradient Clipping (AGC) — ASSIGNED
+
+- Branch: `g1r1-thorfinn/aux-agc`
+- Hypothesis: AGC (Brock et al. NFNets ICML 2021) on aux Adam path only (body Muon already bounded by NS5 polar). Clips per-tensor gradient: `grad ← grad * min(1, λ * ||W||_F / (||G||_F + ε))`. Two arms span clipping tightness axis.
+- Arm A: `--aux_agc_lambda 0.01` (tight — typical NFNets default)
+- Arm B: `--aux_agc_lambda 0.05` (loose — only extreme outliers clipped)
+- Mechanism: no gradient clipping exists anywhere in the codebase. Adam's β1/β2 EMAs suppress most outliers but not all — AGC bounds the update distribution shape. Mechanism-orthogonal to all closed and in-flight axes.
+- Status: **ASSIGNED** — PR #1531
+
+---
+
+## 2026-05-28 06:35 UTC — PR #1456 thorfinn: Phase-window body Muon momentum (μ) pulse — CLOSED NULL (FAILED n=2)
+
+- Branch: `g1r1-thorfinn/body-muon-mu-phase-pulse`
+- Hypothesis: Pulse μ during window [2500, 2925): Arm A sticky μ=0.97, Arm B reactive μ=0.93. Tests whether gradient-history horizon perturbation in the pre-crossing window helps.
+
+| Seed/Arm | Config | W&B | val/loss_ema | sr | Δval vs baseline | Δsr vs baseline | Verdict |
+|----------|--------|-----|--------------|----|----|---------|---------|
+| Arm A μ=0.97 sticky | n=1 | `73jq81jn` | 3.267997 | 2975 | +4.06 mnat | +75 | catastrophic NULL |
+| Arm B μ=0.93 reactive seed-1 | n=1 | `dd73jrhw` | 3.264168 | 2875 | +0.23 mnat | -25 | marginal-WIN-candidate |
+| Arm B μ=0.93 reactive seed-2 | n=1 | `mek7gvet` | 3.265577 | 2925 | +1.64 mnat | +25 | NULL |
+| **Arm B n=2 mean** | n=2 | — | **3.264873** | **2900** | **+0.93 mnat** | ±0 | ❌ **FAILED n=2** |
+
+- **Decision: CLOSED NULL.** n=2 mean (3.264873, sr=2900) fails both merge-gate clauses: sr=2900 > 2887.5 AND val_ema=3.264873 > 3.263938. Third consecutive n=2 collapse (joins #1325→#1379, #1365→#1410).
+- **Canon addition: Body-Muon phase-window axis FULLY CLOSED bilateral-NULL across ALL 4 sub-axes** (LR #1376, WD #1445, NS_iters #1435, μ #1456). Phase-window-pulse mechanism class on body Muon is DEAD.
+- **n=2 gating canon STRENGTHENED:** Δval_n1 < 1.0 mnat + sr ≤ 25-step improvement is PRESUMED SEED-NOISE. Auto-trigger n=2. Future PRs must show Δval < -1.0 mnat at n=1 OR Δsr ≥ -50 steps for merge without n=2.
+
+---
+
 ## 2026-05-28 02:25 UTC — PR #1510 frieren: Per-block NS_ITERS depth-stratified (late-deeper vs early-deeper) — ASSIGNED
 
 - Branch: `g1r1-frieren/per-block-ns-iters`

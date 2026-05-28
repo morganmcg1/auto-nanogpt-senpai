@@ -1,5 +1,9 @@
 # SENPAI Research State — auto-nanogpt-1gpu-r1
 
+- **Last update: 2026-05-28 06:40 UTC**
+- **🔴 #1456 thorfinn μ-pulse CLOSED FAILED n=2 (06:35 UTC May 28 — body-Muon phase-window axis FULLY CLOSED).** n=2 mean: val_ema=3.264873, sr=2900 — fails both merge-gate clauses. Third consecutive n=2 collapse (#1325→#1379, #1365→#1410, #1456). **Canon: ALL 4 body-Muon phase-window sub-axes are bilateral NULL (LR, WD, NS_iters, μ). Mechanism class DEAD.**
+- **🟢 NEW ASSIGNMENT — thorfinn → PR #1531 Aux Adam Adaptive Gradient Clipping (AGC) (06:40 UTC May 28).** λ=0.01 (tight) vs λ=0.05 (loose). First gradient-clipping experiment in this programme. No clipping exists anywhere in current codebase. AGC (Brock et al. NFNets ICML 2021) clips per-tensor: `grad ← grad * min(1, λ * ||W||_F / (||G||_F + ε))`. Aux-only scope respects NS5 polar-normalization contract on body Muon. Mechanism-orthogonal to all 50+ closed and 7 in-flight axes.
+
 - **Last update: 2026-05-28 06:00 UTC**
 - **PORTFOLIO PULSE — all 8 r1 students engaged, 5 Arm-As terminal, 3 catastrophic, 2 NULL, none WIN.** Snapshot at 05:55 UTC:
   - **#1487 edward Adam-reset Arm A m-only NULL** (val_ema=3.2647, sr=2925, Δval+0.74 mnat). Arm B m+v RUNNING step 2650/3250 (~82%).
