@@ -1,3 +1,68 @@
+## 2026-05-28 17:30 UTC — Cycle 71 mid-353 — frieren #1569 259th (PER_DEPTH_HALF_ATTN_SOAP_BETA2 terminal STANDARD CLOSED — NULL within noise Δ=−0.00060 front_SLOW marginally wins, completes 2-mechanism trust-gated attn-SOAP depth-half family confirming front_up principle does NOT transfer to trust-gated layer scope) + frieren #1596 NEW PER_DEPTH_HALF_ATTN_SOAP_TRUST_THRESHOLD pivot (structural follow-up: tests whether trust-gating ITSELF absorbs the depth-direction signal by varying the gating threshold per depth rather than the downstream β2)
+
+**Cumulative**: **259 refuted** / **156 distinct mech classes** / **114 family-level closures**.
+
+### PR closed this wave (1 closure, terminal bilateral, NULL-within-noise + REVERSED-direction in trust-gated layer):
+
+| PR | student | mechanism | outcome |
+|---|---|---|---|
+| **frieren #1569** | frieren | PER_DEPTH_HALF_ATTN_SOAP_BETA2 (Arm A `front_FAST` 0.85/0.95 vs Arm B `front_SLOW` 0.95/0.85, depth-asymmetric β2 EMA on trust-gated attn-SOAP) | **259th** — Arm A val=3.27228/ffs=3050 (STANDARD), Arm B val=3.27168/ffs=3050 (STANDARD); val_mean=3.27198 fails merge bar by 0.00422. Δ(A−B)=+0.00060 → **front_SLOW marginally wins (REVERSED), NULL within noise** (σ ~0.0015 single seed). Trust on_fractions ~0.82 nearly identical across arms (Δ ≤ 0.02), so trust-gating itself isn't dispatching the depth signal. Direction collapsed compared to MLP-SOAP β2 #1545 (+0.00323 front_FAST). |
+
+### STRUCTURAL FINDING — trust-gated attn-SOAP layer scope DOES NOT carry front_up depth-direction (2-mech confirmation)
+
+| PR | mechanism class | trust-gated? | Δ best arm | direction |
+|---|---|---|---|---|
+| **#1545 fern** (MLP-SOAP β2) | continuous-EMA | NO (always-on) | +0.00323 | front_up ✓ |
+| **#1562 edward** (attn-SOAP refresh-freq) | state-rule/event | YES | −0.00288 | **REVERSED** |
+| **#1569 frieren (this PR)** | continuous-EMA | YES | −0.00060 | **NULL (front_SLOW marginally)** |
+
+Two of two trust-gated attn-SOAP depth-half axes show non-front_up direction. The front_up principle that holds for 7 body-wide always-on mechanisms (LR ramp, NORMUON β2, MLP-SOAP β2, NS5 iters, body init, MU_COOLDOWN_END, refresh-freq always-on) does NOT extend to trust-gated attn-SOAP layer scope. Competing interpretations:
+1. **Trust-gating absorbs signal** — per-step conditional application regularizes away the depth-direction. Tested directly by #1596 (varying the threshold itself per depth).
+2. **Layer scope inherently insensitive** — attention layers don't benefit from depth-asymmetric optimization regardless of mechanism.
+
+### PR assigned this wave
+
+| PR | student | mechanism | role |
+|---|---|---|---|
+| **frieren #1596** | frieren | PER_DEPTH_HALF_ATTN_SOAP_TRUST_THRESHOLD (Arm A `front_LOWER` 0.80/0.90 — more lenient front threshold → more front SOAP engagement; Arm B `front_HIGHER` 0.90/0.80 — stricter front, less front SOAP) | Structural orthogonal follow-up to #1569 — instead of varying downstream β2 (which trust-gating may absorb), vary the gating DECISION ITSELF per depth. Disambiguates interpretation 1 vs 2 via on_fraction telemetry: if Arm A has visibly higher overall on_fraction (≥+0.05) but val is NULL, gating works but depth doesn't matter at layer scope (interpretation 2 confirmed). If on_fraction Δ ≤ 0.02 (matching #1569), threshold is in saturated regime — surprising structural finding. |
+
+### Fleet state at end of wake 19
+
+8 students all assigned, 0 idle:
+
+| PR | student | axis | status |
+|---|---|---|---|
+| #1575 | fern | PER_KIND_ATTN_SOAP_BETA2 (per-kind q/k vs v/proj β2 inside attn-SOAP layer scope) | Arm A mid-flight |
+| #1577 | tanjiro | PER_KIND_AUX_BETA2 (per-AUX-kind AdamW v-EMA decay full-run) | WIP |
+| #1582 | askeladd | PER_KIND_NS5_ITERS_FULL_RUN (per-kind attn vs MLP NS5 iters dispatch) | Arm A mid-flight (~70%+) |
+| #1583 | edward | PER_KIND_ATTN_SOAP_REFRESH_FREQ (per-kind q/k vs v/proj trust-gated refresh-freq) | WIP |
+| #1590 | nezuko | PER_KIND_MLP_SOAP_BETA2 (per-MLP-kind fc vs proj β2 dispatch full-run) | WIP |
+| #1594 | alphonse | PER_DEPTH_HALF_COMPOSITE_MU_COOLDOWN_END_x_BODY_INIT (composite additivity test) | WIP |
+| #1595 | thorfinn | ATTN_SOAP_TERMINATION_STEP (symmetric mirror of #1570) | WIP |
+| #1596 | frieren | PER_DEPTH_HALF_ATTN_SOAP_TRUST_THRESHOLD (orthogonal trust-gate parameter axis) | WIP (fresh) |
+
+**Cycle 71 active axis-families**: **5-mechanism PER-KIND axis family** (attn-SOAP β2/refresh, MLP-SOAP β2, NS5 cross-layer, AUX β2) + **2-mechanism PER-DEPTH-HALF trust-gated axis family** (#1596 trust-threshold + #1595 termination-step as mirror) + 1-mechanism COMPOSITE depth-half (#1594) + 1-mechanism TERMINATION_STEP axis (#1595).
+
+### Updated mechanism direction taxonomy (cycle 71 working theory — post-#1569)
+
+| layer/scope | depth-half axis direction | training-time axis direction | per-kind axis direction |
+|---|---|---|---|
+| **continuous-update class** (LR ramp, NORMUON β2, MLP-SOAP β2, NS5 iters, body init) | front_up SATURATED (5 mechs) | (untested) | (in-flight: #1590 MLP-SOAP β2) |
+| **state-phase class** (MU_COOLDOWN_END) | front_LOWER STRONGEST (Δ +0.003, #1568) | (in-flight via #1595 termination_step on trust-gated) | (untested at state-phase, in-flight at AUX/event) |
+| **event/trust-gated class** (refresh-freq #1562, β2 #1569, activation #1570) | **2-mech CONFIRMED non-front_up** (#1562 REVERSED, #1569 NULL) | WEAK-ANTI (#1570 monotonic worsening) | event-class kind-asymmetric (#1562 telemetry) |
+| **AUX (AdamW) class** | (mostly N/A — AdamW kinds not depth-stratified) | (event m-reset at cooldown #1522) | event-axis kind-asymmetric (#1522), state-rule kind-asymmetric (#1566), continuous Goldilocks (#1547), in-flight #1577 |
+
+### Potential next research directions (post-current-cycle saturation)
+
+1. **#1596 frieren trust-threshold outcome** will disambiguate "trust-gating absorbs depth" vs "layer scope inherently insensitive".
+2. **#1594 alphonse composite outcome** will determine 2+ mechanism stacking direction (highest-prior merge attempt available).
+3. **#1595 thorfinn termination outcome** will pin down uniform-vs-late-noise SOAP hypothesis.
+4. **If #1596 confirms layer-scope insensitivity**: pivot trust-gated layer scope investigation to per-kind axis (#1575 fern in flight) and CROSS-PROBE (composite of MLP-SOAP front_FAST × attn-SOAP front_SLOW under trust-gating regime).
+5. **State-phase × per-kind cross-product**: per-block cooldown_end or per-kind MU_WARMUP_START — state-phase class has STRONGEST single-axis Δ.
+6. **Reversed-direction composite**: if both #1562 + #1569 trust-gated direction is robust, compose front_SLOW refresh × front_HIGHER threshold stack to test additivity of reversed-direction axis.
+
+---
+
 ## 2026-05-28 17:00 UTC — Cycle 71 mid-352 — thorfinn #1570 258th (ATTN_SOAP_ACTIVATION_DELAY terminal STANDARD CLOSED — WEAK-ANTI-DIRECTIONAL: monotonic worsening with longer delay confirms early-gradient gram is NET-POSITIVE in trust-gated layer, trust gate effectively filters early noise) + thorfinn #1595 NEW ATTN_SOAP_TERMINATION_STEP pivot (symmetric mirror of #1570 testing whether removing LATE SOAP also monotonically hurts (uniform-value hypothesis) or reveals an asymmetry between early and late gradient gram value (late-noise hypothesis))
 
 **Cumulative**: **258 refuted** / **155 distinct mech classes** / **113 family-level closures**.
