@@ -8139,3 +8139,71 @@ Compound test of whether the output-projection-wants-fast law super-adds across 
 - ZERO confirmed n=2 winners since baseline PR #613 (cycle 71 start)
 - 5 students active (thorfinn, frieren, fern, askeladd, nezuko), ZERO IDLE
 - Human directive (Morgan #1259): prioritize depth/per-group + state-phase mechanisms; avoid plain scalar β/μ sweeps
+
+## 2026-05-28 ~22:50Z — Cycle 71 mid-359 update — 264th refute (edward #1583 per-kind eigenbasis-stability ordering revealed) + edward #1618 NEW V_ISOLATED_REFRESH + tanjiro #1603 healthy heartbeat
+
+### edward #1583 PER_KIND_ATTN_SOAP_REFRESH_FREQ — 264th refute (CLOSED) — STRUCTURAL FINDING: 4-tier eigenbasis-stability ordering
+
+- Arm A `qkSLOW` (qk=20, vproj=5): val=**3.27069**, ffs=3025 → CLUSTER STANDARD
+- Arm B `qkFAST` (qk=5, vproj=20): val=**3.27141**, ffs=3025 → CLUSTER STANDARD
+- val_mean=3.27105, Δ vs baseline=+0.00329 ABOVE-FLOOR, **MERGE BAR FAIL**
+- Code patch confirmed `optimizer/per_kind_attn_soap_precond_freq_enabled=1` in both arms
+- Direction: Δ(B−A)=+0.00072 consistent at every snapshot → Arm A `qkSLOW` marginally wins (consistent with #1562 front_SLOW direction)
+
+### STRUCTURAL FINDING: 4-tier per-kind eigenbasis-stability ordering
+
+Per-kind trust-gate `on_fraction` telemetry at refresh_freq=20 reveals:
+- q: 1.000 (most stable — eigenbasis drifts slowly enough for 20-step gaps)
+- k: 1.000 (most stable)
+- proj: 0.833 (moderately stable — 10/12 firing at refresh=20)
+- **v: 0.083 (least stable — 1/12 firing at refresh=20, eigenbasis drifts fastest)**
+
+**Stability order: q ≈ k > proj > v**
+
+This is direct telemetry-based evidence (not val/loss inferred) that the v/proj group treatment in #1583 and the kind-asymmetry signal from #1562 are **driven specifically by v**, NOT symmetric across v/proj. proj is structurally closer to q/k stability than to v's instability.
+
+### Trust-gated attn-SOAP layer scope is structurally COMPLETE
+
+| PR | partition | mechanism | outcome | direction |
+|---|---|---|---|---|
+| #1562 | depth-half | refresh-freq | REVERSED Δ=−0.00288 | front_SLOW wins |
+| #1569 | depth-half | β2 | NULL within noise | none (trust-gate absorbs) |
+| #1575 | per-kind (q/k vs v/proj) | β2 | REVERSED vp-fast Δ=+0.00312 | output-projection-wants-fast |
+| **#1583** | **per-kind (q/k vs v/proj)** | **refresh-freq** | **Δ=+0.00072 marginal** | **qk-slow** |
+
+### NEW FRESH AXIS — edward #1618 V_ISOLATED_REFRESH (3-bucket dispatch)
+
+Per #1583's structural finding, the correct partition is q/k > proj > v (3-bucket, not 2-bucket). Edward's just-launched #1618 tests this:
+
+- Arm A `v_FAST_ONLY` (qk=15, v=5, proj=15): isolates v with fast refresh, treats proj closer to q/k
+- Arm B `proj_FAST_ONLY` (qk=15, v=15, proj=5): counterfactual — does isolating proj instead show same direction?
+
+If v drives the kind-asymmetry signal: Arm A < Arm B by Δ ≥ +0.0015.
+
+### tanjiro #1603 HEARTBEAT — Arm A in flight, healthy
+
+- Disabled-check `wbrpevvt` finished step 200 val=4.09 ✓
+- Arm A `qpeppuh8` (`aux-beta2-push-A-moderate`): **running at step 3025/3175 (~95%)**, val=3.2782 (on track for STANDARD landing)
+- ~150 steps from terminal, ETA ~5-10min wall-clock
+- stale_wip flag was false-positive (zero comments, but Arm A nearly terminal). Heartbeat posted.
+
+### mid-359 active fleet snapshot
+
+| student | PR | axis | status |
+|---|---|---|---|
+| thorfinn | #1595 | attn-SOAP termination step | Arm B step 2625/3175 (~83%) |
+| frieren | #1596 | attn-SOAP trust-threshold per-depth-half | Arm B step 1975/3175 (~62%) |
+| fern | #1611 | PER_KIND_WD_AUX | Arm A step 875/3175 (~28%, early) |
+| askeladd | #1613 | PER_DEPTH_HALF_MU_COOLDOWN_START | Arm A step 425/3175 (~13%, very early) |
+| tanjiro | #1603 | PER_KIND_AUX_BETA2_PUSH | Arm A step 3025/3175 (~95%, near terminal) |
+| nezuko | #1616 | JOINT_OUTPUT_PROJ_BETA2_FAST (cross-scope) | WIP just assigned |
+| edward | #1618 | V_ISOLATED_REFRESH (3-bucket) | **NEW** |
+| alphonse | #1606 | PER_DEPTH_HALF_MU_COOLDOWN_END_PUSH | both arms FINISHED (A=3.27064, B=3.27464) — terminal pending student SENPAI-RESULT |
+
+### Strategic state
+- Cycle 71 noise floor cluster MDE: ≈Δ=+0.00130 val + 12.5 ffs at n=2
+- **264 refuted / 158 mech classes / 116 family closures**
+- ZERO confirmed n=2 winners since baseline PR #613
+- 7 students active (8 with edward), ZERO IDLE
+- Morgan #1259 directive (depth/per-group + state-phase) — fully respected
+- alphonse #1606 likely closure next wake (val mean 3.27264 STANDARD, direction consistent with #1568 STRONGEST front_LOWER signal)
