@@ -1,5 +1,63 @@
 # SENPAI Research Results — auto-nanogpt-1gpu-r5
 
+## 2026-05-28 09:45 — PR #1497 CLOSED [36th closure of R5]: tanjiro Gradient Centralization on Muon body (Yong et al. ECCV 2020, arxiv:2004.01461)
+- branch: g1r5-tanjiro/gradient-centralization-muon
+- Hypothesis: GC = subtract row-mean from gradient pre-momentum, projects onto subspace orthogonal to constant vector; preserves direction signal while removing scalar bias drift. Paper-reported 1.5-2σ improvement on image classification with SGD/Adam. Tested on Muon body matrices.
+
+| Cell | use_gc | gc_dim | gc_scope | gc_scale | val_best | FFS | Δval vs old base | Δval vs A | W&B id |
+|:----:|:------:|:------:|:--------:|:--------:|:--------:|:---:|:-----------:|:---------:|:------:|
+| A (ctrl) | off  | —      | —          | —    | 3.26196 | 3050 | +1.25σ | — | j2ysinoq |
+| **B★** | on   | 0 row  | body       | 1.0  | **3.26354** | **3050** | **+3.91σ** | +2.66σ | a4oxhod1 |
+| C    | on   | 1 col  | body       | 1.0  | 3.26456 | 3075 | +5.63σ | +4.38σ | d2fvrpyj |
+| D    | on   | 0 row  | body+aux   | 1.0  | 3.26245 | 3050 | +2.07σ | +0.83σ | aqutw0we |
+| E (×10 falsifier) | on | 0 row | body | **10.0** | 3.27112 | 3125 | +16.70σ | +15.45σ | 24xujsdw |
+
+Reading vs new baseline (#1381 merged FFS μ_4=2943.75): B★ FFS=3050 is +106 steps WORSE, fails FFS-alive gate (≤2975). Val 3.26354 also fails n=1 confirm gate (≤3.260628). **Dual-NEG.**
+
+**Mechanism findings:**
+- centered_norm_ratio mean ≈ 0.992 — only ~0.8% of grad norm is row-mean component → perturbation below NS noise floor at scope=all
+- block-0 mlp/proj is sole outlier with ~19% row-mean component; other 71 body matrices essentially zero-effect
+- **Cell C (col-mean) ~10× weaker than row-mean** (0.05% vs 0.78%) — for shape (out, in), col-mean averages over typically-larger `out` dimension giving smaller residual bias. Aligns with paper: row-mean (per-output centering) is natural axis
+- **★ E falsifier (×10 over-correction) catastrophic** — centered_norm_ratio = 1.26 mean, 4.89× on block-0 mlp/proj → val +16.7σ, FFS=3125 → confirms mechanism IS geometrically load-bearing, but invisible at natural scale because NS implicitly absorbs row-mean prior in first few iterations
+- D (body+aux) ≈ A — extending GC to AdamW aux also no-op for speedrun objective
+
+**Cross-cluster — Muon body 5-class barrier extended (FROM 4-CLASS poll ~926)**:
+1. Pre-NS magnitude (#1441 AGC)
+2. Pre-NS input identity (#1493 QHM)
+3. **Pre-NS input direction (#1497 GC — this closure)**
+4. Post-NS averaging (#1446 Lookahead)
+5. Post-NS gating (#1460 Cautious)
+
+**Conclusion**: NS-orthogonalization is direction-AND-magnitude robust against small pre-NS perturbations. Body operator at stable local optimum in gradient-shape space. Future Muon body axes need to come from outside gradient-shape-pre/post-NS: NS-internal (ns_iter, NS coefficients, per-block ns_iter), init geometry, parameterization (spectral-norm), or per-group HP decoupling.
+
+## 2026-05-28 09:45 — PR #1500 CLOSED [35th closure of R5]: fern AdaBelief on AdamW aux (Zhuang et al. NeurIPS 2020, arxiv:2010.07468)
+- branch: g1r5-fern/adabelief-aux
+- Hypothesis: AdaBelief replaces `v_t = E[g²]` (variance of magnitude) with `s_t = E[(g-m)²]` (variance of belief surprise); self-adapting trust-region — effective LR rises in steady regions, falls in surprising regions. Tested on AdamW aux groups (embed, lm_head, scalars).
+
+| Cell | use_adabelief | scope | val_best | FFS | Δval vs old base | Δ σ_single | s_to_v_ratio_p50 | W&B id |
+|:----:|:-------------:|:-----:|:--------:|:---:|:----------------:|:----------:|:----------------:|:------:|
+| A (ctrl) | False | — | 3.26112 | 3025 | −0.000101 | −0.17σ | n/a | 6kja6o7y |
+| **B★** | True | all | **3.26161** | **3025** | +0.000389 | +0.66σ | embed=0.708 / lm_head=0.711 / scalars=0.716 | 7k9ws92j |
+| C | True | scalars | 3.26231 | 3050 | +0.001089 | +1.84σ | scalars=0.668 | l1zri792 |
+| D | True | lm_head | 3.26327 | 3050 | +0.002049 | **+3.46σ** | lm_head=0.708 | rvmd5asd |
+| E | True | embed | 3.26150 | 3025 | +0.000279 | +0.47σ | embed=0.712 | lmy8xstr |
+
+Reading vs new baseline (#1381 merged FFS μ_4=2943.75): B★ FFS=3025 is +81 steps WORSE, fails FFS-alive gate (≤2975). **NEG on primary metric.** Val 3.26161 is better than new merged baseline 3.270215 (cosine cooldown traded val for FFS) but FFS is primary per directive #1262.
+
+**Mechanism findings:**
+- **s_to_v_ratio ≈ 0.71 FLAT throughout training** — mechanism fires uniformly (denominator ~30% smaller than AdamW) but the steady multiplicative LR shift is absorbed by the well-tuned schedule
+- The hypothesis that "surprise shrinks more than magnitude during the cooldown" does NOT hold — model never enters a regime where `(g − m)` becomes much smaller than `g` by orders of magnitude
+- **Cell D scope-anomaly**: lm_head-only AdaBelief (D) is +3.46σ worse, while lm_head-as-part-of-all (B) is within 1σ → LR-coordination cost between AdaBelief-treated and AdamW-treated groups within aux ensemble. Not a property of lm_head's belief dynamics; it's a within-aux mixed-scope cost
+
+**Cross-cluster — Aux update-rule barrier extended (FROM 3-CLASS poll ~922)**:
+- numerator-replace (#1471 Lion)
+- **denominator-replace × 2: (#1502B Sophia-G Hessian, #1500 AdaBelief belief variance — this closure)**
+- numerator-augment (#1490 AdEMAMix)
+
+**Combined with closed β2 decay/schedule/scope axes (#1321/#1377/#1434)**: the entire AdamW aux 2nd-moment axis (decay × form × scope) is now structurally unproductive on R5. Magnitude variance is direction-agnostic AND the full `sqrt(v)+eps` denominator form is structurally load-bearing.
+
+**Conclusion**: Future aux proposals filtered against "Does this modify `m_hat / (sqrt(v_hat) + eps)`?" — modifications are 4-instance, 3-way falsified. ACCEPT: per-group HP decoupling (preserves rule), schedule changes, weight-side interventions (init scale).
+
 ## 2026-05-28 09:30 — PR #1493: QHM Quasi-Hyperbolic Momentum on Muon body (frieren) [CLOSED — PRE-NS-INPUT-CLASS-NEG — 34th closure]
 - branch: g1r5-frieren/qhm-muon-body
 - hypothesis: QHM (Ma & Yarats 2019, ICLR 2019) blends fresh gradient into Muon body NS input: `raw_blended = (1-ν)·grad + ν·raw_nesterov`. Hypothesis: injecting some fresh-gradient signal could improve the "freshness" of the NS-orthogonalized direction. Predeclared 5-cell ν sweep ∈ {1.0, 0.85, 0.7, 0.5, 0.3}.
