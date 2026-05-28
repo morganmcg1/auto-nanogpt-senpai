@@ -1,3 +1,81 @@
+## 2026-05-28 11:15 UTC — Cycle 71 mid-342 — nezuko #1528 248th (AUX_M_RESET_TIMING_GAP timing-symmetric within noise CLOSED) + 21-mechanism cluster-floor table + PER_KIND_AUX_AMSGRAD pivot (nezuko #1566 NEW, first per-kind state-rule dispatch)
+
+**Cumulative**: **248 refuted** / **145 distinct mech classes** / **107 family-level closures**.
+
+### PR closed this wave (1 closure, terminal bilateral):
+
+| PR | student | mechanism | outcome |
+|---|---|---|---|
+| **nezuko #1528** | nezuko | AUX_M_RESET_TIMING_GAP (Arm A step 1500 mid-plateau, Arm B step 2700 pre-cooldown, 101 AUX params, m-only reset preserving state["step"]) | **248th** — Arm A val=3.27057/ffs=3025, Arm B val=3.27020/ffs=3025, both CLUSTER STANDARD; Δ B−A=−0.00037 (well within seed noise). **First AUX m-reset timing-gap probe across 1500+ PRs.** AUX m-reset timing is non-load-bearing across [1500, 2700, 2950] window. |
+
+### NEW PRINCIPLES this wave:
+
+1. **AUX m-reset timing is INSENSITIVE within [step 1500, 2700, 2950] window (Δ_max ≈ 0.0007 across 3 timings).** Three-point timing dispatch lands in narrow val band [3.27020, 3.27090]. Earlier reset (mid-plateau) marginally worse than mid-reset (pre-cooldown); mid-late reset (post-target boundary) marginally worse than both. All within seed noise.
+2. **AUX m-buffer "stale-recursion" recovery is NOT timing-critical.** Per tanjiro #1522 effective-LR-stratification: lm_head m carries 184× larger L2 but is LESS reset-harmful due to small effective LR. Recovery time after reset is dominated by the same effective-LR factor — earlier reset gives more recovery cycles at small effective LR with no measurable change.
+3. **Discrete-event timing axes mostly NULL.** Joins growing list: askeladd #1504 (per-block m-reset position), nezuko #1505 (m+v joint reset), tanjiro #1522 (per-kind m-reset partition — sole kind-asymmetric outlier). Extends the discrete-event NULL pattern from mid-341 mechanism-family signal-transfer table.
+
+### 21-mechanism cluster floor (FULLY SATURATED, UPDATED):
+
+| axis (new entries this wave) | source | scope | val penalty | ffs |
+|---|---|---|---|---|
+| AUX step 1500 m-reset | nezuko #1528 Arm A | 101 AUX | +0.00281 | +25 |
+| AUX step 2700 m-reset | nezuko #1528 Arm B | 101 AUX | +0.00244 | +25 |
+
+**AUX m-reset timing band FULLY MAPPED at 3 timings**: [step 1500: +0.00281, step 2700: +0.00244, step 2950: +0.00314] — consistently inside cluster STANDARD with no timing direction.
+
+### Fresh assignment — first per-kind AMSGrad dispatch in 1500+ PRs:
+
+| PR | student | mechanism | rationale |
+|---|---|---|---|
+| **nezuko #1566** | nezuko | PER_KIND_AUX_AMSGRAD (Arm A embed_AMSGRAD [embed=True, lm_head=False], Arm B lm_head_AMSGRAD [embed=False, lm_head=True], scalars=False both arms, full-run AUX) | **First per-kind AMSGrad dispatch across 1500+ PRs.** PR #1108 tested AMSGrad globally on AUX; per-kind is virgin. AMSGrad replaces EMA second-moment with per-step MAX (`v_max ← max(v_max, v_t)`) — a more conservative variance estimate. Per-kind dispatch tests whether embed (lr=0.3, large gradient spikes) benefits from conservative variance while lm_head (lr=1/320=0.003125, tiny effective LR, ~96× smaller) does not — or vice versa. **Direct counterfactual to tanjiro #1547 (per-kind β1 axis)** — together they map per-kind AUX optimizer-state interaction (m EMA decay AND v state-rule). STRUCTURALLY NOVEL state-rule change (not magnitude/EMA-decay/cadence/event), orthogonal to all 8 in-flight axes. Per Morgan #1259 (per-group state-phase mechanism). |
+
+### Still-active fleet (8 students, ZERO IDLE):
+
+- **nezuko #1566** — PER_KIND_AUX_AMSGRAD (embed_AMSGRAD vs lm_head_AMSGRAD) — NEWLY assigned
+- **edward #1562** — PER_DEPTH_HALF_ATTN_SOAP_REFRESH (front_FAST vs front_SLOW attn-SOAP refresh freq) — in flight (awaiting student pickup)
+- **askeladd #1558** — PER_DEPTH_HALF_NS5_ITERS (front_FEWER vs front_MORE Newton-Schulz iters) — in flight
+- **tanjiro #1547** — PER_KIND_AUX_BETA1 (embed_FAST vs embed_SLOW per-kind AdamW m EMA) — UNBLOCKED at 11:08Z (W&B auth restored), canary + arms launching
+- **fern #1545** — PER_DEPTH_HALF_SOAP_BETA2_MLP (front_FAST vs front_SLOW per-block Gram EMA) — in flight (offline, training GPU 100%)
+- **thorfinn #1540** — POST_TARGET_SOAP_MLP_SUB_STATE_LOCALIZATION (Arm A `f98tgavh` exp_avg_sq_only val=3.27460/3075 terminal, Arm B `gram_only` relaunching offline)
+- **alphonse #1541** — DEPTH_HALF_BODY_MUON_INIT_SCALE (Arm A `av2acpds` front_BIG val=3.26859/3000 terminal — CLUSTER-EDGE!, Arm B front_SMALL relaunching offline)
+- **frieren #1537** — PER_DEPTH_HALF_NORMUON_BETA2 (Arm A finished, Arm B `ajlr3a8u` offline in flight, ETA ~12:00Z)
+
+### Per-block/per-depth/per-kind dispatch frontier matrix (UPDATED cycle 71 mid-342):
+
+| axis | dispatch | state-phase | scope | PR |
+|---|---|---|---|---|
+| LR continuous ramp | per-block linear | window | body Muon | edward #1468 + #1492 (CLOSED — front_up wins) |
+| SOAP refresh freq MLP | per-block linear | full-run | MLP-SOAP only | edward #1525 (CLOSED — NULL) |
+| SOAP refresh freq ATTN-trust | per-block linear | full-run | attn-SOAP only | edward #1562 (in flight — counterfactual) |
+| TARGET_UW (u/w-floor) | depth-half | windowed | body Muon | askeladd #1527 (CLOSED — NULL) |
+| NORMUON β2 (variance EMA) | depth-half | full-run | body Muon | frieren #1537 (in flight, Arm B) |
+| MLP-SOAP Gram EMA β2 | depth-half | full-run | MLP-SOAP only | fern #1545 (in flight offline) |
+| body Muon init scale | depth-half | pre-training | body Muon 48p | alphonse #1541 (Arm A 3.26859 cluster-edge, Arm B in flight) |
+| AdamW m EMA β1 | per-kind (embed vs lm_head) | full-run | AUX | tanjiro #1547 (UNBLOCKED) |
+| NS5 iters (orthogonalization precision) | depth-half | full-run | body Muon | askeladd #1558 (in flight) |
+| **AMSGrad (v state-rule)** | **per-kind (embed vs lm_head)** | **full-run** | **AUX** | **nezuko #1566 (NEW)** |
+| SOAP state reset (full) | per-kind | event | MLP / Attn-trust | thorfinn #1514 (CLOSED) |
+| SOAP state reset (sub-state) | (MLP scope) | event | exp_avg_sq vs gram | thorfinn #1540 (Arm A terminal, Arm B in flight) |
+| **AUX m-reset timing** | **single-axis** | **event-timing** | **AUX** | **nezuko #1528 (CLOSED THIS WAVE — NULL)** |
+| SOAP state reset depth-half | depth-half | event | all SOAP kinds | fern #1519 (CLOSED) |
+| m-reset per-block | per-block | event | body Muon | askeladd #1504 (CLOSED) |
+| m-reset per-kind AUX | embed vs lm_head | event | AUX | tanjiro #1522 (CLOSED — kind-ASYMMETRIC outlier) |
+| v-reset / m+v joint | none | event | body Muon | alphonse #1518 (CLOSED) |
+| AUX m+v joint | none | event | AUX | nezuko #1505 (CLOSED) |
+| m←±grad direction | none | event | body Muon | frieren #1512 (CLOSED) |
+
+**Continuous-mechanism dispatch frontier**: 10 axes active. SOAP refresh-freq MLP CLOSED NULL, ATTN-SOAP refresh-freq counterfactual in flight. LR ramp CLOSED with front_up signal. **NEW: per-kind AMSGrad state-rule (nezuko #1566)** — structurally orthogonal to all magnitude/EMA-decay/cadence axes.
+
+### Notable mid-flight signal — alphonse #1541 Arm A CLUSTER-EDGE
+
+Arm A (front_BIG, init scale 1.15) terminal at val=3.26859/ffs=3000 — sits at the BAND BOUNDARY between cluster STANDARD (3.269+) and sub-cluster-edge (≤3.269). val is 0.00083 above #613 baseline (3.26776) but ffs matches at 3000. At n=1 only — needs n=2 confirmation OR Arm B (front_SMALL) data first. **First per-block init-scale dispatch in cycle 71 frontier to land at the cluster band boundary.** Awaiting Arm B terminal.
+
+### Infrastructure context
+
+W&B 401 fleet-wide blocker (issue #1551, #1546, #1550, #1552, #1553, #1556) RESOLVED ~11:00Z. Evidence: nezuko `p40vr3i0` synced cleanly, edward `cnur7z8o` synced. Offline arms across fleet (alphonse, thorfinn, fern, frieren, tanjiro held) can now sync or launch online. tanjiro #1547 unblocked at 11:08Z to proceed with canary + Arm A/B.
+
+---
+
 ## 2026-05-28 10:20 UTC — Cycle 71 mid-341 — edward #1525 247th (DEPTH_LINEAR_SOAP_PRECOND_FREQ_MLP depth-symmetric NULL Δ=−0.00015 CLOSED) + 19-mechanism cluster-floor table + PER_DEPTH_HALF_ATTN_SOAP_REFRESH pivot (edward #1562 NEW, symmetric counterfactual to just-closed MLP-SOAP refresh-freq)
 
 **Cumulative**: **247 refuted** / **145 distinct mech classes** / **107 family-level closures**.
