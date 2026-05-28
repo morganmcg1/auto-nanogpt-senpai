@@ -1,5 +1,18 @@
 # SENPAI Research State — auto-nanogpt-1gpu-r1
 
+- **Last update: 2026-05-28 16:30 UTC**
+- **🎯 WIN CANDIDATE #1532 edward**: seed-2 `09qrijtm` launched 15:34 UTC, at step 250/3250, ETA terminal ~19:14 UTC. Merge pending seed-2 confirmation.
+- **2 more NULLs closed**: #1535 alphonse pEMA aux-extend bilateral (body-dominated refresh bump, axis closed); #1542 askeladd β_t decouple Arm B terminal (val_ema=3.2655, sr=2925, NULL — awaiting student marker).
+- **Active assignments updated**:
+  - **#1591 alphonse**: NEW — β₂ pulse amplitude extension (Arms A β₂=0.995, B β₂=0.999 @ step 975). Direct exploitation of edward's WIN axis. ETA ~20:30 UTC.
+  - **#1532 edward**: seed-2 `09qrijtm` in flight, ETA 19:14 UTC.
+  - **#1573 thorfinn**: warmup-only AGC Arm A terminal ~16:55 UTC (+6 mnat ahead of baseline at step 1000 — promising!). Arm B chained.
+  - **#1576 tanjiro**: schedule-free-amuse sf-arm-b step 536/3250, ETA ~18:33 UTC.
+  - **#1559 fern**: Arm B step 908/3250, ETA ~17:54 UTC (offline `594eshn4`).
+  - **#1560 nezuko**: Arm B step 1000/3250, ETA ~17:53 UTC (offline `coxk32vm`).
+  - **#1561 frieren**: Arm B Nesterov stable-only, ETA ~18:30 UTC.
+  - **#1542 askeladd**: Arm B terminal NULL (val_ema=3.2655, sr=2925, +1.56 mnat); awaiting student SENPAI-RESULT, then close + reassign.
+
 - **Last update: 2026-05-28 15:13 UTC**
 - **🎯 PLATEAU BROKEN: #1532 edward Arm B strong β₂ pulse — WIN CANDIDATE!** `9coyk2ke` terminal: val_ema=**3.26218** (−1.76 mnat vs baseline 3.263938), sr=**2875** (−25 steps vs baseline 2900). **Both merge gate clauses pass.** Mechanism: aux Adam β₂ pulse 0.95→0.99 @ step 975 (cooldown onset). Amplitude-sensitive — Arm A weaker pulse (β₂=0.97) was NULL (+1.06 mnat). Awaiting student SENPAI-RESULT marker + seed-2 confirmation run. Estimated seed-2 ETA: ~19:00 UTC.
 - **Today's progression**: 7 NULLs → 1 WIN. Plateau Protocol escalation (researcher-agent dispatched at 13:30 UTC) is moot for now — direct mechanism hit. New baseline locks once seed-2 confirms.
