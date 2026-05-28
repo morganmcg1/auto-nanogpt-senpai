@@ -1,3 +1,86 @@
+## 2026-05-28 13:55 UTC — Cycle 71 mid-346 — tanjiro #1547 253rd (PER_KIND_AUX_BETA1 first per-kind β1 dispatch CLOSED — β1 Goldilocks at merge-bar scale, m-staleness directional prediction WEAKLY REVERSED) + tanjiro #1577 NEW PER_KIND_AUX_BETA2_FULL_RUN pivot (first full-run per-kind AdamW β2 dispatch in 1575+ PRs, counterfactual to just-closed β1 axis)
+
+**Cumulative**: **253 refuted** / **150 distinct mech classes** / **111 family-level closures**.
+
+### PR closed this wave (1 closure, terminal bilateral, m-staleness weakly reversed):
+
+| PR | student | mechanism | outcome |
+|---|---|---|---|
+| **tanjiro #1547** | tanjiro | PER_KIND_AUX_BETA1 (Arm A embed_FAST β1=0.85 / lm_head=0.75, Arm B embed_SLOW β1=0.75 / lm_head=0.85, scalars=0.80) | **253rd** — Arm A val=3.26997/ffs=3025 (STANDARD), Arm B val=3.26936/ffs=3025 (STANDARD); val_mean=3.26967 fails merge bar by 0.00191. Δ(A−B)=+0.00061 → **m-staleness directional prediction WEAKLY REVERSED** (Arm B with lm_head_FAST wins by sub-MDE margin). Arm B led from step 500 (Δ=+0.006) consistently to step 3175 (Δ=+0.0006) across 7 snapshot windows — direction sign stable but |Δ| below n=1 noise. **β1 Goldilocks at merge-bar scale; kind-asymmetry from #1522 is event-axis-only (m-reset), not continuous m-axis (β1).** 16th cluster STANDARD axis joins floor. |
+
+### Structural signal — kind-asymmetry maps event-axis but NOT continuous-axis
+
+**#1522 m-reset (event-axis)** showed strong kind-asymmetry (lm_head Δ=0.00104 vs body Δ=0.00003).
+**#1547 β1 EMA rate (continuous-axis)** shows weak Goldilocks (Δ=0.00061 = noise).
+
+Implication: **lm_head's m-staleness is a discrete event-axis phenomenon, not a continuous timescale phenomenon.** Resetting m at step 2950 is qualitatively different from setting a faster β1 across the full run. Two reads:
+1. **Bias-correction window dominates**: at lm_head's tiny LR (1/320), bias-corrected EMA window doesn't shrink the way 1/(1−β1) implies post-warmup.
+2. **Discrete vs continuous mechanism class**: m-reset shocks the system into a fresh basin; β1 just slowly varies the smoothing rate → no basin shift, no signal.
+
+### Fresh assignment — first full-run per-kind β2 dispatch in 1575+ PRs:
+
+| PR | student | mechanism | rationale |
+|---|---|---|---|
+| **tanjiro #1577** | tanjiro | PER_KIND_AUX_BETA2_FULL_RUN (Arm A embed_TIGHT β2=0.99 / lm_head=0.91, Arm B embed_FAST β2=0.91 / lm_head=0.99, scalars=0.95; mean preserved 0.95) | **First full-run per-kind AdamW β2 dispatch in 1575+ PRs.** Prior per-kind β2: #1358 cooldown-start event-axis only. Counterfactual to just-closed #1547 — tests whether v-state EMA rate is per-kind sensitive when m-state EMA rate (β1) was Goldilocks. Orthogonal to nezuko #1566 PER_KIND_AUX_AMSGRAD (state rule vs state rate). Per Morgan #1259 per-group state-rate directive. |
+
+### Still-active fleet (8 students, ZERO IDLE):
+
+- **nezuko #1566** — PER_KIND_AUX_AMSGRAD — in flight
+- **edward #1562** — PER_DEPTH_HALF_ATTN_SOAP_REFRESH — Arm A terminal STANDARD
+- **askeladd #1558** — PER_DEPTH_HALF_NS5_ITERS — Arm A STANDARD, Arm B ETA ~14:45Z
+- **tanjiro #1577** — PER_KIND_AUX_BETA2_FULL_RUN (NEWLY assigned)
+- **fern #1575** — PER_KIND_ATTN_SOAP_BETA2 — in flight (awaiting pickup)
+- **thorfinn #1570** — ATTN_SOAP_ACTIVATION_DELAY — in flight (awaiting pickup)
+- **alphonse #1568** — PER_DEPTH_HALF_MU_COOLDOWN_END — in flight (awaiting pickup)
+- **frieren #1569** — PER_DEPTH_HALF_ATTN_SOAP_BETA2 — in flight (awaiting pickup)
+
+### Updated per-depth/per-kind dispatch frontier matrix (cycle 71 mid-346):
+
+| axis | dispatch | state-phase | scope | PR |
+|---|---|---|---|---|
+| LR continuous ramp | per-block linear | window | body Muon | edward #1468/#1492 (CLOSED front_up) |
+| SOAP refresh freq MLP | per-block linear | full-run | MLP-SOAP | edward #1525 (CLOSED NULL) |
+| SOAP refresh freq ATTN-trust | per-block linear | full-run | attn-SOAP | edward #1562 (Arm A STANDARD) |
+| TARGET_UW | depth-half | windowed | body Muon | askeladd #1527 (CLOSED NULL) |
+| NORMUON β2 | depth-half | full-run | body Muon | frieren #1537 (CLOSED front_up SCE) |
+| MLP-SOAP Gram EMA β2 | depth-half | full-run | MLP-SOAP | fern #1545 (CLOSED STANDARD bilateral) |
+| body Muon init scale | depth-half | pre-training | body Muon 48p | alphonse #1541 (CLOSED front_BIG SCE) |
+| **AUX β1** | **per-kind (embed/lm_head)** | **full-run** | **AUX** | **tanjiro #1547 (CLOSED β1 Goldilocks, m-staleness reversed)** |
+| NS5 iters | depth-half | full-run | body Muon | askeladd #1558 (Arm A STANDARD, Arm B in flight) |
+| AMSGrad (v state-rule) | per-kind | full-run | AUX | nezuko #1566 (in flight) |
+| MU_COOLDOWN_END | depth-half | late-phase | body Muon | alphonse #1568 (in flight) |
+| ATTN-SOAP β2 | depth-half | full-run | attn-SOAP | frieren #1569 (in flight) |
+| ATTN-SOAP activation step | single-axis | state-phase | attn-SOAP | thorfinn #1570 (in flight) |
+| ATTN-SOAP β2 per-kind | per-kind (q/k vs v/proj) | full-run | attn-SOAP | fern #1575 (in flight) |
+| **AUX β2** | **per-kind (embed/lm_head)** | **full-run** | **AUX** | **tanjiro #1577 (NEWLY assigned)** |
+| SOAP state reset (sub-state) | MLP scope | event | exp_avg_sq vs gram | thorfinn #1540 (CLOSED localization) |
+| SOAP state reset depth-half | depth-half | event | all SOAP | fern #1519 (CLOSED) |
+| m-reset per-block | per-block | event | body Muon | askeladd #1504 (CLOSED) |
+| m-reset per-kind AUX | embed vs lm_head | event | AUX | tanjiro #1522 (CLOSED kind-ASYMMETRIC) |
+| AUX m-reset timing | single-axis | event-timing | AUX | nezuko #1528 (CLOSED NULL) |
+| v-reset / m+v joint body | none | event | body Muon | alphonse #1518 (CLOSED) |
+| AUX m+v joint | none | event | AUX | nezuko #1505 (CLOSED) |
+| m←±grad direction | none | event | body Muon | frieren #1512 (CLOSED) |
+
+**14 continuous-mechanism dispatch axes active** (AUX β2 per-kind now joins), **7 closed event/discrete**. AUX-side per-kind continuous axes: β1 (closed Goldilocks), β2 (newly assigned). m-state event axis vs continuous axis now both probed.
+
+### Cluster-floor sub-cluster-edge band density (253-refute snapshot):
+
+**Sub-cluster-edge accumulating density [3.265, 3.269)**: 
+- alphonse Arm A `front_BIG` 3.26859 (252-refute closest to baseline 3.26776)
+- frieren Arm A `front_FAST` 3.26957
+- thorfinn Arm B `gram_only` 3.26922 (sub-state localization standout)
+
+**STANDARD band cluster [3.269, 3.275)**: now includes both tanjiro #1547 arms (3.26997 / 3.26936). Still ~21-mechanism floor; no mechanism has crossed merge bar at single-seed since PR #613.
+
+### Research focus going into mid-347:
+
+1. **Per-kind continuous axis is the new frontier**. β1 closed Goldilocks (#1547); β2 full-run testing now (#1577). AMSGrad per-kind in flight (#1566). Each closes a distinct continuous-axis question on AUX state-rule space.
+2. **Pending Arm Bs**: askeladd #1558 ETA ~14:45Z. Other Arm Bs pending pickup (alphonse #1568, frieren #1569, thorfinn #1570, fern #1575).
+3. **5-mechanism front_up principle confirmed at mid-345**: depth-half axis on continuous mechanisms is saturated. Per-kind / state-phase / sub-state axes are now the dominant frontier.
+
+---
+
 ## 2026-05-28 12:55 UTC — Cycle 71 mid-345 — fern #1545 252nd (PER_DEPTH_HALF_SOAP_BETA2_MLP terminal STANDARD CLOSED — 5-MECHANISM FRONT_UP PRINCIPLE CONFIRMED) + fern #1575 NEW PER_KIND_ATTN_SOAP_BETA2 pivot (first per-kind q/k vs v/proj β2 dispatch within attn-SOAP layer scope across 1575+ PRs, orthogonal to depth-half axis family)
 
 **Cumulative**: **252 refuted** / **149 distinct mech classes** / **110 family-level closures**.
