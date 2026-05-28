@@ -1,3 +1,71 @@
+## 2026-05-28 16:45 UTC — Cycle 71 mid-351 — alphonse #1568 257th (PER_DEPTH_HALF_MU_COOLDOWN_END terminal STANDARD CLOSED — 7th front_up depth-half axis SATURATED, **state-phase class STRONGEST in family at Δ=+0.00315**, but no merge val_mean=3.27150 misses bar by 0.00374) + alphonse #1594 NEW PER_DEPTH_HALF_COMPOSITE_MU_COOLDOWN_END_x_BODY_INIT pivot (first composite additivity test of 7-mechanism front_up family — combines #1568 winning MU_COOLDOWN_END front_LOWER × #1541 winning BODY_INIT_SCALE front_BIG, testing whether front_up principle is additive across orthogonal mechanism classes) + askeladd #1582 heartbeat sent (Arm A `per-kind-ns5-A-attnMORE-n1` `fz2fcjsn` live at step 2226/3175 val=3.4096, per-kind code patch CONFIRMED ns5_iters_attn=18 ns5_iters_mlp=10)
+
+**Cumulative**: **257 refuted** / **154 distinct mech classes** / **113 family-level closures**.
+
+### PR closed this wave (1 closure, terminal bilateral, STATE-PHASE STRONGEST front_up signal yet):
+
+| PR | student | mechanism | outcome |
+|---|---|---|---|
+| **alphonse #1568** | alphonse | PER_DEPTH_HALF_MU_COOLDOWN_END (Arm A `front_LOWER` MU_COOLDOWN_END_FRONT=0.85/BACK=0.95 vs Arm B `front_HIGHER` 0.95/0.85, state-phase momentum cooldown endpoint per depth-half) | **257th** — Arm A val=3.26992/ffs=3025 (CLUSTER STANDARD, +0.00092 over edge), Arm B val=3.27307/ffs=3050 (STANDARD); val_mean=3.27150 fails merge bar by 0.00374. Δ B−A=+0.00315 → **front_LOWER WINS** — 7th front_up mechanism at depth-half axis, state-phase class. **STRONGEST single-axis Δ in entire 7-mechanism family** (3× the continuous-update class mean). |
+
+### STRUCTURAL FINDING — front_up principle extends to STATE-PHASE class, signal magnitude 3× stronger than continuous-update class
+
+Updated depth-half × mechanism-class taxonomy (post-#1568):
+
+| mech class | example PRs | direction | typical Δ magnitude |
+|---|---|---|---|
+| **continuous-update class** (always-applied EMA/iter/schedule) | LR ramp #1468/#1492, NORMUON β2 #1537, MLP-SOAP β2 #1545, NS5 iters #1558 | front_FAST/MORE/BIG | ~0.001 |
+| **state-phase class** (phase-gated endpoint, e.g. cooldown_end) | **MU_COOLDOWN_END #1568 (NEW)** | front_LOWER | **+0.00315 (STRONGEST)** |
+| **init class** (start-state perturbation, e.g. body init scale) | BODY_INIT_SCALE #1541 | front_BIG | +0.00100 |
+| **event/trust-gated class** (per-step gating decision) | Attn-SOAP refresh-freq #1562 | **REVERSED front_SLOW** | −0.00288 |
+
+**Mechanism interpretation**: state-phase class (cooldown_end) carries the strongest depth-asymmetry signal because it directly schedules a *late-training* divergence between front and back blocks — the front blocks finish at a faster-decayed momentum (μ=0.85 final) while back blocks finish slower (μ=0.95 final). Continuous-update class spreads the depth-asymmetric effect across all 3175 steps; state-phase concentrates it in the final ~30% (cooldown phase = ~step 2222 onwards). This concentrated leverage produces a stronger single-axis Δ but doesn't necessarily merge — because both arms still pay for not having the OTHER front_up mechanisms in play.
+
+### Composite hypothesis (informing next assignment #1594)
+
+If the 7-mechanism front_up family is **additive**, then combining MU_COOLDOWN_END front_LOWER (Δ=+0.00315) × BODY_INIT_SCALE front_BIG (Δ=+0.00100) should yield composite Δ ≈ +0.00415 vs counterfactual. Arm A would land at val ≈ 3.265-3.268, **crossing the cluster-edge boundary 3.269 and potentially the baseline merge bar 3.26776**.
+
+If **saturating**, composite Δ ≈ max(+0.003, +0.001) = +0.003 → Arm A lands at val ≈ 3.268-3.270, just over cluster-edge.
+
+If **anti-correlated**, composite Δ < +0.002 → mechanisms interfere; clean negative finding for the saturated axis family.
+
+### PR assigned this wave
+
+| PR | student | mechanism | role |
+|---|---|---|---|
+| **alphonse #1594** | alphonse | PER_DEPTH_HALF_COMPOSITE_MU_COOLDOWN_END_x_BODY_INIT (Arm A composite front_up: mu_front=0.85/back=0.95 × init_front=1.15/back=0.85, Arm B counterfactual: mu_front=0.95/back=0.85 × init_front=0.85/back=1.15) | First composite additivity test across the 7-mechanism front_up family. Highest-prior merge attempt available — if additive, could merge into baseline. |
+
+### Heartbeat sent this wave
+
+- **askeladd #1582** (PER_KIND_NS5_ITERS_FULL_RUN, stale_wip): Arm A `per-kind-ns5-A-attnMORE-n1` live at step 2226/3175 (~70%), val=3.4096, GPU=100%. Code patch CONFIRMED in W&B config (per_kind_ns5_iters_enabled=1, ns5_iters_attn=18, ns5_iters_mlp=10). Healthy — student just not posting midflight status. Reminded of closure path (Arm B = `attnLESS` with ns5_iters_attn=10/ns5_iters_mlp=18, single terminal SENPAI-RESULT).
+
+### Fleet state at end of wake 17
+
+8 students all assigned, 0 idle:
+
+| PR | student | axis | status |
+|---|---|---|---|
+| #1569 | frieren | PER_DEPTH_HALF_ATTN_SOAP_BETA2 (depth-asymmetric attn-trust SOAP β2) | WIP |
+| #1570 | thorfinn | ATTN_SOAP_ACTIVATION_DELAY (delay_200 vs delay_1000 step-N activation gate) | WIP |
+| #1575 | fern | PER_KIND_ATTN_SOAP_BETA2 (per-kind q/k vs v/proj β2 inside attn-SOAP layer scope) | Arm A mid-flight |
+| #1577 | tanjiro | PER_KIND_AUX_BETA2 (per-AUX-kind AdamW v-EMA decay full-run) | WIP |
+| #1582 | askeladd | PER_KIND_NS5_ITERS_FULL_RUN (per-kind attn vs MLP NS5 iters dispatch) | Arm A mid-flight (~70%) |
+| #1583 | edward | PER_KIND_ATTN_SOAP_REFRESH_FREQ (per-kind q/k vs v/proj trust-gated refresh-freq) | WIP |
+| #1590 | nezuko | PER_KIND_MLP_SOAP_BETA2 (per-MLP-kind fc vs proj β2 dispatch full-run) | WIP (fresh) |
+| #1594 | alphonse | PER_DEPTH_HALF_COMPOSITE_MU_COOLDOWN_END_x_BODY_INIT (composite additivity test) | WIP (fresh) |
+
+**Cycle 71 active axis-families**: **5-mechanism PER-KIND axis family** (attn-SOAP β2/refresh, MLP-SOAP β2, NS5 cross-layer, AUX β2) + 1-mechanism PER-DEPTH-HALF axis (#1569 attn-SOAP β2) + 1-mechanism COMPOSITE depth-half (#1594, NEW) + activation-delay axis (#1570). Composite #1594 is a structurally novel axis class testing additivity in a saturated mechanism family.
+
+### Potential next research directions (post-current-cycle saturation)
+
+1. **3+ mechanism composite** if #1594 confirms additive (e.g. cooldown_end + body_init + NS5 iters front_up).
+2. **State-phase × per-kind cross-product**: per-block × per-kind dispatch combining the strongest signals from both axis families (e.g. MU_COOLDOWN_END_BLOCK_i × kind-asymmetric scaling).
+3. **Reversed-direction composite**: if attn-SOAP refresh-freq #1562 reversed direction (front_SLOW) holds for other trust-gated mechanisms, compose into a "reversed-stack" — front_SLOW refresh × front_HIGHER cooldown. Tests whether the reversed direction is also additive.
+4. **State-phase class on non-momentum axes**: cooldown_end carried the strongest signal; test cooldown_start, warmup_start, warmup_steps per depth-half to map the state-phase axis fully.
+5. **Per-block (4-cell or 6-cell) split sweep**: probe whether the front/back split=6 boundary is optimal for state-phase class (might differ from continuous-update class).
+
+---
+
 ## 2026-05-28 16:10 UTC — Cycle 71 mid-350 — nezuko #1566 256th (PER_KIND_AUX_AMSGRAD terminal STANDARD CLOSED — kind-asymmetric direction, lm_head more brittle under STATE-RULE perturbation reinforcing #1522 m-reset pattern with OPPOSING direction signal) + nezuko #1590 NEW PER_KIND_MLP_SOAP_BETA2 pivot (first per-MLP-SOAP-kind fc vs proj β2 dispatch across 1500+ PRs; completes 5-mechanism per-kind axis family in flight)
 
 **Cumulative**: **256 refuted** / **153 distinct mech classes** / **113 family-level closures**.
