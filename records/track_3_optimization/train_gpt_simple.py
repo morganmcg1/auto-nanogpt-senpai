@@ -82,8 +82,11 @@ def parse_args():
                         help="Random seed for torch/numpy/python. Default 1 matches baseline seed.")
     parser.add_argument("--aux_agc_lambda", type=float, default=-1.0,
                         help="AGC (Adaptive Gradient Clipping, Brock et al. NFNets) lambda for aux "
-                             "Adam param groups. Clips each aux tensor s.t. "
-                             "||grad||_F <= lambda * ||param||_F. -1 disables (default). "
+                             "Adam param groups. Unit-wise formulation matching the timm reference: "
+                             "per-row Frobenius for matrices, per-element for scalars/biases, with "
+                             "param_norm.clamp_(min=1e-3). Lambda is on the canonical NFNets scale; "
+                             "internally rescaled by batch_size to compensate for the sum-reduction "
+                             "loss in this codebase. -1 disables (default). "
                              "Recommended: 0.01 (tight) or 0.05 (loose).")
     args = parser.parse_args()
     args.num_trials = args.num_trials if args.num_trials is not None else (args.legacy_num_trials or 1)
@@ -1059,37 +1062,58 @@ for trial_idx in range(args.num_trials):
                 wandb_step=wandb_step,
             )
         # Adaptive Gradient Clipping (AGC) on aux Adam param groups (optimizer1).
-        # Per-tensor clip: ||grad||_F <= lambda * ||param||_F (Brock et al. NFNets,
-        # ICML 2021), applied only to tensors whose ||param||_F >= AGC_PARAM_NORM_MIN.
-        # The skip-when-tiny rule replaces the NFNets unit-norm 1e-3 floor with a
-        # tensor-level skip: in this codebase lm_head proj.weight, all biases, and
-        # any zero-init param (lines 778-785) start with ||W||_F = 0, which would
-        # otherwise force the clip threshold to collapse to ~0 and freeze aux
-        # updates instead of bounding outliers. Skipping AGC for not-yet-scaled
-        # params matches the spirit of the original NFNets `clamp_(min=1e-3)`
-        # safeguard while keeping the per-tensor Frobenius formulation from the PR.
+        # Unit-wise NFNets formulation (Brock et al. ICML 2021), matching the
+        # `timm.utils.agc.adaptive_clip_grad` reference:
+        #   - per-row Frobenius norm for matrices (ndim==2): shape [out, 1]
+        #   - per-element treatment for scalars/biases (ndim<=1): |x|
+        #   - param_norm clamped to min=1e-3 (handles zero-init lm_head/biases)
+        #   - grad_norm clamped to min=1e-6 (numerical safety)
+        #   - torch.where(grad_norm > lambda * param_norm, clipped, grad)
+        # The user-facing --aux_agc_lambda is on the canonical NFNets/Brock scale
+        # (recommended 0.01-0.05). Because this codebase uses
+        # F.cross_entropy(reduction='sum') with batch_size=524288 tokens, raw
+        # aux gradients are ~batch_size larger than mean-reduction would produce
+        # and ~5-6 orders larger than what Brock's lambda is calibrated for.
+        # We rescale internally (agc_lambda_eff = lambda * batch_size) so that
+        # canonical lambda=0.01 bounds outliers at the gradient magnitudes this
+        # codebase actually produces (see PR #1531 discussion for derivation).
         # Body Muon (optimizer2) is already spectrally bounded by NS5 polar
         # normalization, so AGC is applied to aux-only by design.
-        AGC_PARAM_NORM_MIN = 1e-3
         agc_fired_count = 0
-        agc_skipped_tiny = 0
+        agc_fired_units = 0
         agc_max_clip_ratio = 1.0
         if args.aux_agc_lambda > 0:
+            agc_lambda_eff = args.aux_agc_lambda * batch_size
             for group in optimizer1.param_groups:
                 for p in group["params"]:
                     if p.grad is None:
                         continue
-                    param_norm = float(p.detach().norm(p="fro").item())
-                    if param_norm < AGC_PARAM_NORM_MIN:
-                        agc_skipped_tiny += 1
-                        continue
-                    grad_norm = float(p.grad.detach().norm(p="fro").item()) + 1e-12
-                    max_grad_norm = args.aux_agc_lambda * param_norm
-                    if grad_norm > max_grad_norm:
-                        clip_ratio = max_grad_norm / grad_norm
-                        agc_max_clip_ratio = min(agc_max_clip_ratio, clip_ratio)
+                    g = p.grad
+                    w = p.detach()
+                    if w.ndim <= 1:
+                        # Per-element treatment for scalars/biases/1-D params.
+                        param_norm = w.abs().clamp_(min=1e-3)
+                        grad_norm = g.detach().abs().clamp_(min=1e-6)
+                    elif w.ndim == 2:
+                        # Per-row Frobenius for 2-D matrices (Linear weights).
+                        param_norm = w.norm(p=2, dim=1, keepdim=True).clamp_(min=1e-3)
+                        grad_norm = g.detach().norm(p=2, dim=1, keepdim=True).clamp_(min=1e-6)
+                    else:
+                        # No aux tensors with ndim>=3 in this model; fall back to
+                        # per-tensor Frobenius if any appear in the future.
+                        param_norm = w.norm(p="fro").clamp_(min=1e-3)
+                        grad_norm = g.detach().norm(p="fro").clamp_(min=1e-6)
+                    max_grad_norm = param_norm * agc_lambda_eff
+                    trigger = grad_norm > max_grad_norm
+                    if bool(trigger.any().item()):
+                        clipped_grad = g * (max_grad_norm / grad_norm)
+                        new_grad = torch.where(trigger, clipped_grad, g)
+                        p.grad.data.copy_(new_grad)
                         agc_fired_count += 1
-                        p.grad.mul_(clip_ratio)
+                        agc_fired_units += int(trigger.sum().item())
+                        # Tightest clip ratio across units (lower = tighter clip).
+                        clip_ratio = float((max_grad_norm / grad_norm).min().item())
+                        agc_max_clip_ratio = min(agc_max_clip_ratio, clip_ratio)
         agc_fired_total += agc_fired_count
         if dist.get_rank() == 0 and args.aux_agc_lambda > 0:
             wandb.log({
@@ -1097,9 +1121,10 @@ for trial_idx in range(args.num_trials):
                 "train/step": train_step,
                 "train/aux_agc/fired_count": agc_fired_count,
                 "train/aux_agc/fired_total": agc_fired_total,
-                "train/aux_agc/skipped_tiny": agc_skipped_tiny,
+                "train/aux_agc/fired_units": agc_fired_units,
                 "train/aux_agc/max_clip_ratio": agc_max_clip_ratio,
                 "train/aux_agc/lambda": args.aux_agc_lambda,
+                "train/aux_agc/lambda_effective": agc_lambda_eff,
             }, step=wandb_step)
         for opt in optimizers:
             opt.step()
