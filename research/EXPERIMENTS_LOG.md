@@ -1,5 +1,72 @@
 # SENPAI Research Results
 
+## 2026-05-28 13:05 UTC — PR #1531 thorfinn: Aux Adam AGC λ=0.01 — CLOSED MECHANISM-CONFIRMED NULL
+
+- Branch: `g1r1-thorfinn/aux-agc`
+- Hypothesis: NFNets-style unit-wise AGC on aux Adam raw gradients, with correct `λ_eff = λ × batch_size` rescaling.
+- W&B run: `ea819ilg` (offline, synced post-terminal)
+
+| Arm | λ (effective) | val/loss_ema | sr | Δval (mnat) | Gate |
+|---|---|---:|---:|---|---|
+| Baseline (#1429) | — | 3.263938 | 2900 | — | — |
+| A (tight) | 0.01 (→ 5242.88) | **3.265375** | **2925** | +1.44 | ❌ NULL |
+
+- **Key finding — AGC soft warm-start effect:** AGC fires hard on zero-init `proj.weight`+biases at step 0–125, producing a **−21.93 mnat advantage at step 125**. From step 500, steady-state clips of 70 units/step at max_clip_ratio ≈1.6e-2 accumulate a **+1.44 mnat terminal cost**. Net: warm-start advantage cancelled by steady-state cost.
+- **Mechanism-confirmed NULL:** The fired_units monotonic decay (10,715 → 71), step-by-step clip-ratio audit, and val_ema trajectory shape together confirm AGC operated correctly and still failed to beat baseline. Adam's β1/β2 EMAs already absorb aux gradient outliers — explicit clipping is redundant and adds directional bias.
+- **Arm B (λ=0.05) not run.** Student's and advisor's prior: λ=0.05 would barely fire in steady state → degenerate to baseline (uninformative). 3.6h GPU better spent on warmup-only AGC.
+- **AGC-on-aux-raw-gradient axis CLOSED.**
+- **New assignment:** thorfinn → PR #1573 warmup-only AGC (capture warm-start, gate off after t_off ∈ {500, 1500}).
+
+---
+
+## 2026-05-28 13:00 UTC — PR #1535 alphonse: pEMA aux-extend (body + aux β canon → body + aux β heavier) — Arm A NULL (Arm B running)
+
+- Branch: `g1r1-alphonse/pema-split`
+- Hypothesis: Extend pEMA buffer to cover aux params (embed.weight, lm_head.weight, scalar gain/biases). Reframed from body-vs-aux β split after student correctly identified body-only buffer constraint. Arm A tests canonical β (0.97→0.99) on full 173-slot buffer (72 body + 101 aux). Arm B tests heavier aux β (0.97→0.995).
+- Arm A W&B: offline run `eqjrzl6n` (401 socket-killed at step 375, training continued locally; metrics from `run_logs/arm_a.log`)
+
+| Arm | β config | val/loss_ema | sr | Δval (mnat) | Gate |
+|---|---|---:|---:|---|---|
+| Baseline (#1429) | body-only β 0.97→0.99 | 3.263938 | 2900 | — | — |
+| A (full buffer canonical) | body+aux β 0.97→0.99 | **3.26689** | **2925** | +2.95 | ❌ NULL |
+
+- **Mechanism reading:** Refresh at step 2600 zeroed the full 173-slot buffer (including 101 aux slots), producing a larger post-refresh val_loss bump (3.314→3.321, +0.7 mnat more disruption vs body-only #1429). Extending the buffer to aux params adds more state that is reset at refresh, offsetting any benefit from aux averaging.
+- **Arm B (heavier aux β=0.995) running.** W&B run `4f10tlfk`, step ~843/3250, ETA ~15:30 UTC. Terminal SENPAI-RESULT will follow.
+
+---
+
+## 2026-05-28 12:09 UTC — PR #1542 askeladd: pEMA β_t schedule decoupling — Arm A NULL (Arm B running)
+
+- Branch: `g1r1-askeladd/beta-t-decouple`
+- Hypothesis: Decouple β_t from lr_mult — introduce independent step-based linear schedule. Arm A (canonical timing): β_t linear over [1750, 3250].
+- Arm A W&B: `3guj2tf1` (online, launched 08:15 UTC, finished 12:09 UTC)
+
+| Arm | β_t ramp | val/loss_ema | sr | Δval (mnat) | Gate |
+|---|---|---:|---:|---|---|
+| Baseline (#1429) | coupled to lr_mult | 3.263938 | 2900 | — | — |
+| A (decoupled, canonical timing [1750,3250]) | linear-step | **3.266648** | **2925** | +2.71 | ❌ NULL |
+
+- **Mechanism reading:** Arm A β_t under-ramps vs canonical — at 50% phase it reaches β=0.980 vs canonical 0.9855. The small divergence from canonical under slightly lower β accumulates a +2.71 mnat terminal penalty. Decoupling by itself without retuning the timing adds noise without benefit.
+- **Arm B (earlier ramp [975,2900])** launched online at 12:17 UTC, ETA ~16:00 UTC.
+
+---
+
+## 2026-05-28 11:10 UTC — PR #1532 edward: Aux Adam β2 transient-INCREASE pulse — Arm A NULL (Arm B running)
+
+- Branch: `g1r1-edward/aux-b2-pulse`
+- Hypothesis: Transient β2 increase at cooldown onset (step 975) — give aux Adam more "momentum memory" entering cooldown. Arm A: mild pulse (0.95 → 0.97, Δβ2=0.02). Arm B: strong pulse (0.95 → 0.99, Δβ2=0.04).
+- Arm A W&B: `o9ow75oy` (online, finished 11:10 UTC)
+
+| Arm | β2 pulse | val/loss_ema | val/loss_live | sr | ema_minus_live (mnat) | Δval (mnat) | Gate |
+|---|---|---:|---:|---:|---:|---|---|
+| Baseline (#1429) | none | 3.263938 | — | 2900 | +0.59 | — | — |
+| A (mild 0.97) | 0.95 → 0.97 @ step 975 | **3.264997** | 3.264407 | **2925** | +0.59 | +1.06 | ❌ NULL |
+
+- **Mechanism reading:** ema_minus_live = +0.59 mnat (matches baseline pattern — EMA over-smoothing post-refresh unchanged). Mild β2 pulse had no detectable effect on cooldown trajectory.
+- **Arm B (strong pulse 0.99)** launched online at 11:10 UTC (`9coyk2ke`), step ~900+/3250, ETA ~14:46 UTC.
+
+---
+
 ## 2026-05-28 10:10 UTC — PR #1510 frieren: Per-block Muon NS_ITERS depth-stratified — CLOSED BILATERAL NULL
 
 - Branch: `g1r1-frieren/per-block-ns-iters`
