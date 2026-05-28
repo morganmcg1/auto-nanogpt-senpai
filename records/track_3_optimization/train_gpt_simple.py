@@ -468,6 +468,13 @@ NS5_ITERS = int(os.environ.get("NS5_ITERS", "12"))
 WD_AUX = float(os.environ.get("WD_AUX", "0.0"))  # AdamW WD on embed + lm_head matrices (scalars stay at 0)
 EMBED_INIT_STD = float(os.environ.get("EMBED_INIT_STD", "1.0"))  # default preserves baseline N(0,1)
 LOGIT_SOFTCAP = float(os.environ.get("LOGIT_SOFTCAP", "15.0"))  # default = 15 (current hardcoded value); soft-cap value c in f(x) = c·x / sqrt(x^2+c^2)
+# PR #1504: per-block body-Muon momentum reset at a post-target dispatch step.
+# Decomposes alphonse #1461 joint body-Muon m-reset (72 params) at finest scope:
+# zero state["momentum"] only on the 6 body-Muon weight params (4 attn + 2 mlp)
+# belonging to a single transformer block (blocks.{N}.attn|mlp.*.weight).
+POST_TARGET_BODY_MUON_PER_BLOCK_M_RESET_ENABLED = int(os.environ.get("POST_TARGET_BODY_MUON_PER_BLOCK_M_RESET_ENABLED", "0"))
+POST_TARGET_BODY_MUON_PER_BLOCK_M_RESET_STEP = int(os.environ.get("POST_TARGET_BODY_MUON_PER_BLOCK_M_RESET_STEP", "2950"))
+POST_TARGET_BODY_MUON_PER_BLOCK_M_RESET_BLOCK = int(os.environ.get("POST_TARGET_BODY_MUON_PER_BLOCK_M_RESET_BLOCK", "0"))
 
 
 def zeropower_via_newtonschulz5(G: Tensor) -> Tensor:
@@ -867,6 +874,9 @@ if dist.get_rank() == 0:
             "optimizer/ns5_iters": NS5_ITERS,
             "optimizer/wd_aux": WD_AUX,
             "optimizer/recipe": "contra-muon + normuon-lite + soap-on-mlp + soap-on-attn-trust-gate (pre-NS5, record #14 + record #16)",
+            "post_target_body_muon_per_block_m_reset/enabled": POST_TARGET_BODY_MUON_PER_BLOCK_M_RESET_ENABLED,
+            "post_target_body_muon_per_block_m_reset/step": POST_TARGET_BODY_MUON_PER_BLOCK_M_RESET_STEP,
+            "post_target_body_muon_per_block_m_reset/block": POST_TARGET_BODY_MUON_PER_BLOCK_M_RESET_BLOCK,
         },
     )
 
@@ -1053,6 +1063,86 @@ for trial_idx in range(args.num_trials):
             )
         for opt in optimizers:
             opt.step()
+        # PR #1504: per-block body-Muon momentum reset, applied immediately after the
+        # optimizer step. Fires only at `step == POST_TARGET_BODY_MUON_PER_BLOCK_M_RESET_STEP`.
+        # Zeros state["momentum"] on the 6 body-Muon weight params (4 attn + 2 mlp)
+        # belonging to the target block; all other blocks and AUX state untouched.
+        if (POST_TARGET_BODY_MUON_PER_BLOCK_M_RESET_ENABLED
+                and step == POST_TARGET_BODY_MUON_PER_BLOCK_M_RESET_STEP):
+            target_block = POST_TARGET_BODY_MUON_PER_BLOCK_M_RESET_BLOCK
+            block_marker = f"blocks.{target_block}."  # matches blocks.{N}.attn|mlp.*.weight
+            pre_norm_target_sq = 0.0
+            post_norm_target_sq = 0.0
+            pre_norm_other_sq = 0.0
+            post_norm_other_sq = 0.0
+            aux_m_norm_sq = 0.0
+            reset_count = 0
+            target_params_total = 0
+            other_params_total = 0
+            for name, p in model.named_parameters():
+                if p.ndim < 2:
+                    continue
+                is_attn = ".attn." in name
+                is_mlp = ".mlp." in name
+                if not (is_attn or is_mlp):
+                    continue
+                state = optimizer2.state.get(p, {})
+                if "momentum" not in state:
+                    continue
+                m_sq = state["momentum"].float().norm().item() ** 2
+                is_target = name.startswith(block_marker)
+                if is_target:
+                    pre_norm_target_sq += m_sq
+                    target_params_total += 1
+                    state["momentum"].zero_()
+                    reset_count += 1
+                else:
+                    pre_norm_other_sq += m_sq
+                    other_params_total += 1
+            for name, p in model.named_parameters():
+                if p.ndim < 2:
+                    continue
+                is_attn = ".attn." in name
+                is_mlp = ".mlp." in name
+                if not (is_attn or is_mlp):
+                    continue
+                state = optimizer2.state.get(p, {})
+                if "momentum" not in state:
+                    continue
+                m_sq = state["momentum"].float().norm().item() ** 2
+                if name.startswith(block_marker):
+                    post_norm_target_sq += m_sq
+                else:
+                    post_norm_other_sq += m_sq
+            # AUX m-norm: AdamW exp_avg across embed/lm_head/scalars (must be unchanged).
+            for group in optimizer1.param_groups:
+                for p in group["params"]:
+                    state = optimizer1.state.get(p, {})
+                    if "exp_avg" in state:
+                        aux_m_norm_sq += state["exp_avg"].float().norm().item() ** 2
+            if dist.get_rank() == 0:
+                wandb.log({
+                    "m_reset_block/target_block": target_block,
+                    "m_reset_block/step": step,
+                    "m_reset_block/params_reset": reset_count,
+                    "m_reset_block/target_params_total": target_params_total,
+                    "m_reset_block/other_params_total": other_params_total,
+                    "m_reset_block/m_norm_body_target_before_reset": pre_norm_target_sq ** 0.5,
+                    "m_reset_block/m_norm_body_target_after_reset": post_norm_target_sq ** 0.5,
+                    "m_reset_block/m_norm_body_other_before_reset": pre_norm_other_sq ** 0.5,
+                    "m_reset_block/m_norm_body_other_after_reset": post_norm_other_sq ** 0.5,
+                    "m_reset_block/m_norm_aux_at_reset_step": aux_m_norm_sq ** 0.5,
+                    "m_reset_block/pre_norm_l2": pre_norm_target_sq ** 0.5,
+                }, step=wandb_step)
+                print0(
+                    f"[POST_TARGET_BODY_MUON_PER_BLOCK_M_RESET] target_block={target_block} "
+                    f"step={step} reset_count={reset_count} "
+                    f"target_total={target_params_total} other_total={other_params_total} "
+                    f"m_target_before={pre_norm_target_sq**0.5:.4f} -> after={post_norm_target_sq**0.5:.4f} "
+                    f"m_other_before={pre_norm_other_sq**0.5:.4f} -> after={post_norm_other_sq**0.5:.4f} "
+                    f"aux_m_norm={aux_m_norm_sq**0.5:.4f}",
+                    console=True,
+                )
         if dist.get_rank() == 0 and telemetry_due:
             for opt in optimizers:
                 if hasattr(opt, "trust_gate_stats"):
