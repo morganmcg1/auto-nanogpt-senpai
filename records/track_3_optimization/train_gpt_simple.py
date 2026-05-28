@@ -447,6 +447,13 @@ MU_END = float(os.environ.get("MU_END", "0.95"))
 MU_COOLDOWN_ENABLED = ("MU_COOLDOWN_START" in os.environ) or ("MU_COOLDOWN_END" in os.environ)
 MU_COOLDOWN_START = float(os.environ.get("MU_COOLDOWN_START", "0.95"))
 MU_COOLDOWN_END = float(os.environ.get("MU_COOLDOWN_END", "0.95"))
+# PR #1568 — per-depth-half MU_COOLDOWN_END dispatch.
+# Front blocks (0..SPLIT-1) use MU_COOLDOWN_END_FRONT; back blocks (SPLIT..11) use MU_COOLDOWN_END_BACK.
+# Disabled by default (PER_DEPTH_HALF_MU_COOLDOWN_ENABLED=0); when enabled, both FRONT and BACK must be set.
+PER_DEPTH_HALF_MU_COOLDOWN_ENABLED = int(os.environ.get("PER_DEPTH_HALF_MU_COOLDOWN_ENABLED", "0"))
+MU_COOLDOWN_END_FRONT = float(os.environ.get("MU_COOLDOWN_END_FRONT", str(MU_COOLDOWN_END)))
+MU_COOLDOWN_END_BACK = float(os.environ.get("MU_COOLDOWN_END_BACK", str(MU_COOLDOWN_END)))
+MU_COOLDOWN_DEPTH_SPLIT = int(os.environ.get("MU_COOLDOWN_DEPTH_SPLIT", "6"))
 # Optional Muon momentum warmup (PR #415): linearly ramp cur_mu from
 # MU_WARMUP_START -> MU_COOLDOWN_START over the first MU_WARMUP_STEPS optimizer
 # steps before entering the plateau+cooldown schedule. Only active when
@@ -652,6 +659,19 @@ class Muon(torch.optim.Optimizer):
                     self.attn_soap_kind[id(p)] = "v"
                 elif n.endswith(".attn.proj.weight"):
                     self.attn_soap_kind[id(p)] = "proj"
+        # PR #1568 — per-depth-half cooldown-end depth map.
+        # Block index extracted from param name prefix (e.g. "0.attn.q.weight" -> 0).
+        self.mu_cooldown_back_params: set[int] = set()  # set of id(p) for params in back half
+        if PER_DEPTH_HALF_MU_COOLDOWN_ENABLED:
+            for n, p in named_params:
+                block_idx = int(n.split(".", 1)[0])
+                if block_idx >= MU_COOLDOWN_DEPTH_SPLIT:
+                    self.mu_cooldown_back_params.add(id(p))
+        n_front = sum(1 for n, p in named_params if int(n.split(".", 1)[0]) < MU_COOLDOWN_DEPTH_SPLIT)
+        n_back = sum(1 for n, p in named_params if int(n.split(".", 1)[0]) >= MU_COOLDOWN_DEPTH_SPLIT)
+        print(f"[MU_COOLDOWN_PER_DEPTH] enabled={PER_DEPTH_HALF_MU_COOLDOWN_ENABLED} "
+              f"front_end={MU_COOLDOWN_END_FRONT} back_end={MU_COOLDOWN_END_BACK} "
+              f"split={MU_COOLDOWN_DEPTH_SPLIT} n_front={n_front} n_back={n_back}")
         params = sorted([p for _, p in named_params], key=lambda x: x.size(), reverse=True)
         defaults = dict(lr=lr, weight_decay=weight_decay, mu=mu)
         super().__init__(params, defaults)
@@ -692,8 +712,9 @@ class Muon(torch.optim.Optimizer):
                                 state["trust_cos_row"] = 1.0
                                 state["trust_cos_col"] = 1.0
                     grad = p.grad
-                    state["momentum"].lerp_(grad, 1 - group["mu"])
-                    momentum_update = grad.lerp(state["momentum"], group["mu"])
+                    mu_p = group.get("mu_back", group["mu"]) if id(p) in self.mu_cooldown_back_params else group["mu"]
+                    state["momentum"].lerp_(grad, 1 - mu_p)
+                    momentum_update = grad.lerp(state["momentum"], mu_p)
                     use_soap = p in self.soap_params
                     use_attn_soap = p in self.attn_soap_params
                     # SOAP precondition applied to momentum BEFORE NS5+contra+NorMuon
@@ -924,18 +945,31 @@ for trial_idx in range(args.num_trials):
             if step < MU_WARMUP_STEPS:
                 w = step / MU_WARMUP_STEPS
                 cur_mu = MU_WARMUP_START + (MU_COOLDOWN_START - MU_WARMUP_START) * w
+                cur_mu_front = cur_mu
+                cur_mu_back = cur_mu
             elif progress < 1 - cooldown_frac:
                 cur_mu = MU_COOLDOWN_START
+                cur_mu_front = cur_mu
+                cur_mu_back = cur_mu
             else:
                 t = (progress - (1 - cooldown_frac)) / cooldown_frac
-                cur_mu = MU_COOLDOWN_START + (MU_COOLDOWN_END - MU_COOLDOWN_START) * t
+                cur_mu = MU_COOLDOWN_START + (MU_COOLDOWN_END - MU_COOLDOWN_START) * t  # baseline path
+                if PER_DEPTH_HALF_MU_COOLDOWN_ENABLED:
+                    cur_mu_front = MU_COOLDOWN_START + (MU_COOLDOWN_END_FRONT - MU_COOLDOWN_START) * t
+                    cur_mu_back = MU_COOLDOWN_START + (MU_COOLDOWN_END_BACK - MU_COOLDOWN_START) * t
+                else:
+                    cur_mu_front = cur_mu
+                    cur_mu_back = cur_mu
         else:
             cur_mu = MU + (MU_END - MU) * progress
+            cur_mu_front = cur_mu
+            cur_mu_back = cur_mu
         for opt in optimizers:
             for group in opt.param_groups:
                 group["lr"] = group["initial_lr"] * eta
                 if group.get("name") == "muon_blocks":
-                    group["mu"] = cur_mu
+                    group["mu"] = cur_mu_front  # front is default (used when id not in back set)
+                    group["mu_back"] = cur_mu_back
 
 
     ########################################
