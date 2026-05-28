@@ -109,6 +109,24 @@ def parse_args():
     parser.add_argument("--body_init_bottom_layers", type=int,
                         default=int(os.environ.get("BODY_INIT_BOTTOM_LAYERS", "6")),
                         help="Number of bottom layers to damp for --body_init=orthogonal_bottom_damp (default 6 = bottom half of 12 layers).")
+    # H246 MuLoCo outer optimizer FORM replacement. Default 'sgd' = baseline Nesterov path
+    # (bit-identical when --outer_optimizer is omitted or set to sgd). 'adam' switches the
+    # outer aggregation to Adam on the accumulated pseudo-gradient delta = anchor - p.
+    # Per PR #1587 soft-drift mitigation: these flags are placed AFTER all existing
+    # args to minimize argparse-conditional retracing surface.
+    parser.add_argument("--outer_optimizer", type=str,
+                        default=os.environ.get("OUTER_OPTIMIZER", "sgd"),
+                        choices=["sgd", "adam"],
+                        help="Outer MuLoCo optimizer. 'sgd' = baseline Nesterov SGD. "
+                             "'adam' = Adam on accumulated delta.")
+    parser.add_argument("--outer_adam_lr", type=float,
+                        default=float(os.environ.get("OUTER_ADAM_LR", "0.7")))
+    parser.add_argument("--outer_adam_beta1", type=float,
+                        default=float(os.environ.get("OUTER_ADAM_BETA1", "0.9")))
+    parser.add_argument("--outer_adam_beta2", type=float,
+                        default=float(os.environ.get("OUTER_ADAM_BETA2", "0.99")))
+    parser.add_argument("--outer_adam_eps", type=float,
+                        default=float(os.environ.get("OUTER_ADAM_EPS", "1e-8")))
     args = parser.parse_args()
     args.num_trials = args.num_trials if args.num_trials is not None else (args.legacy_num_trials or 1)
     args.wandb_tags = [tag.strip() for tag in args.wandb_tags.split(",") if tag.strip()]
@@ -780,6 +798,11 @@ print0(f"Running PyTorch {torch.version.__version__} compiled for CUDA {torch.ve
 if args.use_outer_optimizer:
     print0(f"MuLoCo outer optimizer ENABLED: outer_lr={args.outer_lr} "
            f"outer_momentum={args.outer_momentum} sync_interval={args.sync_interval}", console=True)
+    if args.outer_optimizer == "adam":
+        print0(f"MuLoCo outer FORM=adam: lr={args.outer_adam_lr} beta1={args.outer_adam_beta1} "
+               f"beta2={args.outer_adam_beta2} eps={args.outer_adam_eps}", console=True)
+    else:
+        print0(f"MuLoCo outer FORM=sgd (Nesterov baseline)", console=True)
 else:
     print0("MuLoCo outer optimizer DISABLED", console=True)
 print0(f"MuonH mode={args.muonh_mode} lr={args.muonh_lr} budget_mult={args.muonh_budget_mult} cooldown_shape={args.muonh_cooldown_shape}", console=True)
@@ -839,6 +862,11 @@ if dist.get_rank() == 0:
             "muloco_outer_lr": args.outer_lr,
             "muloco_outer_momentum": args.outer_momentum,
             "muloco_sync_interval": args.sync_interval,
+            "muloco_outer_optimizer": args.outer_optimizer,
+            "muloco_outer_adam_lr": args.outer_adam_lr,
+            "muloco_outer_adam_beta1": args.outer_adam_beta1,
+            "muloco_outer_adam_beta2": args.outer_adam_beta2,
+            "muloco_outer_adam_eps": args.outer_adam_eps,
             "aux_agc_clip_ratio": args.aux_agc_clip_ratio,
             "aux_agc_eps": args.aux_agc_eps,
             "muonh_agc_clip_ratio": args.muonh_agc_clip_ratio,
@@ -1048,10 +1076,22 @@ for trial_idx in range(args.num_trials):
     if use_outer:
         outer_anchor = {n: p.detach().clone() for n, p in model.named_parameters()}
         outer_velocity = {n: torch.zeros_like(p) for n, p in model.named_parameters()}
+        # H246: Adam state for outer optimizer FORM replacement. Only allocated when
+        # outer_optimizer == 'adam'. outer_adam_step counts outer sync events (not
+        # inner train steps) for bias correction.
+        if args.outer_optimizer == "adam":
+            outer_adam_m = {n: torch.zeros_like(p) for n, p in model.named_parameters()}
+            outer_adam_v = {n: torch.zeros_like(p) for n, p in model.named_parameters()}
+        else:
+            outer_adam_m = None
+            outer_adam_v = None
     else:
         outer_anchor = None
         outer_velocity = None
+        outer_adam_m = None
+        outer_adam_v = None
     outer_applied_steps = 0
+    outer_adam_step_count = 0
 
     # start the clock
     training_time = 0
@@ -1280,16 +1320,42 @@ for trial_idx in range(args.num_trials):
                 velocity_sq = torch.zeros((), device=device)
                 total_count = 0
             with torch.no_grad():
-                for n, p in model.named_parameters():
-                    delta = outer_anchor[n] - p.data
-                    outer_velocity[n].mul_(args.outer_momentum).add_(delta)
-                    p.data.copy_(outer_anchor[n] - args.outer_lr *
-                                 (args.outer_momentum * outer_velocity[n] + delta))
-                    outer_anchor[n].copy_(p.data)
-                    if log_outer:
-                        delta_sq = delta_sq + delta.float().square().sum()
-                        velocity_sq = velocity_sq + outer_velocity[n].float().square().sum()
-                        total_count += delta.numel()
+                if args.outer_optimizer == "sgd":
+                    for n, p in model.named_parameters():
+                        delta = outer_anchor[n] - p.data
+                        outer_velocity[n].mul_(args.outer_momentum).add_(delta)
+                        p.data.copy_(outer_anchor[n] - args.outer_lr *
+                                     (args.outer_momentum * outer_velocity[n] + delta))
+                        outer_anchor[n].copy_(p.data)
+                        if log_outer:
+                            delta_sq = delta_sq + delta.float().square().sum()
+                            velocity_sq = velocity_sq + outer_velocity[n].float().square().sum()
+                            total_count += delta.numel()
+                else:
+                    # H246: Adam outer optimizer. delta = anchor - p is the pseudo-gradient
+                    # (positive when param drifted away from anchor; minimizing this restores
+                    # toward anchor). Bias-corrected Adam moment tracking with outer_adam_step
+                    # counting outer sync events.
+                    outer_adam_step_count += 1
+                    b1 = args.outer_adam_beta1
+                    b2 = args.outer_adam_beta2
+                    eps = args.outer_adam_eps
+                    lr = args.outer_adam_lr
+                    bc1 = 1.0 - b1 ** outer_adam_step_count
+                    bc2 = 1.0 - b2 ** outer_adam_step_count
+                    for n, p in model.named_parameters():
+                        delta = outer_anchor[n] - p.data
+                        outer_adam_m[n].mul_(b1).add_(delta, alpha=1.0 - b1)
+                        outer_adam_v[n].mul_(b2).addcmul_(delta, delta, value=1.0 - b2)
+                        m_hat = outer_adam_m[n] / bc1
+                        v_hat = outer_adam_v[n] / bc2
+                        step_dir = m_hat / (v_hat.sqrt() + eps)
+                        p.data.copy_(outer_anchor[n] - lr * step_dir)
+                        outer_anchor[n].copy_(p.data)
+                        if log_outer:
+                            delta_sq = delta_sq + delta.float().square().sum()
+                            velocity_sq = velocity_sq + step_dir.float().square().sum()
+                            total_count += delta.numel()
             outer_applied_steps += 1
             if log_outer:
                 delta_rms = (delta_sq.item() / max(1, total_count)) ** 0.5
@@ -1298,6 +1364,7 @@ for trial_idx in range(args.num_trials):
                     "trial": trial_idx,
                     "train/step": train_step,
                     "train/muloco/outer_step": outer_applied_steps,
+                    "train/muloco/outer_adam_step": outer_adam_step_count,
                     "train/muloco/delta_rms": delta_rms,
                     "train/muloco/velocity_rms": velocity_rms,
                 }, step=wandb_step)
