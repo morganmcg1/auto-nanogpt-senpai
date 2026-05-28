@@ -468,6 +468,13 @@ NS5_ITERS = int(os.environ.get("NS5_ITERS", "12"))
 WD_AUX = float(os.environ.get("WD_AUX", "0.0"))  # AdamW WD on embed + lm_head matrices (scalars stay at 0)
 EMBED_INIT_STD = float(os.environ.get("EMBED_INIT_STD", "1.0"))  # default preserves baseline N(0,1)
 LOGIT_SOFTCAP = float(os.environ.get("LOGIT_SOFTCAP", "15.0"))  # default = 15 (current hardcoded value); soft-cap value c in f(x) = c·x / sqrt(x^2+c^2)
+# PR #1485 — post-target body-Muon momentum-scale lever. At step
+# POST_TARGET_BODY_MUON_M_SCALE_STEP, multiply the Muon momentum buffer of every
+# body block param (.attn / .mlp matrices) by SCALE_FACTOR. Magnitude-axis
+# decomposition of alphonse #1461 winner mechanism (factor=0 reset).
+POST_TARGET_BODY_MUON_M_SCALE_ENABLED = int(os.environ.get("POST_TARGET_BODY_MUON_M_SCALE_ENABLED", "0"))
+POST_TARGET_BODY_MUON_M_SCALE_STEP = int(os.environ.get("POST_TARGET_BODY_MUON_M_SCALE_STEP", "2950"))
+POST_TARGET_BODY_MUON_M_SCALE_FACTOR = float(os.environ.get("POST_TARGET_BODY_MUON_M_SCALE_FACTOR", "0.5"))
 
 
 def zeropower_via_newtonschulz5(G: Tensor) -> Tensor:
@@ -1053,6 +1060,51 @@ for trial_idx in range(args.num_trials):
             )
         for opt in optimizers:
             opt.step()
+        # PR #1485: body-Muon momentum scale at POST_TARGET_BODY_MUON_M_SCALE_STEP.
+        # Applied *after* the optimizer step so the modification only affects the
+        # NEXT step's momentum-lerp input, not the current update.
+        if POST_TARGET_BODY_MUON_M_SCALE_ENABLED and step == POST_TARGET_BODY_MUON_M_SCALE_STEP:
+            factor = POST_TARGET_BODY_MUON_M_SCALE_FACTOR
+            pre_norm_sq = 0.0
+            post_norm_sq = 0.0
+            scaled_count = 0
+            for name, p in model.named_parameters():
+                is_body = (".attn" in name or ".mlp" in name) and "embed" not in name and "lm_head" not in name
+                if not is_body:
+                    continue
+                state = optimizer2.state.get(p, {})
+                if "momentum" in state:
+                    pre_norm_sq += state["momentum"].float().norm().item() ** 2
+                    state["momentum"].mul_(factor)
+                    post_norm_sq += state["momentum"].float().norm().item() ** 2
+                    scaled_count += 1
+            # AUX (AdamW: embed + lm_head + scalars) momentum sanity-check —
+            # must be UNCHANGED by this lever.
+            aux_norm_sq = 0.0
+            for group in optimizer1.param_groups:
+                for p in group["params"]:
+                    st = optimizer1.state.get(p, {})
+                    if "exp_avg" in st:
+                        aux_norm_sq += st["exp_avg"].float().norm().item() ** 2
+            if dist.get_rank() == 0:
+                pre_norm = pre_norm_sq ** 0.5
+                post_norm = post_norm_sq ** 0.5
+                ratio = (post_norm / pre_norm) if pre_norm > 0 else float("nan")
+                wandb.log({
+                    "m_scale/params_scaled": scaled_count,
+                    "m_scale/pre_norm_l2": pre_norm,
+                    "m_scale/post_norm_l2": post_norm,
+                    "m_scale/factor_applied": factor,
+                    "m_scale/observed_ratio": ratio,
+                    "m_scale/step": step,
+                    "m_scale/m_norm_aux_at_scale_step": aux_norm_sq ** 0.5,
+                }, step=wandb_step)
+                print0(
+                    f"[M_SCALE] step={step} factor={factor} params_scaled={scaled_count} "
+                    f"pre_norm={pre_norm:.4f} post_norm={post_norm:.4f} ratio={ratio:.4f} "
+                    f"aux_norm={aux_norm_sq ** 0.5:.4f}",
+                    console=True,
+                )
         if dist.get_rank() == 0 and telemetry_due:
             for opt in optimizers:
                 if hasattr(opt, "trust_gate_stats"):
