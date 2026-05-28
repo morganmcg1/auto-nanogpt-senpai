@@ -468,6 +468,13 @@ NS5_ITERS = int(os.environ.get("NS5_ITERS", "12"))
 WD_AUX = float(os.environ.get("WD_AUX", "0.0"))  # AdamW WD on embed + lm_head matrices (scalars stay at 0)
 EMBED_INIT_STD = float(os.environ.get("EMBED_INIT_STD", "1.0"))  # default preserves baseline N(0,1)
 LOGIT_SOFTCAP = float(os.environ.get("LOGIT_SOFTCAP", "15.0"))  # default = 15 (current hardcoded value); soft-cap value c in f(x) = c·x / sqrt(x^2+c^2)
+# Per-kind AUX AdamW AMSGrad dispatch (PR #1566): when ENABLED=1, each AUX kind
+# can independently use AMSGrad (max-of-v) or standard AdamW (EMA-of-v). Defaults
+# preserve no-AMSGrad behavior when disabled.
+PER_KIND_AUX_AMSGRAD_ENABLED = int(os.environ.get("PER_KIND_AUX_AMSGRAD_ENABLED", "0"))
+AUX_AMSGRAD_EMBED = int(os.environ.get("AUX_AMSGRAD_EMBED", "0"))
+AUX_AMSGRAD_LM_HEAD = int(os.environ.get("AUX_AMSGRAD_LM_HEAD", "0"))
+AUX_AMSGRAD_SCALARS = int(os.environ.get("AUX_AMSGRAD_SCALARS", "0"))
 
 
 def zeropower_via_newtonschulz5(G: Tensor) -> Tensor:
@@ -898,9 +905,12 @@ for trial_idx in range(args.num_trials):
             raise Exception(f"Uninitialized parameter: {name}")
 
     # create the optimizer(s)
-    optimizer1 = AdamW([dict(params=[model.embed.weight], lr=0.3, name="adam_embed", weight_decay=WD_AUX),
-                        dict(params=[model.proj.weight], lr=1/320, name="adam_lm_head", weight_decay=WD_AUX),
-                        dict(params=[p for p in model.parameters() if p.ndim < 2], lr=0.01, name="adam_scalars")],
+    optimizer1 = AdamW([dict(params=[model.embed.weight], lr=0.3, name="adam_embed", weight_decay=WD_AUX,
+                             amsgrad=bool(AUX_AMSGRAD_EMBED) if PER_KIND_AUX_AMSGRAD_ENABLED else False),
+                        dict(params=[model.proj.weight], lr=1/320, name="adam_lm_head", weight_decay=WD_AUX,
+                             amsgrad=bool(AUX_AMSGRAD_LM_HEAD) if PER_KIND_AUX_AMSGRAD_ENABLED else False),
+                        dict(params=[p for p in model.parameters() if p.ndim < 2], lr=0.01, name="adam_scalars",
+                             amsgrad=bool(AUX_AMSGRAD_SCALARS) if PER_KIND_AUX_AMSGRAD_ENABLED else False)],
                        betas=(0.8, 0.95), eps=1e-10, weight_decay=0, fused=True)
     optimizer2 = Muon([(n, p) for n, p in model.blocks.named_parameters() if p.ndim >= 2],
                       lr=MUON_LR, weight_decay=MUON_WEIGHT_DECAY, mu=MU)
@@ -1059,6 +1069,37 @@ for trial_idx in range(args.num_trials):
                     stats = opt.trust_gate_stats()
                     if stats:
                         wandb.log(prefixed("train/attn_soap_trust_gate", stats), step=wandb_step)
+        if dist.get_rank() == 0 and PER_KIND_AUX_AMSGRAD_ENABLED and train_step in (100, 2950):
+            print0(
+                f"[PER_KIND_AUX_AMSGRAD] step={train_step} embed_amsgrad={AUX_AMSGRAD_EMBED}"
+                f" lm_head_amsgrad={AUX_AMSGRAD_LM_HEAD} scalars_amsgrad={AUX_AMSGRAD_SCALARS}",
+                console=True,
+            )
+            amsgrad_metrics: dict[str, float] = {}
+            for group in optimizer1.param_groups:
+                amsgrad_active = group.get("amsgrad", False)
+                g_v_sq_sum = 0.0
+                g_vmax_sq_sum = 0.0
+                for i, p in enumerate(group["params"]):
+                    st = optimizer1.state.get(p, {})
+                    v_l2 = st["exp_avg_sq"].float().norm().item() if "exp_avg_sq" in st else 0.0
+                    vmax_l2 = st["max_exp_avg_sq"].float().norm().item() if "max_exp_avg_sq" in st else 0.0
+                    ratio = vmax_l2 / max(v_l2, 1e-30)
+                    print0(
+                        f"  group={group['name']}[{i}] amsgrad={amsgrad_active} param_shape={tuple(p.shape)}"
+                        f" v_l2={v_l2:.4e} v_max_l2={vmax_l2:.4e} ratio={ratio:.3f}",
+                        console=True,
+                    )
+                    g_v_sq_sum += v_l2 * v_l2
+                    g_vmax_sq_sum += vmax_l2 * vmax_l2
+                g_v_l2 = g_v_sq_sum**0.5
+                g_vmax_l2 = g_vmax_sq_sum**0.5
+                g_ratio = g_vmax_l2 / max(g_v_l2, 1e-30)
+                amsgrad_metrics[f"aux_amsgrad/{group['name']}_v_l2"] = g_v_l2
+                amsgrad_metrics[f"aux_amsgrad/{group['name']}_vmax_l2"] = g_vmax_l2
+                amsgrad_metrics[f"aux_amsgrad/{group['name']}_ratio"] = g_ratio
+                amsgrad_metrics[f"aux_amsgrad/{group['name']}_amsgrad"] = int(bool(amsgrad_active))
+            wandb.log(amsgrad_metrics, step=wandb_step)
         if dist.get_rank() == 0 and telemetry_due:
             log_weight_telemetry(
                 model=model,
