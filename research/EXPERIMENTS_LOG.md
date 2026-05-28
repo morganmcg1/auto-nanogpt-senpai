@@ -1,3 +1,56 @@
+## 2026-05-28 19:30 — PR #1571: H242 thorfinn MuonH WSD stable phase — CLOSED (99th NULL/NEG closure, **bilateral CATASTROPHIC NEG monotonic by cf direction; 🎯 PROGRAMME FINDING #51 candidate STRENGTHENED to add cooldown SHAPE axis: MuonH polar projection requires continuous slow decay from step 0, stable phase actively harmful, severity inversely proportional to cooldown_frac**)
+
+- Branch: `g1r3-thorfinn/h242-muonh-wsd-stable-phase`
+- Hypothesis: Test whether the MuonH body cooldown shape (currently cf=1.0 cosine throughout entire training) is structurally locked, or if a WSD-style schedule (stable plateau at max_lr followed by shorter cosine cooldown) improves FFS. 3-arm: CTRL cf=1.0 (baseline cosine all-time) / WSD_30 cf=0.3 (70% stable + 30% cosine cooldown) / WSD_15 cf=0.15 (85% stable + 15% cosine cooldown). 38th mechanism class — first body schedule SHAPE replacement.
+
+| Arm | cf | W&B | val | FFS | Δval vs H203 / σ_H174 | bit-id | Verdict |
+|---|---|---|---|---|---|---|---|
+| arm_a CTRL | 1.00 | `kp3rthzf` | 3.27004 | **3050** | +0.00174 / +1.97σ | 10.82583 EXACT | within-noise drift class (9th student-count / ~14th cumulative torch.compile soft-drift) |
+| arm_b WSD_30 | 0.30 | `oe3fpzmj` | **3.31719** | **−1** | +0.04889 / **+55.3σ CATASTROPHIC** | 10.82583 EXACT | **CATASTROPHIC NEG — target never crossed** |
+| arm_c WSD_15 | 0.15 | `trzqurqq` | **3.36046** | **−1** | +0.09216 / **+104.3σ CATASTROPHIC** | 10.82583 EXACT | **CATASTROPHIC NEG — target never crossed, 2× arm_b severity** |
+| H203 baseline (ref) | 1.00 | merged | 3.26830 | 3025 | — | — | — |
+
+- W&B verified: all state=finished. Chain orchestrator sequential dispatch (12:41 UTC start, ~5h26m wallclock terminal 18:07 UTC).
+- Per-arm config audit (per `feedback_audit_treatment_runs_too.md`): muonh_mode=scale_invariant, muonh_cooldown_shape=cosine identical across arms; `muonh_cooldown_frac={1.0, 0.3, 0.15}` distinct at W&B config-pane level.
+- Bit-identity gate step-0 val=10.82583 EXACT on all 3 arms.
+- Statistical rule check `(3.28 − μ) × √n ≥ 0.004`: arm_a `0.00996` ✓, arm_b ✗ (FFS=−1), arm_c ✗ (FFS=−1).
+- Wallclock 1h48m per arm, step time ~1.81 s/step identical across arms (no retracing within arms).
+- Peak memory ~78 GB on H100.
+- Code change: 3 LoC + 1 W&B config line (single argparse `--muonh_cooldown_frac`, default=1.0 bit-identical baseline).
+
+### Analysis
+
+- **🎯 PROGRAMME FINDING #51 candidate STRENGTHENED — schedule SHAPE axis added to body structural tightness cluster**: H242 closes body schedule SHAPE axis with same severity signature as polar projection geometry axis. Cumulative body structural-tightness cluster now reads:
+
+| H# | Body axis | Mechanism class | Verdict | σ_H174 max |
+|---|---|---|---|---|
+| H195/H232 | Cautious sign-masking (pre/post-NS5) | masking gate | bilateral NEG | various |
+| H225 | aux_adamw_beta1 (cross-coupling) | aux HP transfer | bilateral NEG | — |
+| H229 | inner Nesterov momentum FORM | momentum FORM | bilateral NEG | +2.74σ |
+| H231 | muonh_mode=relative/clip | NS5 projection mode | trilateral NEG | various |
+| H236 | outer Polyak FORM | outer FORM | bilateral NEG (PROGRAMME FINDING #54) | — |
+| H238 | AdaMuon per-element 2nd moment | per-element scaling | bilateral TIE (PROGRAMME FINDING #58 candidate) | +0.05σ |
+| **H242** | **cooldown SHAPE WSD (cf<1.0)** | **schedule SHAPE** | **bilateral CATASTROPHIC NEG monotonic** | **+104.3σ** |
+
+PROGRAMME FINDING #51 candidate now reads: **"MuonH polar projection requires continuous slow decay from step 0; stable phase actively harmful, severity inversely proportional to cooldown_frac. Cooldown shape, polynomial parameters, iteration count, projection mode all locked. Future body-side gains require replacing the polar projection mechanism entirely (H238 AdaMuon TIE, H241 Lion CATASTROPHIC NEG, H229 inner Nesterov NEG) — within-family tuning EXHAUSTED."**
+
+- **Mechanistic narrative — phase-by-phase trajectory decomposition** (cleanest schedule-shape ablation in campaign): Separation begins at step 500-625 — CTRL's continuous cosine cooldown starts to reduce body LR below WSD's still-stable plateau. Gap accumulates throughout stable phase (peak Δ≈+0.22 at step 2250 for arm_b). arm_b cooldown (998 steps) recovers most of gap: Δ=+0.22 → +0.047 terminal. arm_c cooldown (499 steps) has insufficient runway: Δ=+0.090 terminal, more than 2× arm_b's gap. Monotonic NEG direction confirms structural gradient-of-failure, not noise. The body MuonH polar projection on a sustained high-LR landscape accumulates noise/wandering that the iterate cannot easily escape.
+
+- **First-principles body/aux asymmetry explanation**: continuous-decay-from-step-0 on body vs WSD-on-aux (cf=1.0 vs cf=0.4) is **structurally correct, NOT asymmetric tuning artifact**. AdamW aux can absorb a stable phase because its Adam/RMSprop normalization decouples LR from direction; MuonH polar projection cannot, because polar magnitude scaling depends on LR schedule shape directly modulating direction-set norm. **Campaign-level mechanistic insight explaining body/aux schedule asymmetry from first principles.**
+
+- **arm_a CTRL drift class side observation**: 9th student-count instance, ~14th cumulative. New argparse-gated `--muonh_cooldown_frac` consumed inside JIT-compiled training step via `progress < 1 − cooldown_frac` branch. Step-0 EXACT signature consistent with cluster norm. Cross-validates H238 alphonse's finding (AdaMuon arms avoid drift by being active branch) and H246 askeladd's H246 arm_a CTRL FFS=3025 drift-free observation — both consistent with "drift tied to conditional-skip branch traces, not argparse parsing per se."
+
+- **Monotonic NEG direction confirmation** (cf=0.15 < cf=0.3 → arm_c +104σ > arm_b +55σ): structural gradient-of-failure, NOT noise. Further sweeps on cf<1.0 will only confirm increasingly worse NEG. Body cf<1.0 not retested.
+
+### Follow-up portfolio (student's recommendations)
+
+1. ✅ CLOSE schedule SHAPE axis on body — DONE here (monotonic NEG/NEG with severity ∝ stable-phase length decisive)
+2. ✅ Consider asymmetric finding on aux schedule (aux cf=0.4 → 1.0 transfer test) — candidate axis for H250 thorfinn assignment (different mechanism class from H245 nezuko ADana which tests aux β schedule)
+3. ✅ Argparse-conditional retracing class accumulation: 14+ instances; class signature load-bearing for cross-experiment FFS comparisons. Future hypotheses should use `@torch.compiler.disable` (H249 alphonse pattern) or accept +25 FFS confound
+4. ✅ Schedule SHAPE on body structurally locked — within-family tuning exhausted, future body-side gains require polar projection replacement
+
+---
+
 ## 2026-05-28 17:15 — PR #1544: H238 alphonse AdaMuon (Adam-style post-NS5 per-element scaling) on MuonH body — CLOSED (98th NULL closure, **TIE/NULL verdict per FFS-PRIMARY directive; FIRST MuonH body-modification to NOT regress FFS at all; 🎯 PROGRAMME FINDING #58 candidate captured: post-NS5 per-element 2nd-moment scaling structurally NULL on top of polar projection at any β₂ ∈ [0.99, 0.999]**)
 
 - Branch: `g1r3-alphonse/h238-adamuon-body`

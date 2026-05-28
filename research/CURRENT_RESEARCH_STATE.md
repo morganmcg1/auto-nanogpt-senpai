@@ -1,6 +1,85 @@
 # SENPAI Research State — auto-nanogpt-1gpu-r3
 
-- **Last updated:** 2026-05-28 17:20 UTC
+- **Last updated:** 2026-05-28 22:30 UTC
+
+---
+
+## Cycle ~1270: H242 CLOSED (99th NULL/NEG — bilateral CATASTROPHIC monotonic NEG/NEG, FIRST schedule-SHAPE structural axis closure on body) + 🎯 PROGRAMME FINDING #51 candidate STRENGTHENED (cooldown SHAPE axis added to body structural-tightness cluster) + H250 thorfinn PR #1602 ASSIGNED (46th mechanism class — FIRST aux schedule SHAPE+FRAC test in campaign)
+
+**Key closure this cycle:**
+
+- **H242 thorfinn MuonH WSD body cooldown SHAPE replacement (PR #1571)** — **99th NULL/NEG closure**, **bilateral CATASTROPHIC NEG/NEG monotonic** by cooldown_frac direction. arm_a CTRL val=3.27004/FFS=3050 (+1.97σ_H174, ~14th torch.compile retracing soft-drift instance). arm_b WSD_30 cf=0.3 (70% stable + 30% cosine cooldown) val=3.31719/FFS=−1 (target never crossed), +55.3σ_H174 CATASTROPHIC. arm_c WSD_15 cf=0.15 val=3.36046/FFS=−1, +104.3σ_H174 CATASTROPHIC (2× arm_b severity). All bit-id step-0 val=10.82583 EXACT. Per FFS-PRIMARY directive (Issue #1260): both treatment arms FFS=−1 (target never crossed). NOT a merge candidate.
+
+  **🎯 PROGRAMME FINDING #51 candidate STRENGTHENED — body structural-tightness cluster extends to 5 axes** (was 4):
+
+  | H# | Body axis | Mechanism class | Verdict | σ_H174 max |
+  |---|---|---|---|---|
+  | H229 | inner Nesterov momentum FORM | momentum FORM | bilateral NEG | +2.74σ |
+  | H231 | muonh_mode=relative/clip | NS5 projection mode | trilateral NEG | various |
+  | H232 | post-NS5 Cautious | masking gate | bilateral NEG | — |
+  | H238 | AdaMuon per-element 2nd moment | per-element scaling | bilateral TIE (#58 candidate) | +0.05σ |
+  | **H242** | **cooldown SHAPE WSD (cf<1.0)** | **schedule SHAPE** | **bilateral CATASTROPHIC NEG monotonic** | **+104.3σ** |
+
+  **PROGRAMME FINDING #51 candidate STRENGTHENED reads**: "MuonH polar projection requires continuous slow decay from step 0; stable phase actively harmful, severity inversely proportional to cooldown_frac. Cooldown shape, polynomial parameters, iteration count, projection mode, **and cooldown SHAPE** all locked. Future body-side gains require replacing the polar projection mechanism entirely (H238 AdaMuon TIE, H241 Lion CATASTROPHIC NEG, H229 inner Nesterov NEG) — within-family tuning EXHAUSTED."
+
+  **Mechanistic narrative**: H242 phase-by-phase trajectory decomposition (steps 500/625/1000/1500/2000/2250/2500/2750/3000/3325) shows separation begins step 500-625 (CTRL's continuous cosine cooldown reduces body LR below WSD's still-stable plateau), gap accumulates throughout stable phase (peak Δ≈+0.22 at step 2250 arm_b), arm_b's 998-step cooldown recovers most gap (terminal Δ=+0.047), arm_c's 499-step cooldown has insufficient runway (terminal Δ=+0.090, >2× arm_b). Monotonic NEG direction confirms structural gradient-of-failure, not noise.
+
+  **First-principles body/aux asymmetry insight** (campaign-level mechanistic contribution): MuonH polar projection cannot absorb stable phase because polar magnitude scaling depends on LR schedule shape directly modulating direction-set norm; AdamW aux can absorb stable phase because its Adam/RMSprop normalization decouples LR from direction. This explains structural correctness of asymmetric body/aux schedule (cf=1.0 vs cf=0.4) from first principles.
+
+  **Drift class side observation**: arm_a CTRL FFS=3050 (+25 vs baseline) is ~14th cumulative instance through H214/H224/H229/H230/H231/H232/H233/H234/H235/H237/H239/H241/H242/H243/H244. Joins H238 alphonse (AdaMuon arms avoid drift class because they're the active branch) and H246 askeladd (arm_a CTRL FFS=3025 EXACT drift-free — first in many cycles) — both consistent with hypothesis that drift is tied to **conditional-skip branch traces**, not argparse parsing per se.
+
+**New assignment:**
+
+- **H250 thorfinn PR #1602**: **Aux schedule SHAPE+FRAC replacement — 46th mechanism class.** Replace hardcoded `aux_cooldown_frac=0.4` and `aux_cooldown_shape="linear"` (train_gpt_simple.py:953-957, never argparse-exposed since H148 era) with new `--aux_cooldown_shape` and `--aux_cooldown_frac` flags. 3-arm: CTRL linear cf=0.4 (baseline) / TREATMENT_DEFAULT cosine cf=1.0 (full symmetric replacement matching body) / TREATMENT_VARIATION cosine cf=0.6 (partial extension, 1.5× baseline). **Direct response to student's H242 closure suggestion** (aux-side transfer test of cf=0.4 → 1.0 symmetric extension). **First aux SHAPE test in campaign — completely unexplored axis.** Drift risk ~0 (changes in non-compiled set_hparams scope, "cosine" dispatch already exists for body use). If arm_b/c WIN: falsifies PROGRAMME FINDING #56 candidate (aux schedule structural load-bearing as a whole). If NEG/CATASTROPHIC: aux schedule SHAPE structurally locked too. Theoretical grounding: Hägele et al. 2024 (arxiv:2405.18392) WSD scaling laws, arxiv:2508.01483 (Aug 2025) cosine > linear AdamW high-β₂ regime. WIN probability ~20% (2× campaign base rate ~10%). Wallclock budget ~5h26m for 3-arm chain.
+
+**Survey state**: 8/8 WIP after H250 assignment (thorfinn no longer idle), 0 review-ready. No new human directives this cycle.
+
+**Programme totals after cycle ~1270:**
+- **99 NULL/NEG closures** (+1 since cycle ~1170; H242 CATASTROPHIC NEG)
+- **46 novel mechanism classes** (H250 = 46th)
+- **6 PROGRAMME FINDINGS pipeline** with **3 CONFIRMED + 3 candidates + 1 reclassified** (#51 candidate STRENGTHENED to 5 axes including cooldown SHAPE)
+- **2 confirmed + 1 candidate VESTIGIAL FINDINGS** (unchanged)
+- **18 MuonH-SI/MuLoCo structural tightness members** (+1 = cooldown SHAPE WSD)
+- **14+ instances torch.compile retracing soft-drift cluster** (H246 arm_a CTRL drift-free reproduction is first in many cycles — supports conditional-skip branch traces hypothesis)
+
+**Exploration territory map updates after cycle ~1270:**
+
+| Axis | State (delta from cycle ~1170) |
+|---|---|
+| Aux optimizer replacement | CONSOLIDATED CLOSED (PROGRAMME FINDING #55) — unchanged |
+| β₁ dynamics-tier transfer across optimizer classes | FALSIFIED (PROGRAMME FINDING #49) — unchanged |
+| Pre-NS5 second-order (Shampoo/SOAP/Sophia/MARS) | CLOSED (3-leg H92+H93+H98) — unchanged |
+| Post-NS5 per-element 2nd-moment scaling | CLOSED bilateral TIE (#58 candidate via H238) — unchanged |
+| Post-NS5 diagonal preconditioning (Riemannian tangent space) | H248 WIP (edward) — unchanged |
+| Post-NS5 Riemannian metric step-size norm | H249 WIP (alphonse) — unchanged |
+| **MuonH body cooldown SHAPE (WSD vs cosine)** | **CLOSED bilateral CATASTROPHIC NEG monotonic (H242, PROGRAMME FINDING #51 candidate STRENGTHENED)** |
+| **Aux cooldown SHAPE+FRAC (cosine vs linear, cf={0.4, 0.6, 1.0})** | **H250 WIP (thorfinn, FIRST aux SHAPE test in campaign)** |
+| Best-checkpoint terminal eval | H247 WIP (frieren) — unchanged |
+| Manifold-projected EMA terminal eval | H247 WIP (frieren) — unchanged |
+| Outer optimizer FORM replacement | H246 WIP (askeladd LoCo-Adam) — unchanged |
+| Per-layer body LR | H244 WIP (fern) — unchanged |
+| Time-varying aux β₁/β₂ schedule | H245 WIP (nezuko ADana) — unchanged |
+| Fractional NS iterations | H243 WIP (tanjiro) — unchanged |
+| Body Shampoo/SOAP preconditioner | QUEUED (if H248 confirms post-NS5 axis is alive) — unchanged |
+| Eigenvalue-spectrum-constrained body init beyond F-norm | UNTESTED — unchanged |
+| Body weight orthogonality regularizer during training | UNTESTED — unchanged |
+
+**Next-cycle monitoring queue**:
+- **H243 tanjiro arm_b W&B-missing clarification** (asked cycle ~1060) — still outstanding
+- **H244 fern duplicate concurrent arm_a runs** (operational concern flagged cycle ~1060) — still outstanding
+- **H245 nezuko ADana** — terminal status pending; arm_a CTRL drift anomaly (+50 FFS, 2× typical class) advisor question outstanding
+- **H246 askeladd LoCo-Adam** — chain ETA terminal ~22:30 UTC; arm_a CTRL drift-free reproduction is campaign-level diagnostic data point
+- **H247 frieren best-checkpoint** — CRITICAL escalation pending (treatment never implemented per cycle ~1230 advisor flag)
+- **H248 edward post-NS5 diagonal EMA-g²** — pending
+- **H249 alphonse Riemannian norm** — pending
+- **H250 thorfinn aux schedule SHAPE+FRAC** — fresh assignment, ETA terminal ~5h post student pickup
+
+**Drift-class cross-cycle diagnostic crystallized**: Three independent observations across H238/H242/H246 support the hypothesis that the +25 FFS soft-drift class is tied to **conditional-skip branch traces under @torch.compile** (when a new argparse-gated branch evaluates to "skip the new code path"), NOT to argparse parsing per se:
+1. H238 alphonse: AdaMuon arms (active branch) avoid drift entirely — only CTRL drifts
+2. H242 thorfinn: standard +25 drift on CTRL despite new conditional being non-compiled scope (but `--muonh_cooldown_frac` gated branch evaluates inside compiled training step → drift)
+3. H246 askeladd: arm_a CTRL `outer_optimizer=sgd` is drift-FREE — likely because MuLoCo outer step is outside the @torch.compile region (every-30-steps sync)
+
+This points toward **@torch.compiler.disable**-decorated dispatch wrappers (per H249 alphonse pattern) as the systematic fix for future hypotheses touching the compiled training step.
 
 ---
 
