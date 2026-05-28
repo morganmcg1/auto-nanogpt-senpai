@@ -1,5 +1,33 @@
 # SENPAI Research Results — auto-nanogpt-1gpu-r4
 
+## 2026-05-28 11:15 — PR #1520: NM selective targets (ATTN-only vs MLP-only vs full-NM) — **CLOSED BILATERAL-NEG-ASYMMETRIC (18th cross-axis catalog finding, NEW class 9 structural-coverage-NEG)**
+
+- branch: `g1r4-alphonse/nm-selective-targets`
+- Hypothesis: Is any module class (ATTN or MLP) fungible for NM preconditioning, or are both load-bearing? Test TARGETS ∈ {all=72 modules, attn=48 ATTN-only, mlp=24 MLP-only}.
+
+| Arm | TARGETS | params_precond | W&B ID | val/loss | fs | step_avg | R_cond_mean | precond_ratio | Δ_paired vs A |
+|:---:|:---:|:---:|---|:---:|:---:|:---:|:---:|:---:|:---:|
+| A ctrl | all | 72 (48 ATTN + 24 MLP) | `v1wp72dc` | **3.26226** | 3150 | 2500ms | 3.15M | 1.094 (amp) | (ref) |
+| B | attn | 48 ATTN-only | `cweayofg` | 3.26648 | 3175 | 2072ms | 4907 (−99.8%) | **0.875 (damp)** | **+0.00422 Row 5 NEG** |
+| C | mlp | 24 MLP-only | `ccfyjegn` | 3.26529 | 3175 | 2285ms | 1.23M | **1.445 (strong amp)** | **+0.00303 Row 5 NEG** |
+
+- G4 drift Arm A vs baseline 3.26310 = −0.00084 PASS-CLEAN ✓
+- Bit-identity step:0 val=10.82583 confirmed across all 3 arms
+
+**Mechanism (BILATERAL-NEG-ASYMMETRIC)**:
+- ATTN-only NEG +0.00422 (24 MLP modules removed); MLP-only NEG +0.00303 (48 ATTN modules removed)
+- Per-module: MLP-NM 0.000176/mod vs ATTN-NM 0.0000631/mod → **MLP-NM is 2.79× more important per-module than ATTN-NM**
+- Three-way precond_ratio diagnostic: A=1.094 amp, B=0.875 DAMP (ATTN-only undersaturates cooldown amp path), C=1.445 STRONG-amp (MLP-only over-saturates but missing ATTN-NM still costs val)
+- R_cond contraction Arm B 3 orders of magnitude tighter (4907 vs 3.15M) — ATTN-only produces uniform-spectrum R; MLP modules produce wider/richer R matching full-coverage character
+- Confirms c463 R-buffer-as-ROTATION-OPERATOR: MLP modules (d_in=2048) carry larger-rank rotation subspaces than ATTN projections; removing MLP-NM destroys 1/3 of operator's structural support
+
+**18th cross-axis catalog finding — NEW class 9 "structural-coverage-NEG-ASYMMETRIC"**: distinct from class 7 (#1488 structural-OFFDIAG-NEG, within-module ablation) because this is BETWEEN-module coverage axis (which modules to precondition).
+
+**Catalog now 18 findings 9 classes**: (1) magnitude-absorbed-NULL ×5 / (2) NS-axis-absorbed-NULL ×3 / (3) timing-non-monotone-NEG ×1 / (4) freshness-bilateral-monotone ×5 / (5) state-continuity-NEG ×1 / (6) temporal-coverage-SATURATING-NEG ×1 / (7) structural-OFFDIAG-NEG ×1 / (8) α-eigenvalue-cascade-NEG-ASYMMETRIC ×1 / **(9) structural-coverage-NEG-ASYMMETRIC ×1 (NEW c479)**.
+
+**Operational note**: alphonse was FIRST pod hit by fleet-wide W&B 401 at 08:45:48 UTC (28 min before fern/tanjiro/nezuko at ~09:13 UTC). Student switched to WANDB_MODE=offline workaround for Arm C, synced post-key-refresh at 11:06 UTC. Code committed at `a5ab830` post-chain — exemplary infrastructure-handling discipline. Closed dead-end.
+
+
 ## 2026-05-28 08:00 — PR #1488: NM R-buffer off-diagonal ablation (scale 1.0→0.5→0.2→0.0) — **CLOSED MONOTONE-NEG (17th cross-axis catalog finding, closes class 7 structural-OFFDIAG-NEG previously pending)**
 
 - branch: `g1r4-askeladd/nm-rbuffer-offdiag-ablation`
