@@ -46,6 +46,13 @@ def parse_args():
     parser.add_argument("--muonh_lr", type=float, default=float(os.environ.get("MUONH_LR", "0.018")))
     parser.add_argument("--muonh_mode", type=str, default=os.environ.get("MUONH_MODE", "clip"), choices=["clip", "scale_invariant"])
     parser.add_argument("--muonh_cooldown_shape", type=str, default=os.environ.get("MUONH_COOLDOWN_SHAPE", "linear"), choices=["linear", "cosine", "sqrt"], help="LR cooldown shape for MuonH groups (AdamW aux groups stay linear)")
+    parser.add_argument("--aux_cooldown_shape", type=str,
+                        default=os.environ.get("AUX_COOLDOWN_SHAPE", "linear"),
+                        choices=["linear", "cosine", "sqrt"],
+                        help="LR cooldown shape for AdamW aux groups (embed/head/scalars). Baseline 'linear'.")
+    parser.add_argument("--aux_cooldown_frac", type=float,
+                        default=float(os.environ.get("AUX_COOLDOWN_FRAC", "0.4")),
+                        help="Fraction of training spent in AdamW aux cooldown. Baseline 0.4 (H148-derived asymmetric).")
     parser.add_argument("--muonh_warmup_steps", type=int, default=int(os.environ.get("MUONH_WARMUP_STEPS", "0")), help="Linear LR warmup steps for MuonH groups only (0 = disabled, no-op vs baseline). AdamW aux groups are not warmed.")
     parser.add_argument("--train_steps", type=int, default=int(os.environ.get("TRAIN_STEPS", "3350")))
     # MuLoCo outer Nesterov SGD (Algorithm 1, K=1). Wraps all trainable params;
@@ -833,6 +840,8 @@ if dist.get_rank() == 0:
             "muonh_lr": args.muonh_lr,
             "muonh_mode": args.muonh_mode,
             "muonh_cooldown_shape": args.muonh_cooldown_shape,
+            "aux_cooldown_shape": args.aux_cooldown_shape,
+            "aux_cooldown_frac": args.aux_cooldown_frac,
             "muonh_warmup_steps": args.muonh_warmup_steps,
             "train_steps": args.train_steps,
             "muloco_use_outer_optimizer": bool(args.use_outer_optimizer),
@@ -951,10 +960,10 @@ for trial_idx in range(args.num_trials):
     # (h_cooldown_frac=1.0); AdamW aux groups use a shorter cooldown so the
     # embed / head keep learning for the first ~60% of training.
     h_cooldown_frac = 1.0
-    aux_cooldown_frac = 0.4
+    aux_cooldown_frac = args.aux_cooldown_frac   # H250: was hardcoded 0.4
     for group in optimizer1.param_groups:
         group["cooldown_frac"] = aux_cooldown_frac
-        group["cooldown_shape"] = "linear"
+        group["cooldown_shape"] = args.aux_cooldown_shape   # H250: was hardcoded "linear"
     for group in optimizer2.param_groups:
         group["cooldown_frac"] = h_cooldown_frac
         group["cooldown_shape"] = args.muonh_cooldown_shape
@@ -971,6 +980,8 @@ for trial_idx in range(args.num_trials):
             muonh_warmup = min(1.0, (step + 1) / args.muonh_warmup_steps)
         else:
             muonh_warmup = 1.0
+        aux_eta = 1.0
+        body_eta = 1.0
         for opt in optimizers:
             for group in opt.param_groups:
                 cooldown_frac = group["cooldown_frac"]
@@ -989,6 +1000,9 @@ for trial_idx in range(args.num_trials):
                         raise ValueError(f"unknown cooldown_shape: {shape}")
                 if opt is optimizer2:
                     eta = eta * muonh_warmup
+                    body_eta = eta
+                else:
+                    aux_eta = eta
                 group["lr"] = group["initial_lr"] * eta
         # Aux β2 schedule: ramp β2 from start to end linearly across the aux
         # cooldown phase (last aux_cooldown_frac of training). constant schedule
@@ -1027,7 +1041,7 @@ for trial_idx in range(args.num_trials):
                 g["mu"] = mu_t
         else:
             mu_t = 0.95
-        return muonh_warmup, b2, mu_t
+        return muonh_warmup, b2, mu_t, aux_eta, body_eta
 
 
     ########################################
@@ -1132,9 +1146,10 @@ for trial_idx in range(args.num_trials):
         dist.all_reduce(step_loss, op=dist.ReduceOp.SUM)
         train_loss = float((step_loss / batch_size).item())
         # set optimization hyperparameters and take a step
-        muonh_warmup_factor, aux_beta2, muonh_mu_t = set_hparams(step)
+        muonh_warmup_factor, aux_beta2, muonh_mu_t, aux_eta_t, body_eta_t = set_hparams(step)
         train_step = step + 1
         telemetry_due = (step == 0 or (step + 1) % args.telemetry_interval == 0 or step + 1 == train_steps)
+        schedule_due = (step == 0 or (step + 1) % 100 == 0 or step + 1 == train_steps)
         histogram_due = (step == 0 or (step + 1) % args.histogram_interval == 0 or step + 1 == train_steps)
         slope_due = (train_step % slope_interval == 0 or train_step == train_steps)
         wandb_step = trial_idx * (train_steps + 1) + train_step
@@ -1148,6 +1163,19 @@ for trial_idx in range(args.num_trials):
             }
             slope_metrics.update(prefixed("train/slope", loss_slope_stats(train_loss_history, slope_window_steps)))
             wandb.log(slope_metrics, step=wandb_step)
+        # H250: schedule decomposition — log per-100-step aux/body LR and eta so
+        # the phase-by-phase trajectory of cooldown shape × frac is auditable.
+        if dist.get_rank() == 0 and schedule_due:
+            wandb.log({
+                "trial": trial_idx,
+                "train/step": train_step,
+                "train/schedule/aux_eta": aux_eta_t,
+                "train/schedule/body_eta": body_eta_t,
+                "train/schedule/aux_lr_embed": optimizer1.param_groups[0]["lr"],
+                "train/schedule/aux_lr_head": optimizer1.param_groups[1]["lr"],
+                "train/schedule/aux_lr_scalars": optimizer1.param_groups[2]["lr"],
+                "train/schedule/body_lr": optimizer2.param_groups[0]["lr"],
+            }, step=wandb_step)
         if dist.get_rank() == 0 and telemetry_due:
             log_training_telemetry(
                 model=model,
