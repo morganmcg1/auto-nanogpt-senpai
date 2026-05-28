@@ -8207,3 +8207,72 @@ If v drives the kind-asymmetry signal: Arm A < Arm B by Δ ≥ +0.0015.
 - 7 students active (8 with edward), ZERO IDLE
 - Morgan #1259 directive (depth/per-group + state-phase) — fully respected
 - alphonse #1606 likely closure next wake (val mean 3.27264 STANDARD, direction consistent with #1568 STRONGEST front_LOWER signal)
+
+## 2026-05-29 ~01:30Z — Cycle 71 mid-360 update — alphonse #1606 heartbeat (Arm A in-flight, NOT terminal — last-wake state correction) + thorfinn #1595 BOTH arms TERMINAL + tanjiro #1603 Arm A TERMINAL sub-cluster-edge
+
+### State correction from mid-359
+
+Previous mid-359 noted alphonse #1606 "both arms terminal at 3.27064/3.27464." This was incorrect — those values were actually from **#1568's already-merged** terminal arms. The actual #1606 group is `g1r2-alphonse-mu-cooldown-end-push` and the situation is:
+
+- Arm A `9ehrf1hy` (FRONT=0.80, BACK=0.95 moderate push): **RUNNING at step 2575/3175 (~81%)**, val=3.34880 mid-trajectory
+- Arm B: **NOT YET LAUNCHED**
+- Code patch confirmed `per_depth_half_mu_cooldown_end_enabled=1` ✓
+
+stale_wip flag is a false positive (zero comments, but Arm A progressing normally). Heartbeat posted reminding student to launch Arm B and post terminal SENPAI-RESULT.
+
+### thorfinn #1595 attn-SOAP termination step — BOTH ARMS TERMINAL (pending SENPAI-RESULT)
+
+- Arm A `s3m8q1ej`: val=**3.26926**, ffs unknown → **SUB-CLUSTER-EDGE** (val ∈ [3.265, 3.269)) — strong landing
+- Arm B `naxmwckk`: val=**3.27113**, ffs unknown → STANDARD lower edge
+- val_mean = **3.27020**, Δ vs baseline 3.26776 = **+0.00244** → MERGE BAR FAIL (above threshold)
+- Δ(B−A) = +0.00187 → Arm A wins direction
+- Awaiting student SENPAI-RESULT post — will review next wake
+
+### tanjiro #1603 PER_KIND_AUX_BETA2_PUSH — Arm A TERMINAL sub-cluster-edge, Arm B running
+
+- Arm A `qpeppuh8` (moderate push): **TERMINAL** at step 3175, val=**3.26985** → **SUB-CLUSTER-EDGE** band (val ∈ [3.265, 3.269))
+- Arm B `uhofmmro` (aggressive push, β2_embed=0.85, β2_lm_head=0.997): RUNNING at step 318 (~10%, early)
+- Code patch confirmed `aux_beta2_per_kind_enabled=1` ✓
+- Awaiting Arm B completion and terminal SENPAI-RESULT
+
+### fern #1611 PER_KIND_WD_AUX status
+
+- Arm A `wtf7jt3b` (embed-heavy): RUNNING at step 1575/3175 (~50%), val=3.53982 mid-trajectory
+- Arm B: NOT YET LAUNCHED
+
+### frieren #1596 PER_DEPTH_HALF_ATTN_SOAP_TRUST_THRESHOLD — Arm B advancing
+
+- Arm A `jgn1t3cq` (front_LOWER): TERMINAL at val=**3.27246** STANDARD
+- Arm B `bf6t9hnv` (front_HIGHER): RUNNING at step 2675/3175 (~84%), val=3.32877 mid-trajectory
+- Arm A on_fraction: q=0.917, k=0.583, proj=0.667, v=0.500 — kind-asymmetric firing pattern persists
+- Arm B on_fraction mid-flight: q=1.00, k=0.75, proj=0.67, v=0.50 — q firing fully at front_HIGHER (higher threshold) vs partial at Arm A
+
+### mid-360 active fleet snapshot
+
+| student | PR | axis | Arm A status | Arm B status |
+|---|---|---|---|---|
+| thorfinn | #1595 | attn-SOAP termination step | TERMINAL 3.26926 sub-edge | TERMINAL 3.27113 STANDARD (pending student SENPAI-RESULT) |
+| frieren | #1596 | attn-SOAP trust-threshold per-depth-half | TERMINAL 3.27246 STANDARD | running ~84% |
+| fern | #1611 | PER_KIND_WD_AUX | running ~50% | not launched |
+| askeladd | #1613 | PER_DEPTH_HALF_MU_COOLDOWN_START | early (~13%) | not launched |
+| tanjiro | #1603 | PER_KIND_AUX_BETA2_PUSH | TERMINAL 3.26985 sub-edge | running ~10% |
+| alphonse | #1606 | PER_DEPTH_HALF_MU_COOLDOWN_END_PUSH | running ~81% | not launched |
+| nezuko | #1616 | JOINT_OUTPUT_PROJ_BETA2_FAST | WIP (recently assigned) | — |
+| edward | #1618 | V_ISOLATED_REFRESH (3-bucket) | WIP (just assigned) | — |
+
+### Sub-cluster-edge cluster signal — strongest landing pattern in cycle 71
+
+Three CURRENT sub-cluster-edge results across distinct mechanism axes:
+- thorfinn #1595 Arm A `s3m8q1ej`: **3.26926** (attn-SOAP termination step axis)
+- tanjiro #1603 Arm A `qpeppuh8`: **3.26985** (PER_KIND_AUX_BETA2_PUSH axis)
+- Plus already-closed #1568 Arm A `l1ozo2nb`: 3.26992 (PER_DEPTH_HALF_MU_COOLDOWN_END axis)
+
+All three are state-phase or per-group mechanism axes — none are plain scalar sweeps. All three within [3.26926, 3.26992], val_mean=3.26968, ffs estimated 3025. The sub-cluster-edge "edge" of cycle 71 is now structurally well-populated. None individually break merge bar at single-seed n=1.
+
+### Strategic state
+- Cycle 71 noise floor cluster MDE: ≈Δ=+0.00130 val + 12.5 ffs at n=2
+- **264 refuted / 158 mech classes / 116 family closures** (no new closures this wake)
+- ZERO confirmed n=2 winners since baseline PR #613
+- 8 students active (4 with one-arm-terminal, 3 advancing, 1 just-launched), ZERO IDLE
+- Morgan #1259 directive fully respected — current portfolio is per-group + state-phase, no scalar sweeps
+- Next wake likely closures: thorfinn #1595 + tanjiro #1603 + alphonse #1606 (after Arm B for each) + possibly fern #1611 if Arm A completes
