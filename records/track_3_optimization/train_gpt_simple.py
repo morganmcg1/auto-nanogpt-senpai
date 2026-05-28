@@ -602,6 +602,11 @@ NANOGPT_NEWTON_MUON_UPDATE_PERIOD = int(os.environ.get("NANOGPT_NEWTON_MUON_UPDA
 NANOGPT_NEWTON_MUON_BETA = float(os.environ.get("NANOGPT_NEWTON_MUON_BETA", "0.95"))
 NANOGPT_NEWTON_MUON_EPS = float(os.environ.get("NANOGPT_NEWTON_MUON_EPS", "1e-4"))
 NANOGPT_NEWTON_MUON_MAX_D_IN = int(os.environ.get("NANOGPT_NEWTON_MUON_MAX_D_IN", "1024"))
+# R-buffer first-call init mode (#1530). 0.0 (default) preserves production
+# behavior: state["R"] = R_new.clone() (first observed X^T X / N). When > 0,
+# first-call init becomes alpha * I_{d_in}, then EMA mixes in R_new from step 3
+# onward. Set via NANOGPT_NEWTON_MUON_R_INIT_SCALE.
+NANOGPT_NEWTON_MUON_R_INIT_SCALE = float(os.environ.get("NANOGPT_NEWTON_MUON_R_INIT_SCALE", "0.0"))
 
 # Global per-parameter input-activation cache populated by forward hooks. Keyed by
 # id(weight_param) → tensor of shape (B*T, d_in) on device. Only populated when
@@ -746,6 +751,7 @@ class Muon(torch.optim.Optimizer):
                  newton_precond: bool = False, newton_beta: float = 0.95,
                  newton_eps: float = 1e-4, newton_update_period: int = 10,
                  newton_max_d_in: int = 1024,
+                 newton_r_init_scale: float = 0.0,
                  newton_input_cache: dict | None = None):
         assert isinstance(params, list) and len(params) >= 1
         if isinstance(params[0], dict):
@@ -784,6 +790,7 @@ class Muon(torch.optim.Optimizer):
         self.newton_eps = float(newton_eps)
         self.newton_update_period = int(newton_update_period)
         self.newton_max_d_in = int(newton_max_d_in)
+        self.newton_r_init_scale = float(newton_r_init_scale)
         self.newton_input_cache = newton_input_cache if newton_input_cache is not None else {}
         self._newton_step_count = 0
         # Accumulator dict reset each step() — read by the training loop after
@@ -829,7 +836,14 @@ class Muon(torch.optim.Optimizer):
             n = x32.shape[0]
             R_new = (x32.T @ x32) / float(n)
             if "R" not in state:
-                state["R"] = R_new.clone()
+                # #1530: gated identity warmstart. r_init_scale=0 -> production
+                # first-measurement init (R_new.clone()); r_init_scale>0 -> alpha*I.
+                if self.newton_r_init_scale > 0.0:
+                    state["R"] = self.newton_r_init_scale * torch.eye(
+                        d_in, device=x32.device, dtype=x32.dtype
+                    )
+                else:
+                    state["R"] = R_new.clone()
             else:
                 b = self.newton_beta
                 state["R"].mul_(b).add_(R_new, alpha=1.0 - b)
@@ -984,7 +998,8 @@ print0(
     f"lr_scale={NANOGPT_NEWTON_MUON_LR_SCALE} "
     f"update_period={NANOGPT_NEWTON_MUON_UPDATE_PERIOD} "
     f"beta={NANOGPT_NEWTON_MUON_BETA} eps={NANOGPT_NEWTON_MUON_EPS} "
-    f"max_d_in={NANOGPT_NEWTON_MUON_MAX_D_IN}",
+    f"max_d_in={NANOGPT_NEWTON_MUON_MAX_D_IN} "
+    f"r_init_scale={NANOGPT_NEWTON_MUON_R_INIT_SCALE}",
     console=True,
 )
 if NS_ITERS_COOLDOWN > 0:
@@ -1105,6 +1120,7 @@ if dist.get_rank() == 0:
             "nanogpt_newton_muon_beta": NANOGPT_NEWTON_MUON_BETA,
             "nanogpt_newton_muon_eps": NANOGPT_NEWTON_MUON_EPS,
             "nanogpt_newton_muon_max_d_in": NANOGPT_NEWTON_MUON_MAX_D_IN,
+            "nanogpt_newton_muon_r_init_scale": NANOGPT_NEWTON_MUON_R_INIT_SCALE,
         },
     )
 
@@ -1171,6 +1187,7 @@ for trial_idx in range(args.num_trials):
         newton_eps=NANOGPT_NEWTON_MUON_EPS,
         newton_update_period=NANOGPT_NEWTON_MUON_UPDATE_PERIOD,
         newton_max_d_in=NANOGPT_NEWTON_MUON_MAX_D_IN,
+        newton_r_init_scale=NANOGPT_NEWTON_MUON_R_INIT_SCALE,
         newton_input_cache=_newton_input_cache,
     )
     print0(f"MUON_PARAM_COUNTS: attn={len(muon_attn_params)} mlp={len(muon_mlp_params)} "
