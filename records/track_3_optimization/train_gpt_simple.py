@@ -602,6 +602,11 @@ NANOGPT_NEWTON_MUON_UPDATE_PERIOD = int(os.environ.get("NANOGPT_NEWTON_MUON_UPDA
 NANOGPT_NEWTON_MUON_BETA = float(os.environ.get("NANOGPT_NEWTON_MUON_BETA", "0.95"))
 NANOGPT_NEWTON_MUON_EPS = float(os.environ.get("NANOGPT_NEWTON_MUON_EPS", "1e-4"))
 NANOGPT_NEWTON_MUON_MAX_D_IN = int(os.environ.get("NANOGPT_NEWTON_MUON_MAX_D_IN", "1024"))
+# Phase-conditional eigenvalue power for R^{-alpha} preconditioning (#1538-followup, #1599).
+# When both = 0.5 (default), the rsqrt() branch fires throughout training and behavior is
+# bit-identical to production. Non-0.5 values force pow(-alpha) (less numerically precise).
+NANOGPT_NEWTON_MUON_ALPHA = float(os.environ.get("NANOGPT_NEWTON_MUON_ALPHA", "0.5"))
+NANOGPT_NEWTON_MUON_ALPHA_COOLDOWN = float(os.environ.get("NANOGPT_NEWTON_MUON_ALPHA_COOLDOWN", "0.5"))
 
 # Global per-parameter input-activation cache populated by forward hooks. Keyed by
 # id(weight_param) → tensor of shape (B*T, d_in) on device. Only populated when
@@ -746,6 +751,9 @@ class Muon(torch.optim.Optimizer):
                  newton_precond: bool = False, newton_beta: float = 0.95,
                  newton_eps: float = 1e-4, newton_update_period: int = 10,
                  newton_max_d_in: int = 1024,
+                 newton_alpha: float = 0.5,
+                 newton_alpha_cooldown: float = 0.5,
+                 newton_cooldown_start_step: int = -1,
                  newton_input_cache: dict | None = None):
         assert isinstance(params, list) and len(params) >= 1
         if isinstance(params[0], dict):
@@ -784,6 +792,13 @@ class Muon(torch.optim.Optimizer):
         self.newton_eps = float(newton_eps)
         self.newton_update_period = int(newton_update_period)
         self.newton_max_d_in = int(newton_max_d_in)
+        # Phase-conditional eigenvalue power for R^{-alpha} preconditioning (#1599).
+        # `newton_cooldown_start_step < 0` disables phase split (body alpha used throughout).
+        # When alpha == 0.5 exactly (within 1e-9), the rsqrt() branch fires for bit-identical
+        # behavior to the production code path (#1538 +0.01134 drift confound fix).
+        self.newton_alpha = float(newton_alpha)
+        self.newton_alpha_cooldown = float(newton_alpha_cooldown)
+        self.newton_cooldown_start_step = int(newton_cooldown_start_step)
         self.newton_input_cache = newton_input_cache if newton_input_cache is not None else {}
         self._newton_step_count = 0
         # Accumulator dict reset each step() — read by the training loop after
@@ -833,11 +848,22 @@ class Muon(torch.optim.Optimizer):
             else:
                 b = self.newton_beta
                 state["R"].mul_(b).add_(R_new, alpha=1.0 - b)
-            # Symmetric eigendecomp -> inverse square root with eigenvalue floor.
+            # Symmetric eigendecomp -> R^{-alpha} with eigenvalue floor. Phase-conditional
+            # alpha (#1599): cooldown alpha applies once _newton_step_count crosses the
+            # cooldown threshold; otherwise body alpha. alpha == 0.5 takes the rsqrt() path
+            # (numerically precise; bit-identical to production); other alpha uses pow(-alpha).
+            if (self.newton_cooldown_start_step >= 0
+                    and self._newton_step_count >= self.newton_cooldown_start_step):
+                alpha = self.newton_alpha_cooldown
+            else:
+                alpha = self.newton_alpha
             try:
                 vals, vecs = torch.linalg.eigh(state["R"])
                 vals_clamped = vals.clamp(min=0.0) + self.newton_eps
-                inv_sqrt_vals = vals_clamped.rsqrt()
+                if abs(alpha - 0.5) < 1e-9:
+                    inv_sqrt_vals = vals_clamped.rsqrt()
+                else:
+                    inv_sqrt_vals = vals_clamped.pow(-alpha)
                 # R_inv_sqrt = V * diag(inv_sqrt_vals) * V^T (symmetric).
                 state["R_inv_sqrt"] = (vecs * inv_sqrt_vals.unsqueeze(0)) @ vecs.T
                 # Stash eigvals on-device for lazy telemetry — no sync here.
@@ -853,6 +879,12 @@ class Muon(torch.optim.Optimizer):
         g_precond32 = g32 @ R_inv_sqrt
         tel = self.newton_telemetry
         tel["applied_n"] = tel.get("applied_n", 0) + 1
+        # Active alpha snapshot (#1599) — same phase rule used in the eigvals branch.
+        if (self.newton_cooldown_start_step >= 0
+                and self._newton_step_count >= self.newton_cooldown_start_step):
+            tel["alpha_active"] = self.newton_alpha_cooldown
+        else:
+            tel["alpha_active"] = self.newton_alpha
         # Only force CUDA syncs for telemetry on telemetry-due steps. The rest
         # of the time we keep the GPU pipeline full and avoid blocking the CPU.
         if self.newton_telemetry_due:
@@ -984,7 +1016,8 @@ print0(
     f"lr_scale={NANOGPT_NEWTON_MUON_LR_SCALE} "
     f"update_period={NANOGPT_NEWTON_MUON_UPDATE_PERIOD} "
     f"beta={NANOGPT_NEWTON_MUON_BETA} eps={NANOGPT_NEWTON_MUON_EPS} "
-    f"max_d_in={NANOGPT_NEWTON_MUON_MAX_D_IN}",
+    f"max_d_in={NANOGPT_NEWTON_MUON_MAX_D_IN} "
+    f"alpha_body={NANOGPT_NEWTON_MUON_ALPHA} alpha_cool={NANOGPT_NEWTON_MUON_ALPHA_COOLDOWN}",
     console=True,
 )
 if NS_ITERS_COOLDOWN > 0:
@@ -1105,6 +1138,8 @@ if dist.get_rank() == 0:
             "nanogpt_newton_muon_beta": NANOGPT_NEWTON_MUON_BETA,
             "nanogpt_newton_muon_eps": NANOGPT_NEWTON_MUON_EPS,
             "nanogpt_newton_muon_max_d_in": NANOGPT_NEWTON_MUON_MAX_D_IN,
+            "nanogpt_newton_muon_alpha": NANOGPT_NEWTON_MUON_ALPHA,
+            "nanogpt_newton_muon_alpha_cooldown": NANOGPT_NEWTON_MUON_ALPHA_COOLDOWN,
         },
     )
 
@@ -1158,6 +1193,7 @@ for trial_idx in range(args.num_trials):
                         if p.ndim >= 2 and ".attn." in n]
     muon_mlp_params = [p for n, p in model.blocks.named_parameters()
                        if p.ndim >= 2 and ".mlp." in n]
+    cooldown_start_step = int(train_steps * NS_COOLDOWN_START_FRAC)
     optimizer2 = Muon(
         [dict(params=muon_attn_params,
               lr=0.035 * NANOGPT_MUON_ATTN_LR_MULT * NANOGPT_NEWTON_MUON_LR_SCALE,
@@ -1171,14 +1207,19 @@ for trial_idx in range(args.num_trials):
         newton_eps=NANOGPT_NEWTON_MUON_EPS,
         newton_update_period=NANOGPT_NEWTON_MUON_UPDATE_PERIOD,
         newton_max_d_in=NANOGPT_NEWTON_MUON_MAX_D_IN,
+        newton_alpha=NANOGPT_NEWTON_MUON_ALPHA,
+        newton_alpha_cooldown=NANOGPT_NEWTON_MUON_ALPHA_COOLDOWN,
+        newton_cooldown_start_step=cooldown_start_step,
         newton_input_cache=_newton_input_cache,
     )
     print0(f"MUON_PARAM_COUNTS: attn={len(muon_attn_params)} mlp={len(muon_mlp_params)} "
            f"(expected 48 attn / 24 mlp for 12-layer block stack)", console=True)
+    print0(f"NEWTON_MUON_PHASE_ALPHA: body={NANOGPT_NEWTON_MUON_ALPHA} "
+           f"cooldown={NANOGPT_NEWTON_MUON_ALPHA_COOLDOWN} "
+           f"cooldown_start_step={cooldown_start_step}", console=True)
     # Track orthogonalized-update spectrum on first block's attention q.weight
     # to surface NS-schedule effects in W&B telemetry.
     optimizer2.spectral_telemetry_param = model.blocks[0].attn.q.weight
-    cooldown_start_step = int(train_steps * NS_COOLDOWN_START_FRAC)
     ns_iters_history: list[int] = []
     ns_cumulative_iters = 0
     optimizers = [optimizer1, optimizer2]
@@ -1463,6 +1504,9 @@ for trial_idx in range(args.num_trials):
                 newton_metrics["newton_muon/precond_ratio_mean"] = (
                     tel["precond_ratio_sum"] / ratio_n
                 )
+            alpha_active = tel.get("alpha_active")
+            if alpha_active is not None:
+                newton_metrics["newton_muon/alpha_active"] = float(alpha_active)
             wandb.log(newton_metrics, step=wandb_step)
         # Init-anchored WD on embed (#847, env-var-gated). After both optimizers
         # have stepped, apply `p -= lr_embed * lambda * (p - p_init)`. Order vs
