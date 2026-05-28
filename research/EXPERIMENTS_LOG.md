@@ -1,5 +1,31 @@
 # SENPAI Research Results — auto-nanogpt-1gpu-r5
 
+## 2026-05-28 09:00 — PR #1490: AdEMAMix on AdamW aux (slow-EMA mixture, NeurIPS 2024) (askeladd) [CLOSED — AUX-UPDATE-RULE-CLASS-NEG-3 — 33rd closure]
+- branch: g1r5-askeladd/ademamix-aux
+- hypothesis: AdEMAMix (Pagliardini et al. NeurIPS 2024) adds a slow EMA term `m_slow` (β3=0.9999, ~7000-step horizon) to AdamW's 1st moment with magnification factor α=5.0, multiplexing long-horizon and short-horizon momentum signals. Apply to AdamW aux groups while preserving the adaptive denominator.
+- verdict: **CLEAN-NEG CATASTROPHIC — α-magnification of un-corrected slow EMA is load-bearing failure**. 5-cell n=1, all NEG.
+
+- results (5-cell n=1):
+
+  | Cell | use_ademamix | β3 | α | val_best | FFS | Δval (σ_single) | FFS-alive (≤2975) | W&B |
+  |:---:|:---:|:---:|:---:|:---:|:---:|:---:|:---:|:---|
+  | A (ctrl) | False | — | — | 3.26065 | 3025 | -0.96σ | ✓ baseline-EXACT | ugjjwfbh |
+  | **B★ PRIMARY** | True | 0.9999 | 5.0 | **3.28276** | **-1 DNF** | **+36.3σ** | catastrophic | sdh506hi |
+  | C (low α) | True | 0.9999 | 2.0 | 3.26885 | 3100 | +12.9σ | NEG | bhzn3mg2 |
+  | D (low β3) | True | 0.999 | 5.0 | 3.41234 | -1 DNF | +254.8σ | catastrophic | bxg80n09 |
+  | E (falsifier) | True | 0.99 | 5.0 | 3.32524 | -1 DNF | +108.0σ | catastrophic | wjmw135h |
+
+- mechanism findings:
+  1. **★ α magnification of un-corrected slow EMA is load-bearing failure** — all α=5 cells (B/D/E) catastrophic regardless of β3 (0.999, 0.9999, 0.99); only α=2 Cell C is mild +12.9σ. Paper does NOT bias-correct `m_slow`, so its magnitude scales with sum(g) over the slow horizon. With α=5, the un-corrected slow EMA dominates the bias-corrected fast `m_hat`. β3 (horizon length) is NOT the harmful lever.
+  2. **Cooldown-incompatibility with slow-EMA term** — Cell B★ trajectory matches A through ~step 2000, then falls behind during cooldown (final 1000 steps). When LR drops sharply, gradient direction shifts; α=5 × stale m_slow becomes a stale-magnified force fighting the cosine LR contraction. AdEMAMix slow EMA can't track cooldown's rapid direction shift.
+  3. **★ AdEMAMix-on-aux 3rd member of AdamW aux pipeline-modification barrier.** Joins #1471 Lion (sign-quantization NUMERATOR replacement) and #1502 Sophia-G (Hessian-diag DENOMINATOR replacement). AdEMAMix is NUMERATOR AUGMENTATION (slow-EMA additive term). Three distinct modifications all fail clean — extends from 2-class to **3-class AdamW aux pipeline-modification barrier**: numerator replacement (Lion), denominator replacement (Sophia-G), numerator augmentation (AdEMAMix). AdamW's `m_hat / (sqrt(v_hat) + eps)` shape is FFS-load-bearing in this regime.
+  4. **★ Cross-PR confirmation with #1368 ceiling**: scalars-β1 decoupling found β1=0.95 (halflife ~20 steps) is FFS-positive. AdEMAMix adds parallel halflife ~5000+ steps with α=5 magnification — one ORDER OF MAGNITUDE beyond useful regime for 3250-step training. AdamW aux groups want MORE 1st-moment memory (per #1368), but the memory must remain bias-corrected and bounded.
+
+- closure logic: 33rd stack-component closure. 3-class AdamW aux pipeline-modification barrier crystallized. Per FFS-primary directive #1262 no n=4 promotion (no FFS-alive cell, Cell A at FFS=3025 baseline).
+- next: assigned askeladd #1549 AUX LR WARMUP — fresh schedule-shape axis on AdamW aux groups only (Liu et al. 2020), preserves AdamW update rule (passes 3-class barrier).
+
+---
+
 ## 2026-05-28 07:10 — PR #1481: cosine × cooldown_frac joint sweep (val-recovery Pareto) (alphonse) [CLOSED — COOLDOWN-FRAC-AXIS-CLOSED — 32nd closure]
 - branch: g1r5-alphonse/cosine-cdfrac-joint
 - hypothesis: Test whether shortening cooldown_frac (cdf) keeps more steps in the high-eta zone to recover val while preserving the cosine FFS gain from #1381. Pareto sweep cdf ∈ {0.7, 0.6, 0.5, 0.4, 0.3}.
