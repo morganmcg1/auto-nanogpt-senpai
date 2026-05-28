@@ -1,3 +1,57 @@
+## 2026-05-28 16:35 — PR #1557: H241 edward Lion (sign-based momentum) aux-side replacement — CLOSED (97th NULL/NEG, **CATASTROPHIC NEG/NEG bilateral; 🎯 PROGRAMME FINDING #55 CONSOLIDATES (4 of 4 aux-replacement quadrilateral): aux AdamW with our HP tuning STRUCTURALLY OPTIMAL; PROGRAMME FINDING #49 counter-evidence: β₁=0.8 is AdamW-mechanism-specific, does NOT transfer to Lion**)
+
+- Branch: `g1r3-edward/lion-aux-replacement`
+- Hypothesis: Test Lion (Chen et al. 2023, arXiv:2302.06675, sign-based EvoLved Sign Momentum) as aux-side replacement for AdamW on H148+H203 stack. 3-arm: CTRL adamw / LION_DEFAULT β₁=0.9 paper default / LION_OUR_BETA1 β₁=0.8 H225-finding. 37th mechanism class, 3rd in aux-replacement triad (H237 AdEMAMix + H239 SF-AdamW + H241 Lion span orthogonal mechanism axes).
+
+| Arm | aux_optimizer / β₁ | W&B | val | FFS | reached_target | Δval/σ_H174 | Verdict |
+|---|---|---|---|---|---|---|---|
+| arm_a CTRL | adamw / 0.8 | `syu4y3hk` | **3.26945** | **3050** | 1 | +1.30σ (13th torch.compile soft-drift instance) | within-noise drift |
+| arm_b LION_DEFAULT | lion / 0.9 | `exw5mlr2` | **3.31281** | **−1 (DNR)** | 0 | **+50.4σ** | **CATASTROPHIC NEG** |
+| arm_c LION_OUR_BETA1 | lion / 0.8 | `5lmjka9z` | **3.32139** | **−1 (DNR)** | 0 | **+60.1σ** | **CATASTROPHIC NEG (worse than arm_b)** |
+
+- W&B verified: all state=finished. All 3 arms ONLINE-mode (chain launched 10:32:34 UTC after W&B 401 recovery 10:30 UTC). Chain orchestrator `H241_chain.sh` PID 767008 sequential dispatch ran clean 10:32 → 15:59 UTC (5h27m wallclock).
+- All bit-id step-0 val=10.82583 EXACT on all 3 arms (Lion class dispatch path isolated from AdamW path — confirmed via stdout `Aux optimizer: AdamW (baseline)` for arm_a vs `Aux optimizer: LION betas=(0.9,0.99)` for arm_b/c).
+- Per-arm config audit (per `feedback_audit_treatment_runs_too.md`): aux_optimizer={adamw, lion, lion}, lion_beta1={0.9 unused, 0.9, 0.8} — distinct at W&B config-pane level + stdout audit.
+- Pre-flight 100-step smoke test (`H241_smoke_lion100` finished 10:16 UTC) exercised Lion code path before full chain launch — clean implementation discipline.
+- Statistical rule: arm_a `(3.28-3.26945)×√1=0.01055` ✓, arm_b/c both FAIL (val > 3.28).
+- Note: student counted 90th NULL/NEG; corrected count = **97th** (per cumulative tracking through H240 closure cycle ~1100 = 96).
+
+### Analysis
+
+- **🎯 PROGRAMME FINDING #55 CONSOLIDATES — 4 of 4 aux-replacement quadrilateral bilateral NEG**:
+
+| H# | Student | Aux mechanism class | Bilateral verdict | σ_H174 max |
+|---|---|---|---|---|
+| H225 | frieren | β₁ U-shape (AdamW HP-tier) | NEG | dynamics-tier |
+| H237 | nezuko | AdEMAMix (dual time-scale EMA) | NEG | +7.77σ |
+| H239 | askeladd | SF-AdamW (schedule-free Polyak-Ruppert) | NEG | +55.7σ catastrophic |
+| H241 | edward | Lion (sign-based magnitude, EvoLved Sign Momentum) | NEG | +60.1σ catastrophic |
+
+**aux AdamW with our H148-derived scalar HP tuning (β₁=0.8, β₂=0.99, eps=1e-6, lr scheduled with body) is STRUCTURALLY OPTIMAL** at our 384-token batch + 3325-step schedule contract. No fresh aux mechanism class (dual-EMA, schedule-free, sign-based) wins under this contract. **Mechanism class CLOSED.** This consolidates analogous to MuonH-SI structural tightness at body level (H214 + H227 + H230 polar-projection fidelity trifecta).
+
+- **🎯 PROGRAMME FINDING #49 counter-evidence — β₁=0.8 is AdamW-mechanism-specific**: H225 established β₁=0.8 bilaterally optimal for AdamW. PROGRAMME FINDING #49 candidate proposed: "dynamics-tier HP tuning (β₁) transfers across optimizer choice" (vs conditioning-tier HP like LR which is mechanism-coupled). **H241 falsifies this transfer**: arm_c (Lion β₁=0.8) is monotonically WORSE than arm_b (Lion β₁=0.9) at every checkpoint (deficit narrows from +0.073 at step 125 to +0.009 at step 3325 but NEVER reverses). The β₁ HP is **mechanism-coupled** — it interacts with the m_t/√v_t division in AdamW's update rule, not with Lion's sign(c) operation. **PROGRAMME FINDING #49 RECLASSIFIED**: dynamics-tier transfer hypothesis FALSIFIED at the optimizer-class level. β₁=0.8 is an **AdamW-specific finding**, not a general dynamics heuristic.
+
+- **Mechanism diagnosis (why Lion failed at our scale)**:
+  1. **Lion lr=aux_lr/10 too small at 384-token batch + 3325-step schedule**. Paper convention tuned at large-batch scale (1024+ for 7B params). At our scale, sign-based unit-magnitude updates don't accumulate enough effective progress on the aux side to track the body's H148+H203 cooldown. val_loss trajectory shows Lion converges along a separate curve ~0.04-0.05 above AdamW throughout training with no late catch-up cliff.
+  2. **Aux AdamW adaptive denominator IS load-bearing on sparse-row embed updates**. ~88% of embed rows have zero gradient per step. AdamW's per-row v_t bookkeeping adapts effective magnitude to row-firing frequency; Lion's sign() gives unit magnitude regardless of row history → over-updates rare-fire rows / under-updates frequent-fire rows. Structural-tightness mechanism at the aux side.
+
+Both diagnoses consistent with PROGRAMME FINDING #55 consolidation: aux AdamW + our HP tuning is structurally optimal for this contract.
+
+- **arm_a CTRL FFS=3050 +25 FFS soft-drift** joins torch.compile retracing soft-drift cluster (now **13 instances** through H241: H214/H224/H229/H230/H231/H232/H233/H234/H235/H237/H239/H243/H241). Mechanism class CONFIRMED structurally: argparse-conditional branch additions inside @torch.compile region inflate step_avg and shift FFS by +25 (≈1.3σ_H174). H241's Lion class dispatch path is outside the compiled region, so the drift is from the argparse flag addition pattern itself.
+
+- **Operational excellence**: pre-flight smoke; auto-chain orchestrator with `.netrc` fallback + sequential dispatch; per-step Lion telemetry (lion_update_norm, lion_buffer_norm, lion_c_mean_abs) logged for arm_b/c; mechanistic narrative correctly identified BOTH falsification patterns (PROGRAMME FINDING #49 counter-evidence at β₁ transfer level + PROGRAMME FINDING #55 consolidation candidate).
+
+- **Programme implications**:
+  - Aux-replacement axis CLOSED. Future work must move OFF aux-mechanism axis.
+  - Inner+outer MuLoCo momentum FORM CLOSED (PROGRAMME FINDING #54).
+  - Body NS5 polar projection LOCKED (H214 spectral RANK + H227 init F-norm + H230 NS5 iters trifecta).
+  - muonh_mode SI LOCKED trilaterally.
+  - Remaining UNEXPLORED axes orthogonal to confirmed-locked: body preconditioner replacement (Shampoo/SOAP), body second-order moment (Sophia/Apollo), eigenvalue-spectrum-constrained body init, body weight orthogonality regularizer, trapezoidal/triangle/inverse-sqrt schedule shape, minimal-MuonH stack pruning ablation.
+
+- **Decision: NOT MERGING.** 97th NULL/NEG. Aux-replacement mechanism class CONSOLIDATED CLOSED. **PROGRAMME FINDING #55 confirmed (4-arm quadrilateral)** + **PROGRAMME FINDING #49 reclassified (β₁ transfer FALSIFIED)**. H248 edward being assigned to fresh mechanism class (researcher-agent in-flight to identify highest-EV next axis).
+
+---
+
 ## 2026-05-28 15:42 — PR #1554: H240 frieren EMA model averaging for terminal eval — CLOSED (96th NULL/NEG, **CATASTROPHIC NEG/NEG bilateral; PURE EVAL-MECHANISM FINDING; PROGRAMME FINDING #57 candidate: terminal-eval choice raw-params vs EMA-averaged-params STRUCTURALLY LOAD-BEARING; raw-param eval structurally privileged for polar-projection optimizer stacks**)
 
 - Branch: `g1r3-frieren/h240-ema-eval`

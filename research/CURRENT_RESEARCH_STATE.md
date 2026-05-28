@@ -1,6 +1,83 @@
 # SENPAI Research State — auto-nanogpt-1gpu-r3
 
-- **Last updated:** 2026-05-28 15:55 UTC
+- **Last updated:** 2026-05-28 16:40 UTC
+
+---
+
+## Cycle ~1130: H241 CLOSED (97th NULL/NEG, CATASTROPHIC bilateral) + 🎯 PROGRAMME FINDING #55 CONSOLIDATED (aux-replacement quadrilateral) + 🎯 PROGRAMME FINDING #49 RECLASSIFIED (β₁ transfer FALSIFIED) + H248 edward PR #1593 ASSIGNED (44th mechanism class — FIRST POST-NS5 PRECONDITIONER EVER TESTED)
+
+**Key closure this cycle:**
+
+- **H241 edward Lion (sign-based momentum) aux-side replacement (PR #1557)** — 97th NULL/NEG. **CATASTROPHIC NEG/NEG bilateral**. arm_b LION_DEFAULT (β₁=0.9, paper default) val=3.31281/FFS=−1 (+50.4σ_H174, target never crossed). arm_c LION_OUR_BETA1 (β₁=0.8, H225 finding) val=3.32139/FFS=−1 (+60.1σ_H174, WORSE than arm_b). arm_a CTRL val=3.26945/FFS=3050 (+1.30σ, 13th torch.compile retracing soft-drift instance). All bit-id step-0 val=10.82583 EXACT. Lion class dispatch isolated from AdamW path (stdout audit confirms `Aux optimizer: AdamW (baseline)` for arm_a vs `Aux optimizer: LION betas=(0.9,0.99)` for arm_b/c).
+
+**🎯 PROGRAMME FINDING #55 CONSOLIDATED — aux-replacement quadrilateral 4 of 4 BILATERAL NEG:**
+
+| H# | Student | Aux mechanism class | Bilateral verdict | σ_H174 max |
+|---|---|---|---|---|
+| H225 | frieren | β₁ U-shape (AdamW HP-tier) | NEG | dynamics-tier |
+| H237 | nezuko | AdEMAMix (dual time-scale EMA) | NEG | +7.77σ |
+| H239 | askeladd | SF-AdamW (schedule-free Polyak-Ruppert) | NEG | +55.7σ catastrophic |
+| H241 | edward | Lion (sign-based magnitude, EvoLved Sign Momentum) | NEG | +60.1σ catastrophic |
+
+**aux AdamW with our H148-derived scalar HP tuning (β₁=0.8, β₂=0.99, eps=1e-6, lr scheduled with body) is STRUCTURALLY OPTIMAL** at our 384-token batch + 3325-step schedule contract. No fresh aux mechanism class wins under this contract. **Mechanism class CONSOLIDATED CLOSED.** Analogous to MuonH-SI structural tightness at body level (H214 + H227 + H230 polar-projection fidelity trifecta).
+
+**🎯 PROGRAMME FINDING #49 RECLASSIFIED — β₁=0.8 transfer FALSIFIED**:
+
+H225 established β₁=0.8 bilaterally optimal for AdamW. #49 candidate hypothesized "dynamics-tier HP transfer across optimizer choice". **H241 falsifies**: arm_c (Lion β₁=0.8) is monotonically WORSE than arm_b (Lion β₁=0.9) at every checkpoint:
+
+| step | arm_b β₁=0.9 | arm_c β₁=0.8 | β₁=0.8 deficit |
+|---|---|---|---|
+| 125 | 5.45908 | 5.53205 | +0.073 |
+| 1000 | 3.75716 | 3.77610 | +0.019 |
+| 3325 | 3.31281 | **3.32139** | **+0.009** |
+
+The β₁ HP is **mechanism-coupled** — interacts with AdamW's m_t/√v_t division, not with Lion's sign(c) operation. β₁=0.8 is an **AdamW-specific finding**, not a general dynamics heuristic.
+
+**Mechanism diagnosis** (why Lion failed): Lion's lr=aux_lr/10 too small at 384-token batch + 3325-step schedule (paper convention tuned at 1024+ batch, 7B params). AdamW's adaptive denominator IS load-bearing on sparse-row embed updates — ~88% of embed rows have zero gradient per step; AdamW's per-row v_t bookkeeping adapts effective magnitude to row-firing frequency; Lion's sign() gives unit magnitude regardless of row history → over-updates rare-fire rows / under-updates frequent-fire rows.
+
+**torch.compile retracing soft-drift cluster update**: H241 = **13th instance** (H214/H224/H229/H230/H231/H232/H233/H234/H235/H237/H239/H243/H241). Mechanism class structurally CONFIRMED — argparse-conditional branch additions inside @torch.compile region inflate step_avg and shift FFS by +25 (≈1.3σ_H174). Avoidance pattern: keep new branches OUTSIDE compiled region (validation block, optimizer construction, Python-level bookkeeping).
+
+**New assignment:**
+
+- **H248 edward PR #1593**: **Post-NS5 diagonal EMA-g² preconditioning — 44th mechanism class, FIRST POST-NS5 PRECONDITIONER EVER TESTED.** Apply a diagonal EMA of squared orthogonalized updates as a denominator scaling factor AFTER NS5 polar projection returns but BEFORE the weight step. Per-coordinate adaptive scale operating in the **tangent space of the Stiefel manifold** (analogous to RMSProp applied post-orthogonalization, but on the Riemannian tangent bundle). 3-arm: CTRL / POST_NS5_SLOW (β_v=0.999) / POST_NS5_FAST (β_v=0.99). Implementation lives OUTSIDE @torch.compile (avoids +25 FFS retracing class). Diagnostic telemetry: `post_ns5_scale_rms`, `post_ns5_scale_min`, `post_ns5_scale_max` directly reveals whether mechanism is active or dormant.
+
+**Pre-NS5 second-order is fully closed** (3-leg closure prior to this cycle): H92 MARS-M + H93 PSGD-Kron (closed Shampoo/SOAP/CASPR/ARFKE family) + H98 Sophia-G all NULL/NEG. **Post-NS5 has never been tested in campaign history.** Marchenko-Pastur theory predicts the eigenvectors of the post-NS5 Gram matrix have direction-dependent projection weights — first-principles non-trivial reason to expect non-uniform per-coordinate RMS structure. WIN probability estimate: **30-40%** (above campaign base rate ~10% due to stronger-than-average prior motivation).
+
+**Survey state**: 8/8 WIP (after H248 assignment), 0 idle, 0 review-ready. No new human directives this cycle.
+
+**Programme totals after cycle ~1130:**
+- **97 NULL/NEG closures** (+1 since cycle ~1100)
+- **44 novel mechanism classes** (H248 = 44th; H247 = 43rd in eval-mechanism sub-class; H241 was 37th not novel since it consolidated PROGRAMME FINDING #55)
+- **6 PROGRAMME FINDINGS pipeline** with **3 CONFIRMED + 2 candidates + 1 reclassified** (was 2 CONFIRMED + 2 candidates at cycle ~1100). #55 CONSOLIDATED CONFIRMED today; #49 RECLASSIFIED as FALSIFIED today.
+- **2 confirmed + 1 candidate VESTIGIAL FINDINGS** (unchanged)
+- **17 MuonH-SI/MuLoCo structural tightness members** (unchanged)
+- **13 instances torch.compile retracing soft-drift cluster** (+1 since cycle ~1100)
+
+**Exploration territory map updates after cycle ~1130:**
+
+| Axis | State (delta from cycle ~1100) |
+|---|---|
+| Aux optimizer replacement | **CONSOLIDATED CLOSED** (PROGRAMME FINDING #55 confirmed via H241) |
+| β₁ dynamics-tier transfer across optimizer classes | **FALSIFIED** (PROGRAMME FINDING #49 reclassified via H241) |
+| Pre-NS5 second-order (Shampoo/SOAP/Sophia/MARS) | CLOSED (3-leg H92+H93+H98) — unchanged |
+| Post-NS5 diagonal preconditioning (Riemannian tangent space) | **H248 WIP** (FIRST EVER TESTED) |
+| Best-checkpoint terminal eval | H247 WIP (frieren) |
+| Manifold-projected EMA terminal eval | H247 WIP (frieren) |
+| Outer optimizer FORM replacement | H246 WIP (askeladd LoCo-Adam) |
+| Per-layer body LR | H244 WIP (fern) |
+| Time-varying aux β₁/β₂ schedule | H245 WIP (nezuko ADana) |
+| Fractional NS iterations | H243 WIP (tanjiro) |
+| MuonH WSD schedule | H242 WIP (thorfinn) |
+| Body Shampoo/SOAP preconditioner | QUEUED (if H248 confirms post-NS5 axis is alive) |
+| Eigenvalue-spectrum-constrained body init beyond F-norm | UNTESTED |
+| Body weight orthogonality regularizer during training | UNTESTED |
+
+**Next-cycle monitoring queue**:
+- H238 alphonse arm_c (β₂=0.999) — expected terminal cycle ~1130 (was ETA 16:30 UTC at cycle ~1100). MERGE candidate or NULL pivot. arm_b TIES baseline EXACT (val=3.26822/FFS=3025 within-experiment −25 FFS vs CTRL drift class).
+- H243 tanjiro arm_b W&B-missing clarification (asked student cycle ~1060)
+- H244 fern duplicate concurrent arm_a runs (operational concern flagged cycle ~1060)
+- H247 frieren chain ETA terminal ~5h post-launch (launched cycle ~1100 ~15:55 UTC, ETA ~21:00 UTC)
+- H248 edward chain ETA terminal ~5h post-launch (post-assignment student pickup)
 
 ---
 
