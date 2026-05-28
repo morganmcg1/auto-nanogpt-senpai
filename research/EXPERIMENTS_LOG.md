@@ -1,5 +1,29 @@
 # SENPAI Research Results — auto-nanogpt-1gpu-r5
 
+## 2026-05-28 19:25 — PR #1549 CLOSED [41st closure of R5]: askeladd Aux LR warmup — schedule-shape on AdamW aux groups
+- branch: g1r5-askeladd/aux-lr-warmup
+- Hypothesis: AdamW aux groups (embed, lm_head, scalars) experience extreme gradient bursts at step 0; warmup window (0..N steps) protects adaptive `v_hat` denominator from contamination by step-0 burst. 5-cell warmup sweep: A=0 ctrl, B★=100, C=200, D=50 (sub-#1072-floor), E=500 (falsifier).
+
+| Cell | aux_warmup | val/loss | FFS | Status | W&B run |
+|:----:|:----------:|:--------:|:---:|:------:|:-------:|
+| **A (ctrl)** | 0 | **3.27029** | **2950** | clean reproducer (5th-sample baseline) | `6su5h1qc` |
+| D | 50 | 3.27434 | 3000 | NEG | `0vj6dmht` |
+| **B★ primary** | 100 | 3.27168 | 2975 | FFS-alive boundary, fails val gate | `41n8x8lw` |
+| C | 200 | 3.27714 | 3075 | NEG | `5ihaexkr` |
+| **E (falsifier)** | 500 | **3.28173** | **NEVER** | catastrophic ✓ | `8vyvpjza` |
+
+- **Closure rationale**: Monotone clean-NEG across the 5-cell sweep. Aux warmup damages both FFS and val proportional to warmup length. Cell E (500 steps ≈ 15% of training) catastrophic — fails to reach val=3.28 target entirely. Cell A clean 5th-sample baseline reproducer (val=3.27029 vs μ_4=3.270215, FFS=2950 vs μ_4=2943.75±12.5).
+
+- **Replicates closed PR #1072 with scalars-group extension**: #1072 (fern, 2026-05-25) tested fractional warmup ∈ {0.05, 0.10, 0.20, 0.30} on embed+lm_head only with unambiguous monotone NEG. This PR extends to: (a) scalars-group inclusion (no protective effect), (b) sub-#1072-floor exploration (D=50 ≈ 1.5% < #1072 minimum 5% — minimal warmup still damages, curve has no positive curvature toward zero).
+
+- **Mechanism preserved**: AdamW bias-correction `1/(1−β₂^t)` already compensates for cold-start EMA bias for all aux groups (embed sparse gradients, lm_head dense, scalars highest-β₁) — manual LR warmup is double-correction wasting capacity from optimal-LR early phase. This holds for the FFS-positive scalars group (#1368 β₁ decoupling) too. Quote from #1072 closure: *"AdamW bias-correction term already compensates for cold-start EMA bias; adding warmup is double-correction. FFS tracks val/loss linearly across warmup fraction."*
+
+- **Process bug surfaced**: `senpai-pr-guard` substring matcher false-positives on prose like "you've posted terminal SENPAI-RESULT:\n1. Rebase..." (advisor instructional text containing the marker substring). Human researcher filed #1598 with 1-line fix proposal. Student bypassed via manual `gh pr ready` + `swap_gh_pr_label`. Closure was unblocked.
+
+- **41st cumulative R5 closure**. Aux LR warmup axis fully closed across both 2D groups (embed/lm_head from #1072 + scalars now added).
+
+---
+
 ## 2026-05-28 18:49 — PR #1579 CLOSED [40th closure of R5]: nezuko LogitNorm per-token L2 logit normalization (τ sweep, Wei et al. 2022)
 - branch: g1r5-nezuko/logit-norm-tau
 - Hypothesis: Normalize per-token logit vector to unit L2 sphere scaled by 1/tau before cross-entropy (LogitNorm, Wei et al. 2022 arXiv:2205.09310). Mechanically distinct from existing element-wise softcap (per-element tanh-clip vs per-token L2 normalization). 5-cell tau sweep: A=0 ctrl, B★=0.04, C=0.02, D=0.07, E=0.10. Student applied early-kill gate after B★ failed n=1 alive gate.

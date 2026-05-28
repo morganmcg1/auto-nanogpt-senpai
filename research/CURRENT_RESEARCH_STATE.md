@@ -9,7 +9,29 @@ The human research team has redirected: **FFS (first-step-to-target, baseline 30
 3. **Prefer experiments that move the crossing step** (2800-3050 window), **simplify winning stacks**, **reveal FFS-load-bearing components**.
 4. **Ablations preferred over confirmations** when FFS dead.
 
-## Last updated: 2026-05-28 ~18:49Z (poll ≈1010, ★ #1579 CLOSED + nezuko #1609 ASSIGNED — 40th R5 closure)
+## Last updated: 2026-05-28 ~19:25Z (poll ≈1020, ★★ TRIPLE-PR POLL — 1 closure + 2 n=4 confirm requests + 1 new assignment)
+
+**Actions this poll**:
+1. ★ **CLOSED #1549 askeladd aux-LR-warmup** [41st R5 closure] — monotone clean-NEG: A(0)=2950, D(50)=3000, B(100)=2975, C(200)=3075, E(500)=NEVER catastrophic. Replicates #1072 (fern embed/lm_head warmup) with scalars-group extension confirming no protective effect. Cell A clean 5th-sample baseline reproducer.
+2. ★★ **REQUEST-CHANGES #1555 frieren aux-cooldown-LR-shape** — Cell B (aux linear) FFS-tied with A at 2925, val-positive -0.00330 (≈12× σ_4 val noise). Sent back for n=4 confirm of Cell B only on post-#1381 stack. Predeclared rule: merge if μ_4(FFS) ≤ 2918.75 AND σ_4 ≤ 12.5; fern-style perfect reproduction at 2925 would qualify.
+3. ★★★ **REQUEST-CHANGES #1533 alphonse EMA-eval (SWA)** — fresh axis with STRONG mechanism finding: within-run FFS_ema=2925 vs FFS_train=3025 = -100 step gap for Cells D (d=0.995) and E (d=0.99) on PRE-#1381 stack. Bias-correction Option A correctly implemented. Sent back for: (a) rebase onto current advisor branch resolving needs_rebase, (b) n=4 confirm of Cell E (d=0.99) ONLY on post-#1381 stack. If -100 step gap ports → μ_4≈2844 (far below merge gate ≤2918.75). Even partial port to -50 steps → 2894 still well below merge gate. Could be 2nd FFS-positive merge of R5.
+4. ★ **ASSIGNED #1612 askeladd NS polynomial coefficient substitution** (`g1r5-askeladd/ns-poly-coeffs`) — fresh NS-internal axis: tests Bernstein-optimal `(3.4445,-4.7750,2.0315)` quintic vs codebase-default `(2,-1.5,0.5)` Padé approximant. At `--ns_iter 6` the per-iteration convergence quality gap is maximally exposed; both `muon_update` and `soap_ns_step` call the same NS function, amplifying any quality gain. Single-line change with `--ns_coeffs` argparse flag. 5-cell sweep: A=ctrl, B=Bernstein, C=intermediate-lo, D=intermediate-hi, E=falsifier-weaker. Passes 5-class Muon body barrier (polynomial-internal, not pre/post-NS gradient-shape).
+
+**Ongoing in flight** (19:25Z snapshot):
+- **★★★ #1564 fern SOAP Gram trace-norm Trial 4** (`ixqmqe2j`): in flight, ETA terminus **~20:23Z** — CRITICAL merge-gate readout. n=3 already at FFS=2925 σ_3=0.
+- **#1586 thorfinn Cell B** (wd_mlp=0.022): ETA ~18:57Z, should be terminal soon
+- **#1565 tanjiro Cell E**: pending sequential after Cell D
+- **#1563 edward Cell E rerun** (exp=0 falsifier): step ~849, ETA ~19:50Z, slow but learning
+- **#1609 nezuko ns-iter-depth-schedule**: just assigned (poll ~1010)
+- **#1612 askeladd ns-poly-coeffs**: just assigned (poll ~1020 - this poll)
+- **#1555 frieren aux-cd-shape n=4 confirm**: starting (just sent back)
+- **#1533 alphonse EMA-eval rebase + n=4 confirm**: starting (just sent back)
+
+All 8 students remain occupied. Zero idle.
+
+---
+
+## Prior poll snapshot (~1010, 2026-05-28 ~18:49Z, ★ #1579 CLOSED + nezuko #1609 ASSIGNED — 40th R5 closure)
 
 **Actions this poll**: ★ CLOSED **#1579 nezuko LogitNorm** [40th R5 closure] — catastrophic-NEG (FFS=-1 at Cell B★ tau=0.04). Headline mechanism: empirical ||z||_2≈7.1 (not predicted ~55), so tau=0.04 sharpens (L2 pinned at 25 > natural 7.1) instead of softening → training breakdown. Student correctly applied predeclared early-kill gate; C/D/E not run. ★ ASSIGNED **#1609 nezuko depth-adaptive NS iteration count** (`g1r5-nezuko/ns-iter-depth-schedule`) — fresh NS-internal axis: blocks 0-3 receive ns_iter=4, 4-7=6 (baseline), 8-11=8 (depth_up δ=2). Mechanistic falsifier cell C is depth_down (8-6-4). Hypothesis: late blocks with higher effective-rank gradients benefit from more whitening precision. Passes 5-class Muon body barrier (NS-internal, not pre/post-NS gradient-shape modification).
 
