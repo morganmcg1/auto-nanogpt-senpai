@@ -1,5 +1,56 @@
 # SENPAI Research Results
 
+## 2026-05-28 09:30 UTC — PR #1531 thorfinn: Aux Adam AGC — Option 1 (rescale λ) approved after third structural collapse
+
+- Branch: `g1r1-thorfinn/aux-agc`
+- Three failed AGC formulations all collapse for the same root cause: gradient scale in this codebase (`F.cross_entropy(reduction='sum')` × batch_size=524,288) is ~5-6 orders of magnitude above Brock et al.'s mean-reduction calibration. Student's quantitative analysis reproduces the observed `max_clip_ratio` from per-row math.
+
+| Attempt | Variant | W&B (killed) | Killed at step | max_clip_ratio | Δval at kill |
+|---|---|---|---|---|---|
+| 1 | Literal per-tensor Frobenius | c9yv8sqa | 117 | ~1e-14 to 1e-20 | — |
+| 2 | Per-tensor Frobenius + 1e-3 floor | btz8s06j | 220 | ~5e-6 | +0.71 mnat |
+| 3 | Unit-wise NFNets `unitwise_norm` | pwb0yefk | 210 | ~1e-8 (sustained) | +117 mnat |
+
+- **Decision:** Approve student's Option 1 (rescale λ internally by `batch_size`). User-facing canonical λ=0.01 becomes λ_eff=5242 at the AGC clip threshold. This is the smallest deviation that tests AGC at the right calibration. Math check confirms: at λ_eff=5242, normal embed/scalar gradients have clip_ratio ~100-200 (no clip), only outliers fire. Sent back to wip.
+- **Useful negative findings (canon):** AGC at Brock-scale λ on sum-reduction loss is structurally degenerate across three different per-tensor/per-unit norm formulations. The fix MUST be either (a) rescale λ by batch_size or (b) rebuild as AGC-on-update (post-preconditioning). These three killed runs are AGC-envelope-mapping for this codebase.
+
+---
+
+## 2026-05-28 09:15 UTC — PR #1542 askeladd: pEMA β_t schedule decoupling from lr_mult — ASSIGNED
+
+- Branch: `g1r1-askeladd/beta-t-decouple`
+- Hypothesis: Break the parametric coupling `β_t = β_base + (β_target - β_base) × (1 - lr_mult_t)` by introducing an independent step-based β_t schedule. Motivated directly by askeladd's own post-mortem on #1496 Arm A (cosine).
+- Arm A (decoupled-canonical-timing): β_t linearly ramps from 0.97 → 0.99 over steps [1750, 3250].
+- Arm B (decoupled-earlier-ramp): β_t linearly ramps from 0.97 → 0.99 over steps [975 (cooldown onset), 2900 (target FFS)].
+- First PR to break the lr_mult coupling entirely. Status: **ASSIGNED**.
+
+---
+
+## 2026-05-28 09:00 UTC — PR #1496 askeladd: Cooldown LR shape (cosine vs sigmoid) — CLOSED BILATERAL CATASTROPHIC NULL
+
+- Branch: `g1r1-askeladd/cooldown-shape`
+- Hypothesis: Shape-family alternatives to power-1.4 cooldown.
+
+| Arm | Shape | W&B | val/loss_ema | sr | Δval (mnat) | Gate |
+|---|---|---|---|---|---|---|
+| Baseline (#1429) | power γ=1.4 | y4nxof1m / fek06bk7 | **3.263938** | **2900** | — | — |
+| A (cosine) | 0.5·(1+cos(π·cp)) | b26zqkrn | 3.277563 | 3125 | +13.6 | FAIL (Δsr+225) |
+| B (sigmoid) | 1/(1+exp(10·(cp-0.4))) | jxelv2pi | 3.291803 | -1 | +27.9 | CATASTROPHIC (never crossed 3.28) |
+
+- **Canon:** Cooldown-shape FAMILY axis FULLY CLOSED. Power γ=1.4 sits at local LR-mass-distribution optimum. Cosine over-allocates LR mass mid-cooldown (delays β_t ramp), sigmoid under-allocates (training starved of usable LR). Joint closure with #969 (γ sweep), #1084 (piecewise γ), #1342 (per-block γ), #1099 (decoupled aux γ), #1466 (NM shape).
+- **Key structural finding:** β_t = β_base + (β_target − β_base)·(1 − lr_mult) coupling was the load-bearing failure mode. Motivates next assignment (#1542 β_t decoupling).
+
+---
+
+## 2026-05-28 09:20 UTC — PR #1510 frieren: Per-block NS_ITERS Arm A late-deeper terminal NULL
+
+- Branch: `g1r1-frieren/per-block-ns-iters`
+- **Arm A late-deeper terminal** (`d6b6wx4v`): val_ema=3.267111, sr=2950 (Δ+3.2 mnat, Δsr+50). Fails merge gate.
+- Per-block depth-stratification on NS_ITERS does NOT generalize from #1289 LR WIN — late blocks with MORE polish iterations slightly hurts. Arm B early-deeper still running (step 1625-1900/3250 across cycles).
+- Two earlier crashes (ml8e0u8i step 0, r9y3gxk4 step 75) before d6b6wx4v succeeded — chain recovered cleanly.
+
+---
+
 ## 2026-05-28 07:40 UTC — PR #1535 alphonse: Differential pEMA β by parameter group (body vs aux Adam, Idea 12) — ASSIGNED
 
 - Branch: `g1r1-alphonse/pema-split`
