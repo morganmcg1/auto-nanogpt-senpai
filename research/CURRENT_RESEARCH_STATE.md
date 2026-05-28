@@ -1,3 +1,85 @@
+## 2026-05-28 22:30 UTC — Cycle 71 mid-357 — askeladd #1582 262nd refute (PER_KIND_NS5_ITERS_FULL_RUN STANDARD null Δ=+0.00128, CROSS-LAYER per-kind partition SYMMETRIC unlike depth-half) + thorfinn #1595 Arm B 25% in flight + frieren #1596 Arm A finished STANDARD val=3.27246 (Arm B running, NOT stale) + askeladd #1613 NEW PER_DEPTH_HALF_MU_COOLDOWN_START assignment (state-phase axis orthogonal to #1568 STRONGEST direction)
+
+**Cumulative**: **262 refuted** / **157 distinct mech classes** / **115 family-level closures**.
+
+### PRs closed this wave (1 closure):
+
+| PR | student | mechanism | outcome |
+|---|---|---|---|
+| **askeladd #1582** | askeladd | PER_KIND_NS5_ITERS_FULL_RUN (Arm A `attnMORE` NS5_attn=18/MLP=10 vs Arm B `mlpMORE` NS5_attn=10/MLP=18) | **262nd** — Arm A val=3.27285/ffs=3050 STANDARD, Arm B val=3.27157/ffs=3050 STANDARD; val_mean=3.27221 fails merge bar +0.00445. Δ(A-B)=+0.00128 (mlpMORE marginally, noise-tier). Direction-null on cross-layer kind partition. |
+
+### STRUCTURAL FINDING — NS5 sensitivity is PER-DEPTH, not PER-KIND (cross-layer)
+
+| PR | partition | Δ best vs worst | direction |
+|---|---|---|---|
+| #1558 (closed) | depth-half (body-wide front vs back) | +0.0020 | front_MORE wins ✓ |
+| **#1582 (this wave)** | **cross-layer per-kind (attn vs MLP)** | **+0.00128** | **direction-null** |
+
+NS5 iter dispatch finds asymmetry across BLOCK DEPTH (front_MORE) but NOT across LAYER TYPE (attn vs MLP). The contra+NorMuon stack's momentum-gradient spectrum is similar enough between attn (q/k/v/proj) and MLP (fc/proj) that 1.8× iter dispatch produces no clean direction. **Cross-layer kind-sensitivity is a different property than within-layer-type kind-sensitivity.**
+
+### Five-mechanism per-kind axis family update (cumulative)
+
+| PR | mechanism | partition | direction signal |
+|---|---|---|---|
+| #1547 (closed) | AUX β1 (m EMA) | within-layer (embed vs lm_head) | Goldilocks REVERSED Δ=+0.00061 |
+| #1566 (closed) | AUX amsgrad | within-layer (embed vs lm_head) | kind-asymmetric Δ=+0.00193 |
+| #1575 (closed) | attn-SOAP β2 | within-layer (q/k vs v/proj) | REVERSED Δ=+0.00312 (vp-fast) |
+| #1577 (closed) | AUX β2 | within-layer (embed vs lm_head) | REVERSED Δ=+0.00527 STRONGEST |
+| **#1582 (this wave)** | **NS5 iters** | **cross-layer (attn vs MLP)** | **direction-null Δ=+0.00128** |
+
+**Crystallized finding**: kind-sensitivity at within-layer-type splits (embed-vs-lm_head, q/k-vs-v/proj) is reliably present; cross-layer-type splits (attn-vs-MLP) are direction-null. Per-kind family signal lives in WITHIN-LAYER-TYPE structural asymmetry.
+
+### thorfinn #1595 Arm B mid-flight (25%, healthy)
+
+- Arm A `terminate_2975` (s3m8q1ej) FINISHED at val=**3.2693**/ffs=**3025** SUB-CLUSTER-EDGE (BEST single-arm cycle 71)
+- Arm B `terminate_2175` (naxmwckk) RUNNING at step **800/3175** (25%), healthy, val=3.7206 (normal early-train)
+- ETA ~77min to completion (~next wake)
+- For merge: Arm B needs val ≤ 3.26622 AND ffs ≤ 2975
+
+### frieren #1596 in-flight (Arm A done, Arm B 50/3175)
+
+- Arm A `front_LOWER` trust threshold (jgn1t3cq) FINISHED at val=**3.27246** STANDARD (Δ=+0.00470)
+- Arm B `front_HIGHER` (bf6t9hnv) just launched 19:25Z, step 50/3175, running normally
+- Disabled-canary passed ✓; code patch confirmed
+- stale_wip flag triggered by no comments; runs are healthy. Heartbeat sent reminding student to post terminal SENPAI-RESULT once Arm B completes.
+
+### PRs assigned this wave
+
+| PR | student | mechanism | role |
+|---|---|---|---|
+| **askeladd #1613** | askeladd | PER_DEPTH_HALF_MU_COOLDOWN_START (Arm A `front_LOWER` front=0.92/back=0.98 vs Arm B `front_HIGHER` front=0.98/back=0.92) | State-phase axis ORTHOGONAL to #1568 STRONGEST direction. Tests whether front_LOWER mu generalizes from cooldown END (already won) to cooldown START (= cruise plateau, untested). If front_LOWER wins, state-phase asymmetry is a general front-vs-back property. If null or reversed, asymmetry is END-specific. |
+
+### Fleet state at end of wake 25
+
+8 students all assigned, 0 idle:
+
+| PR | student | axis | status |
+|---|---|---|---|
+| #1583 | edward | PER_KIND_ATTN_SOAP_REFRESH_FREQ | WIP (Arm A done 3.2707, Arm B mid-flight per prior) |
+| #1590 | nezuko | PER_KIND_MLP_SOAP_BETA2 (fc vs proj) | WIP |
+| #1595 | thorfinn | ATTN_SOAP_TERMINATION_STEP | Arm A SUB-CLUSTER-EDGE (3.2693 BEST cycle 71), Arm B RUNNING ~25% |
+| #1596 | frieren | PER_DEPTH_HALF_ATTN_SOAP_TRUST_THRESHOLD | Arm A done STANDARD (3.27246), Arm B RUNNING ~2% |
+| #1603 | tanjiro | PER_KIND_AUX_BETA2_PUSH | WIP |
+| #1606 | alphonse | PER_DEPTH_HALF_MU_COOLDOWN_END_PUSH | WIP |
+| #1611 | fern | PER_KIND_WD_AUX (5th AUX mechanism) | WIP |
+| #1613 | askeladd | PER_DEPTH_HALF_MU_COOLDOWN_START | WIP (fresh) |
+
+### HIGH PRIORITY WATCH (unchanged from mid-356)
+
+**thorfinn #1595 Arm B** — most urgent. Sub-cluster-edge Arm A (3.2693/3025, BEST cycle 71) + sufficient Arm B = 2nd merge of cycle 71. ETA ~77min from this wake.
+
+### Potential next research directions
+
+1. **#1595 thorfinn Arm B terminal** (~next wake) — highest priority.
+2. **#1596 frieren Arm B terminal** — disambiguates trust-gating-absorbs-depth vs layer-scope-insensitive.
+3. **#1606 alphonse PUSH** — characterizes #1568 axis headroom.
+4. **#1603 tanjiro PUSH** — characterizes #1577 axis headroom (Δ=+0.00527 STRONGEST AUX).
+5. **#1583, #1590, #1611, #1613** — fresh axis screens; await terminal data.
+6. **PER_DEPTH_HALF_NS5_PER_BLOCK_RAMP** — finer-grained NS5 dispatch (linear ramp front→back) extending #1558's depth-half winner. Tests if NS5-front-up is monotonic.
+7. **Attn-internal kind splits (q/k vs v/proj) on other mechanisms** — given #1575 found vp-fast direction on β2 and #1583 is testing on refresh-freq, additional within-attn kind splits on other axes (e.g., AUX kind-direction transfer test) might compound.
+
+---
+
 ## 2026-05-28 21:00 UTC — Cycle 71 mid-356 — fern #1575 261st refute (PER_KIND_ATTN_SOAP_BETA2: REVERSED vp-fast wins Δ=+0.00312, 3rd non-front-up trust-gated attn-SOAP axis, layer-scope family COMPLETE) + thorfinn #1595 Arm A SUB-CLUSTER-EDGE val=3.2693/ffs=3025 (BEST single-arm cycle 71, late-noise hypothesis gaining support) + fern #1611 NEW PER_KIND_WD_AUX assignment (5th AUX mechanism family test, lr-scaling-inverse extension predicts embed-heavy direction)
 
 **Cumulative**: **261 refuted** / **157 distinct mech classes** / **115 family-level closures**.
