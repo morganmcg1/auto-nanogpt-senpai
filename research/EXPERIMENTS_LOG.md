@@ -1,5 +1,26 @@
 # SENPAI Research Results — auto-nanogpt-1gpu-r5
 
+## 2026-05-28 00:08 — PR #1441: AGC (Adaptive Gradient Clipping) on Muon body matrices (fern) [CLOSED — AGC-INCOMPATIBLE-MUON-PRE-NS — 28th closure]
+- branch: g1r5-fern/agc-body-pruning
+- hypothesis: NFNets-style row-norm gradient clipping (`||grad_row||/||param_row|| ≤ λ`) on Muon body — test whether clipping early-training gradient bursts damps Muon body update variance pre-NS.
+- verdict: **CLEAN-NEG WITH MAJOR STRUCTURAL FINDING**. All explored λ ∈ {0.005, 0.01, 1.0, 5.0} fire 100% of body params at every step — AGC is permanently rescaling, not selectively clipping. FFS-NEG by ~150-175 steps across all λ; val regression ~27-30σ_single uniformly. NS-iter spectrally washes out the magnitude perturbation, leaving similar orthogonalized direction across λ values.
+- results (5-cell n=1, with mid-flight λ-range redirect from {0.001} to {1.0, 5.0}):
+
+  | Cell | λ | FFS | ΔFFS | val | Δval σ | trigger_rate_body @ 3000 | W&B |
+  |:---:|:---:|:---:|:---:|:---:|:---:|:---:|:---|
+  | A ctrl | 0.0 | 3025 | +0 | 3.26016 | +0.0σ | n/a | xoqwjq5z |
+  | B★ | 0.01 | 3175 | +150 | 3.27657 | +27.7σ | 1.000 | oz4z3id2 |
+  | C | 0.005 | 3200 | +175 | 3.27771 | +29.6σ | 1.000 | zvkfperh |
+  | D′ | 1.0 | 3200 | +175 | 3.27826 | +30.5σ | 1.000 | qthmnq8i |
+  | E′ | 5.0 | 3175 | +150 | 3.27587 | +26.5σ | 0.964 | 0sbbi5zg |
+
+- mechanism findings:
+  1. **★★ MAJOR STRUCTURAL: Muon body `||grad_row||/||param_row|| ≫ 5` essentially always** — AGC's row-norm bound is permanently rescaling each row to `λ · ||param_row||`, not selectively clipping bursts
+  2. **NS-iter spectrally washes out the magnitude perturbation** — tight ~4σ_single clustering of val regressions across λ from 0.005 to 5.0 (range 0.0024) despite the rescaling factor varying by 1000×
+  3. **Per-layer dispersion at λ=5.0**: 58/72 fully saturated; 12/72 mlp/fc layers selective (0.55-0.97 trigger), monotone-increasing with depth; mlp/fc has the lowest grad/param ratio in the Muon body
+  4. **AGC inactive regime lies beyond λ=5** — well outside NFNets-CNN empirical range; the natural ratios in Muon body are unlike CNN gradient bursts
+  5. **★ Cross-PR implication for stabilization portfolio**: Muon body is post-NS-iter spectral-normalization-ROBUST to pre-NS magnitude perturbations — stabilization should target POST-NS controls (#1460 Cautious, #1446 Lookahead) not PRE-NS magnitude clips (this PR fails; pre-NS direction/blend mods #1493 QHM, #1497 GC face same structural barrier)
+
 ## 2026-05-27 23:48 — PR #1442: Per-block-depth Muon body LR decay (tanjiro) [CLOSED — PER-BLOCK-LR-MUSOFT-ABSORBED — 27th closure]
 - branch: g1r5-tanjiro/per-block-lr-decay
 - hypothesis: Test ULMFiT-style γ^(L-block_idx) per-block LR decay on Muon body — does the depth prior of "lower layers process more general features, need lower LR" transfer from fine-tuning to pretraining-from-scratch?

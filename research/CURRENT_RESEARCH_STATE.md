@@ -9,28 +9,33 @@ The human research team has redirected: **FFS (first-step-to-target, baseline 30
 3. **Prefer experiments that move the crossing step** (2800-3050 window), **simplify winning stacks**, **reveal FFS-load-bearing components**.
 4. **Ablations preferred over confirmations** when FFS dead.
 
-## Last updated: 2026-05-27 ~23:48Z (poll ~901)
+## Last updated: 2026-05-28 ~00:08Z (poll ~902)
 
-**Actions this poll**: ★ Close #1442 tanjiro PER-BLOCK-LR-MUSOFT-ABSORBED [27th stack-component closure]. γ=1.0 (uniform body LR) IS local optimum — both directions degrade monotonically with |γ-1|, asymmetric (γ>1 hurts harder), E falsifier DNF. **Key cross-PR joint-load-bearing finding: musoft init absorbs the depth prior** — musoft + uniform body LR is a 2-knob unit that can't be modulated independently. ULMFiT depth prior doesn't transfer to pretraining-from-scratch at this scale. ★ Assigned #1497 tanjiro Gradient Centralization on Muon body (Yong et al. ECCV 2020; row-mean removal pre-momentum/NS; structurally distinct from closed mu-schedules and in-flight AGC/Lookahead/Cautious/QHM/per-block-LR which respectively clip/average/gate/blend/scale rather than centralize). Issue #1480 still awaiting human response.
+**Actions this poll**: ★ Close #1441 fern AGC-INCOMPATIBLE [28th stack-component closure]. All λ ∈ {0.005, 0.01, 1.0, 5.0} FFS ≥ 3175 — AGC fires 100% saturated at every λ. **MAJOR STRUCTURAL FINDING: Muon body has `||grad_row||/||param_row|| ≫ 5` essentially always**; AGC's row-norm bound is permanently rescaling rather than selectively clipping, then NS-iter strips off the scale, leaving similar orthogonalized direction across λ values. Per-layer at λ=5.0 isolates mlp/fc (up-projection) as lowest-ratio class. **Cross-PR claim** (for stabilization-class future work): Muon body is post-NS-iter spectral-normalization-robust to pre-NS magnitude perturbations — stabilization should look at AFTER-NS controls (Cautious sign-gating, Lookahead averaging) not pre-NS magnitude clips. ★ Assigned #1500 fern AdaBelief on AdamW aux (Zhuang NeurIPS 2020; 2nd-moment of belief surprise (g-m)² vs gradient magnitude g²; orthogonal to all closed β2 axes which tested the *decay* of estimator — this tests the *form* of estimator).
 
 **Critical pending**: Issue #1480 human merge guidance — #1381 (FFS-POSITIVE, FIRST OF R5) held in status:review; Reading-C parallel arm #1481 in flight.
 
 **Active student portfolio (8 PRs, 0 idle)**:
 - ★★★ #1381 alphonse — **cosine cooldown n=4 TERMINAL — μ_4(FFS)=2944, FFS-ALIVE, val +15σ regression**; status:review, HOLD pending issue #1480 human guidance
 - ★ #1481 alphonse — cosine × cooldown_frac joint sweep (Reading-C parallel arm)
-- #1497 tanjiro — Gradient Centralization on Muon body (row-mean pre-NS; ECCV 2020; 5 cells ctrl/row-mean B★/col-mean/scope-extend/falsifier)
+- #1500 fern — AdaBelief on AdamW aux (2nd-moment estimator substitution; NeurIPS 2020; 5 cells ctrl/all-scope B★/scalars/lm_head/embed)
+- #1497 tanjiro — Gradient Centralization on Muon body (row-mean pre-NS; ECCV 2020)
 - #1493 frieren — QHM Muon body (gradient × momentum blend pre-NS; ICLR 2019)
 - #1490 askeladd — AdEMAMix on AdamW aux (fast+slow EMA mixture NeurIPS 2024)
 - #1471 thorfinn — Lion-aux sign-based optimizer (Chen et al. 2023; sequential sweep running)
 - #1460 nezuko — Cautious Optimizer (Liang et al. 2024; in flight)
 - #1446 edward — Lookahead optimizer wrapper (Zhang et al. 2019; in flight)
-- #1441 fern — AGC on Muon body (Brock et al. NFNets; cells in flight)
 
-**Cumulative closures (27 stack-components, ZERO merges in R5 to date)**: Averaging class (2) + Aux-LR triumvirate (3) + Per-group HP-decoupling tetrad β1+β2+ε+lr+β2-pergroup (5) + Crossing-phase cluster (6) + Muon NS operator-class (4) + AdamW aux core (3) + Early-phase (2) + Matrices-β1-isolation (1) + Per-block-LR (1) + others
+**Cumulative closures (28 stack-components, ZERO merges in R5 to date)**
 
-**β2 axis FULLY CLOSED across 3 sub-axes** (poll ~900): value #1321 + schedule #1377 + per-group #1434 — all FFS-cosmetic.
+**β2 axis FULLY CLOSED across 3 sub-axes** (poll ~900): value + schedule + per-group all FFS-cosmetic.
 
-**Depth-prior cluster status** (poll ~901): musoft init + uniform body LR is a JOINT-LOAD-BEARING 2-knob unit (#1266 init + #1442 per-block-LR closures). Either alone cannot be modulated without harm — they encode the same depth-scaling prior. Future depth-prior work would need to test BOTH simultaneously.
+**Depth-prior cluster** (poll ~901): musoft init + uniform body LR is JOINT-LOAD-BEARING 2-knob unit.
+
+**★ NEW CROSS-PR STRUCTURAL FINDING from #1441** (poll ~902): Muon body is **post-NS-iter spectral-normalization-ROBUST** to pre-NS magnitude perturbations. Implication for stabilization-class portfolio:
+- IN-FLIGHT PRE-NS modifiers (#1493 QHM-blend, #1497 GC-center): face the NS spectral wash-out as a structural barrier — should be tested but priors are weaker
+- IN-FLIGHT POST-NS modifiers (#1460 Cautious sign-gate, #1446 Lookahead average): structurally exempt from the wash-out — higher priors for FFS movement
+- **Adam-moment-replacement axis fully tiled by 3 in-flight PRs**: AdaBelief (#1500, 2nd-moment substitution), AdEMAMix (#1490, 1st-moment augmentation), Lion-aux (#1471, sign-only update)
 
 **FFS-positive directions**:
 1. ★★★ Cosine cooldown shape (#1381 n=4 TERMINAL μ_4(FFS)=2943.75 ALIVE; val regression +15σ; HOLD for #1480)
