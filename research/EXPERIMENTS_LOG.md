@@ -1,5 +1,30 @@
 # SENPAI Research Results — auto-nanogpt-1gpu-r5
 
+## 2026-05-28 04:00 — PR #1471: Lion optimizer for AdamW aux groups (sign-based, Chen 2023) (thorfinn) [CLOSED — AUX-UPDATE-RULE-CLASS-NEG — 31st closure]
+- branch: g1r5-thorfinn/lion-aux
+- hypothesis: Lion (Chen et al. 2023, arxiv:2302.06675) — sign-based optimizer with EMA-of-sign update direction. Replaces AdamW on aux groups (embed, lm_head, scalars). Paper reports 2-5× speedup vs AdamW on 100M-11B LM pretraining. Predicted to test whether the AdamW *update rule* (not just its hyperparameters) is FFS-load-bearing on this stack.
+- verdict: **CLEAN-NEG ACROSS ALL 5 CELLS**. Val ordering strictly monotone (B<C<D<E), basin around paper-recommended lr_scale=0.33 well-bracketed below AdamW ctrl. 31st stack-component closure; second aux-update-rule replacement to fail after #1502 Sophia B-cell, forming a 2-class AUX-UPDATE-RULE structural barrier.
+
+- results (5-cell n=1):
+
+  | Cell | --lion_lr_scale | val/loss | Δval vs A (σ_single) | FFS | ΔFFS vs A | W&B |
+  |:---:|:---:|:---:|:---:|:---:|:---:|:---|
+  | A ctrl | — (AdamW) | 3.25991 | (ref) | 3025 | — | gtqqpnf5 |
+  | B★ primary | 0.33 | 3.27737 | **+29.4σ** | 3200 | +175 | izcrygtq |
+  | C | 0.10 | 3.28882 | **+48.7σ** | DNF | DNF | v1tz8psa |
+  | D★ falsifier | 1.00 (LR×3) | 3.30560 | **+77.0σ** | DNF | DNF | nrtljtdr |
+  | E★ falsifier | 0.033 (LR/3) | 3.31815 | **+98.2σ** | DNF | DNF | arcc4uqj |
+
+- mechanism findings:
+  1. **Sign-flip rate is gradient-SNR-locked, not lr_scale-controlled**. Cross-cell sign-flip rates clustered tightly: embed ~0.32, lm_head ~0.33, scalars ~0.42 across B/C/D/E. Lion's directional churn is dictated by gradient SNR at the AdamW slot — reducing lr_scale to 0.033 (cell E) did not reduce sign-flips, just shrank each (still ~50%-flipping) step. Structural mechanism limit, not a HP miss.
+  2. **Falsifier D (LR×3 → 1.00) did NOT diverge**. Lion sign-based updates have bounded magnitude (‖update‖₂ = √N·lr regardless of gradient scale). Worst case under over-LR is slow convergence, not blow-up. D landed at val=3.30560 (finite, degraded). Contrast: AdamW@3× LR typically diverges in a few hundred steps. **Stability buys nothing if directional information per step is too coarse for the loss landscape**.
+  3. **★ AUX-UPDATE-RULE class is FFS-load-bearing (cross-PR claim)**. Lion is the 2nd adaptive-direction-replacement attempt on AdamW aux (after Sophia-G #1502 B-cell). Two independent rule replacements — sign-quantization (Lion) and 2nd-order curvature (Sophia) — both clean-NEG. The AdamW *update rule* is FFS-load-bearing, not just the (β1, β2, ε, wd) tuple. Two-class AUX-UPDATE-RULE structural barrier crystallized.
+  4. **Asymmetry with Muon body barrier**. Both Muon body (3-class wrapper barrier: AGC pre-NS, Lookahead post-NS, Cautious post-NS per-coord) and AdamW aux (2-class rule replacement barrier: Lion sign, Sophia 2nd-order) are now structurally bounded. The stack's *update geometry* is doubly load-bearing — perturbations at either the body update direction or the aux update rule fail clean.
+
+- next: assigned thorfinn fresh hypothesis #1523 mu_mlp/mu_attn decoupling on Muon body (per-group analogue of FFS-positive #1368).
+
+---
+
 ## 2026-05-28 03:45 — PR #1460: Cautious Optimizer (sign-agreement gating on Muon body) (nezuko) [CLOSED — CAUTIOUS-GATING-CLASS-CLOSED — 30th closure]
 - branch: g1r5-nezuko/cautious-optimizer
 - hypothesis: Cautious Optimizer (Liang et al. 2024, arxiv:2411.16085) — per-coordinate masking that zeros update components where momentum and instantaneous gradient disagree. Mechanism: prune "stale" coordinates whose direction has shifted since last momentum update. Paper reports +0.5-1.5% LM PPL on canonical baselines with one-line code change. Predicted to be the structurally-distinct gating wrapper class after averaging closures (#1258 SF-Muon, #1403 Polyak-Ruppert).
