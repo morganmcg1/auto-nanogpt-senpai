@@ -97,6 +97,10 @@ def parse_args():
              "muall=musoft + non-residual block 2D weights also scaled by 1/sqrt(L); "
              "smallconst=std=1e-3 depth-independent.",
     )
+    parser.add_argument("--ema_eval_decay", type=float, default=None,
+                        help="EMA decay for SWA-style EMA-eval; None=disabled (control). "
+                             "Recommend 0.99-0.9999. When set, val/ema_loss is logged "
+                             "and speedrun/first_step_to_target uses the EMA-val crossing.")
     args = parser.parse_args()
     args.num_trials = args.num_trials if args.num_trials is not None else (args.legacy_num_trials or 1)
     args.wandb_tags = [tag.strip() for tag in args.wandb_tags.split(",") if tag.strip()]
@@ -780,6 +784,8 @@ if dist.get_rank() == 0:
             "lr_scalars": args.lr_scalars,
             "depth_init_mode": args.depth_init_mode,
             "lr_cooldown_shape": args.lr_cooldown_shape,
+            "ema_eval_decay": args.ema_eval_decay,
+            "ema_eval_enabled": args.ema_eval_decay is not None,
         },
     )
 
@@ -932,16 +938,42 @@ for trial_idx in range(args.num_trials):
     train_loader = distributed_data_generator("data/fineweb10B/fineweb_train_*.bin", batch_size)
     for p in model.parameters():
         dist.broadcast(p.detach(), 0)
+
+    # EMA-eval (SWA-style) state. Parallel param trajectory, used only for validation
+    # eval; does NOT modify the train trajectory. Initialized fresh per trial from
+    # the broadcast-synced model params, kept in float32 for slow-decay precision.
+    # init_state holds the same broadcast-synced params and is used to bias-correct
+    # the EMA at val time via corrected = (ema - d^t * init) / (1 - d^t).
+    ema_state: dict[str, Tensor] | None = None
+    init_state: dict[str, Tensor] | None = None
+    ema_n_updates = 0
+    if args.ema_eval_decay is not None:
+        ema_state = {n: p.detach().clone().to(torch.float32)
+                     for n, p in model.named_parameters() if p.requires_grad}
+        init_state = {n: p.detach().clone().to(torch.float32)
+                      for n, p in model.named_parameters() if p.requires_grad}
+
     # start the clock
     training_time = 0
     last_val_step = 0
     best_val_loss = float("inf")
     best_val_step = -1
     first_step_to_target = -1
+    # When EMA-eval is on, speedrun/first_step_to_target tracks corrected EMA-val
+    # crossing 3.28 (the literature-validated, init-bias-removed signal). We also
+    # track train-val and uncorrected EMA-val crossings as parallel diagnostics.
+    first_step_to_target_trainval = -1
+    first_step_to_target_ema_uncorrected = -1
+    best_ema_val_loss = float("inf")
+    best_ema_val_step = -1
+    best_ema_corrected_val_loss = float("inf")
+    best_ema_corrected_val_step = -1
     slope_interval = max(1, round(train_steps * SLOPE_FRACTION))
     slope_window_steps = max(100, slope_interval)
     train_loss_history: list[tuple[int, float]] = []
     val_loss_history: list[tuple[int, float]] = []
+    ema_val_loss_history: list[tuple[int, float]] = []
+    ema_corrected_val_loss_history: list[tuple[int, float]] = []
     dist.barrier()
     t0 = time.perf_counter()
     for step in range(train_steps + 1):
@@ -964,12 +996,80 @@ for trial_idx in range(args.num_trials):
             dist.all_reduce(val_loss, op=dist.ReduceOp.SUM)
             val_loss /= val_tokens
             val_loss_float = float(val_loss.item())
+
+            # EMA-eval: swap params to EMA state and re-run validation. Two passes
+            # (one backup, two evals, one restore):
+            #   1. Uncorrected EMA-val (raw ema_state, biased toward init by d^t).
+            #   2. Bias-corrected EMA-val: corrected = (ema - d^t * init) / (1 - d^t).
+            # Train trajectory is untouched.
+            ema_val_loss_float: float | None = None
+            ema_val_loss_corrected_float: float | None = None
+            ema_d_pow_at_val: float | None = None
+            if ema_state is not None:
+                with torch.no_grad():
+                    backup = {n: p.detach().clone()
+                              for n, p in model.named_parameters() if n in ema_state}
+                    # Pass 1: uncorrected EMA swap.
+                    for n, p in model.named_parameters():
+                        if n in ema_state:
+                            p.data.copy_(ema_state[n].to(p.dtype))
+                ema_val_loss = torch.zeros((), device=device)
+                with torch.no_grad():
+                    for i in range(len(val_inputs) // mbs):
+                        ema_val_loss += model(val_inputs[i*mbs:(i+1)*mbs], val_targets[i*mbs:(i+1)*mbs])
+                dist.all_reduce(ema_val_loss, op=dist.ReduceOp.SUM)
+                ema_val_loss /= val_tokens
+                ema_val_loss_float = float(ema_val_loss.item())
+
+                # Pass 2: bias-corrected EMA swap. Skip at ema_n_updates==0 since
+                # (1 - d^0) = 0 makes the correction undefined.
+                if ema_n_updates > 0:
+                    d_pow = float(args.ema_eval_decay) ** ema_n_updates
+                    one_minus_d_pow = 1.0 - d_pow
+                    ema_d_pow_at_val = d_pow
+                    with torch.no_grad():
+                        for n, p in model.named_parameters():
+                            if n in ema_state:
+                                corrected_p = (ema_state[n] - d_pow * init_state[n]) / one_minus_d_pow
+                                p.data.copy_(corrected_p.to(p.dtype))
+                                del corrected_p
+                    ema_val_loss_corrected = torch.zeros((), device=device)
+                    with torch.no_grad():
+                        for i in range(len(val_inputs) // mbs):
+                            ema_val_loss_corrected += model(val_inputs[i*mbs:(i+1)*mbs], val_targets[i*mbs:(i+1)*mbs])
+                    dist.all_reduce(ema_val_loss_corrected, op=dist.ReduceOp.SUM)
+                    ema_val_loss_corrected /= val_tokens
+                    ema_val_loss_corrected_float = float(ema_val_loss_corrected.item())
+
+                # Restore train-trajectory params.
+                with torch.no_grad():
+                    for n, p in model.named_parameters():
+                        if n in ema_state:
+                            p.data.copy_(backup[n])
+                del backup
+
             if dist.get_rank() == 0:
                 val_loss_history.append((step, val_loss_float))
                 if val_loss_float < best_val_loss:
                     best_val_loss = val_loss_float
                     best_val_step = step
-                if first_step_to_target < 0 and val_loss_float <= TARGET_VAL_LOSS:
+                # Track train-val FFS regardless of EMA state.
+                if first_step_to_target_trainval < 0 and val_loss_float <= TARGET_VAL_LOSS:
+                    first_step_to_target_trainval = step
+                # Track uncorrected EMA-val FFS for diagnostic comparison.
+                if (ema_val_loss_float is not None
+                        and first_step_to_target_ema_uncorrected < 0
+                        and ema_val_loss_float <= TARGET_VAL_LOSS):
+                    first_step_to_target_ema_uncorrected = step
+                # Primary FFS uses corrected EMA-val when available, else uncorrected
+                # EMA-val (fallback for step 0), else train-val (EMA disabled).
+                if ema_val_loss_corrected_float is not None:
+                    primary_val_for_ffs = ema_val_loss_corrected_float
+                elif ema_val_loss_float is not None:
+                    primary_val_for_ffs = ema_val_loss_float
+                else:
+                    primary_val_for_ffs = val_loss_float
+                if first_step_to_target < 0 and primary_val_for_ffs <= TARGET_VAL_LOSS:
                     first_step_to_target = step
                 metrics = {
                     "trial": trial_idx,
@@ -981,12 +1081,54 @@ for trial_idx in range(args.num_trials):
                     "val/single_run_stat_sig_margin": TARGET_VAL_LOSS - val_loss_float - STAT_SIG_DELTA,
                     "speedrun/first_step_to_target": first_step_to_target,
                     "speedrun/reached_target": int(first_step_to_target >= 0),
+                    "speedrun/first_step_to_target_trainval": first_step_to_target_trainval,
+                    "speedrun/reached_target_trainval": int(first_step_to_target_trainval >= 0),
                     "time/train_seconds": training_time,
                     "time/step_avg_ms": 1000 * step_avg,
                 }
                 metrics.update(prefixed("val/slope", loss_slope_stats(val_loss_history, slope_window_steps)))
+                if ema_val_loss_float is not None:
+                    ema_val_loss_history.append((step, ema_val_loss_float))
+                    if ema_val_loss_float < best_ema_val_loss:
+                        best_ema_val_loss = ema_val_loss_float
+                        best_ema_val_step = step
+                    metrics["val/ema_loss"] = ema_val_loss_float
+                    metrics["val/ema_best_loss"] = best_ema_val_loss
+                    metrics["val/ema_best_step"] = best_ema_val_step
+                    metrics["val/loss_diff"] = val_loss_float - ema_val_loss_float
+                    metrics["val/ema_target_margin"] = TARGET_VAL_LOSS - ema_val_loss_float
+                    metrics["val/ema_n_updates"] = ema_n_updates
+                    metrics["speedrun/first_step_to_target_ema_uncorrected"] = first_step_to_target_ema_uncorrected
+                    metrics["speedrun/reached_target_ema_uncorrected"] = int(first_step_to_target_ema_uncorrected >= 0)
+                    metrics.update(prefixed("val/ema_slope",
+                                            loss_slope_stats(ema_val_loss_history, slope_window_steps)))
+                if ema_val_loss_corrected_float is not None:
+                    ema_corrected_val_loss_history.append((step, ema_val_loss_corrected_float))
+                    if ema_val_loss_corrected_float < best_ema_corrected_val_loss:
+                        best_ema_corrected_val_loss = ema_val_loss_corrected_float
+                        best_ema_corrected_val_step = step
+                    metrics["val/ema_loss_corrected"] = ema_val_loss_corrected_float
+                    metrics["val/ema_corrected_best_loss"] = best_ema_corrected_val_loss
+                    metrics["val/ema_corrected_best_step"] = best_ema_corrected_val_step
+                    metrics["val/ema_corrected_target_margin"] = TARGET_VAL_LOSS - ema_val_loss_corrected_float
+                    metrics["val/ema_loss_diff_corrected_vs_train"] = val_loss_float - ema_val_loss_corrected_float
+                    metrics["val/ema_loss_diff_corrected_vs_uncorrected"] = (
+                        (ema_val_loss_float - ema_val_loss_corrected_float)
+                        if ema_val_loss_float is not None else 0.0
+                    )
+                    if ema_d_pow_at_val is not None:
+                        metrics["val/ema_d_pow_t"] = ema_d_pow_at_val
+                        metrics["val/ema_correction_factor"] = 1.0 / (1.0 - ema_d_pow_at_val)
+                    metrics.update(prefixed("val/ema_corrected_slope",
+                                            loss_slope_stats(ema_corrected_val_loss_history, slope_window_steps)))
                 wandb.log(metrics, step=trial_idx * (train_steps + 1) + step)
-            print0(f"step:{step}/{train_steps} val_loss:{val_loss:.5f} train_time:{training_time:.3f}s"
+            ema_log_str = ""
+            if ema_val_loss_float is not None:
+                ema_log_str += f" ema_val_loss:{ema_val_loss_float:.5f}"
+            if ema_val_loss_corrected_float is not None:
+                ema_log_str += f" ema_val_loss_corr:{ema_val_loss_corrected_float:.5f}"
+            print0(f"step:{step}/{train_steps} val_loss:{val_loss:.5f}{ema_log_str}"
+                   + f" train_time:{training_time:.3f}s"
                    + f" step_avg:{1000*step_avg:.2f}ms", console=True)
             model.train()
             # start the clock again
@@ -1040,6 +1182,41 @@ for trial_idx in range(args.num_trials):
             )
         for opt in optimizers:
             opt.step()
+
+        # EMA-eval update: parallel param trajectory, no gradients/momentum.
+        # Performed after the optimizer step so EMA tracks the post-update params.
+        if ema_state is not None:
+            d = args.ema_eval_decay
+            with torch.no_grad():
+                for n, p in model.named_parameters():
+                    if n in ema_state:
+                        ema_state[n].mul_(d).add_(p.detach().to(torch.float32), alpha=(1 - d))
+            ema_n_updates += 1
+            # Periodic EMA diagnostics (drift vs current params, EMA norm). Cheap.
+            if dist.get_rank() == 0 and (train_step % 100 == 0 or train_step == train_steps):
+                with torch.no_grad():
+                    ema_sq = torch.zeros((), device=device, dtype=torch.float32)
+                    drift_sq = torch.zeros((), device=device, dtype=torch.float32)
+                    init_drift_sq = torch.zeros((), device=device, dtype=torch.float32)
+                    for n, p in model.named_parameters():
+                        if n in ema_state:
+                            e = ema_state[n]
+                            ema_sq.add_(e.pow(2).sum())
+                            drift_sq.add_((e - p.detach().to(torch.float32)).pow(2).sum())
+                            init_drift_sq.add_((e - init_state[n]).pow(2).sum())
+                d_pow_now = float(d) ** ema_n_updates
+                wandb.log({
+                    "trial": trial_idx,
+                    "train/step": train_step,
+                    "ema/param_norm": float(ema_sq.sqrt().item()),
+                    "ema/state_dict_drift": float(drift_sq.sqrt().item()),
+                    "ema/drift_from_init": float(init_drift_sq.sqrt().item()),
+                    "ema/decay": d,
+                    "ema/n_updates": ema_n_updates,
+                    "ema/d_pow_t": d_pow_now,
+                    "ema/init_weight_fraction": d_pow_now,
+                }, step=wandb_step)
+
         if telemetry_due:
             update_norms = optimizer2.get_step_update_norms()
             current_lrs = {group.get("name", f"group_{i}"): group["lr"]
@@ -1115,18 +1292,40 @@ for trial_idx in range(args.num_trials):
                + f" step_avg:{1000*approx_training_time/(step + 1):.2f}ms", console=True, log=False)
 
     if dist.get_rank() == 0:
+        ema_summary = ""
+        if ema_state is not None:
+            ema_summary += (f" ema_best_val_loss:{best_ema_val_loss:.5f}"
+                            f" ema_corrected_best_val_loss:{best_ema_corrected_val_loss:.5f}"
+                            f" first_step_to_target_ema_uncorrected:{first_step_to_target_ema_uncorrected}")
         print0(
             f"trial:{trial_idx} best_val_loss:{best_val_loss:.5f} best_val_step:{best_val_step}"
-            + f" first_step_to_target:{first_step_to_target}",
+            + f" first_step_to_target:{first_step_to_target}"
+            + f" first_step_to_target_trainval:{first_step_to_target_trainval}"
+            + ema_summary,
             console=True,
         )
-        wandb.log({
+        final_metrics = {
             "trial": trial_idx,
             "speedrun/final_best_val_loss": best_val_loss,
             "speedrun/final_best_val_step": best_val_step,
             "speedrun/final_first_step_to_target": first_step_to_target,
             "speedrun/final_reached_target": int(first_step_to_target >= 0),
-        }, step=(trial_idx + 1) * (train_steps + 1) - 1)
+            "speedrun/final_first_step_to_target_trainval": first_step_to_target_trainval,
+            "speedrun/final_reached_target_trainval": int(first_step_to_target_trainval >= 0),
+        }
+        if ema_state is not None:
+            final_metrics["speedrun/final_best_ema_val_loss"] = best_ema_val_loss
+            final_metrics["speedrun/final_best_ema_val_step"] = best_ema_val_step
+            final_metrics["speedrun/final_best_ema_corrected_val_loss"] = best_ema_corrected_val_loss
+            final_metrics["speedrun/final_best_ema_corrected_val_step"] = best_ema_corrected_val_step
+            final_metrics["speedrun/final_first_step_to_target_ema_uncorrected"] = (
+                first_step_to_target_ema_uncorrected
+            )
+            final_metrics["speedrun/final_reached_target_ema_uncorrected"] = int(
+                first_step_to_target_ema_uncorrected >= 0
+            )
+            final_metrics["speedrun/final_ema_n_updates"] = ema_n_updates
+        wandb.log(final_metrics, step=(trial_idx + 1) * (train_steps + 1) - 1)
 
 if dist.get_rank() == 0:
     wandb.finish()
