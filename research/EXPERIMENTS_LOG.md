@@ -1,5 +1,43 @@
 # SENPAI Research Results
 
+## 2026-05-28 02:25 UTC — PR #1510 frieren: Per-block NS_ITERS depth-stratified (late-deeper vs early-deeper) — ASSIGNED
+
+- Branch: `g1r1-frieren/per-block-ns-iters`
+- Hypothesis: Per-block depth-stratification of Newton-Schulz iterations — the depth-axis analog of #1289 late-higher LR WIN. Arm A: late-deeper [10,10,10,11,12,13,14,14,14] (more polish for later/deeper blocks, mirroring #1289). Arm B: early-deeper [14,13,12,11,10,10,10,10,10] (mirror control). Mean NS_ITERS ~11.67, mean preserved. All prior NS NULLs were UNIFORM (#1435 phase-window, static bilateral). Per-block depth-stratification has NEVER been tested.
+- Status: **ASSIGNED** — frieren to implement `--muon_block_ns_iters_pattern` flag (mirror of `--muon_block_lr_pattern` wiring via `param_ns_iters` dict)
+
+---
+
+## 2026-05-28 02:22 UTC — PR #1456 thorfinn: μ-pulse Arm B sent for n=2 confirmation — WIP
+
+- Branch: `g1r1-thorfinn/body-muon-mu-phase-pulse`
+- Arm B (μ=0.93 reactive, window [2500, 2925)): val_ema=3.264168 (Δ+0.23 mnat WORSE), sr=**2875** (Δ-25 FASTER) → passes sr-clause sr ≤ 2887.5 ✅
+- Arm A (μ=0.97 sticky): val_ema=3.267997, sr=2975 → catastrophic NULL (Δ+4.06 mnat / +75 sr)
+- W&B: 73jq81jn (A), dd73jrhw (B)
+- **MARGINAL-WIN-CANDIDATE** — n=2 required (Δval WORSE, only sr-clause carries WIN; n=2 collapse pattern per #1325→#1379, #1365→#1410). Re-running Arm B at seed=2 to confirm sr improvement generalizes.
+
+---
+
+## 2026-05-28 02:20 UTC — PR #1457 frieren: pEMA step-position ablation (2500 vs 2750) — CLOSED NULL
+
+- Branch: `g1r1-frieren/pema-refresh-step-position`
+- Hypothesis: Map productive zone around step 2600. Arm A: refresh @ 2500 (100 steps early). Arm B: refresh @ 2750 (150 steps late).
+
+| Arm | refresh_step | W&B | val/loss_ema | sr | Δ vs baseline (3.263938) | Verdict |
+|-----|-------------|-----|--------------|----|----|---------|
+| A   | 2500        | `5mstlt61` | 3.264385 | 2925 | +0.447 mnat / +25 sr | NULL |
+| B   | 2750        | `yj6r2n8w` | 3.264487 | 3025 | +0.549 mnat / +125 sr | NULL |
+
+**Conclusion: pEMA refresh @ 2600 is a SHARP PRODUCTIVE PEAK.** Step-position map now FULLY CLOSED:
+
+| step | 2275 | 2500 | **2600** | 2750 | 2850 | 2900 |
+|------|------|------|----------|------|------|------|
+| | NULL | NULL | **WIN** | NULL | NULL | NULL |
+
+Step 2600 is the sole productive point — not part of a broad zone. Mechanism interpretation: at step 2600 specifically, live params already encode useful cooldown trajectory; zeroing pEMA history at that moment allows re-accumulation of only high-quality late-cooldown updates. Earlier (2275, 2500) discards useful pre-cooldown EMA before late trajectory is baked; later (2750, 2850, 2900) is too close to terminal eval window to recover. frieren → #1510 per-block NS_ITERS depth-stratified.
+
+---
+
 ## 2026-05-28 01:42 UTC — PR #1508 nezuko: Cooldown LR floor (min_lr_ratio 0.001 vs 0.01) — ASSIGNED
 
 - Branch: `g1r1-nezuko/cooldown-lr-floor`
