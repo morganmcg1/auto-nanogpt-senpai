@@ -1,3 +1,50 @@
+## 2026-05-28 04:25 UTC — Cycle 71 mid-333 — tanjiro #1498 237th refute (lm_head α-axis EXHAUSTED across scalar + cross-window) + AUX kind-partitioned m-reset pivot
+
+**Cumulative**: **237 refuted** / **143 distinct mech classes** / **105 family-level closures**.
+
+### PR closed this wave (1 closure, AUX α-axis cross-window dimension):
+
+| PR | student | mechanism | outcome |
+|---|---|---|---|
+| **tanjiro #1498** | tanjiro | LM_HEAD_AUX_ALPHA_PRE_TARGET_WINDOW (α=0.5 vs α=2.0 windowed in [2750, 2950)) | **237th** — both arms CLUSTER STANDARD (Arm A 3.27024/3025, Arm B 3.26934/3025); pre-target window absorbs perturbation by ~0.001 val sub-noise vs static-α #1473 but does not break basin floor; lm_head AUX α-axis now exhausted scalar AND cross-window |
+
+### NEW PRINCIPLES this wave:
+
+1. **lm_head AUX α-axis EXHAUSTED along scalar AND cross-window dimensions** — 6 closures across (#1417 cross-kind at α=0.1, #1439 basin α=1.0, #1473 static α=0.5/2.0, #1498 windowed α=0.5/2.0). Concave with basin minimum α=1.0 at val=3.26906; entire axis bounded above baseline #613 by ≥+0.00130 val.
+2. **Pre-target window absorbs AUX α-perturbation by ~0.001 val sub-noise** — windowed α arms uniformly slightly better than static-α counterparts by Δ≈−0.001 val. Most parsimonious reading: basin is a time-integral of α=1.0 contribution; minor windowed deviations integrate to less penalty than uniform deviations. Sub-noise individually, but consistent in direction across both arms.
+3. **Cross-AUX-kind α-direction OPPOSITE remains universal**: embed catastrophic at α<1 (#1417), lm_head benign at α<1 (basin α=1.0). Cross-kind α-structure has direction-opposite signature; cross-window dimension does NOT break this asymmetry.
+
+### Fresh assignment — pivot from α-axis to AUX kind-partitioned m-axis:
+
+| PR | student | mechanism | rationale |
+|---|---|---|---|
+| **tanjiro #1522** | tanjiro | POST_TARGET_AUX_KIND_PARTITIONED_M_RESET (embed-only vs lm_head-only AUX `exp_avg` reset at step 2950) | **AUX-kind decomposition of m-axis** — fills cell `{AUX scope} × {kind partition}` in m-reset matrix. Arm A: AUX m-reset on `adam_embed` group; Arm B: AUX m-reset on `adam_lm_head` group. Complements nezuko #1505 (joint AUX m vs v, in-flight) and askeladd #1477 (body-Muon per-kind, closed kind-symmetric). Tests whether kind-symmetry of body-Muon m-axis generalizes to AUX scope, OR whether AUX inherits the direction-OPPOSITE kind structure of the α-axis. Per Morgan's per-group state-phase directive. |
+
+### Still-active fleet (8 students, ZERO IDLE):
+
+- **tanjiro #1522** — POST_TARGET_AUX_KIND_PARTITIONED_M_RESET — NEWLY assigned (AUX m-reset embed-only vs lm_head-only)
+- **alphonse #1518** — POST_TARGET_BODY_MUON_SECOND_MOMENT_RESET (v-only vs m+v joint) — IN-FLIGHT
+- **fern #1519** — POST_TARGET_DEPTH_HALF_SOAP_STATE_RESET (early-half vs late-half blocks) — IN-FLIGHT
+- **thorfinn #1514** — POST_TARGET_SOAP_STATE_RESET (MLP scope vs Attn-trust scope) — IN-FLIGHT
+- **frieren #1512** — POST_TARGET_BODY_MUON_M_FROM_GRAD (direction axis: m ← +grad / −grad / 0) — IN-FLIGHT
+- **nezuko #1505** — POST_TARGET_AUX_M_V_RESET (cross-optimizer scope joint: AUX m+v reset) — IN-FLIGHT
+- **askeladd #1504** — POST_TARGET_BODY_MUON_PER_BLOCK_M_RESET (block 0 vs block 11 extremes) — IN-FLIGHT
+- **edward #1492** — PRE_TARGET_DEPTH_LR_RAMP (front_down_fix Arm B) — IN-FLIGHT
+
+### Six-PR matrix on AUX-scope state-phase (cycle 71):
+
+| sub-axis | PR | scope | result |
+|---|---|---|---|
+| **kind** × **α** | tanjiro #1417 (embed) | embed α=0.1 | catastrophic-shifted-floor REFUTE |
+| **kind** × **α** | tanjiro #1439, #1473, #1498 (lm_head) | lm_head α-axis | EXHAUSTED basin at α=1.0 |
+| **timing** × **m-reset** | nezuko #1449 | AUX joint m-reset (timing 2975/3025) | cluster STANDARD scope-specific |
+| **state-buffer** × **m+v** | nezuko #1505 | AUX joint m vs joint v | IN-FLIGHT |
+| **kind** × **m-reset** | **tanjiro #1522 (THIS WAVE)** | AUX embed-only vs lm_head-only m | **IN-FLIGHT (newly assigned)** |
+
+The AUX-kind × m-axis cell completes a 3-way intersection (kind × state-buffer × within-axis-direction) that has not been mapped in cycle 71. Combined with nezuko #1505's joint m vs v reading, the matrix gives a full AUX × m/v decomposition.
+
+---
+
 ## 2026-05-28 04:00 UTC — Cycle 71 mid-332 — alphonse #1494 235th (pre-cooldown timing closed) + fern #1491 236th (compound INTERFERES) + second-moment / depth-half-SOAP pivots
 
 **Cumulative**: **236 refuted** / **142 distinct mech classes** / **104 family-level closures**.
