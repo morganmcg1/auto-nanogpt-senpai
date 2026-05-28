@@ -61,6 +61,12 @@ def parse_args():
                              "--ema_beta_target during cooldown, coupling β to the LR schedule. "
                              "Requires --ema_beta>0. β_t = ema_beta + (ema_beta_target - ema_beta) "
                              "× (1 - lr_mult_t).")
+    parser.add_argument("--paramema_refresh_only", action="store_true",
+                        help="Enable pEMA-only refresh mode (zeros param-EMA buffer at "
+                             "--paramema_refresh_step, no L_cov refresh, no other state touched).")
+    parser.add_argument("--paramema_refresh_step", type=int, default=None,
+                        help="Step at which to zero the param-EMA buffer (one-shot). "
+                             "Requires --paramema_refresh_only and --ema_beta>0.")
     parser.add_argument("--muon_lr", type=float, default=0.035,
                         help="Base learning rate for body-Muon optimizer (matrix params in blocks). "
                              "Default 0.035 matches the merged baseline.")
@@ -75,6 +81,18 @@ def parse_args():
     args.wandb_tags = [tag.strip() for tag in args.wandb_tags.split(",") if tag.strip()]
     if args.telemetry_interval < 1 or args.histogram_interval < 1:
         raise ValueError("--telemetry_interval and --histogram_interval must be positive")
+    if args.paramema_refresh_step is not None:
+        if not args.paramema_refresh_only:
+            raise ValueError("--paramema_refresh_step requires --paramema_refresh_only")
+        if args.ema_beta <= 0:
+            raise ValueError("--paramema_refresh_step requires --ema_beta>0 (EMA must be active)")
+        if args.paramema_refresh_step <= args.ema_warmup_steps:
+            raise ValueError(
+                f"--paramema_refresh_step={args.paramema_refresh_step} must be after "
+                f"--ema_warmup_steps={args.ema_warmup_steps} (refresh has no signal during warmup)"
+            )
+    if args.paramema_refresh_only and args.paramema_refresh_step is None:
+        raise ValueError("--paramema_refresh_only requires --paramema_refresh_step to be set")
     return args
 
 
@@ -731,6 +749,8 @@ if dist.get_rank() == 0:
             "ema_beta_target": args.ema_beta_target if args.ema_beta_target is not None else 0.0,
             "ema_dynamic_ramp_active": int(args.ema_beta_target is not None and args.ema_beta > 0),
             "muon_block_lr_pattern": args.muon_block_lr_pattern,
+            "paramema_refresh_only": int(args.paramema_refresh_only),
+            "paramema_refresh_step": args.paramema_refresh_step if args.paramema_refresh_step is not None else -1,
         },
     )
 
@@ -1040,6 +1060,54 @@ for trial_idx in range(args.num_trials):
                 lerp_w = 1.0 - ema_beta_t_now
                 for ema_p, p in zip(ema_params, optimizer2.param_groups[0]["params"]):
                     ema_p.lerp_(p.detach().float(), lerp_w)
+        # ---- pEMA-only refresh (PR #1457 et al.) -----------------------------
+        # At args.paramema_refresh_step, zero the param-EMA buffer so val_loss_ema
+        # only integrates post-refresh params. Eval-buffer only — optimizer state
+        # (Muon momentum, L_cov, AdamW state) is untouched.
+        refresh_log_metrics = None
+        if (ema_params is not None and args.paramema_refresh_step is not None
+                and args.paramema_refresh_only):
+            refresh_step = args.paramema_refresh_step
+            rel = step - refresh_step
+            is_refresh = (step == refresh_step)
+            log_dist_only = rel in (-1, 1, 50, 100, 200)
+            if is_refresh or log_dist_only:
+                sq_sum_norm = 0.0
+                sq_sum_dist = 0.0
+                for ema_p, p in zip(ema_params, optimizer2.param_groups[0]["params"]):
+                    sq_sum_norm += float(ema_p.square().sum().item())
+                    diff = (ema_p - p.detach().float())
+                    sq_sum_dist += float(diff.square().sum().item())
+                p_ema_norm_pre = sq_sum_norm ** 0.5
+                p_ema_distance_pre = sq_sum_dist ** 0.5
+            if is_refresh:
+                for ema_p in ema_params:
+                    ema_p.zero_()
+                sq_sum_dist_post = 0.0
+                for ema_p, p in zip(ema_params, optimizer2.param_groups[0]["params"]):
+                    diff = (ema_p - p.detach().float())
+                    sq_sum_dist_post += float(diff.square().sum().item())
+                refresh_log_metrics = {
+                    "ema_refresh/fired": 1,
+                    "ema_refresh/step": refresh_step,
+                    "ema_refresh/only": 1,
+                    "ema_refresh/p_ema_norm_pre": p_ema_norm_pre,
+                    "ema_refresh/p_ema_norm_post": 0.0,
+                    "ema_refresh/p_ema_distance_pre": p_ema_distance_pre,
+                    "ema_refresh/p_ema_distance_post": sq_sum_dist_post ** 0.5,
+                }
+            elif log_dist_only:
+                refresh_log_metrics = {
+                    "ema_refresh/fired": 0,
+                    "ema_refresh/step": refresh_step,
+                    "ema_refresh/only": 1,
+                    "ema_refresh/p_ema_norm": p_ema_norm_pre,
+                    "ema_refresh/p_ema_distance": p_ema_distance_pre,
+                }
+        if dist.get_rank() == 0 and refresh_log_metrics is not None:
+            refresh_log_metrics["trial"] = trial_idx
+            refresh_log_metrics["train/step"] = train_step
+            wandb.log(refresh_log_metrics, step=wandb_step)
         if dist.get_rank() == 0 and telemetry_due:
             log_weight_telemetry(
                 model=model,
