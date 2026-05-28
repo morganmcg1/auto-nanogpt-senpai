@@ -1,33 +1,33 @@
 # SENPAI Research State — auto-nanogpt-1gpu-r1
 
-- **Last update: 2026-05-28 13:10 UTC**
+- **Last update: 2026-05-28 13:35 UTC**
 - **Current baseline:** val_ema=3.263938, sr=2900 (PR #1429, pEMA refresh @ step 2600). Merge gate: `sr ≤ 2887.5 OR (sr=2900 AND val_ema < 3.263938)`.
-- **W&B 401 RESOLVED 10:08 UTC.** Issue #1550 closed. New launches online. Students with offline arms syncing post-terminal.
-- **5 Arm A NULLs confirmed today (all above baseline):**
-  - edward #1532: β2 mild pulse (0.95→0.97), val_ema=3.264997, sr=2925 (+1.06 mnat)
-  - askeladd #1542: β_t decouple canonical timing, val_ema=3.266648, sr=2925 (+2.71 mnat)
-  - alphonse #1535: pEMA aux-extend canonical β, val_ema=3.26689, sr=2925 (+2.95 mnat)
-  - thorfinn #1531: AGC λ=0.01 tight, val_ema=3.265375, sr=2925 (+1.44 mnat) — CLOSED AXIS
-  - tanjiro #1524: stable-pulse narrow [1550,1650) ×1.25, sr=2925 (+2.13 mnat) — Arm B GPU hit 0% at 12:50 UTC, SENPAI-RESULT expected shortly
-- **Active portfolio (all arms in flight):**
-  - #1573 thorfinn: warmup-only AGC, t_off ∈ {500,1500} — JUST ASSIGNED (pick up ~13:10 UTC)
-  - #1535 alphonse: Arm B pEMA aux-extend heavier β=0.995, W&B `4f10tlfk` step ~843/3250, ETA ~15:30 UTC
-  - #1542 askeladd: Arm B β_t decouple earlier ramp [975,2900], online, step ~200/3250, ETA ~16:00 UTC
-  - #1532 edward: Arm B β2 strong pulse (0.95→0.99), `9coyk2ke` step ~900/3250, ETA ~14:46 UTC
-  - #1559 fern: pEMA post-refresh β_target decouple — offline Arm A `hved6l5d` step ~1360/3250, ETA 14:06 UTC; Arm B chained (β_target=0.995, ETA ~16:15 UTC)
-  - #1560 nezuko: aux Adam LR cooldown timing — offline Arm A `rdx355wn` step ~1543/3250, ETA ~13:59 UTC; Arm B chained (ETA ~17:35 UTC)
-  - #1561 frieren: Muon Nesterov (classical+Sutskever) — offline Arm A `xvfvo0wh` step ~1350/3250, ETA ~14:28 UTC; Arm B chained; + baseline-repro queued
-  - #1524 tanjiro: stable-pulse Arm B wide-gentle (width=200, mult=1.10) — GPU hit 0% at 12:50 UTC, SENPAI-RESULT expected
-- **Key mechanism insights from today's nulls:**
-  - **AGC warm-start canon** (#1531): AGC on raw aux grad produces −21.93 mnat advantage at step 125 (zero-init clipping) but +1.44 mnat steady-state cost. Net NULL. **Warmup-only AGC is the correct follow-up** — thorfinn #1573 tests this now.
-  - **pEMA aux extension increases refresh disruption** (#1535): Adding 101 aux slots to the 72-body buffer at refresh step 2600 zeros MORE state (+0.7 mnat bump) vs body-only. Alphonse Arm B tests whether heavier aux β reduces this.
-  - **β_t decoupling under-ramps** (#1542): Step-linear β schedule diverges from canonical at 50% phase (β=0.980 vs canon 0.9855). Small divergence → +2.71 mnat terminal cost. Arm B tests earlier ramp start.
-  - **ema_minus_live = +0.59 mnat** remains consistent canon across multiple experiments. EMA over-smoothing is a persistent signal. fern #1559 directly addresses this.
-- **Research theme summary:**
-  - **Optimizer-state perturbation at phase boundaries**: β2 pulse (#1532), β_t schedule (#1542), AGC warm-start (#1573) — all testing axis-specific state handling. Arm B's may resolve some.
-  - **pEMA buffer dynamics**: scope (#1535), post-refresh β (#1559) — understanding why ema_minus_live > 0 persistently.
-  - **Aux/body decoupling**: aux LR cooldown timing (#1560), pEMA scope — testing whether aux has different optimal schedule from body.
-  - **Muon momentum mechanism**: Nesterov correction (#1561) — first mechanism-level change to Muon accumulation.
+- **⚠️ PLATEAU — 7 NULLs confirmed today.** All cluster within +1 to +3 mnat of baseline at sr=2925. Plateau Protocol active — researcher-agent dispatched for bold fresh hypotheses (results expected ~14:10 UTC).
+- **Axes closed today (May 28):**
+  - #1524 tanjiro: stable-pulse shape sweep (narrow-strong +2.13; wide-gentle +2.93) — **CLOSED**
+  - #1531 thorfinn: AGC on aux raw gradients (+1.44 mnat) — **CLOSED**
+  - #1510 frieren: per-block NS_ITERS bilateral (+3.17 symmetric) — **CLOSED** (earlier today)
+  - #1507 fern: pEMA β ramp shape bilateral (+0.49/+0.83) — **CLOSED**
+  - #1508 nezuko: cooldown LR floor bilateral (+2.48/+0.18) — **CLOSED**
+- **Active portfolio (in flight, 8 students fully engaged):**
+  - **#1574 tanjiro**: soft pEMA refresh α-sweep (Arm A α=0.5, Arm B α=0.7) — JUST ASSIGNED, pick up ~13:40 UTC
+  - **#1573 thorfinn**: warmup-only AGC t_off ∈ {500,1500} — GPU 100%, Arm A underway (~13:18 UTC)
+  - **#1535 alphonse**: Arm B heavier aux β=0.995, `4f10tlfk` step ~1250/3250, ETA ~15:20 UTC
+  - **#1542 askeladd**: Arm B β_t decouple earlier ramp [975,2900], `g8dci5l0` step ~975/3250, ETA ~16:00 UTC
+  - **#1532 edward**: Arm B β2 strong pulse (0.95→0.99), `9coyk2ke` step ~1950/3250, ETA ~14:46 UTC
+  - **#1559 fern**: pEMA post-refresh β_target decouple — offline Arm A `hved6l5d`, ETA ~14:06 UTC; Arm B chained
+  - **#1560 nezuko**: aux Adam LR cooldown timing — offline Arm A `rdx355wn`, ETA ~13:59 UTC; Arm B chained
+  - **#1561 frieren**: Muon Nesterov (classical+Sutskever) — offline Arm A `xvfvo0wh`, ETA ~14:28 UTC; Arm B chained
+- **Key mechanism insights:**
+  - **AGC warm-start canon** (#1531): zero-init clipping produces −21.93 mnat at step 125, but +1.44 mnat steady-state cost → net NULL. Warmup-only AGC (#1573) tests phase-gated variant.
+  - **pEMA aux extension increases disruption** (#1535 Arm A): full 173-slot refresh (body+aux) causes larger post-refresh bump vs body-only. Arm B tests whether heavier aux β compensates.
+  - **ema_minus_live = +0.59 mnat** canon: EMA consistently lags live. fern #1559 directly targets this.
+  - **Soft pEMA refresh (NEW, #1574)**: canonical full-sync (α=1.0) never parametrically swept on blend factor.
+- **Research themes going forward:**
+  - **Plateau escalation**: 7 NULLs today = escalation signal. Need structural/bold changes: second-order curvature, SAM-style perturbations, block-stratified refresh, dynamic-trigger refresh.
+  - **pEMA buffer dynamics**: post-refresh β (#1559), soft-refresh blend (#1574) — both probe refresh mechanism sensitivity.
+  - **Phase-specific mechanisms**: warmup-only AGC (#1573), aux cooldown decoupling (#1560) — aligned with issue #1252 directive.
+  - **Muon momentum mechanism**: Nesterov correction (#1561) — first mechanism-change to Muon accumulation.
 - **All 8 students engaged. Zero idle.**
 
 ---

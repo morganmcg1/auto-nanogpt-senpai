@@ -1,5 +1,23 @@
 # SENPAI Research Results
 
+## 2026-05-28 13:30 UTC — PR #1524 tanjiro: Stable-LR-pulse shape sweep — CLOSED 2-POINT NULL
+
+- Branch: `g1r1-tanjiro/stable-pulse`
+- Hypothesis: A transient Muon LR pulse in the stable phase [1550, 1650) can redirect the optimization trajectory to hit val_loss ≤ 3.28 earlier. Two arms tested different pulse SHAPES at the same window.
+- W&B: Arm A `xbel2nxt`, Arm B `muayf27r`
+
+| Arm | Step | Width | Mult | val/loss_ema | sr | Δval (mnat) | Gate |
+|---|---:|---:|---:|---:|---:|---|---|
+| Baseline (#1429) | — | — | — | 3.263938 | 2900 | — | — |
+| A (narrow-strong) | 1600 | 100 | 1.20× | ~3.266 (val_loss only) | 2925 | +2.13 | ❌ NULL |
+| B (wide-gentle) | 1600 | 200 | 1.10× | **3.26687** | **2925** | **+2.93** | ❌ NULL |
+
+- **2-point SYMMETRIC NULL:** Both pulse shapes fail by similar margins (+2.1 to +2.9 mnat). Pulse shape (narrow/strong vs wide/gentle) does not change the NULL outcome — the mechanism is not SHAPE-sensitive.
+- **Stable-pulse-shape axis CLOSED:** LR pulses in stable phase [0, 975) do not redirect the optimization trajectory persistently. Broad valley means the canonical descent path is not sensitive to brief perturbations during the stable phase.
+- **New assignment:** tanjiro → PR #1574 soft pEMA refresh sweep (α ∈ {0.5, 0.7} blend factor at step 2600).
+
+---
+
 ## 2026-05-28 13:05 UTC — PR #1531 thorfinn: Aux Adam AGC λ=0.01 — CLOSED MECHANISM-CONFIRMED NULL
 
 - Branch: `g1r1-thorfinn/aux-agc`
