@@ -1,3 +1,91 @@
+## 2026-05-28 10:20 UTC — Cycle 71 mid-341 — edward #1525 247th (DEPTH_LINEAR_SOAP_PRECOND_FREQ_MLP depth-symmetric NULL Δ=−0.00015 CLOSED) + 19-mechanism cluster-floor table + PER_DEPTH_HALF_ATTN_SOAP_REFRESH pivot (edward #1562 NEW, symmetric counterfactual to just-closed MLP-SOAP refresh-freq)
+
+**Cumulative**: **247 refuted** / **145 distinct mech classes** / **107 family-level closures**.
+
+### PR closed this wave (1 closure, terminal bilateral):
+
+| PR | student | mechanism | outcome |
+|---|---|---|---|
+| **edward #1525** | edward | DEPTH_LINEAR_SOAP_PRECOND_FREQ_MLP (Arm A front_FAST K=5/20, Arm B front_SLOW K=20/5, full-run, MLP-SOAP only) | **247th** — Arm A val=3.27190/ffs=3050, Arm B val=3.27175/ffs=3050, both CLUSTER STANDARD; Δ B−A=−0.00015 (~25× below MDE 0.004). **First per-block SOAP refresh-frequency probe across 1500+ PRs.** Per-block MLP-SOAP refresh-freq dispatch is non-load-bearing. |
+
+### NEW PRINCIPLES this wave:
+
+1. **MLP-SOAP refresh-frequency is depth-symmetric (Δ=−0.00015).** Total refresh count matched across arms (7308) — only depth distribution differs. Gram-statistic drift on MLP fc/proj params is slow enough at uniform K=10 that doubling (K=5) or halving (K=20) the cadence per-block changes nothing measurable.
+2. **MLP-SOAP eigenbasis-staleness budget at K=10 is in "good enough" regime.** Cousin to thorfinn #1514 / fern #1519 / askeladd #1527 geometric-saturation principle: cluster-floor state-buffer mechanisms collapse to narrow band regardless of dispatch direction.
+3. **LR-axis depth-direction principle DOES NOT TRANSFER to refresh-freq axis.** edward #1468 (post-target LR ramp +0.00239 front_up wins) + edward #1492 (pre-target LR ramp +0.00152 front_up wins) showed clear directional signal at n=1. This PR's |Δ|=0.00015 is 16× smaller. The two axes are STRUCTURALLY ORTHOGONAL: LR is continuous per-step intervention, refresh-freq is sparse discrete intervention.
+4. **Mechanism-family transfer is NOT automatic across depth-dispatch axes.** Per-block LR carries signal; per-block refresh-freq does not. Future depth-dispatch hypotheses should not assume signal-transfer across mechanism families.
+
+### 19-mechanism cluster floor at step 2950 / windowed [2950, 3175] / full-run (FULLY SATURATED, UPDATED):
+
+| axis (new entries this wave) | source | scope | val penalty | ffs |
+|---|---|---|---|---|
+| front_FAST MLP-SOAP refresh full-run | edward #1525 Arm A | 24 MLP fc/proj | +0.00414 | +50 |
+| front_SLOW MLP-SOAP refresh full-run | edward #1525 Arm B | 24 MLP fc/proj | +0.00399 | +50 |
+
+**Total cluster-floor entries**: 19 mechanism scopes, val penalty range [+0.0005, +0.00461]. Refresh-freq dispatch penalty (~+0.004) is larger than askeladd #1527 UW-floor window-scope (~+0.0027) — consistent with MLP-SOAP being a denser intervention surface (full-run × 24 params vs windowed × 72 body Muon params).
+
+### Fresh assignment — symmetric counterfactual to just-closed #1525 (close the other half of SOAP refresh-freq search space):
+
+| PR | student | mechanism | rationale |
+|---|---|---|---|
+| **edward #1562** | edward | PER_DEPTH_HALF_ATTN_SOAP_REFRESH (Arm A front_FAST [K_front=5, K_back=20], Arm B front_SLOW [K_front=20, K_back=5], mean K=10 preserved if averaged across blocks, attn-trust-SOAP only, 48 q/k/v/proj params, full-run) | **First per-block ATTN-trust-SOAP refresh-frequency dispatch in 1500+ PRs.** Direct symmetric counterfactual to edward #1525 (MLP-SOAP NULL). Tests whether the **trust gate × refresh-freq interaction** carries signal that the gateless MLP-SOAP path does not. If null, definitively closes SOAP refresh-frequency search space across both SOAP scopes. If signal, isolates trust-gate × refresh-freq × depth as a structurally novel mechanism. Prior global ATTN-SOAP refresh-freq work: #271 (binary MLP/ATTN decoupled), #868 (scalar sweep), #894 (scalar 5/20). Per-block dispatch is virgin. |
+
+### Still-active fleet (8 students, ZERO IDLE):
+
+- **edward #1562** — PER_DEPTH_HALF_ATTN_SOAP_REFRESH (front_FAST vs front_SLOW per-block ATTN-SOAP refresh freq) — NEWLY assigned
+- **askeladd #1558** — PER_DEPTH_HALF_NS5_ITERS (front_FEWER vs front_MORE Newton-Schulz iters per block) — in flight
+- **tanjiro #1547** — PER_KIND_AUX_BETA1 (embed_FAST vs embed_SLOW per-kind AdamW m EMA) — held on W&B 401 auth restoration
+- **fern #1545** — PER_DEPTH_HALF_SOAP_BETA2_MLP (front_FAST vs front_SLOW per-block Gram EMA) — in flight (offline)
+- **thorfinn #1540** — POST_TARGET_SOAP_MLP_SUB_STATE_LOCALIZATION (exp_avg_sq-only vs gram-only at step 2950) — in flight
+- **alphonse #1541** — DEPTH_HALF_BODY_MUON_INIT_SCALE (front_BIG vs front_SMALL per-block init std) — in flight
+- **frieren #1537** — PER_DEPTH_HALF_NORMUON_BETA2 (front_FAST vs front_SLOW per-block variance EMA) — in flight, Arm A terminal ETA passed (~10:22Z)
+- **nezuko #1528** — AUX_M_RESET_TIMING_GAP (Arm A val=3.27057/3025; Arm B `p40vr3i0` offline) — in flight
+
+### Per-block/per-depth/per-kind dispatch frontier matrix (UPDATED cycle 71 mid-341):
+
+| axis | dispatch | state-phase | scope | PR |
+|---|---|---|---|---|
+| LR continuous ramp | per-block linear | window | body Muon | edward #1468 + #1492 (CLOSED — front_up wins) |
+| **SOAP refresh freq MLP** | **per-block linear** | **full-run** | **MLP-SOAP only** | **edward #1525 (CLOSED THIS WAVE — depth-symmetric NULL)** |
+| **SOAP refresh freq ATTN-trust** | **per-block linear** | **full-run** | **attn-SOAP only** | **edward #1562 (NEW — counterfactual)** |
+| TARGET_UW (u/w-floor) | depth-half | windowed | body Muon | askeladd #1527 (CLOSED) |
+| NORMUON β2 (variance EMA) | depth-half | full-run | body Muon | frieren #1537 (in flight) |
+| MLP-SOAP Gram EMA β2 | depth-half | full-run | MLP-SOAP only | fern #1545 (in flight) |
+| body Muon init scale | depth-half | pre-training | body Muon 48p | alphonse #1541 (in flight) |
+| AdamW m EMA β1 | per-kind (embed vs lm_head) | full-run | AUX | tanjiro #1547 (held on auth restoration) |
+| NS5 iters (orthogonalization precision) | depth-half | full-run | body Muon | askeladd #1558 (in flight) |
+| SOAP state reset (full) | per-kind | event | MLP / Attn-trust | thorfinn #1514 (CLOSED) |
+| SOAP state reset (sub-state) | (MLP scope) | event | exp_avg_sq vs gram | thorfinn #1540 (in flight) |
+| SOAP state reset depth-half | depth-half | event | all SOAP kinds | fern #1519 (CLOSED) |
+| m-reset per-block | per-block | event | body Muon | askeladd #1504 (CLOSED) |
+| m-reset per-kind AUX | embed vs lm_head | event | AUX | tanjiro #1522 (CLOSED — kind-ASYMMETRIC outlier) |
+| v-reset / m+v joint | none | event | body Muon | alphonse #1518 (CLOSED) |
+| AUX m+v joint | none | event | AUX | nezuko #1505 (CLOSED) |
+| AUX m-reset timing | none | event-timing | AUX | nezuko #1528 (in flight) |
+| m←±grad direction | none | event | body Muon | frieren #1512 (CLOSED) |
+
+**Continuous-mechanism dispatch frontier**: 9 axes active. SOAP refresh-freq MLP CLOSED, ATTN-SOAP refresh-freq NEW (counterfactual). Both LR ramp arms CLOSED with front_up signal. **Refresh-freq vs LR depth-axis transfer NEGATIVE** — mechanism-family-transfer is not automatic.
+
+### Mechanism-family signal-transfer table (cycle 71 frontier learning):
+
+| dispatch axis | signal direction | magnitude |
+|---|---|---|
+| LR ramp (continuous per-step) | front_up wins | +0.00152 to +0.00239 |
+| SOAP refresh freq MLP (sparse discrete) | NULL | 0.00015 |
+| SOAP refresh freq ATTN-trust (sparse discrete + gating) | TBD | TBD (edward #1562) |
+| u/w-floor depth-half (windowed magnitude) | NULL | 0.00020 |
+| body-Muon m-reset depth-half (event) | NULL | 0.00038 |
+| SOAP state reset depth-half (event) | NULL | 0.00102 |
+| AUX m-reset per-kind (kind-asymmetric event) | embed > lm_head | 0.00104 |
+
+**Pattern emerging**: Discrete-state-event and discrete-refresh-cadence dispatch is mostly NULL. Continuous-magnitude (LR ramp) and continuous-kind-asymmetric (AUX m by-kind) dispatch is where the signal lives. Future per-depth experiments should favor continuous over discrete-event dispatch.
+
+### Infrastructure context
+
+W&B 401 fleet-wide auth blocker (issue #1551, #1546, #1550, #1552, #1553, #1556) persisting from ~06:47Z. Affected pods: r2 fern, r2 tanjiro, r2 edward, r1 thorfinn, r5, plus g1r3-askeladd, g1r4-fern, g1r4-tanjiro (new issues filed). Mitigation: `WANDB_MODE=offline` workaround in place. Edward Arm B `cnur7z8o` survived 401 disk-side, posted terminal SENPAI-RESULT 10:04Z. Awaiting human team to refresh `senpai-secrets` k8s secret across pods.
+
+---
+
 ## 2026-05-28 10:25 UTC — Cycle 71 mid-340 — askeladd #1527 246th (depth-half UW-floor depth-symmetric within noise CLOSED) + 18-mechanism cluster-floor table + PER_DEPTH_HALF_NS5_ITERS pivot (askeladd #1558 NEW, first orthogonalization-precision per-depth dispatch)
 
 **Cumulative**: **246 refuted** / **145 distinct mech classes** / **107 family-level closures**.
