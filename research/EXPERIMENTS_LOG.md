@@ -1,3 +1,55 @@
+## 2026-05-28 12:15 — PR #1529: H235 thorfinn Embed init scale ablation — CLOSED (91st NULL/NEG, **3rd VESTIGIAL FINDING CANDIDATE — non-monotonic U-shape**, aux-side init magnitude erased by AdamW within ~25 steps)
+
+- Branch: `g1r3-thorfinn/h235-embed-init-scale`
+- Hypothesis: `embed.weight` in H148+H203 baseline uses `w.normal_()` (std=1.0) — 50× larger than GPT-2 convention (std=0.02). Test whether this is vestigial (AdamW erases it within ~50 steps) or load-bearing (permanent offset like H227 body init hyperball radius).
+
+| Arm | embed_init_std | W&B | val | FFS | Δval/σ_H174 | Verdict |
+|---|---|---|---|---|---|---|
+| arm_a CTRL | 1.0 | `gwr9skzm` | 3.26828 | 3025 | −0.02σ (bit-id) | baseline drift class |
+| arm_b GPT2_STD | 0.02 | `io5v2850` | **3.26799** | **3025** | −0.33σ | NULL (ties FFS) |
+| arm_c MED | 0.2 | `b36jgb56` | 3.26993 | 3050 | **+1.87σ** | soft NEG (+25 FFS) |
+
+- W&B verified: all state=finished, configs distinct. arm_b re-synced after mid-flight W&B 401 crash — summary populated correctly.
+- Statistical rule arm_b: `(3.28-3.26799)×√1=0.01201≥0.004` ✓. FFS=3025 TIES baseline → NOT a merge by FFS primary metric rule (Issue #1260).
+
+### Analysis
+
+- **AdamW renormalization thesis CONFIRMED**: embed F-norm 50× difference at init collapses to 1.21× by step 25, 1.04× by step 100, 1.006× at terminal. Per-element `v_t` denominator erases per-element gradient magnitude differences within ~25 steps regardless of initial scale — cleanest empirical demonstration of AdamW renormalization in the campaign.
+- **H227 bilateral thesis NOT CONFIRMED (aux side)**: unlike H227 BODY_DAMP catastrophic NEG where hyperball radius is permanently set from init F-norm, aux-side init magnitude is NOT structurally load-bearing. AdamW denominator renormalization is the key distinction between body (hyperball-locked) and aux (AdamW-renormalized) initializations.
+- **Non-monotonic U-shape anomaly (arm_c +1.87σ)**: NULL at both extremes (std=1.0 baseline, std=0.02 GPT-2 convention) with soft NEG at intermediate std=0.2. This is structurally different from H223/H224 VESTIGIAL monotonic patterns. Three candidate explanations: (1) single-trial noise (most parsimonious); (2) eps=1e-6 × sparse-gradient floor interaction at intermediate std; (3) aux beta1=0.8 EMA timescale interaction. Not confirmed at n=1.
+- **3rd VESTIGIAL FINDING CANDIDATE** (joining H223 eps + H224 warmup as confirmed pair): the H148 std=1.0 customization is effectively bit-equivalent to GPT-2 std=0.02 at terminal for AdamW-optimized parameters. However, arm_c non-monotonic NEG prevents clean VESTIGIAL classification — U-shape suggests std=1.0 is on a benign island, not a flat plateau.
+- **PROGRAMME FINDING #49 refinement**: aux-side init magnitude is a conditioning-class HP that converges within ~25 steps under AdamW (consistent with the vestigial prediction), but non-monotonicity marks it as not-clean-vestigial.
+
+- **Decision: NOT MERGING.** 91st NULL/NEG. embed_init_std axis closed as VESTIGIAL CANDIDATE. No multi-trial confirmation planned (per launch directive anti-scalar-tuning guidance).
+
+---
+
+## 2026-05-28 12:15 — PR #1526: H234 tanjiro Joint AGC clip ratio sweep — CLOSED (92nd NULL/NEG, **16th MuonH-SI structural tightness member**, AGC clip ratio LOAD-BEARING via saturation rule — AGC acts as effective MuonH body LR multiplier)
+
+- Branch: `g1r3-tanjiro/h234-agc-clip-ratio-sweep`
+- Hypothesis: AGC ratio=0.05 (hardcoded on both body MuonH and aux AdamW) has never been swept as a conditioning HP. Test whether it is VESTIGIAL (flat plateau like H223/H224) or LOAD-BEARING (gradient-magnitude conditioning class). 3-arm: CTRL 0.05 / TIGHT 0.025 / LOOSE 0.10.
+
+| Arm | aux_agc / muonh_agc | W&B | val | FFS | Δval/σ_H174 | Verdict |
+|---|---|---|---|---|---|---|
+| arm_a CTRL | 0.05 / 0.05 | `wwm9a88n` | **3.26825** | **3025** | −0.06σ (CLEANEST CTRL of campaign) | baseline |
+| arm_b TIGHT | 0.025 / 0.025 | `xq4chfuz` | 3.26914 | 3050 | **+0.95σ** | mild NEG (+25 FFS) |
+| arm_c LOOSE | 0.10 / 0.10 | `b6pfs1fy` | 3.27037 | 3075 | **+2.34σ** | NEG (+50 FFS) |
+
+- W&B verified: all state=finished, configs distinct. arm_b/c re-synced after W&B 401 — summaries populated correctly.
+- Statistical rule arm_c: `(3.28-3.27037)×√1=0.00963≥0.004` ✓. arm_a CTRL FFS=3025 EXACT baseline match.
+
+### Analysis
+
+- **AGC saturation thesis**: AGC fires on essentially 100% of MuonH body parameters every step (body active_fraction=1.000 all arms). Clip_ratio is therefore the BINDING GRADIENT SHRINK FACTOR on MuonH body, scaling LINEARLY with ratio (body scale_mean: ~50% at 0.025, ~100% at 0.05, ~200% at 0.10). H234 is effectively a **MuonH body effective-update-scale sweep** disguised as a "ratio sweep" — AGC behaves like an implicit LR multiplier for MuonH body, not a rare safety floor.
+- **Bilateral NEG, asymmetric U**: LOOSE worse than TIGHT (+2.34σ vs +0.95σ). AGC=0.05 sits closer to the LOOSE-tolerance boundary — doubling body update magnitude is more harmful than halving.
+- **PROGRAMME FINDING #49 saturation rule refinement**: a nominally-conditioning HP is LOAD-BEARING when it acts every step on every parameter at saturation, because it then functions as an effective LR multiplier. This completes the H148+H203 conditioning HP audit: 2 VESTIGIAL (H223 eps, H224 warmup), 1 candidate VESTIGIAL (H235 embed init), 2 LOAD-BEARING (H225 aux beta1, H234 AGC ratio).
+- **16th MuonH-SI structural tightness member**: joins H216 Lookahead, H221 NO_OUTER/NO_MOMENTUM, H222 SCHED_OFF/MU_END_85, H225 BETA1, H226+H219 asymptote, H214 spectral RANK, H227 init F-norm, H228+H231 muonh_mode SI bilateral+trilateral, H229 inner Nesterov FORM, H230 NS5 iter count, H232+H195 Cautious bilateral, H234 AGC ratio.
+- Excellent student telemetry: AGC firing rate + scale_mean tables across all 3 arms provided the most diagnostic AGC insight of the campaign. Offline sync after W&B 401 mid-chain handled cleanly.
+
+- **Decision: NOT MERGING.** 92nd NULL/NEG. AGC ratio 0.05 LOAD-BEARING sweet spot. No finer ratio sweep planned (per launch directive anti-scalar-tuning guidance).
+
+---
+
 ## 2026-05-28 12:15 — PR #1513: H232 edward Post-NS5 Cautious-Muon (sign-mask polar-projected updates) — CLOSED (90th NULL/NEG, bilateral NEG cross-confirms H195 pre-NS5 Cautious; cautious sign-masking incompatible with MuonH polar projection at BOTH pre-NS5 gradient space and post-NS5 polar-projected update space; 15th MuonH-SI structural tightness member)
 
 - Branch: `g1r3-edward/muonh-post-ns5-cautious`

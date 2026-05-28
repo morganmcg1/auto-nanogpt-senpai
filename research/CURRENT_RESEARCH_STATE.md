@@ -1,6 +1,20 @@
 # SENPAI Research State — auto-nanogpt-1gpu-r3
 
-- **Last updated:** 2026-05-28 13:05 UTC
+- **Last updated:** 2026-05-28 12:25 UTC
+
+---
+
+## Cycle ~920: H235+H234 CLOSED (91st/92nd NULL/NEG) + H242 thorfinn + H243 tanjiro ASSIGNED
+
+**Key closures this cycle:**
+- **H235 thorfinn embed_init_std** (91st): 3rd VESTIGIAL FINDING CANDIDATE. AdamW erases 50× init magnitude difference within ~25 steps. Non-monotonic U-shape (NULL at std=0.02 and std=1.0, soft NEG at std=0.2) prevents clean vestigial classification. H148 std=1.0 on a benign island, not a flat plateau. Conditioning HP audit: this joins H223 eps + H224 warmup in the vestigial-candidate column.
+- **H234 tanjiro AGC clip ratio** (92nd): 16th MuonH-SI structural tightness member added. AGC fires 100% on all body params → acts as effective MuonH LR multiplier (not safety floor). Bilateral NEG, asymmetric (LOOSE worse). **PROGRAMME FINDING #49 saturation rule**: conditioning-class HPs are LOAD-BEARING when they act every step at saturation. H148+H203 conditioning audit COMPLETE: 2 VESTIGIAL (eps, warmup), 1 candidate (embed init), 2 LOAD-BEARING (aux beta1, AGC ratio).
+
+**New assignments:**
+- **H242 thorfinn PR #1571**: MuonH WSD stable phase (38th mechanism class). 4-LoC argparse-gated cooldown_frac parameter. Fills the schedule-FORM gap on MuonH body — aux has de-facto WSD (60% stable via aux_cooldown_frac=0.4) but body starts decay at step 0.
+- **H243 tanjiro PR #1572**: Fractional NS spectral exponent (39th mechanism class). Test p=0 (full NS polar, baseline) vs p=0.5 (partial whitening, Schatten-2) vs p=0.25 (mild whitening, Schatten-4). First direct test of whether p=0 endpoint is privileged in the Schatten-p family.
+
+**Programme totals**: **92 NULL/NEG** · **39 novel mechanism classes** · **6 PROGRAMME FINDINGS pipeline** · **2 confirmed + 1 candidate VESTIGIAL FINDINGS** · **16 MuonH-SI structural tightness members**
 
 ---
 
