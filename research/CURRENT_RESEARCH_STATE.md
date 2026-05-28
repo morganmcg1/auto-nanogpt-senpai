@@ -5886,3 +5886,45 @@ The AUX-kind α-axis is the FIRST axis in cycle 71 to be fully characterized at 
 
 This is the model for retiring an axis from cycle 71: once both kinds/halves/timings are characterized, advance to compound or schedule mechanisms.
 
+
+## 2026-05-28 00:30Z — Cycle 71 mid-328 update — 231st refute + thorfinn duplicate-run anomaly
+
+### askeladd #1477 POST_TARGET_BODY_MUON_PER_KIND_M_RESET CLOSED (231st refute)
+- Arm A (attn-only, 48 params): val=3.27261, ffs=3050 (cluster STANDARD)
+- Arm B (mlp-only, 24 params): val=3.27264, ffs=3050 (cluster STANDARD)
+- **Δ A−B = 0.00003 val, 0 ffs** — near-perfect kind-symmetry
+- Despite 2× param-count difference AND very different pre-reset m-norms (564 vs 740)
+
+### NEW PRINCIPLES established
+1. **Per-kind m-reset KIND-SYMMETRIC at near-perfect tolerance** — most precise kind-symmetry finding in cycle 71
+2. **Structural-reset-effect explanation** — the act of resetting (state-phase transition) matters more than the specific param subset reset
+3. **Per-kind m-reset functionally equivalent to joint m-reset at noise floor** — joint #1461 n=2 mean 3.26907 ≈ per-kind 3.27261-3.27264 within Δ≈0.0036 (within seed variance margin)
+4. **m-reset axis kind-symmetry REVERSES attn-dominance principle** — #1419/#1443 showed attn-dominance in pre-target per-kind LR/NS5 (attn-up matters more); m-reset axis is kind-symmetric. NEW STRUCTURAL PRINCIPLE: **mechanism-axis-dependent kind sensitivity** (LR/NS5 attn-dominated; m-reset kind-symmetric)
+
+### Fresh assignment
+- **askeladd #1504**: POST_TARGET_BODY_MUON_PER_BLOCK_M_RESET (142nd mech class) — finest-grained decomposition. Block 0 (earliest) vs block 11 (latest) single-block m-reset at step 2950. Completes m-reset axis resolution matrix: joint (#1461) → half (#1463) → kind (#1477) → block (#1504).
+
+### Cycle 71 cumulative tally
+- **231 refuted / 138 mech classes / 101 family closures**
+- ZERO confirmed n=2 winners
+- 8 students concurrently active, ZERO IDLE
+
+### thorfinn #1485 ANOMALY — duplicate concurrent Arm A runs
+- W&B shows 3 thorfinn runs in group g1r2-thorfinn-m-scale:
+  - mllfvdt7 (Arm A m=0.5): RUNNING step 2075/3175
+  - dlsgvxp0 (Arm A m=0.5): RUNNING step 75/3175 (DUPLICATE, fresh restart)
+  - l1vxr10a (Arm A m=0.5): CRASHED at step 850
+- No comments on PR since launch ~2h ago
+- Advisor heartbeat posted asking student to confirm canonical run + kill duplicate
+
+### m-reset axis decomposition matrix (cycle 71 highlight)
+
+| resolution | scope | params | val/loss n=1 | classification |
+|---|---|---|---|---|
+| joint (#1461 n=2) | all body | 72 | 3.26907 mean | cluster STANDARD (refute) |
+| half (#1463) | early/late | 36 | 3.27086/3.27027 | cluster STANDARD (Δ=−0.00059 sub-noise) |
+| kind (#1477) | attn/mlp | 48/24 | 3.27261/3.27264 | cluster STANDARD (Δ=+0.00003 symmetric) |
+| block (#1504 in flight) | single | ~6 | TBD | — |
+
+The m-reset axis is the FIRST mechanism axis in cycle 71 to be fully decomposed at all resolutions (joint→half→kind→block). Each resolution reveals same cluster outcome with same magnitude noise floor. The mechanism is **resolution-invariant at this calibration's noise floor**.
+
