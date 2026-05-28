@@ -9,9 +9,20 @@ The human research team has redirected: **FFS (first-step-to-target, baseline 30
 3. **Prefer experiments that move the crossing step** (2800-3050 window), **simplify winning stacks**, **reveal FFS-load-bearing components**.
 4. **Ablations preferred over confirmations** when FFS dead.
 
-## Last updated: 2026-05-28 ~18:35Z (poll ≈1000, ★★★ FERN TRIAL 3 FFS=2925 — n=3 perfect reproduction)
+## Last updated: 2026-05-28 ~18:49Z (poll ≈1010, ★ #1579 CLOSED + nezuko #1609 ASSIGNED — 40th R5 closure)
 
-**Actions this poll**: STATE-DOC UPDATE ONLY (no PR action). **★★★ MAJOR SIGNAL UPGRADE**: **fern #1564 SOAP Gram trace-norm Trial 3 terminal also FFS=2925** — n=3 mean=2925, σ_3=0 perfect reproduction across 3 independent seeds. Combined with Trials 1+2 also at 2925, this is a 3-of-3 clean reproduction at -18.75 steps below new baseline μ_4=2944 (≈ -1.5σ_4). Trial 4 has just started (`ixqmqe2j` val=10.83 at step 9873 = fresh model init for trial 4). ETA Trial 4 terminus ~20:23Z.
+**Actions this poll**: ★ CLOSED **#1579 nezuko LogitNorm** [40th R5 closure] — catastrophic-NEG (FFS=-1 at Cell B★ tau=0.04). Headline mechanism: empirical ||z||_2≈7.1 (not predicted ~55), so tau=0.04 sharpens (L2 pinned at 25 > natural 7.1) instead of softening → training breakdown. Student correctly applied predeclared early-kill gate; C/D/E not run. ★ ASSIGNED **#1609 nezuko depth-adaptive NS iteration count** (`g1r5-nezuko/ns-iter-depth-schedule`) — fresh NS-internal axis: blocks 0-3 receive ns_iter=4, 4-7=6 (baseline), 8-11=8 (depth_up δ=2). Mechanistic falsifier cell C is depth_down (8-6-4). Hypothesis: late blocks with higher effective-rank gradients benefit from more whitening precision. Passes 5-class Muon body barrier (NS-internal, not pre/post-NS gradient-shape modification).
+
+**Ongoing in flight** (18:49Z heartbeat):
+- **★★★ #1564 fern SOAP Gram trace-norm Trial 4**: ~9% into Trial 4 (step 10098 rel step 348/3250), ETA terminus **~20:23Z** — CRITICAL for merge-gate readout. Trials 1-3 = FFS=2925 (n=3, σ_3=0). If Trial 4 also 2925 → n=4 mean=2925 vs gate ≤2918.75 (just above strict gate but maximally consistent).
+- **#1586 thorfinn Cell B** (wd_mlp=0.022): in flight step 2834/3250 val=3.297, ETA ~18:57Z
+- **#1549 askeladd Cell E** (warmup=500 falsifier): still offline-mode
+- **#1555 frieren aux-cooldown-shape**: still offline
+- **#1563 edward Cell E rerun** (exp=0 falsifier): step 849 val=3.71 ETA ~19:50Z
+- **#1565 tanjiro Cell E**: pending after Cell D terminal
+- **#1533 alphonse Cell E** (ema=0.99): pending offline-mode
+
+**Prior poll** (~1000, 2026-05-28 ~18:35Z, ★★★ FERN TRIAL 3 FFS=2925 — n=3 perfect reproduction): STATE-DOC UPDATE ONLY (no PR action). **★★★ MAJOR SIGNAL UPGRADE**: **fern #1564 SOAP Gram trace-norm Trial 3 terminal also FFS=2925** — n=3 mean=2925, σ_3=0 perfect reproduction across 3 independent seeds. Combined with Trials 1+2 also at 2925, this is a 3-of-3 clean reproduction at -18.75 steps below new baseline μ_4=2944 (≈ -1.5σ_4). Trial 4 has just started (`ixqmqe2j` val=10.83 at step 9873 = fresh model init for trial 4). ETA Trial 4 terminus ~20:23Z.
 
 **Predeclared merge-gate readout**: μ_4(FFS) ≤ ~2918.75 strict 2σ_4 effect-size gate vs new floor. n=3 mean=2925 currently +6.25 above strict gate but σ_3=0 perfect-quantization-floor is informative on its own — vs baseline floor where 1 of 4 trials at 2925, 3 of 4 at 2950, fern's 3-of-3 at 2925 is a clean pattern shift below baseline noise. **Trial 4 outcome critical**: if FFS=2925 → mean=2925 σ_4=0 (still +6.25 above strict gate but maximally consistent); if FFS=2900 (next step-quantization down) → mean=2918.75 σ_4=12.5 (meets strict gate exactly); if FFS=2950 → mean=2931.25 σ_4=12.5 (within 1σ_4 of baseline, weak signal); if FFS=-1 → kills signal.
 

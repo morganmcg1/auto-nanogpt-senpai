@@ -1,5 +1,34 @@
 # SENPAI Research Results — auto-nanogpt-1gpu-r5
 
+## 2026-05-28 18:49 — PR #1579 CLOSED [40th closure of R5]: nezuko LogitNorm per-token L2 logit normalization (τ sweep, Wei et al. 2022)
+- branch: g1r5-nezuko/logit-norm-tau
+- Hypothesis: Normalize per-token logit vector to unit L2 sphere scaled by 1/tau before cross-entropy (LogitNorm, Wei et al. 2022 arXiv:2205.09310). Mechanically distinct from existing element-wise softcap (per-element tanh-clip vs per-token L2 normalization). 5-cell tau sweep: A=0 ctrl, B★=0.04, C=0.02, D=0.07, E=0.10. Student applied early-kill gate after B★ failed n=1 alive gate.
+
+| Cell | tau | val/loss | FFS | W&B run |
+|:----:|:---:|:--------:|:---:|:-------:|
+| **A (ctrl)** | 0.0 | **3.2691** | **2925** | `25p0f8e9` |
+| **B★ primary** | 0.04 | **5.5411** | **-1** | `zgv1paid` |
+| C, D, E | — | not run | not run | early-kill gate |
+
+- **Closure rationale**: Cell B★ catastrophically fails the n=1 alive gate (FFS=-1 >> 2975). Per predeclared stop condition in PR, Cells C/D/E not run. Cell A reproduced baseline cleanly (FFS=2925 = baseline floor reproducer).
+
+- **★ Headline mechanism finding: empirical ||z||_2 ≈ 7.1 vs PR prediction of ~55 (8× overestimate)**
+  - PR predicted tau=0.04 would "soften" predictions: effective scale = 1/(tau·55) ≈ 0.45×
+  - Measured: effective scale = 1/(tau·7.1) ≈ 3.52× — LogitNorm at tau=0.04 SHARPENS (L2 pinned at 25, larger than natural ~7.1)
+  - Root cause: softcap bounds individual elements to ±15, but most of the 50257 vocab entries are near zero → vector L2 is small (~7.1) despite element-wise bounding
+  - Effect: tau=0.04 forces high-magnitude/low-entropy regime where angular concentration must do all the work; model can't learn that in 3250 steps → flatline at val≈5.54
+
+  | Cell | tau | PR-predicted scale | Actual scale | ||z|| pinned to |
+  |:----:|:---:|:-----------------:|:------------:|:---------------:|
+  | B★ | 0.04 | ~0.45× (soften) | ~3.52× (sharpen) | **25 (>> natural 7.1)** |
+  | C | 0.02 | ~0.91× | ~7.04× | 50 |
+  | D | 0.07 | ~0.26× | ~2.01× | 14.3 |
+  | E | 0.10 | ~0.18× | ~1.41× | 10 |
+
+- **Future LogitNorm guidance** (from student diagnostic): tau ≈ 0.14 would pin L2 at ~7 (close to natural ~7.1). But stacking LogitNorm with existing softcap is double-normalization; an L2 auxiliary loss (`λ‖z‖₂`) is gradient-friendlier than divisive renormalization. Axis closed for tau ∈ {0.02, 0.04, 0.07, 0.10}. The val/logit_norm_pre_mean diagnostic is preserved on the branch.
+
+- **40th cumulative closure of R5** (catastrophic-NEG). LogitNorm per-token vector normalization axis closed at this magnitude grid.
+
 ## 2026-05-28 14:25 — PR #1523 CLOSED [39th closure of R5]: thorfinn mu_mlp / mu_attn decoupling on Muon body (per-group analogue of #1368)
 - branch: g1r5-thorfinn/mu-mlp-attn-decouple
 - Hypothesis: SOAP preconditioning on attn provides variance reduction, so attn should benefit from *less* momentum EMA than MLP (mu_attn < mu_mlp). Tested 5-cell sweep on the (mu_mlp, mu_attn) plane including instant-0.99 joint falsifier. n=1, 3250 steps. **Note**: Cells C/D/E ran offline-mode after W&B 401 outage at 08:38Z (since synced post-credential restore at 12:01Z; full W&B history complete).
