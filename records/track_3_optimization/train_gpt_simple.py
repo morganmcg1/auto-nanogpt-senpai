@@ -223,6 +223,9 @@ def log_training_telemetry(
             group_name = group.get("name", f"optimizer_{opt_idx}_group_{group_idx}")
             metrics[f"train/lr/{group_name}"] = group["lr"]
             metrics[f"train/weight_decay/{group_name}"] = group.get("weight_decay", 0.0)
+            if "betas" in group:
+                metrics[f"train/beta1/{group_name}"] = float(group["betas"][0])
+                metrics[f"train/beta2/{group_name}"] = float(group["betas"][1])
             if "mu" in group:
                 metrics[f"train/mu/{group_name}"] = group["mu"]
             # PR #1754: log per-step AdamW moment norms for embed kind so the
@@ -482,6 +485,13 @@ WD_AUX = float(os.environ.get("WD_AUX", "0.0"))  # AdamW WD on embed + lm_head m
 PER_KIND_AUX_WD_ENABLED = int(os.environ.get("PER_KIND_AUX_WD_ENABLED", "0"))
 WD_LM_HEAD = float(os.environ.get("WD_LM_HEAD", "0.001"))
 WD_EMBED_OVERRIDE = float(os.environ.get("WD_EMBED_OVERRIDE", "0.001"))
+# PR #1789: PER_KIND_AUX_BETA1 — per-AUX-kind AdamW β1 dispatch
+AUX_BETA1_DEFAULT = 0.80  # matches existing global default
+AUX_BETA1_EMBED = float(os.environ.get("AUX_BETA1_EMBED", str(AUX_BETA1_DEFAULT)))
+AUX_BETA1_LM_HEAD = float(os.environ.get("AUX_BETA1_LM_HEAD", str(AUX_BETA1_DEFAULT)))
+AUX_BETA1_SCALARS = float(os.environ.get("AUX_BETA1_SCALARS", str(AUX_BETA1_DEFAULT)))
+PER_KIND_AUX_BETA1_ENABLED = int(os.environ.get("PER_KIND_AUX_BETA1_ENABLED", "0")) or \
+    ("AUX_BETA1_EMBED" in os.environ) or ("AUX_BETA1_LM_HEAD" in os.environ) or ("AUX_BETA1_SCALARS" in os.environ)
 EMBED_INIT_STD = float(os.environ.get("EMBED_INIT_STD", "1.0"))  # default preserves baseline N(0,1)
 LOGIT_SOFTCAP = float(os.environ.get("LOGIT_SOFTCAP", "15.0"))  # default = 15 (current hardcoded value); soft-cap value c in f(x) = c·x / sqrt(x^2+c^2)
 # PR #1754: PER_KIND_AUX_PERIODIC_RESET_EMBED_MOMENT_ISOLATION — selective moment reset
@@ -898,6 +908,10 @@ if dist.get_rank() == 0:
             "optimizer/per_kind_aux_wd_enabled": PER_KIND_AUX_WD_ENABLED,
             "optimizer/wd_lm_head": WD_LM_HEAD,
             "optimizer/wd_embed_override": WD_EMBED_OVERRIDE,
+            "optimizer/aux_beta1_embed": AUX_BETA1_EMBED,
+            "optimizer/aux_beta1_lm_head": AUX_BETA1_LM_HEAD,
+            "optimizer/aux_beta1_scalars": AUX_BETA1_SCALARS,
+            "optimizer/per_kind_aux_beta1_enabled": int(PER_KIND_AUX_BETA1_ENABLED),
             "optimizer/recipe": "contra-muon + normuon-lite + soap-on-mlp + soap-on-attn-trust-gate (pre-NS5, record #14 + record #16)",
         },
     )
@@ -939,10 +953,19 @@ for trial_idx in range(args.num_trials):
     if dist.get_rank() == 0 and trial_idx == 0:
         print(f"[per_kind_aux_wd] enabled={PER_KIND_AUX_WD_ENABLED} embed_wd={embed_wd:.6f} lm_head_wd={lm_head_wd:.6f}",
               flush=True)
-    optimizer1 = AdamW([dict(params=[model.embed.weight], lr=0.3, name="adam_embed", weight_decay=embed_wd),
-                        dict(params=[model.proj.weight], lr=1/320, name="adam_lm_head", weight_decay=lm_head_wd),
-                        dict(params=[p for p in model.parameters() if p.ndim < 2], lr=0.01, name="adam_scalars")],
+        print(f"[per_kind_aux_beta1] enabled={int(PER_KIND_AUX_BETA1_ENABLED)} "
+              f"embed_beta1={AUX_BETA1_EMBED} lm_head_beta1={AUX_BETA1_LM_HEAD} "
+              f"scalars_beta1={AUX_BETA1_SCALARS}", flush=True)
+    optimizer1 = AdamW([dict(params=[model.embed.weight], lr=0.3, name="adam_embed", weight_decay=embed_wd,
+                             betas=(AUX_BETA1_EMBED, 0.95)),
+                        dict(params=[model.proj.weight], lr=1/320, name="adam_lm_head", weight_decay=lm_head_wd,
+                             betas=(AUX_BETA1_LM_HEAD, 0.95)),
+                        dict(params=[p for p in model.parameters() if p.ndim < 2], lr=0.01, name="adam_scalars",
+                             betas=(AUX_BETA1_SCALARS, 0.95))],
                        betas=(0.8, 0.95), eps=1e-10, weight_decay=0, fused=True)
+    if dist.get_rank() == 0 and trial_idx == 0:
+        for i, g in enumerate(optimizer1.param_groups):
+            print(f"[per_kind_aux_beta1] param_group[{i}] name={g.get('name','?')} betas={tuple(g['betas'])} wd={g['weight_decay']:.6f}", flush=True)
     optimizer2 = Muon([(n, p) for n, p in model.blocks.named_parameters() if p.ndim >= 2],
                       lr=MUON_LR, weight_decay=MUON_WEIGHT_DECAY, mu=MU)
     optimizer2.param_groups[0]["name"] = "muon_blocks"
@@ -1103,10 +1126,16 @@ for trial_idx in range(args.num_trials):
         ):
             params_reset_avg = 0
             params_reset_sq = 0
+            pre_exp_avg_sq_sum = 0.0
+            pre_exp_avg_sum = 0.0
             for g in optimizer1.param_groups:
                 if g.get("name") == "adam_embed":
                     for p in g["params"]:
                         st = optimizer1.state.get(p, {})
+                        if "exp_avg" in st:
+                            pre_exp_avg_sum += float(st["exp_avg"].float().square().sum().item())
+                        if "exp_avg_sq" in st:
+                            pre_exp_avg_sq_sum += float(st["exp_avg_sq"].float().square().sum().item())
                         # MOMENT=0 → both, MOMENT=1 → exp_avg_sq only, MOMENT=2 → exp_avg only
                         if AUX_RESET_MOMENT_EMBED in (0, 2) and "exp_avg" in st:
                             st["exp_avg"].zero_()
@@ -1115,11 +1144,41 @@ for trial_idx in range(args.num_trials):
                             st["exp_avg_sq"].zero_()
                             params_reset_sq += 1
                     break
+            post_exp_avg_sq_sum = 0.0
+            post_exp_avg_sum = 0.0
+            for g in optimizer1.param_groups:
+                if g.get("name") == "adam_embed":
+                    for p in g["params"]:
+                        st = optimizer1.state.get(p, {})
+                        if "exp_avg" in st:
+                            post_exp_avg_sum += float(st["exp_avg"].float().square().sum().item())
+                        if "exp_avg_sq" in st:
+                            post_exp_avg_sq_sum += float(st["exp_avg_sq"].float().square().sum().item())
+                    break
             if dist.get_rank() == 0:
+                pre_avg_norm = pre_exp_avg_sum ** 0.5
+                post_avg_norm = post_exp_avg_sum ** 0.5
+                pre_sq_norm = pre_exp_avg_sq_sum ** 0.5
+                post_sq_norm = post_exp_avg_sq_sum ** 0.5
+                wandb.log(
+                    {
+                        "trial": trial_idx,
+                        "train/step": train_step,
+                        "embed/exp_avg.norm_pre": pre_avg_norm,
+                        "embed/exp_avg.norm_post": post_avg_norm,
+                        "embed/exp_avg_sq.norm_pre": pre_sq_norm,
+                        "embed/exp_avg_sq.norm_post": post_sq_norm,
+                        "embed/reset_event_step": step,
+                        "embed/reset_event_moment": AUX_RESET_MOMENT_EMBED,
+                    },
+                    step=wandb_step,
+                )
                 print(
                     f"[PER_KIND_AUX_PERIODIC_RESET] step {step}: embed AdamW state reset"
                     f" (moment={AUX_RESET_MOMENT_EMBED}, exp_avg reset={params_reset_avg},"
-                    f" exp_avg_sq reset={params_reset_sq})",
+                    f" exp_avg_sq reset={params_reset_sq},"
+                    f" exp_avg.norm pre={pre_avg_norm:.4f} post={post_avg_norm:.4f},"
+                    f" exp_avg_sq.norm pre={pre_sq_norm:.4f} post={post_sq_norm:.4f})",
                     flush=True,
                 )
         if dist.get_rank() == 0 and telemetry_due:
