@@ -1,5 +1,33 @@
 # SENPAI Research Results — auto-nanogpt-1gpu-r5
 
+## 2026-05-28 09:30 — PR #1493: QHM Quasi-Hyperbolic Momentum on Muon body (frieren) [CLOSED — PRE-NS-INPUT-CLASS-NEG — 34th closure]
+- branch: g1r5-frieren/qhm-muon-body
+- hypothesis: QHM (Ma & Yarats 2019, ICLR 2019) blends fresh gradient into Muon body NS input: `raw_blended = (1-ν)·grad + ν·raw_nesterov`. Hypothesis: injecting some fresh-gradient signal could improve the "freshness" of the NS-orthogonalized direction. Predeclared 5-cell ν sweep ∈ {1.0, 0.85, 0.7, 0.5, 0.3}.
+- verdict: **CLEAN-NEG MONOTONE — strict ν gradient across all 5 cells. 34th stack-component closure. Extends Muon body barrier from 3-class to 4-class.**
+
+- results (5-cell n=1):
+
+  | Cell | ν | val/loss | FFS | Δval (σ_single) | FFS-alive (≤2975) | W&B |
+  |:---:|:---:|:---:|:---:|:---:|:---:|:---|
+  | A (ctrl) | 1.0 | 3.26089 | 3025 | −0.56σ ✓ | baseline-EXACT | fy8nsa17 |
+  | C | 0.85 | 3.26621 | 3075 | +8.41σ | no | vg6qu82x |
+  | **B★ PRIMARY** | **0.7** | **3.27352** | **3150** | **+20.7σ** | no | 3tn0rma9 |
+  | D | 0.5 | 3.28405 | NEVER (>3250) | +38.5σ | no | rbnzvaxl |
+  | E (falsifier) | 0.3 | 3.29548 | NEVER (>3250) | +57.8σ | no | 2ykl1udz |
+
+  Baseline compare: μ_4(val)=3.261221, σ_single=0.000593, FFS=3025. (W&B unverified — fleet-wide 401 since ~08:38Z.)
+
+- mechanism findings:
+  1. **★ pre-NS INPUT modification is FFS-load-bearing** — `post_ns_blend_diff_norm` (L2 of `NS(blended) − NS(buf)`) grows monotonically with (1−ν) AND grows over training time (sparkline ▁→█). Confirms QHM genuinely shifts the NS-orthogonalized direction; shift magnitude scales with damage.
+  2. **`grad_buf_cosine ≈ 0.54-0.55`** across all cells — fresh-gradient and Nesterov-blended momentum only half-aligned mid/late training. Fresh injection NOT absorbed into momentum — genuinely changes NS-extracted direction.
+  3. **"Stale = stably-good, fresh = high-variance noise"** — momentum buffer increasingly captures stable curvature information over training; pure-gradient injection corrupts it. Effect is LOW early, HIGH late (trajectory pattern).
+  4. **★★ MUON BODY 4-CLASS STRUCTURAL BARRIER EXTENDED (cross-PR)**: barrier now spans full pre-/post-NS pipeline (pre-NS magnitude AGC, pre-NS input QHM, post-NS averaging Lookahead, post-NS gating Cautious). All four operate at distinct pipeline points; all four fail. Combined with mu-cooldown closures (#1294/#1345), both "how NS sees momentum" angles (memory-rate + input-blend) are closed.
+
+- closure logic: 34th stack-component closure. Muon body barrier extended to 4-class. Per FFS-primary directive #1262 no n=4 (no FFS-alive cell; A at FFS=3025 baseline-EXACT).
+- next: assigned frieren #1555 AUX COOLDOWN SHAPE DECOUPLING — body stays cosine (mandatory), aux shape varies {linear, concave, convex, step}. Combines per-group decoupling cluster + schedule-shape FFS-positive cluster.
+
+---
+
 ## 2026-05-28 09:11 — PR #1381: Cosine cooldown LR-decay shape (alphonse) [★★★ MERGED — FIRST FFS-POSITIVE MERGE OF R5]
 - branch: g1r5-alphonse/cooldown-lr-decay-shape
 - hypothesis: Replace linear LR cooldown with cosine shape (`0.5·(1 + cos(π·x))`) during the last cdf=0.7 of training. Predicted to advance first-step-to-target (FFS) crossing by entering the low-LR regime earlier — at x=0.857 cosine_eta=0.05 vs linear_eta=0.143, providing ~80 fewer steps to cross val=3.28 threshold.

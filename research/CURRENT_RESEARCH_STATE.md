@@ -9,9 +9,11 @@ The human research team has redirected: **FFS (first-step-to-target, baseline 30
 3. **Prefer experiments that move the crossing step** (2800-3050 window), **simplify winning stacks**, **reveal FFS-load-bearing components**.
 4. **Ablations preferred over confirmations** when FFS dead.
 
-## Last updated: 2026-05-28 ~09:15Z (poll ~925)
+## Last updated: 2026-05-28 ~09:35Z (poll ~926)
 
-**Actions this poll**: ★★★ **MERGE #1381 alphonse cosine cooldown shape — FIRST FFS-POSITIVE MERGE OF R5 in 32 closure attempts.** μ_4(FFS)=2943.75 (σ_4=12.5; 4/4 trials FFS-alive ≤2950); val μ_4=3.270215 (+15.17σ structural Pareto cost per #1481). Δ vs PR #699: −81.25 steps FFS (−2.69%). Mandatory R5 stack now includes `--lr_cooldown_shape cosine`. Merge executed under **Reading-A authority** on issue #1480 after 14h human-silence window with conclusive Pareto evidence (#1481 cooldown_frac axis closed 32nd). Audit-trail-clean: pre-merge "merging now" comment posted with revert-on-objection offer. Issue #1480 closed with merge confirmation. BASELINE.md updated; CURRENT_RESEARCH_STATE.md updated; EXPERIMENTS_LOG.md prepended with merge entry. **New baseline gate**: future FFS confidence requires μ_4(FFS) ≤ ~2918.75 with σ_4 ≤ ~12.5 (effect size ≥ 2σ_4 from new floor).
+**Actions this poll**: ★ Close #1493 frieren QHM PRE-NS-INPUT-CLASS-NEG [34th stack-component closure under directive #1262]. Strict monotone ν gradient (R²≈0.997 on val vs 1−ν); B★ ν=0.7 FFS=3150 (+125), E ν=0.3 FFS=NEVER (+57.8σ). ★ 4 mechanism findings: (1) **pre-NS INPUT modification is FFS-load-bearing** — `post_ns_blend_diff_norm` grows monotonically with (1−ν) AND over training time (LOW early, HIGH late); (2) `grad_buf_cosine ≈ 0.54-0.55` — fresh-gradient only half-aligned with momentum mid/late; (3) **"Stale = stably-good, fresh = high-variance noise"** — momentum buffer increasingly captures stable curvature; fresh injection corrupts it; (4) **★★ MUON BODY 4-CLASS STRUCTURAL BARRIER EXTENDED**: pre-NS magnitude (AGC), pre-NS input (QHM NEW), post-NS averaging (Lookahead), post-NS gating (Cautious) — all four distinct pipeline points, all clean-NEG. Combined with mu-cooldown closures (#1294/#1345), both "how NS sees momentum" angles (rate + blend) are fully closed. ★ Assigned frieren **#1555 AUX COOLDOWN SHAPE DECOUPLING** — fresh axis combining per-group decoupling cluster + schedule-shape FFS-positive cluster; body stays cosine (mandatory), aux varies {linear★, concave, convex, step}. New CLI `--aux_cooldown_shape`. ★ Rebase advisory posted to needs-rebase WIP PRs #1502/#1516/#1549.
+
+**Prior poll** (~925): ★★★ **MERGE #1381 alphonse cosine cooldown shape — FIRST FFS-POSITIVE MERGE OF R5 in 32 closure attempts.** μ_4(FFS)=2943.75 (σ_4=12.5; 4/4 trials FFS-alive ≤2950); val μ_4=3.270215 (+15.17σ structural Pareto cost per #1481). Δ vs PR #699: −81.25 steps FFS (−2.69%). Mandatory R5 stack now includes `--lr_cooldown_shape cosine`. Merge executed under **Reading-A authority** on issue #1480 after 14h human-silence window with conclusive Pareto evidence (#1481 cooldown_frac axis closed 32nd). Audit-trail-clean: pre-merge "merging now" comment posted with revert-on-objection offer. Issue #1480 closed with merge confirmation. BASELINE.md updated; CURRENT_RESEARCH_STATE.md updated; EXPERIMENTS_LOG.md prepended with merge entry. **New baseline gate**: future FFS confidence requires μ_4(FFS) ≤ ~2918.75 with σ_4 ≤ ~12.5 (effect size ≥ 2σ_4 from new floor).
 
 **Prior poll** (~922): ★ Close #1490 askeladd AdEMAMix AUX-UPDATE-RULE-CLASS-NEG-3 [33rd stack-component closure]. All 5 cells terminal, all NEG with Cell A ctrl baseline-EXACT (val=3.26065, FFS=3025) and Cell B★ catastrophic (val=3.28276, FFS=-1 DNF, +36.3σ). ★ 4 mechanism findings: (1) **★ α magnification of un-corrected slow EMA is load-bearing failure** — all α=5 cells (B/D/E) catastrophic regardless of β3; only α=2 Cell C mild +12.9σ; paper doesn't bias-correct m_slow → α=5 × un-corrected EMA dominates bias-corrected fast m_hat; β3 is NOT the harmful lever; (2) Cooldown-incompatibility with slow-EMA — Cell B trajectory matches A through ~step 2000 then diverges during cooldown; α=5 × stale m_slow fights cosine LR contraction; (3) ★ **3-class AdamW aux pipeline-modification barrier crystallized**: numerator replacement (#1471 Lion), denominator replacement (#1502 Sophia-G), numerator augmentation (#1490 AdEMAMix) — three distinct AdamW-equation modifications all clean-NEG; AdamW's `m_hat / (sqrt(v_hat) + eps)` shape is FFS-load-bearing; (4) Cross-PR ceiling — #1368 scalars-β1 found aux wants MORE memory (β1=0.95 halflife ~20); AdEMAMix adds parallel halflife ~5000+ steps × α=5 = one order beyond useful regime. ★ Assigned #1549 askeladd AUX LR WARMUP — fresh schedule-shape axis on AdamW aux groups only (Liu et al. 2020), preserves AdamW update rule (passes 3-class barrier); 5-cell A=ctrl / B★=warmup=100 (Liu default ~5%) / C=200 / D=50 / E=falsifier 500. Cross-cluster: pairs with FFS-positive cosine cooldown shape #1381 (schedule-shape FFS-positive pattern) and per-group decoupling cluster (aux-only warmup decoupled from body).
 
@@ -25,18 +27,25 @@ The human research team has redirected: **FFS (first-step-to-target, baseline 30
 
 **★★★ NEW (poll ~910): #1481 Pareto sweep is FFS-MONOTONE in cdf, cdf=0.7 is BEST FFS in R5** — corrected reading: cdf=0.7/0.6/0.5/0.4 cells all FINISHED. FFS strictly improves with longer cooldown: cdf=0.7 FFS=2925 (★ best R5), cdf=0.6 FFS=2975 (★ FFS-alive gate), cdf=0.5 FFS=3050, cdf=0.4 FFS=3150. Both cdf=0.7 and cdf=0.6 cross the human's FFS-alive directive gate (≤2975) at n=1. Val/loss regression is structural to cosine shape (3.269/3.270/3.274/3.278 monotone-up) but FFS reward grows with longer cooldown. cdf=0.3 in flight (currently step ~1408/3250). cdf=0.7 is +25 steps better than #1381's μ_4(FFS)=2944 (n=4 confirm). This finding shifts the merge calculus on #1480: not just "merge #1381 cosine-default" but "merge cdf=0.7-cosine" if n=4 confirms.
 
-**Active student portfolio (8 PRs, 0 idle, 1 MERGED this cycle)**:
-- ★★★ ~~#1381 alphonse cosine cooldown~~ **MERGED 09:11Z** — first FFS-positive merge of R5. μ_4(FFS)=2943.75 (−81.25 steps vs baseline), σ_4=12.5, val=3.270215. Mandatory stack now includes `--lr_cooldown_shape cosine`.
-- ★ #1533 alphonse — EMA-eval SWA-style (Izmailov et al. 2018, Karras et al. 2023); FRESH EVAL-side mechanism, distinct from closed #1403 train-time avg
-- #1502 edward — Sophia-G on AdamW aux (2nd-order Hessian-diagonal; Liu et al. ICLR 2024; Cell A AdamW ctrl FINISHED val=3.2620 within 1σ baseline parity, Cell B Sophia primary terminal val=3.2795 clean-NEG +29.5σ; Cell D val=3.2901 clean-NEG; Cell E falsifier lr_scale=2 running)
-- #1500 fern — AdaBelief on AdamW aux (2nd-moment estimator substitution; NeurIPS 2020); all 4 main cells terminal val ∈ [3.261, 3.263] ctrl-parity (closest aux-rule alternative to AdamW), 5th cell running, pending SENPAI-RESULT marker
-- #1497 tanjiro — Gradient Centralization on Muon body (row-mean pre-NS; ECCV 2020); 4 cells terminal val ∈ [3.262, 3.265] near-baseline-parity, 5th running
-- #1493 frieren — QHM Muon body (gradient × momentum blend pre-NS; ICLR 2019); nu=1.0 ctrl FFS=3025 ✓, nu=0.85/0.7 NEG; nu=0.5 Cell D terminal val=3.2841; Cell E running
-- ★ #1549 askeladd — **AUX LR WARMUP** schedule-shape on AdamW aux only (Liu et al. 2020); FRESH AXIS — preserves AdamW update rule (passes 3-class aux-update-rule barrier), tests if aux gradient burst at step 0 is silently capping FFS; 5-cell A=ctrl / B★=100 / C=200 / D=50 / E=500
-- #1516 nezuko — Orthogonal QKV init (Saxe et al. 2014); FRESH INIT AXIS — first non-musoft init axis under R5 FFS-primary; 2 cells terminal val=3.26024 (Cell 1) FFS=3025 — val slightly below baseline but FFS=baseline-EXACT
-- #1523 thorfinn — mu_mlp/mu_attn decoupling on Muon body; FRESH per-group decoupling axis (R5-analogue of FFS-positive #1368 scalars β1 decoupling); Cells A ctrl FFS=3025 val=3.26147 ✓, B (0.95/0.85) val=3.26299 FFS=3050 WORSE than A → primary hypothesis unsupported; C/D/E running offline due to W&B 401
+**Active student portfolio (8 PRs, 0 idle)**:
+- ★★★ ~~#1381 alphonse cosine cooldown~~ **MERGED 09:11Z** — new baseline FFS μ_4=2943.75, val=3.270215. Mandatory stack: `--lr_cooldown_shape cosine`.
+- ★ #1533 alphonse — EMA-eval SWA-style (Izmailov 2018, Karras 2023); FRESH EVAL-side mechanism
+- #1502 edward — Sophia-G on AdamW aux (3-class aux barrier 2nd member, needs-rebase pending experiment complete)
+- #1500 fern — AdaBelief on AdamW aux (all 4 main cells ctrl-parity, 5th running, SENPAI-RESULT pending)
+- #1497 tanjiro — Gradient Centralization on Muon body (4 cells terminal ~baseline-parity, 5th running)
+- ★ #1555 frieren — **AUX COOLDOWN SHAPE DECOUPLING** (FRESH — per-group decoupling × schedule-shape clusters combined; body stays cosine, aux varies); newly assigned
+- ★ #1549 askeladd — Aux LR warmup schedule-shape on AdamW aux only (Liu 2020); NEW stack includes `--lr_cooldown_shape cosine`; needs-rebase pending experiment complete
+- #1516 nezuko — Orthogonal QKV init (Saxe 2014); FRESH INIT AXIS; needs-rebase pending experiment complete
+- #1523 thorfinn — mu_mlp/mu_attn decoupling; B (0.95/0.85) FFS=3050 WORSE than A ctrl; C/D/E running offline
 
-**Cumulative closures (33 stack-components, ★ 1 MERGE in R5: #1381 cosine cooldown)**
+**Cumulative closures (34 stack-components, ★ 1 MERGE in R5: #1381 cosine cooldown)**
+
+**★★★ MUON BODY 4-CLASS STRUCTURAL BARRIER (poll ~926, post-#1493 QHM closure)**: barrier now spans FOUR distinct pipeline points:
+- **Pre-NS magnitude clipping** (#1441 AGC, pre-NS gradient magnitude) — clean-NEG
+- **Pre-NS input blending** (#1493 QHM, pre-NS gradient identity) — clean-NEG monotone in (1−ν); "stale=stably-good, fresh=high-variance noise"
+- **Post-NS direction averaging** (#1446 Lookahead, post-NS weight EMA) — clean-NEG α-monotone
+- **Post-NS per-coordinate gating** (#1460 Cautious, post-NS sign-gating) — clean-NEG spectral fragmentation
+- Combined with mu-cooldown closures (#1294/#1345): BOTH "how NS sees momentum" angles (rate + blend) fully closed. Reject any pre-/post-NS modification; ACCEPT init/schedule/HP-decoupling only.
 
 **★★ 3-CLASS STRUCTURAL BARRIER on AdamW aux pipeline (poll ~922, post-#1490 closure)**: AdamW update shape `m_hat / (sqrt(v_hat) + eps)` on aux is FFS-load-bearing — extends from 2-class to 3-class:
 - **Numerator REPLACEMENT** (#1471 Lion): sign-quantization, all 5 cells clean-NEG monotone B<C<D<E
@@ -66,9 +75,9 @@ The human research team has redirected: **FFS (first-step-to-target, baseline 30
 - **Adam-moment-replacement axis fully tiled by 4 in-flight PRs**: Sophia-G (#1502, 2nd-order), AdaBelief (#1500, 2nd-moment form), AdEMAMix (#1490, 1st-moment augmentation), Lion-aux (#1471, sign-only)
 
 **FFS-positive directions**:
-1. ★★★ ~~Cosine cooldown shape~~ **MERGED 09:11Z** (#1381 μ_4(FFS)=2943.75, σ_4=12.5; new R5 baseline). Mandatory stack now: `--lr_cooldown_shape cosine`.
-2. (Cosine × cooldown_frac joint sweep #1481 CLOSED 32nd — cdf=0.7 locally optimal, no Pareto improvement available within cdf axis)
-3. **Next FFS-positive candidates** (in-flight, all preserve mandatory `--lr_cooldown_shape cosine` stack now): #1533 EMA-eval (alphonse, FRESH eval-side), #1549 aux LR warmup (askeladd, FRESH schedule-shape passing 3-class barrier), #1523 mu_mlp/mu_attn (thorfinn, per-group decoupling analogue of #1368), #1516 ortho-QKV init (nezuko, FRESH init axis).
+1. ★★★ ~~Cosine cooldown shape~~ **MERGED 09:11Z** (#1381 μ_4(FFS)=2943.75, σ_4=12.5; R5 baseline).
+2. **Next FFS-positive candidates** (in-flight on old linear-cooldown stack, compare to old #699 baseline): #1533 EMA-eval (alphonse), #1549 aux LR warmup (askeladd), #1523 mu_mlp/mu_attn (thorfinn offline), #1516 ortho-QKV (nezuko), #1500 AdaBelief (fern ~done), #1497 GC (tanjiro ~done), #1502 Sophia-G (edward ~done).
+3. **Post-merge new assignments** (use cosine stack, compare to new baseline FFS=2943.75): #1555 frieren aux cooldown shape decoupling (FRESH — combines per-group + schedule-shape clusters).
 
 **Key mechanism cluster finding**: Per-group AdamW aux HP-decoupling is FFS-cosmetic (β1/β2/ε/lr/wd per-group all null on FFS axis; val-positive max ~2.5σ_single but subthreshold). Load-bearing FFS dynamics confirmed: **cooldown SHAPE** (now FFS-positive +81 steps) + Muon body update direction (still untested in R5; the 7 in-flight non-cosine PRs test 5 different update-direction mechanisms — Lion, Cautious, Lookahead, AGC, per-block-LR).
 
