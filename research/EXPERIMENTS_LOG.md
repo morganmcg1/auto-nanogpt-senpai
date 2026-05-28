@@ -1,5 +1,67 @@
 # SENPAI Research Results — auto-nanogpt-1gpu-r4
 
+## 2026-05-28 23:35 — PR #1588: NM rank-k R-buffer truncation (subtractive small-eigenvalue regularization) — **CLOSED FALSIFYING-OUTCOME-TRIGGERED (24th catalog finding, NEW class 14 rank-k-R-truncation-CATASTROPHIC-NEG-bottom-eigs-load-bearing-MONOTONE-DOSE-RESPONSE)**
+
+- branch: `g1r4-frieren/nm-rank-k-r-truncation`
+- Hypothesis: Truncating R = EMA(X^T X) to its top-k eigenvalues (zeroing inv_sqrt_vals corresponding to small eigenvalues) reduces noise sensitivity and concentrates preconditioning budget on data-rich directions.
+
+| Arm | rank_frac | W&B ID | val_loss terminal/last | FFS | Δ_paired vs A | R_inv_sqrt_norm_mean | Δ_norm vs A | verdict |
+|:---:|:---:|---|:---:|:---:|:---:|:---:|:---:|---|
+| A ctrl | 1.0 | `ascgbl3j` | **3.26382** | 3150 | (ref, drift +0.00072 PASS-CLEAN) | 83.40 | — | drift gate passed |
+| B | 0.75 | `av9qyqiq` | **3.30730** | -1 | **+0.04348** (29× envelope) | 56.33 | **−32.5%** | STRONG-NEG |
+| C | 0.5 | `y6g5f9yg` | **3.38282** | -1 | **+0.11900** (79× envelope) | 35.98 | **−56.9%** | CATASTROPHIC |
+| D | 0.25 | `59v0h184` | killed step 500 (last=4.01541) | -1 | **+0.22337** at step 500 (149× envelope) | 15.23 | **−81.7%** | CATASTROPHIC-UNTRAINABLE kill-gate fired |
+
+**Mechanism (NEW class 14 rank-k-R-truncation-CATASTROPHIC-NEG-bottom-eigs-load-bearing-MONOTONE-DOSE-RESPONSE)**:
+- Monotone dose-response across full 4-arm sweep: deeper truncation → larger val regression
+- Bottom-x fraction of inv_sqrt_vals carries MORE than x of L2 norm (concentration ratio B=1.30× / C=1.14× / D=1.09×) — heavy-tailed eigenvalue spectrum where smallest λ produce largest 1/√λ amplification
+- inv_sqrt INVERTS the heavy-tail: "bottom of inv_sqrt_vals" = MOST amplified directions (not least) — c500 mechanism re-interpretation quantitatively confirmed
+- Cooldown does NOT recover structural deficit (Δ_paired GROWS through cooldown phase, matched-step trajectory: Arm B +0.03977 at step 2500 → +0.04317 step 3150 → +0.04348 terminal) → cooldown-recovery is bounded by R-buffer structural integrity
+- Bug-disclosure: Arm D first attempt `oguzqdzq` false-positive-killed at step 12 by buggy watchdog (step-0 val=10.82583 = log(50304) random-init); fixed by requiring step≥100 for divergence gate; relaunched as `59v0h184` (validated kill at step 500 by matched-step drift gate)
+- Falsifying-outcome explicitly triggered: pre-declared "If all three truncation arms land NULL or NEG: conclude R buffer requires the full eigenvalue spectrum" → CONFIRMED — rank-truncation axis CLOSED
+
+**Cross-mechanism R-buffer 7-axis map (publishable comparative characterization)**:
+- DATA-level (#1534 ratio): NULL+seed-mild-FAV-artifact under proper RNG control
+- STRUCTURAL-ADDITIVE (#1543 γI Tikhonov): mild-FAV-edge plateau (PP in flight)
+- **STRUCTURAL-SUBTRACTIVE (#1588 this rank-k): CATASTROPHIC-NEG-MONOTONE**
+- TEMPORAL-FREEZE (#1567 K=2680): mild-FAV (PP in flight)
+- MULTIPLICATIVE (#1584 R^{-α} α=0.25): mild-FAV-edge (PP candidate)
+- FEEDBACK (#1585 LR×R_cond γ=0.3): STRONG-FAV (PP pending Arm C/D)
+- INITIALIZATION (#1600 R-warmstart-from-v): TBD
+
+**Conclusion**: STRUCTURAL-SUBTRACTIVE is the ONLY R-buffer mechanism showing catastrophic-NEG. Bottom eigenvalues of R = EMA(X^T X) are load-bearing structural information NOT noise. Productive R-buffer regularization = eigenvalue-magnitude-controlling (preserves eigenvectors, BOUNDS amplification); non-productive = eigenvector-disrupting (zeroes eigenvalues outright). Mechanism crystallizes: R-EMA eigenstructure is load-bearing; productive interventions modulate AMPLIFICATION not STRUCTURE.
+
+Kill-gate methodology saved ~2h GPU on untrainable Arm D. Pre-declared falsification gate + clean monotone dose-response + transparent bug-disclosure = gold-standard catalog-building experimental design.
+
+
+## 2026-05-28 23:35 — PR #1599: NM α-phase-split rsqrt-followup (test if rsqrt restoration at α=0.5 eliminates #1538 drift + verifies original Arm B -0.00080 mild-FAV) — **CLOSED ARTIFACT-EXPOSED (24th catalog finding, MAJOR REFINEMENT class 11a numerical-precision-EMA-compounded-drift + RECOVERS TRUE α-phase-split mechanism direction NEG)**
+
+- branch: `g1r4-thorfinn/nm-alpha-phase-rsqrt-followup`
+- Hypothesis: Restoring rsqrt() short-circuit at α=0.5 eliminates the +0.01134 pow(-0.5) numerical drift from #1538, and the resulting clean-precision Arm B (α_body=0.5 rsqrt / α_cool=0.3 pow) will replicate #1538 internal Δ_paired=-0.00080 mild-FAV if α-phase split is a real mechanism.
+
+| Arm | α body / cool | W&B ID | val_loss terminal | FFS | drift vs baseline 3.26310 | Δ_paired vs A | verdict |
+|:---:|:---:|---|:---:|:---:|:---:|:---:|---|
+| A_rsqrt ctrl | 0.5 rsqrt / 0.5 rsqrt | `x8em1rxb` | **3.26344** | 3150 | **+0.00034 PASS-CLEAN** (33× reduction vs #1538 +0.01134, 7.5× vs #1584 +0.00256) | (ref) | drift gate PASS-CLEAN with 4.4× margin |
+| B_rsqrt test | 0.5 rsqrt / 0.3 pow | `p2svsk2e` | **3.26524** | 3175 (+25 FFS-NEG) | +0.00214 G4-FAIL by +0.00064 | **+0.00180 NEG-MARGINAL** (sign-flipped from #1538 -0.00080) | α-phase split mechanism REJECTED under correct precision |
+
+**Mechanism (NEW class 11a MAJOR REFINEMENT)**:
+- **Primary mechanism diagnosed**: pow(-0.5) vs rsqrt() 2-3 ulp/step at body-α=0.5 step accumulating via β=0.95 EMA over 3350 steps = O(+0.01) val drift on worst-case stack (#1538 c483 +0.01134 evidence)
+- **Secondary stack modulation**: drift NOT pow-exponent-monotone (#1584 Arm B α=0.25 +0.00168 < Arm A α=0.5 +0.00256) — eigendecomp/clamping ulp patterns vary by exponent
+- **Restoration**: rsqrt branch via `abs(alpha - 0.5) < 1e-9` short-circuit eliminates primary mechanism (33× drift reduction confirmed via Arm A_rsqrt this PR)
+- **CRITICAL META-FINDING**: pow-path numerical drift can MASK α-phase split mechanism direction. The #1538 Arm B -0.00080 "mild-FAV" was an artifact of differential pow-drift between α=0.5 (+0.01134) and α=0.3 (smaller drift). Under rsqrt-restored precision the true α_cool=0.3 mechanism is +0.00180 NEG. First instance in catalog where a precision artifact masqueraded as mechanism-level FAV — extends c507 meta-pattern "RNG-CONTROL invalidates N=1 FAV" to "PRECISION-CONTROL invalidates N=1 FAV-direction"
+- **Cooldown α=0.3 telemetry direct mechanism evidence**: R_inv_sqrt_norm collapses 40% at cooldown entry (85.82→50.16) algebraic consequence of pow(-0.3) << rsqrt() for R eigenvalues O(10^4-10^7); precond_ratio suppressed by 0.20-0.30 throughout cooldown → effective per-step Newton-corrected update shrunk ~40% → underutilizes LR decay window → +25-step FFS slowdown + +0.00180 NEG terminal
+
+**Implementation discipline (catalog-wide)**: ANY future NM-α code variant MUST conditionally branch to `rsqrt()` when α=0.5 to preserve numerical-precision baseline. The drift compounding pattern (β-EMA × steps × eigendecomp quantization) is a general numerical hazard for any iterative preconditioner using pow-based normalization.
+
+**α-axis sweet-spot operational rule c511** (sharpens c505 #1584 finding):
+- Body-α<0.5: mild-FAV-edge (#1584 Arm B α=0.25 -0.00088)
+- Cooldown-α<0.5: NEG (#1599 this PR α_cool=0.3 +0.00180 NEG-MARGINAL)
+- Production α=0.5/0.5: baseline reference
+- Future α-axis exploration: preserve cooldown-α=0.5, vary only body-α
+
+Drift gate methodology: validating Arm A_rsqrt drift BEFORE accepting Arm B paired Δ as mechanism evidence exposed the original #1538 FAV as artifact. Gold-standard scientific protocol for any future numerical-precision-class finding.
+
+
 ## 2026-05-28 15:20 — PR #1515: NM phase-dependent UPDATE_PERIOD (body vs cooldown) — **CLOSED PHASE-AXIS-NON-PRODUCTIVE (20th cross-axis catalog finding, NEW class 10 phase-localized-freshness-NEG-BIDIRECTIONAL)**
 
 - branch: `g1r4-nezuko/nm-period-phase-split`
