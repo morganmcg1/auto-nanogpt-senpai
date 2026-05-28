@@ -83,6 +83,15 @@ def parse_args():
              "muall=musoft + non-residual block 2D weights also scaled by 1/sqrt(L); "
              "smallconst=std=1e-3 depth-independent.",
     )
+    parser.add_argument(
+        "--agc_lambda_body",
+        type=float,
+        default=0.0,
+        help="Adaptive Gradient Clipping (Brock et al. 2021, NFNets) lambda for Muon "
+             "body matrices. Applied per-parameter (unit-wise) to p.grad before momentum "
+             "and Newton-Schulz iteration. 0.0 disables AGC (default, matches current behavior); "
+             "0.01 is the NFNets default. Clips when ||grad||/||param|| > lambda per output unit.",
+    )
     args = parser.parse_args()
     args.num_trials = args.num_trials if args.num_trials is not None else (args.legacy_num_trials or 1)
     args.wandb_tags = [tag.strip() for tag in args.wandb_tags.split(",") if tag.strip()]
@@ -566,12 +575,44 @@ def soap_update_preconditioner(grad, state, shampoo_beta=SOAP_BETA2, preconditio
     state["soap_step"] += 1
 
 
+def unitwise_norm(x: Tensor, eps: float = 1e-3) -> Tensor:
+    """Compute the unit-wise L2 norm per output unit (Brock et al. 2021).
+
+    For a 2D weight matrix (out_dim, in_dim), returns a (out_dim, 1) tensor of
+    per-row norms clamped from below by `eps`. For higher-dim tensors, reduces
+    across all dims except dim 0 with keepdim=True. For <2D tensors, returns the
+    global norm (defensive — Muon body params are all 2D in this script).
+    """
+    if x.dim() < 2:
+        return x.norm().clamp_min(eps)
+    return x.norm(dim=tuple(range(1, x.dim())), keepdim=True).clamp_min(eps)
+
+
+@torch.no_grad()
+def agc_clip_inplace(p_data: Tensor, grad: Tensor, lam: float, eps: float = 1e-3) -> Tensor:
+    """In-place Adaptive Gradient Clipping (Brock et al. 2021, NFNets).
+
+    Clips each per-output-unit gradient slice when ||g_unit|| > lam * ||p_unit||.
+    Modifies `grad` in place. Returns a boolean tensor (same shape as the
+    per-unit norms) marking which units were clipped — caller may aggregate it
+    into a mean trigger rate for telemetry.
+    """
+    param_norm = unitwise_norm(p_data, eps=eps)
+    grad_norm = unitwise_norm(grad, eps=eps)
+    max_grad_norm = param_norm * lam
+    trigger = grad_norm > max_grad_norm
+    scale = torch.where(trigger, max_grad_norm / grad_norm.clamp_min(eps),
+                        torch.ones_like(grad_norm))
+    grad.mul_(scale)
+    return trigger
+
+
 class Muon(torch.optim.Optimizer):
     SOAP_MLP_SUFFIXES = (".mlp.fc.weight", ".mlp.proj.weight")
     SOAP_ATTN_SUFFIXES = (".attn.q.weight", ".attn.k.weight", ".attn.v.weight", ".attn.proj.weight")
 
     def __init__(self, named_params, lr=0.02, weight_decay=0, mu=0.95,
-                 soap_attn=False, trust_threshold=0.0):
+                 soap_attn=False, trust_threshold=0.0, agc_lambda_body=0.0):
         # `named_params` can be either:
         #   (a) list of (name, param) tuples → single param group (legacy form)
         #   (b) list of dicts {"named_params": [(name, param), ...], "lr": ?, "weight_decay": ?, "mu": ?, "name": ?}
@@ -594,6 +635,8 @@ class Muon(torch.optim.Optimizer):
         self.trust_threshold = float(trust_threshold)
         self.use_trust_gate = soap_attn
         self.cos_sims_buffer: dict[str, Tensor] = {}
+        self.agc_lambda_body = float(agc_lambda_body)
+        self.agc_trigger_rates: dict[str, float] = {}
 
         param_groups = []
         for g in groups_raw:
@@ -613,6 +656,7 @@ class Muon(torch.optim.Optimizer):
     @torch.no_grad()
     def step(self):
         self.cos_sims_buffer = {}
+        self.agc_trigger_rates = {}
         world_size = dist.get_world_size()
         rank = dist.get_rank()
         for group in self.param_groups:
@@ -633,6 +677,11 @@ class Muon(torch.optim.Optimizer):
                             state["q_row"] = None
                             state["q_col"] = None
                             state["soap_step"] = 0
+                    if self.agc_lambda_body > 0:
+                        trigger = agc_clip_inplace(p.data, p.grad, self.agc_lambda_body)
+                        self.agc_trigger_rates[self.param_names[id(p)]] = float(
+                            trigger.float().mean().item()
+                        )
                     if use_soap:
                         state["momentum"].lerp_(p.grad, 1 - group["mu"])
                         raw_nesterov = p.grad.lerp(state["momentum"], group["mu"])
@@ -765,6 +814,7 @@ if dist.get_rank() == 0:
             "wd_schedule": args.wd_schedule,
             "lr_scalars": args.lr_scalars,
             "depth_init_mode": args.depth_init_mode,
+            "agc_lambda_body": args.agc_lambda_body,
         },
     )
 
@@ -853,6 +903,7 @@ for trial_idx in range(args.num_trials):
             dict(named_params=attn_named, lr=args.lr_attn, weight_decay=args.wd_attn, name="muon_attn"),
         ],
         soap_attn=args.soap_attn, trust_threshold=args.soap_trust_threshold,
+        agc_lambda_body=args.agc_lambda_body,
     )
     optimizers = [optimizer1, optimizer2]
     assert set(p for opt in optimizers for group in opt.param_groups
@@ -1015,6 +1066,7 @@ for trial_idx in range(args.num_trials):
                            for i, group in enumerate(optimizer2.param_groups)}
             current_wds = {group.get("name", f"group_{i}"): group.get("weight_decay", 0.0)
                            for i, group in enumerate(optimizer2.param_groups)}
+            agc_trigger_rates = dict(optimizer2.agc_trigger_rates)
             if dist.get_rank() == 0:
                 per_group_metrics = {"trial": trial_idx, "train/step": train_step}
                 for name, mean_norm in update_norms.items():
@@ -1026,6 +1078,20 @@ for trial_idx in range(args.num_trials):
                 per_group_metrics["train/wd_mlp_now"] = current_wds.get("muon_mlp", 0.0)
                 per_group_metrics["train/wd_attn_now"] = current_wds.get("muon_attn", 0.0)
                 per_group_metrics["train/wd_schedule_progress"] = train_step / train_steps
+                if agc_trigger_rates:
+                    mlp_vals = [v for n, v in agc_trigger_rates.items()
+                                if any(n.endswith(suf) for suf in Muon.SOAP_MLP_SUFFIXES)]
+                    attn_vals = [v for n, v in agc_trigger_rates.items()
+                                 if any(n.endswith(suf) for suf in Muon.SOAP_ATTN_SUFFIXES)]
+                    all_vals = list(agc_trigger_rates.values())
+                    per_group_metrics["agc/trigger_rate_body"] = sum(all_vals) / len(all_vals)
+                    per_group_metrics["agc/trigger_rate_body_max"] = max(all_vals)
+                    if mlp_vals:
+                        per_group_metrics["agc/trigger_rate_mlp"] = sum(mlp_vals) / len(mlp_vals)
+                    if attn_vals:
+                        per_group_metrics["agc/trigger_rate_attn"] = sum(attn_vals) / len(attn_vals)
+                    for pname, val in agc_trigger_rates.items():
+                        per_group_metrics[f"agc/trigger_rate/{clean_metric_name(pname)}"] = val
                 wandb.log(per_group_metrics, step=wandb_step)
         if dist.get_rank() == 0 and optimizer2.cos_sims_buffer:
             cs_names = list(optimizer2.cos_sims_buffer.keys())
