@@ -464,6 +464,11 @@ SOAP_PRECOND_FREQ = 10
 ATTN_SOAP_BETA2 = 0.90
 ATTN_SOAP_PRECOND_FREQ = 10
 ATTN_SOAP_TRUST_THRESHOLD = float(os.environ.get("ATTN_SOAP_TRUST_THRESHOLD", "0.9"))
+# PR #1570 — attn-trust SOAP activation delay (state-phase gating).
+# When ATTN_SOAP_ACTIVATION_STEP > 0, attn weights use vanilla-Muon path (no SOAP, no gram, no exp_avg_sq)
+# until current step >= ATTN_SOAP_ACTIVATION_STEP, then switch to use_attn_soap=True for remainder of training.
+# Disabled by default (ATTN_SOAP_ACTIVATION_STEP=0 means activate from step 0 = current behavior).
+ATTN_SOAP_ACTIVATION_STEP = int(os.environ.get("ATTN_SOAP_ACTIVATION_STEP", "0"))
 NS5_ITERS = int(os.environ.get("NS5_ITERS", "12"))
 WD_AUX = float(os.environ.get("WD_AUX", "0.0"))  # AdamW WD on embed + lm_head matrices (scalars stay at 0)
 EMBED_INIT_STD = float(os.environ.get("EMBED_INIT_STD", "1.0"))  # default preserves baseline N(0,1)
@@ -655,6 +660,8 @@ class Muon(torch.optim.Optimizer):
         params = sorted([p for _, p in named_params], key=lambda x: x.size(), reverse=True)
         defaults = dict(lr=lr, weight_decay=weight_decay, mu=mu)
         super().__init__(params, defaults)
+        # PR #1570 — track step counter for activation-delay gating.
+        self.step_counter = 0
 
     @torch.no_grad()
     def step(self):
@@ -695,7 +702,7 @@ class Muon(torch.optim.Optimizer):
                     state["momentum"].lerp_(grad, 1 - group["mu"])
                     momentum_update = grad.lerp(state["momentum"], group["mu"])
                     use_soap = p in self.soap_params
-                    use_attn_soap = p in self.attn_soap_params
+                    use_attn_soap = (p in self.attn_soap_params) and (self.step_counter >= ATTN_SOAP_ACTIVATION_STEP)
                     # SOAP precondition applied to momentum BEFORE NS5+contra+NorMuon
                     # (matches public record #14/16 — pre-NS5 placement).
                     if use_soap or use_attn_soap:
@@ -719,6 +726,8 @@ class Muon(torch.optim.Optimizer):
                                      use_trust_gate=True,
                                      trust_threshold=ATTN_SOAP_TRUST_THRESHOLD)
                 dist.all_gather(params_pad[base_i:base_i + world_size], params_pad[base_i + rank])
+        # PR #1570 — increment step counter after all param updates for activation-delay gating.
+        self.step_counter += 1
 
     def trust_gate_stats(self) -> dict[str, float]:
         """Return aggregate + per-weight-type trust-gate telemetry across attention SOAP params.
@@ -864,11 +873,14 @@ if dist.get_rank() == 0:
             "optimizer/attn_soap_beta2": ATTN_SOAP_BETA2,
             "optimizer/attn_soap_precond_freq": ATTN_SOAP_PRECOND_FREQ,
             "optimizer/attn_soap_trust_threshold": ATTN_SOAP_TRUST_THRESHOLD,
+            "optimizer/attn_soap_activation_step": ATTN_SOAP_ACTIVATION_STEP,
             "optimizer/ns5_iters": NS5_ITERS,
             "optimizer/wd_aux": WD_AUX,
             "optimizer/recipe": "contra-muon + normuon-lite + soap-on-mlp + soap-on-attn-trust-gate (pre-NS5, record #14 + record #16)",
         },
     )
+    print(f"[ATTN_SOAP_ACTIVATION] step={ATTN_SOAP_ACTIVATION_STEP} "
+          f"(0 = always-on baseline; >0 = delay attn-SOAP path until step N)")
 
 for trial_idx in range(args.num_trials):
 
