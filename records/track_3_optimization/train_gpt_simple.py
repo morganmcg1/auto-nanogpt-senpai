@@ -80,6 +80,11 @@ def parse_args():
                              "Ablation flag for isolating paramEMA-only contribution.")
     parser.add_argument("--seed", type=int, default=1,
                         help="Random seed for torch/numpy/python. Default 1 matches baseline seed.")
+    parser.add_argument("--min_lr_ratio", type=float, default=0.0,
+                        help="Non-zero minimum LR ratio at the end of cooldown. "
+                             "eta = max(min_lr_ratio, (1 - cp)^COOLDOWN_POWER). "
+                             "0.0 (default) = decays to exactly zero (current behavior). "
+                             "Recommended values: 0.001, 0.01.")
     args = parser.parse_args()
     args.num_trials = args.num_trials if args.num_trials is not None else (args.legacy_num_trials or 1)
     args.wandb_tags = [tag.strip() for tag in args.wandb_tags.split(",") if tag.strip()]
@@ -751,6 +756,7 @@ if dist.get_rank() == 0:
             "paramema_refresh_step": args.paramema_refresh_step,
             "paramema_refresh_only": int(args.paramema_refresh_only),
             "seed": args.seed,
+            "min_lr_ratio": args.min_lr_ratio,
         },
     )
 
@@ -846,16 +852,18 @@ for trial_idx in range(args.num_trials):
     lcov_refresh_fired_total = 0
 
     # learning rate schedule: stable then power-law cooldown (gamma = COOLDOWN_POWER)
+    # with optional non-zero floor: eta = max(min_lr_ratio, (1-cp)^COOLDOWN_POWER).
     def compute_lr_mult(step, cooldown_frac=0.7):
         """Pure: LR multiplier (eta) at `step`. Matches set_hparams."""
         if step >= train_steps:
-            return 0.0
+            return args.min_lr_ratio
         progress = step / train_steps
         if progress < 1 - cooldown_frac:
             return 1.0
         cooldown_progress = (progress - (1 - cooldown_frac)) / cooldown_frac
         w = 1.0 - cooldown_progress
-        return w ** COOLDOWN_POWER
+        raw = w ** COOLDOWN_POWER
+        return max(args.min_lr_ratio, raw)
 
     def compute_ema_beta_t(step):
         """Dynamic β_t = β_base + (β_target - β_base) × (1 - lr_mult_t).
@@ -876,14 +884,34 @@ for trial_idx in range(args.num_trials):
         if progress < 1 - cooldown_frac:
             eta = 1.0
             cooldown_progress = 0.0
+            raw = 1.0
         else:
             cooldown_progress = (progress - (1 - cooldown_frac)) / cooldown_frac
             w = 1.0 - cooldown_progress  # equivalent to (1 - progress) / cooldown_frac
-            eta = w ** COOLDOWN_POWER
+            raw = w ** COOLDOWN_POWER
+            eta = max(args.min_lr_ratio, raw)
         for opt in optimizers:
             for group in opt.param_groups:
                 group["lr"] = group["initial_lr"] * eta
-        return progress, cooldown_progress, eta
+        floor_active = int(args.min_lr_ratio > 0 and raw < args.min_lr_ratio)
+        return progress, cooldown_progress, eta, floor_active, raw
+
+    # Log min_lr_ratio config and the step at which the floor first binds.
+    # raw curve drops below min_lr_ratio when cooldown_progress > 1 - min_lr_ratio**(1/COOLDOWN_POWER).
+    # progress at that point: (1 - cooldown_frac) + cooldown_frac * (1 - min_lr_ratio**(1/COOLDOWN_POWER))
+    if dist.get_rank() == 0:
+        if args.min_lr_ratio > 0:
+            cooldown_frac = 0.7
+            cp_floor = 1.0 - args.min_lr_ratio ** (1.0 / COOLDOWN_POWER)
+            floor_progress = (1.0 - cooldown_frac) + cooldown_frac * cp_floor
+            floor_step = int(floor_progress * train_steps) + 1
+            print0(f"cooldown LR floor: min_lr_ratio={args.min_lr_ratio} "
+                   f"(floor first binds at step ~{floor_step}/{train_steps}, "
+                   f"COOLDOWN_POWER={COOLDOWN_POWER}, cooldown_frac={cooldown_frac})",
+                   console=True)
+        else:
+            print0(f"cooldown LR floor: min_lr_ratio=0.0 (decays to zero — baseline behavior)",
+                   console=True)
 
 
     ########################################
@@ -1020,7 +1048,7 @@ for trial_idx in range(args.num_trials):
         dist.all_reduce(step_loss, op=dist.ReduceOp.SUM)
         train_loss = float((step_loss / batch_size).item())
         # set optimization hyperparameters and take a step
-        sched_progress, sched_cooldown_progress, sched_eta = set_hparams(step)
+        sched_progress, sched_cooldown_progress, sched_eta, sched_floor_active, sched_eta_raw = set_hparams(step)
         train_step = step + 1
         telemetry_due = (step == 0 or (step + 1) % args.telemetry_interval == 0 or step + 1 == train_steps)
         histogram_due = (step == 0 or (step + 1) % args.histogram_interval == 0 or step + 1 == train_steps)
@@ -1119,7 +1147,11 @@ for trial_idx in range(args.num_trials):
                 "train/cooldown/progress": sched_progress,
                 "train/cooldown/cooldown_progress": sched_cooldown_progress,
                 "train/cooldown/lr_multiplier": sched_eta,
+                "train/cooldown/lr_multiplier_raw": sched_eta_raw,
                 "train/cooldown/power_gamma": COOLDOWN_POWER,
+                "train/cooldown/min_lr_ratio": args.min_lr_ratio,
+                "train/cooldown/eta_floor_active": sched_floor_active,
+                "train/lr_mult": sched_eta,
             }, step=wandb_step)
             if param_lr_mults is not None:
                 muon_group_lr = optimizer2.param_groups[0]["lr"]
