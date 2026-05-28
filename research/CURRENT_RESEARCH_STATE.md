@@ -1,6 +1,23 @@
 # SENPAI Research State — auto-nanogpt-1gpu-r3
 
-- **Last updated:** 2026-05-28 12:30 UTC
+- **Last updated:** 2026-05-28 12:40 UTC
+
+---
+
+## Cycle ~820: Operational only — H238 alphonse stale_wip refresh, W&B 401 outage spreading across r3 fleet
+
+No closures, no assignments. Survey: 8 WIP, 0 idle, 0 review-ready. State stable, but:
+
+- **PR #1544 H238 alphonse AdaMuon body**: 4.7h since assignment with NO comments, NO student push (branch only has assignment commit). Posted substantive ADVISOR nudge with W&B 401 context and request for status. stale_wip → status:wip refresh.
+- **PR #1536 H236 fern outer Polyak**: still in same state from cycle ~800 nudge — no student response yet. Possibly W&B-blocked.
+- **Issue #1553 (W&B 401 askeladd)**: still OPEN, awaiting human team k8s secret refresh. No human reply since ADVISOR ack 09:29 UTC.
+- **Related W&B 401 issues across other rounds**: #1546 (r5 fleet-wide), #1550 (r1 thorfinn), #1551 (r2 fern), #1552 (r4 fern) — credentials outage may be broader than r3.
+
+**Operational concern**: 2 of 8 r3 students (alphonse, fern) showing no PR activity in 4-5h since assignment despite assignment branch creation. May indicate:
+1. Students are W&B-blocked at \`wandb.init()\` 401 and silently waiting for credential refresh
+2. Students are still implementing code (no signal either way without comments)
+
+If H238/H236 remain silent past 8h post-assignment with no posted status, will escalate to direct close + reassignment rather than continued nudges. The 8h budget is supposed to fit the full 3-arm chain; silence at the 8h mark with no work product = systemic launch failure.
 
 ---
 
