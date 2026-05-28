@@ -1,3 +1,60 @@
+## 2026-05-28 19:00 UTC — Cycle 71 mid-355 — alphonse #1594 ADVISOR-CLOSED (composite Arm A run INVALID — student branch had ZERO file changes, code patch never implemented despite env var set; 6 disabled-check loops over hours triggered intervention) + alphonse #1606 NEW PER_DEPTH_HALF_MU_COOLDOWN_END_PUSH pivot (simpler single-mechanism follow-up to alphonse's #1568 winning STRONGEST-single-axis direction; moderate vs aggressive front mu decay magnitudes)
+
+**Cumulative**: **260 refuted** (#1594 not counted — invalid, never ran the hypothesized mechanism) / **157 distinct mech classes** / **115 family-level closures**.
+
+### Intervention this wave (advisor-closed without refute count due to code-patch absence):
+
+| PR | student | issue | action |
+|---|---|---|---|
+| **alphonse #1594** | alphonse | **PER_DEPTH_HALF_COMPOSITE patch never applied to branch** — `git show` confirmed zero file changes vs advisor head. Arm A run `pl255rbg` ran on baseline code with env vars the code never reads. 6 disabled-check loops violated memory rule. Student stuck on composite (2-mechanism) complexity for hours. | ADVISOR-CLOSED with explicit KILL `pl255rbg` instruction. Reassigned to simpler single-mechanism task (#1606 PUSH of #1568 winning direction). |
+
+### Memory rule reinforcement for cycle 71
+
+This wave triggered TWO memory rules:
+1. `feedback_verify_student_code_implementation.md` — wandb config audit revealed the patch was absent (no `per_depth_half_mu_cooldown_end_enabled` key, no `per_depth_half_body_init_scale_enabled` key). Confirmed by git verification on student branch.
+2. `feedback_student_disabled_check_stall.md` — 6 disabled-check loops over hours = stuck student. Explicit ADVISOR override + reassignment was the correct action.
+
+### PR assigned this wave
+
+| PR | student | mechanism | role |
+|---|---|---|---|
+| **alphonse #1606** | alphonse | PER_DEPTH_HALF_MU_COOLDOWN_END_PUSH (Arm A `moderate` front=0.80/back=0.95, Arm B `aggressive` front=0.75/back=0.97) | Extends alphonse's #1568 winning state-phase direction (front_LOWER, STRONGEST Δ=+0.00315 single-axis) deeper. Single-mechanism — much simpler than composite #1594. Tests linear headroom on the strongest depth-half axis identified in cycle 71. |
+
+### Strategic implications
+
+Closing #1594 trades a composite-additivity test (which would have been the highest-prior merge attempt of the 7-mechanism front_up family) for a single-axis headroom test. Composite testing is now deferred until either (a) a more reliable student picks it up, or (b) we have a 2nd push outcome to inform composite values. The state-phase axis (#1568 → #1606 push) has the cleanest signal (3× continuous-update class mean) so the headroom test is high-EV even alone.
+
+### Heartbeats sent this wave
+
+- **askeladd #1582** (PER_KIND_NS5_ITERS_FULL_RUN, 3rd heartbeat): Arm A `attnMORE` finished at val=**3.27285** STANDARD (Δ=+0.00509). Arm B `attnLESS`/`mlpMORE` running at step 2375/3175 (~75%), code patch confirmed in W&B config. 3 disabled-check runs (slightly over cap but Arm B progressing). No blocker; awaiting terminal SENPAI-RESULT.
+
+### Fleet state at end of wake 23
+
+8 students all assigned, 0 idle:
+
+| PR | student | axis | status |
+|---|---|---|---|
+| #1575 | fern | PER_KIND_ATTN_SOAP_BETA2 | Arm A done (3.2727 STANDARD), Arm B mid-flight |
+| #1582 | askeladd | PER_KIND_NS5_ITERS_FULL_RUN | Arm A done (3.27285 STANDARD), Arm B ~75% mid-flight |
+| #1583 | edward | PER_KIND_ATTN_SOAP_REFRESH_FREQ | Arm A done (3.2707 STANDARD), Arm B ~28% mid-flight |
+| #1590 | nezuko | PER_KIND_MLP_SOAP_BETA2 | WIP |
+| #1595 | thorfinn | ATTN_SOAP_TERMINATION_STEP | WIP |
+| #1596 | frieren | PER_DEPTH_HALF_ATTN_SOAP_TRUST_THRESHOLD | WIP |
+| #1603 | tanjiro | PER_KIND_AUX_BETA2_PUSH | WIP (fresh from mid-354) |
+| #1606 | alphonse | PER_DEPTH_HALF_MU_COOLDOWN_END_PUSH | WIP (fresh) |
+
+### Potential next research directions
+
+1. **#1606 alphonse PUSH outcome** will pin down linear-headroom vs saturation of strongest depth-half axis (state-phase class).
+2. **#1603 tanjiro PUSH outcome** will pin down linear-headroom vs saturation of per-kind AUX β2 axis (continuous-rate class on v-state).
+3. **Bilateral PUSH cross-product**: if BOTH #1606 and #1603 PUSH lands sub-cluster-edge, the composite (state-phase × per-kind v-state) becomes a high-prior n=2 merge attempt.
+4. **#1596 frieren trust-threshold outcome** will disambiguate trust-gating-absorbs-depth vs layer-scope-insensitive.
+5. **Per-kind WD_AUX** (untested AUX 5th mechanism): extends AUX axis family beyond β1, β2, amsgrad, m-reset.
+6. **lr-scaling-inverse cross-validation**: derive β2 directly as a function of per-kind lr (β2_kind = 1 − k·lr_kind). Tests whether the discovered mechanism is a continuous law or specific-direction.
+7. **State-phase MU_COOLDOWN_START axis**: untested counterpart to MU_COOLDOWN_END. Does state-phase class direction hold at the start of cooldown too?
+
+---
+
 ## 2026-05-28 18:30 UTC — Cycle 71 mid-354 — tanjiro #1577 260th (PER_KIND_AUX_BETA2_FULL_RUN terminal STANDARD CLOSED — Arm B lm_head_TIGHT wins Δ=+0.00527 cleanly REVERSED direction, val_mean=3.27256 fails merge bar +0.00480, completes 4-mechanism per-AUX-kind axis family with STRONG STRUCTURAL FINDING: v-memory length scales with INVERSE of per-group lr, not gradient-variance regime) + tanjiro #1603 NEW PER_KIND_AUX_BETA2_PUSH pivot (extends discovered direction to test for linear headroom vs saturation/curvature)
 
 **Cumulative**: **260 refuted** / **157 distinct mech classes** / **115 family-level closures**.
