@@ -468,6 +468,13 @@ NS5_ITERS = int(os.environ.get("NS5_ITERS", "12"))
 WD_AUX = float(os.environ.get("WD_AUX", "0.0"))  # AdamW WD on embed + lm_head matrices (scalars stay at 0)
 EMBED_INIT_STD = float(os.environ.get("EMBED_INIT_STD", "1.0"))  # default preserves baseline N(0,1)
 LOGIT_SOFTCAP = float(os.environ.get("LOGIT_SOFTCAP", "15.0"))  # default = 15 (current hardcoded value); soft-cap value c in f(x) = c·x / sqrt(x^2+c^2)
+# Post-target SOAP state reset (PR #1514): at POST_TARGET_SOAP_RESET_STEP, fully
+# zero the SOAP second-order state (row_gg, col_gg, q_row/q_col, exp_avg_sq,
+# soap_step) on a single SOAP-bearing kind (mlp vs attn), forcing the SOAP
+# machinery to lazily re-bootstrap its eigenbasis for the remaining steps.
+POST_TARGET_SOAP_RESET_ENABLED = int(os.environ.get("POST_TARGET_SOAP_RESET_ENABLED", "0"))
+POST_TARGET_SOAP_RESET_STEP = int(os.environ.get("POST_TARGET_SOAP_RESET_STEP", "2950"))
+POST_TARGET_SOAP_RESET_SCOPE = os.environ.get("POST_TARGET_SOAP_RESET_SCOPE", "mlp")  # "mlp" or "attn"
 
 
 def zeropower_via_newtonschulz5(G: Tensor) -> Tensor:
@@ -866,6 +873,9 @@ if dist.get_rank() == 0:
             "optimizer/attn_soap_trust_threshold": ATTN_SOAP_TRUST_THRESHOLD,
             "optimizer/ns5_iters": NS5_ITERS,
             "optimizer/wd_aux": WD_AUX,
+            "optimizer/post_target_soap_reset_enabled": POST_TARGET_SOAP_RESET_ENABLED,
+            "optimizer/post_target_soap_reset_step": POST_TARGET_SOAP_RESET_STEP,
+            "optimizer/post_target_soap_reset_scope": POST_TARGET_SOAP_RESET_SCOPE,
             "optimizer/recipe": "contra-muon + normuon-lite + soap-on-mlp + soap-on-attn-trust-gate (pre-NS5, record #14 + record #16)",
         },
     )
@@ -1053,6 +1063,68 @@ for trial_idx in range(args.num_trials):
             )
         for opt in optimizers:
             opt.step()
+        if POST_TARGET_SOAP_RESET_ENABLED and step == POST_TARGET_SOAP_RESET_STEP:
+            if POST_TARGET_SOAP_RESET_SCOPE == "mlp":
+                target_set = optimizer2.soap_params
+            elif POST_TARGET_SOAP_RESET_SCOPE == "attn":
+                target_set = optimizer2.attn_soap_params
+            else:
+                raise ValueError(f"Unknown SOAP reset scope: {POST_TARGET_SOAP_RESET_SCOPE}")
+            pre_exp_avg_sq_norm_sq = 0.0
+            post_exp_avg_sq_norm_sq = 0.0
+            pre_row_gg_norm_sq = 0.0
+            pre_col_gg_norm_sq = 0.0
+            soap_step_pre = -1
+            reset_count = 0
+            body_m_norm_sq = 0.0
+            for p in optimizer2.state:
+                st = optimizer2.state[p]
+                if "momentum" in st:
+                    body_m_norm_sq += st["momentum"].float().norm().item() ** 2
+            for p in target_set:
+                state_p = optimizer2.state.get(p, {})
+                if "row_gg" not in state_p:
+                    continue
+                pre_exp_avg_sq_norm_sq += state_p["exp_avg_sq"].norm().item() ** 2
+                pre_row_gg_norm_sq += state_p["row_gg"].norm().item() ** 2
+                pre_col_gg_norm_sq += state_p["col_gg"].norm().item() ** 2
+                if reset_count == 0:
+                    soap_step_pre = state_p["soap_step"]
+                state_p["row_gg"].zero_()
+                state_p["col_gg"].zero_()
+                state_p["q_row"] = None
+                state_p["q_col"] = None
+                state_p["exp_avg_sq"].zero_()
+                state_p["soap_step"] = 0
+                post_exp_avg_sq_norm_sq += state_p["exp_avg_sq"].norm().item() ** 2
+                reset_count += 1
+            aux_m_norm_sq = 0.0
+            for grp in optimizer1.param_groups:
+                for p in grp["params"]:
+                    st = optimizer1.state.get(p, {})
+                    if "exp_avg" in st:
+                        aux_m_norm_sq += st["exp_avg"].float().norm().item() ** 2
+            if dist.get_rank() == 0:
+                wandb.log({
+                    "soap_reset/scope": 1 if POST_TARGET_SOAP_RESET_SCOPE == "mlp" else 2,
+                    "soap_reset/params_reset": reset_count,
+                    "soap_reset/pre_exp_avg_sq_l2": pre_exp_avg_sq_norm_sq ** 0.5,
+                    "soap_reset/post_exp_avg_sq_l2": post_exp_avg_sq_norm_sq ** 0.5,
+                    "soap_reset/pre_row_gg_l2": pre_row_gg_norm_sq ** 0.5,
+                    "soap_reset/pre_col_gg_l2": pre_col_gg_norm_sq ** 0.5,
+                    "soap_reset/soap_step_pre": soap_step_pre,
+                    "soap_reset/m_norm_body_at_reset": body_m_norm_sq ** 0.5,
+                    "soap_reset/m_norm_aux_at_reset": aux_m_norm_sq ** 0.5,
+                    "soap_reset/step": step,
+                }, step=wandb_step)
+                print(f"[SOAP_RESET] step={step} scope={POST_TARGET_SOAP_RESET_SCOPE} "
+                      f"params_reset={reset_count} pre_exp_avg_sq_l2={pre_exp_avg_sq_norm_sq**0.5:.4f} "
+                      f"post_exp_avg_sq_l2={post_exp_avg_sq_norm_sq**0.5:.4f} "
+                      f"pre_row_gg_l2={pre_row_gg_norm_sq**0.5:.4f} "
+                      f"pre_col_gg_l2={pre_col_gg_norm_sq**0.5:.4f} "
+                      f"soap_step_pre={soap_step_pre} "
+                      f"body_m_l2={body_m_norm_sq**0.5:.4f} aux_m_l2={aux_m_norm_sq**0.5:.4f}",
+                      flush=True)
         if dist.get_rank() == 0 and telemetry_due:
             for opt in optimizers:
                 if hasattr(opt, "trust_gate_stats"):
