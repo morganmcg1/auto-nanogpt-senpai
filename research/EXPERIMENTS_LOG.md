@@ -1,5 +1,32 @@
 # SENPAI Research Results — auto-nanogpt-1gpu-r5
 
+## 2026-05-28 20:23 — PR #1565 CLOSED [43rd closure of R5]: tanjiro SOAP trust gate threshold SCHEDULE (fresh schedule axis vs static #467/#171)
+- branch: g1r5-tanjiro/trust-gate-schedule
+- Hypothesis: SOAP's `trust_threshold` gating (default static 0.0 from #467/#171) can be MORE EFFECTIVE if SCHEDULED across training — ramp up during warm phase (force stricter gating when SOAP is calibrating), then drop to 0.0 for cooldown. 5-cell sweep: A=ctrl (peak=0.0), B★=ramp-and-drop (peak=0.3, ramp=0.15), C=stricter (peak=0.5), D=slower-ramp (peak=0.3, ramp=0.25), E=step-falsifier (peak=0.3, ramp=0.0).
+
+| Cell | `peak` | `ramp_frac` | val/loss | FFS | gate_trigger_frac | W&B run |
+|:----:|:---:|:---:|:--------:|:---:|:---:|:-------:|
+| **A (ctrl)** | 0.0 | 0.15 | 3.26840 | **2925** | 0 | `0d5vtwcy` |
+| **B★ primary** | 0.3 | 0.15 | 3.26989 | 2925 | 0 | `hhu2496y` |
+| C (stricter) | 0.5 | 0.15 | 3.27055 | 2950 | 0 | `7w0a7mqx` |
+| D (slower ramp) | 0.3 | 0.25 | 3.26895 | 2925 | 0 | `xtp8y6xm` |
+| **E (falsifier, step)** | 0.3 | 0.0 | 3.27027 | 2950 | 0 | `3zt88zt6` |
+
+- **Closure rationale**: Clean null axis at the schedule level — but ★ HIGH mechanistic value at the gate level. All 5 cells FFS ∈ {2925, 2950} = 1 grid step apart; val range=0.0022 = ~8× val σ_4 (single-seed noise). Cell A and Cells B/D land identically at FFS=2925; Cells C and E at FFS=2950. ALL cells `soap/gate_trigger_frac = 0` — **the trust gate NEVER FIRES at any tested peak threshold**.
+
+- **★ Headline mechanism finding**: Median SOAP↔Muon cos_sim is **~0.82-0.84** throughout training (after ~step 100) and stays there. Even Cell C's stricter peak=0.5 is well below the cos_sim distribution's tail — no attention matrix has cos_sim < 0.5 during any cell. With `PRECOND_FREQ=16` and warm-start gradient accumulation, SOAP's eigenbasis stabilizes geometrically well-aligned with plain Muon update direction within ~100 steps and stays there. The gate was designed for a failure mode (cos_sim < threshold) that doesn't materialize in this regime. Schedule modulation is mechanistically a no-op.
+
+- **Practical implications**:
+  - Trust-gate schedule axis closed for peak ≤ 0.5 (any future schedule sweeps at this peak range will reproduce this null result).
+  - Revisiting trust-gating with a DIFFERENT signal (e.g., update-norm ratio, SOAP eigenvalue condition, per-block instead of per-update) would be a NEW hypothesis.
+  - **Telemetry preservation**: `soap/gate_trigger_frac` and `soap/current_threshold` per-step are load-bearing diagnostics — kept in SOAP code path as permanent additions. Will provide immediate falsification signal for any future trust-gating proposal.
+
+- **Cell A as 6th-sample baseline reproducer**: Cell A is mechanistically identical to baseline (peak=0 → gate disabled → same training trajectory). val=3.26840 is well within σ_4 of baseline μ_4=3.270215. Effective baseline floor at FFS=2925 increasingly well-characterized: post-#1381 baseline n=4 (1/4 at 2925), tanjiro Cell A reproduces 2925, fern n=3 perfect at 2925, askeladd Cell A at 2950 (different seed).
+
+- **43rd cumulative R5 closure**.
+
+---
+
 ## 2026-05-28 20:15 — PR #1563 CLOSED [42nd closure of R5]: edward NS post-NS aspect-ratio scale exponent ablation
 - branch: g1r5-edward/ns-scale-exponent-ablation
 - Hypothesis: Post-NS aspect-ratio scaling factor `update *= max(1, m/n)**exp` (default exp=0.5) compensates for non-square matrix conditioning. Scaling-law theory (arXiv:2511.20626, arXiv:2505.04005) predicts exp=0 should be catastrophic. 5-cell sweep: A=0.5(ctrl), B★=0.25, C=0.75, D=1.0, E=0.0 (falsifier).

@@ -9,7 +9,35 @@ The human research team has redirected: **FFS (first-step-to-target, baseline 30
 3. **Prefer experiments that move the crossing step** (2800-3050 window), **simplify winning stacks**, **reveal FFS-load-bearing components**.
 4. **Ablations preferred over confirmations** when FFS dead.
 
-## Last updated: 2026-05-28 ~20:15Z (poll ≈1027, ★ edward axis closure + new assignment — 42nd R5 closure)
+## Last updated: 2026-05-28 ~20:25Z (poll ≈1030, ★ tanjiro axis closure + new assignment — 43rd R5 closure)
+
+**Actions this poll**:
+1. ★ **CLOSED #1565 tanjiro trust-gate-schedule** [43rd R5 closure] — clean null axis at schedule level, ★ HIGH mechanism value at gate level. All 5 cells FFS ∈ {2925, 2950}. ★ Headline: gate NEVER fires (`gate_trigger_frac = 0` across all cells) because cos_sim stays ~0.82-0.84 throughout training, well above all tested peak thresholds [0, 0.5]. Trust gate schedule modulation is mechanistically a no-op. Cell A (peak=0, ctrl) val=3.26840 = 6th-sample baseline reproducer at FFS=2925.
+2. ★ **ASSIGNED #1617 tanjiro SOAP preconditioner update frequency** (`g1r5-tanjiro/soap-precond-freq`) — fresh axis directly motivated by #1565 finding. PRECOND_FREQ has been hardcoded at 16 since SOAP introduction, NEVER swept. Given cos_sim geometric stability throughout training (eigenspace rotates slowly), the question is whether 16 is too coarse or too fine. 5-cell sweep: A=16(ctrl), B★=8(2× more frequent), C=32, D=64, E=128(falsifier near-static). Single-line argparse + critical Python default-arg-binding gotcha fix (must pass `precondition_frequency=PRECOND_FREQ` explicitly at call site line 664, not rely on global override propagating through function default).
+
+**★★★ FERN #1564 Trial 4 W&B TERMINAL — STUDENT POST PENDING**:
+- Trial 4 (`ixqmqe2j`): state=finished, _step=13003, val=3.27027, **FFS=2950** ← Trial 4 broke the n=3 perfect σ_3=0 pattern by 1 grid step
+- **n=4 summary**: Trial 1=2925, Trial 2=2925, Trial 3=2925, Trial 4=2950 → **μ_4=2931.25, σ_4=10.83**
+- vs predeclared merge gate: μ_4 ≤ 2918.75 with σ_4 ≤ 12.5 → **μ_4=2931.25 is +12.5 ABOVE strict gate** (= 1 grid step)
+- vs new baseline: ΔFFS = -12.5 = -1.16σ_4 → sub-2σ_4 marginal effect
+- σ_4=10.83 ≤ 12.5 ✓ (variance under control)
+- **Decision pending**: tight call between (a) marginal merge at sub-2σ_4 vs (b) n=8 confirmation request for tighter readout
+
+**Ongoing in flight** (20:25Z snapshot):
+- **#1586 thorfinn body wd_mlp fine re-tune**: Cells A/B done, C in flight (step ~1700), D pending — ETA ~21:30Z
+- **#1612 askeladd ns-poly-coeffs**: just assigned poll ~1020
+- **#1609 nezuko ns-iter-depth-schedule**: just assigned poll ~1010
+- **#1615 edward mu-mlp-attn-decouple**: just assigned poll ~1027
+- **#1617 tanjiro soap-precond-freq**: just assigned this poll
+- **#1555 frieren aux-cd-shape n=4 confirm**: starting (sent back poll ~1020)
+- **#1533 alphonse EMA-eval rebase + n=4 confirm**: starting (sent back poll ~1020)
+- **#1564 fern SOAP Gram trace-norm**: Trial 4 W&B terminal, awaiting student post
+
+All 8 students remain productively occupied. Zero idle.
+
+---
+
+## Prior poll snapshot (~1027, 2026-05-28 ~20:15Z, ★ edward axis closure + new assignment — 42nd R5 closure)
 
 **Actions this poll**:
 1. ★ **CLOSED #1563 edward NS-scale-exp** [42nd R5 closure] — clean null axis: all 5 cells FFS ∈ {2925, 2950} = 1 grid step apart. exp=0 falsifier landed at FFS=2950 (ctrl baseline floor) — **scaling-law catastrophic-NEG prediction FALSIFIED**. Post-NS aspect-ratio scale factor `max(1, m/n)**exp` is below FFS quantization noise floor at this benchmark scale across [0, 1.0].
