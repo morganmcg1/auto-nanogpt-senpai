@@ -464,6 +464,9 @@ SOAP_PRECOND_FREQ = 10
 ATTN_SOAP_BETA2 = 0.90
 ATTN_SOAP_PRECOND_FREQ = 10
 ATTN_SOAP_TRUST_THRESHOLD = float(os.environ.get("ATTN_SOAP_TRUST_THRESHOLD", "0.9"))
+DEPTH_ATTN_SOAP_FREQ_ENABLED = int(os.environ.get("DEPTH_ATTN_SOAP_FREQ_ENABLED", "0"))
+DEPTH_ATTN_SOAP_FREQ_FRONT = int(os.environ.get("DEPTH_ATTN_SOAP_FREQ_FRONT", "10"))
+DEPTH_ATTN_SOAP_FREQ_BACK = int(os.environ.get("DEPTH_ATTN_SOAP_FREQ_BACK", "10"))
 NS5_ITERS = int(os.environ.get("NS5_ITERS", "12"))
 WD_AUX = float(os.environ.get("WD_AUX", "0.0"))  # AdamW WD on embed + lm_head matrices (scalars stay at 0)
 EMBED_INIT_STD = float(os.environ.get("EMBED_INIT_STD", "1.0"))  # default preserves baseline N(0,1)
@@ -652,6 +655,21 @@ class Muon(torch.optim.Optimizer):
                     self.attn_soap_kind[id(p)] = "v"
                 elif n.endswith(".attn.proj.weight"):
                     self.attn_soap_kind[id(p)] = "proj"
+        # Per-block attn-trust-SOAP refresh frequency dispatch (depth-linear ramp).
+        self.attn_soap_freq: dict[int, int] = {}
+        if DEPTH_ATTN_SOAP_FREQ_ENABLED:
+            for n, p in named_params:
+                if p in self.attn_soap_params:
+                    block_idx = int(n.split(".", 1)[0])
+                    assert 0 <= block_idx < 12, f"unexpected block_idx={block_idx} in {n}"
+                    k_front = DEPTH_ATTN_SOAP_FREQ_FRONT
+                    k_back = DEPTH_ATTN_SOAP_FREQ_BACK
+                    k_eff = round(k_front + (k_back - k_front) * block_idx / 11)
+                    self.attn_soap_freq[id(p)] = max(1, int(k_eff))
+        else:
+            for n, p in named_params:
+                if p in self.attn_soap_params:
+                    self.attn_soap_freq[id(p)] = ATTN_SOAP_PRECOND_FREQ
         params = sorted([p for _, p in named_params], key=lambda x: x.size(), reverse=True)
         defaults = dict(lr=lr, weight_decay=weight_decay, mu=mu)
         super().__init__(params, defaults)
@@ -714,8 +732,9 @@ class Muon(torch.optim.Optimizer):
                     if use_soap:
                         soap_refresh(grad, state)
                     elif use_attn_soap:
+                        k_eff = self.attn_soap_freq.get(id(p), ATTN_SOAP_PRECOND_FREQ)
                         soap_refresh(grad, state, beta2=ATTN_SOAP_BETA2,
-                                     refresh_freq=ATTN_SOAP_PRECOND_FREQ,
+                                     refresh_freq=k_eff,
                                      use_trust_gate=True,
                                      trust_threshold=ATTN_SOAP_TRUST_THRESHOLD)
                 dist.all_gather(params_pad[base_i:base_i + world_size], params_pad[base_i + rank])
@@ -1059,6 +1078,28 @@ for trial_idx in range(args.num_trials):
                     stats = opt.trust_gate_stats()
                     if stats:
                         wandb.log(prefixed("train/attn_soap_trust_gate", stats), step=wandb_step)
+        if dist.get_rank() == 0 and train_step == 100 and DEPTH_ATTN_SOAP_FREQ_ENABLED:
+            block_kind_k = {i: {} for i in range(12)}
+            for n, p in model.blocks.named_parameters():
+                if p in optimizer2.attn_soap_params:
+                    block_idx = int(n.split(".", 1)[0])
+                    kind = optimizer2.attn_soap_kind[id(p)]
+                    block_kind_k[block_idx][kind] = optimizer2.attn_soap_freq[id(p)]
+            dir_label = 'front_FAST' if DEPTH_ATTN_SOAP_FREQ_FRONT < DEPTH_ATTN_SOAP_FREQ_BACK else 'front_SLOW'
+            print0(
+                f"[DEPTH_ATTN_SOAP_FREQ] dir={dir_label} k_eff per block (q,k,v,proj): "
+                + ", ".join(
+                    f"b{i}=({block_kind_k[i].get('q','?')},{block_kind_k[i].get('k','?')},"
+                    f"{block_kind_k[i].get('v','?')},{block_kind_k[i].get('proj','?')})"
+                    for i in range(12)
+                ),
+                console=True,
+            )
+            freq_metrics: dict[str, float] = {}
+            for i in range(12):
+                for kind in ("q", "k", "v", "proj"):
+                    freq_metrics[f"attn_soap_freq/block_{i}_{kind}"] = block_kind_k[i].get(kind, ATTN_SOAP_PRECOND_FREQ)
+            wandb.log(freq_metrics, step=wandb_step)
         if dist.get_rank() == 0 and telemetry_due:
             log_weight_telemetry(
                 model=model,
