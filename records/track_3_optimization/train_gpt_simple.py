@@ -463,6 +463,9 @@ SOAP_PRECOND_FREQ = 10
 # Attention SOAP (record #16) hyperparameters
 ATTN_SOAP_BETA2 = 0.90
 ATTN_SOAP_PRECOND_FREQ = 10
+ATTN_SOAP_PRECOND_FREQ_QK = int(os.environ.get("ATTN_SOAP_PRECOND_FREQ_QK", str(ATTN_SOAP_PRECOND_FREQ)))
+ATTN_SOAP_PRECOND_FREQ_VPROJ = int(os.environ.get("ATTN_SOAP_PRECOND_FREQ_VPROJ", str(ATTN_SOAP_PRECOND_FREQ)))
+PER_KIND_ATTN_SOAP_PRECOND_FREQ_ENABLED = ("ATTN_SOAP_PRECOND_FREQ_QK" in os.environ) or ("ATTN_SOAP_PRECOND_FREQ_VPROJ" in os.environ)
 ATTN_SOAP_TRUST_THRESHOLD = float(os.environ.get("ATTN_SOAP_TRUST_THRESHOLD", "0.9"))
 NS5_ITERS = int(os.environ.get("NS5_ITERS", "12"))
 WD_AUX = float(os.environ.get("WD_AUX", "0.0"))  # AdamW WD on embed + lm_head matrices (scalars stay at 0)
@@ -714,8 +717,16 @@ class Muon(torch.optim.Optimizer):
                     if use_soap:
                         soap_refresh(grad, state)
                     elif use_attn_soap:
+                        if PER_KIND_ATTN_SOAP_PRECOND_FREQ_ENABLED:
+                            kind = self.attn_soap_kind.get(id(p), "q")
+                            if kind in ("q", "k"):
+                                _refresh_freq = ATTN_SOAP_PRECOND_FREQ_QK
+                            else:  # v, proj
+                                _refresh_freq = ATTN_SOAP_PRECOND_FREQ_VPROJ
+                        else:
+                            _refresh_freq = ATTN_SOAP_PRECOND_FREQ
                         soap_refresh(grad, state, beta2=ATTN_SOAP_BETA2,
-                                     refresh_freq=ATTN_SOAP_PRECOND_FREQ,
+                                     refresh_freq=_refresh_freq,
                                      use_trust_gate=True,
                                      trust_threshold=ATTN_SOAP_TRUST_THRESHOLD)
                 dist.all_gather(params_pad[base_i:base_i + world_size], params_pad[base_i + rank])
@@ -863,6 +874,9 @@ if dist.get_rank() == 0:
             "optimizer/soap_precond_freq": SOAP_PRECOND_FREQ,
             "optimizer/attn_soap_beta2": ATTN_SOAP_BETA2,
             "optimizer/attn_soap_precond_freq": ATTN_SOAP_PRECOND_FREQ,
+            "optimizer/attn_soap_precond_freq_qk": ATTN_SOAP_PRECOND_FREQ_QK,
+            "optimizer/attn_soap_precond_freq_vproj": ATTN_SOAP_PRECOND_FREQ_VPROJ,
+            "optimizer/per_kind_attn_soap_precond_freq_enabled": int(PER_KIND_ATTN_SOAP_PRECOND_FREQ_ENABLED),
             "optimizer/attn_soap_trust_threshold": ATTN_SOAP_TRUST_THRESHOLD,
             "optimizer/ns5_iters": NS5_ITERS,
             "optimizer/wd_aux": WD_AUX,
@@ -905,6 +919,11 @@ for trial_idx in range(args.num_trials):
     optimizer2 = Muon([(n, p) for n, p in model.blocks.named_parameters() if p.ndim >= 2],
                       lr=MUON_LR, weight_decay=MUON_WEIGHT_DECAY, mu=MU)
     optimizer2.param_groups[0]["name"] = "muon_blocks"
+    if dist.get_rank() == 0 and trial_idx == 0:
+        print(f"[PER_KIND_ATTN_SOAP_REFRESH_FREQ] enabled={int(PER_KIND_ATTN_SOAP_PRECOND_FREQ_ENABLED)} qk={ATTN_SOAP_PRECOND_FREQ_QK} vproj={ATTN_SOAP_PRECOND_FREQ_VPROJ} default={ATTN_SOAP_PRECOND_FREQ}")
+        qk_count = sum(1 for v in optimizer2.attn_soap_kind.values() if v in ("q", "k"))
+        vproj_count = sum(1 for v in optimizer2.attn_soap_kind.values() if v in ("v", "proj"))
+        print(f"[PER_KIND_ATTN_SOAP_REFRESH_FREQ] dispatched: {qk_count} qk params, {vproj_count} vproj params")
     optimizers = [optimizer1, optimizer2]
     assert set(p for opt in optimizers for group in opt.param_groups
                for p in group["params"]) == set(model.parameters())
