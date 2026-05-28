@@ -602,6 +602,9 @@ NANOGPT_NEWTON_MUON_UPDATE_PERIOD = int(os.environ.get("NANOGPT_NEWTON_MUON_UPDA
 NANOGPT_NEWTON_MUON_BETA = float(os.environ.get("NANOGPT_NEWTON_MUON_BETA", "0.95"))
 NANOGPT_NEWTON_MUON_EPS = float(os.environ.get("NANOGPT_NEWTON_MUON_EPS", "1e-4"))
 NANOGPT_NEWTON_MUON_MAX_D_IN = int(os.environ.get("NANOGPT_NEWTON_MUON_MAX_D_IN", "1024"))
+# Freeze R-buffer EMA updates after this _newton_step_count (0 = no freeze = production).
+# When >0, R is still APPLIED (R^{-α} preconditioning continues), only the EMA refresh is skipped.
+NANOGPT_NEWTON_MUON_FREEZE_R_AFTER = int(os.environ.get("NANOGPT_NEWTON_MUON_FREEZE_R_AFTER", "0"))
 
 # Global per-parameter input-activation cache populated by forward hooks. Keyed by
 # id(weight_param) → tensor of shape (B*T, d_in) on device. Only populated when
@@ -823,6 +826,14 @@ class Muon(torch.optim.Optimizer):
             "R" not in state
             or (self._newton_step_count % self.newton_update_period == 1)
         )
+        # Freeze R EMA updates after step K (R^{-α} application continues with static R).
+        # Initial R-init is preserved ("R" not in state path) so late-registered params still init.
+        if (
+            NANOGPT_NEWTON_MUON_FREEZE_R_AFTER > 0
+            and self._newton_step_count > NANOGPT_NEWTON_MUON_FREEZE_R_AFTER
+            and "R" in state
+        ):
+            update_R = False
         if update_R:
             x32 = x.float()
             # R_new = (X^T X) / N, shape (d_in, d_in) in float32 for eigendecomp stability.
@@ -984,7 +995,8 @@ print0(
     f"lr_scale={NANOGPT_NEWTON_MUON_LR_SCALE} "
     f"update_period={NANOGPT_NEWTON_MUON_UPDATE_PERIOD} "
     f"beta={NANOGPT_NEWTON_MUON_BETA} eps={NANOGPT_NEWTON_MUON_EPS} "
-    f"max_d_in={NANOGPT_NEWTON_MUON_MAX_D_IN}",
+    f"max_d_in={NANOGPT_NEWTON_MUON_MAX_D_IN} "
+    f"freeze_r_after={NANOGPT_NEWTON_MUON_FREEZE_R_AFTER if NANOGPT_NEWTON_MUON_FREEZE_R_AFTER > 0 else 'OFF'}",
     console=True,
 )
 if NS_ITERS_COOLDOWN > 0:
@@ -1105,6 +1117,7 @@ if dist.get_rank() == 0:
             "nanogpt_newton_muon_beta": NANOGPT_NEWTON_MUON_BETA,
             "nanogpt_newton_muon_eps": NANOGPT_NEWTON_MUON_EPS,
             "nanogpt_newton_muon_max_d_in": NANOGPT_NEWTON_MUON_MAX_D_IN,
+            "nanogpt_newton_muon_freeze_r_after": NANOGPT_NEWTON_MUON_FREEZE_R_AFTER,
         },
     )
 
@@ -1442,10 +1455,15 @@ for trial_idx in range(args.num_trials):
         ):
             tel = optimizer2.newton_telemetry
             applied = tel.get("applied_n", 0)
+            r_frozen = int(
+                NANOGPT_NEWTON_MUON_FREEZE_R_AFTER > 0
+                and optimizer2._newton_step_count > NANOGPT_NEWTON_MUON_FREEZE_R_AFTER
+            )
             newton_metrics = {
                 "trial": trial_idx,
                 "train/step": train_step,
                 "newton_muon/params_preconditioned": applied,
+                "newton_muon/R_frozen": r_frozen,
             }
             cond_n = tel.get("cond_n", 0)
             if cond_n > 0:
