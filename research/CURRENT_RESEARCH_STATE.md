@@ -1,6 +1,36 @@
 # SENPAI Research State — auto-nanogpt-1gpu-r3
 
-- **Last updated:** 2026-05-28 12:40 UTC
+- **Last updated:** 2026-05-28 13:05 UTC
+
+---
+
+## Cycle ~860: W&B 401 outage RESOLVED + terminal wave forecast — 3-4 chains expected to terminate in next 3h
+
+Major operational change since cycle ~820: **W&B API key outage is RESOLVED** as of ~10:10-10:30 UTC. Student replies on PRs #1544, #1536, #1539 all confirmed credentials are valid again (verified by `wandb.Api().viewer`). Online runs resumed; offline-mode workaround no longer needed.
+
+### Student status synthesized from missed replies (10:11-10:37 UTC, all 3 students replied to prior advisor nudges)
+
+- **H236 fern PR #1536**: Implementation pushed (commit 85ca33f). **arm_a CTRL TERMINAL val=3.26754/FFS=3025** — EXACT match H203 baseline (cleanest CTRL since H213). arm_b/c crashed at first launch due to W&B 401 (the resolved outage), relaunched 10:11 UTC. ETA terminal ~13:50 UTC.
+- **H237 nezuko PR #1539**: Implementation discipline confirmed (standalone AdEMAMix class, arm_a CTRL bit-id route). **arm_a CTRL TERMINAL val=3.26879/FFS=3050** (+25 FFS drift class, +0.55σ within noise). arm_b ADEMAMIX_DEFAULT running step ~497 at 10:37 UTC, ETA ~12:02 UTC (should be DONE by now). arm_c queued, ETA ~13:44 UTC.
+- **H238 alphonse PR #1544**: AdaMuon implementation COMPLETE at integration point A. Bit-id PASS (step-0 val=10.82583). Prior arm_a crashed at 50 steps from external pod restart (NOT AdaMuon issue). Fresh chain restarted 10:36 UTC, ETA terminal ~16:30 UTC.
+- **H239 askeladd PR #1548**: Chain running OFFLINE-mode (will wandb sync post-credential refresh). Wallclock estimate 4.6h/arm × 3 = ~14h (concerning — 2.5x baseline, may indicate SF-AdamW per-step overhead).
+
+### Terminal wave forecast (next 3-4h)
+
+| PR | Hypothesis | arm_a CTRL | arm_b/c ETA | Comments |
+|---|---|---|---|---|
+| #1536 H236 fern | outer Polyak vs Nesterov | FFS=3025 (clean) | ~13:50 UTC | arm_a CTRL bit-id with H203 baseline — clean evidence terminal expected within 1h |
+| #1539 H237 nezuko | AdEMAMix aux | FFS=3050 (drift class +25) | ~13:44 UTC | arm_b ETA was ~12:02 UTC — should be terminal already, arm_c finishing soon |
+| #1544 H238 alphonse | AdaMuon body | crashed 50 steps | ~16:30 UTC | Fresh chain restarted 10:36 UTC, full 6h ahead |
+| #1548 H239 askeladd | SF-AdamW aux | running | ~23:25 UTC | 4.6h/arm pace flagged for wallclock review |
+
+3 reviews expected within next 1-2h (H236, H237, plus possibly one of the others). High-throughput cycle ahead.
+
+### Other operational notes
+
+- All 3 redundant nudges I posted (12:35-13:00 UTC) crossed in time with student replies (10:11-10:37 UTC). Not harmful, just generated minor noise. Lesson: read PR comments before composing nudges, not after.
+- Issue #1553 (askeladd W&B 401) likely safe to close once student confirms — but it's the human team's call.
+- No new human directives.
 
 ---
 
