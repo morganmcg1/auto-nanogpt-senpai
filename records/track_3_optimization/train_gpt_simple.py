@@ -466,6 +466,11 @@ ATTN_SOAP_PRECOND_FREQ = 10
 ATTN_SOAP_TRUST_THRESHOLD = float(os.environ.get("ATTN_SOAP_TRUST_THRESHOLD", "0.9"))
 NS5_ITERS = int(os.environ.get("NS5_ITERS", "12"))
 WD_AUX = float(os.environ.get("WD_AUX", "0.0"))  # AdamW WD on embed + lm_head matrices (scalars stay at 0)
+AUX_BETA1_DEFAULT = 0.80  # matches existing global default
+AUX_BETA1_EMBED = float(os.environ.get("AUX_BETA1_EMBED", str(AUX_BETA1_DEFAULT)))
+AUX_BETA1_LM_HEAD = float(os.environ.get("AUX_BETA1_LM_HEAD", str(AUX_BETA1_DEFAULT)))
+AUX_BETA1_SCALARS = float(os.environ.get("AUX_BETA1_SCALARS", str(AUX_BETA1_DEFAULT)))
+AUX_BETA1_PER_KIND_ENABLED = ("AUX_BETA1_EMBED" in os.environ) or ("AUX_BETA1_LM_HEAD" in os.environ)
 EMBED_INIT_STD = float(os.environ.get("EMBED_INIT_STD", "1.0"))  # default preserves baseline N(0,1)
 LOGIT_SOFTCAP = float(os.environ.get("LOGIT_SOFTCAP", "15.0"))  # default = 15 (current hardcoded value); soft-cap value c in f(x) = c·x / sqrt(x^2+c^2)
 
@@ -866,6 +871,10 @@ if dist.get_rank() == 0:
             "optimizer/attn_soap_trust_threshold": ATTN_SOAP_TRUST_THRESHOLD,
             "optimizer/ns5_iters": NS5_ITERS,
             "optimizer/wd_aux": WD_AUX,
+            "optimizer/aux_beta1_embed": AUX_BETA1_EMBED,
+            "optimizer/aux_beta1_lm_head": AUX_BETA1_LM_HEAD,
+            "optimizer/aux_beta1_scalars": AUX_BETA1_SCALARS,
+            "optimizer/aux_beta1_per_kind_enabled": int(AUX_BETA1_PER_KIND_ENABLED),
             "optimizer/recipe": "contra-muon + normuon-lite + soap-on-mlp + soap-on-attn-trust-gate (pre-NS5, record #14 + record #16)",
         },
     )
@@ -898,10 +907,18 @@ for trial_idx in range(args.num_trials):
             raise Exception(f"Uninitialized parameter: {name}")
 
     # create the optimizer(s)
-    optimizer1 = AdamW([dict(params=[model.embed.weight], lr=0.3, name="adam_embed", weight_decay=WD_AUX),
-                        dict(params=[model.proj.weight], lr=1/320, name="adam_lm_head", weight_decay=WD_AUX),
-                        dict(params=[p for p in model.parameters() if p.ndim < 2], lr=0.01, name="adam_scalars")],
+    optimizer1 = AdamW([dict(params=[model.embed.weight], lr=0.3, name="adam_embed", weight_decay=WD_AUX,
+                             betas=(AUX_BETA1_EMBED, 0.95)),
+                        dict(params=[model.proj.weight], lr=1/320, name="adam_lm_head", weight_decay=WD_AUX,
+                             betas=(AUX_BETA1_LM_HEAD, 0.95)),
+                        dict(params=[p for p in model.parameters() if p.ndim < 2], lr=0.01, name="adam_scalars",
+                             betas=(AUX_BETA1_SCALARS, 0.95))],
                        betas=(0.8, 0.95), eps=1e-10, weight_decay=0, fused=True)
+    if dist.get_rank() == 0:
+        print(f"[AUX_BETA1_DISPATCH] embed_beta1={AUX_BETA1_EMBED} lm_head_beta1={AUX_BETA1_LM_HEAD} "
+              f"scalars_beta1={AUX_BETA1_SCALARS} per_kind_enabled={int(AUX_BETA1_PER_KIND_ENABLED)}", flush=True)
+        for i, g in enumerate(optimizer1.param_groups):
+            print(f"[AUX_BETA1_DISPATCH] param_group[{i}] name={g.get('name','?')} betas={tuple(g['betas'])}", flush=True)
     optimizer2 = Muon([(n, p) for n, p in model.blocks.named_parameters() if p.ndim >= 2],
                       lr=MUON_LR, weight_decay=MUON_WEIGHT_DECAY, mu=MU)
     optimizer2.param_groups[0]["name"] = "muon_blocks"
