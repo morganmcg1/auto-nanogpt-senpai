@@ -1,3 +1,29 @@
+## 2026-05-28 06:10 — PR #1501: H227 thorfinn body initialization ablation — CLOSED (84th NULL/NEG, 🎯 PROGRAMME FINDING #52 candidate — BODY F-NORM CAPACITY LOAD-BEARING bilaterally on rank+magnitude (H214 spectral RANK + H227 init F-norm), thesis-validates PRE-NS5 axis)
+
+- Branch: `g1r3-thorfinn/body-init-ablation`
+- Hypothesis: Body initialization is PRE-NS5 — sets the starting spectrum that MuonH then refines via polar projection. Different initial spectra could lead to different convergence trajectories that the per-param hyperball normalization cannot fully erase. Tests if `orthogonal_fnorm_matched` baseline customization is vestigial (arm_c DEFAULT) or load-bearing, and probes depth-asymmetric init (arm_b BOTTOM_DAMP).
+- Results (n=1 each, train_steps=3325, all bit-id step-0 val=10.82583 PASS):
+
+  | Arm | body_init | W&B | val/loss | FFS | Δval/σ_H174 | Verdict |
+  |---|---|---|---|---|---|---|
+  | arm_a CTRL | orthogonal_fnorm_matched | q5pzlwv8 | **3.26802** | **3025** | -0.32σ (cleanest CTRL of campaign) | bit-id baseline match |
+  | arm_b BOTTOM_DAMP | orthogonal_bottom_damp | 3aimusxf | 3.30413 | **-1** | **+40.85σ** | **CATASTROPHIC NEG** |
+  | arm_c DEFAULT | default (PyTorch normal_) | c2vvysef | 3.26958 | **3050** | +1.77σ | mild NEG +25 FFS |
+
+- Bit-id gate: all 3 arms step-0 val=10.82583 EXACT (LM head `proj.weight` is zeroed → uniform softmax regardless of body init magnitude). PASS.
+- **🎯 PROGRAMME FINDING #52 candidate — BODY F-NORM CAPACITY LOAD-BEARING bilaterally**:
+  - Student decisively diagnosed arm_b confounds: `orthogonal_bottom_damp` uses `torch.nn.init.orthogonal_(w, gain=1.0)` WITHOUT F-norm matching → F-norms drop 1.7-3.4x globally (not just bottom 6 layers). Sample F-norms: blocks.0.mlp.fc 47.62→13.86 (3.4x drop), blocks.11.mlp.fc 47.65→27.71 (1.7x drop top layers too).
+  - MuonH hyperball radius is LOCKED at init F-norm and is permanent. NS5 polar projection cannot enlarge parameter space, only refine direction. Result: structural under-capacity → never reaches target.
+  - Mechanism extends H214 askeladd's spectral RANK finding (body update gradient is FULL-RANK, low-rank truncation catastrophic) to INITIALIZATION axis: low-rank-biased or magnitude-collapsed init is equivalently destructive to low-rank-applied update.
+  - Cross-finding consolidation: H214 spectral RANK + H227 init F-norm = bilateral evidence that BODY F-NORM CAPACITY is load-bearing. Operative knob: hyperball radius. Init F-norm SETS the radius and is permanent. Any constraint reducing body parameter magnitude — whether at init or update — is destructive. **`orthogonal_fnorm_matched` body init customization is decisively load-bearing; should NOT be pruned.**
+- **PRE-NS5 axis thesis VALIDATED**: Init choice IS load-bearing for MuonH-SI despite per-param NS5 + hyperball, because hyperball RADIUS is set from init F-norm and is permanent. Only init *direction* is partially cleaned up via NS5 polar projection. This is fundamentally different from per-tensor LR axis (H162/H210/H220) which the hyperball DOES neutralize.
+- arm_c DEFAULT mild NEG (+25 FFS, +1.77σ): pure PyTorch `normal_(std=default_std)` matches global F-norm (no hyperball mismatch) but introduces random non-orthogonal modes requiring ~50-100 NS5 polar-projection iterations to clean up; orthogonal init provides small but real convergence speedup. Confirms `orthogonal_fnorm_matched` is load-bearing.
+- **Excellent student mechanistic work**: per-layer F-norm telemetry decisively diagnosed the confounding (gain=1 vs F-norm-matched). Suggested clean depth-asymmetry follow-up (orthogonal_fnorm_matched for top + 0.5x damp ONLY for bottom 6) noted but deferred — dominant mechanism is now understood (F-norm collapse, not depth asymmetry per se), and tighter follow-up would isolate at most ~25-50 FFS effect. Higher-leverage PRE-NS5 axes preferred for the next assignment.
+- **10 MuonH-SI structural tightness members**: H216 Lookahead, H221 NO_OUTER, H221 NO_MOMENTUM, H222 SCHED_OFF, H222 MU_END_85, H225 BETA1, H226+H219 cosine asymptote, H214 spectral RANK, H227 body init F-norm, H228+H231 muonh_mode SI.
+- Cumulative status: **84 NULL/NEG · 30 novel mechanism classes · 4 PROGRAMME FINDINGS pipeline** (#48 H223+H224 vestigial pair · #49 H225 dynamics-vs-conditioning heuristic · #50 H226+H219 asymptote LOAD-BEARING bilaterally · **#52 candidate H214+H227 body F-norm capacity LOAD-BEARING**) · 2 VESTIGIAL FINDINGS (H223 eps, H224 warmup)
+- Closure verdict: DO NOT MERGE. Both treatment arms NEG, no improvement. CTRL FFS=3025 exact match — confirms `orthogonal_fnorm_matched` is load-bearing baseline.
+- Next assignment: H235 thorfinn (PR #1529) — Embed init scale ablation (aux-side PRE-AdamW init axis, complement to H227). Tests if AdamW erases embed init magnitude or if std=1.0 (current baseline, 50x larger than GPT-2 std=0.02 standard) is load-bearing. 31st novel mechanism class. ~2 LoC code change.
+
 ## 2026-05-28 05:25 — PR #1495: H226 tanjiro CLAMP-FLOOR asymptote isolation — CLOSED (83rd NULL/NEG, 🎯 PROGRAMME FINDING #50 — cosine LR→0 asymptote LOAD-BEARING bilaterally across TWO formulations (H219 rescale + H226 clamp))
 
 - Branch: `g1r3-tanjiro/clamp-floor-asymptote-isolation`

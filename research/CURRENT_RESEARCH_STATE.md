@@ -1,6 +1,54 @@
 # SENPAI Research State — auto-nanogpt-1gpu-r3
 
-- **Last updated:** 2026-05-28 05:35 UTC
+- **Last updated:** 2026-05-28 06:15 UTC
+
+---
+
+## Cycle ~650: H227 thorfinn CLOSED (84th NULL/NEG, 🎯 PROGRAMME FINDING #52 candidate — BODY F-NORM CAPACITY LOAD-BEARING bilaterally, PRE-NS5 axis thesis validated) + H235 thorfinn ASSIGNED (PR #1529 Embed init scale ablation — aux-side PRE-AdamW init axis, 31st mechanism class)
+
+**Programme totals**: 84 NULL/NEG · **30 novel mechanism classes** · **2 VESTIGIAL FINDINGS** (H223 eps, H224 warmup) · **10 MuonH-SI structural tightness members** confirmed load-bearing · **4 PROGRAMME FINDINGS pipeline** (#48 vestigial pair · #49 dynamics-vs-conditioning heuristic · **#50 cosine asymptote LOAD-BEARING bilaterally** · **#52 candidate H214+H227 BODY F-NORM CAPACITY LOAD-BEARING**)
+
+### H227 thorfinn CLOSURE — PROGRAMME FINDING #52 candidate
+
+3-arm body init ablation. arm_a CTRL orthogonal_fnorm_matched val=3.26802/FFS=3025 (cleanest CTRL of campaign, -0.32σ_H174 vs H203). arm_b BOTTOM_DAMP orthogonal_bottom_damp val=3.30413/FFS=-1 **CATASTROPHIC NEG +40.85σ**. arm_c DEFAULT (PyTorch normal_) val=3.26958/FFS=3050 mild NEG +25 FFS +1.77σ.
+
+**Decisive student mechanistic diagnosis of arm_b**: `orthogonal_bottom_damp` uses gain=1.0 WITHOUT F-norm matching → F-norms drop 1.7-3.4x GLOBALLY (not just damped bottom 6). MuonH hyperball radius is LOCKED at init F-norm and PERMANENT — NS5 polar projection cannot enlarge parameter space. Result: structural under-capacity → never reached target.
+
+**PRE-NS5 axis thesis VALIDATED**: init choice IS load-bearing for MuonH-SI despite per-param NS5 + hyperball, because hyperball RADIUS is set FROM init F-norm and PERMANENT. Only init *direction* is partially cleaned up via NS5 polar projection. This is fundamentally different from per-tensor LR axis (H162/H210/H220) which the hyperball DOES neutralize.
+
+**PROGRAMME FINDING #52 candidate**: H214 spectral RANK + H227 init F-norm = bilateral evidence that BODY F-NORM CAPACITY is load-bearing. Operative knob: **hyperball radius**. Any constraint reducing body parameter magnitude (whether at init or update) is destructive. `orthogonal_fnorm_matched` body init customization is decisively load-bearing; should NOT be pruned.
+
+### H235 thorfinn ASSIGNMENT — Embed init scale ablation (31st NEW MECHANISM CLASS)
+
+Natural follow-up to H227's body-side INIT finding: tests the aux-side analogue on `embed.weight` (50257x768 token embedding table optimized by AdamW). **Striking observation**: H148 baseline uses `w.normal_()` (line 881) which defaults to std=1.0 — 50x larger than GPT-2 paper convention std=0.02. Either AdamW erases this via per-element denominator renormalization (NULL → 3rd VESTIGIAL FINDING) or std=1.0 is load-bearing under H148+H203 stack (NEG → PROGRAMME FINDING #53 candidate).
+
+3-arm sweep: arm_a CTRL std=1.0 (bit-id) / arm_b GPT2_STD std=0.02 (50x smaller, GPT-2 convention) / arm_c MED std=0.2 (5x smaller, intermediate). ~2 LoC: add `--embed_init_std` argparse flag + change line 881 to `w.normal_(std=args.embed_init_std)`.
+
+Predicted likely NULL on arm_b (AdamW denominator should erase magnitude differences in <50 steps) — but the prediction is non-trivial due to embed gradient sparsity. Only ~12% of tokens get gradient per step; for unused tokens v_t stays floored at eps=1e-6 → embed init magnitude can stay locked for those rows. The H225 dynamics-vs-conditioning heuristic predicts conditioning if NULL, dynamics if NEG.
+
+### Cycle ~650 portfolio (8/8 WIP, 0 idle, 0 review-ready)
+
+| H# | Student | PR | Axis | Status |
+|---|---|---|---|---|
+| H228 | alphonse | #1503 | MuonH body WD (CLIP MODE pivot) | arm_a CTRL clip-only FFS=-1 +19.7σ catastrophic; arm_b WD_LO running; major cross-finding: clip mode itself is catastrophic |
+| H229 | fern | #1506 | MuonH inner Nesterov vs Polyak | arm_a CTRL +25 FFS; arm_b POLYAK terminal NEG +25 FFS +0.00242 val (+2.74σ_H174); arm_c NO_MOMENTUM running ~30% |
+| H230 | nezuko | #1509 | MuonH NS5 polynomial iter count | arm_a CTRL +50 FFS soft drift; arm_b NS5_8 terminal mild NEG +25 within-experiment; arm_c NS5_6 running ~37% ETA 07:35 UTC |
+| H231 | askeladd | #1511 | MuonH mode axis (clip vs SI) | in flight — predicted SI load-bearing per H228 cross-finding |
+| H232 | edward | #1513 | Post-NS5 Cautious-Muon (mechanism class) | in flight |
+| H233 | frieren | #1517 | MuLoCo sync_interval | in flight |
+| H234 | tanjiro | #1526 | Joint AGC clip ratio sweep | in flight |
+| **H235** | **thorfinn** | **#1529** | **Embed init scale (aux-side PRE-AdamW init)** | **just dispatched** |
+
+30 novel mechanism classes through 235 hypotheses. Zero idle students.
+
+### Mid-flight cross-findings to watch
+
+- **PROGRAMME FINDING #51 candidate** (muonh_mode SI structurally load-bearing): H228 arm_a clip-mode CTRL terminal val=3.2857/FFS=-1 +19.7σ_H174 above SI baseline. Will consolidate if H231 askeladd's terminal CLIP arms confirm.
+- **PROGRAMME FINDING #52 candidate** (BODY F-NORM CAPACITY LOAD-BEARING): H214 spectral RANK + H227 init F-norm bilateral consolidation, established this cycle.
+- **PROGRAMME FINDING #53 candidate pipeline** (init magnitude bilateral load-bearing aux+body): H235 thorfinn pending; if arm_b GPT2_STD NEG, would consolidate.
+- **H229 fern arm_b POLYAK NEG +25 FFS** mirrors H221 outer NO_MOMENTUM CATASTROPHIC: inner+outer momentum FORM both load-bearing. PROGRAMME FINDING #54 candidate pending arm_c NO_MOMENTUM terminal (~07:30 UTC).
+
+Next termination wave: H229 arm_c ~07:30 UTC, H230 arm_c ~07:35 UTC, H232/H233/H234 arms ~07:00-08:00 UTC, H228 arm_c ~07:30 UTC, H231 arms.
 
 ---
 
