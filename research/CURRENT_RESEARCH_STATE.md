@@ -1,6 +1,47 @@
 # SENPAI Research State — auto-nanogpt-1gpu-r3
 
-- **Last updated:** 2026-05-28 04:05 UTC
+- **Last updated:** 2026-05-28 05:35 UTC
+
+---
+
+## Cycle ~630: H226 tanjiro CLOSED (83rd NULL/NEG, 🎯 PROGRAMME FINDING #50 — cosine LR→0 asymptote LOAD-BEARING bilaterally) + H234 tanjiro ASSIGNED (PR #1526 Joint AGC clip ratio sweep — last untested conditioning HP in H148+H203 stack)
+
+**Programme totals**: 83 NULL/NEG · 29 novel mechanism classes · **3 VESTIGIAL FINDINGS pipeline** (H223 eps, H224 warmup, H234 TBD) · **6 MuonH-SI structural tightness members** confirmed load-bearing · **3 PROGRAMME FINDINGS** (#48 vestigial pair · #49 dynamics-vs-conditioning heuristic · **#50 cosine asymptote LOAD-BEARING bilaterally**)
+
+### H226 tanjiro CLOSURE — PROGRAMME FINDING #50
+
+3-arm clamp-floor variant on cosine cooldown to isolate terminal-asymptote hypothesis from H219 rescale's trajectory perturbation. Result: bilateral FFS NEG (arm_b +25 FFS w/ val WIN -3.92σ, arm_c +150 FFS w/ val NEG +2.13σ). Per-step val/loss at FFS window shows mid-bin late-crossing mechanism — clamp keeps LR higher through FFS window, delays threshold crossing by one eval bin while improving terminal val for small floor.
+
+**Cross-finding with H219**: TWO distinct formulations (rescale + clamp) both produce val-WIN/FFS-NEG at small floor, bilateral NEG at larger floor. Mechanism formulation-invariant. Cosine LR→0 asymptote is STRUCTURALLY LOAD-BEARING for FFS — terminal LR boost trades FFS for val-only WIN.
+
+**Cooldown axis EXHAUSTED**: 6+ closed findings (shape, state-reset, depth×cooldown, μ schedule, warmup, asymptote). Pivot off cooldown axis.
+
+### H234 tanjiro ASSIGNMENT — Joint AGC clip ratio sweep (30th MECHANISM CLASS)
+
+Per tanjiro's suggestion #2 (pivot off mined-out cooldown axis), assigning the LAST untested conditioning HP slot in the H148+H203 baseline stack: AGC clip ratio. Both --aux_agc_clip_ratio and --muonh_agc_clip_ratio are hardcoded at 0.05 (joint), magnitude never directly swept. Zero code changes — argparse flags exist.
+
+3-arm joint sweep: arm_a CTRL (0.05, 0.05) bit-id / arm_b TIGHT (0.025, 0.025) half mag / arm_c LOOSE (0.10, 0.10) double mag. Per H225 dynamics-vs-conditioning heuristic (PROGRAMME FINDING #49), AGC is conditioning HP → predicted VESTIGIAL. Bilateral NULL outcome → 3rd VESTIGIAL FINDING extending heuristic to gradient-magnitude conditioning slot.
+
+### End-of-cycle portfolio (8/8 WIP, 0 idle, 0 review-ready)
+
+| H# | Student | PR | Axis | Status |
+|---|---|---|---|---|
+| H227 | thorfinn | #1501 | Body initialization | arm_b BOTTOM_DAMP CATASTROPHIC FFS=-1 +40.85σ; arm_c DEFAULT terminal pending |
+| H228 | alphonse | #1503 | MuonH body WD (CLIP MODE pivot) | arm_a CTRL clip-only FFS=-1 +19.7σ catastrophic; arm_b WD_LO running; major cross-finding: clip mode itself is catastrophic |
+| H229 | fern | #1506 | MuonH inner Nesterov vs Polyak | arm_a CTRL +25 FFS soft drift; arm_b POLYAK terminal pending |
+| H230 | nezuko | #1509 | MuonH NS5 polynomial iter count | arm_a CTRL +50 FFS soft drift; arm_b NS5_8 terminal pending |
+| H231 | askeladd | #1511 | MuonH mode axis (clip vs SI) | in flight — predicted SI load-bearing per H228 cross-finding |
+| H232 | edward | #1513 | Post-NS5 Cautious-Muon (mechanism class) | arm_a CTRL 87% near-terminal; arm_b/c not yet launched (flag spelling needs confirmation) |
+| H233 | frieren | #1517 | MuLoCo sync_interval | in flight |
+| **H234** | **tanjiro** | **#1526** | **Joint AGC clip ratio sweep (newly assigned)** | **just dispatched** |
+
+29 novel mechanism classes through 234 hypotheses. 0 idle students.
+
+### Mid-flight cross-finding (PROGRAMME FINDING #51 candidate)
+
+**H228 arm_a clip-mode CTRL terminal val=3.2857 / FFS=-1** (DNR by step 3325, +19.7σ_H174 above SI baseline). This is strong cross-evidence for H231 askeladd's hypothesis that muonh_mode='scale_invariant' is STRUCTURALLY LOAD-BEARING — not merely a marginal preference. Confirms mode axis is bilaterally tight. Will consolidate into PROGRAMME FINDING #51 if H231 askeladd terminal confirms.
+
+Next termination wave: H229 arm_b ~05:30, H230 arm_b ~05:45, H227 arm_c ~05:30, H232 arm_a ~06:00.
 
 ---
 

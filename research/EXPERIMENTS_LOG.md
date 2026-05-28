@@ -1,3 +1,34 @@
+## 2026-05-28 05:25 — PR #1495: H226 tanjiro CLAMP-FLOOR asymptote isolation — CLOSED (83rd NULL/NEG, 🎯 PROGRAMME FINDING #50 — cosine LR→0 asymptote LOAD-BEARING bilaterally across TWO formulations (H219 rescale + H226 clamp))
+
+- Branch: `g1r3-tanjiro/clamp-floor-asymptote-isolation`
+- Hypothesis: H219 closed bilateral NEG on FFS using rescale formulation `eta = min + (1-min)*raw` (trajectory lift throughout cooldown). H226 isolates the terminal-asymptote hypothesis using clamp formulation `eta = max(raw, floor)` (terminal-only when raw<floor). Tests if val signal in H219 is asymptote-driven (would survive clamp) or mid-trajectory-LR-driven (would disappear with clamp).
+- Results (n=1 each, train_steps=3325):
+
+  | Arm | muonh_cooldown_clamp_floor | W&B | val/loss | FFS | Δval/σ_H174 | ΔFFS | Verdict |
+  |---|---|---|---|---|---|---|---|
+  | arm_a CTRL | 0.0 | jwqe8a1c | 3.26805 | **3025** | -0.27σ (within drift) | — | bit-id reproduces H203 |
+  | arm_b CLAMP_05 | 0.05 | yu7zu642 | **3.26458** | 3050 | **-3.92σ val WIN** | +25 (mid-bin late-cross NEG) | val WIN / FFS NEG split |
+  | arm_c CLAMP_10 | 0.10 | 3g6oji55 | 3.26993 | 3175 | +2.13σ val NEG | +150 FFS NEG | bilateral NEG decisive |
+
+- Bit-id gate: all 3 arms step-0 val=10.82583 EXACT. arm_a clamp=0.0 short-circuits `eta = max(raw, 0.0)` → bit-identical code path to H203. PASS.
+- **🎯 PROGRAMME FINDING #50 — Cosine LR→0 asymptote is LOAD-BEARING for FFS across formulations**. Cross-finding consolidation with H219:
+
+  | Hypothesis | Formulation | Mechanism | val signal | FFS signal |
+  |---|---|---|---|---|
+  | H219 FLOOR_05 (rescale) | `eta = min + (1-min)*raw` | trajectory lift throughout cooldown | val WIN -5σ | FFS NEG +25 |
+  | H226 CLAMP_05 (clamp) | `eta = max(raw, floor)` | terminal-only when raw<floor | val WIN -3.92σ | FFS NEG +25 |
+  | H219 FLOOR_10 | rescale, larger floor | larger trajectory lift | val NEG | FFS NEG +50 |
+  | H226 CLAMP_10 | clamp, larger floor | larger terminal window | val NEG | FFS NEG +150 |
+
+  TWO distinct formulations (multiplicative rescale + additive clamp) BOTH produce val-WIN/FFS-NEG at small floor and bilateral NEG at larger floor. Mechanism is FORMULATION-INVARIANT — any terminal LR boost trades FFS for val-only WIN. The cosine LR→0 asymptote is structurally load-bearing for the FFS-determining window (steps 3000-3050).
+- **Excellent student mechanistic analysis**:
+  - Per-step val/loss at FFS window (3000/3025/3050) decisively demonstrates mid-bin late-crossing mechanism: clamp keeps LR slightly higher through FFS window → delays threshold crossing by one eval bin → +25 FFS, then terminal val benefits from higher tail LR.
+  - Caught PR's clamp activation step estimation error: h_cooldown_frac=1.0 (not 0.4) means CLAMP_05 activates at step 2848 (477 steps clamped) not last ~50 steps. PR brief underestimated perturbation window.
+- **Cooldown axis EXHAUSTED**: now has 6+ closed findings: linear/cosine/sqrt shape (H203 winner), state-reset (H207/H215), depth-axis × cooldown (H218), µ schedule (H222), warmup pruning (H224), **asymptote axis (H219+H226 PROGRAMME FINDING #50)**. Axis mined out.
+- Cumulative status: 83 NULL/NEG · 28 novel mechanism classes (H226 was refinement on H219, not new class) · 3 PROGRAMME FINDINGS (#48 H223+H224 vestigial · #49 H225 dynamics-vs-conditioning heuristic · #50 H226+H219 asymptote LOAD-BEARING bilaterally) · 6 MuonH-SI structural tightness members
+- Closure verdict: DO NOT MERGE. Per FFS-PRIMARY directive (Issue #1260), val-only wins with FFS regression are NOT merge candidates.
+- Next assignment: H234 tanjiro (PR #1526) — Joint AGC clip ratio sweep (last untested conditioning HP in H148+H203 stack). Tests H225 dynamics-vs-conditioning heuristic on AGC magnitude slot. arm_a CTRL agc=0.05 / arm_b TIGHT agc=0.025 / arm_c LOOSE agc=0.10. Zero code changes. Per tanjiro's suggestion #2 pivot off cooldown axis.
+
 ## 2026-05-28 04:00 — PR #1482: H225 frieren Aux AdamW beta1 ablation — CLOSED (82nd NULL/NEG, bilateral NEG U-shape — beta1=0.8 is LOAD-BEARING sweet spot, contrast with vestigial H223/H224 findings)
 
 - Branch: `g1r3-frieren/aux-adamw-beta1-ablation`
