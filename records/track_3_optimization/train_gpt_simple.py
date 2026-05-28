@@ -468,6 +468,12 @@ NS5_ITERS = int(os.environ.get("NS5_ITERS", "12"))
 WD_AUX = float(os.environ.get("WD_AUX", "0.0"))  # AdamW WD on embed + lm_head matrices (scalars stay at 0)
 EMBED_INIT_STD = float(os.environ.get("EMBED_INIT_STD", "1.0"))  # default preserves baseline N(0,1)
 LOGIT_SOFTCAP = float(os.environ.get("LOGIT_SOFTCAP", "15.0"))  # default = 15 (current hardcoded value); soft-cap value c in f(x) = c·x / sqrt(x^2+c^2)
+# Post-target SOAP sub-state reset (PR #1540 — follow-up to #1514).
+# Decomposes the full SOAP reset penalty by selectively zeroing exp_avg_sq, Gram, or all sub-states.
+POST_TARGET_SOAP_RESET_ENABLED = os.environ.get("POST_TARGET_SOAP_RESET_ENABLED", "0") == "1"
+POST_TARGET_SOAP_RESET_STEP = int(os.environ.get("POST_TARGET_SOAP_RESET_STEP", "2950"))
+POST_TARGET_SOAP_RESET_SCOPE = os.environ.get("POST_TARGET_SOAP_RESET_SCOPE", "mlp")
+POST_TARGET_SOAP_RESET_SUBSCOPE = os.environ.get("POST_TARGET_SOAP_RESET_SUBSCOPE", "all")
 
 
 def zeropower_via_newtonschulz5(G: Tensor) -> Tensor:
@@ -1053,6 +1059,64 @@ for trial_idx in range(args.num_trials):
             )
         for opt in optimizers:
             opt.step()
+        if POST_TARGET_SOAP_RESET_ENABLED and step == POST_TARGET_SOAP_RESET_STEP:
+            if POST_TARGET_SOAP_RESET_SCOPE == "mlp":
+                target_set = optimizer2.soap_params
+            elif POST_TARGET_SOAP_RESET_SCOPE == "attn":
+                target_set = optimizer2.attn_soap_params
+            else:
+                raise ValueError(f"Unknown SOAP reset scope: {POST_TARGET_SOAP_RESET_SCOPE}")
+
+            subscope = POST_TARGET_SOAP_RESET_SUBSCOPE
+            assert subscope in {"all", "exp_avg_sq", "gram"}, f"bad subscope: {subscope}"
+
+            pre_exp_avg_sq_norm = 0.0
+            pre_row_gg_norm = 0.0
+            pre_col_gg_norm = 0.0
+            post_exp_avg_sq_norm = 0.0
+            post_row_gg_norm = 0.0
+            post_col_gg_norm = 0.0
+            soap_step_pre = -1
+            reset_count = 0
+            for p in target_set:
+                state = optimizer2.state.get(p, {})
+                if "row_gg" not in state:
+                    continue
+                pre_exp_avg_sq_norm += state["exp_avg_sq"].norm().item() ** 2
+                pre_row_gg_norm += state["row_gg"].norm().item() ** 2
+                pre_col_gg_norm += state["col_gg"].norm().item() ** 2
+                if reset_count == 0:
+                    soap_step_pre = state["soap_step"]
+
+                if subscope in ("all", "exp_avg_sq"):
+                    state["exp_avg_sq"].zero_()
+                if subscope in ("all", "gram"):
+                    state["row_gg"].zero_()
+                    state["col_gg"].zero_()
+                if subscope == "all":
+                    state["q_row"] = None
+                    state["q_col"] = None
+                    state["soap_step"] = 0
+
+                post_exp_avg_sq_norm += state["exp_avg_sq"].norm().item() ** 2
+                post_row_gg_norm += state["row_gg"].norm().item() ** 2
+                post_col_gg_norm += state["col_gg"].norm().item() ** 2
+                reset_count += 1
+
+            if dist.get_rank() == 0:
+                wandb.log({
+                    "soap_reset/scope": 1 if POST_TARGET_SOAP_RESET_SCOPE == "mlp" else 2,
+                    "soap_reset/subscope": {"all": 0, "exp_avg_sq": 1, "gram": 2}[subscope],
+                    "soap_reset/params_reset": reset_count,
+                    "soap_reset/pre_exp_avg_sq_l2": pre_exp_avg_sq_norm ** 0.5,
+                    "soap_reset/post_exp_avg_sq_l2": post_exp_avg_sq_norm ** 0.5,
+                    "soap_reset/pre_row_gg_l2": pre_row_gg_norm ** 0.5,
+                    "soap_reset/post_row_gg_l2": post_row_gg_norm ** 0.5,
+                    "soap_reset/pre_col_gg_l2": pre_col_gg_norm ** 0.5,
+                    "soap_reset/post_col_gg_l2": post_col_gg_norm ** 0.5,
+                    "soap_reset/soap_step_pre": soap_step_pre,
+                    "soap_reset/step": step,
+                }, step=wandb_step)
         if dist.get_rank() == 0 and telemetry_due:
             for opt in optimizers:
                 if hasattr(opt, "trust_gate_stats"):
