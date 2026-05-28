@@ -447,6 +447,11 @@ MU_END = float(os.environ.get("MU_END", "0.95"))
 MU_COOLDOWN_ENABLED = ("MU_COOLDOWN_START" in os.environ) or ("MU_COOLDOWN_END" in os.environ)
 MU_COOLDOWN_START = float(os.environ.get("MU_COOLDOWN_START", "0.95"))
 MU_COOLDOWN_END = float(os.environ.get("MU_COOLDOWN_END", "0.95"))
+# PR #1606 — per-depth-half MU_COOLDOWN_END dispatch.
+PER_DEPTH_HALF_MU_COOLDOWN_END_ENABLED = int(os.environ.get("PER_DEPTH_HALF_MU_COOLDOWN_END_ENABLED", "0"))
+MU_COOLDOWN_END_FRONT = float(os.environ.get("MU_COOLDOWN_END_FRONT", str(MU_COOLDOWN_END)))
+MU_COOLDOWN_END_BACK = float(os.environ.get("MU_COOLDOWN_END_BACK", str(MU_COOLDOWN_END)))
+MU_COOLDOWN_END_DEPTH_SPLIT = int(os.environ.get("MU_COOLDOWN_END_DEPTH_SPLIT", "6"))
 # Optional Muon momentum warmup (PR #415): linearly ramp cur_mu from
 # MU_WARMUP_START -> MU_COOLDOWN_START over the first MU_WARMUP_STEPS optimizer
 # steps before entering the plateau+cooldown schedule. Only active when
@@ -853,6 +858,10 @@ if dist.get_rank() == 0:
             "optimizer/mu_cooldown_enabled": MU_COOLDOWN_ENABLED,
             "optimizer/mu_cooldown_start": MU_COOLDOWN_START,
             "optimizer/mu_cooldown_end": MU_COOLDOWN_END,
+            "optimizer/per_depth_half_mu_cooldown_end_enabled": PER_DEPTH_HALF_MU_COOLDOWN_END_ENABLED,
+            "optimizer/mu_cooldown_end_front": MU_COOLDOWN_END_FRONT,
+            "optimizer/mu_cooldown_end_back": MU_COOLDOWN_END_BACK,
+            "optimizer/mu_cooldown_end_depth_split": MU_COOLDOWN_END_DEPTH_SPLIT,
             "optimizer/mu_warmup_steps": MU_WARMUP_STEPS,
             "optimizer/mu_warmup_start": MU_WARMUP_START,
             "optimizer/muon_lr": MUON_LR,
@@ -905,6 +914,27 @@ for trial_idx in range(args.num_trials):
     optimizer2 = Muon([(n, p) for n, p in model.blocks.named_parameters() if p.ndim >= 2],
                       lr=MUON_LR, weight_decay=MUON_WEIGHT_DECAY, mu=MU)
     optimizer2.param_groups[0]["name"] = "muon_blocks"
+    if PER_DEPTH_HALF_MU_COOLDOWN_END_ENABLED:
+        front_param_ids = set()
+        for n, p in model.blocks.named_parameters():
+            if p.ndim < 2:
+                continue
+            block_idx = int(n.split(".")[0])
+            if block_idx < MU_COOLDOWN_END_DEPTH_SPLIT:
+                front_param_ids.add(id(p))
+        all_params = optimizer2.param_groups[0]["params"]
+        front_list = [p for p in all_params if id(p) in front_param_ids]
+        back_list = [p for p in all_params if id(p) not in front_param_ids]
+        base = {k: v for k, v in optimizer2.param_groups[0].items() if k not in ("params", "name")}
+        optimizer2.param_groups = [
+            {"params": front_list, "name": "muon_blocks_front", **base},
+            {"params": back_list, "name": "muon_blocks_back", **base},
+        ]
+        if dist.get_rank() == 0:
+            print(f"[MU_COOLDOWN_END_DEPTH_HALF] enabled={PER_DEPTH_HALF_MU_COOLDOWN_END_ENABLED} front={MU_COOLDOWN_END_FRONT} back={MU_COOLDOWN_END_BACK} split={MU_COOLDOWN_END_DEPTH_SPLIT} front_params={len(front_list)} back_params={len(back_list)}")
+    else:
+        if dist.get_rank() == 0:
+            print(f"[MU_COOLDOWN_END_DEPTH_HALF] enabled=0 (single muon_blocks group)")
     optimizers = [optimizer1, optimizer2]
     assert set(p for opt in optimizers for group in opt.param_groups
                for p in group["params"]) == set(model.parameters())
@@ -920,6 +950,7 @@ for trial_idx in range(args.num_trials):
             eta = 1.0
         else:
             eta = (1 - progress) / cooldown_frac
+        in_cooldown = False
         if MU_COOLDOWN_ENABLED:
             if step < MU_WARMUP_STEPS:
                 w = step / MU_WARMUP_STEPS
@@ -929,13 +960,26 @@ for trial_idx in range(args.num_trials):
             else:
                 t = (progress - (1 - cooldown_frac)) / cooldown_frac
                 cur_mu = MU_COOLDOWN_START + (MU_COOLDOWN_END - MU_COOLDOWN_START) * t
+                in_cooldown = True
         else:
             cur_mu = MU + (MU_END - MU) * progress
+        if MU_COOLDOWN_ENABLED and PER_DEPTH_HALF_MU_COOLDOWN_END_ENABLED and in_cooldown:
+            t = (progress - (1 - cooldown_frac)) / cooldown_frac
+            cur_mu_front = MU_COOLDOWN_START + (MU_COOLDOWN_END_FRONT - MU_COOLDOWN_START) * t
+            cur_mu_back = MU_COOLDOWN_START + (MU_COOLDOWN_END_BACK - MU_COOLDOWN_START) * t
+        else:
+            cur_mu_front = cur_mu
+            cur_mu_back = cur_mu
         for opt in optimizers:
             for group in opt.param_groups:
                 group["lr"] = group["initial_lr"] * eta
-                if group.get("name") == "muon_blocks":
+                name = group.get("name")
+                if name == "muon_blocks":
                     group["mu"] = cur_mu
+                elif name == "muon_blocks_front":
+                    group["mu"] = cur_mu_front
+                elif name == "muon_blocks_back":
+                    group["mu"] = cur_mu_back
 
 
     ########################################
