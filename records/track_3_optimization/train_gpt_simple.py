@@ -83,6 +83,14 @@ def parse_args():
              "muall=musoft + non-residual block 2D weights also scaled by 1/sqrt(L); "
              "smallconst=std=1e-3 depth-independent.",
     )
+    parser.add_argument("--lookahead_k", type=int, default=0,
+                        help="Lookahead sync interval in optimizer steps; wraps the Muon body "
+                             "(optimizer2). 0 disables Lookahead (no wrap; matches current behavior). "
+                             "Zhang et al. 2019 default k=5.")
+    parser.add_argument("--lookahead_alpha", type=float, default=0.5,
+                        help="Lookahead slow-weight interpolation factor alpha. "
+                             "slow <- slow + alpha*(fast - slow); fast <- slow. "
+                             "Zhang et al. 2019 default alpha=0.5. Only active when --lookahead_k > 0.")
     args = parser.parse_args()
     args.num_trials = args.num_trials if args.num_trials is not None else (args.legacy_num_trials or 1)
     args.wandb_tags = [tag.strip() for tag in args.wandb_tags.split(",") if tag.strip()]
@@ -681,6 +689,74 @@ class Muon(torch.optim.Optimizer):
         return result
 
 
+class Lookahead:
+    """Lookahead wrapper around an inner optimizer (Zhang et al. 2019, arXiv:1907.08610).
+
+    Maintains a 'slow' copy of each parameter; every k inner steps performs
+        slow <- slow + alpha*(fast - slow)
+        fast <- slow
+    Slow weights are lazily initialized on the first step() call (after the
+    post-broadcast synced parameters) to ensure rank consistency.
+    """
+    def __init__(self, inner_opt, k: int = 5, alpha: float = 0.5):
+        object.__setattr__(self, "inner", inner_opt)
+        self.k = int(k)
+        self.alpha = float(alpha)
+        self._step_count = 0
+        self._sync_count = 0
+        self._slow_weights: dict[int, Tensor] = {}
+        self._init_done = False
+        # Telemetry — set at each sync; readers should treat 0.0 as 'no sync yet'.
+        self._last_slow_fast_diff_norm = 0.0  # mean ||fast - slow||_2 pre-sync
+        self._last_sync_diff_norm = 0.0  # mean ||p_new - p_old|| post-sync = (1-alpha)*pre-diff
+
+    @property
+    def param_groups(self):
+        return self.inner.param_groups
+
+    @property
+    def state(self):
+        return self.inner.state
+
+    def _maybe_init_slow_weights(self):
+        if not self._init_done:
+            for group in self.inner.param_groups:
+                for p in group["params"]:
+                    self._slow_weights[id(p)] = p.data.clone().detach()
+            self._init_done = True
+
+    @torch.no_grad()
+    def step(self):
+        self._maybe_init_slow_weights()
+        self.inner.step()
+        self._step_count += 1
+        if self.k > 0 and self._step_count % self.k == 0:
+            pre_sum = 0.0
+            n_params = 0
+            for group in self.inner.param_groups:
+                for p in group["params"]:
+                    slow = self._slow_weights[id(p)]
+                    diff = p.data - slow
+                    pre_sum += float(diff.norm().item())
+                    slow.add_(diff, alpha=self.alpha)
+                    p.data.copy_(slow)
+                    n_params += 1
+            self._sync_count += 1
+            if n_params > 0:
+                mean_pre = pre_sum / n_params
+                self._last_slow_fast_diff_norm = mean_pre
+                self._last_sync_diff_norm = (1.0 - self.alpha) * mean_pre
+
+    def zero_grad(self, set_to_none: bool = True):
+        self.inner.zero_grad(set_to_none=set_to_none)
+
+    def __getattr__(self, name):
+        inner = self.__dict__.get("inner")
+        if inner is None:
+            raise AttributeError(name)
+        return getattr(inner, name)
+
+
 ########################################
 #                Setup                 #
 ########################################
@@ -765,6 +841,9 @@ if dist.get_rank() == 0:
             "wd_schedule": args.wd_schedule,
             "lr_scalars": args.lr_scalars,
             "depth_init_mode": args.depth_init_mode,
+            "lookahead_k": args.lookahead_k,
+            "lookahead_alpha": args.lookahead_alpha,
+            "lookahead_enabled": args.lookahead_k > 0,
         },
     )
 
@@ -854,6 +933,9 @@ for trial_idx in range(args.num_trials):
         ],
         soap_attn=args.soap_attn, trust_threshold=args.soap_trust_threshold,
     )
+    if args.lookahead_k > 0:
+        optimizer2 = Lookahead(optimizer2, k=args.lookahead_k, alpha=args.lookahead_alpha)
+        print0(f"[Lookahead] wrapping Muon body: k={args.lookahead_k} alpha={args.lookahead_alpha}", console=True)
     optimizers = [optimizer1, optimizer2]
     assert set(p for opt in optimizers for group in opt.param_groups
                for p in group["params"]) == set(model.parameters())
@@ -1026,6 +1108,10 @@ for trial_idx in range(args.num_trials):
                 per_group_metrics["train/wd_mlp_now"] = current_wds.get("muon_mlp", 0.0)
                 per_group_metrics["train/wd_attn_now"] = current_wds.get("muon_attn", 0.0)
                 per_group_metrics["train/wd_schedule_progress"] = train_step / train_steps
+                if isinstance(optimizer2, Lookahead):
+                    per_group_metrics["lookahead/slow_fast_diff_norm"] = optimizer2._last_slow_fast_diff_norm
+                    per_group_metrics["lookahead/sync_count"] = optimizer2._sync_count
+                    per_group_metrics["lookahead/effective_step_post_sync_diff"] = optimizer2._last_sync_diff_norm
                 wandb.log(per_group_metrics, step=wandb_step)
         if dist.get_rank() == 0 and optimizer2.cos_sims_buffer:
             cs_names = list(optimizer2.cos_sims_buffer.keys())
