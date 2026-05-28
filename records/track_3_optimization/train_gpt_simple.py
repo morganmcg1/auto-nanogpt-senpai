@@ -468,6 +468,14 @@ NS5_ITERS = int(os.environ.get("NS5_ITERS", "12"))
 WD_AUX = float(os.environ.get("WD_AUX", "0.0"))  # AdamW WD on embed + lm_head matrices (scalars stay at 0)
 EMBED_INIT_STD = float(os.environ.get("EMBED_INIT_STD", "1.0"))  # default preserves baseline N(0,1)
 LOGIT_SOFTCAP = float(os.environ.get("LOGIT_SOFTCAP", "15.0"))  # default = 15 (current hardcoded value); soft-cap value c in f(x) = c·x / sqrt(x^2+c^2)
+# PR #1519 (g1r2-fern): post-target depth-half SOAP state-reset at step 2950.
+# Reset body-Muon SOAP eigenbasis + Gram + exp_avg_sq + soap_step on either
+# early-half (blocks 0-5) or late-half (blocks 6-11) of the 12 transformer
+# blocks, joint over MLP and Attn-trust SOAP kinds.
+POST_TARGET_DEPTH_HALF_SOAP_RESET_ENABLED = int(os.environ.get("POST_TARGET_DEPTH_HALF_SOAP_RESET_ENABLED", "0"))
+POST_TARGET_DEPTH_HALF_SOAP_RESET_STEP = int(os.environ.get("POST_TARGET_DEPTH_HALF_SOAP_RESET_STEP", "2950"))
+POST_TARGET_DEPTH_HALF_SOAP_RESET_SCOPE = os.environ.get("POST_TARGET_DEPTH_HALF_SOAP_RESET_SCOPE", "early")  # "early" or "late"
+N_BLOCKS = 12  # match model.blocks length
 
 
 def zeropower_via_newtonschulz5(G: Tensor) -> Tensor:
@@ -906,6 +914,18 @@ for trial_idx in range(args.num_trials):
                       lr=MUON_LR, weight_decay=MUON_WEIGHT_DECAY, mu=MU)
     optimizer2.param_groups[0]["name"] = "muon_blocks"
     optimizers = [optimizer1, optimizer2]
+    # PR #1519: map every body-Muon param object id to its block index by parsing
+    # model.blocks.named_parameters() — names look like "0.attn.q.weight" or
+    # "11.mlp.proj.weight". Used by the post-target depth-half SOAP state-reset
+    # hook to scope the reset to early- or late-half blocks.
+    body_muon_param_block_idx: dict[int, int] = {}
+    for _name, _p in model.blocks.named_parameters():
+        if _p.ndim < 2:
+            continue
+        body_muon_param_block_idx[id(_p)] = int(_name.split(".", 1)[0])
+    assert len(body_muon_param_block_idx) == 72, (
+        f"expected 72 body-Muon params (12 blocks × 6 matrix params), got {len(body_muon_param_block_idx)}"
+    )
     assert set(p for opt in optimizers for group in opt.param_groups
                for p in group["params"]) == set(model.parameters())
     for opt in optimizers:
@@ -1053,6 +1073,73 @@ for trial_idx in range(args.num_trials):
             )
         for opt in optimizers:
             opt.step()
+        # PR #1519 (g1r2-fern): post-target depth-half SOAP state-reset.
+        # At POST_TARGET_DEPTH_HALF_SOAP_RESET_STEP, fully re-bootstrap the SOAP
+        # state on either the early-half or late-half of model.blocks, joint
+        # over MLP soap_params and Attn-trust attn_soap_params. Reset is applied
+        # immediately after optimizer2.step() so it takes effect from the next
+        # step onward. Body-Muon momentum/second_moment and AUX optimizer1 state
+        # are intentionally left untouched (axis-orthogonal to m-axis and
+        # v-axis closures).
+        if POST_TARGET_DEPTH_HALF_SOAP_RESET_ENABLED and step == POST_TARGET_DEPTH_HALF_SOAP_RESET_STEP:
+            _scope = POST_TARGET_DEPTH_HALF_SOAP_RESET_SCOPE
+            if _scope == "early":
+                _target_blocks = set(range(0, N_BLOCKS // 2))   # {0,1,2,3,4,5}
+            elif _scope == "late":
+                _target_blocks = set(range(N_BLOCKS // 2, N_BLOCKS))  # {6,7,8,9,10,11}
+            else:
+                raise ValueError(f"Unknown SOAP depth-half scope: {_scope}")
+            _pre_exp_avg_sq_norm = 0.0
+            _pre_row_gg_norm = 0.0
+            _pre_col_gg_norm = 0.0
+            _soap_step_pre = -1
+            _mlp_reset = 0
+            _attn_reset = 0
+            _soap_bearing = optimizer2.soap_params | optimizer2.attn_soap_params
+            for _p in _soap_bearing:
+                _block_idx = body_muon_param_block_idx.get(id(_p))
+                if _block_idx is None or _block_idx not in _target_blocks:
+                    continue
+                _state = optimizer2.state.get(_p, {})
+                if "row_gg" not in _state:
+                    continue  # not yet initialized on this rank
+                _pre_exp_avg_sq_norm += _state["exp_avg_sq"].norm().item() ** 2
+                _pre_row_gg_norm += _state["row_gg"].norm().item() ** 2
+                _pre_col_gg_norm += _state["col_gg"].norm().item() ** 2
+                if _soap_step_pre < 0:
+                    _soap_step_pre = _state["soap_step"]
+                _state["row_gg"].zero_()
+                _state["col_gg"].zero_()
+                _state["q_row"] = None
+                _state["q_col"] = None
+                _state["exp_avg_sq"].zero_()
+                _state["soap_step"] = 0
+                if _p in optimizer2.soap_params:
+                    _mlp_reset += 1
+                else:
+                    _attn_reset += 1
+            if dist.get_rank() == 0:
+                wandb.log({
+                    "soap_depth_reset/scope": 0 if _scope == "early" else 1,
+                    "soap_depth_reset/params_reset": _mlp_reset + _attn_reset,
+                    "soap_depth_reset/mlp_reset": _mlp_reset,
+                    "soap_depth_reset/attn_reset": _attn_reset,
+                    "soap_depth_reset/pre_exp_avg_sq_l2": _pre_exp_avg_sq_norm ** 0.5,
+                    "soap_depth_reset/pre_row_gg_l2": _pre_row_gg_norm ** 0.5,
+                    "soap_depth_reset/pre_col_gg_l2": _pre_col_gg_norm ** 0.5,
+                    "soap_depth_reset/soap_step_pre": _soap_step_pre,
+                    "soap_depth_reset/step": step,
+                }, step=wandb_step)
+                print0(
+                    f"[SOAP_DEPTH_RESET] step={step} scope={_scope} "
+                    f"params_reset={_mlp_reset + _attn_reset} "
+                    f"(mlp={_mlp_reset} + attn={_attn_reset}) "
+                    f"pre_exp_avg_sq_l2={_pre_exp_avg_sq_norm**0.5:.4f} "
+                    f"pre_row_gg_l2={_pre_row_gg_norm**0.5:.4f} "
+                    f"pre_col_gg_l2={_pre_col_gg_norm**0.5:.4f} "
+                    f"soap_step_pre={_soap_step_pre}",
+                    console=True,
+                )
         if dist.get_rank() == 0 and telemetry_due:
             for opt in optimizers:
                 if hasattr(opt, "trust_gate_stats"):
