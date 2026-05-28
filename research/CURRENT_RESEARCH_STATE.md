@@ -5928,3 +5928,48 @@ This is the model for retiring an axis from cycle 71: once both kinds/halves/tim
 
 The m-reset axis is the FIRST mechanism axis in cycle 71 to be fully decomposed at all resolutions (joint→half→kind→block). Each resolution reveals same cluster outcome with same magnitude noise floor. The mechanism is **resolution-invariant at this calibration's noise floor**.
 
+
+## 2026-05-28 01:00Z — Cycle 71 mid-329 update — 232nd refute + cross-optimizer pivot
+
+### nezuko #1476 POST_TARGET_BODY_MUON_M_RESET_FINER_GRID CLOSED (232nd refute)
+- Arm A (step 2925): val=3.26899, ffs=3025 (sub-cluster-edge)
+- Arm B (step 2975): val=3.27082, ffs=3025 (cluster STANDARD upper)
+- 4-point trajectory (seed 0): 2925:3.26899 → 2950:3.26701 → 2975:3.27082 → 3050:3.27011
+- **Non-monotonic (+25 worse than +100)** — violates peaked-window models
+- Range 0.00381 within single-seed cluster floor noise
+
+### NEW PRINCIPLES established
+1. **Timing-window structure dissolves under n=2 refute of source winner** — when single-seed "peak" is cluster floor noise, apparent timing-decay around that peak is also noise. Decomposition probes are only signal-bearing IF the source winner has multi-seed support.
+2. **Non-monotonic timing trajectory within σ is a noise diagnostic** — a real peaked window decays monotonically with timing distance. Non-monotonic sequences within MDE should trigger n=2 confirm BEFORE downstream probes.
+3. **Cluster floor MDE at n=2 (≈Δ=+0.00130 val + 12.5 ffs) defines timing-window resolution limit** — cannot resolve timing structure finer than MDE; apparent fine structure within cluster floor is noise.
+4. **Strategic implication: m-reset axis fully exhausted at intra-Muon scope** — joint, half, kind, block, magnitude, timing-fine, timing-coarse all decomposed without confirmed n=2 winner. Future m-reset work needs cross-optimizer / cross-state-type probes OR significantly larger effect-size mechanisms.
+
+### Fresh assignment — pivot to cross-optimizer
+- **nezuko #1505**: POST_TARGET_AUX_M_V_RESET (143rd mech class) — **cross-optimizer probe**. Arm A: AdamW first-moment (`exp_avg`) reset at step 2950 on all AUX param groups; Arm B: AdamW second-moment (`exp_avg_sq`) reset at step 2950. Tests m-reset universality across optimizer families (Muon vs Adam) AND across state-types (first vs second moment). Critical decomposition of "structural reset" hypothesis vs body-Muon-specific hypothesis.
+
+### Cycle 71 cumulative tally
+- **232 refuted / 138 mech classes / 101 family closures**
+- ZERO confirmed n=2 winners
+- 8 students concurrently active, ZERO IDLE
+
+### Mechanism portfolio currently in flight (8 PRs spanning 8 orthogonal axes)
+| student | PR | mechanism class | axis |
+|---|---|---|---|
+| nezuko | #1505 | AUX m vs v reset | cross-optimizer |
+| askeladd | #1504 | per-block m-reset | depth-finest |
+| tanjiro | #1498 | windowed α | α-window |
+| alphonse | #1494 | pre-cooldown m-reset | timing-cross-window |
+| edward | #1492 | depth-linear LR ramp | depth-continuous cross-window |
+| fern | #1491 | full-stack compound | mechanism stacking |
+| frieren | #1489 | depth-half mu-drop | depth-direction × μ-axis |
+| thorfinn | #1485 | m-magnitude scale | perturbation magnitude |
+
+The portfolio's diversification is the antidote to plateau — every axis closure shrinks the unexplored mechanism space. After all 8 close, the cluster-floor geometry will be the most complete in cycle 71, informing the next structural pivot.
+
+### Strategic state
+- Cycle 71 noise floor cluster MDE: ≈Δ=+0.00130 val + 12.5 ffs at n=2
+- 232 refuted, no confirmed multi-seed winner since baseline PR #613 (cycle 71 start)
+- Body Muon m-reset axis: EXHAUSTED at all intra-Muon resolutions; pivot to cross-optimizer (nezuko #1505) starts now
+- α-axis (lm_head): EXHAUSTED at static scalar; pivot to windowed (tanjiro #1498)
+- Depth-direction axis: structurally robust at continuous + discrete; in-flight pre-target test (edward #1492)
+
