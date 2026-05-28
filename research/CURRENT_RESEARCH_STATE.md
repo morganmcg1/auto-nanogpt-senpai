@@ -1,3 +1,99 @@
+## 2026-05-28 12:38 UTC — Cycle 71 mid-344 — thorfinn #1540 251st (POST_TARGET_SOAP_MLP_SUB_STATE_LOCALIZATION CLOSED with localization signal — gram is load-bearing) + thorfinn #1570 NEW ATTN_SOAP_ACTIVATION_DELAY pivot (first state-phase activation-timing axis on attn-trust SOAP across 1500+ PRs) + edward #1562 heartbeat sent + askeladd #1558 Arm A terminal (front_FEWER NS5 lands STANDARD)
+
+**Cumulative**: **251 refuted** / **148 distinct mech classes** / **109 family-level closures**.
+
+### PR closed this wave (1 closure, terminal bilateral, sub-state localization signal):
+
+| PR | student | mechanism | outcome |
+|---|---|---|---|
+| **thorfinn #1540** | thorfinn | POST_TARGET_SOAP_MLP_SUB_STATE_LOCALIZATION (Arm A exp_avg_sq-only reset at step 2950, Arm B gram-only reset at step 2950, MLP scope 24 params) | **251st** — Arm A val=3.27460/ffs=3075 (STANDARD), Arm B val=3.26922/ffs=3025 (SCE candidate near MDE); val_mean=3.27191 fails merge bar by 0.00415. **First sub-state localization probe on SOAP reset axis. Localization signal: gram is load-bearing reset target (Δ=−0.00180 vs full #1514), exp_avg_sq is harmful to reset (Δ=+0.00358 vs full #1514).** |
+
+### NEW PRINCIPLE THIS WAVE — SOAP sub-state localization
+
+**The full-reset NULL result in #1514 is the partial cancellation of opposing signals:**
+
+| sub-state | reset effect at step 2950 | mechanism |
+|---|---|---|
+| exp_avg_sq only | WORSE than full (+0.00358 vs #1514) | discards step-2950 variance estimates; cooldown phase has to re-accumulate from cold start = late-train trajectory drag |
+| gram only | BETTER than full (−0.00180 vs #1514) | refreshes preconditioner basis with mid-cooldown gradients = cleaner Newton-Schulz step for final 7% of training |
+| both (full) | intermediate (NULL) | gram-benefit partially cancels exp_avg_sq-harm |
+
+**Implication**: future SOAP mid-training reset probes should reset ONLY the gram (row_gg, col_gg, q_row, q_col) and preserve exp_avg_sq. Doesn't justify n=2 re-run of just-Arm-B (signal at +0.00146 sits at n=2 MDE boundary).
+
+### Mid-flight terminal results this wave:
+
+**askeladd #1558 Arm A `front_FEWER` (NS5 iters 10/18) TERMINAL**:
+- val=3.27242/ffs=3050 (CLUSTER STANDARD), Δ vs baseline +0.00466 val, +50 ffs.
+- **Direction signal**: front_FEWER (fewer NS5 iters on front = less orthogonalization precision early) does WORSE than baseline. Per front_up principle, would predict front_MORE (Arm B) better — fits "front benefits from more precision" reading. Arm B in flight ETA 14:45Z.
+
+### Fresh assignment — first attn-SOAP state-phase activation-timing axis:
+
+| PR | student | mechanism | rationale |
+|---|---|---|---|
+| **thorfinn #1570** | thorfinn | ATTN_SOAP_ACTIVATION_DELAY (Arm A delay_200 = activate after warmup phase ends, Arm B delay_1000 = activate after early-plateau settles, attn-trust SOAP q/k/v/proj all 48 params, always-on baseline = step 0) | **First state-phase activation-timing axis on attn-trust SOAP across 1500+ PRs.** Orthogonal to all prior attn-SOAP mechanisms — not WHICH gate (on/off, threshold, refresh-freq) but WHEN to flip the gate on. Tests whether early-training noisy gradients contaminate the gram basis. ATTN_SOAP_DISABLED #818 = always-off REFUTED; ATTN_SOAP_ALWAYS_ON = current default; delayed activation = virgin axis. Per Morgan #1259 (state-phase mechanism). |
+
+### Still-active fleet (8 students, ZERO IDLE):
+
+- **nezuko #1566** — PER_KIND_AUX_AMSGRAD — in flight
+- **edward #1562** — PER_DEPTH_HALF_ATTN_SOAP_REFRESH — stale_wip flag (HEARTBEAT SENT 12:35Z, awaiting response)
+- **askeladd #1558** — PER_DEPTH_HALF_NS5_ITERS — Arm A `hojucqex` 3.27242/3050 STANDARD, Arm B `arm-b-pending` launched 13:00Z ETA 14:45Z
+- **tanjiro #1547** — PER_KIND_AUX_BETA1 — Arm A `4z27ovlr` 3.26997/3025 STANDARD edge, Arm B in flight
+- **fern #1545** — PER_DEPTH_HALF_SOAP_BETA2_MLP — Arm A 3.27099/3025 STANDARD, Arm B `cujv1n7k` ETA 13:14Z
+- **thorfinn #1570** — ATTN_SOAP_ACTIVATION_DELAY (NEWLY assigned)
+- **alphonse #1568** — PER_DEPTH_HALF_MU_COOLDOWN_END — in flight (awaiting pickup)
+- **frieren #1569** — PER_DEPTH_HALF_ATTN_SOAP_BETA2 — in flight (awaiting pickup)
+
+### Updated per-depth/per-kind dispatch frontier matrix (cycle 71 mid-344):
+
+| axis | dispatch | state-phase | scope | PR |
+|---|---|---|---|---|
+| LR continuous ramp | per-block linear | window | body Muon | edward #1468/#1492 (CLOSED front_up) |
+| SOAP refresh freq MLP | per-block linear | full-run | MLP-SOAP | edward #1525 (CLOSED NULL) |
+| SOAP refresh freq ATTN-trust | per-block linear | full-run | attn-SOAP | edward #1562 (stale_wip, heartbeat sent) |
+| TARGET_UW | depth-half | windowed | body Muon | askeladd #1527 (CLOSED NULL) |
+| NORMUON β2 | depth-half | full-run | body Muon | frieren #1537 (**CLOSED front_up sub-cluster-edge**) |
+| MLP-SOAP Gram EMA β2 | depth-half | full-run | MLP-SOAP | fern #1545 (Arm A STANDARD, Arm B in flight) |
+| body Muon init scale | depth-half | pre-training | body Muon 48p | alphonse #1541 (**CLOSED front_BIG sub-cluster-edge**) |
+| AdamW m EMA β1 | per-kind | full-run | AUX | tanjiro #1547 (Arm A STANDARD edge, Arm B in flight) |
+| NS5 iters | depth-half | full-run | body Muon | askeladd #1558 (Arm A STANDARD, Arm B in flight) |
+| AMSGrad (v state-rule) | per-kind | full-run | AUX | nezuko #1566 (in flight) |
+| MU_COOLDOWN_END | depth-half | late-phase | body Muon | alphonse #1568 (in flight) |
+| ATTN-SOAP β2 | depth-half | full-run | attn-SOAP | frieren #1569 (in flight) |
+| **ATTN-SOAP activation step** | **single-axis** | **state-phase** | **attn-SOAP** | **thorfinn #1570 (NEWLY assigned)** |
+| SOAP state reset (sub-state) | MLP scope | event | exp_avg_sq vs gram | thorfinn #1540 (**CLOSED localization signal**) |
+| SOAP state reset depth-half | depth-half | event | all SOAP | fern #1519 (CLOSED) |
+| m-reset per-block | per-block | event | body Muon | askeladd #1504 (CLOSED) |
+| m-reset per-kind AUX | embed vs lm_head | event | AUX | tanjiro #1522 (CLOSED kind-ASYMMETRIC) |
+| AUX m-reset timing | single-axis | event-timing | AUX | nezuko #1528 (CLOSED NULL) |
+| v-reset / m+v joint body | none | event | body Muon | alphonse #1518 (CLOSED) |
+| AUX m+v joint | none | event | AUX | nezuko #1505 (CLOSED) |
+| m←±grad direction | none | event | body Muon | frieren #1512 (CLOSED) |
+
+**13 continuous-mechanism dispatch axes active** (added attn-SOAP activation-step), **7 closed event/discrete**. Per-depth/per-kind/state-phase dispatch dominates probe form per Morgan #1259.
+
+### Cluster-floor sub-cluster-edge band density update:
+
+**Sub-cluster-edge accumulating density [3.265, 3.269)**: 
+- alphonse Arm A 3.26859 (closest to baseline 3.26776)
+- frieren Arm A 3.26957
+- thorfinn Arm B `gram_only` 3.26922 (sub-state localization standout)
+
+**Cluster STANDARD band density (3.269, 3.275)** dense at boundary:
+- tanjiro Arm A 3.26997
+- fern Arm A 3.27099
+- askeladd Arm A 3.27242
+- thorfinn Arm A `exp_avg_sq_only` 3.27460
+- frieren Arm B 3.27092
+- alphonse Arm B 3.26959
+
+**Reading**: 12+ recent arms cluster within [3.26859, 3.27460]. Cluster floor 3.26776 holds; no single-axis dispatch crosses sub-cluster-edge band into winner territory. Compounding required, but compound depth-direction probes typically sub-additive. Bold structural pivots needed (e.g. thorfinn #1570 state-phase activation timing).
+
+### Infrastructure context
+
+W&B 401 RESOLVED ~11:00Z, all online. edward #1562 silent ~2h despite healthy pod (stale_wip), heartbeat sent 12:35Z requesting status. No anomalies on other 7 pods.
+
+---
+
 ## 2026-05-28 12:20 UTC — Cycle 71 mid-343 — DOUBLE CLOSURE alphonse #1541 + frieren #1537 (249+250th, both per-depth-half mechanisms sub-cluster-edge with consistent front_up direction) + **4-MECHANISM FRONT_UP PRINCIPLE CRYSTALLIZED** + 23-mechanism cluster floor + 2 fresh assignments (alphonse #1568 PER_DEPTH_HALF_MU_COOLDOWN_END, frieren #1569 PER_DEPTH_HALF_ATTN_SOAP_BETA2)
 
 **Cumulative**: **250 refuted** / **147 distinct mech classes** / **108 family-level closures**.
