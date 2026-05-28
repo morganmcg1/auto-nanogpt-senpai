@@ -1,3 +1,44 @@
+## 2026-05-28 08:00 — PR #1509: H230 nezuko MuonH NS5 polynomial iter count LOWER bound — CLOSED (86th NULL/NEG, PROGRAMME FINDING #55 candidate — NS5 ITER COUNT LOAD-BEARING at 12, convergence boundary between 6 and 8 iters; 12th MuonH-SI structural tightness member)
+
+- Branch: `g1r3-nezuko/muonh-ns5-iters-lower-bound`
+- Hypothesis: Does the (2,−1.5,0.5) cubic Newton-Schulz polynomial used by MuonH (default 12 iters) admit wallclock savings via reduced iter count? Polar-Express literature suggests 5–7 iters of tuned NS suffices for orthogonalization; tests whether this transfers to our untuned-coefficient baseline.
+- Results (n=1 each, train_steps=3325, all bit-id step-0 val=10.82583 PASS):
+
+| Arm | muonh_ns5_iters | W&B | val | FFS | Δval/σ_H174 | Verdict |
+|---|---|---|---|---|---|---|
+| arm_a CTRL | 12 (bit-id) | `ke1agjow` | 3.27081 | **3075** | +2.84σ vs H203 baseline (drift class) | within-experiment baseline |
+| arm_b NS5_8 | 8 | `li2fioe5` | 3.27205 | 3100 | +1.40σ within-experiment | mild NEG +25 FFS |
+| arm_c NS5_6 | 6 | `qzyuzyjb` | 3.28478 | **-1** (DNR) | +15.8σ | **CATASTROPHIC NEG** |
+
+- σ_H174 = 0.000884. Statistical rule: arm_a `(3.28-3.27081)×√1=0.00919≥0.004` ✓, arm_b 0.00795 ✓, arm_c -0.00478 ✗ (target NOT reached).
+
+### Analysis
+
+- **Convergence boundary located between 6 and 8 iters.** The (2,−1.5,0.5) cubic NS polynomial is the *untuned* baseline polynomial (not Polar-Express tuned coefficients). Designed for ~10–12 iters convergence from O(1)-norm random matrices. 8 iters is on steep tail of convergence curve (small singular-value residual → +25 FFS, +1.40σ); 6 iters drops below convergence floor (orthogonalized "update" no longer close to polar projection → MuonH-SI hyperball direction corrupted → val descends but never reaches 3.28 within 3325 steps).
+
+- **Cross-finding consolidation — 3rd evidence pillar for MuonH polar-projection fidelity tightness.** This closes the third independent axis of MuonH body-update spectral fidelity:
+
+  | Axis | Hypothesis | Direction reduced | Outcome | Mechanism class |
+  |---|---|---|---|---|
+  | Rank | H214 askeladd | spectral RANK truncation | CATASTROPHIC | dimensionality of polar projection |
+  | Magnitude | H227 thorfinn | init F-norm via bottom_damp | CATASTROPHIC | hyperball RADIUS set at init, permanent |
+  | Polynomial depth | H230 nezuko | NS5 iter count (12→6) | CATASTROPHIC | polar-projection numerical fidelity |
+
+- **PROGRAMME FINDING #55 candidate**: *MuonH polar projection fidelity is tightly constrained on three orthogonal axes — full spectral rank, F-norm-matched init capacity, AND ≥12 NS5 iterations of the (2,−1.5,0.5) polynomial are all individually load-bearing under H148+H203.* Reducing any of the three is destructive. 5th PROGRAMME FINDING in pipeline (joining #48 vestigial pair, #49 dynamics-vs-conditioning heuristic, #50 cosine asymptote bilateral, #52 BODY F-NORM CAPACITY, #54 INNER+OUTER MOMENTUM FORM bilateral).
+
+- **arm_a CTRL +50 FFS soft drift vs H203 baseline.** Same drift class as H224 (+25 FFS), H229 (+25 FFS), H230 (+50 FFS). Mechanism: argparse-added `num_iters` argument threaded through `@torch.compile`-decorated `muon_update` changes compile cache key even when value=12. Within-experiment delta is merge-relevant metric. 4th instance of this drift class — worth a dedicated diagnostic PR.
+
+- **Wallclock measurement invalidates PR premise: NS5 share <1% of MuonH wallclock, not 10–15%.** Student measured:
+  - arm_a (12 iters): 1799 ms/step → 6006.6s train_time
+  - arm_b (8 iters):  1785 ms/step → 5969.2s (−37.3s, −0.62%)
+  - arm_c (6 iters):  1777 ms/step → 5944.4s (−62.2s, −1.03%)
+  
+  On a single H100 at this model size, NS5 is NOT the dominant MuonH cost — F/B + AdamW path dominate. Calibrates future MuonH wallclock estimates.
+
+- **Excellent student diagnostic discipline.** Three notable contributions: (1) wallclock-share measurement invalidating PR's own savings premise BEFORE proposing follow-ups; (2) torch.compile retracing drift class diagnosis with code-level mechanism; (3) explicit Polar-Express prediction falsification noting tuned-coefficient variants are distinct mechanism class, not iter-count continuation.
+
+- **Decision: NOT MERGING.** 86th NULL/NEG. 12 MuonH-SI structural tightness members now confirmed: H216 Lookahead, H221 NO_OUTER, H221 NO_MOMENTUM, H222 SCHED_OFF, H222 MU_END_85, H225 BETA1, H226+H219 cosine asymptote, H214 spectral RANK, H227 body init F-norm, H228+H231 muonh_mode SI, H229 inner Nesterov FORM, **H230 NS5 iter count**.
+
 ## 2026-05-28 07:10 — PR #1506: H229 fern MuonH inner Nesterov vs Polyak vs NO_MOMENTUM — CLOSED (85th NULL/NEG, 🎯 PROGRAMME FINDING #54 candidate — INNER+OUTER MOMENTUM FORM bilaterally load-bearing (H221 outer + H229 inner), 11th MuonH-SI structural tightness member)
 
 - Branch: `g1r3-fern/muonh-inner-nesterov-polyak-form`

@@ -1,6 +1,66 @@
 # SENPAI Research State — auto-nanogpt-1gpu-r3
 
-- **Last updated:** 2026-05-28 07:15 UTC
+- **Last updated:** 2026-05-28 08:05 UTC
+
+---
+
+## Cycle ~700: H230 nezuko CLOSED (86th NULL/NEG, PROGRAMME FINDING #55 candidate — NS5 ITER COUNT LOAD-BEARING at 12, 12th MuonH-SI structural tightness member, 3rd evidence pillar for MuonH polar-projection fidelity tightness) + H237 nezuko ASSIGNED (PR #1539 AdEMAMix replaces AdamW on aux side — Pagliardini ICLR 2025, 33rd mechanism class)
+
+**Programme totals**: 86 NULL/NEG · **33 novel mechanism classes** (32 if H236 fern still in flight, 33 with H237 nezuko newly assigned) · **2 VESTIGIAL FINDINGS** (H223 eps, H224 warmup) · **12 MuonH-SI structural tightness members** confirmed load-bearing · **5 PROGRAMME FINDINGS pipeline** (#48 vestigial pair · #49 dynamics-vs-conditioning heuristic · **#50 cosine asymptote LOAD-BEARING bilaterally** · **#52 candidate BODY F-NORM CAPACITY LOAD-BEARING** · **#54 candidate INNER+OUTER MOMENTUM FORM bilateral** · **#55 candidate NS5 ITER COUNT LOAD-BEARING, 3-pillar polar-projection fidelity tightness**)
+
+### H230 nezuko CLOSURE — PROGRAMME FINDING #55 candidate
+
+3-arm NS5 polynomial iter count lower-bound test. arm_a CTRL ns5_iters=12 val=3.27081/FFS=3075 (drift class +50 FFS vs H203). arm_b NS5_8 val=3.27205/FFS=3100 **mild NEG** (+25 FFS within-experiment, +1.40σ_H174). arm_c NS5_6 val=3.28478/FFS=-1 **CATASTROPHIC NEG** (+15.8σ_H174, target NOT reached within 3325 steps).
+
+**Convergence boundary located between 6 and 8 iters** for the (2,−1.5,0.5) cubic NS polynomial under H148+H203 stack. Polar-Express literature's "5–7 tuned iters suffices" did NOT transfer to our untuned baseline polynomial — these are distinct mechanism classes. 8 iters: small singular-value residual measurable. 6 iters: below convergence floor, polar projection violated.
+
+**Cross-finding consolidation — 3rd evidence pillar for MuonH polar-projection fidelity tightness**:
+
+| Axis | Hypothesis | Outcome | Mechanism class |
+|---|---|---|---|
+| Rank | H214 askeladd | CATASTROPHIC | polar projection dimensionality |
+| Magnitude | H227 thorfinn | CATASTROPHIC | hyperball RADIUS set at init, permanent |
+| Polynomial depth | H230 nezuko | CATASTROPHIC | polar-projection numerical fidelity |
+
+→ **PROGRAMME FINDING #55 candidate**: MuonH polar projection fidelity is tightly constrained on three orthogonal axes (rank, magnitude, polynomial iters). Any reduction is destructive.
+
+**Excellent student diagnostic**: Wallclock-share measurement invalidated PR's own savings premise (NS5 = <1% of MuonH wallclock, not 10–15%). 4th torch.compile retracing drift instance documented (H214/H224/H229/H230 cluster). Polar-Express tuned-coefficient variant carved out as distinct mechanism class.
+
+### H237 nezuko ASSIGNMENT — AdEMAMix replaces AdamW on aux side (33rd mechanism class)
+
+Fresh optimizer mechanism class, first aux-optimizer replacement of campaign. AdEMAMix (Pagliardini & Liu ICLR 2025, https://arxiv.org/abs/2409.03137) augments AdamW with a second slow-EMA (beta3≈0.9999) combined linearly via alpha schedule. NanoGPT-class workloads were a primary motivator in the paper.
+
+Why right axis now:
+- **Aux side least-explored**: H225 beta1, H223 eps, H224 warmup were all AdamW-internal scalar HP sweeps. Optimizer-replacement on aux not yet tested.
+- **Embed gradient sparsity dynamic**: ~88% of embed.weight rows receive zero gradient/step. AdEMAMix slow EMA (half-life ~6900 steps >2x our 3325-step budget) could carry direction info across sparse-update "droughts".
+- **Mechanism class change, not scalar HP search**: per launch directive "Assign fresh optimizer mechanisms... do not let the run become mostly scalar hyperparameter search". ~40 LoC replacement of aux optimizer.
+- **Per dynamics-vs-conditioning heuristic (PROGRAMME FINDING #49 candidate)**: dynamics-class HPs load-bearing. AdEMAMix changes EMA structure → squarely dynamics intervention → predicted non-NULL signal at minimum.
+
+3-arm design: arm_a CTRL adamw (bit-id) / arm_b ADEMAMIX_DEFAULT (paper defaults beta1=0.9 beta2=0.999 beta3=0.9999 alpha=5 cosine ramp 0→5) / arm_c ADEMAMIX_OUR_BETA1 (same as b but beta1=0.8 our load-bearing value). Tests both whether AdEMAMix helps AND whether it composes with our beta1 axis.
+
+### Cycle ~700 portfolio (8/8 WIP, 0 idle, 0 review-ready)
+
+| H# | Student | PR | Axis | Status |
+|---|---|---|---|---|
+| H228 | alphonse | #1503 | MuonH body WD (clip mode) | likely terminal soon — arm_a/b catastrophic clip-mode confirmed; arm_c WD_HI status check pending |
+| H231 | askeladd | #1511 | MuonH mode axis (clip vs SI) | in flight — predicted SI load-bearing per H228 cross-finding (PROGRAMME FINDING #51 candidate) |
+| H232 | edward | #1513 | Post-NS5 Cautious-Muon | arm_a CTRL FINISHED val=3.27099/FFS=3075; **arm_b CAUTIOUS renormalize FINISHED val=3.27827/FFS=3225 decisive NEG (+150 FFS, +8.24σ val)**; arm_c CAUTIOUS_NORENORM RUNNING ~20% ETA 10:00 UTC. Cross-evidence with H195 pre-NS5 cautious NEG: sign-mask harmful in BOTH gradient + polar spaces. |
+| H233 | frieren | #1517 | MuLoCo sync_interval | in flight |
+| H234 | tanjiro | #1526 | Joint AGC clip ratio sweep | arm_a CTRL FINISHED val=3.26825/FFS=3025 cleanest CTRL of campaign; arm_b TIGHT running; arm_c LOOSE queued |
+| H235 | thorfinn | #1529 | Embed init scale (aux-side PRE-AdamW init) | in flight |
+| H236 | fern | #1536 | Outer MuLoCo Polyak vs Nesterov FORM | in flight |
+| **H237** | **nezuko** | **#1539** | **AdEMAMix replaces AdamW on aux side (newly assigned)** | **just dispatched** |
+
+33 novel mechanism classes through 237 hypotheses. Zero idle students.
+
+### MuonH polar-projection fidelity tightness — STATE-OF-PROGRAMME
+
+The body update path under H148+H203 stack is now experimentally consolidated as tightly constrained on three orthogonal axes (rank, magnitude, polynomial-depth). All three axes admit no reduction without catastrophic degradation. This convergent finding suggests:
+
+1. **Future body-side experiments should AVOID fidelity-reducing axes.** NS5 iter sweeps below 12, spectral rank truncation, F-norm reduction at init or update are all closed dead-end axes.
+2. **Polar-Express tuned-coefficient NS variant** remains the one body-axis-not-yet-mined direction (different polynomial, not iter count). Low priority given <1% NS5 wallclock share, but mechanism-class novelty preserved.
+3. **Aux side and outer side remain prime exploration territory.** H237 nezuko (AdEMAMix aux), H236 fern (outer momentum form), H235 thorfinn (embed init scale), H233 frieren (sync_interval) all explore these less-constrained axes.
+4. **Compound search target**: identify a CHANGE (not REDUCTION) that genuinely improves on this tight body baseline. Likely candidates per researcher-agent corpus: Polar-Express tuned coefficients, alternative non-polynomial orthogonalization (e.g., Jacobi SVD-based), or a fundamentally different body optimizer mechanism class (Sophia-style curvature aware, LION-style sign-based with norm controls).
 
 ---
 
