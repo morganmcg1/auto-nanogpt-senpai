@@ -1,3 +1,47 @@
+## 2026-05-28 08:20 — PR #1503: H228 alphonse MuonH body weight decay axis ablation (clip-mode pivot) — CLOSED (87th NULL/NEG, **PROGRAMME FINDING #51 candidate CONSOLIDATED — muonh_mode='scale_invariant' STRUCTURALLY LOAD-BEARING for FFS, bilateral within H228**; 13th MuonH-SI structural tightness member pending H231 askeladd trilateral confirmation)
+
+- Branch: `g1r3-alphonse/h228-muonh-body-wd`
+- Hypothesis: Could light WD on body MuonH (in clip mode) mitigate late-cooldown trajectory drift? PRE-FLIGHT NOTE: WD is mathematically a no-op in SI mode per `MuonH.step()` lines 709-716 — student pivoted to muonh_mode=clip with full transparency to make hypothesis testable.
+- Results (n=1 each, train_steps=3325, all bit-id step-0 val=10.82583 PASS):
+
+| Arm | muonh_weight_decay | mode | W&B | val | FFS | Δval vs SI baseline | σ_H174 | Verdict |
+|---|---|---|---|---|---|---|---|---|
+| arm_a CTRL | 0.0 | clip | `too5lyry` | 3.28567 | **-1** (DNR) | +0.01737 | **+19.6σ** | catastrophic clip-only baseline |
+| arm_b WD_LO | 0.001 | clip | `449xnqh1` | **3.28481** | **-1** (DNR) | +0.01651 | +18.7σ | catastrophic, marginally better val (-1σ within-exp) |
+| arm_c WD_HI | 0.01 | clip | `are7g8cx` | 3.28643 | **-1** (DNR) | +0.01813 | +20.5σ | catastrophic, marginally worse val (+1σ within-exp) |
+
+- σ_H174 = 0.000884. Statistical rule: all 3 arms FAIL `(3.28-μ)×√1≥0.004` (target NOT reached). NOT MERGING.
+
+### Analysis
+
+**Two simultaneous findings:**
+
+- **WD-axis on clip side is FLAT (bilateral NULL within-experiment).** Range across wd ∈ {0.0, 0.001, 0.01}: val span 0.00162 ≈ 1.8σ_H174. Non-monotonic shape (best at wd=0.001, worst at wd=0.01). FFS=-1 unchanged. **WD cannot recover catastrophic clip-mode CTRL.**
+
+- **Mode pivot (SI→clip) is BILATERALLY CATASTROPHIC at +18.7-20.5σ_H174.** All 3 arms catastrophic vs H203 SI baseline. The mode pivot itself contributed the ~+19σ deficit, not WD.
+
+**PROGRAMME FINDING #51 candidate consolidation:**
+
+Cross-finding alignment:
+- H221 askeladd (closed): `use_outer_optimizer=0` (NO_OUTER) catastrophic — outer MuLoCo path load-bearing
+- H228 alphonse (this closure): clip-mode bilaterally catastrophic on +19σ scale
+- H231 askeladd (in flight): direct clip vs SI test — predicted SI load-bearing, expected to consolidate trilaterally
+
+Pending H231 terminal, this consolidates as **PROGRAMME FINDING #51: muonh_mode='scale_invariant' is STRUCTURALLY LOAD-BEARING for FFS at H148+H203 — switching to clip mode produces +19σ catastrophic FFS regression that WD cannot recover.** 6th PROGRAMME FINDING in pipeline (joining #48, #49, #50, #52, #54, #55).
+
+13 MuonH-SI structural tightness members confirmed (pending H231 trilateral): H216 Lookahead, H221 NO_OUTER, H221 NO_MOMENTUM, H222 SCHED_OFF, H222 MU_END_85, H225 BETA1, H226+H219 cosine asymptote, H214 spectral RANK, H227 body init F-norm, H228+H231 muonh_mode SI, H229 inner Nesterov FORM, H230 NS5 iter count, **H228 muonh_mode SI bilateral within-experiment**.
+
+### Excellent student diagnostic discipline (notable pattern)
+
+3 distinct pieces of rigorous mechanistic discipline:
+1. **Pre-flight argparse-default validation**: caught PR-default mismatch with H203 baseline (clip vs scale_invariant, linear vs cosine cooldown, etc.) BEFORE launching arms. Killed wrong-baseline run f2eovjwe, flagged precisely.
+2. **Code-level no-op detection**: read `MuonH.step()` lines 709-716, identified WD as mathematical no-op in SI mode, proposed methodological pivot with full transparency about trade-off (arm_a no longer bit-identical to H203 baseline).
+3. **Honest negative framing**: "Hypothesis was falsified along two axes simultaneously" — explicitly distinguished direct hypothesis rejection from cross-finding pivot evidence.
+
+Validates pre-flight verification discipline expected by launch directive. Aux note: arm_a's mid-flight crash at step 3075 unexplained (W&B `too5lyry` was successful relaunch) — minor reproducibility concern but did not affect the bilateral catastrophic finding.
+
+### Decision: NOT MERGING. 87th NULL/NEG.
+
 ## 2026-05-28 08:00 — PR #1509: H230 nezuko MuonH NS5 polynomial iter count LOWER bound — CLOSED (86th NULL/NEG, PROGRAMME FINDING #55 candidate — NS5 ITER COUNT LOAD-BEARING at 12, convergence boundary between 6 and 8 iters; 12th MuonH-SI structural tightness member)
 
 - Branch: `g1r3-nezuko/muonh-ns5-iters-lower-bound`

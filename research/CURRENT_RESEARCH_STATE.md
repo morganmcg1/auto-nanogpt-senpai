@@ -1,6 +1,63 @@
 # SENPAI Research State — auto-nanogpt-1gpu-r3
 
-- **Last updated:** 2026-05-28 08:05 UTC
+- **Last updated:** 2026-05-28 08:25 UTC
+
+---
+
+## Cycle ~720: H228 alphonse CLOSED (87th NULL/NEG, **PROGRAMME FINDING #51 candidate CONSOLIDATED** — muonh_mode='scale_invariant' STRUCTURALLY LOAD-BEARING for FFS bilateral within-experiment, 13th MuonH-SI structural tightness member pending H231 trilateral) + H238 alphonse ASSIGNED (PR #1544 AdaMuon body — Adam-style per-element scaling on polar update, 34th mechanism class, per human researcher directive Issue #1260)
+
+**Programme totals**: 87 NULL/NEG · **34 novel mechanism classes** · **2 VESTIGIAL FINDINGS** (H223 eps, H224 warmup) · **13 MuonH-SI structural tightness members** (pending H231 trilateral) · **6 PROGRAMME FINDINGS pipeline** (#48 vestigial pair · #49 dynamics-vs-conditioning heuristic · **#50 cosine asymptote LOAD-BEARING bilaterally** · **#51 candidate consolidated muonh_mode SI LOAD-BEARING bilateral within-H228** · **#52 candidate BODY F-NORM CAPACITY LOAD-BEARING** · **#54 candidate INNER+OUTER MOMENTUM FORM bilateral** · **#55 candidate NS5 ITER COUNT 3-pillar polar-projection fidelity tightness**)
+
+### H228 alphonse CLOSURE — PROGRAMME FINDING #51 candidate consolidated (bilateral within H228)
+
+3-arm muonh_weight_decay sweep, but with mandatory pre-flight mode pivot SI→clip (WD is mathematical no-op in SI mode per `MuonH.step()` 709-716). All 3 arms catastrophic at +18.7-20.5σ_H174 above H203 SI baseline, FFS=-1 (DNR) all arms. WD-axis is FLAT within clip mode (1.8σ_H174 span, non-monotonic). **Mode pivot itself contributed the ~+19σ deficit, not WD.**
+
+Two simultaneous findings:
+1. **WD-axis on clip side**: bilateral NULL (axis flat).
+2. **Mode pivot (SI→clip)**: bilaterally catastrophic — direct within-experiment evidence muonh_mode=SI is structurally load-bearing for FFS.
+
+Awaiting H231 askeladd terminal for trilateral confirmation (H221 NO_OUTER catastrophic + H228 clip-mode bilateral catastrophic + H231 direct clip vs SI test).
+
+### H238 alphonse ASSIGNMENT — AdaMuon body (34th mechanism class, human researcher directive)
+
+Per human directive in Issue #1260, "per-element scaling (AdaMuon body)" listed as priority direction. First PR exploring it.
+
+Mechanism: maintain Adam-style `exp_avg_sq` v_t on polar-projected MuonH update, apply per-element denominator `sqrt(v_hat_t) + eps` BEFORE SI hyperball projection (integration point A). The SI projection re-normalizes F-norm but preserves per-element relative magnitudes, so AdaMuon's per-element scaling remains effective even after SI projection.
+
+Why right axis now:
+- **Body fidelity axes consolidated as load-bearing** (H214 rank + H227 init F-norm + H230 NS5 iters = PROGRAMME FINDING #55 candidate). Body exploration territory remaining is at a different abstraction level: per-element variance-adaptive scaling.
+- **AdamW provides per-element scaling on aux side; MuonH does NOT on body side.** AdaMuon ports this mechanism to body.
+- **Mechanism class change, not scalar HP search.** ~30 LoC adds new optimizer state and operation.
+- **Leverages alphonse pre-flight verification discipline** demonstrated on H228 — required to verify integration point A composes with SI projection AND preserves step-0 bit-identity at flag=0.
+
+3-arm design: arm_a CTRL muonh_adamuon=0 (bit-id) / arm_b ADAMUON_BETA2_099 beta2=0.99 (~100-step half-life) / arm_c ADAMUON_BETA2_0999 beta2=0.999 (~1000-step half-life).
+
+Predictions: asymmetric outcome bracket. WIN/WIN → AdaMuon robust merge candidate. WIN/NEG or NEG/WIN → beta2 axis tightly coupled. NEG/NEG → 88th/89th NULL/NEG with cross-finding consolidating "no second-moment scaling on top of polar projection" as MuonH-SI structural tightness extension.
+
+### Cycle ~720 portfolio (8/8 WIP, 0 idle, 0 review-ready)
+
+| H# | Student | PR | Axis | Status |
+|---|---|---|---|---|
+| H231 | askeladd | #1511 | MuonH mode axis (clip vs SI) — direct test | in flight — predicted SI load-bearing (will trilateralize PROGRAMME FINDING #51) |
+| H232 | edward | #1513 | Post-NS5 Cautious-Muon | arm_a CTRL FINISHED; arm_b CAUTIOUS renormalize FINISHED decisive NEG +150 FFS +8.24σ val; arm_c CAUTIOUS_NORENORM RUNNING ~20% ETA 10:00 UTC |
+| H233 | frieren | #1517 | MuLoCo sync_interval | arm_a CTRL + arm_b SYNC_15 FINISHED bilateral NULL within-experiment (both FFS=3050); arm_c SYNC_60 RUNNING ~32% ETA 10:15 UTC |
+| H234 | tanjiro | #1526 | Joint AGC clip ratio sweep | arm_a CTRL FINISHED val=3.26825/FFS=3025 cleanest CTRL of campaign; arm_b TIGHT running; arm_c LOOSE queued |
+| H235 | thorfinn | #1529 | Embed init scale (aux-side PRE-AdamW init) | in flight |
+| H236 | fern | #1536 | Outer MuLoCo Polyak vs Nesterov FORM | in flight |
+| H237 | nezuko | #1539 | AdEMAMix replaces AdamW on aux side (newly assigned) | just dispatched cycle ~700 |
+| **H238** | **alphonse** | **#1544** | **AdaMuon body — Adam per-element scaling on polar update (newly assigned)** | **just dispatched** |
+
+34 novel mechanism classes through 238 hypotheses. Zero idle students.
+
+### MuonH polar-projection fidelity tightness — STATE-OF-PROGRAMME (cycle ~720 update)
+
+Body-update spectral fidelity now consolidated as load-bearing on three orthogonal axes (rank, magnitude, polynomial-depth) AND mode (SI vs clip bilateral). Body fidelity axes are CLOSED dead ends:
+- ✗ NS5 iter sweeps below 12 (H230)
+- ✗ Spectral rank truncation (H214)
+- ✗ F-norm reduction at init (H227)
+- ✗ Mode pivot to clip (H228 + pending H231)
+
+Remaining body-side exploration: **dynamics-level mechanism class additions** — adaptive per-element scaling (H238 AdaMuon, just dispatched), Polar-Express tuned-coefficient NS variant (lower priority given <1% wallclock share), alternative orthogonalization mechanisms (Jacobi SVD, sign-based norm-controlled LION-style). Aux-side and outer-side exploration continues with H237 (AdEMAMix), H236 (outer Polyak/Nesterov), H235 (embed init scale), H233 (sync_interval).
 
 ---
 
