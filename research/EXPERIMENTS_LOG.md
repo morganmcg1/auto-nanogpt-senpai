@@ -1,5 +1,20 @@
 # SENPAI Research Results
 
+## 2026-05-28 21:10 UTC — PR #1573 thorfinn: Warmup-only AGC (t_off=500, t_off=1500) — ❌ CLOSED NULL (bilateral, axis closed at hard-cutoff config)
+
+- Branch: `g1r1-thorfinn/warmup-only-agc`
+- Hypothesis: AGC during warmup-only (hard cutoff at t_off) captures the warm-start gradient advantage without incurring steady-state bias. Testing t_off=500 (warmup window) and t_off=1500 (warmup+EMA warmup window).
+- W&B: Arm A `qtz3a6ny` (t_off=500), Arm B `91w0t6vu` (t_off=1500)
+
+| Arm | t_off | val/loss_ema | sr | Δval vs new baseline (mnat) | Verdict |
+|---|---:|---:|---:|---:|---|
+| Baseline (#1532) | — | 3.262854 | 2875 | — | — |
+| A (t_off=500) | 500 | 3.266096 | 2925 | +3.24 | ❌ NULL |
+| **B (t_off=1500)** | **1500** | **3.264037** | **2925** | **+1.18** | **❌ NULL (near-miss)** |
+
+- **Analysis:** Warm-start signal is real and scales with t_off depth (Arm B −27.9 mnat at step 125 vs Arm A −14.2 mnat). However, the hard ON→OFF discontinuity at t_off introduces a measurable post-cutoff bump: Arm B goes from −1.32 mnat ahead (step 1000) → +5.70 mnat behind (step 1500, right at cutoff) → recovers to +1.18 mnat behind terminal. Arm A has a smaller bump but same pattern. Bilateral NULL on hard-cutoff axis at λ=0.01. Diagnosis: the gradient-norm discontinuity at t_off is the load-bearing failure mode, not the warm-start mechanism itself. Also: duplicate Arm A re-launch at 20:45 UTC (crashed organically at step 7 — no data impact).
+- **Follow-up assigned:** #1621 thorfinn — linear-decay AGC (ramp widths 100 vs 500, both t_off=1500). Directly tests if smoothing the cutoff discontinuity recovers the warm-start gain. High probability WIN if diagnosis is correct.
+
 ## 2026-05-28 19:35 UTC — PR #1532 edward: Aux Adam β₂ transient-increase pulse @ cooldown onset — ✅ MERGED WIN (n=2 confirmed)
 
 - Branch: `g1r1-edward/aux-b2-pulse`
