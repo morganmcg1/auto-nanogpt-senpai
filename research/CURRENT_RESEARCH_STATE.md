@@ -1,6 +1,54 @@
 # SENPAI Research State — auto-nanogpt-1gpu-r3
 
-- **Last updated:** 2026-05-28 22:05 UTC
+- **Last updated:** 2026-05-28 22:45 UTC
+
+---
+
+## Cycle ~1450: H248 CLOSED (**105th NULL/NEG closure**, bilateral NULL+mild-NEG monotonic, 🎯 **PROGRAMME FINDING #58 candidate STRENGTHENED to 2 axes** — per-coordinate post-NS5 corrections structurally inert/harmful; **🎯 directional-signal mechanistic insight** — per-element non-uniformity IS information not noise; **4th canonical drift-FREE safe-fix template documented** — flag-gated branch outside @torch.compile) + H256 edward PR #1627 ASSIGNED (**52nd mechanism class — outer LR temporal schedule** cosine_matched/linear_warmup, direct closure of H246 saw-tooth axis on GOOD-optimizer case)
+
+**Key closure this cycle:**
+
+- **H248 edward post-NS5 diagonal EMA-g² preconditioning (PR #1593)** — **105th NULL/NEG closure**, bilateral NULL+mild-NEG monotonic with β faster. arm_a CTRL `rhvjj1dy` val=3.26862 FFS=3025 EXACT (4th drift-FREE CTRL in <12h, Pattern A flag-gated branch outside @torch.compile). arm_b POST_NS5_SLOW (β=0.999) `t478qirb` val=3.26946 FFS=3050 NULL within noise (Δval=+0.95σ_H174). arm_c POST_NS5_FAST (β=0.99) `fiheykdz` val=3.27070 FFS=3075 mild NEG monotonic (Δval=+2.35σ_H174).
+
+  **🎯 Directional-signal mechanistic insight** (campaign-level mechanistic contribution): Student's telemetry-grounded conclusion is the sharpest mechanistic falsification of post-NS5 preconditioning attempts in r3. "Per-coordinate non-uniformity post-NS5 IS directional signal carried by the projected update, NOT residual noise. Dividing it out destroys signal that NS5 + scale_invariant_update_ + AGC + Adam-replacement aux jointly exploit." Telemetry proves: (1) mechanism is active (scale_max/scale_min = 44–305× → denominator non-trivial post-warmup, ε does NOT dominate); (2) β has predicted effect (β=0.99 tracks variance 10× faster → wider mid-run spread); (3) yet outcome degrades monotonically with β faster.
+
+  **🎯 PROGRAMME FINDING #58 candidate STRENGTHENED to 2 axes** (per-coordinate post-NS5 corrections structurally inert/harmful): H238 alphonse AdaMuon (per-element 2nd moment) TIE/NULL + H248 edward diagonal EMA-g² NULL/mild-NEG monotonic. Both axes inert. If H251 tanjiro NS5 polar decomposition also nulls → trilateral closure of post-NS5 mechanism layer.
+
+  **🎯 4th canonical drift-FREE safe-fix template documented** — "flag-gated branch outside @torch.compile" (Pattern A variant). Edward's placement at lines 715-725 (post-`muon_update` return, pre-projection, `if group.get(...)` guard) is the canonical example. Template library now: (A) Branch outside @torch.compile region [H246, H248]; (B) @torch.compiler.disable decorator [H249]; (C) argparse dispatch in main training loop [H246 outer]; (D) Plain Python in `set_hparams()` [H254 predicted].
+
+**New assignment:**
+
+- **H256 edward PR #1627 ASSIGNED — 52nd mechanism class: outer LR temporal schedule**. Direct closure of H246 saw-tooth axis on GOOD-optimizer case (outer Nesterov SGD). 3-arm: CTRL constant 0.7 / COOLDOWN_MATCHED cosine matched to body schedule / WARMUP linear 0→0.7 over 500 steps then constant. Tests whether explicit outer step cooldown extracts more from final-fit phase, or whether delayed outer step magnitude lets body settle on NS5 polar manifold before MuLoCo perturbs. Drift-free Pattern A: outer-step block at lines 1276-1303 already outside @torch.compile, plain Python schedule computation. WIN probability 30-45%. Even if both NULL, strengthens PROGRAMME FINDING #54 with 6th axis.
+
+**Survey state after cycle ~1450**: 8/8 students WIP (edward H256 just assigned, frieren H255, askeladd H253, fern H254, alphonse H249 arm_c terminated — awaiting SENPAI-RESULT, thorfinn H250 mid-run, tanjiro H251 awaiting push, nezuko H252 just assigned). 0 idle students. 0 review-ready PRs. No new human directives.
+
+**Programme totals after cycle ~1450:**
+- **105 NULL/NEG closures** (+1 from H247 104th)
+- **52 mechanism classes** (+1; H256 outer-lr-temporal-schedule)
+- **PROGRAMME FINDING #58 candidate STRENGTHENED** (per-coordinate post-NS5 corrections structurally inert/harmful at 2 axes — H238 AdaMuon + H248 diagonal EMA-g²)
+- **4 canonical drift-FREE safe-fix templates** documented (A flag-gated branch outside compile / B @torch.compiler.disable / C argparse dispatch in main loop / D plain Python in set_hparams)
+- **Edward's H248 operational discipline = gold standard reference** (smoke gate → bit-id step-0 → chain push with code excerpt → per-arm W&B config audit → rich telemetry → ranked follow-ups with honest confidence)
+
+**Exploration territory map updates after cycle ~1450:**
+
+| Axis | State (delta from cycle ~1440) |
+|---|---|
+| **Outer LR temporal schedule (cosine_matched/warmup)** | **H256 WIP (edward, just assigned) — 52nd class, direct H246 saw-tooth closure on GOOD-optimizer case** |
+| Post-NS5 diagonal EMA-g² preconditioning | **CLOSED NULL/mild-NEG (H248) — PROGRAMME FINDING #58 candidate STRENGTHENED to 2 axes** |
+| Per-element scaling post-NS5 | **CLOSED (now 2 axes: H238 + H248)** |
+| Post-step Stiefel retraction | H255 WIP (frieren) |
+| True Stiefel body init (orthogonal_qr) | H253 WIP (askeladd) |
+| MuonH warmup SHAPE (cosine/sqrt) | H254 WIP (fern) |
+| MuLoCo sync_interval VALUE K | H252 WIP (nezuko) |
+| NS5 output decomposition | H251 WIP (tanjiro) — awaiting push |
+| Stiefel Riemannian metric body step | H249 WIP (alphonse) — awaiting SENPAI-RESULT |
+| Aux cooldown SHAPE+FRAC | H250 WIP (thorfinn) |
+
+**Frontier observations for cycle ~1460+:**
+
+The H248 directional-signal insight + H244 NS5-μP-inversion insight + H246 saw-tooth insight together form a **coherent picture of NS5 polar projection as load-bearing infrastructure**: NS5 already does μP's depth-scaling job (H244), its per-element output is informational signal not noise (H248), and the optimizer step magnitude downstream of NS5 must be matched to body schedule (H246). Future hypotheses touching this stack should either ENHANCE NS5's existing functions or operate on ORTHOGONAL axes — explicit per-coordinate corrections of any granularity are now expected to be inert based on 2-axis closure.
+
+Edward's drift-FREE Pattern A is now the most reused safe-fix template (3 instances: H246, H248, predicted for H256). Pattern A should be the **default recommendation** for all future hypotheses that don't need to modify the compiled `muon_update` function directly.
 
 ---
 

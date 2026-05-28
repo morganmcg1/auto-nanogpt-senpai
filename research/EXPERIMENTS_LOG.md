@@ -1,3 +1,89 @@
+## 2026-05-28 22:45 — PR #1627: H256 edward Outer LR temporal schedule (cosine_matched/warmup) — ASSIGNED (52nd mechanism class, direct closure of H246 saw-tooth axis on GOOD-optimizer case)
+
+- Branch: `g1r3-edward/outer-lr-temporal-schedule`
+- Hypothesis: Outer Nesterov SGD step `args.outer_lr * (args.outer_momentum * outer_velocity + delta)` at lines 1286-1287 uses CONSTANT lr=0.7 throughout training. H246 saw-tooth insight (cycle ~1430) showed outer Adam's preconditioned step magnitude is decoupled from body LR cooldown → CATASTROPHIC. But the same critique applies to outer Nesterov SGD: constant outer_lr=0.7 doesn't cooldown either. 3-arm tests two distinct mechanisms: arm_b cosine_matched (mirror body schedule), arm_c linear_warmup 500 steps (delay outer step magnitude until body settles on NS5 polar manifold).
+- 3-arm: CTRL `--outer_lr_schedule constant` / COOLDOWN_MATCHED `--outer_lr_schedule cosine_matched` / WARMUP `--outer_lr_schedule linear_warmup --outer_lr_warmup_steps 500`.
+- Drift-FREE: schedule computation in main training loop (plain Python), outside @torch.compile region. Pattern A.
+- WIN probability: 30-45%. arm_b cosine_matched has higher prior (mirrors H203 inner cooldown success). Even if both NULL, strengthens PROGRAMME FINDING #54 with 6th axis (outer SGD step magnitude time-schedule structurally inert).
+
+---
+
+## 2026-05-28 22:40 — PR #1593: H248 edward Post-NS5 diagonal EMA-g² preconditioning — CLOSED (**105th NULL/NEG closure**, bilateral NULL+mild-NEG monotonic, 🎯 **PROGRAMME FINDING #58 candidate STRENGTHENED to 2 axes** + **directional-signal mechanistic insight** + **4th canonical drift-FREE safe-fix template documented**)
+
+- Branch: H248 edward (44th class — post-NS5 per-coordinate preconditioning)
+- Student terminal SENPAI-RESULT at 22:30 UTC with full 3-arm table + per-arm W&B config audit + rich EMA telemetry (134 samples per treatment arm).
+
+| Arm | run_id | precond | β_v | val/loss | FFS | Δval vs CTRL | σ_H174 sig | Verdict |
+|---|---|---|---|---|---|---|---|---|
+| ARM_A CTRL | `rhvjj1dy` | False | n/a | 3.26862 | **3025 EXACT** | — | — | **drift-FREE bit-id PASS** (4th drift-FREE CTRL in <12h) |
+| ARM_B SLOW | `t478qirb` | True | 0.999 | 3.26946 | 3050 | +0.00084 | +0.95σ | **NULL within noise** |
+| ARM_C FAST | `fiheykdz` | True | 0.99 | 3.27070 | 3075 | +0.00208 | +2.35σ | **mild NEG monotonic** |
+
+Baseline H203 `pyea3zd1`: val=3.26830, FFS=3025. ARM_A CTRL matches FFS EXACT, val within run variance (+0.00032 = 0.36σ_H174).
+
+### 🎯 Directional-signal mechanistic insight (campaign-level mechanistic contribution)
+
+Student's telemetry-grounded conclusion: **"Per-coordinate non-uniformity post-NS5 IS directional signal carried by the projected update, NOT residual noise. Dividing it out destroys signal that NS5 + scale_invariant_update_ + AGC + Adam-replacement aux jointly exploit."**
+
+Telemetry proves both halves:
+- **Mechanism is active**: scale_max/scale_min = 44–305× → denominator non-trivial post-warmup, ε=1e-8 does NOT dominate (scale_rms ≈ 0.03 ≫ ε)
+- **β has predicted effect**: ARM_C β=0.99 tracks instantaneous variance ~10× faster → wider mid-run spread (305× vs 126×) but tighter terminal (44× vs 126×)
+- **Yet outcome degrades monotonically with β faster** → mechanism is genuinely harmful, not miscalibrated
+
+| Step | Arm | scale_rms | scale_min | scale_max | max/min |
+|---|---|---|---|---|---|
+| step 1 | both | 9.999997e-09 | — | — | ≈ 1.0 (ε-dominated at init) |
+| step 1675 | ARM_B β=0.999 | 0.02800 | 0.00535 | 0.5016 | 94× |
+| step 1675 | ARM_C β=0.99 | 0.03111 | 0.00155 | 0.4721 | 305× |
+| step 3325 | ARM_B β=0.999 | 0.03057 | 0.00234 | 0.2953 | 126× |
+| step 3325 | ARM_C β=0.99 | 0.03115 | 0.00463 | 0.2020 | 44× |
+
+This pairs cleanly with H244 NS5-polar-μP-inversion insight: NS5 already does μP's depth-scaling job (H244) AND its per-element output is informational signal not noise (H248). Coherent picture of NS5 polar projection as load-bearing infrastructure.
+
+### 🎯 PROGRAMME FINDING #58 candidate STRENGTHENED to 2 axes
+
+Post-NS5 per-coordinate corrections are structurally inert/harmful:
+
+| Axis | Hypothesis tested | Result |
+|---|---|---|
+| Per-element second moment (AdaMuon style) | H238 alphonse | TIE/NULL |
+| **Per-element diagonal EMA-g² preconditioning** | **H248 edward** | **NULL/mild-NEG monotonic** |
+
+2 independent post-NS5 per-coordinate mechanism axes → both inert. If H251 tanjiro (NS5 polar output decomposition sign/magnitude/polar) also nulls → trilateral closure of the post-NS5 mechanism layer.
+
+### 🎯 4th canonical drift-FREE safe-fix template — "flag-gated branch outside @torch.compile"
+
+Edward's placement at lines 715-725 (post-`muon_update` return, pre-projection, `if group.get(...)` guard) is the canonical example of Pattern A:
+
+| Pattern | Mechanism | Examples |
+|---|---|---|
+| **A. Branch outside @torch.compile region** | New code outside compiled `muon_update` | H246, **H248** |
+| **B. @torch.compiler.disable decorator** | Dispatch wrapper gets decorator | H249 |
+| **C. argparse dispatch in main training loop** | Outer-step variants in main loop | H246 outer |
+| **D. Plain Python in `set_hparams()`** | Hyperparameter config setter | H254 (predicted) |
+
+Pattern A is now the most-reused template (3 instances: H246, H248, H256 predicted) and should be **default recommendation** for future hypotheses not requiring modification of compiled `muon_update`.
+
+### Operational excellence — gold standard
+
+H248 chain operational discipline is gold standard for the campaign:
+- ✅ Smoke 80-step bit-id gate PASS
+- ✅ arm_a CTRL bit-id gate PASS step-0=10.82583 EXACT
+- ✅ Chain-launch comment with implementation excerpt (file:lines + code)
+- ✅ Per-arm W&B config audit table (3 distinct configs)
+- ✅ Rich mechanistic telemetry (134 samples/arm, predicted dynamics verified)
+- ✅ Mid-run advisor refresh prediction satisfied (ARM_B NULL via "slow EMA asymptotic no-op")
+- ✅ Clear ranked follow-up recommendations with honest confidence
+- ✅ Caveats section flagging 2nd-seed need for borderline cases
+
+### Follow-up recommendations adopted
+
+- **Adopted #6**: Formalize "per-coordinate corrections to NS5 output structurally inert/harmful" as PROGRAMME FINDING #58 candidate with 2 axes. Trilateral closure pending H251.
+- **Consider #1 (row-wise/column-wise scaling post-NS5)** if H251 also nulls — would be next granularity tier.
+- **Honest skip #3-5 (LR retune / β sweep / bias correction)**: correct — mechanism is genuinely inert, not miscalibrated.
+
+---
+
 ## 2026-05-28 22:05 — PR #1626: H255 frieren Post-step Stiefel retraction — ASSIGNED (51st mechanism class, training-time Stiefel maintenance companion to H253; post-step `W←W*(1.5I−0.5W^T*W)` one NS polar step; drift-free after opt.step() at line 1173)
 
 - Branch: `g1r3-frieren/stiefel-retraction-cleanup`
