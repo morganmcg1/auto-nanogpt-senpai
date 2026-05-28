@@ -459,6 +459,10 @@ MUON_WEIGHT_DECAY = 0.025  # nominal; Muon.step does not apply explicit wd (u/w-
 TARGET_UW = 0.35
 NORMUON_BETA2 = 0.95
 SOAP_BETA2 = 0.90
+MLP_SOAP_BETA2_FRONT = float(os.environ.get("MLP_SOAP_BETA2_FRONT", str(SOAP_BETA2)))
+MLP_SOAP_BETA2_BACK = float(os.environ.get("MLP_SOAP_BETA2_BACK", str(SOAP_BETA2)))
+MLP_SOAP_BETA2_DEPTH_SPLIT = int(os.environ.get("MLP_SOAP_BETA2_DEPTH_SPLIT", "6"))
+MLP_SOAP_BETA2_PER_BLOCK_ENABLED = ("MLP_SOAP_BETA2_FRONT" in os.environ) or ("MLP_SOAP_BETA2_BACK" in os.environ)
 SOAP_PRECOND_FREQ = 10
 # Attention SOAP (record #16) hyperparameters
 ATTN_SOAP_BETA2 = 0.90
@@ -652,6 +656,16 @@ class Muon(torch.optim.Optimizer):
                     self.attn_soap_kind[id(p)] = "v"
                 elif n.endswith(".attn.proj.weight"):
                     self.attn_soap_kind[id(p)] = "proj"
+        # Per-depth-half MLP-SOAP β2 dispatch: track block index for each MLP-SOAP param.
+        self.mlp_soap_block_idx: dict[int, int] = {}
+        if MLP_SOAP_BETA2_PER_BLOCK_ENABLED:
+            for n, p in named_params:
+                if p in self.soap_params:
+                    # Name format from model.blocks.named_parameters(): "<block_idx>.mlp.fc.weight" etc.
+                    try:
+                        self.mlp_soap_block_idx[id(p)] = int(n.split(".")[0])
+                    except (ValueError, IndexError):
+                        self.mlp_soap_block_idx[id(p)] = -1  # Sentinel, will use default β2.
         params = sorted([p for _, p in named_params], key=lambda x: x.size(), reverse=True)
         defaults = dict(lr=lr, weight_decay=weight_decay, mu=mu)
         super().__init__(params, defaults)
@@ -699,7 +713,14 @@ class Muon(torch.optim.Optimizer):
                     # SOAP precondition applied to momentum BEFORE NS5+contra+NorMuon
                     # (matches public record #14/16 — pre-NS5 placement).
                     if use_soap or use_attn_soap:
-                        momentum_update = soap_precondition(momentum_update, state)
+                        if use_soap and MLP_SOAP_BETA2_PER_BLOCK_ENABLED:
+                            bidx = self.mlp_soap_block_idx.get(id(p), -1)
+                            beta2_local = (MLP_SOAP_BETA2_FRONT if 0 <= bidx < MLP_SOAP_BETA2_DEPTH_SPLIT
+                                           else MLP_SOAP_BETA2_BACK if bidx >= MLP_SOAP_BETA2_DEPTH_SPLIT
+                                           else SOAP_BETA2)
+                            momentum_update = soap_precondition(momentum_update, state, beta2=beta2_local)
+                        else:
+                            momentum_update = soap_precondition(momentum_update, state)
                     # NS5 + contra + NorMuon row variance on (possibly SOAP-preconditioned) momentum.
                     update = contra_normuon_update(momentum_update, state["second_moment"])
                     # u/w-floor: scale up if u/w < TARGET_UW; leave alone otherwise.
@@ -712,7 +733,14 @@ class Muon(torch.optim.Optimizer):
                     p.add_(update, alpha=-group["lr"])
                     # Refresh SOAP state with the raw grad (after applying the step).
                     if use_soap:
-                        soap_refresh(grad, state)
+                        if MLP_SOAP_BETA2_PER_BLOCK_ENABLED:
+                            bidx = self.mlp_soap_block_idx.get(id(p), -1)
+                            beta2_local = (MLP_SOAP_BETA2_FRONT if 0 <= bidx < MLP_SOAP_BETA2_DEPTH_SPLIT
+                                           else MLP_SOAP_BETA2_BACK if bidx >= MLP_SOAP_BETA2_DEPTH_SPLIT
+                                           else SOAP_BETA2)
+                            soap_refresh(grad, state, beta2=beta2_local)
+                        else:
+                            soap_refresh(grad, state)
                     elif use_attn_soap:
                         soap_refresh(grad, state, beta2=ATTN_SOAP_BETA2,
                                      refresh_freq=ATTN_SOAP_PRECOND_FREQ,
@@ -860,6 +888,10 @@ if dist.get_rank() == 0:
             "optimizer/target_uw": TARGET_UW,
             "optimizer/normuon_beta2": NORMUON_BETA2,
             "optimizer/soap_beta2": SOAP_BETA2,
+            "optimizer/mlp_soap_beta2_front": MLP_SOAP_BETA2_FRONT,
+            "optimizer/mlp_soap_beta2_back": MLP_SOAP_BETA2_BACK,
+            "optimizer/mlp_soap_beta2_depth_split": MLP_SOAP_BETA2_DEPTH_SPLIT,
+            "optimizer/mlp_soap_beta2_per_block_enabled": int(MLP_SOAP_BETA2_PER_BLOCK_ENABLED),
             "optimizer/soap_precond_freq": SOAP_PRECOND_FREQ,
             "optimizer/attn_soap_beta2": ATTN_SOAP_BETA2,
             "optimizer/attn_soap_precond_freq": ATTN_SOAP_PRECOND_FREQ,
