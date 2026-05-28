@@ -602,6 +602,24 @@ NANOGPT_NEWTON_MUON_UPDATE_PERIOD = int(os.environ.get("NANOGPT_NEWTON_MUON_UPDA
 NANOGPT_NEWTON_MUON_BETA = float(os.environ.get("NANOGPT_NEWTON_MUON_BETA", "0.95"))
 NANOGPT_NEWTON_MUON_EPS = float(os.environ.get("NANOGPT_NEWTON_MUON_EPS", "1e-4"))
 NANOGPT_NEWTON_MUON_MAX_D_IN = int(os.environ.get("NANOGPT_NEWTON_MUON_MAX_D_IN", "1024"))
+# CSV of "start-end" step windows where R-buffer updates every step (burst).
+# Example: "1875-1975,2345-2445". Empty string (default) = disabled.
+NANOGPT_NEWTON_MUON_BURST_WINDOWS = os.environ.get("NANOGPT_NEWTON_MUON_BURST_WINDOWS", "")
+
+
+def _parse_nm_burst_windows(s: str) -> list:
+    if not s.strip():
+        return []
+    result = []
+    for part in s.split(","):
+        part = part.strip()
+        if "-" in part:
+            lo, hi = part.split("-", 1)
+            result.append((int(lo), int(hi)))
+    return result
+
+
+_NM_BURST_WINDOWS = _parse_nm_burst_windows(NANOGPT_NEWTON_MUON_BURST_WINDOWS)
 
 # Global per-parameter input-activation cache populated by forward hooks. Keyed by
 # id(weight_param) → tensor of shape (B*T, d_in) on device. Only populated when
@@ -746,7 +764,8 @@ class Muon(torch.optim.Optimizer):
                  newton_precond: bool = False, newton_beta: float = 0.95,
                  newton_eps: float = 1e-4, newton_update_period: int = 10,
                  newton_max_d_in: int = 1024,
-                 newton_input_cache: dict | None = None):
+                 newton_input_cache: dict | None = None,
+                 newton_burst_windows: list | None = None):
         assert isinstance(params, list) and len(params) >= 1
         if isinstance(params[0], dict):
             # list-of-dicts param_groups: sort each group's params by size.
@@ -785,6 +804,10 @@ class Muon(torch.optim.Optimizer):
         self.newton_update_period = int(newton_update_period)
         self.newton_max_d_in = int(newton_max_d_in)
         self.newton_input_cache = newton_input_cache if newton_input_cache is not None else {}
+        # Targeted burst windows: list of (lo, hi) step ranges where R updates every step.
+        # Outside any window the standard newton_update_period cadence applies.
+        self.newton_burst_windows = list(newton_burst_windows) if newton_burst_windows else []
+        self._in_burst_window = False  # set once per step() in step()
         self._newton_step_count = 0
         # Accumulator dict reset each step() — read by the training loop after
         # step() for W&B logging. Keys: cond_max, cond_min, cond_sum, cond_n,
@@ -819,9 +842,12 @@ class Muon(torch.optim.Optimizer):
         if x is None:
             return None
         # Update R EMA + eigendecomp every newton_update_period steps (and at first call).
+        # Burst windows (if any) force every-step updates while active, recovering
+        # R-buffer freshness without disturbing the EMA state between windows.
         update_R = (
             "R" not in state
             or (self._newton_step_count % self.newton_update_period == 1)
+            or self._in_burst_window
         )
         if update_R:
             x32 = x.float()
@@ -888,6 +914,10 @@ class Muon(torch.optim.Optimizer):
         if self.newton_precond:
             self._newton_step_count += 1
             self.newton_telemetry = {}
+            self._in_burst_window = any(
+                lo <= self._newton_step_count <= hi
+                for lo, hi in self.newton_burst_windows
+            )
         for group in self.param_groups:
             params = group["params"]
             params_pad = params + [torch.empty_like(params[-1])] * (world_size - len(params) % world_size)
@@ -984,7 +1014,8 @@ print0(
     f"lr_scale={NANOGPT_NEWTON_MUON_LR_SCALE} "
     f"update_period={NANOGPT_NEWTON_MUON_UPDATE_PERIOD} "
     f"beta={NANOGPT_NEWTON_MUON_BETA} eps={NANOGPT_NEWTON_MUON_EPS} "
-    f"max_d_in={NANOGPT_NEWTON_MUON_MAX_D_IN}",
+    f"max_d_in={NANOGPT_NEWTON_MUON_MAX_D_IN} "
+    f"burst_windows={NANOGPT_NEWTON_MUON_BURST_WINDOWS!r}",
     console=True,
 )
 if NS_ITERS_COOLDOWN > 0:
@@ -1105,6 +1136,7 @@ if dist.get_rank() == 0:
             "nanogpt_newton_muon_beta": NANOGPT_NEWTON_MUON_BETA,
             "nanogpt_newton_muon_eps": NANOGPT_NEWTON_MUON_EPS,
             "nanogpt_newton_muon_max_d_in": NANOGPT_NEWTON_MUON_MAX_D_IN,
+            "nanogpt_newton_muon_burst_windows": NANOGPT_NEWTON_MUON_BURST_WINDOWS,
         },
     )
 
@@ -1172,6 +1204,7 @@ for trial_idx in range(args.num_trials):
         newton_update_period=NANOGPT_NEWTON_MUON_UPDATE_PERIOD,
         newton_max_d_in=NANOGPT_NEWTON_MUON_MAX_D_IN,
         newton_input_cache=_newton_input_cache,
+        newton_burst_windows=_NM_BURST_WINDOWS,
     )
     print0(f"MUON_PARAM_COUNTS: attn={len(muon_attn_params)} mlp={len(muon_mlp_params)} "
            f"(expected 48 attn / 24 mlp for 12-layer block stack)", console=True)
