@@ -602,6 +602,10 @@ NANOGPT_NEWTON_MUON_UPDATE_PERIOD = int(os.environ.get("NANOGPT_NEWTON_MUON_UPDA
 NANOGPT_NEWTON_MUON_BETA = float(os.environ.get("NANOGPT_NEWTON_MUON_BETA", "0.95"))
 NANOGPT_NEWTON_MUON_EPS = float(os.environ.get("NANOGPT_NEWTON_MUON_EPS", "1e-4"))
 NANOGPT_NEWTON_MUON_MAX_D_IN = int(os.environ.get("NANOGPT_NEWTON_MUON_MAX_D_IN", "1024"))
+# Per-module rank-k R truncation (#1588). When 0 < frac < 1, zero out the bottom
+# (1-frac)*d_in entries of `inv_sqrt_vals` so the preconditioner only acts on the
+# top-k eigendirections of R. frac=1.0 (default) preserves the full-rank baseline.
+NANOGPT_NEWTON_MUON_RANK_FRAC = float(os.environ.get("NANOGPT_NEWTON_MUON_RANK_FRAC", "1.0"))
 
 # Global per-parameter input-activation cache populated by forward hooks. Keyed by
 # id(weight_param) → tensor of shape (B*T, d_in) on device. Only populated when
@@ -746,6 +750,7 @@ class Muon(torch.optim.Optimizer):
                  newton_precond: bool = False, newton_beta: float = 0.95,
                  newton_eps: float = 1e-4, newton_update_period: int = 10,
                  newton_max_d_in: int = 1024,
+                 newton_rank_frac: float = 1.0,
                  newton_input_cache: dict | None = None):
         assert isinstance(params, list) and len(params) >= 1
         if isinstance(params[0], dict):
@@ -784,6 +789,11 @@ class Muon(torch.optim.Optimizer):
         self.newton_eps = float(newton_eps)
         self.newton_update_period = int(newton_update_period)
         self.newton_max_d_in = int(newton_max_d_in)
+        # Rank-k truncation: keep top-k eigendirections of R where k = round(d_in*frac).
+        # frac=1.0 -> full-rank baseline (no truncation). 0 < frac < 1 -> truncated.
+        self.newton_rank_frac = float(newton_rank_frac)
+        # One-time sanity check on eigendecomp ordering (eigh -> ascending eigenvalues).
+        self._newton_eig_order_verified = False
         self.newton_input_cache = newton_input_cache if newton_input_cache is not None else {}
         self._newton_step_count = 0
         # Accumulator dict reset each step() — read by the training loop after
@@ -838,13 +848,31 @@ class Muon(torch.optim.Optimizer):
                 vals, vecs = torch.linalg.eigh(state["R"])
                 vals_clamped = vals.clamp(min=0.0) + self.newton_eps
                 inv_sqrt_vals = vals_clamped.rsqrt()
+                # Rank-k truncation (#1588): keep the top-k eigenvalues of R (data-rich
+                # directions). eigh returns vals in ASCENDING order, so vals_clamped[-1]
+                # is the largest eigenvalue and inv_sqrt_vals[0] is the largest 1/sqrt
+                # (i.e. the most-amplified small-eigenvalue direction). Zeroing the
+                # FRONT of inv_sqrt_vals drops the noisy small-eigenvalue tail.
+                n_eigs = inv_sqrt_vals.shape[0]
+                rank_kept = n_eigs
+                if 0.0 < self.newton_rank_frac < 1.0:
+                    if not self._newton_eig_order_verified:
+                        assert float(vals_clamped[0].item()) <= float(vals_clamped[-1].item()), \
+                            "expected ascending eigenvalues from torch.linalg.eigh"
+                        self._newton_eig_order_verified = True
+                    rank_kept = max(1, int(round(n_eigs * self.newton_rank_frac)))
+                    if rank_kept < n_eigs:
+                        inv_sqrt_vals = inv_sqrt_vals.clone()
+                        inv_sqrt_vals[: n_eigs - rank_kept] = 0.0
                 # R_inv_sqrt = V * diag(inv_sqrt_vals) * V^T (symmetric).
                 state["R_inv_sqrt"] = (vecs * inv_sqrt_vals.unsqueeze(0)) @ vecs.T
+                state["_R_rank_kept"] = rank_kept
                 # Stash eigvals on-device for lazy telemetry — no sync here.
                 state["_R_vals_clamped"] = vals_clamped
             except Exception:
                 state.pop("R_inv_sqrt", None)
                 state.pop("_R_vals_clamped", None)
+                state.pop("_R_rank_kept", None)
         R_inv_sqrt = state.get("R_inv_sqrt")
         if R_inv_sqrt is None:
             return None
@@ -874,6 +902,12 @@ class Muon(torch.optim.Optimizer):
                     + float(g_precond32.norm().item()) / g_norm
                 )
                 tel["precond_ratio_n"] = tel.get("precond_ratio_n", 0) + 1
+            # Rank-k truncation telemetry (#1588). Python int stash, no CUDA sync.
+            r_rank_kept = state.get("_R_rank_kept")
+            if r_rank_kept is not None:
+                tel["r_rank_kept_sum"] = tel.get("r_rank_kept_sum", 0) + int(r_rank_kept)
+                tel["r_rank_kept_n"] = tel.get("r_rank_kept_n", 0) + 1
+                tel["r_rank_full_sum"] = tel.get("r_rank_full_sum", 0) + int(d_in)
         return g_precond32.to(grad.dtype)
 
     @torch.no_grad()
@@ -984,7 +1018,9 @@ print0(
     f"lr_scale={NANOGPT_NEWTON_MUON_LR_SCALE} "
     f"update_period={NANOGPT_NEWTON_MUON_UPDATE_PERIOD} "
     f"beta={NANOGPT_NEWTON_MUON_BETA} eps={NANOGPT_NEWTON_MUON_EPS} "
-    f"max_d_in={NANOGPT_NEWTON_MUON_MAX_D_IN}",
+    f"max_d_in={NANOGPT_NEWTON_MUON_MAX_D_IN} "
+    f"rank_frac={NANOGPT_NEWTON_MUON_RANK_FRAC} "
+    f"({'TRUNCATED' if 0.0 < NANOGPT_NEWTON_MUON_RANK_FRAC < 1.0 else 'FULL-RANK'})",
     console=True,
 )
 if NS_ITERS_COOLDOWN > 0:
@@ -1105,6 +1141,7 @@ if dist.get_rank() == 0:
             "nanogpt_newton_muon_beta": NANOGPT_NEWTON_MUON_BETA,
             "nanogpt_newton_muon_eps": NANOGPT_NEWTON_MUON_EPS,
             "nanogpt_newton_muon_max_d_in": NANOGPT_NEWTON_MUON_MAX_D_IN,
+            "nanogpt_newton_muon_rank_frac": NANOGPT_NEWTON_MUON_RANK_FRAC,
         },
     )
 
@@ -1171,6 +1208,7 @@ for trial_idx in range(args.num_trials):
         newton_eps=NANOGPT_NEWTON_MUON_EPS,
         newton_update_period=NANOGPT_NEWTON_MUON_UPDATE_PERIOD,
         newton_max_d_in=NANOGPT_NEWTON_MUON_MAX_D_IN,
+        newton_rank_frac=NANOGPT_NEWTON_MUON_RANK_FRAC,
         newton_input_cache=_newton_input_cache,
     )
     print0(f"MUON_PARAM_COUNTS: attn={len(muon_attn_params)} mlp={len(muon_mlp_params)} "
@@ -1462,6 +1500,14 @@ for trial_idx in range(args.num_trials):
             if ratio_n > 0:
                 newton_metrics["newton_muon/precond_ratio_mean"] = (
                     tel["precond_ratio_sum"] / ratio_n
+                )
+            rank_n = tel.get("r_rank_kept_n", 0)
+            if rank_n > 0:
+                newton_metrics["newton_muon/R_rank_kept_mean"] = (
+                    tel["r_rank_kept_sum"] / rank_n
+                )
+                newton_metrics["newton_muon/R_rank_kept_frac_mean"] = (
+                    tel["r_rank_kept_sum"] / max(tel.get("r_rank_full_sum", 1), 1)
                 )
             wandb.log(newton_metrics, step=wandb_step)
         # Init-anchored WD on embed (#847, env-var-gated). After both optimizers
