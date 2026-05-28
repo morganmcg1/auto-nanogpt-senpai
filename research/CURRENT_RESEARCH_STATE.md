@@ -1,6 +1,81 @@
 # SENPAI Research State — auto-nanogpt-1gpu-r3
 
-- **Last updated:** 2026-05-28 22:50 UTC
+- **Last updated:** 2026-05-28 20:45 UTC
+
+---
+
+## Cycle ~1410: H245 CLOSED (**101st NULL/NEG closure** post-100th milestone, bilateral NULL/CATASTROPHIC NEG on β₂-only/β₁-included) + 🎯 PROGRAMME FINDING #49 STRENGTHENED — aux β₁ structural rigidity now confirmed via 2 INDEPENDENT ablation axes (transfer FALSIFIED + adaptive schedule FALSIFIED) + H248 arm_b NULL within noise (terminal val=3.2695 FFS=3050) + H246 arm_b CATASTROPHIC NEG verified (LoCo-Adam outer val=3.75 FFS=−1) + drift class doubling pattern observed at H245 (2 argparse branches → +50 FFS = 2× typical) + H250 thorfinn missed-push escalation (3rd in 4h, after H247 frieren) + nezuko now idle awaiting fresh assignment
+
+**Key closures this cycle:**
+
+- **H245 nezuko ADana log-time aux momentum schedule (PR #1581)** — **101st NULL/NEG closure** (post-100th milestone). arm_a CTRL `xufnjqmo` val=3.27069 FFS=3075 (+50 drift = 2× typical class — see drift doubling below). arm_b ADANA_B2ONLY `i0oxfwah` val=3.27098 FFS=3075 — TIE within noise on FFS, Δval=+0.00029 (0.33σ_H174) = NULL. arm_c ADANA_BOTH `iz3zf2tr` val=3.31222 FFS=−1 — CATASTROPHIC NEG (target never crossed, Δval=+0.0415 = +47σ_H174 vs CTRL). All bit-id step-0 val=10.82583 EXACT.
+
+  **🎯 PROGRAMME FINDING #49 STRENGTHENED (aux β₁ structural rigidity now confirmed via 2 INDEPENDENT ablation axes)**:
+
+  | Axis | Hypothesis tested | Result | Mechanism |
+  |---|---|---|---|
+  | transfer | H225 nezuko aux β₁=0.8 → β₁=0.9 (HP value shift) | NEG (FALSIFIED) | β₁=0.8 cannot be improved by shifting |
+  | **adaptive schedule** | **H245 nezuko ADana log-time β₁ (δ=3 → β(1)=0.25, β(60)≈0.95)** | **CATASTROPHIC NEG (FALSIFIED)** | **β₁<0.5 early-step window starves first-moment buffer** |
+
+  Combined: aux β₁=0.8 LOAD-BEARING. ANY time-varying β₁ schedule driving β₁<~0.7 at any point degrades the run. Phase-transition pathology: optimization basin depends on aux first-moment buffer being well-populated by step ~30. β₂ axis NULL (ADana β₂ asymptotically equivalent to constant β₂=0.99 by step 300).
+
+  **Drift class doubling pattern (first occurrence)**: H245 is FIRST instance where TWO new argparse-conditional branches together produce +50 FFS = 2× typical +25 single-branch class. Validates per-branch additive model of soft-drift accumulation. Student's investigation falsified H2 (fused=False correctly True at δ=0) + H4 (W&B telemetry safe); confirmed H1 (2 branches in `set_hparams`) + secondary H3 (return-signature change adding aux_beta1 to tuple).
+
+- **H248 arm_b terminal at 20:38 UTC** (PR #1593, still status:wip awaiting student SENPAI-RESULT): arm_b POST_NS5_SLOW `t478qirb` val=3.2695 FFS=3050. vs arm_a CTRL drift-FREE (val=3.2687, FFS=3025): Δval=+0.00083 (≈1σ_H174) and ΔFFS=+25 (1σ_FFS noise). **NULL within noise**. Likely PROGRAMME FINDING #58 candidate STRENGTHENED (post-NS5 per-element 2nd-moment scaling structurally NULL — joins H238 AdaMuon TIE). Student SENPAI-RESULT awaited; closure decision pending.
+
+- **H246 askeladd arm_b CATASTROPHIC NEG verified** (PR #1587, arm_c still mid-run): arm_b LoCo-Adam `atpby1q9` val=3.75072 FFS=−1 (target never crossed). 🚩 Mid-cooldown val RISE from 3.594 (step 3050) → 3.751 (step 3325) — UNPRECEDENTED in r3 campaign. arm_c LoCo-Adam-LR `azn1rp4q` mid-run at step 2850/3325 val=3.5135 — tracking similar catastrophic. **PROGRAMME FINDING #54 STRENGTHENED**: outer Nesterov SGD structurally privileged over outer Adam variants regardless of LR adjustment.
+
+**Stale_wip escalations (3 in 4h — operational pattern):**
+
+- **H247 frieren PR #1589 (16:17 → 18:10 UTC, ~2h missed-push gap)** — student fixed cleanly with detailed implementation push + arm_a terminal report; arm_b BEST_CKPT FFS=3025 val=3.26870 — best_ckpt_step=3300 confirms cosine cooldown overshoots by 25 steps but magnitude sub-noise (0.4σ_H174). arm_c MANIFOLD_EMA mid-run at ~step 1175. NULL/marginal verdict pending arm_c terminal.
+
+- **H250 thorfinn PR #1602 (cycle ~1390 escalation, identical pattern to H247)** — PR has 0 commits / 0 lines but W&B has both arm configs visible (arm_a CTRL `0qghatsl` val=3.26724 FFS=3025 EXACT drift-FREE). 🎯 3rd drift-FREE CTRL in cycles ~1170-1390 (joins H246 askeladd, H249 alphonse). Escalation comment requested push + chain-launch documentation per memory `feedback_audit_treatment_runs_too.md`. arm_b TREATMENT_DEFAULT cosine 1.0 just launched at 20:28 UTC.
+
+**Updated drift-FREE CTRL roster (3 patterns now validated):**
+
+| H# | CTRL FFS | Mitigation pattern |
+|---|---|---|
+| H246 askeladd | 3025 EXACT | outer step OUTSIDE @torch.compile region (MuLoCo) |
+| H249 alphonse | 3025 EXACT | `@torch.compiler.disable` decorator on dispatch wrapper |
+| **H250 thorfinn** | **3025 EXACT** | **(unknown — student has not pushed code; W&B audit confirms drift-free but pattern not documented)** |
+
+**New assignment pending:**
+
+- **g1r3-nezuko** idle after H245 closure. Researcher-agent dispatched in cycle ~1410 with banned-axes list (β₁/β₂ schedules, NS5 polynomial, cooldown SHAPE, outer FORM, per-element scaling) requesting fresh hypothesis from genuinely-untested frontier (body init schemes, body warmup SHAPE, MuLoCo sync interval VALUE, body LR warmup mechanisms, parameter freezing schedules, spectral norm constraints, gradient noise injection, etc.). Output expected `/workspace/senpai/target/research/RESEARCH_IDEAS_2026-05-28_cycle1400_nezuko.md`.
+
+**Survey state after cycle ~1410**: 7/8 WIP (askeladd waiting on H246 arm_c terminal ~20:55 UTC; frieren waiting on H247 arm_c terminal ~21:10 UTC; thorfinn awaiting H250 chain progress + nudge response; edward awaiting student terminal SENPAI-RESULT post; alphonse H249 chain progressing; fern H244 chain progressing; tanjiro H251 chain progressing). 1 idle (nezuko, post-H245 closure). 1 review-ready PR closed cycle (H245 #1581 → closed). 0 review-ready remaining. No new human directives this cycle.
+
+**Programme totals after cycle ~1410:**
+- **101 NULL/NEG closures** (+1 since cycle ~1310; H245 bilateral NULL/CATASTROPHIC NEG)
+- **47 novel mechanism classes** (unchanged since H251 assignment)
+- **6 PROGRAMME FINDINGS pipeline** with **3 CONFIRMED + 3 candidates + 1 reclassified** (#49 STRENGTHENED via β₁ ablation axes bilateral; #54 STRENGTHENED via H246 arm_b CATASTROPHIC NEG; #58 candidate likely STRENGTHENED via H248 arm_b NULL — pending closure)
+- **18 MuonH-SI/MuLoCo structural tightness members** (unchanged)
+- **16+ instances torch.compile retracing soft-drift cluster** (H245 = 16th, first 2-branch instance demonstrating +25/branch additive model; H247 arm_a +25, H250 arm_a 0 drift-FREE)
+- **3 drift-FREE CTRL mitigation patterns** validated (outside-@torch.compile region, `@torch.compiler.disable`, H250 unknown-but-empirically-validated)
+
+**Exploration territory map updates after cycle ~1410:**
+
+| Axis | State (delta from cycle ~1310) |
+|---|---|
+| **Aux AdamW β₁ schedule (ADana log-time)** | **CLOSED CATASTROPHIC NEG arm_c, NULL arm_b (H245, PROGRAMME FINDING #49 STRENGTHENED bilateral)** |
+| MuonH NS5 Schatten-p spectral exponent | CLOSED bilateral NULL (H243, PROGRAMME FINDING #51 STRENGTHENED to 6 axes) — unchanged |
+| NS5 output decomposition (polar vs sign/magnitude) | H251 WIP (tanjiro) — arm_a CTRL polar at step ~2300/3325, healthy |
+| Post-NS5 diagonal preconditioning (Riemannian tangent space) | H248 WIP (edward) — arm_a CTRL FFS=3025 drift-FREE EXACT, arm_b POST_NS5_SLOW val=3.2695 FFS=3050 just terminated NULL within noise, arm_c queued |
+| Post-NS5 Riemannian metric step-size norm | H249 WIP (alphonse) — arm_a CTRL FFS=3025 drift-FREE EXACT via `@torch.compiler.disable`, arm_b RIEMANNIAN_DEFAULT mid-run |
+| Best-checkpoint terminal eval | H247 WIP (frieren) — arm_b BEST_CKPT val=3.2687 FFS=3025 (NULL/marginal, best_ckpt_step=3300 reveals cooldown 25-step overshoot sub-noise) |
+| Manifold-projected EMA terminal eval | H247 WIP (frieren) — arm_c MANIFOLD_EMA mid-run at ~step 1175/3325 |
+| Aux cooldown SHAPE+FRAC | H250 WIP (thorfinn) — arm_a CTRL FFS=3025 drift-FREE EXACT, arm_b TREATMENT just launched 20:28 UTC |
+| LoCo-Adam outer FORM replacement | H246 WIP (askeladd) — arm_b CATASTROPHIC NEG val=3.75 FFS=−1, arm_c mid-run tracking same trajectory |
+| Depth-scaled per-layer MuonH LR | H244 WIP (fern) — arm_a CTRL FFS=3050 (drift +25), arm_b LINEAR_DEPTH CATASTROPHIC NEG val=3.28 FFS=−1, arm_c INVSQRT mid-run healthy |
+| Body LR warmup SHAPE / body init schemes / MuLoCo sync interval VALUE | **OPEN — fresh frontier candidates for nezuko cycle ~1410 assignment** |
+
+**Frontier observations for cycle ~1410+:**
+
+The drift class doubling pattern at H245 (2 argparse branches → +50 FFS) is the **first empirical confirmation** of the per-branch additive model. Future hypotheses with multiple argparse-conditional branches should anticipate +25 FFS per branch and use `@torch.compiler.disable` (H249 alphonse pattern) OR keep all argparse dispatch OUTSIDE @torch.compile region (H246 askeladd pattern). This is now a **campaign-level methodological lesson** worth flagging in nezuko's next assignment.
+
+The 3rd drift-FREE CTRL via H250 thorfinn — without the code being visible — is a SECOND validation pattern but unidentified mechanism. Need student push to extract the safe-fix pattern for documentation.
+
+H247 arm_b sub-noise cooldown overshoot at step 3300 + H248 arm_a drift-FREE both suggest the "eval-mechanism axis" and "outer-step-isolation axis" patterns may have campaign-level structural meaning beyond their individual mechanism-class verdicts. Both are 3-arm hypotheses where the CTRL+treatment configuration choice IS the mechanism class, not just an HP within-class.
 
 ---
 

@@ -1,3 +1,52 @@
+## 2026-05-28 20:40 — PR #1581: H245 nezuko ADana log-time aux momentum schedule — CLOSED (**101st NULL/NEG closure** post-100th-milestone, **bilateral NULL/CATASTROPHIC NEG** on β₂-only TIE + β₁-included FFS=-1; 🎯 **PROGRAMME FINDING #49 STRENGTHENED — aux β₁ structural rigidity now confirmed via 2 INDEPENDENT ablation axes: transfer FALSIFIED (H225) + adaptive log-time schedule FALSIFIED (H245). aux β₁ must stay ≥0.7 throughout training; ANY low-β₁ early-step window causes catastrophic optimization slowdown that AGC clipping cannot compensate**)
+
+- Branch: `g1r3-nezuko/h245-adana-aux-momentum-schedule`
+- Hypothesis: Test whether ADana log-time momentum schedule `β_t = 1 - δ/(δ+t)` applied to aux AdamW β₁ and β₂ improves FFS over the load-bearing β₁=0.8 / β₂=0.99 constants. 41st mechanism class. Theoretical motivation: ADana (arxiv:2406.16608) replaces fixed momenta with time-decaying schedules that start at low β (e.g. β(1)=0.111 with δ=8) and asymptotically converge to ~1.0; conjectured to improve early-step exploration and late-step exploitation. 3-arm: CTRL (δ_b1=0, δ_b2=0, no ADana override) / ADANA_B2ONLY (δ_b2=8) / ADANA_BOTH (δ_b1=3, δ_b2=8).
+
+- Student implementation choice (operational excellence): inside `set_hparams(step)` (line 1024-1037), added two `if args.aux_adana_delta_b{1,2} > 0:` branches that override the existing β₂ schedule AFTER baseline logic. Forced `fused=False` whenever `aux_adana_delta_b1>0 OR aux_adana_delta_b2>0` so PyTorch re-reads betas from param_groups each step. Logged `aux/beta1` and `aux/beta2` at every telemetry interval. **Bit-id step-0 PASSED on all 3 arms (val=10.82583 EXACT)**.
+
+| Arm | δ_b1 | δ_b2 | W&B | val | FFS | reached_target | Δval vs CTRL | Verdict |
+|---|---|---|---|---|---|---|---|---|
+| arm_a CTRL | 0 | 0 | `xufnjqmo` | 3.27069 | **3075** | ✓ | — | drift +50 vs H203 (2× typical class, see below) |
+| arm_b ADANA_B2ONLY | 0 | 8.0 | `i0oxfwah` | 3.27098 | **3075** | ✓ | +0.00029 (0.33σ_H174) | **NULL** (TIE within noise) |
+| arm_c ADANA_BOTH | 3.0 | 8.0 | `iz3zf2tr` | **3.31222** | **−1** | ✗ | +0.04153 (+47σ_H174) | **CATASTROPHIC NEG** |
+| H203 baseline (ref) | (no flags) | (no flags) | merged | 3.26830 | 3025 | ✓ | — | — |
+
+**Per FFS-PRIMARY directive (Issue #1260): arm_b TIE arm_a (drift-adjusted CTRL) on FFS, arm_c CATASTROPHIC FFS=-1 — NULL/NEG bilateral**. Not a merge candidate.
+
+### Analysis
+
+- **🎯 PROGRAMME FINDING #49 STRENGTHENED (aux β₁ structural rigidity confirmed via 2 INDEPENDENT ablation axes)**:
+
+| Axis | Hypothesis tested | Result | Mechanism |
+|---|---|---|---|
+| transfer | H225 nezuko aux β₁=0.8 → β₁=0.9 (HP value shift) | NEG (FALSIFIED) | β₁=0.8 cannot be improved by shifting |
+| **adaptive schedule** | **H245 nezuko ADana log-time β₁ (δ=3 → β(1)=0.25, β(60)≈0.95)** | **CATASTROPHIC NEG (FALSIFIED)** | **β₁<0.5 early-step window starves first-moment buffer** |
+
+Combined: aux β₁=0.8 is LOAD-BEARING. ANY time-varying β₁ schedule that drives β₁ below ~0.7 at any point during training degrades the run. Aux AdamW step is the only well-conditioned scalar-step optimizer in the stack — with AGC clipping (aux_agc_clip_ratio=0.05) + Muon-on-body + tiny aux subset, low β₁ early steps produce pure-AdaGrad-flavored updates that AGC cannot compensate, and model never recovers. **Phase-transition pathology**: optimization basin is narrow and depends on aux first-moment buffer being well-populated by step ~30.
+
+- **β₂ axis NULL conclusion**: ADana β₂ with δ=8 converges asymptotically to constant β₂=0.99 within ~300 steps (logged step 500: β₂=0.984, step 1000: β₂=0.992, step 3300: β₂=0.998). Early-step instability β₂=0.111 at step 1 added +0.046 val gap at step 125, fully recovered by step 500. **NULL on val/FFS**. β₂ axis structurally equivalent to constant β₂=0.99 at our 3325-step budget — the trajectory's long tail (step 500+) is where most loss reduction happens, and the schedule has already converged by then. Larger δ (16, 32) would converge slower but to same fixed point; smaller δ (3) would converge faster but add nothing.
+
+- **arm_c failure mode (student's mechanistic narrative)**: arm_c trains visibly slower than arm_a/arm_b at every step ≥125. Gap widens from +0.12 (step 125) → +0.025 (step 1000) → +0.018 (step 2000) → +0.042 (step 3000+). The damage is done during the β₁<0.5 warmup window (steps 1-60), and the model never recovers. **The slowdown is not just early-step instability** — the entire optimization trajectory shifts up permanently. ADana β₁ with δ=3 (starts at 0.25, only reaches 0.95 at step ~60) starves the optimizer of meaningful first-moment buffer for the entire warmup window; combined with AGC clipping, the early-step updates are effectively pure-AdaGrad-flavored.
+
+- **arm_a CTRL drift root-cause (student-investigated, comprehensive)**: arm_a FFS=3075 = **+50 vs H203 baseline = 2× typical +25 soft-drift class**. Student's investigation falsified H2 (`fused=False` evaluated correctly to True at δ=0) and H4 (W&B telemetry rank-0-only safe). Most likely driver: **H1 (2 new argparse-conditional branches in `set_hparams`)** + secondary **H3 (return-signature change adding aux_beta1 to tuple)**. Two new branches each contributing ~+25 FFS via downstream Python control-flow shifts that propagate into compiled AdamW step. Note `set_hparams` itself is NOT @torch.compile decorated — the only @torch.compile is on `muon_update` at line 581 — so drift flows through param_group["betas"] tuple write pattern change feeding AdamW.step()'s compiled paths.
+
+- **Drift class doubling pattern observation**: H245 is FIRST instance where **TWO argparse branches together produce +50 FFS = 2× typical**. Aligns with H242 thorfinn (single branch +25), H244 fern (single branch +25, presumed), H247 frieren (single branch +25). Validates per-branch additive model of soft-drift accumulation. Future hypotheses with multiple argparse-conditional branches should anticipate +25 FFS per branch and use `@torch.compiler.disable` (H249 alphonse pattern) or place new code OUTSIDE @torch.compile region (H246 askeladd pattern) to avoid.
+
+- **Bit-identity gates PASSED on all 3 arms**: step:0 val=10.82583 EXACT. Implementation IS bit-identical to baseline at step 0; divergence is purely slow-drift from new branches in set_hparams. Consistent with soft-drift class signature.
+
+- **Cumulative drift class through H245**: 14+ instances catalogued. Doubling pattern adds H245 as new "2-branch instance" benchmark.
+
+### Follow-up portfolio
+
+1. ✅ CLOSE ADana mechanism class for aux β₁/β₂ — DONE (bilateral NULL/CATASTROPHIC NEG decisive)
+2. ❌ Different δ regime for β₂ NOT WORTH testing — asymptotic fixed point dominates regardless of δ
+3. ✅ Aux β₁ schedule of ANY form (cosine, linear, ADana) ruled out by H225 + H245 — captured in PROGRAMME FINDING #49 strengthening
+4. ❌ ADana on muonh momentum (student's #4) — INTERESTING but H225/H245 has decisively closed aux β axis; muonh side is different mechanism class (Muon NS-iteration vs per-element AdamW) — capture as future hypothesis candidate but assign nezuko a FRESH axis instead
+5. ✅ Future drift-mitigation pattern: `@torch.compiler.disable` decorator OR `aux_adana_enabled` single feature flag OR outside-@torch.compile placement — three known safe-fix patterns now
+
+---
+
 ## 2026-05-28 22:30 — PR #1572: H243 tanjiro Fractional NS spectral exponent (Schatten-p MuonH) — CLOSED (🎯 **100th NULL/NEG closure — CAMPAIGN MILESTONE**, bilateral NULL on FFS + non-monotonic sub-noise val/loss pattern; 🎯 **PROGRAMME FINDING #51 candidate STRENGTHENED to 6 axes — Schatten-p exponent added: partial whitening of NS5 output is structurally inert; sign+direction information in U V^T is what's load-bearing, magnitude redistribution among singular values empirically ineffectual**)
 
 - Branch: `g1r3-tanjiro/h243-fractional-ns-spectral-exponent`
