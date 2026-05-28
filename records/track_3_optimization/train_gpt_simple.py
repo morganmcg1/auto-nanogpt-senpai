@@ -47,7 +47,11 @@ def parse_args():
     parser.add_argument("--soap_attn", action="store_true",
                         help="Extend SOAP preconditioning to attention projections with trust gate")
     parser.add_argument("--soap_trust_threshold", type=float, default=0.0,
-                        help="Cosine similarity threshold below which SOAP update falls back to plain Muon (when --soap_attn)")
+                        help="Cosine similarity threshold below which SOAP update falls back to plain Muon (when --soap_attn). Used as the static threshold when --soap_trust_peak <= 0.")
+    parser.add_argument("--soap_trust_peak", type=float, default=0.0,
+                        help="Peak cosine-similarity threshold for the SOAP trust-gate schedule. 0.0 = disabled (static mode using --soap_trust_threshold).")
+    parser.add_argument("--soap_trust_ramp_frac", type=float, default=0.15,
+                        help="Fraction of training over which the trust-gate threshold ramps up to peak. Default 0.15.")
     parser.add_argument("--lr_mlp", type=float, default=0.035,
                         help="Muon learning rate for MLP weights (.mlp.fc.weight / .mlp.proj.weight)")
     parser.add_argument("--wd_mlp", type=float, default=0.025,
@@ -580,12 +584,30 @@ def soap_update_preconditioner(grad, state, shampoo_beta=SOAP_BETA2, preconditio
     state["soap_step"] += 1
 
 
+def _trust_threshold_schedule(step: int, train_steps: int,
+                              static_threshold: float,
+                              peak_threshold: float,
+                              ramp_frac: float,
+                              cooldown_frac: float = 0.3) -> float:
+    if peak_threshold <= 0.0:
+        return static_threshold
+    warm_end = int(train_steps * (1.0 - cooldown_frac))
+    ramp_end = max(1, int(train_steps * ramp_frac))
+    if step <= ramp_end:
+        return peak_threshold * (step / ramp_end)
+    elif step <= warm_end:
+        return peak_threshold
+    else:
+        return 0.0
+
+
 class Muon(torch.optim.Optimizer):
     SOAP_MLP_SUFFIXES = (".mlp.fc.weight", ".mlp.proj.weight")
     SOAP_ATTN_SUFFIXES = (".attn.q.weight", ".attn.k.weight", ".attn.v.weight", ".attn.proj.weight")
 
     def __init__(self, named_params, lr=0.02, weight_decay=0, mu=0.95,
-                 soap_attn=False, trust_threshold=0.0):
+                 soap_attn=False, trust_threshold=0.0,
+                 trust_peak=0.0, trust_ramp_frac=0.15, train_steps_ref=3250):
         # `named_params` can be either:
         #   (a) list of (name, param) tuples → single param group (legacy form)
         #   (b) list of dicts {"named_params": [(name, param), ...], "lr": ?, "weight_decay": ?, "mu": ?, "name": ?}
@@ -606,7 +628,12 @@ class Muon(torch.optim.Optimizer):
         self.param_names = {id(p): n for n, p in all_named}
         self.soap_attn = soap_attn
         self.trust_threshold = float(trust_threshold)
+        self.trust_peak = float(trust_peak)
+        self.trust_ramp_frac = float(trust_ramp_frac)
+        self.train_steps_ref = int(train_steps_ref)
         self.use_trust_gate = soap_attn
+        self._step_count = 0
+        self._current_threshold = float(trust_threshold)
         self.cos_sims_buffer: dict[str, Tensor] = {}
 
         param_groups = []
@@ -627,6 +654,13 @@ class Muon(torch.optim.Optimizer):
     @torch.no_grad()
     def step(self):
         self.cos_sims_buffer = {}
+        self._step_count += 1
+        self._current_threshold = _trust_threshold_schedule(
+            self._step_count, self.train_steps_ref,
+            static_threshold=self.trust_threshold,
+            peak_threshold=self.trust_peak,
+            ramp_frac=self.trust_ramp_frac,
+        )
         world_size = dist.get_world_size()
         rank = dist.get_rank()
         for group in self.param_groups:
@@ -657,7 +691,7 @@ class Muon(torch.optim.Optimizer):
                             us = u_soap.float()
                             um = u_muon.float()
                             cos_sim_t = (us * um).sum() / (us.norm() * um.norm() + 1e-8)
-                            update = torch.where(cos_sim_t < self.trust_threshold, u_muon, u_soap)
+                            update = torch.where(cos_sim_t < self._current_threshold, u_muon, u_soap)
                             self.cos_sims_buffer[self.param_names[id(p)]] = cos_sim_t
                         else:
                             update = u_soap
@@ -772,6 +806,8 @@ if dist.get_rank() == 0:
             "ns_iter": NS_ITER,
             "soap_attn_enabled": bool(args.soap_attn),
             "soap_trust_threshold": float(args.soap_trust_threshold),
+            "soap_trust_peak": float(args.soap_trust_peak),
+            "soap_trust_ramp_frac": float(args.soap_trust_ramp_frac),
             "lr_mlp": args.lr_mlp,
             "wd_mlp": args.wd_mlp,
             "lr_attn": args.lr_attn,
@@ -868,6 +904,8 @@ for trial_idx in range(args.num_trials):
             dict(named_params=attn_named, lr=args.lr_attn, weight_decay=args.wd_attn, name="muon_attn"),
         ],
         soap_attn=args.soap_attn, trust_threshold=args.soap_trust_threshold,
+        trust_peak=args.soap_trust_peak, trust_ramp_frac=args.soap_trust_ramp_frac,
+        train_steps_ref=train_steps,
     )
     optimizers = [optimizer1, optimizer2]
     assert set(p for opt in optimizers for group in opt.param_groups
@@ -1063,7 +1101,12 @@ for trial_idx in range(args.num_trials):
             cs_names = list(optimizer2.cos_sims_buffer.keys())
             cs_tensors = list(optimizer2.cos_sims_buffer.values())
             cs_values = torch.stack(cs_tensors).detach().cpu().tolist()
-            trust_metrics = {"trial": trial_idx, "train/step": train_step}
+            current_threshold = float(optimizer2._current_threshold)
+            cs_sorted = sorted(cs_values)
+            cs_p50 = cs_sorted[len(cs_sorted) // 2]
+            trust_metrics = {"trial": trial_idx, "train/step": train_step,
+                             "soap/current_threshold": current_threshold,
+                             "soap/cos_sim_p50": cs_p50}
             fired_count = 0
             fired_mlp = 0
             fired_attn = 0
@@ -1071,7 +1114,7 @@ for trial_idx in range(args.num_trials):
             attn_vals: list[float] = []
             for cs_name, cs_val in zip(cs_names, cs_values):
                 trust_metrics[f"trust/cos_sim/{clean_metric_name(cs_name)}"] = cs_val
-                fired = 1 if cs_val < args.soap_trust_threshold else 0
+                fired = 1 if cs_val < current_threshold else 0
                 trust_metrics[f"trust/fired/{clean_metric_name(cs_name)}"] = fired
                 fired_count += fired
                 if any(cs_name.endswith(suf) for suf in Muon.SOAP_ATTN_SUFFIXES):
@@ -1085,6 +1128,7 @@ for trial_idx in range(args.num_trials):
             trust_metrics["trust/cos_sim_mean"] = sum(cs_values) / len(cs_values)
             trust_metrics["trust/fired_count"] = fired_count
             trust_metrics["trust/fired_fraction"] = fired_count / len(cs_values)
+            trust_metrics["soap/gate_trigger_frac"] = fired_count / len(cs_values)
             if mlp_vals:
                 trust_metrics["trust/cos_sim_mean_mlp"] = sum(mlp_vals) / len(mlp_vals)
                 trust_metrics["trust/fired_count_mlp"] = fired_mlp
