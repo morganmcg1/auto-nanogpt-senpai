@@ -109,6 +109,18 @@ def parse_args():
     parser.add_argument("--body_init_bottom_layers", type=int,
                         default=int(os.environ.get("BODY_INIT_BOTTOM_LAYERS", "6")),
                         help="Number of bottom layers to damp for --body_init=orthogonal_bottom_damp (default 6 = bottom half of 12 layers).")
+    # H255: post-step Stiefel retraction on body MuonH 2D weights. One Newton-Schulz
+    # polar step W <- W @ (1.5*I - 0.5*W^T@W) applied AFTER the inner optimizer step.
+    # 0 = off (baseline, default; the retraction block is never entered).
+    # 1 = full: apply after EVERY MuonH step (every training step).
+    # 2 = cooldown-only: apply only during the cosine cooldown phase.
+    parser.add_argument("--body_retraction", type=int,
+                        default=int(os.environ.get("BODY_RETRACTION", "0")),
+                        choices=[0, 1, 2],
+                        help="Post-step Stiefel retraction on body MuonH 2D weights. "
+                             "0=off (baseline, default). "
+                             "1=full: apply after EVERY MuonH step. "
+                             "2=cooldown-only: apply only during cosine cooldown phase.")
     args = parser.parse_args()
     args.num_trials = args.num_trials if args.num_trials is not None else (args.legacy_num_trials or 1)
     args.wandb_tags = [tag.strip() for tag in args.wandb_tags.split(",") if tag.strip()]
@@ -656,6 +668,77 @@ def scale_invariant_update_(param, update, lr, eps=1e-10):
     param.copy_(new_param / new_norm * p_norm)
 
 
+@torch.no_grad()
+def stiefel_retract_one_step(W):
+    """H255: one Newton-Schulz retraction step toward the Stiefel manifold.
+
+    For tall W (shape (n, k) with n >= k):
+        W <- W @ (1.5*I_k - 0.5*W^T@W)    drives W^T W → I_k.
+    For wide W (shape (k, n) with k < n):
+        W <- (1.5*I_k - 0.5*W@W^T) @ W    drives W W^T → I_k.
+
+    Both forms are mathematically equivalent (1.5 W - 0.5 W (W^T W) = 1.5 W -
+    0.5 (W W^T) W); we associate to multiply with the smaller identity for
+    efficiency. Computed in float32 for numerical stability and cast back.
+    Updates W in place; preserves shape exactly.
+    """
+    dtype = W.dtype
+    Wf = W.float()
+    n_rows, n_cols = Wf.shape[-2], Wf.shape[-1]
+    if n_rows >= n_cols:
+        eye = torch.eye(n_cols, device=W.device, dtype=torch.float32)
+        Wf = Wf @ (1.5 * eye - 0.5 * (Wf.transpose(-1, -2) @ Wf))
+    else:
+        eye = torch.eye(n_rows, device=W.device, dtype=torch.float32)
+        Wf = (1.5 * eye - 0.5 * (Wf @ Wf.transpose(-1, -2))) @ Wf
+    W.copy_(Wf.to(dtype))
+
+
+@torch.no_grad()
+def body_stiefel_telemetry(body_params):
+    """H255: per-step Stiefel-manifold geometry telemetry on body 2D params.
+
+    For each W of shape (n, k) with n >= k (transposed otherwise):
+    - frob_norm = ||W||_F
+    - riem_norm = sqrt(max(0, ||W||_F^2 - 0.5 ||W^T W||_F^2 / ||W||_F^2 * k))
+      a normalized canonical-Stiefel proxy. Below we report a simpler form:
+      ||(W^T W) - (||W||_F^2 / k) * I_k||_F = "Stiefel deviation" — drops to
+      zero when W is a scaled orthogonal matrix.
+    - riem_frob_ratio = stiefel_deviation / ||W^T W||_F (in [0, 1]; 0 = Stiefel).
+
+    Returns aggregate means across all body params. Cheap O(n*k^2) per param.
+    """
+    if not body_params:
+        return {}
+    sum_frob = 0.0
+    sum_dev = 0.0
+    sum_ratio = 0.0
+    count = 0
+    for p in body_params:
+        W = p.detach().float()
+        if W.shape[0] < W.shape[1]:
+            W = W.transpose(-1, -2)
+        k = W.shape[-1]
+        frob_sq = float((W * W).sum().item())
+        WtW = W.transpose(-1, -2) @ W  # (k, k)
+        WtW_frob_sq = float((WtW * WtW).sum().item())
+        scaled_eye = (frob_sq / k) * torch.eye(k, device=W.device, dtype=torch.float32)
+        dev_frob_sq = float(((WtW - scaled_eye) ** 2).sum().item())
+        frob = frob_sq ** 0.5
+        dev = dev_frob_sq ** 0.5
+        wtw_frob = WtW_frob_sq ** 0.5
+        ratio = dev / max(wtw_frob, 1e-30)
+        sum_frob += frob
+        sum_dev += dev
+        sum_ratio += ratio
+        count += 1
+    return {
+        "body/frob_norm_mean": sum_frob / count,
+        "body/riem_norm_mean": sum_dev / count,
+        "body/riem_frob_ratio_mean": sum_ratio / count,
+    }
+
+
 class MuonH(torch.optim.Optimizer):
     """Muon with a hyperball (Frobenius-ball) projection on hidden 2D weight matrices.
 
@@ -850,6 +933,10 @@ if dist.get_rank() == 0:
             "muonh_mu_schedule": args.muonh_mu_schedule,
             "muonh_mu_start": args.muonh_mu_start,
             "muonh_mu_end": args.muonh_mu_end,
+            "body_init": args.body_init,
+            "body_init_bottom_damp_factor": args.body_init_bottom_damp_factor,
+            "body_init_bottom_layers": args.body_init_bottom_layers,
+            "body_retraction": args.body_retraction,
         },
     )
 
@@ -916,6 +1003,25 @@ for trial_idx in range(args.num_trials):
                         "blocks.11.attn.q.weight", "blocks.11.mlp.fc.weight")
         sample_rows = [e for e in body_init_log if e["name"] in sample_names]
         print0(f"[H148 body_init={args.body_init}] sample F-norms: {sample_rows}", console=True)
+
+    # H255: collect body 2D params targeted by post-step Stiefel retraction.
+    # Same selection criterion as the body_init block above (attn.q/k/v, attn.proj,
+    # mlp.fc, mlp.proj) so retraction targets exactly the params MuonH operates on
+    # via the body init axis. Empty list when body_retraction == 0 (the retraction
+    # block in the training loop is then never entered).
+    body_params_for_retraction: list[Tensor] = []
+    if args.body_retraction > 0:
+        for name, p in model.named_parameters():
+            if p.ndim == 2 and name.endswith("weight") and (
+                "attn.proj" in name or "mlp.proj" in name or "mlp.fc" in name or "attn." in name
+            ):
+                body_params_for_retraction.append(p)
+        if trial_idx == 0:
+            print0(
+                f"[H255 body_retraction={args.body_retraction}] "
+                f"retraction targets: {len(body_params_for_retraction)} body 2D params",
+                console=True,
+            )
 
     # create the optimizer(s)
     # MuonH replaces plain Muon on the hidden 2D weights: hard hyperball projection
@@ -1171,6 +1277,24 @@ for trial_idx in range(args.num_trials):
         )
         for opt in optimizers:
             opt.step()
+        # H255: post-step Stiefel retraction on body 2D params. Drives W toward
+        # W^T W = I via one Newton-Schulz polar step. Empty list (body_retraction=0)
+        # makes this a no-op; eager Python only, no @torch.compile interaction.
+        # arm_c COOLDOWN_RETRACTION threshold: PR prose says "final 40% of
+        # training" (where H249 showed riem_frob_ratio peak). The PR's literal
+        # check `progress > 1 - h_cooldown_frac` is degenerate because the
+        # baseline uses h_cooldown_frac=1.0 (full-training LR cooldown), which
+        # would make arm_c identical to arm_b. Using prose intent = last 40%.
+        if body_params_for_retraction:
+            if args.body_retraction == 1:
+                do_retract = True
+            elif args.body_retraction == 2:
+                do_retract = (step + 1) / train_steps > 0.6
+            else:
+                do_retract = False
+            if do_retract:
+                for p in body_params_for_retraction:
+                    stiefel_retract_one_step(p.data)
         # Log warmup telemetry every 10 steps during warmup (and at telemetry events
         # afterwards) so we capture the warmup curve at high resolution. Cheap since
         # it's just two floats.
@@ -1209,6 +1333,25 @@ for trial_idx in range(args.num_trials):
                 muonh_metrics["train/muonh/agc/scale_mean"] = muonh_agc_stats["agc_scale_mean"]
             if len(muonh_metrics) > 2:
                 wandb.log(muonh_metrics, step=wandb_step)
+        # H255: Stiefel-manifold geometry telemetry on body 2D params. Captures
+        # frob_norm, riem_norm (Stiefel deviation), and riem_frob_ratio post-step
+        # (i.e. AFTER retraction if active). Logged at the same cadence as the
+        # main telemetry plus an extra probe at step 5 for the chain-launch
+        # audit (compare arm_a CTRL drift profile vs arm_b retracted profile).
+        stiefel_due = (dist.get_rank() == 0
+                       and (telemetry_due or train_step == 5))
+        if stiefel_due:
+            body_stat_params = body_params_for_retraction if body_params_for_retraction else (
+                [p for name, p in model.named_parameters()
+                 if p.ndim == 2 and name.endswith("weight") and (
+                     "attn.proj" in name or "mlp.proj" in name
+                     or "mlp.fc" in name or "attn." in name)]
+            )
+            stiefel_stats = body_stiefel_telemetry(body_stat_params)
+            if stiefel_stats:
+                stiefel_stats["trial"] = trial_idx
+                stiefel_stats["train/step"] = train_step
+                wandb.log(stiefel_stats, step=wandb_step)
         if dist.get_rank() == 0 and telemetry_due:
             log_weight_telemetry(
                 model=model,
