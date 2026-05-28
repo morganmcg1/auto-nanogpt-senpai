@@ -1,3 +1,86 @@
+## 2026-05-28 22:45 UTC — Cycle 71 mid-362 — frieren #1596 266th refute (PER_DEPTH_HALF_ATTN_SOAP_TRUST_THRESHOLD STANDARD null Δ=+0.00082, STRUCTURAL FINDING: trust-gated attn-SOAP layer scope TRIPLE-CONFIRMED depth-insensitive across β2/refresh-freq/threshold + on_fraction saturation geometry quantified) + frieren #1623 NEW PER_DEPTH_HALF_MLP_SOAP_REFRESH_FREQ (extends #1545 validated MLP-SOAP front_up principle from continuous-EMA to discrete refresh cadence) + fern #1611 false stale_wip heartbeat (Arm A `wtf7jt3b` RUNNING step 2575/3175 ~81%, embed-heavy WD code patch ACTIVE)
+
+**Cumulative**: **266 refuted** / **159 distinct mech classes** / **117 family-level closures**.
+
+### PRs closed this wave (1 closure):
+
+| PR | student | mechanism | outcome |
+|---|---|---|---|
+| **frieren #1596** | frieren | PER_DEPTH_HALF_ATTN_SOAP_TRUST_THRESHOLD (Arm A `front_LOWER` 0.80/0.90 vs Arm B `front_HIGHER` 0.90/0.80) | **266th** — val_mean=3.27205 STANDARD-miss Δ=+0.00429; |Δ(A−B)|=0.00082 NULL within noise. Mechanically effective (on_fraction differs 6.25 pp between arms, opposite to naïve direction) but val-NULL. Trust-gate-as-regularizer washes out depth-direction at this layer scope. |
+
+### STRUCTURAL FINDING — Trust-gated attn-SOAP TRIPLE-CONFIRMED depth-insensitive + saturation geometry quantified
+
+Three independent gate-related parameter classes ALL fail at trust-gated attn-SOAP scope:
+
+| Mechanism | Class | Best arm Δ | Direction |
+|---|---|---|---|
+| MLP-SOAP β2 #1545 (always-on MLP) | continuous-EMA | +0.00323 STD-miss | front_up ✓ |
+| attn-SOAP refresh #1562 (trust-gated) | state-rule | −0.00288 | REVERSED |
+| attn-SOAP β2 #1569 (trust-gated) | continuous-EMA | −0.00060 | NULL |
+| **attn-SOAP threshold #1596 (this wave, trust-gated)** | **gate-decision** | **+0.00082** | **NULL** |
+
+The front_up depth principle empirically holds for body-wide always-on optimization (MLP-SOAP) but **does NOT extend** to trust-gated attn-SOAP — across continuous EMA, refresh cadence, AND threshold itself.
+
+**Saturation geometry (from on_fraction telemetry)**: front q saturates at 0.917-1.000 across threshold 0.80-0.90, back layers sit closer to gating boundary (back q shifts 0.583→0.750). Front-layer cosine alignment is structurally higher than back, making trust-gating partially redundant at front layers. This is the mechanistic explanation for the layer-scope depth-insensitivity.
+
+### Cycle 71 sub-cluster-edge cluster — 4-axis populated (unchanged this wave)
+
+| PR | mechanism | best-arm val | category |
+|---|---|---|---|
+| #1568 (closed) | MU_COOLDOWN_END_FRONT per-depth-half | 3.26992 | state-phase × per-group |
+| #1577 (closed) | PER_KIND_AUX_BETA2 (lm_head_TIGHT) | 3.26992 | per-group |
+| #1603 (in-flight) | PER_KIND_AUX_BETA2_PUSH (moderate) | 3.26985 | per-group |
+| **#1595 (closed)** | **ATTN_SOAP_TERMINATION_STEP (terminate_2975)** | **3.26926 BEST cycle 71** | **state-phase** |
+
+val_mean=3.26974 → cluster floor structurally well-populated at sub-cluster-edge, none individually break it at n=1.
+
+### fern #1611 heartbeat (false stale_wip)
+
+- Arm A `wtf7jt3b` (embed-heavy WD, WD_EMBED=0.003 / WD_LM_HEAD=0.0003): RUNNING step 2575/3175 (81%), val=3.350 mid-trajectory, ETA terminal ~30-40 min
+- Disabled-canary `zljmbbc5` val@200=4.08 ✓, `lmd8aune` val@200=4.088 ✓
+- Code patch confirmed: `optimizer/per_kind_wd_aux_enabled=1`, `wd_aux_embed=0.003`, `wd_aux_lm_head=0.0003` ✓
+- Arm B not yet launched (sequential per single-GPU constraint)
+- 5th AUX mechanism testing per-kind WD asymmetry; lr-scaling-inverse-law from #1577 predicts Arm A (embed-heavy) wins
+
+### PRs assigned this wave
+
+| PR | student | mechanism | role |
+|---|---|---|---|
+| **frieren #1623** | frieren | PER_DEPTH_HALF_MLP_SOAP_REFRESH_FREQ (Arm A `front_FAST` front=5/back=15 vs Arm B `front_SLOW` front=15/back=5) | Extends #1545 validated MLP-SOAP β2 front_up principle to discrete refresh cadence (orthogonal lever on same Gram-EMA state). Cross-scope counterfactual to #1562 (REVERSED at trust-gated attn-SOAP — same param, different layer scope). Arithmetic mean=10 preserves baseline compute budget. |
+
+### Fleet state at end of wake 30 (this wave)
+
+8 students all assigned, 0 idle:
+
+| PR | student | axis | status |
+|---|---|---|---|
+| #1603 | tanjiro | PER_KIND_AUX_BETA2_PUSH | WIP Arm A SUB-CLUSTER-EDGE 3.26985, Arm B pending |
+| #1606 | alphonse | MU_COOLDOWN_END_PUSH | WIP Arm A RUNNING ~81%, Arm B pending |
+| #1611 | fern | PER_KIND_WD_AUX | WIP Arm A RUNNING ~81%, Arm B pending |
+| #1613 | askeladd | PER_DEPTH_HALF_MU_COOLDOWN_START | WIP |
+| #1616 | nezuko | JOINT_OUTPUT_PROJ_BETA2_FAST (cross-scope law test) | WIP |
+| #1618 | edward | V_ISOLATED_REFRESH (3-bucket attn-SOAP refresh) | WIP |
+| #1620 | thorfinn | PHASE_ATTN_SOAP_REFRESH_FREQ (early/late compute reallocation) | WIP |
+| #1623 | frieren | PER_DEPTH_HALF_MLP_SOAP_REFRESH_FREQ | WIP (this wave) |
+
+### Active research themes (cycle 71)
+
+1. **Sub-cluster-edge cluster floor** [3.26926, 3.26992] structurally populated by 4 single-arm axes; no individual axis breaks it at n=1. Compound axes (e.g. JOINT cross-scope #1616, compute reallocation #1620) may unlock at single-seed.
+2. **Output-projection-fast cross-scope law** (#1575 attn-SOAP vp-fast + #1590 MLP-SOAP proj-fast → JOINT #1616 in-flight).
+3. **Per-kind 4-tier eigenbasis-stability ordering** q≈k>proj>v (revealed by #1583 on_fraction telemetry → 3-bucket dispatch #1618 isolating v).
+4. **SOAP early-asymmetry** ~28% per-step gap (revealed by #1595 + #1570 symmetric comparison → compute reallocation #1620).
+5. **Trust-gated attn-SOAP layer scope is depth-insensitive (TRIPLE CONFIRMED this wave)** — redirect to MLP-SOAP scope (#1623) and per-kind/phase axes (#1616/1618/1620) rather than further depth-half at trust-gated scope.
+
+### Next research directions
+
+1. **MLP-SOAP per-depth-half family expansion**: #1623 (refresh-freq) is the first non-β2 test. Other candidates: MLP-SOAP NS5_ITERS per-depth-half (untested), MLP-SOAP β1 (m-EMA) per-depth-half (untested).
+2. **Phase-axis exploitation**: #1620 (early-frequent vs late-rare refresh) is the first compute-reallocation phase test. If it lands sub-cluster-edge or merge, the early-SOAP-asymmetry mechanism (#1595's quantified 28% gap) becomes a generalizable lever. Sister test: PHASE_MLP_SOAP_REFRESH_FREQ for the body-wide scope.
+3. **Compound axis crossing**: per-kind × phase (e.g. v_FAST at early phase, proj_SLOW at late phase) — combines #1583 ordering with #1595 asymmetry. Higher-dimensional dispatch.
+4. **AUX optimizer 5th mechanism (in-flight via #1611)**: WD per-kind extension of lr-scaling-inverse law. If it confirms, the law is general across β1/β2/amsgrad/WD/m-reset — strong evidence for a unified AUX-optimizer-design principle.
+5. **Body-wide always-on family extension**: MLP-SOAP scope has front_up validated (#1545 β2, #1623 refresh-freq pending). Could extend to: per-depth-half MLP-SOAP trust-threshold-style WD-decay (would require code design).
+
+---
+
 ## 2026-05-28 22:30 UTC — Cycle 71 mid-357 — askeladd #1582 262nd refute (PER_KIND_NS5_ITERS_FULL_RUN STANDARD null Δ=+0.00128, CROSS-LAYER per-kind partition SYMMETRIC unlike depth-half) + thorfinn #1595 Arm B 25% in flight + frieren #1596 Arm A finished STANDARD val=3.27246 (Arm B running, NOT stale) + askeladd #1613 NEW PER_DEPTH_HALF_MU_COOLDOWN_START assignment (state-phase axis orthogonal to #1568 STRONGEST direction)
 
 **Cumulative**: **262 refuted** / **157 distinct mech classes** / **115 family-level closures**.
