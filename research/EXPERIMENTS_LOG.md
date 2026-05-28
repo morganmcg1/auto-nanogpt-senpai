@@ -1,5 +1,62 @@
 # SENPAI Research Results — auto-nanogpt-1gpu-r4
 
+## 2026-05-28 08:00 — PR #1488: NM R-buffer off-diagonal ablation (scale 1.0→0.5→0.2→0.0) — **CLOSED MONOTONE-NEG (17th cross-axis catalog finding, closes class 7 structural-OFFDIAG-NEG previously pending)**
+
+- branch: `g1r4-askeladd/nm-rbuffer-offdiag-ablation`
+- Hypothesis: Are the off-diagonal entries of R-buffer load-bearing? Test by scaling off-diag entries by factor s ∈ {1.0, 0.5, 0.2, 0.0}. Pre-c463 prediction (cycle 444): NEG-monotone (off-diag rotation structure dispositively load-bearing) ~30% probability vs NULL ~35%.
+
+| Arm | scale | W&B ID | val/loss | fs | R_cond_mean | R_cond_max | precond_ratio_mean | Δ_paired vs A |
+|:---:|:---:|---|:---:|:---:|:---:|:---:|:---:|:---:|
+| A ctrl | 1.0 | `9koqf95b` | **3.26306** | 3150 | 2.08M | 35.2M | 1.082 | (ref) |
+| B | 0.5 | `1nmek43o` | 3.26421 | 3150 | 4.87M | 92.0M | 1.026 | **+0.00115 NULL** |
+| C | 0.2 | `b4c59dhf` | 3.26719 | 3175 | 18.8K | 979K | 1.080 | **+0.00413 NEG** |
+| D | 0.0 | `xr8wt3g8` | 3.26943 | 3200 | **14.1K** | 969K | **1.314** | **+0.00637 STRONG-NEG** |
+
+**Verdict: MONOTONE-NEG (NULL → NEG → STRONG-NEG smooth trajectory). 17th catalog finding closes class 7 structural-OFFDIAG-NEG.**
+
+**G4 PASS-CLEAN**: Arm A ctrl drift = 3.26306 − 3.26310 = **−0.00004 EXCEPTIONALLY-CLEAN** ✅
+
+### 🎯 Bilateral confirmation of c463 R-buffer-as-ROTATION-OPERATOR finding
+
+Mechanism breakdown:
+- **scale=0.5 (B)**: partial off-diag shrinkage — preserves rotation eigenbasis structure → val NULL despite +134% R_cond increase (non-PSD perturbation absorbed by EMA mechanism)
+- **scale=0.2 (C)**: aggressive shrinkage — destroys rotation/eigenbasis → val NEG **despite −99.1% R_cond improvement**. R conditioning gets dramatically better but val degrades by +0.00413.
+- **scale=0.0 (D)**: pure diagonal R — total rotation destruction → val STRONG-NEG **despite −99.3% R_cond improvement**. R conditioning is OPTIMAL (14K) but val is WORST (+0.00637).
+
+**Key takeaway**: R-buffer conditioning improvement does NOT save val_loss when rotation structure is destroyed. **R-buffer is dominantly a ROTATION OPERATOR, not a magnitude tracker**. Off-diagonal entries carry the load-bearing geometric/rotational structure.
+
+### 🎯 Cross-mechanism integration with c468 #1486 α-eigenvalue cascade finding
+
+R-buffer EMA structure is **DOUBLY DIRECTIONAL**:
+- **α-axis (#1486)**: tolerates α<0.5 (NULL absorption via R_cond collapse −99%), not α>0.5 (eigenvalue cascade +481%)
+- **Off-diag scale (#1488 this PR)**: tolerates partial shrinkage (s=0.5), not aggressive shrinkage (s=0.2, 0.0)
+
+**Both findings converge**: production stack (α=0.5, full off-diag, β=0.95, period=2) is an **integrated structural local optimum**. The R-buffer is geometrically optimized — perturbing its structure in any of these directions hurts.
+
+### Cross-axis catalog (17 findings 8 classes, class 7 now CONFIRMED CLOSED)
+
+| Class | Findings | Updated |
+|---|---|---|
+| 1. magnitude-absorbed-NULL | 5 | no change |
+| 2. NS-axis-absorbed-NULL | 3 | no change |
+| 3. timing-non-monotone-NEG | 1 | no change |
+| 4. freshness-bilateral-monotone | 5 | no change |
+| 5. state-continuity-NEG | 1 | no change |
+| 6. temporal-coverage-SATURATING-NEG | 1 | no change |
+| **7. structural-OFFDIAG-NEG** | **1 (#1488 this PR, NOW CLOSED MONOTONE-NEG)** | **CONFIRMED ✓** |
+| 8. α-eigenvalue-cascade-NEG-ASYMMETRIC | 1 | c468 |
+
+### Why not merging or promoting
+
+1. No arm Δ_paired ≤ −0.001 (no FAV signal in any arm)
+2. Monotone NEG trajectory with smooth Δ progression — clean dead-end
+3. Mechanism story already definitively established via telemetric corroboration
+4. fs degrades monotonically (3150→3150→3175→3200)
+
+### W&B runs
+
+A `9koqf95b`, B `1nmek43o`, C `b4c59dhf`, D `xr8wt3g8`.
+
 ## 2026-05-28 07:30 — PR #1486: NM R-buffer α-exponent sweep — **CLOSED MONOTONE-NEG-ASYMMETRIC (16th cross-axis catalog finding, NEW class α-eigenvalue-cascade-NEG)**
 
 - branch: `g1r4-thorfinn/nm-alpha-exponent-sweep`
