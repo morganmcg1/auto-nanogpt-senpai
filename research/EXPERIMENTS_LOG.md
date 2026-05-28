@@ -1,3 +1,57 @@
+## 2026-05-28 17:15 — PR #1544: H238 alphonse AdaMuon (Adam-style post-NS5 per-element scaling) on MuonH body — CLOSED (98th NULL closure, **TIE/NULL verdict per FFS-PRIMARY directive; FIRST MuonH body-modification to NOT regress FFS at all; 🎯 PROGRAMME FINDING #58 candidate captured: post-NS5 per-element 2nd-moment scaling structurally NULL on top of polar projection at any β₂ ∈ [0.99, 0.999]**)
+
+- Branch: `g1r3-alphonse/h238-adamuon-body`
+- Hypothesis: Test AdaMuon (per-element exp_avg_sq scaling) applied at integration point A (BEFORE SI hyperball projection) to NS5 polar-projected `update` in MuonH body. 3-arm: CTRL adamuon=0 / ADAMUON_BETA2_099 default / ADAMUON_BETA2_0999 longer EMA. 38th mechanism class — first body-modification testing post-NS5 per-element scaling axis.
+
+| Arm | adamuon / β₂ | W&B | val | FFS | Δval vs H203 / σ_H174 | bit-id | Verdict |
+|---|---|---|---|---|---|---|---|
+| arm_a CTRL | 0 / n/a | `zxzbmu03` | 3.26900 | **3050** | +0.00070 / +0.79σ | 10.82583 EXACT | within-noise drift (11th-13th torch.compile soft-drift instance) |
+| arm_b ADAMUON_BETA2_099 | 1 / 0.99 | `cuaitokb` | **3.26822** | **3025** | −0.00008 / −0.09σ | 10.82583 EXACT | **TIES baseline FFS** |
+| arm_c ADAMUON_BETA2_0999 | 1 / 0.999 | `7n9fai2m` | 3.26834 | **3025** | +0.00004 / +0.05σ | 10.82583 EXACT | **TIES baseline FFS** |
+| H203 baseline (ref) | n/a | merged | 3.26830 | 3025 | — | — | — |
+
+- W&B verified: all state=finished. Chain orchestrator `run_chain_bc.sh` PID 666409 sequential dispatch (10:36 UTC start, ~5h52m wallclock terminal 16:28 UTC).
+- Per-arm config audit (per `feedback_audit_treatment_runs_too.md`): muonh_adamuon={0,1,1}, muonh_adamuon_beta2={0.99 unused, 0.99, 0.999}, muonh_adamuon_eps=1e-8 — distinct at W&B config-pane level + stdout `H238 AdaMuon ENABLED on MuonH body: beta2=...`.
+- Pre-flight 5-step smoke test (`logs_h238/smoke_armb.log`) step-0 val=10.82583 step-5 val=7.84552 verified clean code path before chain launch.
+- Statistical rule check `(3.28 − μ) × √n ≥ 0.004`: arm_a `0.01100` ✓, arm_b `0.01178` ✓, arm_c `0.01166` ✓ (all 3 arms PASS).
+- Wallclock overhead: arm_b +0.70% / arm_c +0.61% over CTRL step_avg — torch.compile pipelining clean.
+- Peak memory ~76GB on all 3 arms (fp32 exp_avg_sq buffer adds ~per-param-bytes × 2 vs bf16 model state — trivial on 96GB H100).
+
+### Analysis
+
+- **🎯 PROGRAMME FINDING #58 candidate captured — post-NS5 per-element scaling structurally NULL**: H238 is the **first MuonH body-modification in campaign to not REGRESS FFS at all**, joining H229/H231/H232 in the "polar-projection geometry is load-bearing without further body modification" cluster but as the **softer NULL endpoint** rather than NEG:
+
+| H# | Body modification | Mechanism class | Verdict | σ_H174 max |
+|---|---|---|---|---|
+| H229 | Inner Nesterov momentum FORM | momentum form replacement | bilateral NEG | +2.74σ (+50 FFS) |
+| H231 | muonh_mode=relative / clip | NS5 projection mode | trilateral NEG (PROGRAMME FINDING #51) | catastrophic |
+| H232 | Cautious update sign-masking | masking gate | bilateral NEG | +N.Nσ |
+| **H238** | **AdaMuon post-NS5 per-element 2nd moment** | **per-element scaling** | **bilateral TIES** | **+0.05σ** |
+
+  Strengthens PROGRAMME FINDING #51 candidate (muonh_mode=SI is load-bearing) by showing the per-element scaling axis is also closed.
+
+- **Mechanism diagnosis (denom telemetry direct evidence)**: `train/muonh/adamuon_denom_mean` plateaus at ~0.033 by step ~100 in both arms — matches NS5's per-element rms ~0.036 (NS5 normalizes update F-norm to √min(d_out,d_in) ≈ 27.7 for 768×768; per-element rms ~0.036). The polar projection from NS5 already makes per-element update magnitudes approximately uniform within ~0.036 ± 0.008 at warmup. AdaMuon's correction shrinks this variability to ~0.005 (arm_b std) / ~0.003 (arm_c std). **The model didn't need the additional uniformity** — polar projection alone is doing enough first-order conditioning that further per-element rescaling neither helps nor hurts.
+
+- **β₂-insensitivity is the structural-NULL signature**: arm_b vs arm_c Δval = 0.00012 across 10× β₂ range (0.99 vs 0.999). denom_mean essentially identical across β₂ (0.0326 vs 0.0327) → magnitude of per-element correction is β₂-insensitive in the limit; only smoothness varies (arm_c lower std=0.0024 vs arm_b std=0.0041, longer EMA window smooths). If AdaMuon's mechanism were load-bearing, β₂ in [0.99, 0.999] would shift FFS by more than the within-CTRL drift (~25 FFS). Instead arms are essentially identical → mechanism does not bite, not "needs tuning."
+
+- **Drift-coincidence vs true small gain — disambiguation impossible from n=1 sweep**: The consistent ~0.0008 val gap between AdaMuon-on (arm_b/c) and AdaMuon-off (arm_a) at same git SHA is suspiciously close to the CTRL drift magnitude (~0.0007 val / +25 FFS). Two readings: (1) AdaMuon cleanly cancels +25 FFS CTRL drift class by being active code path (no `if adamuon:` conditional-skip branch traced under @torch.compile when adamuon=1), or (2) AdaMuon achieves true −25 FFS improvement masked by within-experiment CTRL drift. Both readings yield identical observable outcomes from n=1 sweep. Student's suggested clean-CTRL-only ablation (3 trials, same git SHA, AdaMuon-off, vary only argparse parsing/non-AdaMuon flags) flagged for future advisor work to deconfound the +25 FFS drift class from per-element scaling axis.
+
+- **Drift-class side observation**: AdaMuon arms cleanly avoid the soft-drift class (FFS=3025 EXACT, val below CTRL). First evidence drift class may be tied to **conditional-skip branch traces** under @torch.compile, not argparse parsing per se. When argparse-conditional branch evaluates to *not enter* a new code path, compile retrace introduces drift; when branch evaluates to *enter* the new code path consistently, trace stays stable. Useful diagnostic for the +25 FFS drift class going forward.
+
+- **Cooldown trajectory**: b−a / c−a Δval is **near-constant ~0.0008 offset throughout cooldown** (steps 2500-3325), NOT a late-phase kick. Rules out cooldown-phase-specific AdaMuon kick (which would show divergent slopes near terminal). The offset is constant from mid-training onward → either drift cancellation or steady-state advantage, not phase-specific. arm_a CTRL val=3.28032 at step 3025 (fractionally above 3.28 target); arm_b/c val=3.27931/3.27955 (fractionally below). The AdaMuon delta is exactly enough to flip FFS at this boundary, which is structural-not-mechanism.
+
+- **Operational excellence**: integration point A (per-element scaling BEFORE SI hyperball projection) correct per advisor recommendation; fp32 `exp_avg_sq` buffer (corrected from initial bf16 zeros_like); bit-identity branch (`if adamuon:` guard, byte-for-byte original code path when adamuon=0); pre-flight 5-step smoke; AdaMuon denom telemetry decomposition (mean + std per step) — mechanistic rather than just verdict; statistical rule check; wallclock overhead audit; mechanistic narrative correctly identifying β₂-insensitivity as structural-NULL signature + drift-class side observation as campaign-level diagnostic.
+
+- **Programme implications**:
+  - Post-NS5 per-element scaling axis CLOSED at any β₂ ∈ [0.99, 0.999].
+  - MuonH body-modification space progressively closing: H229 inner Nesterov NEG, H231 muonh_mode SI trilateral NEG, H232 Cautious NEG, H238 AdaMuon TIES → polar projection geometry load-bearing without further body modification.
+  - Higher-leverage follow-ups deferred: AdaMuon + muonh_mode=clip (combining two NEG axes unlikely WIN); clean-CTRL-only drift-class ablation captured for future cycle.
+  - H247 frieren best-checkpoint + H248 edward post-NS5 diagonal preconditioning (different axis from AdaMuon's per-element scaling — H248 is EMA-g² not EMA of update²) in flight as orthogonal axes.
+
+- **Decision: NOT MERGING.** 98th NULL. FFS=3025 TIES baseline → NOT merge candidate per FFS-PRIMARY (Issue #1260). AdaMuon body-modification mechanism class CLOSED TIE/NULL bilaterally. **PROGRAMME FINDING #58 candidate captured** — post-NS5 per-element scaling structurally NULL on top of polar projection. H249 alphonse being assigned to fresh mechanism class (researcher-agent in-flight to identify 45th mechanism class on highest-EV unexplored axis).
+
+---
+
 ## 2026-05-28 16:35 — PR #1557: H241 edward Lion (sign-based momentum) aux-side replacement — CLOSED (97th NULL/NEG, **CATASTROPHIC NEG/NEG bilateral; 🎯 PROGRAMME FINDING #55 CONSOLIDATES (4 of 4 aux-replacement quadrilateral): aux AdamW with our HP tuning STRUCTURALLY OPTIMAL; PROGRAMME FINDING #49 counter-evidence: β₁=0.8 is AdamW-mechanism-specific, does NOT transfer to Lion**)
 
 - Branch: `g1r3-edward/lion-aux-replacement`

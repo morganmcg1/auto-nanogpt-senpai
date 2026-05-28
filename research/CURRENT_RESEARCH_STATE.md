@@ -1,6 +1,78 @@
 # SENPAI Research State — auto-nanogpt-1gpu-r3
 
-- **Last updated:** 2026-05-28 16:40 UTC
+- **Last updated:** 2026-05-28 17:20 UTC
+
+---
+
+## Cycle ~1170: H238 CLOSED (98th NULL — TIE/NULL verdict, FIRST MuonH body-modification to NOT regress FFS at all) + H242 thorfinn arm_b WSD_30 terminal NEG (cooldown SHAPE structurally load-bearing) + 🎯 PROGRAMME FINDING #58 candidate (post-NS5 per-element 2nd-moment scaling structurally NULL on top of polar projection) + H249 alphonse PR #1597 ASSIGNED (45th mechanism class — first Riemannian-metric body update in campaign)
+
+**Key closures this cycle:**
+
+- **H238 alphonse AdaMuon (Adam-style post-NS5 per-element scaling) on MuonH body (PR #1544)** — 98th NULL closure. **TIE/NULL verdict per FFS-PRIMARY directive**. arm_b ADAMUON_BETA2_099 val=3.26822/FFS=3025 TIES baseline EXACT; arm_c ADAMUON_BETA2_0999 val=3.26834/FFS=3025 TIES baseline EXACT. arm_a CTRL val=3.26900/FFS=3050 (+0.79σ_H174, ~11th-13th torch.compile retracing soft-drift instance). All bit-id step-0 val=10.82583 EXACT on all 3 arms. **FIRST MuonH body-modification in campaign to not REGRESS FFS at all** — joins H229/H231/H232 cluster but as softer NULL endpoint rather than NEG. Per FFS-PRIMARY (Issue #1260), NOT a merge candidate. β₂-insensitivity (Δval=0.00012 across 10× β₂ range) is the structural-NULL signature: mechanism does not bite, not "needs tuning."
+
+  **Denom telemetry direct mechanistic evidence**: `train/muonh/adamuon_denom_mean` plateaus at ~0.033 by step ~100 in both arms — matches NS5's per-element rms ~0.036 (NS5 normalizes update F-norm to √min(d_out,d_in) ≈ 27.7 for 768×768; per-element rms ~0.036). The polar projection already makes per-element update magnitudes approximately uniform; AdaMuon's correction shrinks std from ~0.008 to ~0.005 (arm_b) / ~0.003 (arm_c). Model didn't need the additional uniformity.
+
+  **Drift-coincidence vs true small gain ambiguity**: The ~0.0008 val gap between AdaMuon-on (arm_b/c) and AdaMuon-off (arm_a) at same git SHA is suspiciously close to CTRL drift magnitude (~0.0007 val / +25 FFS). Two readings both yield identical observable outcomes from n=1 sweep: AdaMuon cleanly cancels drift OR true −25 FFS masked by CTRL drift. **Drift-class side observation**: AdaMuon arms avoid drift class entirely → first evidence that drift class may be tied to **conditional-skip branch traces** under @torch.compile, not argparse parsing per se. When branch evaluates to *not enter* a new code path, trace introduces drift; when branch evaluates to *enter* consistently, trace stays stable. Useful campaign-level diagnostic.
+
+  **🎯 PROGRAMME FINDING #58 candidate captured** — post-NS5 per-element 2nd-moment scaling structurally NULL on top of polar projection at any β₂ ∈ [0.99, 0.999]:
+
+  | H# | Body modification | Mechanism class | Verdict |
+  |---|---|---|---|
+  | H229 | Inner Nesterov momentum FORM | momentum form replacement | bilateral NEG (+2.74σ) |
+  | H231 | muonh_mode=relative / clip | NS5 projection mode | trilateral NEG (PROGRAMME FINDING #51) |
+  | H232 | Cautious update sign-masking | masking gate | bilateral NEG |
+  | **H238** | **AdaMuon post-NS5 per-element 2nd moment** | **per-element scaling** | **bilateral TIES** (+0.05σ) |
+
+- **H242 thorfinn arm_b WSD_30 cooldown SHAPE replacement (PR #1571)** — arm_b TERMINAL NEG flagged in advisor nudge. arm_b WSD_30 cf=0.3 (70% stable + 30% cosine cooldown) val=3.31719/FFS=−1 (target never crossed). Δval vs H203=+0.04889 / +55.3σ_H174 CATASTROPHIC. arm_c WSD_15 cf=0.15 still in flight at step 1020/3325 (~31%) ETA terminal ~18:30 UTC. The H148+H203 cooldown curve is structurally load-bearing — shortening it to 30% removes the gradient-of-LR signal the polar projection needs for final approach. arm_a CTRL +25 FFS soft-drift (~9th instance per student count). PROGRAMME FINDING #51 candidate strengthens (MuonH polar projection structural tightness extends to cooldown shape; cf=1.0 cosine structurally optimal at 3325-step contract).
+
+**New assignment:**
+
+- **H249 alphonse PR #1597**: **Riemannian-norm body SI projection — 45th mechanism class.** Replace Frobenius norm in `scale_invariant_update_` with canonical Stiefel Riemannian metric norm `‖g‖_Riem = ‖g − W·(W^T·g)/2‖_F`. The SI hyperball step currently uses `update.norm()` (Frobenius) to scale step size. On Stiefel manifold (NS5 polar factor near-orthogonal), Frobenius **overestimates** "true" step length for updates aligned with W's column space, **underestimates** for orthogonal updates. Riemannian metric strips normal components before measuring length. **Orthogonal to H248 mechanistically** — H249 uses instantaneous geometry (Riemannian metric tensor); H248 uses time-accumulated statistics (diagonal EMA-g²). 3-arm: CTRL Frobenius / RIEMANNIAN_DEFAULT current-step W / RIEMANNIAN_DETACHED `param.detach()`. Implementation: `@torch.compiler.disable` decorated `riemannian_norm_stiefel(update, W, eps)` function before `scale_invariant_update_`; ~2 extra matmuls per MuonH step (O(nk), same asymptotic as one NS5 iteration). Theoretical grounding: Brantner 2023 (arxiv:2305.16901) manifold-respecting norms for transformer training, Kong et al. 2023 (arxiv:2205.14173, ICLR) Stiefel momentum optimizer constraint preservation, Davis & Drusvyatskiy 2025 (arxiv:2512.04299) Muon spectral analysis. WIN probability ~15% (above campaign base rate ~10%) — strong theoretical grounding + structurally novel + low overhead + orthogonal to in-flight H248, but tempered by H238 AdaMuon TIE prior on post-NS5 modifications.
+
+  Diagnostic telemetry: `body/riem_norm_mean`, `body/frob_norm_mean`, `body/riem_frob_ratio_mean`. Ratio is primary mechanistic diagnostic: if uniformly ~1.0 throughout training, mechanism inert; systematic deviation indicates correction doing real work.
+
+**Survey state**: 8/8 WIP after H249 assignment (alphonse no longer idle), 0 review-ready. No new human directives this cycle.
+
+**Programme totals after cycle ~1170:**
+- **98 NULL/NEG closures** (+1 since cycle ~1130; H238 TIE counts as NULL closure per FFS-PRIMARY)
+- **45 novel mechanism classes** (H249 = 45th)
+- **6 PROGRAMME FINDINGS pipeline** with **3 CONFIRMED + 3 candidates + 1 reclassified** (added #58 candidate today: post-NS5 per-element 2nd-moment scaling structurally NULL on top of polar projection)
+- **2 confirmed + 1 candidate VESTIGIAL FINDINGS** (unchanged)
+- **17 MuonH-SI/MuLoCo structural tightness members** (unchanged)
+- **13+ instances torch.compile retracing soft-drift cluster** (AdaMuon arms in H238 cleanly AVOID drift class → new diagnostic: drift may be tied to conditional-skip branch traces, not argparse parsing per se)
+
+**Exploration territory map updates after cycle ~1170:**
+
+| Axis | State (delta from cycle ~1130) |
+|---|---|
+| Aux optimizer replacement | CONSOLIDATED CLOSED (PROGRAMME FINDING #55) — unchanged |
+| β₁ dynamics-tier transfer across optimizer classes | FALSIFIED (PROGRAMME FINDING #49) — unchanged |
+| Pre-NS5 second-order (Shampoo/SOAP/Sophia/MARS) | CLOSED (3-leg H92+H93+H98) — unchanged |
+| Post-NS5 per-element 2nd-moment scaling | **CLOSED bilateral TIE (PROGRAMME FINDING #58 candidate via H238)** |
+| Post-NS5 diagonal preconditioning (Riemannian tangent space) | H248 WIP (FIRST EVER TESTED in campaign) — unchanged |
+| **Post-NS5 Riemannian metric step-size norm** | **H249 WIP (alphonse, first Riemannian-metric body update)** |
+| MuonH cooldown SHAPE (WSD vs cosine) | **arm_b NEG terminal, arm_c in flight (H242 thorfinn)** |
+| Best-checkpoint terminal eval | H247 WIP (frieren) — unchanged |
+| Manifold-projected EMA terminal eval | H247 WIP (frieren) — unchanged |
+| Outer optimizer FORM replacement | H246 WIP (askeladd LoCo-Adam) — unchanged |
+| Per-layer body LR | H244 WIP (fern) — unchanged |
+| Time-varying aux β₁/β₂ schedule | H245 WIP (nezuko ADana) — unchanged |
+| Fractional NS iterations | H243 WIP (tanjiro) — unchanged |
+| Body Shampoo/SOAP preconditioner | QUEUED (if H248 confirms post-NS5 axis is alive) — unchanged |
+| Eigenvalue-spectrum-constrained body init beyond F-norm | UNTESTED — unchanged |
+| Body weight orthogonality regularizer during training | UNTESTED — unchanged |
+
+**Next-cycle monitoring queue**:
+- **H242 thorfinn arm_c WSD_15** — terminal ETA ~18:30 UTC. arm_c likely catastrophic NEG (cf=0.15 < cf=0.3 monotonically worse direction). When terminal: confirm PROGRAMME FINDING #51 candidate extension to cooldown SHAPE.
+- **H243 tanjiro arm_b W&B-missing clarification** (asked cycle ~1060) — still outstanding
+- **H244 fern duplicate concurrent arm_a runs** (operational concern flagged cycle ~1060) — still outstanding
+- **H245 nezuko ADana** — should have launched after H245 assignment cycle ~980
+- **H246 askeladd LoCo-Adam** — should have launched after H246 assignment cycle ~1020
+- **H247 frieren best-checkpoint** — ETA terminal ~21:00 UTC (5h post-launch cycle ~1100 ~15:55 UTC)
+- **H248 edward post-NS5 diagonal EMA-g²** — ETA terminal ~21:00 UTC (5h post-launch cycle ~1130)
+- **H249 alphonse Riemannian norm** — fresh assignment, ETA terminal ~5h post student pickup
+
+**Clean-CTRL-only drift-class ablation queued**: H238 student's suggested follow-up (3 trials, same git SHA, no treatment, vary only argparse parsing/non-treatment flags) would deconfound +25 FFS drift class from per-element scaling axis. Flagged for future cycle as campaign-level investigation, NOT assigned to a single student.
 
 ---
 
