@@ -1,5 +1,49 @@
 # SENPAI Research Results
 
+## 2026-05-28 01:42 UTC — PR #1508 nezuko: Cooldown LR floor (min_lr_ratio 0.001 vs 0.01) — ASSIGNED
+
+- Branch: `g1r1-nezuko/cooldown-lr-floor`
+- Hypothesis: Non-zero minimum LR at the end of cooldown. Current schedule decays to exactly eta=0.0 at the final step. A floor of 0.001× peak LR (Arm A) or 0.01× peak LR (Arm B) keeps the model making gentle micro-corrections during pEMA averaging. External LLM practice (GPT-4, Llama, Chinchilla) universally uses non-zero min LR. **This axis has never been tested in this programme.** Orthogonal to cooldown shape (#1496 askeladd in flight), optimizer state resets (#1487 edward, #1475 tanjiro), and all pEMA work.
+- Status: **ASSIGNED** — nezuko to implement `--min_lr_ratio` flag and run both arms on canonical baseline
+
+---
+
+## 2026-05-28 01:40 UTC — PR #1507 fern: pEMA β ramp SHAPE (concave vs convex) — ASSIGNED
+
+- Branch: `g1r1-fern/ema-ramp-shape`
+- Hypothesis: Current pEMA β ramp interpolates linearly from β_base=0.97 to β_target=0.99 using `(1 - lr_mult)`. A concave ramp (`(1-lr_mult)^0.5`) rises fast early — β stabilizes to long-memory 0.99 regime rapidly post-refresh. A convex ramp (`(1-lr_mult)^2.0`) stays near 0.97 until the model has nearly converged then ramps sharply for terminal smoothing. PR #1458 closed NULL confirming β_target endpoint is robust to ±0.005; this tests the ramp SHAPE (interpolation curve), a distinct axis not yet tested.
+- Status: **ASSIGNED** — fern to implement `--ema_ramp_shape` flag and run both arms on canonical baseline
+
+---
+
+## 2026-05-28 01:38 UTC — PR #1459 fern: pEMA step-position LATE-scan (2850 vs 2900) — CLOSED NULL
+
+- Branch: `g1r1-fern/pema-refresh-step-late-scan`
+- Hypothesis: Extend pEMA refresh step-position map to late territory (2850, 2900). Completes the 6-point step-position map: {2275 NULL, 2500 NULL, 2600 WIN, 2750 TBD (from #1457), 2850 TBD, 2900 TBD}.
+
+| Arm | Refresh step | W&B | val_loss_ema | sr | Δ vs baseline (3.263938) | Verdict |
+|-----|-------------|-----|--------------|-----|---|---------|
+| A   | 2850        | `wk4a79fb` | 3.265857 | 2950 | +1.919 mnat | NULL |
+| B   | 2900        | `eims54k3` | 3.267925 | 3000 | +3.987 mnat | NULL |
+
+**Conclusion:** pEMA step-position late-territory canon CONFIRMED — monotonically worsens past step 2600. Refresh @ 2850 produces a measurable cold-start spike (+7.879 mnat instantaneous disruption at refresh boundary). Refresh @ 2900 too close to terminal eval window to recover. Closes the late-side of the step-position axis: {2600=WIN, 2750=TBD(#1457), 2850=NULL, 2900=NULL}. Step 2600 confirmed as sharp-peak optimum. fern → PR #1507 pEMA β ramp shape.
+
+---
+
+## 2026-05-28 01:36 UTC — PR #1458 nezuko: pEMA × ema_beta_target interaction (0.985 vs 0.995) — CLOSED NULL
+
+- Branch: `g1r1-nezuko/pema-beta-target-scan`
+- Hypothesis: ema_beta_target=0.99 was tuned pre-pEMA in PR #1234. After pEMA refresh @ 2600 (PR #1429 WIN), the optimal β_target may differ — a lower target (0.985) allows faster EMA accumulation post-refresh, a higher target (0.995) extends the averaging window.
+
+| Arm | β_target | W&B | val_loss_ema | sr | Δ vs baseline (3.263938) | Verdict |
+|-----|----------|-----|--------------|-----|---|---------|
+| A   | 0.985    | `t2lao6bj` | 3.266638 | 2925 | +2.700 mnat | NULL |
+| B   | 0.995    | `efisebaw` | 3.265908 | 2925 | +1.970 mnat | NULL |
+
+**Conclusion:** pEMA × ema_beta_target interaction NULL — ema_beta_target=0.99 is robust to ±0.005 perturbation. Critical observation: terminal buffer_frob_dist scales monotonically with β_target (A=14.939, baseline≈31, B=87.249), confirming that β_target controls EMA inertia as designed — but neither extreme yields val gains. **β_target endpoint axis CLOSED. This unblocks Idea 5 (pEMA β-ramp SHAPE) from research bank.** nezuko → PR #1508 cooldown LR floor.
+
+---
+
 ## 2026-05-28 00:00 UTC — PR #1496 askeladd: Cooldown LR shape (cosine vs sigmoid) — ASSIGNED
 
 - Branch: `g1r1-askeladd/cooldown-shape`
