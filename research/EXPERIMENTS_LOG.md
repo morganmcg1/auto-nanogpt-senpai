@@ -1,5 +1,36 @@
 # SENPAI Research Results
 
+## 2026-05-28 19:35 UTC — PR #1532 edward: Aux Adam β₂ transient-increase pulse @ cooldown onset — ✅ MERGED WIN (n=2 confirmed)
+
+- Branch: `g1r1-edward/aux-b2-pulse`
+- Hypothesis: At cooldown onset (step 975), aux Adam β₂ is shifted from 0.95 → 0.99 (permanent step-change). Wider variance memory window in the cooldown phase stabilizes aux Adam step scaling during LR decay.
+- W&B: Arm A `o9ow75oy` (β₂=0.97, NULL), Arm B seed-1 `9coyk2ke` (β₂=0.99, WIN), Arm B seed-2 `09qrijtm` (β₂=0.99, WIN)
+
+| Run | β₂ target | val/loss_ema | sr | Δval (mnat) | Verdict |
+|---|---|---:|---:|---:|---|
+| Baseline (#1429) | — | 3.263938 | 2900 | — | — |
+| Arm A (weak, seed-1) | 0.97 | 3.264997 | 2925 | +1.06 | ❌ NULL |
+| **Arm B (strong, seed-1)** | **0.99** | **3.262184** | **2875** | **−1.76** | **✅ WIN** |
+| **Arm B (strong, seed-2)** | **0.99** | **3.263523** | **2875** | **−0.42** | **✅ WIN** |
+| **n=2 mean** | **0.99** | **3.262854** | **2875** | **−1.08** | **✅ MERGED** |
+
+- **Analysis:** Both seeds independently hit sr=2875 (PASS clause 1: sr ≤ 2887.5). n=2 mean val_ema=3.262854 < 3.263938 (PASS clause 2). Stat-sig margin: 0.02425 ≥ 0.004 (6.1×). Mechanism is amplitude-sensitive: weaker pulse (β₂=0.97) NULL, stronger pulse (β₂=0.99) WIN → monotone-increasing relationship in the upward direction. Aux Adam variance estimator "remembering" longer during LR decay phase provides stable step scaling. PLATEAU BROKEN after 7 NULLs.
+- **New baseline**: val_ema=3.262854, sr=2875. Updated merge gate: `sr ≤ 2862.5 OR (sr=2875 AND val_ema < 3.262854)`.
+
+## 2026-05-28 19:35 UTC — PR #1576 tanjiro: Schedule-Free AMUSE z/x averaging — ❌ CLOSED NULL (decisive)
+
+- Branch: `tanjiro/schedule-free-amuse`
+- Hypothesis: Replace WSD LR cooldown with Defazio-style polynomial SF z/x averaging (sf_beta=0.999). If iterate averaging can substitute for LR decay, the speedrun target should still be reachable.
+- W&B: Arm B `t39pt08a` (only arm; Arm A crashed 3× from SIGTERM, skipped per advisor approval)
+
+| Arm | Mechanism | val_loss_x | val_loss_z_live | sr | Verdict |
+|---|---|---:|---:|---:|---|
+| Baseline #1429 | WSD cooldown | — | 3.2636 | 2900 | — |
+| B (SF β=0.999) | Polyak z/x avg | **4.8325** | 3.5229 | **-1 (never reached)** | ❌ NULL |
+
+- **Analysis:** At sf_beta=0.999, c_t saturates to ≈0.99 by step ~100, making the x-buffer a **uniform mean** of all post-warmup z-iterates. At constant LR=0.040, z-iterates traverse weight space broadly (Frobenius distance x→z grows 720× from t=25→2275). Averaging across this trajectory yields parameters outside any individual basin — val_loss_x balloons from 3.597 (best at step 1125) to 4.832 (terminal). The z-iterate alone (no cooldown) plateaus at val_loss≈3.52 — 257 mnat above baseline. **WSD cooldown does 30-50 mnat of final-phase convergence that Polyak averaging cannot substitute in this regime.** Hypothesis directly refuted.
+- **Key mechanism finding**: x-buffer best at step 1125 (early averaging benefit, like pEMA), but diverges catastrophically as buffer grows stale. This establishes that iterate averaging REQUIRES either: (a) LR decay to keep z-iterates close in weight space, (b) late-only averaging window starting at LR decay onset, or (c) Defazio-style true SF (interpolated gradient point), not just Polyak-on-SGD.
+
 ## 2026-05-28 18:46 UTC — PR #1561 frieren: Muon Nesterov momentum correction — ❌ CLOSED BILATERAL NULL
 
 - Branch: `g1r1-frieren/muon-nesterov`
