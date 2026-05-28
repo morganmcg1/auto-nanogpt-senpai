@@ -1,5 +1,27 @@
 # SENPAI Research State — auto-nanogpt-1gpu-r1
 
+- **Last update: 2026-05-28 10:15 UTC**
+- **🚨 INFRA — W&B 401 ONGOING.** All new wandb.init() fail (issue #1550). Active arms using WANDB_MODE=offline. In-flight pre-09:00 sockets likely streaming but W&B dashboard heartbeat-stale. Human team not yet responded.
+- **🔴 #1510 frieren CLOSED BILATERAL NULL (10:10 UTC).** Both per-block NS_ITERS patterns NULL — late-deeper: val_ema=3.267111, sr=2950 (+3.17 mnat); early-deeper: val_ema=3.267120, sr=2925 (+3.18 mnat). Symmetric +3.17 mnat regardless of stratification direction. **Per-block axis: LR (WIN #1289) ≠ NS_ITERS or μ. Per-block axis closed for precision/momentum parameters.** frieren → #1561 Muon Nesterov momentum.
+- **🔴 #1507 fern CLOSED BILATERAL NULL (10:00 UTC).** Linear β ramp shape is at local optimum: concave Δ+0.486 mnat, convex Δ+0.831 mnat. **Critical canon observation: concave val_live=3.263860 < baseline val_ema=3.263938 — EMA buffer is the failure mode.** pEMA β ramp SHAPE axis closes (with endpoints and refresh step). fern → #1559 decoupled β_target post-refresh (motivated by ema_minus_live=+0.56 observation).
+- **🔴 #1508 nezuko CLOSED BILATERAL NULL (10:00 UTC).** Cooldown LR floor: min_lr_ratio=0.001 (+2.479 mnat), min_lr_ratio=0.01 (+0.185 mnat). Cooldown tail-scalar axis FULLY CLOSED. nezuko → #1560 decoupled aux Adam LR cooldown timing from body Muon.
+- **🟡 #1531 thorfinn AGC offline run ea819ilg — step 500 HEALTHY.** filed_units decayed 94,960→910 (0.5% total units). val/loss_live step 125=4.460 vs baseline 4.477 (-17 µnat). Mechanism executing correctly. ETA terminal ~12:25 UTC.
+- **🟢 #1535 alphonse pEMA aux-extend — Arm A running** (GPU 98%, early stage). Implementation complete — extend pEMA buffer to aux Adam params. 
+- **Active WIP portfolio:**
+  - #1542 askeladd: β_t decouple from lr_mult (running, GPU 98%)
+  - #1535 alphonse: pEMA aux-extend Arm A (running, GPU 98%)
+  - #1531 thorfinn: AGC Option 1 offline, ETA terminal ~12:25 UTC
+  - #1532 edward: β2 transient pulse `o9ow75oy` step 2120+/3250, ETA terminal ~11:00 UTC
+  - #1524 tanjiro: Arm A NULL, Arm B wide-gentle offline, ETA ~12:50 UTC
+  - **NEW:** #1561 frieren: Muon Nesterov (just assigned)
+  - **NEW:** #1559 fern: pEMA post-refresh β_target decouple (just assigned)
+  - **NEW:** #1560 nezuko: aux Adam LR cooldown timing decouple (just assigned)
+- **All 8 r1 students engaged. Zero idle.**
+- **Emerging research themes:**
+  - **pEMA buffer dynamics post-refresh** is an open mechanism question: ema underperforms live by 0.5-0.6 mnat. #1559 fern directly tests this. High signal potential.
+  - **Aux vs body schedule decoupling**: multiple in-flight axes (#1542 β_t, #1560 LR timing, #1535 pEMA scope, #1531 AGC, #1532 β2 pulse) all test body/aux asymmetry. If any WIN emerges, opens a compound stacking experiment.
+  - **Momentum state handling**: #1561 frieren Nesterov momentum is the first mechanism-change experiment in Muon's momentum accumulation. Per issue #1252 directive priority.
+
 - **Last update: 2026-05-28 09:20 UTC**
 - **🚨 INFRA — W&B API KEY INVALIDATED FLEET-WIDE @ ~09:00 UTC.** Server-side rotation/revocation of WANDB_API_KEY in `senpai-secrets`. All new `wandb.init()` calls return HTTP 401 (advisor pod confirmed; tanjiro independently verified via direct GraphQL probe). In-flight runs that authenticated before 09:00 UTC continue streaming via existing socket (dashboard may show "crashed" — heartbeat staleness false positive, cross-check kubectl GPU). GH issue #1550 filed and escalated. Blocks: new arm launches need `WANDB_MODE=offline` + post-hoc `wandb sync`; advisor cannot run `senpai:merge-winner` preflight (W&B validation step). Affected new launches: #1542 askeladd, #1531 thorfinn (offline since 09:02 via earlier workaround), #1524 tanjiro Arm B.
 - **🔴 #1524 tanjiro stable-pulse Arm A TERMINAL NULL.** Arm A `xbel2nxt` final: val_loss=3.266070, sr=2925 — fails merge gate (Δval+2.13 mnat, Δsr+25). Earlier W&B-slope projection (-9.66 mnat/100step → 3.246) overestimated terminal — post-EMA-refresh slope flattened across last 425 steps, consistent with cooldown asymptote. Mechanism reading: pulse window [1550, 1650) fired correctly, post-pulse descent resumed (no kill-gate trip), but pulse perturbation did NOT shift cooldown trajectory enough to break sr=2900. Optimization explored different path but landed in same basin. **Arm B wide-gentle (width=200, mult=1.10) approved offline.** ETA terminal ~12:50 UTC. If Arm B also NULLs → stable-pulse SHAPE axis closes (2-point sweep).

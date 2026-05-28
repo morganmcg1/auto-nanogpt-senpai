@@ -1,5 +1,81 @@
 # SENPAI Research Results
 
+## 2026-05-28 10:10 UTC — PR #1510 frieren: Per-block Muon NS_ITERS depth-stratified — CLOSED BILATERAL NULL
+
+- Branch: `g1r1-frieren/per-block-ns-iters`
+- Hypothesis: Depth-stratified NS_ITERS (more iterations for late/deep blocks) mirroring #1289 per-block LR WIN.
+
+| Arm | NS_ITERS pattern (blocks 0→11) | W&B | val/loss_ema | sr | Δval (mnat) | Gate |
+|---|---|---|---|---|---|---|
+| Baseline (#1429) | uniform=12 | y4nxof1m / fek06bk7 | 3.263938 | 2900 | — | — |
+| A (late-deeper) | [10,10,11,11,11,12,12,13,13,13,14,14] | d6b6wx4v | 3.267111 | 2950 | +3.17 | ❌ NULL |
+| B (early-deeper) | [14,14,13,13,13,12,12,11,11,11,10,10] | gq38vymw | 3.26712 | 2925 | +3.18 | ❌ NULL |
+
+- **Key finding — SYMMETRIC NULL:** Both arms regress by exactly +3.17-3.18 mnat. The direction of depth-stratification makes NO difference. Whatever is costing 3.17-3.18 mnat is about ANY non-uniform depth stratification, not about which direction.
+- **Canon update — per-block axis closure:** LR depth-stratification (#1289 WIN) does NOT generalize to NS_ITERS or μ (#1483). Per-block axis is productive ONLY for LR-magnitude. Per-block precision and momentum parameters respond to different curvature principles. Full axis:
+
+  | Per-block parameter | PR | Result |
+  |---|---|---|
+  | LR | #1289 | WIN — late-higher |
+  | μ | #1483 | CATASTROPHIC NULL |
+  | NS_ITERS | #1510 | NULL (symmetric Δ+3.17) |
+
+- **New assignment:** frieren → #1561 Nesterov momentum for body Muon (full vs stable-phase only).
+
+---
+
+## 2026-05-28 10:00 UTC — PR #1507 fern: pEMA β ramp SHAPE (concave vs convex) — CLOSED BILATERAL NULL
+
+- Branch: `g1r1-fern/ema-ramp-shape`
+- Hypothesis: Ramp INTERPOLATION CURVE for β trajectory (concave p^0.5 vs convex p^2.0).
+
+| Arm | Shape | W&B | val/loss_ema | val/loss_live | sr | Δval (mnat) | Gate |
+|---|---|---|---|---|---|---|---|
+| Baseline (#1429) | linear (power=1.0) | y4nxof1m / fek06bk7 | 3.263938 | — | 2900 | — | — |
+| A (concave) | p^0.5 | wbtvd5rb | 3.264424 | **3.263860** | 2925 | +0.486 | ❌ NULL |
+| B (convex) | p^2.0 | 5srckf1m | 3.264769 | 3.264184 | 2925 | +0.831 | ❌ NULL |
+
+- **Critical canon observation:** Arm A concave val_live=3.263860 is **BETTER** than baseline val_ema=3.263938. The EMA buffer is the failure mode, not the optimization trajectory. EMA is over-smoothing the post-refresh window (+0.564-0.585 mnat delta).
+- **Shape axis closes:** Linear is at a local optimum. Concave (less bad) vs convex (more bad) shows weak directionality toward higher β earlier, but neither beats baseline.
+- **Unblocked:** pEMA β ramp axis now fully characterized — endpoints (#1458), shape (#1507), refresh step (#1457/#1459). Opens: decoupled β_target post-refresh (fern's next PR #1559).
+- **pEMA β ramp FAMILY CLOSURE:**
+
+  | Axis | PR | Status |
+  |---|---|---|
+  | β_base endpoint | — | 0.97 (empirical canon) |
+  | β_target endpoint | #1458 | CLOSED — 0.99 optimal ±0.005 |
+  | Ramp shape | #1507 | **CLOSED HERE — linear optimal** |
+  | Refresh step position | #1457/#1459 | CLOSED — sharp peak @ 2600 |
+  | Decoupled β_target post-refresh | #1559 (in flight) | PENDING |
+
+---
+
+## 2026-05-28 10:00 UTC — PR #1508 nezuko: Cooldown LR floor (min_lr_ratio 0.001 vs 0.01) — CLOSED BILATERAL NULL
+
+- Branch: `g1r1-nezuko/cooldown-lr-floor`
+
+| Arm | min_lr_ratio | Floor binds at step | W&B | val/loss_ema | sr | Δval (mnat) | Gate |
+|---|---|---|---|---|---|---|---|
+| Baseline (#1429) | 0 | N/A | y4nxof1m / fek06bk7 | 3.263938 | 2900 | — | — |
+| A (0.001) | 0.001 | 3234 (last 16 steps) | 139iq490 | 3.266417 | 2925 | +2.479 | ❌ NULL |
+| B (0.01) | 0.01 | 3166 (last 84 steps) | vk375rty | 3.264123 | 2925 | +0.185 | ❌ NULL |
+
+- **Counterintuitive finding:** Arm B (larger floor, 10×) is CLOSER to baseline than Arm A. Student's read: Arm B keeps model in a descending regime for 84 steps (pEMA averages a productive tail); Arm A's 16-step floor adds only noise.
+- **Arm B Δ+0.185 mnat is within single-seed noise** but sr=2925 fails both gate clauses (sr<2875.5 and sr=2900 both false). No n=2 needed.
+- **Cooldown TAIL axis family CLOSED:**
+
+  | Cooldown parameterization | PR | Status |
+  |---|---|---|
+  | POWER γ | #969/#1084 | CLOSED — γ=1.4 optimal |
+  | SHAPE family | #1496 | CLOSED catastrophic |
+  | PER-BLOCK γ | #1342 | CLOSED |
+  | FLOOR (min LR) | #1508 | **CLOSED HERE** |
+  | LENGTH (cooldown_frac) body vs aux decoupled | #1560 (in flight) | PENDING |
+
+- **New assignment:** nezuko → #1560 aux Adam LR cooldown timing decoupled from body Muon.
+
+---
+
 ## 2026-05-28 09:20 UTC — INFRA: W&B API key invalidated server-side fleet-wide (Issue #1550)
 
 - At ~09:00 UTC the WANDB_API_KEY in `senpai-secrets` was rotated/revoked server-side. All new `wandb.init()` calls return HTTP 401 across every student pod AND the advisor pod.
