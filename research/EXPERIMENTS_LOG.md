@@ -1,5 +1,52 @@
 # SENPAI Research Results — auto-nanogpt-1gpu-r4
 
+## 2026-05-28 15:20 — PR #1515: NM phase-dependent UPDATE_PERIOD (body vs cooldown) — **CLOSED PHASE-AXIS-NON-PRODUCTIVE (20th cross-axis catalog finding, NEW class 10 phase-localized-freshness-NEG-BIDIRECTIONAL)**
+
+- branch: `g1r4-nezuko/nm-period-phase-split`
+- Hypothesis: phase-dependent NM_UPDATE_PERIOD — separate body vs cooldown period. Tests H1261 directive #4 + c456 precond_ratio<1 dip mechanism.
+
+| Arm | BODY/COOLDOWN | W&B ID | val/loss | fs | step_avg | wall | Δ_paired vs A | verdict |
+|:---:|:---:|---|:---:|:---:|:---:|:---:|:---:|---|
+| A ctrl | 2/2 | `xe8ua3c1` | **3.26154** | 3125 | 2495ms | 8359s | (ref, drift −0.00156) | EXCEPTIONALLY-CLEAN |
+| B | 2/1 cooldown-amplify | `lgyrbs4i` (W&B truncated step 2500 by 401) | **3.26238** | 3150 | 2683ms | 8990s | **+0.00084 NULL** | unproductive +7.5% wall |
+| C | 4/2 body-save | `i4a007tt` (offline→synced) | **3.26404** | 3150 | 2274ms | 7617s | **+0.00250 mild-NEG** | unproductive −8.9% wall |
+| D | 4/1 compound | `mmir2hwn` (offline→synced) | **3.26502** | 3175 | 2462ms | 8247s | **+0.00348 NEG-strong-boundary** | additive (B+C=+0.00334 expected) |
+
+**Mechanism (NEW class 10 phase-localized-freshness-NEG-BIDIRECTIONAL)**:
+- Three-arm precond_ratio_mean monotone-decline: A=1.115 → B=1.081 → C=1.058 (B and C both DROP via opposite R_cond directions)
+- Cooldown freshness↑ (B vs A): R_cond drops 1.83e6→8.0e4 (tighter spectrum, fresh cooldown R = noisier-equivalent preconditioner)
+- Body freshness↓ (C vs A): R_cond rises 1.83e6→4.34e6 (wider spectrum, sparse body R allows eigenvalue spread to grow uncontested)
+- Compound D: R_cond_max 1.31e9 (highest), R_cond_min 972.8 (lowest), Δ_D=+0.00348 ≈ Δ_B+Δ_C
+- Bit-identity gate PASS: step:0 val=10.82583 across smoke v1/v2/A/B
+- Bugfix `(count - 1) % period == 0` (off-by-one fix for period=1, was silently degrading to period=∞)
+
+**Production period=2 is a BIDIRECTIONAL saddle**: triply confirmed via #1421 (period=5→2 FAV), #1447 (period=2→1 NEG), and #1515 (phase-localized NEG-BIDIRECTIONAL). Uniform-axis period story is now closed; future R-buffer work should target STRUCTURAL or HIGH-ORDER schedule features.
+
+**Catalog now 20 findings 10 classes** post-c487 closure: class 10 "phase-localized-freshness-NEG-BIDIRECTIONAL" joins class 4 freshness-bilateral-monotone with novel PHASE-LOCALIZATION feature.
+
+## 2026-05-28 15:18 — PR #1521: NM R-buffer targeted burst refresh at strategic step windows — **CLOSED NULL-ABSORPTION (19th cross-axis catalog finding, state-recovery axis NULL-absorbed)**
+
+- branch: `g1r4-fern/nm-r-refresh-burst`
+- Hypothesis: targeted period=1 bursts at precond_ratio<1 dip window (1875-1975) and cooldown-entry (2345-2445) restore R-buffer freshness at high-value moments.
+
+| Arm | BURST_WINDOWS | W&B ID | val/loss | Δ_paired vs A | fs | precond_ratio_mean (final) | R_cond_mean |
+|:---:|:---:|---|:---:|:---:|:---:|:---:|:---:|
+| A ctrl | (none) | `0rwrmbrl` | **3.26182** | (ref, favorable seed −0.00128 vs baseline) | 3150 | 1.12701 | 6.72e5 |
+| B | dip 1875-1975 | `iqavm7cl` (W&B truncated step 2125 by 401) | **3.26273** | **+0.00091 NULL** | 3150 | 1.04342 | 5.71e6 |
+| C | cooldown 2345-2445 | `1tf3o4i7` (offline→synced) | **3.26244** | **+0.00062 NULL** | 3150 | 1.03206 | 1.98e6 |
+| D | compound B+C | `4b3i8o0r` (offline→synced) | **3.26326** | **+0.00144 NULL-edge** | 3150 | 1.08645 | 6.42e6 |
+
+**Mechanism (state-recovery axis NULL-absorbed)**:
+- Burst mechanism CONFIRMED FIRING in all windows: precond_ratio drops −0.034 in B [1850,2000], −0.047 in C [2325,2470] (vs A in same window)
+- R_cond widens ×3.3 (C) to ×4.4 (B) during ACTIVE intervals — spectrum-only effect, R_inv_sqrt_norm preserved
+- Arm D additive: Δ_D=+0.00144 ≈ Δ_B+Δ_C=+0.00153 (compound burst behaves as B+C with no second-order interaction)
+- Hypothesis REFUTED: refreshing R more often does NOT pull eigenvalues toward 1 — it tracks them more responsively (wider spread, lower ratio). The c456 "transient under-preconditioning" framing was wrong mechanistically.
+- Code committed at `3088064b` resolves reproducibility gate
+
+**Production period=2 already adequately tracks R-EMA during mid-training body AND cooldown-entry phases** — precond_ratio<1 dip is STRUCTURAL (R faithfully tracks input activations with eigenvalues >1), not a stale-state artifact resolvable by refresh-frequency increases.
+
+**Catalog**: 19th finding NULL-absorbed-state-recovery (joins class 1 magnitude-absorbed-NULL pattern type — burst mechanism active but val-neutral).
+
 ## 2026-05-28 11:15 — PR #1520: NM selective targets (ATTN-only vs MLP-only vs full-NM) — **CLOSED BILATERAL-NEG-ASYMMETRIC (18th cross-axis catalog finding, NEW class 9 structural-coverage-NEG)**
 
 - branch: `g1r4-alphonse/nm-selective-targets`
