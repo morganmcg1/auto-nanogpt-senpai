@@ -464,6 +464,12 @@ SOAP_PRECOND_FREQ = 10
 ATTN_SOAP_BETA2 = 0.90
 ATTN_SOAP_PRECOND_FREQ = 10
 ATTN_SOAP_TRUST_THRESHOLD = float(os.environ.get("ATTN_SOAP_TRUST_THRESHOLD", "0.9"))
+# PR #1569 — per-depth-half ATTN_SOAP_BETA2 dispatch (front q/k/v/proj vs back q/k/v/proj).
+# Disabled by default (PER_DEPTH_HALF_ATTN_SOAP_BETA2_ENABLED=0); enabled mode reads FRONT and BACK values.
+PER_DEPTH_HALF_ATTN_SOAP_BETA2_ENABLED = int(os.environ.get("PER_DEPTH_HALF_ATTN_SOAP_BETA2_ENABLED", "0"))
+ATTN_SOAP_BETA2_FRONT = float(os.environ.get("ATTN_SOAP_BETA2_FRONT", str(ATTN_SOAP_BETA2)))
+ATTN_SOAP_BETA2_BACK = float(os.environ.get("ATTN_SOAP_BETA2_BACK", str(ATTN_SOAP_BETA2)))
+ATTN_SOAP_BETA2_DEPTH_SPLIT = int(os.environ.get("ATTN_SOAP_BETA2_DEPTH_SPLIT", "6"))
 NS5_ITERS = int(os.environ.get("NS5_ITERS", "12"))
 WD_AUX = float(os.environ.get("WD_AUX", "0.0"))  # AdamW WD on embed + lm_head matrices (scalars stay at 0)
 EMBED_INIT_STD = float(os.environ.get("EMBED_INIT_STD", "1.0"))  # default preserves baseline N(0,1)
@@ -652,6 +658,24 @@ class Muon(torch.optim.Optimizer):
                     self.attn_soap_kind[id(p)] = "v"
                 elif n.endswith(".attn.proj.weight"):
                     self.attn_soap_kind[id(p)] = "proj"
+        # PR #1569 — per-depth-half ATTN_SOAP_BETA2 depth map.
+        # Block index extracted from param name prefix; only applies to params in self.attn_soap_params.
+        self.attn_soap_beta2_per_param: dict[int, float] = {}
+        if PER_DEPTH_HALF_ATTN_SOAP_BETA2_ENABLED:
+            for n, p in named_params:
+                if p in self.attn_soap_params:
+                    block_idx = int(n.split(".", 1)[0])
+                    self.attn_soap_beta2_per_param[id(p)] = (
+                        ATTN_SOAP_BETA2_FRONT if block_idx < ATTN_SOAP_BETA2_DEPTH_SPLIT
+                        else ATTN_SOAP_BETA2_BACK
+                    )
+        n_attn_front = sum(1 for n, p in named_params
+                           if p in self.attn_soap_params and int(n.split(".", 1)[0]) < ATTN_SOAP_BETA2_DEPTH_SPLIT)
+        n_attn_back = sum(1 for n, p in named_params
+                          if p in self.attn_soap_params and int(n.split(".", 1)[0]) >= ATTN_SOAP_BETA2_DEPTH_SPLIT)
+        print(f"[ATTN_SOAP_BETA2_PER_DEPTH] enabled={PER_DEPTH_HALF_ATTN_SOAP_BETA2_ENABLED} "
+              f"front={ATTN_SOAP_BETA2_FRONT} back={ATTN_SOAP_BETA2_BACK} "
+              f"split={ATTN_SOAP_BETA2_DEPTH_SPLIT} n_front={n_attn_front} n_back={n_attn_back}")
         params = sorted([p for _, p in named_params], key=lambda x: x.size(), reverse=True)
         defaults = dict(lr=lr, weight_decay=weight_decay, mu=mu)
         super().__init__(params, defaults)
@@ -714,7 +738,8 @@ class Muon(torch.optim.Optimizer):
                     if use_soap:
                         soap_refresh(grad, state)
                     elif use_attn_soap:
-                        soap_refresh(grad, state, beta2=ATTN_SOAP_BETA2,
+                        beta2_p = self.attn_soap_beta2_per_param.get(id(p), ATTN_SOAP_BETA2)
+                        soap_refresh(grad, state, beta2=beta2_p,
                                      refresh_freq=ATTN_SOAP_PRECOND_FREQ,
                                      use_trust_gate=True,
                                      trust_threshold=ATTN_SOAP_TRUST_THRESHOLD)
@@ -864,6 +889,10 @@ if dist.get_rank() == 0:
             "optimizer/attn_soap_beta2": ATTN_SOAP_BETA2,
             "optimizer/attn_soap_precond_freq": ATTN_SOAP_PRECOND_FREQ,
             "optimizer/attn_soap_trust_threshold": ATTN_SOAP_TRUST_THRESHOLD,
+            "optimizer/per_depth_half_attn_soap_beta2_enabled": PER_DEPTH_HALF_ATTN_SOAP_BETA2_ENABLED,
+            "optimizer/attn_soap_beta2_front": ATTN_SOAP_BETA2_FRONT,
+            "optimizer/attn_soap_beta2_back": ATTN_SOAP_BETA2_BACK,
+            "optimizer/attn_soap_beta2_depth_split": ATTN_SOAP_BETA2_DEPTH_SPLIT,
             "optimizer/ns5_iters": NS5_ITERS,
             "optimizer/wd_aux": WD_AUX,
             "optimizer/recipe": "contra-muon + normuon-lite + soap-on-mlp + soap-on-attn-trust-gate (pre-NS5, record #14 + record #16)",
