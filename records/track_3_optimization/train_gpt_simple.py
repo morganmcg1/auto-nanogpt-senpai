@@ -83,6 +83,28 @@ def parse_args():
              "muall=musoft + non-residual block 2D weights also scaled by 1/sqrt(L); "
              "smallconst=std=1e-3 depth-independent.",
     )
+    parser.add_argument(
+        "--use_gc", action="store_true",
+        help="Apply Gradient Centralization on Muon body matrices before momentum/NS. "
+             "Yong et al. ECCV 2020 arxiv:2004.01461. Default off (baseline exact).",
+    )
+    parser.add_argument(
+        "--gc_dim", type=int, default=0, choices=[0, 1],
+        help="Centering mode. 0=paper-default row-mean (per-output centering: "
+             "for 2D (out,in) subtracts grad.mean(dim=1) — each output neuron's row "
+             "is zero-mean over its fan-in). 1=col-mean (per-input centering: "
+             "subtracts grad.mean(dim=0) — ablation).",
+    )
+    parser.add_argument(
+        "--gc_scale", type=float, default=1.0,
+        help="Scale factor on the removed mean component. 1.0 = standard GC. "
+             ">1.0 = over-correction falsifier (Cell E uses 10.0).",
+    )
+    parser.add_argument(
+        "--gc_aux", action="store_true",
+        help="Extend GC to AdamW aux 2D params (embed, lm_head). "
+             "Default off (Muon body only). 1D aux scalars are always skipped.",
+    )
     args = parser.parse_args()
     args.num_trials = args.num_trials if args.num_trials is not None else (args.legacy_num_trials or 1)
     args.wandb_tags = [tag.strip() for tag in args.wandb_tags.split(",") if tag.strip()]
@@ -571,7 +593,8 @@ class Muon(torch.optim.Optimizer):
     SOAP_ATTN_SUFFIXES = (".attn.q.weight", ".attn.k.weight", ".attn.v.weight", ".attn.proj.weight")
 
     def __init__(self, named_params, lr=0.02, weight_decay=0, mu=0.95,
-                 soap_attn=False, trust_threshold=0.0):
+                 soap_attn=False, trust_threshold=0.0,
+                 use_gc=False, gc_dim=0, gc_scale=1.0):
         # `named_params` can be either:
         #   (a) list of (name, param) tuples → single param group (legacy form)
         #   (b) list of dicts {"named_params": [(name, param), ...], "lr": ?, "weight_decay": ?, "mu": ?, "name": ?}
@@ -594,6 +617,12 @@ class Muon(torch.optim.Optimizer):
         self.trust_threshold = float(trust_threshold)
         self.use_trust_gate = soap_attn
         self.cos_sims_buffer: dict[str, Tensor] = {}
+        self.use_gc = bool(use_gc)
+        self.gc_dim = int(gc_dim)  # 0=row-mean (paper), 1=col-mean (ablation)
+        self.gc_scale = float(gc_scale)
+        # gc_reduce_dim: for shape (out,in), paper default is mean over fan-in (dim=1);
+        # gc_dim=0 → reduce over dim=1; gc_dim=1 → reduce over dim=0.
+        self._gc_reduce_dim = 1 if self.gc_dim == 0 else 0
 
         param_groups = []
         for g in groups_raw:
@@ -633,9 +662,16 @@ class Muon(torch.optim.Optimizer):
                             state["q_row"] = None
                             state["q_col"] = None
                             state["soap_step"] = 0
+                    # Gradient Centralization: subtract mean of grad before momentum/NS.
+                    # Off-path (`use_gc=False`) just binds `grad = p.grad` — no allocation,
+                    # so the baseline reproduces exactly.
+                    if self.use_gc and p.grad.ndim >= 2:
+                        grad = p.grad - self.gc_scale * p.grad.mean(dim=self._gc_reduce_dim, keepdim=True)
+                    else:
+                        grad = p.grad
                     if use_soap:
-                        state["momentum"].lerp_(p.grad, 1 - group["mu"])
-                        raw_nesterov = p.grad.lerp(state["momentum"], group["mu"])
+                        state["momentum"].lerp_(grad, 1 - group["mu"])
+                        raw_nesterov = grad.lerp(state["momentum"], group["mu"])
                         precond_nesterov = soap_precondition_momentum(raw_nesterov, state)
                         u_soap = soap_ns_step(precond_nesterov)
                         if self.use_trust_gate:
@@ -647,9 +683,9 @@ class Muon(torch.optim.Optimizer):
                             self.cos_sims_buffer[self.param_names[id(p)]] = cos_sim_t
                         else:
                             update = u_soap
-                        soap_update_preconditioner(p.grad, state)
+                        soap_update_preconditioner(grad, state)
                     else:
-                        update = muon_update(p.grad, state["momentum"], mu=group["mu"])
+                        update = muon_update(grad, state["momentum"], mu=group["mu"])
                     norm_sum.add_(update.float().norm())
                     p.mul_(1 - group["lr"] * group["weight_decay"])
                     p.add_(update, alpha=-group["lr"])
@@ -765,6 +801,11 @@ if dist.get_rank() == 0:
             "wd_schedule": args.wd_schedule,
             "lr_scalars": args.lr_scalars,
             "depth_init_mode": args.depth_init_mode,
+            "use_gc": bool(args.use_gc),
+            "gc_dim": int(args.gc_dim),
+            "gc_scale": float(args.gc_scale),
+            "gc_aux": bool(args.gc_aux),
+            "gc_reduce_dim": 1 if args.gc_dim == 0 else 0,
         },
     )
 
@@ -853,8 +894,18 @@ for trial_idx in range(args.num_trials):
             dict(named_params=attn_named, lr=args.lr_attn, weight_decay=args.wd_attn, name="muon_attn"),
         ],
         soap_attn=args.soap_attn, trust_threshold=args.soap_trust_threshold,
+        use_gc=args.use_gc, gc_dim=args.gc_dim, gc_scale=args.gc_scale,
     )
     optimizers = [optimizer1, optimizer2]
+
+    # AdamW 2D aux params (embed, lm_head) — for --gc_aux pre-step centering
+    aux_gc_targets = []
+    if args.use_gc and args.gc_aux:
+        gc_aux_reduce_dim = 1 if args.gc_dim == 0 else 0
+        for group in optimizer1.param_groups:
+            for p in group["params"]:
+                if p.dim() >= 2:
+                    aux_gc_targets.append(p)
     assert set(p for opt in optimizers for group in opt.param_groups
                for p in group["params"]) == set(model.parameters())
     for opt in optimizers:
@@ -1007,6 +1058,45 @@ for trial_idx in range(args.num_trials):
                 train_steps=train_steps,
                 wandb_step=wandb_step,
             )
+        # GC diagnostics: log row-mean norm and centered_norm_ratio for Muon body params.
+        # Runs only when use_gc=on AND telemetry_due to keep overhead minimal.
+        # Iterate `named_blocks` directly — these are the (name, param) pairs the Muon
+        # body owns. Doing this avoids the "blocks." prefix mismatch between
+        # `model.blocks.named_parameters()` (no prefix) and `model.named_parameters()`.
+        if args.use_gc and telemetry_due and dist.get_rank() == 0:
+            gc_metrics = {"trial": trial_idx, "train/step": train_step}
+            reduce_dim_diag = 1 if args.gc_dim == 0 else 0
+            mean_norms = []
+            ratios = []
+            for name, p in named_blocks:
+                if p.grad is None or p.grad.ndim < 2:
+                    continue
+                g = p.grad.detach().float()
+                g_mean = g.mean(dim=reduce_dim_diag, keepdim=True)
+                row_mean_norm = float(g_mean.norm().item())
+                g_centered = g - args.gc_scale * g_mean
+                grad_norm = float(g.norm().item())
+                centered_norm = float(g_centered.norm().item())
+                ratio = centered_norm / max(grad_norm, 1e-12)
+                mean_frac = 1.0 - ratio
+                clean = clean_metric_name(f"blocks.{name}")
+                gc_metrics[f"muon_gc/row_mean_norm/{clean}"] = row_mean_norm
+                gc_metrics[f"muon_gc/centered_norm_ratio/{clean}"] = ratio
+                gc_metrics[f"muon_gc/mean_component_frac/{clean}"] = mean_frac
+                mean_norms.append(row_mean_norm)
+                ratios.append(ratio)
+            if mean_norms:
+                gc_metrics["muon_gc/row_mean_norm/mean"] = sum(mean_norms) / len(mean_norms)
+                gc_metrics["muon_gc/centered_norm_ratio/mean"] = sum(ratios) / len(ratios)
+                gc_metrics["muon_gc/centered_norm_ratio/min"] = min(ratios)
+                gc_metrics["muon_gc/centered_norm_ratio/max"] = max(ratios)
+            wandb.log(gc_metrics, step=wandb_step)
+        # gc_aux: apply GC in-place to AdamW 2D aux grads (embed, lm_head) BEFORE opt.step.
+        # 1D aux scalars (RMSNorm gains, biases) are skipped — mean removal on 1D is degenerate.
+        if args.use_gc and args.gc_aux and aux_gc_targets:
+            for p in aux_gc_targets:
+                if p.grad is not None and p.grad.ndim >= 2:
+                    p.grad.sub_(args.gc_scale * p.grad.mean(dim=gc_aux_reduce_dim, keepdim=True))
         for opt in optimizers:
             opt.step()
         if telemetry_due:
