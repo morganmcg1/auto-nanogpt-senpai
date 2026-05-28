@@ -790,6 +790,12 @@ class Muon(torch.optim.Optimizer):
         self.newton_max_d_in = int(newton_max_d_in)
         self.newton_input_cache = newton_input_cache if newton_input_cache is not None else {}
         self._newton_step_count = 0
+        # PR #1534 PP: deterministic CUDA generator for R-buffer token subsample
+        # randperm, seeded from SENPAI_SEED on first use so paired-pod seeds
+        # produce genuinely independent randperm trajectories. Stays None when
+        # SENPAI_SEED is unset → randperm falls back to the global torch RNG
+        # (legacy bit-identical behaviour for Arm A/B/C/D N=1 runs).
+        self._r_subsample_rng: torch.Generator | None = None
         # Accumulator dict reset each step() — read by the training loop after
         # step() for W&B logging. Keys: cond_max, cond_min, cond_sum, cond_n,
         # inv_sqrt_norm_sum, precond_ratio_sum, precond_ratio_n, applied_n.
@@ -834,7 +840,19 @@ class Muon(torch.optim.Optimizer):
             if r_sub < 1.0 and x.shape[0] > 1:
                 n_tokens = x.shape[0]
                 n_sub = max(1, int(n_tokens * r_sub))
-                idx = torch.randperm(n_tokens, device=x.device)[:n_sub]
+                # PR #1534 PP: pin randperm to SENPAI_SEED so each paired-pod
+                # seed traces an independent (but reproducible) subsample path.
+                # When SENPAI_SEED is unset, fall back to the global RNG to
+                # preserve the legacy bit-identical N=1 behaviour.
+                if NANOGPT_SENPAI_SEED is not None:
+                    if self._r_subsample_rng is None:
+                        g = torch.Generator(device=x.device)
+                        seed64 = (int(NANOGPT_SENPAI_SEED) * 1000003 + 0x1534) & ((1 << 63) - 1)
+                        g.manual_seed(seed64)
+                        self._r_subsample_rng = g
+                    idx = torch.randperm(n_tokens, device=x.device, generator=self._r_subsample_rng)[:n_sub]
+                else:
+                    idx = torch.randperm(n_tokens, device=x.device)[:n_sub]
                 x_r = x[idx]
             else:
                 x_r = x
@@ -1003,7 +1021,8 @@ print0(
     f"update_period={NANOGPT_NEWTON_MUON_UPDATE_PERIOD} "
     f"beta={NANOGPT_NEWTON_MUON_BETA} eps={NANOGPT_NEWTON_MUON_EPS} "
     f"max_d_in={NANOGPT_NEWTON_MUON_MAX_D_IN} "
-    f"r_subsample_ratio={NANOGPT_NEWTON_MUON_R_SUBSAMPLE_RATIO}",
+    f"r_subsample_ratio={NANOGPT_NEWTON_MUON_R_SUBSAMPLE_RATIO} "
+    f"r_subsample_seeded={'on' if (NANOGPT_NEWTON_MUON_R_SUBSAMPLE_RATIO < 1.0 and NANOGPT_SENPAI_SEED is not None) else 'off'}",
     console=True,
 )
 if NS_ITERS_COOLDOWN > 0:
@@ -1125,6 +1144,11 @@ if dist.get_rank() == 0:
             "nanogpt_newton_muon_eps": NANOGPT_NEWTON_MUON_EPS,
             "nanogpt_newton_muon_max_d_in": NANOGPT_NEWTON_MUON_MAX_D_IN,
             "nanogpt_newton_muon_r_subsample_ratio": NANOGPT_NEWTON_MUON_R_SUBSAMPLE_RATIO,
+            # PR #1534 PP: whether the R-subsample randperm RNG is pinned to
+            # SENPAI_SEED. 1 = deterministic per seed; 0 = legacy global RNG.
+            "nanogpt_newton_muon_r_subsample_seeded": int(
+                NANOGPT_NEWTON_MUON_R_SUBSAMPLE_RATIO < 1.0 and NANOGPT_SENPAI_SEED is not None
+            ),
         },
     )
 
