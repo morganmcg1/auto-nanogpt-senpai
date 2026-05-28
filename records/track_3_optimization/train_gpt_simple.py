@@ -78,6 +78,18 @@ def parse_args():
                         help="If set, run paramEMA refresh at --paramema_refresh_step but "
                              "DISABLE L_cov refresh (lcov_refresh_step treated as -1). "
                              "Ablation flag for isolating paramEMA-only contribution.")
+    parser.add_argument("--adam_reset_m_step", type=int, default=0,
+                        help="If >0, scale Adam first-moment (exp_avg) by --adam_reset_factor "
+                             "for ALL aux (AdamW) param-groups at this step. 0=disabled. "
+                             "Direct analog of paramEMA refresh on optimizer state.")
+    parser.add_argument("--adam_reset_v_step", type=int, default=0,
+                        help="If >0, scale Adam second-moment (exp_avg_sq) by "
+                             "--adam_reset_factor for ALL aux (AdamW) param-groups at this "
+                             "step. 0=disabled.")
+    parser.add_argument("--adam_reset_factor", type=float, default=0.0,
+                        help="Scale factor for the Adam-state reset (0.0=hard zero, "
+                             "0.5=soft halving, 1.0=no-op). Applied to whichever of m/v "
+                             "fires at the matching step.")
     parser.add_argument("--seed", type=int, default=1,
                         help="Random seed for torch/numpy/python. Default 1 matches baseline seed.")
     args = parser.parse_args()
@@ -750,6 +762,9 @@ if dist.get_rank() == 0:
             "muon_block_lr_pattern": args.muon_block_lr_pattern,
             "paramema_refresh_step": args.paramema_refresh_step,
             "paramema_refresh_only": int(args.paramema_refresh_only),
+            "adam_reset_m_step": args.adam_reset_m_step,
+            "adam_reset_v_step": args.adam_reset_v_step,
+            "adam_reset_factor": args.adam_reset_factor,
             "seed": args.seed,
         },
     )
@@ -1082,6 +1097,69 @@ for trial_idx in range(args.num_trials):
                 if dist.get_rank() == 0:
                     print0(f"paramEMA refresh fired at step={step} "
                            f"(buffer reset to live params)", console=True)
+        # Aux-Adam state reset at phase boundary (analog of paramEMA refresh).
+        # Targets ONLY AdamW (aux: embed, lm_head, scalars) — NEVER the Muon body.
+        # Runs AFTER opt.step() so the scaling lands on the just-updated buffers.
+        fire_m = args.adam_reset_m_step > 0 and step == args.adam_reset_m_step
+        fire_v = args.adam_reset_v_step > 0 and step == args.adam_reset_v_step
+        if fire_m or fire_v:
+            adam_reset_m_tensors = 0
+            adam_reset_v_tensors = 0
+            adam_reset_groups_touched = 0
+            adam_reset_log: dict[str, float] = {}
+            for opt in optimizers:
+                if not opt.__class__.__name__.startswith("Adam"):
+                    continue
+                for group in opt.param_groups:
+                    group_name = group.get("name", "adam_group")
+                    m_sq_before = 0.0
+                    v_sq_before = 0.0
+                    m_sq_after = 0.0
+                    v_sq_after = 0.0
+                    group_touched = False
+                    for p in group["params"]:
+                        state = opt.state.get(p, None)
+                        if state is None:
+                            continue
+                        if "exp_avg" in state:
+                            m_sq_before += float(state["exp_avg"].detach().float().square().sum().item())
+                        if "exp_avg_sq" in state:
+                            v_sq_before += float(state["exp_avg_sq"].detach().float().square().sum().item())
+                        if fire_m and "exp_avg" in state:
+                            state["exp_avg"].mul_(args.adam_reset_factor)
+                            adam_reset_m_tensors += 1
+                            group_touched = True
+                        if fire_v and "exp_avg_sq" in state:
+                            state["exp_avg_sq"].mul_(args.adam_reset_factor)
+                            adam_reset_v_tensors += 1
+                            group_touched = True
+                        if "exp_avg" in state:
+                            m_sq_after += float(state["exp_avg"].detach().float().square().sum().item())
+                        if "exp_avg_sq" in state:
+                            v_sq_after += float(state["exp_avg_sq"].detach().float().square().sum().item())
+                    if group_touched:
+                        adam_reset_groups_touched += 1
+                    adam_reset_log[f"adam_reset/{group_name}/m_norm_before"] = m_sq_before ** 0.5
+                    adam_reset_log[f"adam_reset/{group_name}/v_norm_before"] = v_sq_before ** 0.5
+                    adam_reset_log[f"adam_reset/{group_name}/m_norm_after"] = m_sq_after ** 0.5
+                    adam_reset_log[f"adam_reset/{group_name}/v_norm_after"] = v_sq_after ** 0.5
+            if dist.get_rank() == 0:
+                print0(f"adam_reset fired at step={step} "
+                       f"m={adam_reset_m_tensors} v={adam_reset_v_tensors} "
+                       f"groups={adam_reset_groups_touched} "
+                       f"factor={args.adam_reset_factor}", console=True)
+                adam_reset_log.update({
+                    "trial": trial_idx,
+                    "train/step": train_step,
+                    "adam_reset/fired_step": step,
+                    "adam_reset/m_tensors": adam_reset_m_tensors,
+                    "adam_reset/v_tensors": adam_reset_v_tensors,
+                    "adam_reset/groups_touched": adam_reset_groups_touched,
+                    "adam_reset/factor": args.adam_reset_factor,
+                    "adam_reset/fire_m": int(fire_m),
+                    "adam_reset/fire_v": int(fire_v),
+                })
+                wandb.log(adam_reset_log, step=wandb_step)
         if dist.get_rank() == 0 and telemetry_due:
             log_weight_telemetry(
                 model=model,
@@ -1160,6 +1238,29 @@ for trial_idx in range(args.num_trials):
                 "lcov_refresh/fired": lcov_refresh_fired_total,
                 "lcov_refresh/target_step": -1,
             }, step=wandb_step)
+            # Per-aux-Adam-group m/v norms (trajectory for the adam-reset hypothesis).
+            adam_state_log: dict[str, float] = {}
+            for opt in optimizers:
+                if not opt.__class__.__name__.startswith("Adam"):
+                    continue
+                for group in opt.param_groups:
+                    group_name = group.get("name", "adam_group")
+                    m_sq = 0.0
+                    v_sq = 0.0
+                    for p in group["params"]:
+                        state = opt.state.get(p, None)
+                        if state is None:
+                            continue
+                        if "exp_avg" in state:
+                            m_sq += float(state["exp_avg"].detach().float().square().sum().item())
+                        if "exp_avg_sq" in state:
+                            v_sq += float(state["exp_avg_sq"].detach().float().square().sum().item())
+                    adam_state_log[f"adam/{group_name}/m_norm"] = m_sq ** 0.5
+                    adam_state_log[f"adam/{group_name}/v_norm"] = v_sq ** 0.5
+            if adam_state_log:
+                adam_state_log["trial"] = trial_idx
+                adam_state_log["train/step"] = train_step
+                wandb.log(adam_state_log, step=wandb_step)
         if dist.get_rank() == 0 and (train_step % 100 == 0 or train_step == train_steps):
             spec = pmuon_spectral_diag(optimizer2, PMUON_GAMMA)
             if spec:
