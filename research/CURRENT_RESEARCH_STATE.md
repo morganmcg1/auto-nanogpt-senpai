@@ -1,3 +1,77 @@
+## 2026-05-28 10:25 UTC — Cycle 71 mid-340 — askeladd #1527 246th (depth-half UW-floor depth-symmetric within noise CLOSED) + 18-mechanism cluster-floor table + PER_DEPTH_HALF_NS5_ITERS pivot (askeladd #1558 NEW, first orthogonalization-precision per-depth dispatch)
+
+**Cumulative**: **246 refuted** / **145 distinct mech classes** / **107 family-level closures**.
+
+### PR closed this wave (1 closure, terminal bilateral):
+
+| PR | student | mechanism | outcome |
+|---|---|---|---|
+| **askeladd #1527** | askeladd | POST_TARGET_DEPTH_HALF_UW_FLOOR (Arm A early_HIGH front=0.50/back=0.20, Arm B early_LOW front=0.20/back=0.50, body Muon, window [2950, 3175]) | **246th** — Arm A val=3.27061/ffs=3025, Arm B val=3.27041/ffs=3025, both CLUSTER STANDARD; Δ B−A=−0.00020 (well within seed noise). Per-depth-half TARGET_UW dispatch is non-load-bearing in post-target window. |
+
+### NEW PRINCIPLES this wave:
+
+1. **POST-TARGET window u/w-floor magnitude axis is depth-symmetric (Δ=−0.00020).** TARGET_UW=0.35 globally is at saturation boundary; perturbations in [0.20, 0.50] across depth-halves produce no measurable signal in the cluster-floor band.
+2. **u/w-floor is a global-scope mechanism, NOT a per-depth one.** Joins growing list of post-target-window mechanisms that are depth-symmetric at noise: askeladd #1504 (block 0/11 m-reset Δ=−0.00038), fern #1519 (depth-half SOAP state reset Δ=+0.00102), askeladd #1527 (UW-floor Δ=−0.00020). Outlier remains tanjiro #1522 kind-ASYMMETRIC.
+3. **Window scoping matters less than expected.** The window [2950, 3175] dispatch only perturbs 225 steps of body-Muon optimization, yet both arms still land in cluster STANDARD val band — the post-target perturbation tolerance is high.
+
+### 18-mechanism cluster floor at step 2950 / windowed [2950, 3175] (FULLY SATURATED, UPDATED):
+
+| axis (new entries this wave) | source | scope | val penalty | ffs |
+|---|---|---|---|---|
+| early_HIGH UW window | askeladd #1527 Arm A | 72 body Muon | +0.00285 | +25 |
+| early_LOW UW window | askeladd #1527 Arm B | 72 body Muon | +0.00265 | +25 |
+
+**Total cluster-floor entries**: 18 mechanism scopes, val penalty range [+0.0005, +0.0046], ffs ∈ {0, 25, 50}. Cluster geometry stable across mechanism families.
+
+### Fresh assignment — first per-depth-half NS5_ITERS dispatch (orthogonalization-precision axis) in 1500+ PRs:
+
+| PR | student | mechanism | rationale |
+|---|---|---|---|
+| **askeladd #1558** | askeladd | PER_DEPTH_HALF_NS5_ITERS (Arm A front_FEWER [front=10, back=18], Arm B front_MORE [front=18, back=10], mean=14 preserved, body Muon, full-run) | **First per-block / per-depth `NS5_ITERS` dispatch in 1500+ PRs.** Newton-Schulz iteration count controls orthogonalization PRECISION (not magnitude/EMA-decay) for body-Muon updates. Tests whether singular spectrum of body-Muon gradients is depth-asymmetric, such that front-half (broader spectra, more rotation) vs back-half (narrower, more rank-1) needs different orthogonalization precision. Pivots askeladd from 3 consecutive symmetric NULLs (#1477, #1504, #1527) to STRUCTURALLY DIFFERENT mechanism family — orthogonalization precision vs magnitude/EMA. Both endpoints (10, 18) known-safe from prior global NS5 sweeps. Per Morgan #1259 (per-group state-phase mechanism — NS5 directly shapes the optimizer state trajectory). |
+
+### Still-active fleet (8 students, ZERO IDLE):
+
+- **askeladd #1558** — PER_DEPTH_HALF_NS5_ITERS (front_FEWER vs front_MORE Newton-Schulz iters per block) — NEWLY assigned
+- **tanjiro #1547** — PER_KIND_AUX_BETA1 (embed_FAST vs embed_SLOW per-kind AdamW m EMA) — held on W&B 401 auth restoration
+- **fern #1545** — PER_DEPTH_HALF_SOAP_BETA2_MLP (front_FAST vs front_SLOW per-block Gram EMA) — in flight (offline)
+- **thorfinn #1540** — POST_TARGET_SOAP_MLP_SUB_STATE_LOCALIZATION (exp_avg_sq-only vs gram-only at step 2950) — in flight (stale_wip flag timing-induced; advisor heartbeat sent)
+- **alphonse #1541** — DEPTH_HALF_BODY_MUON_INIT_SCALE (front_BIG vs front_SMALL per-block init std) — in flight
+- **frieren #1537** — PER_DEPTH_HALF_NORMUON_BETA2 (front_FAST vs front_SLOW per-block variance EMA) — in flight, Arm A terminal ETA ~10:22Z
+- **nezuko #1528** — AUX_M_RESET_TIMING_GAP (Arm B running offline as `p40vr3i0`) — in flight (Arm A terminal val=3.27057/3025)
+- **edward #1525** — DEPTH_LINEAR_SOAP_PRECOND_FREQ_MLP (Arm A terminal val=3.27190/3050 CLUSTER STANDARD; Arm B `cnur7z8o` crashed step 700 W&B 401, advisor override sent for offline relaunch)
+
+### Per-block/per-depth/per-kind dispatch frontier matrix (UPDATED cycle 71 mid-340):
+
+| axis | dispatch | state-phase | scope | PR |
+|---|---|---|---|---|
+| LR continuous ramp | per-block linear | window | body Muon | edward #1468 + #1492 (CLOSED) |
+| SOAP refresh freq | per-block linear | full-run | MLP-SOAP only | edward #1525 (Arm A terminal, Arm B held) |
+| **TARGET_UW (u/w-floor)** | **depth-half** | **windowed** | **body Muon** | **askeladd #1527 (CLOSED THIS WAVE — depth-symmetric NULL)** |
+| NORMUON β2 (variance EMA) | depth-half | full-run | body Muon | frieren #1537 (in flight) |
+| MLP-SOAP Gram EMA β2 | depth-half | full-run | MLP-SOAP only | fern #1545 (in flight) |
+| body Muon init scale | depth-half | pre-training | body Muon 48p | alphonse #1541 (in flight) |
+| AdamW m EMA β1 | per-kind (embed vs lm_head) | full-run | AUX | tanjiro #1547 (held on auth restoration) |
+| **NS5 iters (orthogonalization precision)** | **depth-half** | **full-run** | **body Muon** | **askeladd #1558 (NEW)** |
+| SOAP state reset (full) | per-kind | event | MLP / Attn-trust | thorfinn #1514 (CLOSED) |
+| SOAP state reset (sub-state) | (MLP scope) | event | exp_avg_sq vs gram | thorfinn #1540 (in flight) |
+| SOAP state reset depth-half | depth-half | event | all SOAP kinds | fern #1519 (CLOSED) |
+| m-reset per-block | per-block | event | body Muon | askeladd #1504 (CLOSED) |
+| m-reset per-kind AUX | embed vs lm_head | event | AUX | tanjiro #1522 (CLOSED) |
+| v-reset / m+v joint | none | event | body Muon | alphonse #1518 (CLOSED) |
+| AUX m+v joint | none | event | AUX | nezuko #1505 (CLOSED) |
+| AUX m-reset timing | none | event-timing | AUX | nezuko #1528 (in flight) |
+| m←±grad direction | none | event | body Muon | frieren #1512 (CLOSED) |
+
+**State-dynamics frontier**: 8 continuous-mechanism dispatch axes active (LR-ramp CLOSED, SOAP refresh-freq Arm B held, NORMUON β2 in flight, UW-floor CLOSED, MLP-SOAP β2 in flight, body init scale in flight, AUX m β1 per-kind held, **NS5 iters per-depth NEW** — orthogonalization-precision axis). Plus event-axes 6 CLOSED + 2 in flight.
+
+**New mechanism family added to frontier**: orthogonalization precision (askeladd #1558). All prior per-depth axes have probed EITHER magnitude (init scale, UW-floor) OR EMA decay rate (NORMUON β2, SOAP β2, m EMA, AUX β1) OR cadence (SOAP refresh freq) OR event-axes. NS5_ITERS introduces a structurally distinct mechanism axis: how PRECISELY the orthogonalization is computed each step.
+
+### Infrastructure context
+
+W&B 401 fleet-wide auth blocker (issue #1551) persisting from ~06:47Z. Affected pods: r2 fern, r2 tanjiro, r2 edward (Arm B crash), r1 thorfinn, r5. Mitigation: `WANDB_MODE=offline` workaround in place. All PR assignments since auth incident specify offline mode. Offline metrics are source-of-truth for cluster-floor classification. Awaiting human team to refresh `senpai-secrets` k8s secret.
+
+---
+
 ## 2026-05-28 09:35 UTC — Cycle 71 mid-339 — tanjiro #1522 245th (AUX m-reset KIND-ASYMMETRIC at Δ=0.00104, lm_head 184× larger m magnitude but less reset-sensitive CLOSED) + 17-mechanism cluster-floor table + PER_KIND_AUX_BETA1 pivot
 
 **Cumulative**: **245 refuted** / **145 distinct mech classes** / **107 family-level closures**.
