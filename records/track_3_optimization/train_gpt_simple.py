@@ -61,6 +61,12 @@ def parse_args():
                              "--ema_beta_target during cooldown, coupling β to the LR schedule. "
                              "Requires --ema_beta>0. β_t = ema_beta + (ema_beta_target - ema_beta) "
                              "× (1 - lr_mult_t).")
+    parser.add_argument("--ema_beta_post_refresh_target", type=float, default=-1.0,
+                        help="If >=0, override β trajectory POST refresh to a linear ramp from "
+                             "the canonical β at --paramema_refresh_step to this value over "
+                             "[paramema_refresh_step, train_steps]. Pre-refresh β trajectory "
+                             "is unchanged (canonical β_t). Requires --ema_beta_target set and "
+                             "--paramema_refresh_step > 0. -1=disabled (use canonical β_t).")
     parser.add_argument("--muon_lr", type=float, default=0.035,
                         help="Base learning rate for body-Muon optimizer (matrix params in blocks). "
                              "Default 0.035 matches the merged baseline.")
@@ -747,6 +753,14 @@ if dist.get_rank() == 0:
             "ema_warmup_steps": args.ema_warmup_steps,
             "ema_beta_target": args.ema_beta_target if args.ema_beta_target is not None else 0.0,
             "ema_dynamic_ramp_active": int(args.ema_beta_target is not None and args.ema_beta > 0),
+            "ema_beta_post_refresh_target": args.ema_beta_post_refresh_target,
+            "ema_post_refresh_override_active": int(
+                args.ema_beta_post_refresh_target is not None
+                and args.ema_beta_post_refresh_target >= 0
+                and args.paramema_refresh_step > 0
+                and args.ema_beta_target is not None
+                and args.ema_beta > 0
+            ),
             "muon_block_lr_pattern": args.muon_block_lr_pattern,
             "paramema_refresh_step": args.paramema_refresh_step,
             "paramema_refresh_only": int(args.paramema_refresh_only),
@@ -857,9 +871,10 @@ for trial_idx in range(args.num_trials):
         w = 1.0 - cooldown_progress
         return w ** COOLDOWN_POWER
 
-    def compute_ema_beta_t(step):
-        """Dynamic β_t = β_base + (β_target - β_base) × (1 - lr_mult_t).
-        Returns β_base when β_target unset; clamped to [β_base, β_target]."""
+    def _canonical_beta_t(step):
+        """Canonical pre-refresh β_t schedule (LR-coupled ramp).
+        β_t = β_base + (β_target - β_base) × (1 - lr_mult_t); clamped to [β_base, β_target].
+        Returns β_base when β_target unset; 1.0 sentinel when EMA disabled."""
         if args.ema_beta <= 0:
             return 1.0  # EMA disabled; sentinel
         if args.ema_beta_target is None:
@@ -869,6 +884,56 @@ for trial_idx in range(args.num_trials):
         lo = min(args.ema_beta, args.ema_beta_target)
         hi = max(args.ema_beta, args.ema_beta_target)
         return max(lo, min(hi, beta_t))
+
+    def compute_ema_beta_t(step):
+        """Dynamic β_t. Pre-refresh: canonical LR-coupled ramp. Post-refresh: if
+        --ema_beta_post_refresh_target >= 0, a step-linear ramp from β at refresh
+        step (canonical) to ema_beta_post_refresh_target over
+        [paramema_refresh_step, train_steps]. Otherwise: canonical β_t everywhere."""
+        canonical = _canonical_beta_t(step)
+        # Sentinel/disabled cases: defer to canonical
+        if args.ema_beta <= 0 or args.ema_beta_target is None:
+            return canonical
+        if (args.ema_beta_post_refresh_target is None
+                or args.ema_beta_post_refresh_target < 0
+                or args.paramema_refresh_step <= 0):
+            return canonical
+        # Pre/at refresh: canonical
+        if step <= args.paramema_refresh_step:
+            return canonical
+        # Post refresh: linear in step from canonical(refresh) to post_target
+        beta_at_refresh = _canonical_beta_t(args.paramema_refresh_step)
+        post_target = float(args.ema_beta_post_refresh_target)
+        denom = max(1, train_steps - args.paramema_refresh_step)
+        frac = (step - args.paramema_refresh_step) / denom
+        if frac < 0.0:
+            frac = 0.0
+        elif frac > 1.0:
+            frac = 1.0
+        beta_t = beta_at_refresh + (post_target - beta_at_refresh) * frac
+        lo = min(beta_at_refresh, post_target)
+        hi = max(beta_at_refresh, post_target)
+        return max(lo, min(hi, beta_t))
+
+    if (dist.get_rank() == 0
+            and args.ema_beta > 0
+            and args.ema_beta_target is not None):
+        sentinel_steps = [2275, 2500, 2600, 2700, 2800, 2900, 3100, 3200, 3249]
+        print0("β_t verification table (post-refresh override "
+               f"target={args.ema_beta_post_refresh_target}):",
+               console=True)
+        print0(f"{'step':>6} | {'lr_mult':>8} | {'β_canon':>9} | {'β_actual':>9}",
+               console=True)
+        beta_table_log = {"trial": trial_idx, "train/step": 0}
+        for s in sentinel_steps:
+            lm = compute_lr_mult(s)
+            bc = _canonical_beta_t(s)
+            ba = compute_ema_beta_t(s)
+            print0(f"{s:>6} | {lm:>8.5f} | {bc:>9.5f} | {ba:>9.5f}", console=True)
+            beta_table_log[f"ema/beta_table/step_{s}/lr_mult"] = lm
+            beta_table_log[f"ema/beta_table/step_{s}/beta_canonical"] = bc
+            beta_table_log[f"ema/beta_table/step_{s}/beta_actual"] = ba
+        wandb.log(beta_table_log, step=0)
 
     def set_hparams(step, cooldown_frac=0.7):
         progress = step / train_steps
@@ -1145,6 +1210,13 @@ for trial_idx in range(args.num_trials):
                     "ema/warmup_steps": args.ema_warmup_steps,
                     "ema/active_train": int(step >= args.ema_warmup_steps),
                     "ema/ramp_enabled": int(args.ema_beta_target is not None),
+                    "ema/beta_post_refresh_target": args.ema_beta_post_refresh_target,
+                    "ema/post_refresh_active": int(
+                        args.ema_beta_post_refresh_target is not None
+                        and args.ema_beta_post_refresh_target >= 0
+                        and args.paramema_refresh_step > 0
+                        and step > args.paramema_refresh_step
+                    ),
                 }, step=wandb_step)
             # paramEMA refresh + L_cov refresh diagnostics. ema_refresh/fired
             # latches to 1 at and after --paramema_refresh_step; lcov_refresh/fired
