@@ -468,6 +468,13 @@ NS5_ITERS = int(os.environ.get("NS5_ITERS", "12"))
 WD_AUX = float(os.environ.get("WD_AUX", "0.0"))  # AdamW WD on embed + lm_head matrices (scalars stay at 0)
 EMBED_INIT_STD = float(os.environ.get("EMBED_INIT_STD", "1.0"))  # default preserves baseline N(0,1)
 LOGIT_SOFTCAP = float(os.environ.get("LOGIT_SOFTCAP", "15.0"))  # default = 15 (current hardcoded value); soft-cap value c in f(x) = c·x / sqrt(x^2+c^2)
+# PR #1477: per-kind body-Muon momentum reset at a post-target dispatch step
+# Decomposes alphonse #1461 winner (joint body-Muon m-reset at step 2950) by KIND:
+#   KIND="attn" -> zero state["momentum"] only on body attn weight params
+#   KIND="mlp"  -> zero state["momentum"] only on body mlp weight params
+POST_TARGET_BODY_MUON_PER_KIND_M_RESET_ENABLED = int(os.environ.get("POST_TARGET_BODY_MUON_PER_KIND_M_RESET_ENABLED", "0"))
+POST_TARGET_BODY_MUON_PER_KIND_M_RESET_STEP = int(os.environ.get("POST_TARGET_BODY_MUON_PER_KIND_M_RESET_STEP", "2950"))
+POST_TARGET_BODY_MUON_PER_KIND_M_RESET_KIND = os.environ.get("POST_TARGET_BODY_MUON_PER_KIND_M_RESET_KIND", "attn")  # "attn" or "mlp"
 
 
 def zeropower_via_newtonschulz5(G: Tensor) -> Tensor:
@@ -867,6 +874,9 @@ if dist.get_rank() == 0:
             "optimizer/ns5_iters": NS5_ITERS,
             "optimizer/wd_aux": WD_AUX,
             "optimizer/recipe": "contra-muon + normuon-lite + soap-on-mlp + soap-on-attn-trust-gate (pre-NS5, record #14 + record #16)",
+            "post_target_body_muon_per_kind_m_reset/enabled": POST_TARGET_BODY_MUON_PER_KIND_M_RESET_ENABLED,
+            "post_target_body_muon_per_kind_m_reset/step": POST_TARGET_BODY_MUON_PER_KIND_M_RESET_STEP,
+            "post_target_body_muon_per_kind_m_reset/kind": POST_TARGET_BODY_MUON_PER_KIND_M_RESET_KIND,
         },
     )
 
@@ -1053,6 +1063,88 @@ for trial_idx in range(args.num_trials):
             )
         for opt in optimizers:
             opt.step()
+        # PR #1477: per-kind body-Muon momentum reset, applied immediately after the
+        # optimizer step. Fires only at `step == POST_TARGET_BODY_MUON_PER_KIND_M_RESET_STEP`.
+        # KIND="attn" zeros state["momentum"] on body attn weights only; KIND="mlp" on body MLP.
+        if (POST_TARGET_BODY_MUON_PER_KIND_M_RESET_ENABLED
+                and step == POST_TARGET_BODY_MUON_PER_KIND_M_RESET_STEP):
+            kind_filter = POST_TARGET_BODY_MUON_PER_KIND_M_RESET_KIND
+            pre_norm_attn_sq = 0.0
+            pre_norm_mlp_sq = 0.0
+            post_norm_attn_sq = 0.0
+            post_norm_mlp_sq = 0.0
+            aux_m_norm_sq = 0.0
+            attn_params_total = 0
+            mlp_params_total = 0
+            reset_count = 0
+            # Body Muon optimizer is optimizer2; its momentum buffer is state["momentum"].
+            # Iterate model.named_parameters() to recover (name, p) pairs; filter to body
+            # weights (".attn." or ".mlp." in name, ndim>=2), matching the body-Muon scope.
+            for name, p in model.named_parameters():
+                if p.ndim < 2:
+                    continue
+                is_attn = ".attn." in name
+                is_mlp = ".mlp." in name
+                if not (is_attn or is_mlp):
+                    continue
+                state = optimizer2.state.get(p, {})
+                if "momentum" not in state:
+                    continue
+                m_sq = state["momentum"].float().norm().item() ** 2
+                if is_attn:
+                    pre_norm_attn_sq += m_sq
+                    attn_params_total += 1
+                else:
+                    pre_norm_mlp_sq += m_sq
+                    mlp_params_total += 1
+                keep = (kind_filter == "attn" and is_attn) or (kind_filter == "mlp" and is_mlp)
+                if keep:
+                    state["momentum"].zero_()
+                    reset_count += 1
+            for name, p in model.named_parameters():
+                if p.ndim < 2:
+                    continue
+                is_attn = ".attn." in name
+                is_mlp = ".mlp." in name
+                if not (is_attn or is_mlp):
+                    continue
+                state = optimizer2.state.get(p, {})
+                if "momentum" not in state:
+                    continue
+                m_sq = state["momentum"].float().norm().item() ** 2
+                if is_attn:
+                    post_norm_attn_sq += m_sq
+                else:
+                    post_norm_mlp_sq += m_sq
+            # AUX m-norm: AdamW exp_avg across embed/lm_head/scalars (must be unchanged).
+            for group in optimizer1.param_groups:
+                for p in group["params"]:
+                    state = optimizer1.state.get(p, {})
+                    if "exp_avg" in state:
+                        aux_m_norm_sq += state["exp_avg"].float().norm().item() ** 2
+            if dist.get_rank() == 0:
+                wandb.log({
+                    "m_reset/kind_is_attn": int(kind_filter == "attn"),
+                    "m_reset/kind_is_mlp": int(kind_filter == "mlp"),
+                    "m_reset/step": step,
+                    "m_reset/params_reset": reset_count,
+                    "m_reset/attn_params_total": attn_params_total,
+                    "m_reset/mlp_params_total": mlp_params_total,
+                    "m_reset/m_norm_body_attn_before_reset": pre_norm_attn_sq ** 0.5,
+                    "m_reset/m_norm_body_attn_after_reset": post_norm_attn_sq ** 0.5,
+                    "m_reset/m_norm_body_mlp_before_reset": pre_norm_mlp_sq ** 0.5,
+                    "m_reset/m_norm_body_mlp_after_reset": post_norm_mlp_sq ** 0.5,
+                    "m_reset/m_norm_aux_at_reset_step": aux_m_norm_sq ** 0.5,
+                }, step=wandb_step)
+                print0(
+                    f"[POST_TARGET_BODY_MUON_PER_KIND_M_RESET] kind={kind_filter} "
+                    f"step={step} reset_count={reset_count} "
+                    f"attn_total={attn_params_total} mlp_total={mlp_params_total} "
+                    f"m_attn_before={pre_norm_attn_sq**0.5:.4f} -> after={post_norm_attn_sq**0.5:.4f} "
+                    f"m_mlp_before={pre_norm_mlp_sq**0.5:.4f} -> after={post_norm_mlp_sq**0.5:.4f} "
+                    f"aux_m_norm={aux_m_norm_sq**0.5:.4f}",
+                    console=True,
+                )
         if dist.get_rank() == 0 and telemetry_due:
             for opt in optimizers:
                 if hasattr(opt, "trust_gate_stats"):
