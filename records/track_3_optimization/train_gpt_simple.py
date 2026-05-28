@@ -460,6 +460,13 @@ TARGET_UW = 0.35
 NORMUON_BETA2 = 0.95
 SOAP_BETA2 = 0.90
 SOAP_PRECOND_FREQ = 10
+# Depth-linear per-block SOAP refresh frequency ramp for MLP-SOAP params only.
+# When enabled, MLP fc/proj weights at block 0..11 get K_eff linearly interpolated
+# from DEPTH_SOAP_FREQ_MLP_FRONT (block 0) to DEPTH_SOAP_FREQ_MLP_BACK (block 11).
+# Attn-trust-SOAP refresh path is untouched. Defaults preserve uniform K=10 no-op.
+DEPTH_SOAP_FREQ_MLP_ENABLED = int(os.environ.get("DEPTH_SOAP_FREQ_MLP_ENABLED", "0"))
+DEPTH_SOAP_FREQ_MLP_FRONT = int(os.environ.get("DEPTH_SOAP_FREQ_MLP_FRONT", "10"))
+DEPTH_SOAP_FREQ_MLP_BACK = int(os.environ.get("DEPTH_SOAP_FREQ_MLP_BACK", "10"))
 # Attention SOAP (record #16) hyperparameters
 ATTN_SOAP_BETA2 = 0.90
 ATTN_SOAP_PRECOND_FREQ = 10
@@ -652,6 +659,24 @@ class Muon(torch.optim.Optimizer):
                     self.attn_soap_kind[id(p)] = "v"
                 elif n.endswith(".attn.proj.weight"):
                     self.attn_soap_kind[id(p)] = "proj"
+        # Per-block MLP-SOAP refresh frequency dispatch (depth-linear ramp).
+        # Maps id(p) -> effective refresh_freq for each MLP-SOAP param. Block_idx is
+        # parsed from param names like "0.mlp.fc.weight" / "11.mlp.proj.weight"
+        # (model.blocks.named_parameters() strips the "blocks." prefix).
+        self.soap_freq_mlp: dict[int, int] = {}
+        if DEPTH_SOAP_FREQ_MLP_ENABLED:
+            for n, p in named_params:
+                if p in self.soap_params:
+                    block_idx = int(n.split(".", 1)[0])
+                    assert 0 <= block_idx < 12, f"unexpected block_idx={block_idx} in {n}"
+                    k_front = DEPTH_SOAP_FREQ_MLP_FRONT
+                    k_back = DEPTH_SOAP_FREQ_MLP_BACK
+                    k_eff = round(k_front + (k_back - k_front) * block_idx / 11)
+                    self.soap_freq_mlp[id(p)] = max(1, int(k_eff))
+        else:
+            for n, p in named_params:
+                if p in self.soap_params:
+                    self.soap_freq_mlp[id(p)] = SOAP_PRECOND_FREQ
         params = sorted([p for _, p in named_params], key=lambda x: x.size(), reverse=True)
         defaults = dict(lr=lr, weight_decay=weight_decay, mu=mu)
         super().__init__(params, defaults)
@@ -712,7 +737,8 @@ class Muon(torch.optim.Optimizer):
                     p.add_(update, alpha=-group["lr"])
                     # Refresh SOAP state with the raw grad (after applying the step).
                     if use_soap:
-                        soap_refresh(grad, state)
+                        k_eff = self.soap_freq_mlp.get(id(p), SOAP_PRECOND_FREQ)
+                        soap_refresh(grad, state, refresh_freq=k_eff)
                     elif use_attn_soap:
                         soap_refresh(grad, state, beta2=ATTN_SOAP_BETA2,
                                      refresh_freq=ATTN_SOAP_PRECOND_FREQ,
@@ -1026,6 +1052,22 @@ for trial_idx in range(args.num_trials):
         # set optimization hyperparameters and take a step
         set_hparams(step)
         train_step = step + 1
+        if step == 100 and dist.get_rank() == 0 and DEPTH_SOAP_FREQ_MLP_ENABLED:
+            block_to_k: dict[int, list[int]] = {i: [] for i in range(12)}
+            for n, p in model.blocks.named_parameters():
+                if p in optimizer2.soap_params:
+                    block_idx = int(n.split(".", 1)[0])
+                    block_to_k[block_idx].append(optimizer2.soap_freq_mlp[id(p)])
+            direction = "front_FAST" if DEPTH_SOAP_FREQ_MLP_FRONT < DEPTH_SOAP_FREQ_MLP_BACK else "front_SLOW"
+            print(
+                f"[DEPTH_SOAP_FREQ_MLP] dir={direction} k_eff per block (fc,proj): "
+                + ", ".join(f"b{i}=({block_to_k[i][0]},{block_to_k[i][1]})" for i in range(12))
+            )
+            soap_freq_metrics: dict[str, int] = {}
+            for i in range(12):
+                soap_freq_metrics[f"soap_freq/mlp_block_{i}_fc"] = block_to_k[i][0]
+                soap_freq_metrics[f"soap_freq/mlp_block_{i}_proj"] = block_to_k[i][1]
+            wandb.log(soap_freq_metrics, step=trial_idx * (train_steps + 1) + train_step)
         telemetry_due = (step == 0 or (step + 1) % args.telemetry_interval == 0 or step + 1 == train_steps)
         histogram_due = (step == 0 or (step + 1) % args.histogram_interval == 0 or step + 1 == train_steps)
         slope_due = (train_step % slope_interval == 0 or train_step == train_steps)
