@@ -72,6 +72,24 @@ def parse_args():
     parser.add_argument("--muonh_agc_eps", type=float, default=float(os.environ.get("MUONH_AGC_EPS", "1e-3")))
     parser.add_argument("--aux_adamw_eps", type=float, default=float(os.environ.get("AUX_ADAMW_EPS", "1e-10")),
                         help="Aux AdamW eps (default 1e-10 = baseline). Standard PyTorch is 1e-8.")
+    # H237: AdEMAMix (Pagliardini et al. 2024) replaces AdamW on aux side. Adds a second
+    # slow EMA at beta3 (typically 0.9999) combined linearly via alpha (cosine ramp 0 -> alpha
+    # over T_alpha steps). aux_optimizer=adamw (default) preserves bit-identity to baseline.
+    parser.add_argument("--aux_optimizer", type=str, default=os.environ.get("AUX_OPTIMIZER", "adamw"),
+                        choices=["adamw", "ademamix"],
+                        help="Aux optimizer: 'adamw' (default, bit-identical to baseline) or "
+                             "'ademamix' (Pagliardini et al. 2024, https://arxiv.org/abs/2409.03137).")
+    parser.add_argument("--aux_ademamix_beta1", type=float, default=float(os.environ.get("AUX_ADEMAMIX_BETA1", "0.9")),
+                        help="AdEMAMix beta1 (fast EMA). Paper default 0.9. H225 found baseline aux beta1=0.8 load-bearing.")
+    parser.add_argument("--aux_ademamix_beta2", type=float, default=float(os.environ.get("AUX_ADEMAMIX_BETA2", "0.999")),
+                        help="AdEMAMix beta2 (second moment). Paper default 0.999.")
+    parser.add_argument("--aux_ademamix_beta3", type=float, default=float(os.environ.get("AUX_ADEMAMIX_BETA3", "0.9999")),
+                        help="AdEMAMix beta3 (slow EMA). Paper default 0.9999.")
+    parser.add_argument("--aux_ademamix_alpha", type=float, default=float(os.environ.get("AUX_ADEMAMIX_ALPHA", "5.0")),
+                        help="AdEMAMix slow-EMA mixing coefficient. Paper default 5.0 for small models.")
+    parser.add_argument("--aux_ademamix_alpha_warmup", type=int, default=int(os.environ.get("AUX_ADEMAMIX_ALPHA_WARMUP", "0")),
+                        help="Length of cosine ramp on alpha (0 -> alpha) in steps. 0 means T_alpha = train_steps "
+                             "(paper recommendation for small models).")
     # β2 schedule on aux AdamW (embed/lm_head/scalars). Mutates param_groups[*]['betas']
     # each step. constant = baseline (fused=True kept); cooldown_ramp = fused=False so
     # PyTorch reads the updated betas from the param_group on every .step() call.
@@ -747,6 +765,89 @@ class MuonH(torch.optim.Optimizer):
         self._last_norm_to_radius_max = max_n_over_r
 
 
+class AdEMAMix(torch.optim.Optimizer):
+    """AdEMAMix optimizer (Pagliardini et al. 2024, https://arxiv.org/abs/2409.03137).
+
+    Augments AdamW's single fast EMA with a second slow EMA (beta3, typically 0.9999),
+    linearly combined via an alpha coefficient that cosine-ramps from 0 to alpha_end
+    over T_alpha steps. The slow EMA has NO bias correction per the paper's Algorithm 1.
+
+    Per-step update (t starts at 1):
+
+        m1 <- beta1*m1 + (1-beta1)*g          # fast EMA, bias-corrected on read
+        v  <- beta2*v  + (1-beta2)*g*g        # second moment, bias-corrected on read
+        m2 <- beta3*m2 + (1-beta3)*g          # slow EMA, NO bias correction
+        m1_hat = m1 / (1 - beta1**t)
+        v_hat  = v  / (1 - beta2**t)
+        alpha_t = min(t * alpha_end / T_alpha, alpha_end)   # LINEAR ramp 0 -> alpha_end
+        update = (m1_hat + alpha_t * m2) / (sqrt(v_hat) + eps)
+        p <- p * (1 - lr*wd) - lr * update
+
+    H237: drop-in replacement for AdamW on aux side (embed, lm_head, scalars).
+    Note: PR #1539 text described a cosine alpha ramp, but Algorithm 1 in the paper
+    (and reference implementations nanowell/AdEMAMix-Optimizer-Pytorch and
+    kozistr/pytorch_optimizer) use a LINEAR ramp f_alpha(t) = min(t*alpha/T_alpha, alpha).
+    Following the paper since the PR explicitly cites "Per paper" intent.
+    """
+    def __init__(self, params, lr=1e-3, betas=(0.9, 0.999), beta3=0.9999,
+                 alpha=5.0, alpha_warmup=None, eps=1e-8, weight_decay=0.0):
+        if alpha_warmup is not None and alpha_warmup < 0:
+            raise ValueError(f"alpha_warmup must be None or >= 0; got {alpha_warmup}")
+        defaults = dict(lr=lr, betas=betas, beta3=beta3, alpha=alpha,
+                        alpha_warmup=alpha_warmup, eps=eps, weight_decay=weight_decay)
+        super().__init__(params, defaults)
+        self._last_alpha_t = 0.0
+
+    @torch.no_grad()
+    def step(self):
+        last_alpha_t = 0.0
+        for group in self.param_groups:
+            lr = group["lr"]
+            beta1, beta2 = group["betas"]
+            beta3 = group["beta3"]
+            alpha_end = group["alpha"]
+            T_alpha = group["alpha_warmup"]
+            eps = group["eps"]
+            wd = group["weight_decay"]
+            for p in group["params"]:
+                if p.grad is None:
+                    continue
+                grad = p.grad
+                state = self.state[p]
+                if len(state) == 0:
+                    state["step"] = 0
+                    state["exp_avg"] = torch.zeros_like(p)
+                    state["exp_avg_sq"] = torch.zeros_like(p)
+                    state["exp_avg_slow"] = torch.zeros_like(p)
+                state["step"] += 1
+                t = state["step"]
+                exp_avg = state["exp_avg"]
+                exp_avg_sq = state["exp_avg_sq"]
+                exp_avg_slow = state["exp_avg_slow"]
+
+                bias_correction1 = 1.0 - beta1 ** t
+                bias_correction2 = 1.0 - beta2 ** t
+
+                exp_avg.mul_(beta1).add_(grad, alpha=1.0 - beta1)
+                exp_avg_sq.mul_(beta2).addcmul_(grad, grad, value=1.0 - beta2)
+                exp_avg_slow.mul_(beta3).add_(grad, alpha=1.0 - beta3)
+
+                if T_alpha is None or T_alpha <= 0:
+                    alpha_t = alpha_end
+                else:
+                    alpha_t = min(t * alpha_end / float(T_alpha), alpha_end)
+                last_alpha_t = alpha_t
+
+                m_hat = exp_avg.div(bias_correction1)
+                numerator = m_hat.add_(exp_avg_slow, alpha=alpha_t)
+                denom = exp_avg_sq.sqrt().div_(math.sqrt(bias_correction2)).add_(eps)
+
+                if wd != 0.0:
+                    p.data.mul_(1.0 - lr * wd)
+                p.data.addcdiv_(numerator, denom, value=-lr)
+        self._last_alpha_t = last_alpha_t
+
+
 ########################################
 #                Setup                 #
 ########################################
@@ -791,6 +892,12 @@ if args.muonh_agc_clip_ratio > 0:
     print0(f"AGC ENABLED on inner MuonH gradient: clip_ratio={args.muonh_agc_clip_ratio} eps={args.muonh_agc_eps}", console=True)
 else:
     print0("AGC DISABLED on inner MuonH gradient (clip_ratio=0)", console=True)
+if args.aux_optimizer == "ademamix":
+    print0(f"AUX OPTIMIZER = AdEMAMix: beta1={args.aux_ademamix_beta1} beta2={args.aux_ademamix_beta2} "
+           f"beta3={args.aux_ademamix_beta3} alpha={args.aux_ademamix_alpha} "
+           f"alpha_warmup={args.aux_ademamix_alpha_warmup} (0 = full T_alpha)", console=True)
+else:
+    print0(f"AUX OPTIMIZER = AdamW (baseline path; bit-identical)", console=True)
 print0("="*100)
 
 val_tokens = 20 * 524288
@@ -847,6 +954,12 @@ if dist.get_rank() == 0:
             "aux_beta2_schedule": args.aux_beta2_schedule,
             "aux_beta2_start": args.aux_beta2_start,
             "aux_beta2_end": args.aux_beta2_end,
+            "aux_optimizer": args.aux_optimizer,
+            "aux_ademamix_beta1": args.aux_ademamix_beta1,
+            "aux_ademamix_beta2": args.aux_ademamix_beta2,
+            "aux_ademamix_beta3": args.aux_ademamix_beta3,
+            "aux_ademamix_alpha": args.aux_ademamix_alpha,
+            "aux_ademamix_alpha_warmup": args.aux_ademamix_alpha_warmup,
             "muonh_mu_schedule": args.muonh_mu_schedule,
             "muonh_mu_start": args.muonh_mu_start,
             "muonh_mu_end": args.muonh_mu_end,
@@ -926,10 +1039,21 @@ for trial_idx in range(args.num_trials):
     # silent-failure-mode risk we use fused=False whenever the β2 schedule is active.
     # constant schedule keeps fused=True so arm_a is bitwise-identical to baseline.
     _aux_fused = (args.aux_beta2_schedule == "constant")
-    optimizer1 = AdamW([dict(params=[model.embed.weight], lr=0.3, name="adam_embed"),
-                        dict(params=[model.proj.weight], lr=1/320, name="adam_lm_head"),
-                        dict(params=[p for p in model.parameters() if p.ndim < 2], lr=0.01, name="adam_scalars")],
-                       betas=(0.8, args.aux_beta2_start), eps=args.aux_adamw_eps, weight_decay=0, fused=_aux_fused)
+    if args.aux_optimizer == "adamw":
+        optimizer1 = AdamW([dict(params=[model.embed.weight], lr=0.3, name="adam_embed"),
+                            dict(params=[model.proj.weight], lr=1/320, name="adam_lm_head"),
+                            dict(params=[p for p in model.parameters() if p.ndim < 2], lr=0.01, name="adam_scalars")],
+                           betas=(0.8, args.aux_beta2_start), eps=args.aux_adamw_eps, weight_decay=0, fused=_aux_fused)
+    else:
+        # H237: AdEMAMix replaces AdamW on aux side. Paper recommends T_alpha = full
+        # training for small models when --aux_ademamix_alpha_warmup=0.
+        T_alpha = args.aux_ademamix_alpha_warmup if args.aux_ademamix_alpha_warmup > 0 else args.train_steps
+        optimizer1 = AdEMAMix([dict(params=[model.embed.weight], lr=0.3, name="adam_embed"),
+                               dict(params=[model.proj.weight], lr=1/320, name="adam_lm_head"),
+                               dict(params=[p for p in model.parameters() if p.ndim < 2], lr=0.01, name="adam_scalars")],
+                              betas=(args.aux_ademamix_beta1, args.aux_ademamix_beta2),
+                              beta3=args.aux_ademamix_beta3, alpha=args.aux_ademamix_alpha,
+                              alpha_warmup=T_alpha, eps=args.aux_adamw_eps, weight_decay=0)
     optimizer2 = MuonH([p for p in model.blocks.parameters() if p.ndim >= 2],
                        lr=args.muonh_lr, weight_decay=0.0, mu=0.95,
                        hyperball=True, budget_mult=args.muonh_budget_mult,
@@ -993,17 +1117,22 @@ for trial_idx in range(args.num_trials):
         # Aux β2 schedule: ramp β2 from start to end linearly across the aux
         # cooldown phase (last aux_cooldown_frac of training). constant schedule
         # is a no-op since b2 stays equal to aux_beta2_start = baseline 0.95.
-        if args.aux_beta2_schedule == "cooldown_ramp":
-            cooldown_start = int((1.0 - aux_cooldown_frac) * train_steps)
-            if step < cooldown_start:
-                b2 = args.aux_beta2_start
+        # H237: skip this block entirely when aux_optimizer=ademamix — AdEMAMix
+        # carries its own betas via --aux_ademamix_beta2 set in the constructor.
+        if args.aux_optimizer == "adamw":
+            if args.aux_beta2_schedule == "cooldown_ramp":
+                cooldown_start = int((1.0 - aux_cooldown_frac) * train_steps)
+                if step < cooldown_start:
+                    b2 = args.aux_beta2_start
+                else:
+                    prog = (step - cooldown_start) / max(1, train_steps - cooldown_start)
+                    b2 = args.aux_beta2_start + prog * (args.aux_beta2_end - args.aux_beta2_start)
             else:
-                prog = (step - cooldown_start) / max(1, train_steps - cooldown_start)
-                b2 = args.aux_beta2_start + prog * (args.aux_beta2_end - args.aux_beta2_start)
+                b2 = args.aux_beta2_start
+            for g in optimizer1.param_groups:
+                g["betas"] = (g["betas"][0], b2)
         else:
-            b2 = args.aux_beta2_start
-        for g in optimizer1.param_groups:
-            g["betas"] = (g["betas"][0], b2)
+            b2 = optimizer1.param_groups[0]["betas"][1]
         # MuonH µ schedule (H109): 'off' is a no-op — mu stays at the MuonH
         # default 0.95 and we skip the param_group write so arm_a is bit-identical
         # to baseline. 'linear' ramps mu_start → mu_end across all train_steps.
@@ -1191,6 +1320,9 @@ for trial_idx in range(args.num_trials):
                         muonh_metrics["train/muonh/norm_to_radius_max"] = opt._last_norm_to_radius_max
                     muonh_metrics["train/muonh/warmup_factor"] = muonh_warmup_factor
                     muonh_metrics["train/muonh/effective_lr"] = opt.param_groups[0]["lr"]
+                elif isinstance(opt, AdEMAMix):
+                    # H237 telemetry: log alpha_t (slow-EMA mixing coefficient post-step).
+                    muonh_metrics["train/aux/ademamix_alpha_t"] = opt._last_alpha_t
             if telemetry_due and args.aux_agc_clip_ratio > 0 and agc_stats["agc_total"] > 0:
                 muonh_metrics["train/agc/active_fraction"] = agc_stats["agc_clipped"] / agc_stats["agc_total"]
                 muonh_metrics["train/agc/clipped_count"] = agc_stats["agc_clipped"]
