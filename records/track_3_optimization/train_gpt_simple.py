@@ -468,6 +468,12 @@ NS5_ITERS = int(os.environ.get("NS5_ITERS", "12"))
 WD_AUX = float(os.environ.get("WD_AUX", "0.0"))  # AdamW WD on embed + lm_head matrices (scalars stay at 0)
 EMBED_INIT_STD = float(os.environ.get("EMBED_INIT_STD", "1.0"))  # default preserves baseline N(0,1)
 LOGIT_SOFTCAP = float(os.environ.get("LOGIT_SOFTCAP", "15.0"))  # default = 15 (current hardcoded value); soft-cap value c in f(x) = c·x / sqrt(x^2+c^2)
+# Per-depth-half TARGET_UW dispatch (PR #1527). Defaults preserve uniform TARGET_UW = 0.35 (no-op when disabled).
+DEPTH_HALF_UW_ENABLED = int(os.environ.get("DEPTH_HALF_UW_ENABLED", "0"))
+DEPTH_HALF_UW_STEP_START = int(os.environ.get("DEPTH_HALF_UW_STEP_START", "2950"))
+DEPTH_HALF_UW_STEP_END = int(os.environ.get("DEPTH_HALF_UW_STEP_END", "3175"))
+DEPTH_HALF_UW_EARLY = float(os.environ.get("DEPTH_HALF_UW_EARLY", "0.35"))
+DEPTH_HALF_UW_LATE = float(os.environ.get("DEPTH_HALF_UW_LATE", "0.35"))
 
 
 def zeropower_via_newtonschulz5(G: Tensor) -> Tensor:
@@ -652,12 +658,42 @@ class Muon(torch.optim.Optimizer):
                     self.attn_soap_kind[id(p)] = "v"
                 elif n.endswith(".attn.proj.weight"):
                     self.attn_soap_kind[id(p)] = "proj"
+        # Per-depth-half u/w-floor map (PR #1527): id(p) -> (uw_baseline, uw_windowed).
+        # When DEPTH_HALF_UW_ENABLED=0, every entry collapses to (TARGET_UW, TARGET_UW) — IEEE no-op.
+        self.uw_floor_map: dict[int, tuple[float, float]] = {}
+        early_uw_vals: list[float] = []
+        late_uw_vals: list[float] = []
+        for n, p in named_params:
+            try:
+                block_idx = int(n.split(".", 1)[0])
+            except ValueError:
+                block_idx = -1
+            if 0 <= block_idx < 12 and DEPTH_HALF_UW_ENABLED:
+                # Early-half = blocks 0-5; late-half = blocks 6-11.
+                is_early = block_idx < 6
+                uw_window = DEPTH_HALF_UW_EARLY if is_early else DEPTH_HALF_UW_LATE
+                if is_early:
+                    early_uw_vals.append(uw_window)
+                else:
+                    late_uw_vals.append(uw_window)
+            else:
+                uw_window = TARGET_UW
+            self.uw_floor_map[id(p)] = (TARGET_UW, uw_window)
+        self._uw_early_mean: float = (
+            sum(early_uw_vals) / len(early_uw_vals) if early_uw_vals else TARGET_UW
+        )
+        self._uw_late_mean: float = (
+            sum(late_uw_vals) / len(late_uw_vals) if late_uw_vals else TARGET_UW
+        )
         params = sorted([p for _, p in named_params], key=lambda x: x.size(), reverse=True)
         defaults = dict(lr=lr, weight_decay=weight_decay, mu=mu)
         super().__init__(params, defaults)
 
     @torch.no_grad()
     def step(self):
+        if not hasattr(self, "_step_count"):
+            self._step_count = 0
+        self._step_count += 1
         world_size = dist.get_world_size()
         rank = dist.get_rank()
         for group in self.param_groups:
@@ -702,11 +738,18 @@ class Muon(torch.optim.Optimizer):
                         momentum_update = soap_precondition(momentum_update, state)
                     # NS5 + contra + NorMuon row variance on (possibly SOAP-preconditioned) momentum.
                     update = contra_normuon_update(momentum_update, state["second_moment"])
-                    # u/w-floor: scale up if u/w < TARGET_UW; leave alone otherwise.
+                    # u/w-floor: per-param dispatch with windowed gating (PR #1527).
+                    # When disabled, uw_baseline == uw_windowed == TARGET_UW so this is IEEE-identical to the prior code.
                     p_fro = p.float().norm().clamp_min(1e-8)
                     u_fro = update.float().norm().clamp_min(1e-8)
                     cur_uw = u_fro / p_fro
-                    scale = torch.where(cur_uw < TARGET_UW, TARGET_UW * p_fro / u_fro, torch.ones_like(p_fro))
+                    uw_baseline, uw_windowed = self.uw_floor_map.get(id(p), (TARGET_UW, TARGET_UW))
+                    in_window = (
+                        DEPTH_HALF_UW_ENABLED
+                        and (DEPTH_HALF_UW_STEP_START <= self._step_count < DEPTH_HALF_UW_STEP_END)
+                    )
+                    effective_uw = uw_windowed if in_window else uw_baseline
+                    scale = torch.where(cur_uw < effective_uw, effective_uw * p_fro / u_fro, torch.ones_like(p_fro))
                     update = update * scale.to(update.dtype)
                     # Explicit weight decay intentionally omitted (matches record #14; u/w-floor replaces wd).
                     p.add_(update, alpha=-group["lr"])
@@ -719,6 +762,30 @@ class Muon(torch.optim.Optimizer):
                                      use_trust_gate=True,
                                      trust_threshold=ATTN_SOAP_TRUST_THRESHOLD)
                 dist.all_gather(params_pad[base_i:base_i + world_size], params_pad[base_i + rank])
+        # One-shot depth-half-uw dispatch diagnostic (PR #1527): fires 10 steps after window opens.
+        if (
+            DEPTH_HALF_UW_ENABLED
+            and rank == 0
+            and self._step_count == DEPTH_HALF_UW_STEP_START + 10
+        ):
+            print(
+                f"[DEPTH_HALF_UW] step={self._step_count} "
+                f"early_mean_uw={self._uw_early_mean:.3f} "
+                f"late_mean_uw={self._uw_late_mean:.3f} "
+                f"window=[{DEPTH_HALF_UW_STEP_START},{DEPTH_HALF_UW_STEP_END})",
+                flush=True,
+            )
+            try:
+                wandb.log(
+                    {
+                        "depth_half_uw/early_mean": self._uw_early_mean,
+                        "depth_half_uw/late_mean": self._uw_late_mean,
+                        "depth_half_uw/dispatch_fired": 1,
+                    },
+                    step=self._step_count,
+                )
+            except Exception:
+                pass
 
     def trust_gate_stats(self) -> dict[str, float]:
         """Return aggregate + per-weight-type trust-gate telemetry across attention SOAP params.
@@ -858,6 +925,11 @@ if dist.get_rank() == 0:
             "optimizer/muon_lr": MUON_LR,
             "optimizer/muon_weight_decay_nominal": MUON_WEIGHT_DECAY,
             "optimizer/target_uw": TARGET_UW,
+            "optimizer/depth_half_uw_enabled": DEPTH_HALF_UW_ENABLED,
+            "optimizer/depth_half_uw_step_start": DEPTH_HALF_UW_STEP_START,
+            "optimizer/depth_half_uw_step_end": DEPTH_HALF_UW_STEP_END,
+            "optimizer/depth_half_uw_early": DEPTH_HALF_UW_EARLY,
+            "optimizer/depth_half_uw_late": DEPTH_HALF_UW_LATE,
             "optimizer/normuon_beta2": NORMUON_BETA2,
             "optimizer/soap_beta2": SOAP_BETA2,
             "optimizer/soap_precond_freq": SOAP_PRECOND_FREQ,
