@@ -468,6 +468,9 @@ NS5_ITERS = int(os.environ.get("NS5_ITERS", "12"))
 WD_AUX = float(os.environ.get("WD_AUX", "0.0"))  # AdamW WD on embed + lm_head matrices (scalars stay at 0)
 EMBED_INIT_STD = float(os.environ.get("EMBED_INIT_STD", "1.0"))  # default preserves baseline N(0,1)
 LOGIT_SOFTCAP = float(os.environ.get("LOGIT_SOFTCAP", "15.0"))  # default = 15 (current hardcoded value); soft-cap value c in f(x) = c·x / sqrt(x^2+c^2)
+POST_TARGET_AUX_KIND_M_RESET_ENABLED = int(os.environ.get("POST_TARGET_AUX_KIND_M_RESET_ENABLED", "0"))
+POST_TARGET_AUX_KIND_M_RESET_STEP = int(os.environ.get("POST_TARGET_AUX_KIND_M_RESET_STEP", "2950"))
+POST_TARGET_AUX_KIND_M_RESET_KIND = os.environ.get("POST_TARGET_AUX_KIND_M_RESET_KIND", "embed")
 
 
 def zeropower_via_newtonschulz5(G: Tensor) -> Tensor:
@@ -1053,6 +1056,54 @@ for trial_idx in range(args.num_trials):
             )
         for opt in optimizers:
             opt.step()
+        if POST_TARGET_AUX_KIND_M_RESET_ENABLED and step == POST_TARGET_AUX_KIND_M_RESET_STEP:
+            kind = POST_TARGET_AUX_KIND_M_RESET_KIND
+            if kind == "embed":
+                group_name = "adam_embed"
+            elif kind == "lm_head":
+                group_name = "adam_lm_head"
+            else:
+                raise ValueError(f"Unknown AUX kind: {kind}")
+            pre_m_norm = 0.0
+            post_m_norm = 0.0
+            pre_v_norm = 0.0
+            body_m_norm = 0.0
+            other_kind_m_norm = 0.0
+            params_reset = 0
+            for group in optimizer1.param_groups:
+                if group.get("name") == group_name:
+                    for p in group["params"]:
+                        state = optimizer1.state.get(p, {})
+                        if "exp_avg" in state:
+                            pre_m_norm += state["exp_avg"].norm().item() ** 2
+                            pre_v_norm += state["exp_avg_sq"].norm().item() ** 2
+                            state["exp_avg"].zero_()
+                            post_m_norm += state["exp_avg"].norm().item() ** 2
+                            params_reset += 1
+                elif group.get("name") in ("adam_embed", "adam_lm_head"):
+                    for p in group["params"]:
+                        state = optimizer1.state.get(p, {})
+                        if "exp_avg" in state:
+                            other_kind_m_norm += state["exp_avg"].norm().item() ** 2
+            for group in optimizer2.param_groups:
+                for p in group["params"]:
+                    state = optimizer2.state.get(p, {})
+                    if "momentum" in state:
+                        body_m_norm += state["momentum"].norm().item() ** 2
+            if dist.get_rank() == 0:
+                wandb.log({
+                    "aux_kind_m_reset/kind": 0 if kind == "embed" else 1,
+                    "aux_kind_m_reset/params_reset": params_reset,
+                    "aux_kind_m_reset/pre_m_norm_l2": pre_m_norm ** 0.5,
+                    "aux_kind_m_reset/post_m_norm_l2": post_m_norm ** 0.5,
+                    "aux_kind_m_reset/pre_v_norm_l2": pre_v_norm ** 0.5,
+                    "aux_kind_m_reset/other_kind_m_norm_l2": other_kind_m_norm ** 0.5,
+                    "aux_kind_m_reset/body_m_norm_l2": body_m_norm ** 0.5,
+                    "aux_kind_m_reset/step": step,
+                }, step=wandb_step)
+                print(f"[AUX_KIND_M_RESET] step={step} kind={kind} params_reset={params_reset} "
+                      f"pre_m={pre_m_norm**0.5:.4f} post_m={post_m_norm**0.5:.4f} "
+                      f"pre_v={pre_v_norm**0.5:.4f} body_m={body_m_norm**0.5:.4f}")
         if dist.get_rank() == 0 and telemetry_due:
             for opt in optimizers:
                 if hasattr(opt, "trust_gate_stats"):
