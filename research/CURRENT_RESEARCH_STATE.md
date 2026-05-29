@@ -1,3 +1,60 @@
+## 2026-05-29 14:40 UTC — Cycle 71 mid-389 — DOUBLE-CLOSURE (thorfinn #1685 + askeladd #1684) — 293rd + 294th refutes, 129th + 130th family closures
+
+### thorfinn #1685 293rd refute — PER_KIND_ATTN_SOAP_TRUST_THRESHOLD (V_AXIS_ISOLATION) val_mean=3.27464 STANDARD misses merge bar by Δ=+0.00688 val and +75 ffs
+
+Arm A `v_permissive` v=0.50 val=3.27704 ffs=3100, Arm B `v_strict` v=0.95 val=3.27223 ffs=3050, Δ(B−A)=−0.00481 `v_strict_wins` at 14× noise. **MAJOR STRUCTURAL FINDING**: v-axis is SELF-REGULATING at baseline threshold 0.85 — cos_row clusters in [0.77, 0.86], baseline sits exactly at distribution peak as natural discriminator; per-kind threshold dispatch mechanically works (v=0.50→on=1.000, v=0.95→on=0.000 at all 8 checkpoints) but BOTH extremes degrade val — sweet spot IS baseline 0.85 + cos_row dynamics. The "v-axis early on_fraction=0.0167" finding from #1663 is now explained as cos_row drift artifact (0.77→0.85 over steps 200→1500), not a special lever. **129th family closure**: PER_KIND_ATTN_SOAP_TRUST_THRESHOLD axis fully mapped at baseline-already-optimal outcome.
+
+**Comprehensive v-axis lever triangulation table** (3 of 4 axes refuted):
+
+| candidate axis | PR | outcome | v-axis effect |
+|---|---|---|---|
+| β2 phase-dispatch (cooldown ramp) | #1663 | **REFUTED** | β2 NOT the v-axis lever |
+| trust-threshold warmup ramp | #1665 | **REFUTED** | warmup NOT the v-axis lever |
+| per-kind trust-threshold magnitude | **#1685** | **REFUTED** | per-kind threshold NOT the v-axis lever |
+| per-kind Muon LR magnitude | #1692 (in-flight) | OPEN | LR axis still being tested |
+| 4-tier eigenbasis stability | #1583 | observed q≈k>proj>v ordering | structural finding (not a lever) |
+
+### askeladd #1684 294th refute — PER_DEPTH_HALF_ATTN_SOAP_TRUST_THRESHOLD val_mean=3.27459 STANDARD misses merge bar by Δ=+0.00683 val and +87.5 ffs
+
+Arm A `front_tight` FRONT=0.95/BACK=0.75 val=3.27042 ffs=3025 (front frozen, on=0.000), Arm B `back_tight` FRONT=0.75/BACK=0.95 val=3.27876 ffs=3150 (back frozen, on=0.000), Δ(B−A)=+0.00834 `front_tight_wins` at 24× noise. **MAJOR STRUCTURAL FINDING**: depth-noise is NOT structurally asymmetric — front and back attn-SOAP cos distributions fall in nearly identical bands (F_row 0.83–0.90, B_row 0.86–0.90; F_col 0.91–0.95, B_col 0.92–0.94). ±0.10 spread sits OUTSIDE the meaningful gate operating band (0.95 rejects 100%, 0.75 accepts 100%), causing both arms to degenerate to freeze-half/refresh-half-greedy mechanism. **Critical bilateral finding**: back-block basis refreshes are LOAD-BEARING during cooldown (Arm B with back frozen regresses by +0.00789) while **front-block basis is essentially INERT** (Arm A with front frozen ≈ #1642 Arm A val=3.27087 at Δ=−0.00045 within noise band). **130th family closure**: PER_DEPTH_HALF_ATTN_SOAP_TRUST_THRESHOLD axis fully mapped at depth-symmetric-cos + back-load-bearing outcome.
+
+**Cumulative**: **294 refuted** / **174 distinct mech classes** / **130 family-level closures**.
+
+### PRs closed this wave (2 closures):
+
+| PR | student | mechanism | outcome |
+|---|---|---|---|
+| **thorfinn #1685** | thorfinn | PER_KIND_ATTN_SOAP_TRUST_THRESHOLD (V_AXIS_ISOLATION) (Arm A v=0.50 force-refresh, Arm B v=0.95 force-no-refresh, q/k/proj at baseline 0.85) | **293rd** — Arm A 3.27704/3100, Arm B 3.27223/3050, val_mean=3.27464 STANDARD misses by +0.00688/+75. Δ(B−A)=−0.00481 `v_strict_wins`. **MAJOR STRUCTURAL FINDING**: v-axis self-regulates at baseline (cos_row distribution peak). **129th family closure**. |
+| **askeladd #1684** | askeladd | PER_DEPTH_HALF_ATTN_SOAP_TRUST_THRESHOLD (Arm A FRONT=0.95/BACK=0.75, Arm B FRONT=0.75/BACK=0.95, depth_split=6) | **294th** — Arm A 3.27042/3025 (≈ #1642), Arm B 3.27876/3150 (regressed), val_mean=3.27459 STANDARD misses by +0.00683/+87.5. Δ(B−A)=+0.00834 `front_tight_wins`. **MAJOR STRUCTURAL FINDING**: depth-symmetric cos + back-load-bearing + front-block effectively inert. **130th family closure**. |
+
+### PRs assigned this wave (2 fresh per-group state-mechanism axes)
+
+| PR | student | mechanism | role |
+|---|---|---|---|
+| **thorfinn #1710** | thorfinn | PER_KIND_ATTN_SOAP_PRECOND_FREQ (V_AXIS_ISOLATION) (Arm A `v_freq_rare` v=20, q/k/proj=10 baseline; Arm B `v_freq_frequent` v=5, q/k/proj=10 baseline; threshold at baseline 0.85) | **FRESH PER-GROUP STATE-MECHANISM** — tests v-axis refresh-frequency axis after #1685 closed threshold-magnitude axis; orthogonal lever in remaining v-axis search (3 of 4 candidate axes now refuted) |
+| **askeladd #1711** | askeladd | PER_DEPTH_HALF_ATTN_SOAP_ENABLED_ISOLATION (Arm A `front_disabled` front-half layers 0-5 vanilla Muon, back-half layers 6-11 attn-SOAP; Arm B `back_disabled` control, expected regression per #1684 finding) | **FRESH PER-GROUP STATE-MECHANISM** — tests structural simplification candidate from #1684 front-block-inertness finding; if Arm A ≈ #1684 Arm A → significant compute simplification (12 of 24 attn-SOAP params removable) |
+
+### Strategic implication — front-block attn-SOAP removability candidate
+
+askeladd #1684's finding that **front-block attn-SOAP basis is essentially INERT** (front frozen ≈ #1642 Arm A at val=3.27042 Δ=−0.00045 noise) is the most significant structural finding of this wave. If askeladd #1711 confirms by showing front_disabled ≈ #1684 Arm A frozen, this is a major structural simplification — 50% of attn-SOAP params can be removed without val penalty, freeing compute for more aggressive back-block schedules. This would change the attn-SOAP architecture strategy from "uniform 12-layer coverage" to "back-half-only-6-layer coverage".
+
+### Fleet state at end of wake 85 (this wave)
+
+8 students all assigned, 0 idle:
+
+| PR | student | axis | status |
+|---|---|---|---|
+| **#1711** | **askeladd** | **PER_DEPTH_HALF_ATTN_SOAP_ENABLED_ISOLATION** | **WIP (this wave, just assigned)** |
+| **#1710** | **thorfinn** | **PER_KIND_ATTN_SOAP_PRECOND_FREQ (V_AXIS_ISOLATION)** | **WIP (this wave, just assigned)** |
+| #1707 | frieren | PER_KIND_MLP_SOAP_PRECOND_FREQ_PHASE_DISPATCH | WIP (prior wave) |
+| #1705 | fern | PER_PHASE_WD_AUX_EMBED | WIP (prior wave) |
+| #1700 | tanjiro | PER_KIND_AUX_B1B2_COMPOUND | WIP (prior wave) |
+| #1695 | nezuko | PHASE_DISPATCH_MLP_SOAP_FC_BETA2 | WIP (prior wave) |
+| #1692 | edward | PER_KIND_ATTN_SOAP_MUON_LR (V_AXIS_ISOLATION) | WIP (prior wave) |
+| #1687 | alphonse | JOINT_MLP_SOAP_REFRESH_BACK_FAST_X_PHASE_DISPATCH_ATTN_SOAP_BETA2 | WIP (prior wave) |
+
+---
+
 ## 2026-05-29 14:25 UTC — Cycle 71 mid-388 — frieren #1671 292nd refute (MLP_SOAP_TRUST_GATE_PHASE_DISPATCH val_mean=3.27192 STANDARD misses merge bar by Δ=+0.00416 val and +37.5 ffs, Arm A `late_FAST_gated_armA_v2` E=15/L=5 val=3.27275 ffs=3050 STANDARD, Arm B `early_FAST_gated_armB` E=5/L=15 val=3.27108 ffs=3025 STANDARD, Δ(B−A)=−0.00167 directional signal `early_FAST_wins_under_gating` at 5× noise threshold, **MAJOR STRUCTURAL FINDING**: trust-gate is **NOT** the MLP-SOAP scope-direction-reversal mechanism — gate fires SELECTIVELY (verified via per-kind on_fraction time series: fc/on tracks cur_freq 1:1, rejects rare-refresh late phase) but does NOT flip direction from `early_FAST` to `late_FAST`; gate WORSENS BOTH arms vs un-gated #1645 analogs by +0.00070 (A) and +0.00117 (B) — gate acts as noise SOURCE at MLP-SOAP scope, OPPOSITE to its effect on attn-SOAP where it unlocks `late_FAST` by filtering noise; **CROSS-SOAP-SCOPE GATE-EFFECT DIVERGENCE finding**: same trust-gate mechanism produces opposite val effects at attn-SOAP vs MLP-SOAP — pairs with cross-SOAP-scope β2 phase-locality divergence finding #1668 — TWO independent cross-SOAP-scope structural divergences now confirmed (gate-effect + β2-phase-locality), **128th family closure**: MLP_SOAP_TRUST_GATE_PHASE_DISPATCH axis fully mapped at gate-not-mechanism + cross-scope-gate-divergence outcome) + frieren #1707 NEW PER_KIND_MLP_SOAP_PRECOND_FREQ_PHASE_DISPATCH (FRESH PER-GROUP STATE-MECHANISM AXIS executing #1671's structural-driver pivot — Arm A `fc_only_early_FAST` MLP_SOAP_PRECOND_FREQ_FC_EARLY=5/LATE=15, proj held at baseline freq=10 full-trajectory; Arm B `proj_only_early_FAST` MLP_SOAP_PRECOND_FREQ_PROJ_EARLY=5/LATE=15, fc held at baseline freq=10 full-trajectory; boundary=2225 matches #1671 for direct cross-PR comparison; trust-gate disabled both arms (gate axis closed by #1671); if A < B fc carries early_FAST preference; if B < A proj carries; if A ≈ B ≈ #1645 Arm B 3.26991 both kinds additive saturated joint; if A ≈ B ≈ baseline joint mechanism requires both kinds simultaneously; fits Morgan's directive per-group + state-mechanism)
 
 **Cumulative**: **292 refuted** / **174 distinct mech classes** / **128 family-level closures**.
