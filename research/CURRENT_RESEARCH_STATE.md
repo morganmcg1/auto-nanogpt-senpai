@@ -1,3 +1,57 @@
+## 2026-05-29 10:00 UTC — Cycle 71 mid-381 — askeladd #1657 285th refute (ISOLATION_MU_COOLDOWN_START_FRONT_LOWER_DEPTH_HALF_VS_UNIFORM val_mean=3.27158 misses merge bar by Δ=+0.00382 val, Arm A `depth-half n=2 confirm` val=3.27049 ffs=3025 STANDARD (+0.00217 above #1635 Arm A 3.26832 reference), Arm B `uniform front-lower` val=3.27266 ffs=3050 STANDARD, Δ(B−A)=+0.00217 confirms depth-asymmetry direction at >+0.0015 threshold, **MAJOR CALIBRATION FINDING #1**: #1635 Arm A 3.26832 sub-cluster-edge entry FAILED n=2 confirm — single-seed noise; cycle-71 2nd-lowest sub-cluster-edge landing was seed-favorable noise NOT robust mechanism; **MAJOR CALIBRATION FINDING #2**: cruise-vs-cooldown sign-flip pattern REPRODUCED — Arm B leads cruise by up to −0.02 at step 1000, arms converge at cooldown-START boundary step 2225, then Arm A pulls ahead during cooldown decay → **depth-asymmetry mechanisms broadly cooldown-localized** (consistent with #1642 #1644 #1645 pattern)) + askeladd #1684 NEW PER_DEPTH_HALF_ATTN_SOAP_TRUST_THRESHOLD (FRESH PER-GROUP STATE-MECHANISM AXIS — tests whether attn-SOAP trust-gate threshold should be depth-asymmetric; Arm A `front_tight` front=0.95/back=0.75, Arm B `back_tight` front=0.75/back=0.95, both at midpoint baseline 0.85; per-depth-half on_fraction + mean_cos_row/col telemetry at 8 checkpoints; tests cross-depth dimension of #1642 late-stability mechanism)
+
+**Cumulative**: **285 refuted** / **172 distinct mech classes** / **122 family-level closures**.
+
+### PRs closed this wave (1 closure):
+
+| PR | student | mechanism | outcome |
+|---|---|---|---|
+| **askeladd #1657** | askeladd | ISOLATION_MU_COOLDOWN_START_FRONT_LOWER_DEPTH_HALF_VS_UNIFORM | **285th** — Arm A val=3.27049, Arm B val=3.27266, val_mean misses +0.00382. Δ(B−A)=+0.00217 confirms depth direction. **Two major calibration findings**: (1) #1635 Arm A 3.26832 is seed noise (n=2 fails at +0.00217); (2) cruise-vs-cooldown sign-flip reproduced — depth-asymmetry is cooldown-localized. |
+
+### MAJOR CALIBRATION FINDING #1 — sub-cluster-edge band has noise sensitivity
+
+| run | mechanism | val | n=2 status |
+|---|---|---|---|
+| **#1623 Arm B + #1656 Arm A** | MLP-SOAP refresh-freq back_FAST | mean=3.26823 (range=0.00042) | **REPLICATED — credible** |
+| **#1635 Arm A** | cooldown-START depth-half front_LOWER | 3.26832 → n=2 at 3.27049 | **FAILED — single-seed noise** |
+
+**Sub-cluster-edge band reassessment**: only back_FAST (#1623, #1656) has cross-PR replication. Single-PR n=1 entries in [3.265, 3.272) are within ±0.002 seed noise of baseline. Future sub-cluster-edge candidates require n≥2 confirmation before being treated as mechanism findings.
+
+### MAJOR CALIBRATION FINDING #2 — cruise-vs-cooldown sign-flip pattern is broad
+
+| phase | step | Arm A val | Arm B val | Δ(B−A) |
+|---|---|---|---|---|
+| cruise | 1000 | 3.67106 | 3.64942 | **−0.02164** (uniform B leads strongly) |
+| cooldown boundary | 2225 | 3.38619 | 3.38596 | −0.00023 (tied) |
+| terminal | 3175 | 3.27049 | 3.27266 | **+0.00217** (depth-asym A leads) |
+
+**Depth-asymmetry mechanisms are cooldown-localized.** Same pattern as #1635 (same axis), #1644 (MLP-SOAP proj β2 depth), #1645 (MLP-SOAP refresh-freq phase), #1642 (attn-SOAP β2 late-stability). **Cycle-71 broad finding: cooldown-emergent signals are the dominant pattern for depth-asymmetric and phase-asymmetric mechanisms.**
+
+Late-phase slopes identical (|Δ| ≤ 1e-6 per step); +0.00217 terminal gap is absolute-level not slope-driven (same as #1645 slope identity).
+
+### PRs assigned this wave
+
+| PR | student | mechanism | role |
+|---|---|---|---|
+| **askeladd #1684** | askeladd | PER_DEPTH_HALF_ATTN_SOAP_TRUST_THRESHOLD (Arm A `front_tight` front=0.95/back=0.75, Arm B `back_tight` front=0.75/back=0.95, midpoint 0.85 baseline) | **FRESH PER-GROUP STATE-MECHANISM** — tests cross-depth dimension of #1642 trust-gate-as-mechanism finding; per-depth-half on_fraction + mean_cos_row/col telemetry at 8 checkpoints |
+
+### Fleet state at end of wake 72 (this wave)
+
+8 students all assigned, 0 idle:
+
+| PR | student | axis | status |
+|---|---|---|---|
+| **#1684** | **askeladd** | **PER_DEPTH_HALF_ATTN_SOAP_TRUST_THRESHOLD** | **WIP (this wave, just assigned)** |
+| #1683 | fern | PER_KIND_WD_AUX_DECOMPOSITION | WIP (prior wave) |
+| #1678 | tanjiro | PER_KIND_AUX_BETA1_DIRECTION | WIP (prior wave) |
+| #1671 | frieren | MLP_SOAP_TRUST_GATE_PHASE_DISPATCH | WIP (pod recovered, awaiting student re-launch) |
+| #1668 | nezuko | PHASE_DISPATCH_MLP_SOAP_PROJ_BETA2 | WIP (prior wave) |
+| #1665 | edward | TRUST_THRESHOLD_WARMUP | WIP (prior wave) |
+| #1663 | thorfinn | ASYMMETRIC_LATE_BETA2_ATTN_SOAP | WIP (prior wave) |
+| #1662 | alphonse | JOINT_MLP_SOAP_REFRESH_X_MU_COOLDOWN_END_DEPTH_HALF | WIP (prior wave) |
+
+---
+
 ## 2026-05-29 09:30 UTC — Cycle 71 mid-380 — fern #1656 284th refute (JOINT_MLP_SOAP_REFRESH_BACK_FAST_X_AUX_WD_LM_HEAD_HEAVY val_mean=3.26934 sub-cluster-band misses merge bar by Δ=+0.00158 val and +12.5 ffs, Arm A `mlp_soap_only` val=3.26844 ffs=3000 sub-cluster-edge 3rd entry replicates #1623 back_FAST single-arm, Arm B `compound` val=3.27024 ffs=3025 STANDARD, Δ(A−B)=−0.00180 direction INTERFERES, **MAJOR STRUCTURAL FINDING: lm_head WD axis is structurally INERT** — 3× higher lm_head WD = +0.6% change in proj_lm_head rms vs 3.3× lower embed WD = +22% change in embed rms; **reframes #1611 floor-band entry** (val=3.26966 at WD_EMBED=0.0003, WD_LM_HEAD=0.003) — the lm_head-up component is inert, gain must come from embed-WD-down alone; **per-kind WD axis collapses to a 1-D embed-WD axis** if confirmed; cross-class compound INTERFERES via shared downstream parameter path — embed-magnitude shift propagates into MLP body weights and worsens MLP-SOAP refresh-freq mechanism; not direct cross-class saturation evidence — interference is downstream-path interaction not family-saturation) + fern #1683 NEW PER_KIND_WD_AUX_DECOMPOSITION (DIRECT FOLLOW-UP testing whether #1611 floor-band entry decomposes into embed-only-down vs lm_head-only-up — Arm A `embed_only_down` WD_EMBED=0.0003 WD_LM_HEAD=0.001, Arm B `lm_head_only_up` WD_EMBED=0.001 WD_LM_HEAD=0.003; if A < baseline AND B ≈ baseline: lm_head WD axis collapses to 1-D embed-WD; critical telemetry per-kind weight rms at {500,1000,1500,2225,2500,3000,3175})
 
 **Cumulative**: **284 refuted** / **172 distinct mech classes** / **122 family-level closures**.
