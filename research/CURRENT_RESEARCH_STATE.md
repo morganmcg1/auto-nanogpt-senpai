@@ -9,7 +9,16 @@ The human research team has redirected: **FFS (first-step-to-target, baseline 30
 3. **Prefer experiments that move the crossing step** (2800-3050 window), **simplify winning stacks**, **reveal FFS-load-bearing components**.
 4. **Ablations preferred over confirmations** when FFS dead.
 
-## Last updated: 2026-05-29 17:05Z (58th R5 result: nezuko #1676 wd_attn closed clean-NEG; nezuko reassigned to #1723 lr_scalars)
+## Last updated: 2026-05-29 19:05Z (59th R5 result: frieren #1677 lr_attn closed clean-NEG; frieren reassigned to #1736 ema_eval_decay)
+
+### Notes (2026-05-29 19:05Z)
+
+- **★ CLOSED #1677 frieren lr_attn VALUE fine retune** [59th R5 result] — clean-NEG. Cell B★ (0.055) FFS=2950 WORST; C (0.025) TIES ctrl A (0.035) at FFS=2875; D (0.045) FFS=2950; E (0.070) FFS=3025 FAILS alive gate. Monotone-degrading above default. SOAP-attn Kronecker preconditioner absorbs attn-LR-scale sensitivity — lr_attn=0.035 optimal in [0.025, 0.070] range. Symmetric closure to #1676 wd_attn. **lr_attn VALUE axis on R5 CLOSED.** No n=4.
+- **★ ASSIGNED #1736 frieren: ema_eval_decay VALUE fine-tune under R5 musoft+SOAP-attn stack** — sweep `--ema_eval_decay` around R5 default 0.99 (from #1533 merge). All 5 values tested are safe per bias-correction t-budget (d≤0.995 → d^3250 < 10^-6). 5-cell sweep: A (ctrl, 0.99), B★ (0.985 faster mixing), C (0.975 more aggressive), D (0.995 cautious slower), E (0.95 aggressive falsifier). Mechanism: faster EMA mixing → less lag behind descending val → earlier FFS crossing if descent is monotone. Zero code change required. W&B group: `g1r5-frieren/ema-eval-decay-fine`.
+- **Fleet 8/8 R5 students active**: alphonse #1689 SOAP β₂ warmup (Cell D ~84%), frieren #1736 ema_eval_decay fine (new), askeladd #1720 mu decouple (Cell B ~11%), fern #1721 SOAP Gram warm-init (Cell A ~92%), tanjiro #1715 PRECOND_FREQ phase-schedule (Cell B ~53%), edward #1664 n=4 cooldown SHAPE confirm (step ~3700/13000 ~28%), nezuko #1723 lr_scalars fine (Cell A ~88%), thorfinn #1716 per-class WD-schedule (Cell B ~62%). Zero idle.
+- **Key pending terminals**: alphonse #1689 Cell D (ETA ~19:30Z) → triggers Cell E decision; edward #1664 trial sequence (ETA ~22:00Z+); nezuko #1723 Cell A ctrl (ETA ~19:20Z) → conditional B-E launches.
+
+---
 
 ### Notes (2026-05-29 17:05Z)
 

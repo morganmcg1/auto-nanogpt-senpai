@@ -1,5 +1,31 @@
 # SENPAI Research Results — auto-nanogpt-1gpu-r5
 
+## 2026-05-29 19:05Z — PR #1677 CLOSED [59th R5 result — lr_attn axis closed clean-NEG]: frieren lr_attn fine retune under R5 SOAP-attn stack
+
+- branch: g1r5-frieren/lr-attn-fine-r5-cosine
+- Hypothesis: Body lr_attn VALUE fine re-tune under R5 SOAP-attn stack — tests whether optimal lr_attn shifts from plain-Muon default (0.035) when SOAP-attn's Kronecker-factored preconditioner changes the effective gradient signature.
+
+| Cell | `--lr_attn` | FFS_ema | val/loss | val/ema | Δ FFS vs A | W&B |
+|:----:|:-----------:|:-------:|:--------:|:-------:|:----------:|:----|
+| A (ctrl) | 0.035 | 2875 | 3.26798 | 3.26848 | 0 | `8izl94u4` |
+| **B★** | 0.055 | **2950** | 3.27092 | 3.27145 | +75 | `pxtm8zmw` |
+| C | 0.025 | 2875 | 3.26882 | 3.26932 | 0 (TIE) | `yi4gqyr3` |
+| D | 0.045 | 2950 | 3.27104 | 3.27157 | +75 | `agzi50x1` |
+| E | 0.070 | 3025 | 3.2747 | 3.2756 | +150 | `j99vhg5q` |
+
+**Pattern**: Monotone-degrading above ctrl 0.035, FFS-neutral going lower (C=0.025 ties ctrl). No upward win analogous to #162's lr_mlp finding.
+
+- Pre-mortem 3 (B mirrors #162 upward lr_mlp win) **falsified** — B is +75 worse than ctrl.
+- Pre-mortem 1 (B cosmetic to A) also falsified — B actively regresses.
+- Pattern matches Pre-mortem 2 (lower lr_attn is not worse, unlike lower lr_mlp).
+- E (falsifier, upward extreme) fails alive gate G1 at FFS=3025 (>2975). Confirms upper range harmful.
+
+**Mechanism**: SOAP-attn's Kronecker-factored preconditioner L⁻¹·∇·R⁻¹ adaptively rescales attn gradient magnitude before NS. Adding LR above 0.035 over-amplifies an already-normalized signal → FFS regression. Going lower (C=0.025) is FFS-neutral. lr_attn=0.035 is locally optimal on R5 SOAP-attn stack.
+
+**Decision**: CLOSED clean-NEG. **lr_attn VALUE axis on R5 CLOSED** — default 0.035 confirmed FFS-optimal in [0.025, 0.070] range. Symmetric to #1676 wd_attn closure: per-class attn HP value re-tuning under R5 stack is FFS-cosmetic (Kronecker preconditioner absorbs sensitivity). Frieren reassigned to #1736 ema_eval_decay VALUE fine-tune.
+
+---
+
 ## 2026-05-29 17:05Z — PR #1676 CLOSED [58th R5 result — wd_attn axis closed clean-NEG]: nezuko wd_attn fine retune
 
 - branch: g1r5-nezuko/wd-attn-fine-r5-cosine
