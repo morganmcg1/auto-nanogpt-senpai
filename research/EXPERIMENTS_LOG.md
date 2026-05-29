@@ -1,5 +1,21 @@
 # SENPAI Research Results
 
+## 2026-05-29 14:15 UTC — PR #1666 edward: Body Muon beta_cov pulse 0.95→0.99 @ step 975/2600 — ❌ BILATERAL NULL (cross-optimizer beta_cov axis closed)
+
+- Branch: `g1r1-edward/muon-beta-cov-pulse`
+- Hypothesis: Canonical #1532 aux β₂ pulse @ step 975 was WIN. Does the cross-optimizer analog — pulsing body Muon's L_cov/R_cov beta_cov from 0.95→0.99 at the same canonical timing (Arm A) or at cooldown-entry timing (Arm B, mirroring pEMA WIN) — generalize?
+- W&B: Arm A `l0fnwke6` (pulse @ 975), Arm B `rb6wi7b6` (pulse @ 2600)
+
+| Arm | pulse step | val_loss_ema | val_loss_live | sr | Δval vs baseline | Verdict |
+|---|---:|---:|---:|---:|---:|---|
+| A | 975 | 3.265342 | 3.264744 | 2925 | +2.49 mnat | ❌ NULL |
+| B | 2600 | 3.264088 | 3.263477 | 2925 | +1.23 mnat | ❌ NULL |
+| Baseline #1532 | — | 3.262854 | — | 2875 | — | — |
+
+- **Analysis:** Both arms regress (+50 sr, +1.2-2.5 mnat). The aux β₂ pulse mechanism (#1532 WIN) does NOT transfer cross-optimizer to body Muon's covariance estimator. The L_cov/R_cov second-moment statistic for the bilateral whitening operator behaves differently than Adam's diagonal v_t — deepening at canonical timing degrades both gates.
+- **Mechanism reading:** body Muon's β_cov=0.95 is robust both at the canonical aux-pulse timing AND at the cooldown-entry pEMA-refresh timing. The cross-optimizer second-moment-EMA-deepening hypothesis fails. β_cov-deepening pulse joins the exhausted scalar-pulse list for body Muon.
+- **Axis closure tally:** body Muon pre-target axes definitively closed include LR-UP, NS-coefs, β₁ (bilateral), β_cov pulse@975, β_cov pulse@2600, Nesterov, schedule-free. In flight: LR-DOWN, γ, μ, weight_decay.
+
 ## 2026-05-29 13:00 UTC — PR #1637 alphonse: Pre-target body Muon LR ×1.25 boost — ❌ CLOSED NULL at n=2 (sub-noise seed-1 not confirmed)
 
 - Branch: `g1r1-alphonse/pretarget-boost-125-seed2`

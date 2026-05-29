@@ -1,6 +1,6 @@
 # SENPAI Research State — auto-nanogpt-1gpu-r1
 
-- **Last update: 2026-05-29 13:50 UTC**
+- **Last update: 2026-05-29 14:25 UTC**
 - **Current baseline:** PR #1532 (aux Adam β₂ pulse 0.95→0.99 @ step 975). val_ema=3.262854, sr=2875 (n=2).
 - **Canonical defaults (post #1614):** β₂ pulse fires automatically at step 975 in all new runs — no flag needed.
 - **Merge gate:** `sr ≤ 2862.5 OR (sr=2875 AND val_ema < 3.262854)`
@@ -11,6 +11,12 @@
 - alphonse #1637 (LR-UP ×1.25 seed-2) — NULL at n=2 aggregate
 - thorfinn #1660 (NS polynomial coefficients bilateral) — NULL: both conservative-quintic and Jordan-aggressive degrade vs canonical cubic Newton
 - tanjiro #1648 (per-group β₂ recipient axis) — bilateral NULL
+- **edward #1666 (body Muon β_cov pulse 0.95→0.99 bilateral, steps 975 + 2600) — NULL: cross-optimizer β-deepening hypothesis fails**
+
+**Pre-trending NULLs (in-flight, near-terminal):**
+- nezuko #1680 Arm A `92tyetjn` γ=0.50 pulse — sr=2925 confirmed NULL (Arm B `2wzibl6m` γ=0.60 launched, step 875)
+- frieren #1667 Arm A/B (β₂ spike 0.995/0.999) — both finished sr=2925 NULL (pending SENPAI-RESULT)
+- askeladd #1686 Arm A `njbgdsep` μ=0.97 pulse — sr=2950 PASS gate but worse than baseline (val_ema 3.272 vs 3.263, target reached at step 2950 not 2875)
 
 **Exhausted axes:**
 - **Pre-target body Muon scalars (ALL NULL):** LR-UP, LR-DOWN (in flight), γ, μ (in flight), NS-coefs, β₁, β₂, β_cov pulse@975 (NULL), weight_decay (in flight), Nesterov, schedule-free
@@ -23,18 +29,18 @@
 - Tier 2a (wrapper optimizers): Lookahead FULLY CLOSED in r1. **ADOPT-style async whitening (#1703) — FIRST NOVEL TIER-2 TEST**
 - Tier 2b (pEMA compounding): Second paramEMA refresh (#1704) — test stacking the confirmed WIN
 
-## Active assignments (all 8 students engaged, zero idle)
+## Active assignments (7 students engaged; edward awaiting fresh hypothesis from researcher-agent)
 
 | PR | Student | Experiment | Status | ETA |
 |---|---|---|---|---|
-| **#1703** | **alphonse** | **ADOPT async whitening on body PMuon (identity-init vs zeros-warmup50)** | **Just assigned** | **~21:30 UTC** |
-| **#1704** | **thorfinn** | **Stacked 2nd pEMA refresh at step 2750 vs 2850** | **Just assigned** | **~21:30 UTC** |
-| #1686 | askeladd | Pre-target body Muon μ transient pulse 0.95→{0.97, 0.99} | Arm A `njbgdsep` running | ~17:00 UTC |
-| #1680 | nezuko | Pre-target PMuon γ pulse 0.4→{0.50, 0.60} | Arm A `92tyetjn` running | ~13:30 UTC |
-| #1693 | fern | Pre-target body Muon wd BILATERAL pulse {0.0, 0.05} | Arm A `i0s55pdw` running | ~17:00 UTC |
-| #1667 | frieren | Pre-target aux β₂ transient spike 0.99→{0.995, 0.999} | Arm B `3mzqajdn` running | ~14:30 UTC |
-| #1697 | tanjiro | Pre-target body Muon LR DROP ×{0.75, 0.50} | Pickup pending | ~19:00 UTC |
-| #1666 | edward | Body Muon beta_cov pulse 0.95→0.99 @ step 975/2600 | Arm B `rb6wi7b6` running | ~14:30 UTC |
+| #1703 | alphonse | ADOPT async whitening on body PMuon (identity-init vs zeros-warmup50) | Confirmed picked up | ~21:30 UTC |
+| #1704 | thorfinn | Stacked 2nd pEMA refresh at step 2750 vs 2850 | Confirmed picked up | ~21:30 UTC |
+| #1686 | askeladd | Pre-target body Muon μ transient pulse 0.95→{0.97, 0.99} | Arm A `njbgdsep` step 3075 PASS gate@2950 (trending NULL) | Arm A terminal ~14:30 UTC, Arm B chain ~18:30 UTC |
+| #1680 | nezuko | Pre-target PMuon γ pulse 0.4→{0.50, 0.60} | Arm A `92tyetjn` finished sr=2925 NULL; Arm B `2wzibl6m` step 875 | Arm B terminal ~17:30 UTC |
+| #1693 | fern | Pre-target body Muon wd BILATERAL pulse {0.0, 0.05} | Arm A `i0s55pdw` step 2325 | ~17:00 UTC |
+| #1667 | frieren | Pre-target aux β₂ transient spike 0.99→{0.995, 0.999} | Both arms finished sr=2925 bilateral NULL; awaiting SENPAI-RESULT | ~now |
+| #1697 | tanjiro | Pre-target body Muon LR DROP ×{0.75, 0.50} | Confirmed picked up | ~19:00 UTC |
+| ~~#1666~~ | edward | ~~Body Muon beta_cov pulse~~ → **awaiting fresh hypothesis (researcher-agent in-flight)** | CLOSED bilateral NULL 14:15 UTC | new assignment ~14:45 UTC |
 
 ## Research portfolio focus
 
@@ -60,7 +66,7 @@
 | NS iteration count | not yet tested phase-specifically |
 | weight_decay | in flight #1693 |
 | beta_cov pulse @ 975 | ❌ NULL #1666 Arm A |
-| beta_cov pulse @ 2600 | in flight #1666 Arm B |
+| beta_cov pulse @ 2600 | ❌ NULL #1666 Arm B |
 | ADOPT async whitening (update order) | #1703 — NOVEL, 0 prior PRs |
 | Nesterov momentum | ❌ NULL bilateral |
 | Schedule-free | ❌ NULL |
