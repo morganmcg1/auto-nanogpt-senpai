@@ -9,7 +9,15 @@ The human research team has redirected: **FFS (first-step-to-target, baseline 30
 3. **Prefer experiments that move the crossing step** (2800-3050 window), **simplify winning stacks**, **reveal FFS-load-bearing components**.
 4. **Ablations preferred over confirmations** when FFS dead.
 
-## Last updated: 2026-05-29 10:59Z (poll — resolved #1659 spurious --dry-run comment, askeladd continuing sweep)
+## Last updated: 2026-05-29 11:39Z (poll — n=4 confirm trial breakdowns visible: #1617 tanjiro knife-edge MERGE, #1586 thorfinn FFS-NEG)
+
+### Notes (2026-05-29 11:38–11:39Z)
+
+- **★ #1617 tanjiro n=4 EMA-eval confirm (PRECOND_FREQ=8) intel**: trial_0_FFS=2875 + trial_1_FFS=2875, both `speedrun/final_first_step_to_target_ema_uncorrected`. Currently mid-trial_2 (step 7590/13000 = 58%). At baseline μ_4=2912.5 with gate ≤2887.5, the merge math is knife-edge: t2+t3 ≤ 5800 (avg ≤2900) for MERGE. If remaining trials match 2875 → μ_4=2875 CLEAN MERGE. If 2925 → μ_4=2900 NO MERGE. Defer judgment until terminal.
+- **★ #1586 thorfinn n=4 EMA-eval confirm (wd_mlp=0.040) intel**: trial_0_FFS=3000 + trial_1_FFS=3000, both worse than baseline 2912.5 by +87.5 steps. Even with two perfect remaining trials (2875 each), μ_4=2937.5 > gate 2887.5 → NO MERGE possible. This is the classic val-but-not-FFS divergence: cell E was n=1 BEST on val (−2.5σ) but n=4 confirms FFS-NEG. Currently mid-trial_2 (step 7483/13000 = 58%). Likely close FFS-NEG on terminal.
+- **★ #1664 edward Cell B FINALIZED FFS=2875** (was preliminary, now confirmed). Cell A ctrl=2925. Cell B per-class cooldown SHAPE (mlp=cos/attn=lin) IS FFS-positive at n=1. Cell D INVERT diagnostic (mlp=lin/attn=cos) at step 2494/3250 = 77%, not yet crossed. Cells C+E pending. Awaiting D for axis-vs-instance disambiguation.
+- **#1689 alphonse SOAP β₂ warmup**: implementation complete, run `sxodglph` step 752 in flight. Cell sweep proceeding.
+- All 7 in-flight runs healthy (heartbeats ≤13s). No new human issues. Zero idle.
 
 ### Notes (2026-05-29 10:52–10:59Z)
 
