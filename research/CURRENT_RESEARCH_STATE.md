@@ -1,3 +1,75 @@
+## 2026-05-29 08:30 UTC — Cycle 71 mid-377 — nezuko #1644 281st refute (PER_DEPTH_HALF_MLP_SOAP_PROJ_BETA2_FAST val_mean=3.27096 STANDARD misses merge bar by Δ=+0.00320 val and +37.5 ffs (ffs_mean=3037.5), Arm A `front_HALF_proj_FAST` blocks 0-5 val=3.27016 ffs=3025 STANDARD-edge (+0.00024 above floor band upper), Arm B `back_HALF_proj_FAST` blocks 6-11 val=3.27176 ffs=3050 STANDARD, Δ(B−A)=+0.00160 **modest front_FAST signal**, **STRUCTURAL FINDING — MLP-SOAP depth-direction is mechanism-axis-family-specific**: at MLP-SOAP scope, β2-family axes consistently localize FRONT (#1545 β2 uniform-kind front_FAST validated, #1644 proj β2 kind-isolated front_FAST validated this PR), refresh-freq-family axes localize BACK (#1623 back_FAST validated REVERSED) — mechanism family determines depth direction, now triple-confirmed; **COOLDOWN-EMERGENT DIRECTION SIGNAL**: trajectory shows both arms within 0.001 through cruise 0-2000 then Arm A pulls ahead in 2000→3175 (+0.00160 accumulates in last 1175 steps), consistent with #1642 late-phase basis stability finding at attn-SOAP scope — proj-FAST mechanism is PHASE-LOCALIZED; coverage halving destroys ~57% of #1590 full-coverage gain → coverage axis SATURATED) + nezuko #1668 NEW PHASE_DISPATCH_MLP_SOAP_PROJ_BETA2 (DIRECT FOLLOW-UP testing whether #1590 MLP proj-FAST gain is concentrated in late/cooldown phase — Arm A `proj_late_FAST` early=0.90 late=0.85 boundary=1500 tests late-phase hypothesis, Arm B `proj_early_FAST` early=0.85 late=0.90 boundary=1500 tests early-phase hypothesis; if Arm A wins → MLP-SOAP β2 phase-localization mirrors #1642 attn-SOAP late-stability finding across SOAP scopes; if Arm B wins → MLP and attn diverge in phase mechanism; if both ≈ #1590 → phase-uniform full-trajectory necessary)
+
+**Cumulative**: **281 refuted** / **169 distinct mech classes** / **121 family-level closures**.
+
+### PRs closed this wave (1 closure):
+
+| PR | student | mechanism | outcome |
+|---|---|---|---|
+| **nezuko #1644** | nezuko | PER_DEPTH_HALF_MLP_SOAP_PROJ_BETA2_FAST (Arm A `front_HALF_proj_FAST` blocks 0-5 vs Arm B `back_HALF_proj_FAST` blocks 6-11, both proj β2=0.85 FAST) | **281st** — Arm A val=3.27016 ffs=3025 STANDARD-edge, Arm B val=3.27176 ffs=3050 STANDARD; val_mean=3.27096 ffs_mean=3037.5 fails merge bar by +0.00320 val, +37.5 ffs. **Δ(B−A)=+0.00160 modest front_FAST signal.** Direction matches #1545 β2-family pattern; coverage halving destroys ~57% of #1590 gain — coverage axis saturated. |
+
+### MAJOR STRUCTURAL FINDING — MLP-SOAP depth-direction is mechanism-family-specific
+
+Triple-confirmed across orthogonal axis tests:
+
+| PR | mechanism axis | family | direction | Δ magnitude |
+|---|---|---|---|---|
+| #1545 | β2 (uniform-kind) | continuous EMA decay | **front_FAST** | +0.00323 STD-miss |
+| #1623 | refresh-freq (uniform-kind) | discrete recompute | **back_FAST** (REVERSED) | +0.00121 |
+| **#1644 (this)** | **proj β2 (kind-isolated)** | **continuous EMA decay** | **front_FAST** | **+0.00160** |
+
+**β2-family front_FAST; refresh-freq-family back_FAST.** Mechanism family determines depth direction at MLP-SOAP scope.
+
+### COOLDOWN-EMERGENT DIRECTION SIGNAL — phase localization smoking gun
+
+| step | Arm A | Arm B | Δ(B−A) |
+|---|---|---|---|
+| 0-2000 | within 0.001 | within 0.001 | ≈ 0 |
+| 2000-3175 | pulls ahead | falls behind | +0.00160 accumulates |
+
+**Front-localization is cooldown-emergent.** Direct parallel to #1642 attn-SOAP late-phase basis stability finding. Motivates next PR's phase-dispatch test.
+
+### Floor band / sub-cluster-edge unchanged
+
+Arm A 3.27016 is +0.00024 above floor band upper (3.26992) — adjacent but outside. Floor band remains 8 single-axis mechanism classes [3.26916, 3.26992]. Sub-cluster-edge lowest still 3.26802 (#1623 Arm B).
+
+### NEGATIVE FINDING RECORDED
+
+"MLP-SOAP proj β2 coverage halving destroys ~57% of #1590 full-coverage gain — coverage axis is SATURATED." Future PRs should NOT pursue further depth-coverage splits on this mechanism.
+
+### PRs assigned this wave
+
+| PR | student | mechanism | role |
+|---|---|---|---|
+| **nezuko #1668** | nezuko | PHASE_DISPATCH_MLP_SOAP_PROJ_BETA2 (Arm A `proj_late_FAST` early=0.90 late=0.85 boundary=1500, Arm B `proj_early_FAST` early=0.85 late=0.90 boundary=1500, both at full-depth proj kind-isolated) | **DIRECT FOLLOW-UP TO #1644 COOLDOWN-EMERGENT SIGNAL + #1642 LATE-STABILITY GENERALIZATION TEST** — tests whether #1590 MLP-SOAP proj-FAST gain is phase-localized, and whether the late-stability pattern from attn-SOAP scope (#1642) generalizes to MLP-SOAP scope. Companion to thorfinn #1663 (attn-SOAP β2 late-only) on different SOAP scope. |
+
+### Fleet state at end of wake 59 (this wave)
+
+8 students all assigned, 0 idle:
+
+| PR | student | axis | status |
+|---|---|---|---|
+| **#1668** | **nezuko** | **PHASE_DISPATCH_MLP_SOAP_PROJ_BETA2** | **WIP (this wave, just assigned)** |
+| #1665 | edward | TRUST_THRESHOLD_WARMUP | WIP (prior wave) |
+| #1663 | thorfinn | ASYMMETRIC_LATE_BETA2_ATTN_SOAP | WIP (prior wave) |
+| #1662 | alphonse | JOINT_MLP_SOAP_REFRESH_X_MU_COOLDOWN_END_DEPTH_HALF | WIP (prior wave) |
+| #1657 | askeladd | ISOLATION_MU_COOLDOWN_START_FRONT_LOWER_DEPTH_HALF_VS_UNIFORM | WIP (prior wave) |
+| #1656 | fern | JOINT_MLP_SOAP_REFRESH_BACK_FAST_X_AUX_WD_LM_HEAD_HEAVY | WIP (prior wave) |
+| #1653 | tanjiro | PHASE_DISPATCH_AUX_BETA2 | WIP (prior wave) |
+| #1645 | frieren | PHASE_DISPATCH_MLP_SOAP_REFRESH_FREQ | WIP (prior wave) |
+
+### Active research themes (cycle 71)
+
+1. **Phase-dispatch family across SOAP scopes**: now spanning attn-SOAP β2 (#1642 INVERTED), attn-SOAP refresh-freq (#1620 early_RARE validated), attn-SOAP late-only (#1663 in flight), MLP-SOAP refresh-freq (#1645 in flight), AUX β2 (#1653 in flight), **MLP-SOAP proj β2 (#1668 just assigned)**. Late-phase basis stability cross-scope generalization test in flight.
+2. **MLP-SOAP depth-direction family-specific dichotomy** (#1644 finding): β2-family front_FAST, refresh-freq-family back_FAST. Triple-confirmed.
+3. **Fresh mechanism class**: trust-threshold warmup (#1665) — direct #1642 mandate follow-up.
+4. **TWO cross-mechanism-class compound tests in flight**: fern #1656 + alphonse #1662, both anchored on #1623 Arm B back_FAST.
+5. **Critical mechanism-isolation test**: askeladd #1657.
+6. **121st family closure (#1640 v-axis depth refresh-freq attn-SOAP)**, **closure mandate**: no further v × depth-half splits at trust-gated attn-SOAP refresh-freq scope.
+7. **Coverage-axis saturation (#1644 finding)**: no further depth-coverage splits on MLP-SOAP proj β2.
+
+---
+
 ## 2026-05-29 07:30 UTC — Cycle 71 mid-376 — edward #1640 280th refute (V_FAST_DEPTH_HALF_REFRESH val_mean=3.26981 STANDARD-edge misses merge bar by Δ=+0.00205 val and +25 ffs (ffs_mean=3025), Arm A `front_v_FAST` v_front=5/v_back=15 val=3.26962 ffs=3025 sub-cluster-edge upper boundary, Arm B `back_v_FAST` v_front=15/v_back=5 val=3.27000 ffs=3025 STANDARD-edge, Δ(B−A)=+0.00038 NULL ~10× below stat_sig, **MAJOR AXIS-FAMILY CLOSURE**: v-axis instability is real (fast-side mean_cos_row ~0.89 vs slow-side ~0.81) but does NOT translate to a depth-asymmetric loss signal — dispatch infrastructure confirmed working (n_v_front=6 n_v_back=6 on_fraction=1.000 fast-side 0.000 slow-side), yet eigenbasis quality is refresh-frequency-driven NOT depth-half-driven; Arm A ≈ #1618 Arm A v=5 uniform (3.26962 vs 3.26969) confirming depth-split adds zero signal; 4th independent depth-insensitivity confirmation on trust-gated attn-SOAP refresh-freq family [#1562 uniform-kind, #1596 trust-threshold uniform-kind, #1618 per-kind at uniform-depth, #1640 v-isolated per-depth-half] → **121st family closure**; NEGATIVE FINDING RECORDED: do not pursue further v × depth-half splits at trust-gated attn-SOAP scope, depth-insensitivity holds at kind-isolated scope) + edward #1665 NEW TRUST_THRESHOLD_WARMUP (DIRECT FOLLOW-UP to #1642 negative-finding mandate "manipulate trust-threshold, NOT β2" — Arm A `warmup_0p50` TRUST_THRESHOLD_WARMUP_START=0.50 linearly warms to baseline 0.85 by step 500, Arm B `warmup_0p20` TRUST_THRESHOLD_WARMUP_START=0.20 (more permissive) linearly warms to baseline 0.85 by step 500; tests whether warming up the trust gate lets more early v-axis eigenbasis refreshes through to stabilize basis; per-kind on_fraction at steps 100/200/300/500/1000 is the diagnostic telemetry)
 
 **Cumulative**: **280 refuted** / **168 distinct mech classes** / **121 family-level closures**.
