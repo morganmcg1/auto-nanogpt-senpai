@@ -109,6 +109,44 @@ def parse_args():
     parser.add_argument("--body_init_bottom_layers", type=int,
                         default=int(os.environ.get("BODY_INIT_BOTTOM_LAYERS", "6")),
                         help="Number of bottom layers to damp for --body_init=orthogonal_bottom_damp (default 6 = bottom half of 12 layers).")
+    # H261: aux optimizer FORM replacement (Sophia, Liu et al. 2023). Default 'adamw'
+    # is bit-identical to the H203 baseline path. 'sophia' replaces the aux AdamW step
+    # with a clipped Hessian-aware update using Hutchinson diagonal estimator. The
+    # branch is gated outside @torch.compile (Pattern A drift-FREE).
+    parser.add_argument("--aux_optimizer", type=str,
+                        default=os.environ.get("AUX_OPTIMIZER", "adamw"),
+                        choices=["adamw", "sophia"],
+                        help="Aux parameter optimizer form. adamw=baseline H203, sophia=clipped Hessian-aware (Liu et al. 2023).")
+    parser.add_argument("--aux_sophia_k", type=int, default=int(os.environ.get("AUX_SOPHIA_K", "10")),
+                        help="Sophia Hessian update interval (every k steps).")
+    parser.add_argument("--aux_sophia_rho", type=float, default=float(os.environ.get("AUX_SOPHIA_RHO", "0.05")),
+                        help="Sophia clip threshold (paper recommends 0.01-0.05).")
+    parser.add_argument("--aux_sophia_beta1", type=float, default=float(os.environ.get("AUX_SOPHIA_BETA1", "0.96")),
+                        help="Sophia gradient EMA coefficient (paper default 0.96).")
+    parser.add_argument("--aux_sophia_beta2", type=float, default=float(os.environ.get("AUX_SOPHIA_BETA2", "0.99")),
+                        help="Sophia Hessian EMA coefficient (paper default 0.99).")
+    parser.add_argument("--aux_sophia_lr", type=float, default=float(os.environ.get("AUX_SOPHIA_LR", "4.5e-4")),
+                        help="Sophia learning rate (paper recommends 4.5e-4 for GPT-2-small scale). "
+                             "Only used when --aux_sophia_per_group_lr=0.")
+    parser.add_argument("--aux_sophia_per_group_lr", type=int,
+                        default=int(os.environ.get("AUX_SOPHIA_PER_GROUP_LR", "1")),
+                        help="1=use per-group Sophia LRs matching AdamW per-group LRs (recommended for fair "
+                             "FORM comparison with this codebase's per-group AdamW aux setup). "
+                             "0=use flat --aux_sophia_lr for all aux params.")
+    parser.add_argument("--aux_sophia_lr_embed", type=float,
+                        default=float(os.environ.get("AUX_SOPHIA_LR_EMBED", "0.3")),
+                        help="Sophia LR for adam_embed group (default matches AdamW embed lr 0.3).")
+    parser.add_argument("--aux_sophia_lr_lm_head", type=float,
+                        default=float(os.environ.get("AUX_SOPHIA_LR_LM_HEAD", str(1/320))),
+                        help="Sophia LR for adam_lm_head group (default matches AdamW lm_head lr 1/320).")
+    parser.add_argument("--aux_sophia_lr_scalars", type=float,
+                        default=float(os.environ.get("AUX_SOPHIA_LR_SCALARS", "0.01")),
+                        help="Sophia LR for adam_scalars group (default matches AdamW scalars lr 0.01).")
+    parser.add_argument("--aux_sophia_hess_mbs", type=int,
+                        default=int(os.environ.get("AUX_SOPHIA_HESS_MBS", "8")),
+                        help="Sub-microbatch size for the Hutchinson Hessian forward. Smaller "
+                             "means noisier Hessian sample but lower memory (MATH SDPA "
+                             "materializes attention scores, the dominant cost).")
     args = parser.parse_args()
     args.num_trials = args.num_trials if args.num_trials is not None else (args.legacy_num_trials or 1)
     args.wandb_tags = [tag.strip() for tag in args.wandb_tags.split(",") if tag.strip()]
@@ -850,8 +888,110 @@ if dist.get_rank() == 0:
             "muonh_mu_schedule": args.muonh_mu_schedule,
             "muonh_mu_start": args.muonh_mu_start,
             "muonh_mu_end": args.muonh_mu_end,
+            "aux_optimizer": args.aux_optimizer,
+            "aux_sophia_k": args.aux_sophia_k,
+            "aux_sophia_rho": args.aux_sophia_rho,
+            "aux_sophia_beta1": args.aux_sophia_beta1,
+            "aux_sophia_beta2": args.aux_sophia_beta2,
+            "aux_sophia_lr": args.aux_sophia_lr,
+            "aux_sophia_per_group_lr": args.aux_sophia_per_group_lr,
+            "aux_sophia_lr_embed": args.aux_sophia_lr_embed,
+            "aux_sophia_lr_lm_head": args.aux_sophia_lr_lm_head,
+            "aux_sophia_lr_scalars": args.aux_sophia_lr_scalars,
+            "aux_sophia_hess_mbs": args.aux_sophia_hess_mbs,
         },
     )
+
+
+# H261: Sophia (Liu et al. 2023) Hutchinson diagonal Hessian estimator and step.
+# Pattern A drift-FREE: these functions are only entered when --aux_optimizer=sophia.
+# arm_a CTRL (--aux_optimizer=adamw) never touches this path.
+@torch.compiler.disable
+def sophia_hessian_update(model, inputs, targets, aux_params_named_grouped, sophia_state, beta2):
+    aux_params = [p for _, p, _ in aux_params_named_grouped]
+    aux_names = [n for n, _, _ in aux_params_named_grouped]
+    # Double backward requirements:
+    #  - Bypass torch.compile via _call_impl (compile's AOT autograd cannot do
+    #    double backward at all — raises "torch.compile with aot_autograd does
+    #    not currently support double backward").
+    #  - Switch to the MATH SDPA backend so attention supports a second backward.
+    #    The materialized attention-score tensors are the dominant memory cost,
+    #    which is why we pass a sub-microbatch slice (aux_sophia_hess_mbs).
+    from torch.nn.attention import sdpa_kernel, SDPBackend
+    with sdpa_kernel([SDPBackend.MATH]):
+        loss = model._call_impl(inputs, targets)
+    grads = torch.autograd.grad(loss, aux_params, create_graph=True)
+    z_list = []
+    zg_sum = grads[0].new_zeros(())
+    for g, p in zip(grads, aux_params):
+        z = (torch.rand(p.shape, device=p.device, dtype=torch.float32) > 0.5).to(g.dtype) * 2 - 1
+        z_list.append(z)
+        zg_sum = zg_sum + (g * z).sum()
+    Hz_list = torch.autograd.grad(zg_sum, aux_params)
+    for name, p, z, Hz in zip(aux_names, aux_params, z_list, Hz_list):
+        u = z.to(torch.float32) * Hz.to(torch.float32)
+        state = sophia_state[name]
+        if "h" not in state:
+            state["h"] = torch.zeros_like(p.data, dtype=torch.float32)
+        state["h"].mul_(beta2).add_(u, alpha=(1 - beta2))
+
+
+@torch.compiler.disable
+def sophia_step(aux_params_named_grouped, sophia_state, beta1, rho, lr_per_group, want_stats: bool):
+    # GPU tensor accumulators — converted to Python scalars ONCE, only when we
+    # actually want to log (telemetry_due). Avoids 3 .item() syncs per param per
+    # step (~300+ syncs/step in the 101-aux-param regime).
+    # lr_per_group is a {group_name: float} dict; group_name comes from the
+    # AdamW optimizer1.param_groups[i]["name"] (adam_embed / adam_lm_head /
+    # adam_scalars). Matching per-group AdamW LRs is what makes Sophia step
+    # magnitudes comparable to the baseline aux update (smoke H261_smoke_SOPHIA_K10_v4
+    # showed flat lr=4.5e-4 produces ~4e-8 per-step movement vs AdamW's ~lr_group).
+    if want_stats:
+        device = aux_params_named_grouped[0][1].device
+        clip_count = torch.zeros((), device=device, dtype=torch.float64)
+        total_count = 0
+        h_sumsq = torch.zeros((), device=device, dtype=torch.float64)
+        m_sumsq = torch.zeros((), device=device, dtype=torch.float64)
+        numel_total = 0
+    for name, p, group in aux_params_named_grouped:
+        if p.grad is None:
+            continue
+        g = p.grad.data
+        state = sophia_state[name]
+        if "m" not in state:
+            state["m"] = torch.zeros_like(p.data, dtype=torch.float32)
+        if "h" not in state:
+            state["h"] = torch.zeros_like(p.data, dtype=torch.float32)
+        m = state["m"]
+        h = state["h"]
+        g_f32 = g.to(torch.float32)
+        m.mul_(beta1).add_(g_f32, alpha=(1 - beta1))
+        # Official Sophia formula (Liu et al. 2023): ratio = clip(|m|/(rho*|h|+eps), 0, 1);
+        # step = lr * sign(m) * ratio. Max step magnitude = lr per coord (matches AdamW
+        # at the same lr). Earlier code clipped m/max(|h|,rho) to ±rho, capping step
+        # at lr*rho = 20× too small at rho=0.05; smoke v4/v5 froze val_loss at 10.826
+        # because lm_head (zero-init) couldn't move off zero in 80 steps.
+        denom = rho * h.abs() + 1e-15
+        ratio_raw = m.abs() / denom
+        ratio = ratio_raw.clamp(max=1.0)
+        update = m.sign() * ratio
+        if want_stats:
+            # Saturation count: fraction of coords where ratio saturates to 1
+            # (Sophia's "sign-momentum-like" regime — healthy at 0.1–0.5 per paper).
+            clip_count += (ratio_raw >= 1.0).sum().to(torch.float64)
+            total_count += update.numel()
+            h_sumsq += h.square().sum().to(torch.float64)
+            m_sumsq += m.square().sum().to(torch.float64)
+            numel_total += m.numel()
+        lr = lr_per_group[group]
+        p.data.add_(update.to(p.dtype), alpha=-lr)
+    if not want_stats:
+        return None
+    h_rms = float((h_sumsq / max(1, numel_total)).sqrt().item())
+    m_rms = float((m_sumsq / max(1, numel_total)).sqrt().item())
+    clip_ratio = float(clip_count.item()) / max(1, total_count)
+    return {"h_rms_mean": h_rms, "m_rms_mean": m_rms, "clip_ratio": clip_ratio}
+
 
 for trial_idx in range(args.num_trials):
 
@@ -942,6 +1082,43 @@ for trial_idx in range(args.num_trials):
     # Inner-MuonH AGC targets: block 2D weights consumed by MuonH. Clipped BEFORE
     # the MuonH momentum buffer integrates the gradient.
     muonh_params_for_agc = [p for g in optimizer2.param_groups for p in g["params"]]
+    # H261 Sophia state — only populated if --aux_optimizer=sophia. arm_a (adamw)
+    # leaves this empty and never invokes sophia_step/sophia_hessian_update.
+    # aux_params_named_grouped: list of (name, param, group_name) where group_name
+    # is the AdamW param_group["name"] (adam_embed / adam_lm_head / adam_scalars).
+    # Per-group LR mapping resolves to args.aux_sophia_lr_{embed,lm_head,scalars}
+    # when --aux_sophia_per_group_lr=1, else falls back to args.aux_sophia_lr.
+    aux_params_named_grouped = []
+    sophia_state = {}
+    sophia_lr_per_group = {}
+    if args.aux_optimizer == "sophia":
+        aux_param_to_group = {}
+        for g in optimizer1.param_groups:
+            for p in g["params"]:
+                aux_param_to_group[id(p)] = g["name"]
+        for name, p in model.named_parameters():
+            if id(p) in aux_param_to_group:
+                group = aux_param_to_group[id(p)]
+                aux_params_named_grouped.append((name, p, group))
+        sophia_state = {n: {} for n, _, _ in aux_params_named_grouped}
+        if args.aux_sophia_per_group_lr:
+            sophia_lr_per_group = {
+                "adam_embed": args.aux_sophia_lr_embed,
+                "adam_lm_head": args.aux_sophia_lr_lm_head,
+                "adam_scalars": args.aux_sophia_lr_scalars,
+            }
+        else:
+            flat_lr = args.aux_sophia_lr
+            sophia_lr_per_group = {
+                "adam_embed": flat_lr,
+                "adam_lm_head": flat_lr,
+                "adam_scalars": flat_lr,
+            }
+        print0(f"[H261 sophia] aux_optimizer=sophia k={args.aux_sophia_k} rho={args.aux_sophia_rho} "
+               f"beta1={args.aux_sophia_beta1} beta2={args.aux_sophia_beta2} "
+               f"per_group_lr={args.aux_sophia_per_group_lr} "
+               f"lr_per_group={sophia_lr_per_group} "
+               f"aux_param_count={len(aux_params_named_grouped)}", console=True)
     assert set(p for opt in optimizers for group in opt.param_groups
                for p in group["params"]) == set(model.parameters())
     for opt in optimizers:
@@ -1169,8 +1346,29 @@ for trial_idx in range(args.num_trials):
         muonh_agc_stats = adaptive_gradient_clip(
             muonh_params_for_agc, args.muonh_agc_clip_ratio, eps=args.muonh_agc_eps,
         )
-        for opt in optimizers:
-            opt.step()
+        # H261: aux optimizer FORM dispatch — Pattern A drift-FREE.
+        # arm_a (--aux_optimizer=adamw) takes the original `for opt: opt.step()` path
+        # unmodified. arm_b/c (--aux_optimizer=sophia) skip the aux AdamW step and
+        # invoke Sophia's clipped Hessian-aware update instead.
+        sophia_stats = None
+        if args.aux_optimizer == "sophia":
+            optimizer2.step()
+            if train_step % args.aux_sophia_k == 0:
+                hmbs = min(args.aux_sophia_hess_mbs, mbs)
+                sophia_hessian_update(
+                    model,
+                    inputs[:hmbs], targets[:hmbs],
+                    aux_params_named_grouped, sophia_state,
+                    args.aux_sophia_beta2,
+                )
+            sophia_stats = sophia_step(
+                aux_params_named_grouped, sophia_state,
+                args.aux_sophia_beta1, args.aux_sophia_rho, sophia_lr_per_group,
+                want_stats=telemetry_due,
+            )
+        else:
+            for opt in optimizers:
+                opt.step()
         # Log warmup telemetry every 10 steps during warmup (and at telemetry events
         # afterwards) so we capture the warmup curve at high resolution. Cheap since
         # it's just two floats.
@@ -1207,6 +1405,10 @@ for trial_idx in range(args.num_trials):
                 muonh_metrics["train/muonh/agc/max_ratio"] = muonh_agc_stats["agc_max_ratio"]
                 muonh_metrics["train/muonh/agc/scale_min"] = muonh_agc_stats["agc_scale_min"]
                 muonh_metrics["train/muonh/agc/scale_mean"] = muonh_agc_stats["agc_scale_mean"]
+            if sophia_stats is not None and telemetry_due:
+                muonh_metrics["train/h261/sophia_h_rms_mean"] = sophia_stats["h_rms_mean"]
+                muonh_metrics["train/h261/sophia_m_rms_mean"] = sophia_stats["m_rms_mean"]
+                muonh_metrics["train/h261/sophia_clip_ratio"] = sophia_stats["clip_ratio"]
             if len(muonh_metrics) > 2:
                 wandb.log(muonh_metrics, step=wandb_step)
         if dist.get_rank() == 0 and telemetry_due:
