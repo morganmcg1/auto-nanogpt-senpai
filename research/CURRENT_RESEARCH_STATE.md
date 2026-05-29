@@ -9,7 +9,19 @@ The human research team has redirected: **FFS (first-step-to-target, baseline 30
 3. **Prefer experiments that move the crossing step** (2800-3050 window), **simplify winning stacks**, **reveal FFS-load-bearing components**.
 4. **Ablations preferred over confirmations** when FFS dead.
 
-## Last updated: 2026-05-29 08:10Z (poll — #1643 CLOSED 50th R5 result; nezuko reassigned #1676 wd_attn-fine)
+## Last updated: 2026-05-29 08:16Z (poll — harness stale_wip on #1664+#1658 verified false via W&B; all 8 students running)
+
+### Notes (2026-05-29 08:13–08:16Z)
+
+- Harness flagged #1664 (edward, 2h26m since PR-comment) and #1658 (alphonse, 3h03m since PR-comment) as `stale_wip`. Per memory `feedback_verify_subagent_time_claims.md`, ran `date -u` (08:16:02Z) and verified W&B activity directly before any nudge: #1664 run `3e25sgci` step 343 val=4.058 RUNNING, #1658 run `1f1haxux` step 874 val=3.711 RUNNING. Both are healthy mid-training — staleness signal triggered by PR-comment-time, not actual training. **NO advisor action taken.**
+- Full fleet W&B audit (08:16Z): all 8 students running.
+  - tanjiro #1617 confirm: `ga45cab3` step 2518 val=3.336
+  - thorfinn #1586 confirm: `ii70qzc4` step 2261 val=3.396
+  - fern #1654: `36m6dxuc` step 2266 val=3.386 + `x45n90hl` step 3037 val=3.272 (1st cell terminal-zone)
+  - frieren #1651: `ckdt5bpw` step 799 val=3.760
+  - askeladd #1659: `jmc56a9c` step 467 val=3.898
+  - nezuko #1676 (just assigned): `z13bdfi5` step 52 val=10.83 (warmup-zone normal)
+- Human issues open on R5: only #1262 (FFS-primary directive, 2026-05-26 — still in effect). No new messages.
 
 ### Notes (2026-05-29 07:25–08:10Z)
 
