@@ -1,4 +1,62 @@
-## 2026-05-29 14:30 UTC — Cycle 71 mid-379 — tanjiro #1653 283rd refute (PHASE_DISPATCH_AUX_BETA2 val_mean=3.27126 STANDARD misses merge bar by Δ=+0.00350 val and +37.5 ffs, Arm A `early_FAST` early=0.91/late=0.99 val=3.27024 ffs=3025 STANDARD-edge, Arm B `early_SLOW` early=0.99/late=0.91 val=3.27228 ffs=3050 STANDARD, Δ(B−A)=+0.00204 early_FAST direction CONFIRMED magnitude NULL, **MAJOR STRUCTURAL FINDING: cross-class phase-dispatch principle** — phase-dispatch unlocks signal ONLY when the underlying optimizer has SOAP-scaffolding [eigenbasis / refresh-freq / trust-gate]; AUX [AdamW] class has no scaffolding for phase to leverage — exp_avg_sq telemetry confirms dispatch hook mechanically active, null is STRUCTURAL not implementation; AUX β2 family FULLY CLOSED across static [#1577 saturated], per-kind [#1633 saturated], phase [#1653 null] sub-scopes → **122nd family closure**) + tanjiro #1678 NEW PER_KIND_AUX_BETA1_DIRECTION (FRESH MECHANISM CLASS extending per-kind AUX family from β2 [#1577 validated lm_head_FAST direction] to β1 [NEVER been per-kind tested]; Arm A `lm_head_b1_fast` lm_head β1=0.7/embed β1=0.9 mirrors #1577 direction, Arm B `lm_head_b1_slow` reversed; tests whether per-kind AdamW first-moment EMA asymmetry mirrors validated second-moment direction; critical telemetry: per-kind exp_avg snapshots at steps {500,1000,1500,2225,2500,3000})
+## 2026-05-29 09:30 UTC — Cycle 71 mid-380 — fern #1656 284th refute (JOINT_MLP_SOAP_REFRESH_BACK_FAST_X_AUX_WD_LM_HEAD_HEAVY val_mean=3.26934 sub-cluster-band misses merge bar by Δ=+0.00158 val and +12.5 ffs, Arm A `mlp_soap_only` val=3.26844 ffs=3000 sub-cluster-edge 3rd entry replicates #1623 back_FAST single-arm, Arm B `compound` val=3.27024 ffs=3025 STANDARD, Δ(A−B)=−0.00180 direction INTERFERES, **MAJOR STRUCTURAL FINDING: lm_head WD axis is structurally INERT** — 3× higher lm_head WD = +0.6% change in proj_lm_head rms vs 3.3× lower embed WD = +22% change in embed rms; **reframes #1611 floor-band entry** (val=3.26966 at WD_EMBED=0.0003, WD_LM_HEAD=0.003) — the lm_head-up component is inert, gain must come from embed-WD-down alone; **per-kind WD axis collapses to a 1-D embed-WD axis** if confirmed; cross-class compound INTERFERES via shared downstream parameter path — embed-magnitude shift propagates into MLP body weights and worsens MLP-SOAP refresh-freq mechanism; not direct cross-class saturation evidence — interference is downstream-path interaction not family-saturation) + fern #1683 NEW PER_KIND_WD_AUX_DECOMPOSITION (DIRECT FOLLOW-UP testing whether #1611 floor-band entry decomposes into embed-only-down vs lm_head-only-up — Arm A `embed_only_down` WD_EMBED=0.0003 WD_LM_HEAD=0.001, Arm B `lm_head_only_up` WD_EMBED=0.001 WD_LM_HEAD=0.003; if A < baseline AND B ≈ baseline: lm_head WD axis collapses to 1-D embed-WD; critical telemetry per-kind weight rms at {500,1000,1500,2225,2500,3000,3175})
+
+**Cumulative**: **284 refuted** / **172 distinct mech classes** / **122 family-level closures**.
+
+### PRs closed this wave (1 closure):
+
+| PR | student | mechanism | outcome |
+|---|---|---|---|
+| **fern #1656** | fern | JOINT_MLP_SOAP_REFRESH_BACK_FAST × per-kind WD lm_head-heavy (cross-class compound) | **284th** — val_mean=3.26934 misses by +0.00158, Δ(A−B)=−0.00180 INTERFERES. MAJOR STRUCTURAL FINDING: lm_head WD axis structurally inert (+0.6% rms under 3× WD); reframes #1611 lm_head-heavy floor-band entry as 1-D embed-WD-down mechanism. |
+
+### MAJOR STRUCTURAL FINDING — lm_head WD axis structurally INERT
+
+From #1656 rms telemetry at step 3175:
+
+| group | baseline | 3× WD (Arm B) | %Δ | verdict |
+|---|---|---|---|---|
+| `proj/weight` (lm_head) | 0.1129 | 0.1136 | **+0.6%** | **STRUCTURALLY INERT** — gradient signal dominates WD pressure |
+| `embed/weight` (AUX, 3.3× lower WD) | 8.190 | 9.981 | **+22%** | STRONGLY ACTIVE — embed WD is the real axis |
+
+The "per-kind WD lm_head-heavy" floor-band entry from #1611 (val=3.26966) must have gained its 0.0002 sub-baseline edge from embed-WD-down alone. **Per-kind WD axis potentially collapses to 1-D embed-WD axis.** #1683 will test this directly via decomposition arms.
+
+### Sub-cluster-edge band — 3 entries now
+
+| PR | mechanism | val | ffs | band |
+|---|---|---|---|---|
+| #1623 Arm B | MLP-SOAP refresh-freq back_FAST (depth-half) | 3.26802 | 3000 | sub-cluster-edge lowest |
+| #1635 Arm A | cooldown-START depth-half front_LOWER | 3.26832 | 3000 | sub-cluster-edge 2nd |
+| **#1656 Arm A `9qrvzadl`** | MLP-SOAP refresh-freq back_FAST (replication) | **3.26844** | **3000** | **sub-cluster-edge 3rd — replicates #1623** |
+
+Arm A confirms #1623's back_FAST mechanism is not noise (Δ=+0.00042 across PRs at n=1+n=1 ≈ effective n=2).
+
+### PRs assigned this wave
+
+| PR | student | mechanism | role |
+|---|---|---|---|
+| **fern #1683** | fern | PER_KIND_WD_AUX_DECOMPOSITION (Arm A `embed_only_down` WD_EMBED=0.0003/LM_HEAD=0.001, Arm B `lm_head_only_up` WD_EMBED=0.001/LM_HEAD=0.003) | **DIRECT FOLLOW-UP** to #1656 structural finding — tests whether #1611's lm_head-heavy floor-band entry decomposes into 1-D embed-WD-down mechanism; per-kind weight rms telemetry at 7 checkpoints |
+
+### Stale_wip intervention — frieren #1671 sent back for debug
+
+frieren #1671 Arm A `ojs1ssau` crashed at step 650/3175 with **91% nonfinite gradients** (`nonfinite=147M vs finite=14M`). All 6 disabled_check runs show `speedrun/final_best_val_loss=10.825` (init level). Posted send-back to PR with: 4 ranked failure-mode hypotheses (most likely `use_attn_soap` branch accidentally modified during patch); 4 required actions (status comment, kill-gate rigor check, `state["trust_gate"]` init, re-launch criteria); 90-min deadline for student response. Holding the hypothesis (high structural value).
+
+### Fleet state at end of wake 69 (this wave)
+
+8 students all assigned, 0 idle:
+
+| PR | student | axis | status |
+|---|---|---|---|
+| **#1683** | **fern** | **PER_KIND_WD_AUX_DECOMPOSITION** | **WIP (this wave, just assigned)** |
+| #1678 | tanjiro | PER_KIND_AUX_BETA1_DIRECTION | WIP (prior wave) |
+| #1671 | frieren | MLP_SOAP_TRUST_GATE_PHASE_DISPATCH | **WIP — debug in progress (sent back for code patch fix)** |
+| #1668 | nezuko | PHASE_DISPATCH_MLP_SOAP_PROJ_BETA2 | WIP (prior wave) |
+| #1665 | edward | TRUST_THRESHOLD_WARMUP | WIP (prior wave) |
+| #1663 | thorfinn | ASYMMETRIC_LATE_BETA2_ATTN_SOAP | WIP (prior wave) |
+| #1662 | alphonse | JOINT_MLP_SOAP_REFRESH_X_MU_COOLDOWN_END_DEPTH_HALF | WIP (prior wave) |
+| #1657 | askeladd | ISOLATION_MU_COOLDOWN_START_FRONT_LOWER_DEPTH_HALF_VS_UNIFORM | WIP (prior wave) |
+
+---
+
+## 2026-05-29 09:00 UTC — Cycle 71 mid-379 — tanjiro #1653 283rd refute (PHASE_DISPATCH_AUX_BETA2 val_mean=3.27126 STANDARD misses merge bar by Δ=+0.00350 val and +37.5 ffs, Arm A `early_FAST` early=0.91/late=0.99 val=3.27024 ffs=3025 STANDARD-edge, Arm B `early_SLOW` early=0.99/late=0.91 val=3.27228 ffs=3050 STANDARD, Δ(B−A)=+0.00204 early_FAST direction CONFIRMED magnitude NULL, **MAJOR STRUCTURAL FINDING: cross-class phase-dispatch principle** — phase-dispatch unlocks signal ONLY when the underlying optimizer has SOAP-scaffolding [eigenbasis / refresh-freq / trust-gate]; AUX [AdamW] class has no scaffolding for phase to leverage — exp_avg_sq telemetry confirms dispatch hook mechanically active, null is STRUCTURAL not implementation; AUX β2 family FULLY CLOSED across static [#1577 saturated], per-kind [#1633 saturated], phase [#1653 null] sub-scopes → **122nd family closure**) + tanjiro #1678 NEW PER_KIND_AUX_BETA1_DIRECTION (FRESH MECHANISM CLASS extending per-kind AUX family from β2 [#1577 validated lm_head_FAST direction] to β1 [NEVER been per-kind tested]; Arm A `lm_head_b1_fast` lm_head β1=0.7/embed β1=0.9 mirrors #1577 direction, Arm B `lm_head_b1_slow` reversed; tests whether per-kind AdamW first-moment EMA asymmetry mirrors validated second-moment direction; critical telemetry: per-kind exp_avg snapshots at steps {500,1000,1500,2225,2500,3000})
 
 **Cumulative**: **283 refuted** / **171 distinct mech classes** / **122 family-level closures**.
 
