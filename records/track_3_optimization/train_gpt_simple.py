@@ -602,6 +602,7 @@ NANOGPT_NEWTON_MUON_UPDATE_PERIOD = int(os.environ.get("NANOGPT_NEWTON_MUON_UPDA
 NANOGPT_NEWTON_MUON_BETA = float(os.environ.get("NANOGPT_NEWTON_MUON_BETA", "0.95"))
 NANOGPT_NEWTON_MUON_EPS = float(os.environ.get("NANOGPT_NEWTON_MUON_EPS", "1e-4"))
 NANOGPT_NEWTON_MUON_MAX_D_IN = int(os.environ.get("NANOGPT_NEWTON_MUON_MAX_D_IN", "1024"))
+NANOGPT_NEWTON_MUON_MIN_D_IN = int(os.environ.get("NANOGPT_NEWTON_MUON_MIN_D_IN", "0"))
 NANOGPT_NEWTON_MUON_TIKHONOV_GAMMA = float(os.environ.get("NANOGPT_NEWTON_MUON_TIKHONOV_GAMMA", "0.0"))
 
 # Global per-parameter input-activation cache populated by forward hooks. Keyed by
@@ -611,13 +612,12 @@ NANOGPT_NEWTON_MUON_TIKHONOV_GAMMA = float(os.environ.get("NANOGPT_NEWTON_MUON_T
 _newton_input_cache: dict[int, "torch.Tensor"] = {}
 
 
-def _make_newton_input_hook(weight_param: "torch.Tensor", max_d_in: int):
+def _make_newton_input_hook(weight_param: "torch.Tensor", min_d_in: int, max_d_in: int):
     """Build a forward hook that caches the layer's input activations for Newton-Muon.
 
     Hook signature: hook(module, args, output). We store the first positional
     arg (the input tensor) reshaped to (B*T, d_in). Skips layers with
-    d_in > max_d_in to avoid blowing up the eigendecomp cost on MLP contract
-    projections (d_in=3072 in this stack).
+    d_in outside [min_d_in, max_d_in] to gate which modules get preconditioning.
     """
     weight_id = id(weight_param)
 
@@ -625,7 +625,7 @@ def _make_newton_input_hook(weight_param: "torch.Tensor", max_d_in: int):
         if not inp or inp[0] is None:
             return
         x = inp[0]
-        if x.ndim < 2 or x.shape[-1] > max_d_in:
+        if x.ndim < 2 or x.shape[-1] < min_d_in or x.shape[-1] > max_d_in:
             return
         # detach() preserves dtype (bf16) but breaks gradient tracking.
         # reshape to (B*T, d_in) for second-moment computation.
@@ -746,7 +746,7 @@ class Muon(torch.optim.Optimizer):
     def __init__(self, params, lr=0.02, weight_decay=0, mu=0.95, beta2=0.999, eps=1e-8,
                  newton_precond: bool = False, newton_beta: float = 0.95,
                  newton_eps: float = 1e-4, newton_update_period: int = 10,
-                 newton_max_d_in: int = 1024,
+                 newton_max_d_in: int = 1024, newton_min_d_in: int = 0,
                  newton_input_cache: dict | None = None):
         assert isinstance(params, list) and len(params) >= 1
         if isinstance(params[0], dict):
@@ -785,6 +785,7 @@ class Muon(torch.optim.Optimizer):
         self.newton_eps = float(newton_eps)
         self.newton_update_period = int(newton_update_period)
         self.newton_max_d_in = int(newton_max_d_in)
+        self.newton_min_d_in = int(newton_min_d_in)
         self.newton_input_cache = newton_input_cache if newton_input_cache is not None else {}
         self._newton_step_count = 0
         # Accumulator dict reset each step() — read by the training loop after
@@ -813,7 +814,7 @@ class Muon(torch.optim.Optimizer):
         if p.ndim != 2:
             return None
         d_out, d_in = grad.shape
-        if d_in > self.newton_max_d_in:
+        if d_in > self.newton_max_d_in or d_in < self.newton_min_d_in:
             return None
         pid = id(p)
         x = self.newton_input_cache.get(pid)
@@ -996,6 +997,7 @@ print0(
     f"lr_scale={NANOGPT_NEWTON_MUON_LR_SCALE} "
     f"update_period={NANOGPT_NEWTON_MUON_UPDATE_PERIOD} "
     f"beta={NANOGPT_NEWTON_MUON_BETA} eps={NANOGPT_NEWTON_MUON_EPS} "
+    f"min_d_in={NANOGPT_NEWTON_MUON_MIN_D_IN} "
     f"max_d_in={NANOGPT_NEWTON_MUON_MAX_D_IN} "
     f"tikhonov_gamma={NANOGPT_NEWTON_MUON_TIKHONOV_GAMMA}",
     console=True,
@@ -1044,13 +1046,18 @@ if NANOGPT_NEWTON_MUON:
     for name, module in model.named_modules():
         w = getattr(module, "weight", None)
         if isinstance(w, torch.nn.Parameter) and id(w) in muon_param_ids:
-            # Skip registering hooks on modules whose input dim exceeds the cap;
-            # they would never be preconditioned anyway, and the hook itself
-            # already shortcircuits, but avoiding registration saves graph nodes.
+            # Skip registering hooks on modules whose input dim is outside the
+            # [MIN_D_IN, MAX_D_IN] band; they would never be preconditioned
+            # anyway, and the hook itself already shortcircuits, but avoiding
+            # registration saves graph nodes.
             in_features = getattr(module, "in_features", None)
-            if in_features is None or in_features <= NANOGPT_NEWTON_MUON_MAX_D_IN:
+            if in_features is None or (
+                NANOGPT_NEWTON_MUON_MIN_D_IN <= in_features <= NANOGPT_NEWTON_MUON_MAX_D_IN
+            ):
                 handle = module.register_forward_hook(
-                    _make_newton_input_hook(w, NANOGPT_NEWTON_MUON_MAX_D_IN)
+                    _make_newton_input_hook(
+                        w, NANOGPT_NEWTON_MUON_MIN_D_IN, NANOGPT_NEWTON_MUON_MAX_D_IN
+                    )
                 )
                 _newton_hook_handles.append(handle)
                 _newton_hook_count += 1
@@ -1058,7 +1065,8 @@ if NANOGPT_NEWTON_MUON:
                 _newton_hook_skipped_d_in += 1
     print0(
         f"NEWTON_MUON: hooks registered for {_newton_hook_count} parameter modules "
-        f"(skipped {_newton_hook_skipped_d_in} d_in>{NANOGPT_NEWTON_MUON_MAX_D_IN})",
+        f"(skipped {_newton_hook_skipped_d_in} d_in<{NANOGPT_NEWTON_MUON_MIN_D_IN} "
+        f"or >{NANOGPT_NEWTON_MUON_MAX_D_IN})",
         console=True,
     )
 
@@ -1118,6 +1126,7 @@ if dist.get_rank() == 0:
             "nanogpt_newton_muon_beta": NANOGPT_NEWTON_MUON_BETA,
             "nanogpt_newton_muon_eps": NANOGPT_NEWTON_MUON_EPS,
             "nanogpt_newton_muon_max_d_in": NANOGPT_NEWTON_MUON_MAX_D_IN,
+            "nanogpt_newton_muon_min_d_in": NANOGPT_NEWTON_MUON_MIN_D_IN,
             "nanogpt_newton_muon_tikhonov_gamma": NANOGPT_NEWTON_MUON_TIKHONOV_GAMMA,
         },
     )
@@ -1185,6 +1194,7 @@ for trial_idx in range(args.num_trials):
         newton_eps=NANOGPT_NEWTON_MUON_EPS,
         newton_update_period=NANOGPT_NEWTON_MUON_UPDATE_PERIOD,
         newton_max_d_in=NANOGPT_NEWTON_MUON_MAX_D_IN,
+        newton_min_d_in=NANOGPT_NEWTON_MUON_MIN_D_IN,
         newton_input_cache=_newton_input_cache,
     )
     print0(f"MUON_PARAM_COUNTS: attn={len(muon_attn_params)} mlp={len(muon_mlp_params)} "
