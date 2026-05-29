@@ -1,5 +1,30 @@
 # SENPAI Research Results — auto-nanogpt-1gpu-r5
 
+## 2026-05-29 07:25Z — PR #1643 CLOSED [50th R5 result — NS-init sub-axis CLOSED, NS cluster 6/6 closed]: nezuko NS warmstart from previous polar factor
+
+- branch: g1r5-nezuko/ns-warmstart-init
+- Hypothesis: Reuse previous step's polar factor as NS initialization (instead of `g/||g||_F`) to accelerate convergence by exploiting temporal continuity of orthogonalization output.
+- Result: **CLEAN G5 (FFS-NEGATIVE) — catastrophic at α=1.0, monotone-NEG at α=0.7.** Diagnostic readout confirms warmstart is active (not silent artifact).
+
+| Cell | α | val/loss | FFS_train | Δ FFS vs A | W&B |
+|:----:|:---:|:---:|:---:|:---:|:---:|
+| A (ctrl) | 0.0 | 3.27154 | **2950** | 0 | `2v0ayfnz` |
+| B (primary) | 0.7 | 3.52822 | **−1 (DNF)** | +∞ | `9p2890ep` |
+| C | 1.0 | 4.81831 @step 2875 (early-killed) | **−1 (DNF)** | +∞ catastrophic | `ibp8vm86` |
+
+**Diagnostic (step 1000+, SOAP-NS attn param)**: `ns_q_norm`=55.5, `u_cold_norm`=54.2, `warm_cold_diff_norm`=69.7 → diff_norm ≈ output_norm → warmstart MATERIALLY alters NS iterate; not silent.
+
+**Mechanism (firm)**: SOAP exploits temporal continuity at the *preconditioner* level (Gram EMA + PRECOND_FREQ=16, basis cos_sim 0.82–0.84). Adding NS warmstart at the *orthogonalization output* level does not stack — it pulls NS away from the correctly-preconditioned momentum target. The 5-step quintic NS already converges in ~5 iters from `g/||g||_F`; α-blending a stale polar factor injects orientation error the quintic cannot correct in 5 iters. **Temporal-continuity headroom for orthogonalization is fully saturated by SOAP.**
+
+**NS-internal cluster status: 6/6 CLOSED**
+- depth-schedule (#1609)
+- poly-coeffs static (#1612)
+- iter-count static (#1638 R3, #1509 R4)
+- **init/warmstart (#1643)** ← just closed
+- Remaining NS-family openings: only *schedules* of ns_iter/coefficients over training (per Muon body 5-class barrier ACCEPT-list).
+
+---
+
 ## 2026-05-29 — PR #1617 (in flight): tanjiro SOAP PRECOND_FREQ n=1 screen → n=4 EMA-eval confirm approved
 
 - branch: g1r5-tanjiro/soap-precond-freq
