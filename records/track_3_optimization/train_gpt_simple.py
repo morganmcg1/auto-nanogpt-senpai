@@ -464,6 +464,14 @@ SOAP_PRECOND_FREQ = 10
 ATTN_SOAP_BETA2 = 0.90
 ATTN_SOAP_PRECOND_FREQ = 10
 ATTN_SOAP_TRUST_THRESHOLD = float(os.environ.get("ATTN_SOAP_TRUST_THRESHOLD", "0.9"))
+# Optional early-phase warmup of the attn-SOAP trust threshold (PR #1665).
+# When ENABLED, the trust threshold linearly ramps from TRUST_THRESHOLD_WARMUP_START
+# at Muon step 0 to ATTN_SOAP_TRUST_THRESHOLD at TRUST_THRESHOLD_WARMUP_STEPS, then
+# holds at the baseline. Tests #1642 mandate that early-phase trust-gate manipulation,
+# not β2, is the right lever for accelerating early v-axis refreshes.
+TRUST_THRESHOLD_WARMUP_ENABLED = int(os.environ.get("TRUST_THRESHOLD_WARMUP_ENABLED", "0"))
+TRUST_THRESHOLD_WARMUP_START = float(os.environ.get("TRUST_THRESHOLD_WARMUP_START", "0.50"))
+TRUST_THRESHOLD_WARMUP_STEPS = int(os.environ.get("TRUST_THRESHOLD_WARMUP_STEPS", "500"))
 NS5_ITERS = int(os.environ.get("NS5_ITERS", "12"))
 WD_AUX = float(os.environ.get("WD_AUX", "0.0"))  # AdamW WD on embed + lm_head matrices (scalars stay at 0)
 EMBED_INIT_STD = float(os.environ.get("EMBED_INIT_STD", "1.0"))  # default preserves baseline N(0,1)
@@ -655,9 +663,22 @@ class Muon(torch.optim.Optimizer):
         params = sorted([p for _, p in named_params], key=lambda x: x.size(), reverse=True)
         defaults = dict(lr=lr, weight_decay=weight_decay, mu=mu)
         super().__init__(params, defaults)
+        # PR #1665 — early-phase trust-threshold warmup counter (increments once per Muon.step()).
+        self._global_step = 0
+        print(f"[TRUST_THRESHOLD_WARMUP] enabled={TRUST_THRESHOLD_WARMUP_ENABLED} "
+              f"start={TRUST_THRESHOLD_WARMUP_START} steps={TRUST_THRESHOLD_WARMUP_STEPS} "
+              f"baseline={ATTN_SOAP_TRUST_THRESHOLD}")
+
+    def current_trust_threshold(self) -> float:
+        """Return the attn-SOAP trust threshold for the current Muon step (post-step value)."""
+        if TRUST_THRESHOLD_WARMUP_ENABLED and self._global_step <= TRUST_THRESHOLD_WARMUP_STEPS:
+            progress = self._global_step / max(1, TRUST_THRESHOLD_WARMUP_STEPS)
+            return TRUST_THRESHOLD_WARMUP_START + progress * (ATTN_SOAP_TRUST_THRESHOLD - TRUST_THRESHOLD_WARMUP_START)
+        return ATTN_SOAP_TRUST_THRESHOLD
 
     @torch.no_grad()
     def step(self):
+        self._global_step += 1
         world_size = dist.get_world_size()
         rank = dist.get_rank()
         for group in self.param_groups:
@@ -714,10 +735,15 @@ class Muon(torch.optim.Optimizer):
                     if use_soap:
                         soap_refresh(grad, state)
                     elif use_attn_soap:
+                        if TRUST_THRESHOLD_WARMUP_ENABLED and self._global_step <= TRUST_THRESHOLD_WARMUP_STEPS:
+                            progress = self._global_step / max(1, TRUST_THRESHOLD_WARMUP_STEPS)
+                            trust_threshold_current = TRUST_THRESHOLD_WARMUP_START + progress * (ATTN_SOAP_TRUST_THRESHOLD - TRUST_THRESHOLD_WARMUP_START)
+                        else:
+                            trust_threshold_current = ATTN_SOAP_TRUST_THRESHOLD
                         soap_refresh(grad, state, beta2=ATTN_SOAP_BETA2,
                                      refresh_freq=ATTN_SOAP_PRECOND_FREQ,
                                      use_trust_gate=True,
-                                     trust_threshold=ATTN_SOAP_TRUST_THRESHOLD)
+                                     trust_threshold=trust_threshold_current)
                 dist.all_gather(params_pad[base_i:base_i + world_size], params_pad[base_i + rank])
 
     def trust_gate_stats(self) -> dict[str, float]:
@@ -864,6 +890,9 @@ if dist.get_rank() == 0:
             "optimizer/attn_soap_beta2": ATTN_SOAP_BETA2,
             "optimizer/attn_soap_precond_freq": ATTN_SOAP_PRECOND_FREQ,
             "optimizer/attn_soap_trust_threshold": ATTN_SOAP_TRUST_THRESHOLD,
+            "optimizer/trust_threshold_warmup_enabled": int(TRUST_THRESHOLD_WARMUP_ENABLED),
+            "optimizer/trust_threshold_warmup_start": TRUST_THRESHOLD_WARMUP_START,
+            "optimizer/trust_threshold_warmup_steps": TRUST_THRESHOLD_WARMUP_STEPS,
             "optimizer/ns5_iters": NS5_ITERS,
             "optimizer/wd_aux": WD_AUX,
             "optimizer/recipe": "contra-muon + normuon-lite + soap-on-mlp + soap-on-attn-trust-gate (pre-NS5, record #14 + record #16)",
@@ -1059,6 +1088,8 @@ for trial_idx in range(args.num_trials):
                     stats = opt.trust_gate_stats()
                     if stats:
                         wandb.log(prefixed("train/attn_soap_trust_gate", stats), step=wandb_step)
+                if hasattr(opt, "current_trust_threshold"):
+                    wandb.log({"optimizer/trust_threshold_current": opt.current_trust_threshold()}, step=wandb_step)
         if dist.get_rank() == 0 and telemetry_due:
             log_weight_telemetry(
                 model=model,
