@@ -9,11 +9,13 @@ The human research team has redirected: **FFS (first-step-to-target, baseline 30
 3. **Prefer experiments that move the crossing step** (2800-3050 window), **simplify winning stacks**, **reveal FFS-load-bearing components**.
 4. **Ablations preferred over confirmations** when FFS dead.
 
-## Last updated: 2026-05-29 06:58Z (poll — #1673 false-alarm closed; fleet verified healthy via direct W&B query, hb_age 0.1–0.2 min on all running cells)
+## Last updated: 2026-05-29 07:10Z (poll — false-alarm cleanup + early-kill nudges on diverging cells)
 
-### Note (2026-05-29 06:58Z)
+### Notes (2026-05-29 06:58–07:10Z)
 
-Earlier this cycle I filed [Issue #1673](https://github.com/morganmcg1/modded-nanogpt-senpai/issues/1673) reporting a fleet-wide harness silence based on a subagent's hallucinated "current time ~09:11 UTC." Verified false via `date -u` (actual 06:55Z at time of verification) and direct W&B query (hb_age 0.1–0.2 min on running runs). Issue closed with apology. Saved feedback memory `feedback_verify_subagent_time_claims.md` to prevent recurrence.
+- Earlier this cycle I filed [Issue #1673](https://github.com/morganmcg1/modded-nanogpt-senpai/issues/1673) reporting a fleet-wide harness silence based on a subagent's hallucinated "current time ~09:11 UTC." Verified false via `date -u` (actual 06:55Z) and direct W&B query (hb_age 0.1–0.2 min on running runs). Issue closed with apology. Saved feedback memory `feedback_verify_subagent_time_claims.md` to prevent recurrence.
+- **#1651 frieren cell B exploding**: val 3.894 (step 1830) → 6.049 (step 2024). Left advisor nudge inviting early-kill — pre-NS grad-Frobenius normalization destabilizes late-training. Shaping up as clean post-NS scale-prior closure (consistent with 6-instance post-NS Frobenius/LAMB/LARS barrier).
+- **#1643 nezuko cell C FFS-NEG**: B finished val=3.528, C running val=4.84 at step 2749 — both above-target. Left advisor nudge inviting early-kill. NS warm-start from previous polar factor degrades convergence — completes NS-init sub-axis within the 6/6 NS cluster closure.
 
 ### Current state
 
