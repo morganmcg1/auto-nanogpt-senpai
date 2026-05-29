@@ -464,6 +464,15 @@ SOAP_PRECOND_FREQ = 10
 ATTN_SOAP_BETA2 = 0.90
 ATTN_SOAP_PRECOND_FREQ = 10
 ATTN_SOAP_TRUST_THRESHOLD = float(os.environ.get("ATTN_SOAP_TRUST_THRESHOLD", "0.9"))
+# Phase-dispatch MLP-SOAP proj β2 (PR #1668): swap β2 used for .mlp.proj.weight
+# at PHASE_BOUNDARY_STEP. Tests whether the validated #1590 proj-FAST gain is
+# late-phase-driven (mirrors #1642 attn-SOAP late-stability finding) or
+# early-phase-driven (EMA-warmup). Only affects MLP-SOAP `.mlp.proj.weight`;
+# `.mlp.fc.weight` and attn-SOAP unaffected.
+PHASE_DISPATCH_MLP_PROJ_BETA2_ENABLED = int(os.environ.get("PHASE_DISPATCH_MLP_PROJ_BETA2_ENABLED", "0"))
+MLP_PROJ_BETA2_EARLY = float(os.environ.get("MLP_PROJ_BETA2_EARLY", str(SOAP_BETA2)))
+MLP_PROJ_BETA2_LATE = float(os.environ.get("MLP_PROJ_BETA2_LATE", str(SOAP_BETA2)))
+MLP_PROJ_BETA2_PHASE_BOUNDARY_STEP = int(os.environ.get("MLP_PROJ_BETA2_PHASE_BOUNDARY_STEP", "1500"))
 NS5_ITERS = int(os.environ.get("NS5_ITERS", "12"))
 WD_AUX = float(os.environ.get("WD_AUX", "0.0"))  # AdamW WD on embed + lm_head matrices (scalars stay at 0)
 EMBED_INIT_STD = float(os.environ.get("EMBED_INIT_STD", "1.0"))  # default preserves baseline N(0,1)
@@ -652,12 +661,31 @@ class Muon(torch.optim.Optimizer):
                     self.attn_soap_kind[id(p)] = "v"
                 elif n.endswith(".attn.proj.weight"):
                     self.attn_soap_kind[id(p)] = "proj"
+        # Track MLP-SOAP sub-type (fc / proj) for phase-dispatch β2 (PR #1668).
+        self.soap_kind: dict[int, str] = {}
+        for n, p in named_params:
+            if p in self.soap_params:
+                if n.endswith(".mlp.fc.weight"):
+                    self.soap_kind[id(p)] = "fc"
+                elif n.endswith(".mlp.proj.weight"):
+                    self.soap_kind[id(p)] = "proj"
         params = sorted([p for _, p in named_params], key=lambda x: x.size(), reverse=True)
         defaults = dict(lr=lr, weight_decay=weight_decay, mu=mu)
         super().__init__(params, defaults)
+        # Muon-internal global step counter (PR #1668). Used by phase-dispatch β2.
+        self._global_step = 0
+        if dist.get_rank() == 0 and PHASE_DISPATCH_MLP_PROJ_BETA2_ENABLED:
+            n_proj = sum(1 for pid in self.soap_kind if self.soap_kind.get(pid) == "proj")
+            print(f"[PHASE_DISPATCH_MLP_PROJ_BETA2] enabled=1 "
+                  f"early={MLP_PROJ_BETA2_EARLY:.4f} late={MLP_PROJ_BETA2_LATE:.4f} "
+                  f"boundary_step={MLP_PROJ_BETA2_PHASE_BOUNDARY_STEP} "
+                  f"n_proj_params={n_proj} (expected: 12) "
+                  f"baseline_SOAP_BETA2={SOAP_BETA2:.4f}")
+            assert n_proj == 12, f"Expected 12 MLP-proj params (full depth); got {n_proj}"
 
     @torch.no_grad()
     def step(self):
+        self._global_step += 1
         world_size = dist.get_world_size()
         rank = dist.get_rank()
         for group in self.param_groups:
@@ -712,7 +740,18 @@ class Muon(torch.optim.Optimizer):
                     p.add_(update, alpha=-group["lr"])
                     # Refresh SOAP state with the raw grad (after applying the step).
                     if use_soap:
-                        soap_refresh(grad, state)
+                        if PHASE_DISPATCH_MLP_PROJ_BETA2_ENABLED:
+                            kind = self.soap_kind.get(id(p), "fc")
+                            if kind == "proj":
+                                if self._global_step <= MLP_PROJ_BETA2_PHASE_BOUNDARY_STEP:
+                                    _beta2 = MLP_PROJ_BETA2_EARLY
+                                else:
+                                    _beta2 = MLP_PROJ_BETA2_LATE
+                            else:
+                                _beta2 = SOAP_BETA2
+                            soap_refresh(grad, state, beta2=_beta2, refresh_freq=SOAP_PRECOND_FREQ)
+                        else:
+                            soap_refresh(grad, state)
                     elif use_attn_soap:
                         soap_refresh(grad, state, beta2=ATTN_SOAP_BETA2,
                                      refresh_freq=ATTN_SOAP_PRECOND_FREQ,
@@ -864,6 +903,10 @@ if dist.get_rank() == 0:
             "optimizer/attn_soap_beta2": ATTN_SOAP_BETA2,
             "optimizer/attn_soap_precond_freq": ATTN_SOAP_PRECOND_FREQ,
             "optimizer/attn_soap_trust_threshold": ATTN_SOAP_TRUST_THRESHOLD,
+            "optimizer/phase_dispatch_mlp_proj_beta2_enabled": int(PHASE_DISPATCH_MLP_PROJ_BETA2_ENABLED),
+            "optimizer/mlp_proj_beta2_early": MLP_PROJ_BETA2_EARLY,
+            "optimizer/mlp_proj_beta2_late": MLP_PROJ_BETA2_LATE,
+            "optimizer/mlp_proj_beta2_phase_boundary_step": MLP_PROJ_BETA2_PHASE_BOUNDARY_STEP,
             "optimizer/ns5_iters": NS5_ITERS,
             "optimizer/wd_aux": WD_AUX,
             "optimizer/recipe": "contra-muon + normuon-lite + soap-on-mlp + soap-on-attn-trust-gate (pre-NS5, record #14 + record #16)",
