@@ -114,6 +114,32 @@ def parse_args():
                         help="Polyak-Ruppert EMA decay for eval-only weight averaging. "
                              "0.0 = disabled (drift-FREE CTRL). Typical: 0.05 (fast, ~20-step half-life) / "
                              "0.005 (slow, ~200-step half-life). Higher decay = faster EMA tracking.")
+    # H268: aux optimizer FORM dispatch. 'adamw' = baseline H203 (drift-FREE bit-id).
+    # 'adam_mini' = Zhang et al. 2024 block-mean second moment on aux params
+    # (embed, lm_head, scalars). Adam-mini args are no-ops when --aux_optimizer=adamw
+    # (preserved in W&B config for audit). Block granularity = full parameter tensor
+    # (single scalar v_t per parameter) — most aggressive reduction short of Lion's
+    # no-adaptivity (H260). Tests "how much preconditioner granularity is needed".
+    parser.add_argument("--aux_optimizer", type=str, default=os.environ.get("AUX_OPTIMIZER", "adamw"),
+                        choices=["adamw", "adam_mini"],
+                        help="Aux parameter optimizer FORM. 'adamw' = baseline H203, "
+                             "'adam_mini' = block-mean v_t (Zhang et al. 2024).")
+    parser.add_argument("--aux_adam_mini_lr", type=float,
+                        default=float(os.environ.get("AUX_ADAM_MINI_LR", "4.5e-4")),
+                        help="Adam-mini aux LR (H268). Uniform across all aux groups "
+                             "(embed/lm_head/scalars). Cooled by the same aux LR schedule eta as AdamW.")
+    parser.add_argument("--aux_adam_mini_beta1", type=float,
+                        default=float(os.environ.get("AUX_ADAM_MINI_BETA1", "0.9")),
+                        help="Adam-mini aux beta1 (default 0.9 = standard AdamW default).")
+    parser.add_argument("--aux_adam_mini_beta2", type=float,
+                        default=float(os.environ.get("AUX_ADAM_MINI_BETA2", "0.95")),
+                        help="Adam-mini aux beta2 (default 0.95 = H203 aux AdamW beta2).")
+    parser.add_argument("--aux_adam_mini_wd", type=float,
+                        default=float(os.environ.get("AUX_ADAM_MINI_WD", "0.1")),
+                        help="Adam-mini aux decoupled weight decay (default 0.1 = standard AdamW LLM default).")
+    parser.add_argument("--aux_adam_mini_eps", type=float,
+                        default=float(os.environ.get("AUX_ADAM_MINI_EPS", "1e-8")),
+                        help="Adam-mini aux eps for sqrt(v) denominator (default 1e-8 = standard).")
     args = parser.parse_args()
     args.num_trials = args.num_trials if args.num_trials is not None else (args.legacy_num_trials or 1)
     args.wandb_tags = [tag.strip() for tag in args.wandb_tags.split(",") if tag.strip()]
@@ -602,6 +628,72 @@ class Muon(torch.optim.Optimizer):
                 dist.all_gather(params_pad[base_i:base_i + world_size], params_pad[base_i + rank])
 
 
+class AdamMini(torch.optim.Optimizer):
+    """H268: Adam-mini (Zhang et al. 2024, arxiv 2406.16793). Block-mean second moment.
+
+    For each parameter, maintains:
+    - m: per-element first moment (same as AdamW)
+    - v_scalar: scalar second moment (mean of element-wise grad^2) per parameter
+
+    Update (Adam-style with bias correction + decoupled weight decay):
+        m_t   = β1 * m_{t-1} + (1-β1) * g
+        v_t   = β2 * v_{t-1} + (1-β2) * mean(g**2)   # scalar
+        m_hat = m_t / (1 - β1**t)
+        v_hat = v_t / (1 - β2**t)                    # scalar
+        p     ← (1 - lr*wd) * p - lr * m_hat / (sqrt(v_hat) + eps)
+
+    Block granularity: full parameter tensor (one scalar v per param). This is the most
+    aggressive granularity reduction short of Lion's no-adaptivity — tests whether
+    per-coordinate AdamW adaptivity is required on aux params, or block-diagonal suffices.
+    Telemetry: ``_last_mean_v_scalar`` (mean of v_hat across all stepped params).
+    """
+    def __init__(self, params, lr=4.5e-4, betas=(0.9, 0.95), eps=1e-8, weight_decay=0.0):
+        defaults = dict(lr=lr, betas=betas, eps=eps, weight_decay=weight_decay)
+        super().__init__(params, defaults)
+        self._last_mean_v_scalar = 0.0
+
+    @torch.no_grad()
+    def step(self):
+        v_hat_sum = 0.0
+        param_count = 0
+        for group in self.param_groups:
+            lr = group["lr"]
+            beta1, beta2 = group["betas"]
+            eps = group["eps"]
+            wd = group["weight_decay"]
+            for p in group["params"]:
+                if p.grad is None:
+                    continue
+                grad = p.grad
+                state = self.state[p]
+                if len(state) == 0:
+                    state["step"] = 0
+                    state["m"] = torch.zeros_like(p)
+                    state["v_scalar"] = torch.zeros((), dtype=p.dtype, device=p.device)
+                state["step"] += 1
+                t = state["step"]
+                m = state["m"]
+                v_scalar = state["v_scalar"]
+
+                m.mul_(beta1).add_(grad, alpha=1.0 - beta1)
+                grad_sq_mean = grad.pow(2).mean()
+                v_scalar.mul_(beta2).add_(grad_sq_mean, alpha=1.0 - beta2)
+
+                bc1 = 1.0 - beta1 ** t
+                bc2 = 1.0 - beta2 ** t
+                m_hat = m / bc1
+                v_hat = v_scalar / bc2  # 0-d tensor
+                v_hat_sum += float(v_hat.item())
+                param_count += 1
+
+                denom = v_hat.sqrt().add_(eps)  # safe: v_hat is a temp, not state
+                if wd > 0:
+                    p.mul_(1.0 - lr * wd)
+                p.add_(m_hat / denom, alpha=-lr)
+        self._last_mean_v_scalar = v_hat_sum / max(param_count, 1)
+        return None
+
+
 @torch.no_grad()
 def adaptive_gradient_clip(parameters, clip_ratio: float, eps: float = 1e-3):
     """Per-tensor AGC (Brock et al. 2021).
@@ -856,6 +948,12 @@ if dist.get_rank() == 0:
             "muonh_mu_start": args.muonh_mu_start,
             "muonh_mu_end": args.muonh_mu_end,
             "polyak_ema_decay": args.polyak_ema_decay,
+            "aux_optimizer": args.aux_optimizer,
+            "aux_adam_mini_lr": args.aux_adam_mini_lr,
+            "aux_adam_mini_beta1": args.aux_adam_mini_beta1,
+            "aux_adam_mini_beta2": args.aux_adam_mini_beta2,
+            "aux_adam_mini_wd": args.aux_adam_mini_wd,
+            "aux_adam_mini_eps": args.aux_adam_mini_eps,
         },
     )
 
@@ -945,6 +1043,10 @@ for trial_idx in range(args.num_trials):
     # AGC targets: AdamW aux groups (embed, lm_head, scalars). Built from optimizer1
     # param groups to track exactly the same params AdamW updates.
     aux_params_for_agc = [p for g in optimizer1.param_groups for p in g["params"]]
+    # H268: Adam-mini aux optimizer (lazy-constructed on first step when active). None
+    # when aux_optimizer="adamw" → arm_a CTRL goes through unchanged
+    # `for opt in optimizers: opt.step()` path (bit-identical to pre-H268 baseline).
+    adam_mini_opt: AdamMini | None = None
     # Inner-MuonH AGC targets: block 2D weights consumed by MuonH. Clipped BEFORE
     # the MuonH momentum buffer integrates the gradient.
     muonh_params_for_agc = [p for g in optimizer2.param_groups for p in g["params"]]
@@ -1212,8 +1314,43 @@ for trial_idx in range(args.num_trials):
         muonh_agc_stats = adaptive_gradient_clip(
             muonh_params_for_agc, args.muonh_agc_clip_ratio, eps=args.muonh_agc_eps,
         )
-        for opt in optimizers:
-            opt.step()
+        # H268: aux optimizer FORM dispatch — drift-FREE Pattern A (outside @torch.compile).
+        # The `adamw` branch is bit-identical to the pre-H268 path.
+        adam_mini_telemetry_payload: dict | None = None
+        if args.aux_optimizer == "adam_mini":
+            # Lazy-construct Adam-mini once per trial with all aux params in a single group.
+            # Uniform LR across embed/lm_head/scalars (single-LR design — see PR body).
+            # Cooldown scaling comes from optimizer1's aux LR schedule via aux_eta.
+            if adam_mini_opt is None:
+                aux_params_list = [p for g in optimizer1.param_groups for p in g["params"]]
+                adam_mini_opt = AdamMini(
+                    aux_params_list,
+                    lr=args.aux_adam_mini_lr,
+                    betas=(args.aux_adam_mini_beta1, args.aux_adam_mini_beta2),
+                    eps=args.aux_adam_mini_eps,
+                    weight_decay=args.aux_adam_mini_wd,
+                )
+                adam_mini_opt.param_groups[0]["initial_lr"] = args.aux_adam_mini_lr
+                adam_mini_opt.param_groups[0]["name"] = "adam_mini_aux"
+            # Aux LR cooldown: optimizer1.param_groups share cooldown_frac=0.4 + linear shape,
+            # so eta is uniform across the 3 aux groups. Derive from group 0 (embed) and apply
+            # uniformly to Adam-mini's single group.
+            aux_eta = optimizer1.param_groups[0]["lr"] / optimizer1.param_groups[0]["initial_lr"]
+            effective_adam_mini_lr = args.aux_adam_mini_lr * aux_eta
+            adam_mini_opt.param_groups[0]["lr"] = effective_adam_mini_lr
+            adam_mini_opt.step()
+            optimizer2.step()  # MuonH-SI body update unchanged
+            if dist.get_rank() == 0 and telemetry_due:
+                adam_mini_telemetry_payload = {
+                    "trial": trial_idx,
+                    "train/step": train_step,
+                    "train/h268/aux_adam_mini_v_scalar_mean": adam_mini_opt._last_mean_v_scalar,
+                    "train/h268/aux_adam_mini_effective_lr": effective_adam_mini_lr,
+                }
+        else:
+            # CTRL ADAMW — bit-identical to pre-H268 path.
+            for opt in optimizers:
+                opt.step()
         # H266: Polyak-Ruppert EMA update — runs after the live inner-optimizer step.
         # When polyak_ema_state is None this branch is skipped, leaving the training
         # path bit-identical to the H203 baseline.
@@ -1260,6 +1397,8 @@ for trial_idx in range(args.num_trials):
                 muonh_metrics["train/muonh/agc/scale_mean"] = muonh_agc_stats["agc_scale_mean"]
             if len(muonh_metrics) > 2:
                 wandb.log(muonh_metrics, step=wandb_step)
+        if adam_mini_telemetry_payload is not None:
+            wandb.log(adam_mini_telemetry_payload, step=wandb_step)
         if dist.get_rank() == 0 and telemetry_due:
             log_weight_telemetry(
                 model=model,
