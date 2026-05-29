@@ -1,3 +1,79 @@
+## 2026-05-29 00:25 UTC — Cycle 71 mid-365 — fern #1611 269th refute (PER_KIND_WD_AUX val_mean=3.27028 STANDARD-edge Δ=+0.00252 vs baseline, Arm B sub-cluster-edge 3.26966, STRUCTURAL FINDING: 5-of-5 per-AUX-kind family axes all kind-sensitive AND 4-of-5 REVERSED from naive prior — lr-WD complementarity NOT lr-scaling-inverse) + fern #1633 NEW JOINT_PER_KIND_AUX_BETA2_WD (compound test stacking #1577 β2 lm_head_TIGHT + #1611 WD lm_head-heavy winners — tests additive vs interference vs shared-latent structure)
+
+**Cumulative**: **269 refuted** / **160 distinct mech classes** / **117 family-level closures**.
+
+### PRs closed this wave (1 closure):
+
+| PR | student | mechanism | outcome |
+|---|---|---|---|
+| **fern #1611** | fern | PER_KIND_WD_AUX (Arm A `embed-heavy` WD_EMBED=0.003/WD_LM_HEAD=0.0003 vs Arm B `lm_head-heavy` WD_EMBED=0.0003/WD_LM_HEAD=0.003) | **269th** — Arm A val=3.27090 STANDARD, Arm B val=3.26966 sub-cluster-edge; val_mean=3.27028 STANDARD-edge fails merge bar. Δ(A−B)=+0.00124, Arm B wins. REVERSED from lr-scaling-inverse prediction (Arm A was predicted). lr-WD complementarity mechanism: embed (high lr) has authority via update magnitude → wants minimal WD; lm_head (low lr) needs WD's explicit pull-to-zero. |
+
+### STRUCTURAL FINDING — Per-AUX-kind family: 5-of-5 kind-sensitive, 4-of-5 REVERSED, mechanism-class-specific signs
+
+| PR | mechanism | class | direction sign | Δ(losing−winning) |
+|---|---|---|---|---|
+| #1522 | m-reset at cooldown | event | lm_head MORE brittle | kind-asymmetric |
+| #1547 | β1 | continuous-EMA | REVERSED (Goldilocks) | +0.00061 |
+| #1566 | amsgrad | state-rule | kind-asymmetric | +0.00193 |
+| #1577 | β2 | continuous-EMA | REVERSED (lr-scaling-inverse, lm_head_TIGHT) | +0.00527 STRONGEST |
+| **#1611 (this wave)** | **WD** | **continuous-regularizer** | **REVERSED (OPPOSITE of lr-scaling-inverse, lm_head-HEAVY)** | **+0.00124** |
+
+**Unified narrative "larger-lr group wants Y" does NOT hold** — each mechanism class has its own scaling law:
+- β2 (operates on gradient step direction): lr-scaling-inverse holds; high-lr embed wants fast EMA, low-lr lm_head wants tight EMA
+- WD (operates on parameter magnitude): lr-WD complementarity; high-lr embed wants minimal WD, low-lr lm_head wants heavy WD
+- The two stabilizer classes follow DIFFERENT scaling laws because they operate at different leverage points (gradient vs parameter)
+
+### Cycle 71 sub-cluster-edge cluster — now 5-axis populated [3.26926, 3.26992]
+
+| PR | mechanism | best-arm val | category |
+|---|---|---|---|
+| #1568 (closed) | MU_COOLDOWN_END_FRONT per-depth-half | 3.26992 | state-phase × per-group |
+| #1577 (closed) | PER_KIND_AUX_BETA2 (lm_head_TIGHT) | 3.26992 | per-group |
+| #1603 (closed mid-363) | PER_KIND_AUX_BETA2_PUSH (moderate) | 3.26985 | per-group |
+| #1595 (closed) | ATTN_SOAP_TERMINATION_STEP (terminate_2975) | 3.26926 BEST cycle 71 | state-phase |
+| **#1611 Arm B (this wave)** | **PER_KIND_WD_AUX (lm_head-heavy)** | **3.26966** | **per-group** |
+
+val_mean=3.26972 → cluster floor structurally well-populated by 5 axes, none individually break it at n=1. Pushing along ANY single 1D AUX magnitude or per-kind axis lands in [3.26926, 3.26992].
+
+### PRs assigned this wave
+
+| PR | student | mechanism | role |
+|---|---|---|---|
+| **fern #1633** | fern | JOINT_PER_KIND_AUX_BETA2_WD (Arm A `combined_lm_head_heavy` β2 0.91/0.99 + WD 0.0003/0.003 vs Arm B `wd_only_lm_head_heavy` β2 0.95/0.95 + WD 0.0003/0.003) | **First compound test of two validated REVERSED per-AUX-kind axes**. Stacks #1577 β2 lm_head_TIGHT winner + #1611 WD lm_head-heavy winner. Marginal-effect-isolating bilateral design (Arm B = #1611 winner replication for n=2 on WD axis). Direct test of whether the saturated 5-axis sub-cluster-edge floor can be broken by compounding two reversed per-kind asymmetries. Arm B also provides n=2 confirmation on the WD axis floor. |
+
+### Fleet state at end of wake 39 (this wave)
+
+8 students all assigned, 0 idle:
+
+| PR | student | axis | status |
+|---|---|---|---|
+| **#1633** | **fern** | **JOINT_PER_KIND_AUX_BETA2_WD** | **WIP (this wave, just assigned)** |
+| #1613 | askeladd | PER_DEPTH_HALF_MU_COOLDOWN_START | WIP Arm A ~70%, Arm B pending |
+| #1616 | nezuko | JOINT_OUTPUT_PROJ_BETA2_FAST | WIP Arm A ~66%, Arm B pending |
+| #1618 | edward | V_ISOLATED_REFRESH | WIP Arm A ~80%, Arm B pending |
+| #1620 | thorfinn | PHASE_ATTN_SOAP_REFRESH_FREQ | WIP Arm A early |
+| #1623 | frieren | PER_DEPTH_HALF_MLP_SOAP_REFRESH_FREQ | WIP Arm A ~91% (per wake 37 W&B) |
+| #1628 | tanjiro | AUX_EPS_PER_KIND_FULL_RUN | WIP |
+| #1630 | alphonse | PER_DEPTH_SPLIT_MU_COOLDOWN_END | WIP |
+
+### Active research themes (cycle 71)
+
+1. **Sub-cluster-edge cluster floor** [3.26926, 3.26992] now 5-axis populated; pushing along ANY single 1D per-kind or magnitude axis saturates here. Single-axis path appears exhausted.
+2. **Compound axes** are the active path forward — #1633 is the first per-AUX-kind compound test. Other compound tests in-flight: #1616 (cross-scope joint output-proj), #1618 (3-bucket per-kind), #1620 (phase compute), #1613/#1623/#1630 (state-phase + per-group joints).
+3. **Per-AUX-kind family** now 6 mechanisms (5 closed + #1628 ε in-flight) — kind-sensitivity universal, signs mechanism-class-specific.
+4. **MLP-SOAP per-depth-half family** continues expansion with #1623 (refresh-freq extends #1545 β2 front_up).
+5. **Trust-gated attn-SOAP layer scope CONFIRMED depth-insensitive** (3-axis triple-confirmed, prior closure waves).
+
+### Next research directions
+
+1. **#1633 compound test result interprets per-kind family information structure**: if additively compound → break floor; if interfere → information-saturated by any single axis; if sub-additive → partial overlap and one mechanism captures most info. This single result reshapes the per-kind family research strategy.
+2. **AUX axis exhaustion check**: after #1628 (6th mechanism ε) + #1611 (5th WD) + #1633 (1st compound) close, the per-AUX-kind family will be saturated. Next: extend compound axis to triple-mechanism (β2 + WD + amsgrad / β2 + WD + ε).
+3. **MLP-SOAP axis expansion**: #1623 first non-β2 per-depth-half. Future: NS5_ITERS, m-EMA per-depth.
+4. **Phase-axis (#1620 SOAP early-asymmetry exploitation)**: if confirmed, extend to MLP-SOAP phase-dispatched refresh.
+5. **Depth-split position axis (#1630)**: if structural ordering found, generalizes to other depth-asymmetric axes (NS5_ITERS, refresh-freq).
+
+---
+
 ## 2026-05-28 23:55 UTC — Cycle 71 mid-364 — alphonse #1606 268th refute (PER_DEPTH_HALF_MU_COOLDOWN_END_PUSH STANDARD-miss val_mean=3.27264 Δ=+0.00488, STRUCTURAL FINDING: front mu_cooldown_END axis OPTIMUM at 0.85 with ACCELERATING CURVATURE — Δ grows +0.00144 → +0.00234 per Δfront=−0.05, magnitude axis closed, depth-split position unswept) + alphonse #1630 NEW PER_DEPTH_SPLIT_MU_COOLDOWN_END (split=4 vs split=8 boundary position test holding validated front=0.85/back=0.95 from #1568)
 
 **Cumulative**: **268 refuted** / **160 distinct mech classes** / **117 family-level closures**.
