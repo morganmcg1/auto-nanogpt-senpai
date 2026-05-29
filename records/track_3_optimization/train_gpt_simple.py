@@ -56,6 +56,18 @@ def parse_args():
     parser.add_argument("--outer_lr", type=float, default=float(os.environ.get("OUTER_LR", "0.7")))
     parser.add_argument("--outer_momentum", type=float, default=float(os.environ.get("OUTER_MOMENTUM", "0.5")))
     parser.add_argument("--sync_interval", type=int, default=int(os.environ.get("SYNC_INTERVAL", "30")))
+    # H271 Lookahead wrapper (Zhang et al. 2019). Slow weights φ track fast weights θ.
+    # Every k inner steps: φ ← φ + α(θ - φ); θ ← φ. Body params only (matching MuonH-SI target set).
+    # H271 adds --lookahead_deactivation_step for cooldown-gated mid-training-only Lookahead.
+    parser.add_argument("--lookahead_enabled", type=int, default=int(os.environ.get("LOOKAHEAD_ENABLED", "0")))
+    parser.add_argument("--lookahead_k", type=int, default=int(os.environ.get("LOOKAHEAD_K", "10")))
+    parser.add_argument("--lookahead_alpha", type=float, default=float(os.environ.get("LOOKAHEAD_ALPHA", "0.5")))
+    parser.add_argument("--lookahead_deactivation_step", type=int,
+                        default=int(os.environ.get("LOOKAHEAD_DEACTIVATION_STEP", "0")),
+                        help="Step at which Lookahead deactivates (slow-weight pulls stop). "
+                             "0 = never deactivate (H264 always-on behavior when lookahead_enabled=1; "
+                             "no-op when lookahead_enabled=0). >0 = Lookahead active for first N steps, then OFF. "
+                             "Tests cooldown-gated mid-training-only Lookahead per H264 mechanistic decomposition.")
     # AGC (Brock et al. 2021): per-parameter adaptive gradient clipping applied to
     # AdamW aux groups (embed, lm_head, scalars). Clips grad to clip_ratio * |param|.
     # Default 0.0 disables (no-op for bit-identical baseline).
@@ -844,6 +856,10 @@ if dist.get_rank() == 0:
             "muloco_outer_lr": args.outer_lr,
             "muloco_outer_momentum": args.outer_momentum,
             "muloco_sync_interval": args.sync_interval,
+            "lookahead_enabled": bool(args.lookahead_enabled),
+            "lookahead_k": args.lookahead_k,
+            "lookahead_alpha": args.lookahead_alpha,
+            "lookahead_deactivation_step": args.lookahead_deactivation_step,
             "aux_agc_clip_ratio": args.aux_agc_clip_ratio,
             "aux_agc_eps": args.aux_agc_eps,
             "muonh_agc_clip_ratio": args.muonh_agc_clip_ratio,
@@ -1072,6 +1088,17 @@ for trial_idx in range(args.num_trials):
             total_ema_bytes = sum(p.numel() * p.element_size() for p in polyak_ema_state.values())
             print0(f"H266 Polyak EMA buffer initialized: decay={args.polyak_ema_decay}, "
                    f"total_bytes={total_ema_bytes/(1024**3):.2f}GB", console=True)
+
+    # H271 Lookahead state. Slow weights track body 2D params (matching MuonH-SI target set).
+    # Init OUTSIDE @torch.compile region — Pattern A drift-FREE gating.
+    use_lookahead = bool(args.lookahead_enabled)
+    if use_lookahead:
+        lookahead_slow = {n: p.detach().clone() for n, p in model.named_parameters()
+                          if p.dim() == 2 and ("attn." in n or "mlp." in n)}
+    else:
+        lookahead_slow = None
+    lookahead_applied_steps = 0
+    lookahead_was_active_prev_step = False
 
     # start the clock
     training_time = 0
@@ -1352,6 +1379,59 @@ for trial_idx in range(args.num_trials):
                     "train/muloco/delta_rms": delta_rms,
                     "train/muloco/velocity_rms": velocity_rms,
                 }, step=wandb_step)
+
+        # H271 Lookahead update with cooldown-gated deactivation. Pattern A drift-FREE:
+        # plain Python conditional outside any @torch.compile region. When
+        # lookahead_enabled=0 the entire block short-circuits via use_lookahead=False.
+        # When lookahead_deactivation_step=0 (H264 always-on behavior) the phase gate
+        # is always True. When >0, Lookahead deactivates starting at train_step >= deactivation_step.
+        lookahead_phase_active = use_lookahead and (
+            (args.lookahead_deactivation_step == 0) or (train_step < args.lookahead_deactivation_step)
+        )
+        if (
+            use_lookahead and lookahead_phase_active
+            and (train_step % args.lookahead_k == 0)
+            and (train_step > 0)
+            and (train_step < train_steps)
+        ):
+            log_la = (dist.get_rank() == 0)
+            if log_la:
+                delta_la_sq = torch.zeros((), device=device)
+                la_count = 0
+            with torch.no_grad():
+                params_by_name = dict(model.named_parameters())
+                for n in lookahead_slow:
+                    p = params_by_name[n]
+                    diff = p.data - lookahead_slow[n]
+                    lookahead_slow[n].add_(diff, alpha=args.lookahead_alpha)
+                    p.data.copy_(lookahead_slow[n])
+                    if log_la:
+                        delta_la_sq = delta_la_sq + diff.float().square().sum()
+                        la_count += diff.numel()
+            lookahead_applied_steps += 1
+            if log_la:
+                delta_la_rms = (delta_la_sq.item() / max(1, la_count)) ** 0.5
+                wandb.log({
+                    "trial": trial_idx,
+                    "train/step": train_step,
+                    "train/lookahead/step": lookahead_applied_steps,
+                    "train/lookahead/active": 1.0,
+                    "train/lookahead/delta_rms": delta_la_rms,
+                }, step=wandb_step)
+        # Phase-deactivation telemetry (lightweight every 10 steps for H271 analysis)
+        if use_lookahead and dist.get_rank() == 0 and train_step % 10 == 0:
+            wandb.log({
+                "trial": trial_idx,
+                "train/step": train_step,
+                "train/h271/lookahead_phase_active": int(lookahead_phase_active),
+            }, step=wandb_step)
+            if (not lookahead_phase_active) and lookahead_was_active_prev_step:
+                wandb.log({
+                    "trial": trial_idx,
+                    "train/step": train_step,
+                    "train/h271/lookahead_deactivation_event": train_step,
+                }, step=wandb_step)
+        lookahead_was_active_prev_step = lookahead_phase_active
 
         approx_training_time = training_time + (time.perf_counter() - t0)
         print0(f"step:{step+1}/{train_steps} train_time:{approx_training_time:.3f}s"
