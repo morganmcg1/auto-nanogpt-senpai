@@ -86,6 +86,18 @@ def parse_args():
                              '0 or negative disables. Default: 0.99 (canonical WIN).')
     parser.add_argument("--seed", type=int, default=1,
                         help="Random seed for torch/numpy/python. Default 1 matches baseline seed.")
+    parser.add_argument("--muon_ns_pulse_start", type=int, default=-1,
+                        help="Step (inclusive) at which to begin Newton-Schulz coefficient pulse. "
+                             "-1 disables. Window is [start, end).")
+    parser.add_argument("--muon_ns_pulse_end", type=int, default=-1,
+                        help="Step (exclusive) at which to end Newton-Schulz coefficient pulse. "
+                             "Must be > --muon_ns_pulse_start to take effect.")
+    parser.add_argument("--muon_ns_pulse_a", type=float, default=NS_A,
+                        help="NS polynomial coefficient a during pulse window. Default = NS_A.")
+    parser.add_argument("--muon_ns_pulse_b", type=float, default=NS_B,
+                        help="NS polynomial coefficient b during pulse window. Default = NS_B.")
+    parser.add_argument("--muon_ns_pulse_c", type=float, default=NS_C,
+                        help="NS polynomial coefficient c during pulse window. Default = NS_C.")
     args = parser.parse_args()
     args.num_trials = args.num_trials if args.num_trials is not None else (args.legacy_num_trials or 1)
     args.wandb_tags = [tag.strip() for tag in args.wandb_tags.split(",") if tag.strip()]
@@ -758,6 +770,11 @@ if dist.get_rank() == 0:
             "paramema_refresh_only": int(args.paramema_refresh_only),
             "aux_b2_pulse_step": args.aux_b2_pulse_step,
             "aux_b2_pulse_target": args.aux_b2_pulse_target,
+            "muon_ns_pulse_start": args.muon_ns_pulse_start,
+            "muon_ns_pulse_end": args.muon_ns_pulse_end,
+            "muon_ns_pulse_a": args.muon_ns_pulse_a,
+            "muon_ns_pulse_b": args.muon_ns_pulse_b,
+            "muon_ns_pulse_c": args.muon_ns_pulse_c,
             "seed": args.seed,
         },
     )
@@ -1029,6 +1046,21 @@ for trial_idx in range(args.num_trials):
         train_loss = float((step_loss / batch_size).item())
         # set optimization hyperparameters and take a step
         sched_progress, sched_cooldown_progress, sched_eta = set_hparams(step)
+        ns_pulse_active = (args.muon_ns_pulse_start >= 0
+                           and args.muon_ns_pulse_end > args.muon_ns_pulse_start
+                           and args.muon_ns_pulse_start <= step < args.muon_ns_pulse_end)
+        if ns_pulse_active:
+            active_ns_a = args.muon_ns_pulse_a
+            active_ns_b = args.muon_ns_pulse_b
+            active_ns_c = args.muon_ns_pulse_c
+        else:
+            active_ns_a = NS_A
+            active_ns_b = NS_B
+            active_ns_c = NS_C
+        for group in optimizer2.param_groups:
+            group["ns_a"] = active_ns_a
+            group["ns_b"] = active_ns_b
+            group["ns_c"] = active_ns_c
         train_step = step + 1
         telemetry_due = (step == 0 or (step + 1) % args.telemetry_interval == 0 or step + 1 == train_steps)
         histogram_due = (step == 0 or (step + 1) % args.histogram_interval == 0 or step + 1 == train_steps)
@@ -1126,9 +1158,9 @@ for trial_idx in range(args.num_trials):
                     "polar/ortho_residual_sample": polar_diag["residual"],
                     "polar/sample_rows": polar_diag.get("sample_rows", 0),
                     "polar/sample_cols": polar_diag.get("sample_cols", 0),
-                    "polar/ns_coef_a": NS_A,
-                    "polar/ns_coef_b": NS_B,
-                    "polar/ns_coef_c": NS_C,
+                    "polar/ns_coef_a": active_ns_a,
+                    "polar/ns_coef_b": active_ns_b,
+                    "polar/ns_coef_c": active_ns_c,
                 }, step=wandb_step)
             wandb.log({
                 "trial": trial_idx,
@@ -1137,6 +1169,15 @@ for trial_idx in range(args.num_trials):
                 "train/cooldown/cooldown_progress": sched_cooldown_progress,
                 "train/cooldown/lr_multiplier": sched_eta,
                 "train/cooldown/power_gamma": COOLDOWN_POWER,
+                "muon_ns/a": active_ns_a,
+                "muon_ns/b": active_ns_b,
+                "muon_ns/c": active_ns_c,
+                "muon_ns/pulse_active": int(ns_pulse_active),
+                "muon_ns/pulse_start": args.muon_ns_pulse_start,
+                "muon_ns/pulse_end": args.muon_ns_pulse_end,
+                "muon_ns/pulse_a_config": args.muon_ns_pulse_a,
+                "muon_ns/pulse_b_config": args.muon_ns_pulse_b,
+                "muon_ns/pulse_c_config": args.muon_ns_pulse_c,
             }, step=wandb_step)
             if param_lr_mults is not None:
                 muon_group_lr = optimizer2.param_groups[0]["lr"]
