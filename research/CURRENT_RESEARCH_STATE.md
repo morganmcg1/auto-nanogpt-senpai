@@ -9,7 +9,15 @@ The human research team has redirected: **FFS (first-step-to-target, baseline 30
 3. **Prefer experiments that move the crossing step** (2800-3050 window), **simplify winning stacks**, **reveal FFS-load-bearing components**.
 4. **Ablations preferred over confirmations** when FFS dead.
 
-## Last updated: 2026-05-29 09:57Z (poll — ★ edward #1664 cell B★ FFS_ema=2875 PRELIMINARY meets direct-n=4 gate)
+## Last updated: 2026-05-29 10:42Z (poll — ★ CLOSED #1658 alphonse multi-β EMA [52nd R5 result] + ASSIGNED #1689 alphonse SOAP Gram β₂ warmup)
+
+### Notes (2026-05-29 10:24–10:42Z)
+
+- **★ CLOSED #1658 alphonse multi-β EMA-eval combination** [52nd R5 closure] — clean G1-DEAD per alphonse's own pre-registered gate. Cell B `combined_FFS=-1` (combined EMA never crossed 3.28; final ema_val_combined=3.28261). Cell A (ctrl) reproduced #1533 baseline to 4e-5. Mechanism (alphonse's clean diagnosis): τ_slow=1/(1−0.999)=1000 / T_train=3250 = **31% of horizon**. Slow EMA averages params from steps ~1925-2925 where val ≈3.46 down to 3.28 → combined val ≈ midpoint (observed 3.29787 at step 2925 when fast crossed). Karras et al.'s power-function EMA works in multi-million-step diffusion (τ_slow ≪ T_train) — breaks in 3250-step speedrun. Implementation sanity verified (slow_d_pow_t=0.03871 matches 0.999^3250). Multi-timescale EMA COMBINATION at val time axis closed FFS-NEG.
+- **★ ASSIGNED #1689 alphonse SOAP Gram-matrix β₂ warmup schedule** — early-train preconditioner adaptation, distinct from #1617 PRECOND_FREQ axis. **β₂ SCHEDULE axis** (per advisor memory: SOAP scalar HP cluster closed, structural-axes still open). 5-cell sweep {init=(0.5,0.7,0.85), warmup_steps=300} + Cell E (init=0.5, warmup_steps=150 shorter-ramp diagnostic) + Cell A ctrl. Two new flags: `--soap_b2_warmup_init` + `--soap_b2_warmup_steps`. Pre-registered G1 FFS-alive ≤2975, G2 promotion gate ≤2887. Mechanism: low β₂ early → Gram tracks rapidly-shifting early curvature → eigenbasis adapts; ramp to default for late-train stability. Plateau-protocol-bigger-swing axis after alphonse's EMA-eval cluster exhausted.
+- Edward #1664 cell B★ FFS_ema=2875 still PRELIMINARY (no update; cell A finished at 2925, B nearly finished at 3000+/3250 step last check). Promotion still DEFERRED pending C/D/E.
+- #1659 askeladd anomaly: human researcher account posted bare "--dry-run" comment on PR @10:42Z. PR remains status:wip; runs continuing. Not actionable as directive. Noted for next-poll re-check.
+- Fleet at full occupation: 7 R5 students WIP (alphonse → #1689 just assigned, edward #1664, fern #1654, askeladd #1659, tanjiro #1617 n=4, thorfinn #1586 n=4, nezuko #1676, frieren #1677). Zero idle.
 
 ### Notes (2026-05-29 09:42–09:57Z)
 
@@ -66,14 +74,14 @@ The human research team has redirected: **FFS (first-step-to-target, baseline 30
 
 | Student | PR | Hypothesis | Status |
 |:-------:|:--:|:----------:|:------:|
-| alphonse | #1658 | Multi-β EMA combination at val | 🔄 WIP |
-| frieren | #1677 | lr_attn fine re-tune under R5 SOAP-attn | 🆕 WIP (just assigned) |
+| **alphonse** | **#1689** | **SOAP Gram-matrix β₂ warmup schedule** | **🆕 WIP (just assigned)** |
+| frieren | #1677 | lr_attn fine re-tune under R5 SOAP-attn | 🔄 WIP |
 | askeladd | #1659 | Per-group EMA-eval decay (body vs aux) | 🔄 WIP |
 | fern | #1654 | SOAP adaptive eigenbasis refresh | 🔄 WIP |
-| **tanjiro** | **#1617** | **SOAP pf=8 n=4 EMA-eval confirm** | **🆕 n=4 CONFIRM (just approved)** |
-| edward | #1664 | Per-class body Muon cooldown SHAPE decouple | 🔄 WIP |
+| tanjiro | #1617 | SOAP pf=8 n=4 EMA-eval confirm | 🔄 n=4 CONFIRM |
+| edward | #1664 | Per-class body Muon cooldown SHAPE decouple | 🔄 WIP (cell B★ FFS_ema=2875 prelim) |
 | nezuko | #1676 | wd_attn fine re-tune under R5 stack | 🔄 WIP |
-| **thorfinn** | **#1586** | **wd_mlp=0.040 n=4 EMA-eval confirm** | **🆕 n=4 CONFIRM (just approved)** |
+| thorfinn | #1586 | wd_mlp=0.040 n=4 EMA-eval confirm | 🔄 n=4 CONFIRM |
 
 ---
 

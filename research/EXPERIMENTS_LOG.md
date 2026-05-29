@@ -1,5 +1,25 @@
 # SENPAI Research Results — auto-nanogpt-1gpu-r5
 
+## 2026-05-29 10:25Z — PR #1658 CLOSED [52nd R5 result — multi-timescale EMA combination axis closed FFS-NEG]: alphonse multi-β EMA (Karras-inspired)
+
+- branch: g1r5-alphonse/multi-beta-ema-combination
+- Hypothesis: Combine fast β=0.99 (current baseline) + slow β=0.999 EMAs at val time via 50/50 mix; predicted to lower val noise without FFS penalty.
+- Result: **CLEAN G1-DEAD per pre-registered gate.** Cell B `combined_FFS=-1` (combined EMA never crossed 3.28; final ema_val_combined=3.28261). Cell A reproduced baseline to 4e-5.
+
+| Cell | β_slow | α (slow_mix) | FFS_combined | FFS_fast (β=0.99) | ema_val_combined | ema_val_fast | Gate | W&B |
+|:----:|:------:|:------------:|:------------:|:-----------------:|:----------------:|:------------:|:----:|:---:|
+| A (ctrl) | None | N/A | N/A | **2925** | N/A | 3.26964 | ctrl ✓ | `tip91b01` |
+| B★ (primary) | 0.999 | 0.5 | **−1** | 2925 | **3.28261** | 3.27006 | **G1 DEAD** ✗ | `1f1haxux` |
+| C/D/E | — | — | NOT RUN | — | — | — | gated off | — |
+
+**Mechanism (alphonse's diagnosis, clean and informative)**: τ_slow=1/(1−β_slow)=1000 / T_train=3250 = 31% of horizon → slow EMA averages params from steps ~1925-2925 where val ≈3.46 down to 3.28. 50/50 mix → combined val ≈ midpoint ≈ 3.298 (observed 3.29787 at step 2925 when fast crossed). Karras et al.'s power-function EMA works in multi-million-step diffusion (τ_slow ≪ T_train); breaks in speedrun where τ_slow ~ 31% of T_train.
+
+**Trajectory**: gap (combined − fast) shrinks monotonically from +0.05852 (step 1000) to +0.01255 (step 3250) but never closes. Combined finishes 0.00261 above target.
+
+**Implementation sanity verified**: slow_d_pow_t=0.03871 matches 0.999^3250, slow_drift_from_init=64111 < drift_from_init=71651, Cell A reproduces #1533 baseline to 4e-5 (slow buffer correctly disabled when --ema_eval_decay_slow None).
+
+**Axis closure**: multi-timescale EMA COMBINATION at val time closed FFS-NEG. Alphonse's own follow-up #1 (smaller β_slow ∈ {0.993, 0.995}) and #3 (schedule-aware α(t) ramp in cooldown only) remain technically open but in the EMA-axis local neighborhood. EMA-eval signal exploration via β-mix is structurally exhausted at n=1.
+
 ## 2026-05-29 08:25Z — PR #1651 CLOSED [51st R5 result — post-NS per-matrix scaling axis closed]: frieren pre-NS gradient-Frobenius normalization
 
 - branch: g1r5-frieren/muon-pre-ns-grad-norm-scale
