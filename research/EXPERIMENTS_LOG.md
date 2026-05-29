@@ -1,5 +1,28 @@
 # SENPAI Research Results — auto-nanogpt-1gpu-r4
 
+## 2026-05-29 06:55 — PR #1632: NM temporal activation window 3-arm body-only/cool-only/always-on — **CLOSED 27th catalog finding NEW class candidate "NM-PHASE-ASYMMETRIC-CONTRIBUTION" + 2 wallclock-savings sidebars publishable both sub-merge-gate**
+
+- branch: `g1r4-frieren/nm-activation-window-3arm`
+- student: g1r4-frieren
+- hypothesis: NM temporal activation window ablation — test which phase (body vs cooldown) is more load-bearing for terminal val_loss. 3-arm characterization: A=ctrl always-on / B=body-OFF cool-ON (test body-NM removal) / C=body-ON cool-OFF (test cooldown-NM removal). Modal prior 60% strong-NEG-untrainable for Arm B, 35% mild-FAV-edge for Arm C.
+- results:
+
+| Arm | NM body | NM cool | run_id | val_loss | Δ vs baseline 3.26310 | Δ_paired vs A 3.26423 | FFS@3.28 | train_time | step_avg | verdict |
+|---|---|---|---|---:|---:|---:|---:|---:|---:|---|
+| A | ON | ON | `umss498y` | 3.26423 | +0.00113 PASS-CLEAN | 0 (ref) | 3150 | 8386.7s | 2497ms | drift PASS-CLEAN, bit-identity ✓ |
+| **B** | OFF | ON | `t6nm4llf` | **3.26901** | +0.00591 | **+0.00478** | 3200 (+50) | **6882.6s (−17.9%)** | body 1854ms (−25.6%) / cool 2554ms | **NEG-mild**, body load-bearing |
+| **C** | ON | OFF | `jykhmvsn` | **3.26613** | +0.00303 | **+0.00190** | 3175 (+25) | **7739.6s (−7.7%)** | body 2491ms / cool 1894ms (−24.4%) | **mild-NEG** just above NULL band |
+
+- final gates: ALL 3 arms fail merge-gate (Δ_paired_B=+0.00478, Δ_paired_C=+0.00190 both above +0.0015 threshold)
+- catalog finding (27th, NEW class candidate): "NM-PHASE-ASYMMETRIC-CONTRIBUTION" — body NM contributes ~0.005 val_loss (Arm B), cooldown NM contributes ~0.002 val_loss (Arm C), body:cooldown ratio ≈ 2.5× = body more load-bearing despite cooldown being LR-sensitive; additive model predicts naked-Muon-everywhere ≈ +0.010 above ctrl matches pre-#1421 vanilla-Muon baseline
+- phase-asymmetry signature: Arm B body deficit +0.0063 max at s2250 → COLLAPSES to +0.0018 at s2625 (within 280 cooldown steps, fresh R captures cooldown eigenspectrum) → re-widens slightly to +0.0048 terminal (cooldown NM recovers ~73% of body-NM deficit independently). Arm C body matches ctrl Δ<0.001 → cooldown entry SHOCKS Δ to +0.01281 within 30 steps (naked Muon loses NM precond) → slow recovery to +0.0019 terminal (loss of cooldown NM disproportionately disruptive)
+- R-buffer terminal: A 5.87e7 / B 4.30e5 (100× cleaner fresh R) / C 4.23e8 (7× worse, ABANDONED body-R)
+- 2 wallclock-savings sidebars publishable: Arm B 17.9% wallclock + 0.0048 val cost (315k s/loss-unit); Arm C 7.7% wallclock + 0.0019 val cost (340k s/loss-unit); both NOT merge-eligible at val-FFS but publishable for wallclock-FFS scenarios (Issue #1261 directive #1 framework)
+- modal prior verdict: Arm B strong-NEG-untrainable 60% prior FALSIFIED (Arm B trainable, mild-NEG +0.005); Arm C mild-FAV-edge 35% prior FALSIFIED (Arm C mild-NEG +0.002, cooldown NM is productive not disposable)
+- mechanism cross-link: complement to #1567 R-freeze (kept R-application/no-updates) — #1632 fully disabled NM. Together establish: R-application is critical; R-update accumulation post-K=2680 has diminishing returns
+- suggested follow-up declined: "NM-cooldown-only at K=2345 with Tikhonov γ=0.005 combined" deferred until #1543 PP-promote completes (avoid stacking two mechanism changes mid-flight)
+- conclusion: 3-arm characterization complete. Body-phase NM more load-bearing than cooldown-phase NM by 2.5×, both productive, neither phase merge-eligible to remove. Closed as publishable mechanism-decomposition finding.
+
 ## 2026-05-29 06:23 — PR #1534: NM R-buffer stochastic token subsampling 100/50/25/10% — **CLOSED PP-promote n=3 ratio=0.10 NOT MERGE-ELIGIBLE (26th catalog finding, NEW class 18 DATA-axis-SEEDED-RNG-CELL-DEPENDENT-FAV-NULL-SPLIT + wallclock-savings −4.6% step_avg sidebar publishable)**
 
 - branch: `g1r4-edward/nm-r-token-subsample`
