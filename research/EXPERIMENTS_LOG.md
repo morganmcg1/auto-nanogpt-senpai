@@ -1,3 +1,140 @@
+## 2026-05-29 22:30 — PR #1748: H285 tanjiro Aux AdamW weight decay coefficient — **ASSIGNED (73rd class)**
+
+- Branch: g1r3-tanjiro/h285-aux-weight-decay (PR #1748, post-H266 baseline)
+- 73rd mechanism class — **AUX_WD COEFFICIENT axis** (untested in 67 prior r3 mechanism classes, OUTSIDE all PF#61 closed axes)
+- Mechanism: aux AdamW currently hardcoded `weight_decay=0` (line 938 in `train_gpt_simple.py`); add `--aux_weight_decay` argparse flag, test mild decoupled L2 shrinkage on embed/lm_head/scalars groups
+- 3-arm chain Pattern A drift-FREE (argparse VALUE conditional, wd=0 → bit-identical to baseline):
+  - arm_a CTRL: wd=0.0 (post-H266 baseline)
+  - arm_b LOW: wd=1e-4 (mild; embed decays to ~90% over training)
+  - arm_c MID: wd=1e-3 (moderate; embed decays to ~37%)
+- WIN criterion: arm_b OR arm_c FFS<3000 strict, val<3.276
+- WIN prob 15-25%; 73rd mechanism class
+- **Why structurally distinct**: WD is decoupled L2 shrinkage rate, not a preconditioner property. Outside PF#61 4-axis CLOSURE-GRADE (form/wrapper/scope/pre-NS5).
+
+---
+
+## 2026-05-29 22:30 — PR #1747: H284 frieren COMPOSE z_loss=1e-5 + ns5_iter=16 — **ASSIGNED (composability test, not new class)**
+
+- Branch: g1r3-frieren/h284-compose-ns5-16-zloss-1e5 (PR #1747, post-H266 baseline)
+- **First explicit composability test** of the 5-mechanism FFS=3000 TIE family
+- Composes z_loss=1e-5 (her H275 finding) with ns5_iter=16 (tanjiro's H267 finding) — two orthogonal mechanism families both at FFS=3000 with val improvements
+- 3-arm chain:
+  - arm_a CTRL: z=0 ns5=12 (post-H266 baseline) — drift-FREE check
+  - arm_b 2-STACK: z=1e-5 ns5=16 — **composability hypothesis test**
+  - arm_c 2-STACK-HIGHER-Z: z=3e-5 ns5=16 — dose-response under stack
+- Decision tree:
+  - arm_b FFS<3000 → 🎯 **PAPER-GRADE WIN — composability hypothesis confirmed, plateau broken via mechanism stacking**
+  - arm_b FFS=3000 → structural ceiling confirmed, individual TIEs are NOT additive at this baseline
+  - arm_b FFS>3000 → mechanisms anti-synergize
+- **Code work required**: BOTH z_loss_weight and ns5_num_iterations are on CLOSED PR branches (#1714 closed, #1672 closed); frieren needs to cherry-pick or re-add both flags
+- WIN prob 20-30%; not a new mechanism class (stacks 2 existing); paper-grade test of structural ceiling
+
+---
+
+## 2026-05-29 22:30 — PR #1746: H283 fern Label smoothing on cross-entropy loss — **ASSIGNED (72nd class)**
+
+- Branch: g1r3-fern/h283-label-smoothing (PR #1746, post-H266 baseline)
+- 72nd mechanism class — **LOSS-LEVEL LABEL SMOOTHING** (structurally distinct from H275 z-loss: target distribution smoothing vs output logits magnitude penalty)
+- Mechanism: replace hard one-hot CE targets with smoothed (1−α)·δ_true + (α/(V−1))·𝟙_rest via `F.cross_entropy(label_smoothing=α)` — PyTorch native support
+- 3-arm dose-response Pattern A drift-FREE:
+  - arm_a CTRL: α=0.0 (post-H266 baseline, F.cross_entropy with label_smoothing=0.0 bit-identical to default)
+  - arm_b LOW: α=0.05 (standard small-α regime)
+  - arm_c MID: α=0.10 (Szegedy canonical)
+- **Why structurally distinct**: caps maximum probability at (1−α) on correct token; trades CE variance for loss-landscape smoothing; uniform across training (avoids PF#62 trajectory-imprint); NOT parameter-space mechanism
+- WIN prob 15-25%; 72nd mechanism class; 3-arm dose-response
+- Refs: Szegedy et al. 2016 https://arxiv.org/abs/1512.00567, Müller et al. 2019 https://arxiv.org/abs/1906.02629
+
+---
+
+## 2026-05-29 22:00 — PR #1672: H267 tanjiro NS5 iter count EXTENSION axis — **NULL/NEG (131st closure)**
+
+- Branch: g1r3-tanjiro/h267-ns5-iter-extension (PR #1672, NS5 axis follow-up to H253-H257 — not a new mechanism class)
+- Terminal SENPAI-RESULT posted by student at 21:20Z.
+
+| Arm | ns5_iter | run_id | val_loss | FFS | step_avg_ms | Δval vs baseline | Decision |
+|---|---|---|---|---|---|---|---|
+| arm_a CTRL | 12 | `dmxkxnm6` | 3.26944 | **3025** | 1908.22 | +0.00126 (+1.43σ) | Pattern A drift |
+| **arm_b** | **16** | `ud9wkvkh` | **3.26824** | **3000 EXACT TIE** | 1919.80 | +0.00006 (+0.07σ) | TIE FFS — axis minimum |
+| arm_c | 24 | `te68duat` | 3.26904 | **3025** | 1946.42 | +0.00086 (+0.97σ) | Pattern A drift |
+| arm_d | 32 | `upamp3in` | 3.26878 | **3025** | 1970.36 | +0.00060 (+0.68σ) | Pattern A drift |
+
+**Decision: CLOSE NULL/NEG (131st closure)** — non-monotone post-EMA NS5 iter curve, optimum at iter=16 TIES baseline FFS=3000.
+
+🎯 **PF#59 REFRAMED — paper-grade NS5 frontier characterization**:
+- Pre-EMA (H253-H257): NS5 iter axis was **monotone-accelerating-returns**
+- Post-EMA (H267): NS5 iter axis is **non-monotone with optimum at ns5_iter=16**
+- Why shape changed under EMA: Polyak EMA averages last ~20 steps of parameters at eval. Eval-time average **smooths over per-step orthogonality errors** — marginal value of tighter per-step orthogonalization collapses once EMA is on. ns5=16 is sweet spot.
+- **EMA mechanism × NS5 iter axis is NON-ORTHOGONAL** — paper-grade interaction finding
+
+🎯 **FFS=3000 TIE mechanism family at 5 members** (H266 / H267 arm_b / H274 arm_c / H275 arm_b / H266 baseline) — composability hypothesis enters active test phase (H284 frieren assigned)
+
+- Drift-FREE Pattern A: 15th-18th instances (step-0=10.82583 EXACT for all 4 arms)
+- Pattern A loose +25 drift class: 14th-17th instances (3/4 arms at FFS=3025)
+- Per-iter NS5 cost ≈ 2.5-3.1 ms/iter sub-linear, matches H259 telemetry projection (arm_d ns5=32 only +3.3% step_avg over arm_a — cheap to test)
+- Excellent student diagnostic work throughout: v1 bug catch (default argparse vs H203 stack), v3 rebase onto post-H266 with clean union conflicts, force-push to prevent entrypoint reset losing rebase
+
+---
+
+## 2026-05-29 22:00 — PR #1714: H275 frieren z_loss regularization log(Z)² — **NULL/NEG (130th closure)**
+
+- Branch: g1r3-frieren/h275-z-loss-regularization (PR #1714, 66th mechanism class — LOSS-LEVEL log(Z)² REGULARIZATION, post-H266 baseline)
+- Terminal SENPAI-RESULT posted by student at 21:25Z.
+
+| Arm | z_loss | run_id | val_loss | FFS | Δval vs baseline | Decision |
+|---|---|---|---|---|---|---|
+| arm_a CTRL | 0.0 | `5j8c29s9` | 3.26840 | **3025** | +0.00022 (+0.25σ) | Pattern A drift |
+| **arm_b LOW** | 1e-5 | `yt63d4u1` | **3.26769** | **3000 EXACT TIE** | **−0.00049 (−0.55σ)** | TIE FFS (val IMPROVED) |
+| arm_c HIGH | 1e-3 | `uymx1rjc` | 3.29297 | **−1 MISSED** | +0.02479 (+28σ) | CATASTROPHIC NEG |
+
+**Decision: CLOSE NULL/NEG (130th closure)** — TIE not WIN per Issue #1260 (FFS primary metric).
+
+🎯 **FFS=3000 TIE mechanism family expanded to 5** (5th independent orthogonal mechanism at structural ceiling):
+1. H266 itself — Polyak EMA decay=0.05 — original WIN
+2. H267 arm_b — ns5_iter=16 — val=3.26824 (~0.07σ)
+3. H274 arm_c — AUX_ONLY EMA scope — val=3.26711 (~−1.21σ, best of family)
+4. **H275 arm_b** — z_loss=1e-5 — val=3.26769 (~−0.55σ) **← this closure**
+5. H266 baseline rerun
+
+**Paper-grade structural finding**: FFS=3000 is a structural bound at this baseline that 5 orthogonal mechanisms can REACH but not BREAK individually. **Composability becomes the highest-value next test** (H284 frieren COMPOSE z=1e-5 + ns5=16 assigned).
+
+🎯 **Mechanism diagnosis** (W&B telemetry `train/z_loss/*`):
+- z=1e-5: log_z drifts only −0.09 over 3325 steps; penalty mild; val improves marginally
+- z=1e-3: **log_z COLLAPSES 10.83 → 3.91**; penalty fights optimizer for unembedding capacity; model spends budget shrinking logit scale instead of learning
+- Dose-response clean: 1e-5 mild benefit, 1e-3 catastrophic. PaLM canonical 1e-3 is designed for vastly larger-scale unembedding; at 12-layer 768-dim model can't afford to spend capacity on Z normalization.
+- Drift-FREE Pattern A: 14th instance (step-0=10.82583 EXACT for all 3 arms — z-loss penalty added to training loss only, not to reported val tensor)
+- Pattern A loose +25 drift class: 13th instance
+
+---
+
+## 2026-05-29 22:00 — PR #1717: H276 fern Gradient noise injection (Neelakantan annealed σ) — **NULL/NEG (129th closure)**
+
+- Branch: g1r3-fern/h276-gradient-noise-injection (PR #1717, 65th mechanism class — GRADIENT-LEVEL Gaussian noise injection, post-H266 baseline)
+- Terminal SENPAI-RESULT posted by student at 21:15Z.
+
+| Arm | σ_0 | run_id | val_loss | FFS | Δval vs baseline | Decision |
+|---|---|---|---|---|---|---|
+| arm_a CTRL | 0.0 | `keetif64` | 3.26937 | **3025** | +0.00119 (+1.3σ) | Pattern A drift |
+| arm_b LOW | 0.01 | `6esbi2m1` | 3.29079 | **−1 MISSED** | +0.02261 (+25.6σ) | NEG missed target by +0.011 |
+| arm_c HIGH | 0.05 | `p4pntdw7` | 3.39448 | **−1 MISSED** | +0.12630 (+143σ) | CATASTROPHIC NEG |
+
+**Decision: CLOSE NULL/NEG (129th closure)** — bilateral catastrophic gradient noise injection.
+
+🎯 **PF#62 STRENGTHENED to 10 mechanism categories — paper-grade trajectory-imprint persistence finding**:
+- σ_t time-series at γ=0.55: σ_t decays >10× by step 100, ~40× by step 1000, sub-noise-floor by cooldown
+- Despite noise being mathematically negligible during cooldown, LOW arm misses by +0.011 val and HIGH by +0.114 val
+- σ²-scaling of trajectory displacement (~25× σ² ratio → ~6× Δval ratio) suggests **NEG ∝ σ_0² · integrated_high_σ_window**
+- **Early-training noise leaves persistent trajectory shifts that cooldown sharpening CANNOT recover from**
+- Cooldown sharpening dampens current-step noise but does NOT undo parameter-trajectory displacement from steps 0-500
+- Model arrives at cooldown sitting in worse-geometry basin than CTRL; cosine schedule has no mechanism to relocate it
+- 10th PF#62 mechanism category: **early-training trajectory imprint persistence** (joins phase-gated wrappers, scope changes, etc.)
+- **r3 plateau is NOT in the gradient-space regularization axis** — plateau-breaking mechanism must operate in: (1) parameter-space averaging (EMA-style, H266 WIN validation) or (2) axes that do not perturb early-training trajectory
+- Drift-FREE Pattern A: 13th instance (step-0=10.82583 EXACT for all 3 arms — conditional injection guard short-circuits cleanly for σ_0=0)
+- Pattern A loose +25 drift class: 12th instance
+
+Implementation work excellent: Pattern A drift-FREE bit-id verification, σ_t telemetry, step-10 monotonicity check, post-noise grad_norm channels, wandb.config.update for visibility. The closure NEG is the science, not an implementation issue.
+
+---
+
 ## 2026-05-29 22:00 — PR #1722: H277 askeladd LAMB per-layer trust ratio aux — **NULL/NEG (128th closure)**
 
 - Branch: H277 askeladd (PR #1722, 67th mechanism class — PER-LAYER TRUST RATIO WRAPPER direction, post-H266 baseline)

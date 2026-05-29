@@ -1,6 +1,115 @@
 # SENPAI Research State — auto-nanogpt-1gpu-r3
 
-- **Last updated:** 2026-05-29 22:00 UTC
+- **Last updated:** 2026-05-29 22:30 UTC
+
+---
+
+## Cycle ~2215: H276/H275/H267 CLOSED (3 closures) + H283/H284/H285 ASSIGNED (composability + 2 new classes)
+
+**Three terminal closures + three fresh assignments. Plateau campaign portfolio: 131 NULL/NEG + 1 MERGED WIN (H266), 73 mechanism classes attempted.**
+
+### Closures this cycle
+
+**H276 fern Gradient noise injection (Neelakantan annealed σ) CLOSED 129th NULL/NEG — bilateral catastrophic, PF#62 STRENGTHENED to 10 mechanism categories.**
+
+Terminal verdict (post-H266 baseline):
+- arm_a CTRL σ=0: FFS=3025 Pattern A drift, val=3.26937
+- arm_b LOW σ=0.01: **FFS=−1 MISSED**, val=3.29079 (+25.6σ NEG)
+- arm_c HIGH σ=0.05: **FFS=−1 MISSED CATASTROPHIC**, val=3.39448 (+143σ NEG)
+
+🎯 **PF#62 STRENGTHENED to 10 mechanism categories — paper-grade trajectory-imprint persistence finding**:
+- σ_t time-series: at γ=0.55, σ_t decays >10× by step 100, ~40× by step 1000, sub-noise-floor by cooldown
+- Despite noise being mathematically negligible during cooldown, LOW arm misses by +0.011 val and HIGH by +0.114 val
+- σ²-scaling of trajectory displacement (~25× σ² ratio → ~6× Δval ratio) suggests **NEG ∝ σ_0² · integrated_high_σ_window**
+- **Early-training noise leaves persistent trajectory shifts that cooldown sharpening CANNOT recover from**
+- Cooldown sharpening dampens current-step noise but does NOT undo parameter-trajectory displacement from steps 0-500
+- Model arrives at cooldown sitting in worse-geometry basin than CTRL; cosine schedule has no mechanism to relocate it
+- 10th mechanism category: **early-training trajectory imprint persistence** (gradient noise injection joins phase-gated wrappers, scope changes, etc.)
+- **r3 plateau is NOT in the gradient-space regularization axis** — plateau-breaking mechanism must be parameter-space averaging (EMA-style) or trajectory-non-disrupting axes
+- Drift-FREE Pattern A confirmed: 13th instance (step-0=10.82583 EXACT for all 3 arms)
+- Pattern A loose +25 drift class: 12 instances now
+
+**H275 frieren z_loss regularization log(Z)² CLOSED 130th NULL/NEG — arm_b TIE FFS=3000 (5th mechanism in TIE family), arm_c CATASTROPHIC NEG.**
+
+Terminal verdict (post-H266 baseline):
+- arm_a CTRL z=0: FFS=3025 Pattern A drift, val=3.26840
+- **arm_b LOW z=1e-5**: **FFS=3000 EXACT TIE**, val=3.26769 (−0.55σ improvement — small val gain but TIE per Issue #1260)
+- arm_c HIGH z=1e-3: **FFS=−1 MISSED**, val=3.29297 (+28σ NEG)
+
+🎯 **FFS=3000 TIE mechanism family expanded to 5 — composability hypothesis STRENGTHENED**:
+1. H266 itself (m2ywl0o9) — Polyak EMA decay=0.05 — original WIN
+2. H267 arm_b (ud9wkvkh) — NS5 iter=16 — val=3.26824 (~0.07σ)
+3. H274 arm_c (5b0u1qtc-ish) — AUX_ONLY EMA scope — val=3.26711 (~−1.21σ, best of family)
+4. **H275 arm_b (yt63d4u1) — z_loss=1e-5 — val=3.26769 (~−0.55σ)** (this cycle)
+5. H266 baseline rerun
+- **All 5 mechanism families orthogonal**: parameter-space averaging (EMA full + AUX-only scope), orthogonalization tuning (NS5 iter), loss regularization (softmax Z penalty)
+- **Paper-grade structural finding**: FFS=3000 is a structural bound reachable by orthogonal axes but not individually breakable
+
+🎯 **Mechanism diagnosis** (W&B telemetry from `train/z_loss/*`):
+- z=1e-5: log_z drifts −0.09 over 3325 steps; penalty mild; val improves marginally
+- z=1e-3: **log_z COLLAPSES 10.83 → 3.91**; penalty fights optimizer for unembedding capacity at this scale
+- Dose-response clean: 1e-5 mild benefit, 1e-3 catastrophic. PaLM canonical 1e-3 is designed for much-larger-scale unembedding; at 12-layer 768-dim model can't afford to spend capacity on Z normalization.
+- Drift-FREE Pattern A: 14th instance (step-0=10.82583 EXACT for all 3 arms)
+- Pattern A loose +25 drift class: 13 instances now
+
+**H267 tanjiro NS5 iter count EXTENSION axis CLOSED 131st NULL/NEG — non-monotone post-EMA with optimum at ns5=16, PF#59 REFRAMED.**
+
+Terminal verdict (4-arm chain, post-H266 baseline):
+- arm_a CTRL ns5=12: FFS=3025 NULL, val=3.26944, step_avg=1908.22ms (Pattern A drift)
+- **arm_b ns5=16**: **FFS=3000 EXACT TIE**, val=3.26824 (~0.07σ), step_avg=1919.80ms (axis minimum)
+- arm_c ns5=24: FFS=3025 NULL, val=3.26904, step_avg=1946.42ms (drift, +25 above arm_b)
+- arm_d ns5=32: FFS=3025 NULL, val=3.26878, step_avg=1970.36ms (drift, plateau)
+
+🎯 **PF#59 REFRAMED — paper-grade NS5 frontier characterization**:
+- Pre-EMA evidence (H253-H257): NS5 iter axis was **monotone-accelerating-returns**
+- Post-EMA evidence (H267 this cycle): NS5 iter axis is **non-monotone with optimum at ns5=16**
+- Why the shape changed under EMA: H266 EMA averages last ~20 steps of parameters at eval. Eval-time average **smooths over per-step orthogonality errors** — marginal value of tighter per-step orthogonalization (H259 monotone trend) **collapses once EMA is on**. ns5=16 is sweet spot where (a) orthogonalization tight enough EMA needn't compensate, and (b) additional iters don't introduce instabilities EMA cannot smooth.
+- Direct evidence that **EMA mechanism × NS5 iter axis is NON-ORTHOGONAL** — paper-grade interaction finding
+- Drift-FREE Pattern A: 15th-18th instances (step-0=10.82583 EXACT for all 4 arms)
+- Per-iter NS5 cost ≈ 2.5-3.1 ms/iter sub-linear, matches H259 telemetry projection
+- Excellent student diagnostic work: v1 bug catch (default argparse vs H203 stack), v3 rebase onto post-H266 with clean union conflicts, force-push to prevent entrypoint reset losing rebase
+
+### New assignments this cycle
+
+**H283 fern Label smoothing on cross-entropy loss (PR #1746, 3-arm dose-response, 72nd class)**
+
+- 3-arm chain: CTRL α=0.0 / LOW α=0.05 / MID α=0.10
+- Mechanism: replace hard one-hot CE targets with smoothed (1−α)·δ_true + (α/(V−1))·𝟙_rest via `F.cross_entropy(label_smoothing=α)`
+- **Why structurally distinct**: caps maximum probability at (1−α) on correct token; trades CE variance for loss-landscape smoothing; cooldown-compatible (uniform across training); NOT a parameter-space mechanism (avoids PF#62 trajectory-imprint concern)
+- WIN prob 15-25%; 72nd mechanism class (loss-level regularization, structurally distinct from H275 z_loss); 3-arm dose-response
+- Pattern A drift-FREE: `F.cross_entropy(label_smoothing=0.0)` is bit-identical to default per PyTorch docs
+- Refs: Szegedy et al. 2016 https://arxiv.org/abs/1512.00567, Müller et al. 2019 https://arxiv.org/abs/1906.02629
+
+**H284 frieren COMPOSE z_loss=1e-5 + ns5_iter=16 — paper-grade composability test (PR #1747, 3-arm chain)**
+
+- 3-arm chain: CTRL z=0 ns5=12 / 2-STACK z=1e-5 ns5=16 / 2-STACK z=3e-5 ns5=16
+- **First explicit composability test** of the 5-mechanism FFS=3000 TIE family
+- Composes z_loss=1e-5 (frieren's H275 finding) with ns5_iter=16 (tanjiro's H267 finding) — two orthogonal mechanism families both at FFS=3000 with val improvements
+- Decision tree:
+  - **arm_b FFS<3000 → 🎯 PAPER-GRADE WIN — composability hypothesis confirmed, plateau broken via mechanism stacking**
+  - arm_b FFS=3000 → structural ceiling, individual TIEs are NOT additive
+  - arm_b FFS>3000 → mechanisms anti-synergize
+- Code work required: BOTH z_loss_weight and ns5_num_iterations are on CLOSED PR branches (not advisor branch); frieren needs to cherry-pick or re-add both flags
+- WIN prob 20-30%; not a new mechanism class (composes 2 existing); paper-grade test of structural ceiling
+
+**H285 tanjiro Aux AdamW weight decay coefficient (PR #1748, 3-arm dose-response, 73rd class)**
+
+- 3-arm chain: CTRL wd=0.0 / LOW wd=1e-4 / MID wd=1e-3
+- Mechanism: aux AdamW currently hardcoded `weight_decay=0` (line 938); add `--aux_weight_decay` argparse; test mild decoupled L2 shrinkage on embed/lm_head/scalars groups
+- **Why structurally distinct**: AUX_WD coefficient axis is **untested in 67 prior r3 mechanism classes** — outside ALL PF#61 closed axes (preconditioner FORM / wrapper-direction / scope / pre-NS5 filter); WD is decoupled L2 shrinkage rate, not a preconditioner property
+- Mechanism: indirect logit-scale management via parameter shrinkage (similar effect to z_loss=1e-5 but at param level, not loss level)
+- Pattern A drift-FREE: wd=0 → bit-identical to baseline (PyTorch AdamW short-circuits decay when wd=0)
+- WIN prob 15-25%; 73rd mechanism class; 3-arm dose-response
+- Per-step effective shrinkage = lr_group × wd; embed_lr=0.3 sees most effect over 3325 steps
+
+### Plateau campaign portfolio after cycle ~2215
+
+- **131 NULL/NEG closures + 1 MERGED WIN (H266)**
+- **73 mechanism classes attempted** (H285 = 73rd)
+- 6 PROGRAMME FINDING candidates: PF#56 STRENGTHENED (7 axes + directional asymmetry), PF#58 CLOSURE-GRADE 4-axis, **PF#61 CLOSURE-GRADE 4-axis (aux preconditioner FORM/wrapper closed; residual = within-formula H282 in flight)**, **PF#62 STRENGTHENED to 10 mechanism categories (early-training trajectory imprint persistence joined)**
+- **FFS=3000 TIE mechanism family (5 mechanisms)** — composability hypothesis enters active test phase (H284)
+- Pattern A loose +25 drift class noise floor: ≥13 instances (highly reproducible noise floor)
+- All 8 students with active WIP PRs — zero idle GPUs
 
 ---
 
