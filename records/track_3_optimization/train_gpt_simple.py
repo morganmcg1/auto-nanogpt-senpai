@@ -460,6 +460,14 @@ TARGET_UW = 0.35
 NORMUON_BETA2 = 0.95
 SOAP_BETA2 = 0.90
 SOAP_PRECOND_FREQ = 10
+# Per-MLP-kind phase-dispatched β2 for MLP-SOAP (#1695). When enabled, the
+# .mlp.fc.weight subset switches between MLP_FC_BETA2_EARLY (step <
+# MLP_FC_BETA2_PHASE_BOUNDARY_STEP) and MLP_FC_BETA2_LATE (step >= boundary).
+# .mlp.proj.weight is held at SOAP_BETA2 baseline in this experiment.
+PHASE_DISPATCH_MLP_FC_BETA2_ENABLED = bool(int(os.environ.get("PHASE_DISPATCH_MLP_FC_BETA2_ENABLED", "0")))
+MLP_FC_BETA2_EARLY = float(os.environ.get("MLP_FC_BETA2_EARLY", str(SOAP_BETA2)))
+MLP_FC_BETA2_LATE = float(os.environ.get("MLP_FC_BETA2_LATE", str(SOAP_BETA2)))
+MLP_FC_BETA2_PHASE_BOUNDARY_STEP = int(os.environ.get("MLP_FC_BETA2_PHASE_BOUNDARY_STEP", "1500"))
 # Attention SOAP (record #16) hyperparameters
 ATTN_SOAP_BETA2 = 0.90
 ATTN_SOAP_PRECOND_FREQ = 10
@@ -652,6 +660,16 @@ class Muon(torch.optim.Optimizer):
                     self.attn_soap_kind[id(p)] = "v"
                 elif n.endswith(".attn.proj.weight"):
                     self.attn_soap_kind[id(p)] = "proj"
+        # Track which sub-type each MLP-SOAP param is (fc/proj) for per-kind phase dispatch (#1695).
+        self.mlp_soap_kind: dict[int, str] = {}
+        for n, p in named_params:
+            if p in self.soap_params:
+                if n.endswith(".mlp.fc.weight"):
+                    self.mlp_soap_kind[id(p)] = "fc"
+                elif n.endswith(".mlp.proj.weight"):
+                    self.mlp_soap_kind[id(p)] = "proj"
+        # External-step counter for per-phase β2 dispatch; set by the training loop each step.
+        self.current_step: int = 0
         params = sorted([p for _, p in named_params], key=lambda x: x.size(), reverse=True)
         defaults = dict(lr=lr, weight_decay=weight_decay, mu=mu)
         super().__init__(params, defaults)
@@ -696,9 +714,19 @@ class Muon(torch.optim.Optimizer):
                     momentum_update = grad.lerp(state["momentum"], group["mu"])
                     use_soap = p in self.soap_params
                     use_attn_soap = p in self.attn_soap_params
+                    # Per-MLP-kind phase-dispatched β2 for MLP-SOAP (#1695). fc kind
+                    # switches between early/late at MLP_FC_BETA2_PHASE_BOUNDARY_STEP;
+                    # proj kind stays at SOAP_BETA2 baseline in this experiment.
+                    mlp_soap_beta2 = SOAP_BETA2
+                    if use_soap and PHASE_DISPATCH_MLP_FC_BETA2_ENABLED:
+                        if self.mlp_soap_kind.get(id(p)) == "fc":
+                            in_late_phase = (self.current_step >= MLP_FC_BETA2_PHASE_BOUNDARY_STEP)
+                            mlp_soap_beta2 = MLP_FC_BETA2_LATE if in_late_phase else MLP_FC_BETA2_EARLY
                     # SOAP precondition applied to momentum BEFORE NS5+contra+NorMuon
                     # (matches public record #14/16 — pre-NS5 placement).
-                    if use_soap or use_attn_soap:
+                    if use_soap:
+                        momentum_update = soap_precondition(momentum_update, state, beta2=mlp_soap_beta2)
+                    elif use_attn_soap:
                         momentum_update = soap_precondition(momentum_update, state)
                     # NS5 + contra + NorMuon row variance on (possibly SOAP-preconditioned) momentum.
                     update = contra_normuon_update(momentum_update, state["second_moment"])
@@ -712,7 +740,7 @@ class Muon(torch.optim.Optimizer):
                     p.add_(update, alpha=-group["lr"])
                     # Refresh SOAP state with the raw grad (after applying the step).
                     if use_soap:
-                        soap_refresh(grad, state)
+                        soap_refresh(grad, state, beta2=mlp_soap_beta2)
                     elif use_attn_soap:
                         soap_refresh(grad, state, beta2=ATTN_SOAP_BETA2,
                                      refresh_freq=ATTN_SOAP_PRECOND_FREQ,
@@ -861,6 +889,10 @@ if dist.get_rank() == 0:
             "optimizer/normuon_beta2": NORMUON_BETA2,
             "optimizer/soap_beta2": SOAP_BETA2,
             "optimizer/soap_precond_freq": SOAP_PRECOND_FREQ,
+            "optimizer/phase_dispatch_mlp_fc_beta2_enabled": int(PHASE_DISPATCH_MLP_FC_BETA2_ENABLED),
+            "optimizer/mlp_fc_beta2_early": MLP_FC_BETA2_EARLY,
+            "optimizer/mlp_fc_beta2_late": MLP_FC_BETA2_LATE,
+            "optimizer/mlp_fc_beta2_phase_boundary_step": MLP_FC_BETA2_PHASE_BOUNDARY_STEP,
             "optimizer/attn_soap_beta2": ATTN_SOAP_BETA2,
             "optimizer/attn_soap_precond_freq": ATTN_SOAP_PRECOND_FREQ,
             "optimizer/attn_soap_trust_threshold": ATTN_SOAP_TRUST_THRESHOLD,
@@ -905,6 +937,17 @@ for trial_idx in range(args.num_trials):
     optimizer2 = Muon([(n, p) for n, p in model.blocks.named_parameters() if p.ndim >= 2],
                       lr=MUON_LR, weight_decay=MUON_WEIGHT_DECAY, mu=MU)
     optimizer2.param_groups[0]["name"] = "muon_blocks"
+    if dist.get_rank() == 0:
+        n_fc = sum(1 for kind in optimizer2.mlp_soap_kind.values() if kind == "fc")
+        n_proj = sum(1 for kind in optimizer2.mlp_soap_kind.values() if kind == "proj")
+        print0(
+            f"[PHASE_DISPATCH_MLP_FC_BETA2] enabled={int(PHASE_DISPATCH_MLP_FC_BETA2_ENABLED)} "
+            f"early={MLP_FC_BETA2_EARLY:.4f} late={MLP_FC_BETA2_LATE:.4f} "
+            f"boundary_step={MLP_FC_BETA2_PHASE_BOUNDARY_STEP} "
+            f"n_fc_params={n_fc} (expected: 12) n_proj_params={n_proj} (expected: 12) "
+            f"baseline_SOAP_BETA2={SOAP_BETA2:.4f}",
+            console=True,
+        )
     optimizers = [optimizer1, optimizer2]
     assert set(p for opt in optimizers for group in opt.param_groups
                for p in group["params"]) == set(model.parameters())
@@ -1051,6 +1094,8 @@ for trial_idx in range(args.num_trials):
                 train_steps=train_steps,
                 wandb_step=wandb_step,
             )
+        # Inform Muon of the current step for per-phase β2 dispatch (#1695).
+        optimizer2.current_step = step
         for opt in optimizers:
             opt.step()
         if dist.get_rank() == 0 and telemetry_due:
