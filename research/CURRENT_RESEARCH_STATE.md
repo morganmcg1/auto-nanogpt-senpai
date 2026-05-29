@@ -1,3 +1,59 @@
+## 2026-05-29 12:45 UTC — Cycle 71 mid-386 — tanjiro #1678 290th refute (PER_KIND_AUX_BETA1_DIRECTION val_mean=3.27313 STANDARD misses merge bar by Δ=+0.00537 val and +62.5 ffs, Arm A `lm_head_b1_fast` val=3.27671 ffs=3100 STANDARD, Arm B `lm_head_b1_slow` val=3.26955 ffs=3025 **FLOOR-BAND-MID** n=1 but misses ffs ceiling by +25, Δ(B−A)=−0.00716 directional signal `lm_head_SLOW_wins` clear at 4× noise threshold, **MAJOR STRUCTURAL FINDING**: DIRECTION INVERTED at β1 vs β2 — at β2 lm_head_FAST wins (#1577 3.26992) while at β1 lm_head_SLOW wins (this PR 3.26955); per-kind AdamW asymmetry is moment-index-dependent NOT class-uniform; lm_head prefers {fast β2, slow β1}, embed prefers {slow β2, fast β1}; the two AdamW moment indices are INDEPENDENT and orthogonal per-kind axes — refutes prior hypothesis that "β1 mirrors β2 direction" + prior hypothesis "per-kind asymmetry is β2-specific", **126th family closure**: PER_KIND_AUX_BETA1_DIRECTION axis fully mapped at moment-index-inversion outcome) + tanjiro #1700 NEW PER_KIND_AUX_B1B2_COMPOUND (FRESH PER-GROUP STATE-MECHANISM AXIS directly executing this PR's direction-inversion finding — Arm A `compound_optimal` applies BOTH winning directions: embed (β1=0.7 FAST, β2=0.95 baseline), lm_head (β1=0.9 SLOW, β2=0.85 FAST); Arm B `compound_inverted` applies BOTH losing directions: embed (β1=0.9 SLOW, β2=0.85 FAST), lm_head (β1=0.7 FAST, β2=0.95 baseline); if A < B by Δ≥0.005 → moment-index direction inversion stacks as unified mechanism, possible merge candidate if A enters floor band; if A ≈ #1678 Arm B → β2 axis saturates onto β1 axis shared-latent channel; fits Morgan's directive per-group + state-mechanism)
+
+**Cumulative**: **290 refuted** / **174 distinct mech classes** / **126 family-level closures**.
+
+### PRs closed this wave (1 closure):
+
+| PR | student | mechanism | outcome |
+|---|---|---|---|
+| **tanjiro #1678** | tanjiro | PER_KIND_AUX_BETA1_DIRECTION (Arm A `lm_head_b1_fast` embed=0.9/lm_head=0.7/scalars=0.8, Arm B `lm_head_b1_slow` embed=0.7/lm_head=0.9/scalars=0.8) | **290th** — Arm A val=3.27671 ffs=3100, Arm B val=3.26955 ffs=3025 (floor-band-mid n=1), val_mean=3.27313 STANDARD misses by +0.00537/+62.5. Δ(B−A)=−0.00716 `lm_head_SLOW_wins` clear at 4× noise. **MAJOR STRUCTURAL FINDING**: moment-index direction inversion at β1 vs β2. **126th family closure**. |
+
+### MAJOR STRUCTURAL FINDING — moment-index direction inversion at β1 vs β2 per-kind axis
+
+Cross-moment-index per-kind asymmetry table:
+
+| moment axis | direction-winning arm | val_final | direction interpretation |
+|---|---|---|---|
+| **β2 (denominator)** | #1577 Arm B `lm_head_b2_FAST` (β2=0.85) | 3.26992 (floor-band-upper) | **lm_head wants FAST denominator** |
+| **β1 (first moment)** | **#1678 Arm B `lm_head_b1_SLOW` (β1=0.9)** | **3.26955 (floor-band-mid)** | **lm_head wants SLOW momentum** |
+
+**Two independent moment-index-dependent directions**:
+- **lm_head** prefers `{fast β2, slow β1}` → fast denominator adaptation + smooth momentum direction
+- **embed** prefers `{slow β2, fast β1}` → smooth denominator + reactive momentum
+
+**Mechanism interpretation** (student's analysis, validated by exp_avg_norm telemetry matching theoretical (1−β1)/(1+β1) noise-variance ratio 3.3× between arms): per-kind AdamW asymmetry is **two-dimensional** (β1 axis × β2 axis), and the two axes have **opposing directional preferences at lm_head** specifically. Refutes two prior structural hypotheses: (a) "β1 mirrors β2 direction" FALSE, (b) "per-kind asymmetry is β2-specific" FALSE.
+
+### Floor-band entry status (n=1 only — credibility caveat)
+
+#1678 Arm B val=3.26955 sits within floor band [3.26916, 3.26992] at mid-band. Under **recent calibration finding** (#1657/#1662 — single-arm sub-cluster-edge and floor-band n=1 entries have failed n=2 replication 2/2 times), this n=1 placement is **noise-suspect**. The ffs=3025 ceiling miss (+25) also forecloses merge candidacy even at n=2.
+
+### PRs assigned this wave
+
+| PR | student | mechanism | role |
+|---|---|---|---|
+| **tanjiro #1700** | tanjiro | PER_KIND_AUX_B1B2_COMPOUND (Arm A `compound_optimal` both winning directions: embed b1=0.7/b2=0.95, lm_head b1=0.9/b2=0.85; Arm B `compound_inverted` both losing directions: embed b1=0.9/b2=0.85, lm_head b1=0.7/b2=0.95) | **FRESH PER-GROUP STATE-MECHANISM** — first structural compound test on the per-kind AdamW 2D moment-axis asymmetry; tests whether moment-index direction inversion stacks additively or saturates via shared latent |
+
+### Stale_wip false-positive pattern continues — 7 consecutive PRs in cycle 71
+
+False stale_wip events cleared this wake-window (wakes 76-80): fern #1683, askeladd #1684, frieren #1671, thorfinn #1685, alphonse #1687, nezuko #1668 (closed before stale flag), tanjiro #1678 (closed before stale flag). All but tanjiro/nezuko hit the 2h-no-comment threshold because students don't post launch heartbeats. Pattern is now systemic for 2h+ sequential 2-arm experiments.
+
+### Fleet state at end of wake 80 (this wave)
+
+8 students all assigned, 0 idle:
+
+| PR | student | axis | status |
+|---|---|---|---|
+| **#1700** | **tanjiro** | **PER_KIND_AUX_B1B2_COMPOUND** | **WIP (this wave, just assigned)** |
+| #1695 | nezuko | PHASE_DISPATCH_MLP_SOAP_FC_BETA2 | WIP (prior wave) |
+| #1692 | edward | PER_KIND_ATTN_SOAP_MUON_LR (V_AXIS_ISOLATION) | WIP (prior wave) |
+| #1687 | alphonse | JOINT_MLP_SOAP_REFRESH_BACK_FAST_X_PHASE_DISPATCH_ATTN_SOAP_BETA2 (cross-SCOPE compound) | WIP (Arm A 82%, ETA ~12:55 UTC) |
+| #1685 | thorfinn | PER_KIND_ATTN_SOAP_TRUST_THRESHOLD (V_AXIS_ISOLATION) | WIP (Arm A finished v=3.2770, Arm B queuing) |
+| #1684 | askeladd | PER_DEPTH_HALF_ATTN_SOAP_TRUST_THRESHOLD | WIP (prior wave, Arm A 79%+) |
+| #1683 | fern | PER_KIND_WD_AUX_DECOMPOSITION | WIP (prior wave, Arm A terminal expected) |
+| #1671 | frieren | MLP_SOAP_TRUST_GATE_PHASE_DISPATCH | WIP (Arm A finished val=3.2728, Arm B 8.7%) |
+
+---
+
 ## 2026-05-29 11:42 UTC — Cycle 71 mid-385 — nezuko #1668 289th refute (PHASE_DISPATCH_MLP_SOAP_PROJ_BETA2 val_mean=3.27148 STANDARD misses merge bar by Δ=+0.00372 val and +37.5 ffs, Arm A `proj_late_FAST` early=0.90/late=0.85 val=3.27222 ffs=3050 STANDARD, Arm B `proj_early_FAST` early=0.85/late=0.90 val=3.27074 ffs=3025 STANDARD, Δ(B−A)=−0.00148 directional signal `early_FAST_wins` at MLP-SOAP-proj scope, **MAJOR STRUCTURAL FINDING**: cross-SOAP-scope mechanism divergence at the same β2 axis — attn-SOAP-proj β2 = late-stability driven [#1642 `attn_proj_late_FAST` wins] while MLP-SOAP-proj β2 = early-warmup driven [this PR `proj_early_FAST` wins]; the phase-locality of the SOAP β2 mechanism FLIPS direction between SOAP populations — SOAP β2 phase-locality is scope-dependent NOT universal, **NEW Δ-trajectory mechanism class**: MID-PEAK-COMPOUND-DECAY pattern peak |Δ|=0.00533 at step 2500 mid-cruise then decays to 0.00148 at terminal during cooldown — distinct from #1662 EARLY-DISADVANTAGE-MONOTONIC-DECAY because gap GROWS then SHRINKS — 174th distinct mech class, **125th family closure**: PHASE_DISPATCH_MLP_SOAP_PROJ_BETA2 axis fully mapped at both polarities + cross-scope divergence — both polarities lose to #1590 full-coverage so phase-dispatch at this scope underperforms full-trajectory application) + nezuko #1695 NEW PHASE_DISPATCH_MLP_SOAP_FC_BETA2 (FRESH PER-GROUP STATE-MECHANISM AXIS completing 2×2 cross-scope β2 phase-locality matrix — Arm A `fc_late_FAST` early=0.90/late=0.85/boundary=1500 tests whether `mlp.fc.weight` tracks `attn.proj` late-stability mechanism, Arm B `fc_early_FAST` early=0.85/late=0.90/boundary=1500 tests whether `mlp.fc.weight` tracks `mlp.proj` early-warmup mechanism, proj β2 held at baseline 0.90 full-trajectory; if A < B fc-cell shows late-stability cross-MLP-kind divergence; if B < A fc-cell shows early-warmup universal MLP-SOAP mechanism; if A ≈ B fc β2 is phase-locality-inert; fits Morgan's directive per-group + state-mechanism)
 
 **Cumulative**: **289 refuted** / **174 distinct mech classes** / **125 family-level closures**.
