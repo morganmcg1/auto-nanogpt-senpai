@@ -101,6 +101,15 @@ def parse_args():
                         help="EMA decay for SWA-style EMA-eval; None=disabled (control). "
                              "Recommend 0.99-0.9999. When set, val/ema_loss is logged "
                              "and speedrun/first_step_to_target uses the EMA-val crossing.")
+    parser.add_argument("--ema_eval_decay_slow", type=float, default=None,
+                        help="Slow EMA decay for multi-timescale combination. When set, "
+                             "maintains a second EMA buffer at this decay rate and combines "
+                             "with --ema_eval_decay buffer at val time. "
+                             "Requires --ema_eval_decay to be set. Default None (disabled).")
+    parser.add_argument("--ema_eval_slow_mix", type=float, default=0.5,
+                        help="Mix weight for slow EMA in combination: "
+                             "combined = slow_mix*EMA_slow + (1-slow_mix)*EMA_fast. "
+                             "Only used when --ema_eval_decay_slow is set. Default 0.5.")
     args = parser.parse_args()
     args.num_trials = args.num_trials if args.num_trials is not None else (args.legacy_num_trials or 1)
     args.wandb_tags = [tag.strip() for tag in args.wandb_tags.split(",") if tag.strip()]
@@ -786,6 +795,10 @@ if dist.get_rank() == 0:
             "lr_cooldown_shape": args.lr_cooldown_shape,
             "ema_eval_decay": args.ema_eval_decay,
             "ema_eval_enabled": args.ema_eval_decay is not None,
+            "ema_eval_decay_slow": args.ema_eval_decay_slow,
+            "ema_eval_slow_enabled": (args.ema_eval_decay is not None
+                                       and args.ema_eval_decay_slow is not None),
+            "ema_eval_slow_mix": args.ema_eval_slow_mix,
         },
     )
 
@@ -952,6 +965,13 @@ for trial_idx in range(args.num_trials):
                      for n, p in model.named_parameters() if p.requires_grad}
         init_state = {n: p.detach().clone().to(torch.float32)
                       for n, p in model.named_parameters() if p.requires_grad}
+    ema_state_slow: dict[str, Tensor] | None = None
+    init_state_slow: dict[str, Tensor] | None = None
+    if args.ema_eval_decay is not None and args.ema_eval_decay_slow is not None:
+        ema_state_slow = {n: p.detach().clone().to(torch.float32)
+                          for n, p in model.named_parameters() if p.requires_grad}
+        init_state_slow = {n: p.detach().clone().to(torch.float32)
+                           for n, p in model.named_parameters() if p.requires_grad}
 
     # start the clock
     training_time = 0
@@ -964,16 +984,20 @@ for trial_idx in range(args.num_trials):
     # track train-val and uncorrected EMA-val crossings as parallel diagnostics.
     first_step_to_target_trainval = -1
     first_step_to_target_ema_uncorrected = -1
+    first_step_to_target_combined = -1
     best_ema_val_loss = float("inf")
     best_ema_val_step = -1
     best_ema_corrected_val_loss = float("inf")
     best_ema_corrected_val_step = -1
+    best_ema_combined_val_loss = float("inf")
+    best_ema_combined_val_step = -1
     slope_interval = max(1, round(train_steps * SLOPE_FRACTION))
     slope_window_steps = max(100, slope_interval)
     train_loss_history: list[tuple[int, float]] = []
     val_loss_history: list[tuple[int, float]] = []
     ema_val_loss_history: list[tuple[int, float]] = []
     ema_corrected_val_loss_history: list[tuple[int, float]] = []
+    ema_combined_val_loss_history: list[tuple[int, float]] = []
     dist.barrier()
     t0 = time.perf_counter()
     for step in range(train_steps + 1):
@@ -1004,7 +1028,9 @@ for trial_idx in range(args.num_trials):
             # Train trajectory is untouched.
             ema_val_loss_float: float | None = None
             ema_val_loss_corrected_float: float | None = None
+            ema_val_loss_combined_float: float | None = None
             ema_d_pow_at_val: float | None = None
+            ema_d_slow_pow_at_val: float | None = None
             if ema_state is not None:
                 with torch.no_grad():
                     backup = {n: p.detach().clone()
@@ -1041,6 +1067,33 @@ for trial_idx in range(args.num_trials):
                     ema_val_loss_corrected /= val_tokens
                     ema_val_loss_corrected_float = float(ema_val_loss_corrected.item())
 
+                # Pass 3: multi-timescale combination of bias-corrected fast and slow EMAs.
+                # Skip when slow EMA disabled or at ema_n_updates==0 (correction undefined).
+                if ema_state_slow is not None and ema_n_updates > 0:
+                    d_fast = float(args.ema_eval_decay)
+                    d_slow = float(args.ema_eval_decay_slow)
+                    d_fast_pow = d_fast ** ema_n_updates
+                    d_slow_pow = d_slow ** ema_n_updates
+                    one_minus_d_fast_pow = 1.0 - d_fast_pow
+                    one_minus_d_slow_pow = 1.0 - d_slow_pow
+                    alpha = float(args.ema_eval_slow_mix)
+                    ema_d_slow_pow_at_val = d_slow_pow
+                    with torch.no_grad():
+                        for n, p in model.named_parameters():
+                            if n in ema_state:
+                                fast_corrected = (ema_state[n] - d_fast_pow * init_state[n]) / one_minus_d_fast_pow
+                                slow_corrected = (ema_state_slow[n] - d_slow_pow * init_state_slow[n]) / one_minus_d_slow_pow
+                                combined_p = alpha * slow_corrected + (1.0 - alpha) * fast_corrected
+                                p.data.copy_(combined_p.to(p.dtype))
+                                del fast_corrected, slow_corrected, combined_p
+                    ema_val_loss_combined = torch.zeros((), device=device)
+                    with torch.no_grad():
+                        for i in range(len(val_inputs) // mbs):
+                            ema_val_loss_combined += model(val_inputs[i*mbs:(i+1)*mbs], val_targets[i*mbs:(i+1)*mbs])
+                    dist.all_reduce(ema_val_loss_combined, op=dist.ReduceOp.SUM)
+                    ema_val_loss_combined /= val_tokens
+                    ema_val_loss_combined_float = float(ema_val_loss_combined.item())
+
                 # Restore train-trajectory params.
                 with torch.no_grad():
                     for n, p in model.named_parameters():
@@ -1061,6 +1114,13 @@ for trial_idx in range(args.num_trials):
                         and first_step_to_target_ema_uncorrected < 0
                         and ema_val_loss_float <= TARGET_VAL_LOSS):
                     first_step_to_target_ema_uncorrected = step
+                # Track combined EMA-val FFS (the multi-timescale hypothesis metric).
+                # Per PR #1658: kept SEPARATE from the primary speedrun/first_step_to_target,
+                # which still uses corrected fast EMA (Pass 2) as the unchanged gate.
+                if (ema_val_loss_combined_float is not None
+                        and first_step_to_target_combined < 0
+                        and ema_val_loss_combined_float <= TARGET_VAL_LOSS):
+                    first_step_to_target_combined = step
                 # Primary FFS uses corrected EMA-val when available, else uncorrected
                 # EMA-val (fallback for step 0), else train-val (EMA disabled).
                 if ema_val_loss_corrected_float is not None:
@@ -1121,12 +1181,37 @@ for trial_idx in range(args.num_trials):
                         metrics["val/ema_correction_factor"] = 1.0 / (1.0 - ema_d_pow_at_val)
                     metrics.update(prefixed("val/ema_corrected_slope",
                                             loss_slope_stats(ema_corrected_val_loss_history, slope_window_steps)))
+                if ema_val_loss_combined_float is not None:
+                    ema_combined_val_loss_history.append((step, ema_val_loss_combined_float))
+                    if ema_val_loss_combined_float < best_ema_combined_val_loss:
+                        best_ema_combined_val_loss = ema_val_loss_combined_float
+                        best_ema_combined_val_step = step
+                    metrics["ema_val/combined"] = ema_val_loss_combined_float
+                    metrics["val/ema_combined_loss"] = ema_val_loss_combined_float
+                    metrics["val/ema_combined_best_loss"] = best_ema_combined_val_loss
+                    metrics["val/ema_combined_best_step"] = best_ema_combined_val_step
+                    metrics["val/ema_combined_target_margin"] = TARGET_VAL_LOSS - ema_val_loss_combined_float
+                    metrics["val/ema_loss_diff_combined_vs_train"] = val_loss_float - ema_val_loss_combined_float
+                    metrics["val/ema_loss_diff_combined_vs_corrected"] = (
+                        (ema_val_loss_corrected_float - ema_val_loss_combined_float)
+                        if ema_val_loss_corrected_float is not None else 0.0
+                    )
+                    metrics["speedrun/first_step_to_target_combined"] = first_step_to_target_combined
+                    metrics["speedrun/reached_target_combined"] = int(first_step_to_target_combined >= 0)
+                    if ema_d_slow_pow_at_val is not None:
+                        metrics["val/ema_d_slow_pow_t"] = ema_d_slow_pow_at_val
+                        metrics["val/ema_slow_correction_factor"] = 1.0 / (1.0 - ema_d_slow_pow_at_val)
+                    metrics["val/ema_slow_mix"] = float(args.ema_eval_slow_mix)
+                    metrics.update(prefixed("val/ema_combined_slope",
+                                            loss_slope_stats(ema_combined_val_loss_history, slope_window_steps)))
                 wandb.log(metrics, step=trial_idx * (train_steps + 1) + step)
             ema_log_str = ""
             if ema_val_loss_float is not None:
                 ema_log_str += f" ema_val_loss:{ema_val_loss_float:.5f}"
             if ema_val_loss_corrected_float is not None:
                 ema_log_str += f" ema_val_loss_corr:{ema_val_loss_corrected_float:.5f}"
+            if ema_val_loss_combined_float is not None:
+                ema_log_str += f" ema_val_loss_comb:{ema_val_loss_combined_float:.5f}"
             print0(f"step:{step}/{train_steps} val_loss:{val_loss:.5f}{ema_log_str}"
                    + f" train_time:{training_time:.3f}s"
                    + f" step_avg:{1000*step_avg:.2f}ms", console=True)
@@ -1191,6 +1276,12 @@ for trial_idx in range(args.num_trials):
                 for n, p in model.named_parameters():
                     if n in ema_state:
                         ema_state[n].mul_(d).add_(p.detach().to(torch.float32), alpha=(1 - d))
+            if ema_state_slow is not None:
+                d_slow = args.ema_eval_decay_slow
+                with torch.no_grad():
+                    for n, p in model.named_parameters():
+                        if n in ema_state_slow:
+                            ema_state_slow[n].mul_(d_slow).add_(p.detach().to(torch.float32), alpha=(1 - d_slow))
             ema_n_updates += 1
             # Periodic EMA diagnostics (drift vs current params, EMA norm). Cheap.
             if dist.get_rank() == 0 and (train_step % 100 == 0 or train_step == train_steps):
@@ -1205,7 +1296,7 @@ for trial_idx in range(args.num_trials):
                             drift_sq.add_((e - p.detach().to(torch.float32)).pow(2).sum())
                             init_drift_sq.add_((e - init_state[n]).pow(2).sum())
                 d_pow_now = float(d) ** ema_n_updates
-                wandb.log({
+                ema_log_dict = {
                     "trial": trial_idx,
                     "train/step": train_step,
                     "ema/param_norm": float(ema_sq.sqrt().item()),
@@ -1215,7 +1306,32 @@ for trial_idx in range(args.num_trials):
                     "ema/n_updates": ema_n_updates,
                     "ema/d_pow_t": d_pow_now,
                     "ema/init_weight_fraction": d_pow_now,
-                }, step=wandb_step)
+                }
+                if ema_state_slow is not None:
+                    with torch.no_grad():
+                        ema_slow_sq = torch.zeros((), device=device, dtype=torch.float32)
+                        drift_slow_sq = torch.zeros((), device=device, dtype=torch.float32)
+                        init_drift_slow_sq = torch.zeros((), device=device, dtype=torch.float32)
+                        slow_minus_fast_sq = torch.zeros((), device=device, dtype=torch.float32)
+                        for n, p in model.named_parameters():
+                            if n in ema_state_slow:
+                                e_slow = ema_state_slow[n]
+                                ema_slow_sq.add_(e_slow.pow(2).sum())
+                                drift_slow_sq.add_((e_slow - p.detach().to(torch.float32)).pow(2).sum())
+                                init_drift_slow_sq.add_((e_slow - init_state_slow[n]).pow(2).sum())
+                                slow_minus_fast_sq.add_((e_slow - ema_state[n]).pow(2).sum())
+                    d_slow_pow_now = float(args.ema_eval_decay_slow) ** ema_n_updates
+                    ema_log_dict.update({
+                        "ema/slow_param_norm": float(ema_slow_sq.sqrt().item()),
+                        "ema/slow_state_dict_drift": float(drift_slow_sq.sqrt().item()),
+                        "ema/slow_drift_from_init": float(init_drift_slow_sq.sqrt().item()),
+                        "ema/slow_minus_fast_norm": float(slow_minus_fast_sq.sqrt().item()),
+                        "ema/slow_decay": float(args.ema_eval_decay_slow),
+                        "ema/slow_d_pow_t": d_slow_pow_now,
+                        "ema/slow_init_weight_fraction": d_slow_pow_now,
+                        "ema/slow_mix": float(args.ema_eval_slow_mix),
+                    })
+                wandb.log(ema_log_dict, step=wandb_step)
 
         if telemetry_due:
             update_norms = optimizer2.get_step_update_norms()
@@ -1297,6 +1413,9 @@ for trial_idx in range(args.num_trials):
             ema_summary += (f" ema_best_val_loss:{best_ema_val_loss:.5f}"
                             f" ema_corrected_best_val_loss:{best_ema_corrected_val_loss:.5f}"
                             f" first_step_to_target_ema_uncorrected:{first_step_to_target_ema_uncorrected}")
+        if ema_state_slow is not None:
+            ema_summary += (f" ema_combined_best_val_loss:{best_ema_combined_val_loss:.5f}"
+                            f" first_step_to_target_combined:{first_step_to_target_combined}")
         print0(
             f"trial:{trial_idx} best_val_loss:{best_val_loss:.5f} best_val_step:{best_val_step}"
             + f" first_step_to_target:{first_step_to_target}"
@@ -1325,6 +1444,11 @@ for trial_idx in range(args.num_trials):
                 first_step_to_target_ema_uncorrected >= 0
             )
             final_metrics["speedrun/final_ema_n_updates"] = ema_n_updates
+        if ema_state_slow is not None:
+            final_metrics["speedrun/final_best_ema_combined_val_loss"] = best_ema_combined_val_loss
+            final_metrics["speedrun/final_best_ema_combined_val_step"] = best_ema_combined_val_step
+            final_metrics["speedrun/final_first_step_to_target_combined"] = first_step_to_target_combined
+            final_metrics["speedrun/final_reached_target_combined"] = int(first_step_to_target_combined >= 0)
         wandb.log(final_metrics, step=(trial_idx + 1) * (train_steps + 1) - 1)
 
 if dist.get_rank() == 0:
