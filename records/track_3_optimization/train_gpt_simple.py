@@ -602,6 +602,13 @@ NANOGPT_NEWTON_MUON_UPDATE_PERIOD = int(os.environ.get("NANOGPT_NEWTON_MUON_UPDA
 NANOGPT_NEWTON_MUON_BETA = float(os.environ.get("NANOGPT_NEWTON_MUON_BETA", "0.95"))
 NANOGPT_NEWTON_MUON_EPS = float(os.environ.get("NANOGPT_NEWTON_MUON_EPS", "1e-4"))
 NANOGPT_NEWTON_MUON_MAX_D_IN = int(os.environ.get("NANOGPT_NEWTON_MUON_MAX_D_IN", "1024"))
+# Phase-gated NM activation (#1632). Defaults preserve always-on behavior so when
+# both vars are unset the code path is bit-identical to the prior stack. Setting
+# either to 0 disables NM preconditioning (naked Muon: R buffer is neither read
+# nor updated) during the corresponding phase. Phase boundary is the cooldown
+# entry step derived from NANOGPT_NS_COOLDOWN_START_FRAC.
+NANOGPT_NEWTON_MUON_BODY_ACTIVE = int(os.environ.get("NANOGPT_NEWTON_MUON_BODY_ACTIVE", "1"))
+NANOGPT_NEWTON_MUON_COOLDOWN_ACTIVE = int(os.environ.get("NANOGPT_NEWTON_MUON_COOLDOWN_ACTIVE", "1"))
 
 # Global per-parameter input-activation cache populated by forward hooks. Keyed by
 # id(weight_param) → tensor of shape (B*T, d_in) on device. Only populated when
@@ -794,9 +801,17 @@ class Muon(torch.optim.Optimizer):
         # to enable the sync-y per-param diagnostics; False otherwise to keep
         # the GPU pipeline async (item() calls block the CPU and serialize work).
         self.newton_telemetry_due: bool = False
+        # Phase-gated NM activation (#1632). When False, the NM step path is
+        # skipped entirely: R buffer is neither read nor updated, and the
+        # gradient passes through to the standard Muon path unchanged (naked
+        # Muon). Default True preserves always-on behavior bit-identically.
+        self.newton_phase_active: bool = True
 
     def set_ns_iters_this_step(self, ns_iters: int) -> None:
         self.ns_iters_this_step = int(ns_iters)
+
+    def set_newton_phase_active(self, active: bool) -> None:
+        self.newton_phase_active = bool(active)
 
     def _apply_newton_precondition(self, p, grad, state):
         """Right-precondition grad by (X^T X)^{-1/2} for body Muon matrices.
@@ -885,9 +900,15 @@ class Muon(torch.optim.Optimizer):
         # Reset spectral_stats at the start of each step; only the rank that
         # owns the tracked parameter on this round-robin shard will repopulate.
         self.spectral_stats = None
+        # Reset newton telemetry each step when NM is configured so stale values
+        # from a prior step don't leak into the current step's W&B logs (this
+        # matters when nm_phase_active flips off mid-run — applied_n must reset
+        # so the phase-transition log line shows applied=0 cleanly).
         if self.newton_precond:
-            self._newton_step_count += 1
             self.newton_telemetry = {}
+        nm_active_this_step = self.newton_precond and self.newton_phase_active
+        if nm_active_this_step:
+            self._newton_step_count += 1
         for group in self.param_groups:
             params = group["params"]
             params_pad = params + [torch.empty_like(params[-1])] * (world_size - len(params) % world_size)
@@ -903,7 +924,7 @@ class Muon(torch.optim.Optimizer):
                     # gradients (matches paper pipeline order: G @ R^{-1/2}
                     # -> momentum -> v normalization -> NS5 -> update).
                     grad_for_update = p.grad
-                    if self.newton_precond:
+                    if nm_active_this_step:
                         g_precond = self._apply_newton_precondition(p, p.grad, state)
                         if g_precond is not None:
                             grad_for_update = g_precond
@@ -985,6 +1006,14 @@ print0(
     f"update_period={NANOGPT_NEWTON_MUON_UPDATE_PERIOD} "
     f"beta={NANOGPT_NEWTON_MUON_BETA} eps={NANOGPT_NEWTON_MUON_EPS} "
     f"max_d_in={NANOGPT_NEWTON_MUON_MAX_D_IN}",
+    console=True,
+)
+_train_steps_for_banner = int(os.environ.get("NANOGPT_TRAIN_STEPS", "3350"))
+_cooldown_entry_step_banner = int(NS_COOLDOWN_START_FRAC * _train_steps_for_banner)
+print0(
+    f"NEWTON_MUON: body_active={NANOGPT_NEWTON_MUON_BODY_ACTIVE} "
+    f"cooldown_active={NANOGPT_NEWTON_MUON_COOLDOWN_ACTIVE} "
+    f"cooldown_entry_step={_cooldown_entry_step_banner}",
     console=True,
 )
 if NS_ITERS_COOLDOWN > 0:
@@ -1105,6 +1134,8 @@ if dist.get_rank() == 0:
             "nanogpt_newton_muon_beta": NANOGPT_NEWTON_MUON_BETA,
             "nanogpt_newton_muon_eps": NANOGPT_NEWTON_MUON_EPS,
             "nanogpt_newton_muon_max_d_in": NANOGPT_NEWTON_MUON_MAX_D_IN,
+            "nanogpt_newton_muon_body_active": NANOGPT_NEWTON_MUON_BODY_ACTIVE,
+            "nanogpt_newton_muon_cooldown_active": NANOGPT_NEWTON_MUON_COOLDOWN_ACTIVE,
         },
     )
 
@@ -1424,10 +1455,26 @@ for trial_idx in range(args.num_trials):
             if len(ns_iters_history) > 100:
                 del ns_iters_history[:-100]
             ns_cumulative_iters += ns_iters_this_step
+        # Phase-gated NM activation (#1632). The phase boundary is the cooldown
+        # entry step; within each phase, the active flag toggles the entire NM
+        # path (R update + preconditioner). When both env vars are 1 (default)
+        # this is always-on, bit-identical to the prior stack.
+        nm_in_cooldown = step >= cooldown_start_step
+        if nm_in_cooldown:
+            nm_phase_active = bool(NANOGPT_NEWTON_MUON_COOLDOWN_ACTIVE)
+            nm_active_phase_str = "cooldown"
+        else:
+            nm_phase_active = bool(NANOGPT_NEWTON_MUON_BODY_ACTIVE)
+            nm_active_phase_str = "body"
+        # Phase-transition telemetry forcing (#1632): emit NM telemetry at the
+        # cooldown entry step and the first step in the new phase to capture the
+        # flip cleanly even if telemetry_interval skips that step.
+        nm_phase_transition_due = step in (cooldown_start_step, cooldown_start_step + 1)
         # Tell Newton-Muon whether to compute telemetry diagnostics this step
         # (gated to avoid per-param CUDA syncs on the hot path).
         if getattr(optimizer2, "newton_precond", False):
-            optimizer2.newton_telemetry_due = bool(telemetry_due)
+            optimizer2.newton_telemetry_due = bool(telemetry_due or nm_phase_transition_due)
+            optimizer2.set_newton_phase_active(nm_phase_active)
         for opt in optimizers:
             opt.step()
         # === Newton-Muon (#1138) per-step telemetry. ===
@@ -1438,7 +1485,7 @@ for trial_idx in range(args.num_trials):
         if (
             dist.get_rank() == 0
             and getattr(optimizer2, "newton_precond", False)
-            and telemetry_due
+            and (telemetry_due or nm_phase_transition_due)
         ):
             tel = optimizer2.newton_telemetry
             applied = tel.get("applied_n", 0)
@@ -1446,6 +1493,9 @@ for trial_idx in range(args.num_trials):
                 "trial": trial_idx,
                 "train/step": train_step,
                 "newton_muon/params_preconditioned": applied,
+                "newton_muon/active": int(nm_phase_active),
+                "newton_muon/active_phase_body": int(nm_active_phase_str == "body"),
+                "newton_muon/active_phase_cooldown": int(nm_active_phase_str == "cooldown"),
             }
             cond_n = tel.get("cond_n", 0)
             if cond_n > 0:
@@ -1454,12 +1504,12 @@ for trial_idx in range(args.num_trials):
                 )
                 newton_metrics["newton_muon/R_condition_number_max"] = tel["cond_max"]
                 newton_metrics["newton_muon/R_condition_number_min"] = tel["cond_min"]
-            if applied > 0:
+            if applied > 0 and "inv_sqrt_norm_sum" in tel:
                 newton_metrics["newton_muon/R_inv_sqrt_norm_mean"] = (
                     tel["inv_sqrt_norm_sum"] / applied
                 )
             ratio_n = tel.get("precond_ratio_n", 0)
-            if ratio_n > 0:
+            if ratio_n > 0 and "precond_ratio_sum" in tel:
                 newton_metrics["newton_muon/precond_ratio_mean"] = (
                     tel["precond_ratio_sum"] / ratio_n
                 )
