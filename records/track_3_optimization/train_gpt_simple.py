@@ -68,6 +68,9 @@ def parse_args():
     parser.add_argument("--ns_iter", type=int, default=12,
                         help="Number of Newton-Schulz iterations in zeropower_via_newtonschulz5. "
                              "Default 12 (current hardcoded value). Lower = less orthogonal but faster.")
+    parser.add_argument("--soap_precond_freq", type=int, default=16,
+                        help="SOAP preconditioner eigendecomposition refresh frequency in optimizer steps. "
+                             "Default 16. Lower = more frequent eigen-updates; higher = amortizes cost but risks stale basis.")
     parser.add_argument("--lr_scalars", type=float, default=0.01,
                         help="LR for AdamW adam_scalars group (RMSNorm gains; "
                              "params with ndim < 2). Default 0.01 — hardcoded, "
@@ -111,6 +114,8 @@ def parse_args():
 
 args = parse_args()
 NS_ITER = args.ns_iter
+PRECOND_FREQ = args.soap_precond_freq
+print(f"PRECOND_FREQ runtime={PRECOND_FREQ}", flush=True)
 
 
 def clean_metric_name(name: str) -> str:
@@ -665,7 +670,7 @@ class Muon(torch.optim.Optimizer):
                             self.cos_sims_buffer[self.param_names[id(p)]] = cos_sim_t
                         else:
                             update = u_soap
-                        soap_update_preconditioner(p.grad, state)
+                        soap_update_preconditioner(p.grad, state, precondition_frequency=PRECOND_FREQ)
                     else:
                         update = muon_update(p.grad, state["momentum"], mu=group["mu"])
                     norm_sum.add_(update.float().norm())
