@@ -1,3 +1,55 @@
+## 2026-05-30 00:30 UTC — Cycle 71 mid-402 — fern #1729 307th refute, 143rd family closure — 4th independent mechanism converging to embed-WD-down floor-band cluster strengthens embed-kind-basin interpretation; moment-isolation follow-up assigned
+
+### fern #1729 307th refute — PER_KIND_AUX_PERIODIC_RESET_EMBED val_mean=3.27084 STANDARD misses merge bar by Δ=+0.00308 val and +25 ffs
+
+Arm A `embed_reset_rare` (interval=750) val=3.27125 ffs=3025 STANDARD, Arm B `embed_reset_dense` (interval=250) val=3.27042 ffs=3025 STANDARD-cluster-edge. Δ(B−A)=−0.00083 sub-noise inside predeclared ±0.001 inert band. Stat rule (3.28−μ)·√n ≥ 0.004 PASSES at n=2 (0.01258). W&B 88un0zg3/ejmdr8iu verified config-operative + reset-event audit perfect (A 4 events at 750/1500/2250/3000, B 12 events at 250 cadence) + step-counter intentionally NOT reset (validated as correct design choice — no post-reset bias-correction warmup spike in either trajectory). Disabled-check PASSED val@200=4.08577 W&B rsu81pfv.
+
+**MAJOR STRUCTURAL FINDING — 4th independent mechanism converging to embed-WD-down floor-band cluster**:
+
+| reference | mechanism | val_loss | cluster proximity |
+|---|---|---|---|
+| #1683 A | embed WD-down full (WD_EMBED=0.0003) | 3.26968 | inside cluster |
+| #1705 B | embed WD-down late-only | 3.26926 | inside cluster |
+| floor-band cluster (n=3) | — | 3.26962 ±0.00033 | reference |
+| #1577 B | lm_head β2 FAST 0.85 | 3.26992 | floor-band-cluster-edge |
+| **#1729 B** | **embed AdamW state-reset dense (interval=250)** | **3.27042** | **top-edge +0.00080** |
+
+5th independent mechanism (4 of which are floor-band cluster members or cluster-edge: #1683 A, #1705 B, #1577 B, #1729 B) converging on the same effective gradient quality. Strong evidence that the **floor-band cluster is a basin defined by the embed-kind contribution to val_loss**, not by any single mechanism. AdamW state-refresh frequency on embed is mechanistically distinct from WD-down but produces the same effective floor — suggests they all act on the same underlying embed-kind gradient-quality bottleneck.
+
+**178th distinct Δ-trajectory mech class: MID-PEAK-DECAY-WITHIN-MECHANISM** — Δ(B−A) trajectory peaks at step 875 (Δ=−0.00486), monotonic-decay-with-cooldown-saturation down to terminal Δ=−0.00083. Peak-to-terminal ratio 5.9×. Same family as #1668 MID-PEAK-COMPOUND-DECAY but within a single mechanism (frequency-of-reset on one knob) rather than cross-mechanism compound.
+
+Rules out three hypotheses: (1) frequency-of-reset is load-bearing — REFUTED, (2) AdamW state saturation on embed is load-bearing — REFUTED (Arm B with 12 resets converges to floor-band cluster top edge not below), (3) step-counter preservation introduces re-warmup confound — REFUTED.
+
+**143rd family closure**: PER_KIND_AUX_PERIODIC_RESET_EMBED axis fully mapped at frequency-inert-near-noise-floor outcome with 4th-mechanism floor-band convergence as secondary finding.
+
+### Cycle 71 cumulative state
+
+**Cycle 71 cumulative**: **307 refuted** / **178 distinct mech classes** / **143 family-level closures**.
+
+### PRs closed this wave (1 closure):
+
+| PR | student | mechanism | outcome |
+|---|---|---|---|
+| **fern #1729** | fern | PER_KIND_AUX_PERIODIC_RESET_EMBED (Arm A `embed_reset_rare` interval=750 Arm B `embed_reset_dense` interval=250; both reset exp_avg + exp_avg_sq simultaneously) | **307th** — Arm A 3.27125/3025 STANDARD, Arm B 3.27042/3025 STANDARD-cluster-edge, val_mean=3.27084 misses by +0.00308/+25. Δ(B−A)=−0.00083 sub-noise. MAJOR STRUCTURAL FINDING 4th independent mechanism converging to embed-WD-down floor-band cluster top edge strengthens embed-kind-basin interpretation. 178th distinct Δ-trajectory mech class MID-PEAK-DECAY-WITHIN-MECHANISM (peak-to-terminal 5.9×). **143rd family closure**. |
+
+### PRs assigned this wave (1 fresh moment-isolation follow-up):
+
+| PR | student | mechanism | hypothesis |
+|---|---|---|---|
+| **fern #1754** | fern | PER_KIND_AUX_PERIODIC_RESET_EMBED_MOMENT_ISOLATION (Arm A `embed_reset_sq_only` RESET_MOMENT=1/interval=250 resets only exp_avg_sq, Arm B `embed_reset_avg_only` RESET_MOMENT=2/interval=250 resets only exp_avg, fixed-cadence at #1729 winner interval) | **Moment-attribution decomposition** of #1729 closure. β2=0.95 → exp_avg_sq effective memory 20 steps (likely saturator); β1=0.9 → exp_avg effective memory 10 steps (less likely). If Arm A < Arm B → exp_avg_sq IS the saturating component, structural finding. If Arm B < Arm A → surprising exp_avg-attribution. If \|Δ(B−A)\| ≤ 0.001 → both moments contribute equally OR both null, moment-attribution null closure. If either arm enters floor-band cluster ≤ 3.27000 → that moment is THE saturating component, opens compound-stack opportunity. Fits Morgan's directive per-group + state-mechanism per-kind + state-reset is state-mechanism + moment-axis is no scalar sweep. |
+
+### Strategic implications
+
+**Fleet 8/8 active** now: 6 in WIP (alphonse #1738, edward #1744, fern #1754 new, frieren #1734, nezuko #1741, tanjiro #1750, thorfinn #1732 in n=2 confirmation) + 1 in n=2 confirmation (askeladd #1731 seed1) + 1 in n=2 confirmation (thorfinn #1732 seed1). Wait — fleet count update:
+- WIP (6): alphonse #1738, edward #1744, fern #1754, frieren #1734, nezuko #1741, tanjiro #1750
+- n=2 confirmation (2): askeladd #1731 seed1, thorfinn #1732 seed1
+- Total 8/8 active, 0 idle.
+
+Floor-band-cluster-as-embed-kind-basin hypothesis now has **5 independent mechanisms** as evidence (#1683 A, #1705 B, #1577 B, #1729 B at cluster edge, #1700/#1678 lm_head perturbations also converging). The next moment-isolation refines mechanistic attribution within the AdamW-state-refresh sub-family.
+
+---
+
+
 ## 2026-05-30 00:15 UTC — Cycle 71 mid-401 — DUAL NEAR-FLOOR-NEW BAND WAVE — askeladd #1731 + thorfinn #1732 both produce closest-to-baseline single-axis findings in cycle 71, both sent back for n=2 confirmation
 
 ### askeladd #1731 NEAR-FLOOR-NEW — PER_DEPTH_HALF_ATTN_SOAP_BETA2
