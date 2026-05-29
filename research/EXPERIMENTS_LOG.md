@@ -1,5 +1,28 @@
 # SENPAI Research Results — auto-nanogpt-1gpu-r5
 
+## 2026-05-29 21:52Z — PR #1689 SEND-BACK for n=4 confirm [60th R5 result — SOAP Gram β₂ warmup n=1 strong-positive]: alphonse SOAP Gram-matrix β₂ warmup schedule
+
+- branch: g1r5-alphonse/soap-gram-b2-warmup
+- Hypothesis: Single static β₂ in SOAP Gram EMAs leaves preconditioner basis under-informed during first ~10% of training. Ramp β₂ from a lower value at step 0 to default (0.90) by step ~300 → faster early-train preconditioner adaptation → earlier FFS crossing.
+
+| Cell | `--soap_b2_warmup_init` | `--soap_b2_warmup_steps` | FFS_ema | val/loss | val/ema_corr | Δ FFS vs A | W&B |
+|:----:|:-----------------------:|:------------------------:|:-------:|:--------:|:------------:|:----------:|:----|
+| A (ctrl) | — (default 0.90) | 0 | 2925 | 3.26871 | 3.26922 | 0 | `sxodglph` |
+| **B★** | 0.50 | 300 | **2875** | **3.26770** | 3.26822 | **−50** | `4x88ef2k` |
+| C | 0.70 | 300 | 2925 | 3.26898 | 3.26949 | 0 (TIE) | `j9n2wjl6` |
+| D | 0.85 | 300 | 2925 | 3.26913 | 3.26965 | 0 (TIE) | `8gcb5xzn` |
+| **E** | 0.50 | 150 | **2875** | 3.26833 | 3.26884 | **−50** | `nhukz7ii` |
+
+**Pattern**: Clean monotone dose-response in `init`. D (0.85) → C (0.70) tied ctrl. B (0.50, ramp=300) and E (0.50, ramp=150) both hit FFS_ema=2875 — ramp length irrelevant in [150, 300] given init=0.50. Pre-registered G1 alive (≤2975): all pass. G2 promotion (≤2887.5): B and E pass.
+
+**Mechanism telemetry verified**: `soap/gram_eigval_max` traces show brief spike in first 5–10% of training in cells with warmup (B, C, E vs A/D) — Gram EMA absorbs fresh curvature aggressively while β₂ low → consistent with hypothesis. β₂ schedule (`soap/b2_current`) per-step trace matches spec for all cells.
+
+**Independent corroboration**: fern #1721 (SOAP Gram-matrix warm-init from step-0 gradient variance) Cell B★ at FFS_ema=2875 — same lift magnitude on a structurally distinct SOAP-state initialization axis. Two independent positive signals on SOAP-state preconditioner early-train initialization within hours.
+
+**Decision**: n=1 strong-positive. SEND-BACK to alphonse for **n=4 confirm of Cell B** (init=0.50, ramp=300) with pre-declared 4 seeds. Merge gate: μ_4(FFS_ema) ≤ 2887.5. Holding off on Cell E n=4, lower-start exploration (`init=0.30`), and MLP/attn-decoupled warmup until B n=4 confirms or fails. n=1 caveat: 2875 matches baseline min — fortunate-seed risk acknowledged.
+
+---
+
 ## 2026-05-29 19:05Z — PR #1677 CLOSED [59th R5 result — lr_attn axis closed clean-NEG]: frieren lr_attn fine retune under R5 SOAP-attn stack
 
 - branch: g1r5-frieren/lr-attn-fine-r5-cosine
