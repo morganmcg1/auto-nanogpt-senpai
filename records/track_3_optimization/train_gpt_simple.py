@@ -461,7 +461,14 @@ NORMUON_BETA2 = 0.95
 SOAP_BETA2 = 0.90
 SOAP_PRECOND_FREQ = 10
 # Attention SOAP (record #16) hyperparameters
-ATTN_SOAP_BETA2 = 0.90
+ATTN_SOAP_BETA2 = float(os.environ.get("ATTN_SOAP_BETA2", "0.90"))
+# PR PHASE_DISPATCH_ATTN_SOAP_BETA2 — time-phase dispatch of attn-SOAP gram-EMA β2.
+# Phase boundary at ATTN_SOAP_BETA2_PHASE_BOUNDARY_STEP (default 1500, mid-training).
+# Targets the EMA-warmup bottleneck quantified in PR #1620 (trust-gate firing gated by EMA maturity).
+PHASE_DISPATCH_ATTN_SOAP_BETA2_ENABLED = int(os.environ.get("PHASE_DISPATCH_ATTN_SOAP_BETA2_ENABLED", "0"))
+ATTN_SOAP_BETA2_EARLY = float(os.environ.get("ATTN_SOAP_BETA2_EARLY", str(ATTN_SOAP_BETA2)))
+ATTN_SOAP_BETA2_LATE = float(os.environ.get("ATTN_SOAP_BETA2_LATE", str(ATTN_SOAP_BETA2)))
+ATTN_SOAP_BETA2_PHASE_BOUNDARY_STEP = int(os.environ.get("ATTN_SOAP_BETA2_PHASE_BOUNDARY_STEP", "1500"))
 ATTN_SOAP_PRECOND_FREQ = 10
 ATTN_SOAP_TRUST_THRESHOLD = float(os.environ.get("ATTN_SOAP_TRUST_THRESHOLD", "0.9"))
 NS5_ITERS = int(os.environ.get("NS5_ITERS", "12"))
@@ -714,7 +721,15 @@ class Muon(torch.optim.Optimizer):
                     if use_soap:
                         soap_refresh(grad, state)
                     elif use_attn_soap:
-                        soap_refresh(grad, state, beta2=ATTN_SOAP_BETA2,
+                        if PHASE_DISPATCH_ATTN_SOAP_BETA2_ENABLED:
+                            soap_step = state.get("soap_step", 0)
+                            if soap_step < ATTN_SOAP_BETA2_PHASE_BOUNDARY_STEP:
+                                _attn_soap_beta2 = ATTN_SOAP_BETA2_EARLY
+                            else:
+                                _attn_soap_beta2 = ATTN_SOAP_BETA2_LATE
+                        else:
+                            _attn_soap_beta2 = ATTN_SOAP_BETA2
+                        soap_refresh(grad, state, beta2=_attn_soap_beta2,
                                      refresh_freq=ATTN_SOAP_PRECOND_FREQ,
                                      use_trust_gate=True,
                                      trust_threshold=ATTN_SOAP_TRUST_THRESHOLD)
@@ -864,11 +879,18 @@ if dist.get_rank() == 0:
             "optimizer/attn_soap_beta2": ATTN_SOAP_BETA2,
             "optimizer/attn_soap_precond_freq": ATTN_SOAP_PRECOND_FREQ,
             "optimizer/attn_soap_trust_threshold": ATTN_SOAP_TRUST_THRESHOLD,
+            "optimizer/phase_dispatch_attn_soap_beta2_enabled": PHASE_DISPATCH_ATTN_SOAP_BETA2_ENABLED,
+            "optimizer/attn_soap_beta2_early": ATTN_SOAP_BETA2_EARLY,
+            "optimizer/attn_soap_beta2_late": ATTN_SOAP_BETA2_LATE,
+            "optimizer/attn_soap_beta2_phase_boundary_step": ATTN_SOAP_BETA2_PHASE_BOUNDARY_STEP,
             "optimizer/ns5_iters": NS5_ITERS,
             "optimizer/wd_aux": WD_AUX,
             "optimizer/recipe": "contra-muon + normuon-lite + soap-on-mlp + soap-on-attn-trust-gate (pre-NS5, record #14 + record #16)",
         },
     )
+    print(f"[PHASE_DISPATCH_ATTN_SOAP_BETA2] enabled={PHASE_DISPATCH_ATTN_SOAP_BETA2_ENABLED} "
+          f"early={ATTN_SOAP_BETA2_EARLY} late={ATTN_SOAP_BETA2_LATE} "
+          f"boundary={ATTN_SOAP_BETA2_PHASE_BOUNDARY_STEP} default={ATTN_SOAP_BETA2}")
 
 for trial_idx in range(args.num_trials):
 
@@ -1026,6 +1048,9 @@ for trial_idx in range(args.num_trials):
         # set optimization hyperparameters and take a step
         set_hparams(step)
         train_step = step + 1
+        if dist.get_rank() == 0 and PHASE_DISPATCH_ATTN_SOAP_BETA2_ENABLED and train_step == ATTN_SOAP_BETA2_PHASE_BOUNDARY_STEP:
+            print(f"[PHASE_DISPATCH_ATTN_SOAP_BETA2] phase transition at step={train_step}: "
+                  f"early(β2={ATTN_SOAP_BETA2_EARLY}) → late(β2={ATTN_SOAP_BETA2_LATE})")
         telemetry_due = (step == 0 or (step + 1) % args.telemetry_interval == 0 or step + 1 == train_steps)
         histogram_due = (step == 0 or (step + 1) % args.histogram_interval == 0 or step + 1 == train_steps)
         slope_due = (train_step % slope_interval == 0 or train_step == train_steps)
