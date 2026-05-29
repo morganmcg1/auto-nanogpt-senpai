@@ -1,3 +1,84 @@
+## 2026-05-29 01:45 UTC — Cycle 71 mid-368 — thorfinn #1620 272nd refute (PHASE_ATTN_SOAP_REFRESH_FREQ val_mean=3.27018 Δ=+0.00242 vs baseline, ffs_mean=3025 misses by 25, BUT Arm B val=3.26916 is **NEW LOWEST single-arm point of cycle 71** edging below prior #1595 floor of 3.26926, STRUCTURAL FINDING: Trust-gate × EMA-stabilization interaction dominates over nominal refresh budget — Arm B achieves ~30% more EFFECTIVE refreshes despite identical nominal budget because sparse early attempts let gram-EMA mature, then trust-gate fires near-perfectly late (0.981) — v-axis on_frac 58× swing from early to late confirmed dominant rejection source) + thorfinn #1642 NEW PHASE_DISPATCH_ATTN_SOAP_BETA2 (phase-asymmetric β2 for gram EMA, directly attacks the EMA-warmup bottleneck thorfinn revealed; Arm A early_FAST β2=0.85/0.95, Arm B early_SLOW β2=0.95/0.85, phase boundary step 1500)
+
+**Cumulative**: **272 refuted** / **161 distinct mech classes** / **117 family-level closures**.
+
+### PRs closed this wave (1 closure):
+
+| PR | student | mechanism | outcome |
+|---|---|---|---|
+| **thorfinn #1620** | thorfinn | PHASE_ATTN_SOAP_REFRESH_FREQ (Arm A `early_FREQ` freq=5/15 vs Arm B `early_RARE` freq=15/5, boundary step 1500) | **272nd** — Arm A val=3.27120 STANDARD, Arm B val=3.26916 **NEW LOWEST cycle 71**; val_mean=3.27018 fails merge bar by Δ=+0.00242. **But Arm B val=3.26916 displaces #1595's 3.26926 as lowest single-arm point of cycle 71**, becoming the new floor anchor. |
+
+### STRUCTURAL FINDING — Trust-gate × EMA-stabilization interaction dominates over nominal refresh budget
+
+Per-kind on_fraction telemetry from #1620 revealed:
+
+| arm | nominal early | nominal late | EARLY on_frac | LATE on_frac | effective refreshes |
+|---|---|---|---|---|---|
+| A (early_FREQ) | 5 | 15 | 0.724 | 0.668 | ~292 |
+| B (early_RARE) | 15 | 5 | 0.494 | **0.981** | **~378 (+30%)** |
+
+Despite identical nominal budgets, Arm B achieves ~30% more EFFECTIVE refreshes by:
+1. Sparse early attempts let gram-EMA mature without burning attempts on rejected jittery candidates
+2. By step 1500, EMA is well-conditioned → fast late refresh has near-perfect trust-gate firing (0.981)
+3. v-axis is the dominant rejection source: Arm B early v=0.016 → late v=0.930 (58× swing); proj jumps 6× from early to late
+
+**Mechanistic conclusion**: refresh attempts only become valuable AFTER gram-EMA matures. Trust-gate effectively re-allocates compute based on EMA stabilization, not nominal frequency. **The fix isn't "more refreshes early" — it's "warm up EMA faster early" so the trust-gate accepts.** This motivates the direct mechanism-level test in #1642 (phase-dispatched β2 on gram EMA).
+
+### Empirical floor band extended to [3.26916, 3.26992] — 7 single-axis mechanism classes converge
+
+| PR | mechanism | best-arm val | category |
+|---|---|---|---|
+| **#1620 Arm B (this wave)** | **PHASE_ATTN_SOAP_REFRESH_FREQ (early_RARE)** | **3.26916 NEW LOWEST cycle 71** | **state-phase × attn-SOAP** |
+| #1595 | ATTN_SOAP_TERMINATION_STEP (terminate_2975) | 3.26926 | state-phase |
+| #1611 Arm B | PER_KIND_WD_AUX (lm_head-heavy) | 3.26966 | per-group (AdamW) |
+| #1618 Arm A | V_FAST_ONLY (attn-SOAP per-kind refresh) | 3.26969 | per-kind (attn-SOAP) |
+| #1603 | PER_KIND_AUX_BETA2_PUSH (moderate) | 3.26985 | per-group (AdamW) |
+| #1568 | MU_COOLDOWN_END_FRONT per-depth-half | 3.26992 | state-phase × per-group |
+| #1577 | PER_KIND_AUX_BETA2 (lm_head_TIGHT) | 3.26992 | per-group (AdamW) |
+
+Floor band extended to [3.26916, 3.26992] downward by Arm B. 7 structurally distinct mechanisms converge. **State-phase × attn-SOAP** is a new category populating the floor.
+
+### PRs assigned this wave
+
+| PR | student | mechanism | role |
+|---|---|---|---|
+| **thorfinn #1642** | thorfinn | PHASE_DISPATCH_ATTN_SOAP_BETA2 (Arm A `early_FAST` β2=0.85→0.95 vs Arm B `early_SLOW` β2=0.95→0.85, phase boundary step 1500) | **Direct mechanism-level test of #1620's EMA-warmup bottleneck**. Tests whether faster early β2 (~6.7-step horizon) accelerates gram-EMA maturation so trust-gate accepts refresh candidates earlier, then slower late β2 (~20-step horizon) stabilizes the basis through cooldown. Distinct from prior flat ATTN_SOAP_BETA2 sweeps (#394, #634, #842) which closed the single-value axis — phase-dispatch is the natural follow-up to the per-step EMA-maturity finding. |
+
+### Fleet state at end of wake 42 (this wave)
+
+8 students all assigned, 0 idle:
+
+| PR | student | axis | status |
+|---|---|---|---|
+| **#1642** | **thorfinn** | **PHASE_DISPATCH_ATTN_SOAP_BETA2** | **WIP (this wave, just assigned)** |
+| #1640 | edward | V_FAST_DEPTH_HALF_REFRESH | WIP (prior wave) |
+| #1635 | askeladd | PER_DEPTH_HALF_MU_COOLDOWN_START_NARROW | WIP (prior wave) |
+| #1633 | fern | JOINT_PER_KIND_AUX_BETA2_WD | WIP (prior wave) |
+| #1616 | nezuko | JOINT_OUTPUT_PROJ_BETA2_FAST | WIP |
+| #1623 | frieren | PER_DEPTH_HALF_MLP_SOAP_REFRESH_FREQ | WIP |
+| #1628 | tanjiro | AUX_EPS_PER_KIND_FULL_RUN | WIP |
+| #1630 | alphonse | PER_DEPTH_SPLIT_MU_COOLDOWN_END | WIP |
+
+### Active research themes (cycle 71)
+
+1. **Floor band has a new anchor**: Arm B of #1620 at val=3.26916 displaces #1595's 3.26926 as the cycle 71 lowest single-arm point. State-phase × attn-SOAP is now the leading floor-band category.
+2. **Trust-gate × EMA-stabilization mechanism uncovered**: trust-gate firing is downstream of EMA maturity, not nominal refresh budget. This opens EMA-warmup speed as a structural axis (tested directly in #1642).
+3. **Compound axes in flight** — per-AUX-kind compound (#1633), per-kind × depth (#1640 v-axis, #1630 mu-axis), per-kind × phase (#1642 β2), cross-scope compound (#1616).
+4. **mu_cooldown direction-axis** validated across both START and END boundaries; #1635 calibrates plateau magnitude.
+5. **Per-AUX-kind family** 6 mechanisms — kind-sensitivity universal, signs class-specific.
+6. **MLP-SOAP axis expansion**: #1623 first non-β2 per-depth-half.
+
+### Next research directions
+
+1. **#1642 phase-β2 result determines EMA-warmup-speed mechanism**: if Arm A wins (early_FAST), confirms thorfinn's #1620 hypothesis that gram-EMA-warmup is the bottleneck → opens β2-warmup as a tunable axis distinct from refresh frequency. If null, trust-gate firing is gated by something else (raw gradient SNR, eigenvalue distribution, parameter scale).
+2. **#1640 v × depth result determines attn-SOAP front_up universality**.
+3. **#1633 per-AUX-kind compound result**: shapes per-AUX-kind family compound strategy.
+4. **#1635 plateau magnitude calibration**.
+5. **Phase-axis MLP-SOAP extension**: if #1642 confirms, extend phase-dispatched β2 to MLP-SOAP.
+6. **Compound state-phase × attn-SOAP**: if Arm A wins, combine phase-β2 with #1620 Arm B's phase-refresh-freq schedule.
+
+---
+
 ## 2026-05-29 01:10 UTC — Cycle 71 mid-367 — edward #1618 271st refute (V_ISOLATED_REFRESH val_mean=3.27004 STANDARD-edge Δ=+0.00228 vs baseline, |Δ(B−A)|=0.00070 weak v-drives direction signal on n=1 noise floor, Arm A 3.26969 6th floor-band entry [3.26926, 3.26992], STRUCTURAL FINDING: 4-tier eigenbasis-stability ordering q≈k>proj>v REPRODUCED exactly at refresh=15 — v-axis instability is the per-kind direction driver but magnitude is weak at uniform-depth) + edward #1640 NEW V_FAST_DEPTH_HALF_REFRESH (compound depth × per-kind on v-axis, mirror-symmetric compute budget, extends #1545 front_up + #1618 v-drives signals into v × depth compound)
 
 **Cumulative**: **271 refuted** / **160 distinct mech classes** / **117 family-level closures**.
