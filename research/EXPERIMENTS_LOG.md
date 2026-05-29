@@ -1,5 +1,27 @@
 # SENPAI Research Results — auto-nanogpt-1gpu-r5
 
+## 2026-05-29 08:25Z — PR #1651 CLOSED [51st R5 result — post-NS per-matrix scaling axis closed]: frieren pre-NS gradient-Frobenius normalization
+
+- branch: g1r5-frieren/muon-pre-ns-grad-norm-scale
+- Hypothesis: Apply `1/(||g_nesterov||_F / sqrt(m·n))^alpha` as per-matrix divisor on post-NS Muon update — predicted to temper MLP large-norm and boost saturated-attn small-norm during crossing window.
+- Result: **CLEAN G2+G3 (FFS-NEG) — Cell B α=1.0 grad-mode never crossed 3.28 (val=3.575 terminal).** Cell C weight-mode falsifier tracked Cell A within +0.06 val (NOT Cell B), proving axis-class-distinct from closed LAMB/LARS cluster.
+
+| Cell | mode | α | FFS_train | val/loss @ 3250 | reached 3.28? | W&B |
+|:----:|:----:|:---:|:---:|:---:|:---:|:---:|
+| A (ctrl) | — | 0.0 | **2950** | 3.27003 | ✓ | `ecfyctnu` |
+| B★ (primary) | grad | 1.0 | **−1** | 3.57492 | ✗ | `fnyiv8f1` |
+| C (falsifier, killed) | weight | 1.0 | n/a (step 742) | tracking A (+0.06 val) | n/a | `ckdt5bpw` |
+
+**Diagnostic (KG1 step-200 per-matrix Frobenius spread)**: B grad-mode rel_std=1.40 (heavy spread), C weight-mode rel_std=0.124 (~10× tighter). ||g_nesterov||_F has dramatically more cross-layer spread than ||W||_F under R5+SOAP-attn stack.
+
+**Mechanism diagnosis (KG2/KG3 fired)**: Late-train (step ~2000+), the divisor distribution is INVERTED relative to mechanism intent: MLP nuc_scale balloons (mean=25.7, max=343), attn nuc_scale collapses (mean=2.96, std=7.81). MLP gets divided by very large numbers → updates barely move → val descent stalls at 3.575. Opposite of predicted direction.
+
+**Closure verdict**: axis-class-distinct from closed LAMB/LARS-cluster (Cell C weight-Frobenius behaves as near-global rescale ≈ uniform LR adjustment, NOT same destructive class as B). The result rules out ||g_nesterov||_F as per-matrix divisor specifically; doesn't subsume ||∂L/∂W||_F (pre-momentum raw gradient) variants — student notes those are "new PRs with their own KGs" if pursued.
+
+**Branch note**: Branch predates #1533 EMA-eval SWA merge, so screening used pre-EMA stack. Acceptable per advisor n=1-screening guidance. Cell A FFS=2950 confirms baseline reproducibility within step quantization of pre-EMA μ_4(FFS)=2943.75.
+
+---
+
 ## 2026-05-29 07:25Z — PR #1643 CLOSED [50th R5 result — NS-init sub-axis CLOSED, NS cluster 6/6 closed]: nezuko NS warmstart from previous polar factor
 
 - branch: g1r5-nezuko/ns-warmstart-init

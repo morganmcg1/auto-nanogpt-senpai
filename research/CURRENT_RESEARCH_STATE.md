@@ -9,19 +9,15 @@ The human research team has redirected: **FFS (first-step-to-target, baseline 30
 3. **Prefer experiments that move the crossing step** (2800-3050 window), **simplify winning stacks**, **reveal FFS-load-bearing components**.
 4. **Ablations preferred over confirmations** when FFS dead.
 
-## Last updated: 2026-05-29 08:16Z (poll — harness stale_wip on #1664+#1658 verified false via W&B; all 8 students running)
+## Last updated: 2026-05-29 08:25Z (poll — #1651 CLOSED 51st R5 result; frieren reassigned #1677 lr_attn-fine)
 
-### Notes (2026-05-29 08:13–08:16Z)
+### Notes (2026-05-29 08:23–08:25Z)
 
-- Harness flagged #1664 (edward, 2h26m since PR-comment) and #1658 (alphonse, 3h03m since PR-comment) as `stale_wip`. Per memory `feedback_verify_subagent_time_claims.md`, ran `date -u` (08:16:02Z) and verified W&B activity directly before any nudge: #1664 run `3e25sgci` step 343 val=4.058 RUNNING, #1658 run `1f1haxux` step 874 val=3.711 RUNNING. Both are healthy mid-training — staleness signal triggered by PR-comment-time, not actual training. **NO advisor action taken.**
-- Full fleet W&B audit (08:16Z): all 8 students running.
-  - tanjiro #1617 confirm: `ga45cab3` step 2518 val=3.336
-  - thorfinn #1586 confirm: `ii70qzc4` step 2261 val=3.396
-  - fern #1654: `36m6dxuc` step 2266 val=3.386 + `x45n90hl` step 3037 val=3.272 (1st cell terminal-zone)
-  - frieren #1651: `ckdt5bpw` step 799 val=3.760
-  - askeladd #1659: `jmc56a9c` step 467 val=3.898
-  - nezuko #1676 (just assigned): `z13bdfi5` step 52 val=10.83 (warmup-zone normal)
-- Human issues open on R5: only #1262 (FFS-primary directive, 2026-05-26 — still in effect). No new messages.
+- **★ CLOSED #1651 frieren pre-NS grad-Frobenius normalization** [51st R5 result, axis-class-distinct from LAMB/LARS]. Cell A FFS=2950 (baseline reproducibility), Cell B α=1.0 grad-mode FFS=-1 val=3.575 (KG2+KG3 fired), Cell C weight-mode falsifier tracked A within +0.06 val (proving NOT a LAMB/LARS replica). Mechanism diagnosis: late-train ||g_nesterov||_F distribution INVERTED — MLP balloon (max 343), attn collapse (mean 2.96). Divisor amplifies destructive imbalance instead of tempering it. Closure ≠ cluster-replica null but informative axis-class-distinct NEG.
+- **★ ASSIGNED #1677 frieren lr_attn fine re-tune under R5 stack** — completes body Muon HP-value matrix on attn-side LR axis. 5-cell sweep {0.025/0.035/0.045/0.055/0.070}. Mirror of #162 lr_mlp win for SOAP-attn stack (where SOAP-attn was DISABLED in #162). Zero code change; existing `--lr_attn` flag. Distinct from #1586 (wd_mlp), #1676 (wd_attn), #1664 (cooldown shape).
+- Harness flagged #1664+#1658 as `stale_wip` for 2nd consecutive poll. Per `feedback_verify_subagent_time_claims.md`, verified W&B: #1664 edward `3e25sgci` step 543 val=3.811 RUNNING (was 343 7min ago); #1658 alphonse `1f1haxux` step 1085 val=3.642 RUNNING (was 874 7min ago). Both productively training. NO nudge.
+- Issue #1598 (senpai-pr-guard substring match — fleet-wide infra bug, R4 #1530 example) — labeled "human" only; human team owns it. Not R5-actionable.
+- Human issues open on R5: only #1262 (FFS-primary directive, 2026-05-26). No new messages.
 
 ### Notes (2026-05-29 07:25–08:10Z)
 
@@ -54,12 +50,12 @@ The human research team has redirected: **FFS (first-step-to-target, baseline 30
 | Student | PR | Hypothesis | Status |
 |:-------:|:--:|:----------:|:------:|
 | alphonse | #1658 | Multi-β EMA combination at val | 🔄 WIP |
-| frieren | #1651 | Pre-NS grad-Frobenius normalization | 🔄 WIP (B cell @ step 810) |
+| frieren | #1677 | lr_attn fine re-tune under R5 SOAP-attn | 🆕 WIP (just assigned) |
 | askeladd | #1659 | Per-group EMA-eval decay (body vs aux) | 🔄 WIP |
 | fern | #1654 | SOAP adaptive eigenbasis refresh | 🔄 WIP |
 | **tanjiro** | **#1617** | **SOAP pf=8 n=4 EMA-eval confirm** | **🆕 n=4 CONFIRM (just approved)** |
 | edward | #1664 | Per-class body Muon cooldown SHAPE decouple | 🔄 WIP |
-| nezuko | #1676 | wd_attn fine re-tune under R5 stack | 🆕 WIP (just assigned) |
+| nezuko | #1676 | wd_attn fine re-tune under R5 stack | 🔄 WIP |
 | **thorfinn** | **#1586** | **wd_mlp=0.040 n=4 EMA-eval confirm** | **🆕 n=4 CONFIRM (just approved)** |
 
 ---
