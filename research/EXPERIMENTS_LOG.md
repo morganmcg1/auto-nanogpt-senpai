@@ -1,3 +1,41 @@
+## 2026-05-29 09:34 — PR #1650: H262 frieren Body warmup steps VALUE ablation — CLOSED (**118th NULL/NEG closure**, asymmetric TIE/NEG — arm_b LONGER warmup=250 FFS=3075 +50/+2.92σ_H174 mild NEG; arm_c SHORTER warmup=50 FFS=3025 EXACT drift-FREE TIE −0.53σ_H174 sub-noise val improvement. Per FFS-primary criterion (Issue #1260): drift-FREE TIE on FFS = NOT WIN. 🎯 **PROGRAMME FINDING #56 candidate axis 1 WEAKENED** — body warmup is "upper-bound-anchored" not fully rigid. 🎯 **+2 drift-FREE CTRL instances** (arm_a warmup=100 + arm_c warmup=50 both FFS=3025 EXACT, 13 cumulative total). H269 frieren IMMEDIATE FOLLOW-UP ASSIGNED — fine-resolution lower-bound warmup sweep {25, 0}, **potential FIRST FFS<3025 WIN of 118-cycle plateau campaign**)
+
+- Branch: H262 frieren (58th class — body warmup steps VALUE axis, `muonh_warmup_steps ∈ {100, 250, 50}`)
+- Student terminal SENPAI-RESULT at 09:18 UTC May 29 with full 3-arm per-arm config audit (`muonh_warmup_steps ∈ {100, 250, 50}` distinct), per-arm bit-id step-0 val=10.82583 EXACT, step_avg_ms=1815ms identical across arms (trivially-drift-FREE), effective peak LR analysis, and PF#56 axis 1 mechanistic update.
+
+| Arm | run_id | `muonh_warmup_steps` | step-0 val | val/loss | FFS | Δval vs CTRL | Decision |
+|---|---|---|---|---|---|---|---|
+| arm_a CTRL warmup=100 | `kg27vorx` | 100 ✓ | 10.82583 EXACT | 3.26822 | **3025 EXACT** | — | **drift-FREE 12th canonical (Trivial argparse-VALUE)** |
+| arm_b LONGER warmup=250 | `329b8ejz` | 250 ✓ | 10.82583 EXACT | 3.27080 | 3075 (+50) | +0.00258 (+2.92σ) | **mild NEG** |
+| arm_c SHORTER warmup=50 | `8bwps2yj` | 50 ✓ | 10.82583 EXACT | **3.26775** | **3025 EXACT** | −0.00047 (−0.53σ) | **drift-FREE TIE** (NOT WIN — FFS=3025 TIED not <3025) |
+
+### Statistical rule check `(3.28 − μ) × √n ≥ 0.004`
+- arm_c SHORTER (best arm): `(3.28 − 3.26775) × √1 = 0.01225` ≥ 0.004 ✓ but FFS=3025 TIED → NOT WIN
+
+### 🎯 Asymmetric sensitivity — upper-bound-anchored axis
+
+Effective body LR at warmup-end = LR_peak × cos(π·warmup/3325):
+- warmup=250: LR_peak × 0.9724 → +150 wasted sub-peak steps + reduced achievable peak → FFS +50 mild NEG (+2.92σ_H174)
+- warmup=100 (CTRL): LR_peak × 0.9956 → canonical anchor
+- warmup=50: LR_peak × 0.9989 → essentially full peak at step 50, 50 exploitation steps recovered → FFS=3025 EXACT (TIED, not improved)
+
+The flat-minimum region extends from warmup=100 down to at least warmup=50. The 100-step H203 pin sits at/near the upper bound of this flat region, NOT the lower bound. **Lower bound remains unmapped** → H269.
+
+### 🎯 PROGRAMME FINDING #56 candidate axis 1 WEAKENED
+
+H242 (warmup shape) + H262 (warmup duration) together: shape-rigid, upper-bound-duration-anchored but lower-bound-flat-region extends below 100. Axis 1 is NOT fully structurally rigid. PF#56 5-axis CLOSURE-GRADE claim weakened to "broadly rigid with axis 1 exception". Joins PF#59 (NS5 iter count non-rigid) as 2nd "rigid-with-targeted-exceptions" axis.
+
+### H269 frieren IMMEDIATE FOLLOW-UP — PR #1682 (warmup ∈ {100_CTRL, 25, 0})
+
+arm_c ZERO warmup=0 tests "NS5 polar stability as warmup substitute" — bold lower-bound test. If FFS<3025 → FIRST WIN of 118-cycle plateau campaign. WIN probability 30-35%. Trivially-drift-FREE (argparse VALUE-only, zero code changes).
+
+### Programme totals after H262 closure + H269 assignment
+- **118 NULL/NEG closures** (was 117)
+- **63 mechanism classes** (no new class — H262 stays within axis 1)
+- **13 drift-FREE CTRL instances** cumulative (+2 from H262 arm_a + arm_c)
+
+---
+
 ## 2026-05-29 08:55 — PR #1647: H260 nezuko Aux Lion optimizer FORM replacement (56th class) — CLOSED (**117th NULL/NEG closure**, bilateral CATASTROPHIC NEG — arm_b LION_SCALED lr=1.5e-4 wd=0.1 val=3.38858 +136σ_H174 FFS=−1, arm_c LION_LRMATCHED lr=4.5e-4 wd=0 val=3.36773 +112σ_H174 FFS=−1. 🎯 **PREDICTED 10% CATASTROPHIC NEG bucket CONFIRMED** — Lion's sign-based update destroys per-coordinate magnitude information that H203 aux update structurally requires. 🎯 **NEW PROGRAMME FINDING #61 candidate**: "AdamW per-coordinate `g/√v` preconditioner adaptivity is structurally LOAD-BEARING on aux parameters (embeddings + lm_head + biases) of the H203 baseline — uniform-magnitude updates catastrophically NEG". **11th drift-FREE CTRL instance** of campaign (Pattern A canonical safe-fix template, argparse VALUE + branched code path). H268 nezuko IMMEDIATE FOLLOW-UP ASSIGNED **Aux Adam-mini optimizer FORM replacement (63rd class)** — tests block-diagonal granularity intermediate to AdamW per-element vs Lion uniform)
 
 - Branch: H260 nezuko (56th class — Aux Lion optimizer FORM replacement, Chen et al. 2023 sign-based update)

@@ -1,8 +1,62 @@
 # SENPAI Research State — auto-nanogpt-1gpu-r3
 
-- **Last updated:** 2026-05-29 09:00 UTC
+- **Last updated:** 2026-05-29 09:34 UTC
 
 ---
+
+## Cycle ~1590: H262 CLOSED (**118th NULL/NEG**, asymmetric TIE/NEG — arm_b LONGER warmup=250 FFS=3075 +50 / +2.92σ_H174 mild NEG; arm_c SHORTER warmup=50 FFS=3025 EXACT drift-FREE TIE −0.53σ_H174 sub-noise val improvement; **per FFS-primary rule (Issue #1260): drift-FREE TIE on FFS NOT WIN**) + 🎯 **PROGRAMME FINDING #56 candidate axis 1 WEAKENED** (body warmup is "upper-bound-anchored" not fully rigid: upper direction HURT, lower direction NEUTRAL on FFS) + **+2 drift-FREE CTRL instances** (arm_a warmup=100 + arm_c warmup=50 both FFS=3025 EXACT, confirms argparse VALUE-only mutations drift-FREE across parameter range) + H269 frieren IMMEDIATE FOLLOW-UP ASSIGNED **fine-resolution lower-bound warmup sweep (warmup ∈ {100_CTRL, 25, 0} — potential FIRST FFS<3025 WIN of 118-cycle plateau campaign via NS5 polar stability replacing warmup)**
+
+**Key closure this cycle:**
+
+- **H262 frieren body warmup steps VALUE ablation (PR #1650)** — **118th NULL/NEG closure**. 3-arm `muonh_warmup_steps ∈ {100, 250, 50}`. arm_a CTRL `kg27vorx` FFS=**3025 EXACT** val=3.26822 (13th drift-FREE CTRL). arm_b LONGER `329b8ejz` FFS=**3075** (+50, +2.92σ_H174 NEG). arm_c SHORTER `8bwps2yj` FFS=**3025 EXACT** val=3.26775 (−0.53σ_H174 sub-noise improvement = drift-FREE TIE, NOT WIN per FFS-primary).
+
+  **🎯 Asymmetric sensitivity** around H203 100-step pin: upper direction hurts (warmup>100 wastes LR×step budget due to reduced effective peak LR from cooldown-from-step-0 interaction), lower direction neutral on FFS with marginal val improvement. Mechanistic prediction (cos(π·warmup/3325) effective-peak-LR) quantitatively confirmed.
+
+  **🎯 PROGRAMME FINDING #56 candidate axis 1 WEAKENED** — H203 100-step warmup sits at/near upper bound of flat-minimum region in the lower direction. Axis 1 is NOT fully structurally rigid: shape inert (H242) + upper-bound-anchored (H262) but lower-bound unmapped. Joins PF#59 as 2nd "rigid-with-targeted-exceptions" axis. **Lower-bound flat region extends to warmup=50 — how far down can it go?**
+
+  **🎯 +2 drift-FREE CTRL instances** (arm_a warmup=100 + arm_c warmup=50): confirms argparse VALUE-only mutations are drift-FREE not just at baseline VALUE but across VALUE range. Total: **13 cumulative drift-FREE CTRL instances**.
+
+**Assignment this cycle:**
+
+- **H269 frieren body warmup fine-resolution lower-bound sweep (PR #1682)** — Direct H262 follow-up, fine-resolution mapping at {warmup=100 CTRL, warmup=25, warmup=0}. arm_c ZERO warmup=0 tests "NS5 polar stability replaces warmup" hypothesis (FIRST explicit NS5 stability-as-warmup-substitute test in r3). WIN probability **~30-35%** (potential FIRST FFS<3025 WIN of 118-cycle plateau campaign). Zero code changes required — trivially-drift-FREE argparse VALUE chain.
+
+## Programme totals (end of cycle ~1590)
+
+- **118 NULL/NEG closures** (was 117 at cycle ~1580)
+- **63 mechanism classes** characterized (H262 stays within axis 1 — no new class)
+- **13 drift-FREE CTRL instances** cumulative (+2 from H262 arm_a + arm_c) + 1 Pattern B-extract +25 drift class anchor
+- **5 canonical safe-fix templates** + 1 Pattern B-extract sub-pattern characterized
+- **6 BOLD/follow-up WIP + H269 newly assigned**: H261 Sophia (57th, arm_c SOPHIA_K5 running ~10:55 UTC), H263 MuLoCo pruning (59th), H264 Lookahead (60th), H265 Trust-Region (61st), H266 Polyak EMA (62nd), H267 NS5 iter extension, H268 Adam-mini (63rd), **H269 body warmup lower-bound**
+- **PROGRAMME FINDING #56 PARTIALLY WEAKENED** — 5-axis outer-step HP manifold structure still broadly rigid, but axis 1 (body warmup) is now "upper-bound-anchored" not fully rigid
+- **PROGRAMME FINDING #58 candidate** at 5 axes CLOSURE-GRADE PROMOTION (Stiefel-aware cluster)
+- **PROGRAMME FINDING #59 candidate STRENGTHENED** monotone-accelerating-returns (NS5 orthogonalization — plateau location pending H267)
+- **PROGRAMME FINDING #60 candidate** active 3 axes (continuous post-step Riemannian corrections inert/harmful)
+- **PROGRAMME FINDING #61 candidate** active 1 axis (Aux preconditioner per-coordinate adaptivity load-bearing — H268 Adam-mini testing block-diagonal granularity)
+
+## Current research focus & themes
+
+The 118-cycle plateau campaign is now probing a **lower-bound frontier**: H262 arm_c drift-FREE TIE at warmup=50 with marginal val improvement suggests the flat-minimum region extends below H203's 100-step pin. H269 tests whether we can push FFS<3025 by removing warmup entirely (relying on NS5 polar stability). This is the **highest-probability WIN candidate** in the current portfolio (30-35%), closest we've been to a potentially-breakable axis since H259 arm_c iters=16 (FFS tied, val improved).
+
+Combined campaign structural-rigidity landscape:
+- **PF#56 partially weakened**: outer-step manifold broadly rigid with axis 1 asymmetric exception
+- **PF#58 candidate CLOSURE-GRADE**: Stiefel-aware cluster structurally inert/harmful
+- **PF#59 STRENGTHENED**: NS5 iter count non-rigid (potentially exploitable — H267 in flight)
+- **PF#60 candidate**: Riemannian corrections inert/harmful (3 axes)
+- **PF#61 candidate**: Aux per-coordinate adaptivity load-bearing (H268 testing granularity)
+
+**Pattern-of-rigidity-with-targeted-exceptions** (NS5 iter count + body warmup lower-bound both non-rigid) increasingly resembles a paper-grade structural finding: H203 is hard to beat everywhere EXCEPT targeted structural boundary conditions.
+
+## Potential next research directions
+
+After H269 (body warmup lower-bound) + H267 (NS5 iter count) close:
+
+1. **If H269 arm_c ZERO warmup wins**: "warmup-eliminated stack" opens — joint warmup=0 + NS5_k=32+ sweep, cooldown_frac decoupling
+2. **If H267 iters>16 continues monotone improvement**: push to iters=48, 64 — potential WIN if accelerating-returns curve continues
+3. **Aux Adafactor** — row-column factored second-moment (Shazeer & Stern 2018) — tests next granularity level after H268 Adam-mini
+4. **Aux Shampoo** — Kronecker-factored preconditioner — fully matrix-aware, structurally distinct from all tested aux optimizers
+5. **Aux per-class LR/WD decoupling** — split embeddings vs lm_head vs biases into separate aux groups with distinct HPs
+6. **Eval-only mechanism family extension** (extends H266 Polyak direction) — SWA, model soup interpolation, snapshot ensemble
+7. **Researcher-agent deeper dive**: with 63+ mechanism classes characterized, warrant full literature review of unexplored plateau-breaking techniques
 
 ## Cycle ~1580: H260 CLOSED (**117th NULL/NEG**, bilateral CATASTROPHIC NEG — arm_b LION_SCALED val=3.38858 +136σ_H174 FFS=−1, arm_c LION_LRMATCHED val=3.36773 +112σ_H174 FFS=−1, both Lion arms NUMERICALLY STABLE but plateaued at val~3.37-3.39 confirming **predicted 10% CATASTROPHIC NEG bucket**) + 🎯 **NEW PROGRAMME FINDING #61 candidate**: "AdamW per-coordinate `g/√v` preconditioner adaptivity is structurally LOAD-BEARING on aux parameters of H203 baseline — uniform-magnitude updates catastrophically NEG" + **11th drift-FREE CTRL instance** (Pattern A canonical safe-fix template) + H268 nezuko IMMEDIATE FOLLOW-UP ASSIGNED **63rd mechanism class — Aux Adam-mini optimizer FORM replacement (block-diagonal granularity intermediate to AdamW per-element vs Lion uniform)**
 
