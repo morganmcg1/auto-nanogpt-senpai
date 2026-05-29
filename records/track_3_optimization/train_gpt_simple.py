@@ -47,6 +47,9 @@ def parse_args():
     parser.add_argument("--muonh_mode", type=str, default=os.environ.get("MUONH_MODE", "clip"), choices=["clip", "scale_invariant"])
     parser.add_argument("--muonh_cooldown_shape", type=str, default=os.environ.get("MUONH_COOLDOWN_SHAPE", "linear"), choices=["linear", "cosine", "sqrt"], help="LR cooldown shape for MuonH groups (AdamW aux groups stay linear)")
     parser.add_argument("--muonh_warmup_steps", type=int, default=int(os.environ.get("MUONH_WARMUP_STEPS", "0")), help="Linear LR warmup steps for MuonH groups only (0 = disabled, no-op vs baseline). AdamW aux groups are not warmed.")
+    parser.add_argument("--ns5_num_iterations", type=int,
+                        default=int(os.environ.get("NS5_NUM_ITERATIONS", "12")),
+                        help="Number of NS5 polynomial iterations in zeropower_via_newtonschulz5. Baseline 12 (likely over-converged per Jordan 2024 / Bernstein 2024).")
     parser.add_argument("--train_steps", type=int, default=int(os.environ.get("TRAIN_STEPS", "3350")))
     # MuLoCo outer Nesterov SGD (Algorithm 1, K=1). Wraps all trainable params;
     # snapshots an anchor at trial start, then every sync_interval inner steps
@@ -549,7 +552,13 @@ class GPT(nn.Module):
 #              Optimizer               #
 ########################################
 
-def zeropower_via_newtonschulz5(G: Tensor) -> Tensor:
+# H259: NS5 iteration count is a VALUE axis. Pattern B (H249-validated):
+# @torch.compile on the NS5 polynomial loop (different num_iterations triggers
+# a fresh compile trace) and @torch.compiler.disable on the muon_update wrapper
+# so call sites can plumb num_iterations through without inflating the muon
+# trace graph between arms.
+@torch.compile
+def zeropower_via_newtonschulz5(G: Tensor, num_iterations: int = 12) -> Tensor:
     assert G.ndim >= 2
     X = G.bfloat16()
     if G.size(-2) > G.size(-1):
@@ -559,7 +568,7 @@ def zeropower_via_newtonschulz5(G: Tensor) -> Tensor:
     X = X / (X.norm(dim=(-2, -1), keepdim=True) + 1e-7)
     # Perform the NS iterations, not optimizing for wallclock speed
     a, b, c = 2, -1.5, 0.5
-    for _ in range(12):
+    for _ in range(num_iterations):
         A = X @ X.mT
         B = b * A + c * A @ A
         X = a * X + B @ X
@@ -568,11 +577,64 @@ def zeropower_via_newtonschulz5(G: Tensor) -> Tensor:
         X = X.mT
     return X
 
-@torch.compile
-def muon_update(grad, momentum, mu=0.95, nesterov=True):
+
+# H259: NS5 telemetry capture. Set capture=True before opt.step() to accumulate
+# (output Frobenius norm, orthogonality error) over the per-param NS5 calls,
+# then read averages and reset after the step.
+_NS5_TELEMETRY = {
+    "capture": False,
+    "num_iters": 0,
+    "frobnorm_sum": 0.0,
+    "orth_err_sum": 0.0,
+    "count": 0,
+}
+
+
+def _ns5_capture_stats(out: Tensor, num_iterations: int) -> None:
+    if not _NS5_TELEMETRY["capture"]:
+        return
+    with torch.no_grad():
+        X = out.detach().float()
+        m, n = X.size(-2), X.size(-1)
+        mn_min = min(m, n)
+        if m <= n:
+            gram = X @ X.mT
+        else:
+            gram = X.mT @ X
+        eye = torch.eye(mn_min, device=X.device, dtype=X.dtype)
+        # ||X X^T - I||_F / ||I||_F  with ||I||_F = sqrt(min(m,n))
+        err = float(((gram - eye).norm() / (mn_min ** 0.5)).item())
+        _NS5_TELEMETRY["frobnorm_sum"] += float(X.norm().item())
+        _NS5_TELEMETRY["orth_err_sum"] += err
+        _NS5_TELEMETRY["count"] += 1
+        _NS5_TELEMETRY["num_iters"] = num_iterations
+
+
+def ns5_telemetry_begin() -> None:
+    _NS5_TELEMETRY["capture"] = True
+    _NS5_TELEMETRY["frobnorm_sum"] = 0.0
+    _NS5_TELEMETRY["orth_err_sum"] = 0.0
+    _NS5_TELEMETRY["count"] = 0
+
+
+def ns5_telemetry_finalize() -> dict:
+    _NS5_TELEMETRY["capture"] = False
+    count = _NS5_TELEMETRY["count"]
+    if count == 0:
+        return {}
+    return {
+        "train/ns5/num_iters_actual": _NS5_TELEMETRY["num_iters"],
+        "train/ns5/output_frobnorm": _NS5_TELEMETRY["frobnorm_sum"] / count,
+        "train/ns5/output_orthogonality_error": _NS5_TELEMETRY["orth_err_sum"] / count,
+    }
+
+
+@torch.compiler.disable
+def muon_update(grad, momentum, mu=0.95, nesterov=True, num_iterations: int = 12):
     momentum.lerp_(grad, 1 - mu)
     update = grad.lerp_(momentum, mu) if nesterov else momentum
-    update = zeropower_via_newtonschulz5(update)
+    update = zeropower_via_newtonschulz5(update, num_iterations=num_iterations)
+    _ns5_capture_stats(update, num_iterations)
     update *= max(1, grad.size(-2) / grad.size(-1))**0.5
     return update
 
@@ -596,7 +658,8 @@ class Muon(torch.optim.Optimizer):
                     state = self.state[p]
                     if len(state) == 0:
                         state["momentum"] = torch.zeros_like(p)
-                    update = muon_update(p.grad, state["momentum"], mu=group["mu"])
+                    update = muon_update(p.grad, state["momentum"], mu=group["mu"],
+                                          num_iterations=args.ns5_num_iterations)
                     p.mul_(1 - group["lr"] * group["weight_decay"])
                     p.add_(update, alpha=-group["lr"])
                 dist.all_gather(params_pad[base_i:base_i + world_size], params_pad[base_i + rank])
@@ -707,7 +770,8 @@ class MuonH(torch.optim.Optimizer):
                         state["momentum"] = torch.zeros_like(p)
                         if hb:
                             state["hyperball_radius"] = p.data.norm().item() * budget_mult
-                    update = muon_update(p.grad, state["momentum"], mu=group["mu"])
+                    update = muon_update(p.grad, state["momentum"], mu=group["mu"],
+                                          num_iterations=args.ns5_num_iterations)
                     if hb and mode == "scale_invariant":
                         # Always-active variant: norm is held at initial value by construction.
                         scale_invariant_update_(p.data, update, group["lr"])
@@ -788,6 +852,7 @@ if args.use_outer_optimizer:
 else:
     print0("MuLoCo outer optimizer DISABLED", console=True)
 print0(f"MuonH mode={args.muonh_mode} lr={args.muonh_lr} budget_mult={args.muonh_budget_mult} cooldown_shape={args.muonh_cooldown_shape}", console=True)
+print0(f"NS5 num_iterations={args.ns5_num_iterations} (baseline 12; H259 ablation)", console=True)
 if args.aux_agc_clip_ratio > 0:
     print0(f"AGC ENABLED on aux AdamW groups: clip_ratio={args.aux_agc_clip_ratio} eps={args.aux_agc_eps}", console=True)
 else:
@@ -856,6 +921,7 @@ if dist.get_rank() == 0:
             "muonh_mu_start": args.muonh_mu_start,
             "muonh_mu_end": args.muonh_mu_end,
             "polyak_ema_decay": args.polyak_ema_decay,
+            "ns5_num_iterations": args.ns5_num_iterations,
         },
     )
 
@@ -1212,8 +1278,15 @@ for trial_idx in range(args.num_trials):
         muonh_agc_stats = adaptive_gradient_clip(
             muonh_params_for_agc, args.muonh_agc_clip_ratio, eps=args.muonh_agc_eps,
         )
+        # H259: NS5 diagnostic capture. Set the global flag so muon_update
+        # accumulates output frobnorm + orthogonality error during this step's
+        # NS5 calls; the capture cost is paid only on rank-0 telemetry steps.
+        ns5_capture_due = (dist.get_rank() == 0 and telemetry_due)
+        if ns5_capture_due:
+            ns5_telemetry_begin()
         for opt in optimizers:
             opt.step()
+        ns5_metrics = ns5_telemetry_finalize() if ns5_capture_due else {}
         # H266: Polyak-Ruppert EMA update — runs after the live inner-optimizer step.
         # When polyak_ema_state is None this branch is skipped, leaving the training
         # path bit-identical to the H203 baseline.
@@ -1234,6 +1307,8 @@ for trial_idx in range(args.num_trials):
             muonh_metrics = {"trial": trial_idx, "train/step": train_step}
             muonh_metrics["aux/beta2"] = aux_beta2
             muonh_metrics["train/muonh_mu"] = muonh_mu_t
+            if ns5_metrics:
+                muonh_metrics.update(ns5_metrics)
             for opt in optimizers:
                 if isinstance(opt, MuonH):
                     if telemetry_due:
