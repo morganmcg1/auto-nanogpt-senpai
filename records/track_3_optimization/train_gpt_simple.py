@@ -84,6 +84,12 @@ def parse_args():
     parser.add_argument('--aux_b2_pulse_target', type=float, default=0.99,
                         help='New aux Adam β2 value to set at --aux_b2_pulse_step. '
                              '0 or negative disables. Default: 0.99 (canonical WIN).')
+    parser.add_argument('--target_uw_pulse_start', type=int, default=-1,
+                        help='Step to begin TARGET_UW pulse window. -1 = disabled.')
+    parser.add_argument('--target_uw_pulse_end', type=int, default=-1,
+                        help='Step to end TARGET_UW pulse window (exclusive).')
+    parser.add_argument('--target_uw_pulse_value', type=float, default=0.35,
+                        help='TARGET_UW value during pulse window. Default 0.35 (baseline).')
     parser.add_argument("--seed", type=int, default=1,
                         help="Random seed for torch/numpy/python. Default 1 matches baseline seed.")
     args = parser.parse_args()
@@ -576,7 +582,10 @@ class Muon(torch.optim.Optimizer):
         world_size = dist.get_world_size()
         rank = dist.get_rank()
         # Skylight u/w-floor: enforce ||u||_F / ||w||_F >= TARGET_UW per parameter.
-        TARGET_UW = 0.35
+        TARGET_UW = (
+            getattr(self, '_target_uw_pulse_value', 0.35)
+            if getattr(self, '_target_uw_active', False) else 0.35
+        )
         floor_fired_count = 0
         floor_eligible_count = 0
         polar_diag: dict = {}
@@ -758,6 +767,9 @@ if dist.get_rank() == 0:
             "paramema_refresh_only": int(args.paramema_refresh_only),
             "aux_b2_pulse_step": args.aux_b2_pulse_step,
             "aux_b2_pulse_target": args.aux_b2_pulse_target,
+            "target_uw_pulse_start": args.target_uw_pulse_start,
+            "target_uw_pulse_end": args.target_uw_pulse_end,
+            "target_uw_pulse_value": args.target_uw_pulse_value,
             "seed": args.seed,
         },
     )
@@ -1064,6 +1076,12 @@ for trial_idx in range(args.num_trials):
                 group["betas"] = new_betas
             print0(f"[step {step}] aux_b2_pulse: β2 {old_b2} → {args.aux_b2_pulse_target}",
                    console=True)
+        _uw_pulse_active = (
+            args.target_uw_pulse_start > 0 and
+            args.target_uw_pulse_start <= step < args.target_uw_pulse_end
+        )
+        optimizer2._target_uw_active = _uw_pulse_active
+        optimizer2._target_uw_pulse_value = args.target_uw_pulse_value
         for opt in optimizers:
             opt.step()
         # EMA buffer update on body-Muon matrix params.
@@ -1117,6 +1135,9 @@ for trial_idx in range(args.num_trials):
                     "train/uw_floor/eligible": eligible,
                     "train/uw_floor/fired": fired,
                     "train/uw_floor/fired_fraction": (fired / eligible) if eligible > 0 else 0.0,
+                    "uw_floor/target_uw_active": (args.target_uw_pulse_value
+                                                  if _uw_pulse_active else 0.35),
+                    "uw_floor/pulse_window_active": int(_uw_pulse_active),
                 }, step=wandb_step)
             polar_diag = getattr(optimizer2, "_polar_diag", None)
             if polar_diag and "residual" in polar_diag:
