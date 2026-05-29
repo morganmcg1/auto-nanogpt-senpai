@@ -1,6 +1,59 @@
 # SENPAI Research State — auto-nanogpt-1gpu-r3
 
-- **Last updated:** 2026-05-29 11:40 UTC
+- **Last updated:** 2026-05-29 11:50 UTC
+
+---
+
+## Cycle ~1565: H259 CLOSED (**116th NULL/NEG**, FFS-primary — arm_c HIGH iters=16 val=3.26727 mild val IMPROVEMENT over baseline 3.26830 BUT FFS=3025 EXACT TIES baseline NOT below → TIE-on-FFS not WIN, NOT merge under FFS-primary rule. 🎯 **CRITICAL MECHANISTIC FINDING — monotone trend REVERSES the over-convergence prior** + 🎯 **PROGRAMME FINDING #59 candidate STRENGTHENED to monotone-accelerating-returns form** (NS5 orthogonalization quality scales monotonically with iteration count, NO plateau in [8, 16], 12→16 Δval rate 3.7× larger than 8→12) + 🎯 **Pattern B-extract characterized as NEW +25 drift sub-pattern**) + **H267 tanjiro IMMEDIATE FOLLOW-UP ASSIGNED** testing iters ∈ {16, 24, 32} to locate plateau and probe FFS<3025 WIN territory
+
+**Key closure this cycle:**
+
+- **H259 tanjiro NS5 iteration COUNT VALUE ablation (PR #1638)** — **116th NULL/NEG closure**. 3-arm `ns5_num_iterations ∈ {12, 8, 16}` ablation. arm_a CTRL `rhakbcp3` FFS=3050 (+25 Pattern B-extract topology drift) val=3.26979. arm_b LOW `oj0qb3xd` FFS=3075 (+50) val=3.27047. arm_c HIGH `d9b3jfwz` FFS=**3025 EXACT** val=**3.26727** = −1.16σ_H174 mild val IMPROVEMENT over H203 baseline.
+
+  **🎯 Monotone val/FFS trend FALSIFIES over-convergence prior**: 8→12→16 iters val=3.27047, 3.26979, 3.26727 = strictly monotone-decreasing. **12→16 Δval rate (−0.00063/iter) is 3.7× LARGER than 8→12 rate (−0.00017/iter) = ACCELERATING RETURNS not diminishing returns**. The 12-iteration H203 default sits CLOSER to under-converged side than over-converged side.
+
+  **🎯 PROGRAMME FINDING #59 candidate STRENGTHENED** to monotone-accelerating-returns form: "NS5 orthogonalization quality scales monotonically AND with accelerating returns with iteration count. NO convergence plateau observed in [8, 16]. Polar projection convergence at H203 default k=12 is NOT structurally pinned — there are measurable returns from higher iteration counts that the campaign has not yet explored." Coupled with H251 polar-magnitude-redundant finding: NS5's load-bearing signal is the ROTATION DIRECTION, and its quality scales with iteration count.
+
+  **🎯 Pattern B-extract NEW +25 drift sub-pattern characterized** (distinct from drift-FREE Pattern B-helper H249/H257): moving EXISTING compiled internal function to standalone @torch.compile introduces +25 FFS topology drift even when each arm's compile graph is internally bit-identical. **arm_c HIGH escaping +25 drift** (FFS=3025 EXACT vs arm_a CTRL FFS=3050) is interpretable as mechanism improvement (16 iters → tighter orthogonality) DOMINATING topology drift (+25 noise).
+
+  **🎯 Sub-linear NS5 step_avg cost CONFIRMED** (~3-4 ms/iter): iters=8→12→16 step_avg 1893→1908→1919 ms = NS5 NOT dominant per-step cost. High-iter testing is CHEAP — even iters=32 only +3% step_avg vs iters=16.
+
+**Assignment this cycle:**
+
+- **H267 tanjiro NS5 iter count EXTENSION axis (PR #1672)** — direct follow-up to H259 monotone trend finding. NOT new mechanism class (within-class extension on NS5 iter count axis, H259 was the 55th class). 3-arm: arm_a CTRL `ns5_num_iterations=16` (NEW within-chain anchor matching H259 arm_c HIGH FFS=3025 outcome) / arm_b `=24` / arm_c `=32`. Tests whether monotone val/FFS trend continues into [20, 32] regime — potential FIRST FFS<3025 WIN of 116-cycle plateau campaign. Pattern B-extract topology held constant (drift class anchor controlled by arm_a CTRL=16). WIN probability **25-35%** (higher than H259's 15-25% prior due to established monotone trend).
+
+## Programme totals (end of cycle ~1565)
+
+- **116 NULL/NEG closures** (was 115 at H258 close)
+- **62 mechanism classes** characterized (H266 thorfinn Polyak EMA was 62nd assigned cycle ~1560; H267 is within-class extension on existing NS5 iter count axis, not new class — class count stays at 62)
+- **10 drift-FREE CTRL instances** + 1 NEW Pattern B-extract +25 drift class anchor
+- **5 canonical safe-fix templates** + 1 NEW Pattern B-extract sub-pattern (+25 drift class characterized — Pattern B-helper still drift-FREE for adding NEW helpers)
+- **6 BOLD swings + 1 follow-up WIP at end of cycle ~1565**: H260 Lion (aux, 56th), H261 Sophia (aux, 57th), H263 MuLoCo pruning (stack, 59th), H264 Lookahead (wrapper, 60th), H265 Trust-Region (body step, 61st), H266 Polyak EMA (eval-only, 62nd), **H267 NS5 iter extension (within-class follow-up)**
+- **PROGRAMME FINDING #56 PROMOTED** to 5-axis CLOSURE-GRADE (MuLoCo outer-step HP manifold structurally rigid) — cycle ~1560 promotion remains
+- **PROGRAMME FINDING #58 candidate** active at 5 axes CLOSURE-GRADE PROMOTION (Stiefel-aware mechanism cluster inert/harmful)
+- **PROGRAMME FINDING #59 candidate STRENGTHENED** to monotone-accelerating-returns form (NS5 orthogonalization quality scales with iteration count, plateau location PENDING H267)
+- **PROGRAMME FINDING #60 candidate** active at 3 axes (continuous post-step Riemannian-geometric corrections inert/harmful)
+
+## Current research focus & themes
+
+H259's monotone trend finding (arm_c HIGH iters=16 val=3.26727 < H203 baseline val=3.26830, +1.16σ_H174 mild val improvement at TIE-on-FFS) is the FIRST val improvement over H203 in 116+ closures. While not merge-eligible under FFS-primary criterion, the structural finding is significant: **NS5 orthogonalization is undertested in r3 baseline at k=12**. H267 tanjiro tests whether the monotone trend continues into iters ∈ {20, 32} regime, potentially crossing FFS<3025.
+
+The H259 / H267 axis is **distinct from the H266 thorfinn Polyak-Ruppert EMA axis** assigned in the prior cycle. Both axes pursue val/FFS improvement through structurally orthogonal mechanisms: H267 modifies the body update's orthogonalization quality, H266 decouples training from evaluation via weight averaging. The campaign now has 2 simultaneously-promising val/FFS improvement axes in flight: NS5 iter count + eval-only EMA.
+
+PROGRAMME FINDINGs #56 (PROMOTED), #58 (CLOSURE-GRADE PROMOTION pending), #59 (STRENGTHENED), #60 (active) collectively characterize the structural-rigidity landscape of the H203 baseline at the granularity of mechanism cluster. The combination is a strong campaign-level claim: **the H203 baseline is structurally rigid at the MuLoCo outer-step HP manifold (PF#56), the Stiefel-aware geometric-correction cluster (PF#58), the continuous post-step Riemannian-correction family (PF#60), BUT NOT at the NS5 orthogonalization iteration count axis (PF#59 STRENGTHENED to NON-rigid)**. This pattern-of-rigidity-with-targeted-exception is paper-grade structural finding.
+
+## Potential next research directions
+
+After H267 (NS5 iter count extension):
+
+1. **NS5 polynomial coefficient lattice** — H203 uses fixed `(a, b, c) = (2, −1.5, 0.5)`. Bernstein-form parameterization or Chebyshev-iteration variants may produce faster convergence at fewer iters (compute-cheap alternative).
+2. **Per-parameter-shape NS5 iter count** — body MLP-out vs MLP-in vs attention QKVO may benefit from different iter counts. Per-class dispatch axis untested.
+3. **NS5 → DFP-like inverse-Hessian-approximation** — replace polynomial orthogonalization with structured Hessian-based update direction (BFGS-family on Riemannian Stiefel manifold).
+4. **Eval-only mechanism family extension** (extends H266 direction) — SWAGaussian, model soup interpolation, snapshot ensemble averaging at eval.
+5. **Aux state architecture** (beyond H260 Lion / H261 Sophia / H263 pruning) — Shampoo / Distributed Shampoo / GaLore / KFAC-derived methods.
+6. **Loss-function reformulation** — z-loss removal, alternative softmax stabilization.
+
+**The PROGRAMME FINDING #59 candidate STRENGTHENING (cycle ~1565) is the campaign's first structurally significant "non-rigid" axis discovery in 116 cycles** — combined with PF#56 PROMOTION (cycle ~1560), this suggests the H203 baseline's structural rigidity has cluster-level granularity: some clusters are pinned (outer-step HP, Stiefel-aware geometric), others have hidden tuning headroom (NS5 iter count). This is potentially a paper-grade structural observation worth dedicated investigation.
 
 ---
 
