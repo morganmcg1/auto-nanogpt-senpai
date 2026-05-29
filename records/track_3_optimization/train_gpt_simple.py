@@ -468,6 +468,12 @@ NS5_ITERS = int(os.environ.get("NS5_ITERS", "12"))
 WD_AUX = float(os.environ.get("WD_AUX", "0.0"))  # AdamW WD on embed + lm_head matrices (scalars stay at 0)
 EMBED_INIT_STD = float(os.environ.get("EMBED_INIT_STD", "1.0"))  # default preserves baseline N(0,1)
 LOGIT_SOFTCAP = float(os.environ.get("LOGIT_SOFTCAP", "15.0"))  # default = 15 (current hardcoded value); soft-cap value c in f(x) = c·x / sqrt(x^2+c^2)
+# PR #1729: PER_KIND_AUX_PERIODIC_RESET_EMBED — periodic reset of the embed
+# AdamW state (exp_avg + exp_avg_sq) at fixed intervals. The Adam `step`
+# counter is intentionally NOT reset (would re-trigger bias-correction warmup
+# and confound the saturation test). Defaults are disabled (interval=0 == off).
+PER_KIND_AUX_PERIODIC_RESET_ENABLED = int(os.environ.get("PER_KIND_AUX_PERIODIC_RESET_ENABLED", "0"))
+AUX_RESET_INTERVAL_EMBED = int(os.environ.get("AUX_RESET_INTERVAL_EMBED", "0"))  # 0 = disabled
 
 
 def zeropower_via_newtonschulz5(G: Tensor) -> Tensor:
@@ -866,6 +872,8 @@ if dist.get_rank() == 0:
             "optimizer/attn_soap_trust_threshold": ATTN_SOAP_TRUST_THRESHOLD,
             "optimizer/ns5_iters": NS5_ITERS,
             "optimizer/wd_aux": WD_AUX,
+            "optimizer/per_kind_aux_periodic_reset_enabled": int(PER_KIND_AUX_PERIODIC_RESET_ENABLED),
+            "optimizer/aux_reset_interval_embed": AUX_RESET_INTERVAL_EMBED,
             "optimizer/recipe": "contra-muon + normuon-lite + soap-on-mlp + soap-on-attn-trust-gate (pre-NS5, record #14 + record #16)",
         },
     )
@@ -955,6 +963,13 @@ for trial_idx in range(args.num_trials):
     slope_window_steps = max(100, slope_interval)
     train_loss_history: list[tuple[int, float]] = []
     val_loss_history: list[tuple[int, float]] = []
+    # PR #1729: report periodic-reset config once per trial.
+    if dist.get_rank() == 0:
+        print(
+            f"[PER_KIND_AUX_PERIODIC_RESET] enabled={PER_KIND_AUX_PERIODIC_RESET_ENABLED}"
+            f" interval_embed={AUX_RESET_INTERVAL_EMBED}",
+            flush=True,
+        )
     dist.barrier()
     t0 = time.perf_counter()
     for step in range(train_steps + 1):
@@ -1051,6 +1066,33 @@ for trial_idx in range(args.num_trials):
                 train_steps=train_steps,
                 wandb_step=wandb_step,
             )
+        # PR #1729: periodic embed AdamW state reset (exp_avg + exp_avg_sq -> 0)
+        # at fixed step intervals. Step counter intentionally preserved.
+        reset_event_this_step = 0
+        if (
+            PER_KIND_AUX_PERIODIC_RESET_ENABLED
+            and AUX_RESET_INTERVAL_EMBED > 0
+            and step > 0
+            and (step % AUX_RESET_INTERVAL_EMBED) == 0
+        ):
+            params_reset = 0
+            for g in optimizer1.param_groups:
+                if g.get("name") == "adam_embed":
+                    for p in g["params"]:
+                        st = optimizer1.state.get(p, {})
+                        if "exp_avg" in st:
+                            st["exp_avg"].zero_()
+                            params_reset += 1
+                        if "exp_avg_sq" in st:
+                            st["exp_avg_sq"].zero_()
+                    break
+            reset_event_this_step = 1
+            if dist.get_rank() == 0:
+                print(
+                    f"[PER_KIND_AUX_PERIODIC_RESET] step {step}: embed AdamW state reset"
+                    f" (exp_avg + exp_avg_sq -> 0, params_reset={params_reset})",
+                    flush=True,
+                )
         for opt in optimizers:
             opt.step()
         if dist.get_rank() == 0 and telemetry_due:
@@ -1059,6 +1101,19 @@ for trial_idx in range(args.num_trials):
                     stats = opt.trust_gate_stats()
                     if stats:
                         wandb.log(prefixed("train/attn_soap_trust_gate", stats), step=wandb_step)
+            # PR #1729: log embed AdamW state norms + reset event flag (sawtooth signature).
+            embed_state_metrics: dict[str, float] = {
+                "train/embed_state_reset_event": float(reset_event_this_step),
+            }
+            for g in optimizer1.param_groups:
+                if g.get("name") == "adam_embed":
+                    for p in g["params"]:
+                        st = optimizer1.state.get(p, {})
+                        if "exp_avg" in st:
+                            embed_state_metrics["train/embed_adam_state/exp_avg_norm"] = float(st["exp_avg"].norm().item())
+                            embed_state_metrics["train/embed_adam_state/exp_avg_sq_norm"] = float(st["exp_avg_sq"].norm().item())
+                    break
+            wandb.log(embed_state_metrics, step=wandb_step)
         if dist.get_rank() == 0 and telemetry_due:
             log_weight_telemetry(
                 model=model,
