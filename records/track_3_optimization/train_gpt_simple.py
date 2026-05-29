@@ -84,6 +84,18 @@ def parse_args():
     parser.add_argument('--aux_b2_pulse_target', type=float, default=0.99,
                         help='New aux Adam β2 value to set at --aux_b2_pulse_step. '
                              '0 or negative disables. Default: 0.99 (canonical WIN).')
+    parser.add_argument('--muon_lr_pretarget_boost_start', type=int, default=-1,
+                        help='Step at which to begin transient body Muon LR scale pulse. '
+                             '-1 disables.')
+    parser.add_argument('--muon_lr_pretarget_boost_end', type=int, default=-1,
+                        help='Step at which to end transient body Muon LR scale pulse '
+                             '(revert to canonical schedule). Active window is [start, end).')
+    parser.add_argument('--muon_lr_pretarget_boost_factor', type=float, default=1.0,
+                        help='Multiplicative factor on body Muon LR during pulse window. '
+                             '>1.0=BOOST, <1.0=DROP. Default 1.0 (no-op).')
+    parser.add_argument('--num_iterations', type=int, default=None,
+                        help='Override train_steps for smoke/debug runs. '
+                             'None = use default 3250.')
     parser.add_argument("--seed", type=int, default=1,
                         help="Random seed for torch/numpy/python. Default 1 matches baseline seed.")
     args = parser.parse_args()
@@ -758,6 +770,9 @@ if dist.get_rank() == 0:
             "paramema_refresh_only": int(args.paramema_refresh_only),
             "aux_b2_pulse_step": args.aux_b2_pulse_step,
             "aux_b2_pulse_target": args.aux_b2_pulse_target,
+            "muon_lr_pretarget_boost_start": args.muon_lr_pretarget_boost_start,
+            "muon_lr_pretarget_boost_end": args.muon_lr_pretarget_boost_end,
+            "muon_lr_pretarget_boost_factor": args.muon_lr_pretarget_boost_factor,
             "seed": args.seed,
         },
     )
@@ -771,6 +786,8 @@ for trial_idx in range(args.num_trials):
 
     # we want to minimize this while still reaching 3.28 val loss
     train_steps = 3250
+    if args.num_iterations is not None and args.num_iterations > 0:
+        train_steps = args.num_iterations
 
     # initialize model parameters
     for name, p in model.named_parameters():
@@ -1064,6 +1081,61 @@ for trial_idx in range(args.num_trials):
                 group["betas"] = new_betas
             print0(f"[step {step}] aux_b2_pulse: β2 {old_b2} → {args.aux_b2_pulse_target}",
                    console=True)
+        # Pre-target body Muon LR pulse: apply multiplicative factor to body-Muon
+        # per-group LR within window [start, end). set_hparams already restored
+        # canonical eta-scaled LR this step, so we just multiply in-place — and
+        # no manual revert is needed because set_hparams runs again next step.
+        pretarget_pulse_active = (
+            args.muon_lr_pretarget_boost_start > 0
+            and args.muon_lr_pretarget_boost_end > args.muon_lr_pretarget_boost_start
+            and args.muon_lr_pretarget_boost_factor != 1.0
+            and args.muon_lr_pretarget_boost_start <= step < args.muon_lr_pretarget_boost_end
+        )
+        if pretarget_pulse_active:
+            for g in optimizer2.param_groups:
+                g["lr"] = g["lr"] * args.muon_lr_pretarget_boost_factor
+            if step == args.muon_lr_pretarget_boost_start:
+                print0(
+                    f"[step {step}] muon_lr_pretarget_boost: ENTER "
+                    f"factor={args.muon_lr_pretarget_boost_factor} "
+                    f"window=[{args.muon_lr_pretarget_boost_start}, "
+                    f"{args.muon_lr_pretarget_boost_end})",
+                    console=True,
+                )
+        elif (args.muon_lr_pretarget_boost_start > 0
+              and args.muon_lr_pretarget_boost_factor != 1.0
+              and step == args.muon_lr_pretarget_boost_end):
+            print0(
+                f"[step {step}] muon_lr_pretarget_boost: REVERT "
+                f"(canonical per-group LRs)",
+                console=True,
+            )
+        if dist.get_rank() == 0:
+            pretarget_fired_state = 0
+            if (args.muon_lr_pretarget_boost_start > 0
+                    and args.muon_lr_pretarget_boost_end
+                        > args.muon_lr_pretarget_boost_start
+                    and args.muon_lr_pretarget_boost_factor != 1.0):
+                if step < args.muon_lr_pretarget_boost_start:
+                    pretarget_fired_state = 0
+                elif step < args.muon_lr_pretarget_boost_end:
+                    pretarget_fired_state = 1
+                else:
+                    pretarget_fired_state = 2
+            pmuon_groups = optimizer2.param_groups
+            group0_lr = float(pmuon_groups[0]["lr"]) if len(pmuon_groups) >= 1 else float("nan")
+            group1_lr = float(pmuon_groups[1]["lr"]) if len(pmuon_groups) >= 2 else float("nan")
+            wandb.log({
+                "trial": trial_idx,
+                "train/step": step + 1,
+                "pmuon_lr/pretarget_boost_factor": args.muon_lr_pretarget_boost_factor,
+                "pmuon_lr/pretarget_boost_start": args.muon_lr_pretarget_boost_start,
+                "pmuon_lr/pretarget_boost_end": args.muon_lr_pretarget_boost_end,
+                "pmuon_lr/pretarget_fired": pretarget_fired_state,
+                "pmuon_lr/group0_active": group0_lr,
+                "pmuon_lr/group1_active": group1_lr,
+                "pmuon_lr/step_idx": step,
+            }, step=wandb_step)
         for opt in optimizers:
             opt.step()
         # EMA buffer update on body-Muon matrix params.
