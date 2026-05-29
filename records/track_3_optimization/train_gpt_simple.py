@@ -84,6 +84,12 @@ def parse_args():
     parser.add_argument('--aux_b2_pulse_target', type=float, default=0.99,
                         help='New aux Adam β2 value to set at --aux_b2_pulse_step. '
                              '0 or negative disables. Default: 0.99 (canonical WIN).')
+    parser.add_argument('--muon_beta_cov_pulse_step', type=int, default=-1,
+                        help='Step at which to switch body Muon beta_cov to '
+                             '--muon_beta_cov_pulse_target. -1 or 0 disables.')
+    parser.add_argument('--muon_beta_cov_pulse_target', type=float, default=-1.0,
+                        help='New body Muon beta_cov value to set at '
+                             '--muon_beta_cov_pulse_step. -1 or 0 disables.')
     parser.add_argument("--seed", type=int, default=1,
                         help="Random seed for torch/numpy/python. Default 1 matches baseline seed.")
     args = parser.parse_args()
@@ -758,6 +764,8 @@ if dist.get_rank() == 0:
             "paramema_refresh_only": int(args.paramema_refresh_only),
             "aux_b2_pulse_step": args.aux_b2_pulse_step,
             "aux_b2_pulse_target": args.aux_b2_pulse_target,
+            "muon_beta_cov_pulse_step": args.muon_beta_cov_pulse_step,
+            "muon_beta_cov_pulse_target": args.muon_beta_cov_pulse_target,
             "seed": args.seed,
         },
     )
@@ -1064,6 +1072,14 @@ for trial_idx in range(args.num_trials):
                 group["betas"] = new_betas
             print0(f"[step {step}] aux_b2_pulse: β2 {old_b2} → {args.aux_b2_pulse_target}",
                    console=True)
+        if (args.muon_beta_cov_pulse_step > 0
+                and args.muon_beta_cov_pulse_target > 0.0
+                and step == args.muon_beta_cov_pulse_step):
+            old_bcov = optimizer2.param_groups[0]["beta_cov"]
+            for group in optimizer2.param_groups:
+                group["beta_cov"] = args.muon_beta_cov_pulse_target
+            print0(f"[step {step}] muon_beta_cov_pulse: beta_cov {old_bcov} → "
+                   f"{args.muon_beta_cov_pulse_target}", console=True)
         for opt in optimizers:
             opt.step()
         # EMA buffer update on body-Muon matrix params.
@@ -1182,6 +1198,12 @@ for trial_idx in range(args.num_trials):
                 "aux_b2/fired": int(args.aux_b2_pulse_step > 0
                                     and args.aux_b2_pulse_target > 0.0
                                     and step >= args.aux_b2_pulse_step),
+                "pmuon_beta_cov/active": optimizer2.param_groups[0]["beta_cov"],
+                "pmuon_beta_cov/pulse_step": args.muon_beta_cov_pulse_step,
+                "pmuon_beta_cov/pulse_target": args.muon_beta_cov_pulse_target,
+                "pmuon_beta_cov/fired": int(args.muon_beta_cov_pulse_step > 0
+                                            and args.muon_beta_cov_pulse_target > 0.0
+                                            and step >= args.muon_beta_cov_pulse_step),
             }, step=wandb_step)
         if dist.get_rank() == 0 and (train_step % 100 == 0 or train_step == train_steps):
             spec = pmuon_spectral_diag(optimizer2, PMUON_GAMMA)
