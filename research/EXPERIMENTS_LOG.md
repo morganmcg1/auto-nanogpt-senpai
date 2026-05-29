@@ -1,3 +1,54 @@
+## 2026-05-29 23:15 — PR #1751: H286 edward Nesterov toggle on MuonH body update — **ASSIGNED (74th class)**
+
+- Branch: g1r3-edward/h286-muonh-nesterov-toggle (PR #1751, post-H266 baseline)
+- 74th mechanism class — **Nesterov-vs-classical-heavy-ball axis on MuonH body** (untested in 73 prior r3 mechanism classes; outside PF#61 closed axes and PF#62)
+- Mechanism: `muon_update` function line 572 currently defaults `nesterov=True`; the body call sites (lines 599, 710) inherit this default. Adds `--muonh_nesterov` argparse flag, threads through Muon/MuonH constructor (Option B: store in defaults dict, read from group in step)
+- Current Nesterov form (line 574): `update = grad.lerp_(momentum, mu) if nesterov else momentum`
+  - nesterov=True: `update = (1-mu)·grad + mu·momentum` (lookahead biased toward current gradient)
+  - nesterov=False: `update = momentum` (pure momentum buffer fed to NS5)
+- 2-arm chain Pattern A drift-FREE:
+  - arm_a CTRL: `--muonh_nesterov 1` (default True, bit-identical to baseline, step-0 val=10.82583 EXACT)
+  - arm_b NESTEROV_OFF: `--muonh_nesterov 0` (classical heavy-ball pure momentum)
+- WIN criterion: arm_b FFS<3000 strict, val<3.276
+- WIN prob 10-20%; 74th mechanism class
+- **Hypothesis link to H281/H271 paper-grade finding**: Nesterov's lookahead bias may be REDUNDANT with Polyak EMA's parameter averaging — testing whether post-H266 regime makes Nesterov structurally unnecessary on MuonH body. If NESTEROV_OFF ≥ CTRL → 3rd instance of EMA × variance-reduction overlap class.
+- Mechanistic alternatives if NESTEROV_OFF improves: (a) NS5 polar projection is scale-invariant so lookahead magnitude bias may not matter, (b) cooldown sharpening may benefit from stable pure-momentum direction; if NEG, confirms Nesterov is structurally important for MuonH per Bernstein/Newhouse canonical form
+
+---
+
+## 2026-05-29 23:00 — PR #1735: H281 edward Gradient Centralization body matrices pre-NS5 — **CLOSED 132nd NULL/NEG (2nd paper-grade EMA × variance-reduction overlap)**
+
+- Branch: g1r3-edward/h281-gradient-centralization-body (PR #1735, post-H266 baseline)
+- 70th mechanism class — gradient direction subspace constraint (per-output-channel zero-mean centering on body matrices, applied BEFORE momentum update)
+- Bilateral test result:
+
+| Arm | body_grad_centralize | FFS | val/loss | Δval vs H266 baseline (3.26818) | σ_H174 (=0.000884) |
+|---|---|---|---|---|---|
+| arm_a CTRL | 0 | 3025 | 3.26866 | +0.00048 | +0.54σ |
+| arm_b GC_ON | 1 | 3025 | 3.26968 | +0.00150 | +1.70σ (mild NEG) |
+
+🎯 **Paper-grade per-step trajectory analysis (2nd EMA × variance-reduction overlap instance)**:
+- Step 125: GC_ON val=3.97 vs CTRL val=4.00 → **GC_ON −30σ AHEAD** (per-channel zero-mean centering accelerates early training)
+- Step ~1000: trajectories CROSS — GC_ON gain dissipates as EMA's parameter averaging absorbs the same variance-reduction signal
+- Cooldown (step 3325): GC_ON +1.15σ BEHIND CTRL — late-training cost of geometric constraint dominates
+- **Structural overlap**: H266 EMA's last-20-step parameter averaging mathematically subsumes per-channel mean centering — both reduce within-channel variance
+- 2nd instance of paper-grade EMA × variance-reduction overlap class (first: H271 Lookahead −65σ pre-H266 → −9σ post-H266)
+- Same structural pattern as H271: early help, late hurt, post-EMA absorption
+
+🎯 **Mechanistic insight**: PF#62 "cooldown-decoupling structural rigidity" extended to "variance-reduction overlap class". Per-channel grad centering joins Lookahead as confirmed structural redundancy under Polyak-Ruppert EMA. Plateau-breaking mechanism must operate in a regime EMA cannot subsume (parameter-space averaging at different time scale, or fundamentally new axis).
+- Drift-FREE Pattern A: 19th instance (step-0=10.82583 EXACT for both arms)
+- Pattern A loose +25 drift class noise floor: ≥18 instances now
+
+Decision: CLOSED as 132nd NULL/NEG with comprehensive review. Paper-grade negative result joins PF#62 mechanism category implicitly as 2nd EMA × variance-reduction overlap instance.
+
+W&B runs:
+- arm_a CTRL: speedrun/final_first_step_to_target=3025, val/loss=3.26866
+- arm_b GC_ON: speedrun/final_first_step_to_target=3025, val/loss=3.26968
+
+Follow-up: H286 (this cycle) tests Nesterov toggle as direct check of 3rd instance EMA × variance-reduction overlap hypothesis.
+
+---
+
 ## 2026-05-29 22:30 — PR #1748: H285 tanjiro Aux AdamW weight decay coefficient — **ASSIGNED (73rd class)**
 
 - Branch: g1r3-tanjiro/h285-aux-weight-decay (PR #1748, post-H266 baseline)

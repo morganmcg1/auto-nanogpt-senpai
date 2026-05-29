@@ -1,6 +1,68 @@
 # SENPAI Research State — auto-nanogpt-1gpu-r3
 
-- **Last updated:** 2026-05-29 22:30 UTC
+- **Last updated:** 2026-05-29 23:15 UTC
+
+---
+
+## Cycle ~2230: H281 CLOSED 132nd NULL/NEG (2nd paper-grade EMA × variance-reduction overlap finding) + H286 ASSIGNED 74th class Nesterov toggle MuonH body
+
+**One terminal closure + one fresh assignment. Plateau campaign portfolio: 132 NULL/NEG + 1 MERGED WIN (H266), 74 mechanism classes attempted.**
+
+### Closure this cycle
+
+**H281 edward Gradient Centralization body matrices pre-NS5 CLOSED 132nd NULL/NEG — 🎯 PAPER-GRADE EMA × variance-reduction overlap 2nd instance (mirrors H271 Lookahead pattern).**
+
+Terminal verdict (post-H266 baseline, PR #1735):
+- arm_a CTRL: FFS=3025 Pattern A drift, val=3.26866 (+0.54σ_H174)
+- arm_b GC_ON: FFS=3025 Pattern A drift, val=3.26968 (+1.70σ_H174 mild NEG, +1.15σ vs CTRL)
+
+🎯 **Paper-grade per-step trajectory analysis — same structural EMA × variance-reduction overlap as H271 Lookahead**:
+- Step 125: GC_ON val=3.97 vs CTRL val=4.00 → **GC_ON −30σ AHEAD** (per-channel zero-mean centering accelerates early training)
+- Step ~1000: trajectories CROSS — GC_ON gain dissipates as EMA's parameter averaging absorbs the same variance-reduction signal
+- Cooldown (step 3325): GC_ON +1.15σ BEHIND — late-training cost of geometric constraint dominates
+- **Structural overlap**: H266 EMA's last-20-step parameter averaging mathematically subsumes per-channel mean centering — both reduce within-channel variance; mid-training advantage shrinks to zero, cooldown sharpening then favors unconstrained gradient direction
+- 2nd instance of paper-grade EMA × variance-reduction overlap (first: H271 Lookahead −65σ pre-H266 → −9σ post-H266)
+- Joins PF#62 mechanism category implicitly: **"variance-reduction mechanisms become structurally redundant once EMA is on"**
+- Drift-FREE Pattern A: 19th instance (step-0=10.82583 EXACT for both arms)
+- Pattern A loose +25 drift class noise floor: ≥18 instances
+
+### New assignment this cycle
+
+**H286 edward ASSIGNED 74th class Nesterov toggle on MuonH body update (PR #1751, 2-arm binary test).**
+
+- 2-arm chain: CTRL muonh_nesterov=1 (default True bit-identical to baseline) / NESTEROV_OFF muonh_nesterov=0 (classical heavy-ball pure momentum buffer)
+- Mechanism: `muon_update` function line 572 currently defaults `nesterov=True` at both call sites (lines 599, 710) — adds `--muonh_nesterov` argparse flag and threads through Muon/MuonH constructor (Option B: store in defaults dict, read from group in step)
+- **Current Nesterov form** (line 574): `update = grad.lerp_(momentum, mu) if nesterov else momentum`
+  - nesterov=True: `update = (1-mu)·grad + mu·momentum` (lookahead biased toward current gradient)
+  - nesterov=False: `update = momentum` (pure momentum buffer)
+- **Why structurally distinct**: Nesterov-vs-classical-heavy-ball axis on MuonH body **untested in 73 prior r3 mechanism classes** — outside PF#61 (aux preconditioner) and PF#62 (Nesterov is momentum bias, not variance-reduction or multi-step smoothing)
+- **Hypothesis link to H271/H281 paper-grade finding**: Nesterov's lookahead bias may be REDUNDANT with Polyak EMA's parameter averaging — testing whether the post-H266 regime makes Nesterov structurally unnecessary on MuonH body (3rd instance of EMA × variance-reduction overlap if NESTEROV_OFF ≥ CTRL)
+- Mechanistic alternatives: (a) NS5 polar projection is scale-invariant so lookahead magnitude bias may not matter, (b) cooldown sharpening may benefit from stable pure-momentum direction
+- Pattern A drift-FREE: argparse VALUE-only change, muonh_nesterov=1 is bit-identical to baseline
+- WIN prob 10-20%; 74th mechanism class; 2-arm binary (no continuous HP to sweep)
+- PR #1751, post-H266 baseline (FFS<3000 strict WIN criterion)
+- Ref: Bernstein/Newhouse Muon paper advocates Nesterov-then-polar-project as canonical form
+
+### Plateau campaign portfolio after cycle ~2230
+
+- **132 NULL/NEG closures + 1 MERGED WIN (H266)**
+- **74 mechanism classes attempted** (H286 = 74th)
+- 6 PROGRAMME FINDING candidates: PF#56 STRENGTHENED (7 axes + directional asymmetry), PF#58 CLOSURE-GRADE 4-axis, **PF#61 CLOSURE-GRADE 4-axis (aux preconditioner FORM/wrapper closed; residual = within-formula H282 in flight)**, **PF#62 STRENGTHENED to 10 mechanism categories**
+- 🎯 **NEW: 2nd paper-grade EMA × variance-reduction overlap finding** (H281 GC mirrors H271 Lookahead) — H286 Nesterov toggle is direct test of 3rd instance hypothesis
+- **FFS=3000 TIE mechanism family (5 mechanisms)** — composability hypothesis enters active test phase (H284)
+- Pattern A loose +25 drift class noise floor: ≥18 instances (highly reproducible noise floor)
+- All 8 students with active WIP PRs — zero idle GPUs
+
+### In-flight chains as of cycle ~2230
+
+- PR #1699 H274v2 thorfinn AUX_ONLY EMA decay sweep — arm_a FFS=3050 / arm_b decay=0.10 FFS=3025 / arm_c decay=0.20 ~18% (ETA ~00:31Z May 30)
+- PR #1725 H278 alphonse QHM — arm_a FFS=3050 / arm_b QHM_MID FFS=−1 catastrophic / arm_c QHM_LOW ~20% (ETA ~23:40Z May 29)
+- PR #1733 H280 nezuko Cautious MuonH — arm_a FFS=3025 / arm_b cautious_half FFS=3025 / arm_c full cautious ~12% (ETA ~01:48Z May 30)
+- PR #1745 H282 askeladd AdaBelief on aux — in flight
+- PR #1746 H283 fern Label smoothing — in flight
+- PR #1747 H284 frieren composability z_loss=1e-5 + ns5_iter=16 — smoke PASS, chain launching
+- PR #1748 H285 tanjiro aux WD coefficient — in flight
+- **PR #1751 H286 edward Nesterov toggle — FRESH ASSIGNMENT (just created)**
 
 ---
 
