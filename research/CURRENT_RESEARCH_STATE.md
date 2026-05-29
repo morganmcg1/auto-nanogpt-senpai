@@ -1,6 +1,6 @@
 # SENPAI Research State — auto-nanogpt-1gpu-r1
 
-- **Last update: 2026-05-29 19:55 UTC**
+- **Last update: 2026-05-29 20:15 UTC**
 - **Current baseline:** PR #1532 (aux Adam β₂ pulse 0.95→0.99 @ step 975). val_ema=3.262854, sr=2875 (n=2).
 - **Canonical defaults (post #1614):** β₂ pulse fires automatically at step 975 in all new runs — no flag needed.
 - **Merge gate:** `sr ≤ 2862.5 OR (sr=2875 AND val_ema < 3.262854)`
@@ -17,11 +17,12 @@
 - **edward #1709 (AdaShift temporal-lag aux Adam bilateral) — NULL: AdaShift FAMILY CLOSED via mechanistic root cause (sparse-grad + self-scaling failure modes)**
 
 **Latest NULLs (this session):**
+- **tanjiro #1697 (pre-target body Muon LR DROP bilateral ×{0.75, 0.50}) — CLOSED:** Arm A sr=2925 +2.04 mnat NULL; Arm B sr=2925 +3.02 mnat NULL. **Monotonic worsening** with deeper drop. Combined with alphonse #1637 LR-UP bilateral NULL, **uniform body-Muon LR axis BILATERALLY CLOSED in both directions**. Depth-asymmetric LR untested → tanjiro reassigned to per-block LR-mult burst.
 - **fern #1693 (pre-target body Muon wd bilateral pulse {0.0, 0.05}) — CLOSED:** Arm A sr=2925 +1.88 mnat NULL; Arm B sr=2925 +3.32 mnat NULL. Clean asymmetric param-norm response confirms mechanism is real but **not load-bearing**. wd axis CLOSED; **all body Muon pre-target scalar pulse axes definitively exhausted**.
 - **askeladd #1686 (pre-target body Muon μ transient pulse bilateral) — CLOSED:** Arm A μ=0.97 sr=2950 NULL; Arm B μ=0.99 sr=3200 CATASTROPHIC (+325 sr, +15.6 mnat). Deep momentum in pre-target window is actively destructive. **μ axis definitively closed across ALL temporal regimes** (step 975, step 2600 perm from #1604; pre-target window transient from this PR).
 
 **Exhausted axes (definitively closed in r1):**
-- **Pre-target body Muon scalars (ALL BILATERAL NULL):** LR-UP (#1637), LR-DOWN (#1697 Arm A NULL, Arm B in flight), γ (#1680), **μ (#1686 CLOSED — all temporal regimes)**, NS-coefs (#1660), β₁ (#1592/#1639), β_cov pulse@975 (#1666 Arm A), β_cov pulse@2600 (#1666 Arm B), Nesterov, schedule-free, **weight_decay (#1693 CLOSED bilateral)**
+- **Pre-target body Muon scalars (ALL BILATERAL NULL):** LR-UP (#1637), **LR-DOWN (#1697 CLOSED bilateral)**, γ (#1680), **μ (#1686 CLOSED — all temporal regimes)**, NS-coefs (#1660), β₁ (#1592/#1639), β_cov pulse@975 (#1666 Arm A), β_cov pulse@2600 (#1666 Arm B), Nesterov, schedule-free, **weight_decay (#1693 CLOSED bilateral)**
 - **Momentum buffer hard-reset untested → assigned to askeladd (#1730) as first structural state-discard experiment on first-moment buffer.**
 - **β₂ pulse mechanism:** amplitude, timing, shape, per-group recipient, pre-target re-spike — ALL NULL except canonical 0.95→0.99 @ 975 (#1667 closes the re-spike variant)
 - **Optimizer family replacements:** AdEMAMix, Lookahead (FULLY CLOSED), Sophia, Lion, Adan, GrokFast, AdaBelief, AMSGrad, ADOPT-aux, **AdaShift per-element (#1709 NULL with mechanistic closure)**
@@ -43,7 +44,7 @@
 | **#1730** | **askeladd** | **Pre-target body Muon momentum buffer HARD ZERO RESET @ 2750 (Arm A pure / Arm B + μ=0.85 transient)** | **Just assigned (picked up ~19:05 UTC)** | **~23:00 / ~03:00 UTC** |
 | **#1739** | **fern** | **Pre-target NS_ITERS burst {14, 16} @ 2750-2900 (Arm A NS=14 / Arm B NS=16)** | **Just assigned (~19:55 UTC)** | **~23:30 / ~03:30 UTC** |
 | #1708 | frieren | Pre-target Skylight u/w floor pulse TARGET_UW 0.35→{0.45, 0.55} @ 2750-2900 | Arm A `xmwa60yc` step ~2875; Arm B chained | Arm A ~19:15 / Arm B ~23:00 UTC |
-| #1697 | tanjiro | Pre-target body Muon LR DROP ×{0.75, 0.50} | Arm A `luogbbq9` NULL sr=2925; Arm B `67fuf7e5` step ~2256 healthy | Arm B ~19:55 UTC |
+| **#TBD-tanjiro** | **tanjiro** | **Pre-target body Muon depth-asymmetric per-block LR-mult burst ×1.5 (Arm A early-half / Arm B late-half)** | **Just assigned (~20:15 UTC)** | **~23:45 / ~03:45 UTC** |
 | #1726 | nezuko | Pre-target PMuon L_cov/R_cov hard zero RESET @ 2750 (Arm A pure / Arm B + β_cov 0.99 transient) | Arm A `210d43l3` step ~550 healthy | ~22:30 / ~02:00 UTC |
 | #1727 | edward | Depth-split β_cov binary group early-vs-late (Arm A 0.97/0.92 / Arm B inverted) | Arm A `66yd8u3s` step ~525 healthy | ~22:30 / ~02:00 UTC |
 
@@ -66,7 +67,8 @@
 | Axis | Status |
 |---|---|
 | LR UP (×1.25, ×1.5) | ❌ NULL (n=2 seed variance) |
-| LR DOWN (×0.75, ×0.50) | in flight #1697 |
+| LR DOWN (×0.75, ×0.50) | ❌ NULL bilateral #1697 — axis CLOSED |
+| **LR per-block depth-asymmetric burst (×1.5 early vs late)** | **tanjiro #TBD JUST ASSIGNED — first depth-asymmetric LR test (orthogonal to uniform LR closures)** |
 | γ whitening exponent | ❌ NULL bilateral #1680 — axis CLOSED |
 | μ momentum depth | in flight #1686 (Arm A trending NULL) |
 | NS polynomial coefficients (BILATERAL) | ❌ NULL #1660 — axis fully closed |

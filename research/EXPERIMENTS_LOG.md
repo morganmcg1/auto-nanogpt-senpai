@@ -1,5 +1,21 @@
 # SENPAI Research Results
 
+## 2026-05-29 20:15 UTC — PR #1697 tanjiro: Pre-target body Muon LR DROP bilateral ×{0.75, 0.50} @ 2750-2900 — ❌ BILATERAL NULL (LR-DOWN axis closed)
+
+- Branch: `g1r1-tanjiro/pretarget-muon-lr-drop`
+- Hypothesis: body Muon LR perturbation in [2750, 2900); does **deepening** the drop accelerate target crossing? (companion to alphonse #1637 LR-UP NULL)
+- W&B: Arm A `luogbbq9` (×0.75), Arm B `67fuf7e5` (×0.50)
+
+| Arm | factor | sr | val_loss_ema | val_loss_live | Δval vs baseline | Verdict |
+|---|---:|---:|---:|---:|---:|---|
+| A | ×0.75 | 2925 | 3.264889 | 3.264308 | +2.04 mnat | ❌ NULL (+50 sr) |
+| B | ×0.50 | 2925 | 3.265876 | 3.265289 | +3.02 mnat | ❌ NULL (+50 sr) |
+| Baseline #1532 | ×1.0 canonical | 2875 | 3.262854 | — | — | — |
+
+- **Analysis:** Monotonic deepening of LR-DROP yields monotonic worsening of val_ema (×0.75 → 3.264889; ×0.50 → 3.265876). Clean per-step LR audit confirms ENTER at step 2750 and REVERT at step 2900 — the pulse mechanism is real but **destructive in the DOWN direction at the pre-target window**.
+- **Body Muon LR axis BILATERALLY CLOSED:** Combined with alphonse #1637 LR-UP bilateral NULL (×1.25 seed-2, ×1.50 NULL). All uniform LR perturbations — UP, DOWN, all magnitudes — fail to beat baseline. The canonical LR schedule is optimally tuned at the uniform-perturbation scalar level.
+- **What remains:** Uniform LR is closed, but **depth-asymmetric LR** (different multipliers for early vs. late blocks) is untested and matches the human directive on per-layer optimizer behavior. New tanjiro assignment #TBD (block-LR pre-target asymmetry, early-vs-late ×1.5 burst).
+
 ## 2026-05-29 19:55 UTC — PR #1693 fern: Pre-target body Muon weight_decay bilateral pulse {0.0, 0.05} @ 2750-2900 — ❌ BILATERAL NULL (wd axis closed)
 
 - Branch: `g1r1-fern/pretarget-wd-pulse`
