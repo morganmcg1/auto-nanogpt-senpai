@@ -459,7 +459,14 @@ MUON_WEIGHT_DECAY = 0.025  # nominal; Muon.step does not apply explicit wd (u/w-
 TARGET_UW = 0.35
 NORMUON_BETA2 = 0.95
 SOAP_BETA2 = 0.90
-SOAP_PRECOND_FREQ = 10
+SOAP_PRECOND_FREQ = int(os.environ.get("SOAP_PRECOND_FREQ", "10"))
+# PR PHASE_DISPATCH_MLP_SOAP_REFRESH_FREQ — phase-dispatch the MLP-SOAP refresh frequency
+# at boundary step PHASE_BOUNDARY_STEP (default 1500, mid-training). Default-disabled
+# preserves baseline SOAP_PRECOND_FREQ=10 byte-equivalently.
+PHASE_DISPATCH_MLP_SOAP_REFRESH_FREQ_ENABLED = int(os.environ.get("PHASE_DISPATCH_MLP_SOAP_REFRESH_FREQ_ENABLED", "0"))
+MLP_SOAP_REFRESH_FREQ_EARLY = int(os.environ.get("MLP_SOAP_REFRESH_FREQ_EARLY", str(SOAP_PRECOND_FREQ)))
+MLP_SOAP_REFRESH_FREQ_LATE = int(os.environ.get("MLP_SOAP_REFRESH_FREQ_LATE", str(SOAP_PRECOND_FREQ)))
+MLP_SOAP_REFRESH_FREQ_PHASE_BOUNDARY_STEP = int(os.environ.get("MLP_SOAP_REFRESH_FREQ_PHASE_BOUNDARY_STEP", "1500"))
 # Attention SOAP (record #16) hyperparameters
 ATTN_SOAP_BETA2 = 0.90
 ATTN_SOAP_PRECOND_FREQ = 10
@@ -712,7 +719,15 @@ class Muon(torch.optim.Optimizer):
                     p.add_(update, alpha=-group["lr"])
                     # Refresh SOAP state with the raw grad (after applying the step).
                     if use_soap:
-                        soap_refresh(grad, state)
+                        if PHASE_DISPATCH_MLP_SOAP_REFRESH_FREQ_ENABLED:
+                            soap_step = state.get("soap_step", 0)
+                            if soap_step < MLP_SOAP_REFRESH_FREQ_PHASE_BOUNDARY_STEP:
+                                _refresh_freq = MLP_SOAP_REFRESH_FREQ_EARLY
+                            else:
+                                _refresh_freq = MLP_SOAP_REFRESH_FREQ_LATE
+                            soap_refresh(grad, state, beta2=SOAP_BETA2, refresh_freq=_refresh_freq)
+                        else:
+                            soap_refresh(grad, state)
                     elif use_attn_soap:
                         soap_refresh(grad, state, beta2=ATTN_SOAP_BETA2,
                                      refresh_freq=ATTN_SOAP_PRECOND_FREQ,
@@ -861,6 +876,10 @@ if dist.get_rank() == 0:
             "optimizer/normuon_beta2": NORMUON_BETA2,
             "optimizer/soap_beta2": SOAP_BETA2,
             "optimizer/soap_precond_freq": SOAP_PRECOND_FREQ,
+            "optimizer/phase_dispatch_mlp_soap_refresh_freq_enabled": PHASE_DISPATCH_MLP_SOAP_REFRESH_FREQ_ENABLED,
+            "optimizer/mlp_soap_refresh_freq_early": MLP_SOAP_REFRESH_FREQ_EARLY,
+            "optimizer/mlp_soap_refresh_freq_late": MLP_SOAP_REFRESH_FREQ_LATE,
+            "optimizer/mlp_soap_refresh_freq_phase_boundary_step": MLP_SOAP_REFRESH_FREQ_PHASE_BOUNDARY_STEP,
             "optimizer/attn_soap_beta2": ATTN_SOAP_BETA2,
             "optimizer/attn_soap_precond_freq": ATTN_SOAP_PRECOND_FREQ,
             "optimizer/attn_soap_trust_threshold": ATTN_SOAP_TRUST_THRESHOLD,
@@ -869,6 +888,9 @@ if dist.get_rank() == 0:
             "optimizer/recipe": "contra-muon + normuon-lite + soap-on-mlp + soap-on-attn-trust-gate (pre-NS5, record #14 + record #16)",
         },
     )
+    print(f"[PHASE_DISPATCH_MLP_SOAP_REFRESH_FREQ] enabled={PHASE_DISPATCH_MLP_SOAP_REFRESH_FREQ_ENABLED} "
+          f"early={MLP_SOAP_REFRESH_FREQ_EARLY} late={MLP_SOAP_REFRESH_FREQ_LATE} "
+          f"boundary={MLP_SOAP_REFRESH_FREQ_PHASE_BOUNDARY_STEP} default={SOAP_PRECOND_FREQ}")
 
 for trial_idx in range(args.num_trials):
 
@@ -1026,6 +1048,9 @@ for trial_idx in range(args.num_trials):
         # set optimization hyperparameters and take a step
         set_hparams(step)
         train_step = step + 1
+        if dist.get_rank() == 0 and PHASE_DISPATCH_MLP_SOAP_REFRESH_FREQ_ENABLED and train_step == MLP_SOAP_REFRESH_FREQ_PHASE_BOUNDARY_STEP:
+            print(f"[PHASE_DISPATCH_MLP_SOAP_REFRESH_FREQ] phase transition at step={train_step}: "
+                  f"early(freq={MLP_SOAP_REFRESH_FREQ_EARLY}) → late(freq={MLP_SOAP_REFRESH_FREQ_LATE})")
         telemetry_due = (step == 0 or (step + 1) % args.telemetry_interval == 0 or step + 1 == train_steps)
         histogram_due = (step == 0 or (step + 1) % args.histogram_interval == 0 or step + 1 == train_steps)
         slope_due = (train_step % slope_interval == 0 or train_step == train_steps)
