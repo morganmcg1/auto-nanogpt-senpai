@@ -56,6 +56,16 @@ def parse_args():
     parser.add_argument("--outer_lr", type=float, default=float(os.environ.get("OUTER_LR", "0.7")))
     parser.add_argument("--outer_momentum", type=float, default=float(os.environ.get("OUTER_MOMENTUM", "0.5")))
     parser.add_argument("--sync_interval", type=int, default=int(os.environ.get("SYNC_INTERVAL", "30")))
+    # H264: Lookahead wrapper (Zhang et al. 2019, "Lookahead Optimizer: k steps forward, 1 step back").
+    # Maintains slow weights phi over body MuonH params; every lookahead_k inner steps:
+    #   phi <- phi + alpha * (theta - phi); theta <- phi.
+    # Default disabled (--lookahead_enabled 0) is a no-op vs baseline.
+    parser.add_argument("--lookahead_enabled", type=int, default=int(os.environ.get("LOOKAHEAD_ENABLED", "0")),
+                        help="If 1, enable Lookahead wrapper over body MuonH params. Default 0 = disabled (bit-identical to baseline).")
+    parser.add_argument("--lookahead_k", type=int, default=int(os.environ.get("LOOKAHEAD_K", "10")),
+                        help="Lookahead inner-step interval k. Fires every k inner steps.")
+    parser.add_argument("--lookahead_alpha", type=float, default=float(os.environ.get("LOOKAHEAD_ALPHA", "0.5")),
+                        help="Lookahead slow-weight interpolation coefficient alpha in (0,1]. 0.5 = original recommended.")
     # AGC (Brock et al. 2021): per-parameter adaptive gradient clipping applied to
     # AdamW aux groups (embed, lm_head, scalars). Clips grad to clip_ratio * |param|.
     # Default 0.0 disables (no-op for bit-identical baseline).
@@ -850,6 +860,9 @@ if dist.get_rank() == 0:
             "muonh_mu_schedule": args.muonh_mu_schedule,
             "muonh_mu_start": args.muonh_mu_start,
             "muonh_mu_end": args.muonh_mu_end,
+            "lookahead_enabled": bool(args.lookahead_enabled),
+            "lookahead_k": args.lookahead_k,
+            "lookahead_alpha": args.lookahead_alpha,
         },
     )
 
@@ -1052,6 +1065,17 @@ for trial_idx in range(args.num_trials):
         outer_anchor = None
         outer_velocity = None
     outer_applied_steps = 0
+
+    # H264: Lookahead slow weights for body MuonH params. Wraps the same target set
+    # as optimizer2 (model.blocks.parameters() with ndim>=2 = attn.q/k/v/proj + mlp.fc/proj).
+    # When disabled (--lookahead_enabled 0), branch is skipped entirely (drift-FREE).
+    use_lookahead = bool(args.lookahead_enabled)
+    if use_lookahead:
+        lookahead_slow = {n: p.detach().clone() for n, p in model.named_parameters()
+                          if p.dim() == 2 and ("attn." in n or "mlp." in n)}
+    else:
+        lookahead_slow = None
+    lookahead_applied_steps = 0
 
     # start the clock
     training_time = 0
@@ -1300,6 +1324,37 @@ for trial_idx in range(args.num_trials):
                     "train/muloco/outer_step": outer_applied_steps,
                     "train/muloco/delta_rms": delta_rms,
                     "train/muloco/velocity_rms": velocity_rms,
+                }, step=wandb_step)
+
+        # H264: Lookahead slow-weight interpolation. Fires every lookahead_k inner
+        # steps over body MuonH params. slow <- slow + alpha*(p - slow); p <- slow.
+        # Skipped at step 0 and at train_steps so the last inner step remains live.
+        # MuLoCo and Lookahead may co-fire at multiples of lcm(sync_interval, lookahead_k);
+        # ordering is MuLoCo first, then Lookahead overwrites with slow interp.
+        if use_lookahead and train_step % args.lookahead_k == 0 and train_step > 0 and train_step < train_steps:
+            log_lookahead = (dist.get_rank() == 0)
+            if log_lookahead:
+                la_delta_sq = torch.zeros((), device=device)
+                la_total_count = 0
+            with torch.no_grad():
+                params_by_name = dict(model.named_parameters())
+                for n, slow in lookahead_slow.items():
+                    p = params_by_name[n]
+                    if log_lookahead:
+                        diff = p.data - slow
+                        la_delta_sq = la_delta_sq + diff.float().square().sum()
+                        la_total_count += diff.numel()
+                    slow.add_(p.data - slow, alpha=args.lookahead_alpha)
+                    p.data.copy_(slow)
+            lookahead_applied_steps += 1
+            if log_lookahead:
+                la_delta_rms = (la_delta_sq.item() / max(1, la_total_count)) ** 0.5
+                wandb.log({
+                    "trial": trial_idx,
+                    "train/step": train_step,
+                    "train/lookahead/step": lookahead_applied_steps,
+                    "train/lookahead/active": 1.0,
+                    "train/lookahead/delta_rms": la_delta_rms,
                 }, step=wandb_step)
 
         approx_training_time = training_time + (time.perf_counter() - t0)
