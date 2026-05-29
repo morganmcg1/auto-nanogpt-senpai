@@ -84,6 +84,16 @@ def parse_args():
     parser.add_argument('--aux_b2_pulse_target', type=float, default=0.99,
                         help='New aux Adam β2 value to set at --aux_b2_pulse_step. '
                              '0 or negative disables. Default: 0.99 (canonical WIN).')
+    parser.add_argument('--muon_ns_iters_burst_start', type=int, default=-1,
+                        help='Step to start NS_ITERS burst in body-Muon polar projection. '
+                             '-1 disables. Active range is [start, end), at which point '
+                             'NS_ITERS is overridden by --muon_ns_iters_burst_value.')
+    parser.add_argument('--muon_ns_iters_burst_end', type=int, default=-1,
+                        help='Step to end NS_ITERS burst (revert to default NS_ITERS=12). '
+                             'Must be > start. Step `end` is the first step BACK at default.')
+    parser.add_argument('--muon_ns_iters_burst_value', type=int, default=12,
+                        help='NS_ITERS value to use during burst window. Default 12 (no-op). '
+                             'Typical burst values: 14, 16 (more orthogonal polar projection).')
     parser.add_argument("--seed", type=int, default=1,
                         help="Random seed for torch/numpy/python. Default 1 matches baseline seed.")
     args = parser.parse_args()
@@ -535,6 +545,7 @@ def pmuon_update(
     ns_a: float = NS_A,
     ns_b: float = NS_B,
     ns_c: float = NS_C,
+    ns_iters: int = NS_ITERS,
     polar_diag: dict | None = None,
 ) -> Tensor:
     # Streaming raw (unnormalized) bilateral covariance EMAs in fp32.
@@ -549,7 +560,7 @@ def pmuon_update(
     R_neg = matrix_neg_power(R_cov, gamma, eps)
     m_pre = (L_neg @ update.float()) @ R_neg
 
-    polar = zeropower_via_newtonschulz5(m_pre.to(update.dtype), a=ns_a, b=ns_b, c=ns_c)
+    polar = zeropower_via_newtonschulz5(m_pre.to(update.dtype), a=ns_a, b=ns_b, c=ns_c, iters=ns_iters)
     # Sample ortho residual ||X X^T - I||_F on the polar output (before spectral scaling).
     # Only the first eligible parameter per step writes — keeps cost ~O(d^2) once per step.
     if polar_diag is not None and "residual" not in polar_diag:
@@ -571,11 +582,11 @@ def pmuon_update(
 
 class Muon(torch.optim.Optimizer):
     def __init__(self, params, lr=0.02, weight_decay=0, mu=0.95, beta_cov=0.95, gamma=PMUON_GAMMA,
-                 ns_a=NS_A, ns_b=NS_B, ns_c=NS_C):
+                 ns_a=NS_A, ns_b=NS_B, ns_c=NS_C, ns_iters=NS_ITERS):
         assert isinstance(params, list) and len(params) >= 1 and isinstance(params[0], torch.nn.Parameter)
         params = sorted(params, key=lambda x: x.size(), reverse=True)
         defaults = dict(lr=lr, weight_decay=weight_decay, mu=mu, beta_cov=beta_cov, gamma=gamma,
-                        ns_a=ns_a, ns_b=ns_b, ns_c=ns_c)
+                        ns_a=ns_a, ns_b=ns_b, ns_c=ns_c, ns_iters=ns_iters)
         super().__init__(params, defaults)
 
     @torch.no_grad()
@@ -609,6 +620,7 @@ class Muon(torch.optim.Optimizer):
                         ns_a=group["ns_a"],
                         ns_b=group["ns_b"],
                         ns_c=group["ns_c"],
+                        ns_iters=group["ns_iters"],
                         polar_diag=polar_diag,
                     )
                     floor_eligible_count += 1
@@ -765,6 +777,9 @@ if dist.get_rank() == 0:
             "paramema_refresh_only": int(args.paramema_refresh_only),
             "aux_b2_pulse_step": args.aux_b2_pulse_step,
             "aux_b2_pulse_target": args.aux_b2_pulse_target,
+            "muon_ns_iters_burst_start": args.muon_ns_iters_burst_start,
+            "muon_ns_iters_burst_end": args.muon_ns_iters_burst_end,
+            "muon_ns_iters_burst_value": args.muon_ns_iters_burst_value,
             "seed": args.seed,
         },
     )
@@ -859,6 +874,28 @@ for trial_idx in range(args.num_trials):
     ema_refresh_fired_total = 0
     ema_refresh_step_logged = -1
     lcov_refresh_fired_total = 0
+
+    # NS_ITERS burst: temporarily raise Newton-Schulz iteration count during a
+    # window [burst_start, burst_end) of body-Muon polar projection. Drives the
+    # polar residual toward 0 (more orthogonal whitened update). No-op when
+    # start <= 0 or end <= start, or value matches default NS_ITERS.
+    def get_effective_ns_iters(step):
+        if (args.muon_ns_iters_burst_start > 0
+                and args.muon_ns_iters_burst_end > args.muon_ns_iters_burst_start
+                and args.muon_ns_iters_burst_start <= step < args.muon_ns_iters_burst_end):
+            return args.muon_ns_iters_burst_value
+        return NS_ITERS
+
+    def ns_burst_phase(step):
+        # 0=pre-burst, 1=in-burst, 2=post-revert. Disabled => always 0.
+        if (args.muon_ns_iters_burst_start <= 0
+                or args.muon_ns_iters_burst_end <= args.muon_ns_iters_burst_start):
+            return 0
+        if step < args.muon_ns_iters_burst_start:
+            return 0
+        if step < args.muon_ns_iters_burst_end:
+            return 1
+        return 2
 
     # learning rate schedule: stable then power-law cooldown (gamma = COOLDOWN_POWER)
     def compute_lr_mult(step, cooldown_frac=0.7):
@@ -1071,8 +1108,32 @@ for trial_idx in range(args.num_trials):
                 group["betas"] = new_betas
             print0(f"[step {step}] aux_b2_pulse: β2 {old_b2} → {args.aux_b2_pulse_target}",
                    console=True)
-        for opt in optimizers:
-            opt.step()
+        # NS_ITERS burst: update body-Muon NS iteration count for this step.
+        # Transition prints fire only at the burst edges so the smoke test grep is reliable.
+        effective_ns_iters = get_effective_ns_iters(step)
+        prev_ns_iters = optimizer2.param_groups[0]["ns_iters"]
+        if effective_ns_iters != prev_ns_iters:
+            for group in optimizer2.param_groups:
+                group["ns_iters"] = effective_ns_iters
+            print0(f"[step {step}] ns_burst: {prev_ns_iters} -> {effective_ns_iters}",
+                   console=True)
+        ns_burst_active = ns_burst_phase(step) == 1
+        optimizer1.step()
+        # Measure body-Muon step wall-clock so the compute overhead of higher NS_ITERS
+        # is directly observable. Only sync when we need the measurement (telemetry
+        # samples + every step inside the burst window).
+        time_opt2 = (dist.get_rank() == 0
+                     and (telemetry_due or ns_burst_active
+                          or step == args.muon_ns_iters_burst_start - 1
+                          or step == args.muon_ns_iters_burst_end))
+        opt2_step_seconds = float("nan")
+        if time_opt2:
+            torch.cuda.synchronize()
+            opt2_t0 = time.perf_counter()
+        optimizer2.step()
+        if time_opt2:
+            torch.cuda.synchronize()
+            opt2_step_seconds = time.perf_counter() - opt2_t0
         # EMA buffer update on body-Muon matrix params.
         # During warmup: track params live (no averaging) so post-warmup buffer is
         # seeded with stable, non-zero params (handles proj zero-init bias and lets
@@ -1136,6 +1197,7 @@ for trial_idx in range(args.num_trials):
                     "polar/ns_coef_a": NS_A,
                     "polar/ns_coef_b": NS_B,
                     "polar/ns_coef_c": NS_C,
+                    "polar/ns_iters_effective": effective_ns_iters,
                 }, step=wandb_step)
             wandb.log({
                 "trial": trial_idx,
@@ -1190,6 +1252,41 @@ for trial_idx in range(args.num_trials):
                                     and args.aux_b2_pulse_target > 0.0
                                     and step >= args.aux_b2_pulse_step),
             }, step=wandb_step)
+            wandb.log({
+                "trial": trial_idx,
+                "train/step": train_step,
+                "pmuon_ns_burst/active_iters": effective_ns_iters,
+                "pmuon_ns_burst/fired": ns_burst_phase(step),
+                "pmuon_ns_burst/start": args.muon_ns_iters_burst_start,
+                "pmuon_ns_burst/end": args.muon_ns_iters_burst_end,
+                "pmuon_ns_burst/value": args.muon_ns_iters_burst_value,
+                "pmuon_ns_burst/default_iters": NS_ITERS,
+                "time/opt2_step_seconds": opt2_step_seconds,
+            }, step=wandb_step)
+        # Fine-grained per-step telemetry during the NS burst window so we capture
+        # the exact polar-residual trajectory across the transitions (steps
+        # burst_start-1, burst_start, ..., burst_end-1, burst_end). Skipped on
+        # telemetry_due steps to avoid double-logging.
+        burst_log_due = (dist.get_rank() == 0
+                         and not telemetry_due
+                         and args.muon_ns_iters_burst_start > 0
+                         and args.muon_ns_iters_burst_end > args.muon_ns_iters_burst_start
+                         and (args.muon_ns_iters_burst_start - 1 <= step
+                              <= args.muon_ns_iters_burst_end + 1))
+        if burst_log_due:
+            burst_log = {
+                "trial": trial_idx,
+                "train/step": train_step,
+                "pmuon_ns_burst/active_iters": effective_ns_iters,
+                "pmuon_ns_burst/fired": ns_burst_phase(step),
+            }
+            polar_diag_burst = getattr(optimizer2, "_polar_diag", None)
+            if polar_diag_burst and "residual" in polar_diag_burst:
+                burst_log["polar/ortho_residual_sample"] = polar_diag_burst["residual"]
+                burst_log["polar/ns_iters_effective"] = effective_ns_iters
+            if opt2_step_seconds == opt2_step_seconds:  # not NaN
+                burst_log["time/opt2_step_seconds"] = opt2_step_seconds
+            wandb.log(burst_log, step=wandb_step)
         if dist.get_rank() == 0 and (train_step % 100 == 0 or train_step == train_steps):
             spec = pmuon_spectral_diag(optimizer2, PMUON_GAMMA)
             if spec:
