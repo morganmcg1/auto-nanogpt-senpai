@@ -1,3 +1,46 @@
+## 2026-05-29 22:00 UTC — Cycle 71 mid-397 — alphonse #1713 303rd refute, 139th family closure, NEW 177th mech class ABSORPTION-CONVERGENCE — MAJOR STRUCTURAL FINDING: per-kind init std null at 0.5× under NS5=14 absorption regime; init-mechanism axis family OPEN with first sub-axis closed at null
+
+### alphonse #1713 303rd refute — PER_KIND_INIT_STD_MULT val_mean=3.26897 STANDARD-floor-band misses merge bar by Δ=+0.00121 val and +12.5 ffs
+
+Arm A `attn_qkv_tight` (ATTN_QKV_MULT=0.5, MLP_FC_MULT=1.0) val=3.26865 ffs=3000 STANDARD-floor-band-upper-edge baseline-tie-on-ffs, Arm B `mlp_fc_tight` (ATTN_QKV_MULT=1.0, MLP_FC_MULT=0.5) val=3.26929 ffs=3025 STANDARD, Δ(B−A)=+0.00064 `attn_qkv_tightening_marginally_preferred` sub-noise. Stat rule (3.28−μ)·√n ≥ 0.004 PASSES at n=2 (0.01561). W&B yj7yll2a/aa29yqo2 verified config-correct + step-0 init sanity-correct (0.01037 ≈ √0.33/√768 × 0.5 / 0.02073 × 1.0 with bit-exact symmetry between arms) + trajectory-correct to 5 decimal places at all 6 sampled checkpoints {500, 1000, 1500, 2000, 2500, 3000}.
+
+**MAJOR STRUCTURAL FINDING**: per-kind init std at 0.5× spread is **NULL** on q/k/v vs mlp.fc decomposition — both arms land within ±0.00064 of each other and within +0.00153 of baseline despite 2× step-0 init-magnitude divergence (0.01037 vs 0.02073) on the tightened kind. MUON_LR=0.04 + NS5_ITERS=14 spectral renormalization absorbs the init-magnitude divergence by mid-training.
+
+**NEW Δ-trajectory mech class ABSORPTION-CONVERGENCE** (177th distinct):
+
+| step | Arm A | Arm B | Δ(B−A) |
+|---|---|---|---|
+| 500 | 3.80344 | 3.80203 | −0.00141 |
+| **1000** | 3.65962 | 3.66675 | **+0.00713 (peak)** |
+| 1500 | 3.53400 | 3.53298 | −0.00102 |
+| 3175 (final) | **3.26865** | **3.26929** | **+0.00064 (terminal)** |
+
+Signature: early-phase sign-flip at step 500, peak divergence Δ(B−A)=+0.00713 at step 1000, monotonic convergence to +0.00064 by step 3175. Peak-to-terminal ratio 11.1× = strong absorption. Distinct from EARLY-PEAK-MONOTONIC-DECAY (#1700 class, peak at step 1000 then decay to a stable direction) — this class is peak-then-converge-to-null. Marginal direction signal: **MLP FC tightening marginally worse than attn QKV tightening** (consistent with MLP hidden activation expressiveness being more init-magnitude-sensitive than attention pattern formation), but Δ=+0.00064 below 0.001 load-bearing threshold = directional finding not lever.
+
+Rules out three hypotheses: (1) attn-QKV-init carries (REFUTED, +0.00089 worse), (2) MLP-FC-init carries (REFUTED, +0.00153 worse), (3) per-kind init null at 0.5× scale (CONFIRMED — matches PR matrix row 4).
+
+**139th family closure**: PER_KIND_INIT_STD_MULT_0.5X axis fully mapped at null-decomposition outcome. Init-mechanism axis family OPENED at #1713 with one sub-axis closed; remaining structurally-fresh sub-axes: depth-half decomposition (alphonse #1738 IN-FLIGHT NEXT), wider spread (0.25× or 2.0×), per-proj non-zero init (high-risk), distribution shape (gaussian vs truncnorm).
+
+### Cumulative state
+
+**Cycle 71 cumulative**: **303 refuted** / **177 distinct mech classes** (+1 new: ABSORPTION-CONVERGENCE) / **139 family-level closures**.
+
+### PRs closed this wave (1 closure):
+
+| PR | student | mechanism | outcome |
+|---|---|---|---|
+| **alphonse #1713** | alphonse | PER_KIND_INIT_STD_MULT (Arm A attn_qkv_tight MULT=0.5/1.0, Arm B mlp_fc_tight MULT=1.0/0.5; 0.5× spread per-kind) | **303rd** — Arm A 3.26865/3000 STANDARD-floor-band-upper-edge baseline-tie-on-ffs, Arm B 3.26929/3025 STANDARD, val_mean=3.26897 misses by +0.00121/+12.5. Δ(B−A)=+0.00064 attn_qkv_tightening_marginally_preferred sub-noise. **MAJOR STRUCTURAL FINDING**: per-kind init std null at 0.5× spread under NS5=14 + MUON_LR=0.04 absorption regime; 2× step-0 magnitude divergence absorbed by step ~1500; marginal direction toward mlp.fc-init-sensitivity but below 0.001 load-bearing threshold. **NEW 177th mech class ABSORPTION-CONVERGENCE** (peak Δ=+0.00713 at step 1000 → terminal Δ=+0.00064, 11.1× absorption ratio). **139th family closure**. |
+
+### PRs assigned this wave (1 fresh depth/per-group axis on init-mechanism family):
+
+| PR | student | mechanism | hypothesis |
+|---|---|---|---|
+| **alphonse #1738** | alphonse | PER_DEPTH_HALF_INIT_STD_MULT (Arm A `init_front_tight` FRONT_HALF_INIT_STD_MULT=0.5/BACK=1.0, Arm B `init_back_tight` FRONT=1.0/BACK=0.5; INIT_DEPTH_SPLIT=6 matches askeladd #1731) | **Orthogonal-axis follow-up to #1713 per-kind null** — depth-axis decomposition of init at the same 0.5× tightening magnitude. Apply multiplier to ALL non-proj non-embed weights in the targeted depth half (front blocks 0–5 or back blocks 6–11). Tests whether depth (rather than kind) is the load-bearing decomposition axis for init at 0.5× spread. If A < B → front-half init tightening helps (early-block weight magnitude is load-bearing for feature formation). If B < A → back-half init tightening helps (later-block weight magnitude affects semantic abstraction). If A ≈ B ≈ baseline → depth-half ALSO null at 0.5× → strong cross-axis evidence for absorption regime, motivates wider-spread pivot. If A or B < baseline by Δ ≥ 0.005 → depth-axis is the load-bearing decomposition for init = major structural finding. Fits Morgan's directive (depth/per-group preferred; init-mechanism axis is a state-mechanism though one-shot at step 0). |
+
+Fleet 8/8 assigned, 0 idle.
+
+---
+
 ## 2026-05-29 20:45 UTC — Cycle 71 mid-396 — frieren #1707 302nd refute, 138th family closure — MAJOR STRUCTURAL FINDING: fc-kind is dominant carrier (~75-80%) of MLP-SOAP `early_FAST` mechanism; per-kind asymmetry triangulated as structural factor explaining scope-direction reversal
 
 ### frieren #1707 302nd refute — PER_KIND_MLP_SOAP_PRECOND_FREQ_PHASE_DISPATCH (fc-only vs proj-only early_FAST isolation) val_mean=3.27082 STANDARD-floor-band misses merge bar by Δ=+0.00306 val and +25 ffs
