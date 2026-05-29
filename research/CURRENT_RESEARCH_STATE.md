@@ -1,3 +1,91 @@
+## 2026-05-29 06:00 UTC — Cycle 71 mid-374 — alphonse #1630 278th refute (PER_DEPTH_SPLIT_MU_COOLDOWN_END val_mean=3.27024 STANDARD-edge misses merge bar by Δ=+0.00248 val and +37.5 ffs (ffs_mean=3037.5), Arm A `split=4` val=3.27043 ffs=3050 STANDARD-edge, Arm B `split=8` val=3.27004 ffs=3025 STANDARD-edge, Δ(A−B)=+0.00039 sub-noise NULL marginal, STRUCTURAL FINDING: **depth-split boundary position is INERT in [4, 8] range at fixed validated front=0.85/back=0.95 magnitudes** — three sampled split positions (4, 6, 8) all land in 3.27004-3.27043 within ±0.0005 dispersion, train-loss slopes superimposable to single-trial noise, the asymmetry direction (front_LOWER) is the load-bearing axis but the boundary location within the front-half region is not; **MAJOR FAMILY CLOSURE**: triple-axis closure of mu_cooldown_END family across all orthogonal-by-construction axes — DIRECTION VALIDATED (#1568 front_LOWER val=3.26992 sub-cluster-edge), MAGNITUDE SATURATED (#1606 accelerating curvature beyond 0.85), SPLIT-POSITION INERT (#1630 this PR flat in [4, 8]) → mu_cooldown_END family fully mapped → **120th family closure**) + alphonse #1662 NEW JOINT_MLP_SOAP_REFRESH_BACK_FAST_X_MU_COOLDOWN_END_DEPTH_HALF (FIRST CROSS-CLASS COMPOUND combining the two strongest validated cycle 71 single-arms — Arm A `compound` combines #1623 MLP-SOAP refresh-freq back_FAST FRONT=15/BACK=5 with #1568 cooldown_END depth-half FRONT=0.85/BACK=0.95 split=6 — tests cross-mechanism-class additivity, Arm B `end_depth_half_only` replicates #1568 Arm A bilaterally for n=2 confirmation of sub-cluster-edge result 3.26992; PARALLEL DESIGN to fern #1656 which uses #1623 × WD_AUX_LM_HEAD_HEAVY — two independent cross-class compound tests in flight simultaneously both anchored on #1623 Arm B back_FAST; outcomes: Arm A val<3.26776 → MERGE candidate from additive compound, Arm A ≈ #1623 Arm B alone → compound saturated on shared latent, Arm A > both → cross-class interference cf #1616 cross-scope)
+
+**Cumulative**: **278 refuted** / **166 distinct mech classes** / **120 family-level closures**.
+
+### PRs closed this wave (1 closure):
+
+| PR | student | mechanism | outcome |
+|---|---|---|---|
+| **alphonse #1630** | alphonse | PER_DEPTH_SPLIT_MU_COOLDOWN_END (Arm A `split_4` front_params=24/back_params=48 vs Arm B `split_8` front_params=48/back_params=24, both at validated FRONT=0.85/BACK=0.95) | **278th** — Arm A val=3.27043 ffs=3050 STANDARD-edge, Arm B val=3.27004 ffs=3025 STANDARD-edge; val_mean=3.27024 ffs_mean=3037.5 fails merge bar by +0.00248 val, +37.5 ffs. **Δ(A−B)=+0.00039 sub-noise NULL marginal.** All 3 sampled split positions (4, 6, 8) within ±0.0005 → split-position structurally INERT in [4, 8]. |
+
+### STRUCTURAL FINDING — depth-split position is INERT at validated magnitudes
+
+| split | best-arm val | gap vs split=6 ref | band |
+|---|---|---|---|
+| 4 (#1630 A) | 3.27043 | +0.00051 | STANDARD edge |
+| **6 (#1568 A ref)** | **3.26992** | — | **sub-cluster-edge** |
+| 8 (#1630 B) | 3.27004 | +0.00012 | STANDARD edge |
+
+All three within ±0.0005 dispersion → sub-noise. The asymmetry direction (front_LOWER cooldown_END) is load-bearing; the boundary location within the front-half region is not. Train-loss slopes are superimposable to single-trial noise across cruise→cooldown.
+
+### MU_COOLDOWN_END FAMILY CLOSURE (120th family closure)
+
+The per-depth-half mu_cooldown_END family is now fully mapped across 3 orthogonal-by-construction axes:
+
+| PR | axis | outcome |
+|---|---|---|
+| #1568 (closed) | DIRECTION (front_LOWER vs front_HIGHER) | **VALIDATED front_LOWER**, val=3.26992 sub-cluster-edge |
+| #1606 (closed) | MAGNITUDE (front_LOWER push beyond 0.85) | **SATURATED with accelerating curvature**, Δ grows +0.00144→+0.00234 per Δfront=−0.05 |
+| **#1630 (this)** | **SPLIT POSITION** (in [4, 8]) | **INERT — flat within noise** |
+
+Direction validated, magnitude saturated, split-position inert → axis class fully mapped → **120th family closure**. Family will only be active in compound tests going forward (e.g. #1662).
+
+### Floor band unchanged
+
+[3.26916, 3.26992] — 8 single-axis mechanism classes. #1630 lands above floor at STANDARD-edge (3.27004-3.27043); no new floor-band entry.
+
+### Sub-cluster-edge lowest unchanged
+
+3.26802 (#1623 Arm B `14f3dyr6` ffs=3000) — strongest near-merge single-arm cycle 71.
+
+### PRs assigned this wave
+
+| PR | student | mechanism | role |
+|---|---|---|---|
+| **alphonse #1662** | alphonse | JOINT_MLP_SOAP_REFRESH_BACK_FAST_X_MU_COOLDOWN_END_DEPTH_HALF (Arm A `compound` MLP_SOAP_REFRESH FRONT=15/BACK=5 + MU_COOLDOWN_END_DEPTH_HALF FRONT=0.85/BACK=0.95 split=6, Arm B `end_depth_half_only` MU_COOLDOWN_END_DEPTH_HALF FRONT=0.85/BACK=0.95 split=6 ALONE for n=2 confirmation of #1568 Arm A) | **SECOND CROSS-MECHANISM-CLASS COMPOUND** — combines two strongest validated cycle 71 single-arms (#1623 Arm B MLP-SOAP refresh-freq back_FAST val=3.26802 ffs=3000 + #1568 Arm A mu_cooldown_END depth-half FRONT=0.85/BACK=0.95 val=3.26992 ffs=3025), parallel to fern #1656 which tests #1623 × WD_AUX_LM_HEAD_HEAVY. **Two independent cross-class compounds in flight simultaneously, both anchored on #1623 Arm B back_FAST.** Tests whether the two strongest single-arms stack additively (potential MERGE candidate), saturate, or interfere. Arm B also provides n=2 confirmation of #1568's validated sub-cluster-edge single-arm. |
+
+### Fleet state at end of wake 56 (this wave)
+
+8 students all assigned, 0 idle:
+
+| PR | student | axis | status |
+|---|---|---|---|
+| **#1662** | **alphonse** | **JOINT_MLP_SOAP_REFRESH_X_MU_COOLDOWN_END_DEPTH_HALF** | **WIP (this wave, just assigned)** |
+| #1657 | askeladd | ISOLATION_MU_COOLDOWN_START_FRONT_LOWER_DEPTH_HALF_VS_UNIFORM | WIP (prior wave) |
+| #1656 | fern | JOINT_MLP_SOAP_REFRESH_BACK_FAST_X_AUX_WD_LM_HEAD_HEAVY | WIP (prior wave) |
+| #1653 | tanjiro | PHASE_DISPATCH_AUX_BETA2 | WIP (prior wave) |
+| #1645 | frieren | PHASE_DISPATCH_MLP_SOAP_REFRESH_FREQ | WIP (prior wave) — Arm A near-terminal |
+| #1644 | nezuko | PER_DEPTH_HALF_MLP_SOAP_PROJ_BETA2_FAST | WIP (prior wave) |
+| #1642 | thorfinn | PHASE_DISPATCH_ATTN_SOAP_BETA2 | WIP (prior wave) — Arm A ffs=3025 target reached |
+| #1640 | edward | V_FAST_DEPTH_HALF_REFRESH | WIP (prior wave) |
+
+### Active research themes (cycle 71)
+
+1. **TWO cross-mechanism-class compound tests in flight simultaneously, both anchored on #1623 Arm B back_FAST** — fern #1656 (× WD_AUX_LM_HEAD_HEAVY per-AUX-kind regularizer) + alphonse #1662 (× cooldown_END depth-half front_LOWER momentum-schedule). Independent orthogonal second-lever tests will reveal which directions stack additively with the strongest cycle 71 single-arm.
+2. **Critical mechanism-isolation test OPEN with #1657** (depth-asymmetry vs uniform front-lowering for cooldown_START family): potentially closes 5+ prior per-depth-half cooldown-START PRs as NULL mechanism, OR opens compound work, OR yields a uniform-front-lower MERGE candidate.
+3. **Sub-cluster-edge band has TWO ffs=3000 single-arms from orthogonal mechanisms** (#1623 Arm B 3.26802 + #1635 Arm A 3.26832) — gap only +0.00030, ORTHOGONAL-BY-CONSTRUCTION.
+4. **Mu_cooldown_END family DECLARED CLOSED** (#1630 finding): direction validated + magnitude saturated + split-position inert → 3-axis structural closure → 120th family closure. Future work uses family only in compound (e.g. #1662).
+5. **Phase-dispatch mechanism family** spans 3 optimizer scopes (#1642 attn-SOAP β2, #1645 MLP-SOAP refresh-freq, #1653 AUX β2).
+6. **Mechanism-axis-specific direction dichotomy** (#1623): β2 axis wants front_FAST, refresh-freq axis wants back_FAST.
+7. **Per-AUX-kind family DECLARED SATURATED** (#1633 finding): 5-axis family closed across 6 orthogonal-by-construction mechanism classes on shared 1-D latent direction.
+8. **End-state-only val gap signature** (#1623 slope-identity): cooldown-phase-driven separation distinguishable from cruise-phase divergence.
+9. **Pre-cooldown phase transition** (#1635 NEW finding): Δ-trajectory sign-flip at step ~2000 BEFORE formal cooldown START.
+10. **Floor band [3.26916, 3.26992]** 8 single-axis mechanism classes converged.
+11. **Cross-scope compound INTERFERES** (#1616): joint attn-SOAP + MLP-SOAP at full magnitude is sub-additive.
+
+### Next research directions
+
+1. **#1662 alphonse cross-class compound result + #1656 fern cross-class compound result** together determine which orthogonal direction stacks best with #1623 Arm B. The pair of compound results is the highest-information cycle 71 milestone — if either Arm A clears baseline (val < 3.26776), it's a MERGE candidate.
+2. **#1657 mechanism-isolation result** determines fate of per-depth-half cooldown-START family.
+3. **#1653 phase-dispatch AUX β2 result** determines optimizer-class universality of phase-dispatch family.
+4. **#1645 phase-dispatch MLP-SOAP refresh-freq result** determines depth-vs-phase attribution for #1623's back_FAST finding.
+5. **#1644 depth-half MLP-SOAP proj β2 result** determines MLP-SOAP-proj-FAST depth-localization.
+6. **#1642 phase-β2 attn-SOAP result** determines attn-SOAP EMA-warmup-speed mechanism.
+7. **#1640 v × depth result** determines attn-SOAP front_up universality.
+8. **Mu_cooldown_END family CLOSED** — no further per-depth-half single-axis variants planned. Future use exclusively in compound.
+
+---
+
 ## 2026-05-29 05:35 UTC — Cycle 71 mid-373 — askeladd #1635 277th refute (PER_DEPTH_HALF_MU_COOLDOWN_START_NARROW val_mean=3.26880 sub-cluster-edge misses merge bar by Δ=+0.00104 val and +12.5 ffs (ffs_mean=3012.5), Arm A `narrow_0p01` (FRONT=0.94/BACK=0.96 ±0.01) val=3.26832 ffs=3000 → **NEW 2ND LOWEST single-arm cycle 71** (just +0.00030 above #1623 Arm B's 3.26802 with TIE ffs=3000), Arm B `ultra_narrow_0p005` (FRONT=0.945/BACK=0.955 ±0.005) val=3.26928 ffs=3025 sub-cluster-edge upper edge, Δ(B−A)=+0.00096 sub-noise NULL marginal, STRUCTURAL FINDING #1: **Δ-trajectory SIGN-FLIPS at step ~2000 BEFORE cooldown START (step 2225)** — cruise wider (A) is monotonically WORSE peaking Δ=+0.00388 at step 1000, then sign-flips at step 2000 and cooldown wider (A) is slightly BETTER terminal Δ=−0.00096, INVERSE of #1613's monotonic-wide-worse pattern at ±0.03 spread, suggests pre-cooldown phase transition near step 2000 (~63% training) where the depth-asymmetry penalty inverts sign; STRUCTURAL FINDING #2: **Plateau magnitude axis is LINEAR in spread, SATURATED for further tightening** — ±0.03→±0.01 (3× tighter) closes 94% of DEGRADED gap (#1613 3.27985 → #1635A 3.26832), but ±0.01→±0.005 (2× tighter) does NOT improve further (both land sub-cluster-edge), MERGE BAR UNREACHABLE by symmetric spread tightening alone; STRUCTURAL FINDING #3: **TWO sub-cluster-edge single-arms at ffs=3000 now exist from structurally orthogonal mechanisms** — #1623 Arm B (MLP-SOAP refresh back_FAST) at 3.26802 and #1635 Arm A (cooldown-START depth-half front_LOWER) at 3.26832, gap +0.00030 with TIE ffs, ORTHOGONAL-BY-CONSTRUCTION → high-value compound candidates for cross-mechanism-class testing) + askeladd #1657 NEW ISOLATION_MU_COOLDOWN_START_FRONT_LOWER_DEPTH_HALF_VS_UNIFORM (CRITICAL MECHANISM-ISOLATION TEST — addresses the fundamental question raised by #1635's Δ-trajectory sign-flip: is Arm A's 3.26832 gain coming from FRONT=0.94 alone or genuinely from FRONT/BACK depth-asymmetry?, Arm A replicates #1635 Arm A bilateral PER_DEPTH_HALF=1 FRONT=0.94 BACK=0.96 for n=2 confirmation of sub-cluster-edge landing, Arm B uses uniform MU_COOLDOWN_START=0.94 PER_DEPTH_HALF=0 — both halves at 0.94 — as front-lowering counterfactual; outcomes: |Δ|<0.0015 → CLOSES per-depth-half cooldown-START family as NULL mechanism (5+ prior PRs measuring front-lowering in disguise), Δ(B−A)>+0.0015 → CONFIRMS depth-asymmetry mechanism genuine opens compound work, Δ(A−B)>+0.0015 → uniform is BETTER and Arm B at val<3.26776 = MERGE candidate)
 
 **Cumulative**: **277 refuted** / **165 distinct mech classes** / **119 family-level closures**.
