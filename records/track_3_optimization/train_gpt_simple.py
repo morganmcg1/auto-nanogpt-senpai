@@ -469,6 +469,30 @@ WD_AUX = float(os.environ.get("WD_AUX", "0.0"))  # AdamW WD on embed + lm_head m
 EMBED_INIT_STD = float(os.environ.get("EMBED_INIT_STD", "1.0"))  # default preserves baseline N(0,1)
 LOGIT_SOFTCAP = float(os.environ.get("LOGIT_SOFTCAP", "15.0"))  # default = 15 (current hardcoded value); soft-cap value c in f(x) = c·x / sqrt(x^2+c^2)
 
+# MLP-SOAP per-depth-half refresh-freq dispatch (#1623 back_FAST stack).
+# When enabled, MLP-SOAP refresh_freq is dispatched per block: front half (block_idx < DEPTH_SPLIT)
+# uses MLP_SOAP_REFRESH_FRONT, back half uses MLP_SOAP_REFRESH_BACK.
+MLP_SOAP_PER_DEPTH_HALF_REFRESH_FREQ_ENABLED = int(os.environ.get("MLP_SOAP_PER_DEPTH_HALF_REFRESH_FREQ_ENABLED", "0"))
+MLP_SOAP_REFRESH_FRONT = int(os.environ.get("MLP_SOAP_REFRESH_FRONT", str(SOAP_PRECOND_FREQ)))
+MLP_SOAP_REFRESH_BACK = int(os.environ.get("MLP_SOAP_REFRESH_BACK", str(SOAP_PRECOND_FREQ)))
+MLP_SOAP_REFRESH_DEPTH_SPLIT = int(os.environ.get("MLP_SOAP_REFRESH_DEPTH_SPLIT", "6"))
+
+# PHASE_DISPATCH_ATTN_SOAP_BETA2 (#1642/#1663 stack).
+# When enabled, attn-SOAP β2 (used for both gram EMA in soap_refresh and exp_avg_sq EMA in
+# soap_precondition) is dispatched per training step: steps < PHASE_BOUNDARY_STEP use EARLY,
+# steps >= PHASE_BOUNDARY_STEP use LATE. Step counter sourced from per-param state["soap_step"]
+# which is incremented inside soap_refresh after each Muon.step() call.
+PHASE_DISPATCH_ATTN_SOAP_BETA2_ENABLED = int(os.environ.get("PHASE_DISPATCH_ATTN_SOAP_BETA2_ENABLED", "0"))
+ATTN_SOAP_BETA2_EARLY = float(os.environ.get("ATTN_SOAP_BETA2_EARLY", str(ATTN_SOAP_BETA2)))
+ATTN_SOAP_BETA2_LATE = float(os.environ.get("ATTN_SOAP_BETA2_LATE", str(ATTN_SOAP_BETA2)))
+ATTN_SOAP_BETA2_PHASE_BOUNDARY_STEP = int(os.environ.get("ATTN_SOAP_BETA2_PHASE_BOUNDARY_STEP", "1500"))
+
+
+def effective_attn_soap_beta2(soap_step: int) -> float:
+    if not PHASE_DISPATCH_ATTN_SOAP_BETA2_ENABLED:
+        return ATTN_SOAP_BETA2
+    return ATTN_SOAP_BETA2_EARLY if soap_step < ATTN_SOAP_BETA2_PHASE_BOUNDARY_STEP else ATTN_SOAP_BETA2_LATE
+
 
 def zeropower_via_newtonschulz5(G: Tensor) -> Tensor:
     assert G.ndim >= 2
@@ -642,6 +666,9 @@ class Muon(torch.optim.Optimizer):
         }
         # Track which sub-type each attention-SOAP param is (q/k/v/proj) for per-type telemetry.
         self.attn_soap_kind: dict[int, str] = {}
+        # Track block_idx for MLP-SOAP params so per-depth-half refresh-freq can dispatch.
+        # Names from model.blocks.named_parameters() look like "0.mlp.fc.weight".
+        self.mlp_soap_block_idx: dict[int, int] = {}
         for n, p in named_params:
             if p in self.attn_soap_params:
                 if n.endswith(".attn.q.weight"):
@@ -652,6 +679,8 @@ class Muon(torch.optim.Optimizer):
                     self.attn_soap_kind[id(p)] = "v"
                 elif n.endswith(".attn.proj.weight"):
                     self.attn_soap_kind[id(p)] = "proj"
+            if p in self.soap_params:
+                self.mlp_soap_block_idx[id(p)] = int(n.split(".", 1)[0])
         params = sorted([p for _, p in named_params], key=lambda x: x.size(), reverse=True)
         defaults = dict(lr=lr, weight_decay=weight_decay, mu=mu)
         super().__init__(params, defaults)
@@ -696,10 +725,27 @@ class Muon(torch.optim.Optimizer):
                     momentum_update = grad.lerp(state["momentum"], group["mu"])
                     use_soap = p in self.soap_params
                     use_attn_soap = p in self.attn_soap_params
+                    # Per-depth-half MLP-SOAP refresh_freq dispatch (#1623 back_FAST).
+                    if use_soap and MLP_SOAP_PER_DEPTH_HALF_REFRESH_FREQ_ENABLED:
+                        block_idx = self.mlp_soap_block_idx[id(p)]
+                        cur_mlp_refresh_freq = (
+                            MLP_SOAP_REFRESH_FRONT if block_idx < MLP_SOAP_REFRESH_DEPTH_SPLIT
+                            else MLP_SOAP_REFRESH_BACK
+                        )
+                    else:
+                        cur_mlp_refresh_freq = SOAP_PRECOND_FREQ
+                    # Phase-dispatch attn-SOAP β2 (#1663). Uses state["soap_step"] which mirrors
+                    # the current training step (incremented at end of soap_refresh each step).
+                    cur_attn_soap_beta2 = (
+                        effective_attn_soap_beta2(state["soap_step"]) if use_attn_soap
+                        else ATTN_SOAP_BETA2
+                    )
                     # SOAP precondition applied to momentum BEFORE NS5+contra+NorMuon
                     # (matches public record #14/16 — pre-NS5 placement).
-                    if use_soap or use_attn_soap:
+                    if use_soap:
                         momentum_update = soap_precondition(momentum_update, state)
+                    elif use_attn_soap:
+                        momentum_update = soap_precondition(momentum_update, state, beta2=cur_attn_soap_beta2)
                     # NS5 + contra + NorMuon row variance on (possibly SOAP-preconditioned) momentum.
                     update = contra_normuon_update(momentum_update, state["second_moment"])
                     # u/w-floor: scale up if u/w < TARGET_UW; leave alone otherwise.
@@ -712,9 +758,9 @@ class Muon(torch.optim.Optimizer):
                     p.add_(update, alpha=-group["lr"])
                     # Refresh SOAP state with the raw grad (after applying the step).
                     if use_soap:
-                        soap_refresh(grad, state)
+                        soap_refresh(grad, state, refresh_freq=cur_mlp_refresh_freq)
                     elif use_attn_soap:
-                        soap_refresh(grad, state, beta2=ATTN_SOAP_BETA2,
+                        soap_refresh(grad, state, beta2=cur_attn_soap_beta2,
                                      refresh_freq=ATTN_SOAP_PRECOND_FREQ,
                                      use_trust_gate=True,
                                      trust_threshold=ATTN_SOAP_TRUST_THRESHOLD)
@@ -866,9 +912,21 @@ if dist.get_rank() == 0:
             "optimizer/attn_soap_trust_threshold": ATTN_SOAP_TRUST_THRESHOLD,
             "optimizer/ns5_iters": NS5_ITERS,
             "optimizer/wd_aux": WD_AUX,
+            "optimizer/mlp_soap_per_depth_half_refresh_freq_enabled": int(MLP_SOAP_PER_DEPTH_HALF_REFRESH_FREQ_ENABLED),
+            "optimizer/mlp_soap_refresh_front": MLP_SOAP_REFRESH_FRONT,
+            "optimizer/mlp_soap_refresh_back": MLP_SOAP_REFRESH_BACK,
+            "optimizer/mlp_soap_refresh_depth_split": MLP_SOAP_REFRESH_DEPTH_SPLIT,
+            "optimizer/phase_dispatch_attn_soap_beta2_enabled": int(PHASE_DISPATCH_ATTN_SOAP_BETA2_ENABLED),
+            "optimizer/attn_soap_beta2_early": ATTN_SOAP_BETA2_EARLY,
+            "optimizer/attn_soap_beta2_late": ATTN_SOAP_BETA2_LATE,
+            "optimizer/attn_soap_beta2_phase_boundary_step": ATTN_SOAP_BETA2_PHASE_BOUNDARY_STEP,
             "optimizer/recipe": "contra-muon + normuon-lite + soap-on-mlp + soap-on-attn-trust-gate (pre-NS5, record #14 + record #16)",
         },
     )
+    print(f"[MLP_SOAP_REFRESH_DEPTH_HALF] enabled={MLP_SOAP_PER_DEPTH_HALF_REFRESH_FREQ_ENABLED} "
+          f"front={MLP_SOAP_REFRESH_FRONT} back={MLP_SOAP_REFRESH_BACK} split={MLP_SOAP_REFRESH_DEPTH_SPLIT}", flush=True)
+    print(f"[PHASE_DISPATCH_ATTN_SOAP_BETA2] enabled={PHASE_DISPATCH_ATTN_SOAP_BETA2_ENABLED} "
+          f"early={ATTN_SOAP_BETA2_EARLY} late={ATTN_SOAP_BETA2_LATE} boundary_step={ATTN_SOAP_BETA2_PHASE_BOUNDARY_STEP}", flush=True)
 
 for trial_idx in range(args.num_trials):
 
@@ -1059,6 +1117,13 @@ for trial_idx in range(args.num_trials):
                     stats = opt.trust_gate_stats()
                     if stats:
                         wandb.log(prefixed("train/attn_soap_trust_gate", stats), step=wandb_step)
+            # Log current effective attn-SOAP β2 to verify phase-dispatch engagement.
+            wandb.log({
+                "trial": trial_idx,
+                "train/step": train_step,
+                "train/attn_soap_beta2/current": effective_attn_soap_beta2(train_step),
+                "train/attn_soap_beta2/phase": int(train_step >= ATTN_SOAP_BETA2_PHASE_BOUNDARY_STEP),
+            }, step=wandb_step)
         if dist.get_rank() == 0 and telemetry_due:
             log_weight_telemetry(
                 model=model,
