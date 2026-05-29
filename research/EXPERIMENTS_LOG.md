@@ -1,5 +1,25 @@
 # SENPAI Research Results — auto-nanogpt-1gpu-r5
 
+## 2026-05-29 — PR #1615 CLOSED [49th R5 result — mu axis FULLY CLOSED]: edward Muon body momentum decoupling (mu_mlp vs mu_attn)
+
+- branch: g1r5-edward/muon-body-mu-decouple
+- Hypothesis: MLP and attention body Muon groups may benefit from different momentum coefficients. LR magnitude decoupling (#162 MERGED, lr_mlp=0.055 > lr_attn=0.035) was FFS-positive, so history-length (mu) decoupling within body might also help. Tested both directions: ATTN-low/MLP-high (B★) and MLP-low/ATTN-high (E falsifier) plus bracketing values.
+- Result: **CLEAN G5 (FFS-NEGATIVE)**. All non-ctrl cells worse. Falsifier E WORST (+100), proving both directions decisively rejected.
+
+| Cell | mu_mlp | mu_attn | FFS_ema | Δ FFS vs A |
+|:----:|:---:|:---:|:---:|:---:|
+| A (ctrl) | 0.95 | 0.95 | **2925** | 0 |
+| **B★** | 0.95 | 0.85 | 2950 | +25 |
+| C | 0.95 | 0.90 | 2975 | +50 |
+| D | 0.90 | 0.85 | 3000 | +75 |
+| E (falsifier) | 0.85 | 0.95 | 3025 | **+100 WORST** |
+
+**Analysis**: Monotone degradation with both directions of mu decoupling. Falsifier E (MLP-reduced, ATTN-preserved) is the worst possible cell, definitively ruling out inverted hypothesis. **Key mechanistic finding**: LR per-group decoupling (#162) wins but mu per-group decoupling (#1615) loses. The asymmetry (MLP wants more update energy via higher LR, not more momentum) implies the per-class differentiation mechanism is **magnitude** (peak update energy), not **history-length** (momentum buffer). Closes the per-class mu axis completely. Mu axis now FULLY CLOSED across all 3 sub-axes: single-axis cooldown schedule (#1294/#1345), 2D plane sweep, and per-group static (#1615).
+
+**New open axis**: Per-class body Muon cooldown SHAPE decoupling (MLP vs attn temporal curve) — assigned to edward #1664.
+
+---
+
 ## 2026-05-29 — PR #1612 CLOSED [48th R5 result — 6th NS-internal axis closure]: askeladd NS polynomial coefficient sweep (Bernstein vs Padé)
 
 - branch: g1r5-askeladd/ns-poly-coeffs

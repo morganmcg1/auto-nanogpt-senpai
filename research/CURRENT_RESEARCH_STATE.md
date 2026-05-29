@@ -9,7 +9,7 @@ The human research team has redirected: **FFS (first-step-to-target, baseline 30
 3. **Prefer experiments that move the crossing step** (2800-3050 window), **simplify winning stacks**, **reveal FFS-load-bearing components**.
 4. **Ablations preferred over confirmations** when FFS dead.
 
-## Last updated: 2026-05-29 (poll — #1612 askeladd NS-coeffs closed G5 + 2 new assignments #1658 alphonse multi-β EMA + #1659 askeladd per-group EMA decay)
+## Last updated: 2026-05-29 (poll — #1615 edward mu-decouple CLOSED G5 [49th R5] + assigned #1664 edward body-cooldown-shape-decouple)
 
 ### Current state
 
@@ -22,22 +22,21 @@ The human research team has redirected: **FFS (first-step-to-target, baseline 30
 **★★★ Mandatory stack**: `--ns_iter 6 --soap_attn --lr_mlp 0.055 --wd_schedule ramp_down --lr_scalars 0.03 --depth_init_mode musoft --lr_cooldown_shape cosine --ema_eval_decay 0.99`
 
 **Actions this poll**:
-1. ★ **CLOSED #1612 askeladd NS polynomial Bernstein/Padé** [48th R5 result, 6th NS-internal closure] — G5 FFS-NEGATIVE. Padé (2,-1.5,0.5) is FFS minimum. Bernstein +25 worse. Falsifier E +200. At --ns_iter=6, codebase Padé is locally optimal.
-2. ★★ **ASSIGNED #1658 alphonse multi-β EMA combination at val** — Karras-inspired: maintain TWO parallel EMAs at β=0.99 (fast) and β=0.999 (slow), combine at val time as α·EMA_slow + (1-α)·EMA_fast. 5-cell: A=ctrl, B★(α=0.5), C(α=0.25), D(α=0.75), E(α=1.0 falsifier). Novel structural eval axis.
-3. ★★ **ASSIGNED #1659 askeladd per-group EMA-eval decay decoupling** — body (Muon 2D+) vs aux (embed/lm_head/scalars) separate d values. Body faster or slower than aux? 5-cell: A=ctrl, B★(d_body=0.95), C(0.97), D(0.999), E(0.90 extreme falsifier). Novel EMA-eval axis.
+1. ★ **CLOSED #1615 edward Muon body mu decoupling** [49th R5 result, mu axis FULLY CLOSED] — G5 FFS-NEGATIVE. Monotone degradation both directions. Falsifier E (MLP-reduced=0.85, ATTN-preserved=0.95) is WORST at +100. Key mechanistic finding: LR decoupling (#162 won) but mu decoupling (#1615 lost) → asymmetry is **magnitude** not **history-length**. Mu axis now FULLY CLOSED across all 3 sub-axes.
+2. ★★ **ASSIGNED #1664 edward per-class body Muon cooldown SHAPE decoupling** — Third body-Muon per-class axis after magnitude (#162 won) and history-length (#1615 lost). Tests whether MLP vs attn want different temporal decay *curves* during cooldown. 5-cell: A=ctrl(both cosine), B★(MLP=cosine, ATTN=linear), C(MLP=cosine, ATTN=concave), D(MLP=linear, ATTN=cosine invert), E(ATTN=step falsifier). New CLI flags `--lr_cooldown_shape_mlp` and `--lr_cooldown_shape_attn`.
 
 **All 8 students productively occupied. ZERO idle.**
 
 | Student | PR | Hypothesis | Status |
 |:-------:|:--:|:----------:|:------:|
-| alphonse | #1658 | Multi-β EMA combination at val | 🆕 WIP (just assigned) |
-| frieren | #1651 | Pre-NS grad-Frobenius normalization | 🔄 WIP n=1 |
-| askeladd | #1659 | Per-group EMA-eval decay (body vs aux) | 🆕 WIP (just assigned) |
-| fern | #1654 | SOAP adaptive eigenbasis refresh | 🔄 WIP n=1 |
-| tanjiro | #1617 | SOAP PRECOND_FREQ sweep | 🔄 WIP n=1 |
-| edward | #1615 | Muon body mu_mlp/mu_attn decouple | 🔄 WIP n=1 |
-| nezuko | #1643 | NS warm-start from polar factor | 🔄 WIP n=1 |
-| thorfinn | #1586 | Body wd_mlp fine re-tune | 🔄 WIP n=1 |
+| alphonse | #1658 | Multi-β EMA combination at val | 🔄 WIP |
+| frieren | #1651 | Pre-NS grad-Frobenius normalization | 🔄 WIP |
+| askeladd | #1659 | Per-group EMA-eval decay (body vs aux) | 🔄 WIP |
+| fern | #1654 | SOAP adaptive eigenbasis refresh | 🔄 WIP |
+| tanjiro | #1617 | SOAP PRECOND_FREQ sweep | 🔄 WIP |
+| edward | #1664 | Per-class body Muon cooldown SHAPE decouple | 🆕 WIP (just assigned) |
+| nezuko | #1643 | NS warm-start from polar factor | 🔄 WIP |
+| thorfinn | #1586 | Body wd_mlp fine re-tune | 🔄 WIP |
 
 ---
 
@@ -51,7 +50,8 @@ The human research team has redirected: **FFS (first-step-to-target, baseline 30
 **Optimizer state dynamics** (secondary thrust):
 - NS-internal: warm-start X_0 from previous polar factor (#1643 nezuko), PRECOND_FREQ static sweep (#1617 tanjiro)
 - SOAP eigenbasis: adaptive refresh via off-diagonal staleness criterion (#1654 fern — Eschenhagen 2025)
-- Muon body per-group mu (#1615 edward — mu_mlp vs mu_attn decoupling)
+- Muon body per-group mu (#1615 edward — CLOSED: mu_mlp vs mu_attn decoupling, clean-NEG, mu axis fully closed)
+- Muon body per-class cooldown SHAPE (#1664 edward — MLP vs attn temporal decay curve; third per-class axis after magnitude #162 won + mu #1615 lost)
 - Post-NS update scaling (#1651 frieren — grad-Frobenius normalization)
 - Body WD (#1586 thorfinn — wd_mlp fine re-tune under cosine cooldown)
 
@@ -60,6 +60,7 @@ The human research team has redirected: **FFS (first-step-to-target, baseline 30
 - Line-565 post-conditioning rescale absorbs ALL Gram-input scale preprocessing. Reject cluster.
 - NS polynomial coefficients: Padé (2,-1.5,0.5) is FFS minimum. Bernstein aggressive overshoot adds spectral noise at ns_iter=6 convergence regime. Axis load-bearing (falsifier +200) but directionally inverted vs mathematical theory.
 - **NS-internal cluster 6/6 closed**: depth-schedule (1609) + poly-coeffs (1612) + iter-count (1638/1509 R3/R4) + warm-start (#1643 in flight). NS itself appears near-optimal at current stack.
+- **Mu axis FULLY CLOSED** (#1615): per-class static mu decoupling clean-NEG both directions. Together with #1294/#1345 (single-axis cooldown) and 2D plane sweep, the complete mu landscape is exhausted. Body Muon per-class differentiation is **magnitude-asymmetric** (LR) but **history-length-symmetric** (mu = 0.95 uniform optimal).
 
 **Closed cluster map** (axes to never re-propose):
 - SOAP-internal scalar HPs: 7+/8 closed (eps, exp_avg_sq, Q_row/Q_col asym, static β2, decoupled β2, trust-gate static/schedule, Gram trace-norm)
