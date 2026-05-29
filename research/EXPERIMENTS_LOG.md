@@ -1,5 +1,44 @@
 # SENPAI Research Results — auto-nanogpt-1gpu-r5
 
+## 2026-05-29 — PR #1617 (in flight): tanjiro SOAP PRECOND_FREQ n=1 screen → n=4 EMA-eval confirm approved
+
+- branch: g1r5-tanjiro/soap-precond-freq
+- Hypothesis: SOAP preconditioner update frequency (PRECOND_FREQ, default 16) had never been swept since #467 trust-gate / static / schedule closures. Test pf ∈ {16, 8, 32, 64, 128}.
+- n=1 screen result: **MONOTONE in pf** — pf=8 BEST, pf=128 WORST.
+
+| Cell | pf | val/loss | FFS_train | Δ FFS vs A | W&B |
+|:----:|:---:|:---:|:---:|:---:|:---:|
+| A (ctrl) | 16 | 3.27106 | 2950 | 0 | `rft4g14z` |
+| **B★** | **8** | **3.26898** | **2925** | **−25 G2 fired** | `17020g8g` |
+| C | 32 | 3.27109 | 2950 | 0 (tie) | `2sqvsmle` |
+| D | 64 | 3.27282 | 2975 | +25 (boundary) | `k7lz55sy` |
+| E (falsifier) | 128 | 3.27340 | 3000 | **+50** | `i7j9b7h8` |
+
+**Analysis**: SOAP eigenbasis rotates FASTER than #1565 cos_sim(SOAP↔Muon)~0.82-0.84 metric implies (that metric measures projected-update agreement, not eigenbasis rotation rate directly). Refreshing every 8 steps captures curvature drift that pf=16 misses. Falsifier E confirms staleness mechanism is real at pf=128. **Axis structurally load-bearing in both directions** (G4 FFS-neutral test failed: 3-cell band 50 > ±12.5). **n=4 confirm of B (pf=8) under EMA-eval stack APPROVED** — expected FFS_ema band ~2900 ± 25, merge-borderline at gate 2887.5. Note: n=1 screen used pre-#1533 stack, n=4 confirm uses full mandatory stack with `--ema_eval_decay 0.99`.
+
+---
+
+## 2026-05-29 — PR #1586 (in flight): thorfinn body wd_mlp fine re-tune — 8-cell basin localized → n=4 EMA-eval confirm approved
+
+- branch: g1r5-thorfinn/wd-mlp-fine
+- Hypothesis: Under R5 cosine cooldown (#1381 merged), wd_mlp basin may have shifted from #1284's old optimum at 0.025. Re-tune.
+- 8-cell sweep result: **basin CONFIRMED upper-shifted to ~0.040** under cosine cooldown.
+
+| Cell | wd_mlp | FFS_train | val/loss | Δ val vs A (σ_single=0.000593) | W&B |
+|:----:|:---:|:---:|:---:|:---:|:---:|
+| D | 0.018 | 2950 | 3.27148 | +0.00228 (+3.8σ NEG) | `wcfu9ju9` |
+| B | 0.022 | 2950 | 3.27058 | +0.00138 (+2.3σ NEG) | `qyxyuhka` |
+| A (ctrl) | 0.025 | **2925** | 3.26920 | 0 | `j18xhgzb` |
+| C | 0.028 | **2925** | 3.26920 | 0 (tie) | `sbgx4g2o` |
+| **E★** | **0.040** | **2925** | **3.26774** | **−0.00146 (−2.5σ BEST)** | `t6hgmr8f` |
+| F | 0.055 | 3025 | 3.27360 | +0.00440 (+7.4σ NEG) | `x19w8m6i` |
+| G | 0.070 | 3100 | 3.27787 | +0.00867 (+14.6σ NEG) | `3qko6399` |
+| H | 0.100 | **−1 (DNF)** | 3.28609 | +0.01689 (+28.5σ catastrophic) | `0cj3fvlc` |
+
+**Analysis**: eff_wd@3000 decomposition (E sits at 1.82e-4 vs ctrl A 1.14e-4) gives clean mechanism: cosine cooldown's late-window LR decay halves integrated WD application during cooldown phase, opening room for ~60% higher per-step initial_wd at basin centroid. Cliff edge cleanly bracketed: between wd_mlp ∈ [0.040, 0.055]. Pre-mortem 2 interpretation #1 (basin upper-shifted under cosine) **FULLY CONFIRMED**. **n=4 confirm of E (wd_mlp=0.040) under EMA-eval stack APPROVED** — expected FFS_ema band ~2900 ± 25, merge-borderline at gate 2887.5.
+
+---
+
 ## 2026-05-29 — PR #1615 CLOSED [49th R5 result — mu axis FULLY CLOSED]: edward Muon body momentum decoupling (mu_mlp vs mu_attn)
 
 - branch: g1r5-edward/muon-body-mu-decouple

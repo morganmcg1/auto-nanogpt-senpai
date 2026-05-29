@@ -9,7 +9,7 @@ The human research team has redirected: **FFS (first-step-to-target, baseline 30
 3. **Prefer experiments that move the crossing step** (2800-3050 window), **simplify winning stacks**, **reveal FFS-load-bearing components**.
 4. **Ablations preferred over confirmations** when FFS dead.
 
-## Last updated: 2026-05-29 (poll — #1615 edward mu-decouple CLOSED G5 [49th R5] + assigned #1664 edward body-cooldown-shape-decouple)
+## Last updated: 2026-05-29 (poll — #1617 tanjiro n=1 G2-fired + #1586 thorfinn 8-cell basin localized → BOTH approved for n=4 EMA-eval confirm)
 
 ### Current state
 
@@ -22,21 +22,23 @@ The human research team has redirected: **FFS (first-step-to-target, baseline 30
 **★★★ Mandatory stack**: `--ns_iter 6 --soap_attn --lr_mlp 0.055 --wd_schedule ramp_down --lr_scalars 0.03 --depth_init_mode musoft --lr_cooldown_shape cosine --ema_eval_decay 0.99`
 
 **Actions this poll**:
-1. ★ **CLOSED #1615 edward Muon body mu decoupling** [49th R5 result, mu axis FULLY CLOSED] — G5 FFS-NEGATIVE. Monotone degradation both directions. Falsifier E (MLP-reduced=0.85, ATTN-preserved=0.95) is WORST at +100. Key mechanistic finding: LR decoupling (#162 won) but mu decoupling (#1615 lost) → asymmetry is **magnitude** not **history-length**. Mu axis now FULLY CLOSED across all 3 sub-axes.
-2. ★★ **ASSIGNED #1664 edward per-class body Muon cooldown SHAPE decoupling** — Third body-Muon per-class axis after magnitude (#162 won) and history-length (#1615 lost). Tests whether MLP vs attn want different temporal decay *curves* during cooldown. 5-cell: A=ctrl(both cosine), B★(MLP=cosine, ATTN=linear), C(MLP=cosine, ATTN=concave), D(MLP=linear, ATTN=cosine invert), E(ATTN=step falsifier). New CLI flags `--lr_cooldown_shape_mlp` and `--lr_cooldown_shape_attn`.
+1. ★★ **APPROVED #1617 tanjiro n=4 confirm of Cell B (pf=8)** under EMA-eval stack. n=1 screen: monotone in PRECOND_FREQ (A=2950, B=2925, C=2950, D=2975, E=3000), G2 FFS-positive trigger fired at B (val=3.26898 vs ctrl 3.27106). Falsifier E confirmed axis is structurally load-bearing. Cell B at n=1 already at/below baseline μ_4(FFS_train)=2937.5. Under EMA-eval expecting B's n=4 FFS_ema ≈ 2900 ± 25 — merge-borderline at gate 2887.5.
+2. ★★ **APPROVED #1586 thorfinn n=4 confirm of Cell E (wd_mlp=0.040)** under EMA-eval stack. Complete 8-cell sweep traces clean val basin: D(0.018)=+3.8σ NEG, B(0.022)=+2.3σ NEG, A=C(0.025-0.028)=ref, **E(0.040)=−2.5σ BEST**, F(0.055)=+7.4σ NEG, G(0.070)=+14.6σ NEG, H(0.100) catastrophic. eff_wd@3000 basin centroid at 1.82e-4 (vs ctrl 1.14e-4) — cosine cooldown halves integrated WD application, opens room for 60% higher initial_wd. Pre-mortem 2 interpretation #1 (basin shifted upward under cosine) FULLY CONFIRMED. n=4 E vs baseline μ_4(FFS_ema)=2912.5.
+3. **CLOSED #1615 edward Muon body mu decoupling** (logged earlier this poll cycle): mu axis FULLY CLOSED across all 3 sub-axes.
+4. **ASSIGNED #1664 edward per-class body Muon cooldown SHAPE decoupling** (logged earlier this poll cycle).
 
-**All 8 students productively occupied. ZERO idle.**
+**All 8 students productively occupied. ZERO idle.** Two n=4 EMA-eval confirms simultaneously in flight (#1617 + #1586) — both have non-trivial merge probability.
 
 | Student | PR | Hypothesis | Status |
 |:-------:|:--:|:----------:|:------:|
 | alphonse | #1658 | Multi-β EMA combination at val | 🔄 WIP |
-| frieren | #1651 | Pre-NS grad-Frobenius normalization | 🔄 WIP |
+| frieren | #1651 | Pre-NS grad-Frobenius normalization | 🔄 WIP (B cell @ step 810) |
 | askeladd | #1659 | Per-group EMA-eval decay (body vs aux) | 🔄 WIP |
 | fern | #1654 | SOAP adaptive eigenbasis refresh | 🔄 WIP |
-| tanjiro | #1617 | SOAP PRECOND_FREQ sweep | 🔄 WIP |
-| edward | #1664 | Per-class body Muon cooldown SHAPE decouple | 🆕 WIP (just assigned) |
-| nezuko | #1643 | NS warm-start from polar factor | 🔄 WIP |
-| thorfinn | #1586 | Body wd_mlp fine re-tune | 🔄 WIP |
+| **tanjiro** | **#1617** | **SOAP pf=8 n=4 EMA-eval confirm** | **🆕 n=4 CONFIRM (just approved)** |
+| edward | #1664 | Per-class body Muon cooldown SHAPE decouple | 🔄 WIP |
+| nezuko | #1643 | NS warm-start from polar factor | 🔄 WIP (C cell @ step 1579) |
+| **thorfinn** | **#1586** | **wd_mlp=0.040 n=4 EMA-eval confirm** | **🆕 n=4 CONFIRM (just approved)** |
 
 ---
 
