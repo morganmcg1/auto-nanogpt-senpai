@@ -1,5 +1,37 @@
 # SENPAI Research Results
 
+## 2026-05-29 06:10 UTC — PR #1605 frieren: Aux β₂ pulse timing step 1050 seed-2 — ❌ CLOSED NULL (seed-2 not confirmed, timing axis fully closed)
+
+- Branch: `g1r1-frieren/b2-timing-sweep`
+- Hypothesis: β₂ pulse at step 1050 (vs canonical 975) fires deeper into cooldown and might improve target crossing.
+- W&B: Arm B seed-1 `unkccxcl` (marginal WIN), seed-2 `u4zmm04x` (terminal)
+
+| Run | step | val_loss_ema | sr | Δval vs baseline | Verdict |
+|---|---:|---:|---:|---:|---|
+| Arm B seed-1 `unkccxcl` | 3250 | 3.262629 | 2875 | −0.225 mnat | ⚠️ marginal WIN |
+| Arm B seed-2 `u4zmm04x` | 3250 | 3.2639 | **2925** | +1.05 mnat | ❌ NULL |
+
+- **Analysis:** Seed-2 fails both gate clauses (sr=2925 > 2862.5 AND ≠ 2875). The seed-1 marginal WIN (+0.225 mnat) sits inside the ~0.5–1.0 mnat seed-variance noise floor. Seed-2 slips sr by 50 steps — the opposite of confirmation.
+- **Timing axis closed:** β₂ timing axis is now fully mapped: step 900 NULL, step 975 WIN (canonical), step 1050 within-seed-variance NULL. Step 975 is robust and optimal.
+- **Follow-up assigned:** frieren → PR #1667 pre-target aux β₂ transient spike (0.99→0.995/0.999 during steps 2750-2900, revert after). Tests aux-side precision complement to alphonse's body-side LR boost.
+
+## 2026-05-29 06:00 UTC — PR #1622 edward: Muon momentum reset at pEMA refresh — ❌ CLOSED NULL (bilateral, momentum is load-bearing not stale)
+
+- Branch: `g1r1-edward/muon-momentum-reset`
+- Hypothesis: After pEMA refresh at step 2600, Muon body-momentum buffers may be stale (referring to the now-replaced EMA iterate). Resetting (scale=0.0) or damping (scale=0.1) should improve alignment.
+- W&B: Arm A `bzjfv9i8` (hard reset scale=0.0), Arm B `veho0mwj` (damped scale=0.1)
+
+| Arm | scale | val_loss_ema | sr | Δval vs baseline | Verdict |
+|---|---:|---:|---:|---:|---|
+| A (hard) | 0.0 | 3.266671 | 2925 | +3.82 mnat | ❌ NULL |
+| B (damped) | 0.1 | **3.266402** | 2925 | +3.55 mnat | ❌ NULL |
+| Baseline #1532 | — | 3.262854 | 2875 | — | — |
+
+- **Analysis:** Bilateral NULL. Both arms fail merge gate by +50 steps (sr=2925). Δ(B−A) val_ema only −0.27 mnat; hard vs damped is on the same bad-curve.
+- **Mechanism refutation:** `--paramema_refresh_only` re-seeds the *inference* EMA buffer, not live training params. The body iterate is NOT relocated at step 2600 → momentum was never misaligned. Even if stale, Muon's Newton-Schulz extracts direction from running average; discarding it forfeits variance reduction when small-batch grad noise hurts most. Edward's probe: grad norm collapses to 1958 after hard reset (scale=0.0), vs 2441 with damping — precisely the expected step-size suppression.
+- **Cross-optimizer matrix update:** Body Muon first-moment axis now fully closed (fern #1604 μ pulse + edward #1622 momentum reset). Body Muon second-moment (`beta_cov`) axis remains untested.
+- **Follow-up assigned:** edward → PR #1666 body Muon `beta_cov` pulse 0.95→0.99 at step 975/2600. Direct cross-optimizer second-moment analog of canonical #1532 WIN.
+
 ## 2026-05-29 05:20 UTC — PR #1621 thorfinn: AGC linear-decay ramp (ramp_width=100, 500) — ❌ CLOSED NULL (bilateral, hard-cutoff paradoxically better)
 
 - Branch: `g1r1-thorfinn/agc-linear-decay`
