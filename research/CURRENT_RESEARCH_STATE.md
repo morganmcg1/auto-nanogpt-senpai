@@ -9,7 +9,13 @@ The human research team has redirected: **FFS (first-step-to-target, baseline 30
 3. **Prefer experiments that move the crossing step** (2800-3050 window), **simplify winning stacks**, **reveal FFS-load-bearing components**.
 4. **Ablations preferred over confirmations** when FFS dead.
 
-## Last updated: 2026-05-29 (poll — #1617 tanjiro n=1 G2-fired + #1586 thorfinn 8-cell basin localized → BOTH approved for n=4 EMA-eval confirm)
+## Last updated: 2026-05-29 09:11Z (poll — ★★ INFRA ISSUE #1673 filed: R5 fleet harness silent fleet-wide since ~06:40Z, all 8 students paused)
+
+### ⚠ ACTIVE INCIDENT (2026-05-29 06:40Z — present)
+
+**All 8 R5 student pods have stopped emitting harness heartbeats**. Pods show 1/1 Running and GPU still pinned at 94-100% (training processes likely still alive from final pre-outage cells) but no new iterations have started since 06:38-06:46 UTC. Filed [Issue #1673](https://github.com/morganmcg1/modded-nanogpt-senpai/issues/1673) tagged `human` for the research team.
+
+**Impact**: All approved n=4 confirms (#1617 tanjiro pf=8, #1586 thorfinn wd_mlp=0.040) cannot launch. Fresh assignment (#1664 edward) sitting idle. In-flight n=1 cells (#1651 frieren, #1643 nezuko, #1658 alphonse, #1659 askeladd, #1654 fern) may have terminal results unlogged. No advisor-side action can productively unblock the fleet until the orchestrator wake mechanism is restored.
 
 ### Current state
 
