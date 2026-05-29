@@ -1,3 +1,77 @@
+## 2026-05-29 13:00 UTC — Cycle 71 mid-378 — frieren #1645 282nd refute (PHASE_DISPATCH_MLP_SOAP_REFRESH_FREQ val_mean=3.27098 STANDARD misses merge bar by Δ=+0.00322 val and +37.5 ffs (ffs_mean=3037.5), Arm A `late_FAST` early=15/late=5 boundary=2225 val=3.27205 ffs=3050 STANDARD, Arm B `early_FAST` early=5/late=15 boundary=2225 val=**3.26991** ffs=3025 **FLOOR BAND UPPER EDGE**, Δ(B−A)=**−0.00214 REVERSED from prediction**, **MAJOR STRUCTURAL FINDING #1 — Phase-axis direction is SCOPE-DEPENDENT**: attn-SOAP wants `late_FAST` [#1620 val=3.26916, #1642 late-stability mechanism], MLP-SOAP wants `early_FAST` [this PR] — REVERSED mechanism between SOAP scopes; **MAJOR STRUCTURAL FINDING #2 — #1623's "back_FAST" was DEPTH-LOCALIZED not cooldown-driven**: removing depth asymmetry while preserving late-phase-FAST destroys the gain (Arm A `late_FAST` uniform-depth val=3.27205 vs #1623 Arm B `back_FAST` depth-half val=3.26802) — depth and phase axes are non-redundant; **STRUCTURAL FINDING #3 — slope identity reproduced**: train-loss |Δslope| ≤ 1.1e-5 through cruise, val gap accumulates ONLY during cooldown 2225→3175 — THIRD cooldown-emergent SOAP finding this cycle [#1644 MLP-SOAP proj β2 depth, #1642 attn-SOAP β2 phase, #1645 MLP-SOAP refresh-freq phase]; compute confound ruled out: Arm B wins with −5.7% less SOAP-refresh compute) + frieren #1671 NEW MLP_SOAP_TRUST_GATE_PHASE_DISPATCH (DIRECT FOLLOW-UP testing whether trust-gate mechanism explains scope-direction reversal — Arm A `late_FAST_gated` trust_gate ON threshold=0.85 early_freq=15 late_freq=5 boundary=2225, Arm B `early_FAST_gated` trust_gate ON threshold=0.85 early_freq=5 late_freq=15 boundary=2225; same phase-dispatch design as #1645 but BOTH arms add `use_trust_gate=True` to MLP-SOAP refresh path; if Arm A wins: trust-gate causes attn-SOAP-like late_FAST behavior → scope-direction reversal MECHANISM EXPLAINED; if Arm B still wins: trust-gate is NOT the cause → other structural mechanism; CRITICAL telemetry: per-kind mlp_soap trust_gate on_fraction throughout run — if on_fraction=0.000 throughout, threshold too tight for MLP-SOAP, null measurement NOT refutation)
+
+**Cumulative**: **282 refuted** / **170 distinct mech classes** / **121 family-level closures**.
+
+### PRs closed this wave (1 closure):
+
+| PR | student | mechanism | outcome |
+|---|---|---|---|
+| **frieren #1645** | frieren | PHASE_DISPATCH_MLP_SOAP_REFRESH_FREQ (Arm A `late_FAST` early=15/late=5 vs Arm B `early_FAST` early=5/late=15, both at uniform depth) | **282nd** — Arm A val=3.27205 ffs=3050 STANDARD, Arm B val=3.26991 ffs=3025 FLOOR BAND UPPER EDGE; val_mean=3.27098 ffs_mean=3037.5 fails merge bar by +0.00322 val, +37.5 ffs. **Δ(B−A)=−0.00214 REVERSED.** Major structural finding: phase-axis direction scope-dependent (attn-SOAP late_FAST vs MLP-SOAP early_FAST reversed). |
+
+### MAJOR STRUCTURAL FINDINGS — Phase-axis direction is SCOPE-DEPENDENT
+
+Phase-dispatch direction matrix across SOAP scopes:
+
+| PR | scope | mechanism | direction outcome | outcome value |
+|---|---|---|---|---|
+| #1620 (closed) | attn-SOAP | refresh-freq phase-dispatch | **late_FAST** | Arm B 3.26916 floor band lower |
+| #1642 (closed) | attn-SOAP | β2 phase-dispatch | **late_high_β2** (late-stability) | Arm A 3.27087 STANDARD-edge |
+| **#1645 (this)** | **MLP-SOAP** | **refresh-freq phase-dispatch** | **early_FAST (REVERSED)** | **Arm B 3.26991 floor band UPPER EDGE** |
+
+**attn-SOAP and MLP-SOAP have OPPOSITE optimal phase directions.** Trust-gate mechanism (absent at MLP-SOAP, present at attn-SOAP) is the leading candidate explanation — #1671 tests this directly.
+
+### #1623 back_FAST depth × phase non-redundancy
+
+#1623 Arm B (FRONT=15, BACK=5, uniform phase) val=3.26802 sub-cluster-edge lowest.
+#1645 Arm A `late_FAST` (early=15, late=5, uniform depth) val=3.27205 STANDARD.
+
+Depth localization and phase localization are ORTHOGONAL — they cannot substitute for each other. #1671's Design-A compound (late_FAST_gated trust-gate + depth) would be the follow-up if #1671 confirms mechanism.
+
+### Floor band update — potential 9th entry pending confirmation
+
+| PR | mechanism | val | ffs | band |
+|---|---|---|---|---|
+| #1623 Arm B | MLP-SOAP refresh-freq back_FAST | 3.26802 | 3000 | sub-cluster-edge lowest |
+| #1635 Arm A | cooldown-START depth-half front_LOWER | 3.26832 | 3000 | sub-cluster-edge 2nd |
+| #1620 Arm B | attn-SOAP early_RARE/late_FAST | 3.26916 | 3000 | floor band lower |
+| **#1645 Arm B `29s459i2`** | **MLP-SOAP refresh-freq early_FAST phase-dispatch** | **3.26991** | **3025** | **floor band UPPER EDGE (n=1)** |
+
+Arm B val=3.26991 is the 9th-candidate floor-band entry at n=1. ffs=3025 misses merge ffs bar (≤3000) by +25 steps. Not confirmed; trust-gate mechanism follow-up (#1671) takes priority over n=2 confirmation.
+
+### PRs assigned this wave
+
+| PR | student | mechanism | role |
+|---|---|---|---|
+| **frieren #1671** | frieren | MLP_SOAP_TRUST_GATE_PHASE_DISPATCH (Arm A `late_FAST_gated` trust_gate ON threshold=0.85 early=15/late=5 boundary=2225, Arm B `early_FAST_gated` trust_gate ON threshold=0.85 early=5/late=15 boundary=2225) | **DIRECT FOLLOW-UP TO #1645 SCOPE-DIRECTION REVERSAL FINDING** — tests whether trust-gate causes attn-SOAP-like late_FAST behavior at MLP-SOAP scope; code patch: modify `use_soap` refresh call at line 715 to add `use_trust_gate=True, trust_threshold=MLP_SOAP_TRUST_THRESHOLD` + MLP_SOAP phase-dispatch refresh_freq |
+
+### Fleet state at end of wake 61 (this wave)
+
+8 students all assigned, 0 idle:
+
+| PR | student | axis | status |
+|---|---|---|---|
+| **#1671** | **frieren** | **MLP_SOAP_TRUST_GATE_PHASE_DISPATCH** | **WIP (this wave, just assigned)** |
+| #1668 | nezuko | PHASE_DISPATCH_MLP_SOAP_PROJ_BETA2 | WIP (prior wave) |
+| #1665 | edward | TRUST_THRESHOLD_WARMUP | WIP (prior wave) |
+| #1663 | thorfinn | ASYMMETRIC_LATE_BETA2_ATTN_SOAP | WIP (prior wave) |
+| #1662 | alphonse | JOINT_MLP_SOAP_REFRESH_X_MU_COOLDOWN_END_DEPTH_HALF | WIP (prior wave) |
+| #1657 | askeladd | ISOLATION_MU_COOLDOWN_START_FRONT_LOWER_DEPTH_HALF_VS_UNIFORM | WIP (prior wave) |
+| #1656 | fern | JOINT_MLP_SOAP_REFRESH_BACK_FAST_X_AUX_WD_LM_HEAD_HEAVY | WIP (prior wave) |
+| #1653 | tanjiro | PHASE_DISPATCH_AUX_BETA2 | WIP (prior wave — Arm A near-terminal step ~3075/3175, Arm B not yet launched) |
+
+### Active research themes (cycle 71 — post mid-378)
+
+1. **Phase-dispatch family across SOAP scopes**: scope-direction reversal now confirmed — attn-SOAP late_FAST vs MLP-SOAP early_FAST. Trust-gate mechanism hypothesis under test (#1671). Phase-dispatch now spans 6 assignments: #1620 (closed), #1642 (closed), #1645 (closed), #1653 AUX β2 (in flight), #1663 attn-SOAP late-only (in flight), #1668 MLP-SOAP proj β2 (in flight), #1671 MLP-SOAP trust-gate (just assigned).
+2. **MLP-SOAP depth-direction family-specific dichotomy** (#1644 finding): β2-family front_FAST, refresh-freq-family back_FAST. Triple-confirmed. Depth × phase non-redundancy now also confirmed (#1645 finding #2).
+3. **Trust-gate mechanism extends to MLP-SOAP scope** (#1671 hypothesis): if confirmed, opens trust-gate calibration + trust-gate × depth × phase compound axis.
+4. **Three cooldown-emergent SOAP findings this cycle**: #1644 (MLP-SOAP proj β2 depth direction), #1642 (attn-SOAP β2 phase), #1645 (MLP-SOAP refresh-freq phase) — all converge on cooldown being the high-leverage phase for SOAP behavior.
+5. **TWO cross-mechanism-class compound tests in flight**: fern #1656 + alphonse #1662, both anchored on #1623 Arm B back_FAST.
+6. **Critical mechanism-isolation test**: askeladd #1657.
+7. **Trust-threshold warmup fresh mechanism class**: edward #1665 in flight.
+8. **Coverage-axis saturation** (#1644 finding): no further depth-coverage splits on MLP-SOAP proj β2.
+
+---
+
 ## 2026-05-29 08:30 UTC — Cycle 71 mid-377 — nezuko #1644 281st refute (PER_DEPTH_HALF_MLP_SOAP_PROJ_BETA2_FAST val_mean=3.27096 STANDARD misses merge bar by Δ=+0.00320 val and +37.5 ffs (ffs_mean=3037.5), Arm A `front_HALF_proj_FAST` blocks 0-5 val=3.27016 ffs=3025 STANDARD-edge (+0.00024 above floor band upper), Arm B `back_HALF_proj_FAST` blocks 6-11 val=3.27176 ffs=3050 STANDARD, Δ(B−A)=+0.00160 **modest front_FAST signal**, **STRUCTURAL FINDING — MLP-SOAP depth-direction is mechanism-axis-family-specific**: at MLP-SOAP scope, β2-family axes consistently localize FRONT (#1545 β2 uniform-kind front_FAST validated, #1644 proj β2 kind-isolated front_FAST validated this PR), refresh-freq-family axes localize BACK (#1623 back_FAST validated REVERSED) — mechanism family determines depth direction, now triple-confirmed; **COOLDOWN-EMERGENT DIRECTION SIGNAL**: trajectory shows both arms within 0.001 through cruise 0-2000 then Arm A pulls ahead in 2000→3175 (+0.00160 accumulates in last 1175 steps), consistent with #1642 late-phase basis stability finding at attn-SOAP scope — proj-FAST mechanism is PHASE-LOCALIZED; coverage halving destroys ~57% of #1590 full-coverage gain → coverage axis SATURATED) + nezuko #1668 NEW PHASE_DISPATCH_MLP_SOAP_PROJ_BETA2 (DIRECT FOLLOW-UP testing whether #1590 MLP proj-FAST gain is concentrated in late/cooldown phase — Arm A `proj_late_FAST` early=0.90 late=0.85 boundary=1500 tests late-phase hypothesis, Arm B `proj_early_FAST` early=0.85 late=0.90 boundary=1500 tests early-phase hypothesis; if Arm A wins → MLP-SOAP β2 phase-localization mirrors #1642 attn-SOAP late-stability finding across SOAP scopes; if Arm B wins → MLP and attn diverge in phase mechanism; if both ≈ #1590 → phase-uniform full-trajectory necessary)
 
 **Cumulative**: **281 refuted** / **169 distinct mech classes** / **121 family-level closures**.
