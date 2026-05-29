@@ -84,6 +84,23 @@ def parse_args():
     parser.add_argument('--aux_b2_pulse_target', type=float, default=0.99,
                         help='New aux Adam β2 value to set at --aux_b2_pulse_step. '
                              '0 or negative disables. Default: 0.99 (canonical WIN).')
+    parser.add_argument('--muon_block_lr_burst_start', type=int, default=-1,
+                        help='Step to start depth-asymmetric block LR burst (-1 = disabled). '
+                             'During [start, end), the boosted half of blocks (early=0-5 or '
+                             'late=6-11) gets its canonical per-block LR multiplier scaled by '
+                             '--muon_block_lr_burst_factor; the other half is unchanged.')
+    parser.add_argument('--muon_block_lr_burst_end', type=int, default=-1,
+                        help='Step to end depth-asymmetric block LR burst (exclusive). '
+                             'Outside [start, end), revert to canonical per-block LR mults.')
+    parser.add_argument('--muon_block_lr_burst_pattern', type=str, default='none',
+                        choices=['none', 'early', 'late'],
+                        help='Which half of blocks to boost during burst window: '
+                             'early=blocks 0-5, late=blocks 6-11. none=disabled.')
+    parser.add_argument('--muon_block_lr_burst_factor', type=float, default=1.5,
+                        help='Multiplicative factor applied to canonical per-block LR mult '
+                             'of boosted blocks during burst window. Default 1.5.')
+    parser.add_argument('--num_steps', type=int, default=None,
+                        help='Override train_steps (debug/smoke only). None = default 3250.')
     parser.add_argument("--seed", type=int, default=1,
                         help="Random seed for torch/numpy/python. Default 1 matches baseline seed.")
     args = parser.parse_args()
@@ -765,6 +782,10 @@ if dist.get_rank() == 0:
             "paramema_refresh_only": int(args.paramema_refresh_only),
             "aux_b2_pulse_step": args.aux_b2_pulse_step,
             "aux_b2_pulse_target": args.aux_b2_pulse_target,
+            "muon_block_lr_burst_start": args.muon_block_lr_burst_start,
+            "muon_block_lr_burst_end": args.muon_block_lr_burst_end,
+            "muon_block_lr_burst_pattern": args.muon_block_lr_burst_pattern,
+            "muon_block_lr_burst_factor": args.muon_block_lr_burst_factor,
             "seed": args.seed,
         },
     )
@@ -777,7 +798,7 @@ for trial_idx in range(args.num_trials):
     ########################################
 
     # we want to minimize this while still reaching 3.28 val loss
-    train_steps = 3250
+    train_steps = args.num_steps if args.num_steps is not None else 3250
 
     # initialize model parameters
     for name, p in model.named_parameters():
@@ -834,6 +855,44 @@ for trial_idx in range(args.num_trials):
             wandb.log({f"muon_block_lr_mult/block_{i}": m for i, m in enumerate(block_mults)},
                       step=0)
     optimizer2._param_lr_mults = param_lr_mults
+
+    # Depth-asymmetric per-block LR burst: pre-build the boosted variant of
+    # _param_lr_mults. During the burst window [burst_start, burst_end), we'll
+    # swap optimizer2._param_lr_mults to this dict every step (per-step pulse
+    # pattern: robust to any code that touches _param_lr_mults). Outside the
+    # window, optimizer2._param_lr_mults reverts to the canonical param_lr_mults.
+    # Boosted blocks: pattern=='early' -> blocks 0..(N/2-1); 'late' -> blocks (N/2)..N-1.
+    # Each boosted block's canonical mult is scaled by --muon_block_lr_burst_factor;
+    # non-boosted blocks keep their canonical mult.
+    param_lr_mults_burst = None
+    param_block_id_lookup: dict = {}
+    if args.muon_block_lr_burst_pattern != "none":
+        half = NUM_LAYERS // 2  # 6 for NUM_LAYERS=12
+        if args.muon_block_lr_burst_pattern == "early":
+            boost_block_set = set(range(0, half))         # 0..5
+        else:  # 'late'
+            boost_block_set = set(range(half, NUM_LAYERS))  # 6..11
+        param_lr_mults_burst = {}
+        for name, p in model.named_parameters():
+            if p.ndim >= 2 and name.startswith("blocks."):
+                idx = int(name.split(".")[1])
+                param_block_id_lookup[id(p)] = idx
+                canonical_mult = block_mults[idx] if block_mults is not None else 1.0
+                if idx in boost_block_set:
+                    param_lr_mults_burst[id(p)] = canonical_mult * args.muon_block_lr_burst_factor
+                else:
+                    param_lr_mults_burst[id(p)] = canonical_mult
+        if dist.get_rank() == 0:
+            print0(f"per-block Muon LR burst: pattern={args.muon_block_lr_burst_pattern} "
+                   f"factor={args.muon_block_lr_burst_factor} "
+                   f"window=[{args.muon_block_lr_burst_start}, {args.muon_block_lr_burst_end})",
+                   console=True)
+            # Tabulate burst-vs-canonical per-block mults for audit.
+            for i in range(NUM_LAYERS):
+                cm = block_mults[i] if block_mults is not None else 1.0
+                bm = cm * args.muon_block_lr_burst_factor if i in boost_block_set else cm
+                print0(f"  block {i}: canonical_mult={cm:.4f} burst_mult={bm:.4f} "
+                       f"(boosted={i in boost_block_set})", console=True)
 
     optimizers = [optimizer1, optimizer2]
     assert set(p for opt in optimizers for group in opt.param_groups
@@ -1071,6 +1130,17 @@ for trial_idx in range(args.num_trials):
                 group["betas"] = new_betas
             print0(f"[step {step}] aux_b2_pulse: β2 {old_b2} → {args.aux_b2_pulse_target}",
                    console=True)
+        # Per-step depth-asymmetric block LR burst: swap optimizer2._param_lr_mults
+        # to the boosted dict during the [burst_start, burst_end) window, else revert
+        # to canonical. Per-step pulse (not one-shot) keeps the burst window robust.
+        burst_active = (
+            args.muon_block_lr_burst_start > 0
+            and args.muon_block_lr_burst_end > args.muon_block_lr_burst_start
+            and args.muon_block_lr_burst_pattern != "none"
+            and args.muon_block_lr_burst_start <= step < args.muon_block_lr_burst_end
+        )
+        if param_lr_mults_burst is not None:
+            optimizer2._param_lr_mults = param_lr_mults_burst if burst_active else param_lr_mults
         for opt in optimizers:
             opt.step()
         # EMA buffer update on body-Muon matrix params.
@@ -1145,16 +1215,50 @@ for trial_idx in range(args.num_trials):
                 "train/cooldown/lr_multiplier": sched_eta,
                 "train/cooldown/power_gamma": COOLDOWN_POWER,
             }, step=wandb_step)
-            if param_lr_mults is not None:
+            if param_lr_mults is not None or param_lr_mults_burst is not None:
                 muon_group_lr = optimizer2.param_groups[0]["lr"]
+                # Compute current effective per-block multiplier from the dict
+                # actually attached to the optimizer this step (handles burst-on
+                # vs burst-off vs canonical-none transparently).
+                active_mults = getattr(optimizer2, "_param_lr_mults", None) or {}
+                # Find one param per block to read its effective mult. Use
+                # param_block_id_lookup if available (it covers all body-Muon
+                # block params); otherwise fall back to the canonical mults map.
+                eff_block_mults = [1.0] * NUM_LAYERS
+                if param_block_id_lookup:
+                    seen = [False] * NUM_LAYERS
+                    for pid, idx in param_block_id_lookup.items():
+                        if not seen[idx] and pid in active_mults:
+                            eff_block_mults[idx] = active_mults[pid]
+                            seen[idx] = True
+                elif block_mults is not None:
+                    eff_block_mults = list(block_mults)
                 wandb.log({
                     "trial": trial_idx,
                     "train/step": train_step,
-                    "muon_block_lr/effective_block_0": muon_group_lr * b0_lr_mult,
-                    "muon_block_lr/effective_block_11": muon_group_lr * b11_lr_mult,
+                    "muon_block_lr/effective_block_0": muon_group_lr * eff_block_mults[0],
+                    "muon_block_lr/effective_block_11": muon_group_lr * eff_block_mults[NUM_LAYERS - 1],
                     "muon_block_lr/group_lr": muon_group_lr,
-                    "muon_block_lr/ratio_b11_over_b0": b11_lr_mult / b0_lr_mult,
+                    "muon_block_lr/ratio_b11_over_b0": eff_block_mults[NUM_LAYERS - 1] / eff_block_mults[0],
                 }, step=wandb_step)
+            # Depth-asymmetric burst telemetry. block_burst_fired is a 3-state
+            # latch: 0=before burst (or disabled), 1=during burst, 2=after burst.
+            burst_state = 0
+            if (args.muon_block_lr_burst_start > 0
+                    and args.muon_block_lr_burst_end > args.muon_block_lr_burst_start
+                    and args.muon_block_lr_burst_pattern != "none"):
+                if burst_active:
+                    burst_state = 1
+                elif step >= args.muon_block_lr_burst_end:
+                    burst_state = 2
+            wandb.log({
+                "trial": trial_idx,
+                "train/step": train_step,
+                "pmuon_lr/block_burst_fired": burst_state,
+                "pmuon_lr/block_burst_start": args.muon_block_lr_burst_start,
+                "pmuon_lr/block_burst_end": args.muon_block_lr_burst_end,
+                "pmuon_lr/block_burst_factor": args.muon_block_lr_burst_factor,
+            }, step=wandb_step)
             if ema_params is not None:
                 wandb.log({
                     "trial": trial_idx,
@@ -1196,6 +1300,47 @@ for trial_idx in range(args.num_trials):
                 spec["trial"] = trial_idx
                 spec["train/step"] = train_step
                 wandb.log(spec, step=wandb_step)
+        # Per-block effective LR audit at burst-boundary sentinel steps. Fires
+        # outside the regular telemetry interval so we capture exactly the
+        # transitions: just before burst, at start, mid, just before end, at
+        # end, and just after. Logs all NUM_LAYERS blocks' effective LR.
+        if (dist.get_rank() == 0
+                and param_lr_mults_burst is not None
+                and args.muon_block_lr_burst_start > 0
+                and args.muon_block_lr_burst_end > args.muon_block_lr_burst_start):
+            bs = args.muon_block_lr_burst_start
+            be = args.muon_block_lr_burst_end
+            mid = (bs + be) // 2
+            sentinel_steps = {bs - 1, bs, bs + 1, mid, be - 1, be, be + 1}
+            if step in sentinel_steps:
+                muon_group_lr = optimizer2.param_groups[0]["lr"]
+                active_mults = getattr(optimizer2, "_param_lr_mults", None) or {}
+                seen = [False] * NUM_LAYERS
+                per_block_mult = [1.0] * NUM_LAYERS
+                for pid, idx in param_block_id_lookup.items():
+                    if not seen[idx] and pid in active_mults:
+                        per_block_mult[idx] = active_mults[pid]
+                        seen[idx] = True
+                audit_payload = {
+                    "trial": trial_idx,
+                    "train/step": train_step,
+                    "pmuon_lr/audit_step": step,
+                    "pmuon_lr/audit_burst_active": int(burst_active),
+                    "pmuon_lr/audit_group_lr": muon_group_lr,
+                }
+                for i in range(NUM_LAYERS):
+                    audit_payload[f"pmuon_lr/audit_block_{i:02d}_mult"] = per_block_mult[i]
+                    audit_payload[f"pmuon_lr/audit_block_{i:02d}_lr"] = muon_group_lr * per_block_mult[i]
+                wandb.log(audit_payload, step=wandb_step)
+                print0(
+                    f"[step {step}] block-LR audit (burst_active={burst_active}, "
+                    f"group_lr={muon_group_lr:.6f}): "
+                    + ", ".join(
+                        f"b{i}={muon_group_lr * per_block_mult[i]:.6f}"
+                        for i in range(NUM_LAYERS)
+                    ),
+                    console=False,
+                )
         if dist.get_rank() == 0 and histogram_due:
             log_histograms(
                 model=model,
