@@ -466,6 +466,10 @@ ATTN_SOAP_PRECOND_FREQ = 10
 ATTN_SOAP_TRUST_THRESHOLD = float(os.environ.get("ATTN_SOAP_TRUST_THRESHOLD", "0.9"))
 NS5_ITERS = int(os.environ.get("NS5_ITERS", "12"))
 WD_AUX = float(os.environ.get("WD_AUX", "0.0"))  # AdamW WD on embed + lm_head matrices (scalars stay at 0)
+# Per-kind AdamW WD dispatch with lm_head isolation (PR #1732)
+PER_KIND_AUX_WD_ENABLED = int(os.environ.get("PER_KIND_AUX_WD_ENABLED", "0"))
+WD_LM_HEAD = float(os.environ.get("WD_LM_HEAD", "0.001"))  # WD applied to model.proj.weight when PER_KIND_AUX_WD_ENABLED=1
+WD_EMBED_OVERRIDE = float(os.environ.get("WD_EMBED_OVERRIDE", "0.001"))  # WD applied to model.embed.weight when PER_KIND_AUX_WD_ENABLED=1
 EMBED_INIT_STD = float(os.environ.get("EMBED_INIT_STD", "1.0"))  # default preserves baseline N(0,1)
 LOGIT_SOFTCAP = float(os.environ.get("LOGIT_SOFTCAP", "15.0"))  # default = 15 (current hardcoded value); soft-cap value c in f(x) = c·x / sqrt(x^2+c^2)
 
@@ -866,6 +870,9 @@ if dist.get_rank() == 0:
             "optimizer/attn_soap_trust_threshold": ATTN_SOAP_TRUST_THRESHOLD,
             "optimizer/ns5_iters": NS5_ITERS,
             "optimizer/wd_aux": WD_AUX,
+            "optimizer/per_kind_aux_wd_enabled": PER_KIND_AUX_WD_ENABLED,
+            "optimizer/wd_lm_head": WD_LM_HEAD,
+            "optimizer/wd_embed_override": WD_EMBED_OVERRIDE,
             "optimizer/recipe": "contra-muon + normuon-lite + soap-on-mlp + soap-on-attn-trust-gate (pre-NS5, record #14 + record #16)",
         },
     )
@@ -898,10 +905,24 @@ for trial_idx in range(args.num_trials):
             raise Exception(f"Uninitialized parameter: {name}")
 
     # create the optimizer(s)
-    optimizer1 = AdamW([dict(params=[model.embed.weight], lr=0.3, name="adam_embed", weight_decay=WD_AUX),
-                        dict(params=[model.proj.weight], lr=1/320, name="adam_lm_head", weight_decay=WD_AUX),
+    # Per-kind AdamW WD dispatch (PR #1732): allow embed and lm_head WD to differ when PER_KIND_AUX_WD_ENABLED=1
+    if PER_KIND_AUX_WD_ENABLED:
+        embed_wd = WD_EMBED_OVERRIDE
+        lm_head_wd = WD_LM_HEAD
+    else:
+        embed_wd = WD_AUX
+        lm_head_wd = WD_AUX
+    optimizer1 = AdamW([dict(params=[model.embed.weight], lr=0.3, name="adam_embed", weight_decay=embed_wd),
+                        dict(params=[model.proj.weight], lr=1/320, name="adam_lm_head", weight_decay=lm_head_wd),
                         dict(params=[p for p in model.parameters() if p.ndim < 2], lr=0.01, name="adam_scalars")],
                        betas=(0.8, 0.95), eps=1e-10, weight_decay=0, fused=True)
+    if dist.get_rank() == 0:
+        print0(
+            f"[per_kind_aux_wd] enabled={PER_KIND_AUX_WD_ENABLED} "
+            f"embed_wd={optimizer1.param_groups[0]['weight_decay']:.6f} "
+            f"lm_head_wd={optimizer1.param_groups[1]['weight_decay']:.6f}",
+            console=True,
+        )
     optimizer2 = Muon([(n, p) for n, p in model.blocks.named_parameters() if p.ndim >= 2],
                       lr=MUON_LR, weight_decay=MUON_WEIGHT_DECAY, mu=MU)
     optimizer2.param_groups[0]["name"] = "muon_blocks"
@@ -998,6 +1019,14 @@ for trial_idx in range(args.num_trials):
                     "time/step_avg_ms": 1000 * step_avg,
                 }
                 metrics.update(prefixed("val/slope", loss_slope_stats(val_loss_history, slope_window_steps)))
+                # Per-kind AdamW WD checkpoint telemetry (PR #1732): lm_head_rms + embed_rms at #1705-aligned checkpoints
+                if step in (500, 1000, 1500, 2000, 2225, 2500, 3000, 3175):
+                    with torch.no_grad():
+                        lm_head_rms = float(model.proj.weight.detach().float().pow(2).mean().sqrt().item())
+                        embed_rms = float(model.embed.weight.detach().float().pow(2).mean().sqrt().item())
+                    metrics["val/lm_head_rms"] = lm_head_rms
+                    metrics["val/embed_rms"] = embed_rms
+                    print0(f"[per_kind_aux_wd checkpoint] step={step} lm_head_rms={lm_head_rms:.5f} embed_rms={embed_rms:.5f}", console=True)
                 wandb.log(metrics, step=trial_idx * (train_steps + 1) + step)
             print0(f"step:{step}/{train_steps} val_loss:{val_loss:.5f} train_time:{training_time:.3f}s"
                    + f" step_avg:{1000*step_avg:.2f}ms", console=True)
