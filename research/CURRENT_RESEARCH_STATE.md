@@ -1,3 +1,50 @@
+## 2026-05-29 22:45 UTC — Cycle 71 mid-398 — nezuko #1718 304th refute, 140th family closure — MAJOR STRUCTURAL FINDING: cross-SOAP-scope β2 phase-locality matrix completed for q-kind at weak-early-wins; eigenbasis-rank-sensitivity axiom directional prediction BROKEN within same eigenbasis class
+
+### nezuko #1718 304th refute — PER_KIND_ATTN_SOAP_Q_BETA2_PHASE_DISPATCH val_mean=3.27137 STANDARD misses merge bar by Δ=+0.00361 val and +37.5 ffs
+
+Arm A `q_late_FAST` (E=0.90/L=0.85, boundary=1500) val=3.27245 ffs=3050 STANDARD, Arm B `q_early_FAST` (E=0.85/L=0.90) val=3.27028 ffs=3025 STANDARD, Δ(B−A)=−0.00217 `q_tracks_mlp_proj_early_warmup_direction_weak`. Stat rule (3.28−μ)·√n ≥ 0.004 PASSES at n=2 (0.01221). W&B q31o83dw/9uk775h5 verified config-operative + phase-boundary engagement at step 1500 (β2_q step function 0.90↔0.85) + q-axis on_fraction trajectory matches design at all 8 sampled checkpoints.
+
+**MAJOR STRUCTURAL FINDING**: Cross-SOAP-scope β2 phase-locality matrix completed for q-kind. Cycle 71 matrix (4-of-6 cells filled):
+
+| scope/kind | direction | magnitude | eigenbasis class |
+|---|---|---|---|
+| attn-SOAP-proj (#1642) | LATE wins (stable-EARLY) | strong | low-rank stable |
+| MLP-SOAP-proj (#1668) | EARLY wins (stable-LATE) | ~0.00148 | low-rank stable |
+| MLP-SOAP-fc (#1695) | PHASE-INERT | <0.001 | high-rank expansion |
+| **attn-SOAP-q (#1718)** | **EARLY wins (weak)** | **0.00217** | low-rank stable |
+| attn-SOAP-k | UNKNOWN (nezuko #1741 IN-FLIGHT) | — | low-rank stable |
+| attn-SOAP-v | UNKNOWN | — | less-stable |
+
+**Eigenbasis-rank-sensitivity axiom**: directionally consistent at q-position (q is NOT phase-inert, distinguishes from fc), but **strict directional-class-uniformity prediction is BROKEN**: within the same low-rank-stable class, attn-proj LATE-wins, MLP-proj EARLY-wins, attn-q EARLY-wins. Axis-driver is **finer than eigenbasis rank** — direction is scope-and-kind specific, possibly scope-mechanism (attn vs MLP) interacting with sub-projection-role (q/k/v vs proj/fc).
+
+CRITICAL 2nd-order finding: **TRUST-GATE-FLOOR-RECOVERY mechanism signature confirmed on Arm B**. q on_fraction trajectory: 0.750@200 → 0.917@500 → 1.000@1500-boundary. Smaller β2 in early phase stresses the trust-gate (25% rejection rate early), then full admission once β2 relaxes to 0.90 at boundary. Despite this rejection cost, Arm B *still* outperforms Arm A by Δ=0.00217 → **late-phase β2=0.90 stability on q is the operative signal**, not early-phase rebasing speed.
+
+Arm B no-harm finding: q_early_FAST (3.27028) is marginally better than #1642 attn_proj_late_FAST (3.27087, Δ=−0.00059) and #1668 MLP_proj_early_FAST (3.27074, Δ=−0.00046) — q-early-warmup is a **safe additive lever** for future per-kind cross-scope stacked experiments.
+
+Rules out three hypotheses: (1) q phase-inert like fc — REFUTED (Δ=−0.00217), (2) q tracks attn-proj LATE direction — REFUTED, (3) q tracks MLP-proj EARLY direction — WEAKLY CONFIRMED (directional but below 0.005 load-bearing threshold).
+
+**140th family closure**: PER_KIND_ATTN_SOAP_Q_BETA2_PHASE_DISPATCH axis fully mapped at weak-early-wins outcome.
+
+### Cumulative state
+
+**Cycle 71 cumulative**: **304 refuted** / **177 distinct mech classes** (TRUST-GATE-FLOOR-RECOVERY previously observed in #1685, not new) / **140 family-level closures**.
+
+### PRs closed this wave (1 closure):
+
+| PR | student | mechanism | outcome |
+|---|---|---|---|
+| **nezuko #1718** | nezuko | PER_KIND_ATTN_SOAP_Q_BETA2_PHASE_DISPATCH (Arm A q_late_FAST E=0.90/L=0.85, Arm B q_early_FAST E=0.85/L=0.90, boundary=1500; k/v/proj at baseline 0.90) | **304th** — Arm A 3.27245/3050, Arm B 3.27028/3025, val_mean=3.27137 misses by +0.00361/+37.5. Δ(B−A)=−0.00217 q_tracks_mlp_proj_early_warmup_direction_weak. **MAJOR STRUCTURAL FINDING**: cross-SOAP-scope β2 phase-locality matrix completed for q-kind at weak-early-wins direction; q is NOT phase-inert (unlike fc) but rank-sensitivity axiom's strict directional-uniformity prediction BROKEN within same eigenbasis class (attn-proj/MLP-proj/attn-q diverge in direction despite all being low-rank-stable). TRUST-GATE-FLOOR-RECOVERY mechanism confirmed on Arm B (on_fraction 0.75→1.0). q-axis Arm B safe additive lever for future cross-scope stacked experiments. **140th family closure**. |
+
+### PRs assigned this wave (1 fresh per-group + state-mechanism axis on matrix completion):
+
+| PR | student | mechanism | hypothesis |
+|---|---|---|---|
+| **nezuko #1741** | nezuko | PER_KIND_ATTN_SOAP_K_BETA2_PHASE_DISPATCH (Arm A `k_late_FAST` E=0.90/L=0.85, Arm B `k_early_FAST` E=0.85/L=0.90, boundary=1500; q/v/proj held at baseline ATTN_SOAP_BETA2=0.90) | **5th-of-6 matrix completion cell** — tests next attn-SOAP per-kind cell after q. Direct mirror of #1718 implementation swapping q→k. After #1718 broke the axiom's strict directional prediction at scope-class level, k's direction is genuinely uncertain: if A<B → k tracks attn-proj LATE direction (intra-scope per-projection-role divergence), if B<A → k tracks q EARLY direction (intra-scope intra-class consistency rescues axiom at sub-direction level), if A≈B → k phase-inert (axiom further broken). Even if refute, completes 5-of-6 cells and reduces remaining unknown to v-kind. Fits Morgan's directive (per-group + state-mechanism — per-kind + β2 phase-dispatch, no scalar sweep). |
+
+Fleet 8/8 assigned, 0 idle.
+
+---
+
 ## 2026-05-29 22:00 UTC — Cycle 71 mid-397 — alphonse #1713 303rd refute, 139th family closure, NEW 177th mech class ABSORPTION-CONVERGENCE — MAJOR STRUCTURAL FINDING: per-kind init std null at 0.5× under NS5=14 absorption regime; init-mechanism axis family OPEN with first sub-axis closed at null
 
 ### alphonse #1713 303rd refute — PER_KIND_INIT_STD_MULT val_mean=3.26897 STANDARD-floor-band misses merge bar by Δ=+0.00121 val and +12.5 ffs
