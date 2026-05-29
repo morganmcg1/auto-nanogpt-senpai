@@ -97,6 +97,14 @@ def parse_args():
              "muall=musoft + non-residual block 2D weights also scaled by 1/sqrt(L); "
              "smallconst=std=1e-3 depth-independent.",
     )
+    parser.add_argument("--muon_nuc_norm_alpha", type=float, default=0.0,
+        help="Per-matrix pre-NS gradient Frobenius normalization strength applied to "
+             "post-NS Muon updates. 0.0=disabled (baseline). 1.0=full per-matrix normalization. "
+             "Applied in BOTH muon_update() and soap_ns_step() (mandatory under R5 --soap_attn stack).")
+    parser.add_argument("--muon_nuc_norm_mode", type=str, default="grad",
+        choices=["grad", "weight"],
+        help="Which Frobenius norm to use as denominator. 'grad'=||g_nesterov||_F (primary mechanism). "
+             "'weight'=||W||_F (Cell C falsifier — tests LAMB/LARS-style intervention).")
     args = parser.parse_args()
     args.num_trials = args.num_trials if args.num_trials is not None else (args.legacy_num_trials or 1)
     args.wandb_tags = [tag.strip() for tag in args.wandb_tags.split(",") if tag.strip()]
@@ -107,6 +115,8 @@ def parse_args():
 
 args = parse_args()
 NS_ITER = args.ns_iter
+MUON_NUC_NORM_ALPHA = args.muon_nuc_norm_alpha
+MUON_NUC_NORM_MODE = args.muon_nuc_norm_mode
 
 
 def clean_metric_name(name: str) -> str:
@@ -514,19 +524,41 @@ def zeropower_via_newtonschulz5(G: Tensor) -> Tensor:
     return X
 
 @torch.compile
-def muon_update(grad, momentum, mu=0.95, nesterov=True):
+def muon_update(grad, momentum, mu=0.95, nesterov=True, weight_ref=None):
     momentum.lerp_(grad, 1 - mu)
-    update = grad.lerp_(momentum, mu) if nesterov else momentum
-    update = zeropower_via_newtonschulz5(update)
-    update *= max(1, grad.size(-2) / grad.size(-1))**0.5
-    return update
+    g = grad.lerp_(momentum, mu) if nesterov else momentum
+    if MUON_NUC_NORM_ALPHA > 0.0:
+        if MUON_NUC_NORM_MODE == "grad":
+            ref = g.float()
+        else:  # weight
+            ref = weight_ref.float() if weight_ref is not None else g.float()
+        nfro = ref.norm() / (ref.shape[-2] * ref.shape[-1]) ** 0.5
+        denom = nfro.pow(MUON_NUC_NORM_ALPHA) + 1e-8
+    else:
+        nfro = torch.zeros((), device=grad.device, dtype=torch.float32)
+        denom = torch.ones((), device=grad.device, dtype=torch.float32)
+    update = zeropower_via_newtonschulz5(g)
+    update *= max(1, grad.size(-2) / grad.size(-1)) ** 0.5
+    update = update / denom
+    return update, nfro
 
 
 @torch.compile
-def soap_ns_step(nesterov_update):
+def soap_ns_step(nesterov_update, weight_ref=None):
+    if MUON_NUC_NORM_ALPHA > 0.0:
+        if MUON_NUC_NORM_MODE == "grad":
+            ref = nesterov_update.float()
+        else:  # weight
+            ref = weight_ref.float() if weight_ref is not None else nesterov_update.float()
+        nfro = ref.norm() / (ref.shape[-2] * ref.shape[-1]) ** 0.5
+        denom = nfro.pow(MUON_NUC_NORM_ALPHA) + 1e-8
+    else:
+        nfro = torch.zeros((), device=nesterov_update.device, dtype=torch.float32)
+        denom = torch.ones((), device=nesterov_update.device, dtype=torch.float32)
     update = zeropower_via_newtonschulz5(nesterov_update)
-    update *= max(1, nesterov_update.size(-2) / nesterov_update.size(-1))**0.5
-    return update
+    update *= max(1, nesterov_update.size(-2) / nesterov_update.size(-1)) ** 0.5
+    update = update / denom
+    return update, nfro
 
 
 def soap_eigenbasis(mat: Tensor) -> Tensor:
@@ -608,6 +640,7 @@ class Muon(torch.optim.Optimizer):
         self.trust_threshold = float(trust_threshold)
         self.use_trust_gate = soap_attn
         self.cos_sims_buffer: dict[str, Tensor] = {}
+        self.nuc_scale_buffer: dict[str, Tensor] = {}
 
         param_groups = []
         for g in groups_raw:
@@ -627,6 +660,7 @@ class Muon(torch.optim.Optimizer):
     @torch.no_grad()
     def step(self):
         self.cos_sims_buffer = {}
+        self.nuc_scale_buffer = {}
         world_size = dist.get_world_size()
         rank = dist.get_rank()
         for group in self.param_groups:
@@ -651,9 +685,9 @@ class Muon(torch.optim.Optimizer):
                         state["momentum"].lerp_(p.grad, 1 - group["mu"])
                         raw_nesterov = p.grad.lerp(state["momentum"], group["mu"])
                         precond_nesterov = soap_precondition_momentum(raw_nesterov, state)
-                        u_soap = soap_ns_step(precond_nesterov)
+                        u_soap, nfro_soap = soap_ns_step(precond_nesterov, weight_ref=p.data)
                         if self.use_trust_gate:
-                            u_muon = soap_ns_step(raw_nesterov)
+                            u_muon, _ = soap_ns_step(raw_nesterov, weight_ref=p.data)
                             us = u_soap.float()
                             um = u_muon.float()
                             cos_sim_t = (us * um).sum() / (us.norm() * um.norm() + 1e-8)
@@ -662,8 +696,10 @@ class Muon(torch.optim.Optimizer):
                         else:
                             update = u_soap
                         soap_update_preconditioner(p.grad, state)
+                        self.nuc_scale_buffer[self.param_names[id(p)]] = nfro_soap
                     else:
-                        update = muon_update(p.grad, state["momentum"], mu=group["mu"])
+                        update, nfro_muon = muon_update(p.grad, state["momentum"], mu=group["mu"], weight_ref=p.data)
+                        self.nuc_scale_buffer[self.param_names[id(p)]] = nfro_muon
                     norm_sum.add_(update.float().norm())
                     p.mul_(1 - group["lr"] * group["weight_decay"])
                     p.add_(update, alpha=-group["lr"])
@@ -780,6 +816,8 @@ if dist.get_rank() == 0:
             "lr_scalars": args.lr_scalars,
             "depth_init_mode": args.depth_init_mode,
             "lr_cooldown_shape": args.lr_cooldown_shape,
+            "muon_nuc_norm_alpha": args.muon_nuc_norm_alpha,
+            "muon_nuc_norm_mode": args.muon_nuc_norm_mode,
         },
     )
 
@@ -1092,6 +1130,43 @@ for trial_idx in range(args.num_trials):
                 trust_metrics["trust/cos_sim_mean_attn"] = sum(attn_vals) / len(attn_vals)
                 trust_metrics["trust/fired_count_attn"] = fired_attn
             wandb.log(trust_metrics, step=wandb_step)
+        if dist.get_rank() == 0 and args.muon_nuc_norm_alpha > 0.0 and optimizer2.nuc_scale_buffer:
+            nuc_names = list(optimizer2.nuc_scale_buffer.keys())
+            nuc_tensors = list(optimizer2.nuc_scale_buffer.values())
+            nuc_values = torch.stack(nuc_tensors).detach().float().cpu().tolist()
+            nuc_metrics = {"trial": trial_idx, "train/step": train_step}
+            mlp_vals_nuc: list[float] = []
+            attn_vals_nuc: list[float] = []
+            for nuc_name, nuc_val in zip(nuc_names, nuc_values):
+                if any(nuc_name.endswith(suf) for suf in Muon.SOAP_ATTN_SUFFIXES):
+                    attn_vals_nuc.append(nuc_val)
+                elif any(nuc_name.endswith(suf) for suf in Muon.SOAP_MLP_SUFFIXES):
+                    mlp_vals_nuc.append(nuc_val)
+            n_nuc = len(nuc_values)
+            mean_nuc = sum(nuc_values) / n_nuc
+            var_nuc = sum((v - mean_nuc) ** 2 for v in nuc_values) / n_nuc
+            std_nuc = var_nuc ** 0.5
+            nuc_metrics["muon/nuc_scale_mean"] = mean_nuc
+            nuc_metrics["muon/nuc_scale_std"] = std_nuc
+            nuc_metrics["muon/nuc_scale_max"] = max(nuc_values)
+            nuc_metrics["muon/nuc_scale_min"] = min(nuc_values)
+            nuc_metrics["muon/nuc_scale_rel_std"] = std_nuc / (mean_nuc + 1e-12)
+            if mlp_vals_nuc:
+                m_mean = sum(mlp_vals_nuc) / len(mlp_vals_nuc)
+                m_var = sum((v - m_mean) ** 2 for v in mlp_vals_nuc) / len(mlp_vals_nuc)
+                nuc_metrics["muon/nuc_scale_mlp_mean"] = m_mean
+                nuc_metrics["muon/nuc_scale_mlp_std"] = m_var ** 0.5
+            if attn_vals_nuc:
+                a_mean = sum(attn_vals_nuc) / len(attn_vals_nuc)
+                a_var = sum((v - a_mean) ** 2 for v in attn_vals_nuc) / len(attn_vals_nuc)
+                nuc_metrics["muon/nuc_scale_attn_mean"] = a_mean
+                nuc_metrics["muon/nuc_scale_attn_std"] = a_var ** 0.5
+            if train_step == 200:
+                nuc_metrics["muon/kg1_rel_std_at_step200"] = std_nuc / (mean_nuc + 1e-12)
+                print0(f"[KG1] step=200 muon nuc_scale: mean={mean_nuc:.4e} std={std_nuc:.4e} "
+                       f"rel_std={std_nuc / (mean_nuc + 1e-12):.4f} "
+                       f"min={min(nuc_values):.4e} max={max(nuc_values):.4e}", console=True)
+            wandb.log(nuc_metrics, step=wandb_step)
         if dist.get_rank() == 0 and telemetry_due:
             log_weight_telemetry(
                 model=model,
