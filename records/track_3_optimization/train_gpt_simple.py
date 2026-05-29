@@ -80,6 +80,13 @@ def parse_args():
                              "Ablation flag for isolating paramEMA-only contribution.")
     parser.add_argument("--seed", type=int, default=1,
                         help="Random seed for torch/numpy/python. Default 1 matches baseline seed.")
+    parser.add_argument("--aux_b1_pulse_step", type=int, default=0,
+                        help="If >0, at this step set aux Adam (optimizer1) β1 to "
+                             "--aux_b1_pulse_target while leaving β2 unchanged. Pulse fires "
+                             "once and the new β1 persists for the remainder of the run. "
+                             "0=disabled.")
+    parser.add_argument("--aux_b1_pulse_target", type=float, default=0.8,
+                        help="Target β1 applied at --aux_b1_pulse_step. Canonical aux β1=0.8.")
     args = parser.parse_args()
     args.num_trials = args.num_trials if args.num_trials is not None else (args.legacy_num_trials or 1)
     args.wandb_tags = [tag.strip() for tag in args.wandb_tags.split(",") if tag.strip()]
@@ -750,6 +757,8 @@ if dist.get_rank() == 0:
             "muon_block_lr_pattern": args.muon_block_lr_pattern,
             "paramema_refresh_step": args.paramema_refresh_step,
             "paramema_refresh_only": int(args.paramema_refresh_only),
+            "aux_b1_pulse_step": args.aux_b1_pulse_step,
+            "aux_b1_pulse_target": args.aux_b1_pulse_target,
             "seed": args.seed,
         },
     )
@@ -844,6 +853,11 @@ for trial_idx in range(args.num_trials):
     ema_refresh_fired_total = 0
     ema_refresh_step_logged = -1
     lcov_refresh_fired_total = 0
+
+    aux_b1_pulse_fired_total = 0
+    aux_b1_pulse_step_logged = -1
+    aux_b1_pulse_old_b1_logged = float("nan")
+    aux_b1_pulse_new_b1_logged = float("nan")
 
     # learning rate schedule: stable then power-law cooldown (gamma = COOLDOWN_POWER)
     def compute_lr_mult(step, cooldown_frac=0.7):
@@ -1021,6 +1035,22 @@ for trial_idx in range(args.num_trials):
         train_loss = float((step_loss / batch_size).item())
         # set optimization hyperparameters and take a step
         sched_progress, sched_cooldown_progress, sched_eta = set_hparams(step)
+        # Aux Adam β1 pulse: at --aux_b1_pulse_step, swap β1 to --aux_b1_pulse_target
+        # while leaving β2 unchanged. Fires once; pulse persists for the rest of the run.
+        # The new β1 is active for the optimizer.step() that follows below.
+        if (args.aux_b1_pulse_step > 0 and step == args.aux_b1_pulse_step
+                and aux_b1_pulse_fired_total == 0):
+            for pg in optimizer1.param_groups:
+                old_b1, old_b2 = pg["betas"]
+                pg["betas"] = (args.aux_b1_pulse_target, old_b2)
+            aux_b1_pulse_fired_total = 1
+            aux_b1_pulse_step_logged = step
+            aux_b1_pulse_old_b1_logged = float(old_b1)
+            aux_b1_pulse_new_b1_logged = float(args.aux_b1_pulse_target)
+            if dist.get_rank() == 0:
+                print0(f"[step {step}] aux_b1_pulse: β1 {old_b1:.4f} → "
+                       f"{args.aux_b1_pulse_target:.4f} (β2={old_b2:.4f} unchanged)",
+                       console=True)
         train_step = step + 1
         telemetry_due = (step == 0 or (step + 1) % args.telemetry_interval == 0 or step + 1 == train_steps)
         histogram_due = (step == 0 or (step + 1) % args.histogram_interval == 0 or step + 1 == train_steps)
@@ -1159,6 +1189,19 @@ for trial_idx in range(args.num_trials):
                 "ema_refresh/only": int(args.paramema_refresh_only),
                 "lcov_refresh/fired": lcov_refresh_fired_total,
                 "lcov_refresh/target_step": -1,
+            }, step=wandb_step)
+            aux_b1_now, aux_b2_now = optimizer1.param_groups[0]["betas"]
+            wandb.log({
+                "trial": trial_idx,
+                "train/step": train_step,
+                "aux_b1_pulse/fired": aux_b1_pulse_fired_total,
+                "aux_b1_pulse/fired_step": aux_b1_pulse_step_logged,
+                "aux_b1_pulse/target_step": args.aux_b1_pulse_step,
+                "aux_b1_pulse/target_b1": args.aux_b1_pulse_target,
+                "aux_b1_pulse/old_b1": aux_b1_pulse_old_b1_logged,
+                "aux_b1_pulse/new_b1": aux_b1_pulse_new_b1_logged,
+                "aux_b1_pulse/current_b1": float(aux_b1_now),
+                "aux_b1_pulse/current_b2": float(aux_b2_now),
             }, step=wandb_step)
         if dist.get_rank() == 0 and (train_step % 100 == 0 or train_step == train_steps):
             spec = pmuon_spectral_diag(optimizer2, PMUON_GAMMA)
