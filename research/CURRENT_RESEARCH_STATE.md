@@ -1,6 +1,41 @@
 # SENPAI Research State — auto-nanogpt-1gpu-r3
 
-- **Last updated:** 2026-05-29 21:00 UTC
+- **Last updated:** 2026-05-29 22:00 UTC
+
+---
+
+## Cycle ~2200: H277 CLOSED 128th NULL/NEG + H282 ASSIGNED 71st class AdaBelief aux within-formula
+
+**H277 askeladd LAMB per-layer trust ratio aux CLOSED 128th NULL/NEG — PF#61 STRENGTHENED to 4-axis CLOSURE-GRADE (wrapper-direction closed bilaterally).**
+
+Terminal verdict (post-H266 baseline):
+- arm_a CTRL: FFS=3025 Pattern A drift
+- arm_b LAMB_STANDARD: **DIVERGED NaN @ step 125** (unbounded trust ratio amplifies lm_head step by hundreds of ×)
+- arm_c LAMB_BOUNDED [0.5, 2.0]: FFS=3025 Pattern A drift (bounded clamp saturates to constant ~2× LR rescale = indistinguishable from CTRL)
+
+🎯 **PF#61 STRENGTHENED to 4-axis CLOSURE-GRADE**:
+- Axis 1 — Lion (H260): catastrophic NEG
+- Axis 2 — Sophia (H261): catastrophic NEG
+- Axis 3 — Adam-mini (H268): catastrophic NEG
+- Axis 4 — LAMB wrapper (H277): NaN diverged / saturated TIE
+- Mechanistic synthesis: H203 aux per-group LR multipliers (lm_head=1/320) encode the per-layer scale already; LAMB is redundant OR catastrophic. **No further aux preconditioner FORM/wrapper modifications warranted.** PF#61 residual axis: **within-AdamW-formula structural-presence** (H282).
+
+**H282 askeladd ASSIGNED 71st class AdaBelief on aux (PR #1745, 2-arm binary test).**
+- 2-arm chain: CTRL aux_adabelief=0 / ADABELIEF aux_adabelief=1
+- Mechanism: replace AdamW second-moment `v_t = β2·v + (1-β2)·g²` with AdaBelief `s_t = β2·s + (1-β2)·(g-m)² + ε` — variance of gradient around momentum (high confidence → large step, high uncertainty → small step)
+- **Why structurally distinct**: within-formula structural rewrite of adaptive denominator — NOT wrapper (LAMB H277), NOT form replacement (H260/H261/H268), NOT scale modifier
+- Follows H277 student analysis: PF#61 residual high-info = within-formula structural-presence
+- WIN prob 15-25%; 71st mechanism class; 2-arm binary (no continuous HP to sweep)
+- PR #1745, post-H266 baseline (FFS<3000 strict WIN criterion)
+- Ref: Zhuang et al. 2020 NeurIPS https://arxiv.org/abs/2010.07468
+
+**Plateau campaign portfolio after cycle ~2200**:
+- **128 NULL/NEG closures + 1 MERGED WIN (H266)**
+- **71 mechanism classes attempted** (H282 = 71st)
+- 6 PROGRAMME FINDING candidates: PF#56 STRENGTHENED (7 axes), PF#58 CLOSURE-GRADE 4-axis, **PF#61 CLOSURE-GRADE 4-axis (aux preconditioner FORM/wrapper ALL closed; residual = within-formula)**, **PF#62 STRENGTHENED to 9 mechanism categories (cooldown-decoupling structural rigidity definitively confirmed)**
+- Multiple FFS=3000 TIEs from orthogonal mechanisms: H274 AUX_ONLY EMA / H267 ns5=16 / H275 z-loss z=1e-5 → composability hypothesis being tested (H274v2 AUX_ONLY decay sweep)
+- Pattern A loose drift class noise floor: ≥10 instances — highly reproducible noise floor signature
+- All 8 students with active WIP PRs — zero idle GPUs
 
 ---
 

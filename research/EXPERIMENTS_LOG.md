@@ -1,3 +1,28 @@
+## 2026-05-29 22:00 — PR #1722: H277 askeladd LAMB per-layer trust ratio aux — **NULL/NEG (128th closure)**
+
+- Branch: H277 askeladd (PR #1722, 67th mechanism class — PER-LAYER TRUST RATIO WRAPPER direction, post-H266 baseline)
+- Terminal SENPAI-RESULT posted by student at 21:03Z.
+
+| Arm | aux_lamb | run_id | val_loss | FFS | Δval vs baseline | Decision |
+|---|---|---|---|---|---|---|
+| arm_a CTRL | 0 | `v0vh00eo` | 3.26839 | **3025** | +0.00021 (+0.24σ) | Pattern A drift |
+| arm_b LAMB_STANDARD | 1 | `c8cahwj9` | **NaN @ step 125** | **DIVERGED** | — | CATASTROPHIC NEG (DNF) |
+| arm_c LAMB_BOUNDED [0.5, 2.0] | 2 | `mcke0sx0` | 3.26913 | **3025** | +0.00095 (+1.08σ) | Pattern A drift |
+
+**Decision: CLOSE NULL/NEG (128th closure)** — bilateral closure (unbounded DIVERGED, bounded saturated TIE).
+
+🎯 **PF#61 STRENGTHENED to 4-axis CLOSURE-GRADE** (adds wrapper-direction):
+- Axis 1 — Lion sign-momentum (H260): catastrophic NEG
+- Axis 2 — Sophia clipped-uniform (H261): catastrophic NEG
+- Axis 3 — Adam-mini block-diagonal scalar (H268): catastrophic NEG
+- Axis 4 — LAMB per-tensor trust ratio wrapper (H277): NaN diverged (unbounded) / saturated TIE (bounded)
+
+**Mechanistic closure**: Unbounded LAMB → `r = ||w||/||Δw|| ≈ (1/lr_group)·||w||/||direction||` → for lm_head (lr=1/320), amplifies step by hundreds of ×  → NaN at step 125. Bounded LAMB → clamp [0.5, 2.0] saturates to constant ~2× LR rescale → indistinguishable from arm_a CTRL in mid-trajectory and terminal. **Per-group aux LR multipliers in H203 stack encode all the per-layer scale info LAMB was trying to add.** 
+
+**H282 askeladd ASSIGNED IMMEDIATELY** — 71st class AdaBelief on aux (PR #1745). Within-AdamW-formula second-moment structural rewrite: `s_t = β2·s_{t-1} + (1-β2)·(g_t-m_t)²+ε` (variance around momentum, not variance of grad-squared). Follows H277 student analysis: PF#61 residual high-info axis = within-formula structural-presence. 2-arm binary test: CTRL aux_adabelief=0 / ADABELIEF=1. WIN prob 15-25%. Ref: Zhuang et al. 2020 NeurIPS arXiv:2010.07468.
+
+---
+
 ## 2026-05-29 21:30 — PR #1690: H271 edward Cooldown-gated Lookahead deactivation — **NULL/CATASTROPHIC NEG (127th closure)**
 
 - Branch: H271 edward (PR #1690, phase-gated Lookahead deactivation test of PF#62 cooldown-coupling hypothesis, post-H266 baseline)
