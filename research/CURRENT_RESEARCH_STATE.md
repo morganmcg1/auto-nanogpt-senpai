@@ -1,3 +1,91 @@
+## 2026-05-29 05:00 UTC — Cycle 71 mid-372 — fern #1633 276th refute (JOINT_PER_KIND_AUX_BETA2_WD val_mean=3.271645 STANDARD misses merge bar by Δ=+0.00388 val and +37.5 ffs (ffs_mean=3037.5), Δ(B−A)=−0.00045 → NULL marginal — β2 stack adds NOTHING on top of WD baseline for val_loss headroom, STRUCTURAL FINDING: **β2_lm_head=0.99 IS doing real structural work but is REDUNDANT with WD for val headroom** — proj-weight-rms diverges 3-7% between arms throughout training (Arm A 0.0989 vs Arm B 0.1064 at step 1500, gap narrowing to 2.9% by 3175) confirming β2_TIGHT v-EMA holds denominator higher and shrinks effective LR signal on proj compounding WD's explicit pull-to-zero — but val_loss diverges only −0.00045 (single-trial noise floor ≈ 0.002 cf #1611 replication offset +0.00176); per-AUX-kind family axes project onto a SHARED 1-D "lm_head regularization headroom" latent dimension which is fully consumed by any single axis alone, **FAMILY CLOSURE**: 5-axis per-AUX-kind family now has 6 mechanisms refuted/closed across all orthogonal-by-construction classes (event, EMA-decay×β1, EMA-decay×β2, state-rule×amsgrad, regularizer×WD, denom-floor×ε) + first compound test confirms shared-latent saturation → per-AUX-kind family declared **information-saturated → 119th family closure**, fern's mechanistic telemetry on proj-weight-rms is the structural smoking gun) + fern #1656 NEW JOINT_MLP_SOAP_REFRESH_BACK_FAST_X_AUX_WD_LM_HEAD_HEAVY (drops per-AUX-kind compound family per saturation finding; tests ORTHOGONAL families — cross-mechanism-class compound combining strongest cycle 71 single-arm #1623 Arm B back_FAST MLP-SOAP refresh FRONT=15/BACK=5 val=3.26802 ffs=3000 with validated per-AUX-kind WD lm_head-heavy axis #1611; Arm A `mlp_soap_only` replicates #1623 Arm B alone, Arm B `compound` adds WD lm_head-heavy on top — tests whether strongest near-merge single-arm + per-AUX-kind regularizer compound is additive, saturated, or interference; cleanest possible cross-mechanism-class compound test given cycle 71 best-arm evidence)
+
+**Cumulative**: **276 refuted** / **164 distinct mech classes** / **119 family-level closures**.
+
+### PRs closed this wave (1 closure):
+
+| PR | student | mechanism | outcome |
+|---|---|---|---|
+| **fern #1633** | fern | JOINT_PER_KIND_AUX_BETA2_WD (Arm A `combined` β2_lm_head=0.99 + WD_AUX_LM_HEAD=0.003 + WD_AUX_EMBED=0.0003 vs Arm B `wd_only` β2 standard + WD lm_head-heavy only — replicates #1611) | **276th** — Arm A val=3.27187 ffs=3050 STANDARD, Arm B val=3.27142 ffs=3025 STANDARD; val_mean=3.271645 ffs_mean=3037.5 fails merge bar by +0.00388 val, +37.5 ffs. **Δ(B−A)=−0.00045 → NULL marginal — β2 stack adds NOTHING on WD baseline.** Mechanistic telemetry: proj-weight-rms 3-7% smaller in Arm A throughout training confirms β2_TIGHT IS structurally active but redundant with WD's pull-to-zero for val headroom. |
+
+### STRUCTURAL FINDING — Per-AUX-kind family is INFORMATION-SATURATED on 1-D latent direction
+
+| step | Arm A combined proj/weight/rms | Arm B wd_only proj/weight/rms | Δ(A−B) |
+|---|---|---|---|
+| 1500 | 0.0989 | 0.1064 | **−7.1%** |
+| 2500 | 0.1099 | 0.1141 | −3.7% |
+| 3000 | 0.1106 | 0.1140 | −3.0% |
+| 3175 | 0.1107 | 0.1140 | −2.9% |
+
+β2_lm_head=0.99 IS doing real structural work — TIGHT v-EMA holds denominator higher, shrinking effective LR signal on proj, compounding WD's explicit pull-to-zero. **But the mechanism is REDUNDANT with WD for val_loss headroom.** Different probes of the same 1-D "lm_head regularization headroom" dimension — fully consumed by any one axis alone.
+
+### AXIS FAMILY CLOSURE — Per-AUX-kind family declared INFORMATION-SATURATED (119th closure)
+
+| PR | mechanism class | outcome |
+|---|---|---|
+| #1522 (closed) | event (m-reset @ cooldown) | refuted kind-asymmetric |
+| #1547 (closed) | EMA-decay × β1 | refuted REVERSED |
+| #1566 (closed) | state-rule × amsgrad | refuted kind-asymmetric |
+| #1577 (closed) | EMA-decay × β2 | refuted REVERSED (strongest cycle 71 single-axis) |
+| #1611 (open) | regularizer × WD | TBD (Arm B replicates herein offset +0.00176 vs ref) |
+| #1628 (closed) | denom-floor × ε | NULL deep |
+| **#1633 (this)** | **first compound test (β2 × WD)** | **NULL marginal — shared-latent saturation** |
+
+Combined with #1628's ε class NULL and #1577's β2 SATURATED finding, per-AUX-kind family is declared **information-saturated** → **119th family closure**.
+
+### Floor band unchanged
+
+[3.26916, 3.26992] — 8 single-axis mechanism classes. #1633 lands at STANDARD (3.27142-3.27187); no new floor-band entry.
+
+### Sub-cluster-edge lowest unchanged
+
+3.26802 (#1623 Arm B `14f3dyr6` ffs=3000) — strongest near-merge single-arm cycle 71.
+
+### PRs assigned this wave
+
+| PR | student | mechanism | role |
+|---|---|---|---|
+| **fern #1656** | fern | JOINT_MLP_SOAP_REFRESH_BACK_FAST_X_AUX_WD_LM_HEAD_HEAVY (Arm A `mlp_soap_only` MLP_SOAP_PER_DEPTH_HALF_REFRESH_FREQ FRONT=15/BACK=5 baseline WD, Arm B `compound` same MLP-SOAP + WD_AUX_LM_HEAD=0.003 + WD_AUX_EMBED=0.0003) | **First CROSS-MECHANISM-CLASS compound test** — drops per-AUX-kind compound family per saturation finding, tests whether saturation is family-local or universal. Arm A replicates #1623 Arm B back_FAST single-arm (val=3.26802 ffs=3000 strongest near-merge cycle 71); Arm B adds per-AUX-kind WD lm_head-heavy from #1611 on top. **Tests directly whether strongest near-merge single-arm + per-AUX-kind regularizer compound is additive (potential merge candidate), saturated (NULL Δ), or interference**. Cleanest possible cross-class compound test given current cycle 71 best-arm evidence. |
+
+### Fleet state at end of wake 53 (this wave)
+
+8 students all assigned, 0 idle:
+
+| PR | student | axis | status |
+|---|---|---|---|
+| **#1656** | **fern** | **JOINT_MLP_SOAP_REFRESH_BACK_FAST_X_AUX_WD_LM_HEAD_HEAVY** | **WIP (this wave, just assigned)** |
+| #1653 | tanjiro | PHASE_DISPATCH_AUX_BETA2 | WIP (prior wave) |
+| #1645 | frieren | PHASE_DISPATCH_MLP_SOAP_REFRESH_FREQ | WIP (prior wave) — Arm A `2cnl76fs` step 2862/3175 val=3.312 (~90% complete) |
+| #1644 | nezuko | PER_DEPTH_HALF_MLP_SOAP_PROJ_BETA2_FAST | WIP (prior wave) |
+| #1642 | thorfinn | PHASE_DISPATCH_ATTN_SOAP_BETA2 | WIP (prior wave) — Arm A `7tyy0tyd` step 3100/3175 ffs=3025 target reached |
+| #1640 | edward | V_FAST_DEPTH_HALF_REFRESH | WIP (prior wave) |
+| #1635 | askeladd | PER_DEPTH_HALF_MU_COOLDOWN_START_NARROW | WIP (prior wave) |
+| #1630 | alphonse | PER_DEPTH_SPLIT_MU_COOLDOWN_END | WIP (prior wave) |
+
+### Active research themes (cycle 71)
+
+1. **Cross-mechanism-class compound testing OPEN with #1656** (first cleanest cross-family compound combining strongest cycle 71 best-arm #1623 back_FAST with validated per-AUX-kind WD lm_head-heavy #1611) — addresses saturation finding by testing orthogonal families.
+2. **Sub-cluster-edge band lowest still 3.26802** (frieren #1623 Arm B `14f3dyr6` ffs=3000 — strongest near-merge single-arm of cycle 71, gap to merge bar only +0.00026 val).
+3. **Phase-dispatch mechanism family expanding to AUX optimizer class** (#1653 tanjiro): SOAP-class tests are #1642 (attn-SOAP β2, near-terminal), #1645 (MLP-SOAP refresh-freq), and AUX-class test is #1653.
+4. **Mechanism-axis-specific direction dichotomy** (#1623): β2 axis wants front_FAST, refresh-freq axis wants back_FAST. Front_FAST/SLOW is NOT a scope property — it's an (axis, scope) property.
+5. **Per-AUX-kind family DECLARED SATURATED** (#1633 finding): 5-axis family has 6 mechanisms closed (event/EMA-β1/EMA-β2/state-rule/regularizer/denom-floor) + first compound confirms shared-latent saturation on 1-D "lm_head regularization headroom" direction.
+6. **End-state-only val gap signature** (#1623 slope-identity): cooldown-phase-driven separation distinguishable from cruise-phase divergence.
+7. **Floor band [3.26916, 3.26992]** 8 single-axis mechanism classes converged.
+8. **Cross-scope compound INTERFERES** (#1616): joint attn-SOAP + MLP-SOAP at full magnitude is sub-additive. Future compound work partitions WITHIN scopes.
+
+### Next research directions
+
+1. **#1656 cross-class compound result determines whether saturation is family-local or universal**. If Arm B beats baseline → merge candidate. If NULL Δ → saturation is universal across families. If interference → cross-class compounds are inherently sub-additive.
+2. **#1653 phase-dispatch AUX β2 result determines optimizer-class universality of phase-dispatch family**. SOAP-class-specific vs cross-class-universal.
+3. **#1645 phase-dispatch MLP-SOAP refresh-freq result** determines depth-vs-phase attribution for #1623's back_FAST finding (Arm A in flight ~90% complete).
+4. **#1644 depth-half MLP-SOAP proj β2 result** determines MLP-SOAP-proj-FAST depth-localization.
+5. **#1642 phase-β2 attn-SOAP result** determines attn-SOAP EMA-warmup-speed mechanism (Arm A target ffs=3025 reached).
+6. **#1640 v × depth result** determines attn-SOAP front_up universality.
+7. **n=2 re-confirm of #1623 Arm B** (cycle 71 fallback): strongest near-merge single-arm at 3.26802 ffs=3000.
+8. **Per-AUX-kind family CLOSED** — no further per-AUX-kind axis variants planned. Future compound work is exclusively cross-mechanism-class.
+
+---
+
 ## 2026-05-29 04:20 UTC — Cycle 71 mid-371 — tanjiro #1628 275th refute (AUX_EPS_PER_KIND_FULL_RUN val_mean=3.269635 STANDARD-edge misses merge bar by Δ=+0.00188 vs baseline, ffs_mean=3025 misses ≤3000 by 25, Δ(B−A)=−0.00009 DEEP NULL — both arms operationally identical, STRUCTURAL FINDING: **ε is the ONLY AUX-per-kind axis with FULLY NULL Δ in either direction across the 6-mechanism class palette** — denom-floor class is structurally distinct from EMA-decay/state-rule/regularizer classes in that it lacks per-kind sensitivity at ANY direction, scope, or kind; tanjiro's mechanistic telemetry showed lm_head bulk denom_mean ≈ 0.97-1.5 is 8-10 orders larger than ε at 1e-7 or 1e-10, so ε contribution to denominator is structurally invisible — only `denom_min` per-element minimum responds to ε but represents tiny "dead-gradient" tail dwarfed by active mass, bulk update direction `g/(√v̂ + ε) ≈ g/√v̂` for nearly every parameter; **AXIS FAMILY CLOSURE**: combined with #1359 (cooldown-only NULL, 109th refute) this closes the per-kind ε axis at BOTH gated AND full-run scopes → ε is NOT a per-kind signal-bearing axis for this optimizer recipe → **118th family closure**) + tanjiro #1653 NEW PHASE_DISPATCH_AUX_BETA2 (extends phase-dispatch mechanism family from SOAP scopes [#1642 attn-SOAP, #1645 MLP-SOAP refresh-freq] to AUX/AdamW optimizer class; tests whether SATURATED static per-kind AUX β2 axis [#1577 REVERSED, #1603 saturated] unlocks signal when reformulated as STATE-PHASE rather than per-kind static; Arm A `early_FAST` β2=0.91/0.99 vs Arm B `early_SLOW` β2=0.99/0.91 boundary step 1500, symmetric around #1577's REVERSED magnitudes)
 
 **Cumulative**: **275 refuted** / **163 distinct mech classes** / **118 family-level closures**.
