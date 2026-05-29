@@ -454,6 +454,16 @@ MU_COOLDOWN_END = float(os.environ.get("MU_COOLDOWN_END", "0.95"))
 # entirely and exactly reproduces the prior cooldown-only schedule.
 MU_WARMUP_STEPS = int(os.environ.get("MU_WARMUP_STEPS", "0"))
 MU_WARMUP_START = float(os.environ.get("MU_WARMUP_START", "0.85"))
+# Per-depth-half MU_COOLDOWN_START dispatch (PR #1657 / replicates #1613, #1635
+# infrastructure). When enabled, FRONT half blocks (block_idx < DEPTH_SPLIT)
+# use MU_COOLDOWN_START_FRONT and BACK half blocks use MU_COOLDOWN_START_BACK
+# as their plateau Muon momentum, replacing the global MU_COOLDOWN_START during
+# warmup, plateau, and cooldown phases. When disabled, all Muon block params
+# share the global MU_COOLDOWN_START as before.
+PER_DEPTH_HALF_MU_COOLDOWN_START_ENABLED = int(os.environ.get("PER_DEPTH_HALF_MU_COOLDOWN_START_ENABLED", "0"))
+MU_COOLDOWN_START_FRONT = float(os.environ.get("MU_COOLDOWN_START_FRONT", str(MU_COOLDOWN_START)))
+MU_COOLDOWN_START_BACK = float(os.environ.get("MU_COOLDOWN_START_BACK", str(MU_COOLDOWN_START)))
+MU_COOLDOWN_START_DEPTH_SPLIT = int(os.environ.get("MU_COOLDOWN_START_DEPTH_SPLIT", "6"))
 MUON_LR = float(os.environ.get("MUON_LR", "0.0375"))
 MUON_WEIGHT_DECAY = 0.025  # nominal; Muon.step does not apply explicit wd (u/w-floor replaces it)
 TARGET_UW = 0.35
@@ -855,6 +865,10 @@ if dist.get_rank() == 0:
             "optimizer/mu_cooldown_end": MU_COOLDOWN_END,
             "optimizer/mu_warmup_steps": MU_WARMUP_STEPS,
             "optimizer/mu_warmup_start": MU_WARMUP_START,
+            "optimizer/per_depth_half_mu_cooldown_start_enabled": int(PER_DEPTH_HALF_MU_COOLDOWN_START_ENABLED),
+            "optimizer/mu_cooldown_start_front": MU_COOLDOWN_START_FRONT,
+            "optimizer/mu_cooldown_start_back": MU_COOLDOWN_START_BACK,
+            "optimizer/mu_cooldown_start_depth_split": MU_COOLDOWN_START_DEPTH_SPLIT,
             "optimizer/muon_lr": MUON_LR,
             "optimizer/muon_weight_decay_nominal": MUON_WEIGHT_DECAY,
             "optimizer/target_uw": TARGET_UW,
@@ -902,9 +916,34 @@ for trial_idx in range(args.num_trials):
                         dict(params=[model.proj.weight], lr=1/320, name="adam_lm_head", weight_decay=WD_AUX),
                         dict(params=[p for p in model.parameters() if p.ndim < 2], lr=0.01, name="adam_scalars")],
                        betas=(0.8, 0.95), eps=1e-10, weight_decay=0, fused=True)
-    optimizer2 = Muon([(n, p) for n, p in model.blocks.named_parameters() if p.ndim >= 2],
-                      lr=MUON_LR, weight_decay=MUON_WEIGHT_DECAY, mu=MU)
-    optimizer2.param_groups[0]["name"] = "muon_blocks"
+    muon_named_params = [(n, p) for n, p in model.blocks.named_parameters() if p.ndim >= 2]
+    optimizer2 = Muon(muon_named_params, lr=MUON_LR, weight_decay=MUON_WEIGHT_DECAY, mu=MU)
+    if PER_DEPTH_HALF_MU_COOLDOWN_START_ENABLED:
+        # Split the single Muon param group into FRONT (block_idx < DEPTH_SPLIT)
+        # and BACK groups, preserving the size-sorted ordering inherited from
+        # Muon.__init__. Muon.step() and SOAP/attn-SOAP membership look at the
+        # full named_params, so splitting the param_groups list is sufficient.
+        block_idx_by_id = {id(p): int(n.split(".", 1)[0]) for n, p in muon_named_params}
+        base_group = optimizer2.param_groups[0]
+        front_params = [p for p in base_group["params"]
+                        if block_idx_by_id[id(p)] < MU_COOLDOWN_START_DEPTH_SPLIT]
+        back_params = [p for p in base_group["params"]
+                       if block_idx_by_id[id(p)] >= MU_COOLDOWN_START_DEPTH_SPLIT]
+        assert len(front_params) > 0 and len(back_params) > 0, (
+            f"PER_DEPTH_HALF split={MU_COOLDOWN_START_DEPTH_SPLIT} produced empty half "
+            f"(front={len(front_params)}, back={len(back_params)})"
+        )
+        optimizer2.param_groups = [
+            {**base_group, "params": front_params, "name": "muon_blocks_front",
+             "mu": MU_COOLDOWN_START_FRONT},
+            {**base_group, "params": back_params, "name": "muon_blocks_back",
+             "mu": MU_COOLDOWN_START_BACK},
+        ]
+    else:
+        optimizer2.param_groups[0]["name"] = "muon_blocks"
+    print0(f"[MU_COOLDOWN_START_DEPTH_HALF] enabled={PER_DEPTH_HALF_MU_COOLDOWN_START_ENABLED} "
+           f"front={MU_COOLDOWN_START_FRONT} back={MU_COOLDOWN_START_BACK} "
+           f"split={MU_COOLDOWN_START_DEPTH_SPLIT} mu_cooldown_start={MU_COOLDOWN_START}", console=True)
     optimizers = [optimizer1, optimizer2]
     assert set(p for opt in optimizers for group in opt.param_groups
                for p in group["params"]) == set(model.parameters())
@@ -920,22 +959,33 @@ for trial_idx in range(args.num_trials):
             eta = 1.0
         else:
             eta = (1 - progress) / cooldown_frac
-        if MU_COOLDOWN_ENABLED:
+        def _schedule_mu(plateau_value):
             if step < MU_WARMUP_STEPS:
                 w = step / MU_WARMUP_STEPS
-                cur_mu = MU_WARMUP_START + (MU_COOLDOWN_START - MU_WARMUP_START) * w
+                return MU_WARMUP_START + (plateau_value - MU_WARMUP_START) * w
             elif progress < 1 - cooldown_frac:
-                cur_mu = MU_COOLDOWN_START
+                return plateau_value
             else:
                 t = (progress - (1 - cooldown_frac)) / cooldown_frac
-                cur_mu = MU_COOLDOWN_START + (MU_COOLDOWN_END - MU_COOLDOWN_START) * t
+                return plateau_value + (MU_COOLDOWN_END - plateau_value) * t
+        if MU_COOLDOWN_ENABLED:
+            cur_mu = _schedule_mu(MU_COOLDOWN_START)
+            cur_mu_front = _schedule_mu(MU_COOLDOWN_START_FRONT)
+            cur_mu_back = _schedule_mu(MU_COOLDOWN_START_BACK)
         else:
             cur_mu = MU + (MU_END - MU) * progress
+            cur_mu_front = cur_mu
+            cur_mu_back = cur_mu
         for opt in optimizers:
             for group in opt.param_groups:
                 group["lr"] = group["initial_lr"] * eta
-                if group.get("name") == "muon_blocks":
+                name = group.get("name")
+                if name == "muon_blocks":
                     group["mu"] = cur_mu
+                elif name == "muon_blocks_front":
+                    group["mu"] = cur_mu_front
+                elif name == "muon_blocks_back":
+                    group["mu"] = cur_mu_back
 
 
     ########################################
