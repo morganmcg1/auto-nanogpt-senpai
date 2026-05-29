@@ -84,6 +84,15 @@ def parse_args():
     parser.add_argument('--aux_b2_pulse_target', type=float, default=0.99,
                         help='New aux Adam β2 value to set at --aux_b2_pulse_step. '
                              '0 or negative disables. Default: 0.99 (canonical WIN).')
+    parser.add_argument('--aux_lr_boost_start', type=int, default=-1,
+                        help='Step at which to begin aux Adam LR boost (multiplicative on all '
+                             'three aux groups). -1 disables (default).')
+    parser.add_argument('--aux_lr_boost_end', type=int, default=-1,
+                        help='Step at which to end aux Adam LR boost (boost active for '
+                             '[start, end)). -1 disables (default).')
+    parser.add_argument('--aux_lr_boost_factor', type=float, default=1.0,
+                        help='Multiplicative factor applied uniformly to all three aux Adam '
+                             'group LRs during the boost window. 1.0 disables (default).')
     parser.add_argument("--seed", type=int, default=1,
                         help="Random seed for torch/numpy/python. Default 1 matches baseline seed.")
     args = parser.parse_args()
@@ -758,6 +767,9 @@ if dist.get_rank() == 0:
             "paramema_refresh_only": int(args.paramema_refresh_only),
             "aux_b2_pulse_step": args.aux_b2_pulse_step,
             "aux_b2_pulse_target": args.aux_b2_pulse_target,
+            "aux_lr_boost_start": args.aux_lr_boost_start,
+            "aux_lr_boost_end": args.aux_lr_boost_end,
+            "aux_lr_boost_factor": args.aux_lr_boost_factor,
             "seed": args.seed,
         },
     )
@@ -1064,6 +1076,26 @@ for trial_idx in range(args.num_trials):
                 group["betas"] = new_betas
             print0(f"[step {step}] aux_b2_pulse: β2 {old_b2} → {args.aux_b2_pulse_target}",
                    console=True)
+        # Aux Adam LR boost: multiplicatively scale all three aux groups during
+        # [start, end). Applied AFTER set_hparams() so the boost rides on top of
+        # the cooldown schedule. boost_factor=1.0 outside window = no-op.
+        aux_lr_boost_active = (args.aux_lr_boost_start >= 0
+                               and args.aux_lr_boost_end > args.aux_lr_boost_start
+                               and args.aux_lr_boost_factor != 1.0
+                               and args.aux_lr_boost_start <= step < args.aux_lr_boost_end)
+        aux_lr_boost_factor_now = args.aux_lr_boost_factor if aux_lr_boost_active else 1.0
+        if aux_lr_boost_active:
+            for group in optimizer1.param_groups:
+                group["lr"] *= args.aux_lr_boost_factor
+            if step == args.aux_lr_boost_start:
+                print0(f"[step {step}] aux_lr_boost: factor {args.aux_lr_boost_factor} "
+                       f"applied to aux Adam groups for steps "
+                       f"[{args.aux_lr_boost_start}, {args.aux_lr_boost_end})",
+                       console=True)
+            if step == args.aux_lr_boost_end - 1:
+                print0(f"[step {step}] aux_lr_boost: final boosted step "
+                       f"(boost ends at step {args.aux_lr_boost_end})",
+                       console=True)
         for opt in optimizers:
             opt.step()
         # EMA buffer update on body-Muon matrix params.
@@ -1182,6 +1214,24 @@ for trial_idx in range(args.num_trials):
                 "aux_b2/fired": int(args.aux_b2_pulse_step > 0
                                     and args.aux_b2_pulse_target > 0.0
                                     and step >= args.aux_b2_pulse_step),
+            }, step=wandb_step)
+            # Aux Adam LR boost telemetry: emit boost_factor (1.0 outside
+            # window, configured factor inside) and per-group effective LRs.
+            # Effective LRs are read from optimizer1.param_groups AFTER
+            # set_hparams() AND the boost have been applied, so they include
+            # both the cooldown schedule and the boost multiplier.
+            aux_group_lrs = {g["name"]: g["lr"] for g in optimizer1.param_groups}
+            wandb.log({
+                "trial": trial_idx,
+                "train/step": train_step,
+                "aux_lr/boost_factor": aux_lr_boost_factor_now,
+                "aux_lr/boost_active": int(aux_lr_boost_active),
+                "aux_lr/boost_start": args.aux_lr_boost_start,
+                "aux_lr/boost_end": args.aux_lr_boost_end,
+                "aux_lr/boost_factor_param": args.aux_lr_boost_factor,
+                "aux_lr/embed_effective": aux_group_lrs.get("adam_embed", float("nan")),
+                "aux_lr/lm_head_effective": aux_group_lrs.get("adam_lm_head", float("nan")),
+                "aux_lr/scalars_effective": aux_group_lrs.get("adam_scalars", float("nan")),
             }, step=wandb_step)
         if dist.get_rank() == 0 and (train_step % 100 == 0 or train_step == train_steps):
             spec = pmuon_spectral_diag(optimizer2, PMUON_GAMMA)
