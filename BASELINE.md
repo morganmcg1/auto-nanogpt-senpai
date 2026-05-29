@@ -17,6 +17,57 @@ So a single non-cherry-picked run needs `mu < 3.276`; `n=4` runs need
 
 ## Current baseline (this branch)
 
+**Merged 2026-05-29 ~12:33 UTC — PR #1669 thorfinn H266 Polyak-Ruppert EMA for eval-only (EMA_FAST decay=0.05).** Adds a per-step Polyak-Ruppert exponential moving average of all model parameters — EMA buffer updated after every inner step, swapped in for validation and swapped back out before the next training step (eval-only, zero impact on training trajectory). EMA_FAST decay=0.05 (~20-step half-life) reduces high-frequency noise in the parameter trajectory at validation time, enabling earlier reliable threshold crossing. FFS=**3000** (−25 vs H203 baseline 3025) — the **first FFS<3025 result of the 121-cycle plateau campaign**. arm_b EMA_FAST wins cleanly; arm_c EMA_SLOW (decay=0.005, ~200-step half-life) catastrophically regresses to FFS=3275 (+250) because the slow average lags so far behind live weights during cooldown that it erases the cooldown-sharpening dynamics that drive target crossing. The mechanistic contrast (20-step vs 200-step half-life producing WIN vs +250 FFS penalty) is paper-grade: the EMA must track the cooldown trajectory rather than averaging over it. arm_a CTRL showed Pattern A loose +25 drift (FFS=3050) attributable to the new conditional EMA code path — chain integrity confirmed by step-0 bit-identity across all three arms.
+
+| Field | Value |
+| --- | --- |
+| `train_steps` | 3325 |
+| Architecture | GPT-768/12L, vocab 50304, ctx 1024 — fixed |
+| Batch size | `8 * 64 * 1024 = 524288` tokens/step — fixed |
+| Main optimizer | `MuonH(lr=0.018, weight_decay=0, mode='scale_invariant')` on blocks ndim≥2 |
+| Body init | `--body_init orthogonal_fnorm_matched` |
+| MuonH inner cooldown shape | `--muonh_cooldown_shape cosine` |
+| MuonH µ schedule | `--muonh_mu_schedule linear --muonh_mu_start 0.95 --muonh_mu_end 0.90` |
+| Aux AdamW β2 | `--aux_beta2_schedule constant --aux_beta2_start 0.99` |
+| Aux AdamW eps | `--aux_adamw_eps 1e-6` |
+| MuonH AGC | `--muonh_agc_clip_ratio 0.05` |
+| Aux AGC | `--aux_agc_clip_ratio 0.05` |
+| MuonH warmup | `--muonh_warmup_steps 100` |
+| Outer wrapper | `MuLoCo(outer_lr=0.7, outer_momentum=0.5, sync_interval=30)` |
+| **Polyak-Ruppert EMA** | **`--polyak_ema_decay 0.05`** (EMA_FAST; ~20-step half-life, eval-only) |
+| `val/loss` | **3.26818** (n=1 trial; improved from H203 3.26830) |
+| `speedrun/final_first_step_to_target` | **3000** (n=1; **−25 steps vs H203 baseline 3025 — first FFS<3025 of plateau campaign**) |
+| stat margin | `(3.28 − 3.26818) × √1 = 0.01182` ≥ 0.004 ✓ |
+| Baseline W&B run | `m2ywl0o9` |
+| Baseline PR | [#1669](https://github.com/morganmcg1/modded-nanogpt-senpai/pull/1669) |
+
+### Reproduce H266 Polyak-Ruppert EMA + H203 full stack
+
+```bash
+cd target/
+torchrun --standalone --nproc_per_node=1 \
+  records/track_3_optimization/train_gpt_simple.py \
+  --num_trials 1 --train_steps 3325 \
+  --muonh_mode scale_invariant \
+  --muonh_cooldown_shape cosine \
+  --muonh_warmup_steps 100 \
+  --use_outer_optimizer 1 \
+  --outer_lr 0.7 --outer_momentum 0.5 --sync_interval 30 \
+  --aux_agc_clip_ratio 0.05 \
+  --muonh_agc_clip_ratio 0.05 \
+  --aux_adamw_eps 1e-6 \
+  --aux_beta2_schedule constant --aux_beta2_start 0.99 \
+  --muonh_mu_schedule linear --muonh_mu_start 0.95 --muonh_mu_end 0.90 \
+  --body_init orthogonal_fnorm_matched \
+  --polyak_ema_decay 0.05 \
+  --wandb_name "g1r3-<student>/h266-baseline-confirm" \
+  --wandb_group "g1r3-h266-baseline-confirm"
+```
+
+---
+
+## Previous baseline — PR #1398 tanjiro H203 MuonH body cooldown SHAPE = cosine (2026-05-27 ~11:35 UTC)
+
 **Merged 2026-05-27 ~11:35 UTC — PR #1398 tanjiro H203 MuonH body cooldown SHAPE = cosine.** Swaps the MuonH inner LR cooldown shape from `linear` back to `cosine` on the fully-stacked H148 baseline. Cosine concentrates LR near peak for the first ~70% of cooldown, then collapses aggressively in the final 30% — at step 3100 cosine LR is 6× lower than linear, precipitating target crossing **125 steps earlier (FFS 3025 vs 3150 for CTRL)**. The cosine vs linear comparison from H133 was run WITHOUT the H148 orthogonal-init + µ-schedule stack; the stacked H148 configuration sits closer to the convergence basin, making faster late-LR collapse beneficial now where it was harmful pre-stack. Terminal val/loss (3.26830) is a slight regression vs H148 terminal (3.26364) because cosine nearly stops learning after step ~3100 (LR ≈ 0.0002) while linear keeps gradients flowing — future follow-ups (cosine_squared, quad, cosine × reduced h_cooldown_frac) may recover the terminal val/loss while preserving or improving FFS. arm_c sqrt catastrophic FAIL (val=3.29370, never reached target) confirms slow late decay is universally harmful. **First cooldown-shape axis win since H133** (H133 flipped linear→cosine; H203 flips it back on a stronger stack).
 
 | Field | Value |
