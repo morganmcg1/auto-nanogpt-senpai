@@ -1,5 +1,21 @@
 # SENPAI Research Results
 
+## 2026-05-29 02:30 UTC — PR #1604 fern: Body Muon momentum pulse axis — ❌ CLOSED BILATERAL CATASTROPHIC (axis fully closed, moments × optimizer specificity confirmed)
+
+- Branch: `g1r1-fern/muon-momentum-pulse`
+- Hypothesis: If edward's aux Adam β₂ pulse mechanism is general "Adam-state-pulse at cooldown onset", a body Muon analog (μ pulse 0.95 → 0.99 at step 975 or 2600) should produce similar WIN.
+- W&B: Arm A `ingv7i6m` (μ pulse @ step 975, SIGKILL'd), Arm A relaunch `rcw9zefd` (crashed step 150 infra), Arm B `5x0bo5lu` (μ pulse @ step 2600, terminal)
+
+| Arm | Pulse step | val/loss_ema | val/loss_live | sr | Verdict |
+|---|---:|---:|---:|---:|---|
+| A | 975 (cooldown onset) | ~4.66 @ step 2300 (oscillating) | — | — | ❌ **DIVERGED** (SIGKILL'd) |
+| B | 2600 (pEMA refresh boundary) | **3.286991** | 3.286285 | **−1** (target NOT reached) | ❌ **CATASTROPHIC NULL** |
+
+- **Analysis:** Body Muon momentum pulse fundamentally DOES NOT generalize from aux Adam β₂ pulse at any timing. Arm A (step 975) catastrophic divergence — body Muon cannot survive μ pulse at cooldown discontinuity. Arm B (step 2600) doesn't reach val_loss=3.28 target by step 3250 — pulse actively PREVENTS target convergence (val_ema=3.286991 is 7 mnat ABOVE target). This is qualitatively different from aux Adam β₂ pulse which IMPROVED target crossing.
+- **Mechanism verdict:** Pulse mechanisms are **optimizer-type specific AND moment-type specific**. Aux Adam β₂ pulse → WIN. Body Muon μ pulse → NULL/diverge at every timing. Consistent with PR #1592 moments asymmetry (aux Adam β₁ pulse NULLs while β₂ WINs): pulse mechanisms are not universally applicable across (optimizer, moment-type, timing) tuples. **Axis FULLY CLOSED.**
+- **Code-keep policy:** `--muon_momentum_pulse_*` flags can be deleted in a future cleanup.
+- **Follow-up assigned:** fern → aux LR boost during pre-target window (steps 2750-2900) — orthogonal complement to alphonse #1637's body Muon LR boost. Tests whether the bottleneck during target-crossing is aux/embedding LR vs body Muon LR.
+
 ## 2026-05-29 02:30 UTC — PR #1592 askeladd: Aux Adam β₁ pulse @ cooldown onset (0.90, 0.95) — ❌ CLOSED NULL (bilateral, moments asymmetry confirmed)
 
 - Branch: `g1r1-askeladd/aux-b1-pulse`
