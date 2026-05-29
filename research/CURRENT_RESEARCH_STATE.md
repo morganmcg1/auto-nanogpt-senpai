@@ -1,3 +1,85 @@
+## 2026-05-29 04:20 UTC — Cycle 71 mid-371 — tanjiro #1628 275th refute (AUX_EPS_PER_KIND_FULL_RUN val_mean=3.269635 STANDARD-edge misses merge bar by Δ=+0.00188 vs baseline, ffs_mean=3025 misses ≤3000 by 25, Δ(B−A)=−0.00009 DEEP NULL — both arms operationally identical, STRUCTURAL FINDING: **ε is the ONLY AUX-per-kind axis with FULLY NULL Δ in either direction across the 6-mechanism class palette** — denom-floor class is structurally distinct from EMA-decay/state-rule/regularizer classes in that it lacks per-kind sensitivity at ANY direction, scope, or kind; tanjiro's mechanistic telemetry showed lm_head bulk denom_mean ≈ 0.97-1.5 is 8-10 orders larger than ε at 1e-7 or 1e-10, so ε contribution to denominator is structurally invisible — only `denom_min` per-element minimum responds to ε but represents tiny "dead-gradient" tail dwarfed by active mass, bulk update direction `g/(√v̂ + ε) ≈ g/√v̂` for nearly every parameter; **AXIS FAMILY CLOSURE**: combined with #1359 (cooldown-only NULL, 109th refute) this closes the per-kind ε axis at BOTH gated AND full-run scopes → ε is NOT a per-kind signal-bearing axis for this optimizer recipe → **118th family closure**) + tanjiro #1653 NEW PHASE_DISPATCH_AUX_BETA2 (extends phase-dispatch mechanism family from SOAP scopes [#1642 attn-SOAP, #1645 MLP-SOAP refresh-freq] to AUX/AdamW optimizer class; tests whether SATURATED static per-kind AUX β2 axis [#1577 REVERSED, #1603 saturated] unlocks signal when reformulated as STATE-PHASE rather than per-kind static; Arm A `early_FAST` β2=0.91/0.99 vs Arm B `early_SLOW` β2=0.99/0.91 boundary step 1500, symmetric around #1577's REVERSED magnitudes)
+
+**Cumulative**: **275 refuted** / **163 distinct mech classes** / **118 family-level closures**.
+
+### PRs closed this wave (1 closure):
+
+| PR | student | mechanism | outcome |
+|---|---|---|---|
+| **tanjiro #1628** | tanjiro | AUX_EPS_PER_KIND_FULL_RUN (Arm A `lm_head_LARGE_EPS` lm_head=1e-7 vs Arm B `lm_head_TINY_EPS` lm_head=1e-10, embed counterpart asymmetric) | **275th** — Arm A val=3.26968 ffs=3025 STANDARD-edge, Arm B val=3.26959 ffs=3025 STANDARD-edge; val_mean=3.269635 ffs_mean=3025 fails merge bar by +0.00188 val, +25 ffs. **Δ(B−A)=−0.00009 → DEEP NULL — both arms operationally identical**. Mechanistic telemetry shows lm_head bulk `denom_mean ≈ 0.97-1.5` is 8-10 orders larger than ε at any swap magnitude → ε contribution structurally invisible. |
+
+### STRUCTURAL FINDING — ε is the ONLY per-AUX-kind axis with fully NULL Δ; class distinction signal-determining
+
+Per-AUX-kind mechanism class table now complete at 6 mechanisms:
+
+| PR | mechanism | class | outcome | Δ(arm) signature |
+|---|---|---|---|---|
+| #1522 (closed) | AUX m-reset @ cooldown | event | refuted (kind-asymmetric brittleness) | non-null |
+| #1547 (closed) | per-kind AUX β1 | EMA-decay | refuted (REVERSED Δ=+0.00061) | non-null |
+| #1566 (closed) | per-kind AUX amsgrad | state-rule | refuted (kind-asymmetric Δ=+0.00193) | non-null |
+| #1577 (closed) | per-kind AUX β2 | EMA-decay | refuted (REVERSED Δ=+0.00527 STRONGEST cycle 71 single-axis) | non-null |
+| #1611 (status TBD) | per-kind AUX WD | regularizer | TBD (#1611 status pending) | TBD |
+| **#1628 (this)** | **per-kind AUX ε (full-run)** | **denom-floor** | **NULL** | **Δ=−0.00009 deep noise** |
+
+**Class distinction is signal-determining**: denominator-floor class is structurally distinct from EMA-decay (β1/β2), state-rule (amsgrad/m-reset), or regularizer (WD) in that it lacks per-kind sensitivity at any direction, scope, or kind. tanjiro's mechanistic telemetry explains why: bulk `denom_mean ≈ 0.97-1.5` (lm_head) and `denom_mean ≈ 5e-3` (embed) are both 4-10 orders larger than ε at 1e-7 or 1e-10 — ε is structurally invisible at this optimizer's scale.
+
+### AXIS FAMILY CLOSURE — per-kind AUX ε is FULLY refuted across scopes
+
+| PR | scope | outcome |
+|---|---|---|
+| #1359 (closed) | per-kind ε @ cooldown-only (gated) | NULL (109th refute) |
+| **#1628 (this)** | **per-kind ε full-run** | **NULL (275th refute)** |
+
+Both scopes refuted in the same direction → **118th family closure**.
+
+### Floor band unchanged
+
+[3.26916, 3.26992] — 8 single-axis mechanism classes. #1628 lands above floor band at STANDARD-edge (3.26959-3.26968); no new floor-band entry.
+
+### PRs assigned this wave
+
+| PR | student | mechanism | role |
+|---|---|---|---|
+| **tanjiro #1653** | tanjiro | PHASE_DISPATCH_AUX_BETA2 (Arm A `early_FAST` β2 early=0.91/late=0.99 vs Arm B `early_SLOW` β2 early=0.99/late=0.91, uniform-across-kinds, boundary step 1500) | **Extends phase-dispatch mechanism family from SOAP scopes (#1642 attn-SOAP, #1645 MLP-SOAP refresh-freq) to AUX/AdamW optimizer class.** Tests whether SATURATED static per-kind AUX β2 axis (#1577 REVERSED, #1603 saturated) unlocks signal when reformulated as STATE-PHASE mechanism. Symmetric around #1577's REVERSED magnitudes. **Cross-optimizer-class scope test** — will tell us whether phase-dispatch family is OPTIMIZER-CLASS-universal or SOAP-class-specific (requires eigenbasis/trust-gate scaffolding). |
+
+### Fleet state at end of wake 51 (this wave)
+
+8 students all assigned, 0 idle:
+
+| PR | student | axis | status |
+|---|---|---|---|
+| **#1653** | **tanjiro** | **PHASE_DISPATCH_AUX_BETA2** | **WIP (this wave, just assigned)** |
+| #1645 | frieren | PHASE_DISPATCH_MLP_SOAP_REFRESH_FREQ | WIP (prior wave) |
+| #1644 | nezuko | PER_DEPTH_HALF_MLP_SOAP_PROJ_BETA2_FAST | WIP (prior wave) — Arm A `ir49j8bt` step 2900/3175 |
+| #1642 | thorfinn | PHASE_DISPATCH_ATTN_SOAP_BETA2 | WIP (prior wave) — Arm A `7tyy0tyd` step 3100/3175 val=3.2737 ffs=3025 (target REACHED) |
+| #1640 | edward | V_FAST_DEPTH_HALF_REFRESH | WIP (prior wave) — Arm A `d0m3q4f3` step 2425/3175 (now ~step ~2900?) |
+| #1635 | askeladd | PER_DEPTH_HALF_MU_COOLDOWN_START_NARROW | WIP (prior wave) — Arm A `w7269drl` step 2050/3175 (now ~step ~2500?) |
+| #1633 | fern | JOINT_PER_KIND_AUX_BETA2_WD | WIP (prior wave) |
+| #1630 | alphonse | PER_DEPTH_SPLIT_MU_COOLDOWN_END | WIP (prior wave) — Arm A `hkb1kc9y` |
+
+### Active research themes (cycle 71)
+
+1. **Sub-cluster-edge band lowest still 3.26802** (frieren #1623 Arm B `14f3dyr6` ffs=3000 — strongest near-merge single-arm of cycle 71, gap to merge bar only +0.00026 val). n=2 re-confirm queued as fallback.
+2. **Phase-dispatch mechanism family expanding to AUX optimizer class** (#1653 tanjiro): SOAP-class tests are #1642 (attn-SOAP β2, near-terminal), #1645 (MLP-SOAP refresh-freq), and now AUX-class test is #1653. **Cross-optimizer-class scope test**.
+3. **Mechanism-axis-specific direction dichotomy** (#1623): β2 axis wants front_FAST, refresh-freq axis wants back_FAST. Front_FAST/SLOW is NOT a scope property — it's an (axis, scope) property.
+4. **ε class structural NULL** (#1628 finding): ε denom-floor class is the ONLY per-kind AUX axis with fully NULL Δ — class distinction is signal-determining.
+5. **End-state-only val gap signature** (#1623 slope-identity): cooldown-phase-driven separation distinguishable from cruise-phase divergence.
+6. **Floor band [3.26916, 3.26992]** 8 single-axis mechanism classes converged.
+7. **Cross-scope compound INTERFERES** (#1616): joint attn-SOAP + MLP-SOAP at full magnitude is sub-additive. Future compound work partitions WITHIN scopes.
+
+### Next research directions
+
+1. **#1653 phase-dispatch AUX β2 result determines optimizer-class universality of phase-dispatch family**. SOAP-class-specific vs cross-class-universal.
+2. **#1645 phase-dispatch MLP-SOAP refresh-freq result** determines depth-vs-phase attribution for #1623's back_FAST finding.
+3. **#1644 depth-half MLP-SOAP proj β2 result** determines MLP-SOAP-proj-FAST depth-localization.
+4. **#1642 phase-β2 attn-SOAP result** determines attn-SOAP EMA-warmup-speed mechanism (Arm A near-terminal at val=3.2737 ffs=3025).
+5. **#1640 v × depth result** determines attn-SOAP front_up universality.
+6. **#1633 per-AUX-kind compound result** shapes per-AUX-kind compound strategy.
+7. **n=2 re-confirm of #1623 Arm B** (cycle 71 fallback): strongest near-merge single-arm at 3.26802 ffs=3000.
+8. **Per-AUX-kind family** 6 mechanisms closed/in-flight; mechanism class distinction now confirmed signal-determining (ε is null, β2 strongest, β1/amsgrad/m-reset moderate).
+
+---
+
 ## 2026-05-29 03:30 UTC — Cycle 71 mid-370 — frieren #1623 274th refute (PER_DEPTH_HALF_MLP_SOAP_REFRESH_FREQ val_mean=3.268625 misses merge bar by Δ=+0.000865 val and Δ=+12.5 ffs (ffs_mean=3012.5), Arm A `front_FAST` (FRONT=5/BACK=15) val=3.26923 → **8th floor-band entry** [3.26916, 3.26992], **Arm B `front_SLOW` (FRONT=15/BACK=5) val=3.26802 ffs=3000 is NEW LOWEST single-arm point of cycle 71** (displaces #1620's 3.26916 and #1590's 3.26893 in sub-cluster-edge band [3.265, 3.269), closest single-arm point to merge bar in entire cycle 71 — gap is only +0.00026 val with TIE ffs), Δ(A−B)=+0.00121 → **front_SLOW direction WINS**, STRUCTURAL FINDING: **front_FAST/SLOW dichotomy is MECHANISM-AXIS-SPECIFIC, not scope-uniform — same scope (MLP-SOAP), opposite asymmetries on different mechanism axes** — β2 axis (continuous EMA decay) wants front_FAST [#1545], refresh-freq axis (discrete recompute cadence) wants back_FAST [#1623]; SECOND FINDING: **per-arm trailing-window train-loss slopes are IDENTICAL between arms across all checkpoints (max |Δslope|=2e-6)** → val gap is END-STATE-ONLY → **cooldown-phase-driven**, motivating direct phase-dispatch test) + frieren #1645 NEW PHASE_DISPATCH_MLP_SOAP_REFRESH_FREQ (cross-scope mirror of thorfinn #1620's attn-SOAP phase-dispatched refresh-freq, tests cooldown-phase hypothesis from #1623 slope-identity; Arm A `early_SLOW_late_FAST` (15/5, boundary=1500) vs Arm B `early_FAST_late_SLOW` (5/15))
 
 **Cumulative**: **274 refuted** / **162 distinct mech classes** / **117 family-level closures**.
