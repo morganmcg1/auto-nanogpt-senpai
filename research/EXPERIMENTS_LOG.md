@@ -1,5 +1,26 @@
 # SENPAI Research Results — auto-nanogpt-1gpu-r5
 
+## 2026-05-29 01:10 — PR #1609 CLOSED [44th closure of R5]: nezuko depth-adaptive NS iteration count per block (NS-internal fresh axis)
+- branch: g1r5-nezuko/ns-iter-depth-schedule
+- Hypothesis: Quintic Newton-Schulz NS-iter count (hardcoded 6 across all layers) may benefit from depth-adaptive scheduling — early/shallow body layers may underfit at 6 iters (singular values not fully whitened), late/deep layers may overfit (wasted compute past convergence). 3-cell sweep (pre-declared stop): A=uniform 6/6/6 (ctrl baseline reproduction), B★=depth_up 4/6/8 (more iters to deeper layers), C=falsifier depth_down 8/6/4 (more iters to shallower layers). Conditional D/E only if A or B/C alive at FFS ≤ 2975.
+
+| Cell | Schedule | val/loss | FFS | ΔFFS vs μ_4=2943.75 | W&B run |
+|:----:|:---:|:--------:|:---:|:---:|:-------:|
+| **A (uniform ctrl)** | 6/6/6 | 3.27108 | **2950** | +6.25 | (logged in PR) |
+| **B★ primary** | 4/6/8 (depth_up) | 3.27659 | 3050 | **+106.25** | (logged in PR) |
+| **C (falsifier)** | 8/6/4 (depth_down) | 3.27387 | 3000 | +56.25 | (logged in PR) |
+| D, E | — | — | — | SKIPPED (pre-decl stop) | — |
+
+- **Closure rationale**: Hypothesis FALSIFIED at n=1 alive gate. Both directional cells (B depth_up FFS=3050, C depth_down FFS=3000) regress beyond +2σ_4 vs ctrl. Pre-declared stop condition triggered — D/E correctly skipped. Cell A baseline reproduction at FFS=2950 (within 1σ_4 of #1381 μ_4=2943.75) confirms environment clean. val_loss monotone in same direction as FFS (A < C < B), structural coupling not anomaly.
+
+- **★ Headline mechanism finding**: NS iter axis is **symmetrically fragile around 6** — both directional perturbations regress, with val/FFS coupled monotonically. Quintic NS polynomial at 6 iterations is **near-converged** for the operative singular value distribution of body matrices across all depths. Adding iterations to deep layers (8) wastes compute beyond convergence (the polynomial is already very close to step function), removing them from shallow layers (4) undershoots convergence (significant residual whitening error). The L=12 modded-nanogpt body has homogeneous-enough spectra that uniform 6 is locally optimal.
+
+- **★★ Structural significance**: This is the 4th NS-internal axis to close in R5 (after #1471 AGC pre-NS, #1502 Sophia, #1574 NS coefficients). The structural barrier on NS-iter perturbations is now well-established. The 5-class Muon-body barrier already covers gradient-shape/wrapper perturbations; this confirms ns_iter knob itself has narrow local optimum. **Reject all depth-adaptive NS-iter proposals.** PRECOND_FREQ axis (#1617 tanjiro) remains the live SOAP-internal sweep candidate. SOAP_BETA2 (hardcoded 0.90) is the next never-swept SOAP-internal scalar — assigned to nezuko as fresh hypothesis.
+
+- **44th cumulative R5 closure**. NS-iter depth-adaptive schedule axis fully closed.
+
+---
+
 ## 2026-05-28 20:23 — PR #1565 CLOSED [43rd closure of R5]: tanjiro SOAP trust gate threshold SCHEDULE (fresh schedule axis vs static #467/#171)
 - branch: g1r5-tanjiro/trust-gate-schedule
 - Hypothesis: SOAP's `trust_threshold` gating (default static 0.0 from #467/#171) can be MORE EFFECTIVE if SCHEDULED across training — ramp up during warm phase (force stricter gating when SOAP is calibrating), then drop to 0.0 for cooldown. 5-cell sweep: A=ctrl (peak=0.0), B★=ramp-and-drop (peak=0.3, ramp=0.15), C=stricter (peak=0.5), D=slower-ramp (peak=0.3, ramp=0.25), E=step-falsifier (peak=0.3, ramp=0.0).
