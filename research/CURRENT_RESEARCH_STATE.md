@@ -1,3 +1,56 @@
+## 2026-05-29 15:05 UTC — Cycle 71 mid-390 — alphonse #1687 295th refute, 131st family closure, 175th distinct mech class — STRATEGIC PIVOT: optimizer-mechanism compound portfolio EXHAUSTED
+
+### alphonse #1687 295th refute — JOINT_MLP_SOAP_REFRESH_BACK_FAST_X_PHASE_DISPATCH_ATTN_SOAP_BETA2 (cross-SCOPE compound) val_mean=3.27054 STANDARD misses merge bar by Δ=+0.00278 val and +37.5 ffs
+
+Arm A `cross_scope_compound` back_FAST F=15/B=5 × phase-dispatch β2 early=0.90/late=0.95 boundary=1500 val=3.27166 ffs=3050 CLUSTER STANDARD, Arm B `back_FAST_alone` n=3 confirmation val=3.26942 ffs=3025 sub-cluster-edge boundary, Δ(B−A)=−0.00224 `INTERFERENCE_branch` at 7× noise matching pre-launched prediction matrix [−0.002, −0.005] negative band.
+
+**MAJOR STRUCTURAL FINDING**: third independent compound-additivity failure in cycle 71 confirms **optimizer-mechanism compound search space EXHAUSTED** at noise floor across all three combinations:
+
+| compound type | example PR | result | mechanism |
+|---|---|---|---|
+| **same-scope / same-class** (β2 × β2) | #1662 (depth × refresh) | saturated near no-additivity | shared latent within depth-axis |
+| **same-scope / cross-class** (β2 × precond_freq) | #1656 | saturated near no-additivity | cross-mechanism within depth-axis |
+| **cross-scope / cross-class** (MLP × attn) | **#1687 this PR** | **INTERFERENCE** | trust-gate locking blocks v-gate decay |
+
+**INTERFERENCE mechanism identified at trust-gate-locking level**: β2_LATE=0.95 bump in Arm A forces ALL attn-SOAP trust gates (q/k/v/proj on_fraction=1.0) to lock throughout LATE/cooldown, blocking v-projection trust-gate decay to ~42% engagement (Arm B at β2=0.90) which is LOAD-BEARING for back_FAST cooldown trajectory. Hidden shared latent across depth-axis (refresh frequency) × time-axis (gram EMA β2) — exactly the cross-scope dependency the test was designed to detect, fingerprinted in trust-gate telemetry at step ~3100.
+
+**NEW Δ-trajectory mechanism class**: **LATE-PHASE-DISADVANTAGE-MONOTONIC-DIVERGENCE** — Δ(A−B) ~0 in EARLY (steps 0–1000), spikes at phase boundary 1500 (+0.00515 from β2 switch), brief crossover at step 1750 (−0.00082), then MONOTONICALLY DIVERGES through LATE/cooldown peaking +0.00224 terminal. Distinct from #1662 EARLY-DISADVANTAGE-MONOTONIC-DECAY and #1668 MID-PEAK-COMPOUND-DECAY. **175th distinct mech class**.
+
+**back_FAST n=3 recharacterization**: #1623 Arm B 3.26802 + #1656 Arm A 3.26844 + #1687 Arm B 3.26942 → n=3 mean **3.26863** (was n=2 mean 3.26823). Softens cycle 71 strongest single-arm sub-cluster-edge claim by +0.0004 — still on the right side of sub-cluster-edge band but no longer comfortably below. Several cross-PR saturation conclusions ride on back_FAST n=2 mean and should be flagged as +0.0004 noisier than previously assumed.
+
+**131st family closure**: JOINT_MLP_SOAP_REFRESH_BACK_FAST_X_PHASE_DISPATCH_ATTN_SOAP_BETA2 axis fully mapped at cross-SCOPE INTERFERENCE outcome.
+
+### STRATEGIC PIVOT — initialization mechanism family opens
+
+Per student suggestion #4 and three independent compound-additivity failures, the **optimizer-mechanism compound portfolio is exhausted at the cycle 71 noise floor**. Per the verbatim objective constraints, in-scope pivot axes are: optimizer algorithms, optimizer hyperparameters, schedules, and **initialization**. Architecture and data axes are out of scope. **Initialization is the structurally fresh axis untouched in cycle 71.**
+
+Current init code at `train_gpt_simple.py` lines 884–898:
+- `proj` weights → zero init (residual feeders)
+- `embed` weights → `EMBED_INIT_STD=0.1` (token embedding only; model uses RoPE, no separate position embed)
+- everything else (q, k, v, mlp.fc) → `0.33**0.5 / w.size(-1)**0.5` ≈ 0.0207
+
+Natural per-group decomposition: **q/k/v (attention) vs mlp.fc (MLP up-projection)** currently share the same init formula. Per-kind init std multiplier is the cleanest first axis.
+
+### Cumulative state
+
+**Cycle 71 cumulative**: **295 refuted** / **175 distinct mech classes** / **131 family-level closures**.
+
+### PRs closed this wave (1 closure):
+
+| PR | student | mechanism | outcome |
+|---|---|---|---|
+| **alphonse #1687** | alphonse | JOINT_MLP_SOAP_REFRESH_BACK_FAST_X_PHASE_DISPATCH_ATTN_SOAP_BETA2 (Arm A cross-scope compound back_FAST F=15/B=5 × phase-dispatch β2 early=0.90/late=0.95, Arm B back_FAST_alone n=3 confirmation) | **295th** — Arm A 3.27166/3050 STANDARD, Arm B 3.26942/3025 sub-cluster-edge, val_mean=3.27054 STANDARD misses by +0.00278/+37.5. Δ(B−A)=−0.00224 `INTERFERENCE_branch`. **MAJOR STRUCTURAL FINDING**: cross-scope INTERFERENCE branch identified at trust-gate locking + 3-of-3 compound-additivity failures = optimizer-mechanism compound portfolio EXHAUSTED + back_FAST n=3 mean 3.26863 softens by +0.0004. **131st family closure** + **175th distinct mech class** (LATE-PHASE-DISADVANTAGE-MONOTONIC-DIVERGENCE). |
+
+### PRs assigned this wave (1 fresh init-mechanism axis — STRATEGIC PIVOT):
+
+| PR | student | mechanism | hypothesis |
+|---|---|---|---|
+| **alphonse #1713** | alphonse | PER_KIND_INIT_STD_MULT (Arm A `attn_qkv_tight` ATTN_QKV_INIT_STD_MULT=0.5/MLP_FC_INIT_STD_MULT=1.0, Arm B `mlp_fc_tight` ATTN_QKV_INIT_STD_MULT=1.0/MLP_FC_INIT_STD_MULT=0.5) | **FIRST INITIALIZATION-MECHANISM PR IN CYCLE 71** — strategic pivot from compound-portfolio exhaustion. Tests per-group init scale on the two non-zero-init kinds (q/k/v vs mlp.fc) that currently share `0.33**0.5 / w.size(-1)**0.5`. If A<B → attention QKV benefits from tighter init. If B<A → MLP fc benefits. If A≈B≈baseline → init-std-mult null at 0.5× scale; pivot to 0.25×/2× spread. If A or B < baseline → opens init-mechanism axis as compound-portfolio replacement (potential merge candidate). Fits Morgan's directive (per-group + state-mechanism — per-kind + init scale, no scalar sweep). |
+
+Fleet 8/8 assigned, 0 idle. Stale_wip false-positive pattern 8 consecutive PRs in cycle 71 — student alphonse acknowledged adding launch heartbeat to standard workflow at wake 86.
+
+---
+
 ## 2026-05-29 14:40 UTC — Cycle 71 mid-389 — DOUBLE-CLOSURE (thorfinn #1685 + askeladd #1684) — 293rd + 294th refutes, 129th + 130th family closures
 
 ### thorfinn #1685 293rd refute — PER_KIND_ATTN_SOAP_TRUST_THRESHOLD (V_AXIS_ISOLATION) val_mean=3.27464 STANDARD misses merge bar by Δ=+0.00688 val and +75 ffs
