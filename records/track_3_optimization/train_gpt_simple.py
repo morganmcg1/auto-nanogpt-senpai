@@ -47,6 +47,15 @@ def parse_args():
     parser.add_argument("--muonh_mode", type=str, default=os.environ.get("MUONH_MODE", "clip"), choices=["clip", "scale_invariant"])
     parser.add_argument("--muonh_cooldown_shape", type=str, default=os.environ.get("MUONH_COOLDOWN_SHAPE", "linear"), choices=["linear", "cosine", "sqrt"], help="LR cooldown shape for MuonH groups (AdamW aux groups stay linear)")
     parser.add_argument("--muonh_warmup_steps", type=int, default=int(os.environ.get("MUONH_WARMUP_STEPS", "0")), help="Linear LR warmup steps for MuonH groups only (0 = disabled, no-op vs baseline). AdamW aux groups are not warmed.")
+    # H265: Trust-Region cap on body SI step magnitude. Caps the post-projection
+    # delta F-norm at tr_ratio * ||param||_F before the SI renormalization. 0.0 keeps
+    # the body MuonH-SI path bit-identical to baseline (the gated branch is not
+    # executed).
+    parser.add_argument("--body_tr_ratio", type=float,
+                        default=float(os.environ.get("BODY_TR_RATIO", "0.0")),
+                        help="Trust-Region cap on body SI step magnitude as fraction of param F-norm. "
+                             "0.0 = TR cap disabled (drift-FREE CTRL, bit-identical to baseline). "
+                             "Typical: 0.02 (loose) / 0.01 (tight).")
     parser.add_argument("--train_steps", type=int, default=int(os.environ.get("TRAIN_STEPS", "3350")))
     # MuLoCo outer Nesterov SGD (Algorithm 1, K=1). Wraps all trainable params;
     # snapshots an anchor at trial start, then every sync_interval inner steps
@@ -656,6 +665,28 @@ def scale_invariant_update_(param, update, lr, eps=1e-10):
     param.copy_(new_param / new_norm * p_norm)
 
 
+def scale_invariant_update_with_tr_(param, update, lr, tr_ratio, eps=1e-10):
+    """H265: SI step with Trust-Region cap on the post-projection delta F-norm.
+
+    Caps ||delta||_F <= tr_ratio * ||param||_F by multiplicatively scaling delta
+    down before applying it. Returns (activated_scalar, delta_p_ratio_scalar)
+    as 0-d tensors for telemetry accumulation.
+    """
+    p_norm = param.norm()
+    u_norm = update.norm()
+    delta = -lr * update * p_norm / torch.clamp(u_norm, min=eps)
+    delta_norm = delta.norm()
+    tr_radius = tr_ratio * p_norm
+    delta_p_ratio = delta_norm / torch.clamp(p_norm, min=eps)
+    scale = torch.clamp(tr_radius / torch.clamp(delta_norm, min=eps), max=1.0)
+    activated = (scale < 1.0).to(torch.float64)
+    delta = delta * scale
+    new_param = param + delta
+    new_norm = torch.clamp(new_param.norm(), min=eps)
+    param.copy_(new_param / new_norm * p_norm)
+    return activated, delta_p_ratio.to(torch.float64)
+
+
 class MuonH(torch.optim.Optimizer):
     """Muon with a hyperball (Frobenius-ball) projection on hidden 2D weight matrices.
 
@@ -669,16 +700,20 @@ class MuonH(torch.optim.Optimizer):
     norm exactly constant; weight_decay must be 0.
     """
     def __init__(self, params, lr=0.018, weight_decay=0.0, mu=0.95,
-                 hyperball=True, budget_mult=1.0, mode="clip"):
+                 hyperball=True, budget_mult=1.0, mode="clip", tr_ratio=0.0):
         assert isinstance(params, list) and len(params) >= 1 and isinstance(params[0], torch.nn.Parameter)
         assert mode in ("clip", "scale_invariant")
         params = sorted(params, key=lambda x: x.size(), reverse=True)
         defaults = dict(lr=lr, weight_decay=weight_decay, mu=mu,
-                        hyperball=hyperball, budget_mult=budget_mult, mode=mode)
+                        hyperball=hyperball, budget_mult=budget_mult, mode=mode,
+                        tr_ratio=tr_ratio)
         super().__init__(params, defaults)
         self._last_active_fraction = 0.0
         self._last_radius_to_norm_max = 0.0
         self._last_norm_to_radius_max = 0.0
+        # H265 TR telemetry: per-step activation rate and mean delta/p ratio.
+        self._h265_last_tr_activation_rate = 0.0
+        self._h265_last_mean_delta_p_ratio = 0.0
 
     @torch.no_grad()
     def step(self):
@@ -688,12 +723,19 @@ class MuonH(torch.optim.Optimizer):
         total_count_local = 0
         max_r_over_n_local = 0.0
         max_n_over_r_local = 0.0
+        # H265: TR cap telemetry accumulators (on-device, reduced once at end of step).
+        tr_active_any = any(g.get("tr_ratio", 0.0) > 0.0 for g in self.param_groups)
+        if tr_active_any:
+            tr_activated_accum = torch.zeros((), device="cuda", dtype=torch.float64)
+            tr_ratio_sum_accum = torch.zeros((), device="cuda", dtype=torch.float64)
+            tr_total_local = 0
         for group in self.param_groups:
             params = group["params"]
             params_pad = params + [torch.empty_like(params[-1])] * (world_size - len(params) % world_size)
             hb = group["hyperball"]
             budget_mult = group["budget_mult"]
             mode = group["mode"]
+            tr_ratio_group = group.get("tr_ratio", 0.0)
             for base_i in range(0, len(params), world_size):
                 if base_i + rank < len(params):
                     p = params[base_i + rank]
@@ -705,7 +747,14 @@ class MuonH(torch.optim.Optimizer):
                     update = muon_update(p.grad, state["momentum"], mu=group["mu"])
                     if hb and mode == "scale_invariant":
                         # Always-active variant: norm is held at initial value by construction.
-                        scale_invariant_update_(p.data, update, group["lr"])
+                        if tr_ratio_group > 0.0:
+                            activated_t, ratio_t = scale_invariant_update_with_tr_(
+                                p.data, update, group["lr"], tr_ratio_group)
+                            tr_activated_accum.add_(activated_t)
+                            tr_ratio_sum_accum.add_(ratio_t)
+                            tr_total_local += 1
+                        else:
+                            scale_invariant_update_(p.data, update, group["lr"])
                         total_count_local += 1
                         clip_count_local += 1  # by definition projection is always active
                     else:
@@ -745,6 +794,20 @@ class MuonH(torch.optim.Optimizer):
         self._last_active_fraction = clip_count / total_count if total_count > 0 else 0.0
         self._last_radius_to_norm_max = max_r_over_n
         self._last_norm_to_radius_max = max_n_over_r
+        # H265 TR telemetry reduction (only when any group has tr_ratio > 0)
+        if tr_active_any:
+            tr_total_t = torch.tensor([tr_total_local], device="cuda", dtype=torch.float64)
+            if world_size > 1:
+                dist.all_reduce(tr_activated_accum, op=dist.ReduceOp.SUM)
+                dist.all_reduce(tr_ratio_sum_accum, op=dist.ReduceOp.SUM)
+                dist.all_reduce(tr_total_t, op=dist.ReduceOp.SUM)
+            tr_total_f = float(tr_total_t.item())
+            if tr_total_f > 0:
+                self._h265_last_tr_activation_rate = float(tr_activated_accum.item()) / tr_total_f
+                self._h265_last_mean_delta_p_ratio = float(tr_ratio_sum_accum.item()) / tr_total_f
+            else:
+                self._h265_last_tr_activation_rate = 0.0
+                self._h265_last_mean_delta_p_ratio = 0.0
 
 
 ########################################
@@ -850,6 +913,7 @@ if dist.get_rank() == 0:
             "muonh_mu_schedule": args.muonh_mu_schedule,
             "muonh_mu_start": args.muonh_mu_start,
             "muonh_mu_end": args.muonh_mu_end,
+            "body_tr_ratio": args.body_tr_ratio,
         },
     )
 
@@ -933,7 +997,7 @@ for trial_idx in range(args.num_trials):
     optimizer2 = MuonH([p for p in model.blocks.parameters() if p.ndim >= 2],
                        lr=args.muonh_lr, weight_decay=0.0, mu=0.95,
                        hyperball=True, budget_mult=args.muonh_budget_mult,
-                       mode=args.muonh_mode)
+                       mode=args.muonh_mode, tr_ratio=args.body_tr_ratio)
     optimizer2.param_groups[0]["name"] = "muonh_blocks"
     optimizers = [optimizer1, optimizer2]
     # AGC targets: AdamW aux groups (embed, lm_head, scalars). Built from optimizer1
@@ -1189,6 +1253,9 @@ for trial_idx in range(args.num_trials):
                         muonh_metrics["train/muonh/active_fraction"] = opt._last_active_fraction
                         muonh_metrics["train/muonh/radius_to_norm_max"] = opt._last_radius_to_norm_max
                         muonh_metrics["train/muonh/norm_to_radius_max"] = opt._last_norm_to_radius_max
+                        if args.body_tr_ratio > 0.0:
+                            muonh_metrics["train/h265/tr_activation_rate"] = opt._h265_last_tr_activation_rate
+                            muonh_metrics["train/h265/mean_delta_norm_to_p_norm_ratio"] = opt._h265_last_mean_delta_p_ratio
                     muonh_metrics["train/muonh/warmup_factor"] = muonh_warmup_factor
                     muonh_metrics["train/muonh/effective_lr"] = opt.param_groups[0]["lr"]
             if telemetry_due and args.aux_agc_clip_ratio > 0 and agc_stats["agc_total"] > 0:
