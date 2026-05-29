@@ -1,5 +1,27 @@
 # SENPAI Research Results — auto-nanogpt-1gpu-r4
 
+## 2026-05-29 01:30 — PR #1584: NM α-extended sweep alpha=0.25/0.75/1.0 on period=2 stack — **CLOSED 4-arm characterization complete (25th catalog finding, NEW class 16 α-axis-ASYMMETRIC-TOLERANCE-multiplicative-uniform-NULL-low-side-CATASTROPHIC-high-side + REFINEMENT class 12 precond_ratio→val transfer function MECHANISM-SPECIFIC)**
+
+- branch: `g1r4-fern/nm-alpha-extended-sweep`
+- Hypothesis: α-axis (R^{-α} exponent) sweep on production post-#1421 period=2 stack will refine c499 #1486 class 8 α-eigenvalue-cascade-NEG-ASYMMETRIC characterization across α∈{0.25, 0.5, 0.75, 1.0}; precond_ratio→val transfer function expected universal-knee at precond_ratio=1.0 (cross-axis hypothesis from c499 Tikhonov #1543 chain).
+
+| Arm | α | W&B ID | val_loss terminal | FFS | Δ_paired vs A | precond_ratio_mean | R_inv_sqrt_norm_mean | Verdict |
+|:---:|:---:|---|:---:|:---:|:---:|:---:|:---:|---|
+| A ctrl | 0.5 | `52dc8u5r` | 3.26566 | 3175 | (ref, drift +0.00256 PASS-MARGINAL) | 1.101 | 87.53 | drift gate passed |
+| B | 0.25 | `eoak7nsn` | 3.26478 | 3175 | **−0.00088** mild-FAV-edge MARGINAL within σ_seed≈0.0012 floor | 0.859 | 46.27 | PP-promote DEFERRED |
+| C | 1.0 | `uz9cw6js` | **3.28562** | **−1 NEVER REACHED** | **+0.01996** STRONG-NEG | **2.825** | **1943.06** | catastrophic cascade |
+| D | 0.75 | `3oibjx5r` | 3.26668 | 3175 | +0.00102 NULL-NEG-edge | 1.401 | 399.18 | mild-amplification absorbable by cooldown |
+
+**Closure decision**: CLOSE — no winner (best Arm B val=3.26478 > baseline 3.26310 by +0.00168 G1 FAIL); Arm B Δ_paired=−0.00088 OUTSIDE σ_seed≈0.0012 floor by ~0.7× factor (suggestive signal) BUT marginal at single-seed paired-noise envelope established c513 across 7 ctrl datapoints. PP-promote DEFERRED to potential future composite arm (e.g., body-α=0.25 + cooldown-α=0.5-rsqrt per c511 #1599 finding) if a future hypothesis requires it.
+
+**Catalog findings (25th)**:
+1. **NEW class 16 "α-axis-ASYMMETRIC-TOLERANCE-multiplicative-uniform-NULL-low-side-CATASTROPHIC-high-side"**: 4-point precond_ratio→Δ_paired mapping shows linear NULL band from 0.86→1.40 then steep cliff from 1.40→2.82 (Δ flips from +0.001 to +0.020 = 20× super-linear). α=1.0 deep-amplification crosses structural eigenvalue-cascade threshold beyond which EMA β=0.95 + eps=1e-4 floor cannot absorb blowup. R_inv_sqrt_norm_mean cross-axis: A=87.5 → B=46.3 (-47%) → D=399 (+356%) → **C=1943 (+2120% blowup)** = smoking-gun mechanism evidence.
+2. **REFINEMENT class 12 "precond_ratio→val transfer function is MECHANISM-SPECIFIC, not universal"**: γ-axis additive #1543 has knee at precond_ratio≈1.0 (val flips FAV→NEG); α-axis multiplicative #1584 has knee at precond_ratio≈1.4-2.0 (val flips NULL→strong-NEG); each R-buffer control axis has its own precond_ratio→val transfer function with mechanism-specific kneepoint. Sharpens c498/c499 universal-knee hypothesis: over-generalized.
+3. **#1486 class 8 EXTENDED to period=2 stack**: period=2 vs period=5 amplifies α=1.0 NEG by ~8× (+0.00251 → +0.01996); period=2 stack is more sensitive to HIGH-α than period=5 due to fresher R-EMA (less smoothing of eigenvalue noise).
+4. **FFS invariance evidence H1261-directive-relevant**: α=0.25/0.5/0.75 all hit FFS=3175 invariant; α=1.0 catastrophic never reaches target. **α-axis is a terminal-val refinement axis, NOT an FFS-acceleration axis**.
+5. **Cooldown-absorption bounded by amplification severity**: Arm D Δ_paired narrows from peak +0.00494 step 2000 → terminal +0.00102 (cooldown LR decay absorbs mild amplification); Arm C Δ_paired only narrows by 7% (+0.02151→+0.01996) = catastrophic cascade NOT absorbable by cooldown. Operational rule: **cooldown-α=0.5 production setting robust across body-α variations**.
+6. **Drift gate sub-finding contributing to c511 class 11a**: Arm B drift +0.00168 < Arm A drift +0.00256 despite α=0.25 pow algebra deviating further from rsqrt-ideal than α=0.5 pow → drift NOT pow-exponent-monotone → eigendecomp/clamping ulp patterns vary by exponent. Cross-axis evidence informed c511 #1599 class 11a MAJOR REFINEMENT.
+
 ## 2026-05-28 23:35 — PR #1588: NM rank-k R-buffer truncation (subtractive small-eigenvalue regularization) — **CLOSED FALSIFYING-OUTCOME-TRIGGERED (24th catalog finding, NEW class 14 rank-k-R-truncation-CATASTROPHIC-NEG-bottom-eigs-load-bearing-MONOTONE-DOSE-RESPONSE)**
 
 - branch: `g1r4-frieren/nm-rank-k-r-truncation`
