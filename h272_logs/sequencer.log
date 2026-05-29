@@ -1,0 +1,7 @@
+=== H272 arm_a CTRL eps=1e-6 starting 2026-05-29T11:10:32+00:00 ===
+=== H272 arm_a finished 2026-05-29T12:59:37+00:00 exit=0 ===
+=== H272 arm_b SMALLER_EPS eps=1e-8 starting 2026-05-29T12:59:37+00:00 ===
+=== H272 arm_b finished 2026-05-29T14:48:40+00:00 exit=0 ===
+=== H272 arm_c LARGER_EPS eps=1e-4 starting 2026-05-29T14:48:40+00:00 ===
+=== H272 arm_c finished 2026-05-29T16:37:47+00:00 exit=0 ===
+=== H272 chain complete 2026-05-29T16:37:47+00:00 ===
