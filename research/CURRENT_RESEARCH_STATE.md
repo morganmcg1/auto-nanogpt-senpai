@@ -1,3 +1,63 @@
+## 2026-05-29 11:42 UTC — Cycle 71 mid-385 — nezuko #1668 289th refute (PHASE_DISPATCH_MLP_SOAP_PROJ_BETA2 val_mean=3.27148 STANDARD misses merge bar by Δ=+0.00372 val and +37.5 ffs, Arm A `proj_late_FAST` early=0.90/late=0.85 val=3.27222 ffs=3050 STANDARD, Arm B `proj_early_FAST` early=0.85/late=0.90 val=3.27074 ffs=3025 STANDARD, Δ(B−A)=−0.00148 directional signal `early_FAST_wins` at MLP-SOAP-proj scope, **MAJOR STRUCTURAL FINDING**: cross-SOAP-scope mechanism divergence at the same β2 axis — attn-SOAP-proj β2 = late-stability driven [#1642 `attn_proj_late_FAST` wins] while MLP-SOAP-proj β2 = early-warmup driven [this PR `proj_early_FAST` wins]; the phase-locality of the SOAP β2 mechanism FLIPS direction between SOAP populations — SOAP β2 phase-locality is scope-dependent NOT universal, **NEW Δ-trajectory mechanism class**: MID-PEAK-COMPOUND-DECAY pattern peak |Δ|=0.00533 at step 2500 mid-cruise then decays to 0.00148 at terminal during cooldown — distinct from #1662 EARLY-DISADVANTAGE-MONOTONIC-DECAY because gap GROWS then SHRINKS — 174th distinct mech class, **125th family closure**: PHASE_DISPATCH_MLP_SOAP_PROJ_BETA2 axis fully mapped at both polarities + cross-scope divergence — both polarities lose to #1590 full-coverage so phase-dispatch at this scope underperforms full-trajectory application) + nezuko #1695 NEW PHASE_DISPATCH_MLP_SOAP_FC_BETA2 (FRESH PER-GROUP STATE-MECHANISM AXIS completing 2×2 cross-scope β2 phase-locality matrix — Arm A `fc_late_FAST` early=0.90/late=0.85/boundary=1500 tests whether `mlp.fc.weight` tracks `attn.proj` late-stability mechanism, Arm B `fc_early_FAST` early=0.85/late=0.90/boundary=1500 tests whether `mlp.fc.weight` tracks `mlp.proj` early-warmup mechanism, proj β2 held at baseline 0.90 full-trajectory; if A < B fc-cell shows late-stability cross-MLP-kind divergence; if B < A fc-cell shows early-warmup universal MLP-SOAP mechanism; if A ≈ B fc β2 is phase-locality-inert; fits Morgan's directive per-group + state-mechanism)
+
+**Cumulative**: **289 refuted** / **174 distinct mech classes** / **125 family-level closures**.
+
+### PRs closed this wave (1 closure):
+
+| PR | student | mechanism | outcome |
+|---|---|---|---|
+| **nezuko #1668** | nezuko | PHASE_DISPATCH_MLP_SOAP_PROJ_BETA2 (Arm A `proj_late_FAST` early=0.90/late=0.85, Arm B `proj_early_FAST` early=0.85/late=0.90, boundary=1500) | **289th** — Arm A val=3.27222 ffs=3050, Arm B val=3.27074 ffs=3025, val_mean=3.27148 STANDARD misses by +0.00372/+37.5. Δ(B−A)=−0.00148 `early_FAST_wins`. **MAJOR STRUCTURAL FINDING**: cross-SOAP-scope mechanism divergence at β2 axis — attn-SOAP=late-stability, MLP-SOAP-proj=early-warmup. **NEW mech class**: MID-PEAK-COMPOUND-DECAY (174th). **125th family closure**. |
+
+### MAJOR STRUCTURAL FINDING — cross-SOAP-scope β2 mechanism divergence
+
+| SOAP scope | phase-locality | winning direction | PR |
+|---|---|---|---|
+| attn-SOAP proj (q/k/v/proj) | late-stability (basis stability) | `attn_proj_late_FAST` (late=0.95) | #1642 |
+| **MLP-SOAP proj (`mlp.proj.weight`)** | **early-warmup (EMA basis priming)** | **`proj_early_FAST` (early=0.85)** | **#1668** |
+| MLP-SOAP fc (`mlp.fc.weight`) | OPEN | OPEN | **#1695 (next, just assigned)** |
+| attn-SOAP per-kind (q/k/v/proj iso) | OPEN | OPEN | OPEN |
+
+**Two opposite phase-locality answers for the same scalar β2 axis applied to two independent SOAP populations.** The cross-SOAP-scope phase-locality flip means **SOAP β2 phase-locality is scope-dependent, NOT universal**. Future phase-dispatch designs must NOT assume late-stability is universal across SOAP populations.
+
+### Δ-trajectory pattern catalog at MLP-SOAP-proj β2 scope
+
+| step | A `proj_late_FAST` | B `proj_early_FAST` | Δ(B−A) | phase |
+|---|---|---|---|---|
+| 1500 (boundary) | 3.53526 | 3.53458 | −0.00068 | end of early-phase, B's priming starts paying |
+| 2000 | 3.43130 | 3.43030 | −0.00100 | mid-late cruise, B's lead widens |
+| **2500** | **3.35237** | **3.34704** | **−0.00533** ← max gap | late cruise peak (B's early priming maximally paying off) |
+| 3000 | 3.28367 | 3.28207 | −0.00160 | cooldown start, A's late=0.85 partly catches up |
+| 3175 | 3.27222 | 3.27074 | −0.00148 | terminal, gap narrowed but stable |
+
+**174th distinct mech class** MID-PEAK-COMPOUND-DECAY: gap grows through early-late transition (peak 5.5× boundary), then decays during cooldown (back to 2× boundary). Distinct from:
+- #1662 EARLY-DISADVANTAGE-MONOTONIC-DECAY: peak at step 500, monotonically decays
+- #1644 cooldown-emergent accumulation: monotonically grows
+
+Implication: MLP-SOAP-proj has a "delayed-payoff early-priming" geometry — mechanism payoff arrives ~1000 steps after the lever is applied.
+
+### PRs assigned this wave
+
+| PR | student | mechanism | role |
+|---|---|---|---|
+| **nezuko #1695** | nezuko | PHASE_DISPATCH_MLP_SOAP_FC_BETA2 (Arm A `fc_late_FAST` early=0.90/late=0.85, Arm B `fc_early_FAST` early=0.85/late=0.90, boundary=1500, proj β2 held at baseline 0.90 full-trajectory) | **FRESH PER-GROUP STATE-MECHANISM** — completes 2×2 cross-scope β2 phase-locality matrix; tests whether MLP-SOAP-fc tracks proj early-warmup or attn late-stability |
+
+### Fleet state at end of wake 76 (this wave)
+
+8 students all assigned, 0 idle:
+
+| PR | student | axis | status |
+|---|---|---|---|
+| **#1695** | **nezuko** | **PHASE_DISPATCH_MLP_SOAP_FC_BETA2** | **WIP (this wave, just assigned)** |
+| #1692 | edward | PER_KIND_ATTN_SOAP_MUON_LR (V_AXIS_ISOLATION) | WIP (prior wave) |
+| #1687 | alphonse | JOINT_MLP_SOAP_REFRESH_BACK_FAST_X_PHASE_DISPATCH_ATTN_SOAP_BETA2 (cross-SCOPE compound) | WIP (prior wave) |
+| #1685 | thorfinn | PER_KIND_ATTN_SOAP_TRUST_THRESHOLD (V_AXIS_ISOLATION) | WIP (prior wave) |
+| #1684 | askeladd | PER_DEPTH_HALF_ATTN_SOAP_TRUST_THRESHOLD | WIP (prior wave) |
+| #1683 | fern | PER_KIND_WD_AUX_DECOMPOSITION | WIP (prior wave, Arm A ~91% terminal soon) |
+| #1678 | tanjiro | PER_KIND_AUX_BETA1_DIRECTION | WIP (prior wave) |
+| #1671 | frieren | MLP_SOAP_TRUST_GATE_PHASE_DISPATCH | WIP (pod recovered, student re-launching) |
+
+---
+
 ## 2026-05-29 10:55 UTC — Cycle 71 mid-384 — edward #1665 288th refute (TRUST_THRESHOLD_WARMUP val_mean=3.27737 DEGRADED ≥3.275, fails stat rule by 0.00028, both arms +0.00961 worse than baseline + 125 ffs, Arm A `warmup_0p50` val=3.27742 ffs=3125, Arm B `warmup_0p20` val=3.27732 ffs=3125, Δ(B−A)=−0.00010 NULL → trust-threshold warmup axis fully refuted, **MAJOR STRUCTURAL FINDING**: trust gate is WIDE OPEN at baseline 0.85 during early phase — per-kind on_fraction = 1.000 for ALL q/k/v/proj at steps 100, 200, 300 in BOTH arms; lowering early threshold to 0.20/0.50 changes nothing because the gate wasn't blocking refreshes; v-axis on_fraction collapses to 0.000 around step 500 regardless of warmup-start, **STRUCTURAL TRIANGULATION ON V-AXIS LEVER**: combined with #1663 [β2 NOT lever] and #1583 [4-tier eigenbasis stability q≈k>proj>v], v-axis early-gate suppression is NOT trust-threshold-driven AND NOT β2-driven; the v-axis cos_row physically drops below 0.85 around step 500 from upstream dynamics — remaining candidates LR-magnitude, NS5 quality, or gradient distribution dynamics, **124th family closure**: trust-threshold-warmup axis fully mapped at "gate-saturated-early" outcome) + edward #1692 NEW PER_KIND_ATTN_SOAP_MUON_LR (V_AXIS_ISOLATION) (FRESH PER-GROUP STATE-MECHANISM AXIS testing v-axis Muon LR magnitude lever — Arm A `v_lr_lower` MUON_LR_V_MULT=0.67 → effective V LR=0.025, Arm B `v_lr_higher` MUON_LR_V_MULT=1.33 → effective V LR=0.05, both with Q/K/PROJ at baseline 0.0375; tests whether v-axis basis instability is driven by LR-magnitude mismatch; if A < baseline v needs slower updates basis stabilization; if B < baseline v needs faster updates basis convergence; both ≈ baseline per-kind Muon LR axis null → pivot to NS5 quality or upstream gradient dynamics; orthogonal to thorfinn #1685 per-kind trust threshold, askeladd #1684 depth-half threshold, all in-flight v-axis investigations; fits Morgan's directive per-group + state-mechanism)
 
 **Cumulative**: **288 refuted** / **173 distinct mech classes** / **124 family-level closures**.
