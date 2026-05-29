@@ -1,5 +1,22 @@
 # SENPAI Research Results
 
+## 2026-05-29 22:30 UTC — PR #1704 thorfinn: Stacked second paramEMA refresh @ {2750, 2850} — ❌ BILATERAL NULL (stacked-pEMA-refresh axis closed)
+
+- Branch: `g1r1-thorfinn/second-pema-refresh`
+- Hypothesis: a second paramEMA refresh in the pre-target window (stacked on the canonical 2600 refresh) would re-anchor EMA to live params just before the target crossing, compounding the canonical WIN.
+- W&B: Arm A `ey4o3crq` (refresh2=2750), Arm B `z3676wa3` (refresh2=2850)
+
+| Arm | refresh2 step | sr | val_ema | val_live | Δval vs baseline | Verdict |
+|---|---:|---:|---:|---:|---:|---|
+| A | 2750 | 2925 | 3.26443 | 3.26382 | +1.58 mnat | ❌ NULL (+50 sr) |
+| B | 2850 | 2950 | 3.26542 | 3.26483 | +2.57 mnat | ❌ NULL (+75 sr) |
+| Baseline #1532 | — | 2875 | 3.262854 | — | — | — |
+
+- **Analysis:** Monotonic gradient — later refresh2 step is **worse** (Arm B at 2850 > Arm A at 2750). The refresh mechanism is re-anchoring EMA to live params inside the interior of the cooldown phase (not at a regime boundary), which **deletes accumulated good averages** without resetting any LR-regime staleness. This is destructive: val_live crossed 3.28 at step 2925 (Arm A) / 2950 (Arm B) vs baseline 2875 — 50-75 more steps to target.
+- **Mechanism diagnosis (thorfinn's analysis):** The canonical 2600 refresh wins because it sits at `cooldown_start_step` — the LR regime boundary. A second refresh inside the cooldown tail is in the *interior* of a single monotone-decay phase; EMA was already tracking well (ema-live recovered to −0.004 post-canonical), so refresh just deletes 150-250 steps of accumulated averaging. The monotonic gradient confirms: later-in-cooldown stacked refresh = less post-refresh averaging time = worse terminal val_ema.
+- **Stacked-pEMA-refresh axis CLOSED.** Refresh2 at any step in (2650, 3000) will trend worse. Design space for pEMA refresh is well-exhausted at the single canonical-position (2600).
+- **New assignment:** thorfinn → #1749 **AdEMAMix dual-EMA first moment on aux AdamW** — orthogonal to all in-flight body-PMuon Tier-2; aux side is underexplored for state innovations.
+
 ## 2026-05-29 20:15 UTC — PR #1697 tanjiro: Pre-target body Muon LR DROP bilateral ×{0.75, 0.50} @ 2750-2900 — ❌ BILATERAL NULL (LR-DOWN axis closed)
 
 - Branch: `g1r1-tanjiro/pretarget-muon-lr-drop`

@@ -1,6 +1,6 @@
 # SENPAI Research State — auto-nanogpt-1gpu-r1
 
-- **Last update: 2026-05-29 20:15 UTC**
+- **Last update: 2026-05-29 22:45 UTC**
 - **Current baseline:** PR #1532 (aux Adam β₂ pulse 0.95→0.99 @ step 975). val_ema=3.262854, sr=2875 (n=2).
 - **Canonical defaults (post #1614):** β₂ pulse fires automatically at step 975 in all new runs — no flag needed.
 - **Merge gate:** `sr ≤ 2862.5 OR (sr=2875 AND val_ema < 3.262854)`
@@ -26,7 +26,8 @@
 - **Momentum buffer hard-reset untested → assigned to askeladd (#1730) as first structural state-discard experiment on first-moment buffer.**
 - **β₂ pulse mechanism:** amplitude, timing, shape, per-group recipient, pre-target re-spike — ALL NULL except canonical 0.95→0.99 @ 975 (#1667 closes the re-spike variant)
 - **Optimizer family replacements:** AdEMAMix, Lookahead (FULLY CLOSED), Sophia, Lion, Adan, GrokFast, AdaBelief, AMSGrad, ADOPT-aux, **AdaShift per-element (#1709 NULL with mechanistic closure)**
-- **Covariance refresh:** L_cov/R_cov at steps 975/2275/2600/cooldown-start (#1666 closes) — soft-modulation via β_cov pulse closed. **Hard zero reset untested → assigned to nezuko (#1726).**
+- **Covariance refresh:** L_cov/R_cov at steps 975/2275/2600/cooldown-start (#1666 closes) — soft-modulation via β_cov pulse closed. **Hard zero reset (nezuko #1726 Arm A NULL sr=2950; Arm B in flight).**
+- **pEMA stacking:** stacked 2nd refresh at 2750/2850 (thorfinn #1704) — bilateral NULL. Canonical 2600 is a singular optimum. **pEMA design space EXHAUSTED.**
 - **Depth-stratified β_cov continuous ramp ±0.01 (#1339 NULL).** Binary-split with ±0.025 large Δβ untested → assigned to edward (#1727).
 
 **Tier escalation progress:**
@@ -39,14 +40,20 @@
 
 | PR | Student | Experiment | Status | ETA |
 |---|---|---|---|---|
-| #1703 | alphonse | ADOPT async whitening on body PMuon (identity-init vs zeros-warmup50) | In flight `gjmywcji` step ~400 | ~22:00 UTC |
-| #1704 | thorfinn | Stacked 2nd pEMA refresh (Arm B @ step 2850 healthy `z3676wa3`) | Arm B in flight step ~275 | Arm B ~22:30 UTC |
-| **#1730** | **askeladd** | **Pre-target body Muon momentum buffer HARD ZERO RESET @ 2750 (Arm A pure / Arm B + μ=0.85 transient)** | **Just assigned (picked up ~19:05 UTC)** | **~23:00 / ~03:00 UTC** |
-| **#1739** | **fern** | **Pre-target NS_ITERS burst {14, 16} @ 2750-2900 (Arm A NS=14 / Arm B NS=16)** | **Just assigned (~19:55 UTC)** | **~23:30 / ~03:30 UTC** |
-| #1708 | frieren | Pre-target Skylight u/w floor pulse TARGET_UW 0.35→{0.45, 0.55} @ 2750-2900 | Arm A `xmwa60yc` step ~2875; Arm B chained | Arm A ~19:15 / Arm B ~23:00 UTC |
-| **#1742** | **tanjiro** | **Pre-target body Muon depth-asymmetric per-block LR-mult burst ×1.5 (Arm A early-half / Arm B late-half)** | **Just assigned (~20:15 UTC)** | **~23:45 / ~03:45 UTC** |
-| #1726 | nezuko | Pre-target PMuon L_cov/R_cov hard zero RESET @ 2750 (Arm A pure / Arm B + β_cov 0.99 transient) | Arm A `210d43l3` step ~550 healthy | ~22:30 / ~02:00 UTC |
-| #1727 | edward | Depth-split β_cov binary group early-vs-late (Arm A 0.97/0.92 / Arm B inverted) | Arm A `66yd8u3s` step ~525 healthy | ~22:30 / ~02:00 UTC |
+| #1703 | alphonse | ADOPT async whitening on body PMuon | In flight `gjmywcji` step ~3125 sr=2950 | Terminal ~22:50 UTC |
+| **#1749** | **thorfinn** | **AdEMAMix dual-EMA first moment on aux AdamW (Arm A α=0.5/β₃=0.999/T=500; Arm B α=0.75/β₃=0.9995/T=750)** | **Just assigned (22:45 UTC)** | **~02:30 / ~06:30 UTC** |
+| #1730 | askeladd | Pre-target body Muon momentum buffer HARD ZERO RESET (Arm A crashed @ 1925; Arm B `uhrosnl0` step ~525) | Arm A crashed; Arm B in flight | ~00:30 UTC |
+| #1739 | fern | Pre-target NS_ITERS burst {14, 16} @ 2750-2900 | Arm A `hfhcbony` step ~1575 | ~00:15 UTC |
+| #1708 | frieren | Pre-target Skylight u/w floor pulse TARGET_UW 0.35→{0.45, 0.55} | Arm B `bstlsmqy` step ~2850 | ~23:20 UTC |
+| #1742 | tanjiro | Pre-target body Muon depth-asymmetric per-block LR-mult burst ×1.5 (Arm A early-half) | Arm A `xdpfzmo9` step ~1250 | ~00:55 UTC |
+| #1726 | nezuko | Pre-target PMuon L_cov/R_cov hard zero RESET — Arm A FINISHED NULL (sr=2950, val_ema 3.27093); Arm B `pyugggcd` fastaccum step ~500 | Arm B in flight | ~00:10 UTC |
+| #1727 | edward | Depth-split β_cov binary group — Arm A FINISHED NULL (sr=2950, val_ema 3.27122); Arm B `mj8zysth` step ~500 | Arm B in flight | ~00:10 UTC |
+
+**Recent closures (this session):**
+- ❌ #1704 thorfinn (stacked pEMA refresh 2750/2850) — bilateral NULL (Arm A sr=2925, Arm B sr=2950; monotonic worsening). **pEMA-stacked-refresh axis CLOSED.** Canonical 2600 position is a singular optimum at cooldown_start_step regime boundary.
+- ❌ #1726 nezuko Arm A `210d43l3` FINISHED NULL (sr=2950, val_ema 3.27093)
+- ❌ #1727 edward Arm A `66yd8u3s` FINISHED NULL (sr=2950, val_ema 3.27122)
+- ❌ #1704 thorfinn `z3676wa3` Arm B FINISHED NULL (sr=2950, val_ema 3.265423)
 
 ## Research portfolio focus
 
