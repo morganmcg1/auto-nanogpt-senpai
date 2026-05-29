@@ -1,3 +1,46 @@
+## 2026-05-29 15:45 UTC — Cycle 71 mid-391 — nezuko #1695 296th refute, 132nd family closure — MAJOR STRUCTURAL FINDING: cross-SOAP-scope β2 phase-locality matrix is per-MLP-kind SELECTIVE
+
+### nezuko #1695 296th refute — PHASE_DISPATCH_MLP_SOAP_FC_BETA2 val_mean=3.27202 STANDARD misses merge bar by Δ=+0.00426 val and +50 ffs
+
+Arm A `fc_late_FAST` early=0.90/late=0.85 val=3.27180 ffs=3050 STANDARD, Arm B `fc_early_FAST` early=0.85/late=0.90 val=3.27224 ffs=3050 STANDARD, Δ(B−A)=+0.00044 **PHASE-LOCALITY INERT** (within |Δ| < 0.0005 inert-prediction threshold).
+
+**MAJOR STRUCTURAL FINDING**: cross-SOAP-scope β2 phase-locality matrix is **NOT uniform across MLP sub-kinds**. Cycle 71 matrix now:
+
+| scope/kind | direction | eigenbasis rank class |
+|---|---|---|
+| attn-SOAP-proj (#1642) | LATE wins (late-stability) | low-rank stable |
+| MLP-SOAP-proj (#1668) | EARLY wins (early-warmup) | low-rank stable |
+| **MLP-SOAP-fc (#1695 this PR)** | **PHASE-INERT** | **high-rank expansion** |
+| attn-SOAP-q (next PR #1718) | UNKNOWN | low-rank stable (most stable) |
+| attn-SOAP-k | UNKNOWN | low-rank stable |
+| attn-SOAP-v | UNKNOWN | less-stable (predicted phase-inert) |
+
+**Emerging eigenbasis-rank-sensitivity axiom**: less-stable / higher-rank-expansion kinds are β2-phase-locality-INERT (basis estimate dominated by sample-volume variance, not β2-window choice); more-stable / lower-rank kinds are β2-phase-sensitive. Predicts q/k phase-sensitive, v phase-inert (like fc) — testable via matrix completion.
+
+**Trajectory pattern**: NULL-LEVER signature — Δ(B−A) spikes at step 500 (+0.00390) then decays monotonically to +0.00044 by terminal. Slope deltas converge from +0.00059 → −0.00004 over second half (descent rate modulation < 0.001/100steps at every measurement). Distinct from #1668 MID-PEAK-COMPOUND-DECAY signature.
+
+**132nd family closure**: PHASE_DISPATCH_MLP_SOAP_FC_BETA2 axis fully mapped at fc-phase-inert outcome.
+
+### Cumulative state
+
+**Cycle 71 cumulative**: **296 refuted** / **175 distinct mech classes** / **132 family-level closures**.
+
+### PRs closed this wave (1 closure):
+
+| PR | student | mechanism | outcome |
+|---|---|---|---|
+| **nezuko #1695** | nezuko | PHASE_DISPATCH_MLP_SOAP_FC_BETA2 (Arm A fc_late_FAST E=0.90/L=0.85 boundary=1500, Arm B fc_early_FAST E=0.85/L=0.90) | **296th** — Arm A 3.27180/3050, Arm B 3.27224/3050, val_mean=3.27202 STANDARD misses by +0.00426/+50. Δ(B−A)=+0.00044 PHASE-LOCALITY INERT. **MAJOR STRUCTURAL FINDING**: cross-SOAP-scope β2 phase-locality matrix is per-MLP-kind selective (fc phase-inert vs proj early-warmup) — emerging eigenbasis-rank-sensitivity axiom. **132nd family closure**. |
+
+### PRs assigned this wave (1 fresh per-group state-mechanism axis — matrix completion):
+
+| PR | student | mechanism | hypothesis |
+|---|---|---|---|
+| **nezuko #1718** | nezuko | PER_KIND_ATTN_SOAP_Q_BETA2_PHASE_DISPATCH (Arm A `q_late_FAST` E=0.90/L=0.85, Arm B `q_early_FAST` E=0.85/L=0.90, k/v/proj at baseline 0.90) | Matrix-completion at highest-priority cell (q is most-stable basis per #1583 q≈k>proj>v ordering). Tests eigenbasis-rank-sensitivity axiom: if axiom holds, q should be phase-sensitive (matches one of attn-proj or MLP-proj direction). If A<B → q tracks attn-proj LATE direction. If B<A → q tracks MLP-proj EARLY direction. If A≈B → q phase-inert (REFUTES axiom; rank not driver). Fits Morgan's directive (per-group + state-mechanism). |
+
+Fleet 8/8 assigned, 0 idle. Stale_wip workflow note: nezuko posted launch heartbeat + transition heartbeat + terminal SENPAI-RESULT cleanly on #1695, no stale_wip flag.
+
+---
+
 ## 2026-05-29 15:05 UTC — Cycle 71 mid-390 — alphonse #1687 295th refute, 131st family closure, 175th distinct mech class — STRATEGIC PIVOT: optimizer-mechanism compound portfolio EXHAUSTED
 
 ### alphonse #1687 295th refute — JOINT_MLP_SOAP_REFRESH_BACK_FAST_X_PHASE_DISPATCH_ATTN_SOAP_BETA2 (cross-SCOPE compound) val_mean=3.27054 STANDARD misses merge bar by Δ=+0.00278 val and +37.5 ffs
