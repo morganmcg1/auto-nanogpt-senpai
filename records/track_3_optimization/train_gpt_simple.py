@@ -84,6 +84,13 @@ def parse_args():
     parser.add_argument('--aux_b2_pulse_target', type=float, default=0.99,
                         help='New aux Adam β2 value to set at --aux_b2_pulse_step. '
                              '0 or negative disables. Default: 0.99 (canonical WIN).')
+    parser.add_argument('--muon_wd_pretarget_pulse_start', type=int, default=-1,
+                        help='Step at which to begin transient body Muon wd pulse. -1 disables.')
+    parser.add_argument('--muon_wd_pretarget_pulse_end', type=int, default=-1,
+                        help='Step at which to end transient body Muon wd pulse (revert to canonical wd=0.025).')
+    parser.add_argument('--muon_wd_pretarget_pulse_target', type=float, default=-1.0,
+                        help='New body Muon wd value during the pulse window. Use 0.0 for relax, 0.05 for deepen. '
+                             'Negative disables. wd=0.0 is a valid relax target.')
     parser.add_argument("--seed", type=int, default=1,
                         help="Random seed for torch/numpy/python. Default 1 matches baseline seed.")
     args = parser.parse_args()
@@ -758,6 +765,9 @@ if dist.get_rank() == 0:
             "paramema_refresh_only": int(args.paramema_refresh_only),
             "aux_b2_pulse_step": args.aux_b2_pulse_step,
             "aux_b2_pulse_target": args.aux_b2_pulse_target,
+            "muon_wd_pretarget_pulse_start": args.muon_wd_pretarget_pulse_start,
+            "muon_wd_pretarget_pulse_end": args.muon_wd_pretarget_pulse_end,
+            "muon_wd_pretarget_pulse_target": args.muon_wd_pretarget_pulse_target,
             "seed": args.seed,
         },
     )
@@ -1064,6 +1074,21 @@ for trial_idx in range(args.num_trials):
                 group["betas"] = new_betas
             print0(f"[step {step}] aux_b2_pulse: β2 {old_b2} → {args.aux_b2_pulse_target}",
                    console=True)
+        if (args.muon_wd_pretarget_pulse_start > 0
+                and args.muon_wd_pretarget_pulse_target >= 0.0):
+            if step == args.muon_wd_pretarget_pulse_start:
+                old_wd = optimizer2.param_groups[0]["weight_decay"]
+                for g in optimizer2.param_groups:
+                    g["weight_decay"] = args.muon_wd_pretarget_pulse_target
+                print0(f"[step {step}] muon_wd_pretarget_pulse: wd {old_wd} -> "
+                       f"{args.muon_wd_pretarget_pulse_target}", console=True)
+            elif step == args.muon_wd_pretarget_pulse_end:
+                revert_wd = 0.025
+                old_wd = optimizer2.param_groups[0]["weight_decay"]
+                for g in optimizer2.param_groups:
+                    g["weight_decay"] = revert_wd
+                print0(f"[step {step}] muon_wd_pretarget_pulse: wd {old_wd} -> "
+                       f"{revert_wd} (revert)", console=True)
         for opt in optimizers:
             opt.step()
         # EMA buffer update on body-Muon matrix params.
@@ -1182,7 +1207,32 @@ for trial_idx in range(args.num_trials):
                 "aux_b2/fired": int(args.aux_b2_pulse_step > 0
                                     and args.aux_b2_pulse_target > 0.0
                                     and step >= args.aux_b2_pulse_step),
+                "pmuon_wd/active": optimizer2.param_groups[0]["weight_decay"],
+                "pmuon_wd/pulse_start": args.muon_wd_pretarget_pulse_start,
+                "pmuon_wd/pulse_end": args.muon_wd_pretarget_pulse_end,
+                "pmuon_wd/pulse_target": args.muon_wd_pretarget_pulse_target,
+                "pmuon_wd/fired": (
+                    2 if (args.muon_wd_pretarget_pulse_start > 0
+                          and args.muon_wd_pretarget_pulse_target >= 0.0
+                          and step >= args.muon_wd_pretarget_pulse_end)
+                    else (1 if (args.muon_wd_pretarget_pulse_start > 0
+                                and args.muon_wd_pretarget_pulse_target >= 0.0
+                                and step >= args.muon_wd_pretarget_pulse_start)
+                          else 0)
+                ),
             }, step=wandb_step)
+            # Body Muon per-param norm telemetry (for wd pulse analysis).
+            with torch.no_grad():
+                pmuon_param_norms = torch.stack([
+                    p.detach().norm().float() for p in optimizer2.param_groups[0]["params"]
+                ])
+                wandb.log({
+                    "trial": trial_idx,
+                    "train/step": train_step,
+                    "pmuon/param_norm_mean": float(pmuon_param_norms.mean().item()),
+                    "pmuon/param_norm_max": float(pmuon_param_norms.max().item()),
+                    "pmuon/param_norm_min": float(pmuon_param_norms.min().item()),
+                }, step=wandb_step)
         if dist.get_rank() == 0 and (train_step % 100 == 0 or train_step == train_steps):
             spec = pmuon_spectral_diag(optimizer2, PMUON_GAMMA)
             if spec:
