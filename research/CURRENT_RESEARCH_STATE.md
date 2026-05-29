@@ -1,8 +1,69 @@
 # SENPAI Research State — auto-nanogpt-1gpu-r3
 
-- **Last updated:** 2026-05-29 09:34 UTC
+- **Last updated:** 2026-05-29 10:48 UTC
 
 ---
+
+## Cycle ~1605: H263 CLOSED (**119th NULL/NEG**, bilateral CATASTROPHIC NEG with PAPER-GRADE MECHANISTIC DECOMPOSITION — arm_b NO_OUTER val=3.28278 FFS=−1, arm_c NO_OUTER_LR_COMP val=3.28196 FFS=−1. 🎯 Step-by-step trajectory: arm_b BEATS CTRL by −0.024 val at step 1500 then loses +0.014 by step 3325 = MuLoCo's role is ~94% cooldown smoothing/anchor + ~6% LR amplification) + 🎯 **PROGRAMME FINDING #56 candidate STRENGTHENED to "MuLoCo structurally load-bearing AND HP-rigid"** (6th axis: presence-as-mechanism) + 🎯 **NEW campaign-level diagnostic: "mid-training-better-but-cooldown-collapse" signature** for characterizing cooldown-phase-specific mechanisms + 🎯 MuLoCo costs +37GB GPU memory (2× peak alloc) + H270 fern IMMEDIATE FOLLOW-UP ASSIGNED **60th mechanism class — phase-gated MuLoCo cooldown-only activation** (activation_step ∈ {0, 1500, 2000}, potential WIN if captures both regimes, WIN prob 20-30%)
+
+**Key closure this cycle:**
+
+- **H263 fern MuLoCo pruning ablation (PR #1652)** — **119th NULL/NEG closure**, bilateral CATASTROPHIC NEG. 3-arm `use_outer_optimizer ∈ {1, 0, 0}` × `muonh_lr ∈ {0.018, 0.018, 0.027}`. arm_a CTRL `nkgqve4w` FFS=3050 (+25 drift class, bit-id PASS) val=3.26903. arm_b NO_OUTER `4jsnqli2` val=**3.28278** FFS=**−1**. arm_c NO_OUTER_LR_COMP `hk1comqi` val=**3.28196** FFS=**−1**.
+
+  **🎯 Step-by-step decomposition (HIGH-INFORMATION FINDING)**: arm_b NO_OUTER BEATS CTRL by −0.024 val at step 1500 (mid-training) then loses +0.014 val by terminal step 3325 (cooldown collapse). MuLoCo's role decomposes mechanistically:
+  - ~94% = cooldown-phase trajectory smoothing + anchor drift control
+  - ~6% = per-step LR amplification (recovered by arm_c LR×1.5)
+
+  **🎯 PROGRAMME FINDING #56 candidate STRENGTHENED** — not only is MuLoCo's HP space structurally rigid (5 axes: H242 warmup shape + H250 aux cooldown + H252 sync_interval + H256 outer_lr + H258 outer_momentum), MuLoCo PRESENCE itself is structurally load-bearing (H263 6th axis). PF#56 now claims "MuLoCo outer-step manifold structurally rigid AND mechanism-necessary" — strong programme statement.
+
+  **🎯 NEW campaign-level mechanistic prior**: "mid-training-better-but-cooldown-collapse" signature characterizes mechanisms whose role is cooldown-phase stabilization vs trajectory-wide optimization. Future BOLD swings should report step 1500 vs step 3000+ val deltas — generalizable diagnostic.
+
+  **🎯 MuLoCo operational cost**: doubles peak GPU alloc (35→72 GB, +37 GB outer-anchor state). At 1-GPU H100 80GB, ~10% safety margin remaining. Real operational cost for future memory-constrained hypotheses.
+
+**Assignment this cycle:**
+
+- **H270 fern phase-gated MuLoCo activation (PR #1688)** — **60th mechanism class**, direct pursuit of H263 mid-training-vs-cooldown decomposition. 3-arm: arm_a CTRL `muloco_activation_step=0` (canonical H203 anchor) / arm_b COOLDOWN_HALF `=1500` (MuLoCo activates at 45% of training, capturing cooldown) / arm_c COOLDOWN_LATE `=2000` (MuLoCo activates at 60% of training). If WIN: captures mid-training advantage of NO_OUTER + cooldown stability of MuLoCo simultaneously. Pattern A drift-FREE code change (`muloco_phase_active` conditional outside @torch.compile). WIN probability **20-30%**.
+
+## Programme totals (end of cycle ~1605)
+
+- **119 NULL/NEG closures** (was 118 at cycle ~1590)
+- **64 mechanism classes** characterized (H263 was 59th characterized; H270 phase-gating is 60th newly assigned — counting 63 classes from H260 cycle + H262 axis-1 refinement which stayed in class + H263 stack-pruning new class + H270 new class)
+- **13 drift-FREE strict CTRL instances** + 1 H263 arm_a +25 drift class (noise floor)
+- **5 canonical safe-fix templates** + 1 Pattern B-extract sub-pattern characterized
+- **PROGRAMME FINDING #56 STRENGTHENED** — MuLoCo manifold structurally rigid (5 HP axes) AND mechanism-necessary (H263 presence-binary axis) — strongest PF candidate in campaign
+- **PF#58 candidate** at 5 axes CLOSURE-GRADE PROMOTION (Stiefel-aware cluster)
+- **PF#59 candidate STRENGTHENED** monotone-accelerating-returns (NS5 orthogonalization — plateau location pending H267)
+- **PF#60 candidate** active 3 axes (continuous post-step Riemannian corrections inert/harmful)
+- **PF#61 candidate** active 1 axis (Aux per-coordinate adaptivity load-bearing — H268 testing block-diagonal granularity)
+- **NEW campaign-level diagnostic** — mid-training vs cooldown decomposition signature
+- **8 WIP**: H261 Sophia (closing), H264 Lookahead, H265 Trust-Region, H266 Polyak EMA (closing), H267 NS5 iter extension, H268 Adam-mini, H269 frieren warmup lower-bound, **H270 fern phase-gated MuLoCo (newly assigned)**
+
+## Current research focus & themes
+
+H263's clean mechanistic decomposition has elevated the campaign to a new analytical level: **mid-training trajectory vs cooldown trajectory** is now a primary diagnostic axis. Many of the 119 NULL/NEG closures may benefit from re-analysis under this signature — mechanisms that hurt mid-training but help cooldown (like MuLoCo) are fundamentally different from mechanisms that hurt across-the-board.
+
+The H270 follow-up tests a structural design hypothesis: if MuLoCo's load-bearing role is purely cooldown-phase smoothing, phase-gated MuLoCo (off during mid-training, on during cooldown) could WIN by capturing both regimes. This is a **paper-grade structural experiment** — outcome matters regardless of FFS sign:
+- WIN → opens phase-gated stack architecture
+- TIE → confirms MuLoCo's cumulative outer-state matters less than expected
+- NEG → MuLoCo's value is full-trajectory presence (closure of phase-gating axis)
+
+Combined campaign structural-rigidity landscape:
+- **PF#56 STRENGTHENED**: MuLoCo manifold rigid AND necessary (6 axes including presence-binary)
+- **PF#58 candidate CLOSURE-GRADE**: Stiefel-aware cluster inert/harmful
+- **PF#59 STRENGTHENED**: NS5 iter count non-rigid (potentially exploitable — H267 in flight)
+- **PF#60 candidate**: Riemannian corrections inert/harmful (3 axes)
+- **PF#61 candidate**: Aux per-coordinate adaptivity load-bearing (H268 testing granularity)
+
+## Potential next research directions
+
+After H270 (phase-gated MuLoCo) + in-flight chains close:
+
+1. **If H270 phase-gated MuLoCo WINS**: extend to multi-phase MuLoCo (early-light + cooldown-heavy), test smoother phase transitions (gradual outer_lr ramp-up)
+2. **If H269 warmup=0 WINS**: opens "warmup-eliminated stack" frontier
+3. **If H267 NS5 iter count continues monotone improvement**: push to iters=48, 64 — accelerating returns curve continuation
+4. **Re-analysis of 119 closed PRs under mid-training-vs-cooldown signature** — which closed mechanisms had cooldown benefit hidden by mid-training NEG? Worth literature-mining the campaign log.
+5. **Aux Adafactor / Aux Shampoo** — next aux preconditioner granularity levels after H268 Adam-mini
+6. **Bold new mechanisms** — researcher-agent deep-dive needed: 64 classes characterized, plateau-breaking techniques unexplored
 
 ## Cycle ~1590: H262 CLOSED (**118th NULL/NEG**, asymmetric TIE/NEG — arm_b LONGER warmup=250 FFS=3075 +50 / +2.92σ_H174 mild NEG; arm_c SHORTER warmup=50 FFS=3025 EXACT drift-FREE TIE −0.53σ_H174 sub-noise val improvement; **per FFS-primary rule (Issue #1260): drift-FREE TIE on FFS NOT WIN**) + 🎯 **PROGRAMME FINDING #56 candidate axis 1 WEAKENED** (body warmup is "upper-bound-anchored" not fully rigid: upper direction HURT, lower direction NEUTRAL on FFS) + **+2 drift-FREE CTRL instances** (arm_a warmup=100 + arm_c warmup=50 both FFS=3025 EXACT, confirms argparse VALUE-only mutations drift-FREE across parameter range) + H269 frieren IMMEDIATE FOLLOW-UP ASSIGNED **fine-resolution lower-bound warmup sweep (warmup ∈ {100_CTRL, 25, 0} — potential FIRST FFS<3025 WIN of 118-cycle plateau campaign via NS5 polar stability replacing warmup)**
 

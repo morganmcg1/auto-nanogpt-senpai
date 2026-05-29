@@ -1,3 +1,56 @@
+## 2026-05-29 10:48 — PR #1652: H263 fern MuLoCo pruning ablation — CLOSED (**119th NULL/NEG closure**, bilateral CATASTROPHIC NEG — arm_b NO_OUTER val=3.28278 FFS=−1, arm_c NO_OUTER_LR_COMP val=3.28196 FFS=−1. 🎯 **PAPER-GRADE MECHANISTIC DECOMPOSITION** — step-by-step val trajectory analysis shows arm_b BEATS CTRL by −0.024 val at step 1500 (mid-training), then loses +0.014 val by step 3325 (cooldown collapse). MuLoCo's role decomposes to ~94% cooldown-phase smoothing/anchor + ~6% LR amplification. 🎯 **PROGRAMME FINDING #56 candidate STRENGTHENED to "MuLoCo structurally load-bearing AND HP-rigid"** — 6th axis (MuLoCo PRESENCE itself), not just HP-rigidity. 🎯 **NEW campaign-level diagnostic signature: "mid-training-better-but-cooldown-collapse"** characterizing mechanisms whose role is cooldown stabilization vs trajectory-wide. 🎯 MuLoCo costs +37GB GPU memory (2× peak alloc, real operational cost). H270 fern IMMEDIATE FOLLOW-UP ASSIGNED **60th mechanism class — phase-gated MuLoCo activation (cooldown-only, activation_step ∈ {0, 1500, 2000})** — direct pursuit of H263 mid-training-vs-cooldown decomposition, WIN prob 20-30% if cooldown-only design captures both regimes)
+
+- Branch: H263 fern (59th class — MuLoCo presence/absence binary, `use_outer_optimizer ∈ {1, 0, 0}` + `muonh_lr ∈ {0.018, 0.018, 0.027}`)
+- Student terminal SENPAI-RESULT at 10:25 UTC May 29 with full 3-arm per-arm config audit, per-arm bit-id step-0 val=10.82583 EXACT, step-by-step trajectory table (9 checkpoints from step 0 to 3325), and ~94/6 mechanistic decomposition.
+
+| Arm | run_id | use_outer | muonh_lr | val/loss | FFS | val Δ vs CTRL (terminal) | Decision |
+|---|---|---|---|---|---|---|---|
+| arm_a CTRL MuLoCo ON | `nkgqve4w` | True ✓ | 0.018 ✓ | 3.26903 | 3050 (+25 drift class) | — | bit-id PASS within {3025,3050} |
+| arm_b NO_OUTER | `4jsnqli2` | False ✓ | 0.018 ✓ | **3.28278** | **−1** | +0.01375 (+15.6σ_H174) | **CATASTROPHIC NEG** |
+| arm_c NO_OUTER_LR_COMP | `hk1comqi` | False ✓ | 0.027 ✓ (×1.5) | **3.28196** | **−1** | +0.01293 (+14.6σ_H174) | **CATASTROPHIC NEG** |
+
+### 🎯 Step-by-step decomposition (the high-information finding)
+
+| step | arm_a CTRL | arm_b NO_OUTER | Δ(b−a) | interpretation |
+|---|---|---|---|---|
+| 1500 | 3.57861 | **3.55430** | **−0.024** | arm_b MID-TRAINING BEATS CTRL |
+| 2000 | 3.44558 | 3.44909 | +0.004 | crossover, arms tie |
+| 3000 | 3.28357 | 3.29528 | +0.012 | arm_a pulls ahead (cooldown) |
+| 3325 | 3.26903 | 3.28278 | **+0.014** | terminal gap acquired in steps 2000→3325 |
+
+**Net: ~94% of MuLoCo's terminal contribution is cooldown smoothing/anchor (steps 2000+), ~6% is LR amplification (recovered by arm_c LR×1.5)**
+
+### 🎯 PROGRAMME FINDING #56 candidate STRENGTHENED — MuLoCo structurally load-bearing
+
+H252 (sync_interval VALUE) + H256 (outer_lr TEMPORAL) + H258 (outer_momentum VALUE) + H263 (MuLoCo PRESENCE binary) = 4 closed MuLoCo axes. PF#56 now claims: **not only is MuLoCo's HP space structurally rigid, MuLoCo itself is structurally necessary**. 6th axis added: PRESENCE-as-mechanism, not just HP-rigidity. Strong programme-level statement.
+
+### 🎯 NEW campaign-level mechanistic prior
+
+"Mid-training-better-but-cooldown-collapse" signature: future BOLD swings should report mid-training (step 1500) vs cooldown (step 3000+) val deltas. Many mechanism failures may have similar decomposition — generalizable diagnostic for cooldown-phase-specific mechanisms.
+
+### Operational cost of MuLoCo
+
+| arm | Peak GPU GB | overhead |
+|---|---|---|
+| arm_a MuLoCo ON | **72.25** | outer-anchor state ≈ full body-param copy |
+| arm_b NO_OUTER | 35.03 | baseline |
+| arm_c NO_OUTER_LR_COMP | 35.03 | same |
+
+MuLoCo doubles peak GPU alloc (+37 GB). At 1-GPU H100 80GB, ~10% safety margin remaining. Memory-constrained future hypotheses should weigh this against MuLoCo's cooldown benefit.
+
+### H270 fern IMMEDIATE FOLLOW-UP — phase-gated MuLoCo activation (60th class, PR #1688)
+
+Direct pursuit of mid-training-vs-cooldown decomposition. 3-arm: arm_a CTRL `muloco_activation_step=0` (H203 baseline) / arm_b COOLDOWN_HALF `activation_step=1500` (MuLoCo off for first 45%, on for last 55% capturing all cooldown) / arm_c COOLDOWN_LATE `activation_step=2000` (MuLoCo off for first 60%, on for last 40%). If WIN, captures both mid-training advantage of NO_OUTER + cooldown stability of MuLoCo. Pattern A drift-FREE code change required (`muloco_phase_active` conditional outside @torch.compile). WIN probability **20-30%**.
+
+### Programme totals after H263 closure + H270 assignment
+- **119 NULL/NEG closures** (was 118 at cycle ~1590)
+- **64 mechanism classes** characterized (H263 was 59th; H270 phase-gating is 60th newly assigned)
+- **13 drift-FREE strict CTRL instances** + 1 H263 arm_a +25 drift class (noise floor)
+- **PF#56 STRENGTHENED** — MuLoCo structurally load-bearing AND HP-rigid (5+1 axes, presence binary added)
+- **NEW campaign-level diagnostic** — mid-training vs cooldown decomposition signature
+
+---
+
 ## 2026-05-29 09:34 — PR #1650: H262 frieren Body warmup steps VALUE ablation — CLOSED (**118th NULL/NEG closure**, asymmetric TIE/NEG — arm_b LONGER warmup=250 FFS=3075 +50/+2.92σ_H174 mild NEG; arm_c SHORTER warmup=50 FFS=3025 EXACT drift-FREE TIE −0.53σ_H174 sub-noise val improvement. Per FFS-primary criterion (Issue #1260): drift-FREE TIE on FFS = NOT WIN. 🎯 **PROGRAMME FINDING #56 candidate axis 1 WEAKENED** — body warmup is "upper-bound-anchored" not fully rigid. 🎯 **+2 drift-FREE CTRL instances** (arm_a warmup=100 + arm_c warmup=50 both FFS=3025 EXACT, 13 cumulative total). H269 frieren IMMEDIATE FOLLOW-UP ASSIGNED — fine-resolution lower-bound warmup sweep {25, 0}, **potential FIRST FFS<3025 WIN of 118-cycle plateau campaign**)
 
 - Branch: H262 frieren (58th class — body warmup steps VALUE axis, `muonh_warmup_steps ∈ {100, 250, 50}`)
