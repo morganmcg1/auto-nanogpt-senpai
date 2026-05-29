@@ -101,6 +101,11 @@ def parse_args():
                         help="EMA decay for SWA-style EMA-eval; None=disabled (control). "
                              "Recommend 0.99-0.9999. When set, val/ema_loss is logged "
                              "and speedrun/first_step_to_target uses the EMA-val crossing.")
+    parser.add_argument("--ema_eval_decay_body", type=float, default=None,
+                        help="Separate EMA decay for body (Muon-managed) parameters only. "
+                             "When set, body params use this decay and aux params use "
+                             "--ema_eval_decay. When None, all params use --ema_eval_decay. "
+                             "Requires --ema_eval_decay to be set.")
     args = parser.parse_args()
     args.num_trials = args.num_trials if args.num_trials is not None else (args.legacy_num_trials or 1)
     args.wandb_tags = [tag.strip() for tag in args.wandb_tags.split(",") if tag.strip()]
@@ -739,6 +744,16 @@ val_inputs, val_targets = next(distributed_data_generator("data/fineweb10B/finew
 model = GPT(vocab_size=50304, num_layers=12, model_dim=768).cuda()
 model.compile(dynamic=False)
 
+# Body param routing for per-group EMA-eval decay decoupling.
+# Body = Muon-managed: 2D+ weight matrices in transformer blocks (mlp.fc/proj, attn.c_q/c_k/c_v/proj).
+# Aux  = AdamW-managed: model.embed, model.proj (lm_head), and all <2D scalars.
+# Mirror exactly the Muon optimizer's `model.blocks.named_parameters() if p.ndim >= 2` selection
+# (see optimizer2 setup below) so body_param_names is the exact set of Muon-managed weights.
+body_param_names: set[str] = {
+    n for n, p in model.named_parameters()
+    if n.startswith("blocks.") and p.ndim >= 2 and p.requires_grad
+}
+
 module_types = param_module_types(model)
 if dist.get_rank() == 0:
     tags = ["track-3-optimization", "senpai"] + args.wandb_tags
@@ -786,6 +801,11 @@ if dist.get_rank() == 0:
             "lr_cooldown_shape": args.lr_cooldown_shape,
             "ema_eval_decay": args.ema_eval_decay,
             "ema_eval_enabled": args.ema_eval_decay is not None,
+            "ema_eval_decay_body": args.ema_eval_decay_body,
+            "ema_eval_per_group_decoupling": (
+                args.ema_eval_decay is not None
+                and args.ema_eval_decay_body is not None
+            ),
         },
     )
 
@@ -952,6 +972,11 @@ for trial_idx in range(args.num_trials):
                      for n, p in model.named_parameters() if p.requires_grad}
         init_state = {n: p.detach().clone().to(torch.float32)
                       for n, p in model.named_parameters() if p.requires_grad}
+        if args.ema_eval_decay_body is not None and trial_idx == 0:
+            n_body = sum(1 for n in body_param_names if n in ema_state)
+            n_aux = sum(1 for n in ema_state if n not in body_param_names)
+            print0(f"[per-group EMA] body_params={n_body} d_body={args.ema_eval_decay_body} "
+                   f"aux_params={n_aux} d_aux={args.ema_eval_decay}", console=True)
 
     # start the clock
     training_time = 0
@@ -1005,6 +1030,8 @@ for trial_idx in range(args.num_trials):
             ema_val_loss_float: float | None = None
             ema_val_loss_corrected_float: float | None = None
             ema_d_pow_at_val: float | None = None
+            ema_d_pow_body_at_val: float | None = None
+            ema_d_pow_aux_at_val: float | None = None
             if ema_state is not None:
                 with torch.no_grad():
                     backup = {n: p.detach().clone()
@@ -1023,14 +1050,26 @@ for trial_idx in range(args.num_trials):
 
                 # Pass 2: bias-corrected EMA swap. Skip at ema_n_updates==0 since
                 # (1 - d^0) = 0 makes the correction undefined.
+                # Per-group decay: each param has its own d_pow = d_n^t. EMA recurrence
+                # is fully separable per parameter, so bias correction applies group-wise
+                # with the same global t but per-group d.
                 if ema_n_updates > 0:
-                    d_pow = float(args.ema_eval_decay) ** ema_n_updates
-                    one_minus_d_pow = 1.0 - d_pow
-                    ema_d_pow_at_val = d_pow
+                    _d_aux = float(args.ema_eval_decay)
+                    _d_body = float(args.ema_eval_decay_body) if args.ema_eval_decay_body is not None else _d_aux
+                    d_pow_aux = _d_aux ** ema_n_updates
+                    d_pow_body = _d_body ** ema_n_updates
+                    one_minus_d_pow_aux = 1.0 - d_pow_aux
+                    one_minus_d_pow_body = 1.0 - d_pow_body
+                    ema_d_pow_at_val = d_pow_aux  # diagnostic: aux d_pow (back-compat)
+                    ema_d_pow_body_at_val = d_pow_body
+                    ema_d_pow_aux_at_val = d_pow_aux
                     with torch.no_grad():
                         for n, p in model.named_parameters():
                             if n in ema_state:
-                                corrected_p = (ema_state[n] - d_pow * init_state[n]) / one_minus_d_pow
+                                if n in body_param_names:
+                                    corrected_p = (ema_state[n] - d_pow_body * init_state[n]) / one_minus_d_pow_body
+                                else:
+                                    corrected_p = (ema_state[n] - d_pow_aux * init_state[n]) / one_minus_d_pow_aux
                                 p.data.copy_(corrected_p.to(p.dtype))
                                 del corrected_p
                     ema_val_loss_corrected = torch.zeros((), device=device)
@@ -1119,6 +1158,12 @@ for trial_idx in range(args.num_trials):
                     if ema_d_pow_at_val is not None:
                         metrics["val/ema_d_pow_t"] = ema_d_pow_at_val
                         metrics["val/ema_correction_factor"] = 1.0 / (1.0 - ema_d_pow_at_val)
+                    if ema_d_pow_body_at_val is not None:
+                        metrics["val/ema_body_d_pow"] = ema_d_pow_body_at_val
+                        metrics["val/ema_aux_d_pow"] = ema_d_pow_aux_at_val
+                        metrics["val/ema_body_correction_factor"] = 1.0 / (1.0 - ema_d_pow_body_at_val)
+                        metrics["val/ema_aux_correction_factor"] = 1.0 / (1.0 - ema_d_pow_aux_at_val)
+                        metrics["val/ema_d_pow_gap"] = ema_d_pow_aux_at_val - ema_d_pow_body_at_val
                     metrics.update(prefixed("val/ema_corrected_slope",
                                             loss_slope_stats(ema_corrected_val_loss_history, slope_window_steps)))
                 wandb.log(metrics, step=trial_idx * (train_steps + 1) + step)
@@ -1186,10 +1231,12 @@ for trial_idx in range(args.num_trials):
         # EMA-eval update: parallel param trajectory, no gradients/momentum.
         # Performed after the optimizer step so EMA tracks the post-update params.
         if ema_state is not None:
-            d = args.ema_eval_decay
+            d_aux = args.ema_eval_decay
+            d_body = args.ema_eval_decay_body if args.ema_eval_decay_body is not None else d_aux
             with torch.no_grad():
                 for n, p in model.named_parameters():
                     if n in ema_state:
+                        d = d_body if n in body_param_names else d_aux
                         ema_state[n].mul_(d).add_(p.detach().to(torch.float32), alpha=(1 - d))
             ema_n_updates += 1
             # Periodic EMA diagnostics (drift vs current params, EMA norm). Cheap.
@@ -1204,17 +1251,22 @@ for trial_idx in range(args.num_trials):
                             ema_sq.add_(e.pow(2).sum())
                             drift_sq.add_((e - p.detach().to(torch.float32)).pow(2).sum())
                             init_drift_sq.add_((e - init_state[n]).pow(2).sum())
-                d_pow_now = float(d) ** ema_n_updates
+                d_pow_body_now = float(d_body) ** ema_n_updates
+                d_pow_aux_now = float(d_aux) ** ema_n_updates
                 wandb.log({
                     "trial": trial_idx,
                     "train/step": train_step,
                     "ema/param_norm": float(ema_sq.sqrt().item()),
                     "ema/state_dict_drift": float(drift_sq.sqrt().item()),
                     "ema/drift_from_init": float(init_drift_sq.sqrt().item()),
-                    "ema/decay": d,
+                    "ema/decay": d_aux,
+                    "ema/decay_body": d_body,
+                    "ema/decay_aux": d_aux,
                     "ema/n_updates": ema_n_updates,
-                    "ema/d_pow_t": d_pow_now,
-                    "ema/init_weight_fraction": d_pow_now,
+                    "ema/d_pow_t": d_pow_aux_now,
+                    "ema/d_pow_body_t": d_pow_body_now,
+                    "ema/d_pow_aux_t": d_pow_aux_now,
+                    "ema/init_weight_fraction": d_pow_aux_now,
                 }, step=wandb_step)
 
         if telemetry_due:
