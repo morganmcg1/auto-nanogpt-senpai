@@ -1,3 +1,54 @@
+## 2026-05-29 16:20 UTC — Cycle 71 mid-392 — edward #1692 297th refute, 133rd family closure — MAJOR STRUCTURAL FINDING: v-axis on_fraction bit-identical across V LR magnitude at gate level + v-axis lever search EXHAUSTED at optimizer-mechanism level (4-of-4 candidates refuted)
+
+### edward #1692 297th refute — PER_KIND_ATTN_SOAP_MUON_LR (V_AXIS_ISOLATION) val_mean=3.27205 STANDARD misses merge bar by Δ=+0.00429 val and +37.5 ffs
+
+Arm A `v_lr_lower` V_MULT=0.67 (effective V LR=0.025) val=3.27033 ffs=3025 CLUSTER STANDARD, Arm B `v_lr_higher` V_MULT=1.33 (effective V LR=0.050) val=3.27377 ffs=3050 CLUSTER STANDARD, Δ(B−A)=+0.00344 directional signal `v_lr_lower_less_harmful_than_higher` at 11× noise but **NEITHER arm beats baseline**.
+
+**MAJOR STRUCTURAL FINDING**: per-kind Muon LR axis is **NULL on v-axis early-phase basis stability**. v's on_fraction is **bit-identical 0.000 at every checkpoint pre-cooldown in BOTH arms** (V LR=0.025 and V LR=0.050 both produce 0/12 v-layer gate-pass during steps 100→1500); mean_cos_row[v] differs by ≤0.007 between arms across all checkpoints; v-axis early-gate suppression is **completely independent of Muon update magnitude** — confirms v-axis basis bottleneck is **UPSTREAM of Muon's update step**.
+
+**v-axis lever search EXHAUSTED at optimizer-mechanism level** — 4 of 4 candidate axes converged on the same null verdict:
+
+| candidate axis | PR | outcome | direction |
+|---|---|---|---|
+| β2 phase-dispatch | #1663 | **REFUTED** | β2 NOT v-axis lever |
+| trust-threshold warmup | #1665 | **REFUTED** | warmup NOT v-axis lever |
+| per-kind trust-threshold magnitude | #1685 | **REFUTED** | threshold NOT v-axis lever |
+| **per-kind Muon LR magnitude** | **#1692 this PR** | **REFUTED** | **Muon LR NOT v-axis lever** |
+
+4 converging negatives on optimizer-side magnitude/threshold axes confirm v-axis early-gate suppression is upstream of Muon's update step. The remaining v-axis lever surface is **NS5 orthogonalization quality** (5th and final candidate, edward suggestion #1 → assigned as #1719) and upstream gradient dynamics (data-side, out of scope per program constraints).
+
+**v-axis on_fraction trajectory (the smoking gun)**:
+
+| step | Arm A V LR=0.025 on_v | Arm B V LR=0.050 on_v |
+|---|---|---|
+| 100 → 1500 | **0.0000** (every checkpoint) | **0.0000** (every checkpoint) |
+| 2225 | 0.1667 | 0.2500 |
+| 3175 | 0.4167 | 0.4167 |
+
+v's gate is fully closed (0/12 layers pass cos_row ≥ 0.85) for the entire pre-cooldown phase in BOTH arms, regardless of V LR magnitude (0.025 vs 0.050 = 2× range). Critical asymmetry: q/k are gate-saturated (on_fraction=1.0 in both arms), v is gate-closed (0/12) — both extremes have no headroom for LR magnitude to affect them. The v-axis bottleneck is **binary** (gate fully closed) rather than continuous.
+
+**133rd family closure**: PER_KIND_ATTN_SOAP_MUON_LR axis fully mapped at v-axis-null outcome (baseline V LR=0.0375 is near-optimal; perturbations in either direction degrade by 0.003-0.006; v-axis early-gate suppression mechanically independent of Muon LR).
+
+### Cumulative state
+
+**Cycle 71 cumulative**: **297 refuted** / **175 distinct mech classes** / **133 family-level closures**.
+
+### PRs closed this wave (1 closure):
+
+| PR | student | mechanism | outcome |
+|---|---|---|---|
+| **edward #1692** | edward | PER_KIND_ATTN_SOAP_MUON_LR V_AXIS_ISOLATION (Arm A v_lr_lower V_MULT=0.67, Arm B v_lr_higher V_MULT=1.33, q/k/proj at baseline 1.0) | **297th** — Arm A 3.27033/3025 CLUSTER STANDARD, Arm B 3.27377/3050 CLUSTER STANDARD, val_mean=3.27205 STANDARD misses by +0.00429/+37.5. Δ(B−A)=+0.00344 v_lr_lower_less_harmful at 11× noise but neither arm beats baseline. **MAJOR STRUCTURAL FINDING**: v's on_fraction bit-identical 0.000 across LR magnitude pre-cooldown — v-axis lever search 4-of-4 EXHAUSTED at optimizer-mechanism level. **133rd family closure**. |
+
+### PRs assigned this wave (1 fresh per-group state-mechanism axis — 5th and final v-axis candidate):
+
+| PR | student | mechanism | hypothesis |
+|---|---|---|---|
+| **edward #1719** | edward | PER_KIND_NS5_ITERS_V_ISOLATION (Arm A `v_ns5_rare` NS5_ITERS_V=10 (4 fewer than baseline 14, lower-quality v orthogonalization), Arm B `v_ns5_dense` NS5_ITERS_V=18 (4 more than baseline, higher-quality v orthogonalization), q/k/proj baseline NS5_ITERS=14) | **5th AND FINAL candidate v-axis lever on optimizer-mechanism side** — directly executes edward suggestion #1 and closes the last untested optimizer-mechanism axis on v-kind. Tests whether v-axis bottleneck is in NS5 orthogonalization quality. If A<B → v wants LESS orthogonalization quality (over-orthogonalization hurts v). If B<A → v wants MORE orthogonalization quality (under-orthogonalization is v-axis bottleneck). If A≈B → NS5 quality NOT the v-axis lever (closes 5-of-5 candidate axes → v-axis lever search **DEFINITIVELY EXHAUSTED** on optimizer-mechanism side, structural finding becomes definitive that v-axis basis bottleneck is mechanically upstream of Muon update step). Fits Morgan's directive (per-group + state-mechanism — per-kind + NS5 iterations, no scalar sweep). |
+
+Fleet 8/8 assigned, 0 idle. Stale_wip false-positive pattern still active in cycle 71 (8+ consecutive PRs) — edward acknowledged adopting marker-file fix `.student_logs/<PR#>-disabled-check-PASSED.marker` pattern as standard going forward.
+
+---
+
 ## 2026-05-29 15:45 UTC — Cycle 71 mid-391 — nezuko #1695 296th refute, 132nd family closure — MAJOR STRUCTURAL FINDING: cross-SOAP-scope β2 phase-locality matrix is per-MLP-kind SELECTIVE
 
 ### nezuko #1695 296th refute — PHASE_DISPATCH_MLP_SOAP_FC_BETA2 val_mean=3.27202 STANDARD misses merge bar by Δ=+0.00426 val and +50 ffs
