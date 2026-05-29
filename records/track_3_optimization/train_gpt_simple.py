@@ -225,6 +225,8 @@ def log_training_telemetry(
             metrics[f"train/weight_decay/{group_name}"] = group.get("weight_decay", 0.0)
             if "mu" in group:
                 metrics[f"train/mu/{group_name}"] = group["mu"]
+    metrics["train/wd_embed_eff_step"] = metrics.get("train/weight_decay/adam_embed", 0.0)
+    metrics["train/wd_lm_head_eff_step"] = metrics.get("train/weight_decay/adam_lm_head", 0.0)
     for module_type, tensors in grouped_by_type(grads, module_types).items():
         metrics.update(prefixed(f"train/grad_type/{module_type}", aggregate_stats(tensors)))
     for name, grad in grads:
@@ -466,6 +468,20 @@ ATTN_SOAP_PRECOND_FREQ = 10
 ATTN_SOAP_TRUST_THRESHOLD = float(os.environ.get("ATTN_SOAP_TRUST_THRESHOLD", "0.9"))
 NS5_ITERS = int(os.environ.get("NS5_ITERS", "12"))
 WD_AUX = float(os.environ.get("WD_AUX", "0.0"))  # AdamW WD on embed + lm_head matrices (scalars stay at 0)
+# Per-kind WD_AUX dispatch (#1683 plumbing): split the embed vs lm_head WD axes.
+PER_KIND_WD_AUX_ENABLED = int(os.environ.get("PER_KIND_WD_AUX_ENABLED", "0"))
+WD_AUX_EMBED = float(os.environ.get("WD_AUX_EMBED", str(WD_AUX)))
+WD_AUX_LM_HEAD = float(os.environ.get("WD_AUX_LM_HEAD", str(WD_AUX)))
+_wd_embed = WD_AUX_EMBED if PER_KIND_WD_AUX_ENABLED else WD_AUX
+_wd_lm_head = WD_AUX_LM_HEAD if PER_KIND_WD_AUX_ENABLED else WD_AUX
+# Phase-dispatch on the per-kind WD_AUX embed axis (#1705).
+# When enabled, the embed group weight_decay is set per-step:
+#   wd_embed_eff = WD_AUX_EMBED_EARLY if step < WD_AUX_EMBED_PHASE_BOUNDARY_STEP else WD_AUX_EMBED_LATE
+# Identity-preserving when flag=0 (falls back to per-kind static value or WD_AUX baseline).
+PHASE_DISPATCH_WD_AUX_EMBED_ENABLED = int(os.environ.get("PHASE_DISPATCH_WD_AUX_EMBED_ENABLED", "0"))
+WD_AUX_EMBED_EARLY = float(os.environ.get("WD_AUX_EMBED_EARLY", str(_wd_embed)))
+WD_AUX_EMBED_LATE = float(os.environ.get("WD_AUX_EMBED_LATE", str(_wd_embed)))
+WD_AUX_EMBED_PHASE_BOUNDARY_STEP = int(os.environ.get("WD_AUX_EMBED_PHASE_BOUNDARY_STEP", "1500"))
 EMBED_INIT_STD = float(os.environ.get("EMBED_INIT_STD", "1.0"))  # default preserves baseline N(0,1)
 LOGIT_SOFTCAP = float(os.environ.get("LOGIT_SOFTCAP", "15.0"))  # default = 15 (current hardcoded value); soft-cap value c in f(x) = c·x / sqrt(x^2+c^2)
 
@@ -866,6 +882,13 @@ if dist.get_rank() == 0:
             "optimizer/attn_soap_trust_threshold": ATTN_SOAP_TRUST_THRESHOLD,
             "optimizer/ns5_iters": NS5_ITERS,
             "optimizer/wd_aux": WD_AUX,
+            "optimizer/per_kind_wd_aux_enabled": PER_KIND_WD_AUX_ENABLED,
+            "optimizer/wd_aux_embed": _wd_embed,
+            "optimizer/wd_aux_lm_head": _wd_lm_head,
+            "optimizer/phase_dispatch_wd_aux_embed_enabled": PHASE_DISPATCH_WD_AUX_EMBED_ENABLED,
+            "optimizer/wd_aux_embed_early": WD_AUX_EMBED_EARLY,
+            "optimizer/wd_aux_embed_late": WD_AUX_EMBED_LATE,
+            "optimizer/wd_aux_embed_phase_boundary_step": WD_AUX_EMBED_PHASE_BOUNDARY_STEP,
             "optimizer/recipe": "contra-muon + normuon-lite + soap-on-mlp + soap-on-attn-trust-gate (pre-NS5, record #14 + record #16)",
         },
     )
@@ -898,10 +921,13 @@ for trial_idx in range(args.num_trials):
             raise Exception(f"Uninitialized parameter: {name}")
 
     # create the optimizer(s)
-    optimizer1 = AdamW([dict(params=[model.embed.weight], lr=0.3, name="adam_embed", weight_decay=WD_AUX),
-                        dict(params=[model.proj.weight], lr=1/320, name="adam_lm_head", weight_decay=WD_AUX),
+    optimizer1 = AdamW([dict(params=[model.embed.weight], lr=0.3, name="adam_embed", weight_decay=_wd_embed),
+                        dict(params=[model.proj.weight], lr=1/320, name="adam_lm_head", weight_decay=_wd_lm_head),
                         dict(params=[p for p in model.parameters() if p.ndim < 2], lr=0.01, name="adam_scalars")],
                        betas=(0.8, 0.95), eps=1e-10, weight_decay=0, fused=True)
+    if dist.get_rank() == 0 and trial_idx == 0:
+        print(f"[PER_KIND_WD_AUX] enabled={PER_KIND_WD_AUX_ENABLED} embed={_wd_embed:.4f} lm_head={_wd_lm_head:.4f} (baseline WD_AUX={WD_AUX:.4f})")
+        print(f"[PHASE_DISPATCH_WD_AUX_EMBED] enabled={PHASE_DISPATCH_WD_AUX_EMBED_ENABLED} early={WD_AUX_EMBED_EARLY:.4f} late={WD_AUX_EMBED_LATE:.4f} boundary_step={WD_AUX_EMBED_PHASE_BOUNDARY_STEP}")
     optimizer2 = Muon([(n, p) for n, p in model.blocks.named_parameters() if p.ndim >= 2],
                       lr=MUON_LR, weight_decay=MUON_WEIGHT_DECAY, mu=MU)
     optimizer2.param_groups[0]["name"] = "muon_blocks"
@@ -931,11 +957,17 @@ for trial_idx in range(args.num_trials):
                 cur_mu = MU_COOLDOWN_START + (MU_COOLDOWN_END - MU_COOLDOWN_START) * t
         else:
             cur_mu = MU + (MU_END - MU) * progress
+        if PHASE_DISPATCH_WD_AUX_EMBED_ENABLED:
+            wd_embed_eff = WD_AUX_EMBED_EARLY if step < WD_AUX_EMBED_PHASE_BOUNDARY_STEP else WD_AUX_EMBED_LATE
+        else:
+            wd_embed_eff = _wd_embed
         for opt in optimizers:
             for group in opt.param_groups:
                 group["lr"] = group["initial_lr"] * eta
                 if group.get("name") == "muon_blocks":
                     group["mu"] = cur_mu
+                if group.get("name") == "adam_embed":
+                    group["weight_decay"] = wd_embed_eff
 
 
     ########################################
