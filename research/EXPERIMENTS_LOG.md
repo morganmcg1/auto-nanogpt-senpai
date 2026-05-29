@@ -1,5 +1,32 @@
 # SENPAI Research Results
 
+## 2026-05-29 11:35 UTC — PR #1660 thorfinn: Pre-target NS coefficient pulse (Arm A conservative quintic) — ❌ Arm A NULL, Arm B in flight
+
+- Branch: `g1r1-thorfinn/pretarget-ns-coef-pulse`
+- Hypothesis: pulse NS polynomial coefficients during steps 2750-2900 to test precision vs magnitude bottleneck in body Muon.
+- W&B: Arm A `g68ikq9z` (conservative quintic 2.0, -1.5, 0.5), Arm B `eif52h8a` running
+
+| Arm | NS coefs | val_loss_ema | val_loss_live | sr | Δval vs baseline | Verdict |
+|---|---|---:|---:|---:|---:|---|
+| A (conservative) | (2.0, -1.5, 0.5) | 3.2645 | 3.2639 | 2925 | +1.65 mnat | ❌ NULL |
+| Baseline #1532 | NS_A=1.5, NS_B=-0.5, NS_C=0.0 | 3.262854 | — | 2875 | — | — |
+
+- **Analysis:** Arm A +50 sr slip vs canonical. Conservative quintic perturbation in pre-target window does not steepen descent. Arm B in flight (~step 1775/3250); awaiting terminal.
+
+## 2026-05-29 11:35 UTC — PR #1648 tanjiro: Per-group aux Adam β₂ pulse (embed-only vs non-embed) — ❌ BILATERAL NULL (per-group recipient axis fully closed)
+
+- Branch: `g1r1-tanjiro/per-group-aux-beta2-pulse`
+- Hypothesis: canonical β₂ pulse 0.95→0.99 @ step 975 applied to ONE param group at a time. Which group is the load-bearing WIN recipient?
+- W&B: Arm A `8jfrpc48` (embed-only), Arm B `oumooke5` (lm_head + scalars)
+
+| Arm | recipient groups | val_loss_ema | val_loss_live | sr | Δval vs baseline | Verdict |
+|---|---|---:|---:|---:|---:|---|
+| A (embed-only) | embed | 3.2653 | — | 2925 | +1.45 mnat | ❌ NULL |
+| B (non-embed) | lm_head + scalars | 3.2651 | 3.2644 | 2925 | +1.25 mnat | ❌ NULL |
+| Baseline #1532 | ALL 3 groups | 3.262854 | — | 2875 | — | — |
+
+- **Analysis:** Bilateral NULL — both single-recipient pulses regress by +50 sr / +1-1.5 mnat val_ema. The canonical #1532 WIN requires β₂ deepening across ALL 3 aux Adam param groups simultaneously; **the mechanism is conjunctive across the aux Adam param-group ensemble**. Per-group recipient axis robustly closed. **β₂ axis comprehensively mapped:** amplitude (closed), timing (closed), shape (closed), β₁ pulse (closed bilateral), per-group recipient (CLOSED bilateral), pre-target spike (Arm A NULL, Arm B in flight).
+
 ## 2026-05-29 11:05 UTC — PR #1646 fern: Pre-target aux Adam LR boost (×1.25, ×1.5 @ 2750-2900) — ❌ CLOSED NULL (bilateral, pre-target bottleneck confirmed body-Muon-specific)
 
 - Branch: `g1r1-fern/aux-lr-boost-pretarget`
