@@ -463,6 +463,14 @@ SOAP_PRECOND_FREQ = 10
 # Attention SOAP (record #16) hyperparameters
 ATTN_SOAP_BETA2 = 0.90
 ATTN_SOAP_PRECOND_FREQ = 10
+# Per-kind attn-SOAP precond_freq dispatch (PR #1710). When enabled, each
+# attention SOAP param (q/k/v/proj) uses its own refresh cadence instead of
+# the uniform ATTN_SOAP_PRECOND_FREQ.
+PER_KIND_ATTN_SOAP_PRECOND_FREQ_ENABLED = int(os.environ.get("PER_KIND_ATTN_SOAP_PRECOND_FREQ_ENABLED", "0"))
+ATTN_SOAP_PRECOND_FREQ_Q = int(os.environ.get("ATTN_SOAP_PRECOND_FREQ_Q", "10"))
+ATTN_SOAP_PRECOND_FREQ_K = int(os.environ.get("ATTN_SOAP_PRECOND_FREQ_K", "10"))
+ATTN_SOAP_PRECOND_FREQ_V = int(os.environ.get("ATTN_SOAP_PRECOND_FREQ_V", "10"))
+ATTN_SOAP_PRECOND_FREQ_PROJ = int(os.environ.get("ATTN_SOAP_PRECOND_FREQ_PROJ", "10"))
 ATTN_SOAP_TRUST_THRESHOLD = float(os.environ.get("ATTN_SOAP_TRUST_THRESHOLD", "0.9"))
 NS5_ITERS = int(os.environ.get("NS5_ITERS", "12"))
 WD_AUX = float(os.environ.get("WD_AUX", "0.0"))  # AdamW WD on embed + lm_head matrices (scalars stay at 0)
@@ -573,6 +581,7 @@ def soap_refresh(grad, state, beta2=SOAP_BETA2, refresh_freq=SOAP_PRECOND_FREQ,
             state["trust_cos_row"] = 1.0
             state["trust_cos_col"] = 1.0
     elif state["soap_step"] > 0 and state["soap_step"] % refresh_freq == 0:
+        state["refresh_count"] = state.get("refresh_count", 0) + 1
         if use_trust_gate:
             row_gg = state["row_gg"]
             col_gg = state["col_gg"]
@@ -686,6 +695,7 @@ class Muon(torch.optim.Optimizer):
                             state["q_col"] = None
                             state["exp_avg_sq"] = torch.zeros_like(p, dtype=torch.float32)
                             state["soap_step"] = 0
+                            state["refresh_count"] = 0
                             if p in self.attn_soap_params:
                                 # Default trust gate is 1.0 until the first basis refresh.
                                 state["trust_gate"] = 1.0
@@ -714,8 +724,22 @@ class Muon(torch.optim.Optimizer):
                     if use_soap:
                         soap_refresh(grad, state)
                     elif use_attn_soap:
+                        if PER_KIND_ATTN_SOAP_PRECOND_FREQ_ENABLED:
+                            kind = self.attn_soap_kind.get(id(p))
+                            if kind == "q":
+                                cur_freq = ATTN_SOAP_PRECOND_FREQ_Q
+                            elif kind == "k":
+                                cur_freq = ATTN_SOAP_PRECOND_FREQ_K
+                            elif kind == "v":
+                                cur_freq = ATTN_SOAP_PRECOND_FREQ_V
+                            elif kind == "proj":
+                                cur_freq = ATTN_SOAP_PRECOND_FREQ_PROJ
+                            else:
+                                cur_freq = ATTN_SOAP_PRECOND_FREQ
+                        else:
+                            cur_freq = ATTN_SOAP_PRECOND_FREQ
                         soap_refresh(grad, state, beta2=ATTN_SOAP_BETA2,
-                                     refresh_freq=ATTN_SOAP_PRECOND_FREQ,
+                                     refresh_freq=cur_freq,
                                      use_trust_gate=True,
                                      trust_threshold=ATTN_SOAP_TRUST_THRESHOLD)
                 dist.all_gather(params_pad[base_i:base_i + world_size], params_pad[base_i + rank])
@@ -725,16 +749,17 @@ class Muon(torch.optim.Optimizer):
 
         Aggregate keys: count, on_fraction, mean_cos_row/col, min_cos_row/col.
         Per-type keys (kind in {q, k, v, proj}):
-          {kind}/count, {kind}/on_fraction, {kind}/mean_cos_row, {kind}/mean_cos_col.
+          {kind}/count, {kind}/on_fraction, {kind}/mean_cos_row, {kind}/mean_cos_col,
+          {kind}/mean_refresh_count, {kind}/total_refresh_count.
         """
         cos_rows: list[float] = []
         cos_cols: list[float] = []
         on_count = 0
         by_kind: dict[str, dict[str, list[float] | int]] = {
-            "q": {"on": 0, "cos_row": [], "cos_col": []},
-            "k": {"on": 0, "cos_row": [], "cos_col": []},
-            "v": {"on": 0, "cos_row": [], "cos_col": []},
-            "proj": {"on": 0, "cos_row": [], "cos_col": []},
+            "q": {"on": 0, "cos_row": [], "cos_col": [], "refresh_count": []},
+            "k": {"on": 0, "cos_row": [], "cos_col": [], "refresh_count": []},
+            "v": {"on": 0, "cos_row": [], "cos_col": [], "refresh_count": []},
+            "proj": {"on": 0, "cos_row": [], "cos_col": [], "refresh_count": []},
         }
         for p in self.attn_soap_params:
             state = self.state.get(p)
@@ -751,6 +776,7 @@ class Muon(torch.optim.Optimizer):
             if kind is not None:
                 by_kind[kind]["cos_row"].append(cr)
                 by_kind[kind]["cos_col"].append(cc)
+                by_kind[kind]["refresh_count"].append(state.get("refresh_count", 0))
                 if on:
                     by_kind[kind]["on"] += 1
         counts = len(cos_rows)
@@ -774,6 +800,19 @@ class Muon(torch.optim.Optimizer):
             out[f"{kind}/on_fraction"] = agg["on"] / kn
             out[f"{kind}/mean_cos_row"] = sum(crs) / kn
             out[f"{kind}/mean_cos_col"] = sum(ccs) / kn
+            rcs = agg["refresh_count"]
+            out[f"{kind}/mean_refresh_count"] = sum(rcs) / kn
+            out[f"{kind}/total_refresh_count"] = sum(rcs)
+        # Also emit the configured per-kind precond_freq so it is logged at each
+        # telemetry checkpoint alongside the dynamic refresh counts.
+        if PER_KIND_ATTN_SOAP_PRECOND_FREQ_ENABLED:
+            out["q/cur_freq"] = ATTN_SOAP_PRECOND_FREQ_Q
+            out["k/cur_freq"] = ATTN_SOAP_PRECOND_FREQ_K
+            out["v/cur_freq"] = ATTN_SOAP_PRECOND_FREQ_V
+            out["proj/cur_freq"] = ATTN_SOAP_PRECOND_FREQ_PROJ
+        else:
+            for kind in ("q", "k", "v", "proj"):
+                out[f"{kind}/cur_freq"] = ATTN_SOAP_PRECOND_FREQ
         return out
 
 
@@ -863,6 +902,11 @@ if dist.get_rank() == 0:
             "optimizer/soap_precond_freq": SOAP_PRECOND_FREQ,
             "optimizer/attn_soap_beta2": ATTN_SOAP_BETA2,
             "optimizer/attn_soap_precond_freq": ATTN_SOAP_PRECOND_FREQ,
+            "optimizer/per_kind_attn_soap_precond_freq_enabled": PER_KIND_ATTN_SOAP_PRECOND_FREQ_ENABLED,
+            "optimizer/attn_soap_precond_freq_q": ATTN_SOAP_PRECOND_FREQ_Q,
+            "optimizer/attn_soap_precond_freq_k": ATTN_SOAP_PRECOND_FREQ_K,
+            "optimizer/attn_soap_precond_freq_v": ATTN_SOAP_PRECOND_FREQ_V,
+            "optimizer/attn_soap_precond_freq_proj": ATTN_SOAP_PRECOND_FREQ_PROJ,
             "optimizer/attn_soap_trust_threshold": ATTN_SOAP_TRUST_THRESHOLD,
             "optimizer/ns5_iters": NS5_ITERS,
             "optimizer/wd_aux": WD_AUX,
