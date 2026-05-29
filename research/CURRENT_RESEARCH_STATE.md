@@ -1,3 +1,53 @@
+## 2026-05-29 18:30 UTC — Cycle 71 mid-394 — fern #1705 299th refute, 135th family closure — MAJOR STRUCTURAL FINDING: embed-WD-down family CONVERGED at floor-band cluster (n=3 cross-PR mean 3.26962 ±0.00033 sub-noise); terminal embed magnitude is NOT load-bearing for val benefit
+
+### fern #1705 299th refute — PER_PHASE_WD_AUX_EMBED val_mean=3.26960 STANDARD-floor-band misses merge bar by Δ=+0.00184 val and +25 ffs
+
+Arm A `embed_early_down` early=0.0003/late=0.001 boundary=1500 val=3.26993 ffs=3025 STANDARD-floor-band-upper-edge, Arm B `embed_late_down` early=0.001/late=0.0003 boundary=1500 val=3.26926 ffs=3025 **INSIDE floor band**, Δ(A−B)=+0.00067 `late_down_mild_win_sub_threshold` (sub 0.001 inert-prediction threshold). Stat rule (3.28−μ)·√n ≥ 0.004 PASSES at n=2 (0.01471). W&B cf46eof7/sc9qs4hu both verified config-correct + phase-transition-correct + rms-trajectory-correct.
+
+**MAJOR STRUCTURAL FINDING**: embed-WD-down family has **CONVERGED at floor-band cluster** with n=3 cross-PR evidence:
+
+| ref | config | val_final | ffs | band |
+|---|---|---|---|---|
+| baseline #613 | WD_EMBED=0.001 uniform | 3.26776 | 3000 | merge bar |
+| **#1683 A** | WD_EMBED=0.0003 full-traj | **3.26968** | — | floor-band-upper-edge |
+| **#1705 A** | WD_EMBED=0.0003 early → 0.001 late | **3.26993** | 3025 | floor-band-upper-edge |
+| **#1705 B** | WD_EMBED=0.001 early → 0.0003 late | **3.26926** | 3025 | **INSIDE floor band** |
+
+n=3 mean over low-embed-WD cluster: **3.26962** with spread [3.26926, 3.26993] = **±0.00033 sub-noise**. Three temporal placements (early-only, late-only, full-trajectory) all produce val_loss within ±0.0003 of each other. Mechanism is uniform-trajectory with mild late-cooldown trend at n=1.
+
+**Critical 2nd-order finding — terminal embed magnitude is NOT load-bearing**:
+
+| step | Arm A embed_rms | Arm B embed_rms | #1683 A (full-low) embed_rms |
+|---|---|---|---|
+| 1500 | 9.343 | 8.176 | ~9.34 |
+| 3175 (terminal) | **9.070** | **9.019** | 9.98 |
+
+Both arms terminate at embed_rms ≈ 9.02-9.07 (vs full-low #1683 A's 9.98). Yet Arm B (lower magnitude trajectory throughout) wins by 0.00067 at identical terminal rms. **Terminal magnitude is NOT the load-bearing piece** of the embed-WD-down benefit — trajectory shape (smaller embed magnitude during basis-formation window or late-cooldown low-WD × lr cosine interaction) carries the signal.
+
+**Δ-trajectory mechanism**: uniform-trajectory cluster signature — Δ(A−B) essentially flat at +0.0005-+0.0010 across cooldown, no sharp boundary-step event signature, distinct from EARLY-PEAK-MONOTONIC-DECAY (#1700) or MID-PEAK-COMPOUND-DECAY (#1668) classes.
+
+**135th family closure**: PHASE_DISPATCH_WD_AUX_EMBED axis fully mapped at floor-band-cluster outcome. Further structural decomposition on embed-WD axis will stay within ±0.0003 cluster. Future embed work must operate on a **different optimizer-mechanism axis**.
+
+### Cumulative state
+
+**Cycle 71 cumulative**: **299 refuted** / **175 distinct mech classes** / **135 family-level closures**.
+
+### PRs closed this wave (1 closure):
+
+| PR | student | mechanism | outcome |
+|---|---|---|---|
+| **fern #1705** | fern | PER_PHASE_WD_AUX_EMBED (Arm A `embed_early_down` early=0.0003/late=0.001, Arm B `embed_late_down` early=0.001/late=0.0003, boundary=1500) | **299th** — Arm A 3.26993/3025 floor-band-upper-edge, Arm B 3.26926/3025 INSIDE floor band, val_mean=3.26960 STANDARD-floor-band misses by +0.00184/+25. Δ(A−B)=+0.00067 late_down_mild_win_sub_threshold. **MAJOR STRUCTURAL FINDING**: embed-WD-down family CONVERGED at floor-band cluster (n=3 mean 3.26962 ±0.00033 sub-noise across #1683 A, #1705 A, #1705 B); terminal embed magnitude NOT load-bearing for val benefit (identical rms ≈ 9.04 in both arms but B wins). **135th family closure**. |
+
+### PRs assigned this wave (1 fresh per-group + state-mechanism axis — virgin AdamW state reset on per-kind):
+
+| PR | student | mechanism | hypothesis |
+|---|---|---|---|
+| **fern #1729** | fern | PER_KIND_AUX_PERIODIC_RESET_EMBED (Arm A `embed_reset_rare` AUX_RESET_INTERVAL_EMBED=750 (4 resets at 750/1500/2250/3000), Arm B `embed_reset_dense` AUX_RESET_INTERVAL_EMBED=250 (12 resets at every 250-step boundary)) | **Virgin per-kind AdamW state reset axis** — directly executes fern suggestion #5 (pivot to fresh structural axis on embed). Probes "AdamW state saturation" hypothesis from #1700 directly on embed-specific moment estimators (exp_avg + exp_avg_sq zeroed at intervals; step counter NOT reset). Periodic reset history: Muon body precedent #1103 refuted (but that was momentum-only, not exp_avg_sq), per-kind AdamW NEVER tested in any prior PR. Single-shot AdamW resets done at #1505 (step 2950), #1528 (step 1500/2700), #1353 (step 953) — periodic on AUX/AdamW per-kind is structurally fresh. If A<B → mild periodic refresh helps (less frequent). If B<A → heavy refresh helps (more frequent). If A≈B≈baseline → AdamW state saturation NOT the embed-side lever (closes axis). If A or B < baseline → first AdamW-state-refresh signal that beats baseline; opens new family. Fits Morgan's directive (per-group + state-mechanism — per-kind AdamW state reset, no scalar sweep). |
+
+Fleet 8/8 assigned, 0 idle. PR #1705 marked clean review-ready close (fern posted complete SENPAI-RESULT with full telemetry including embed_rms trajectory + 5 ranked follow-up suggestions, no advisor sendback needed).
+
+---
+
 ## 2026-05-29 17:20 UTC — Cycle 71 mid-393 — tanjiro #1700 298th refute, 134th family closure — MAJOR STRUCTURAL FINDING: per-kind AdamW {β1, β2} pair NOT freely composable at ANY kind; shared-latent saturation is at AdamW moment-axis state level (kind-agnostic)
 
 ### tanjiro #1700 298th refute — PER_KIND_AUX_B1B2_COMPOUND (direction-inversion stacking) val_mean=3.27412 STANDARD misses merge bar by Δ=+0.00636 val and +75 ffs
