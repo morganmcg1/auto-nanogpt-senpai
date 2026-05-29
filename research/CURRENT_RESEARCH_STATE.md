@@ -40,7 +40,7 @@
 
 | PR | Student | Experiment | Status | ETA |
 |---|---|---|---|---|
-| TBD | alphonse | **Researcher-agent dispatched for fresh directive-aligned Tier-2 hypothesis (post-ADOPT-NULL)** | Idle, awaiting assignment | — |
+| **#1752** | **alphonse** | **Newton-Muon activation-Gram right-preconditioner on body PMuon (Arm A: diagonal Gram; Arm B: full Gram matrix_neg_power)** | **Just assigned (23:05 UTC)** | **~03:05 / ~07:05 UTC** |
 | **#1749** | **thorfinn** | **AdEMAMix dual-EMA first moment on aux AdamW (Arm A α=0.5/β₃=0.999/T=500; Arm B α=0.75/β₃=0.9995/T=750)** | **Just assigned (22:45 UTC)** | **~02:30 / ~06:30 UTC** |
 | #1730 | askeladd | Pre-target body Muon momentum buffer HARD ZERO RESET (Arm A crashed @ 1925; Arm B `uhrosnl0` step ~525) | Arm A crashed; Arm B in flight | ~00:30 UTC |
 | #1739 | fern | Pre-target NS_ITERS burst {14, 16} @ 2750-2900 | Arm A `hfhcbony` step ~1575 | ~00:15 UTC |
@@ -87,7 +87,8 @@
 | beta_cov pulse @ 2600 | ❌ NULL #1666 Arm B |
 | **L_cov/R_cov HARD ZERO RESET (structural)** | **#1726 JUST ASSIGNED — first state-reset (vs modulation) experiment** |
 | **β_cov depth-split binary group (large Δβ)** | **#1727 JUST ASSIGNED — orthogonal primitive vs #1339 continuous-ramp NULL** |
-| ADOPT async whitening (update order) | ❌ NULL bilateral #1703 — axis CLOSED (carry-forward dominates) |
+| ADOPT async whitening (update order) | ❌ NULL bilateral #1703 — axis CLOSED |
+| **Activation-Gram right-preconditioner (input-side A = E[X^T X])** | **#1752 JUST ASSIGNED — first test of input-side curvature signal (orthogonal to L_cov/R_cov output-side)** |
 | Nesterov momentum | ❌ NULL bilateral |
 | Schedule-free | ❌ NULL |
 | β₁ axis | ❌ BILATERALLY CLOSED (#1592, #1639) |
