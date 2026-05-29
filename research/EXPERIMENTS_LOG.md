@@ -1,5 +1,29 @@
 # SENPAI Research Results — auto-nanogpt-1gpu-r4
 
+## 2026-05-29 06:23 — PR #1534: NM R-buffer stochastic token subsampling 100/50/25/10% — **CLOSED PP-promote n=3 ratio=0.10 NOT MERGE-ELIGIBLE (26th catalog finding, NEW class 18 DATA-axis-SEEDED-RNG-CELL-DEPENDENT-FAV-NULL-SPLIT + wallclock-savings −4.6% step_avg sidebar publishable)**
+
+- branch: `g1r4-edward/nm-r-token-subsample`
+- student: g1r4-edward
+- hypothesis: R-buffer EMA token subsampling at ratio<1.0 reduces per-update covariance noise → cleaner R-estimate → val/loss compression. Tested ratios {1.0, 0.5, 0.25, 0.10} single-seed first, then PP-promote n=3 on ratio=0.10 winner.
+- results:
+
+| stage | seed | ctrl run_id | ctrl val | exp run_id | exp val | Δ_paired | exp vs baseline 3.26310 |
+|---|:---:|---|---:|---|---:|---:|---:|
+| **N=1 4-arm** | 0 | A `rd1dx5co` | 3.26420 | D `0648qfra` (ratio=0.10) | **3.26136** | **−0.00284** | **−0.00174 BEATS** ✓ |
+| | 0 | A `rd1dx5co` | 3.26420 | B `f9mnu0gq` (ratio=0.5) | **3.26156** | **−0.00264** | **−0.00154 BEATS** ✓ |
+| | 0 | A `rd1dx5co` | 3.26420 | C `2a19k757` (ratio=0.25) | 3.26406 | −0.00014 | +0.00096 NULL |
+| **PP-promote n=3 r=0.10** | 0 | `rd1dx5co` | 3.26420 | `58tokihg` | 3.26406 | −0.00014 NULL | +0.00096 PASS-CLEAN |
+| | 1 | `pe2frvqm` | 3.26450 | `96n1o83f` | 3.26304 | **−0.00146 mild-FAV** | **−0.00006 BEATS** |
+| | 2 | `bispzhb4` | 3.26251 | `lci37i8b` | 3.26254 | +0.00003 NULL-tied | **−0.00056 BEATS** |
+| **PP n=3 mean** | | μ_ctrl=3.26374 | | μ_exp=**3.26321** | **−0.00052** | **+0.00011 ABOVE** | |
+
+- final gates: G1 PASS (0.0291) / G2 **FAIL by 0.00011** / G3 **FAIL** (1/3 dir-correct, only s1)
+- catalog finding: class 18 DATA-axis-SEEDED-RNG-CELL-DEPENDENT-FAV-NULL-SPLIT (1/3 seeds FAV at Δ=−0.00146; 2/3 seeds NULL-tied)
+- c521 R_cond_max-ratio-<1→FAV predictive observable FALSIFIED by s2 (89% R_cond drop, NULL val)
+- mechanism: R-buffer EMA β=0.95 (τ_eff≈40 R-updates ≈ 80 optimizer steps) absorbs per-update subsampling noise below σ_seed-floor; residual variance surfaces as RNG-cell-localized direction
+- wallclock-savings publishable sidebar: −4.6% step_avg persistent across all 3 seeds with no meaningful val cost
+- conclusion: DATA-axis token subsampling is NULL for val-loss optimization. R-buffer subsample is a wallclock-safe lever but not a val-FAV mechanism. Closed as catalog finding + sidebar.
+
 ## 2026-05-29 01:30 — PR #1584: NM α-extended sweep alpha=0.25/0.75/1.0 on period=2 stack — **CLOSED 4-arm characterization complete (25th catalog finding, NEW class 16 α-axis-ASYMMETRIC-TOLERANCE-multiplicative-uniform-NULL-low-side-CATASTROPHIC-high-side + REFINEMENT class 12 precond_ratio→val transfer function MECHANISM-SPECIFIC)**
 
 - branch: `g1r4-fern/nm-alpha-extended-sweep`
