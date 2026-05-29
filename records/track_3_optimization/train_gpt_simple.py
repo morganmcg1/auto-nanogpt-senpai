@@ -603,6 +603,11 @@ NANOGPT_NEWTON_MUON_BETA = float(os.environ.get("NANOGPT_NEWTON_MUON_BETA", "0.9
 NANOGPT_NEWTON_MUON_EPS = float(os.environ.get("NANOGPT_NEWTON_MUON_EPS", "1e-4"))
 NANOGPT_NEWTON_MUON_MAX_D_IN = int(os.environ.get("NANOGPT_NEWTON_MUON_MAX_D_IN", "1024"))
 NANOGPT_NEWTON_MUON_TIKHONOV_GAMMA = float(os.environ.get("NANOGPT_NEWTON_MUON_TIKHONOV_GAMMA", "0.0"))
+# Step-gated NM activation (#1737, class 24 TEMPORAL-NM-ENABLE-GATE). When >0, the
+# preconditioner is bypassed for training steps < NM_START_STEP (bare Muon), then
+# activates at training_step == NM_START_STEP with a freshly-cold R buffer.
+# NM_START_STEP=0 (default) preserves bit-identity to the production stack.
+NANOGPT_NEWTON_MUON_START_STEP = int(os.environ.get("NANOGPT_NEWTON_MUON_START_STEP", "0"))
 
 # Global per-parameter input-activation cache populated by forward hooks. Keyed by
 # id(weight_param) → tensor of shape (B*T, d_in) on device. Only populated when
@@ -915,7 +920,18 @@ class Muon(torch.optim.Optimizer):
                     # gradients (matches paper pipeline order: G @ R^{-1/2}
                     # -> momentum -> v normalization -> NS5 -> update).
                     grad_for_update = p.grad
-                    if self.newton_precond:
+                    # Step-gate NM activation (#1737). `_newton_step_count` was
+                    # incremented at the top of step() and is 1-indexed in
+                    # training-step units (Muon.step() is called once per
+                    # training step). Gate `> NM_START_STEP` so:
+                    #   NM_START_STEP=0   → applies at training step 0 onward
+                    #                       (bit-identical to production)
+                    #   NM_START_STEP=500 → applies at training step 500 onward
+                    #                       (steps 0..499 are bare Muon, R cold)
+                    if (
+                        self.newton_precond
+                        and self._newton_step_count > NANOGPT_NEWTON_MUON_START_STEP
+                    ):
                         g_precond = self._apply_newton_precondition(p, p.grad, state)
                         if g_precond is not None:
                             grad_for_update = g_precond
@@ -997,7 +1013,8 @@ print0(
     f"update_period={NANOGPT_NEWTON_MUON_UPDATE_PERIOD} "
     f"beta={NANOGPT_NEWTON_MUON_BETA} eps={NANOGPT_NEWTON_MUON_EPS} "
     f"max_d_in={NANOGPT_NEWTON_MUON_MAX_D_IN} "
-    f"tikhonov_gamma={NANOGPT_NEWTON_MUON_TIKHONOV_GAMMA}",
+    f"tikhonov_gamma={NANOGPT_NEWTON_MUON_TIKHONOV_GAMMA} "
+    f"start_step={NANOGPT_NEWTON_MUON_START_STEP}",
     console=True,
 )
 if NS_ITERS_COOLDOWN > 0:
@@ -1119,6 +1136,7 @@ if dist.get_rank() == 0:
             "nanogpt_newton_muon_eps": NANOGPT_NEWTON_MUON_EPS,
             "nanogpt_newton_muon_max_d_in": NANOGPT_NEWTON_MUON_MAX_D_IN,
             "nanogpt_newton_muon_tikhonov_gamma": NANOGPT_NEWTON_MUON_TIKHONOV_GAMMA,
+            "nanogpt_newton_muon_start_step": NANOGPT_NEWTON_MUON_START_STEP,
         },
     )
 
