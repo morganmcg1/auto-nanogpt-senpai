@@ -91,6 +91,9 @@ def parse_args():
                              'AdaShiftAdamW where v_t uses g_{t-n}^2 (FIFO buffer).')
     parser.add_argument("--seed", type=int, default=1,
                         help="Random seed for torch/numpy/python. Default 1 matches baseline seed.")
+    parser.add_argument('--max_train_steps', type=int, default=0,
+                        help='If >0, override the hard-coded train_steps=3250 for smoke '
+                             'testing. Default 0 = baseline 3250.')
     args = parser.parse_args()
     args.num_trials = args.num_trials if args.num_trials is not None else (args.legacy_num_trials or 1)
     args.wandb_tags = [tag.strip() for tag in args.wandb_tags.split(",") if tag.strip()]
@@ -512,6 +515,10 @@ def zeropower_via_newtonschulz5(G: Tensor, a: float = NS_A, b: float = NS_B, c: 
     return X
 
 
+# Module-level counter for eigh jitter fallback fires. Reset per trial in the training loop.
+_EIGH_JITTER_FIRES = {"count": 0, "last_step": -1, "this_step": 0}
+
+
 def matrix_neg_power(M: Tensor, gamma: float, eps: float = 1e-12) -> Tensor:
     # Symmetric PSD M -> M^{-gamma} via eigendecomposition; eps clamp handles rank deficiency.
     M = 0.5 * (M + M.T)
@@ -523,6 +530,8 @@ def matrix_neg_power(M: Tensor, gamma: float, eps: float = 1e-12) -> Tensor:
         d = M.size(-1)
         ridge = (eps ** 0.5) * torch.eye(d, device=M.device, dtype=M.dtype)
         eigvals, eigvecs = torch.linalg.eigh(M + ridge)
+        _EIGH_JITTER_FIRES["count"] += 1
+        _EIGH_JITTER_FIRES["this_step"] = 1
     eigvals = eigvals.clamp_min(eps).pow(-gamma)
     return (eigvecs * eigvals) @ eigvecs.T
 
@@ -849,6 +858,9 @@ for trial_idx in range(args.num_trials):
 
     # we want to minimize this while still reaching 3.28 val loss
     train_steps = 3250
+    if args.max_train_steps > 0:
+        train_steps = args.max_train_steps
+        print0(f"[SMOKE] train_steps overridden to {train_steps}", console=True)
 
     # initialize model parameters
     for name, p in model.named_parameters():
@@ -1172,8 +1184,11 @@ for trial_idx in range(args.num_trials):
             print0(f"[step {step}] aux_b2_pulse: β2 {old_b2} → {args.aux_b2_pulse_target} "
                    f"(applied to {len(aux_optimizers)} aux optimizer(s))",
                    console=True)
+        _EIGH_JITTER_FIRES["this_step"] = 0
         for opt in optimizers:
             opt.step()
+        if _EIGH_JITTER_FIRES["this_step"]:
+            _EIGH_JITTER_FIRES["last_step"] = train_step
         # EMA buffer update on body-Muon matrix params.
         # During warmup: track params live (no averaging) so post-warmup buffer is
         # seeded with stable, non-zero params (handles proj zero-init bias and lets
@@ -1292,6 +1307,9 @@ for trial_idx in range(args.num_trials):
                                     and step >= args.aux_b2_pulse_step),
                 "aux_adashift/n_shift": args.aux_adashift_n,
                 "aux_adashift/active": int(args.aux_adashift_n > 0),
+                "pmuon/eigh_jitter_fires": _EIGH_JITTER_FIRES["count"],
+                "pmuon/eigh_jitter_active_step": _EIGH_JITTER_FIRES["this_step"],
+                "pmuon/eigh_jitter_last_step": _EIGH_JITTER_FIRES["last_step"],
             }, step=wandb_step)
         if dist.get_rank() == 0 and (train_step % 100 == 0 or train_step == train_steps):
             spec = pmuon_spectral_diag(optimizer2, PMUON_GAMMA)
