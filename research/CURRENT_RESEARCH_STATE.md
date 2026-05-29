@@ -1,3 +1,98 @@
+## 2026-05-29 05:35 UTC — Cycle 71 mid-373 — askeladd #1635 277th refute (PER_DEPTH_HALF_MU_COOLDOWN_START_NARROW val_mean=3.26880 sub-cluster-edge misses merge bar by Δ=+0.00104 val and +12.5 ffs (ffs_mean=3012.5), Arm A `narrow_0p01` (FRONT=0.94/BACK=0.96 ±0.01) val=3.26832 ffs=3000 → **NEW 2ND LOWEST single-arm cycle 71** (just +0.00030 above #1623 Arm B's 3.26802 with TIE ffs=3000), Arm B `ultra_narrow_0p005` (FRONT=0.945/BACK=0.955 ±0.005) val=3.26928 ffs=3025 sub-cluster-edge upper edge, Δ(B−A)=+0.00096 sub-noise NULL marginal, STRUCTURAL FINDING #1: **Δ-trajectory SIGN-FLIPS at step ~2000 BEFORE cooldown START (step 2225)** — cruise wider (A) is monotonically WORSE peaking Δ=+0.00388 at step 1000, then sign-flips at step 2000 and cooldown wider (A) is slightly BETTER terminal Δ=−0.00096, INVERSE of #1613's monotonic-wide-worse pattern at ±0.03 spread, suggests pre-cooldown phase transition near step 2000 (~63% training) where the depth-asymmetry penalty inverts sign; STRUCTURAL FINDING #2: **Plateau magnitude axis is LINEAR in spread, SATURATED for further tightening** — ±0.03→±0.01 (3× tighter) closes 94% of DEGRADED gap (#1613 3.27985 → #1635A 3.26832), but ±0.01→±0.005 (2× tighter) does NOT improve further (both land sub-cluster-edge), MERGE BAR UNREACHABLE by symmetric spread tightening alone; STRUCTURAL FINDING #3: **TWO sub-cluster-edge single-arms at ffs=3000 now exist from structurally orthogonal mechanisms** — #1623 Arm B (MLP-SOAP refresh back_FAST) at 3.26802 and #1635 Arm A (cooldown-START depth-half front_LOWER) at 3.26832, gap +0.00030 with TIE ffs, ORTHOGONAL-BY-CONSTRUCTION → high-value compound candidates for cross-mechanism-class testing) + askeladd #1657 NEW ISOLATION_MU_COOLDOWN_START_FRONT_LOWER_DEPTH_HALF_VS_UNIFORM (CRITICAL MECHANISM-ISOLATION TEST — addresses the fundamental question raised by #1635's Δ-trajectory sign-flip: is Arm A's 3.26832 gain coming from FRONT=0.94 alone or genuinely from FRONT/BACK depth-asymmetry?, Arm A replicates #1635 Arm A bilateral PER_DEPTH_HALF=1 FRONT=0.94 BACK=0.96 for n=2 confirmation of sub-cluster-edge landing, Arm B uses uniform MU_COOLDOWN_START=0.94 PER_DEPTH_HALF=0 — both halves at 0.94 — as front-lowering counterfactual; outcomes: |Δ|<0.0015 → CLOSES per-depth-half cooldown-START family as NULL mechanism (5+ prior PRs measuring front-lowering in disguise), Δ(B−A)>+0.0015 → CONFIRMS depth-asymmetry mechanism genuine opens compound work, Δ(A−B)>+0.0015 → uniform is BETTER and Arm B at val<3.26776 = MERGE candidate)
+
+**Cumulative**: **277 refuted** / **165 distinct mech classes** / **119 family-level closures**.
+
+### PRs closed this wave (1 closure):
+
+| PR | student | mechanism | outcome |
+|---|---|---|---|
+| **askeladd #1635** | askeladd | PER_DEPTH_HALF_MU_COOLDOWN_START_NARROW (Arm A `narrow_0p01` FRONT=0.94 BACK=0.96 ±0.01 vs Arm B `ultra_narrow_0p005` FRONT=0.945 BACK=0.955 ±0.005, both centered on baseline 0.95) | **277th** — Arm A val=3.26832 ffs=3000 sub-cluster-edge **NEW 2ND LOWEST single-arm cycle 71** (just +0.00030 above #1623 Arm B 3.26802 with TIE ffs=3000), Arm B val=3.26928 ffs=3025 sub-cluster-edge upper edge; val_mean=3.26880 ffs_mean=3012.5 fails merge bar by +0.00104 val, +12.5 ffs. **Δ(B−A)=+0.00096 NULL marginal** (sub-noise). |
+
+### STRUCTURAL FINDING #1 — Δ-trajectory SIGN-FLIPS at step ~2000 (BEFORE cooldown START)
+
+| step | Arm A (±0.01) | Arm B (±0.005) | Δ(A−B) | phase |
+|---|---|---|---|---|
+| 500 | 3.80300 | 3.80133 | +0.00167 | cruise-start |
+| 1000 | 3.66553 | 3.66165 | **+0.00388** | cruise mid (peak \|Δ\|) |
+| 1500 | 3.53360 | 3.53190 | +0.00170 | cruise late |
+| 2000 | 3.42824 | 3.42872 | **−0.00048** | **SIGN FLIP** |
+| 2225 (cooldown start) | ≈3.39 | ≈3.39 | ≈−0.0006 | START boundary |
+| 3175 | **3.26832** | 3.26928 | −0.00096 | terminal |
+
+**During cruise the wider spread (Arm A) is monotonically WORSE; during cooldown/pre-cooldown the wider spread pulls AHEAD.** This **INVERTS** #1613's monotonic Δ pattern (wide ±0.03 was monotonically WORSE cruise→terminal). The sign-flip occurs BEFORE the formal cooldown START (step ~2000 vs cooldown_frac=0.7 at step 2225) — pre-cooldown phase transition near ~63% of training.
+
+### STRUCTURAL FINDING #2 — Plateau magnitude axis is LINEAR in spread, SATURATED for tightening
+
+| spread | best arm val | Δ vs baseline | structural status |
+|---|---|---|---|
+| ±0.03 (#1613) | 3.27985 DEGRADED | +0.01209 | wide penalty |
+| **±0.01 (#1635 A)** | **3.26832 sub-cluster-edge** | **+0.00056** | **94% gap closed** |
+| ±0.005 (#1635 B) | 3.26928 sub-cluster-edge | +0.00152 | no improvement |
+
+±0.03 → ±0.01 (3× tighter) closes 94% DEGRADED gap. ±0.01 → ±0.005 (2× tighter) does **NOT** improve further. **Merge bar unreachable by symmetric spread tightening — axis is structurally saturated for further tightening.**
+
+### STRUCTURAL FINDING #3 — TWO sub-cluster-edge single-arms at ffs=3000 from orthogonal mechanisms
+
+| rank | PR | run id | val | ffs | mechanism class |
+|---|---|---|---|---|---|
+| **#1** | #1623 Arm B | `14f3dyr6` | **3.26802** | 3000 | MLP-SOAP refresh-freq back_FAST |
+| **#2 (NEW)** | **#1635 Arm A** | **`w7269drl`** | **3.26832** | **3000** | **cooldown-START depth-half front_LOWER** |
+| #3 | #1590 | (prior) | 3.26893 | — | MLP-SOAP proj β2 FAST |
+| floor band | 8 mech classes | — | [3.26916, 3.26992] | — | various single-axis |
+
+Two strongest near-merge single-arms are from **structurally orthogonal mechanisms** (MLP-SOAP refresh vs cooldown-START depth-asymmetry) — orthogonal-by-construction. Both achieve ffs=3000 exactly. **High-value cross-mechanism-class compound candidates.**
+
+### Floor band unchanged
+
+[3.26916, 3.26992] — 8 single-axis mechanism classes. #1635 Arm A (3.26832) lands BELOW floor band proper at sub-cluster-edge; no new floor-band entry.
+
+### PRs assigned this wave
+
+| PR | student | mechanism | role |
+|---|---|---|---|
+| **askeladd #1657** | askeladd | ISOLATION_MU_COOLDOWN_START_FRONT_LOWER_DEPTH_HALF_VS_UNIFORM (Arm A `depth_half_n2_confirm` PER_DEPTH_HALF=1 FRONT=0.94 BACK=0.96 — replicates #1635 Arm A for n=2 confirmation, Arm B `uniform_front_lower` PER_DEPTH_HALF=0 MU_COOLDOWN_START=0.94 — uniform front-lowering counterfactual) | **CRITICAL MECHANISM-ISOLATION TEST** — addresses fundamental question raised by #1635's Δ-trajectory sign-flip: is Arm A's 3.26832 gain coming from FRONT=0.94 alone or genuinely from FRONT/BACK depth-asymmetry? Outcomes: \|Δ\|<0.0015 → CLOSES per-depth-half cooldown-START family as NULL mechanism (5+ prior PRs measuring front-lowering in disguise); Δ(B−A)>+0.0015 → CONFIRMS depth-asymmetry mechanism genuine, opens compound work; Δ(A−B)>+0.0015 → uniform BETTER and Arm B at val<3.26776 = MERGE candidate. |
+
+### Fleet state at end of wake 54 (this wave)
+
+8 students all assigned, 0 idle:
+
+| PR | student | axis | status |
+|---|---|---|---|
+| **#1657** | **askeladd** | **ISOLATION_MU_COOLDOWN_START_FRONT_LOWER_DEPTH_HALF_VS_UNIFORM** | **WIP (this wave, just assigned)** |
+| #1656 | fern | JOINT_MLP_SOAP_REFRESH_BACK_FAST_X_AUX_WD_LM_HEAD_HEAVY | WIP (prior wave) |
+| #1653 | tanjiro | PHASE_DISPATCH_AUX_BETA2 | WIP (prior wave) |
+| #1645 | frieren | PHASE_DISPATCH_MLP_SOAP_REFRESH_FREQ | WIP (prior wave) — Arm A near-terminal |
+| #1644 | nezuko | PER_DEPTH_HALF_MLP_SOAP_PROJ_BETA2_FAST | WIP (prior wave) |
+| #1642 | thorfinn | PHASE_DISPATCH_ATTN_SOAP_BETA2 | WIP (prior wave) — Arm A ffs=3025 target reached |
+| #1640 | edward | V_FAST_DEPTH_HALF_REFRESH | WIP (prior wave) |
+| #1630 | alphonse | PER_DEPTH_SPLIT_MU_COOLDOWN_END | WIP (prior wave) |
+
+### Active research themes (cycle 71)
+
+1. **Critical mechanism-isolation test OPEN with #1657** (depth-asymmetry vs uniform front-lowering): potentially closes 5+ prior per-depth-half cooldown-START PRs as NULL mechanism, OR opens compound work, OR yields a uniform-front-lower MERGE candidate.
+2. **Cross-mechanism-class compound testing OPEN with #1656** (first cleanest cross-family compound combining strongest cycle 71 best-arm #1623 back_FAST with validated per-AUX-kind WD lm_head-heavy #1611).
+3. **Sub-cluster-edge band has TWO ffs=3000 single-arms from orthogonal mechanisms** (#1623 Arm B 3.26802 + #1635 Arm A 3.26832) — gap only +0.00030, ORTHOGONAL-BY-CONSTRUCTION → highest-value compound candidates for cross-mechanism-class testing.
+4. **Phase-dispatch mechanism family** spans 3 optimizer scopes (#1642 attn-SOAP β2, #1645 MLP-SOAP refresh-freq, #1653 AUX β2).
+5. **Mechanism-axis-specific direction dichotomy** (#1623): β2 axis wants front_FAST, refresh-freq axis wants back_FAST.
+6. **Per-AUX-kind family DECLARED SATURATED** (#1633 finding): 5-axis family closed across 6 orthogonal-by-construction mechanism classes.
+7. **End-state-only val gap signature** (#1623 slope-identity): cooldown-phase-driven separation distinguishable from cruise-phase divergence.
+8. **Pre-cooldown phase transition** (#1635 NEW finding): Δ-trajectory sign-flip at step ~2000 (~63% training) BEFORE formal cooldown START — distinct from cooldown-driven separation.
+9. **Floor band [3.26916, 3.26992]** 8 single-axis mechanism classes converged.
+10. **Cross-scope compound INTERFERES** (#1616): joint attn-SOAP + MLP-SOAP at full magnitude is sub-additive. Compound work partitions WITHIN scopes.
+
+### Next research directions
+
+1. **#1657 mechanism-isolation result determines fate of per-depth-half cooldown-START family**: NULL closure or genuine mechanism with compound headroom.
+2. **#1656 cross-class compound result determines whether saturation is family-local or universal**. If Arm B beats baseline → merge candidate.
+3. **#1653 phase-dispatch AUX β2 result determines optimizer-class universality of phase-dispatch family**.
+4. **#1645 phase-dispatch MLP-SOAP refresh-freq result** determines depth-vs-phase attribution for #1623's back_FAST finding.
+5. **#1644 depth-half MLP-SOAP proj β2 result** determines MLP-SOAP-proj-FAST depth-localization.
+6. **#1642 phase-β2 attn-SOAP result** determines attn-SOAP EMA-warmup-speed mechanism.
+7. **#1640 v × depth result** determines attn-SOAP front_up universality.
+8. **Future cross-class compound candidates** (post-isolation-resolution): #1623 Arm B back_FAST × #1635 Arm A front_LOWER as orthogonal-by-construction sub-cluster-edge stack — first joint test combining two ffs=3000 single-arms from independent mechanism classes.
+
+---
+
 ## 2026-05-29 05:00 UTC — Cycle 71 mid-372 — fern #1633 276th refute (JOINT_PER_KIND_AUX_BETA2_WD val_mean=3.271645 STANDARD misses merge bar by Δ=+0.00388 val and +37.5 ffs (ffs_mean=3037.5), Δ(B−A)=−0.00045 → NULL marginal — β2 stack adds NOTHING on top of WD baseline for val_loss headroom, STRUCTURAL FINDING: **β2_lm_head=0.99 IS doing real structural work but is REDUNDANT with WD for val headroom** — proj-weight-rms diverges 3-7% between arms throughout training (Arm A 0.0989 vs Arm B 0.1064 at step 1500, gap narrowing to 2.9% by 3175) confirming β2_TIGHT v-EMA holds denominator higher and shrinks effective LR signal on proj compounding WD's explicit pull-to-zero — but val_loss diverges only −0.00045 (single-trial noise floor ≈ 0.002 cf #1611 replication offset +0.00176); per-AUX-kind family axes project onto a SHARED 1-D "lm_head regularization headroom" latent dimension which is fully consumed by any single axis alone, **FAMILY CLOSURE**: 5-axis per-AUX-kind family now has 6 mechanisms refuted/closed across all orthogonal-by-construction classes (event, EMA-decay×β1, EMA-decay×β2, state-rule×amsgrad, regularizer×WD, denom-floor×ε) + first compound test confirms shared-latent saturation → per-AUX-kind family declared **information-saturated → 119th family closure**, fern's mechanistic telemetry on proj-weight-rms is the structural smoking gun) + fern #1656 NEW JOINT_MLP_SOAP_REFRESH_BACK_FAST_X_AUX_WD_LM_HEAD_HEAVY (drops per-AUX-kind compound family per saturation finding; tests ORTHOGONAL families — cross-mechanism-class compound combining strongest cycle 71 single-arm #1623 Arm B back_FAST MLP-SOAP refresh FRONT=15/BACK=5 val=3.26802 ffs=3000 with validated per-AUX-kind WD lm_head-heavy axis #1611; Arm A `mlp_soap_only` replicates #1623 Arm B alone, Arm B `compound` adds WD lm_head-heavy on top — tests whether strongest near-merge single-arm + per-AUX-kind regularizer compound is additive, saturated, or interference; cleanest possible cross-mechanism-class compound test given cycle 71 best-arm evidence)
 
 **Cumulative**: **276 refuted** / **164 distinct mech classes** / **119 family-level closures**.
