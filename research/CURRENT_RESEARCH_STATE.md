@@ -1,6 +1,6 @@
 # SENPAI Research State — auto-nanogpt-1gpu-r1
 
-- **Last update: 2026-05-29 23:00 UTC**
+- **Last update: 2026-05-29 23:10 UTC**
 - **Current baseline:** PR #1532 (aux Adam β₂ pulse 0.95→0.99 @ step 975). val_ema=3.262854, sr=2875 (n=2).
 - **Canonical defaults (post #1614):** β₂ pulse fires automatically at step 975 in all new runs — no flag needed.
 - **Merge gate:** `sr ≤ 2862.5 OR (sr=2875 AND val_ema < 3.262854)`
@@ -44,12 +44,13 @@
 | **#1749** | **thorfinn** | **AdEMAMix dual-EMA first moment on aux AdamW (Arm A α=0.5/β₃=0.999/T=500; Arm B α=0.75/β₃=0.9995/T=750)** | **Just assigned (22:45 UTC)** | **~02:30 / ~06:30 UTC** |
 | #1730 | askeladd | Pre-target body Muon momentum buffer HARD ZERO RESET (Arm A crashed @ 1925; Arm B `uhrosnl0` step ~525) | Arm A crashed; Arm B in flight | ~00:30 UTC |
 | #1739 | fern | Pre-target NS_ITERS burst {14, 16} @ 2750-2900 | Arm A `hfhcbony` step ~1575 | ~00:15 UTC |
-| #1708 | frieren | Pre-target Skylight u/w floor pulse TARGET_UW 0.35→{0.45, 0.55} | Arm B `bstlsmqy` step ~2850 | ~23:20 UTC |
+| #1708 | frieren | Pre-target Skylight u/w floor pulse — Arm A (0.45) NULL sr=2925; **Arm B (0.55) CLOSE MISS sr=2875 (tied) val_ema 3.263116 (+0.262 mnat above gate)**. Sent back for seed-2 confirmation. | Seed-2 in flight | ~02:10 UTC |
 | #1742 | tanjiro | Pre-target body Muon depth-asymmetric per-block LR-mult burst ×1.5 (Arm A early-half) | Arm A `xdpfzmo9` step ~1250 | ~00:55 UTC |
 | #1726 | nezuko | Pre-target PMuon L_cov/R_cov hard zero RESET — Arm A FINISHED NULL (sr=2950, val_ema 3.27093); Arm B `pyugggcd` fastaccum step ~500 | Arm B in flight | ~00:10 UTC |
 | #1727 | edward | Depth-split β_cov binary group — Arm A FINISHED NULL (sr=2950, val_ema 3.27122); Arm B `mj8zysth` step ~500 | Arm B in flight | ~00:10 UTC |
 
 **Recent closures (this session):**
+- 🟡 **#1708 frieren (pre-target Skylight UW floor pulse): Arm A (UW=0.45) NULL sr=2925 val_ema 3.266865; Arm B (UW=0.55) HOT CLOSE MISS — sr=2875 (matches baseline exactly) val_ema 3.263116 (+0.000262 above strict gate). Trend Arm A→B = +3.7 mnat val_ema improvement with +0.10 floor. Sent back for seed-2 of Arm B before close.**
 - ❌ **#1703 alphonse (ACProp-style async whitening / ADOPT order-swap on body PMuon) — bilateral NULL (Arm A sr=2975 val_ema 3.270824; Arm B sr=2950 val_ema 3.269952; both strictly worse than sync baseline). ADOPT-style update-rule asynchrony axis CLOSED on body PMuon. PMuon's bilateral whitening structure is more sensitive to in-sample correlation than vanilla Adam — async carry-forward compounds error.**
 - ❌ #1704 thorfinn (stacked pEMA refresh 2750/2850) — bilateral NULL (Arm A sr=2925, Arm B sr=2950; monotonic worsening). **pEMA-stacked-refresh axis CLOSED.** Canonical 2600 position is a singular optimum at cooldown_start_step regime boundary.
 - ❌ #1726 nezuko Arm A `210d43l3` FINISHED NULL (sr=2950, val_ema 3.27093)
