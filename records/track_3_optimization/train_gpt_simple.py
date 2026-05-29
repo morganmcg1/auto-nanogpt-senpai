@@ -74,6 +74,10 @@ def parse_args():
                         help="If >0, refresh paramEMA buffer to live params at this step "
                              "(resets accumulated EMA history). -1=disabled. Requires "
                              "--ema_beta>0.")
+    parser.add_argument("--paramema_refresh_step2", type=int, default=-1,
+                        help="Step for a SECOND paramEMA refresh in addition to "
+                             "--paramema_refresh_step. -1 disables. Used for "
+                             "stacked-refresh experiments (e.g., canonical 2600 + 2750).")
     parser.add_argument("--paramema_refresh_only", action="store_true",
                         help="If set, run paramEMA refresh at --paramema_refresh_step but "
                              "DISABLE L_cov refresh (lcov_refresh_step treated as -1). "
@@ -755,6 +759,7 @@ if dist.get_rank() == 0:
             "ema_dynamic_ramp_active": int(args.ema_beta_target is not None and args.ema_beta > 0),
             "muon_block_lr_pattern": args.muon_block_lr_pattern,
             "paramema_refresh_step": args.paramema_refresh_step,
+            "paramema_refresh_step2": args.paramema_refresh_step2,
             "paramema_refresh_only": int(args.paramema_refresh_only),
             "aux_b2_pulse_step": args.aux_b2_pulse_step,
             "aux_b2_pulse_target": args.aux_b2_pulse_target,
@@ -851,6 +856,8 @@ for trial_idx in range(args.num_trials):
     # branch); --paramema_refresh_only is the ablation lever asserting that.
     ema_refresh_fired_total = 0
     ema_refresh_step_logged = -1
+    ema_refresh2_fired_total = 0
+    ema_refresh2_step_logged = -1
     lcov_refresh_fired_total = 0
 
     # learning rate schedule: stable then power-law cooldown (gamma = COOLDOWN_POWER)
@@ -1099,6 +1106,16 @@ for trial_idx in range(args.num_trials):
                 if dist.get_rank() == 0:
                     print0(f"paramEMA refresh fired at step={step} "
                            f"(buffer reset to live params)", console=True)
+            # Second paramEMA refresh (stacked, in addition to canonical refresh).
+            if (args.paramema_refresh_step2 > 0
+                    and step == args.paramema_refresh_step2):
+                for ema_p, p in zip(ema_params, optimizer2.param_groups[0]["params"]):
+                    ema_p.copy_(p.detach().float())
+                ema_refresh2_fired_total = 1
+                ema_refresh2_step_logged = step
+                if dist.get_rank() == 0:
+                    print0(f"paramEMA refresh2 fired at step={step} "
+                           f"(buffer reset to live params)", console=True)
         if dist.get_rank() == 0 and telemetry_due:
             log_weight_telemetry(
                 model=model,
@@ -1174,6 +1191,9 @@ for trial_idx in range(args.num_trials):
                 "ema_refresh/step": ema_refresh_step_logged,
                 "ema_refresh/target_step": args.paramema_refresh_step,
                 "ema_refresh/only": int(args.paramema_refresh_only),
+                "ema_refresh2/fired": ema_refresh2_fired_total,
+                "ema_refresh2/step": ema_refresh2_step_logged,
+                "ema_refresh2/target_step": args.paramema_refresh_step2,
                 "lcov_refresh/fired": lcov_refresh_fired_total,
                 "lcov_refresh/target_step": -1,
                 "aux_b2/current": optimizer1.param_groups[0]["betas"][1],
