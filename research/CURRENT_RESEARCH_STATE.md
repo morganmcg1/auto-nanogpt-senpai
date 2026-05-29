@@ -9,17 +9,17 @@ The human research team has redirected: **FFS (first-step-to-target, baseline 30
 3. **Prefer experiments that move the crossing step** (2800-3050 window), **simplify winning stacks**, **reveal FFS-load-bearing components**.
 4. **Ablations preferred over confirmations** when FFS dead.
 
-## Last updated: 2026-05-29 07:20Z (poll — n=4 confirms ARE running; frieren spike was transient; fern KG1 reply)
+## Last updated: 2026-05-29 08:10Z (poll — #1643 CLOSED 50th R5 result; nezuko reassigned #1676 wd_attn-fine)
 
-### Notes (2026-05-29 06:58–07:20Z)
+### Notes (2026-05-29 07:25–08:10Z)
 
-- Earlier this cycle I filed [Issue #1673](https://github.com/morganmcg1/modded-nanogpt-senpai/issues/1673) reporting a fleet-wide harness silence based on a subagent's hallucinated "current time ~09:11 UTC." Verified false; closed with apology. Saved feedback memory `feedback_verify_subagent_time_claims.md`.
-- **#1617 tanjiro n=4 confirm LAUNCHED** — `soap-pf8-n4-emaval` running step 902 val=3.678 (07:15Z). ETA ~2-3h to first cell.
-- **#1586 thorfinn n=4 confirm LAUNCHED** — `wd-mlp-040-n4-em` running step 621 val=3.827 (07:15Z). ETA ~3h to first cell.
-- **#1651 frieren cell B RECOVERED** from earlier val=6.05 spike → val=3.866 at step 2265. Withdrew early-kill suggestion; student to let cell B run to natural termination (will report FFS-NEG at step 3250 unless rate-doubled descent).
-- **#1654 fern KG1 reply** — Cell B at τ=0.05 firing 2.4× more refreshes than baseline (not the predicted 30-50% fewer). Confirmed continue all 5 cells; diagnostic value now concentrated in D (τ=0.15) and E (τ=0.50). If E wins, "adaptive idea with higher τ" is real; if E ties/loses ctrl, eigenbasis-staleness is wrong gating signal (clean closure).
-- **#1643 nezuko cell C still climbing slowly** val=4.818 at step 2890 (will not reach target). No second nudge — student will report at natural completion.
-- **#1664 edward** assigned 05:50Z; no W&B runs yet (1h30m later). Non-trivial code change required (per-class cooldown shape parameter); reasonable lag, not a stuck-student.
+- **★ CLOSED #1643 nezuko NS warm-start** [50th R5 closure] — clean FFS-NEG closure. Cell A (α=0): val=3.27154, FFS=2950. Cell B (α=0.7): val=3.52822, FFS=-1. Cell C (α=1.0) catastrophic from step 500, early-killed step 2875 val=4.81831, FFS=-1. Diagnostic readout confirms warmstart materially alters NS iterate (ns_q_norm=55.5 vs u_cold_norm=54.2, diff_norm=69.7) but degrades FFS. Mechanism: SOAP basis temporal continuity (Gram EMA + PRECOND_FREQ=16, cos_sim 0.82-0.84) already saturates orthogonalization-level continuity headroom. **NS-internal cluster now 6/6 CLOSED** (depth-schedule #1609, poly-coeffs #1612, iter-count #1638/#1509, warmstart #1643).
+- **★ ASSIGNED #1676 nezuko wd_attn fine re-tune** — mirror of thorfinn #1586 (wd_mlp fine) on attention-side WD axis. Memory-permitted WD-value sweep (per `muon_body_wd_already_set.md`). 5-cell sweep {0.015/0.025/0.030/0.040/0.050}. Zero code change — `--wd_attn` is existing flag. Distinct from #1586 (wd_mlp not wd_attn), #1615 (mu CLOSED), and #194 pre-R5 stack. Hypothesis: SOAP-attn's Kronecker preconditioning changes effective attn-weight gradient; default wd_attn=0.025 was tuned for plain-Muon attention. Stage A+B first, conditional C/D/E.
+- **#1617 tanjiro n=4 EMA-eval confirm**: still in flight.
+- **#1586 thorfinn n=4 EMA-eval confirm**: still in flight.
+- **#1654 fern**: continue all 5 cells per KG1 reply (D at τ=0.15, E at τ=0.50 are now diagnostic).
+- **#1651 frieren cell B**: let run to natural termination per non-cherry-pick rule.
+- **#1664 edward**: implementing per-class cooldown SHAPE (post-assign lag normal).
 
 ### Current state
 
@@ -47,7 +47,7 @@ The human research team has redirected: **FFS (first-step-to-target, baseline 30
 | fern | #1654 | SOAP adaptive eigenbasis refresh | 🔄 WIP |
 | **tanjiro** | **#1617** | **SOAP pf=8 n=4 EMA-eval confirm** | **🆕 n=4 CONFIRM (just approved)** |
 | edward | #1664 | Per-class body Muon cooldown SHAPE decouple | 🔄 WIP |
-| nezuko | #1643 | NS warm-start from polar factor | 🔄 WIP (C cell @ step 1579) |
+| nezuko | #1676 | wd_attn fine re-tune under R5 stack | 🆕 WIP (just assigned) |
 | **thorfinn** | **#1586** | **wd_mlp=0.040 n=4 EMA-eval confirm** | **🆕 n=4 CONFIRM (just approved)** |
 
 ---
