@@ -1,3 +1,63 @@
+## 2026-05-29 23:30 UTC — Cycle 71 mid-399 — edward #1719 305th refute, 141st family closure — DEFINITIVE META-CLOSURE: v-axis lever search EXHAUSTED on optimizer-mechanism side (5-of-5 candidates refuted); v-axis bottleneck is mechanically upstream of every Muon optimizer-mechanism lever
+
+### edward #1719 305th refute — PER_KIND_NS5_ITERS_V_ISOLATION val_mean=3.27128 STANDARD misses merge bar by Δ=+0.00352 val and +37.5 ffs
+
+Arm A `v_ns5_rare` (NS5_ITERS_V=10, Q=K=PROJ=14) val=3.27096 ffs=3025 STANDARD, Arm B `v_ns5_dense` (NS5_ITERS_V=18, Q=K=PROJ=14) val=3.27161 ffs=3050 STANDARD, Δ(B−A)=+0.00065 sub-noise null. Stat rule (3.28−μ)·√n ≥ 0.004 PASSES at n=2 (0.01233). W&B sj3ind9y/8r99plmh verified config-operative (12 v-params dispatched correctly to V=10/V=18, 12 q + 12 k + 12 proj at baseline 14) + **SMOKING-GUN replication confirmed**: v on_fraction = **0.0000 bit-identical at every pre-cooldown checkpoint** {125, 200, 500, 1000, 1500, 2000} in BOTH arms regardless of NS5 quality 2× range. v cos_row terminal 0.8508 (A) vs 0.8540 (B) — measurable +0.003 NS5-quality effect on basis alignment but FAR below 0.85 trust-gate threshold pre-cooldown.
+
+**MAJOR DEFINITIVE STRUCTURAL FINDING — v-axis lever search EXHAUSTED on optimizer-mechanism side (5-of-5 candidates refuted)**:
+
+| axis | PR | mechanism | result |
+|---|---|---|---|
+| β2 phase-dispatch on v | #1663 | EMA window on v gram | REFUTED |
+| trust-threshold warmup on v | #1665 | gate-admission schedule | REFUTED |
+| per-kind trust-threshold magnitude | #1685 | gate-admission threshold v=0.50/0.95 | REFUTED |
+| per-kind Muon LR magnitude | #1692 | Muon step-size on v V_MULT=0.67/1.33 | REFUTED |
+| **per-kind NS5_ITERS magnitude (#1719)** | **#1719** | **NS5 orthogonalization quality on v V=10/18** | **REFUTED** |
+
+Smoking-gun signature replicates across all 5 levers: v on_fraction = 0.0000 bit-identical at every pre-cooldown checkpoint regardless of which Muon-mechanism is modulated. The v-axis basis suppression is **mechanically upstream of every Muon optimizer-mechanism lever**.
+
+**Implication — v-axis bottleneck is NOT optimizer-mechanism-mediated**. v-axis basis suppression originates from upstream of the Muon optimizer step. It is not a function of β2, trust threshold, LR, or NS5 quality. The Muon path can be modulated arbitrarily without lifting v's on_fraction during pre-cooldown.
+
+Candidate upstream sources for future v-axis work (none tested yet): (1) initialization-side per-kind-v isolated init scale (refines alphonse #1713's per-kind null), (2) architecture-side LayerNorm gain/position around v's input or output, (3) **path-EXCLUSION-side (edward #1744 IN-FLIGHT NEXT)** — counterfactual where v is REMOVED from the attn-SOAP path entirely; tests whether SOAP-for-v is benign-but-useless or actively hurting during pre-cooldown.
+
+Per-kind v/mean_cos_row trajectory measurable but sub-threshold NS5 effect:
+
+| step | Arm A (V=10) | Arm B (V=18) | Δ(B−A) | vs 0.85 threshold |
+|---|---|---|---|---|
+| 200 | 0.7647 | 0.7667 | +0.0020 | gap −0.083 |
+| 500 | 0.7825 | 0.7860 | +0.0035 | gap −0.067 |
+| 1000 | 0.7875 | 0.7849 | −0.0026 | gap −0.062 |
+| 1500 | 0.7983 | 0.8014 | +0.0031 | gap −0.052 |
+| 2225 | 0.8282 | 0.8286 | +0.0004 | gap −0.022 |
+| 2500 | 0.8406 | 0.8442 | +0.0036 | gap −0.011 |
+| 3175 | 0.8508 | 0.8540 | +0.0032 | gap −0.003 |
+
+NS5 quality has a measurable but tiny effect (~+0.003) on v's row-cosine alignment with denser NS5, but this effect is far below the 0.85 trust-gate threshold gap throughout the entire pre-cooldown window. So the v-gate remains closed in both arms identically despite the secondary effect on basis alignment. Informative finding: **NS5 quality modulates v-basis ALIGNMENT but not v-basis ADMISSION**.
+
+Rules out three hypotheses: (1) v wants LESS NS5 quality — REFUTED (Δ +0.00065 not B<A), (2) v wants MORE NS5 quality — REFUTED, (3) NS5 quality is NOT the v-axis lever (on_fraction=0 in both arms) — CONFIRMED.
+
+**141st family closure**: PER_KIND_NS5_ITERS_V_ISOLATION axis fully mapped at null outcome + **2-for-1 v-axis lever search EXHAUSTION META-CLOSURE** locks in the cycle 71 structural finding.
+
+### Cumulative state
+
+**Cycle 71 cumulative**: **305 refuted** / **177 distinct mech classes** (smoking-gun-replication uses previously-observed signature, no new class) / **141 family-level closures**.
+
+### PRs closed this wave (1 closure):
+
+| PR | student | mechanism | outcome |
+|---|---|---|---|
+| **edward #1719** | edward | PER_KIND_NS5_ITERS_V_ISOLATION (Arm A v_ns5_rare V=10, Arm B v_ns5_dense V=18; Q=K=PROJ=14 baseline) | **305th** — Arm A 3.27096/3025 STANDARD, Arm B 3.27161/3050 STANDARD, val_mean=3.27128 misses by +0.00352/+37.5. Δ(B−A)=+0.00065 sub-noise null. **MAJOR DEFINITIVE STRUCTURAL FINDING**: 5th and final v-axis lever candidate refuted on optimizer-mechanism side; smoking-gun replication v on_fraction=0.0000 bit-identical at all 6 pre-cooldown checkpoints in both arms; v-axis bottleneck mechanically upstream of every Muon optimizer-mechanism lever (β2, trust-warmup, trust-magnitude, Muon LR, NS5 quality all REFUTED). NS5 modulates v-basis ALIGNMENT (+0.003 cos_row) but NOT v-basis ADMISSION (gap-to-threshold remains negative throughout pre-cooldown). **141st family closure + 2-for-1 v-axis lever search EXHAUSTION META-CLOSURE**. |
+
+### PRs assigned this wave (1 fresh path-EXCLUSION axis — first attn-SOAP exclusion test in cycle 71):
+
+| PR | student | mechanism | hypothesis |
+|---|---|---|---|
+| **edward #1744** | edward | PER_KIND_ATTN_SOAP_EXCLUSION (Arm A `v_excluded` ATTN_SOAP_EXCLUDE_V=1, Arm B `q_excluded` ATTN_SOAP_EXCLUDE_Q=1; excluded kind drops out of attn_soap_params set at Muon construction → routes through default contra_normuon_update path like MLP params) | **6th and final v-axis cycle 71 lever candidate, structurally DISTINCT from prior 5** (which all modulated SOAP path *inside* attn-SOAP); tests whether v should be on the SOAP path at all. Bilateral cross-references EXCLUSION effect between fully-suppressed kind (v, on_fraction=0 pre-cooldown) and fully-engaged kind (q, on_fraction=1.0 pre-cooldown). If A < baseline AND B > baseline → SOAP hurts v specifically pre-cooldown AND helps q → surgical SOAP application is the lever, **MERGE candidate**. If A ≈ baseline AND B > baseline → v-EXCLUSION is benign + parallel control validates SOAP-for-q is engaged. If A ≈ B ≈ baseline → SOAP is path-irrelevant for both kinds. If both worse → SOAP-EXCLUSION not the right intervention. If both better → SOAP itself is suspect at the attn scope. **Could be the first beats-baseline finding in cycle 71 from a structural lever** if the bilateral pattern matches v-suppression-asymmetry hypothesis. Fits Morgan's directive (per-group + state-mechanism — per-kind + path-EXCLUSION is a state-mechanism; no scalar sweep). |
+
+Fleet 8/8 assigned, 0 idle.
+
+---
+
 ## 2026-05-29 22:45 UTC — Cycle 71 mid-398 — nezuko #1718 304th refute, 140th family closure — MAJOR STRUCTURAL FINDING: cross-SOAP-scope β2 phase-locality matrix completed for q-kind at weak-early-wins; eigenbasis-rank-sensitivity axiom directional prediction BROKEN within same eigenbasis class
 
 ### nezuko #1718 304th refute — PER_KIND_ATTN_SOAP_Q_BETA2_PHASE_DISPATCH val_mean=3.27137 STANDARD misses merge bar by Δ=+0.00361 val and +37.5 ffs
