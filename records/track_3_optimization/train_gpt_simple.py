@@ -466,6 +466,11 @@ ATTN_SOAP_PRECOND_FREQ = 10
 ATTN_SOAP_TRUST_THRESHOLD = float(os.environ.get("ATTN_SOAP_TRUST_THRESHOLD", "0.9"))
 NS5_ITERS = int(os.environ.get("NS5_ITERS", "12"))
 WD_AUX = float(os.environ.get("WD_AUX", "0.0"))  # AdamW WD on embed + lm_head matrices (scalars stay at 0)
+# Per-kind AUX WD dispatch (PR #1683, ports #1656 infrastructure):
+# when enabled, adam_embed and adam_lm_head AdamW groups use independent weight_decay.
+PER_KIND_WD_AUX_ENABLED = int(os.environ.get("PER_KIND_WD_AUX_ENABLED", "0"))
+WD_AUX_EMBED = float(os.environ.get("WD_AUX_EMBED", str(WD_AUX)))
+WD_AUX_LM_HEAD = float(os.environ.get("WD_AUX_LM_HEAD", str(WD_AUX)))
 EMBED_INIT_STD = float(os.environ.get("EMBED_INIT_STD", "1.0"))  # default preserves baseline N(0,1)
 LOGIT_SOFTCAP = float(os.environ.get("LOGIT_SOFTCAP", "15.0"))  # default = 15 (current hardcoded value); soft-cap value c in f(x) = c·x / sqrt(x^2+c^2)
 
@@ -866,9 +871,14 @@ if dist.get_rank() == 0:
             "optimizer/attn_soap_trust_threshold": ATTN_SOAP_TRUST_THRESHOLD,
             "optimizer/ns5_iters": NS5_ITERS,
             "optimizer/wd_aux": WD_AUX,
+            "optimizer/per_kind_wd_aux_enabled": int(PER_KIND_WD_AUX_ENABLED),
+            "optimizer/wd_aux_embed": WD_AUX_EMBED,
+            "optimizer/wd_aux_lm_head": WD_AUX_LM_HEAD,
             "optimizer/recipe": "contra-muon + normuon-lite + soap-on-mlp + soap-on-attn-trust-gate (pre-NS5, record #14 + record #16)",
         },
     )
+    print(f"[PER_KIND_WD_AUX] enabled={PER_KIND_WD_AUX_ENABLED} "
+          f"embed={WD_AUX_EMBED} lm_head={WD_AUX_LM_HEAD}")
 
 for trial_idx in range(args.num_trials):
 
@@ -898,8 +908,11 @@ for trial_idx in range(args.num_trials):
             raise Exception(f"Uninitialized parameter: {name}")
 
     # create the optimizer(s)
-    optimizer1 = AdamW([dict(params=[model.embed.weight], lr=0.3, name="adam_embed", weight_decay=WD_AUX),
-                        dict(params=[model.proj.weight], lr=1/320, name="adam_lm_head", weight_decay=WD_AUX),
+    # PR #1683 (ports #1656): per-kind AUX WD dispatch — when enabled, embed/lm_head use independent WD; scalars stay at 0.
+    wd_aux_embed_eff = WD_AUX_EMBED if PER_KIND_WD_AUX_ENABLED else WD_AUX
+    wd_aux_lm_head_eff = WD_AUX_LM_HEAD if PER_KIND_WD_AUX_ENABLED else WD_AUX
+    optimizer1 = AdamW([dict(params=[model.embed.weight], lr=0.3, name="adam_embed", weight_decay=wd_aux_embed_eff),
+                        dict(params=[model.proj.weight], lr=1/320, name="adam_lm_head", weight_decay=wd_aux_lm_head_eff),
                         dict(params=[p for p in model.parameters() if p.ndim < 2], lr=0.01, name="adam_scalars")],
                        betas=(0.8, 0.95), eps=1e-10, weight_decay=0, fused=True)
     optimizer2 = Muon([(n, p) for n, p in model.blocks.named_parameters() if p.ndim >= 2],
@@ -1051,6 +1064,19 @@ for trial_idx in range(args.num_trials):
                 train_steps=train_steps,
                 wandb_step=wandb_step,
             )
+        # PR #1683: per-kind AUX weight rms/abs_max snapshots — structural smoking gun for
+        # whether each per-kind WD axis is mechanically active or inert.
+        if dist.get_rank() == 0 and train_step in {500, 1000, 1500, 2225, 2500, 3000, 3175}:
+            per_kind_metrics: dict[str, float] = {"trial": trial_idx, "train/step": train_step}
+            for group in optimizer1.param_groups:
+                gname = group.get("name", "")
+                if gname not in {"adam_embed", "adam_lm_head"}:
+                    continue
+                for p in group["params"]:
+                    pf = p.detach().float()
+                    per_kind_metrics[f"per_kind_wd/{gname}/weight_rms"] = pf.pow(2).mean().sqrt().item()
+                    per_kind_metrics[f"per_kind_wd/{gname}/weight_abs_max"] = pf.abs().max().item()
+            wandb.log(per_kind_metrics, step=wandb_step)
         for opt in optimizers:
             opt.step()
         if dist.get_rank() == 0 and telemetry_due:
