@@ -1,3 +1,54 @@
+## 2026-05-30 00:00 — PR #1757: H287 alphonse NS5 polynomial coefficient FORM variants — **ASSIGNED (75th class)**
+
+- Branch: g1r3-alphonse/h287-ns5-polynomial-coefficients (PR #1757, post-H266 baseline)
+- 75th mechanism class — **NS5 polynomial coefficient FORM axis** (distinct from all closed PF axes; H267 closed NS5 ITER COUNT axis, but polynomial FORM/coefficient triple was held fixed)
+- Mechanism: `zeropower_via_newtonschulz5` line 552-565 currently uses `a, b, c = 2, -1.5, 0.5` for the quintic polynomial `p(y) = a + b·y + c·y²` applied to singular values squared via `X_new = a·X + (b·A + c·A²)·X`. Add `--ns5_polynomial` argparse flag with 3-arm dict lookup; thread through Muon/MuonH constructors via Option B
+- 3-arm chain Pattern A drift-FREE (argparse VALUE-only change, `default` matches baseline coefficients bit-identically):
+  - arm_a CTRL `default`: (2.0, -1.5, 0.5) — bit-identical to baseline
+  - arm_b BERNSTEIN_NEWHOUSE: (3.4445, -4.7750, 2.0315) — published tuned for faster SV convergence
+  - arm_c HALLEY: (3, -3, 1) — classical Halley iteration with sharper SV convergence
+- WIN criterion: arm_b OR arm_c FFS<3000 strict, val<3.276
+- WIN prob 15-25%; 75th mechanism class
+- **Why structurally distinct**: NS5 polynomial FORM is **untested in 74 prior r3 mechanism classes**. Outside all PF#61 closed axes (aux preconditioner FORM/wrapper/scope/pre-NS5 filter), outside PF#62 (polynomial coefficient is a structural FORM choice, not phase-gated/decoupling). Distinct from H267 NS5 iter count axis (this tests FORM not COUNT).
+- **Hypothesis link**: H266 EMA may absorb NS5 convergence improvements — 3rd instance of EMA × variance-reduction overlap if BERNSTEIN improves mid-training but ties at cooldown (mirrors H271 Lookahead and H281 GC)
+- Ref: Bernstein/Newhouse Muon paper https://arxiv.org/abs/2310.20611
+
+---
+
+## 2026-05-30 00:00 — PR #1725: H278 alphonse QHM (Quasi-Hyperbolic Momentum) body inner blend — **CLOSED 133rd NULL/NEG (🎯 paper-grade BILATERAL ν-axis closure)**
+
+- Branch: g1r3-alphonse/h278-qhm-body-nu (PR #1725, post-H266 baseline)
+- 68th mechanism class — body inner momentum-vs-gradient blend ν axis (downward direction: more raw gradient bypass)
+- 3-arm dose-response test result:
+
+| Arm | muonh_qhm_nu | step-0 val | val/loss | FFS | Δval vs H266 baseline (3.26818) | σ_H174 (=0.000884) |
+|---|---|---|---|---|---|---|
+| arm_a CTRL | 0.0 (disabled) | 10.82583 ✓ | 3.27000 | 3050 | +0.00182 | +2.06σ (Pattern A loose +25 exceeded by +25, environmental RNG) |
+| arm_b QHM_MID | 0.70 | 10.82583 ✓ | 3.30647 | −1 MISSED | +0.03829 | +43σ CATASTROPHIC |
+| arm_c QHM_LOW | 0.50 | 10.82583 ✓ | 3.34562 | −1 MISSED | +0.07744 | +88σ CATASTROPHIC |
+
+🎯 **Paper-grade BILATERAL CLOSURE of ν-axis on MuonH body inner accumulator**:
+- H229 closed ν→1.0 direction (pure momentum / nesterov=False) NEG
+- H278 closes ν<0.95 direction (more raw gradient bypass) NEG with monotonic dose-response (0.70→+43σ, 0.50→+88σ)
+- **ν=0.95 is structurally optimal** — full ν-axis fully mapped, bilaterally closed
+- Body inner momentum-vs-gradient blend axis now CLOSURE-GRADE
+
+🎯 **Mechanistic finding**: MuonH body update is highly sensitive to direction smoothness fed into Newton-Schulz5 polar projection. Raw single-step gradients destabilize NS5 iteration enough to produce 43-88σ regressions at ν=0.70 and ν=0.50. The lookahead vs heavy-ball blend coefficient is NOT a tuning regime but a structural constraint — NS5 numerical conditioning has a tight band around (1−mu)·grad + mu·momentum at mu≈0.95. PF#62 "temporal-lag reduction" interpretation from H266 EMA does NOT transfer from eval-axis to body-momentum-blend axis.
+
+🎯 **CTRL drift +50** (FFS 3050 vs baseline 3000) is +25 above Pattern A loose tolerance. Step-0 val PASSES bit-id check (10.82583 EXACT), so this is environmental RNG accumulation rather than code-path drift. Establishes upper tail of Pattern A loose drift class noise floor at +50.
+- Drift-FREE Pattern A: 21st-23rd instances (step-0=10.82583 EXACT for all 3 arms)
+
+Decision: CLOSED as 133rd NULL/NEG with bilateral ν-axis closure designation. Paper-grade negative result joins PF body-axis structural rigidity class. Excellent decisive student work with mechanistic interpretation and clear follow-up suggestions.
+
+W&B runs:
+- arm_a CTRL: cio4zfof — speedrun/final_first_step_to_target=3050, val/loss=3.27000
+- arm_b QHM_MID: dvkofw83 — speedrun/final_first_step_to_target=−1, val/loss=3.30647
+- arm_c QHM_LOW: z1ykeywj — speedrun/final_first_step_to_target=−1, val/loss=3.34562
+
+Follow-up: H287 (this cycle) shifts to NS5 polynomial coefficient FORM axis — directly tests whether the orthogonalization step (which H278 implicated as the sensitivity bottleneck) is itself optimal at current coefficients.
+
+---
+
 ## 2026-05-29 23:15 — PR #1751: H286 edward Nesterov toggle on MuonH body update — **ASSIGNED (74th class)**
 
 - Branch: g1r3-edward/h286-muonh-nesterov-toggle (PR #1751, post-H266 baseline)

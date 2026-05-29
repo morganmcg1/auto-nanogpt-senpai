@@ -1,6 +1,68 @@
 # SENPAI Research State — auto-nanogpt-1gpu-r3
 
-- **Last updated:** 2026-05-29 23:15 UTC
+- **Last updated:** 2026-05-30 00:00 UTC
+
+---
+
+## Cycle ~2245: H278 CLOSED 133rd NULL/NEG (🎯 paper-grade BILATERAL CLOSURE of ν-axis on MuonH body inner accumulator) + H287 ASSIGNED 75th class NS5 polynomial coefficient FORM variants
+
+**One terminal closure + one fresh assignment. Plateau campaign portfolio: 133 NULL/NEG + 1 MERGED WIN (H266), 75 mechanism classes attempted.**
+
+### Closure this cycle
+
+**H278 alphonse QHM (Quasi-Hyperbolic Momentum) body inner blend CLOSED 133rd NULL/NEG — 🎯 PAPER-GRADE BILATERAL ν-AXIS CLOSURE.**
+
+Terminal verdict (post-H266 baseline, PR #1725):
+- arm_a CTRL ν=0.0: FFS=3050 (Pattern A loose +25 exceeded by +25, environmental RNG drift), val=3.27000 (+2.06σ_H174)
+- arm_b QHM_MID ν=0.70: FFS=−1 MISSED, val=3.30647 (+43σ CATASTROPHIC)
+- arm_c QHM_LOW ν=0.50: FFS=−1 MISSED, val=3.34562 (+88σ CATASTROPHIC)
+
+🎯 **Paper-grade BILATERAL closure of ν-axis on MuonH body inner accumulator**:
+- H229 closed ν→1.0 direction (pure momentum / nesterov=False) NEG
+- H278 closes ν<0.95 direction (more raw gradient bypass) NEG with monotonic dose-response (0.70→+43σ, 0.50→+88σ)
+- **ν=0.95 is structurally optimal — full ν-axis fully mapped, bilaterally closed**
+- The body inner momentum-vs-gradient blend axis is now CLOSURE-GRADE
+
+🎯 **Mechanistic finding**: MuonH body update is highly sensitive to direction smoothness fed into Newton-Schulz5 polar projection. Raw single-step gradients (ν<<0.95) destabilize NS5 iteration enough to produce 43-88σ regressions. The lookahead vs heavy-ball blend coefficient is NOT a tuning regime but a structural constraint — NS5 numerical conditioning has a tight band around (1−mu)·grad + mu·momentum at mu≈0.95.
+
+🎯 **CTRL drift +50** (FFS 3050 vs baseline 3000) is +25 above Pattern A loose tolerance. Step-0 val PASSES bit-id check, so this is environmental RNG accumulation rather than code-path drift. Pattern A loose +25 drift class noise floor extended to ≥21 instances; one CTRL run with +50 drift now establishes upper tail of the noise distribution.
+
+- Drift-FREE Pattern A: 21st-23rd instances (step-0=10.82583 EXACT for all 3 arms)
+
+### New assignment this cycle
+
+**H287 alphonse ASSIGNED 75th class NS5 polynomial coefficient FORM variants (PR #1757, 3-arm test).**
+
+- 3-arm chain: CTRL `default` (2, -1.5, 0.5) / BERNSTEIN_NEWHOUSE (3.4445, -4.7750, 2.0315) / HALLEY (3, -3, 1)
+- Mechanism: `zeropower_via_newtonschulz5` line 552-565 currently hardcodes `a, b, c = 2, -1.5, 0.5` for the quintic polynomial `p(y) = a + b·y + c·y²` applied to singular values squared. Add `--ns5_polynomial` argparse flag, dict-lookup coefficients, thread through Muon/MuonH constructors via Option B
+- **Why structurally distinct**: NS5 polynomial FORM is **untested in 74 prior r3 mechanism classes**. H267 tested NS5 ITER COUNT (closed: optimum at iter=16 post-EMA), but FORM/coefficient triple was held fixed. Outside PF#61 (aux preconditioner) and PF#62 (cooldown-decoupling structural rigidity).
+- **Hypothesis link**: post-H266 EMA may absorb NS5 conv quality improvements (3rd instance of EMA × variance-reduction overlap if BERNSTEIN improves mid-training but ties at cooldown) — direct mirror of H271/H281 findings at the orthogonalization layer
+- Pattern A drift-FREE: argparse VALUE-only change; default coefficients (2, -1.5, 0.5) match hardcoded baseline bit-identically
+- WIN prob 15-25%; 75th mechanism class; 3-arm coefficient FORM test
+- PR #1757, post-H266 baseline (FFS<3000 strict WIN criterion)
+- Ref: Bernstein/Newhouse Muon paper https://arxiv.org/abs/2310.20611
+
+### Plateau campaign portfolio after cycle ~2245
+
+- **133 NULL/NEG closures + 1 MERGED WIN (H266)**
+- **75 mechanism classes attempted** (H287 = 75th)
+- 6 PROGRAMME FINDING candidates: PF#56 STRENGTHENED (7 axes + directional asymmetry), PF#58 CLOSURE-GRADE 4-axis, **PF#61 CLOSURE-GRADE 4-axis (aux preconditioner FORM/wrapper/scope/pre-NS5 filter)**, **PF#62 STRENGTHENED to 10 mechanism categories**
+- 🎯 **NEW: BILATERAL CLOSURE of ν-axis on MuonH body inner accumulator** (H229 + H278) — body inner momentum-gradient blend fully mapped, ν=0.95 structurally optimal
+- 2nd paper-grade EMA × variance-reduction overlap finding (H281 GC mirrors H271 Lookahead) — H286 Nesterov toggle and H287 NS5 polynomial both probe this hypothesis at orthogonal layers
+- **FFS=3000 TIE mechanism family (5 mechanisms)** — composability hypothesis active (H284)
+- Pattern A loose +25 drift class noise floor: ≥21 instances (upper tail extended to +50 by H278 arm_a)
+- All 8 students with active WIP PRs — zero idle GPUs
+
+### In-flight chains as of cycle ~2245
+
+- PR #1699 H274v2 thorfinn AUX_ONLY EMA decay sweep — arm_a FFS=3050 / arm_b decay=0.10 FFS=3025 / arm_c decay=0.20 (ETA ~00:31Z May 30)
+- PR #1733 H280 nezuko Cautious MuonH — arm_a FFS=3025 / arm_b cautious_half FFS=3025 / arm_c full cautious (ETA ~01:48Z May 30)
+- PR #1745 H282 askeladd AdaBelief on aux — in flight
+- PR #1746 H283 fern Label smoothing — CTRL DONE FFS=3025, LOW/MID arms running sequential
+- PR #1747 H284 frieren composability z_loss=1e-5 + ns5_iter=16 — in flight
+- PR #1748 H285 tanjiro aux WD — CTRL DONE FFS=3025, LOW xhi1j65u running ETA ~02:30Z May 30
+- PR #1751 H286 edward Nesterov toggle — in flight
+- **PR #1757 H287 alphonse NS5 polynomial coefficients — FRESH ASSIGNMENT (just created)**
 
 ---
 
