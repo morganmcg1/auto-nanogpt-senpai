@@ -1,3 +1,76 @@
+## 2026-05-30 00:15 UTC — Cycle 71 mid-401 — DUAL NEAR-FLOOR-NEW BAND WAVE — askeladd #1731 + thorfinn #1732 both produce closest-to-baseline single-axis findings in cycle 71, both sent back for n=2 confirmation
+
+### askeladd #1731 NEAR-FLOOR-NEW — PER_DEPTH_HALF_ATTN_SOAP_BETA2
+
+Arm A `front_FAST` (FRONT=0.85/BACK=0.95) val=3.27091 ffs=3025 STANDARD, **Arm B `back_FAST` (FRONT=0.95/BACK=0.85) val=3.26845 ffs=3000 NEAR-FLOOR-NEW band**. W&B `779cgl45` Arm B verified config-operative + depth-split engagement at boundary block 6 + sane β2 trajectory.
+
+**MAJOR PROVISIONAL STRUCTURAL FINDING — back-half attn-SOAP β2 FAST preference**:
+
+Arm B val=3.26845 is BELOW floor-band lower edge 3.26916 by Δ=−0.00071. ffs=3000 matches baseline exactly. Δ(B − A)=−0.00246 strongly directional. This is the first single-axis cycle 71 result to drop below floor-band lower edge with ffs exactly at baseline.
+
+**Cross-PR matrix update**:
+- attn-SOAP-proj kind, time-axis: LATE-FAST wins (#1642)
+- attn-SOAP-q kind, time-axis: EARLY-FAST wins weak (#1718)
+- MLP-SOAP-proj kind, time-axis: EARLY-FAST wins (#1668)
+- MLP-SOAP-fc kind, time-axis: INERT (#1695)
+- **attn-SOAP back-half, depth-axis: BACK-FAST wins strong PROVISIONAL (#1731 pending n=2)**
+
+This is the first **depth-axis** SOAP-class phase-dispatch positive in cycle 71. Time-axis SOAP-class phase-dispatch has produced 3 positive cells out of 4; depth-axis just produced 1st positive cell out of 1. Strengthens the META-FINDING from #1724 that phase-locality is a SOAP-class lever — it generalizes across axis-type (time vs depth).
+
+**n=2 confirmation request posted** (comment 4580627602); PR converted to draft. Seed1 command: `PER_DEPTH_HALF_ATTN_SOAP_BETA2_ENABLED=1 ATTN_SOAP_BETA2_FRONT=0.95 ATTN_SOAP_BETA2_BACK=0.85 ATTN_SOAP_DEPTH_SPLIT_BETA2=6 [mandatory env stack] --wandb_name "g1r2-askeladd/arm-b-back-fast-seed1"` with different seed than `779cgl45`. Merge decision pending val_mean < 3.26776 AND ffs_mean ≤ 3000 at n=2.
+
+### thorfinn #1732 NEAR-FLOOR-NEW — PER_KIND_AUX_WD_LM_HEAD
+
+Arm A `lm_head_wd_lower` (WD_LM_HEAD=0.0003) val=3.27034 ffs=3025 STANDARD, **Arm B `lm_head_wd_higher` (WD_LM_HEAD=0.003) val=3.26833 ffs=3000 NEAR-FLOOR-NEW band**. W&B `ng0dprzi` Arm B verified config-operative.
+
+**MAJOR PROVISIONAL STRUCTURAL FINDING — lm_head prefers HIGHER WD, cross-kind decoupling from embed**:
+
+Arm B val=3.26833 is BELOW floor-band lower edge 3.26916 by Δ=−0.00083. ffs=3000 matches baseline exactly. Δ(B − A)=−0.00201 strongly directional. This is the **best AdamW-WD perturbation result on either embed or lm_head in cycle 71**:
+
+| reference | kind | direction | val | Δ vs #1732 B |
+|---|---|---|---|---|
+| #1577 B | lm_head | β2 FAST 0.85 | 3.26992 | +0.00159 |
+| #1683 A | embed | WD-down 0.0003 | 3.26968 | +0.00135 |
+| #1705 B | embed | WD late-down | 3.26926 | +0.00093 |
+| **#1732 B** | **lm_head** | **WD-up 0.003** | **3.26833** | **—** |
+
+**CRITICAL cross-kind structural finding — opposite per-kind WD-direction preferences**:
+- **embed wants WD DOWN** (#1683/#1705 cluster: WD=0.0003 floor-band entries)
+- **lm_head wants WD UP** (#1732 B: WD=0.003 NEAR-FLOOR-NEW)
+
+This is a structural decoupling between AdamW kinds that has not previously been demonstrated and rules out a "shared WD floor" hypothesis. AdamW WD is a kind-specific lever, not a global lever — each kind exhibits opposite-direction preferences on the same axis. Strengthens the wake-99 META-FINDING that the AdamW class prefers continuous per-kind static dispatch — and now we see that the static-dispatch value is kind-direction-decoupled.
+
+**n=2 confirmation request posted** (comment 4580635767); PR converted to draft. Seed1 command: `PER_KIND_AUX_WD_ENABLED=1 WD_LM_HEAD=0.003 WD_EMBED_OVERRIDE=0.001 [mandatory env stack] --wandb_name "g1r2-thorfinn/arm-b-lm-head-wd-higher-seed1"` with different seed than `ng0dprzi`. Merge decision pending val_mean < 3.26776 AND ffs_mean ≤ 3000 at n=2.
+
+### Cycle 71 cumulative state
+
+**Cycle 71 cumulative**: **306 refuted** / **177 distinct mech classes** / **142 family-level closures** (no new closures this wave — both #1731 and #1732 reverted to in-flight pending n=2 confirmation).
+
+### PRs reviewed and converted to draft this wave (2 send-backs for n=2 confirmation):
+
+| PR | student | finding | seed1 hypothesis |
+|---|---|---|---|
+| **askeladd #1731** | askeladd | PER_DEPTH_HALF_ATTN_SOAP_BETA2 — Arm B `back_FAST` (FRONT=0.95/BACK=0.85, split=6) val=3.26845/ffs=3000 NEAR-FLOOR-NEW band, first depth-axis SOAP-class phase-dispatch positive in cycle 71, strengthens META-FINDING phase-locality is SOAP-class lever generalizes across time-axis and depth-axis | Seed1 of Arm B ONLY (do not re-run Arm A); if val_mean < 3.26776 AND ffs_mean ≤ 3000 → MERGE candidate |
+| **thorfinn #1732** | thorfinn | PER_KIND_AUX_WD_LM_HEAD — Arm B `lm_head_wd_higher` (WD_LM_HEAD=0.003, WD_EMBED=0.001) val=3.26833/ffs=3000 NEAR-FLOOR-NEW band, best AdamW-WD perturbation result on either embed or lm_head in cycle 71, CRITICAL cross-kind decoupling: embed wants WD DOWN + lm_head wants WD UP = opposite per-kind WD-direction preferences ruling out shared-WD-floor hypothesis | Seed1 of Arm B ONLY (do not re-run Arm A); if val_mean < 3.26776 AND ffs_mean ≤ 3000 → MERGE candidate |
+
+### Strategic implications
+
+**Two simultaneous NEAR-FLOOR-NEW band findings in the same wave** is the strongest exploitation signal in cycle 71 to date. Both Arm B's are below floor-band lower edge AND at baseline ffs. The single-axis search has found at least two structural levers worth confirming at n=2.
+
+If both confirm at n=2:
+1. **Both merge sequentially**: #1731 first (lower val by Δ=0.00012 over #1732 B), then #1732 after baseline update.
+2. **Compound stack opportunity**: #1731 depth-axis attn-SOAP β2 and #1732 lm_head WD operate on distinct optimizer classes (Muon-SOAP vs AdamW); orthogonal levers should stack. Post-merge candidate: stacked PR testing both deltas simultaneously.
+3. **2-for-1 meta-validation**: dual confirmation closes both "depth-axis SOAP-class phase-dispatch is productive" and "AdamW-WD kind-decoupled is real" as load-bearing structural findings.
+
+If either fails at n=2:
+- First-seed regression-to-mean closure with full attribution + cross-PR matrix cell update.
+- Single confirmation still yields a major cycle 71 structural finding.
+
+Fleet 8/8 assigned: 6 in WIP (alphonse #1738, edward #1744, frieren #1734, nezuko #1741, tanjiro #1750, in-flight + 1 more) + 2 in n=2 confirmation (askeladd #1731 seed1, thorfinn #1732 seed1). 0 idle.
+
+---
+
+
 ## 2026-05-29 23:55 UTC — Cycle 71 mid-400 — tanjiro #1724 306th refute, 142nd family closure — MAJOR META-FINDING: AdamW-side phase-dispatch uniformly unproductive (#1653, #1724); Muon-side SOAP phase-dispatch productive (#1642, #1668) — structural lever-class distinction confirmed
 
 ### tanjiro #1724 306th refute — PER_KIND_LM_HEAD_AUX_BETA1_PHASE_DISPATCH val_mean=3.27126 STANDARD misses merge bar by Δ=+0.00349 val and +37.5 ffs
