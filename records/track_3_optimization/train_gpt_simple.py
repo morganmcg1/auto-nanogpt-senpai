@@ -454,6 +454,13 @@ MU_COOLDOWN_END = float(os.environ.get("MU_COOLDOWN_END", "0.95"))
 # entirely and exactly reproduces the prior cooldown-only schedule.
 MU_WARMUP_STEPS = int(os.environ.get("MU_WARMUP_STEPS", "0"))
 MU_WARMUP_START = float(os.environ.get("MU_WARMUP_START", "0.85"))
+# PR PER_DEPTH_HALF_MU_COOLDOWN_START — per-depth-half dispatch of MU_COOLDOWN_START
+# (cruise plateau / start-of-cooldown mu). Front blocks (depth < SPLIT) use FRONT,
+# back blocks use BACK. Disabled-path identity: both default to MU_COOLDOWN_START.
+PER_DEPTH_HALF_MU_COOLDOWN_START_ENABLED = int(os.environ.get("PER_DEPTH_HALF_MU_COOLDOWN_START_ENABLED", "0"))
+MU_COOLDOWN_START_FRONT = float(os.environ.get("MU_COOLDOWN_START_FRONT", str(MU_COOLDOWN_START)))
+MU_COOLDOWN_START_BACK = float(os.environ.get("MU_COOLDOWN_START_BACK", str(MU_COOLDOWN_START)))
+PER_DEPTH_HALF_MU_COOLDOWN_START_SPLIT = int(os.environ.get("PER_DEPTH_HALF_MU_COOLDOWN_START_SPLIT", "6"))
 MUON_LR = float(os.environ.get("MUON_LR", "0.0375"))
 MUON_WEIGHT_DECAY = 0.025  # nominal; Muon.step does not apply explicit wd (u/w-floor replaces it)
 TARGET_UW = 0.35
@@ -652,6 +659,13 @@ class Muon(torch.optim.Optimizer):
                     self.attn_soap_kind[id(p)] = "v"
                 elif n.endswith(".attn.proj.weight"):
                     self.attn_soap_kind[id(p)] = "proj"
+        # Track per-param block depth index for per-depth-half mu dispatch (PR PER_DEPTH_HALF_MU_COOLDOWN_START).
+        self.block_depth: dict[int, int] = {}
+        for n, p in named_params:
+            parts = n.split(".")
+            if parts and parts[0].isdigit():
+                self.block_depth[id(p)] = int(parts[0])
+        self._depth_telemetry_printed = False
         params = sorted([p for _, p in named_params], key=lambda x: x.size(), reverse=True)
         defaults = dict(lr=lr, weight_decay=weight_decay, mu=mu)
         super().__init__(params, defaults)
@@ -660,6 +674,13 @@ class Muon(torch.optim.Optimizer):
     def step(self):
         world_size = dist.get_world_size()
         rank = dist.get_rank()
+        if rank == 0 and not self._depth_telemetry_printed:
+            n_front = sum(1 for d in self.block_depth.values() if d < PER_DEPTH_HALF_MU_COOLDOWN_START_SPLIT)
+            n_back = sum(1 for d in self.block_depth.values() if d >= PER_DEPTH_HALF_MU_COOLDOWN_START_SPLIT)
+            print(f"[MU_COOLDOWN_START_PER_DEPTH] enabled={PER_DEPTH_HALF_MU_COOLDOWN_START_ENABLED} "
+                  f"front={MU_COOLDOWN_START_FRONT:.3f} back={MU_COOLDOWN_START_BACK:.3f} "
+                  f"split={PER_DEPTH_HALF_MU_COOLDOWN_START_SPLIT} n_front={n_front} n_back={n_back}")
+            self._depth_telemetry_printed = True
         for group in self.param_groups:
             params = group["params"]
             params_pad = params + [torch.empty_like(params[-1])] * (world_size - len(params) % world_size)
@@ -667,7 +688,7 @@ class Muon(torch.optim.Optimizer):
                 if base_i + rank < len(params):
                     p = params[base_i + rank]
                     state = self.state[p]
-                    if len(state) == 0:
+                    if "momentum" not in state:
                         state["momentum"] = torch.zeros_like(p)
                         # NorMuon-lite per-row (or per-col) variance buffer.
                         if p.size(-2) >= p.size(-1):
@@ -692,8 +713,9 @@ class Muon(torch.optim.Optimizer):
                                 state["trust_cos_row"] = 1.0
                                 state["trust_cos_col"] = 1.0
                     grad = p.grad
-                    state["momentum"].lerp_(grad, 1 - group["mu"])
-                    momentum_update = grad.lerp(state["momentum"], group["mu"])
+                    mu_p = state.get("mu_override", group["mu"])
+                    state["momentum"].lerp_(grad, 1 - mu_p)
+                    momentum_update = grad.lerp(state["momentum"], mu_p)
                     use_soap = p in self.soap_params
                     use_attn_soap = p in self.attn_soap_params
                     # SOAP precondition applied to momentum BEFORE NS5+contra+NorMuon
@@ -855,6 +877,10 @@ if dist.get_rank() == 0:
             "optimizer/mu_cooldown_end": MU_COOLDOWN_END,
             "optimizer/mu_warmup_steps": MU_WARMUP_STEPS,
             "optimizer/mu_warmup_start": MU_WARMUP_START,
+            "optimizer/per_depth_half_mu_cooldown_start_enabled": PER_DEPTH_HALF_MU_COOLDOWN_START_ENABLED,
+            "optimizer/mu_cooldown_start_front": MU_COOLDOWN_START_FRONT,
+            "optimizer/mu_cooldown_start_back": MU_COOLDOWN_START_BACK,
+            "optimizer/per_depth_half_mu_cooldown_start_split": PER_DEPTH_HALF_MU_COOLDOWN_START_SPLIT,
             "optimizer/muon_lr": MUON_LR,
             "optimizer/muon_weight_decay_nominal": MUON_WEIGHT_DECAY,
             "optimizer/target_uw": TARGET_UW,
@@ -936,6 +962,27 @@ for trial_idx in range(args.num_trials):
                 group["lr"] = group["initial_lr"] * eta
                 if group.get("name") == "muon_blocks":
                     group["mu"] = cur_mu
+
+        if PER_DEPTH_HALF_MU_COOLDOWN_START_ENABLED:
+            muon_opt = None
+            for opt in optimizers:
+                for grp in opt.param_groups:
+                    if grp.get("name") == "muon_blocks":
+                        muon_opt = opt
+                        break
+            if muon_opt is not None:
+                for p in muon_opt.param_groups[0]["params"]:
+                    depth = muon_opt.block_depth.get(id(p), 0)
+                    mcs_p = MU_COOLDOWN_START_FRONT if depth < PER_DEPTH_HALF_MU_COOLDOWN_START_SPLIT else MU_COOLDOWN_START_BACK
+                    if step < MU_WARMUP_STEPS:
+                        w = step / MU_WARMUP_STEPS
+                        mu_p = MU_WARMUP_START + (mcs_p - MU_WARMUP_START) * w
+                    elif progress < 1 - cooldown_frac:
+                        mu_p = mcs_p
+                    else:
+                        t_local = (progress - (1 - cooldown_frac)) / cooldown_frac
+                        mu_p = mcs_p + (MU_COOLDOWN_END - mcs_p) * t_local
+                    muon_opt.state.setdefault(p, {})["mu_override"] = mu_p
 
 
     ########################################
