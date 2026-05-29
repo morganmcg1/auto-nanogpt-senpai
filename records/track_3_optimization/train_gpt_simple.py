@@ -603,6 +603,12 @@ NANOGPT_NEWTON_MUON_BETA = float(os.environ.get("NANOGPT_NEWTON_MUON_BETA", "0.9
 NANOGPT_NEWTON_MUON_EPS = float(os.environ.get("NANOGPT_NEWTON_MUON_EPS", "1e-4"))
 NANOGPT_NEWTON_MUON_MAX_D_IN = int(os.environ.get("NANOGPT_NEWTON_MUON_MAX_D_IN", "1024"))
 NANOGPT_NEWTON_MUON_TIKHONOV_GAMMA = float(os.environ.get("NANOGPT_NEWTON_MUON_TIKHONOV_GAMMA", "0.0"))
+# One-time R-buffer reset to scaled identity at the specified step. 0 (default) =
+# no reset = bit-identical baseline. When >0, at exactly that newton_step_count
+# each per-param R is replaced by I * R.diag().mean() (preserves rough scale to
+# avoid LR shock) and R_inv_sqrt is recomputed; subsequent EMA updates then
+# re-populate R from incoming gradients in the new training regime.
+NANOGPT_NEWTON_MUON_R_RESET_STEP = int(os.environ.get("NANOGPT_NEWTON_MUON_R_RESET_STEP", "0"))
 
 # Global per-parameter input-activation cache populated by forward hooks. Keyed by
 # id(weight_param) → tensor of shape (B*T, d_in) on device. Only populated when
@@ -787,6 +793,9 @@ class Muon(torch.optim.Optimizer):
         self.newton_max_d_in = int(newton_max_d_in)
         self.newton_input_cache = newton_input_cache if newton_input_cache is not None else {}
         self._newton_step_count = 0
+        # One-time R-buffer reset (#1674). Set via env var; 0 = never reset.
+        self._r_reset_step = int(NANOGPT_NEWTON_MUON_R_RESET_STEP)
+        self._r_reset_fired = False
         # Accumulator dict reset each step() — read by the training loop after
         # step() for W&B logging. Keys: cond_max, cond_min, cond_sum, cond_n,
         # inv_sqrt_norm_sum, precond_ratio_sum, precond_ratio_n, applied_n.
@@ -819,10 +828,52 @@ class Muon(torch.optim.Optimizer):
         x = self.newton_input_cache.get(pid)
         if x is None:
             return None
+        # One-time R-buffer reset to scaled-identity at cooldown entry / mid-cooldown
+        # (#1674). Discards body-phase R eigenspectrum so the new regime's gradients
+        # populate a fresh buffer via subsequent EMA updates. Scale = mean of current
+        # diagonal entries preserves rough magnitude of the preconditioner to avoid
+        # an effective LR shock. We also recompute R_inv_sqrt immediately so this
+        # step's preconditioning sees the reset; the update_R block below is then
+        # skipped this step to keep R pure scaled-identity until the next period.
+        do_reset = (
+            self._r_reset_step > 0
+            and self._newton_step_count == self._r_reset_step
+            and "R" in state
+        )
+        if do_reset:
+            R_prev = state["R"]
+            scale = R_prev.diag().mean()
+            R_eye = torch.eye(R_prev.shape[0], dtype=R_prev.dtype, device=R_prev.device) * scale
+            state["R"] = R_eye
+            # Apply Tikhonov regularization consistently with the normal-update path
+            # (#1543). After reset, R is scaled-I so tr(R)/d_in = scale; the resulting
+            # R_for_decomp = scale*(1+gamma)*I and R_inv_sqrt = (scale*(1+gamma))^(-1/2)*I.
+            if NANOGPT_NEWTON_MUON_TIKHONOV_GAMMA > 0.0:
+                n_dim = state["R"].shape[0]
+                trace_mean = state["R"].diagonal().mean()
+                lambda_reg = NANOGPT_NEWTON_MUON_TIKHONOV_GAMMA * trace_mean
+                R_for_decomp = state["R"] + lambda_reg * torch.eye(
+                    n_dim, device=state["R"].device, dtype=state["R"].dtype
+                )
+            else:
+                R_for_decomp = state["R"]
+            try:
+                vals, vecs = torch.linalg.eigh(R_for_decomp)
+                vals_clamped = vals.clamp(min=0.0) + self.newton_eps
+                inv_sqrt_vals = vals_clamped.rsqrt()
+                state["R_inv_sqrt"] = (vecs * inv_sqrt_vals.unsqueeze(0)) @ vecs.T
+                state["_R_vals_clamped"] = vals_clamped
+            except Exception:
+                state.pop("R_inv_sqrt", None)
+                state.pop("_R_vals_clamped", None)
         # Update R EMA + eigendecomp every newton_update_period steps (and at first call).
+        # Skip update on the reset step itself so R stays pure scaled-identity.
         update_R = (
-            "R" not in state
-            or (self._newton_step_count % self.newton_update_period == 1)
+            not do_reset
+            and (
+                "R" not in state
+                or (self._newton_step_count % self.newton_update_period == 1)
+            )
         )
         if update_R:
             x32 = x.float()
@@ -900,6 +951,21 @@ class Muon(torch.optim.Optimizer):
         if self.newton_precond:
             self._newton_step_count += 1
             self.newton_telemetry = {}
+            # One-time banner when R-buffer reset fires this step (#1674). Only
+            # printed on rank 0 to avoid duplicates; per-param reset is handled
+            # inside _apply_newton_precondition.
+            if (
+                self._r_reset_step > 0
+                and self._newton_step_count == self._r_reset_step
+                and not self._r_reset_fired
+            ):
+                self._r_reset_fired = True
+                if dist.is_initialized() and dist.get_rank() == 0:
+                    print(
+                        f"[NEWTON_MUON] R-buffer reset to scaled-identity at "
+                        f"newton_step_count={self._newton_step_count}",
+                        flush=True,
+                    )
         for group in self.param_groups:
             params = group["params"]
             params_pad = params + [torch.empty_like(params[-1])] * (world_size - len(params) % world_size)
@@ -997,7 +1063,8 @@ print0(
     f"update_period={NANOGPT_NEWTON_MUON_UPDATE_PERIOD} "
     f"beta={NANOGPT_NEWTON_MUON_BETA} eps={NANOGPT_NEWTON_MUON_EPS} "
     f"max_d_in={NANOGPT_NEWTON_MUON_MAX_D_IN} "
-    f"tikhonov_gamma={NANOGPT_NEWTON_MUON_TIKHONOV_GAMMA}",
+    f"tikhonov_gamma={NANOGPT_NEWTON_MUON_TIKHONOV_GAMMA} "
+    f"r_reset_step={NANOGPT_NEWTON_MUON_R_RESET_STEP}",
     console=True,
 )
 if NS_ITERS_COOLDOWN > 0:
@@ -1119,6 +1186,7 @@ if dist.get_rank() == 0:
             "nanogpt_newton_muon_eps": NANOGPT_NEWTON_MUON_EPS,
             "nanogpt_newton_muon_max_d_in": NANOGPT_NEWTON_MUON_MAX_D_IN,
             "nanogpt_newton_muon_tikhonov_gamma": NANOGPT_NEWTON_MUON_TIKHONOV_GAMMA,
+            "nanogpt_newton_muon_r_reset_step": NANOGPT_NEWTON_MUON_R_RESET_STEP,
         },
     )
 
@@ -1460,6 +1528,12 @@ for trial_idx in range(args.num_trials):
                 "trial": trial_idx,
                 "train/step": train_step,
                 "newton_muon/params_preconditioned": applied,
+                "newton_muon/r_reset_step": int(
+                    getattr(optimizer2, "_r_reset_step", 0)
+                ),
+                "newton_muon/r_reset_fired": int(
+                    bool(getattr(optimizer2, "_r_reset_fired", False))
+                ),
             }
             cond_n = tel.get("cond_n", 0)
             if cond_n > 0:
