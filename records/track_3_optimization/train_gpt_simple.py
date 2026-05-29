@@ -84,6 +84,15 @@ def parse_args():
     parser.add_argument('--aux_b2_pulse_target', type=float, default=0.99,
                         help='New aux Adam β2 value to set at --aux_b2_pulse_step. '
                              '0 or negative disables. Default: 0.99 (canonical WIN).')
+    parser.add_argument('--aux_b2_pulse_ramp_width', type=int, default=0,
+                        help='Width (in steps) of linear β2 ramp centered at --aux_b2_pulse_step. '
+                             '0 (default, canonical) = discrete jump. '
+                             'Positive = linear ramp from --aux_b2_pulse_start to '
+                             '--aux_b2_pulse_target over '
+                             '[pulse_step - ramp_width//2, pulse_step + ramp_width//2].')
+    parser.add_argument('--aux_b2_pulse_start', type=float, default=0.95,
+                        help='Starting β2 value before the ramp begins. Default 0.95 (pre-pulse canonical). '
+                             'Only used when --aux_b2_pulse_ramp_width > 0.')
     parser.add_argument("--seed", type=int, default=1,
                         help="Random seed for torch/numpy/python. Default 1 matches baseline seed.")
     args = parser.parse_args()
@@ -758,6 +767,8 @@ if dist.get_rank() == 0:
             "paramema_refresh_only": int(args.paramema_refresh_only),
             "aux_b2_pulse_step": args.aux_b2_pulse_step,
             "aux_b2_pulse_target": args.aux_b2_pulse_target,
+            "aux_b2_pulse_ramp_width": args.aux_b2_pulse_ramp_width,
+            "aux_b2_pulse_start": args.aux_b2_pulse_start,
             "seed": args.seed,
         },
     )
@@ -1055,15 +1066,43 @@ for trial_idx in range(args.num_trials):
                 train_steps=train_steps,
                 wandb_step=wandb_step,
             )
-        if (args.aux_b2_pulse_step > 0
-                and args.aux_b2_pulse_target > 0.0
-                and step == args.aux_b2_pulse_step):
+        # ramp_width=0 → canonical discrete jump at pulse_step.
+        # ramp_width>0 → linear ramp from start to target over
+        #   [pulse_step - ramp//2, pulse_step + ramp//2].
+        if args.aux_b2_pulse_step > 0 and args.aux_b2_pulse_target > 0.0:
+            pulse_step = args.aux_b2_pulse_step
+            ramp = args.aux_b2_pulse_ramp_width
+            b2_start = args.aux_b2_pulse_start
+            b2_target = args.aux_b2_pulse_target
+            if ramp == 0:
+                beta2_effective = b2_target if step >= pulse_step else b2_start
+            else:
+                ramp_start_step = pulse_step - ramp // 2
+                ramp_end_step = pulse_step + ramp // 2
+                if step < ramp_start_step:
+                    beta2_effective = b2_start
+                elif step >= ramp_end_step:
+                    beta2_effective = b2_target
+                else:
+                    frac = (step - ramp_start_step) / ramp
+                    beta2_effective = b2_start + frac * (b2_target - b2_start)
             old_b2 = optimizer1.param_groups[0]["betas"][1]
-            new_betas = (optimizer1.param_groups[0]["betas"][0], args.aux_b2_pulse_target)
-            for group in optimizer1.param_groups:
-                group["betas"] = new_betas
-            print0(f"[step {step}] aux_b2_pulse: β2 {old_b2} → {args.aux_b2_pulse_target}",
-                   console=True)
+            if abs(old_b2 - beta2_effective) > 1e-12:
+                new_betas = (optimizer1.param_groups[0]["betas"][0], beta2_effective)
+                for group in optimizer1.param_groups:
+                    group["betas"] = new_betas
+            announce = (
+                (ramp == 0 and step == pulse_step)
+                or (ramp > 0 and step in (ramp_start_step, pulse_step, ramp_end_step))
+            )
+            if announce:
+                print0(f"[step {step}] aux_b2_pulse (ramp_width={ramp}): "
+                       f"β2 prev={old_b2:.6f} → effective={beta2_effective:.6f}",
+                       console=True)
+        else:
+            beta2_effective = optimizer1.param_groups[0]["betas"][1]
+        if dist.get_rank() == 0:
+            wandb.log({"aux_b2/beta2_effective": float(beta2_effective)}, step=wandb_step)
         for opt in optimizers:
             opt.step()
         # EMA buffer update on body-Muon matrix params.
@@ -1179,6 +1218,8 @@ for trial_idx in range(args.num_trials):
                 "aux_b2/current": optimizer1.param_groups[0]["betas"][1],
                 "aux_b2/pulse_step": args.aux_b2_pulse_step,
                 "aux_b2/pulse_target": args.aux_b2_pulse_target,
+                "aux_b2/pulse_ramp_width": args.aux_b2_pulse_ramp_width,
+                "aux_b2/pulse_start": args.aux_b2_pulse_start,
                 "aux_b2/fired": int(args.aux_b2_pulse_step > 0
                                     and args.aux_b2_pulse_target > 0.0
                                     and step >= args.aux_b2_pulse_step),
