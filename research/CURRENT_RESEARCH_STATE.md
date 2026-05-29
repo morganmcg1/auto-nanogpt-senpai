@@ -1,3 +1,63 @@
+## 2026-05-29 10:55 UTC — Cycle 71 mid-384 — edward #1665 288th refute (TRUST_THRESHOLD_WARMUP val_mean=3.27737 DEGRADED ≥3.275, fails stat rule by 0.00028, both arms +0.00961 worse than baseline + 125 ffs, Arm A `warmup_0p50` val=3.27742 ffs=3125, Arm B `warmup_0p20` val=3.27732 ffs=3125, Δ(B−A)=−0.00010 NULL → trust-threshold warmup axis fully refuted, **MAJOR STRUCTURAL FINDING**: trust gate is WIDE OPEN at baseline 0.85 during early phase — per-kind on_fraction = 1.000 for ALL q/k/v/proj at steps 100, 200, 300 in BOTH arms; lowering early threshold to 0.20/0.50 changes nothing because the gate wasn't blocking refreshes; v-axis on_fraction collapses to 0.000 around step 500 regardless of warmup-start, **STRUCTURAL TRIANGULATION ON V-AXIS LEVER**: combined with #1663 [β2 NOT lever] and #1583 [4-tier eigenbasis stability q≈k>proj>v], v-axis early-gate suppression is NOT trust-threshold-driven AND NOT β2-driven; the v-axis cos_row physically drops below 0.85 around step 500 from upstream dynamics — remaining candidates LR-magnitude, NS5 quality, or gradient distribution dynamics, **124th family closure**: trust-threshold-warmup axis fully mapped at "gate-saturated-early" outcome) + edward #1692 NEW PER_KIND_ATTN_SOAP_MUON_LR (V_AXIS_ISOLATION) (FRESH PER-GROUP STATE-MECHANISM AXIS testing v-axis Muon LR magnitude lever — Arm A `v_lr_lower` MUON_LR_V_MULT=0.67 → effective V LR=0.025, Arm B `v_lr_higher` MUON_LR_V_MULT=1.33 → effective V LR=0.05, both with Q/K/PROJ at baseline 0.0375; tests whether v-axis basis instability is driven by LR-magnitude mismatch; if A < baseline v needs slower updates basis stabilization; if B < baseline v needs faster updates basis convergence; both ≈ baseline per-kind Muon LR axis null → pivot to NS5 quality or upstream gradient dynamics; orthogonal to thorfinn #1685 per-kind trust threshold, askeladd #1684 depth-half threshold, all in-flight v-axis investigations; fits Morgan's directive per-group + state-mechanism)
+
+**Cumulative**: **288 refuted** / **173 distinct mech classes** / **124 family-level closures**.
+
+### PRs closed this wave (1 closure):
+
+| PR | student | mechanism | outcome |
+|---|---|---|---|
+| **edward #1665** | edward | TRUST_THRESHOLD_WARMUP (Arm A `warmup_0p50` 0.50→0.85 over 500 steps, Arm B `warmup_0p20` 0.20→0.85 over 500 steps) | **288th** — Arm A val=3.27742, Arm B val=3.27732, val_mean=3.27737 DEGRADED, fails stat rule, +0.00961 worse + 125 ffs. Δ(B−A)=−0.00010 NULL. **MAJOR STRUCTURAL FINDING**: trust gate WIDE OPEN at baseline 0.85 early — on_fraction=1.000 for all q/k/v/proj at steps 100, 200, 300 → trust-threshold is NOT the v-axis lever. **124th family closure**. |
+
+### MAJOR STRUCTURAL FINDING — trust-threshold is NOT the v-axis lever
+
+Per-kind on_fraction shows the gate is wide-open during early-phase at BASELINE 0.85, not just at lowered thresholds:
+
+| step | A: q/k/v/proj/agg | B: q/k/v/proj/agg |
+|---|---|---|
+| 100 | 1.000/1.000/1.000/1.000/**1.000** | 1.000/1.000/1.000/1.000/**1.000** |
+| 200 | 1.000/1.000/1.000/1.000/**1.000** | 1.000/1.000/1.000/1.000/**1.000** |
+| 300 | 1.000/1.000/1.000/1.000/**1.000** | 1.000/1.000/1.000/1.000/**1.000** |
+| 500 (warmup ends) | 0.833/1.000/**0.000**/0.417/0.562 | 0.833/1.000/**0.000**/0.500/0.583 |
+| 1000 | 1.000/1.000/**0.000**/0.667/0.667 | 1.000/1.000/**0.000**/0.333/0.583 |
+
+v-axis on_fraction collapses to 0.000 only AFTER warmup ends at baseline 0.85 (step 500+) — driven by the v-axis basis cos_row physically dropping below 0.85, NOT by threshold manipulation. Per-kind `mean_cos_row` at step 1000 = {q 0.904, k 0.895, **v 0.776**, proj 0.839} (identical between arms) confirms v-axis basis at 0.776 well below threshold.
+
+### STRUCTURAL TRIANGULATION ON V-AXIS LEVER — 3 mechanism axes ruled out
+
+| PR | mechanism axis | result | v-axis lever? |
+|---|---|---|---|
+| thorfinn #1663 | early β2 ∈ {0.85, 0.90} phase-dispatch | early on_fraction NULL across β2 | **β2 NOT lever** |
+| **edward #1665 (this)** | early-phase trust-threshold warmup | gate wide-open at 0.85 baseline early | **trust-threshold NOT lever** |
+| #1575 fern | per-kind β2 uniform-phase | vp-fast direction (v/proj benefit from faster β2) | β2 magnitude HELPS partial |
+| #1583 edward | per-kind refresh-freq | 4-tier eigenbasis stability ordering q≈k>proj>v | v has inherent lower stability |
+| #1618 edward | v_FAST_ONLY refresh-freq=5 | val=3.26969 STANDARD-edge | refresh-freq partial lever |
+| **edward #1692 (next)** | **per-kind Muon LR** | **OPEN** | **fresh angle** |
+
+Remaining candidate mechanism axes for v-axis early-gate suppression: **(a) Muon LR magnitude (this PR)**, **(b) NS5 orthogonalization quality**, **(c) upstream gradient distribution dynamics**.
+
+### PRs assigned this wave
+
+| PR | student | mechanism | role |
+|---|---|---|---|
+| **edward #1692** | edward | PER_KIND_ATTN_SOAP_MUON_LR (V_AXIS_ISOLATION) (Arm A `v_lr_lower` MUON_LR_V_MULT=0.67 → V LR=0.025, Arm B `v_lr_higher` V_MULT=1.33 → V LR=0.05, Q/K/PROJ at baseline 0.0375) | **FRESH PER-GROUP STATE-MECHANISM** — tests v-axis Muon LR magnitude lever after trust-threshold (#1665) + β2 (#1663) ruled out; per-kind on_fraction telemetry at 8 checkpoints + per-kind mean_cos_row at 4 checkpoints |
+
+### Fleet state at end of wake 75 (this wave)
+
+8 students all assigned, 0 idle:
+
+| PR | student | axis | status |
+|---|---|---|---|
+| **#1692** | **edward** | **PER_KIND_ATTN_SOAP_MUON_LR (V_AXIS_ISOLATION)** | **WIP (this wave, just assigned)** |
+| #1687 | alphonse | JOINT_MLP_SOAP_REFRESH_BACK_FAST_X_PHASE_DISPATCH_ATTN_SOAP_BETA2 (cross-SCOPE compound) | WIP (prior wave) |
+| #1685 | thorfinn | PER_KIND_ATTN_SOAP_TRUST_THRESHOLD (V_AXIS_ISOLATION) | WIP (prior wave) |
+| #1684 | askeladd | PER_DEPTH_HALF_ATTN_SOAP_TRUST_THRESHOLD | WIP (prior wave) |
+| #1683 | fern | PER_KIND_WD_AUX_DECOMPOSITION | WIP (prior wave) |
+| #1678 | tanjiro | PER_KIND_AUX_BETA1_DIRECTION | WIP (prior wave) |
+| #1671 | frieren | MLP_SOAP_TRUST_GATE_PHASE_DISPATCH | WIP (pod recovered, student re-launching) |
+| #1668 | nezuko | PHASE_DISPATCH_MLP_SOAP_PROJ_BETA2 | WIP (prior wave) |
+
+---
+
 ## 2026-05-29 10:30 UTC — Cycle 71 mid-383 — alphonse #1662 287th refute (JOINT_MLP_SOAP_REFRESH_BACK_FAST_X_MU_COOLDOWN_END_DEPTH_HALF val_mean=3.27228 STANDARD misses merge bar by Δ=+0.00452 val and +50 ffs, Arm A `compound` val=3.27231 ffs=3050 STANDARD, Arm B `end_only` val=3.27225 ffs=3050 STANDARD, Δ(B−A)=−0.00006 DEEP NULL → cross-class compound is SATURATED within per-depth-half scope at STANDARD level NOT at sub-cluster-edge, both arms regressed substantially from their parent single-arm references, **MAJOR CALIBRATION FINDING**: #1568 Arm A 3.26992 sub-cluster-edge claim FAILS n=2 confirmation at Δ=+0.00233 (Arm B 3.27225) — this is the SECOND single-arm sub-cluster-edge entry to fail n=2 replication after #1635 Arm A in #1657 → both single-arm depth-half cooldown family sub-cluster-edge entries have failed n=2 → systematic n=1 noise-favoring bias at +0.002 magnitude → robust signal-level threshold raised from +0.002 to +0.003 above-replication-noise, **MAJOR STRUCTURAL FINDING**: cross-mechanism-class compound within shared per-depth-half scope SATURATES because both mechanisms occupy the same per-depth-half latent regularization channel → cross-class compound discovery requires cross-SCOPE pairing NOT cross-mechanism-class within same per-depth-half scope, **NEW Δ-trajectory mechanism class**: EARLY-DISADVANTAGE-MONOTONIC-DECAY pattern peak |Δ|=0.00573 at step 500 monotonically decays to 0.00006 at terminal — distinct from #1635 sign-flip-at-2000 and #1623 END-STATE-only patterns, train-loss slope identity confirms val gap checkpoint-resolution-only) + alphonse #1687 NEW JOINT_MLP_SOAP_REFRESH_BACK_FAST_X_PHASE_DISPATCH_ATTN_SOAP_BETA2 (FIRST CROSS-SCOPE COMPOUND TEST directly executing your #1662 structural pivot — Arm A `cross_scope_compound` combines #1623+#1656 back_FAST F=15/B=5/split=6 [per-depth-half scope, depth-axis] with #1663 Arm A phase-dispatch early=0.90/late=0.95/boundary=1500 [phase-dispatch scope, time-axis], both validated REPLICATED at n=2; Arm B `back_FAST_alone` serves as n=3 confirmation of cycle 71 strongest single-arm; if A < B → cross-SCOPE additivity unlocked → potential MERGE candidate at n=1; if A ≈ B → saturation upgrades to MECHANISM-CLASS-UNIVERSAL → strategic pivot to architectural/data/init mechanisms; if A > B → cross-scope hidden dependency identified → major structural finding; fits Morgan's directive state-mechanism × per-group; orthogonal to existing in-flight depth-half [#1684], phase-dispatch [#1685], cooldown [#1665] and per-kind [#1683, #1678] mechanism tests)
 
 **Cumulative**: **287 refuted** / **173 distinct mech classes** / **123 family-level closures**.
