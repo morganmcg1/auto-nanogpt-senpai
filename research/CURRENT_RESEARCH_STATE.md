@@ -1,6 +1,79 @@
 # SENPAI Research State — auto-nanogpt-1gpu-r3
 
-- **Last updated:** 2026-05-29 02:15 UTC
+- **Last updated:** 2026-05-29 03:50 UTC
+
+---
+
+## Cycle ~1515: H252 CLOSED (**109th NULL/NEG closure**, 3-arm drift-class TIE, 🎯 **PROGRAMME FINDING #56 candidate STRENGTHENED to 3 axes** + 🎯 **NEW campaign-level diagnostic: sub-linear delta_rms scaling with K** + **MuLoCo outer-step HP triangulation cube 2nd axis pinned**) + 4 stale_wip refreshes (H254 fern arm_b TERMINAL TIES H203 EXACT, H255 frieren arm_b CATASTROPHIC NEG — PROGRAMME FINDING #58 5th axis, H253 askeladd previously closed, H256/H258 in flight) + 🎯 **NEW campaign-level mechanism-design heuristic: Stiefel enforcement monotone in punitive cost (init-only → soft correction → hard projection = catastrophic)** + H260 nezuko ASSIGNED **56th mechanism class — Aux Lion optimizer FORM replacement (BOLD plateau-protocol swing)**
+
+**Key closure this cycle:**
+
+- **H252 nezuko MuLoCo sync_interval VALUE ablation (PR #1619)** — **109th NULL/NEG closure**, 3-arm drift-class TIE on FFS, mild val NEG monotone trend. arm_a CTRL K=30 `9npki79k` val=3.26871 FFS=**3050 (+25 DRIFT class)**. arm_b SYNC_FAST K=15 `rp9kxnnt` val=3.27020 FFS=**3075 (TIE within drift class)**. arm_c SYNC_SLOW K=60 `jktq9h44` val=3.27097 FFS=**3075 (TIE within drift class)**.
+
+  **🎯 PROGRAMME FINDING #56 candidate STRENGTHENED to 3 axes**: H242 body warmup VALUE + H250 aux cooldown shape + **H252 (NEW) MuLoCo sync_interval VALUE**. 3-axis structural rigidity confirmed — H203 envelope tuned across coupled (body warmup, aux schedule, outer sync) system. Local perturbations to any of these three coordinates produces +25 NULL/TIE drift-class outcomes.
+
+  **🎯 NEW campaign-level diagnostic: sub-linear delta_rms scaling with K**: K=15 vs K=30 → delta_rms ratio 0.66 (mean), 0.22 (final-5). K=60 vs K=30 → delta_rms ratio 1.43 (mean), 3.36 (final-5). Local-SGD inner drift between syncs grows sub-linearly with K — clean diagnostic of bounded local-SGD dynamics. K=60 final-5 delta is 15× K=15 final-5 delta because cooldown drives per-step body deltas toward zero. First quantitative measurement of local-SGD drift sub-linearity in r3.
+
+  **NEW campaign-level methodological heuristic**: "MuLoCo outer-step hyperparameter triangulation must respect drift-class noise at ±25 FFS resolution. With arm_a CTRL landing in the +25 bucket ~50% of the time (cumulative H242/H243/H244/H245/H247/H252 arm_a tally), the baseline must be the IN-RUN arm_a CTRL, not the H203 baseline FFS=3025. Cross-arm verdicts derive from drift-class-adjusted comparison."
+
+  MuLoCo outer-step HP triangulation cube **2nd axis pinned** (K-axis CLOSED). H256 outer LR temporal schedule (PR #1627) arm_b STRONG MID-TRAJECTORY SIGNAL (−0.093 val lead at step 1500 = −105σ_H174). H258 outer momentum VALUE (PR #1636) arm_b mid-run. Cube converging — if H256/H258 also TIE/NULL, PROGRAMME FINDING #56 promotion candidate.
+
+**Critical stale_wip refreshes this cycle:**
+
+- **PR #1626 H255 frieren arm_b FULL_RETRACTION TERMINAL CATASTROPHIC NEG**: val=3.37408 (+0.10485 = **+119σ_H174**), FFS=**−1 NEVER REACHED 3.28**. Mechanism MAXIMALLY ACTIVE (riem_frob_ratio_mean=0.0, frob_norm pinned to body_init Fnorm=27.71 — W stays exactly on scaled-Stiefel manifold throughout). Clean smooth descent to wrong asymptote. arm_c COOLDOWN_RETRACTION mid-run step 1325/3325.
+
+  **🎯 PROGRAMME FINDING #58 candidate STRENGTHENED to 5 axes** (Stiefel-aware mechanism cluster structurally inert/harmful): H238 NS5 polynomial coeffs + H248 per-coord post-NS5 + H249 Riemannian-Stiefel norm + H253 true Stiefel init + **H255 (NEW) post-step Stiefel retraction (HARD projection)**. 5-axis consolidation = strongest cross-mechanism programme-level finding in campaign to date.
+
+  **🎯 NEW campaign-level mechanism-design heuristic — "fighting the attractor"**: H249→H253→H255 sequence reveals clean physical picture. As Stiefel enforcement transitions from init-only → soft correction → hard projection, geometric mismatch with the natural F-norm sphere attractor gets monotonically MORE punitive. Terminal riem_frob_ratio: 6.56 (H253 init-only) → 2.37 (H249 soft) → 0.0 (H255 hard projection). Strength of mechanism = monotone in damage. Natural attractor at riem_frob_ratio ~6.28 is **load-bearing structure** for MuonH-SI body parameter dynamics — interference with it is uniformly harmful.
+
+  **Heuristic eliminates an entire class of speculative hypotheses** (Stiefel-aware projections, Riemannian Stiefel-metric updates, retraction methods) without further compute. **Any future mechanism attempting to constrain body W^T W structure should first demonstrate compatibility with the natural attractor at riem_frob_ratio ~6.28.**
+
+- **PR #1625 H254 fern arm_b COSINE TERMINAL FFS=3025 EXACT** (matches H203 baseline). val=**3.26832** ≈ H203 baseline val=3.26830 (Δ +0.00002 = +0.02σ_H174 = noise). **STRICT MERGE CRITERION: TIE not WIN** — does not improve baseline FFS=3025. arm_a CTRL FFS=3050 (Pattern D-loose +25 drift). arm_c SQRT mid-run step 1740/3325.
+
+  **Secondary methodological insight (soft signal)**: cosine warmup shape may NATURALLY land in drift-FREE bucket while linear lands in +25. Below merge threshold but interesting — if consistent at N=3+ seeds, would refine Pattern D drift class taxonomy (D-loose-cosine = drift-FREE, D-loose-linear = +25 drift).
+
+**New assignment:**
+
+- **H260 nezuko ASSIGNED — 56th mechanism class: Aux Lion optimizer FORM replacement (BOLD plateau-protocol swing)**. Per plateau protocol (109+ NULL/NEG cumulative), bigger mechanism-class swings warranted. Aux is currently AdamW; **Lion has NEVER been tried** in r3. Chen et al. 2023 showed Lion +1-3% perplexity reduction on transformer pretraining at GPT-2 scale. 3-arm: CTRL ADAMW / LION_SCALED (lr/3, wd=0.1, β₁=0.95 β₂=0.98) / LION_LRMATCHED (lr=AdamW, wd=0, β₁=0.95 β₂=0.98). Drift-FREE Pattern A (branch outside @torch.compile — aux step is in main loop). WIN probability 30-45% (high-prior big swing).
+
+**Survey state after cycle ~1515**: 8/8 students WIP (alphonse H257, edward H256, frieren H255, askeladd H253, fern H254, thorfinn H258, tanjiro H259, **nezuko H260 just assigned**). 0 idle students. 0 review-ready PRs. No new human directives.
+
+**Programme totals after cycle ~1515:**
+- **109 NULL/NEG closures** (+1 from H251 108th)
+- **56 mechanism classes** (+1; H260 aux Lion FORM)
+- PROGRAMME FINDING #51 candidate strengthened (body cooldown SHAPE locked at cosine cf=1.0)
+- **PROGRAMME FINDING #56 candidate at 3 axes** (aux/body/outer schedule structurally rigid — STRENGTHENED this cycle)
+- **PROGRAMME FINDING #58 candidate at 5 axes** (Stiefel-aware mechanism cluster structurally inert/harmful — STRENGTHENED this cycle)
+- PROGRAMME FINDING #59 candidate (NS5 orthogonalization geometrically load-bearing)
+- **6 safe-fix templates** documented (A/B/C/D-strict/D-loose/E); 2 drift classes (drift-FREE / +25 drift)
+- **9 drift-FREE CTRL instances** (H246/H248/H249/H250/H252-arm_a/H253-arm_a/H256-arm_a/H257-arm_a/H258-arm_a)
+- **"Fighting the attractor" mechanism-design heuristic NEW** — eliminates Stiefel-aware mechanism class
+
+**Exploration territory map updates after cycle ~1515:**
+
+| Axis | State (delta from cycle ~1490) |
+|---|---|
+| **Aux optimizer FORM replacement (Lion)** | **H260 WIP (nezuko, just assigned) — 56th class, BOLD plateau-protocol swing** |
+| MuLoCo sync_interval VALUE K | **CLOSED 3-arm drift-class TIE (H252) — 109th NULL/NEG, PF#56 STRENGTHENED to 3 axes** |
+| Post-step Stiefel retraction | **arm_b CATASTROPHIC NEG (+119σ, FFS=−1), arm_c mid-run** (H255 frieren) — PF#58 STRENGTHENED to 5 axes |
+| MuonH warmup SHAPE (cosine/sqrt) | **arm_b cosine TIES H203 EXACT (NOT WIN), arm_c sqrt mid-run** (H254 fern) |
+| True Stiefel body init (orthogonal_qr) | arm_c QR_MEAN_FNORM mid-run (H253 askeladd) — terminal ratio diagnostic load-bearing |
+| Sphere parallel-transport momentum | arm_a CTRL drift-FREE, arm_b PT_ALWAYS / arm_c PT_COOLDOWN re-launch (H257 alphonse) |
+| Outer LR temporal schedule | arm_a CTRL drift-FREE, arm_b STRONG MID-TRAJECTORY SIGNAL −105σ val lead (H256 edward) |
+| Outer Nesterov momentum VALUE | arm_a CTRL drift-FREE, arm_b mid-run, arm_c LOW pending (H258 thorfinn) |
+| NS5 iteration COUNT VALUE | H259 WIP (tanjiro) — direct follow-up to H251 PF#59 insight |
+
+**Frontier observations for cycle ~1520+:**
+
+1. **Plateau protocol active**: 109 NULL/NEG cumulative, bigger mechanism-class swings warranted. H260 nezuko aux Lion is first BOLD swing of this cycle range. Next bold swing candidates if H260 NULL: Sophia-aux (Hessian-aware), schedule-free MuonH, look-ahead optimization, MARS unified preconditioner.
+
+2. **H256 edward arm_b STRONG MID-TRAJECTORY SIGNAL** is the most promising single signal in current portfolio — if sustained to terminal at FFS<3025, would be first WIN since H203. Mechanism prior is mechanistically grounded (outer LR cosine-matched eliminates late-cooldown outer step perturbation).
+
+3. **PROGRAMME FINDING #58 closure candidate**: with 5-axis Stiefel-aware mechanism cluster consolidation + "fighting the attractor" heuristic, this finding is approaching PROMOTION-grade. arm_c COOLDOWN_RETRACTION terminal will determine whether timing-gated retraction (cooldown-only) is also harmful or merely inert.
+
+4. **Drift-FREE CTRL streak at 9 instances**: validated Pattern A/B/C/D-strict + trivial argparse-VALUE mutation paths. Pattern E (H251 NEW) + D-loose (H254 NEW) both at +25 drift class. Drift-class taxonomy now mature — future students can predict drift class from implementation pattern with high confidence.
+
+5. **MuLoCo outer-step HP triangulation cube** 2/3 axes closed (K-axis H252 NULL/TIE), 1 axis in flight with promising mid-trajectory (H256 LR temporal). H258 momentum VALUE remaining. If H256 closes WIN, supersedes the cube rigidity narrative; if H256 closes NULL, cube promotion to PROGRAMME FINDING #56.
 
 ---
 

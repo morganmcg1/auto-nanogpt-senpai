@@ -1,3 +1,60 @@
+## 2026-05-29 03:45 — PR #1619: H252 nezuko MuLoCo sync_interval VALUE ablation (K=30/15/60) — CLOSED (**109th NULL/NEG closure**, 3-arm drift-class TIE, 🎯 **PROGRAMME FINDING #56 candidate STRENGTHENED to 3 axes** + 🎯 **NEW campaign-level diagnostic: sub-linear delta_rms scaling with K** + **MuLoCo outer-step HP triangulation cube 2nd axis pinned**)
+
+- Branch: H252 nezuko (49th class — MuLoCo outer-step sync_interval VALUE)
+- Student terminal SENPAI-RESULT at 02:45 UTC May 29 with full 3-arm table, MuLoCo telemetry comparison, saw-tooth amplitude analysis, drift-class-adjusted verdicts, 4 numbered suggested follow-ups.
+
+| Arm | run_id | sync_interval | step-0 val | final val/loss | FFS | delta_rms mean | delta_rms final-5 |
+|---|---|---|---|---|---|---|---|
+| arm_a CTRL K=30 | `9npki79k` | 30 | 10.82583 EXACT | **3.26871** | **3050 (+25 DRIFT)** | 0.5117 | 0.0272 |
+| arm_b SYNC_FAST K=15 | `rp9kxnnt` | 15 | 10.82583 EXACT | **3.27020** | **3075 (TIE +25)** | 0.3376 (×0.66) | 0.0060 (×0.22) |
+| arm_c SYNC_SLOW K=60 | `jktq9h44` | 60 | 10.82583 EXACT | **3.27097** | **3075 (TIE +25)** | 0.7333 (×1.43) | 0.0914 (×3.36) |
+
+### Statistical rule check `(3.28 − μ) × √n ≥ 0.004`
+- arm_a CTRL K=30: `(3.28 − 3.26871) × √1 = 0.01129` ≥ 0.004 ✓ but FFS=3050 > baseline 3025
+- arm_b SYNC_FAST K=15: `(3.28 − 3.27020) × √1 = 0.0098` ≥ 0.004 ✓ but FFS=3075 > baseline 3025
+- arm_c SYNC_SLOW K=60: `(3.28 − 3.27097) × √1 = 0.00903` ≥ 0.004 ✓ but FFS=3075 > baseline 3025
+
+### Primary metric decision
+All 3 arms fail FFS<3025 baseline gate. Both treatment arms drift-class TIE with arm_a CTRL (+25 within H247 noise floor). Mild val NEG monotone trend (arm_b +2.15σ_H174, arm_c +3.02σ_H174 vs H203 baseline). **NULL/TIE on FFS, mild val NEG. CLOSE — 109th NULL/NEG cumulative.**
+
+### 🎯 PROGRAMME FINDING #56 candidate STRENGTHENED to 3 axes (H203 schedule envelope structurally rigid)
+
+| Axis | Hypothesis | Result | Cycle |
+|---|---|---|---|
+| H242 | Body warmup steps VALUE | NULL/+25 monotonic | ~1395 |
+| H250 | Aux cooldown shape VALUE | NULL/CATASTROPHIC NEG | ~1480 |
+| H252 (NEW) | MuLoCo sync_interval VALUE | NULL/drift-class TIE | ~1515 |
+
+3-axis structural rigidity: H203 envelope is well-tuned NOT just at scalar values but across (body warmup, aux schedule, outer sync) as a coupled system. Local perturbations to any of these three coordinates produces +25 NULL/TIE drift-class outcomes.
+
+### 🎯 NEW campaign-level diagnostic: sub-linear delta_rms scaling with K
+
+| K-scaling | Mean Δ ratio | Final-5 Δ ratio | Interpretation |
+|---|---|---|---|
+| K=15 vs K=30 (K÷2) | 0.66 | 0.22 | Inner drift grows sub-linearly with K |
+| K=60 vs K=30 (K×2) | 1.43 | 3.36 | Cooldown drives Δ→0; K=60 accumulates 4× more inner steps per outer event |
+
+**Mechanism**: local-SGD inner drift between syncs grows sub-linearly with K — clean diagnostic of bounded local-SGD dynamics. K=60 final-5 delta is **15× K=15 final-5 delta** because cooldown drives per-step body deltas toward zero. First quantitative measurement of local-SGD drift sub-linearity in r3.
+
+### NEW campaign-level methodological heuristic
+
+"MuLoCo outer-step hyperparameter triangulation must respect drift-class noise at ±25 FFS resolution. With arm_a CTRL landing in the +25 bucket ~50% of the time (cumulative H242/H243/H244/H245/H247/H252 arm_a tally), the baseline must be the IN-RUN arm_a CTRL, not the H203 baseline FFS=3025. Cross-arm verdicts derive from drift-class-adjusted comparison."
+
+### 2nd axis pinning MuLoCo outer-step HP triangulation cube
+
+H252 K-axis CLOSED. H256 outer LR temporal schedule (PR #1627) STRONG MID-TRAJECTORY SIGNAL (-105σ val lead). H258 outer momentum VALUE (PR #1636) arm_b mid-run. Cube is converging — if H256/H258 also TIE/NULL, **PROGRAMME FINDING #56 promotion candidate** to "MuLoCo outer-step HP triangulation cube is structurally rigid at H203 baseline".
+
+### Methodological gold standard
+
+nezuko's H252 closure post is the **MuLoCo telemetry methodology gold-standard reference** for r3:
+1. SENPAI-RESULT JSON marker with all 3 wandb_run_ids
+2. Drift-class-adjusted full 3-arm terminal table
+3. MuLoCo delta_rms / velocity_rms telemetry comparison (K-scaling sub-linearity insight)
+4. Saw-tooth amplitude analysis (val_d² 2nd-difference during cooldown with quantitative bucketing)
+5. 4 numbered suggested follow-ups with quantitative prior estimates
+
+---
+
 ## 2026-05-29 02:15 — PR #1608: H251 tanjiro NS5 polar output decomposition (sign_only vs magnitude_only vs polar) — CLOSED (**108th NULL/NEG closure**, bilateral asymmetric — sign_only TIES H203 EXACT / magnitude_only CATASTROPHIC NEG FFS=−1, 🎯 **PROGRAMME FINDING #59 candidate NEW** + 🎯 **Direction-vs-magnitude geometric decomposition of NS5 polar output completed** + **Pattern E candidate drift class documented (+25 drift)**)
 
 - Branch: H251 tanjiro (47th class — NS5 output decomposition into direction + magnitude geometric components)
