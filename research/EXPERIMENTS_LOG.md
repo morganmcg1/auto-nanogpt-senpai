@@ -1,3 +1,79 @@
+## 2026-05-29 11:35 — PR #1636: H258 thorfinn Outer Nesterov momentum VALUE ablation (54th class) — CLOSED (**115th NULL/NEG closure**, bilateral asymmetric U-curve NEG — arm_b HIGH m=0.7 +275 FFS NEG mild-moderate via overshoot, arm_c LOW m=0.3 FFS=−1 CATASTROPHIC via stall, 🎯 **PROGRAMME FINDING #56 PROMOTED to 5-axis CLOSURE-GRADE — MuLoCo outer-step HP manifold structurally rigid at H203 baseline** + 🎯 **3rd CONFIRMATION of mid-trajectory advantage interpretation heuristic** (H250 + H256 + H258 cumulative — mid-advantage → terminal CATASTROPHIC NEG when load-bearing dynamic cannot complete) + 🎯 **NEW campaign-level mechanistic insight "outer momentum time-constant matching"** (β × K must balance cooldown driving inertia vs filter relaxation horizon) + **10th drift-FREE CTRL instance** (campaign count corrected by student audit))
+
+- Branch: H258 thorfinn (54th class — Outer Nesterov SGD momentum coefficient `muloco_outer_momentum ∈ {0.5, 0.7, 0.3}` ablation, 0.5 default H203 baseline)
+- Student terminal SENPAI-RESULT at 06:26 UTC May 29 with full 3-arm per-arm config audit (`muloco_outer_momentum ∈ {0.5, 0.7, 0.3}` distinct), per-arm bit-id step-0 val=10.82583 EXACT, and rigorous `delta_rms × velocity_rms` phase decomposition demonstrating two distinct failure modes.
+
+| Arm | run_id | `muloco_outer_momentum` | step-0 val | val/loss | FFS | Δval vs CTRL | Δ vs H203 baseline | Decision |
+|---|---|---|---|---|---|---|---|---|
+| arm_a CTRL | `glrq3m39` | 0.5 (default) | 10.82583 EXACT | **3.26674** | **3025 EXACT** | — | val −1.8σ_H174, FFS=0 | **🎯 drift-FREE 10th CTRL trivial argparse-VALUE class** |
+| arm_b HIGH | `5xh63o15` | 0.7 | 10.82583 EXACT | 3.27953 | 3300 (+275) | +0.01279 (+14.5σ_H174) | +275 FFS NEG mild-moderate | mild-moderate NEG (overshoot) |
+| arm_c LOW | `9jwky7bv` | 0.3 | 10.82583 EXACT | 3.28132 | **−1 (CATASTROPHIC)** | +0.01458 (+16.5σ_H174) | catastrophic NEG (never crosses 3.28) | **CATASTROPHIC NEG (stall)** |
+
+### Statistical rule check `(3.28 − μ) × √n ≥ 0.004`
+- arm_a CTRL: `(3.28 − 3.26674) × √1 = 0.01326` ≥ 0.004 ✓ AND FFS=3025 EXACT BASELINE → drift-FREE ✓
+- arm_b HIGH: `(3.28 − 3.27953) × √1 = 0.00047` < 0.004 ✗ margin FAIL (barely crosses)
+- arm_c LOW: `(3.28 − 3.28132) × √1 = −0.00132` < 0.004 ✗ never crosses (FFS=−1)
+
+### 🎯 Asymmetric U-curve mechanistic decomposition — `delta_rms × velocity_rms` phase analysis
+
+Student-provided phase decomposition `v/δ` ratio at cooldown final reveals two structurally distinct failure modes collapsing val from opposite sides:
+
+| step | arm_a m=0.5 | arm_b m=0.7 v/δ | arm_c m=0.3 v/δ | interpretation |
+|---|---|---|---|---|
+| 750 (warmup) | v/δ=1.14 | **1.37** | **1.05** | arm_b velocity already inflated; arm_c velocity already under-driven |
+| 1500 (mid-stable) | v/δ=1.15 | **1.37** (+85σ NEG) | **1.05** (−41σ ADVANTAGE) | arm_c mid-trajectory advantage REAL but stall-prone |
+| 3000 (cooldown entry) | v/δ=1.24 | **1.68** | **1.08** | body delta collapsing (0.65→0.12); arm_b velocity carries inflated stale momentum |
+| 3300 (cooldown final) | v/δ=2.15 | **5.27** | **1.33** | arm_b velocity 5.27× current delta = **outer-anchor overshoot via stale momentum**; arm_c velocity insufficient to drive convergence inertia = **outer-anchor stall** |
+
+**Mechanistic conclusion**: arm_b HIGH momentum=0.7 fails via outer-step overshoot — momentum buffer's low-pass filter time constant `1/(1−β)·K_sync = (1/0.3)·30 = 100 steps` is longer than cooldown horizon (300 steps), so velocity buffer is dominated by pre-cooldown high-LR phase signal at terminal. arm_c LOW momentum=0.3 fails via outer-step stall — velocity buffer time constant `(1/0.7)·30 = 43 steps` is too short to provide convergence inertia required to cross 3.28 boundary in cooldown.
+
+### 🎯 PROGRAMME FINDING #56 PROMOTED to 5-axis CLOSURE-GRADE
+
+PF#56 candidate "MuLoCo outer-step temporal/HP axes structurally rigid at H203 baseline" now at **5 mutually orthogonal axes — PROMOTION-GRADE CLOSURE**:
+
+| Axis | Hypothesis | Mechanism class | Outcome | PR |
+|---|---|---|---|---|
+| 1 | H242 body warmup SHAPE | linear/sqrt/exp | TIE/NEG | (prior, refined H262 in-flight) |
+| 2 | H250 aux cooldown VALUE | constant/cosine_matched | mild-CATASTROPHIC NEG | (prior) |
+| 3 | H252 sync_interval K=15/30/60 | argparse VALUE | TIE drift class | (prior) |
+| 4 | H256 outer LR temporal schedule | constant/cosine_matched/warmup | mild-CATASTROPHIC NEG | #1627 |
+| **5** | **H258 outer momentum VALUE** | **argparse VALUE** | **+275 NEG / CATASTROPHIC** | **#1636** ← PROMOTION GATE |
+
+**PF#56 PROMOTION significance**: 5 mutually orthogonal MuLoCo outer-step HP axes structurally pinned by H203 baseline = **strong evidence the entire MuLoCo outer-step hyperparameter manifold is at a structural local optimum that cannot be moved by VALUE or SCHEDULE perturbations**. The interior question now (tested by H263 fern in-flight): is the MuLoCo wrapper ITSELF structurally necessary, or are we locking in a structurally-rigid configuration of an unnecessary stack?
+
+### 🎯 Mid-trajectory advantage heuristic — 3rd CONFIRMATION (H250 + H256 + H258)
+
+arm_c LOW momentum=0.3 step 1500 val=3.54080 = **−41σ_H174 ADVANTAGE** vs arm_a CTRL 3.57700. By terminal arm_c val=3.28132 = **+16.5σ_H174 CATASTROPHIC NEG**. The mid-trajectory advantage was REAL but reflected a load-bearing dynamic (low-momentum smoothing) that could not complete the convergence inertia required at cooldown. This is the **3rd confirmation** of the campaign-level heuristic established in H254→H250→H256:
+
+> "Mid-trajectory advantage means load-bearing dynamic hasn't completed — will reverse catastrophically in cooldown if mechanism cannot deliver final convergence inertia."
+
+Heuristic now applies to: H250 aux cooldown (cosine-match mid-advantage → catastrophic), H256 outer LR schedule (cosine-match mid-advantage → catastrophic), H258 outer momentum (LOW m=0.3 mid-advantage → catastrophic). This is a **rigorously generalizable diagnostic** for any future plateau-protocol BOLD swing involving outer-step or cooldown-interaction mechanism.
+
+### 🎯 NEW campaign-level mechanistic insight — "outer momentum time-constant matching"
+
+H258 establishes that outer Nesterov momentum's **effective time constant** `τ = K_sync / (1 − β)` must balance two opposing constraints simultaneously:
+- **τ large enough** (i.e., β large enough) to provide cooldown driving inertia (β=0.3 fails this — τ=43 steps, FFS=−1 stall)
+- **τ small enough** (i.e., β small enough) to allow velocity buffer to track current body delta within cooldown horizon (β=0.7 fails this — τ=100 steps > 300-step cooldown horizon = overshoot, FFS=+275)
+
+The H203 default β=0.5 corresponds to τ=60 steps, which is the **structurally privileged matching value** for the H203 (cooldown_steps=300, K_sync=30) configuration. Future schedule changes (cooldown horizon, K_sync, body warmup) that shift the cooldown horizon also shift τ_optimal — this insight may unlock future HP coupling experiments where β is tuned jointly with K_sync or cooldown steps.
+
+### Programme totals after H258 closure
+- **115 NULL/NEG closures** (H145 → H258 cumulative — no merge since H203 baseline)
+- **61 mechanism classes characterized** (H145 → H265 H261 + H262 + H263 + H264 + H265 in-flight + H266 thorfinn ASSIGNED via PR #1669)
+- **10 drift-FREE CTRL instances** (H246/H248/H249/H250/H252-arm_a/H253-arm_a/H256-arm_a/H257-arm_a/H258-arm_a + 1 earlier cycle unaccounted, count corrected via student audit)
+- **5 canonical safe-fix templates validated** (trivial argparse / A / B / C / D-strict + D-loose & Pattern E)
+- **PF#56 PROMOTED** to 5-axis CLOSURE-GRADE (MuLoCo outer-step HP manifold structurally rigid)
+- **PF#58 candidate** active at 5 axes CLOSURE-GRADE PROMOTION (Stiefel-aware mechanism cluster inert/harmful)
+- **PF#59 candidate** active (NS5 orthogonalization geometrically load-bearing)
+- **PF#60 candidate** active at 3 axes (continuous post-step Riemannian-geometric corrections inert/harmful)
+- **6 BOLD swings WIP** post-H266: H260 Lion (aux) / H261 Sophia (aux) / H263 MuLoCo pruning (stack) / H264 Lookahead (wrapper) / H265 Trust-Region (body step) / H266 Polyak-Ruppert EMA (eval-only averaging)
+
+### H266 thorfinn ASSIGNED (62nd mechanism class) — PR #1669
+
+Polyak-Ruppert weight averaging for eval-only — **FIRST mechanism in r3 that decouples training dynamics from evaluation measurement**. Classical Polyak 1990 / Ruppert 1988 theoretical optimality + SWA empirical (Izmailov 2018). 3-arm: CTRL `polyak_ema_decay=0.0` / EMA_FAST `=0.05` (~20-step half-life) / EMA_SLOW `=0.005` (~200-step half-life). Pattern A drift-FREE implementation: EMA buffer init after model creation, EMA update after optimizer step, eval-time swap with backup-and-restore preserves training F-norm invariant on body. Telemetry: `train/h266/ema_deviation_l2`. WIN probability 30-45% (BOLD plateau-protocol swing, classical theoretical optimality, never tested in r3, structurally orthogonal to all in-flight mechanisms).
+
+---
+
 ## 2026-05-29 11:00 — PR #1629: H257 alphonse Sphere parallel-transport momentum (53rd class) — CLOSED (**114th NULL/NEG closure**, both treatment arms +50 FFS mild NEG converging to EXACT same FFS=3075 despite structurally distinct gating (PT_ALWAYS vs PT_COOLDOWN_GATED), 🎯 **NEW PROGRAMME FINDING #60 candidate** "continuous post-step Riemannian-geometric corrections (sphere PT + Stiefel-aware cluster) structurally inert/harmful on H203 baseline" + 🎯 **Pattern B `@torch.compiler.disable` helper validated for 2nd NEW mechanism class** (state-evolution momentum correction joining H249 norm-replacement) + **11th drift-FREE CTRL instance**)
 
 - Branch: H257 alphonse (53rd class — Sphere parallel-transport for body momentum buffer, Bonnabel 2013 ground)

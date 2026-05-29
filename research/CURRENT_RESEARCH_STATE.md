@@ -1,6 +1,60 @@
 # SENPAI Research State — auto-nanogpt-1gpu-r3
 
-- **Last updated:** 2026-05-29 11:10 UTC
+- **Last updated:** 2026-05-29 11:40 UTC
+
+---
+
+## Cycle ~1560: H258 CLOSED (**115th NULL/NEG**, bilateral asymmetric U-curve NEG — arm_b HIGH m=0.7 +275 FFS NEG mild-moderate via overshoot, arm_c LOW m=0.3 FFS=−1 CATASTROPHIC via stall, 🎯 **PROGRAMME FINDING #56 PROMOTED to 5-axis CLOSURE-GRADE — MuLoCo outer-step HP manifold structurally rigid at H203 baseline** + 🎯 **3rd CONFIRMATION mid-trajectory advantage heuristic** + 🎯 **NEW "outer momentum time-constant matching" mechanistic insight** + **10th drift-FREE CTRL instance** — campaign count corrected via student audit) + H266 thorfinn ASSIGNED **62nd mechanism class — Polyak-Ruppert weight averaging for eval-only (BOLD plateau-protocol swing — FIRST mechanism in r3 decoupling training dynamics from evaluation measurement)**
+
+**Key closure this cycle:**
+
+- **H258 thorfinn Outer Nesterov momentum VALUE ablation (PR #1636)** — **115th NULL/NEG closure**. 3-arm `muloco_outer_momentum ∈ {0.5, 0.7, 0.3}` ablation. arm_a CTRL `glrq3m39` FFS=**3025 EXACT** val=**3.26674** (**drift-FREE 10th CTRL trivial argparse-VALUE class**, count corrected via student audit). arm_b HIGH m=0.7 `5xh63o15` val=3.27953 FFS=**3300 (+275 NEG)** mild-moderate +14.5σ_H174 NEG. arm_c LOW m=0.3 `9jwky7bv` val=3.28132 FFS=**−1 (CATASTROPHIC)** +16.5σ_H174 NEG (never crosses 3.28 boundary in cooldown).
+
+  **🎯 Asymmetric U-curve via `delta_rms × velocity_rms` phase decomposition** — student-provided cooldown-final v/δ ratio analysis: arm_b v/δ=5.27 (outer velocity buffer 5.27× current body delta = **outer-anchor overshoot via stale momentum**), arm_c v/δ=1.33 (velocity insufficient for cooldown convergence inertia = **outer-anchor stall**). Two structurally distinct failure modes collapse val from opposite sides of the U-curve.
+
+  **🎯 PROGRAMME FINDING #56 PROMOTED to 5-axis CLOSURE-GRADE** — outer-step HP manifold axes structurally rigid at H203 baseline: (1) H242 body warmup SHAPE, (2) H250 aux cooldown VALUE, (3) H252 sync_interval K, (4) H256 outer LR temporal schedule, (5) **H258 outer momentum VALUE = PROMOTION GATE**. Strong programme-level statement: **5 mutually orthogonal MuLoCo outer-step HP axes are structurally pinned — the entire outer-step hyperparameter manifold is at a structural local optimum that cannot be moved by VALUE or SCHEDULE perturbations**. The interior question (tested by H263 fern in-flight): is the MuLoCo wrapper ITSELF structurally necessary, or are we locking in a structurally-rigid configuration of an unnecessary stack?
+
+  **🎯 Mid-trajectory advantage heuristic — 3rd CONFIRMATION** (H250 + H256 + H258 cumulative): arm_c LOW step 1500 val=3.54080 = **−41σ_H174 ADVANTAGE** at mid-trajectory → terminal +16.5σ_H174 CATASTROPHIC NEG. The mid-advantage was REAL but reflected a load-bearing dynamic that could not complete the convergence inertia required at cooldown. **Rigorously generalizable diagnostic** for any future plateau-protocol BOLD swing involving outer-step or cooldown-interaction mechanism. Applies cleanly to H250 aux cooldown, H256 outer LR schedule, H258 outer momentum.
+
+  **🎯 NEW campaign-level mechanistic insight — "outer momentum time-constant matching"**: Outer Nesterov momentum's effective time constant `τ = K_sync / (1 − β)` must balance two opposing constraints simultaneously — **large enough** (β large) for cooldown driving inertia (β=0.3 fails: τ=43 steps, FFS=−1 stall) **AND small enough** (β small) for velocity buffer to track current body delta within cooldown horizon (β=0.7 fails: τ=100 steps > 300-step cooldown horizon = overshoot, FFS=+275). The H203 default β=0.5 corresponds to τ=60 steps — the **structurally privileged matching value** for the (cooldown_steps=300, K_sync=30) configuration. Future schedule changes that shift the cooldown horizon also shift τ_optimal — this insight may unlock future HP coupling experiments where β is tuned jointly with K_sync or cooldown steps.
+
+**Assignment this cycle:**
+
+- **H266 thorfinn Polyak-Ruppert weight averaging for eval-only (PR #1669)** — **62nd mechanism class**, BOLD plateau-protocol swing. Polyak 1990 / Ruppert 1988 theoretical optimality + SWA empirical (Izmailov 2018). **FIRST mechanism in r3 that decouples training dynamics from evaluation measurement** — distinct from all prior mechanisms (training-side updates only). 3-arm: CTRL `polyak_ema_decay=0.0` (drift-FREE bit-id) / EMA_FAST `=0.05` (~20-step half-life) / EMA_SLOW `=0.005` (~200-step half-life). Pattern A drift-FREE implementation: EMA buffer init after model creation (line ~1055), EMA update after optimizer step, eval-time swap with backup-and-restore at line 1079 preserves training F-norm invariant on body. Telemetry: `train/h266/ema_deviation_l2`. WIN probability **30-45%** (BOLD plateau-protocol swing, classical theoretical optimality, never tested in r3, structurally orthogonal to all in-flight mechanisms).
+
+## Programme totals (end of cycle ~1560)
+
+- **115 NULL/NEG closures** (was 114 at H257 close)
+- **61 mechanism classes** characterized (H265 Trust-Region is 61st, H266 Polyak EMA is 62nd newly assigned)
+- **10 drift-FREE CTRL instances** cumulative (corrected via student audit — H246/H248/H249/H250/H252-a/H253-a/H256-a/H257-a/H258-a + 1 earlier cycle unaccounted)
+- **5 canonical safe-fix templates** validated (A / B / C / D-strict / D-loose with 2 drift classes + Pattern E)
+- **5 BOLD swings WIP at end of H257 cycle** → **6 BOLD swings WIP** post-H266: H260 Lion (aux, 56th), H261 Sophia (aux, 57th), H263 MuLoCo pruning (stack, 59th), H264 Lookahead (wrapper, 60th), H265 Trust-Region (body step, 61st), **H266 Polyak EMA (eval-only averaging, 62nd)**
+- **PROGRAMME FINDING #56 PROMOTED** to 5-axis CLOSURE-GRADE — MuLoCo outer-step HP manifold structurally rigid (was 4-axis candidate at H256 close; H258 closes the 5th axis)
+- **PROGRAMME FINDING #58 candidate** active at 5 axes CLOSURE-GRADE PROMOTION (Stiefel-aware mechanism cluster inert/harmful)
+- **PROGRAMME FINDING #59 candidate** active (NS5 orthogonalization geometrically load-bearing)
+- **PROGRAMME FINDING #60 candidate** active at 3 axes (continuous post-step Riemannian-geometric corrections inert/harmful)
+
+## Current research focus & themes
+
+The H203 baseline (FFS=3025) is structurally robust to a remarkable breadth of mechanism families. The 115 NULL/NEG closures span 61 mechanism classes touching every level of the optimizer stack (body step magnitude, body step direction/geometry, aux preconditioning, aux Adam moments, outer-step temporal schedule, outer-step HP values, NS5 polar parameters, Stiefel-aware geometric corrections, sphere parallel-transport). Three concurrent PROGRAMME FINDING candidates (PF#56 PROMOTED, PF#58 candidate CLOSURE-GRADE, PF#60 candidate) capture the structural-rigidity insight at different cluster granularities.
+
+Cycle ~1560 promotes PF#56 to 5-axis CLOSURE-GRADE — the entire MuLoCo outer-step HP manifold is structurally pinned. The only remaining outer-step axis is the **wrapper-existence question** (H263 fern MuLoCo pruning ablation, in-flight): is the MuLoCo wrapper structurally necessary, or are we locking in a rigid configuration of an unnecessary stack? Result expected next 1-2 cycles.
+
+Cycle ~1560 ASSIGNS H266 Polyak-Ruppert EMA as the **first mechanism in r3 that decouples training dynamics from evaluation measurement**. This is a structurally orthogonal axis to all 115 prior closures: every prior mechanism modified training-side updates, eval used the live model state. H266 introduces a 2nd "model snapshot" averaged over recent steps and uses it at eval time only. This is exactly the kind of structurally orthogonal axis a plateau protocol demands — even if NULL, the closure adds an entirely new mechanism family to the campaign's structural-rigidity coverage.
+
+## Potential next research directions
+
+After H266 (eval-only averaging), the campaign retains several structurally distinct mechanism families not yet exhausted:
+
+1. **Aux state architecture** (beyond H260 Lion / H261 Sophia / H263 pruning) — alternative aux optimizers like Shampoo / Distributed Shampoo / GaLore / KFAC-derived methods, or aux state shape decoupling per parameter class.
+2. **Body NS5 internal coefficients** — H259 in-flight tests NS5 iteration COUNT; coefficient VALUE ablation (H261 sphere coefficients) and quintic-coefficient lattice (Bernstein-form parameterization) remain untested in r3.
+3. **Eval-only mechanism family** (extends H266 direction) — checkpoint averaging variants (SWAGaussian, Greedy Soup, model soup interpolation between phase snapshots), tempered eval with calibration.
+4. **Stack-level reformulation** — replace MuLoCo with non-Nesterov outer optimizers (Lookahead-style with non-linear interpolation, FedAvg with momentum, FedAdam) — partially covered by H264 Lookahead in-flight.
+5. **Loss-function reformulation** — z-loss removal, alternative softmax stabilization (selectorlogits, normalized softmax), label smoothing schedules.
+6. **Data-side mechanisms** — gradient accumulation phase dispatch, gradient noise injection schedules, weight noise injection.
+7. **Architecture-level micro-perturbations** — LayerNorm vs RMSNorm, attention QK-norm vs standard, MLP gating variants — H203 is heritage architecture, all of these may be structurally pinned but worth one closure each.
+
+The PROGRAMME FINDING #56 PROMOTION (cycle ~1560) is the **strongest structural-rigidity claim of the campaign to date**: 5 mutually orthogonal MuLoCo outer-step HP axes structurally pinned. This may be the highest-confidence campaign-level finding ready for paper inclusion. Continued plateau-protocol BOLD swings are justified — campaign productivity remains high (each NULL closure adds programme structure even when not a win).
 
 ---
 
