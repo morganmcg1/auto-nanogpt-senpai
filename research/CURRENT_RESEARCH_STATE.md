@@ -29,18 +29,18 @@
 - Tier 2a (wrapper optimizers): Lookahead FULLY CLOSED in r1. **ADOPT-style async whitening (#1703) — FIRST NOVEL TIER-2 TEST**
 - Tier 2b (pEMA compounding): Second paramEMA refresh (#1704) — test stacking the confirmed WIN
 
-## Active assignments (7 students engaged; edward awaiting fresh hypothesis from researcher-agent)
+## Active assignments (all 8 students engaged)
 
 | PR | Student | Experiment | Status | ETA |
 |---|---|---|---|---|
 | #1703 | alphonse | ADOPT async whitening on body PMuon (identity-init vs zeros-warmup50) | Confirmed picked up | ~21:30 UTC |
 | #1704 | thorfinn | Stacked 2nd pEMA refresh at step 2750 vs 2850 | Confirmed picked up | ~21:30 UTC |
-| #1686 | askeladd | Pre-target body Muon μ transient pulse 0.95→{0.97, 0.99} | Arm A `njbgdsep` step 3075 PASS gate@2950 (trending NULL) | Arm A terminal ~14:30 UTC, Arm B chain ~18:30 UTC |
+| #1686 | askeladd | Pre-target body Muon μ transient pulse 0.95→{0.97, 0.99} | Arm A `njbgdsep` step 3075 sr=2950 NULL; Arm B chain pending | Arm A terminal ~14:35 UTC, Arm B ~18:30 UTC |
 | #1680 | nezuko | Pre-target PMuon γ pulse 0.4→{0.50, 0.60} | Arm A `92tyetjn` finished sr=2925 NULL; Arm B `2wzibl6m` step 875 | Arm B terminal ~17:30 UTC |
-| #1693 | fern | Pre-target body Muon wd BILATERAL pulse {0.0, 0.05} | Arm A `i0s55pdw` step 2325 | ~17:00 UTC |
-| #1667 | frieren | Pre-target aux β₂ transient spike 0.99→{0.995, 0.999} | Both arms finished sr=2925 bilateral NULL; awaiting SENPAI-RESULT | ~now |
+| #1693 | fern | Pre-target body Muon wd BILATERAL pulse {0.0, 0.05} | Arm A `i0s55pdw` step 2325 | Arm A ~17:00 UTC, Arm B ~21:00 UTC |
+| **#1708** | **frieren** | **Pre-target Skylight u/w floor pulse TARGET_UW 0.35→{0.45, 0.55} @ 2750-2900** | **Just assigned** | **~18:30 / ~22:30 UTC** |
 | #1697 | tanjiro | Pre-target body Muon LR DROP ×{0.75, 0.50} | Confirmed picked up | ~19:00 UTC |
-| ~~#1666~~ | edward | ~~Body Muon beta_cov pulse~~ → **awaiting fresh hypothesis (researcher-agent in-flight)** | CLOSED bilateral NULL 14:15 UTC | new assignment ~14:45 UTC |
+| **#1709** | **edward** | **AdaShift temporal-lag second moment on aux Adam (n=1 vs n=2)** | **Just assigned** | **~18:30 / ~22:30 UTC** |
 
 ## Research portfolio focus
 
@@ -83,9 +83,9 @@
 
 After current wave of in-flight experiments:
 
-1. **Slow Momentum (Wang & Singer)** — if async whitening (#1703) NULL, try different averaging structure
-2. **NS_ITERS burst at pre-target window** (12→14/16 during 2750-2900) — thorfinn follow-up if #1704 result is informative
-3. **Per-block-depth beta_cov dispatch** — depth-stratified covariance EMA (not yet tried as bilateral depth partition)
+1. **NS_ITERS burst at pre-target window** (12→14/16 during 2750-2900) — thorfinn next assignment after #1704 results
+2. **Slow Momentum (Wang & Singer)** — if async whitening (#1703) NULL, try different averaging structure
+3. **Per-block-depth beta_cov asymmetry** (beta_cov_lo/hi for early vs late blocks) — researcher-agent secondary idea; distinct from static depth-stratified (#1339 closed)
 4. **Body Muon SOAP-style preconditioner via off-diagonal L/R refresh** (fern #1654 on r1 separate branch)
-5. **Pre-target UW floor PULSE** (researcher-agent suggestion): raise `TARGET_UW` from 0.35 to {0.45, 0.55} transiently during steps 2750-2900, then revert. #1269 (phase-gated 2500-3250) was NULL but a 150-step pre-target pulse is distinct. NEXT thorfinn assignment after #1704 results.
-6. **AdaShift wrapper** — variant of Adam with shifted moment estimation for aux side
+5. ~~UW floor PULSE~~ — assigned to frieren #1708
+6. ~~AdaShift wrapper~~ — assigned to edward #1709

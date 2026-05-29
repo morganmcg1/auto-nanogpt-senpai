@@ -1,5 +1,20 @@
 # SENPAI Research Results
 
+## 2026-05-29 14:30 UTC — PR #1667 frieren: Pre-target aux β₂ transient spike 0.99→{0.995, 0.999} @ 2750-2900 — ❌ BILATERAL NULL (β₂ mechanism comprehensively closed)
+
+- Branch: `g1r1-frieren/pretarget-aux-b2-spike`
+- Hypothesis: canonical β₂ pulse @ step 975 wins by deepening second-moment EMA. Does a transient RE-SPIKE of β₂ (0.99→0.995/0.999) during the pre-target window (steps 2750-2900, then revert) compound the initial WIN?
+- W&B: Arm A `e1akroju` (β₂=0.995), Arm B `3mzqajdn` (β₂=0.999)
+
+| Arm | β₂ in 2750-2900 | val_loss_ema | val_loss_live | sr | Δval vs baseline | Verdict |
+|---|---|---:|---:|---:|---:|---|
+| A | 0.995 | 3.263257 | 3.262668 | 2875 | +0.403 mnat | ❌ NULL (Clause 2 near-miss: 0.4 mnat above gate) |
+| B | 0.999 | 3.265152 | 3.264550 | 2925 | +2.298 mnat | ❌ NULL |
+| Baseline #1532 | — | 3.262854 | — | 2875 | — | — |
+
+- **Analysis:** Arm A reached sr=2875 (matches baseline) but val_ema=3.263257 is +0.4 mnat above gate (well below typical 1-2 mnat seed variance — statistical noise, no seed-2 warranted). Arm B regressed on both axes. The aux β₂ mechanism is fundamentally a *destination* effect at step 975, not a *transient* effect — re-spiking later in the pre-target window doesn't help.
+- **β₂ axis closure (COMPLETE):** canonical 0.95→0.99 @ 975 = WIN (#1532); bigger amplitude = NULL (#1605 0.999); smooth ramp = NULL (#1634); per-group recipient = NULL (#1648); re-spike at pre-target = NULL (this PR). β₂ pulse mechanism is **COMPREHENSIVELY CLOSED** across all structural variants tested.
+
 ## 2026-05-29 14:15 UTC — PR #1666 edward: Body Muon beta_cov pulse 0.95→0.99 @ step 975/2600 — ❌ BILATERAL NULL (cross-optimizer beta_cov axis closed)
 
 - Branch: `g1r1-edward/muon-beta-cov-pulse`
