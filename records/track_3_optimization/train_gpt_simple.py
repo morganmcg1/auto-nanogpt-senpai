@@ -464,6 +464,13 @@ SOAP_PRECOND_FREQ = 10
 ATTN_SOAP_BETA2 = 0.90
 ATTN_SOAP_PRECOND_FREQ = 10
 ATTN_SOAP_TRUST_THRESHOLD = float(os.environ.get("ATTN_SOAP_TRUST_THRESHOLD", "0.9"))
+# Per-depth-half attn-SOAP enable/disable (#1711). When the isolation flag is
+# 1, attn-SOAP params whose layer index falls in a disabled half are excluded
+# from attn_soap_params and fall through to the vanilla Muon (no SOAP) path.
+PER_DEPTH_HALF_ATTN_SOAP_ENABLED_ISOLATION = int(os.environ.get("PER_DEPTH_HALF_ATTN_SOAP_ENABLED_ISOLATION", "0"))
+ATTN_SOAP_FRONT_ENABLED = int(os.environ.get("ATTN_SOAP_FRONT_ENABLED", "1"))
+ATTN_SOAP_BACK_ENABLED = int(os.environ.get("ATTN_SOAP_BACK_ENABLED", "1"))
+ATTN_SOAP_DEPTH_SPLIT = int(os.environ.get("ATTN_SOAP_DEPTH_SPLIT", "6"))
 NS5_ITERS = int(os.environ.get("NS5_ITERS", "12"))
 WD_AUX = float(os.environ.get("WD_AUX", "0.0"))  # AdamW WD on embed + lm_head matrices (scalars stay at 0)
 EMBED_INIT_STD = float(os.environ.get("EMBED_INIT_STD", "1.0"))  # default preserves baseline N(0,1)
@@ -635,23 +642,67 @@ class Muon(torch.optim.Optimizer):
             if n.endswith(".mlp.fc.weight") or n.endswith(".mlp.proj.weight")
         }
         # Attention weights (qkv + proj) receive trust-gated SOAP (public record #16 extension).
-        self.attn_soap_params = {
-            p for n, p in named_params
-            if (n.endswith(".attn.q.weight") or n.endswith(".attn.k.weight")
-                or n.endswith(".attn.v.weight") or n.endswith(".attn.proj.weight"))
+        # Per-depth-half attn-SOAP enable/disable (#1711): when the isolation flag
+        # is set, params whose layer index falls in a disabled half are excluded
+        # from attn_soap_params and fall through to the vanilla Muon path (no SOAP
+        # preconditioning, no trust-gate refresh).
+        attn_kind_suffix = {
+            ".attn.q.weight": "q",
+            ".attn.k.weight": "k",
+            ".attn.v.weight": "v",
+            ".attn.proj.weight": "proj",
         }
-        # Track which sub-type each attention-SOAP param is (q/k/v/proj) for per-type telemetry.
+        self.attn_soap_params = set()
         self.attn_soap_kind: dict[int, str] = {}
+        self.attn_soap_depth_half: dict[int, str] = {}
+        self.attn_soap_layer_idx: dict[int, int] = {}
+        # Routing counters (front_count / back_count of params actually in attn-SOAP).
+        front_in = back_in = front_out = back_out = 0
         for n, p in named_params:
-            if p in self.attn_soap_params:
-                if n.endswith(".attn.q.weight"):
-                    self.attn_soap_kind[id(p)] = "q"
-                elif n.endswith(".attn.k.weight"):
-                    self.attn_soap_kind[id(p)] = "k"
-                elif n.endswith(".attn.v.weight"):
-                    self.attn_soap_kind[id(p)] = "v"
-                elif n.endswith(".attn.proj.weight"):
-                    self.attn_soap_kind[id(p)] = "proj"
+            kind = next((k for suf, k in attn_kind_suffix.items() if n.endswith(suf)), None)
+            if kind is None:
+                continue
+            # named_params come from model.blocks.named_parameters(); names look
+            # like "<layer_idx>.attn.q.weight" so the layer index is the first
+            # dot-separated segment.
+            layer_idx = int(n.split(".", 1)[0])
+            is_front = layer_idx < ATTN_SOAP_DEPTH_SPLIT
+            disabled = False
+            if PER_DEPTH_HALF_ATTN_SOAP_ENABLED_ISOLATION:
+                if is_front and not ATTN_SOAP_FRONT_ENABLED:
+                    disabled = True
+                if (not is_front) and not ATTN_SOAP_BACK_ENABLED:
+                    disabled = True
+            if disabled:
+                if is_front:
+                    front_out += 1
+                else:
+                    back_out += 1
+                continue
+            self.attn_soap_params.add(p)
+            self.attn_soap_kind[id(p)] = kind
+            self.attn_soap_depth_half[id(p)] = "front" if is_front else "back"
+            self.attn_soap_layer_idx[id(p)] = layer_idx
+            if is_front:
+                front_in += 1
+            else:
+                back_in += 1
+        self.attn_soap_front_enabled_count = front_in
+        self.attn_soap_back_enabled_count = back_in
+        self.attn_soap_front_disabled_count = front_out
+        self.attn_soap_back_disabled_count = back_out
+        if int(os.environ.get("RANK", "0")) == 0:
+            print(
+                f"[PER_DEPTH_HALF_ATTN_SOAP_ENABLED_ISOLATION] enabled="
+                f"{PER_DEPTH_HALF_ATTN_SOAP_ENABLED_ISOLATION} "
+                f"front_enabled={ATTN_SOAP_FRONT_ENABLED} "
+                f"back_enabled={ATTN_SOAP_BACK_ENABLED} "
+                f"split={ATTN_SOAP_DEPTH_SPLIT} "
+                f"len(attn_soap_params)={len(self.attn_soap_params)} "
+                f"front_in={front_in} back_in={back_in} "
+                f"front_out={front_out} back_out={back_out}",
+                flush=True,
+            )
         params = sorted([p for _, p in named_params], key=lambda x: x.size(), reverse=True)
         defaults = dict(lr=lr, weight_decay=weight_decay, mu=mu)
         super().__init__(params, defaults)
@@ -736,6 +787,10 @@ class Muon(torch.optim.Optimizer):
             "v": {"on": 0, "cos_row": [], "cos_col": []},
             "proj": {"on": 0, "cos_row": [], "cos_col": []},
         }
+        by_depth: dict[str, dict[str, list[float] | int]] = {
+            "front": {"on": 0, "cos_row": [], "cos_col": []},
+            "back": {"on": 0, "cos_row": [], "cos_col": []},
+        }
         for p in self.attn_soap_params:
             state = self.state.get(p)
             if state is None or "trust_gate" not in state:
@@ -753,9 +808,18 @@ class Muon(torch.optim.Optimizer):
                 by_kind[kind]["cos_col"].append(cc)
                 if on:
                     by_kind[kind]["on"] += 1
+            depth = self.attn_soap_depth_half.get(id(p))
+            if depth is not None:
+                by_depth[depth]["cos_row"].append(cr)
+                by_depth[depth]["cos_col"].append(cc)
+                if on:
+                    by_depth[depth]["on"] += 1
         counts = len(cos_rows)
         if counts == 0:
-            return {}
+            return {
+                "front_enabled_count": self.attn_soap_front_enabled_count,
+                "back_enabled_count": self.attn_soap_back_enabled_count,
+            }
         out: dict[str, float] = {
             "count": counts,
             "on_fraction": on_count / counts,
@@ -763,6 +827,8 @@ class Muon(torch.optim.Optimizer):
             "mean_cos_col": sum(cos_cols) / counts,
             "min_cos_row": min(cos_rows),
             "min_cos_col": min(cos_cols),
+            "front_enabled_count": self.attn_soap_front_enabled_count,
+            "back_enabled_count": self.attn_soap_back_enabled_count,
         }
         for kind, agg in by_kind.items():
             crs = agg["cos_row"]
@@ -774,6 +840,16 @@ class Muon(torch.optim.Optimizer):
             out[f"{kind}/on_fraction"] = agg["on"] / kn
             out[f"{kind}/mean_cos_row"] = sum(crs) / kn
             out[f"{kind}/mean_cos_col"] = sum(ccs) / kn
+        for depth, agg in by_depth.items():
+            crs = agg["cos_row"]
+            ccs = agg["cos_col"]
+            dn = len(crs)
+            if dn == 0:
+                continue
+            out[f"{depth}/count"] = dn
+            out[f"{depth}/on_fraction"] = agg["on"] / dn
+            out[f"{depth}/mean_cos_row"] = sum(crs) / dn
+            out[f"{depth}/mean_cos_col"] = sum(ccs) / dn
         return out
 
 
@@ -864,6 +940,10 @@ if dist.get_rank() == 0:
             "optimizer/attn_soap_beta2": ATTN_SOAP_BETA2,
             "optimizer/attn_soap_precond_freq": ATTN_SOAP_PRECOND_FREQ,
             "optimizer/attn_soap_trust_threshold": ATTN_SOAP_TRUST_THRESHOLD,
+            "optimizer/per_depth_half_attn_soap_enabled_isolation": PER_DEPTH_HALF_ATTN_SOAP_ENABLED_ISOLATION,
+            "optimizer/attn_soap_front_enabled": ATTN_SOAP_FRONT_ENABLED,
+            "optimizer/attn_soap_back_enabled": ATTN_SOAP_BACK_ENABLED,
+            "optimizer/attn_soap_depth_split": ATTN_SOAP_DEPTH_SPLIT,
             "optimizer/ns5_iters": NS5_ITERS,
             "optimizer/wd_aux": WD_AUX,
             "optimizer/recipe": "contra-muon + normuon-lite + soap-on-mlp + soap-on-attn-trust-gate (pre-NS5, record #14 + record #16)",
