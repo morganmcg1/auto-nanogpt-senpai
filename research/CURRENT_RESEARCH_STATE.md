@@ -1,3 +1,61 @@
+## 2026-05-29 14:25 UTC — Cycle 71 mid-388 — frieren #1671 292nd refute (MLP_SOAP_TRUST_GATE_PHASE_DISPATCH val_mean=3.27192 STANDARD misses merge bar by Δ=+0.00416 val and +37.5 ffs, Arm A `late_FAST_gated_armA_v2` E=15/L=5 val=3.27275 ffs=3050 STANDARD, Arm B `early_FAST_gated_armB` E=5/L=15 val=3.27108 ffs=3025 STANDARD, Δ(B−A)=−0.00167 directional signal `early_FAST_wins_under_gating` at 5× noise threshold, **MAJOR STRUCTURAL FINDING**: trust-gate is **NOT** the MLP-SOAP scope-direction-reversal mechanism — gate fires SELECTIVELY (verified via per-kind on_fraction time series: fc/on tracks cur_freq 1:1, rejects rare-refresh late phase) but does NOT flip direction from `early_FAST` to `late_FAST`; gate WORSENS BOTH arms vs un-gated #1645 analogs by +0.00070 (A) and +0.00117 (B) — gate acts as noise SOURCE at MLP-SOAP scope, OPPOSITE to its effect on attn-SOAP where it unlocks `late_FAST` by filtering noise; **CROSS-SOAP-SCOPE GATE-EFFECT DIVERGENCE finding**: same trust-gate mechanism produces opposite val effects at attn-SOAP vs MLP-SOAP — pairs with cross-SOAP-scope β2 phase-locality divergence finding #1668 — TWO independent cross-SOAP-scope structural divergences now confirmed (gate-effect + β2-phase-locality), **128th family closure**: MLP_SOAP_TRUST_GATE_PHASE_DISPATCH axis fully mapped at gate-not-mechanism + cross-scope-gate-divergence outcome) + frieren #1707 NEW PER_KIND_MLP_SOAP_PRECOND_FREQ_PHASE_DISPATCH (FRESH PER-GROUP STATE-MECHANISM AXIS executing #1671's structural-driver pivot — Arm A `fc_only_early_FAST` MLP_SOAP_PRECOND_FREQ_FC_EARLY=5/LATE=15, proj held at baseline freq=10 full-trajectory; Arm B `proj_only_early_FAST` MLP_SOAP_PRECOND_FREQ_PROJ_EARLY=5/LATE=15, fc held at baseline freq=10 full-trajectory; boundary=2225 matches #1671 for direct cross-PR comparison; trust-gate disabled both arms (gate axis closed by #1671); if A < B fc carries early_FAST preference; if B < A proj carries; if A ≈ B ≈ #1645 Arm B 3.26991 both kinds additive saturated joint; if A ≈ B ≈ baseline joint mechanism requires both kinds simultaneously; fits Morgan's directive per-group + state-mechanism)
+
+**Cumulative**: **292 refuted** / **174 distinct mech classes** / **128 family-level closures**.
+
+### PRs closed this wave (1 closure):
+
+| PR | student | mechanism | outcome |
+|---|---|---|---|
+| **frieren #1671** | frieren | MLP_SOAP_TRUST_GATE_PHASE_DISPATCH (Arm A `late_FAST_gated_armA_v2` E=15/L=5, Arm B `early_FAST_gated_armB` E=5/L=15, boundary=2225, trust gate=0.85) | **292nd** — Arm A val=3.27275 ffs=3050, Arm B val=3.27108 ffs=3025, val_mean=3.27192 STANDARD misses by +0.00416/+37.5. Δ(B−A)=−0.00167 `early_FAST_wins_under_gating`. **MAJOR STRUCTURAL FINDING**: trust-gate is NOT the MLP-SOAP scope-direction-reversal mechanism — gate is real (per-kind on_fraction proves) but doesn't flip direction; gate is noise SOURCE at MLP-SOAP (cross-SOAP-scope gate-effect divergence vs attn-SOAP). **128th family closure**. |
+
+### MAJOR STRUCTURAL FINDING — cross-SOAP-scope gate-effect divergence (paired with cross-SOAP-scope β2 phase-locality divergence #1668)
+
+| SOAP scope | trust-gate effect on val | direction-preferred | gate vs un-gated effect |
+|---|---|---|---|
+| attn-SOAP (q/k/v/proj) | **noise FILTER** (unlocks `late_FAST` via late-phase basis stability) | `late_FAST` | gate IMPROVES val |
+| **MLP-SOAP (fc/proj)** | **noise SOURCE** (worsens both phases) | **`early_FAST`** | gate REGRESSES val by +0.001 |
+
+Per-kind on_fraction time series proves gate is real and selective at MLP-SOAP (not a silent no-op): in Arm A, fc/on_fraction climbs 0.0→1.0 across early phase (gradient stationarity rising as Muon warmup completes); in Arm B, fc/on_fraction collapses 1.0→0.0 across late phase (cur_freq=15 makes basis drift below 0.85 between refreshes). The gate FIRES — but the early_FAST advantage SURVIVES even when those late-phase rare refreshes are blanket-rejected.
+
+**Now two independent cross-SOAP-scope structural divergences confirmed**:
+- β2 phase-locality (#1668): attn=late-stability, MLP-proj=early-warmup
+- gate-effect (#1671 this PR): attn=noise-filter (helps `late_FAST`), MLP=noise-source (regresses both phases)
+
+**Strategic interpretation**: the scope-direction reversal is intrinsic to MLP-SOAP — driven by structural factor not shared with attn-SOAP. Candidates remaining (#1671 student suggestion #1): **parameter-count/kind asymmetry** (24 MLP-SOAP params split fc/proj at d_model→4·d_model→d_model vs 48 attn-SOAP params q/k/v/proj at d_model→d_model) or **gradient sequence rank/spectrum** (MLP gradients structurally different from attn).
+
+### Triangulation on MLP-SOAP scope-direction-reversal cause — three failed structural hypotheses
+
+| hypothesis | PR | outcome |
+|---|---|---|
+| trust-gate flips direction | #1671 | NOT the mechanism (gate doesn't flip, gate is noise source at MLP-SOAP) |
+| scope-universal SOAP β2 phase-locality | #1668 | refuted (cross-SOAP-scope divergence: attn=late, MLP-proj=early) |
+| MLP-proj β2 full-trajectory | #1668 | refuted (both phase-dispatch polarities lose to #1590 full-coverage) |
+
+Remaining candidate: **fc/proj kind asymmetry isolation** (frieren #1707 going up). If fc-only carries early_FAST → fc/proj asymmetry confirmed; if proj-only carries → proj is the active kind; if both carry → mechanism is scope-universal at MLP but cross-SOAP-distinct.
+
+### PRs assigned this wave
+
+| PR | student | mechanism | role |
+|---|---|---|---|
+| **frieren #1707** | frieren | PER_KIND_MLP_SOAP_PRECOND_FREQ_PHASE_DISPATCH (Arm A `fc_only_early_FAST` fc E=5/L=15, proj=baseline 10 full-traj; Arm B `proj_only_early_FAST` proj E=5/L=15, fc=baseline 10 full-traj; boundary=2225; gate DISABLED) | **FRESH PER-GROUP STATE-MECHANISM** — isolates fc/proj asymmetry as candidate driver of MLP-SOAP scope-direction reversal; tests whether the joint #1645 Arm B early_FAST advantage decomposes to a single kind |
+
+### Fleet state at end of wake 84 (this wave)
+
+8 students all assigned, 0 idle:
+
+| PR | student | axis | status |
+|---|---|---|---|
+| **#1707** | **frieren** | **PER_KIND_MLP_SOAP_PRECOND_FREQ_PHASE_DISPATCH** | **WIP (this wave, just assigned)** |
+| #1705 | fern | PER_PHASE_WD_AUX_EMBED | WIP (prior wave) |
+| #1700 | tanjiro | PER_KIND_AUX_B1B2_COMPOUND | WIP (prior wave) |
+| #1695 | nezuko | PHASE_DISPATCH_MLP_SOAP_FC_BETA2 | WIP (prior wave) |
+| #1692 | edward | PER_KIND_ATTN_SOAP_MUON_LR (V_AXIS_ISOLATION) | WIP (prior wave) |
+| #1687 | alphonse | JOINT_MLP_SOAP_REFRESH_BACK_FAST_X_PHASE_DISPATCH_ATTN_SOAP_BETA2 (cross-SCOPE compound) | WIP (Arm A 82%+, terminal expected) |
+| #1685 | thorfinn | PER_KIND_ATTN_SOAP_TRUST_THRESHOLD (V_AXIS_ISOLATION) | WIP (Arm B running) |
+| #1684 | askeladd | PER_DEPTH_HALF_ATTN_SOAP_TRUST_THRESHOLD | WIP (prior wave) |
+
+---
+
 ## 2026-05-29 14:10 UTC — Cycle 71 mid-387 — fern #1683 291st refute (PER_KIND_WD_AUX_DECOMPOSITION val_mean=3.27042 STANDARD misses merge bar by Δ=+0.00266 val and +25 ffs, Arm A `embed_only_down` WD_EMBED=0.0003/WD_LM_HEAD=0.001 val=3.26968 ffs=3025 **FLOOR-BAND-UPPER-EDGE** n=1 misses ffs ceiling by +25, Arm B `lm_head_only_up` WD_EMBED=0.001/WD_LM_HEAD=0.003 val=3.27116 ffs=3025 STANDARD, Δ(B−A)=+0.00148 directional signal `embed_only_down_wins` at 8× noise threshold, **MAJOR STRUCTURAL FINDING**: per-kind WD axis collapses to **1-D embed-WD-down axis** — embed axis is STRUCTURALLY ACTIVE (+21.85% rms@3175 under 3.3× WD reduction), lm_head axis is STRUCTURALLY INERT (−2.79% rms@3175 under 3× WD increase); #1611 Arm B floor-band entry (val=3.26966) reproduced by embed-WD-down sub-axis ALONE to Δ=+0.00002 noise-floor — **effective n=2 cross-PR replication** of embed-only mechanism at floor-band-upper-edge; **127th family closure**: PER_KIND_WD_AUX_DECOMPOSITION axis fully mapped at 1-D-collapse outcome) + fern #1705 NEW PER_PHASE_WD_AUX_EMBED (FRESH PER-GROUP STATE-MECHANISM AXIS directly executing this PR's 1-D-collapse finding — Arm A `embed_early_down` WD_AUX_EMBED early=0.0003/late=0.001/boundary=1500 tests early-phase basis-priming hypothesis, Arm B `embed_late_down` WD_AUX_EMBED early=0.001/late=0.0003/boundary=1500 tests late-phase cooldown-stabilization hypothesis, lm_head WD held at baseline 0.001 axis confirmed inert; if A < #1683 Arm A early-priming dominates, if B < #1683 Arm A late-stabilization dominates, if A ≈ B ≈ #1683 Arm A uniform-trajectory null, if A ≈ B ≈ baseline phase-dispatch destroys mechanism; fits Morgan's directive per-group + state-mechanism)
 
 **Cumulative**: **291 refuted** / **174 distinct mech classes** / **127 family-level closures**.
