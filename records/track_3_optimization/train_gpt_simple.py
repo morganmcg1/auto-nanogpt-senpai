@@ -114,6 +114,18 @@ def parse_args():
                         help="Polyak-Ruppert EMA decay for eval-only weight averaging. "
                              "0.0 = disabled (drift-FREE CTRL). Typical: 0.05 (fast, ~20-step half-life) / "
                              "0.005 (slow, ~200-step half-life). Higher decay = faster EMA tracking.")
+    parser.add_argument("--z_loss_weight", type=float,
+                        default=float(os.environ.get("Z_LOSS_WEIGHT", "0.0")),
+                        help="PaLM-style softmax z-loss penalty weight (Chowdhery et al. 2022). "
+                             "Adds z_loss_weight * (logsumexp(logits))^2 summed over positions "
+                             "to the training loss ONLY (eval val/loss is unchanged). "
+                             "0.0 = disabled (drift-FREE CTRL). Typical: 1e-5 (H275 arm_b finding).")
+    parser.add_argument("--ns5_num_iterations", type=int,
+                        default=int(os.environ.get("NS5_NUM_ITERATIONS", "12")),
+                        help="Number of Newton-Schulz polynomial iterations in zeropower_via_newtonschulz5 "
+                             "(used by MuonH body update for orthogonalization). "
+                             "12 = baseline (drift-FREE CTRL). Higher = tighter orthogonalization. "
+                             "Typical: 16 (H267 arm_b finding).")
     args = parser.parse_args()
     args.num_trials = args.num_trials if args.num_trials is not None else (args.legacy_num_trials or 1)
     args.wandb_tags = [tag.strip() for tag in args.wandb_tags.split(",") if tag.strip()]
@@ -536,13 +548,22 @@ class GPT(nn.Module):
         self.norm1 = RMSNorm(model_dim)
         self.norm2 = RMSNorm(model_dim)
 
-    def forward(self, inputs: Tensor, targets: Tensor):
+    def forward(self, inputs: Tensor, targets: Tensor, z_loss_weight: float = 0.0):
         x = self.norm1(self.embed(inputs))
         for block in self.blocks:
             x = block(x)
         logits = self.proj(self.norm2(x)).float()
         logits = 15 * logits * (logits.square() + 15**2).rsqrt()
-        return F.cross_entropy(logits.view(targets.numel(), -1), targets.view(-1), reduction="sum")
+        flat_logits = logits.view(targets.numel(), -1)
+        flat_targets = targets.view(-1)
+        ce_loss = F.cross_entropy(flat_logits, flat_targets, reduction="sum")
+        # PaLM-style softmax z-loss penalty (training-only; eval keeps z_loss_weight=0.0
+        # so val/loss path is bit-identical to baseline — drift-FREE Pattern A).
+        if z_loss_weight > 0.0:
+            log_z = torch.logsumexp(flat_logits, dim=-1)
+            z_loss = z_loss_weight * log_z.square().sum()
+            return ce_loss + z_loss
+        return ce_loss
 
 
 ########################################
@@ -557,9 +578,11 @@ def zeropower_via_newtonschulz5(G: Tensor) -> Tensor:
 
     # Ensure spectral norm is at most 1
     X = X / (X.norm(dim=(-2, -1), keepdim=True) + 1e-7)
-    # Perform the NS iterations, not optimizing for wallclock speed
+    # Perform the NS iterations, not optimizing for wallclock speed.
+    # Iteration count is argparse-conditional (default 12 = drift-FREE CTRL baseline,
+    # values >12 = H267-style tighter orthogonalization per step).
     a, b, c = 2, -1.5, 0.5
-    for _ in range(12):
+    for _ in range(args.ns5_num_iterations):
         A = X @ X.mT
         B = b * A + c * A @ A
         X = a * X + B @ X
@@ -792,6 +815,11 @@ if args.aux_agc_clip_ratio > 0:
     print0(f"AGC ENABLED on aux AdamW groups: clip_ratio={args.aux_agc_clip_ratio} eps={args.aux_agc_eps}", console=True)
 else:
     print0("AGC DISABLED on aux AdamW groups (clip_ratio=0)", console=True)
+if args.z_loss_weight > 0:
+    print0(f"H284 z_loss ENABLED: weight={args.z_loss_weight} (training-only penalty, eval val/loss unchanged)", console=True)
+else:
+    print0("H284 z_loss DISABLED (weight=0, drift-FREE CTRL)", console=True)
+print0(f"H284 NS5 iterations: {args.ns5_num_iterations} (12=baseline, 16=H267 finding)", console=True)
 if args.muonh_agc_clip_ratio > 0:
     print0(f"AGC ENABLED on inner MuonH gradient: clip_ratio={args.muonh_agc_clip_ratio} eps={args.muonh_agc_eps}", console=True)
 else:
@@ -856,6 +884,8 @@ if dist.get_rank() == 0:
             "muonh_mu_start": args.muonh_mu_start,
             "muonh_mu_end": args.muonh_mu_end,
             "polyak_ema_decay": args.polyak_ema_decay,
+            "z_loss_weight": args.z_loss_weight,
+            "ns5_num_iterations": args.ns5_num_iterations,
         },
     )
 
@@ -1166,7 +1196,8 @@ for trial_idx in range(args.num_trials):
         assert len(inputs) % mbs == 0
         step_loss = torch.zeros((), device=device)
         for i in range(len(inputs) // mbs):
-            loss = model(inputs[i*mbs:(i+1)*mbs], targets[i*mbs:(i+1)*mbs])
+            loss = model(inputs[i*mbs:(i+1)*mbs], targets[i*mbs:(i+1)*mbs],
+                         z_loss_weight=args.z_loss_weight)
             step_loss += loss.detach()
             loss.backward()
         for name, p in model.named_parameters():
