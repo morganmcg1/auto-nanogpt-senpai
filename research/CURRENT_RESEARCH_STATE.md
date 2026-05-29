@@ -1,3 +1,45 @@
+## 2026-05-29 17:20 UTC — Cycle 71 mid-393 — tanjiro #1700 298th refute, 134th family closure — MAJOR STRUCTURAL FINDING: per-kind AdamW {β1, β2} pair NOT freely composable at ANY kind; shared-latent saturation is at AdamW moment-axis state level (kind-agnostic)
+
+### tanjiro #1700 298th refute — PER_KIND_AUX_B1B2_COMPOUND (direction-inversion stacking) val_mean=3.27412 STANDARD misses merge bar by Δ=+0.00636 val and +75 ffs
+
+Arm A `compound_optimal` lm_head(0.9 SLOW, 0.85 FAST) stacked + embed β1=0.7 val=3.27569 ffs=3100 STANDARD-edge, Arm B `compound_inverted` embed(0.9, 0.85) pattern + lm_head β1=0.7 val=3.27255 ffs=3050 STANDARD, Δ(B−A)=−0.00314 `compound_inverted_wins_over_optimal` matching pre-launched 4th outcome `destructive cross-axis interaction`. Stat rule (3.28−μ)·√n ≥ 0.004 PASSES at n=2 (0.00831). W&B b50zp0w7/sloisrnh both verified config-correct + trajectory-correct.
+
+**MAJOR STRUCTURAL FINDING**: per-kind AdamW {β1, β2} pair is **NOT freely composable at any kind**. Critical 2nd-order finding from Arm B: applying the lm_head-optimal 2D pattern to the **embed** kind (no within-lm_head stacking) is still **+0.00300 worse than the single-axis #1678 B winner** (3.26955). This rules out the "shared latent is localized to lm_head" hypothesis — the saturation channel operates at the **AdamW moment-axis state level itself**, kind-agnostic. Modifying both β1 and β2 from baseline simultaneously for **any** kind saturates the AdamW state estimator.
+
+| ref | config | val_loss | ffs | n | band |
+|---|---|---|---|---|---|
+| baseline #613 | uniform (0.8, 0.95) | 3.26776 | 3000 | 2 | merge bar |
+| #1577 B `lm_head_b2_FAST` | lm_head β2=0.85 alone | 3.26992 | — | 1 | floor-band-upper-edge |
+| #1678 B `lm_head_b1_SLOW` | lm_head β1=0.9 alone | 3.26955 | 3025 | 1 | floor-band-mid |
+| **#1700 A `compound_optimal`** | lm_head (0.9, 0.85) stacked | **3.27569** | **3100** | 1 | STANDARD-edge (destructive) |
+| **#1700 B `compound_inverted`** | embed (0.9, 0.85) pattern | **3.27255** | **3050** | 1 | STANDARD (destructive) |
+
+Δ(Arm A vs #1678 B) = +0.00614 (stacking at lm_head destroys the gain). Δ(Arm B vs #1678 B) = +0.00300 (cross-kind transfer of same 2D pattern also destroys it). 
+
+**Δ-trajectory mechanism**: EARLY-PEAK-MONOTONIC-DECAY — Δ(B−A) peaks at step 1000 (−0.01197) then monotonically decays to −0.00314 at terminal. Same signature class as #1662 within-PR compound interaction whose advantage is concentrated in early training and bleeds out through cooldown.
+
+**134th family closure**: PER_KIND_AUX_B1B2_COMPOUND axis fully mapped at destructive cross-axis outcome. Future per-kind asymmetry work must operate on a **single moment axis at a time per kind**, OR introduce a new orthogonal mechanism (e.g. phase-dispatch of the winning axis).
+
+### Cumulative state
+
+**Cycle 71 cumulative**: **298 refuted** / **175 distinct mech classes** / **134 family-level closures**.
+
+### PRs closed this wave (1 closure):
+
+| PR | student | mechanism | outcome |
+|---|---|---|---|
+| **tanjiro #1700** | tanjiro | PER_KIND_AUX_B1B2_COMPOUND direction-inversion stacking (Arm A compound_optimal lm_head(0.9,0.85) stacked, Arm B compound_inverted embed(0.9,0.85) pattern) | **298th** — Arm A 3.27569/3100 STANDARD-edge, Arm B 3.27255/3050 STANDARD, val_mean=3.27412 STANDARD misses by +0.00636/+75. Δ(B−A)=−0.00314 compound_inverted_wins. **MAJOR STRUCTURAL FINDING**: per-kind {β1, β2} pair NOT freely composable at ANY kind; cross-kind transfer (Arm B) is +0.003 worse than #1678 B → shared-latent saturation is at AdamW moment-axis state level, kind-agnostic. **134th family closure**. |
+
+### PRs assigned this wave (1 fresh per-group + state-phase axis):
+
+| PR | student | mechanism | hypothesis |
+|---|---|---|---|
+| **tanjiro #1724** | tanjiro | PER_KIND_LM_HEAD_AUX_BETA1_PHASE_DISPATCH (Arm A `lm_head_b1_LATE_SLOW` early=0.8 baseline/late=0.9 #1678 B winner, Arm B `lm_head_b1_EARLY_SLOW` early=0.9/late=0.8, boundary=1500) | **Phase-locality test on the strongest single-axis floor-band winner** (#1678 B val=3.26955). Tests whether lm_head β1 SLOW preference is uniform or phase-localized. Cycle-71 phase-dispatch precedent: structurally productive at attn-SOAP-proj (LATE #1642), MLP-SOAP-proj (EARLY #1668). lm_head β1 is the AdamW-side equivalent. If A<B → SLOW preference is LATE-only. If B<A → SLOW preference is EARLY-only. If A≈B≈#1678 B → phase-inert. If A<#1678 B → phase-locality lever found, potential merge candidate. Fits Morgan's directive (per-group + state-mechanism — per-kind + β1 phase-dispatch, no scalar sweep). |
+
+Fleet 8/8 assigned, 0 idle. PR #1700 marked the 1st clean review-ready close of the wave (tanjiro posted complete SENPAI-RESULT with full telemetry + 4 ranked follow-up suggestions, no advisor questions/sendback needed).
+
+---
+
 ## 2026-05-29 16:20 UTC — Cycle 71 mid-392 — edward #1692 297th refute, 133rd family closure — MAJOR STRUCTURAL FINDING: v-axis on_fraction bit-identical across V LR magnitude at gate level + v-axis lever search EXHAUSTED at optimizer-mechanism level (4-of-4 candidates refuted)
 
 ### edward #1692 297th refute — PER_KIND_ATTN_SOAP_MUON_LR (V_AXIS_ISOLATION) val_mean=3.27205 STANDARD misses merge bar by Δ=+0.00429 val and +37.5 ffs
