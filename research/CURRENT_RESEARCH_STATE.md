@@ -1,89 +1,85 @@
 # SENPAI Research State — auto-nanogpt-1gpu-r1
 
-- **Last update: 2026-05-29 13:05 UTC**
+- **Last update: 2026-05-29 13:50 UTC**
 - **Current baseline:** PR #1532 (aux Adam β₂ pulse 0.95→0.99 @ step 975). val_ema=3.262854, sr=2875 (n=2).
 - **Canonical defaults (post #1614):** β₂ pulse fires automatically at step 975 in all new runs — no flag needed.
 - **Merge gate:** `sr ≤ 2862.5 OR (sr=2875 AND val_ema < 3.262854)`
 
-## 🚧 PLATEAU PROTOCOL ENGAGED — pre-target body Muon scalar mechanism family exhausted
+## 🚧 PLATEAU PROTOCOL ENGAGED — deep exhaustion of pre-target window mechanisms
 
-**alphonse #1637 HOT WIN candidate REJECTED at n=2.** Sub-noise seed-1 (val_ema=3.262770, sr=2875, Δ=−0.084 mnat) was within seed variance: seed-2 came back val_ema=3.2658, sr=2925. Aggregate n=2 mean: val_ema=3.26428, sr=2900 — both gate clauses fail. **PR #1637 CLOSED.**
+**Session NULLs extending the plateau:**
+- alphonse #1637 (LR-UP ×1.25 seed-2) — NULL at n=2 aggregate
+- thorfinn #1660 (NS polynomial coefficients bilateral) — NULL: both conservative-quintic and Jordan-aggressive degrade vs canonical cubic Newton
+- tanjiro #1648 (per-group β₂ recipient axis) — bilateral NULL
 
-This was the only WIN candidate across 5+ pre-target body Muon mechanism axes. Combined with:
-- thorfinn NS coefs Arm A NULL (sr=2925)
-- edward beta_cov-975 NULL (sr=2925)
-- nezuko γ pulse Arm A trending NULL (sr=2925)
-- thorfinn NS coefs Arm B trending NULL (sr=2925)
-- fern aux LR bilateral NULL (#1646)
-- frieren aux β₂ Arm A NULL
-- tanjiro per-group β₂ bilateral NULL
+**Exhausted axes:**
+- **Pre-target body Muon scalars (ALL NULL):** LR-UP, LR-DOWN (in flight), γ, μ (in flight), NS-coefs, β₁, β₂, β_cov pulse@975 (NULL), weight_decay (in flight), Nesterov, schedule-free
+- **β₂ pulse mechanism:** amplitude, timing, shape, per-group recipient — ALL NULL except canonical 0.95→0.99 @ 975
+- **Optimizer family replacements:** AdEMAMix (17 closed), Lookahead (10+ closed, FULLY CLOSED), Sophia (7), Lion (10+), Adan (8+), GrokFast (2), AdaBelief (8+), AMSGrad (2), ADOPT-aux (2)
+- **Covariance refresh:** L_cov/R_cov at steps 975/2275/2600/cooldown-start — all NULL
 
-**Pattern: 8+ NULLs in pre-target/short-pulse scalar mechanism family.** Body Muon's update computation has been comprehensively probed at every scalar axis.
-
-**Escalation**: move up a tier of abstraction. Next direction = **wrapper optimizers on body Muon** (parameter-level structural change, not scalar tune). First wrapper: **Lookahead** (alphonse #1701).
+**Tier escalation progress:**
+- Tier 1 (scalar pulses): ≥12 NULLs — exhausted
+- Tier 2a (wrapper optimizers): Lookahead FULLY CLOSED in r1. **ADOPT-style async whitening (#1703) — FIRST NOVEL TIER-2 TEST**
+- Tier 2b (pEMA compounding): Second paramEMA refresh (#1704) — test stacking the confirmed WIN
 
 ## Active assignments (all 8 students engaged, zero idle)
 
 | PR | Student | Experiment | Status | ETA |
 |---|---|---|---|---|
-| #1666 | edward | Body Muon `beta_cov` pulse @ step 975/2600 | Arm A NULL; Arm B `rb6wi7b6` step ~1975 | ~14:30 UTC |
-| **#1701** | **alphonse** | **🆕 Lookahead-style outer optimizer wrapper on body Muon (k=5, k=10)** | **JUST ASSIGNED — plateau escalation** | **~21:00 UTC** |
-| #1686 | askeladd | Pre-target body Muon μ transient pulse 0.95→{0.97, 0.99} | Arm A `njbgdsep` step ~1300/3250 | ~17:00 UTC |
-| #1680 | nezuko | Pre-target PMuon γ pulse 0.4→{0.50, 0.60} | Arm A `92tyetjn` step ~3050 (trending NULL sr=2925) | ~13:15 UTC |
-| #1693 | fern | Pre-target body Muon wd BILATERAL pulse {0.0, 0.05} | Arm A `i0s55pdw` step ~1400/3250 | ~17:00 UTC |
-| #1667 | frieren | Pre-target aux β₂ transient spike — Arm A NULL; Arm B `3mzqajdn` running | running | ~14:30 UTC |
-| #1697 | tanjiro | Pre-target body Muon LR DROP bilateral ×{0.75, 0.50} | Pickup pending | ~19:00 UTC |
-| #1660 | thorfinn | Pre-target NS coefficient pulse — Arm A NULL; Arm B `eif52h8a` step ~2950 (sr=2925 trending NULL) | running | ~14:00 UTC |
+| **#1703** | **alphonse** | **ADOPT async whitening on body PMuon (identity-init vs zeros-warmup50)** | **Just assigned** | **~21:30 UTC** |
+| **#1704** | **thorfinn** | **Stacked 2nd pEMA refresh at step 2750 vs 2850** | **Just assigned** | **~21:30 UTC** |
+| #1686 | askeladd | Pre-target body Muon μ transient pulse 0.95→{0.97, 0.99} | Arm A `njbgdsep` running | ~17:00 UTC |
+| #1680 | nezuko | Pre-target PMuon γ pulse 0.4→{0.50, 0.60} | Arm A `92tyetjn` running | ~13:30 UTC |
+| #1693 | fern | Pre-target body Muon wd BILATERAL pulse {0.0, 0.05} | Arm A `i0s55pdw` running | ~17:00 UTC |
+| #1667 | frieren | Pre-target aux β₂ transient spike 0.99→{0.995, 0.999} | Arm B `3mzqajdn` running | ~14:30 UTC |
+| #1697 | tanjiro | Pre-target body Muon LR DROP ×{0.75, 0.50} | Pickup pending | ~19:00 UTC |
+| #1666 | edward | Body Muon beta_cov pulse 0.95→0.99 @ step 975/2600 | Arm B `rb6wi7b6` running | ~14:30 UTC |
 
 ## Research portfolio focus
 
-**TIER ESCALATION: from scalar mechanism pulses → wrapper optimizers**
+**Tier escalation: from scalar mechanism pulses → structural/compounding mechanisms**
 
 | Direction | Mechanism class | Status |
 |---|---|---|
-| Tier 1: Scalar pulses (LR, γ, μ, wd, β₂, beta_cov, NS coefs) | Inner-state hyperparameters | 8+ NULLs — exhausted |
-| **Tier 2: Wrapper optimizers (Lookahead, Slow Momentum, SOAP-style)** | **Outer-loop parameter dynamics** | **#1701 alphonse Lookahead (k=5, k=10)** |
-| Tier 3: Architectural changes (block routing, weight tying, activation gating) | Structural | not yet engaged |
-| Tier 4: Loss-level reformulation (z-loss, auxiliary losses) | Objective | not yet engaged |
+| Tier 1: Scalar pulses (LR, γ, μ, wd, β₂, beta_cov, NS coefs) | Inner-state hyperparameters | ≥12 NULLs — exhausted |
+| **Tier 2a: ADOPT async whitening (#1703)** | Update-rule order swap (no in-sample bias) | **FIRST TEST — just assigned** |
+| **Tier 2b: pEMA stacking (#1704)** | Compound confirmed WIN mechanism | **FIRST TEST — just assigned** |
+| Tier 3: Wrapper optimizers (Slow Momentum, SOAP-style) | Outer-loop parameter dynamics | queued if #1703 NULL |
+| Tier 4: Architectural/loss changes | Structural | not yet engaged |
 
 **Body Muon pre-target axes — DEFINITIVELY MAPPED**
 
-| Axis | Mechanism | Status |
-|---|---|---|
-| LR magnitude UP (×1.25, ×1.5) | alphonse #1637 | ❌ Sub-noise seed-1, n=2 NULL |
-| LR magnitude DOWN | tanjiro #1697 | in flight |
-| γ whitening exponent | nezuko #1680 | Arm A trending NULL |
-| μ momentum depth | askeladd #1686 | in flight |
-| NS polynomial coefs | thorfinn #1660 | Arm A NULL, Arm B trending NULL |
-| weight_decay | fern #1693 | in flight |
-| beta_cov pulse @ 975 | edward #1666 Arm A | ❌ NULL |
-| beta_cov pulse @ 2600 | edward #1666 Arm B | in flight |
-| Nesterov momentum | frieren #1605 | ❌ NULL bilateral |
-| Schedule-free | tanjiro #1576 | ❌ NULL |
-
-**β₁ axis — BILATERALLY CLOSED** (RAISE #1592 + DROP #1639 NULL). β₁=0.80 unique local optimum.
+| Axis | Status |
+|---|---|
+| LR UP (×1.25, ×1.5) | ❌ NULL (n=2 seed variance) |
+| LR DOWN (×0.75, ×0.50) | in flight #1697 |
+| γ whitening exponent | in flight #1680, Arm A trending NULL |
+| μ momentum depth | in flight #1686 |
+| NS polynomial coefficients (BILATERAL) | ❌ NULL #1660 — axis fully closed |
+| NS iteration count | not yet tested phase-specifically |
+| weight_decay | in flight #1693 |
+| beta_cov pulse @ 975 | ❌ NULL #1666 Arm A |
+| beta_cov pulse @ 2600 | in flight #1666 Arm B |
+| ADOPT async whitening (update order) | #1703 — NOVEL, 0 prior PRs |
+| Nesterov momentum | ❌ NULL bilateral |
+| Schedule-free | ❌ NULL |
+| β₁ axis | ❌ BILATERALLY CLOSED (#1592, #1639) |
 
 **β₂ pulse mechanism mapping — COMPREHENSIVELY CLOSED** (amplitude, timing, shape, β₁ pulse, per-group recipient all NULL except canonical 0.95→0.99 @ 975).
 
 ## Key closed findings (session)
 
-- **#1637 alphonse CLOSED (n=2 NULL)**: pre-target body Muon LR ×1.25 sub-noise seed-1 (val_ema 3.262770, sr 2875) NOT confirmed by seed-2 (val_ema 3.2658, sr 2925). Aggregate fails gate. WIN was seed variance.
-- **#1660 thorfinn Arm A NULL**: pre-target NS-coef conservative quintic NULL.
-- **#1648 tanjiro NULL (bilateral)**: per-group β₂ at step 975 bilaterally NULL.
-- **#1646 fern NULL (bilateral)**: aux-side pre-target LR boost NULL. Pre-target bottleneck definitively body-Muon-specific (... but body-Muon-side is also broadly NULL on scalar axes).
-- **#1639 askeladd NULL (bilateral DROP)**: β₁ axis FULLY closed.
-- **#1666 edward Arm A NULL**: body Muon `beta_cov` pulse @ step 975 NULL.
-- **#1634 nezuko NULL (bilateral)**: β₂ smooth-ramp shape axis fully closed.
-- **#1622 edward NULL (bilateral)**: Body Muon momentum reset/damp. Momentum is load-bearing.
-- **#1605 frieren NULL (seed-2)**: β₂ timing axis fully closed.
-- **#1607 tanjiro NULL (bilateral)**: β₂ amplitude axis FULLY CLOSED.
+- **#1660 thorfinn BILATERAL NULL**: NS polynomial profile (conservative quintic + Jordan-aggressive) at fixed NS_ITERS=12 in pre-target window. Canonical cubic Newton (1.5, -0.5, 0.0) is robustly optimal. NS precision-axis definitively closed.
+- **#1701 alphonse CLOSED (redundant)**: Lookahead wrapper was 10+ prior NULLs; closed before pod pickup. Lookahead family FULLY CLOSED in r1.
 
-## Next directions queue (post-Lookahead)
+## Next directions queue
 
-If Lookahead NULL: pivot to other wrappers:
-- **Slow Momentum** (Wang & Singer) — different averaging structure
-- **SOAP / Shampoo-style preconditioner** for body Muon — replace bilateral whitening with full Kronecker
-- **AdaShift** wrapper — variant of Adam with shifted moment estimation
-- **Block-routing-aware gradient scaling** — gradient weighting by transformer block depth (architectural-ish)
+After current wave of in-flight experiments:
 
-If Lookahead Arm A or B WIN: sweep k and α to find Goldilocks; investigate stacking with EMA refresh.
+1. **Slow Momentum (Wang & Singer)** — if async whitening (#1703) NULL, try different averaging structure
+2. **NS_ITERS burst at pre-target window** (12→14/16 during 2750-2900) — thorfinn follow-up if #1704 result is informative
+3. **Per-block-depth beta_cov dispatch** — depth-stratified covariance EMA (not yet tried as bilateral depth partition)
+4. **Body Muon SOAP-style preconditioner via off-diagonal L/R refresh** (fern #1654 on r1 separate branch)
+5. **Pre-target UW floor PULSE** (researcher-agent suggestion): raise `TARGET_UW` from 0.35 to {0.45, 0.55} transiently during steps 2750-2900, then revert. #1269 (phase-gated 2500-3250) was NULL but a 150-step pre-target pulse is distinct. NEXT thorfinn assignment after #1704 results.
+6. **AdaShift wrapper** — variant of Adam with shifted moment estimation for aux side

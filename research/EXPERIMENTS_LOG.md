@@ -15,18 +15,20 @@
 
 - **Analysis**: seed-1 sub-noise WIN (0.084 mnat) was within typical seed variance (~1-2 mnat). Seed-2 dramatically regressed (+50 sr, +2.95 mnat val_ema). Aggregate n=2 mean fails both gate clauses (sr=2900 > 2862.5; sr=2900 ≠ 2875). **Pre-target body Muon LR-UP axis closed within noise.** This is the 8th NULL in pre-target body-Muon scalar mechanism family (LR-UP, LR-DOWN, γ, μ, NS coefs, beta_cov-975, Nesterov, schedule-free) → **PLATEAU PROTOCOL engaged**: escalating to wrapper optimizers (Lookahead first, #1701).
 
-## 2026-05-29 11:35 UTC — PR #1660 thorfinn: Pre-target NS coefficient pulse (Arm A conservative quintic) — ❌ Arm A NULL, Arm B in flight
+## 2026-05-29 13:37 UTC — PR #1660 thorfinn: Pre-target NS coefficient pulse — ❌ BILATERAL NULL (NS precision-axis fully closed)
 
 - Branch: `g1r1-thorfinn/pretarget-ns-coef-pulse`
-- Hypothesis: pulse NS polynomial coefficients during steps 2750-2900 to test precision vs magnitude bottleneck in body Muon.
-- W&B: Arm A `g68ikq9z` (conservative quintic 2.0, -1.5, 0.5), Arm B `eif52h8a` running
+- Hypothesis: pulse NS polynomial coefficients (a, b, c) during pre-target window steps 2750-2900 to test whether orthogonalization precision is a bottleneck in the target-crossing window (orthogonal to alphonse #1637 LR magnitude test).
+- W&B: Arm A `g68ikq9z` (conservative quintic 2.0, -1.5, 0.5), Arm B `eif52h8a` (Jordan-aggressive 3.4445, -4.7750, 2.0315)
 
-| Arm | NS coefs | val_loss_ema | val_loss_live | sr | Δval vs baseline | Verdict |
+| Arm | NS coefs during 2750-2900 | val_loss_ema | val_loss_live | sr | Δval vs baseline | Verdict |
 |---|---|---:|---:|---:|---:|---|
-| A (conservative) | (2.0, -1.5, 0.5) | 3.2645 | 3.2639 | 2925 | +1.65 mnat | ❌ NULL |
-| Baseline #1532 | NS_A=1.5, NS_B=-0.5, NS_C=0.0 | 3.262854 | — | 2875 | — | — |
+| A (conservative quintic) | (2.0, -1.5, 0.5) | 3.264458 | 3.263865 | 2925 | +1.60 mnat | ❌ NULL |
+| B (Jordan-aggressive) | (3.4445, -4.7750, 2.0315) | 3.264214 | 3.263632 | 2925 | +1.36 mnat | ❌ NULL |
+| Baseline #1532 | (1.5, -0.5, 0.0) canonical | 3.262854 | — | 2875 | — | — |
 
-- **Analysis:** Arm A +50 sr slip vs canonical. Conservative quintic perturbation in pre-target window does not steepen descent. Arm B in flight (~step 1775/3250); awaiting terminal.
+- **Analysis:** Both arms slip by +50 sr and +1.4-1.6 mnat vs canonical. Canonical cubic Newton (1.5, -0.5, 0.0) at NS_ITERS=12 is robustly optimal for the cooldown crossing window. Both slower-contraction (conservative quintic) and faster-contraction (Jordan-aggressive, designed for ≤6 iters) degrade slightly but consistently — the polynomial was tuned for NS_ITERS=12 iterations. **NS polynomial profile precision-axis DEFINITIVELY CLOSED.** Orthogonalization precision is NOT a bottleneck; magnitude (alphonse) is. Do NOT stack NS pulse with alphonse's ×1.25 LR boost — would partially offset WIN rather than compound.
+- **Follow-up rejected:** NS_ITERS burst (12→14/16 in pre-target window) would be the logical next test but is in-scope for the exhausted pre-target body Muon scalar family. Not pursued.
 
 ## 2026-05-29 11:35 UTC — PR #1648 tanjiro: Per-group aux Adam β₂ pulse (embed-only vs non-embed) — ❌ BILATERAL NULL (per-group recipient axis fully closed)
 
