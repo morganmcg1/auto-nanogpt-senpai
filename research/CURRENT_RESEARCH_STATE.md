@@ -1,6 +1,68 @@
 # SENPAI Research State — auto-nanogpt-1gpu-r3
 
-- **Last updated:** 2026-05-29 05:55 UTC
+- **Last updated:** 2026-05-29 06:10 UTC
+
+---
+
+## Cycle ~1535: H256 CLOSED (**113th NULL/NEG**, both treatment arms NEG including arm_b CATASTROPHIC +49σ_H174 NEG H250-class crossover failure a-priori-PREDICTED and CONFIRMED, 🎯 **PROGRAMME FINDING #56 candidate STRENGTHENED to 4 axes — outer-step temporal axis structurally rigid** + 🎯 **mid-trajectory advantage interpretation heuristic CONFIRMED** + 🎯 **H246 framing REFUTED for outer Nesterov SGD form**) + H264 edward ASSIGNED **60th mechanism class — Lookahead wrapper around body MuonH-SI (BOLD wrapper-class swing)**
+
+**Key closure this cycle:**
+
+- **H256 edward Outer LR temporal schedule (PR #1627)** — **113th NULL/NEG closure**, both treatment arms NEG. arm_a CTRL constant `nr67fegu` FFS=**3025 EXACT** val=3.267689 (drift-FREE 8th CTRL Pattern A confirmed). arm_b COOLDOWN_MATCHED `q0xe7kkr` val=**3.311187** FFS=**−1** (CATASTROPHIC +49σ_H174 NEG, H250-class crossover failure as a-priori-PREDICTED at cycle ~1500). arm_c WARMUP_THEN_CONST `oavcquf3` val=3.278281 FFS=**3225 (+200)** (mild NEG +12σ_H174).
+
+  **🎯 PROGRAMME FINDING #56 candidate STRENGTHENED to 4 axes** (outer-step temporal axis structurally rigid): H242 body warmup + H250 aux cooldown + H252 sync_interval + **H256 (NEW) outer LR temporal schedule**. H258 thorfinn outer momentum VALUE in flight — if also NULL/TIE, PF#56 reaches **5-axis PROMOTION-grade** status.
+
+  **🎯 mid-trajectory advantage interpretation heuristic CONFIRMED** (introduced cycle ~1530 from H254 fern closure): "load-bearing dynamic must complete before terminal — H256 outer LR cosine-match was load-bearing throughout, when it diverged from H203 in late cooldown, mid-trajectory illusion REVERSED catastrophically (+105σ_H174 advantage at step 1500 → +49σ_H174 NEG at terminal)". The heuristic transfers across mechanism classes: H250 (aux cooldown shape) → H256 (outer LR cosine-match) = same crossover signature. Future "mid-trajectory promising" candidates should be screened against this heuristic BEFORE chain completion.
+
+  **🎯 H246 framing REFUTED for outer Nesterov SGD form**: The H246 insight "outer step magnitude needs to cooldown with body" is **wrong for outer Nesterov SGD form**. Constant `outer_lr=0.7` is structurally load-bearing on the late convergence manifold, NOT a flaw to fix. Cosine-decaying `outer_lr` to ~0 in the final ~30% deprives MuonH-SI's late convergence phase of the outer-step structure. edward's framing: "Constant `outer_lr=0.7` sits on a temporally rigid optimum."
+
+  **🎯 Pattern A 4-mechanism-class consolidation**: arm_a CTRL drift-FREE confirms Pattern A for outer-LR temporal scheduling — 4th distinct mechanism class (aux schedule H248 + aux cooldown H250 + body init dispatch H253 + outer LR schedule H256). Pattern A is well-consolidated across schedule-axis interventions.
+
+**New assignment:**
+
+- **H264 edward ASSIGNED (PR #1655) — 60th mechanism class: Lookahead wrapper around body MuonH-SI (BOLD wrapper-class swing)**. Per plateau protocol (113+ NULL/NEG cumulative), BOLD swings warranted. Lookahead (Zhang et al. 2019) maintains "slow weights" φ lagging fast weights θ via linear interpolation: every k inner steps, `φ ← φ + α × (θ - φ); θ ← φ`. Structurally distinct from MuLoCo (linear interpolation vs Nesterov correction, memoryless vs velocity-carrying). Tests novel composition of Lookahead ON TOP of MuLoCo. 3-arm: CTRL no lookahead / LOOKAHEAD_K10_A05 (k=10, α=0.5) / LOOKAHEAD_K5_A05 (k=5, α=0.5). K values deliberately chosen to NOT divide sync_interval=30 (no constructive interference at fixed phases). Pattern A drift-FREE implementable. WIN probability 20-30%.
+
+**Survey state after cycle ~1535**: 8/8 students WIP (alphonse H257, fern H263, frieren H262, thorfinn H258, tanjiro H259, nezuko H260, askeladd H261, **edward H264 just assigned**). 0 idle students. 0 review-ready PRs. H256 closed as 113th NULL/NEG. No new human directives.
+
+**Programme totals after cycle ~1535:**
+- **113 NULL/NEG closures** (+1 from H256 this cycle)
+- **60 mechanism classes** (+1; H264 Lookahead wrapper)
+- PROGRAMME FINDING #51 candidate (body cooldown SHAPE locked at cosine cf=1.0)
+- **PROGRAMME FINDING #56 candidate at 4 axes** (aux/body/outer schedule + outer LR temporal schedule structurally rigid — STRENGTHENED this cycle)
+- PROGRAMME FINDING #58 candidate at 5 axes — CLOSURE-GRADE / PROMOTION (Stiefel-aware mechanism cluster)
+- PROGRAMME FINDING #59 candidate (NS5 orthogonalization geometrically load-bearing)
+- 6 safe-fix templates documented (A/B/C/D-strict/D-loose/E); 2 drift classes (drift-FREE / +25 σ_FFS noise)
+- 9 drift-FREE CTRL instances cumulative
+- **"Mid-trajectory advantage interpretation heuristic" CONFIRMED** across H250 + H256 mechanism classes
+- "Fighting the attractor" + monotonic-harm + NS5 contractive-basin diagnostic + σ_FFS noise refinement stack mature
+
+**Exploration territory map updates after cycle ~1535:**
+
+| Axis | State (delta from cycle ~1530) |
+|---|---|
+| **Lookahead wrapper around body** | **H264 WIP (edward, just assigned) — 60th class, BOLD wrapper-class swing** |
+| Outer LR temporal schedule | **CLOSED bilateral NEG including arm_b CATASTROPHIC (H256 edward) — 113th NULL/NEG, PF#56 STRENGTHENED to 4 axes** |
+| Sphere parallel-transport momentum | H257 alphonse arm_c PT_COOLDOWN mid-run pending terminal |
+| MuLoCo pruning ablation | H263 fern WIP — 59th class, BOLD stack-pruning swing |
+| Body warmup steps VALUE | H262 frieren WIP — 58th class |
+| Aux Sophia preconditioner FORM | H261 askeladd WIP — 57th class, BOLD plateau-protocol swing #2 |
+| Aux Lion optimizer FORM replacement | H260 nezuko WIP — 56th class, BOLD plateau-protocol swing #1 |
+| Outer Nesterov momentum VALUE | H258 thorfinn WIP — 54th class (if NULL/TIE → PF#56 5-axis PROMOTION) |
+| NS5 iteration COUNT VALUE | H259 tanjiro WIP — 55th class, direct follow-up to PF#59 |
+
+**Frontier observations for cycle ~1540+:**
+
+1. **Plateau protocol active, 4 BOLD swings now WIP**: H260 Lion (aux), H261 Sophia (aux), H263 MuLoCo pruning (stack), **H264 Lookahead (wrapper, NEW)**. Diversified across aux FORM (2), stack pruning (1), wrapper class (1). Next bold swing candidates if all NULL: schedule-free MuonH, AdEMAMix aux (slow+fast EMA mixture), depth-scaled body init, NS5 polynomial coefficient TARGETED retuning.
+
+2. **PF#56 5-axis PROMOTION imminent**: H258 outer momentum VALUE closure pending. If H258 closes NULL/TIE, PF#56 reaches 5-axis support (body warmup + aux cooldown + sync_interval + outer LR temporal + outer momentum VALUE) — qualifies for PROMOTION from candidate to established programme finding. Would eliminate ~10-20 future schedule-axis hypotheses without further compute (massive resource savings).
+
+3. **Mid-trajectory advantage interpretation heuristic MATURED**: established across H250 (aux cooldown shape) + H256 (outer LR cosine-match) mechanism classes. The heuristic is now a campaign-level pre-launch filter: any "mid-trajectory promising" candidate must show that its load-bearing dynamic completes before terminal, OR that its terminal mechanism is consistent with H203's late-cooldown structure.
+
+4. **Lookahead-MuLoCo composition is novel programme question**: H264 edward tests whether two distinct outer-loop wrappers (Lookahead's linear interpolation vs MuLoCo's Nesterov correction) compose constructively or destructively. Literature (Zhang et al. 2019) only tested Lookahead solo + Adam. This composition is genuinely novel.
+
+5. **σ_FFS noise refinement** (introduced cycle ~1530 from H254 fern) now applies to interpretation of drift-class outcomes: Pattern D-loose +25 is probabilistic noise NOT mechanism-specific certification.
+
+6. **Edward's analytic strength**: H256 closure was gold-standard methodological reference for a-priori-prediction validation. Their mid-trajectory crossover analysis + H246 framing refutation matches alphonse/askeladd/frieren gold-standard tier. Quality of analysis on H264 expected to be high.
 
 ---
 

@@ -1,3 +1,71 @@
+## 2026-05-29 06:00 — PR #1627: H256 edward Outer LR temporal schedule (constant/cosine_matched/linear_warmup) — CLOSED (**113th NULL/NEG closure**, both treatment arms NEG including arm_b CATASTROPHIC NEG (+49σ_H174 H250-class crossover failure a-priori-PREDICTED and CONFIRMED), 🎯 **PROGRAMME FINDING #56 candidate STRENGTHENED to 4 axes** + 🎯 **mid-trajectory advantage interpretation heuristic CONFIRMED** + 🎯 **Pattern A 4-mechanism-class consolidation** + **8th drift-FREE CTRL instance**)
+
+- Branch: H256 edward (52nd class — MuLoCo outer Nesterov SGD step magnitude temporal scheduling)
+- Student terminal SENPAI-RESULT at 04:32 UTC May 29 with phase-by-phase trajectory analysis, mid-trajectory crossover narrative, mechanistic H246-framing refutation.
+
+| Arm | run_id | schedule | step-0 val | val/loss | FFS | Δval vs CTRL | Decision |
+|---|---|---|---|---|---|---|---|
+| arm_a CTRL | `nr67fegu` | constant (0.7 flat) | 10.82583 EXACT | **3.267689** | **3025 EXACT** | — | **drift-FREE 8th CTRL Pattern A** |
+| arm_b COOLDOWN_MATCHED | `q0xe7kkr` | cosine_matched (0.7→~0) | 10.82583 EXACT | **3.311187** | **−1 NEVER REACHED 3.28** | +0.04350 (+49.2σ_H174) | **CATASTROPHIC NEG (a-priori PREDICTED)** |
+| arm_c WARMUP_THEN_CONST | `oavcquf3` | linear_warmup 500 steps | 10.82583 EXACT | 3.278281 | **3225 (+200)** | +0.01059 (+12σ_H174) | **mild NEG (fails margin)** |
+
+### Statistical rule check `(3.28 − μ) × √n ≥ 0.004`
+- arm_a CTRL: `(3.28 − 3.267689) × √1 = 0.01231` ≥ 0.004 ✓ AND FFS=3025 EXACT BASELINE → drift-FREE
+- arm_b COOLDOWN_MATCHED: `(3.28 − 3.311187) × √1 = -0.03119` ✗ MASSIVE failure (CATASTROPHIC)
+- arm_c WARMUP_THEN_CONST: `(3.28 − 3.278281) × √1 = 0.00172` < 0.004 ✗ AND FFS=3225 +200 NEG
+
+### Primary metric decision
+
+Both treatment arms unambiguous NEG. arm_b CATASTROPHIC NEG (+49σ_H174, FFS=−1). arm_c mild NEG (+12σ_H174, FFS=3225). **CLOSE — 113th NULL/NEG cumulative.**
+
+### 🎯 a-priori prediction VALIDATED — H250-class crossover failure heuristic
+
+At cycle ~1500 advisor refresh, the H250-class crossover failure was explicitly predicted:
+
+> "If lead collapses by step 3000, that's the H250-class mechanism (late-phase outer step still needed for final convergence)."
+
+W&B confirms arm_b mid-trajectory at step 1500 was −0.093 val ahead (~105σ_H174 advantage), then collapsed to +0.044 val NEG (+49σ_H174) at terminal. **This is a clean a-priori-predicted failure mode validation.** The mid-trajectory advantage interpretation heuristic (introduced last cycle from H254 fern closure) is now CONFIRMED: "load-bearing dynamic must complete before terminal — H256 outer LR cosine-match was load-bearing throughout, when it diverged from H203 in late cooldown, mid-trajectory illusion REVERSED catastrophically."
+
+### 🎯 PROGRAMME FINDING #56 candidate STRENGTHENED to 4 axes
+
+H256 outer LR temporal scheduling fails in BOTH tested directions — cosine_matched (late attenuation) CATASTROPHIC, linear_warmup (early attenuation) mild NEG. Combined with prior closures, the outer-step structural rigidity finding is now 4-axis supported:
+
+| Axis | Hypothesis | Result | Cycle |
+|---|---|---|---|
+| H242 | Body warmup steps VALUE | NULL/+25 monotonic | ~1395 |
+| H250 | Aux cooldown shape VALUE | NULL/CATASTROPHIC NEG | ~1480 |
+| H252 | MuLoCo sync_interval VALUE | NULL/drift-class TIE | ~1515 |
+| **H256** | **Outer LR temporal schedule (cosine_matched + linear_warmup)** | **NULL/CATASTROPHIC + mild NEG** | **~1535 (NOW)** |
+
+4-axis support. H258 thorfinn outer momentum VALUE in flight — if also NULL/TIE, PF#56 candidate reaches **5-axis** PROMOTION-grade status.
+
+### 🎯 Mechanistic narrative — H246 framing was WRONG for outer Nesterov SGD
+
+The H246 insight "outer step magnitude needs to cooldown with body" is **wrong for outer Nesterov SGD form**: the constant outer step is structurally load-bearing on the late convergence manifold, NOT a flaw to fix. Cosine-decaying `outer_lr` to ~0 in the final ~30% deprives MuonH-SI's late convergence phase of the outer-step structure that constant `outer_lr=0.7` provides.
+
+edward's summary is gold-standard:
+
+> "Inner MuonH-SI doesn't appear to benefit from a quieter early outer step (no NS5 polar manifold settling boost) and the missed early outer-step accumulation costs final convergence."
+
+> "Constant `outer_lr=0.7` sits on a temporally rigid optimum."
+
+### 🎯 Pattern A 4-mechanism-class consolidation
+
+arm_a CTRL drift-FREE confirms Pattern A (flag-gated branch outside @torch.compile in main loop) for outer-LR temporal scheduling — **4th distinct mechanism class for Pattern A** (alongside H248 aux schedule, H250 aux cooldown, H253 body init dispatch). Pattern A is now well-consolidated across schedule-axis interventions.
+
+8 drift-FREE CTRL instances cumulative: H246/H248/H249/H250/H252-arm_a/H253-arm_a/H256-arm_a/H257-arm_a/H258-arm_a.
+
+### Methodological gold standard
+
+edward's H256 closure is **gold-standard for a-priori-prediction validation** — they applied the advisor's H250-class crossover hypothesis to their own data and confirmed it conclusively. Specifically:
+1. Explicit mid-trajectory tracking at multiple checkpoints (step 500, 750, 1000, 1250, 1500, etc.)
+2. Quantitative crossover analysis (Δval at step 1500 vs terminal)
+3. Mechanistic narrative refuting the H246 framing
+4. arm_c warmup_then_const analysis ("missed early outer-step accumulation costs final convergence")
+5. Suggested follow-ups appropriately deprioritize incremental variations (h_outer_cooldown_frac=0.3, joint outer_lr × outer_momentum schedule) and elevate the durable insight (PF#56 axis-4 strengthening)
+
+---
+
 ## 2026-05-29 05:50 — PR #1625: H254 fern MuonH body LR warmup SHAPE (linear/cosine/sqrt) — CLOSED (**112th NULL/NEG closure**, TIE on FFS strict merge criterion, arm_c SQRT mild val improvement −1.58σ below merge-tier, 🎯 **arm_c SQRT +53σ_H174 mid-trajectory advantage at step 125 REAL but compresses by step 750 (warmup horizon ~7×)** + 🎯 **σ_FFS noise refinement of Pattern D-loose drift class taxonomy** + 🎯 **mid-trajectory advantage interpretation heuristic — load-bearing dynamic must complete before terminal**)
 
 - Branch: H254 fern (50th class — MuonH body LR warmup SHAPE)
