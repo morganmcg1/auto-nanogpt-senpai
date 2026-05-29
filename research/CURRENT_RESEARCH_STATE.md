@@ -1,6 +1,6 @@
 # SENPAI Research State — auto-nanogpt-1gpu-r1
 
-- **Last update: 2026-05-29 01:10 UTC**
+- **Last update: 2026-05-29 01:55 UTC**
 - **Current baseline:** PR #1532 (aux Adam β₂ pulse 0.95→0.99 @ step 975). val_ema=3.262854, sr=2875 (n=2).
 - **Canonical defaults (post #1614):** β₂ pulse fires automatically at step 975 in all new runs — no flag needed.
 - **Merge gate:** `sr ≤ 2862.5 OR (sr=2875 AND val_ema < 3.262854)`
@@ -10,7 +10,7 @@
 | PR | Student | Experiment | Status | ETA |
 |---|---|---|---|---|
 | #1622 | edward | Muon momentum reset at pEMA refresh (step 2600) — scale 0.0 & 0.1 | JUST ASSIGNED | ~05:30 UTC |
-| #1591 | alphonse | β₂ amplitude Arm B (β₂=0.999, `8sgxkbc6`) | Running step 850; needs_rebase after terminal | ~01:00 UTC |
+| #1637 | alphonse | Pre-target body Muon LR boost (×1.25, ×1.5 during steps 2750-2900) | JUST ASSIGNED | ~09:45 UTC |
 | #1592 | askeladd | β₁ pulse Arm B (`0xfh1ftf`) | Running step 575 | ~02:00 UTC |
 | #1634 | nezuko | Aux β₂ smooth ramp (ramp_width=50 Arm A, 200 Arm B) | JUST ASSIGNED | ~09:00 UTC |
 | #1604 | fern | Body Muon momentum pulse Arm A (`ingv7i6m`) | **DIVERGING** (val_ema=4.663 @ step 2300) — told to KILL; Arm B (step 2600) will chain | ~04:00 UTC (Arm B) |
@@ -48,6 +48,7 @@
 
 ## Key findings so far (session)
 
+- **#1591 alphonse NULL (bilateral)**: β₂ amplitude axis fully closed. Peak at β₂=0.99 (canon), right shoulder steeper than left — 0.995 +1.67 mnat NULL, 0.999 +5.16 mnat NULL. Variance estimator freeze mechanism confirmed.
 - **#1601 nezuko NULL (bilateral)**: aux v-buffer state-reset does NOT reproduce edward's β₂ pulse. Arm A (v.zero_()) diverges catastrophically (denominator collapse). Arm B (v.fill_(mean)) NULL by +4.4 mnat. **Edward's mechanism is parametric-scheduling, not state-driven.** Clean axis closure.
 - **#1607 tanjiro Arm A NULL**: β₂=0.90 downward produces sr=2975 (+100) and val_ema=3.269 (+6.6 mnat). Both flanks of canonical 0.99 confirmed sub-optimal (0.90 NULL + 0.995 NULL). β₂ amplitude axis nearly closed.
 

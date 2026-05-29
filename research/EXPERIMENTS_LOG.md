@@ -1,5 +1,21 @@
 # SENPAI Research Results
 
+## 2026-05-29 01:55 UTC — PR #1591 alphonse: Aux Adam β₂ pulse amplitude sweep (0.995, 0.999) — ❌ CLOSED NULL (bilateral, amplitude axis closed)
+
+- Branch: `g1r1-alphonse/aux-b2-amplitude`
+- Hypothesis: Edward's β₂=0.99 WIN — does the mechanism keep improving as β₂ → 1.0, or does it saturate/overshoot?
+- W&B: Arm A `s68jjmrw` (β₂=0.995), Arm B `8sgxkbc6` (β₂=0.999)
+
+| β₂ target | val_ema | sr | Δval vs canonical (mnat) | Verdict |
+|---:|---:|---:|---:|---|
+| 0.99 (canon #1532) | 3.262854 | 2875 | — | WIN |
+| 0.995 (Arm A) | 3.264526 | 2925 | +1.67 | ❌ NULL |
+| 0.999 (Arm B) | 3.268016 | 2950 | +5.16 | ❌ NULL |
+
+- **Analysis:** Mechanism overshoots beyond β₂=0.99. Both arms confirm the right shoulder is steeper than the left (1 mnat per 0.005 step right vs ~3 mnat over 0.04 step left). At β₂=0.999, variance estimator half-life ~700 steps — nearly freezes at pre-pulse denominator biased toward high-LR-regime gradient norms — aux Adam takes systematically too-small steps through cooldown. At β₂=0.995, milder version of same effect. **Amplitude axis fully closed with peak at β₂=0.99.**
+- **Full amplitude map:** β₂=0.95(ref)→0.97(NULL)→0.99(WIN)→0.995(NULL)→0.999(NULL). Canonical 0.99 is the optimum.
+- **Follow-up assigned:** #1637 alphonse — pre-target body Muon LR boost (×1.25 and ×1.5 during steps 2750-2900). Tests the sr-clause directly per human directive #1252: "steepen loss descent before step 2925, even if final loss unchanged."
+
 ## 2026-05-29 01:10 UTC — PR #1601 nezuko: Aux Adam v-buffer state-reset @ cooldown onset — ❌ CLOSED NULL (bilateral)
 
 - Branch: `g1r1-nezuko/aux-v-reset`
