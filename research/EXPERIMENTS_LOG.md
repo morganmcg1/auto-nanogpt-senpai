@@ -1,5 +1,28 @@
 # SENPAI Research Results
 
+## 2026-05-29 09:10 UTC — PR #1634 nezuko: Aux β₂ smooth-ramp shape (ramp_width=50, 200) — ❌ CLOSED NULL (bilateral, β₂ shape axis fully closed)
+
+- Branch: `g1r1-nezuko/aux-b2-ramp`
+- Hypothesis: The discrete jump from β₂=0.95→0.99 at step 975 might be unnecessarily discontinuous. A linear ramp over the transition (ramp_width=50 narrow, 200 wide) might preserve the destination amplitude while smoothing the discontinuity.
+- W&B: Arm A `4y6529rb` (ramp_width=50), Arm B `yxediont` (ramp_width=200)
+
+| Arm | ramp_width | val_loss_ema | val_loss_live | sr | Δval vs baseline | Verdict |
+|---|---:|---:|---:|---:|---:|---|
+| A (narrow) | 50 | 3.266250 | 3.265639 | **2925** | +3.40 mnat | ❌ NULL |
+| B (wide) | 200 | **3.266885** | 3.266306 | **2925** | +4.03 mnat | ❌ NULL |
+| Baseline #1532 | discrete (=0) | 3.262854 | — | 2875 | — | — |
+
+- **Analysis:** Bilateral NULL with monotone ordering — wider ramp = worse val_ema. Both arms fail merge gate by +50 sr steps AND +3.4–4.0 mnat val_ema. nezuko's telemetry shows the divergence happens in the early ramp window (875–1100): both ramps accumulate lag during the intermediate-β₂ regime that's never fully recovered.
+- **Mechanism reading:** The β₂ pulse is **discrete-by-design**. The v-buffer responds to a step-change in EMA coefficient and re-equilibrates within ~20 steps. Ramping spreads this transition over 50–200 steps, during which the v-buffer is neither responsive (0.95) nor stable-long-horizon (0.99) — a sub-optimal intermediate regime. The discrete jump avoids this regime entirely. The wider the ramp, the longer the intermediate regime, matching Arm B (200) > Arm A (50) > discrete (0).
+- **β₂ axis closure map:** The β₂ pulse mechanism axes are now ALL bilaterally closed except per-group recipient (tanjiro #1648 in flight):
+  - Amplitude — 0.99 unique optimum (≥0.995 NULL, ≤0.90 NULL)
+  - Timing — step 975 unique optimum (step 900 NULL, step 1050 seed-2 NULL)
+  - Shape — discrete unique optimum (ramp_width=50/200 NULL)
+  - β₁ analog — RAISE NULL (#1592), DROP in flight (#1639)
+  - State-reset analog — NULL (#1601)
+- **Process notes:** Duplicate Arm B launch incident (driver script + chain wrapper raced) detected at 04:25 UTC, killed redundant W&B run `44lljjpl` at 04:42 UTC, sole-GPU step time recovered from ~8.5s to ~4s. No final-quality impact since `yxediont` was the survivor throughout. Pattern captured in nezuko's student-memory.
+- **Follow-up assigned:** nezuko → PR #1680 pre-target PMuon γ pulse (γ=0.50/0.60 during steps 2750-2900, revert to 0.4 after) — completely different mechanism axis. Tests upward-γ direction (historic PR #202 Arm A γ 0.3→0.4 WIN) extended into the pre-target window where alphonse's body-Muon LR boost is a HOT WIN candidate.
+
 ## 2026-05-29 06:10 UTC — PR #1605 frieren: Aux β₂ pulse timing step 1050 seed-2 — ❌ CLOSED NULL (seed-2 not confirmed, timing axis fully closed)
 
 - Branch: `g1r1-frieren/b2-timing-sweep`
