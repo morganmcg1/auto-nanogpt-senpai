@@ -466,6 +466,11 @@ ATTN_SOAP_PRECOND_FREQ = 10
 ATTN_SOAP_TRUST_THRESHOLD = float(os.environ.get("ATTN_SOAP_TRUST_THRESHOLD", "0.9"))
 NS5_ITERS = int(os.environ.get("NS5_ITERS", "12"))
 WD_AUX = float(os.environ.get("WD_AUX", "0.0"))  # AdamW WD on embed + lm_head matrices (scalars stay at 0)
+# PR #1628 AUX_EPS_PER_KIND_FULL_RUN — per-kind AUX optimizer ε dispatch (6th AUX per-kind mechanism).
+# Orthogonal class to β1/β2/amsgrad/WD/m-reset — pure denominator-stabilizer at full-run scope.
+PER_KIND_AUX_EPS_ENABLED = int(os.environ.get("PER_KIND_AUX_EPS_ENABLED", "0"))
+AUX_EPS_EMBED = float(os.environ.get("AUX_EPS_EMBED", "1e-10"))
+AUX_EPS_LM_HEAD = float(os.environ.get("AUX_EPS_LM_HEAD", "1e-10"))
 EMBED_INIT_STD = float(os.environ.get("EMBED_INIT_STD", "1.0"))  # default preserves baseline N(0,1)
 LOGIT_SOFTCAP = float(os.environ.get("LOGIT_SOFTCAP", "15.0"))  # default = 15 (current hardcoded value); soft-cap value c in f(x) = c·x / sqrt(x^2+c^2)
 
@@ -866,6 +871,9 @@ if dist.get_rank() == 0:
             "optimizer/attn_soap_trust_threshold": ATTN_SOAP_TRUST_THRESHOLD,
             "optimizer/ns5_iters": NS5_ITERS,
             "optimizer/wd_aux": WD_AUX,
+            "optimizer/per_kind_aux_eps_enabled": int(PER_KIND_AUX_EPS_ENABLED),
+            "optimizer/aux_eps_embed": AUX_EPS_EMBED if PER_KIND_AUX_EPS_ENABLED else 1e-10,
+            "optimizer/aux_eps_lm_head": AUX_EPS_LM_HEAD if PER_KIND_AUX_EPS_ENABLED else 1e-10,
             "optimizer/recipe": "contra-muon + normuon-lite + soap-on-mlp + soap-on-attn-trust-gate (pre-NS5, record #14 + record #16)",
         },
     )
@@ -898,10 +906,16 @@ for trial_idx in range(args.num_trials):
             raise Exception(f"Uninitialized parameter: {name}")
 
     # create the optimizer(s)
-    optimizer1 = AdamW([dict(params=[model.embed.weight], lr=0.3, name="adam_embed", weight_decay=WD_AUX),
-                        dict(params=[model.proj.weight], lr=1/320, name="adam_lm_head", weight_decay=WD_AUX),
+    _eps_embed = AUX_EPS_EMBED if PER_KIND_AUX_EPS_ENABLED else 1e-10
+    _eps_lm_head = AUX_EPS_LM_HEAD if PER_KIND_AUX_EPS_ENABLED else 1e-10
+    optimizer1 = AdamW([dict(params=[model.embed.weight], lr=0.3, name="adam_embed", weight_decay=WD_AUX, eps=_eps_embed),
+                        dict(params=[model.proj.weight], lr=1/320, name="adam_lm_head", weight_decay=WD_AUX, eps=_eps_lm_head),
                         dict(params=[p for p in model.parameters() if p.ndim < 2], lr=0.01, name="adam_scalars")],
                        betas=(0.8, 0.95), eps=1e-10, weight_decay=0, fused=True)
+    if dist.get_rank() == 0 and trial_idx == 0:
+        print(f"[PER_KIND_AUX_EPS] enabled={PER_KIND_AUX_EPS_ENABLED} embed={_eps_embed:.1e} lm_head={_eps_lm_head:.1e}", flush=True)
+        for i, g in enumerate(optimizer1.param_groups):
+            print(f"[AUX_EPS_DISPATCH] param_group[{i}] name={g.get('name','?'):>15} eps={g.get('eps', 'UNSET')}", flush=True)
     optimizer2 = Muon([(n, p) for n, p in model.blocks.named_parameters() if p.ndim >= 2],
                       lr=MUON_LR, weight_decay=MUON_WEIGHT_DECAY, mu=MU)
     optimizer2.param_groups[0]["name"] = "muon_blocks"
@@ -998,6 +1012,32 @@ for trial_idx in range(args.num_trials):
                     "time/step_avg_ms": 1000 * step_avg,
                 }
                 metrics.update(prefixed("val/slope", loss_slope_stats(val_loss_history, slope_window_steps)))
+                # PR #1628 AUX_EPS_PER_KIND_FULL_RUN — per-group exp_avg_sq telemetry at advisor-requested steps.
+                # If ε modulates the denominator, exp_avg_sq dynamics should differ between arms (esp. lm_head).
+                if step in (500, 1500, 3000):
+                    for _g in optimizer1.param_groups:
+                        _gn = _g.get("name", "unnamed")
+                        _vs = []
+                        for _p in _g["params"]:
+                            _st = optimizer1.state.get(_p)
+                            if _st is not None and "exp_avg_sq" in _st:
+                                _vs.append(_st["exp_avg_sq"].detach().flatten())
+                        if _vs:
+                            _v = torch.cat(_vs).float()
+                            _eps_g = _g.get("eps", 1e-10)
+                            _denom = _v.sqrt() + _eps_g
+                            metrics[f"aux_eps_telemetry/{_gn}/exp_avg_sq_mean"] = float(_v.mean().item())
+                            metrics[f"aux_eps_telemetry/{_gn}/exp_avg_sq_std"] = float(_v.std().item())
+                            metrics[f"aux_eps_telemetry/{_gn}/exp_avg_sq_min"] = float(_v.min().item())
+                            metrics[f"aux_eps_telemetry/{_gn}/exp_avg_sq_max"] = float(_v.max().item())
+                            metrics[f"aux_eps_telemetry/{_gn}/exp_avg_sq_median"] = float(_v.median().item())
+                            metrics[f"aux_eps_telemetry/{_gn}/denom_mean"] = float(_denom.mean().item())
+                            metrics[f"aux_eps_telemetry/{_gn}/denom_min"] = float(_denom.min().item())
+                            metrics[f"aux_eps_telemetry/{_gn}/eps"] = float(_eps_g)
+                            print(f"[AUX_EPS_TELEMETRY] step={step} group={_gn:>15} "
+                                  f"v_mean={float(_v.mean()):.3e} v_min={float(_v.min()):.3e} "
+                                  f"v_max={float(_v.max()):.3e} denom_mean={float(_denom.mean()):.3e} "
+                                  f"eps={_eps_g:.1e}", flush=True)
                 wandb.log(metrics, step=trial_idx * (train_steps + 1) + step)
             print0(f"step:{step}/{train_steps} val_loss:{val_loss:.5f} train_time:{training_time:.3f}s"
                    + f" step_avg:{1000*step_avg:.2f}ms", console=True)
