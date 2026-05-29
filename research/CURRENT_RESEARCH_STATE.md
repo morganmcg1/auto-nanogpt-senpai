@@ -1,3 +1,67 @@
+## 2026-05-30 00:50 UTC — Cycle 71 mid-403 — frieren #1734 308th refute, 144th family closure — MAJOR MECHANISTIC FINDING: #1671 gate-penalty REFRAMED as "threshold > fc_cos_row → preconditioner freeze" (NOT joint-coupling); gate-statistic axis follow-up assigned
+
+### frieren #1734 308th refute — PER_KIND_MLP_SOAP_FC_TRUST_THRESHOLD_ISOLATION val_mean=3.270576 STANDARD misses merge bar by Δ=+0.00282 val and +37.5 ffs
+
+Arm A `fc_gate_strict` (FC_TRUST=0.90) val=3.271334 ffs=3050 STANDARD with **0% fc-refresh acceptance** (preconditioner frozen at warm-up state). Arm B `fc_gate_lenient` (FC_TRUST=0.70) val=3.269817 ffs=3025 **100% acceptance** (functionally un-gated). Δ(B−A)=−0.00152 directional but inside bimodal regime. Stat rule (3.28−μ)·√n ≥ 0.004 PASSES at n=2 (0.01331). W&B 369ooozh/8a550hfe verified config-operative + per-step `train/fc_on_fraction` confirms 0.000 (A) vs 1.000 (B) at all 7 sampled checkpoints + disabled-check PASSED val@200=4.09227.
+
+**MAJOR MECHANISTIC FINDING — fc cos_row tightly clustered + #1671 reframe**:
+
+| step | fc_cos_row A | fc_cos_row B | range | gate behavior @ 0.85 |
+|---|---|---|---|---|
+| 500 | 0.834 | 0.839 | 0.834-0.839 | 100% reject (below) |
+| 1000 | 0.831 | 0.837 | 0.831-0.837 | 100% reject |
+| 1500 | 0.834 | 0.841 | 0.834-0.841 | 100% reject |
+| 2225 | 0.845 | 0.851 | 0.845-0.851 | partial 50% |
+| 3175 | 0.849 | 0.855 | 0.849-0.855 | partial 50% |
+
+**fc cos_row lives in [0.831, 0.855] throughout training** — tight low-variance distribution. Gate is **bimodal** at thresholds outside [0.83, 0.86]: threshold > 0.86 → all-reject (preconditioner frozen), threshold < 0.83 → all-accept (un-gated). Only [0.83, 0.86] is productive partial-acceptance regime.
+
+**#1671 gate-penalty REFRAMED**: #1671 Arm B at gate=0.85 produced val=3.27108 / +0.00117 penalty vs un-gated joint floor. **Now understood as: gate=0.85 was inside fc_cos_row distribution top edge → partial-to-full fc-freeze**, NOT joint-coupling between fc and proj kinds. fc-gate at strict-blocking thresholds IS the penalty mechanism — gate threshold sitting above the cos-row distribution starves the fc preconditioner.
+
+**179th distinct Δ-trajectory mech class: BIMODAL-GATE-OUTCOME** — arm-direction dominated by discrete preconditioner-freeze decision at warm-up rather than continuous mechanism, distinct from MID-PEAK-DECAY/absorption families.
+
+**Cross-PR matrix update with REFRAMED interpretation**:
+
+| reference | scope | gate config | val_loss | reframed mechanism |
+|---|---|---|---|---|
+| #1645 B | joint MLP-SOAP fc+proj | un-gated | 3.26991 | un-gated floor |
+| **#1734 B** | **fc-only** | **lenient (=un-gated)** | **3.269817** | **fc-only un-gated floor reproduces #1645 B within ±0.0001** |
+| #1707 A | fc-only | un-gated | 3.27030 | fc-only carrier (n=1 noise) |
+| #1671 B | joint | gate=0.85 (both kinds) | 3.27108 | **REFRAMED**: partial fc-freeze (NOT joint-coupling) |
+| **#1734 A** | **fc-only** | **strict 0.90 (=blocked)** | **3.271334** | **fully-blocked fc preconditioner** |
+
+Rules out three hypotheses: (1) joint-coupling explains #1671 penalty — REFUTED, (2) fc-kind is gate-sensitive via intrinsic property — REFUTED (sensitivity is gate-vs-cos_row geometry), (3) lenient gate captures noise-filter benefit — REFUTED (Arm B functionally un-gated, no benefit beyond un-gated floor).
+
+**144th family closure**: PER_KIND_MLP_SOAP_FC_TRUST_THRESHOLD_ISOLATION axis fully mapped at bimodal-outcome with #1671-reframe attribution. fc-gate at scalar thresholds outside [0.83, 0.86] cannot produce productive partial-acceptance.
+
+### Cycle 71 cumulative state
+
+**Cycle 71 cumulative**: **308 refuted** / **179 distinct mech classes** / **144 family-level closures**.
+
+### PRs closed this wave (1 closure):
+
+| PR | student | mechanism | outcome |
+|---|---|---|---|
+| **frieren #1734** | frieren | PER_KIND_MLP_SOAP_FC_TRUST_THRESHOLD_ISOLATION (Arm A `fc_gate_strict` FC_TRUST=0.90 0% acceptance, Arm B `fc_gate_lenient` FC_TRUST=0.70 100% acceptance) | **308th** — Arm A 3.271334/3050 STANDARD frozen-preconditioner, Arm B 3.269817/3025 STANDARD-cluster-edge un-gated-floor, val_mean=3.270576 misses by +0.00282/+37.5. Δ(B−A)=−0.00152 directional inside bimodal regime. MAJOR MECHANISTIC FINDING #1671 gate-penalty REFRAMED as fc preconditioner freeze NOT joint-coupling. 179th distinct Δ-trajectory mech class BIMODAL-GATE-OUTCOME. **144th family closure**. |
+
+### PRs assigned this wave (1 fresh gate-statistic-axis follow-up):
+
+| PR | student | mechanism | hypothesis |
+|---|---|---|---|
+| **frieren #1755** | frieren | PER_KIND_MLP_SOAP_FC_GATE_STATISTIC_ISOLATION (Arm A `fc_col_gate_partial` STATISTIC=1 col-only threshold=0.98, Arm B `fc_row_gate_partial` STATISTIC=2 row-only threshold=0.84; PROJ ungated, joint MLP-SOAP fc-isolated) | **Gate-statistic-axis decomposition** of #1734's bimodality finding. fc cos_row distribution is tight [0.83, 0.86] no partial-acceptance, but cos_col is wider [0.97, 0.99] with growth → col-only gate may have productive partial-acceptance regime. Tests whether changing gate STATISTIC (not threshold magnitude) unlocks productive fc-gate. If A < #1734 B floor → col-axis IS productive first fertile fc-gate direction structural finding. If B < #1734 B floor → row-axis partial-acceptance regime is productive differently than bimodal version. If both ≥ #1734 B floor → fc-gate axis fully closed across statistic-axis decomposition fc-refresh-stochasticity is not the discriminator regardless of cos-axis. Fits Morgan's directive per-group + state-mechanism gate-statistic-axis is a state-mechanism no scalar sweep. |
+
+### Strategic fleet state
+
+Fleet 8/8 active:
+- **WIP (6)**: alphonse #1738, edward #1744, fern #1754 new, frieren #1755 new, nezuko #1741, tanjiro #1750
+- **n=2 confirmation (2)**: askeladd #1731 seed1, thorfinn #1732 seed1
+- 0 idle
+
+Two MAJOR mechanistic findings this wave session: (1) #1671 reframed via #1734 — fc-gate penalty is preconditioner-freeze mechanism not joint-coupling; (2) #1729 closure adds 4th independent mechanism to floor-band cluster strengthening embed-kind-basin interpretation. Both are retrospective re-interpretation findings that improve the cycle 71 mechanistic model without consuming new merge candidates — pure consolidation work that the parallel #1731 and #1732 n=2 confirmations may turn into exploitation gains.
+
+---
+
+
 ## 2026-05-30 00:30 UTC — Cycle 71 mid-402 — fern #1729 307th refute, 143rd family closure — 4th independent mechanism converging to embed-WD-down floor-band cluster strengthens embed-kind-basin interpretation; moment-isolation follow-up assigned
 
 ### fern #1729 307th refute — PER_KIND_AUX_PERIODIC_RESET_EMBED val_mean=3.27084 STANDARD misses merge bar by Δ=+0.00308 val and +25 ffs
