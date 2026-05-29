@@ -602,6 +602,14 @@ NANOGPT_NEWTON_MUON_UPDATE_PERIOD = int(os.environ.get("NANOGPT_NEWTON_MUON_UPDA
 NANOGPT_NEWTON_MUON_BETA = float(os.environ.get("NANOGPT_NEWTON_MUON_BETA", "0.95"))
 NANOGPT_NEWTON_MUON_EPS = float(os.environ.get("NANOGPT_NEWTON_MUON_EPS", "1e-4"))
 NANOGPT_NEWTON_MUON_MAX_D_IN = int(os.environ.get("NANOGPT_NEWTON_MUON_MAX_D_IN", "1024"))
+# PR #1670: late-window R-update period acceleration. When SWITCH_STEP > 0 and
+# the optimizer's internal newton step count reaches it, the R-update period
+# switches from UPDATE_PERIOD (EARLY) to UPDATE_PERIOD_LATE. Defaults preserve
+# bit-identity with production (LATE=EARLY, SWITCH_STEP=0 = no switch).
+NANOGPT_NEWTON_MUON_UPDATE_PERIOD_LATE = int(os.environ.get(
+    "NANOGPT_NEWTON_MUON_UPDATE_PERIOD_LATE", str(NANOGPT_NEWTON_MUON_UPDATE_PERIOD)))
+NANOGPT_NEWTON_MUON_PERIOD_SWITCH_STEP = int(os.environ.get(
+    "NANOGPT_NEWTON_MUON_PERIOD_SWITCH_STEP", "0"))
 
 # Global per-parameter input-activation cache populated by forward hooks. Keyed by
 # id(weight_param) → tensor of shape (B*T, d_in) on device. Only populated when
@@ -746,7 +754,9 @@ class Muon(torch.optim.Optimizer):
                  newton_precond: bool = False, newton_beta: float = 0.95,
                  newton_eps: float = 1e-4, newton_update_period: int = 10,
                  newton_max_d_in: int = 1024,
-                 newton_input_cache: dict | None = None):
+                 newton_input_cache: dict | None = None,
+                 newton_update_period_late: int | None = None,
+                 newton_period_switch_step: int = 0):
         assert isinstance(params, list) and len(params) >= 1
         if isinstance(params[0], dict):
             # list-of-dicts param_groups: sort each group's params by size.
@@ -786,6 +796,14 @@ class Muon(torch.optim.Optimizer):
         self.newton_max_d_in = int(newton_max_d_in)
         self.newton_input_cache = newton_input_cache if newton_input_cache is not None else {}
         self._newton_step_count = 0
+        # PR #1670: step-dependent R-update period. When switch_step > 0 and
+        # _newton_step_count reaches it, period flips from update_period to
+        # update_period_late. Defaults preserve bit-identity (late=early, switch=0).
+        self.newton_update_period_late = int(
+            newton_update_period_late if newton_update_period_late is not None
+            else newton_update_period)
+        self.newton_period_switch_step = int(newton_period_switch_step)
+        self._newton_period_switch_announced = False
         # Accumulator dict reset each step() — read by the training loop after
         # step() for W&B logging. Keys: cond_max, cond_min, cond_sum, cond_n,
         # inv_sqrt_norm_sum, precond_ratio_sum, precond_ratio_n, applied_n.
@@ -819,9 +837,18 @@ class Muon(torch.optim.Optimizer):
         if x is None:
             return None
         # Update R EMA + eigendecomp every newton_update_period steps (and at first call).
+        # PR #1670: late-window period switch. When switch_step > 0 and we have
+        # reached it, period flips to newton_update_period_late. Defaults
+        # (switch=0, late=early) preserve the original gate exactly (bit-identity).
+        if (self.newton_period_switch_step > 0
+                and self._newton_step_count >= self.newton_period_switch_step):
+            effective_period = self.newton_update_period_late
+        else:
+            effective_period = self.newton_update_period
         update_R = (
             "R" not in state
-            or (self._newton_step_count % self.newton_update_period == 1)
+            or effective_period <= 1
+            or (self._newton_step_count % effective_period == 1)
         )
         if update_R:
             x32 = x.float()
@@ -888,6 +915,18 @@ class Muon(torch.optim.Optimizer):
         if self.newton_precond:
             self._newton_step_count += 1
             self.newton_telemetry = {}
+            # PR #1670: announce period-switch crossing once (rank 0 only).
+            if (not self._newton_period_switch_announced
+                    and self.newton_period_switch_step > 0
+                    and self._newton_step_count >= self.newton_period_switch_step
+                    and rank == 0):
+                print(
+                    f"[NEWTON_MUON] period switch fired at newton_step="
+                    f"{self._newton_step_count} (threshold={self.newton_period_switch_step}): "
+                    f"period {self.newton_update_period} -> {self.newton_update_period_late}",
+                    flush=True,
+                )
+                self._newton_period_switch_announced = True
         for group in self.param_groups:
             params = group["params"]
             params_pad = params + [torch.empty_like(params[-1])] * (world_size - len(params) % world_size)
@@ -984,7 +1023,9 @@ print0(
     f"lr_scale={NANOGPT_NEWTON_MUON_LR_SCALE} "
     f"update_period={NANOGPT_NEWTON_MUON_UPDATE_PERIOD} "
     f"beta={NANOGPT_NEWTON_MUON_BETA} eps={NANOGPT_NEWTON_MUON_EPS} "
-    f"max_d_in={NANOGPT_NEWTON_MUON_MAX_D_IN}",
+    f"max_d_in={NANOGPT_NEWTON_MUON_MAX_D_IN} "
+    f"update_period_late={NANOGPT_NEWTON_MUON_UPDATE_PERIOD_LATE} "
+    f"period_switch_step={NANOGPT_NEWTON_MUON_PERIOD_SWITCH_STEP}",
     console=True,
 )
 if NS_ITERS_COOLDOWN > 0:
@@ -1105,6 +1146,8 @@ if dist.get_rank() == 0:
             "nanogpt_newton_muon_beta": NANOGPT_NEWTON_MUON_BETA,
             "nanogpt_newton_muon_eps": NANOGPT_NEWTON_MUON_EPS,
             "nanogpt_newton_muon_max_d_in": NANOGPT_NEWTON_MUON_MAX_D_IN,
+            "nanogpt_newton_muon_update_period_late": NANOGPT_NEWTON_MUON_UPDATE_PERIOD_LATE,
+            "nanogpt_newton_muon_period_switch_step": NANOGPT_NEWTON_MUON_PERIOD_SWITCH_STEP,
         },
     )
 
@@ -1172,6 +1215,8 @@ for trial_idx in range(args.num_trials):
         newton_update_period=NANOGPT_NEWTON_MUON_UPDATE_PERIOD,
         newton_max_d_in=NANOGPT_NEWTON_MUON_MAX_D_IN,
         newton_input_cache=_newton_input_cache,
+        newton_update_period_late=NANOGPT_NEWTON_MUON_UPDATE_PERIOD_LATE,
+        newton_period_switch_step=NANOGPT_NEWTON_MUON_PERIOD_SWITCH_STEP,
     )
     print0(f"MUON_PARAM_COUNTS: attn={len(muon_attn_params)} mlp={len(muon_mlp_params)} "
            f"(expected 48 attn / 24 mlp for 12-layer block stack)", console=True)
