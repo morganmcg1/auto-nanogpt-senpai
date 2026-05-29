@@ -603,6 +603,14 @@ NANOGPT_NEWTON_MUON_BETA = float(os.environ.get("NANOGPT_NEWTON_MUON_BETA", "0.9
 NANOGPT_NEWTON_MUON_EPS = float(os.environ.get("NANOGPT_NEWTON_MUON_EPS", "1e-4"))
 NANOGPT_NEWTON_MUON_MAX_D_IN = int(os.environ.get("NANOGPT_NEWTON_MUON_MAX_D_IN", "1024"))
 NANOGPT_NEWTON_MUON_TIKHONOV_GAMMA = float(os.environ.get("NANOGPT_NEWTON_MUON_TIKHONOV_GAMMA", "0.0"))
+# Newton-Muon LR burst window (#1681). Apply a multiplicative LR scaling on top of
+# the cosine schedule for Muon param groups during steps in [START, END). When
+# START=0 OR END=0 (defaults), the gate is False and behavior is bit-identical to
+# the pre-#1681 code path (SCALE=1.0 also keeps math invariant via a guarded
+# fast-path in Muon.step()).
+NANOGPT_NEWTON_MUON_LR_BURST_SCALE = float(os.environ.get("NANOGPT_NEWTON_MUON_LR_BURST_SCALE", "1.0"))
+NANOGPT_NEWTON_MUON_LR_BURST_START = int(os.environ.get("NANOGPT_NEWTON_MUON_LR_BURST_START", "0"))
+NANOGPT_NEWTON_MUON_LR_BURST_END = int(os.environ.get("NANOGPT_NEWTON_MUON_LR_BURST_END", "0"))
 
 # Global per-parameter input-activation cache populated by forward hooks. Keyed by
 # id(weight_param) → tensor of shape (B*T, d_in) on device. Only populated when
@@ -795,6 +803,13 @@ class Muon(torch.optim.Optimizer):
         # to enable the sync-y per-param diagnostics; False otherwise to keep
         # the GPU pipeline async (item() calls block the CPU and serialize work).
         self.newton_telemetry_due: bool = False
+        # LR burst (#1681): one-time start/end banner flags + per-step telemetry
+        # surface read by the training loop after step(). Defaults preserve the
+        # pre-#1681 path (burst inactive ⇒ scale=1.0 ⇒ bit-identical math).
+        self._burst_fired: bool = False
+        self._burst_ended: bool = False
+        self.lr_burst_active_this_step: bool = False
+        self.lr_burst_effective_scale_this_step: float = 1.0
 
     def set_ns_iters_this_step(self, ns_iters: int) -> None:
         self.ns_iters_this_step = int(ns_iters)
@@ -900,6 +915,33 @@ class Muon(torch.optim.Optimizer):
         if self.newton_precond:
             self._newton_step_count += 1
             self.newton_telemetry = {}
+        # === LR burst window (#1681) ===
+        # Gate uses _newton_step_count (1-indexed after the increment above):
+        # burst is active when _newton_step_count ∈ [BURST_START, BURST_END).
+        # Disabled by default (START=0 or END=0 ⇒ `0 > 0` False ⇒ burst_mult=1.0).
+        if (
+            NANOGPT_NEWTON_MUON_LR_BURST_START > 0
+            and NANOGPT_NEWTON_MUON_LR_BURST_END > 0
+            and self._newton_step_count >= NANOGPT_NEWTON_MUON_LR_BURST_START
+            and self._newton_step_count < NANOGPT_NEWTON_MUON_LR_BURST_END
+        ):
+            burst_mult = NANOGPT_NEWTON_MUON_LR_BURST_SCALE
+        else:
+            burst_mult = 1.0
+        self.lr_burst_active_this_step = (burst_mult != 1.0)
+        self.lr_burst_effective_scale_this_step = burst_mult
+        if rank == 0 and burst_mult != 1.0 and not self._burst_fired:
+            print(f"[NEWTON_MUON] LR burst fired at newton_step={self._newton_step_count} scale={burst_mult}")
+            self._burst_fired = True
+        if (
+            rank == 0
+            and NANOGPT_NEWTON_MUON_LR_BURST_END > 0
+            and self._newton_step_count == NANOGPT_NEWTON_MUON_LR_BURST_END
+            and self._burst_fired
+            and not self._burst_ended
+        ):
+            print(f"[NEWTON_MUON] LR burst ended at newton_step={self._newton_step_count}")
+            self._burst_ended = True
         for group in self.param_groups:
             params = group["params"]
             params_pad = params + [torch.empty_like(params[-1])] * (world_size - len(params) % world_size)
@@ -940,8 +982,13 @@ class Muon(torch.optim.Optimizer):
                             }
                         except Exception:
                             self.spectral_stats = None
-                    p.mul_(1 - group["lr"] * group["weight_decay"])
-                    p.add_(update, alpha=-group["lr"])
+                    if burst_mult == 1.0:
+                        p.mul_(1 - group["lr"] * group["weight_decay"])
+                        p.add_(update, alpha=-group["lr"])
+                    else:
+                        lr_eff = group["lr"] * burst_mult
+                        p.mul_(1 - lr_eff * group["weight_decay"])
+                        p.add_(update, alpha=-lr_eff)
                 dist.all_gather(params_pad[base_i:base_i + world_size], params_pad[base_i + rank])
 
 
@@ -997,7 +1044,10 @@ print0(
     f"update_period={NANOGPT_NEWTON_MUON_UPDATE_PERIOD} "
     f"beta={NANOGPT_NEWTON_MUON_BETA} eps={NANOGPT_NEWTON_MUON_EPS} "
     f"max_d_in={NANOGPT_NEWTON_MUON_MAX_D_IN} "
-    f"tikhonov_gamma={NANOGPT_NEWTON_MUON_TIKHONOV_GAMMA}",
+    f"tikhonov_gamma={NANOGPT_NEWTON_MUON_TIKHONOV_GAMMA} "
+    f"lr_burst_scale={NANOGPT_NEWTON_MUON_LR_BURST_SCALE} "
+    f"lr_burst_start={NANOGPT_NEWTON_MUON_LR_BURST_START} "
+    f"lr_burst_end={NANOGPT_NEWTON_MUON_LR_BURST_END}",
     console=True,
 )
 if NS_ITERS_COOLDOWN > 0:
@@ -1119,6 +1169,9 @@ if dist.get_rank() == 0:
             "nanogpt_newton_muon_eps": NANOGPT_NEWTON_MUON_EPS,
             "nanogpt_newton_muon_max_d_in": NANOGPT_NEWTON_MUON_MAX_D_IN,
             "nanogpt_newton_muon_tikhonov_gamma": NANOGPT_NEWTON_MUON_TIKHONOV_GAMMA,
+            "nanogpt_newton_muon_lr_burst_scale": NANOGPT_NEWTON_MUON_LR_BURST_SCALE,
+            "nanogpt_newton_muon_lr_burst_start": NANOGPT_NEWTON_MUON_LR_BURST_START,
+            "nanogpt_newton_muon_lr_burst_end": NANOGPT_NEWTON_MUON_LR_BURST_END,
         },
     )
 
@@ -1477,6 +1530,16 @@ for trial_idx in range(args.num_trials):
                 newton_metrics["newton_muon/precond_ratio_mean"] = (
                     tel["precond_ratio_sum"] / ratio_n
                 )
+            # LR burst (#1681): per-step active flag + effective scale + cumulative
+            # fired bool. Useful to verify burst-window bookkeeping in W&B
+            # regardless of telemetry cadence.
+            newton_metrics["newton_muon/lr_burst_active"] = int(
+                optimizer2.lr_burst_active_this_step
+            )
+            newton_metrics["newton_muon/effective_lr_scale"] = float(
+                optimizer2.lr_burst_effective_scale_this_step
+            )
+            newton_metrics["newton_muon/lr_burst_fired"] = int(optimizer2._burst_fired)
             wandb.log(newton_metrics, step=wandb_step)
         # Init-anchored WD on embed (#847, env-var-gated). After both optimizers
         # have stepped, apply `p -= lr_embed * lambda * (p - p_init)`. Order vs
