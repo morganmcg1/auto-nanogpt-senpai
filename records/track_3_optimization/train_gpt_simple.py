@@ -65,6 +65,12 @@ def parse_args():
                              "triangle=linear 0->2x->0 with peak at midpoint; "
                              "cosine_updown=cosine 0->2x->0 (smooth triangle). "
                              "Only applies to Muon param groups; AdamW aux is unaffected.")
+    parser.add_argument("--wd_schedule_mlp", type=str, default=None,
+                        choices=["constant", "ramp_up", "ramp_down", "triangle", "cosine_updown"],
+                        help="WD schedule override for muon_mlp group. None = use --wd_schedule.")
+    parser.add_argument("--wd_schedule_attn", type=str, default=None,
+                        choices=["constant", "ramp_up", "ramp_down", "triangle", "cosine_updown"],
+                        help="WD schedule override for muon_attn group. None = use --wd_schedule.")
     parser.add_argument("--ns_iter", type=int, default=12,
                         help="Number of Newton-Schulz iterations in zeropower_via_newtonschulz5. "
                              "Default 12 (current hardcoded value). Lower = less orthogonal but faster.")
@@ -781,6 +787,8 @@ if dist.get_rank() == 0:
             "lr_attn": args.lr_attn,
             "wd_attn": args.wd_attn,
             "wd_schedule": args.wd_schedule,
+            "wd_schedule_mlp": args.wd_schedule_mlp if args.wd_schedule_mlp is not None else args.wd_schedule,
+            "wd_schedule_attn": args.wd_schedule_attn if args.wd_schedule_attn is not None else args.wd_schedule,
             "lr_scalars": args.lr_scalars,
             "depth_init_mode": args.depth_init_mode,
             "lr_cooldown_shape": args.lr_cooldown_shape,
@@ -922,12 +930,22 @@ for trial_idx in range(args.num_trials):
         else:
             x = (progress - (1 - cooldown_frac)) / cooldown_frac
             eta = _cooldown_eta(x, args.lr_cooldown_shape)
-        wd_mu = _wd_multiplier(step, train_steps, args.wd_schedule)
+        wd_schedule_mlp = args.wd_schedule_mlp if args.wd_schedule_mlp is not None else args.wd_schedule
+        wd_schedule_attn = args.wd_schedule_attn if args.wd_schedule_attn is not None else args.wd_schedule
+        wd_mu_mlp = _wd_multiplier(step, train_steps, wd_schedule_mlp)
+        wd_mu_attn = _wd_multiplier(step, train_steps, wd_schedule_attn)
+        wd_mu_default = _wd_multiplier(step, train_steps, args.wd_schedule)
         for opt in optimizers:
             for group in opt.param_groups:
                 group["lr"] = group["initial_lr"] * eta
-                if "initial_wd" in group and group.get("name", "").startswith("muon_"):
-                    group["weight_decay"] = group["initial_wd"] * wd_mu
+                if "initial_wd" in group:
+                    gname = group.get("name", "")
+                    if gname == "muon_mlp":
+                        group["weight_decay"] = group["initial_wd"] * wd_mu_mlp
+                    elif gname == "muon_attn":
+                        group["weight_decay"] = group["initial_wd"] * wd_mu_attn
+                    elif gname.startswith("muon_"):
+                        group["weight_decay"] = group["initial_wd"] * wd_mu_default
         return eta
 
 
