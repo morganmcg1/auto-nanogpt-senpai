@@ -109,6 +109,17 @@ def parse_args():
     parser.add_argument("--body_init_bottom_layers", type=int,
                         default=int(os.environ.get("BODY_INIT_BOTTOM_LAYERS", "6")),
                         help="Number of bottom layers to damp for --body_init=orthogonal_bottom_damp (default 6 = bottom half of 12 layers).")
+    # H257: sphere parallel-transport for momentum buffer. After scale_invariant_update_
+    # moves W on the F-norm sphere, the momentum buffer accumulated in T_{W_old} S_R has
+    # acquired a radial component along W_new. Project it out so m stays in T_{W_new} S_R.
+    # 0 = off (CTRL, bit-identical to baseline). 1 = always. 2 = cooldown-only.
+    parser.add_argument("--sphere_pt_momentum", type=int,
+                        default=int(os.environ.get("SPHERE_PT_MOMENTUM", "0")),
+                        choices=[0, 1, 2],
+                        help="Sphere parallel-transport for momentum buffer post-SI step. "
+                             "0=off (CTRL, bit-identical to H203 baseline). "
+                             "1=always (every step). "
+                             "2=cooldown-only (only when h_cooldown_frac of training is in cooldown phase).")
     args = parser.parse_args()
     args.num_trials = args.num_trials if args.num_trials is not None else (args.legacy_num_trials or 1)
     args.wandb_tags = [tag.strip() for tag in args.wandb_tags.split(",") if tag.strip()]
@@ -656,6 +667,29 @@ def scale_invariant_update_(param, update, lr, eps=1e-10):
     param.copy_(new_param / new_norm * p_norm)
 
 
+@torch.compiler.disable
+def sphere_parallel_transport_momentum_(momentum, p, eps=1e-12):
+    """H257: parallel-transport momentum buffer to T_{p_new} S_R (sphere geometry).
+
+    For S_R = {W : ||W||_F = R}, the tangent space T_W S_R = {X : <X, W>_F = 0}.
+    After scale_invariant_update_, p moves on S_R but the momentum buffer m
+    accumulated in T_{p_old} has acquired a radial component along p_new.
+    Project it out so m lies in T_{p_new} S_R for the next step:
+
+        m_new = m - <m, p>_F / ||p||_F^2 * p
+
+    Returns the pre-projection radial fraction <m,p>/||p||^2 (scalar tensor) for
+    telemetry; absolute value of this fraction is the "info loss" the SI re-
+    normalization implicitly cancels. Per Bonnabel 2013 (arxiv:1111.5280) and
+    Edelman, Arias, Smith 1998 SIAM J Matrix Anal — for round sphere, parallel
+    transport reduces to radial projection.
+    """
+    p_norm_sq = (p * p).sum().clamp(min=eps)
+    radial_coef = (momentum * p).sum() / p_norm_sq
+    momentum.sub_(radial_coef * p)
+    return radial_coef
+
+
 class MuonH(torch.optim.Optimizer):
     """Muon with a hyperball (Frobenius-ball) projection on hidden 2D weight matrices.
 
@@ -669,16 +703,22 @@ class MuonH(torch.optim.Optimizer):
     norm exactly constant; weight_decay must be 0.
     """
     def __init__(self, params, lr=0.018, weight_decay=0.0, mu=0.95,
-                 hyperball=True, budget_mult=1.0, mode="clip"):
+                 hyperball=True, budget_mult=1.0, mode="clip", sphere_pt_momentum=0):
         assert isinstance(params, list) and len(params) >= 1 and isinstance(params[0], torch.nn.Parameter)
         assert mode in ("clip", "scale_invariant")
+        assert sphere_pt_momentum in (0, 1, 2)
         params = sorted(params, key=lambda x: x.size(), reverse=True)
         defaults = dict(lr=lr, weight_decay=weight_decay, mu=mu,
-                        hyperball=hyperball, budget_mult=budget_mult, mode=mode)
+                        hyperball=hyperball, budget_mult=budget_mult, mode=mode,
+                        sphere_pt_momentum=sphere_pt_momentum)
         super().__init__(params, defaults)
         self._last_active_fraction = 0.0
         self._last_radius_to_norm_max = 0.0
         self._last_norm_to_radius_max = 0.0
+        # H257 telemetry: per-step max |radial coef| before PT, and pt-applied fraction.
+        self._last_pt_radial_frac_max = 0.0
+        self._last_pt_radial_frac_mean = 0.0
+        self._last_pt_applied_fraction = 0.0
 
     @torch.no_grad()
     def step(self):
@@ -688,12 +728,17 @@ class MuonH(torch.optim.Optimizer):
         total_count_local = 0
         max_r_over_n_local = 0.0
         max_n_over_r_local = 0.0
+        pt_radial_abs_max_local = 0.0
+        pt_radial_abs_sum_local = 0.0
+        pt_applied_count_local = 0
         for group in self.param_groups:
             params = group["params"]
             params_pad = params + [torch.empty_like(params[-1])] * (world_size - len(params) % world_size)
             hb = group["hyperball"]
             budget_mult = group["budget_mult"]
             mode = group["mode"]
+            pt_mode = group.get("sphere_pt_momentum", 0)
+            pt_active = (pt_mode == 1) or (pt_mode == 2 and group.get("_cooldown_active", False))
             for base_i in range(0, len(params), world_size):
                 if base_i + rank < len(params):
                     p = params[base_i + rank]
@@ -708,6 +753,14 @@ class MuonH(torch.optim.Optimizer):
                         scale_invariant_update_(p.data, update, group["lr"])
                         total_count_local += 1
                         clip_count_local += 1  # by definition projection is always active
+                        # H257: parallel-transport momentum to T_{p_new} S_R.
+                        if pt_active:
+                            radial_coef = sphere_parallel_transport_momentum_(state["momentum"], p.data)
+                            r_abs = float(radial_coef.abs().item())
+                            if r_abs > pt_radial_abs_max_local:
+                                pt_radial_abs_max_local = r_abs
+                            pt_radial_abs_sum_local += r_abs
+                            pt_applied_count_local += 1
                     else:
                         p.mul_(1 - group["lr"] * group["weight_decay"])
                         p.add_(update, alpha=-group["lr"])
@@ -727,24 +780,35 @@ class MuonH(torch.optim.Optimizer):
                                 clip_count_local += 1
                 dist.all_gather(params_pad[base_i:base_i + world_size], params_pad[base_i + rank])
         if world_size > 1:
-            counts = torch.tensor([clip_count_local, total_count_local],
+            counts = torch.tensor([clip_count_local, total_count_local, pt_applied_count_local],
                                   device="cuda", dtype=torch.float64)
             dist.all_reduce(counts, op=dist.ReduceOp.SUM)
-            ratios = torch.tensor([max_r_over_n_local, max_n_over_r_local],
+            ratios = torch.tensor([max_r_over_n_local, max_n_over_r_local, pt_radial_abs_max_local],
                                   device="cuda", dtype=torch.float64)
             dist.all_reduce(ratios, op=dist.ReduceOp.MAX)
+            radial_sum = torch.tensor([pt_radial_abs_sum_local], device="cuda", dtype=torch.float64)
+            dist.all_reduce(radial_sum, op=dist.ReduceOp.SUM)
             clip_count = float(counts[0].item())
             total_count = float(counts[1].item())
+            pt_applied_count = float(counts[2].item())
             max_r_over_n = float(ratios[0].item())
             max_n_over_r = float(ratios[1].item())
+            pt_radial_abs_max = float(ratios[2].item())
+            pt_radial_abs_sum = float(radial_sum[0].item())
         else:
             clip_count = float(clip_count_local)
             total_count = float(total_count_local)
+            pt_applied_count = float(pt_applied_count_local)
             max_r_over_n = max_r_over_n_local
             max_n_over_r = max_n_over_r_local
+            pt_radial_abs_max = pt_radial_abs_max_local
+            pt_radial_abs_sum = pt_radial_abs_sum_local
         self._last_active_fraction = clip_count / total_count if total_count > 0 else 0.0
         self._last_radius_to_norm_max = max_r_over_n
         self._last_norm_to_radius_max = max_n_over_r
+        self._last_pt_radial_frac_max = pt_radial_abs_max
+        self._last_pt_radial_frac_mean = pt_radial_abs_sum / pt_applied_count if pt_applied_count > 0 else 0.0
+        self._last_pt_applied_fraction = pt_applied_count / total_count if total_count > 0 else 0.0
 
 
 ########################################
@@ -850,6 +914,7 @@ if dist.get_rank() == 0:
             "muonh_mu_schedule": args.muonh_mu_schedule,
             "muonh_mu_start": args.muonh_mu_start,
             "muonh_mu_end": args.muonh_mu_end,
+            "muonh_sphere_pt_momentum": args.sphere_pt_momentum,
         },
     )
 
@@ -933,7 +998,8 @@ for trial_idx in range(args.num_trials):
     optimizer2 = MuonH([p for p in model.blocks.parameters() if p.ndim >= 2],
                        lr=args.muonh_lr, weight_decay=0.0, mu=0.95,
                        hyperball=True, budget_mult=args.muonh_budget_mult,
-                       mode=args.muonh_mode)
+                       mode=args.muonh_mode,
+                       sphere_pt_momentum=args.sphere_pt_momentum)
     optimizer2.param_groups[0]["name"] = "muonh_blocks"
     optimizers = [optimizer1, optimizer2]
     # AGC targets: AdamW aux groups (embed, lm_head, scalars). Built from optimizer1
@@ -990,6 +1056,19 @@ for trial_idx in range(args.num_trials):
                 if opt is optimizer2:
                     eta = eta * muonh_warmup
                 group["lr"] = group["initial_lr"] * eta
+        # H257 arm_c gating: advisor (PR #1629 comment 2026-05-29T01:31:42Z) specified
+        # `cooldown_active_body = (eta < 1.0)` with intent "warmup-end onward through
+        # cooldown completion, separating high-LR plateau from LR-decayed regime". With
+        # baseline cosine + h_cooldown_frac=1.0 there is NO plateau (eta_cosine drops from
+        # 1.0 at progress=0 monotonically), and the warmup factor makes the body lr<initial
+        # for every step, so the literal eta<1.0 check is True everywhere -> arm_c==arm_b.
+        # Implementing advisor's STATED intent: post-warmup gate. Peak body LR is achieved
+        # at warmup-end (step==muonh_warmup_steps), and from there body eta cosine-decays.
+        cooldown_active_body = (step >= args.muonh_warmup_steps)
+        for opt in optimizers:
+            for group in opt.param_groups:
+                if "sphere_pt_momentum" in group:  # body groups only
+                    group["_cooldown_active"] = cooldown_active_body
         # Aux β2 schedule: ramp β2 from start to end linearly across the aux
         # cooldown phase (last aux_cooldown_frac of training). constant schedule
         # is a no-op since b2 stays equal to aux_beta2_start = baseline 0.95.
@@ -1189,6 +1268,11 @@ for trial_idx in range(args.num_trials):
                         muonh_metrics["train/muonh/active_fraction"] = opt._last_active_fraction
                         muonh_metrics["train/muonh/radius_to_norm_max"] = opt._last_radius_to_norm_max
                         muonh_metrics["train/muonh/norm_to_radius_max"] = opt._last_norm_to_radius_max
+                        # H257 telemetry: max/mean |<m, p>|/||p||^2 before PT, and how often PT was applied
+                        if args.sphere_pt_momentum != 0:
+                            muonh_metrics["train/muonh/pt_radial_frac_max"] = opt._last_pt_radial_frac_max
+                            muonh_metrics["train/muonh/pt_radial_frac_mean"] = opt._last_pt_radial_frac_mean
+                            muonh_metrics["train/muonh/pt_applied_fraction"] = opt._last_pt_applied_fraction
                     muonh_metrics["train/muonh/warmup_factor"] = muonh_warmup_factor
                     muonh_metrics["train/muonh/effective_lr"] = opt.param_groups[0]["lr"]
             if telemetry_due and args.aux_agc_clip_ratio > 0 and agc_stats["agc_total"] > 0:
