@@ -1,3 +1,53 @@
+## 2026-05-29 08:55 — PR #1647: H260 nezuko Aux Lion optimizer FORM replacement (56th class) — CLOSED (**117th NULL/NEG closure**, bilateral CATASTROPHIC NEG — arm_b LION_SCALED lr=1.5e-4 wd=0.1 val=3.38858 +136σ_H174 FFS=−1, arm_c LION_LRMATCHED lr=4.5e-4 wd=0 val=3.36773 +112σ_H174 FFS=−1. 🎯 **PREDICTED 10% CATASTROPHIC NEG bucket CONFIRMED** — Lion's sign-based update destroys per-coordinate magnitude information that H203 aux update structurally requires. 🎯 **NEW PROGRAMME FINDING #61 candidate**: "AdamW per-coordinate `g/√v` preconditioner adaptivity is structurally LOAD-BEARING on aux parameters (embeddings + lm_head + biases) of the H203 baseline — uniform-magnitude updates catastrophically NEG". **11th drift-FREE CTRL instance** of campaign (Pattern A canonical safe-fix template, argparse VALUE + branched code path). H268 nezuko IMMEDIATE FOLLOW-UP ASSIGNED **Aux Adam-mini optimizer FORM replacement (63rd class)** — tests block-diagonal granularity intermediate to AdamW per-element vs Lion uniform)
+
+- Branch: H260 nezuko (56th class — Aux Lion optimizer FORM replacement, Chen et al. 2023 sign-based update)
+- Student terminal SENPAI-RESULT at 08:48 UTC May 29 with full 3-arm per-arm config audit (`aux_optimizer ∈ {adamw, lion, lion}` distinct, with LR/WD treatment), per-arm bit-id step-0 val=10.82583 EXACT, full Lion telemetry (`aux_lion_update_rms_mean ≈ 0.997-0.999` confirms sign-based uniform-magnitude updates), and Pattern A drift-FREE branched dispatch (commit `44e8dbb`, +74/−2 lines).
+
+| Arm | run_id | `aux_optimizer` | `aux_lion_lr` | `aux_lion_wd` | step-0 val | val/loss | FFS | Δval vs CTRL | Decision |
+|---|---|---|---|---|---|---|---|---|---|
+| arm_a CTRL ADAMW | `kcj3clb3` | `adamw` ✓ | n/a | n/a | 10.82583 EXACT | **3.26843** | **3025 EXACT** | — | **🎯 drift-FREE 11th canonical Pattern A** ✓ |
+| arm_b LION_SCALED | `dku0g8t7` | `lion` ✓ | 1.5e-4 | 0.1 | 10.82583 EXACT | 3.38858 | **−1** | +0.12015 (+136σ_H174) | **CATASTROPHIC NEG** |
+| arm_c LION_LRMATCHED | `vuxliirx` | `lion` ✓ | 4.5e-4 (3× LR-matched) | 0.0 | 10.82583 EXACT | 3.36773 | **−1** | +0.09930 (+112σ_H174) | **CATASTROPHIC NEG** |
+
+### Statistical rule check `(3.28 − μ) × √n ≥ 0.004`
+- arm_a CTRL: `(3.28 − 3.26843) × √1 = 0.01157` ≥ 0.004 ✓ AND FFS=3025 EXACT BASELINE → drift-FREE ✓
+- arm_b LION_SCALED: `(3.28 − 3.38858) × √1 = −0.10858` ✗ NEVER crosses 3.28 → FFS=−1 catastrophic
+- arm_c LION_LRMATCHED: `(3.28 − 3.36773) × √1 = −0.08773` ✗ NEVER crosses 3.28 → FFS=−1 catastrophic
+
+### 🎯 NEW PROGRAMME FINDING #61 candidate — "Aux preconditioner per-coordinate adaptivity is structurally LOAD-BEARING"
+
+H260 establishes that AdamW's `g/√v` per-coordinate adaptive preconditioner is **structurally load-bearing** for H203 aux params, NOT a noise-dampening luxury:
+
+- **Lion telemetry confirms uniform update magnitude**: `aux_lion_update_rms_mean ≈ 0.997-0.999` throughout training (sign-based outputs ∈ {−1, 0, +1}, RMS ≈ 1.0 always). Updates are uniform-magnitude across all aux parameters.
+- **No divergence, no NaN** — both Lion arms are NUMERICALLY STABLE. They simply plateau at val~3.37-3.39 (frequencies-of-tokens spread cannot be compensated by uniform LR).
+- **Mechanistic explanation**: aux parameters have high per-parameter gradient-magnitude variance (rare-token embedding rows: tiny gradients; frequent-token rows + lm_head: large gradients). AdamW's per-coordinate `1/√v_t` scaling adapts to this. Lion's uniform `sign()` destroys this signal.
+
+**Consistent with Lion paper Table 7** (Chen et al. 2023): Lion underperforms when per-coordinate scaling matters (attention layers in small models, embedding-heavy tasks). H203's aux group is dominated by embedding + lm_head parameters where this effect is maximal.
+
+PF#61 candidate initial axes: H260 (Lion FORM at 2 LR settings) — 1 axis. **Strengthening axes possible**: H268 Adam-mini (block-diagonal), future Adafactor (row-column factored), Shampoo (matrix-Kronecker). The plateau-protocol next step is to test how MUCH adaptivity granularity is needed.
+
+### 🎯 11th drift-FREE CTRL instance — Pattern A canonical safe-fix template
+
+arm_a CTRL FFS=3025 EXACT + val=3.26843 (+0.15σ_H174 vs baseline) = canonical drift-FREE Pattern A. The `--aux_optimizer adamw` (default) routes through unchanged `else: opt_aux.step()` AdamW branch — Lion code path fully isolated behind argparse flag, bit-identical compute graph to pre-H260. Cumulative drift-FREE CTRL count now **11** (was 10 at H259 closure + 1 H260 = 11).
+
+### H268 nezuko IMMEDIATE FOLLOW-UP — Aux Adam-mini optimizer FORM replacement (PR #1679, 63rd class)
+
+PF#61 candidate plateau-location follow-up. Adam-mini (Zhang et al. 2024 arxiv 2406.16793) reduces Adam's per-element `v_t` to **block-mean** (one scalar per parameter block). H268 tests granularity axis intermediate to AdamW per-element vs Lion uniform: 3-arm: CTRL `aux_optimizer=adamw` (drift-FREE Pattern A 12th anchor) / DEFAULT `aux_optimizer=adam_mini` aux_adam_mini_lr=4.5e-4 wd=0.1 (matched AdamW HP) / TUNED `aux_adam_mini_lr=1.5e-3` wd=0.0 (3× higher LR, no WD). Reuses H260's `--aux_optimizer` argparse infrastructure. WIN prob **15-25%** (BOLD plateau-protocol swing, PF#61 candidate suggests block granularity may be insufficient but this is exactly the axis that needs testing).
+
+### Programme totals after H260 closure + H268 assignment
+- **117 NULL/NEG closures** (H145 → H260 cumulative — no merge since H203 baseline)
+- **63 mechanism classes** characterized (H260 Aux Lion was 56th characterized at closure; H268 Adam-mini is 63rd newly assigned)
+- **11 drift-FREE CTRL instances** cumulative + 1 Pattern B-extract +25 drift class anchor
+- **5 canonical safe-fix templates** + 1 Pattern B-extract sub-pattern characterized
+- **PF#56 PROMOTED** to 5-axis CLOSURE-GRADE (MuLoCo outer-step HP manifold structurally rigid)
+- **PF#58 candidate** at 5 axes CLOSURE-GRADE PROMOTION (Stiefel-aware mechanism cluster inert/harmful)
+- **PF#59 candidate STRENGTHENED** to monotone-accelerating-returns form (NS5 orthogonalization — plateau location pending H267)
+- **PF#60 candidate** active at 3 axes (continuous post-step Riemannian-geometric corrections inert/harmful)
+- **PF#61 candidate NEW** active at 1 axis (Aux preconditioner per-coordinate adaptivity load-bearing — granularity location pending H268)
+- **6 BOLD swings + 1 follow-up + 1 BOLD newly-assigned WIP**: H261 Sophia (aux, 57th), H262 body warmup VALUE (58th), H263 MuLoCo pruning (stack, 59th), H264 Lookahead (wrapper, 60th — arm_b catastrophic NEG mid-chain audit), H265 Trust-Region (body step, 61st), H266 Polyak EMA (eval-only, 62nd), H267 NS5 iter extension (within-class follow-up), **H268 Adam-mini (aux preconditioner granularity, 63rd)**
+
+---
+
 ## 2026-05-29 11:45 — PR #1638: H259 tanjiro NS5 iteration COUNT VALUE ablation (55th class) — CLOSED (**116th NULL/NEG closure**, FFS-primary criterion — arm_c HIGH iters=16 val=3.26727 vs H203 baseline val=3.26830 = **−1.16σ_H174 mild val IMPROVEMENT** BUT FFS=3025 EXACT TIES baseline NOT below → **TIE-on-FFS, NOT merge under FFS-primary**. 🎯 **CRITICAL MECHANISTIC FINDING — monotone trend REVERSES the H259 over-convergence prior** (8→12→16 iters: val=3.27047, 3.26979, 3.26727 = monotone-decreasing val, 12→16 Δval rate 3.7× LARGER than 8→12 = **accelerating returns NOT diminishing returns**) → 🎯 **PROGRAMME FINDING #59 candidate STRENGTHENED to "NS5 orthogonalization quality scales monotonically with iteration count, NO convergence plateau observed in [8, 16]"** + 🎯 **Pattern B-extract characterized as NEW +25 drift sub-pattern** (move EXISTING compiled internal function to standalone @torch.compile = +25 FFS topology drift, distinct from drift-FREE Pattern B-helper H249/H257) + **H267 tanjiro IMMEDIATE FOLLOW-UP ASSIGNED testing iters ∈ {16, 24, 32}** to locate plateau and probe FFS<3025 WIN territory)
 
 - Branch: H259 tanjiro (55th class — NS5 polynomial iteration COUNT VALUE axis, hardcoded `range(12)` at `train_gpt_simple.py:557` never previously ablated in r3)

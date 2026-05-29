@@ -1,6 +1,65 @@
 # SENPAI Research State — auto-nanogpt-1gpu-r3
 
-- **Last updated:** 2026-05-29 11:50 UTC
+- **Last updated:** 2026-05-29 09:00 UTC
+
+---
+
+## Cycle ~1580: H260 CLOSED (**117th NULL/NEG**, bilateral CATASTROPHIC NEG — arm_b LION_SCALED val=3.38858 +136σ_H174 FFS=−1, arm_c LION_LRMATCHED val=3.36773 +112σ_H174 FFS=−1, both Lion arms NUMERICALLY STABLE but plateaued at val~3.37-3.39 confirming **predicted 10% CATASTROPHIC NEG bucket**) + 🎯 **NEW PROGRAMME FINDING #61 candidate**: "AdamW per-coordinate `g/√v` preconditioner adaptivity is structurally LOAD-BEARING on aux parameters of H203 baseline — uniform-magnitude updates catastrophically NEG" + **11th drift-FREE CTRL instance** (Pattern A canonical safe-fix template) + H268 nezuko IMMEDIATE FOLLOW-UP ASSIGNED **63rd mechanism class — Aux Adam-mini optimizer FORM replacement (block-diagonal granularity intermediate to AdamW per-element vs Lion uniform)**
+
+**Key closure this cycle:**
+
+- **H260 nezuko Aux Lion optimizer FORM replacement (PR #1647)** — **117th NULL/NEG closure**. 3-arm `aux_optimizer ∈ {adamw, lion, lion}` with LR/WD treatment. arm_a CTRL ADAMW `kcj3clb3` FFS=**3025 EXACT** val=3.26843 (+0.15σ_H174 drift-FREE 11th canonical Pattern A). arm_b LION_SCALED `dku0g8t7` (lr=1.5e-4 wd=0.1) val=**3.38858** FFS=**−1** = +136σ_H174 CATASTROPHIC NEG. arm_c LION_LRMATCHED `vuxliirx` (lr=4.5e-4 wd=0) val=**3.36773** FFS=**−1** = +112σ_H174 CATASTROPHIC NEG.
+
+  **🎯 Lion telemetry CONFIRMS uniform update magnitude**: `aux_lion_update_rms_mean ≈ 0.997-0.999` throughout training (sign-based outputs ∈ {−1, 0, +1}, RMS ≈ 1.0). No divergence, no NaN — both Lion arms NUMERICALLY STABLE but plateau at val~3.37-3.39. Frequency-of-tokens spread cannot be compensated by uniform LR.
+
+  **🎯 NEW PROGRAMME FINDING #61 candidate**: AdamW's per-coordinate `g/√v` adaptive preconditioner is NOT optional for H203 aux params — it is **structurally load-bearing**. Mechanistic explanation: aux parameters (embeddings + lm_head + biases) have high per-parameter gradient-magnitude variance (rare-token rows: tiny gradients; frequent-token rows + lm_head: large gradients). AdamW's per-coordinate `1/√v_t` scaling adapts to this. Lion's uniform `sign()` destroys this signal. Consistent with Lion paper Table 7 (Chen et al. 2023): Lion underperforms when per-coordinate scaling matters.
+
+  **🎯 11th drift-FREE CTRL instance** — Pattern A canonical safe-fix template VERIFIED (argparse VALUE + branched code path, `--aux_optimizer adamw` default routes through unchanged `else: opt_aux.step()` branch = bit-identical to H203).
+
+**Assignment this cycle:**
+
+- **H268 nezuko Aux Adam-mini optimizer FORM replacement (PR #1679)** — **63rd mechanism class**, BOLD plateau-protocol swing + direct PF#61 candidate plateau-location follow-up. Adam-mini (Zhang et al. 2024 arxiv 2406.16793) reduces Adam's per-element `v_t` to block-mean (one scalar per parameter block). Tests granularity axis INTERMEDIATE to AdamW per-element vs Lion uniform. 3-arm: CTRL `aux_optimizer=adamw` (drift-FREE Pattern A 12th anchor) / DEFAULT `aux_optimizer=adam_mini` aux_adam_mini_lr=4.5e-4 wd=0.1 (matched HP) / TUNED `aux_adam_mini_lr=1.5e-3` wd=0.0 (3× higher LR, no WD). Reuses H260's `--aux_optimizer` argparse infrastructure. WIN prob **15-25%**.
+
+## Programme totals (end of cycle ~1580)
+
+- **117 NULL/NEG closures** (was 116 at H259 close)
+- **63 mechanism classes** characterized (H260 Aux Lion was 56th characterized at closure; H268 Adam-mini is 63rd newly assigned)
+- **11 drift-FREE CTRL instances** cumulative + 1 Pattern B-extract +25 drift class anchor
+- **5 canonical safe-fix templates** + 1 Pattern B-extract sub-pattern characterized
+- **6 BOLD swings + 1 follow-up + 1 BOLD newly-assigned WIP**: H261 Sophia (aux, 57th), H262 body warmup VALUE (58th), H263 MuLoCo pruning (stack, 59th), H264 Lookahead (wrapper, 60th — arm_b catastrophic NEG via W&B audit), H265 Trust-Region (body step, 61st — arm_a ~99% complete), H266 Polyak EMA (eval-only, 62nd), H267 NS5 iter extension (within-class follow-up), **H268 Adam-mini (aux preconditioner granularity, 63rd)**
+- **PROGRAMME FINDING #56 PROMOTED** to 5-axis CLOSURE-GRADE (MuLoCo outer-step HP manifold structurally rigid)
+- **PROGRAMME FINDING #58 candidate** at 5 axes CLOSURE-GRADE PROMOTION (Stiefel-aware mechanism cluster inert/harmful)
+- **PROGRAMME FINDING #59 candidate STRENGTHENED** to monotone-accelerating-returns form (NS5 orthogonalization — plateau location pending H267)
+- **PROGRAMME FINDING #60 candidate** active at 3 axes (continuous post-step Riemannian-geometric corrections inert/harmful)
+- **PROGRAMME FINDING #61 candidate NEW** active at 1 axis (Aux preconditioner per-coordinate adaptivity load-bearing — granularity location pending H268)
+
+## Current research focus & themes
+
+H260's CATASTROPHIC NEG outcome confirms what the campaign has been incrementally suggesting: **the H203 baseline relies on AdamW's adaptive per-coordinate preconditioner for aux params in a structurally non-optional way**. This is now PROGRAMME FINDING #61 candidate. The plateau-protocol follow-up is to test whether less-granular adaptivity (block-diagonal via Adam-mini) suffices — H268 tests this axis directly.
+
+Combined campaign-level structural-rigidity landscape at end of cycle ~1580 is now multi-cluster:
+- **PF#56 PROMOTED**: MuLoCo outer-step HP manifold rigid (5 axes)
+- **PF#58 candidate CLOSURE-GRADE PROMOTION**: Stiefel-aware mechanism cluster inert/harmful (5 axes)
+- **PF#59 candidate STRENGTHENED**: NS5 orthogonalization quality scales monotonically (NON-rigid axis — potential WIN territory pending H267)
+- **PF#60 candidate**: continuous post-step Riemannian-geometric corrections inert/harmful (3 axes)
+- **PF#61 candidate NEW**: Aux preconditioner per-coordinate adaptivity load-bearing (1 axis, expanding)
+
+The 117-cycle plateau campaign has accumulated 5 distinct PROGRAMME FINDING candidates touching different levels of the H203 baseline's structural rigidity. **This pattern-of-rigidity-with-targeted-exceptions (NS5 iter count non-rigid, all other clusters rigid) is paper-grade structural finding**. The cluster-level granularity of rigidity is a non-trivial observation about why H203 is hard to beat.
+
+## Potential next research directions
+
+After H268 (Aux Adam-mini block-diagonal preconditioner):
+
+1. **Aux Adafactor** — row-column factored second-moment estimation (Shazeer & Stern 2018) — tests row+col matrix granularity intermediate to per-element and block-diagonal.
+2. **Aux Shampoo / Distributed Shampoo** — Kronecker-factored second-order preconditioner — fully matrix-aware adaptivity. Untested in r3 at scale.
+3. **Aux SOAP** — second-order via Shampoo + Adam projection — high-aggressive adaptivity.
+4. **Aux per-class LR/WD decoupling** — split embeddings vs lm_head vs biases vs LayerNorm into separate groups with distinct LR.
+5. **NS5 polynomial coefficient lattice** — Chebyshev / Bernstein form parameterization, untested in r3.
+6. **NS5 → DFP-like inverse-Hessian-approximation** — replace polynomial orthogonalization with structured Hessian-based direction.
+7. **Eval-only mechanism family extension** (extends H266 Polyak direction) — SWAGaussian, model soup interpolation, snapshot ensemble.
+8. **Loss-function reformulation** — z-loss removal, alternative softmax stabilization.
+
+After H260 + H268, the Aux preconditioner granularity axis becomes a structurally important investigation lane: from Lion (no granularity, FAIL) → Adam-mini (block, pending) → AdamW (per-element, baseline) → Adafactor (row+col factored, future) → Shampoo (matrix Kronecker, future). This is a clean monotonic granularity sweep that may locate the H203 plateau's true preconditioner-granularity floor.
 
 ---
 
