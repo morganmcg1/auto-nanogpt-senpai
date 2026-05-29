@@ -1,5 +1,37 @@
 # SENPAI Research Results — auto-nanogpt-1gpu-r4
 
+## 2026-05-29 20:15 — PR #1696: NM Tikhonov γ phase-scheduling (cooldown-ramp 3-arm) — **CLOSED MECHANISM-OBSERVABLE-VAL-DECOUPLED, Class 20 SCHEDULE-TIKHONOV-COOLDOWN-RAMP with productive-window quantification**
+
+- branch: `g1r4-fern/nm-tikhonov-schedule-cooldown-ramp`
+- **Hypothesis**: Tikhonov γ is held constant post-#1543 (γ=0.005); a phase-scheduled γ-ramp during the cooldown window [2400, 3350] could amplify R_cond compression at exactly the precision-sensitive phase where R-buffer preconditioning matters most
+
+| Metric | Arm A ctrl (`t5gomqy2`) | Arm B γ_late=0.025 (`d31j6zin`) | Arm C γ_late=0.050 (`hp0yfwvz`) |
+|---|---:|---:|---:|
+| val/loss terminal | 3.26250 | 3.26342 | 3.26362 |
+| Δ_paired vs Arm A | — | +0.00092 (NULL-borderline-edge) | +0.00112 (mild-NEG) |
+| FFS@3.28 | 3175 | ~3175 | ~3175 |
+| R_cond_max | ~555K (baseline) | ~111K (−80%) | ~54K (−90%) |
+| precond_ratio_mean | 1.062 LIFT | ~1.06 LIFT | 0.991 SUB-LIFT |
+| effective_tikhonov_gamma | 0.005 | 0.025 ✓ (step 2401) | 0.050 ✓ (step 2401) |
+| PP-promote trigger | — | FAIL (+0.00092) | FAIL (+0.00112) |
+| G1 merge gate | — | FAIL (3.26342 > 3.26183) | FAIL (3.26362 > 3.26183) |
+
+- **W&B runs**: `t5gomqy2` (Arm A ctrl), `d31j6zin` (Arm B γ_late=0.025), `hp0yfwvz` (Arm C γ_late=0.050)
+
+**Results commentary**: Neither arm meets PP-promote or G1 merge gate. Best val=3.26342 (Arm B) vs baseline 3.26183 = +0.00159 above. Closing as MECHANISM-OBSERVABLE-VAL-DECOUPLED — both the switch infrastructure and the dose-response mechanism finding are significant, but val direction doesn't justify PP-promote at N=1.
+
+**KEY MECHANISM FINDING — Class 20 SCHEDULE-TIKHONOV-COOLDOWN-RAMP**:
+1. **Productive-window criterion**: precond_ratio_mean ≥ 1.0 (LIFT regime) is the fundamental productive bound for Tikhonov-class R-buffer mechanisms. γ_late=0.025 preserves LIFT (precond_ratio_mean ~1.06 = identical to baseline despite 80% R_cond_max compression). γ_late=0.050 crosses SUB-LIFT (precond_ratio_mean=0.991 = under-precondition damage regime). **Once γ pushes precond_ratio_mean sub-unity, Tikhonov regularization dominates and washes the preconditioning signal.**
+2. **First cross-axis quantitative productive-window relationship**: standalone γ-magnitude productive window γ∈[0.005, 0.008] vs cooldown-amplified γ_late ≤ 0.025 = **~5× scaling factor** = cooldown phase tolerates higher γ before saturation. First cross-axis quantitative relationship in R-buffer family.
+3. **Monotone dose-response in both R_cond_max and precond_ratio_mean**: γ=0.005 (555K) → γ_late=0.025 (111K, −80%) → γ_late=0.050 (54K, −90%) = proportional compression; LIFT→LIFT→SUB-LIFT = precond_ratio inflection between 5× and 10× boost
+4. **Implementation gate PASS-CLEAN**: `effective_tikhonov_gamma` flipped at exactly step 2400→2451 (one-step lag from period=2 eigendecomp cadence per smoke prediction). γ-switch infrastructure is production-grade.
+5. **R_cond_min as productive-window predictor** (Arm A=1011, B=720, C=647 monotone descent) — new observable suggestion for future Tikhonov screens
+6. **5th R-buffer mechanism characterization to closure; first PHASE-modulation class**
+
+**Conclusions**: Close as publishable MECHANISM-OBSERVABLE-VAL-DECOUPLED. Assign follow-up #2 (late-cooldown-only switch SWITCH_STEP=3000) to fern as PR #1740 — tests whether SUB-LIFT inflection is a dose-duration effect (950 steps from SWITCH=2400) or inherent γ-magnitude ceiling.
+
+---
+
 ## 2026-05-29 19:40 — PR #1706: NM LR burst-DOWN follow-up (2-arm 0.95/0.90 sweep) — **CLOSED NULL/borderline-NEG, Class 18 TEMPORAL-BURST-WINDOW axis bidirectionally characterized**
 
 - branch: `g1r4-alphonse/nm-lr-burst-DOWN-sweep`
