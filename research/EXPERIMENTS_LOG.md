@@ -1,5 +1,20 @@
 # SENPAI Research Results
 
+## 2026-05-29 03:38 UTC — PR #1607 tanjiro: Aux β₂ downward pulse (0.90, 0.85) — ❌ CLOSED NULL (bilateral, amplitude axis fully closed)
+
+- Branch: `g1r1-tanjiro/b2-downward-pulse`
+- Hypothesis: If β₂=0.99 upward pulse wins, does β₂ downward direction also have potential? Negative control and bilateral axis mapping.
+- W&B: Arm A `k56llb0t` (β₂=0.90), Arm B `55ud88bp` (β₂=0.85)
+
+| Arm | β₂ target | val/loss_live | val/loss_ema | sr | Δval vs baseline | Verdict |
+|---|---:|---:|---:|---:|---:|---|
+| A | 0.90 | 3.268877 | **3.269492** | **2975** | +6.638 mnat | ❌ NULL |
+| B | 0.85 | 3.272823 | **3.273460** | **3050** | +10.606 mnat | ❌ NULL |
+
+- **Analysis:** Downward direction monotone-regress: larger |Δβ₂| produces larger regression (+6.6 → +10.6 mnat as β₂ drops 0.90 → 0.85). Both arms diverge from edward WIN trajectory immediately post-pulse and never reconverge. The damage signature is a mirror of the RAISE mechanism: shorter variance memory window → noisier preconditioner scaling → effective step size wobble during cooldown. The β₂ amplitude axis is now fully closed bilaterally: downward regresses (monotone), upward to 0.99 WINs (canonical), upward to 0.995/0.999 NULLs (diminishing returns). **0.99 is the clear optimum.**
+- **Mechanism:** Decreasing β₂ at cooldown onset shortens effective averaging window → noisier v estimates → aux-Adam preconditioner less stable → fine-tuning during cooldown degraded. Exact opposite of edward's WIN mechanism.
+- **Follow-up assigned:** tanjiro → PR #1648 per-group aux Adam β₂ pulse asymmetry (which of embed/lm_head/scalars is the load-bearing recipient of edward's canonical pulse?). Direct mechanism-attribution test.
+
 ## 2026-05-29 02:30 UTC — PR #1604 fern: Body Muon momentum pulse axis — ❌ CLOSED BILATERAL CATASTROPHIC (axis fully closed, moments × optimizer specificity confirmed)
 
 - Branch: `g1r1-fern/muon-momentum-pulse`
