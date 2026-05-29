@@ -68,6 +68,15 @@ def parse_args():
     parser.add_argument("--ns_iter", type=int, default=12,
                         help="Number of Newton-Schulz iterations in zeropower_via_newtonschulz5. "
                              "Default 12 (current hardcoded value). Lower = less orthogonal but faster.")
+    parser.add_argument("--ns_iter_schedule", type=str, default="uniform",
+                        choices=["uniform", "depth_up", "depth_down"],
+                        help="NS iteration schedule by block depth: 'uniform' (all=NS_ITER), "
+                             "'depth_up' (early blocks fewer, late blocks more), "
+                             "'depth_down' (early blocks more, late blocks fewer). "
+                             "Requires --ns_iter_delta to set the +/- offset.")
+    parser.add_argument("--ns_iter_delta", type=int, default=2,
+                        help="NS iter delta for depth_up/depth_down schedules. "
+                             "depth_up: blocks 0-3 use NS_ITER-delta, 4-7 use NS_ITER, 8-11 use NS_ITER+delta. Default: 2.")
     parser.add_argument("--lr_scalars", type=float, default=0.01,
                         help="LR for AdamW adam_scalars group (RMSNorm gains; "
                              "params with ndim < 2). Default 0.01 — hardcoded, "
@@ -494,7 +503,7 @@ class GPT(nn.Module):
 #              Optimizer               #
 ########################################
 
-def zeropower_via_newtonschulz5(G: Tensor) -> Tensor:
+def zeropower_via_newtonschulz5(G: Tensor, ns_iter: int = NS_ITER) -> Tensor:
     assert G.ndim >= 2
     X = G.bfloat16()
     if G.size(-2) > G.size(-1):
@@ -504,7 +513,7 @@ def zeropower_via_newtonschulz5(G: Tensor) -> Tensor:
     X = X / (X.norm(dim=(-2, -1), keepdim=True) + 1e-7)
     # Perform the NS iterations, not optimizing for wallclock speed
     a, b, c = 2, -1.5, 0.5
-    for _ in range(NS_ITER):
+    for _ in range(ns_iter):
         A = X @ X.mT
         B = b * A + c * A @ A
         X = a * X + B @ X
@@ -514,17 +523,17 @@ def zeropower_via_newtonschulz5(G: Tensor) -> Tensor:
     return X
 
 @torch.compile
-def muon_update(grad, momentum, mu=0.95, nesterov=True):
+def muon_update(grad, momentum, mu=0.95, nesterov=True, ns_iter: int = NS_ITER):
     momentum.lerp_(grad, 1 - mu)
     update = grad.lerp_(momentum, mu) if nesterov else momentum
-    update = zeropower_via_newtonschulz5(update)
+    update = zeropower_via_newtonschulz5(update, ns_iter=ns_iter)
     update *= max(1, grad.size(-2) / grad.size(-1))**0.5
     return update
 
 
 @torch.compile
-def soap_ns_step(nesterov_update):
-    update = zeropower_via_newtonschulz5(nesterov_update)
+def soap_ns_step(nesterov_update, ns_iter: int = NS_ITER):
+    update = zeropower_via_newtonschulz5(nesterov_update, ns_iter=ns_iter)
     update *= max(1, nesterov_update.size(-2) / nesterov_update.size(-1))**0.5
     return update
 
@@ -609,6 +618,33 @@ class Muon(torch.optim.Optimizer):
         self.use_trust_gate = soap_attn
         self.cos_sims_buffer: dict[str, Tensor] = {}
 
+        # Build per-param NS iteration map from block depth.
+        ns_schedule = getattr(args, "ns_iter_schedule", "uniform")
+        ns_delta = getattr(args, "ns_iter_delta", 2)
+        def _block_ns_iter(param_name: str) -> int:
+            parts = param_name.split(".")
+            try:
+                block_idx = int(parts[0])
+            except (ValueError, IndexError):
+                return NS_ITER  # non-block params use global
+            if ns_schedule == "depth_up":
+                if block_idx < 4:
+                    return max(1, NS_ITER - ns_delta)
+                elif block_idx < 8:
+                    return NS_ITER
+                else:
+                    return NS_ITER + ns_delta
+            elif ns_schedule == "depth_down":
+                if block_idx < 4:
+                    return NS_ITER + ns_delta
+                elif block_idx < 8:
+                    return NS_ITER
+                else:
+                    return max(1, NS_ITER - ns_delta)
+            else:  # "uniform"
+                return NS_ITER
+        self.param_ns_iters = {id(p): _block_ns_iter(n) for n, p in all_named}
+
         param_groups = []
         for g in groups_raw:
             g_params = sorted([p for _, p in g["named_params"]], key=lambda x: x.size(), reverse=True)
@@ -638,6 +674,7 @@ class Muon(torch.optim.Optimizer):
                     p = params[base_i + rank]
                     state = self.state[p]
                     use_soap = p in self.soap_params
+                    ns_iter = self.param_ns_iters.get(id(p), NS_ITER)
                     if len(state) == 0:
                         state["momentum"] = torch.zeros_like(p)
                         if use_soap:
@@ -651,9 +688,9 @@ class Muon(torch.optim.Optimizer):
                         state["momentum"].lerp_(p.grad, 1 - group["mu"])
                         raw_nesterov = p.grad.lerp(state["momentum"], group["mu"])
                         precond_nesterov = soap_precondition_momentum(raw_nesterov, state)
-                        u_soap = soap_ns_step(precond_nesterov)
+                        u_soap = soap_ns_step(precond_nesterov, ns_iter=ns_iter)
                         if self.use_trust_gate:
-                            u_muon = soap_ns_step(raw_nesterov)
+                            u_muon = soap_ns_step(raw_nesterov, ns_iter=ns_iter)
                             us = u_soap.float()
                             um = u_muon.float()
                             cos_sim_t = (us * um).sum() / (us.norm() * um.norm() + 1e-8)
@@ -663,7 +700,7 @@ class Muon(torch.optim.Optimizer):
                             update = u_soap
                         soap_update_preconditioner(p.grad, state)
                     else:
-                        update = muon_update(p.grad, state["momentum"], mu=group["mu"])
+                        update = muon_update(p.grad, state["momentum"], mu=group["mu"], ns_iter=ns_iter)
                     norm_sum.add_(update.float().norm())
                     p.mul_(1 - group["lr"] * group["weight_decay"])
                     p.add_(update, alpha=-group["lr"])
@@ -780,6 +817,8 @@ if dist.get_rank() == 0:
             "lr_scalars": args.lr_scalars,
             "depth_init_mode": args.depth_init_mode,
             "lr_cooldown_shape": args.lr_cooldown_shape,
+            "ns_iter_schedule": args.ns_iter_schedule,
+            "ns_iter_delta": args.ns_iter_delta,
         },
     )
 
@@ -876,6 +915,31 @@ for trial_idx in range(args.num_trials):
         for group in opt.param_groups:
             group["initial_lr"] = group["lr"]
             group["initial_wd"] = group.get("weight_decay", 0.0)
+
+    # Diagnostics: log per-block NS iter schedule (first trial only).
+    if trial_idx == 0 and dist.get_rank() == 0:
+        block_ns_iters: dict[int, int] = {}
+        for n, p in model.blocks.named_parameters():
+            if p.ndim < 2:
+                continue
+            try:
+                blk_idx = int(n.split(".")[0])
+            except (ValueError, IndexError):
+                continue
+            ns_iter_p = optimizer2.param_ns_iters.get(id(p))
+            if ns_iter_p is None:
+                continue
+            prev = block_ns_iters.get(blk_idx)
+            if prev is not None and prev != ns_iter_p:
+                print0(f"[ns_iter_schedule] WARNING: block {blk_idx} has mixed ns_iter values "
+                       f"({prev} vs {ns_iter_p})", console=True)
+            block_ns_iters[blk_idx] = ns_iter_p
+        sched_str = ", ".join(f"blk{i:02d}={v}" for i, v in sorted(block_ns_iters.items()))
+        print0(f"[ns_iter_schedule] schedule={args.ns_iter_schedule} delta={args.ns_iter_delta} "
+               f"-> {sched_str}", console=True)
+        if wandb.run is not None:
+            for blk_idx, niter in sorted(block_ns_iters.items()):
+                wandb.log({f"ns_iter_schedule/block_{blk_idx:02d}": niter}, step=0)
 
     def _wd_multiplier(step, total_steps, schedule):
         if schedule == "constant":
