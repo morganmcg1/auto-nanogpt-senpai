@@ -56,6 +56,10 @@ def parse_args():
                         help="Muon learning rate for attention weights (.attn.q/k/v/proj.weight)")
     parser.add_argument("--wd_attn", type=float, default=0.025,
                         help="Muon weight decay for attention weights")
+    parser.add_argument("--mu_mlp", type=float, default=0.95,
+                        help="Muon momentum for MLP body weights (default 0.95 = bit-exact baseline)")
+    parser.add_argument("--mu_attn", type=float, default=0.95,
+                        help="Muon momentum for attention body weights (default 0.95 = bit-exact baseline)")
     parser.add_argument("--wd_schedule", type=str, default="constant",
                         choices=["constant", "ramp_up", "ramp_down", "triangle", "cosine_updown"],
                         help="Schedule shape for wd_mlp and wd_attn on the Muon optimizer side. "
@@ -776,6 +780,8 @@ if dist.get_rank() == 0:
             "wd_mlp": args.wd_mlp,
             "lr_attn": args.lr_attn,
             "wd_attn": args.wd_attn,
+            "mu_mlp": args.mu_mlp,
+            "mu_attn": args.mu_attn,
             "wd_schedule": args.wd_schedule,
             "lr_scalars": args.lr_scalars,
             "depth_init_mode": args.depth_init_mode,
@@ -864,8 +870,8 @@ for trial_idx in range(args.num_trials):
     assert len(mlp_named) + len(attn_named) == len(named_blocks)
     optimizer2 = Muon(
         [
-            dict(named_params=mlp_named,  lr=args.lr_mlp,  weight_decay=args.wd_mlp,  name="muon_mlp"),
-            dict(named_params=attn_named, lr=args.lr_attn, weight_decay=args.wd_attn, name="muon_attn"),
+            dict(named_params=mlp_named,  lr=args.lr_mlp,  weight_decay=args.wd_mlp,  mu=args.mu_mlp,  name="muon_mlp"),
+            dict(named_params=attn_named, lr=args.lr_attn, weight_decay=args.wd_attn, mu=args.mu_attn, name="muon_attn"),
         ],
         soap_attn=args.soap_attn, trust_threshold=args.soap_trust_threshold,
     )
