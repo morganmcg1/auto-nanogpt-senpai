@@ -109,6 +109,11 @@ def parse_args():
     parser.add_argument("--body_init_bottom_layers", type=int,
                         default=int(os.environ.get("BODY_INIT_BOTTOM_LAYERS", "6")),
                         help="Number of bottom layers to damp for --body_init=orthogonal_bottom_damp (default 6 = bottom half of 12 layers).")
+    parser.add_argument("--polyak_ema_decay", type=float,
+                        default=float(os.environ.get("POLYAK_EMA_DECAY", "0.0")),
+                        help="Polyak-Ruppert EMA decay for eval-only weight averaging. "
+                             "0.0 = disabled (drift-FREE CTRL). Typical: 0.05 (fast, ~20-step half-life) / "
+                             "0.005 (slow, ~200-step half-life). Higher decay = faster EMA tracking.")
     args = parser.parse_args()
     args.num_trials = args.num_trials if args.num_trials is not None else (args.legacy_num_trials or 1)
     args.wandb_tags = [tag.strip() for tag in args.wandb_tags.split(",") if tag.strip()]
@@ -850,6 +855,7 @@ if dist.get_rank() == 0:
             "muonh_mu_schedule": args.muonh_mu_schedule,
             "muonh_mu_start": args.muonh_mu_start,
             "muonh_mu_end": args.muonh_mu_end,
+            "polyak_ema_decay": args.polyak_ema_decay,
         },
     )
 
@@ -1053,6 +1059,20 @@ for trial_idx in range(args.num_trials):
         outer_velocity = None
     outer_applied_steps = 0
 
+    # H266: Polyak-Ruppert EMA buffer for eval-only weight averaging (Pattern A drift-FREE).
+    # When decay == 0.0 the state stays None and all H266 code paths short-circuit, so the
+    # train/val flow remains bit-identical to the H203 baseline.
+    polyak_ema_state = None
+    if args.polyak_ema_decay > 0.0:
+        polyak_ema_state = {
+            name: param.data.clone().detach()
+            for name, param in model.named_parameters()
+        }
+        if dist.get_rank() == 0:
+            total_ema_bytes = sum(p.numel() * p.element_size() for p in polyak_ema_state.values())
+            print0(f"H266 Polyak EMA buffer initialized: decay={args.polyak_ema_decay}, "
+                   f"total_bytes={total_ema_bytes/(1024**3):.2f}GB", console=True)
+
     # start the clock
     training_time = 0
     last_val_step = 0
@@ -1077,11 +1097,32 @@ for trial_idx in range(args.num_trials):
             last_val_step = step
             training_time += time_since_last_val
             model.eval()
+            # H266: Polyak-Ruppert eval-only weight swap (drift-FREE Pattern A).
+            # When polyak_ema_state is None this whole branch is skipped, leaving the
+            # val measurement path bit-identical to the H203 baseline.
+            if polyak_ema_state is not None:
+                live_backup = {name: param.data.clone() for name, param in model.named_parameters()}
+                for name, param in model.named_parameters():
+                    param.data.copy_(polyak_ema_state[name])
+                ema_deviation_l2 = sum(
+                    (polyak_ema_state[n] - live_backup[n]).norm().item() ** 2
+                    for n in polyak_ema_state
+                ) ** 0.5
+            else:
+                live_backup = None
+                ema_deviation_l2 = 0.0
+
             val_loss = torch.zeros((), device=device)
             with torch.no_grad():
                 assert len(val_inputs) % mbs == 0
                 for i in range(len(val_inputs) // mbs):
                     val_loss += model(val_inputs[i*mbs:(i+1)*mbs], val_targets[i*mbs:(i+1)*mbs])
+
+            # H266: restore live weights so training continues with the live trajectory.
+            if live_backup is not None:
+                for name, param in model.named_parameters():
+                    param.data.copy_(live_backup[name])
+                del live_backup
             dist.all_reduce(val_loss, op=dist.ReduceOp.SUM)
             val_loss /= val_tokens
             val_loss_float = float(val_loss.item())
@@ -1106,6 +1147,8 @@ for trial_idx in range(args.num_trials):
                     "time/step_avg_ms": 1000 * step_avg,
                 }
                 metrics.update(prefixed("val/slope", loss_slope_stats(val_loss_history, slope_window_steps)))
+                if polyak_ema_state is not None:
+                    metrics["train/h266/ema_deviation_l2"] = ema_deviation_l2
                 wandb.log(metrics, step=trial_idx * (train_steps + 1) + step)
             print0(f"step:{step}/{train_steps} val_loss:{val_loss:.5f} train_time:{training_time:.3f}s"
                    + f" step_avg:{1000*step_avg:.2f}ms", console=True)
@@ -1171,6 +1214,14 @@ for trial_idx in range(args.num_trials):
         )
         for opt in optimizers:
             opt.step()
+        # H266: Polyak-Ruppert EMA update — runs after the live inner-optimizer step.
+        # When polyak_ema_state is None this branch is skipped, leaving the training
+        # path bit-identical to the H203 baseline.
+        if polyak_ema_state is not None:
+            with torch.no_grad():
+                decay = args.polyak_ema_decay
+                for name, param in model.named_parameters():
+                    polyak_ema_state[name].mul_(1.0 - decay).add_(param.data, alpha=decay)
         # Log warmup telemetry every 10 steps during warmup (and at telemetry events
         # afterwards) so we capture the warmup curve at high resolution. Cheap since
         # it's just two floats.
