@@ -468,6 +468,14 @@ NS5_ITERS = int(os.environ.get("NS5_ITERS", "12"))
 WD_AUX = float(os.environ.get("WD_AUX", "0.0"))  # AdamW WD on embed + lm_head matrices (scalars stay at 0)
 EMBED_INIT_STD = float(os.environ.get("EMBED_INIT_STD", "1.0"))  # default preserves baseline N(0,1)
 LOGIT_SOFTCAP = float(os.environ.get("LOGIT_SOFTCAP", "15.0"))  # default = 15 (current hardcoded value); soft-cap value c in f(x) = c·x / sqrt(x^2+c^2)
+# Per-kind init std multiplier (PR #1713): q/k/v vs mlp.fc currently share
+# default_std = 0.33**0.5 / w.size(-1)**0.5. When enabled, multiplies the
+# default std for attention q/k/v weights by ATTN_QKV_INIT_STD_MULT and the
+# default std for MLP fc weights by MLP_FC_INIT_STD_MULT. Defaults (1.0/1.0)
+# preserve baseline.
+PER_KIND_INIT_STD_MULT_ENABLED = int(os.environ.get("PER_KIND_INIT_STD_MULT_ENABLED", "0"))
+ATTN_QKV_INIT_STD_MULT = float(os.environ.get("ATTN_QKV_INIT_STD_MULT", "1.0"))
+MLP_FC_INIT_STD_MULT = float(os.environ.get("MLP_FC_INIT_STD_MULT", "1.0"))
 
 
 def zeropower_via_newtonschulz5(G: Tensor) -> Tensor:
@@ -866,6 +874,9 @@ if dist.get_rank() == 0:
             "optimizer/attn_soap_trust_threshold": ATTN_SOAP_TRUST_THRESHOLD,
             "optimizer/ns5_iters": NS5_ITERS,
             "optimizer/wd_aux": WD_AUX,
+            "init_std/per_kind_enabled": PER_KIND_INIT_STD_MULT_ENABLED,
+            "init_std/attn_qkv_mult": ATTN_QKV_INIT_STD_MULT,
+            "init_std/mlp_fc_mult": MLP_FC_INIT_STD_MULT,
             "optimizer/recipe": "contra-muon + normuon-lite + soap-on-mlp + soap-on-attn-trust-gate (pre-NS5, record #14 + record #16)",
         },
     )
@@ -889,13 +900,49 @@ for trial_idx in range(args.num_trials):
             elif "embed" in name:
                 w.normal_(std=EMBED_INIT_STD)
             else:
-                w.normal_(std=0.33**0.5 / w.size(-1)**0.5)  # default torch init
+                default_std = 0.33**0.5 / w.size(-1)**0.5  # default torch init
+                mult = 1.0
+                if PER_KIND_INIT_STD_MULT_ENABLED:
+                    if (".attn.q." in name) or (".attn.k." in name) or (".attn.v." in name):
+                        mult = ATTN_QKV_INIT_STD_MULT
+                    elif ".mlp.fc." in name:
+                        mult = MLP_FC_INIT_STD_MULT
+                w.normal_(std=default_std * mult)
         elif name.endswith("bias"):
             w.zero_()
         elif name.endswith("gains"):
             w.normal_(mean=1, std=0)
         else:
             raise Exception(f"Uninitialized parameter: {name}")
+
+    # Per-kind init std sanity check (PR #1713): measure actual std of one
+    # block.0 q-weight and the block.0 mlp.fc weight to verify the multiplier
+    # was applied as expected. Logged once at trial init on rank 0.
+    if dist.get_rank() == 0 and trial_idx == 0:
+        per_kind_init_metrics = {}
+        named = dict(model.named_parameters())
+        attn_q0 = named.get("blocks.0.attn.q.weight")
+        mlp_fc0 = named.get("blocks.0.mlp.fc.weight")
+        if attn_q0 is not None:
+            per_kind_init_metrics["init_std/attn_q_actual_std"] = float(attn_q0.data.std().item())
+            per_kind_init_metrics["init_std/attn_q_expected_std"] = (
+                0.33**0.5 / attn_q0.size(-1)**0.5
+                * (ATTN_QKV_INIT_STD_MULT if PER_KIND_INIT_STD_MULT_ENABLED else 1.0)
+            )
+        if mlp_fc0 is not None:
+            per_kind_init_metrics["init_std/mlp_fc_actual_std"] = float(mlp_fc0.data.std().item())
+            per_kind_init_metrics["init_std/mlp_fc_expected_std"] = (
+                0.33**0.5 / mlp_fc0.size(-1)**0.5
+                * (MLP_FC_INIT_STD_MULT if PER_KIND_INIT_STD_MULT_ENABLED else 1.0)
+            )
+        per_kind_init_metrics["init_std/n_attn_qkv_params"] = sum(
+            1 for n in named if (".attn.q." in n) or (".attn.k." in n) or (".attn.v." in n)
+        )
+        per_kind_init_metrics["init_std/n_mlp_fc_params"] = sum(
+            1 for n in named if ".mlp.fc." in n
+        )
+        wandb.log(per_kind_init_metrics, step=0)
+        print0(f"per-kind-init-std: {per_kind_init_metrics}", console=True)
 
     # create the optimizer(s)
     optimizer1 = AdamW([dict(params=[model.embed.weight], lr=0.3, name="adam_embed", weight_decay=WD_AUX),
