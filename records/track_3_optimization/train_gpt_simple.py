@@ -48,6 +48,12 @@ def parse_args():
                         help="Extend SOAP preconditioning to attention projections with trust gate")
     parser.add_argument("--soap_trust_threshold", type=float, default=0.0,
                         help="Cosine similarity threshold below which SOAP update falls back to plain Muon (when --soap_attn)")
+    parser.add_argument("--soap_b2_warmup_init", type=float, default=None,
+                        help="SOAP Gram-matrix EMA decay (β₂) at step 0; linearly ramps to SOAP_BETA2 over --soap_b2_warmup_steps. "
+                             "None or <=0 ramp steps disables warmup (default behavior).")
+    parser.add_argument("--soap_b2_warmup_steps", type=int, default=0,
+                        help="Number of steps over which to linearly ramp soap_b2_warmup_init up to SOAP_BETA2. "
+                             "Default 0 = no warmup.")
     parser.add_argument("--lr_mlp", type=float, default=0.035,
                         help="Muon learning rate for MLP weights (.mlp.fc.weight / .mlp.proj.weight)")
     parser.add_argument("--wd_mlp", type=float, default=0.025,
@@ -584,12 +590,59 @@ def soap_update_preconditioner(grad, state, shampoo_beta=SOAP_BETA2, preconditio
     state["soap_step"] += 1
 
 
+def soap_beta2_at_step(step: int, init: float | None, ramp_steps: int, default: float = SOAP_BETA2) -> float:
+    if init is None or ramp_steps <= 0 or step >= ramp_steps:
+        return default
+    frac = step / ramp_steps
+    return init + frac * (default - init)
+
+
+_GRAM_EIGVAL_REPS = {
+    "mlp": ".mlp.fc.weight",
+    "attn": ".attn.q.weight",
+}
+
+
+def _soap_gram_eigval_max(optimizer, kind: str) -> float | None:
+    """Max eigenvalue of the Gram-matrix EMA for a representative SOAP param.
+    Picks blocks.0.mlp.fc.weight (kind=mlp) or blocks.0.attn.q.weight (kind=attn).
+    Uses col_gg for MLP (smaller dim) and row_gg for attn (square); returns None
+    if the param is missing or the state isn't initialized yet.
+    """
+    target_suffix = _GRAM_EIGVAL_REPS.get(kind)
+    if target_suffix is None:
+        return None
+    target_p = None
+    target_prefix = "0"  # use layer-0 representative (named relative to model.blocks)
+    for p in optimizer.soap_params:
+        name = optimizer.param_names.get(id(p), "")
+        if name.startswith(target_prefix + ".") and name.endswith(target_suffix):
+            target_p = p
+            break
+    if target_p is None:
+        return None
+    state = optimizer.state.get(target_p, {})
+    gg_key = "col_gg" if kind == "mlp" else "row_gg"
+    gg = state.get(gg_key, None)
+    if gg is None:
+        return None
+    try:
+        eigvals = torch.linalg.eigvalsh(gg)
+    except RuntimeError:
+        try:
+            eigvals = torch.linalg.eigvalsh(gg.double()).float()
+        except RuntimeError:
+            return None
+    return float(eigvals.max().item())
+
+
 class Muon(torch.optim.Optimizer):
     SOAP_MLP_SUFFIXES = (".mlp.fc.weight", ".mlp.proj.weight")
     SOAP_ATTN_SUFFIXES = (".attn.q.weight", ".attn.k.weight", ".attn.v.weight", ".attn.proj.weight")
 
     def __init__(self, named_params, lr=0.02, weight_decay=0, mu=0.95,
-                 soap_attn=False, trust_threshold=0.0):
+                 soap_attn=False, trust_threshold=0.0,
+                 soap_b2_warmup_init: float | None = None, soap_b2_warmup_steps: int = 0):
         # `named_params` can be either:
         #   (a) list of (name, param) tuples → single param group (legacy form)
         #   (b) list of dicts {"named_params": [(name, param), ...], "lr": ?, "weight_decay": ?, "mu": ?, "name": ?}
@@ -612,6 +665,10 @@ class Muon(torch.optim.Optimizer):
         self.trust_threshold = float(trust_threshold)
         self.use_trust_gate = soap_attn
         self.cos_sims_buffer: dict[str, Tensor] = {}
+        self.soap_b2_warmup_init = soap_b2_warmup_init
+        self.soap_b2_warmup_steps = int(soap_b2_warmup_steps)
+        self._soap_global_step = 0
+        self._last_soap_b2 = SOAP_BETA2
 
         param_groups = []
         for g in groups_raw:
@@ -631,6 +688,9 @@ class Muon(torch.optim.Optimizer):
     @torch.no_grad()
     def step(self):
         self.cos_sims_buffer = {}
+        beta2_t = soap_beta2_at_step(self._soap_global_step,
+                                     self.soap_b2_warmup_init, self.soap_b2_warmup_steps)
+        self._last_soap_b2 = beta2_t
         world_size = dist.get_world_size()
         rank = dist.get_rank()
         for group in self.param_groups:
@@ -665,7 +725,7 @@ class Muon(torch.optim.Optimizer):
                             self.cos_sims_buffer[self.param_names[id(p)]] = cos_sim_t
                         else:
                             update = u_soap
-                        soap_update_preconditioner(p.grad, state)
+                        soap_update_preconditioner(p.grad, state, shampoo_beta=beta2_t)
                     else:
                         update = muon_update(p.grad, state["momentum"], mu=group["mu"])
                     norm_sum.add_(update.float().norm())
@@ -674,6 +734,7 @@ class Muon(torch.optim.Optimizer):
                 dist.all_gather(params_pad[base_i:base_i + world_size], params_pad[base_i + rank])
             group["_step_norm_sum"] = norm_sum
             group["_step_norm_count"] = len(params)
+        self._soap_global_step += 1
 
     def get_step_update_norms(self) -> dict[str, float]:
         """Return per-group mean Frobenius norm of the most recent step's updates.
@@ -773,6 +834,8 @@ if dist.get_rank() == 0:
             ),
             "soap_beta2": SOAP_BETA2,
             "soap_precond_freq": PRECOND_FREQ,
+            "soap_b2_warmup_init": args.soap_b2_warmup_init,
+            "soap_b2_warmup_steps": args.soap_b2_warmup_steps,
             "ns_iter": NS_ITER,
             "soap_attn_enabled": bool(args.soap_attn),
             "soap_trust_threshold": float(args.soap_trust_threshold),
@@ -874,6 +937,8 @@ for trial_idx in range(args.num_trials):
             dict(named_params=attn_named, lr=args.lr_attn, weight_decay=args.wd_attn, name="muon_attn"),
         ],
         soap_attn=args.soap_attn, trust_threshold=args.soap_trust_threshold,
+        soap_b2_warmup_init=args.soap_b2_warmup_init,
+        soap_b2_warmup_steps=args.soap_b2_warmup_steps,
     )
     optimizers = [optimizer1, optimizer2]
     assert set(p for opt in optimizers for group in opt.param_groups
@@ -1217,12 +1282,20 @@ for trial_idx in range(args.num_trials):
                     "ema/init_weight_fraction": d_pow_now,
                 }, step=wandb_step)
 
+        if dist.get_rank() == 0:
+            wandb.log({
+                "trial": trial_idx,
+                "train/step": train_step,
+                "soap/b2_current": float(optimizer2._last_soap_b2),
+            }, step=wandb_step)
         if telemetry_due:
             update_norms = optimizer2.get_step_update_norms()
             current_lrs = {group.get("name", f"group_{i}"): group["lr"]
                            for i, group in enumerate(optimizer2.param_groups)}
             current_wds = {group.get("name", f"group_{i}"): group.get("weight_decay", 0.0)
                            for i, group in enumerate(optimizer2.param_groups)}
+            gram_eigval_max_mlp = _soap_gram_eigval_max(optimizer2, kind="mlp")
+            gram_eigval_max_attn = _soap_gram_eigval_max(optimizer2, kind="attn")
             if dist.get_rank() == 0:
                 per_group_metrics = {"trial": trial_idx, "train/step": train_step}
                 for name, mean_norm in update_norms.items():
@@ -1235,6 +1308,10 @@ for trial_idx in range(args.num_trials):
                 per_group_metrics["train/wd_attn_now"] = current_wds.get("muon_attn", 0.0)
                 per_group_metrics["train/wd_schedule_progress"] = train_step / train_steps
                 per_group_metrics["cooldown_shape/eta_at_step"] = eta_actual
+                if gram_eigval_max_mlp is not None:
+                    per_group_metrics["soap/gram_eigval_max_mlp"] = gram_eigval_max_mlp
+                if gram_eigval_max_attn is not None:
+                    per_group_metrics["soap/gram_eigval_max_attn"] = gram_eigval_max_attn
                 wandb.log(per_group_metrics, step=wandb_step)
         if dist.get_rank() == 0 and optimizer2.cos_sims_buffer:
             cs_names = list(optimizer2.cos_sims_buffer.keys())
