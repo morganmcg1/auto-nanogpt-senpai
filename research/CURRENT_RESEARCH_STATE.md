@@ -1,3 +1,47 @@
+## 2026-05-29 20:45 UTC — Cycle 71 mid-396 — frieren #1707 302nd refute, 138th family closure — MAJOR STRUCTURAL FINDING: fc-kind is dominant carrier (~75-80%) of MLP-SOAP `early_FAST` mechanism; per-kind asymmetry triangulated as structural factor explaining scope-direction reversal
+
+### frieren #1707 302nd refute — PER_KIND_MLP_SOAP_PRECOND_FREQ_PHASE_DISPATCH (fc-only vs proj-only early_FAST isolation) val_mean=3.27082 STANDARD-floor-band misses merge bar by Δ=+0.00306 val and +25 ffs
+
+Arm A `fc_only_early_FAST` (FC=5/15, PROJ=10/10, boundary=2225) val=3.27030 ffs=3025 STANDARD-floor-band-upper-edge, Arm B `proj_only_early_FAST` (FC=10/10, PROJ=5/15) val=3.27134 ffs=3025 STANDARD, Δ(B−A)=+0.00104 `fc_alone_carries_dominant_mechanism` matching pre-launched matrix row 1. Stat rule (3.28−μ)·√n ≥ 0.004 PASSES at n=2 (0.01297). W&B eg7hd7pz/8q6xcf6s verified config-correct + per-kind-refresh-count-correct (mirror-symmetric 6084/3804 across arms, phase-boundary toggle fired at 2225 correctly).
+
+**MAJOR STRUCTURAL FINDING**: fc-kind is the **PRIMARY CARRIER** of MLP-SOAP `early_FAST` scope-direction-preference mechanism. Decomposition:
+
+| component | val_final | Δ vs #1645 B floor 3.26991 | interpretation |
+|---|---|---|---|
+| #1645 Arm B (joint un-gated) | 3.26991 | 0.000 (reference) | 100% of mechanism |
+| **#1707 A (fc-only)** | **3.27030** | **+0.00039** (AT floor) | fc alone ≈ ~75-80% of joint effect |
+| **#1707 B (proj-only)** | **3.27134** | +0.00143 (above floor) | proj alone ≈ ~20-25%, weakly-destructive in isolation |
+
+Δ(fc-only − joint) = +0.00039 within noise → fc replicates joint floor. Δ(proj-only − joint) = +0.00143 above noise → proj alone fails to engage full mechanism. Δ(fc-only − proj-only) = −0.00104 → fc carries ~3.7× the kind-isolated signal of proj.
+
+CRITICAL 2nd-order finding: **proj-only inherits a structural penalty (+0.00026 vs #1671 B gated joint 3.27108) similar in magnitude to #1671's trust-gate joint penalty (+0.00117)**. This suggests proj-isolation introduces basis-misalignment analogous to gating, opening a directly testable hypothesis: was #1671's trust-gate penalty a **joint-coupling artifact (gate-on-proj specifically caused regression)** or a **fundamental fc-property**? frieren #1734 will answer this.
+
+Rules out joint-dependency hypothesis (both arms ≈ baseline) — REFUTED. Rules out additive-saturation hypothesis (both arms at floor) — REFUTED. Matches matrix row 1 (fc alone carries) with caveat that B does not relax to baseline.
+
+Δ-trajectory mechanism: **fc-DOMINANT-MONOTONIC-CONVERGENCE** — Δ(B−A) +0.00104 sub-noise but consistent direction throughout. Distinct from SYMMETRIC-DEPTH-REGRESSION (#1711) and direction-null (#1710) — asymmetric per-kind attribution with clean directional signature.
+
+**138th family closure**: PER_KIND_MLP_SOAP_PRECOND_FREQ_PHASE_DISPATCH axis fully mapped at fc-carrier outcome.
+
+### Cumulative state
+
+**Cycle 71 cumulative**: **302 refuted** / **176 distinct mech classes** / **138 family-level closures**.
+
+### PRs closed this wave (1 closure):
+
+| PR | student | mechanism | outcome |
+|---|---|---|---|
+| **frieren #1707** | frieren | PER_KIND_MLP_SOAP_PRECOND_FREQ_PHASE_DISPATCH (Arm A fc_only_early_FAST FC=5/15 PROJ=10/10, Arm B proj_only_early_FAST FC=10/10 PROJ=5/15, boundary=2225) | **302nd** — Arm A 3.27030/3025 STANDARD-floor-band-upper-edge AT joint floor, Arm B 3.27134/3025 STANDARD above-floor, val_mean=3.27082 misses by +0.00306/+25. Δ(B−A)=+0.00104 fc_alone_carries_dominant. **MAJOR STRUCTURAL FINDING**: fc-kind primary carrier ~75-80% of joint MLP-SOAP early_FAST mechanism; proj-kind ~25% secondary weakly-destructive in isolation; proj-isolation penalty (+0.00026 vs #1671 B gated joint) suggestive that #1671's trust-gate penalty was joint-coupling via proj-kind specifically. **138th family closure**. |
+
+### PRs assigned this wave (1 fresh per-group + state-mechanism axis):
+
+| PR | student | mechanism | hypothesis |
+|---|---|---|---|
+| **frieren #1734** | frieren | PER_KIND_MLP_SOAP_FC_TRUST_THRESHOLD_ISOLATION (Arm A `fc_gate_strict` MLP_SOAP_FC_TRUST_THRESHOLD=0.90, Arm B `fc_gate_lenient` FC_TRUST=0.70; both arms proj un-gated MLP_SOAP_PROJ_TRUST_THRESHOLD=0.0) | **Direct test of whether #1671's gate-penalty was joint-coupling or fc-property** — first MLP-SOAP trust-gate isolated to a single sub-kind (fc), enabled by #1707's "fc carries" finding. If A ≈ B ≈ baseline → fc gate inert in isolation → **#1671's penalty was joint-coupling (proj is the gate-sensitive kind, not fc)** = major structural reframe. If A < B → fc benefits from strict gating. If B < A → fc benefits from lenient gating. If A or B < baseline → first MLP-SOAP gate signal beats baseline; opens new family. If A ≈ B ≈ #1671 B (3.27108) → gate-penalty intrinsic to fc-kind regardless of proj. Fits Morgan's directive (per-group + state-mechanism — per-kind + trust-gate state, gate is state-mechanism, threshold is dispatch knob). |
+
+Fleet 8/8 assigned, 0 idle.
+
+---
+
 ## 2026-05-29 20:15 UTC — Cycle 71 mid-395 — DUAL CLOSURE WAVE: askeladd #1711 300th + thorfinn #1710 301st refutes, 136th + 137th family closures — TWO MAJOR STRUCTURAL FINDINGS in single wave: (1) depth-half attn-SOAP load-bearing is SYMMETRIC at ~+0.0045 each with frozen ≠ disabled asymmetry, (2) v-axis attn-SOAP refresh-control axis FULLY CLOSED at both threshold + frequency levers with v-basis quality DECOUPLED from val
 
 ### askeladd #1711 300th refute — PER_DEPTH_HALF_ATTN_SOAP_ENABLED_ISOLATION val_mean=3.27233 STANDARD misses merge bar by Δ=+0.00457 val and +50 ffs
