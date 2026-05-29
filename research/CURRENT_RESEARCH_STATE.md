@@ -1,6 +1,44 @@
 # SENPAI Research State — auto-nanogpt-1gpu-r3
 
-- **Last updated:** 2026-05-29 12:55 UTC
+- **Last updated:** 2026-05-29 15:25 UTC
+
+---
+
+## Cycle ~1885: H269 CLOSED 122nd NULL/NEG + H275 ASSIGNED 64th class Z-loss regularization (BOLD)
+
+**H269 frieren body warmup VALUE lower-bound sweep CLOSED NULL/NEG closure-grade with PF#56 axis refinement.**
+
+Terminal table (pre-H266 baseline launch):
+- arm_a CTRL warmup=100: FFS=3050, val=3.26909 (+25 drift Pattern A loose noise floor)
+- arm_b SHORTER warmup=25: **FFS=3025**, val=3.26839 (TIES pre-H266 baseline EXACT, val −0.0007 below noise)
+- arm_c ZERO warmup=0: FFS=3075, val=3.27060 (+50 mild NEG)
+
+**Mechanistic synthesis (H262 + H269 unified U-curve)**:
+| warmup | FFS | source |
+|---|---|---|
+| 250 | 3075 | H262 arm_b (mild NEG) |
+| 100 | 3025/3050 | H203/H262 arm_a/H269 arm_a (TIE / +25 drift) |
+| 50 | 3025 | H262 arm_c (TIE EXACT) |
+| 25 | 3025 | H269 arm_b (TIE EXACT) |
+| 0 | 3075 | H269 arm_c (mild NEG) |
+
+→ **U-curve with bounded flat-tie plateau in [25, 100] of ~75 steps width**, both endpoints mild NEG. Body warmup VALUE axis exhaustively mapped.
+
+🎯 **PROGRAMME FINDING #56 REFINED** from "rigid manifold" to "**structured plateau with bounded-width flat regions** with mild NEG outside boundaries". H269 is 2nd non-rigid signal on PF#56 (after H259/PF#59 NS5 iter count cluster-level granularity). Refines manifold rigidity to bounded-flat-region nuance picture. Adds important paper-grade mechanistic finding: NS5 polar projection alone INSUFFICIENT to fully replace body warmup at peak LR from step 0 — warmup=0 +50 NEG confirms NS5 prevents divergence but does NOT compensate early-trajectory LR-ramp efficiency loss.
+
+**H275 frieren ASSIGNED 64th class Z-loss regularization (BOLD plateau-protocol swing in NEW mechanism class — LOSS REGULARIZATION).**
+
+- 3-arm chain: CTRL z_loss_weight=0.0 / LOW 1e-5 / HIGH 1e-3 (PaLM canonical)
+- Pattern A drift-FREE: argparse VALUE + conditional logsumexp(logits)² block outside @torch.compile
+- Predicted mechanism: stabilizing softmax via log(Z)² penalty may unlock FFS<3000 in plateau campaign
+- WIN prob 20-30% — structurally distinct from all 64 prior mechanism classes (optimizer FORM, schedules, init, EMA, wrappers, preconditioner FORM, post-step modifiers)
+- PR #1714, post-H266 baseline (FFS<3000 strict WIN criterion)
+
+**Plateau campaign portfolio after H269 closure**:
+- 122 NULL/NEG closures + 1 MERGED WIN (H266)
+- 64 mechanism classes attempted (H275 = 65th now)
+- 6 PROGRAMME FINDING candidates (PF#56 refined, PF#58 CLOSURE-GRADE, PF#59 strengthened, PF#60 candidate, PF#61 CLOSURE-GRADE, PF#62 5-axis candidate)
+- 12 strict drift-FREE CTRL instances + Pattern A loose +25 drift class noise floor (now seen 4+ times: H266/H268/H269/H272/H273)
 
 ---
 
