@@ -101,6 +101,20 @@ def parse_args():
                         help="EMA decay for SWA-style EMA-eval; None=disabled (control). "
                              "Recommend 0.99-0.9999. When set, val/ema_loss is logged "
                              "and speedrun/first_step_to_target uses the EMA-val crossing.")
+    parser.add_argument("--soap_warm_init_mode", type=str, default="identity",
+                        choices=["identity", "diag_grad_var", "orthogonal_random"],
+                        help="SOAP Gram matrix initialization mode (PR #1721). "
+                             "identity: zero-init row_gg/col_gg (current default, q_row=None until step 0); "
+                             "diag_grad_var: diagonal init from per-row/col gradient variance harvested in a "
+                             "pre-pass at step 0, q_row/q_col precomputed at init time so step 0 is preconditioned; "
+                             "orthogonal_random: Wishart-distributed random PSD Gram with Haar-random eigenbasis "
+                             "(Q from QR(N(0,I))) — falsifier that tests whether gradient information matters.")
+    parser.add_argument("--soap_warm_init_scale", type=float, default=1.0,
+                        help="Multiplicative scale on warm-init diagonal "
+                             "(only applies to diag_grad_var; Cell C=0.5, B=1.0, D=2.0).")
+    parser.add_argument("--soap_warm_init_eps", type=float, default=1e-6,
+                        help="Numerical stabilizer added to per-row/per-col gradient variance "
+                             "before diagonal warm init (prevents zero-eigenvalue degeneracy).")
     args = parser.parse_args()
     args.num_trials = args.num_trials if args.num_trials is not None else (args.legacy_num_trials or 1)
     args.wandb_tags = [tag.strip() for tag in args.wandb_tags.split(",") if tag.strip()]
@@ -786,6 +800,9 @@ if dist.get_rank() == 0:
             "lr_cooldown_shape": args.lr_cooldown_shape,
             "ema_eval_decay": args.ema_eval_decay,
             "ema_eval_enabled": args.ema_eval_decay is not None,
+            "soap_warm_init_mode": args.soap_warm_init_mode,
+            "soap_warm_init_scale": args.soap_warm_init_scale,
+            "soap_warm_init_eps": args.soap_warm_init_eps,
         },
     )
 
@@ -952,6 +969,82 @@ for trial_idx in range(args.num_trials):
                      for n, p in model.named_parameters() if p.requires_grad}
         init_state = {n: p.detach().clone().to(torch.float32)
                       for n, p in model.named_parameters() if p.requires_grad}
+
+    # SOAP Gram warm-init (PR #1721). For diag_grad_var, run a single pre-pass
+    # forward-backward on a fresh batch from a separate generator to harvest
+    # per-row/col gradient variances for SOAP-eligible params. The pre-pass uses
+    # a SEPARATE data generator so the main train_loader still yields batch 1 as
+    # the first training batch — control (identity) and warm-init cells then both
+    # train on the same first batch. Gradients from the pre-pass are discarded
+    # without an optimizer step. For orthogonal_random, no pre-pass is needed.
+    warm_init_diag: dict[int, tuple[Tensor, Tensor]] | None = None
+    if args.soap_warm_init_mode == "diag_grad_var":
+        prepass_loader = distributed_data_generator(
+            "data/fineweb10B/fineweb_train_*.bin", batch_size
+        )
+        pp_inputs, pp_targets = next(prepass_loader)
+        assert len(pp_inputs) % mbs == 0
+        model.train()
+        model.zero_grad(set_to_none=True)
+        for i in range(len(pp_inputs) // mbs):
+            pp_loss = model(pp_inputs[i*mbs:(i+1)*mbs], pp_targets[i*mbs:(i+1)*mbs])
+            pp_loss.backward()
+        for _, p in model.named_parameters():
+            if p.grad is not None:
+                dist.all_reduce(p.grad, op=dist.ReduceOp.SUM)
+        warm_init_diag = {}
+        with torch.no_grad():
+            for p in optimizer2.soap_params:
+                g = p.grad.float()
+                row_var = (g.pow(2).mean(dim=1) + args.soap_warm_init_eps) * args.soap_warm_init_scale
+                col_var = (g.pow(2).mean(dim=0) + args.soap_warm_init_eps) * args.soap_warm_init_scale
+                warm_init_diag[id(p)] = (row_var, col_var)
+        model.zero_grad(set_to_none=True)
+        del prepass_loader, pp_inputs, pp_targets, pp_loss
+
+    # Pre-populate optimizer2.state for SOAP-eligible params so step 0 sees a
+    # non-trivial preconditioner (q_row/q_col are set at init rather than after
+    # the first soap_update_preconditioner call). For identity mode this block
+    # is a no-op — the existing Muon.step() init branch handles the zero init.
+    if args.soap_warm_init_mode != "identity":
+        warm_init_gen = torch.Generator(device=device).manual_seed(42 + trial_idx)
+        init_row_norms: list[float] = []
+        init_col_norms: list[float] = []
+        for p in optimizer2.soap_params:
+            state = optimizer2.state[p]
+            if len(state) > 0:
+                continue
+            state["momentum"] = torch.zeros_like(p)
+            state["exp_avg_sq"] = torch.zeros_like(p, dtype=torch.float32)
+            if args.soap_warm_init_mode == "diag_grad_var":
+                row_diag, col_diag = warm_init_diag[id(p)]
+                state["row_gg"] = torch.diag(row_diag).contiguous()
+                state["col_gg"] = torch.diag(col_diag).contiguous()
+            else:  # orthogonal_random — Wishart-distributed PSD with Haar-random eigenbasis
+                g_row = torch.randn(p.size(0), p.size(0), device=p.device,
+                                    dtype=torch.float32, generator=warm_init_gen)
+                g_col = torch.randn(p.size(1), p.size(1), device=p.device,
+                                    dtype=torch.float32, generator=warm_init_gen)
+                state["row_gg"] = (g_row @ g_row.T) / p.size(0)
+                state["col_gg"] = (g_col @ g_col.T) / p.size(1)
+            state["q_row"] = soap_eigenbasis(state["row_gg"])
+            state["q_col"] = soap_eigenbasis(state["col_gg"])
+            state["soap_step"] = 0
+            init_row_norms.append(float(state["row_gg"].norm().item()))
+            init_col_norms.append(float(state["col_gg"].norm().item()))
+        if dist.get_rank() == 0 and init_row_norms:
+            wandb.log({
+                "trial": trial_idx,
+                "train/step": 0,
+                "train/soap/warm_init_mode": {"identity": 0, "diag_grad_var": 1, "orthogonal_random": 2}[args.soap_warm_init_mode],
+                "train/soap/row_gg_norm_at_init/mean": sum(init_row_norms) / len(init_row_norms),
+                "train/soap/row_gg_norm_at_init/min": min(init_row_norms),
+                "train/soap/row_gg_norm_at_init/max": max(init_row_norms),
+                "train/soap/col_gg_norm_at_init/mean": sum(init_col_norms) / len(init_col_norms),
+                "train/soap/col_gg_norm_at_init/min": min(init_col_norms),
+                "train/soap/col_gg_norm_at_init/max": max(init_col_norms),
+                "train/soap/warm_init_n_params": len(init_row_norms),
+            }, step=trial_idx * (train_steps + 1))
 
     # start the clock
     training_time = 0
