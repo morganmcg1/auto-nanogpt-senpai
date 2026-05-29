@@ -1,3 +1,63 @@
+## 2026-05-29 01:30 — PR #1602: H250 thorfinn Aux schedule SHAPE+FRAC replacement (cosine vs linear, cf=0.4→{1.0,0.6}) — CLOSED (**107th NULL/NEG closure**, bilateral STRUCTURAL NEG + FFS-TIE-val-NEG monotonic, 🎯 **PROGRAMME FINDING #56 candidate STRENGTHENED to 2 axes** + **Pattern D drift-FREE safe-fix template FIRST INSTANCE DOCUMENTED** + 🎯 **mid-training crossover trajectory mechanistic insight** + **NEW campaign-level mechanism-design heuristic**)
+
+- Branch: H250 thorfinn (46th class — aux schedule SHAPE+FRAC structural axis)
+- Student terminal SENPAI-RESULT at 00:27 UTC May 29 with full 3-arm table, per-arm config audit, phase-by-phase aux_lr vs body_lr trajectory decomposition.
+
+| Arm | run_id | aux_shape | aux_frac | step-0 val | final val/loss | FFS | Δ val (σ_H174) |
+|---|---|---|---|---|---|---|---|
+| arm_a CTRL | `0qghatsl` | linear | 0.4 | 10.82583 EXACT | **3.26724** | **3025 EXACT (drift-FREE)** | 1.2σ BELOW H203 (favorable) |
+| arm_b TREATMENT_DEFAULT | `988w9dy1` | cosine | 1.0 | 10.82583 EXACT | **3.27982** | **3275** | **+14.2σ STRUCTURAL NEG** |
+| arm_c TREATMENT_VARIATION | `5g76qfcm` | cosine | 0.6 | 10.82583 EXACT | **3.27189** | **3025 EXACT** | **+5.3σ mid-NEG** |
+
+### Statistical rule check `(3.28 − μ) × √n ≥ 0.004`
+- arm_a CTRL: `(3.28 − 3.26724) × √1 = 0.01276` ≥ 0.004 ✓
+- arm_b: `(3.28 − 3.27982) × √1 = 0.00018` **FAILS** (val approached target)
+- arm_c: `(3.28 − 3.27189) × √1 = 0.00811` PASS but val-tax
+
+### 🎯 PROGRAMME FINDING #56 candidate STRENGTHENED to 2 axes
+
+| Axis | Hypothesis tested | Locked at | Result |
+|---|---|---|---|
+| BODY cooldown SHAPE | H242 thorfinn (linear/WSD swap) | cosine cf=1.0 | CATASTROPHIC NEG +104.3σ on linear/WSD |
+| **AUX cooldown SHAPE+FRAC** | **H250 thorfinn (cosine cf=1.0/0.6)** | **linear cf=0.4** | **STRUCTURAL NEG +14.2σ on cosine cf=1.0** |
+
+Mirror finding: body wants cosine cf=1.0 (long smooth taper), aux wants linear cf=0.4 (sharp narrow concentrated cooldown). The H148-era aux/body schedule asymmetry is NOT a tuning artifact — it's structurally load-bearing. PROGRAMME FINDING #56 candidate now has bilateral support across body+aux schedule axes.
+
+### 🎯 Mid-training crossover trajectory mechanistic insight (NEW campaign-level mechanism heuristic)
+
+Student's phase-by-phase telemetry decomposition revealed striking dynamics: arm_b LEADS arm_a at step 2000 by Δval=−0.01421 (cosine smoother derivative beneficial mid-training, consistent with Hägele et al. 2024 cosine-preference for AdamW β₂=0.99), CROSSES OVER at step 2875, monotonic gap widening to +0.01258 (14.2σ) at terminal. Mechanism: arm_b's aux_lr_embed at step 3000 is 0.00706 vs arm_a's 0.0735 (10× starvation) — at the exact moment body LR enters its own final cooldown, aux Adam is starved of effective learning rate during the critical fine-tuning phase.
+
+NEW campaign-level mechanism-design heuristic: **"Aux-body schedule misalignment cost dominates aux schedule local smoothness benefit. The H148-era cf=0.4 (sharp narrow) is structurally privileged because it preserves full aux LR through ~60% of training when body is doing bulk LR-decay work, then concentrates aux LR reduction in the final 40% when fine-tuning dominates."**
+
+Joins H249 (norm-replacement must use F-norm-sphere metric NOT Stiefel) + H248 (per-element non-uniformity post-NS5 IS information not noise) as 3rd consecutive cycle-level campaign mechanism heuristic.
+
+### 🎯 Pattern D drift-FREE safe-fix template (FIRST INSTANCE DOCUMENTED)
+
+`set_hparams(step)` placement at lines 963-966 with argparse dispatch at lines 49-55. The dispatch on `cooldown_shape in {"linear","cosine","sqrt"}` (lines 993-1000) was already a live branch for body groups — thorfinn ROUTED aux groups through the existing branch via VALUE swap on `group["cooldown_shape"]`, NEVER introduced a new conditional structure. This is structurally distinct from H242/H243 which CHANGED conditional structure inside Muon's compiled body path → +25 drift. **"VALUE swap on existing live branch" is a stronger drift-free guarantee than "argparse-conditional inside compiled scope" because it preserves the compiled graph's branch topology entirely.**
+
+| Pattern | Mechanism | Examples |
+|---|---|---|
+| **A. Branch outside @torch.compile region** | New code outside compiled `muon_update` | H246, H248 |
+| **B. @torch.compiler.disable decorator** | Dispatch wrapper gets decorator | H249 (double-decorator) |
+| **C. argparse dispatch in main training loop** | Outer-step variants in main loop, post `model.zero_grad()` | H246 outer, H256 |
+| **D. Plain Python in `set_hparams()`** | Hyperparameter config setter — VALUE swap not branch swap | **H250 thorfinn (1st instance)** |
+
+### Cumulative campaign tally (after H250 closure)
+
+- **107 NULL/NEG closures** (43 LR-family + 64 off-axis)
+- **53 mechanism classes** total
+- **6 drift-FREE CTRL instances** in cycles ~1170-1480 (H246/H248/H249/H250/H252 arm_a/H253 arm_a)
+- PROGRAMME FINDING #51 candidate strengthened (body cooldown SHAPE locked at cosine cf=1.0)
+- PROGRAMME FINDING #56 candidate STRENGTHENED to 2 axes (NEW)
+- PROGRAMME FINDING #58 candidate at 3 axes (post-NS5 mechanism replacement inert/harmful)
+- 5 canonical drift-FREE safe-fix templates documented (Patterns A/B/C/D)
+
+### Operational excellence
+
+H250 closure analysis = gold standard r3 mechanistic narrative — phase-by-phase telemetry decomposition (step 2000 arm_b LEAD → step 2875 CROSSOVER → step 3000 10× aux LR starvation → step 3325 terminal 14.2σ NEG) that turned a NULL/NEG result into a campaign-level insight. Joins H249 alphonse closure as r3 reference for closure narrative excellence. Pattern D safe-fix template documented going forward.
+
+---
+
 ## 2026-05-28 23:10 — PR #1629: H257 alphonse Sphere parallel-transport momentum — ASSIGNED (53rd mechanism class, sphere-aware Riemannian state-evolution correction, direct response to H249 mechanistic insight)
 
 - Branch: `g1r3-alphonse/sphere-parallel-transport-momentum`

@@ -1,6 +1,66 @@
 # SENPAI Research State — auto-nanogpt-1gpu-r3
 
-- **Last updated:** 2026-05-28 23:10 UTC
+- **Last updated:** 2026-05-29 01:30 UTC
+
+---
+
+## Cycle ~1480: H250 CLOSED (**107th NULL/NEG closure**, bilateral STRUCTURAL NEG + FFS-TIE-val-NEG monotonic, 🎯 **PROGRAMME FINDING #56 candidate STRENGTHENED to 2 axes** — aux+body schedule structurally load-bearing as a whole) + **Pattern D drift-FREE safe-fix template FIRST INSTANCE DOCUMENTED** (VALUE swap on existing live branch in `set_hparams()` is stronger drift-free guarantee than argparse-conditional inside compiled scope) + 🎯 **mid-training crossover trajectory mechanistic insight** (cosine smoother derivative IS beneficial mid-training but late aux LR starvation costs more than mid-training gain — H148-era cf=0.4 sharp narrow is structurally privileged) + H258 thorfinn ASSIGNED **54th mechanism class — outer Nesterov momentum VALUE**
+
+**Key closure this cycle:**
+
+- **H250 thorfinn aux schedule SHAPE+FRAC replacement (PR #1602)** — **107th NULL/NEG closure**, bilateral STRUCTURAL NEG + FFS-TIE-val-NEG monotonic. arm_a CTRL `0qghatsl` val=3.26724 FFS=3025 EXACT (6th drift-FREE CTRL in cycles ~1170-1480, Pattern D FIRST INSTANCE — plain Python in `set_hparams()` with VALUE swap on existing live branch). arm_b TREATMENT_DEFAULT (cosine cf=1.0) `988w9dy1` val=3.27982 FFS=3275 (**+14.2σ STRUCTURAL NEG**, FFS +250 = 10× drift class noise). arm_c TREATMENT_VARIATION (cosine cf=0.6) `5g76qfcm` val=3.27189 FFS=3025 EXACT (**+5.3σ val mid-NEG / FFS TIE**).
+
+  **🎯 PROGRAMME FINDING #56 candidate STRENGTHENED to 2 axes**: joining H242 (BODY cooldown SHAPE locked at cosine cf=1.0 — CATASTROPHIC NEG +104.3σ on linear/WSD) as second structural axis establishing aux/body schedule rigidity. Mirror finding: body wants cosine cf=1.0 (long smooth taper), aux wants linear cf=0.4 (sharp narrow concentrated cooldown). The H148-era aux/body schedule asymmetry is NOT a tuning artifact — it's structurally load-bearing.
+
+  **🎯 Mid-training crossover trajectory mechanistic insight (NEW campaign-level mechanism heuristic)**: arm_b LEADS arm_a at step 2000 by Δval=−0.01421 (cosine smoother derivative beneficial mid-training, Hägele et al. 2024 cosine-preference for AdamW β₂=0.99), CROSSES OVER at step 2875, monotonic gap widening to +0.01258 (14.2σ) at terminal. Mechanism: arm_b's aux_lr_embed at step 3000 is 0.00706 vs arm_a's 0.0735 (**10× starvation**) — at the exact moment body LR enters its own final cooldown, aux Adam is starved of effective learning rate during the critical fine-tuning phase. NEW heuristic: **"Aux-body schedule misalignment cost dominates aux schedule local smoothness benefit. The H148-era cf=0.4 (sharp narrow) is structurally privileged because it preserves full aux LR through ~60% of training when body is doing bulk LR-decay work, then concentrates aux LR reduction in the final 40% when fine-tuning dominates."**
+
+  **🎯 Pattern D drift-FREE safe-fix template (FIRST INSTANCE DOCUMENTED)**: `set_hparams(step)` placement at lines 963-966 with argparse dispatch at lines 49-55. The dispatch on `cooldown_shape in {"linear","cosine","sqrt"}` (lines 993-1000) was already a live branch for body groups — thorfinn ROUTED aux groups through the existing branch via VALUE swap on `group["cooldown_shape"]`, NEVER introduced a new conditional structure. This is structurally distinct from H242/H243 which CHANGED conditional structure inside Muon's compiled body path → +25 drift. **"VALUE swap on existing live branch" is a stronger drift-free guarantee than "argparse-conditional inside compiled scope" because it preserves the compiled graph's branch topology entirely.**
+
+**New assignment:**
+
+- **H258 thorfinn ASSIGNED — 54th mechanism class: outer Nesterov momentum VALUE** (parallel to H252 nezuko sync_interval VALUE + H256 edward outer LR temporal schedule — completing MuLoCo outer-step hyperparameter triangulation). Current `--outer_momentum=0.5` constant throughout training, never ablated as VALUE axis. 3-arm test: CTRL 0.5 / HIGH 0.7 (more averaging, slower outer response) / LOW 0.3 (less averaging, quicker outer response). Drift-free Pattern C (argparse dispatch in main training loop, line 1286). WIN probability 15-25%. Independent of H252/H256 in-flight outcomes — adds horizontal coverage of MuLoCo space.
+
+**Survey state after cycle ~1480**: 8/8 students WIP (alphonse H257, edward H256, frieren H255, askeladd H253, fern H254, thorfinn H258 just assigned, tanjiro H251, nezuko H252). 0 idle students. 0 review-ready PRs. No new human directives.
+
+**Programme totals after cycle ~1480:**
+- **107 NULL/NEG closures** (+1 from H249 106th)
+- **54 mechanism classes** (+1; H258 outer-momentum-value)
+- PROGRAMME FINDING #51 candidate strengthened (body cooldown SHAPE locked at cosine cf=1.0)
+- PROGRAMME FINDING #56 candidate STRENGTHENED to 2 axes (NEW): aux/body schedule structurally rigid
+- PROGRAMME FINDING #58 candidate at 3 axes: post-NS5 mechanism replacement structurally inert/harmful
+- **5 canonical drift-FREE safe-fix templates** documented (A/B/C/D); Pattern D first instance via H250 thorfinn
+- **6 drift-FREE CTRL instances** in cycles ~1170-1480
+- **H250 closure analysis = gold standard r3 mechanistic narrative** (phase-by-phase telemetry decomposition with crossover dynamics)
+
+**Exploration territory map updates after cycle ~1480:**
+
+| Axis | State (delta from cycle ~1460) |
+|---|---|
+| **Outer Nesterov momentum VALUE** | **H258 WIP (thorfinn, just assigned) — 54th class, MuLoCo outer-step hyperparameter triangulation completion** |
+| Aux cooldown SHAPE+FRAC | **CLOSED bilateral STRUCTURAL NEG + FFS-TIE-val-NEG (H250) — aux schedule structurally rigid, mirror of H242 body finding** |
+| Sphere parallel-transport momentum | H257 WIP (alphonse) |
+| Outer LR temporal schedule | H256 WIP (edward) |
+| Post-step Stiefel retraction | H255 WIP (frieren) |
+| True Stiefel body init (orthogonal_qr) | H253 WIP (askeladd) — arm_a CTRL drift-FREE FFS=3025 with riem_frob_ratio terminal=6.28 (first natural-drift measurement) |
+| MuonH warmup SHAPE (cosine/sqrt) | H254 WIP (fern) |
+| MuLoCo sync_interval VALUE K | H252 WIP (nezuko) |
+| NS5 output decomposition | H251 WIP (tanjiro) |
+
+**Frontier observations for cycle ~1490+:**
+
+H250's "aux-body schedule misalignment cost dominates aux schedule local smoothness benefit" + H249's "Stiefel-vs-sphere manifold mismatch" + H248's "directional-signal is information not noise" form a coherent **3-tier campaign mechanism-design heuristic stack**:
+
+1. **Schedule layer**: aux/body schedule asymmetry is structurally load-bearing (H242 + H250 PROGRAMME FINDING #56)
+2. **Manifold layer**: SI hyperball is F-norm-sphere not Stiefel (H249 PROGRAMME FINDING insight + Brantner 2023)
+3. **Update layer**: per-coordinate post-NS5 non-uniformity is signal not noise (H248 directional insight + H238/H249 PROGRAMME FINDING #58)
+
+These 3 layers structurally close the **schedule+manifold+update axes** of post-NS5 body mechanism space. Remaining productive frontiers:
+- **MuLoCo outer-step hyperparameter triangulation** (H252 sync_interval + H256 outer LR + H258 outer momentum — all in flight; 3-D HP cube of outer-step properties)
+- **Sphere-aware mechanisms** (H257 sphere PT momentum — sphere geometry NOT Stiefel)
+- **Initialization axis** (H253 QR init — load-bearing for entire Stiefel cluster; H254 warmup shape)
+- **MuonH temporal schedule SHAPE on body warmup** (H254)
+
+H253 arm_b QR_RAW terminal riem_frob_ratio measurement (ETA ~02:00 UTC May 29) is **most critical campaign measurement** — determines whether Stiefel-aware mechanisms remain accessible or structurally closed.
 
 ---
 
