@@ -466,6 +466,14 @@ ATTN_SOAP_PRECOND_FREQ = 10
 ATTN_SOAP_TRUST_THRESHOLD = float(os.environ.get("ATTN_SOAP_TRUST_THRESHOLD", "0.9"))
 NS5_ITERS = int(os.environ.get("NS5_ITERS", "12"))
 WD_AUX = float(os.environ.get("WD_AUX", "0.0"))  # AdamW WD on embed + lm_head matrices (scalars stay at 0)
+# PR #1633 JOINT_PER_KIND_AUX_BETA2_WD — per-kind WD dispatch (reused from #1611 winner direction lm_head-heavy)
+PER_KIND_WD_AUX_ENABLED = int(os.environ.get("PER_KIND_WD_AUX_ENABLED", "0"))
+WD_AUX_EMBED = float(os.environ.get("WD_AUX_EMBED", str(WD_AUX)))
+WD_AUX_LM_HEAD = float(os.environ.get("WD_AUX_LM_HEAD", str(WD_AUX)))
+# PR #1633 JOINT_PER_KIND_AUX_BETA2_WD — per-kind β2 dispatch (extends #1577 winner direction lm_head_TIGHT/embed_FAST)
+PER_KIND_AUX_BETA2_ENABLED = int(os.environ.get("PER_KIND_AUX_BETA2_ENABLED", "0"))
+AUX_BETA2_EMBED = float(os.environ.get("AUX_BETA2_EMBED", "0.95"))
+AUX_BETA2_LM_HEAD = float(os.environ.get("AUX_BETA2_LM_HEAD", "0.95"))
 EMBED_INIT_STD = float(os.environ.get("EMBED_INIT_STD", "1.0"))  # default preserves baseline N(0,1)
 LOGIT_SOFTCAP = float(os.environ.get("LOGIT_SOFTCAP", "15.0"))  # default = 15 (current hardcoded value); soft-cap value c in f(x) = c·x / sqrt(x^2+c^2)
 
@@ -866,6 +874,12 @@ if dist.get_rank() == 0:
             "optimizer/attn_soap_trust_threshold": ATTN_SOAP_TRUST_THRESHOLD,
             "optimizer/ns5_iters": NS5_ITERS,
             "optimizer/wd_aux": WD_AUX,
+            "optimizer/per_kind_wd_aux_enabled": int(PER_KIND_WD_AUX_ENABLED),
+            "optimizer/wd_aux_embed": WD_AUX_EMBED if PER_KIND_WD_AUX_ENABLED else WD_AUX,
+            "optimizer/wd_aux_lm_head": WD_AUX_LM_HEAD if PER_KIND_WD_AUX_ENABLED else WD_AUX,
+            "optimizer/per_kind_aux_beta2_enabled": int(PER_KIND_AUX_BETA2_ENABLED),
+            "optimizer/aux_beta2_embed": AUX_BETA2_EMBED if PER_KIND_AUX_BETA2_ENABLED else 0.95,
+            "optimizer/aux_beta2_lm_head": AUX_BETA2_LM_HEAD if PER_KIND_AUX_BETA2_ENABLED else 0.95,
             "optimizer/recipe": "contra-muon + normuon-lite + soap-on-mlp + soap-on-attn-trust-gate (pre-NS5, record #14 + record #16)",
         },
     )
@@ -898,8 +912,16 @@ for trial_idx in range(args.num_trials):
             raise Exception(f"Uninitialized parameter: {name}")
 
     # create the optimizer(s)
-    optimizer1 = AdamW([dict(params=[model.embed.weight], lr=0.3, name="adam_embed", weight_decay=WD_AUX),
-                        dict(params=[model.proj.weight], lr=1/320, name="adam_lm_head", weight_decay=WD_AUX),
+    _wd_embed = WD_AUX_EMBED if PER_KIND_WD_AUX_ENABLED else WD_AUX
+    _wd_lm_head = WD_AUX_LM_HEAD if PER_KIND_WD_AUX_ENABLED else WD_AUX
+    _b2_embed = AUX_BETA2_EMBED if PER_KIND_AUX_BETA2_ENABLED else 0.95
+    _b2_lm_head = AUX_BETA2_LM_HEAD if PER_KIND_AUX_BETA2_ENABLED else 0.95
+    print(f"[PER_KIND_WD_AUX] enabled={PER_KIND_WD_AUX_ENABLED} embed={_wd_embed} lm_head={_wd_lm_head}")
+    print(f"[PER_KIND_AUX_BETA2] enabled={PER_KIND_AUX_BETA2_ENABLED} embed={_b2_embed} lm_head={_b2_lm_head}")
+    optimizer1 = AdamW([dict(params=[model.embed.weight], lr=0.3, name="adam_embed",
+                             weight_decay=_wd_embed, betas=(0.8, _b2_embed)),
+                        dict(params=[model.proj.weight], lr=1/320, name="adam_lm_head",
+                             weight_decay=_wd_lm_head, betas=(0.8, _b2_lm_head)),
                         dict(params=[p for p in model.parameters() if p.ndim < 2], lr=0.01, name="adam_scalars")],
                        betas=(0.8, 0.95), eps=1e-10, weight_decay=0, fused=True)
     optimizer2 = Muon([(n, p) for n, p in model.blocks.named_parameters() if p.ndim >= 2],
