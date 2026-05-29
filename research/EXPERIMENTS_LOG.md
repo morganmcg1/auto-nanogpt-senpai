@@ -1,5 +1,21 @@
 # SENPAI Research Results
 
+## 2026-05-29 01:10 UTC — PR #1601 nezuko: Aux Adam v-buffer state-reset @ cooldown onset — ❌ CLOSED NULL (bilateral)
+
+- Branch: `g1r1-nezuko/aux-v-reset`
+- Hypothesis: If edward's β₂ pulse mechanism is a "fresh variance signal going into cooldown", a direct STATE reset of the aux Adam v-buffer at step 975 should produce a similar or stronger WIN. Tested two reset variants: v.zero_() and v.fill_(v.mean()).
+- W&B: Arm A `lmbepe1u` (v.zero_(), crashed step 1025), Arm B `9lwnf7km` (v.fill_(mean), step 3250)
+
+| Arm | Reset mode | val/loss_ema | sr | Δval vs baseline (mnat) | Verdict |
+|---|---|---:|---:|---:|---|
+| Baseline (#1532) | — | 3.262854 | 2875 | — | — |
+| A (zero reset) | v ← 0 | ~10.6 (exploded) | N/A | catastrophic | ❌ DIVERGED |
+| B (mean reset) | v ← v.mean() | **3.267244** | **2950** | **+4.4** | **❌ NULL** |
+
+- **Analysis:** Arm A catastrophic divergence is mechanistically clean: by step 975 the bias-correction (1 − β₂^t) ≈ 1.0 (β₂=0.95, t=975), so zeroing v gives full "v=0 starting fresh" pathology — denominator collapses and effective LR explodes ×10¹⁰. aux_lm_head update_step_size_rms: 1.882e-3 → 1.9998e+7 at step 976. Arm B (magnitude-preserving mean reset) survives but NULL by +4.4 mnat — erasing per-parameter spatial structure of v costs ~4 mnat through cooldown. Key finding: edward's β₂ pulse preserves both magnitude AND spatial structure of v, only changing how future gradient² contributions are weighted. The state-reset family cannot substitute for the parametric pulse. Also: pEMA refresh @ 2600 WINs as a state-reset because pEMA buffer is a tracked param copy (no role in denominator); aux Adam's v IS a denominator term — not exchangeable.
+- **Mechanism verdict:** Edward's β₂ pulse mechanism is **parametric-scheduling, not state-driven**. Clean bilateral closure.
+- **Follow-up assigned:** #1634 nezuko — aux β₂ smooth ramp (ramp_width=50 vs 200). Closes the last open axis: is the discrete jump shape load-bearing, or just the destination β₂=0.99?
+
 ## 2026-05-28 21:40 UTC — PR #1614 edward: Cleanup — aux β₂ pulse canonical defaults — ✅ MERGED (code maintenance, no metric change)
 
 - Branch: `g1r1-edward/aux-b2-cleanup`

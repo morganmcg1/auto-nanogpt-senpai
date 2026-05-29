@@ -1,6 +1,6 @@
 # SENPAI Research State — auto-nanogpt-1gpu-r1
 
-- **Last update: 2026-05-28 23:00 UTC**
+- **Last update: 2026-05-29 01:10 UTC**
 - **Current baseline:** PR #1532 (aux Adam β₂ pulse 0.95→0.99 @ step 975). val_ema=3.262854, sr=2875 (n=2).
 - **Canonical defaults (post #1614):** β₂ pulse fires automatically at step 975 in all new runs — no flag needed.
 - **Merge gate:** `sr ≤ 2862.5 OR (sr=2875 AND val_ema < 3.262854)`
@@ -12,7 +12,7 @@
 | #1622 | edward | Muon momentum reset at pEMA refresh (step 2600) — scale 0.0 & 0.1 | JUST ASSIGNED | ~05:30 UTC |
 | #1591 | alphonse | β₂ amplitude Arm B (β₂=0.999, `8sgxkbc6`) | Running step 850; needs_rebase after terminal | ~01:00 UTC |
 | #1592 | askeladd | β₁ pulse Arm B (`0xfh1ftf`) | Running step 575 | ~02:00 UTC |
-| #1601 | nezuko | Aux v-buffer mean-reset (`9lwnf7km`) | Running step 1425 | ~23:40 UTC |
+| #1634 | nezuko | Aux β₂ smooth ramp (ramp_width=50 Arm A, 200 Arm B) | JUST ASSIGNED | ~09:00 UTC |
 | #1604 | fern | Body Muon momentum pulse Arm A (`ingv7i6m`) | **DIVERGING** (val_ema=4.663 @ step 2300) — told to KILL; Arm B (step 2600) will chain | ~04:00 UTC (Arm B) |
 | #1605 | frieren | Aux β₂ timing step 900 Arm A (`el59buaq`) → step 1050 Arm B (`unkccxcl`) | Arm A ❌ NULL (val_ema=3.265240, sr=2925); Arm B running step 100 | ~02:30 UTC (Arm B) |
 | #1607 | tanjiro | β₂ downward Arm A (`k56llb0t`, 0.90) | Running step 1850 | ~00:30 UTC |
@@ -33,7 +33,8 @@
 | Timing (step 1050) | frieren Arm B | Running (chained) |
 | β₁ analog | askeladd Arm A | ❌ NULL (val=3.2683) |
 | β₁ analog Arm B | askeladd Arm B | In-flight |
-| v-buffer reset | nezuko | In-flight |
+| v-buffer reset | nezuko #1601 | ❌ NULL (bilateral — Arm A catastrophic diverge, Arm B +4.4 mnat) |
+| β₂ pulse shape (discrete vs ramp) | nezuko #1634 | In-flight (JUST ASSIGNED) |
 | Body Muon (step 975) | fern Arm A | ❌ DIVERGED (catastrophic) |
 | Body Muon (step 2600) | fern Arm B | Pending after kill |
 
@@ -46,6 +47,10 @@
 - β₂ pulse (canon) + linear-decay AGC (thorfinn #1621) — if wins, stack it
 
 ## Key findings so far (session)
+
+- **#1601 nezuko NULL (bilateral)**: aux v-buffer state-reset does NOT reproduce edward's β₂ pulse. Arm A (v.zero_()) diverges catastrophically (denominator collapse). Arm B (v.fill_(mean)) NULL by +4.4 mnat. **Edward's mechanism is parametric-scheduling, not state-driven.** Clean axis closure.
+- **#1607 tanjiro Arm A NULL**: β₂=0.90 downward produces sr=2975 (+100) and val_ema=3.269 (+6.6 mnat). Both flanks of canonical 0.99 confirmed sub-optimal (0.90 NULL + 0.995 NULL). β₂ amplitude axis nearly closed.
+
 
 - **#1532 edward MERGED WIN**: β₂ pulse 0.95→0.99 @ step 975 = +25 sr improvement, +1.08 mnat val
 - **β₁ pulse NULL**: β₁ analog of β₂ pulse doesn't generalize (askeladd Arm A)
