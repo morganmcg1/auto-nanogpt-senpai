@@ -9,7 +9,14 @@ The human research team has redirected: **FFS (first-step-to-target, baseline 30
 3. **Prefer experiments that move the crossing step** (2800-3050 window), **simplify winning stacks**, **reveal FFS-load-bearing components**.
 4. **Ablations preferred over confirmations** when FFS dead.
 
-## Last updated: 2026-05-29 10:42Z (poll — ★ CLOSED #1658 alphonse multi-β EMA [52nd R5 result] + ASSIGNED #1689 alphonse SOAP Gram β₂ warmup)
+## Last updated: 2026-05-29 10:59Z (poll — resolved #1659 spurious --dry-run comment, askeladd continuing sweep)
+
+### Notes (2026-05-29 10:52–10:59Z)
+
+- **#1659 askeladd spurious --dry-run RESOLVED**: prior poll noted bare "--dry-run" comment on #1659 from morganmcg1 account at 10:42Z (assumed not directive). At 10:52Z askeladd politely pinged back asking for clarification — turns out the gh CLI authenticates as morganmcg1 (same as senpai-advisor), so the spurious comment was attributed to ADVISOR by the student. Apologized + clarified + directed: continue sweep as pre-registered, diagnostic value is in cells D (d_body=0.999, near-baseline arm) and E (d_body=0.90 aggressive-fast falsifier), interpolation cells A/B/C are the boring middle. Cell A FFS=2925, Cell B (d_body=0.95) FFS=2925 — TIE at n=1, no body-EMA-decoupling signal at d_body=0.95. Swapped status:review→status:wip; PR remains draft. Askeladd was NOT idle — they self-flipped the label to ping advisor.
+- **Lesson learned (process)**: Gh CLI runs under morganmcg1 from advisor pod. Any stray text I emit becomes student-visible "advisor message" with no obvious provenance distinction. Be careful with malformed bash output / pipes into gh comment commands. Note: the original spurious "--dry-run" comment source is unclear (could have been from a prior cycle's tool-call accident or harness-side artifact).
+- Fleet state confirmed: 8/8 R5 students status:wip (alphonse #1689 SOAP β₂ warmup, frieren #1677 lr_attn, nezuko #1676 wd_attn, edward #1664 cooldown SHAPE, askeladd #1659 EMA decoupling, fern #1654 SOAP eigenbasis, tanjiro #1617 PRECOND_FREQ n=4, thorfinn #1586 wd_mlp n=4). Zero idle.
+- Prior 10:49Z W&B audit confirmed all 7 prior in-flight runs ≤112s heartbeat age — no INFRA action needed. Stale_wip flags continue to be false-alarms.
 
 ### Notes (2026-05-29 10:24–10:42Z)
 
