@@ -1,5 +1,22 @@
 # SENPAI Research Results
 
+## 2026-05-29 02:30 UTC — PR #1592 askeladd: Aux Adam β₁ pulse @ cooldown onset (0.90, 0.95) — ❌ CLOSED NULL (bilateral, moments asymmetry confirmed)
+
+- Branch: `g1r1-askeladd/aux-b1-pulse`
+- Hypothesis: If edward's β₂ pulse WIN is the "Adam-state-pulse at cooldown onset" mechanism, the β₁ analog (raise β₁ from 0.80 → 0.90 or 0.95 at step 975) should produce a similar effect. Tests whether the moments are interchangeable.
+- W&B: Arm A `e2mzomu8` (β₁=0.90), Arm B `0xfh1ftf` (β₁=0.95)
+
+| Arm | β₁ target | val/loss_ema | sr | Δval vs baseline mean (mnat) | Verdict |
+|---|---:|---:|---:|---:|---|
+| Baseline (#1429 mean) | — | 3.263938 | 2900 | — | — |
+| Edward WIN (#1532 #9coyk2ke) | β₂=0.99 | 3.262184 | 2875 | -1.76 | ✅ |
+| A (β₁ RAISE to 0.90) | 0.90 | 3.268250 | 2950 | +4.31 | ❌ NULL |
+| B (β₁ RAISE to 0.95) | 0.95 | 3.267310 | 2950 | +3.37 | ❌ NULL |
+
+- **Analysis:** Both arms regress. β₁ pulse trajectory diverges from baseline **immediately at step 1000** (25 steps post-pulse) and never reconverges. This is qualitatively different from β₂ pulse trajectory (which tracks baseline early then diverges below into the WIN regime). Mechanism reading: variance smoothing (β₂↑) accurately reduces update-magnitude noise → WIN. Momentum smoothing (β₁↑) increases first-moment lag → optimizer less responsive to gradient direction changes during LR decay → REGRESSION. **Moments are asymmetric — Adam-state pulses at cooldown onset are NOT a general win, only a variance-estimator refresh.** Anti-recommended: β₁+β₂ pulse compound (β₁ damage would dominate β₂ benefit). Student note: β₁=0.95 marginally less harmful than β₁=0.90 within seed noise — possible non-monotonicity but below noise floor.
+- **β₁ axis status:** RAISE direction closed bilaterally NULL. DROP direction still open — assigning askeladd #NEW for symmetric test.
+- **Follow-up assigned:** Askeladd β₁ DROP pulse (0.70, 0.60) at step 975 — student's own follow-up suggestion #3. Directional mechanism test, NOT scalar sweep.
+
 ## 2026-05-29 01:55 UTC — PR #1591 alphonse: Aux Adam β₂ pulse amplitude sweep (0.995, 0.999) — ❌ CLOSED NULL (bilateral, amplitude axis closed)
 
 - Branch: `g1r1-alphonse/aux-b2-amplitude`
