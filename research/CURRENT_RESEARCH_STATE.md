@@ -1,6 +1,71 @@
 # SENPAI Research State — auto-nanogpt-1gpu-r3
 
-- **Last updated:** 2026-05-29 05:40 UTC
+- **Last updated:** 2026-05-29 05:55 UTC
+
+---
+
+## Cycle ~1530: H254 CLOSED (**112th NULL/NEG**, arm_c SQRT TIE-on-FFS mild-val improvement below merge-tier, 🎯 **arm_c SQRT +53σ_H174 mid-trajectory advantage at step 125 REAL but compresses by step 750** + 🎯 **σ_FFS noise refinement of Pattern D-loose drift class taxonomy** + 🎯 **mid-trajectory advantage interpretation heuristic — load-bearing dynamic must complete before terminal**) + H256 + H257 mid-chain refreshes (arm_b terminals: H256 CATASTROPHIC NEG +49σ crossover failure, H257 mild NEG +5σ TIE within drift class) + H263 fern ASSIGNED **59th mechanism class — MuLoCo pruning ablation (BOLD stack-pruning swing)**
+
+**Key closure this cycle:**
+
+- **H254 fern MuonH body LR warmup SHAPE (PR #1625)** — **112th NULL/NEG closure**. TIE on FFS strict merge criterion. arm_a CTRL linear `d180kh0k` val=3.26993 FFS=**3050 (+25 σ_FFS noise)**. arm_b COSINE `2le2d5lp` val=3.26832 FFS=**3025 EXACT** (TIES H203 baseline). arm_c SQRT `grpn1z4l` val=**3.26690** FFS=**3025 EXACT** (TIES baseline FFS, mild val improvement −1.58σ_H174 below merge-tier).
+
+  **🎯 arm_c SQRT +53σ_H174 mid-trajectory advantage at step 125 REAL but compresses by step 750**: phase-by-phase val/loss table shows sqrt's −0.047 val advantage at step 125 (warmup_factor 0.31623 sqrt vs 0.10000 linear = 3× more LR-weighted gradient signal). By step 750 (~7× warmup horizon), all 3 arms equalize. Terminal val/loss gap (−0.0030 = 3.4σ_H174) originates from better mid-training optimizer state, NOT ongoing warmup-shape effect. **Mid-trajectory advantage is real but operationally too small at 100-step warmup duration to convert to strict FFS WIN.**
+
+  **🎯 σ_FFS noise refinement of Pattern D-loose drift class taxonomy**: arm_a CTRL +25 drift is best explained by σ_FFS noise (~25), NOT Pattern D-loose certification. With 3 arms drawing from N(true_FFS=3025, σ=25), one landing +25 is unremarkable. **Methodological correction**: drift-FREE patterns (A/B/C/D-strict + argparse-VALUE) are **probabilistic** drift-FREE not **deterministic** drift-FREE — most arms hit 3025, some hit 3050 due to σ_FFS. The +25 drift class is NOT mechanism-specific.
+
+  **🎯 Mid-trajectory advantage interpretation heuristic (campaign mechanism-design)**: mid-trajectory advantages should be evaluated by **whether the load-bearing dynamic completes before terminal**. H254 arm_c sqrt advantage was load-bearing during warmup phase only → compresses cleanly. H256 edward arm_b outer LR cosine-match was load-bearing throughout → diverged from H203 in late cooldown → REVERSED catastrophically (+49σ NEG at terminal despite +105σ mid-trajectory advantage at step 1500). This is a useful pre-launch hypothesis filter for future mid-trajectory-signal candidates.
+
+**H256 + H257 mid-chain refreshes (W&B-audited terminal arm_b results):**
+
+- **H256 edward (PR #1627) — arm_b COOLDOWN_MATCHED TERMINAL CATASTROPHIC NEG**: `q0xe7kkr` FINISHED val=**3.31119** FFS=**−1**. Strong mid-trajectory −0.093 val lead at step 1500 (~105σ_H174 advantage) COLLAPSED to +0.044 val NEG (+49σ_H174) at terminal step 3325. **H250-class crossover failure as a-priori-predicted** in cycle ~1500 advisor refresh. Outer LR cosine-match deprives inner-loop of late-phase outer step structure → catastrophic late-cooldown breakdown. arm_c WARMUP mid-run step 1975/3325 (~59%) — pending terminal. PROGRAMME implication: outer-step magnitude IS load-bearing in late cooldown, reinforces PF#56 candidate.
+
+- **H257 alphonse (PR #1629) — arm_b PT_ALWAYS TERMINAL +25 drift TIE mild NEG**: `w95ozfgt` FINISHED val=3.27172 FFS=**3075 (+50 drift TIE-mild-NEG)**. Continuous sphere parallel-transport correction is mildly inert/harmful. Fits H249/H253/H255 monotonic-harm gradient narrative — geometric corrections on F-norm sphere are downstream of MuonH-SI's implicit handling, adding compute overhead without changing trajectory. arm_c PT_COOLDOWN mid-run step 825/3325 (~25%) — pending terminal.
+
+**New assignment:**
+
+- **H263 fern ASSIGNED (PR #1652) — 59th mechanism class: MuLoCo pruning ablation (BOLD stack-pruning swing)**. Per plateau protocol (112+ NULL/NEG cumulative), BOLD swings warranted. MuLoCo has NEVER been pruned in r3 — i.e., the question "is MuLoCo structurally necessary?" has never been asked. 3-arm: CTRL with MuLoCo / NO_OUTER (`use_outer_optimizer=0`) / NO_OUTER_LR_COMP (`use_outer_optimizer=0` + `muonh_lr=0.027` = 1.5× default 0.018). **Trivially drift-FREE Pattern A** (argparse VALUE only, toggles existing branch at lines 1047 + 1276 of train_gpt_simple.py — verified by advisor). WIN probability 15-25% (BOLD stack-pruning swing). Either outcome is informative: NEG → reinforces PF#56 candidate (outer-step axis structurally rigid). NULL/TIE → MASSIVE programme finding (MuLoCo removable, eliminates entire MuLoCo outer-step axis from future hypothesis search). WIN → opens entirely new optimizer regime.
+
+**Survey state after cycle ~1530**: 8/8 students WIP (alphonse H257, edward H256, frieren H262, thorfinn H258, tanjiro H259, nezuko H260, askeladd H261, **fern H263 just assigned**). 0 idle students. 0 review-ready PRs. H254 closed as 112th NULL/NEG. No new human directives.
+
+**Programme totals after cycle ~1530:**
+- **112 NULL/NEG closures** (+1 from H254 this cycle)
+- **59 mechanism classes** (+1; H263 MuLoCo pruning ablation)
+- PROGRAMME FINDING #51 candidate (body cooldown SHAPE locked at cosine cf=1.0)
+- PROGRAMME FINDING #56 candidate at 3 axes (aux/body/outer schedule structurally rigid) — H256 arm_b CATASTROPHIC TERMINAL NEG REINFORCES outer-step temporal axis rigidity
+- PROGRAMME FINDING #58 candidate at 5 axes — CLOSURE-GRADE / PROMOTION (Stiefel-aware mechanism cluster) — H257 arm_b mild NEG (continuous sphere PT) extends this finding by 1 axis informally
+- PROGRAMME FINDING #59 candidate (NS5 orthogonalization geometrically load-bearing)
+- 6 safe-fix templates documented (A/B/C/D-strict/D-loose/E); 2 drift classes (drift-FREE / +25 drift)
+- 9 drift-FREE CTRL instances cumulative
+- **NEW campaign-level "mid-trajectory advantage interpretation heuristic"** + **σ_FFS noise drift-class refinement** + **"fighting the attractor" + monotonic-harm + NS5 contractive-basin diagnostic** stack
+
+**Exploration territory map updates after cycle ~1530:**
+
+| Axis | State (delta from cycle ~1525) |
+|---|---|
+| **MuLoCo pruning ablation (use_outer_optimizer 0)** | **H263 WIP (fern, just assigned) — 59th class, BOLD stack-pruning swing** |
+| MuonH body warmup SHAPE | **CLOSED arm_c SQRT TIE on FFS (mild val −1.58σ below merge-tier) (H254 fern) — 112th NULL/NEG** |
+| Outer LR temporal schedule | **arm_b TERMINAL CATASTROPHIC NEG (H250-class crossover failure as predicted), arm_c WARMUP mid-run** (H256 edward) |
+| Sphere parallel-transport momentum | **arm_b TERMINAL +50 drift TIE mild NEG, arm_c PT_COOLDOWN mid-run** (H257 alphonse) |
+| Body warmup steps VALUE | H262 WIP (frieren) — 58th class, trivially drift-FREE |
+| Aux Sophia preconditioner FORM | H261 WIP (askeladd) — 57th class, BOLD plateau-protocol swing #2 |
+| Aux Lion optimizer FORM replacement | H260 WIP (nezuko) — 56th class, BOLD plateau-protocol swing #1 |
+| Outer Nesterov momentum VALUE | H258 WIP (thorfinn) — 54th class |
+| NS5 iteration COUNT VALUE | H259 WIP (tanjiro) — 55th class, direct follow-up to PF#59 |
+
+**Frontier observations for cycle ~1535+:**
+
+1. **Plateau protocol active, 3 BOLD swings now WIP**: H260 Lion (aux), H261 Sophia (aux), H263 MuLoCo pruning (stack). Diversified between aux FORM replacement (2 swings) and stack pruning (1 swing). Next bold swing candidates if all NULL: schedule-free MuonH, look-ahead optimization, MARS unified preconditioner, AdEMAMix aux (slow+fast EMA mixture).
+
+2. **H256 arm_b CATASTROPHIC terminal NEG confirms a-priori prediction**: the H250-class crossover failure heuristic ("mid-trajectory advantage that depends on H203 envelope diverging in cooldown → reverses catastrophically") is now established as a useful pre-launch hypothesis filter. Future "mid-trajectory promising" candidates should be evaluated against this heuristic before committing arm_c.
+
+3. **PROGRAMME FINDING #56 reinforcement**: H256 outer LR temporal axis closure CONFIRMS outer-step temporal axis structural rigidity. Combined with H242 body warmup + H250 aux cooldown + H252 sync_interval VALUE + H256 outer LR temporal = **4-axis** support for PF#56 candidate. If H258 outer Nesterov momentum VALUE also closes NULL, PF#56 reaches **5-axis** support — PROMOTION-grade.
+
+4. **MuLoCo pruning is the key open question**: H263 fern asks whether the entire MuLoCo outer-step axis is structurally needed. If NULL/TIE, the whole HP-tuning effort on MuLoCo's sub-axes (H252 K-axis, H256 LR axis, H258 momentum axis) was for nothing — simpler stack possible. If NEG, MuLoCo is load-bearing and the HP axes are well-tuned at H203 values.
+
+5. **σ_FFS noise refinement matures drift-class taxonomy**: fern's correction (Pattern D-loose +25 is σ_FFS noise NOT mechanism signature) is methodologically important. The drift-class catalog is now: drift-FREE patterns are PROBABILISTIC (P(FFS=3025) ~ 50-67%, P(FFS=3050) ~ 33-50%), not deterministic. Adjusts confidence intervals for cross-arm verdicts.
+
+6. **Gold-standard reference triad complete** (alphonse H249 + askeladd H253 + frieren H255). fern's H254 closure adds 4th gold-standard methodological reference for warmup-shape decomposition methodology.
 
 ---
 

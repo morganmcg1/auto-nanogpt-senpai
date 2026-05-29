@@ -1,3 +1,71 @@
+## 2026-05-29 05:50 — PR #1625: H254 fern MuonH body LR warmup SHAPE (linear/cosine/sqrt) — CLOSED (**112th NULL/NEG closure**, TIE on FFS strict merge criterion, arm_c SQRT mild val improvement −1.58σ below merge-tier, 🎯 **arm_c SQRT +53σ_H174 mid-trajectory advantage at step 125 REAL but compresses by step 750 (warmup horizon ~7×)** + 🎯 **σ_FFS noise refinement of Pattern D-loose drift class taxonomy** + 🎯 **mid-trajectory advantage interpretation heuristic — load-bearing dynamic must complete before terminal**)
+
+- Branch: H254 fern (50th class — MuonH body LR warmup SHAPE)
+- Student terminal SENPAI-RESULT at 03:52 UTC May 29 with phase-by-phase val/loss decomposition, warmup_factor analytic verification, σ_FFS noise honesty.
+
+| Arm | run_id | warmup_shape | step-0 val | val/loss | FFS | Δval vs H203 |
+|---|---|---|---|---|---|---|
+| arm_a CTRL linear | `d180kh0k` | linear | 10.82583 EXACT | 3.26993 | **3050 (+25 σ_FFS noise)** | +0.00163 (+1.84σ_H174) |
+| arm_b COSINE | `2le2d5lp` | cosine | 10.82583 EXACT | 3.26832 | **3025 EXACT** | +0.00002 (~0σ, TIES baseline) |
+| **arm_c SQRT** | `grpn1z4l` | sqrt | 10.82583 EXACT | **3.26690** | **3025 EXACT** | **−0.00140 (−1.58σ_H174)** |
+
+### Statistical rule check `(3.28 − μ) × √n ≥ 0.004`
+- arm_a CTRL: `(3.28 − 3.26993) × √1 = 0.01007` ≥ 0.004 ✓ but FFS=3050
+- arm_b COSINE: `(3.28 − 3.26832) × √1 = 0.01168` ≥ 0.004 ✓ TIES H203 baseline EXACT
+- arm_c SQRT: `(3.28 − 3.26690) × √1 = 0.01310` ≥ 0.004 ✓ TIES H203 baseline EXACT (FFS), mild val improvement
+
+### Primary metric decision
+
+Strict merge criterion (FFS strictly < 3025 AND val < 3.276): arm_c FFS=3025 is **TIE NOT WIN**. mild val improvement (−1.58σ_H174) is below merge-tier confidence at N=1. **CLOSE — 112th NULL/NEG cumulative.**
+
+### 🎯 arm_c SQRT mid-trajectory advantage — REAL but compresses (campaign mechanistic insight)
+
+fern's phase-by-phase val/loss decomposition (load-bearing diagnostic):
+
+| step | a_linear | b_cosine | c_sqrt | c−a | interpretation |
+|---|---|---|---|---|---|
+| 125 | 4.9203 | 4.9403 | **4.8736** | **−0.047 (−53σ_H174)** | sqrt's faster early warmup → massive early lead |
+| 250 | 4.2074 | 4.2108 | 4.1974 | −0.010 | compressing |
+| 500 | 3.8893 | 3.8932 | 3.8836 | −0.006 | persistent sqrt lead |
+| 750 | 3.8018 | 3.8021 | 3.8015 | ~0 | **warmup-shape memory dissipated** (~7× warmup horizon) |
+| 1500 | 3.5763 | 3.5756 | 3.5767 | +0.000 | indistinguishable mid-training |
+| 3000 | 3.2845 | 3.2828 | 3.2815 | −0.003 | terminal cooldown reopens small gap |
+| 3325 | 3.26993 | 3.26832 | **3.26690** | **−0.0030** | terminal |
+
+**Mechanistic conclusion**: sqrt's −53σ early-phase advantage at step 125 is REAL (warmup_factor 0.31623 sqrt vs 0.10000 linear at step 10 → 3× more LR-weighted gradient signal), but dissipates by step 750. The terminal val/loss gap (−0.0030 ≈ 3.4σ_H174) likely originates from the better mid-training optimizer state achieved by spending less time at sub-optimal LR early on, not from any ongoing warmup-shape effect.
+
+### 🎯 σ_FFS noise refinement of Pattern D-loose drift class taxonomy
+
+fern's analysis correctly identifies that **arm_a CTRL +25 drift is best explained by σ_FFS noise (~25), NOT Pattern D-loose certification**. With 3 arms drawing from N(true_FFS, σ=25), one landing +25 and two at baseline is unremarkable.
+
+**Methodological correction for future drift-class adjudication**: the +25 drift class is NOT mechanism-specific — it's σ_FFS noise floor that any random arm may sample. The drift-FREE patterns (A/B/C/D-strict + argparse-VALUE) achieve **probabilistic** drift-FREE (most arms hit 3025, some hit 3050 due to σ_FFS), NOT **deterministic** drift-FREE.
+
+This refines the drift-class taxonomy: rather than treating arm_a CTRL +25 as deterministic Pattern D-loose drift, treat it as ±25 noise around true_FFS=3025. Important campaign-level methodological correction.
+
+### 🎯 Mid-trajectory advantage interpretation heuristic
+
+H254 arm_c shows a +53σ_H174 mid-training advantage at step 125 that compresses by step 750. H256 edward arm_b (closed last cycle) showed a +105σ_H174 mid-training advantage at step 1500 that COMPLETELY REVERSED to +49σ NEG at terminal (H250-class crossover). Both are mid-trajectory illusions but at different time scales:
+
+- **H254 arm_c**: early-phase mid-trajectory advantage (step 125, warmup phase) → compresses to small terminal lead (−1.58σ)
+- **H256 arm_b**: mid-late mid-trajectory advantage (step 1500, mid-training) → reverses to terminal NEG (+49σ NEG)
+
+**Programme insight**: mid-trajectory advantages should be evaluated by **whether the load-bearing dynamic completes before terminal**. H254's sqrt advantage is load-bearing during warmup phase only, so it compresses cleanly (no crossover). H256's outer LR cosine-match is load-bearing throughout — when it diverges from H203 in late cooldown, the mid-trajectory illusion REVERSES catastrophically. This is a useful campaign-level mechanism-design heuristic.
+
+### Methodological gold standard
+
+fern's H254 closure demonstrates exemplary research discipline:
+1. Phase-by-phase val/loss decomposition cleanly localizes warmup-shape effect to step 125-750 window
+2. warmup_factor analytic verification matches to numerical precision (linear/cosine/sqrt shapes demonstrably distinct)
+3. σ_FFS noise honesty — refuses to credit arm_a +25 as deterministic Pattern D-loose drift without N≥3 seeds
+4. Below-merge-tier verdict on arm_c SQRT despite val improvement — refuses to cherry-pick from single seed
+5. Suggested follow-ups clearly distinguish "low-priority" (N=2 confirmation) from "more promising" (longer warmup × sqrt composition)
+
+### Deferred follow-up
+
+The natural extension — **longer warmup duration × sqrt shape composition test** — is deferred to post-H262 cycle. H262 frieren currently has body warmup DURATION ablation in flight (50/100/250 × linear shape). After H262 closes, an H262×H254 composition test (SQRT × LONGER duration) would be the cleanest extension. For NOW: fern receives an INDEPENDENT new mechanism class (H263 MuLoCo pruning ablation).
+
+---
+
 ## 2026-05-29 05:35 — PR #1626: H255 frieren Stiefel retraction (FULL + COOLDOWN_GATED) — CLOSED (**111th NULL/NEG closure**, both arms CATASTROPHIC NEG, 🎯 **NEW NS5 contractive-basin σ ∈ (0,√3) NaN-divergence mechanism** + 🎯 **PROGRAMME FINDING #58 candidate 5-axis CLOSURE-GRADE** + 🎯 **NEW campaign-level diagnostic protocol: NS5 contractive-basin pre-step check**)
 
 - Branch: H255 frieren (51st class — Per-step Stiefel retraction via QR-based polar projection)
