@@ -460,6 +460,13 @@ TARGET_UW = 0.35
 NORMUON_BETA2 = 0.95
 SOAP_BETA2 = 0.90
 SOAP_PRECOND_FREQ = 10
+# PR PER_DEPTH_HALF_MLP_SOAP_REFRESH_FREQ — per-depth-half MLP-SOAP refresh frequency dispatch.
+# Extends #1545's validated MLP-SOAP front_up principle from continuous-EMA β2 to discrete refresh cadence.
+# Disabled by default; enabled mode reads FRONT and BACK refresh_freq values for the two depth halves.
+PER_DEPTH_HALF_MLP_SOAP_REFRESH_FREQ_ENABLED = int(os.environ.get("PER_DEPTH_HALF_MLP_SOAP_REFRESH_FREQ_ENABLED", "0"))
+MLP_SOAP_PRECOND_FREQ_FRONT = int(os.environ.get("MLP_SOAP_PRECOND_FREQ_FRONT", str(SOAP_PRECOND_FREQ)))
+MLP_SOAP_PRECOND_FREQ_BACK = int(os.environ.get("MLP_SOAP_PRECOND_FREQ_BACK", str(SOAP_PRECOND_FREQ)))
+MLP_SOAP_REFRESH_FREQ_DEPTH_SPLIT = int(os.environ.get("MLP_SOAP_REFRESH_FREQ_DEPTH_SPLIT", "6"))
 # Attention SOAP (record #16) hyperparameters
 ATTN_SOAP_BETA2 = 0.90
 ATTN_SOAP_PRECOND_FREQ = 10
@@ -652,6 +659,24 @@ class Muon(torch.optim.Optimizer):
                     self.attn_soap_kind[id(p)] = "v"
                 elif n.endswith(".attn.proj.weight"):
                     self.attn_soap_kind[id(p)] = "proj"
+        # PR PER_DEPTH_HALF_MLP_SOAP_REFRESH_FREQ — per-depth-half MLP-SOAP refresh_freq dispatch.
+        # Block index extracted from param name prefix (e.g. "0.mlp.fc.weight" → block 0).
+        self.mlp_soap_refresh_freq_per_param: dict[int, int] = {}
+        if PER_DEPTH_HALF_MLP_SOAP_REFRESH_FREQ_ENABLED:
+            for n, p in named_params:
+                if p in self.soap_params:
+                    block_idx = int(n.split(".", 1)[0])
+                    self.mlp_soap_refresh_freq_per_param[id(p)] = (
+                        MLP_SOAP_PRECOND_FREQ_FRONT if block_idx < MLP_SOAP_REFRESH_FREQ_DEPTH_SPLIT
+                        else MLP_SOAP_PRECOND_FREQ_BACK
+                    )
+        n_mlp_front = sum(1 for n, p in named_params
+                          if p in self.soap_params and int(n.split(".", 1)[0]) < MLP_SOAP_REFRESH_FREQ_DEPTH_SPLIT)
+        n_mlp_back = sum(1 for n, p in named_params
+                         if p in self.soap_params and int(n.split(".", 1)[0]) >= MLP_SOAP_REFRESH_FREQ_DEPTH_SPLIT)
+        print(f"[PER_DEPTH_HALF_MLP_SOAP_REFRESH_FREQ] enabled={PER_DEPTH_HALF_MLP_SOAP_REFRESH_FREQ_ENABLED} "
+              f"front={MLP_SOAP_PRECOND_FREQ_FRONT} back={MLP_SOAP_PRECOND_FREQ_BACK} "
+              f"split={MLP_SOAP_REFRESH_FREQ_DEPTH_SPLIT} n_front={n_mlp_front} n_back={n_mlp_back}")
         params = sorted([p for _, p in named_params], key=lambda x: x.size(), reverse=True)
         defaults = dict(lr=lr, weight_decay=weight_decay, mu=mu)
         super().__init__(params, defaults)
@@ -712,7 +737,8 @@ class Muon(torch.optim.Optimizer):
                     p.add_(update, alpha=-group["lr"])
                     # Refresh SOAP state with the raw grad (after applying the step).
                     if use_soap:
-                        soap_refresh(grad, state)
+                        refresh_freq_p = self.mlp_soap_refresh_freq_per_param.get(id(p), SOAP_PRECOND_FREQ)
+                        soap_refresh(grad, state, refresh_freq=refresh_freq_p)
                     elif use_attn_soap:
                         soap_refresh(grad, state, beta2=ATTN_SOAP_BETA2,
                                      refresh_freq=ATTN_SOAP_PRECOND_FREQ,
@@ -861,6 +887,10 @@ if dist.get_rank() == 0:
             "optimizer/normuon_beta2": NORMUON_BETA2,
             "optimizer/soap_beta2": SOAP_BETA2,
             "optimizer/soap_precond_freq": SOAP_PRECOND_FREQ,
+            "optimizer/per_depth_half_mlp_soap_refresh_freq_enabled": int(PER_DEPTH_HALF_MLP_SOAP_REFRESH_FREQ_ENABLED),
+            "optimizer/mlp_soap_precond_freq_front": MLP_SOAP_PRECOND_FREQ_FRONT,
+            "optimizer/mlp_soap_precond_freq_back": MLP_SOAP_PRECOND_FREQ_BACK,
+            "optimizer/mlp_soap_refresh_freq_depth_split": MLP_SOAP_REFRESH_FREQ_DEPTH_SPLIT,
             "optimizer/attn_soap_beta2": ATTN_SOAP_BETA2,
             "optimizer/attn_soap_precond_freq": ATTN_SOAP_PRECOND_FREQ,
             "optimizer/attn_soap_trust_threshold": ATTN_SOAP_TRUST_THRESHOLD,
