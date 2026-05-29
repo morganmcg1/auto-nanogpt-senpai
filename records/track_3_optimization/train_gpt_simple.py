@@ -469,6 +469,20 @@ WD_AUX = float(os.environ.get("WD_AUX", "0.0"))  # AdamW WD on embed + lm_head m
 EMBED_INIT_STD = float(os.environ.get("EMBED_INIT_STD", "1.0"))  # default preserves baseline N(0,1)
 LOGIT_SOFTCAP = float(os.environ.get("LOGIT_SOFTCAP", "15.0"))  # default = 15 (current hardcoded value); soft-cap value c in f(x) = c·x / sqrt(x^2+c^2)
 
+# Per-kind AdamW β1 override on lm_head group (PR #1678 axis). Default disabled
+# keeps lm_head at the AdamW(betas=(0.8, 0.95)) global default for bit-exact
+# baseline. When enabled, the lm_head group's β1 is set to AUX_BETA1_LM_HEAD.
+PER_KIND_AUX_BETA1_ENABLED = int(os.environ.get("PER_KIND_AUX_BETA1_ENABLED", "0"))
+AUX_BETA1_LM_HEAD = float(os.environ.get("AUX_BETA1_LM_HEAD", "0.8"))
+# Phase-dispatch wrapper on lm_head β1 (PR #1724). When enabled, β1 is set to
+# LM_HEAD_BETA1_EARLY before PHASE_DISPATCH_BOUNDARY_STEP and to
+# LM_HEAD_BETA1_LATE at/after the boundary. Mirrors PHASE_DISPATCH_*_BETA2
+# pattern. Takes precedence over PER_KIND_AUX_BETA1 when enabled.
+PHASE_DISPATCH_LM_HEAD_BETA1_ENABLED = int(os.environ.get("PHASE_DISPATCH_LM_HEAD_BETA1_ENABLED", "0"))
+LM_HEAD_BETA1_EARLY = float(os.environ.get("LM_HEAD_BETA1_EARLY", "0.8"))
+LM_HEAD_BETA1_LATE = float(os.environ.get("LM_HEAD_BETA1_LATE", "0.8"))
+PHASE_DISPATCH_BOUNDARY_STEP = int(os.environ.get("PHASE_DISPATCH_BOUNDARY_STEP", "1500"))
+
 
 def zeropower_via_newtonschulz5(G: Tensor) -> Tensor:
     assert G.ndim >= 2
@@ -866,6 +880,12 @@ if dist.get_rank() == 0:
             "optimizer/attn_soap_trust_threshold": ATTN_SOAP_TRUST_THRESHOLD,
             "optimizer/ns5_iters": NS5_ITERS,
             "optimizer/wd_aux": WD_AUX,
+            "optimizer/per_kind_aux_beta1_enabled": int(PER_KIND_AUX_BETA1_ENABLED),
+            "optimizer/aux_beta1_lm_head": AUX_BETA1_LM_HEAD,
+            "optimizer/phase_dispatch_lm_head_beta1_enabled": int(PHASE_DISPATCH_LM_HEAD_BETA1_ENABLED),
+            "optimizer/lm_head_beta1_early": LM_HEAD_BETA1_EARLY,
+            "optimizer/lm_head_beta1_late": LM_HEAD_BETA1_LATE,
+            "optimizer/phase_dispatch_boundary_step": PHASE_DISPATCH_BOUNDARY_STEP,
             "optimizer/recipe": "contra-muon + normuon-lite + soap-on-mlp + soap-on-attn-trust-gate (pre-NS5, record #14 + record #16)",
         },
     )
@@ -911,6 +931,35 @@ for trial_idx in range(args.num_trials):
     for opt in optimizers:
         for group in opt.param_groups:
             group["initial_lr"] = group["lr"]
+
+    # Per-kind / phase-dispatch β1 override on the adam_lm_head group.
+    # PHASE_DISPATCH takes precedence over the static PER_KIND override when
+    # both are enabled. Default path (both disabled) leaves betas=(0.8, 0.95).
+    if PHASE_DISPATCH_LM_HEAD_BETA1_ENABLED:
+        initial_lm_head_b1 = LM_HEAD_BETA1_EARLY
+    elif PER_KIND_AUX_BETA1_ENABLED:
+        initial_lm_head_b1 = AUX_BETA1_LM_HEAD
+    else:
+        initial_lm_head_b1 = None
+    if initial_lm_head_b1 is not None:
+        for g in optimizer1.param_groups:
+            if g.get("name") == "adam_lm_head":
+                prev_betas = g["betas"]
+                g["betas"] = (initial_lm_head_b1, prev_betas[1])
+                if dist.get_rank() == 0:
+                    print0(
+                        f"[PHASE_DISPATCH_LM_HEAD_BETA1] enabled={PHASE_DISPATCH_LM_HEAD_BETA1_ENABLED}"
+                        f" early={LM_HEAD_BETA1_EARLY} late={LM_HEAD_BETA1_LATE}"
+                        f" boundary_step={PHASE_DISPATCH_BOUNDARY_STEP}"
+                        f" per_kind_enabled={PER_KIND_AUX_BETA1_ENABLED} aux_beta1_lm_head={AUX_BETA1_LM_HEAD}",
+                        console=True,
+                    )
+                    print0(
+                        f"[PHASE_DISPATCH_LM_HEAD_BETA1] step 0: applying β1={initial_lm_head_b1}"
+                        f" to adam_lm_head group (previous betas={prev_betas})",
+                        console=True,
+                    )
+                break
 
     # learning rate schedule: stable then decay
     def set_hparams(step, cooldown_frac=0.7):
@@ -1051,6 +1100,38 @@ for trial_idx in range(args.num_trials):
                 train_steps=train_steps,
                 wandb_step=wandb_step,
             )
+        # Phase-dispatch β1 swap on adam_lm_head: triggered once at the boundary
+        # step. EARLY value already applied at optimizer creation; here we move
+        # to LATE the first time `step` crosses PHASE_DISPATCH_BOUNDARY_STEP.
+        if PHASE_DISPATCH_LM_HEAD_BETA1_ENABLED and step == PHASE_DISPATCH_BOUNDARY_STEP:
+            for g in optimizer1.param_groups:
+                if g.get("name") == "adam_lm_head":
+                    prev_b1, b2 = g["betas"]
+                    g["betas"] = (LM_HEAD_BETA1_LATE, b2)
+                    if dist.get_rank() == 0:
+                        print0(
+                            f"[PHASE_DISPATCH_LM_HEAD_BETA1] step {step}:"
+                            f" switched lm_head β1 from {prev_b1} → {LM_HEAD_BETA1_LATE}",
+                            console=True,
+                        )
+                        lm_head_p = g["params"][0]
+                        st = optimizer1.state.get(lm_head_p, {})
+                        ea_norm = float(st["exp_avg"].norm().item()) if "exp_avg" in st else float("nan")
+                        eas_norm = float(st["exp_avg_sq"].norm().item()) if "exp_avg_sq" in st else float("nan")
+                        wandb.log({
+                            "diag/lm_head_exp_avg_norm_at_boundary": ea_norm,
+                            "diag/lm_head_exp_avg_sq_norm_at_boundary": eas_norm,
+                            "diag/lm_head_beta1_swap_step": step,
+                        }, step=wandb_step)
+                        print0(
+                            f"[PHASE_DISPATCH_LM_HEAD_BETA1] boundary diag:"
+                            f" exp_avg.norm={ea_norm:.6f} exp_avg_sq.norm={eas_norm:.6f}",
+                            console=True,
+                        )
+                    break
+        if dist.get_rank() == 0 and PHASE_DISPATCH_LM_HEAD_BETA1_ENABLED and telemetry_due:
+            effective_b1 = LM_HEAD_BETA1_LATE if step >= PHASE_DISPATCH_BOUNDARY_STEP else LM_HEAD_BETA1_EARLY
+            wandb.log({"train/lm_head_beta1_effective": effective_b1}, step=wandb_step)
         for opt in optimizers:
             opt.step()
         if dist.get_rank() == 0 and telemetry_due:
