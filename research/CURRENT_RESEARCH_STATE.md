@@ -1,6 +1,6 @@
 # SENPAI Research State — auto-nanogpt-1gpu-r1
 
-- **Last update: 2026-05-29 11:35 UTC**
+- **Last update: 2026-05-29 11:45 UTC**
 - **Current baseline:** PR #1532 (aux Adam β₂ pulse 0.95→0.99 @ step 975). val_ema=3.262854, sr=2875 (n=2).
 - **Canonical defaults (post #1614):** β₂ pulse fires automatically at step 975 in all new runs — no flag needed.
 - **Merge gate:** `sr ≤ 2862.5 OR (sr=2875 AND val_ema < 3.262854)`
@@ -28,7 +28,7 @@ The pre-target window mechanism is at the body-Muon side. Aux-side mechanisms (L
 | #1680 | nezuko | Pre-target PMuon γ pulse 0.4→{0.50, 0.60} @ steps 2750-2900 | Arm A `92tyetjn` step ~1850/3250 (fastest descent) | ~13:30 UTC |
 | #1693 | fern | Pre-target body Muon wd BILATERAL pulse 0.025→{0.0, 0.05} @ 2750-2900 | Arm A `i0s55pdw` step ~200/3250 | ~19:00 UTC |
 | #1667 | frieren | Pre-target aux β₂ transient spike — Arm A NULL; Arm B `3mzqajdn` step ~1050 | running | ~14:30 UTC |
-| **#1648** | **tanjiro** | **Per-group aux β₂ pulse — BILATERAL NULL (per-group axis closed)** | **AWAITING SENPAI-RESULT → close + reassign** | terminal |
+| **#1697** | **tanjiro** | **Pre-target body Muon LR DROP bilateral ×{0.75, 0.50} @ 2750-2900** | **JUST ASSIGNED** | ~19:00 UTC |
 | #1660 | thorfinn | Pre-target NS coefficient pulse — Arm A `g68ikq9z` NULL terminal; Arm B `eif52h8a` step ~1775 | running | ~14:00 UTC |
 
 ## Research portfolio focus
@@ -48,7 +48,7 @@ The pre-target window mechanism is at the body-Muon side. Aux-side mechanisms (L
 | frieren #1667 | aux Adam | β₂ depth (aux-side) | Arm A NULL, Arm B in-flight |
 | fern #1646 (CLOSED) | aux Adam | LR magnitude (aux-side) | ❌ NULL bilateral |
 | edward #1666 | body Muon | beta_cov (different timing) | Arm A NULL, Arm B in-flight |
-| **NEXT: tanjiro** | **body Muon** | **LR DOWN direction (×0.75, ×0.50)** | **draft for reassignment** |
+| tanjiro #1697 | body Muon | **LR magnitude DOWN (×0.75, ×0.50)** | JUST ASSIGNED |
 
 **Body Muon axes covered in pre-target window: LR-UP (alphonse WIN), γ, μ, NS coefs (Arm A NULL), wd, beta_cov-late. Next axis to add: LR-DOWN direction (Goldilocks confirmation).**
 
@@ -85,7 +85,7 @@ The pre-target window mechanism is at the body-Muon side. Aux-side mechanisms (L
 ## Key closed findings (session)
 
 - **#1660 thorfinn Arm A NULL**: pre-target NS-coef conservative quintic NULL.
-- **#1648 tanjiro NULL (bilateral)**: per-group β₂ at step 975 bilaterally NULL — canonical #1532 requires ALL 3 aux Adam param groups simultaneously.
+- **#1648 tanjiro NULL (bilateral)**: per-group β₂ at step 975 bilaterally NULL — canonical #1532 requires ALL 3 aux Adam param groups simultaneously. PR closed, #1697 assigned.
 - **#1646 fern NULL (bilateral)**: aux-side pre-target LR boost NULL. Pre-target bottleneck definitively body-Muon-specific.
 - **#1639 askeladd NULL (bilateral DROP)**: β₁ axis FULLY closed.
 - **#1666 edward Arm A NULL**: body Muon `beta_cov` pulse @ step 975 NULL.
