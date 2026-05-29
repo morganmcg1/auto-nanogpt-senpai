@@ -1,3 +1,98 @@
+## 2026-05-29 06:30 UTC — Cycle 71 mid-375 — thorfinn #1642 279th refute (PHASE_DISPATCH_ATTN_SOAP_BETA2 val_mean=3.27227 STANDARD misses merge bar by Δ=+0.00451 val and +50 ffs (ffs_mean=3050), Arm A `early_FAST` β2=0.85/0.95 val=3.27087 ffs=3025 STANDARD-edge, Arm B `early_SLOW` β2=0.95/0.85 val=3.27367 ffs=3075 STANDARD, Δ(B−A)=+0.00280 marginal-but-distinguishable, MAJOR MECHANISM INVERSION FINDING: **prediction REFUTED, outcome direction VALIDATED via opposite mechanism** — `attn_soap/trust_gate/on_fraction` telemetry is the structural smoking gun showing Arm A early v-axis on_fraction=0.000 vs Arm B=0.250 (REVERSED from prediction), Arm A early proj=0.000 vs Arm B=0.924; β2=0.85 means EMA forgets faster → consecutive grams fluctuate more → cosine similarity at trust gate is LOWER → gate REJECTS more not fewer ("faster β2" ≠ "faster warmup"; it's "shorter memory" = noisier per-step); Arm A still WON because late β2=0.95 maintained stable basis through cooldown (every kind ≥0.96 on_fraction) while Arm B late β2=0.85 destabilized (v collapses to 0.053, proj halves to 0.50), Arm A gained ~35% more effective late refreshes vs ~30% lost early refreshes; **REFRAMED HYPOTHESIS**: late-phase basis stability through cooldown is the attn-SOAP bottleneck, NOT EMA-warmup — cooldown's lr-shift induces gradient distribution shifts, high β2 there keeps the gram from drifting and keeps trust gate firing; NEGATIVE FINDING RECORDED: "faster early β2" does NOT accelerate trust-gate firing, future PRs trying to warm up the EMA should manipulate refresh frequency, trust-threshold, or initialization, NOT β2) + thorfinn #1663 NEW ASYMMETRIC_LATE_BETA2_ATTN_SOAP (DIRECT FOLLOW-UP testing reframed hypothesis — Arm A `late_0p95` early=0.90 late=0.95 isolates late-phase β2 from early-phase noise, Arm B `late_0p97` early=0.90 late=0.97 pushes late-phase β2 axis up high end; if Arm A < #1642 Arm A → keeping early=0.90 helps and late-only raise is the clean lever, if Arm B < Arm A → late-phase β2 axis linearly improving motivates higher late=0.99 territory, if both ≈ #1642 Arm A → late-phase saturated at 0.95)
+
+**Cumulative**: **279 refuted** / **167 distinct mech classes** / **120 family-level closures**.
+
+### PRs closed this wave (1 closure):
+
+| PR | student | mechanism | outcome |
+|---|---|---|---|
+| **thorfinn #1642** | thorfinn | PHASE_DISPATCH_ATTN_SOAP_BETA2 (Arm A `early_FAST` β2=0.85/0.95 vs Arm B `early_SLOW` β2=0.95/0.85, boundary step=1500) | **279th** — Arm A val=3.27087 ffs=3025 STANDARD edge, Arm B val=3.27367 ffs=3075 STANDARD; val_mean=3.27227 ffs_mean=3050 fails merge bar by +0.00451 val, +50 ffs. **Δ(B−A)=+0.00280 marginal-but-distinguishable.** Major mechanism inversion finding: late-phase basis stability is the bottleneck, NOT EMA-warmup. |
+
+### MAJOR STRUCTURAL FINDING — Phase-dispatch β2 mechanism inversion
+
+`attn_soap/trust_gate/on_fraction` telemetry (n=11 early-window samples, n=25 late-window samples):
+
+| kind | Arm A early (β2=0.85) | Arm A late (β2=0.95) | Arm B early (β2=0.95) | Arm B late (β2=0.85) |
+|---|---|---|---|---|
+| overall | **0.419** | **0.978** | 0.794 | 0.633 |
+| v | **0.000** | **0.957** | 0.250 | 0.053 |
+| proj | **0.000** | **0.960** | 0.924 | 0.500 |
+| q | 0.879 | 1.000 | 1.000 | 0.997 |
+| k | 0.795 | 0.997 | 1.000 | 0.980 |
+
+**β2=0.85 forces v/proj early on_fraction to ZERO.** The "fast early β2 accelerates EMA warmup" hypothesis is REFUTED at the telemetry level — shorter EMA horizon (β2=0.85) makes consecutive grams noisier → cosine similarity at trust gate is LOWER → gate rejects more.
+
+**Why Arm A still won**: late β2=0.95 maintains stable basis through cooldown (every kind ≥0.96 on_fraction). Arm B late β2=0.85 destabilizes — v collapses to 0.053, proj halves to 0.50. The cooldown's lr-shift induces gradient distribution shifts; a high β2 there keeps the gram from drifting and keeps the trust gate firing.
+
+### REFRAMED HYPOTHESIS — late-phase basis stability is the attn-SOAP bottleneck
+
+| OLD hypothesis (PR predicted) | NEW hypothesis (data validated) |
+|---|---|
+| EMA-warmup is the bottleneck (need fast early β2) | **REFUTED** at telemetry level (fast early β2 SUPPRESSES trust gate) |
+| Late-phase basis stability is the bottleneck (need high late β2) | **VALIDATED** — Arm A's gain comes from late=0.95, not early=0.85 |
+
+This restructures the entire phase-dispatch attn-SOAP β2 family. The right move is **flat-early-β2 + higher-late-β2**, not asymmetric early-low.
+
+### NEGATIVE FINDING RECORDED
+
+"Faster early β2 does NOT accelerate trust-gate firing." Future PRs attempting to "warm up the EMA" should manipulate refresh frequency, trust-threshold, or initialization — NOT β2.
+
+### Floor band unchanged
+
+[3.26916, 3.26992] — 8 single-axis mechanism classes. #1642 Arm A 3.27087 lands at STANDARD edge, +0.00095 above floor band upper; no new floor-band entry.
+
+### Sub-cluster-edge lowest unchanged
+
+3.26802 (#1623 Arm B `14f3dyr6` ffs=3000) — strongest near-merge single-arm cycle 71.
+
+### PRs assigned this wave
+
+| PR | student | mechanism | role |
+|---|---|---|---|
+| **thorfinn #1663** | thorfinn | ASYMMETRIC_LATE_BETA2_ATTN_SOAP (Arm A `late_0p95` ATTN_SOAP_BETA2_EARLY=0.90 ATTN_SOAP_BETA2_LATE=0.95 boundary=1500 — isolates late-phase β2 from early-phase noise; Arm B `late_0p97` ATTN_SOAP_BETA2_EARLY=0.90 ATTN_SOAP_BETA2_LATE=0.97 boundary=1500 — pushes late-phase β2 axis up high end) | **DIRECT FOLLOW-UP TO #1642 MECHANISM INVERSION** — tests reframed hypothesis (late-phase basis stability) by keeping early at validated baseline (0.90) and probing two late values (0.95 baseline, 0.97 push). If Arm A < #1642 Arm A (3.27087) → keeping early=0.90 helps, late-only raise is clean lever; if Arm B < Arm A → late-phase β2 axis linearly improving motivates further pushing; if both ≈ #1642 Arm A → late-phase saturated at 0.95. |
+
+### Fleet state at end of wake 57 (this wave)
+
+8 students all assigned, 0 idle:
+
+| PR | student | axis | status |
+|---|---|---|---|
+| **#1663** | **thorfinn** | **ASYMMETRIC_LATE_BETA2_ATTN_SOAP** | **WIP (this wave, just assigned)** |
+| #1662 | alphonse | JOINT_MLP_SOAP_REFRESH_X_MU_COOLDOWN_END_DEPTH_HALF | WIP (prior wave) |
+| #1657 | askeladd | ISOLATION_MU_COOLDOWN_START_FRONT_LOWER_DEPTH_HALF_VS_UNIFORM | WIP (prior wave) |
+| #1656 | fern | JOINT_MLP_SOAP_REFRESH_BACK_FAST_X_AUX_WD_LM_HEAD_HEAVY | WIP (prior wave) |
+| #1653 | tanjiro | PHASE_DISPATCH_AUX_BETA2 | WIP (prior wave) |
+| #1645 | frieren | PHASE_DISPATCH_MLP_SOAP_REFRESH_FREQ | WIP (prior wave) — Arm A near-terminal |
+| #1644 | nezuko | PER_DEPTH_HALF_MLP_SOAP_PROJ_BETA2_FAST | WIP (prior wave) |
+| #1640 | edward | V_FAST_DEPTH_HALF_REFRESH | WIP (prior wave) |
+
+### Active research themes (cycle 71)
+
+1. **Phase-dispatch attn-SOAP β2 mechanism INVERTED** (#1642 finding): late-phase basis stability is the bottleneck, NOT EMA-warmup. Reframed hypothesis under direct test in #1663.
+2. **TWO cross-mechanism-class compound tests in flight simultaneously, both anchored on #1623 Arm B back_FAST** — fern #1656 (× WD_AUX_LM_HEAD_HEAVY) + alphonse #1662 (× cooldown_END depth-half).
+3. **Critical mechanism-isolation test OPEN with #1657** for cooldown_START depth-half mechanism (depth-asymmetry vs uniform front-lowering).
+4. **Sub-cluster-edge band has TWO ffs=3000 single-arms from orthogonal mechanisms** (#1623 Arm B 3.26802 + #1635 Arm A 3.26832).
+5. **Mu_cooldown_END family DECLARED CLOSED** (#1630 finding): direction validated + magnitude saturated + split-position inert → 120th family closure.
+6. **Phase-dispatch mechanism family spans 3 optimizer scopes** (#1645 MLP-SOAP refresh-freq, #1653 AUX β2, #1663 attn-SOAP β2 reformulated late-only) — phase-dispatch family is mechanism-class-universal but mechanism-axis-specific (β2 wants late_HIGH per #1642 inversion).
+7. **Per-AUX-kind family DECLARED SATURATED** (#1633 finding): 5-axis family closed across 6 mechanism classes on shared 1-D latent direction.
+8. **Mechanism-axis-specific direction dichotomy** (#1623): β2 axis wants front_FAST, refresh-freq axis wants back_FAST.
+9. **NEGATIVE FINDING — fast β2 does NOT accelerate trust-gate firing** (#1642): future EMA-warmup attempts must use refresh-freq / trust-threshold / init, not β2.
+10. **Pre-cooldown phase transition** (#1635 finding): Δ-trajectory sign-flip at step ~2000 BEFORE formal cooldown START.
+11. **Floor band [3.26916, 3.26992]** 8 single-axis mechanism classes converged.
+
+### Next research directions
+
+1. **#1663 thorfinn late-only β2 result** determines whether reframed late-phase-basis-stability hypothesis is correct. If validated, opens combine with #1620 Arm B early_RARE refresh schedule (your suggestion #3) — cross-mechanism compound on phase axis.
+2. **#1662 alphonse + #1656 fern cross-class compound results** together determine which orthogonal direction stacks best with #1623 Arm B.
+3. **#1657 askeladd mechanism-isolation result** determines fate of per-depth-half cooldown-START family.
+4. **#1653 phase-dispatch AUX β2 result** determines optimizer-class universality of phase-dispatch family — but per #1642 inversion, expect mechanism to also be late-stability-driven not early-acceleration-driven.
+5. **#1645 phase-dispatch MLP-SOAP refresh-freq result** determines depth-vs-phase attribution for #1623's back_FAST finding.
+6. **#1644 depth-half MLP-SOAP proj β2 result** determines MLP-SOAP-proj-FAST depth-localization.
+7. **#1640 v × depth result** determines attn-SOAP front_up universality.
+8. **Compound combine #1620 Arm B early_RARE refresh + late_HIGH β2** (held for after #1663 validates the reframed hypothesis).
+
+---
+
 ## 2026-05-29 06:00 UTC — Cycle 71 mid-374 — alphonse #1630 278th refute (PER_DEPTH_SPLIT_MU_COOLDOWN_END val_mean=3.27024 STANDARD-edge misses merge bar by Δ=+0.00248 val and +37.5 ffs (ffs_mean=3037.5), Arm A `split=4` val=3.27043 ffs=3050 STANDARD-edge, Arm B `split=8` val=3.27004 ffs=3025 STANDARD-edge, Δ(A−B)=+0.00039 sub-noise NULL marginal, STRUCTURAL FINDING: **depth-split boundary position is INERT in [4, 8] range at fixed validated front=0.85/back=0.95 magnitudes** — three sampled split positions (4, 6, 8) all land in 3.27004-3.27043 within ±0.0005 dispersion, train-loss slopes superimposable to single-trial noise, the asymmetry direction (front_LOWER) is the load-bearing axis but the boundary location within the front-half region is not; **MAJOR FAMILY CLOSURE**: triple-axis closure of mu_cooldown_END family across all orthogonal-by-construction axes — DIRECTION VALIDATED (#1568 front_LOWER val=3.26992 sub-cluster-edge), MAGNITUDE SATURATED (#1606 accelerating curvature beyond 0.85), SPLIT-POSITION INERT (#1630 this PR flat in [4, 8]) → mu_cooldown_END family fully mapped → **120th family closure**) + alphonse #1662 NEW JOINT_MLP_SOAP_REFRESH_BACK_FAST_X_MU_COOLDOWN_END_DEPTH_HALF (FIRST CROSS-CLASS COMPOUND combining the two strongest validated cycle 71 single-arms — Arm A `compound` combines #1623 MLP-SOAP refresh-freq back_FAST FRONT=15/BACK=5 with #1568 cooldown_END depth-half FRONT=0.85/BACK=0.95 split=6 — tests cross-mechanism-class additivity, Arm B `end_depth_half_only` replicates #1568 Arm A bilaterally for n=2 confirmation of sub-cluster-edge result 3.26992; PARALLEL DESIGN to fern #1656 which uses #1623 × WD_AUX_LM_HEAD_HEAVY — two independent cross-class compound tests in flight simultaneously both anchored on #1623 Arm B back_FAST; outcomes: Arm A val<3.26776 → MERGE candidate from additive compound, Arm A ≈ #1623 Arm B alone → compound saturated on shared latent, Arm A > both → cross-class interference cf #1616 cross-scope)
 
 **Cumulative**: **278 refuted** / **166 distinct mech classes** / **120 family-level closures**.
