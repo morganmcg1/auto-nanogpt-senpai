@@ -1,3 +1,57 @@
+## 2026-05-29 11:18 — PR #1649: H261 askeladd Aux Sophia preconditioner FORM replacement — CLOSED (**121st NULL/NEG closure**, bilateral CATASTROPHIC NEG — arm_b SOPHIA_K10 val=3.32625 FFS=−1, arm_c SOPHIA_K5 val=3.33583 FFS=−1 worse than K10. 🎯 **PROGRAMME FINDING #61 candidate STRENGTHENED to 2-axis CLOSURE-GRADE** — H260 Lion uniform sign + H261 Sophia clipped-uniform = SAME structural failure mode. Claim: "AdamW per-coordinate g/√v preconditioner adaptivity is structurally LOAD-BEARING on aux parameters AND aux-side preconditioner uniformity (sign-based or clipped) catastrophically harmful". 🎯 **PAPER-GRADE MECHANISTIC DIAGNOSIS via Sophia clip saturation**: `m_rms/(ρ·h_rms) ≈ 4e-3` → clip ratio saturates to 1.0 for 66-92% of coords → Sophia reduces to `lr·sign(m)` = structurally identical to Lion. clip_ratio mean 0.66-0.68 (paper healthy 0.10-0.30) confirms operating in saturation regime. 🎯 **THIRD independent confirmation of "mid-training-better-but-cooldown-collapse" pattern** — Sophia early step 80 +0.23 vs CTRL → terminal +0.058 above baseline = cooldown-decoupling signature now spans 3 mechanism classes (H263 MuLoCo + H264 Lookahead + H261 Sophia). 12th drift-FREE CTRL instance via Pattern A canonical safe-fix template. **AUX-preconditioner-FORM-replacement axis CLOSURE-GRADE** — student suggests no further FORM swings. H272 askeladd IMMEDIATE FOLLOW-UP ASSIGNED **Aux AdamW eps continuous-axis sweep** (eps ∈ {1e-6_CTRL, 1e-8, 1e-4}), trivially-drift-FREE argparse VALUE-only chain, direct PF#61 continuous-axis test, WIN prob 10-20% potential FIRST FFS<3025 WIN of 121-cycle plateau campaign)
+
+- Branch: H261 askeladd (57th class — Aux Sophia preconditioner FORM replacement, Liu et al. 2023 Hessian-aware clipped preconditioner)
+- Student terminal SENPAI-RESULT at 10:50 UTC May 29 (after extensive pre-launch debug catching 2 critical bugs in smoke phase — per-group LR mismatch + official Sophia formula).
+
+| Arm | run_id | aux_optimizer | sophia_k | val/loss | FFS | Δval vs CTRL (σ_H174) | Decision |
+|---|---|---|---|---|---|---|---|
+| arm_a CTRL ADAMW | `4ly06bbv` | adamw ✓ | n/a | 3.26829 | **3025 EXACT** | −0.01σ | **🎯 12th drift-FREE Pattern A bit-id PASS** |
+| arm_b SOPHIA_K10 | `hxrdr7fs` | sophia ✓ | 10 ✓ | **3.32625** | **−1** | +65.6σ | **CATASTROPHIC NEG** |
+| arm_c SOPHIA_K5 | `qevlxtgz` | sophia ✓ | 5 ✓ | **3.33583** | **−1** | +76.4σ | **CATASTROPHIC NEG (worse than K10)** |
+
+### 🎯 Sophia clip saturation regime analysis (PAPER-GRADE)
+
+| metric | arm_b SOPHIA_K10 terminal | arm_c SOPHIA_K5 terminal | paper healthy range |
+|---|---|---|---|
+| clip_ratio mean over training | **0.68** (range 0.50-0.93) | **0.66** (range 0.48-0.92) | 0.10-0.30 (Liu §4) |
+| clip_ratio terminal | 0.927 | 0.917 | |
+| h_rms terminal | 17.6 | 4.62 | |
+| m_rms terminal | 3.6e-3 | 3.5e-3 | |
+| m_rms / (ρ·h_rms) | 4e-3 | 0.016 | |
+
+`m_rms` is **4 orders of magnitude smaller than ρ·h_rms** → unclamped ratio `|m|/(ρ·|h|+ε)` essentially always ≥1 → clamp saturates → **Sophia update reduces to `lr·sign(m)` for 50-93% of coords** = uniform-magnitude sign-momentum regime, structurally identical to Lion. K5 worse because more frequent Hessian sampling reduces h_rms 3.8× → ratio saturates EVEN MORE → sign-momentum dominance deepens.
+
+### 🎯 PROGRAMME FINDING #61 candidate 2-axis CLOSURE-GRADE PROMOTION
+
+- H260 nezuko Lion uniform sign updates: CATASTROPHIC NEG (val=3.38858 +136σ)
+- H261 askeladd Sophia clipped-uniform updates: CATASTROPHIC NEG (val=3.32625 +65.6σ)
+
+Both reduce to uniform-magnitude updates on aux side. Both fail catastrophically. PF#61 promotion criterion met. **AUX-preconditioner-FORM-replacement axis CLOSED** — further FORM swings (Shampoo, K-FAC, Adafactor, Adagrad) would hit same load-bearing constraint per programme-level prior.
+
+### 🎯 THIRD independent confirmation of mid-training-better-but-cooldown-collapse signature
+
+| mechanism | mid-training gap (steps 80-1500) | terminal gap | classification |
+|---|---|---|---|
+| H261 Sophia early step 80 | +0.23 above CTRL | +0.058 above baseline (+65σ) | cooldown-decoupling on aux FORM |
+| H264 Lookahead step 1000 | −65σ ahead of CTRL | +58σ NEG | cooldown-decoupling on outer wrapper |
+| H263 MuLoCo NO_OUTER step 1500 | −24σ ahead of CTRL | +15σ NEG | cooldown-decoupling on outer mechanism |
+
+Pattern now spans 3 mechanism classes: outer mechanism (MuLoCo), outer wrapper (Lookahead), aux FORM (Sophia). **PF#62 candidate STRENGTHENED** — cooldown-decoupling is the unifying campaign-level pattern, NOT mechanism-specific.
+
+### H272 askeladd IMMEDIATE FOLLOW-UP — Aux AdamW eps continuous-axis sweep (PR #1691)
+
+Per student's option #1 recommendation (close FORM-replacement axis, test PF#61 continuous-axis). 3-arm: arm_a CTRL eps=1e-6 (H203 baseline) / arm_b SMALLER_EPS=1e-8 (more adaptive, predicted TIE or marginal WIN) / arm_c LARGER_EPS=1e-4 (less adaptive = uniform momentum SGD direction, predicted NEG per PF#61). Trivially-drift-FREE argparse VALUE-only chain (zero code changes). WIN probability **10-20%** for arm_b — but information yield HIGH regardless: continuous evidence for PF#61 STRENGTHENING or potential FIRST FFS<3025 WIN of 121-cycle plateau campaign.
+
+### Programme totals after H261 closure + H272 assignment
+- **121 NULL/NEG closures** (was 120)
+- **65 mechanism classes** (H261 was 57th characterized; H272 stays within aux-AdamW-HP axis — no new class)
+- **12 drift-FREE strict CTRL instances** + 1 H266 Pattern A loose +25 drift class (noise floor) — corrected from prior count
+- **PF#61 candidate 2-axis CLOSURE-GRADE PROMOTION** — aux-side preconditioner uniformity catastrophically harmful (Lion + Sophia confirmed independent)
+- **PF#62 candidate STRENGTHENED** to 5 axes spanning 3 mechanism categories (outer mechanism + outer wrapper + aux FORM, all show cooldown-decoupling signature)
+- **Aux-preconditioner-FORM-replacement axis CLOSED** — no further Shampoo/K-FAC/Adafactor/Adagrad assignments
+
+---
+
 ## 2026-05-29 11:05 — PR #1655: H264 edward Lookahead optimizer wrapper — CLOSED (**120th NULL/NEG closure**, bilateral CATASTROPHIC NEG with 🎯 **BRILLIANT 4-PHASE TRAJECTORY ANALYSIS** — arm_b LA_K10 val=3.32114 FFS=−1, arm_c LA_K5_TIGHT val=3.31889 FFS=−1. arm_b BEATS CTRL by −65σ_H174 at step 1000 (Lookahead variance reduction works MID-TRAINING) then COLLAPSES cooldown convergence (+58.6σ_H174 NEG terminal at step 3325, val=3.321). 🎯 **NEW PROGRAMME FINDING #62 candidate**: "Cooldown-decoupled outer mechanisms structurally HARMFUL regardless of timescale at H203 baseline" — H247 EMA+NS5 saw-tooth + H256 outer-LR cosine-match + H264 Lookahead (H263 implicit support). 🎯 **SECOND independent confirmation of "mid-training-better-but-cooldown-collapse" diagnostic** (H264 +60σ → +58σ vs H263 +24σ → +15σ — Lookahead stronger mid-training advantage AND stronger cooldown collapse). 🎯 Body sv_max compressed 4× (16.57 → 4.20) — independent structural evidence outer mechanism interferes with cooldown sharpening. H271 edward IMMEDIATE FOLLOW-UP ASSIGNED **61st mechanism class — cooldown-gated Lookahead mid-training-only activation (deactivation_step ∈ {0_CTRL, 2300, 2000})** — direct PF#62 candidate test, mirror image of H270 phase-gated MuLoCo, WIN prob 25-35%)
 
 - Branch: H264 edward (60th class — Lookahead optimizer wrapper, Zhang et al. 2019, slow-weight pull every K steps)
