@@ -1,5 +1,35 @@
 # SENPAI Research Results
 
+## 2026-05-29 05:20 UTC — PR #1621 thorfinn: AGC linear-decay ramp (ramp_width=100, 500) — ❌ CLOSED NULL (bilateral, hard-cutoff paradoxically better)
+
+- Branch: `g1r1-thorfinn/agc-linear-decay`
+- Hypothesis: The hard cutoff discontinuity at t_off=1500 in PR #1573 causes a +5.7 mnat bump. Smoothing via linear decay should eliminate the bump and preserve warm-start into terminal.
+- W&B: Arm A `61ofomm7` (ramp_width=100), Arm B `6fauhz48` (ramp_width=500)
+
+| Arm | ramp_width | val/loss_ema | val/loss_live | sr | Δval vs baseline | Verdict |
+|---|---:|---:|---:|---:|---:|---|
+| A | 100 | **3.265476** | 3.264884 | **2925** | +2.62 mnat | ❌ NULL |
+| B | 500 | **3.265259** | 3.264695 | **2925** | +2.41 mnat | ❌ NULL |
+| #1573 hard cutoff (ref) | — | 3.264037 | — | 2925 | +1.18 mnat | ❌ NULL |
+
+- **Analysis:** Bilateral NULL + mechanism refutation. The cutoff bump elimination WORKS (ramp=500 is −4.79 mnat lower than hard cutoff AT step 1500). But terminal result is paradoxically +1.22 mnat WORSE than hard cutoff. The hard cutoff bump is local and recoverable; linear-decay distributes cost across the trajectory. Optimizer benefits from full λ_0 right up to t_off — reducing λ before t_off immediately costs val_ema. Hard cutoff is optimal AGC shape.
+- **Mechanism insight:** PR #1573's diagnosis ("hard discontinuity = root cause of lost warm-start") was wrong. The bump is a transient phase-shift cost that the optimizer absorbs naturally. Linear-decay prevents that recovery by distributing a larger integrated cost.
+- **Follow-up assigned:** thorfinn → PR #1660 pre-target NS coefficient pulse (conservative quintic vs Jordan-aggressive quintic in steps 2750-2900) — tests whether orthogonalization PRECISION is a bottleneck complementary to alphonse's LR MAGNITUDE win.
+
+## 2026-05-29 05:18 UTC — PR #1637 alphonse: Pre-target body Muon LR boost ×1.25 Arm A — ⚠️ HOT WIN CANDIDATE (sub-noise, seed-2 pending)
+
+- Branch: `g1r1-alphonse/pretarget-boost`
+- Hypothesis: Body Muon LR boost ×1.25 during steps 2750-2900 steepens descent through target-crossing window. Tests if body Muon is the pre-target bottleneck.
+- W&B: Arm A `ara5opnj` (×1.25 boost, TERMINAL)
+
+| Arm | boost_factor | val/loss_ema | val/loss_live | sr | Δval vs baseline | Verdict |
+|---|---:|---:|---:|---:|---:|---|
+| A (Arm A) | 1.25 | **3.262770** | **3.262150** | **2875** | **−0.084 mnat** | ⚠️ **HOT WIN** (sub-noise) |
+
+- **Merge gate**: Clause 1 FAIL (sr=2875 > 2862.5). Clause 2 **PASS** (sr=2875 AND val_ema=3.262770 < 3.262854 by 0.084 mnat). Sub-noise margin (<<0.5 mnat seed variance). Seed-2 required before merge.
+- **Status:** Arm A terminal; Arm B (×1.5 boost) chain-running. SENPAI-RESULT pending after Arm B.
+- **Mechanism:** Pre-target body Muon LR boost provides extra steepening in target-crossing window. val_ema descent from step 2750 (3.290) → step 3200 (3.263) tracks boost-window acceleration. If confirmed, mechanism is: body Muon LR is mildly under-tuned in the pre-target window — a small additional boost provides just enough acceleration to move the target crossing marginally earlier.
+
 ## 2026-05-29 03:38 UTC — PR #1607 tanjiro: Aux β₂ downward pulse (0.90, 0.85) — ❌ CLOSED NULL (bilateral, amplitude axis fully closed)
 
 - Branch: `g1r1-tanjiro/b2-downward-pulse`
