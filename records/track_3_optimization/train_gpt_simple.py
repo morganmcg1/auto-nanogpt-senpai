@@ -460,6 +460,14 @@ TARGET_UW = 0.35
 NORMUON_BETA2 = 0.95
 SOAP_BETA2 = 0.90
 SOAP_PRECOND_FREQ = 10
+# PR PER_DEPTH_HALF_MLP_SOAP_PROJ_BETA2_FAST — apply proj-only β2 dispatch to
+# a depth subset (front half = blocks 0-5, back half = blocks 6-11). Default-disabled
+# preserves baseline SOAP_BETA2=0.90 byte-equivalently.
+PER_DEPTH_HALF_MLP_PROJ_BETA2_ENABLED = int(os.environ.get("PER_DEPTH_HALF_MLP_PROJ_BETA2_ENABLED", "0"))
+MLP_PROJ_BETA2_FAST = float(os.environ.get("MLP_PROJ_BETA2_FAST", str(SOAP_BETA2)))
+# Which depth half receives the FAST β2: "front" = blocks 0-5, "back" = blocks 6-11
+MLP_PROJ_BETA2_HALF = os.environ.get("MLP_PROJ_BETA2_HALF", "front")
+MLP_PROJ_BETA2_SPLIT_BLOCK = int(os.environ.get("MLP_PROJ_BETA2_SPLIT_BLOCK", "6"))  # blocks < SPLIT = front
 # Attention SOAP (record #16) hyperparameters
 ATTN_SOAP_BETA2 = 0.90
 ATTN_SOAP_PRECOND_FREQ = 10
@@ -652,6 +660,20 @@ class Muon(torch.optim.Optimizer):
                     self.attn_soap_kind[id(p)] = "v"
                 elif n.endswith(".attn.proj.weight"):
                     self.attn_soap_kind[id(p)] = "proj"
+        # PR PER_DEPTH_HALF_MLP_SOAP_PROJ_BETA2_FAST — track MLP-SOAP kind (fc/proj) AND block depth
+        # for per-depth-half per-kind β2 dispatch. named_params come from
+        # model.blocks.named_parameters(), so names look like "{block_idx}.mlp.{fc,proj}.weight".
+        self.soap_kind: dict[int, str] = {}
+        self.soap_depth: dict[int, int] = {}
+        for n, p in named_params:
+            if p in self.soap_params:
+                parts = n.split(".")
+                if len(parts) >= 1 and parts[0].isdigit():
+                    self.soap_depth[id(p)] = int(parts[0])
+                if n.endswith(".mlp.fc.weight"):
+                    self.soap_kind[id(p)] = "fc"
+                elif n.endswith(".mlp.proj.weight"):
+                    self.soap_kind[id(p)] = "proj"
         params = sorted([p for _, p in named_params], key=lambda x: x.size(), reverse=True)
         defaults = dict(lr=lr, weight_decay=weight_decay, mu=mu)
         super().__init__(params, defaults)
@@ -712,7 +734,20 @@ class Muon(torch.optim.Optimizer):
                     p.add_(update, alpha=-group["lr"])
                     # Refresh SOAP state with the raw grad (after applying the step).
                     if use_soap:
-                        soap_refresh(grad, state)
+                        if PER_DEPTH_HALF_MLP_PROJ_BETA2_ENABLED:
+                            kind = self.soap_kind.get(id(p), "fc")
+                            depth = self.soap_depth.get(id(p), 0)
+                            in_target_half = (
+                                (MLP_PROJ_BETA2_HALF == "front" and depth < MLP_PROJ_BETA2_SPLIT_BLOCK)
+                                or (MLP_PROJ_BETA2_HALF == "back" and depth >= MLP_PROJ_BETA2_SPLIT_BLOCK)
+                            )
+                            if kind == "proj" and in_target_half:
+                                _beta2 = MLP_PROJ_BETA2_FAST
+                            else:
+                                _beta2 = SOAP_BETA2
+                            soap_refresh(grad, state, beta2=_beta2, refresh_freq=SOAP_PRECOND_FREQ)
+                        else:
+                            soap_refresh(grad, state)
                     elif use_attn_soap:
                         soap_refresh(grad, state, beta2=ATTN_SOAP_BETA2,
                                      refresh_freq=ATTN_SOAP_PRECOND_FREQ,
@@ -866,6 +901,10 @@ if dist.get_rank() == 0:
             "optimizer/attn_soap_trust_threshold": ATTN_SOAP_TRUST_THRESHOLD,
             "optimizer/ns5_iters": NS5_ITERS,
             "optimizer/wd_aux": WD_AUX,
+            "optimizer/per_depth_half_mlp_proj_beta2_enabled": PER_DEPTH_HALF_MLP_PROJ_BETA2_ENABLED,
+            "optimizer/mlp_proj_beta2_fast": MLP_PROJ_BETA2_FAST,
+            "optimizer/mlp_proj_beta2_half": MLP_PROJ_BETA2_HALF,
+            "optimizer/mlp_proj_beta2_split_block": MLP_PROJ_BETA2_SPLIT_BLOCK,
             "optimizer/recipe": "contra-muon + normuon-lite + soap-on-mlp + soap-on-attn-trust-gate (pre-NS5, record #14 + record #16)",
         },
     )
@@ -905,6 +944,20 @@ for trial_idx in range(args.num_trials):
     optimizer2 = Muon([(n, p) for n, p in model.blocks.named_parameters() if p.ndim >= 2],
                       lr=MUON_LR, weight_decay=MUON_WEIGHT_DECAY, mu=MU)
     optimizer2.param_groups[0]["name"] = "muon_blocks"
+    if dist.get_rank() == 0 and PER_DEPTH_HALF_MLP_PROJ_BETA2_ENABLED:
+        n_fast = sum(
+            1 for pid in optimizer2.soap_kind
+            if optimizer2.soap_kind.get(pid) == "proj"
+            and (
+                (MLP_PROJ_BETA2_HALF == "front" and optimizer2.soap_depth.get(pid, 0) < MLP_PROJ_BETA2_SPLIT_BLOCK)
+                or (MLP_PROJ_BETA2_HALF == "back" and optimizer2.soap_depth.get(pid, 0) >= MLP_PROJ_BETA2_SPLIT_BLOCK)
+            )
+        )
+        print(f"[PER_DEPTH_HALF_MLP_PROJ_BETA2] enabled=1 fast_beta2={MLP_PROJ_BETA2_FAST:.4f} "
+              f"half={MLP_PROJ_BETA2_HALF} split_block={MLP_PROJ_BETA2_SPLIT_BLOCK} "
+              f"n_proj_params_with_fast_beta2={n_fast} (expected: 6) "
+              f"baseline_SOAP_BETA2={SOAP_BETA2:.4f}")
+        assert n_fast == 6, f"Expected 6 MLP-proj params with fast β2 (half of 12-layer model); got {n_fast}"
     optimizers = [optimizer1, optimizer2]
     assert set(p for opt in optimizers for group in opt.param_groups
                for p in group["params"]) == set(model.parameters())
