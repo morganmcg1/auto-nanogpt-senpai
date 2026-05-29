@@ -1,5 +1,29 @@
 # SENPAI Research Results — auto-nanogpt-1gpu-r5
 
+## 2026-05-29 17:05Z — PR #1676 CLOSED [58th R5 result — wd_attn axis closed clean-NEG]: nezuko wd_attn fine retune
+
+- branch: g1r5-nezuko/wd-attn-fine-r5-cosine
+- Hypothesis: Mirror of thorfinn's wd_mlp=0.040 winner — test whether SOAP-attn's changed gradient spectral signature warrants higher wd_attn (default 0.025).
+- Result: **CLEAN-NEG. Default wd_attn=0.025 locally optimal. B★ (0.040) regresses to FFS=2950 (+75 vs ctrl). C (0.015) ties ctrl at FFS=2875 within n=1 noise. Monotone-NEG above default.**
+
+| Cell | `--wd_attn` | FFS_ema | val/ema_corr | Δ FFS vs A | W&B |
+|:----:|:-----------:|:-------:|:------------:|:----------:|:----|
+| A (ctrl) | 0.025 | 2875 | 3.26856 | 0 | `z13bdfi5` |
+| **B★** | 0.040 | **2950** | 3.27131 | +75 (worst) | `rwgj8hka` |
+| C | 0.015 | 2875 | 3.26868 | 0 (TIE) | `yxku4co3` |
+| D | 0.050 | SKIPPED | — | — | — |
+| E | 0.030 | 2925 | 3.26998 | +50 | `u1cj10oh` |
+
+D skipped per PR conditional gate: B alive AND C alive → launch E only.
+
+**Pattern (monotone-NEG above default)**: 0.015→2875, 0.025→2875 (tied), 0.030→2925, 0.040→2950.
+
+**Mechanism**: Thorfinn's wd_mlp=0.040 does NOT transfer to wd_attn axis. SOAP-attn's Kronecker preconditioner absorbs gradient-scale sensitivity in attn weights — the explicit wd_attn is already at its optimal value (0.025). Pre-mortem 2 fired (C matches B) but C TIEs A (not beats A), so no n=4 promotion justified.
+
+**Decision**: CLOSED clean-NEG. wd_attn axis closed at R5. Default 0.025 confirmed locally optimal under SOAP-attn + cosine cooldown + musoft stack. No n=4. Nezuko reassigned to #1723 lr_scalars VALUE fine-tune.
+
+---
+
 ## 2026-05-29 16:38Z — PR #1664 SENT-BACK [55th R5 result — per-class cooldown SHAPE n=1 STRONG POSITIVE, promoted to n=4]: edward mlp=cos/attn=lin n=1 5-cell sweep
 
 - branch: g1r5-edward/body-cooldown-shape-decouple

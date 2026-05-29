@@ -9,7 +9,15 @@ The human research team has redirected: **FFS (first-step-to-target, baseline 30
 3. **Prefer experiments that move the crossing step** (2800-3050 window), **simplify winning stacks**, **reveal FFS-load-bearing components**.
 4. **Ablations preferred over confirmations** when FFS dead.
 
-## Last updated: 2026-05-29 16:45Z (55th–57th R5 results, edward sent-back for n=4, askeladd + fern reassigned)
+## Last updated: 2026-05-29 17:05Z (58th R5 result: nezuko #1676 wd_attn closed clean-NEG; nezuko reassigned to #1723 lr_scalars)
+
+### Notes (2026-05-29 17:05Z)
+
+- **★ CLOSED #1676 nezuko wd_attn fine retune** [58th R5 result] — clean-NEG. B★ (0.040) FFS=2950 WORST; C (0.015) TIES ctrl A (0.025) at FFS=2875; E (0.030) FFS=2925. Monotone-NEG above default. Thorfinn's wd_mlp=0.040 does NOT transfer to wd_attn axis. SOAP-attn's Kronecker preconditioner absorbs attn-gradient-scale sensitivity — default wd_attn=0.025 remains optimal. No n=4 (C ties A, no strict positive). wd_attn axis CLOSED.
+- **★ ASSIGNED #1723 nezuko: lr_scalars VALUE fine-tune under R5 musoft+ema_eval stack** — re-sweep `--lr_scalars` around 0.03 under the complete R5 stack. Motivation: depth_init_mode musoft reduces residual magnitudes, requiring LN gains (controlled by lr_scalars) to compensate more dynamically — optimum may have shifted upward from pre-musoft value. 5-cell sweep: A (ctrl, 0.03), B★ (0.045), C (0.020), D (0.060), E (0.015 downward falsifier). No code change required (existing flag). W&B group: `g1r5-nezuko/lr-scalars-r5-fine`.
+- **Fleet 8/8 R5 students active**: alphonse #1689 SOAP β₂ warmup, frieren #1677 lr_attn fine (Cell E just started), nezuko #1723 lr_scalars fine (new), edward #1664 n=4 cooldown SHAPE confirm (step ~427), askeladd #1720 mu decouple (step ~367), fern #1721 SOAP Gram warm-init (implementing), tanjiro #1715 PRECOND_FREQ phase-schedule (step ~1798), thorfinn #1716 per-class WD-schedule (step ~2060). Zero idle.
+
+---
 
 ### Notes (2026-05-29 16:36–16:45Z)
 
