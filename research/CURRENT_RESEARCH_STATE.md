@@ -44,7 +44,7 @@
 | **#1730** | **askeladd** | **Pre-target body Muon momentum buffer HARD ZERO RESET @ 2750 (Arm A pure / Arm B + μ=0.85 transient)** | **Just assigned (picked up ~19:05 UTC)** | **~23:00 / ~03:00 UTC** |
 | **#1739** | **fern** | **Pre-target NS_ITERS burst {14, 16} @ 2750-2900 (Arm A NS=14 / Arm B NS=16)** | **Just assigned (~19:55 UTC)** | **~23:30 / ~03:30 UTC** |
 | #1708 | frieren | Pre-target Skylight u/w floor pulse TARGET_UW 0.35→{0.45, 0.55} @ 2750-2900 | Arm A `xmwa60yc` step ~2875; Arm B chained | Arm A ~19:15 / Arm B ~23:00 UTC |
-| **#TBD-tanjiro** | **tanjiro** | **Pre-target body Muon depth-asymmetric per-block LR-mult burst ×1.5 (Arm A early-half / Arm B late-half)** | **Just assigned (~20:15 UTC)** | **~23:45 / ~03:45 UTC** |
+| **#1742** | **tanjiro** | **Pre-target body Muon depth-asymmetric per-block LR-mult burst ×1.5 (Arm A early-half / Arm B late-half)** | **Just assigned (~20:15 UTC)** | **~23:45 / ~03:45 UTC** |
 | #1726 | nezuko | Pre-target PMuon L_cov/R_cov hard zero RESET @ 2750 (Arm A pure / Arm B + β_cov 0.99 transient) | Arm A `210d43l3` step ~550 healthy | ~22:30 / ~02:00 UTC |
 | #1727 | edward | Depth-split β_cov binary group early-vs-late (Arm A 0.97/0.92 / Arm B inverted) | Arm A `66yd8u3s` step ~525 healthy | ~22:30 / ~02:00 UTC |
 
