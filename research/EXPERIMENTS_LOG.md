@@ -1,5 +1,39 @@
 # SENPAI Research Results — auto-nanogpt-1gpu-r4
 
+## 2026-05-29 08:00 — PR #1543: NM R-buffer Tikhonov shrinkage (γ·trace·I before eigendecomp) — **MERGED ✓ NEW BASELINE val/loss=3.26183 (n=3), FFS=3141.67 (best s2=3125, first sub-3150 in catalog)**
+
+- branch: `g1r4-askeladd/nm-r-tikhonov-shrink`
+- student: g1r4-askeladd
+- hypothesis: Regularize R-buffer eigenvalue floor via `R_for_decomp = R + γ·(trace(R)/d_in)·I` at eigendecomp-time only (EMA buffer unmodified). Tikhonov shrinkage lifts small eigenvalues → stabilizes R^{−1/2} inversion → reduces ill-conditioned preconditioning noise. STRUCTURAL-ADDITIVE-FAV class.
+- Phase 1 N=1 4-arm sweep (seed=0 only):
+
+| Arm | γ | val_loss | Δ_paired_vs_A | R_cond_max | R_cond_mean | verdict |
+|---|---:|---:|---:|---:|---:|---|
+| A ctrl | 0.0 | 3.26290 | — | 54.8M | 1.02M | PASS-CLEAN drift −0.00020 |
+| B | 0.001 | 3.26263 | −0.00027 | 2.29M | 90.4K | mild-FAV-edge |
+| **C** | **0.01** | **3.26261** | **−0.00029** | 291K | 11.3K | **mild-FAV-edge B≈C PLATEAU** |
+| D | 0.1 | 3.26327 | +0.00037 | 29.6K | 2.29K | mild-NEG (precond_ratio<1, damping) |
+
+- PP-promote n=3 at γ=0.005 (mid-plateau between B and C):
+
+| Seed | ctrl run | test run | ctrl val | test val | FFS | Δ_paired |
+|---:|:---:|:---:|---:|---:|---:|---:|
+| 0 | `3f1etsl9` (reuse) | `zuw05ge7` | 3.26290 | 3.26205 | 3150 | **−0.00085** |
+| 1 | `m5trnyf3` | `zx078k3y` | 3.26405 | 3.26223 | 3150 | **−0.00182** |
+| 2 | `8ku8pxkc` | `hc2uysfi` | 3.26385 | 3.26122 | **3125** | **−0.00263** (strongest) |
+
+- merge gate evaluation:
+  - G1: (3.28 − 3.26183) × √3 = **0.03147 ≥ 0.004** ✓ (7.9× threshold)
+  - G2: μ_exp = 3.26183 ≤ 3.26310 (−0.00127) ✓
+  - G3: 3/3 direction-correct ✓ + 51/51 cooldown checkpoints direction-correct (100%) ✓✓
+  - VERDICT: **MERGE APPROVED** — all 3 gates pass decisively
+- mechanism cross-seed: R_cond_max compression −96 to −99.7% uniform across all 3 seeds; precond_ratio_mean >1.0 at γ=0.005 (still amplifying, not damping); peak Δ_paired at step 2875-3050 coincides with c456 mid-cooldown precond_ratio<1 dip rescue
+- first catalog result: R_cond_max seed-dependent spread (16M–166M) COMPLETELY OVERRIDDEN by Tikhonov λ_floor → R_cond_max ∈ [487K, 521K] across seeds (variance ~7%)
+- s2 FFS=3125 = **first sub-3150 in catalog history** (doubles as FFS-axis breakthrough companion to val_loss improvement)
+- new production env var: `NANOGPT_NEWTON_MUON_TIKHONOV_GAMMA=0.005`
+- baseline updated: val/loss 3.26310 → **3.26183** (−0.00127), FFS 3150 → **3141.67**
+- catalog placement: **28th catalog finding, class 11 "NM-R-buffer-Tikhonov-STRUCTURAL-ADDITIVE-FAV"** — first MERGED entry from 9-axis R-buffer matrix; first paired-confirmation result with test_mean below baseline; first sub-3150 FFS in catalog
+
 ## 2026-05-29 06:55 — PR #1632: NM temporal activation window 3-arm body-only/cool-only/always-on — **CLOSED 27th catalog finding NEW class candidate "NM-PHASE-ASYMMETRIC-CONTRIBUTION" + 2 wallclock-savings sidebars publishable both sub-merge-gate**
 
 - branch: `g1r4-frieren/nm-activation-window-3arm`
