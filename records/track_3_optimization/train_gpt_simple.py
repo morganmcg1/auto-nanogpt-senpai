@@ -464,6 +464,16 @@ SOAP_PRECOND_FREQ = 10
 ATTN_SOAP_BETA2 = 0.90
 ATTN_SOAP_PRECOND_FREQ = 10
 ATTN_SOAP_TRUST_THRESHOLD = float(os.environ.get("ATTN_SOAP_TRUST_THRESHOLD", "0.9"))
+# MLP-SOAP trust-gate phase-dispatch (PR #1671): test whether enabling the trust gate at
+# the MLP-SOAP scope flips its phase-direction preference from early_FAST (#1645) to late_FAST
+# (matching the attn-SOAP scope behaviour from #1620). When PHASE_DISPATCH_DISABLED_CHECK=1,
+# both the trust-gate init for MLP-SOAP params and the phase-dispatch refresh path are
+# short-circuited so the optimiser hot path is bit-identical to the unmodified baseline.
+MLP_SOAP_TRUST_THRESHOLD = float(os.environ.get("MLP_SOAP_TRUST_THRESHOLD", "0.85"))
+MLP_SOAP_PRECOND_FREQ_EARLY = int(os.environ.get("MLP_SOAP_PRECOND_FREQ_EARLY", str(SOAP_PRECOND_FREQ)))
+MLP_SOAP_PRECOND_FREQ_LATE = int(os.environ.get("MLP_SOAP_PRECOND_FREQ_LATE", str(SOAP_PRECOND_FREQ)))
+MLP_SOAP_PHASE_BOUNDARY = int(os.environ.get("MLP_SOAP_PHASE_BOUNDARY", "2225"))
+PHASE_DISPATCH_DISABLED_CHECK = bool(int(os.environ.get("PHASE_DISPATCH_DISABLED_CHECK", "0")))
 NS5_ITERS = int(os.environ.get("NS5_ITERS", "12"))
 WD_AUX = float(os.environ.get("WD_AUX", "0.0"))  # AdamW WD on embed + lm_head matrices (scalars stay at 0)
 EMBED_INIT_STD = float(os.environ.get("EMBED_INIT_STD", "1.0"))  # default preserves baseline N(0,1)
@@ -652,6 +662,15 @@ class Muon(torch.optim.Optimizer):
                     self.attn_soap_kind[id(p)] = "v"
                 elif n.endswith(".attn.proj.weight"):
                     self.attn_soap_kind[id(p)] = "proj"
+        # Track which kind each MLP-SOAP param is (fc/proj) for per-kind trust-gate telemetry
+        # under PR #1671's trust-gate phase-dispatch experiment.
+        self.mlp_soap_kind: dict[int, str] = {}
+        for n, p in named_params:
+            if p in self.soap_params:
+                if n.endswith(".mlp.fc.weight"):
+                    self.mlp_soap_kind[id(p)] = "fc"
+                elif n.endswith(".mlp.proj.weight"):
+                    self.mlp_soap_kind[id(p)] = "proj"
         params = sorted([p for _, p in named_params], key=lambda x: x.size(), reverse=True)
         defaults = dict(lr=lr, weight_decay=weight_decay, mu=mu)
         super().__init__(params, defaults)
@@ -686,7 +705,14 @@ class Muon(torch.optim.Optimizer):
                             state["q_col"] = None
                             state["exp_avg_sq"] = torch.zeros_like(p, dtype=torch.float32)
                             state["soap_step"] = 0
-                            if p in self.attn_soap_params:
+                            # PR #1671: also init the trust gate for MLP-SOAP params when the
+                            # phase-dispatch trust-gate path is live. Under disabled-check the
+                            # MLP-SOAP refresh call below routes through the unmodified baseline
+                            # so its trust state must stay uninitialised to match the baseline.
+                            init_trust_gate = (p in self.attn_soap_params) or (
+                                p in self.soap_params and not PHASE_DISPATCH_DISABLED_CHECK
+                            )
+                            if init_trust_gate:
                                 # Default trust gate is 1.0 until the first basis refresh.
                                 state["trust_gate"] = 1.0
                                 state["trust_cos_row"] = 1.0
@@ -712,7 +738,19 @@ class Muon(torch.optim.Optimizer):
                     p.add_(update, alpha=-group["lr"])
                     # Refresh SOAP state with the raw grad (after applying the step).
                     if use_soap:
-                        soap_refresh(grad, state)
+                        if PHASE_DISPATCH_DISABLED_CHECK:
+                            # Kill-gate: bit-identical to the baseline MLP-SOAP refresh.
+                            soap_refresh(grad, state)
+                        else:
+                            # PR #1671: phase-dispatched MLP-SOAP refresh with trust gate ON.
+                            cur_step = state.get("soap_step", 0)
+                            cur_freq = (MLP_SOAP_PRECOND_FREQ_EARLY
+                                        if cur_step < MLP_SOAP_PHASE_BOUNDARY
+                                        else MLP_SOAP_PRECOND_FREQ_LATE)
+                            soap_refresh(grad, state,
+                                         refresh_freq=cur_freq,
+                                         use_trust_gate=True,
+                                         trust_threshold=MLP_SOAP_TRUST_THRESHOLD)
                     elif use_attn_soap:
                         soap_refresh(grad, state, beta2=ATTN_SOAP_BETA2,
                                      refresh_freq=ATTN_SOAP_PRECOND_FREQ,
@@ -748,6 +786,60 @@ class Muon(torch.optim.Optimizer):
             if on:
                 on_count += 1
             kind = self.attn_soap_kind.get(id(p))
+            if kind is not None:
+                by_kind[kind]["cos_row"].append(cr)
+                by_kind[kind]["cos_col"].append(cc)
+                if on:
+                    by_kind[kind]["on"] += 1
+        counts = len(cos_rows)
+        if counts == 0:
+            return {}
+        out: dict[str, float] = {
+            "count": counts,
+            "on_fraction": on_count / counts,
+            "mean_cos_row": sum(cos_rows) / counts,
+            "mean_cos_col": sum(cos_cols) / counts,
+            "min_cos_row": min(cos_rows),
+            "min_cos_col": min(cos_cols),
+        }
+        for kind, agg in by_kind.items():
+            crs = agg["cos_row"]
+            ccs = agg["cos_col"]
+            kn = len(crs)
+            if kn == 0:
+                continue
+            out[f"{kind}/count"] = kn
+            out[f"{kind}/on_fraction"] = agg["on"] / kn
+            out[f"{kind}/mean_cos_row"] = sum(crs) / kn
+            out[f"{kind}/mean_cos_col"] = sum(ccs) / kn
+        return out
+
+    def mlp_soap_trust_gate_stats(self) -> dict[str, float]:
+        """PR #1671 telemetry: trust-gate stats for MLP-SOAP params (fc / proj).
+
+        Mirrors trust_gate_stats() but aggregates across the MLP-SOAP scope. Returns
+        an empty dict when the trust gate is not initialised (e.g. disabled-check or
+        before the first refresh writes per-axis cosine state).
+        """
+        cos_rows: list[float] = []
+        cos_cols: list[float] = []
+        on_count = 0
+        by_kind: dict[str, dict[str, list[float] | int]] = {
+            "fc": {"on": 0, "cos_row": [], "cos_col": []},
+            "proj": {"on": 0, "cos_row": [], "cos_col": []},
+        }
+        for p in self.soap_params:
+            state = self.state.get(p)
+            if state is None or "trust_gate" not in state:
+                continue
+            on = state["trust_gate"] >= 0.5
+            cr = state.get("trust_cos_row", 1.0)
+            cc = state.get("trust_cos_col", 1.0)
+            cos_rows.append(cr)
+            cos_cols.append(cc)
+            if on:
+                on_count += 1
+            kind = self.mlp_soap_kind.get(id(p))
             if kind is not None:
                 by_kind[kind]["cos_row"].append(cr)
                 by_kind[kind]["cos_col"].append(cc)
@@ -864,6 +956,11 @@ if dist.get_rank() == 0:
             "optimizer/attn_soap_beta2": ATTN_SOAP_BETA2,
             "optimizer/attn_soap_precond_freq": ATTN_SOAP_PRECOND_FREQ,
             "optimizer/attn_soap_trust_threshold": ATTN_SOAP_TRUST_THRESHOLD,
+            "optimizer/mlp_soap_trust_threshold": MLP_SOAP_TRUST_THRESHOLD,
+            "optimizer/mlp_soap_precond_freq_early": MLP_SOAP_PRECOND_FREQ_EARLY,
+            "optimizer/mlp_soap_precond_freq_late": MLP_SOAP_PRECOND_FREQ_LATE,
+            "optimizer/mlp_soap_phase_boundary": MLP_SOAP_PHASE_BOUNDARY,
+            "optimizer/phase_dispatch_disabled_check": int(PHASE_DISPATCH_DISABLED_CHECK),
             "optimizer/ns5_iters": NS5_ITERS,
             "optimizer/wd_aux": WD_AUX,
             "optimizer/recipe": "contra-muon + normuon-lite + soap-on-mlp + soap-on-attn-trust-gate (pre-NS5, record #14 + record #16)",
@@ -1059,6 +1156,10 @@ for trial_idx in range(args.num_trials):
                     stats = opt.trust_gate_stats()
                     if stats:
                         wandb.log(prefixed("train/attn_soap_trust_gate", stats), step=wandb_step)
+                if hasattr(opt, "mlp_soap_trust_gate_stats"):
+                    mlp_stats = opt.mlp_soap_trust_gate_stats()
+                    if mlp_stats:
+                        wandb.log(prefixed("train/mlp_soap_trust_gate", mlp_stats), step=wandb_step)
         if dist.get_rank() == 0 and telemetry_due:
             log_weight_telemetry(
                 model=model,
