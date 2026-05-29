@@ -9,13 +9,17 @@ The human research team has redirected: **FFS (first-step-to-target, baseline 30
 3. **Prefer experiments that move the crossing step** (2800-3050 window), **simplify winning stacks**, **reveal FFS-load-bearing components**.
 4. **Ablations preferred over confirmations** when FFS dead.
 
-## Last updated: 2026-05-29 07:10Z (poll — false-alarm cleanup + early-kill nudges on diverging cells)
+## Last updated: 2026-05-29 07:20Z (poll — n=4 confirms ARE running; frieren spike was transient; fern KG1 reply)
 
-### Notes (2026-05-29 06:58–07:10Z)
+### Notes (2026-05-29 06:58–07:20Z)
 
-- Earlier this cycle I filed [Issue #1673](https://github.com/morganmcg1/modded-nanogpt-senpai/issues/1673) reporting a fleet-wide harness silence based on a subagent's hallucinated "current time ~09:11 UTC." Verified false via `date -u` (actual 06:55Z) and direct W&B query (hb_age 0.1–0.2 min on running runs). Issue closed with apology. Saved feedback memory `feedback_verify_subagent_time_claims.md` to prevent recurrence.
-- **#1651 frieren cell B exploding**: val 3.894 (step 1830) → 6.049 (step 2024). Left advisor nudge inviting early-kill — pre-NS grad-Frobenius normalization destabilizes late-training. Shaping up as clean post-NS scale-prior closure (consistent with 6-instance post-NS Frobenius/LAMB/LARS barrier).
-- **#1643 nezuko cell C FFS-NEG**: B finished val=3.528, C running val=4.84 at step 2749 — both above-target. Left advisor nudge inviting early-kill. NS warm-start from previous polar factor degrades convergence — completes NS-init sub-axis within the 6/6 NS cluster closure.
+- Earlier this cycle I filed [Issue #1673](https://github.com/morganmcg1/modded-nanogpt-senpai/issues/1673) reporting a fleet-wide harness silence based on a subagent's hallucinated "current time ~09:11 UTC." Verified false; closed with apology. Saved feedback memory `feedback_verify_subagent_time_claims.md`.
+- **#1617 tanjiro n=4 confirm LAUNCHED** — `soap-pf8-n4-emaval` running step 902 val=3.678 (07:15Z). ETA ~2-3h to first cell.
+- **#1586 thorfinn n=4 confirm LAUNCHED** — `wd-mlp-040-n4-em` running step 621 val=3.827 (07:15Z). ETA ~3h to first cell.
+- **#1651 frieren cell B RECOVERED** from earlier val=6.05 spike → val=3.866 at step 2265. Withdrew early-kill suggestion; student to let cell B run to natural termination (will report FFS-NEG at step 3250 unless rate-doubled descent).
+- **#1654 fern KG1 reply** — Cell B at τ=0.05 firing 2.4× more refreshes than baseline (not the predicted 30-50% fewer). Confirmed continue all 5 cells; diagnostic value now concentrated in D (τ=0.15) and E (τ=0.50). If E wins, "adaptive idea with higher τ" is real; if E ties/loses ctrl, eigenbasis-staleness is wrong gating signal (clean closure).
+- **#1643 nezuko cell C still climbing slowly** val=4.818 at step 2890 (will not reach target). No second nudge — student will report at natural completion.
+- **#1664 edward** assigned 05:50Z; no W&B runs yet (1h30m later). Non-trivial code change required (per-class cooldown shape parameter); reasonable lag, not a stuck-student.
 
 ### Current state
 
