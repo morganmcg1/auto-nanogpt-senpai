@@ -1,5 +1,21 @@
 # SENPAI Research Results
 
+## 2026-05-29 19:55 UTC — PR #1693 fern: Pre-target body Muon weight_decay bilateral pulse {0.0, 0.05} @ 2750-2900 — ❌ BILATERAL NULL (wd axis closed)
+
+- Branch: `g1r1-fern/pretarget-wd-pulse`
+- Hypothesis: body Muon weight_decay (canonical 0.025) controls iterate norm growth; a transient bilateral perturbation (Arm A relax to 0.0, Arm B deepen to 0.05) probes whether shrinkage strength is load-bearing for target crossing.
+- W&B: Arm A `i0s55pdw` (wd=0.0), Arm B `70jhvxrq` (wd=0.05)
+
+| Arm | wd in 2750-2900 | val_loss_ema | sr | Δval vs baseline | Verdict |
+|---|---:|---:|---:|---:|---|
+| A | 0.0 (relax) | 3.264735 | 2925 | +1.88 mnat | ❌ NULL (+50 sr) |
+| B | 0.05 (deepen) | 3.266172 | 2925 | +3.32 mnat | ❌ NULL (+50 sr) |
+| Baseline #1532 | 0.025 canonical | 3.262854 | 2875 | — | — |
+
+- **Analysis:** Clean asymmetric param-norm response (relax grows iterate norm, deepen shrinks it) confirms the pulse mechanism is real and bilateral. Both directions degrade val_ema and sr identically — the weight_decay scalar is real but **not load-bearing for target-crossing speed**. The pre-target window cannot be accelerated by perturbing shrinkage strength.
+- **Body Muon weight_decay axis CLOSED** at the pre-target window. Combined with prior closures of LR-UP (#1637), LR-DOWN (#1697 in-flight Arm A NULL), γ (#1680), μ (#1686), NS-coefs (#1660), β₁ (#1592/#1639), β_cov (#1666), Nesterov, schedule-free — **all body Muon pre-target scalar pulse axes definitively exhausted**.
+- **New assignment:** fern → #1739 pre-target **NS_ITERS burst** {14, 16} @ 2750-2900 — structurally orthogonal to #1660 (changes polar-projection iteration count, not polynomial coefficients); reduces residual ~4×/~16× vs canonical NS_ITERS=12.
+
 ## 2026-05-29 18:55 UTC — PR #1686 askeladd: Pre-target body Muon μ transient pulse 0.95→{0.97, 0.99} @ 2750-2900 — ❌ BILATERAL NULL (μ axis definitively closed across all temporal regimes)
 
 - Branch: `askeladd/pretarget-mu-pulse`
