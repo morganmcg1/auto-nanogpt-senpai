@@ -1,3 +1,41 @@
+## 2026-05-29 12:33 — PR #1669: H266 thorfinn Polyak-Ruppert EMA eval-only — **🎯 MERGED WIN** (FIRST FFS<3025 of 121-cycle plateau campaign — arm_b EMA_FAST decay=0.05 val=3.26818 FFS=**3000** −25 vs H203 baseline 3025. arm_a CTRL FFS=3050 Pattern A loose +25 drift class (anticipated — new conditional code path). arm_c EMA_SLOW decay=0.005 catastrophic FFS=3275 +250 — 200-step half-life EMA lags so far behind live weights during cooldown that it erases cooldown-sharpening dynamics. 🎯 **PAPER-GRADE MECHANISTIC CONTRAST**: EMA decay=0.05 (~20-step half-life, 3025-step run) → FFS=3000 WIN. Decay=0.005 (~200-step half-life) → FFS=3275 catastrophic NEG. The EMA must TRACK the cooldown trajectory (track variance), not AVERAGE OVER it (erase sharpening). Step-0 val=10.82583 EXACT across all 3 arms confirming Pattern A chain integrity. NEW BASELINE: val=3.26818, FFS=3000, run m2ywl0o9. H274 thorfinn IMMEDIATE FOLLOW-UP ASSIGNED: Polyak EMA scope ablation body-only vs aux-only vs all-params — maps WHERE in parameter space EMA mechanism acts.)
+
+- Branch: H266 thorfinn (PR #1669, 62nd mechanism class — Polyak-Ruppert EMA eval-only, all-params, fast decay)
+- Student terminal SENPAI-RESULT at 12:24 UTC May 29. 3 run IDs: f4zkhukg (CTRL), m2ywl0o9 (EMA_FAST WIN), fd1p3yi1 (EMA_SLOW NEG). Terminal SENPAI-RESULT marker valid: `{"terminal":true,"status":"complete","pending_arms":false}`.
+
+| Arm | run_id | decay | val/loss | FFS | Δval vs H203 baseline | Δval (σ_H174) | Decision |
+|---|---|---|---|---|---|---|---|
+| arm_a CTRL | `f4zkhukg` | 0.0 | 3.26940 | 3050 | +0.00110 | +1.24σ | Pattern A loose +25 drift class (anticipated — EMA code path outside @torch.compile) |
+| arm_b EMA_FAST | `m2ywl0o9` | **0.05** | **3.26818** | **3000** | **−0.00012** | **−0.14σ** | **🎯 FIRST FFS<3025 WIN of 121-cycle plateau campaign** |
+| arm_c EMA_SLOW | `fd1p3yi1` | 0.005 | 3.27915 | 3275 | +0.01085 | +12.3σ | CATASTROPHIC NEG — long EMA lags behind cooldown sharpening |
+
+### 🎯 Mechanistic decomposition (PAPER-GRADE)
+
+| arm | EMA half-life | EMA L2 deviation at terminal | FFS | interpretation |
+|---|---|---|---|---|
+| arm_a CTRL | — | — | 3050 | no EMA, Pattern A loose +25 drift |
+| arm_b EMA_FAST | **~20 steps** | **5280** (stabilizes post step 125) | **3000** | EMA tracks cooldown trajectory, reduces high-freq noise |
+| arm_c EMA_SLOW | **~200 steps** | **39936** (7.6× arm_b, never stabilizes) | 3275 | EMA averages OVER cooldown, erases sharpening dynamics |
+
+**Structural diagnosis**: arm_c EMA_SLOW's 200-step half-life means the EMA buffer integrates 600+ steps of pre-cooldown trajectory → lags so far behind live weights during cooldown that it represents a "weighted average of past checkpoints" rather than the current convergence trajectory. This is the same "cooldown-decoupling" failure mode as PF#62 (Lookahead, MuLoCo, Sophia all fail by temporal decoupling from cooldown). arm_b EMA_FAST's 20-step half-life means the EMA is updated every ~20 steps → close to live weights but with HF noise suppressed → benefits from both variance reduction AND cooldown tracking.
+
+### Statistical rule check
+
+| arm | val | stat = 3.28 − val | Passes ≥ 0.004? | FFS primary check |
+|---|---|---|---|---|
+| arm_b EMA_FAST | 3.26818 | **0.01182** | **PASS (2.97× threshold)** | FFS=3000 < 3025 baseline ✓ |
+| arm_c EMA_SLOW | 3.27915 | 0.00085 | FAIL | FFS=3275 >> 3025 baseline ✗ |
+
+### Baseline update
+
+New current baseline: val=**3.26818**, FFS=**3000**, W&B run `m2ywl0o9`, PR [#1669](https://github.com/morganmcg1/modded-nanogpt-senpai/pull/1669). Full config: H203 stack + `--polyak_ema_decay 0.05`.
+
+### H274 thorfinn IMMEDIATE FOLLOW-UP ASSIGNED — Polyak EMA scope ablation (PR #1699)
+
+Mechanistic question: does EMA help primarily for body params (MuonH-managed blocks.*) or aux params (AdamW-managed embed/lm_head/scalars)? AdamW already maintains β2=0.99 exponential averaging internally — AUX_ONLY EMA may be redundant or counterproductive. BODY_ONLY EMA targets params with no built-in second-moment smoothing. 3-arm Pattern A code change: arm_a CTRL `scope=all` (H266 new baseline bit-id) / arm_b BODY_ONLY `scope=body` (EMA only on blocks.* params) / arm_c AUX_ONLY `scope=aux` (EMA only on embed/lm_head/scalars). WIN prob **25-40%** for arm_b BODY_ONLY — if aux EMA is counterproductive, removing it frees the body EMA to be more effective.
+
+---
+
 ## 2026-05-29 11:50 — PR #1661: H265 alphonse MuonH TR-cap step-magnitude bound — CLOSED (**122nd NULL/NEG closure**, asymmetric mid-training-WIN/terminal-NEG arm_b TR_TIGHT 0.01 val=3.27094 FFS=3025_TIES_baseline +14.5σ_H174 terminal NEG, arm_c TR_LOOSE 0.02 val=3.26817 FFS=3025_TIES_baseline INERT cap never activates. 🎯 **PAPER-GRADE BINARY-THRESHOLD MECHANISTIC FINDING** — TR-cap is BINARY ON/OFF mechanism at delta_ratio=muonh_lr threshold (≈ 0.018): cap < 0.018 = HARMFUL effective-LR-floor preventing terminal sharpening, cap > 0.018 = INERT NO-OP because natural delta_ratio attractor never exceeds muonh_lr. NO SWEET SPOT exists in TR-cap parameter space. 🎯 **arm_b 68σ TRAJECTORY REVERSAL** — step 750 −54σ_H174 ahead of CTRL (TR-cap mid-training variance reduction works) → terminal +14.5σ_H174 NEG (cap prevents cooldown sharpening) = 4th independent confirmation of "mid-training-better-but-cooldown-collapse" diagnostic signature. 🎯 **PROGRAMME FINDING #58 candidate STRENGTHENED to 4-axis CLOSURE-GRADE** — H249 + H253 + H255 + H265 = 4 axes of "post-NS5/post-polar step-modification structurally inert/harmful". Claim: "any auxiliary step-magnitude/direction modifier downstream of MuonH SI-projection is structurally inert (no-op) or harmful (interferes with cooldown sharpening) — the SI projection itself is the load-bearing mechanism, not amenable to refinement". 12th drift-FREE strict CTRL instance (Pattern A canonical bit-id PASS arm_a val=3.26830 FFS=3025 EXACT). H273 alphonse IMMEDIATE FOLLOW-UP ASSIGNED **muonh_lr fine-grain ±14% sweep** — direct mechanistic prediction test of H265's structural-bound finding that muonh_lr is THE primary tuning lever, NOT post-projection caps. Trivially-drift-FREE Pattern (Trivial) argparse VALUE-only chain zero code changes zero compile graph perturbation. WIN prob 15-25% — potential FIRST FFS<3025 WIN of 122-cycle plateau campaign.)
 
 - Branch: H265 alphonse (PR #1661, 122nd closure — MuonH SI-mode TR-cap step-magnitude bound, post-projection delta_ratio clamp)

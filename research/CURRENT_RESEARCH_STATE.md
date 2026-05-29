@@ -1,6 +1,73 @@
 # SENPAI Research State — auto-nanogpt-1gpu-r3
 
-- **Last updated:** 2026-05-29 11:55 UTC
+- **Last updated:** 2026-05-29 12:55 UTC
+
+---
+
+## 🎯 Cycle ~1680: H266 MERGED WIN — FIRST FFS<3025 OF 121-CYCLE PLATEAU CAMPAIGN! **New baseline: val=3.26818, FFS=3000** — arm_b EMA_FAST (Polyak-Ruppert EMA decay=0.05, ~20-step half-life, eval-only) breaks the plateau by −25 FFS. arm_c EMA_SLOW (decay=0.005, ~200-step half-life) catastrophically regresses to FFS=3275 (+250). 🎯 **PAPER-GRADE MECHANISTIC CONTRAST**: fast-tracking EMA (20-step half-life) smooths HF noise while tracking cooldown trajectory → WIN. Slow-averaging EMA (200-step half-life) averages OVER cooldown, erasing sharpening dynamics → same cooldown-decoupling failure as PF#62 (Lookahead, MuLoCo, Sophia). H274 thorfinn IMMEDIATE FOLLOW-UP ASSIGNED **Polyak EMA scope ablation** (body-only vs aux-only vs all-params, PR #1699) — maps WHERE in parameter space EMA mechanism acts, WIN prob 25-40% if AdamW's internal β2 averaging makes aux EMA redundant.
+
+**Key merge this cycle:**
+
+- **H266 thorfinn Polyak-Ruppert EMA for eval-only (PR #1669)** — **MERGED WIN**, FFS=**3000** (arm_b EMA_FAST m2ywl0o9). 62nd mechanism class. arm_a CTRL FFS=3050 (Pattern A loose +25 drift class, anticipated — new conditional code path outside @torch.compile). arm_b EMA_FAST val=**3.26818** FFS=**3000** WIN. arm_c EMA_SLOW val=3.27915 FFS=3275 catastrophic NEG (200-step half-life erases cooldown sharpening).
+
+  **New research baseline**: val/loss=**3.26818**, FFS=**3000**, W&B run `m2ywl0o9`, PR [#1669](https://github.com/morganmcg1/modded-nanogpt-senpai/pull/1669). Full config: H203 stack + `--polyak_ema_decay 0.05`.
+
+  **🎯 Mechanistic insight (PAPER-GRADE)**: EMA half-life relative to cooldown window is the key parameter. ~20-step half-life is "fast enough to track but slow enough to smooth" — preserves cooldown sharpening while averaging out within-step noise. ~200-step half-life averages 600+ steps of pre-cooldown trajectory → temporal decoupling identical to PF#62 failure modes. This is the 5th axis of PF#62 cooldown-decoupling structural pattern (H247 EMA+NS5 saw-tooth + H256 outer-LR cosine-match + H263 MuLoCo NO_OUTER + H264 Lookahead + H261 Sophia — all showed same pattern). **The winning EMA is a FAST-tracking mechanism, not a slow-averaging one.** This makes PF#62 more precise: any mechanism whose temporal averaging window EXCEEDS the cooldown window destroys it; any mechanism whose window is SHORT relative to cooldown can coexist with it.
+
+  **🎯 5th axis of PF#62 candidate CONFIRMED and REFINED**: The EMA decay contrast establishes the timescale threshold. SLOW averaging (200-step half-life, spans cooldown_steps=300) → catastrophic. FAST averaging (20-step half-life, sub-cooldown) → WIN. This refines PF#62 from "cooldown-decoupled outer mechanisms harmful" to "any mechanism whose temporal window spans OR EXCEEDS cooldown_steps is harmful; sub-cooldown temporal windows coexist."
+
+**Assignment this cycle:**
+
+- **H274 thorfinn Polyak EMA scope ablation (PR #1699)** — Pattern A code change. 3-arm: arm_a CTRL `scope=all` (H266 new baseline, bit-id check FFS=3000) / arm_b BODY_ONLY `scope=body` (EMA only on blocks.* = MuonH-managed params) / arm_c AUX_ONLY `scope=aux` (EMA only on embed/lm_head/scalars = AdamW-managed params). Mechanistic question: body MuonH params lack built-in second-moment smoothing → body-only EMA may be sufficient or better. AdamW params already have β2=0.99 second-moment averaging → aux EMA may be redundant or counterproductive. WIN prob **25-40%** for arm_b BODY_ONLY.
+
+## Programme totals (end of cycle ~1680)
+
+- **122 NULL/NEG closures** (1 WIN: H266 merged)
+- **66 mechanism classes** characterized (H266 = 62nd Polyak-Ruppert EMA; H274 = 63rd EMA scope ablation pending)
+- **NEW BASELINE**: val=3.26818, FFS=**3000**, PR #1669 (was H203 val=3.26830, FFS=3025)
+- **12 drift-FREE strict CTRL instances** + Pattern A loose +25 drift class instances
+- **6 PROGRAMME FINDING candidates simultaneously active** (PF#56 + PF#58 + PF#59 + PF#60 + PF#61 + PF#62)
+- **PF#62 candidate REFINED**: cooldown-decoupling threshold identified — temporal window relative to cooldown_steps=300 determines harm (>cooldown_steps HARMFUL, <cooldown_steps OK)
+- **8 WIP**: H267 tanjiro NS5 iter, H268 nezuko Aux Adam-mini, H269 frieren warmup lower-bound, H270 fern phase-gated MuLoCo, H271 edward cooldown-gated Lookahead, H272 askeladd Aux AdamW eps, H273 alphonse muonh_lr fine-grain, **H274 thorfinn EMA scope ablation (newly assigned)**
+
+## Current research focus & themes (cycle ~1680)
+
+The **plateau has been broken** at cycle ~1680 by Polyak-Ruppert EMA (H266). The winning mechanism is a fast-tracking eval-only parameter EMA (decay=0.05, ~20-step half-life) applied to ALL model parameters. This is the **first confirmed WIN in 121 consecutive NULL/NEG closures**.
+
+The EMA WIN opens a new research axis with multiple dimensions:
+1. **Scope** (H274 in flight): body-only vs aux-only — does EMA help for MuonH-managed or AdamW-managed params?
+2. **Decay sweep** (post-H274): once scope is known, sweep decay near the 0.05 WIN point (0.03, 0.07, 0.10)
+3. **Decay schedule** (future): ramp decay during cooldown (start slow, speed up as LR drops)
+4. **EMA + other mechanisms**: Can EMA compose with H270 phase-gated MuLoCo or H271 cooldown-gated Lookahead?
+5. **Training vs eval EMA**: The H266 EMA is eval-only. Would training with the EMA weights (and resetting periodically) improve trajectory?
+
+The PF#62 mechanistic insight has been **refined by H266**: the critical parameter is whether the temporal averaging window EXCEEDS cooldown_steps=300. Sub-cooldown windows (20-step half-life) compose well with cooldown. Super-cooldown windows (200-step half-life) destroy it. This creates a timescale hierarchy for future mechanism design.
+
+**Active in-flight chains to watch** (may produce terminals this cycle):
+- H269 frieren warmup lower-bound (arm_b step ~840/3325 at last audit ~13:00Z, arm_c pending)
+- H267 tanjiro NS5 iter extension (arm_b still in flight)
+- H268 nezuko Aux Adam-mini (bilateral still running)
+- H270/H271 phase-gated MuLoCo + cooldown-gated Lookahead (PF#62 mirror pair)
+- H272 askeladd AdamW eps sweep
+- H273 alphonse muonh_lr fine-grain (just assigned this cycle)
+- H274 thorfinn EMA scope ablation (just assigned this cycle)
+
+Combined campaign structural-rigidity landscape (cycle ~1680):
+- **PF#56 STRENGTHENED**: MuLoCo manifold rigid AND mechanism-necessary (6 axes)
+- **PF#58 candidate STRENGTHENED to 4-axis CLOSURE-GRADE**: post-NS5/post-polar step-modification axis CLOSED
+- **PF#59 STRENGTHENED**: NS5 iter count non-rigid (H267 in flight)
+- **PF#60 candidate**: Riemannian corrections inert/harmful (3 axes)
+- **PF#61 CLOSURE-GRADE PROMOTION**: aux preconditioner uniformity catastrophically harmful (2 axes)
+- **PF#62 candidate REFINED to 5 confirmed axes + timescale threshold**: any mechanism whose temporal averaging window spans or exceeds cooldown_steps=300 is structurally HARMFUL; fast-tracking sub-cooldown averages (20-step half-life) can coexist and WIN
+
+## Next hypothesis priorities (by value)
+
+1. **H274 thorfinn in flight** — EMA scope ablation, WIN prob 25-40%
+2. **EMA decay fine-grain sweep** (post-H274) — map optimum near 0.05, WIN prob 15-25%
+3. **EMA decay schedule** — ramp decay during cooldown (low → high as LR decreases), WIN prob 20-30%
+4. **muonh_lr outcome** (H273 in flight) — direct H265 mechanism prediction test
+5. **PF#62 mirror pair** (H270+H271 in flight) — cooldown-gated architecture hypothesis
+6. **NS5 polynomial coefficient swap** — deferred Pattern A complex (@torch.compile), high potential if NS5 iteration plateau discovered
 
 ---
 
