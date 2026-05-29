@@ -1,5 +1,34 @@
 # SENPAI Research Results — auto-nanogpt-1gpu-r4
 
+## 2026-05-29 20:30 — PR #1631: NM β (EMA decay) stable β=0.99 PP-chain n=3 — **CLOSED MERGE GATE FAIL, Class 12a "β=0.99-R-COMPRESSION-MECHANISM-OBSERVABLE-OUTCOME-SEED-FRAGILE" FIRST decoupling-direction finding**
+
+- branch: `g1r4-thorfinn/nm-beta-schedule-axis`
+- **Hypothesis**: β=0.99 (slower EMA window, effective window 100 steps vs 20 at β=0.95) improves val_loss by smoothing R-eigenspectrum and reducing step-to-step noise; N=1 screening seed=0 showed strong-FAV Δ=−0.00166
+
+| Metric | ctrl s0 `eqwdajvx` | exp s0 `gkq44e98` | ctrl s1 `qpct248y` | exp s1 `8zl2s323` | ctrl s2 `xq6hp72s` | exp s2 `qahxavrw` |
+|---|---:|---:|---:|---:|---:|---:|
+| val/loss terminal | 3.26314 | 3.26148 | 3.26185 | 3.26486 | 3.26262 | 3.26411 |
+| Δ_paired | — | **−0.00166 FAV** | — | **+0.00301 NEG** | — | **+0.00149 NEG** |
+| FFS@3.28 | 3150 | 3150 | 3150 | 3175 | 3150 | 3150 |
+| R_cond_max | 116M | 5.4M (21×↓) | 1.115B | 116M (9.6×↓) | 13.9M | 179M (12.9×↑) |
+| Direction-correct | — | FAV | — | NEG | — | NEG |
+
+- **W&B runs**: `eqwdajvx` (ctrl s0), `gkq44e98` (exp s0), `qpct248y` (ctrl s1), `8zl2s323` (exp s1), `xq6hp72s` (ctrl s2), `qahxavrw` (exp s2)
+- **n=3 mean**: μ_ctrl=3.26254 / μ_exp=3.26348 / Δ_mean=+0.000947 NEG-LEANING / t-stat=+0.688 (NULL)
+- **σ_exp/σ_ctrl = 2.6×** — β=0.99 amplifies seed variance rather than dampening it
+
+**Results commentary**: MERGE GATE FAIL CLEAR (μ_exp=3.26348 > baseline 3.26310 by +0.00038; 1/3 direction-correct). Not merge-eligible. The N=1 strong-FAV seed=0 signal was a seed-favorable artifact masked by σ_seed noise — the n=3 paired discipline revealed seed-fragility at 3.4× σ_paired/σ_seed ratio.
+
+**KEY MECHANISM FINDING — Class 12a "β=0.99-R-COMPRESSION-MECHANISM-OBSERVABLE-OUTCOME-SEED-FRAGILE"**:
+1. **Seed-dependent R_cond behavior**: β=0.99 compresses R_cond_max 21× at MID-R baseline (s0 116M→5.4M), 9.6× at HIGH-R baseline (s1 1.1B→116M), but INFLATES 12.9× at LOW-R baseline (s2 14M→179M). β=0.99 traps transient eigenvalue spikes in the longer EMA history that β=0.95 would have decayed out.
+2. **Outcome-mechanism decoupling**: val Δ_paired swings +0.00467 between best (s0 FAV) and worst (s1 NEG) seeds = 6.7× σ_seed floor. β-axis AMPLIFIES seed variance (σ_exp/σ_ctrl = 2.6×), opposite of design intuition.
+3. **FIRST decoupling-direction finding in R-buffer family**: all prior class 12a (Tikhonov, R^{−α}, LR×R_cond) had outcome-mechanism correlation; β-axis shows decoupling
+4. **Methodological learning**: σ_paired/σ_seed > 2 at n=3 signals mechanism may not translate cross-seed — generalizable screening rule for future EMA-window axes
+
+**Conclusions**: Close as publishable MERGE GATE FAIL. Assign class 25 PERIOD-LATE-WINDOW (Issue #1261 directive #4) to thorfinn as PR #1743.
+
+---
+
 ## 2026-05-29 20:15 — PR #1696: NM Tikhonov γ phase-scheduling (cooldown-ramp 3-arm) — **CLOSED MECHANISM-OBSERVABLE-VAL-DECOUPLED, Class 20 SCHEDULE-TIKHONOV-COOLDOWN-RAMP with productive-window quantification**
 
 - branch: `g1r4-fern/nm-tikhonov-schedule-cooldown-ramp`
