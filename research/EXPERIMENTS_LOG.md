@@ -1,5 +1,36 @@
 # SENPAI Research Results — auto-nanogpt-1gpu-r4
 
+## 2026-05-29 18:07 — PR #1698: NM max_d_in coverage axis (2-arm 2048/4096 sweep) — **CLOSED NEG-strong, Class 23 MODULE-SCOPE-COVERAGE-AXIS publishable mechanism finding**
+
+- branch: `g1r4-nezuko/nm-max-d-in-coverage-sweep`
+- **Hypothesis**: broadening/narrowing the set of NM-preconditioned modules (via MAX_D_IN) changes FFS or val_loss — first SCOPE-axis test in R-buffer mechanism family (all prior 22 classes = INTENSITY-axis)
+- **Pre-launch audit**: student correctly identified Arm C (MAX_D_IN=8192) is bit-identical to Arm A (no body Muon modules with d_in ∈ (4096, 8192]) → Arm C cancelled, saved 2.3 GPU-h. Revised to 2-arm: Arm A (ctrl, MAX_D_IN=4096, 72 hooks) + Arm B (narrow, MAX_D_IN=2048, 60 hooks, drops 12 MLP-proj d_in=3072 modules)
+
+| Metric | Arm A ctrl (MAX_D_IN=4096) | Arm B narrow (MAX_D_IN=2048) | Δ (B−A) |
+|---|---:|---:|---:|
+| val/loss terminal (step 3350) | 3.26215 | 3.26621 | **+0.00406** |
+| FFS@3.28 | 3150 | 3175 | +25 steps |
+| NM hooks (banner) | 72 (skipped 0) | 60 (skipped 12 MLP-proj) | −12 |
+| R_cond_max | 564,527 | 38,159 | 0.068× (15× LOWER) |
+| R_cond_mean | 26,241 | 3,639 | 0.139× (7× LOWER) |
+| precond_ratio_mean | 1.06221 | 1.13780 | +7% |
+| Direction-correct checkpoints | — | 27/27 (100%) | strong-NEG |
+| train_time | 8353.6s | 7113.4s | −15% per step |
+
+- **W&B runs**: Arm A `x4nf5uk4`, Arm B `ghhu8are`
+
+**Results commentary**: NEG result (Δ_paired=+0.00406 = 3.7× σ_seed envelope). Narrowing NM coverage by removing the 12 MLP-proj (d_in=3072) modules HURTS training. Kill-gate triggered marginally at step 2750 (Δ=+0.00399 vs +0.003 threshold); student let Arm B run to terminal (only 5% compute remaining) = correct judgment. 27/27 direction-correct = mechanism signal, not σ_seed noise.
+
+**KEY MECHANISM FINDING — Class 23 MODULE-SCOPE-COVERAGE-AXIS**:
+1. **MLP-proj NM is load-bearing**: removing 12 d_in=3072 modules (out of 72 total NM hooks) degrades val by +0.00406 strong-NEG
+2. **High-R_cond_max coverage is productive, not noisy**: MLP-proj modules have R_cond_max 15× higher than attn modules (564K vs 38K), yet removing them WORSENS training — contradicts the naive "remove ill-conditioned R-buffers to clean the preconditioner" intuition
+3. **First SCOPE-axis finding in R-buffer family**: all 22 prior catalog classes modified NM *intensity* (γ, β, α, ε, LR-coupling, period, R-freeze, R-reset, LR-burst, v-warmstart, schedule); this is the first NM *scope* (coverage) axis
+4. **Cross-class convergence with c559 Tikhonov-R-anchored finding**: c559 showed R-magnitude-anchoring productive at per-module condition level; this shows high-R_cond_max coverage productive at module-scope level = NM's productive subspace anchored to large-R regimes at multiple resolutions
+
+**Conclusions**: Close as NEG/mechanism-publishable. Assign follow-up: class 23 inverse (MLP-proj-only NM) to quantify what fraction of NM's productive effect is concentrated in MLP-proj vs attn modules.
+
+---
+
 ## 2026-05-29 08:00 — PR #1543: NM R-buffer Tikhonov shrinkage (γ·trace·I before eigendecomp) — **MERGED ✓ NEW BASELINE val/loss=3.26183 (n=3), FFS=3141.67 (best s2=3125, first sub-3150 in catalog)**
 
 - branch: `g1r4-askeladd/nm-r-tikhonov-shrink`
