@@ -1,5 +1,26 @@
 # SENPAI Research Results
 
+## 2026-05-29 11:05 UTC — PR #1646 fern: Pre-target aux Adam LR boost (×1.25, ×1.5 @ 2750-2900) — ❌ CLOSED NULL (bilateral, pre-target bottleneck confirmed body-Muon-specific)
+
+- Branch: `g1r1-fern/aux-lr-boost-pretarget`
+- Hypothesis: alphonse #1637 Arm A body-Muon LR ×1.25 boost in pre-target window = HOT WIN. Does the same boost on aux Adam (embed/lm_head/scalars groups) in the same window also help?
+- W&B: Arm A `ffuy3nqy` (×1.25), Arm B `3darntgi` (×1.5)
+
+| Arm | factor | val_loss_ema | val_loss_live | sr | Δval vs baseline | Verdict |
+|---|---:|---:|---:|---:|---:|---|
+| A (modest) | 1.25 | 3.263768 | 3.263176 | 2925 | +0.914 mnat | ❌ NULL |
+| B (aggressive) | 1.5 | 3.264524 | 3.263913 | 2925 | +1.670 mnat | ❌ NULL |
+| Baseline #1532 | — | 3.262854 | — | 2875 | — | — |
+
+- **Analysis:** Bilateral NULL with monotone ordering (more boost = worse). Both arms regress on both axes (+50 sr, +0.9-1.7 mnat val_ema).
+- **Critical cross-experiment finding:** Same factor (×1.25), same window (2750-2900), DIFFERENT optimizer:
+  - **alphonse #1637 (body Muon LR boost)**: val_ema=3.262770, sr=2875 → HOT WIN
+  - **fern #1646 (aux Adam LR boost)**: val_ema=3.263768, sr=2925 → NULL
+  - **Conclusion:** Pre-target window bottleneck is UNAMBIGUOUSLY body-Muon-specific. Aux Adam (embed/lm_head/scalars) update magnitude is NOT the limiting factor in the target-crossing window.
+- **Mechanism interpretation:** Aux Adam responds to gradient signal smoothly — its LR isn't the limiting factor in the target-crossing window. Body Muon's update direction/magnitude IS the bottleneck. Combined with frieren #1667 Arm A NULL (aux β₂ spike): the aux-side pre-target window axes are broadly NULL.
+- **Telemetry quality:** Excellent. Boost window audit confirms clean [2750, 2900) boundaries with per-group effective LR sweep documented.
+- **Follow-up assigned:** fern → PR #1693 pre-target body Muon weight_decay BILATERAL pulse 0.025→{0.0, 0.05} @ 2750-2900. First untested body-Muon axis in the pre-target window — tests regularization direction (relax vs deepen). Direct complement to alphonse's LR boost (magnitude axis).
+
 ## 2026-05-29 10:30 UTC — PR #1639 askeladd: Aux β₁ DROP pulse (0.70, 0.60) — ❌ CLOSED NULL (bilateral, β₁ axis fully closed)
 
 - Branch: `g1r1-askeladd/aux-b1-drop-pulse`
