@@ -600,6 +600,13 @@ NANOGPT_NEWTON_MUON = int(os.environ.get("NANOGPT_NEWTON_MUON", "0"))
 NANOGPT_NEWTON_MUON_LR_SCALE = float(os.environ.get("NANOGPT_NEWTON_MUON_LR_SCALE", "1.0"))
 NANOGPT_NEWTON_MUON_UPDATE_PERIOD = int(os.environ.get("NANOGPT_NEWTON_MUON_UPDATE_PERIOD", "10"))
 NANOGPT_NEWTON_MUON_BETA = float(os.environ.get("NANOGPT_NEWTON_MUON_BETA", "0.95"))
+# β-schedule SWITCH (#1712). Default `BETA_LATE=BETA` and `BETA_SWITCH_STEP=0`
+# are bit-identical to the merged stack (the switch branch is dead code).
+NANOGPT_NEWTON_MUON_BETA_LATE = float(os.environ.get(
+    "NANOGPT_NEWTON_MUON_BETA_LATE",
+    os.environ.get("NANOGPT_NEWTON_MUON_BETA", "0.95"),
+))
+NANOGPT_NEWTON_MUON_BETA_SWITCH_STEP = int(os.environ.get("NANOGPT_NEWTON_MUON_BETA_SWITCH_STEP", "0"))
 NANOGPT_NEWTON_MUON_EPS = float(os.environ.get("NANOGPT_NEWTON_MUON_EPS", "1e-4"))
 NANOGPT_NEWTON_MUON_MAX_D_IN = int(os.environ.get("NANOGPT_NEWTON_MUON_MAX_D_IN", "1024"))
 NANOGPT_NEWTON_MUON_TIKHONOV_GAMMA = float(os.environ.get("NANOGPT_NEWTON_MUON_TIKHONOV_GAMMA", "0.0"))
@@ -745,6 +752,8 @@ def muon_update(grad, momentum, v, ns_iters: int, mu=0.95, beta2=0.999, eps=1e-8
 class Muon(torch.optim.Optimizer):
     def __init__(self, params, lr=0.02, weight_decay=0, mu=0.95, beta2=0.999, eps=1e-8,
                  newton_precond: bool = False, newton_beta: float = 0.95,
+                 newton_beta_late: float | None = None,
+                 newton_beta_switch_step: int = 0,
                  newton_eps: float = 1e-4, newton_update_period: int = 10,
                  newton_max_d_in: int = 1024,
                  newton_input_cache: dict | None = None):
@@ -782,6 +791,12 @@ class Muon(torch.optim.Optimizer):
         # steps; EMA refreshes on the same cadence using the latest cached X).
         self.newton_precond = bool(newton_precond)
         self.newton_beta = float(newton_beta)
+        # β-schedule SWITCH (#1712): when newton_beta_switch_step > 0 and the Newton
+        # update counter has crossed it, R EMA decay uses newton_beta_late instead of
+        # newton_beta. With switch_step=0 (default) the branch is dead.
+        self.newton_beta_late = float(newton_beta_late) if newton_beta_late is not None else float(newton_beta)
+        self.newton_beta_switch_step = int(newton_beta_switch_step)
+        self._newton_beta_switch_announced = False
         self.newton_eps = float(newton_eps)
         self.newton_update_period = int(newton_update_period)
         self.newton_max_d_in = int(newton_max_d_in)
@@ -832,7 +847,13 @@ class Muon(torch.optim.Optimizer):
             if "R" not in state:
                 state["R"] = R_new.clone()
             else:
-                b = self.newton_beta
+                if (
+                    self.newton_beta_switch_step > 0
+                    and self._newton_step_count >= self.newton_beta_switch_step
+                ):
+                    b = self.newton_beta_late
+                else:
+                    b = self.newton_beta
                 state["R"].mul_(b).add_(R_new, alpha=1.0 - b)
             # Tikhonov regularization: R_reg = R + gamma * (tr(R)/d_in) * I.
             # Applied only at eigendecomp time; state["R"] EMA buffer is unmodified.
@@ -900,6 +921,18 @@ class Muon(torch.optim.Optimizer):
         if self.newton_precond:
             self._newton_step_count += 1
             self.newton_telemetry = {}
+            if (
+                self.newton_beta_switch_step > 0
+                and not self._newton_beta_switch_announced
+                and self._newton_step_count >= self.newton_beta_switch_step
+            ):
+                print0(
+                    f"[NEWTON_MUON] beta switch fired at newton_step={self._newton_step_count}"
+                    f" (threshold={self.newton_beta_switch_step}):"
+                    f" beta {self.newton_beta} -> {self.newton_beta_late}",
+                    console=True,
+                )
+                self._newton_beta_switch_announced = True
         for group in self.param_groups:
             params = group["params"]
             params_pad = params + [torch.empty_like(params[-1])] * (world_size - len(params) % world_size)
@@ -995,7 +1028,9 @@ print0(
     f"NEWTON_MUON: use_precond={'True' if NANOGPT_NEWTON_MUON else 'False'} "
     f"lr_scale={NANOGPT_NEWTON_MUON_LR_SCALE} "
     f"update_period={NANOGPT_NEWTON_MUON_UPDATE_PERIOD} "
-    f"beta={NANOGPT_NEWTON_MUON_BETA} eps={NANOGPT_NEWTON_MUON_EPS} "
+    f"beta={NANOGPT_NEWTON_MUON_BETA} beta_late={NANOGPT_NEWTON_MUON_BETA_LATE} "
+    f"beta_switch_step={NANOGPT_NEWTON_MUON_BETA_SWITCH_STEP} "
+    f"eps={NANOGPT_NEWTON_MUON_EPS} "
     f"max_d_in={NANOGPT_NEWTON_MUON_MAX_D_IN} "
     f"tikhonov_gamma={NANOGPT_NEWTON_MUON_TIKHONOV_GAMMA}",
     console=True,
@@ -1116,6 +1151,8 @@ if dist.get_rank() == 0:
             "nanogpt_newton_muon_lr_scale": NANOGPT_NEWTON_MUON_LR_SCALE,
             "nanogpt_newton_muon_update_period": NANOGPT_NEWTON_MUON_UPDATE_PERIOD,
             "nanogpt_newton_muon_beta": NANOGPT_NEWTON_MUON_BETA,
+            "nanogpt_newton_muon_beta_late": NANOGPT_NEWTON_MUON_BETA_LATE,
+            "nanogpt_newton_muon_beta_switch_step": NANOGPT_NEWTON_MUON_BETA_SWITCH_STEP,
             "nanogpt_newton_muon_eps": NANOGPT_NEWTON_MUON_EPS,
             "nanogpt_newton_muon_max_d_in": NANOGPT_NEWTON_MUON_MAX_D_IN,
             "nanogpt_newton_muon_tikhonov_gamma": NANOGPT_NEWTON_MUON_TIKHONOV_GAMMA,
@@ -1182,6 +1219,8 @@ for trial_idx in range(args.num_trials):
         weight_decay=0.025,
         newton_precond=bool(NANOGPT_NEWTON_MUON),
         newton_beta=NANOGPT_NEWTON_MUON_BETA,
+        newton_beta_late=NANOGPT_NEWTON_MUON_BETA_LATE,
+        newton_beta_switch_step=NANOGPT_NEWTON_MUON_BETA_SWITCH_STEP,
         newton_eps=NANOGPT_NEWTON_MUON_EPS,
         newton_update_period=NANOGPT_NEWTON_MUON_UPDATE_PERIOD,
         newton_max_d_in=NANOGPT_NEWTON_MUON_MAX_D_IN,
