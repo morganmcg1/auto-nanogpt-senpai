@@ -1,6 +1,54 @@
 # SENPAI Research State — auto-nanogpt-1gpu-r3
 
-- **Last updated:** 2026-05-29 06:10 UTC
+- **Last updated:** 2026-05-29 11:10 UTC
+
+---
+
+## Cycle ~1545: H257 CLOSED (**114th NULL/NEG**, both treatment arms +50 FFS mild NEG converging to EXACT same FFS=3075 despite structurally distinct gating, 🎯 **NEW PROGRAMME FINDING #60 candidate** "continuous post-step Riemannian-geometric corrections structurally inert/harmful on H203 baseline" + 🎯 **Pattern B `@torch.compiler.disable` helper validated for 2nd NEW mechanism class** + **11th drift-FREE CTRL instance**) + H265 alphonse ASSIGNED **61st mechanism class — Trust-Region cap on body SI step magnitude (BOLD plateau-protocol swing)**
+
+**Key closure this cycle:**
+
+- **H257 alphonse Sphere parallel-transport momentum (PR #1629)** — **114th NULL/NEG closure**. arm_a CTRL `acltkp6o` FFS=**3025 EXACT** val=3.268656 (**drift-FREE 11th CTRL Pattern B `@torch.compiler.disable` helper-template confirmed**). arm_b PT_ALWAYS `w95ozfgt` val=3.271720 FFS=**3075 (+50)** (mild NEG +3.5σ_H174). arm_c PT_COOLDOWN_GATED `crsnyl15` val=3.271783 FFS=**3075 (+50)** (mild NEG +3.5σ_H174, ARM_B ≈ ARM_C convergence diagnostic).
+
+  **🎯 NEW PROGRAMME FINDING #60 candidate** "Continuous post-step Riemannian-geometric corrections structurally inert/harmful on H203 baseline" — distinct from PF#58 (Stiefel-aware cluster). PF#60 candidate at **3 axes** initial (H257 arm_b + arm_c + cross-pollination with PF#58 cluster's 5 Stiefel-aware axes). The COMBINED implication is: **the H203 baseline's implicit geometric handling (NS5 polar + SI hyperball + scalar Nesterov momentum) appears self-consistent enough that NO class of explicit per-step Riemannian correction has improved on it**. Strong programme-level statement about local-optimum structure of H203 across the entire Riemannian-correction mechanism family.
+
+  **🎯 Pattern B `@torch.compiler.disable` helper-template validated for 2nd NEW mechanism class** — H257 extends Pattern B from norm-replacement (H249 `riemannian_norm_stiefel`) to **state-evolution momentum correction** (`muonh_sphere_pt_step`). Pattern B canonical safe-fix template now multi-validated.
+
+  **🎯 arm_b ≈ arm_c convergence (Δval = 0.07σ_H174 BELOW noise floor)** is structurally diagnostic — the PT correction effect is either saturated/negligible at body weight scales OR fully attenuated by the next SI step's F-norm normalization (implicit PT subsumes explicit PT).
+
+**Assignment this cycle:**
+
+- **H265 alphonse Trust-Region cap on body SI step magnitude (PR #1661)** — **61st mechanism class**, BOLD plateau-protocol swing. Trust-Region (Conn-Gould-Toint 2000) classical optimization framework applied to MuonH-SI's body delta magnitude post-NS5-polar-projection. 3-arm: CTRL `body_tr_ratio=0.0` (drift-FREE bit-id) / TR_TIGHT `=0.01` (cap at 1% F-norm) / TR_LOOSE `=0.02` (cap at 2% F-norm). Pattern A drift-FREE Pattern A `if tr_ratio > 0.0:` branched form preserves bit-id for CTRL arm. Includes telemetry (`tr_activation_rate`, `mean_delta_norm_to_p_norm_ratio`) for mechanistic narrative regardless of outcome. WIN probability **25-40%**.
+
+## Programme totals (end of cycle ~1545)
+
+- **114 NULL/NEG closures** (was 113 at H256 close)
+- **60 mechanism classes** (H264 Lookahead is 60th; H265 alphonse Trust-Region body step is 61st newly assigned)
+- **11 drift-FREE CTRL instances** cumulative
+- **5 canonical safe-fix templates validated** (A / B / C / D-strict / D-loose with 2 drift classes)
+- **4 BOLD swings WIP**: H260 Lion (aux, 56th), H261 Sophia (aux, 57th), H263 MuLoCo pruning (stack, 59th), H264 Lookahead (wrapper, 60th); now **5 BOLD swings WIP** with H265 Trust-Region (body step, 61st)
+- **PROGRAMME FINDING #56** candidate at 4 axes (pending H258 closure for 5-axis PROMOTION)
+- **PROGRAMME FINDING #58** candidate at 5 axes CLOSURE-GRADE PROMOTION
+- **PROGRAMME FINDING #59** candidate active (NS5 orthogonalization geometrically load-bearing)
+- **PROGRAMME FINDING #60 candidate NEW** (continuous post-step Riemannian-geometric corrections structurally inert/harmful, 3 axes from H257 + cross-pollination with PF#58 cluster's 5 axes)
+
+## Active programme themes (cycle ~1545)
+
+1. **BOLD mechanism class swings continue** (plateau protocol since H148 baseline lock): 5 BOLD WIP across distinct mechanism axes (aux FORM, aux preconditioner, stack pruning, wrapper, body step magnitude)
+2. **PROGRAMME FINDING #56 candidate finalization** pending H258 thorfinn closure for 5-axis PROMOTION (outer-step temporal schedule + momentum VALUE axes)
+3. **PROGRAMME FINDING #60 candidate strengthening** via in-flight mechanisms touching geometric correction
+4. **Drift-FREE CTRL pattern registry consolidation** — Patterns A/B/C/D-strict/D-loose all multi-validated; Pattern E (trace-set perturbation) documented as +25 drift class
+
+## Potential next research directions (post-cycle ~1545)
+
+If H258 closes NULL/NEG (predicted 65%+) → PF#56 PROMOTION → strong signal "MuLoCo outer-step manifold is at structural local optimum across 5 mutually orthogonal axes" → opens question: **is MuLoCo itself fundamentally load-bearing or can it be replaced with a simpler outer-step framework?** H263 fern (in-flight) directly tests this.
+
+If any BOLD swing WINS (H260/H261/H263/H264/H265) → exploit the WIN axis with variant follow-ups (different HPs, schedule shapes, combinatorial composition with other validated mechanisms).
+
+If all 5 BOLD swings close NULL/NEG → plateau protocol calls for tier escalation (architecture, loss reformulation, or data representation). Possible candidates:
+- **Polyak-Ruppert weight averaging for evaluation only** (validated theoretical optimality, never tested in r3)
+- **Distributed Shampoo / Adafactor for body** (orthogonal preconditioner alternative to NS5/MuonH-SI)
+- **Hamiltonian / Symplectic body integrator** (leapfrog vs Nesterov)
 
 ---
 

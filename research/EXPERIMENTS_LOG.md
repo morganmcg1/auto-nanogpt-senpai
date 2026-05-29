@@ -1,3 +1,48 @@
+## 2026-05-29 11:00 — PR #1629: H257 alphonse Sphere parallel-transport momentum (53rd class) — CLOSED (**114th NULL/NEG closure**, both treatment arms +50 FFS mild NEG converging to EXACT same FFS=3075 despite structurally distinct gating (PT_ALWAYS vs PT_COOLDOWN_GATED), 🎯 **NEW PROGRAMME FINDING #60 candidate** "continuous post-step Riemannian-geometric corrections (sphere PT + Stiefel-aware cluster) structurally inert/harmful on H203 baseline" + 🎯 **Pattern B `@torch.compiler.disable` helper validated for 2nd NEW mechanism class** (state-evolution momentum correction joining H249 norm-replacement) + **11th drift-FREE CTRL instance**)
+
+- Branch: H257 alphonse (53rd class — Sphere parallel-transport for body momentum buffer, Bonnabel 2013 ground)
+- Student terminal SENPAI-RESULT at 05:15 UTC May 29 with full 3-arm per-arm config audit (`muonh_sphere_pt_momentum ∈ {0,1,2}` distinct), per-arm bit-id step-0 val=10.82583 EXACT, and chain rationale (arm_c gating spec-vs-config caught at 23:20 UTC May 28 before chain launch, corrected to post-warmup `step >= muonh_warmup_steps` per advisor confirmation cycle ~1495).
+
+| Arm | run_id | `muonh_sphere_pt_momentum` | step-0 val | val/loss | FFS | Δval vs CTRL | Δ vs H203 baseline | Decision |
+|---|---|---|---|---|---|---|---|---|
+| arm_a CTRL | `acltkp6o` | 0 (no PT) | 10.82583 EXACT | **3.268656** | **3025 EXACT** | — | val −1.6σ_H174, FFS=0 | **🎯 drift-FREE 11th CTRL Pattern B-helper** |
+| arm_b PT_ALWAYS | `w95ozfgt` | 1 (PT every step) | 10.82583 EXACT | 3.271720 | 3075 (+50) | +0.003063 (+3.5σ_H174) | +50 FFS NEG | mild NEG |
+| arm_c PT_COOLDOWN_GATED | `crsnyl15` | 2 (PT post-warmup) | 10.82583 EXACT | 3.271783 | 3075 (+50) | +0.003127 (+3.5σ_H174) | +50 FFS NEG | mild NEG |
+
+### Statistical rule check `(3.28 − μ) × √n ≥ 0.004`
+- arm_a CTRL: `(3.28 − 3.268656) × √1 = 0.01134` ≥ 0.004 ✓ AND FFS=3025 EXACT BASELINE → drift-FREE ✓
+- arm_b PT_ALWAYS: `(3.28 − 3.271720) × √1 = 0.00828` ≥ 0.004 ✓ margin satisfied but FFS=3075 NOT below 3025 → not WIN
+- arm_c PT_COOLDOWN_GATED: `(3.28 − 3.271783) × √1 = 0.00822` ≥ 0.004 ✓ margin satisfied but FFS=3075 NOT below 3025 → not WIN
+
+### 🎯 Key mechanistic observation — arm_b ≈ arm_c convergence
+
+Despite structurally distinct gating (PT every step vs PT only post-warmup step ≥ 100), arm_b and arm_c converge to EXACTLY same FFS=3075 with near-identical val (Δval = 0.00006 = 0.07σ_H174 BELOW noise floor). This is **structurally diagnostic**: the PT correction effect is either (a) saturated/negligible at body weight scales, or (b) fully attenuated by the next SI step's F-norm normalization (implicit PT subsumes explicit PT).
+
+### 🎯 NEW PROGRAMME FINDING #60 candidate — "Continuous post-step Riemannian-geometric corrections structurally inert/harmful on H203 baseline"
+
+This is a NEW programme-level finding distinct from PF#58 (Stiefel-aware cluster). PF#60 candidate at **3 axes** initial:
+- Axis 1: H257 arm_b sphere PT_ALWAYS (+50 NEG)
+- Axis 2: H257 arm_c sphere PT_COOLDOWN (+50 NEG, structurally identical to arm_b)
+- Axis 3: Combined with PF#58 candidate's 5 axes (Stiefel-aware cluster), PF#60 strengthens the broader pattern that **explicit per-step Riemannian corrections** (whether Stiefel-aware or sphere-aware) **all degrade or are inert vs H203's implicit geometric handling** (NS5 polar + SI hyperball + scalar Nesterov momentum).
+
+For PF#60 candidate PROMOTION to consolidated finding: would need an axis 4 from H252 / H256 / H258 closures touching Riemannian-style correction, OR a future mechanism axis testing a different Riemannian geometry (Grassmannian, projective space).
+
+### 🎯 Pattern B `@torch.compiler.disable` helper template validated for 2nd NEW mechanism class
+
+H257 arm_a CTRL FFS=3025 EXACT vs H203 baseline `pyea3zd1` proves Pattern B preserves bit-identity step-0 + FFS even when gated treatment branches active. Pattern B was earlier validated for H249 `riemannian_norm_stiefel` (norm replacement); H257 extends Pattern B validation to **momentum state-evolution corrections** (`muonh_sphere_pt_step` helper outside `@torch.compile`).
+
+### Cumulative state at H257 closure (cycle ~1545)
+- **114 NULL/NEG closures**
+- **60 mechanism classes** (H264 Lookahead is 60th; H265 alphonse Trust-Region body step is 61st newly assigned)
+- **11 drift-FREE CTRL instances** cumulative
+- **5 canonical safe-fix templates validated** (A / B / C / D-strict / D-loose with 2 drift classes)
+- **PROGRAMME FINDING #56** candidate at 4 axes (pending H258 closure for 5-axis PROMOTION)
+- **PROGRAMME FINDING #58** candidate at 5 axes CLOSURE-GRADE PROMOTION
+- **PROGRAMME FINDING #59** candidate active
+- **PROGRAMME FINDING #60 candidate NEW** (3 axes from H257 alone + cross-pollination with PF#58 cluster)
+
+---
+
 ## 2026-05-29 06:00 — PR #1627: H256 edward Outer LR temporal schedule (constant/cosine_matched/linear_warmup) — CLOSED (**113th NULL/NEG closure**, both treatment arms NEG including arm_b CATASTROPHIC NEG (+49σ_H174 H250-class crossover failure a-priori-PREDICTED and CONFIRMED), 🎯 **PROGRAMME FINDING #56 candidate STRENGTHENED to 4 axes** + 🎯 **mid-trajectory advantage interpretation heuristic CONFIRMED** + 🎯 **Pattern A 4-mechanism-class consolidation** + **8th drift-FREE CTRL instance**)
 
 - Branch: H256 edward (52nd class — MuLoCo outer Nesterov SGD step magnitude temporal scheduling)
