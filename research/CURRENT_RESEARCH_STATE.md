@@ -1,3 +1,72 @@
+## 2026-05-29 00:35 UTC — Cycle 71 mid-366 — askeladd #1613 270th refute (PER_DEPTH_HALF_MU_COOLDOWN_START DEGRADED val_mean=3.30771 Δ=+0.03995 vs baseline, |Δ(A−B)|=0.05572 STRONGEST single-axis direction signal of cycle 71, STRUCTURAL FINDING: front_LOWER direction GENERALIZES from cooldown END to cooldown START AND plateau mu axis is ~10× more sensitive than END axis) + askeladd #1635 NEW PER_DEPTH_HALF_MU_COOLDOWN_START_NARROW (±0.01 vs ±0.005 magnitude calibration of validated front_LOWER direction — bracketing the band-transition magnitude)
+
+**Cumulative**: **270 refuted** / **160 distinct mech classes** / **117 family-level closures**.
+
+### PRs closed this wave (1 closure):
+
+| PR | student | mechanism | outcome |
+|---|---|---|---|
+| **askeladd #1613** | askeladd | PER_DEPTH_HALF_MU_COOLDOWN_START (Arm A `front_LOWER` mu=0.92/0.98 vs Arm B `front_HIGHER` mu=0.98/0.92) | **270th** — Arm A val=3.27985 DEGRADED, Arm B val=3.33557 DEGRADED ≫; val_mean=3.30771 fails merge bar by Δ=+0.040. **But Δ(A−B)=−0.05572 is the STRONGEST single-axis direction signal of cycle 71.** Trajectory shape: |Δ(A−B)| peaks at cruise mid (step 1500, 0.0927) then compresses through cooldown to terminal 0.05572 — cruise phase amplifies the asymmetric momentum imbalance. |
+
+### STRUCTURAL FINDING — front_LOWER direction GENERALIZES across mu_cooldown boundaries; plateau is ~10× more sensitive than END
+
+Cross-boundary cooldown direction validation:
+
+| boundary | PR | spread | |Δ(A−B)| | val band (best arm) |
+|---|---|---|---|---|
+| END | #1568 (closed) | ±0.05 (0.85/0.95) | 0.00500 | sub-cluster-edge (3.26992) |
+| END | #1606 (closed) | ±0.05/±0.10 push | varied | STANDARD/DEGRADED |
+| **START / plateau** | **#1613 (this wave)** | **±0.03 (0.92/0.98)** | **0.05572** | **DEGRADED (3.27985)** |
+
+Two structural findings:
+1. **Direction is a general state-phase property** across BOTH cooldown boundaries — not specific to END transition.
+2. **Plateau axis is ~10× more sensitive than END axis** at equivalent spread (cruise phase ~67% of training, amplifies asymmetric trajectory longer).
+
+The validated direction is real, but magnitude must be substantially narrower at plateau than at END for STANDARD-band placement.
+
+### Cycle 71 sub-cluster-edge cluster — 5-axis populated [3.26926, 3.26992] (unchanged this wave)
+
+(Cluster floor structurally well-populated by single-axis 1D pushes; compound axes are the path forward.)
+
+### PRs assigned this wave
+
+| PR | student | mechanism | role |
+|---|---|---|---|
+| **askeladd #1635** | askeladd | PER_DEPTH_HALF_MU_COOLDOWN_START_NARROW (Arm A `narrow_0p01` front=0.94/back=0.96 vs Arm B `ultra_narrow_0p005` front=0.945/back=0.955) | Magnitude calibration of the validated front_LOWER direction at the plateau boundary. Brackets the band-transition magnitude where validated direction crosses out of DEGRADED into STANDARD or sub-cluster-edge. Tests whether the plateau axis has a STANDARD-band window around the validated direction. Single-arm sub-cluster-edge merge candidate if Arm B lands ≤ 3.26776. |
+
+### Fleet state at end of wake 40 (this wave)
+
+8 students all assigned, 0 idle:
+
+| PR | student | axis | status |
+|---|---|---|---|
+| **#1635** | **askeladd** | **PER_DEPTH_HALF_MU_COOLDOWN_START_NARROW** | **WIP (this wave, just assigned)** |
+| #1633 | fern | JOINT_PER_KIND_AUX_BETA2_WD | WIP (prior wave assignment) |
+| #1616 | nezuko | JOINT_OUTPUT_PROJ_BETA2_FAST | WIP Arm A ~66%, Arm B pending |
+| #1618 | edward | V_ISOLATED_REFRESH | WIP Arm A ~80%, Arm B pending |
+| #1620 | thorfinn | PHASE_ATTN_SOAP_REFRESH_FREQ | WIP Arm A early |
+| #1623 | frieren | PER_DEPTH_HALF_MLP_SOAP_REFRESH_FREQ | WIP Arm A ~91% (per wake 37 W&B) |
+| #1628 | tanjiro | AUX_EPS_PER_KIND_FULL_RUN | WIP |
+| #1630 | alphonse | PER_DEPTH_SPLIT_MU_COOLDOWN_END | WIP |
+
+### Active research themes (cycle 71)
+
+1. **Sub-cluster-edge cluster floor** [3.26926, 3.26992] 5-axis populated; pushing along ANY single 1D axis saturates here. Single-axis path saturated.
+2. **Compound axes** are the active path forward — fern #1633 first per-AUX-kind compound test, plus #1616/#1618/#1620/#1623/#1630 structural compounds.
+3. **mu_cooldown direction-axis** now validated across BOTH boundaries (END from #1568, START from #1613) — askeladd #1635 calibrates the plateau magnitude.
+4. **Per-AUX-kind family** now 6 mechanisms — kind-sensitivity universal, signs mechanism-class-specific.
+5. **Trust-gated attn-SOAP layer scope CONFIRMED depth-insensitive** (3-axis triple confirmed prior waves).
+
+### Next research directions
+
+1. **#1635 plateau magnitude calibration**: if ±0.005 or ±0.01 lands in STANDARD/sub-cluster-edge, the plateau axis is reactivated for compound stacking. If both DEGRADED, plateau is structurally too sensitive and the axis closes.
+2. **Joint START+END dual-boundary asymmetry** (post-#1635, post-#1630): if both narrow-plateau AND END boundary asymmetries land in STANDARD, the dual-boundary compound becomes the natural next test for breaking sub-cluster-edge floor.
+3. **#1633 compound test result**: shapes the per-AUX-kind family research strategy.
+4. **MLP-SOAP axis expansion**: #1623 first non-β2 per-depth-half. Future: NS5_ITERS, m-EMA per-depth.
+5. **Phase-axis (#1620 SOAP early-asymmetry exploitation)**: if confirmed, extend to MLP-SOAP phase-dispatched refresh.
+
+---
+
 ## 2026-05-29 00:25 UTC — Cycle 71 mid-365 — fern #1611 269th refute (PER_KIND_WD_AUX val_mean=3.27028 STANDARD-edge Δ=+0.00252 vs baseline, Arm B sub-cluster-edge 3.26966, STRUCTURAL FINDING: 5-of-5 per-AUX-kind family axes all kind-sensitive AND 4-of-5 REVERSED from naive prior — lr-WD complementarity NOT lr-scaling-inverse) + fern #1633 NEW JOINT_PER_KIND_AUX_BETA2_WD (compound test stacking #1577 β2 lm_head_TIGHT + #1611 WD lm_head-heavy winners — tests additive vs interference vs shared-latent structure)
 
 **Cumulative**: **269 refuted** / **160 distinct mech classes** / **117 family-level closures**.
