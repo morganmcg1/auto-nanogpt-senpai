@@ -12,6 +12,7 @@ with open(sys.argv[0]) as f:
 import argparse
 import uuid
 import time
+from collections import deque
 from pathlib import Path
 
 import torch
@@ -84,6 +85,10 @@ def parse_args():
     parser.add_argument('--aux_b2_pulse_target', type=float, default=0.99,
                         help='New aux Adam β2 value to set at --aux_b2_pulse_step. '
                              '0 or negative disables. Default: 0.99 (canonical WIN).')
+    parser.add_argument('--aux_adashift_n', type=int, default=0,
+                        help='AdaShift temporal lag for aux Adam second moment. '
+                             '0 = standard fused AdamW (default). >0 swaps in a custom '
+                             'AdaShiftAdamW where v_t uses g_{t-n}^2 (FIFO buffer).')
     parser.add_argument("--seed", type=int, default=1,
                         help="Random seed for torch/numpy/python. Default 1 matches baseline seed.")
     args = parser.parse_args()
@@ -562,6 +567,71 @@ def pmuon_update(
     return update
 
 
+class AdaShiftAdamW(torch.optim.Optimizer):
+    """AdamW with temporally-lagged second moment (AdaShift, Xie et al. ICLR 2019).
+
+    v_t = beta2 * v_{t-1} + (1 - beta2) * g_{t-n}^2  (lagged denominator)
+    m_t = beta1 * m_{t-1} + (1 - beta1) * g_t        (standard first moment)
+    """
+    def __init__(self, params, lr=1e-3, betas=(0.8, 0.95), eps=1e-7,
+                 weight_decay=0.0, n_shift=1):
+        defaults = dict(lr=lr, betas=betas, eps=eps, weight_decay=weight_decay,
+                        n_shift=n_shift)
+        super().__init__(params, defaults)
+
+    @torch.no_grad()
+    def step(self, closure=None):
+        loss = None
+        if closure is not None:
+            with torch.enable_grad():
+                loss = closure()
+        for group in self.param_groups:
+            beta1, beta2 = group["betas"]
+            n = group["n_shift"]
+            lr = group["lr"]
+            eps = group["eps"]
+            wd = group["weight_decay"]
+            for p in group["params"]:
+                if p.grad is None:
+                    continue
+                # Promote gradient to fp32 so Adam state stays in fp32 even when
+                # p is bf16 (matches fused AdamW's internal behavior).
+                g = p.grad.detach().float()
+                state = self.state[p]
+                if len(state) == 0:
+                    state["step"] = 0
+                    state["exp_avg"] = torch.zeros_like(p, dtype=torch.float32)
+                    state["exp_avg_sq"] = torch.zeros_like(p, dtype=torch.float32)
+                    # Ring buffer pre-filled with zeros so v_t is valid from step 0
+                    state["grad_buf"] = deque(
+                        [torch.zeros_like(g) for _ in range(n)], maxlen=n
+                    )
+                state["step"] += 1
+                t = state["step"]
+                m = state["exp_avg"]
+                v = state["exp_avg_sq"]
+                buf = state["grad_buf"]
+                m.mul_(beta1).add_(g, alpha=1 - beta1)
+                # AdaShift: lagged gradient AFTER warmup; standard Adam during the first n steps.
+                if t > n:
+                    g_lag = buf[0]                   # g_{t-n} (oldest in buffer)
+                    v.mul_(beta2).addcmul_(g_lag, g_lag, value=1 - beta2)
+                else:
+                    v.mul_(beta2).addcmul_(g, g, value=1 - beta2)
+                # Defensive floor so sqrt(v) >= eps even if v rounds to ~0 in low precision.
+                v.clamp_min_(eps * eps)
+                buf.append(g.clone())                # push current gradient (fp32)
+                bc1 = 1 - beta1 ** t
+                bc2 = 1 - beta2 ** t
+                m_hat = m / bc1
+                v_hat = v / bc2
+                update = m_hat / v_hat.sqrt().add_(eps)
+                if wd != 0:
+                    p.data.mul_(1 - lr * wd)
+                p.data.add_(update.to(p.dtype), alpha=-lr)
+        return loss
+
+
 class Muon(torch.optim.Optimizer):
     def __init__(self, params, lr=0.02, weight_decay=0, mu=0.95, beta_cov=0.95, gamma=PMUON_GAMMA,
                  ns_a=NS_A, ns_b=NS_B, ns_c=NS_C):
@@ -758,6 +828,7 @@ if dist.get_rank() == 0:
             "paramema_refresh_only": int(args.paramema_refresh_only),
             "aux_b2_pulse_step": args.aux_b2_pulse_step,
             "aux_b2_pulse_target": args.aux_b2_pulse_target,
+            "aux_adashift_n": args.aux_adashift_n,
             "seed": args.seed,
         },
     )
@@ -790,10 +861,28 @@ for trial_idx in range(args.num_trials):
             raise Exception(f"Uninitialized parameter: {name}")
 
     # create the optimizer(s)
-    optimizer1 = AdamW([dict(params=[model.embed.weight], lr=0.3, name="adam_embed"),
-                        dict(params=[model.proj.weight], lr=1/160, name="adam_lm_head"),
-                        dict(params=[p for p in model.parameters() if p.ndim < 2], lr=0.025, name="adam_scalars")],
-                       betas=(0.8, 0.95), eps=1e-10, weight_decay=0, fused=True)
+    aux_scalar_params = [p for p in model.parameters() if p.ndim < 2]
+    if args.aux_adashift_n > 0:
+        optimizer1 = AdaShiftAdamW(
+            [
+                dict(params=[model.embed.weight], lr=0.3, name="adam_embed",
+                     betas=(0.8, 0.95), eps=1e-7, weight_decay=0,
+                     n_shift=args.aux_adashift_n),
+                dict(params=[model.proj.weight], lr=1/160, name="adam_lm_head",
+                     betas=(0.8, 0.95), eps=1e-7, weight_decay=0,
+                     n_shift=args.aux_adashift_n),
+                dict(params=aux_scalar_params, lr=0.025, name="adam_scalars",
+                     betas=(0.8, 0.95), eps=1e-7, weight_decay=0,
+                     n_shift=args.aux_adashift_n),
+            ]
+        )
+        print0(f"aux optimizer: AdaShiftAdamW n_shift={args.aux_adashift_n} "
+               f"betas=(0.8, 0.95) eps=1e-7 weight_decay=0", console=True)
+    else:
+        optimizer1 = AdamW([dict(params=[model.embed.weight], lr=0.3, name="adam_embed"),
+                            dict(params=[model.proj.weight], lr=1/160, name="adam_lm_head"),
+                            dict(params=aux_scalar_params, lr=0.025, name="adam_scalars")],
+                           betas=(0.8, 0.95), eps=1e-10, weight_decay=0, fused=True)
     optimizer2 = Muon([p for p in model.blocks.parameters() if p.ndim >= 2],
                       lr=args.muon_lr, weight_decay=0.025, beta_cov=0.95, gamma=PMUON_GAMMA)
     optimizer2.param_groups[0]["name"] = "muon_blocks"
@@ -1182,6 +1271,8 @@ for trial_idx in range(args.num_trials):
                 "aux_b2/fired": int(args.aux_b2_pulse_step > 0
                                     and args.aux_b2_pulse_target > 0.0
                                     and step >= args.aux_b2_pulse_step),
+                "aux_adashift/n_shift": args.aux_adashift_n,
+                "aux_adashift/active": int(args.aux_adashift_n > 0),
             }, step=wandb_step)
         if dist.get_rank() == 0 and (train_step % 100 == 0 or train_step == train_steps):
             spec = pmuon_spectral_diag(optimizer2, PMUON_GAMMA)
