@@ -1,3 +1,70 @@
+## 2026-05-29 10:30 UTC — Cycle 71 mid-383 — alphonse #1662 287th refute (JOINT_MLP_SOAP_REFRESH_BACK_FAST_X_MU_COOLDOWN_END_DEPTH_HALF val_mean=3.27228 STANDARD misses merge bar by Δ=+0.00452 val and +50 ffs, Arm A `compound` val=3.27231 ffs=3050 STANDARD, Arm B `end_only` val=3.27225 ffs=3050 STANDARD, Δ(B−A)=−0.00006 DEEP NULL → cross-class compound is SATURATED within per-depth-half scope at STANDARD level NOT at sub-cluster-edge, both arms regressed substantially from their parent single-arm references, **MAJOR CALIBRATION FINDING**: #1568 Arm A 3.26992 sub-cluster-edge claim FAILS n=2 confirmation at Δ=+0.00233 (Arm B 3.27225) — this is the SECOND single-arm sub-cluster-edge entry to fail n=2 replication after #1635 Arm A in #1657 → both single-arm depth-half cooldown family sub-cluster-edge entries have failed n=2 → systematic n=1 noise-favoring bias at +0.002 magnitude → robust signal-level threshold raised from +0.002 to +0.003 above-replication-noise, **MAJOR STRUCTURAL FINDING**: cross-mechanism-class compound within shared per-depth-half scope SATURATES because both mechanisms occupy the same per-depth-half latent regularization channel → cross-class compound discovery requires cross-SCOPE pairing NOT cross-mechanism-class within same per-depth-half scope, **NEW Δ-trajectory mechanism class**: EARLY-DISADVANTAGE-MONOTONIC-DECAY pattern peak |Δ|=0.00573 at step 500 monotonically decays to 0.00006 at terminal — distinct from #1635 sign-flip-at-2000 and #1623 END-STATE-only patterns, train-loss slope identity confirms val gap checkpoint-resolution-only) + alphonse #1687 NEW JOINT_MLP_SOAP_REFRESH_BACK_FAST_X_PHASE_DISPATCH_ATTN_SOAP_BETA2 (FIRST CROSS-SCOPE COMPOUND TEST directly executing your #1662 structural pivot — Arm A `cross_scope_compound` combines #1623+#1656 back_FAST F=15/B=5/split=6 [per-depth-half scope, depth-axis] with #1663 Arm A phase-dispatch early=0.90/late=0.95/boundary=1500 [phase-dispatch scope, time-axis], both validated REPLICATED at n=2; Arm B `back_FAST_alone` serves as n=3 confirmation of cycle 71 strongest single-arm; if A < B → cross-SCOPE additivity unlocked → potential MERGE candidate at n=1; if A ≈ B → saturation upgrades to MECHANISM-CLASS-UNIVERSAL → strategic pivot to architectural/data/init mechanisms; if A > B → cross-scope hidden dependency identified → major structural finding; fits Morgan's directive state-mechanism × per-group; orthogonal to existing in-flight depth-half [#1684], phase-dispatch [#1685], cooldown [#1665] and per-kind [#1683, #1678] mechanism tests)
+
+**Cumulative**: **287 refuted** / **173 distinct mech classes** / **123 family-level closures**.
+
+(Mechanism class +1 for EARLY-DISADVANTAGE-MONOTONIC-DECAY Δ-trajectory pattern; family closure count unchanged — #1630 cooldown_END family closure is calibration-downgraded but not retracted since magnitude saturation and split-position inert axes still close the family.)
+
+### PRs closed this wave (1 closure):
+
+| PR | student | mechanism | outcome |
+|---|---|---|---|
+| **alphonse #1662** | alphonse | JOINT_MLP_SOAP_REFRESH_BACK_FAST × MU_COOLDOWN_END_DEPTH_HALF (per-depth-half × per-depth-half cross-class) | **287th** — Arm A val=3.27231, Arm B val=3.27225, val_mean misses by +0.00452 val and +50 ffs. Δ(B−A)=−0.00006 DEEP NULL. **MAJOR CALIBRATION FINDING**: #1568 sub-cluster-edge claim FAILS n=2 (+0.00233). **MAJOR STRUCTURAL FINDING**: cross-class compound within per-depth-half scope SATURATES at STANDARD via shared latent channel. **NEW mechanism class**: EARLY-DISADVANTAGE-MONOTONIC-DECAY Δ-trajectory pattern. |
+
+### MAJOR CALIBRATION FINDING — sub-cluster-edge band single-arm n=1 entries are noise-dominated
+
+**Both single-arm depth-half cooldown sub-cluster-edge entries have now failed n=2 replication:**
+
+| PR | mechanism | val | n=2 confirmation | status |
+|---|---|---|---|---|
+| #1623 Arm B + #1656 Arm A | MLP-SOAP refresh back_FAST | 3.26823 mean (range 0.00042) | REPLICATED | **credible** |
+| #1635 Arm A → #1657 Arm A | cooldown-START depth-half front_LOWER | 3.26832 → 3.27049 (Δ=+0.00217) | **FAILED** | single-seed noise |
+| **#1568 Arm A → #1662 Arm B** | **cooldown_END depth-half front_LOWER** | **3.26992 → 3.27225 (Δ=+0.00233)** | **FAILED** | **single-seed noise** |
+| #1663 Arm A + Arm B | attn-SOAP β2 phase-dispatch (early=0.90, late=0.95-0.97) | 3.26935 mean (range 0.00024) | REPLICATED | credible at ffs=3025 |
+
+**Systematic finding**: depth-half cooldown mechanisms have n=1 noise-favoring bias at the +0.002 signal magnitude. The #1630 cooldown_END family closure (120th) at "direction VALIDATED" sub-cluster-edge status is calibration-downgraded to "direction WEAK at noise floor". The family remains closure-mapped via magnitude SATURATION and split-position INERT axes.
+
+**Robust signal-level (val − baseline) threshold raised from +0.002 (cycle 71 noise floor) to +0.003 (above-replication-noise).** Future sub-cluster-edge claims require n≥2 confirmation before being treated as mechanism findings — single-arm n=1 entries in [3.265, 3.272) are within seed noise of baseline.
+
+### MAJOR STRUCTURAL FINDING — cross-class compound within per-depth-half scope SATURATES via shared latent
+
+Two per-depth-half mechanisms (MLP-SOAP refresh × cooldown_END depth-half) occupy the SAME per-depth-half latent regularization channel → compound cannot stack additively. Both arms regress to STANDARD substantially below their parent single-arm references. **Cross-class compound discovery requires cross-SCOPE pairing (e.g. depth-axis × time-axis), NOT cross-mechanism-class within the same per-depth-half scope.**
+
+This is the structural pivot for cycle 71's cross-class compound search. alphonse #1687 executes this directly.
+
+### NEW Δ-TRAJECTORY MECHANISM CLASS — EARLY-DISADVANTAGE-MONOTONIC-DECAY (173rd class)
+
+| step | Arm A val | Arm B val | Δ(B−A) | phase |
+|---|---|---|---|---|
+| 500 | 3.80785 | 3.80212 | **−0.00573** (peak |Δ|) | early cruise |
+| 1500 | 3.53691 | 3.53490 | −0.00201 | mid cruise |
+| 2250 (cooldown start) | 3.39244 | 3.39154 | −0.00090 | cooldown begins |
+| 3175 | 3.27231 | 3.27225 | **−0.00006** | terminal |
+
+Distinct from #1635/#1657 cruise-cooldown sign-flip, distinct from #1623/#1645 end-state-only. The compound engages shared latent perturbation most strongly during early cruise (when both mechanisms are most active and differentiated) and dissipates over cooldown as both converge in their effects. Train-loss slope identity confirms val gap is checkpoint-resolution-only.
+
+### PRs assigned this wave
+
+| PR | student | mechanism | role |
+|---|---|---|---|
+| **alphonse #1687** | alphonse | JOINT_MLP_SOAP_REFRESH_BACK_FAST_X_PHASE_DISPATCH_ATTN_SOAP_BETA2 (Arm A `cross_scope_compound` back_FAST F=15/B=5 × phase-dispatch early=0.90/late=0.95/boundary=1500, Arm B `back_FAST_alone` n=3 reference) | **FIRST CROSS-SCOPE COMPOUND TEST** — depth-axis × time-axis compound combining two REPLICATED single-mechanisms from DISJOINT scopes; directly executes #1662 structural pivot; potential MERGE candidate at n=1 if A < 3.26776 |
+
+### Fleet state at end of wake 74 (this wave)
+
+8 students all assigned, 0 idle:
+
+| PR | student | axis | status |
+|---|---|---|---|
+| **#1687** | **alphonse** | **JOINT_MLP_SOAP_REFRESH_BACK_FAST_X_PHASE_DISPATCH_ATTN_SOAP_BETA2 (cross-SCOPE compound)** | **WIP (this wave, just assigned)** |
+| #1685 | thorfinn | PER_KIND_ATTN_SOAP_TRUST_THRESHOLD (V_AXIS_ISOLATION) | WIP (prior wave) |
+| #1684 | askeladd | PER_DEPTH_HALF_ATTN_SOAP_TRUST_THRESHOLD | WIP (prior wave) |
+| #1683 | fern | PER_KIND_WD_AUX_DECOMPOSITION | WIP (prior wave) |
+| #1678 | tanjiro | PER_KIND_AUX_BETA1_DIRECTION | WIP (prior wave) |
+| #1671 | frieren | MLP_SOAP_TRUST_GATE_PHASE_DISPATCH | WIP (pod recovered, student re-launching) |
+| #1668 | nezuko | PHASE_DISPATCH_MLP_SOAP_PROJ_BETA2 | WIP (prior wave) |
+| #1665 | edward | TRUST_THRESHOLD_WARMUP | WIP (prior wave) |
+
+---
+
 ## 2026-05-29 10:20 UTC — Cycle 71 mid-382 — thorfinn #1663 286th refute (ASYMMETRIC_LATE_BETA2_ATTN_SOAP val_mean=3.26935 floor-band entry misses merge bar by Δ=+0.00159 val and +25 ffs, Arm A `late_0p95` early=0.90/late=0.95 val=3.26947 ffs=3025 floor-band-mid, Arm B `late_0p97` early=0.90/late=0.97 val=3.26923 ffs=3025 floor-band-lower-mid, Δ(B−A)=−0.00024 ≈ 0 → **late-β2 axis SATURATED at 0.95** at this scope, Arm A vs #1642 Arm A Δ=−0.00140 small gain from early=0.85→0.90 baseline shift, **MAJOR STRUCTURAL FINDING: advisor v-axis prediction REFUTED** — v-axis early on_fraction=0.0167 ≈ 0% in BOTH arms regardless of early β2 ∈ {0.85, 0.90}; **early β2 is NOT the v-axis early-gate lever**; v-axis early suppression is structurally independent of β2 phase-dispatch; mechanism for late-phase basis stability is purely late-window not bilateral; ATTN-SOAP β2 phase-dispatch axis now fully mapped → **123rd family-level closure**; **floor band entry at effective n=2** — Arms A+B differ only in late β2 (0.95 vs 0.97), constitute n=2 evidence at val=3.26935 ± 0.00012 tight replication; **second-best cross-PR replicated floor band entry** behind back_FAST [#1623+#1656]) + thorfinn #1685 NEW PER_KIND_ATTN_SOAP_TRUST_THRESHOLD (V_AXIS_ISOLATION) (FRESH PER-GROUP STATE-MECHANISM AXIS directly testing #1663 v-axis-β2-independence finding — Arm A `v_permissive` q/k/proj=0.85 baseline + v=0.50 opens v-axis early gate, Arm B `v_strict` q/k/proj=0.85 + v=0.95 tightens v-axis filter; if A < baseline: v-axis early-suppression hurts; if B < baseline: v-axis benefits from STRICTER filtering; both ≈ baseline: v-axis threshold structurally inert and suppression mechanism is elsewhere (warmup, depth, dispatch); per-kind on_fraction telemetry at 8 checkpoints; orthogonal to askeladd #1684 depth-half + edward #1665 uniform-warmup; fits Morgan's directive per-group + state-mechanism)
 
 **Cumulative**: **286 refuted** / **172 distinct mech classes** / **123 family-level closures**.
