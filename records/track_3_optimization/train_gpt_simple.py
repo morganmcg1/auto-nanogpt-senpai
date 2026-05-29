@@ -464,6 +464,11 @@ SOAP_PRECOND_FREQ = 10
 ATTN_SOAP_BETA2 = 0.90
 ATTN_SOAP_PRECOND_FREQ = 10
 ATTN_SOAP_TRUST_THRESHOLD = float(os.environ.get("ATTN_SOAP_TRUST_THRESHOLD", "0.9"))
+# V_FAST_DEPTH_HALF_REFRESH (#1640): per-kind × per-depth-half refresh dispatch on v-axis only.
+PER_DEPTH_HALF_V_REFRESH_ENABLED = int(os.environ.get("PER_DEPTH_HALF_V_REFRESH_ENABLED", "0"))
+ATTN_SOAP_PRECOND_FREQ_V_FRONT = int(os.environ.get("ATTN_SOAP_PRECOND_FREQ_V_FRONT", "5"))
+ATTN_SOAP_PRECOND_FREQ_V_BACK = int(os.environ.get("ATTN_SOAP_PRECOND_FREQ_V_BACK", "15"))
+V_REFRESH_DEPTH_SPLIT = int(os.environ.get("V_REFRESH_DEPTH_SPLIT", "6"))
 NS5_ITERS = int(os.environ.get("NS5_ITERS", "12"))
 WD_AUX = float(os.environ.get("WD_AUX", "0.0"))  # AdamW WD on embed + lm_head matrices (scalars stay at 0)
 EMBED_INIT_STD = float(os.environ.get("EMBED_INIT_STD", "1.0"))  # default preserves baseline N(0,1)
@@ -642,6 +647,8 @@ class Muon(torch.optim.Optimizer):
         }
         # Track which sub-type each attention-SOAP param is (q/k/v/proj) for per-type telemetry.
         self.attn_soap_kind: dict[int, str] = {}
+        # Track block index per attention-SOAP param for per-depth-half telemetry and dispatch.
+        self.attn_soap_block_idx: dict[int, int] = {}
         for n, p in named_params:
             if p in self.attn_soap_params:
                 if n.endswith(".attn.q.weight"):
@@ -652,6 +659,36 @@ class Muon(torch.optim.Optimizer):
                     self.attn_soap_kind[id(p)] = "v"
                 elif n.endswith(".attn.proj.weight"):
                     self.attn_soap_kind[id(p)] = "proj"
+                self.attn_soap_block_idx[id(p)] = int(n.split(".", 1)[0])
+        # V_FAST_DEPTH_HALF_REFRESH (#1640): per-param v-refresh override dispatch.
+        self.v_refresh_per_param: dict[int, int] = {}
+        if PER_DEPTH_HALF_V_REFRESH_ENABLED:
+            for p in self.attn_soap_params:
+                if self.attn_soap_kind.get(id(p)) != "v":
+                    continue
+                block_idx = self.attn_soap_block_idx.get(id(p))
+                if block_idx is None:
+                    continue
+                self.v_refresh_per_param[id(p)] = (
+                    ATTN_SOAP_PRECOND_FREQ_V_FRONT if block_idx < V_REFRESH_DEPTH_SPLIT
+                    else ATTN_SOAP_PRECOND_FREQ_V_BACK
+                )
+        n_v_front = sum(
+            1 for p in self.attn_soap_params
+            if self.attn_soap_kind.get(id(p)) == "v"
+            and self.attn_soap_block_idx.get(id(p), 0) < V_REFRESH_DEPTH_SPLIT
+        )
+        n_v_back = sum(
+            1 for p in self.attn_soap_params
+            if self.attn_soap_kind.get(id(p)) == "v"
+            and self.attn_soap_block_idx.get(id(p), 0) >= V_REFRESH_DEPTH_SPLIT
+        )
+        if dist.is_initialized() and dist.get_rank() == 0:
+            print(
+                f"[V_FAST_DEPTH_HALF_REFRESH] enabled={PER_DEPTH_HALF_V_REFRESH_ENABLED} "
+                f"v_front={ATTN_SOAP_PRECOND_FREQ_V_FRONT} v_back={ATTN_SOAP_PRECOND_FREQ_V_BACK} "
+                f"split={V_REFRESH_DEPTH_SPLIT} n_v_front={n_v_front} n_v_back={n_v_back}"
+            )
         params = sorted([p for _, p in named_params], key=lambda x: x.size(), reverse=True)
         defaults = dict(lr=lr, weight_decay=weight_decay, mu=mu)
         super().__init__(params, defaults)
@@ -714,8 +751,12 @@ class Muon(torch.optim.Optimizer):
                     if use_soap:
                         soap_refresh(grad, state)
                     elif use_attn_soap:
+                        if self.attn_soap_kind.get(id(p)) == "v":
+                            refresh_freq_p = self.v_refresh_per_param.get(id(p), ATTN_SOAP_PRECOND_FREQ)
+                        else:
+                            refresh_freq_p = ATTN_SOAP_PRECOND_FREQ
                         soap_refresh(grad, state, beta2=ATTN_SOAP_BETA2,
-                                     refresh_freq=ATTN_SOAP_PRECOND_FREQ,
+                                     refresh_freq=refresh_freq_p,
                                      use_trust_gate=True,
                                      trust_threshold=ATTN_SOAP_TRUST_THRESHOLD)
                 dist.all_gather(params_pad[base_i:base_i + world_size], params_pad[base_i + rank])
@@ -736,6 +777,13 @@ class Muon(torch.optim.Optimizer):
             "v": {"on": 0, "cos_row": [], "cos_col": []},
             "proj": {"on": 0, "cos_row": [], "cos_col": []},
         }
+        # Per-kind × per-depth-half on/count accumulator (4 kinds × {front, back, total}).
+        by_kind_depth: dict[str, dict[str, list[int]]] = {
+            kind: {"front": [0, 0], "back": [0, 0], "total": [0, 0]}
+            for kind in ("q", "k", "v", "proj")
+        }
+        # Per-block v cos_row for block-by-block eigenbasis tracking.
+        v_block_cos_row: dict[int, float] = {}
         for p in self.attn_soap_params:
             state = self.state.get(p)
             if state is None or "trust_gate" not in state:
@@ -753,6 +801,16 @@ class Muon(torch.optim.Optimizer):
                 by_kind[kind]["cos_col"].append(cc)
                 if on:
                     by_kind[kind]["on"] += 1
+                block_idx = self.attn_soap_block_idx.get(id(p))
+                if block_idx is not None:
+                    pos = "front" if block_idx < V_REFRESH_DEPTH_SPLIT else "back"
+                    by_kind_depth[kind][pos][1] += 1
+                    by_kind_depth[kind]["total"][1] += 1
+                    if on:
+                        by_kind_depth[kind][pos][0] += 1
+                        by_kind_depth[kind]["total"][0] += 1
+                    if kind == "v":
+                        v_block_cos_row[block_idx] = cr
         counts = len(cos_rows)
         if counts == 0:
             return {}
@@ -774,6 +832,16 @@ class Muon(torch.optim.Optimizer):
             out[f"{kind}/on_fraction"] = agg["on"] / kn
             out[f"{kind}/mean_cos_row"] = sum(crs) / kn
             out[f"{kind}/mean_cos_col"] = sum(ccs) / kn
+        # Per-kind × per-depth-half on_fraction (12 cells).
+        for kind in ("q", "k", "v", "proj"):
+            for pos in ("front", "back", "total"):
+                on, cnt = by_kind_depth[kind][pos]
+                if cnt > 0:
+                    out[f"{kind}/depth/{pos}/on_fraction"] = on / cnt
+                    out[f"{kind}/depth/{pos}/count"] = cnt
+        # Per-v-block mean_cos_row (block-by-block eigenbasis tracking quality).
+        for block_idx, cr in sorted(v_block_cos_row.items()):
+            out[f"v/block/{block_idx}/mean_cos_row"] = cr
         return out
 
 
@@ -864,6 +932,10 @@ if dist.get_rank() == 0:
             "optimizer/attn_soap_beta2": ATTN_SOAP_BETA2,
             "optimizer/attn_soap_precond_freq": ATTN_SOAP_PRECOND_FREQ,
             "optimizer/attn_soap_trust_threshold": ATTN_SOAP_TRUST_THRESHOLD,
+            "optimizer/per_depth_half_v_refresh_enabled": int(PER_DEPTH_HALF_V_REFRESH_ENABLED),
+            "optimizer/attn_soap_precond_freq_v_front": ATTN_SOAP_PRECOND_FREQ_V_FRONT,
+            "optimizer/attn_soap_precond_freq_v_back": ATTN_SOAP_PRECOND_FREQ_V_BACK,
+            "optimizer/v_refresh_depth_split": V_REFRESH_DEPTH_SPLIT,
             "optimizer/ns5_iters": NS5_ITERS,
             "optimizer/wd_aux": WD_AUX,
             "optimizer/recipe": "contra-muon + normuon-lite + soap-on-mlp + soap-on-attn-trust-gate (pre-NS5, record #14 + record #16)",
