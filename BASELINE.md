@@ -2,6 +2,48 @@
 
 Ordered chronologically. Compare new results against the **most recent entry**.
 
+## 2026-05-29 — PR #1533: EMA-eval (SWA-style) with bias correction, d=0.99 (alphonse) — n=4 confirm — **FFS-PRIMARY MERGE**
+
+- **Primary metric (FFS-primary per directive #1262):** `speedrun/final_first_step_to_target` (EMA-corrected) μ_4 = **2912.5** (σ_4 = 25.0; min/max = 2875/2925)
+- **val/loss train-traj (μ_4):** **3.269600** (σ_4 = 0.001013)
+- **val/ema_loss_corrected (μ_4):** **3.270113** (σ_4 = 0.001005)
+- **Δ vs PR #1381 baseline (μ_4(FFS)=2943.75, σ_4=12.5):**
+  - **ΔFFS = −31.25 steps** (2943.75 → 2912.5) — −1.06%
+  - Within-run gain per trial: 0 / −25 / −50 / −25 steps (direction-consistent across all 4)
+  - σ_4 inflates to 25 vs baseline 12.5 (structural: EMA-eval adds per-trial FFS variance on top of train FFS variance)
+- **n:** 4 seeds (W&B run `axzk5hpf`, group `g1r5-alphonse/ema-eval-swa-confirm`)
+- **Trial breakdown (all 4, no cherry-picking):**
+
+  | Trial | FFS_ema_corr | FFS_train | val/loss_train | val/ema_corr |
+  |------:|-------------:|----------:|---------------:|-------------:|
+  | 0 | 2925 | 2925 | 3.26905 | 3.26957 |
+  | 1 | 2925 | 2950 | 3.27039 | 3.27089 |
+  | 2 | **2875** | 2925 | 3.26845 | 3.26897 |
+  | 3 | 2925 | 2950 | 3.27051 | 3.27102 |
+  | **μ_4** | **2912.5** | 2937.5 | **3.269600** | 3.270113 |
+
+- **What changed:** Added `--ema_eval_decay 0.99` flag. During training, a bias-corrected EMA of the parameter trajectory is maintained (Option A: exact correction using stored `init_state` fp32 snapshot). At each val step, the corrected EMA params are swapped in for evaluation, recovering the `speedrun/first_step_to_target` crossing at the corrected EMA val. FFS is now measured on the EMA-eval trajectory. Mechanism: SWA-style averaging of cooldown-phase param iterates yields a val_loss systematically ~0.012–0.015 below the train-val near the 3.28 crossing, giving −25 mean within-run FFS gain. The cosine cooldown (#1381) already absorbed ~75% of the linear-cooldown stack's SWA signal (−100 steps on pre-#1381 stack → −25 on post-#1381).
+- **New merge statsig rule (FFS-primary, EMA-eval as primary metric):** Future PRs must beat μ_4(FFS_ema) = 2912.5. Note σ_4(FFS_ema) = 25 (wider than prior σ_4=12.5 baselines due to structural EMA-FFS variance) — use pooled SE when evaluating significance.
+- **W&B run:** `axzk5hpf` (group `g1r5-alphonse/ema-eval-swa-confirm`)
+- **Student:** g1r5-alphonse
+- **Mandatory stack now includes:** `--ema_eval_decay 0.99`
+- **Reproduce:**
+
+```bash
+cd "$PROBLEM_DIR" && \
+  SENPAI_TRAIN_STEPS=3250 torchrun --standalone --nproc_per_node=1 \
+    records/track_3_optimization/train_gpt_simple.py \
+    --num_trials 4 \
+    --ns_iter 6 --soap_attn --lr_mlp 0.055 --wd_schedule ramp_down \
+    --lr_scalars 0.03 --depth_init_mode musoft \
+    --lr_cooldown_shape cosine \
+    --ema_eval_decay 0.99 \
+    --wandb_name "g1r5-alphonse/ema-eval-d0.99-n4-confirm-post1381" \
+    --wandb_group "g1r5-alphonse/ema-eval-swa-confirm"
+```
+
+---
+
 ## 2026-05-28 09:11 UTC — PR #1381: Cosine cooldown LR-decay shape (alphonse) — n=4 confirm — **FFS-PRIMARY MERGE**
 
 - **Primary metric (FFS-primary per directive #1262):** `speedrun/final_first_step_to_target` μ_4 = **2943.75** (σ_4 = 12.5; 4/4 trials FFS-alive ≤ 2950; min/max = 2925/2950)
