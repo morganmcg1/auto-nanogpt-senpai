@@ -84,6 +84,12 @@ def parse_args():
     parser.add_argument('--aux_b2_pulse_target', type=float, default=0.99,
                         help='New aux Adam β2 value to set at --aux_b2_pulse_step. '
                              '0 or negative disables. Default: 0.99 (canonical WIN).')
+    parser.add_argument('--aux_b1_pulse_step', type=int, default=-1,
+                        help='Step at which to switch aux Adam β1 to --aux_b1_pulse_target. '
+                             'Negative disables (default). PR #1639 tests DROP direction.')
+    parser.add_argument('--aux_b1_pulse_target', type=float, default=-1.0,
+                        help='New aux Adam β1 value to set at --aux_b1_pulse_step. '
+                             'Negative disables (default). Fires once.')
     parser.add_argument("--seed", type=int, default=1,
                         help="Random seed for torch/numpy/python. Default 1 matches baseline seed.")
     args = parser.parse_args()
@@ -758,6 +764,8 @@ if dist.get_rank() == 0:
             "paramema_refresh_only": int(args.paramema_refresh_only),
             "aux_b2_pulse_step": args.aux_b2_pulse_step,
             "aux_b2_pulse_target": args.aux_b2_pulse_target,
+            "aux_b1_pulse_step": args.aux_b1_pulse_step,
+            "aux_b1_pulse_target": args.aux_b1_pulse_target,
             "seed": args.seed,
         },
     )
@@ -1064,6 +1072,16 @@ for trial_idx in range(args.num_trials):
                 group["betas"] = new_betas
             print0(f"[step {step}] aux_b2_pulse: β2 {old_b2} → {args.aux_b2_pulse_target}",
                    console=True)
+        if (args.aux_b1_pulse_step >= 0
+                and args.aux_b1_pulse_target >= 0.0
+                and step == args.aux_b1_pulse_step):
+            old_b1 = optimizer1.param_groups[0]["betas"][0]
+            b2_cur = optimizer1.param_groups[0]["betas"][1]
+            new_betas_b1 = (args.aux_b1_pulse_target, b2_cur)
+            for group in optimizer1.param_groups:
+                group["betas"] = (args.aux_b1_pulse_target, group["betas"][1])
+            print0(f"[step {step}] aux_b1_pulse: β1 {old_b1:.4f} → {args.aux_b1_pulse_target:.4f} "
+                   f"(β2={b2_cur:.4f} unchanged)", console=True)
         for opt in optimizers:
             opt.step()
         # EMA buffer update on body-Muon matrix params.
@@ -1182,6 +1200,12 @@ for trial_idx in range(args.num_trials):
                 "aux_b2/fired": int(args.aux_b2_pulse_step > 0
                                     and args.aux_b2_pulse_target > 0.0
                                     and step >= args.aux_b2_pulse_step),
+                "aux_b1/current": optimizer1.param_groups[0]["betas"][0],
+                "aux_b1/pulse_step": args.aux_b1_pulse_step,
+                "aux_b1/pulse_target": args.aux_b1_pulse_target,
+                "aux_b1/fired": int(args.aux_b1_pulse_step >= 0
+                                    and args.aux_b1_pulse_target >= 0.0
+                                    and step >= args.aux_b1_pulse_step),
             }, step=wandb_step)
         if dist.get_rank() == 0 and (train_step % 100 == 0 or train_step == train_steps):
             spec = pmuon_spectral_diag(optimizer2, PMUON_GAMMA)
