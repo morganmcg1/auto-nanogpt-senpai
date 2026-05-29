@@ -48,6 +48,9 @@ def parse_args():
                         help="Extend SOAP preconditioning to attention projections with trust gate")
     parser.add_argument("--soap_trust_threshold", type=float, default=0.0,
                         help="Cosine similarity threshold below which SOAP update falls back to plain Muon (when --soap_attn)")
+    parser.add_argument("--soap_trace_norm", action="store_true", default=False,
+                        help="Normalize SOAP Gram matrices by their trace before eigendecomposition / QR refresh "
+                             "(per arXiv:2409.11321 sec. 3.2: whitening matrix Σ = E[gg^T] / Trace(E[gg^T])).")
     parser.add_argument("--lr_mlp", type=float, default=0.035,
                         help="Muon learning rate for MLP weights (.mlp.fc.weight / .mlp.proj.weight)")
     parser.add_argument("--wd_mlp", type=float, default=0.025,
@@ -566,16 +569,28 @@ def soap_precondition_momentum(update, state, beta2=SOAP_BETA2, eps=1e-8):
     return precond.to(update.dtype)
 
 
-def soap_update_preconditioner(grad, state, shampoo_beta=SOAP_BETA2, precondition_frequency=PRECOND_FREQ):
+def soap_update_preconditioner(grad, state, shampoo_beta=SOAP_BETA2,
+                               precondition_frequency=PRECOND_FREQ,
+                               use_trace_norm: bool = False):
     grad_f = grad.float()
     state["row_gg"].lerp_(grad_f @ grad_f.T, 1 - shampoo_beta)
     state["col_gg"].lerp_(grad_f.T @ grad_f, 1 - shampoo_beta)
     if state["q_row"] is None:
-        state["q_row"] = soap_eigenbasis(state["row_gg"])
-        state["q_col"] = soap_eigenbasis(state["col_gg"])
+        if use_trace_norm:
+            row_gg_n = state["row_gg"] / state["row_gg"].trace().clamp_min(1e-8)
+            col_gg_n = state["col_gg"] / state["col_gg"].trace().clamp_min(1e-8)
+        else:
+            row_gg_n, col_gg_n = state["row_gg"], state["col_gg"]
+        state["q_row"] = soap_eigenbasis(row_gg_n)
+        state["q_col"] = soap_eigenbasis(col_gg_n)
     elif state["soap_step"] > 0 and state["soap_step"] % precondition_frequency == 0:
+        if use_trace_norm:
+            row_gg_n = state["row_gg"] / state["row_gg"].trace().clamp_min(1e-8)
+            col_gg_n = state["col_gg"] / state["col_gg"].trace().clamp_min(1e-8)
+        else:
+            row_gg_n, col_gg_n = state["row_gg"], state["col_gg"]
         state["q_row"], state["q_col"], state["exp_avg_sq"] = soap_basis_qr(
-            state["row_gg"], state["col_gg"], state["q_row"], state["q_col"], state["exp_avg_sq"]
+            row_gg_n, col_gg_n, state["q_row"], state["q_col"], state["exp_avg_sq"]
         )
     state["soap_step"] += 1
 
@@ -585,7 +600,7 @@ class Muon(torch.optim.Optimizer):
     SOAP_ATTN_SUFFIXES = (".attn.q.weight", ".attn.k.weight", ".attn.v.weight", ".attn.proj.weight")
 
     def __init__(self, named_params, lr=0.02, weight_decay=0, mu=0.95,
-                 soap_attn=False, trust_threshold=0.0):
+                 soap_attn=False, trust_threshold=0.0, soap_trace_norm=False):
         # `named_params` can be either:
         #   (a) list of (name, param) tuples → single param group (legacy form)
         #   (b) list of dicts {"named_params": [(name, param), ...], "lr": ?, "weight_decay": ?, "mu": ?, "name": ?}
@@ -607,7 +622,11 @@ class Muon(torch.optim.Optimizer):
         self.soap_attn = soap_attn
         self.trust_threshold = float(trust_threshold)
         self.use_trust_gate = soap_attn
+        self.soap_trace_norm = bool(soap_trace_norm)
+        self.collect_soap_telemetry: bool = False
         self.cos_sims_buffer: dict[str, Tensor] = {}
+        self.soap_gram_traces: dict[str, tuple[Tensor, Tensor]] = {}
+        self.soap_eig_max_abs: dict[str, tuple[Tensor, Tensor]] = {}
 
         param_groups = []
         for g in groups_raw:
@@ -627,6 +646,8 @@ class Muon(torch.optim.Optimizer):
     @torch.no_grad()
     def step(self):
         self.cos_sims_buffer = {}
+        self.soap_gram_traces = {}
+        self.soap_eig_max_abs = {}
         world_size = dist.get_world_size()
         rank = dist.get_rank()
         for group in self.param_groups:
@@ -661,7 +682,18 @@ class Muon(torch.optim.Optimizer):
                             self.cos_sims_buffer[self.param_names[id(p)]] = cos_sim_t
                         else:
                             update = u_soap
-                        soap_update_preconditioner(p.grad, state)
+                        soap_update_preconditioner(p.grad, state, use_trace_norm=self.soap_trace_norm)
+                        if self.collect_soap_telemetry:
+                            p_name = self.param_names[id(p)]
+                            self.soap_gram_traces[p_name] = (
+                                state["row_gg"].trace().detach(),
+                                state["col_gg"].trace().detach(),
+                            )
+                            if state["q_row"] is not None:
+                                self.soap_eig_max_abs[p_name] = (
+                                    state["q_row"].abs().max().detach(),
+                                    state["q_col"].abs().max().detach(),
+                                )
                     else:
                         update = muon_update(p.grad, state["momentum"], mu=group["mu"])
                     norm_sum.add_(update.float().norm())
@@ -772,6 +804,7 @@ if dist.get_rank() == 0:
             "ns_iter": NS_ITER,
             "soap_attn_enabled": bool(args.soap_attn),
             "soap_trust_threshold": float(args.soap_trust_threshold),
+            "soap_trace_norm": bool(args.soap_trace_norm),
             "lr_mlp": args.lr_mlp,
             "wd_mlp": args.wd_mlp,
             "lr_attn": args.lr_attn,
@@ -868,6 +901,7 @@ for trial_idx in range(args.num_trials):
             dict(named_params=attn_named, lr=args.lr_attn, weight_decay=args.wd_attn, name="muon_attn"),
         ],
         soap_attn=args.soap_attn, trust_threshold=args.soap_trust_threshold,
+        soap_trace_norm=args.soap_trace_norm,
     )
     optimizers = [optimizer1, optimizer2]
     assert set(p for opt in optimizers for group in opt.param_groups
@@ -1038,6 +1072,7 @@ for trial_idx in range(args.num_trials):
                 train_steps=train_steps,
                 wandb_step=wandb_step,
             )
+        optimizer2.collect_soap_telemetry = telemetry_due
         for opt in optimizers:
             opt.step()
         if telemetry_due:
@@ -1092,6 +1127,34 @@ for trial_idx in range(args.num_trials):
                 trust_metrics["trust/cos_sim_mean_attn"] = sum(attn_vals) / len(attn_vals)
                 trust_metrics["trust/fired_count_attn"] = fired_attn
             wandb.log(trust_metrics, step=wandb_step)
+        if dist.get_rank() == 0 and telemetry_due and optimizer2.soap_gram_traces:
+            gram_traces = optimizer2.soap_gram_traces
+            eig_max_abs = optimizer2.soap_eig_max_abs
+            row_traces = sorted(float(v[0].item()) for v in gram_traces.values())
+            col_traces = sorted(float(v[1].item()) for v in gram_traces.values())
+            n_t = len(row_traces)
+            mid = n_t // 2
+            row_p50 = row_traces[mid] if n_t % 2 == 1 else 0.5 * (row_traces[mid - 1] + row_traces[mid])
+            col_p50 = col_traces[mid] if n_t % 2 == 1 else 0.5 * (col_traces[mid - 1] + col_traces[mid])
+            soap_metrics = {
+                "trial": trial_idx,
+                "train/step": train_step,
+                "soap_gram_trace/row_p50": row_p50,
+                "soap_gram_trace/col_p50": col_p50,
+                "soap_gram_trace/row_min": row_traces[0],
+                "soap_gram_trace/row_max": row_traces[-1],
+                "soap_gram_trace/col_min": col_traces[0],
+                "soap_gram_trace/col_max": col_traces[-1],
+                "soap_gram_trace/n_params": n_t,
+            }
+            if eig_max_abs:
+                row_max_abs = [float(v[0].item()) for v in eig_max_abs.values()]
+                col_max_abs = [float(v[1].item()) for v in eig_max_abs.values()]
+                soap_metrics["soap_eigenbasis_norm/row_max_abs"] = max(row_max_abs)
+                soap_metrics["soap_eigenbasis_norm/col_max_abs"] = max(col_max_abs)
+                soap_metrics["soap_eigenbasis_norm/row_max_abs_mean"] = sum(row_max_abs) / len(row_max_abs)
+                soap_metrics["soap_eigenbasis_norm/col_max_abs_mean"] = sum(col_max_abs) / len(col_max_abs)
+            wandb.log(soap_metrics, step=wandb_step)
         if dist.get_rank() == 0 and telemetry_due:
             log_weight_telemetry(
                 model=model,
