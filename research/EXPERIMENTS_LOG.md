@@ -1,3 +1,29 @@
+## 2026-05-29 21:30 — PR #1690: H271 edward Cooldown-gated Lookahead deactivation — **NULL/CATASTROPHIC NEG (127th closure)**
+
+- Branch: H271 edward (PR #1690, phase-gated Lookahead deactivation test of PF#62 cooldown-coupling hypothesis, post-H266 baseline)
+- Terminal SENPAI-RESULT posted by student. Bilateral catastrophic NEG.
+
+| Arm | run_id | step-0 val | FFS | val/loss | Δval vs baseline | σ_H174 | Decision |
+|---|---|---|---|---|---|---|---|
+| arm_a CTRL (no LA) | `2soh6z0k` | 10.82583 ✓ | **3025** | 3.26838 | +0.00020 | +0.23σ | Pattern A loose +25 drift |
+| arm_b LA_OFF_AT_2300 | `1umnw0t7` | 10.82583 ✓ | **−1 DNF** | 3.31550 | +0.04732 | **+53.5σ CATASTROPHIC** | CLOSE |
+| arm_c LA_OFF_AT_2000 | `zd76wku8` | 10.82583 ✓ | **−1 DNF** | 3.31228 | +0.04410 | **+49.9σ CATASTROPHIC** | CLOSE |
+
+**Decision: CLOSE NULL/CATASTROPHIC (127th closure)** — both treatment arms catastrophically fail. Pattern A drift-FREE gate PASS (step-0 EXACT all 3 arms).
+
+🎯 **PF#62 STRENGTHENED — 9th mechanism category (Lookahead phase-gated deactivation)**:
+- Cooldown-gated deactivation at ANY timing (step 2000 pre-cooldown, step 2300 early-cooldown) produces catastrophic trajectory collapse
+- Structural rigidity principle: wrapper/optimizer mechanisms must operate from step 0 with CONSISTENT PRESENCE THROUGH COOLDOWN — phase-gating (activation OR deactivation) near/during cooldown is universally catastrophic across 9 mechanism categories
+
+🎯 **Additional paper-grade finding** (EMA/Lookahead interaction):
+- H264 pre-H266: Lookahead showed −65σ_H174 mid-training advantage at step 1000
+- H271 post-H266: Lookahead shows only −9σ at step 1000 (same config)
+- Interpretation: H266 Polyak-Ruppert EMA already absorbs most of Lookahead's variance-reduction signal — temporal parameter averaging and per-update stochastic buffering are competing for the same signal
+
+**H281 edward ASSIGNED IMMEDIATELY** — 70th class Gradient Centralization for body matrices pre-NS5 (PR #1735). 2-arm binary test: CTRL body_grad_centralize=0 / GC_ON=1. Zero-center gradient per output-channel before momentum update: `grad -= grad.mean(dim=tuple(range(1,grad.dim())), keepdim=True)`. Structurally distinct from H276 noise/H280 masking/H278 QHM blend. WIN prob 15-20%. Ref: Yong et al. 2020 arXiv:2004.01461.
+
+---
+
 ## 2026-05-29 21:00 — PR #1679: H268 nezuko Adam-Mini aux preconditioner — **NULL/CATASTROPHIC NEG (126th closure)**
 
 - Branch: H268 nezuko (PR #1679, PF#61 3rd axis test — Adam-Mini block-diagonal scalar adaptivity, post-H266 baseline)

@@ -4,6 +4,38 @@
 
 ---
 
+## Cycle ~2040: H271 CLOSED 127th NULL/NEG + H281 ASSIGNED 70th class Gradient Centralization body pre-NS5
+
+**H271 edward Cooldown-gated Lookahead deactivation CLOSED 127th NULL/NEG — bilateral catastrophic NEG, PF#62 STRENGTHENED to 9 mechanism categories.**
+
+Terminal verdict (post-H266 baseline FFS=3000):
+- arm_a CTRL no-lookahead: FFS=3025 Pattern A drift
+- arm_b LA_OFF_AT_2300: FFS=−1 **CATASTROPHIC** val=3.31550 (+53.5σ_H174 NEG)
+- arm_c LA_OFF_AT_2000: FFS=−1 **CATASTROPHIC** val=3.31228 (+49.9σ_H174 NEG)
+
+🎯 **PF#62 STRENGTHENED to 9 mechanism categories** — Lookahead phase-gated deactivation (any timing) catastrophically fatal. Structural rigidity principle: wrapper/optimizer mechanisms must operate from step 0 with CONSISTENT PRESENCE THROUGH COOLDOWN. Phase-gating near cooldown universally catastrophic (9 mechanism families confirmed).
+
+🎯 **Paper-grade EMA/Lookahead interaction finding** (H271 specific): H266 Polyak-Ruppert EMA absorbs most of Lookahead's variance-reduction signal — mid-training advantage shrinks from −65σ_H174 (pre-H266, H264) to −9σ_H174 (post-H266, H271). Temporal parameter averaging competes for the same signal as per-update stochastic buffering.
+
+**H281 edward ASSIGNED 70th class Gradient Centralization body matrices pre-NS5 (PR #1735, 2-arm binary test).**
+
+- 2-arm chain: CTRL body_grad_centralize=0 / GC_ON body_grad_centralize=1
+- Mechanism: zero-center gradient per output-channel BEFORE momentum update: `grad -= grad.mean(dim=(1,...), keepdim=True)` for tensors with >1 dim
+- **Why structurally distinct**: geometric centering (per-filter mean subtraction) — NOT noise, NOT sign-mask, NOT blend coefficient; modifies the gradient DIRECTION subspace constraining it to zero-sum hyperplane
+- Pattern A drift-FREE: `body_grad_centralize=0` falls through to standard path bit-identically
+- WIN prob 15-20%; 70th mechanism class; 2-arm binary (no continuous HP to sweep)
+- PR #1735, post-H266 baseline (FFS<3000 strict WIN criterion)
+- Ref: Yong et al. 2020 https://arxiv.org/abs/2004.01461
+
+**Plateau campaign portfolio after cycle ~2040**:
+- **127 NULL/NEG closures + 1 MERGED WIN (H266)**
+- **70 mechanism classes attempted** (H281 = 70th)
+- 6 PROGRAMME FINDING candidates: PF#56 STRENGTHENED (7 axes), PF#58 CLOSURE-GRADE 4-axis, **PF#61 CLOSURE-GRADE 3-axis (aux preconditioner FORM closed)**, **PF#62 STRENGTHENED to 9 mechanism categories (cooldown-decoupling structural rigidity definitively confirmed)**
+- Pattern A loose +25 drift class noise floor: ≥10 instances — highly reproducible noise floor signature
+- All students with active WIP PRs — zero idle GPUs
+
+---
+
 ## Cycle ~2030: H268 CLOSED 126th NULL/NEG + H274 SENT BACK (AUX_ONLY decay sweep) + H280 ASSIGNED 69th class Cautious MuonH body pre-NS5 sign-mask
 
 **H268 nezuko Adam-Mini aux preconditioner CLOSED 126th NULL/NEG — PF#61 STRENGTHENED to 3-axis CLOSURE-GRADE (aux preconditioner FORM replacement structurally closed).**
