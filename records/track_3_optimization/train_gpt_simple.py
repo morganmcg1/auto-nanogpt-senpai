@@ -109,6 +109,24 @@ def parse_args():
     parser.add_argument("--body_init_bottom_layers", type=int,
                         default=int(os.environ.get("BODY_INIT_BOTTOM_LAYERS", "6")),
                         help="Number of bottom layers to damp for --body_init=orthogonal_bottom_damp (default 6 = bottom half of 12 layers).")
+    # H260: aux optimizer FORM dispatch. 'adamw' = baseline H203 (drift-FREE bit-id).
+    # 'lion' = Chen et al. 2023 sign-momentum optimizer on aux params (embed, lm_head, scalars).
+    # Lion args are no-ops when --aux_optimizer=adamw (preserved in W&B config for audit).
+    parser.add_argument("--aux_optimizer", type=str, default=os.environ.get("AUX_OPTIMIZER", "adamw"),
+                        choices=["adamw", "lion"],
+                        help="Aux parameter optimizer form. 'adamw' = baseline H203, "
+                             "'lion' = sign-momentum (Chen et al. 2023).")
+    parser.add_argument("--aux_lion_beta1", type=float, default=float(os.environ.get("AUX_LION_BETA1", "0.95")),
+                        help="Lion β1 — interpolation weight for update-direction EMA "
+                             "(update = sign(β1*m + (1-β1)*g)).")
+    parser.add_argument("--aux_lion_beta2", type=float, default=float(os.environ.get("AUX_LION_BETA2", "0.98")),
+                        help="Lion β2 — EMA decay for the momentum buffer "
+                             "(m = β2*m + (1-β2)*g, applied AFTER update).")
+    parser.add_argument("--aux_lion_lr", type=float, default=float(os.environ.get("AUX_LION_LR", "1.5e-4")),
+                        help="Lion peak learning rate (Chen et al. recommend lr_lion ≈ lr_adamw / 3). "
+                             "Cooled by the same aux LR schedule eta as AdamW.")
+    parser.add_argument("--aux_lion_wd", type=float, default=float(os.environ.get("AUX_LION_WD", "0.1")),
+                        help="Lion decoupled weight decay (Chen et al. recommend 3-10× higher than AdamW).")
     args = parser.parse_args()
     args.num_trials = args.num_trials if args.num_trials is not None else (args.legacy_num_trials or 1)
     args.wandb_tags = [tag.strip() for tag in args.wandb_tags.split(",") if tag.strip()]
@@ -850,6 +868,11 @@ if dist.get_rank() == 0:
             "muonh_mu_schedule": args.muonh_mu_schedule,
             "muonh_mu_start": args.muonh_mu_start,
             "muonh_mu_end": args.muonh_mu_end,
+            "aux_optimizer": args.aux_optimizer,
+            "aux_lion_beta1": args.aux_lion_beta1,
+            "aux_lion_beta2": args.aux_lion_beta2,
+            "aux_lion_lr": args.aux_lion_lr,
+            "aux_lion_wd": args.aux_lion_wd,
         },
     )
 
@@ -939,6 +962,9 @@ for trial_idx in range(args.num_trials):
     # AGC targets: AdamW aux groups (embed, lm_head, scalars). Built from optimizer1
     # param groups to track exactly the same params AdamW updates.
     aux_params_for_agc = [p for g in optimizer1.param_groups for p in g["params"]]
+    # H260: Lion state buffer (per-param momentum tensor). Empty / unused when
+    # aux_optimizer="adamw". Reset per trial — matches optimizer1.state lifecycle.
+    lion_state: dict = {}
     # Inner-MuonH AGC targets: block 2D weights consumed by MuonH. Clipped BEFORE
     # the MuonH momentum buffer integrates the gradient.
     muonh_params_for_agc = [p for g in optimizer2.param_groups for p in g["params"]]
@@ -1169,8 +1195,52 @@ for trial_idx in range(args.num_trials):
         muonh_agc_stats = adaptive_gradient_clip(
             muonh_params_for_agc, args.muonh_agc_clip_ratio, eps=args.muonh_agc_eps,
         )
-        for opt in optimizers:
-            opt.step()
+        # H260: aux optimizer FORM dispatch — drift-FREE Pattern A (outside @torch.compile).
+        # The `adamw` branch is bit-identical to the pre-H260 path.
+        lion_telemetry_payload: dict | None = None
+        if args.aux_optimizer == "lion":
+            # Lion (Chen et al. 2023) sign-momentum update on aux params.
+            # All aux groups share cooldown_frac=0.4 + linear shape, so the eta from
+            # set_hparams is uniform across all 3 aux groups; rederive it from one
+            # group to scale the Lion peak LR by the same cooldown schedule.
+            aux_eta = optimizer1.param_groups[0]["lr"] / optimizer1.param_groups[0]["initial_lr"]
+            effective_lion_lr = args.aux_lion_lr * aux_eta
+            accumulate_lion = (dist.get_rank() == 0 and telemetry_due)
+            lion_update_sq_sum = 0.0
+            lion_momentum_sq_sum = 0.0
+            lion_numel_total = 0
+            with torch.no_grad():
+                for group in optimizer1.param_groups:
+                    for p in group["params"]:
+                        if p.grad is None:
+                            continue
+                        g = p.grad
+                        state = lion_state.setdefault(p, {})
+                        if "momentum" not in state:
+                            state["momentum"] = torch.zeros_like(p.data)
+                        m = state["momentum"]
+                        update = torch.sign(m * args.aux_lion_beta1 + g * (1.0 - args.aux_lion_beta1))
+                        if args.aux_lion_wd > 0:
+                            p.data.mul_(1.0 - effective_lion_lr * args.aux_lion_wd)
+                        p.data.add_(update, alpha=-effective_lion_lr)
+                        m.mul_(args.aux_lion_beta2).add_(g, alpha=(1.0 - args.aux_lion_beta2))
+                        if accumulate_lion:
+                            lion_update_sq_sum += float(update.square().sum().item())
+                            lion_momentum_sq_sum += float(m.square().sum().item())
+                            lion_numel_total += update.numel()
+            optimizer2.step()  # MuonH-SI body update unchanged
+            if accumulate_lion and lion_numel_total > 0:
+                lion_telemetry_payload = {
+                    "trial": trial_idx,
+                    "train/step": train_step,
+                    "train/h260/aux_lion_update_rms_mean": (lion_update_sq_sum / lion_numel_total) ** 0.5,
+                    "train/h260/aux_lion_momentum_rms_mean": (lion_momentum_sq_sum / lion_numel_total) ** 0.5,
+                    "train/h260/aux_lion_effective_lr": effective_lion_lr,
+                }
+        else:
+            # CTRL ADAMW — bit-identical to pre-H260 path.
+            for opt in optimizers:
+                opt.step()
         # Log warmup telemetry every 10 steps during warmup (and at telemetry events
         # afterwards) so we capture the warmup curve at high resolution. Cheap since
         # it's just two floats.
@@ -1209,6 +1279,8 @@ for trial_idx in range(args.num_trials):
                 muonh_metrics["train/muonh/agc/scale_mean"] = muonh_agc_stats["agc_scale_mean"]
             if len(muonh_metrics) > 2:
                 wandb.log(muonh_metrics, step=wandb_step)
+        if lion_telemetry_payload is not None:
+            wandb.log(lion_telemetry_payload, step=wandb_step)
         if dist.get_rank() == 0 and telemetry_due:
             log_weight_telemetry(
                 model=model,
