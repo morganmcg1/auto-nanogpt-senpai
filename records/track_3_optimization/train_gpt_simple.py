@@ -114,6 +114,16 @@ def parse_args():
                         help="Polyak-Ruppert EMA decay for eval-only weight averaging. "
                              "0.0 = disabled (drift-FREE CTRL). Typical: 0.05 (fast, ~20-step half-life) / "
                              "0.005 (slow, ~200-step half-life). Higher decay = faster EMA tracking.")
+    # H276: Neelakantan et al. 2015 gradient noise injection. Annealed Gaussian
+    # noise added to all parameter .grad tensors after backward (and after AGC)
+    # but before optimizer.step(). σ_t = σ_0 / (1 + t)^gamma, γ=0.55 canonical.
+    parser.add_argument("--grad_noise_sigma_0", type=float,
+                        default=float(os.environ.get("GRAD_NOISE_SIGMA_0", "0.0")),
+                        help="Initial Gaussian gradient noise scale σ_0. 0.0 disables (drift-FREE CTRL). "
+                             "Annealed as σ_t = σ_0 / (1 + t)^gamma per Neelakantan et al. 2015.")
+    parser.add_argument("--grad_noise_gamma", type=float,
+                        default=float(os.environ.get("GRAD_NOISE_GAMMA", "0.55")),
+                        help="Annealing exponent for gradient noise schedule (default 0.55, Neelakantan canonical).")
     args = parser.parse_args()
     args.num_trials = args.num_trials if args.num_trials is not None else (args.legacy_num_trials or 1)
     args.wandb_tags = [tag.strip() for tag in args.wandb_tags.split(",") if tag.strip()]
@@ -856,6 +866,8 @@ if dist.get_rank() == 0:
             "muonh_mu_start": args.muonh_mu_start,
             "muonh_mu_end": args.muonh_mu_end,
             "polyak_ema_decay": args.polyak_ema_decay,
+            "grad_noise_sigma_0": args.grad_noise_sigma_0,
+            "grad_noise_gamma": args.grad_noise_gamma,
         },
     )
 
@@ -1212,6 +1224,35 @@ for trial_idx in range(args.num_trials):
         muonh_agc_stats = adaptive_gradient_clip(
             muonh_params_for_agc, args.muonh_agc_clip_ratio, eps=args.muonh_agc_eps,
         )
+        # H276: Neelakantan annealed gradient noise injection. σ_t = σ_0/(1+t)^γ.
+        # Applied to all p.grad tensors AFTER AGC, BEFORE opt.step(). The
+        # conditional short-circuits cleanly when σ_0 == 0.0, keeping the CTRL
+        # path bit-identical to the post-H266 baseline.
+        sigma_t = 0.0
+        if args.grad_noise_sigma_0 > 0.0:
+            sigma_t = args.grad_noise_sigma_0 / ((1 + train_step) ** args.grad_noise_gamma)
+            with torch.no_grad():
+                for param in model.parameters():
+                    if param.grad is not None:
+                        param.grad.add_(torch.randn_like(param.grad), alpha=sigma_t)
+            # Dense logging during early training (every step for first 100,
+            # then every 10) + telemetry events. One CUDA sync per logged step
+            # via torch.stack to keep overhead reasonable.
+            grad_noise_log_due = (
+                dist.get_rank() == 0
+                and (telemetry_due or train_step % 10 == 0 or train_step <= 100)
+            )
+            if grad_noise_log_due:
+                grad_sqs = [param.grad.float().square().sum()
+                            for param in model.parameters()
+                            if param.grad is not None]
+                grad_norm_post = float(torch.stack(grad_sqs).sum().sqrt().item()) if grad_sqs else 0.0
+                wandb.log({
+                    "trial": trial_idx,
+                    "train/step": train_step,
+                    "train/grad_noise/sigma_t": sigma_t,
+                    "train/grad_noise/grad_norm_post": grad_norm_post,
+                }, step=wandb_step)
         for opt in optimizers:
             opt.step()
         # H266: Polyak-Ruppert EMA update — runs after the live inner-optimizer step.
