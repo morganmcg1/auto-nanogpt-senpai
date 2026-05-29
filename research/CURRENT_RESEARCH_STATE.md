@@ -1,3 +1,73 @@
+## 2026-05-29 02:30 UTC — Cycle 71 mid-369 — nezuko #1616 273rd refute (JOINT_OUTPUT_PROJ_BETA2_FAST val_mean=3.27236 STANDARD Δ=+0.00460 vs baseline, ffs_mean=3050 misses ≤3000 by 50, Δ(B−A)=+0.00291 confirms cross-scope output-FAST direction at smaller magnitude than predicted super-additive ≥+0.005, STRUCTURAL FINDING: **cross-scope OUTPUT-FAST compound is SUB-ADDITIVE — joint Arm A val=3.27090 is WORSE than MLP-only #1590 alone (3.26893) by +0.00197**, interpretation: scopes share common downstream path (NorMuon-lite second_moment or param-norm budget) which over-accelerates when both Gram-EMAs run at β2=0.85) + nezuko #1644 NEW PER_DEPTH_HALF_MLP_SOAP_PROJ_BETA2_FAST (drops cross-scope coupling, applies #1590's MLP-proj-FAST law to FRONT vs BACK half blocks only, n_proj_with_fast_β2=6 sanity-asserted, parallel to #1545 MLP-SOAP β2 front_up direction)
+
+**Cumulative**: **273 refuted** / **161 distinct mech classes** / **117 family-level closures**.
+
+### PRs closed this wave (1 closure):
+
+| PR | student | mechanism | outcome |
+|---|---|---|---|
+| **nezuko #1616** | nezuko | JOINT_OUTPUT_PROJ_BETA2_FAST (Arm A attn v/proj=0.85 + MLP proj=0.85 vs Arm B all REVERSED) | **273rd** — Arm A val=3.27090 STANDARD-low-edge, Arm B val=3.27381 STANDARD; val_mean=3.27236 fails merge bar by Δ=+0.00460. **Δ(B−A)=+0.00291 confirms cross-scope output-FAST direction**, magnitude below predicted super-additive ≥+0.005. |
+
+### STRUCTURAL FINDING — Cross-scope OUTPUT-FAST compound INTERFERES; scopes share common downstream path
+
+Cross-scope direction-stacking table now 3-data-point:
+
+| PR | scope | best output-FAST val | Δ vs baseline 3.26776 | note |
+|---|---|---|---|---|
+| #1590 (closed) | **MLP only** | **3.26893** | **+0.00117 (best individual)** | sub-cluster-edge single-seed |
+| #1575 (closed) | attn only | 3.27069 | +0.00293 | STANDARD-edge |
+| **#1616 Arm A (this)** | JOINT (attn v/proj + MLP proj) | 3.27090 | +0.00314 | **WORSE than MLP-only by +0.00197** |
+
+Naive additive prediction = +0.00410 (sum of components); joint result +0.00314. **Joint Arm A is between additive-stacking and either component alone — partial cancellation.** Mechanistic interpretation: the two SOAP scopes share something downstream (likely NorMuon-lite second_moment buffer or param-norm constraint that ties both subspaces' update budgets) — pushing both Gram-EMAs at full β2=0.85 magnitude over-accelerates the joint adaptation, eroding the MLP-only gain.
+
+**Implication**: stop coupling scopes; partition WITHIN the proven scope (depth-half MLP-SOAP-only).
+
+### Floor band unchanged
+
+[3.26916, 3.26992] — 7 single-axis mechanism classes. #1616 lands above floor band at STANDARD-low-edge; no new floor-band entry.
+
+### PRs assigned this wave
+
+| PR | student | mechanism | role |
+|---|---|---|---|
+| **nezuko #1644** | nezuko | PER_DEPTH_HALF_MLP_SOAP_PROJ_BETA2_FAST (Arm A `front_HALF` blocks 0-5 MLP proj β2=0.85 vs Arm B `back_HALF` blocks 6-11 MLP proj β2=0.85, both arms attn-SOAP untouched at baseline) | **Single-scope depth-partition test**. Drops cross-scope coupling (refuted in #1616), applies #1590's validated MLP-proj-FAST direction to depth subset (6 of 12 MLP proj params). Tests whether proj-FAST is front-localized (parallel to #1545 MLP-SOAP β2 front_up), back-localized (cooldown-phase-driven), or depth-distributed (half-coverage destroys gain). Cleanest possible follow-up to #1590's sub-cluster-edge single-axis non-floor-band entry. |
+
+### Fleet state at end of wake 43 (this wave)
+
+8 students all assigned, 0 idle:
+
+| PR | student | axis | status |
+|---|---|---|---|
+| **#1644** | **nezuko** | **PER_DEPTH_HALF_MLP_SOAP_PROJ_BETA2_FAST** | **WIP (this wave, just assigned)** |
+| #1642 | thorfinn | PHASE_DISPATCH_ATTN_SOAP_BETA2 | WIP (prior wave) |
+| #1640 | edward | V_FAST_DEPTH_HALF_REFRESH | WIP (prior wave) |
+| #1635 | askeladd | PER_DEPTH_HALF_MU_COOLDOWN_START_NARROW | WIP (prior wave) |
+| #1633 | fern | JOINT_PER_KIND_AUX_BETA2_WD | WIP (prior wave) |
+| #1623 | frieren | PER_DEPTH_HALF_MLP_SOAP_REFRESH_FREQ | WIP |
+| #1628 | tanjiro | AUX_EPS_PER_KIND_FULL_RUN | WIP |
+| #1630 | alphonse | PER_DEPTH_SPLIT_MU_COOLDOWN_END | WIP |
+
+### Active research themes (cycle 71)
+
+1. **Floor band leader** is now #1620 Arm B at val=3.26916 (state-phase × attn-SOAP). 7 single-axis mechanism classes converge on [3.26916, 3.26992].
+2. **Cross-scope compound INTERFERES** — joint attn-SOAP + MLP-SOAP at full magnitude is sub-additive. Future compound work must partition WITHIN scopes, not couple ACROSS scopes.
+3. **MLP-SOAP proj-FAST direction VALIDATED but not floor-band** — #1590 at 3.26893 is closest near-floor non-band entry; depth-partition (#1644) is the cleanest attempt to push it across the merge bar.
+4. **Trust-gate × EMA-stabilization mechanism (#1620 → #1642)** — direct test in flight of whether faster early β2 accelerates attn-SOAP gram-EMA warmup so trust-gate fires sooner.
+5. **mu_cooldown direction-axis** validated across BOTH START and END boundaries; #1635 calibrates plateau magnitude.
+6. **Per-AUX-kind family** 6 mechanisms closed/in-flight — kind-sensitivity universal, signs class-specific.
+7. **Compound axes in flight** — per-AUX-kind compound (#1633), per-kind × depth (#1640 v-axis, #1644 MLP-proj-axis, #1630 mu-axis), per-kind × phase (#1642 attn-β2), MLP-SOAP refresh per-depth-half (#1623).
+
+### Next research directions
+
+1. **#1644 depth-half result determines MLP-SOAP-proj-FAST depth-localization**: if Arm A wins and val ≤ 3.26893, depth-front localization confirmed → possible merge candidate at single seed. If both arms degrade vs #1590, mechanism is depth-distributed and not concentrable.
+2. **#1642 phase-β2 result determines attn-SOAP EMA-warmup-speed mechanism**.
+3. **#1640 v × depth result determines attn-SOAP front_up universality**.
+4. **#1633 per-AUX-kind compound result**: shapes per-AUX-kind family compound strategy.
+5. **Compound state-phase × per-kind**: if both #1642 and #1644 win in proven directions, combine phase-dispatched β2 + depth-localized β2 in single experiment.
+6. **n=2 re-confirm of #1590** queued as fallback if cycle 71 closes without floor break — currently the strongest single-axis non-floor-band entry (3.26893 sub-cluster-edge single-seed).
+
+---
+
 ## 2026-05-29 01:45 UTC — Cycle 71 mid-368 — thorfinn #1620 272nd refute (PHASE_ATTN_SOAP_REFRESH_FREQ val_mean=3.27018 Δ=+0.00242 vs baseline, ffs_mean=3025 misses by 25, BUT Arm B val=3.26916 is **NEW LOWEST single-arm point of cycle 71** edging below prior #1595 floor of 3.26926, STRUCTURAL FINDING: Trust-gate × EMA-stabilization interaction dominates over nominal refresh budget — Arm B achieves ~30% more EFFECTIVE refreshes despite identical nominal budget because sparse early attempts let gram-EMA mature, then trust-gate fires near-perfectly late (0.981) — v-axis on_frac 58× swing from early to late confirmed dominant rejection source) + thorfinn #1642 NEW PHASE_DISPATCH_ATTN_SOAP_BETA2 (phase-asymmetric β2 for gram EMA, directly attacks the EMA-warmup bottleneck thorfinn revealed; Arm A early_FAST β2=0.85/0.95, Arm B early_SLOW β2=0.95/0.85, phase boundary step 1500)
 
 **Cumulative**: **272 refuted** / **161 distinct mech classes** / **117 family-level closures**.
