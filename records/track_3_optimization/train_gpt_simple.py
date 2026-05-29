@@ -114,6 +114,12 @@ def parse_args():
                         help="Polyak-Ruppert EMA decay for eval-only weight averaging. "
                              "0.0 = disabled (drift-FREE CTRL). Typical: 0.05 (fast, ~20-step half-life) / "
                              "0.005 (slow, ~200-step half-life). Higher decay = faster EMA tracking.")
+    parser.add_argument("--z_loss_weight", type=float,
+                        default=float(os.environ.get("Z_LOSS_WEIGHT", "0.0")),
+                        help="PaLM-style log(Z)^2 auxiliary loss coefficient. 0.0 = disabled "
+                             "(drift-FREE CTRL Pattern A — forward branch is dead-code-eliminated by "
+                             "torch.compile when this is a Python float == 0.0). Typical values: "
+                             "1e-5 (LOW exploratory), 1e-4 (PaLM canonical), 1e-3 (HIGH).")
     args = parser.parse_args()
     args.num_trials = args.num_trials if args.num_trials is not None else (args.legacy_num_trials or 1)
     args.wandb_tags = [tag.strip() for tag in args.wandb_tags.split(",") if tag.strip()]
@@ -528,13 +534,17 @@ class Block(nn.Module):
         return x
 
 class GPT(nn.Module):
-    def __init__(self, vocab_size: int, num_layers: int, model_dim: int):
+    def __init__(self, vocab_size: int, num_layers: int, model_dim: int, z_loss_weight: float = 0.0):
         super().__init__()
         self.embed = nn.Embedding(vocab_size, model_dim).bfloat16()
         self.blocks = nn.ModuleList([Block(model_dim) for _ in range(num_layers)])
         self.proj = Linear(model_dim, vocab_size)
         self.norm1 = RMSNorm(model_dim)
         self.norm2 = RMSNorm(model_dim)
+        # H275: PaLM-style log(Z)^2 auxiliary loss coefficient. 0.0 = disabled (drift-FREE
+        # CTRL Pattern A — the conditional branch in forward is dead-code-eliminated at
+        # torch.compile trace time when this is a Python float == 0.0).
+        self.z_loss_weight = z_loss_weight
 
     def forward(self, inputs: Tensor, targets: Tensor):
         x = self.norm1(self.embed(inputs))
@@ -542,6 +552,17 @@ class GPT(nn.Module):
             x = block(x)
         logits = self.proj(self.norm2(x)).float()
         logits = 15 * logits * (logits.square() + 15**2).rsqrt()
+        if self.training and self.z_loss_weight > 0.0:
+            # H275: PaLM-style z-loss. Use sum reduction to match the cross-entropy sum
+            # so the effective per-token loss after dividing by batch_size is
+            # mean_CE + z_loss_weight * mean(log_Z^2). Also return log_Z sums so the
+            # training loop can aggregate global mean/std across microbatches and ranks.
+            flat_logits = logits.view(targets.numel(), -1)
+            ce_loss = F.cross_entropy(flat_logits, targets.view(-1), reduction="sum")
+            log_z = torch.logsumexp(flat_logits, dim=-1)
+            log_z_sq_sum = (log_z * log_z).sum()
+            log_z_sum = log_z.sum()
+            return ce_loss + self.z_loss_weight * log_z_sq_sum, log_z_sum.detach(), log_z_sq_sum.detach()
         return F.cross_entropy(logits.view(targets.numel(), -1), targets.view(-1), reduction="sum")
 
 
@@ -803,7 +824,7 @@ batch_size = 8 * 64 * 1024
 mbs = 64
 val_inputs, val_targets = next(distributed_data_generator("data/fineweb10B/fineweb_val_*.bin", val_tokens))
 
-model = GPT(vocab_size=50304, num_layers=12, model_dim=768).cuda()
+model = GPT(vocab_size=50304, num_layers=12, model_dim=768, z_loss_weight=args.z_loss_weight).cuda()
 model.compile(dynamic=False)
 
 module_types = param_module_types(model)
@@ -856,6 +877,7 @@ if dist.get_rank() == 0:
             "muonh_mu_start": args.muonh_mu_start,
             "muonh_mu_end": args.muonh_mu_end,
             "polyak_ema_decay": args.polyak_ema_decay,
+            "z_loss_weight": args.z_loss_weight,
         },
     )
 
@@ -1165,8 +1187,19 @@ for trial_idx in range(args.num_trials):
         # accumulate across microbatches in case we are running with fewer than 8 gpus
         assert len(inputs) % mbs == 0
         step_loss = torch.zeros((), device=device)
+        # H275: z-loss accumulators — None branch keeps the loss collection path
+        # bit-identical to the H266 baseline when z_loss_weight == 0.0.
+        if args.z_loss_weight > 0.0:
+            step_log_z_sum = torch.zeros((), device=device)
+            step_log_z_sq_sum = torch.zeros((), device=device)
         for i in range(len(inputs) // mbs):
-            loss = model(inputs[i*mbs:(i+1)*mbs], targets[i*mbs:(i+1)*mbs])
+            out = model(inputs[i*mbs:(i+1)*mbs], targets[i*mbs:(i+1)*mbs])
+            if args.z_loss_weight > 0.0:
+                loss, log_z_sum_mb, log_z_sq_sum_mb = out
+                step_log_z_sum += log_z_sum_mb
+                step_log_z_sq_sum += log_z_sq_sum_mb
+            else:
+                loss = out
             step_loss += loss.detach()
             loss.backward()
         for name, p in model.named_parameters():
@@ -1174,6 +1207,15 @@ for trial_idx in range(args.num_trials):
             dist.all_reduce(p.grad, op=dist.ReduceOp.SUM)
         dist.all_reduce(step_loss, op=dist.ReduceOp.SUM)
         train_loss = float((step_loss / batch_size).item())
+        # H275: aggregate z-loss telemetry across ranks (no-op when z_loss_weight == 0.0).
+        if args.z_loss_weight > 0.0:
+            dist.all_reduce(step_log_z_sum, op=dist.ReduceOp.SUM)
+            dist.all_reduce(step_log_z_sq_sum, op=dist.ReduceOp.SUM)
+            z_log_z_mean = float((step_log_z_sum / batch_size).item())
+            z_log_z_sq_mean = float((step_log_z_sq_sum / batch_size).item())
+            z_log_z_var = max(0.0, z_log_z_sq_mean - z_log_z_mean ** 2)
+            z_log_z_std = z_log_z_var ** 0.5
+            z_loss_value = args.z_loss_weight * z_log_z_sq_mean
         # set optimization hyperparameters and take a step
         muonh_warmup_factor, aux_beta2, muonh_mu_t = set_hparams(step)
         train_step = step + 1
@@ -1202,6 +1244,16 @@ for trial_idx in range(args.num_trials):
                 train_steps=train_steps,
                 wandb_step=wandb_step,
             )
+        # H275: z-loss telemetry (only when z_loss_weight > 0.0; no-op otherwise).
+        if dist.get_rank() == 0 and args.z_loss_weight > 0.0 and telemetry_due:
+            wandb.log({
+                "trial": trial_idx,
+                "train/step": train_step,
+                "train/z_loss/value": z_loss_value,
+                "train/z_loss/log_z_mean": z_log_z_mean,
+                "train/z_loss/log_z_sq_mean": z_log_z_sq_mean,
+                "train/z_loss/log_z_std": z_log_z_std,
+            }, step=wandb_step)
         # AGC on aux AdamW groups: clip per-param grad to clip_ratio * |param|.
         # No-op (bit-identical) when args.aux_agc_clip_ratio <= 0.
         agc_stats = adaptive_gradient_clip(
