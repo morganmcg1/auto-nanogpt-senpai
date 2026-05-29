@@ -1,5 +1,73 @@
 # SENPAI Research Results — auto-nanogpt-1gpu-r5
 
+## 2026-05-29 16:38Z — PR #1664 SENT-BACK [55th R5 result — per-class cooldown SHAPE n=1 STRONG POSITIVE, promoted to n=4]: edward mlp=cos/attn=lin n=1 5-cell sweep
+
+- branch: g1r5-edward/body-cooldown-shape-decouple
+- Hypothesis: Per-class body Muon cooldown SHAPE decoupling — different LR-decay shape for mlp vs attn during cosine cooldown phase.
+- Result: **STRONG FFS-POSITIVE at n=1. Cell B★ (mlp=cosine, attn=linear) FFS_ema = 2875, Δ=−1.5σ vs baseline 2912.5, below n=1 strong-positive gate 2887.5.**
+
+| Cell | mlp shape | attn shape | FFS_ema | val/loss | val/ema | Δ(σ) FFS | W&B |
+|:----:|:---------:|:----------:|:-------:|:--------:|:-------:|:--------:|:----|
+| A ctrl  | cosine | cosine  | 2925 | 3.2697 | 3.2702 | +0.50 | `ntvtw8z7` |
+| **B★** | cosine | **linear** | **2875** | **3.2660** | 3.2666 | **−1.50** | `3e25sgci` |
+| C | cosine | concave | 3000 | 3.2719 | 3.2712 | +3.50 | `mexxftpc` |
+| D INVERT | linear | cosine | 2925 | 3.2656 | 3.2662 | +0.50 | `v4nebk3f` |
+| E FALSIFIER | cosine | step | **−1** | 3.2945 | 3.2949 | catastrophic | `hbly2quc` |
+
+**Pattern (attn-cooldown ordering, monotone)**: linear (gentle) ≺ cosine (control) ≺ concave (fast) ≺ step (catastrophic). Direction is consistent across all four attn-side cells.
+
+**Mechanism**: attn smooth-LR-decay is structurally load-bearing — falsifier Cell E (step decay) never crossed 3.28 (val=3.2945). Gentler attn decay (linear vs cosine) maintains higher LR through middle of cooldown, consistent with attention's relational/low-rank patterns benefiting from sustained intermediate LR for late-stage fine-tuning. MLP-side decoupling (Cell D INVERT) was FFS-neutral, confirming asymmetry concentrated on attn side.
+
+**Decision**: SENT-BACK to student for n=4 confirm of Cell B★ only. If μ_4(FFS_ema) ≤ 2887.5 at n=4, MERGE candidate (would be 55th R5 PR closure + baseline-shifting merge).
+
+---
+
+## 2026-05-29 16:36Z — PR #1659 CLOSED [56th R5 result — per-group EMA-eval decay decoupling axis closed G1-DEAD]: askeladd per-group EMA decay n=1 5-cell sweep
+
+- branch: g1r5-askeladd/per-group-ema-decay
+- Hypothesis: Per-group (body vs aux) EMA-eval decay decoupling — different `--ema_eval_decay` for body Muon-params vs aux AdamW-params, predicted to amplify FFS signal beyond #1533's uniform 0.99.
+- Result: **G1-DEAD at n=1. All cells A/B/C/E FFS=2925 (TIE with baseline σ band). D=−1 catastrophic but STRUCTURAL (bias-correction blow-up at t=3250, not learning effect).**
+
+| Cell | d_body | d_aux | FFS | val/loss | ema_corrected | W&B |
+|------|--------|-------|-----|----------|---------------|------|
+| A ctrl | None (uniform 0.99) | 0.99 | 2925 | 3.27074 | 3.27125 | `tnm6usu3` |
+| B★ | 0.95 | 0.99 | 2925 | 3.26996 | 3.27007 | `jmc56a9c` |
+| C | 0.97 | 0.99 | 2925 | 3.26897 | 3.26910 | `ou15dqjr` |
+| D | **0.999** | 0.99 | **−1** | 3.26963 | **3.32229** | `6t9t7j2x` |
+| E FALSIFIER | 0.90 | 0.99 | 2925 | 3.26989 | 3.26998 | `fe0vwowo` |
+
+**Mechanism diagnosis** (excellent student self-analysis): Cell D's catastrophic `ema_corrected=3.32229` is NOT a learning-rate dynamics issue. With `d_body=0.999`, `d^t = 0.0387` at step 3250, so the bias-correction denominator `(1-d^t) = 0.961` fails to scrub init contamination. `drift_from_init=71653` matches A's 71649 within noise — the body trajectory is the SAME. The EMA average over those 3250 steps with d=0.999 has only effectively averaged the last ~1000 steps. This imposes a hard lower bound on `1-d_body` relative to training steps: `t ≳ 5/(1-d)` ≈ 5000 steps required to safely use d_body ≥ 0.998. The 3250-step budget structurally blocks the slow-direction.
+
+**Verdict**: Per-group EMA decoupling axis FFS-NEUTRAL across safe operating range d_body ∈ [0.90, 0.97]. Val/loss shows weak monotone in fast direction (~0.001-0.002 across cells) but n=1 below noise floor, and FFS-PRIMARY directive #1262 governs. Axis closed.
+
+---
+
+## 2026-05-29 16:36Z — PR #1654 CLOSED [57th R5 result — adaptive eigenbasis refresh axis closed clean-NEG]: fern SOAP off-diagonal staleness criterion n=1 5-cell sweep
+
+- branch: g1r5-fern/soap-adaptive-eigenbasis-refresh
+- Hypothesis: Adaptive PRECOND_FREQ gated by `Q^T L Q` off-diagonal mass — refresh eigenbasis only when off-diagonal staleness exceeds threshold τ. Predicted to save eigendecomp compute during cooldown (when basis stabilizes) and improve preconditioner quality early.
+- Result: **CLEAN-NEG at n=1. A/C/D/E all FFS=2875 (tied with ctrl). B (τ=0.05) FFS=2925 (single-trial noise). NO FFS lift from adaptive criterion across τ ∈ [0.02, 0.50].**
+
+| Cell | τ | check_freq | refresh_count/layer | FFS_ema | val/loss | ema_val | W&B |
+|------|---|------------|---------------------|---------|----------|---------|------|
+| A ctrl | 0.00 | fixed PF=16 | 203 | **2875** | 3.26776 | 3.26828 | `x45n90hl` |
+| B★ | 0.05 | 4 | 812 (4.0×) | 2925 | 3.27026 | 3.27078 | `36m6dxuc` |
+| C | 0.02 | 4 | 812 (4.0×) | 2875 | 3.26671 | 3.26724 | `a3437mwq` |
+| D | 0.15 | 4 | 797 (3.9×) | 2875 | 3.26755 | 3.26807 | `db80yeon` |
+| E FALSIFIER | 0.50 | 4 | 569 (2.8×) | **2875** | 3.26793 | 3.26844 | `7kodg49i` |
+
+**Mechanism diagnosis** (excellent student self-analysis): Staleness signal IS non-degenerate (mean_staleness=0.55–0.61, vs hypothesized degenerate noise floor). But staleness is **FLAT across all training phases** (warmup, main, cooldown) — does not decay through training as predicted. At τ ≤ 0.15, `refresh_trigger_fraction=1.0` for all layers always (mechanism degenerates to refresh-every-check_freq). Cell E (τ=0.50) is the ONLY meaningfully-gating regime (~70% trigger rate vs 100%), cutting refresh count from 812 to 569 per layer — but still ties Cell A on FFS. **Conclusion: eigenbasis rotation rate does NOT correlate with whether SOAP benefits from a fresh basis.** PRECOND_FREQ=16 was apparently not under-refreshing.
+
+**Verdict**: Adaptive eigenbasis refresh axis closed. Combined with earlier closures, this caps the SOAP structural cluster:
+- Adaptive eigenbasis refresh → null (this PR)
+- Static PRECOND_FREQ value → sub-σ at n=4 (#1617)
+- Gram trace normalization → null (#1564)
+- SOAP scalar HPs (β2, eps, exp_avg_sq, trust-gate) → null (multi-PR cluster)
+
+Open SOAP axes remaining: PRECOND_FREQ PHASE-ADAPTIVE schedule (tanjiro #1715 in-flight), SOAP Gram WARM-INIT (fern reassigned #1721).
+
+---
+
 ## 2026-05-29 15:20Z — PR #1617 CLOSED [53rd R5 result — SOAP PRECOND_FREQ static-value axis closed]: tanjiro PRECOND_FREQ=8 n=4 confirm
 
 - branch: g1r5-tanjiro/soap-precond-freq-confirm
