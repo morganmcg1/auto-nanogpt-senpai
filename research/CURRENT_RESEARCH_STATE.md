@@ -1,6 +1,42 @@
 # SENPAI Research State — auto-nanogpt-1gpu-r3
 
-- **Last updated:** 2026-05-29 15:25 UTC
+- **Last updated:** 2026-05-29 15:35 UTC
+
+---
+
+## Cycle ~1900: H270 CLOSED 123rd NULL/NEG + H276 ASSIGNED 65th class Gradient noise injection (BOLD)
+
+**H270 fern MuLoCo cooldown-only phase-gated activation CLOSED NULL/NEG closure-grade with paper-grade activation-transient mechanistic finding.**
+
+Terminal verdict (pre-H266 baseline):
+- arm_a CTRL FFS=3050, val=3.26877 (Pattern A loose +25 drift)
+- arm_b COOLDOWN_HALF_1500 activation_step=1500: **FFS=3275 CATASTROPHIC**, val=3.27954 (+225 FFS, +0.01077 val, **12.7σ NEG**)
+
+🎯 **PAPER-GRADE MECHANISTIC FINDING — MuLoCo activation transient**:
+At step 1500 activation, delta_rms=**5.06** vs arm_a steady-state **0.62-0.70** = **~8× discontinuous parameter pull**. Parameter drift accumulated over 1500 unconstrained MuonH-SI steps causes first outer step to be a near-discontinuous trajectory correction. ~5 sync intervals to settle. Trajectory inverts permanently: arm_b mid-training advantage Δval=−0.023 at step 750 → +0.011 NEG post-activation, no recovery.
+
+🎯 **4th instance of "mid-trajectory advantage but late collapse" pattern**: H250 aux cooldown + H256 outer LR temporal + H265 MuonH TR-cap + H270 MuLoCo phase-gating. PF#62 cooldown-decoupling structural pattern is now **6 mechanism categories deep**.
+
+🎯 **PF#56 MuLoCo manifold rigidity STRENGTHENED**: MuLoCo's load-bearing role is **continuous anchor-drift control throughout training**, NOT a cooldown-only mechanism. Late activation cannot retroactively rebuild outer state history. MuLoCo must be ACTIVE FROM STEP 0 or NOT AT ALL — phase-gating axis structurally closed.
+
+🎯 **H263 mid-training advantage SIGNATURE replicated** (arm_b 0-1500 matches H263 NO_OUTER pure MuonH-SI behavior). Confirms H263's mechanistic identification: MuLoCo's outer-step IS a mid-training cost paid for late-training stability.
+
+**H276 fern ASSIGNED 65th class Gradient noise injection (Neelakantan et al. 2015) BOLD plateau-protocol swing in NEW mechanism class — GRADIENT-LEVEL REGULARIZATION.**
+
+- 3-arm chain: CTRL σ_0=0.0 / LOW 0.01 / HIGH 0.05 (Neelakantan canonical for this depth)
+- Annealing schedule: σ_t = σ_0 / (1 + t)^0.55 (canonical Neelakantan exponent)
+- Pattern A drift-FREE: argparse VALUE + conditional `if grad_noise_sigma_0 > 0` block AFTER backward() BEFORE optimizer.step(), uniform Gaussian noise applied to all .grad tensors
+- Annealed σ_t naturally satisfies PF#62's "must track training timescale not span cooldown" constraint — by cooldown σ_t ≈ 0.017·σ_0 (negligible)
+- Predicted mechanism: gradient-space implicit regularization may escape sharp minima during early training when EMA is still warming up
+- WIN prob 15-25% — structurally distinct from all 65 prior mechanism classes (Z-loss=65th was loss-space, this=66th gradient-space)
+- PR #1717, post-H266 baseline (FFS<3000 strict WIN criterion)
+- Ref: Neelakantan et al. 2015 https://arxiv.org/abs/1511.06807
+
+**Plateau campaign portfolio after H270 closure**:
+- **123 NULL/NEG closures + 1 MERGED WIN (H266)**
+- **66 mechanism classes attempted** (H276 = 67th now)
+- 6 PROGRAMME FINDING candidates: PF#56 STRENGTHENED (now 7 axes), PF#58 CLOSURE-GRADE, PF#59 strengthened, PF#60 candidate, PF#61 CLOSURE-GRADE, PF#62 STRENGTHENED to 6 mechanism categories
+- 12 strict drift-FREE CTRL instances + Pattern A loose +25 drift class noise floor (H266/H268/H269/H272/H273/H270 = 5 instances)
 
 ---
 
