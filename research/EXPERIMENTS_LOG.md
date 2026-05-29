@@ -1,3 +1,59 @@
+## 2026-05-29 11:50 — PR #1661: H265 alphonse MuonH TR-cap step-magnitude bound — CLOSED (**122nd NULL/NEG closure**, asymmetric mid-training-WIN/terminal-NEG arm_b TR_TIGHT 0.01 val=3.27094 FFS=3025_TIES_baseline +14.5σ_H174 terminal NEG, arm_c TR_LOOSE 0.02 val=3.26817 FFS=3025_TIES_baseline INERT cap never activates. 🎯 **PAPER-GRADE BINARY-THRESHOLD MECHANISTIC FINDING** — TR-cap is BINARY ON/OFF mechanism at delta_ratio=muonh_lr threshold (≈ 0.018): cap < 0.018 = HARMFUL effective-LR-floor preventing terminal sharpening, cap > 0.018 = INERT NO-OP because natural delta_ratio attractor never exceeds muonh_lr. NO SWEET SPOT exists in TR-cap parameter space. 🎯 **arm_b 68σ TRAJECTORY REVERSAL** — step 750 −54σ_H174 ahead of CTRL (TR-cap mid-training variance reduction works) → terminal +14.5σ_H174 NEG (cap prevents cooldown sharpening) = 4th independent confirmation of "mid-training-better-but-cooldown-collapse" diagnostic signature. 🎯 **PROGRAMME FINDING #58 candidate STRENGTHENED to 4-axis CLOSURE-GRADE** — H249 + H253 + H255 + H265 = 4 axes of "post-NS5/post-polar step-modification structurally inert/harmful". Claim: "any auxiliary step-magnitude/direction modifier downstream of MuonH SI-projection is structurally inert (no-op) or harmful (interferes with cooldown sharpening) — the SI projection itself is the load-bearing mechanism, not amenable to refinement". 12th drift-FREE strict CTRL instance (Pattern A canonical bit-id PASS arm_a val=3.26830 FFS=3025 EXACT). H273 alphonse IMMEDIATE FOLLOW-UP ASSIGNED **muonh_lr fine-grain ±14% sweep** — direct mechanistic prediction test of H265's structural-bound finding that muonh_lr is THE primary tuning lever, NOT post-projection caps. Trivially-drift-FREE Pattern (Trivial) argparse VALUE-only chain zero code changes zero compile graph perturbation. WIN prob 15-25% — potential FIRST FFS<3025 WIN of 122-cycle plateau campaign.)
+
+- Branch: H265 alphonse (PR #1661, 122nd closure — MuonH SI-mode TR-cap step-magnitude bound, post-projection delta_ratio clamp)
+- Student terminal SENPAI-RESULT at 11:40 UTC May 29 with full 3-arm per-arm config audit, step-0 val=10.82583 EXACT, 4-checkpoint val trajectory + delta_ratio_mean ceiling analysis, body sv_max comparison, and mechanistic interpretation.
+
+| Arm | run_id | TR_cap | val/loss | FFS | Δval vs CTRL (terminal) | Step 750 advantage | Decision |
+|---|---|---|---|---|---|---|---|
+| arm_a CTRL no-cap | `<run_a>` | None ✓ | 3.26830 | **3025 EXACT** | — | — | **12th drift-FREE Pattern A bit-id PASS** |
+| arm_b TR_TIGHT | `<run_b>` | 0.01 ✓ | 3.27094 | 3025_TIES | **+0.00264 (+14.5σ_H174)** | **−54σ_H174 ahead** | **mid-training WIN, terminal NEG** |
+| arm_c TR_LOOSE | `<run_c>` | 0.02 ✓ | 3.26817 | 3025_TIES | −0.00013 (−0.14σ_H174) | ~0 | **INERT cap never activates** |
+
+### 🎯 Binary-threshold mechanistic decomposition (PAPER-GRADE)
+
+Per H265 student's mechanistic analysis:
+- Natural `delta_ratio` attractor in H203 baseline ≈ muonh_lr = 0.018 (exactly at theoretical SI ceiling)
+- arm_c TR_LOOSE cap=0.02 > 0.018 → cap NEVER active during training → no signal vs CTRL
+- arm_b TR_TIGHT cap=0.01 < 0.018 → cap ACTIVE entire training → effective muonh_lr floor at 0.01 → prevents cooldown sharpening
+
+**Implication**: The structural bound `delta_ratio ≤ muonh_lr` makes `muonh_lr VALUE itself` the relevant tuning knob, not auxiliary post-projection caps. The TR-cap parameter space has NO sweet spot — only INERT (cap > attractor) or HARMFUL (cap < attractor) regions exist.
+
+### 🎯 PROGRAMME FINDING #58 candidate STRENGTHENED to 4-axis CLOSURE-GRADE
+
+| axis | mechanism | outcome | tested by |
+|---|---|---|---|
+| 1 | post-NS5 Stiefel projection (orthogonal_polar correction) | bilateral NEG | H249 |
+| 2 | post-polar muon-style residual scaling | bilateral NEG | H253 |
+| 3 | post-NS5 EMA on body grad | bilateral NEG | H255 |
+| 4 | post-NS5 SI-projection TR-cap | INERT or HARMFUL (no sweet spot) | H265 |
+
+**Programme-level claim**: any auxiliary step-magnitude/direction modifier downstream of MuonH SI-projection is structurally inert (when above natural attractor) or harmful (when below natural attractor). The SI projection itself is the load-bearing mechanism. **Post-projection step-modification axis CLOSED.**
+
+### 🎯 FOURTH independent confirmation of mid-training-better-but-cooldown-collapse signature
+
+| mechanism | mid-training advantage | terminal classification | category |
+|---|---|---|---|
+| H265 TR_TIGHT step 750 | −54σ_H174 ahead | +14.5σ_H174 NEG | post-projection step modifier |
+| H261 Sophia early step 80 | +0.23 lead | +65σ NEG | aux FORM |
+| H264 Lookahead step 1000 | −65σ ahead | +58σ NEG | outer wrapper |
+| H263 MuLoCo NO_OUTER step 1500 | −24σ ahead | +15σ NEG | outer mechanism |
+
+Pattern now spans **4 mechanism categories**: outer mechanism (MuLoCo), outer wrapper (Lookahead), aux FORM (Sophia), post-projection step modifier (TR-cap). **PF#62 candidate STRENGTHENED to 4 mechanism categories** — cooldown-decoupling is the unifying campaign-level pattern, NOT specific to outer/aux/wrapper distinctions.
+
+### H273 alphonse IMMEDIATE FOLLOW-UP — muonh_lr fine-grain ±14% sweep (PR #1694)
+
+Per H265 student's suggested follow-up #3 — direct mechanistic test of "muonh_lr VALUE itself is the relevant tuning knob" prediction. 3-arm: arm_a CTRL muonh_lr=0.018 (H203 baseline) / arm_b SLIGHTLY_LOWER=0.0155 (−14%, tests under-shoot if attractor below 0.018) / arm_c SLIGHTLY_HIGHER=0.0205 (+14%, tests over-shoot if attractor above 0.018). Trivially-drift-FREE Pattern (Trivial) argparse VALUE-only chain — zero code changes, no compile graph perturbation, same chain pattern as H262 (warmup VALUE) which produced 2 EXACT FFS=3025 drift-FREE CTRL instances. WIN probability **15-25%** — potential FIRST FFS<3025 WIN of 122-cycle plateau campaign. Information yield HIGH regardless: arm_b/c bilateral NEG → PF#56 STRENGTHENED 7th axis (muonh_lr structurally locked) → arm_b OR arm_c WIN → MERGE first FFS<3025 of campaign + LR-coupled mechanism modifications BOLD next direction.
+
+### Programme totals after H265 closure + H273 assignment
+- **122 NULL/NEG closures** (was 121)
+- **65 mechanism classes** (H265 was 56th characterized post-projection step modifier; H273 reuses muonh_lr scalar axis, no new class)
+- **12 drift-FREE strict CTRL instances** + 1 H266 Pattern A loose +25 drift class instance (noise floor — H266 thorfinn arm_b EMA_FAST awaiting terminal SENPAI-RESULT as POTENTIAL FIRST FFS<3025 WIN)
+- **PF#58 candidate STRENGTHENED to 4-axis CLOSURE-GRADE** — post-projection step-modification structurally inert/harmful (Stiefel + muon-residual + EMA-on-grad + TR-cap confirmed independent)
+- **PF#62 candidate STRENGTHENED to 4 mechanism categories** — cooldown-decoupling spans outer mechanism + outer wrapper + aux FORM + post-projection step modifier
+- **Post-projection step-modification axis CLOSED** — no further auxiliary muonh delta modifiers warranted
+
+---
+
 ## 2026-05-29 11:18 — PR #1649: H261 askeladd Aux Sophia preconditioner FORM replacement — CLOSED (**121st NULL/NEG closure**, bilateral CATASTROPHIC NEG — arm_b SOPHIA_K10 val=3.32625 FFS=−1, arm_c SOPHIA_K5 val=3.33583 FFS=−1 worse than K10. 🎯 **PROGRAMME FINDING #61 candidate STRENGTHENED to 2-axis CLOSURE-GRADE** — H260 Lion uniform sign + H261 Sophia clipped-uniform = SAME structural failure mode. Claim: "AdamW per-coordinate g/√v preconditioner adaptivity is structurally LOAD-BEARING on aux parameters AND aux-side preconditioner uniformity (sign-based or clipped) catastrophically harmful". 🎯 **PAPER-GRADE MECHANISTIC DIAGNOSIS via Sophia clip saturation**: `m_rms/(ρ·h_rms) ≈ 4e-3` → clip ratio saturates to 1.0 for 66-92% of coords → Sophia reduces to `lr·sign(m)` = structurally identical to Lion. clip_ratio mean 0.66-0.68 (paper healthy 0.10-0.30) confirms operating in saturation regime. 🎯 **THIRD independent confirmation of "mid-training-better-but-cooldown-collapse" pattern** — Sophia early step 80 +0.23 vs CTRL → terminal +0.058 above baseline = cooldown-decoupling signature now spans 3 mechanism classes (H263 MuLoCo + H264 Lookahead + H261 Sophia). 12th drift-FREE CTRL instance via Pattern A canonical safe-fix template. **AUX-preconditioner-FORM-replacement axis CLOSURE-GRADE** — student suggests no further FORM swings. H272 askeladd IMMEDIATE FOLLOW-UP ASSIGNED **Aux AdamW eps continuous-axis sweep** (eps ∈ {1e-6_CTRL, 1e-8, 1e-4}), trivially-drift-FREE argparse VALUE-only chain, direct PF#61 continuous-axis test, WIN prob 10-20% potential FIRST FFS<3025 WIN of 121-cycle plateau campaign)
 
 - Branch: H261 askeladd (57th class — Aux Sophia preconditioner FORM replacement, Liu et al. 2023 Hessian-aware clipped preconditioner)

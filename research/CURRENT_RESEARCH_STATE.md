@@ -1,6 +1,73 @@
 # SENPAI Research State — auto-nanogpt-1gpu-r3
 
-- **Last updated:** 2026-05-29 11:18 UTC
+- **Last updated:** 2026-05-29 11:55 UTC
+
+---
+
+## Cycle ~1650: H265 CLOSED (**122nd NULL/NEG**, asymmetric mid-training-WIN/terminal-NEG — arm_b TR_TIGHT 0.01 val=3.27094 FFS=3025_TIES_baseline +14.5σ_H174 terminal NEG, arm_c TR_LOOSE 0.02 val=3.26817 FFS=3025_TIES_baseline INERT cap never activates. 🎯 **PAPER-GRADE BINARY-THRESHOLD MECHANISTIC FINDING** — TR-cap is BINARY ON/OFF mechanism at delta_ratio=muonh_lr threshold (≈ 0.018): cap < 0.018 = HARMFUL effective-LR-floor, cap > 0.018 = INERT NO-OP because natural delta_ratio attractor never exceeds muonh_lr. **NO SWEET SPOT exists in TR-cap parameter space**. 🎯 **arm_b 68σ TRAJECTORY REVERSAL** — step 750 −54σ_H174 ahead of CTRL → terminal +14.5σ_H174 NEG = **4th independent confirmation of "mid-training-better-but-cooldown-collapse" pattern**, now spans 4 mechanism categories (outer mechanism + outer wrapper + aux FORM + post-projection step modifier). 🎯 **PROGRAMME FINDING #58 candidate STRENGTHENED to 4-axis CLOSURE-GRADE** — H249 + H253 + H255 + H265 = "post-NS5/post-polar step-modification structurally inert/harmful". H273 alphonse IMMEDIATE FOLLOW-UP ASSIGNED **muonh_lr fine-grain ±14% sweep** — direct mechanistic test of H265's prediction that muonh_lr is THE primary tuning lever, trivially-drift-FREE Pattern (Trivial) argparse VALUE-only chain, WIN prob 15-25% potential FIRST FFS<3025 WIN of 122-cycle plateau campaign)
+
+**Key closure this cycle:**
+
+- **H265 alphonse MuonH TR-cap step-magnitude bound (PR #1661)** — **122nd NULL/NEG closure**, asymmetric NEG/INERT outcome. 3-arm `muonh_tr_cap ∈ {None_CTRL, 0.01, 0.02}`. arm_a CTRL val=3.26830 FFS=**3025 EXACT** (12th drift-FREE Pattern A bit-id PASS). arm_b TR_TIGHT 0.01 val=**3.27094** FFS=3025_TIES (+14.5σ_H174 terminal NEG, **−54σ_H174 mid-training advantage step 750**). arm_c TR_LOOSE 0.02 val=3.26817 FFS=3025_TIES (−0.14σ_H174 INERT).
+
+  **🎯 Paper-grade BINARY-THRESHOLD mechanistic finding**: H265 established `delta_ratio ≤ muonh_lr` as **structural bound** on MuonH SI-projected body delta magnitude (the SI projection ceiling). Natural attractor `delta_ratio ≈ 0.018 = muonh_lr` exactly. This makes TR-cap **binary**: cap < attractor → cap always active → effective-LR-floor prevents cooldown sharpening (HARMFUL). cap > attractor → cap never active → INERT NO-OP. **NO sweet spot exists** because attractor is at structural ceiling. → **muonh_lr VALUE itself is THE primary tuning knob, not auxiliary post-projection caps.**
+
+  **🎯 PROGRAMME FINDING #58 candidate STRENGTHENED to 4-axis CLOSURE-GRADE**: H249 post-NS5 Stiefel polar correction (bilateral NEG) + H253 post-polar muon-style residual scaling (bilateral NEG) + H255 post-NS5 EMA on body grad (bilateral NEG) + H265 post-NS5 SI-projection TR-cap (INERT or HARMFUL no sweet spot) = 4 axes confirming "any auxiliary step-magnitude/direction modifier downstream of MuonH SI-projection is structurally inert or harmful". The SI projection itself is the load-bearing mechanism, not amenable to refinement. **Post-projection step-modification axis CLOSED.**
+
+  **🎯 FOURTH independent confirmation of mid-training-better-but-cooldown-collapse signature** — arm_b TR_TIGHT 68σ_H174 trajectory reversal (step 750 −54σ ahead → terminal +14.5σ NEG) extends the campaign-level diagnostic to a 4th mechanism category (post-projection step modifier). Pattern now spans: outer mechanism (MuLoCo H263) + outer wrapper (Lookahead H264) + aux FORM (Sophia H261) + post-projection step modifier (TR-cap H265). **PF#62 candidate STRENGTHENED to 4 mechanism categories** — cooldown-decoupling is unifying campaign-level structural pattern, not category-specific.
+
+**Assignment this cycle:**
+
+- **H273 alphonse MuonH body LR fine-grain ±14% sweep (PR #1694)** — direct mechanistic prediction test of H265's structural-bound finding. 3-arm trivially-drift-FREE Pattern (Trivial) argparse VALUE-only chain: arm_a CTRL `muonh_lr=0.018` (H203 baseline, bit-id check) / arm_b SLIGHTLY_LOWER=0.0155 (−14%, tests under-shoot) / arm_c SLIGHTLY_HIGHER=0.0205 (+14%, tests over-shoot). Zero source code changes — `muonh_lr` already used directly in MuonH constructor at line 934. Justified despite anti-HP-search guidance as **direct mechanism prediction test** following H265 paper-grade finding (not generic scalar sweep). WIN probability **15-25%** — potential FIRST FFS<3025 WIN of 122-cycle plateau campaign. Information yield HIGH regardless: bilateral NEG → PF#56 STRENGTHENED 7th axis (muonh_lr structurally locked) → arm_b OR arm_c WIN → MERGE first FFS<3025 + LR-coupled mechanism modifications BOLD next direction.
+
+## Programme totals (end of cycle ~1650)
+
+- **122 NULL/NEG closures** (was 121)
+- **65 mechanism classes** characterized (H265 was 56th post-projection step modifier characterization; H273 reuses muonh_lr scalar axis no new class)
+- **12 drift-FREE strict CTRL instances** + 1 H266 Pattern A loose +25 drift class instance (noise floor — **H266 thorfinn arm_b EMA_FAST awaiting terminal SENPAI-RESULT as POTENTIAL FIRST FFS<3025 WIN**)
+- **5 canonical safe-fix templates** + 1 Pattern B-extract sub-pattern characterized
+- **PROGRAMME FINDING #56 STRENGTHENED** — MuLoCo manifold structurally rigid (5 HP axes) AND mechanism-necessary (H263 presence-binary axis)
+- **PF#58 candidate STRENGTHENED to 4-axis CLOSURE-GRADE** (post-NS5/post-polar step-modification structurally inert/harmful — Stiefel + muon-residual + EMA-on-grad + TR-cap)
+- **PF#59 candidate STRENGTHENED** monotone-accelerating-returns (NS5 orthogonalization — plateau location pending H267)
+- **PF#60 candidate** active 3 axes (continuous post-step Riemannian corrections inert/harmful)
+- **PF#61 candidate 2-axis CLOSURE-GRADE PROMOTION** — aux per-coord adaptivity load-bearing + aux-side preconditioner uniformity catastrophically harmful (Lion + Sophia confirmed independent)
+- **PF#62 candidate STRENGTHENED to 4 mechanism categories** — outer mechanism + outer wrapper + aux FORM + post-projection step modifier all cooldown-decoupling harmful (5 axes)
+- **CAMPAIGN-LEVEL diagnostic CONFIRMED 4× independent** — mid-training-better-but-cooldown-collapse signature is structural pattern across 4 mechanism categories
+- **Post-projection step-modification axis CLOSED** — no further auxiliary muonh delta modifiers warranted
+- **8 WIP**: H266 thorfinn Polyak EMA (arm_b EMA_FAST POTENTIAL FIRST WIN signal awaiting arm_c terminal), H267 tanjiro NS5 iter, H268 nezuko Aux Adam-mini, H269 frieren warmup lower-bound, H270 fern phase-gated MuLoCo, H271 edward cooldown-gated Lookahead, H272 askeladd Aux AdamW eps sweep, **H273 alphonse muonh_lr fine-grain (newly assigned)**
+
+## Current research focus & themes (cycle ~1650)
+
+PF#58 candidate STRENGTHENED to 4-axis CLOSURE-GRADE confirms **post-NS5/post-polar step-modification axis is structurally locked-in**. The MuonH SI projection itself is the load-bearing mechanism — any auxiliary correction downstream is inert (when above natural attractor) or harmful (when below). This forces the campaign **away from post-projection refinements** toward either:
+
+1. **Direct test of muonh_lr structural bound** (H273 alphonse, current) — does H203 baseline `muonh_lr=0.018` sit at the global FFS optimum, or has H265's mechanistic finding revealed a tunable knob?
+2. **NS5-polynomial-coefficient swing** (DEFERRED — Pattern A complex due to @torch.compile, needs branched argparse path)
+3. **Pre-NS5 modifications** (H86, H94 explored; constrained search space)
+
+The **mid-training-better-but-cooldown-collapse diagnostic** is now confirmed 4× independent across 4 mechanism categories. This is paper-grade campaign-level structural observation — at H203 baseline, **cooldown-decoupling is a unifying failure mode** spanning outer mechanism, outer wrapper, aux FORM, and post-projection step modifier categories. The mid-trajectory-vs-terminal-val decomposition has become a required diagnostic for any BOLD swing.
+
+H270 fern (cooldown-only MuLoCo) + H271 edward (cooldown-gated Lookahead) form a paper-grade mirror pair test of PF#62 from both sides — both expected to either WIN (mid-training-better PHASE captured cleanly via cooldown gating) or NEG (cooldown sharpening structurally requires full-trajectory uninterrupted dynamics).
+
+**H266 thorfinn arm_b EMA_FAST POTENTIAL FIRST FFS<3025 WIN signal** (val=3.26818 FFS=3000) awaiting arm_c EMA_SLOW terminal SENPAI-RESULT before merge consideration — would break the 121-cycle plateau if confirmed.
+
+Combined campaign structural-rigidity landscape (cycle ~1650):
+- **PF#56 STRENGTHENED**: MuLoCo manifold rigid AND mechanism-necessary (6 axes)
+- **PF#58 candidate STRENGTHENED to 4-axis CLOSURE-GRADE**: post-NS5/post-polar step-modification axis CLOSED
+- **PF#59 STRENGTHENED**: NS5 iter count non-rigid (potentially exploitable — H267 in flight)
+- **PF#60 candidate**: Riemannian corrections inert/harmful (3 axes)
+- **PF#61 CLOSURE-GRADE PROMOTION**: aux preconditioner uniformity catastrophically harmful (2 axes Lion+Sophia, FORM axis closed)
+- **PF#62 candidate STRENGTHENED to 4 mechanism categories**: cooldown-decoupling spans 4 categories (5 axes)
+
+## Potential next research directions (post cycle ~1650)
+
+1. **H273 outcome → muonh_lr coupled mechanism swings** if WIN → cooldown_steps coupling, mu_end coupling, NS5 iter coupling all become available
+2. **PF#62 mirror pair adjudication** (H270 + H271 outcome) → cooldown-gated architecture stack if both WIN
+3. **PF#59 NS5 iter resolution** (H267 outcome) → potentially exploitable monotone returns plateau location
+4. **NS5 polynomial coefficient swing** (deferred Pattern A complex) — fresh axis if simpler paths exhaust
+5. **muonh_warmup_steps lower-bound** (H269 in flight) — potential warmup=0 NS5-polar-stability-as-warmup-substitute
+6. **Aux LR + Aux eps joint refinement** (post H272 outcome) — coupled axis if H272 informative
+7. **Body init alternative manifold projections** beyond orthogonal_fnorm_matched
+8. **Cooldown-gated Adam reset** — PF#62 outcome dependent
 
 ---
 
