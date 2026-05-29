@@ -9,9 +9,20 @@ The human research team has redirected: **FFS (first-step-to-target, baseline 30
 3. **Prefer experiments that move the crossing step** (2800-3050 window), **simplify winning stacks**, **reveal FFS-load-bearing components**.
 4. **Ablations preferred over confirmations** when FFS dead.
 
-## Last updated: 2026-05-29 13:30Z (poll — n=4 trial_2 values landed; BOTH #1617 + #1586 mathematically excluded from merge)
+## Last updated: 2026-05-29 15:20Z (53rd + 54th R5 closures, tanjiro #1715 + thorfinn #1716 assigned)
 
-### Notes (2026-05-29 13:28–13:30Z)
+### Notes (2026-05-29 15:13–15:20Z)
+
+- **★ CLOSED #1617 tanjiro PRECOND_FREQ=8 n=4 confirm** [53rd R5 result] — μ_4(FFS_ema)=2918.75, σ_4=31.46, Δ=+6.25 vs baseline 2912.5, missed gate 2887.5 by 31.25. **PRECOND_FREQ static-value axis CLOSED at n=4**. n=1 monotone trend (pf=8→2925, pf=16→2950, pf=32→2950, pf=64→2975, pf=128→3000) confirmed mechanism is real but effect size sub-σ at n=4 under EMA-eval stack. Static framing cannot isolate early-phase benefit.
+- **★ CLOSED #1586 thorfinn wd_mlp=0.040 n=4 confirm** [54th R5 result] — μ_4(FFS_ema)=2943.75, σ_4=55.43 (highest R5 variance seen), Δ=+31.25 vs baseline, missed gate by 56.25. **wd_mlp VALUE axis CLOSED at n=4**. Second val-vs-FFS divergence confirmed (first was #1294 mu cooldown): n=1 val=-2.5σ BEST did not survive n=4 FFS noise. Trial_1=3000 was killer outlier inflating variance.
+- **★ ASSIGNED #1715 tanjiro: SOAP PRECOND_FREQ phase-adaptive schedule** — deterministic early/late switch: higher frequency during first 50% (steps 0→1625, pf=8), lower during cooldown (steps 1625→3250, pf=32 or pf=64). 5-cell sweep (ctrl + 4 schedule variants). Structurally distinct from static-value axis. Mechanism: move compute from late-phase basis-jitter to early-phase curvature-adaptation.
+- **★ ASSIGNED #1716 thorfinn: Per-class body Muon WD-schedule SHAPE decoupling** — symmetric analogue of edward #1664's per-class cooldown-LR-SHAPE (n=1 B★=2875 POSITIVE). `--wd_schedule_mlp` vs `--wd_schedule_attn` new flags. B★: mlp=ramp_down (current), attn=constant (sustained regularization, mirror of edward's "attn=linear" win). 5-cell sweep (ctrl + 4 asymmetric combos). **First WD-schedule structural axis tested at per-class granularity under R5 stack**.
+- **Edward #1664 per-class cooldown SHAPE**: A=2925, B★=2875 (STRONG POSITIVE ≤2887), C=3000 NEG, D=2925 NEUTRAL, E (mlp=cos/attn=step falsifier) in flight. Pattern confirmed: ATTN-shape is load-bearing (attn=linear slower decay wins; MLP shape is neutral). n=4 promotion of B★ warranted when Cell E finalizes.
+- Fleet: 8/8 R5 students active after reassignments (alphonse #1689 SOAP β₂ warmup, frieren #1677 lr_attn, nezuko #1676 wd_attn, edward #1664 cooldown SHAPE, askeladd #1659 EMA decoupling, fern #1654 SOAP eigenbasis, tanjiro #1715 PRECOND_FREQ schedule, thorfinn #1716 per-class WD schedule).
+
+---
+
+### Notes (2026-05-29 13:28–13:30Z) [DEFINITIVE n=4 interim values]
 
 - **★ DEFINITIVE trial values from W&B run history (CORRECTING 11:39Z subagent hallucination of tanjiro trial_0)**:
   - **#1617 tanjiro PRECOND_FREQ=8 (ga45cab3)**: trial_0=2925, trial_1=2875, trial_2=2950, trial_3 in flight. 3-trial mean=2916.67. Best-case μ_4 = (2925+2875+2950+2875)/4 = **2906.25 > gate 2887.5 → NO MERGE POSSIBLE**. PRECOND_FREQ=8 mechanism IS load-bearing (#1617 n=1 was clean monotone in pf={1,2,4,8,16}) but effect size is sub-σ at n=4 (μ_4 ≈ 2906 vs baseline 2912.5 = Δ≈−6.5 steps, ~0.5%). EMA-eval did NOT amplify this signal as it did for #1533.

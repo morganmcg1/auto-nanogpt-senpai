@@ -1,5 +1,45 @@
 # SENPAI Research Results — auto-nanogpt-1gpu-r5
 
+## 2026-05-29 15:20Z — PR #1617 CLOSED [53rd R5 result — SOAP PRECOND_FREQ static-value axis closed]: tanjiro PRECOND_FREQ=8 n=4 confirm
+
+- branch: g1r5-tanjiro/soap-precond-freq-confirm
+- Hypothesis: Static PRECOND_FREQ=8 (vs default 16) reduces eigenbasis staleness during early training when gradient curvature shifts fastest, predicted to yield earlier FFS crossing.
+- Result: **CLEAN NEG at n=4. μ_4(FFS_ema)=2918.75, σ_4=31.46 — +6.25 vs baseline, missed merge gate by 31.25.**
+
+| Trial | FFS_ema | W&B |
+|:-----:|:-------:|:---:|
+| 0 | 2925 | `ga45cab3` |
+| 1 | 2875 | `ga45cab3` |
+| 2 | 2950 | `ga45cab3` |
+| 3 | 2925 | `ga45cab3` |
+| **μ_4** | **2918.75** | σ_4=31.46 |
+
+**vs baseline μ_4=2912.5**: Δ=+6.25 NEG (sub-σ noise band). Missed gate 2887.5 by 31.25.
+
+**Mechanism**: Axis IS structurally load-bearing at n=1 (monotone trend: pf=8 → 2925, pf=16 → 2950, pf=32 → 2950, pf=64 → 2975, pf=128 → 3000). EMA-eval stack did NOT amplify the ~50-step n=1 signal into a merge-worthy n=4 delta. The static-value framing cannot isolate early-phase benefit without paying late-phase basis-jitter overhead. **Static PRECOND_FREQ axis closed**; phase-adaptive schedule (deterministic early/late transition) assigned as follow-up to tanjiro #1715.
+
+---
+
+## 2026-05-29 15:20Z — PR #1586 CLOSED [54th R5 result — wd_mlp VALUE axis closed at n=4, val-vs-FFS divergence confirmed]: thorfinn wd_mlp=0.040 n=4 confirm
+
+- branch: g1r5-thorfinn/wd-mlp-fine-r5-confirm
+- Hypothesis: wd_mlp=0.040 exploits cosine-cooldown's late-window LR scaling to achieve eff_wd≈1.82e-4 at step 3000 vs ctrl 1.14e-4, predicted val basin → FFS crossing advantage.
+- Result: **CLEAN NEG at n=4. μ_4(FFS_ema)=2943.75, σ_4=55.43 — +31.25 vs baseline, highest σ_4 seen in R5.**
+
+| Trial | FFS_ema | W&B |
+|:-----:|:-------:|:---:|
+| 0 | 2925 | `ii70qzc4` |
+| 1 | 3000 | `ii70qzc4` |
+| 2 | 2875 | `ii70qzc4` |
+| 3 | 2975 | `ii70qzc4` |
+| **μ_4** | **2943.75** | σ_4=55.43 |
+
+**vs baseline μ_4=2912.5**: Δ=+31.25 NEG (≈1.25σ above baseline). Missed gate 2887.5 by 56.25.
+
+**Mechanism (val-vs-FFS divergence, second R5 instance)**: n=1 screening showed Cell E at wd_mlp=0.040 was −2.5σ BEST on val/loss, with clean basin shape (cliff below at 0.055, NEG above at higher values). However, trial_1=3000 (outlier) dominated n=4 variance and drove μ_4 positive. The val-loss basin at eff_wd=1.82e-4 is a REAL continuous optimum but FFS crossing-time distribution is WIDER at this WD value (σ_4=55.43 vs baseline σ_4=25.0). **WD-value axis closed at n=4**. Per-class WD-schedule SHAPE decoupling assigned as follow-up to thorfinn #1716 (symmetric to edward's #1664 positive cooldown-SHAPE finding).
+
+---
+
 ## 2026-05-29 10:25Z — PR #1658 CLOSED [52nd R5 result — multi-timescale EMA combination axis closed FFS-NEG]: alphonse multi-β EMA (Karras-inspired)
 
 - branch: g1r5-alphonse/multi-beta-ema-combination
