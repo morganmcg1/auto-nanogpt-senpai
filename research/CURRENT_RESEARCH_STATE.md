@@ -1,3 +1,59 @@
+## 2026-05-29 20:15 UTC — Cycle 71 mid-395 — DUAL CLOSURE WAVE: askeladd #1711 300th + thorfinn #1710 301st refutes, 136th + 137th family closures — TWO MAJOR STRUCTURAL FINDINGS in single wave: (1) depth-half attn-SOAP load-bearing is SYMMETRIC at ~+0.0045 each with frozen ≠ disabled asymmetry, (2) v-axis attn-SOAP refresh-control axis FULLY CLOSED at both threshold + frequency levers with v-basis quality DECOUPLED from val
+
+### askeladd #1711 300th refute — PER_DEPTH_HALF_ATTN_SOAP_ENABLED_ISOLATION val_mean=3.27233 STANDARD misses merge bar by Δ=+0.00457 val and +50 ffs
+
+Arm A `front_disabled` (FRONT=0, BACK=1, split=6) val=3.27253 ffs=3050 STANDARD, Arm B `back_disabled` (FRONT=1, BACK=0) val=3.27212 ffs=3050 STANDARD, Δ(B−A)=−0.00041 within-noise SYMMETRIC regression. Stat rule (3.28−μ)·√n ≥ 0.004 PASSES at n=2 (0.01088). W&B d2ojhhg2/j4l1opel verified config-correct + routing-correct (front_in=0/back_in=24 and front_in=24/back_in=0 respectively).
+
+**MAJOR STRUCTURAL FINDING (#1 of wave)**: depth-half attn-SOAP load-bearing is **SYMMETRIC** — both halves contribute ~+0.0045 each when their SOAP whitening is removed. **NEITHER half is structurally removable** as a free simplification. CRITICAL 2nd-order finding from the 2D cross-PR matrix (#1684 frozen × #1711 disabled):
+
+| half | frozen (#1684, threshold=0.95) | disabled (#1711, NO SOAP) | Δ(disabled−frozen) |
+|---|---|---|---|
+| **front** | 3.27042 | 3.27253 | **+0.00211 (frozen WINS)** |
+| **back** | 3.27876 | 3.27212 | **−0.00664 (disabled WINS by large margin)** |
+
+Front-block: stale frozen-basis preserves whitening transform that disabling discards (basis refreshes contribute little once locked). Back-block: frozen-basis is **actively misaligned** during continued training; back benefits from continuous refresh OR no whitening at all. **#1684 Arm B's regression is reframed as stale-basis pathology, NOT "back-block SOAP is load-bearing"**. New Δ-trajectory mechanism class **SYMMETRIC-DEPTH-REGRESSION** = 176th distinct mech class, distinct from EARLY-PEAK-MONOTONIC-DECAY (#1700) and MID-PEAK-COMPOUND-DECAY (#1668).
+
+**136th family closure**: PER_DEPTH_HALF_ATTN_SOAP_ENABLED_ISOLATION axis fully mapped at symmetric-load-bearing outcome.
+
+### thorfinn #1710 301st refute — PER_KIND_ATTN_SOAP_PRECOND_FREQ V_AXIS_ISOLATION val_mean=3.27000 STANDARD-floor-band misses merge bar by Δ=+0.00224 val and +25 ffs
+
+Arm A `v_freq_rare` V=20 val=3.27019 ffs=3025 STANDARD-floor-band-upper-edge, Arm B `v_freq_frequent` V=5 val=3.26981 ffs=3025 STANDARD-floor-band-upper-edge, Δ(B−A)=−0.00038 direction-null. Stat rule (3.28−μ)·√n ≥ 0.004 PASSES at n=2 (0.01414). W&B aj5ogv0y/rw7m4wi2 verified config-correct + dispatch-correct (v_refresh_count 1896 vs 7608 = 4× ratio as expected).
+
+**MAJOR STRUCTURAL FINDING (#2 of wave)**: v-axis basis quality is **DECOUPLED from val outcome** — Arm B (V=5) achieves cos_row=0.89 + on_fraction=100% vs Arm A (V=20) cos_row=0.80 + on_fraction=~0% (**+0.087 cos quality, 12× gate-firing differential**), yet val differs by only 0.00038 (sub-noise). v-basis cos_row improvement is real but does NOT propagate into val outcome — v-axis basis quality is in a "valley of indifference" within the SOAP refresh-control path.
+
+Combined with #1685 (per-kind v-axis threshold dispatch refuted, both polarities destructive), the **FULL v-axis attn-SOAP refresh-control axis is now CLOSED** at 2-of-2 levers:
+
+| lever | PR | configurations | val_final | outcome |
+|---|---|---|---|---|
+| **v_threshold_magnitude** | #1685 | v=0.50 vs v=0.95 | 3.27704 / 3.27223 | both destructive |
+| **v_precond_freq** | **#1710** | V=20 vs V=5 | **3.27019 / 3.26981** | both destructive, direction null |
+
+Remaining v-axis lever candidates outside SOAP refresh path: NS5 quality (edward #1719 IN-FLIGHT), init scale (alphonse #1713 IN-FLIGHT partially overlapping), per-kind Muon LR (refuted #1692), per-kind β2 (refuted #1663).
+
+**137th family closure**: PER_KIND_ATTN_SOAP_PRECOND_FREQ axis fully mapped at v-decoupled outcome.
+
+### Cumulative state
+
+**Cycle 71 cumulative**: **301 refuted** / **176 distinct mech classes** (NEW SYMMETRIC-DEPTH-REGRESSION) / **137 family-level closures**.
+
+### PRs closed this wave (2 closures):
+
+| PR | student | mechanism | outcome |
+|---|---|---|---|
+| **askeladd #1711** | askeladd | PER_DEPTH_HALF_ATTN_SOAP_ENABLED_ISOLATION (Arm A front_disabled FRONT=0/BACK=1, Arm B back_disabled FRONT=1/BACK=0, split=6) | **300th** — Arm A 3.27253/3050 STANDARD, Arm B 3.27212/3050 STANDARD, val_mean=3.27233 misses by +0.00457/+50. Δ(B−A)=−0.00041 within-noise SYMMETRIC regression. **MAJOR STRUCTURAL FINDING #1**: depth-half load-bearing is symmetric ~+0.0045 each; back-disabled BETTER than back-frozen (#1684 B 3.27876 → +0.00664 improvement) reframes #1684 Arm B as stale-basis-pathology not load-bearing. SYMMETRIC-DEPTH-REGRESSION = 176th mech class. **136th family closure**. |
+| **thorfinn #1710** | thorfinn | PER_KIND_ATTN_SOAP_PRECOND_FREQ V_AXIS_ISOLATION (Arm A v_freq_rare V=20, Arm B v_freq_frequent V=5, q/k/proj at baseline 10) | **301st** — Arm A 3.27019/3025 STANDARD-floor-band-upper-edge, Arm B 3.26981/3025 STANDARD-floor-band-upper-edge, val_mean=3.27000 misses by +0.00224/+25. Δ(B−A)=−0.00038 direction-null. **MAJOR STRUCTURAL FINDING #2**: v-basis quality DECOUPLED from val (cos_row +0.087, on_fraction 0%→100%, val Δ only 0.00038); full v-axis attn-SOAP refresh-control axis CLOSED at both threshold + frequency levers. **137th family closure**. |
+
+### PRs assigned this wave (2 fresh per-group + state-mechanism axes):
+
+| PR | student | mechanism | hypothesis |
+|---|---|---|---|
+| **askeladd #1731** | askeladd | PER_DEPTH_HALF_ATTN_SOAP_BETA2 (Arm A `front_FAST` FRONT=0.85/BACK=0.95, Arm B `back_FAST` FRONT=0.95/BACK=0.85, depth_split=6 matches #1711) | **Depth-axis β2 dispatch on attn-SOAP exp_avg_sq** — direct depth-axis follow-up to #1711's SYMMETRIC-DEPTH-REGRESSION finding, targets state-mechanism (2nd-moment EMA decay) on fresh axis. Cycle-71 time-axis β2 phase-dispatch precedent productive at kind level: #1642 attn-SOAP-proj LATE-FAST wins, #1668 MLP-SOAP-proj EARLY-FAST wins. **Depth-axis β2 dispatch has NEVER been tested**. Probes eigenbasis-rank-sensitivity axiom across depth (front layers may compute lower-rank features wanting FAST adaptation, back-layers higher-rank with SLOW adaptation, or vice versa). If A<B → front prefers FAST β2. If B<A → back prefers FAST β2. If A≈B≈baseline → depth-axis β2 null. If A or B < baseline → first depth-stratified β2 signal opens new family. Fits Morgan's directive (per-group + state-mechanism — depth-half + β2 second-moment state, no scalar sweep). |
+| **thorfinn #1732** | thorfinn | PER_KIND_AUX_WD_LM_HEAD (Arm A `lm_head_wd_lower` WD_LM_HEAD=0.0003 / WD_EMBED=0.001, Arm B `lm_head_wd_higher` WD_LM_HEAD=0.003 / WD_EMBED=0.001) | **Virgin per-kind AdamW WD on lm_head** — pivots OUT of v-axis attn-SOAP scope (now closed) to fresh per-group state-mechanism on the strongest single-axis kind. lm_head has #1678 B β1=0.9 SLOW val=3.26955 and #1577 B β2=0.85 FAST val=3.26992 as the recent floor-band winners; perturbing its WD isolates the AdamW state-mechanism most likely to compound with the existing single-axis winners. Embed-WD-down family just closed at floor-band cluster (#1705 mean 3.26962); **lm_head WD has NEVER been varied per-kind**. If A<baseline → lm_head benefits from lower WD; potential merge candidate. If B<baseline → lm_head benefits from higher WD. If A≈#1683 A or floor-band-cluster (3.26960) → lm_head WD saturates onto embed-WD-down family's floor-band-cluster (shared latent across AdamW kinds = major structural finding). If A≈B≈baseline → lm_head WD inert. Fits Morgan's directive (per-group + state-mechanism — per-kind WD second-moment-affecting state). |
+
+Fleet 8/8 assigned, 0 idle.
+
+---
+
 ## 2026-05-29 18:30 UTC — Cycle 71 mid-394 — fern #1705 299th refute, 135th family closure — MAJOR STRUCTURAL FINDING: embed-WD-down family CONVERGED at floor-band cluster (n=3 cross-PR mean 3.26962 ±0.00033 sub-noise); terminal embed magnitude is NOT load-bearing for val benefit
 
 ### fern #1705 299th refute — PER_PHASE_WD_AUX_EMBED val_mean=3.26960 STANDARD-floor-band misses merge bar by Δ=+0.00184 val and +25 ffs
