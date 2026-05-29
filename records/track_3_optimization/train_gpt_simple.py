@@ -466,6 +466,14 @@ ATTN_SOAP_PRECOND_FREQ = 10
 ATTN_SOAP_TRUST_THRESHOLD = float(os.environ.get("ATTN_SOAP_TRUST_THRESHOLD", "0.9"))
 NS5_ITERS = int(os.environ.get("NS5_ITERS", "12"))
 WD_AUX = float(os.environ.get("WD_AUX", "0.0"))  # AdamW WD on embed + lm_head matrices (scalars stay at 0)
+# PR PHASE_DISPATCH_AUX_BETA2 — phase-dispatched uniform AUX β2 at boundary step 1500.
+# Extends phase-dispatch family from SOAP scopes (#1642, #1645) to AUX (AdamW) optimizer class.
+PHASE_DISPATCH_AUX_BETA2_ENABLED = int(os.environ.get("PHASE_DISPATCH_AUX_BETA2_ENABLED", "0"))
+AUX_BETA2_EARLY = float(os.environ.get("AUX_BETA2_EARLY", "0.95"))
+AUX_BETA2_LATE = float(os.environ.get("AUX_BETA2_LATE", "0.95"))
+AUX_BETA2_PHASE_BOUNDARY_STEP = int(os.environ.get("AUX_BETA2_PHASE_BOUNDARY_STEP", "1500"))
+assert 0.0 < AUX_BETA2_EARLY < 1.0
+assert 0.0 < AUX_BETA2_LATE < 1.0
 EMBED_INIT_STD = float(os.environ.get("EMBED_INIT_STD", "1.0"))  # default preserves baseline N(0,1)
 LOGIT_SOFTCAP = float(os.environ.get("LOGIT_SOFTCAP", "15.0"))  # default = 15 (current hardcoded value); soft-cap value c in f(x) = c·x / sqrt(x^2+c^2)
 
@@ -866,9 +874,16 @@ if dist.get_rank() == 0:
             "optimizer/attn_soap_trust_threshold": ATTN_SOAP_TRUST_THRESHOLD,
             "optimizer/ns5_iters": NS5_ITERS,
             "optimizer/wd_aux": WD_AUX,
+            "optimizer/phase_dispatch_aux_beta2_enabled": int(PHASE_DISPATCH_AUX_BETA2_ENABLED),
+            "optimizer/aux_beta2_early": AUX_BETA2_EARLY,
+            "optimizer/aux_beta2_late": AUX_BETA2_LATE,
+            "optimizer/aux_beta2_phase_boundary_step": AUX_BETA2_PHASE_BOUNDARY_STEP,
             "optimizer/recipe": "contra-muon + normuon-lite + soap-on-mlp + soap-on-attn-trust-gate (pre-NS5, record #14 + record #16)",
         },
     )
+    print0(f"[PHASE_DISPATCH_AUX_BETA2] enabled={PHASE_DISPATCH_AUX_BETA2_ENABLED} "
+           f"early={AUX_BETA2_EARLY} late={AUX_BETA2_LATE} boundary={AUX_BETA2_PHASE_BOUNDARY_STEP}",
+           console=True)
 
 for trial_idx in range(args.num_trials):
 
@@ -1051,6 +1066,37 @@ for trial_idx in range(args.num_trials):
                 train_steps=train_steps,
                 wandb_step=wandb_step,
             )
+        # PHASE_DISPATCH_AUX_BETA2 hook — update β2 in-place based on current step.
+        # optimizer1 == AdamW (AUX): adam_embed, adam_lm_head, adam_scalars. AdamW reads
+        # betas from each group on every step, so mutating .betas here propagates immediately.
+        if PHASE_DISPATCH_AUX_BETA2_ENABLED:
+            current_beta2 = AUX_BETA2_EARLY if step < AUX_BETA2_PHASE_BOUNDARY_STEP else AUX_BETA2_LATE
+            for g in optimizer1.param_groups:
+                beta1 = g["betas"][0]
+                g["betas"] = (beta1, current_beta2)
+            if dist.get_rank() == 0 and (step == AUX_BETA2_PHASE_BOUNDARY_STEP - 1 or step == AUX_BETA2_PHASE_BOUNDARY_STEP + 1):
+                print0(f"[AUX_BETA2_PHASE] step={step} current β2 in optimizer1[0]="
+                       f"{optimizer1.param_groups[0]['betas'][1]}", console=True)
+            if dist.get_rank() == 0 and step in (500, 1500, 1501, 3000):
+                aux_v_stats = {"trial": trial_idx, "aux/snapshot_step": step}
+                for g in optimizer1.param_groups:
+                    g_name = g.get("name", "?")
+                    g_means, g_maxes = [], []
+                    for p in g["params"]:
+                        st = optimizer1.state.get(p, {})
+                        v = st.get("exp_avg_sq")
+                        if v is not None:
+                            g_means.append(float(v.mean().item()))
+                            g_maxes.append(float(v.max().item()))
+                    if g_means:
+                        v_mean = sum(g_means) / len(g_means)
+                        v_max = max(g_maxes)
+                        aux_v_stats[f"aux/exp_avg_sq_mean/{g_name}"] = v_mean
+                        aux_v_stats[f"aux/exp_avg_sq_max/{g_name}"] = v_max
+                        aux_v_stats[f"aux/beta2_active/{g_name}"] = g["betas"][1]
+                        print0(f"[AUX_V_SNAPSHOT] step={step} group={g_name} β2={g['betas'][1]} "
+                               f"exp_avg_sq_mean={v_mean:.6g} exp_avg_sq_max={v_max:.6g}", console=True)
+                wandb.log(aux_v_stats, step=wandb_step)
         for opt in optimizers:
             opt.step()
         if dist.get_rank() == 0 and telemetry_due:
