@@ -114,6 +114,12 @@ def parse_args():
                         help="Polyak-Ruppert EMA decay for eval-only weight averaging. "
                              "0.0 = disabled (drift-FREE CTRL). Typical: 0.05 (fast, ~20-step half-life) / "
                              "0.005 (slow, ~200-step half-life). Higher decay = faster EMA tracking.")
+    parser.add_argument("--body_grad_centralize", type=int,
+                        default=int(os.environ.get("BODY_GRAD_CENTRALIZE", "0")),
+                        help="H281: Apply Gradient Centralization to body matrix gradients before momentum "
+                             "update in muon_update(). 0=off (drift-FREE CTRL, falls through to standard "
+                             "momentum path), 1=on (per-output-channel mean subtraction across non-batch "
+                             "dimensions). Ref: Yong et al. 2020 arXiv:2004.01461.")
     args = parser.parse_args()
     args.num_trials = args.num_trials if args.num_trials is not None else (args.legacy_num_trials or 1)
     args.wandb_tags = [tag.strip() for tag in args.wandb_tags.split(",") if tag.strip()]
@@ -569,7 +575,14 @@ def zeropower_via_newtonschulz5(G: Tensor) -> Tensor:
     return X
 
 @torch.compile
-def muon_update(grad, momentum, mu=0.95, nesterov=True):
+def muon_update(grad, momentum, mu=0.95, nesterov=True, body_grad_centralize=0):
+    # H281: Gradient Centralization (Yong et al. 2020 arXiv:2004.01461).
+    # Subtract per-output-channel mean before momentum integration. Out-of-place
+    # rebinds local `grad`; the original p.grad is untouched (matters only on the
+    # GC branch — when body_grad_centralize=0 the if is skipped and execution is
+    # bit-identical to baseline, so arm_a CTRL stays Pattern A drift-FREE).
+    if body_grad_centralize and grad.dim() > 1:
+        grad = grad - grad.mean(dim=tuple(range(1, grad.dim())), keepdim=True)
     momentum.lerp_(grad, 1 - mu)
     update = grad.lerp_(momentum, mu) if nesterov else momentum
     update = zeropower_via_newtonschulz5(update)
@@ -707,7 +720,8 @@ class MuonH(torch.optim.Optimizer):
                         state["momentum"] = torch.zeros_like(p)
                         if hb:
                             state["hyperball_radius"] = p.data.norm().item() * budget_mult
-                    update = muon_update(p.grad, state["momentum"], mu=group["mu"])
+                    update = muon_update(p.grad, state["momentum"], mu=group["mu"],
+                                         body_grad_centralize=group.get("body_grad_centralize", 0))
                     if hb and mode == "scale_invariant":
                         # Always-active variant: norm is held at initial value by construction.
                         scale_invariant_update_(p.data, update, group["lr"])
@@ -856,6 +870,7 @@ if dist.get_rank() == 0:
             "muonh_mu_start": args.muonh_mu_start,
             "muonh_mu_end": args.muonh_mu_end,
             "polyak_ema_decay": args.polyak_ema_decay,
+            "body_grad_centralize": args.body_grad_centralize,
         },
     )
 
@@ -941,6 +956,8 @@ for trial_idx in range(args.num_trials):
                        hyperball=True, budget_mult=args.muonh_budget_mult,
                        mode=args.muonh_mode)
     optimizer2.param_groups[0]["name"] = "muonh_blocks"
+    # H281: Gradient Centralization scope (body MuonH only). 0 = drift-FREE CTRL.
+    optimizer2.param_groups[0]["body_grad_centralize"] = args.body_grad_centralize
     optimizers = [optimizer1, optimizer2]
     # AGC targets: AdamW aux groups (embed, lm_head, scalars). Built from optimizer1
     # param groups to track exactly the same params AdamW updates.
