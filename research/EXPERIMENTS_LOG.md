@@ -1,5 +1,20 @@
 # SENPAI Research Results
 
+## 2026-05-29 13:00 UTC — PR #1637 alphonse: Pre-target body Muon LR ×1.25 boost — ❌ CLOSED NULL at n=2 (sub-noise seed-1 not confirmed)
+
+- Branch: `g1r1-alphonse/pretarget-boost-125-seed2`
+- Hypothesis: alphonse seed-1 Arm A (val_ema=3.262770, sr=2875) was sub-noise PASS by 0.084 mnat. Seed-2 confirmation required before merge.
+- W&B: Arm A seed-1 `ara5opnj`, Arm A seed-2 `dvcemg0l`, Arm B (×1.5) `ezukpl39`
+
+| Seed/Arm | factor | val_loss_ema | val_loss_live | sr | Δval vs canonical | Verdict |
+|---|---:|---:|---:|---:|---:|---|
+| Arm A seed-1 `ara5opnj` | 1.25 | 3.262770 | — | 2875 | −0.084 mnat | sub-noise PASS |
+| Arm A seed-2 `dvcemg0l` | 1.25 | 3.2658 | 3.2652 | 2925 | +2.95 mnat | NULL (seed regression) |
+| **n=2 mean** | 1.25 | **3.26428** | — | **2900** | +1.43 mnat | ❌ NULL on both gate clauses |
+| Arm B `ezukpl39` | 1.5 | 3.2670 | 3.2663 | 2925 | +4.15 mnat | ❌ NULL |
+
+- **Analysis**: seed-1 sub-noise WIN (0.084 mnat) was within typical seed variance (~1-2 mnat). Seed-2 dramatically regressed (+50 sr, +2.95 mnat val_ema). Aggregate n=2 mean fails both gate clauses (sr=2900 > 2862.5; sr=2900 ≠ 2875). **Pre-target body Muon LR-UP axis closed within noise.** This is the 8th NULL in pre-target body-Muon scalar mechanism family (LR-UP, LR-DOWN, γ, μ, NS coefs, beta_cov-975, Nesterov, schedule-free) → **PLATEAU PROTOCOL engaged**: escalating to wrapper optimizers (Lookahead first, #1701).
+
 ## 2026-05-29 11:35 UTC — PR #1660 thorfinn: Pre-target NS coefficient pulse (Arm A conservative quintic) — ❌ Arm A NULL, Arm B in flight
 
 - Branch: `g1r1-thorfinn/pretarget-ns-coef-pulse`
