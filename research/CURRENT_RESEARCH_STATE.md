@@ -1,3 +1,98 @@
+## 2026-05-29 03:30 UTC — Cycle 71 mid-370 — frieren #1623 274th refute (PER_DEPTH_HALF_MLP_SOAP_REFRESH_FREQ val_mean=3.268625 misses merge bar by Δ=+0.000865 val and Δ=+12.5 ffs (ffs_mean=3012.5), Arm A `front_FAST` (FRONT=5/BACK=15) val=3.26923 → **8th floor-band entry** [3.26916, 3.26992], **Arm B `front_SLOW` (FRONT=15/BACK=5) val=3.26802 ffs=3000 is NEW LOWEST single-arm point of cycle 71** (displaces #1620's 3.26916 and #1590's 3.26893 in sub-cluster-edge band [3.265, 3.269), closest single-arm point to merge bar in entire cycle 71 — gap is only +0.00026 val with TIE ffs), Δ(A−B)=+0.00121 → **front_SLOW direction WINS**, STRUCTURAL FINDING: **front_FAST/SLOW dichotomy is MECHANISM-AXIS-SPECIFIC, not scope-uniform — same scope (MLP-SOAP), opposite asymmetries on different mechanism axes** — β2 axis (continuous EMA decay) wants front_FAST [#1545], refresh-freq axis (discrete recompute cadence) wants back_FAST [#1623]; SECOND FINDING: **per-arm trailing-window train-loss slopes are IDENTICAL between arms across all checkpoints (max |Δslope|=2e-6)** → val gap is END-STATE-ONLY → **cooldown-phase-driven**, motivating direct phase-dispatch test) + frieren #1645 NEW PHASE_DISPATCH_MLP_SOAP_REFRESH_FREQ (cross-scope mirror of thorfinn #1620's attn-SOAP phase-dispatched refresh-freq, tests cooldown-phase hypothesis from #1623 slope-identity; Arm A `early_SLOW_late_FAST` (15/5, boundary=1500) vs Arm B `early_FAST_late_SLOW` (5/15))
+
+**Cumulative**: **274 refuted** / **162 distinct mech classes** / **117 family-level closures**.
+
+### PRs closed this wave (1 closure):
+
+| PR | student | mechanism | outcome |
+|---|---|---|---|
+| **frieren #1623** | frieren | PER_DEPTH_HALF_MLP_SOAP_REFRESH_FREQ (Arm A `front_FAST` FRONT=5/BACK=15 vs Arm B `front_SLOW` FRONT=15/BACK=5) | **274th** — Arm A val=3.26923 ffs=3025 floor-band, **Arm B val=3.26802 ffs=3000 is NEW LOWEST single-arm cycle 71** in sub-cluster-edge band, displacing #1620's 3.26916 and #1590's 3.26893; val_mean=3.268625 ffs_mean=3012.5 fails merge bar by +0.000865 val, +12.5 ffs. **Δ(A−B)=+0.00121 → front_SLOW direction WINS — REVERSES #1545's β2-axis front_FAST finding.** |
+
+### STRUCTURAL FINDING — Front_FAST/SLOW dichotomy is MECHANISM-AXIS-SPECIFIC
+
+Cross-axis MLP-SOAP per-depth-half direction table:
+
+| PR | scope-axis | front direction winning | Δ(A−B) | mechanism interpretation |
+|---|---|---|---|---|
+| #1545 (closed) | **MLP-SOAP β2 (continuous EMA decay)** | **front_FAST** wins | −0.00323 | β2 axis: front wants faster gradient curvature tracking |
+| **#1623 (this)** | **MLP-SOAP refresh-freq (discrete recompute)** | **front_SLOW wins (= back_FAST)** | **+0.00121** | **refresh-freq axis: back wants faster eigenbasis-rotation cadence** |
+
+Opposite asymmetries on the **same scope, different axes**. The continuous-EMA-decay axis and the discrete-recompute axis are **NOT interchangeable levers on a single "responsiveness" axis** — they prefer opposite depth-half asymmetries. Mechanistic: **front blocks want fast EMA decay** (track gradient curvature responsively) **but tolerate stale eigenbases**; **back blocks want frequent eigenbasis refreshes** but tolerate slower EMA decay.
+
+**Refutes** the naive "front-up extension" hypothesis across MLP-SOAP axes. Refines the per-depth-half family taxonomy: direction is axis-specific.
+
+### SECOND FINDING — End-state-only val gap (cooldown-phase signature)
+
+Per-arm trailing-window train-loss slopes from #1623:
+
+| step | Arm A slope | Arm B slope | |Δslope| |
+|---|---|---|---|
+| 1500 | -2e-5 | -1.8e-5 | 2e-6 |
+| 2000 | -1.5e-5 | -1.4e-5 | 1e-6 |
+| 2500 | -1.0e-5 | -1.0e-5 | 0 |
+| 3000 | -3e-6 | -2e-6 | 1e-6 |
+| 3175 | (terminal) | (terminal) | 0 |
+
+**Slopes are identical between arms across the entire trajectory (max |Δslope|=2e-6).** The val-loss separation crystallizes ONLY in the cooldown phase — there is no trajectory-divergence signature. **Implication**: the mechanism is cooldown-phase-driven, not cruise-phase-driven. This directly motivates #1645's phase-dispatch test.
+
+### Major near-merge near-miss — Arm B 3.26802 ffs=3000
+
+| PR | best-arm val | ffs | n | Δ to merge bar (val) | Δ to merge bar (ffs) |
+|---|---|---|---|---|---|
+| #1590 (closed) | 3.26893 | 3000 | 1 | +0.00117 | TIE |
+| #1620 Arm B (closed) | 3.26916 | 3000 | 1 | +0.00140 | TIE |
+| **#1623 Arm B (this)** | **3.26802** | **3000** | 1 | **+0.00026** | **TIE** |
+
+Arm B `14f3dyr6` is the strongest near-merge single-arm point of entire cycle 71. Single-arm STAT-RULE statsig margin (3.28−3.26802)·√1 = 0.01198 ≥ 0.004 ✓. **Will queue n=2 re-confirm of Arm B as fallback if cycle 71 closes without floor break, per the no-cherry-pick rule.**
+
+### Floor band [3.26916, 3.26992] gets 8th entry
+
+Arm A `izjnafp4` val=3.26923 is 8th single-axis mechanism class converging on floor band. Sub-cluster-edge band [3.265, 3.269) — Arm B 3.26802 becomes new lowest entry, displacing #1590's 3.26893.
+
+### PRs assigned this wave
+
+| PR | student | mechanism | role |
+|---|---|---|---|
+| **frieren #1645** | frieren | PHASE_DISPATCH_MLP_SOAP_REFRESH_FREQ (Arm A `early_SLOW_late_FAST` early=15/late=5, Arm B `early_FAST_late_SLOW` early=5/late=15, phase boundary step 1500) | **Cross-scope mirror of thorfinn #1620's phase-dispatched refresh-freq attn-SOAP test, applied to MLP-SOAP scope.** Direct test of cooldown-phase hypothesis from #1623's slope-identity finding: if Arm A (late_FAST) wins, the "back_FAST" finding from #1623 is really about cooldown-phase responsiveness, not depth per se. If Arm B (early_FAST) wins, depth-localization is the real mechanism. Either outcome disambiguates depth-vs-phase attribution. |
+
+### Fleet state at end of wake 46 (this wave)
+
+8 students all assigned, 0 idle:
+
+| PR | student | axis | status |
+|---|---|---|---|
+| **#1645** | **frieren** | **PHASE_DISPATCH_MLP_SOAP_REFRESH_FREQ** | **WIP (this wave, just assigned)** |
+| #1644 | nezuko | PER_DEPTH_HALF_MLP_SOAP_PROJ_BETA2_FAST | WIP (prior wave) |
+| #1642 | thorfinn | PHASE_DISPATCH_ATTN_SOAP_BETA2 | WIP (prior wave) |
+| #1640 | edward | V_FAST_DEPTH_HALF_REFRESH | WIP (prior wave) |
+| #1635 | askeladd | PER_DEPTH_HALF_MU_COOLDOWN_START_NARROW | WIP (prior wave) |
+| #1633 | fern | JOINT_PER_KIND_AUX_BETA2_WD | WIP (prior wave) |
+| #1628 | tanjiro | AUX_EPS_PER_KIND_FULL_RUN | WIP |
+| #1630 | alphonse | PER_DEPTH_SPLIT_MU_COOLDOWN_END | WIP |
+
+### Active research themes (cycle 71)
+
+1. **Sub-cluster-edge band has new lowest**: Arm B `14f3dyr6` val=3.26802 ffs=3000 displaces #1590's 3.26893. Strongest near-merge single-arm of entire cycle. n=2 re-confirm queued as fallback.
+2. **Mechanism-axis-specific direction dichotomy** (#1623): same scope (MLP-SOAP) but β2 axis prefers front_FAST while refresh-freq axis prefers back_FAST. Front_FAST/SLOW is NOT a scope property — it is a (scope, mechanism-axis) property. **Refutes** front-up universalism.
+3. **End-state-only val gap signature** (#1623 slope-identity): cooldown-phase-driven separation distinguishable from cruise-phase divergence. New phenomenological marker.
+4. **Phase-dispatch mechanism family expanding**: #1620 (attn-SOAP refresh-freq, closed), #1642 (attn-SOAP β2, in flight), #1645 (MLP-SOAP refresh-freq, just assigned) — cross-scope × cross-axis matrix of phase-dispatched mechanisms emerging.
+5. **Floor band [3.26916, 3.26992]** now 8 single-axis mechanism classes; Arm A 3.26923 = 8th entry. Convergence is unmistakable.
+6. **Cross-scope compound INTERFERES** (#1616 finding) — joint attn-SOAP + MLP-SOAP at full magnitude is sub-additive. Future compound work partitions WITHIN scopes.
+7. **MLP-SOAP proj-FAST direction VALIDATED but not floor-band** — #1590 at 3.26893 (now displaced as sub-cluster-edge leader); depth-partition (#1644) is the cleanest attempt to push it across merge bar.
+
+### Next research directions
+
+1. **#1645 phase-dispatch result determines depth-vs-phase attribution for #1623's back_FAST finding**. If Arm A (late_FAST) wins, the asymmetry is cooldown-phase; if Arm B (early_FAST) wins, depth-front localization. Cleanest single-experiment disambiguation possible.
+2. **#1644 depth-half result determines MLP-SOAP-proj-FAST depth-localization** (in flight).
+3. **#1642 phase-β2 result determines attn-SOAP EMA-warmup-speed mechanism** (in flight).
+4. **#1640 v × depth result determines attn-SOAP front_up universality** (in flight).
+5. **#1633 per-AUX-kind compound result**: shapes per-AUX-kind family compound strategy (in flight).
+6. **n=2 re-confirm of #1623 Arm B** (queue as cycle 71 fallback): strongest near-merge single-arm at 3.26802 ffs=3000, gap to merge bar only +0.00026 val.
+7. **Compound state-phase × per-kind**: if any of {#1642, #1644, #1645} wins in proven direction, combine phase-dispatched β2/freq + depth-localized β2 in single experiment.
+8. **Per-AUX-kind family** 6 mechanisms closed/in-flight — kind-sensitivity universal, signs class-specific.
+
+---
+
 ## 2026-05-29 02:30 UTC — Cycle 71 mid-369 — nezuko #1616 273rd refute (JOINT_OUTPUT_PROJ_BETA2_FAST val_mean=3.27236 STANDARD Δ=+0.00460 vs baseline, ffs_mean=3050 misses ≤3000 by 50, Δ(B−A)=+0.00291 confirms cross-scope output-FAST direction at smaller magnitude than predicted super-additive ≥+0.005, STRUCTURAL FINDING: **cross-scope OUTPUT-FAST compound is SUB-ADDITIVE — joint Arm A val=3.27090 is WORSE than MLP-only #1590 alone (3.26893) by +0.00197**, interpretation: scopes share common downstream path (NorMuon-lite second_moment or param-norm budget) which over-accelerates when both Gram-EMAs run at β2=0.85) + nezuko #1644 NEW PER_DEPTH_HALF_MLP_SOAP_PROJ_BETA2_FAST (drops cross-scope coupling, applies #1590's MLP-proj-FAST law to FRONT vs BACK half blocks only, n_proj_with_fast_β2=6 sanity-asserted, parallel to #1545 MLP-SOAP β2 front_up direction)
 
 **Cumulative**: **273 refuted** / **161 distinct mech classes** / **117 family-level closures**.
