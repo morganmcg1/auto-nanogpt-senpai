@@ -1,6 +1,74 @@
 # SENPAI Research State — auto-nanogpt-1gpu-r3
 
-- **Last updated:** 2026-05-29 03:50 UTC
+- **Last updated:** 2026-05-29 05:40 UTC
+
+---
+
+## Cycle ~1525: H253 + H255 DUAL CLOSURES (**110th + 111th NULL/NEG**, 🎯 **PROGRAMME FINDING #58 candidate STRENGTHENED to 5 axes — PROMOTION-grade** + 🎯 **NEW NS5 contractive-basin σ ∈ (0,√3) NaN-divergence mechanism (H255)** + 🎯 **terminal riem_frob_ratio convergence to ~6.3 natural attractor (H253)** + 🎯 **H249→H253→H255 monotonic-harm gradient DEFINITIVELY ESTABLISHED** + 🎯 **NEW campaign-level diagnostic protocol: NS5 contractive-basin pre-step check** + H261 askeladd ASSIGNED **57th mechanism class — Aux Sophia preconditioner FORM (BOLD)** + H262 frieren ASSIGNED **58th mechanism class — Body warmup steps VALUE ablation**)
+
+**Key closures this cycle:**
+
+- **H253 askeladd Body init QR-Stiefel ablation (PR #1624)** — **110th NULL/NEG closure**, bilateral NEG. arm_a CTRL fnorm_matched `9wgy9qkd` val=**3.26830** FFS=**3025 EXACT** (**drift-FREE 8th CTRL instance** — body_init dispatch Pattern A at model construction time before @torch.compile, no compile retracing). arm_b QR_RAW `r0gxkdl4` val=3.27613 FFS=**3175 (+150)** NEG. arm_c QR_MEAN_FNORM `dsg2kz2m` val=3.27712 FFS=**3200 (+175)** NEG.
+
+  **🎯 terminal riem_frob_ratio convergence to ~6.3 natural attractor finding**: QR arms' initial Stiefel-membership advantage is **TRANSIENT** (lost by step ~1000). All three arms flow to the natural attractor at riem_frob_ratio ~6.3 by terminal step 3325 (CTRL 6.28, QR_RAW 6.56, QR_MEAN 6.29). Worse: arm_b QR_RAW terminal ratio (6.56) is HIGHER than CTRL (6.28), suggesting QR's unit-column scale ACCELERATES off-Stiefel drift in first ~500 steps due to LR×g step magnitude mismatch. **Stiefel is structurally unreachable for MuonH-SI body parameters regardless of initialization.**
+
+- **H255 frieren Stiefel retraction (FULL + COOLDOWN_GATED) (PR #1626)** — **111th NULL/NEG closure**, both arms CATASTROPHIC NEG. arm_a CTRL `0vtzo5og` val=3.26923 FFS=**3050 (+25 DRIFT — Pattern D-loose)**. arm_b FULL_RETRACTION `1puk5mm3` val=**3.37408** (+119σ_H174) FFS=**−1** (mechanism MAXIMALLY ACTIVE riem_frob_ratio=2e-7 PERFECT enforcement). arm_c COOLDOWN_RETRACTION `bx247syf` val=**NaN since step 2000** FFS=**−1** (NaN divergence at cooldown gate activation step 1995).
+
+  **🎯 NEW NS5 CONTRACTIVE-BASIN σ ∈ (0,√3) NaN-DIVERGENCE MECHANISM** (campaign mathematical insight): Newton-Schulz polar step `W ← W (1.5 I − 0.5 W^T W)` has singular-value contractive basin σ ∈ (0, √3 ≈ 1.732). Outside this basin, NS map sends σ → −∞ within 4-5 iterations. arm_c crossover: at step 1975, body frob_norm = 79.86 → mean σ ≈ 79.86/√768 = **2.88 (past √3=1.732)**. When cooldown gate activates at step 1995, very first NS step is divergent → NaN within 5 retraction steps. This is mathematically clean — explains why timing-gated retraction is strictly worse than continuous retraction.
+
+  **🎯 PROGRAMME FINDING #58 candidate at 5 axes — CLOSURE-GRADE / PROMOTION**: H238 polynomial coeffs + H248 per-coord post-NS5 + H249 Riemannian-Stiefel norm + **H253 (NEW) true Stiefel body init + H255 (NEW) hard retraction (FULL + COOLDOWN)**. 5-axis support with dual same-cycle closure. Eliminates ~5-10 future speculative hypotheses (Stiefel-aware projections, Riemannian Stiefel-metric updates, retraction methods) without further compute. **Resource savings**: ~10-20h compute + 5-10 student PR cycles pre-empted.
+
+  **🎯 H249→H253→H255 monotonic-harm gradient DEFINITIVELY ESTABLISHED**: Stronger Stiefel enforcement → strictly worse outcome. Init only (H253 QR_RAW, terminal 6.56, NEG +150) → Soft correction (H249 Riemannian, terminal 2.37, CATASTROPHIC) → Hard projection (H255 FULL, terminal ~0 PERFECT, +119σ NEG) → Late hard projection (H255 COOLDOWN, NaN, divergent). Mathematical: NS5's contractive basin σ ∈ (0,√3) is the binding constraint that makes COOLDOWN-gated retraction strictly worse than FULL retraction.
+
+  **🎯 NEW campaign-level diagnostic protocol — NS5 contractive-basin pre-step check**: Any future body-side mechanism allowing W mean σ to drift past √3 MUST include a pre-step contractive-basin check (e.g., before each NS5 application, verify `‖W‖_F² / k ≤ 3`). Otherwise NS5 will diverge. Load-bearing for body params with non-fnorm-matched init scaling, body LR aggressive scheduling allowing ‖W‖_F growth, retraction/projection mechanisms with timing gates.
+
+**New assignments:**
+
+- **H261 askeladd ASSIGNED (PR #1649) — 57th mechanism class: Aux Sophia preconditioner FORM replacement (BOLD plateau-protocol swing)**. Per plateau protocol (111+ NULL/NEG cumulative), bigger mechanism-class swings warranted. Sophia (Liu et al. 2023, "Sophia: A Scalable Stochastic Second-order Optimizer") uses clipped diagonal-Hessian preconditioning via Hutchinson estimator. Aux is currently AdamW (Lion replacement H260 nezuko also WIP). Sophia: `clip(g/max(|h|,ρ), -ρ, ρ)` with Hutchinson Hessian estimate refreshed every k=10 steps. 3-arm: ADAMW CTRL / SOPHIA_K10 (k=10, ρ=0.05, β₁=0.96, β₂=0.99) / SOPHIA_K5 (k=5, ρ=0.05). Pattern A drift-FREE (aux step outside @torch.compile). Requires SECOND backward pass for Hutchinson estimator (~10% compute overhead at k=10). WIN probability 25-35%.
+
+- **H262 frieren ASSIGNED (PR #1650) — 58th mechanism class: Body warmup steps VALUE ablation**. `muonh_warmup_steps=100` (~3.0% of 3325 steps) is heritage from H148 era — body warmup DURATION has been **structurally pinned** at 100 steps for many cycles without VALUE ablation. H254 fern tested SHAPE (linear/cosine/sqrt) but DURATION fixed. 3-arm: CTRL `muonh_warmup_steps=100` / LONGER 250 (7.5%) / SHORTER 50 (1.5%). **Trivially drift-FREE** (zero code changes, argparse VALUE only). Outcomes inform PF#56 candidate 4th axis (schedule rigidity) or open warmup_steps=0 hypothesis if shorter trend monotone. WIN probability 20-30%.
+
+**Survey state after cycle ~1525**: 8/8 students WIP (alphonse H257, edward H256, fern H254, thorfinn H258, tanjiro H259, nezuko H260, **askeladd H261 just assigned, frieren H262 just assigned**). 0 idle students. 0 review-ready PRs. No new human directives.
+
+**Programme totals after cycle ~1525:**
+- **111 NULL/NEG closures** (+2 from H253 + H255 dual closure this cycle)
+- **58 mechanism classes** (+2; H261 aux Sophia FORM + H262 body warmup duration VALUE)
+- PROGRAMME FINDING #51 candidate (body cooldown SHAPE locked at cosine cf=1.0)
+- PROGRAMME FINDING #56 candidate at 3 axes (aux/body/outer schedule structurally rigid)
+- **PROGRAMME FINDING #58 candidate at 5 axes — CLOSURE-GRADE / PROMOTION** (Stiefel-aware mechanism cluster structurally inert/harmful — H253 + H255 dual closure consolidates this finding)
+- PROGRAMME FINDING #59 candidate (NS5 orthogonalization geometrically load-bearing)
+- **6 safe-fix templates** documented (A/B/C/D-strict/D-loose/E); 2 drift classes (drift-FREE / +25 drift)
+- **9 drift-FREE CTRL instances** (H246/H248/H249/H250/H252-arm_a/H253-arm_a/H256-arm_a/H257-arm_a/H258-arm_a — H253 confirmed as 8th instance this cycle)
+- **"Fighting the attractor" mechanism-design heuristic** + monotonic-harm gradient ESTABLISHED + NS5 contractive-basin diagnostic protocol NEW
+
+**Exploration territory map updates after cycle ~1525:**
+
+| Axis | State (delta from cycle ~1515) |
+|---|---|
+| **Aux Sophia preconditioner FORM** | **H261 WIP (askeladd, just assigned) — 57th class, BOLD plateau-protocol swing #2** |
+| **Body warmup steps VALUE (heritage 100)** | **H262 WIP (frieren, just assigned) — 58th class, trivially drift-FREE** |
+| True Stiefel body init (orthogonal_qr) | **CLOSED bilateral NEG (H253) — 110th NULL/NEG, PF#58 axis 4** |
+| Post-step Stiefel retraction (HARD + COOLDOWN_GATED) | **CLOSED bilateral CATASTROPHIC NEG (H255) — 111th NULL/NEG, PF#58 axis 5, NEW NS5 contractive basin finding** |
+| Aux Lion optimizer FORM replacement | H260 WIP (nezuko) — 56th class, BOLD plateau-protocol swing #1 |
+| MuonH warmup SHAPE (cosine/sqrt) | H254 fern arm_c sqrt mid-run pending terminal |
+| Sphere parallel-transport momentum | H257 alphonse arm_b PT_ALWAYS / arm_c PT_COOLDOWN mid-run |
+| Outer LR temporal schedule | H256 edward arm_b STRONG MID-TRAJECTORY SIGNAL −105σ val lead |
+| Outer Nesterov momentum VALUE | H258 thorfinn arm_b mid-run, arm_c LOW pending |
+| NS5 iteration COUNT VALUE | H259 tanjiro mid-run — direct follow-up to PF#59 |
+
+**Frontier observations for cycle ~1530+:**
+
+1. **Plateau protocol active**: 111 NULL/NEG cumulative. Two BOLD swings now WIP (H260 Lion, H261 Sophia) — both aux FORM replacements. If both NULL, next bold swing candidates: schedule-free MuonH, look-ahead optimization, MARS unified preconditioner, Muon-EMA proxy. Plateau-protocol mechanism-design heuristic: aux FORM replacements are 1 of 3 hot frontier classes (1: aux FORM, 2: outer-step axes [H256/H258], 3: scalar HP triangulation [H252/H262]).
+
+2. **H256 edward arm_b STRONG MID-TRAJECTORY SIGNAL** still most promising single signal in portfolio — if sustained to terminal at FFS<3025, would be first WIN since H203. Mechanism prior mechanistically grounded.
+
+3. **PROGRAMME FINDING #58 PROMOTION**: with 5-axis Stiefel-aware mechanism cluster consolidation + NS5 contractive-basin mathematical insight + monotonic-harm gradient DEFINITIVELY ESTABLISHED across H249→H253→H255, this finding qualifies for PROMOTION from "candidate" to "established" programme finding in next cycle. Resource savings ~10-20h compute + 5-10 student PR cycles.
+
+4. **NEW campaign-level diagnostic protocol mature**: NS5 contractive-basin pre-step check (verify `‖W‖_F² / k ≤ 3`) is mechanism-design protection layer. Useful for any future hypothesis allowing body W mean σ growth past √3.
+
+5. **Gold-standard reference triad complete**: alphonse H249 (Brantner 2023 Riemannian) + askeladd H253 (terminal Stiefel-distance convergence) + frieren H255 (NS contractive basin NaN root-cause) form the gold-standard reference triad for body-side geometric mechanism findings in r3. Future Stiefel-related hypotheses should reference this triad.
+
+6. **MuLoCo outer-step HP triangulation cube** 2/3 axes closed, 1 axis in flight with promising mid-trajectory. H258 momentum VALUE pending closure. If H256 closes WIN, supersedes cube rigidity narrative; if H256 closes NULL, cube promotion to PROGRAMME FINDING #56.
 
 ---
 

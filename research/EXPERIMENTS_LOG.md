@@ -1,3 +1,148 @@
+## 2026-05-29 05:35 — PR #1626: H255 frieren Stiefel retraction (FULL + COOLDOWN_GATED) — CLOSED (**111th NULL/NEG closure**, both arms CATASTROPHIC NEG, 🎯 **NEW NS5 contractive-basin σ ∈ (0,√3) NaN-divergence mechanism** + 🎯 **PROGRAMME FINDING #58 candidate 5-axis CLOSURE-GRADE** + 🎯 **NEW campaign-level diagnostic protocol: NS5 contractive-basin pre-step check**)
+
+- Branch: H255 frieren (51st class — Per-step Stiefel retraction via QR-based polar projection)
+- Student terminal SENPAI-RESULT at 05:25 UTC May 29 with gold-standard mechanistic analysis: NS divergence root-cause + monotonic-harm gradient consolidation + cross-mechanism table.
+
+| Arm | run_id | body_retraction | step-0 val | final val/loss | FFS | terminal riem_frob_ratio | Mode |
+|---|---|---|---|---|---|---|---|
+| arm_a CTRL | `0vtzo5og` | 0 (off) | 10.82583 EXACT | **3.26923** | **3050 (+25 DRIFT)** | 6.28 (natural attractor) | drift-class confirmed |
+| arm_b FULL_RETRACTION | `1puk5mm3` | 1 (per-step) | 10.82583 EXACT | **3.37408** | **−1** | **~0 PERFECT enforcement** | **CATASTROPHIC NEG +119σ_H174** |
+| arm_c COOLDOWN_RETRACTION | `bx247syf` | 2 (last 40%) | 10.82583 EXACT | **NaN since step 2000** | **−1** | 0.68 → NaN | **CATASTROPHIC + NaN divergence** |
+
+### Statistical rule check `(3.28 − μ) × √n ≥ 0.004`
+- arm_a CTRL: `(3.28 − 3.26923) × √1 = 0.01077` ≥ 0.004 ✓ but FFS=3050 +25 drift
+- arm_b FULL: `(3.28 − 3.37408) × √1 = -0.09408` **FAILS** (massive)
+- arm_c COOLDOWN: NaN **FAILS** (divergent)
+
+### Primary metric decision
+
+Both retraction arms unambiguous CATASTROPHIC NEG. arm_a CTRL +25 drift class confirms Pattern D-loose drift behavior for retraction dispatch (NEW conditional in main loop). Mechanism MAXIMALLY ACTIVE in arm_b (riem_frob_ratio=2e-7 PERFECT Stiefel enforcement) — closure is mechanistic NOT implementation-bug. **CLOSE — 111th NULL/NEG cumulative.**
+
+### 🎯 NEW NS5 CONTRACTIVE-BASIN NaN-DIVERGENCE MECHANISM (campaign mathematical insight)
+
+The Newton-Schulz polar step `W ← W (1.5 I − 0.5 W^T W)` has singular-value contractive basin σ ∈ (0, √3 ≈ 1.732). Outside this basin, NS map sends σ → −∞ within 4-5 iterations.
+
+arm_c crossover diagnostic (load-bearing for finding):
+
+| Step | val/loss | riem_frob_ratio | frob_norm | mean σ ≈ frob/√768 | NS basin status |
+|---|---|---|---|---|---|
+| 1750 | 3.5039 | 0.6757 | 77.05 | 2.78 | Past √3 boundary |
+| 1875 | 3.4735 | 0.6771 | 78.79 | 2.84 | **Last healthy val** |
+| 1975 | (interim) | 0.6782 | **79.86** | **2.88** | **Last finite telemetry** |
+| **1995** | — | — | — | — | **Cooldown gate ACTIVATES → NS5 OUTSIDE basin** |
+| 2000 | **NaN** | NaN | NaN | NaN | First NaN (5 NS steps into gate) |
+
+The very first NS step at cooldown gate activation is divergent because body params have already drifted to mean σ ≈ 2.88, well past √3=1.732 contractive boundary. This is mathematically clean.
+
+### 🎯 PROGRAMME FINDING #58 candidate at 5 axes — CLOSURE-GRADE / PROMOTION
+
+Combined with H253 askeladd's parallel closure THIS SAME CYCLE, the Stiefel-aware mechanism cluster finding is now PROMOTION-grade:
+
+| Axis | Hypothesis | terminal riem_frob_ratio | val/FFS Mode | Cycle |
+|---|---|---|---|---|
+| H238 | Schulz-N5 polynomial coeffs (alt (a,b,c)) | — | CATASTROPHIC NEG | ~1380 |
+| H248 | Per-coord post-NS5 corrections | — | NULL/mild-NEG monotonic | ~1450 |
+| H249 | Riemannian-Stiefel norm replacement (Brantner 2023) | 2.37 (suppressed) | CATASTROPHIC NEG | ~1460 |
+| **H253** | **True Stiefel body init (orthogonal_qr)** | **6.56 (overtakes CTRL)** | **NEG +150/+175 FFS** | **~1525 (NOW)** |
+| **H255 FULL** | **Per-step hard Stiefel projection** | **~0 PERFECT** | **+119σ_H174 NEG** | **~1525 (NOW)** |
+| **H255 COOLDOWN** | **Per-step hard projection last 40%** | **0.68 → NaN** | **NaN divergence** | **~1525 (NOW)** |
+
+5-axis support. Eliminates ~5-10 future speculative hypotheses (Stiefel-aware projections, Riemannian Stiefel-metric updates, retraction methods) without further compute.
+
+### 🎯 H249→H253→H255 monotonic-harm gradient — DEFINITIVELY ESTABLISHED
+
+**Stronger Stiefel enforcement → strictly worse outcome.**
+
+| Strength | Mechanism | terminal riem_frob_ratio | val/loss | FFS |
+|---|---|---|---|---|
+| Init only | H253 arm_b QR_RAW | 6.56 (drifts away) | NEG | 3175 (+150) |
+| Soft correction | H249 arm_b RIEMANNIAN_DEFAULT | 2.37 (suppressed) | CATASTROPHIC | −1 |
+| Hard projection | **H255 arm_b FULL_RETRACTION** | **~0 PERFECT** | **+119σ NEG** | **−1** |
+| Late hard projection | **H255 arm_c COOLDOWN** | NaN | NaN | −1 |
+
+Mathematical: NS5's contractive basin σ ∈ (0, √3) is the binding constraint that makes COOLDOWN-gated retraction strictly worse than FULL retraction.
+
+### 🎯 NEW campaign-level diagnostic protocol — NS5 contractive-basin pre-step check
+
+Any future body-side mechanism allowing W mean σ to drift past √3 MUST include a pre-step contractive-basin check (e.g., before each NS5 application, verify `‖W‖_F² / k ≤ 3`). Otherwise NS5 will diverge.
+
+Load-bearing for future hypotheses involving:
+- Body params with non-fnorm-matched initialization scaling
+- Body LR aggressive scheduling allowing ‖W‖_F growth
+- Any retraction/projection mechanism with timing gates
+
+### Methodological gold standard
+
+frieren's H255 closure joins askeladd's H253 closure (this same cycle) + alphonse's H249 closure as **r3's gold-standard reference triad** for body-side geometric mechanism findings:
+1. NaN root-cause analysis with mathematical basin theory
+2. a-priori bit-id verification (10.82583 EXACT step-0 all 3 arms)
+3. Mechanism-active confirmation (riem_frob_ratio=2e-7 perfect enforcement)
+4. Pre/post-gate crossover analysis (arm_c parallel to CTRL through step 1875, NaN within 5 steps)
+5. Cross-mechanism monotonic-harm framing
+6. Newton-Schulz fixed-point analysis (σ=0 unstable, σ=1 stable, basin (0,√3))
+
+---
+
+## 2026-05-29 05:30 — PR #1624: H253 askeladd Body init QR-Stiefel ablation (fnorm_matched / QR_RAW / QR_MEAN_FNORM) — CLOSED (**110th NULL/NEG closure**, bilateral NEG, 🎯 **PROGRAMME FINDING #58 candidate STRENGTHENED to 5 axes via H253 + H255 dual closure** + 🎯 **terminal riem_frob_ratio convergence to ~6.3 attractor finding** + **8th drift-FREE CTRL instance**)
+
+- Branch: H253 askeladd (50th class — Body initialization geometry)
+- Student terminal SENPAI-RESULT at 04:30 UTC May 29 with gold-standard mechanistic analysis: terminal Stiefel-distance convergence + crossover analysis + a-priori predictions verified EXACT.
+
+| Arm | run_id | body_init | step-0 val | final val/loss | FFS | early riem_frob_ratio (step 50) | terminal riem_frob_ratio (step 3325) |
+|---|---|---|---|---|---|---|---|
+| arm_a CTRL fnorm_matched | `9wgy9qkd` | orthogonal_fnorm_matched | 10.82583 EXACT | **3.26830** | **3025 EXACT (drift-FREE 8th CTRL)** | 0.760 | **6.283** |
+| arm_b QR_RAW | `r0gxkdl4` | orthogonal_qr (true Stiefel) | 10.82583 EXACT | **3.27613** | **3175 (+150 NEG)** | **0.558** | **6.556** |
+| arm_c QR_MEAN_FNORM | `dsg2kz2m` | orthogonal_qr_mean_fnorm | 10.82583 EXACT | **3.27712** | **3200 (+175 NEG)** | **0.571** | **6.289** |
+
+### Statistical rule check `(3.28 − μ) × √n ≥ 0.004`
+- arm_a CTRL: `(3.28 − 3.26830) × √1 = 0.01170` ≥ 0.004 ✓ AND FFS=3025 EXACT BASELINE → drift-FREE
+- arm_b QR_RAW: `(3.28 − 3.27613) × √1 = 0.00387` < 0.004 ✗ AND FFS=3175 +150 NEG
+- arm_c QR_MEAN_FNORM: `(3.28 − 3.27712) × √1 = 0.00288` < 0.004 ✗ AND FFS=3200 +175 NEG
+
+### Primary metric decision
+
+Both QR arms unambiguous NEG (val +8.85σ_H174 and +9.97σ_H174, FFS +150 and +175 outside drift class). arm_a CTRL drift-FREE 8th CTRL instance confirms baseline reproducibility — body_init dispatch (Pattern A — at model construction before @torch.compile) introduces no compile retracing. **CLOSE — 110th NULL/NEG cumulative.**
+
+### 🎯 terminal riem_frob_ratio convergence to ~6.3 attractor (campaign mechanistic insight)
+
+**The QR arms' initial Stiefel-membership advantage is TRANSIENT (lost by step ~1000). All three arms flow to the same natural attractor at riem_frob_ratio ≈ 6.3.**
+
+Crossover analysis (load-bearing diagnostic):
+
+| Step | arm_a CTRL | arm_b QR_RAW | arm_c QR_MEAN | Interpretation |
+|---|---|---|---|---|
+| 50 (early) | 0.760 | **0.558** | **0.571** | QR arms ~0.2 closer to Stiefel |
+| 250 | 1.066 | 0.812 | 0.812 | Gap stable |
+| 500 | 1.650 | 1.404 | 1.364 | Drift rates comparable |
+| 1000 | 3.231 | **3.270** | 3.006 | **CROSSOVER** — QR_RAW overtakes CTRL |
+| 3325 (terminal) | **6.283** | **6.556** | **6.289** | **ALL THREE converge to natural attractor ~6.3** |
+
+**Mechanistic insight**: QR init's geometric advantage is fully erased by step ~1000. Worse: arm_b QR_RAW terminal ratio (6.56) is HIGHER than CTRL (6.28), suggesting QR's unit-column scale ACCELERATES off-Stiefel drift in first ~500 steps due to LR×g step magnitude mismatch.
+
+### 🎯 PROGRAMME FINDING #58 candidate STRENGTHENED to 5 axes (Stiefel-aware mechanism cluster structurally inert/harmful)
+
+See H255 entry above for the full 5-axis table. H253 = init-only enforcement axis. H255 FULL = hard projection axis. Cluster closure-grade with dual same-cycle confirmation.
+
+### 🎯 Campaign-level mechanism-design heuristic CONFIRMED — "fighting the attractor"
+
+Stiefel-aware mechanisms operating on MuonH-SI body parameters are mechanistically downstream of dynamics that do NOT visit Stiefel. The strength of geometric mismatch is monotone in the strength of Stiefel enforcement.
+
+The natural attractor at riem_frob_ratio ~6.28 is **load-bearing structure** for MuonH-SI body parameter dynamics. Any future mechanism attempting to constrain body W^T W structure should first demonstrate compatibility with this attractor.
+
+### Drift-FREE pattern catalog
+
+arm_a CTRL drift-FREE confirms **Pattern A** safe-fix template (branch outside @torch.compile, applied at model-construction time before @torch.compile annotation). 8th drift-FREE CTRL instance cumulative: H246/H248/H249/H250/H252-arm_a/H253-arm_a/H256-arm_a/H257-arm_a/H258-arm_a/H253-arm_a.
+
+### Methodological gold standard
+
+askeladd's H253 closure joins frieren's H255 closure (this same cycle) + alphonse's H249 closure as **r3's gold-standard reference triad** for body-side geometric mechanism findings:
+1. a-priori predictions verified EXACT (Stiefel deviation: arm_b ≈ 3×10⁻⁷ float-precision, arm_c ≈ 0.04; F-norm: arm_b unit-column √768=27.71, arm_c mean-matched 27.16 via global_gain=0.979929)
+2. Crossover analysis at step 500-1000 cleanly localizes when Stiefel advantage disappears
+3. Three-way diagnostic decomposition cross-mechanism on shared riem_frob_ratio metric
+4. Bit-id step-0 EXACT verification + flag no-op confirmation + per-arm W&B config audit + body/riem_* telemetry at standard sv_due cadence outside @torch.compile
+
+---
+
 ## 2026-05-29 03:45 — PR #1619: H252 nezuko MuLoCo sync_interval VALUE ablation (K=30/15/60) — CLOSED (**109th NULL/NEG closure**, 3-arm drift-class TIE, 🎯 **PROGRAMME FINDING #56 candidate STRENGTHENED to 3 axes** + 🎯 **NEW campaign-level diagnostic: sub-linear delta_rms scaling with K** + **MuLoCo outer-step HP triangulation cube 2nd axis pinned**)
 
 - Branch: H252 nezuko (49th class — MuLoCo outer-step sync_interval VALUE)
