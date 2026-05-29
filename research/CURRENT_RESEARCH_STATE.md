@@ -9,11 +9,21 @@ The human research team has redirected: **FFS (first-step-to-target, baseline 30
 3. **Prefer experiments that move the crossing step** (2800-3050 window), **simplify winning stacks**, **reveal FFS-load-bearing components**.
 4. **Ablations preferred over confirmations** when FFS dead.
 
-## Last updated: 2026-05-29 11:39Z (poll — n=4 confirm trial breakdowns visible: #1617 tanjiro knife-edge MERGE, #1586 thorfinn FFS-NEG)
+## Last updated: 2026-05-29 13:30Z (poll — n=4 trial_2 values landed; BOTH #1617 + #1586 mathematically excluded from merge)
+
+### Notes (2026-05-29 13:28–13:30Z)
+
+- **★ DEFINITIVE trial values from W&B run history (CORRECTING 11:39Z subagent hallucination of tanjiro trial_0)**:
+  - **#1617 tanjiro PRECOND_FREQ=8 (ga45cab3)**: trial_0=2925, trial_1=2875, trial_2=2950, trial_3 in flight. 3-trial mean=2916.67. Best-case μ_4 = (2925+2875+2950+2875)/4 = **2906.25 > gate 2887.5 → NO MERGE POSSIBLE**. PRECOND_FREQ=8 mechanism IS load-bearing (#1617 n=1 was clean monotone in pf={1,2,4,8,16}) but effect size is sub-σ at n=4 (μ_4 ≈ 2906 vs baseline 2912.5 = Δ≈−6.5 steps, ~0.5%). EMA-eval did NOT amplify this signal as it did for #1533.
+  - **#1586 thorfinn wd_mlp=0.040 (ii70qzc4)**: trial_0=2925, trial_1=3000, trial_2=2875, trial_3 in flight. 3-trial mean=2933.33. Best-case μ_4 = 2918.75 > gate 2887.5 → NO MERGE. CONFIRMED **val-but-not-FFS** divergence: cell E was n=1 BEST on val (−2.5σ) but FFS regression. Trial 1 at FFS=3000 is the killer outlier (variance inflation under wd_mlp shift).
+- **Action**: BOTH n=4 confirms will close at terminal (~14:55Z ETA when trial_3 lands and student posts SENPAI-RESULT). Do NOT pre-close — wait for terminal data. Both students will be idle after closure → need fresh hypotheses ready.
+- **Forward-looking implications**:
+  - PRECOND_FREQ axis: structurally load-bearing but unable to clear the σ_4=25 noise floor at n=4. Cell-by-cell: best individual trial 2875 (at trial_1), worst 2950 (at trial_2). The structural-axes-only SOAP territory is now partly exhausted on this single-direction axis. Open: SOAP β₂ schedule (#1689 in flight), Gram-update kind (Eschenhagen-style staleness #1654 in flight).
+  - wd_mlp axis: closed at n=4 with clean negative direction (val ≠ FFS-load-bearing). Per-class HP-value sweeps may continue but lower priority.
 
 ### Notes (2026-05-29 11:38–11:39Z)
 
-- **★ #1617 tanjiro n=4 EMA-eval confirm (PRECOND_FREQ=8) intel**: trial_0_FFS=2875 + trial_1_FFS=2875, both `speedrun/final_first_step_to_target_ema_uncorrected`. Currently mid-trial_2 (step 7590/13000 = 58%). At baseline μ_4=2912.5 with gate ≤2887.5, the merge math is knife-edge: t2+t3 ≤ 5800 (avg ≤2900) for MERGE. If remaining trials match 2875 → μ_4=2875 CLEAN MERGE. If 2925 → μ_4=2900 NO MERGE. Defer judgment until terminal.
+- **★ #1617 tanjiro n=4 EMA-eval confirm (PRECOND_FREQ=8) intel (CORRECTED 13:30Z)**: trial_0_FFS=2925 + trial_1_FFS=2875 (the 11:39Z subagent misread trial_0 as 2875). Currently mid-trial_2 (step 7590/13000 = 58%). See 13:30Z section above for corrected merge math.
 - **★ #1586 thorfinn n=4 EMA-eval confirm (wd_mlp=0.040) intel**: trial_0_FFS=3000 + trial_1_FFS=3000, both worse than baseline 2912.5 by +87.5 steps. Even with two perfect remaining trials (2875 each), μ_4=2937.5 > gate 2887.5 → NO MERGE possible. This is the classic val-but-not-FFS divergence: cell E was n=1 BEST on val (−2.5σ) but n=4 confirms FFS-NEG. Currently mid-trial_2 (step 7483/13000 = 58%). Likely close FFS-NEG on terminal.
 - **★ #1664 edward Cell B FINALIZED FFS=2875** (was preliminary, now confirmed). Cell A ctrl=2925. Cell B per-class cooldown SHAPE (mlp=cos/attn=lin) IS FFS-positive at n=1. Cell D INVERT diagnostic (mlp=lin/attn=cos) at step 2494/3250 = 77%, not yet crossed. Cells C+E pending. Awaiting D for axis-vs-instance disambiguation.
 - **#1689 alphonse SOAP β₂ warmup**: implementation complete, run `sxodglph` step 752 in flight. Cell sweep proceeding.
