@@ -463,6 +463,13 @@ SOAP_PRECOND_FREQ = 10
 # Attention SOAP (record #16) hyperparameters
 ATTN_SOAP_BETA2 = 0.90
 ATTN_SOAP_PRECOND_FREQ = 10
+# PR PHASE_ATTN_SOAP_REFRESH_FREQ — time-phase dispatch of attn-SOAP refresh frequency.
+# Phase boundary at ATTN_SOAP_PHASE_BOUNDARY_STEP (default 1500, mid-training).
+# Exploits the early-asymmetry quantified in PR #1595 (late SOAP ~28% lower marginal value per step).
+PHASE_ATTN_SOAP_REFRESH_FREQ_ENABLED = int(os.environ.get("PHASE_ATTN_SOAP_REFRESH_FREQ_ENABLED", "0"))
+ATTN_SOAP_PRECOND_FREQ_EARLY = int(os.environ.get("ATTN_SOAP_PRECOND_FREQ_EARLY", str(ATTN_SOAP_PRECOND_FREQ)))
+ATTN_SOAP_PRECOND_FREQ_LATE = int(os.environ.get("ATTN_SOAP_PRECOND_FREQ_LATE", str(ATTN_SOAP_PRECOND_FREQ)))
+ATTN_SOAP_PHASE_BOUNDARY_STEP = int(os.environ.get("ATTN_SOAP_PHASE_BOUNDARY_STEP", "1500"))
 ATTN_SOAP_TRUST_THRESHOLD = float(os.environ.get("ATTN_SOAP_TRUST_THRESHOLD", "0.9"))
 NS5_ITERS = int(os.environ.get("NS5_ITERS", "12"))
 WD_AUX = float(os.environ.get("WD_AUX", "0.0"))  # AdamW WD on embed + lm_head matrices (scalars stay at 0)
@@ -714,8 +721,16 @@ class Muon(torch.optim.Optimizer):
                     if use_soap:
                         soap_refresh(grad, state)
                     elif use_attn_soap:
+                        if PHASE_ATTN_SOAP_REFRESH_FREQ_ENABLED:
+                            soap_step = state.get("soap_step", 0)
+                            if soap_step < ATTN_SOAP_PHASE_BOUNDARY_STEP:
+                                _refresh_freq = ATTN_SOAP_PRECOND_FREQ_EARLY
+                            else:
+                                _refresh_freq = ATTN_SOAP_PRECOND_FREQ_LATE
+                        else:
+                            _refresh_freq = ATTN_SOAP_PRECOND_FREQ
                         soap_refresh(grad, state, beta2=ATTN_SOAP_BETA2,
-                                     refresh_freq=ATTN_SOAP_PRECOND_FREQ,
+                                     refresh_freq=_refresh_freq,
                                      use_trust_gate=True,
                                      trust_threshold=ATTN_SOAP_TRUST_THRESHOLD)
                 dist.all_gather(params_pad[base_i:base_i + world_size], params_pad[base_i + rank])
@@ -864,11 +879,18 @@ if dist.get_rank() == 0:
             "optimizer/attn_soap_beta2": ATTN_SOAP_BETA2,
             "optimizer/attn_soap_precond_freq": ATTN_SOAP_PRECOND_FREQ,
             "optimizer/attn_soap_trust_threshold": ATTN_SOAP_TRUST_THRESHOLD,
+            "optimizer/phase_attn_soap_refresh_freq_enabled": PHASE_ATTN_SOAP_REFRESH_FREQ_ENABLED,
+            "optimizer/attn_soap_precond_freq_early": ATTN_SOAP_PRECOND_FREQ_EARLY,
+            "optimizer/attn_soap_precond_freq_late": ATTN_SOAP_PRECOND_FREQ_LATE,
+            "optimizer/attn_soap_phase_boundary_step": ATTN_SOAP_PHASE_BOUNDARY_STEP,
             "optimizer/ns5_iters": NS5_ITERS,
             "optimizer/wd_aux": WD_AUX,
             "optimizer/recipe": "contra-muon + normuon-lite + soap-on-mlp + soap-on-attn-trust-gate (pre-NS5, record #14 + record #16)",
         },
     )
+    print(f"[PHASE_ATTN_SOAP_REFRESH_FREQ] enabled={PHASE_ATTN_SOAP_REFRESH_FREQ_ENABLED} "
+          f"early={ATTN_SOAP_PRECOND_FREQ_EARLY} late={ATTN_SOAP_PRECOND_FREQ_LATE} "
+          f"boundary={ATTN_SOAP_PHASE_BOUNDARY_STEP} default={ATTN_SOAP_PRECOND_FREQ}")
 
 for trial_idx in range(args.num_trials):
 
@@ -1026,6 +1048,9 @@ for trial_idx in range(args.num_trials):
         # set optimization hyperparameters and take a step
         set_hparams(step)
         train_step = step + 1
+        if dist.get_rank() == 0 and PHASE_ATTN_SOAP_REFRESH_FREQ_ENABLED and train_step == ATTN_SOAP_PHASE_BOUNDARY_STEP:
+            print(f"[PHASE_ATTN_SOAP_REFRESH_FREQ] phase transition at step={train_step}: "
+                  f"early({ATTN_SOAP_PRECOND_FREQ_EARLY}) → late({ATTN_SOAP_PRECOND_FREQ_LATE})")
         telemetry_due = (step == 0 or (step + 1) % args.telemetry_interval == 0 or step + 1 == train_steps)
         histogram_due = (step == 0 or (step + 1) % args.histogram_interval == 0 or step + 1 == train_steps)
         slope_due = (train_step % slope_interval == 0 or train_step == train_steps)
