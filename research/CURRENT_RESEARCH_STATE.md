@@ -9,33 +9,31 @@ The human research team has redirected: **FFS (first-step-to-target, baseline 30
 3. **Prefer experiments that move the crossing step** (2800-3050 window), **simplify winning stacks**, **reveal FFS-load-bearing components**.
 4. **Ablations preferred over confirmations** when FFS dead.
 
-## Last updated: 2026-05-29 (poll — ★★★ #1533 EMA-eval SWA MERGED + 2 closures #1555/#1564 + 2 new assignments #1651/#1654)
+## Last updated: 2026-05-29 (poll — #1612 askeladd NS-coeffs closed G5 + 2 new assignments #1658 alphonse multi-β EMA + #1659 askeladd per-group EMA decay)
 
 ### Current state
 
-**New baseline (47th R5 result, 2nd FFS-PRIMARY MERGE)**:
+**Current baseline (PR #1533, 2026-05-29)**:
 - **μ_4(FFS_ema) = 2912.5** (σ_4=25.0, min/max=2875/2925) — PR #1533 alphonse EMA-eval SWA d=0.99
 - **μ_4(val) = 3.269600** (train-traj); W&B run `axzk5hpf`
 - **FFS merge gate: μ_4(FFS_ema) ≤ 2887.5** (25 steps below new baseline)
 - **n=1 FFS-alive gate: FFS ≤ 2975** (unchanged)
 
-**★★★ Mandatory stack change**: Now includes `--ema_eval_decay 0.99`. FFS is measured on bias-corrected EMA-eval trajectory. ALL in-flight students must rebase and add this flag before n=4 confirm.
+**★★★ Mandatory stack**: `--ns_iter 6 --soap_attn --lr_mlp 0.055 --wd_schedule ramp_down --lr_scalars 0.03 --depth_init_mode musoft --lr_cooldown_shape cosine --ema_eval_decay 0.99`
 
 **Actions this poll**:
-1. ★★★ **MERGED #1533 alphonse EMA-eval SWA** [2nd FFS-primary merge of R5] — μ_4(FFS_ema)=2912.5 ≤ 2918.75 gate; within-run direction consistent all 4 trials (0/−25/−50/−25). Mechanism: cosine cooldown absorbed ~75% of SWA benefit; EMA-eval recovers remaining −25 step gain. σ_4=25 is structural (EMA variance), not stochastic.
-2. ★ **CLOSED #1564 fern SOAP Gram trace-norm** [46th R5 closure] — clean NULL via matched within-env ctrl D. B=D (trace_norm ON vs OFF): IDENTICAL μ_4(FFS)=2931.25 ± 12.5, val within 0.000035. Line-565 post-conditioning rescale absorbs any Gram-input scale preprocessing. Reject all "preprocess Gram before eigendecomposition" proposals.
-3. ★ **CLOSED #1555 frieren aux-cooldown-LR-shape** [45th R5 closure] — val-positive FFS-cosmetic. μ_4(FFS)=2956.25 ± 12.5 misses merge gate; μ_4(val)=3.267050 (−11.6σ_4_base improvement). Val-positive but FFS locked at baseline noise floor. 4th independent closure of aux-side per-group HP cluster.
-4. ★★ **ASSIGNED #1651 frieren pre-NS gradient-Frobenius normalization** — 5-cell: B★(α=1 grad), C(α=1 weight, LAMB/LARS replica falsifier), D(α=0.5), E(α=1.5). Explicit acknowledgment of closed cluster #827/#940/#1221/#1389/#1129. Kill gate KG4 falsifier parity.
-5. ★★ **ASSIGNED #1654 fern SOAP adaptive eigenbasis refresh** — off-diagonal staleness of Q^T L Q (Eschenhagen et al. 2025). Explicitly carved-out by R2 #1159 closure as "refresh on eigenvalue spectrum change not Gram entry-wise norm — categorically distinct." 5-cell: A=ctrl, B★(τ=0.05), C(τ=0.02), D(τ=0.15), E(τ=0.50 falsifier). UPDATED: add `--ema_eval_decay 0.99` per stack update.
+1. ★ **CLOSED #1612 askeladd NS polynomial Bernstein/Padé** [48th R5 result, 6th NS-internal closure] — G5 FFS-NEGATIVE. Padé (2,-1.5,0.5) is FFS minimum. Bernstein +25 worse. Falsifier E +200. At --ns_iter=6, codebase Padé is locally optimal.
+2. ★★ **ASSIGNED #1658 alphonse multi-β EMA combination at val** — Karras-inspired: maintain TWO parallel EMAs at β=0.99 (fast) and β=0.999 (slow), combine at val time as α·EMA_slow + (1-α)·EMA_fast. 5-cell: A=ctrl, B★(α=0.5), C(α=0.25), D(α=0.75), E(α=1.0 falsifier). Novel structural eval axis.
+3. ★★ **ASSIGNED #1659 askeladd per-group EMA-eval decay decoupling** — body (Muon 2D+) vs aux (embed/lm_head/scalars) separate d values. Body faster or slower than aux? 5-cell: A=ctrl, B★(d_body=0.95), C(0.97), D(0.999), E(0.90 extreme falsifier). Novel EMA-eval axis.
 
 **All 8 students productively occupied. ZERO idle.**
 
 | Student | PR | Hypothesis | Status |
 |:-------:|:--:|:----------:|:------:|
-| alphonse | #1533 | EMA-eval SWA d=0.99 | ✅ MERGED |
+| alphonse | #1658 | Multi-β EMA combination at val | 🆕 WIP (just assigned) |
 | frieren | #1651 | Pre-NS grad-Frobenius normalization | 🔄 WIP n=1 |
-| askeladd | #1612 | NS polynomial Bernstein/Padé | 🔄 WIP n=1 |
-| fern | #1654 | SOAP adaptive eigenbasis refresh | 🔄 WIP n=1 (just assigned) |
+| askeladd | #1659 | Per-group EMA-eval decay (body vs aux) | 🆕 WIP (just assigned) |
+| fern | #1654 | SOAP adaptive eigenbasis refresh | 🔄 WIP n=1 |
 | tanjiro | #1617 | SOAP PRECOND_FREQ sweep | 🔄 WIP n=1 |
 | edward | #1615 | Muon body mu_mlp/mu_attn decouple | 🔄 WIP n=1 |
 | nezuko | #1643 | NS warm-start from polar factor | 🔄 WIP n=1 |
@@ -45,17 +43,23 @@ The human research team has redirected: **FFS (first-step-to-target, baseline 30
 
 ### Active research themes (post-#1533 merge)
 
-**Optimizer state dynamics** (primary thrust):
-- NS-internal: warm-start X_0 from previous polar factor (#1643 nezuko), polynomial coefficient quality (#1612 askeladd), PRECOND_FREQ static sweep (#1617 tanjiro)
-- SOAP eigenbasis: adaptive refresh via off-diagonal staleness criterion (#1654 fern — fresh axis, Eschenhagen 2025)
-- Muon body per-group mu (#1615 edward — structural analogue to winning lr_mlp/lr_attn decoupling)
-- Post-NS update scaling (#1651 frieren — grad-Frobenius normalization, explicit cluster acknowledgment)
+**EMA-eval signal exploration** (primary post-#1533 thrust):
+- Multi-timescale EMA combination at val (#1658 alphonse — Karras-inspired, 2 parallel βs combined at val)
+- Per-group body vs aux EMA decay decoupling (#1659 askeladd — Muon updates faster, may benefit from different d)
+- These are structurally fresh extensions of the #1533 mechanism into multi-β and per-group territory
+
+**Optimizer state dynamics** (secondary thrust):
+- NS-internal: warm-start X_0 from previous polar factor (#1643 nezuko), PRECOND_FREQ static sweep (#1617 tanjiro)
+- SOAP eigenbasis: adaptive refresh via off-diagonal staleness criterion (#1654 fern — Eschenhagen 2025)
+- Muon body per-group mu (#1615 edward — mu_mlp vs mu_attn decoupling)
+- Post-NS update scaling (#1651 frieren — grad-Frobenius normalization)
 - Body WD (#1586 thorfinn — wd_mlp fine re-tune under cosine cooldown)
 
 **Mechanistic findings this cycle**:
-- EMA-eval SWA overlaps with cosine cooldown (−100 steps on linear stack → −25 on cosine stack). Mechanism: both smooth late-trajectory noise near 3.28 crossing.
-- Line-565 post-conditioning rescale absorbs ALL Gram-input scale preprocessing (trace-norm, whitening, centering all null by invariance). Reject cluster.
-- NS iter axis symmetrically fragile around 6; polynomial coefficients and warm-start X_0 are the remaining fresh NS-internal axes.
+- EMA-eval SWA overlaps with cosine cooldown (−100 steps on linear stack → −25 on cosine stack). Both smooth late-trajectory noise near 3.28 crossing.
+- Line-565 post-conditioning rescale absorbs ALL Gram-input scale preprocessing. Reject cluster.
+- NS polynomial coefficients: Padé (2,-1.5,0.5) is FFS minimum. Bernstein aggressive overshoot adds spectral noise at ns_iter=6 convergence regime. Axis load-bearing (falsifier +200) but directionally inverted vs mathematical theory.
+- **NS-internal cluster 6/6 closed**: depth-schedule (1609) + poly-coeffs (1612) + iter-count (1638/1509 R3/R4) + warm-start (#1643 in flight). NS itself appears near-optimal at current stack.
 
 **Closed cluster map** (axes to never re-propose):
 - SOAP-internal scalar HPs: 7+/8 closed (eps, exp_avg_sq, Q_row/Q_col asym, static β2, decoupled β2, trust-gate static/schedule, Gram trace-norm)

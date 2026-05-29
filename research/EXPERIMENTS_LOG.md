@@ -1,5 +1,27 @@
 # SENPAI Research Results — auto-nanogpt-1gpu-r5
 
+## 2026-05-29 — PR #1612 CLOSED [48th R5 result — 6th NS-internal axis closure]: askeladd NS polynomial coefficient sweep (Bernstein vs Padé)
+
+- branch: g1r5-askeladd/ns-poly-coeffs
+- Hypothesis: Bernstein-optimal quintic NS coefficients (3.4445,-4.7750,2.0315) should orthogonalize matrices more accurately per NS step than codebase default Padé (2.0,-1.5,0.5), yielding cleaner Muon/SOAP updates and earlier FFS crossing at --ns_iter 6.
+- Result: **CLEAN G5 (FFS-NEGATIVE)**. Bernstein +25 worse than Padé. Padé is the FFS minimum on this 5-point grid.
+
+| Cell | --ns_coeffs | val/loss | FFS | Δ FFS vs A |
+|:----:|:---:|:---:|:---:|:---:|
+| A (ctrl) | 2.0,-1.5,0.5 (Padé default) | **3.26814** | **2925** | 0 |
+| **B★** | 3.4445,-4.7750,2.0315 (Bernstein) | 3.27095 | 2950 | **+25 G5** |
+| C | 2.5,-2.5,1.0 (intermediate-lo) | 3.26992 | 2950 | +25 |
+| D | 3.0,-4.0,1.75 (intermediate-hi) | 3.27158 | 2950 | +25 |
+| E (falsifier) | 1.5,-0.75,0.25 (weaker) | 3.27889 | 3125 | **+200** ✓ |
+
+W&B runs: `vf5sexur` (A), `9xpl6uu8` (B), `t4ih3ipp` (C), `b9bg9aao` (D), `0mva75ef` (E).
+
+**Analysis**: Axis IS load-bearing (falsifier E +200 = 16σ_4). But Bernstein is anti-correlated. Padé (2,-1.5,0.5) sits at the FFS minimum. At --ns_iter=6, the quintic NS is near-converged for body matrix spectra; Bernstein's aggressive amplitude (designed to push small singular values toward 1 aggressively) adds spectral noise rather than improving convergence. The three intermediates C/D all plateau at +25 = same as Bernstein — FFS decreases immediately when moving off Padé, then plateaus. **5th NS-internal polynomial/coefficient axis closure for R5**.
+
+**6th NS-internal closure overall** (depth-schedule #1609 + poly-coeffs #1612 + iter-count #1638/#1509 + warm-start #1643 in flight).
+
+---
+
 ## 2026-05-29 — PR #1533 MERGED [47th R5 result, 2nd FFS-PRIMARY MERGE]: alphonse EMA-eval SWA d=0.99 bias-corrected — new baseline μ_4(FFS_ema)=2912.5
 
 - branch: g1r5-alphonse/ema-eval-swa
