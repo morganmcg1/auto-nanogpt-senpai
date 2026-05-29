@@ -464,6 +464,16 @@ SOAP_PRECOND_FREQ = 10
 ATTN_SOAP_BETA2 = 0.90
 ATTN_SOAP_PRECOND_FREQ = 10
 ATTN_SOAP_TRUST_THRESHOLD = float(os.environ.get("ATTN_SOAP_TRUST_THRESHOLD", "0.9"))
+# Per-kind MLP-SOAP precond_freq phase-dispatch (PR #1707).
+# When enabled, MLP-SOAP refresh frequency dispatches per-kind (fc vs proj)
+# and per-phase (early/late split at MLP_SOAP_PRECOND_FREQ_PHASE_BOUNDARY).
+# Disabled (default) preserves the uniform SOAP_PRECOND_FREQ=10 baseline.
+PER_KIND_MLP_SOAP_PRECOND_FREQ_PHASE_DISPATCH_ENABLED = int(os.environ.get("PER_KIND_MLP_SOAP_PRECOND_FREQ_PHASE_DISPATCH_ENABLED", "0"))
+MLP_SOAP_PRECOND_FREQ_FC_EARLY = int(os.environ.get("MLP_SOAP_PRECOND_FREQ_FC_EARLY", "10"))
+MLP_SOAP_PRECOND_FREQ_FC_LATE = int(os.environ.get("MLP_SOAP_PRECOND_FREQ_FC_LATE", "10"))
+MLP_SOAP_PRECOND_FREQ_PROJ_EARLY = int(os.environ.get("MLP_SOAP_PRECOND_FREQ_PROJ_EARLY", "10"))
+MLP_SOAP_PRECOND_FREQ_PROJ_LATE = int(os.environ.get("MLP_SOAP_PRECOND_FREQ_PROJ_LATE", "10"))
+MLP_SOAP_PRECOND_FREQ_PHASE_BOUNDARY = int(os.environ.get("MLP_SOAP_PRECOND_FREQ_PHASE_BOUNDARY", "2225"))
 NS5_ITERS = int(os.environ.get("NS5_ITERS", "12"))
 WD_AUX = float(os.environ.get("WD_AUX", "0.0"))  # AdamW WD on embed + lm_head matrices (scalars stay at 0)
 EMBED_INIT_STD = float(os.environ.get("EMBED_INIT_STD", "1.0"))  # default preserves baseline N(0,1)
@@ -652,6 +662,14 @@ class Muon(torch.optim.Optimizer):
                     self.attn_soap_kind[id(p)] = "v"
                 elif n.endswith(".attn.proj.weight"):
                     self.attn_soap_kind[id(p)] = "proj"
+        # Track which sub-type each MLP-SOAP param is (fc/proj) for per-kind freq dispatch + telemetry (PR #1707).
+        self.mlp_soap_kind: dict[int, str] = {}
+        for n, p in named_params:
+            if p in self.soap_params:
+                if n.endswith(".mlp.fc.weight"):
+                    self.mlp_soap_kind[id(p)] = "fc"
+                elif n.endswith(".mlp.proj.weight"):
+                    self.mlp_soap_kind[id(p)] = "proj"
         params = sorted([p for _, p in named_params], key=lambda x: x.size(), reverse=True)
         defaults = dict(lr=lr, weight_decay=weight_decay, mu=mu)
         super().__init__(params, defaults)
@@ -712,7 +730,23 @@ class Muon(torch.optim.Optimizer):
                     p.add_(update, alpha=-group["lr"])
                     # Refresh SOAP state with the raw grad (after applying the step).
                     if use_soap:
-                        soap_refresh(grad, state)
+                        if PER_KIND_MLP_SOAP_PRECOND_FREQ_PHASE_DISPATCH_ENABLED:
+                            kind = self.mlp_soap_kind.get(id(p))
+                            cur_step = state["soap_step"]
+                            early_phase = cur_step < MLP_SOAP_PRECOND_FREQ_PHASE_BOUNDARY
+                            if kind == "fc":
+                                cur_freq = MLP_SOAP_PRECOND_FREQ_FC_EARLY if early_phase else MLP_SOAP_PRECOND_FREQ_FC_LATE
+                            elif kind == "proj":
+                                cur_freq = MLP_SOAP_PRECOND_FREQ_PROJ_EARLY if early_phase else MLP_SOAP_PRECOND_FREQ_PROJ_LATE
+                            else:
+                                cur_freq = SOAP_PRECOND_FREQ
+                            # Count refresh triggers per param (excludes the q_row=None init path).
+                            will_refresh = (state["q_row"] is not None and cur_step > 0 and cur_step % cur_freq == 0)
+                            soap_refresh(grad, state, refresh_freq=cur_freq)
+                            if will_refresh:
+                                state["refresh_count"] = state.get("refresh_count", 0) + 1
+                        else:
+                            soap_refresh(grad, state)
                     elif use_attn_soap:
                         soap_refresh(grad, state, beta2=ATTN_SOAP_BETA2,
                                      refresh_freq=ATTN_SOAP_PRECOND_FREQ,
@@ -774,6 +808,49 @@ class Muon(torch.optim.Optimizer):
             out[f"{kind}/on_fraction"] = agg["on"] / kn
             out[f"{kind}/mean_cos_row"] = sum(crs) / kn
             out[f"{kind}/mean_cos_col"] = sum(ccs) / kn
+        return out
+
+    def mlp_soap_freq_stats(self, step: int) -> dict[str, float]:
+        """Return per-kind MLP-SOAP precond_freq + refresh_count telemetry (PR #1707).
+
+        cur_freq is the freq scheduled for this `step` (training step). When
+        PER_KIND_MLP_SOAP_PRECOND_FREQ_PHASE_DISPATCH_ENABLED is 0, cur_freq
+        reflects the uniform SOAP_PRECOND_FREQ baseline for both kinds.
+
+        refresh_count is the cumulative count of refresh triggers per param,
+        aggregated by kind (sum across the 12 fc / 12 proj params).
+        """
+        if PER_KIND_MLP_SOAP_PRECOND_FREQ_PHASE_DISPATCH_ENABLED:
+            early_phase = step < MLP_SOAP_PRECOND_FREQ_PHASE_BOUNDARY
+            fc_cur_freq = MLP_SOAP_PRECOND_FREQ_FC_EARLY if early_phase else MLP_SOAP_PRECOND_FREQ_FC_LATE
+            proj_cur_freq = MLP_SOAP_PRECOND_FREQ_PROJ_EARLY if early_phase else MLP_SOAP_PRECOND_FREQ_PROJ_LATE
+        else:
+            fc_cur_freq = SOAP_PRECOND_FREQ
+            proj_cur_freq = SOAP_PRECOND_FREQ
+        by_kind = {"fc": {"refresh_count": 0, "param_count": 0},
+                   "proj": {"refresh_count": 0, "param_count": 0}}
+        for p in self.soap_params:
+            kind = self.mlp_soap_kind.get(id(p))
+            if kind not in by_kind:
+                continue
+            state = self.state.get(p, {})
+            by_kind[kind]["refresh_count"] += int(state.get("refresh_count", 0))
+            by_kind[kind]["param_count"] += 1
+        out: dict[str, float] = {
+            "fc/cur_freq": fc_cur_freq,
+            "proj/cur_freq": proj_cur_freq,
+            "fc/refresh_count_sum": by_kind["fc"]["refresh_count"],
+            "proj/refresh_count_sum": by_kind["proj"]["refresh_count"],
+            "fc/param_count": by_kind["fc"]["param_count"],
+            "proj/param_count": by_kind["proj"]["param_count"],
+            "phase_boundary": MLP_SOAP_PRECOND_FREQ_PHASE_BOUNDARY,
+            "early_phase": int(step < MLP_SOAP_PRECOND_FREQ_PHASE_BOUNDARY),
+            "enabled": PER_KIND_MLP_SOAP_PRECOND_FREQ_PHASE_DISPATCH_ENABLED,
+        }
+        if by_kind["fc"]["param_count"] > 0:
+            out["fc/refresh_count_mean"] = by_kind["fc"]["refresh_count"] / by_kind["fc"]["param_count"]
+        if by_kind["proj"]["param_count"] > 0:
+            out["proj/refresh_count_mean"] = by_kind["proj"]["refresh_count"] / by_kind["proj"]["param_count"]
         return out
 
 
@@ -864,6 +941,12 @@ if dist.get_rank() == 0:
             "optimizer/attn_soap_beta2": ATTN_SOAP_BETA2,
             "optimizer/attn_soap_precond_freq": ATTN_SOAP_PRECOND_FREQ,
             "optimizer/attn_soap_trust_threshold": ATTN_SOAP_TRUST_THRESHOLD,
+            "optimizer/per_kind_mlp_soap_precond_freq_phase_dispatch_enabled": PER_KIND_MLP_SOAP_PRECOND_FREQ_PHASE_DISPATCH_ENABLED,
+            "optimizer/mlp_soap_precond_freq_fc_early": MLP_SOAP_PRECOND_FREQ_FC_EARLY,
+            "optimizer/mlp_soap_precond_freq_fc_late": MLP_SOAP_PRECOND_FREQ_FC_LATE,
+            "optimizer/mlp_soap_precond_freq_proj_early": MLP_SOAP_PRECOND_FREQ_PROJ_EARLY,
+            "optimizer/mlp_soap_precond_freq_proj_late": MLP_SOAP_PRECOND_FREQ_PROJ_LATE,
+            "optimizer/mlp_soap_precond_freq_phase_boundary": MLP_SOAP_PRECOND_FREQ_PHASE_BOUNDARY,
             "optimizer/ns5_iters": NS5_ITERS,
             "optimizer/wd_aux": WD_AUX,
             "optimizer/recipe": "contra-muon + normuon-lite + soap-on-mlp + soap-on-attn-trust-gate (pre-NS5, record #14 + record #16)",
@@ -1059,6 +1142,10 @@ for trial_idx in range(args.num_trials):
                     stats = opt.trust_gate_stats()
                     if stats:
                         wandb.log(prefixed("train/attn_soap_trust_gate", stats), step=wandb_step)
+                if hasattr(opt, "mlp_soap_freq_stats"):
+                    freq_stats = opt.mlp_soap_freq_stats(train_step)
+                    if freq_stats:
+                        wandb.log(prefixed("train/mlp_soap_precond_freq", freq_stats), step=wandb_step)
         if dist.get_rank() == 0 and telemetry_due:
             log_weight_telemetry(
                 model=model,
