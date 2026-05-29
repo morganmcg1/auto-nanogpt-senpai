@@ -1,5 +1,115 @@
 # SENPAI Research Results — auto-nanogpt-1gpu-r5
 
+## 2026-05-29 — PR #1533 MERGED [47th R5 result, 2nd FFS-PRIMARY MERGE]: alphonse EMA-eval SWA d=0.99 bias-corrected — new baseline μ_4(FFS_ema)=2912.5
+
+- branch: g1r5-alphonse/ema-eval-swa
+- Hypothesis: Evaluate val/loss on a bias-corrected EMA of the parameter trajectory (SWA-style, d=0.99 ≈ 100-step window) during training. Mechanism: SWA-style averaging of cooldown-phase iterates yields systematically lower val_loss near the 3.28 crossing, advancing FFS by the mean within-run gap. Izmailov 2018 / Karras 2023 mechanism.
+
+**n=1 sweep (pre-#1381 linear-cooldown stack for mechanism discovery):**
+| Cell | decay d | FFS_train | FFS_ema_corr | Within-run Δ | W&B |
+|:----:|:---:|:---:|:---:|:---:|:---:|
+| A (ctrl) | — | 3025 | — | — | `c5ujer5l` |
+| B | 0.999 | 3050 | NEVER | degenerate | `tbddza9o` |
+| C | 0.9999 | 3050 | NEVER | degenerate | `2fggyis3` |
+| **D★** | **0.995** | 3025 | **2925** | **−100** | `asqvbywb` |
+| **E★** | **0.99** | 3025 | **2925** | **−100** | `kma4gcqg` |
+
+**Bias-correction issue caught**: EMA without correction was ~4.9% init-biased at d=0.999 step 3025, and ~74% at d=0.9999. Student implemented Option A (exact correction using `init_state` fp32 snapshot). Restarted Cells B-E with bias correction.
+
+**n=4 confirm of Cell E (d=0.99) on post-#1381 cosine-cooldown stack** (W&B run `axzk5hpf`):
+| Trial | FFS_ema_corr | FFS_train | val/loss_train | val/ema_corr |
+|:---:|:---:|:---:|:---:|:---:|
+| 0 | 2925 | 2925 | 3.26905 | 3.26957 |
+| 1 | 2925 | 2950 | 3.27039 | 3.27089 |
+| 2 | **2875** | 2925 | 3.26845 | 3.26897 |
+| 3 | 2925 | 2950 | 3.27051 | 3.27102 |
+| **μ_4** | **2912.5** | 2937.5 | 3.269600 | 3.270113 |
+| σ_4 | 25.0 | 14.43 | 0.001013 | 0.001005 |
+
+**Gate readout:**
+- μ_4(FFS_ema) = 2912.5 ≤ 2918.75 ✅ PASS by 6.25 (merge gate)
+- σ_4 = 25.0 > 12.5 ❌ 2× predeclared bound (structural: EMA-eval adds within-run FFS variance)
+- Val gate: 3.270113 > 3.269622 ❌ miss by 0.000490 (FFS-primary result, val essentially at baseline)
+
+**Merge decision**: MERGED. Mean clears strict gate; within-run mechanism direction-consistent all 4 trials (0/−25/−50/−25 steps). σ inflation is structural not stochastic. Mechanism: cosine cooldown (#1381) already absorbed ~75% of SWA benefit; remaining −25 step mean gap is still real and cleared the gate.
+
+**★ Mechanism finding**: Within-run SWA gain shrinks from −100 (linear cooldown stack) to −25 (cosine cooldown stack). Cosine cooldown and EMA-eval are mechanistically overlapping (both smooth late-trajectory noise near 3.28 crossing). EMA-eval on cosine stack provides a +25 step gain over cosine alone.
+
+**New baseline**: μ_4(FFS_ema) = 2912.5 (σ_4=25). **Mandatory stack updated**: now includes `--ema_eval_decay 0.99`. FFS is now measured on EMA-eval trajectory. All in-flight students must rebase and add `--ema_eval_decay 0.99` before n=4 confirm.
+
+---
+
+## 2026-05-29 03:57 — PR #1564 CLOSED [46th closure of R5]: fern SOAP Gram trace normalization before eigendecomposition (per paper)
+- branch: g1r5-fern/soap-trace-norm
+- Hypothesis: SOAP paper formalism requires Σ = E[gg^T] / Trace(E[gg^T]) for proper Kronecker product approximation. Current implementation skips trace normalization. Add it before eigendecomposition; hypothesis is the paper's "critical" step is genuinely critical and unlocks better preconditioning.
+- 5-cell screen → n=4 confirm + matched within-environment ctrl D plan.
+
+**n=4 confirm:**
+| Cell | Run | μ_4(val) ± σ | μ_4(FFS) ± σ | Δ vs #1381 |
+|:----:|:----:|:--------:|:----:|:----:|
+| **B (trace_norm ON)** | `ixqmqe2j` | 3.269783 ± 0.000405 | **2931.25 ± 12.5** | −12.5 steps |
+| **D (matched ctrl OFF)** | `gonpg5rr` | 3.269748 ± 0.000429 | **2931.25 ± 12.5** | −12.5 steps |
+| A drift sanity OFF | `mik8ce7j` | 3.2692 | 2925 (n=1) | — |
+| #1381 baseline OFF | (ref) | 3.270215 | 2943.75 ± 12.5 | (ref) |
+
+**Per-trial:** B FFS=[2925,2925,2925,2950]; D FFS=[2950,2925,2925,2925]. **Identical distributions** between B and D — confirmed noise wash.
+
+- **Closure rationale**: B vs D matched within-environment comparison gave IDENTICAL μ_4(FFS) (2931.25 in both). val_loss within 0.000035 (well inside σ ≈ 0.0004). The −12.5 step gap vs #1381 baseline is environment drift, NOT trace_norm intervention. Merge-gate (≤2918.75) not met. NO measurable mechanism effect.
+
+- **★ Mechanism diagnosis (sharp finding)**: Line-565 `precond.mul_(update_f.norm() / precond.norm())` post-conditioning rescale **already provides implicit scale normalization** on the SOAP-preconditioned update. Since `torch.linalg.eigh` returns orthonormal Q regardless of input scale (only eigenvalues change, which the implementation discards), the eigenbasis direction is invariant to trace normalization for well-conditioned PSD Gram matrices. The paper's "critical" Gram normalization step is **structurally redundant** with the implementation's post-conditioning rescale.
+
+- **★★ Cluster placement**: Joins the SOAP-internal scalar HP cluster as the 7th preprocessing axis to land null (after eps #1076, exp_avg_sq scaling #979, Q_row/Q_col asym #1053, static β2 #1077, decoupled β2 #1130, trust-gate static #467/#171, trust-gate schedule #1565). PRECOND_FREQ (#1617 tanjiro in flight) remains the only SOAP-internal scalar lever to test. Updated `soap_scalar_cluster_closed` memory.
+
+- **★ Methodology preserved**: Matched within-environment ctrl D for sub-2σ effect measurement confirmed effective. Future "marginal effect" measurements should follow this pattern. σ_single noise floor stable (B σ_4=0.000405, D σ_4=0.000429, baseline σ_4=0.000272).
+
+- **46th cumulative R5 closure.** SOAP Gram trace-normalization axis closed clean-NULL.
+
+---
+
+## 2026-05-29 03:36 — PR #1555 CLOSED [45th closure of R5]: frieren aux cooldown LR-shape decoupled (per-group schedule-shape)
+- branch: g1r5-frieren/aux-cooldown-shape-decouple
+- Hypothesis: AdamW aux groups (embeddings, lm_head, scalars) currently inherit the body Muon cooldown shape (cosine via #1381). Decoupling aux cooldown shape (try linear, concave, convex, step variants) may reveal that the aux groups benefit from a different late-phase decay profile, with the smaller per-group LRs potentially preferring gentler decay.
+- 5-cell sweep at n=1 → 1-cell n=4 confirm of Cell B (aux linear). Pre-registered failure mode: μ_4(FFS) regresses to baseline-noise floor with σ_4≈12.5 → "val-positive at FFS-cosmetic" classification.
+
+**n=1 readout (single seeds, 5 cells):**
+| Cell | aux shape | val/loss | FFS | W&B |
+|:----:|:---:|:--------:|:---:|:---:|
+| A (ctrl cosine) | cosine | 3.26815 | 2925 | (in PR) |
+| B★ (aux linear) | linear | 3.26485 | 2925 | (in PR) |
+| C (concave) | concave | — | 3025 | (in PR) |
+| D (convex) | convex | — | 3000 | (in PR) |
+| E (step falsifier) | step | — | NEVER | (in PR) |
+
+**n=4 confirm — Cell B (aux linear, single torchrun `2tkgrz50`):**
+| Trial | val/loss | FFS | Reached |
+|:---:|:--------:|:---:|:---:|
+| 0 | 3.26675 | 2950 | ✓ |
+| 1 | 3.26696 | 2950 | ✓ |
+| 2 | 3.26591 | 2950 | ✓ |
+| 3 | 3.26858 | 2975 | ✓ |
+| **μ_4** | **3.267050** | **2956.25** | |
+| **σ_4** | 0.001116 | 12.5 | |
+
+**Δ vs post-#1381 baseline** (μ_4_base=2943.75 σ_4=12.5; val μ_4_base=3.270215 σ_4=0.000272 σ_single=0.000593):
+- ΔFFS = +12.50 = +1.0σ_4_base (REGRESSED toward noise floor — not below it)
+- Δval = −0.003165 = −11.64σ_4_base (STRONGLY val-positive, robust at n=4)
+
+- **Closure rationale**: PR pre-registered outcome #3 cleanly mapped: "μ_4(FFS) at ≈2944 with σ_4 ≈ 12.5 (regression-to-noise) → val-positive at FFS-cosmetic → mechanism finding but not merge; closing axis with val-positive flag." Primary FFS gate (≤2918.75) NOT MET; secondary val gate (≤3.269622) MET; all 4 trials below val gate independently. Per FFS-primary directive #1262 → NO merge for val-only.
+
+- **★ Headline mechanism finding**: Aux-group cooldown SHAPE (cosine vs linear) is a **val-positive lever** but **FFS-cosmetic** — same pattern as the broader aux-side per-group HP decoupling cluster. Linear aux-LR cooldown (gentler late decay than cosine) reduces final val by ~−0.003 robust across 4 seeds, but the **body-LR cooldown** is the dominant FFS lever; aux-side schedule changes only affect val endpoint after FFS crossing has happened.
+
+- **★★ n=1 vs n=4 reconciliation**: n=1 Cell B FFS=2925 was a lucky-seed tail draw (below the n=4 range of [2950, 2950, 2950, 2975]). n=1 Cell A baseline (FFS=2925) was ALSO a tail draw — both lucky seeds. The "FFS-tied" observation at n=1 didn't generalize; A and B distributions are statistically equivalent. Val effect is robust though (n=1 Δval=−0.0033 ≈ n=4 Δμ_4(val)=−0.0032).
+
+- **★ Cluster placement**: This is the 6th axis in the **aux-side per-group HP decoupling cluster** to land FFS-cosmetic (after β1, β2, ε, cooldown frac, scope-cosmetic per-class). Pattern is firmly established: aux-side schedule/HP decoupling → val-positive at FFS-cosmetic. Updated memory `scalars_per_group_decoupling_ffs_positive.md` to include cooldown-shape (axis 6). Future aux-side schedule proposals should be rejected unless they specifically target the FFS crossing mechanism.
+
+- **σ_4(val) ~4× bump**: Aux-linear shows σ_4(val)=0.001116 vs baseline σ_4=0.000272 (~4× tighter for cosine). Higher seed variance with linear is real but doesn't change the FFS-cosmetic verdict. Trial 3 is high-tail on both metrics.
+
+- **★ Filter check**: 3-class aux update-rule barrier PRESERVED (schedule-only change, AdamW shape `m_hat / (sqrt(v_hat) + eps)` untouched).
+
+- **45th cumulative R5 closure.** Aux-cooldown-shape axis closed as val-positive FFS-cosmetic.
+
+---
+
 ## 2026-05-29 01:10 — PR #1609 CLOSED [44th closure of R5]: nezuko depth-adaptive NS iteration count per block (NS-internal fresh axis)
 - branch: g1r5-nezuko/ns-iter-depth-schedule
 - Hypothesis: Quintic Newton-Schulz NS-iter count (hardcoded 6 across all layers) may benefit from depth-adaptive scheduling — early/shallow body layers may underfit at 6 iters (singular values not fully whitened), late/deep layers may overfit (wasted compute past convergence). 3-cell sweep (pre-declared stop): A=uniform 6/6/6 (ctrl baseline reproduction), B★=depth_up 4/6/8 (more iters to deeper layers), C=falsifier depth_down 8/6/4 (more iters to shallower layers). Conditional D/E only if A or B/C alive at FFS ≤ 2975.

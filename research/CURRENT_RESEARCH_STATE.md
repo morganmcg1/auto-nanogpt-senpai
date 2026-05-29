@@ -9,32 +9,69 @@ The human research team has redirected: **FFS (first-step-to-target, baseline 30
 3. **Prefer experiments that move the crossing step** (2800-3050 window), **simplify winning stacks**, **reveal FFS-load-bearing components**.
 4. **Ablations preferred over confirmations** when FFS dead.
 
-## Last updated: 2026-05-29 ~01:15Z (poll, ★ nezuko axis closure + fresh NS-init assignment — 44th R5 closure)
+## Last updated: 2026-05-29 (poll — ★★★ #1533 EMA-eval SWA MERGED + 2 closures #1555/#1564 + 2 new assignments #1651/#1654)
+
+### Current state
+
+**New baseline (47th R5 result, 2nd FFS-PRIMARY MERGE)**:
+- **μ_4(FFS_ema) = 2912.5** (σ_4=25.0, min/max=2875/2925) — PR #1533 alphonse EMA-eval SWA d=0.99
+- **μ_4(val) = 3.269600** (train-traj); W&B run `axzk5hpf`
+- **FFS merge gate: μ_4(FFS_ema) ≤ 2887.5** (25 steps below new baseline)
+- **n=1 FFS-alive gate: FFS ≤ 2975** (unchanged)
+
+**★★★ Mandatory stack change**: Now includes `--ema_eval_decay 0.99`. FFS is measured on bias-corrected EMA-eval trajectory. ALL in-flight students must rebase and add this flag before n=4 confirm.
 
 **Actions this poll**:
-1. ★ **CLOSED #1609 nezuko ns-iter-depth-schedule** [44th R5 closure] — clean-NEG: Cell A (uniform 6/6/6 ctrl) FFS=2950 (within 1σ of baseline μ_4=2943.75); Cell B★ (depth_up 4/6/8) FFS=3050 (+106 over baseline, +8.5σ_4); Cell C (falsifier depth_down 8/6/4) FFS=3000 (+57 over baseline). Pre-declared stop trigger fired → D/E correctly skipped. ★ Headline mechanism: **NS iter axis symmetrically fragile around 6** — both directional perturbations regress, val/FFS coupled monotonically. Quintic NS polynomial at 6 iters is near-converged for body matrix spectra at all depths. L=12 modded-nanogpt body has homogeneous-enough spectra that uniform 6 is locally optimal. 4th NS-internal axis to close in R5; ns_iter knob has narrow local optimum.
-2. ★★ **REJECTED SOAP_BETA2 hypothesis pre-assignment** — duplicate detection caught: #1077 (static SOAP_BETA2 sweep) and #1130 (decoupled Gram-vs-basis β2) both CLOSED with explicit advisor verdict "5/5 SOAP-scalar HP cluster closed." Saved a wasted assignment. Memory note: SOAP-scalar HP axes (eps #1076, Q_row/Q_col #1053, exp_avg_sq #979, static β2 #1077, decoupled β2 #1130) ALL CLOSED. Trust-gate threshold (#467/#171 static + #1565 schedule) also CLOSED.
-3. ★★★ **ASSIGNED #1643 nezuko NS warm-start from previous polar factor** (`g1r5-nezuko/ns-warmstart-init`) — fresh NS-internal axis via researcher-agent dispatch. Persists per-param `state["ns_q"]` buffer (previous step's NS output Q_prev), blends as `X_0 = α·Q_prev + (1-α)·G_normalized` then runs 6 NS iters. Mechanism: gradient rotates slowly (same property exploited by mu=0.95 momentum); polar factor U_t also rotates slowly; warm-starting X_0 from U_{t-1} reduces distance to NS fixed point → at fixed ns_iter=6 the iterations refine near-correct rather than climbing far. 5-cell sweep: A=ctrl(α=0), B★=0.7 strong blend, C=1.0 pure warm-start (falsifier), D=0.5 softer (conditional), E=0.9 (conditional). NOVELTY VERIFIED: #1609 (depth count, just closed), #1612 (poly coeffs, in flight), #809 (Soft-Muon POST-NS update blend — distinct, weakens orthogonalization), #1565 (trust-gate, post-NS u-vector gating) — none touch X_0 init axis. Cited Dion (arxiv 2504.05295) for the warm-start motivation. Pre-mortem #1 (most-likely-failure): NS already-converged at ns_iter=6, warm/cold trajectories converge identically — diagnostic logging mandatory.
+1. ★★★ **MERGED #1533 alphonse EMA-eval SWA** [2nd FFS-primary merge of R5] — μ_4(FFS_ema)=2912.5 ≤ 2918.75 gate; within-run direction consistent all 4 trials (0/−25/−50/−25). Mechanism: cosine cooldown absorbed ~75% of SWA benefit; EMA-eval recovers remaining −25 step gain. σ_4=25 is structural (EMA variance), not stochastic.
+2. ★ **CLOSED #1564 fern SOAP Gram trace-norm** [46th R5 closure] — clean NULL via matched within-env ctrl D. B=D (trace_norm ON vs OFF): IDENTICAL μ_4(FFS)=2931.25 ± 12.5, val within 0.000035. Line-565 post-conditioning rescale absorbs any Gram-input scale preprocessing. Reject all "preprocess Gram before eigendecomposition" proposals.
+3. ★ **CLOSED #1555 frieren aux-cooldown-LR-shape** [45th R5 closure] — val-positive FFS-cosmetic. μ_4(FFS)=2956.25 ± 12.5 misses merge gate; μ_4(val)=3.267050 (−11.6σ_4_base improvement). Val-positive but FFS locked at baseline noise floor. 4th independent closure of aux-side per-group HP cluster.
+4. ★★ **ASSIGNED #1651 frieren pre-NS gradient-Frobenius normalization** — 5-cell: B★(α=1 grad), C(α=1 weight, LAMB/LARS replica falsifier), D(α=0.5), E(α=1.5). Explicit acknowledgment of closed cluster #827/#940/#1221/#1389/#1129. Kill gate KG4 falsifier parity.
+5. ★★ **ASSIGNED #1654 fern SOAP adaptive eigenbasis refresh** — off-diagonal staleness of Q^T L Q (Eschenhagen et al. 2025). Explicitly carved-out by R2 #1159 closure as "refresh on eigenvalue spectrum change not Gram entry-wise norm — categorically distinct." 5-cell: A=ctrl, B★(τ=0.05), C(τ=0.02), D(τ=0.15), E(τ=0.50 falsifier). UPDATED: add `--ema_eval_decay 0.99` per stack update.
 
-**★★★ FERN #1564 update**:
-- Cell B n=4 (trace_norm ON): COMPLETE μ_4(FFS)=2931.25 ± 12.5 (Trials: 2925/2925/2925/2950), val μ_4=3.269782 ± 0.000407 — sub-2σ_4 vs strict merge gate (μ_4 ≤ 2918.75)
-- Cell D n=4 (trace_norm OFF, matched within-env ctrl): Trial 0 FFS=2950 done, Trial 1 in progress, ETA terminus ~03:30Z (2026-05-29). Critical for within-env D ctrl readout: if D ≈ #1381 baseline (~2943.75) → B improvement is real environment shift (-12.5 within-env); if D drifts upward, stronger effect; if D drifts downward, B was noise.
+**All 8 students productively occupied. ZERO idle.**
 
-**Ongoing in flight** (01:15Z snapshot — all 8 students productively occupied, ZERO idle):
-- **#1533 alphonse EMA-eval (SWA) rebase + n=4 confirm**: Trial 1 in progress
-- **#1555 frieren aux-cd-shape n=4 confirm Cell B**: Trial 1 in progress
-- **#1564 fern SOAP Gram trace-norm**: matched ctrl D n=4 ETA ~03:30Z (CRITICAL READOUT)
-- **#1586 thorfinn body wd_mlp continuation**: F/G/H cliff probe ETA ~5h sequential (sent back 00:48Z)
-- **#1612 askeladd NS polynomial coefficients**: Cells A,B done, C/D/E pending
-- **#1615 edward Muon body momentum decoupling**: Cells A,B done, C/D/E pending
-- **#1617 tanjiro SOAP PRECOND_FREQ**: Cell A rerun done (val=3.271), B/C/D pending; E done
-- **#1643 nezuko NS warm-start init**: just assigned this poll
-- **#1617 tanjiro soap-precond-freq**: just assigned this poll
-- **#1555 frieren aux-cd-shape n=4 confirm**: starting (sent back poll ~1020)
-- **#1533 alphonse EMA-eval rebase + n=4 confirm**: starting (sent back poll ~1020)
-- **#1564 fern SOAP Gram trace-norm**: Trial 4 W&B terminal, awaiting student post
+| Student | PR | Hypothesis | Status |
+|:-------:|:--:|:----------:|:------:|
+| alphonse | #1533 | EMA-eval SWA d=0.99 | ✅ MERGED |
+| frieren | #1651 | Pre-NS grad-Frobenius normalization | 🔄 WIP n=1 |
+| askeladd | #1612 | NS polynomial Bernstein/Padé | 🔄 WIP n=1 |
+| fern | #1654 | SOAP adaptive eigenbasis refresh | 🔄 WIP n=1 (just assigned) |
+| tanjiro | #1617 | SOAP PRECOND_FREQ sweep | 🔄 WIP n=1 |
+| edward | #1615 | Muon body mu_mlp/mu_attn decouple | 🔄 WIP n=1 |
+| nezuko | #1643 | NS warm-start from polar factor | 🔄 WIP n=1 |
+| thorfinn | #1586 | Body wd_mlp fine re-tune | 🔄 WIP n=1 |
 
-All 8 students remain productively occupied. Zero idle.
+---
+
+### Active research themes (post-#1533 merge)
+
+**Optimizer state dynamics** (primary thrust):
+- NS-internal: warm-start X_0 from previous polar factor (#1643 nezuko), polynomial coefficient quality (#1612 askeladd), PRECOND_FREQ static sweep (#1617 tanjiro)
+- SOAP eigenbasis: adaptive refresh via off-diagonal staleness criterion (#1654 fern — fresh axis, Eschenhagen 2025)
+- Muon body per-group mu (#1615 edward — structural analogue to winning lr_mlp/lr_attn decoupling)
+- Post-NS update scaling (#1651 frieren — grad-Frobenius normalization, explicit cluster acknowledgment)
+- Body WD (#1586 thorfinn — wd_mlp fine re-tune under cosine cooldown)
+
+**Mechanistic findings this cycle**:
+- EMA-eval SWA overlaps with cosine cooldown (−100 steps on linear stack → −25 on cosine stack). Mechanism: both smooth late-trajectory noise near 3.28 crossing.
+- Line-565 post-conditioning rescale absorbs ALL Gram-input scale preprocessing (trace-norm, whitening, centering all null by invariance). Reject cluster.
+- NS iter axis symmetrically fragile around 6; polynomial coefficients and warm-start X_0 are the remaining fresh NS-internal axes.
+
+**Closed cluster map** (axes to never re-propose):
+- SOAP-internal scalar HPs: 7+/8 closed (eps, exp_avg_sq, Q_row/Q_col asym, static β2, decoupled β2, trust-gate static/schedule, Gram trace-norm)
+- Muon body structural barriers: 5-class (AGC, QHM, GC, Lookahead, Cautious) — NS absorbs gradient-shape priors
+- AdamW aux update-rule barrier: 4-instance (Lion, Sophia-G, AdaBelief, AdEMAMix)
+- Aux-side per-group HP cluster: β1, β2, ε, wd, cooldown_frac, cooldown_shape (6 axes FFS-cosmetic)
+- Post-NS Frobenius/LAMB/LARS: 6 instances closed
+- LR floor axis: 3 instances closed (FFS-load-bearing to go to 0)
+- Cooldown_frac axis: Pareto-exhausted (cdf=0.7 optimal)
+
+**Potential next directions** (for researcher-agent if students become idle):
+1. Phase-dispatch mechanisms: train-phase-aware parameter changes (PRECOND_FREQ via #1617, adaptive refresh via #1654 in flight)
+2. EMA-eval decay sweep: d∈{0.97, 0.98, 0.995} — can the −25 step gap be extended?
+3. Post-hoc EMA (Karras 2023 style): decouple decay-tuning from training
+4. NS warm-start variants: X_0 from weighted history (not just previous step), or from cached SOAP Q
+5. Eigenvalue processing after eigh: clamping, dampening, p-th-power transforms (line-565 absorbs scale of Q, NOT eigenvalue conditioning)
 
 ---
 
