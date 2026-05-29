@@ -863,11 +863,17 @@ for trial_idx in range(args.num_trials):
     # create the optimizer(s)
     aux_scalar_params = [p for p in model.parameters() if p.ndim < 2]
     if args.aux_adashift_n > 0:
-        optimizer1 = AdaShiftAdamW(
+        # Option A: AdaShift on lm_head + scalars only (dense gradients each step).
+        # Keep fused AdamW for embed (row-sparse gradients are structurally
+        # incompatible with AdaShift's lagged-denominator mechanism — when a row
+        # is freshly touched at step t and was zero at step t-n, v_t collapses to
+        # the eps floor and the update explodes).
+        optimizer1 = AdamW(
+            [dict(params=[model.embed.weight], lr=0.3, name="adam_embed")],
+            betas=(0.8, 0.95), eps=1e-10, weight_decay=0, fused=True,
+        )
+        optimizer1b = AdaShiftAdamW(
             [
-                dict(params=[model.embed.weight], lr=0.3, name="adam_embed",
-                     betas=(0.8, 0.95), eps=1e-7, weight_decay=0,
-                     n_shift=args.aux_adashift_n),
                 dict(params=[model.proj.weight], lr=1/160, name="adam_lm_head",
                      betas=(0.8, 0.95), eps=1e-7, weight_decay=0,
                      n_shift=args.aux_adashift_n),
@@ -876,13 +882,17 @@ for trial_idx in range(args.num_trials):
                      n_shift=args.aux_adashift_n),
             ]
         )
-        print0(f"aux optimizer: AdaShiftAdamW n_shift={args.aux_adashift_n} "
-               f"betas=(0.8, 0.95) eps=1e-7 weight_decay=0", console=True)
+        aux_optimizers = [optimizer1, optimizer1b]
+        print0(f"aux optimizer (Option A split): "
+               f"embed→fused AdamW(eps=1e-10); "
+               f"lm_head+scalars→AdaShiftAdamW(n_shift={args.aux_adashift_n}, eps=1e-7)",
+               console=True)
     else:
         optimizer1 = AdamW([dict(params=[model.embed.weight], lr=0.3, name="adam_embed"),
                             dict(params=[model.proj.weight], lr=1/160, name="adam_lm_head"),
                             dict(params=aux_scalar_params, lr=0.025, name="adam_scalars")],
                            betas=(0.8, 0.95), eps=1e-10, weight_decay=0, fused=True)
+        aux_optimizers = [optimizer1]
     optimizer2 = Muon([p for p in model.blocks.parameters() if p.ndim >= 2],
                       lr=args.muon_lr, weight_decay=0.025, beta_cov=0.95, gamma=PMUON_GAMMA)
     optimizer2.param_groups[0]["name"] = "muon_blocks"
@@ -917,7 +927,7 @@ for trial_idx in range(args.num_trials):
                       step=0)
     optimizer2._param_lr_mults = param_lr_mults
 
-    optimizers = [optimizer1, optimizer2]
+    optimizers = aux_optimizers + [optimizer2]
     assert set(p for opt in optimizers for group in opt.param_groups
                for p in group["params"]) == set(model.parameters())
     for opt in optimizers:
@@ -1148,10 +1158,12 @@ for trial_idx in range(args.num_trials):
                 and args.aux_b2_pulse_target > 0.0
                 and step == args.aux_b2_pulse_step):
             old_b2 = optimizer1.param_groups[0]["betas"][1]
-            new_betas = (optimizer1.param_groups[0]["betas"][0], args.aux_b2_pulse_target)
-            for group in optimizer1.param_groups:
-                group["betas"] = new_betas
-            print0(f"[step {step}] aux_b2_pulse: β2 {old_b2} → {args.aux_b2_pulse_target}",
+            for opt in aux_optimizers:
+                for group in opt.param_groups:
+                    new_betas = (group["betas"][0], args.aux_b2_pulse_target)
+                    group["betas"] = new_betas
+            print0(f"[step {step}] aux_b2_pulse: β2 {old_b2} → {args.aux_b2_pulse_target} "
+                   f"(applied to {len(aux_optimizers)} aux optimizer(s))",
                    console=True)
         for opt in optimizers:
             opt.step()
