@@ -11,7 +11,7 @@
 |---|---|---|---|---|
 | #1622 | edward | Muon momentum reset at pEMA refresh (step 2600) — scale 0.0 & 0.1 | Running step 2175 (Arm A) | ~04:00 UTC |
 | #1637 | alphonse | Pre-target body Muon LR boost (×1.25, ×1.5 during steps 2750-2900) | Pickup pending | ~09:45 UTC |
-| #NEW | askeladd | Aux β₁ DROP pulse @ step 975 (0.70, 0.60) — symmetric closure of β₁ axis | JUST ASSIGNED | ~10:00 UTC |
+| #1639 | askeladd | Aux β₁ DROP pulse @ step 975 (0.70, 0.60) — symmetric closure of β₁ axis | JUST ASSIGNED | ~10:00 UTC |
 | #1634 | nezuko | Aux β₂ smooth ramp (ramp_width=50 Arm A, 200 Arm B) | Pickup pending | ~09:00 UTC |
 | #1604 | fern | Body Muon momentum pulse Arm B (`5x0bo5lu`, step 2600) after Arm A kill | Running step ~1650 | ~04:00 UTC |
 | #1605 | frieren | Aux β₂ timing step 1050 Arm B (`unkccxcl`) | Running step ~1650 | ~02:30 UTC |
@@ -32,7 +32,7 @@
 | Timing (step 900) | frieren Arm A | ❌ NULL (val_ema=3.265240, sr=2925) |
 | Timing (step 1050) | frieren Arm B | Running (chained) |
 | β₁ analog RAISE (0.90, 0.95) | askeladd #1592 | ❌ NULL (bilateral — +4.31 & +3.37 mnat — moments asymmetry) |
-| β₁ analog DROP (0.70, 0.60) | askeladd #NEW | In-flight (JUST ASSIGNED) |
+| β₁ analog DROP (0.70, 0.60) | askeladd #1639 | In-flight (JUST ASSIGNED) |
 | v-buffer reset | nezuko #1601 | ❌ NULL (bilateral — Arm A catastrophic diverge, Arm B +4.4 mnat) |
 | β₂ pulse shape (discrete vs ramp) | nezuko #1634 | In-flight |
 | Body Muon (step 975) | fern Arm A | ❌ DIVERGED (catastrophic) |
