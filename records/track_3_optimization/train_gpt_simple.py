@@ -28,6 +28,7 @@ SLOPE_FRACTION = 0.10
 SOAP_BETA2 = 0.90
 PRECOND_FREQ = 16
 NS_ITER = 12  # overridden by args.ns_iter at module load
+NS_COEFF_A, NS_COEFF_B, NS_COEFF_C = 2.0, -1.5, 0.5  # overridden by args.ns_coeffs at module load
 
 
 def parse_args():
@@ -68,6 +69,10 @@ def parse_args():
     parser.add_argument("--ns_iter", type=int, default=12,
                         help="Number of Newton-Schulz iterations in zeropower_via_newtonschulz5. "
                              "Default 12 (current hardcoded value). Lower = less orthogonal but faster.")
+    parser.add_argument("--ns_coeffs", type=str, default="2.0,-1.5,0.5",
+                        help="Newton-Schulz polynomial coefficients as 'a,b,c'. "
+                             "Default (2,-1.5,0.5) is codebase original. "
+                             "Canonical Muon uses (3.4445,-4.7750,2.0315).")
     parser.add_argument("--lr_scalars", type=float, default=0.01,
                         help="LR for AdamW adam_scalars group (RMSNorm gains; "
                              "params with ndim < 2). Default 0.01 — hardcoded, "
@@ -107,6 +112,10 @@ def parse_args():
 
 args = parse_args()
 NS_ITER = args.ns_iter
+_ns_coeffs_parsed = [float(x) for x in args.ns_coeffs.split(",")]
+if len(_ns_coeffs_parsed) != 3:
+    raise ValueError(f"--ns_coeffs must be 3 comma-separated floats, got {args.ns_coeffs!r}")
+NS_COEFF_A, NS_COEFF_B, NS_COEFF_C = _ns_coeffs_parsed
 
 
 def clean_metric_name(name: str) -> str:
@@ -503,7 +512,7 @@ def zeropower_via_newtonschulz5(G: Tensor) -> Tensor:
     # Ensure spectral norm is at most 1
     X = X / (X.norm(dim=(-2, -1), keepdim=True) + 1e-7)
     # Perform the NS iterations, not optimizing for wallclock speed
-    a, b, c = 2, -1.5, 0.5
+    a, b, c = NS_COEFF_A, NS_COEFF_B, NS_COEFF_C
     for _ in range(NS_ITER):
         A = X @ X.mT
         B = b * A + c * A @ A
@@ -770,6 +779,10 @@ if dist.get_rank() == 0:
             "soap_beta2": SOAP_BETA2,
             "soap_precond_freq": PRECOND_FREQ,
             "ns_iter": NS_ITER,
+            "ns_coeffs": args.ns_coeffs,
+            "ns_coeff_a": NS_COEFF_A,
+            "ns_coeff_b": NS_COEFF_B,
+            "ns_coeff_c": NS_COEFF_C,
             "soap_attn_enabled": bool(args.soap_attn),
             "soap_trust_threshold": float(args.soap_trust_threshold),
             "lr_mlp": args.lr_mlp,
