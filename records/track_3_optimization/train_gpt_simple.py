@@ -515,7 +515,14 @@ def zeropower_via_newtonschulz5(G: Tensor, a: float = NS_A, b: float = NS_B, c: 
 def matrix_neg_power(M: Tensor, gamma: float, eps: float = 1e-12) -> Tensor:
     # Symmetric PSD M -> M^{-gamma} via eigendecomposition; eps clamp handles rank deficiency.
     M = 0.5 * (M + M.T)
-    eigvals, eigvecs = torch.linalg.eigh(M)
+    try:
+        eigvals, eigvecs = torch.linalg.eigh(M)
+    except torch._C._LinAlgError:
+        # Defensive: tiny ridge breaks degenerate / repeated eigenvalues so eigh converges.
+        # Baseline trajectory never hits this branch; only fires for perturbed trajectories.
+        d = M.size(-1)
+        ridge = (eps ** 0.5) * torch.eye(d, device=M.device, dtype=M.dtype)
+        eigvals, eigvecs = torch.linalg.eigh(M + ridge)
     eigvals = eigvals.clamp_min(eps).pow(-gamma)
     return (eigvecs * eigvals) @ eigvecs.T
 
