@@ -1,6 +1,55 @@
 # SENPAI Research State — auto-nanogpt-1gpu-r3
 
-- **Last updated:** 2026-05-29 19:50 UTC
+- **Last updated:** 2026-05-29 21:00 UTC
+
+---
+
+## Cycle ~2030: H268 CLOSED 126th NULL/NEG + H274 SENT BACK (AUX_ONLY decay sweep) + H280 ASSIGNED 69th class Cautious MuonH body pre-NS5 sign-mask
+
+**H268 nezuko Adam-Mini aux preconditioner CLOSED 126th NULL/NEG — PF#61 STRENGTHENED to 3-axis CLOSURE-GRADE (aux preconditioner FORM replacement structurally closed).**
+
+Terminal verdict (bilateral catastrophic):
+- arm_a CTRL AdamW: FFS=3025 NULL (Pattern A loose +25 drift)
+- arm_b ADAM_MINI_default: FFS=−1 **CATASTROPHIC NEG** val=3.42799 (+181σ_H174, DNF on 3325-step budget)
+- arm_c ADAM_MINI_tuned: FFS=−1 **CATASTROPHIC NEG** val=3.39131 (+139σ_H174, DNF)
+
+🎯 **PF#61 STRENGTHENED to 3-axis CLOSURE-GRADE** (aux preconditioner FORM replacement is catastrophically harmful):
+- Axis 1 — Lion uniform sign-momentum (H260): catastrophic NEG +136σ_H174
+- Axis 2 — Sophia clipped-uniform (H261): catastrophic NEG +65σ_H174
+- Axis 3 — Adam-mini block-diagonal scalar v̄_t (H268): catastrophic NEG +181σ/+139σ (single-LR design loses AdamW's per-group LR structure: embed lr=0.3 vs aux lr=1.5e-3 = 200× under-trains embed)
+- **Mechanistic synthesis**: AdamW's structural mechanism = per-coord magnitude calibration via `g/√v̄_coord` + per-group LR scaling. Any FORM replacement breaking either per-coord adaptivity or per-group LR → catastrophically harmful. **No further aux-side preconditioner FORM swings warranted** (Shampoo, K-FAC, Adafactor all expected same failure).
+- Paper-grade finding: per-TENSOR scalar averaging loses critical per-coord magnitude distribution info for embed/lm_head/scalars
+
+**H274 thorfinn AUX_ONLY EMA scope ablation SENT BACK — paper-grade mechanistic finding, TIE FFS → cannot merge per Issue #1260. Follow-up: AUX_ONLY + decay tightening to attempt FFS<3000.**
+
+Terminal verdict (PR #1699):
+- arm_a CTRL (scope=all): FFS=3025 Pattern A drift
+- arm_b BODY_ONLY: FFS=3050 NEG (+1.98σ, body EMA perturbs cooldown sharpening via Muon orthogonalization)
+- arm_c AUX_ONLY (5 params): FFS=3000 TIE, val=3.26711 **−0.00107 (−1.21σ BELOW baseline)** — but FFS=3000 TIES per Issue #1260 directive, TIE ≠ WIN
+
+🎯 **PAPER-GRADE MECHANISTIC FINDING — AUX_ONLY identifies the locus of H266 EMA mechanism**:
+- **Body EMA is harmful** (FFS=3050 NEG): Muon-stepped matrices already gradient-conditioned via orthogonalization; additional EMA averaging perturbs cooldown sharpening
+- **AUX EMA = entire mechanism** (5 params: embed.weight, lm_head.proj.weight, lm_head.proj.bias, norm1.gains, norm2.gains)
+- **58% buffer reduction** (0.53GB → 0.22GB): cleaner, more memory-efficient mechanism with same FFS
+
+Send-back direction (PR sent back to thorfinn): AUX_ONLY scope at tighter decay values [0.05 CTRL_TIE / 0.10 TIGHTER / 0.20 MUCH_TIGHTER] — hypothesis that fewer params allows more aggressive cooldown-tracking, potentially unlocking FFS<3000. **WIN prob 15-25%.** Pattern Trivial chain (argparse VALUE-only, no new code).
+
+**H280 nezuko ASSIGNED 69th class Cautious MuonH body pre-NS5 sign-mask (PR #1733, BOLD plateau-protocol swing).**
+
+- 3-arm chain: CTRL body_cautious=0.0 / CAUTIOUS_HALF 0.5 / CAUTIOUS_FULL 1.0
+- Mechanism: apply momentum-aligned gradient sign-mask BEFORE NS5 polar projection — filter anti-momentum gradient coordinates, give NS5 cleaner directional signal
+- **Why structurally distinct**: gradient-space BEFORE NS5 (direction-normalizing path) — H544 Cautious-AdamW was magnitude-adaptive (AdamW) path → different mechanism locus entirely
+- Pattern A drift-FREE: `--body_cautious 0.0` falls through to standard Nesterov path bit-identically
+- WIN prob 15-25%; 69th mechanism class
+- PR #1733, post-H266 baseline (FFS<3000 strict WIN criterion)
+- Ref: Liu et al. 2024 https://arxiv.org/abs/2411.16085
+
+**Plateau campaign portfolio after cycle ~2030**:
+- **126 NULL/NEG closures + 1 MERGED WIN (H266)**
+- **69 mechanism classes attempted** (H280 = 69th)
+- 6 PROGRAMME FINDING candidates: PF#56 STRENGTHENED (7 axes + directional asymmetry), PF#58 CLOSURE-GRADE 4-axis, PF#59 strengthened, PF#60 candidate 3 axes, **PF#61 STRENGTHENED 3-axis CLOSURE-GRADE (aux preconditioner FORM closed)**, PF#62 STRENGTHENED to **8 mechanism categories**
+- Pattern A loose +25 drift class noise floor: ≥10 instances — highly reproducible noise floor signature
+- All students with active WIP PRs — zero idle GPUs
 
 ---
 

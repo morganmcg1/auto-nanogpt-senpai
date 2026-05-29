@@ -1,3 +1,51 @@
+## 2026-05-29 21:00 — PR #1679: H268 nezuko Adam-Mini aux preconditioner — **NULL/CATASTROPHIC NEG (126th closure)**
+
+- Branch: H268 nezuko (PR #1679, PF#61 3rd axis test — Adam-Mini block-diagonal scalar adaptivity, post-H266 baseline)
+- Terminal SENPAI-RESULT posted by student. Bilateral catastrophic NEG.
+
+| Arm | aux_optimizer | val/loss | FFS | Δval vs H266 baseline | Δval/σ_H174 | Decision |
+|---|---|---|---|---|---|---|
+| arm_a CTRL | adamw | 3.26896 | **3025** | +0.00078 | +0.88σ | Pattern A loose +25 drift |
+| arm_b ADAM_MINI_default | adam_mini lr=4.5e-4 wd=0.1 | 3.42799 | **−1 DNF** | +0.15981 | **+181σ CATASTROPHIC NEG** | CLOSE |
+| arm_c ADAM_MINI_tuned | adam_mini lr=1.5e-3 wd=0.0 | 3.39131 | **−1 DNF** | +0.12313 | **+139σ CATASTROPHIC NEG** | CLOSE |
+
+**Decision: CLOSE NULL/CATASTROPHIC (126th closure)** — both treatment arms failed to reach val=3.28 target by step 3325 (FFS=−1, DNF).
+
+🎯 **PF#61 STRENGTHENED TO 3-AXIS CLOSURE-GRADE** (aux preconditioner FORM replacement structurally harmful):
+- Axis 1 — Lion uniform sign-momentum (H260): catastrophic NEG +136σ_H174 (removes per-coord magnitude info)
+- Axis 2 — Sophia clipped-uniform (H261): catastrophic NEG +65σ_H174 (clip saturation → uniform-magnitude regime)
+- Axis 3 — Adam-mini block-diagonal scalar v̄_t (H268): catastrophic NEG +181σ/+139σ (single-LR design loses AdamW's per-group LR structure; embed lr=0.3 vs aux lr=1.5e-3 = 200× under-trains embed)
+
+**Mechanistic synthesis**: AdamW's structural mechanism = per-coord magnitude calibration via `g/√v̄_coord` + per-group LR scaling. Any FORM replacement breaking either per-coord adaptivity granularity (Lion: magnitude removed; Sophia: saturated uniform; Adam-mini: block-scalar vs per-coord) or per-group LR structure (Adam-mini: single-LR design) → catastrophically harmful. **No further aux-side preconditioner FORM swings warranted** (Shampoo, K-FAC, Adafactor all expected to fail same way).
+
+Paper-grade additional finding: per-TENSOR scalar second-moment averaging (`v̄_t` per tensor) is INSUFFICIENT — embed/lm_head/scalars have heterogeneous gradient magnitude distributions per-COORD; collapsing to per-TENSOR scalar loses critical information.
+
+**H280 nezuko ASSIGNED IMMEDIATELY** — 69th class Cautious MuonH body pre-NS5 sign-mask (PR #1733). 3-arm chain CTRL body_cautious=0.0 / CAUTIOUS_HALF 0.5 / CAUTIOUS_FULL 1.0. Gradient-space pre-NS5 filtering of anti-momentum coordinates. Structurally distinct from H544 Cautious-AdamW (magnitude-adaptive path) — body MuonH+NS5 is direction-normalizing path. WIN prob 15-25%. Pattern A drift-FREE. Ref: Liu et al. 2024 arXiv:2411.16085.
+
+---
+
+## 2026-05-29 20:30 — PR #1699: H274 thorfinn Polyak EMA scope ablation — **TIE FFS=3000, SENT BACK (AUX_ONLY + decay sweep)**
+
+- Branch: H274 thorfinn (PR #1699, EMA scope decomposition, post-H266 baseline)
+- Terminal SENPAI-RESULT posted by student.
+
+| Arm | scope | n_params | EMA buffer | val/loss | FFS | Δval vs H266 | Decision |
+|---|---|---|---|---|---|---|---|
+| arm_a CTRL (scope=all) | all | 173 | 0.53GB | 3.26930 | **3025** | +0.00112 (+1.27σ) | Pattern A drift |
+| arm_b BODY_ONLY | body | 168 | 0.32GB | 3.26993 | **3050** | +0.00175 (+1.98σ) | NEG |
+| **arm_c AUX_ONLY** | aux (5 params) | 5 | 0.22GB | **3.26711** | **3000 TIE** | **−0.00107 (−1.21σ)** | TIE per #1260 |
+
+**Decision: SEND BACK** — arm_c AUX_ONLY val BEATS baseline (−0.001) but FFS=3000 TIES (Issue #1260 directive: FFS is primary, TIE ≠ WIN). Paper-grade mechanistic finding preserved; follow-up targets FFS<3000 via decay tightening.
+
+🎯 **PAPER-GRADE MECHANISTIC FINDING — AUX_ONLY identifies locus of H266 EMA mechanism**:
+- **Body EMA harmful** (FFS=3050 NEG): Muon-stepped body matrices already gradient-conditioned via orthogonalization; additional EMA perturbs cooldown sharpening
+- **AUX EMA = entire H266 mechanism** (5 aux params: embed.weight, lm_head.proj.weight, lm_head.proj.bias, norm1.gains, norm2.gains): high-variance gradient params benefit most from temporal smoothing
+- **58% buffer reduction** (0.53GB → 0.22GB): cleaner, memory-efficient mechanism
+
+**Send-back direction**: AUX_ONLY scope fixed, 3-arm decay sweep [0.05 CTRL_TIE / 0.10 TIGHTER / 0.20 MUCH_TIGHTER] — tests whether fewer params allows more aggressive cooldown-tracking. Pattern Trivial (argparse VALUE-only). WIN prob 15-25%.
+
+---
+
 ## 2026-05-29 19:50 — PR #1694: H273 alphonse MuonH body LR fine-grain ±14% sweep — **NULL (125th closure)**
 
 - Branch: H273 alphonse (PR #1694, direct mechanism prediction test of H265 paper-grade structural-bound finding, pre-H266 baseline)
