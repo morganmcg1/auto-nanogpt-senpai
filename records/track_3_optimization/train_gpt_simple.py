@@ -460,6 +460,14 @@ TARGET_UW = 0.35
 NORMUON_BETA2 = 0.95
 SOAP_BETA2 = 0.90
 SOAP_PRECOND_FREQ = 10
+# MLP-SOAP refresh-freq per-depth-half dispatch (PR #1623 infra, re-added for #1662).
+# When enabled, MLP-SOAP params with block_idx < MLP_SOAP_REFRESH_DEPTH_SPLIT use
+# MLP_SOAP_REFRESH_FRONT; remaining use MLP_SOAP_REFRESH_BACK. Both default to
+# SOAP_PRECOND_FREQ so disabled-mode replicates baseline exactly.
+MLP_SOAP_PER_DEPTH_HALF_REFRESH_FREQ_ENABLED = int(os.environ.get("MLP_SOAP_PER_DEPTH_HALF_REFRESH_FREQ_ENABLED", "0"))
+MLP_SOAP_REFRESH_FRONT = int(os.environ.get("MLP_SOAP_REFRESH_FRONT", str(SOAP_PRECOND_FREQ)))
+MLP_SOAP_REFRESH_BACK = int(os.environ.get("MLP_SOAP_REFRESH_BACK", str(SOAP_PRECOND_FREQ)))
+MLP_SOAP_REFRESH_DEPTH_SPLIT = int(os.environ.get("MLP_SOAP_REFRESH_DEPTH_SPLIT", "6"))
 # Attention SOAP (record #16) hyperparameters
 ATTN_SOAP_BETA2 = 0.90
 ATTN_SOAP_PRECOND_FREQ = 10
@@ -468,6 +476,15 @@ NS5_ITERS = int(os.environ.get("NS5_ITERS", "12"))
 WD_AUX = float(os.environ.get("WD_AUX", "0.0"))  # AdamW WD on embed + lm_head matrices (scalars stay at 0)
 EMBED_INIT_STD = float(os.environ.get("EMBED_INIT_STD", "1.0"))  # default preserves baseline N(0,1)
 LOGIT_SOFTCAP = float(os.environ.get("LOGIT_SOFTCAP", "15.0"))  # default = 15 (current hardcoded value); soft-cap value c in f(x) = c·x / sqrt(x^2+c^2)
+# MU_COOLDOWN_END per-depth-half dispatch (PR #1568 infra, re-added for #1662).
+# When enabled and inside the cooldown phase, muon params with
+# block_idx < MU_COOLDOWN_END_DEPTH_SPLIT linearly anneal toward
+# MU_COOLDOWN_END_FRONT; remaining anneal toward MU_COOLDOWN_END_BACK. Both
+# default to MU_COOLDOWN_END so disabled-mode replicates baseline exactly.
+PER_DEPTH_HALF_MU_COOLDOWN_END_ENABLED = int(os.environ.get("PER_DEPTH_HALF_MU_COOLDOWN_END_ENABLED", "0"))
+MU_COOLDOWN_END_FRONT = float(os.environ.get("MU_COOLDOWN_END_FRONT", str(MU_COOLDOWN_END)))
+MU_COOLDOWN_END_BACK = float(os.environ.get("MU_COOLDOWN_END_BACK", str(MU_COOLDOWN_END)))
+MU_COOLDOWN_END_DEPTH_SPLIT = int(os.environ.get("MU_COOLDOWN_END_DEPTH_SPLIT", "6"))
 
 
 def zeropower_via_newtonschulz5(G: Tensor) -> Tensor:
@@ -652,6 +669,13 @@ class Muon(torch.optim.Optimizer):
                     self.attn_soap_kind[id(p)] = "v"
                 elif n.endswith(".attn.proj.weight"):
                     self.attn_soap_kind[id(p)] = "proj"
+        # Per-block-half dispatch: parse block_idx from "{idx}.attn.q.weight" etc.
+        # named_params come from model.blocks.named_parameters() so name starts with the block index.
+        self.block_idx: dict[int, int] = {}
+        for n, p in named_params:
+            first = n.split(".", 1)[0]
+            if first.isdigit():
+                self.block_idx[id(p)] = int(first)
         params = sorted([p for _, p in named_params], key=lambda x: x.size(), reverse=True)
         defaults = dict(lr=lr, weight_decay=weight_decay, mu=mu)
         super().__init__(params, defaults)
@@ -692,8 +716,10 @@ class Muon(torch.optim.Optimizer):
                                 state["trust_cos_row"] = 1.0
                                 state["trust_cos_col"] = 1.0
                     grad = p.grad
-                    state["momentum"].lerp_(grad, 1 - group["mu"])
-                    momentum_update = grad.lerp(state["momentum"], group["mu"])
+                    # Per-param mu override (set by set_hparams when per-depth-half cooldown dispatch is active).
+                    mu = state.get("mu_override", group["mu"])
+                    state["momentum"].lerp_(grad, 1 - mu)
+                    momentum_update = grad.lerp(state["momentum"], mu)
                     use_soap = p in self.soap_params
                     use_attn_soap = p in self.attn_soap_params
                     # SOAP precondition applied to momentum BEFORE NS5+contra+NorMuon
@@ -712,7 +738,12 @@ class Muon(torch.optim.Optimizer):
                     p.add_(update, alpha=-group["lr"])
                     # Refresh SOAP state with the raw grad (after applying the step).
                     if use_soap:
-                        soap_refresh(grad, state)
+                        if MLP_SOAP_PER_DEPTH_HALF_REFRESH_FREQ_ENABLED:
+                            idx = self.block_idx.get(id(p), 0)
+                            rf = MLP_SOAP_REFRESH_FRONT if idx < MLP_SOAP_REFRESH_DEPTH_SPLIT else MLP_SOAP_REFRESH_BACK
+                            soap_refresh(grad, state, refresh_freq=rf)
+                        else:
+                            soap_refresh(grad, state)
                     elif use_attn_soap:
                         soap_refresh(grad, state, beta2=ATTN_SOAP_BETA2,
                                      refresh_freq=ATTN_SOAP_PRECOND_FREQ,
@@ -861,11 +892,19 @@ if dist.get_rank() == 0:
             "optimizer/normuon_beta2": NORMUON_BETA2,
             "optimizer/soap_beta2": SOAP_BETA2,
             "optimizer/soap_precond_freq": SOAP_PRECOND_FREQ,
+            "optimizer/mlp_soap_per_depth_half_refresh_freq_enabled": int(MLP_SOAP_PER_DEPTH_HALF_REFRESH_FREQ_ENABLED),
+            "optimizer/mlp_soap_refresh_front": MLP_SOAP_REFRESH_FRONT,
+            "optimizer/mlp_soap_refresh_back": MLP_SOAP_REFRESH_BACK,
+            "optimizer/mlp_soap_refresh_depth_split": MLP_SOAP_REFRESH_DEPTH_SPLIT,
             "optimizer/attn_soap_beta2": ATTN_SOAP_BETA2,
             "optimizer/attn_soap_precond_freq": ATTN_SOAP_PRECOND_FREQ,
             "optimizer/attn_soap_trust_threshold": ATTN_SOAP_TRUST_THRESHOLD,
             "optimizer/ns5_iters": NS5_ITERS,
             "optimizer/wd_aux": WD_AUX,
+            "optimizer/per_depth_half_mu_cooldown_end_enabled": int(PER_DEPTH_HALF_MU_COOLDOWN_END_ENABLED),
+            "optimizer/mu_cooldown_end_front": MU_COOLDOWN_END_FRONT,
+            "optimizer/mu_cooldown_end_back": MU_COOLDOWN_END_BACK,
+            "optimizer/mu_cooldown_end_depth_split": MU_COOLDOWN_END_DEPTH_SPLIT,
             "optimizer/recipe": "contra-muon + normuon-lite + soap-on-mlp + soap-on-attn-trust-gate (pre-NS5, record #14 + record #16)",
         },
     )
@@ -908,6 +947,34 @@ for trial_idx in range(args.num_trials):
     optimizers = [optimizer1, optimizer2]
     assert set(p for opt in optimizers for group in opt.param_groups
                for p in group["params"]) == set(model.parameters())
+    if trial_idx == 0:
+        muon_params = optimizer2.param_groups[0]["params"]
+        n_front_muon_params = sum(
+            1 for p in muon_params if optimizer2.block_idx.get(id(p), 0) < MU_COOLDOWN_END_DEPTH_SPLIT
+        )
+        n_back_muon_params = sum(
+            1 for p in muon_params if optimizer2.block_idx.get(id(p), 0) >= MU_COOLDOWN_END_DEPTH_SPLIT
+        )
+        n_front_mlp_soap_params = sum(
+            1 for p in muon_params
+            if p in optimizer2.soap_params and optimizer2.block_idx.get(id(p), 0) < MLP_SOAP_REFRESH_DEPTH_SPLIT
+        )
+        n_back_mlp_soap_params = sum(
+            1 for p in muon_params
+            if p in optimizer2.soap_params and optimizer2.block_idx.get(id(p), 0) >= MLP_SOAP_REFRESH_DEPTH_SPLIT
+        )
+        print0(
+            f"[MLP_SOAP_REFRESH_DEPTH_HALF] enabled={MLP_SOAP_PER_DEPTH_HALF_REFRESH_FREQ_ENABLED} "
+            f"front={MLP_SOAP_REFRESH_FRONT} back={MLP_SOAP_REFRESH_BACK} split={MLP_SOAP_REFRESH_DEPTH_SPLIT} "
+            f"front_params={n_front_mlp_soap_params} back_params={n_back_mlp_soap_params}",
+            console=True,
+        )
+        print0(
+            f"[MU_COOLDOWN_END_DEPTH_HALF] enabled={PER_DEPTH_HALF_MU_COOLDOWN_END_ENABLED} "
+            f"front={MU_COOLDOWN_END_FRONT} back={MU_COOLDOWN_END_BACK} split={MU_COOLDOWN_END_DEPTH_SPLIT} "
+            f"front_params={n_front_muon_params} back_params={n_back_muon_params}",
+            console=True,
+        )
     for opt in optimizers:
         for group in opt.param_groups:
             group["initial_lr"] = group["lr"]
@@ -920,6 +987,7 @@ for trial_idx in range(args.num_trials):
             eta = 1.0
         else:
             eta = (1 - progress) / cooldown_frac
+        in_cooldown = False
         if MU_COOLDOWN_ENABLED:
             if step < MU_WARMUP_STEPS:
                 w = step / MU_WARMUP_STEPS
@@ -927,8 +995,12 @@ for trial_idx in range(args.num_trials):
             elif progress < 1 - cooldown_frac:
                 cur_mu = MU_COOLDOWN_START
             else:
+                in_cooldown = True
                 t = (progress - (1 - cooldown_frac)) / cooldown_frac
                 cur_mu = MU_COOLDOWN_START + (MU_COOLDOWN_END - MU_COOLDOWN_START) * t
+                if PER_DEPTH_HALF_MU_COOLDOWN_END_ENABLED:
+                    cur_mu_front = MU_COOLDOWN_START + (MU_COOLDOWN_END_FRONT - MU_COOLDOWN_START) * t
+                    cur_mu_back = MU_COOLDOWN_START + (MU_COOLDOWN_END_BACK - MU_COOLDOWN_START) * t
         else:
             cur_mu = MU + (MU_END - MU) * progress
         for opt in optimizers:
@@ -936,6 +1008,16 @@ for trial_idx in range(args.num_trials):
                 group["lr"] = group["initial_lr"] * eta
                 if group.get("name") == "muon_blocks":
                     group["mu"] = cur_mu
+                    if PER_DEPTH_HALF_MU_COOLDOWN_END_ENABLED and in_cooldown:
+                        for p in group["params"]:
+                            idx = opt.block_idx.get(id(p), 0)
+                            opt.state[p]["mu_override"] = (
+                                cur_mu_front if idx < MU_COOLDOWN_END_DEPTH_SPLIT else cur_mu_back
+                            )
+                    elif PER_DEPTH_HALF_MU_COOLDOWN_END_ENABLED:
+                        # Outside cooldown: clear stale overrides so warmup/plateau follows scalar cur_mu.
+                        for p in group["params"]:
+                            opt.state[p].pop("mu_override", None)
 
 
     ########################################
