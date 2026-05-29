@@ -465,13 +465,23 @@ ATTN_SOAP_BETA2 = 0.90
 ATTN_SOAP_PRECOND_FREQ = 10
 ATTN_SOAP_TRUST_THRESHOLD = float(os.environ.get("ATTN_SOAP_TRUST_THRESHOLD", "0.9"))
 NS5_ITERS = int(os.environ.get("NS5_ITERS", "12"))
+# Per-kind NS5 iterations dispatch (v-axis isolation, PR #1719).
+# When PER_KIND_NS5_ITERS_ENABLED=1, attn-SOAP params (q/k/v/proj) use their
+# kind-specific NS5_ITERS_*; all other params (MLP/embeds) keep the global
+# NS5_ITERS.
+PER_KIND_NS5_ITERS_ENABLED = int(os.environ.get("PER_KIND_NS5_ITERS_ENABLED", "0"))
+NS5_ITERS_Q = int(os.environ.get("NS5_ITERS_Q", str(NS5_ITERS)))
+NS5_ITERS_K = int(os.environ.get("NS5_ITERS_K", str(NS5_ITERS)))
+NS5_ITERS_V = int(os.environ.get("NS5_ITERS_V", str(NS5_ITERS)))
+NS5_ITERS_PROJ = int(os.environ.get("NS5_ITERS_PROJ", str(NS5_ITERS)))
 WD_AUX = float(os.environ.get("WD_AUX", "0.0"))  # AdamW WD on embed + lm_head matrices (scalars stay at 0)
 EMBED_INIT_STD = float(os.environ.get("EMBED_INIT_STD", "1.0"))  # default preserves baseline N(0,1)
 LOGIT_SOFTCAP = float(os.environ.get("LOGIT_SOFTCAP", "15.0"))  # default = 15 (current hardcoded value); soft-cap value c in f(x) = c·x / sqrt(x^2+c^2)
 
 
-def zeropower_via_newtonschulz5(G: Tensor) -> Tensor:
+def zeropower_via_newtonschulz5(G: Tensor, ns5_iters: int | None = None) -> Tensor:
     assert G.ndim >= 2
+    iters = ns5_iters if ns5_iters is not None else NS5_ITERS
     X = G.bfloat16()
     if G.size(-2) > G.size(-1):
         X = X.mT
@@ -480,7 +490,7 @@ def zeropower_via_newtonschulz5(G: Tensor) -> Tensor:
     X = X / (X.norm(dim=(-2, -1), keepdim=True) + 1e-7)
     # Perform the NS iterations, not optimizing for wallclock speed
     a, b, c = 2, -1.5, 0.5
-    for _ in range(NS5_ITERS):
+    for _ in range(iters):
         A = X @ X.mT
         B = b * A + c * A @ A
         X = a * X + B @ X
@@ -504,10 +514,10 @@ def scale_to_unit_operator_norm(G: Tensor, eps: float = 1e-10) -> Tensor:
     return G / op_norm.to(G.dtype)
 
 
-def contra_normuon_update(momentum_update, second_moment, beta2=NORMUON_BETA2):
+def contra_normuon_update(momentum_update, second_moment, beta2=NORMUON_BETA2, ns5_iters: int | None = None):
     """Contra-Muon + NorMuon-lite: NS5 -> contra subtraction -> per-row variance normalize."""
     normalized_grad = scale_to_unit_operator_norm(momentum_update.clone())
-    update = zeropower_via_newtonschulz5(momentum_update)
+    update = zeropower_via_newtonschulz5(momentum_update, ns5_iters=ns5_iters)
     opower_fro = update.norm()
     # Contra correction: subtract CONTRA_MUON / 2 * op-norm-normalized momentum.
     update = update - CONTRA_MUON / 2 * normalized_grad
@@ -701,7 +711,19 @@ class Muon(torch.optim.Optimizer):
                     if use_soap or use_attn_soap:
                         momentum_update = soap_precondition(momentum_update, state)
                     # NS5 + contra + NorMuon row variance on (possibly SOAP-preconditioned) momentum.
-                    update = contra_normuon_update(momentum_update, state["second_moment"])
+                    # Per-kind NS5_ITERS dispatch (PR #1719, v-axis isolation): attn-SOAP params
+                    # have entries in attn_soap_kind; MLP/embeds keep the global NS5_ITERS.
+                    cur_ns5_iters = None
+                    if PER_KIND_NS5_ITERS_ENABLED:
+                        kind = self.attn_soap_kind.get(id(p))
+                        if kind is not None:
+                            cur_ns5_iters = {
+                                "q": NS5_ITERS_Q,
+                                "k": NS5_ITERS_K,
+                                "v": NS5_ITERS_V,
+                                "proj": NS5_ITERS_PROJ,
+                            }[kind]
+                    update = contra_normuon_update(momentum_update, state["second_moment"], ns5_iters=cur_ns5_iters)
                     # u/w-floor: scale up if u/w < TARGET_UW; leave alone otherwise.
                     p_fro = p.float().norm().clamp_min(1e-8)
                     u_fro = update.float().norm().clamp_min(1e-8)
@@ -865,6 +887,11 @@ if dist.get_rank() == 0:
             "optimizer/attn_soap_precond_freq": ATTN_SOAP_PRECOND_FREQ,
             "optimizer/attn_soap_trust_threshold": ATTN_SOAP_TRUST_THRESHOLD,
             "optimizer/ns5_iters": NS5_ITERS,
+            "optimizer/per_kind_ns5_iters_enabled": PER_KIND_NS5_ITERS_ENABLED,
+            "optimizer/ns5_iters/q": NS5_ITERS_Q,
+            "optimizer/ns5_iters/k": NS5_ITERS_K,
+            "optimizer/ns5_iters/v": NS5_ITERS_V,
+            "optimizer/ns5_iters/proj": NS5_ITERS_PROJ,
             "optimizer/wd_aux": WD_AUX,
             "optimizer/recipe": "contra-muon + normuon-lite + soap-on-mlp + soap-on-attn-trust-gate (pre-NS5, record #14 + record #16)",
         },
@@ -905,6 +932,18 @@ for trial_idx in range(args.num_trials):
     optimizer2 = Muon([(n, p) for n, p in model.blocks.named_parameters() if p.ndim >= 2],
                       lr=MUON_LR, weight_decay=MUON_WEIGHT_DECAY, mu=MU)
     optimizer2.param_groups[0]["name"] = "muon_blocks"
+    if dist.get_rank() == 0:
+        n_by_kind = {"q": 0, "k": 0, "v": 0, "proj": 0}
+        for _kind in optimizer2.attn_soap_kind.values():
+            n_by_kind[_kind] = n_by_kind.get(_kind, 0) + 1
+        print0(
+            f"[PER_KIND_NS5_ITERS] enabled={PER_KIND_NS5_ITERS_ENABLED}"
+            f" q={NS5_ITERS_Q} k={NS5_ITERS_K} v={NS5_ITERS_V} proj={NS5_ITERS_PROJ}"
+            f" base_ns5_iters={NS5_ITERS}"
+            f" n_q_dispatched={n_by_kind['q']} n_k_dispatched={n_by_kind['k']}"
+            f" n_v_dispatched={n_by_kind['v']} n_proj_dispatched={n_by_kind['proj']}",
+            console=True,
+        )
     optimizers = [optimizer1, optimizer2]
     assert set(p for opt in optimizers for group in opt.param_groups
                for p in group["params"]) == set(model.parameters())
