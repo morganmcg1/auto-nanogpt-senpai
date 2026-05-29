@@ -1,6 +1,39 @@
 # SENPAI Research State — auto-nanogpt-1gpu-r3
 
-- **Last updated:** 2026-05-29 15:35 UTC
+- **Last updated:** 2026-05-29 18:15 UTC
+
+---
+
+## Cycle ~1990: H272 CLOSED 124th NULL/NEG + H277 ASSIGNED 67th class LAMB per-layer trust ratio (BOLD)
+
+**H272 askeladd Aux AdamW eps continuous-axis sweep CLOSED NULL/NEG — PF#61 calibration axis CLOSED, structural-presence axis remains high-info. 3rd cross-mechanism cooldown-collapse instance.**
+
+Terminal verdict (pre-H266 baseline 3025):
+- arm_a CTRL eps=1e-6: FFS=3050 NULL (Pattern A loose +25 drift)
+- arm_b SMALLER eps=1e-8: FFS=3050 NULL (≈+0.64σ)
+- arm_c LARGER eps=1e-4: FFS=3050 NULL (≈+0.79σ)
+
+🎯 **PF#61 REFRAMED (calibration → structural-presence)**:
+- **CLOSED (calibration axis)**: eps flat across [1e-8, 1e-4] (4 decades). sqrt(v) remains non-vanishing throughout training; eps-binds regime never reached. No further eps-axis sweeps warranted.
+- **STRENGTHENED (structural-presence axis)**: g/√v per-coord ratio structurally load-bearing confirmed. Lion/Sophia removed structural per-coord magnitude info → catastrophic NEG. H272 eps modulation preserves structure → flat TIE. This distinguishes "structural-presence" (binary, catastrophic) from "calibration" (continuous, flat).
+
+🎯 **3rd cross-mechanism cooldown-collapse instance**: arm_b SMALLER eps=1e-8 showed −4.5σ_H174 mid-training advantage at step 1500 → +0.64σ NEG terminal (same structural signature as H263 MuLoCo NO_OUTER and H264 Lookahead K10). PF#62 cooldown-decoupling category count EXTENDED to **7 mechanism categories deep** (added adaptivity floor modulation as 7th category).
+
+**H277 askeladd ASSIGNED 67th class LAMB per-layer trust ratio BOLD plateau-protocol swing in NEW mechanism class — PER-LAYER TRUST RATIO WRAPPER.**
+
+- 3-arm chain: CTRL aux_lamb=0 / STANDARD aux_lamb=1 / BOUNDED aux_lamb=2 [0.5, 2.0] clamped
+- LAMB wraps AdamW: `Δw_rescaled = (||w||_2 / ||Δw||_2) * Δw` per-tensor after optimizer1.step()
+- Pattern A drift-FREE: argparse int flag + conditional wrapper block, `--aux_lamb 0` → bit-id baseline
+- Tests PF#61 STRUCTURAL-PRESENCE axis at WRAPPER DIRECTION: adds per-layer scale-aware modulation on top of per-coord AdamW (distinct from H272 eps calibration and H260 Lion structural removal)
+- WIN prob 20-25%; structurally distinct from all 66 prior mechanism classes
+- PR #1722, post-H266 baseline (FFS<3000 strict WIN criterion)
+- Ref: You et al. 2019 https://arxiv.org/abs/1904.00962
+
+**Plateau campaign portfolio after H272 closure**:
+- **124 NULL/NEG closures + 1 MERGED WIN (H266)**
+- **67 mechanism classes attempted** (H277 = 67th)
+- 6 PROGRAMME FINDING candidates: PF#56 STRENGTHENED (7 axes), PF#58 CLOSURE-GRADE, PF#59 strengthened, PF#60 candidate, PF#61 REFRAMED (structural-presence high-info / calibration closed), PF#62 STRENGTHENED to **7 mechanism categories**
+- Pattern A loose +25 drift class noise floor: H266/H268/H269/H272/H273/H270/H271/H274/H267 (9 instances now) — highly reproducible noise floor signature
 
 ---
 

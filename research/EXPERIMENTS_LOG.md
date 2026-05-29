@@ -1,3 +1,32 @@
+## 2026-05-29 18:00 — PR #1691: H272 askeladd Aux AdamW eps continuous-axis sweep — **NULL (124th closure)**
+
+- Branch: H272 askeladd (PR #1691, PF#61 continuous-axis test — calibration direction, pre-H266 baseline)
+- Terminal SENPAI-RESULT posted by student at 16:41Z May 29. 3 run IDs: aa0f5ua5 (CTRL), pfht1sq4 (SMALLER), ceqkdkjf (LARGER).
+
+| Arm | run_id | eps | val/loss | FFS | Δval vs CTRL | Decision |
+|---|---|---|---|---|---|---|
+| arm_a CTRL | `aa0f5ua5` | 1e-6 | 3.26896 | **3050** | — | Pattern A loose +25 drift TIE |
+| arm_b SMALLER | `pfht1sq4` | 1e-8 | 3.26953 | **3050** | +0.00057 (+0.64σ) | TIE (noise floor) |
+| arm_c LARGER | `ceqkdkjf` | 1e-4 | 3.26966 | **3050** | +0.00070 (+0.79σ) | TIE (noise floor) |
+
+step_avg_ms ≈ identical (±0.001%) across all arms — pure argparse VALUE chain, trivially drift-FREE.
+
+### 🎯 PF#61 REFRAMED: calibration axis CLOSED, structural-presence axis HIGH-INFO
+
+- **Calibration axis CLOSED**: eps modulation [1e-8, 1e-6, 1e-4] (4-decade range) shows completely flat FFS=3050 across all arms. sqrt(v) never becomes small enough for eps to bind during H203/H266 training. No further eps sweeps warranted.
+- **Structural-presence axis STRENGTHENED**: H260 Lion (sign-only, removed g/√v) and H261 Sophia (clipped-uniform) both catastrophic NEG. H272 eps modulation preserves g/√v structure across 4 decades → flat TIE. This confirms the binary distinction: **structural presence of per-coord magnitude info** (load-bearing) vs **calibration of its eps floor** (not load-bearing at 4-decade resolution).
+
+### 🎯 3rd cross-mechanism cooldown-collapse instance
+
+arm_b SMALLER eps=1e-8 shows **−4.5σ_H174 mid-training advantage at step 1500** (mid-train val=3.57511 vs CTRL 3.57905) → collapses to **+0.64σ NEG by terminal**. Same structural signature as:
+1. H263 MuLoCo NO_OUTER (+24σ→+15σ collapse)
+2. H264 Lookahead K10 (+65σ→+58σ collapse)
+3. **H272 SMALLER eps (−4.5σ→+0.6σ collapse)**
+
+PF#62 cooldown-decoupling EXTENDED to **7 mechanism categories** — adaptivity floor modulation joins as 7th category showing the pattern. Cooldown sharpening from step 3000-3325 is so finely-calibrated that ANY mid-training improvement via mechanism modification gets structurally erased.
+
+---
+
 ## 2026-05-29 12:33 — PR #1669: H266 thorfinn Polyak-Ruppert EMA eval-only — **🎯 MERGED WIN** (FIRST FFS<3025 of 121-cycle plateau campaign — arm_b EMA_FAST decay=0.05 val=3.26818 FFS=**3000** −25 vs H203 baseline 3025. arm_a CTRL FFS=3050 Pattern A loose +25 drift class (anticipated — new conditional code path). arm_c EMA_SLOW decay=0.005 catastrophic FFS=3275 +250 — 200-step half-life EMA lags so far behind live weights during cooldown that it erases cooldown-sharpening dynamics. 🎯 **PAPER-GRADE MECHANISTIC CONTRAST**: EMA decay=0.05 (~20-step half-life, 3025-step run) → FFS=3000 WIN. Decay=0.005 (~200-step half-life) → FFS=3275 catastrophic NEG. The EMA must TRACK the cooldown trajectory (track variance), not AVERAGE OVER it (erase sharpening). Step-0 val=10.82583 EXACT across all 3 arms confirming Pattern A chain integrity. NEW BASELINE: val=3.26818, FFS=3000, run m2ywl0o9. H274 thorfinn IMMEDIATE FOLLOW-UP ASSIGNED: Polyak EMA scope ablation body-only vs aux-only vs all-params — maps WHERE in parameter space EMA mechanism acts.)
 
 - Branch: H266 thorfinn (PR #1669, 62nd mechanism class — Polyak-Ruppert EMA eval-only, all-params, fast decay)
