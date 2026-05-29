@@ -56,6 +56,14 @@ def parse_args():
     parser.add_argument("--outer_lr", type=float, default=float(os.environ.get("OUTER_LR", "0.7")))
     parser.add_argument("--outer_momentum", type=float, default=float(os.environ.get("OUTER_MOMENTUM", "0.5")))
     parser.add_argument("--sync_interval", type=int, default=int(os.environ.get("SYNC_INTERVAL", "30")))
+    # H270 phase-gated MuLoCo activation. Default 0 = H203 baseline (always-on from
+    # step 0). >0 = MuLoCo OFF for first N steps, then activates. Tests cooldown-only
+    # MuLoCo per H263 decomposition (~94% of MuLoCo's role = cooldown smoothing).
+    parser.add_argument("--muloco_activation_step", type=int,
+                        default=int(os.environ.get("MULOCO_ACTIVATION_STEP", "0")),
+                        help="Step at which MuLoCo outer optimizer activates. "
+                             "Default 0 = H203 baseline (always-on from step 0). "
+                             ">0 = MuLoCo OFF for first N steps, then activates.")
     # AGC (Brock et al. 2021): per-parameter adaptive gradient clipping applied to
     # AdamW aux groups (embed, lm_head, scalars). Clips grad to clip_ratio * |param|.
     # Default 0.0 disables (no-op for bit-identical baseline).
@@ -839,6 +847,7 @@ if dist.get_rank() == 0:
             "muloco_outer_lr": args.outer_lr,
             "muloco_outer_momentum": args.outer_momentum,
             "muloco_sync_interval": args.sync_interval,
+            "muloco_activation_step": args.muloco_activation_step,
             "aux_agc_clip_ratio": args.aux_agc_clip_ratio,
             "aux_agc_eps": args.aux_agc_eps,
             "muonh_agc_clip_ratio": args.muonh_agc_clip_ratio,
@@ -1273,7 +1282,11 @@ for trial_idx in range(args.num_trials):
         # initial-Frobenius sphere; the next MuonH-SI inner step reads
         # ``param.norm()`` at that step and preserves the new norm. Acceptable
         # behavior — the goal is trajectory smoothing, not strict norm invariance.
-        if use_outer and train_step % args.sync_interval == 0 and train_step < train_steps:
+        # H270 phase-gated MuLoCo activation: True from step >= activation_step.
+        # When activation_step=0 (default), this is True from train_step=1 onward,
+        # routing through unchanged MuLoCo path bit-identically vs H203 baseline.
+        muloco_phase_active = (train_step >= args.muloco_activation_step)
+        if use_outer and muloco_phase_active and train_step % args.sync_interval == 0 and train_step < train_steps:
             log_outer = (dist.get_rank() == 0)
             if log_outer:
                 delta_sq = torch.zeros((), device=device)
@@ -1301,6 +1314,14 @@ for trial_idx in range(args.num_trials):
                     "train/muloco/delta_rms": delta_rms,
                     "train/muloco/velocity_rms": velocity_rms,
                 }, step=wandb_step)
+        # H270 phase-activation telemetry (periodic + edge event). Logged on rank 0
+        # only, periodic interval mirrors telemetry_interval to keep cost negligible.
+        if dist.get_rank() == 0 and use_outer and train_step % args.telemetry_interval == 0:
+            wandb.log({
+                "trial": trial_idx,
+                "train/h270/muloco_phase_active": int(muloco_phase_active),
+                "train/h270/muloco_activation_step": args.muloco_activation_step,
+            }, step=wandb_step)
 
         approx_training_time = training_time + (time.perf_counter() - t0)
         print0(f"step:{step+1}/{train_steps} train_time:{approx_training_time:.3f}s"
