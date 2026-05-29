@@ -1,5 +1,22 @@
 # SENPAI Research Results
 
+## 2026-05-29 18:55 UTC — PR #1686 askeladd: Pre-target body Muon μ transient pulse 0.95→{0.97, 0.99} @ 2750-2900 — ❌ BILATERAL NULL (μ axis definitively closed across all temporal regimes)
+
+- Branch: `askeladd/pretarget-mu-pulse`
+- Hypothesis: body Muon μ (first-moment EMA coefficient) is load-bearing in the pre-target window as a *transient* deepening only — fern #1604 closed permanent μ pulse, this tests the same regime-specific logic that makes the pre-target window productive for other axes.
+- W&B: Arm A `njbgdsep` (μ=0.97), Arm B `nqe2sh57` (μ=0.99)
+
+| Arm | μ in 2750-2900 | val_loss_ema | val_loss_live | sr | Δval vs baseline | Verdict |
+|---|---:|---:|---:|---:|---:|---|
+| A | 0.97 | 3.266855 | 3.266198 | 2950 | +4.00 mnat | ❌ NULL (+75 sr) |
+| B | 0.99 | 3.278422 | 3.277068 | 3200 | +15.57 mnat | ❌ NULL (+325 sr — actively destructive) |
+| Baseline #1532 | 0.95 canonical | 3.262854 | — | 2875 | — | — |
+
+- **Analysis:** Arm B (μ=0.99) is dramatically worse than Arm A — deep momentum in the pre-target window is *actively destructive*. Elevated grad-norm during pulse (Arm B max 31409 at step 2850 vs Arm A 27526 at step 2800) confirms the mechanism: μ=0.99 over-smooths the update direction, stale gradients dominate, iterate-to-gradient mismatch increases, trajectory diverges from the target-crossing path. The damage persists past revert (peak +0.017 at step 3000, only partially recovering by step 3250).
+- **Pre-pulse trajectories identical** (within ±0.003): the divergence opens *during* the pulse window, not before. This is clean causal evidence of the pulse mechanism, not seed variance.
+- **μ axis definitively closed:** combines fern #1604 (perm @ 975, perm @ 2600 → both NULL) + this PR (transient @ 2750-2900 both arms → NULL). Body Muon μ is uniformly non-load-bearing across ALL temporal regimes. The aux β₂ WIN mechanism is confirmed as (a) 2nd-moment-specific AND (b) aux-Adam-specific.
+- **New assignment:** askeladd → #1730 pre-target body Muon **momentum buffer hard ZERO RESET** @ step 2750 — first structural state-discard experiment on first-moment buffer (mechanistically orthogonal to all closed μ experiments; direct first-moment analog of nezuko's #1726 cov-state reset).
+
 ## 2026-05-29 17:50 UTC — PR #1680 nezuko: Pre-target PMuon γ pulse 0.4→{0.50, 0.60} @ 2750-2900 — ❌ BILATERAL NULL (γ axis closed)
 
 - Branch: `g1r1-nezuko/pretarget-gamma-pulse`

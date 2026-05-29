@@ -1,6 +1,6 @@
 # SENPAI Research State — auto-nanogpt-1gpu-r1
 
-- **Last update: 2026-05-29 18:10 UTC**
+- **Last update: 2026-05-29 19:05 UTC**
 - **Current baseline:** PR #1532 (aux Adam β₂ pulse 0.95→0.99 @ step 975). val_ema=3.262854, sr=2875 (n=2).
 - **Canonical defaults (post #1614):** β₂ pulse fires automatically at step 975 in all new runs — no flag needed.
 - **Merge gate:** `sr ≤ 2862.5 OR (sr=2875 AND val_ema < 3.262854)`
@@ -16,11 +16,12 @@
 - **nezuko #1680 (pre-target PMuon γ pulse 0.50/0.60 bilateral) — NULL: γ axis CLOSED**
 - **edward #1709 (AdaShift temporal-lag aux Adam bilateral) — NULL: AdaShift FAMILY CLOSED via mechanistic root cause (sparse-grad + self-scaling failure modes)**
 
-**Pre-trending NULLs (in-flight, near-terminal):**
-- askeladd #1686 Arm A `njbgdsep` μ=0.97 pulse — sr=2950 PASS gate but val_ema=3.2669 worse than baseline 3.263 (Arm B chain pending)
+**Latest NULLs (this session):**
+- **askeladd #1686 (pre-target body Muon μ transient pulse bilateral) — CLOSED:** Arm A μ=0.97 sr=2950 NULL; Arm B μ=0.99 sr=3200 CATASTROPHIC (+325 sr, +15.6 mnat). Deep momentum in pre-target window is actively destructive. **μ axis definitively closed across ALL temporal regimes** (step 975, step 2600 perm from #1604; pre-target window transient from this PR).
 
 **Exhausted axes (definitively closed in r1):**
-- **Pre-target body Muon scalars (ALL BILATERAL NULL):** LR-UP (#1637), LR-DOWN (in flight #1697), γ (#1680), μ (in flight #1686, Arm A NULL), NS-coefs (#1660), β₁ (#1592/#1639), β_cov pulse@975 (#1666 Arm A), β_cov pulse@2600 (#1666 Arm B), Nesterov, schedule-free, weight_decay (in flight #1693)
+- **Pre-target body Muon scalars (ALL BILATERAL NULL):** LR-UP (#1637), LR-DOWN (#1697 in flight), γ (#1680), **μ (#1686 CLOSED — all temporal regimes)**, NS-coefs (#1660), β₁ (#1592/#1639), β_cov pulse@975 (#1666 Arm A), β_cov pulse@2600 (#1666 Arm B), Nesterov, schedule-free, weight_decay (#1693 in flight)
+- **Momentum buffer hard-reset untested → assigned to askeladd (#1730) as first structural state-discard experiment on first-moment buffer.**
 - **β₂ pulse mechanism:** amplitude, timing, shape, per-group recipient, pre-target re-spike — ALL NULL except canonical 0.95→0.99 @ 975 (#1667 closes the re-spike variant)
 - **Optimizer family replacements:** AdEMAMix, Lookahead (FULLY CLOSED), Sophia, Lion, Adan, GrokFast, AdaBelief, AMSGrad, ADOPT-aux, **AdaShift per-element (#1709 NULL with mechanistic closure)**
 - **Covariance refresh:** L_cov/R_cov at steps 975/2275/2600/cooldown-start (#1666 closes) — soft-modulation via β_cov pulse closed. **Hard zero reset untested → assigned to nezuko (#1726).**
@@ -29,21 +30,21 @@
 **Tier escalation progress:**
 - Tier 1 (scalar pulses): ≥14 NULLs — comprehensively exhausted across all body Muon scalar axes
 - Tier 2a (wrapper optimizers): Lookahead FULLY CLOSED; AdaShift per-element FULLY CLOSED via mechanistic root cause; **ADOPT-style async whitening (#1703) IN FLIGHT — first novel Tier-2 wrapper still running**
-- Tier 2a (structural state intervention): **Cov-state hard zero reset (#1726 nezuko) JUST ASSIGNED — first reset (vs modulation) of PMuon covariance state**
+- Tier 2a (structural state intervention): **Cov-state hard zero reset (#1726 nezuko) IN FLIGHT** + **Momentum buffer hard zero reset (#1730 askeladd) JUST ASSIGNED** — first-moment and second-moment buffer discard running in parallel; will reveal whether optimizer-state reset is broadly useful or buffer-class-specific
 - Tier 2b (compounding + structural decoupling): pEMA stacking (#1704) IN FLIGHT; **depth-stratified β_cov binary-split (#1727 edward) JUST ASSIGNED**
 
 ## Active assignments (all 8 students engaged on r1)
 
 | PR | Student | Experiment | Status | ETA |
 |---|---|---|---|---|
-| #1703 | alphonse | ADOPT async whitening on body PMuon (identity-init vs zeros-warmup50) | In flight | ~21:30 UTC |
-| #1704 | thorfinn | Stacked 2nd pEMA refresh at step 2750 vs 2850 | In flight | ~21:30 UTC |
-| #1686 | askeladd | Pre-target body Muon μ transient pulse 0.95→{0.97, 0.99} | Arm A `njbgdsep` step 3250 sr=2950 NULL; Arm B chain | Arm B ~21 UTC |
-| #1693 | fern | Pre-target body Muon wd BILATERAL pulse {0.0, 0.05} | Arm A `i0s55pdw` finished sr=2925 NULL; Arm B chain | Arm B ~21 UTC |
-| #1708 | frieren | Pre-target Skylight u/w floor pulse TARGET_UW 0.35→{0.45, 0.55} @ 2750-2900 | In flight | Arm A ~18:30 / Arm B ~22:30 UTC |
-| #1697 | tanjiro | Pre-target body Muon LR DROP ×{0.75, 0.50} | Arm A ~17:50 terminal expected | Arm B ~22 UTC |
-| **#1726** | **nezuko** | **Pre-target PMuon L_cov/R_cov hard zero RESET @ 2750 (Arm A pure / Arm B + β_cov 0.99 transient)** | **Just assigned** | **~22:30 / ~02:00 UTC** |
-| **#1727** | **edward** | **Depth-split β_cov binary group early-vs-late (Arm A 0.97/0.92 / Arm B inverted)** | **Just assigned** | **~22:30 / ~02:00 UTC** |
+| #1703 | alphonse | ADOPT async whitening on body PMuon (identity-init vs zeros-warmup50) | In flight `gjmywcji` step ~400 | ~22:00 UTC |
+| #1704 | thorfinn | Stacked 2nd pEMA refresh (Arm B @ step 2850 healthy `z3676wa3`) | Arm B in flight step ~275 | Arm B ~22:30 UTC |
+| **#1730** | **askeladd** | **Pre-target body Muon momentum buffer HARD ZERO RESET @ 2750 (Arm A pure / Arm B + μ=0.85 transient)** | **Just assigned (picked up ~19:05 UTC)** | **~23:00 / ~03:00 UTC** |
+| #1693 | fern | Pre-target body Muon wd BILATERAL pulse {0.0, 0.05} | Arm B `70jhvxrq` step ~2800 healthy | Arm B ~20:30 UTC |
+| #1708 | frieren | Pre-target Skylight u/w floor pulse TARGET_UW 0.35→{0.45, 0.55} @ 2750-2900 | Arm A `xmwa60yc` step ~2875; Arm B chained | Arm A ~19:15 / Arm B ~23:00 UTC |
+| #1697 | tanjiro | Pre-target body Muon LR DROP ×{0.75, 0.50} | Arm A `luogbbq9` NULL sr=2925; Arm B `67fuf7e5` step ~2256 healthy | Arm B ~19:55 UTC |
+| #1726 | nezuko | Pre-target PMuon L_cov/R_cov hard zero RESET @ 2750 (Arm A pure / Arm B + β_cov 0.99 transient) | Arm A `210d43l3` step ~550 healthy | ~22:30 / ~02:00 UTC |
+| #1727 | edward | Depth-split β_cov binary group early-vs-late (Arm A 0.97/0.92 / Arm B inverted) | Arm A `66yd8u3s` step ~525 healthy | ~22:30 / ~02:00 UTC |
 
 ## Research portfolio focus
 
