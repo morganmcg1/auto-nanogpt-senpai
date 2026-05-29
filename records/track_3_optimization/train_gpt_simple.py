@@ -84,6 +84,12 @@ def parse_args():
     parser.add_argument('--aux_b2_pulse_target', type=float, default=0.99,
                         help='New aux Adam β2 value to set at --aux_b2_pulse_step. '
                              '0 or negative disables. Default: 0.99 (canonical WIN).')
+    parser.add_argument('--muon_lr_boost_start', type=int, default=-1,
+                        help='Step at which to begin a transient body-Muon LR boost. -1 disables.')
+    parser.add_argument('--muon_lr_boost_end', type=int, default=-1,
+                        help='Step at which to end the boost (active on [start, end)). -1 disables.')
+    parser.add_argument('--muon_lr_boost_factor', type=float, default=1.0,
+                        help='Multiplicative factor applied to body-Muon LR during the boost window.')
     parser.add_argument("--seed", type=int, default=1,
                         help="Random seed for torch/numpy/python. Default 1 matches baseline seed.")
     args = parser.parse_args()
@@ -758,6 +764,9 @@ if dist.get_rank() == 0:
             "paramema_refresh_only": int(args.paramema_refresh_only),
             "aux_b2_pulse_step": args.aux_b2_pulse_step,
             "aux_b2_pulse_target": args.aux_b2_pulse_target,
+            "muon_lr_boost_start": args.muon_lr_boost_start,
+            "muon_lr_boost_end": args.muon_lr_boost_end,
+            "muon_lr_boost_factor": args.muon_lr_boost_factor,
             "seed": args.seed,
         },
     )
@@ -1029,6 +1038,18 @@ for trial_idx in range(args.num_trials):
         train_loss = float((step_loss / batch_size).item())
         # set optimization hyperparameters and take a step
         sched_progress, sched_cooldown_progress, sched_eta = set_hparams(step)
+        # Transient body-Muon LR boost: multiply optimizer2 (body Muon) group LR by
+        # args.muon_lr_boost_factor during [start, end). Applied AFTER set_hparams so
+        # the boost composes with the cooldown schedule; per-block multipliers in
+        # Muon.step() see the boosted group["lr"] and inherit the boost proportionally.
+        muon_lr_boost_active = (args.muon_lr_boost_start >= 0
+                                and args.muon_lr_boost_end > args.muon_lr_boost_start
+                                and args.muon_lr_boost_start <= step < args.muon_lr_boost_end)
+        muon_lr_boost_factor_now = args.muon_lr_boost_factor if muon_lr_boost_active else 1.0
+        if muon_lr_boost_active and args.muon_lr_boost_factor != 1.0:
+            for group in optimizer2.param_groups:
+                group["lr"] = group["lr"] * args.muon_lr_boost_factor
+        muon_lr_effective_now = optimizer2.param_groups[0]["lr"]
         train_step = step + 1
         telemetry_due = (step == 0 or (step + 1) % args.telemetry_interval == 0 or step + 1 == train_steps)
         histogram_due = (step == 0 or (step + 1) % args.histogram_interval == 0 or step + 1 == train_steps)
@@ -1182,6 +1203,12 @@ for trial_idx in range(args.num_trials):
                 "aux_b2/fired": int(args.aux_b2_pulse_step > 0
                                     and args.aux_b2_pulse_target > 0.0
                                     and step >= args.aux_b2_pulse_step),
+                "muon/lr_boost_factor": muon_lr_boost_factor_now,
+                "muon/lr_boost_active": int(muon_lr_boost_active),
+                "muon/lr_effective": muon_lr_effective_now,
+                "muon/lr_boost_start": args.muon_lr_boost_start,
+                "muon/lr_boost_end": args.muon_lr_boost_end,
+                "muon/lr_boost_factor_arg": args.muon_lr_boost_factor,
             }, step=wandb_step)
         if dist.get_rank() == 0 and (train_step % 100 == 0 or train_step == train_steps):
             spec = pmuon_spectral_diag(optimizer2, PMUON_GAMMA)
