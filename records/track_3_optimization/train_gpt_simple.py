@@ -27,6 +27,8 @@ STAT_SIG_DELTA = 0.004
 SLOPE_FRACTION = 0.10
 SOAP_BETA2 = 0.90
 PRECOND_FREQ = 16
+SOAP_REFRESH_TAU = float(os.environ.get("SOAP_REFRESH_TAU", "0.0"))
+SOAP_REFRESH_CHECK_FREQ = int(os.environ.get("SOAP_REFRESH_CHECK_FREQ", "4"))
 NS_ITER = 12  # overridden by args.ns_iter at module load
 
 
@@ -558,6 +560,13 @@ def soap_basis_qr(row_gg, col_gg, q_row, q_col, exp_avg_sq):
     return q_row, q_col, exp_avg_sq
 
 
+def soap_gram_staleness(q: Tensor, gg: Tensor) -> float:
+    """Off-diagonal fraction of Q^T L Q. Zero = Q still diagonalizes gg perfectly."""
+    lambda_hat = q.T @ gg.float() @ q
+    off_diag = lambda_hat - torch.diag(torch.diag(lambda_hat))
+    return (off_diag.norm() / lambda_hat.norm().clamp_min(1e-12)).item()
+
+
 def soap_precondition_momentum(update, state, beta2=SOAP_BETA2, eps=1e-8):
     update_f = update.float()
     if state["q_row"] is None:
@@ -577,10 +586,27 @@ def soap_update_preconditioner(grad, state, shampoo_beta=SOAP_BETA2, preconditio
     if state["q_row"] is None:
         state["q_row"] = soap_eigenbasis(state["row_gg"])
         state["q_col"] = soap_eigenbasis(state["col_gg"])
-    elif state["soap_step"] > 0 and state["soap_step"] % precondition_frequency == 0:
-        state["q_row"], state["q_col"], state["exp_avg_sq"] = soap_basis_qr(
-            state["row_gg"], state["col_gg"], state["q_row"], state["q_col"], state["exp_avg_sq"]
-        )
+    elif state["soap_step"] > 0:
+        if SOAP_REFRESH_TAU > 0.0:
+            # Adaptive: check off-diagonal staleness of Q^T L Q every
+            # SOAP_REFRESH_CHECK_FREQ steps. Periodic fallback at
+            # 5x precondition_frequency to prevent indefinite staleness.
+            fallback = (state["soap_step"] % (precondition_frequency * 5) == 0)
+            if state["soap_step"] % SOAP_REFRESH_CHECK_FREQ == 0:
+                stale = soap_gram_staleness(state["q_row"], state["row_gg"])
+                state["_last_staleness"] = stale
+                trigger = stale > SOAP_REFRESH_TAU
+                state["_last_refresh_triggered"] = 1.0 if trigger else 0.0
+                do_refresh = trigger or fallback
+            else:
+                do_refresh = fallback
+        else:
+            do_refresh = (state["soap_step"] % precondition_frequency == 0)
+        if do_refresh:
+            state["q_row"], state["q_col"], state["exp_avg_sq"] = soap_basis_qr(
+                state["row_gg"], state["col_gg"], state["q_row"], state["q_col"], state["exp_avg_sq"]
+            )
+            state["_refresh_count"] = state.get("_refresh_count", 0) + 1
     state["soap_step"] += 1
 
 
@@ -773,6 +799,9 @@ if dist.get_rank() == 0:
             ),
             "soap_beta2": SOAP_BETA2,
             "soap_precond_freq": PRECOND_FREQ,
+            "soap_refresh_tau": SOAP_REFRESH_TAU,
+            "soap_refresh_check_freq": SOAP_REFRESH_CHECK_FREQ,
+            "soap_refresh_mode": "adaptive" if SOAP_REFRESH_TAU > 0.0 else "fixed",
             "ns_iter": NS_ITER,
             "soap_attn_enabled": bool(args.soap_attn),
             "soap_trust_threshold": float(args.soap_trust_threshold),
@@ -1087,6 +1116,29 @@ for trial_idx in range(args.num_trials):
                     "time/step_avg_ms": 1000 * step_avg,
                 }
                 metrics.update(prefixed("val/slope", loss_slope_stats(val_loss_history, slope_window_steps)))
+                # SOAP adaptive eigenbasis refresh telemetry: aggregate staleness
+                # signal across all SOAP layers when adaptive mode is enabled.
+                _stale_vals = []
+                _trigger_vals = []
+                _refresh_counts = []
+                for _group in optimizer2.param_groups:
+                    for _p in _group["params"]:
+                        _s = optimizer2.state.get(_p, {})
+                        if "_last_staleness" in _s:
+                            _stale_vals.append(_s["_last_staleness"])
+                        if "_last_refresh_triggered" in _s:
+                            _trigger_vals.append(_s["_last_refresh_triggered"])
+                        if "_refresh_count" in _s:
+                            _refresh_counts.append(_s["_refresh_count"])
+                if _stale_vals:
+                    metrics["train/soap/mean_staleness"] = sum(_stale_vals) / len(_stale_vals)
+                    metrics["train/soap/max_staleness"] = max(_stale_vals)
+                    metrics["train/soap/min_staleness"] = min(_stale_vals)
+                if _trigger_vals:
+                    metrics["train/soap/refresh_trigger_fraction"] = sum(_trigger_vals) / len(_trigger_vals)
+                if _refresh_counts:
+                    metrics["train/soap/mean_refresh_count"] = sum(_refresh_counts) / len(_refresh_counts)
+                    metrics["train/soap/max_refresh_count"] = max(_refresh_counts)
                 if ema_val_loss_float is not None:
                     ema_val_loss_history.append((step, ema_val_loss_float))
                     if ema_val_loss_float < best_ema_val_loss:
