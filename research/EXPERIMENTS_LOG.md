@@ -1,5 +1,26 @@
 # SENPAI Research Results
 
+## 2026-05-29 10:30 UTC — PR #1639 askeladd: Aux β₁ DROP pulse (0.70, 0.60) — ❌ CLOSED NULL (bilateral, β₁ axis fully closed)
+
+- Branch: `g1r1-askeladd/aux-b1-drop-pulse`
+- Hypothesis: β₁ RAISE (0.90, 0.95) was bilaterally NULL in #1592 (1st moment EMA lag increased). The DROP direction (0.70, 0.60) tests the opposite: shorter 1st-moment averaging window during cooldown — does relaxing the momentum smoothing help?
+- W&B: Arm A `mqgtit8o` (β₁=0.70), Arm B `jglznnte` (β₁=0.60)
+
+| Arm | β₁ | val_loss_ema | val_loss_live | sr | Δval vs baseline | Verdict |
+|---|---:|---:|---:|---:|---:|---|
+| A | 0.70 | 3.264432 | 3.263838 | 2925 | +1.58 mnat | ❌ NULL (both clauses) |
+| B | 0.60 | **3.263440** | 3.262863 | **2875** | +0.586 mnat | ❌ NULL (Clause 2 misses by 0.586 mnat) |
+| Baseline #1532 | 0.80 (default) | 3.262854 | — | 2875 | — | — |
+
+- **Analysis:** Arm B ties baseline sr=2875 but misses val_ema by +0.586 mnat — close call but fails strict-less-than Clause 2. Arm A regresses by +50 sr steps and +1.58 mnat val_ema.
+- **β₁ axis closure:** The β₁ pulse axis is now COMPLETELY closed across both directions:
+  - **RAISE direction (#1592):** 0.80 → 0.90 NULL, → 0.95 NULL
+  - **DROP direction (this PR):** 0.80 → 0.70 NULL, → 0.60 NULL
+  - **Canonical β₁=0.80 is the unique local optimum.**
+- **Mechanism reading:** Aux Adam β₂ canonical WIN (#1532) is uniquely tied to *second-moment* (variance) EMA depth. First-moment EMA depth is robustly invariant within ±0.20 around 0.80. Trajectory comparison shows Arm B (β₁=0.60) tracks edward's canonical (β₁=0.80) almost exactly at step 1000 (both 3.6781) but slowly drifts behind by ~0.7 mnat at step 2500 — first-moment lag is real but small at cooldown onset.
+- **Cross-temporal-regime gap:** One untested first-moment cell remains — body-side first-moment (Muon μ) in the *pre-target window* (steps 2750-2900). fern #1604 tested permanent μ pulse at step 975/2600 (bilateral NULL), but transient μ deepening only during the pre-target window is untested. This is the askeladd follow-up.
+- **Follow-up assigned:** askeladd → PR #1686 pre-target body Muon μ transient pulse 0.95→{0.97, 0.99} @ steps 2750-2900. Completes the first-moment cross-temporal-regime matrix. Direct cross-optimizer analog of frieren's aux β₂ pre-target spike (#1667).
+
 ## 2026-05-29 09:10 UTC — PR #1634 nezuko: Aux β₂ smooth-ramp shape (ramp_width=50, 200) — ❌ CLOSED NULL (bilateral, β₂ shape axis fully closed)
 
 - Branch: `g1r1-nezuko/aux-b2-ramp`
