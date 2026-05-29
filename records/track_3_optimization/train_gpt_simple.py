@@ -464,6 +464,11 @@ SOAP_PRECOND_FREQ = 10
 ATTN_SOAP_BETA2 = 0.90
 ATTN_SOAP_PRECOND_FREQ = 10
 ATTN_SOAP_TRUST_THRESHOLD = float(os.environ.get("ATTN_SOAP_TRUST_THRESHOLD", "0.9"))
+PER_KIND_ATTN_SOAP_TRUST_ENABLED = int(os.environ.get("PER_KIND_ATTN_SOAP_TRUST_ENABLED", "0"))
+ATTN_SOAP_TRUST_Q    = float(os.environ.get("ATTN_SOAP_TRUST_Q",    str(ATTN_SOAP_TRUST_THRESHOLD)))
+ATTN_SOAP_TRUST_K    = float(os.environ.get("ATTN_SOAP_TRUST_K",    str(ATTN_SOAP_TRUST_THRESHOLD)))
+ATTN_SOAP_TRUST_V    = float(os.environ.get("ATTN_SOAP_TRUST_V",    str(ATTN_SOAP_TRUST_THRESHOLD)))
+ATTN_SOAP_TRUST_PROJ = float(os.environ.get("ATTN_SOAP_TRUST_PROJ", str(ATTN_SOAP_TRUST_THRESHOLD)))
 NS5_ITERS = int(os.environ.get("NS5_ITERS", "12"))
 WD_AUX = float(os.environ.get("WD_AUX", "0.0"))  # AdamW WD on embed + lm_head matrices (scalars stay at 0)
 EMBED_INIT_STD = float(os.environ.get("EMBED_INIT_STD", "1.0"))  # default preserves baseline N(0,1)
@@ -714,10 +719,18 @@ class Muon(torch.optim.Optimizer):
                     if use_soap:
                         soap_refresh(grad, state)
                     elif use_attn_soap:
+                        if PER_KIND_ATTN_SOAP_TRUST_ENABLED:
+                            kind = self.attn_soap_kind.get(id(p), "q")
+                            threshold = {"q": ATTN_SOAP_TRUST_Q,
+                                         "k": ATTN_SOAP_TRUST_K,
+                                         "v": ATTN_SOAP_TRUST_V,
+                                         "proj": ATTN_SOAP_TRUST_PROJ}[kind]
+                        else:
+                            threshold = ATTN_SOAP_TRUST_THRESHOLD
                         soap_refresh(grad, state, beta2=ATTN_SOAP_BETA2,
                                      refresh_freq=ATTN_SOAP_PRECOND_FREQ,
                                      use_trust_gate=True,
-                                     trust_threshold=ATTN_SOAP_TRUST_THRESHOLD)
+                                     trust_threshold=threshold)
                 dist.all_gather(params_pad[base_i:base_i + world_size], params_pad[base_i + rank])
 
     def trust_gate_stats(self) -> dict[str, float]:
@@ -824,6 +837,7 @@ if dist.get_rank() == 0:
         tags.append(os.environ["RESEARCH_TAG"])
     if os.environ.get("STUDENT_NAME"):
         tags.append(f"student:{os.environ['STUDENT_NAME']}")
+    print0(f"[PER_KIND_ATTN_SOAP_TRUST] enabled={PER_KIND_ATTN_SOAP_TRUST_ENABLED} q={ATTN_SOAP_TRUST_Q} k={ATTN_SOAP_TRUST_K} v={ATTN_SOAP_TRUST_V} proj={ATTN_SOAP_TRUST_PROJ}", console=True)
     wandb.init(
         entity=args.wandb_entity or None,
         project=args.wandb_project,
@@ -864,6 +878,11 @@ if dist.get_rank() == 0:
             "optimizer/attn_soap_beta2": ATTN_SOAP_BETA2,
             "optimizer/attn_soap_precond_freq": ATTN_SOAP_PRECOND_FREQ,
             "optimizer/attn_soap_trust_threshold": ATTN_SOAP_TRUST_THRESHOLD,
+            "optimizer/per_kind_attn_soap_trust_enabled": int(PER_KIND_ATTN_SOAP_TRUST_ENABLED),
+            "optimizer/attn_soap_trust_q": ATTN_SOAP_TRUST_Q,
+            "optimizer/attn_soap_trust_k": ATTN_SOAP_TRUST_K,
+            "optimizer/attn_soap_trust_v": ATTN_SOAP_TRUST_V,
+            "optimizer/attn_soap_trust_proj": ATTN_SOAP_TRUST_PROJ,
             "optimizer/ns5_iters": NS5_ITERS,
             "optimizer/wd_aux": WD_AUX,
             "optimizer/recipe": "contra-muon + normuon-lite + soap-on-mlp + soap-on-attn-trust-gate (pre-NS5, record #14 + record #16)",
