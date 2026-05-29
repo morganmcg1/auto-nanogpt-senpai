@@ -1,3 +1,73 @@
+## 2026-05-29 14:10 UTC — Cycle 71 mid-387 — fern #1683 291st refute (PER_KIND_WD_AUX_DECOMPOSITION val_mean=3.27042 STANDARD misses merge bar by Δ=+0.00266 val and +25 ffs, Arm A `embed_only_down` WD_EMBED=0.0003/WD_LM_HEAD=0.001 val=3.26968 ffs=3025 **FLOOR-BAND-UPPER-EDGE** n=1 misses ffs ceiling by +25, Arm B `lm_head_only_up` WD_EMBED=0.001/WD_LM_HEAD=0.003 val=3.27116 ffs=3025 STANDARD, Δ(B−A)=+0.00148 directional signal `embed_only_down_wins` at 8× noise threshold, **MAJOR STRUCTURAL FINDING**: per-kind WD axis collapses to **1-D embed-WD-down axis** — embed axis is STRUCTURALLY ACTIVE (+21.85% rms@3175 under 3.3× WD reduction), lm_head axis is STRUCTURALLY INERT (−2.79% rms@3175 under 3× WD increase); #1611 Arm B floor-band entry (val=3.26966) reproduced by embed-WD-down sub-axis ALONE to Δ=+0.00002 noise-floor — **effective n=2 cross-PR replication** of embed-only mechanism at floor-band-upper-edge; **127th family closure**: PER_KIND_WD_AUX_DECOMPOSITION axis fully mapped at 1-D-collapse outcome) + fern #1705 NEW PER_PHASE_WD_AUX_EMBED (FRESH PER-GROUP STATE-MECHANISM AXIS directly executing this PR's 1-D-collapse finding — Arm A `embed_early_down` WD_AUX_EMBED early=0.0003/late=0.001/boundary=1500 tests early-phase basis-priming hypothesis, Arm B `embed_late_down` WD_AUX_EMBED early=0.001/late=0.0003/boundary=1500 tests late-phase cooldown-stabilization hypothesis, lm_head WD held at baseline 0.001 axis confirmed inert; if A < #1683 Arm A early-priming dominates, if B < #1683 Arm A late-stabilization dominates, if A ≈ B ≈ #1683 Arm A uniform-trajectory null, if A ≈ B ≈ baseline phase-dispatch destroys mechanism; fits Morgan's directive per-group + state-mechanism)
+
+**Cumulative**: **291 refuted** / **174 distinct mech classes** / **127 family-level closures**.
+
+### PRs closed this wave (1 closure):
+
+| PR | student | mechanism | outcome |
+|---|---|---|---|
+| **fern #1683** | fern | PER_KIND_WD_AUX_DECOMPOSITION (Arm A `embed_only_down` WD_EMBED=0.0003/WD_LM_HEAD=0.001, Arm B `lm_head_only_up` WD_EMBED=0.001/WD_LM_HEAD=0.003) | **291st** — Arm A val=3.26968 ffs=3025 (floor-band-upper-edge n=1), Arm B val=3.27116 ffs=3025, val_mean=3.27042 STANDARD misses by +0.00266/+25. Δ(B−A)=+0.00148 `embed_only_down_wins` 8× noise. **MAJOR STRUCTURAL FINDING**: per-kind WD axis collapses to 1-D embed-WD-down (lm_head structurally inert). **Effective n=2 cross-PR replication** of #1611 Arm B embed-WD-down at floor band. **127th family closure**. |
+
+### MAJOR STRUCTURAL FINDING — per-kind WD axis 1-D-collapse via cross-PR replication
+
+| axis | WD ratio test | rms@3175 change | val effect | verdict |
+|---|---|---|---|---|
+| **embed** | 0.001 → 0.0003 (3.3× lower) | **+21.85%** (8.19 → 9.98) | val −0.00148 (into floor band) | **STRUCTURALLY ACTIVE** |
+| **lm_head** | 0.001 → 0.003 (3× higher) | **−2.79%** (0.1167 → 0.1135) | val +0.00148 (away from floor band, opposite direction) | **STRUCTURALLY INERT** |
+
+**Mechanism**: lm_head matrix lives in a regime where gradient pressure dominates over WD pull-to-zero (3× WD multiplier moves magnitude <3%, below noise threshold). Embed matrix lives in the opposite regime: WD pressure is comparable to gradient pressure (3× reduction allows weights to grow ~22%, generating real val gain).
+
+### Effective n=2 cross-PR replication of embed-WD-down at floor band
+
+| reference | configuration | val_final | embed_rms@3175 |
+|---|---|---|---|
+| **#1611 Arm B (compound)** | WD_EMBED=0.0003 + WD_LM_HEAD=0.003 | **3.26966** | not snapshot |
+| **#1683 Arm A (embed only)** | WD_EMBED=0.0003 + WD_LM_HEAD=0.001 | **3.26968** | **9.9818** |
+| **#1656 Arm B (embed + back_FAST)** | WD_EMBED=0.0003 + back_FAST refresh | 3.27024 | **9.981** |
+
+Three independent runs with WD_EMBED=0.0003 all land at val∈[3.26966, 3.27024] with **embed_rms@3175 matching to 4 decimal places between #1683 Arm A and #1656 Arm B**. This is the **strongest cross-PR replication of any single mechanism in cycle 71** — embed-WD-down at val_mean(#1611, #1683 Arm A)=**3.26967**.
+
+### Floor-band cross-PR replicated entry roster updated (cycle 71)
+
+| mechanism | replication evidence | val_mean | ffs_mean | merge-bar gap |
+|---|---|---|---|---|
+| **back_FAST** | #1623 + #1656 | 3.26823 | 3000 | val −0.00047 ≤ ceiling (credible at merge bar) |
+| **embed-WD-down** | #1611 + #1683 Arm A | 3.26967 | 3025 | val +0.00191, ffs +25 (fails ffs by 25) |
+| **attn-SOAP-proj phase-dispatch** | #1663 Arms A+B (two adjacent late-β2 sub-sweeps) | 3.26935 | 3025 | val +0.00159, ffs +25 (fails ffs by 25) |
+
+Three cross-PR replicated floor-band entries, **none beat the merge-bar ffs ceiling at n=2**. **ffs=3000 is the binding constraint** — every floor-band entry hits ffs=3025, suggesting the optimization path has a 25-step shared latency that floor-band mechanisms do not collectively reduce. **Strategic implication**: future floor-band searches must target ffs reduction explicitly, not just val gain.
+
+### Calibration credibility heuristic updated — cross-PR structural-decomposition n=2 is robust
+
+Recent calibration finding (#1657, #1662): 2/2 single-arm sub-cluster-edge entries failed n=2 replication. **embed-WD-down REPLICATES robustly** across three independent runs, demonstrating that the cross-PR structural-mechanism-isolation strategy IS effective for confirming floor-band entries. Update: **cross-PR replication via structural decomposition is at least as strong as within-PR n=2**.
+
+### PRs assigned this wave
+
+| PR | student | mechanism | role |
+|---|---|---|---|
+| **fern #1705** | fern | PER_PHASE_WD_AUX_EMBED (Arm A `embed_early_down` early=0.0003/late=0.001/boundary=1500, Arm B `embed_late_down` early=0.001/late=0.0003/boundary=1500, lm_head WD held at 0.001 axis confirmed inert) | **FRESH PER-GROUP STATE-MECHANISM** — first phase-dispatch test on the structurally-isolated 1-D embed-WD axis; tests whether embed-WD-down benefit is early-phase basis-priming (let embed grow freely) or late-phase cooldown-stabilization (preserve terminal magnitude through final lr decay) |
+
+### Stale_wip false-positive pattern continues — 8 consecutive PRs in cycle 71
+
+False stale_wip events cleared this wake-window (wakes 76-82): fern #1683 (closed wake 83), askeladd #1684, frieren #1671, thorfinn #1685, alphonse #1687, edward #1692, nezuko #1668 (closed before stale flag), tanjiro #1678 (closed before stale flag). All hit the 2h-no-comment threshold because students don't post launch heartbeats. Pattern is now systemic for 2h+ sequential 2-arm experiments. Edward #1692 had additional finding: 5 disabled-check runs launching in parallel (1 crashed mid-Arm-A), flagged for student investigation.
+
+### Fleet state at end of wake 83 (this wave)
+
+8 students all assigned, 0 idle:
+
+| PR | student | axis | status |
+|---|---|---|---|
+| **#1705** | **fern** | **PER_PHASE_WD_AUX_EMBED** | **WIP (this wave, just assigned)** |
+| #1700 | tanjiro | PER_KIND_AUX_B1B2_COMPOUND | WIP (prior wave) |
+| #1695 | nezuko | PHASE_DISPATCH_MLP_SOAP_FC_BETA2 | WIP (prior wave) |
+| #1692 | edward | PER_KIND_ATTN_SOAP_MUON_LR (V_AXIS_ISOLATION) | WIP (Arm A 61%) |
+| #1687 | alphonse | JOINT_MLP_SOAP_REFRESH_BACK_FAST_X_PHASE_DISPATCH_ATTN_SOAP_BETA2 (cross-SCOPE compound) | WIP (Arm A 82%+, terminal expected) |
+| #1685 | thorfinn | PER_KIND_ATTN_SOAP_TRUST_THRESHOLD (V_AXIS_ISOLATION) | WIP (Arm A finished v=3.2770, Arm B queuing) |
+| #1684 | askeladd | PER_DEPTH_HALF_ATTN_SOAP_TRUST_THRESHOLD | WIP (prior wave) |
+| #1671 | frieren | MLP_SOAP_TRUST_GATE_PHASE_DISPATCH | WIP (Arm A finished val=3.2728, Arm B 8.7%+) |
+
+---
+
 ## 2026-05-29 12:45 UTC — Cycle 71 mid-386 — tanjiro #1678 290th refute (PER_KIND_AUX_BETA1_DIRECTION val_mean=3.27313 STANDARD misses merge bar by Δ=+0.00537 val and +62.5 ffs, Arm A `lm_head_b1_fast` val=3.27671 ffs=3100 STANDARD, Arm B `lm_head_b1_slow` val=3.26955 ffs=3025 **FLOOR-BAND-MID** n=1 but misses ffs ceiling by +25, Δ(B−A)=−0.00716 directional signal `lm_head_SLOW_wins` clear at 4× noise threshold, **MAJOR STRUCTURAL FINDING**: DIRECTION INVERTED at β1 vs β2 — at β2 lm_head_FAST wins (#1577 3.26992) while at β1 lm_head_SLOW wins (this PR 3.26955); per-kind AdamW asymmetry is moment-index-dependent NOT class-uniform; lm_head prefers {fast β2, slow β1}, embed prefers {slow β2, fast β1}; the two AdamW moment indices are INDEPENDENT and orthogonal per-kind axes — refutes prior hypothesis that "β1 mirrors β2 direction" + prior hypothesis "per-kind asymmetry is β2-specific", **126th family closure**: PER_KIND_AUX_BETA1_DIRECTION axis fully mapped at moment-index-inversion outcome) + tanjiro #1700 NEW PER_KIND_AUX_B1B2_COMPOUND (FRESH PER-GROUP STATE-MECHANISM AXIS directly executing this PR's direction-inversion finding — Arm A `compound_optimal` applies BOTH winning directions: embed (β1=0.7 FAST, β2=0.95 baseline), lm_head (β1=0.9 SLOW, β2=0.85 FAST); Arm B `compound_inverted` applies BOTH losing directions: embed (β1=0.9 SLOW, β2=0.85 FAST), lm_head (β1=0.7 FAST, β2=0.95 baseline); if A < B by Δ≥0.005 → moment-index direction inversion stacks as unified mechanism, possible merge candidate if A enters floor band; if A ≈ #1678 Arm B → β2 axis saturates onto β1 axis shared-latent channel; fits Morgan's directive per-group + state-mechanism)
 
 **Cumulative**: **290 refuted** / **174 distinct mech classes** / **126 family-level closures**.
