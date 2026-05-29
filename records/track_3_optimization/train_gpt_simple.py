@@ -84,6 +84,22 @@ def parse_args():
     parser.add_argument('--aux_b2_pulse_target', type=float, default=0.99,
                         help='New aux Adam β2 value to set at --aux_b2_pulse_step. '
                              '0 or negative disables. Default: 0.99 (canonical WIN).')
+    parser.add_argument('--pmuon_async_whitening', action='store_true',
+                        help='ADOPT-style async order on body PMuon: whiten using PREVIOUS '
+                             'L_cov/R_cov, then update those buffers with g_t AFTER whitening. '
+                             'Removes the in-sample bias from including g_t in the buffer that '
+                             'whitens that same step\'s update.')
+    parser.add_argument('--pmuon_async_init', choices=['identity', 'zeros'], default='identity',
+                        help='L_cov/R_cov init for async mode. identity = warm-start I (no '
+                             'sync warmup needed); zeros = cold-start with sync warmup until '
+                             '--pmuon_async_warmup, then switch order. Only meaningful when '
+                             '--pmuon_async_whitening is set.')
+    parser.add_argument('--pmuon_async_warmup', type=int, default=0,
+                        help='Steps to run synchronous order before switching to async '
+                             '(only used when --pmuon_async_init=zeros).')
+    parser.add_argument('--num_iterations', type=int, default=None,
+                        help='If set, override train_steps for debug/smoke runs '
+                             '(default: 3250).')
     parser.add_argument("--seed", type=int, default=1,
                         help="Random seed for torch/numpy/python. Default 1 matches baseline seed.")
     args = parser.parse_args()
@@ -529,11 +545,18 @@ def pmuon_update(
     ns_b: float = NS_B,
     ns_c: float = NS_C,
     polar_diag: dict | None = None,
+    async_mode: bool = False,
+    async_diag: dict | None = None,
 ) -> Tensor:
     # Streaming raw (unnormalized) bilateral covariance EMAs in fp32.
+    # async_mode=False (sync, canonical): update L_cov/R_cov with g_t FIRST,
+    # then use those (g_t-including) buffers to whiten the current update.
+    # async_mode=True  (ADOPT-style):    whiten with PRE-update buffers, then
+    # update L_cov/R_cov with g_t AFTER whitening. Removes the in-sample bias.
     g32 = grad.detach().float()
-    L_cov.mul_(beta_cov).add_(g32 @ g32.T)
-    R_cov.mul_(beta_cov).add_(g32.T @ g32)
+    if not async_mode:
+        L_cov.mul_(beta_cov).add_(g32 @ g32.T)
+        R_cov.mul_(beta_cov).add_(g32.T @ g32)
 
     momentum.lerp_(grad, 1 - mu)
     update = grad.lerp_(momentum, mu) if nesterov else momentum
@@ -541,6 +564,19 @@ def pmuon_update(
     L_neg = matrix_neg_power(L_cov, gamma, eps)
     R_neg = matrix_neg_power(R_cov, gamma, eps)
     m_pre = (L_neg @ update.float()) @ R_neg
+
+    # Sample diagnostics for async audit on the first eligible param: capture
+    # the buffer state that actually whitened this step's update (i.e. before
+    # any post-whitening async update). Sync mode also writes here so sync and
+    # async telemetry are directly comparable.
+    if async_diag is not None and "lneg_sample_norm" not in async_diag:
+        async_diag["lneg_sample_norm"] = float(torch.linalg.norm(L_neg).item())
+        L_sym = 0.5 * (L_cov + L_cov.T)
+        async_diag["lcov_eigh_max"] = float(torch.linalg.eigvalsh(L_sym).clamp_min(0).max().item())
+
+    if async_mode:
+        L_cov.mul_(beta_cov).add_(g32 @ g32.T)
+        R_cov.mul_(beta_cov).add_(g32.T @ g32)
 
     polar = zeropower_via_newtonschulz5(m_pre.to(update.dtype), a=ns_a, b=ns_b, c=ns_c)
     # Sample ortho residual ||X X^T - I||_F on the polar output (before spectral scaling).
@@ -564,12 +600,19 @@ def pmuon_update(
 
 class Muon(torch.optim.Optimizer):
     def __init__(self, params, lr=0.02, weight_decay=0, mu=0.95, beta_cov=0.95, gamma=PMUON_GAMMA,
-                 ns_a=NS_A, ns_b=NS_B, ns_c=NS_C):
+                 ns_a=NS_A, ns_b=NS_B, ns_c=NS_C,
+                 async_mode=False, async_init="identity", async_warmup=0):
         assert isinstance(params, list) and len(params) >= 1 and isinstance(params[0], torch.nn.Parameter)
         params = sorted(params, key=lambda x: x.size(), reverse=True)
         defaults = dict(lr=lr, weight_decay=weight_decay, mu=mu, beta_cov=beta_cov, gamma=gamma,
                         ns_a=ns_a, ns_b=ns_b, ns_c=ns_c)
         super().__init__(params, defaults)
+        self.async_mode = bool(async_mode)
+        assert async_init in ("identity", "zeros")
+        self.async_init = async_init
+        self.async_warmup = int(async_warmup)
+        self._step_count = 0
+        self._async_diag: dict = {}
 
     @torch.no_grad()
     def step(self):
@@ -580,6 +623,11 @@ class Muon(torch.optim.Optimizer):
         floor_fired_count = 0
         floor_eligible_count = 0
         polar_diag: dict = {}
+        async_diag: dict = {}
+        # async activation gate: if async_init=zeros, run sync order until the
+        # buffers have accumulated some content (warmup); identity-init can go
+        # async from step 0 because L=R=I produces a well-conditioned L_neg=R_neg=I.
+        effective_async = self.async_mode and (self._step_count >= self.async_warmup)
         for group in self.param_groups:
             params = group["params"]
             params_pad = params + [torch.empty_like(params[-1])] * (world_size - len(params) % world_size)
@@ -589,8 +637,12 @@ class Muon(torch.optim.Optimizer):
                     state = self.state[p]
                     if len(state) == 0:
                         state["momentum"] = torch.zeros_like(p)
-                        state["L"] = torch.zeros(p.shape[0], p.shape[0], device=p.device, dtype=torch.float32)
-                        state["R"] = torch.zeros(p.shape[1], p.shape[1], device=p.device, dtype=torch.float32)
+                        if self.async_mode and self.async_init == "identity":
+                            state["L"] = torch.eye(p.shape[0], device=p.device, dtype=torch.float32)
+                            state["R"] = torch.eye(p.shape[1], device=p.device, dtype=torch.float32)
+                        else:
+                            state["L"] = torch.zeros(p.shape[0], p.shape[0], device=p.device, dtype=torch.float32)
+                            state["R"] = torch.zeros(p.shape[1], p.shape[1], device=p.device, dtype=torch.float32)
                     update = pmuon_update(
                         p.grad,
                         state["momentum"],
@@ -603,6 +655,8 @@ class Muon(torch.optim.Optimizer):
                         ns_b=group["ns_b"],
                         ns_c=group["ns_c"],
                         polar_diag=polar_diag,
+                        async_mode=effective_async,
+                        async_diag=async_diag,
                     )
                     floor_eligible_count += 1
                     w_norm = p.norm()
@@ -620,6 +674,10 @@ class Muon(torch.optim.Optimizer):
                 dist.all_gather(params_pad[base_i:base_i + world_size], params_pad[base_i + rank])
         self._floor_diag = {"fired": floor_fired_count, "eligible": floor_eligible_count}
         self._polar_diag = polar_diag
+        async_diag["effective_async"] = int(effective_async)
+        async_diag["step_count"] = self._step_count
+        self._async_diag = async_diag
+        self._step_count += 1
 
 
 def pmuon_spectral_diag(optimizer: torch.optim.Optimizer, gamma: float) -> dict[str, float]:
@@ -758,6 +816,10 @@ if dist.get_rank() == 0:
             "paramema_refresh_only": int(args.paramema_refresh_only),
             "aux_b2_pulse_step": args.aux_b2_pulse_step,
             "aux_b2_pulse_target": args.aux_b2_pulse_target,
+            "pmuon_async_whitening": int(args.pmuon_async_whitening),
+            "pmuon_async_init": args.pmuon_async_init,
+            "pmuon_async_warmup": args.pmuon_async_warmup,
+            "num_iterations_override": (args.num_iterations if args.num_iterations is not None else -1),
             "seed": args.seed,
         },
     )
@@ -771,6 +833,10 @@ for trial_idx in range(args.num_trials):
 
     # we want to minimize this while still reaching 3.28 val loss
     train_steps = 3250
+    if args.num_iterations is not None and args.num_iterations > 0:
+        train_steps = args.num_iterations
+        print0(f"DEBUG: train_steps overridden to {train_steps} via --num_iterations",
+               console=True)
 
     # initialize model parameters
     for name, p in model.named_parameters():
@@ -795,9 +861,15 @@ for trial_idx in range(args.num_trials):
                         dict(params=[p for p in model.parameters() if p.ndim < 2], lr=0.025, name="adam_scalars")],
                        betas=(0.8, 0.95), eps=1e-10, weight_decay=0, fused=True)
     optimizer2 = Muon([p for p in model.blocks.parameters() if p.ndim >= 2],
-                      lr=args.muon_lr, weight_decay=0.025, beta_cov=0.95, gamma=PMUON_GAMMA)
+                      lr=args.muon_lr, weight_decay=0.025, beta_cov=0.95, gamma=PMUON_GAMMA,
+                      async_mode=args.pmuon_async_whitening,
+                      async_init=args.pmuon_async_init,
+                      async_warmup=args.pmuon_async_warmup)
     optimizer2.param_groups[0]["name"] = "muon_blocks"
     print0(f"body-Muon optimizer: lr={args.muon_lr} weight_decay=0.025 beta_cov=0.95 gamma={PMUON_GAMMA}")
+    if args.pmuon_async_whitening:
+        print0(f"body-Muon async whitening ENABLED: init={args.pmuon_async_init} "
+               f"warmup={args.pmuon_async_warmup}", console=True)
 
     # Per-block Muon LR shape: mean-preserving linear ramp across block index.
     # block_mults sum to NUM_LAYERS × 1.0 exactly, so mean LR is unchanged vs uniform.
@@ -1183,6 +1255,20 @@ for trial_idx in range(args.num_trials):
                                     and args.aux_b2_pulse_target > 0.0
                                     and step >= args.aux_b2_pulse_step),
             }, step=wandb_step)
+            async_diag = getattr(optimizer2, "_async_diag", None)
+            if async_diag:
+                wandb.log({
+                    "trial": trial_idx,
+                    "train/step": train_step,
+                    "pmuon_async/enabled": int(args.pmuon_async_whitening),
+                    "pmuon_async/init_mode": (1 if args.pmuon_async_init == "identity" else 0),
+                    "pmuon_async/warmup_steps": args.pmuon_async_warmup,
+                    "pmuon_async/effective_async": async_diag.get("effective_async", 0),
+                    "pmuon_async/step_count": async_diag.get("step_count", -1),
+                    "pmuon_async/lcov_eigh_max": async_diag.get("lcov_eigh_max", float("nan")),
+                    "pmuon_async/lneg_sample_norm": async_diag.get("lneg_sample_norm",
+                                                                   float("nan")),
+                }, step=wandb_step)
         if dist.get_rank() == 0 and (train_step % 100 == 0 or train_step == train_steps):
             spec = pmuon_spectral_diag(optimizer2, PMUON_GAMMA)
             if spec:
