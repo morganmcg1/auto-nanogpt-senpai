@@ -114,6 +114,10 @@ def parse_args():
                         help="Polyak-Ruppert EMA decay for eval-only weight averaging. "
                              "0.0 = disabled (drift-FREE CTRL). Typical: 0.05 (fast, ~20-step half-life) / "
                              "0.005 (slow, ~200-step half-life). Higher decay = faster EMA tracking.")
+    parser.add_argument("--aux_lamb", type=int, default=int(os.environ.get("AUX_LAMB", "0")),
+                        help="LAMB (You et al. 2019) per-tensor trust ratio wrapper on aux AdamW. "
+                             "0=AdamW baseline (drift-FREE CTRL, default), 1=LAMB standard trust ratio "
+                             "||w||/||Δw||, 2=LAMB bounded trust ratio clamped to [0.5, 2.0].")
     args = parser.parse_args()
     args.num_trials = args.num_trials if args.num_trials is not None else (args.legacy_num_trials or 1)
     args.wandb_tags = [tag.strip() for tag in args.wandb_tags.split(",") if tag.strip()]
@@ -856,6 +860,7 @@ if dist.get_rank() == 0:
             "muonh_mu_start": args.muonh_mu_start,
             "muonh_mu_end": args.muonh_mu_end,
             "polyak_ema_decay": args.polyak_ema_decay,
+            "aux_lamb": args.aux_lamb,
         },
     )
 
@@ -1212,8 +1217,46 @@ for trial_idx in range(args.num_trials):
         muonh_agc_stats = adaptive_gradient_clip(
             muonh_params_for_agc, args.muonh_agc_clip_ratio, eps=args.muonh_agc_eps,
         )
+        # H277: LAMB per-tensor trust ratio wrapper for aux AdamW (Pattern A drift-FREE).
+        # When args.aux_lamb == 0, the snapshot/rescale blocks are skipped entirely,
+        # leaving the training path bit-identical to the H266 baseline.
+        aux_lamb_snapshots = None
+        if args.aux_lamb > 0:
+            with torch.no_grad():
+                aux_lamb_snapshots = [
+                    (p, p.data.clone()) for g in optimizer1.param_groups for p in g["params"]
+                ]
         for opt in optimizers:
             opt.step()
+        # H277: apply trust ratio rescale on the displacement Δw = w_new - w_prev,
+        # per-tensor, only on aux AdamW param groups (embed/lm_head/scalars).
+        if aux_lamb_snapshots is not None:
+            with torch.no_grad():
+                lamb_trust_ratios: list[float] = []
+                lamb_param_norms: list[float] = []
+                lamb_update_norms: list[float] = []
+                for p, w_prev in aux_lamb_snapshots:
+                    delta = p.data - w_prev
+                    w_norm = float(w_prev.norm().item())
+                    delta_norm = float(delta.norm().item())
+                    if delta_norm < 1e-12 or w_norm < 1e-12:
+                        continue
+                    trust_ratio = w_norm / delta_norm
+                    if args.aux_lamb == 2:
+                        trust_ratio = max(0.5, min(2.0, trust_ratio))
+                    p.data.copy_(w_prev + trust_ratio * delta)
+                    lamb_trust_ratios.append(trust_ratio)
+                    lamb_param_norms.append(w_norm)
+                    lamb_update_norms.append(delta_norm)
+            if dist.get_rank() == 0 and telemetry_due and lamb_trust_ratios:
+                wandb.log({
+                    "train/lamb/trust_ratio_mean": float(sum(lamb_trust_ratios) / len(lamb_trust_ratios)),
+                    "train/lamb/trust_ratio_min": float(min(lamb_trust_ratios)),
+                    "train/lamb/trust_ratio_max": float(max(lamb_trust_ratios)),
+                    "train/lamb/param_norm_mean": float(sum(lamb_param_norms) / len(lamb_param_norms)),
+                    "train/lamb/update_norm_mean": float(sum(lamb_update_norms) / len(lamb_update_norms)),
+                    "train/lamb/n_tensors": len(lamb_trust_ratios),
+                }, step=wandb_step)
         # H266: Polyak-Ruppert EMA update — runs after the live inner-optimizer step.
         # When polyak_ema_state is None this branch is skipped, leaving the training
         # path bit-identical to the H203 baseline.
