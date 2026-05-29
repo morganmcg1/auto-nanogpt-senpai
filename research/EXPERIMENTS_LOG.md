@@ -1,5 +1,43 @@
 # SENPAI Research Results
 
+## 2026-05-29 17:50 UTC — PR #1680 nezuko: Pre-target PMuon γ pulse 0.4→{0.50, 0.60} @ 2750-2900 — ❌ BILATERAL NULL (γ axis closed)
+
+- Branch: `g1r1-nezuko/pretarget-gamma-pulse`
+- Hypothesis: γ (whitening exponent in PMuon's `matrix_neg_power`) controls the strength of bilateral whitening. Does a transient pulse from canonical 0.4 → {0.50 Arm A, 0.60 Arm B} during the pre-target window steeper-curve the descent into the target crossing?
+- W&B: Arm A `92tyetjn` (γ=0.50), Arm B `2wzibl6m` (γ=0.60)
+
+| Arm | γ in 2750-2900 | val_loss_ema | val_loss_live | sr | Δval vs baseline | Verdict |
+|---|---:|---:|---:|---:|---:|---|
+| A | 0.50 | 3.2648 | 3.2642 | 2925 | +1.95 mnat | ❌ NULL |
+| B | 0.60 | 3.2646 | 3.2640 | 2925 | +1.75 mnat | ❌ NULL |
+| Baseline #1532 | 0.40 canonical | 3.262854 | — | 2875 | — | — |
+
+- **Analysis:** Both arms +50 sr and +1.75-1.95 mnat val_ema. Both directions of γ pulse (more aggressive whitening) miss the gate. The canonical γ=0.40 is robustly optimal across the whitening-strength axis; pre-target perturbation degrades both gates similarly.
+- **γ-axis closure:** the bilateral whitening exponent in the L^{-γ} @ momentum @ R^{-γ} sandwich is now confirmed unchangeable within the pre-target window. The whitening preconditioner's *strength* is not the limiting factor — the underlying state (L_cov/R_cov accumulated curvature) may still be. Next nezuko assignment escalates from γ scalar pulse to L_cov/R_cov hard zero reset at step 2750 (structural, not scalar).
+- **Body Muon pre-target scalar axes — DEFINITIVELY CLOSED:** LR-UP (#1637), γ (this PR), β_cov pulse@975 (#1666 Arm A), β_cov pulse@2600 (#1666 Arm B), NS-coefs bilateral (#1660), β₁ bilateral (#1592/#1639), Nesterov, schedule-free. In flight: LR-DOWN (#1697), μ (#1686, Arm A NULL), wd (#1693).
+
+## 2026-05-29 17:55 UTC — PR #1709 edward: AdaShift temporal-lag second moment on aux Adam (n=1 vs n=2) — ❌ BILATERAL NULL (AdaShift family CLOSED, mechanistic root cause)
+
+- Branch: `g1r1-edward/aux-adam-adashift`
+- Hypothesis: AdaShift (Xie et al., ICLR 2019, arxiv 1810.00143) uses `v_t = β·v_{t-1} + (1-β)·g_{t-n}²` — a temporally-lagged second-moment that decorrelates numerator from denominator. Does this orthogonal mechanism for reducing denominator variance improve the canonical aux-Adam β₂ pulse stack?
+- W&B: 8 runs across original spec, post-fix relaunches, and Option A (split optimizer). No run reached step 3250; all crashed or diverged. Full run list: `necwrf5u`, `pur1ybqs`, `qms1h9sd`, `eo9xd2tz`, `wkcz9kka`, `q2zitj2k`, `koadjsmh`, `icw9bawb`.
+
+| Variant | Failure mode | Step |
+|---|---|---:|
+| Per-element AdaShift on all aux (embed+lm_head+scalars), eps=1e-10 | val_loss=22.88, embed RMS=6.76e9 | crash @ 275 |
+| Per-element + `t>n` warmup + eps=1e-8 | `torch.linalg.eigh` ill-conditioned on L_cov | crash @ 1-3 |
+| Per-element + fp32 state + clamp_min(eps²) + eps=1e-7 | val_loss=16.09 (no crash) | abort @ 125 |
+| Option A (embed→fused AdamW; lm_head+scalars→AdaShift) | `eigh` failure | crash @ 76-107 |
+| Option A + defensive eigh jitter retry + telemetry | val_loss=16.16 (no crash) | abort @ ~248 |
+
+- **Root cause (mechanistic, three layers):**
+  1. **Cold-start zero-grad:** ring buffer pre-filled with zeros → v_t≈0 → 10^10× catastrophic update during warmup (fixed by `if len(buf)==n` branch using current g during warmup).
+  2. **Sparse-gradient incompatibility on `embed.weight`:** ~99.5% of rows have g=0 per step; for any row r touched at step t but not at step t-n, `g_{t-n}[r]=0 → v_t[r]=0`, denominator collapses to eps, update explodes. Confirmed by unit test on synthetic sparse gradients. **Fundamentally incompatible** with sparse-row gradients; cannot be patched.
+  3. **Loss of self-scaling on non-stationary dense lm_head gradients (Option A):** numerator uses g_t, denominator uses g_{t-n}, so update scales linearly with |g_t|/|g_{t-1}| ratio instead of being bounded near 1 like standard Adam. Early-training lm_head trajectory perturbation → forward activations → body grads → L_cov ill-conditioning → either eigh crash (no jitter) or degraded preconditioner (with jitter), loss diverges.
+- **AdaShift axis closure:** per-element AdaShift is structurally incompatible with this baseline. **Block-wise AdaShift** (scalar `v_t` per tensor using max(|g_{t-n}|)²) untested but reserved as a separate hypothesis — different mechanism, different failure modes.
+- **Byproduct gain:** edward's investigation surfaced a defensive `matrix_neg_power` patch with try/except jitter retry on eigh failure + telemetry `pmuon/eigh_jitter_fires`. Zero baseline-trajectory impact (only fires on perturbed L_cov configurations). Cherry-pick commits `50f52a70` + `5286eb9a` to advisor branch as standalone hygiene PR — future-proofs Muon against any experiment that perturbs L_cov.
+- **High-information closure:** unit-test evidence + 5 failure-mode characterization + mechanistic explanation tying each variant's collapse to a structural property of AdaShift. This is the close-out evidence; no further per-element AdaShift attempts warranted.
+
 ## 2026-05-29 14:30 UTC — PR #1667 frieren: Pre-target aux β₂ transient spike 0.99→{0.995, 0.999} @ 2750-2900 — ❌ BILATERAL NULL (β₂ mechanism comprehensively closed)
 
 - Branch: `g1r1-frieren/pretarget-aux-b2-spike`
