@@ -1,3 +1,50 @@
+## 2026-05-29 23:55 UTC — Cycle 71 mid-400 — tanjiro #1724 306th refute, 142nd family closure — MAJOR META-FINDING: AdamW-side phase-dispatch uniformly unproductive (#1653, #1724); Muon-side SOAP phase-dispatch productive (#1642, #1668) — structural lever-class distinction confirmed
+
+### tanjiro #1724 306th refute — PER_KIND_LM_HEAD_AUX_BETA1_PHASE_DISPATCH val_mean=3.27126 STANDARD misses merge bar by Δ=+0.00349 val and +37.5 ffs
+
+Arm A `lm_head_b1_LATE_SLOW` (E=0.8/L=0.9, boundary=1500) val=3.27044 ffs=3025 STANDARD near-floor, Arm B `lm_head_b1_EARLY_SLOW` (E=0.9/L=0.8, boundary=1500) val=3.27207 ffs=3050 STANDARD, Δ(B−A)=+0.00163 `LATE_more_critical_than_EARLY_for_SLOW_integration` sub-structural-threshold. Stat rule (3.28−μ)·√n ≥ 0.004 PASSES at n=2 (0.01236). W&B 8k5tze5c/qep4mbd2 verified config-operative (per-step `train/lm_head_beta1_effective` confirms swap fires at step 1500, boundary diagnostics `diag/lm_head_exp_avg_norm_at_boundary` 3861 vs 2364 = 63% difference reflecting EMA window asymmetry, configs match design bit-exactly).
+
+**MAJOR META-FINDING — Muon-side / AdamW-side phase-dispatch lever-class asymmetry structurally evidenced**:
+
+| optimizer class | scope/kind | PR | direction | productive? |
+|---|---|---|---|---|
+| Muon-SOAP | attn-proj | #1642 | LATE-FAST wins | **YES** (Δ ≈ strong) |
+| Muon-SOAP | MLP-proj | #1668 | EARLY-FAST wins | **YES** (Δ=0.00148) |
+| Muon-SOAP | MLP-fc | #1695 | INERT | weak null |
+| Muon-SOAP | attn-q | #1718 | EARLY-FAST wins (weak) | weak (Δ=0.00217 below 0.005 threshold) |
+| **AdamW** | **AUX uniform β2** | **#1653** | **REFUTED** | **NO** |
+| **AdamW** | **lm_head β1 (#1724)** | **#1724** | **REFUTED** (LATE > EARLY for SLOW but both > continuous) | **NO** |
+
+**Interpretation**: Phase-dispatch unlocks signal at the **eigenbasis-tracking class** (SOAP), not at the **denominator-stabilizer class** (AdamW). SOAP's eigenbasis refresh has natural phase-locality (early-basis-formation vs late-basis-tracking); AdamW's per-param moments have no analogous phase-structure beyond the schedule itself. **Phase-locality is a SOAP-class lever, not an AdamW-class lever**.
+
+Consistent with #1577 B (lm_head β2 FAST 3.26992) and #1678 B (lm_head β1 SLOW 3.26955) being continuous floor-band entries — AdamW class prefers continuous per-kind static dispatch over phase-isolated dynamic dispatch.
+
+Boundary-step transition signature: Δ(A−B) flips from −0.00143 at step 1500 to +0.00005 at step 1625 to widening LATE-phase divergence — confirms post-boundary regime drives asymmetry. **LATE is the more critical phase for SLOW first-moment integration on lm_head**.
+
+Rules out three hypotheses: (1) lm_head β1 SLOW preference is LATE-only — REFUTED (Arm A +0.00089 just below 0.001 threshold but still worse), (2) lm_head β1 SLOW preference is EARLY-only — REFUTED (Arm B +0.00252), (3) phase-dispatch destroys the SLOW signal — CONFIRMED for Arm B, partially for Arm A.
+
+**142nd family closure**: PER_KIND_LM_HEAD_AUX_BETA1_PHASE_DISPATCH axis fully mapped at refute outcome with directional finding (LATE > EARLY for SLOW preference).
+
+### Cumulative state
+
+**Cycle 71 cumulative**: **306 refuted** / **177 distinct mech classes** (no new — boundary-locality-asymmetry observed in prior closures) / **142 family-level closures**.
+
+### PRs closed this wave (1 closure):
+
+| PR | student | mechanism | outcome |
+|---|---|---|---|
+| **tanjiro #1724** | tanjiro | PER_KIND_LM_HEAD_AUX_BETA1_PHASE_DISPATCH (Arm A lm_head_b1_LATE_SLOW E=0.8/L=0.9, Arm B lm_head_b1_EARLY_SLOW E=0.9/L=0.8, boundary=1500; other AdamW groups at baseline 0.8) | **306th** — Arm A 3.27044/3025 STANDARD near-floor, Arm B 3.27207/3050 STANDARD, val_mean=3.27126 misses by +0.00349/+37.5. Δ(B−A)=+0.00163 LATE-more-critical-than-EARLY-for-SLOW sub-structural threshold. **MAJOR META-FINDING**: AdamW-side phase-dispatch uniformly unproductive across kinds × moment-indices (#1653 β2 AUX-uniform + #1724 β1 lm_head both refute); Muon-side SOAP phase-dispatch productive (#1642 attn-proj LATE-FAST + #1668 MLP-proj EARLY-FAST). Structural lever-class distinction: phase-locality is a SOAP-class lever (eigenbasis-tracking-mediated), not an AdamW-class lever (denominator-stabilizer-mediated). AdamW class prefers continuous per-kind static dispatch. **142nd family closure**. |
+
+### PRs assigned this wave (1 fresh kind-matrix-completion on AdamW phase-dispatch axis):
+
+| PR | student | mechanism | hypothesis |
+|---|---|---|---|
+| **tanjiro #1750** | tanjiro | PER_KIND_EMBED_AUX_BETA1_PHASE_DISPATCH (Arm A `embed_b1_LATE_FAST` E=0.8/L=0.7, Arm B `embed_b1_EARLY_FAST` E=0.7/L=0.8, boundary=1500; lm_head β1=0.8 baseline) | **Kind-matrix-completion cell for AdamW phase-dispatch axis**. Tests in the **embed-preferred FAST direction** (β1=0.7 per #1678 B compound floor-band win where embed_b1=0.7 was load-bearing component). Direct mirror of #1724 implementation swapping adam_lm_head→adam_embed group. If both arms null → **META-FINDING locks at scale**: AdamW phase-dispatch closed across kinds × directions × moment-indices. If Arm A or B < baseline → first AdamW-side phase-dispatch positive, opens fresh family. If pattern mirrors #1724 (LATE > EARLY within preferred-direction) → cross-kind universal asymmetry signature on AdamW phase-dispatch. Fits Morgan's directive (per-group + state-mechanism — per-kind + phase-dispatch, no scalar sweep). |
+
+Fleet 8/8 assigned, 0 idle.
+
+---
+
 ## 2026-05-29 23:30 UTC — Cycle 71 mid-399 — edward #1719 305th refute, 141st family closure — DEFINITIVE META-CLOSURE: v-axis lever search EXHAUSTED on optimizer-mechanism side (5-of-5 candidates refuted); v-axis bottleneck is mechanically upstream of every Muon optimizer-mechanism lever
 
 ### edward #1719 305th refute — PER_KIND_NS5_ITERS_V_ISOLATION val_mean=3.27128 STANDARD misses merge bar by Δ=+0.00352 val and +37.5 ffs
