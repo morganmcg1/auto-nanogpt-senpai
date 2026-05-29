@@ -68,6 +68,10 @@ def parse_args():
     parser.add_argument("--ns_iter", type=int, default=12,
                         help="Number of Newton-Schulz iterations in zeropower_via_newtonschulz5. "
                              "Default 12 (current hardcoded value). Lower = less orthogonal but faster.")
+    parser.add_argument("--ns_warmstart_alpha", type=float, default=0.0,
+                        help="Warm-start alpha for NS init. 0.0 = cold-start (default/baseline), "
+                             "0.7 = blend 70%% previous orthogonal factor + 30%% normalized gradient, "
+                             "1.0 = pure warm-start. Stores state['ns_q'] per Muon parameter.")
     parser.add_argument("--lr_scalars", type=float, default=0.01,
                         help="LR for AdamW adam_scalars group (RMSNorm gains; "
                              "params with ndim < 2). Default 0.01 — hardcoded, "
@@ -494,14 +498,20 @@ class GPT(nn.Module):
 #              Optimizer               #
 ########################################
 
-def zeropower_via_newtonschulz5(G: Tensor) -> Tensor:
+def zeropower_via_newtonschulz5(G: Tensor, X_init: Tensor = None, ws_alpha: float = 0.0) -> Tensor:
     assert G.ndim >= 2
-    X = G.bfloat16()
-    if G.size(-2) > G.size(-1):
-        X = X.mT
+    X_cold = G.bfloat16()
+    transposed = G.size(-2) > G.size(-1)
+    if transposed:
+        X_cold = X_cold.mT
 
     # Ensure spectral norm is at most 1
-    X = X / (X.norm(dim=(-2, -1), keepdim=True) + 1e-7)
+    X_cold = X_cold / (X_cold.norm(dim=(-2, -1), keepdim=True) + 1e-7)
+    if X_init is not None and ws_alpha > 0.0:
+        X = ws_alpha * X_init + (1.0 - ws_alpha) * X_cold
+        X = X / (X.norm(dim=(-2, -1), keepdim=True) + 1e-7)
+    else:
+        X = X_cold
     # Perform the NS iterations, not optimizing for wallclock speed
     a, b, c = 2, -1.5, 0.5
     for _ in range(NS_ITER):
@@ -509,22 +519,22 @@ def zeropower_via_newtonschulz5(G: Tensor) -> Tensor:
         B = b * A + c * A @ A
         X = a * X + B @ X
 
-    if G.size(-2) > G.size(-1):
+    if transposed:
         X = X.mT
     return X
 
 @torch.compile
-def muon_update(grad, momentum, mu=0.95, nesterov=True):
+def muon_update(grad, momentum, mu=0.95, nesterov=True, X_init=None, ws_alpha: float = 0.0):
     momentum.lerp_(grad, 1 - mu)
     update = grad.lerp_(momentum, mu) if nesterov else momentum
-    update = zeropower_via_newtonschulz5(update)
+    update = zeropower_via_newtonschulz5(update, X_init=X_init, ws_alpha=ws_alpha)
     update *= max(1, grad.size(-2) / grad.size(-1))**0.5
     return update
 
 
 @torch.compile
-def soap_ns_step(nesterov_update):
-    update = zeropower_via_newtonschulz5(nesterov_update)
+def soap_ns_step(nesterov_update, X_init=None, ws_alpha: float = 0.0):
+    update = zeropower_via_newtonschulz5(nesterov_update, X_init=X_init, ws_alpha=ws_alpha)
     update *= max(1, nesterov_update.size(-2) / nesterov_update.size(-1))**0.5
     return update
 
@@ -585,7 +595,7 @@ class Muon(torch.optim.Optimizer):
     SOAP_ATTN_SUFFIXES = (".attn.q.weight", ".attn.k.weight", ".attn.v.weight", ".attn.proj.weight")
 
     def __init__(self, named_params, lr=0.02, weight_decay=0, mu=0.95,
-                 soap_attn=False, trust_threshold=0.0):
+                 soap_attn=False, trust_threshold=0.0, ns_warmstart_alpha=0.0):
         # `named_params` can be either:
         #   (a) list of (name, param) tuples → single param group (legacy form)
         #   (b) list of dicts {"named_params": [(name, param), ...], "lr": ?, "weight_decay": ?, "mu": ?, "name": ?}
@@ -607,7 +617,25 @@ class Muon(torch.optim.Optimizer):
         self.soap_attn = soap_attn
         self.trust_threshold = float(trust_threshold)
         self.use_trust_gate = soap_attn
+        self.ns_warmstart_alpha = float(ns_warmstart_alpha)
         self.cos_sims_buffer: dict[str, Tensor] = {}
+        # Diagnostic buffer for NS warmstart telemetry. Populated only for the
+        # designated sample SOAP-NS param when ws_alpha > 0. Trainer reads on
+        # telemetry_due steps; cleared at start of each step().
+        self.ns_diag_buffer: dict[str, Tensor] = {}
+        # Pick a stable sample SOAP-NS param for the warm-vs-cold diagnostic.
+        # Prefer blocks.0.attn.q.weight if present, else first SOAP param.
+        sample_id: int | None = None
+        for n, p in all_named:
+            if p in self.soap_params and n.endswith("blocks.0.attn.q.weight"):
+                sample_id = id(p)
+                break
+        if sample_id is None:
+            for n, p in all_named:
+                if p in self.soap_params:
+                    sample_id = id(p)
+                    break
+        self._ns_diag_param_id = sample_id
 
         param_groups = []
         for g in groups_raw:
@@ -627,6 +655,7 @@ class Muon(torch.optim.Optimizer):
     @torch.no_grad()
     def step(self):
         self.cos_sims_buffer = {}
+        self.ns_diag_buffer = {}
         world_size = dist.get_world_size()
         rank = dist.get_rank()
         for group in self.param_groups:
@@ -640,6 +669,7 @@ class Muon(torch.optim.Optimizer):
                     use_soap = p in self.soap_params
                     if len(state) == 0:
                         state["momentum"] = torch.zeros_like(p)
+                        state["ns_q"] = None
                         if use_soap:
                             state["exp_avg_sq"] = torch.zeros_like(p, dtype=torch.float32)
                             state["row_gg"] = torch.zeros(p.size(0), p.size(0), dtype=torch.float32, device=p.device)
@@ -651,8 +681,11 @@ class Muon(torch.optim.Optimizer):
                         state["momentum"].lerp_(p.grad, 1 - group["mu"])
                         raw_nesterov = p.grad.lerp(state["momentum"], group["mu"])
                         precond_nesterov = soap_precondition_momentum(raw_nesterov, state)
-                        u_soap = soap_ns_step(precond_nesterov)
+                        ws_alpha = self.ns_warmstart_alpha
+                        ns_q = state.get("ns_q", None)
+                        u_soap = soap_ns_step(precond_nesterov, X_init=ns_q, ws_alpha=ws_alpha)
                         if self.use_trust_gate:
+                            # Trust-gate fallback path stays cold-start (different input matrix).
                             u_muon = soap_ns_step(raw_nesterov)
                             us = u_soap.float()
                             um = u_muon.float()
@@ -661,9 +694,38 @@ class Muon(torch.optim.Optimizer):
                             self.cos_sims_buffer[self.param_names[id(p)]] = cos_sim_t
                         else:
                             update = u_soap
+                        # Persist NS output for next step's warm-start in the
+                        # transposed/un-transposed orientation that matches
+                        # X_cold inside zeropower_via_newtonschulz5.
+                        if ws_alpha > 0.0:
+                            if precond_nesterov.size(-2) > precond_nesterov.size(-1):
+                                state["ns_q"] = u_soap.mT.detach().clone()
+                            else:
+                                state["ns_q"] = u_soap.detach().clone()
+                        # Diagnostic: warm-vs-cold NS difference for sample param.
+                        if ws_alpha > 0.0 and id(p) == self._ns_diag_param_id:
+                            u_cold_for_diag = soap_ns_step(precond_nesterov, X_init=None, ws_alpha=0.0)
+                            warm_cold_diff = (u_soap.float() - u_cold_for_diag.float()).norm()
+                            u_soap_norm = u_soap.float().norm()
+                            u_cold_norm = u_cold_for_diag.float().norm()
+                            self.ns_diag_buffer["warm_cold_diff_norm"] = warm_cold_diff.detach()
+                            self.ns_diag_buffer["u_soap_norm"] = u_soap_norm.detach()
+                            self.ns_diag_buffer["u_cold_norm"] = u_cold_norm.detach()
+                            if ns_q is not None:
+                                self.ns_diag_buffer["ns_q_norm"] = ns_q.float().norm().detach()
+                            else:
+                                self.ns_diag_buffer["ns_q_norm"] = torch.zeros((), device=p.device)
                         soap_update_preconditioner(p.grad, state)
                     else:
-                        update = muon_update(p.grad, state["momentum"], mu=group["mu"])
+                        ws_alpha = self.ns_warmstart_alpha
+                        ns_q = state.get("ns_q", None)
+                        update = muon_update(p.grad, state["momentum"], mu=group["mu"],
+                                             X_init=ns_q, ws_alpha=ws_alpha)
+                        if ws_alpha > 0.0:
+                            if p.grad.size(-2) > p.grad.size(-1):
+                                state["ns_q"] = update.mT.detach().clone()
+                            else:
+                                state["ns_q"] = update.detach().clone()
                     norm_sum.add_(update.float().norm())
                     p.mul_(1 - group["lr"] * group["weight_decay"])
                     p.add_(update, alpha=-group["lr"])
@@ -780,6 +842,7 @@ if dist.get_rank() == 0:
             "lr_scalars": args.lr_scalars,
             "depth_init_mode": args.depth_init_mode,
             "lr_cooldown_shape": args.lr_cooldown_shape,
+            "ns_warmstart_alpha": float(args.ns_warmstart_alpha),
         },
     )
 
@@ -868,6 +931,7 @@ for trial_idx in range(args.num_trials):
             dict(named_params=attn_named, lr=args.lr_attn, weight_decay=args.wd_attn, name="muon_attn"),
         ],
         soap_attn=args.soap_attn, trust_threshold=args.soap_trust_threshold,
+        ns_warmstart_alpha=args.ns_warmstart_alpha,
     )
     optimizers = [optimizer1, optimizer2]
     assert set(p for opt in optimizers for group in opt.param_groups
@@ -1058,6 +1122,9 @@ for trial_idx in range(args.num_trials):
                 per_group_metrics["train/wd_attn_now"] = current_wds.get("muon_attn", 0.0)
                 per_group_metrics["train/wd_schedule_progress"] = train_step / train_steps
                 per_group_metrics["cooldown_shape/eta_at_step"] = eta_actual
+                if optimizer2.ns_diag_buffer:
+                    for k, v in optimizer2.ns_diag_buffer.items():
+                        per_group_metrics[f"ns_warmstart/{k}"] = float(v.item())
                 wandb.log(per_group_metrics, step=wandb_step)
         if dist.get_rank() == 0 and optimizer2.cos_sims_buffer:
             cs_names = list(optimizer2.cos_sims_buffer.keys())
