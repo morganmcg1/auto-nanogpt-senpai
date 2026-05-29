@@ -455,6 +455,11 @@ MU_COOLDOWN_END = float(os.environ.get("MU_COOLDOWN_END", "0.95"))
 MU_WARMUP_STEPS = int(os.environ.get("MU_WARMUP_STEPS", "0"))
 MU_WARMUP_START = float(os.environ.get("MU_WARMUP_START", "0.85"))
 MUON_LR = float(os.environ.get("MUON_LR", "0.0375"))
+PER_KIND_MUON_LR_ENABLED = int(os.environ.get("PER_KIND_MUON_LR_ENABLED", "0"))
+MUON_LR_Q_MULT = float(os.environ.get("MUON_LR_Q_MULT", "1.0"))
+MUON_LR_K_MULT = float(os.environ.get("MUON_LR_K_MULT", "1.0"))
+MUON_LR_V_MULT = float(os.environ.get("MUON_LR_V_MULT", "1.0"))
+MUON_LR_PROJ_MULT = float(os.environ.get("MUON_LR_PROJ_MULT", "1.0"))
 MUON_WEIGHT_DECAY = 0.025  # nominal; Muon.step does not apply explicit wd (u/w-floor replaces it)
 TARGET_UW = 0.35
 NORMUON_BETA2 = 0.95
@@ -655,6 +660,17 @@ class Muon(torch.optim.Optimizer):
         params = sorted([p for _, p in named_params], key=lambda x: x.size(), reverse=True)
         defaults = dict(lr=lr, weight_decay=weight_decay, mu=mu)
         super().__init__(params, defaults)
+        if PER_KIND_MUON_LR_ENABLED:
+            n_q = sum(1 for k in self.attn_soap_kind.values() if k == "q")
+            n_k = sum(1 for k in self.attn_soap_kind.values() if k == "k")
+            n_v = sum(1 for k in self.attn_soap_kind.values() if k == "v")
+            n_proj = sum(1 for k in self.attn_soap_kind.values() if k == "proj")
+            print(f"[PER_KIND_MUON_LR] enabled=1 "
+                  f"q_mult={MUON_LR_Q_MULT}(n={n_q}) k_mult={MUON_LR_K_MULT}(n={n_k}) "
+                  f"v_mult={MUON_LR_V_MULT}(n={n_v}) proj_mult={MUON_LR_PROJ_MULT}(n={n_proj}) "
+                  f"base_lr={MUON_LR}")
+        else:
+            print(f"[PER_KIND_MUON_LR] enabled=0 base_lr={MUON_LR}")
 
     @torch.no_grad()
     def step(self):
@@ -709,7 +725,22 @@ class Muon(torch.optim.Optimizer):
                     scale = torch.where(cur_uw < TARGET_UW, TARGET_UW * p_fro / u_fro, torch.ones_like(p_fro))
                     update = update * scale.to(update.dtype)
                     # Explicit weight decay intentionally omitted (matches record #14; u/w-floor replaces wd).
-                    p.add_(update, alpha=-group["lr"])
+                    if PER_KIND_MUON_LR_ENABLED and use_attn_soap:
+                        kind = self.attn_soap_kind.get(id(p))
+                        if kind == "q":
+                            kind_mult = MUON_LR_Q_MULT
+                        elif kind == "k":
+                            kind_mult = MUON_LR_K_MULT
+                        elif kind == "v":
+                            kind_mult = MUON_LR_V_MULT
+                        elif kind == "proj":
+                            kind_mult = MUON_LR_PROJ_MULT
+                        else:
+                            kind_mult = 1.0
+                        effective_lr = group["lr"] * kind_mult
+                    else:
+                        effective_lr = group["lr"]
+                    p.add_(update, alpha=-effective_lr)
                     # Refresh SOAP state with the raw grad (after applying the step).
                     if use_soap:
                         soap_refresh(grad, state)
@@ -856,6 +887,12 @@ if dist.get_rank() == 0:
             "optimizer/mu_warmup_steps": MU_WARMUP_STEPS,
             "optimizer/mu_warmup_start": MU_WARMUP_START,
             "optimizer/muon_lr": MUON_LR,
+            "optimizer/per_kind_muon_lr_enabled": int(PER_KIND_MUON_LR_ENABLED),
+            "optimizer/muon_lr_q_mult": MUON_LR_Q_MULT,
+            "optimizer/muon_lr_k_mult": MUON_LR_K_MULT,
+            "optimizer/muon_lr_v_mult": MUON_LR_V_MULT,
+            "optimizer/muon_lr_proj_mult": MUON_LR_PROJ_MULT,
+            "optimizer/effective_muon_lr_v": MUON_LR * MUON_LR_V_MULT,
             "optimizer/muon_weight_decay_nominal": MUON_WEIGHT_DECAY,
             "optimizer/target_uw": TARGET_UW,
             "optimizer/normuon_beta2": NORMUON_BETA2,
