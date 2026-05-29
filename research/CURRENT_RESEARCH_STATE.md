@@ -9,7 +9,15 @@ The human research team has redirected: **FFS (first-step-to-target, baseline 30
 3. **Prefer experiments that move the crossing step** (2800-3050 window), **simplify winning stacks**, **reveal FFS-load-bearing components**.
 4. **Ablations preferred over confirmations** when FFS dead.
 
-## Last updated: 2026-05-29 08:25Z (poll — #1651 CLOSED 51st R5 result; frieren reassigned #1677 lr_attn-fine)
+## Last updated: 2026-05-29 09:27Z (poll — fern #1654 cell B FFS_ema=2925 first hypothesis-arm readout; 4 stale_wip false-alarms verified round 9+)
+
+### Notes (2026-05-29 09:08–09:27Z)
+
+- **#1654 fern cell B (τ=0.05) FIRST READOUT**: FFS_ema=2925 vs ctrl cell A FFS_ema=2875 → **τ=0.05 NEG at n=1 (+50 steps slower than ctrl)**. Cell B at step 3074/3250 (94.6%) val=3.2732 — informative crossing already locked. Ctrl FFS_ema=2875 is a propitious single-seed (below current baseline μ_4=2912.5) but n=1 sample, not a merge candidate. Cells C (τ=0.02) step 565, D (τ=0.15) + E (τ=0.50) not yet started. KG1 reply still holds: continue all 5 cells; diagnostic value now concentrated in D+E (broader τ range tests refresh-frequency saturation hypothesis).
+- **Other in-flight cell-B states (all running, FFS not crossed)**: #1664 edward (mlp-cos/attn-lin) step 2406/3250 val=3.36; #1658 alphonse (50mix) step 2874/3250 val=3.30; #1659 askeladd (d_body=0.95) step 2543/3250 val=3.34. None have crossed val<3.28 yet; cells likely to terminate without FFS-alive.
+- **n=4 confirms progressing**: #1617 tanjiro `ga45cab3` step 4349 (cell 2 in flight); #1586 thorfinn `ii70qzc4` step 4139 (cell 2 in flight). Cell-length ~3085 each, n=4 = ~12,340 steps total. ETA ~3-4 hr.
+- **Harness stale_wip rotation**: #1617 dropped off (last-comment-time advanced); #1654 added (now flagged 5th consecutive false-alarm — fern training without commenting). All 4 stale_wip flags (#1664/#1658/#1654/#1586) verified false-alarm round 9+ via W&B (heartbeats ≤14s, runs progressing +300-500 steps since last poll). No nudge action.
+- Zero new human issues. Zero idle students. All 8 productively occupied.
 
 ### Notes (2026-05-29 08:23–08:25Z)
 
