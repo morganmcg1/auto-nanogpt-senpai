@@ -86,6 +86,22 @@ def parse_args():
              "step: eta = 1 if x < 0.8 else 0 (falsifier - no decay until last 20% of cooldown).",
     )
     parser.add_argument(
+        "--lr_cooldown_shape_mlp",
+        type=str,
+        default=None,
+        choices=["linear", "cosine", "concave", "convex", "step"],
+        help="Cooldown LR shape override for the muon_mlp param group. "
+             "None (default) = use --lr_cooldown_shape (baseline behaviour).",
+    )
+    parser.add_argument(
+        "--lr_cooldown_shape_attn",
+        type=str,
+        default=None,
+        choices=["linear", "cosine", "concave", "convex", "step"],
+        help="Cooldown LR shape override for the muon_attn param group. "
+             "None (default) = use --lr_cooldown_shape (baseline behaviour).",
+    )
+    parser.add_argument(
         "--depth_init_mode",
         type=str,
         default="ctrl",
@@ -784,6 +800,8 @@ if dist.get_rank() == 0:
             "lr_scalars": args.lr_scalars,
             "depth_init_mode": args.depth_init_mode,
             "lr_cooldown_shape": args.lr_cooldown_shape,
+            "lr_cooldown_shape_mlp": args.lr_cooldown_shape_mlp,
+            "lr_cooldown_shape_attn": args.lr_cooldown_shape_attn,
             "ema_eval_decay": args.ema_eval_decay,
             "ema_eval_enabled": args.ema_eval_decay is not None,
         },
@@ -917,18 +935,33 @@ for trial_idx in range(args.num_trials):
     def set_hparams(step, cooldown_frac=0.7):
         progress = step / train_steps
         assert 0 <= progress < 1
-        if progress < 1 - cooldown_frac:
-            eta = 1.0
-        else:
-            x = (progress - (1 - cooldown_frac)) / cooldown_frac
-            eta = _cooldown_eta(x, args.lr_cooldown_shape)
         wd_mu = _wd_multiplier(step, train_steps, args.wd_schedule)
+        if progress < 1 - cooldown_frac:
+            for opt in optimizers:
+                for group in opt.param_groups:
+                    group["lr"] = group["initial_lr"]
+                    if "initial_wd" in group and group.get("name", "").startswith("muon_"):
+                        group["weight_decay"] = group["initial_wd"] * wd_mu
+            return 1.0
+        x = (progress - (1 - cooldown_frac)) / cooldown_frac
+        global_eta = _cooldown_eta(x, args.lr_cooldown_shape)
+        mlp_eta = (_cooldown_eta(x, args.lr_cooldown_shape_mlp)
+                   if args.lr_cooldown_shape_mlp is not None else global_eta)
+        attn_eta = (_cooldown_eta(x, args.lr_cooldown_shape_attn)
+                    if args.lr_cooldown_shape_attn is not None else global_eta)
         for opt in optimizers:
             for group in opt.param_groups:
-                group["lr"] = group["initial_lr"] * eta
-                if "initial_wd" in group and group.get("name", "").startswith("muon_"):
+                gname = group.get("name", "")
+                if gname == "muon_mlp":
+                    eta_g = mlp_eta
+                elif gname == "muon_attn":
+                    eta_g = attn_eta
+                else:
+                    eta_g = global_eta
+                group["lr"] = group["initial_lr"] * eta_g
+                if "initial_wd" in group and gname.startswith("muon_"):
                     group["weight_decay"] = group["initial_wd"] * wd_mu
-        return eta
+        return mlp_eta
 
 
     ########################################
