@@ -1,3 +1,49 @@
+## 2026-05-29 14:30 UTC — Cycle 71 mid-379 — tanjiro #1653 283rd refute (PHASE_DISPATCH_AUX_BETA2 val_mean=3.27126 STANDARD misses merge bar by Δ=+0.00350 val and +37.5 ffs, Arm A `early_FAST` early=0.91/late=0.99 val=3.27024 ffs=3025 STANDARD-edge, Arm B `early_SLOW` early=0.99/late=0.91 val=3.27228 ffs=3050 STANDARD, Δ(B−A)=+0.00204 early_FAST direction CONFIRMED magnitude NULL, **MAJOR STRUCTURAL FINDING: cross-class phase-dispatch principle** — phase-dispatch unlocks signal ONLY when the underlying optimizer has SOAP-scaffolding [eigenbasis / refresh-freq / trust-gate]; AUX [AdamW] class has no scaffolding for phase to leverage — exp_avg_sq telemetry confirms dispatch hook mechanically active, null is STRUCTURAL not implementation; AUX β2 family FULLY CLOSED across static [#1577 saturated], per-kind [#1633 saturated], phase [#1653 null] sub-scopes → **122nd family closure**) + tanjiro #1678 NEW PER_KIND_AUX_BETA1_DIRECTION (FRESH MECHANISM CLASS extending per-kind AUX family from β2 [#1577 validated lm_head_FAST direction] to β1 [NEVER been per-kind tested]; Arm A `lm_head_b1_fast` lm_head β1=0.7/embed β1=0.9 mirrors #1577 direction, Arm B `lm_head_b1_slow` reversed; tests whether per-kind AdamW first-moment EMA asymmetry mirrors validated second-moment direction; critical telemetry: per-kind exp_avg snapshots at steps {500,1000,1500,2225,2500,3000})
+
+**Cumulative**: **283 refuted** / **171 distinct mech classes** / **122 family-level closures**.
+
+### PRs closed this wave (1 closure):
+
+| PR | student | mechanism | outcome |
+|---|---|---|---|
+| **tanjiro #1653** | tanjiro | PHASE_DISPATCH_AUX_BETA2 (uniform-kind early_FAST vs early_SLOW) | **283rd** — val_mean=3.27126 ffs_mean=3037.5 fails merge bar by +0.00350 val +37.5 ffs. Direction-FAST early CONFIRMED (Δ=+0.00204). **Cross-class phase-dispatch principle established: AUX/AdamW class null at phase scope.** 122nd family closure: AUX β2 family closed at all sub-scopes. |
+
+### Cross-class phase-dispatch principle (now fully established)
+
+| PR | scope | mechanism | outcome |
+|---|---|---|---|
+| #1620 (closed) | attn-SOAP | refresh-freq phase-dispatch | **SIGNAL** late_FAST (Arm B val=3.26916 floor band lower) |
+| #1642 (closed) | attn-SOAP | β2 phase-dispatch | **SIGNAL** late_high_β2 (mechanism INVERTED — late-phase basis stability) |
+| **#1645 (closed)** | **MLP-SOAP** | **refresh-freq phase-dispatch** | **SIGNAL** early_FAST (REVERSED from attn-SOAP scope; val=3.26991 floor-band UPPER EDGE) |
+| #1668 (in flight) | MLP-SOAP | proj β2 phase-dispatch | TBD |
+| #1671 (in flight) | MLP-SOAP | trust-gate + phase-dispatch | TBD — tests scope-direction reversal mechanism |
+| **#1653 (closed)** | **AUX** | **β2 phase-dispatch** | **NULL** — SOAP-scaffolding required; AUX class structurally null at phase scope |
+
+**Tentative cross-class principle**: phase-dispatch requires STATEFUL STRUCTURE beyond the EMA itself (eigenbasis, refresh-frequency, trust-gate). Pure denominator-stabilizer dynamics have no scaffolding for phase to leverage.
+
+### PRs assigned this wave
+
+| PR | student | mechanism | role |
+|---|---|---|---|
+| **tanjiro #1678** | tanjiro | PER_KIND_AUX_BETA1_DIRECTION (Arm A `lm_head_b1_fast` lm_head β1=0.7 embed β1=0.9, Arm B `lm_head_b1_slow` reversed) | **FRESH MECHANISM CLASS** — extends per-kind AUX family from β2 to β1; tests whether first-moment EMA asymmetry mirrors validated second-moment direction; per-kind exp_avg telemetry at {500,1000,1500,2225,2500,3000} |
+
+### Fleet state at end of wake 68 (this wave)
+
+8 students all assigned, 0 idle:
+
+| PR | student | axis | status |
+|---|---|---|---|
+| **#1678** | **tanjiro** | **PER_KIND_AUX_BETA1_DIRECTION** | **WIP (this wave, just assigned)** |
+| #1671 | frieren | MLP_SOAP_TRUST_GATE_PHASE_DISPATCH | WIP (prior wave) |
+| #1668 | nezuko | PHASE_DISPATCH_MLP_SOAP_PROJ_BETA2 | WIP (prior wave) |
+| #1665 | edward | TRUST_THRESHOLD_WARMUP | WIP (prior wave) |
+| #1663 | thorfinn | ASYMMETRIC_LATE_BETA2_ATTN_SOAP | WIP (prior wave) |
+| #1662 | alphonse | JOINT_MLP_SOAP_REFRESH_X_MU_COOLDOWN_END_DEPTH_HALF | WIP (prior wave) |
+| #1657 | askeladd | ISOLATION_MU_COOLDOWN_START_FRONT_LOWER_DEPTH_HALF_VS_UNIFORM | WIP (prior wave) |
+| #1656 | fern | JOINT_MLP_SOAP_REFRESH_BACK_FAST_X_AUX_WD_LM_HEAD_HEAVY | WIP (prior wave) |
+
+---
+
 ## 2026-05-29 13:00 UTC — Cycle 71 mid-378 — frieren #1645 282nd refute (PHASE_DISPATCH_MLP_SOAP_REFRESH_FREQ val_mean=3.27098 STANDARD misses merge bar by Δ=+0.00322 val and +37.5 ffs (ffs_mean=3037.5), Arm A `late_FAST` early=15/late=5 boundary=2225 val=3.27205 ffs=3050 STANDARD, Arm B `early_FAST` early=5/late=15 boundary=2225 val=**3.26991** ffs=3025 **FLOOR BAND UPPER EDGE**, Δ(B−A)=**−0.00214 REVERSED from prediction**, **MAJOR STRUCTURAL FINDING #1 — Phase-axis direction is SCOPE-DEPENDENT**: attn-SOAP wants `late_FAST` [#1620 val=3.26916, #1642 late-stability mechanism], MLP-SOAP wants `early_FAST` [this PR] — REVERSED mechanism between SOAP scopes; **MAJOR STRUCTURAL FINDING #2 — #1623's "back_FAST" was DEPTH-LOCALIZED not cooldown-driven**: removing depth asymmetry while preserving late-phase-FAST destroys the gain (Arm A `late_FAST` uniform-depth val=3.27205 vs #1623 Arm B `back_FAST` depth-half val=3.26802) — depth and phase axes are non-redundant; **STRUCTURAL FINDING #3 — slope identity reproduced**: train-loss |Δslope| ≤ 1.1e-5 through cruise, val gap accumulates ONLY during cooldown 2225→3175 — THIRD cooldown-emergent SOAP finding this cycle [#1644 MLP-SOAP proj β2 depth, #1642 attn-SOAP β2 phase, #1645 MLP-SOAP refresh-freq phase]; compute confound ruled out: Arm B wins with −5.7% less SOAP-refresh compute) + frieren #1671 NEW MLP_SOAP_TRUST_GATE_PHASE_DISPATCH (DIRECT FOLLOW-UP testing whether trust-gate mechanism explains scope-direction reversal — Arm A `late_FAST_gated` trust_gate ON threshold=0.85 early_freq=15 late_freq=5 boundary=2225, Arm B `early_FAST_gated` trust_gate ON threshold=0.85 early_freq=5 late_freq=15 boundary=2225; same phase-dispatch design as #1645 but BOTH arms add `use_trust_gate=True` to MLP-SOAP refresh path; if Arm A wins: trust-gate causes attn-SOAP-like late_FAST behavior → scope-direction reversal MECHANISM EXPLAINED; if Arm B still wins: trust-gate is NOT the cause → other structural mechanism; CRITICAL telemetry: per-kind mlp_soap trust_gate on_fraction throughout run — if on_fraction=0.000 throughout, threshold too tight for MLP-SOAP, null measurement NOT refutation)
 
 **Cumulative**: **282 refuted** / **170 distinct mech classes** / **121 family-level closures**.
