@@ -84,6 +84,13 @@ def parse_args():
     parser.add_argument('--aux_b2_pulse_target', type=float, default=0.99,
                         help='New aux Adam β2 value to set at --aux_b2_pulse_step. '
                              '0 or negative disables. Default: 0.99 (canonical WIN).')
+    parser.add_argument('--muon_momentum_reset_step', type=int, default=-1,
+                        help='Step at which to reset/scale body-Muon momentum buffers. '
+                             '-1 disables. Canonical value: 2600 (pEMA refresh step).')
+    parser.add_argument('--muon_momentum_reset_scale', type=float, default=0.0,
+                        help='Scale factor applied to body-Muon momentum buffers at the '
+                             'reset step. 0.0 = hard zero reset (Arm A). 0.1 = heavy damping '
+                             '(Arm B). Default 0.0.')
     parser.add_argument("--seed", type=int, default=1,
                         help="Random seed for torch/numpy/python. Default 1 matches baseline seed.")
     args = parser.parse_args()
@@ -758,6 +765,8 @@ if dist.get_rank() == 0:
             "paramema_refresh_only": int(args.paramema_refresh_only),
             "aux_b2_pulse_step": args.aux_b2_pulse_step,
             "aux_b2_pulse_target": args.aux_b2_pulse_target,
+            "muon_momentum_reset_step": args.muon_momentum_reset_step,
+            "muon_momentum_reset_scale": args.muon_momentum_reset_scale,
             "seed": args.seed,
         },
     )
@@ -1099,6 +1108,61 @@ for trial_idx in range(args.num_trials):
                 if dist.get_rank() == 0:
                     print0(f"paramEMA refresh fired at step={step} "
                            f"(buffer reset to live params)", console=True)
+        # Muon momentum reset: after optimizer2.step() (uses momentum) and after
+        # the pEMA refresh (eval buffer reset), optionally scale the body-Muon
+        # momentum buffers. pEMA refresh re-seeds the EMA inference buffer with
+        # the current live params (it does NOT relocate the training iterate),
+        # so the hypothesis is that the just-accumulated body-Muon momentum,
+        # which reflects pre-refresh gradient history, is suboptimal heading
+        # into the final ~650 cooldown steps.
+        if (args.muon_momentum_reset_step > 0
+                and step == args.muon_momentum_reset_step):
+            reset_count = 0
+            keys_seen: dict[str, int] = {}
+            for p_state in optimizer2.state.values():
+                for key in ("momentum", "momentum_buffer", "exp_avg", "exp_avg_sq"):
+                    if key in p_state:
+                        p_state[key].mul_(args.muon_momentum_reset_scale)
+                        reset_count += 1
+                        keys_seen[key] = keys_seen.get(key, 0) + 1
+            if dist.get_rank() == 0:
+                keys_str = ",".join(f"{k}:{v}" for k, v in sorted(keys_seen.items()))
+                print0(
+                    f"[step {step}] muon_momentum_reset: scale={args.muon_momentum_reset_scale}, "
+                    f"buffers_scaled={reset_count}, keys={{{keys_str}}}",
+                    console=True,
+                )
+                wandb.log({
+                    "trial": trial_idx,
+                    "train/step": train_step,
+                    "muon/momentum_reset_scale": args.muon_momentum_reset_scale,
+                    "muon/momentum_reset_buffers": reset_count,
+                }, step=wandb_step)
+        # Body-Muon grad-norm probe around the reset step. At each probe step
+        # (just after the current iteration's opt.step), gradients have already
+        # been all-reduced and consumed by Muon. Reading p.grad here gives the
+        # grad that drove this step's update — useful as a localized disruption
+        # signal around the reset event.
+        if (args.muon_momentum_reset_step > 0
+                and dist.get_rank() == 0):
+            probe_offset = step - args.muon_momentum_reset_step
+            # offsets relative to reset_step:
+            #   -1 = pre-reset baseline (grad of step 2599)
+            #    0 = at-reset (grad of step 2600 that drove pre-reset Muon update)
+            #   +1 = first post-reset (grad of step 2601, after zeroed momentum)
+            #   +25 = recovery probe (grad 25 steps post-reset)
+            if probe_offset in (-1, 0, 1, 25):
+                sq_sum = 0.0
+                for pg in optimizer2.param_groups:
+                    for p in pg["params"]:
+                        if p.grad is not None:
+                            sq_sum += float(p.grad.detach().float().square().sum().item())
+                wandb.log({
+                    "trial": trial_idx,
+                    "train/step": train_step,
+                    "muon/grad_norm_probe": sq_sum ** 0.5,
+                    "muon/grad_norm_probe_offset": probe_offset,
+                }, step=wandb_step)
         if dist.get_rank() == 0 and telemetry_due:
             log_weight_telemetry(
                 model=model,
