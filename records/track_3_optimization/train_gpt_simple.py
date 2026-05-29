@@ -96,6 +96,12 @@ def parse_args():
                         help="Starting value of µ schedule (used by linear and cooldown_ramp modes).")
     parser.add_argument("--muonh_mu_end", type=float, default=float(os.environ.get("MUONH_MU_END", "0.98")),
                         help="Ending value of µ schedule (used by linear and cooldown_ramp modes).")
+    parser.add_argument("--muonh_qhm_nu", type=float,
+                        default=float(os.environ.get("MUONH_QHM_NU", "0.0")),
+                        help="QHM blend weight for MuonH body inner update (H278). "
+                             "0.0 (default) = disabled, bit-identical to nesterov=True baseline. "
+                             "> 0 sets update = (1-nu)*g + nu*m before NS5, decoupling nu from mu. "
+                             "0.95 = same as nesterov=True. 0.70/0.50 = more raw gradient in update.")
     parser.add_argument("--body_init", type=str, default=os.environ.get("BODY_INIT", "default"),
                         choices=["default", "orthogonal_fnorm_matched", "orthogonal_bottom_damp"],
                         help="Initialization scheme for body MuonH 2D weights (attn.q/k/v, attn.proj, mlp.fc, mlp.proj). "
@@ -569,9 +575,17 @@ def zeropower_via_newtonschulz5(G: Tensor) -> Tensor:
     return X
 
 @torch.compile
-def muon_update(grad, momentum, mu=0.95, nesterov=True):
-    momentum.lerp_(grad, 1 - mu)
-    update = grad.lerp_(momentum, mu) if nesterov else momentum
+def muon_update(grad, momentum, mu=0.95, nesterov=True, qhm_nu=0.0):
+    if qhm_nu > 0.0:
+        # QHM (H278): save raw grad before in-place momentum update, then blend.
+        g_raw = grad.clone()
+        momentum.lerp_(grad, 1 - mu)  # m_t = mu*m_{t-1} + (1-mu)*g_t (in-place)
+        # update = (1-nu)*g_raw + nu*m_t — decouples blend weight from EMA rate
+        update = g_raw.mul_(1.0 - qhm_nu).add_(momentum, alpha=qhm_nu)
+    else:
+        # Baseline path: bit-identical to H203 baseline (nesterov=True, nu=mu implicit).
+        momentum.lerp_(grad, 1 - mu)
+        update = grad.lerp_(momentum, mu) if nesterov else momentum
     update = zeropower_via_newtonschulz5(update)
     update *= max(1, grad.size(-2) / grad.size(-1))**0.5
     return update
@@ -674,12 +688,13 @@ class MuonH(torch.optim.Optimizer):
     norm exactly constant; weight_decay must be 0.
     """
     def __init__(self, params, lr=0.018, weight_decay=0.0, mu=0.95,
-                 hyperball=True, budget_mult=1.0, mode="clip"):
+                 hyperball=True, budget_mult=1.0, mode="clip", qhm_nu=0.0):
         assert isinstance(params, list) and len(params) >= 1 and isinstance(params[0], torch.nn.Parameter)
         assert mode in ("clip", "scale_invariant")
         params = sorted(params, key=lambda x: x.size(), reverse=True)
         defaults = dict(lr=lr, weight_decay=weight_decay, mu=mu,
-                        hyperball=hyperball, budget_mult=budget_mult, mode=mode)
+                        hyperball=hyperball, budget_mult=budget_mult, mode=mode,
+                        qhm_nu=qhm_nu)
         super().__init__(params, defaults)
         self._last_active_fraction = 0.0
         self._last_radius_to_norm_max = 0.0
@@ -707,7 +722,8 @@ class MuonH(torch.optim.Optimizer):
                         state["momentum"] = torch.zeros_like(p)
                         if hb:
                             state["hyperball_radius"] = p.data.norm().item() * budget_mult
-                    update = muon_update(p.grad, state["momentum"], mu=group["mu"])
+                    update = muon_update(p.grad, state["momentum"], mu=group["mu"],
+                                         qhm_nu=group.get("qhm_nu", 0.0))
                     if hb and mode == "scale_invariant":
                         # Always-active variant: norm is held at initial value by construction.
                         scale_invariant_update_(p.data, update, group["lr"])
@@ -856,6 +872,7 @@ if dist.get_rank() == 0:
             "muonh_mu_start": args.muonh_mu_start,
             "muonh_mu_end": args.muonh_mu_end,
             "polyak_ema_decay": args.polyak_ema_decay,
+            "muonh_qhm_nu": args.muonh_qhm_nu,
         },
     )
 
@@ -941,6 +958,10 @@ for trial_idx in range(args.num_trials):
                        hyperball=True, budget_mult=args.muonh_budget_mult,
                        mode=args.muonh_mode)
     optimizer2.param_groups[0]["name"] = "muonh_blocks"
+    # H278: set QHM blend weight on body optimizer param group.
+    # 0.0 = disabled (bit-identical baseline path). >0 = QHM blend active.
+    for group in optimizer2.param_groups:
+        group["qhm_nu"] = args.muonh_qhm_nu
     optimizers = [optimizer1, optimizer2]
     # AGC targets: AdamW aux groups (embed, lm_head, scalars). Built from optimizer1
     # param groups to track exactly the same params AdamW updates.
@@ -1242,6 +1263,8 @@ for trial_idx in range(args.num_trials):
                         muonh_metrics["train/muonh/norm_to_radius_max"] = opt._last_norm_to_radius_max
                     muonh_metrics["train/muonh/warmup_factor"] = muonh_warmup_factor
                     muonh_metrics["train/muonh/effective_lr"] = opt.param_groups[0]["lr"]
+            if args.muonh_qhm_nu > 0.0:
+                muonh_metrics["train/muonh/qhm_nu"] = args.muonh_qhm_nu
             if telemetry_due and args.aux_agc_clip_ratio > 0 and agc_stats["agc_total"] > 0:
                 muonh_metrics["train/agc/active_fraction"] = agc_stats["agc_clipped"] / agc_stats["agc_total"]
                 muonh_metrics["train/agc/clipped_count"] = agc_stats["agc_clipped"]
