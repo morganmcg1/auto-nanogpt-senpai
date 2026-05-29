@@ -1,3 +1,67 @@
+## 2026-05-29 01:10 UTC — Cycle 71 mid-367 — edward #1618 271st refute (V_ISOLATED_REFRESH val_mean=3.27004 STANDARD-edge Δ=+0.00228 vs baseline, |Δ(B−A)|=0.00070 weak v-drives direction signal on n=1 noise floor, Arm A 3.26969 6th floor-band entry [3.26926, 3.26992], STRUCTURAL FINDING: 4-tier eigenbasis-stability ordering q≈k>proj>v REPRODUCED exactly at refresh=15 — v-axis instability is the per-kind direction driver but magnitude is weak at uniform-depth) + edward #1640 NEW V_FAST_DEPTH_HALF_REFRESH (compound depth × per-kind on v-axis, mirror-symmetric compute budget, extends #1545 front_up + #1618 v-drives signals into v × depth compound)
+
+**Cumulative**: **271 refuted** / **160 distinct mech classes** / **117 family-level closures**.
+
+### PRs closed this wave (1 closure):
+
+| PR | student | mechanism | outcome |
+|---|---|---|---|
+| **edward #1618** | edward | V_ISOLATED_REFRESH (3-bucket per-kind: Arm A v_FAST_ONLY q/proj=15, v=5 vs Arm B proj_FAST_ONLY q/v=15, proj=5) | **271st** — Arm A val=3.26969 STANDARD-edge, Arm B val=3.27039 STANDARD; val_mean=3.27004 fails merge bar by Δ=+0.00228. Δ(B−A)=+0.00070 confirms v-drives direction but on n=1 noise floor. **6th entry** in empirical floor band [3.26926, 3.26992]. Per-kind on_fraction at terminal step reproduces #1583's 4-tier eigenbasis-stability ordering exactly. |
+
+### STRUCTURAL FINDING — Single-axis path fully saturated; 6 mechanism classes populate floor band
+
+The empirical floor cluster band [3.26926, 3.26992] now contains 6 axes spanning 4 distinct structural mechanism categories:
+
+| PR | mechanism | best-arm val | category |
+|---|---|---|---|
+| #1568 | MU_COOLDOWN_END_FRONT per-depth-half | 3.26992 | state-phase × per-group |
+| #1577 | PER_KIND_AUX_BETA2 (lm_head_TIGHT) | 3.26992 | per-group (AdamW) |
+| #1603 | PER_KIND_AUX_BETA2_PUSH (moderate) | 3.26985 | per-group (AdamW) |
+| #1595 | ATTN_SOAP_TERMINATION_STEP (terminate_2975) | 3.26926 BEST | state-phase |
+| #1611 Arm B | PER_KIND_WD_AUX (lm_head-heavy) | 3.26966 | per-group (AdamW) |
+| **#1618 Arm A (this wave)** | **V_FAST_ONLY (attn-SOAP per-kind refresh)** | **3.26969** | **per-kind (attn-SOAP)** |
+
+**Single-axis saturation is now conclusive**: 6 structurally distinct mechanisms (mu schedule, AdamW per-kind β2, AdamW per-kind WD, attn-SOAP termination, attn-SOAP per-kind refresh) all converge on the same empirical floor band. **The compound axis path is the only remaining structural route to break the floor.**
+
+### PRs assigned this wave
+
+| PR | student | mechanism | role |
+|---|---|---|---|
+| **edward #1640** | edward | V_FAST_DEPTH_HALF_REFRESH (Arm A `front_v_FAST` front blocks v=5/back blocks v=15 vs Arm B `back_v_FAST` front=15/back=5, q/k/proj=10 baseline throughout) | **Compound depth × per-kind on v-axis**. Mirror-symmetric compute budget (each arm has identical total v-refresh count = 5080). Tests whether v's confirmed eigenbasis-instability is **depth-asymmetric** (analogous to #1545 MLP-SOAP β2 front_up) OR **depth-uniform** (consistent with #1562/#1596 trust-gated depth-insensitivity findings, which were at AGGREGATE-kind not v-isolated). Direct cross-reference between attn-SOAP and MLP-SOAP scope on the front_up principle. |
+
+### Fleet state at end of wake 41 (this wave)
+
+8 students all assigned, 0 idle:
+
+| PR | student | axis | status |
+|---|---|---|---|
+| **#1640** | **edward** | **V_FAST_DEPTH_HALF_REFRESH** | **WIP (this wave, just assigned)** |
+| #1635 | askeladd | PER_DEPTH_HALF_MU_COOLDOWN_START_NARROW | WIP (prior wave) |
+| #1633 | fern | JOINT_PER_KIND_AUX_BETA2_WD | WIP (prior wave) |
+| #1616 | nezuko | JOINT_OUTPUT_PROJ_BETA2_FAST | WIP |
+| #1620 | thorfinn | PHASE_ATTN_SOAP_REFRESH_FREQ | WIP |
+| #1623 | frieren | PER_DEPTH_HALF_MLP_SOAP_REFRESH_FREQ | WIP |
+| #1628 | tanjiro | AUX_EPS_PER_KIND_FULL_RUN | WIP |
+| #1630 | alphonse | PER_DEPTH_SPLIT_MU_COOLDOWN_END | WIP |
+
+### Active research themes (cycle 71)
+
+1. **Single-axis path fully saturated** — 6 mechanism classes populate floor band [3.26926, 3.26992]. Compound axis path is the only structural route forward.
+2. **Compound axes in flight** — per-AUX-kind compound (#1633), per-kind × depth (#1640 v-axis, #1630 mu-axis), per-kind × phase (#1620), cross-scope compound (#1616).
+3. **mu_cooldown direction-axis** validated across both START and END boundaries; #1635 calibrates plateau magnitude.
+4. **Per-AUX-kind family** 6 mechanisms — kind-sensitivity universal, signs class-specific.
+5. **Trust-gated attn-SOAP layer scope CONFIRMED depth-insensitive** at aggregate-kind; #1640 tests whether kind-isolated (v) has depth signal masked at aggregate.
+
+### Next research directions
+
+1. **#1640 v × depth result determines attn-SOAP front_up universality**: if Arm A wins, the front_up principle (from MLP-SOAP β2 #1545) generalizes to attn-SOAP v-isolated, opening attn-SOAP-per-kind × depth as a multi-axis structural family. If null, kind isolation doesn't unmask depth signal; trust-gated depth-insensitivity is layer-scope-uniform.
+2. **#1633 per-AUX-kind compound result**: shapes per-AUX-kind family compound strategy.
+3. **#1635 plateau magnitude calibration**: if narrow spread lands in STANDARD, plateau axis becomes joinable with END boundary asymmetry.
+4. **MLP-SOAP axis expansion**: #1623 first non-β2 per-depth-half. Future: NS5_ITERS, m-EMA per-depth.
+5. **Phase-axis (#1620)**: extend to MLP-SOAP phase-dispatched if confirmed.
+
+---
+
 ## 2026-05-29 00:35 UTC — Cycle 71 mid-366 — askeladd #1613 270th refute (PER_DEPTH_HALF_MU_COOLDOWN_START DEGRADED val_mean=3.30771 Δ=+0.03995 vs baseline, |Δ(A−B)|=0.05572 STRONGEST single-axis direction signal of cycle 71, STRUCTURAL FINDING: front_LOWER direction GENERALIZES from cooldown END to cooldown START AND plateau mu axis is ~10× more sensitive than END axis) + askeladd #1635 NEW PER_DEPTH_HALF_MU_COOLDOWN_START_NARROW (±0.01 vs ±0.005 magnitude calibration of validated front_LOWER direction — bracketing the band-transition magnitude)
 
 **Cumulative**: **270 refuted** / **160 distinct mech classes** / **117 family-level closures**.
