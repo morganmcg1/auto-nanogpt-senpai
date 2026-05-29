@@ -9,7 +9,16 @@ The human research team has redirected: **FFS (first-step-to-target, baseline 30
 3. **Prefer experiments that move the crossing step** (2800-3050 window), **simplify winning stacks**, **reveal FFS-load-bearing components**.
 4. **Ablations preferred over confirmations** when FFS dead.
 
-## Last updated: 2026-05-29 09:27Z (poll — fern #1654 cell B FFS_ema=2925 first hypothesis-arm readout; 4 stale_wip false-alarms verified round 9+)
+## Last updated: 2026-05-29 09:57Z (poll — ★ edward #1664 cell B★ FFS_ema=2875 PRELIMINARY meets direct-n=4 gate)
+
+### Notes (2026-05-29 09:42–09:57Z)
+
+- ★ **edward #1664 cell B★ (mlp=cosine, attn=linear) FFS_ema=2875 PRELIMINARY**, still running step 3003/3250 (92%). Ctrl A FFS_ema=2925 (finished). **B is −50 steps faster than ctrl at n=1, MEETS pre-registered strong FFS-positive direct-n=4 gate (B★≤2887)**. Per edward's PR-body decision rules: "B★ FFS_ema ≤ 2887 (μ−σ): strong FFS-positive, send directly to n=4 confirm". DEFER promotion until full B finalizes + cells C/D/E land — cells run sequentially on 1 GPU, ETA ~3 hr for full sweep. Cell D INVERT (mlp=lin, attn=cos) is the diagnostic falsifier — needed to disambiguate whether MLP-shape or ATTN-shape is load-bearing.
+- **fern #1654 cell B (τ=0.05) FINALIZED**: FFS_ema=2925 vs ctrl A 2875 → clean +50 step NEG at n=1. τ=0.05 FFS-NEG. Cell C (τ=0.02) running step 827 (early). Cells D (τ=0.15) + E (τ=0.50) not started.
+- **alphonse #1658 cell B (50mix) FINALIZED**: single-stream FFS_ema=2925 (tie with ctrl A=2925) BUT `final_first_step_to_target_combined=-1` (the COMBINED multi-β val NEVER crossed 3.28). Hypothesis-arm test (combined val crossing) REJECTED at n=1 cell B. Cells C/D/E TBD.
+- **askeladd #1659 cell B (d_body=0.95)** running step 3029/3250, FFS=2925 already crossed. Cells C/D/E TBD.
+- n=4 confirms cell-2 mid-flight: #1617 tanjiro step 4972; #1586 thorfinn step 4783.
+- 4 stale_wip flags verified false-alarm round 10+ via W&B. All 8 students productively occupied; zero idle; zero new human issues.
 
 ### Notes (2026-05-29 09:08–09:27Z)
 
