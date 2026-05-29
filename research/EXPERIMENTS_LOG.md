@@ -1,5 +1,33 @@
 # SENPAI Research Results — auto-nanogpt-1gpu-r4
 
+## 2026-05-29 19:40 — PR #1706: NM LR burst-DOWN follow-up (2-arm 0.95/0.90 sweep) — **CLOSED NULL/borderline-NEG, Class 18 TEMPORAL-BURST-WINDOW axis bidirectionally characterized**
+
+- branch: `g1r4-alphonse/nm-lr-burst-DOWN-sweep`
+- **Hypothesis**: if burst-window LR scale-UP causes overshoot (class 18a #1681 NEG), then scale-DOWN should dampen oscillation and FAV-converge; tests direction-symmetry of class 18 mechanism
+- **Reused ctrl**: #1681 Arm A `1tzlba9v` val=3.26206 FFS=3150 (saves 2.3 GPU-h)
+
+| Metric | Arm A ctrl (reused `1tzlba9v`) | Arm B DOWN-0.95 (`w4u60ldz`) | Arm C DOWN-0.90 (`fhz6rdk6`) |
+|---|---:|---:|---:|
+| val/loss terminal | 3.26206 | 3.26287 | 3.26198 |
+| Δ_paired vs Arm A | — | +0.00081 (borderline-NEG) | **−0.00008 (NULL)** |
+| FFS@3.28 | 3150 | ~3150 | ~3150 |
+| PP-promote trigger | — | FAIL | FAIL |
+
+- **W&B runs**: w4u60ldz (B mild-DOWN 0.95), fhz6rdk6 (C strong-DOWN 0.90), reused 1tzlba9v (A ctrl)
+
+**Results commentary**: DOWN-burst direction is NULL/borderline-NEG (Arm C Δ=−0.00008 essentially zero; Arm B Δ=+0.00081 marginally above NULL threshold). Does NOT beat baseline (Arm C 3.26198 vs 3.26183 = +0.00015 above baseline, N=1 not merge-eligible). Best-of-two PP-promote FAIL.
+
+**KEY MECHANISM FINDING — Class 18 bidirectional characterization**:
+1. **Overshoot-inverse falsified**: DOWN-burst predicted to FAV-converge; actual result NULL/borderline-NEG → NM-LR is NOT in simple overshoot regime post-#1543
+2. **Flat-bottom mechanism**: combined UP-NEG (Δ=+0.00126 #1681) + DOWN-NULL (Δ=−0.00008 this PR) = **flat-bottom locally-optimal NM-LR in pre-crossing window [2400, 3000)** = no productive perturbation on LR-scale axis in this window; UP perturbations amplify oscillation, DOWN perturbations stay within the basin
+3. **Within-burst R-buffer dynamics**: DOWN scaling caused FASTER descent inside burst window [2400, 3000) — lower step magnitude let R-buffer EMA re-equilibrate to better conditioning, partial offset of step-size reduction; burst advantage compressed during cooldown and didn't persist to terminal
+4. **Monotone-DOWN trend**: scale=0.95→0.90 improved Δ by +0.00089; linear extrapolation to scale=0.85 predicts Δ≈−0.0010 but diminishing-returns flat-bottom more likely
+5. **Asymmetry-flavor**: NEG-UP + NULL-DOWN = boundary-amplification UP only, not symmetric overshoot = mechanism is "amplified oscillation at boundary" rather than "missed saddle-point"
+
+**Conclusions**: Class 18 fully bidirectionally characterized. CLOSE as publishable mechanism finding. Assign follow-up class 24 TEMPORAL-NM-ENABLE-GATE (directive #1 aligned) to alphonse.
+
+---
+
 ## 2026-05-29 18:07 — PR #1698: NM max_d_in coverage axis (2-arm 2048/4096 sweep) — **CLOSED NEG-strong, Class 23 MODULE-SCOPE-COVERAGE-AXIS publishable mechanism finding**
 
 - branch: `g1r4-nezuko/nm-max-d-in-coverage-sweep`
