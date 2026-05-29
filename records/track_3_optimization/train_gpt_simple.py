@@ -464,6 +464,15 @@ SOAP_PRECOND_FREQ = 10
 ATTN_SOAP_BETA2 = 0.90
 ATTN_SOAP_PRECOND_FREQ = 10
 ATTN_SOAP_TRUST_THRESHOLD = float(os.environ.get("ATTN_SOAP_TRUST_THRESHOLD", "0.9"))
+# Phase-dispatch attn-SOAP β2 (PR #1663, reuses #1642 infrastructure): switch the
+# attn-SOAP gram-EMA β2 at a state-phase boundary step. When ENABLED=1 the
+# per-step soap_refresh call uses ATTN_SOAP_BETA2_EARLY while current step <
+# boundary, then ATTN_SOAP_BETA2_LATE from boundary onward. ENABLED=0 reproduces
+# the baseline ATTN_SOAP_BETA2 path exactly.
+PHASE_DISPATCH_ATTN_SOAP_BETA2_ENABLED = int(os.environ.get("PHASE_DISPATCH_ATTN_SOAP_BETA2_ENABLED", "0"))
+ATTN_SOAP_BETA2_EARLY = float(os.environ.get("ATTN_SOAP_BETA2_EARLY", str(ATTN_SOAP_BETA2)))
+ATTN_SOAP_BETA2_LATE = float(os.environ.get("ATTN_SOAP_BETA2_LATE", str(ATTN_SOAP_BETA2)))
+ATTN_SOAP_BETA2_PHASE_BOUNDARY_STEP = int(os.environ.get("ATTN_SOAP_BETA2_PHASE_BOUNDARY_STEP", "1500"))
 NS5_ITERS = int(os.environ.get("NS5_ITERS", "12"))
 WD_AUX = float(os.environ.get("WD_AUX", "0.0"))  # AdamW WD on embed + lm_head matrices (scalars stay at 0)
 EMBED_INIT_STD = float(os.environ.get("EMBED_INIT_STD", "1.0"))  # default preserves baseline N(0,1)
@@ -655,11 +664,22 @@ class Muon(torch.optim.Optimizer):
         params = sorted([p for _, p in named_params], key=lambda x: x.size(), reverse=True)
         defaults = dict(lr=lr, weight_decay=weight_decay, mu=mu)
         super().__init__(params, defaults)
+        # Per-optimizer step counter used by phase-dispatch features (e.g. PR #1663).
+        # Counts calls to step() across the whole training run.
+        self.train_step = 0
 
     @torch.no_grad()
     def step(self):
         world_size = dist.get_world_size()
         rank = dist.get_rank()
+        # Phase-dispatch attn-SOAP β2 (PR #1663): pick β2 for this step's gram EMA.
+        if PHASE_DISPATCH_ATTN_SOAP_BETA2_ENABLED:
+            cur_attn_soap_beta2 = (
+                ATTN_SOAP_BETA2_EARLY if self.train_step < ATTN_SOAP_BETA2_PHASE_BOUNDARY_STEP
+                else ATTN_SOAP_BETA2_LATE
+            )
+        else:
+            cur_attn_soap_beta2 = ATTN_SOAP_BETA2
         for group in self.param_groups:
             params = group["params"]
             params_pad = params + [torch.empty_like(params[-1])] * (world_size - len(params) % world_size)
@@ -714,11 +734,12 @@ class Muon(torch.optim.Optimizer):
                     if use_soap:
                         soap_refresh(grad, state)
                     elif use_attn_soap:
-                        soap_refresh(grad, state, beta2=ATTN_SOAP_BETA2,
+                        soap_refresh(grad, state, beta2=cur_attn_soap_beta2,
                                      refresh_freq=ATTN_SOAP_PRECOND_FREQ,
                                      use_trust_gate=True,
                                      trust_threshold=ATTN_SOAP_TRUST_THRESHOLD)
                 dist.all_gather(params_pad[base_i:base_i + world_size], params_pad[base_i + rank])
+        self.train_step += 1
 
     def trust_gate_stats(self) -> dict[str, float]:
         """Return aggregate + per-weight-type trust-gate telemetry across attention SOAP params.
@@ -864,11 +885,19 @@ if dist.get_rank() == 0:
             "optimizer/attn_soap_beta2": ATTN_SOAP_BETA2,
             "optimizer/attn_soap_precond_freq": ATTN_SOAP_PRECOND_FREQ,
             "optimizer/attn_soap_trust_threshold": ATTN_SOAP_TRUST_THRESHOLD,
+            "optimizer/phase_dispatch_attn_soap_beta2_enabled": int(PHASE_DISPATCH_ATTN_SOAP_BETA2_ENABLED),
+            "optimizer/attn_soap_beta2_early": ATTN_SOAP_BETA2_EARLY,
+            "optimizer/attn_soap_beta2_late": ATTN_SOAP_BETA2_LATE,
+            "optimizer/attn_soap_beta2_phase_boundary_step": ATTN_SOAP_BETA2_PHASE_BOUNDARY_STEP,
             "optimizer/ns5_iters": NS5_ITERS,
             "optimizer/wd_aux": WD_AUX,
             "optimizer/recipe": "contra-muon + normuon-lite + soap-on-mlp + soap-on-attn-trust-gate (pre-NS5, record #14 + record #16)",
         },
     )
+
+print0(f"[PHASE_DISPATCH_ATTN_SOAP_BETA2] enabled={PHASE_DISPATCH_ATTN_SOAP_BETA2_ENABLED} "
+       f"early={ATTN_SOAP_BETA2_EARLY} late={ATTN_SOAP_BETA2_LATE} "
+       f"boundary_step={ATTN_SOAP_BETA2_PHASE_BOUNDARY_STEP}", console=True)
 
 for trial_idx in range(args.num_trials):
 
