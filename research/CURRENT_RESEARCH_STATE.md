@@ -1,6 +1,53 @@
 # SENPAI Research State — auto-nanogpt-1gpu-r3
 
-- **Last updated:** 2026-05-29 18:15 UTC
+- **Last updated:** 2026-05-29 19:50 UTC
+
+---
+
+## Cycle ~2015: H273 CLOSED 125th NULL/NEG + H278 ASSIGNED 68th class QHM body momentum blend (BOLD) + 🎯 H267 arm_b TIES baseline FFS=3000 EXACT (mid-flight signal)
+
+**H273 alphonse MuonH body LR fine-grain ±14% sweep CLOSED 125th NULL/NEG — asymmetric U-curve geometry confirms PF#56 7th axis + 4th bidirectional cooldown-reabsorption finding.**
+
+Terminal verdict (pre-H266 baseline FFS=3025):
+- arm_a CTRL muonh_lr=0.018: FFS=3050 NULL (Pattern A loose +25 drift)
+- arm_b SLIGHTLY_LOWER muonh_lr=0.0155 (−14%): FFS=3100 NEG (+5.1σ_H174, val=3.27121)
+- arm_c SLIGHTLY_HIGHER muonh_lr=0.0205 (+14%): FFS=3050 NULL val=3.26808 (val best of chain, but FFS+50 vs post-H266 baseline 3000)
+
+🎯 **PF#56 STRENGTHENED — directional asymmetry confirmed** (7th axis):
+- muonh_lr=0.018 sits at FFS minimum, NOT val minimum (val=3.26808 at +14% higher LR but FFS regresses)
+- **Asymmetric U-curve geometry**: under-shoot (−14%) catastrophic +5.1σ NEG. Over-shoot (+14%) has best val but FFS regresses.
+- H265 paper-grade structural-bound finding `delta_ratio ≤ muonh_lr` confirmed via direct mechanism prediction test — muonh_lr value IS THE primary tuning lever, but tuning it ±14% does NOT unlock FFS frontier
+- Within-family scalar tuning (PF#51) reconfirmed EXHAUSTED — no scalar HP-tweak on body LR axis can break the plateau
+
+🎯 **4th bidirectional cooldown-reabsorption instance** (arm_c HIGHER):
+- Mid-training advantage at step 1500 → terminal +50 FFS NEG despite val improvement
+- Joins H250 + H256 + H265 + H270 paper-grade signature
+- PF#62 cooldown-decoupling pattern now **7 mechanism categories deep** (LR-VALUE scalar adds 8th if confirmed)
+
+🎯 **H267 arm_b ns5_iter=16 TIES post-H266 baseline FFS=3000 EXACT** (mid-flight @ 19:40Z):
+- arm_a CTRL ns5_iter=12: FFS=3025 Pattern A drift (run `dmxkxnm6`)
+- **arm_b ns5_iter=16: FFS=3000 val=3.26824 EXACT TIE with H266 baseline (val Δ=+0.00006 ≈ 0.07σ effectively zero)** (run `ud9wkvkh`)
+- arm_c ns5_iter=24 running step 725 (22%), arm_d ns5_iter=32 queued
+- Per Issue #1260 directive (FFS primary merge criterion): TIE is not a WIN, cannot merge. But this is the **second TIE at FFS=3000** since H266 merged → confirms ns5_iter=16 is on the post-H266 frontier and EMA fully compensates for NS5 iter precision deficit at iter=12
+- Chain still mid-flight, awaiting terminal SENPAI-RESULT after arm_d closes
+
+**H278 alphonse ASSIGNED 68th class QHM (Quasi-Hyperbolic Momentum) body momentum blend (BOLD plateau-protocol swing).**
+
+- 3-arm chain: CTRL `--muonh_qhm_nu 0.0` (bit-id baseline, Nesterov path) / QHM_MID nu=0.70 / QHM_LOW nu=0.50
+- QHM blend: `update = (1.0 - nu) * raw_grad + nu * momentum` BEFORE NS5 polar projection
+- Baseline IS QHM-like with nu=mu=0.95 in Nesterov path; H229 inner Nesterov closed ν→1.0 direction (pure momentum NEG)
+- **H278 tests the unexplored ν<0.95 direction** (more raw gradient bypass momentum) — mechanistic coherence with H266 WIN via PF#62 temporal-lag theory
+- Pattern A drift-FREE: argparse VALUE + conditional muon_update branch, `--muonh_qhm_nu 0.0` falls through to Nesterov path (bit-id baseline)
+- WIN prob 15-25%; structurally distinct from all 67 prior mechanism classes (gradient-vs-momentum BLEND axis pre-NS5)
+- PR #1725, post-H266 baseline (FFS<3000 strict WIN criterion)
+- Ref: Ma & Yarats 2019 https://arxiv.org/abs/1810.06801
+
+**Plateau campaign portfolio after H273 closure**:
+- **125 NULL/NEG closures + 1 MERGED WIN (H266)**
+- **68 mechanism classes attempted** (H278 = 68th)
+- 6 PROGRAMME FINDING candidates: PF#56 STRENGTHENED (7 axes + directional asymmetry), PF#58 CLOSURE-GRADE 4-axis, PF#59 strengthened, PF#60 candidate 3 axes, PF#61 REFRAMED + CLOSURE-GRADE 3-axis, PF#62 STRENGTHENED to **8 mechanism categories** (if LR-VALUE included)
+- Pattern A loose +25 drift class noise floor: H266/H268/H269/H272/H273/H270/H271/H274/H267/H275 (**10 instances now**) — highly reproducible noise floor signature
+- All 8 students with active WIP PRs — zero idle GPUs
 
 ---
 

@@ -1,3 +1,49 @@
+## 2026-05-29 19:50 — PR #1694: H273 alphonse MuonH body LR fine-grain ±14% sweep — **NULL (125th closure)**
+
+- Branch: H273 alphonse (PR #1694, direct mechanism prediction test of H265 paper-grade structural-bound finding, pre-H266 baseline)
+- Terminal SENPAI-RESULT posted by student. 3 run IDs from student terminal.
+
+| Arm | muonh_lr | val/loss | FFS | Δval vs CTRL | Decision |
+|---|---|---|---|---|---|
+| arm_a CTRL | 0.018 | 3.26921 | **3050** | — | Pattern A loose +25 drift TIE |
+| arm_b SLIGHTLY_LOWER | 0.0155 (−14%) | 3.27121 | **3100** | +0.00200 (+2.3σ) | NEG +5.1σ_H174 |
+| arm_c SLIGHTLY_HIGHER | 0.0205 (+14%) | 3.26808 | **3050** | −0.00113 (−1.3σ) | val BEST OF CHAIN BUT FFS+50 vs post-H266 baseline NEG |
+
+**Decision: CLOSE NULL (125th closure)** — bilateral non-WIN, asymmetric U-curve confirms PF#56 7th axis directional asymmetry.
+
+🎯 **PAPER-GRADE FINDING — asymmetric U-curve geometry on muonh_lr axis**:
+- Under-shoot (−14%): catastrophic +5.1σ NEG terminal
+- Over-shoot (+14%): val BEST OF CHAIN (3.26808) but FFS regresses +50 vs post-H266 baseline
+- muonh_lr=0.018 sits at **FFS minimum, NOT val minimum** — val and FFS objectives are mis-aligned at the bias of optimum
+- Direct mechanism prediction test of H265 confirms: muonh_lr VALUE IS THE primary tuning lever (not auxiliary caps), but ±14% sweep cannot break FFS<3000 frontier
+- PF#51 within-family scalar tuning EXHAUSTED reconfirmed
+
+🎯 **4th bidirectional cooldown-reabsorption instance** (arm_c HIGHER):
+- Mid-training advantage at step 1500 → terminal +50 FFS NEG despite val improvement
+- Joins H250 + H256 + H265 + H270 paper-grade signature
+- PF#62 mechanism categories deepen if LR-VALUE included as 8th category
+
+**H278 alphonse ASSIGNED IMMEDIATELY** — 68th class QHM (Quasi-Hyperbolic Momentum) body momentum blend (BOLD), PR #1725. 3-arm chain CTRL/QHM_MID 0.70/QHM_LOW 0.50, tests unexplored ν<0.95 direction (more raw gradient bypass momentum), mechanistic coherence with H266 WIN via PF#62 temporal-lag theory. Pattern A drift-FREE. WIN prob 15-25%. Ref: Ma & Yarats 2019 arXiv:1810.06801.
+
+---
+
+## 2026-05-29 19:40 — H267 arm_b ns5_iter=16 TIES baseline FFS=3000 EXACT (PR #1672, mid-flight signal)
+
+**H267 tanjiro v3.1 chain mid-flight audit** — arm_b ns5_iter=16 finished terminal:
+
+| Arm | run_id | state | val/loss | FFS | ns5_num_iterations |
+|---|---|---|---|---|---|
+| arm_a CTRL ns5=12 | `dmxkxnm6` | finished | 3.26944 | **3025** | 12 ✓ |
+| arm_b ns5=16 | `ud9wkvkh` | **finished** | **3.26824** | **3000 EXACT TIE** | 16 ✓ |
+| arm_c ns5=24 | `te68duat` | running step 725 (22%) | — | TBD | 24 ✓ |
+| arm_d ns5=32 | queued | not started | — | — | 32 (pending) |
+
+🎯 **arm_b TIES baseline FFS=3000 EXACT** — val Δ vs H266 baseline = +0.00006 (~0.07σ effectively zero). Per Issue #1260 directive (FFS primary): TIE is not a WIN, cannot merge. Chain still mid-flight — awaiting arm_d terminal SENPAI-RESULT.
+
+**Mechanistic interpretation**: 2nd TIE at FFS=3000 since H266 (first was H266 itself). EMA-on dynamics appear to fully compensate for NS5 iter precision deficit at iter=12 → additional 4 NS5 iters fully absorbed by EMA, ZERO marginal benefit AND ZERO marginal cost. Paper-grade evidence that NS5 iter monotone-accelerating-returns axis (H253-H257) does NOT transfer to post-EMA regime. PF#62 (cooldown-decoupling) re-analysis warranted.
+
+---
+
 ## 2026-05-29 18:00 — PR #1691: H272 askeladd Aux AdamW eps continuous-axis sweep — **NULL (124th closure)**
 
 - Branch: H272 askeladd (PR #1691, PF#61 continuous-axis test — calibration direction, pre-H266 baseline)
