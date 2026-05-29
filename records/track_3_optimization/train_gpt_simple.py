@@ -83,7 +83,22 @@ def parse_args():
                              '0 or negative disables. Default: 975 (cooldown onset, canonical WIN).')
     parser.add_argument('--aux_b2_pulse_target', type=float, default=0.99,
                         help='New aux Adam β2 value to set at --aux_b2_pulse_step. '
-                             '0 or negative disables. Default: 0.99 (canonical WIN).')
+                             '0 or negative disables. Default: 0.99 (canonical WIN). Acts as '
+                             'fallback when per-group overrides are -1 (the default).')
+    parser.add_argument('--aux_b2_pulse_target_embed', type=float, default=-1.0,
+                        help='Per-group β2 pulse target for adam_embed group. -1 (default) '
+                             'falls back to --aux_b2_pulse_target (canonical uniform behavior). '
+                             'Positive value (e.g. 0.95 or 0.99) sets the group β2 explicitly at '
+                             'the pulse step. Use 0.95 to express "no pulse" (β2 stays at '
+                             'pre-pulse canonical 0.95).')
+    parser.add_argument('--aux_b2_pulse_target_lm_head', type=float, default=-1.0,
+                        help='Per-group β2 pulse target for adam_lm_head group. -1 (default) '
+                             'falls back to --aux_b2_pulse_target. See '
+                             '--aux_b2_pulse_target_embed for semantics.')
+    parser.add_argument('--aux_b2_pulse_target_scalars', type=float, default=-1.0,
+                        help='Per-group β2 pulse target for adam_scalars group. -1 (default) '
+                             'falls back to --aux_b2_pulse_target. See '
+                             '--aux_b2_pulse_target_embed for semantics.')
     parser.add_argument("--seed", type=int, default=1,
                         help="Random seed for torch/numpy/python. Default 1 matches baseline seed.")
     args = parser.parse_args()
@@ -758,6 +773,9 @@ if dist.get_rank() == 0:
             "paramema_refresh_only": int(args.paramema_refresh_only),
             "aux_b2_pulse_step": args.aux_b2_pulse_step,
             "aux_b2_pulse_target": args.aux_b2_pulse_target,
+            "aux_b2_pulse_target_embed": args.aux_b2_pulse_target_embed,
+            "aux_b2_pulse_target_lm_head": args.aux_b2_pulse_target_lm_head,
+            "aux_b2_pulse_target_scalars": args.aux_b2_pulse_target_scalars,
             "seed": args.seed,
         },
     )
@@ -1056,14 +1074,22 @@ for trial_idx in range(args.num_trials):
                 wandb_step=wandb_step,
             )
         if (args.aux_b2_pulse_step > 0
-                and args.aux_b2_pulse_target > 0.0
                 and step == args.aux_b2_pulse_step):
-            old_b2 = optimizer1.param_groups[0]["betas"][1]
-            new_betas = (optimizer1.param_groups[0]["betas"][0], args.aux_b2_pulse_target)
+            per_group_targets = {
+                "adam_embed": args.aux_b2_pulse_target_embed,
+                "adam_lm_head": args.aux_b2_pulse_target_lm_head,
+                "adam_scalars": args.aux_b2_pulse_target_scalars,
+            }
             for group in optimizer1.param_groups:
-                group["betas"] = new_betas
-            print0(f"[step {step}] aux_b2_pulse: β2 {old_b2} → {args.aux_b2_pulse_target}",
-                   console=True)
+                gname = group.get("name", "")
+                target = per_group_targets.get(gname, -1.0)
+                if target < 0:
+                    target = args.aux_b2_pulse_target
+                if target > 0:
+                    old_b2 = group["betas"][1]
+                    group["betas"] = (group["betas"][0], target)
+                    print0(f"[step {step}] aux_b2_pulse group={gname} β2 {old_b2} → {target}",
+                           console=True)
         for opt in optimizers:
             opt.step()
         # EMA buffer update on body-Muon matrix params.
@@ -1167,6 +1193,12 @@ for trial_idx in range(args.num_trials):
             # latches to 1 at and after --paramema_refresh_step; lcov_refresh/fired
             # is always 0 in this branch (L_cov refresh not implemented). The
             # --paramema_refresh_only flag is recorded for run filtering.
+            aux_b2_per_group = {}
+            for group in optimizer1.param_groups:
+                gname = group.get("name", "")
+                if gname in ("adam_embed", "adam_lm_head", "adam_scalars"):
+                    short = gname.removeprefix("adam_")
+                    aux_b2_per_group[f"aux_b2_pergroup/{short}"] = group["betas"][1]
             wandb.log({
                 "trial": trial_idx,
                 "train/step": train_step,
@@ -1179,9 +1211,12 @@ for trial_idx in range(args.num_trials):
                 "aux_b2/current": optimizer1.param_groups[0]["betas"][1],
                 "aux_b2/pulse_step": args.aux_b2_pulse_step,
                 "aux_b2/pulse_target": args.aux_b2_pulse_target,
+                "aux_b2/pulse_target_embed": args.aux_b2_pulse_target_embed,
+                "aux_b2/pulse_target_lm_head": args.aux_b2_pulse_target_lm_head,
+                "aux_b2/pulse_target_scalars": args.aux_b2_pulse_target_scalars,
                 "aux_b2/fired": int(args.aux_b2_pulse_step > 0
-                                    and args.aux_b2_pulse_target > 0.0
                                     and step >= args.aux_b2_pulse_step),
+                **aux_b2_per_group,
             }, step=wandb_step)
         if dist.get_rank() == 0 and (train_step % 100 == 0 or train_step == train_steps):
             spec = pmuon_spectral_diag(optimizer2, PMUON_GAMMA)
