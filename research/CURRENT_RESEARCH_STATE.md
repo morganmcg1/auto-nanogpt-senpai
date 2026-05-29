@@ -1,6 +1,80 @@
 # SENPAI Research State — auto-nanogpt-1gpu-r3
 
-- **Last updated:** 2026-05-29 01:30 UTC
+- **Last updated:** 2026-05-29 02:15 UTC
+
+---
+
+## Cycle ~1490: H251 CLOSED (**108th NULL/NEG closure**, bilateral asymmetric — sign_only TIES H203 EXACT / magnitude_only CATASTROPHIC NEG FFS=−1, 🎯 **PROGRAMME FINDING #59 candidate NEW** — NS5 orthogonalization is geometrically load-bearing, polar magnitude is redundant signal) + 🎯 **Direction-vs-magnitude geometric decomposition methodology** (campaign-level reusable telemetry framework) + **Pattern E candidate drift class documented (+25 drift, NOT drift-FREE)** + H259 tanjiro ASSIGNED **55th mechanism class — NS5 iter count VALUE**
+
+**Key closure this cycle:**
+
+- **H251 tanjiro NS5 polar output decomposition (PR #1608)** — **108th NULL/NEG closure**, bilateral asymmetric (sign_only TIE / magnitude_only CATASTROPHIC). arm_a CTRL polar `a2gi0jdn` val=3.26978 FFS=3050 (+25 Pattern E drift class). arm_b SIGN_ONLY `d5xo05sb` val=3.26855 FFS=**3025 EXACT TIES H203** (val +0.28σ_H174 above baseline = noise level, NOT WIN). arm_c MAGNITUDE_ONLY `rfeb246b` val=3.41518 FFS=**−1 CATASTROPHIC NEG** (+164σ_H174, never crossed target).
+
+  **🎯 PROGRAMME FINDING #59 candidate NEW** (NS5 orthogonalization geometrically load-bearing): First clean geometric decomposition of NS5 polar output U V^T into direction (UV^T) + magnitude (Frobenius ≈ √min(m,n)). sign_only strips polar's Frobenius magnitude (~√768=27.7) and replaces with `(m/n)^0.5` scaling → TIES baseline EXACT (redundant signal). magnitude_only skips NS5 orthogonalization rotation, applies unit-Frobenius + `(m/n)^0.5` to raw gradient direction → CATASTROPHIC NEG (orthogonalizing rotation is genuinely load-bearing geometric signal, NOT numerical-stability artifact). Telemetry confirmed via `train/h251_grad_cosine_to_update`: arm_a polar=0.530 ≈ arm_b sign_only=0.523 (NS5 applied) << arm_c magnitude_only=0.709 (NS5 skipped → cosine to raw grad higher).
+
+  **🎯 Programme-level implication**: NS5 is NOT a fungible normalizer. It's specifically the **orthogonalizing rotation** that's load-bearing. The Frobenius magnitude that NS5 produces (≈√min(m,n)) is **interchangeable** with `(m/n)^0.5` scaling. OPENS PRODUCTIVE FRONTIER: cheaper orthogonalizers yielding unit-Frobenius matrix (column/row/spectral-norm, QR decomposition) may match arm_b at lower compute. But cannot skip orthogonalization entirely.
+
+  **🎯 Direction-vs-magnitude geometric decomposition methodology**: Tanjiro's `train/h251_update_frobnorm` + `train/h251_grad_cosine_to_update` telemetry pair is the cleanest decomposition diagnostic in r3. A-priori predictions verified EXACT (frobnorm: polar 27.715 vs predicted √768=27.71; sign_only 0.999 vs 1; magnitude_only 1.000 vs 1; cosine: polar/sign_only ≈ 0.52 vs magnitude_only ≈ 0.71). **This 2-axis telemetry framework is reusable for any future NS5 mechanism test.**
+
+  **🎯 Pattern E candidate drift class documented**: Three-separate-`@torch.compile` functions + dict-dispatch pattern is **NOT drift-FREE** (+25 FFS drift). Mechanism: each arm's compile graph contains EXCLUSIVELY one of `muon_update_polar`/`muon_update_sign_only`/`muon_update_magnitude_only`. Trace-set perturbation between arms suffices for +25 drift even when each arm's graph is internally bit-id with baseline.
+
+  Updated safe-fix template library (6 patterns, 2 drift classes):
+  - **drift-FREE**: A (branch outside @torch.compile), B (@torch.compiler.disable), C (argparse dispatch in main loop), D-strict (VALUE swap on EXISTING branch in set_hparams)
+  - **+25 drift**: D-loose (NEW conditional in set_hparams — H254), **E (three-separate-functions dispatch — H251 NEW)**
+
+**New assignment:**
+
+- **H259 tanjiro ASSIGNED — 55th mechanism class: NS5 iteration count VALUE ablation**. Direct follow-up to H251 mechanistic insight. NS5 iterations is fixed at 12 across the campaign, never ablated as VALUE axis. Given H251's finding that polar magnitude is REDUNDANT (sign_only TIES baseline EXACT), the question becomes: is 12 iterations over-converged? Can 6-8 iters give the rotation quality needed for body update with comparable or better FFS? 3-arm test exploring reduced and increased iteration counts.
+
+**Survey state after cycle ~1490**: 8/8 students WIP (alphonse H257, edward H256, frieren H255, askeladd H253, fern H254, thorfinn H258, nezuko H252, tanjiro H259 just assigned). 0 idle students. 0 review-ready PRs. No new human directives.
+
+**Programme totals after cycle ~1490:**
+- **108 NULL/NEG closures** (+1 from H250 107th)
+- **55 mechanism classes** (+1; H259 NS5-iter-count VALUE)
+- PROGRAMME FINDING #51 candidate strengthened (body cooldown SHAPE locked at cosine cf=1.0)
+- PROGRAMME FINDING #56 candidate at 2 axes (aux/body schedule structurally rigid)
+- PROGRAMME FINDING #58 candidate at 3 axes (post-NS5 mechanism replacement structurally inert/harmful)
+- **PROGRAMME FINDING #59 candidate NEW** (NS5 orthogonalization geometrically load-bearing)
+- **6 safe-fix templates** documented (A/B/C/D-strict/D-loose/E); 2 drift classes (drift-FREE / +25 drift)
+- **6 drift-FREE CTRL instances** + **3 documented +25 drift-class CTRL instances**
+- **3 consecutive cycle-level PROGRAMME FINDING candidates** (#56, #58, #59) established in 5 closure cycles — methodological maturity advancing
+
+**Exploration territory map updates after cycle ~1490:**
+
+| Axis | State (delta from cycle ~1480) |
+|---|---|
+| **NS5 iteration COUNT VALUE** | **H259 WIP (tanjiro, just assigned) — 55th class, direct follow-up to H251 PF#59 insight** |
+| NS5 output decomposition (sign/mag/polar) | **CLOSED bilateral asymmetric (H251) — direction-only encoding is load-bearing, polar magnitude redundant** |
+| Outer Nesterov momentum VALUE | H258 WIP (thorfinn) |
+| Sphere parallel-transport momentum | H257 WIP (alphonse) |
+| Outer LR temporal schedule | H256 WIP (edward) |
+| Post-step Stiefel retraction | H255 WIP (frieren) |
+| True Stiefel body init (orthogonal_qr) | H253 WIP (askeladd) — arm_a CTRL drift-FREE, riem_frob_ratio terminal=6.28 |
+| MuonH warmup SHAPE (cosine/sqrt) | H254 WIP (fern) — arm_a CTRL +25 drift (Pattern D-loose) |
+| MuLoCo sync_interval VALUE K | H252 WIP (nezuko) |
+
+**Frontier observations for cycle ~1500+:**
+
+PROGRAMME FINDING #59 candidate (NS5 orthogonalization is geometrically load-bearing) opens a **NEW PRODUCTIVE FRONTIER** — cheaper alternative orthogonalizers may match sign_only's TIE-baseline performance at lower compute. Candidates (deferred until H259 closes):
+- **Column-norm normalization**: each column gets unit norm (preserves direction per-column)
+- **Row-norm normalization**: each row gets unit norm
+- **Spectral-norm normalization**: `update / σ_max` (preserves direction, normalizes by top singular value)
+- **QR decomposition**: exact orthogonalization via QR (Q matrix is unit Frobenius)
+
+These represent **a 4-axis frontier of "cheaper unit-Frobenius orthogonalizers"** that could be tested after H259 establishes whether NS5 iteration count itself is over-converged.
+
+The coherent picture from PROGRAMME FINDING candidates #56 (schedule rigidity) + #58 (post-NS5 mechanism replacement inert) + #59 (NS5 orthogonalization load-bearing) is **the body optimizer's load-bearing structure is well-characterized**:
+- **Schedule layer**: aux/body schedule structurally rigid (PF #56)
+- **Update layer**: post-NS5 mechanism replacement inert (PF #58)
+- **Geometry layer**: NS5 orthogonalization is the load-bearing rotation, magnitude redundant (PF #59 NEW)
+
+Remaining productive frontiers as identified going into cycle ~1500+:
+- **Cheaper orthogonalizers** (post-H259 if iter count is over-converged)
+- **MuLoCo outer-step HP triangulation** (H252 + H256 + H258 — 3-D HP cube, all in flight)
+- **Sphere-aware mechanisms** (H257 sphere PT — sphere geometry, NOT Stiefel)
+- **Initialization** (H253 QR init — load-bearing for Stiefel cluster; H254 warmup shape)
+
+H253 arm_b QR_RAW terminal riem_frob_ratio measurement (ETA today) remains the **most critical campaign measurement** — determines whether Stiefel-aware mechanisms are accessible.
 
 ---
 

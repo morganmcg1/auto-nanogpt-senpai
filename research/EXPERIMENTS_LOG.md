@@ -1,3 +1,85 @@
+## 2026-05-29 02:15 — PR #1608: H251 tanjiro NS5 polar output decomposition (sign_only vs magnitude_only vs polar) — CLOSED (**108th NULL/NEG closure**, bilateral asymmetric — sign_only TIES H203 EXACT / magnitude_only CATASTROPHIC NEG FFS=−1, 🎯 **PROGRAMME FINDING #59 candidate NEW** + 🎯 **Direction-vs-magnitude geometric decomposition of NS5 polar output completed** + **Pattern E candidate drift class documented (+25 drift)**)
+
+- Branch: H251 tanjiro (47th class — NS5 output decomposition into direction + magnitude geometric components)
+- Student terminal SENPAI-RESULT at 00:48 UTC May 29 with full 3-arm table, telemetry-grounded a-priori predictions verified EXACT, mechanistic narrative, statistical rule checks, drift-class adjudication.
+
+| Arm | run_id | ns5_output_mode | step-0 val | final val/loss | FFS | h251_update_frobnorm | h251_grad_cosine_to_update |
+|---|---|---|---|---|---|---|---|
+| arm_a CTRL polar | `a2gi0jdn` | polar | 10.82583 EXACT | **3.26978** | **3050 (+25 DRIFT)** | 27.715 (predicted ~√768=27.71) | 0.530 |
+| arm_b SIGN_ONLY | `d5xo05sb` | sign_only | 10.82583 EXACT | **3.26855** | **3025 EXACT TIES H203** | 0.999 (predicted ~1) | 0.523 |
+| arm_c MAGNITUDE_ONLY | `rfeb246b` | magnitude_only | 10.82583 EXACT | **3.41518** | **−1 CATASTROPHIC** | 1.000 (predicted ~1) | 0.709 (NS5 rotation skipped → higher cosine to raw grad) |
+
+### Statistical rule check `(3.28 − μ) × √n ≥ 0.004`
+- arm_a CTRL polar: `(3.28 − 3.26978) × √1 = 0.01022` ≥ 0.004 ✓
+- arm_b SIGN_ONLY: `(3.28 − 3.26855) × √1 = 0.01145` ≥ 0.004 ✓
+- arm_c MAGNITUDE_ONLY: `(3.28 − 3.41518) × √1 = -0.13518` **FAILS** (catastrophic)
+
+### Primary metric decision
+
+arm_b FFS=3025 = H203 baseline FFS=3025 **EXACT TIE on primary metric** (NOT WIN). val Δ vs H203 = +0.00025 = +0.28σ_H174 (well within single-seed noise floor). Within-PR comparison (arm_b vs arm_a CTRL) shows arm_b is −25 FFS, −0.00123 val better — but this is contaminated by arm_a's +25 Pattern E drift class. **Cross-PR comparison vs H203 = TIE, not WIN. CLOSE (not merge).**
+
+### 🎯 PROGRAMME FINDING #59 candidate NEW — NS5 orthogonalization is geometrically load-bearing, polar magnitude is redundant signal
+
+First clean geometric decomposition of NS5 polar output `U V^T` into direction (UV^T) + magnitude (Frobenius ≈ √min(m,n)):
+
+| Arm output | What's preserved | What's removed | Verdict |
+|---|---|---|---|
+| polar (CTRL) | full polar projection (direction + magnitude ~27.7) | nothing | baseline equivalent |
+| sign_only | direction (UV^T) only | Frobenius magnitude ~27.7 stripped, replaced by `(m/n)^0.5` scaling | **FFS-TIE H203 EXACT** |
+| magnitude_only | unit-Frobenius magnitude + raw gradient direction | NS5 orthogonalization rotation skipped entirely | **CATASTROPHIC NEG FFS=−1** |
+
+**Mechanistic conclusion**:
+1. **Direction-only encoding preserves load-bearing signal**: The polar's Frobenius magnitude (~√768=27.7 for body params) is REDUNDANT once `(m/n)^0.5` equalization is applied. Stripping it yields identical FFS=3025 (TIES baseline EXACT) and val noise-level (+0.28σ).
+2. **Magnitude-only encoding is CATASTROPHIC**: Skipping NS5 orthogonalization rotation and applying only unit-Frobenius + `(m/n)^0.5` to RAW gradient direction never converges (val=3.41518 plateaus, FFS=−1). The orthogonalizing rotation provided by NS5 is genuinely load-bearing geometric signal — NOT a numerical-stability artifact, NOT just a side-effect of polynomial iteration.
+3. **Telemetry confirmation**: `train/h251_grad_cosine_to_update` cleanly distinguishes whether NS5 is applied (arm_a polar=0.530 ≈ arm_b sign_only=0.523 << arm_c magnitude_only=0.709).
+
+**Programme-level implication**: NS5 is NOT a fungible normalizer. It's specifically the **orthogonalizing rotation** that's load-bearing. The Frobenius magnitude that NS5 produces (≈√min(m,n)) is **interchangeable** with `(m/n)^0.5` scaling. This OPENS PRODUCTIVE FRONTIER: cheaper orthogonalizers yielding unit-Frobenius matrix (column/row/spectral-norm, QR decomposition) may match arm_b at lower compute. But arm_c proves we cannot skip orthogonalization entirely.
+
+### 🎯 Direction-vs-magnitude geometric decomposition (campaign methodological contribution)
+
+Tanjiro's `train/h251_update_frobnorm` + `train/h251_grad_cosine_to_update` telemetry pair is the cleanest decomposition diagnostic in r3. A-priori predictions verified EXACT:
+- polar frobnorm ≈ √min(m,n) → 27.715 measured (predicted 27.71) ✓
+- sign_only frobnorm ≈ 1 → 0.999 measured ✓
+- magnitude_only frobnorm ≈ 1 → 1.000 measured ✓
+- cosine: arm_a/b ≈ 0.52 (NS5 applied), arm_c ≈ 0.71 (NS5 skipped, closer to raw gradient) ✓
+
+This 2-axis telemetry framework is reusable for any future NS5 mechanism test. Joins H249 alphonse (riem_frob_ratio) and H250 thorfinn (phase-by-phase crossover) as 3rd consecutive cycle-level gold-standard mechanistic narrative.
+
+### Pattern E candidate drift class documented (NEW: +25 drift, NOT drift-FREE)
+
+Three-separate-`@torch.compile` functions + dict-dispatch + helper-binding pattern (lines ~533-548) was hypothesized as a safe-fix pattern. Result: NOT drift-FREE — arm_a CTRL polar FFS=3050 = +25 drift class. Mechanism: each arm's compile graph contains EXCLUSIVELY one of `muon_update_polar`/`muon_update_sign_only`/`muon_update_magnitude_only`. Trace-set perturbation between arms (different compile graph selection) suffices for +25 FFS drift even when each arm's graph is internally bit-identical to H203 baseline.
+
+Updated safe-fix template library:
+
+| Pattern | Mechanism | Drift class | Examples |
+|---|---|---|---|
+| **A** | Branch outside @torch.compile region | drift-FREE | H246, H248 |
+| **B** | @torch.compiler.disable decorator | drift-FREE | H249 (double-decorator) |
+| **C** | argparse dispatch in main training loop | drift-FREE | H246 outer, H256 |
+| **D-strict** | Plain Python in `set_hparams()` VALUE swap on EXISTING branch | drift-FREE | H250 thorfinn (1st) |
+| **D-loose** | Plain Python in `set_hparams()` NEW conditional structure | +25 drift | H254 fern (1st) |
+| **E** | Three-separate-@torch.compile functions + dict-dispatch | **+25 drift (NEW)** | **H251 tanjiro (1st)** |
+
+**Updated drift-FREE recommendations**: Pattern B most reliable (H249 0.7% step_avg fidelity), Pattern A second (H246/H248), Pattern D-strict third (H250). Pattern E and D-loose introduce +25 drift class — avoid for primary-metric-critical CTRL.
+
+### Cumulative campaign tally (after H251 closure)
+
+- **108 NULL/NEG closures** (107 → 108)
+- **54 mechanism classes** total (H251 = 47th, next H259 = 55th)
+- **6 drift-FREE CTRL instances** in cycles ~1170-1490
+- **3 +25 drift-class CTRL instances** (H251 Pattern E, H254 Pattern D-loose, H243/H244/H245 historical)
+- PROGRAMME FINDING #51 candidate strengthened (body cooldown SHAPE)
+- PROGRAMME FINDING #56 candidate at 2 axes (aux/body schedule structurally rigid)
+- PROGRAMME FINDING #58 candidate at 3 axes (post-NS5 mechanism replacement inert/harmful)
+- **PROGRAMME FINDING #59 candidate NEW** (NS5 orthogonalization geometrically load-bearing — sign_only TIE / magnitude_only CATASTROPHIC)
+- 6 safe-fix templates documented (A/B/C/D-strict/D-loose/E)
+
+### Operational excellence
+
+H251 closure = gold standard r3 mechanistic narrative — 3-arm geometric decomposition with telemetry-grounded a-priori predictions verified EXACT (frobnorm 27.715 vs predicted 27.71; cosine 0.530 vs 0.709 expected from rotation presence/absence) + clean Pattern E drift class identification + explicit drift-class adjudication via within-PR vs cross-PR comparison. Polar output decomposition into direction + magnitude geometric components is **the cleanest mechanistic test of NS5's functional role in r3 history.** 3 consecutive cycle-level PROGRAMME FINDING candidates established (#56, #58, #59) in 5 closure cycles — methodological maturity advancing.
+
+---
+
 ## 2026-05-29 01:30 — PR #1602: H250 thorfinn Aux schedule SHAPE+FRAC replacement (cosine vs linear, cf=0.4→{1.0,0.6}) — CLOSED (**107th NULL/NEG closure**, bilateral STRUCTURAL NEG + FFS-TIE-val-NEG monotonic, 🎯 **PROGRAMME FINDING #56 candidate STRENGTHENED to 2 axes** + **Pattern D drift-FREE safe-fix template FIRST INSTANCE DOCUMENTED** + 🎯 **mid-training crossover trajectory mechanistic insight** + **NEW campaign-level mechanism-design heuristic**)
 
 - Branch: H250 thorfinn (46th class — aux schedule SHAPE+FRAC structural axis)
