@@ -1,6 +1,6 @@
 # SENPAI Research State — auto-nanogpt-1gpu-r1
 
-- **Last update: 2026-05-29 22:45 UTC**
+- **Last update: 2026-05-29 23:00 UTC**
 - **Current baseline:** PR #1532 (aux Adam β₂ pulse 0.95→0.99 @ step 975). val_ema=3.262854, sr=2875 (n=2).
 - **Canonical defaults (post #1614):** β₂ pulse fires automatically at step 975 in all new runs — no flag needed.
 - **Merge gate:** `sr ≤ 2862.5 OR (sr=2875 AND val_ema < 3.262854)`
@@ -25,14 +25,14 @@
 - **Pre-target body Muon scalars (ALL BILATERAL NULL):** LR-UP (#1637), **LR-DOWN (#1697 CLOSED bilateral)**, γ (#1680), **μ (#1686 CLOSED — all temporal regimes)**, NS-coefs (#1660), β₁ (#1592/#1639), β_cov pulse@975 (#1666 Arm A), β_cov pulse@2600 (#1666 Arm B), Nesterov, schedule-free, **weight_decay (#1693 CLOSED bilateral)**
 - **Momentum buffer hard-reset untested → assigned to askeladd (#1730) as first structural state-discard experiment on first-moment buffer.**
 - **β₂ pulse mechanism:** amplitude, timing, shape, per-group recipient, pre-target re-spike — ALL NULL except canonical 0.95→0.99 @ 975 (#1667 closes the re-spike variant)
-- **Optimizer family replacements:** AdEMAMix, Lookahead (FULLY CLOSED), Sophia, Lion, Adan, GrokFast, AdaBelief, AMSGrad, ADOPT-aux, **AdaShift per-element (#1709 NULL with mechanistic closure)**
+- **Optimizer family replacements:** AdEMAMix (in flight #1749), Lookahead (FULLY CLOSED), Sophia, Lion, Adan, GrokFast, AdaBelief, AMSGrad, ADOPT-aux, **AdaShift per-element (#1709 NULL with mechanistic closure)**, **ACProp/ADOPT order-swap on body PMuon (#1703 CLOSED — async carry-forward compounds error in bilateral whitening)**
 - **Covariance refresh:** L_cov/R_cov at steps 975/2275/2600/cooldown-start (#1666 closes) — soft-modulation via β_cov pulse closed. **Hard zero reset (nezuko #1726 Arm A NULL sr=2950; Arm B in flight).**
 - **pEMA stacking:** stacked 2nd refresh at 2750/2850 (thorfinn #1704) — bilateral NULL. Canonical 2600 is a singular optimum. **pEMA design space EXHAUSTED.**
 - **Depth-stratified β_cov continuous ramp ±0.01 (#1339 NULL).** Binary-split with ±0.025 large Δβ untested → assigned to edward (#1727).
 
 **Tier escalation progress:**
 - Tier 1 (scalar pulses): ≥14 NULLs — comprehensively exhausted across all body Muon scalar axes
-- Tier 2a (wrapper optimizers): Lookahead FULLY CLOSED; AdaShift per-element FULLY CLOSED via mechanistic root cause; **ADOPT-style async whitening (#1703) IN FLIGHT — first novel Tier-2 wrapper still running**
+- Tier 2a (wrapper optimizers): Lookahead FULLY CLOSED; AdaShift per-element FULLY CLOSED via mechanistic root cause; **ADOPT-style async whitening (#1703) CLOSED bilateral NULL — body PMuon's bilateral whitening structure does not benefit from update-rule asynchrony**
 - Tier 2a (structural state intervention): **Cov-state hard zero reset (#1726 nezuko) IN FLIGHT** + **Momentum buffer hard zero reset (#1730 askeladd) JUST ASSIGNED** — first-moment and second-moment buffer discard running in parallel; will reveal whether optimizer-state reset is broadly useful or buffer-class-specific
 - Tier 2b (compounding + structural decoupling): pEMA stacking (#1704) IN FLIGHT; **depth-stratified β_cov binary-split (#1727 edward) JUST ASSIGNED**
 
@@ -40,7 +40,7 @@
 
 | PR | Student | Experiment | Status | ETA |
 |---|---|---|---|---|
-| #1703 | alphonse | ADOPT async whitening on body PMuon | In flight `gjmywcji` step ~3125 sr=2950 | Terminal ~22:50 UTC |
+| TBD | alphonse | **Researcher-agent dispatched for fresh directive-aligned Tier-2 hypothesis (post-ADOPT-NULL)** | Idle, awaiting assignment | — |
 | **#1749** | **thorfinn** | **AdEMAMix dual-EMA first moment on aux AdamW (Arm A α=0.5/β₃=0.999/T=500; Arm B α=0.75/β₃=0.9995/T=750)** | **Just assigned (22:45 UTC)** | **~02:30 / ~06:30 UTC** |
 | #1730 | askeladd | Pre-target body Muon momentum buffer HARD ZERO RESET (Arm A crashed @ 1925; Arm B `uhrosnl0` step ~525) | Arm A crashed; Arm B in flight | ~00:30 UTC |
 | #1739 | fern | Pre-target NS_ITERS burst {14, 16} @ 2750-2900 | Arm A `hfhcbony` step ~1575 | ~00:15 UTC |
@@ -50,6 +50,7 @@
 | #1727 | edward | Depth-split β_cov binary group — Arm A FINISHED NULL (sr=2950, val_ema 3.27122); Arm B `mj8zysth` step ~500 | Arm B in flight | ~00:10 UTC |
 
 **Recent closures (this session):**
+- ❌ **#1703 alphonse (ACProp-style async whitening / ADOPT order-swap on body PMuon) — bilateral NULL (Arm A sr=2975 val_ema 3.270824; Arm B sr=2950 val_ema 3.269952; both strictly worse than sync baseline). ADOPT-style update-rule asynchrony axis CLOSED on body PMuon. PMuon's bilateral whitening structure is more sensitive to in-sample correlation than vanilla Adam — async carry-forward compounds error.**
 - ❌ #1704 thorfinn (stacked pEMA refresh 2750/2850) — bilateral NULL (Arm A sr=2925, Arm B sr=2950; monotonic worsening). **pEMA-stacked-refresh axis CLOSED.** Canonical 2600 position is a singular optimum at cooldown_start_step regime boundary.
 - ❌ #1726 nezuko Arm A `210d43l3` FINISHED NULL (sr=2950, val_ema 3.27093)
 - ❌ #1727 edward Arm A `66yd8u3s` FINISHED NULL (sr=2950, val_ema 3.27122)
@@ -86,7 +87,7 @@
 | beta_cov pulse @ 2600 | ❌ NULL #1666 Arm B |
 | **L_cov/R_cov HARD ZERO RESET (structural)** | **#1726 JUST ASSIGNED — first state-reset (vs modulation) experiment** |
 | **β_cov depth-split binary group (large Δβ)** | **#1727 JUST ASSIGNED — orthogonal primitive vs #1339 continuous-ramp NULL** |
-| ADOPT async whitening (update order) | #1703 in flight — first Tier-2 wrapper still running |
+| ADOPT async whitening (update order) | ❌ NULL bilateral #1703 — axis CLOSED (carry-forward dominates) |
 | Nesterov momentum | ❌ NULL bilateral |
 | Schedule-free | ❌ NULL |
 | β₁ axis | ❌ BILATERALLY CLOSED (#1592, #1639) |

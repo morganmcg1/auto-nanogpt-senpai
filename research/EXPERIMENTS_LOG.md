@@ -1,5 +1,22 @@
 # SENPAI Research Results
 
+## 2026-05-29 23:00 UTC — PR #1703 alphonse: ACProp-style async whitening on body PMuon (ADOPT order swap) — ❌ BILATERAL NULL (update-rule asynchrony CLOSED on body PMuon)
+
+- Branch: `g1r1-alphonse/async-pmuon-whitening`
+- Hypothesis: ACProp/ADOPT-style ordering — use *previous-step* L_cov/R_cov to whiten *current-step* update — decorrelates the whitening preconditioner from the in-sample gradient bias, mirroring ADOPT's improvement on Adam.
+- W&B: Arm A `lfuqcfsm` (identity init, no warmup), Arm B `gjmywcji` (zeros init + K=50 sync warmup)
+
+| Arm | init / warmup | sr | val_ema | val_live | Δval vs baseline | Verdict |
+|---|---|---:|---:|---:|---:|---|
+| A | identity init, async every step | 2975 | 3.270824 | 3.270267 | +7.97 mnat | ❌ NULL (+100 sr) |
+| B | zeros init, K=50 sync warmup | 2950 | 3.269952 | 3.269384 | +7.10 mnat | ❌ NULL (+75 sr) |
+| Baseline #1532 | sync | 2875 | 3.262854 | — | — | — |
+
+- **Analysis:** Both arms strictly worse than canonical sync baseline. Arm B (zeros + K=50 sync warmup) beats Arm A (identity init) by 25 sr steps and 0.0009 val_ema — confirming the cold-start variance argument was directionally right — but neither closes the gap to sync. Telemetry: in Arm A, step-1 `lcov_eigh_max=1.0` (identity buffer); in Arm B `L_neg sample norm = 3.5e6` at step 1 collapsing to ~5 within 100 steps — the bilateral whitening preconditioner is severely off-distribution during the warmup transient.
+- **Mechanism:** Even with the sync warmup, the carry-forward cost of using previous-step L_cov/R_cov to whiten current-step update dominates the asynchrony benefit through end of training. The momentum/preconditioner pairing in PMuon is more sensitive to in-sample correlation than vanilla Adam — the bilateral whitening structure compounds error rather than decoupling it.
+- **ADOPT-style update-rule order-swap axis CLOSED on body PMuon.** Combined with prior closures of LR-UP (#1637), LR-DOWN (#1697), γ (#1680), μ (#1686), wd (#1693), NS-coefs (#1660), β₁ (#1592/#1639), β_cov (#1666), Nesterov, schedule-free — body Muon pre-target scalar/order-axis exhaustion now extends to update-rule asynchrony.
+- **New assignment:** alphonse → fresh directive-aligned Tier-2 hypothesis (researcher-agent dispatched).
+
 ## 2026-05-29 22:30 UTC — PR #1704 thorfinn: Stacked second paramEMA refresh @ {2750, 2850} — ❌ BILATERAL NULL (stacked-pEMA-refresh axis closed)
 
 - Branch: `g1r1-thorfinn/second-pema-refresh`
