@@ -1,3 +1,53 @@
+## 2026-05-29 07:30 UTC — Cycle 71 mid-376 — edward #1640 280th refute (V_FAST_DEPTH_HALF_REFRESH val_mean=3.26981 STANDARD-edge misses merge bar by Δ=+0.00205 val and +25 ffs (ffs_mean=3025), Arm A `front_v_FAST` v_front=5/v_back=15 val=3.26962 ffs=3025 sub-cluster-edge upper boundary, Arm B `back_v_FAST` v_front=15/v_back=5 val=3.27000 ffs=3025 STANDARD-edge, Δ(B−A)=+0.00038 NULL ~10× below stat_sig, **MAJOR AXIS-FAMILY CLOSURE**: v-axis instability is real (fast-side mean_cos_row ~0.89 vs slow-side ~0.81) but does NOT translate to a depth-asymmetric loss signal — dispatch infrastructure confirmed working (n_v_front=6 n_v_back=6 on_fraction=1.000 fast-side 0.000 slow-side), yet eigenbasis quality is refresh-frequency-driven NOT depth-half-driven; Arm A ≈ #1618 Arm A v=5 uniform (3.26962 vs 3.26969) confirming depth-split adds zero signal; 4th independent depth-insensitivity confirmation on trust-gated attn-SOAP refresh-freq family [#1562 uniform-kind, #1596 trust-threshold uniform-kind, #1618 per-kind at uniform-depth, #1640 v-isolated per-depth-half] → **121st family closure**; NEGATIVE FINDING RECORDED: do not pursue further v × depth-half splits at trust-gated attn-SOAP scope, depth-insensitivity holds at kind-isolated scope) + edward #1665 NEW TRUST_THRESHOLD_WARMUP (DIRECT FOLLOW-UP to #1642 negative-finding mandate "manipulate trust-threshold, NOT β2" — Arm A `warmup_0p50` TRUST_THRESHOLD_WARMUP_START=0.50 linearly warms to baseline 0.85 by step 500, Arm B `warmup_0p20` TRUST_THRESHOLD_WARMUP_START=0.20 (more permissive) linearly warms to baseline 0.85 by step 500; tests whether warming up the trust gate lets more early v-axis eigenbasis refreshes through to stabilize basis; per-kind on_fraction at steps 100/200/300/500/1000 is the diagnostic telemetry)
+
+**Cumulative**: **280 refuted** / **168 distinct mech classes** / **121 family-level closures**.
+
+### PRs closed this wave (1 closure):
+
+| PR | student | mechanism | outcome |
+|---|---|---|---|
+| **edward #1640** | edward | V_FAST_DEPTH_HALF_REFRESH (Arm A `front_v_FAST` v_front=5/v_back=15 split=6 vs Arm B `back_v_FAST` v_front=15/v_back=5 split=6) | **280th** — Arm A val=3.26962 ffs=3025 sub-cluster-edge upper boundary, Arm B val=3.27000 ffs=3025 STANDARD-edge; val_mean=3.26981 ffs_mean=3025 fails merge bar by +0.00205 val, +25 ffs. **Δ(B−A)=+0.00038 NULL.** 4th depth-insensitivity confirmation → 121st family closure. |
+
+### STRUCTURAL FINDING — v-axis per-kind × per-depth-half refresh-freq is INERT
+
+Per-kind × per-depth-half on_fraction at terminal step (Arm A): v_front=1.000, v_back=0.000; (Arm B): v_front=0.167, v_back=1.000. q/k/proj unaffected. Mirror-symmetric mean_cos_row: fast-side ~0.88-0.90, slow-side ~0.81 in BOTH arms. **Dispatch works; loss-signal is absent.** attn-SOAP v refresh-freq depth-insensitivity holds at kind-isolated scope as well as aggregate-kind scope. → 121st family closure.
+
+### NEGATIVE FINDING RECORDED
+
+"Do not pursue further v × depth-half splits at trust-gated attn-SOAP refresh-freq scope." Depth-insensitivity is now confirmed across 4 orthogonal sub-scopes of the same family.
+
+### PRs assigned this wave
+
+| PR | student | mechanism | role |
+|---|---|---|---|
+| **edward #1665** | edward | TRUST_THRESHOLD_WARMUP (Arm A `warmup_0p50` start=0.50 warmup=500 steps, Arm B `warmup_0p20` start=0.20 warmup=500 steps; both reach baseline 0.85 at step 500) | **DIRECT FOLLOW-UP TO #1642 MANDATE** — tests trust-threshold warmup path from the negative-finding mandate "manipulate refresh frequency, trust-threshold, or initialization, NOT β2." Fresh mechanism class: linear trust-threshold schedule in early phase (0-500 steps). Key telemetry: per-kind on_fraction at early steps 100/200/300/500/1000. |
+
+### Fleet state at end of wake 58 (this wave)
+
+8 students all assigned, 0 idle:
+
+| PR | student | axis | status |
+|---|---|---|---|
+| **#1665** | **edward** | **TRUST_THRESHOLD_WARMUP** | **WIP (this wave, just assigned)** |
+| #1663 | thorfinn | ASYMMETRIC_LATE_BETA2_ATTN_SOAP | WIP (prior wave) |
+| #1662 | alphonse | JOINT_MLP_SOAP_REFRESH_X_MU_COOLDOWN_END_DEPTH_HALF | WIP (prior wave) |
+| #1657 | askeladd | ISOLATION_MU_COOLDOWN_START_FRONT_LOWER_DEPTH_HALF_VS_UNIFORM | WIP (prior wave) |
+| #1656 | fern | JOINT_MLP_SOAP_REFRESH_BACK_FAST_X_AUX_WD_LM_HEAD_HEAVY | WIP (prior wave) |
+| #1653 | tanjiro | PHASE_DISPATCH_AUX_BETA2 | WIP (prior wave) |
+| #1645 | frieren | PHASE_DISPATCH_MLP_SOAP_REFRESH_FREQ | WIP (prior wave) |
+| #1644 | nezuko | PER_DEPTH_HALF_MLP_SOAP_PROJ_BETA2_FAST | WIP (prior wave) |
+
+### Active research themes (cycle 71)
+
+1. **Phase-dispatch attn-SOAP β2 mechanism INVERTED** (#1642): late-phase basis stability is the bottleneck. #1663 (thorfinn) directly testing reframed hypothesis.
+2. **Fresh mechanism class OPEN**: trust-threshold warmup (#1665, edward) — direct #1642 mandate follow-up on the trust-threshold manipulation path.
+3. **TWO cross-mechanism-class compound tests in flight**: fern #1656 (× WD_AUX_LM_HEAD_HEAVY) + alphonse #1662 (× cooldown_END depth-half), both anchored on #1623 Arm B back_FAST.
+4. **Critical mechanism-isolation test OPEN**: askeladd #1657 (depth-asymmetry vs uniform front-lowering for cooldown_START).
+5. **Sub-cluster-edge band TWO ffs=3000 single-arms from orthogonal mechanisms**: #1623 Arm B 3.26802 + #1635 Arm A 3.26832.
+6. **121st family closure — attn-SOAP v refresh-freq per-depth-half CLOSED**: depth-insensitivity is confirmed across 4 orthogonal sub-scopes; no further v × depth-half refresh-freq splits warranted.
+
+---
+
 ## 2026-05-29 06:30 UTC — Cycle 71 mid-375 — thorfinn #1642 279th refute (PHASE_DISPATCH_ATTN_SOAP_BETA2 val_mean=3.27227 STANDARD misses merge bar by Δ=+0.00451 val and +50 ffs (ffs_mean=3050), Arm A `early_FAST` β2=0.85/0.95 val=3.27087 ffs=3025 STANDARD-edge, Arm B `early_SLOW` β2=0.95/0.85 val=3.27367 ffs=3075 STANDARD, Δ(B−A)=+0.00280 marginal-but-distinguishable, MAJOR MECHANISM INVERSION FINDING: **prediction REFUTED, outcome direction VALIDATED via opposite mechanism** — `attn_soap/trust_gate/on_fraction` telemetry is the structural smoking gun showing Arm A early v-axis on_fraction=0.000 vs Arm B=0.250 (REVERSED from prediction), Arm A early proj=0.000 vs Arm B=0.924; β2=0.85 means EMA forgets faster → consecutive grams fluctuate more → cosine similarity at trust gate is LOWER → gate REJECTS more not fewer ("faster β2" ≠ "faster warmup"; it's "shorter memory" = noisier per-step); Arm A still WON because late β2=0.95 maintained stable basis through cooldown (every kind ≥0.96 on_fraction) while Arm B late β2=0.85 destabilized (v collapses to 0.053, proj halves to 0.50), Arm A gained ~35% more effective late refreshes vs ~30% lost early refreshes; **REFRAMED HYPOTHESIS**: late-phase basis stability through cooldown is the attn-SOAP bottleneck, NOT EMA-warmup — cooldown's lr-shift induces gradient distribution shifts, high β2 there keeps the gram from drifting and keeps trust gate firing; NEGATIVE FINDING RECORDED: "faster early β2" does NOT accelerate trust-gate firing, future PRs trying to warm up the EMA should manipulate refresh frequency, trust-threshold, or initialization, NOT β2) + thorfinn #1663 NEW ASYMMETRIC_LATE_BETA2_ATTN_SOAP (DIRECT FOLLOW-UP testing reframed hypothesis — Arm A `late_0p95` early=0.90 late=0.95 isolates late-phase β2 from early-phase noise, Arm B `late_0p97` early=0.90 late=0.97 pushes late-phase β2 axis up high end; if Arm A < #1642 Arm A → keeping early=0.90 helps and late-only raise is the clean lever, if Arm B < Arm A → late-phase β2 axis linearly improving motivates higher late=0.99 territory, if both ≈ #1642 Arm A → late-phase saturated at 0.95)
 
 **Cumulative**: **279 refuted** / **167 distinct mech classes** / **120 family-level closures**.
