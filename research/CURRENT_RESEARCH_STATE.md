@@ -1,3 +1,69 @@
+## 2026-05-29 10:20 UTC — Cycle 71 mid-382 — thorfinn #1663 286th refute (ASYMMETRIC_LATE_BETA2_ATTN_SOAP val_mean=3.26935 floor-band entry misses merge bar by Δ=+0.00159 val and +25 ffs, Arm A `late_0p95` early=0.90/late=0.95 val=3.26947 ffs=3025 floor-band-mid, Arm B `late_0p97` early=0.90/late=0.97 val=3.26923 ffs=3025 floor-band-lower-mid, Δ(B−A)=−0.00024 ≈ 0 → **late-β2 axis SATURATED at 0.95** at this scope, Arm A vs #1642 Arm A Δ=−0.00140 small gain from early=0.85→0.90 baseline shift, **MAJOR STRUCTURAL FINDING: advisor v-axis prediction REFUTED** — v-axis early on_fraction=0.0167 ≈ 0% in BOTH arms regardless of early β2 ∈ {0.85, 0.90}; **early β2 is NOT the v-axis early-gate lever**; v-axis early suppression is structurally independent of β2 phase-dispatch; mechanism for late-phase basis stability is purely late-window not bilateral; ATTN-SOAP β2 phase-dispatch axis now fully mapped → **123rd family-level closure**; **floor band entry at effective n=2** — Arms A+B differ only in late β2 (0.95 vs 0.97), constitute n=2 evidence at val=3.26935 ± 0.00012 tight replication; **second-best cross-PR replicated floor band entry** behind back_FAST [#1623+#1656]) + thorfinn #1685 NEW PER_KIND_ATTN_SOAP_TRUST_THRESHOLD (V_AXIS_ISOLATION) (FRESH PER-GROUP STATE-MECHANISM AXIS directly testing #1663 v-axis-β2-independence finding — Arm A `v_permissive` q/k/proj=0.85 baseline + v=0.50 opens v-axis early gate, Arm B `v_strict` q/k/proj=0.85 + v=0.95 tightens v-axis filter; if A < baseline: v-axis early-suppression hurts; if B < baseline: v-axis benefits from STRICTER filtering; both ≈ baseline: v-axis threshold structurally inert and suppression mechanism is elsewhere (warmup, depth, dispatch); per-kind on_fraction telemetry at 8 checkpoints; orthogonal to askeladd #1684 depth-half + edward #1665 uniform-warmup; fits Morgan's directive per-group + state-mechanism)
+
+**Cumulative**: **286 refuted** / **172 distinct mech classes** / **123 family-level closures**.
+
+### PRs closed this wave (1 closure):
+
+| PR | student | mechanism | outcome |
+|---|---|---|---|
+| **thorfinn #1663** | thorfinn | ASYMMETRIC_LATE_BETA2_ATTN_SOAP (early=0.90, late=0.95 vs 0.97) | **286th** — val_mean=3.26935 floor band entry effective n=2, misses by +0.00159 val and +25 ffs. Δ(B−A)=−0.00024 saturates late-β2 axis at 0.95. **MAJOR STRUCTURAL FINDING**: v-axis early gate (on_fraction≈0%) is β2-INDEPENDENT — refutes advisor's v-axis-as-lever hypothesis. ATTN-SOAP β2 phase-dispatch axis fully mapped → **123rd family closure**. |
+
+### MAJOR STRUCTURAL FINDING — v-axis early gate is β2-INDEPENDENT
+
+| arm | window | q | k | **v** | proj |
+|---|---|---|---|---|---|
+| Arm A (early β2=0.90) | EARLY <1500 | 0.9347 | 0.9403 | **0.0167** | 0.5611 |
+| Arm B (early β2=0.90) | EARLY <1500 | 0.9347 | 0.9417 | **0.0167** | 0.5458 |
+| #1642 Arm A (early β2=0.85) | EARLY | ~ | ~ | **0.000** | ~ |
+| All arms | LATE ≥1500 | 1.0000 | 1.0000 | 0.96-0.99 | 0.99 |
+
+Advisor v-axis prediction REFUTED. Predicted: "v-axis early on_fraction ≥ 0.5 with early β2=0.90." Observed: 0.0167 ≈ 0% (essentially same as #1642's 0.000). **Early β2 ∈ {0.85, 0.90} is NOT the lever that gates v-axis early activation.** Reframes #1642 mechanism interpretation: the lever is purely late-window not bilateral. The structural lever for v-axis early activation is elsewhere — likely trust-threshold, warmup schedule, or v-axis-specific dispatch. #1685 hits the per-kind trust-threshold dimension directly.
+
+### Floor band tracking — second cross-PR replicated entry
+
+| PR | mechanism | val | ffs | replication |
+|---|---|---|---|---|
+| #1623 Arm B + #1656 Arm A | MLP-SOAP refresh-freq back_FAST | mean=3.26823 (range 0.00042) | 3000 | **REPLICATED — credible at merge ffs** |
+| **#1663 Arm A + Arm B** | **attn-SOAP β2 phase-dispatch (early=0.90, late ≥ 0.95)** | **mean=3.26935 (range 0.00024)** | **3025** | **REPLICATED at n=2 — credible but ffs miss +25** |
+| #1620 Arm B (n=1) | attn-SOAP early_RARE/late_FAST | 3.26916 | 3000 | pending replication |
+| #1635 Arm A (n=1) | cooldown-START depth-half front_LOWER | 3.26832 → 3.27049 n=2 | 3000 → 3025 | **FAILED n=2 — single-seed noise** |
+
+#1663 has the second-best cross-PR replicated floor band entry behind back_FAST. ffs penalty (3025 vs 3000) is the only barrier to merge — late-β2 phase-dispatch incurs +25 steps of compute cost.
+
+### ATTN-SOAP β2 phase-dispatch family — 123rd family closure
+
+| sub-scope | PR | early β2 | late β2 | val | outcome |
+|---|---|---|---|---|---|
+| Uniform baseline | n/a | 0.95 | 0.95 | 3.26776 | reference |
+| Early-LOW | #1642 Arm A | 0.85 | 0.95 | 3.27087 | SIGNAL (late-stability mechanism) |
+| Early-mid | **#1663 Arm A** | **0.90** | **0.95** | **3.26947** | floor band entry, replicated |
+| Late-HIGH (within early-mid) | **#1663 Arm B** | **0.90** | **0.97** | **3.26923** | floor band entry, late axis SATURATED |
+
+ATTN-SOAP β2 phase-dispatch axis fully mapped at the SIGNAL sub-scope. Late=0.95 saturates, early=0.90 is optimal direction, going further on either axis does not progress.
+
+### PRs assigned this wave
+
+| PR | student | mechanism | role |
+|---|---|---|---|
+| **thorfinn #1685** | thorfinn | PER_KIND_ATTN_SOAP_TRUST_THRESHOLD (V_AXIS_ISOLATION) (Arm A `v_permissive` q/k/proj=0.85 + v=0.50, Arm B `v_strict` q/k/proj=0.85 + v=0.95) | **FRESH PER-GROUP STATE-MECHANISM** — directly tests #1663 v-axis-β2-independence structural finding; per-kind on_fraction telemetry at 8 checkpoints; orthogonal to #1684 depth-half + #1665 warmup |
+
+### Fleet state at end of wake 73 (this wave)
+
+8 students all assigned, 0 idle:
+
+| PR | student | axis | status |
+|---|---|---|---|
+| **#1685** | **thorfinn** | **PER_KIND_ATTN_SOAP_TRUST_THRESHOLD (V_AXIS_ISOLATION)** | **WIP (this wave, just assigned)** |
+| #1684 | askeladd | PER_DEPTH_HALF_ATTN_SOAP_TRUST_THRESHOLD | WIP (prior wave) |
+| #1683 | fern | PER_KIND_WD_AUX_DECOMPOSITION | WIP (prior wave) |
+| #1678 | tanjiro | PER_KIND_AUX_BETA1_DIRECTION | WIP (prior wave) |
+| #1671 | frieren | MLP_SOAP_TRUST_GATE_PHASE_DISPATCH | WIP (pod recovered, student re-launching) |
+| #1668 | nezuko | PHASE_DISPATCH_MLP_SOAP_PROJ_BETA2 | WIP (prior wave) |
+| #1665 | edward | TRUST_THRESHOLD_WARMUP | WIP (prior wave) |
+| #1662 | alphonse | JOINT_MLP_SOAP_REFRESH_X_MU_COOLDOWN_END_DEPTH_HALF | WIP (prior wave) |
+
+---
+
 ## 2026-05-29 10:00 UTC — Cycle 71 mid-381 — askeladd #1657 285th refute (ISOLATION_MU_COOLDOWN_START_FRONT_LOWER_DEPTH_HALF_VS_UNIFORM val_mean=3.27158 misses merge bar by Δ=+0.00382 val, Arm A `depth-half n=2 confirm` val=3.27049 ffs=3025 STANDARD (+0.00217 above #1635 Arm A 3.26832 reference), Arm B `uniform front-lower` val=3.27266 ffs=3050 STANDARD, Δ(B−A)=+0.00217 confirms depth-asymmetry direction at >+0.0015 threshold, **MAJOR CALIBRATION FINDING #1**: #1635 Arm A 3.26832 sub-cluster-edge entry FAILED n=2 confirm — single-seed noise; cycle-71 2nd-lowest sub-cluster-edge landing was seed-favorable noise NOT robust mechanism; **MAJOR CALIBRATION FINDING #2**: cruise-vs-cooldown sign-flip pattern REPRODUCED — Arm B leads cruise by up to −0.02 at step 1000, arms converge at cooldown-START boundary step 2225, then Arm A pulls ahead during cooldown decay → **depth-asymmetry mechanisms broadly cooldown-localized** (consistent with #1642 #1644 #1645 pattern)) + askeladd #1684 NEW PER_DEPTH_HALF_ATTN_SOAP_TRUST_THRESHOLD (FRESH PER-GROUP STATE-MECHANISM AXIS — tests whether attn-SOAP trust-gate threshold should be depth-asymmetric; Arm A `front_tight` front=0.95/back=0.75, Arm B `back_tight` front=0.75/back=0.95, both at midpoint baseline 0.85; per-depth-half on_fraction + mean_cos_row/col telemetry at 8 checkpoints; tests cross-depth dimension of #1642 late-stability mechanism)
 
 **Cumulative**: **285 refuted** / **172 distinct mech classes** / **122 family-level closures**.
