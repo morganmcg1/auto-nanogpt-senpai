@@ -468,6 +468,10 @@ NS5_ITERS = int(os.environ.get("NS5_ITERS", "12"))
 WD_AUX = float(os.environ.get("WD_AUX", "0.0"))  # AdamW WD on embed + lm_head matrices (scalars stay at 0)
 EMBED_INIT_STD = float(os.environ.get("EMBED_INIT_STD", "1.0"))  # default preserves baseline N(0,1)
 LOGIT_SOFTCAP = float(os.environ.get("LOGIT_SOFTCAP", "15.0"))  # default = 15 (current hardcoded value); soft-cap value c in f(x) = c·x / sqrt(x^2+c^2)
+PER_KIND_AUX_BETA1_ENABLED = int(os.environ.get("PER_KIND_AUX_BETA1_ENABLED", "0"))
+AUX_BETA1_EMBED = float(os.environ.get("AUX_BETA1_EMBED", "0.8"))
+AUX_BETA1_LM_HEAD = float(os.environ.get("AUX_BETA1_LM_HEAD", "0.8"))
+AUX_BETA1_SCALARS = float(os.environ.get("AUX_BETA1_SCALARS", "0.8"))
 
 
 def zeropower_via_newtonschulz5(G: Tensor) -> Tensor:
@@ -866,6 +870,10 @@ if dist.get_rank() == 0:
             "optimizer/attn_soap_trust_threshold": ATTN_SOAP_TRUST_THRESHOLD,
             "optimizer/ns5_iters": NS5_ITERS,
             "optimizer/wd_aux": WD_AUX,
+            "optimizer/per_kind_aux_beta1_enabled": PER_KIND_AUX_BETA1_ENABLED,
+            "optimizer/aux_beta1_embed": AUX_BETA1_EMBED,
+            "optimizer/aux_beta1_lm_head": AUX_BETA1_LM_HEAD,
+            "optimizer/aux_beta1_scalars": AUX_BETA1_SCALARS,
             "optimizer/recipe": "contra-muon + normuon-lite + soap-on-mlp + soap-on-attn-trust-gate (pre-NS5, record #14 + record #16)",
         },
     )
@@ -902,6 +910,17 @@ for trial_idx in range(args.num_trials):
                         dict(params=[model.proj.weight], lr=1/320, name="adam_lm_head", weight_decay=WD_AUX),
                         dict(params=[p for p in model.parameters() if p.ndim < 2], lr=0.01, name="adam_scalars")],
                        betas=(0.8, 0.95), eps=1e-10, weight_decay=0, fused=True)
+    if PER_KIND_AUX_BETA1_ENABLED:
+        # Per-kind β1 dispatch (PR #1678/#1789 PER_KIND_AUX_BETA1 axis): override betas[0] per param group
+        # while preserving betas[1]=0.95. Order: [adam_embed, adam_lm_head, adam_scalars].
+        _aux_beta1_by_name = {
+            "adam_embed": AUX_BETA1_EMBED,
+            "adam_lm_head": AUX_BETA1_LM_HEAD,
+            "adam_scalars": AUX_BETA1_SCALARS,
+        }
+        for group in optimizer1.param_groups:
+            beta1 = _aux_beta1_by_name[group["name"]]
+            group["betas"] = (beta1, group["betas"][1])
     optimizer2 = Muon([(n, p) for n, p in model.blocks.named_parameters() if p.ndim >= 2],
                       lr=MUON_LR, weight_decay=MUON_WEIGHT_DECAY, mu=MU)
     optimizer2.param_groups[0]["name"] = "muon_blocks"
@@ -1059,6 +1078,30 @@ for trial_idx in range(args.num_trials):
                     stats = opt.trust_gate_stats()
                     if stats:
                         wandb.log(prefixed("train/attn_soap_trust_gate", stats), step=wandb_step)
+        if dist.get_rank() == 0 and telemetry_due:
+            per_kind_metrics = {}
+            for group in optimizer1.param_groups:
+                kind = group["name"].replace("adam_", "")
+                exp_avg_sq_sum = 0.0
+                numel = 0
+                param_sq_sum = 0.0
+                param_numel = 0
+                for p in group["params"]:
+                    st = optimizer1.state.get(p, {})
+                    if "exp_avg" in st:
+                        exp_avg_sq_sum += float(st["exp_avg"].float().pow(2).sum().item())
+                        numel += st["exp_avg"].numel()
+                    param_sq_sum += float(p.data.float().pow(2).sum().item())
+                    param_numel += p.data.numel()
+                if numel > 0:
+                    per_kind_metrics[f"train/{kind}_exp_avg_norm"] = (exp_avg_sq_sum / numel) ** 0.5
+                    per_kind_metrics[f"train/{kind}_beta1"] = group["betas"][0]
+                if param_numel > 0 and kind in ("embed", "lm_head"):
+                    per_kind_metrics[f"train/{kind}_rms"] = (param_sq_sum / param_numel) ** 0.5
+            if per_kind_metrics:
+                per_kind_metrics["trial"] = trial_idx
+                per_kind_metrics["train/step"] = train_step
+                wandb.log(per_kind_metrics, step=wandb_step)
         if dist.get_rank() == 0 and telemetry_due:
             log_weight_telemetry(
                 model=model,
