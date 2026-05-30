@@ -114,6 +114,15 @@ def parse_args():
                         help="Polyak-Ruppert EMA decay for eval-only weight averaging. "
                              "0.0 = disabled (drift-FREE CTRL). Typical: 0.05 (fast, ~20-step half-life) / "
                              "0.005 (slow, ~200-step half-life). Higher decay = faster EMA tracking.")
+    # H280: Cautious MuonH body pre-NS5 sign-mask. Compares sign(grad) and sign(momentum_EMA)
+    # after the momentum update; coords where signs disagree are multiplied by (1 - body_cautious).
+    # 0.0 = disabled (Pattern A drift-FREE bit-id baseline). 1.0 = binary hard mask (drop
+    # anti-momentum coords). 0<x<1 = soft interpolation. Mask is applied to the tensor that
+    # NS5 sees (the Nesterov-blended update in our muon_update path).
+    parser.add_argument("--body_cautious", type=float,
+                        default=float(os.environ.get("BODY_CAUTIOUS", "0.0")),
+                        help="Cautious masking coefficient for body MuonH gradients pre-NS5. "
+                             "0.0 = off (drift-FREE), 1.0 = binary hard mask, 0<x<1 = soft interpolation.")
     args = parser.parse_args()
     args.num_trials = args.num_trials if args.num_trials is not None else (args.legacy_num_trials or 1)
     args.wandb_tags = [tag.strip() for tag in args.wandb_tags.split(",") if tag.strip()]
@@ -569,8 +578,16 @@ def zeropower_via_newtonschulz5(G: Tensor) -> Tensor:
     return X
 
 @torch.compile
-def muon_update(grad, momentum, mu=0.95, nesterov=True):
+def muon_update(grad, momentum, mu=0.95, nesterov=True, body_cautious=0.0):
     momentum.lerp_(grad, 1 - mu)
+    # H280: Cautious mask. Zero (or attenuate) gradient coords whose sign disagrees
+    # with the post-update momentum, then feed the masked gradient into the Nesterov
+    # blend (or momentum) that NS5 normalizes. body_cautious=0.0 skips the branch and
+    # is bit-identical to baseline.
+    if body_cautious > 0.0:
+        mask = (grad * momentum > 0).to(grad.dtype)
+        soft_mask = 1.0 - body_cautious * (1.0 - mask)
+        grad = grad * soft_mask
     update = grad.lerp_(momentum, mu) if nesterov else momentum
     update = zeropower_via_newtonschulz5(update)
     update *= max(1, grad.size(-2) / grad.size(-1))**0.5
@@ -674,12 +691,13 @@ class MuonH(torch.optim.Optimizer):
     norm exactly constant; weight_decay must be 0.
     """
     def __init__(self, params, lr=0.018, weight_decay=0.0, mu=0.95,
-                 hyperball=True, budget_mult=1.0, mode="clip"):
+                 hyperball=True, budget_mult=1.0, mode="clip", body_cautious=0.0):
         assert isinstance(params, list) and len(params) >= 1 and isinstance(params[0], torch.nn.Parameter)
         assert mode in ("clip", "scale_invariant")
         params = sorted(params, key=lambda x: x.size(), reverse=True)
         defaults = dict(lr=lr, weight_decay=weight_decay, mu=mu,
-                        hyperball=hyperball, budget_mult=budget_mult, mode=mode)
+                        hyperball=hyperball, budget_mult=budget_mult, mode=mode,
+                        body_cautious=body_cautious)
         super().__init__(params, defaults)
         self._last_active_fraction = 0.0
         self._last_radius_to_norm_max = 0.0
@@ -707,7 +725,8 @@ class MuonH(torch.optim.Optimizer):
                         state["momentum"] = torch.zeros_like(p)
                         if hb:
                             state["hyperball_radius"] = p.data.norm().item() * budget_mult
-                    update = muon_update(p.grad, state["momentum"], mu=group["mu"])
+                    update = muon_update(p.grad, state["momentum"], mu=group["mu"],
+                                         body_cautious=group.get("body_cautious", 0.0))
                     if hb and mode == "scale_invariant":
                         # Always-active variant: norm is held at initial value by construction.
                         scale_invariant_update_(p.data, update, group["lr"])
@@ -796,6 +815,10 @@ if args.muonh_agc_clip_ratio > 0:
     print0(f"AGC ENABLED on inner MuonH gradient: clip_ratio={args.muonh_agc_clip_ratio} eps={args.muonh_agc_eps}", console=True)
 else:
     print0("AGC DISABLED on inner MuonH gradient (clip_ratio=0)", console=True)
+if args.body_cautious > 0:
+    print0(f"H280 Cautious MuonH ENABLED on body pre-NS5: body_cautious={args.body_cautious}", console=True)
+else:
+    print0("H280 Cautious MuonH DISABLED on body pre-NS5 (body_cautious=0.0)", console=True)
 print0("="*100)
 
 val_tokens = 20 * 524288
@@ -856,6 +879,7 @@ if dist.get_rank() == 0:
             "muonh_mu_start": args.muonh_mu_start,
             "muonh_mu_end": args.muonh_mu_end,
             "polyak_ema_decay": args.polyak_ema_decay,
+            "body_cautious": args.body_cautious,
         },
     )
 
@@ -939,7 +963,7 @@ for trial_idx in range(args.num_trials):
     optimizer2 = MuonH([p for p in model.blocks.parameters() if p.ndim >= 2],
                        lr=args.muonh_lr, weight_decay=0.0, mu=0.95,
                        hyperball=True, budget_mult=args.muonh_budget_mult,
-                       mode=args.muonh_mode)
+                       mode=args.muonh_mode, body_cautious=args.body_cautious)
     optimizer2.param_groups[0]["name"] = "muonh_blocks"
     optimizers = [optimizer1, optimizer2]
     # AGC targets: AdamW aux groups (embed, lm_head, scalars). Built from optimizer1
