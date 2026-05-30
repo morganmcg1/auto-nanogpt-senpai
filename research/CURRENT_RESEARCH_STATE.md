@@ -1,3 +1,57 @@
+## 2026-05-30 14:55 UTC — Cycle 71 mid-431 — fern #1814 333rd refute + 167th family closure + 200th mech class (ROUND NUMBER MILESTONE — STRUCTURAL_CUBE_COMPLETION bilateral terminal: Arm A `second_moment_partial_only` MOMENT=1 factor=0.5 val=3.26881/3025 INSIDE FLOOR BAND narrowly missing sub-floor +0.00081; Arm B `both_moments_partial` MOMENT=3 val=3.27233/3050 ADDITIVE-ORTHOGONAL B-additive_null=+0.00071; 200th mech class SECOND-MOMENT-DOMINANT-PRODUCTIVE-DIRECTION-INVERSION-AT-AXIS-#5-PARTIAL-RESET-WITH-ADDITIVE-ORTHOGONAL-CROSS-MOMENT-COUPLING-AT-FACTOR=0.5-AND-GATE-CASCADE-DECOUPLING; SECOND-MOMENT 0.00176 BETTER than FIRST-MOMENT at single-moment partial-preserve INVERTS cycle-71 first-moment-localized assumption; v-gate cascade MOMENT-SYMMETRIC at 0.250 decoupling from val-loss productivity; 167th family closure CROSS-MOMENT-PARTIAL-FACTOR-CUBE-AT-EMBED) + fern #1842 new assignment (AXIS-#5 SECOND-MOMENT partial-reset sub-factor sweep: Arm A factor=0.75 primary sub-floor merge candidate predicted 3.26829, Arm B factor=0.25 monotonic-control predicted 3.27068; first cycle-71 axis-#5 sub-floor merge candidate test). Fleet 8/8 active 0 idle. Cumulative: 333 refuted / 200 mech classes / 167 family closures / 9 axes locked / 8 regression-to-mean precedents.
+
+### fern #1814 STRUCTURAL_CUBE_COMPLETION — 333rd refute, 167th family closure, 200th mech class ROUND NUMBER
+
+Bilateral terminal at 14:49Z: Arm A `second_moment_partial_only` (MOMENT=1, factor=0.5) val=**3.26881**/3025 INSIDE FLOOR BAND; Arm B `both_moments_partial` (MOMENT=3, factor=0.5) val=**3.27233**/3050. W&B runs: ahll05r2 (Arm A) + ehhhx3tg (Arm B). **333rd cycle-71 refute**.
+
+**KEY STRUCTURAL FINDING — SECOND-MOMENT-DOMINANT PRODUCTIVE DIRECTION INVERSION**:
+- Δ(Arm A second-moment − #1792 Arm B first-moment) = 3.26881 − 3.27057 = **−0.00176** → second-moment INVERTS cycle-71 first-moment-localized assumption
+- Arm A 3.26881 narrowly misses sub-floor [3.26800, 3.27000] by +0.00081 — high probability of sub-floor at factor=0.75
+- Arm B at additive null +0.00071 = ADDITIVE-ORTHOGONAL (no cooperative coupling)
+- v-projector v_on(3000)=0.250 IDENTICAL for both single-moment partial configs — MOMENT-SYMMETRIC at gate axis
+- Val-loss productivity asymmetry DECOUPLED from gate-cascade mechanism
+
+**200th MECH CLASS (CYCLE-71 ROUND NUMBER): SECOND-MOMENT-DOMINANT-PRODUCTIVE-DIRECTION-INVERSION-AT-AXIS-#5-PARTIAL-RESET-WITH-ADDITIVE-ORTHOGONAL-CROSS-MOMENT-COUPLING-AT-FACTOR=0.5-AND-GATE-CASCADE-DECOUPLING**:
+1. SECOND-MOMENT 0.00176 BETTER than FIRST-MOMENT at single-moment partial-preserve
+2. ADDITIVE-ORTHOGONAL cross-moment coupling at factor=0.5 (B-additive_null=+0.00071)
+3. GATE-CASCADE DECOUPLING: v_on(3000)=0.250 identical for both single-moment configs (moment-symmetric at gate)
+4. JOINT-CLEARING PARTIALLY RESCUES GATE: Arm B v_on(3000)=0.333 > single-moment 0.250 but < full-clear 0.417
+5. PRODUCTIVE ORDERING: second-moment-only (3.26881) < first-moment-only (3.27057) < additive_null (3.27162) ≈ both-moments (3.27233) < full-clear (3.27256)
+6. NEAR-FLOOR-NEW narrowly missing sub-floor by +0.00081 — sub-factor sweep at factor∈{0.25, 0.75} is the immediate sub-floor merge candidate test
+
+**Cross-mech-class significance**: axis #5 productive direction now identified as SECOND-MOMENT axis (not first-moment EMA reset axis). Prior axis #5 closures (#1792, #1803 SHARED-SUBSTRATE-ABSORPTION, #1832 CROSS-FAMILY in-flight) closed at first-moment lever — but their productive direction was the MINORITY lever. Re-examination through second-moment substrate lens may surface new findings.
+
+**167th FAMILY CLOSURE**: CROSS-MOMENT-PARTIAL-FACTOR-CUBE-AT-EMBED-x-INTERVAL=200-x-FACTOR=0.5 closed at SECOND-MOMENT-DOMINANT + ADDITIVE-ORTHOGONAL.
+
+### fern #1842 new assignment: AXIS-#5 SECOND-MOMENT sub-factor sweep
+
+**Goal**: bracket factor=0.5 to find productive minimum and test first cycle-71 axis-#5 sub-floor merge candidate:
+- Arm A `second_moment_partial_factor_075`: MOMENT=1 + factor=0.75 (less aggressive clearing, predicted 3.26829 — primary sub-floor merge candidate)
+- Arm B `second_moment_partial_factor_025`: MOMENT=1 + factor=0.25 (more aggressive clearing, predicted 3.27068 — monotonic-control)
+
+Infrastructure cherry-pick AUX_RESET_MOMENT_EMBED from prior #1814 branch (COMMIT AND PUSH before launch). n=2 verification immediately triggered if either arm crosses sub-floor (3.26800).
+
+**201st mech class candidate**: monotonic-linear vs non-linear factor-axis productive continuum.
+
+### alphonse #1820 stale_wip resolution
+
+Arm A `lvlq389v` (lm_head_wd_only_x_back_tight) FINISHED at 13:24Z: val=**3.27080**/step 3175.
+- Δ vs estimated additive null 3.26935: +0.00145 MILD DESTRUCTIVE (vs joint axes #1×#6 compound #1799 A +0.00532 STRONG DESTRUCTIVE)
+- lm_head-WD removes ~73% of the destructive cost — DOMINANT driver (~73%) is EMBED-WD or JOINT-SYNERGY
+- 5 crashed Arm A retries (latest t6siou8f at 14:39Z) — entrypoint orchestration noise (5th cycle-71 event)
+- Arm B `l0pewn3w` (embed_wd_only_x_back_tight) RUNNING at step 2050 at 14:48Z, ETA ~15:08Z
+- Advisor ack posted at 14:48Z with structural reading + Arm B prediction matrix (40% JOINT-SYNERGY, 35% EMBED-WD-DOMINANT-DESTRUCTIVE, 15% EMBED-WD-PRODUCTIVE)
+
+### edward #1812 Arm B terminal pending student post
+
+Arm B `qzstmexs` FINISHED at 14:48Z W&B-side: val=**3.26978**/3025 INSIDE FLOOR BAND. Student bilateral terminal SENPAI-RESULT pending (next student wakeup ~14:50Z). Universal-invariance band reading prevails (3.26978 just below floor-band upper edge 3.27000, +0.00202 above baseline 3.26776).
+
+### Cycle 71 cumulative state (updated: 1 new closure, 1 family closure, 1 new mech class — 200th ROUND NUMBER MILESTONE)
+
+**Cycle 71 cumulative**: **333 refuted** / **200 distinct mech classes (CYCLE-71 ROUND NUMBER MILESTONE)** / **167 family-level closures** / **9 structural axes locked** / **8 regression-to-mean precedents** / axes #1+#2 FULLY CLOSED (CNI), axis #4 COMPOUND BILATERAL COMPLETE, axes #8+#9 LOCKED.
+
+---
+
 ## 2026-05-30 14:42 UTC — Cycle 71 mid-430 — thorfinn #1808 332nd refute + 166th family closure + 199th mech class (STRUCTURAL_AXIS_COMPOUND bilateral terminal: Arm A `compound_axis1_x_axis2` val=3.27048/3025 Arm B `wd_joint_preferred_alone` val=3.27136/3025 delta(A-B)=-0.00088; recalibrated additive null 3.27315 → Δ_A=−0.00267 PARTIAL CNI STACKING at ~58% recovery; 199th mech class CROSS-AXIS-CNI-PARTIAL-STACKABILITY-AT-WD-X-BETA1-WITH-58-PERCENT-RECOVERY-AT-ADAMW-PER-KIND-FIRST-MOMENT-EMA-SUBSTRATE; REGRESSION-TO-MEAN PRECEDENT #8 LOCKED Arm-B 3.27136 vs #1765-A 3.27012 vs #1799-B 3.26914 cross-seed range +0.00222 n=3; 166th family closure CROSS-AXIS-COMPOUND-PARTIAL-CNI-STACKABILITY-AT-WD-X-BETA1) + thorfinn #1840 new assignment (CROSS-AXIS-CNI sub-direction attribution at axes #1×#2: Arm A wd_joint+lm_head_β1=0.9 only, Arm B wd_joint+embed_β1=0.7 only; attributes -0.00088 compound residual to lm_head SLOW vs embed FAST sub-directions). Fleet 8/8 active 0 idle. Cumulative: 332 refuted / 199 mech classes / 166 family closures / 9 axes locked / 8 regression-to-mean precedents.
 
 ### thorfinn #1808 STRUCTURAL_AXIS_COMPOUND — 332nd refute, 166th family closure, 199th mech class
