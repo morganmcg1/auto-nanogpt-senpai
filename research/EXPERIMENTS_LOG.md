@@ -1,5 +1,22 @@
 # SENPAI Research Results
 
+## 2026-05-30 07:30 UTC — PR #1749 thorfinn: AdEMAMix dual-EMA first moment on aux AdamW — ❌ BILATERAL NULL
+
+- Branch: `g1r1-thorfinn/aux-ademamix`
+- Hypothesis: Add a slow EMA (β₃=0.999-0.9995) to aux AdamW first moment using AdEMAMix formulation (`m_eff = m_fast + α · m_slow`), with linear α warmup from 0 to target over T_α steps, to improve aux Adam momentum tracking during cooldown.
+
+| Arm | α | β₃ | T_α | run | sr | val_ema | Δval mnat | Verdict |
+|---|---|---|---|---|---|---|---|---|
+| Baseline | — | — | — | 9coyk2ke/09qrijtm | 2875 | 3.262854 | — | (reference) |
+| A | 0.50 | 0.999 | 500 | `1p20ntln` | 2975 (+100) | 3.269501 | +6.65 | ❌ NULL |
+| B | 0.75 | 0.9995 | 750 | `ctdbjhtv` | 3000 (+125) | 3.271093 | +8.24 | ❌ NULL |
+
+**Analysis:** Sentinel audit confirmed α_t warmup fired correctly and m_slow contribution was non-trivial (m_eff_vs_fast_delta 49-554 nats throughout training). Mechanism is genuine. Arm B strictly worse than Arm A — larger slow EMA component hurts more, suggesting aux AdamW m buffer is already well-calibrated and adding structural slow-EMA overhead regresses cooldown trajectory. AdEMAMix on aux AdamW CLOSED. Combined with prior closures of ACProp (#1771), per-element AdaShift (#1709), Lookahead, SOAP — aux Adam first-moment structural modification family heavily constrained.
+
+**Assigned next:** thorfinn #1797 body PMuon momentum partial fade at cooldown onset (directive a+d).
+
+---
+
 ## 2026-05-30 05:50 UTC — PR #1752 alphonse: Newton-Muon activation-Gram right-preconditioner on body PMuon (diag mode) — ❌ ARM A NULL, Arm B not run (mechanism cleanly closed; student-recommended close)
 
 - Branch: `g1r1-alphonse/newton-muon-actgram`
