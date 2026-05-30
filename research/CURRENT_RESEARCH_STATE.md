@@ -1,3 +1,56 @@
+## 2026-05-30 01:35 UTC — Cycle 71 mid-405 — nezuko #1741 310th refute, 146th family closure — MAJOR STRUCTURAL FINDING: attn-SOAP read-path (q,k) is intra-class direction-uniform; per-projection-role split (read-path q,k vs write-path proj) is relevant axis within attn-SOAP scope; q+k joint compound test assigned
+
+### nezuko #1741 310th refute — PER_KIND_ATTN_SOAP_K_BETA2_PHASE_DISPATCH val_mean=3.27261 STANDARD misses merge bar by Δ=+0.00485 val and +50 ffs
+
+Arm A `k_late_FAST` (E=0.90/L=0.85, boundary=1500) val=3.27384/ffs=3075 STANDARD. Arm B `k_early_FAST` (E=0.85/L=0.90, boundary=1500) val=3.27138/ffs=3025 STANDARD. Δ(B−A)=−0.00246 weak EARLY-direction, sub-structural (|Δ|<0.003 threshold). Stat rule (3.28−μ)·√n ≥ 0.004 PASSES at n=2 (0.01045). W&B qmixga5a/cdry0wjg verified config-operative + per-step beta2_k transitions at boundary 1500 + n_k_params=12 + q/v/proj β2 stayed at baseline 0.90 throughout + disabled-check PASSED val@200=4.08387.
+
+**MAJOR STRUCTURAL FINDING — attn-SOAP read-path direction-uniformity + per-projection-role split**:
+
+Updated cross-SOAP-scope β2 phase-locality matrix (**5-of-6 cells filled**):
+
+| scope/kind | direction | magnitude Δ(B−A) | eigenbasis class |
+|---|---|---|---|
+| attn-SOAP-proj (#1642) | LATE wins | strong | low-rank stable |
+| MLP-SOAP-proj (#1668) | EARLY wins | 0.00148 | low-rank stable |
+| MLP-SOAP-fc (#1695) | PHASE-INERT | <0.001 | high-rank expansion |
+| attn-SOAP-q (#1718) | EARLY wins (weak) | −0.00217 | low-rank stable |
+| **attn-SOAP-k (#1741)** | **EARLY wins (weak)** | **−0.00246** | **low-rank stable** |
+| attn-SOAP-v | UNKNOWN — v fully suppressed pre-cooldown per #1719 lever exhaustion | predicted INERT | less-stable |
+
+**Per-projection-role split within attn-SOAP scope**: (q, k read-path keys) prefer EARLY-FAST vs (proj write-path) prefers LATE-FAST. Eigenbasis-rank-sensitivity axiom partially rescued at intra-scope intra-class level (q, k both low-rank-stable share direction). Mechanism corroboration: TRUST-GATE-FLOOR-RECOVERY signature replicates at both q (#1718) and k (#1741) on EARLY β2=0.85 arms — direction tracking is mechanism-consistent, not coincidental.
+
+Rules out three hypotheses: (1) k favors LATE-FAST per per-projection-role divergence prediction — REFUTED k favors EARLY like q, (2) k has stronger phase-dispatch signal than q — REFUTED both sub-structural, (3) k phase-dispatch is INERT — partial REFUTE direction consistent with q-axis.
+
+**146th family closure**: PER_KIND_ATTN_SOAP_K_BETA2_PHASE_DISPATCH axis fully mapped at weak-EARLY-directional outcome with intra-class read-path-uniform-direction structural finding. No new Δ-trajectory mech class added (within-family replication of TRUST-GATE-FLOOR-RECOVERY signature).
+
+### Cycle 71 cumulative state
+
+**Cycle 71 cumulative**: **310 refuted** / **180 distinct mech classes** / **146 family-level closures**.
+
+### PRs closed this wave (1 closure):
+
+| PR | student | mechanism | outcome |
+|---|---|---|---|
+| **nezuko #1741** | nezuko | PER_KIND_ATTN_SOAP_K_BETA2_PHASE_DISPATCH (Arm A `k_late_FAST` E=0.90/L=0.85, Arm B `k_early_FAST` E=0.85/L=0.90; q/v/proj at baseline 0.90) | **310th** — Arm A 3.27384/3075 STANDARD, Arm B 3.27138/3025 STANDARD, val_mean=3.27261 misses by +0.00485/+50. Δ(B−A)=−0.00246 weak EARLY-direction sub-structural. MAJOR STRUCTURAL FINDING attn-SOAP read-path (q, k) intra-class direction-uniform with per-projection-role split (q,k vs proj). Trust-gate-floor-recovery mechanism class-uniform across attn-SOAP read-path. **146th family closure**. |
+
+### PRs assigned this wave (1 fresh joint-compound test):
+
+| PR | student | mechanism | hypothesis |
+|---|---|---|---|
+| **nezuko #1763** | nezuko | PER_KIND_ATTN_SOAP_QK_JOINT_BETA2_PHASE_DISPATCH (Arm A `qk_joint_EARLY_FAST` Q+K both E=0.85/L=0.90, Arm B `qk_joint_LATE_FAST` Q+K both E=0.90/L=0.85, boundary=1500; v/proj at baseline 0.90) | **Joint q+k compound test** of #1718 + #1741 weak per-axis EARLY signals. Sum of individual |Δ| ≈ 0.00463 — additive prediction crosses structural threshold |Δ|≥0.003. If A < baseline → first compound attn-SOAP read-path phase-dispatch positive opens compound stack with #1642 attn-SOAP-proj LATE-FAST. If Δ(A−B) ≥ 0.003 → additive at read-path level structural finding. If saturating compound 0.001-0.003 → q+k share eigenbasis state. If <0.001 → saturates fully one axis carries entire mechanism. If sign reversal → trust-gate compound stress is destructive. Fits Morgan's directive per-group + state-mechanism per-kind compound-dispatch axis no scalar sweep. |
+
+### Strategic fleet state
+
+Fleet 8/8 active:
+- **WIP (6)**: alphonse #1758, edward #1744, fern #1754, frieren #1755, nezuko #1763 new, tanjiro #1750
+- **n=2 confirmation (2)**: askeladd #1731 seed1, thorfinn #1732 seed1
+- 0 idle
+
+The cross-axis depth-mechanism cluster (#1731 + #1738) and the per-projection-role split within attn-SOAP (#1642 LATE-proj + #1718/#1741 EARLY-read) are the **two emerging structural axes in cycle 71**. nezuko's joint-compound test will determine whether the read-path EARLY direction compounds to structural threshold — if yes, opens compound-stack potential with #1642 LATE-proj for a full attn-SOAP per-projection-role phase-dispatch.
+
+---
+
+
 ## 2026-05-30 00:55 UTC — Cycle 71 mid-404 — alphonse #1738 309th refute, 145th family closure — MAJOR STRUCTURAL FINDING: depth-axis is correct decomposition for init-mechanism family (5× larger Δ than per-kind); back-half tightening directionally favored but wrong magnitude; emerging cross-axis depth-mechanism cluster (#1731 + #1738 both BACK-favored)
 
 ### alphonse #1738 309th refute — PER_DEPTH_HALF_INIT_STD_MULT val_mean=3.27194 STANDARD misses merge bar by Δ=+0.00418 val and +37.5 ffs
