@@ -28,6 +28,7 @@ SLOPE_FRACTION = 0.10
 SOAP_BETA2 = 0.90
 PRECOND_FREQ = 16
 NS_ITER = 12  # overridden by args.ns_iter at module load
+SOAP_QR_ITER = 1  # overridden by args.soap_qr_iter at module load
 
 
 def parse_args():
@@ -68,6 +69,10 @@ def parse_args():
     parser.add_argument("--ns_iter", type=int, default=12,
                         help="Number of Newton-Schulz iterations in zeropower_via_newtonschulz5. "
                              "Default 12 (current hardcoded value). Lower = less orthogonal but faster.")
+    parser.add_argument("--soap_qr_iter", type=int, default=1,
+                        help="Number of subspace-iteration steps per SOAP basis refresh in soap_basis_qr. "
+                             "1 = current default (single QR step). 0 = sort-only (no rotation update — falsifier). "
+                             ">1 = tighter eigenbasis tracking at small QR FLOP overhead.")
     parser.add_argument("--lr_scalars", type=float, default=0.01,
                         help="LR for AdamW adam_scalars group (RMSNorm gains; "
                              "params with ndim < 2). Default 0.01 — hardcoded, "
@@ -111,6 +116,7 @@ def parse_args():
 
 args = parse_args()
 NS_ITER = args.ns_iter
+SOAP_QR_ITER = args.soap_qr_iter
 
 
 def clean_metric_name(name: str) -> str:
@@ -548,13 +554,15 @@ def soap_basis_qr(row_gg, col_gg, q_row, q_col, exp_avg_sq):
     row_sort = torch.argsort(row_eig, descending=True)
     q_row = q_row[:, row_sort]
     exp_avg_sq = exp_avg_sq.index_select(0, row_sort)
-    q_row, _ = torch.linalg.qr(row_gg @ q_row)
+    for _ in range(SOAP_QR_ITER):
+        q_row, _ = torch.linalg.qr(row_gg @ q_row)
 
     col_eig = torch.diag(q_col.T @ col_gg @ q_col)
     col_sort = torch.argsort(col_eig, descending=True)
     q_col = q_col[:, col_sort]
     exp_avg_sq = exp_avg_sq.index_select(1, col_sort)
-    q_col, _ = torch.linalg.qr(col_gg @ q_col)
+    for _ in range(SOAP_QR_ITER):
+        q_col, _ = torch.linalg.qr(col_gg @ q_col)
     return q_row, q_col, exp_avg_sq
 
 
@@ -774,6 +782,7 @@ if dist.get_rank() == 0:
             "soap_beta2": SOAP_BETA2,
             "soap_precond_freq": PRECOND_FREQ,
             "ns_iter": NS_ITER,
+            "soap_qr_iter": SOAP_QR_ITER,
             "soap_attn_enabled": bool(args.soap_attn),
             "soap_trust_threshold": float(args.soap_trust_threshold),
             "lr_mlp": args.lr_mlp,
