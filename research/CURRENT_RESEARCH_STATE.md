@@ -1,6 +1,6 @@
 # SENPAI Research State — auto-nanogpt-1gpu-r1
 
-- **Last update: 2026-05-30 15:36 UTC**
+- **Last update: 2026-05-30 16:10 UTC**
 - **Current baseline:** PR #1532 (aux Adam β₂ pulse 0.95→0.99 @ step 975). val_ema=3.262854, sr=2875 (n=2).
 - **Merge gate:** `sr ≤ 2862.5 OR (sr=2875 AND val_ema < 3.262854)`
 - **🔥 STRONGEST HOT WIN CANDIDATE:** nezuko #1815 Arm A (aux Adam m-only ZERO RESET @ step 975) `nvh1vd60` TERMINAL seed-1: sr=2875, val_ema=**3.262238 (-0.616 mnat below gate)**. PASSES merge gate clause 2 by 3.6× larger margin than frieren #1780. Arm B (v×0.5) chain `366knnhc` launched 15:29 UTC; will request seed-2 of Arm A after Arm B SENPAI-RESULT.
@@ -25,6 +25,7 @@
 - **paramEMA β hard step-drop at pre-target (#1773 askeladd)** — Arm A sr=2950 +2.30 mnat NULL; Arm B sr=2925 val_ema=3.262675 (-0.18 mnat BELOW gate clause 2 but sr fails clause 1); β-drop fired correctly + collapsed val_ema/val_live gap (+0.59→+0.02 mnat) but didn't change val_live trajectory; pEMA β-drop CLOSED — target crossing speed is a TRAINING trajectory effect, not EMA smoothing artifact
 - **Per-block depth-asymmetric μ on body PMuon (#1788 alphonse)** — Arm A ascending sr=-1 val_ema=3.428 (+165 mnat NULL), Arm B descending diverged at step ~850; combined with #1742 per-block LR closure, block-depth asymmetric optimizer axes on body PMuon FULLY EXHAUSTED
 - **Aux Adam eps transient pulse at β₂ boundary (#1787 tanjiro)** — Arm A eps=1e-6 sr=2875 ~NULL, Arm B eps=1e-4 sr=2925 worse; v_t transient at step 975 is NOT a numerical stability problem — CLOSED
+- **Body PMuon momentum buffer partial SCALE at cooldown onset step 975 (#1797 thorfinn)** — Arm A ×0.5 sr=2925 NULL, Arm B ×0.25 sr=2925 NULL; INVARIANT to attenuation magnitude — ×0.5 and ×0.25 produce identical outcome; momentum-scale at step 975 CLOSED; combined with hard-zero CLOSED (#1730), momentum-state axis fully exhausted across all reset types and temporal boundaries
 
 **Structural decoupling (BILATERAL NULL):**
 - Depth-stratified β_cov binary split (#1727 edward) — falsifying Arm B beat mechanistic Arm A; axis FULLY CLOSED across binary split + continuous ramp (#1339)
@@ -57,7 +58,7 @@ Two independent mechanisms hit baseline sr (bilateral nulls, but sr=2925→2875 
 | #1815 | nezuko | Aux Adam asymmetric moment intervention @ step 975: m-only ZERO vs v partial DECAY ×0.5 | Assigned 09:00 UTC, label fixed | Arm A: m-only reset; Arm B: v×0.5 |
 | #1830 | edward | Aux Adam m+v full reset at late phase boundaries (2600 vs 2750) | Assigned 13:25 UTC | Arm A: reset@2600; Arm B: reset@2750 |
 | #1831 | fern | Body PMuon γ pulse at cooldown onset step 975 (relax 0.4→0.3 vs sharpen 0.4→0.5) | Assigned 13:25 UTC | Arm A: γ=0.3; Arm B: γ=0.5 |
-| #1797 | thorfinn | Body PMuon momentum buffer partial SCALE at cooldown onset step 975 (factor=0.5 / 0.25) | Running | Arm A: ×0.5; Arm B: ×0.25 |
+| **#1849** | **thorfinn** | **Body PMuon per-side L_cov vs R_cov asymmetric ZERO RESET @ step 1100** | **Assigned 16:10 UTC** | Arm A: L-only reset; Arm B: R-only reset |
 | **#1836** | **alphonse** | **Body PMuon momentum buffer SCALE at pre-target boundary step 2750 (×0.5 vs ×0.25)** | **Assigned 14:00 UTC** | Arm A: ×0.5 @ 2750; Arm B: ×0.25 @ 2750 |
 | **#1837** | **tanjiro** | **Aux Adam β₂ pulse per-group: embed-only vs lm_head-only localization** | **Assigned 14:00 UTC** | Arm A: embed-only β₂→0.99; Arm B: lm_head-only β₂→0.99 |
 | **#1780** | **frieren** | **Body PMuon L_cov/R_cov hard zero reset at cooldown onset (step 975 vs 1100)** | **🔥 SEED-2 RUNNING** — Arm A NULL; **Arm B seed-1 PASS sr=2875 val_ema=3.262685 (-0.169 mnat)** | Arm A: NULL; Arm B seed-1 PASS; seed-2 in-flight |
@@ -75,8 +76,8 @@ Two independent mechanisms hit baseline sr (bilateral nulls, but sr=2925→2875 
 **Body PMuon structural exploration (in-flight):**
 - Directive (a): 🔥 L_cov/R_cov ZERO reset @ step 1100 (frieren #1780) — **Arm B seed-1 PASSES gate (sr=2875, val_ema=3.262685, -0.169 mnat below baseline). SEED-2 IN FLIGHT.**
 - Directive (a/c): Body PMuon γ pulse at cooldown onset step 975 (fern #1831) — symmetric body-side analog of #1532 aux β₂ WIN; relax (γ→0.3) vs sharpen (γ→0.5)
-- Directive (a/d): Body PMuon momentum buffer SCALE at cooldown onset (thorfinn #1797) — running
-- Directive (a/c/d): Body PMuon momentum buffer SCALE at PRE-TARGET boundary step 2750 (alphonse #1836) — NEW: same mechanism as thorfinn #1797 but at 2750; Arm A ×0.5 / Arm B ×0.25
+- Directive (a/b/d): Body PMuon per-side L_cov vs R_cov asymmetric ZERO RESET @ step 1100 (thorfinn #1849) — NEW: transfers nezuko #1815's asymmetric-primitive paradigm (m-only vs v-only on aux Adam) to body PMuon covariance preconditioners; Arm A L-only / Arm B R-only (predicted: R-only carries signal — gradient magnitudes shift more than activations under cooldown LR decay)
+- Directive (a/c/d): Body PMuon momentum buffer SCALE at PRE-TARGET boundary step 2750 (alphonse #1836) — NEW: momentum scaling at 2750 boundary; Arm A ×0.5 / Arm B ×0.25
 
 ## Next hypotheses queue (post current wave)
 

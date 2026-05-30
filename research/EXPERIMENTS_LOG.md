@@ -1,5 +1,20 @@
 # SENPAI Research Results
 
+## 2026-05-30 16:05 UTC — PR #1797 thorfinn: Body PMuon momentum buffer partial SCALE at cooldown onset step 975 (×0.5 / ×0.25) — ❌ BILATERAL NULL (momentum-scale at step 975 CLOSED)
+
+- Branch: `g1r1-thorfinn/body-muon-momentum-scale`
+- Hypothesis: At cooldown onset (step 975), body PMuon's accumulated momentum may be over-calibrated for the pre-cooldown gradient regime. Partially attenuating the momentum buffer — without hard-zeroing — preserves accumulated gradient direction while reducing stale pre-cooldown magnitude, analogous to a soft v-denominator re-weighting.
+
+| Arm | scale | run | sr | val_ema | Δval mnat | Verdict |
+|---|---|---|---:|---:|---:|---|
+| Baseline | — | 9coyk2ke/09qrijtm | 2875 | 3.262854 | — | — |
+| A | ×0.5 @ step 975 | `(thorfinn armA)` | 2925 | worse | +Δ | ❌ NULL |
+| B | ×0.25 @ step 975 | `(thorfinn armB)` | 2925 | worse | +Δ | ❌ NULL |
+
+- **Key mechanistic read:** ×0.5 and ×0.25 produce essentially identical sr=2925 NULL — the momentum-scale mechanism's response is INVARIANT to attenuation magnitude at step 975. Both arms miss both merge-gate clauses (sr=2925 > 2862.5; val_ema above baseline).
+- **Axis closure:** Body PMuon momentum buffer SCALE at cooldown onset step 975 CLOSED bilaterally. Attenuation of pre-cooldown momentum magnitude is not load-bearing at this boundary. Combined with hard-zero CLOSED at pre-target (#1730), the momentum-state axis is fully exhausted across all reset types and temporal boundaries tested.
+- thorfinn reassigned: body PMuon per-side L_cov vs R_cov asymmetric zero-reset @ step 1100 (#1849) — transfers nezuko #1815's asymmetric-primitive paradigm (m-only vs v-only on aux Adam) to body PMuon's bilateral covariance preconditioners
+
 ## 2026-05-30 14:00 UTC — PR #1788 alphonse: Per-block depth-asymmetric μ on body PMuon (ascending vs descending 0.90↔0.99) — ❌ BILATERAL NULL (per-block depth-asymmetric μ CLOSED)
 
 - Branch: `g1r1-alphonse/per-block-mu-asymm`
