@@ -1,3 +1,29 @@
+## 2026-05-30 23:05 UTC — Cycle 71 mid-445 — fern #1864 349th refute + 183rd family closure + 216th mech class (axes #2×#5 EMBED-FACTOR-0.5 CROSS-MOMENT-CHANNEL DISCRIMINATION CUBE COMPLETE with KIND-CHANNEL-STRUCTURE ASYMMETRY: Arm A `embed_M=2_factor_0.5` val=3.27016/3025 INSIDE FLOOR BAND edge + Arm B `embed_M=3_factor_0.5` val=3.27162/3050 ABOVE FLOOR BAND; bilateral mean 3.27089/3037.5 ABOVE both merge bars; 216th mech class EMBED-FACTOR-0.5-MOMENT-CHANNEL-MONOTONIC-DEGRADATION-WITH-M=1-DOMINANT-AND-CROSS-KIND-CHANNEL-STRUCTURE-ASYMMETRY-VS-LM-HEAD-SIGN-FLIP; FOUR concurrent invariants: M=1-DOMINANT MONOTONIC DEGRADATION (M=1=3.26881 BEST < M=2=3.27016 +0.00135 PARTIAL < M=3=3.27162 +0.00281 GREATER), FOUR of FIVE pre-experiment families REFUTED (SEVENTH cycle-71 closure of this pattern), KIND-CHANNEL-STRUCTURE ASYMMETRY (embed MONOTONIC vs lm_head SIGN-FLIP from #1852), CROSS-MOMENT-CHANNEL CUBE COMPLETE at embed factor=0.5 at 3 of 3 cells; 183rd family closure AXES-2-X-5-EMBED-FACTOR-0.5-CROSS-MOMENT-CHANNEL-DISCRIMINATION-CUBE-COMPLETE) + fern #1887 new assignment (CROSS-KIND-STRUCTURE-VERIFICATION × EMBED-FACTOR-2D-PROBE at M=2: Arm A lm_head_M=2_factor_0.5 + Arm B embed_M=2_factor_0.25; discriminates FACTOR-LOCKED vs KIND-INTRINSIC sign-flip and M=2 U-shape candidacy). Fleet 8/8 active 0 idle. Cumulative: 349 refuted / 216 mech classes / 183 family closures / 9 axes locked / 10 regression-to-mean precedents.
+
+### fern #1864 axes #2×#5 EMBED-FACTOR-0.5 CROSS-MOMENT-CHANNEL DISCRIMINATION CUBE — 349th refute, 183rd family closure, 216th mech class
+
+Bilateral terminal: Arm A `embed_M=2_factor_0.5` (`3mjoexj3`) val=**3.27016**/3025 INSIDE FLOOR BAND edge; Arm B `embed_M=3_factor_0.5` (`b12xny1p`) val=**3.27162**/3050 ABOVE FLOOR BAND. Bilateral mean **3.27089**/3037.5 ABOVE both merge bars. **349th cycle-71 refute**.
+
+**KEY STRUCTURAL FINDING — M=1-DOMINANT MONOTONIC + KIND-CHANNEL-STRUCTURE ASYMMETRY**:
+- **M=1-DOMINANT MONOTONIC DEGRADATION** at embed factor=0.5: M=1 (3.26881 BEST, #1814 A) < M=2 (3.27016 +0.00135) < M=3 (3.27162 +0.00281). Strict monotone in MOMENT-channel breadth.
+- **FOUR of FIVE pre-experiment families REFUTED**: SEVENTH cycle-71 closure where pre-declared hypothesis space largely rejected (after #1840, #1842, #1845, #1846, #1852, #1854, #1863).
+- **KIND-CHANNEL-STRUCTURE ASYMMETRY**: embed MONOTONIC channel-breadth degradation vs lm_head SIGN-FLIP (#1852: M=1 RESCUE / M=2 DESTROY). Substrate-specific MOMENT-channel structure is the OPERATIVE DISCRIMINATOR at axes #2 × #5 factor=0.5.
+- **CROSS-MOMENT-CHANNEL CUBE COMPLETE** at embed factor=0.5 at 3 of 3 cells (M=1/M=2/M=3 all closed).
+
+**216th MECH CLASS**: EMBED-FACTOR-0.5-MOMENT-CHANNEL-MONOTONIC-DEGRADATION-WITH-M=1-DOMINANT-AND-CROSS-KIND-CHANNEL-STRUCTURE-ASYMMETRY-VS-LM-HEAD-SIGN-FLIP.
+
+**183rd FAMILY CLOSURE**: AXES-2-X-5-EMBED-FACTOR-0.5-CROSS-MOMENT-CHANNEL-DISCRIMINATION-CUBE-COMPLETE.
+
+### fern #1887 new assignment: CROSS-KIND-STRUCTURE-VERIFICATION × EMBED-FACTOR-2D-PROBE at M=2
+
+**Goal**: discriminate FACTOR-LOCKED vs KIND-INTRINSIC sign-flip × M=2 U-shape candidacy at embed:
+- Arm A `lm_head_M=2_factor_0.5`: tests if lm_head SIGN-FLIP DESTROY persists at matched factor=0.5 (KIND-INTRINSIC) or transitions to MONOTONIC (FACTOR-LOCKED)
+- Arm B `embed_M=2_factor_0.25`: tests M=2 U-shape candidacy parallel to M=1 U-shape (#1842 factor=0.5 vs factor=0.25)
+
+Outcomes: KIND-INTRINSIC SIGN-FLIP A ∈ [3.27200, 3.27400] (35%) / FACTOR-LOCKED ASYMMETRY A ∈ [3.26900, 3.27100] (25%) / KIND-INTRINSIC + B < 3.27016 embed M=2 U-shape (20%) / Both KIND-INVARIANT MONOTONIC (10%) / UNEXPECTED Arm A sub-floor (5%) / UNEXPECTED Arm B regression (5%).
+
+---
+
 ## 2026-05-30 22:55 UTC — Cycle 71 mid-444 — thorfinn #1863 348th refute + 182nd family closure + 215th mech class (axes #1×#2 REVERSE-DIRECTION sub-direction cube COMPLETE with KIND-DEPENDENT LOCAL β1 CURVATURE ASYMMETRY discovery: Arm A `lm_head β1=0.7 FAST` val=3.26991/3025 INSIDE FLOOR BAND edge + Arm B `embed β1=0.9 SLOW` val=3.27276/3050 ABOVE FLOOR BAND; bilateral mean 3.27134/3037.5 ABOVE both merge bars; 215th mech class KIND-DEPENDENT-LOCAL-BETA1-CURVATURE-ASYMMETRY-AT-AXES-1-X-2-WITH-LM-HEAD-LOCAL-MAX-AND-EMBED-LOCAL-MIN-AT-DEFAULT-BETA1-0.8; FOUR concurrent invariants: lm_head LOCAL-MAX at β1=0.8 with 1.73× FAST-side asymmetry productive both ±0.1, embed LOCAL-MIN at β1=0.8 with 3.33× SLOW-side asymmetry destructive both ±0.1, ALL 5 PRE-EXPERIMENT FAMILIES REFUTED (SIXTH cycle-71 closure of this pattern after #1840/#1842/#1845/#1846/#1852/#1854), #1808 A SUPER-ADDITIVE COMPOUND MECHANISTICALLY EXPLAINED via decomposition tax; 182nd family closure AXES-1-X-2-REVERSE-DIRECTION-SUB-DIRECTION-CUBE-COMPLETE-AT-4-OF-4-CELLS) + thorfinn #1884 new assignment (MERGE-CANDIDATE COMPOUND × LM-HEAD-FINE-RESOLUTION bilateral: Arm A lm_head_FAST_X_embed_DEFAULT predicted MERGE CANDIDATE val ∈ [3.26900, 3.26970] + Arm B lm_head_EXTREME_FAST_0.6 probes whether lm_head minimum is BELOW 0.7; under 215th mech class lm_head FAST stacking without embed local-min tax should clear merge bar). Fleet 8/8 active 0 idle. Cumulative: 348 refuted / 215 mech classes / 182 family closures / 9 axes locked / 10 regression-to-mean precedents.
 
 ### thorfinn #1863 axes #1×#2 REVERSE-DIRECTION sub-direction cube — 348th refute, 182nd family closure, 215th mech class
