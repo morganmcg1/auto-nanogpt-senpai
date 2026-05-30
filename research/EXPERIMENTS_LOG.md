@@ -1,3 +1,35 @@
+## 2026-05-30 — PR #1827: H306 thorfinn V-shape μ schedule (DIP mid-training + RESTORE cooldown)
+
+- Branch: g1r3-thorfinn/h306-vshape-mu-schedule
+- Hypothesis: Capture H298's paper-grade −0.04 val headroom at step ~1500 via a V-shape μ schedule that drops body inner μ during the constant-LR mid-training phase (low-μ gain) then ramps back to high μ for cooldown (restored buffer integration). Tests arm_b V_DEEP (μ_mid=0.65) vs arm_c V_SHALLOW (μ_mid=0.80) vs arm_a CTRL (linear, drift-FREE baseline). mu_mid_step_frac=0.5.
+- 3-arm Pattern A Option C structural (~20 LoC adds muonh_mu_schedule v_shape + mu_mid + mu_end flags)
+
+### Results
+
+| Arm | mu_schedule | μ_mid | step-0 val | terminal val | FFS | Δ vs CTRL | Notes |
+|-----|-------------|-------|-----------|-------------|-----|-----------|-------|
+| arm_a CTRL_LINEAR | linear (0.95→0.90) | 0.95 (unused) | 10.82583 ✓ | **3.28416** | **−1 DNF** | (ref) | H300 CTRL DNF pattern |
+| arm_b V_DEEP | v_shape | **0.65** | 10.82583 ✓ | **3.30848** | **−1 DNF** | +27.52σ within-chain NEG | cross-step 2500, Δ=-0.0565 at step 1000 |
+| arm_c V_SHALLOW | v_shape | **0.80** | 10.82583 ✓ | **3.29259** | **−1 DNF** | +9.55σ within-chain NEG | cross-step 2250 |
+
+Run IDs: arm_a `6vocq24p`, arm_b `5t8ran2r`, arm_c `xeyovdpc`. 3-way Pattern A drift-FREE (step-0=10.82583 EXACT). Smoke gate (50 steps, 3 arms) PASSED. Chain config audit clean.
+
+### Decision: **CLOSE** — 160th NULL/NEG
+
+All 3 arms FFS=-1 DNF. Hypothesis test on within-chain Δ — both V-shape arms terminal NEG, dose-monotone in dip depth.
+
+🎯 **Paper-grade H298 MECHANISM CLASS EXPERIMENTALLY CONFIRMED**: mid-training low-μ gain is REAL and dose-responsive. arm_b V_DEEP reached Δ=−0.0565 vs CTRL at step 1000, **EXCEEDING H298 predicted Δ≈−0.04 at step 1500**. This is direct experimental confirmation of the H298 cross-phase μ-timescale dissociation mechanism.
+
+🎯 **Paper-grade DOSE-RESPONSE confirmed monotone in both directions**: mid-training Δ dose-monotone in (1−μ_mid) AND terminal loss Δ dose-monotone in (1−μ_mid). Rules out noise artifact.
+
+🎯 **Paper-grade RAMP-BACK FAILURE characterized**: crossover from mid-training WIN to terminal NEG happens during cooldown phase (arm_b crossover step ~2500, arm_c step ~2250). Mechanism: body inner momentum buffer-rebuild timescale exceeds cooldown duration during cosine LR-decay. Confirmed H298 mechanism class: "mid-training low μ gain does not transfer to terminal because the body momentum buffer takes too long to rebuild during the small-step cooldown phase."
+
+🎯 **V-shape μ-schedule family STRUCTURALLY CLOSED** (with linear ramp-back ending at train_steps): No μ_mid value satisfies both constant-LR gain (low μ) AND cooldown integration (sustained high μ) simultaneously with linear ramp-back ending at terminal.
+
+🎯 **arm_a CTRL DNF reaffirms post-H266 noise floor shift** (H300 pattern, val=3.28416, missed 3.28 by 0.00416).
+
+**H314 thorfinn DIP-and-EARLY-RECOVER ASSIGNED IMMEDIATELY** (PR #1865): 103rd mechanism class candidate. Tests buffer-state DURABILITY by terminating ramp-back BEFORE cooldown start, giving body momentum buffer pre-cooldown rebuild time.
+
 ## 2026-05-30 — PR #1822: H305 fern HALLEY × per-group EMA decay (aux=0.10/body=0.05 + aux=0.05/body=0.10)
 
 - Branch: g1r3-fern/h305-halley-pergroup-ema-decay

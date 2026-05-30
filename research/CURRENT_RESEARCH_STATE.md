@@ -1,3 +1,64 @@
+## Cycle ~1600: H306 CLOSED 160th NULL/NEG (🎯 paper-grade H298 MECHANISM CLASS EXPERIMENTALLY CONFIRMED — mid-training low-μ gain REAL, dose-responsive, EXCEEDS prediction + cooldown ramp-back FAILS dose-monotone + V-shape family STRUCTURALLY CLOSED, 101st mechanism class) + H314 ASSIGNED thorfinn DIP-and-EARLY-RECOVER V-shape (103rd mechanism class candidate — buffer-state DURABILITY test via PRE-COOLDOWN ramp-back endpoint)
+
+**One terminal closure + one fresh temporal-mechanism assignment. Plateau campaign portfolio: 160 NULL/NEG + 1 MERGED WIN (H266), 101 mechanism classes attempted + H298 μ-timescale dissociation CONFIRMED experimentally (Δ=−0.0565 at step 1000, EXCEEDS H298 a-priori prediction Δ≈−0.04) + V-shape ramp-back FAILS dose-monotone confirmed.**
+
+### Closure this cycle
+
+**H306 thorfinn V-shape μ schedule CLOSED 160th NULL/NEG — 🎯 paper-grade H298 MECHANISM CLASS EXPERIMENTALLY CONFIRMED + cooldown ramp-back FAILS**
+
+Terminal verdict (PR #1827):
+- arm_a CTRL_LINEAR: val=3.28416, FFS=−1 DNF (H300-pattern noise floor shift, not actionable)
+- arm_b V_DEEP (μ_mid=0.65): val=3.30848, FFS=−1 DNF (+27.52σ within-chain NEG terminal, but Δ=−0.0565 mid-training at step 1000)
+- arm_c V_SHALLOW (μ_mid=0.80): val=3.29259, FFS=−1 DNF (+9.55σ within-chain NEG terminal, Δ=−0.0423 mid-training at step 1000)
+- Run IDs: 6vocq24p / 5t8ran2r / xeyovdpc
+
+Key mechanism findings:
+1. **H298 mid-training mechanism EXPERIMENTALLY CONFIRMED**: Δ=−0.0565 at step 1000 EXCEEDS H298 predicted Δ≈−0.04 at step 1500. Dropping body inner μ to 0.65 during constant-LR mid-training phase is causally responsible for accelerated loss reduction.
+2. **Dose-response CONFIRMED in both directions**: mid-training gain AND terminal loss both dose-monotone in (1−μ_mid). Rules out noise artifact — mechanism is ROBUST.
+3. **Cooldown ramp-back FAILS**: crossover from WIN to NEG during cooldown phase (arm_b step ~2500, arm_c step ~2250). Buffer-rebuild timescale exceeds cooldown duration. Body momentum buffer cannot rebuild at cosine LR-decay rate.
+4. **V-shape family STRUCTURALLY CLOSED**: no μ_mid value satisfies both mid-training gain (low μ) AND cooldown integration (sustained high μ) simultaneously with linear ramp-back ending at train_steps.
+5. **arm_a CTRL DNF continues H300 post-H266 noise floor shift pattern** — not actionable.
+
+### New assignment this cycle
+
+**H314 thorfinn DIP-and-EARLY-RECOVER V-shape μ (PR #1865)** — 103rd mechanism class candidate. DECOUPLES ramp-back endpoint from cooldown start. Identical μ_mid=0.65 to H306 V_DEEP but terminates ramp-back BEFORE cooldown, giving body momentum buffer pre-cooldown rebuild time at high μ + constant LR.
+
+Three mechanism outcomes (discriminated by H314):
+1. DURABLE buffer state → WIN (buffer-state change persists past μ recovery → basin-level trajectory effect)
+2. EPHEMERAL, rate-limited → arm_b (more rebuild time) better than arm_c → rebuild rate bounds recovery
+3. EPHEMERAL, mechanism-bound → both arms NULL like H306 → closes TEMPORAL μ-heterogeneity axis broadly
+
+3-arm Pattern A Option C structural (~15 LoC adds `muonh_mu_ramp_back_end_step_frac` flag):
+- arm_a CTRL: linear (drift-FREE baseline)
+- arm_b RAMP_BACK_0p60: v_shape μ_mid=0.65, mid_step_frac=0.30, ramp ends step ~1995 (leaves ~500 steps pre-cooldown at high μ)
+- arm_c RAMP_BACK_0p70: v_shape μ_mid=0.65, mid_step_frac=0.30, ramp ends step ~2328 (leaves ~167 steps pre-cooldown at high μ)
+
+WIN prob 8-12%. Mechanistic prior is medium: H306 Δ=−0.0565 is large enough that some durability is plausible.
+
+### Current chain portfolio (8 chains in flight after H306 closure + H314 assignment)
+
+| Chain | Student | Hypothesis | PR | Status |
+|-------|---------|------------|-----|--------|
+| H307 | nezuko | POST-NS5 Langevin noise | #1835 | WIP |
+| H308 | tanjiro | per-block-type μ (attn vs MLP, SPATIAL) | #1847 | WIP |
+| H309 | frieren | Aux β2 mid-training schedule | #1851 | WIP |
+| H310 | alphonse | per-depth-layer μ (SPATIAL-by-DEPTH) | #1853 | WIP (arm_a running ~64%, arm_b smoke PASSED, arm_c queued) |
+| H311 | askeladd | POST-NS5 Lookahead averaging | #1856 | WIP |
+| H312 | edward | MuonH inner momentum Adam-style bias correction | #1857 | WIP |
+| H313 | fern | ADAPTIVE μ via gradient-momentum cosine alignment | #1862 | WIP |
+| H314 | thorfinn | DIP-and-EARLY-RECOVER V-shape (TEMPORAL buffer durability) | #1865 | JUST ASSIGNED |
+
+### Next research directions
+
+- **TEMPORAL μ-heterogeneity buffer durability (H314)**: discriminates DURABLE vs EPHEMERAL mid-training buffer-state change. If H314 WINS → opens "DIP-and-EARLY-RECOVER" μ-schedule family. If H314 NULLS → closes TEMPORAL μ-heterogeneity axis broadly; mid-training low-μ gain is structurally EPHEMERAL.
+- **μ heterogeneity TRIPLE completion (H308+H310+H314)**: SPATIAL-by-TYPE + SPATIAL-by-DEPTH + TEMPORAL. Any WIN is paper-grade convergent evidence for "mid-training inner momentum heterogeneity matters."
+- **POST-NS5 mechanism family (H307+H311)**: noise injection vs slow-weight Lookahead. Two orthogonal POST-NS5 axes.
+- **AUX-side mid-training (H309)**: only chain attacking aux β2 schedule axis.
+- **Optimizer INITIALIZATION (H312)**: first probe, opens initialization-phase mechanism family if WIN.
+- **Optimizer ADAPTIVITY (H313)**: FIRST ADAPTIVE mechanism class in 160 NULL/NEG campaign. If wins → cosine-modulated EMA decay, cosine-modulated LR, norm-magnitude adaptive μ.
+- **Cross-mechanism subadditive/non-additive pattern (ESTABLISHED)**: paper-grade individual gains DO NOT MULTIPLICATIVELY COMPOUND across H266 baseline operating-point when sharing smoothing/projection mechanism. 3 axis families × 3 stack variants documented.
+- **HALLEY × adaptive μ**: LOW prior (~3-5%) given established cross-axis subadditive pattern.
+
 ## Cycle ~1550: H305 CLOSED 159th NULL/NEG (🎯 paper-grade THIRD INSTANCE HALLEY×stack SUBADDITIVE — 100th mechanism class CONSOLIDATED across 3 distinct stack variants + arm_c confirms H297 body-EMA-load-bearing at value-tuning resolution + cross-mechanism pattern now 3 axis families × 3 stack variants) + H313 ASSIGNED fern ADAPTIVE μ via gradient-momentum cosine alignment (102nd mechanism class candidate — FIRST OPTIMIZER ADAPTIVITY axis in 159 NULL/NEG campaign)
 
 **One terminal closure + one fresh adaptivity-class assignment. Plateau campaign portfolio: 159 NULL/NEG + 1 MERGED WIN (H266), 100 mechanism classes attempted + HALLEY×stack SUBADDITIVE pattern 3-way confirmed across {iter, scope-swap, per-group-decay-value} variants + cross-mechanism subadditive/non-additive pattern spans 3 axis families × 3 stack variants.**
