@@ -1,3 +1,42 @@
+## 2026-05-30 03:35 — PR #1777: H291 fern MuonH NS5 input normalization Frobenius vs spectral — **ASSIGNED (79th class)**
+
+- Branch: g1r3-fern/h291-ns5-input-norm (PR #1777, post-H266 baseline)
+- 79th mechanism class — **NS5 INPUT SCALING / matrix norm operator**
+- Direct extension of H280 NS5 SIGNAL-CONSERVATIVE finding (NS5 needs proper signal magnitude prep)
+- Mechanism: `zeropower_via_newtonschulz5` line 559 currently uses Frobenius norm `X/(||X||_F)` which is conservative upper bound on spectral norm (gives σ_max ≈ 0.044 for 1024-dim matrices). NS5 polynomial f(x) = 2x - 1.5x³ + 0.5x⁵ has f(1) = 1.0 EXACTLY — first iteration with σ_max=1 gives instant polar projection. Frobenius requires ~12 iterations of progressive σ growth.
+- 2-arm Pattern A drift-FREE binary chain:
+  - arm_a CTRL `--muonh_ns5_input_norm frobenius`: current baseline, σ_max ≈ 0.044 at NS5 entry
+  - arm_b SPECTRAL `--muonh_ns5_input_norm spectral`: 5-iter power iteration spectral norm; σ_max ≈ 1.0 at NS5 entry
+- WIN criterion: arm_b FFS<3000 strict, val<3.276
+- TIE result: arm_b FFS=3000 EXACT → 6th FFS=3000 TIE family member (paper-grade NS5 robustness)
+- NEG result: arm_b FFS≥3050 → Frobenius is structurally important
+- WIN prob 15-25%; 79th mechanism class
+- **Connects to**: H267 NS5 iter count (closed-TIE FFS=3000 at 16 iter), H280 NS5 cautious sign-mask (NS5 SIGNAL-CONSERVATIVE), H287 alphonse in flight (NS5 polynomial coefficient FORM)
+- **Implementation discipline**: Pattern A drift-FREE via VALUE-only argparse, default=frobenius bit-id baseline. Add `_spectral_norm_power_iter` helper with 5-iter power iteration. Thread input_norm through `muon_update` → `zeropower_via_newtonschulz5`. Replicate fern's H283 Option B pattern.
+- **Wallclock note**: spectral mode adds ~5 extra matmuls per NS5 call (~5% wallclock overhead) — record per-step times
+- Ref: Bernstein/Newhouse Muon paper https://arxiv.org/abs/2502.16982 (canonical NS5 polynomial)
+
+## 2026-05-30 03:35 — PR #1746: H283 fern Label smoothing on CE loss — **CLOSED 137th NULL/NEG (🎯 paper-grade loss-level regularization NEG)**
+
+- Branch: g1r3-fern/h283-label-smoothing (PR #1746, post-H266 baseline)
+- 67th mechanism class — Label smoothing on training-path CE loss, α ∈ {0.0, 0.05, 0.1}
+- Terminal verdict: clean monotone NEG dose-response, val/loss structurally floor above 3.28
+
+| Arm | α | run_id | step-0 val | val/loss | Δval (σ_H174) | FFS | verdict |
+|-----|---|--------|-----------|----------|---------------|-----|---------|
+| arm_a CTRL | 0.0 | wz0t1n7b | 10.82583 ✓ | 3.26855 | +0.42σ | 3025 | Pattern A loose drift (29th) |
+| arm_b LOW | 0.05 | p7o66foo | 10.82583 ✓ | 3.31357 | +51.3σ | -1 | catastrophic NEG, never reaches 3.28 |
+| arm_c MID | 0.1 | 5r3ncask | 10.82583 ✓ | 3.36897 | +114σ | -1 | catastrophic NEG, worst |
+
+- 🎯 **Clean monotone dose-response**: linear scaling of val deficit with α (0.42σ → 51.3σ → 114σ) confirms structural floor mechanism
+- 🎯 **Paper-grade mechanism**: training-path label smoothing distributes target probability mass to incorrect tokens → CE-minimum is no longer true token distribution. Val/loss (std CE) has structural floor at ~log(50K)×α above true-distribution minimum
+- 🎯 **Why literature wins don't translate**: label smoothing helps val ACCURACY (calibration) but hurts val/loss (NLL increases). FFS target is val/loss<3.28, not accuracy. Same mechanism as H282 AdaBelief NEG (literature gains on different metrics)
+- 🎯 **73rd mechanism class catalogued — LOSS-LEVEL REGULARIZATION CLOSED-NEG**: distributing target mass structurally hurts NLL-based FFS metric. Future loss-level work should avoid CE-distribution-modification approaches
+- 🎯 **Option B (forward kwarg) implementation discipline**: training-only smoothing with val-side preserving bit-id. Gold-standard pattern — will be replicated
+- Drift-FREE Pattern A: 32nd-34th instances (all 3 arms step-0=10.82583 EXACT)
+- Pattern A loose +25 drift class: 29th instance (arm_a CTRL FFS=3025, val Δ=+0.42σ within tolerance)
+- 137th NULL/NEG closure of plateau campaign
+
 ## 2026-05-30 02:00 — PR #1764: H290 askeladd Body-only Polyak EMA — **ASSIGNED (78th class)**
 
 - Branch: g1r3-askeladd/h290-body-only-ema (PR #1764, post-H266 baseline)

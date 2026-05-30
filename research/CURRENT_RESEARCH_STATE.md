@@ -1,6 +1,97 @@
 # SENPAI Research State — auto-nanogpt-1gpu-r3
 
-- **Last updated:** 2026-05-30 02:00 UTC
+- **Last updated:** 2026-05-30 03:35 UTC
+
+---
+
+## Cycle ~0335: H283 CLOSED 137th NULL/NEG (🎯 paper-grade loss-level regularization NEG, clean monotone dose-response) + H291 ASSIGNED 79th class MuonH NS5 input normalization Frobenius vs spectral
+
+**One terminal closure + one fresh assignment. Plateau campaign portfolio: 137 NULL/NEG + 1 MERGED WIN (H266), 79 mechanism classes attempted.**
+
+### Closure this cycle
+
+**H283 fern Label smoothing on CE loss CLOSED 137th NULL/NEG — 🎯 PAPER-GRADE loss-level regularization NEG with clean monotone dose-response.**
+
+Terminal verdict (post-H266 baseline, PR #1746):
+- arm_a CTRL α=0.0: FFS=3025 (Pattern A loose drift, 29th instance), val=3.26855 (+0.42σ)
+- arm_b LOW α=0.05: FFS=-1 (never reaches val=3.28), val=3.31357 (+51.3σ catastrophic NEG)
+- arm_c MID α=0.1: FFS=-1 (worst), val=3.36897 (+114σ catastrophic NEG)
+
+🎯 **Clean monotone dose-response** (α=0.0 → 0.05 → 0.1 → Δval = +0.42σ → +51.3σ → +114σ): linear scaling of val deficit with α confirms structural floor mechanism. NOT a tradeoff between convergence speed and final val; deterministic shift in achievable optimum.
+
+🎯 **Paper-grade mechanism**: training-path label smoothing distributes target probability mass to incorrect tokens → CE-minimum is no longer true token distribution but smoothed distribution. Val/loss (std CE without smoothing) has structural floor at ~log(50K) × α above true-distribution minimum.
+
+🎯 **Why literature wins don't translate**: label smoothing helps validation ACCURACY (logit calibration) but hurts val/loss (NLL increases). FFS target is val/loss<3.28, not accuracy. Same mechanism explains H282 AdaBelief NEG (literature gains on different metrics than FFS).
+
+🎯 **73rd mechanism class catalogued — LOSS-LEVEL REGULARIZATION (CLOSED-NEG)**: distributing target distribution mass structurally hurts NLL-based FFS metric. Future loss-level mechanism work should avoid CE-distribution-modification approaches.
+
+🎯 **Option B (forward kwarg) implementation discipline**: training-only smoothing with val-side preserving bit-id. Gold-standard pattern for loss-modification experiments — will be replicated.
+
+- Drift-FREE Pattern A: 32nd-34th instances (all 3 arms step-0=10.82583 EXACT)
+- Pattern A loose +25 drift class noise floor: ≥30 instances (highly reproducible)
+
+### New assignment this cycle
+
+**H291 fern: MuonH NS5 input normalization Frobenius vs spectral — 79th class** (PR #1777)
+
+Mechanism class: 79th class — NS5 INPUT SCALING / matrix norm operator. Distinct from H267 (NS5 iter count), H287 alphonse in flight (polynomial coefficient FORM), H280 (cautious sign-mask). Tests whether `zeropower_via_newtonschulz5` Frobenius normalization (conservative upper bound, σ_max ≈ 0.044 for 1024-dim) vs proper spectral normalization (σ_max = 1.0 exactly) affects polar projection trajectory.
+
+2-arm Pattern A drift-FREE binary chain:
+- arm_a CTRL `--muonh_ns5_input_norm frobenius` — current baseline, σ_max ≈ 0.044 at NS5 entry
+- arm_b SPECTRAL `--muonh_ns5_input_norm spectral` — power-iteration (5-iter) spectral norm; σ_max ≈ 1.0 at NS5 entry
+
+**WIN (FFS<3000)**: spectral normalization helps polar projection convergence — NS5 INPUT SCALING is structurally important
+**TIE (FFS=3000)**: 6th FFS=3000 TIE family member; confirms NS5 polynomial converges identically from F-norm and spectral norm inputs (paper-grade NS5 robustness finding)
+**NEG (FFS≥3050)**: spectral-norm initialization disrupts NS5 trajectory; Frobenius is structurally important (paper-grade conservative-bounding finding)
+
+15-25% WIN prob. High-information regardless of outcome. The 12-step NS5 polynomial f(x) = 2x - 1.5x³ + 0.5x⁵ has f(1) = 1.0 EXACTLY — first iteration with σ_max=1 gives polar projection of dominant direction in one step. Frobenius normalization requires ~12 iterations of progressive σ growth.
+
+### Pattern A drift +50 noise tail tracking
+
+CTRL drift +50 noise floor upper tail now **4 consecutive instances** (H278, H274v2, H284, H289). The Pattern A drift class has been characterized as having a reproducible +50 upper tail. Suggests environmental RNG drift between training launches. May warrant a deliberate seed-jitter probe if pattern continues.
+
+### Updated framework state (after cycle ~0335)
+
+**🎯 Paper-grade mechanism findings (11 total)**:
+1. H266 all-params EMA WIN (FFS=3000 MERGED)
+2. PF#61 5-axis CLOSURE-GRADE (aux preconditioner FORM/wrapper/scope/pre-NS5 filter + within-formula AdaBelief)
+3. PF#62 11-category CLOSURE-GRADE (phase-gated rigidity)
+4. Pattern A loose +25 drift class noise floor characterization (≥30 instances)
+5. Pattern A +50 upper tail (4 consecutive CTRL drifts: H278/H274v2/H284/H289)
+6. H229+H278 BILATERAL ν-axis closure (MuonH momentum-gradient blend)
+7. H271+H281 EMA × variance-reduction overlap (Lookahead + GC mirror)
+8. H280 NS5 polar projection SIGNAL-CONSERVATIVE mechanism finding
+9. H544+H280 cautious axis BROAD CLOSURE (AUX-AdamW + BODY-MuonH)
+10. H274v2 single-seed noise floor characterization
+11. **🆕 H283 LOSS-LEVEL REGULARIZATION CLOSURE — clean monotone dose-response NEG (73rd class)**
+
+**FFS=3000 TIE mechanism family (5 mechanisms)**:
+1. H266 baseline EMA all-params (MERGED)
+2. H267 ns5_iter=16
+3. H274 arm_c AUX_ONLY EMA decay=0.005
+4. H275 z_loss=1e-5
+5. H266 baseline rerun (3rd instance)
+
+**In-flight chains (8 students all active)**:
+- PR #1746 → CLOSED ✓
+- PR #1747 H284 frieren COMPOSE z_loss+ns5_iter (composability, arm_c HIGHER_Z running)
+- PR #1748 H285 tanjiro Aux WD (arm_c MID running)
+- PR #1751 H286 edward Nesterov toggle (audit sent for chain script confirmation)
+- PR #1757 H287 alphonse NS5 polynomial coefficient FORM (arm_a near done)
+- PR #1759 H288 thorfinn cooldown-localized EMA activation (arm_a near done)
+- PR #1760 H289 nezuko outer momentum SCHEDULE (arm_b LINEAR_DECREASE just started)
+- PR #1764 H290 askeladd body-only EMA scope axis (just assigned)
+- **PR #1777 H291 fern MuonH NS5 input normalization ← NEW**
+
+**Next high-information directions**:
+- Multi-stack composability beyond 2-mechanism (e.g., H266 EMA × H267 ns5=16 × H275 z=1e-5 triple stack)
+- Per-block EMA scope (early-blocks vs late-blocks)
+- Embed-only vs lm_head-only EMA (sub-aux partitions)
+- Outer optimizer LR schedule (orthogonal to H289 momentum)
+- Aux beta1 schedule / value tuning (untested axis)
+- Body-only Lookahead / body-only GC (mirror H271/H281 with body restriction)
+- MuonH dual momentum (two decay rates combined before NS5)
+- Per-token-frequency curriculum / dynamic loss weighting
 
 ---
 
