@@ -28,6 +28,7 @@ SLOPE_FRACTION = 0.10
 SOAP_BETA2 = 0.90
 PRECOND_FREQ = 16
 NS_ITER = 12  # overridden by args.ns_iter at module load
+NS_POST_POLISH = 0  # overridden by args.ns_post_polish at module load
 
 
 def parse_args():
@@ -68,6 +69,11 @@ def parse_args():
     parser.add_argument("--ns_iter", type=int, default=12,
                         help="Number of Newton-Schulz iterations in zeropower_via_newtonschulz5. "
                              "Default 12 (current hardcoded value). Lower = less orthogonal but faster.")
+    parser.add_argument("--ns_post_polish", type=int, default=0,
+                        help="Number of Higham scaled-Newton polar polish steps applied after the "
+                             "cubically-convergent NS5 polynomial loop. 0 disables (control). "
+                             "1=single quadratic polish (residual ~ε^2). 2=super-converged. "
+                             "Each step uses torch.linalg.solve in fp32, costing ~0.3-0.5x of one NS5 iter.")
     parser.add_argument("--lr_scalars", type=float, default=0.01,
                         help="LR for AdamW adam_scalars group (RMSNorm gains; "
                              "params with ndim < 2). Default 0.01 — hardcoded, "
@@ -111,6 +117,7 @@ def parse_args():
 
 args = parse_args()
 NS_ITER = args.ns_iter
+NS_POST_POLISH = args.ns_post_polish
 
 
 def clean_metric_name(name: str) -> str:
@@ -358,6 +365,62 @@ def log_histograms(
     wandb.log(metrics, step=wandb_step)
 
 
+@torch.no_grad()
+def diagnose_ns_polish(device, dim: int = 768, seed: int = 0xDEADBEEF) -> dict:
+    # Run NS5 and (optional) Higham polish on a deterministic random matrix
+    # representative of the model's 768x768 attn/MLP shapes. Reports residual
+    # |X^T X - I|_F before/after polish and the polish wall-clock ratio.
+    if not torch.cuda.is_available():
+        return {}
+    gen = torch.Generator(device=device).manual_seed(seed)
+    G = torch.randn((dim, dim), device=device, dtype=torch.bfloat16, generator=gen)
+
+    X = G.clone()
+    X = X / (X.norm(dim=(-2, -1), keepdim=True) + 1e-7)
+
+    ev_ns_start = torch.cuda.Event(enable_timing=True)
+    ev_ns_end = torch.cuda.Event(enable_timing=True)
+    torch.cuda.synchronize()
+    ev_ns_start.record()
+    a, b, c = 2, -1.5, 0.5
+    for _ in range(NS_ITER):
+        A = X @ X.mT
+        B = b * A + c * A @ A
+        X = a * X + B @ X
+    ev_ns_end.record()
+    torch.cuda.synchronize()
+    ns_ms = ev_ns_start.elapsed_time(ev_ns_end)
+
+    X_ns = X.clone()
+
+    polish_ms = 0.0
+    if NS_POST_POLISH > 0:
+        ev_p_start = torch.cuda.Event(enable_timing=True)
+        ev_p_end = torch.cuda.Event(enable_timing=True)
+        torch.cuda.synchronize()
+        ev_p_start.record()
+        X = higham_polar_polish(X, n_polish=NS_POST_POLISH)
+        ev_p_end.record()
+        torch.cuda.synchronize()
+        polish_ms = ev_p_start.elapsed_time(ev_p_end)
+
+    X_ns_f = X_ns.float()
+    X_pol_f = X.float()
+    n = X_ns_f.size(-1)
+    I = torch.eye(n, device=device, dtype=torch.float32)
+    res_pre = float(torch.linalg.norm(X_ns_f.mT @ X_ns_f - I).item())
+    res_post = float(torch.linalg.norm(X_pol_f.mT @ X_pol_f - I).item())
+
+    return {
+        "ns/pre_polish_residual_frob": res_pre,
+        "ns/post_polish_residual_frob": res_post,
+        "ns/polish_residual_drop": res_pre / max(res_post, 1e-12),
+        "ns/ns5_compute_ms": ns_ms,
+        "ns/polish_compute_ms": polish_ms,
+        "ns/polish_compute_ratio": polish_ms / max(ns_ms, 1e-12),
+    }
+
+
 ########################################
 #              Dataloader              #
 ########################################
@@ -498,6 +561,29 @@ class GPT(nn.Module):
 #              Optimizer               #
 ########################################
 
+def higham_polar_polish(X: Tensor, n_polish: int) -> Tensor:
+    # Higham scaled-Newton polar polish: Y <- 1/2 (mu Y + (mu Y)^{-T}).
+    # Frobenius scaling mu = (||Y_pinv_T||_F / ||Y||_F)^{1/2} keeps the
+    # iteration bounded when post-NS5 X still has small singular values
+    # (which is the case for square 768x768 attn matrices: NS5 leaves sigma_min
+    # ~ 1e-3 from a Frobenius-scaled randn-like input; unscaled mu=1 amplifies
+    # the spectrum by sigma_max/sigma_min ~ 100x and diverges training).
+    # Operates in fp32 for stability of the small solve.
+    transposed = X.size(-2) < X.size(-1)
+    if transposed:
+        X = X.mT
+    Y = X.float()
+    for _ in range(n_polish):
+        YtY = Y.mT @ Y
+        Y_pinv_T = torch.linalg.solve(YtY, Y.mT).mT
+        mu = (Y_pinv_T.norm() / Y.norm().clamp_min(1e-12)).clamp_min(1e-12).pow(0.5)
+        Y = 0.5 * (mu * Y + Y_pinv_T / mu)
+    Y = Y.to(X.dtype)
+    if transposed:
+        Y = Y.mT
+    return Y
+
+
 def zeropower_via_newtonschulz5(G: Tensor) -> Tensor:
     assert G.ndim >= 2
     X = G.bfloat16()
@@ -512,6 +598,9 @@ def zeropower_via_newtonschulz5(G: Tensor) -> Tensor:
         A = X @ X.mT
         B = b * A + c * A @ A
         X = a * X + B @ X
+
+    if NS_POST_POLISH > 0:
+        X = higham_polar_polish(X, n_polish=NS_POST_POLISH)
 
     if G.size(-2) > G.size(-1):
         X = X.mT
@@ -774,6 +863,7 @@ if dist.get_rank() == 0:
             "soap_beta2": SOAP_BETA2,
             "soap_precond_freq": PRECOND_FREQ,
             "ns_iter": NS_ITER,
+            "ns_post_polish": NS_POST_POLISH,
             "soap_attn_enabled": bool(args.soap_attn),
             "soap_trust_threshold": float(args.soap_trust_threshold),
             "lr_mlp": args.lr_mlp,
@@ -1277,6 +1367,11 @@ for trial_idx in range(args.num_trials):
                 step=train_step,
                 wandb_step=wandb_step,
             )
+            ns_diag = diagnose_ns_polish(device=device)
+            if ns_diag:
+                ns_diag["trial"] = trial_idx
+                ns_diag["train/step"] = train_step
+                wandb.log(ns_diag, step=wandb_step)
         if dist.get_rank() == 0 and histogram_due:
             log_histograms(
                 model=model,
