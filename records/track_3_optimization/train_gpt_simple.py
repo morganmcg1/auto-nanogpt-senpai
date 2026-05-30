@@ -469,6 +469,12 @@ WD_AUX = float(os.environ.get("WD_AUX", "0.0"))  # AdamW WD on embed + lm_head m
 EMBED_INIT_STD = float(os.environ.get("EMBED_INIT_STD", "1.0"))  # default preserves baseline N(0,1)
 LOGIT_SOFTCAP = float(os.environ.get("LOGIT_SOFTCAP", "15.0"))  # default = 15 (current hardcoded value); soft-cap value c in f(x) = c·x / sqrt(x^2+c^2)
 
+# PR #1750 PHASE_DISPATCH_EMBED_BETA1: swap adam_embed β1 from EARLY → LATE at PHASE_DISPATCH_BOUNDARY_STEP.
+PHASE_DISPATCH_EMBED_BETA1_ENABLED = int(os.environ.get("PHASE_DISPATCH_EMBED_BETA1_ENABLED", "0"))
+EMBED_BETA1_EARLY = float(os.environ.get("EMBED_BETA1_EARLY", "0.8"))
+EMBED_BETA1_LATE = float(os.environ.get("EMBED_BETA1_LATE", "0.8"))
+PHASE_DISPATCH_BOUNDARY_STEP = int(os.environ.get("PHASE_DISPATCH_BOUNDARY_STEP", "1500"))
+
 
 def zeropower_via_newtonschulz5(G: Tensor) -> Tensor:
     assert G.ndim >= 2
@@ -866,6 +872,10 @@ if dist.get_rank() == 0:
             "optimizer/attn_soap_trust_threshold": ATTN_SOAP_TRUST_THRESHOLD,
             "optimizer/ns5_iters": NS5_ITERS,
             "optimizer/wd_aux": WD_AUX,
+            "optimizer/phase_dispatch_embed_beta1_enabled": int(PHASE_DISPATCH_EMBED_BETA1_ENABLED),
+            "optimizer/embed_beta1_early": EMBED_BETA1_EARLY,
+            "optimizer/embed_beta1_late": EMBED_BETA1_LATE,
+            "optimizer/phase_dispatch_boundary_step": PHASE_DISPATCH_BOUNDARY_STEP,
             "optimizer/recipe": "contra-muon + normuon-lite + soap-on-mlp + soap-on-attn-trust-gate (pre-NS5, record #14 + record #16)",
         },
     )
@@ -911,6 +921,26 @@ for trial_idx in range(args.num_trials):
     for opt in optimizers:
         for group in opt.param_groups:
             group["initial_lr"] = group["lr"]
+
+    # PR #1750 PHASE_DISPATCH_EMBED_BETA1: apply EARLY β1 to adam_embed at optimizer creation.
+    if PHASE_DISPATCH_EMBED_BETA1_ENABLED:
+        for g in optimizer1.param_groups:
+            if g.get("name") == "adam_embed":
+                prev_betas = g["betas"]
+                g["betas"] = (EMBED_BETA1_EARLY, prev_betas[1])
+                if dist.get_rank() == 0:
+                    print0(
+                        f"[PHASE_DISPATCH_EMBED_BETA1] enabled={PHASE_DISPATCH_EMBED_BETA1_ENABLED}"
+                        f" early={EMBED_BETA1_EARLY} late={EMBED_BETA1_LATE}"
+                        f" boundary_step={PHASE_DISPATCH_BOUNDARY_STEP}",
+                        console=True,
+                    )
+                    print0(
+                        f"[PHASE_DISPATCH_EMBED_BETA1] step 0: applying β1={EMBED_BETA1_EARLY}"
+                        f" to adam_embed group (previous betas={prev_betas})",
+                        console=True,
+                    )
+                break
 
     # learning rate schedule: stable then decay
     def set_hparams(step, cooldown_frac=0.7):
@@ -1030,6 +1060,38 @@ for trial_idx in range(args.num_trials):
         histogram_due = (step == 0 or (step + 1) % args.histogram_interval == 0 or step + 1 == train_steps)
         slope_due = (train_step % slope_interval == 0 or train_step == train_steps)
         wandb_step = trial_idx * (train_steps + 1) + train_step
+        # PR #1750 PHASE_DISPATCH_EMBED_BETA1: swap embed β1 EARLY → LATE at the boundary step.
+        # Placed after wandb_step is computed and before opt.step() (line ~1115) so the
+        # boundary diag log is paired to the current iteration's wandb_step.
+        if PHASE_DISPATCH_EMBED_BETA1_ENABLED and step == PHASE_DISPATCH_BOUNDARY_STEP:
+            for g in optimizer1.param_groups:
+                if g.get("name") == "adam_embed":
+                    prev_b1, b2 = g["betas"]
+                    g["betas"] = (EMBED_BETA1_LATE, b2)
+                    if dist.get_rank() == 0:
+                        print0(
+                            f"[PHASE_DISPATCH_EMBED_BETA1] step {step}:"
+                            f" switched embed β1 from {prev_b1} → {EMBED_BETA1_LATE}",
+                            console=True,
+                        )
+                        embed_p = g["params"][0]
+                        st = optimizer1.state.get(embed_p, {})
+                        ea_norm = float(st["exp_avg"].norm().item()) if "exp_avg" in st else float("nan")
+                        eas_norm = float(st["exp_avg_sq"].norm().item()) if "exp_avg_sq" in st else float("nan")
+                        wandb.log({
+                            "diag/embed_exp_avg_norm_at_boundary": ea_norm,
+                            "diag/embed_exp_avg_sq_norm_at_boundary": eas_norm,
+                            "diag/embed_beta1_swap_step": step,
+                        }, step=wandb_step)
+                        print0(
+                            f"[PHASE_DISPATCH_EMBED_BETA1] boundary diag:"
+                            f" exp_avg.norm={ea_norm:.6f} exp_avg_sq.norm={eas_norm:.6f}",
+                            console=True,
+                        )
+                    break
+        if dist.get_rank() == 0 and PHASE_DISPATCH_EMBED_BETA1_ENABLED and telemetry_due:
+            effective_b1 = EMBED_BETA1_LATE if step >= PHASE_DISPATCH_BOUNDARY_STEP else EMBED_BETA1_EARLY
+            wandb.log({"train/embed_beta1_effective": effective_b1}, step=wandb_step)
         if dist.get_rank() == 0:
             train_loss_history.append((train_step, train_loss))
         if dist.get_rank() == 0 and slope_due:
