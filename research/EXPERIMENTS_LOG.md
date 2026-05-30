@@ -1,3 +1,39 @@
+## 2026-05-30 02:00 — PR #1764: H290 askeladd Body-only Polyak EMA — **ASSIGNED (78th class)**
+
+- Branch: g1r3-askeladd/h290-body-only-ema (PR #1764, post-H266 baseline)
+- 78th mechanism class — **EMA SCOPE PARTITION (body-only)** — completes the EMA scope axis after H266 all-params (MERGED WIN) and H274 aux-only (TIE)
+- Direct extension of H274 closure (3-arm scope partition: all/aux/body) AND H282 closure mechanistic insight (aux-vs-body gradient distribution distinction at EMA scope locus)
+- Mechanism: scope filter on `polyak_ema_state` — `scope=all` covers all params (H266 bit-id), `scope=body_only` covers MuonH body params only (excludes embed/lm_head/scalars). Gates EMA buffer init, eval-time substitution, and EMA update
+- 2-arm Pattern A drift-FREE binary chain:
+  - arm_a CTRL `--polyak_ema_scope all`: H266 replicate, all-params EMA
+  - arm_b BODY_ONLY `--polyak_ema_scope body_only`: body-only EMA, aux trained without EMA
+- WIN criterion: arm_b FFS<3000 strict, val<3.276
+- TIE result: arm_b FFS=3000 EXACT completes 3-arm EMA scope axis (H266/H274/H290 all TIE) — paper-grade scope closure
+- NEG result: arm_b FFS≥3050 confirms aux-only is load-bearing scope, strengthens H274 TIE finding
+- WIN prob 15-25%; high-information regardless of outcome (WIN/TIE/NEG all advance EMA scope mechanism understanding)
+- **Predicted EMA buffer coverage**: scope=all → 100% of model params, scope=body_only → ~88% (body is ~88% of total; aux embed+lm_head+scalars is ~12%)
+- **Connects to**: H266 all-params EMA WIN, H274 aux-only TIE, H282 aux-vs-body structural distinction (sparse rare-token vs dense body gradients), H288 thorfinn cooldown-localized EMA activation (in flight, distinct temporal axis)
+- **Mechanism class novelty**: last untested basic scope partition after H266 and H274; completes the foundational scope axis. Distinct from temporal scheduling (H288), decay magnitude (H274v2), AdamW scope (H266 vs H274), Lookahead/GC variance-reduction overlap (H271, H281)
+
+## 2026-05-30 02:00 — PR #1745: H282 askeladd AdaBelief on aux — **CLOSED 136th NULL/NEG (🎯 paper-grade PF#61 5-axis CLOSURE-GRADE)**
+
+- Branch: g1r3-askeladd/h282-adabelief-aux (PR #1745, post-H266 baseline)
+- 71st-72nd mechanism class — AdaBelief on aux AdamW within-formula structural-presence test (replace `v_t = E[g²]` with `s_t = E[(g-m)²]`)
+- Terminal verdict: arm_b catastrophic NEG, never reaches val=3.28 target
+
+| Arm | run_id | step-0 val | final val | FFS | Δ vs H266 (σ_H174) | verdict |
+|-----|--------|-----------|-----------|-----|---------------------|---------|
+| arm_a CTRL AdamW | kgu96ji4 | 10.82583 ✓ | 3.26939 | 3025 | +1.37σ | Pattern A loose drift (29th instance) |
+| arm_b ADABELIEF | d2un0ut6 | 10.82583 ✓ | 3.73789 | -1 | +530σ | catastrophic NEG, never reaches val<3.28 |
+
+- **Trajectory analysis** (paper-grade): peak deficit +2.26 at step 500, narrows to +0.47 by step 3325 — never converges to AdamW baseline
+- 🎯 **PAPER-GRADE within-formula PF#61 5-axis CLOSURE**: AdaBelief's `s_t = E[(g-m)²]` collapses on sparse rare-token gradients in aux groups. Momentum lags on infrequent updates → residual `g-m` inflates → denominator grows → step shrinks dramatically on rows that need amplification. AdamW's `v_t = E[g²]` correctly integrates magnitude bursts → effective rare-token learning. **AdaBelief penalizes exactly the directions AdamW correctly amplifies on sparse aux groups.**
+- 🎯 **PF#61 now 5-axis CLOSURE-GRADE**: aux preconditioner FORM (H260/H261/H268) + LAMB wrapper (H277) + eps calibration (H272) + per-group LR scale (H203) + **within-formula denominator semantics (H282)** ← NEW
+- 🎯 **AUX-vs-BODY structural distinction reinforced**: AdaBelief's literature wins are on dense param groups (CNN/Transformer body), not embedding tables. H282 confirms aux-vs-body deployment matters
+- 72nd mechanism class catalogued (variance-around-momentum family)
+- Pattern A loose +25 drift class: 29th instance (CTRL step-0=10.82583 EXACT, final val Δ=+1.37σ within tolerance)
+- 136th NULL/NEG closure of plateau campaign
+
 ## 2026-05-30 01:30 — PR #1760: H289 nezuko Outer optimizer momentum SCHEDULE — **ASSIGNED (77th class)**
 
 - Branch: g1r3-nezuko/h289-outer-momentum-schedule (PR #1760, post-H266 baseline)

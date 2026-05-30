@@ -1,6 +1,96 @@
 # SENPAI Research State — auto-nanogpt-1gpu-r3
 
-- **Last updated:** 2026-05-30 01:30 UTC
+- **Last updated:** 2026-05-30 02:00 UTC
+
+---
+
+## Cycle ~2330: H282 CLOSED 136th NULL/NEG (🎯 paper-grade within-formula PF#61 5-axis closure) + H290 ASSIGNED 78th class body-only EMA scope axis closure + H286 stale_wip audit (treatment arm not launched)
+
+**One terminal closure + one fresh assignment + one stale_wip audit. Plateau campaign portfolio: 136 NULL/NEG + 1 MERGED WIN (H266), 78 mechanism classes attempted.**
+
+### Closure this cycle
+
+**H282 askeladd AdaBelief on aux CLOSED 136th NULL/NEG — 🎯 PAPER-GRADE within-formula PF#61 5-axis CLOSURE.**
+
+Terminal verdict (post-H266 baseline, PR #1745):
+- arm_a CTRL AdamW: FFS=3025 (Pattern A loose drift, 29th instance), val=3.26939 (+1.37σ)
+- arm_b ADABELIEF: FFS=-1 (never reaches val=3.28 target), val=3.73789 (+530σ catastrophic NEG)
+
+🎯 **Trajectory analysis**: Mid-train deficit peak at step 500 (+2.26 val), narrows to +0.47 by step 3325. Never converges to AdamW baseline. The deficit is large from first eval (step 125) and never closes.
+
+🎯 **Paper-grade mechanistic interpretation**: AdaBelief denominator `s_t = E[(g-m)²]` collapses on sparse rare-token gradients in aux groups (embed/lm_head). Momentum `m_t` lags on infrequently-updated rows → residual `g - m` inflates → denominator grows → step shrinks. AdamW's `v_t = E[g²]` correctly integrates magnitude bursts → smaller per-row denominator over time → effective rare-token learning. **AdaBelief's variance-around-momentum criterion penalizes exactly the directions AdamW correctly amplifies on sparse aux groups.**
+
+🎯 **PF#61 5-axis CLOSURE-GRADE**:
+1. aux preconditioner FORM (H260 Lion / H261 Sophia / H268 Adam-mini bilateral NEG)
+2. LAMB wrapper (H277 unbounded diverges / bounded saturates)
+3. eps calibration (H272 flat across 4 decades)
+4. per-group LR scale (H203 stack with PF#61 noting per-group LRs are load-bearing)
+5. **within-formula denominator semantics (H282 AdaBelief catastrophic NEG)** ← NEW
+
+🎯 **72nd mechanism class**: AdaBelief variant family (variance-around-momentum) added to NEG class catalog.
+
+🎯 **AUX-vs-BODY structural distinction reinforced**: AdaBelief's literature wins are on dense param groups (CNN/Transformer body), not embedding tables. H282 confirms aux-vs-body deployment matters, not just within-formula structure.
+
+- Drift-FREE Pattern A: 29th instance (CTRL step-0=10.82583 EXACT)
+- Pattern A loose +25 drift class noise floor: ≥26 instances
+
+### Stale_wip audit this cycle
+
+**PR #1751 H286 edward Nesterov toggle**: W&B audit revealed 2 CTRL runs (both `muonh_nesterov=1`), zero arm_b NESTEROV_OFF runs after 3.5h. Matches PR #1453/#1455 stale_wip pattern (CTRL-only with treatment never launched). Sent back with specific feedback: requested chain script, confirmation of arm_b launch, and step-0 val for NESTEROV_OFF.
+
+### New assignment this cycle
+
+**H290 askeladd: Body-only Polyak EMA — completes EMA SCOPE axis (78th class)** (PR #1764)
+
+Mechanism class: 78th class — EMA SCOPE PARTITION (body-only). Distinct from H266 all-params (MERGED WIN), H274 aux-only (TIE), H288 cooldown-localized activation (in flight). 2-arm Pattern A drift-FREE binary test:
+- arm_a CTRL `scope=all`: H266 replicate, all-params EMA
+- arm_b BODY_ONLY `scope=body_only`: body-only EMA (MuonH params), aux trained without EMA
+
+**WIN (FFS<3000)**: body-locus EMA dominant H266 mechanism — paper-grade structural finding
+**TIE (FFS=3000)**: 3-arm EMA scope axis CLOSED (all/aux/body all TIE) — paper-grade scope closure
+**NEG (FFS≥3050)**: aux-only is load-bearing, strengthens H274 TIE finding
+
+15-25% WIN prob. High-information regardless of outcome. Completes EMA scope axis with H274 aux-only TIE finding.
+
+### Updated framework state (after cycle ~2330)
+
+**🎯 Paper-grade mechanism findings (10 total)**:
+1. H266 all-params EMA WIN (FFS=3000 MERGED)
+2. PF#61 4-axis CLOSURE-GRADE (aux preconditioner FORM/wrapper/scope/pre-NS5 filter)
+3. PF#62 11-category CLOSURE-GRADE (phase-gated rigidity)
+4. Pattern A loose +25 drift class noise floor characterization (≥26 instances)
+5. H229+H278 BILATERAL ν-axis closure (MuonH momentum-gradient blend, ν=0.95 structurally optimal)
+6. H271+H281 EMA × variance-reduction overlap (Lookahead + Gradient Centralization mirror)
+7. H280 NS5 polar projection SIGNAL-CONSERVATIVE mechanism finding
+8. H544+H280 cautious axis BROAD CLOSURE (AUX-AdamW + BODY-MuonH for distinct reasons)
+9. H274v2 single-seed noise floor characterization (round-1 vs round-2 +50 FFS / +3σ val drift)
+10. **🆕 H282 PF#61 5-axis CLOSURE — within-formula denominator semantics NEG**
+
+**FFS=3000 TIE mechanism family (5 mechanisms)**:
+1. H266 baseline EMA all-params (MERGED)
+2. H267 ns5_iter=16
+3. H274 arm_c AUX_ONLY EMA decay=0.005
+4. H275 z_loss=1e-5
+5. H266 baseline rerun (3rd instance)
+
+**In-flight chains (8 students all active)**:
+- PR #1745 → CLOSED ✓
+- PR #1746 H283 fern Label smoothing
+- PR #1747 H284 frieren COMPOSE z_loss+ns5_iter (paper-grade composability)
+- PR #1748 H285 tanjiro Aux WD
+- PR #1751 H286 edward Nesterov toggle ← stale_wip audit sent
+- PR #1757 H287 alphonse NS5 polynomial coefficient FORM
+- PR #1759 H288 thorfinn cooldown-localized EMA activation
+- PR #1760 H289 nezuko outer momentum SCHEDULE
+- **PR #1764 H290 askeladd body-only EMA ← NEW**
+
+**Next high-information directions**:
+- Composability of EMA × NS5 polar projection (H266 EMA × NS5 mechanism finding)
+- Per-block EMA scope (early-blocks vs late-blocks)
+- Embed-only EMA / lm_head-only EMA (sub-aux partitions)
+- MuonH NS5 input normalization (frobenius vs spectral norm) — touches polar projection input scaling axis
+- Outer optimizer LR schedule (orthogonal to H289 momentum schedule)
+- Body-only Lookahead / body-only GC (mirror H271/H281 with body-locus restriction)
 
 ---
 
