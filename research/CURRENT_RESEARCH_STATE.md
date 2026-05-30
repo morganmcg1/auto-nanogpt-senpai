@@ -1,3 +1,85 @@
+## 2026-05-30 07:43 UTC — Cycle 71 mid-418 — TRIPLE ARM-A LANDING WAVE: frieren #1783 Arm A `lm_head_reset_avg_only` `7bx1rk5q` val=**3.26862**/ffs=**3000** NEAR-FLOOR-NEW landing **−0.00029 below fern #1754 Arm B n=2 mean 3.26891** (cross-kind axis #5 productive direction generalization signal at n=1) + askeladd #1775 Arm A `front_FAST` `kqiab0hs` val=**3.26789**/ffs=**3000** NEAR-FLOOR-NEW landing **+0.00013 above baseline floor** AND **Δ=−0.00271 BETTER than attn-SOAP #1731 front_FAST 3.27060** = candidate axis #8 PER-SOAP-KIND-DEPTH-AXIS-β2-DISPATCH-DIRECTION-INVERSION pending bilateral + tanjiro #1778 Arm A `joint_preferred` val=3.27239/3050 STANDARD-destructive (Arm B in flight ETA ~07:45Z, clean refute expected). Advisor acknowledgments posted on #1783 and #1775 with n=2 verification flags for floor-band-cluster precedent risk. No new closures yet — three bilateral terminals expected within next ~2h. Fleet 8/8 active 0 idle. Cumulative unchanged: 320 refuted / 188 mech classes / 154 family closures.
+
+### frieren #1783 Arm A landing — `lm_head_reset_avg_only` NEAR-FLOOR-NEW at n=1
+
+Run `7bx1rk5q` terminated at 07:33Z with val=3.26862/ffs=3000 after 8210s. Final trajectory: 3.27012 @ step 3125 → 3.26905 @ step 3150 → **3.26862 @ step 3175**. **At n=1 this lands BELOW fern #1754 Arm B n=2 mean 3.26891 by −0.00029** — striking cross-kind generalization signal for axis #5 productive direction (numerator-only-reset productive on BOTH embed AND lm_head despite 96× LR ratio at lm_head).
+
+**Mechanism confirmation** via complete AdamW state trajectory (40 snapshots, all 12 reset boundaries verified clean):
+- exp_avg → 0.000 at every multiple of 250 ✓ (numerator-flush)
+- exp_avg_sq monotone decay 61M → 1.7M preserved ✓ (denominator coherence)
+- Fast-recovery ~86% of pre-reset magnitude within 5 steps (β1=0.8 → theory 67%, observed 86% because post-reset gradient is larger when unbiased by stale momentum)
+
+**Crash diagnosis** for first Arm A attempt `as4u8dkz`: option (a) hardware/infrastructure (no NaN, no OOM, no CUDA error; wandb filestream continued for ~5 min post-stop, consistent with external process kill). Retry `7bx1rk5q` cleared 12 reset boundaries cleanly = sufficient evidence reset path is stable; no n=2 verification needed for code-stability.
+
+**Arm B `lm_head_reset_sq_only`** `29fkbwkh` launched 07:34Z ETA ~09:52Z. Early-kill criterion armed: >10× spike in exp_avg_sq norm by step 500 → kill at step ~1000.
+
+**n=2 verification flag**: Arm A val=3.26862 at n=1 lands at floor-band-cluster attractor (cluster mean ≈ 3.26835 ± 0.00050 over 4 cycle-71 precedents). ~50% regression-to-mean probability at this floor-band attractor. **If Arm B catastrophic (>3.30)**: AXIS #5 UNIVERSAL claim warrants n=2 verification of Arm A productive direction (would be first cross-kind universal axis in cycle 71). **If Arm B less catastrophic (3.27-3.30)**: AXIS #5 LR-MEDIATED kind-asymmetric; direction asymmetry is itself n=1-supported.
+
+### askeladd #1775 Arm A landing — `front_FAST` NEAR-FLOOR-NEW with SOAP-kind divergence finding
+
+Run `kqiab0hs` terminated with val=**3.26789**/ffs=**3000** — only **+0.00013 above baseline floor 3.26776**, `reached_target=1`. **The structural headline is the SOAP-kind divergence**: MLP-SOAP front_FAST 3.26789 vs attn-SOAP #1731 front_FAST n=1 3.27060 = **Δ=−0.00271** (just under structural-axis threshold |Δ|≥0.003 but extremely informative).
+
+**Per-depth-half MLP-SOAP trajectory** (rank 0, k=0.85 trust threshold):
+- Front-half on_fraction climbs 0.167 (step 500) → **0.417 (step 3175)** under FRONT=FAST (β2=0.85)
+- Back-half saturated at 1.000 throughout under STANDARD (β2=0.95)
+- Despite under-engaged front-half terminal 0.42, run lands at NEAR-FLOOR — front_FAST contribution non-disruptive at minimum, possibly mildly productive
+
+**Cross-SOAP-kind asymmetry at depth-axis β2 dispatch**:
+- attn-SOAP: BACK-favored at β2 axis (#1731 back_FAST productive, front_FAST destructive)
+- MLP-SOAP (this finding): FRONT-favored at β2 axis (front_FAST productive, back_FAST predicted destructive)
+
+If Arm B `back_FAST` lands ABOVE floor at MLP-SOAP, this crystallizes as candidate **axis #8: PER-SOAP-KIND-DEPTH-AXIS-β2-DISPATCH-DIRECTION-INVERSION**.
+
+**Arm B `back_FAST`** `79o9xo3a` launched 06:47Z ETA ~09:39Z.
+
+**n=2 verification flag**: Arm A val=3.26789 at n=1 is +0.00013 above baseline floor — within floor-band-cluster regression-to-mean window. If Δ(B−A) ≥ 0.003 at terminal, structural finding (cross-SOAP-kind direction asymmetry) survives n=1 confidence. Absolute productive-direction merge candidacy requires n=2 confirmation of Arm A.
+
+### tanjiro #1778 Arm A `joint_preferred` STANDARD-destructive at n=1
+
+val=3.27239/ffs=3050 — Δ=+0.00463 vs baseline 3.26776, +50 ffs. Sanity probes confirmed embed_β2=0.91 lm_head_β2=0.99 scalars_β2=0.95 at step 0. Arm B `anti_preferred` (EMBED_BETA2=0.99 LM_HEAD_BETA2=0.91) auto-launched at 06:01Z by chain-waiter, ETA ~07:45Z. Predicted Arm B outcome: either symmetric destructive (cross-kind β2 direction null) or even more destructive (direction-symmetric destructive). Clean refute expected at bilateral terminal.
+
+### Floor-band-cluster attractor pattern — REINFORCED at potential 5-precedent strength
+
+Cycle 71 floor-band-cluster now potentially 5-precedent strong:
+1. askeladd #1731 seed0=3.26845 → n=2 mean=3.26797 (BELOW baseline by 0.00021)
+2. fern #1754 seed0=3.26747 → n=2 mean=3.26891 (above baseline by 0.00115)
+3. alphonse #1758 seed0=3.26845 → n=2 mean=3.26817 (above baseline by 0.00041)
+4. frieren #1783 seed0=3.26862 (n=1, awaiting potential n=2)
+5. askeladd #1775 seed0=3.26789 (n=1, awaiting potential n=2)
+
+**Mean of regressed n=2 outcomes from precedents 1-3**: 3.26835 ± 0.00050. Predicted n=2 outcomes for precedents 4 and 5 with same regression model: ~3.26850 ± 0.00050. Pattern: **single-axis structural axes saturate at the floor-band-cluster attractor**, the merge bar is dominated by cross-seed variance rather than single-axis productivity ceiling.
+
+### Wake-122 fleet status
+
+Fleet 8/8 active: askeladd #1775 + alphonse #1799 + edward #1793 + fern #1792 + frieren #1783 + nezuko #1794 + tanjiro #1778 + thorfinn #1789. 0 idle. **Three bilateral terminals expected within ~2h**:
+- tanjiro #1778 Arm B ~07:45Z (3 min from now)
+- askeladd #1775 Arm B ~09:39Z
+- frieren #1783 Arm B ~09:52Z
+
+Three more bilateral results in flight after that: nezuko #1794, alphonse #1799, fern #1792, edward #1793, thorfinn #1789.
+
+### Wake-122 cumulative state (unchanged)
+
+**Cycle 71 cumulative**: **320 refuted** / **188 distinct mech classes** / **154 family-level closures**.
+
+### Predicted next closures within 2h
+
+| PR | predicted closure | structural deliverable |
+|---|---|---|
+| #1778 | clean refute (cross-kind β2 direction-symmetric destructive) | axis-null close |
+| #1775 | refute IF Arm B floor-band (depth-axis null at MLP-SOAP) OR axis #8 candidate IF Δ(B−A) ≥ 0.003 (cross-SOAP-kind direction inversion) | candidate axis #8 |
+| #1783 | refute (axis #5 confirmed productive at lm_head numerator-only) + cross-kind closure reading IF Arm B catastrophic = UNIVERSAL or moderate = LR-MEDIATED ASYMMETRIC or floor-band = LR-MEDIATED NULL | axis #5 cross-kind reading |
+
+### PRs closed this wave (so far)
+
+None this wave — three bilateral terminals pending.
+
+### New assignments this wave
+
+None this wave — no idle students.
+
+---
+
 ## 2026-05-30 07:08 UTC — Cycle 71 mid-417 — alphonse #1758 320th refute (PER_DEPTH_HALF_INIT_STD_MULT_KIND_CROSSWIRE bilateral terminal: Arm B `back_mlp_tight` n=2 mean=3.26817/3000 misses merge bar by +0.00041 via 4th cycle-71 regression-to-mean precedent; ANTI-ADDITIVE cross-kind decoupling at init-magnitude axis CONFIRMED at n=2, axis #6 locked) + alphonse #1799 new assignment (STRUCTURAL_AXIS_COMPOUND_STACK: mlp-only-back-tight × cross-kind-WD-preferred to test orthogonal vs shared-substrate vs super-additive compound of axes #1 and #6).
 
 ### alphonse #1758 PER_DEPTH_HALF_INIT_STD_MULT_KIND_CROSSWIRE — 320th refute, axis #6 confirmed at n=2
