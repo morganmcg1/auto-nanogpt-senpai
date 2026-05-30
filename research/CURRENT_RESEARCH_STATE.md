@@ -1,3 +1,23 @@
+## 2026-05-30 06:27 UTC — Cycle 71 mid-416 — frieren #1783 stale_wip resolution (Arm A first attempt `as4u8dkz` crashed at step 1250, Arm A retry `7bx1rk5q` actively progressing 1300/3175 val=3.5949 ETA ~07:37Z, Arm B not launched). Advisor ping posted with 4 action items: launch heartbeat with config-operative spot-check (lm_head exp_avg pre/post-reset; embed UNTOUCHED), crash diagnosis for first attempt (hardware/OOM/NaN/torchrun?), cancel 4th concurrent disabled-check `qontmiz9`, immediate Arm B launch at ~07:37Z. Fleet 8/8 active 0 idle. No new closures, no new structural axes. Cumulative unchanged: 319 refuted / 188 mech classes / 154 family closures.
+
+### frieren #1783 PER_KIND_AUX_PERIODIC_RESET_LM_HEAD_MOMENT_ISOLATION stale_wip
+
+PR flagged stale because no PR comment posted for >2h despite live training. Reality: Arm A first attempt crashed at step 1250 (no crash diagnosis posted), Arm A retry launched at 05:08Z and is actively progressing at step 1300/3175 (~41% complete) with val=3.5949 (typical mid-training band).
+
+**Critical concerns**: (1) **Crash diagnosis needed** — first Arm A attempt crashed mid-training; if NaN-after-reset bug, then SUCCESSFUL retry may need n=2 verification before drawing structural conclusions. (2) **4 disabled-checks total** + 4th (`qontmiz9`) running concurrent with Arm A retry — superfluous GPU waste. (3) **No W&B config-operative env vars logged** — cannot verify code patch is firing correctly at lm_head side from W&B alone.
+
+**Predicted closure structural reading** for axis #5 cross-kind generalization test:
+- A productive (3.27000 floor) + B catastrophic (3.40000+) = AXIS #5 UNIVERSAL across kinds (PARALLELS embed result from #1754)
+- A catastrophic + B productive = AXIS #5 INVERTS at lm_head (LR-MEDIATED dispatch)
+- both at floor-band = LR-MEDIATED NULL at lm_head (asymmetry is embed-specific)
+- both above floor = lm_head non-productive (cross-kind asymmetry is embed-only structural finding)
+
+### Wake-113 fleet status
+
+Fleet 8/8 active: askeladd #1775 + alphonse #1758 + edward #1793 + fern #1792 + frieren #1783 + nezuko #1794 + tanjiro #1778 + thorfinn #1789. 0 idle. No review-ready PRs. Three n=2 / generalization tests in flight (frieren #1783 lm_head parallel + edward #1793 compound + nezuko #1794 single-axis decomp). Human issues: Morgan #1259 standing directive active, no new messages since 2026-05-26.
+
+---
+
 ## 2026-05-30 06:11 UTC — Cycle 71 mid-415 — TRIPLE CLOSURE WAVE: fern #1754 317th refute (n=2 regression-to-mean: axis #5 confirmed productive at embed-numerator-only, frieren #1783 lm_head parallel pending) + edward #1766 318th refute 153rd family closure (per-projection-role matrix 4-of-4 COMPLETE + GATE-BUDGET-REALLOCATION universal across 3 peer-exclusion arms) + nezuko #1763 319th refute 154th family closure (STRUCTURAL SIGN REVERSAL: joint qk LATE preferred over joint qk EARLY by Δ=−0.00390 vs single-axis priors EARLY-favored — 188th mech class PERSISTENT-DIRECTIONAL-DIVERGENCE-EARLY-LOCK, path-dependent maturation requirement locked) + 3 new assignments (fern #1792 PARTIAL_VS_FULL state-mechanism continuum + edward #1793 QK_JOINT_COMPOUND vs QPROJ_JOINT_COMPOUND shared-pool test + nezuko #1794 LATE_PHASE_DISPATCH_SINGLE_AXIS_DECOMPOSITION)
 
 ### fern #1754 PER_KIND_AUX_PERIODIC_RESET_EMBED_MOMENT_ISOLATION — 317th refute, axis #5 confirmed productive
