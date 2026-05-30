@@ -101,6 +101,16 @@ def parse_args():
                         help="EMA decay for SWA-style EMA-eval; None=disabled (control). "
                              "Recommend 0.99-0.9999. When set, val/ema_loss is logged "
                              "and speedrun/first_step_to_target uses the EMA-val crossing.")
+    parser.add_argument("--precond_freq_early", type=int, default=None,
+                        help="SOAP PRECOND_FREQ during early phase (step < switch_step). "
+                             "None=use module-level PRECOND_FREQ constant (16) throughout "
+                             "(baseline behavior preserved exactly).")
+    parser.add_argument("--precond_freq_late", type=int, default=None,
+                        help="SOAP PRECOND_FREQ during late phase (step >= switch_step). "
+                             "None=use precond_freq_early throughout (no phase switch).")
+    parser.add_argument("--precond_freq_switch_step", type=int, default=None,
+                        help="Step at which SOAP PRECOND_FREQ switches from early to late value. "
+                             "None=no switch; precond_freq_early is used for all steps.")
     args = parser.parse_args()
     args.num_trials = args.num_trials if args.num_trials is not None else (args.legacy_num_trials or 1)
     args.wandb_tags = [tag.strip() for tag in args.wandb_tags.split(",") if tag.strip()]
@@ -570,6 +580,21 @@ def soap_precondition_momentum(update, state, beta2=SOAP_BETA2, eps=1e-8):
     return precond.to(update.dtype)
 
 
+def get_precond_freq_for_step(step: int, args) -> int:
+    """Return SOAP PRECOND_FREQ for the given training step under the phase schedule.
+
+    When `precond_freq_early` is None, preserves baseline behavior exactly (returns
+    module-level PRECOND_FREQ). Otherwise applies an early/late phase schedule:
+    `step < switch_step` -> early; `step >= switch_step` -> late (or early if
+    `precond_freq_late` is None).
+    """
+    if args.precond_freq_early is None:
+        return PRECOND_FREQ
+    if args.precond_freq_switch_step is None or step < args.precond_freq_switch_step:
+        return args.precond_freq_early
+    return args.precond_freq_late if args.precond_freq_late is not None else args.precond_freq_early
+
+
 def soap_update_preconditioner(grad, state, shampoo_beta=SOAP_BETA2, precondition_frequency=PRECOND_FREQ):
     grad_f = grad.float()
     state["row_gg"].lerp_(grad_f @ grad_f.T, 1 - shampoo_beta)
@@ -629,7 +654,7 @@ class Muon(torch.optim.Optimizer):
         super().__init__(param_groups, defaults)
 
     @torch.no_grad()
-    def step(self):
+    def step(self, precondition_frequency: int = PRECOND_FREQ):
         self.cos_sims_buffer = {}
         world_size = dist.get_world_size()
         rank = dist.get_rank()
@@ -665,7 +690,8 @@ class Muon(torch.optim.Optimizer):
                             self.cos_sims_buffer[self.param_names[id(p)]] = cos_sim_t
                         else:
                             update = u_soap
-                        soap_update_preconditioner(p.grad, state)
+                        soap_update_preconditioner(p.grad, state,
+                                                   precondition_frequency=precondition_frequency)
                     else:
                         update = muon_update(p.grad, state["momentum"], mu=group["mu"])
                     norm_sum.add_(update.float().norm())
@@ -786,6 +812,10 @@ if dist.get_rank() == 0:
             "lr_cooldown_shape": args.lr_cooldown_shape,
             "ema_eval_decay": args.ema_eval_decay,
             "ema_eval_enabled": args.ema_eval_decay is not None,
+            "precond_freq_early": args.precond_freq_early,
+            "precond_freq_late": args.precond_freq_late,
+            "precond_freq_switch_step": args.precond_freq_switch_step,
+            "precond_freq_schedule_enabled": args.precond_freq_early is not None,
         },
     )
 
@@ -974,6 +1004,12 @@ for trial_idx in range(args.num_trials):
     val_loss_history: list[tuple[int, float]] = []
     ema_val_loss_history: list[tuple[int, float]] = []
     ema_corrected_val_loss_history: list[tuple[int, float]] = []
+    # Cumulative SOAP basis recomputes so far this trial. Matches the SOAP code's
+    # internal check: a basis refresh fires at training step S iff S > 0 and
+    # S % get_precond_freq_for_step(S, args) == 0 (state["soap_step"] equals S
+    # at function entry because each soap-eligible param is touched exactly once
+    # per opt.step() call).
+    basis_refresh_count = 0
     dist.barrier()
     t0 = time.perf_counter()
     for step in range(train_steps + 1):
@@ -1087,6 +1123,9 @@ for trial_idx in range(args.num_trials):
                     "time/step_avg_ms": 1000 * step_avg,
                 }
                 metrics.update(prefixed("val/slope", loss_slope_stats(val_loss_history, slope_window_steps)))
+                # SOAP precond-freq schedule diagnostics (also logged in train-side telemetry).
+                metrics["soap/basis_refresh_count"] = basis_refresh_count
+                metrics["soap/precond_freq_current"] = get_precond_freq_for_step(step, args)
                 if ema_val_loss_float is not None:
                     ema_val_loss_history.append((step, ema_val_loss_float))
                     if ema_val_loss_float < best_ema_val_loss:
@@ -1180,8 +1219,17 @@ for trial_idx in range(args.num_trials):
                 train_steps=train_steps,
                 wandb_step=wandb_step,
             )
+        current_precond_freq = get_precond_freq_for_step(step, args)
         for opt in optimizers:
-            opt.step()
+            if isinstance(opt, Muon):
+                opt.step(precondition_frequency=current_precond_freq)
+            else:
+                opt.step()
+        # SOAP basis refresh fires at step S iff S > 0 and S % current_precond_freq == 0.
+        # state["soap_step"] equals S at function entry because each soap-eligible
+        # param is touched exactly once per opt.step() call.
+        if step > 0 and step % current_precond_freq == 0:
+            basis_refresh_count += 1
 
         # EMA-eval update: parallel param trajectory, no gradients/momentum.
         # Performed after the optimizer step so EMA tracks the post-update params.
@@ -1235,6 +1283,8 @@ for trial_idx in range(args.num_trials):
                 per_group_metrics["train/wd_attn_now"] = current_wds.get("muon_attn", 0.0)
                 per_group_metrics["train/wd_schedule_progress"] = train_step / train_steps
                 per_group_metrics["cooldown_shape/eta_at_step"] = eta_actual
+                per_group_metrics["soap/precond_freq_current"] = current_precond_freq
+                per_group_metrics["soap/basis_refresh_count"] = basis_refresh_count
                 wandb.log(per_group_metrics, step=wandb_step)
         if dist.get_rank() == 0 and optimizer2.cos_sims_buffer:
             cs_names = list(optimizer2.cos_sims_buffer.keys())
