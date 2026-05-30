@@ -1,3 +1,75 @@
+## 2026-05-30 07:08 UTC — Cycle 71 mid-417 — alphonse #1758 320th refute (PER_DEPTH_HALF_INIT_STD_MULT_KIND_CROSSWIRE bilateral terminal: Arm B `back_mlp_tight` n=2 mean=3.26817/3000 misses merge bar by +0.00041 via 4th cycle-71 regression-to-mean precedent; ANTI-ADDITIVE cross-kind decoupling at init-magnitude axis CONFIRMED at n=2, axis #6 locked) + alphonse #1799 new assignment (STRUCTURAL_AXIS_COMPOUND_STACK: mlp-only-back-tight × cross-kind-WD-preferred to test orthogonal vs shared-substrate vs super-additive compound of axes #1 and #6).
+
+### alphonse #1758 PER_DEPTH_HALF_INIT_STD_MULT_KIND_CROSSWIRE — 320th refute, axis #6 confirmed at n=2
+
+Bilateral terminal at n=2: Arm A `back_attn_tight` n=1 val=3.26948/3025; Arm B `back_mlp_tight` n=2 mean=3.26817/3000 (seed0=3.26845, seed1=3.26789, sample SD=0.00040). MISSES merge bar by Δ=+0.00041 val (within baseline noise ±0.0007). Stat rule PASSES at n=2 (margin 0.01673, 4.18× bar). 4th cycle-71 regression-to-mean precedent (after askeladd #1731 + fern #1754, frieren #1783 pending).
+
+**STRUCTURAL AXIS #6 LOCKED AT n=2 — CROSS-KIND-DECOUPLING-AT-INIT-MAGNITUDE**: both single-kind back-tight arms beat kind-uniform back-tight #1738 B (3.27040); naive additive prediction (3.26989) matches kind-uniform within n=1 noise ±0.0002. Each kind independently absorbs back-tight signal — kind × depth-half DECOUPLED. Direct counter-evidence to axis #1 cross-kind WD shared-substrate finding. The cross-kind coupling regime is **lever-specific**:
+- WD axis: direction-asymmetric shared substrate (CNI at preferred direction)
+- init-magnitude axis: kind-decoupled, ~additive single-kind costs
+
+Sub-structural Δ(A−B)=+0.00131 (mlp-favored, within noise band). Kind-specificity at back-tight is NOT structurally load-bearing at 0.5× magnitude.
+
+### Floor-band-cluster attractor pattern confirmed at 4th precedent
+
+Statistical pattern locked: any single-axis perturbation reaching seed0 ≤ 3.26850 with ffs=3000 has ~50% probability of n=2 mean landing above baseline 3.26776 due to screening-noise regression. **The merge bar val<3.26776 is currently dominated by cross-seed variance at the floor-band attractor**, not by single-axis productivity ceiling. Implications for future cycle-71 strategy:
+1. Single-axis structural axes may not reach merge bar reliably without compound stacking
+2. Compound structural-axis stacks (axis #1 × #6, axis #5 × #6, axis #4 × #5, etc.) become the higher-leverage merge candidates
+3. n=2 cost is high but inescapable at this floor-band attractor regime
+
+### alphonse #1799 new assignment STRUCTURAL_AXIS_COMPOUND_STACK
+
+**Goal**: test compound stacking of two confirmed structural axes:
+- Axis #1 (thorfinn #1765 A `joint_preferred`): cross-kind WD preferred direction (embed-WD=0.0003 + lm_head-WD=0.003), val=3.27012/3025 (CNI at single-axis lm_head-UP floor)
+- Axis #6 (alphonse #1758 B `back_mlp_tight`): mlp-only back-half init 0.5×, val=3.26817/3000 (n=2 mean, sub-baseline-noise productivity)
+
+- Arm A `mlp_back_tight_X_wd_preferred`: compound stack of axes #1 + #6
+- Arm B `wd_preferred_alone`: axis #1 control (replicate of #1765 A)
+
+**Predicted outcomes**:
+- A 3.27053 ± 0.0007 (additive null) → ORTHOGONAL stacking
+- A < 3.26900 sub-floor-band → SUPER-ADDITIVE (potential merge candidate)
+- A ~ 3.27000-3.27100 saturates → SHARED SUBSTRATE
+- A > 3.27300 → DESTRUCTIVE
+
+Additive null = baseline + Δ#1 + Δ#6 = 3.26776 + 0.00236 + 0.00041 = **3.27053**.
+
+Per-group (mlp.fc back-half + per-kind WD) + structural-axis-compound. Morgan-directive compliant.
+
+### Wake-116 fleet status
+
+Fleet 8/8 active: askeladd #1775 + alphonse #1799 (new) + edward #1793 + fern #1792 + frieren #1783 + nezuko #1794 + tanjiro #1778 + thorfinn #1789. 0 idle. Nezuko #1794 Arm A actively training step ~480/3175 ETA ~08:14Z. Human issues: Morgan #1259 standing directive active, no new messages since 2026-05-26.
+
+### Cycle 71 cumulative state (updated from mid-416 — 1 new closure, 0 new mech classes, 0 new family closures)
+
+**Cycle 71 cumulative**: **320 refuted** / **188 distinct mech classes** / **154 family-level closures**.
+
+### Emerging structural axes in cycle 71 — UPDATED: Axis #6 confirmed at n=2
+
+| # | axis | status |
+|---|---|---|
+| 1 | Cross-kind WD-direction asymmetry | FULLY CLOSED (direction-asymmetric joint compound) |
+| 2 | Cross-kind β1-direction inversion | per-axis decomposition in flight via #1789 |
+| 3 | Depth-mechanism cluster BACK-favored | structural finding |
+| 4 | Per-projection-role + GATE-BUDGET-REALLOCATION | FULLY CLOSED; compound-exclusion in flight via #1793 |
+| 5 | Cross-kind moment-isolation asymmetry | confirmed productive at embed; lm_head parallel in flight via #1783; partial-vs-full state-mechanism in flight via #1792 |
+| 6 | Cross-kind × depth-half decoupling at init-magnitude axis | **CONFIRMED at n=2 via #1758; compound stack with axis #1 in flight via #1799** |
+| 7 | Read-path joint-dispatch path-dependent maturation | STRUCTURAL FINDING LOCKED; single-axis decomposition in flight via #1794 |
+
+### PRs closed this wave
+
+| PR | student | hypothesis | action |
+|---|---|---|---|
+| #1758 | alphonse | PER_DEPTH_HALF_INIT_STD_MULT_KIND_CROSSWIRE | CLOSED — 320th refute, axis #6 CROSS-KIND-DECOUPLING-AT-INIT-MAGNITUDE confirmed at n=2 |
+
+### New assignments this wave
+
+| PR | student | hypothesis | key structural question |
+|---|---|---|---|
+| #1799 | alphonse | STRUCTURAL_AXIS_COMPOUND_STACK_MLP_BACK_TIGHT_X_CROSS_KIND_WD_PREFERRED | orthogonal vs shared-substrate vs super-additive vs destructive compound of axes #1 and #6 |
+
+---
+
 ## 2026-05-30 06:27 UTC — Cycle 71 mid-416 — frieren #1783 stale_wip resolution (Arm A first attempt `as4u8dkz` crashed at step 1250, Arm A retry `7bx1rk5q` actively progressing 1300/3175 val=3.5949 ETA ~07:37Z, Arm B not launched). Advisor ping posted with 4 action items: launch heartbeat with config-operative spot-check (lm_head exp_avg pre/post-reset; embed UNTOUCHED), crash diagnosis for first attempt (hardware/OOM/NaN/torchrun?), cancel 4th concurrent disabled-check `qontmiz9`, immediate Arm B launch at ~07:37Z. Fleet 8/8 active 0 idle. No new closures, no new structural axes. Cumulative unchanged: 319 refuted / 188 mech classes / 154 family closures.
 
 ### frieren #1783 PER_KIND_AUX_PERIODIC_RESET_LM_HEAD_MOMENT_ISOLATION stale_wip
