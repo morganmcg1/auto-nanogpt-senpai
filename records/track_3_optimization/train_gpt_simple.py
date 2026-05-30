@@ -603,6 +603,12 @@ NANOGPT_NEWTON_MUON_BETA = float(os.environ.get("NANOGPT_NEWTON_MUON_BETA", "0.9
 NANOGPT_NEWTON_MUON_EPS = float(os.environ.get("NANOGPT_NEWTON_MUON_EPS", "1e-4"))
 NANOGPT_NEWTON_MUON_MAX_D_IN = int(os.environ.get("NANOGPT_NEWTON_MUON_MAX_D_IN", "1024"))
 NANOGPT_NEWTON_MUON_TIKHONOV_GAMMA = float(os.environ.get("NANOGPT_NEWTON_MUON_TIKHONOV_GAMMA", "0.0"))
+# #1600: data-driven R warmstart from Muon^2 state["v"] second-moment EMA. When enabled,
+# defer R initialization to step K (instead of cold-start X^T X / N at first call).
+# At step K, R[0] = diag(state["v"].mean(0)) normalized to unit mean — gradient-based
+# diagonal prior accumulated over K steps of "naked Muon" training (NM bypassed pre-K).
+NANOGPT_NEWTON_MUON_R_ADAMW_WARMSTART = int(os.environ.get("NANOGPT_NEWTON_MUON_R_ADAMW_WARMSTART", "0"))
+NANOGPT_NEWTON_MUON_R_ADAMW_WARMSTART_K = int(os.environ.get("NANOGPT_NEWTON_MUON_R_ADAMW_WARMSTART_K", "100"))
 
 # Global per-parameter input-activation cache populated by forward hooks. Keyed by
 # id(weight_param) → tensor of shape (B*T, d_in) on device. Only populated when
@@ -747,7 +753,9 @@ class Muon(torch.optim.Optimizer):
                  newton_precond: bool = False, newton_beta: float = 0.95,
                  newton_eps: float = 1e-4, newton_update_period: int = 10,
                  newton_max_d_in: int = 1024,
-                 newton_input_cache: dict | None = None):
+                 newton_input_cache: dict | None = None,
+                 newton_r_warmstart: bool = False,
+                 newton_r_warmstart_k: int = 100):
         assert isinstance(params, list) and len(params) >= 1
         if isinstance(params[0], dict):
             # list-of-dicts param_groups: sort each group's params by size.
@@ -787,6 +795,13 @@ class Muon(torch.optim.Optimizer):
         self.newton_max_d_in = int(newton_max_d_in)
         self.newton_input_cache = newton_input_cache if newton_input_cache is not None else {}
         self._newton_step_count = 0
+        # #1600: data-driven R warmstart from state["v"] (Muon^2 second-moment EMA).
+        # When enabled, R initialization is deferred until step >= k AND v has
+        # accumulated; cold-start X^T X / N is replaced by diag(v.mean(0)) normalized.
+        # Between step 1 and step k, NM is BYPASSED ("naked Muon") because R is not
+        # initialized — _apply_newton_precondition returns None.
+        self.newton_r_warmstart = bool(newton_r_warmstart)
+        self.newton_r_warmstart_k = int(newton_r_warmstart_k)
         # Accumulator dict reset each step() — read by the training loop after
         # step() for W&B logging. Keys: cond_max, cond_min, cond_sum, cond_n,
         # inv_sqrt_norm_sum, precond_ratio_sum, precond_ratio_n, applied_n.
@@ -819,21 +834,44 @@ class Muon(torch.optim.Optimizer):
         x = self.newton_input_cache.get(pid)
         if x is None:
             return None
+        # #1600 warmstart: defer R initialization until step >= k AND state["v"] has
+        # accumulated. Before that, return None so NM is bypassed (naked Muon phase).
+        # At step k, initialize R = diag(state["v"].mean(0)) normalized to unit mean —
+        # a data-driven diagonal prior from Muon^2's second-moment EMA. After warmstart,
+        # the normal X^T X EMA + eigendecomp cadence resumes from the next update_period.
+        did_warmstart = False
+        if self.newton_r_warmstart and "R" not in state:
+            v_buffer = state.get("v")
+            if (
+                v_buffer is None
+                or self._newton_step_count < self.newton_r_warmstart_k
+                or v_buffer.abs().sum().item() <= 1e-12
+            ):
+                # Naked Muon: R not yet initialized; skip preconditioning this step.
+                return None
+            v_diag = v_buffer.float().mean(dim=0)  # (d_in,)
+            v_diag = v_diag / (v_diag.mean() + 1e-8)  # unit-mean normalize
+            state["R"] = torch.diag(v_diag).contiguous()
+            tel_w = self.newton_telemetry
+            tel_w["r_warmstart_n"] = tel_w.get("r_warmstart_n", 0) + 1
+            did_warmstart = True
         # Update R EMA + eigendecomp every newton_update_period steps (and at first call).
         update_R = (
             "R" not in state
+            or did_warmstart
             or (self._newton_step_count % self.newton_update_period == 1)
         )
         if update_R:
-            x32 = x.float()
-            # R_new = (X^T X) / N, shape (d_in, d_in) in float32 for eigendecomp stability.
-            n = x32.shape[0]
-            R_new = (x32.T @ x32) / float(n)
-            if "R" not in state:
-                state["R"] = R_new.clone()
-            else:
-                b = self.newton_beta
-                state["R"].mul_(b).add_(R_new, alpha=1.0 - b)
+            if not did_warmstart:
+                x32 = x.float()
+                # R_new = (X^T X) / N, shape (d_in, d_in) in float32 for eigendecomp stability.
+                n = x32.shape[0]
+                R_new = (x32.T @ x32) / float(n)
+                if "R" not in state:
+                    state["R"] = R_new.clone()
+                else:
+                    b = self.newton_beta
+                    state["R"].mul_(b).add_(R_new, alpha=1.0 - b)
             # Tikhonov regularization: R_reg = R + gamma * (tr(R)/d_in) * I.
             # Applied only at eigendecomp time; state["R"] EMA buffer is unmodified.
             if NANOGPT_NEWTON_MUON_TIKHONOV_GAMMA > 0.0:
@@ -997,7 +1035,9 @@ print0(
     f"update_period={NANOGPT_NEWTON_MUON_UPDATE_PERIOD} "
     f"beta={NANOGPT_NEWTON_MUON_BETA} eps={NANOGPT_NEWTON_MUON_EPS} "
     f"max_d_in={NANOGPT_NEWTON_MUON_MAX_D_IN} "
-    f"tikhonov_gamma={NANOGPT_NEWTON_MUON_TIKHONOV_GAMMA}",
+    f"tikhonov_gamma={NANOGPT_NEWTON_MUON_TIKHONOV_GAMMA} "
+    f"r_warmstart={'True' if NANOGPT_NEWTON_MUON_R_ADAMW_WARMSTART else 'False'} "
+    f"r_warmstart_k={NANOGPT_NEWTON_MUON_R_ADAMW_WARMSTART_K}",
     console=True,
 )
 if NS_ITERS_COOLDOWN > 0:
@@ -1119,6 +1159,8 @@ if dist.get_rank() == 0:
             "nanogpt_newton_muon_eps": NANOGPT_NEWTON_MUON_EPS,
             "nanogpt_newton_muon_max_d_in": NANOGPT_NEWTON_MUON_MAX_D_IN,
             "nanogpt_newton_muon_tikhonov_gamma": NANOGPT_NEWTON_MUON_TIKHONOV_GAMMA,
+            "nanogpt_newton_muon_r_adamw_warmstart": NANOGPT_NEWTON_MUON_R_ADAMW_WARMSTART,
+            "nanogpt_newton_muon_r_adamw_warmstart_k": NANOGPT_NEWTON_MUON_R_ADAMW_WARMSTART_K,
         },
     )
 
@@ -1186,6 +1228,8 @@ for trial_idx in range(args.num_trials):
         newton_update_period=NANOGPT_NEWTON_MUON_UPDATE_PERIOD,
         newton_max_d_in=NANOGPT_NEWTON_MUON_MAX_D_IN,
         newton_input_cache=_newton_input_cache,
+        newton_r_warmstart=bool(NANOGPT_NEWTON_MUON_R_ADAMW_WARMSTART),
+        newton_r_warmstart_k=NANOGPT_NEWTON_MUON_R_ADAMW_WARMSTART_K,
     )
     print0(f"MUON_PARAM_COUNTS: attn={len(muon_attn_params)} mlp={len(muon_mlp_params)} "
            f"(expected 48 attn / 24 mlp for 12-layer block stack)", console=True)
@@ -1477,6 +1521,8 @@ for trial_idx in range(args.num_trials):
                 newton_metrics["newton_muon/precond_ratio_mean"] = (
                     tel["precond_ratio_sum"] / ratio_n
                 )
+            # #1600 warmstart event counter (spikes once per param at step K).
+            newton_metrics["newton_muon/r_warmstart_n"] = tel.get("r_warmstart_n", 0)
             wandb.log(newton_metrics, step=wandb_step)
         # Init-anchored WD on embed (#847, env-var-gated). After both optimizers
         # have stepped, apply `p -= lr_embed * lambda * (p - p_init)`. Order vs
