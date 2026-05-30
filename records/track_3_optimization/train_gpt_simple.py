@@ -84,6 +84,14 @@ def parse_args():
     parser.add_argument('--aux_b2_pulse_target', type=float, default=0.99,
                         help='New aux Adam β2 value to set at --aux_b2_pulse_step. '
                              '0 or negative disables. Default: 0.99 (canonical WIN).')
+    parser.add_argument("--aux_eps_pulse_start", type=int, default=-1,
+                        help="Step to start aux AdamW eps pulse (-1 = disabled). "
+                             "Eps is set to --aux_eps_pulse_target while "
+                             "start <= step < end, then snaps back to 1e-10.")
+    parser.add_argument("--aux_eps_pulse_end", type=int, default=-1,
+                        help="Step to end aux AdamW eps pulse (exclusive, snap back to 1e-10).")
+    parser.add_argument("--aux_eps_pulse_target", type=float, default=1e-6,
+                        help="Eps value during pulse window (canonical revert = 1e-10).")
     parser.add_argument("--seed", type=int, default=1,
                         help="Random seed for torch/numpy/python. Default 1 matches baseline seed.")
     args = parser.parse_args()
@@ -765,6 +773,9 @@ if dist.get_rank() == 0:
             "paramema_refresh_only": int(args.paramema_refresh_only),
             "aux_b2_pulse_step": args.aux_b2_pulse_step,
             "aux_b2_pulse_target": args.aux_b2_pulse_target,
+            "aux_eps_pulse_start": args.aux_eps_pulse_start,
+            "aux_eps_pulse_end": args.aux_eps_pulse_end,
+            "aux_eps_pulse_target": args.aux_eps_pulse_target,
             "seed": args.seed,
         },
     )
@@ -1071,6 +1082,34 @@ for trial_idx in range(args.num_trials):
                 group["betas"] = new_betas
             print0(f"[step {step}] aux_b2_pulse: β2 {old_b2} → {args.aux_b2_pulse_target}",
                    console=True)
+        eps_pulse_active = (
+            args.aux_eps_pulse_start > 0
+            and args.aux_eps_pulse_end > args.aux_eps_pulse_start
+            and args.aux_eps_pulse_start <= step < args.aux_eps_pulse_end
+        )
+        if args.aux_eps_pulse_start > 0:
+            target_eps = args.aux_eps_pulse_target if eps_pulse_active else 1e-10
+            for pg in optimizer1.param_groups:
+                pg["eps"] = target_eps
+        if args.aux_eps_pulse_start > 0 and step in (
+            args.aux_eps_pulse_start - 1,
+            args.aux_eps_pulse_start,
+            args.aux_eps_pulse_end - 1,
+            args.aux_eps_pulse_end,
+        ):
+            print0(
+                f"[step {step}] aux Adam eps={optimizer1.param_groups[0]['eps']:.2e} "
+                f"(pulse_active={eps_pulse_active})",
+                console=True,
+            )
+        if dist.get_rank() == 0 and args.aux_eps_pulse_start > 0 and (
+            args.aux_eps_pulse_start - 2 <= step <= args.aux_eps_pulse_end + 1
+        ):
+            wandb.log(
+                {"aux_eps_pulse/eps": optimizer1.param_groups[0]["eps"],
+                 "aux_eps_pulse/active": int(eps_pulse_active)},
+                step=wandb_step,
+            )
         for opt in optimizers:
             opt.step()
         # EMA buffer update on body-Muon matrix params.
