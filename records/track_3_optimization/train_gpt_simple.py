@@ -84,6 +84,16 @@ def parse_args():
     parser.add_argument('--aux_b2_pulse_target', type=float, default=0.99,
                         help='New aux Adam β2 value to set at --aux_b2_pulse_step. '
                              '0 or negative disables. Default: 0.99 (canonical WIN).')
+    parser.add_argument('--muon_momentum_reset_step', type=int, default=-1,
+                        help='Step to hard-zero body Muon momentum buffer (state["momentum"]). '
+                             '-1 disables. Discards EMA-accumulated direction history entirely; '
+                             'next step update direction is raw gradient under current mu.')
+    parser.add_argument('--muon_momentum_reset_mu_target', type=float, default=-1.0,
+                        help='If >0, set body Muon mu to this value after reset until '
+                             '--muon_momentum_reset_mu_end. -1.0 disables (mu stays canonical 0.95).')
+    parser.add_argument('--muon_momentum_reset_mu_end', type=int, default=-1,
+                        help='Step to revert body Muon mu back to canonical 0.95 after the '
+                             'reset window. -1 disables. Requires --muon_momentum_reset_mu_target>0.')
     parser.add_argument("--seed", type=int, default=1,
                         help="Random seed for torch/numpy/python. Default 1 matches baseline seed.")
     args = parser.parse_args()
@@ -765,6 +775,9 @@ if dist.get_rank() == 0:
             "paramema_refresh_only": int(args.paramema_refresh_only),
             "aux_b2_pulse_step": args.aux_b2_pulse_step,
             "aux_b2_pulse_target": args.aux_b2_pulse_target,
+            "muon_momentum_reset_step": args.muon_momentum_reset_step,
+            "muon_momentum_reset_mu_target": args.muon_momentum_reset_mu_target,
+            "muon_momentum_reset_mu_end": args.muon_momentum_reset_mu_end,
             "seed": args.seed,
         },
     )
@@ -1071,6 +1084,37 @@ for trial_idx in range(args.num_trials):
                 group["betas"] = new_betas
             print0(f"[step {step}] aux_b2_pulse: β2 {old_b2} → {args.aux_b2_pulse_target}",
                    console=True)
+        # Body Muon momentum-buffer hard zero reset @ --muon_momentum_reset_step.
+        # state["momentum"] is the per-parameter EMA direction buffer used by pmuon_update.
+        # Discarding it means the next opt step's `momentum.lerp_(grad, 1-mu)` rebuilds
+        # from zero, so update direction = raw gradient on step T, then re-warms naturally.
+        pmuon_reset_n_zeroed = 0
+        pmuon_reset_event = 0  # 0=no event, 1=reset fired, 2=mu reverted
+        if (args.muon_momentum_reset_step > 0
+                and step == args.muon_momentum_reset_step):
+            for group in optimizer2.param_groups:
+                for p in group["params"]:
+                    state = optimizer2.state.get(p, None)
+                    if state is not None and "momentum" in state:
+                        state["momentum"].zero_()
+                        pmuon_reset_n_zeroed += 1
+            print0(f"[step {step}] muon_momentum_reset: zeroed {pmuon_reset_n_zeroed} "
+                   f"momentum buffers", console=True)
+            if args.muon_momentum_reset_mu_target > 0.0:
+                old_mu = optimizer2.param_groups[0]["mu"]
+                for g in optimizer2.param_groups:
+                    g["mu"] = args.muon_momentum_reset_mu_target
+                print0(f"[step {step}] muon_momentum_reset: mu {old_mu} -> "
+                       f"{args.muon_momentum_reset_mu_target}", console=True)
+            pmuon_reset_event = 1
+        if (args.muon_momentum_reset_mu_end > 0
+                and step == args.muon_momentum_reset_mu_end
+                and args.muon_momentum_reset_mu_target > 0.0):
+            for g in optimizer2.param_groups:
+                g["mu"] = 0.95
+            print0(f"[step {step}] muon_momentum_reset: mu reverted to 0.95",
+                   console=True)
+            pmuon_reset_event = 2
         for opt in optimizers:
             opt.step()
         # EMA buffer update on body-Muon matrix params.
@@ -1189,6 +1233,19 @@ for trial_idx in range(args.num_trials):
                 "aux_b2/fired": int(args.aux_b2_pulse_step > 0
                                     and args.aux_b2_pulse_target > 0.0
                                     and step >= args.aux_b2_pulse_step),
+                "pmuon_reset/step": args.muon_momentum_reset_step,
+                "pmuon_reset/mu_target": args.muon_momentum_reset_mu_target,
+                "pmuon_reset/mu_end": args.muon_momentum_reset_mu_end,
+                "pmuon_reset/event": pmuon_reset_event,
+                "pmuon_reset/n_zeroed": pmuon_reset_n_zeroed,
+                "pmuon_reset/active_mu": optimizer2.param_groups[0]["mu"],
+                "pmuon_reset/fired": (
+                    0 if args.muon_momentum_reset_step <= 0 or step < args.muon_momentum_reset_step
+                    else (2 if (args.muon_momentum_reset_mu_end > 0
+                                and args.muon_momentum_reset_mu_target > 0.0
+                                and step >= args.muon_momentum_reset_mu_end)
+                          else 1)
+                ),
             }, step=wandb_step)
         if dist.get_rank() == 0 and (train_step % 100 == 0 or train_step == train_steps):
             spec = pmuon_spectral_diag(optimizer2, PMUON_GAMMA)
