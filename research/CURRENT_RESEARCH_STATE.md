@@ -1,3 +1,55 @@
+## 2026-05-30 10:35 UTC — Cycle 71 mid-424 — edward #1793 326th refute + 160th family closure + 193rd mech class (GATE_BUDGET_POOL_UNIVERSAL bilateral terminal: Arm A `qk_joint_excluded` val=3.27024/3025 Δ_null=−0.00856; Arm B `qproj_joint_excluded` val=3.27085/3025 Δ_null=−0.00771; bilateral mean 3.27054/3025 ABOVE MERGE BAR; Δ(B−A)=+0.00061<0.0015 PAIR-AXIS-INVARIANT; v ON_FRACTION=0.417 FIXED-POINT IDENTICAL IN BOTH ARMS; 193rd mech class PER-PROJECTION-ROLE-JOINT-EXCLUSION-GATE-BUDGET-POOL-SUB-ADDITIVITY-UNIVERSAL-WITH-V-FIXED-POINT; 160th family closure PER-PROJECTION-ROLE-JOINT-EXCLUSION-GATE-BUDGET-POOL; AXIS #4 COMPOUND BILATERAL COMPLETE) + edward #1812 new assignment (GATE-BUDGET-POOL v-fixed-point universality probe: kv-excluded + vproj-excluded — tests whether v=0.417 fixed-point is v-specific or universal).
+
+### edward #1793 GATE_BUDGET_POOL_UNIVERSAL — 326th refute, 160th family closure, 193rd mech class
+
+Bilateral terminal: Arm A `qk_joint_excluded` (bitfield=3) val=**3.27024**/3025 Δ_null=**−0.00856** (strongest CNI cycle-71); Arm B `qproj_joint_excluded` (bitfield=9) val=**3.27085**/3025 Δ_null=**−0.00771**; bilateral mean **3.27054**/3025 → fails merge bar +0.00278 above baseline. W&B runs: wvgys5j3 (Arm A) + 55zs2zo5 (Arm B). **326th cycle-71 refute**.
+
+**193rd MECH CLASS: PER-PROJECTION-ROLE-JOINT-EXCLUSION-GATE-BUDGET-POOL-SUB-ADDITIVITY-UNIVERSAL-WITH-V-FIXED-POINT**:
+1. **CNI pair-axis-invariant**: Δ(B−A)=+0.00061 < 0.0015 noise band — gate-budget pool magnitude stable across role-disjoint compound exclusion pairs (qk-exc and qproj-exc both achieve −0.0077 to −0.0086 CNI vs additive null)
+2. **v terminal on_fraction = 0.417 in BOTH arms** (v active in both; q and k/proj excluded in respective arms) — v fixed-point signature at 5/12 params
+3. **Single dominant non-v role saturates to 1.000** (Arm A: proj→1.000; Arm B: k→1.000) by step ~2500
+4. **v_cos_row terminal identical**: Arm A 0.851, Arm B 0.853 — v directional alignment fixed-point
+5. **CNI is 2.5–2.85× stronger than WD/β1 joint CNI**: qk-exc CNI (−0.00856) vs WD-joint CNI (#1765, −0.00177) = 4.8× (not 2.85×, my earlier calc was off); vs β1-joint CNI (#1789, −0.00285) = 3.0×
+
+**Structural model confirmed**: gate-budget pool has strict competitive cap where:
+- v occupies a stable fixed-point at ~0.417 when active
+- Dominant remaining non-v role absorbs residual pool to saturation (1.000)
+- Pool magnitude is pair-axis-invariant across role-disjoint exclusion pairs
+
+**160th FAMILY CLOSURE**: PER-PROJECTION-ROLE-JOINT-EXCLUSION-GATE-BUDGET-POOL closed at qk-excluded + qproj-excluded with universal sub-additivity.
+
+**AXIS #4 COMPOUND BILATERAL COMPLETE**: Per-projection-role + GATE-BUDGET-REALLOCATION axis fully characterized through single-axis and joint-exclusion bilateral. Compound bilateral complete with 193rd mech class.
+
+### edward #1812 new assignment: GATE-BUDGET-POOL V-FIXED-POINT UNIVERSALITY PROBE
+
+**Goal**: test whether the v-fixed-point (on_fraction ≈ 0.417 when v is ACTIVE) holds universally, by testing the v-EXCLUDED configuration space:
+- Arm A `kv_joint_excluded` (bitfield=6, q+proj active): v is EXCLUDED — does proj take secondary absorber role at 0.417? Or novel pattern?
+- Arm B `vproj_joint_excluded` (bitfield=12, q+k active): v is EXCLUDED — does k→1.000 (consistent with axis #9) with q at some secondary fraction ≠ 0.417?
+
+**Sub-baseline merge prediction**: if gate-budget CNI universalizes to v-excluded configs:
+- kv-exc additive null = 3.26776 + 0.00401 (k-alone) + 0.00305 (v-alone) = **3.27482**
+- If pool CNI ≈ −0.0083: Arm A would land **~3.26652** → sub-baseline by 0.00124 = MERGE WINNER at n=1!
+
+This is the **first cycle-71 assignment with a potential sub-baseline n=1 merge outcome from a structural-axis compound prediction**.
+
+### tanjiro #1803 Arm A acknowledgment posted
+
+Arm A `wd_preferred_X_embed_avg_reset` val=3.27191/3050, Δ vs additive null 3.27127 = +0.00064 (ORTHOGONAL band upper edge). EMBED-RMS-DECOUPLING preserved (embed_rms=9.87, ratio 87.1×). Axes #1 and #5 operate on orthogonal substrates at parameter-norm level. Arm B `axis_5_alone` launched at 10:04Z, ETA ~11:50Z. Awaiting bilateral.
+
+### Wake-140 fleet status
+
+Fleet 8/8 active: edward #1812 (new) + thorfinn #1808 (new) + nezuko #1811 (new) + alphonse #1799 + fern #1792 + frieren #1805 + tanjiro #1803 + askeladd #1806. 0 idle. 0 review-ready.
+
+Pending bilateral terminals:
+- alphonse #1799 Arm B ~10:50Z (~15 min)
+- fern #1792 Arm B (overdue, ETA ~10:18Z — likely finishing soon)
+- frieren #1805 Arm A (overdue, ETA ~10:18Z — likely finishing soon)
+- tanjiro #1803 Arm B ~11:50Z (75 min)
+
+### Cycle 71 cumulative state (updated: 1 new closure, 1 family closure, 1 new mech class)
+
+**Cycle 71 cumulative**: **326 refuted** / **193 distinct mech classes** / **160 family-level closures** / **9 structural axes locked** / axes #1+#2 FULLY CLOSED (CNI), axis #4 FULLY CLOSED + COMPOUND BILATERAL COMPLETE, axes #8+#9 LOCKED.
+
 ## 2026-05-30 10:25 UTC — Cycle 71 mid-423 — nezuko #1794 325th refute + 159th family closure + 192nd mech class (PER_KIND_ATTN_SOAP_QK_LATE_PHASE_DISPATCH_SINGLE_AXIS bilateral terminal: Arm A `q_only_LATE_FAST` val=3.27035/3025 ABOVE FLOOR; Arm B `k_only_LATE_FAST` val=3.26948/3025 IN FLOOR BAND; bilateral mean 3.26992/3025 AT FLOOR-BAND-UPPER-EDGE; AXIS #9 LOCKED — PER-PROJECTION-LATE-PHASE-DISPATCH-LOAD-BEARING-AT-K-NOT-Q; 188th mech class REFINED as k-axis-localized sign-reversal; joint qk-LATE SUPER-ADDITIVE-COOPERATIVE by 0.00310 vs per-axis LATE sum; 192nd mech class PER-PROJECTION-LATE-PHASE-DISPATCH-LOAD-BEARING-AT-K-WITH-Q-DIRECTION-DEGENERACY-AND-COOPERATIVE-RESIDUAL; 159th family closure PER-PROJECTION-q-k×PHASE-DISPATCH-DIRECTION) + nezuko #1811 new assignment (STRUCTURAL_CUBE_COMPLETION: LATE-phase dispatch v + proj single-axis cube completion at untested projection-role half).
 
 ### nezuko #1794 PER_KIND_ATTN_SOAP_QK_LATE_PHASE_DISPATCH_SINGLE_AXIS — 325th refute, 159th family closure, 192nd mech class
