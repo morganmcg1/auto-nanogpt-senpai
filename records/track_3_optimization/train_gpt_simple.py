@@ -61,6 +61,14 @@ def parse_args():
     # Default 0.0 disables (no-op for bit-identical baseline).
     parser.add_argument("--aux_agc_clip_ratio", type=float, default=float(os.environ.get("AUX_AGC_CLIP_RATIO", "0.0")))
     parser.add_argument("--aux_agc_eps", type=float, default=float(os.environ.get("AUX_AGC_EPS", "1e-3")))
+    # H300: global gradient-norm clip on aux params. 0.0 = OFF (bit-identical baseline).
+    # Applies torch.nn.utils.clip_grad_norm_(aux_params, max_norm) AFTER per-param AGC
+    # and BEFORE optimizer1.step(). Composes with AGC when both > 0.
+    parser.add_argument("--aux_global_grad_clip_norm", type=float,
+                        default=float(os.environ.get("AUX_GLOBAL_GRAD_CLIP_NORM", "0.0")),
+                        help="Global gradient-norm clip on aux params before optimizer step. "
+                             "0.0 (default) = OFF, bit-identical baseline. Non-zero applies "
+                             "torch.nn.utils.clip_grad_norm_(aux_params, max_norm) BEFORE optimizer1.step().")
     # Inner-MuonH AGC: clip the reduced gradient on MuonH block params BEFORE the
     # momentum buffer integrates it. Same per-param formula as aux AGC (the L2
     # norm and RMS formulations are equivalent because the sqrt(n) cancels in
@@ -796,6 +804,10 @@ if args.muonh_agc_clip_ratio > 0:
     print0(f"AGC ENABLED on inner MuonH gradient: clip_ratio={args.muonh_agc_clip_ratio} eps={args.muonh_agc_eps}", console=True)
 else:
     print0("AGC DISABLED on inner MuonH gradient (clip_ratio=0)", console=True)
+if args.aux_global_grad_clip_norm > 0:
+    print0(f"GLOBAL grad-norm clip ENABLED on aux params: max_norm={args.aux_global_grad_clip_norm}", console=True)
+else:
+    print0("GLOBAL grad-norm clip DISABLED on aux params (max_norm=0)", console=True)
 print0("="*100)
 
 val_tokens = 20 * 524288
@@ -846,6 +858,7 @@ if dist.get_rank() == 0:
             "muloco_sync_interval": args.sync_interval,
             "aux_agc_clip_ratio": args.aux_agc_clip_ratio,
             "aux_agc_eps": args.aux_agc_eps,
+            "aux_global_grad_clip_norm": args.aux_global_grad_clip_norm,
             "muonh_agc_clip_ratio": args.muonh_agc_clip_ratio,
             "muonh_agc_eps": args.muonh_agc_eps,
             "aux_adamw_eps": args.aux_adamw_eps,
@@ -1212,6 +1225,19 @@ for trial_idx in range(args.num_trials):
         muonh_agc_stats = adaptive_gradient_clip(
             muonh_params_for_agc, args.muonh_agc_clip_ratio, eps=args.muonh_agc_eps,
         )
+        # H300: global gradient-norm clip on aux params. Applies AFTER per-param AGC
+        # and BEFORE optimizer1.step(). Bit-identical no-op when threshold <= 0.
+        global_clip_active = 0
+        global_clip_scale = 1.0
+        global_clip_total_norm = 0.0
+        if args.aux_global_grad_clip_norm > 0.0:
+            total_norm = torch.nn.utils.clip_grad_norm_(
+                aux_params_for_agc, max_norm=args.aux_global_grad_clip_norm
+            )
+            global_clip_total_norm = float(total_norm)
+            if global_clip_total_norm > args.aux_global_grad_clip_norm:
+                global_clip_active = 1
+                global_clip_scale = args.aux_global_grad_clip_norm / (global_clip_total_norm + 1e-12)
         for opt in optimizers:
             opt.step()
         # H266: Polyak-Ruppert EMA update — runs after the live inner-optimizer step.
@@ -1258,6 +1284,10 @@ for trial_idx in range(args.num_trials):
                 muonh_metrics["train/muonh/agc/max_ratio"] = muonh_agc_stats["agc_max_ratio"]
                 muonh_metrics["train/muonh/agc/scale_min"] = muonh_agc_stats["agc_scale_min"]
                 muonh_metrics["train/muonh/agc/scale_mean"] = muonh_agc_stats["agc_scale_mean"]
+            if args.aux_global_grad_clip_norm > 0.0:
+                muonh_metrics["aux/global_grad_clip/active"] = global_clip_active
+                muonh_metrics["aux/global_grad_clip/scale"] = global_clip_scale
+                muonh_metrics["aux/global_grad_clip/total_norm"] = global_clip_total_norm
             if len(muonh_metrics) > 2:
                 wandb.log(muonh_metrics, step=wandb_step)
         if dist.get_rank() == 0 and telemetry_due:
