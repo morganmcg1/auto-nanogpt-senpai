@@ -6,6 +6,7 @@ It was prepared as a simplified version of the speedrun for use in neural net op
 """
 
 import os
+import re
 import sys
 with open(sys.argv[0]) as f:
     code = f.read() # read the code of this file ASAP, for logging
@@ -468,6 +469,11 @@ NS5_ITERS = int(os.environ.get("NS5_ITERS", "12"))
 WD_AUX = float(os.environ.get("WD_AUX", "0.0"))  # AdamW WD on embed + lm_head matrices (scalars stay at 0)
 EMBED_INIT_STD = float(os.environ.get("EMBED_INIT_STD", "1.0"))  # default preserves baseline N(0,1)
 LOGIT_SOFTCAP = float(os.environ.get("LOGIT_SOFTCAP", "15.0"))  # default = 15 (current hardcoded value); soft-cap value c in f(x) = c·x / sqrt(x^2+c^2)
+# Per-depth-half initialization std multiplier (front blocks vs back blocks — uniform across q/k/v/mlp.fc within half)
+PER_DEPTH_HALF_INIT_STD_MULT_ENABLED = int(os.environ.get("PER_DEPTH_HALF_INIT_STD_MULT_ENABLED", "0"))
+FRONT_HALF_INIT_STD_MULT = float(os.environ.get("FRONT_HALF_INIT_STD_MULT", "1.0"))
+BACK_HALF_INIT_STD_MULT = float(os.environ.get("BACK_HALF_INIT_STD_MULT", "1.0"))
+INIT_DEPTH_SPLIT = int(os.environ.get("INIT_DEPTH_SPLIT", "6"))  # blocks 0..split-1 = front, blocks split..N-1 = back
 
 
 def zeropower_via_newtonschulz5(G: Tensor) -> Tensor:
@@ -881,6 +887,16 @@ for trial_idx in range(args.num_trials):
     train_steps = args.train_steps if args.train_steps is not None else 3175
 
     # initialize model parameters
+    block_idx_re = re.compile(r"^blocks\.(\d+)\.")
+    n_front_weight_tensors = 0
+    n_back_weight_tensors = 0
+    init_sanity_stds: dict[str, float] = {}
+    sanity_targets = {
+        "blocks.0.attn.q.weight",
+        "blocks.0.mlp.fc.weight",
+        "blocks.11.attn.q.weight",
+        "blocks.11.mlp.fc.weight",
+    }
     for name, p in model.named_parameters():
         w = p.data
         if name.endswith("weight"):
@@ -889,7 +905,21 @@ for trial_idx in range(args.num_trials):
             elif "embed" in name:
                 w.normal_(std=EMBED_INIT_STD)
             else:
-                w.normal_(std=0.33**0.5 / w.size(-1)**0.5)  # default torch init
+                default_std = 0.33**0.5 / w.size(-1)**0.5
+                mult = 1.0
+                if PER_DEPTH_HALF_INIT_STD_MULT_ENABLED:
+                    m = block_idx_re.match(name)
+                    if m is not None:
+                        block_idx = int(m.group(1))
+                        if block_idx < INIT_DEPTH_SPLIT:
+                            mult = FRONT_HALF_INIT_STD_MULT
+                            n_front_weight_tensors += 1
+                        else:
+                            mult = BACK_HALF_INIT_STD_MULT
+                            n_back_weight_tensors += 1
+                w.normal_(std=default_std * mult)
+                if name in sanity_targets:
+                    init_sanity_stds[name] = float(w.std().item())
         elif name.endswith("bias"):
             w.zero_()
         elif name.endswith("gains"):
@@ -945,6 +975,21 @@ for trial_idx in range(args.num_trials):
     train_loader = distributed_data_generator("data/fineweb10B/fineweb_train_*.bin", batch_size)
     for p in model.parameters():
         dist.broadcast(p.detach(), 0)
+    if dist.get_rank() == 0:
+        init_metrics = {
+            "trial": trial_idx,
+            "init_std/per_depth_half_enabled": PER_DEPTH_HALF_INIT_STD_MULT_ENABLED,
+            "init_std/front_half_mult": FRONT_HALF_INIT_STD_MULT,
+            "init_std/back_half_mult": BACK_HALF_INIT_STD_MULT,
+            "init_std/init_depth_split": INIT_DEPTH_SPLIT,
+            "init_std/n_front_weight_tensors": n_front_weight_tensors,
+            "init_std/n_back_weight_tensors": n_back_weight_tensors,
+            "init_std/block0_attn_q_actual_std": init_sanity_stds.get("blocks.0.attn.q.weight", float("nan")),
+            "init_std/block11_attn_q_actual_std": init_sanity_stds.get("blocks.11.attn.q.weight", float("nan")),
+            "init_std/block0_mlp_fc_actual_std": init_sanity_stds.get("blocks.0.mlp.fc.weight", float("nan")),
+            "init_std/block11_mlp_fc_actual_std": init_sanity_stds.get("blocks.11.mlp.fc.weight", float("nan")),
+        }
+        wandb.log(init_metrics, step=trial_idx * (train_steps + 1))
     # start the clock
     training_time = 0
     last_val_step = 0
