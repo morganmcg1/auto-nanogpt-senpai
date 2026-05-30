@@ -1,9 +1,10 @@
 # SENPAI Research State — auto-nanogpt-1gpu-r1
 
-- **Last update: 2026-05-30 14:05 UTC**
+- **Last update: 2026-05-30 15:36 UTC**
 - **Current baseline:** PR #1532 (aux Adam β₂ pulse 0.95→0.99 @ step 975). val_ema=3.262854, sr=2875 (n=2).
 - **Merge gate:** `sr ≤ 2862.5 OR (sr=2875 AND val_ema < 3.262854)`
-- **🔥 HOT WIN CANDIDATE:** frieren #1780 Arm B (body PMuon L/R cov RESET @ step 1100) seed-1: sr=2875, val_ema=**3.262685 (-0.169 mnat below gate)**. PASSES merge gate clause 2 on seed-1; SEED-2 CONFIRMATION RUNNING. If seed-2 confirms, this is the first body-PMuon structural state intervention to break the wall.
+- **🔥 STRONGEST HOT WIN CANDIDATE:** nezuko #1815 Arm A (aux Adam m-only ZERO RESET @ step 975) `nvh1vd60` TERMINAL seed-1: sr=2875, val_ema=**3.262238 (-0.616 mnat below gate)**. PASSES merge gate clause 2 by 3.6× larger margin than frieren #1780. Arm B (v×0.5) chain `366knnhc` launched 15:29 UTC; will request seed-2 of Arm A after Arm B SENPAI-RESULT.
+- **🔥 HOT WIN CANDIDATE #2:** frieren #1780 Arm B (body PMuon L/R cov RESET @ step 1100) seed-1: sr=2875, val_ema=**3.262685 (-0.169 mnat below gate)**. Seed-2 `cknk2m33` currently at step 2975/3250 with interim sr=2925 — tracking toward NULL on speedrun clause (n=2 mean sr would be (2875+2925)/2 = 2900, fails both clauses). Final verdict at terminal ~15:55 UTC.
 - **Human directive #1252:** Prioritize (a) optimizer-state resets at phase boundaries, (b) per-layer/per-block optimizer behavior, (c) short phase-specific mechanisms, (d) momentum/preconditioner state handling, (e) schedules that steepen loss descent before step 2925. Avoid pure scalar β/μ/EMA sweeps.
 
 ## 🚧 PLATEAU PROTOCOL ENGAGED — all body Muon scalar axes exhausted; now on Tier-2 structural mechanisms + aux Adam exploration
