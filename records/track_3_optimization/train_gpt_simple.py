@@ -78,6 +78,13 @@ def parse_args():
                         help="If set, run paramEMA refresh at --paramema_refresh_step but "
                              "DISABLE L_cov refresh (lcov_refresh_step treated as -1). "
                              "Ablation flag for isolating paramEMA-only contribution.")
+    parser.add_argument("--ema_beta_drop_step", type=int, default=-1,
+                        help="If >0, hard-override ema_beta to --ema_beta_drop_value at and "
+                             "after this step (bypasses compute_ema_beta_t). Used to test "
+                             "abrupt β step-drops in the pre-target window.")
+    parser.add_argument("--ema_beta_drop_value", type=float, default=None,
+                        help="Target ema_beta value to hold from --ema_beta_drop_step through "
+                             "terminal. Required when --ema_beta_drop_step > 0.")
     parser.add_argument('--aux_b2_pulse_step', type=int, default=975,
                         help='Step at which to switch aux Adam β2 to --aux_b2_pulse_target. '
                              '0 or negative disables. Default: 975 (cooldown onset, canonical WIN).')
@@ -763,6 +770,11 @@ if dist.get_rank() == 0:
             "muon_block_lr_pattern": args.muon_block_lr_pattern,
             "paramema_refresh_step": args.paramema_refresh_step,
             "paramema_refresh_only": int(args.paramema_refresh_only),
+            "ema_beta_drop_step": args.ema_beta_drop_step,
+            "ema_beta_drop_value": (args.ema_beta_drop_value
+                                    if args.ema_beta_drop_value is not None else 0.0),
+            "ema_beta_drop_enabled": int(args.ema_beta_drop_step > 0
+                                          and args.ema_beta_drop_value is not None),
             "aux_b2_pulse_step": args.aux_b2_pulse_step,
             "aux_b2_pulse_target": args.aux_b2_pulse_target,
             "seed": args.seed,
@@ -874,9 +886,15 @@ for trial_idx in range(args.num_trials):
 
     def compute_ema_beta_t(step):
         """Dynamic β_t = β_base + (β_target - β_base) × (1 - lr_mult_t).
-        Returns β_base when β_target unset; clamped to [β_base, β_target]."""
+        Returns β_base when β_target unset; clamped to [β_base, β_target].
+        Hard step-drop override: if --ema_beta_drop_step > 0 and step >= that,
+        return --ema_beta_drop_value verbatim (overrides the dynamic ramp)."""
         if args.ema_beta <= 0:
             return 1.0  # EMA disabled; sentinel
+        if (args.ema_beta_drop_step > 0
+                and args.ema_beta_drop_value is not None
+                and step >= args.ema_beta_drop_step):
+            return args.ema_beta_drop_value
         if args.ema_beta_target is None:
             return args.ema_beta
         lr_mult = compute_lr_mult(step)
@@ -1008,6 +1026,13 @@ for trial_idx in range(args.num_trials):
                     metrics["ema/n_eff"] = 1.0 / max(1e-12, (1.0 - beta_t_now))
                     metrics["ema/active"] = int(step >= args.ema_warmup_steps)
                     metrics["ema/warmup_steps"] = args.ema_warmup_steps
+                    metrics["ema/beta"] = beta_t_now
+                    metrics["ema/beta_drop_step"] = args.ema_beta_drop_step
+                    metrics["ema/beta_drop_value"] = (args.ema_beta_drop_value
+                                                       if args.ema_beta_drop_value is not None else 0.0)
+                    metrics["ema/beta_drop_fired"] = int(args.ema_beta_drop_step > 0
+                                                          and args.ema_beta_drop_value is not None
+                                                          and step >= args.ema_beta_drop_step)
                 metrics.update(prefixed("val/slope", loss_slope_stats(val_loss_history, slope_window_steps)))
                 wandb.log(metrics, step=trial_idx * (train_steps + 1) + step)
             print0(f"step:{step}/{train_steps} val_loss:{val_loss:.5f} train_time:{training_time:.3f}s"
@@ -1169,6 +1194,12 @@ for trial_idx in range(args.num_trials):
                     "ema/warmup_steps": args.ema_warmup_steps,
                     "ema/active_train": int(step >= args.ema_warmup_steps),
                     "ema/ramp_enabled": int(args.ema_beta_target is not None),
+                    "ema/beta_drop_step": args.ema_beta_drop_step,
+                    "ema/beta_drop_value": (args.ema_beta_drop_value
+                                            if args.ema_beta_drop_value is not None else 0.0),
+                    "ema/beta_drop_fired": int(args.ema_beta_drop_step > 0
+                                                and args.ema_beta_drop_value is not None
+                                                and step >= args.ema_beta_drop_step),
                 }, step=wandb_step)
             # paramEMA refresh + L_cov refresh diagnostics. ema_refresh/fired
             # latches to 1 at and after --paramema_refresh_step; lcov_refresh/fired
