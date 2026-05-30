@@ -84,6 +84,14 @@ def parse_args():
     parser.add_argument('--aux_b2_pulse_target', type=float, default=0.99,
                         help='New aux Adam β2 value to set at --aux_b2_pulse_step. '
                              '0 or negative disables. Default: 0.99 (canonical WIN).')
+    parser.add_argument('--aux_acprop_mode', type=str, default='off',
+                        choices=['off', 'all', 'embed_only'],
+                        help='ACProp async denominator for aux AdamW (optimizer1). '
+                             'off=standard AdamW (baseline). '
+                             'all=AdamWAsync for embed+lm_head+scalars. '
+                             'embed_only=AdamWAsync for embed only, vanilla AdamW for '
+                             'lm_head+scalars. ACProp uses prev-step grad squared for v_t '
+                             '(denominator), keeping m_t (numerator) on curr-step grad.')
     parser.add_argument("--seed", type=int, default=1,
                         help="Random seed for torch/numpy/python. Default 1 matches baseline seed.")
     args = parser.parse_args()
@@ -629,6 +637,79 @@ class Muon(torch.optim.Optimizer):
         self._polar_diag = polar_diag
 
 
+class AdamWAsync(torch.optim.Optimizer):
+    """AdamW with ACProp async denominator: v_t uses prev-step grad squared.
+
+    Standard AdamW : v_t = β₂ · v_{t-1} + (1 - β₂) · g_t²
+    ACProp async   : v_t = β₂ · v_{t-1} + (1 - β₂) · g_{t-1}²
+
+    First-moment update remains synchronous (m_t built from current g_t).
+    Bootstrap on the very first step: prev_grad = curr_grad (the cache is
+    empty), so v_1 matches standard AdamW. From step 2 onward, v_t is built
+    from the previous-step gradient — breaking the noise correlation between
+    numerator direction and denominator scale that vanilla Adam exhibits.
+    """
+    def __init__(self, params, lr=1e-3, betas=(0.8, 0.95), eps=1e-10, weight_decay=0.0):
+        defaults = dict(lr=lr, betas=betas, eps=eps, weight_decay=weight_decay)
+        super().__init__(params, defaults)
+        self._prev_grads = {}  # id(p) -> previous-step grad tensor (cloned)
+        self._last_diag = {}    # diagnostic dict for telemetry sentinels
+
+    @torch.no_grad()
+    def step(self):
+        first_param_recorded = False
+        for group in self.param_groups:
+            beta1, beta2 = group['betas']
+            for p in group['params']:
+                if p.grad is None:
+                    continue
+                curr_grad = p.grad.detach()
+                # Bootstrap: first call uses curr_grad as prev_grad (cache empty).
+                prev_grad = self._prev_grads.get(id(p), curr_grad)
+
+                state = self.state[p]
+                if len(state) == 0:
+                    state['step'] = 0
+                    state['exp_avg'] = torch.zeros_like(p)
+                    state['exp_avg_sq'] = torch.zeros_like(p)
+
+                state['step'] += 1
+                exp_avg, exp_avg_sq = state['exp_avg'], state['exp_avg_sq']
+                step_count = state['step']
+
+                # Decoupled weight decay (AdamW style): scale p before grad step.
+                if group['weight_decay'] != 0:
+                    p.mul_(1 - group['lr'] * group['weight_decay'])
+
+                # m_t uses CURRENT grad (synchronous numerator).
+                exp_avg.mul_(beta1).add_(curr_grad, alpha=1 - beta1)
+                # v_t uses PREVIOUS grad (ACProp async denominator).
+                exp_avg_sq.mul_(beta2).addcmul_(prev_grad, prev_grad, value=1 - beta2)
+
+                bias_corr1 = 1 - beta1 ** step_count
+                bias_corr2 = 1 - beta2 ** step_count
+                step_size = group['lr'] / bias_corr1
+                denom = (exp_avg_sq.sqrt() / (bias_corr2 ** 0.5)).add_(group['eps'])
+                p.addcdiv_(exp_avg, denom, value=-step_size)
+
+                # Diagnostic on the first contributing param this step (cheap).
+                if not first_param_recorded:
+                    self._last_diag = {
+                        'group_name': group.get('name', 'unknown'),
+                        'state_step': step_count,
+                        'prev_grad_norm': float(prev_grad.detach().float().norm().item()),
+                        'curr_grad_norm': float(curr_grad.detach().float().norm().item()),
+                        'exp_avg_sq_norm': float(exp_avg_sq.detach().float().norm().item()),
+                        'denom_mean': float(denom.detach().float().mean().item()),
+                        'denom_norm': float(denom.detach().float().norm().item()),
+                    }
+                    first_param_recorded = True
+
+                # Cache curr grad for next step. Clone because zero_grad will
+                # zero p.grad in place between optimizer steps.
+                self._prev_grads[id(p)] = curr_grad.clone()
+
+
 def pmuon_spectral_diag(optimizer: torch.optim.Optimizer, gamma: float) -> dict[str, float]:
     # Post-whitening spectral diagnostic on the first PMuon-managed param (largest
     # by sort order). Re-evaluated against current L_cov, R_cov, momentum state.
@@ -765,6 +846,8 @@ if dist.get_rank() == 0:
             "paramema_refresh_only": int(args.paramema_refresh_only),
             "aux_b2_pulse_step": args.aux_b2_pulse_step,
             "aux_b2_pulse_target": args.aux_b2_pulse_target,
+            "aux_acprop_mode": args.aux_acprop_mode,
+            "aux_acprop_active": int(args.aux_acprop_mode != "off"),
             "seed": args.seed,
         },
     )
@@ -797,10 +880,38 @@ for trial_idx in range(args.num_trials):
             raise Exception(f"Uninitialized parameter: {name}")
 
     # create the optimizer(s)
-    optimizer1 = AdamW([dict(params=[model.embed.weight], lr=0.3, name="adam_embed"),
-                        dict(params=[model.proj.weight], lr=1/160, name="adam_lm_head"),
-                        dict(params=[p for p in model.parameters() if p.ndim < 2], lr=0.025, name="adam_scalars")],
-                       betas=(0.8, 0.95), eps=1e-10, weight_decay=0, fused=True)
+    # ACProp async denominator (PR #1771): when --aux_acprop_mode != off, route
+    # some or all aux groups (embed/lm_head/scalars) through AdamWAsync, whose
+    # v_t is built from g_{t-1}² instead of g_t².
+    optimizer1_async = None
+    if args.aux_acprop_mode == "all":
+        optimizer1 = AdamWAsync([
+            dict(params=[model.embed.weight], lr=0.3, name="adam_embed"),
+            dict(params=[model.proj.weight], lr=1/160, name="adam_lm_head"),
+            dict(params=[p for p in model.parameters() if p.ndim < 2], lr=0.025, name="adam_scalars"),
+        ], betas=(0.8, 0.95), eps=1e-10, weight_decay=0)
+        optimizer1_async = optimizer1  # alias: optimizer1 IS AdamWAsync
+    elif args.aux_acprop_mode == "embed_only":
+        optimizer1 = AdamW([
+            dict(params=[model.proj.weight], lr=1/160, name="adam_lm_head"),
+            dict(params=[p for p in model.parameters() if p.ndim < 2], lr=0.025, name="adam_scalars"),
+        ], betas=(0.8, 0.95), eps=1e-10, weight_decay=0, fused=True)
+        optimizer1_async = AdamWAsync([
+            dict(params=[model.embed.weight], lr=0.3, name="adam_embed"),
+        ], betas=(0.8, 0.95), eps=1e-10, weight_decay=0)
+    else:  # off
+        optimizer1 = AdamW([dict(params=[model.embed.weight], lr=0.3, name="adam_embed"),
+                            dict(params=[model.proj.weight], lr=1/160, name="adam_lm_head"),
+                            dict(params=[p for p in model.parameters() if p.ndim < 2], lr=0.025, name="adam_scalars")],
+                           betas=(0.8, 0.95), eps=1e-10, weight_decay=0, fused=True)
+    if dist.get_rank() == 0:
+        async_groups = []
+        if args.aux_acprop_mode == "all":
+            async_groups = ["adam_embed", "adam_lm_head", "adam_scalars"]
+        elif args.aux_acprop_mode == "embed_only":
+            async_groups = ["adam_embed"]
+        print0(f"aux_acprop_mode={args.aux_acprop_mode} async_groups={async_groups}",
+               console=True)
     optimizer2 = Muon([p for p in model.blocks.parameters() if p.ndim >= 2],
                       lr=args.muon_lr, weight_decay=0.025, beta_cov=0.95, gamma=PMUON_GAMMA)
     optimizer2.param_groups[0]["name"] = "muon_blocks"
@@ -835,7 +946,13 @@ for trial_idx in range(args.num_trials):
                       step=0)
     optimizer2._param_lr_mults = param_lr_mults
 
-    optimizers = [optimizer1, optimizer2]
+    # Build optimizer list. In embed_only ACProp mode, optimizer1_async is a
+    # distinct optimizer covering the embed param; otherwise it is either None
+    # (off) or an alias to optimizer1 (all).
+    if args.aux_acprop_mode == "embed_only":
+        optimizers = [optimizer1, optimizer1_async, optimizer2]
+    else:
+        optimizers = [optimizer1, optimizer2]
     assert set(p for opt in optimizers for group in opt.param_groups
                for p in group["params"]) == set(model.parameters())
     for opt in optimizers:
@@ -1067,9 +1184,15 @@ for trial_idx in range(args.num_trials):
                 and step == args.aux_b2_pulse_step):
             old_b2 = optimizer1.param_groups[0]["betas"][1]
             new_betas = (optimizer1.param_groups[0]["betas"][0], args.aux_b2_pulse_target)
-            for group in optimizer1.param_groups:
-                group["betas"] = new_betas
-            print0(f"[step {step}] aux_b2_pulse: β2 {old_b2} → {args.aux_b2_pulse_target}",
+            # Pulse applies to every aux Adam optimizer (vanilla + async if split).
+            aux_opts_to_pulse = [optimizer1]
+            if optimizer1_async is not None and optimizer1_async is not optimizer1:
+                aux_opts_to_pulse.append(optimizer1_async)
+            for opt in aux_opts_to_pulse:
+                for group in opt.param_groups:
+                    group["betas"] = new_betas
+            print0(f"[step {step}] aux_b2_pulse: β2 {old_b2} → {args.aux_b2_pulse_target}"
+                   f" (applied to {len(aux_opts_to_pulse)} aux opt(s))",
                    console=True)
         for opt in optimizers:
             opt.step()
@@ -1189,7 +1312,28 @@ for trial_idx in range(args.num_trials):
                 "aux_b2/fired": int(args.aux_b2_pulse_step > 0
                                     and args.aux_b2_pulse_target > 0.0
                                     and step >= args.aux_b2_pulse_step),
+                "aux_adam/acprop_active": int(args.aux_acprop_mode != "off"),
+                "aux_adam/acprop_all_active": int(args.aux_acprop_mode == "all"),
+                "aux_adam/acprop_embed_only_active": int(args.aux_acprop_mode == "embed_only"),
             }, step=wandb_step)
+            # AdamWAsync sentinel telemetry. The optimizer's _last_diag is
+            # updated on every step(); we log it on the standard telemetry
+            # cadence so the dashboard can confirm acprop is active and that
+            # exp_avg_sq tracks prev-step grad norm. The sentinel-step (0/1/2)
+            # values prove the "stale by one" invariant.
+            if optimizer1_async is not None:
+                diag = getattr(optimizer1_async, "_last_diag", {})
+                if diag:
+                    wandb.log({
+                        "trial": trial_idx,
+                        "train/step": train_step,
+                        "aux_adam/state_step": diag.get("state_step", -1),
+                        "aux_adam/prev_grad_norm": diag.get("prev_grad_norm", 0.0),
+                        "aux_adam/curr_grad_norm": diag.get("curr_grad_norm", 0.0),
+                        "aux_adam/exp_avg_sq_norm": diag.get("exp_avg_sq_norm", 0.0),
+                        "aux_adam/denominator_sample_norm": diag.get("denom_norm", 0.0),
+                        "aux_adam/denominator_sample_mean": diag.get("denom_mean", 0.0),
+                    }, step=wandb_step)
         if dist.get_rank() == 0 and (train_step % 100 == 0 or train_step == train_steps):
             spec = pmuon_spectral_diag(optimizer2, PMUON_GAMMA)
             if spec:
