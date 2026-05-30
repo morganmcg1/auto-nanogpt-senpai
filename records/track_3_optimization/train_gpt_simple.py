@@ -225,6 +225,20 @@ def log_training_telemetry(
             metrics[f"train/weight_decay/{group_name}"] = group.get("weight_decay", 0.0)
             if "mu" in group:
                 metrics[f"train/mu/{group_name}"] = group["mu"]
+            # PR #1814 (#1792): per-step AdamW moment norms for embed kind so the
+            # selective-moment-reset sawtooth (and partial-factor variant) is
+            # visible in W&B telemetry.
+            if group.get("name") == "adam_embed":
+                exp_avg_sq_sum = 0.0
+                exp_avg_sum = 0.0
+                for p in group["params"]:
+                    st = opt.state.get(p, {})
+                    if "exp_avg" in st:
+                        exp_avg_sum += float(st["exp_avg"].float().square().sum().item())
+                    if "exp_avg_sq" in st:
+                        exp_avg_sq_sum += float(st["exp_avg_sq"].float().square().sum().item())
+                metrics["optimizer/embed/exp_avg.norm"] = exp_avg_sum ** 0.5
+                metrics["optimizer/embed/exp_avg_sq.norm"] = exp_avg_sq_sum ** 0.5
     for module_type, tensors in grouped_by_type(grads, module_types).items():
         metrics.update(prefixed(f"train/grad_type/{module_type}", aggregate_stats(tensors)))
     for name, grad in grads:
@@ -475,6 +489,8 @@ LOGIT_SOFTCAP = float(os.environ.get("LOGIT_SOFTCAP", "15.0"))  # default = 15 (
 PER_KIND_AUX_PERIODIC_RESET_EMBED_ENABLED = int(os.environ.get("PER_KIND_AUX_PERIODIC_RESET_EMBED_ENABLED", "0"))
 AUX_RESET_INTERVAL_EMBED = int(os.environ.get("AUX_RESET_INTERVAL_EMBED", "250"))
 AUX_RESET_MOMENT_EMBED = int(os.environ.get("AUX_RESET_MOMENT_EMBED", "0"))
+# 0.0 = full clear (zero_); (0, 1] = multiply by factor (partial shrink state-mechanism #1792 / fern #1814)
+AUX_RESET_PARTIAL_FACTOR_EMBED = float(os.environ.get("AUX_RESET_PARTIAL_FACTOR_EMBED", "0.0"))
 # Per-kind AdamW state-reset for lm_head (mirrors frieren #1783 spec). Periodically zero
 # selected moments on adam_lm_head only; other AdamW groups (embed, scalars) keep baseline
 # state-evolution. Bitfield: bit-0 (value 1) = exp_avg_sq, bit-1 (value 2) = exp_avg.
@@ -483,6 +499,8 @@ AUX_RESET_MOMENT_EMBED = int(os.environ.get("AUX_RESET_MOMENT_EMBED", "0"))
 PER_KIND_AUX_PERIODIC_RESET_LM_HEAD_ENABLED = int(os.environ.get("PER_KIND_AUX_PERIODIC_RESET_LM_HEAD_ENABLED", "0"))
 AUX_RESET_INTERVAL_LM_HEAD = int(os.environ.get("AUX_RESET_INTERVAL_LM_HEAD", "250"))
 AUX_RESET_MOMENT_LM_HEAD = int(os.environ.get("AUX_RESET_MOMENT_LM_HEAD", "0"))
+# 0.0 = full clear (zero_); (0, 1] = multiply by factor (partial shrink state-mechanism #1792 extended to lm_head, this PR)
+AUX_RESET_PARTIAL_FACTOR_LM_HEAD = float(os.environ.get("AUX_RESET_PARTIAL_FACTOR_LM_HEAD", "0.0"))
 
 
 def zeropower_via_newtonschulz5(G: Tensor) -> Tensor:
@@ -834,6 +852,18 @@ print0(code)
 print0("="*100)
 print0(f"Running PyTorch {torch.version.__version__} compiled for CUDA {torch.version.cuda}"
        + f" on {torch.cuda.get_device_name(device)} with world_size {dist.get_world_size()}")
+print0(
+    f"[PER_KIND_AUX_PERIODIC_RESET_EMBED] enabled={PER_KIND_AUX_PERIODIC_RESET_EMBED_ENABLED}"
+    f" interval={AUX_RESET_INTERVAL_EMBED}"
+    f" moment={AUX_RESET_MOMENT_EMBED}"
+    f" factor={AUX_RESET_PARTIAL_FACTOR_EMBED}"
+)
+print0(
+    f"[PER_KIND_AUX_PERIODIC_RESET_LM_HEAD] enabled={PER_KIND_AUX_PERIODIC_RESET_LM_HEAD_ENABLED}"
+    f" interval={AUX_RESET_INTERVAL_LM_HEAD}"
+    f" moment={AUX_RESET_MOMENT_LM_HEAD}"
+    f" factor={AUX_RESET_PARTIAL_FACTOR_LM_HEAD}"
+)
 print0("="*100)
 
 val_tokens = 20 * 524288
@@ -896,9 +926,11 @@ if dist.get_rank() == 0:
             "optimizer/per_kind_aux_periodic_reset_embed_enabled": PER_KIND_AUX_PERIODIC_RESET_EMBED_ENABLED,
             "optimizer/aux_reset_interval_embed": AUX_RESET_INTERVAL_EMBED,
             "optimizer/aux_reset_moment_embed": AUX_RESET_MOMENT_EMBED,
+            "optimizer/aux_reset_partial_factor_embed": AUX_RESET_PARTIAL_FACTOR_EMBED,
             "optimizer/per_kind_aux_periodic_reset_lm_head_enabled": PER_KIND_AUX_PERIODIC_RESET_LM_HEAD_ENABLED,
             "optimizer/aux_reset_interval_lm_head": AUX_RESET_INTERVAL_LM_HEAD,
             "optimizer/aux_reset_moment_lm_head": AUX_RESET_MOMENT_LM_HEAD,
+            "optimizer/aux_reset_partial_factor_lm_head": AUX_RESET_PARTIAL_FACTOR_LM_HEAD,
             "seed": SEED_ENV if SEED_ENV != "" else None,
             "optimizer/recipe": "contra-muon + normuon-lite + soap-on-mlp + soap-on-attn-trust-gate (pre-NS5, record #14 + record #16)",
         },
@@ -1119,8 +1151,10 @@ for trial_idx in range(args.num_trials):
             print0(
                 f"[PR1824-FRIEREN] EMBED enabled={PER_KIND_AUX_PERIODIC_RESET_EMBED_ENABLED}"
                 f" interval={AUX_RESET_INTERVAL_EMBED} moment={AUX_RESET_MOMENT_EMBED}"
+                f" factor={AUX_RESET_PARTIAL_FACTOR_EMBED}"
                 f" || LM_HEAD enabled={PER_KIND_AUX_PERIODIC_RESET_LM_HEAD_ENABLED}"
-                f" interval={AUX_RESET_INTERVAL_LM_HEAD} moment={AUX_RESET_MOMENT_LM_HEAD}",
+                f" interval={AUX_RESET_INTERVAL_LM_HEAD} moment={AUX_RESET_MOMENT_LM_HEAD}"
+                f" factor={AUX_RESET_PARTIAL_FACTOR_LM_HEAD}",
                 console=True,
             )
             print0(
@@ -1132,41 +1166,131 @@ for trial_idx in range(args.num_trials):
             )
         for opt in optimizers:
             opt.step()
-        # Per-kind moment reset on adam_embed (mirrors fern #1754) and adam_lm_head (mirrors
-        # frieren #1783). Independent if-statements — both can fire on the same step when
-        # both flags are enabled and intervals align (bilateral compound). Bitfield dispatch:
-        # bit-0 (value 1) clears exp_avg_sq; bit-1 (value 2) clears exp_avg.
-        # Mode 1 = exp_avg_sq only, 2 = exp_avg only, 3 = both moments.
+        # Per-kind moment reset on adam_embed (mirrors fern #1754/#1792/#1814) and adam_lm_head
+        # (mirrors frieren #1783/#1824). Bitfield dispatch: bit-0 (value 1) = exp_avg_sq;
+        # bit-1 (value 2) = exp_avg. PARTIAL_FACTOR (#1792): 0.0 = full zero_(); (0,1] = mul_(factor).
+        # Independent if-statements — both can fire on the same step when both flags are
+        # enabled and intervals align (bilateral compound).
+        embed_reset_exp_avg = bool(AUX_RESET_MOMENT_EMBED & 2)
+        embed_reset_exp_avg_sq = bool(AUX_RESET_MOMENT_EMBED & 1)
         if (
             PER_KIND_AUX_PERIODIC_RESET_EMBED_ENABLED
+            and AUX_RESET_INTERVAL_EMBED > 0
+            and (embed_reset_exp_avg or embed_reset_exp_avg_sq)
             and train_step > 0
             and train_step % AUX_RESET_INTERVAL_EMBED == 0
         ):
-            for group in optimizer1.param_groups:
-                if group.get("name") == "adam_embed":
-                    for p in group["params"]:
-                        state = optimizer1.state.get(p)
-                        if state is None:
-                            continue
-                        if (AUX_RESET_MOMENT_EMBED & 1) and "exp_avg_sq" in state:
-                            state["exp_avg_sq"].zero_()
-                        if (AUX_RESET_MOMENT_EMBED & 2) and "exp_avg" in state:
-                            state["exp_avg"].zero_()
+            ea_pre_sq_sum = 0.0
+            ea_post_sq_sum = 0.0
+            eas_pre_sq_sum = 0.0
+            eas_post_sq_sum = 0.0
+            params_reset_avg = 0
+            params_reset_sq = 0
+            for g in optimizer1.param_groups:
+                if g.get("name") == "adam_embed":
+                    for p in g["params"]:
+                        st = optimizer1.state.get(p, {})
+                        if embed_reset_exp_avg and "exp_avg" in st:
+                            ea_pre_sq_sum += float(st["exp_avg"].float().square().sum().item())
+                            if AUX_RESET_PARTIAL_FACTOR_EMBED == 0.0:
+                                st["exp_avg"].zero_()
+                            else:
+                                st["exp_avg"].mul_(AUX_RESET_PARTIAL_FACTOR_EMBED)
+                            ea_post_sq_sum += float(st["exp_avg"].float().square().sum().item())
+                            params_reset_avg += 1
+                        if embed_reset_exp_avg_sq and "exp_avg_sq" in st:
+                            eas_pre_sq_sum += float(st["exp_avg_sq"].float().square().sum().item())
+                            if AUX_RESET_PARTIAL_FACTOR_EMBED == 0.0:
+                                st["exp_avg_sq"].zero_()
+                            else:
+                                st["exp_avg_sq"].mul_(AUX_RESET_PARTIAL_FACTOR_EMBED)
+                            eas_post_sq_sum += float(st["exp_avg_sq"].float().square().sum().item())
+                            params_reset_sq += 1
+                    break
+            if dist.get_rank() == 0:
+                event = {
+                    "trial": trial_idx,
+                    "reset/embed/event_step": train_step,
+                    "reset/embed/moment": AUX_RESET_MOMENT_EMBED,
+                    "reset/embed/partial_factor": AUX_RESET_PARTIAL_FACTOR_EMBED,
+                    "reset/embed/params_reset_avg": params_reset_avg,
+                    "reset/embed/params_reset_sq": params_reset_sq,
+                }
+                if embed_reset_exp_avg:
+                    event["reset/embed/exp_avg.norm_pre"] = ea_pre_sq_sum ** 0.5
+                    event["reset/embed/exp_avg.norm_post"] = ea_post_sq_sum ** 0.5
+                if embed_reset_exp_avg_sq:
+                    event["reset/embed/exp_avg_sq.norm_pre"] = eas_pre_sq_sum ** 0.5
+                    event["reset/embed/exp_avg_sq.norm_post"] = eas_post_sq_sum ** 0.5
+                wandb.log(event, step=wandb_step)
+                print(
+                    f"[PER_KIND_AUX_PERIODIC_RESET] step {train_step}: embed AdamW state reset"
+                    f" (moment={AUX_RESET_MOMENT_EMBED}, factor={AUX_RESET_PARTIAL_FACTOR_EMBED},"
+                    f" exp_avg.norm {ea_pre_sq_sum**0.5:.4f}->{ea_post_sq_sum**0.5:.4f},"
+                    f" exp_avg_sq.norm {eas_pre_sq_sum**0.5:.4f}->{eas_post_sq_sum**0.5:.4f},"
+                    f" params_avg={params_reset_avg}, params_sq={params_reset_sq})",
+                    flush=True,
+                )
+        lm_head_reset_exp_avg = bool(AUX_RESET_MOMENT_LM_HEAD & 2)
+        lm_head_reset_exp_avg_sq = bool(AUX_RESET_MOMENT_LM_HEAD & 1)
         if (
             PER_KIND_AUX_PERIODIC_RESET_LM_HEAD_ENABLED
+            and AUX_RESET_INTERVAL_LM_HEAD > 0
+            and (lm_head_reset_exp_avg or lm_head_reset_exp_avg_sq)
             and train_step > 0
             and train_step % AUX_RESET_INTERVAL_LM_HEAD == 0
         ):
-            for group in optimizer1.param_groups:
-                if group.get("name") == "adam_lm_head":
-                    for p in group["params"]:
-                        state = optimizer1.state.get(p)
-                        if state is None:
-                            continue
-                        if (AUX_RESET_MOMENT_LM_HEAD & 1) and "exp_avg_sq" in state:
-                            state["exp_avg_sq"].zero_()
-                        if (AUX_RESET_MOMENT_LM_HEAD & 2) and "exp_avg" in state:
-                            state["exp_avg"].zero_()
+            lh_ea_pre_sq_sum = 0.0
+            lh_ea_post_sq_sum = 0.0
+            lh_eas_pre_sq_sum = 0.0
+            lh_eas_post_sq_sum = 0.0
+            lh_params_reset_avg = 0
+            lh_params_reset_sq = 0
+            for g in optimizer1.param_groups:
+                if g.get("name") == "adam_lm_head":
+                    for p in g["params"]:
+                        st = optimizer1.state.get(p, {})
+                        if lm_head_reset_exp_avg and "exp_avg" in st:
+                            lh_ea_pre_sq_sum += float(st["exp_avg"].float().square().sum().item())
+                            if AUX_RESET_PARTIAL_FACTOR_LM_HEAD == 0.0:
+                                st["exp_avg"].zero_()
+                            else:
+                                st["exp_avg"].mul_(AUX_RESET_PARTIAL_FACTOR_LM_HEAD)
+                            lh_ea_post_sq_sum += float(st["exp_avg"].float().square().sum().item())
+                            lh_params_reset_avg += 1
+                        if lm_head_reset_exp_avg_sq and "exp_avg_sq" in st:
+                            lh_eas_pre_sq_sum += float(st["exp_avg_sq"].float().square().sum().item())
+                            if AUX_RESET_PARTIAL_FACTOR_LM_HEAD == 0.0:
+                                st["exp_avg_sq"].zero_()
+                            else:
+                                st["exp_avg_sq"].mul_(AUX_RESET_PARTIAL_FACTOR_LM_HEAD)
+                            lh_eas_post_sq_sum += float(st["exp_avg_sq"].float().square().sum().item())
+                            lh_params_reset_sq += 1
+                    break
+            if dist.get_rank() == 0:
+                event = {
+                    "trial": trial_idx,
+                    "reset/lm_head/event_step": train_step,
+                    "reset/lm_head/moment": AUX_RESET_MOMENT_LM_HEAD,
+                    "reset/lm_head/partial_factor": AUX_RESET_PARTIAL_FACTOR_LM_HEAD,
+                    "reset/lm_head/params_reset_avg": lh_params_reset_avg,
+                    "reset/lm_head/params_reset_sq": lh_params_reset_sq,
+                }
+                if lm_head_reset_exp_avg:
+                    event["reset/lm_head/exp_avg.norm_pre"] = lh_ea_pre_sq_sum ** 0.5
+                    event["reset/lm_head/exp_avg.norm_post"] = lh_ea_post_sq_sum ** 0.5
+                if lm_head_reset_exp_avg_sq:
+                    event["reset/lm_head/exp_avg_sq.norm_pre"] = lh_eas_pre_sq_sum ** 0.5
+                    event["reset/lm_head/exp_avg_sq.norm_post"] = lh_eas_post_sq_sum ** 0.5
+                wandb.log(event, step=wandb_step)
+                print(
+                    f"[PER_KIND_AUX_PERIODIC_RESET] step {train_step}: lm_head AdamW state reset"
+                    f" (moment={AUX_RESET_MOMENT_LM_HEAD}, factor={AUX_RESET_PARTIAL_FACTOR_LM_HEAD},"
+                    f" exp_avg.norm {lh_ea_pre_sq_sum**0.5:.4f}->{lh_ea_post_sq_sum**0.5:.4f},"
+                    f" exp_avg_sq.norm {lh_eas_pre_sq_sum**0.5:.4f}->{lh_eas_post_sq_sum**0.5:.4f},"
+                    f" params_avg={lh_params_reset_avg}, params_sq={lh_params_reset_sq})",
+                    flush=True,
+                )
         # Per-kind reset telemetry: snapshot embed and lm_head adam moments at validation
         # steps and at ±5 around each reset boundary so the reset-induced trajectory is visible.
         if dist.get_rank() == 0 and (
