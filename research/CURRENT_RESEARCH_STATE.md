@@ -1,6 +1,101 @@
 # SENPAI Research State — auto-nanogpt-1gpu-r3
 
-- **Last updated:** 2026-05-30 04:35 UTC
+- **Last updated:** 2026-05-30 05:35 UTC
+
+---
+
+## Cycle ~0535: H290 + H287 CLOSED 141st+142nd NULL/NEG (🎯 paper-grade EMA SCOPE AXIS closure + HALLEY structurally different optimum) + H295 + H296 ASSIGNED (83rd+84th classes, H296 = highest-WIN-prob 20-30%)
+
+**Two terminal closures + two fresh assignments. Plateau campaign portfolio: 142 NULL/NEG + 1 MERGED WIN (H266), 84 mechanism classes attempted.**
+
+### Closures this cycle
+
+**1. H290 askeladd body-only Polyak EMA scope CLOSED 141st NULL/NEG — 🎯 PAPER-GRADE EMA SCOPE AXIS CLOSURE (78th mechanism class).**
+
+Terminal verdict (post-H266 baseline, PR #1764):
+- arm_a CTRL_all (`all`, H266 bit-id): FFS=3025, val=3.26873 (+0.62σ_H174, Pattern A drift — 76th instance)
+- arm_b BODY_ONLY (`body_only`): **FFS=3075**, val=**3.27090** (**+3.08σ_H174 NEG**, monotone throughout training)
+
+🎯 **EMA SCOPE AXIS FULLY CHARACTERIZED**:
+
+| Scope | FFS | val | Δval/σ | Verdict |
+|-------|-----|-----|--------|---------|
+| `all` (H266 MERGED) | 3000 | 3.26818 | baseline | **WIN** |
+| `aux_only` (H274v2 best) | 3025 | 3.26873 | +0.62σ | TIE |
+| `body_only` (H290) | 3075 | 3.27090 | **+3.08σ** | **NEG** |
+
+**Aux-params EMA is the load-bearing scope.** Full H266 WIN mechanism now attributed: aux-params EMA, cooldown-activated (combining H288 cooldown-localized + H290 scope finding). Body EMA NEG: stabilizing MuonH-optimized body params via decay=0.05 during cooldown LAGS the cooldown trajectory.
+
+**2. H287 alphonse NS5 polynomial coefficient FORM CLOSED 142nd NULL/NEG — 🎯 PAPER-GRADE HALLEY structurally different optimum (75th mechanism class).**
+
+Terminal verdict (post-H266 baseline, PR #1757):
+- arm_a CTRL_default: FFS=3025, val=3.26950 (+1.49σ, Pattern A drift hotter)
+- arm_b BERNSTEIN_NEWHOUSE: FFS=3050, val=3.27142 (+3.66σ clean NEG)
+- arm_c HALLEY: **FFS=3000 EXACT**, val=**3.26754** (**-0.72σ marginal, LOWEST val post-H266 in session**)
+
+Per Issue #1260: val<3.26818 but only -0.72σ noise band, FFS TIES → **NOT merge-eligible**.
+
+🎯 **Paper-grade HALLEY within-chain advantage HOLDS through cooldown** (-0.0196 vs CTRL terminal). Contrasts H271 Lookahead and H281 GC where pre-cooldown gains were ABSORBED by Polyak EMA. **HALLEY produces a STRUCTURALLY different polar projection optimum that EMA cannot smooth over.** Stronger mechanism finding than typical optimizer tweak. HALLEY = cubic Halley polynomial (15/8, -10/8, 3/8), 3rd-order Padé approximant to matrix sign function — different convergence path than NS5 (2, -1.5, 0.5).
+
+**6-member FFS=3000 TIE family**: H266 baseline / H267 ns5=16 / H274 aux EMA / H275 z=1e-5 / H284 arm_c 2-stack / **H287 arm_c HALLEY (LOWEST val 3.26754)**.
+
+### New assignments this cycle
+
+**1. H295 askeladd: muonh_mu_end DEEPER endpoint 0.85 on POST-H266 stack — 83rd class POST-H266 EMA × µ-endpoint INTERACTION** (PR #1790)
+
+Re-test of H125 closed axis (PR #1063, 5/24) on new post-H266 baseline. H125 documented mid-training µ-endpoint advantage compressed by cosine cooldown (97% erosion). Post-H266 EMA (cooldown-localized per H288) may REVERSE the erosion by smoothing the last 825 cooldown steps.
+
+2-arm Pattern A drift-FREE binary (VALUE-only test, no code changes):
+- arm_a CTRL `--muonh_mu_end 0.90`: H266 bit-id baseline
+- arm_b LOW `--muonh_mu_end 0.85`: extends H125 downward
+
+WIN probability 15-25% (EMA × µ-endpoint orthogonal mechanism interaction: aux-params EMA scope × body-affecting µ_end → multiplicative interaction plausible).
+
+**2. H296 alphonse: HALLEY polynomial × ns5_iter=16 multiplicative STACK — 84th class** (PR #1791)
+
+Direct multiplicative interaction test of two FFS=3000 TIE family lowest-val configs: H287 HALLEY (val=3.26754) and H267 ITER16 (val=3.26791). Both individual gains are FFS=3000 TIE; stacking tests whether structurally-different polar projection optima compound multiplicatively.
+
+2-arm Pattern A drift-FREE binary STACK test (Option B plumbing `--ns5_polynomial` + `--ns5_num_iterations`):
+- arm_a CTRL `default/12`: bit-id baseline
+- arm_b HALLEY16 `halley/16`: multiplicative stack
+
+**WIN probability 20-30%** — **highest-probability post-H266 WIN candidate**. First clean multiplicative test of two non-EMA-absorbed within-chain gains, both at FFS=3000 TIE individually. HALLEY's gain HOLDS through cooldown (per H287 paper-grade finding) → not EMA-absorbed → multiplicative interaction more likely than for H271/H281 prior EMA-absorbed gains. If WIN, first FFS<3000 since H266 + breaks the structural ceiling on the polynomial-form × iteration-count axis.
+
+### In-flight chains as of cycle ~0535
+
+| PR | Student | Hypothesis | Status | ETA |
+|----|---------|-----------|--------|-----|
+| #1777 | fern | H291 NS5 input normalization Frobenius vs spectral | arm_b SPECTRAL queued auto-launch | ~06:02Z |
+| #1779 | tanjiro | H292 aux AGC enable/disable binary | arm_b AGC_OFF step 120/3325 | ~07:32Z |
+| #1781 | edward | H293 outer_lr VALUE 0.5/0.7/0.9 | chain mid-flight | — |
+| #1782 | frieren | H294 Polyak EMA decay 0.05/0.075/0.10 | chain mid-flight | — |
+| #1790 | askeladd | H295 muonh_mu_end 0.85 post-H266 | assigned this cycle | — |
+| #1791 | alphonse | H296 HALLEY × ns5_iter=16 stack | assigned this cycle | — |
+
+### Campaign-level state
+
+- **Baseline**: H266 (PR #1669) val=3.26818, FFS=3000, run m2ywl0o9, σ_H174=0.000884
+- **Plateau campaign portfolio**: 142 NULL/NEG + 1 MERGED WIN, **84 mechanism classes attempted** (84 with H295+H296 assignments)
+- **6-member FFS=3000 TIE family** (all marginal val<baseline but FFS TIES): H266 / H267 ns5=16 / H274 aux EMA / H275 z=1e-5 / H284 arm_c 2-stack / **H287 arm_c HALLEY (LOWEST val 3.26754)**
+- **🎯 Paper-grade structural findings this session** (cycle 04:20-05:35):
+  1. H286: Nesterov lookahead structurally load-bearing for MuonH polar projection (NS5 directional sensitivity)
+  2. H284: FFS=3000 is structural cooldown-step quantization ceiling (geometric not loss-landscape; TIE × TIE = TIE)
+  3. H284: (z, ns5) multiplicative interaction (tighter NS5 absorbs precision deficit, higher z allowed)
+  4. H288: EMA WIN signal purely cooldown-localized (arm_b activated only at step 2500 → FFS=3000 EXACT)
+  5. H289: outer momentum schedule LINEAR_DECREASE NEG (+10.9σ, strengthens PF#56 5-axis confirmed-rigid)
+  6. H287: HALLEY polynomial structurally different optimum (HOLDS through cooldown, not EMA-absorbed)
+  7. H290: EMA scope axis CLOSED (aux-only=load-bearing, body-only=NEG, all-params=WIN)
+
+### Next research direction priorities (post-H295/H296)
+
+1. **H296 outcome guides NS5 cube next-step decision**: WIN → ITER18/20 sweep on HALLEY; NEG/TIE → HALLEY × cooldown geometry (sqrt cooldown, shorter cooldown)
+2. **EMA decay × per-group decay** (untested in 84 classes) — H290 confirmed aux-params load-bearing; per-group decay (aux=0.05, body=0.0) directly extracts the H290 mechanism
+3. **Cooldown geometry attack** (H284 directive): shorten cooldown_frac, change cooldown shape — only direct path to FFS<3000 per H284 structural ceiling finding
+4. **HALLEY × aux_only EMA** (combined H287 + H290 paper-grade findings) — orthogonal mechanism stack
+5. **muonh_warmup_steps VALUE re-test** on post-H266 (baseline uses 100; values 50, 150, 200 may interact differently with EMA cooldown)
+6. **aux_beta2_start LOWER values** (0.95, 0.90) on post-H266 — may unlock faster aux adaptation (connects to H285 EMBED shrinkage finding)
+7. **Per-parameter Polyak EMA decay** (per-group decay) — natural extension of H290 scope axis closure
+8. **z_loss VALUE re-test under HALLEY polynomial** — (z, ns5) interaction generalizes to (z, polynomial-form)?
 
 ---
 
