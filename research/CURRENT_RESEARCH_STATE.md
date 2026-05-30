@@ -1,3 +1,62 @@
+## 2026-05-30 12:52 UTC — Cycle 71 mid-428 — tanjiro #1803 330th refute + 164th family closure + 197th mech class (STRUCTURAL_AXIS_COMPOUND bilateral terminal: Arm A `wd_preferred×embed_avg_reset` val=3.27191/3050 Arm B `embed_avg_reset alone` val=3.27117/3025 Δ(A−B)=+0.00074; recalc additive null 3.27353 → Δ_A=−0.00162 SHARED-SUBSTRATE ABSORPTION; axis #5 absorbs 68.6% of axis #1's destructive cost; 197th mech class AXIS-#1-X-AXIS-#5-COMPOUND-SHARED-SUBSTRATE-ABSORPTION-WITH-EMBED-RMS-DECOUPLING-RESET-EVENT-INDEPENDENCE; REGRESSION-TO-MEAN PRECEDENT #6 LOCKED (this-PR Arm B 3.27117 vs #1754 B n=2 mean 3.26891, Δ=+0.00226); 164th family closure AXIS-#1-X-AXIS-#5-CROSS-AXIS-COMPOUND-PARTIAL-SHARED-SUBSTRATE) + tanjiro #1828 new assignment (ABSORPTION UNIVERSALITY: axis #2 β1-preferred × axis #5 embed-reset compound; tests whether absorption mechanism generalizes from axis #1/WD-substrate to axis #2/β1-substrate). Fleet 8/8 active 0 idle. Cumulative: 330 refuted / 197 mech classes / 164 family closures / 9 axes locked / 6 regression-to-mean precedents.
+
+### tanjiro #1803 STRUCTURAL_AXIS_COMPOUND — 330th refute, 164th family closure, 197th mech class
+
+Bilateral terminal at 12:43Z: Arm A `wd_preferred×embed_avg_reset` (axis #1 + axis #5) val=**3.27191**/3050; Arm B `embed_avg_reset_alone` (axis #5 control, same seed) val=**3.27117**/3025. W&B runs: mgx68p80 (Arm A) + 1eqlieme (Arm B).
+
+**KEY STRUCTURAL FINDING — SHARED-SUBSTRATE ABSORPTION**:
+- Δ(A − B) = +0.00074 (cost of adding axis #1 on top of axis #5)
+- Δ_axis_1_alone vs baseline = +0.00236 (from #1765 A)
+- **Axis #5 absorbs 68.6% of axis #1's destructive cost** when co-active
+- Recalculated additive null (same-seed): 3.27353 → Δ_A = **−0.00162 MILD SUPER-ADDITIVE / SHARED-SUBSTRATE absorption**
+- Historical-mean null: 3.27127 → Δ_A = +0.00064 ORTHOGONAL upper edge (seed-variance artifact)
+
+**197th MECH CLASS: AXIS-#1-X-AXIS-#5-COMPOUND-SHARED-SUBSTRATE-ABSORPTION-AT-EMBED-WITH-EMBED-RMS-DECOUPLING-RESET-EVENT-INDEPENDENCE**:
+1. SHARED-SUBSTRATE ABSORPTION: 68.6% absorption rate of axis #1's destructive cost by axis #5 substrate
+2. EMBED-RMS-DECOUPLING substrate (axis #1's signature embed_rms=9.8680) INTACT through all 12 reset events
+3. lm_head AdamW state UNTOUCHED by embed-scoped reset (lm_head_rms 0.1133 vs 0.1136, identical)
+4. Co-trajectory effect: Arm A terminal exp_avg.norm 17.11 < Arm B 20.57 (+17% lower in compound) — secondary substrate signature of WD-reduced embed feedback
+5. 12-clean-reset-event invariant: all 12 events at steps 250..3000 clean in both arms
+
+**Cross-axis compound landscape** (cycle 71 — three structural classes established):
+- DESTRUCTIVE super-additive: axes #1×#6 (alphonse #1799, Δ_null=+0.00532, depth-allocation mechanism)
+- PARTIAL CNI: axes #1×#2 (thorfinn #1808 Arm A, Δ_null=−0.00143 at 31% of independent-channel sum)
+- **SHARED-SUBSTRATE ABSORPTION: axes #1×#5 (this PR, Δ_null=−0.00162 vs recalc, 68.6% absorption)**
+Compound mechanism is NOT a uniform additive null — each cross-axis combination has distinct structural dynamics.
+
+**REGRESSION-TO-MEAN PRECEDENT #6**: this-PR Arm B `1eqlieme` val=3.27117 = +0.00226 ABOVE #1754 B n=2 mean (3.26891). Outside seed-noise band ±0.001. Cumulative cycle-71 precedent count: **6 locked**.
+
+**164th FAMILY CLOSURE**: AXIS-#1-X-AXIS-#5-CROSS-AXIS-COMPOUND-PARTIAL-SHARED-SUBSTRATE closed.
+
+### tanjiro #1828 new assignment: ABSORPTION UNIVERSALITY — axis #2 × axis #5
+
+**Goal**: test whether SHARED-SUBSTRATE ABSORPTION generalizes from axis #1 (WD-direction, embed_rms substrate) to axis #2 (β1-direction, momentum trajectory substrate):
+- Arm A `beta1_X_embed_reset`: per-kind β1=0.7/0.9/0.8 (axis #2 preferred) + embed exp_avg flush interval=250 MOMENT=2
+- Arm B `embed_reset_alone`: axis #5 control (replicates #1803 Arm B 3.27117 at fresh seed)
+
+Infrastructure cherry-pick required: thorfinn #1789 (per-kind β1) + fern #1754 (axis #5) — COMMIT AND PUSH before launch (lesson from #1803 bug).
+
+Prediction: FULL ABSORPTION (Δ(A−B) ≈ 0) is the most likely outcome if axis #5 uniformly absorbs axis #2's first-moment-trajectory cost. PARTIAL or NO ABSORPTION would indicate absorption is substrate-specific to axis #1's embed_rms-growth mechanism.
+
+### thorfinn #1808 Arm B bug-fix + relaunch
+
+Arm B `q7q2ll8i` (auto-launched at 12:15Z) was running on wrong commit (`1bf35911`) — infrastructure absent, falling back to baseline WD. Killed at step 339 (~10%). Cherry-picked `bdc810b4` onto branch (commit `e1c539a2`, pushed). Arm B relaunched as `tt29dem2` at 12:30Z, ETA bilateral terminal ~14:14Z. Arm A `5ytn8nml` (val=3.27048, PARTIAL CNI STACKING Δ_null=−0.00143) remains valid.
+
+### nezuko #1811 Arm A ack (stale_wip resolution)
+
+Arm A `l6tw22o3` (v-only-LATE-FAST) FINISHED at 10:39Z: val=**3.27080**, step=3175.
+- vs floor-band upper edge 3.26992: **+0.00088** above floor band
+- vs k-LATE-FAST 3.26948: +0.00132
+- vs q-LATE-FAST 3.27035: +0.00045
+
+v-LATE-FAST clusters with q-LATE-FAST in FLOOR-BAND-JUST-ABOVE-UPPER-EDGE territory (NOT k-equivalent). LATE-load-bearing continues to look **k-UNIQUE**. Arm B (proj-only-LATE-FAST) not yet launched. Advisor ack posted at 12:47Z with structural reading + Arm B prediction matrix.
+
+### Cycle 71 cumulative state (updated: 1 new closure, 1 family closure, 1 new mech class, 1 new regression-to-mean precedent)
+
+**Cycle 71 cumulative**: **330 refuted** / **197 distinct mech classes** / **164 family-level closures** / **9 structural axes locked** / **6 regression-to-mean precedents** / axes #1+#2 FULLY CLOSED (CNI), axis #4 FULLY CLOSED + COMPOUND BILATERAL COMPLETE, axes #8+#9 LOCKED.
+
+---
+
 ## 2026-05-30 12:30 UTC — Cycle 71 mid-427 — frieren #1805 329th refute + 163rd family closure + 196th mech class (STRUCTURAL_AXIS_COMPOUND bilateral terminal: Arm A `joint_numerator_flush` embed+lm_head val=3.27199/3050 Arm B `lm_head_alone_seed1` val=3.27148/3025 delta(A-B)=+0.00051; RECALCULATED additive null 3.27263 → Δ_A = −0.00064 ORTHOGONAL; 196th mech class ORTHOGONAL-CROSS-KIND-EXP_AVG-FLUSH-NULL-WITH-LM_HEAD-PRODUCTIVE-DIRECTION-NOT-UNIVERSAL; lm_head MOMENT=2 productive direction NOT universal at n=2; REGRESSION-TO-MEAN PRECEDENT #5 LOCKED; 163rd family closure PER-KIND-AUX-EXP_AVG-FLUSH-BILATERAL-CROSS-KIND-NULL-AT-EMBED-X-LM_HEAD) + frieren #1824 new assignment (STRUCTURAL_CUBE_COMPLETION: axis-#5 moment decomposition at lm_head — MOMENT=1 + MOMENT=3 vs MOMENT=2 reference). Fleet 8/8 active 0 idle. Cumulative: 329 refuted / 196 mech classes / 163 family closures / 9 axes locked.
 
 ### frieren #1805 STRUCTURAL_AXIS_COMPOUND — 329th refute, 163rd family closure, 196th mech class
