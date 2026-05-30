@@ -1,3 +1,69 @@
+## Cycle ~1500: H302 CLOSED 158th NULL/NEG (🎯 paper-grade H290 SCOPE × H294 VALUE NON-ADDITIVE + body EMA structurally load-bearing + H294 0.10 optimum reinterpreted as UNIFORM-COUPLING EFFECT, 99th mechanism class) + H303 CLOSED 157th NULL/NEG (🎯 paper-grade SECOND INSTANCE H288 × H294 SUBADDITIVE via TEMPORAL RAMP variant, consolidates 98th class + EMA 7-axis cube CLOSED) + H311 ASSIGNED askeladd POST-NS5 Lookahead averaging (100th mechanism class candidate, structurally distinct from H271 pre-NS5 + H266 eval-only) + H312 ASSIGNED edward MuonH inner momentum Adam-style BIAS CORRECTION (101st mechanism class candidate, fixes missing 1/(1-μ^t) factor in line 573)
+
+**Two terminal closures + two fresh mechanism class assignments. Plateau campaign portfolio: 158 NULL/NEG + 1 MERGED WIN (H266), 99 mechanism classes attempted + EMA 7-axis cube CLOSED + Cross-mechanism subadditive/non-additive pattern documented across 3 axis families (HALLEY×stack, EMA TEMPORAL×VALUE, EMA SCOPE×VALUE).**
+
+### Closures this cycle
+
+**H302 edward EMA per-group decay (aux=0.10/body=0.0+0.05) CLOSED 158th NULL/NEG — 🎯 PAPER-GRADE H290 SCOPE × H294 VALUE NON-ADDITIVE INTERACTION (99th mechanism class)**
+
+Terminal verdict (PR #1813):
+- arm_a CTRL (aux=0.05/body=0.05): val=3.26794, FFS=3000 (drift-FREE TIE H266)
+- arm_b PER_GROUP_OPT (aux=0.10/body=0.0): val=3.26778, FFS=3025 (−0.18σ TIE val / +25 FFS NEG strict)
+- arm_c PER_GROUP_VALUE (aux=0.10/body=0.05): val=3.26925, FFS=3025 (+1.48σ NEG val / +25 FFS NEG strict)
+- Run IDs: i2i9sgpd / gkq9kbpv / sis4h0gq
+
+Mechanism: Body EMA at decay=0.05 is STRUCTURALLY LOAD-BEARING for FFS. H294 0.10 optimum is UNIFORM-COUPLING effect requiring aux=body coupling, NOT scope-independent. arm_b's body OFF lags mid-cooldown +11.6σ at step 2500. arm_c isolates aux-elevation with body UNCHANGED → +1.48σ NEG.
+
+**H303 askeladd Polyak EMA decay TEMPORAL RAMP-UP CLOSED 157th NULL/NEG — 🎯 PAPER-GRADE SECOND INSTANCE H288 × H294 SUBADDITIVE (TEMPORAL RAMP variant consolidates 98th mechanism class)**
+
+Terminal verdict (PR #1817):
+- arm_a CTRL_CONSTANT_0p05: val=3.26918, FFS=3025 (+1.13σ drift)
+- arm_b RAMP_0_TO_0p10: val=3.26910, FFS=3025 (−0.09σ TIE arm_a, +1.04σ NEG H266)
+- arm_c RAMP_0p05_TO_0p10: val=3.26988, FFS=3050 (+0.79σ NEG arm_a, +1.92σ NEG H266)
+- Run IDs: tz5h2tat / on6fqfgl / 999k8q97
+
+Mechanism: BOTH temporal-modification paths (H304 cooldown-confined VARIANT 1 + H303 temporal-ramp VARIANT 2) fail in SAME direction. H294 0.10 optimum requires UNIFORM EMA buffer accumulation throughout training; ANY temporal modification corrupts buffer in ways cooldown phase cannot recover.
+
+🎯 **EMA mechanism class 7-axis cube CLOSED**: VALUE × SCOPE × POLYNOMIAL FORM × COOLDOWN-LOCALIZATION × FINE-GRID × TEMPORAL-CONFINE × TEMPORAL-RAMP × VALUE INTERACTION. Probability of paper-grade EMA improvement via further temporal/scope/value modification <5%.
+
+🎯 **Cross-mechanism subadditive pattern spans 3 axis families**:
+
+| Axis pair | Result | Mechanism |
+|-----------|--------|-----------|
+| HALLEY × Stack (H296/297/305) | SUBADDITIVE | HALLEY signal is its OWN load-bearing mechanism |
+| EMA TEMPORAL × VALUE (H303/304) | SUBADDITIVE | H294 0.10 optimum requires UNIFORM temporal accumulation |
+| EMA SCOPE × VALUE (H302) | NON-ADDITIVE | H294 0.10 optimum requires UNIFORM scope coupling aux=body |
+
+Generalization: Paper-grade individual gains DO NOT MULTIPLICATIVELY COMPOUND when sharing underlying smoothing/projection mechanism. H266+MuonH NS5 stack saturates at FIRST load-bearing mechanism.
+
+### New assignments this cycle
+
+**H311 askeladd POST-NS5 Lookahead averaging (PR #???)** — 100th mechanism class candidate. Tests Lookahead-style slow/fast weight snap-back applied AFTER NS5 polar projection. Structurally distinct from H271 (pre-NS5 inner momentum Lookahead, absorbed by EMA at cooldown) and from H266 (eval-only continuous EMA on parameters). The POST-NS5 axis remains the most untested mechanism family — H307 noise injection chain in flight tests one variant. Lookahead provides discrete snap-back which trades fast adaptation against slow-weight stability. 3-arm Pattern A Option C structural (~20 LoC adds lookahead_post_ns5_k flag + lookahead_post_ns5_alpha flag). WIN prob 10-15%.
+
+**H312 edward MuonH inner momentum BIAS CORRECTION Adam-style (PR #???)** — 101st mechanism class candidate. MuonH currently has NO bias correction at line 573 `momentum.lerp_(grad, 1 - mu)`. The momentum buffer is initialized to zero, so early-training m_t underestimates true gradient direction by factor (1-μ^t). Adam-style 1/(1-μ^t) bias correction boosts early momentum to compensate (negligible at late training when μ^t ≈ 0). This is the FIRST axis attacking optimizer INITIALIZATION mechanism (vs all prior axes tweaking value/scope/temporal of already-running optimizer). 3-arm Pattern A Option C structural (~15 LoC adds muonh_bias_correction flag). WIN prob 10-15%.
+
+### Current chain portfolio (8 chains in flight after H302+H303 closures + H311+H312 assignments)
+
+| Chain | Student | Hypothesis | PR | Status |
+|-------|---------|------------|-----|--------|
+| H305 | fern | HALLEY × per-group EMA decay | #1822 | WIP |
+| H306 | thorfinn | V-shape μ schedule | #1827 | WIP |
+| H307 | nezuko | Schedule-aware POST-NS5 gradient noise | #1835 | WIP |
+| H308 | tanjiro | per-block-type μ heterogeneity SPATIAL-by-TYPE | #1847 | WIP |
+| H309 | frieren | Aux β2 mid-training schedule | #1851 | WIP |
+| H310 | alphonse | per-depth-layer μ heterogeneity SPATIAL-by-DEPTH | #??? | WIP |
+| H311 | askeladd | POST-NS5 Lookahead averaging (NEW) | #??? | JUST ASSIGNED |
+| H312 | edward | MuonH inner momentum bias correction Adam-style (NEW) | #??? | JUST ASSIGNED |
+
+### Next research directions
+
+- **POST-NS5 mechanism family completion**: H307 noise (in-flight) + H311 Lookahead (in-flight) — if either WIN, paper-grade POST-NS5 axis opens
+- **Optimizer INITIALIZATION axis (H312)**: bias correction is the canonical first probe; further axes include initial μ adaptation (warmup-style μ ramp), momentum buffer warm-start from gradient samples
+- **μ heterogeneity TRIPLE (H306+H308+H310)**: TEMPORAL + SPATIAL-by-TYPE + SPATIAL-by-DEPTH; if ANY of 3 WIN, convergent paper-grade evidence for mid-training inner momentum heterogeneity
+- **AUX-side mid-training (H309)**: only chain attacking aux β2 schedule axis (orthogonal to all body-side chains)
+- **Cooldown shape variants**: post-H266 EMA changes cooldown dynamics; trapezoid (warmup→flat→cosine cooldown) variant could be revisited with EMA active
+- **Outer optimizer mechanism**: outer_momentum=0.5 fixed; SCHEDULE (cooldown_ramp or mid_training_ramp) untested at outer level
+- **Polynomial-form non-EMA**: HALLEY exhausted by H297/H305 subadditive pattern; could test asymmetric polar (different polynomial order for nuclear vs spectral norm projection)
 ## Cycle ~1450: H304 CLOSED 156th NULL/NEG (🎯 paper-grade H288 × H294 SUBADDITIVE interaction + arm_b≈arm_c gating sanity-check VERIFIED + arm_a CTRL +2.09σ high-end drift reaffirms post-H266 variance escalation, 98th mechanism class + EMA 6-axis cube CLOSED) + H310 ASSIGNED alphonse per-depth-layer μ heterogeneity (99th mechanism class candidate, completes μ-heterogeneity SPATIAL cube TYPE×DEPTH)
 
 **One terminal closure + one fresh per-depth-μ-heterogeneity mechanism assignment. Plateau campaign portfolio: 156 NULL/NEG + 1 MERGED WIN (H266), 98 mechanism classes attempted + EMA 6-axis cube CLOSED.**

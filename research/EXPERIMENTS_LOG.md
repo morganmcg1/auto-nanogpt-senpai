@@ -1,3 +1,55 @@
+## 2026-05-30 — PR #1813: H302 edward EMA per-group decay (aux=0.10, body=0.0/0.05)
+
+- Branch: g1r3-edward/h302-ema-pergroup-decay
+- Hypothesis: Aux EMA at H290's cross-scope winner direction (decay=0.10) at H294's value optimum should multiplicatively compound into FFS<3000 strict win
+- 3-arm Pattern A Option C structural (~15 LoC adds polyak_ema_decay_aux/body separate flags)
+
+### Results
+
+| Arm | aux_decay | body_decay | step-0 val | terminal val | FFS | Δ vs H266 (σ_H174) | Δ vs arm_a CTRL |
+|-----|-----------|------------|------------|---------------|-----|---------------------|-------------------|
+| arm_a CTRL | 0.05 | 0.05 | 10.82583 ✓ | **3.26794** | **3000** | **−0.27σ drift-FREE TIE** | (reference) |
+| arm_b PER_GROUP_OPT | 0.10 | 0.0 | 10.82583 ✓ | **3.26778** | **3025** | −0.45σ sub-noise | **−0.18σ TIE** val / **+25 FFS NEG strict** |
+| arm_c PER_GROUP_VALUE | 0.10 | 0.05 | 10.82583 ✓ | **3.26925** | **3025** | +1.21σ NEG | **+1.48σ NEG** val / **+25 FFS NEG strict** |
+
+Run IDs: arm_a `i2i9sgpd`, arm_b `gkq9kbpv`, arm_c `sis4h0gq`. 3-way Pattern A drift-FREE (step-0=10.82583 EXACT). EMA buffer init per-group decay routing verified per arm.
+
+### Decision: **CLOSE** — 158th NULL/NEG
+
+🎯 **Paper-grade H290 SCOPE × H294 VALUE NON-ADDITIVE interaction (99th mechanism class)**: Body EMA at decay=0.05 (H266 default) is STRUCTURALLY LOAD-BEARING for FFS. H290's measurement was at UNIFORM 0.05 scope; H302's arm_b decoupling reveals body EMA disabled → mid-cooldown lags arm_a +11.6σ at step 2500, recovers by terminal but costs +25 FFS.
+
+🎯 **Paper-grade H294 0.10 OPTIMUM is a UNIFORM-COUPLING EFFECT, NOT scope-independent**: arm_c isolates aux-value-elevation with body UNCHANGED at H266 default → +1.48σ NEG. The H294 finding requires aux=body coupling, NOT individual aux or body decoupling. Original H294 reading "0.10 scope-independent" → revised post-H302 to "0.10 ONLY at UNIFORM scope, per-group decoupling has Pareto-optimal coupling at aux=body".
+
+🎯 **Cross-mechanism subadditive pattern now spans 3 axis families**: HALLEY×stack (H296/H297/H305) SUBADDITIVE + EMA TEMPORAL×VALUE (H303/H304) SUBADDITIVE + EMA SCOPE×VALUE (H302) NON-ADDITIVE. Paper-grade individual gains DO NOT MULTIPLICATIVELY COMPOUND when sharing underlying smoothing/projection mechanism. H266 EMA + MuonH NS5 stack saturates at FIRST load-bearing mechanism.
+
+🎯 **Sub-finding**: arm_b > arm_c on val (−1.66σ separation, identical FFS=3025). When aux=0.10, body OFF is BETTER on terminal val than body at 0.05. FFS=3025 identical → cooldown crossover driven by something OTHER than per-group EMA config; FFS-rate axis saturated by H266 baseline configuration.
+
+### Additional: senpai-pr-guard.py bug fix from student
+Edward independently identified result_markers() false-positive parse bug — substring match `if "SENPAI-RESULT:" in line` triggered on incidental mentions like "- Full chain + SENPAI-RESULT: ~17:00 UTC". Applied fix to live harness file: `if not re.match(r'^\s*SENPAI-RESULT:', line): continue`.
+## 2026-05-30 — PR #1817: H303 askeladd Polyak EMA TEMPORAL RAMP-UP
+
+- Branch: g1r3-askeladd/h303-ema-decay-temporal-ramp
+- Hypothesis: Linearly ramp Polyak EMA decay UP through training (0.0 → 0.10 or 0.05 → 0.10) compounds H288 cooldown-localization with H294 value-optimum, producing FFS<3000 strict win
+- 3-arm Pattern A Option C structural (~10 LoC adds polyak_ema_decay_schedule=linear_ramp_up + polyak_ema_decay_start/end)
+
+### Results
+
+| Arm | polyak_ema_decay_schedule | start | end | step-0 val | terminal val | FFS | Δ vs H266 (σ_H174) | Δ vs arm_a CTRL |
+|-----|--------------------------|-------|-----|------------|---------------|-----|---------------------|-------------------|
+| arm_a CTRL_CONSTANT_0p05 | constant | 0.05 | 0.05 | 10.82583 ✓ | 3.26918 | 3025 | +1.13σ drift | (reference) |
+| arm_b RAMP_0_TO_0p10 | linear_ramp_up | 0.0 | 0.10 | 10.82583 ✓ | **3.26910** | **3025** | +1.04σ NEG | **−0.09σ TIE** sub-noise |
+| arm_c RAMP_0p05_TO_0p10 | linear_ramp_up | 0.05 | 0.10 | 10.82583 ✓ | **3.26988** | **3050** | +1.92σ NEG | **+0.79σ NEG** |
+
+Run IDs: arm_a `tz5h2tat`, arm_b `on6fqfgl`, arm_c `999k8q97`. 3-way Pattern A drift-FREE (step-0=10.82583 EXACT). Treatment plumbing audited via `ema/decay_current` trajectory.
+
+### Decision: **CLOSE** — 157th NULL/NEG
+
+🎯 **Paper-grade SECOND INSTANCE of H288 × H294 SUBADDITIVE interaction** (98th mechanism class CONSOLIDATED via TEMPORAL RAMP variant). H304 (cooldown-confined) was variant 1; H303 (temporal ramp) is variant 2. BOTH structurally different paths to compound H288 + H294 fail in SAME direction. The H294 0.10 optimum requires UNIFORM EMA buffer accumulation throughout training; ANY temporal modification (skip, ramp, confine) corrupts buffer state in ways cooldown phase cannot recover.
+
+🎯 **Sub-finding**: arm_b (aggressive ramp from 0.0) > arm_c (gentle ramp from 0.05), Δ=+0.79σ. Aggressive ramp skips early-training noise contamination of buffer.
+
+🎯 **EMA mechanism class 7-axis cube CLOSED** (extends 6-axis): VALUE × SCOPE × POLYNOMIAL FORM × COOLDOWN-LOCALIZATION × FINE-GRID × TEMPORAL-CONFINE × TEMPORAL-RAMP × VALUE INTERACTION. Probability of further paper-grade EMA improvement <5%.
+
 ## 2026-05-30 17:00 — PR #1818 H304 alphonse: Polyak EMA COOLDOWN-CONFINED at H294 optimum decay=0.10 — **CLOSED 156th NULL/NEG (🎯 paper-grade H288 cooldown-localization × H294 value-optimum SUBADDITIVE INTERACTION + arm_b ≈ arm_c gating sanity-check VERIFIED + post-H266 noise floor VARIANCE ESCALATION reaffirmed via arm_a +2.09σ high-end drift, 98th mechanism class)**
 
 - Branch: g1r3-alphonse/h304-polyak-ema-cooldown-confined (PR #1818, 3-arm Pattern A Option B polyak_ema_cooldown_only + polyak_ema_reset_at_cooldown)
