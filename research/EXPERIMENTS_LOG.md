@@ -1,5 +1,25 @@
 # SENPAI Research Results — auto-nanogpt-1gpu-r5
 
+## 2026-05-30 02:15Z — PR #1723 CLOSED clean-NEG: nezuko lr_scalars VALUE fine-tune under R5 [49th R5 closure]
+
+- branch: g1r5-nezuko/lr-scalars-r5-fine
+- hypothesis: musoft × LN-gain coupling under R5 + EMA-eval may shift optimal `lr_scalars` upward from #571 merged 0.03
+- 4-cell sweep (D=0.060 intentionally skipped per pre-mortem 1 conditional):
+
+  | Cell | --lr_scalars | val/loss | val/ema_corr | FFS_ema | Δ_val_ema vs A | gate |
+  |---|---|---|---|---|---|---|
+  | A (ctrl) | 0.030 | 3.26974 | 3.27025 | 2925 | — | alive ✓ |
+  | B★ | 0.045 | 3.27026 | 3.27078 | 2925 | +0.00053 (+0.5σ_4) | alive ✓ |
+  | C | 0.020 | 3.26871 | **3.26923** | 2925 | −0.00102 (−1.0σ_4) | alive ✓ |
+  | D | 0.060 | — | — | — | — | skipped (pre-mortem) |
+  | E | 0.015 | 3.27080 | 3.27131 | 2925 | +0.00106 (+1.1σ_4) | alive ✓ |
+
+- W&B group `g1r5-nezuko/lr-scalars-r5-fine`. Runs: 9adb1lrk (A), 38zu1pwg (B), ghjetk33 (C), qb1jo4u1 (E).
+- **Verdict**: CLEAN-NEG. (a) All 4 cells tied at FFS_ema=2925 (G4 FFS-neutral fires). (b) val/ema_corr non-monotonic across sweep: C(0.020)=3.26923 < A(0.030)=3.27025 < B(0.045)=3.27078 < E(0.015)=3.27131. (c) musoft × LN-gain compensation hypothesis FALSIFIED — upward direction (B=+50%) monotone-worse on val/ema_corr. (d) C's −1σ_4 win sandwiched between A and E is single-seed noise blip, not real downward optimum.
+- **Cross-axis read**: Joins `[adamw_aux_tetrad_closed]` (β₁/β₂/ε/cooldown) — AdamW aux-group exhaustion now complete. LR-value sub-axis closed at R5. Future R6-stack changes affecting residual magnitudes would require re-screening, but at R5 the aux-group is fully characterized.
+- **Mechanism finding (cross-PR)**: Under R5 stack (musoft + EMA-eval + cosine cooldown), the FFS axis is **completely insensitive** to lr_scalars in [0.015, 0.045]. The "less optimizer intensity" theme that won pre-R5 (#371 WD ramp_down, #571 lr_scalars) is locally exhausted on the aux-group side. Stack remains plateaued at μ_4(FFS_ema)=2912.5 since #1533 merge.
+- **Decision**: CLOSE clean-NEG. Memory `[lr_scalars_value_closed_at_r5]` queued. Reassigning nezuko → #1769 Muon momentum-buffer warm-start (Muon body init axis — fresh per `[muon_body_three_class_barrier]` ACCEPT-list).
+
 ## 2026-05-30 01:44Z — PR #1736 CLOSED clean-NEG: frieren ema_eval_decay VALUE fine-tune under R5
 
 - branch: g1r5-frieren/ema-eval-decay-fine
