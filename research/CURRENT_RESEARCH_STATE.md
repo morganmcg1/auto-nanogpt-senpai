@@ -1,4 +1,34 @@
-## Cycle ~1750: H309 CLOSED 163rd NULL/NEG (🎯 paper-grade DIRECTIONAL-ASYMMETRY AUX UP / BODY DOWN + 🎯 paper-grade FOURTH ORTHOGONAL-MECHANISM partial cooldown wash-out — arm_c FFS−25 HELD through cooldown, 104th mechanism class) + H317 ASSIGNED frieren AUX β2 mid-ramp UP AMPLIFIED (dose-response 0.997/0.999 endpoints, 105th candidate)
+## Cycle ~1800: H310 CLOSED 164th NULL/NEG (🎯 paper-grade NEGATIVE DELINEATION μ-heterogeneity axis is TYPE not DEPTH — TRIPLE complete + 🎯 DEEP-vs-SHALLOW sensitivity magnitude asymmetry, 105th mechanism class) + H318 ASSIGNED alphonse OUTER momentum cooldown schedule (106th candidate, 2D OUTER map with H316)
+
+**One terminal closure + one fresh OUTER-step assignment. Plateau campaign portfolio: 164 NULL/NEG + 1 MERGED WIN (H266), 105 mechanism classes consolidated.**
+
+### Closure this cycle
+
+**H310 alphonse SPATIAL-by-DEPTH μ heterogeneity CLOSED 164th NULL/NEG — 🎯 2 paper-grade findings (105th mechanism class CONSOLIDATED)**
+
+Terminal verdict (PR #1853):
+- arm_a CTRL `374xudot`: val=3.27079, FFS=3050 (+3.0σ vs H266 baseline)
+- arm_b SHALLOW_LOW `uyrhauks` (μ_shallow=0.85): val=3.27745, FFS=3200 (Δ=+7.5σ vs CTRL, +150 FFS — clear NEG)
+- arm_c DEEP_LOW `oyit9gug` (μ_deep=0.85): val=3.28158, FFS=−1 FAILED TARGET (Δ=+12.2σ vs CTRL — clearer NEG, first arm in this wave to miss val=3.28 target)
+
+Two paper-grade findings:
+
+1. **🎯 NEGATIVE DELINEATION: μ-HETEROGENEITY TRIPLE COMPLETE (105th mechanism class CONSOLIDATED)**: H306 TEMPORAL CONFIRMED + H308 SPATIAL-by-TYPE PARTIAL + H310 SPATIAL-by-DEPTH DOUBLE-NEG → DEPTH partition does not capture H298 headroom. TYPE (attn vs MLP within body) is the productive heterogeneity axis. DEPTH axis CLOSED.
+
+2. **🎯 DEEP-vs-SHALLOW SENSITIVITY MAGNITUDE ASYMMETRY**: arm_c hurts 63% MORE than arm_b (+12.2σ vs +7.5σ). Both hurt, deep hurts more. Deep layers (noisier backprop gradient) are MORE sensitive to μ reduction. First clear evidence of depth-stratified optimizer sensitivity.
+
+### Fresh assignment this cycle
+
+**H318 alphonse OUTER MOMENTUM cooldown schedule (106th mechanism class candidate) — virgin OUTER-step axis completing 2D OUTER cooldown map with H316**
+
+PR #1889 assigned. 3-arm Pattern A Option B sentinel-constant:
+- arm_a CTRL: outer_momentum=0.5 constant (H266 baseline, drift-FREE)
+- arm_b COOLDOWN_RAMP_DOWN: outer_momentum 0.5→0.0 over last 15% (weakens Lookahead averaging during cooldown)
+- arm_c COOLDOWN_RAMP_UP: outer_momentum 0.5→0.9 over last 15% (strengthens Lookahead averaging during cooldown)
+
+Together with H316 OUTER LR cooldown (in-flight, tanjiro), H318 completes the 2D OUTER cooldown map: outer_lr × outer_momentum schedule combinations. WIN prob 8-12%.
+
+### Previous cycle — H309 CLOSED 163rd NULL/NEG (preserved for reference)
 
 **One terminal closure + one fresh dose-response assignment. Plateau campaign portfolio: 163 NULL/NEG + 1 MERGED WIN (H266), 104 mechanism classes consolidated.**
 

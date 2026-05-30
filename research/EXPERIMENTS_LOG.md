@@ -1,3 +1,31 @@
+## 2026-05-31 — PR #1853: H310 alphonse SPATIAL-by-DEPTH μ heterogeneity
+
+- Branch: g1r3-alphonse/h310-per-depth-mu-heterogeneity
+- Hypothesis: per-depth-layer μ heterogeneity via 3 new CLI flags + param_group depth-split at index 6 (12-layer GPT-768 halved). Tests SPATIAL-by-DEPTH axis of μ-heterogeneity TRIPLE (alongside H306 TEMPORAL + H308 SPATIAL-by-TYPE). arm_b SHALLOW_LOW (μ_shallow=0.85) tests whether shallow blocks with shorter backprop benefit from less smoothing; arm_c DEEP_LOW (μ_deep=0.85) tests opposite.
+- 3-arm Pattern A Option C: arm_a CTRL (-1/-1 sentinels), arm_b SHALLOW_LOW (μ_shallow=0.85), arm_c DEEP_LOW (μ_deep=0.85). ~25 LoC.
+
+### Results
+
+| Arm | μ_shallow | μ_deep | terminal val | FFS | Δ vs H266 (3.26818) | Δ vs CTRL |
+|-----|-----------|--------|--------------|-----|---------------------|-----------|
+| arm_a CTRL `374xudot` | sched (0.95→0.90) | sched (0.95→0.90) | **3.27079** | **3050** | +0.00261 (+3.0σ_H174) | (ref) |
+| arm_b SHALLOW_LOW `uyrhauks` | **0.85 fixed** | sched | **3.27745** | **3200** | +0.00927 (+10.5σ) | **+0.00666 (+7.5σ)** |
+| arm_c DEEP_LOW `oyit9gug` | sched | **0.85 fixed** | **3.28158** | **−1** | +0.01340 (+15.2σ) | **+0.01079 (+12.2σ)** |
+
+σ_H174 = 0.000884 noise floor. Pattern A bit-id: all 3 arms step-0=10.82583 EXACT. W&B group: H310_per_depth_mu_heterogeneity. arm_c was the first arm in this hypothesis wave to FAIL to reach val=3.28 target (FFS=-1).
+
+### Analysis
+
+**Closure verdict: CLOSED 164th NULL/NEG — 🎯 2 paper-grade findings (105th mechanism class CONSOLIDATED)**
+
+1. **🎯 paper-grade NEGATIVE DELINEATION: μ-heterogeneity axis is TYPE-resolved, NOT DEPTH-resolved.** The μ-heterogeneity TRIPLE is complete: H306 TEMPORAL CONFIRMED, H308 SPATIAL-by-TYPE PARTIAL (attn-help/MLP-hurt), H310 SPATIAL-by-DEPTH DOUBLE-NEG. DEPTH partition does not capture H298 headroom at this magnitude. Future μ heterogeneity hypotheses should target TYPE (attn vs MLP within body), not DEPTH. **105th mechanism class consolidated** (DEPTH-resolved μ heterogeneity axis CLOSED).
+
+2. **🎯 paper-grade DEEP-vs-SHALLOW SENSITIVITY MAGNITUDE ASYMMETRY**: arm_c DEEP_LOW is ~63% larger magnitude loss than arm_b SHALLOW_LOW (+12.2σ vs +7.5σ). Both hurt, deep hurts MORE. Deep layers (longer backprop path, noisier gradient) are MORE sensitive to μ smoothing reduction. Sub-finding: arm_c is the first arm in this wave to FAIL val=3.28 target (FFS=-1).
+
+**FFS<3000 merge gate**: NEITHER arm clears (3200/−1 vs baseline 3000). CLOSED per Issue #1260 strict.
+
+**Follow-up**: H318 alphonse assigned immediately (PR #1889) — OUTER MOMENTUM cooldown schedule, virgin OUTER-step axis completing 2D OUTER cooldown map with H316 OUTER LR cooldown.
+
 ## 2026-05-30 — PR #1851: H309 frieren AUX β2 mid-training ramp (MID_RAMP_DOWN/UP)
 
 - Branch: g1r3-frieren/h309-aux-beta2-mid-training-ramp
