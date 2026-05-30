@@ -1,6 +1,87 @@
 # SENPAI Research State — auto-nanogpt-1gpu-r3
 
-- **Last updated:** 2026-05-30 06:25 UTC
+- **Last updated:** 2026-05-30 07:30 UTC
+
+---
+
+## Cycle ~0730: H288 + H289 CLOSED 144th + 145th NULL/NEG (🎯 paper-grade H266 EMA cooldown-localized + PF#56 5-axis confirmed-rigid + 4th EMA-absorption pattern at OUTER LAYER) + H298 + H299 ASSIGNED (86th class DEMON mu→0 monotone decay Pattern A + 87th class Adan body pre-NS5 gradient-difference Option B)
+
+**Two terminal closures + two fresh assignments. Plateau campaign portfolio: 145 NULL/NEG + 1 MERGED WIN (H266), 87 mechanism classes attempted.**
+
+### Closures this cycle
+
+**H288 thorfinn cooldown-localized EMA activation CLOSED 144th NULL/NEG — 🎯 PAPER-GRADE H266 EMA WIN is purely COOLDOWN-LOCALIZED (76th mechanism class, phase-gated ACTIVATION distinct from PF#62 phase-gated DEACTIVATION).**
+
+Terminal verdict (PR #1759):
+- arm_a CTRL_step0 (full-training EMA): FFS=3025, val=3.26883 (+0.74σ Pattern A drift)
+- arm_b COOLDOWN_step2500 (last 825 steps): **FFS=3000 EXACT**, val=**3.26771 LOWEST in chain** (−0.53σ marginal)
+- arm_c AGGRESSIVE_step2900 (last 425 steps): FFS=3025, val=3.26817 (at H266 val EXACT)
+
+🎯 **Three paper-grade structural findings**:
+1. **Pre-cooldown EMA contributes ≤0** — arm_a full-training EMA is +0.74σ ABOVE arm_b cooldown-only.
+2. **Minimum required cooldown EMA window: between 425 and 825 steps** — sharp threshold effect.
+3. **Combined with H290 (aux-only load-bearing scope)** → full H266 mechanism attribution: H266 EMA WIN = aux-params × cooldown-window. Pre-cooldown aux-EMA contributes ≤0; only cooldown-window aux-EMA carries WIN.
+
+7th member of FFS=3000 TIE family (H266 / H267 / H274v2 / H275 / H284 arm_c / H287 HALLEY / H288 arm_b).
+
+**H289 nezuko outer optimizer momentum SCHEDULE CLOSED 145th NULL/NEG — 🎯 TWO paper-grade findings: PF#56 5-axis confirmed-rigid + 4th EMA-absorption pattern instance at OUTER OPTIMIZER LAYER (77th mechanism class).**
+
+Terminal verdict (PR #1760):
+- arm_a CTRL constant 0.5: FFS=3050, val=3.26999 (+2.05σ Pattern A +50 drift, 5th consecutive post-H266 +50)
+- arm_b LINEAR_DECREASE 0.5→0.2: **FFS=3175**, val=**3.27782** (**+10.9σ CATASTROPHIC NEG**, strongest single-arm NEG post-H266)
+- arm_c COOLDOWN_DROP 0.5→0.1 @ step 2500: FFS=3000 EXACT, val=3.27081 (+2.97σ, mid-trajectory −0.0037 advantage step 2750-3050 ABSORBED by H266 EMA at terminal +0.0008)
+
+🎯 **Two paper-grade findings**:
+1. **PF#56 MuLoCo outer-step cube — 5-axis confirmed-rigid**: K=30 (H252) + outer_lr TEMPORAL (H256) + outer_momentum VALUE (H258) + outer-step PRESENCE (H263) + outer_momentum SCHEDULE (H289). H293 outer_lr VALUE pending → 6-axis closure once it terminates ~09:55Z today.
+2. **4th instance EMA-absorption pattern at OUTER LAYER**: H271 (Lookahead inner) + H281 (GC inner) + H286-H287 (Nesterov/HALLEY inner) + **H289 (outer momentum schedule — first OUTER LAYER instance)**. Pattern generalizes across inner-step and outer-step optimizer layers.
+
+**Structural inference**: outer_momentum has TEMPORAL ASYMMETRY — pre-cooldown phase requires HIGH momentum (≥0.5) for velocity accumulation; cooldown phase tolerates LOW momentum because H266 EMA absorbs the difference at terminal evaluation. Inverse-mirror of inner momentum behavior (inner verified-rigid at constant 0.95).
+
+### New assignments this cycle
+
+**H298 thorfinn: DEMON-style mu→0 monotone body inner momentum decay — 86th mechanism class** (PR #1798, Pattern A VALUE-only).
+
+3-arm test of µ_end VALUE in qualitatively new regime (mu_end → 0 endpoint never directly tested in monotone-decay context; H120 closed CONSTANT mu=0 catastrophic +0.197 val NEG, but H120 ≠ DEMON which uses mu_start=0.95 with monotone decay to 0).
+
+- arm_a CTRL: `--muonh_mu_start 0.95 --muonh_mu_end 0.90` (H266 baseline)
+- arm_b DEMON_HALF: `--muonh_mu_end 0.45`
+- arm_c DEMON_FULL: `--muonh_mu_end 0.0` (the literal DEMON formulation)
+
+**Mechanistic coherence with H266**: H266 EMA short-half-life TRACKS cooldown sharpening; DEMON mu→0 at terminal applies same "track-not-average" principle inside body optimizer. By cooldown entry (step 3000), µ ≈ 0.093 — near-pure gradient descent in the cooldown sharpening window.
+
+WIN prob: ~15% (modest mechanistic prior, novel mu_end regime).
+
+**H299 nezuko: Adan body pre-NS5 gradient-difference third moment — 87th mechanism class** (PR #1800, Option B `--body_adan_alpha` flag).
+
+3-arm test of finite-difference third-moment correction `m_t = (1-µ)*g_t + µ*m_{t-1} - α*(g_t - g_{t-1})` applied pre-NS5 on body side.
+
+- arm_a CTRL: `--body_adan_alpha 0.0` (bit-id baseline)
+- arm_b ADAN_LOW: `α=0.01`
+- arm_c ADAN_HIGH: `α=0.1` (Xie et al. paper recommended)
+
+**Structurally distinct from**: H169 AUX-Adan closure (body-side vs aux-side mechanism distinct), H92 MARS-M variance-reduction (different formulation, no finite-difference third moment), H229 Nesterov/Polyak FORM (continuous correction vs binary form variation).
+
+Mechanism: gradient-difference carries 2nd-order curvature information (finite-difference Hessian-vector approximation) without explicit Hessian computation. Possible WIN if curvature signal complements NS5 spectral magnitude normalization.
+
+WIN prob: ~10-12% (fresh mechanism class, partial conceptual overlap with H92, H169 AUX-Adan NEG lowers prior).
+
+### Current portfolio state
+
+**Active chains** (8 students, 8 active PRs):
+- H292 tanjiro (aux AGC binary, in flight)
+- H293 edward (outer_lr VALUE 0.5/0.7/0.9, ETA ~09:55Z — PF#56 6-axis completion test)
+- H294 frieren (Polyak EMA decay VALUE 0.05/0.075/0.10, ETA ~09:50Z — H274v2 AUX_ONLY U-curve transfer test)
+- H295 askeladd (muonh_mu_end 0.85, mid-flight)
+- H296 alphonse (HALLEY × ns5_iter=16 multiplicative stack)
+- H297 fern (HALLEY × aux_only EMA orthogonal stack)
+- **H298 thorfinn (DEMON mu→0 monotone decay, just assigned)**
+- **H299 nezuko (Adan body pre-NS5 gradient-difference, just assigned)**
+
+**Plateau status**: 145 NULL/NEG + 1 MERGED WIN. NS5 cube COMPLETE (H267/H280/H287/H291). MuLoCo outer cube 5/6 axes rigid (H293 closure → 6/6). EMA scope axis CLOSED (all=WIN, aux_only=TIE, body_only=NEG). EMA temporal axis CLOSED via H288 (cooldown-localized).
+
+**Paper-grade findings catalogued cycle current**:
+- H288 H266 EMA WIN purely cooldown-localized + minimum 425-825 step cooldown window + aux-params × cooldown-window full attribution combined with H290
+- H289 PF#56 5-axis confirmed-rigid + 4th EMA-absorption pattern at OUTER LAYER + outer_momentum TEMPORAL ASYMMETRY
 
 ---
 

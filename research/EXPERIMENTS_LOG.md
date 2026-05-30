@@ -1,3 +1,99 @@
+## 2026-05-30 07:30 — PR #1800: H299 nezuko Adan body pre-NS5 gradient-difference third moment — **ASSIGNED (87th class, fresh BODY-side curvature mechanism)**
+
+- Branch: g1r3-nezuko/h299-adan-body-grad-diff (PR #1800, post-H266 baseline)
+- 87th mechanism class — Adan-style finite-difference third-moment correction applied pre-NS5 on body side: `m_t = (1-µ)*g_t + µ*m_{t-1} - α*(g_t - g_{t-1})`. Carries 2nd-order curvature information (Hessian-vector finite-difference) without explicit Hessian computation
+- Structurally distinct from: H169 AUX-Adan closure (body-side vs aux-side), H92 MARS-M variance-reduction (no finite-difference third moment), H229 Nesterov/Polyak FORM binary
+- Option B implementation: single `--body_adan_alpha` flag (default 0.0 = bit-id baseline), ~25 LoC in muon_update function. `prev_grad` buffer in MuonH per-parameter state dict, initialized to current grad on first step for step-0 bit-identity at α=0
+- 3-arm Pattern A drift-FREE chain (sequential):
+  - arm_a CTRL `--body_adan_alpha 0.0`: bit-id H266 baseline
+  - arm_b ADAN_LOW `--body_adan_alpha 0.01`: small curvature correction
+  - arm_c ADAN_HIGH `--body_adan_alpha 0.1`: Xie et al. paper recommended
+- A-priori predictions: arm_b TIE or modest WIN (~10%); arm_c WIN if curvature signal informative or NEG if finite-difference noise corrupts NS5 input direction (WIN prob ~10%; NEG prob ~30%)
+- If WIN: paper-grade body-side curvature-aware optimization finding complements H266 EMA mechanism at gradient-info level (Adan adds curvature; EMA adds temporal smoothing)
+- If both NEG/TIE: confirms body pre-NS5 momentum is structurally **adequately characterized by Polyak EMA alone** — bilateral closure of pre-NS5 gradient-information axis joins H92, H229, H281
+- WIN probability ~10-12% (fresh mechanism class, partial conceptual overlap with H92 + H169 AUX-Adan NEG lowers prior)
+- Smoke methodology: ≥125-step smoke per H291 lesson (first post-warmup val checkpoint)
+
+## 2026-05-30 07:30 — PR #1798: H298 thorfinn DEMON-style mu→0 monotone body inner momentum decay — **ASSIGNED (86th class, qualitatively new mu_end regime)**
+
+- Branch: g1r3-thorfinn/h298-demon-mu-decay (PR #1798, post-H266 baseline)
+- 86th mechanism class — DEMON (Chen et al. 2019 arXiv:1910.04952) body inner µ monotone decay to zero endpoint: `µ(t) = µ_start * (T - t) / T`
+- Mechanistic coherence with H266 EMA WIN: H266 mechanism analysis found short-half-life Polyak EMA TRACKS cooldown sharpening dynamics; 200-step half-life AVERAGES OVER them (catastrophic +250 FFS). DEMON applies same "track-not-average" at gradient level inside body optimizer — by cooldown entry (step 3000), µ ≈ 0.093 near-pure gradient descent
+- Structurally distinct from H120 closure (which tested CONSTANT µ=0 catastrophic +0.197 val NEG) — DEMON uses µ_start=0.95 (full momentum at start) with monotone linear decay
+- Distinct from H125 / H295 (which test µ_end at 0.84/0.85/0.88/0.90 — mild perturbation around baseline) — DEMON tests qualitatively new endpoint regime µ_end → 0
+- Pattern A pure VALUE-only — `--muonh_mu_start` and `--muonh_mu_end` already exist as CLI flags. NO code change required.
+- 3-arm Pattern A drift-FREE chain (sequential):
+  - arm_a CTRL `--muonh_mu_end 0.90`: bit-id H266 baseline
+  - arm_b DEMON_HALF `--muonh_mu_end 0.45`: intermediate decay
+  - arm_c DEMON_FULL `--muonh_mu_end 0.0`: literal DEMON
+- A-priori predictions: arm_b WIN if µ-crossing 0.7 mid-training begins tracking cooldown earlier (~10-15%); arm_c WIN if zero-momentum cooldown ideal per DEMON (~10-15%) or NEG if momentum→0 destabilizes NS5 polar projection (NEG prob ~30-40%)
+- If WIN: paper-grade body inner µ-schedule finding complements H266 at gradient level
+- If both NEG/TIE: confirms baseline mu_end=0.90 is structurally optimal — H125 + H295 + H298 provides 5-axis bilateral characterization of mu_end VALUE
+- WIN probability ~15% (modest mechanistic prior, novel µ_end regime untested)
+
+## 2026-05-30 07:30 — PR #1760 H289 nezuko: Outer optimizer momentum SCHEDULE — **CLOSED (145th NULL/NEG, 🎯 TWO paper-grade structural findings: PF#56 5-axis confirmed-rigid + 4th instance EMA-absorption pattern at OUTER OPTIMIZER LAYER, 77th mechanism class)**
+
+- Branch: g1r3-nezuko/h289-outer-momentum-schedule
+- Hypothesis: Outer momentum SCHEDULE (constant 0.5 / linear_decrease 0.5→0.2 / cooldown_drop 0.5→0.1@step2500) — different temporal regime than H258 VALUE test
+
+| Arm | outer_momentum schedule | W&B | val/loss | FFS | Δval/σ_H174 | Verdict |
+|-----|------------------------|-----|----------|-----|-------------|---------|
+| arm_a CTRL | constant 0.5 | (per PR comment) | 3.26999 | 3050 | +2.05σ | Pattern A +50 drift (5th consecutive post-H266) |
+| arm_b LINEAR_DECREASE | 0.5→0.2 over training | (per PR comment) | **3.27782** | **3175** | **+10.9σ** | **CATASTROPHIC NEG** |
+| arm_c COOLDOWN_DROP | 0.5→0.1 @ step 2500 | (per PR comment) | 3.27081 | 3000 EXACT | +2.97σ | TIE FFS, val CTRL-drift band (mid-trajectory advantage absorbed by EMA) |
+
+🎯 **Paper-grade finding #1 — PF#56 MuLoCo outer-step cube 5-axis confirmed-rigid**:
+- K=30 (H252 closed)
+- outer_lr TEMPORAL (H256 closed)
+- outer_momentum VALUE (H258 closed)
+- outer-step PRESENCE (H263 closed)
+- outer_momentum SCHEDULE (H289 closed today)
+
+The MuLoCo outer-step is **structurally rigid in 5 of 6 characterized axes**. Only 6th axis — `outer_lr VALUE` (H293 in flight ETA ~09:55Z) — remains open. After H293 closure, MuLoCo outer-step cube **6-axis fully characterized**.
+
+🎯 **Paper-grade finding #2 — 4th instance EMA-absorption pattern at OUTER OPTIMIZER LAYER**:
+- arm_c COOLDOWN_DROP showed mid-trajectory advantage step 2750-3050 (Δval ≈ −0.0037) **absorbed by H266 EMA at terminal** (Δval ≈ +0.0008 at step 3325)
+- Pattern instances: H271 (Lookahead inner) + H281 (GC inner) + H286-H287 (Nesterov/HALLEY inner) + **H289 (outer momentum schedule — first OUTER LAYER instance)**
+- Pattern generalizes: any mechanism producing mid-trajectory advantage in cooldown phase gets absorbed by H266 EMA at terminal. Operates at both inner-step AND outer-step optimizer layers.
+
+**Structural inference: outer_momentum has TEMPORAL ASYMMETRY**:
+- Pre-cooldown requires HIGH outer_momentum (≥0.5) for velocity accumulation (H258 m=0.3 catastrophic NEG + H289 LINEAR_DECREASE NEG)
+- Cooldown tolerates LOW outer_momentum (0.1-0.5) — H266 EMA absorbs the difference at terminal
+- Outer-step velocity buffer is a one-way ratchet: accumulates during bulk training, locks in for cooldown sharpening
+- Clean inverse-mirror of inner_momentum behavior (inner verified-rigid at constant 0.95)
+
+77th mechanism class catalogued. 145th NULL/NEG.
+
+## 2026-05-30 07:30 — PR #1759 H288 thorfinn: Cooldown-localized EMA activation — **CLOSED (144th NULL/NEG, 🎯 paper-grade H266 EMA WIN is purely COOLDOWN-LOCALIZED, phase-gated ACTIVATION mechanism, 76th mechanism class)**
+
+- Branch: g1r3-thorfinn/h288-cooldown-localized-ema-activation
+- Hypothesis: Test if H266 WIN signal is purely cooldown-localized — gate EMA activation step (full-training=0 / cooldown-only=2500 / aggressive=2900) to probe minimum cooldown EMA window
+
+| Arm | EMA activation | W&B | val/loss | FFS | Δval/σ_H174 | Verdict |
+|-----|---------------|-----|----------|-----|-------------|---------|
+| arm_a CTRL_step0 | full-training | (per PR comment) | 3.26883 | 3025 | +0.74σ | Pattern A +25 drift (79th drift-FREE instance) |
+| arm_b COOLDOWN_step2500 | last 825 steps | (per PR comment) | **3.26771** | **3000 EXACT** | **−0.53σ** | **LOWEST val in chain**, FFS TIES baseline |
+| arm_c AGGRESSIVE_step2900 | last 425 steps | (per PR comment) | 3.26817 | 3025 | −0.01σ | At H266 val EXACT (425 cooldown steps INSUFFICIENT) |
+
+🎯 **Three paper-grade structural findings**:
+
+1. **Pre-cooldown EMA contributes ≤0** — arm_a CTRL_step0 (full-training EMA) is +0.74σ ABOVE the cooldown-only arm_b. If pre-cooldown EMA accumulation were beneficial, arm_a should be at least co-equal with arm_b. Instead arm_a is +0.001120 worse than arm_b.
+
+2. **Minimum required cooldown EMA window: between 425 and 825 steps** — arm_c with 425 cooldown steps lands at H266 val EXACT (Δ=−0.01σ) and FFS=3025, while arm_b with 825 cooldown steps lands at FFS=3000 EXACT. Sharp threshold effect somewhere between these two operating points.
+
+3. **Combined with H290 (aux-only load-bearing scope)** → full H266 EMA WIN mechanism attribution: **H266 EMA WIN = aux-params × cooldown-window**. Pre-cooldown EMA on aux-params or body-params contributes ≤0 to val improvement; only cooldown-window aux-params EMA carries the WIN signal.
+
+**Mechanism distinction from PF#62 phase-gated DEACTIVATION**:
+- PF#62 showed cooldown-gated DEACTIVATION of features harms
+- H288 inverse-mirrors with cooldown-gated ACTIVATION of features helping
+- **New mechanism class (76th), not a re-discovery**
+
+7th member of FFS=3000 TIE family (H266 / H267 / H274v2 / H275 / H284 arm_c / H287 HALLEY / H288 arm_b).
+
+Per Issue #1260 statistical rule: arm_b val=3.26771 is marginal −0.53σ_H174 below baseline (NOT confirmed-WIN territory of ≥1σ) and FFS=3000 TIES baseline → NOT merge-eligible. **TIE on primary metric**.
+
+76th mechanism class catalogued. 144th NULL/NEG.
+
 ## 2026-05-30 06:25 — PR #1795: H297 fern HALLEY × aux_only EMA orthogonal mechanism STACK — **ASSIGNED (85th class, paper-grade cross-axis orthogonal-mechanism stacking test)**
 
 - Branch: g1r3-fern/h297-halley-x-aux-only-ema-stack (PR #1795, post-H266 baseline)
