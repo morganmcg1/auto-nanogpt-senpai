@@ -71,10 +71,10 @@ def parse_args():
                         help="Number of Newton-Schulz iterations in zeropower_via_newtonschulz5. "
                              "Default 12 (current hardcoded value). Lower = less orthogonal but faster.")
     parser.add_argument("--ns_adaptive_tol", type=float, default=0.0,
-                        help="NS residual termination tolerance. 0=fixed NS_ITER (baseline); "
-                             ">0=per-matrix adaptive termination when ‖X^T X - I‖_F < tol. "
-                             "Suggested: 1e-2 (loose), 1e-3 (moderate), 1e-4 (strict). "
-                             "Checked every 2 iters to amortize CPU sync cost.")
+                        help="NS relative residual termination tolerance. 0=fixed NS_ITER (baseline); "
+                             ">0=per-matrix adaptive termination when ‖X Xᵀ - I_m‖_F / √m < tol. "
+                             "Suggested: 0.3 (loose), 0.2 (medium), 0.1 (tight); bf16 floor ≈ 0.087 "
+                             "for m=768. Checked after each iter (skip last since cap fires anyway).")
     parser.add_argument("--lr_scalars", type=float, default=0.01,
                         help="LR for AdamW adam_scalars group (RMSNorm gains; "
                              "params with ndim < 2). Default 0.01 — hardcoded, "
@@ -508,7 +508,9 @@ class GPT(nn.Module):
 
 @torch._dynamo.disable()
 def zeropower_via_newtonschulz5_adaptive(G: Tensor) -> Tensor:
-    """NS5 with per-matrix adaptive termination via Frobenius residual ‖X^T X - I‖_F.
+    """NS5 with per-matrix adaptive termination via relative Frobenius residual
+    ‖X Xᵀ - I_m‖_F / √m. Normalization by √m = ‖I_m‖_F makes the threshold
+    scale-invariant across matrix sizes; ~0.087 is the bf16 floor for m=768.
 
     Records (iters_used, residual_at_term, early_terminated) into NS_STATS_RECORDS
     for diagnostic logging. Disabled from dynamo so the data-dependent early break
@@ -520,14 +522,10 @@ def zeropower_via_newtonschulz5_adaptive(G: Tensor) -> Tensor:
     if transposed:
         X = X.mT
 
-    # Frobenius pre-NS scaling (matches baseline)
     X = X / (X.norm(dim=(-2, -1), keepdim=True) + 1e-7)
     a, b, c = 2, -1.5, 0.5
-    # After optional transpose, X has size(-2) <= size(-1) (fat or square).
-    # NS5 converges X toward UV^T (polar factor), so X X^T -> I_m on the
-    # smaller side. Checking ||X^T X - I_n|| would plateau at ||P_m - I_n||
-    # for rectangular X and never fire early termination on MLP matrices.
     m = X.size(-2)
+    inv_sqrt_m = 1.0 / math.sqrt(m)
 
     iters_used = 0
     last_resid = float("nan")
@@ -537,12 +535,10 @@ def zeropower_via_newtonschulz5_adaptive(G: Tensor) -> Tensor:
         B = b * A + c * A @ A
         X = a * X + B @ X
         iters_used = k + 1
-        # Residual check: every 2 iters to amortize ~0.1ms CPU-sync cost. Skip on
-        # last iter (no opportunity to save further work).
-        if k < NS_ITER - 1 and (k + 1) % 2 == 0:
+        if k < NS_ITER - 1:
             Xf = X.float()
             XXt = Xf @ Xf.mT
-            last_resid = (XXt - eye_m).norm().item()
+            last_resid = (XXt - eye_m).norm().item() * inv_sqrt_m
             if last_resid < NS_ADAPTIVE_TOL:
                 break
 
