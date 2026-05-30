@@ -9,7 +9,21 @@ The human research team has redirected: **FFS (first-step-to-target, baseline 30
 3. **Prefer experiments that move the crossing step** (2800-3050 window), **simplify winning stacks**, **reveal FFS-load-bearing components**.
 4. **Ablations preferred over confirmations** when FFS dead.
 
-## Last updated: 2026-05-30 13:05Z (56 R5 axis closures; frieren #1767 qr_iter CLOSED + spectral-norm pre-NS axis ASSIGNED #1829; thorfinn #1772 Cell E ready terminal NEG; fleet 8/8 active)
+## Last updated: 2026-05-30 13:18Z (58 R5 axis closures; thorfinn #1772 + nezuko #1769 CLOSED 57+58th; #1833 Higham polish + #1834 adaptive NS iter ASSIGNED; fleet 8/8 active)
+
+### Notes (2026-05-30 13:18Z) — THORFINN #1772 + NEZUKO #1769 CLOSED 57+58th; #1833 HIGHAM POLISH + #1834 ADAPTIVE NS ITER ASSIGNED
+
+- **★ CLOSED #1772 thorfinn SOAP β₂_mlp/β₂_attn per-class decouple** [57th R5 closure, 13:13Z] — clean-NEG. 5-cell terminal: A=B=C=2925/2925 (moderate decoupling FFS-NEUTRAL); D=2875/2925 (seed-noise sig 10th today); **E (0.70/0.99 EXTREME)=2950/2975 +50 trainval NEG** falsifier load-bears smooth-dose-response degradation. SOAP-internal axis cluster now **6/6 scalar HP CLOSED** (ε/exp_avg_sq/Q_row-col/static β₂/decoupled β₂/Gram warm-init) + per-class extension joins.
+- **★ CLOSED #1769 nezuko Muon momentum-buffer warm-start** [58th R5 closure, 13:14Z] — clean-NEG. 5-cell terminal across scale ∈ {-1.0, 0.0, 0.5, 1.0, 2.0}: 4 of 5 cells (A=C=D=E) at FFS_ema=2925 CTRL level, lone B (scale=1.0)=2875/2925 (9th seed-noise sig today). **Cell E (scale=-1.0 reversed-sign falsifier)** ties CTRL → load-bears direction-irrelevance. Muon init axis cluster now **4/4 CLOSED**: orthogonal init #872, orthogonal QKV #1516, warm-start polar-factor #1643, momentum-buffer warm-start #1769.
+- **★ ASSIGNED #1833 g1r5-thorfinn: Higham polar-Newton polish step after NS5** — adds `--ns_post_polish` flag (0=disabled). Implements `higham_polar_polish(X, n_polish)`: `X ← ½(X + Y(Y^TY)^{-1})` where Y=X via `torch.linalg.solve` for `Y^{-T}`. Quadratic convergence near orthogonality (`r ≈ 1e-3 → 1e-6` after one step). First quadratic-convergence iteration in codebase — distinct from cubic NS5 polynomial. 4 cells: A=ctrl, B★=ns6+polish1, C=ns4+polish1 (cost-matched), D=ns6+polish2. PR title search ✓ 0 hits for "polish" / "higham" / "polar newton".
+- **★ ASSIGNED #1834 g1r5-nezuko: Adaptive NS iteration count via Frobenius residual threshold** — `--ns_adaptive_tol` flag triggers per-matrix early termination when `‖X^TX-I‖_F < tol`. Distinct from per-block static depth (#1609 closed) and per-step temporal schedule (#665 closed) — truly per-matrix data-dependent dynamic. Uses `@torch._dynamo.disable()` for data-dependent loop (same pattern as alphonse #1796). 4 cells: A=ctrl fixed=6, B★=cap8 tol=1e-3, C=cap6 tol=1e-2 (compute-saver), D=cap12 tol=1e-4 (quality-max). Logs `iters_used_mean/max` per step for diagnostics. PR title search ✓ 0 hits for "adaptive ns iter" / "residual threshold" / "early stop ns".
+- **edward #1825 Cayley + fern #1826 Padé PICKED UP** by students (W&B CTRL_n1 cells running, ~15% progress).
+- **alphonse #1796 Cell C (sw650)** step 2999/3250 (92%) val=3.277 — terminal ~13:18Z imminent.
+- **tanjiro #1821 Cell A (per-head ctrl)** step 2878/3250 (89%) val=3.283 — terminal ~13:18Z imminent.
+- **askeladd #1776 Cell E (β=0.9)** step 1869/3250 (58%) val=3.505 — catastrophic in flight as predicted, terminal ~13:50Z (59th R5 closure incoming).
+- **Fleet 8/8 R5 active** at 13:18Z, zero idle.
+
+### Notes (2026-05-30 13:05Z) — FRIEREN #1767 CLOSED 56th (qr_iter axis); ASSIGNED #1829 SPECTRAL-NORM pre-NS; THORFINN #1772 CELL E NEG (57th pending)
 
 ### Notes (2026-05-30 13:05Z) — FRIEREN #1767 CLOSED 56th (qr_iter axis); ASSIGNED #1829 SPECTRAL-NORM pre-NS; THORFINN #1772 CELL E NEG (57th pending)
 
