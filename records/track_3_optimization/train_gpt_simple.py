@@ -114,6 +114,14 @@ def parse_args():
                         help="Polyak-Ruppert EMA decay for eval-only weight averaging. "
                              "0.0 = disabled (drift-FREE CTRL). Typical: 0.05 (fast, ~20-step half-life) / "
                              "0.005 (slow, ~200-step half-life). Higher decay = faster EMA tracking.")
+    # H282: AdaBelief second-moment estimator on aux optimizer (Zhuang et al. 2020).
+    # Replaces AdamW's v_t = beta2*v_{t-1} + (1-beta2)*g^2 with
+    # s_t = beta2*s_{t-1} + (1-beta2)*(g - m)^2 + eps (variance around momentum).
+    # 0 = baseline AdamW (drift-FREE CTRL). 1 = AdaBelief on aux groups.
+    parser.add_argument("--aux_adabelief", type=int,
+                        default=int(os.environ.get("AUX_ADABELIEF", "0")),
+                        help="0=standard AdamW for aux (default, bit-id baseline), "
+                             "1=AdaBelief for aux optimizer (variance around momentum, not zero).")
     args = parser.parse_args()
     args.num_trials = args.num_trials if args.num_trials is not None else (args.legacy_num_trials or 1)
     args.wandb_tags = [tag.strip() for tag in args.wandb_tags.split(",") if tag.strip()]
@@ -752,6 +760,55 @@ class MuonH(torch.optim.Optimizer):
         self._last_norm_to_radius_max = max_n_over_r
 
 
+class AdaBelief(torch.optim.Optimizer):
+    """AdaBelief optimizer (Zhuang et al. 2020, https://arxiv.org/abs/2010.07468).
+
+    Replaces AdamW's gradient-squared second moment with a momentum-deviation variance:
+        m_t = beta1*m_{t-1} + (1-beta1)*g_t
+        s_t = beta2*s_{t-1} + (1-beta2)*(g_t - m_t)^2 + eps
+        update = lr * m_hat / (sqrt(s_hat) + eps)
+    where m_hat and s_hat are the bias-corrected moments (Adam-style).
+
+    When g_t aligns with momentum (high confidence in direction) -> s_t -> eps -> larger step.
+    When g_t deviates from momentum (uncertain direction) -> s_t large -> smaller step.
+
+    Decoupled weight decay matches AdamW: p *= (1 - lr*wd) before the moment updates.
+    """
+    def __init__(self, params, lr=1e-3, betas=(0.9, 0.999), eps=1e-8, weight_decay=0.0):
+        defaults = dict(lr=lr, betas=betas, eps=eps, weight_decay=weight_decay)
+        super().__init__(params, defaults)
+
+    @torch.no_grad()
+    def step(self):
+        for group in self.param_groups:
+            beta1, beta2 = group["betas"]
+            lr = group["lr"]
+            eps = group["eps"]
+            wd = group["weight_decay"]
+            for p in group["params"]:
+                if p.grad is None:
+                    continue
+                g = p.grad
+                state = self.state[p]
+                if len(state) == 0:
+                    state["step"] = 0
+                    state["m"] = torch.zeros_like(p)
+                    state["s"] = torch.zeros_like(p) + eps
+                state["step"] += 1
+                t = state["step"]
+                m, s = state["m"], state["s"]
+                if wd != 0.0:
+                    p.mul_(1.0 - lr * wd)
+                m.mul_(beta1).add_(g, alpha=1.0 - beta1)
+                grad_residual = g - m
+                s.mul_(beta2).addcmul_(grad_residual, grad_residual, value=1.0 - beta2).add_(eps)
+                bias1 = 1.0 - beta1 ** t
+                bias2 = 1.0 - beta2 ** t
+                m_hat = m / bias1
+                s_hat = s / bias2
+                p.addcdiv_(m_hat, s_hat.sqrt().add_(eps), value=-lr)
+
+
 ########################################
 #                Setup                 #
 ########################################
@@ -796,6 +853,10 @@ if args.muonh_agc_clip_ratio > 0:
     print0(f"AGC ENABLED on inner MuonH gradient: clip_ratio={args.muonh_agc_clip_ratio} eps={args.muonh_agc_eps}", console=True)
 else:
     print0("AGC DISABLED on inner MuonH gradient (clip_ratio=0)", console=True)
+if args.aux_adabelief == 1:
+    print0("AdaBelief ENABLED on aux optimizer (replaces AdamW for embed/lm_head/scalars)", console=True)
+else:
+    print0("AdaBelief DISABLED on aux optimizer (AdamW baseline)", console=True)
 print0("="*100)
 
 val_tokens = 20 * 524288
@@ -856,6 +917,7 @@ if dist.get_rank() == 0:
             "muonh_mu_start": args.muonh_mu_start,
             "muonh_mu_end": args.muonh_mu_end,
             "polyak_ema_decay": args.polyak_ema_decay,
+            "aux_adabelief": args.aux_adabelief,
         },
     )
 
@@ -931,11 +993,20 @@ for trial_idx in range(args.num_trials):
     # fused AdamW reads betas from param_groups on every .step(), but to avoid any
     # silent-failure-mode risk we use fused=False whenever the β2 schedule is active.
     # constant schedule keeps fused=True so arm_a is bitwise-identical to baseline.
-    _aux_fused = (args.aux_beta2_schedule == "constant")
-    optimizer1 = AdamW([dict(params=[model.embed.weight], lr=0.3, name="adam_embed"),
-                        dict(params=[model.proj.weight], lr=1/320, name="adam_lm_head"),
-                        dict(params=[p for p in model.parameters() if p.ndim < 2], lr=0.01, name="adam_scalars")],
-                       betas=(0.8, args.aux_beta2_start), eps=args.aux_adamw_eps, weight_decay=0, fused=_aux_fused)
+    # H282: when args.aux_adabelief == 0 we keep the existing AdamW path (bit-identical
+    # to baseline). When == 1, swap AdaBelief in with identical per-group LRs, betas,
+    # eps, and weight_decay. AdaBelief reads betas from param_group each step so
+    # the existing aux_beta2_schedule cooldown_ramp mutation still works for it.
+    _aux_param_groups = [dict(params=[model.embed.weight], lr=0.3, name="adam_embed"),
+                         dict(params=[model.proj.weight], lr=1/320, name="adam_lm_head"),
+                         dict(params=[p for p in model.parameters() if p.ndim < 2], lr=0.01, name="adam_scalars")]
+    if args.aux_adabelief == 0:
+        _aux_fused = (args.aux_beta2_schedule == "constant")
+        optimizer1 = AdamW(_aux_param_groups,
+                           betas=(0.8, args.aux_beta2_start), eps=args.aux_adamw_eps, weight_decay=0, fused=_aux_fused)
+    else:
+        optimizer1 = AdaBelief(_aux_param_groups,
+                               betas=(0.8, args.aux_beta2_start), eps=args.aux_adamw_eps, weight_decay=0)
     optimizer2 = MuonH([p for p in model.blocks.parameters() if p.ndim >= 2],
                        lr=args.muonh_lr, weight_decay=0.0, mu=0.95,
                        hyperball=True, budget_mult=args.muonh_budget_mult,
@@ -1258,6 +1329,17 @@ for trial_idx in range(args.num_trials):
                 muonh_metrics["train/muonh/agc/max_ratio"] = muonh_agc_stats["agc_max_ratio"]
                 muonh_metrics["train/muonh/agc/scale_min"] = muonh_agc_stats["agc_scale_min"]
                 muonh_metrics["train/muonh/agc/scale_mean"] = muonh_agc_stats["agc_scale_mean"]
+            if telemetry_due and args.aux_adabelief == 1 and isinstance(optimizer1, AdaBelief):
+                s_means, s_maxes = [], []
+                for group in optimizer1.param_groups:
+                    for p in group["params"]:
+                        st = optimizer1.state.get(p, {})
+                        if "s" in st:
+                            s_means.append(st["s"].mean().item())
+                            s_maxes.append(st["s"].max().item())
+                if s_means:
+                    muonh_metrics["train/adabelief/s_mean"] = sum(s_means) / len(s_means)
+                    muonh_metrics["train/adabelief/s_max"] = max(s_maxes)
             if len(muonh_metrics) > 2:
                 wandb.log(muonh_metrics, step=wandb_step)
         if dist.get_rank() == 0 and telemetry_due:
