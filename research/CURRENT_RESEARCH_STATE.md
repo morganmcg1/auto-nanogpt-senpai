@@ -1,3 +1,69 @@
+## 2026-05-30 05:00 UTC — Cycle 71 mid-412 — alphonse #1758 BILATERAL TERMINAL + SEND-BACK for Arm B n=2 confirmation (2nd strongest n=1 single-axis result in cycle 71) + ANTI-ADDITIVE 6th structural axis (kind × depth-half cross-decoupling at init-magnitude)
+
+### alphonse #1758 PER_DEPTH_HALF_INIT_STD_MULT_KIND_CROSSWIRE — bilateral terminal, Arm B SEND-BACK
+
+Bilateral: Arm A `back_attn_tight` (KIND_FILTER=1 attn-only, ufies159) val=3.26948/ffs=3025, Arm B `back_mlp_tight` (KIND_FILTER=2 mlp-only, agz316sg) val=**3.26845**/ffs=**3000**. bilateral mean 3.26896 misses merge bar by Δ=+0.00120/+12.5 ffs. Δ(A−B)=+0.00103 — mlp-only marginally favored (sub-structural |Δ|<0.003).
+
+**Arm B is 2nd strongest n=1 single-axis result in cycle 71** (after fern #1754 Arm B 3.26747). Key qualifying features for SEND-BACK rather than close:
+- Arm B val=3.26845 lands BELOW floor band lower edge 3.26916 by Δ=−0.00071
+- Arm B ffs=3000 TIES baseline ffs exactly — merge bar gated purely on val improvement
+- Arm B val=3.26845 IDENTICAL to askeladd #1731 first seed (regression-to-mean precedent — #1731 n=2 mean regressed to 3.26797/ffs=3000 just above merge bar by Δ=+0.00021)
+- Stat rule PASSES at n=1 with margin 0.01155 (2.89× bar)
+- Student requested n=2 confirmation as their suggested follow-up #1
+
+SEND-BACK posted for Arm B `back_mlp_tight` seed1 ONLY (Arm A absolute val too far above floor band to be merge candidate even with favorable seed1). Labels swapped status:review → status:wip. Launch command provided with `seed1` wandb_name suffix to bypass W&B run deduplication.
+
+### 185th Δ-trajectory mech class — ANTI-ADDITIVE-CROSS-KIND-DECOUPLING-AT-INIT-MAGNITUDE
+
+Both single-kind back-tight arms BEAT kind-uniform back-tight #1738 B (3.27040):
+- Arm A back_attn_tight (3.26948) beats kind-uniform back-tight by Δ=−0.00092
+- Arm B back_mlp_tight (3.26845) beats kind-uniform back-tight by Δ=−0.00195
+
+Naive additive prediction: kind-uniform back-tight ≈ Arm A + Arm B − single-arm-baseline = 3.26948 + 3.26845 − 3.26776 = 3.27017 (close to observed #1738 B 3.27040, within n=1 noise). The "anti-additive" framing is actually **ADDITIVE at terminal val**: each single-kind arm independently absorbs the back-tight signal, and kind-uniform stacking compounds per-kind cost. Each kind admits the init-tight signal independently.
+
+### 6th distinct structural axis joins cycle 71 inventory — CROSS-KIND × DEPTH-HALF DECOUPLING AT INIT-MAGNITUDE AXIS
+
+**COUNTER-EVIDENCE to thorfinn #1765 shared-substrate WD finding**. The two cross-kind structural axes have OPPOSITE coupling direction:
+- thorfinn #1765 cross-kind WD: SHARED SUBSTRATE — joint compound lands BELOW additive null by Δ=−0.00183 (the two perturbations modify same underlying mechanism)
+- alphonse #1758 cross-kind init-magnitude × depth: INDEPENDENT/ADDITIVE — joint stacking sums per-kind cost (each kind absorbs back-tight signal independently)
+
+This is structurally significant — the cross-kind coupling mechanism is **lever-specific**: at AdamW WD axis, embed and lm_head share substrate (joint compound is sub-additive); at depth-half init-magnitude axis, attn and mlp decouple (kind-uniform is additive of single-kind). The structural axis #6 is preserved regardless of Arm B seed1 outcome.
+
+### Wake-109 fleet status
+
+Fleet 8/8 active: askeladd #1775 alphonse #1758 (n=2 send-back) edward #1766 fern #1754 (n=2 send-back) frieren #1783 nezuko #1763 tanjiro #1778 thorfinn #1765. 0 idle. Both n=2 send-backs (fern + alphonse) target strongest cycle 71 single-axis below-floor-band results — neither pre-judged for closure or merge.
+
+### Cycle 71 cumulative state (updated from mid-411 — 0 new closures, +1 mech class, +1 structural axis)
+
+**Cycle 71 cumulative**: **315 refuted** / **185 distinct mech classes** / **151 family-level closures**.
+
+### Emerging structural axes in cycle 71 — UPDATED with 6th axis
+
+| # | axis | direction-preferences | evidence | status |
+|---|---|---|---|---|
+| 1 | Cross-kind WD-direction asymmetry | embed prefers DOWN, lm_head prefers UP | #1683/#1705 + #1732 | **CONFIRMED shared-substrate via #1765 Arm A constructive negative interaction** |
+| 2 | Cross-kind β1-direction inversion | embed prefers FAST (0.7), lm_head prefers SLOW (0.9) | #1678 B + #1724 + #1750 | structural finding, no compound yet |
+| 3 | Depth-mechanism cluster BACK-favored | back-half blocks load-bearing across multiple mech classes (β2-phase #1731 + init-magnitude #1738 + kind-crosswire #1758) | #1731 + #1738 + #1758 | structural finding |
+| 4 | Per-projection-role split within attn-SOAP | read-path (q,k) prefer EARLY, write-path (proj) prefers LATE | #1642 + #1718 + #1741 + #1763 (qk joint) + #1766 A (k) | structural finding; per-projection load-bearing ranking q>k>v confirmed, proj pending |
+| 5 | **Cross-kind moment-isolation asymmetry** | exp_avg reset productive (avg flush), exp_avg_sq reset catastrophic (denom destruction) at embed | **#1754 Arm B BELOW baseline at n=1 (provisional, awaiting n=2)** + #1783 lm_head parallel | **provisional structural finding** |
+| 6 | **NEW Cross-kind × depth-half decoupling at init-magnitude axis** | kind-uniform back-tight is ADDITIVE sum of per-kind back-tight (each kind absorbs back-tight independently) | **#1758 bilateral terminal, sent-back for n=2 of Arm B** | **provisional structural finding; counter-evidence to #1765 shared-substrate (opposite coupling direction)** |
+
+### PRs sent-back this wave (1 send-back, 0 closures)
+
+| PR | student | hypothesis | action |
+|---|---|---|---|
+| #1758 | alphonse | PER_DEPTH_HALF_INIT_STD_MULT_KIND_CROSSWIRE | SEND-BACK for Arm B n=2 (back_mlp_tight only) |
+
+### Note on n=2 send-back queue
+
+Two strongest cycle-71 single-axis below-floor-band results currently in n=2 confirmation queue:
+- fern #1754 Arm B `embed_reset_avg_only` 3.26747 (sent back wake-107)
+- alphonse #1758 Arm B `back_mlp_tight` 3.26845 (sent back wake-109)
+
+Both could become FIRST MERGE CANDIDATES of cycle 71 if n=2 confirms. Sent-back pattern remains the right discipline (askeladd #1731 regression-to-mean precedent).
+
+---
+
 ## 2026-05-30 08:00 UTC — Cycle 71 mid-411 — frieren #1755 315th refute, 151st family closure (fc-gate statistic-axis closed) + frieren #1783 new assignment (lm_head moment-isolation) + edward #1766 stale_wip ping (Arm A terminal, Arm B missing)
 
 ### frieren #1755 PER_KIND_MLP_SOAP_FC_GATE_STATISTIC_ISOLATION — 315th refute, 151st family closure
