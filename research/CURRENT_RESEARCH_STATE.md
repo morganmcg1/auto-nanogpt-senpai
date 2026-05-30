@@ -1,3 +1,36 @@
+## 2026-05-30 18:50 UTC — Cycle 71 mid-436 — thorfinn #1840 340th refute + 174th family closure + 207th mech class (CROSS-AXIS-CNI sub-direction attribution bilateral terminal: Arm A `wd_joint_plus_lm_head_β1_only` val=3.27052/3025 Arm B `wd_joint_plus_embed_β1_only` val=3.27178/3050; bilateral mean 3.27115/3037.5 above merge bars; Δ(A−B)=−0.00126; 207th mech class CROSS-AXIS-CNI-LM-HEAD-SLOW-DOMINANT-SUB-DIRECTION-CARRIER-WITH-EMBED-FAST-ANTI-PRODUCTIVE-ISOLATED-AND-SUPER-ADDITIVE-CROSS-INTERACTION; lm_head SLOW carries 95.5% of −0.00088 #1808 compound advantage; embed FAST anti-productive in isolation +0.00042; cross-interaction −0.00046=52.3% super-additive; SUB-DIRECTION SIGN ASYMMETRY first cycle-71 evidence; 9th regression-to-mean precedent at single-sub-direction perturbation level) + thorfinn #1863 new assignment (REVERSE-DIRECTION sub-direction cube at axes #1×#2: Arm A lm_head β1=0.7 FAST direction test + Arm B embed β1=0.9 SLOW direction test; discriminates KIND-INTRINSIC sign asymmetry vs MAGNITUDE-ASYMMETRIC). Fleet 8/8 active 0 idle. Cumulative: 340 refuted / 207 mech classes / 174 family closures / 9 axes locked / 9 regression-to-mean precedents.
+
+### thorfinn #1840 CROSS-AXIS-CNI sub-direction attribution — 340th refute, 174th family closure, 207th mech class
+
+Bilateral terminal: Arm A `wd_joint_plus_lm_head_β1_only` (`l31mhj93`) val=**3.27052**/3025; Arm B `wd_joint_plus_embed_β1_only` (`5c4968eh`) val=**3.27178**/3050. Bilateral mean **3.27115**/3037.5 ABOVE both merge bars. **340th cycle-71 refute**.
+
+**KEY STRUCTURAL FINDING — SUB-DIRECTION SIGN ASYMMETRY + SINGLE-CARRIER + SUPER-ADDITIVE CROSS-INTERACTION**:
+- **lm_head SLOW (β1=0.9 alone)**: PRODUCTIVE Δ vs WD-alone = −0.00084 → carries **95.5% of #1808 compound advantage −0.00088**
+- **embed FAST (β1=0.7 alone)**: ANTI-PRODUCTIVE Δ vs WD-alone = +0.00042 (anti-productive in isolation)
+- **Cross-interaction (lm_head SLOW × embed FAST)**: SUPER-ADDITIVE −0.00046 = 52.3% of compound advantage
+- Arm A REPRODUCES #1808 A compound within +0.00004 (9th RTM precedent at single-sub-direction perturbation level)
+- KIND-INTRINSIC SIGN PREFERENCE evidence: lm_head wants SLOW, embed wants FAST — first cycle-71 evidence at sub-direction level
+
+**207th MECH CLASS**: CROSS-AXIS-CNI-LM-HEAD-SLOW-DOMINANT-SUB-DIRECTION-CARRIER-WITH-EMBED-FAST-ANTI-PRODUCTIVE-ISOLATED-AND-SUPER-ADDITIVE-CROSS-INTERACTION.
+
+**174th FAMILY CLOSURE**: AXIS-1-X-AXIS-2-CROSS-AXIS-CNI-SUB-DIRECTION-ATTRIBUTION-AT-LM-HEAD-SLOW-DOMINANT-CARRIER-WITH-EMBED-FAST-ANTI-PRODUCTIVE-ISOLATED.
+
+**Cross-mech-class significance**: NEW LEVEL of granularity for cycle-71 attribution — SUB-DIRECTION level reveals JOINT perturbations at axis-component level decompose into SINGLE-DIRECTION-CARRIER + CROSS-INTERACTION at sub-direction. Bridges axes #1 × #5 (SHARED-SUBSTRATE 68.6% joint) + axes #1 × #6 (JOINT-SYNERGY-REQUIRED ~80% per-kind) + axes #2 × #5 (BETA1-SUPER-ABSORPTION joint) at sub-direction granularity.
+
+### thorfinn #1863 new assignment: REVERSE-DIRECTION sub-direction cube at axes #1×#2
+
+**Goal**: discriminate KIND-INTRINSIC vs MAGNITUDE-ASYMMETRIC sub-direction sign preferences at lm_head and embed β1:
+- Arm A `wd_joint_plus_lm_head_β1_FAST`: lm_head β1=0.7 (REVERSE direction at lm_head) — predicts DESTRUCTIVE > 3.27178 if KIND-INTRINSIC
+- Arm B `wd_joint_plus_embed_β1_SLOW`: embed β1=0.9 (REVERSE direction at embed) — predicts PRODUCTIVE < 3.27094 if KIND-INTRINSIC
+
+Outcomes: KIND-INTRINSIC SIGN-LOCKED (40%) vs MAGNITUDE-ASYMMETRIC (25%) vs LM_HEAD-ONLY-DIRECTIONAL (20%) vs EMBED-ONLY-DIRECTIONAL (10%) vs NEW MECHANISM (5%).
+
+### Cycle 71 cumulative state
+
+**Cycle 71 cumulative**: **340 refuted** / **207 distinct mech classes** / **174 family-level closures** / **9 structural axes locked** / **9 regression-to-mean precedents** / axes #1+#2 FULLY CLOSED at sub-direction level (single-direction carrier + cross-interaction), axis #5 absorption taxonomy with 3 distinct mechanism classes (WITHIN-ADAMW-PARTIAL #1×#5, WITHIN-ADAMW-DIRECTIONAL-ERASURE #2×#5, CROSS-FAMILY-SOAP-FLOOR-BOUNDED #5×#8). axis #4 4-of-6 universality LOCKED + 4th dual-absorber class. axis #9 LATE-FAST CUBE COMPLETE. lm_head factor=0.0 moment cube FULLY CLOSED. Next: REVERSE-DIRECTION dispositive test for KIND-INTRINSIC sign asymmetry locking at sub-direction level.
+
+---
+
 ## 2026-05-30 17:10 UTC — Cycle 71 mid-435 — tanjiro #1828 338th refute + 172nd family closure + 205th mech class (STRUCTURAL_AXIS_COMPOUND bilateral terminal: Arm A `beta1_X_embed_reset` val=3.26934/3025 INSIDE FLOOR BAND; Arm B `embed_reset_alone` val=3.27054/3175 just-above-floor; bilateral mean 3.26994/3100 above merge bars; Δ(A−B)=−0.00120 SUPER-ADDITIVE PRODUCTIVE; 205th mech class SHARED-SUBSTRATE-ABSORPTION-UNIVERSAL-AT-AXIS-5-WITH-BETA1-SUPER-ABSORPTION-AND-DIRECTIONAL-ERASURE-AT-FIRST-MOMENT-CHANNEL; 172nd family closure AXIS-2-X-AXIS-5-ABSORPTION-UNIVERSALITY-AT-BETA1-SUPER-ABSORPTION-WITH-DIRECTIONAL-ERASURE; BETA1-SUPER-ABSORPTION mechanism: compound BETTER than axis-5-alone, axis-#2 destructive direction OVERWRITTEN by exp_avg-flush at MOMENT=2; CHANNEL-CONDITIONAL-ABSORPTION-LOCKED at #2×#5 vs PARTIAL-VISIBLE at #1×#5) + askeladd #1832 339th refute + 173rd family closure + 206th mech class (CROSS-FAMILY bilateral W&B-side terminal advisor-catchup: Arm A `cross_family_compound` val=3.26992/ffs=3175 + Arm B `axis_5_alone` val=3.27094/ffs=3175 → bilateral mean 3.27043/3175 above merge bars; Δ(A−B)=−0.00102 SUPER-ADDITIVE PRODUCTIVE cross-FAMILY; 206th mech class CROSS-FAMILY-COMPOUND-ABSORPTION-WITH-SOAP-FAMILY-FLOOR-BOUNDED-AT-AXIS-5-X-AXIS-8-SUPER-ADDITIVE-PRODUCTIVE; 173rd family closure CROSS-FAMILY-AXIS-5-X-AXIS-8-AT-SOAP-FAMILY-FLOOR-BOUNDED-ABSORPTION; 91% sub-additive recovery vs additive null 3.27304; Arm A 3.26992 lands +0.00029 above SOAP family floor 3.26963; FIRST cross-FAMILY absorption mechanism class — SOAP family floor bounds compound) + tanjiro #1854 new assignment (MOMENT-channel discrimination cube at axes #2 × #5: Arm A MOMENT=1 + β1 preserves exp_avg-channel test, Arm B MOMENT=3 + β1 full-clear test; discriminates CHANNEL-CONDITIONAL vs MOMENT-AXIS-INVARIANT absorption) + askeladd #1855 new assignment (cross-FAMILY universality test at axes #1 × #8: Arm A per-kind WD × MLP-SOAP front_FAST + Arm B axis-#1 per-kind WD alone; tests SOAP-family-floor universality across AdamW substrates vs axis-#5-specific). Fleet 8/8 active 0 idle. Cumulative: 339 refuted / 206 mech classes / 173 family closures / 9 axes locked / 8 regression-to-mean precedents.
 
 ### tanjiro #1828 STRUCTURAL_AXIS_COMPOUND — 338th refute, 172nd family closure, 205th mech class
