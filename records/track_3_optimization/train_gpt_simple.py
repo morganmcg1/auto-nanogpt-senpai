@@ -101,6 +101,10 @@ def parse_args():
                         help="EMA decay for SWA-style EMA-eval; None=disabled (control). "
                              "Recommend 0.99-0.9999. When set, val/ema_loss is logged "
                              "and speedrun/first_step_to_target uses the EMA-val crossing.")
+    parser.add_argument("--mu_mlp", type=float, default=0.95,
+                        help="Muon momentum for MLP body matrices (default 0.95)")
+    parser.add_argument("--mu_attn", type=float, default=0.95,
+                        help="Muon momentum for attn body matrices (default 0.95)")
     args = parser.parse_args()
     args.num_trials = args.num_trials if args.num_trials is not None else (args.legacy_num_trials or 1)
     args.wandb_tags = [tag.strip() for tag in args.wandb_tags.split(",") if tag.strip()]
@@ -786,6 +790,8 @@ if dist.get_rank() == 0:
             "lr_cooldown_shape": args.lr_cooldown_shape,
             "ema_eval_decay": args.ema_eval_decay,
             "ema_eval_enabled": args.ema_eval_decay is not None,
+            "mu_mlp": args.mu_mlp,
+            "mu_attn": args.mu_attn,
         },
     )
 
@@ -870,8 +876,8 @@ for trial_idx in range(args.num_trials):
     assert len(mlp_named) + len(attn_named) == len(named_blocks)
     optimizer2 = Muon(
         [
-            dict(named_params=mlp_named,  lr=args.lr_mlp,  weight_decay=args.wd_mlp,  name="muon_mlp"),
-            dict(named_params=attn_named, lr=args.lr_attn, weight_decay=args.wd_attn, name="muon_attn"),
+            dict(named_params=mlp_named,  lr=args.lr_mlp,  weight_decay=args.wd_mlp,  mu=args.mu_mlp,  name="muon_mlp"),
+            dict(named_params=attn_named, lr=args.lr_attn, weight_decay=args.wd_attn, mu=args.mu_attn, name="muon_attn"),
         ],
         soap_attn=args.soap_attn, trust_threshold=args.soap_trust_threshold,
     )
@@ -1223,6 +1229,8 @@ for trial_idx in range(args.num_trials):
                            for i, group in enumerate(optimizer2.param_groups)}
             current_wds = {group.get("name", f"group_{i}"): group.get("weight_decay", 0.0)
                            for i, group in enumerate(optimizer2.param_groups)}
+            current_mus = {group.get("name", f"group_{i}"): group.get("mu", 0.0)
+                           for i, group in enumerate(optimizer2.param_groups)}
             if dist.get_rank() == 0:
                 per_group_metrics = {"trial": trial_idx, "train/step": train_step}
                 for name, mean_norm in update_norms.items():
@@ -1231,6 +1239,8 @@ for trial_idx in range(args.num_trials):
                     per_group_metrics[f"train/lr/{name}"] = lr
                 for name, wd in current_wds.items():
                     per_group_metrics[f"train/wd/{name}"] = wd
+                for name, mu in current_mus.items():
+                    per_group_metrics[f"train/{name}_mu"] = mu
                 per_group_metrics["train/wd_mlp_now"] = current_wds.get("muon_mlp", 0.0)
                 per_group_metrics["train/wd_attn_now"] = current_wds.get("muon_attn", 0.0)
                 per_group_metrics["train/wd_schedule_progress"] = train_step / train_steps
