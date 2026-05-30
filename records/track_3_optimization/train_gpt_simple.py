@@ -68,6 +68,11 @@ def parse_args():
     parser.add_argument("--ns_iter", type=int, default=12,
                         help="Number of Newton-Schulz iterations in zeropower_via_newtonschulz5. "
                              "Default 12 (current hardcoded value). Lower = less orthogonal but faster.")
+    parser.add_argument("--muon_momentum_warmstart", type=float, default=0.0,
+                        help="Muon momentum-buffer warm-start scale at step 0. "
+                             "0.0 = current zeros init (R5 default). "
+                             ">0.0 = init state['momentum'] = scale * grad at first step (bias-skip). "
+                             "Recommended: 1.0 matches asymptotic ‖momentum‖ ≈ ‖grad‖ at high mu.")
     parser.add_argument("--lr_scalars", type=float, default=0.01,
                         help="LR for AdamW adam_scalars group (RMSNorm gains; "
                              "params with ndim < 2). Default 0.01 — hardcoded, "
@@ -643,7 +648,10 @@ class Muon(torch.optim.Optimizer):
                     state = self.state[p]
                     use_soap = p in self.soap_params
                     if len(state) == 0:
-                        state["momentum"] = torch.zeros_like(p)
+                        if args.muon_momentum_warmstart != 0.0:
+                            state["momentum"] = (p.grad.detach().clone() * args.muon_momentum_warmstart).to(p.dtype)
+                        else:
+                            state["momentum"] = torch.zeros_like(p)
                         if use_soap:
                             state["exp_avg_sq"] = torch.zeros_like(p, dtype=torch.float32)
                             state["row_gg"] = torch.zeros(p.size(0), p.size(0), dtype=torch.float32, device=p.device)
@@ -774,6 +782,7 @@ if dist.get_rank() == 0:
             "soap_beta2": SOAP_BETA2,
             "soap_precond_freq": PRECOND_FREQ,
             "ns_iter": NS_ITER,
+            "muon_momentum_warmstart": float(args.muon_momentum_warmstart),
             "soap_attn_enabled": bool(args.soap_attn),
             "soap_trust_threshold": float(args.soap_trust_threshold),
             "lr_mlp": args.lr_mlp,
