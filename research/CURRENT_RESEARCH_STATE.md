@@ -1,3 +1,38 @@
+## 2026-05-30 05:40 UTC — Cycle 71 mid-413 — askeladd #1775 stale_wip resolution (Arm A actively progressing 1575/3175, Arm B pending, GPU-time concern with 4 disabled-checks + 1 superfluous launch). No closures, no new structural axes.
+
+### askeladd #1775 PER_DEPTH_HALF_MLP_SOAP_BETA2 stale_wip
+
+PR flagged stale because no comment posted for >24h, but Arm A `kqiab0hs` (arm-a-front-fast) is **actively progressing**: step 1575/3175 (~50% done), val=3.5317 (typical mid-training band), last heartbeat 05:35Z, ETA ~06:37Z. Not a stuck-pod issue.
+
+**Concerns flagged in advisor ping**:
+1. **4 disabled-checks total** (3 finished val ≈ 4.08-4.09 ✓, 1 crashed) + 5th disabled-check `q5v3d0io` running at 05:24Z **while Arm A is in progress** — superfluous, GPU time waste.
+2. **None of the runs log config-operative env vars** (PER_DEPTH_HALF_MLP_SOAP_BETA2_ENABLED, MLP_SOAP_BETA2_FRONT, MLP_SOAP_BETA2_BACK, MLP_SOAP_DEPTH_SPLIT_BETA2) to W&B. Cannot verify from W&B alone whether code patch is firing. Asked student to add `wandb.config.update({...})` and confirm 12 front + 12 back = 24 MLP-SOAP params at step 0.
+3. **No launch heartbeat posted** for Arm A despite 1h elapsed since launch.
+
+**Action**: Advisor ping posted asking for (a) Arm A launch heartbeat with config-operative spot-check, (b) cancel 4th disabled-check, (c) immediate Arm B launch when Arm A finishes (~06:37Z) — do not run another disabled-check in between, (d) Arm A terminal SENPAI-RESULT, (e) bilateral SENPAI-RESULT with Δ(B−A) attribution comparing to #1731 attn-SOAP Δ(B−A)=−0.00263 to determine SOAP-uniform vs SOAP-kind-specific depth × β2.
+
+This is the parallel SOAP-family generalization test of #1731 (back_FAST attn-SOAP confirmed productive). Two outcomes structurally informative: SOAP-uniform (compound candidate with #1731 attn-SOAP-back-FAST) or SOAP-kind-specific (forecloses MLP-SOAP from depth-β2 compound stack).
+
+### Wake-110 fleet status
+
+Fleet 8/8 active: askeladd #1775 (Arm A live, ~50% done) alphonse #1758 (n=2 send-back) edward #1766 fern #1754 (n=2 send-back) frieren #1783 nezuko #1763 tanjiro #1778 thorfinn #1765. 0 idle. No review-ready PRs. Three n=2 confirmation / SOAP-family tests in flight (askeladd #1775 + fern #1754 + alphonse #1758).
+
+### Cycle 71 cumulative state (unchanged from mid-412 — no closures this wake)
+
+**Cycle 71 cumulative**: **315 refuted** / **185 distinct mech classes** / **151 family-level closures**.
+
+### PRs pinged this wave (1 ping, 0 closures, 0 send-backs)
+
+| PR | student | hypothesis | action |
+|---|---|---|---|
+| #1775 | askeladd | PER_DEPTH_HALF_MLP_SOAP_BETA2 | stale_wip ping: launch heartbeat + Arm B plan + 4 disabled-checks concern |
+
+### Human-team issues
+
+Issue #1259 (Morgan's directive 2026-05-26): no new comments since last ADVISOR response 2026-05-26T22:45Z. Standing directive (per-group + state-mechanism, avoid scalar sweeps) continues to govern.
+
+---
+
 ## 2026-05-30 05:00 UTC — Cycle 71 mid-412 — alphonse #1758 BILATERAL TERMINAL + SEND-BACK for Arm B n=2 confirmation (2nd strongest n=1 single-axis result in cycle 71) + ANTI-ADDITIVE 6th structural axis (kind × depth-half cross-decoupling at init-magnitude)
 
 ### alphonse #1758 PER_DEPTH_HALF_INIT_STD_MULT_KIND_CROSSWIRE — bilateral terminal, Arm B SEND-BACK
