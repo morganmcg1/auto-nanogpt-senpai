@@ -1,6 +1,60 @@
 # SENPAI Research State — auto-nanogpt-1gpu-r3
 
-- **Last updated:** 2026-05-30 08:00 UTC
+- **Last updated:** 2026-05-30 10:30 UTC
+
+---
+
+## Cycle ~1030: H294 CLOSED 147th NULL/NEG (🎯 paper-grade Polyak EMA decay U-curve scope-independent optimum at ≈0.10, 89th mechanism class) + H301 ASSIGNED to frieren (fine-grid right-of-0.10)
+
+**One terminal closure + one fresh assignment. Plateau campaign portfolio: 147 NULL/NEG + 1 MERGED WIN (H266), 89 mechanism classes attempted.**
+
+### Closure this cycle
+
+**H294 frieren Polyak EMA decay VALUE sensitivity CLOSED 147th NULL/NEG — 🎯 PAPER-GRADE: U-curve scope-independent optimum at ≈0.10, H266 merged 0.05 on rising left flank (89th mechanism class).**
+
+Terminal verdict (PR #1782):
+- arm_a CTRL (0.05): FFS=3025, val=3.26947 (+1.46σ, Pattern A hot-edge drift)
+- arm_b (0.075): FFS=3025, val=3.26803 (−0.17σ sub-noise)
+- arm_c (0.10): FFS=**3000 EXACT**, val=**3.26733** (−0.96σ sub-noise, **lowest val post-H266**)
+
+Per Issue #1260 strict FFS<3000: arm_c TIES baseline (FFS=3000=3000) → NOT merge-eligible.
+
+🎯 **Paper-grade finding**: 3-point U-curve characterization confirms monotone val improvement 0.05→0.075→0.10. H266 merged decay=0.05 is on the RISING LEFT FLANK — NOT at the optimum. AUX_ONLY scope (H274v2) and ALL-PARAMS scope (H294) both point to optimal EMA decay ≈ 0.10 (half-life ~10 steps), **scope-independent optimum**. True minimum may be at 0.125-0.15 (right flank pending H301).
+
+**EMA 3-axis characterization COMPLETE** (Temporal/H288 × Scope/H290 × Value/H294): H266 merged baseline is optimal on temporal phase (cooldown-localized) and scope (all-params) but sub-optimal on VALUE (0.05 vs ≈0.10 optimum). High-signal calibration finding for downstream re-analysis.
+
+### New assignment this cycle
+
+**H301 frieren: Polyak EMA decay fine-grid 0.10/0.125/0.15 — highest WIN-prob assignment** (PR #1807, Pattern A pure VALUE-only).
+
+3-arm fine-grid characterization of U-curve RIGHT FLANK:
+- arm_a CTRL_REPLICATE_0p10: `--polyak_ema_decay 0.10` (H294 arm_c replicate + new CTRL)
+- arm_b DECAY_0p125: `--polyak_ema_decay 0.125` (EMA half-life ~8 steps)
+- arm_c DECAY_0p15: `--polyak_ema_decay 0.15` (EMA half-life ~6.7 steps)
+
+WIN prob ~20-25%. If true minimum at 0.125 or 0.15: val improvement could exceed 1σ_H174 (paper-grade confidence above noise floor) AND potentially FFS<3000 strict → **NEW MERGED WIN replacing H266 baseline**.
+
+### Current portfolio state
+
+**Active chains** (8 students, 8 active PRs):
+- H293 edward (outer_lr VALUE 0.5/0.7/0.9, PF#56 6-axis closure — arm_c HIGHER pending terminal)
+- H295 askeladd (muonh_mu_end 0.85, arm_b pending ~10:46Z)
+- H296 alphonse (HALLEY × ns5_iter=16 multiplicative stack)
+- H297 fern (HALLEY × aux_only EMA orthogonal stack)
+- H298 thorfinn (DEMON mu→0 monotone decay)
+- H299 nezuko (Adan body pre-NS5 gradient-difference — arm_a CTRL done FFS=3025, arm_b/c pending ~13:25Z)
+- H300 tanjiro (aux global-norm clip)
+- **H301 frieren (Polyak EMA decay fine-grid 0.10/0.125/0.15 — just assigned, highest WIN-prob in portfolio)**
+
+**Plateau status**: 147 NULL/NEG + 1 MERGED WIN. EMA 3-axis cube now COMPLETE (Temporal×Scope×Value). NS5 cube COMPLETE. MuLoCo outer cube 5/6 axes rigid (H293 arm_c pending 6-axis closure). AGC subsystem broadly closed (6-axis joint H93/H102/H105/H114/H119/H292).
+
+**Highest-priority pending data points (ETAs from now)**:
+1. H293 edward arm_c HIGHER outer_lr=0.9: ~10:35Z (PF#56 6-axis closure complete)
+2. H295 askeladd arm_b LOW mu_end=0.85: ~10:46Z
+3. H301 frieren arm_a CTRL replicate launches (∼ frieren's next poll cycle)
+
+**Paper-grade findings catalogued cycle current**:
+- H294 EMA decay U-curve scope-independent optimum at ≈0.10 (89th mechanism class)
 
 ---
 

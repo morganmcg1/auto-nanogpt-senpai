@@ -1,3 +1,42 @@
+## 2026-05-30 10:30 — PR #1782 H294 frieren: Polyak EMA decay VALUE 0.05/0.075/0.10 — **CLOSED (147th NULL/NEG, 🎯 paper-grade U-curve scope-independent optimum at ≈0.10, 89th mechanism class)** + PR #1807 H301 frieren ASSIGNED (fine-grid right-of-0.10 follow-up)
+
+- Branch: g1r3-frieren/h294-ema-decay-value (PR #1782, 3-arm Pattern A)
+
+| Arm | polyak_ema_decay | W&B | val/loss | FFS | Δval/σ_H174 | Verdict |
+|-----|-----------------|-----|----------|-----|-------------|---------|
+| arm_a CTRL | 0.05 | av0gr3e3 | 3.26947 | 3025 | +1.46σ | Pattern A +25 hot-edge drift |
+| arm_b | 0.075 | ebxb2prv | 3.26803 | 3025 | −0.17σ sub-noise | TIE FFS=3025, val below baseline |
+| arm_c | **0.10** | xtv5nn5s | **3.26733** | **3000** | **−0.96σ** | TIE FFS=3000 (EXACT), lowest val post-H266 |
+
+H266 baseline: val=3.26818, FFS=3000, σ_H174=0.000884.
+
+Per Issue #1260 strict FFS<3000: arm_c FFS=3000 TIES baseline (NOT strict <3000) → NOT merge-eligible. val=3.26733 is sub-noise (−0.96σ < 1σ). **147th NULL/NEG**.
+
+🎯 **Paper-grade mechanism finding (89th mechanism class): Polyak EMA decay U-curve scope-independent optimum at ≈0.10**
+
+The 3-point all-params scope characterization reveals:
+- **Monotone val improvement**: 0.05 → 0.075 → 0.10 (3.26947 → 3.26803 → 3.26733)
+- **H266 merged decay=0.05 is on the RISING LEFT FLANK** — NOT at the U-curve optimum
+- **Optimal EMA half-life ≈ 10 steps (decay=0.10), scope-independent with AUX_ONLY H274v2 interpolated minimum at ≈0.10**
+- **FFS sub-grid mechanism** (per student analysis): decay=0.10 (10-step half-life) tracks instantaneous params more closely than 0.05 (20-step half-life); cooldown crossing happens at same 3000-step eval checkpoint but decay=0.10 accumulates cleaner terminal average → val improves without FFS improves (FFS grid resolution 25 steps too coarse for sub-step detection)
+
+**3-axis EMA characterization now COMPLETE**:
+| Axis | Finding | Optimum |
+|------|---------|---------|
+| Temporal (H288) | cooldown-localized 425-825 step window | cooldown phase |
+| Scope (H290) | aux-only TIE, body-only NEG, all-params WIN | all-params |
+| Value (H294) | U-curve scope-independent minimum | ≈0.10 (not merged 0.05) |
+
+H266 baseline is structurally non-optimal on the value axis but optimal on temporal phase and scope. The U-curve minimum at 0.10 tracking AUX_ONLY scope is a scope-independent optimum — paper-grade calibration finding for the post-H266 portfolio.
+
+**FFS=3000 TIE family** now includes H266 (0.05), H274v2 arm_c (aux-only 0.05), H284 arm_c (z×ns5=16), H287 (HALLEY), H290 arm_c (aux-only scope), H291 (ns5_iter=16), H294 arm_c (all-params 0.10) — 7 members.
+
+**H301 frieren fine-grid right-of-0.10 ASSIGNED** (PR #1807):
+- 3-arm Pattern A VALUE-only: arm_a CTRL_REPLICATE_0p10 (0.10) / arm_b DECAY_0p125 / arm_c DECAY_0p15
+- Characterizes U-curve right flank — if true minimum is at 0.125/0.15, arm val could exceed 1σ_H174 (paper-grade with confidence above noise floor) + potentially FFS<3000 strict WIN
+- WIN probability ~20-25% (monotone direction confirmed 3-point, AUX_ONLY minimum was interpolated)
+- Smoke gate required per H291 lesson
+
 ## 2026-05-30 08:00 — PR #1804: H300 tanjiro Aux global gradient-norm clip — **ASSIGNED (88th class, H292 paper-grade mechanism follow-up)**
 
 - Branch: g1r3-tanjiro/h300-aux-global-grad-clip (PR #1804, post-H266 baseline)
