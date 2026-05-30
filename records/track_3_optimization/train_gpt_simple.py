@@ -96,6 +96,24 @@ def parse_args():
                         help="Starting value of µ schedule (used by linear and cooldown_ramp modes).")
     parser.add_argument("--muonh_mu_end", type=float, default=float(os.environ.get("MUONH_MU_END", "0.98")),
                         help="Ending value of µ schedule (used by linear and cooldown_ramp modes).")
+    # H310: per-depth μ heterogeneity (SPATIAL-by-DEPTH axis). Split body blocks into
+    # SHALLOW (idx < split) and DEEP (idx >= split) param groups; optionally override the
+    # scheduled μ for either group with a constant value. -1.0 sentinel = no override
+    # (group keeps the scheduled mu_t). Bit-identical to baseline when both overrides=-1.0.
+    parser.add_argument("--muonh_mu_shallow_override", type=float,
+                        default=float(os.environ.get("MUONH_MU_SHALLOW_OVERRIDE", "-1.0")),
+                        help="If > 0, override the scheduled inner μ for SHALLOW blocks "
+                             "(block indices 0 to muonh_mu_depth_split_idx-1). Constant μ for shallow group only; "
+                             "deep group continues with normal schedule. -1.0 sentinel = no override.")
+    parser.add_argument("--muonh_mu_deep_override", type=float,
+                        default=float(os.environ.get("MUONH_MU_DEEP_OVERRIDE", "-1.0")),
+                        help="If > 0, override the scheduled inner μ for DEEP blocks "
+                             "(block indices muonh_mu_depth_split_idx to N-1). Constant μ for deep group only; "
+                             "shallow group continues with normal schedule. -1.0 sentinel = no override.")
+    parser.add_argument("--muonh_mu_depth_split_idx", type=int,
+                        default=int(os.environ.get("MUONH_MU_DEPTH_SPLIT_IDX", "6")),
+                        help="Block index splitting shallow (idx < split) and deep (idx >= split) groups. "
+                             "For 12-layer model, default 6 gives equal halves.")
     parser.add_argument("--body_init", type=str, default=os.environ.get("BODY_INIT", "default"),
                         choices=["default", "orthogonal_fnorm_matched", "orthogonal_bottom_damp"],
                         help="Initialization scheme for body MuonH 2D weights (attn.q/k/v, attn.proj, mlp.fc, mlp.proj). "
@@ -675,9 +693,22 @@ class MuonH(torch.optim.Optimizer):
     """
     def __init__(self, params, lr=0.018, weight_decay=0.0, mu=0.95,
                  hyperball=True, budget_mult=1.0, mode="clip"):
-        assert isinstance(params, list) and len(params) >= 1 and isinstance(params[0], torch.nn.Parameter)
+        assert isinstance(params, list) and len(params) >= 1
         assert mode in ("clip", "scale_invariant")
-        params = sorted(params, key=lambda x: x.size(), reverse=True)
+        if isinstance(params[0], dict):
+            # H310: list-of-dicts (param_groups) — sort each group's params by size desc.
+            # Each group keeps its own state; with world_size=1, per-param updates are
+            # equivalent to the flat-list path when groups share lr/mu/etc.
+            new_groups = []
+            for group in params:
+                assert isinstance(group, dict) and "params" in group
+                ng = dict(group)
+                ng["params"] = sorted(group["params"], key=lambda x: x.size(), reverse=True)
+                new_groups.append(ng)
+            params = new_groups
+        else:
+            assert isinstance(params[0], torch.nn.Parameter)
+            params = sorted(params, key=lambda x: x.size(), reverse=True)
         defaults = dict(lr=lr, weight_decay=weight_decay, mu=mu,
                         hyperball=hyperball, budget_mult=budget_mult, mode=mode)
         super().__init__(params, defaults)
@@ -855,6 +886,9 @@ if dist.get_rank() == 0:
             "muonh_mu_schedule": args.muonh_mu_schedule,
             "muonh_mu_start": args.muonh_mu_start,
             "muonh_mu_end": args.muonh_mu_end,
+            "muonh_mu_shallow_override": args.muonh_mu_shallow_override,
+            "muonh_mu_deep_override": args.muonh_mu_deep_override,
+            "muonh_mu_depth_split_idx": args.muonh_mu_depth_split_idx,
             "polyak_ema_decay": args.polyak_ema_decay,
         },
     )
@@ -936,11 +970,26 @@ for trial_idx in range(args.num_trials):
                         dict(params=[model.proj.weight], lr=1/320, name="adam_lm_head"),
                         dict(params=[p for p in model.parameters() if p.ndim < 2], lr=0.01, name="adam_scalars")],
                        betas=(0.8, args.aux_beta2_start), eps=args.aux_adamw_eps, weight_decay=0, fused=_aux_fused)
-    optimizer2 = MuonH([p for p in model.blocks.parameters() if p.ndim >= 2],
-                       lr=args.muonh_lr, weight_decay=0.0, mu=0.95,
-                       hyperball=True, budget_mult=args.muonh_budget_mult,
-                       mode=args.muonh_mode)
-    optimizer2.param_groups[0]["name"] = "muonh_blocks"
+    # H310: SPATIAL-by-DEPTH split — shallow (block idx < split) vs deep (block idx >= split).
+    # With both overrides at -1.0 sentinel and identical schedule mu_t for both groups, the
+    # split is a no-op at the per-param optimizer state level (MuonH state is keyed by param,
+    # not by group; world_size=1 iterates each group's params in order).
+    split_idx = args.muonh_mu_depth_split_idx
+    shallow_params = [p for i, block in enumerate(model.blocks) if i < split_idx
+                      for p in block.parameters() if p.ndim >= 2]
+    deep_params = [p for i, block in enumerate(model.blocks) if i >= split_idx
+                   for p in block.parameters() if p.ndim >= 2]
+    assert len(shallow_params) > 0 and len(deep_params) > 0, \
+        f"empty param group: shallow={len(shallow_params)} deep={len(deep_params)}"
+    _body_params_set = set(p for p in model.blocks.parameters() if p.ndim >= 2)
+    assert set(shallow_params) | set(deep_params) == _body_params_set
+    assert set(shallow_params).isdisjoint(set(deep_params))
+    optimizer2 = MuonH([
+        dict(params=shallow_params, name="muonh_shallow"),
+        dict(params=deep_params, name="muonh_deep"),
+    ], lr=args.muonh_lr, weight_decay=0.0, mu=0.95,
+       hyperball=True, budget_mult=args.muonh_budget_mult,
+       mode=args.muonh_mode)
     optimizers = [optimizer1, optimizer2]
     # AGC targets: AdamW aux groups (embed, lm_head, scalars). Built from optimizer1
     # param groups to track exactly the same params AdamW updates.
@@ -1029,10 +1078,25 @@ for trial_idx in range(args.num_trials):
                     mu_t = args.muonh_mu_start + cooldown_prog * (args.muonh_mu_end - args.muonh_mu_start)
             else:
                 raise ValueError(f"unknown muonh_mu_schedule: {args.muonh_mu_schedule}")
+            # H310: per-group μ override. -1.0 sentinel keeps the schedule's mu_t; positive
+            # override pins the group's μ to a constant.
             for g in optimizer2.param_groups:
-                g["mu"] = mu_t
+                if g.get("name") == "muonh_shallow" and args.muonh_mu_shallow_override > 0:
+                    g["mu"] = args.muonh_mu_shallow_override
+                elif g.get("name") == "muonh_deep" and args.muonh_mu_deep_override > 0:
+                    g["mu"] = args.muonh_mu_deep_override
+                else:
+                    g["mu"] = mu_t
         else:
             mu_t = 0.95
+            # H310: apply overrides even in 'off' mode so the override flag is independent
+            # of the schedule mode. With both overrides=-1.0 this loop is a no-op
+            # (no param_group write) → bit-identical to the original 'off' baseline.
+            for g in optimizer2.param_groups:
+                if g.get("name") == "muonh_shallow" and args.muonh_mu_shallow_override > 0:
+                    g["mu"] = args.muonh_mu_shallow_override
+                elif g.get("name") == "muonh_deep" and args.muonh_mu_deep_override > 0:
+                    g["mu"] = args.muonh_mu_deep_override
         return muonh_warmup, b2, mu_t
 
 
@@ -1242,6 +1306,13 @@ for trial_idx in range(args.num_trials):
                         muonh_metrics["train/muonh/norm_to_radius_max"] = opt._last_norm_to_radius_max
                     muonh_metrics["train/muonh/warmup_factor"] = muonh_warmup_factor
                     muonh_metrics["train/muonh/effective_lr"] = opt.param_groups[0]["lr"]
+                    # H310: per-group μ telemetry — log the actual μ applied by each
+                    # param_group so override behaviour is verifiable in W&B.
+                    for g in opt.param_groups:
+                        if g.get("name") == "muonh_shallow":
+                            muonh_metrics["body/mu_shallow"] = g["mu"]
+                        elif g.get("name") == "muonh_deep":
+                            muonh_metrics["body/mu_deep"] = g["mu"]
             if telemetry_due and args.aux_agc_clip_ratio > 0 and agc_stats["agc_total"] > 0:
                 muonh_metrics["train/agc/active_fraction"] = agc_stats["agc_clipped"] / agc_stats["agc_total"]
                 muonh_metrics["train/agc/clipped_count"] = agc_stats["agc_clipped"]
