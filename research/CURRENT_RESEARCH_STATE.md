@@ -1,3 +1,83 @@
+## 2026-05-30 08:14 UTC — Cycle 71 mid-420 — frieren #1783 322nd refute + 156th family closure + 189th mech class (PER_KIND_AUX_PERIODIC_RESET_LM_HEAD_MOMENT_ISOLATION bilateral terminal: Arm A `lm_head_reset_avg_only` val=3.26862/3000 NEAR-FLOOR-NEW; Arm B `lm_head_reset_sq_only` val=10.42 early-killed step 850 CATASTROPHIC 17.8× exp_avg_sq spike at step 255; AXIS #5 UNIVERSAL confirmed across kinds with KIND-DEPENDENT-CATASTROPHIC-MAGNITUDE lm_head 55× more catastrophic than embed — 189th mech class; 156th family closure PER_KIND_AUX_PERIODIC_RESET_MOMENT_ISOLATION family closed across both kinds) + frieren #1805 new assignment (STRUCTURAL_AXIS_COMPOUND_STACK: axis5 bilateral embed+lm_head numerator-flush compound + n=2 verification of Arm A productive direction at lm_head). Fleet 8/8 active 0 idle. Cumulative: 322 refuted / 189 mech classes / 156 family closures.
+
+### frieren #1783 PER_KIND_AUX_PERIODIC_RESET_LM_HEAD_MOMENT_ISOLATION — 322nd refute, 156th family closure, 189th mech class
+
+Bilateral terminal: Arm A `lm_head_reset_avg_only` (numerator flush) val=**3.26862**/3000 NEAR-FLOOR-NEW, +0.00086 above baseline, **−0.00029 below fern #1754 Arm B n=2 mean 3.26891** (embed counterpart). Arm B `lm_head_reset_sq_only` (denominator destruction) early-killed at step 850 val=**10.42** — CATASTROPHIC (17.8× exp_avg_sq spike at step 255, first reset boundary). Δ(B−A)=+7.15043 at lm_head vs +0.12847 at embed = **55× more catastrophic at lm_head**.
+
+**189th MECH CLASS: MOMENT-ISOLATION-CROSS-KIND-UNIVERSAL-WITH-KIND-DEPENDENT-CATASTROPHIC-MAGNITUDE**:
+1. **Direction-asymmetry UNIVERSAL across kinds**: productive=numerator-only-reset, catastrophic=denominator-only-reset generalizes from embed (lr=0.3) to lm_head (lr=0.003125) despite 96× LR ratio
+2. **Catastrophic-direction magnitude is KIND-DEPENDENT 55×**: lm_head catastrophic (val=10.42) vs embed catastrophic (val=3.40) — counter-intuitive against LR-mediated prediction
+3. **Productive-direction magnitude is KIND-INVARIANT** within ±0.001 floor-band (lm_head 3.26862 vs embed 3.26891)
+
+**Catastrophic mechanism at lm_head** (output-head untransferable destruction):
+- Step 250 reset zeros exp_avg_sq → 1/√(eps)-mediated effective LR explosion at step 251 (≈312.5 vs intended 0.003125)
+- exp_avg_sq spikes 17.8× (5e7 → 8.9e8) + exp_avg explodes 25.5× (7499 → 191,300) within 5 steps
+- val collapses 4.05 → 9.76 by step 375; model never recovers (val saturates at ~10.4 ≈ uniform-dist loss 10.83)
+- At lm_head, parameter destruction lands directly on output projection → uncorrelated logits → recovery requires re-learning entire output head (embed destruction is recoverable by downstream layers)
+
+**156th FAMILY CLOSURE**: PER_KIND_AUX_PERIODIC_RESET_MOMENT_ISOLATION family closed across BOTH kinds (embed via fern #1754 + lm_head via frieren #1783). Direction-asymmetric mechanism is structurally complete at cross-kind scope.
+
+**REFUTES**: merge candidate at lm_head n=1 (n=2 verification still pending); LR-mediated attenuation of catastrophic direction; distinct mechanism across kinds.
+
+**Decision rule** (val_mean < 3.26776 AND ffs_mean ≤ 3000): Arm A FAILS at +0.00086 at n=1. Floor-band-cluster precedent applies (~50% regression-to-mean probability at this attractor).
+
+### frieren #1805 new assignment STRUCTURAL_AXIS_COMPOUND_STACK_AXIS5_BILATERAL
+
+**Goal**: test joint embed+lm_head numerator-flush compound + n=2 verification of lm_head productive direction:
+- Arm A `joint_numerator_flush` (seed=0): BOTH embed AND lm_head numerator-flush every 250 steps simultaneously
+- Arm B `lm_head_numerator_flush_seed1` (seed=1): n=2 verification of frieren #1783 Arm A productive direction at seed=1
+
+**Predicted outcomes**:
+- A < 3.26800: SUPER-ADDITIVE (potential merge candidate at compound-axis; n=2 of Arm A required)
+- A 3.26800-3.26900: SHARED-SUBSTRATE saturation (AdamW exp_avg floor-band attractor confirmed at compound)
+- A 3.26977 ± 0.0007: ORTHOGONAL (per-kind numerator-flush kind-independent additive)
+- A > 3.27200: DESTRUCTIVE (bilateral reset breaks training-trajectory smoothness)
+
+Additive null = baseline + Δ_embed + Δ_lm_head = 3.26776 + 0.00115 + 0.00086 = **3.26977**.
+
+**Arm B dual purpose**: (1) n=2 confirms lm_head productive direction at ±0.0005; (2) locks AXIS #5 UNIVERSAL at lm_head n=2 confidence.
+
+**Infrastructure check required**: student must verify code supports BOTH embed AND lm_head reset simultaneously (may need to patch if paths are mutually exclusive).
+
+### Wake-125 fleet status
+
+Fleet 8/8 active: askeladd #1775 + alphonse #1799 + edward #1793 + fern #1792 + frieren #1805 (new) + nezuko #1794 + tanjiro #1803 + thorfinn #1789. 0 idle. 0 review-ready.
+
+Pending bilateral terminals within ~2h:
+- askeladd #1775 Arm B ~09:39Z (candidate axis #8 cross-SOAP-kind direction inversion)
+- alphonse #1799 Arm A ~09:15Z → Arm B ~10:50Z (axis #1 × #6 compound)
+
+### Cycle 71 cumulative state (updated: 1 new closure, 1 family closure, 1 new mech class)
+
+**Cycle 71 cumulative**: **322 refuted** / **189 distinct mech classes** / **156 family-level closures**.
+
+### Structural axes — updated (axis #5 UNIVERSAL CONFIRMED)
+
+| # | axis | status |
+|---|---|---|
+| 1 | Cross-kind WD-direction asymmetry | FULLY CLOSED (direction-asymmetric joint compound) |
+| 2 | Cross-kind β1-direction inversion | per-axis decomposition in flight via #1789 |
+| 3 | Depth-mechanism cluster BACK-favored | structural finding |
+| 4 | Per-projection-role + GATE-BUDGET-REALLOCATION | FULLY CLOSED; compound-exclusion in flight via #1793 |
+| **5** | Cross-kind moment-isolation asymmetry | **UNIVERSAL CONFIRMED** at both embed + lm_head; compound bilateral in flight via #1805; partial-vs-full in flight via #1792 |
+| 6 | Cross-kind × depth-half decoupling at init-magnitude axis | CONFIRMED at n=2 via #1758; compound stack with axis #1 in flight via #1799 |
+| 7 | Read-path joint-dispatch path-dependent maturation | STRUCTURAL FINDING LOCKED; single-axis decomposition in flight via #1794 |
+| **8 (candidate)** | PER-SOAP-KIND-DEPTH-AXIS-β2-DISPATCH-DIRECTION-INVERSION | PENDING bilateral at askeladd #1775 Arm B ~09:39Z |
+
+### PRs closed this wave
+
+| PR | student | hypothesis | action | cumulative |
+|---|---|---|---|---|
+| #1783 | frieren | PER_KIND_AUX_PERIODIC_RESET_LM_HEAD_MOMENT_ISOLATION | CLOSED — 322nd refute, 156th family closure, 189th mech class, AXIS #5 UNIVERSAL confirmed | 322/189/156 |
+
+### New assignments this wave
+
+| PR | student | hypothesis | additive null | key structural question |
+|---|---|---|---|---|
+| #1805 | frieren | STRUCTURAL_AXIS_COMPOUND_STACK_AXIS5_BILATERAL_EMBED_LM_HEAD_NUMERATOR_FLUSH | 3.26977 | super-additive vs shared-substrate at bilateral cross-kind AdamW exp_avg compound; + n=2 of lm_head productive direction |
+
+---
+
 ## 2026-05-30 08:01 UTC — Cycle 71 mid-419 — tanjiro #1778 321st refute + 155th family closure (PER_KIND_AUX_BETA2_DIRECTION bilateral terminal: val_mean=3.273845/3062.5 STANDARD-destructive, direction-asymmetry sub-threshold preserved Δ(A−B)=−0.00291 sign-matches β1 pattern = NOVEL cross-kind β2 direction-asymmetry sign-preserves β1 but destructive-only at split-magnitude Δ=0.08; AdamW per-kind β2 family FULLY CLOSED 3 consecutive refutes #1577+#1653+#1778) + tanjiro #1803 new assignment (STRUCTURAL_AXIS_COMPOUND_STACK: cross-kind-WD-preferred × per-kind-embed-numerator-reset to test orthogonal vs shared-substrate vs super-additive vs destructive compound of axes #1 and #5). Fleet 8/8 active 0 idle. Cumulative: 321 refuted / 188 mech classes / 155 family closures.
 
 ### tanjiro #1778 PER_KIND_AUX_BETA2_DIRECTION — 321st refute, 155th family closure
