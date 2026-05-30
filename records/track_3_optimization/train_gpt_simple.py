@@ -84,6 +84,21 @@ def parse_args():
     parser.add_argument('--aux_b2_pulse_target', type=float, default=0.99,
                         help='New aux Adam β2 value to set at --aux_b2_pulse_step. '
                              '0 or negative disables. Default: 0.99 (canonical WIN).')
+    parser.add_argument(
+        "--muon_block_mu_pattern", type=str, default="uniform",
+        choices=["uniform", "ascending", "descending"],
+        help="Per-block body-PMuon μ pattern: uniform (canonical 0.95), "
+             "ascending (low→high across blocks 0..11), "
+             "descending (high→low across blocks 0..11).",
+    )
+    parser.add_argument(
+        "--muon_block_mu_low", type=float, default=0.90,
+        help="Low-μ endpoint for ascending/descending block-μ ramp. Default 0.90.",
+    )
+    parser.add_argument(
+        "--muon_block_mu_high", type=float, default=0.99,
+        help="High-μ endpoint for ascending/descending block-μ ramp. Default 0.99.",
+    )
     parser.add_argument("--seed", type=int, default=1,
                         help="Random seed for torch/numpy/python. Default 1 matches baseline seed.")
     args = parser.parse_args()
@@ -598,12 +613,15 @@ class Muon(torch.optim.Optimizer):
                         state["momentum"] = torch.zeros_like(p)
                         state["L"] = torch.zeros(p.shape[0], p.shape[0], device=p.device, dtype=torch.float32)
                         state["R"] = torch.zeros(p.shape[1], p.shape[1], device=p.device, dtype=torch.float32)
+                    param_mu_map = getattr(self, "_param_mu_map", None)
+                    mu_eff = (param_mu_map.get(id(p), group["mu"])
+                              if param_mu_map is not None else group["mu"])
                     update = pmuon_update(
                         p.grad,
                         state["momentum"],
                         state["L"],
                         state["R"],
-                        mu=group["mu"],
+                        mu=mu_eff,
                         beta_cov=group["beta_cov"],
                         gamma=group["gamma"],
                         ns_a=group["ns_a"],
@@ -761,6 +779,9 @@ if dist.get_rank() == 0:
             "ema_beta_target": args.ema_beta_target if args.ema_beta_target is not None else 0.0,
             "ema_dynamic_ramp_active": int(args.ema_beta_target is not None and args.ema_beta > 0),
             "muon_block_lr_pattern": args.muon_block_lr_pattern,
+            "muon_block_mu_pattern": args.muon_block_mu_pattern,
+            "muon_block_mu_low": args.muon_block_mu_low,
+            "muon_block_mu_high": args.muon_block_mu_high,
             "paramema_refresh_step": args.paramema_refresh_step,
             "paramema_refresh_only": int(args.paramema_refresh_only),
             "aux_b2_pulse_step": args.aux_b2_pulse_step,
@@ -834,6 +855,44 @@ for trial_idx in range(args.num_trials):
             wandb.log({f"muon_block_lr_mult/block_{i}": m for i, m in enumerate(block_mults)},
                       step=0)
     optimizer2._param_lr_mults = param_lr_mults
+
+    # Per-block body-PMuon μ shape (separate axis from per-block LR). Linear
+    # ramp across block index between --muon_block_mu_low and --muon_block_mu_high.
+    # Uniform → keep canonical 0.95 (group default). Otherwise build an id(p)→μ map
+    # consumed inside Muon.step() (same plumbing pattern as _param_lr_mults).
+    param_mu_map = None
+    block_mus = None
+    b0_mu = 0.95
+    b11_mu = 0.95
+    if args.muon_block_mu_pattern != "uniform":
+        mu_lo = args.muon_block_mu_low
+        mu_hi = args.muon_block_mu_high
+        if args.muon_block_mu_pattern == "ascending":
+            block_mus = [mu_lo + (mu_hi - mu_lo) * (i / (NUM_LAYERS - 1))
+                         for i in range(NUM_LAYERS)]
+        elif args.muon_block_mu_pattern == "descending":
+            block_mus = [mu_hi - (mu_hi - mu_lo) * (i / (NUM_LAYERS - 1))
+                         for i in range(NUM_LAYERS)]
+        param_mu_map = {}
+        for name, p in model.named_parameters():
+            if p.ndim >= 2 and name.startswith("blocks."):
+                idx = int(name.split(".")[1])
+                param_mu_map[id(p)] = block_mus[idx]
+        b0_mu = block_mus[0]
+        b11_mu = block_mus[NUM_LAYERS - 1]
+        if dist.get_rank() == 0:
+            print0(f"per-block body-PMuon μ pattern: {args.muon_block_mu_pattern} "
+                   f"(low={mu_lo:.4f}, high={mu_hi:.4f})", console=True)
+            for i, m in enumerate(block_mus):
+                print0(f"  block {i}: μ={m:.4f}", console=True)
+            wandb.log({f"muon_block_mu/block_{i}": m for i, m in enumerate(block_mus)},
+                      step=0)
+            wandb.summary["muon_block_mu_pattern"] = args.muon_block_mu_pattern
+            wandb.summary["muon_block_mu_low"] = mu_lo
+            wandb.summary["muon_block_mu_high"] = mu_hi
+            for i, m in enumerate(block_mus):
+                wandb.summary[f"muon_block_mu/b{i}"] = m
+    optimizer2._param_mu_map = param_mu_map
 
     optimizers = [optimizer1, optimizer2]
     assert set(p for opt in optimizers for group in opt.param_groups
@@ -1154,6 +1213,15 @@ for trial_idx in range(args.num_trials):
                     "muon_block_lr/effective_block_11": muon_group_lr * b11_lr_mult,
                     "muon_block_lr/group_lr": muon_group_lr,
                     "muon_block_lr/ratio_b11_over_b0": b11_lr_mult / b0_lr_mult,
+                }, step=wandb_step)
+            if param_mu_map is not None:
+                wandb.log({
+                    "trial": trial_idx,
+                    "train/step": train_step,
+                    "muon_block_mu/b0": b0_mu,
+                    "muon_block_mu/b11": b11_mu,
+                    "muon_block_mu/ratio_b11_over_b0": b11_mu / b0_mu,
+                    "muon_block_mu/group_default": optimizer2.param_groups[0]["mu"],
                 }, step=wandb_step)
             if ema_params is not None:
                 wandb.log({
