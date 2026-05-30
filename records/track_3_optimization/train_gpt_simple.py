@@ -96,6 +96,17 @@ def parse_args():
                         help="Starting value of µ schedule (used by linear and cooldown_ramp modes).")
     parser.add_argument("--muonh_mu_end", type=float, default=float(os.environ.get("MUONH_MU_END", "0.98")),
                         help="Ending value of µ schedule (used by linear and cooldown_ramp modes).")
+    # H308: per-block-type μ heterogeneity. Sentinel -1.0 = no override (use schedule).
+    parser.add_argument("--muonh_mu_attn_override", type=float,
+                        default=float(os.environ.get("MUONH_MU_ATTN_OVERRIDE", "-1.0")),
+                        help="If >= 0, override μ for attention block params (attn.q/k/v/proj). "
+                             "Default -1.0 (sentinel) = no override, attn params use the regular μ schedule. "
+                             "Pattern A drift-FREE: at -1.0 the override branch is skipped entirely.")
+    parser.add_argument("--muonh_mu_mlp_override", type=float,
+                        default=float(os.environ.get("MUONH_MU_MLP_OVERRIDE", "-1.0")),
+                        help="If >= 0, override μ for MLP block params (mlp.fc/proj). "
+                             "Default -1.0 (sentinel) = no override, mlp params use the regular μ schedule. "
+                             "Pattern A drift-FREE: at -1.0 the override branch is skipped entirely.")
     parser.add_argument("--body_init", type=str, default=os.environ.get("BODY_INIT", "default"),
                         choices=["default", "orthogonal_fnorm_matched", "orthogonal_bottom_damp"],
                         help="Initialization scheme for body MuonH 2D weights (attn.q/k/v, attn.proj, mlp.fc, mlp.proj). "
@@ -675,9 +686,19 @@ class MuonH(torch.optim.Optimizer):
     """
     def __init__(self, params, lr=0.018, weight_decay=0.0, mu=0.95,
                  hyperball=True, budget_mult=1.0, mode="clip"):
-        assert isinstance(params, list) and len(params) >= 1 and isinstance(params[0], torch.nn.Parameter)
+        assert isinstance(params, list) and len(params) >= 1
         assert mode in ("clip", "scale_invariant")
-        params = sorted(params, key=lambda x: x.size(), reverse=True)
+        # H308: accept either a flat Parameter list (single-group) or dict-form
+        # param_groups (multi-group). In both cases we keep the size-descending sort
+        # within each group so the all_gather chunking in step() is unchanged.
+        if isinstance(params[0], torch.nn.Parameter):
+            params = sorted(params, key=lambda x: x.size(), reverse=True)
+        else:
+            assert isinstance(params[0], dict) and "params" in params[0]
+            params = [
+                {**g, "params": sorted(g["params"], key=lambda x: x.size(), reverse=True)}
+                for g in params
+            ]
         defaults = dict(lr=lr, weight_decay=weight_decay, mu=mu,
                         hyperball=hyperball, budget_mult=budget_mult, mode=mode)
         super().__init__(params, defaults)
@@ -855,6 +876,8 @@ if dist.get_rank() == 0:
             "muonh_mu_schedule": args.muonh_mu_schedule,
             "muonh_mu_start": args.muonh_mu_start,
             "muonh_mu_end": args.muonh_mu_end,
+            "muonh_mu_attn_override": args.muonh_mu_attn_override,
+            "muonh_mu_mlp_override": args.muonh_mu_mlp_override,
             "polyak_ema_decay": args.polyak_ema_decay,
         },
     )
@@ -936,11 +959,20 @@ for trial_idx in range(args.num_trials):
                         dict(params=[model.proj.weight], lr=1/320, name="adam_lm_head"),
                         dict(params=[p for p in model.parameters() if p.ndim < 2], lr=0.01, name="adam_scalars")],
                        betas=(0.8, args.aux_beta2_start), eps=args.aux_adamw_eps, weight_decay=0, fused=_aux_fused)
-    optimizer2 = MuonH([p for p in model.blocks.parameters() if p.ndim >= 2],
-                       lr=args.muonh_lr, weight_decay=0.0, mu=0.95,
-                       hyperball=True, budget_mult=args.muonh_budget_mult,
-                       mode=args.muonh_mode)
-    optimizer2.param_groups[0]["name"] = "muonh_blocks"
+    # H308: split body MuonH params into attn vs mlp param_groups so they can take
+    # heterogeneous μ. At default sentinels (-1.0/-1.0), both groups receive the same μ
+    # from the schedule → mathematically identical to single-group baseline.
+    body_named_params = [(n, p) for n, p in model.blocks.named_parameters() if p.ndim >= 2]
+    attn_params = [p for n, p in body_named_params if "attn." in n]
+    mlp_params = [p for n, p in body_named_params if "mlp." in n]
+    assert len(attn_params) + len(mlp_params) == len(body_named_params), \
+        f"H308 split coverage error: attn={len(attn_params)} mlp={len(mlp_params)} total={len(body_named_params)}"
+    optimizer2 = MuonH(
+        [{"params": attn_params, "name": "muonh_attn"},
+         {"params": mlp_params, "name": "muonh_mlp"}],
+        lr=args.muonh_lr, weight_decay=0.0, mu=0.95,
+        hyperball=True, budget_mult=args.muonh_budget_mult,
+        mode=args.muonh_mode)
     optimizers = [optimizer1, optimizer2]
     # AGC targets: AdamW aux groups (embed, lm_head, scalars). Built from optimizer1
     # param groups to track exactly the same params AdamW updates.
@@ -1029,10 +1061,25 @@ for trial_idx in range(args.num_trials):
                     mu_t = args.muonh_mu_start + cooldown_prog * (args.muonh_mu_end - args.muonh_mu_start)
             else:
                 raise ValueError(f"unknown muonh_mu_schedule: {args.muonh_mu_schedule}")
+            # H308: per-block-type override. At default sentinels (-1.0), both groups
+            # receive g["mu"] = mu_t → identical to single-group baseline.
             for g in optimizer2.param_groups:
-                g["mu"] = mu_t
+                if g.get("name") == "muonh_attn" and args.muonh_mu_attn_override >= 0.0:
+                    g["mu"] = args.muonh_mu_attn_override
+                elif g.get("name") == "muonh_mlp" and args.muonh_mu_mlp_override >= 0.0:
+                    g["mu"] = args.muonh_mu_mlp_override
+                else:
+                    g["mu"] = mu_t
         else:
             mu_t = 0.95
+            # H308: override applies even when schedule=off so attention/MLP heterogeneity
+            # can be tested standalone. With both sentinels=-1.0 we leave the optimizer's
+            # default mu=0.95 untouched (bit-identical to baseline).
+            for g in optimizer2.param_groups:
+                if g.get("name") == "muonh_attn" and args.muonh_mu_attn_override >= 0.0:
+                    g["mu"] = args.muonh_mu_attn_override
+                elif g.get("name") == "muonh_mlp" and args.muonh_mu_mlp_override >= 0.0:
+                    g["mu"] = args.muonh_mu_mlp_override
         return muonh_warmup, b2, mu_t
 
 
@@ -1234,6 +1281,9 @@ for trial_idx in range(args.num_trials):
             muonh_metrics = {"trial": trial_idx, "train/step": train_step}
             muonh_metrics["aux/beta2"] = aux_beta2
             muonh_metrics["train/muonh_mu"] = muonh_mu_t
+            # H308: per-group μ telemetry so the audit can confirm overrides are firing.
+            for g in optimizer2.param_groups:
+                muonh_metrics[f"train/muonh_mu_{g.get('name', 'unknown')}"] = g.get("mu", -1)
             for opt in optimizers:
                 if isinstance(opt, MuonH):
                     if telemetry_due:
