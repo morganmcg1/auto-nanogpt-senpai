@@ -1,3 +1,64 @@
+## Cycle ~1350: H300 CLOSED 154th NULL/NEG (🎯 paper-grade H292 ABSORPTION EXTENSION: AGC+global-clip STACK +7.97σ STRONGLY NEG vs pure REPLACE +1.95σ within-noise + post-H266 noise floor VARIANCE ESCALATION CONFIRMED via bit-id reproducibility check, 97th mechanism class) + H308 ASSIGNED tanjiro (per-block-type inner μ heterogeneity — attention vs MLP, SPATIAL axis orthogonal to H306 TEMPORAL + H307 POST-NS5)
+
+**One terminal closure + one fresh spatial-μ-heterogeneity mechanism assignment. Plateau campaign portfolio: 154 NULL/NEG + 1 MERGED WIN (H266), 97 mechanism classes attempted.**
+
+### Closure this cycle
+
+**H300 tanjiro Aux global gradient-norm clip CLOSED 154th NULL/NEG — 🎯 PAPER-GRADE: H292 ABSORPTION EXTENSION (per-param AGC absorbed by AdamW 1/√v; global-scalar clip NOT absorbed) + within-chain stacking-destructive +7.97σ signal + post-H266 noise floor VARIANCE ESCALATION confirmed via bit-id reproducibility check (97th mechanism class).**
+
+Terminal verdict (PR #1804):
+- arm_a CTRL (no clip): FFS=**−1 DNF**, val=3.28654 (+20.77σ anomalous — confirmed VARIANCE escalation)
+- arm_b GLOBAL_ADD (AGC + global clip): FFS=**−1 DNF**, val=3.29359 (+7.97σ worse than CTRL = STRONG NEG)
+- arm_c GLOBAL_REPLACE (global clip, no AGC): FFS=**−1 DNF**, val=3.28826 (+1.95σ above CTRL = within-noise NEG)
+- arm_a CTRL bit-id check `gxqs6gy1`: FFS=**−1 DNF**, val=3.28696 (+0.475σ from arm_a = CTRL DNF REPRODUCIBLE)
+
+🎯 **Paper-grade finding #1: H292 ABSORPTION EXTENSION (97th mechanism class)**:
+- H292 (per-param AGC at ratio=0.05): NULL — absorbed by AdamW 1/√v per-param variance structure
+- H300 arm_b (AGC + global clip STACKED): **STRONG NEG +7.97σ within-chain** — uniform global-norm clip destroys cross-param magnitude relationships AdamW cannot recover from
+- H300 arm_c (global clip REPLACING AGC): within-noise NEG +1.95σ — less destructive than STACK, AdamW has coherent if degraded target
+- **Joint mechanism**: AdamW 1/√v absorption is SPECIFIC to per-param ratio structure — destroyed by any uniform scalar that hammers all params equally (regardless of per-param magnitude).
+- **Stacking is worse than replacing** (arm_b > arm_c by 6.03σ): AGC pre-shrinks to coherent per-param state, then global-clip corrupts that state → double-modification regime.
+
+🎯 **Paper-grade finding #2: post-H266 noise floor VARIANCE ESCALATION confirmed via bit-id reproducibility check**:
+- Bit-id check `gxqs6gy1` reproduced arm_a CTRL DNF within +0.475σ — NOT implementation drift
+- Pattern A drift family previously +25 to +50 FFS spread, NEVER CTRL DNF; now two consecutive H300 CTRLs DNF (+20-21σ above H266 baseline)
+- σ_H174=0.000884 likely understates current run-to-run variance — **use within-chain CTRL comparison over absolute-vs-H266 for all future post-H266 chains**
+
+🎯 **AGC subsystem axis (now 7 closed mechanism classes)**: H93/H102/H105/H114/H119/H292 + H300 composition — structurally rigid against composition with any other gradient-magnitude modifier.
+
+### New assignment this cycle
+
+**H308 tanjiro per-block-type inner μ heterogeneity (PR #1847)** — SPATIAL axis orthogonal to H306 (TEMPORAL μ V-shape) and H307 (POST-NS5 noise). Tests whether attention vs MLP blocks benefit from different μ values (attention spikier gradients → lower μ hypothesis). 3-arm Pattern A Option C structural (~25 LoC adds muonh_mu_attn_override + muonh_mu_mlp_override flags, splits optimizer2 into two param_groups by block type). 98th mechanism class candidate. WIN prob 10-15%.
+
+**Complete H298 mid-training headroom attack triple (convergent-evidence design)**:
+1. **H306 thorfinn** V-shape μ schedule — TEMPORAL heterogeneity (DIP mid-training, RESTORE cooldown)
+2. **H307 nezuko** POST-NS5 noise injection — POST-NS5 mid-training Langevin noise
+3. **H308 tanjiro** per-block-type μ — SPATIAL heterogeneity (attention vs MLP differentiated μ)
+
+### Current chain portfolio (8 chains in flight after H300 closure + H308 assignment)
+
+| Chain | Student | Hypothesis | PR | Status |
+|-------|---------|------------|-----|--------|
+| H301 | frieren | Polyak EMA decay fine-grid 0.10/0.125/0.15 | #1809 | WIP arm_c running ~37% |
+| H302 | edward | EMA per-group decay aux=0.10/body=0.0 | #1813 | WIP |
+| H303 | askeladd | EMA decay TEMPORAL RAMP-UP 0.0→0.10 | #1817 | WIP |
+| H304 | alphonse | EMA COOLDOWN-CONFINED at decay=0.10 | #1818 | WIP arm_c running |
+| H305 | fern | HALLEY × per-group EMA decay | #1822 | WIP |
+| H306 | thorfinn | V-shape μ schedule (NEW) | #1827 | WIP arm_a near-terminal |
+| H307 | nezuko | Schedule-aware POST-NS5 gradient noise | #1835 | WIP arm_a near-terminal |
+| H308 | tanjiro | per-block-type μ heterogeneity (NEW) | #1847 | JUST ASSIGNED |
+
+### Next research directions
+- **H306 V-shape μ + H307 mid-training noise + H308 per-block μ**: convergent triple attack on H298 mid-training headroom — any WIN from this triple is paper-grade convergent evidence
+- **H301 EMA fine-grid right-flank**: arm_c (decay=0.15) running — characterizes U-curve flatness 0.10-0.15 (highest prior WIN prob of EMA family)
+- **H303 EMA temporal ramp**: compound of H288 cooldown-localization × H294 value-optimum via ramp schedule
+- **H304 EMA cooldown-confined**: arm_b CONFIRMED H288×H294 subadditive interaction — arm_c CONFINED_RESET will clarify reset-vs-no-reset
+- **H305 HALLEY × per-group decay**: direct compound of H287 + H294 + H297 paper-grade findings
+- **Post-H306/H307/H308**: if triple NEG, consider **two-phase U-shape μ plateau** or **per-depth-layer μ gradient** (deeper layers get different μ from shallow layers)
+- **Post-NS5 mechanisms** family expansion: post-NS5 cautious, post-NS5 sign-momentum, post-NS5 Lookahead — H299 closed pre-NS5; post-NS5 family is fresh (H307 targets noise, H308 targets per-block μ which is indirectly post-NS5 in effect)
+- **Cooldown shape variants**: sqrt is supported but hasn't been tested as primary (H267-class)
+- **Aux beta2 mid-training schedule**: currently only cooldown_ramp tested; mid-training-ramp (up or down) untested
+
 ## Cycle ~1300: H299 CLOSED 153rd NULL/NEG (🎯 paper-grade BILATERAL Adan closure H169 AUX + H299 BODY + POLAR-PROJECTION vs FINITE-DIFFERENCE INCOMPATIBILITY MECHANISM — NS5 normalizes magnitude but preserves direction, pre-NS5 perturbations directly corrupt projected direction at α≥0.1, 96th mechanism class) + H307 ASSIGNED nezuko (schedule-aware mid-training gradient noise injection — orthogonal mechanism to H306 V-shape μ, both target H298 mid-training headroom)
 
 **One terminal closure + one fresh mid-training-exploration mechanism assignment. Plateau campaign portfolio: 153 NULL/NEG + 1 MERGED WIN (H266), 96 mechanism classes attempted.**

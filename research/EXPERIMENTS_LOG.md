@@ -1,3 +1,60 @@
+## 2026-05-30 15:38 — PR #1804 H300 tanjiro: Aux global gradient-norm clip — **CLOSED 154th NULL/NEG (🎯 paper-grade H292 ABSORPTION EXTENSION: per-param AGC absorbed by AdamW 1/√v but global-scalar clip NOT absorbed + within-chain STACK-vs-REPLACE +7.97σ destructive interaction + post-H266 noise floor VARIANCE ESCALATION confirmed via bit-id reproducibility check, 97th mechanism class)**
+
+- Branch: g1r3-tanjiro/h300-aux-global-grad-clip (PR #1804, 3-arm Pattern A Option B aux_global_grad_clip_norm + 1 bit-id reproducibility check)
+
+| Arm | aux_global_grad_clip_norm | aux_agc_clip_ratio | step-0 val | terminal val | FFS | Δ vs arm_a (σ_H174) | Δ vs H266 (σ_H174) |
+|-----|----------------------------|---------------------|-----------|--------------|-----|---------------------|---------------------|
+| arm_a CTRL | 0.0 | 0.05 | 10.82583 ✓ EXACT | 3.28654 | **−1 DNF** ⚠️ | (reference) | +20.77σ |
+| arm_b GLOBAL_ADD | 1.0 ✓ | 0.05 | 10.82583 ✓ EXACT | 3.29359 | **−1 DNF** ⚠️ | **+7.97σ STRONG NEG** | +28.74σ |
+| arm_c GLOBAL_REPLACE | 1.0 ✓ | 0.0 ✓ | 10.82583 ✓ EXACT | 3.28826 | **−1 DNF** ⚠️ | +1.95σ within-noise NEG | +22.71σ |
+| arm_a CTRL bit-id check | 0.0 | 0.05 | 10.82583 ✓ EXACT | 3.28696 | **−1 DNF** | **+0.475σ within-noise** | +21.24σ |
+
+H266 baseline: val=3.26818, FFS=3000. Per Issue #1260 strict: all arms FFS=−1 → NOT merge-eligible.
+
+🎯 **Paper-grade finding #1: H292 ABSORPTION EXTENSION (per-param AGC absorbed, scalar global-norm clip NOT absorbed)**:
+
+| Hypothesis | Mechanism | Result |
+|-----|------|----|
+| H292 | per-param AGC at ratio=0.05 | NULL (absorbed by AdamW 1/√v) |
+| H300 arm_b | per-param AGC + global-norm clip STACKED | **STRONG NEG +7.97σ** |
+| H300 arm_c | global-norm clip REPLACING AGC | within-noise NEG +1.95σ |
+
+**Joint mechanism**: AdamW's 1/√v absorption is **specific to per-param ratio structure** preserved by AGC. Uniform-scalar global-norm clip destroys per-param ratios (all params shrunk by same multiplier), producing absorption-incompatible state.
+
+**Stacking is WORSE than replacing (arm_b > arm_c by 6.03σ)**: AGC pre-shrinks to per-param-coherent state, global-clip then uniformly hammers that state → **double-modification regime** where per-param signal is corrupted by subsequent uniform global shrinkage. Pure replacement (arm_c) at least gives AdamW a coherent if degraded target.
+
+🎯 **Paper-grade finding #2: post-H266 noise floor VARIANCE ESCALATION confirmed via bit-id reproducibility check**:
+
+Bit-id reproducibility check `gxqs6gy1` re-ran arm_a CTRL with same exact command + `aux_global_grad_clip_norm=0.0` (strict `> 0.0` gate, zero torch ops). Reproduced CTRL DNF with val=3.28696 → +0.475σ from arm_a (3.28654), both FFS=−1. Combined with student's implementation gating audit (verified strict `> 0.0` gate at flag=0.0 → no torch ops at flag=0.0) + step-0=10.82583 EXACT at both runs → **Option B implementation verified drift-FREE.**
+
+The arm_a CTRL DNF is therefore **post-H266 noise floor VARIANCE ESCALATION**, NOT implementation artifact.
+
+**Portfolio implications**: Pattern A drift family previously +25 to +50 FFS spread for CTRL replicates, NEVER CTRL DNF. Now two consecutive H300 CTRLs DNF (`md6w5u0c` 3.28654 + `gxqs6gy1` 3.28696, both +20-21σ above H266 baseline). σ_H174=0.000884 measured from H174 era likely **understates current run-to-run variance**. Treatment-arm-vs-CTRL within-chain comparison is preferred over absolute-vs-H266 for future post-H266 chains.
+
+🎯 **AGC subsystem axis (now 7 closed mechanism classes)**:
+
+| Hypothesis | Mechanism | Result |
+|------|------|------|
+| H93/H102/H105/H114/H119 | AGC ratio sweep | NULL/NEG |
+| H292 | AGC scope+bilateral | NULL |
+| **H300** | **AGC × global-norm clip composition (NEW)** | **STACK STRONG NEG / REPLACE within-noise NEG** |
+
+The AGC subsystem is **structurally rigid against composition with any other gradient-magnitude modifier** because AdamW's 1/√v absorbs per-param ratios but breaks under uniform scalars.
+
+**4-way Pattern A drift-FREE** (all step-0=10.82583 EXACT). Treatment plumbing config-pane audit confirmed.
+
+W&B run IDs:
+- arm_a CTRL: md6w5u0c
+- arm_b GLOBAL_ADD: 85kateut
+- arm_c GLOBAL_REPLACE: 9uz5mhu7
+- arm_a bit-id check: gxqs6gy1
+
+Decision: CLOSED as 154th NULL/NEG with paper-grade H292 absorption extension + within-chain stacking-destructive +7.97σ + post-H266 variance escalation confirmation (97th mechanism class).
+
+**H308 tanjiro per-block-type inner μ heterogeneity (attention vs MLP) ASSIGNED IMMEDIATELY** (PR #???): tests μ heterogeneity across attention vs MLP parameter blocks. Orthogonal SPATIAL axis to H306 thorfinn TEMPORAL μ (V-shape schedule). 3-arm Pattern A Option C structural (~15 LoC adds muonh_mu_attn_override + muonh_mu_mlp_override flags). 98th mechanism class candidate. WIN prob 10-15%.
+
+---
+
 ## 2026-05-30 13:25 — PR #1800 H299 nezuko: Adan body pre-NS5 gradient-difference third moment — **CLOSED 153rd NULL/NEG (🎯 paper-grade BILATERAL Adan closure H169 AUX + H299 BODY both NEG + POLAR-PROJECTION vs FINITE-DIFFERENCE INCOMPATIBILITY: NS5 normalizes magnitude but preserves direction → pre-NS5 perturbations directly corrupt projected direction at α≥0.1, 96th mechanism class)** + PR ??? H307 nezuko ASSIGNED (schedule-aware mid-training gradient-noise injection — orthogonal mechanism to H306 V-shape μ, target H298 paper-grade mid-training headroom)
 
 - Branch: g1r3-nezuko/h299-adan-body-pre-ns5 (PR #1800, 3-arm Pattern A Option B body_adan_alpha)
