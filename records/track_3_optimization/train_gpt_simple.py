@@ -101,6 +101,11 @@ def parse_args():
                         help="EMA decay for SWA-style EMA-eval; None=disabled (control). "
                              "Recommend 0.99-0.9999. When set, val/ema_loss is logged "
                              "and speedrun/first_step_to_target uses the EMA-val crossing.")
+    parser.add_argument("--soap_basis_smooth_beta", type=float, default=0.0,
+                        help="SOAP eigenbasis smooth-blend factor beta in [0, 1). "
+                             "At each QR refresh, blend Q_new = (1-beta)*Q_qr + beta*Q_prev, "
+                             "then re-orthogonalize via QR. beta=0 is current discrete-refresh default. "
+                             "Higher beta smooths basis transitions at the cost of basis lag.")
     args = parser.parse_args()
     args.num_trials = args.num_trials if args.num_trials is not None else (args.legacy_num_trials or 1)
     args.wandb_tags = [tag.strip() for tag in args.wandb_tags.split(",") if tag.strip()]
@@ -111,6 +116,7 @@ def parse_args():
 
 args = parse_args()
 NS_ITER = args.ns_iter
+SOAP_BASIS_SMOOTH_BETA = args.soap_basis_smooth_beta
 
 
 def clean_metric_name(name: str) -> str:
@@ -543,19 +549,26 @@ def soap_eigenbasis(mat: Tensor) -> Tensor:
     return torch.flip(q, [1])
 
 
-def soap_basis_qr(row_gg, col_gg, q_row, q_col, exp_avg_sq):
+def soap_basis_qr(row_gg, col_gg, q_row, q_col, exp_avg_sq, smooth_beta=0.0):
     row_eig = torch.diag(q_row.T @ row_gg @ q_row)
     row_sort = torch.argsort(row_eig, descending=True)
     q_row = q_row[:, row_sort]
     exp_avg_sq = exp_avg_sq.index_select(0, row_sort)
-    q_row, _ = torch.linalg.qr(row_gg @ q_row)
+    q_row_new, _ = torch.linalg.qr(row_gg @ q_row)
 
     col_eig = torch.diag(q_col.T @ col_gg @ q_col)
     col_sort = torch.argsort(col_eig, descending=True)
     q_col = q_col[:, col_sort]
     exp_avg_sq = exp_avg_sq.index_select(1, col_sort)
-    q_col, _ = torch.linalg.qr(col_gg @ q_col)
-    return q_row, q_col, exp_avg_sq
+    q_col_new, _ = torch.linalg.qr(col_gg @ q_col)
+
+    if smooth_beta > 0.0:
+        q_row_blend = (1.0 - smooth_beta) * q_row_new + smooth_beta * q_row
+        q_row_new, _ = torch.linalg.qr(q_row_blend)
+        q_col_blend = (1.0 - smooth_beta) * q_col_new + smooth_beta * q_col
+        q_col_new, _ = torch.linalg.qr(q_col_blend)
+
+    return q_row_new, q_col_new, exp_avg_sq
 
 
 def soap_precondition_momentum(update, state, beta2=SOAP_BETA2, eps=1e-8):
@@ -579,7 +592,8 @@ def soap_update_preconditioner(grad, state, shampoo_beta=SOAP_BETA2, preconditio
         state["q_col"] = soap_eigenbasis(state["col_gg"])
     elif state["soap_step"] > 0 and state["soap_step"] % precondition_frequency == 0:
         state["q_row"], state["q_col"], state["exp_avg_sq"] = soap_basis_qr(
-            state["row_gg"], state["col_gg"], state["q_row"], state["q_col"], state["exp_avg_sq"]
+            state["row_gg"], state["col_gg"], state["q_row"], state["q_col"], state["exp_avg_sq"],
+            smooth_beta=SOAP_BASIS_SMOOTH_BETA,
         )
     state["soap_step"] += 1
 
@@ -786,6 +800,7 @@ if dist.get_rank() == 0:
             "lr_cooldown_shape": args.lr_cooldown_shape,
             "ema_eval_decay": args.ema_eval_decay,
             "ema_eval_enabled": args.ema_eval_decay is not None,
+            "soap_basis_smooth_beta": SOAP_BASIS_SMOOTH_BETA,
         },
     )
 
