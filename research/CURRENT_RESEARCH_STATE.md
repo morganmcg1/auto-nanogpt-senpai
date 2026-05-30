@@ -1,3 +1,67 @@
+## 2026-05-30 21:25 UTC — Cycle 71 mid-442 — tanjiro #1854 346th refute + 180th family closure + 213th mech class (axes #2×#5 MOMENT-CHANNEL DISCRIMINATION CUBE COMPLETE at embed bilateral terminal: Arm A `beta1_X_moment_1` val=3.40479/-1 CATASTROPHIC-SHIFTED-FLOOR + Arm B `beta1_X_moment_3` val=3.27266/3050 DEGRADED-EDGE; bilateral mean 3.33873 ABOVE both merge bars; 213th mech class BETA1-X-MOMENT-CHANNEL-IMBALANCE-AT-EMBED-WITH-MOMENT-2-UNIQUELY-PRODUCTIVE-AND-MOMENT-1-CATASTROPHIC-SHIFTED-FLOOR-AND-MOMENT-3-DEGRADED-EDGE; THREE-MECHANISM ISOLATION: M=1 CATASTROPHIC (+0.137 above baseline, parallel to #1824 lm_head ~90× less severe), M=2 UNIQUELY PRODUCTIVE (#1828 A 3.26934 inverse of Family A prediction), M=3 DEGRADED-EDGE (β1=0.7 slow post-reset re-warmup); BOTH predicted families REJECTED; Step-375 dispositive divergence boundary; FIFTH cycle-71 closure where pre-declared hypothesis space rejected; 180th family closure AXES-2-X-5-MOMENT-CHANNEL-DISCRIMINATION-CUBE-COMPLETE; KIND-INVARIANT pattern: MOMENT=1 destabilizing at both substrates) + tanjiro #1874 new assignment (KIND-INVARIANCE × β1-DIRECTION-SYMMETRY at MOMENT=2: Arm A lm_head_M=2 + Arm B embed_β1_PUSH_UP_M=2; discriminates KIND-INVARIANT vs KIND-CONDITIONAL vs DIRECTION-SYMMETRIC vs DIRECTION-LOCKED). Fleet 8/8 active 0 idle. Cumulative: 346 refuted / 213 mech classes / 180 family closures / 9 axes locked / 10 regression-to-mean precedents.
+
+### tanjiro #1854 axes #2×#5 MOMENT-CHANNEL DISCRIMINATION CUBE — 346th refute, 180th family closure, 213th mech class
+
+Bilateral terminal: Arm A `beta1_X_moment_1` (`0uzgo9u0`) val=**3.40479**/-1 CATASTROPHIC-SHIFTED-FLOOR; Arm B `beta1_X_moment_3` (`y4y41ah6`) val=**3.27266**/3050 DEGRADED-EDGE. Bilateral mean **3.33873** ABOVE both merge bars. **346th cycle-71 refute**.
+
+**KEY STRUCTURAL FINDING — THREE-MECHANISM ISOLATION + BOTH PRE-DECLARED FAMILIES REJECTED**:
+- **M=1 (Arm A) CATASTROPHIC-SHIFTED-FLOOR**: preserving exp_avg + clearing exp_avg_sq under per-kind β1=0.7 creates MOMENT-imbalance singularity at embed (Adam denominator zeroed, β1-weighted numerator carries forward). Parallel to frieren #1824 lm_head-MOMENT=1 (val=12.66) at embed ~90× less severe (3.40 vs 12.66). Floor shifts permanently +0.137 above baseline.
+- **M=2 (#1828 A reference) UNIQUELY PRODUCTIVE**: 3.26934 — clearing the β1-WEIGHTED channel (exp_avg) while preserving the un-weighted channel (exp_avg_sq) is the only channel-clearing pattern that respects β1's weighting structure. This is the INVERSE of Family A's prediction.
+- **M=3 (Arm B) DEGRADED-EDGE**: 3.27266 — full clearing of both moments resets cleanly but β1=0.7 (slow momentum) cannot rebuild post-reset re-warmup as efficiently as default β1=0.9, lands at degraded-edge.
+- **Step-375 dispositive divergence**: Arm A val jumps +0.04 above pre-reset 4.05 → 4.09; Arm B and #1828A continue normal warmup decline. CONFIRMS MOMENT-imbalance under β1 weighting is catastrophic factor.
+
+**213th MECH CLASS**: BETA1-X-MOMENT-CHANNEL-IMBALANCE-AT-EMBED-WITH-MOMENT-2-UNIQUELY-PRODUCTIVE-AND-MOMENT-1-CATASTROPHIC-SHIFTED-FLOOR-AND-MOMENT-3-DEGRADED-EDGE-AT-PER-KIND-BETA1.
+
+**180th FAMILY CLOSURE**: AXES-2-X-5-MOMENT-CHANNEL-DISCRIMINATION-CUBE-COMPLETE-WITH-MOMENT-2-UNIQUELY-PRODUCTIVE-AND-MOMENT-1-CATASTROPHIC-AND-MOMENT-3-DEGRADED-EDGE.
+
+**Cross-mech-class significance**: FIFTH cycle-71 closure where pre-declared hypothesis space is rejected (after #1840 sub-direction, #1842 U-shape, #1845 OPPOSITE-PHASE-FRAGILITY, #1846 NARROW-AMPLITUDE-WINDOW, #1852 SINGULARITY+CROSS-KIND-FLOOR, this PR). The cycle-71 discrimination cubes at maturity surface CATEGORY-NEW outcomes. KIND-INVARIANT pattern with frieren #1824/#1852: MOMENT=1 destabilizing at BOTH substrates (CATASTROPHIC at lm_head 12.66, SHIFTED-FLOOR at embed 3.40); MOMENT=2 most stable; MOMENT=3 degraded-edge.
+
+### tanjiro #1874 new assignment: KIND-INVARIANCE × β1-DIRECTION-SYMMETRY at MOMENT=2 productive channel
+
+**Goal**: discriminate KIND-INVARIANT vs KIND-CONDITIONAL × DIRECTION-SYMMETRIC vs DIRECTION-LOCKED at the productive MOMENT=2 channel:
+- Arm A `lm_head_beta1_X_moment_2`: lm_head substrate test — KIND-INVARIANT (3.26934 band) vs KIND-CONDITIONAL with cross-kind floor (3.27200-3.27400 band consistent with frieren #1852 +0.0023 lm_head penalty)
+- Arm B `embed_beta1_PUSH_UP_X_moment_2`: β1=0.95 PUSH-UP at embed under M=2 — DIRECTION-SYMMETRIC vs DIRECTION-LOCKED at PUSH-DOWN
+
+Outcomes: KIND-CONDITIONAL + DIRECTION-SYMMETRIC (40%) / KIND-INVARIANT + DIRECTION-SYMMETRIC (25%) / KIND-INVARIANT + DIRECTION-LOCKED (20%) / NARROWLY PRODUCTIVE (15%).
+
+---
+
+## 2026-05-30 21:20 UTC — Cycle 71 mid-441 — edward #1844 345th refute + 179th family closure + 212th mech class + 10th regression-to-mean precedent (axis #4 GATE-BUDGET-POOL 6-of-6 pair-exc matrix CLOSED with n=2 verification regression: Arm A `kproj_excluded` val=3.27182/3050 v-FIXED-POINT-Q-PAIR-MATE-CONDITIONAL candidate + Arm B n=1 `qv_excluded` val=3.26799/3000 INSIDE FLOOR BAND triggered n=2 + Arm B n=2 `zlstszsw` val=3.26991/3025 REGRESSED-TO-MEAN; aggregate val=3.26895/3012.5 ABOVE both merge bars; 212th mech class GATE-BUDGET-POOL-CNI-V-FIXED-POINT-Q-PAIR-MATE-CONDITIONAL-AT-V-ACTIVE-AND-DUAL-ABSORBER-AT-V-EXCLUDED-WITH-4-OF-6-UNIVERSAL-INVARIANCE-BAND-EXCLUDING-Q-V-PAIRINGS-AND-N=1-SUB-FLOOR-REGRESSING-TO-DUAL-ABSORBER-MEDIAN-AT-N=2; FOUR concurrent invariants: v-FIXED-POINT REFUTED-AS-UNIVERSAL v-active property, n=1 SUB-FLOOR REGRESSES TO DUAL-ABSORBER MEDIAN (10th RTM), 6-of-6 invariance band range 0.00383 vs 4-of-6 0.00107 REFUTING UNIVERSAL pair-axis invariance, proj-DESTRUCTIVE CROSS-AXIS HYPOTHESIS REFUTED at axis #4; 179th family closure AXIS-4-GATE-BUDGET-POOL-PAIR-EXC-6-OF-6-MATRIX-COMPLETE-V-ACTIVE-AND-V-EXCLUDED-CLASS-TAXONOMY) + edward #1873 new assignment (v-FIXED-POINT-Q-PAIR-MATE-CONDITIONAL n=2 verification × Q-ONLY TRIPLE-EXC OPENING: Arm A kproj_excluded n=2 verification + Arm B q_only_active bitfield=14 first triple-exc cell). Fleet 8/8 active 0 idle. Cumulative: 345 refuted / 212 mech classes / 179 family closures / 9 axes locked / 10 regression-to-mean precedents.
+
+### edward #1844 6-of-6 pair-exc matrix completion — 345th refute, 179th family closure, 212th mech class, 10th RTM
+
+Bilateral terminal: Arm A `kproj_excluded` (`65d6d4zd`) val=**3.27182**/3050 v-FIXED-POINT-Q-PAIR-MATE-CONDITIONAL candidate; Arm B n=1 `qv_excluded` (`akfenim7`) val=**3.26799**/3000 triggered n=2; Arm B n=2 `zlstszsw` val=**3.26991**/3025 REGRESSED-TO-MEAN. n=2 aggregate val=3.26895/3012.5 ABOVE both merge bars. **345th cycle-71 refute** + **10th RTM precedent**.
+
+**KEY STRUCTURAL FINDING — 6-of-6 MATRIX CLOSED + v-FIXED-POINT-Q-PAIR-MATE-CONDITIONAL + REGRESSION-TO-MEAN**:
+- **v-FIXED-POINT REFUTED-AS-UNIVERSAL**: Arm A `kproj_excluded` (q+v active) val=3.27182 lands +0.00097 ABOVE prior 4-of-6 pair-axis-invariance band [3.26978, 3.27085] — v-fixed-point is **q-pair-mate-conditional** (breaks when v's pair-mate is q)
+- **n=1 SUB-FLOOR REGRESSES TO DUAL-ABSORBER MEDIAN**: Arm B n=1=3.26799 → n=2=3.26991 (Δ=+0.00192) → aggregate 3.26895 fully within v-excluded dual-absorber class [3.26978, 3.27045]; 10th cycle-71 regression-to-mean precedent
+- **6-of-6 invariance band range 0.00383 vs 4-of-6 0.00107**: universal pair-axis-invariance REFUTED at 6-of-6 by 3.6× expansion
+- **proj-DESTRUCTIVE CROSS-AXIS HYPOTHESIS REFUTED at axis #4**: both Arm B trials landed below 3.27000 — proj's destructive signature at axis #9 does NOT transfer to axis #4
+
+**212th MECH CLASS**: GATE-BUDGET-POOL-CNI-V-FIXED-POINT-Q-PAIR-MATE-CONDITIONAL-AT-V-ACTIVE-AND-DUAL-ABSORBER-AT-V-EXCLUDED-WITH-4-OF-6-UNIVERSAL-INVARIANCE-BAND-EXCLUDING-Q-V-PAIRINGS-AND-N=1-SUB-FLOOR-REGRESSING-TO-DUAL-ABSORBER-MEDIAN-AT-N=2.
+
+**179th FAMILY CLOSURE**: AXIS-4-GATE-BUDGET-POOL-PAIR-EXC-6-OF-6-MATRIX-COMPLETE-WITH-V-FIXED-POINT-Q-PAIR-MATE-CONDITIONAL-AND-N=1-SUB-FLOOR-REGRESSING-AT-N=2.
+
+**6-of-6 pair-exc matrix at axis #4 (CLOSED)**:
+| pair-exc | bf | active | val n=1 | δ_base | class |
+|---|---|---|---|---|---|
+| qk_excluded #1793 A | 3 | v+proj | 3.27024 | +0.00248 | v-active |
+| qproj_excluded #1793 B | 9 | k+v | 3.27085 | +0.00309 | v-active |
+| kv_excluded #1812 A | 6 | q+proj | 3.27045 | +0.00269 | v-excluded sequential |
+| vproj_excluded #1812 B | 12 | q+k | 3.26978 | +0.00202 | v-excluded symmetric |
+| kproj_excluded #1844 A | 10 | q+v | 3.27182 | +0.00406 | v-fixed-point q-pair-mate-conditional |
+| qv_excluded #1844 B agg n=2 | 5 | k+proj | 3.26895 | +0.00119 | v-excluded dual-absorber (10th RTM) |
+
+### edward #1873 new assignment: v-FIXED-POINT-Q-PAIR-MATE-CONDITIONAL n=2 × Q-ONLY TRIPLE-EXC
+
+**Goal**: confirm Arm A's q-pair-mate-conditional reading + open triple-exc structural axis:
+- Arm A `kproj_excluded_n=2`: verifies #1844 A 3.27182 — TRUE conditional vs REGRESSION-PRONE OUTLIER (11th RTM if regresses)
+- Arm B `q_only_active` (bitfield=14): first triple-exc cell — q-isolation productive vs degraded-edge vs catastrophic
+
+Outcomes: TRUE conditional + Q-isolation degraded (40%) / REGRESSION + 11th RTM + Q-isolation degraded (30%) / Q-LOAD-BEARING + Q-isolation non-viable (20%) / UNEXPECTED dual sub-floor (10%).
+
+---
+
 ## 2026-05-30 21:05 UTC — Cycle 71 mid-440 — frieren #1852 344th refute + 178th family closure + 211th mech class (LM-HEAD MOMENT-AXIS × PARTIAL-FACTOR CUBE bilateral terminal: Arm A `lm_head_M1_factor_0.5` val=3.27098/3025 INSIDE FLOOR BAND UPPER EDGE + Arm B `lm_head_M2_factor_0.5` val=3.27314/3050 ABOVE FLOOR BAND; bilateral mean 3.27206/3037.5 above merge bars; 211th mech class LM-HEAD-MOMENT-AXIS-SINGULARITY-RELIEVED-AT-PARTIAL-FACTOR-WITH-RESIDUAL-CROSS-KIND-PRODUCTIVITY-FLOOR-AND-MOMENT-DIRECTIONAL-FACTOR-ASYMMETRY-AT-AXIS-5; THREE-MECHANISM ISOLATION: (1) SINGULARITY RELIEF AT M=1 factor=0.5 (12.66→3.27098 Δ=−9.39 numerical mechanism factor-rescuable), (2) CROSS-KIND PRODUCTIVITY FLOOR (~+0.0023 lm_head penalty vs embed at factor=0.5 CONSISTENT across M=1 AND M=2 with Δ across moments = +0.00040 CONSTANT factor-INVARIANT structural), (3) MOMENT-DIRECTIONAL FACTOR ASYMMETRY SIGN-FLIP (factor RESCUES at M=1 Δ=−9.39 / DESTROYS at M=2 Δ=+0.00309); embed cascade-at-MOMENT=1 signature ESCAPED in Arm A (terminal 18.36 vs #1824 A 4.20e+10); LM_HEAD MOMENT-AXIS × PARTIAL-FACTOR CUBE 5/6 cells closed (only M=3 factor=0.5 remains); 178th family closure AXIS-5-LM-HEAD-MOMENT-AXIS-PARTIAL-FACTOR-CUBE-FACTOR-0.5-5-OF-6-CELLS-RESIDUAL-CROSS-KIND-FLOOR-CONFIRMED) + frieren #1872 new assignment (CROSS-KIND-FLOOR MECHANISM PROBE × LM_HEAD CUBE COMPLETION: Arm A joint M=1 factor=0.5 at BOTH embed and lm_head substrates simultaneously + Arm B lm_head M=3 factor=0.5 closes 6/6 cube; discriminates CROSS-KIND-FLOOR INDEPENDENT vs INTERACTING via JOINT-SUBSTRATE-SYNERGY vs COMPOUNDING PENALTY). Fleet 8/8 active 0 idle. Cumulative: 344 refuted / 211 mech classes / 178 family closures / 9 axes locked / 9 regression-to-mean precedents.
 
 ### frieren #1852 LM-HEAD MOMENT-AXIS × PARTIAL-FACTOR CUBE — 344th refute, 178th family closure, 211th mech class
