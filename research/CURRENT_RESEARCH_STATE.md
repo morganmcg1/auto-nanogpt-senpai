@@ -9,7 +9,34 @@ The human research team has redirected: **FFS (first-step-to-target, baseline 30
 3. **Prefer experiments that move the crossing step** (2800-3050 window), **simplify winning stacks**, **reveal FFS-load-bearing components**.
 4. **Ablations preferred over confirmations** when FFS dead.
 
-## Last updated: 2026-05-29 19:05Z (59th R5 result: frieren #1677 lr_attn closed clean-NEG; frieren reassigned to #1736 ema_eval_decay)
+## Last updated: 2026-05-30 02:36Z (50 R5 axis closures total; AdamW aux-group fully exhausted, mu-decouple imminent NEG)
+
+### Notes (2026-05-30 02:36Z) — POST-COMPACTION RESUME
+
+- **★ CLOSED #1723 nezuko lr_scalars VALUE retune** [49th R5 closure, 02:15Z] — clean-NEG. Sweep [0.015, 0.020, 0.030, 0.045] all tied FFS_ema=2925. val/ema_corr non-monotonic (single-seed blip pattern). Hypothesis "musoft × LN-gain coupling needs higher lr_scalars" FALSIFIED. **AdamW aux-group fully exhausted**: β₁ + β₂ + ε + cooldown_mu (tetrad) + lr_scalars VALUE all closed. Memory `[lr_scalars_value_closed_at_r5]` written. ACCEPT only aux-side STRUCTURAL changes from here.
+- **★ CLOSED #1716 thorfinn per-class WD-schedule SHAPE** [50th R5 closure, 02:24Z] — clean-NEG-on-FFS, val-marginal. B★ (mlp=ramp_down, attn=constant) ties A at FFS_ema=2925 (no FFS signal), val=3.26875 = −1.4σ_4 vs baseline μ_4=3.269600. C/D/E NEG-on-val and NEG-on-FFS. Per-class body-Muon SHAPE-decoupling cluster now saturated: cooldown SHAPE (edward #1664 n=4 t0=2925/t1=2925/t2=2925/t3=2925, μ=2925 NEG) + WD SHAPE both close clean-NEG. attn=constant val-marginal but not FFS-load-bearing.
+- **★ ASSIGNED #1767 frieren: SOAP basis-refresh QR-iteration count** — 5 cells A=1 (ctrl), B★=2, C=3, D=5, E=0 (sort-only falsifier). Adds `--soap_qr_iter` flag. Subspace iteration depth — fresh structural axis (NS-internal/SOAP-internal cluster).
+- **★ ASSIGNED #1769 nezuko: Muon momentum-buffer warm-start** from step-0 gradient. 5 cells A=0.0 (ctrl), B★=1.0, C=0.5, D=2.0, E=-1.0 (reversed-sign falsifier). Adds `--muon_momentum_warmstart` flag. **Aux-group exhausted → moved to body-init axis**; symmetric counterpart to fern #1721 SOAP Gram warm-init.
+- **★ ASSIGNED #1772 thorfinn: SOAP Gram-EMA β₂ per-class decoupling** (β₂_mlp vs β₂_attn). 5 cells around (0.95, 0.95) ctrl: A=(0.90,0.90), B★=(0.85,0.95), C=(0.95,0.85 INVERT), D=(0.85,0.85), E=(0.70,0.99 extreme falsifier). Adds `--soap_beta2_mlp` and `--soap_beta2_attn` flags. Per-class SOAP-internal decoupling — distinct from #1772 axis closures.
+
+### Live fleet (02:36Z, 8/8 occupied)
+| Student | PR | Current cell/trial | Progress |
+|---|---|---|---|
+| alphonse | #1689 | n=4 confirm trial 2/4 (SOAP Gram β₂ warmup) | step 7126/13000 (~55%) — mixed: t0=2925 NEG, t1=2875 POS |
+| askeladd | #1720 | Cell E (mu_mlp=0.95, mu_attn=0.85 extreme falsifier) | step 2590/3250 (~80%) — heading clean-NEG (A=B=C=2925, D=2975) |
+| edward | #1761 | Cell A (R5 stack pruning ablation leave-one-out) | step 2231/3250 (~69%) — 4 cells to go |
+| fern | #1721 | Cell E (orth-random falsifier) | step 1763/3250 (~54%) — A=2925, B=2875 lone-pos seed-noise pattern, C=D=2925 |
+| frieren | #1767 | Cell A (qr_iter=1 ctrl) | step 871/3250 (~27%) — just assigned |
+| nezuko | #1769 | Cell A (warmstart scale=0.0 ctrl) | step 542/3250 (~17%) — just assigned |
+| tanjiro | #1715 | n=4 confirm trial 1/4 (B=8/32@1625 schedule) | step 83 — just launched (lone n=1 pos via EMA, memory rule flagged in comment) |
+| thorfinn | #1772 | Cell A (β₂_mlp=β₂_attn=0.90) | step 23 — just launched |
+
+### Immediate watch-list (next 1-2 hrs)
+- askeladd Cell E ETA ~20 min → likely 51st R5 closure (mu_mlp/mu_attn DECOUPLE axis NEG)
+- fern Cell E ETA ~30 min → student decision on Cell B n=4 confirm (memory flags seed-noise tail)
+- alphonse trial 2/4 ETA ~60 min, trial 3/4 ETA ~120 min → defines SOAP Gram β₂ warmup verdict
+- tanjiro n=4 confirm ETA ~8 hr (just started)
+- edward sequential A→E cells ETA ~10 hr total
 
 ### Notes (2026-05-29 19:05Z)
 
