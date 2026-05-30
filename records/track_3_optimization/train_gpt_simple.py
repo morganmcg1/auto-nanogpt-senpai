@@ -84,6 +84,13 @@ def parse_args():
     parser.add_argument('--aux_b2_pulse_target', type=float, default=0.99,
                         help='New aux Adam β2 value to set at --aux_b2_pulse_step. '
                              '0 or negative disables. Default: 0.99 (canonical WIN).')
+    parser.add_argument("--body_muon_cov_reset_step", type=int, default=-1,
+                        help="Hard zero reset L_cov/R_cov of body PMuon at this step "
+                             "(-1 = disabled). Does NOT touch momentum buffer.")
+    parser.add_argument("--body_muon_cov_reset_scope", type=str, default="both",
+                        choices=["both", "L", "R"],
+                        help="Which cov state(s) to zero at the reset step "
+                             "(default 'both' matches frieren #1780).")
     parser.add_argument("--seed", type=int, default=1,
                         help="Random seed for torch/numpy/python. Default 1 matches baseline seed.")
     args = parser.parse_args()
@@ -765,6 +772,8 @@ if dist.get_rank() == 0:
             "paramema_refresh_only": int(args.paramema_refresh_only),
             "aux_b2_pulse_step": args.aux_b2_pulse_step,
             "aux_b2_pulse_target": args.aux_b2_pulse_target,
+            "body_muon_cov_reset_step": args.body_muon_cov_reset_step,
+            "body_muon_cov_reset_scope": args.body_muon_cov_reset_scope,
             "seed": args.seed,
         },
     )
@@ -1071,6 +1080,31 @@ for trial_idx in range(args.num_trials):
                 group["betas"] = new_betas
             print0(f"[step {step}] aux_b2_pulse: β2 {old_b2} → {args.aux_b2_pulse_target}",
                    console=True)
+        if args.body_muon_cov_reset_step > 0 and step == args.body_muon_cov_reset_step:
+            scope = args.body_muon_cov_reset_scope
+            n_L = 0
+            n_R = 0
+            for p_group in optimizer2.param_groups:
+                for p in p_group["params"]:
+                    if p in optimizer2.state:
+                        st = optimizer2.state[p]
+                        if scope in ("both", "L") and "L" in st:
+                            st["L"].zero_()
+                            n_L += 1
+                        if scope in ("both", "R") and "R" in st:
+                            st["R"].zero_()
+                            n_R += 1
+            print0(f"[step {step}] body PMuon cov reset scope={scope} "
+                   f"(L zeroed: {n_L}, R zeroed: {n_R})", console=True)
+            if dist.get_rank() == 0 and wandb.run is not None:
+                wandb.run.summary[f"body_muon_cov_reset_step_{step}"] = max(n_L, n_R)
+                wandb.run.summary["body_cov_reset/scope_label"] = scope
+                scope_code = {"both": 0, "L": 1, "R": 2}[scope]
+                wandb.log({
+                    "body_cov_reset/scope_code": scope_code,
+                    "body_cov_reset/n_L": n_L,
+                    "body_cov_reset/n_R": n_R,
+                }, step=wandb_step)
         for opt in optimizers:
             opt.step()
         # EMA buffer update on body-Muon matrix params.
