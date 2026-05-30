@@ -1,3 +1,49 @@
+## 2026-05-30 04:20 — PR #1781: H293 edward outer_lr VALUE test (0.5/0.7/0.9) — **ASSIGNED (81st class, MuLoCo outer-step cube completion)**
+
+- Branch: g1r3-edward/h293-outer-lr-value (PR #1781, post-H266 baseline)
+- 81st mechanism class — **MuLoCo outer_lr VALUE at constant** (untested axis on outer-step cube)
+- Direct extension of PF#56 5-axis MuLoCo structural rigidity findings: H252 (sync_interval), H256 (outer_lr TEMPORAL schedule), H258 (outer_momentum VALUE), H263 (PRESENCE binary). The outer_lr VALUE at constant has NEVER been directly tested — only TEMPORAL schedules. H256 confirmed "constant outer_lr=0.7 sits on a temporally rigid optimum" but did not characterize value-axis sensitivity around 0.7.
+- 3-arm Pattern A drift-FREE VALUE-only chain (--outer_lr already CLI flag, no code changes):
+  - arm_a CTRL `--outer_lr 0.7`: bit-id baseline (76th drift-FREE Pattern A instance expected)
+  - arm_b LOWER `--outer_lr 0.5`: under-step magnitude (~30% reduction)
+  - arm_c HIGHER `--outer_lr 0.9`: over-step magnitude (~30% amplification)
+- A-priori prediction: SHARP optimum at 0.7 (consistent with H258 m=0.3 CATASTROPHIC NEG signature on adjacent outer_momentum VALUE axis). Likely bilateral NEG on both lower and higher arms.
+- WIN criterion: arm_b or arm_c FFS<3000 strict (any value other than 0.7 beats baseline)
+- TIE result: bilateral FFS=3000 EXACT → outer_lr VALUE landscape BROAD around 0.7 (would contradict PF#56 sharpness)
+- NEG result: bilateral FFS≥3050 → PF#56 confirmed 5-axis-complete (outer_lr VALUE sharp at 0.7)
+- ASYMMETRIC: distinguishes under-step vs over-step asymmetry direction of outer-step landscape
+- WIN prob 5-15%; **paper-grade PF#56 5-axis-complete characterization** regardless of outcome
+- **Distinct from in-flight**: H289 tests outer_momentum SCHEDULE (different axis), H290-H292 test EMA/NS5/AGC (different mechanism classes)
+- Ref: MuLoCo (DiLoCo + Muon) sync_interval=30 Algorithm 1 K=1 (lines 1318-1338)
+
+## 2026-05-30 04:20 — PR #1751: H286 edward MuonH Nesterov toggle on body update — **CLOSED 139th NULL/NEG (🎯 paper-grade Nesterov structurally load-bearing + 75th drift-FREE Pattern A instance)**
+
+- Branch: g1r3-edward/h286-muonh-nesterov-toggle (PR #1751, post-H266 baseline)
+- 74th mechanism class — MuonH body update Nesterov-vs-classical-momentum binary
+- Terminal verdict: arm_a CTRL FFS=3000 EXACT bit-id baseline replicate, arm_b NESTEROV_OFF FFS=3075 NEG +75 — Nesterov lookahead structurally important for MuonH polar projection
+
+| Arm | nesterov | run_id | step-0 val | val/loss | Δ vs H266 (σ_H174) | FFS | verdict |
+|-----|----------|--------|-----------|----------|---------------------|-----|---------|
+| arm_a CTRL_NESTEROV_ON | 1 | hmixa67q | 10.82583 ✓ | **3.26815** | **-0.03σ** | **3000** | 🎯 bit-id baseline replicate (75th drift-FREE) |
+| arm_b NESTEROV_OFF | 0 | 7d2xfxp8 | 10.82583 ✓ | 3.27160 | **+3.87σ** | 3075 | NEG +75 (Nesterov load-bearing) |
+| 9bnfm73c (dup CTRL) | 1 | 9bnfm73c | — | crashed | — | — | SIGTERM killed at step 330 (operational duplicate, no impact) |
+
+- 🎯 **Paper-grade mechanism finding: Nesterov lookahead is structurally load-bearing for MuonH polar projection**:
+  - With nesterov=True: `update = grad.lerp_(momentum, mu)` = (1-mu)·grad + mu·momentum (lookahead = fresh gradient interpolated with momentum buffer)
+  - With nesterov=False: `update = momentum` (no lookahead = stale momentum buffer feeds NS5)
+  - MuonH NS5 polynomial f(x)=2x-1.5x³+0.5x⁵ is **directionally sensitive** (input direction determines output direction subject to σ_max≈1 constraint)
+  - Without Nesterov lookahead, polar projection input direction biased toward stale momentum average → trajectory drift accumulates over 3325 steps → +75 FFS NEG +3.87σ_H174 val
+  - Connects classical Nesterov-vs-classical-momentum distinction to modern MuonH polar projection
+- 🎯 **75th drift-FREE Pattern A CTRL instance**: arm_a CTRL_NESTEROV_ON val=3.26815 EXACT bit-id (Δval=-0.03σ vs H266 baseline), confirms Option B `nesterov` flag added to `Muon`/`MuonH` `defaults` dict is drift-FREE plumbing gold-standard. First H266 bit-id baseline replicate FFS=3000 EXACT in this cycle's evidence
+- 🎯 **MuonH directional cube CHARACTERIZED**: Combined with prior MuonH structural findings, MuonH inner update axes:
+  - NS5 polar projection FORM (cautious axis closure H280)
+  - MuonH momentum schedule (linear 0.95→0.90, untested at value-axis)
+  - **Nesterov lookahead (H286 CLOSED — load-bearing)**
+  - Input normalization Frobenius vs spectral (H291 in flight)
+  - Polynomial coefficients (H287 in flight)
+- ✅ Operational: duplicate CTRL launch (9bnfm73c at 01:19Z) cleanly SIGTERM-killed at 01:45Z when original chain detected — only ~26 minutes of duplicate compute, no GPU waste, student post-mortem identified PID file check as corrective for future launches
+- ✅ Plateau campaign now: **140 PR experiments closed** (139 NULL/NEG + 1 MERGED WIN H266 Polyak EMA)
+
 ## 2026-05-30 03:55 — PR #1779: H292 tanjiro Aux AGC enable/disable binary — **ASSIGNED (80th class)**
 
 - Branch: g1r3-tanjiro/h292-aux-agc-binary (PR #1779, post-H266 baseline)

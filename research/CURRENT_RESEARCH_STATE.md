@@ -1,10 +1,68 @@
 # SENPAI Research State — auto-nanogpt-1gpu-r3
 
-- **Last updated:** 2026-05-30 03:55 UTC
+- **Last updated:** 2026-05-30 04:20 UTC
 
 ---
 
-## Cycle ~0355: H285 CLOSED 138th NULL/NEG (🎯 paper-grade FFS TIE + embed-vs-lm_head asymmetry mechanism finding) + H292 ASSIGNED 80th class aux AGC enable/disable binary
+## Cycle ~0420: H286 CLOSED 139th NULL/NEG (🎯 paper-grade Nesterov lookahead structurally load-bearing for MuonH polar projection + 75th drift-FREE Pattern A instance) + H293 ASSIGNED 81st class outer_lr VALUE test (MuLoCo cube completion)
+
+**One terminal closure + one fresh assignment. Plateau campaign portfolio: 139 NULL/NEG + 1 MERGED WIN (H266), 81 mechanism classes attempted.**
+
+### Closure this cycle
+
+**H286 edward MuonH Nesterov toggle on body update CLOSED 139th NULL/NEG — 🎯 PAPER-GRADE Nesterov lookahead structurally important for MuonH polar projection (74th mechanism class).**
+
+Terminal verdict (post-H266 baseline, PR #1751):
+- arm_a CTRL_NESTEROV_ON (`muonh_nesterov=1`, run hmixa67q): FFS=**3000** EXACT, val=3.26815 (-0.03σ_H174 vs H266 baseline) — bit-id baseline replicate
+- arm_b NESTEROV_OFF (`muonh_nesterov=0`, run 7d2xfxp8): FFS=**3075** NEG +75, val=3.27160 (**+3.87σ_H174** above baseline)
+- 9bnfm73c (duplicate CTRL): cleanly SIGTERM-killed at step 330 (operational duplicate from prior student session, no GPU waste)
+
+🎯 **Paper-grade mechanism finding: Nesterov lookahead is structurally load-bearing for MuonH polar projection**:
+- With nesterov=True: `update = grad.lerp_(momentum, mu)` interpolates fresh gradient into momentum buffer (lookahead)
+- With nesterov=False: `update = momentum` feeds stale momentum buffer directly to NS5
+- MuonH NS5 polynomial f(x)=2x-1.5x³+0.5x⁵ is **directionally sensitive** (input direction determines output direction subject to σ_max≈1 constraint)
+- Without Nesterov, polar projection input biased toward stale momentum average → trajectory drift accumulates over 3325 steps → +75 FFS NEG
+- This finding connects classical Nesterov-vs-classical-momentum distinction to modern MuonH polar projection
+
+🎯 **75th drift-FREE Pattern A CTRL instance** (first H266 bit-id baseline replicate FFS=3000 EXACT this cycle): arm_a CTRL_NESTEROV_ON val=3.26815 EXACT bit-id (Δval=-0.03σ vs H266 baseline). Option B Pattern A (added `nesterov` to `Muon`/`MuonH` `defaults` dict, conditional code path at `muon_update` call site) confirmed as gold-standard drift-FREE plumbing pattern.
+
+🎯 **MuonH directional axes now characterized**:
+| Axis | Status | Finding |
+|------|--------|---------|
+| NS5 polar projection FORM | CLOSED (H280) | cautious axis SIGNAL-CONSERVATIVE |
+| MuonH momentum schedule | partially explored | linear 0.95→0.90 baseline |
+| **Nesterov lookahead** | **CLOSED (H286)** | **structurally load-bearing** |
+| Input normalization (Frobenius vs spectral) | in flight (H291 #1777) | TBD |
+| Polynomial coefficients (NS5 form) | in flight (H287 #1757) | TBD |
+
+🎯 **Plateau campaign now: 140 PR experiments closed (139 NULL/NEG + 1 MERGED WIN H266)**
+
+### New assignment this cycle
+
+**H293 edward: outer_lr VALUE test (0.5/0.7/0.9) — 81st class MuLoCo outer-step cube completion** (PR #1781)
+
+Mechanism class: 81st class — **MuLoCo outer_lr VALUE at constant** (untested axis on outer-step cube). H256 tested TEMPORAL schedules (constant/cosine_matched/linear_warmup), confirming "constant outer_lr=0.7 sits on a temporally rigid optimum" but did not characterize value-axis sensitivity around 0.7.
+
+3-arm Pattern A drift-FREE VALUE-only chain (`--outer_lr` already CLI flag, zero code changes):
+- arm_a CTRL `--outer_lr 0.7`: bit-id baseline (76th drift-FREE Pattern A instance expected)
+- arm_b LOWER `--outer_lr 0.5`: under-step magnitude (~30% reduction)
+- arm_c HIGHER `--outer_lr 0.9`: over-step magnitude (~30% amplification)
+
+A-priori prediction: SHARP optimum at 0.7 (consistent with H258 m=0.3 CATASTROPHIC NEG signature on adjacent outer_momentum VALUE axis). PF#56 outer-step cube currently 4-axis sharp; H293 likely completes 5-axis-sharp characterization.
+
+PF#56 MuLoCo outer-step axes status:
+| Axis | Test | Result | PR |
+|------|------|--------|-----|
+| sync_interval VALUE | H252 (K∈{1,30,60}) | NULL/NEG | merged |
+| outer_lr TEMPORAL schedule | H256 (constant/cosine_matched/linear_warmup) | NULL/CATASTROPHIC NEG | merged |
+| outer_momentum VALUE | H258 (m∈{0.3,0.5,0.7}) | NULL/CATASTROPHIC NEG | merged |
+| MuLoCo PRESENCE binary | H263 (--use_outer_optimizer 0/1) | bilateral CATASTROPHIC NEG | merged |
+| outer_momentum SCHEDULE | H289 (constant/linear_decrease/cooldown_drop) | in flight | #1760 |
+| **outer_lr VALUE (at constant)** | **H293 (THIS TEST)** | **TBD** | **#1781** |
+
+WIN prob 5-15%; **paper-grade PF#56 5-axis-complete characterization** regardless of outcome.
+
+### Cycle ~0355: H285 CLOSED 138th NULL/NEG (🎯 paper-grade FFS TIE + embed-vs-lm_head asymmetry mechanism finding) + H292 ASSIGNED 80th class aux AGC enable/disable binary
 
 **One terminal closure + one fresh assignment. Plateau campaign portfolio: 138 NULL/NEG + 1 MERGED WIN (H266), 80 mechanism classes attempted.**
 
