@@ -1,3 +1,53 @@
+## 2026-05-30 12:30 UTC — Cycle 71 mid-427 — frieren #1805 329th refute + 163rd family closure + 196th mech class (STRUCTURAL_AXIS_COMPOUND bilateral terminal: Arm A `joint_numerator_flush` embed+lm_head val=3.27199/3050 Arm B `lm_head_alone_seed1` val=3.27148/3025 delta(A-B)=+0.00051; RECALCULATED additive null 3.27263 → Δ_A = −0.00064 ORTHOGONAL; 196th mech class ORTHOGONAL-CROSS-KIND-EXP_AVG-FLUSH-NULL-WITH-LM_HEAD-PRODUCTIVE-DIRECTION-NOT-UNIVERSAL; lm_head MOMENT=2 productive direction NOT universal at n=2; REGRESSION-TO-MEAN PRECEDENT #5 LOCKED; 163rd family closure PER-KIND-AUX-EXP_AVG-FLUSH-BILATERAL-CROSS-KIND-NULL-AT-EMBED-X-LM_HEAD) + frieren #1824 new assignment (STRUCTURAL_CUBE_COMPLETION: axis-#5 moment decomposition at lm_head — MOMENT=1 + MOMENT=3 vs MOMENT=2 reference). Fleet 8/8 active 0 idle. Cumulative: 329 refuted / 196 mech classes / 163 family closures / 9 axes locked.
+
+### frieren #1805 STRUCTURAL_AXIS_COMPOUND — 329th refute, 163rd family closure, 196th mech class
+
+Bilateral terminal at 12:26Z: Arm A `joint_numerator_flush` (embed+lm_head MOMENT=2) val=**3.27199**/3050; Arm B `lm_head_alone_seed1` (lm_head MOMENT=2, seed=1) val=**3.27148**/3025. W&B runs: pbla8jjo (Arm A) + thubnfp3 (Arm B).
+
+**KEY READING FLIP via recalculated additive null**:
+- Original additive null (using seed=0 #1783 A): 3.26977 → Arm A appears DESTRUCTIVE-BORDER at +0.00222
+- **Recalculated null** (using Arm B seed=1 as matched reference): **3.27263** → Arm A at **−0.00064 = ORTHOGONAL / MILDLY SUB-ADDITIVE BENEFICIAL**
+- The "destructive" reading was an artifact of #1783 A being a lucky-seed LOW draw — regression-to-mean precedent #5
+
+**196th MECH CLASS: ORTHOGONAL-CROSS-KIND-EXP_AVG-FLUSH-NULL-WITH-LM_HEAD-PRODUCTIVE-DIRECTION-NOT-UNIVERSAL**:
+1. Cross-kind joint flush is approximately orthogonal (Δ_A vs recalc null = −0.00064, within ±0.0007 band)
+2. No shared AdamW state substrate (per-kind state independently held)
+3. Bilateral synchronized reset benign (lm_head recovery 94.7% in joint context, HIGHER than single-axis 86%)
+4. Step-time invariant — no memory allocation overhead from bilateral hook
+
+**REGRESSION-TO-MEAN PRECEDENT #5**: axis #5 lm_head productive direction (MOMENT=2) does NOT replicate at n=2. #1783 A seed=0 = 3.26862; #1805 B seed=1 = 3.27148; cross-seed Δ = +0.00286; n=2 mean 3.27005 = +0.00229 above baseline. **Axis #5 productive direction confirmed EMBED-ONLY** (fern #1754 B n=2 mean 3.26891 is load-bearing).
+
+**163rd FAMILY CLOSURE**: PER-KIND-AUX-EXP_AVG-FLUSH-BILATERAL-CROSS-KIND-NULL-AT-EMBED-X-LM_HEAD closed.
+
+### thorfinn #1808 Arm A mid-run ack (stale_wip cleared)
+
+Arm A `arm-a-compound-axis1-x-axis2` `5ytn8nml` FINISHED at ~12:14Z: val=**3.27048**, step=3175.
+Arm B `arm-b-wd-joint-preferred-alone` `q7q2ll8i` LAUNCHED at 12:15Z, currently step 375/3175, ETA ~14:02Z.
+
+**Arm A reading at n=1 — PARTIAL CNI STACKING**:
+- Δ vs additive null 3.27191 = **−0.00143** → PARTIAL CNI STACKING band (between shared-substrate 3.26906 and additive null 3.27191)
+- Stacking fraction: −0.00143 of independent-channel prediction −0.00462 = **~31% of independent-channel sum**
+- More than ORTHOGONAL (confirming partial cross-axis CNI), less than SHARED-SUBSTRATE (confirming partial-substrate-sharing model)
+- Arm A passes stat rule: (3.28 − 3.27048)·√1 = 0.00952 ≥ 0.004 ✓
+
+Advisor ack posted at 12:30Z; stale_wip label should clear upon student posting interim SENPAI-RESULT. Awaiting bilateral terminal at ~14:02Z.
+
+### frieren #1824 new assignment: AXIS-#5 MOMENT DECOMPOSITION AT LM_HEAD
+
+**Goal**: close the moment-axis cube at lm_head (paralleling fern #1814 at embed):
+- Arm A `lm_head_second_moment_only` (MOMENT=1, exp_avg_sq only, factor=0.0, interval=250): tests if second-moment flush at lm_head has different behavior than first-moment (MOMENT=2 = non-productive at n=2)
+- Arm B `lm_head_both_moments` (MOMENT=3, both moments, factor=0.0, interval=250): additive null = val_A + 0.00372
+
+Cross-kind cube status after both frieren #1824 + fern #1814 complete:
+- embed × MOMENT={1,2,3} × factor=0.5 × interval=200 (fern #1814 + #1792)
+- lm_head × MOMENT={1,2,3} × factor=0.0 × interval=250 (frieren #1824 + #1805 Arm B)
+
+### Cycle 71 cumulative state (updated: 1 new closure, 1 family closure, 1 new mech class)
+
+**Cycle 71 cumulative**: **329 refuted** / **196 distinct mech classes** / **163 family-level closures** / **9 structural axes locked** / axes #1+#2 FULLY CLOSED (CNI), axis #4 FULLY CLOSED + COMPOUND BILATERAL COMPLETE, axes #8+#9 LOCKED.
+
+---
+
 ## 2026-05-30 11:12 UTC — Cycle 71 mid-426 — alphonse #1799 328th refute + 162nd family closure + 195th mech class (STRUCTURAL_AXIS_COMPOUND bilateral terminal: Arm A `compound_stack` axes#1×#6 val=3.27585/3100 Δ_null=+0.00532 DESTRUCTIVE BAND; Arm B `wd_preferred_alone` val=3.26914/3025 Δ=-0.00098 vs #1765A; FIRST DESTRUCTIVE CROSS-AXIS COMPOUND cycle-71; 195th mech class DEPTH-DEPENDENT-MLP-FC-LOAD-REDISTRIBUTION-AT-AXES-#1-X-#6-COMPOUND-WITH-PRESERVED-EMBED-RMS-SUBSTRATE; 162nd family closure CROSS-AXIS-COMPOUND-AT-AXES-#1-X-#6; embed_rms and trust-gate substrates preserved — mechanism = depth-allocation-conflict; trajectory PEAK Δ at step 2500 mid-cooldown) + alphonse #1820 new assignment (AXIS_COMPOUND_DECOMP: axis-#1 per-kind component × axis-#6 back-tight substrate-driver identification). Fleet 8/8 active 0 idle. Cumulative: 328 refuted / 195 mech classes / 162 family closures / 9 axes locked.
 
 ### alphonse #1799 STRUCTURAL_AXIS_COMPOUND — 328th refute, 162nd family closure, 195th mech class
