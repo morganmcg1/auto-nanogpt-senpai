@@ -84,6 +84,14 @@ def parse_args():
     parser.add_argument('--aux_b2_pulse_target', type=float, default=0.99,
                         help='New aux Adam β2 value to set at --aux_b2_pulse_step. '
                              '0 or negative disables. Default: 0.99 (canonical WIN).')
+    parser.add_argument("--grokfast_start_step", type=int, default=-1,
+                        help="Step at which to start GrokFast slow-EMA amplification on the "
+                             "post-NS5 whitened body-PMuon update. -1=disabled (default).")
+    parser.add_argument("--grokfast_alpha", type=float, default=0.0,
+                        help="GrokFast amplification factor: update_new = update + α · slow_ema(update). "
+                             "0=disabled. Paper default α=2.0.")
+    parser.add_argument("--grokfast_beta", type=float, default=0.98,
+                        help="GrokFast slow EMA decay rate. Paper default 0.98.")
     parser.add_argument("--seed", type=int, default=1,
                         help="Random seed for torch/numpy/python. Default 1 matches baseline seed.")
     args = parser.parse_args()
@@ -587,6 +595,19 @@ class Muon(torch.optim.Optimizer):
         floor_fired_count = 0
         floor_eligible_count = 0
         polar_diag: dict = {}
+        # GrokFast slow-EMA amplification (post-NS5, post-floor, pre-param-update).
+        global_step = getattr(self, "_global_step", -1)
+        grokfast_active = (
+            args.grokfast_start_step > 0
+            and args.grokfast_alpha > 0
+            and global_step >= args.grokfast_start_step
+        )
+        grokfast_fired_count = 0
+        grokfast_eligible_count = 0
+        grokfast_ema_norm_sum = 0.0
+        grokfast_ema_norm_max = 0.0
+        grokfast_update_norm_sum = 0.0
+        grokfast_amplified_norm_sum = 0.0
         for group in self.param_groups:
             params = group["params"]
             params_pad = params + [torch.empty_like(params[-1])] * (world_size - len(params) % world_size)
@@ -618,6 +639,25 @@ class Muon(torch.optim.Optimizer):
                         if 0 < ratio < TARGET_UW:
                             floor_fired_count += 1
                             update.mul_(TARGET_UW / ratio)
+                    if grokfast_active:
+                        grokfast_eligible_count += 1
+                        if "grokfast_slow_ema" not in state:
+                            state["grokfast_slow_ema"] = torch.zeros_like(update)
+                            if rank == 0:
+                                print(f"[step {global_step}] grokfast activated for param "
+                                      f"{tuple(p.shape)}", flush=True)
+                        state["grokfast_slow_ema"].mul_(args.grokfast_beta).add_(
+                            update, alpha=1.0 - args.grokfast_beta)
+                        update_pre_norm = float(update.norm())
+                        update = update + args.grokfast_alpha * state["grokfast_slow_ema"]
+                        update_post_norm = float(update.norm())
+                        grokfast_fired_count += 1
+                        ema_norm_val = float(state["grokfast_slow_ema"].norm())
+                        grokfast_ema_norm_sum += ema_norm_val
+                        if ema_norm_val > grokfast_ema_norm_max:
+                            grokfast_ema_norm_max = ema_norm_val
+                        grokfast_update_norm_sum += update_pre_norm
+                        grokfast_amplified_norm_sum += update_post_norm
                     lr_eff = group["lr"]
                     param_lr_mults = getattr(self, "_param_lr_mults", None)
                     if param_lr_mults is not None:
@@ -627,6 +667,19 @@ class Muon(torch.optim.Optimizer):
                 dist.all_gather(params_pad[base_i:base_i + world_size], params_pad[base_i + rank])
         self._floor_diag = {"fired": floor_fired_count, "eligible": floor_eligible_count}
         self._polar_diag = polar_diag
+        self._grokfast_diag = {
+            "active": int(grokfast_active),
+            "fired": grokfast_fired_count,
+            "eligible": grokfast_eligible_count,
+            "ema_norm_mean": (grokfast_ema_norm_sum / max(1, grokfast_fired_count)),
+            "ema_norm_max": grokfast_ema_norm_max,
+            "update_norm_mean": (grokfast_update_norm_sum / max(1, grokfast_fired_count)),
+            "amplified_norm_mean": (grokfast_amplified_norm_sum / max(1, grokfast_fired_count)),
+            "amplification_ratio": (
+                grokfast_amplified_norm_sum / max(grokfast_update_norm_sum, 1e-12)
+                if grokfast_fired_count > 0 else 1.0
+            ),
+        }
 
 
 def pmuon_spectral_diag(optimizer: torch.optim.Optimizer, gamma: float) -> dict[str, float]:
@@ -765,6 +818,9 @@ if dist.get_rank() == 0:
             "paramema_refresh_only": int(args.paramema_refresh_only),
             "aux_b2_pulse_step": args.aux_b2_pulse_step,
             "aux_b2_pulse_target": args.aux_b2_pulse_target,
+            "grokfast_start_step": args.grokfast_start_step,
+            "grokfast_alpha": args.grokfast_alpha,
+            "grokfast_beta": args.grokfast_beta,
             "seed": args.seed,
         },
     )
@@ -1071,6 +1127,7 @@ for trial_idx in range(args.num_trials):
                 group["betas"] = new_betas
             print0(f"[step {step}] aux_b2_pulse: β2 {old_b2} → {args.aux_b2_pulse_target}",
                    console=True)
+        optimizer2._global_step = step
         for opt in optimizers:
             opt.step()
         # EMA buffer update on body-Muon matrix params.
@@ -1136,6 +1193,23 @@ for trial_idx in range(args.num_trials):
                     "polar/ns_coef_a": NS_A,
                     "polar/ns_coef_b": NS_B,
                     "polar/ns_coef_c": NS_C,
+                }, step=wandb_step)
+            grokfast_diag = getattr(optimizer2, "_grokfast_diag", None)
+            if grokfast_diag is not None:
+                wandb.log({
+                    "trial": trial_idx,
+                    "train/step": train_step,
+                    "grokfast/active": grokfast_diag["active"],
+                    "grokfast/fired": grokfast_diag["fired"],
+                    "grokfast/eligible": grokfast_diag["eligible"],
+                    "grokfast/ema_norm_mean": grokfast_diag["ema_norm_mean"],
+                    "grokfast/ema_norm_max": grokfast_diag["ema_norm_max"],
+                    "grokfast/update_norm_mean": grokfast_diag["update_norm_mean"],
+                    "grokfast/amplified_norm_mean": grokfast_diag["amplified_norm_mean"],
+                    "grokfast/amplification_ratio": grokfast_diag["amplification_ratio"],
+                    "grokfast/start_step": args.grokfast_start_step,
+                    "grokfast/alpha": args.grokfast_alpha,
+                    "grokfast/beta": args.grokfast_beta,
                 }, step=wandb_step)
             wandb.log({
                 "trial": trial_idx,
