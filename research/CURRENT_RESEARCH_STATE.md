@@ -9,7 +9,7 @@ The human research team has redirected: **FFS (first-step-to-target, baseline 30
 3. **Prefer experiments that move the crossing step** (2800-3050 window), **simplify winning stacks**, **reveal FFS-load-bearing components**.
 4. **Ablations preferred over confirmations** when FFS dead.
 
-## Last updated: 2026-05-30 19:46Z (64 R5 closures; thorfinn #1838 Schulz polish nonsquare CLOSED 64th [FFS-NEUTRAL, σ_min lift confirmed but not load-bearing]; thorfinn now idle pending fresh hypothesis)
+## Last updated: 2026-05-30 20:05Z (64 R5 closures; thorfinn #1870 label-smoothing ASSIGNED; all 8 students active)
 
 ### Notes (2026-05-30 19:46Z) — THORFINN #1838 SCHULZ POLISH NONSQUARE CLOSED 64th [FFS-NEUTRAL, KILLS POST-NS5 POLISH FAMILY]
 
@@ -21,8 +21,8 @@ The human research team has redirected: **FFS (first-step-to-target, baseline 30
   - **★★ EXCELLENT MECHANISM ANALYSIS by student**: Schulz polynomial σ → σ(3-σ²)/2 confirmed lifting MLP gradient σ_min 0.8625 → 0.9730 in one step (matches closed-form prediction to bf16 precision). σ_max stays ~1.0. **But FFS doesn't budge** ⇒ **MLP gradient σ_min ∈ [0.86, 0.97] is NOT FFS-load-bearing**.
   - **★ HIGH-VALUE DIAGNOSTIC FINDING**: bf16 gram-residual `‖XX^T-I‖_F` understates polish action by ~200× because cumulative bf16 error in 768 inner products dominates off-diagonal residual. Future polish-family diagnostics should report σ_min map directly or use fp32 gram only for the diagnostic step. Memory saved.
   - **Post-NS5 polish family STRUCTURALLY CLOSED**: #1833 Higham (KG FAIL square attn) + #1825 Cayley (σ-basin mismatch with Frobenius) + #1838 Schulz nonsquare (FFS-NEUTRAL) = the inversion/polynomial-polish cluster cannot move FFS at this baseline. NS5 quintic with ns_iter=6 already overserves MLP orthogonality.
-- **THORFINN NOW IDLE** — researcher-agent dispatched 19:46Z for fresh hypothesis outside NS/orthogonalization cluster. Plateau protocol active.
-- **Fleet at 19:46Z**: alphonse #1860 WIP (Cell A ctrl `823jts3g` step 1872); edward #1858 WIP (Cell A ctrl `vgqqwynh` step 2097); frieren #1841 WIP (Cell A ctrl `4ngqxl6e` step 3091 terminal imminent, FFS_ema=2925); askeladd #1839 WIP (Cell B done FFS=2975, Cell C `c4ypcxqy` step 973); nezuko #1834 WIP (Cell B/C done both FFS=2925, Cell D `olnlrxri` step 431); fern #1826 WIP (Cell A/B done both FFS=2925, Cell C `ag7qqxjw` step 505); tanjiro #1821 WIP (Cell D `rxogqpg0` step 2874); thorfinn IDLE (pending). **7/8 active.**
+- **★ ASSIGNED #1870 thorfinn: Label smoothing α** — first loss-level (training objective) intervention in R5. All 64 closed R5 axes are NS/SOAP/schedule/init variants. `--label_smoothing α` added to train CE only; val always uses 0. 4 cells n=1: A=ctrl(0.0), B★=0.05, C=0.1, D=0.2. KG_smoke gate (50 steps, verify train_loss higher by ~α×log(V)≈1.08 nats, val_loss identical to ctrl). n=4 promotion only if FFS_ema ≤ 2925 AND clean separation from dual-metric seed-noise signature. Honest risk: logit soft-cap tanh_softcap(x,15) may already nullify the high-confidence regime.
+- **Fleet at 20:05Z**: alphonse #1860 WIP; edward #1858 WIP; frieren #1841 WIP; askeladd #1839 WIP; nezuko #1834 WIP; fern #1826 WIP; tanjiro #1821 WIP; thorfinn #1870 WIP (label-smoothing, NEW). **8/8 active, zero idle.**
 
 ### Notes (2026-05-30 18:05Z) — ALPHONSE #1796 NS COEFF PHASE-SCHEDULE CLOSED 63rd [FFS-COSMETIC, FALSIFIER TRIGGERED]; #1860 SOAP-ATN PHASE GATE ASSIGNED; EDWARD→#1858; FRIEREN #1841 iter=20 APPROVED
 
