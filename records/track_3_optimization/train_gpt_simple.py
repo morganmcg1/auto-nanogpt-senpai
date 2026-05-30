@@ -68,6 +68,12 @@ def parse_args():
     parser.add_argument("--ns_iter", type=int, default=12,
                         help="Number of Newton-Schulz iterations in zeropower_via_newtonschulz5. "
                              "Default 12 (current hardcoded value). Lower = less orthogonal but faster.")
+    parser.add_argument("--ns_iter_mlp", type=int, default=None,
+                        help="Override --ns_iter for Muon MLP body matrices (mlp.fc.weight, mlp.proj.weight). "
+                             "Falls back to --ns_iter if None. Used by per-class static NS iter decoupling.")
+    parser.add_argument("--ns_iter_attn", type=int, default=None,
+                        help="Override --ns_iter for Muon attention body matrices (attn.q/k/v/proj.weight). "
+                             "Falls back to --ns_iter if None. Used by per-class static NS iter decoupling.")
     parser.add_argument("--lr_scalars", type=float, default=0.01,
                         help="LR for AdamW adam_scalars group (RMSNorm gains; "
                              "params with ndim < 2). Default 0.01 — hardcoded, "
@@ -111,6 +117,8 @@ def parse_args():
 
 args = parse_args()
 NS_ITER = args.ns_iter
+NS_ITER_MLP = args.ns_iter_mlp if args.ns_iter_mlp is not None else args.ns_iter
+NS_ITER_ATTN = args.ns_iter_attn if args.ns_iter_attn is not None else args.ns_iter
 
 
 def clean_metric_name(name: str) -> str:
@@ -498,7 +506,7 @@ class GPT(nn.Module):
 #              Optimizer               #
 ########################################
 
-def zeropower_via_newtonschulz5(G: Tensor) -> Tensor:
+def zeropower_via_newtonschulz5(G: Tensor, n_iter: int = NS_ITER) -> Tensor:
     assert G.ndim >= 2
     X = G.bfloat16()
     if G.size(-2) > G.size(-1):
@@ -508,7 +516,7 @@ def zeropower_via_newtonschulz5(G: Tensor) -> Tensor:
     X = X / (X.norm(dim=(-2, -1), keepdim=True) + 1e-7)
     # Perform the NS iterations, not optimizing for wallclock speed
     a, b, c = 2, -1.5, 0.5
-    for _ in range(NS_ITER):
+    for _ in range(n_iter):
         A = X @ X.mT
         B = b * A + c * A @ A
         X = a * X + B @ X
@@ -518,17 +526,17 @@ def zeropower_via_newtonschulz5(G: Tensor) -> Tensor:
     return X
 
 @torch.compile
-def muon_update(grad, momentum, mu=0.95, nesterov=True):
+def muon_update(grad, momentum, mu=0.95, nesterov=True, n_iter: int = NS_ITER):
     momentum.lerp_(grad, 1 - mu)
     update = grad.lerp_(momentum, mu) if nesterov else momentum
-    update = zeropower_via_newtonschulz5(update)
+    update = zeropower_via_newtonschulz5(update, n_iter=n_iter)
     update *= max(1, grad.size(-2) / grad.size(-1))**0.5
     return update
 
 
 @torch.compile
-def soap_ns_step(nesterov_update):
-    update = zeropower_via_newtonschulz5(nesterov_update)
+def soap_ns_step(nesterov_update, n_iter: int = NS_ITER):
+    update = zeropower_via_newtonschulz5(nesterov_update, n_iter=n_iter)
     update *= max(1, nesterov_update.size(-2) / nesterov_update.size(-1))**0.5
     return update
 
@@ -589,17 +597,17 @@ class Muon(torch.optim.Optimizer):
     SOAP_ATTN_SUFFIXES = (".attn.q.weight", ".attn.k.weight", ".attn.v.weight", ".attn.proj.weight")
 
     def __init__(self, named_params, lr=0.02, weight_decay=0, mu=0.95,
-                 soap_attn=False, trust_threshold=0.0):
+                 soap_attn=False, trust_threshold=0.0, ns_iter: int = NS_ITER):
         # `named_params` can be either:
         #   (a) list of (name, param) tuples → single param group (legacy form)
-        #   (b) list of dicts {"named_params": [(name, param), ...], "lr": ?, "weight_decay": ?, "mu": ?, "name": ?}
+        #   (b) list of dicts {"named_params": [(name, param), ...], "lr": ?, "weight_decay": ?, "mu": ?, "name": ?, "ns_iter": ?}
         #       → multiple param groups, one per dict
         assert isinstance(named_params, list) and len(named_params) >= 1
         if isinstance(named_params[0], dict):
             groups_raw = named_params
             all_named = [(n, p) for g in groups_raw for n, p in g["named_params"]]
         else:
-            groups_raw = [{"named_params": named_params, "lr": lr, "weight_decay": weight_decay, "mu": mu}]
+            groups_raw = [{"named_params": named_params, "lr": lr, "weight_decay": weight_decay, "mu": mu, "ns_iter": ns_iter}]
             all_named = named_params
 
         soap_suffixes = self.SOAP_MLP_SUFFIXES + (self.SOAP_ATTN_SUFFIXES if soap_attn else ())
@@ -621,11 +629,12 @@ class Muon(torch.optim.Optimizer):
                 "lr": g.get("lr", lr),
                 "weight_decay": g.get("weight_decay", weight_decay),
                 "mu": g.get("mu", mu),
+                "ns_iter": int(g.get("ns_iter", ns_iter)),
             }
             if "name" in g:
                 g_dict["name"] = g["name"]
             param_groups.append(g_dict)
-        defaults = dict(lr=lr, weight_decay=weight_decay, mu=mu)
+        defaults = dict(lr=lr, weight_decay=weight_decay, mu=mu, ns_iter=int(ns_iter))
         super().__init__(param_groups, defaults)
 
     @torch.no_grad()
@@ -635,6 +644,7 @@ class Muon(torch.optim.Optimizer):
         rank = dist.get_rank()
         for group in self.param_groups:
             params = group["params"]
+            n_iter = int(group["ns_iter"])
             norm_sum = torch.zeros((), device=params[0].device, dtype=torch.float32)
             params_pad = params + [torch.empty_like(params[-1])] * (world_size - len(params) % world_size)
             for base_i in range(0, len(params), world_size):
@@ -655,9 +665,9 @@ class Muon(torch.optim.Optimizer):
                         state["momentum"].lerp_(p.grad, 1 - group["mu"])
                         raw_nesterov = p.grad.lerp(state["momentum"], group["mu"])
                         precond_nesterov = soap_precondition_momentum(raw_nesterov, state)
-                        u_soap = soap_ns_step(precond_nesterov)
+                        u_soap = soap_ns_step(precond_nesterov, n_iter=n_iter)
                         if self.use_trust_gate:
-                            u_muon = soap_ns_step(raw_nesterov)
+                            u_muon = soap_ns_step(raw_nesterov, n_iter=n_iter)
                             us = u_soap.float()
                             um = u_muon.float()
                             cos_sim_t = (us * um).sum() / (us.norm() * um.norm() + 1e-8)
@@ -667,7 +677,7 @@ class Muon(torch.optim.Optimizer):
                             update = u_soap
                         soap_update_preconditioner(p.grad, state)
                     else:
-                        update = muon_update(p.grad, state["momentum"], mu=group["mu"])
+                        update = muon_update(p.grad, state["momentum"], mu=group["mu"], n_iter=n_iter)
                     norm_sum.add_(update.float().norm())
                     p.mul_(1 - group["lr"] * group["weight_decay"])
                     p.add_(update, alpha=-group["lr"])
@@ -774,6 +784,10 @@ if dist.get_rank() == 0:
             "soap_beta2": SOAP_BETA2,
             "soap_precond_freq": PRECOND_FREQ,
             "ns_iter": NS_ITER,
+            "ns_iter_mlp": NS_ITER_MLP,
+            "ns_iter_attn": NS_ITER_ATTN,
+            "ns_iter_mlp_arg": args.ns_iter_mlp,
+            "ns_iter_attn_arg": args.ns_iter_attn,
             "soap_attn_enabled": bool(args.soap_attn),
             "soap_trust_threshold": float(args.soap_trust_threshold),
             "lr_mlp": args.lr_mlp,
@@ -870,11 +884,12 @@ for trial_idx in range(args.num_trials):
     assert len(mlp_named) + len(attn_named) == len(named_blocks)
     optimizer2 = Muon(
         [
-            dict(named_params=mlp_named,  lr=args.lr_mlp,  weight_decay=args.wd_mlp,  name="muon_mlp"),
-            dict(named_params=attn_named, lr=args.lr_attn, weight_decay=args.wd_attn, name="muon_attn"),
+            dict(named_params=mlp_named,  lr=args.lr_mlp,  weight_decay=args.wd_mlp,  name="muon_mlp",  ns_iter=NS_ITER_MLP),
+            dict(named_params=attn_named, lr=args.lr_attn, weight_decay=args.wd_attn, name="muon_attn", ns_iter=NS_ITER_ATTN),
         ],
-        soap_attn=args.soap_attn, trust_threshold=args.soap_trust_threshold,
+        soap_attn=args.soap_attn, trust_threshold=args.soap_trust_threshold, ns_iter=NS_ITER,
     )
+    print0(f"[NS5 per-class iter] mlp={NS_ITER_MLP}, attn={NS_ITER_ATTN} (fallback ns_iter={NS_ITER})", console=True)
     optimizers = [optimizer1, optimizer2]
     assert set(p for opt in optimizers for group in opt.param_groups
                for p in group["params"]) == set(model.parameters())
