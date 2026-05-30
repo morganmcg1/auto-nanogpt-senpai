@@ -114,6 +114,13 @@ def parse_args():
                         help="Polyak-Ruppert EMA decay for eval-only weight averaging. "
                              "0.0 = disabled (drift-FREE CTRL). Typical: 0.05 (fast, ~20-step half-life) / "
                              "0.005 (slow, ~200-step half-life). Higher decay = faster EMA tracking.")
+    parser.add_argument("--body_adan_alpha", type=float,
+                        default=float(os.environ.get("BODY_ADAN_ALPHA", "0.0")),
+                        help="Adan gradient-difference third-moment weight on body pre-NS5 momentum. "
+                             "0.0 (default) = OFF, bit-identical baseline. Non-zero activates Adan-style "
+                             "finite-difference correction: update = (1-mu)*g_t + mu*m_{t-1} - alpha*(g_t - g_{t-1}) "
+                             "applied BEFORE NS5 polar projection. prev_grad initialized to g_0 at first step "
+                             "so step-0 has zero correction. See Xie et al. 2022 (arXiv:2208.06677).")
     args = parser.parse_args()
     args.num_trials = args.num_trials if args.num_trials is not None else (args.legacy_num_trials or 1)
     args.wandb_tags = [tag.strip() for tag in args.wandb_tags.split(",") if tag.strip()]
@@ -576,6 +583,18 @@ def muon_update(grad, momentum, mu=0.95, nesterov=True):
     update *= max(1, grad.size(-2) / grad.size(-1))**0.5
     return update
 
+@torch.compile
+def muon_update_adan(grad, momentum, grad_diff, alpha, mu=0.95, nesterov=True):
+    # Adan-style finite-difference correction subtracted BEFORE NS5 polar projection.
+    # grad_diff = g_t - g_{t-1} must be computed BEFORE this function is invoked
+    # because the nesterov branch mutates grad in-place via lerp_.
+    momentum.lerp_(grad, 1 - mu)
+    update = grad.lerp_(momentum, mu) if nesterov else momentum
+    update = update - alpha * grad_diff
+    update = zeropower_via_newtonschulz5(update)
+    update *= max(1, grad.size(-2) / grad.size(-1))**0.5
+    return update
+
 class Muon(torch.optim.Optimizer):
     def __init__(self, params, lr=0.02, weight_decay=0, mu=0.95):
         assert isinstance(params, list) and len(params) >= 1 and isinstance(params[0], torch.nn.Parameter)
@@ -674,16 +693,20 @@ class MuonH(torch.optim.Optimizer):
     norm exactly constant; weight_decay must be 0.
     """
     def __init__(self, params, lr=0.018, weight_decay=0.0, mu=0.95,
-                 hyperball=True, budget_mult=1.0, mode="clip"):
+                 hyperball=True, budget_mult=1.0, mode="clip",
+                 adan_alpha=0.0):
         assert isinstance(params, list) and len(params) >= 1 and isinstance(params[0], torch.nn.Parameter)
         assert mode in ("clip", "scale_invariant")
         params = sorted(params, key=lambda x: x.size(), reverse=True)
         defaults = dict(lr=lr, weight_decay=weight_decay, mu=mu,
-                        hyperball=hyperball, budget_mult=budget_mult, mode=mode)
+                        hyperball=hyperball, budget_mult=budget_mult, mode=mode,
+                        adan_alpha=adan_alpha)
         super().__init__(params, defaults)
         self._last_active_fraction = 0.0
         self._last_radius_to_norm_max = 0.0
         self._last_norm_to_radius_max = 0.0
+        self._last_adan_grad_diff_norm = 0.0
+        self._last_adan_param_count = 0
 
     @torch.no_grad()
     def step(self):
@@ -693,12 +716,15 @@ class MuonH(torch.optim.Optimizer):
         total_count_local = 0
         max_r_over_n_local = 0.0
         max_n_over_r_local = 0.0
+        adan_grad_diff_norm_sq_local = 0.0
+        adan_param_count_local = 0
         for group in self.param_groups:
             params = group["params"]
             params_pad = params + [torch.empty_like(params[-1])] * (world_size - len(params) % world_size)
             hb = group["hyperball"]
             budget_mult = group["budget_mult"]
             mode = group["mode"]
+            adan_alpha = group.get("adan_alpha", 0.0)
             for base_i in range(0, len(params), world_size):
                 if base_i + rank < len(params):
                     p = params[base_i + rank]
@@ -707,7 +733,20 @@ class MuonH(torch.optim.Optimizer):
                         state["momentum"] = torch.zeros_like(p)
                         if hb:
                             state["hyperball_radius"] = p.data.norm().item() * budget_mult
-                    update = muon_update(p.grad, state["momentum"], mu=group["mu"])
+                    if adan_alpha > 0.0:
+                        # Adan finite-difference correction (Xie et al. 2022, arXiv:2208.06677).
+                        # prev_grad initialized to current grad on first call so grad_diff=0
+                        # and step-0 update matches non-Adan path. Subsequent steps subtract
+                        # alpha * (g_t - g_{t-1}) BEFORE NS5 polar projection.
+                        if "prev_grad" not in state:
+                            state["prev_grad"] = p.grad.detach().clone()
+                        grad_diff = p.grad - state["prev_grad"]
+                        state["prev_grad"].copy_(p.grad)
+                        adan_grad_diff_norm_sq_local += float(grad_diff.detach().float().square().sum().item())
+                        adan_param_count_local += 1
+                        update = muon_update_adan(p.grad, state["momentum"], grad_diff, adan_alpha, mu=group["mu"])
+                    else:
+                        update = muon_update(p.grad, state["momentum"], mu=group["mu"])
                     if hb and mode == "scale_invariant":
                         # Always-active variant: norm is held at initial value by construction.
                         scale_invariant_update_(p.data, update, group["lr"])
@@ -738,16 +777,25 @@ class MuonH(torch.optim.Optimizer):
             ratios = torch.tensor([max_r_over_n_local, max_n_over_r_local],
                                   device="cuda", dtype=torch.float64)
             dist.all_reduce(ratios, op=dist.ReduceOp.MAX)
+            adan = torch.tensor([adan_grad_diff_norm_sq_local, float(adan_param_count_local)],
+                                device="cuda", dtype=torch.float64)
+            dist.all_reduce(adan, op=dist.ReduceOp.SUM)
             clip_count = float(counts[0].item())
             total_count = float(counts[1].item())
             max_r_over_n = float(ratios[0].item())
             max_n_over_r = float(ratios[1].item())
+            adan_grad_diff_norm_sq = float(adan[0].item())
+            adan_param_count = int(adan[1].item())
         else:
             clip_count = float(clip_count_local)
             total_count = float(total_count_local)
             max_r_over_n = max_r_over_n_local
             max_n_over_r = max_n_over_r_local
+            adan_grad_diff_norm_sq = adan_grad_diff_norm_sq_local
+            adan_param_count = adan_param_count_local
         self._last_active_fraction = clip_count / total_count if total_count > 0 else 0.0
+        self._last_adan_grad_diff_norm = adan_grad_diff_norm_sq ** 0.5
+        self._last_adan_param_count = adan_param_count
         self._last_radius_to_norm_max = max_r_over_n
         self._last_norm_to_radius_max = max_n_over_r
 
@@ -796,6 +844,10 @@ if args.muonh_agc_clip_ratio > 0:
     print0(f"AGC ENABLED on inner MuonH gradient: clip_ratio={args.muonh_agc_clip_ratio} eps={args.muonh_agc_eps}", console=True)
 else:
     print0("AGC DISABLED on inner MuonH gradient (clip_ratio=0)", console=True)
+if args.body_adan_alpha > 0:
+    print0(f"H299 BODY ADAN ENABLED on MuonH pre-NS5 path: alpha={args.body_adan_alpha} (Xie et al. 2022)", console=True)
+else:
+    print0("H299 BODY ADAN DISABLED on MuonH pre-NS5 path (alpha=0)", console=True)
 print0("="*100)
 
 val_tokens = 20 * 524288
@@ -856,6 +908,7 @@ if dist.get_rank() == 0:
             "muonh_mu_start": args.muonh_mu_start,
             "muonh_mu_end": args.muonh_mu_end,
             "polyak_ema_decay": args.polyak_ema_decay,
+            "body_adan_alpha": args.body_adan_alpha,
         },
     )
 
@@ -939,7 +992,8 @@ for trial_idx in range(args.num_trials):
     optimizer2 = MuonH([p for p in model.blocks.parameters() if p.ndim >= 2],
                        lr=args.muonh_lr, weight_decay=0.0, mu=0.95,
                        hyperball=True, budget_mult=args.muonh_budget_mult,
-                       mode=args.muonh_mode)
+                       mode=args.muonh_mode,
+                       adan_alpha=args.body_adan_alpha)
     optimizer2.param_groups[0]["name"] = "muonh_blocks"
     optimizers = [optimizer1, optimizer2]
     # AGC targets: AdamW aux groups (embed, lm_head, scalars). Built from optimizer1
@@ -1240,6 +1294,9 @@ for trial_idx in range(args.num_trials):
                         muonh_metrics["train/muonh/active_fraction"] = opt._last_active_fraction
                         muonh_metrics["train/muonh/radius_to_norm_max"] = opt._last_radius_to_norm_max
                         muonh_metrics["train/muonh/norm_to_radius_max"] = opt._last_norm_to_radius_max
+                        if args.body_adan_alpha > 0.0 and opt._last_adan_param_count > 0:
+                            muonh_metrics["body/adan_grad_diff_norm"] = opt._last_adan_grad_diff_norm
+                            muonh_metrics["body/adan_param_count"] = opt._last_adan_param_count
                     muonh_metrics["train/muonh/warmup_factor"] = muonh_warmup_factor
                     muonh_metrics["train/muonh/effective_lr"] = opt.param_groups[0]["lr"]
             if telemetry_due and args.aux_agc_clip_ratio > 0 and agc_stats["agc_total"] > 0:
