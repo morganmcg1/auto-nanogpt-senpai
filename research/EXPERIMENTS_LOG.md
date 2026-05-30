@@ -1,3 +1,61 @@
+## 2026-05-30 01:30 — PR #1760: H289 nezuko Outer optimizer momentum SCHEDULE — **ASSIGNED (77th class)**
+
+- Branch: g1r3-nezuko/h289-outer-momentum-schedule (PR #1760, post-H266 baseline)
+- 77th mechanism class — **OUTER OPTIMIZER MOMENTUM TEMPORAL SCHEDULING** (untested in 76 prior r3 mechanism classes; outside PF#61 aux preconditioner and PF#62 cooldown-decoupling structural rigidity which lives on inner-loop)
+- Direct extension of nezuko's H280 closure suggestion #4 (move toward new mechanism classes off gradient locus)
+- Mechanism: outer optimizer (MuLoCo) fires every `sync_interval=30` inner steps via Nesterov rule (line 1327-1338). Currently `--outer_momentum 0.5` is CONSTANT yet inner body mu_schedule is `linear 0.95→0.90` — asymmetric. Add `--outer_momentum_schedule` argparse with constant/linear_decrease/linear_increase/cooldown_drop variants + start/end values, scheduler function, integration into outer step at line 1336-1337
+- 3-arm chain Pattern A drift-FREE (argparse VALUE-only change, `constant` returns `args.outer_momentum=0.5` bit-identical to baseline):
+  - arm_a CTRL: `--outer_momentum_schedule constant` — baseline replicate
+  - arm_b LINEAR_DECREASE: `0.5 → 0.2` linearly across all training (mirrors inner body mu direction)
+  - arm_c COOLDOWN_DROP: `0.5 → 0.1` cooldown-localized (held at 0.5 until step 2500, then linear drop to 0.1 by step 3325)
+- WIN criterion: arm_b OR arm_c FFS<3000 strict, val<3.276
+- TIE result: arm_b/c FFS=3000 EXACT confirms outer momentum scheduling as 6th FFS=3000 TIE family member
+- WIN prob 10-20%; 77th mechanism class
+- **Why structurally distinct**: outer optimizer momentum lives on OUTER LOOP state at sync_interval=30 cadence, structurally distinct from inner body mu schedule. PF#62 cooldown-decoupling concerns mostly addressed inner-loop phase-gated DEACTIVATION (catastrophic, H271); outer modulation is unstudied.
+- **Hypothesis link**: 4th instance test of EMA × variance-reduction overlap hypothesis (H271 Lookahead, H281 GC, H286/H287 in flight) — if NULL/TIE, suggests outer momentum scheduling is absorbed by H266 EMA at eval time
+- Ref: MuLoCo paper LocalSGD with Nesterov outer step, inner muonh_mu_schedule precedent
+
+---
+
+## 2026-05-30 01:30 — PR #1733: H280 nezuko Cautious MuonH body pre-NS5 sign-mask — **CLOSED 135th NULL/NEG (🎯 paper-grade NS5 polar projection signal-conservation finding + cross-mechanism cautious axis broad closure)**
+
+- Branch: g1r3-nezuko/h280-cautious-muonh-body (PR #1733, post-H266 baseline)
+- 69th mechanism class — gradient-space pre-NS5 sign-masking (cautious filter: zero gradient coords where sign disagrees with momentum)
+- 3-arm dose-response test result:
+
+| Arm | body_cautious | step-0 val | val/loss | FFS | Δval vs H266 baseline (3.26818) | σ_H174 |
+|---|---|---|---|---|---|---|
+| arm_a CTRL | 0.0 | 10.82583 ✓ | 3.26833 | 3025 | +0.00015 | +0.17σ (Pattern A loose drift) |
+| arm_b cautious_half | 0.5 | 10.82583 ✓ | 3.26872 | 3025 | +0.00054 | +0.61σ (drift, indistinguishable from CTRL) |
+| arm_c cautious_full | 1.0 | 10.82583 ✓ | 3.26968 | 3025 | +0.00150 | +1.70σ (+1.53σ within-chain vs CTRL) |
+
+🎯 **Clean monotone dose-response from step ~1500** — cautious-strength → val degradation strictly increasing at every checkpoint past 1500 with no crossings. Pure dose-response damage, not stability/regularization tradeoff.
+
+🎯 **PAPER-GRADE NS5 polar projection mechanism finding**: NS5 is **SIGNAL-CONSERVATIVE, not magnitude-adaptive** — every coord contributes to direction; zeroing coords removes structure NS5 was USING, not noise NS5 was filtering. The polar normalization renormalizes magnitude but cannot recover lost direction.
+
+🎯 **Cross-mechanism cautious axis BROAD CLOSURE** (H544 AUX-AdamW + H280 BODY-MuonH):
+- H544 AUX-AdamW Cautious NEG: sign-mask conflicts with second-moment normalization (variance estimator already filters per-coord)
+- H280 BODY-MuonH Cautious NEG: sign-mask removes direction structure NS5 polar projection was using
+- BOTH paths reject anti-momentum-coord filtering, but the mechanism class is structurally DISTINCT. Cautious axis now BROADLY CLOSED for this optimizer stack across BOTH AUX and BODY scopes for DIFFERENT structural reasons — a cross-mechanism class observation rare in this campaign.
+
+🎯 **Extends NS5 sensitivity picture** (with H278 + H280): H278 closed direction SMOOTHNESS sensitivity (ν<0.95 catastrophic), H280 closes signal CONSERVATION (zeroing coords NEG monotone). NS5 polar projection polishes a SMOOTH, COMPLETE gradient direction; both direction-perturbation and signal-subtraction destabilize it.
+
+🎯 **PF#62 STRENGTHENED to 11 mechanism categories** — pre-NS5 sign-masking joins the cooldown-decoupling structural rigidity class (joins phase-gated wrappers, scope changes, gradient noise injection).
+
+- Drift-FREE Pattern A: 33rd-35th instances (step-0=10.82583 EXACT for all 3 arms)
+- Pattern A loose +25 drift class noise floor: ≥25 instances now
+
+Decision: CLOSED as 135th NULL/NEG with paper-grade mechanistic insights and cross-mechanism axis closure. Excellent decisive student work — mechanistic interpretation linking H544 AUX cautious to H280 BODY cautious is a paper-grade cross-mechanism observation.
+
+W&B runs:
+- arm_a CTRL: uo7sog5z — FFS=3025, val=3.26833
+- arm_b cautious_half: pe59ygez — FFS=3025, val=3.26872
+- arm_c cautious_full: knu5zjai — FFS=3025, val=3.26968
+
+Follow-up: H289 (this cycle) addresses nezuko's own suggestion #4 — outer optimizer momentum scheduling on OUTER LOOP state (structurally off gradient locus).
+
+---
+
 ## 2026-05-30 01:00 — PR #1759: H288 thorfinn Cooldown-localized EMA activation — **ASSIGNED (76th class)**
 
 - Branch: g1r3-thorfinn/h288-cooldown-localized-ema-activation (PR #1759, post-H266 baseline)

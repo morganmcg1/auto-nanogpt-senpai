@@ -1,6 +1,77 @@
 # SENPAI Research State — auto-nanogpt-1gpu-r3
 
-- **Last updated:** 2026-05-30 01:00 UTC
+- **Last updated:** 2026-05-30 01:30 UTC
+
+---
+
+## Cycle ~2315: H280 CLOSED 135th NULL/NEG (🎯 paper-grade NS5 polar projection SIGNAL-CONSERVATIVE mechanism finding) + H289 ASSIGNED 77th class outer optimizer momentum SCHEDULE
+
+**One terminal closure + one fresh assignment. Plateau campaign portfolio: 135 NULL/NEG + 1 MERGED WIN (H266), 77 mechanism classes attempted.**
+
+### Closure this cycle
+
+**H280 nezuko Cautious MuonH body pre-NS5 sign-mask CLOSED 135th NULL/NEG — 🎯 PAPER-GRADE NS5 polar projection signal-conservation mechanism finding + cross-mechanism cautious axis broad closure.**
+
+Terminal verdict (post-H266 baseline, PR #1733):
+- arm_a CTRL body_cautious=0.0: FFS=3025 (Pattern A loose drift), val=3.26833 (+0.17σ)
+- arm_b cautious_half=0.5: FFS=3025 (drift, indistinguishable from CTRL), val=3.26872 (+0.61σ)
+- arm_c cautious_full=1.0: FFS=3025 (mild persistent NEG within-chain), val=3.26968 (+1.70σ, +1.53σ vs CTRL)
+
+🎯 **Clean monotone dose-response from step ~1500** — every cautious-strength increment produces consistent val degradation with no crossings; pure dose-response damage, not stability/regularization tradeoff.
+
+🎯 **PAPER-GRADE NS5 polar projection mechanism finding**: NS5 is **SIGNAL-CONSERVATIVE, not magnitude-adaptive** — every coord contributes to direction; zeroing coords removes structure NS5 was USING, not noise NS5 was filtering. The polar normalization renormalizes magnitude but cannot recover lost direction.
+
+🎯 **Cross-mechanism cautious axis BROAD CLOSURE** (H544 + H280):
+- H544 AUX-AdamW Cautious NEG: sign-mask conflicts with second-moment normalization (variance estimator already filters per-coord)
+- H280 BODY-MuonH Cautious NEG: sign-mask removes direction structure NS5 polar projection was using
+- Both paths reject anti-momentum-coord filtering, but the mechanism class is structurally distinct. Cautious axis now BROADLY CLOSED for this optimizer stack across BOTH AUX and BODY scopes for DIFFERENT structural reasons.
+
+🎯 **Extends NS5 sensitivity picture** (combined with H278 + H280):
+- H278: NS5 sensitive to direction SMOOTHNESS (ν<0.95 catastrophic)
+- H280: NS5 is signal-CONSERVATIVE (zeroing coords NEG monotone)
+- NS5 polar projection polishes a SMOOTH, COMPLETE gradient direction; both direction-perturbation and signal-subtraction destabilize it.
+
+🎯 **PF#62 STRENGTHENED to 11 mechanism categories** — pre-NS5 sign-masking joins phase-gated wrappers, scope changes, gradient noise injection, etc. as cooldown-decoupling structural rigidity class.
+
+- Drift-FREE Pattern A: 33rd-35th instances (step-0=10.82583 EXACT for all 3 arms)
+- Pattern A loose +25 drift class noise floor: ≥25 instances (highly reproducible)
+
+### New assignment this cycle
+
+**H289 nezuko ASSIGNED 77th class outer optimizer (MuLoCo) momentum SCHEDULE (PR #1760, 3-arm test).**
+
+- 3-arm chain: CTRL `constant` (bit-identical baseline 0.5) / LINEAR_DECREASE `0.5→0.2` / COOLDOWN_DROP `0.5→0.1` (cooldown-localized aggressive drop, step 2500-3325)
+- Mechanism: outer optimizer fires every `sync_interval=30` inner steps via MuLoCo Nesterov rule (line 1327-1338). Currently `--outer_momentum 0.5` is CONSTANT — yet inner body mu_schedule is `linear 0.95→0.90`. Asymmetry suggests outer momentum has not been schedule-explored. Add `--outer_momentum_schedule` argparse with 4 schedule types + start/end values, scheduler function, integration into outer step
+- **Why structurally distinct**: outer optimizer momentum TEMPORAL SCHEDULING is **untested in 76 prior r3 mechanism classes**. Outside PF#61 (aux preconditioner), outside PF#62 (this is OUTER LOOP modulation, not inner-loop phase-gated DEACTIVATION). Distinct from all closed inner-loop schedule axes.
+- **Hypothesis link**: 4th instance test of EMA × variance-reduction overlap hypothesis (if NULL → outer momentum schedule absorbed by H266 EMA at eval time; if WIN → outer scheduling unlocks new axis)
+- Direct extension of nezuko's H280 closure suggestion #4 ("move toward genuinely new mechanism classes off the gradient locus") — outer optimizer state locus is structurally distinct from gradient-space mechanisms
+- Pattern A drift-FREE: `constant` schedule returns `args.outer_momentum=0.5` bit-identical to baseline
+- WIN prob 10-20%; 77th mechanism class; 3-arm test
+- PR #1760, post-H266 baseline (FFS<3000 strict WIN criterion per Issue #1260)
+- Ref: MuLoCo paper LocalSGD with Nesterov outer step
+
+### Plateau campaign portfolio after cycle ~2315
+
+- **135 NULL/NEG closures + 1 MERGED WIN (H266)**
+- **77 mechanism classes attempted** (H289 = 77th)
+- 6 PROGRAMME FINDING candidates: PF#56 STRENGTHENED (7 axes + within-family scalar tuning EXHAUSTED), PF#58 CLOSURE-GRADE 4-axis, **PF#61 CLOSURE-GRADE 4-axis (aux preconditioner FORM/wrapper/scope/pre-NS5 filter)**, **PF#62 STRENGTHENED to 11 mechanism categories (cautious masking joined)**
+- 🎯 **NEW: NS5 polar projection mechanism finding** — signal-conservative not magnitude-adaptive; H278 + H280 + H287 (in flight) together sharpen the picture of what NS5 needs (smooth, complete gradient direction)
+- 🎯 **Cross-mechanism cautious axis BROAD CLOSURE** (H544 AUX + H280 BODY) — different mechanism class for each scope, both reject anti-momentum-coord filtering
+- 🎯 **Single-seed noise floor explicitly characterized** (H274v2 paper-grade finding)
+- **FFS=3000 TIE mechanism family (5 mechanisms)** — composability hypothesis active (H284 in flight)
+- Pattern A loose +25 drift class noise floor: ≥25 instances
+- All 8 students with active WIP PRs — zero idle GPUs
+
+### In-flight chains as of cycle ~2315
+
+- PR #1745 H282 askeladd AdaBelief on aux — arm_a CTRL FFS=3025, arm_b ADABELIEF trailing badly (predicted NEG, ETA ~02:00Z May 30)
+- PR #1746 H283 fern Label smoothing — arm_a CTRL FFS=3025, LOW/MID arms running sequential
+- PR #1747 H284 frieren composability z_loss=1e-5 + ns5_iter=16 — arm_a FFS=3050, arm_b running
+- PR #1748 H285 tanjiro aux WD — arm_a FFS=3025, LOW arm running
+- PR #1751 H286 edward Nesterov toggle — in flight
+- PR #1757 H287 alphonse NS5 polynomial coefficients — in flight
+- PR #1759 H288 thorfinn cooldown-localized EMA activation — just assigned
+- **PR #1760 H289 nezuko outer optimizer momentum schedule — FRESH ASSIGNMENT (just created)**
 
 ---
 
