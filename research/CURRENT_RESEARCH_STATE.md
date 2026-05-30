@@ -9,7 +9,22 @@ The human research team has redirected: **FFS (first-step-to-target, baseline 30
 3. **Prefer experiments that move the crossing step** (2800-3050 window), **simplify winning stacks**, **reveal FFS-load-bearing components**.
 4. **Ablations preferred over confirmations** when FFS dead.
 
-## Last updated: 2026-05-30 17:38Z (62 R5 axis closures; edward #1825 Cayley CLOSED 62nd [Frobenius pre-norm puts σ outside Cayley convergence basin]; edward to be reassigned next)
+## Last updated: 2026-05-30 18:05Z (63 R5 axis closures; alphonse #1796 NS coeff phase-schedule CLOSED 63rd [FFS-cosmetic, falsifier triggered]; alphonse→#1860 SOAP-attn cooldown phase gate; edward→#1858 α-blend Schulz polish SQUARE attn; frieren #1841 iter=20 APPROVED)
+
+### Notes (2026-05-30 18:05Z) — ALPHONSE #1796 NS COEFF PHASE-SCHEDULE CLOSED 63rd [FFS-COSMETIC, FALSIFIER TRIGGERED]; #1860 SOAP-ATN PHASE GATE ASSIGNED; EDWARD→#1858; FRIEREN #1841 iter=20 APPROVED
+
+- **★ CLOSED #1796 alphonse NS polynomial coeff phase-schedule** [63rd R5 closure, 18:00Z] — clean-NEG, falsifier triggered:
+  - Cell A ctrl: FFS_ema=2925, val=3.27094
+  - Cell B★ (sw975, early (2.2,-1.9,0.7)): FFS_ema=2875 / FFS_trainval=2925 — SEED-NOISE signature (dual-metric: fails FFS_trainval≤2900 AND FFS_ema≤2825 promotion gates)
+  - Cell C (sw650 earlier): FFS_ema=2925 — no improvement from earlier switch
+  - Cell D (stronger (2.4,-2.2,0.9)): FFS_ema=3050 — DIVERGENCE direction
+  - Cell E (sw1625 more exposure falsifier): FFS_ema=2925 — **FALSIFIER TRIGGERED** — more early exposure does NOT yield more benefit vs Cell B; dose-response runs wrong direction
+  - KG1 PASS: NS_ABC global + @torch._dynamo.disable() mechanism verified correct
+  - NS coefficient phase-schedule (cubic-weighted a+b+c=1 early-phase) is FFS-COSMETIC at R5
+- **★ ASSIGNED #1860 alphonse: SOAP-attn COOLDOWN PHASE GATE** — disable SOAP attn preconditioner at cooldown onset (step 975), revert attn matrices to plain Muon NS5 for steps 975–3250. Tests whether SOAP's eigenbasis (most informative during stable-learning phase) becomes STALE during cooldown. Distinct from #818 (full-training SOAP disable), #914 (eigenbasis freeze only). 3 cells: A=ctrl SOAP full, B★=disable at 975, C=disable at 1625.
+- **★ ASSIGNED #1858 edward: α-blended Schulz polish on SQUARE attn matrices** (post-NS5) — α ∈ {0.1, 0.3}, applies partial Schulz step to σ-distribution of square 768×768 attn. Dual of thorfinn #1838 (Schulz polish on non-square MLP only). Tests whether square attn σ_min ≈ 0.003 tail is improvable or load-bearing.
+- **★ FRIEREN #1841 ITER=20 APPROVED** — student found that spec-norm via 6-iter power iteration underestimates σ_max → post-scale σ_max > 1 → NaN. 20-iter power iteration stabilizes. Cell A (ctrl Frobenius) actively running `4ngqxl6e` at ~12% (18:03Z). Cell B★ (spectral iter=20, lr_mlp=0.035, lr_attn=0.022) to launch after Cell A completes (~20:15Z). Student also observed spec/frob ratio of PRE-NS input ≈ 0.143 (MLP)/0.194 (attn) — much lower than 0.63 which was measured differently. Telemetry guidance posted.
+- **Fleet at 18:05Z**: frieren #1841 WIP (active, iter=20 approved); askeladd #1839 WIP; nezuko #1834 WIP; thorfinn #1838 WIP (1/2 cells done, fk9xj72q finished val=3.2688 FFS=2925); edward #1858 WIP (NEW); alphonse #1860 WIP (NEW); tanjiro #1821 WIP (Cells D+F in-flight); fern #1826 WIP. **8/8 active, zero idle.**
 
 ### Notes (2026-05-30 17:38Z) — EDWARD #1825 CAYLEY CLOSED 62nd [σ-BASIN MISMATCH WITH FROBENIUS NORMALIZATION]
 

@@ -1,5 +1,24 @@
 # SENPAI Research Results — auto-nanogpt-1gpu-r5
 
+## 2026-05-30 18:00Z — PR #1796 CLOSED clean-NEG [falsifier triggered]: alphonse NS polynomial coeff phase-schedule [63rd R5 closure]
+
+- branch: g1r5-alphonse/ns-coeff-phase-schedule
+- hypothesis: early-training NS5 with "tighter" coefficients (2.2, -1.9, 0.7) gives broader-spectrum orthogonalization → faster 3.28 crossing. Schedule: switch from early=(2.2,-1.9,0.7) back to default=(2.0,-1.5,0.5) at step sw.
+- W&B group: g1r5-alphonse/ns-coeff-phase-schedule
+
+| Cell | switch_step | early (a,b,c) | FFS_ema | FFS_trainval | val/loss | ema_corr | W&B |
+|---|---|---|---|---|---|---|---|
+| A (ctrl) | disabled | — | 2925 | 2950 | 3.27094 | 3.27146 | 8xwmwvh7 |
+| B★ (primary) | 975 | (2.2,-1.9,0.7) | **2875** | **2925** | **3.26803** | **3.26855** | iq3b1lbj |
+| C (earlier) | 650 | (2.2,-1.9,0.7) | 2925 | 2950 | 3.27020 | 3.27072 | 6hu1q4kc |
+| D (stronger) | 975 | (2.4,-2.2,0.9) | 3050 | 3025 | 3.27588 | 3.27640 | i9sw5wvm |
+| E (falsifier) | 1625 | (2.2,-1.9,0.7) | 2925 | 2925 | 3.26995 | 3.27046 | 8mubgmrl |
+
+- verdict: CLOSED 63rd R5 axis clean-NEG. Cell B's FFS_ema=2875/FFS_trainval=2925 is the canonical seed-0 noise signature per n1_to_n4_seed_regression_at_2875 (fails FFS_trainval≤2900 AND FFS_ema≤2825 promotion gates). Cell E falsifier triggered: more early-phase exposure (sw=1625) gave WORSE result than sw=975, falsifying "early phase is the bottleneck" claim.
+- Cell D mechanism (stronger coefficients): trajectory divergence at steps 125-375, +125 FFS_ema — confirms coefficient sensitivity; stronger perturbation moves outside NS5 convergence basin
+- KG1 PASS: `NS_ABC` mutable global + `@torch._dynamo.disable()` mechanism verified correct; dynamo-disable causes small numerical drift vs compiled CTRL (FFS_trainval +25 offset)
+- NS coefficient (a+b+c=1 cubic-weighted) phase-schedule axis closed FFS-cosmetic at R5
+
 ## 2026-05-30 17:35Z — PR #1825 CLOSED clean-NEG + structural mechanism: edward Cayley map closed-form NS replacement [62nd R5 closure]
 
 - branch: g1r5-edward/cayley-map-ns
