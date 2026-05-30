@@ -1,6 +1,6 @@
 # SENPAI Research State — auto-nanogpt-1gpu-r1
 
-- **Last update: 2026-05-29 23:10 UTC**
+- **Last update: 2026-05-30 02:10 UTC**
 - **Current baseline:** PR #1532 (aux Adam β₂ pulse 0.95→0.99 @ step 975). val_ema=3.262854, sr=2875 (n=2).
 - **Canonical defaults (post #1614):** β₂ pulse fires automatically at step 975 in all new runs — no flag needed.
 - **Merge gate:** `sr ≤ 2862.5 OR (sr=2875 AND val_ema < 3.262854)`
@@ -26,9 +26,14 @@
 - **Momentum buffer hard-reset untested → assigned to askeladd (#1730) as first structural state-discard experiment on first-moment buffer.**
 - **β₂ pulse mechanism:** amplitude, timing, shape, per-group recipient, pre-target re-spike — ALL NULL except canonical 0.95→0.99 @ 975 (#1667 closes the re-spike variant)
 - **Optimizer family replacements:** AdEMAMix (in flight #1749), Lookahead (FULLY CLOSED), Sophia, Lion, Adan, GrokFast, AdaBelief, AMSGrad, ADOPT-aux, **AdaShift per-element (#1709 NULL with mechanistic closure)**, **ACProp/ADOPT order-swap on body PMuon (#1703 CLOSED — async carry-forward compounds error in bilateral whitening)**
-- **Covariance refresh:** L_cov/R_cov at steps 975/2275/2600/cooldown-start (#1666 closes) — soft-modulation via β_cov pulse closed. **Hard zero reset (nezuko #1726 Arm A NULL sr=2950; Arm B in flight).**
+- **Covariance refresh:** L_cov/R_cov at steps 975/2275/2600/cooldown-start (#1666 closes) — soft-modulation via β_cov pulse closed. **Hard zero reset BILATERAL CLOSED (#1726): Arm A pure NULL sr=2950, Arm B reset+β_cov pulse sr=2875 CLOSE MISS val_ema 3.263927 (+1.07 mnat above gate). Cov-state replacement axis fully closed at pre-target.**
 - **pEMA stacking:** stacked 2nd refresh at 2750/2850 (thorfinn #1704) — bilateral NULL. Canonical 2600 is a singular optimum. **pEMA design space EXHAUSTED.**
-- **Depth-stratified β_cov continuous ramp ±0.01 (#1339 NULL).** Binary-split with ±0.025 large Δβ untested → assigned to edward (#1727).
+- **Depth-stratified β_cov:** continuous ramp ±0.01 (#1339 NULL) + **binary-split Δβ=0.05 (#1727 BILATERAL NULL, axis FULLY CLOSED across primitives)**. Falsifying Arm B beat mechanistic Arm A by 25 sr + 2.82 mnat — LR-cov phase-coupling story directly contradicted. Orthogonal residual: β=0.92 too aggressive for BF16 lcov stability.
+
+**🔥 Cross-PR sr=2875 close-miss cluster (this session):**
+- frieren #1708 Arm B UW=0.55 seed-1: sr=2875, val_ema 3.263116 (+0.262 mnat above gate) — seed-2 in flight
+- nezuko #1726 Arm B cov-reset + β_cov pulse: sr=2875, val_ema 3.263927 (+1.07 mnat above gate)
+- **Signal:** TWO independent mechanisms hit baseline sr; sr=2925→2875 wall IS breakable, val_ema in final 250 steps is the tightening bottleneck. Reorient next-wave hypotheses toward val_ema descent in cooldown phase.
 
 **Tier escalation progress:**
 - Tier 1 (scalar pulses): ≥14 NULLs — comprehensively exhausted across all body Muon scalar axes
@@ -42,12 +47,12 @@
 |---|---|---|---|---|
 | **#1752** | **alphonse** | **Newton-Muon activation-Gram right-preconditioner on body PMuon (Arm A: diagonal Gram; Arm B: full Gram matrix_neg_power)** | **Just assigned (23:05 UTC)** | **~03:05 / ~07:05 UTC** |
 | **#1749** | **thorfinn** | **AdEMAMix dual-EMA first moment on aux AdamW (Arm A α=0.5/β₃=0.999/T=500; Arm B α=0.75/β₃=0.9995/T=750)** | **Just assigned (22:45 UTC)** | **~02:30 / ~06:30 UTC** |
-| #1730 | askeladd | Pre-target body Muon momentum buffer HARD ZERO RESET (Arm A crashed @ 1925; Arm B `uhrosnl0` step ~525) | Arm A crashed; Arm B in flight | ~00:30 UTC |
-| #1739 | fern | Pre-target NS_ITERS burst {14, 16} @ 2750-2900 | Arm A `hfhcbony` step ~1575 | ~00:15 UTC |
-| #1708 | frieren | Pre-target Skylight u/w floor pulse — Arm A (0.45) NULL sr=2925; **Arm B (0.55) CLOSE MISS sr=2875 (tied) val_ema 3.263116 (+0.262 mnat above gate)**. Sent back for seed-2 confirmation. | Seed-2 in flight | ~02:10 UTC |
-| #1742 | tanjiro | Pre-target body Muon depth-asymmetric per-block LR-mult burst ×1.5 (Arm A early-half) | Arm A `xdpfzmo9` step ~1250 | ~00:55 UTC |
-| #1726 | nezuko | Pre-target PMuon L_cov/R_cov hard zero RESET — Arm A FINISHED NULL (sr=2950, val_ema 3.27093); Arm B `pyugggcd` fastaccum step ~500 | Arm B in flight | ~00:10 UTC |
-| #1727 | edward | Depth-split β_cov binary group — Arm A FINISHED NULL (sr=2950, val_ema 3.27122); Arm B `mj8zysth` step ~500 | Arm B in flight | ~00:10 UTC |
+| #1730 | askeladd | Pre-target body Muon momentum buffer HARD ZERO RESET — Arm A crashed @ 1925; Arm B `uhrosnl0` FINISHED sr=2925 val_ema 3.266557 NULL | Awaiting student SENPAI-RESULT post | terminal |
+| #1739 | fern | Pre-target NS_ITERS burst {14, 16} @ 2750-2900 — Arm A `hfhcbony` NULL sr=2925; Arm B `ossp58zg` step ~1175 | Arm B in flight | ~02:55 UTC |
+| #1708 | frieren | Pre-target Skylight u/w floor pulse — Arm A (0.45) NULL sr=2925; **Arm B (0.55) CLOSE MISS sr=2875 val_ema 3.263116**. Seed-2 `xkr7c9rl` step ~2000 | Seed-2 in flight | ~02:30 UTC |
+| #1742 | tanjiro | Pre-target body Muon depth-asymmetric per-block LR-mult burst ×1.5 — Arm A `xdpfzmo9` NULL sr=2925; Arm B `p18t6opk` step ~850 | Arm B in flight | ~03:15 UTC |
+| **nezuko** | **IDLE** | **#1726 BILATERAL CLOSED — fresh non-Muon hypothesis pending researcher-agent** | **assignment pending** | **<10 min** |
+| **edward** | **IDLE** | **#1727 BILATERAL CLOSED — fresh non-Muon hypothesis pending researcher-agent** | **assignment pending** | **<10 min** |
 
 **Recent closures (this session):**
 - 🟡 **#1708 frieren (pre-target Skylight UW floor pulse): Arm A (UW=0.45) NULL sr=2925 val_ema 3.266865; Arm B (UW=0.55) HOT CLOSE MISS — sr=2875 (matches baseline exactly) val_ema 3.263116 (+0.000262 above strict gate). Trend Arm A→B = +3.7 mnat val_ema improvement with +0.10 floor. Sent back for seed-2 of Arm B before close.**

@@ -1,5 +1,35 @@
 # SENPAI Research Results
 
+## 2026-05-30 02:05 UTC — PR #1727 edward: Depth-split β_cov binary partition (early/late 6-block) — ❌ BILATERAL NULL (axis FULLY closed)
+
+- Branch: `g1r1-edward/betacov-depth-split`
+- Hypothesis: Binary β_cov split by depth — Arm A `early-slow-late-fast` (0.97/0.92) phase-matches the late-higher LR pattern, Arm B `early-fast-late-slow` (0.92/0.97) is the falsifying counterfactual.
+- W&B: Arm A `66yd8u3s`, Arm B `mj8zysth`
+
+| Arm | β_cov (early/late) | sr | val_ema | val_live | Δval mnat | Verdict |
+|---|---|---:|---:|---:|---:|---|
+| A | 0.97 / 0.92 | 2950 | 3.267577 | 3.266956 | +4.72 | ❌ NULL |
+| B | 0.92 / 0.97 | 2925 | 3.264755 | 3.264166 | +1.90 | ❌ NULL |
+| Baseline #1532 | 0.95 (uniform) | 2875 | 3.262854 | — | — | — |
+
+- **Analysis:** Falsifying Arm B beat mechanistic Arm A by 25 sr-steps and 2.82 mnat val_ema — directly contradicting the LR-cov phase-coupling prediction. Per-block telemetry shows β=0.92 (12.5-step horizon) too aggressive for BF16: `lcov_min` collapses to ~0 in fast-EMA blocks by step 1500-2500 while β=0.97 keeps it stable. Arm B "less bad" because high-LR late blocks get the stable slow-EMA preconditioner. Combined with #1339 continuous ramp closure at Δβ=0.02, depth-asymmetric β_cov on body Muon is FULLY CLOSED across both primitives (binary split + continuous ramp).
+- **Orthogonal residual:** β_cov < 0.95 saturates BF16 numerics — potential separate L_cov refresh/floor-clipping primitive if anyone wants to characterize that axis.
+
+## 2026-05-30 02:00 UTC — PR #1726 nezuko: Pre-target PMuon L_cov/R_cov hard zero RESET @ step 2750 (bilateral arms) — ❌ BILATERAL NULL (cov state replacement CLOSED at pre-target)
+
+- Branch: `g1r1-nezuko/cov-reset-2750`
+- Hypothesis: Hard zero reset of L_cov/R_cov EMA at step 2750 forces a fresh ~150-step re-accumulation of the bilateral whitening preconditioner — could re-tune to late-phase geometry; Arm B adds β_cov 0.95→0.99 pulse @ 2751-2900 to slow re-accumulation.
+- W&B: Arm A `210d43l3` (pure reset), Arm B `pyugggcd` (reset + β_cov 0.99 pulse)
+
+| Arm | mechanism | sr | val_ema | val_live | Δval mnat | Verdict |
+|---|---|---:|---:|---:|---:|---|
+| A | pure zero reset @ 2750 | 2950 | 3.267302 | 3.266713 | +4.45 | ❌ NULL |
+| B | reset + β_cov 0.99 pulse | **2875** | **3.263927** | 3.263346 | **+1.07** | ❌ NULL (close miss strict gate) |
+| Baseline #1532 | no reset | 2875 | 3.262854 | — | — | — |
+
+- **Analysis:** Both arms NULL strict gate. Arm B clean signal: **sr=2875 matches baseline** but val_ema close miss by +1.07 mnat. Diagnostic confirmation excellent — `cov_reset_count=72` (all body Muon params), `lcov_eigh_min=0` at steps 2751-2754 confirms hook fired, eigenvalue mass recovers to pre-reset scale by step 2800 (50-step under-whitened transient window). β_cov pulse fired correctly @ 2751-2900. Mechanistic conclusion: discarding L_cov/R_cov loses more from 50 under-whitened steps than staleness was costing — 800 EMA steps at β=0.95 since paramema_refresh@2600 track curvature well.
+- **🔥 Cross-PR signal**: Arm B sr=2875 is the SECOND independent sr=2875 close-miss this round (frieren #1708 Arm B UW=0.55 seed-1 val_ema 3.263116). Two distinct mechanisms hit baseline sr → sr=2925→2875 wall IS breakable; val_ema is the tightening bottleneck.
+
 ## 2026-05-29 23:00 UTC — PR #1703 alphonse: ACProp-style async whitening on body PMuon (ADOPT order swap) — ❌ BILATERAL NULL (update-rule asynchrony CLOSED on body PMuon)
 
 - Branch: `g1r1-alphonse/async-pmuon-whitening`
