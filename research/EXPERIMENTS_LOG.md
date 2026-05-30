@@ -1,5 +1,50 @@
 # SENPAI Research Results — auto-nanogpt-1gpu-r4
 
+## 2026-05-30 23:20 — PR #1848: NM step-gated activation timing STEP={0,1000,2000} — **CLOSED CLASS-38-NM-ACTIVATION-TIMING-LOAD-BEARING + 11th R4 CATALOG CLOSURE**
+
+- branch: `g1r4-nezuko/nm-step-gated-activation-timing`
+- hypothesis: NM R-buffer EMA needs a warmup window before preconditioning kicks in; gating NM start to step 1000 or 2000 may reduce cold-start noise and improve terminal val
+
+| Arm | ACTIVATION_STEP | W&B run | val/loss | FFS | Δ_BA raw | Pre-onset Δ floor | Causal Δ (c645) | Verdict |
+|---|---:|---|---:|---:|---:|---:|---:|---|
+| A ctrl | 0 (production) | `f5ik194o` | 3.26157 | 3125 | — | — | — | baseline |
+| B | 1000 (30%) | `42xzwtsx` | 3.26408 | 3150 | +0.00251 | +0.00826 | **−0.00575** | mild-NEG raw / FAV post-onset recovery |
+| C | 2000 (60%) | `zxul6n31` | 3.26752 | — | +0.00595 | +0.00688 | **−0.00093** | strong-NEG raw / NULL post-onset recovery |
+
+- n=1 sequential chain; R-buffer terminal observables: Arm B precond_ratio_mean ~3% below Arm A (36% fewer accumulated post-onset steps); Arm C coverage 60% of training only
+- **Causal interpretation (c645 methodology)**: Pre-onset penalty dominates. Arm B recovers 70% of cold-start tax over 2350 post-onset steps (causal −0.00575). Arm C recovers nearly nothing (causal −0.00093) with only 1350 post-onset steps = cold-start tax barely amortized.
+- **Class 38 NM-ACTIVATION-TIMING axis is LOAD-BEARING**: R-buffer EMA needs full-training accumulation to reach production equilibrium; partial windows leave compounding residual penalty. Production `ACTIVATION_STEP=0` CONFIRMED OPTIMAL.
+- **Sister contrast**: Class 35 NS-COOLDOWN-TIMING NULL — cooldown phase activation timing is permissive, body-phase NM activation is load-bearing.
+- **Catalog**: 10th r4 MECHANISM-COUPLED+OUTCOME-DECOUPLED closure. Axis fenced — no further ACTIVATION_STEP bracket assignments.
+
+**Methodological win**: c645 boundary-pair causal decomposition (Δ_terminal − Δ_pre-onset floor) correctly shows Arm C post-onset recovery is nearly-complete (causal=−0.00093); raw Δ=+0.00595 would mislead toward "strong-NEG, no signal". Codified to feedback_switch_fire_causal_isolation memory.
+
+**Fresh assignment**: nezuko → #1886 NM body-phase period step-up (PERIOD=3/4 in body, PERIOD=2 in cooldown) — orthogonal to activation timing; tests whether body-phase PERIOD reduction is neutral since NM must be always-on.
+
+---
+
+## 2026-05-30 23:20 — PR #1843: NM γ-Tikhonov SWITCH at cooldown-entry step 2345 bidirectional {0.003/0.008} — **CLOSED γ-SWITCH-BIDIRECTIONAL-NULL + FAV-MIRAGE-CAUSAL-ISOLATION + 10th R4 CATALOG CLOSURE**
+
+- branch: `g1r4-edward/nm-tikhonov-gamma-cooldown-switch`
+- hypothesis: γ-Tikhonov shrinkage benefit may be concentrated in the cooldown phase; SWITCH at cooldown-entry step 2345 tests whether DAMP (→0.003, less regularization) or AMP (→0.008, more regularization) improves terminal outcome
+
+| Arm | γ pre-SWITCH | γ post-SWITCH | W&B run | val/loss raw | FFS | Causal Δ (c645 RNG-baseline) | Verdict |
+|---|---:|---:|---|---:|---:|---:|---|
+| A ctrl | 0.005 | 0.005 (no switch) | `3u8vqt57` | ≈3.26118 | 3125 | — | baseline |
+| B DAMP | 0.005 | 0.003 | `hu9vp1wn` | within ±σ_seed | — | **−0.00078** (within ±0.0015 = NULL) | NULL |
+| C AMP | 0.005 | 0.008 | `zatqgddn` | **3.25972** (FAV-MIRAGE) | 3125 | **+0.00001** (≈ zero) | NULL — RNG-drift absorbed all raw FAV |
+
+- **CRITICAL FAV-MIRAGE finding**: Arm C raw val=3.25972 = −0.00146 below baseline = would TRIGGER MERGE by raw gate. But student's c645 RNG-baseline subtraction (pre-SWITCH Δ at step N−30) reveals causal correction = +0.00001 ≈ zero. CUDA non-determinism drift accumulated over 2315 pre-SWITCH steps = ~−0.00147 = entirely explains raw FAV.
+- **Bidirectional NULL**: Both DAMP and AMP arms outcome-NULL after causal correction. γ does not need cooldown-specific value. Production `γ=0.005 fixed` CONFIRMED OPTIMAL along this axis.
+- **Catalog**: 9th r4 MECHANISM-COUPLED+OUTCOME-NULL-WITHIN-SEED-NOISE at SWITCH=2345 (joining c701 8th #1823 K-axis). γ-axis fenced bidirectionally at cooldown-entry SWITCH-fire.
+- **Self-correction**: c688/c692 had labeled this "CUMULATIVE-ABSORPTION-CATALOG-MAJOR" based on mean-of-window pre-SWITCH baseline. c701 self-correction using boundary-pair methodology showed the absorption claim was wrong. Codified to feedback_switch_fire_causal_isolation memory.
+
+**Methodological lesson**: SWITCH-fire causal isolation MUST use Δ at step boundary (N−30), not mean-of-window. Wide-window mean understates at-boundary seed-noise floor because CUDA non-determinism drift accumulates progressively. Never merge a single-seed FAV from a SWITCH experiment without confirming the causal boundary-pair decomposition first.
+
+**Fresh assignment**: edward → #1888 NM R-buffer v-warmstart K bracket K∈{50,100,200,400} — tests K sensitivity within production range (distinct from #1823 over-INTENSIFY bracket K∈{500,800} which was CATALOG-COMPLETE).
+
+---
+
 ## 2026-05-30 22:40 — PR #1743: NM R-buffer refresh rate late-window boost PERIOD=1 SWITCH=3000 — **CLOSED CLASS-25-PERIOD-LATE-AXIS-NULL + 5TH R4 FAV-MIRAGE + R_COND_MAX-DIRECTION-AXIS CATALOG-NOVEL**
 
 - branch: `g1r4-thorfinn/nm-period-late-window-cooldown-freshness`
