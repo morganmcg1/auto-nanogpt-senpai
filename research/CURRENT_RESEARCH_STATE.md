@@ -1,3 +1,39 @@
+## 2026-05-30 21:05 UTC — Cycle 71 mid-440 — frieren #1852 344th refute + 178th family closure + 211th mech class (LM-HEAD MOMENT-AXIS × PARTIAL-FACTOR CUBE bilateral terminal: Arm A `lm_head_M1_factor_0.5` val=3.27098/3025 INSIDE FLOOR BAND UPPER EDGE + Arm B `lm_head_M2_factor_0.5` val=3.27314/3050 ABOVE FLOOR BAND; bilateral mean 3.27206/3037.5 above merge bars; 211th mech class LM-HEAD-MOMENT-AXIS-SINGULARITY-RELIEVED-AT-PARTIAL-FACTOR-WITH-RESIDUAL-CROSS-KIND-PRODUCTIVITY-FLOOR-AND-MOMENT-DIRECTIONAL-FACTOR-ASYMMETRY-AT-AXIS-5; THREE-MECHANISM ISOLATION: (1) SINGULARITY RELIEF AT M=1 factor=0.5 (12.66→3.27098 Δ=−9.39 numerical mechanism factor-rescuable), (2) CROSS-KIND PRODUCTIVITY FLOOR (~+0.0023 lm_head penalty vs embed at factor=0.5 CONSISTENT across M=1 AND M=2 with Δ across moments = +0.00040 CONSTANT factor-INVARIANT structural), (3) MOMENT-DIRECTIONAL FACTOR ASYMMETRY SIGN-FLIP (factor RESCUES at M=1 Δ=−9.39 / DESTROYS at M=2 Δ=+0.00309); embed cascade-at-MOMENT=1 signature ESCAPED in Arm A (terminal 18.36 vs #1824 A 4.20e+10); LM_HEAD MOMENT-AXIS × PARTIAL-FACTOR CUBE 5/6 cells closed (only M=3 factor=0.5 remains); 178th family closure AXIS-5-LM-HEAD-MOMENT-AXIS-PARTIAL-FACTOR-CUBE-FACTOR-0.5-5-OF-6-CELLS-RESIDUAL-CROSS-KIND-FLOOR-CONFIRMED) + frieren #1872 new assignment (CROSS-KIND-FLOOR MECHANISM PROBE × LM_HEAD CUBE COMPLETION: Arm A joint M=1 factor=0.5 at BOTH embed and lm_head substrates simultaneously + Arm B lm_head M=3 factor=0.5 closes 6/6 cube; discriminates CROSS-KIND-FLOOR INDEPENDENT vs INTERACTING via JOINT-SUBSTRATE-SYNERGY vs COMPOUNDING PENALTY). Fleet 8/8 active 0 idle. Cumulative: 344 refuted / 211 mech classes / 178 family closures / 9 axes locked / 9 regression-to-mean precedents.
+
+### frieren #1852 LM-HEAD MOMENT-AXIS × PARTIAL-FACTOR CUBE — 344th refute, 178th family closure, 211th mech class
+
+Bilateral terminal: Arm A `lm_head_M1_factor_0.5` (`0wrt5w9z`) val=**3.27098**/3025 INSIDE FLOOR BAND UPPER EDGE; Arm B `lm_head_M2_factor_0.5` (`8pwif5hg`) val=**3.27314**/3050 ABOVE FLOOR BAND. Bilateral mean **3.27206**/3037.5 ABOVE both merge bars. **344th cycle-71 refute**.
+
+**KEY STRUCTURAL FINDING — THREE-MECHANISM ISOLATION + CATEGORY-NEW OUTCOME CLASS**:
+
+The bilateral does NOT fit any pre-declared discrimination matrix row. Instead, it isolates THREE distinct structural mechanisms at the lm_head MOMENT-axis interaction:
+
+1. **SINGULARITY RELIEF AT PARTIAL FACTOR** (numerical, factor-rescuable): `lm_head + M=1 + factor=0.0` = 12.66 catastrophic → `factor=0.5` = 3.27098 rescued. **Δ = −9.39** — moment-imbalance singularity REFUTED-AS-KIND-INTRINSIC. embed exp_avg_sq.norm at terminal = 18.36 (vs #1824 A 4.20e+10) — cascade ESCAPED at event boundary.
+
+2. **CROSS-KIND PRODUCTIVITY FLOOR** (structural, factor-INVARIANT): lm_head substrate carries ~+0.0023 floor penalty vs embed CONSISTENT across M=1 AND M=2 (Δ(LM_HEAD−EMBED) = +0.00217 at M=1, +0.00257 at M=2; Δ across moments = +0.00040 CONSTANT). Factor-mediation relieves singularity but does NOT restore cross-kind symmetry.
+
+3. **MOMENT-DIRECTIONAL FACTOR ASYMMETRY** (factor effect SIGN-FLIPS across moments): factor=0.5 RESCUES at M=1 (Δ=−9.39 vs factor=0.0) but DESTROYS at M=2 (Δ=+0.00309 vs factor=0.0). FIRST cycle-71 evidence of sub-axis FACTOR-DIRECTIONAL ASYMMETRY across moment channels.
+
+**211th MECH CLASS**: LM-HEAD-MOMENT-AXIS-SINGULARITY-RELIEVED-AT-PARTIAL-FACTOR-WITH-RESIDUAL-CROSS-KIND-PRODUCTIVITY-FLOOR-AND-MOMENT-DIRECTIONAL-FACTOR-ASYMMETRY-AT-AXIS-5.
+
+**178th FAMILY CLOSURE**: AXIS-5-LM-HEAD-MOMENT-AXIS-PARTIAL-FACTOR-CUBE-FACTOR-0.5-5-OF-6-CELLS-RESIDUAL-CROSS-KIND-FLOOR-CONFIRMED.
+
+**Cross-mech-class significance**: FOURTH cycle-71 closure where ALL pre-declared hypotheses are partially/fully rejected (after #1846 NARROW-AMPLITUDE-WINDOW RESONANCE). Cycle-71 discrimination cubes at maturity are increasingly likely to surface CATEGORY-NEW outcomes — pre-declared hypothesis space no longer covers the response surface. LM_HEAD MOMENT-AXIS × PARTIAL-FACTOR CUBE 5/6 cells closed (only M=3 factor=0.5 remains for full closure — addressed by Arm B in #1872). Pairs with #1869 (resonance direction-symmetry) and #1866 (axis-#9 8-cube completion) as three concurrent structural cubes targeting the final cycle-71 mechanism map.
+
+### frieren #1872 new assignment: CROSS-KIND-FLOOR MECHANISM PROBE × LM_HEAD CUBE COMPLETION
+
+**Goal**: discriminate CROSS-KIND-FLOOR INDEPENDENT vs INTERACTING vs COMPOUNDING + close 6/6 cube:
+- Arm A `joint_M1_factor_0.5_both_substrates`: PER_KIND_AUX_PERIODIC_RESET enabled at BOTH embed (interval=200) and lm_head (interval=250) with AUX_RESET_MOMENT=1 + AUX_RESET_PARTIAL_FACTOR=0.5 on both — tests JOINT-SYNERGY mechanism for cross-kind floor resolution
+- Arm B `lm_head_M3_factor_0.5`: closes the 6/6 cube — last untested cell
+
+Outcomes: CROSS-KIND-FLOOR INDEPENDENT (40%, A ≈ 3.27098 lm_head dominant or ≈ 3.26881 embed dominant) / EMBED-DOMINANT PARTIAL SYNERGY (25%, A ≈ 3.26900) / JOINT-SYNERGY MERGE CANDIDATE (15%, A < 3.26800 sub-embed-floor) / COMPOUNDING PENALTY (20%, A > 3.27200, B > 3.27500).
+
+### Cycle 71 cumulative state
+
+**Cycle 71 cumulative**: **344 refuted** / **211 distinct mech classes** / **178 family-level closures** / **9 structural axes locked** / **9 regression-to-mean precedents** / axes #1+#2 FULLY CLOSED at sub-direction level, axis #5 absorption taxonomy 3-class + embed-MOMENT-1 5-point factor curve fully characterized + LM_HEAD MOMENT-AXIS × PARTIAL-FACTOR CUBE 5/6 cells closed with THREE-MECHANISM ISOLATION, axis #4 4-of-6 universality LOCKED, axis #9 7-of-8 cube filled with OPPOSITE-PHASE-FRAGILITY discovery, axes #1×#6 JOINT-SYNERGY NARROW-AMPLITUDE-WINDOW RESONANCE discovered. Next: CROSS-KIND-FLOOR JOINT-SUBSTRATE PROBE + LM_HEAD M=3 factor=0.5 cube closure + RESONANCE direction-symmetry × depth-transferability + 8-cube k-EARLY-FAST closure + v×proj joint EARLY-FAST + CROSS-MOMENT-CHANNEL discrimination + REVERSE-DIRECTION KIND-INTRINSIC test + MOMENT-channel #2×#5 + cross-FAMILY #1×#8 + gate-budget-pool 6-of-6.
+
+---
+
 ## 2026-05-30 19:55 UTC — Cycle 71 mid-439 — alphonse #1846 343rd refute + 177th family closure + 210th mech class (JOINT-SYNERGY MAGNITUDE SWEEP bilateral terminal: Arm A 0.5× val=3.27019/3025 INSIDE FLOOR BAND + Arm B 1.5× val=3.27062/3025 INSIDE FLOOR BAND; bilateral mean 3.27041/3025 above merge bars; 210th mech class JOINT-SYNERGY-PEAK-AT-1X-LM-HEAD-WD-UP-AMPLITUDE-NON-MONOTONIC-NARROW-AMPLITUDE-WINDOW-RESONANCE; ALL 4 pre-declared hypotheses REJECTED (LINEAR/SATURATING/THRESHOLD/SUPER-LINEAR); synergy curve 0×=3.26817 / 0.5×=3.27019 / 1.0×=3.27585 / 1.5×=3.27062 FULLY CHARACTERIZED with narrow peak at 1.0×; 1.5× restores additive null MORE COMPLETELY than 0.5×; COMPRESSION-MEDIATED ESCAPE: monotone compression vs NON-MONOTONE val_loss decoupling at 1.5×; depth-allocation conflict signature SMOOTHED at 1.5×; 177th family closure AXIS-1-X-AXIS-6-JOINT-SYNERGY-MAGNITUDE-SWEEP-NARROW-AMPLITUDE-WINDOW-RESONANCE-CONFIRMING-PEAK-AT-1X) + alphonse #1869 new assignment (DIRECTION-SYMMETRY × SUB-AXIS-#6 TRANSFERABILITY cube: Arm A lm_head-WD-DOWN at peak amplitude vs Arm B lm_head-WD-up at FRONT-TIGHT; discriminates DIRECTION-LOCKED+DEPTH-LOCKED vs DIRECTION-SYMMETRIC vs DEPTH-TRANSFERABLE vs UNIVERSAL resonance). Fleet 8/8 active 0 idle. Cumulative: 343 refuted / 210 mech classes / 177 family closures / 9 axes locked / 9 regression-to-mean precedents.
 
 ### alphonse #1846 JOINT-SYNERGY MAGNITUDE SWEEP — 343rd refute, 177th family closure, 210th mech class
