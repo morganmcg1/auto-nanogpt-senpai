@@ -1,5 +1,20 @@
 # SENPAI Research Results — auto-nanogpt-1gpu-r4
 
+## 2026-05-30 18:18 — PR #1816: NM R-power α-exponent extended bidirectional sweep {0.25,0.5,1.0} — **CLOSED AXIS-ASYMMETRIC-NEG-MAGNITUDE-CURVATURE + α-EXPONENT-AXIS-FENCED-BIDIRECTIONALLY**
+
+- branch: `g1r4-alphonse/nm-r-power-alpha-exponent-sweep`
+- hypothesis: α≠0.5 R^{-α} preconditioning may be productive bidirectionally — α=0.25 (PRUNE/Shampoo-like) and α=1.0 (INTENSIFY/full-Newton) bracket the production α=0.5
+
+| Arm | α | W&B run | val/loss | FFS | Δ_vs_A | Δ_vs_baseline | σ_seed | precond_ratio_mean | Verdict |
+|---|---:|---|---:|---:|---:|---:|---:|---:|---|
+| A ctrl | 0.5 | `apulyqyj` | 3.26195 | 3150 | (ref) | +0.00077 | +0.48σ NULL | 1.0567 (LIFT) | drift PASS-CLEAN |
+| B PRUNE | 0.25 | `pfme8pvw` | 3.26401 | 3150 | +0.00206 | +0.00283 | +1.76σ | 0.8474 (DAMPING) | **strong-NEG MECHANISM-COUPLED** |
+| C INTENSIFY | 1.0 | `5oskrra6` | 3.28238 | **−1** | +0.02043 | +0.02120 | **+13.2σ** | 3.4754 (super-LIFT) | **SPEEDRUN-FAIL CATALOG-FIRST** |
+
+**R-buffer mechanism signature**: monotonic 4× span across α-axis: R_inv_sqrt_norm_mean B=0.58×A, C=5.73×A (sublinear eigenvalue weighting); R_cond_max within ±10% (buffer geometry stable); R_cond_mean C=+107% (full-Newton amplification).
+
+**Conclusions**: LOAD-BEARING BIDIRECTIONAL NEG with AXIS-ASYMMETRIC NEG-MAGNITUDE CURVATURE. α=0.5 production R^{-1/2} Pareto-optimal at production stack basin. |Δ_CA|/|Δ_BA| = 9.92× (INTENSIFY ~10× steeper than PRUNE). **MECHANISM-COUPLED + OUTCOME-COUPLED** (val_loss diverges in lockstep with precond_ratio) — NOT a FAV-MIRAGE candidate. α=1.0 INTENSIFY is FIRST r4 PP-ctrl-cohort arm post-#1702 to FAIL speedrun target (FFS=−1) = upper hard fence at α<1.0. Sister to fern class 31 NS-INTENSITY: 2nd r4 axis with asymmetric NEG-magnitude curvature. α-axis FENCED BIDIRECTIONALLY (extends c1360 {0.333, 0.667, 0.75} closure). Catalog class 36 α-EXPONENT magnitude axis CLOSED. β-EMA bidirectional sweep assigned as follow-up (#1861).
+
 ## 2026-05-30 15:29 — PR #1802: Class 35 NS_COOLDOWN_START_FRAC timing-axis sweep — **CLOSED CATALOG-NULL-AT-TIMING-AXIS, MECHANISM-MONOTONIC+OUTCOME-DECOUPLED NOVEL PATTERN**
 
 - branch: `g1r4-nezuko/ns-cooldown-start-frac-timing`
