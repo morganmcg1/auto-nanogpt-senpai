@@ -84,6 +84,10 @@ def parse_args():
     parser.add_argument('--aux_b2_pulse_target', type=float, default=0.99,
                         help='New aux Adam β2 value to set at --aux_b2_pulse_step. '
                              '0 or negative disables. Default: 0.99 (canonical WIN).')
+    parser.add_argument("--aux_adam_reset_step", type=int, default=-1,
+                        help="If > 0, zero optimizer1 m/v (exp_avg, exp_avg_sq) state at this step, "
+                             "immediately AFTER the β2 pulse block. -1 disables. "
+                             "Tests whether the aux Adam β2 pulse benefits from a clean state start.")
     parser.add_argument("--seed", type=int, default=1,
                         help="Random seed for torch/numpy/python. Default 1 matches baseline seed.")
     args = parser.parse_args()
@@ -765,6 +769,7 @@ if dist.get_rank() == 0:
             "paramema_refresh_only": int(args.paramema_refresh_only),
             "aux_b2_pulse_step": args.aux_b2_pulse_step,
             "aux_b2_pulse_target": args.aux_b2_pulse_target,
+            "aux_adam_reset_step": args.aux_adam_reset_step,
             "seed": args.seed,
         },
     )
@@ -1071,6 +1076,53 @@ for trial_idx in range(args.num_trials):
                 group["betas"] = new_betas
             print0(f"[step {step}] aux_b2_pulse: β2 {old_b2} → {args.aux_b2_pulse_target}",
                    console=True)
+        # Sentinel telemetry: log optimizer1 first-param state stats at
+        # reset_step-1, reset_step, reset_step+1 (captures state carried INTO
+        # the step, before opt.step()). At reset_step the log is taken AFTER
+        # the zero_() below, so it should show ~0; at reset_step+1 it reflects
+        # one opt.step() of re-accumulation under the new β2.
+        sentinel_due = (args.aux_adam_reset_step > 0
+                        and step in (args.aux_adam_reset_step - 1,
+                                     args.aux_adam_reset_step,
+                                     args.aux_adam_reset_step + 1))
+        if args.aux_adam_reset_step > 0 and step == args.aux_adam_reset_step:
+            reset_count = 0
+            for group in optimizer1.param_groups:
+                for p in group["params"]:
+                    if p in optimizer1.state:
+                        st = optimizer1.state[p]
+                        if "exp_avg" in st:
+                            st["exp_avg"].zero_()
+                        if "exp_avg_sq" in st:
+                            st["exp_avg_sq"].zero_()
+                        reset_count += 1
+            if dist.get_rank() == 0:
+                wandb.log({
+                    "trial": trial_idx,
+                    "aux_adam/reset_count": reset_count,
+                    "aux_adam/reset_step_logged": step,
+                    "aux_adam/reset_step_target": args.aux_adam_reset_step,
+                }, step=trial_idx * (train_steps + 1) + step)
+            print0(f"[step {step}] aux Adam m/v state RESET "
+                   f"(all groups, n={reset_count})", console=True)
+        if sentinel_due and dist.get_rank() == 0:
+            sentinel_p = optimizer1.param_groups[0]["params"][0]
+            sentinel_name = optimizer1.param_groups[0].get("name", "adam_embed")
+            if sentinel_p in optimizer1.state:
+                st = optimizer1.state[sentinel_p]
+                sentinel_metrics = {
+                    "trial": trial_idx,
+                    "aux_adam/sentinel_step": step,
+                    "aux_adam/sentinel_group": sentinel_name,
+                }
+                if "exp_avg" in st:
+                    sentinel_metrics["aux_adam/sentinel_exp_avg_abs_mean"] = float(
+                        st["exp_avg"].abs().mean().item())
+                if "exp_avg_sq" in st:
+                    sentinel_metrics["aux_adam/sentinel_exp_avg_sq_abs_mean"] = float(
+                        st["exp_avg_sq"].abs().mean().item())
+                wandb.log(sentinel_metrics,
+                          step=trial_idx * (train_steps + 1) + step)
         for opt in optimizers:
             opt.step()
         # EMA buffer update on body-Muon matrix params.
