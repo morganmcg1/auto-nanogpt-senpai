@@ -1136,11 +1136,11 @@ for trial_idx in range(args.num_trials):
                             pre_exp_avg_sum += float(st["exp_avg"].float().square().sum().item())
                         if "exp_avg_sq" in st:
                             pre_exp_avg_sq_sum += float(st["exp_avg_sq"].float().square().sum().item())
-                        # MOMENT=0 → both, MOMENT=1 → exp_avg_sq only, MOMENT=2 → exp_avg only
-                        if AUX_RESET_MOMENT_EMBED in (0, 2) and "exp_avg" in st:
+                        # MOMENT=0 → both (legacy), MOMENT=1 → exp_avg_sq only, MOMENT=2 → exp_avg only, MOMENT=3 → both (bitfield)
+                        if AUX_RESET_MOMENT_EMBED in (0, 2, 3) and "exp_avg" in st:
                             st["exp_avg"].zero_()
                             params_reset_avg += 1
-                        if AUX_RESET_MOMENT_EMBED in (0, 1) and "exp_avg_sq" in st:
+                        if AUX_RESET_MOMENT_EMBED in (0, 1, 3) and "exp_avg_sq" in st:
                             st["exp_avg_sq"].zero_()
                             params_reset_sq += 1
                     break
