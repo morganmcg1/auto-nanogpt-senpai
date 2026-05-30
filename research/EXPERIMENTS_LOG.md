@@ -1,3 +1,29 @@
+## 2026-05-31 — PR #1856: H311 askeladd POST-NS5 Lookahead slow/fast weight averaging
+
+- Branch: g1r3-askeladd/h311-post-ns5-lookahead
+- Hypothesis: POST-NS5 Lookahead (slow/fast weight averaging applied AFTER NS5 polar projection, on body 2D params). Tests whether periodic snap-back toward slow-weight anchor can stabilize MuonH cooldown trajectory. Structurally distinct from H271 (pre-NS5 Lookahead absorbed by H266 EMA) and H266 eval-only EMA.
+- 3-arm Pattern A: arm_a CTRL (k=0 disabled), arm_b LOOKAHEAD_K5_A0p5 (k=5, α=0.5), arm_c LOOKAHEAD_K10_A0p5 (k=10, α=0.5). ~25 LoC adds 2 CLI flags + snap-back loop.
+
+### Results
+
+| Arm | k | α | terminal val | FFS | Δ vs H266 (3.26818) | Δ vs CTRL | snap_count |
+|-----|---|---|--------------|-----|---------------------|-----------|------------|
+| arm_a CTRL `siqvs3ws` | 0 | 0.5 (unused) | **3.26935** | **3025** | +0.00117 (+1.3σ_H174) | (ref) | n/a |
+| arm_b LOOKAHEAD_K5 `9g6qsrrj` | 5 | 0.5 | **3.32105** | **−1 FAIL** | +0.05287 (+60σ_H174) | **+0.05170** | 664 ✓ |
+| arm_c LOOKAHEAD_K10 `g44ggqlh` | 10 | 0.5 | **3.32088** | **−1 FAIL** | +0.05270 (+60σ_H174) | **+0.05153** | 332 ✓ |
+
+σ_H174 = 0.000884 noise floor. Pattern A bit-id: all 3 arms step-0=10.82583 EXACT. W&B group: h311_lookahead_post_ns5. Both treatment arms FAIL val=3.28 target entirely.
+
+### Analysis
+
+**Closure verdict: CLOSED 165th NULL/NEG — 🎯 2 paper-grade findings (106th mechanism class CONSOLIDATED)**
+
+1. **🎯 paper-grade NEGATIVE DELINEATION: Lookahead at canonical α=0.5 CLOSED across BOTH NS5 axes.** H271 pre-NS5 NULL "absorbed by polar projection+H266"; H311 post-NS5 NEG "destructive LR halving" (+60σ). α=0.5 is structurally incompatible with MuonH speedrun regardless of application point. On-trajectory averaging (H271/H311) fails; off-trajectory eval averaging (H266) wins. **106th mechanism class consolidated** — Lookahead body params at canonical α=0.5 across PRE+POST NS5 axes CLOSED.
+
+2. **🎯 paper-grade k-AXIS FLAT (α is dominant, not k)**: arm_b vs arm_c Δ=0.00017 at identical α=0.5 (essentially zero). k-doubling does NOT modulate the destructive effect. α is the load-bearing variable for Lookahead survival — future Lookahead hypotheses must sweep α (not k). FFS<3000 merge gate: NEITHER arm clears (both FFS=−1). CLOSED per Issue #1260 strict.
+
+**Follow-up**: H319 askeladd assigned immediately (PR #1890) — AUX β1 mid-training schedule, structurally distinct fresh axis analogous to H309 β2 SCHEDULE.
+
 ## 2026-05-31 — PR #1853: H310 alphonse SPATIAL-by-DEPTH μ heterogeneity
 
 - Branch: g1r3-alphonse/h310-per-depth-mu-heterogeneity

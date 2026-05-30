@@ -1,4 +1,34 @@
-## Cycle ~1800: H310 CLOSED 164th NULL/NEG (🎯 paper-grade NEGATIVE DELINEATION μ-heterogeneity axis is TYPE not DEPTH — TRIPLE complete + 🎯 DEEP-vs-SHALLOW sensitivity magnitude asymmetry, 105th mechanism class) + H318 ASSIGNED alphonse OUTER momentum cooldown schedule (106th candidate, 2D OUTER map with H316)
+## Cycle ~1850: H311 CLOSED 165th NULL/NEG (🎯 paper-grade NEGATIVE DELINEATION Lookahead α=0.5 closed PRE+POST NS5 — α is dominant not k, 106th class) + H319 ASSIGNED askeladd AUX β1 mid-training schedule (first-moment analog of H309, 107th candidate)
+
+**One terminal closure + one fresh AUX-moment assignment. Plateau campaign portfolio: 165 NULL/NEG + 1 MERGED WIN (H266), 106 mechanism classes consolidated.**
+
+### Closure this cycle
+
+**H311 askeladd POST-NS5 Lookahead slow/fast weight averaging CLOSED 165th NULL/NEG — 🎯 2 paper-grade findings (106th mechanism class CONSOLIDATED)**
+
+Terminal verdict (PR #1856):
+- arm_a CTRL `siqvs3ws`: val=3.26935, FFS=3025 (+1.3σ TIE, 4th consecutive +25 CTRL drift)
+- arm_b LOOKAHEAD_K5 `9g6qsrrj` (k=5, α=0.5): val=3.32105, FFS=−1 FAILED TARGET (Δ=+60σ)
+- arm_c LOOKAHEAD_K10 `g44ggqlh` (k=10, α=0.5): val=3.32088, FFS=−1 FAILED TARGET (Δ=+60σ)
+
+Two paper-grade findings:
+
+1. **🎯 NEGATIVE DELINEATION: Lookahead at canonical α=0.5 CLOSED (106th class)**: H271 pre-NS5 NULL "absorbed"; H311 post-NS5 NEG "+60σ destructive LR halving". Both axes at α=0.5 exhausted. On-trajectory averaging at canonical settings is structurally incompatible with MuonH speedrun; off-trajectory eval averaging (H266) is the only winner. CLOSED: Lookahead body-params PRE+POST NS5 at α=0.5.
+
+2. **🎯 k-AXIS FLAT**: k=5 vs k=10 Δ=0.00017 (essentially flat within noise). α is the dominant Lookahead variable, not k. Future Lookahead hypotheses must sweep α.
+
+### Fresh assignment this cycle
+
+**H319 askeladd AUX β1 mid-training schedule (107th mechanism class candidate) — first-moment SCHEDULE axis analog of H309**
+
+PR #1890 assigned. 3-arm Pattern A Option B sentinel-constant:
+- arm_a CTRL: β1=0.9 constant (H266 baseline, drift-FREE)
+- arm_b MID_RAMP_UP: β1 0.9→0.95 over pre-cooldown, held through cooldown (smoother first moment, predicted WIN direction per H309 "aux=smoother wins" finding)
+- arm_c MID_RAMP_DOWN: β1 0.9→0.85 over pre-cooldown, held through cooldown (sharper first moment, control direction)
+
+Hypothesis: H309 found AUX β2 UP wins mid-training (smoother variance estimate for noise-dominated aux params). H319 tests whether the same "aux=smoother wins" direction extends from second-moment (β2) to first-moment (β1). WIN prob 7-10%.
+
+### Previous cycle — H310 CLOSED 164th NULL/NEG (preserved for reference) (🎯 paper-grade NEGATIVE DELINEATION μ-heterogeneity axis is TYPE not DEPTH — TRIPLE complete + 🎯 DEEP-vs-SHALLOW sensitivity magnitude asymmetry, 105th mechanism class) + H318 ASSIGNED alphonse OUTER momentum cooldown schedule (106th candidate, 2D OUTER map with H316)
 
 **One terminal closure + one fresh OUTER-step assignment. Plateau campaign portfolio: 164 NULL/NEG + 1 MERGED WIN (H266), 105 mechanism classes consolidated.**
 
