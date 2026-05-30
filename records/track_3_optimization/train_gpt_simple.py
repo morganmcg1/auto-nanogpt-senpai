@@ -467,6 +467,11 @@ ATTN_SOAP_TRUST_THRESHOLD = float(os.environ.get("ATTN_SOAP_TRUST_THRESHOLD", "0
 NS5_ITERS = int(os.environ.get("NS5_ITERS", "12"))
 WD_AUX = float(os.environ.get("WD_AUX", "0.0"))  # AdamW WD on embed + lm_head matrices (scalars stay at 0)
 EMBED_INIT_STD = float(os.environ.get("EMBED_INIT_STD", "1.0"))  # default preserves baseline N(0,1)
+# Per-kind AdamW β2 direction (PR #1778): when enabled, override β2 per-group on
+# adam_embed and adam_lm_head only. adam_scalars inherits optimizer-level 0.95.
+PER_KIND_AUX_BETA2_DIRECTION_ENABLED = int(os.environ.get("PER_KIND_AUX_BETA2_DIRECTION_ENABLED", "0"))
+EMBED_BETA2 = float(os.environ.get("EMBED_BETA2", "0.95"))
+LM_HEAD_BETA2 = float(os.environ.get("LM_HEAD_BETA2", "0.95"))
 LOGIT_SOFTCAP = float(os.environ.get("LOGIT_SOFTCAP", "15.0"))  # default = 15 (current hardcoded value); soft-cap value c in f(x) = c·x / sqrt(x^2+c^2)
 
 
@@ -898,10 +903,18 @@ for trial_idx in range(args.num_trials):
             raise Exception(f"Uninitialized parameter: {name}")
 
     # create the optimizer(s)
-    optimizer1 = AdamW([dict(params=[model.embed.weight], lr=0.3, name="adam_embed", weight_decay=WD_AUX),
-                        dict(params=[model.proj.weight], lr=1/320, name="adam_lm_head", weight_decay=WD_AUX),
-                        dict(params=[p for p in model.parameters() if p.ndim < 2], lr=0.01, name="adam_scalars")],
-                       betas=(0.8, 0.95), eps=1e-10, weight_decay=0, fused=True)
+    if PER_KIND_AUX_BETA2_DIRECTION_ENABLED:
+        optimizer1 = AdamW([dict(params=[model.embed.weight], lr=0.3, name="adam_embed",
+                                 weight_decay=WD_AUX, betas=(0.8, EMBED_BETA2)),
+                            dict(params=[model.proj.weight], lr=1/320, name="adam_lm_head",
+                                 weight_decay=WD_AUX, betas=(0.8, LM_HEAD_BETA2)),
+                            dict(params=[p for p in model.parameters() if p.ndim < 2], lr=0.01, name="adam_scalars")],
+                           betas=(0.8, 0.95), eps=1e-10, weight_decay=0, fused=True)
+    else:
+        optimizer1 = AdamW([dict(params=[model.embed.weight], lr=0.3, name="adam_embed", weight_decay=WD_AUX),
+                            dict(params=[model.proj.weight], lr=1/320, name="adam_lm_head", weight_decay=WD_AUX),
+                            dict(params=[p for p in model.parameters() if p.ndim < 2], lr=0.01, name="adam_scalars")],
+                           betas=(0.8, 0.95), eps=1e-10, weight_decay=0, fused=True)
     optimizer2 = Muon([(n, p) for n, p in model.blocks.named_parameters() if p.ndim >= 2],
                       lr=MUON_LR, weight_decay=MUON_WEIGHT_DECAY, mu=MU)
     optimizer2.param_groups[0]["name"] = "muon_blocks"
@@ -911,6 +924,23 @@ for trial_idx in range(args.num_trials):
     for opt in optimizers:
         for group in opt.param_groups:
             group["initial_lr"] = group["lr"]
+
+    # PR #1778 sanity probes: log actual per-group β2 for AdamW (rank 0, trial 0 only)
+    if dist.get_rank() == 0 and trial_idx == 0:
+        embed_b2_actual = optimizer1.param_groups[0]["betas"][1]
+        lm_head_b2_actual = optimizer1.param_groups[1]["betas"][1]
+        scalars_b2_actual = optimizer1.param_groups[2]["betas"][1]
+        wandb.config.update({
+            "optimizer/per_kind_aux_beta2_direction_enabled": PER_KIND_AUX_BETA2_DIRECTION_ENABLED,
+            "optimizer/embed_beta2_actual": embed_b2_actual,
+            "optimizer/lm_head_beta2_actual": lm_head_b2_actual,
+            "optimizer/adam_scalars_beta2_actual": scalars_b2_actual,
+            "optimizer/embed_beta2_env": EMBED_BETA2,
+            "optimizer/lm_head_beta2_env": LM_HEAD_BETA2,
+        }, allow_val_change=True)
+        print0(f"[PR1778] PER_KIND_AUX_BETA2_DIRECTION_ENABLED={PER_KIND_AUX_BETA2_DIRECTION_ENABLED} "
+               f"embed_beta2={embed_b2_actual} lm_head_beta2={lm_head_b2_actual} "
+               f"scalars_beta2={scalars_b2_actual}", console=True)
 
     # learning rate schedule: stable then decay
     def set_hparams(step, cooldown_frac=0.7):
