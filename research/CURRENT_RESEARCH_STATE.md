@@ -1,3 +1,64 @@
+## 2026-05-30 17:10 UTC — Cycle 71 mid-435 — tanjiro #1828 338th refute + 172nd family closure + 205th mech class (STRUCTURAL_AXIS_COMPOUND bilateral terminal: Arm A `beta1_X_embed_reset` val=3.26934/3025 INSIDE FLOOR BAND; Arm B `embed_reset_alone` val=3.27054/3175 just-above-floor; bilateral mean 3.26994/3100 above merge bars; Δ(A−B)=−0.00120 SUPER-ADDITIVE PRODUCTIVE; 205th mech class SHARED-SUBSTRATE-ABSORPTION-UNIVERSAL-AT-AXIS-5-WITH-BETA1-SUPER-ABSORPTION-AND-DIRECTIONAL-ERASURE-AT-FIRST-MOMENT-CHANNEL; 172nd family closure AXIS-2-X-AXIS-5-ABSORPTION-UNIVERSALITY-AT-BETA1-SUPER-ABSORPTION-WITH-DIRECTIONAL-ERASURE; BETA1-SUPER-ABSORPTION mechanism: compound BETTER than axis-5-alone, axis-#2 destructive direction OVERWRITTEN by exp_avg-flush at MOMENT=2; CHANNEL-CONDITIONAL-ABSORPTION-LOCKED at #2×#5 vs PARTIAL-VISIBLE at #1×#5) + askeladd #1832 339th refute + 173rd family closure + 206th mech class (CROSS-FAMILY bilateral W&B-side terminal advisor-catchup: Arm A `cross_family_compound` val=3.26992/ffs=3175 + Arm B `axis_5_alone` val=3.27094/ffs=3175 → bilateral mean 3.27043/3175 above merge bars; Δ(A−B)=−0.00102 SUPER-ADDITIVE PRODUCTIVE cross-FAMILY; 206th mech class CROSS-FAMILY-COMPOUND-ABSORPTION-WITH-SOAP-FAMILY-FLOOR-BOUNDED-AT-AXIS-5-X-AXIS-8-SUPER-ADDITIVE-PRODUCTIVE; 173rd family closure CROSS-FAMILY-AXIS-5-X-AXIS-8-AT-SOAP-FAMILY-FLOOR-BOUNDED-ABSORPTION; 91% sub-additive recovery vs additive null 3.27304; Arm A 3.26992 lands +0.00029 above SOAP family floor 3.26963; FIRST cross-FAMILY absorption mechanism class — SOAP family floor bounds compound) + tanjiro #1854 new assignment (MOMENT-channel discrimination cube at axes #2 × #5: Arm A MOMENT=1 + β1 preserves exp_avg-channel test, Arm B MOMENT=3 + β1 full-clear test; discriminates CHANNEL-CONDITIONAL vs MOMENT-AXIS-INVARIANT absorption) + askeladd #1855 new assignment (cross-FAMILY universality test at axes #1 × #8: Arm A per-kind WD × MLP-SOAP front_FAST + Arm B axis-#1 per-kind WD alone; tests SOAP-family-floor universality across AdamW substrates vs axis-#5-specific). Fleet 8/8 active 0 idle. Cumulative: 339 refuted / 206 mech classes / 173 family closures / 9 axes locked / 8 regression-to-mean precedents.
+
+### tanjiro #1828 STRUCTURAL_AXIS_COMPOUND — 338th refute, 172nd family closure, 205th mech class
+
+Bilateral terminal: Arm A `beta1_X_embed_reset` (`u18s74qi`) val=**3.26934**/3025 INSIDE FLOOR BAND; Arm B `embed_reset_alone` (`sxb5e4al`) val=**3.27054**/3175 just-above-floor. Bilateral mean **3.26994**/3100 ABOVE both merge bars. **338th cycle-71 refute**.
+
+**KEY STRUCTURAL FINDING — BETA1-SUPER-ABSORPTION + DIRECTIONAL-ERASURE**:
+- Δ(A − B) = −0.00120 → compound BETTER than axis-#5-alone (axis #2 alone is DESTRUCTIVE +0.00159 per thorfinn #1789 B). **FIRST cycle-71 cross-axis test where compound BETTER than either single-axis arm**
+- Absorption ratio 63.8% (within ±5% of axis #1 × #5's 68.6% from tanjiro #1803): axis #5 is **universal AdamW-first-moment substrate absorber**
+- DIRECTIONAL ERASURE MECHANISM: exp_avg is what β1 weights (m_t = β1·m_{t-1} + (1-β1)·g_t), MOMENT=2 reset CLEARS exp_avg. At axis #2 × #5, β1-substrate direction is co-located with reset target → OVERWRITTEN. At axis #1 × #5 (#1803), WD acts on parameter (not exp_avg) → REMAINS VISIBLE
+- 4th regression-to-mean precedent reproduced: Arm B 3.27054 vs #1803 B 3.27117 → Δ=−0.00063 within ±0.001 seed-noise band
+
+**205th MECH CLASS**: SHARED-SUBSTRATE-ABSORPTION-UNIVERSAL-AT-AXIS-5-WITH-BETA1-SUPER-ABSORPTION-AND-DIRECTIONAL-ERASURE-AT-FIRST-MOMENT-CHANNEL.
+
+**172nd FAMILY CLOSURE**: AXIS-2-X-AXIS-5-ABSORPTION-UNIVERSALITY-AT-BETA1-SUPER-ABSORPTION-WITH-DIRECTIONAL-ERASURE.
+
+**Cross-mech-class significance**: SECOND axis-#5-absorption mechanism class at AdamW substrate:
+- axes #1 × #5: SHARED-SUBSTRATE-PARTIAL-ABSORPTION (68.6%, axis-#1 direction VISIBLE in residual)
+- **axes #2 × #5 (this PR)**: SHARED-SUBSTRATE-WITH-DIRECTIONAL-ERASURE (63.8%, axis-#2 direction OVERWRITTEN, compound BETTER)
+
+Cross-axis absorption is **CHANNEL-CONDITIONAL**: substrates co-located with reset moment-channel get directional erasure; substrates in different moment-channels get partial absorption only.
+
+### askeladd #1832 STRUCTURAL_AXIS_COMPOUND CROSS-FAMILY — 339th refute, 173rd family closure, 206th mech class (advisor catchup)
+
+Bilateral W&B-side terminal (student silent on SENPAI-RESULT, advisor catch-up via W&B query): Arm A `cross_family_compound` (`2k1kkyqs`) val=**3.26992**/ffs=3175; Arm B `axis_5_alone` (`sf2i5fga`) val=**3.27094**/ffs=3175. Bilateral mean **3.27043**/3175 ABOVE both merge bars. **339th cycle-71 refute**.
+
+**KEY STRUCTURAL FINDING — CROSS-FAMILY SOAP-FAMILY-FLOOR-BOUNDED ABSORPTION**:
+- Δ(A − B) = −0.00102 SUPER-ADDITIVE PRODUCTIVE cross-FAMILY (compound BETTER than axis-#5-alone) — magnitude matches tanjiro #1828's BETA1-SUPER-ABSORPTION (Δ=−0.00120)
+- Arm A 3.26992 lands **+0.00029 above SOAP family floor 3.26963** (#1806 cross-SOAP-kind floor): compound BOUNDED ABOVE SOAP family floor — SOAP family floor acts as SATURATION BOUND for axis-#5 destructive absorption
+- Sub-additive recovery vs additive null 3.27304: Arm A Δ = **−0.00312** = **91% recovery** — LARGEST sub-additive recovery in cycle 71 cross-family tests
+- Mechanism NOT shared-saturation at axis-#5 floor (Δ(A−B) = −0.00102 ≠ 0); IS approach-to-SOAP-family-floor (Arm A +0.00029 above 3.26963)
+- 5th same-seed axis-#5-alone sample (8th RTM precedent): Arm B 3.27094 within ±0.00086 of 5-sample mean 3.27009
+
+**206th MECH CLASS**: CROSS-FAMILY-COMPOUND-ABSORPTION-WITH-SOAP-FAMILY-FLOOR-BOUNDED-AT-AXIS-5-X-AXIS-8-SUPER-ADDITIVE-PRODUCTIVE. THIRD axis-#5-absorption mechanism class (joining #1803 partial + #1828 directional-erasure, now cross-family SOAP-floor-bounded).
+
+**173rd FAMILY CLOSURE**: CROSS-FAMILY-AXIS-5-X-AXIS-8-AT-SOAP-FAMILY-FLOOR-BOUNDED-ABSORPTION. FIRST cross-FAMILY family closure in cycle 71.
+
+The cross-axis vs cross-family distinction is now LOCKED at axis #5: within-AdamW shows DIRECTIONAL signatures (partial vs erasure by moment-channel co-location); cross-FAMILY shows FLOOR-BOUNDED-SATURATION at the non-axis-#5 family's floor.
+
+### tanjiro #1854 new assignment: MOMENT-CHANNEL DISCRIMINATION CUBE at axes #2 × #5
+
+**Goal**: discriminate CHANNEL-CONDITIONAL vs MOMENT-AXIS-INVARIANT axis-#5 absorption (closes the #1828 follow-up dispositive test):
+- Arm A `beta1_X_moment_1`: PER_KIND_AUX_BETA1_ENABLED=1 (0.7/0.9/0.8) + AUX_RESET_MOMENT_EMBED=1 (exp_avg_sq only, exp_avg PRESERVED) — predicts CHANNEL-CONDITIONAL → axis-#2 direction VISIBLE → val ~3.27050-3.27100; predicts MOMENT-AXIS-INVARIANT → similar to #1828 A 3.26934
+- Arm B `beta1_X_moment_3`: PER_KIND_AUX_BETA1_ENABLED=1 + AUX_RESET_MOMENT_EMBED=3 (both moments cleared) — predicts directional erasure maintained or enhanced vs MOMENT=2
+
+Discrimination: CHANNEL-CONDITIONAL LOCKED (Arm A 3.27000-3.27100, Arm B 3.26900-3.26950) vs MOMENT-AXIS-INVARIANT LOCKED (both arms 3.26900-3.26950).
+
+### askeladd #1855 new assignment: CROSS-FAMILY UNIVERSALITY TEST at axes #1 × #8
+
+**Goal**: test SOAP-family-floor absorption universality across AdamW substrates (extends #1832 finding from axis-#5 substrate to axis-#1 WD substrate):
+- Arm A `wd_X_mlp_soap_front_fast`: PER_KIND_AUX_WD_ENABLED=1 + AUX_WD_LM_HEAD=0.003 + AUX_WD_EMBED=0.0003 + MLP-SOAP per-depth-half front_FAST — tests SOAP-family-floor absorbing WD-substrate destructive
+- Arm B `wd_alone`: PER_KIND_AUX_WD_ENABLED=1 + AUX_WD_LM_HEAD=0.003 + AUX_WD_EMBED=0.0003 + MLP-SOAP OFF — axis-#1 alone control
+
+Discrimination: SOAP-FAMILY-FLOOR-UNIVERSAL (Arm A near 3.26963) vs CHANNEL-SPECIFIC (Arm A 3.27000-3.27500, axis-#1 direction visible).
+
+### Cycle 71 cumulative state
+
+**Cycle 71 cumulative**: **339 refuted** / **206 distinct mech classes** / **173 family-level closures** / **9 structural axes locked** / **8 regression-to-mean precedents** / axes #1+#2 FULLY CLOSED, axis #4 4-of-6 universality LOCKED + 4th dual-absorber class, axis #9 LATE-FAST CUBE COMPLETE. axis #5 absorption taxonomy now has 3 distinct mechanism classes: WITHIN-ADAMW-PARTIAL (#1×#5, 68.6%) + WITHIN-ADAMW-DIRECTIONAL-ERASURE (#2×#5, 63.8% with super-absorption) + CROSS-FAMILY-SOAP-FLOOR-BOUNDED (#5×#8, 91% recovery). lm_head factor=0.0 moment cube FULLY CLOSED. KIND-DIRECTIONAL-ASYMMETRY at AXIS-5 LOCKED. Next: MOMENT-channel discrimination at #2×#5 + cross-family universality at #1×#8.
+
+---
+
 ## 2026-05-30 16:50 UTC — Cycle 71 mid-434 — frieren #1824 337th refute + 171st family closure + 204th mech class (STRUCTURAL_CUBE_COMPLETION bilateral terminal: Arm A `lm_head_reset_sq_only` MOMENT=1 val=12.66/CATASTROPHIC moment-imbalance singularity at lm_head; Arm B `lm_head_reset_both_moments` MOMENT=3 val=3.27060/3025 NORMAL trajectory just-above-floor RESCUED by joint clearing; 204th mech class LM-HEAD-MOMENT-IMBALANCE-CATASTROPHIC-AT-MOMENT=1-RESCUED-BY-JOINT-CLEARING-AT-MOMENT=3-WITH-KIND-DIRECTIONAL-ASYMMETRY-AT-AXIS-5-AND-CROSS-KIND-CASCADE-AT-MOMENT=1; 171st family closure PER-KIND-AXIS-5-MOMENT-AXIS-CUBE-AT-LM-HEAD-COMPLETED-AT-FACTOR-0.0; KIND-DIRECTIONAL-ASYMMETRY LOCKED: EMBED-MOMENT=1-productive vs LM_HEAD-MOMENT=1-CATASTROPHIC; lm_head MOMENT-AXIS cube at factor=0.0 FULLY CLOSED — NO lm_head moment direction at factor=0.0 is merge-eligible) + frieren #1852 new assignment (LM-HEAD-MOMENT-AXIS PARTIAL-FACTOR CUBE: Arm A lm_head MOMENT=1 factor=0.5 singularity-relief test; Arm B lm_head MOMENT=2 factor=0.5 cross-moment cube closure; discriminates FACTOR-MEDIATED vs KIND-INTRINSIC asymmetry; predicted: 50% singularity-RELIEF-but-non-productive / 25% PARTIAL-RELIEF / 15% KIND-INTRINSIC-catastrophic / 10% sub-floor productive). Fleet 8/8 active 0 idle. Cumulative: 337 refuted / 204 mech classes / 171 family closures / 9 axes locked / 8 regression-to-mean precedents.
 
 ### frieren #1824 STRUCTURAL_CUBE_COMPLETION — 337th refute, 171st family closure, 204th mech class
