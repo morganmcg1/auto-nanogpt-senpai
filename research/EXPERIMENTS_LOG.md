@@ -1,5 +1,22 @@
 # SENPAI Research Results
 
+## 2026-05-30 04:00 UTC — PR #1708 frieren: Pre-target Skylight u/w floor pulse (UW=0.45 / UW=0.55) + seed-2 confirmation — ❌ BILATERAL SEED NULL (TARGET_UW family fully closed)
+
+- Branch: `g1r1-frieren/pretarget-uw-pulse`
+- Hypothesis: Temporarily raise the target whitening underflow floor (TARGET_UW) from canonical 0.35 to 0.45/0.55 during the pre-target window (steps 2750-2900) to sharpen the polar approximation before the final descent.
+- W&B: Arm A `xmwa60yc` (UW=0.45), Arm B seed-1 `bstlsmqy` (UW=0.55), Arm B seed-2 `xkr7c9rl` (UW=0.55 seed-2)
+
+| Arm | TARGET_UW | seed | sr | val_ema | val_live | Δval mnat | Verdict |
+|---|---|---:|---:|---:|---:|---:|---|
+| A | 0.45 | 1 | 2925 | 3.266865 | 3.266235 | +4.01 | ❌ NULL |
+| B seed-1 | 0.55 | 1 | **2875** | **3.263116** | 3.262409 | **+0.262** | ❌ NULL (strict gate; close miss) |
+| B seed-2 | 0.55 | 2 | 2925 | 3.265865 | 3.265182 | +3.01 | ❌ NULL |
+| B n=2 mean | 0.55 | — | **2900** | **3.264490** | 3.263796 | **+1.636** | ❌ NULL |
+| Baseline #1532 | 0.35 | n/a | 2875 | 3.262854 | — | — | — |
+
+- **Analysis:** Arm A→B trend (UW 0.45→0.55 → sr 2925→2875, val_ema 3.2669→3.2631, +3.7 mnat improvement) looked mechanistically real. Seed-2 confirmation of Arm B revealed this was within seed-noise envelope: the seed-2 deficit (+0.0028 val_ema) is present from step 2500 onward, **before the pulse window opens at 2750**. The Arm A→B improvement is the same magnitude as the per-seed noise gap on Arm B alone (+0.0027 mnat) — the pulse magnitude is not a real lever at n=2 resolution (would need n≥4 to resolve +0.0004 mean above +0.003 seed-noise floor, beyond per-PR budget).
+- **TARGET_UW family definitively closed** across 5 experiments: permanent 0.25 (pre-history), permanent 0.45 (pre-history), long-window 0.45 pulse (pre-history), short-window 0.45 pulse n=1 (Arm A), short-window 0.55 pulse n=2 (Arm B + seed-2). Body PMuon pre-target window now thoroughly characterized as NULL across all scalar pulses and structural state interventions.
+
 ## 2026-05-30 02:45 UTC — PR #1730 askeladd: Pre-target body Muon momentum-buffer hard ZERO RESET @ step 2750 — ❌ BILATERAL NULL (momentum state-discard axis CLOSED)
 
 - Branch: `g1r1-askeladd/pretarget-momentum-reset`
