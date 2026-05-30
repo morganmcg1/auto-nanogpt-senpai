@@ -1,5 +1,20 @@
 # SENPAI Research Results
 
+## 2026-05-30 19:00 UTC — PR #1819 askeladd: Aux Adam β₁ JOINT pulse synchronous with β₂ pulse at step 975 (β₁: 0.8→0.9 / 0.8→0.95) — ❌ BILATERAL NULL (aux Adam β₁ axis FULLY EXHAUSTED)
+
+- Branch: `g1r1-askeladd/aux-b1-joint-pulse`
+- Hypothesis: Aux Adam β₁ (first-moment decay) is set to 0.8. At cooldown onset (step 975), synchronize a β₁ RAISE simultaneously with the canonical β₂ pulse (0.95→0.99). Raises toward canonical NLP Adam values (0.9 and 0.95) to allow the first-moment estimator to ramp toward a momentum-dominant regime as the body LR decays — a coherent regime shift that pairs the second-moment variance stabilization with a simultaneous first-moment momentum ramp.
+
+| Arm | β₁ target | run | sr | val_ema | Δval mnat | Verdict |
+|---|---|---|---:|---:|---:|---|
+| Baseline | — | 9coyk2ke/09qrijtm | 2875 | 3.262854 | — | — |
+| A | 0.8→0.9 @ step 975 | `(askeladd armA)` | 2925 | 3.266499 | +3.645 | ❌ NULL (both clauses fail) |
+| B | 0.8→0.95 @ step 975 | `(askeladd armB)` | 2950 | 3.267480 | +4.626 | ❌ NULL (both clauses fail) |
+
+- **Key mechanistic read:** Both arms NULL; Arm B (more aggressive raise to 0.95) is strictly worse than Arm A (moderate raise to 0.9). The more momentum applied, the worse the outcome — consistent with the hypothesis that β₁=0.8 at cooldown onset is already optimal for the pre-cooldown regime. Synchronized β₁ RAISE is CLOSED.
+- **Axis closure:** Aux Adam β₁ axis FULLY EXHAUSTED. Combined with prior #1592 (standalone raise, bilateral NULL) and #1639 (standalone drop, bilateral NULL), the β₁ axis is closed across (a) standalone raise, (b) standalone drop, AND (c) joint synchronization with β₂ at the canonical cooldown boundary.
+- askeladd reassigned: Aux Adam `adam_embed` group per-group LR PULSE @ cooldown onset step 975 (#1868) — novel per-group LR perturbation on the largest aux-Adam group; Arm A ×2 (0.3→0.6) / Arm B ×0.5 (0.3→0.15)
+
 ## 2026-05-30 16:15 UTC — PR #1780 frieren: Body PMuon L/R cov bilateral ZERO RESET at cooldown boundary (975 vs 1100) — ❌ NULL on n=2 confirmation (cov-reset axis CLOSED)
 
 - Branch: `g1r1-frieren/cov-reset-cooldown`
