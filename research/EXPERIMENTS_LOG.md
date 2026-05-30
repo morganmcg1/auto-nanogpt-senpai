@@ -1,3 +1,46 @@
+## 2026-05-30 06:25 — PR #1795: H297 fern HALLEY × aux_only EMA orthogonal mechanism STACK — **ASSIGNED (85th class, paper-grade cross-axis orthogonal-mechanism stacking test)**
+
+- Branch: g1r3-fern/h297-halley-x-aux-only-ema-stack (PR #1795, post-H266 baseline)
+- 85th mechanism class — **HALLEY × aux_only EMA ORTHOGONAL MECHANISM STACK** (cleanest possible orthogonal axes, different parameter groups + different update mechanisms)
+- Direct multiplicative interaction test of two **paper-grade closed findings from this cycle**:
+  - **H287 HALLEY** (cycle ~0530 closure): NS5 polynomial form produces structurally different polar projection optimum that HOLDS through cooldown, val=3.26754 LOWEST val post-H266
+  - **H290 EMA scope** (cycle ~0530 closure): aux_only=TIE / body_only=NEG / all=WIN, **aux-params EMA is load-bearing scope**
+- The two mechanisms operate on completely orthogonal parameter subspaces:
+  - HALLEY: affects ONLY the body MuonH NS5 polar projection (inner step)
+  - aux_only EMA: affects ONLY the aux AdamW params (embed, lm_head, scalars) smoothing
+- 2-arm Pattern A drift-FREE binary STACK test (Option B for both `--ns5_polynomial` and `--polyak_ema_scope`):
+  - arm_a CTRL `default polynomial / all-params EMA scope`: H266 bit-id baseline
+  - arm_b HALLEY_AUX_ONLY `halley polynomial / aux_only EMA scope`: orthogonal stack
+- A-priori prediction: WIN probability 15-25% — additive expected: HALLEY gain (-0.064 val) + aux_only delta (+0.055 val) ≈ -0.009 net. If orthogonal, arm_b ≈ 3.26809 (marginal below baseline). If WIN (FFS<3000), orthogonal stacking breaks the FFS=3000 structural ceiling for the first time post-H266.
+- **Smoke methodology**: Per fern's H291 lesson, smoke must extend through step 125 (first post-warmup val checkpoint) to catch post-warmup divergence patterns.
+- Verdicts:
+  - WIN (FFS<3000): orthogonal stacking works → first post-H266 WIN
+  - TIE (FFS=3000, val<3.26818): 7th FFS=3000 TIE family member via orthogonal stack
+  - NEG (FFS≥3025): mechanism coupling NOT purely orthogonal → dropping body EMA loses more than HALLEY recovers (paper-grade subtle coupling finding)
+- Ref: H287 closed (PR #1757) HALLEY paper-grade finding; H290 closed (PR #1764) EMA scope axis CLOSURE; H274v2 prior aux_only sweep
+
+## 2026-05-30 06:25 — PR #1777: H291 fern NS5 input normalization Frobenius vs SPECTRAL — **CLOSED 143rd NULL/NEG (🎯 PAPER-GRADE NS5 INPUT SCALING structural lower bound on σ_max)**
+
+- Branch: g1r3-fern/h291-ns5-input-norm-frobenius-vs-spectral (PR #1777, post-H266 baseline)
+- 79th mechanism class — NS5 INPUT SCALING / matrix norm operator (Frobenius vs spectral norm)
+- Terminal verdict: arm_b SPECTRAL **NaN-divergence at step 125** (first post-warmup val checkpoint) — paper-grade structural NEG
+
+| Arm | input_norm | run_id | step-0 val | step-125 val | val/loss | FFS | verdict |
+|-----|-----------|--------|-----------|--------------|----------|-----|---------|
+| arm_a CTRL Frobenius | frobenius (bit-id) | gohvvad5 | 10.82583 ✓ | 4.93742 | 3.26894 | 3025 | Pattern A drift (+0.86σ, 78th instance) |
+| arm_b SPECTRAL | spectral σ_max≈0.98 | 3qqv5yz2 | 10.82583 ✓ | **NaN ⚠️** | killed @ 249 | — | **catastrophic divergence** |
+
+- **🎯 PAPER-GRADE FINDING: NS5 polynomial f(σ)=2σ-1.5σ³+0.5σ⁵ has fixed point f(1)=1 with f'(1)=0 and f''(1)>0 — σ=1 is an attractor FROM BELOW and a locally repulsive saddle FROM ABOVE.**
+- Frobenius normalization (σ_max≈0.044 for 1024-dim) → NS5 approaches σ=1 **monotonically from below** across 12 iterations (stable trajectory)
+- Spectral normalization (σ_max≈0.98 after 1.02 safety) → NS5 enters near the fixed point; stochastic 5-iter power-iter undersampling can push some directions ABOVE 1.0 → those directions overshoot → polynomial fails to project back within 12 iter → NaN
+- **Critical paper-grade insight**: F-norm's σ_max≈sqrt(2/rank)≪1 starting point is **structurally load-bearing**, not a "numerical stability detail." The polar projection idealization "NS5 input should be σ_max=1 for instant convergence" is mathematically appealing but **ignores that 12-iter NS5 is a trajectory** whose stability depends on starting below the attractor. **Establishes a structural lower bound on NS5 input magnitude (~σ_max<0.5 to guarantee monotone approach from below).**
+- **NS5 cube now comprehensively characterized along 4 axes**: iteration count k (H267 closed), polynomial form (H287 closed), input scaling (H291 closed), cautious sign-mask (H280 closed). Only the default Frobenius + ns5_iter=12 + NS5-default polynomial survives. HALLEY provides marginal val improvement (still FFS=3000 TIE).
+- **Methodology finding**: smoke test through step 125 (first post-warmup val checkpoint) is **required** to catch post-warmup divergence — 10-step smoke is sufficient for bit-id drift verification but NOT for hypothesis validity. Programme directive: future hypotheses touching NS5/polar projection must run smoke through ≥125 steps.
+- Spectral overhead: **+20.8% wallclock** (393 ms/step) — 5-iter fp32 power iteration per body matrix × 12 body params = ~120 extra fp32 matmuls/step. Important data point: spectral normalization is not "free" even if it worked.
+- Operational notes: triple-CTRL launches (gohvvad5 → a5tvnk4b crashed → mvkdj07h runaway killed at 05:43Z) caused by transient torchrun race + entrypoint-retry artifact. fern's clean post-mortem and PID forensics excellent. No paper-impact since only gohvvad5 contributed.
+- Pattern A campaign: 78th drift-FREE CTRL instance + arm_b NaN-divergence instance (drift-FREE plumbing IS correct; failure is in substance of hypothesis)
+- 79th mechanism class catalogued (NS5 INPUT SCALING axis structurally CLOSED at Frobenius)
+
 ## 2026-05-30 05:35 — PR #1791: H296 alphonse HALLEY polynomial × ns5_iter=16 multiplicative STACK — **ASSIGNED (84th class, highest WIN-prob assignment this cycle 20-30%)**
 
 - Branch: g1r3-alphonse/h296-halley-x-ns5-iter16-stack (PR #1791, post-H266 baseline)

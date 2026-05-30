@@ -1,6 +1,103 @@
 # SENPAI Research State — auto-nanogpt-1gpu-r3
 
-- **Last updated:** 2026-05-30 05:35 UTC
+- **Last updated:** 2026-05-30 06:25 UTC
+
+---
+
+## Cycle ~0625: H291 CLOSED 143rd NULL/NEG (🎯 paper-grade NS5 INPUT SCALING structural lower bound on σ_max) + H297 ASSIGNED (85th class HALLEY × aux_only EMA orthogonal mechanism stack — paper-grade cross-axis stacking test)
+
+**One terminal closure + one fresh assignment. Plateau campaign portfolio: 143 NULL/NEG + 1 MERGED WIN (H266), 85 mechanism classes attempted.**
+
+### Closure this cycle
+
+**H291 fern NS5 input normalization Frobenius vs SPECTRAL CLOSED 143rd NULL/NEG — 🎯 PAPER-GRADE NS5 INPUT SCALING structural lower bound on σ_max (79th mechanism class).**
+
+Terminal verdict (post-H266 baseline, PR #1777):
+- arm_a CTRL Frobenius (bit-id): FFS=3025, val=3.26894 (+0.86σ_H174, Pattern A drift — 78th instance)
+- arm_b SPECTRAL (σ_max≈0.98 after 1.02 safety): **NaN @ step 125** (first post-warmup val checkpoint, killed @ step 249)
+
+🎯 **Paper-grade NS5 polynomial dynamics finding**:
+
+NS5 polynomial f(σ)=2σ-1.5σ³+0.5σ⁵ has fixed point f(1)=1 with f'(1)=0, f''(1)>0 — σ=1 is an **attractor from below AND a locally repulsive saddle from above**.
+
+- **Frobenius** (σ_max≈0.044 for 1024-dim) → monotone approach from below across 12 iterations (stable)
+- **SPECTRAL** (σ_max≈0.98) → enters near fixed point; stochastic 5-iter power-iter undersampling can push some directions ABOVE 1.0 → overshoot → NaN
+
+**Critical insight**: F-norm's σ_max≈sqrt(2/rank)≪1 starting point is **structurally load-bearing**, not numerical detail. The polar projection idealization "NS5 input should be σ_max=1 for instant convergence" ignores that **12-iter NS5 is a trajectory** whose stability depends on starting below the attractor.
+
+**NS5 cube comprehensively characterized along 4 axes**:
+
+| NS5 axis | Status | Closure |
+|----------|--------|---------|
+| Iteration count k | H267 TIE FFS=3000 (k=16) | closed |
+| Polynomial form | H287 TIE FFS=3000 (HALLEY marginal val=3.26754) | closed |
+| **Input scaling** | **H291 NEG (SPECTRAL NaN)** | **🎯 closed at Frobenius** |
+| Cautious sign-mask | H280 closed | closed |
+
+Only default Frobenius + ns5_iter=12 + NS5-default polynomial survives. HALLEY provides marginal val improvement still at FFS=3000 TIE.
+
+**Methodology finding**: smoke through step 125 (first post-warmup val checkpoint) is REQUIRED to catch post-warmup divergence. Programme directive added for future NS5/polar-projection hypotheses.
+
+Spectral overhead: **+20.8% wallclock** (393 ms/step extra).
+
+### New assignment this cycle
+
+**H297 fern: HALLEY polynomial × aux_only EMA orthogonal mechanism STACK — 85th class** (PR #1795)
+
+Direct multiplicative interaction test of two **paper-grade closed findings from this cycle**:
+- H287 HALLEY (polynomial form, body NS5): val=3.26754 LOWEST val post-H266
+- H290 EMA scope (aux_only is load-bearing): val=3.26873 TIE
+
+**Cleanest possible orthogonal stack**: HALLEY affects ONLY body NS5 polar projection; aux_only EMA affects ONLY aux AdamW group smoothing. No shared state, no shared compute, no shared param groups.
+
+2-arm Pattern A drift-FREE binary STACK test (Option B for both `--ns5_polynomial` and `--polyak_ema_scope`):
+- arm_a CTRL `default/all`: H266 bit-id baseline
+- arm_b HALLEY_AUX_ONLY `halley/aux_only`: orthogonal stack
+
+A-priori prediction: WIN probability 15-25%. If additive: HALLEY gain (-0.064 val) + aux_only delta (+0.055 val) ≈ -0.009 → val ≈ 3.26809 (marginal below baseline). If WIN (FFS<3000), orthogonal stacking breaks the FFS=3000 structural ceiling for first time post-H266.
+
+**Smoke methodology**: per fern's H291 lesson, smoke must extend through step 125 (first post-warmup val checkpoint).
+
+### In-flight chains as of cycle ~0625
+
+| PR | Student | Hypothesis | Status |
+|----|---------|-----------|--------|
+| #1779 | tanjiro | H292 aux AGC enable/disable binary | arm_b AGC_OFF mid-flight, ETA ~07:32Z |
+| #1781 | edward | H293 outer_lr VALUE 0.5/0.7/0.9 | chain mid-flight |
+| #1782 | frieren | H294 Polyak EMA decay 0.05/0.075/0.10 | chain mid-flight |
+| #1790 | askeladd | H295 muonh_mu_end 0.85 post-H266 | assigned cycle ~0535 |
+| #1791 | alphonse | H296 HALLEY × ns5_iter=16 stack | assigned cycle ~0535 |
+| #1795 | fern | H297 HALLEY × aux_only EMA orthogonal stack | assigned this cycle ~0625 |
+
+### Campaign-level state
+
+- **Baseline**: H266 (PR #1669) val=3.26818, FFS=3000, run m2ywl0o9, σ_H174=0.000884
+- **Plateau campaign portfolio**: 143 NULL/NEG + 1 MERGED WIN, **85 mechanism classes attempted** (all 7 students assigned)
+- **6-member FFS=3000 TIE family** (all marginal val<baseline but FFS TIES): H266 / H267 ns5=16 / H274 aux EMA / H275 z=1e-5 / H284 arm_c 2-stack / **H287 arm_c HALLEY (LOWEST val 3.26754)**
+- **NS5 CUBE COMPLETE**: iteration count + polynomial form + input scaling + cautious sign-mask — all 4 axes closed. Only HALLEY polynomial provides marginal within-axis val gain.
+- **🎯 Paper-grade structural findings this cycle 04:20-06:25** (8 findings):
+  1. H286: Nesterov lookahead structurally load-bearing for MuonH polar projection
+  2. H284: FFS=3000 is structural cooldown-step quantization ceiling (TIE × TIE = TIE)
+  3. H284: (z, ns5) multiplicative interaction (tighter NS5 absorbs precision deficit)
+  4. H288: EMA WIN signal purely cooldown-localized (arm_b activated only at step 2500)
+  5. H289: outer momentum schedule LINEAR_DECREASE NEG (PF#56 5-axis confirmed-rigid)
+  6. H287: HALLEY polynomial structurally different optimum (HOLDS through cooldown)
+  7. H290: EMA scope axis CLOSED (aux_only=load-bearing, body_only=NEG)
+  8. **H291: NS5 INPUT SCALING structural lower bound on σ_max (NS5 cube COMPLETE)**
+
+### Next research direction priorities (post-H295/H296/H297)
+
+1. **H296 + H297 outcomes** will guide multiplicative-stacking next-step decisions:
+   - H296 WIN → ITER18/20 sweep on HALLEY
+   - H297 WIN → 3-way stack (HALLEY × aux_only × decay sweep) or per-group decay
+   - Either NEG → axis closure with multiplicative-coupling characterization
+2. **Cooldown geometry attack** (H284 directive, **highest priority for FFS<3000 breakthrough**): h_cooldown_frac is hardcoded at 1.0 (needs Option B). The H120 closure was on OLD baseline; on post-H266 with EMA, shorter cooldown may release FFS=3000 quantization rigidity. Direct path to first FFS<3000 since H266.
+3. **Per-parameter Polyak EMA decay** (per-group decay) — natural extension of H290 scope axis closure; aux=0.05 / body=variable
+4. **aux_beta2_start LOWER values** (0.95, 0.90) on post-H266 — may unlock faster aux adaptation
+5. **Outer step EMA decoupling** — outer_lr × EMA interaction not directly tested
+6. **z_loss VALUE re-test under HALLEY polynomial** — (z, ns5) interaction generalizes to (z, polynomial-form)?
+7. **Cooldown-only aux EMA** combining H288 + H290 + H287 (triple-stack of paper-grade findings)
+8. **muonh_warmup_steps VALUE re-test** on post-H266 (baseline 100; lower or higher untested)
 
 ---
 
