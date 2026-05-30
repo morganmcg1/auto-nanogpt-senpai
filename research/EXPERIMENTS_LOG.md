@@ -1,5 +1,26 @@
 # SENPAI Research Results — auto-nanogpt-1gpu-r5
 
+## 2026-05-30 14:25Z — PR #1776 CLOSED clean-NEG piecewise: askeladd SOAP eigenbasis smooth-blend [60th R5 closure]
+
+- branch: g1r5-askeladd/soap-basis-smooth
+- hypothesis: smooth SOAP eigenbasis transitions across QR refresh via Q_new ← (1-β)·Q_new_raw + β·Q_prev followed by re-QR, with β-sweep to find optimal smoothness/refresh trade-off
+- W&B group: g1r5-askeladd/soap-basis-smooth — 5 runs: 1q8eey3l, l2wxgqlu, sw2fpsyu, 782p5l6q, gz6k68ln
+- 5-cell n=1 β sweep:
+
+  | Cell | β | FFS_ema | FFS_trainval | val/loss | val/ema_corr | Verdict |
+  |---|---|---|---|---|---|---|
+  | A ctrl | 0.0 | **2875** | 2925 | 3.26825 | 3.26877 | seed-noise dual-metric (true CTRL ≈ 2925 per memory rule) |
+  | B★ primary | 0.3 | 2925 | 2925 | 3.26983 | 3.27035 | +50 NEG, +0.0016 val |
+  | C light | 0.1 | 2925 | 2925 | 3.26980 | 3.27032 | +50 NEG, ties B exactly |
+  | D heavy | 0.5 | **-1** | -1 | 3.28240 | 3.28288 | CATASTROPHIC, +0.014 val |
+  | E falsifier | 0.9 | **-1** | -1 | 3.28067 | 3.28116 | CATASTROPHIC, +0.013 val |
+
+- verdict: CLEAN-NEG piecewise-discontinuous. Light-blend plateau β ∈ [0.1, 0.3] → +50 FFS_ema fixed lag (re-QR absorbs β-dose response). Heavy-blend collapse β ∈ [0.5, 0.9] → catastrophic basis staleness (re-QR cannot recover from sufficiently misaligned input). Cliff at β ≈ 0.5.
+- mechanism: discrete-refresh (β=0) is LOAD-BEARING for SOAP. Re-orthogonalization can only recover from blend up to a critical staleness level; past that, the stale subspace dominates Q_mixed enough that re-QR cannot restore correct eigenbasis. The exact B≡C tie (FFS, FFS_trainval, val all within 3e-5) confirms the QR-fix operation sets the lag depth in the plateau regime, not the blend weight.
+- cluster impact: closes 3rd SOAP-structural axis at R5 (joins #1689 β₂ ramp + #1772 per-class β₂). Remaining SOAP open: precond_freq #1617 in-flight + structural-only axes. SOAP-internal HP axes (5/5 scalar closed per memory) now fully exhausted on SCALAR side.
+- E (β=0.9) > D (β=0.5) on final val/loss is informative: β=0.9 ≈ "near-frozen ≈ near-no-SOAP", β=0.5 = "stale-but-active" subspace dominates wrongly → bend is at β≈0.5, not monotone in β.
+- next: askeladd reassigned #1839 per-shape STATIC NS iter decoupling (`--ns_iter_mlp` vs `--ns_iter_attn`), directly motivated by thorfinn #1833 σ-profile finding
+
 ## 2026-05-30 13:53Z — PR #1833 CLOSED KG_smoke FAIL: thorfinn Higham polar-Newton polish post-NS5 [59th R5 closure]
 
 - branch: g1r5-thorfinn/higham-polish

@@ -9,7 +9,23 @@ The human research team has redirected: **FFS (first-step-to-target, baseline 30
 3. **Prefer experiments that move the crossing step** (2800-3050 window), **simplify winning stacks**, **reveal FFS-load-bearing components**.
 4. **Ablations preferred over confirmations** when FFS dead.
 
-## Last updated: 2026-05-30 13:55Z (59 R5 axis closures; thorfinn #1833 Higham polish CLOSED 59th [KG_smoke FAIL]; #1838 Schulz polish nonsquare ASSIGNED; σ_min finding: new memory rule)
+## Last updated: 2026-05-30 14:27Z (60 R5 axis closures; askeladd #1776 SOAP basis-smooth CLOSED 60th [clean-NEG piecewise]; #1839 per-shape NS iter ASSIGNED; nezuko #1834 redesigned via bf16 floor finding)
+
+### Notes (2026-05-30 14:27Z) — ASKELADD #1776 SOAP BASIS-SMOOTH CLOSED 60th; #1839 PER-SHAPE NS ITER ASSIGNED; NEZUKO #1834 REDESIGN BLESSED (bf16 FLOOR FINDING)
+
+- **★ CLOSED #1776 askeladd SOAP eigenbasis smooth-blend** [60th R5 closure, 14:25Z] — clean-NEG piecewise. 5-cell β sweep:
+  - Cell A (β=0): FFS_ema=2875, FFS_trainval=2925 (seed-noise dual-metric tail, true CTRL ≈ 2925)
+  - Cell B (β=0.3): FFS=2925, +50 NEG, val=3.26983
+  - Cell C (β=0.1): FFS=2925, +50 NEG (ties B exactly: plateau confirmed)
+  - Cell D (β=0.5): FFS=-1 CATASTROPHIC, val=3.28240
+  - Cell E (β=0.9): FFS=-1 CATASTROPHIC, val=3.28067
+  - **Two-regime mechanism**: light-blend plateau β ∈ [0.1, 0.3] (re-QR absorbs lag, +50 fixed regression) → cliff at β≈0.5 → catastrophic basis staleness. Empirically validates SOAP's discrete-refresh as load-bearing.
+  - SOAP-structural family at R5: β₂ schedule #1689 + basis smooth-blend #1776 + per-class β₂ #1772 all CLOSED. precond_freq #1617 tanjiro still in-flight.
+- **★ ASSIGNED #1839 askeladd per-shape STATIC NS iter decoupling** — `--ns_iter_mlp` vs `--ns_iter_attn`. 4 cells: A=ctrl(6/6), B★=4/8 decoupled, C=6/8 attn-bump, D=4/6 mlp-save. Directly motivated by thorfinn #1833's σ-profile finding (MLP σ_min ≈ 0.86 vs attn σ_min ≈ 0.003). Distinct from #496 LOW sweep, #1609/#932 depth-adaptive, #724 cooldown-only per-class, #1834 dynamic per-matrix. Fresh per-class STATIC axis.
+- **★ NEZUKO #1834 REDESIGN BLESSED** — student killed Cell B at step 450 after discovering bf16 storage floor on `‖XX^T-I‖_F` for 768×768 matrices is ~m·ε_bf16 ≈ 6 (empirical ~2.4), making 1e-3 thresholds STRUCTURALLY UNREACHABLE. Approved Option B: relative residual `‖XX^T-I‖_F / √m` with thresholds {0.1, 0.2, 0.3} — scale-invariant, minimal code change. Student restarting cells. **High-value diagnostic — adaptive threshold design must respect storage precision floor.**
+- **Fleet at 14:27Z**: askeladd #1839 WIP (NEW); nezuko #1834 WIP (RESTART); thorfinn #1838 WIP; edward #1825 + fern #1826 + tanjiro #1821 + alphonse #1796 + frieren #1829 in-flight. 8/8 active.
+
+### Notes (2026-05-30 13:55Z) — THORFINN #1833 HIGHAM POLISH CLOSED 59th [KG_smoke FAIL]; #1838 SCHULZ POLISH NONSQUARE ASSIGNED; σ_min STRUCTURAL FINDING; σ_min WARNING POSTED TO EDWARD #1825 + FERN #1826
 
 ### Notes (2026-05-30 13:55Z) — THORFINN #1833 HIGHAM POLISH CLOSED 59th [KG_smoke FAIL]; #1838 SCHULZ POLISH NONSQUARE ASSIGNED; σ_min STRUCTURAL FINDING; σ_min WARNING POSTED TO EDWARD #1825 + FERN #1826
 
