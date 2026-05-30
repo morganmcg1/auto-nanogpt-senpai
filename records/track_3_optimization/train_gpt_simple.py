@@ -603,6 +603,8 @@ NANOGPT_NEWTON_MUON_BETA = float(os.environ.get("NANOGPT_NEWTON_MUON_BETA", "0.9
 NANOGPT_NEWTON_MUON_EPS = float(os.environ.get("NANOGPT_NEWTON_MUON_EPS", "1e-4"))
 NANOGPT_NEWTON_MUON_MAX_D_IN = int(os.environ.get("NANOGPT_NEWTON_MUON_MAX_D_IN", "1024"))
 NANOGPT_NEWTON_MUON_TIKHONOV_GAMMA = float(os.environ.get("NANOGPT_NEWTON_MUON_TIKHONOV_GAMMA", "0.0"))
+NANOGPT_NEWTON_MUON_TIKHONOV_GAMMA_SWITCH_STEP = int(os.environ.get("NANOGPT_NEWTON_MUON_TIKHONOV_GAMMA_SWITCH_STEP", "-1"))
+NANOGPT_NEWTON_MUON_TIKHONOV_GAMMA_POST_SWITCH = float(os.environ.get("NANOGPT_NEWTON_MUON_TIKHONOV_GAMMA_POST_SWITCH", "-1.0"))
 # #1600: data-driven R warmstart from Muon^2 state["v"] second-moment EMA. When enabled,
 # defer R initialization to step K (instead of cold-start X^T X / N at first call).
 # At step K, R[0] = diag(state["v"].mean(0)) normalized to unit mean — gradient-based
@@ -874,10 +876,20 @@ class Muon(torch.optim.Optimizer):
                     state["R"].mul_(b).add_(R_new, alpha=1.0 - b)
             # Tikhonov regularization: R_reg = R + gamma * (tr(R)/d_in) * I.
             # Applied only at eigendecomp time; state["R"] EMA buffer is unmodified.
-            if NANOGPT_NEWTON_MUON_TIKHONOV_GAMMA > 0.0:
+            # Optional step-gated SWITCH (PR #1843): swap gamma at SWITCH_STEP to a
+            # post-switch value, mirroring the cooldown-entry SWITCH pattern.
+            gamma_switch_active = (
+                NANOGPT_NEWTON_MUON_TIKHONOV_GAMMA_SWITCH_STEP > 0
+                and NANOGPT_NEWTON_MUON_TIKHONOV_GAMMA_POST_SWITCH >= 0.0
+            )
+            if NANOGPT_NEWTON_MUON_TIKHONOV_GAMMA > 0.0 or gamma_switch_active:
+                if gamma_switch_active and self._newton_step_count >= NANOGPT_NEWTON_MUON_TIKHONOV_GAMMA_SWITCH_STEP:
+                    effective_gamma = NANOGPT_NEWTON_MUON_TIKHONOV_GAMMA_POST_SWITCH
+                else:
+                    effective_gamma = NANOGPT_NEWTON_MUON_TIKHONOV_GAMMA
                 n_dim = state["R"].shape[0]
                 trace_mean = state["R"].diagonal().mean()
-                lambda_reg = NANOGPT_NEWTON_MUON_TIKHONOV_GAMMA * trace_mean
+                lambda_reg = effective_gamma * trace_mean
                 R_for_decomp = state["R"] + lambda_reg * torch.eye(
                     n_dim, device=state["R"].device, dtype=state["R"].dtype
                 )
