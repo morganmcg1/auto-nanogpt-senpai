@@ -28,6 +28,9 @@ SLOPE_FRACTION = 0.10
 SOAP_BETA2 = 0.90
 PRECOND_FREQ = 16
 NS_ITER = 12  # overridden by args.ns_iter at module load
+NS_NORM_MODE = "frobenius"  # overridden by args.ns_norm_mode at module load
+NS_SPECTRAL_ITER = 2  # overridden by args.ns_spectral_iter at module load
+NS_SPECTRAL_OVERSHOOT = 1.1  # overridden by args.ns_spectral_overshoot at module load
 
 
 def parse_args():
@@ -68,6 +71,16 @@ def parse_args():
     parser.add_argument("--ns_iter", type=int, default=12,
                         help="Number of Newton-Schulz iterations in zeropower_via_newtonschulz5. "
                              "Default 12 (current hardcoded value). Lower = less orthogonal but faster.")
+    parser.add_argument("--ns_norm_mode", type=str, default="frobenius",
+                        choices=["frobenius", "spectral"],
+                        help="Pre-NS normalization: 'frobenius' (default ‖X‖_F) vs 'spectral' "
+                             "(divide by NS_SPECTRAL_OVERSHOOT * sigma_max estimate via power iteration). "
+                             "Spectral keeps σ_max(X) just under 1 so NS5 starts in its high-convergence-rate region.")
+    parser.add_argument("--ns_spectral_iter", type=int, default=2,
+                        help="Power iteration steps for spectral norm estimate (1 cheap, 2 default, 3+ accurate).")
+    parser.add_argument("--ns_spectral_overshoot", type=float, default=1.1,
+                        help="Safety factor: divide by overshoot * sigma_max to keep σ_max(X) < 1 with margin "
+                             "(handles power iteration underestimate).")
     parser.add_argument("--lr_scalars", type=float, default=0.01,
                         help="LR for AdamW adam_scalars group (RMSNorm gains; "
                              "params with ndim < 2). Default 0.01 — hardcoded, "
@@ -111,6 +124,9 @@ def parse_args():
 
 args = parse_args()
 NS_ITER = args.ns_iter
+NS_NORM_MODE = args.ns_norm_mode
+NS_SPECTRAL_ITER = args.ns_spectral_iter
+NS_SPECTRAL_OVERSHOOT = args.ns_spectral_overshoot
 
 
 def clean_metric_name(name: str) -> str:
@@ -358,6 +374,61 @@ def log_histograms(
     wandb.log(metrics, step=wandb_step)
 
 
+_NS_ATTN_SUFFIXES = (".attn.q.weight", ".attn.k.weight", ".attn.v.weight", ".attn.proj.weight")
+_NS_MLP_SUFFIXES = (".mlp.fc.weight", ".mlp.proj.weight")
+
+
+@torch.no_grad()
+def log_ns_spectral_diagnostics(
+    model: nn.Module,
+    trial_idx: int,
+    step: int,
+    wandb_step: int,
+):
+    """Estimate sigma_max(grad) for MLP/attn 2D weights via 4-iter power iteration.
+
+    Logs mean spec norm and mean spec-to-Frobenius ratio, plus the post-scale
+    σ_max(X) that the running NS_NORM_MODE would produce on these inputs.
+    """
+    attn_sigma, attn_frob = [], []
+    mlp_sigma, mlp_frob = [], []
+    for name, p in model.named_parameters():
+        if p.grad is None or p.grad.ndim < 2:
+            continue
+        g = p.grad.detach().float()
+        if g.size(-2) > g.size(-1):
+            g = g.mT
+        sigma = float(_spectral_norm_estimate(g, n_iter=4).item())
+        frob = float(g.norm().item())
+        if any(name.endswith(suf) for suf in _NS_ATTN_SUFFIXES):
+            attn_sigma.append(sigma); attn_frob.append(frob)
+        elif any(name.endswith(suf) for suf in _NS_MLP_SUFFIXES):
+            mlp_sigma.append(sigma); mlp_frob.append(frob)
+    metrics = {"trial": trial_idx, "train/step": step}
+    def _mean(xs): return (sum(xs) / len(xs)) if xs else 0.0
+    if attn_sigma:
+        a_sig = _mean(attn_sigma); a_frob = _mean(attn_frob)
+        a_ratio = _mean([s / (f + 1e-12) for s, f in zip(attn_sigma, attn_frob)])
+        metrics["ns/spec_norm_estimate_attn"] = a_sig
+        metrics["ns/frob_norm_attn"] = a_frob
+        metrics["ns/spec_to_frob_ratio_attn"] = a_ratio
+        if NS_NORM_MODE == "spectral":
+            metrics["ns/post_scale_max_singular_value_attn"] = 1.0 / NS_SPECTRAL_OVERSHOOT
+        else:
+            metrics["ns/post_scale_max_singular_value_attn"] = a_ratio
+    if mlp_sigma:
+        m_sig = _mean(mlp_sigma); m_frob = _mean(mlp_frob)
+        m_ratio = _mean([s / (f + 1e-12) for s, f in zip(mlp_sigma, mlp_frob)])
+        metrics["ns/spec_norm_estimate_mlp"] = m_sig
+        metrics["ns/frob_norm_mlp"] = m_frob
+        metrics["ns/spec_to_frob_ratio_mlp"] = m_ratio
+        if NS_NORM_MODE == "spectral":
+            metrics["ns/post_scale_max_singular_value_mlp"] = 1.0 / NS_SPECTRAL_OVERSHOOT
+        else:
+            metrics["ns/post_scale_max_singular_value_mlp"] = m_ratio
+    wandb.log(metrics, step=wandb_step)
+
+
 ########################################
 #              Dataloader              #
 ########################################
@@ -498,14 +569,32 @@ class GPT(nn.Module):
 #              Optimizer               #
 ########################################
 
+def _spectral_norm_estimate(X: Tensor, n_iter: int = 2) -> Tensor:
+    """Power iteration estimate of sigma_max(X). X: (..., m, n). Returns (..., 1, 1)."""
+    v = torch.randn(*X.shape[:-2], X.size(-1), 1, device=X.device, dtype=X.dtype)
+    v = v / (v.norm(dim=(-2, -1), keepdim=True) + 1e-7)
+    for _ in range(n_iter):
+        u = X @ v
+        u = u / (u.norm(dim=(-2, -1), keepdim=True) + 1e-7)
+        v = X.mT @ u
+        v_norm = v.norm(dim=(-2, -1), keepdim=True) + 1e-7
+        v = v / v_norm
+    return v_norm
+
+
 def zeropower_via_newtonschulz5(G: Tensor) -> Tensor:
     assert G.ndim >= 2
     X = G.bfloat16()
     if G.size(-2) > G.size(-1):
         X = X.mT
 
-    # Ensure spectral norm is at most 1
-    X = X / (X.norm(dim=(-2, -1), keepdim=True) + 1e-7)
+    # Pre-NS scaling: Frobenius (default) or spectral norm via power iteration.
+    # Frobenius shrinks σ_max far below 1 for wide-spectrum X; spectral keeps σ_max≈1/overshoot.
+    if NS_NORM_MODE == "spectral":
+        sigma_est = _spectral_norm_estimate(X.float(), n_iter=NS_SPECTRAL_ITER).to(X.dtype)
+        X = X / (NS_SPECTRAL_OVERSHOOT * sigma_est + 1e-7)
+    else:
+        X = X / (X.norm(dim=(-2, -1), keepdim=True) + 1e-7)
     # Perform the NS iterations, not optimizing for wallclock speed
     a, b, c = 2, -1.5, 0.5
     for _ in range(NS_ITER):
@@ -774,6 +863,9 @@ if dist.get_rank() == 0:
             "soap_beta2": SOAP_BETA2,
             "soap_precond_freq": PRECOND_FREQ,
             "ns_iter": NS_ITER,
+            "ns_norm_mode": NS_NORM_MODE,
+            "ns_spectral_iter": NS_SPECTRAL_ITER,
+            "ns_spectral_overshoot": NS_SPECTRAL_OVERSHOOT,
             "soap_attn_enabled": bool(args.soap_attn),
             "soap_trust_threshold": float(args.soap_trust_threshold),
             "lr_mlp": args.lr_mlp,
@@ -1178,6 +1270,14 @@ for trial_idx in range(args.num_trials):
                 trial_idx=trial_idx,
                 step=train_step,
                 train_steps=train_steps,
+                wandb_step=wandb_step,
+            )
+        ns_diag_due = (train_step % 100 == 0 or train_step == train_steps)
+        if dist.get_rank() == 0 and ns_diag_due:
+            log_ns_spectral_diagnostics(
+                model=model,
+                trial_idx=trial_idx,
+                step=train_step,
                 wandb_step=wandb_step,
             )
         for opt in optimizers:
