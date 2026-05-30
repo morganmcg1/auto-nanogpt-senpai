@@ -103,14 +103,9 @@ def parse_args():
                              "and speedrun/first_step_to_target uses the EMA-val crossing.")
     parser.add_argument("--ns_rational", action="store_true",
                         help="Use Pade-(1,1) rational NS approximant instead of NS5 polynomial. "
-                             "f(X) = X @ (I + alpha*X^T X) @ (I + beta*X^T X)^{-1}, iterated "
-                             "--ns_rational_iter times. When set, --ns_iter is ignored.")
-    parser.add_argument("--ns_rational_alpha", type=float, default=3.0,
-                        help="Numerator coefficient for Pade rational NS (default: 3.0). "
-                             "Requires alpha > beta > 0 for convergence.")
-    parser.add_argument("--ns_rational_beta", type=float, default=1.5,
-                        help="Denominator coefficient for Pade rational NS (default: 1.5). "
-                             "Requires alpha > beta > 0 for convergence.")
+                             "f(X) = X @ (3 I + X^T X) @ (I + 3 X^T X)^{-1}, iterated "
+                             "--ns_rational_iter times. Fixed point at sigma=1 (quadratic "
+                             "convergence). When set, --ns_iter is ignored.")
     parser.add_argument("--ns_rational_iter", type=int, default=3,
                         help="Number of Pade rational NS iterations (default: 3). "
                              "Compared to NS5 --ns_iter=6 for matched matmul count.")
@@ -119,14 +114,8 @@ def parse_args():
     args.wandb_tags = [tag.strip() for tag in args.wandb_tags.split(",") if tag.strip()]
     if args.telemetry_interval < 1 or args.histogram_interval < 1:
         raise ValueError("--telemetry_interval and --histogram_interval must be positive")
-    if args.ns_rational:
-        if not (args.ns_rational_alpha > args.ns_rational_beta > 0):
-            raise ValueError(
-                f"--ns_rational requires alpha > beta > 0; got "
-                f"alpha={args.ns_rational_alpha}, beta={args.ns_rational_beta}"
-            )
-        if args.ns_rational_iter < 1:
-            raise ValueError("--ns_rational_iter must be >= 1")
+    if args.ns_rational and args.ns_rational_iter < 1:
+        raise ValueError("--ns_rational_iter must be >= 1")
     return args
 
 
@@ -539,28 +528,28 @@ def zeropower_via_newtonschulz5(G: Tensor) -> Tensor:
     return X
 
 
-def zeropower_via_rational_ns(G: Tensor, alpha: float = 3.0, beta: float = 1.5,
-                               n_iter: int = 3) -> Tensor:
+def zeropower_via_rational_ns(G: Tensor, n_iter: int = 3) -> Tensor:
     """
     Pade-(1,1) rational approximant orthogonalization, replacing the NS5 quintic polynomial.
-    f(X) = X @ (I + alpha * X^T X) @ (I + beta * X^T X)^{-1}
-    Iterated n_iter times. Converges toward the matrix sign function.
-    Requires alpha > beta > 0.
+    Singular-value map: f(sigma) = sigma * (3 + sigma^2) / (1 + 3 * sigma^2)
+    Matrix form:        f(X)     = X @ (3 I + X^T X) @ (I + 3 X^T X)^{-1}
+    Fixed point at sigma=1, quadratic convergence near orthogonality. The denominator
+    (I + 3 X^T X) has eigenvalues >= 1 so the solve is always well-conditioned.
     """
     assert G.ndim >= 2
     X = G.bfloat16()
     transposed = G.size(-2) > G.size(-1)
     if transposed:
         X = X.mT
-    # Spectral-norm normalize so X has singular values in (0, 1].
+    # Frobenius-norm normalize so X has singular values in (0, 1].
     X = X / (X.norm(dim=(-2, -1), keepdim=True) + 1e-7)
     n = X.size(-1)
     eye_n = torch.eye(n, device=X.device, dtype=torch.float32)
     for _ in range(n_iter):
         Xf = X.float()
         XtX = Xf.mT @ Xf
-        numer_factor = eye_n + alpha * XtX
-        denom_factor = eye_n + beta * XtX
+        numer_factor = 3.0 * eye_n + XtX        # 3 I + X^T X
+        denom_factor = eye_n + 3.0 * XtX        # I + 3 X^T X  (PD, eigenvalues >= 1)
         # factor = numer_factor @ denom_factor^{-1}; solve via mT trick for batch safety.
         factor = torch.linalg.solve(denom_factor.mT, numer_factor.mT).mT
         X = (Xf @ factor).to(G.dtype)
@@ -587,8 +576,6 @@ def _soap_ns_step_ns5(nesterov_update):
 def _soap_ns_step_rational(nesterov_update):
     update = zeropower_via_rational_ns(
         nesterov_update,
-        alpha=args.ns_rational_alpha,
-        beta=args.ns_rational_beta,
         n_iter=args.ns_rational_iter,
     )
     update *= max(1, nesterov_update.size(-2) / nesterov_update.size(-1))**0.5
@@ -847,8 +834,6 @@ if dist.get_rank() == 0:
             "soap_precond_freq": PRECOND_FREQ,
             "ns_iter": NS_ITER,
             "ns_rational": bool(args.ns_rational),
-            "ns_rational_alpha": args.ns_rational_alpha,
-            "ns_rational_beta": args.ns_rational_beta,
             "ns_rational_iter": args.ns_rational_iter,
             "soap_attn_enabled": bool(args.soap_attn),
             "soap_trust_threshold": float(args.soap_trust_threshold),
