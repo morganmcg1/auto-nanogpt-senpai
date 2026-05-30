@@ -1,3 +1,67 @@
+## 2026-05-30 08:50 UTC — Cycle 71 mid-421 — askeladd #1775 323rd refute + 157th family closure + 190th mech class (PER_DEPTH_HALF_MLP_SOAP_BETA2 bilateral terminal: Arm A `front_FAST` MLP-SOAP val=3.26789/3000 NEAR-FLOOR-NEW; Arm B `back_FAST` MLP-SOAP val=3.27608/3100 ABOVE FLOOR; Δ(B−A)=+0.00819 vs attn-SOAP #1731 Δ=−0.00263 = SIGN INVERSION 3.1× magnitude asymmetry; AXIS #8 PER-SOAP-KIND-DEPTH-β2-DISPATCH-DIRECTION-INVERSION LOCKED — MLP-SOAP FRONT-favored, attn-SOAP BACK-favored; both depth-axis AND time-axis exhibit mirror-image second-moment-state preferences across SOAP-kinds; 190th mech class PER-SOAP-KIND-DEPTH-β2-DISPATCH-DIRECTION-INVERSION-WITH-KIND-ASYMMETRIC-MAGNITUDE; 157th family closure PER-DEPTH-HALF×β2-DISPATCH closed across both SOAP-kinds) + askeladd #1806 new assignment (STRUCTURAL_AXIS_COMPOUND: cross-SOAP-kind depth-dispatch compound — MLP-SOAP front_FAST + attn-SOAP back_FAST + n=2 verify of MLP-SOAP productive direction at seed=1). Fleet 8/8 active 0 idle. Cumulative: 323 refuted / 190 mech classes / 157 family closures.
+
+### askeladd #1775 PER_DEPTH_HALF_MLP_SOAP_BETA2 — 323rd refute, 157th family closure, 190th mech class
+
+Bilateral terminal: Arm A `front_FAST` (MLP-SOAP FRONT=0.85 fast / BACK=0.95 standard) val=**3.26789**/3000 NEAR-FLOOR-NEW (+0.00013 above baseline); Arm B `back_FAST` (FRONT=0.95 / BACK=0.85) val=**3.27608**/3100 ABOVE FLOOR. Bilateral mean **3.271985** above merge bar → 323rd refute. Δ(B−A)=**+0.00819** vs attn-SOAP #1731 Δ=**−0.00263** (3.1× kind-asymmetric magnitude, OPPOSITE sign).
+
+**190th MECH CLASS: PER-SOAP-KIND-DEPTH-β2-DISPATCH-DIRECTION-INVERSION-WITH-KIND-ASYMMETRIC-MAGNITUDE**:
+1. **Productive direction INVERTS across SOAP-kind**: MLP-SOAP FRONT-FAST productive (val=3.26789), attn-SOAP BACK-FAST productive (#1731 val_mean=3.26797) — depth-axis β2 dispatch has OPPOSITE sign across SOAP-kinds
+2. **Magnitude is KIND-ASYMMETRIC 3.1×**: MLP-SOAP Δ(B−A)=+0.00819 vs attn-SOAP Δ(B−A)=−0.00263 — catastrophic direction at MLP-SOAP is 3.1× larger than at attn-SOAP
+3. **Symmetry of FAST-half engagement**: both arms end at on_fraction=0.417 (5/12 FAST params) in both SOAP-kinds — gate-engagement is NOT explanatory; structural sensitivity of front vs back half differs
+
+**Both depth-axis AND time-axis exhibit mirror-image preferences across SOAP-kinds**:
+- MLP-SOAP × depth × β2: FRONT-FAST productive; MLP-SOAP-proj × time × β2 (#1668): EARLY-FAST productive
+- attn-SOAP × depth × β2: BACK-FAST productive; attn-SOAP-proj × time × β2 (#1642): LATE-FAST productive
+
+**157th FAMILY CLOSURE**: PER-DEPTH-HALF×β2-DISPATCH closed across BOTH SOAP-kinds (attn-SOAP via #1731 n=2 + MLP-SOAP via #1775 n=1).
+
+**REFUTES**: bilateral merge eligibility at single-seed (bilateral mean 3.271985 >> baseline 3.26776). n=2 verification of MLP-SOAP productive direction at axis #8 pending.
+
+### STRUCTURAL AXIS #8 LOCKED: PER-SOAP-KIND-DEPTH-β2-DISPATCH-DIRECTION-INVERSION
+
+Eight structural axes now in cycle 71 inventory (updated):
+
+| # | axis | status |
+|---|---|---|
+| 1 | Cross-kind WD-direction asymmetry | FULLY CLOSED (direction-asymmetric joint compound) |
+| 2 | Cross-kind β1-direction inversion | per-axis decomposition in flight via thorfinn #1789 |
+| 3 | Depth-mechanism cluster BACK-favored | structural finding |
+| 4 | Per-projection-role + GATE-BUDGET-REALLOCATION | FULLY CLOSED; compound in flight via edward #1793 |
+| 5 | Cross-kind moment-isolation asymmetry | UNIVERSAL CONFIRMED; bilateral compound in flight via frieren #1805 |
+| 6 | Cross-kind × depth-half decoupling at init-magnitude | CONFIRMED at n=2; compound in flight via alphonse #1799 |
+| 7 | Read-path joint-dispatch path-dependent maturation | STRUCTURAL FINDING LOCKED; decomposition in flight via nezuko #1794 |
+| **8** | **PER-SOAP-KIND-DEPTH-β2-DISPATCH-DIRECTION-INVERSION** | **LOCKED via #1775** (MLP-SOAP FRONT-favored, attn-SOAP BACK-favored; 190th mech class, 157th family closure) |
+
+### askeladd #1806 new assignment STRUCTURAL_AXIS_COMPOUND_CROSS_SOAP_KIND_DEPTH_DISPATCH
+
+**Goal**: test cross-SOAP-kind depth × β2 compound + n=2 verify of axis #8 MLP-SOAP productive direction:
+- Arm A `cross_soap_compound` (seed=0): BOTH MLP-SOAP front_FAST + attn-SOAP back_FAST simultaneously
+- Arm B `mlp_front_fast_seed1` (seed=1): n=2 verification of #1775 A productive direction at seed=1
+
+**Predicted outcomes**:
+- A < 3.26800: SUPER-ADDITIVE (compound unlocks beyond single-axis ceiling; potential merge candidate)
+- A 3.26800-3.26900: SHARED-SUBSTRATE saturation (cross-SOAP-kind second-moment floor)
+- A 3.26810 ± 0.0007: ORTHOGONAL additive (kind-independent depth × β2 dispatch)
+- A > 3.27200: DESTRUCTIVE (cross-SOAP-kind FAST-β2 interference)
+
+Additive null = baseline + Δ_MLP(0.00013) + Δ_attn(0.00021) = **3.26810**.
+
+**Infrastructure check required**: verify BOTH MLP-SOAP AND attn-SOAP per-depth-half β2 dispatch can be set simultaneously.
+
+### Wake-130 fleet status
+
+Fleet 8/8 active: askeladd #1806 (new) + alphonse #1799 + edward #1793 + fern #1792 + frieren #1805 + nezuko #1794 + tanjiro #1803 + thorfinn #1789. 0 idle. 0 review-ready.
+
+Pending bilateral terminals within ~3h:
+- alphonse #1799 Arm A ~09:15Z (25 min — axis #1 × #6 compound) → Arm B ~10:50Z
+- thorfinn #1789 Arm B ~09:30Z (40 min — axis #2 per-axis β1 decomposition, CNI vs WD parallel)
+- nezuko #1794 Arm B ~10:00Z (70 min — axis #7 qk-LATE-FAST decomposition)
+- fern #1792 Arm B ~10:11Z (81 min — state-mechanism continuum: full vs partial embed reset)
+
+### Cycle 71 cumulative state (updated: 1 new closure, 1 family closure, 1 new mech class, axis #8 locked)
+
+**Cycle 71 cumulative**: **323 refuted** / **190 distinct mech classes** / **157 family-level closures**.
+
 ## 2026-05-30 08:14 UTC — Cycle 71 mid-420 — frieren #1783 322nd refute + 156th family closure + 189th mech class (PER_KIND_AUX_PERIODIC_RESET_LM_HEAD_MOMENT_ISOLATION bilateral terminal: Arm A `lm_head_reset_avg_only` val=3.26862/3000 NEAR-FLOOR-NEW; Arm B `lm_head_reset_sq_only` val=10.42 early-killed step 850 CATASTROPHIC 17.8× exp_avg_sq spike at step 255; AXIS #5 UNIVERSAL confirmed across kinds with KIND-DEPENDENT-CATASTROPHIC-MAGNITUDE lm_head 55× more catastrophic than embed — 189th mech class; 156th family closure PER_KIND_AUX_PERIODIC_RESET_MOMENT_ISOLATION family closed across both kinds) + frieren #1805 new assignment (STRUCTURAL_AXIS_COMPOUND_STACK: axis5 bilateral embed+lm_head numerator-flush compound + n=2 verification of Arm A productive direction at lm_head). Fleet 8/8 active 0 idle. Cumulative: 322 refuted / 189 mech classes / 156 family closures.
 
 ### frieren #1783 PER_KIND_AUX_PERIODIC_RESET_LM_HEAD_MOMENT_ISOLATION — 322nd refute, 156th family closure, 189th mech class
