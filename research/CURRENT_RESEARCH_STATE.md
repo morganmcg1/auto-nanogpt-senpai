@@ -1,6 +1,6 @@
 # SENPAI Research State — auto-nanogpt-1gpu-r3
 
-- **Last updated:** 2026-05-30 10:30 UTC
+- **Last updated:** 2026-05-30 11:00 UTC
 
 ---
 
@@ -37,24 +37,34 @@ WIN prob ~20-25%. If true minimum at 0.125 or 0.15: val improvement could exceed
 ### Current portfolio state
 
 **Active chains** (8 students, 8 active PRs):
-- H293 edward (outer_lr VALUE 0.5/0.7/0.9, PF#56 6-axis closure — arm_c HIGHER pending terminal)
-- H295 askeladd (muonh_mu_end 0.85, arm_b pending ~10:46Z)
-- H296 alphonse (HALLEY × ns5_iter=16 multiplicative stack)
-- H297 fern (HALLEY × aux_only EMA orthogonal stack)
-- H298 thorfinn (DEMON mu→0 monotone decay)
-- H299 nezuko (Adan body pre-NS5 gradient-difference — arm_a CTRL done FFS=3025, arm_b/c pending ~13:25Z)
-- H300 tanjiro (aux global-norm clip)
-- **H301 frieren (Polyak EMA decay fine-grid 0.10/0.125/0.15 — just assigned, highest WIN-prob in portfolio)**
+- **H295 askeladd** (muonh_mu_end 0.85, arm_b pending ~10:46Z)
+- **H296 alphonse** (HALLEY × ns5_iter=16 multiplicative stack)
+- **H297 fern** (HALLEY × aux_only EMA orthogonal stack)
+- **H298 thorfinn** (DEMON mu→0 monotone decay)
+- **H299 nezuko** (Adan body pre-NS5 gradient-difference — arm_a CTRL done FFS=3025, arm_b/c pending ~13:25Z)
+- **H300 tanjiro** (aux global-norm clip — arm_a CTRL DNF ANOMALOUS val=3.28654, arm_b GLOBAL_ADD running ~12:36Z, arm_c GLOBAL_REPLACE pending ~14:26Z)
+- **H301 frieren** (Polyak EMA decay fine-grid 0.10/0.125/0.15 — just assigned, highest WIN-prob in portfolio, PR #1809)
+- **H302 edward** (EMA per-group differential decay aux=0.10/body=0.0 — just assigned, 90th mechanism class, PR #1813)
 
-**Plateau status**: 147 NULL/NEG + 1 MERGED WIN. EMA 3-axis cube now COMPLETE (Temporal×Scope×Value). NS5 cube COMPLETE. MuLoCo outer cube 5/6 axes rigid (H293 arm_c pending 6-axis closure). AGC subsystem broadly closed (6-axis joint H93/H102/H105/H114/H119/H292).
+**Plateau status**: 148 NULL/NEG + 1 MERGED WIN (H266), 90 mechanism classes attempted.
+- **EMA 3-axis cube COMPLETE** (Temporal/H288 × Scope/H290 × Value/H294)
+- **NS5 cube COMPLETE** (iter k / polynomial form / input scaling / cautious sign-mask)
+- **MuLoCo outer cube 6/6 CONFIRMED-RIGID** (H252/H256/H258/H263/H289/H293)
+- **AGC subsystem 6-axis closed** (H93/H102/H105/H114/H119/H292)
 
-**Highest-priority pending data points (ETAs from now)**:
-1. H293 edward arm_c HIGHER outer_lr=0.9: ~10:35Z (PF#56 6-axis closure complete)
-2. H295 askeladd arm_b LOW mu_end=0.85: ~10:46Z
-3. H301 frieren arm_a CTRL replicate launches (∼ frieren's next poll cycle)
+**Highest-priority pending data points**:
+1. H295 askeladd arm_b LOW mu_end=0.85: ~10:46Z
+2. H297 fern HALLEY×aux_only EMA chain terminal: ~11:15Z
+3. H300 tanjiro arm_b GLOBAL_ADD terminal: ~12:36Z (arm_a CTRL DNF anomaly flag)
+4. H299 nezuko full chain terminal: ~13:25Z
+5. H301 frieren (just assigned, next poll cycle)
 
 **Paper-grade findings catalogued cycle current**:
+- H293 outer-step velocity-magnitude triple-confirmed catastrophic NEG (90th mechanism class)
+- H293 6-axis PF#56 MuLoCo outer-step cube confirmed-rigid
 - H294 EMA decay U-curve scope-independent optimum at ≈0.10 (89th mechanism class)
+
+**H300 ANOMALY FLAG**: arm_a CTRL val=3.28654 DNF — hottest CTRL deviation post-H266 (+20.8σ_H174). Needs investigation into whether Option B `--aux_global_grad_clip_norm` flag is truly bit-id at 0.0 or introduces floating-point reordering.
 
 ---
 

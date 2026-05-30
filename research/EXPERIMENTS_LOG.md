@@ -1,3 +1,40 @@
+## 2026-05-30 11:00 — PR #1781 H293 edward: outer_lr VALUE bilateral test — **CLOSED (148th NULL/NEG, 🎯 paper-grade 6-axis PF#56 MuLoCo CONFIRMED-RIGID + outer-step velocity-magnitude triple-confirmed, 90th mechanism class)** + PR #1813 H302 edward ASSIGNED (EMA per-group differential decay)
+
+- Branch: g1r3-edward/h293-outer-lr-value (PR #1781, 3-arm Pattern A)
+
+| Arm | outer_lr | W&B | val/loss | FFS | Δval/σ_H174 | Verdict |
+|-----|----------|-----|----------|-----|-------------|---------|
+| arm_a CTRL | 0.7 | t9aaje7q | 3.27000 | 3050 | +2.06σ | Pattern A +50 hot-edge drift |
+| arm_b LOWER | 0.5 | sy5f1zj0 | **3.28441** | **−1 DNF** | +18.36σ | **CATASTROPHIC NEG** |
+| arm_c HIGHER | 0.9 | ait1vnj7 | 3.27159 | 3100 | +3.86σ | graded NEG |
+
+H266 baseline: val=3.26818, FFS=3000. Per Issue #1260 strict: all 3 arms FFS≥3050 → NOT merge-eligible.
+
+🎯 **Paper-grade finding #1: 6-axis PF#56 MuLoCo outer-step cube CONFIRMED-RIGID** at H266 operating point (K=30, momentum=0.5, lr=0.7):
+
+| Axis | Test | Result |
+|------|------|--------|
+| sync_interval K VALUE | H252 | NULL/NEG (rigid) |
+| outer_lr TEMPORAL schedule | H256 | NULL/CATASTROPHIC NEG |
+| outer_momentum VALUE | H258 | m=0.3 CATASTROPHIC NEG |
+| MuLoCo PRESENCE binary | H263 | CATASTROPHIC NEG when removed |
+| outer_momentum SCHEDULE | H289 | +10.9σ NEG |
+| **outer_lr VALUE** | **H293** | **bilateral NEG (lower=catastrophic, higher=graded)** |
+
+**No merge-eligible MuLoCo HP exists in the neighborhood of H266 operating point.** Joins NS5 cube (4-axis), EMA scope axis, EMA temporal axis, AGC subsystem (6-axis) as comprehensively characterized rigid axes.
+
+🎯 **Paper-grade finding #2: Outer-step velocity-magnitude triple-confirmed catastrophic NEG mechanism**
+
+H258 (momentum reduction) + H263 (presence removal) + H293 arm_b (outer_lr reduction) — all trigger same catastrophic NEG when effective outer-step magnitude shrinks below operating point. **Structural lower bound on MuLoCo effective step size**: asymmetric cliffs (lower=catastrophic, higher=graded recoverable noise).
+
+**H302 edward EMA per-group differential decay ASSIGNED** (PR #1813):
+- 3-arm Pattern A VALUE/SCOPE COMBINATION: arm_a CTRL (global 0.05) / arm_b PER_GROUP_OPT (aux=0.10, body=0.0) / arm_c PER_GROUP_VALUE (aux=0.10, body=0.05)
+- Direct logical completion of H290 (scope) × H294 (value) paper-grade findings: remove body EMA drag + upgrade aux to U-curve optimum simultaneously
+- Option B: 2 new CLI flags `--polyak_ema_aux_decay` and `--polyak_ema_body_decay`, ~20 LoC
+- WIN probability ~15-20% (both component findings are confirmed paper-grade; super-additive combination test)
+
+**NOTE**: PR #1810 (Aux Lion optimizer) was inadvertently assigned as H302 but Lion on aux was already tested as H96/H124/H152/H260 (pre-H266 era). Closed immediately. H302 EMA per-group decay (PR #1813) is the replacement.
+
 ## 2026-05-30 10:30 — PR #1782 H294 frieren: Polyak EMA decay VALUE 0.05/0.075/0.10 — **CLOSED (147th NULL/NEG, 🎯 paper-grade U-curve scope-independent optimum at ≈0.10, 89th mechanism class)** + PR #1807 H301 frieren ASSIGNED (fine-grid right-of-0.10 follow-up)
 
 - Branch: g1r3-frieren/h294-ema-decay-value (PR #1782, 3-arm Pattern A)
