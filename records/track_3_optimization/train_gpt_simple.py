@@ -603,6 +603,8 @@ NANOGPT_NEWTON_MUON_BETA = float(os.environ.get("NANOGPT_NEWTON_MUON_BETA", "0.9
 NANOGPT_NEWTON_MUON_EPS = float(os.environ.get("NANOGPT_NEWTON_MUON_EPS", "1e-4"))
 NANOGPT_NEWTON_MUON_MAX_D_IN = int(os.environ.get("NANOGPT_NEWTON_MUON_MAX_D_IN", "1024"))
 NANOGPT_NEWTON_MUON_TIKHONOV_GAMMA = float(os.environ.get("NANOGPT_NEWTON_MUON_TIKHONOV_GAMMA", "0.0"))
+NANOGPT_NEWTON_MUON_TIKHONOV_GAMMA_LATE = float(os.environ.get("NANOGPT_NEWTON_MUON_TIKHONOV_GAMMA_LATE", "0.0"))
+NANOGPT_NEWTON_MUON_TIKHONOV_SWITCH_STEP = int(os.environ.get("NANOGPT_NEWTON_MUON_TIKHONOV_SWITCH_STEP", "0"))
 
 # Global per-parameter input-activation cache populated by forward hooks. Keyed by
 # id(weight_param) → tensor of shape (B*T, d_in) on device. Only populated when
@@ -836,10 +838,17 @@ class Muon(torch.optim.Optimizer):
                 state["R"].mul_(b).add_(R_new, alpha=1.0 - b)
             # Tikhonov regularization: R_reg = R + gamma * (tr(R)/d_in) * I.
             # Applied only at eigendecomp time; state["R"] EMA buffer is unmodified.
-            if NANOGPT_NEWTON_MUON_TIKHONOV_GAMMA > 0.0:
+            # Switch to GAMMA_LATE after SWITCH_STEP optimizer steps if configured.
+            if (NANOGPT_NEWTON_MUON_TIKHONOV_GAMMA_LATE > 0.0
+                    and NANOGPT_NEWTON_MUON_TIKHONOV_SWITCH_STEP > 0
+                    and self._newton_step_count >= NANOGPT_NEWTON_MUON_TIKHONOV_SWITCH_STEP):
+                _eff_gamma = NANOGPT_NEWTON_MUON_TIKHONOV_GAMMA_LATE
+            else:
+                _eff_gamma = NANOGPT_NEWTON_MUON_TIKHONOV_GAMMA
+            if _eff_gamma > 0.0:
                 n_dim = state["R"].shape[0]
                 trace_mean = state["R"].diagonal().mean()
-                lambda_reg = NANOGPT_NEWTON_MUON_TIKHONOV_GAMMA * trace_mean
+                lambda_reg = _eff_gamma * trace_mean
                 R_for_decomp = state["R"] + lambda_reg * torch.eye(
                     n_dim, device=state["R"].device, dtype=state["R"].dtype
                 )
@@ -997,7 +1006,9 @@ print0(
     f"update_period={NANOGPT_NEWTON_MUON_UPDATE_PERIOD} "
     f"beta={NANOGPT_NEWTON_MUON_BETA} eps={NANOGPT_NEWTON_MUON_EPS} "
     f"max_d_in={NANOGPT_NEWTON_MUON_MAX_D_IN} "
-    f"tikhonov_gamma={NANOGPT_NEWTON_MUON_TIKHONOV_GAMMA}",
+    f"tikhonov_gamma={NANOGPT_NEWTON_MUON_TIKHONOV_GAMMA} "
+    f"tikhonov_gamma_late={NANOGPT_NEWTON_MUON_TIKHONOV_GAMMA_LATE} "
+    f"tikhonov_switch_step={NANOGPT_NEWTON_MUON_TIKHONOV_SWITCH_STEP}",
     console=True,
 )
 if NS_ITERS_COOLDOWN > 0:
@@ -1119,6 +1130,8 @@ if dist.get_rank() == 0:
             "nanogpt_newton_muon_eps": NANOGPT_NEWTON_MUON_EPS,
             "nanogpt_newton_muon_max_d_in": NANOGPT_NEWTON_MUON_MAX_D_IN,
             "nanogpt_newton_muon_tikhonov_gamma": NANOGPT_NEWTON_MUON_TIKHONOV_GAMMA,
+            "nanogpt_newton_muon_tikhonov_gamma_late": NANOGPT_NEWTON_MUON_TIKHONOV_GAMMA_LATE,
+            "nanogpt_newton_muon_tikhonov_switch_step": NANOGPT_NEWTON_MUON_TIKHONOV_SWITCH_STEP,
         },
     )
 
@@ -1477,6 +1490,14 @@ for trial_idx in range(args.num_trials):
                 newton_metrics["newton_muon/precond_ratio_mean"] = (
                     tel["precond_ratio_sum"] / ratio_n
                 )
+            # Log effective gamma (switches at SWITCH_STEP).
+            if NANOGPT_NEWTON_MUON_TIKHONOV_GAMMA > 0.0 or NANOGPT_NEWTON_MUON_TIKHONOV_GAMMA_LATE > 0.0:
+                _eff_g = (NANOGPT_NEWTON_MUON_TIKHONOV_GAMMA_LATE
+                          if (NANOGPT_NEWTON_MUON_TIKHONOV_GAMMA_LATE > 0.0
+                              and NANOGPT_NEWTON_MUON_TIKHONOV_SWITCH_STEP > 0
+                              and train_step >= NANOGPT_NEWTON_MUON_TIKHONOV_SWITCH_STEP)
+                          else NANOGPT_NEWTON_MUON_TIKHONOV_GAMMA)
+                newton_metrics["newton_muon/effective_tikhonov_gamma"] = _eff_g
             wandb.log(newton_metrics, step=wandb_step)
         # Init-anchored WD on embed (#847, env-var-gated). After both optimizers
         # have stepped, apply `p -= lr_embed * lambda * (p - p_init)`. Order vs
