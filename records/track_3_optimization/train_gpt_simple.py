@@ -114,6 +114,19 @@ def parse_args():
                         help="Polyak-Ruppert EMA decay for eval-only weight averaging. "
                              "0.0 = disabled (drift-FREE CTRL). Typical: 0.05 (fast, ~20-step half-life) / "
                              "0.005 (slow, ~200-step half-life). Higher decay = faster EMA tracking.")
+    # H311: POST-NS5 Lookahead snap-back on MuonH body params (after polar projection).
+    # Discrete slow/fast weight averaging (Zhang et al. 2019) applied AFTER optimizer2.step()
+    # finishes (which includes the NS5 polar projection). Distinct from H266 (continuous
+    # Polyak EMA on raw parameters, eval-only viewing) and H271 (pre-NS5 Lookahead on
+    # momentum buffer, absorbed by NS5 projection). k=0 disables (drift-FREE CTRL).
+    parser.add_argument("--lookahead_post_ns5_k", type=int,
+                        default=int(os.environ.get("LOOKAHEAD_POST_NS5_K", "0")),
+                        help="POST-NS5 Lookahead snap-back interval (every k steps); "
+                             "0 = disabled (drift-FREE CTRL).")
+    parser.add_argument("--lookahead_post_ns5_alpha", type=float,
+                        default=float(os.environ.get("LOOKAHEAD_POST_NS5_ALPHA", "0.5")),
+                        help="POST-NS5 Lookahead slow-weight interpolation factor (0..1). "
+                             "0.5 = canonical Zhang et al. 2019 setting.")
     args = parser.parse_args()
     args.num_trials = args.num_trials if args.num_trials is not None else (args.legacy_num_trials or 1)
     args.wandb_tags = [tag.strip() for tag in args.wandb_tags.split(",") if tag.strip()]
@@ -856,6 +869,8 @@ if dist.get_rank() == 0:
             "muonh_mu_start": args.muonh_mu_start,
             "muonh_mu_end": args.muonh_mu_end,
             "polyak_ema_decay": args.polyak_ema_decay,
+            "lookahead_post_ns5_k": args.lookahead_post_ns5_k,
+            "lookahead_post_ns5_alpha": args.lookahead_post_ns5_alpha,
         },
     )
 
@@ -1073,6 +1088,22 @@ for trial_idx in range(args.num_trials):
             print0(f"H266 Polyak EMA buffer initialized: decay={args.polyak_ema_decay}, "
                    f"total_bytes={total_ema_bytes/(1024**3):.2f}GB", console=True)
 
+    # H311: POST-NS5 Lookahead slow-weight buffer on MuonH body params. Cloned after
+    # broadcast so all ranks share the same slow-weight anchor. When k == 0 the state
+    # stays None and the train flow remains bit-identical to the H266 baseline.
+    body_slow_weights = None
+    lookahead_snap_count = 0
+    if args.lookahead_post_ns5_k > 0:
+        body_slow_weights = {
+            id(p): p.data.clone().detach()
+            for p in optimizer2.param_groups[0]["params"]
+        }
+        if dist.get_rank() == 0:
+            total_slow_bytes = sum(t.numel() * t.element_size() for t in body_slow_weights.values())
+            print0(f"H311 POST-NS5 Lookahead slow-weight buffer initialized: "
+                   f"k={args.lookahead_post_ns5_k}, alpha={args.lookahead_post_ns5_alpha}, "
+                   f"total_bytes={total_slow_bytes/(1024**3):.2f}GB", console=True)
+
     # start the clock
     training_time = 0
     last_val_step = 0
@@ -1214,6 +1245,34 @@ for trial_idx in range(args.num_trials):
         )
         for opt in optimizers:
             opt.step()
+        # H311: POST-NS5 Lookahead snap-back — runs AFTER optimizer2.step() (which
+        # includes the NS5 polar projection inside MuonH.step()). At every k-th step
+        # we move the slow-weight anchor toward the live fast weights by alpha, then
+        # snap the live fast weights back to the new slow-weight anchor:
+        #     slow ← slow + alpha * (p - slow)
+        #     p    ← slow
+        # When body_slow_weights is None this branch is skipped, leaving the training
+        # path bit-identical to the H266 baseline.
+        lookahead_snap_applied = False
+        if (body_slow_weights is not None
+                and step > 0
+                and step % args.lookahead_post_ns5_k == 0):
+            with torch.no_grad():
+                alpha = args.lookahead_post_ns5_alpha
+                for p in optimizer2.param_groups[0]["params"]:
+                    slow = body_slow_weights[id(p)]
+                    slow.add_(p.data - slow, alpha=alpha)
+                    p.data.copy_(slow)
+            lookahead_snap_applied = True
+            lookahead_snap_count += 1
+        # H311: per-step gating sanity log (k>0 only, rank 0 only). Cheap two-float log
+        # so we can verify on launch that snap-back fires at the expected step indices.
+        if args.lookahead_post_ns5_k > 0 and dist.get_rank() == 0:
+            wandb.log({
+                "trial": trial_idx,
+                "lookahead/snap_back_applied": 1.0 if lookahead_snap_applied else 0.0,
+                "lookahead/snap_back_count": lookahead_snap_count,
+            }, step=wandb_step)
         # H266: Polyak-Ruppert EMA update — runs after the live inner-optimizer step.
         # When polyak_ema_state is None this branch is skipped, leaving the training
         # path bit-identical to the H203 baseline.
