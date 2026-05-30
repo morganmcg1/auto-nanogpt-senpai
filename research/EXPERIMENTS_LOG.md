@@ -1,3 +1,48 @@
+## 2026-05-30 08:00 — PR #1804: H300 tanjiro Aux global gradient-norm clip — **ASSIGNED (88th class, H292 paper-grade mechanism follow-up)**
+
+- Branch: g1r3-tanjiro/h300-aux-global-grad-clip (PR #1804, post-H266 baseline)
+- 88th mechanism class — global aux gradient-norm clip via `torch.nn.utils.clip_grad_norm_(aux_params, max_norm)` as structurally distinct magnitude-restriction mechanism from per-param AGC
+- Direct mechanism follow-up to H292 paper-grade finding (AGC absorbed by AdamW 1/√v adaptive scaling): tests whether absorption regime extends to hard global-norm bounds with shared scalar rescaling
+- Option B implementation: `--aux_global_grad_clip_norm` flag (default 0.0 = OFF = bit-id baseline), ~10 LoC plus W&B telemetry for clip activation/scale
+- 3-arm Pattern A drift-FREE chain (sequential):
+  - arm_a CTRL `global=0.0, AGC=0.05`: bit-id H266 baseline
+  - arm_b GLOBAL_ADD `global=1.0, AGC=0.05`: global-norm clip composes ON TOP of AGC (per H292 telemetry terminal global aux grad ~27,000 → max_norm=1.0 fires every step uniformly shrinking by ~27,000×)
+  - arm_c GLOBAL_REPLACE `global=1.0, AGC=0.0`: structural REPLACEMENT of per-param AGC with global-norm clip
+- Structurally distinct from H93/H102/H105 (AGC structural redistribution), H114 (AGC ratio sweep), H119/H292 (AGC binary enable/disable). H300 tests REPLACEMENT mechanism not budget redistribution
+- Predictions: arm_b TIE if AdamW absorbs hard global bound (extends H292 narrative), NEG if uniform scale destroys adaptive scaling. arm_c TIE if mechanism equivalence (paper-grade simplification), NEG if per-param AGC mechanism is load-bearing in subtle way
+- WIN prob ~10-12%
+
+## 2026-05-30 08:00 — PR #1779 H292 tanjiro: Aux AGC enable/disable binary — **CLOSED (146th NULL/NEG, 🎯 paper-grade AGC ABSORBED BY ADAMW adaptive scaling at optimizer-coupling layer, 78th mechanism class, joint 6-axis AGC closure with H93/H102/H105/H114/H119)**
+
+- Branch: g1r3-tanjiro/h292-aux-agc-binary
+- Hypothesis: Direct extension of H285 paper-grade per-group LR × WD coupling mechanism. Test if aux AGC at 0.05 is structurally load-bearing or vestigial under H266 baseline
+
+| Arm | aux_agc_clip_ratio | W&B | val/loss | FFS | Δval/σ_H174 | Verdict |
+|-----|-------------------|-----|----------|-----|-------------|---------|
+| arm_a CTRL_AGC_ON | 0.05 | h3k4yjs0 | 3.26858 | 3025 | +0.45σ | Pattern A +25 drift (80th drift-FREE instance) |
+| arm_b AGC_OFF | 0.0 | qjz7zl32 | 3.26899 | 3025 | +0.92σ | arm-vs-arm Δ +0.46σ within noise |
+
+🎯 **Paper-grade mechanism finding (one of cleanest in 146-cycle campaign)**:
+
+**AGC at 0.05 fires aggressively but is functionally inert**:
+- active_fraction = 0.9901 (99% of aux params clipped per step throughout training)
+- scale_mean = 0.0196 (mean clip scale: gradients shrunk by ~50× on average)
+- scale_min = 7.5e-5 (most aggressive param scaled by 13,300×)
+- max_ratio = 13,293 early-training (largest aux grad 13k× over threshold)
+- Despite this enormous intervention, disabling AGC produces 0 FFS change and sub-σ val drift
+
+**Mechanism**: AdamW's 1/√(v+eps) adaptive scaling absorbs AGC's per-param magnitude rescaling. Both interventions rescale gradient MAGNITUDE without changing direction; AdamW's v denominator adjusts to whatever magnitude regime AGC produces, leaving the net update effectively unchanged.
+
+**Counter-intuitive embed_norm finding** (per H285 gold-standard telemetry): arm_b AGC_OFF embed_norm grows ~1.2% SLOWER than CTRL at every checkpoint after step 1000 — opposite of AGC-as-magnitude-restrictor intuition. When AGC clips raw aux grads to smaller per-param norm, AdamW's v shrinks → effective 1/√v step GROWS → net embed parameter movement slightly LARGER.
+
+**Asymmetry vs H285 WD finding**: H285 showed WD shrinks embed to 67% of CTRL at wd=1e-3. AGC does NOT show analogous embed-mass restriction because WD acts on parameter directly (multiplicative shrink each step), while AGC acts on gradient and AdamW absorbs it.
+
+**Closure-amplifier with H119** (PR #1033, 2026-05-24, on PRE-H266 baseline): H119 already closed AGC pruning ablation as VESTIGIAL DEFENSE at 124M scale (both body-disable and full-disable NULL). H292 confirms aux-side AGC remains vestigial under H266 baseline — **H119 closure transfers cleanly to post-H266 EMA regime**.
+
+**Joint 6-axis AGC closure**: H93/H102/H105/H114/H119/H292. AGC subsystem comprehensively characterized as vestigial-defense at this scale across thresholds, structural targets, existence, and post-EMA regime.
+
+78th mechanism class catalogued. 146th NULL/NEG. Per Issue #1260: NOT merge-eligible (both arms FFS=3025).
+
 ## 2026-05-30 07:30 — PR #1800: H299 nezuko Adan body pre-NS5 gradient-difference third moment — **ASSIGNED (87th class, fresh BODY-side curvature mechanism)**
 
 - Branch: g1r3-nezuko/h299-adan-body-grad-diff (PR #1800, post-H266 baseline)

@@ -1,6 +1,73 @@
 # SENPAI Research State — auto-nanogpt-1gpu-r3
 
-- **Last updated:** 2026-05-30 07:30 UTC
+- **Last updated:** 2026-05-30 08:00 UTC
+
+---
+
+## Cycle ~0800: H292 CLOSED 146th NULL/NEG (🎯 paper-grade AGC ABSORBED BY ADAMW adaptive scaling at the optimizer-coupling layer) + H300 ASSIGNED 88th class aux global gradient-norm clip mechanism follow-up
+
+**One terminal closure + one fresh assignment. Plateau campaign portfolio: 146 NULL/NEG + 1 MERGED WIN (H266), 88 mechanism classes attempted.**
+
+### Closure this cycle
+
+**H292 tanjiro aux AGC enable/disable binary CLOSED 146th NULL/NEG — 🎯 PAPER-GRADE: AGC at 0.05 is ABSORBED BY ADAMW adaptive scaling (78th mechanism class).**
+
+Terminal verdict (PR #1779):
+- arm_a CTRL_AGC_ON (ratio=0.05): FFS=3025, val=3.26858 (+0.45σ_H174 Pattern A drift, 80th drift-FREE instance)
+- arm_b AGC_OFF (ratio=0.0): FFS=3025, val=3.26899 (+0.92σ_H174)
+- **arm-vs-arm Δval=+0.46σ within noise floor**, both arms in post-H266 +25 drift class
+
+🎯 **Paper-grade mechanism finding** (one of cleanest in 146-cycle campaign):
+
+H292 telemetry catches AGC firing aggressively but functionally inert:
+- `active_fraction=0.9901` (99% of aux params clipped per step throughout training)
+- `scale_mean=0.0196` (mean clip scale: gradients shrunk by ~50× on average)
+- `scale_min=7.5e-5` (most aggressive param scaled by 13,300×)
+- `max_ratio=13,293` early-training (largest aux grad 13k× over threshold)
+
+**Despite this enormous intervention** (99% per step, ~50× mean shrinkage, peaks >13,000× over threshold), disabling AGC produces 0 FFS change and sub-σ val drift.
+
+**Mechanism**: AdamW's 1/√(v+eps) absorbs AGC's per-param magnitude rescaling. Both interventions rescale gradient MAGNITUDE without changing direction; AdamW's v denominator adjusts to whatever magnitude regime AGC produces, leaving the net update effectively unchanged.
+
+**Counter-intuitive embed_norm finding** (per H285 gold-standard telemetry): arm_b AGC_OFF embed_norm grows ~1.2% SLOWER than CTRL at every checkpoint after step 1000 — opposite of AGC-as-magnitude-restrictor intuition. When AGC clips raw aux grads to smaller per-param norm, AdamW's v shrinks → effective 1/√v step GROWS → net embed parameter movement slightly LARGER.
+
+**Closure-amplifier with H119** (PR #1033, 2026-05-24, on PRE-H266 baseline): H119 closed AGC pruning ablation as VESTIGIAL DEFENSE at 124M scale (both body-disable and full-disable NULL). **H292 confirms aux-side AGC remains vestigial under H266 baseline** — H119 closure transfers cleanly to post-H266 EMA regime.
+
+**Joint 6-axis AGC closure**: H93/H102/H105/H114/H119/H292. The AGC subsystem is comprehensively characterized as vestigial-defense at this scale across thresholds, structural targets, existence, and post-EMA regime.
+
+### New assignment this cycle
+
+**H300 tanjiro: Aux global gradient-norm clip — 88th mechanism class** (PR #1804, Option B `--aux_global_grad_clip_norm` flag).
+
+Direct mechanism follow-up to H292 paper-grade finding. Tests whether AdamW absorption regime that masks per-param AGC also absorbs simpler global-norm clip mechanism.
+
+3-arm Pattern A drift-FREE chain:
+- arm_a CTRL: AGC at 0.05, global-norm OFF (bit-id H266 baseline)
+- arm_b GLOBAL_ADD: AGC at 0.05 + global-norm clip max_norm=1.0 (composes ON TOP of AGC)
+- arm_c GLOBAL_REPLACE: AGC OFF + global-norm clip max_norm=1.0 (structural REPLACEMENT)
+
+**Mechanism predictions**: per H292 telemetry, terminal global aux grad norm ~27,000. max_norm=1.0 would fire EVERY STEP shrinking by ~27,000× uniformly. If TIE: even hard global-norm shrinkage is absorbed by AdamW (extends absorption regime to hard bounds). If WIN: paper-grade follow-up. If NEG: AGC's per-param mechanism IS load-bearing in ways global clip cannot replicate.
+
+Structurally distinct from H93/H102/H105 (AGC structural redistribution per-layer/per-group), H114 (AGC ratio sweep), H119/H292 (AGC enable/disable binary). H300 tests REPLACEMENT mechanism with a fundamentally different magnitude-restriction structure.
+
+WIN prob ~10-12%. Mechanism-grounded.
+
+### Current portfolio state
+
+**Active chains** (8 students, 8 active PRs):
+- H293 edward (outer_lr VALUE 0.5/0.7/0.9, ETA ~09:55Z — PF#56 6-axis completion test)
+- H294 frieren (Polyak EMA decay VALUE 0.05/0.075/0.10, ETA ~09:50Z)
+- H295 askeladd (muonh_mu_end 0.85)
+- H296 alphonse (HALLEY × ns5_iter=16 multiplicative stack)
+- H297 fern (HALLEY × aux_only EMA orthogonal stack)
+- H298 thorfinn (DEMON mu→0 monotone decay)
+- H299 nezuko (Adan body pre-NS5 gradient-difference)
+- **H300 tanjiro (aux global-norm clip, just assigned)**
+
+**Plateau status**: 146 NULL/NEG + 1 MERGED WIN. NS5 cube COMPLETE (H267/H280/H287/H291). MuLoCo outer cube 5/6 axes rigid (H293 closure → 6/6). EMA scope axis CLOSED. EMA temporal axis CLOSED via H288 (cooldown-localized). **AGC subsystem broadly closed via joint 6-axis closure (H93/H102/H105/H114/H119/H292)**.
+
+**Paper-grade findings catalogued cycle current**:
+- H292 AGC absorbed by AdamW adaptive scaling at optimizer-coupling layer + 6-axis joint AGC closure with H119/H93/H102/H105/H114
 
 ---
 
