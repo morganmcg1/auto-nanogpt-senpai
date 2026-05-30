@@ -1,3 +1,39 @@
+## 2026-05-30 11:12 UTC — Cycle 71 mid-426 — alphonse #1799 328th refute + 162nd family closure + 195th mech class (STRUCTURAL_AXIS_COMPOUND bilateral terminal: Arm A `compound_stack` axes#1×#6 val=3.27585/3100 Δ_null=+0.00532 DESTRUCTIVE BAND; Arm B `wd_preferred_alone` val=3.26914/3025 Δ=-0.00098 vs #1765A; FIRST DESTRUCTIVE CROSS-AXIS COMPOUND cycle-71; 195th mech class DEPTH-DEPENDENT-MLP-FC-LOAD-REDISTRIBUTION-AT-AXES-#1-X-#6-COMPOUND-WITH-PRESERVED-EMBED-RMS-SUBSTRATE; 162nd family closure CROSS-AXIS-COMPOUND-AT-AXES-#1-X-#6; embed_rms and trust-gate substrates preserved — mechanism = depth-allocation-conflict; trajectory PEAK Δ at step 2500 mid-cooldown) + alphonse #1820 new assignment (AXIS_COMPOUND_DECOMP: axis-#1 per-kind component × axis-#6 back-tight substrate-driver identification). Fleet 8/8 active 0 idle. Cumulative: 328 refuted / 195 mech classes / 162 family closures / 9 axes locked.
+
+### alphonse #1799 STRUCTURAL_AXIS_COMPOUND — 328th refute, 162nd family closure, 195th mech class
+
+Bilateral terminal: Arm A `compound_stack` (axes #1+#6) val=**3.27585**/3100 Δ_null=**+0.00532 DESTRUCTIVE**; Arm B `wd_preferred_alone` (axis #1 alone, seed=1) val=**3.26914**/3025 (regression-to-mean LOW draw vs #1765 A 3.27012, Δ=−0.00098). W&B runs: 0qlkq5b5 (Arm A) + xhis4k0q (Arm B). **FIRST DESTRUCTIVE cross-axis compound in cycle 71**. **328th cycle-71 refute**.
+
+**195th MECH CLASS: DEPTH-DEPENDENT-MLP-FC-LOAD-REDISTRIBUTION-AT-AXES-#1-X-#6-COMPOUND-WITH-PRESERVED-EMBED-RMS-SUBSTRATE**:
+1. **DESTRUCTIVE compound confirmed**: Arm A Δ vs additive null 3.27053 = +0.00532 (strongest super-additive destructive signal in cycle 71)
+2. **Axis #1 embed_rms substrate preserved**: 9.979 (Arm A) vs 9.983 (Arm B) — EMBED-RMS-DECOUPLING-AT-WD-JOINT intact; mechanism candidate #1 (joint embed WD budget) REJECTED
+3. **Trust-gate substrate preserved**: terminal on_fraction = 0.833 IDENTICAL both arms; mechanism candidate #3 (trust-statistic over-reset) REJECTED
+4. **Signed-asymmetric mlp.fc depth-allocation divergence**: block 8 +0.034 (A>B), block 10 −0.035 (A<B); front block 0 +0.017 — depth-allocation reorganizes across ALL blocks
+5. **Trajectory PEAK at step 2500** (+0.01130 Δ) coinciding with mu_cooldown_start=0.95 phase boundary — depth allocation finalization timing is the load-bearing window
+6. **Mutual bilateral destruction**: axis #1 alone productive (+0.00236), axis #6 alone productive (+0.00041), compound destructive (+0.00809 = +0.00532 above additive null)
+
+**Compound destruction landscape** (cycle 71 strongest signals in both directions):
+- Strongest sub-additive (gate-budget CNI): qk-excluded Δ_null=−0.00856 (#1793 A)
+- Strongest super-additive destructive: **axes #1×#6 Δ_null=+0.00532** (#1799 A) ← NEW
+
+**162nd FAMILY CLOSURE**: CROSS-AXIS-COMPOUND-AT-AXES-#1-X-#6, bilateral closed at compound + single-axis control with DESTRUCTIVE classification — FIRST destructive family closure in cycle 71.
+
+### alphonse #1820 new assignment: AXIS-#1 COMPONENT DECOMPOSITION × AXIS-#6 BACK-TIGHT
+
+**Goal**: substrate-driver identification — which per-kind component of axis #1 (embed-WD-reduced vs lm_head-WD-increased) carries the destructive interaction with axis #6's back-tight init:
+- Arm A `lm_head_wd_only_x_back_tight` (lm_head=0.003, embed neutral=0.001, back-tight=0.5): tests lm_head-WD contribution
+- Arm B `embed_wd_only_x_back_tight` (embed=0.0003, lm_head neutral=0.001, back-tight=0.5): tests embed-WD contribution
+
+**Four-quadrant prediction**: lm_head destroys → sub-additive at lm_head + preservation at embed; embed destroys → symmetric inverse; both destroy → substrate is AdamW aggregation, not per-kind WD; neither destroys → original destruction required joint cross-kind axis #1 (synergy)
+
+**Estimated additive null** for single-component × back-tight compound: 3.26776 + 0.5×0.00236(axis-#1) + 0.00041(axis-#6) = **3.26935**
+
+### Cycle 71 cumulative state (updated: 1 new closure, 1 family closure, 1 new mech class)
+
+**Cycle 71 cumulative**: **328 refuted** / **195 distinct mech classes** / **162 family-level closures** / **9 structural axes locked** / axes #1+#2 FULLY CLOSED (CNI), axis #4 FULLY CLOSED + COMPOUND BILATERAL COMPLETE, axes #8+#9 LOCKED.
+
+---
+
 ## 2026-05-30 10:40 UTC — Cycle 71 mid-425 — fern #1792 327th refute + 161st family closure + 194th mech class (STATE_MECHANISM_MONOTONIC_CONTINUUM bilateral terminal: Arm A `clear_to_zero` (factor=0.0) val=3.27256/3050 Arm B `multiply_by_half` (factor=0.5) val=3.27057/3025 delta(B−A)=−0.00199 PARTIAL DOMINATES FULL; bilateral mean 3.27156/3037.5 ABOVE MERGE BAR; 194th mech class STATE-MECHANISM-MONOTONIC-CONTINUUM-AT-EMBED-RESET-WITH-V-PROJECTOR-COST-LOCALIZATION; 161st family closure PER-KIND-AUX-EMBED-EXP_AVG-FACTOR-AXIS-DECOMPOSITION) + fern #1814 new assignment (STRUCTURAL_CUBE_COMPLETION: cross-moment partial-factor cube at embed × interval=200 × factor=0.5). Fleet 8/8 active 0 idle. Cumulative: 327 refuted / 194 mech classes / 161 family closures / 9 axes locked.
 
 ### fern #1792 STATE_MECHANISM_MONOTONIC_CONTINUUM — 327th refute, 161st family closure, 194th mech class
