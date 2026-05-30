@@ -609,6 +609,18 @@ NANOGPT_NEWTON_MUON_TIKHONOV_GAMMA = float(os.environ.get("NANOGPT_NEWTON_MUON_T
 # diagonal prior accumulated over K steps of "naked Muon" training (NM bypassed pre-K).
 NANOGPT_NEWTON_MUON_R_ADAMW_WARMSTART = int(os.environ.get("NANOGPT_NEWTON_MUON_R_ADAMW_WARMSTART", "0"))
 NANOGPT_NEWTON_MUON_R_ADAMW_WARMSTART_K = int(os.environ.get("NANOGPT_NEWTON_MUON_R_ADAMW_WARMSTART_K", "100"))
+# Newton-Muon α-INTENSITY-SCHEDULE (#1801, class 34, re-implements #1753). Controls
+# the R^{-α} exponent in the right-precondition step. α=0.5 (default) reproduces the
+# rsqrt() production path bit-identically. α_late + alpha_switch_step enable a
+# mid-training switch to a different α value at step >= alpha_switch_step (Newton-step
+# counter). When alpha_switch_step=0 and alpha_late=alpha, the switch is disabled and
+# behavior is bit-identical to the merged stack.
+NANOGPT_NEWTON_MUON_ALPHA = float(os.environ.get("NANOGPT_NEWTON_MUON_ALPHA", "0.5"))
+NANOGPT_NEWTON_MUON_ALPHA_LATE = float(os.environ.get(
+    "NANOGPT_NEWTON_MUON_ALPHA_LATE",
+    os.environ.get("NANOGPT_NEWTON_MUON_ALPHA", "0.5"),
+))
+NANOGPT_NEWTON_MUON_ALPHA_SWITCH_STEP = int(os.environ.get("NANOGPT_NEWTON_MUON_ALPHA_SWITCH_STEP", "0"))
 
 # Global per-parameter input-activation cache populated by forward hooks. Keyed by
 # id(weight_param) → tensor of shape (B*T, d_in) on device. Only populated when
@@ -755,7 +767,10 @@ class Muon(torch.optim.Optimizer):
                  newton_max_d_in: int = 1024,
                  newton_input_cache: dict | None = None,
                  newton_r_warmstart: bool = False,
-                 newton_r_warmstart_k: int = 100):
+                 newton_r_warmstart_k: int = 100,
+                 newton_alpha: float = 0.5,
+                 newton_alpha_late: float = 0.5,
+                 newton_alpha_switch_step: int = 0):
         assert isinstance(params, list) and len(params) >= 1
         if isinstance(params[0], dict):
             # list-of-dicts param_groups: sort each group's params by size.
@@ -810,6 +825,13 @@ class Muon(torch.optim.Optimizer):
         # to enable the sync-y per-param diagnostics; False otherwise to keep
         # the GPU pipeline async (item() calls block the CPU and serialize work).
         self.newton_telemetry_due: bool = False
+        # α-INTENSITY-SCHEDULE (#1801, class 34, re-implements #1753). Late-α + switch-step
+        # plumb a mid-training change of the R^{-α} exponent. Bit-identical fallback:
+        # alpha_switch_step=0 disables the switch; alpha=0.5 keeps the rsqrt path.
+        self.newton_alpha = float(newton_alpha)
+        self.newton_alpha_late = float(newton_alpha_late)
+        self.newton_alpha_switch_step = int(newton_alpha_switch_step)
+        self._newton_alpha_switch_announced = False
 
     def set_ns_iters_this_step(self, ns_iters: int) -> None:
         self.ns_iters_this_step = int(ns_iters)
@@ -883,13 +905,26 @@ class Muon(torch.optim.Optimizer):
                 )
             else:
                 R_for_decomp = state["R"]
-            # Symmetric eigendecomp -> inverse square root with eigenvalue floor.
+            # Symmetric eigendecomp -> R^{-α} with eigenvalue floor.
+            # α-INTENSITY-SCHEDULE (#1801): eff_alpha = alpha_late once we cross
+            # alpha_switch_step on the Newton-step counter; otherwise alpha.
+            # Fast path: when eff_alpha == 0.5 we use rsqrt() (bit-identical to
+            # the pre-1753 production code path). Otherwise pow(-eff_alpha).
+            if (self.newton_alpha_switch_step > 0
+                    and self._newton_step_count >= self.newton_alpha_switch_step):
+                eff_alpha = self.newton_alpha_late
+            else:
+                eff_alpha = self.newton_alpha
             try:
                 vals, vecs = torch.linalg.eigh(R_for_decomp)
                 vals_clamped = vals.clamp(min=0.0) + self.newton_eps
-                inv_sqrt_vals = vals_clamped.rsqrt()
-                # R_inv_sqrt = V * diag(inv_sqrt_vals) * V^T (symmetric).
-                state["R_inv_sqrt"] = (vecs * inv_sqrt_vals.unsqueeze(0)) @ vecs.T
+                if abs(eff_alpha - 0.5) < 1e-9:
+                    inv_alpha_vals = vals_clamped.rsqrt()
+                else:
+                    inv_alpha_vals = vals_clamped.pow(-eff_alpha)
+                # R^{-α} = V * diag(vals_clamped^{-α}) * V^T (symmetric).
+                # Key kept as "R_inv_sqrt" for backward compat with telemetry.
+                state["R_inv_sqrt"] = (vecs * inv_alpha_vals.unsqueeze(0)) @ vecs.T
                 # Stash eigvals on-device for lazy telemetry — no sync here.
                 state["_R_vals_clamped"] = vals_clamped
             except Exception:
@@ -938,6 +973,18 @@ class Muon(torch.optim.Optimizer):
         if self.newton_precond:
             self._newton_step_count += 1
             self.newton_telemetry = {}
+            # α-INTENSITY-SCHEDULE (#1801): one-time banner when the α switch
+            # crosses its threshold. Rank-0 only via print0.
+            if (self.newton_alpha_switch_step > 0
+                    and not self._newton_alpha_switch_announced
+                    and self._newton_step_count >= self.newton_alpha_switch_step):
+                print0(
+                    f"[NEWTON_MUON] alpha switch fired at newton_step={self._newton_step_count}"
+                    f" (threshold={self.newton_alpha_switch_step}):"
+                    f" alpha {self.newton_alpha} -> {self.newton_alpha_late}",
+                    console=True,
+                )
+                self._newton_alpha_switch_announced = True
         for group in self.param_groups:
             params = group["params"]
             params_pad = params + [torch.empty_like(params[-1])] * (world_size - len(params) % world_size)
@@ -1037,7 +1084,9 @@ print0(
     f"max_d_in={NANOGPT_NEWTON_MUON_MAX_D_IN} "
     f"tikhonov_gamma={NANOGPT_NEWTON_MUON_TIKHONOV_GAMMA} "
     f"r_warmstart={'True' if NANOGPT_NEWTON_MUON_R_ADAMW_WARMSTART else 'False'} "
-    f"r_warmstart_k={NANOGPT_NEWTON_MUON_R_ADAMW_WARMSTART_K}",
+    f"r_warmstart_k={NANOGPT_NEWTON_MUON_R_ADAMW_WARMSTART_K} "
+    f"alpha={NANOGPT_NEWTON_MUON_ALPHA} alpha_late={NANOGPT_NEWTON_MUON_ALPHA_LATE} "
+    f"alpha_switch_step={NANOGPT_NEWTON_MUON_ALPHA_SWITCH_STEP}",
     console=True,
 )
 if NS_ITERS_COOLDOWN > 0:
@@ -1161,6 +1210,9 @@ if dist.get_rank() == 0:
             "nanogpt_newton_muon_tikhonov_gamma": NANOGPT_NEWTON_MUON_TIKHONOV_GAMMA,
             "nanogpt_newton_muon_r_adamw_warmstart": NANOGPT_NEWTON_MUON_R_ADAMW_WARMSTART,
             "nanogpt_newton_muon_r_adamw_warmstart_k": NANOGPT_NEWTON_MUON_R_ADAMW_WARMSTART_K,
+            "nanogpt_newton_muon_alpha": NANOGPT_NEWTON_MUON_ALPHA,
+            "nanogpt_newton_muon_alpha_late": NANOGPT_NEWTON_MUON_ALPHA_LATE,
+            "nanogpt_newton_muon_alpha_switch_step": NANOGPT_NEWTON_MUON_ALPHA_SWITCH_STEP,
         },
     )
 
@@ -1230,6 +1282,9 @@ for trial_idx in range(args.num_trials):
         newton_input_cache=_newton_input_cache,
         newton_r_warmstart=bool(NANOGPT_NEWTON_MUON_R_ADAMW_WARMSTART),
         newton_r_warmstart_k=NANOGPT_NEWTON_MUON_R_ADAMW_WARMSTART_K,
+        newton_alpha=NANOGPT_NEWTON_MUON_ALPHA,
+        newton_alpha_late=NANOGPT_NEWTON_MUON_ALPHA_LATE,
+        newton_alpha_switch_step=NANOGPT_NEWTON_MUON_ALPHA_SWITCH_STEP,
     )
     print0(f"MUON_PARAM_COUNTS: attn={len(muon_attn_params)} mlp={len(muon_mlp_params)} "
            f"(expected 48 attn / 24 mlp for 12-layer block stack)", console=True)
