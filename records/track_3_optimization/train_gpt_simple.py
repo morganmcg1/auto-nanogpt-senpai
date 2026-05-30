@@ -84,6 +84,13 @@ def parse_args():
     parser.add_argument('--aux_b2_pulse_target', type=float, default=0.99,
                         help='New aux Adam β2 value to set at --aux_b2_pulse_step. '
                              '0 or negative disables. Default: 0.99 (canonical WIN).')
+    parser.add_argument("--aux_blockwise_adashift_delay", type=int, default=0,
+                        help="Block-wise AdaShift delay on aux AdamW embed group. "
+                             "0=disabled (canonical aux AdamW). 1=ACProp-style scalar. "
+                             "10=canonical AdaShift. When >0, splits embed off optimizer1 "
+                             "and runs it through AdamWBlockwiseAdashift (scalar v_t per "
+                             "tensor, ||g_{t-n}||² delay buffer). β2 pulse propagates to "
+                             "the embed optimizer's param_groups at --aux_b2_pulse_step.")
     parser.add_argument("--seed", type=int, default=1,
                         help="Random seed for torch/numpy/python. Default 1 matches baseline seed.")
     args = parser.parse_args()
@@ -673,6 +680,61 @@ def pmuon_spectral_diag(optimizer: torch.optim.Optimizer, gamma: float) -> dict[
     return {}
 
 
+class AdamWBlockwiseAdashift(torch.optim.Optimizer):
+    # Block-wise AdaShift: per-tensor scalar v_t over ||g||², with `delay`-step
+    # stale-gradient indirection (g_{t-n}² drives the v_t update). exp_avg stays
+    # per-element. v_t and history kept fp32 for stable accumulation of squared
+    # norms over ~10⁷-element embed gradient blocks (bf16 underflow risk).
+    def __init__(self, params, lr=1e-3, betas=(0.9, 0.999), eps=1e-8,
+                 weight_decay=0.0, delay=10):
+        if delay < 1:
+            raise ValueError(f"AdamWBlockwiseAdashift requires delay >= 1, got {delay}")
+        defaults = dict(lr=lr, betas=betas, eps=eps,
+                        weight_decay=weight_decay, delay=delay)
+        super().__init__(params, defaults)
+
+    @torch.no_grad()
+    def step(self, closure=None):
+        loss = None if closure is None else closure()
+        for group in self.param_groups:
+            beta1, beta2 = group['betas']
+            eps = group['eps']
+            wd = group['weight_decay']
+            lr = group['lr']
+            delay = group['delay']
+            for p in group['params']:
+                if p.grad is None:
+                    continue
+                g = p.grad
+                state = self.state[p]
+                if len(state) == 0:
+                    state['step'] = 0
+                    state['exp_avg'] = torch.zeros_like(p)
+                    state['v'] = torch.zeros((), dtype=torch.float32, device=p.device)
+                    state['g_norm_sq_history'] = [None] * (delay + 1)
+                    state['hist_idx'] = 0
+                g_norm_sq = (g.float() ** 2).sum()
+                hist = state['g_norm_sq_history']
+                idx = state['hist_idx']
+                stale_idx = (idx - delay) % (delay + 1)
+                stale_g_norm_sq = hist[stale_idx]
+                hist[idx] = g_norm_sq
+                state['hist_idx'] = (idx + 1) % (delay + 1)
+                state['exp_avg'].mul_(beta1).add_(g, alpha=1 - beta1)
+                effective_g_norm_sq = stale_g_norm_sq if stale_g_norm_sq is not None else g_norm_sq
+                state['v'].mul_(beta2).add_(effective_g_norm_sq, alpha=1 - beta2)
+                state['step'] += 1
+                bc1 = 1 - beta1 ** state['step']
+                bc2 = 1 - beta2 ** state['step']
+                m_hat = state['exp_avg'] / bc1
+                v_hat = state['v'] / bc2
+                denom = v_hat.sqrt().add_(eps)
+                if wd > 0:
+                    p.mul_(1 - lr * wd)
+                p.add_(m_hat / denom, alpha=-lr)
+        return loss
+
+
 ########################################
 #                Setup                 #
 ########################################
@@ -765,6 +827,7 @@ if dist.get_rank() == 0:
             "paramema_refresh_only": int(args.paramema_refresh_only),
             "aux_b2_pulse_step": args.aux_b2_pulse_step,
             "aux_b2_pulse_target": args.aux_b2_pulse_target,
+            "aux_blockwise_adashift_delay": args.aux_blockwise_adashift_delay,
             "seed": args.seed,
         },
     )
@@ -797,10 +860,29 @@ for trial_idx in range(args.num_trials):
             raise Exception(f"Uninitialized parameter: {name}")
 
     # create the optimizer(s)
-    optimizer1 = AdamW([dict(params=[model.embed.weight], lr=0.3, name="adam_embed"),
-                        dict(params=[model.proj.weight], lr=1/160, name="adam_lm_head"),
-                        dict(params=[p for p in model.parameters() if p.ndim < 2], lr=0.025, name="adam_scalars")],
-                       betas=(0.8, 0.95), eps=1e-10, weight_decay=0, fused=True)
+    # When --aux_blockwise_adashift_delay > 0, the embed group is split off
+    # optimizer1 into AdamWBlockwiseAdashift (scalar v_t per tensor, delayed
+    # ||g||² accumulation). Match the canonical aux Adam hparams: lr=0.3,
+    # betas=(0.8, 0.95), eps=1e-10, weight_decay=0. The β2 pulse logic below
+    # is also extended to mutate the embed optimizer's param_groups in lockstep.
+    optimizer1_embed = None
+    if args.aux_blockwise_adashift_delay > 0:
+        optimizer1 = AdamW([dict(params=[model.proj.weight], lr=1/160, name="adam_lm_head"),
+                            dict(params=[p for p in model.parameters() if p.ndim < 2], lr=0.025, name="adam_scalars")],
+                           betas=(0.8, 0.95), eps=1e-10, weight_decay=0, fused=True)
+        optimizer1_embed = AdamWBlockwiseAdashift(
+            [model.embed.weight], lr=0.3, betas=(0.8, 0.95),
+            eps=1e-10, weight_decay=0.0,
+            delay=args.aux_blockwise_adashift_delay,
+        )
+        optimizer1_embed.param_groups[0]["name"] = "adam_embed_blockwise_adashift"
+        print0(f"[init] Block-wise AdaShift on embed (delay={args.aux_blockwise_adashift_delay}, "
+               f"lr=0.3, betas=(0.8, 0.95), eps=1e-10, wd=0.0)", console=True)
+    else:
+        optimizer1 = AdamW([dict(params=[model.embed.weight], lr=0.3, name="adam_embed"),
+                            dict(params=[model.proj.weight], lr=1/160, name="adam_lm_head"),
+                            dict(params=[p for p in model.parameters() if p.ndim < 2], lr=0.025, name="adam_scalars")],
+                           betas=(0.8, 0.95), eps=1e-10, weight_decay=0, fused=True)
     optimizer2 = Muon([p for p in model.blocks.parameters() if p.ndim >= 2],
                       lr=args.muon_lr, weight_decay=0.025, beta_cov=0.95, gamma=PMUON_GAMMA)
     optimizer2.param_groups[0]["name"] = "muon_blocks"
@@ -836,6 +918,8 @@ for trial_idx in range(args.num_trials):
     optimizer2._param_lr_mults = param_lr_mults
 
     optimizers = [optimizer1, optimizer2]
+    if optimizer1_embed is not None:
+        optimizers.append(optimizer1_embed)
     assert set(p for opt in optimizers for group in opt.param_groups
                for p in group["params"]) == set(model.parameters())
     for opt in optimizers:
@@ -1069,6 +1153,9 @@ for trial_idx in range(args.num_trials):
             new_betas = (optimizer1.param_groups[0]["betas"][0], args.aux_b2_pulse_target)
             for group in optimizer1.param_groups:
                 group["betas"] = new_betas
+            if optimizer1_embed is not None:
+                for group in optimizer1_embed.param_groups:
+                    group["betas"] = new_betas
             print0(f"[step {step}] aux_b2_pulse: β2 {old_b2} → {args.aux_b2_pulse_target}",
                    console=True)
         for opt in optimizers:
@@ -1174,7 +1261,7 @@ for trial_idx in range(args.num_trials):
             # latches to 1 at and after --paramema_refresh_step; lcov_refresh/fired
             # is always 0 in this branch (L_cov refresh not implemented). The
             # --paramema_refresh_only flag is recorded for run filtering.
-            wandb.log({
+            aux_b2_metrics = {
                 "trial": trial_idx,
                 "train/step": train_step,
                 "ema_refresh/fired": ema_refresh_fired_total,
@@ -1189,7 +1276,23 @@ for trial_idx in range(args.num_trials):
                 "aux_b2/fired": int(args.aux_b2_pulse_step > 0
                                     and args.aux_b2_pulse_target > 0.0
                                     and step >= args.aux_b2_pulse_step),
-            }, step=wandb_step)
+            }
+            if optimizer1_embed is not None:
+                emb_group = optimizer1_embed.param_groups[0]
+                aux_b2_metrics["aux_b2/embed_current"] = emb_group["betas"][1]
+                # Pull the embed weight's optimizer state to expose v_t evolution.
+                emb_state = optimizer1_embed.state.get(model.embed.weight, {})
+                if "v" in emb_state:
+                    aux_b2_metrics["blockwise_adashift/v_embed"] = float(emb_state["v"].item())
+                    aux_b2_metrics["blockwise_adashift/v_embed_sqrt"] = float(emb_state["v"].sqrt().item())
+                    aux_b2_metrics["blockwise_adashift/step_count"] = int(emb_state["step"])
+                hist = emb_state.get("g_norm_sq_history", [])
+                latest_idx = (emb_state.get("hist_idx", 0) - 1) % max(1, len(hist))
+                latest_g_norm_sq = hist[latest_idx] if hist and hist[latest_idx] is not None else None
+                if latest_g_norm_sq is not None:
+                    aux_b2_metrics["blockwise_adashift/g_norm_sq_embed_latest"] = float(latest_g_norm_sq.item())
+                aux_b2_metrics["blockwise_adashift/delay"] = args.aux_blockwise_adashift_delay
+            wandb.log(aux_b2_metrics, step=wandb_step)
         if dist.get_rank() == 0 and (train_step % 100 == 0 or train_step == train_steps):
             spec = pmuon_spectral_diag(optimizer2, PMUON_GAMMA)
             if spec:
