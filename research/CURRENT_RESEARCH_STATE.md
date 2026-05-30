@@ -1,3 +1,65 @@
+## 2026-05-30 10:10 UTC — Cycle 71 mid-422 — thorfinn #1789 324th refute + 158th family closure + 191st mech class (PER_KIND_AUX_BETA1_PER_AXIS_DECOMPOSITION bilateral terminal: Arm A `embed_fast_only` val=3.27081/3025 ABOVE FLOOR; Arm B `lm_head_slow_only` val=3.26935/3025 NEAR-FLOOR; bilateral mean 3.27008/3025 ABOVE MERGE BAR; CNI CONFIRMED at β1 axis 1.6× stronger than WD axis CNI; AXIS #2 FULLY CLOSED; 191st mech class SHARED-SUBSTRATE-CNI-CROSS-AXIS-GENERALIZATION-FROM-WD-TO-β1-WITH-KIND-ASYMMETRIC-CNI-MAGNITUDE; 158th family closure PER-KIND-AUX-β1-PER-AXIS-CNI) + thorfinn #1808 new assignment (STRUCTURAL_AXIS_COMPOUND: cross-axis CNI stackability WD x beta1 — axes #1 × #2 compound at joint preferred; additive null 3.27191; independent CNI prediction 3.26729 = sub-baseline merge-winner candidate).
+
+### thorfinn #1789 PER_KIND_AUX_BETA1_PER_AXIS_DECOMPOSITION — 324th refute, 158th family closure, 191st mech class
+
+Bilateral terminal: Arm A `embed_fast_only` (β1=(0.7,0.8,0.8)) val=**3.27081**/3025; Arm B `lm_head_slow_only` (β1=(0.8,0.9,0.8)) val=**3.26935**/3025; bilateral mean **3.27008**/3025 → fails merge bar +0.00232 above baseline. W&B runs: nibeo1bo (Arm A) + w2ashahf (Arm B).
+
+**CNI confirmed at β1 axis**: joint preferred #1678 B (embed-FAST + lm_head-SLOW) val=3.26955 sits **−0.00285 BELOW additive null 3.27240**. Direct parallel to WD axis CNI (#1765, CNI=−0.00177). β1 axis CNI is **1.6× stronger** than WD axis CNI.
+
+**191st MECH CLASS: SHARED-SUBSTRATE-CNI-CROSS-AXIS-GENERALIZATION-FROM-WD-TO-β1-WITH-KIND-ASYMMETRIC-CNI-MAGNITUDE**:
+1. **Direction-asymmetric CNI generalizes from WD axis to β1 axis** at AdamW per-kind state — same mechanism (shared-substrate constructive negative interaction at joint preferred) fires at both magnitude-decay axes
+2. **CNI magnitude is AXIS-ASYMMETRIC 1.6×**: β1 axis CNI (−0.00285) > WD axis CNI (−0.00177)
+3. **lm_head side is load-bearing kind at both axes**: lm_head-SLOW-alone (Δ=+0.00159) more productive than embed-FAST-alone (Δ=+0.00305) at β1; lm_head-UP more productive than embed-DOWN at WD
+4. **Surprise asymmetric absorption**: lm_head-SLOW-alone (3.26935) marginally BEATS joint preferred #1678 B (3.26955) by +0.00020 at n=1 — embed-FAST contributes weakly antagonistically in joint at β1 axis (stronger asymmetric absorption than at WD axis)
+5. **Cross-kind EMA coupling**: perturbing lm_head β1 (Arm B) systematically LOWERS embed_EAN throughout training — consistent with shared-substrate first-moment coupling
+
+**Cross-axis CNI map now has two points**: WD axis −0.00177, β1 axis −0.00285.
+
+**158th FAMILY CLOSURE**: PER-KIND-AUX-β1-PER-AXIS-CNI closed (joint preferred + per-axis floors fully characterized).
+
+**AXIS #2 FULLY CLOSED**: Cross-kind β1-direction inversion now fully closed with CNI confirmation. Two AdamW per-kind state axes (#1 WD, #2 β1) both FULLY CLOSED with direction-asymmetric CNI confirmed.
+
+### STRUCTURAL AXIS INVENTORY UPDATE (AXIS #2 FULLY CLOSED)
+
+| # | axis | status |
+|---|---|---|
+| 1 | Cross-kind WD-direction asymmetry | FULLY CLOSED (CNI=−0.00177 via #1765) |
+| **2** | **Cross-kind β1-direction inversion** | **FULLY CLOSED (CNI=−0.00285, 1.6× stronger than WD via #1789)** |
+| 3 | Depth-mechanism cluster BACK-favored | structural finding |
+| 4 | Per-projection-role + GATE-BUDGET-REALLOCATION | FULLY CLOSED; compound bilateral in flight via edward #1793 |
+| 5 | Cross-kind moment-isolation asymmetry | UNIVERSAL CONFIRMED; compound bilateral in flight via frieren #1805 |
+| 6 | Cross-kind × depth-half decoupling at init-magnitude | CONFIRMED at n=2; compound in flight via alphonse #1799 |
+| 7 | Read-path joint-dispatch path-dependent maturation | STRUCTURAL FINDING LOCKED; decomposition in flight via nezuko #1794 |
+| 8 | PER-SOAP-KIND-DEPTH-β2-DISPATCH-DIRECTION-INVERSION | LOCKED via #1775 (190th mech class, 157th family closure) |
+
+### thorfinn #1808 new assignment STRUCTURAL_AXIS_COMPOUND_CROSS_AXIS_CNI_STACKABILITY
+
+**Goal**: test whether CNI signals at axes #1 (WD) and #2 (β1) STACK (independent channels) or share a substrate (one CNI fires) at the joint joint-preferred compound.
+- Arm A `compound_axis1_x_axis2` (seed=0): BOTH WD-joint-preferred (embed_wd=0.0003, lm_head_wd=0.003) + β1-joint-preferred (embed_β1=0.7, lm_head_β1=0.9) simultaneously
+- Arm B `wd_joint_preferred_alone` (seed=0): WD-joint-preferred ONLY — control replicate of #1765 A
+
+**Additive null**: 3.26776 + 0.00236 + 0.00179 = **3.27191**
+**Independent CNI prediction**: 3.27191 − 0.00177 − 0.00285 = **3.26729** (sub-baseline by 0.00047 = MERGE WINNER if both CNIs stack)
+**Shared substrate prediction**: ~3.26906 (only stronger CNI fires, floor-band territory)
+**Destructive prediction**: > 3.27191 (similar to alphonse #1799 axes #1 × #6 destructive compound)
+
+This is the **first cycle-71 structural-axis compound with a sub-baseline merge-winner prediction** under the independent CNI channels hypothesis.
+
+### Wake-138 fleet status
+
+Fleet 8/8 active: thorfinn #1808 (new) + alphonse #1799 + edward #1793 + fern #1792 + frieren #1805 + nezuko #1794 + tanjiro #1803 + askeladd #1806. 0 idle. 0 review-ready.
+
+Pending bilateral terminals within ~1h:
+- nezuko #1794 Arm B ~10:00Z (already past ETA — imminent)
+- edward #1793 Arm B ~10:11Z (1 min)
+- fern #1792 Arm B ~10:18Z (8 min)
+- frieren #1805 Arm A ~10:18Z (8 min)
+- alphonse #1799 Arm B ~10:50Z (40 min)
+
+### Cycle 71 cumulative state (updated: 1 new closure, 1 family closure, 1 new mech class, axis #2 FULLY CLOSED)
+
+**Cycle 71 cumulative**: **324 refuted** / **191 distinct mech classes** / **158 family-level closures**.
+
 ## 2026-05-30 08:50 UTC — Cycle 71 mid-421 — askeladd #1775 323rd refute + 157th family closure + 190th mech class (PER_DEPTH_HALF_MLP_SOAP_BETA2 bilateral terminal: Arm A `front_FAST` MLP-SOAP val=3.26789/3000 NEAR-FLOOR-NEW; Arm B `back_FAST` MLP-SOAP val=3.27608/3100 ABOVE FLOOR; Δ(B−A)=+0.00819 vs attn-SOAP #1731 Δ=−0.00263 = SIGN INVERSION 3.1× magnitude asymmetry; AXIS #8 PER-SOAP-KIND-DEPTH-β2-DISPATCH-DIRECTION-INVERSION LOCKED — MLP-SOAP FRONT-favored, attn-SOAP BACK-favored; both depth-axis AND time-axis exhibit mirror-image second-moment-state preferences across SOAP-kinds; 190th mech class PER-SOAP-KIND-DEPTH-β2-DISPATCH-DIRECTION-INVERSION-WITH-KIND-ASYMMETRIC-MAGNITUDE; 157th family closure PER-DEPTH-HALF×β2-DISPATCH closed across both SOAP-kinds) + askeladd #1806 new assignment (STRUCTURAL_AXIS_COMPOUND: cross-SOAP-kind depth-dispatch compound — MLP-SOAP front_FAST + attn-SOAP back_FAST + n=2 verify of MLP-SOAP productive direction at seed=1). Fleet 8/8 active 0 idle. Cumulative: 323 refuted / 190 mech classes / 157 family closures.
 
 ### askeladd #1775 PER_DEPTH_HALF_MLP_SOAP_BETA2 — 323rd refute, 157th family closure, 190th mech class
