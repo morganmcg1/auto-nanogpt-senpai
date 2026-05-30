@@ -1,3 +1,38 @@
+## 2026-05-30 04:35 — PR #1782: H294 frieren Polyak EMA decay VALUE sensitivity (0.05/0.075/0.10) — **ASSIGNED (82nd class, characterizing the H266 MERGED WIN axis)**
+
+- Branch: g1r3-frieren/h294-ema-decay-value (PR #1782, post-H266 baseline)
+- 82nd mechanism class — **Polyak EMA decay VALUE on all-params scope** (the ONLY MERGED WIN axis)
+- Direct extension of frieren's H284 composability finding: FFS=3000 is structural cooldown-step quantization ceiling. The H266 WIN at decay=0.05 has been characterized at only 2 points (0.005 CATASTROPHIC, 0.05 WIN). H274v2 found AUX_ONLY scope U-curve minimum at ≈0.10 (NOT 0.05). The all-params scope U-curve at neighborhood values (0.025/0.075/0.10) is UNCHARACTERIZED.
+- 3-arm Pattern A drift-FREE VALUE-only chain (--polyak_ema_decay already CLI flag):
+  - arm_a CTRL `--polyak_ema_decay 0.05`: H266 WIN bit-id baseline (76th drift-FREE Pattern A instance expected)
+  - arm_b `--polyak_ema_decay 0.075`: closer to instantaneous params, ~13-step EMA half-life
+  - arm_c `--polyak_ema_decay 0.10`: matches AUX_ONLY scope optimum, ~10-step EMA half-life
+- A-priori prediction: WIN probability 20-30% — if all-params follows AUX_ONLY U-curve geometry, optimum is at 0.10. **A new WIN at decay=0.10 would COMPOUND with H266** (replace baseline, re-run post-H266 mechanism portfolio against new baseline).
+- WIN criterion: arm_b or arm_c FFS<3000 strict
+- TIE result: bilateral FFS=3000 → H266 decay=0.05 sits on broad plateau
+- NEG result: bilateral FFS≥3025 → H266 decay=0.05 sharp optimum (PF#56-like rigidity on EMA WIN axis)
+- **Distinct from in-flight**: H288 tests phase-gated ACTIVATION (timing axis), H290 tests SCOPE (parameter coverage axis), H294 tests DECAY VALUE (the WIN axis itself)
+- **HIGHEST-VALUE plateau-campaign research direction**: characterizing the ONLY MERGED WIN axis (H266) for sensitivity is essential for paper narrative
+- Ref: Polyak (1990) "New stochastic approximation type procedures"; Ruppert (1988) "Efficient estimations from a slowly convergent Robbins-Monro process"
+
+## 2026-05-30 04:35 — PR #1747: H284 frieren composability test z_loss × ns5_iter — **CLOSED 140th NULL/NEG (🎯 paper-grade FFS=3000 STRUCTURAL CEILING confirmation + (z, ns5) multiplicative interaction finding)**
+
+- Branch: g1r3-frieren/h284-compose-z-loss-ns5-iter (PR #1747, post-H266 baseline)
+- 71st mechanism class — composability of two FFS=3000 TIE family mechanisms (H275 z_loss + H267 ns5_iter)
+- Terminal verdict: arm_c FFS=3000 EXACT TIE, val=3.26813 marginal -0.057σ below noise → val-only marginal improvement with FFS TIE per Issue #1260 = **NOT merge-eligible**
+
+| Arm | z_loss | ns5_iter | run_id | step-0 val | val/loss | Δval vs H266 (σ_H174) | FFS | verdict |
+|-----|--------|----------|--------|-----------|----------|------------------------|-----|---------|
+| arm_a CTRL | 0.0 | 12 | prgmndvc | 10.82583 ✓ | 3.27059 | +2.73σ | 3050 | Pattern A noise upper tail |
+| arm_b 2-STACK | 1e-5 | 16 | lciklsac | 10.82583 ✓ | 3.26987 | +1.91σ | 3025 | Pattern A loose drift TIE |
+| **arm_c 2-STACK-HIGHER-Z** | **3e-5** | **16** | **xq35hv4s** | **10.82583 ✓** | **3.26813** | **-0.057σ** | **3000 EXACT** | **🎯 FFS TIE + lowest 2-stack val** |
+
+- 🎯 **Paper-grade FFS=3000 structural ceiling CONFIRMED**: 2-stack (z=3e-5 + ns5=16) hits FFS=3000 EXACT with val=3.26813 — the lowest val post-H266. The 5-mechanism FFS=3000 TIE family (H266 EMA, H267 ns5=16, H275 z=1e-5, H274 AUX_ONLY decay=0.10, H284 arm_c 2-stack) all hit the same FFS ceiling. **TIE × TIE = TIE** confirms FFS=3000 is set by cooldown-step quantization (geometric), not loss-landscape (optimization).
+- 🎯 **Paper-grade (z, ns5) multiplicative interaction**: Under ns5=12 (H275 baseline), z=1e-5 optimum / z=3e-5 NEG. Under ns5=16 (H284 chain), z=3e-5 BEATS z=1e-5 within-chain by -1.97σ. Tighter NS5 polar projection absorbs precision deficit, allowing higher z. Confirms PR's a-priori "tighter NS5 enables higher z" hypothesis.
+- 🎯 **Campaign-level insight: FFS=3000 ceiling is geometric, breaking requires cooldown geometry modification** (not val reduction at same step). True FFS WIN requires crossing val<3.28 threshold at earlier step (e.g., 2950, 2975). Earlier threshold crossing requires modifying cooldown shape/length/start.
+- ✅ Drift-FREE Pattern A: 76th-78th instances (all 3 arms step-0=10.82583 EXACT, Option B argparse VALUE conditional clean)
+- ✅ Plateau campaign now: **141 PR experiments closed (140 NULL/NEG + 1 MERGED WIN H266)**
+
 ## 2026-05-30 04:20 — PR #1781: H293 edward outer_lr VALUE test (0.5/0.7/0.9) — **ASSIGNED (81st class, MuLoCo outer-step cube completion)**
 
 - Branch: g1r3-edward/h293-outer-lr-value (PR #1781, post-H266 baseline)

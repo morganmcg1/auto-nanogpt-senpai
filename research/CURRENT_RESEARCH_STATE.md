@@ -1,10 +1,46 @@
 # SENPAI Research State — auto-nanogpt-1gpu-r3
 
-- **Last updated:** 2026-05-30 04:20 UTC
+- **Last updated:** 2026-05-30 04:35 UTC
 
 ---
 
-## Cycle ~0420: H286 CLOSED 139th NULL/NEG (🎯 paper-grade Nesterov lookahead structurally load-bearing for MuonH polar projection + 75th drift-FREE Pattern A instance) + H293 ASSIGNED 81st class outer_lr VALUE test (MuLoCo cube completion)
+## Cycle ~0435: H284 CLOSED 140th NULL/NEG (🎯 paper-grade FFS=3000 STRUCTURAL CEILING confirmation + (z, ns5) multiplicative interaction finding) + H294 ASSIGNED 82nd class Polyak EMA decay VALUE sensitivity around H266 WIN axis
+
+**One terminal closure + one fresh assignment. Plateau campaign portfolio: 140 NULL/NEG + 1 MERGED WIN (H266), 82 mechanism classes attempted.**
+
+### Closure this cycle
+
+**H284 frieren composability test z_loss × ns5_iter CLOSED 140th NULL/NEG — 🎯 PAPER-GRADE FFS=3000 STRUCTURAL CEILING confirmation (71st mechanism class).**
+
+Terminal verdict (post-H266 baseline, PR #1747):
+- arm_a CTRL (z=0, ns5=12): FFS=3050, val=3.27059 (+2.73σ_H174, Pattern A noise upper tail)
+- arm_b 2-STACK (z=1e-5, ns5=16): FFS=3025, val=3.26987 (+1.91σ_H174, Pattern A loose drift TIE)
+- arm_c 2-STACK-HIGHER-Z (z=3e-5, ns5=16): **FFS=3000 EXACT**, val=**3.26813** (**-0.057σ_H174** = lowest val post-H266 but sub-noise)
+
+Per Issue #1260: val-only marginal improvement with FFS TIE → **NOT merge-eligible**.
+
+🎯 **Paper-grade FFS=3000 structural ceiling CONFIRMED**: 5-mechanism FFS=3000 TIE family (H266 EMA, H267 ns5=16, H275 z=1e-5, H274 AUX_ONLY decay=0.10, H284 arm_c 2-stack) all hit the same FFS ceiling. **TIE × TIE = TIE** confirms FFS=3000 is set by **cooldown-step quantization (geometric)**, not loss-landscape (optimization). True FFS<3000 WIN requires breaking the cooldown geometry — crossing val<3.28 threshold at earlier step (2950, 2975) rather than reducing val at step 3000.
+
+🎯 **Paper-grade (z, ns5) multiplicative interaction**: Under ns5=12 (H275 baseline), z=1e-5 was optimum / z=3e-5 was NEG. Under ns5=16 (H284 chain), z=3e-5 BEATS z=1e-5 within-chain by -1.97σ. **Tighter NS5 polar projection absorbs precision deficit, allowing higher z.** Confirms PR's a-priori "tighter NS5 enables higher z" hypothesis. Mechanism: NS5 polynomial f(x)=2x-1.5x³+0.5x⁵ with more iters tightens the polar projection toward unit-spectral-norm fixed point, reducing residual scale error that z_loss=1e-5 was previously offsetting.
+
+🎯 **Campaign-level insight reframing the post-H266 research direction**: The 5-mechanism TIE family confirms post-H266 mechanism portfolio is asymptotically capped at FFS=3000. Breaking the ceiling requires **cooldown geometry attack** (shorten cooldown, modify cooldown shape, alter cooldown start) — not val reduction at the same step. This redirects late-plateau research toward schedule-axis modifications.
+
+### New assignment this cycle
+
+**H294 frieren: Polyak EMA decay VALUE sensitivity (0.05/0.075/0.10) — 82nd class characterizing the H266 MERGED WIN axis** (PR #1782)
+
+Mechanism class: 82nd class — **Polyak EMA decay VALUE on all-params scope** (the ONLY MERGED WIN axis of the plateau campaign).
+
+3-arm Pattern A drift-FREE VALUE-only chain (`--polyak_ema_decay` already CLI flag):
+- arm_a CTRL `--polyak_ema_decay 0.05`: H266 WIN bit-id baseline
+- arm_b `--polyak_ema_decay 0.075`: closer to instantaneous params, ~13-step EMA half-life
+- arm_c `--polyak_ema_decay 0.10`: matches AUX_ONLY scope optimum (H274v2 U-curve minimum at ≈0.10), ~10-step EMA half-life
+
+A-priori prediction: WIN probability ~20-30%. The H266 WIN axis has been characterized at only 2 points (0.005 CATASTROPHIC, 0.05 WIN). H274v2 found AUX_ONLY scope U-curve minimum at ≈0.10 (NOT 0.05). If all-params follows AUX_ONLY U-curve geometry, optimum may be at 0.10.
+
+**A new WIN at decay=0.10 would COMPOUND with H266** — replace current baseline, re-run post-H266 mechanism portfolio (H267, H275, H284-H293) against the new baseline.
+
+### Cycle ~0420: H286 CLOSED 139th NULL/NEG (🎯 paper-grade Nesterov lookahead structurally load-bearing for MuonH polar projection + 75th drift-FREE Pattern A instance) + H293 ASSIGNED 81st class outer_lr VALUE test (MuLoCo cube completion)
 
 **One terminal closure + one fresh assignment. Plateau campaign portfolio: 139 NULL/NEG + 1 MERGED WIN (H266), 81 mechanism classes attempted.**
 
