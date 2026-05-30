@@ -464,6 +464,12 @@ SOAP_PRECOND_FREQ = 10
 ATTN_SOAP_BETA2 = 0.90
 ATTN_SOAP_PRECOND_FREQ = 10
 ATTN_SOAP_TRUST_THRESHOLD = float(os.environ.get("ATTN_SOAP_TRUST_THRESHOLD", "0.9"))
+# Per-kind attn-SOAP path-EXCLUSION (excluded kinds run through default Muon path instead of SOAP)
+PER_KIND_ATTN_SOAP_EXCLUSION_ENABLED = int(os.environ.get("PER_KIND_ATTN_SOAP_EXCLUSION_ENABLED", "0"))
+ATTN_SOAP_EXCLUDE_Q = int(os.environ.get("ATTN_SOAP_EXCLUDE_Q", "0"))
+ATTN_SOAP_EXCLUDE_K = int(os.environ.get("ATTN_SOAP_EXCLUDE_K", "0"))
+ATTN_SOAP_EXCLUDE_V = int(os.environ.get("ATTN_SOAP_EXCLUDE_V", "0"))
+ATTN_SOAP_EXCLUDE_PROJ = int(os.environ.get("ATTN_SOAP_EXCLUDE_PROJ", "0"))
 NS5_ITERS = int(os.environ.get("NS5_ITERS", "12"))
 WD_AUX = float(os.environ.get("WD_AUX", "0.0"))  # AdamW WD on embed + lm_head matrices (scalars stay at 0)
 EMBED_INIT_STD = float(os.environ.get("EMBED_INIT_STD", "1.0"))  # default preserves baseline N(0,1)
@@ -635,11 +641,20 @@ class Muon(torch.optim.Optimizer):
             if n.endswith(".mlp.fc.weight") or n.endswith(".mlp.proj.weight")
         }
         # Attention weights (qkv + proj) receive trust-gated SOAP (public record #16 extension).
-        self.attn_soap_params = {
-            p for n, p in named_params
-            if (n.endswith(".attn.q.weight") or n.endswith(".attn.k.weight")
-                or n.endswith(".attn.v.weight") or n.endswith(".attn.proj.weight"))
-        }
+        # Per-kind path-EXCLUSION: excluded kinds drop out of attn_soap_params and are routed
+        # through the default contra-NorMuon path instead of the SOAP path.
+        def _is_attn_soap(name: str) -> bool:
+            if name.endswith(".attn.q.weight"):
+                return not (PER_KIND_ATTN_SOAP_EXCLUSION_ENABLED and ATTN_SOAP_EXCLUDE_Q)
+            if name.endswith(".attn.k.weight"):
+                return not (PER_KIND_ATTN_SOAP_EXCLUSION_ENABLED and ATTN_SOAP_EXCLUDE_K)
+            if name.endswith(".attn.v.weight"):
+                return not (PER_KIND_ATTN_SOAP_EXCLUSION_ENABLED and ATTN_SOAP_EXCLUDE_V)
+            if name.endswith(".attn.proj.weight"):
+                return not (PER_KIND_ATTN_SOAP_EXCLUSION_ENABLED and ATTN_SOAP_EXCLUDE_PROJ)
+            return False
+
+        self.attn_soap_params = {p for n, p in named_params if _is_attn_soap(n)}
         # Track which sub-type each attention-SOAP param is (q/k/v/proj) for per-type telemetry.
         self.attn_soap_kind: dict[int, str] = {}
         for n, p in named_params:
@@ -864,6 +879,11 @@ if dist.get_rank() == 0:
             "optimizer/attn_soap_beta2": ATTN_SOAP_BETA2,
             "optimizer/attn_soap_precond_freq": ATTN_SOAP_PRECOND_FREQ,
             "optimizer/attn_soap_trust_threshold": ATTN_SOAP_TRUST_THRESHOLD,
+            "optimizer/per_kind_attn_soap_exclusion_enabled": PER_KIND_ATTN_SOAP_EXCLUSION_ENABLED,
+            "optimizer/attn_soap_excluded/q": ATTN_SOAP_EXCLUDE_Q,
+            "optimizer/attn_soap_excluded/k": ATTN_SOAP_EXCLUDE_K,
+            "optimizer/attn_soap_excluded/v": ATTN_SOAP_EXCLUDE_V,
+            "optimizer/attn_soap_excluded/proj": ATTN_SOAP_EXCLUDE_PROJ,
             "optimizer/ns5_iters": NS5_ITERS,
             "optimizer/wd_aux": WD_AUX,
             "optimizer/recipe": "contra-muon + normuon-lite + soap-on-mlp + soap-on-attn-trust-gate (pre-NS5, record #14 + record #16)",
@@ -905,6 +925,35 @@ for trial_idx in range(args.num_trials):
     optimizer2 = Muon([(n, p) for n, p in model.blocks.named_parameters() if p.ndim >= 2],
                       lr=MUON_LR, weight_decay=MUON_WEIGHT_DECAY, mu=MU)
     optimizer2.param_groups[0]["name"] = "muon_blocks"
+    if dist.get_rank() == 0:
+        _exclusion_flags = {
+            "q": ATTN_SOAP_EXCLUDE_Q,
+            "k": ATTN_SOAP_EXCLUDE_K,
+            "v": ATTN_SOAP_EXCLUDE_V,
+            "proj": ATTN_SOAP_EXCLUDE_PROJ,
+        }
+        _active_kinds = sorted(
+            k for k, excl in _exclusion_flags.items()
+            if not (PER_KIND_ATTN_SOAP_EXCLUSION_ENABLED and excl)
+        )
+        _n_attn_soap_params = len(optimizer2.attn_soap_params)
+        _n_attn_soap_kind = len(optimizer2.attn_soap_kind)
+        print0(
+            f"[PER_KIND_ATTN_SOAP_EXCLUSION] enabled={PER_KIND_ATTN_SOAP_EXCLUSION_ENABLED}"
+            f" exclude_q={ATTN_SOAP_EXCLUDE_Q} exclude_k={ATTN_SOAP_EXCLUDE_K}"
+            f" exclude_v={ATTN_SOAP_EXCLUDE_V} exclude_proj={ATTN_SOAP_EXCLUDE_PROJ}"
+            f" n_attn_soap_params={_n_attn_soap_params}"
+            f" n_attn_soap_kind={_n_attn_soap_kind}"
+            f" active_kinds={_active_kinds}",
+            console=True,
+        )
+        wandb.run.summary["optimizer/attn_soap_params_count"] = _n_attn_soap_params
+        wandb.run.summary["optimizer/attn_soap_kind_count"] = _n_attn_soap_kind
+        wandb.run.summary["optimizer/attn_soap_kinds_active"] = ",".join(_active_kinds)
+        wandb.run.summary["optimizer/attn_soap_excluded/q"] = ATTN_SOAP_EXCLUDE_Q
+        wandb.run.summary["optimizer/attn_soap_excluded/k"] = ATTN_SOAP_EXCLUDE_K
+        wandb.run.summary["optimizer/attn_soap_excluded/v"] = ATTN_SOAP_EXCLUDE_V
+        wandb.run.summary["optimizer/attn_soap_excluded/proj"] = ATTN_SOAP_EXCLUDE_PROJ
     optimizers = [optimizer1, optimizer2]
     assert set(p for opt in optimizers for group in opt.param_groups
                for p in group["params"]) == set(model.parameters())
