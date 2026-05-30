@@ -84,6 +84,18 @@ def parse_args():
     parser.add_argument('--aux_b2_pulse_target', type=float, default=0.99,
                         help='New aux Adam β2 value to set at --aux_b2_pulse_step. '
                              '0 or negative disables. Default: 0.99 (canonical WIN).')
+    parser.add_argument(
+        "--aux_adam_m_reset_step", type=int, default=-1,
+        help="Step at which to zero aux Adam exp_avg (m) for all optimizer1 params (-1 = disabled)",
+    )
+    parser.add_argument(
+        "--aux_adam_v_decay_step", type=int, default=-1,
+        help="Step at which to multiply aux Adam exp_avg_sq (v) by --aux_adam_v_decay_factor (-1 = disabled)",
+    )
+    parser.add_argument(
+        "--aux_adam_v_decay_factor", type=float, default=1.0,
+        help="Multiplicative factor for exp_avg_sq decay at --aux_adam_v_decay_step (1.0 = no-op)",
+    )
     parser.add_argument("--seed", type=int, default=1,
                         help="Random seed for torch/numpy/python. Default 1 matches baseline seed.")
     args = parser.parse_args()
@@ -765,6 +777,9 @@ if dist.get_rank() == 0:
             "paramema_refresh_only": int(args.paramema_refresh_only),
             "aux_b2_pulse_step": args.aux_b2_pulse_step,
             "aux_b2_pulse_target": args.aux_b2_pulse_target,
+            "aux_adam_m_reset_step": args.aux_adam_m_reset_step,
+            "aux_adam_v_decay_step": args.aux_adam_v_decay_step,
+            "aux_adam_v_decay_factor": args.aux_adam_v_decay_factor,
             "seed": args.seed,
         },
     )
@@ -1071,6 +1086,72 @@ for trial_idx in range(args.num_trials):
                 group["betas"] = new_betas
             print0(f"[step {step}] aux_b2_pulse: β2 {old_b2} → {args.aux_b2_pulse_target}",
                    console=True)
+        # Sentinel window: at {fire-1, fire, fire+1} log abs-mean of m and v
+        # on adam_embed after hooks fire. fire-1 = baseline; fire = post-hook
+        # (Arm A: m=0; Arm B: v halved); fire+1 = after one opt.step.
+        m_step = args.aux_adam_m_reset_step
+        v_step = args.aux_adam_v_decay_step
+        sentinel_targets = set()
+        if m_step > 0:
+            sentinel_targets.update((m_step - 1, m_step, m_step + 1))
+        if v_step > 0:
+            sentinel_targets.update((v_step - 1, v_step, v_step + 1))
+        sentinel_due = step in sentinel_targets
+        # m-only ZERO reset (Arm A)
+        if (args.aux_adam_m_reset_step > 0
+                and step == args.aux_adam_m_reset_step):
+            n_reset = 0
+            for group in optimizer1.param_groups:
+                for p in group["params"]:
+                    state = optimizer1.state.get(p, None)
+                    if state is not None and "exp_avg" in state:
+                        state["exp_avg"].zero_()
+                        n_reset += 1
+            if dist.get_rank() == 0:
+                print0(f"[step {step}] aux Adam m-ONLY state RESET "
+                       f"(all groups, n={n_reset})", console=True)
+                wandb.log({
+                    "trial": trial_idx,
+                    "aux_adam_m_reset/step": step,
+                    "aux_adam_m_reset/n_reset": n_reset,
+                }, step=wandb_step)
+        # v partial DECAY (Arm B)
+        if (args.aux_adam_v_decay_step > 0
+                and step == args.aux_adam_v_decay_step):
+            n_decayed = 0
+            for group in optimizer1.param_groups:
+                for p in group["params"]:
+                    state = optimizer1.state.get(p, None)
+                    if state is not None and "exp_avg_sq" in state:
+                        state["exp_avg_sq"].mul_(args.aux_adam_v_decay_factor)
+                        n_decayed += 1
+            if dist.get_rank() == 0:
+                print0(f"[step {step}] aux Adam v partial DECAY "
+                       f"factor={args.aux_adam_v_decay_factor:.4f} "
+                       f"(all groups, n={n_decayed})", console=True)
+                wandb.log({
+                    "trial": trial_idx,
+                    "aux_adam_v_decay/step": step,
+                    "aux_adam_v_decay/factor": args.aux_adam_v_decay_factor,
+                    "aux_adam_v_decay/n_decayed": n_decayed,
+                }, step=wandb_step)
+        if sentinel_due and dist.get_rank() == 0:
+            sentinel_p = optimizer1.param_groups[0]["params"][0]
+            sentinel_name = optimizer1.param_groups[0].get("name", "adam_embed")
+            if sentinel_p in optimizer1.state:
+                st = optimizer1.state[sentinel_p]
+                sentinel_metrics = {
+                    "trial": trial_idx,
+                    "aux_adam_asym/sentinel_step": step,
+                    "aux_adam_asym/sentinel_group": sentinel_name,
+                }
+                if "exp_avg" in st:
+                    sentinel_metrics["aux_adam_asym/sentinel_exp_avg_abs_mean"] = float(
+                        st["exp_avg"].abs().mean().item())
+                if "exp_avg_sq" in st:
+                    sentinel_metrics["aux_adam_asym/sentinel_exp_avg_sq_abs_mean"] = float(
+                        st["exp_avg_sq"].abs().mean().item())
+                wandb.log(sentinel_metrics, step=wandb_step)
         for opt in optimizers:
             opt.step()
         # EMA buffer update on body-Muon matrix params.
