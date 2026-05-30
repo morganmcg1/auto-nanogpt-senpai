@@ -72,6 +72,13 @@ def parse_args():
     parser.add_argument("--muonh_agc_eps", type=float, default=float(os.environ.get("MUONH_AGC_EPS", "1e-3")))
     parser.add_argument("--aux_adamw_eps", type=float, default=float(os.environ.get("AUX_ADAMW_EPS", "1e-10")),
                         help="Aux AdamW eps (default 1e-10 = baseline). Standard PyTorch is 1e-8.")
+    # H285: Aux AdamW decoupled weight decay coefficient. 0.0 = baseline (no WD,
+    # bit-identical to historical weight_decay=0). Applies to all aux groups
+    # (embed, lm_head, scalars). Effective per-step shrinkage = lr_group * wd.
+    parser.add_argument("--aux_weight_decay", type=float,
+                        default=float(os.environ.get("AUX_WEIGHT_DECAY", "0.0")),
+                        help="Aux AdamW decoupled weight decay coefficient. 0.0 = no WD (CTRL, "
+                             "baseline). Applies to embed, lm_head, scalars groups.")
     # β2 schedule on aux AdamW (embed/lm_head/scalars). Mutates param_groups[*]['betas']
     # each step. constant = baseline (fused=True kept); cooldown_ramp = fused=False so
     # PyTorch reads the updated betas from the param_group on every .step() call.
@@ -856,6 +863,7 @@ if dist.get_rank() == 0:
             "muonh_mu_start": args.muonh_mu_start,
             "muonh_mu_end": args.muonh_mu_end,
             "polyak_ema_decay": args.polyak_ema_decay,
+            "aux_weight_decay": args.aux_weight_decay,
         },
     )
 
@@ -935,7 +943,7 @@ for trial_idx in range(args.num_trials):
     optimizer1 = AdamW([dict(params=[model.embed.weight], lr=0.3, name="adam_embed"),
                         dict(params=[model.proj.weight], lr=1/320, name="adam_lm_head"),
                         dict(params=[p for p in model.parameters() if p.ndim < 2], lr=0.01, name="adam_scalars")],
-                       betas=(0.8, args.aux_beta2_start), eps=args.aux_adamw_eps, weight_decay=0, fused=_aux_fused)
+                       betas=(0.8, args.aux_beta2_start), eps=args.aux_adamw_eps, weight_decay=args.aux_weight_decay, fused=_aux_fused)
     optimizer2 = MuonH([p for p in model.blocks.parameters() if p.ndim >= 2],
                        lr=args.muonh_lr, weight_decay=0.0, mu=0.95,
                        hyperball=True, budget_mult=args.muonh_budget_mult,
@@ -1201,6 +1209,20 @@ for trial_idx in range(args.num_trials):
                 step=train_step,
                 train_steps=train_steps,
                 wandb_step=wandb_step,
+            )
+        # H285 telemetry: per-step embed/lm_head F-norms BEFORE the optimizer
+        # step, so we capture the parameter shrinkage trajectory empirically
+        # across aux_weight_decay arms. Logged per step on rank 0 only.
+        if dist.get_rank() == 0:
+            with torch.no_grad():
+                embed_norm = float(model.embed.weight.detach().norm().item())
+                lm_head_norm = float(model.proj.weight.detach().norm().item())
+            wandb.log(
+                {
+                    "train/embed_norm": embed_norm,
+                    "train/lm_head_norm": lm_head_norm,
+                },
+                step=wandb_step,
             )
         # AGC on aux AdamW groups: clip per-param grad to clip_ratio * |param|.
         # No-op (bit-identical) when args.aux_agc_clip_ratio <= 0.
