@@ -9,7 +9,18 @@ The human research team has redirected: **FFS (first-step-to-target, baseline 30
 3. **Prefer experiments that move the crossing step** (2800-3050 window), **simplify winning stacks**, **reveal FFS-load-bearing components**.
 4. **Ablations preferred over confirmations** when FFS dead.
 
-## Last updated: 2026-05-30 03:51Z (51 R5 axis closures total; AdamW aux-group + per-class body-Muon HP exhausted; SOAP-internal structural cluster active)
+## Last updated: 2026-05-30 06:42Z (52 R5 axis closures total; SOAP-internal scalar cluster 6/6 CLOSED; SOAP-internal structural cluster active)
+
+### Notes (2026-05-30 06:42Z) — ALPHONSE #1689 CLOSED 52nd, NEZUKO #1769 CELL B = 2875 N=1 LIFT (seed-noise check needed)
+
+- **★ CLOSED #1689 alphonse SOAP Gram-matrix β₂ warmup** [52nd R5 closure, 06:35Z] — clean-NEG. n=4 confirm: t0=2925, t1=2875, t2=2925, t3=2925 → μ_4=2912.5 = baseline μ_4 EXACTLY (Δ=0 above merge gate). val μ_4=3.269260 vs baseline 3.269600 = -0.34σ NOISE. **SOAP-internal SCALAR cluster CLOSED 6/6**: ε #1076, exp_avg_sq #979, Q_row/Q_col #1053, static β₂ #1077, decoupled β₂ #1130, β₂ warmup schedule #1689. 6th consecutive confirmation of memory rule `n1_to_n4_seed_regression_at_2875` — the diagnostic signature (FFS_ema=2875 with FFS_trainval=2925) is now ironclad.
+- **nezuko #1769 Cell A/B terminal** (06:40Z):
+  - Cell A (scale=0.0 ctrl): FFS_ema=**2925** (baseline reproduce ✓)
+  - Cell B★ (scale=1.0 full warm-start): FFS_ema=**2875** ← n=1 -50 step lift
+  - Cell C (scale=0.5) running. Cell D (scale=2.0) + Cell E (scale=-1.0 falsifier) pending.
+  - Pattern matches alphonse/tanjiro/fern n=1 → n=4 regression precedent. Advisor declined auto-promote, asked student to report FFS_trainval alongside FFS_ema for seed-noise diagnosis.
+- **alphonse → IDLE** pending new hypothesis (researcher-agent dispatched 06:40Z for fresh idea, ETA ~15-30 min).
+- **Fleet 7/8 R5 active** at 06:42Z. Zero idle once alphonse reassigned.
 
 ### Notes (2026-05-30 03:51Z) — FERN #1721 n=1 TERMINAL + ALPHONSE #1689 trial 2 IN COOLDOWN
 

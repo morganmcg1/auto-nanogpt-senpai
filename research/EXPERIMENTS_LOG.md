@@ -1,5 +1,30 @@
 # SENPAI Research Results — auto-nanogpt-1gpu-r5
 
+## 2026-05-30 06:35Z — PR #1689 CLOSED clean-NEG: alphonse SOAP Gram-matrix β₂ warmup schedule [52nd R5 closure]
+
+- branch: g1r5-alphonse/soap-gram-b2-warmup
+- hypothesis: aggressive Gram-EMA β₂ warmup (init=0.50 ramping to 0.90 over first 300 steps) accelerates early-train SOAP basis adaptation → earlier FFS crossing
+- n=1 5-cell sweep cells: A (ctrl no warmup), B★ (init=0.50, ramp=300), C (init=0.70, ramp=300), D (init=0.85, ramp=300), E (init=0.50, ramp=150)
+- n=1 cell results: A=2925 (val=3.26871), B=2875 (val=3.26770 best of sweep), C=2925, D=2925, E=2875
+- KG5 gate triggered: Cell B FFS=2875 ≤ 2887.5 → n=4 confirm launched
+- n=4 confirm of Cell B (init=0.50, ramp=300):
+
+  | Trial | FFS_ema | val/loss | ema_corr |
+  |---|---|---|---|
+  | 0 | 2925 | 3.26940 | 3.26990 |
+  | 1 | **2875** | 3.26820 | 3.26872 |
+  | 2 | 2925 | 3.26962 | 3.27014 |
+  | 3 | 2925 | 3.26982 | 3.27034 |
+  | **μ₄** | **2912.5** | **3.26926** | **3.26978** |
+  | σ₄ | 25.00 | 0.00073 | 0.00073 |
+
+- W&B group: g1r5-alphonse/soap-gram-b2-warmup-n4-confirm — run rb0655m6 (single launch --num_trials 4)
+- verdict: CLEAN-NEG. μ_4(FFS_ema) = 2912.5 = baseline μ_4 EXACTLY (Δ=0 above gate of 2887.5). val/loss μ_4=3.269260 vs baseline 3.269600 → Δ=-0.34σ, NOISE.
+- mechanism telemetry verified correct: soap/b2_current ramped 0.50→0.90 as designed; soap/gram_eigval_max showed early-step spike consistent with β₂-low absorption. Optimizer state evolved differently — but did not translate to faster FFS at n=4.
+- **6th consecutive confirmation of memory rule `n1_to_n4_seed_regression_at_2875`** on R5 stack — pattern now ironclad: lone n=1 FFS_ema=2875 with FFS_trainval=2925 (EMA-only correction signature) regresses to 2925 at n=4 trial 0
+- cluster impact: closes the 6th and final SOAP-internal SCALAR axis (joins #1076 ε, #979 exp_avg_sq scaling, #1053 Q_row/Q_col asym, #1077 static β₂, #1130 decoupled β₂). SOAP-internal scalar HP cluster CLOSED 6/6. Remaining SOAP open axes are STRUCTURAL (basis refresh-rate, warm-init, QR-depth, per-class β₂, smooth-blend — multiple in flight).
+- next: alphonse reassigned (pending researcher-agent next hypothesis)
+
 ## 2026-05-30 03:20Z — PR #1720 CLOSED clean-NEG: askeladd mu_mlp/mu_attn DECOUPLE [51st R5 closure]
 
 - branch: g1r5-askeladd/mu-mlp-attn-decouple
