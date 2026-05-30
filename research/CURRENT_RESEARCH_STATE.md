@@ -1,6 +1,6 @@
 # SENPAI Research State — auto-nanogpt-1gpu-r1
 
-- **Last update: 2026-05-30 09:00 UTC**
+- **Last update: 2026-05-30 11:00 UTC**
 - **Current baseline:** PR #1532 (aux Adam β₂ pulse 0.95→0.99 @ step 975). val_ema=3.262854, sr=2875 (n=2).
 - **Merge gate:** `sr ≤ 2862.5 OR (sr=2875 AND val_ema < 3.262854)`
 - **Human directive #1252:** Prioritize (a) optimizer-state resets at phase boundaries, (b) per-layer/per-block optimizer behavior, (c) short phase-specific mechanisms, (d) momentum/preconditioner state handling, (e) schedules that steepen loss descent before step 2925. Avoid pure scalar β/μ/EMA sweeps.
@@ -20,6 +20,7 @@
 - **Newton-Muon activation-Gram right-preconditioner on body PMuon (#1752 alphonse)** — Arm A diag NULL +6.6 mnat (uniform drag from warmup), Arm B full skipped; PMuon bilateral whitening is structurally sufficient for input + output curvature
 - **AdEMAMix dual-EMA first moment on aux AdamW (#1749 thorfinn)** — Arm A sr=2975 +6.6 mnat, Arm B sr=3000 +8.2 mnat; bigger slow component HURTS more; aux Adam first-moment structural modification CLOSED (also: Lookahead, per-element AdaShift #1709, ACProp #1771, SOAP all closed)
 - **Aux Adam m+v hard zero reset at β₂-pulse boundary (#1770 nezuko)** — Arm A sr=2975 +7.09 mnat (reset @ 975, +62.9 mnat v-denominator transient at step 1000); Arm B sr=2925 +3.56 mnat (reset @ 1200, +1.7 mnat transient after 225 steps β₂=0.99 pre-fill); v state is load-bearing — full-zero CLOSED; asymmetric partial primitives (m-only reset, v partial decay) assigned to nezuko #1815
+- **paramEMA β hard step-drop at pre-target (#1773 askeladd)** — Arm A sr=2950 +2.30 mnat NULL; Arm B sr=2925 val_ema=3.262675 (-0.18 mnat BELOW gate clause 2 but sr fails clause 1); β-drop fired correctly + collapsed val_ema/val_live gap (+0.59→+0.02 mnat) but didn't change val_live trajectory; pEMA β-drop CLOSED — target crossing speed is a TRAINING trajectory effect, not EMA smoothing artifact
 
 **Structural decoupling (BILATERAL NULL):**
 - Depth-stratified β_cov binary split (#1727 edward) — falsifying Arm B beat mechanistic Arm A; axis FULLY CLOSED across binary split + continuous ramp (#1339)
@@ -48,21 +49,22 @@ Two independent mechanisms hit baseline sr (bilateral nulls, but sr=2925→2875 
 | PR | Student | Experiment | Status | Arms |
 |---|---|---|---|---|
 | PR | Student | Experiment | Status | Arms |
-| **#1815** | **nezuko** | **Aux Adam asymmetric moment intervention @ step 975: m-only ZERO vs v partial DECAY ×0.5** | **Assigned 09:00 UTC** | **Arm A: m-only reset; Arm B: v×0.5** |
-| #1797 | thorfinn | Body PMuon momentum buffer partial SCALE at cooldown onset step 975 (factor=0.5 / 0.25) | Running — Arm A `ou0jcj7r` step ~1500 | Arm A: ×0.5; Arm B: ×0.25 |
+| **#1819** | **askeladd** | **Aux Adam β₁ joint pulse synchronous with β₂ pulse at step 975 (β₁: 0.8→0.9 / 0.8→0.95)** | **Assigned 11:00 UTC** | **Arm A: β₁=0.9; Arm B: β₁=0.95** |
+| #1815 | nezuko | Aux Adam asymmetric moment intervention @ step 975: m-only ZERO vs v partial DECAY ×0.5 | Assigned 09:00 UTC, label fixed | Arm A: m-only reset; Arm B: v×0.5 |
+| #1797 | thorfinn | Body PMuon momentum buffer partial SCALE at cooldown onset step 975 (factor=0.5 / 0.25) | Running — Arm A `ou0jcj7r` in-flight | Arm A: ×0.5; Arm B: ×0.25 |
 | #1788 | alphonse | Per-block depth-asymmetric μ on body PMuon (ascending vs descending 0.90↔0.99) | Running — Arm A `gp8w803r` step ~2700 (trending NULL) | Arm A: ascending; Arm B: descending |
 | #1787 | tanjiro | Aux Adam eps transient pulse co-located with β₂ pulse boundary (eps 1e-6/1e-4, steps 975-1100) | Running — Arm A `o16ay0kd` step ~2800 (trending uncertain) | Arm A: eps=1e-6; Arm B: eps=1e-4 |
 | #1786 | fern | GrokFast slow-EMA gradient amplification on whitened body PMuon (α=0.5 / α=2.0) | Arm A `faenv1la` terminal sr=3075 NULL; Arm B awaiting chain | Arm A: α=0.5 NULL; Arm B: α=2.0 |
-| #1785 | edward | Block-wise AdaShift on aux AdamW embed (scalar v_t per tensor, delay=1 / delay=10) | Arm A `k7mnezbn` step ~3200 (NULL trajectory, val_ema=3.363) | Arm A: delay=1 NULL; Arm B: delay=10 |
-| #1780 | frieren | Body PMuon L_cov/R_cov hard zero reset at cooldown onset (step 975 vs 1100) | Arm A `x3i1eyro` TERMINAL sr=2925 NULL; Arm B `akezqgjp` running step ~900 | Arm A: NULL; Arm B: running |
-| #1773 | askeladd | paramEMA β hard step-drop at step 2750 (0.99→0.90 / 0.99→0.95) | Arm A `amjdnr6e` NULL (sr=2950); Arm B `v14asb4w` running step ~1850 | Arm B: 0.99→0.95 gentle |
+| #1785 | edward | Block-wise AdaShift on aux AdamW embed (scalar v_t per tensor, delay=1 / delay=10) | Arm A `k7mnezbn` terminal NULL (val_ema=3.363 never crossed target) | Arm A: NULL; Arm B: delay=10 |
+| #1780 | frieren | Body PMuon L_cov/R_cov hard zero reset at cooldown onset (step 975 vs 1100) | Arm A `x3i1eyro` TERMINAL sr=2925 NULL; Arm B `akezqgjp` running | Arm A: NULL; Arm B: running |
 
 ## Current research themes
 
 **Aux Adam structural exploration (this session):**
-- Directive (a): Aux Adam m+v full-zero reset CLOSED (#1770 nezuko bilateral NULL); asymmetric partial primitives now in test (nezuko #1815: m-only reset vs v×0.5)
-- Directive (a/c/d): Aux Adam eps transient pulse at β₂ pulse boundary (tanjiro #1787) — denominator stability floor during v_t re-accumulation; compounds #1532 WIN
-- Directive (d): Block-wise AdaShift on aux AdamW embed group (edward #1785) — scalar v_t per tensor; likely NULL trajectory (val_ema=3.36 at step 3175)
+- Directive (a): Aux Adam m+v full-zero reset CLOSED (#1770 bilateral NULL); asymmetric partial primitives now in test (nezuko #1815: m-only reset vs v×0.5)
+- Directive (a): Aux Adam β₁ JOINT pulse synchronous with β₂ pulse @ step 975 (askeladd #1819) — new; synchronizes moment estimator regime shifts; may compound #1532 WIN
+- Directive (a/c/d): Aux Adam eps transient pulse at β₂ pulse boundary (tanjiro #1787) — denominator stability floor during v_t re-accumulation; Arm A step ~2800 (trending uncertain)
+- Directive (d): Block-wise AdaShift on aux AdamW embed group (edward #1785) — Arm A terminal NULL (val_ema=3.363 never crossed target); Arm B awaiting SENPAI-RESULT
 
 **Body PMuon structural exploration (in-flight):**
 - Directive (a): L_cov/R_cov ZERO reset at cooldown onset step 975 (frieren #1780) — Arm A terminal sr=2925 NULL; Arm B `akezqgjp` running

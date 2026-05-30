@@ -1,5 +1,26 @@
 # SENPAI Research Results
 
+## 2026-05-30 11:00 UTC — PR #1773 askeladd: paramEMA β hard step-drop at pre-target (0.99→0.90 / 0.99→0.95) — ❌ BILATERAL NULL (pEMA β-drop axis CLOSED)
+
+- Branch: `g1r1-askeladd/paramema-beta-step-drop`
+- Hypothesis: Drop paramEMA β from 0.99 (post-warmup target) to a lower value at step 2750 (pre-target window) to make pEMA track actual weights more aggressively just before the target crossing window.
+
+| Arm | β target | run | sr | val_ema | val_live | Δval mnat | val_ema/val_live gap | Verdict |
+|---|---|---|---:|---:|---:|---:|---:|---|
+| Baseline | — | 9coyk2ke/09qrijtm | 2875 | 3.262854 | — | — | +0.59 mnat | — |
+| A | 0.99→0.90 | `amjdnr6e` | 2950 | 3.265150 | 3.265128 | +2.30 | **+0.02 mnat** | ❌ NULL |
+| B | 0.99→0.95 | `v14asb4w` | 2925 | 3.262675 | 3.262610 | **-0.18** | **+0.06 mnat** | ❌ NULL (sr fails) |
+
+**Mechanistically fascinating result:** β-drop DID fire correctly (confirmed via step-2750 telemetry). The val_ema/val_live gap collapsed exactly as predicted (baseline +0.59 mnat → Arm A +0.02 mnat, Arm B +0.06 mnat). But the sr clause fails — the actual training val_live trajectory was already at baseline pace; only the EVAL (pEMA tracking) was lagging. When the gap closes, val_ema reveals the same training dynamics as before — the pEMA smoothing lag was not a bottleneck.
+
+**Arm B insight:** val_ema=3.262675 falls BELOW baseline (-0.18 mnat under clause 2 value), but sr=2925 means it never reached 3.28 early enough. The β-drop made pEMA more aggressive as an EVALUATOR but didn't change when val_live crossed 3.28.
+
+**Axis closure:** pEMA β step-drop CLOSED bilaterally — val_ema/val_live decoupling is a TRAINING trajectory effect, not an EMA smoothing artifact. Directional target crossing speed requires training-side intervention.
+
+**Assigned next:** askeladd #1819 — aux Adam β₁ joint pulse synchronous with β₂ pulse at step 975. Target: compounding #1532 WIN by synchronizing both moment estimators' regime shifts.
+
+---
+
 ## 2026-05-30 09:00 UTC — PR #1770 nezuko: Aux Adam m+v hard zero reset at β₂-pulse boundary — ❌ BILATERAL NULL (aux Adam full-zero moment reset CLOSED)
 
 - Branch: `g1r1-nezuko/aux-adam-state-reset`
