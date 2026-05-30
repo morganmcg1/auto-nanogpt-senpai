@@ -114,6 +114,12 @@ def parse_args():
                         help="Polyak-Ruppert EMA decay for eval-only weight averaging. "
                              "0.0 = disabled (drift-FREE CTRL). Typical: 0.05 (fast, ~20-step half-life) / "
                              "0.005 (slow, ~200-step half-life). Higher decay = faster EMA tracking.")
+    parser.add_argument("--polyak_ema_activation_step", type=int,
+                        default=int(os.environ.get("POLYAK_EMA_ACTIVATION_STEP", "0")),
+                        help="Step at which EMA buffer begins updating. 0 = active from step 0 (default H266 behavior). "
+                             "Positive values gate EMA so the buffer is reinitialized from live params at this step, "
+                             "then updated through training end. Eval-time substitution is skipped when step <= "
+                             "activation_step. Used for H288 cooldown-localized activation tests.")
     args = parser.parse_args()
     args.num_trials = args.num_trials if args.num_trials is not None else (args.legacy_num_trials or 1)
     args.wandb_tags = [tag.strip() for tag in args.wandb_tags.split(",") if tag.strip()]
@@ -856,6 +862,7 @@ if dist.get_rank() == 0:
             "muonh_mu_start": args.muonh_mu_start,
             "muonh_mu_end": args.muonh_mu_end,
             "polyak_ema_decay": args.polyak_ema_decay,
+            "polyak_ema_activation_step": args.polyak_ema_activation_step,
         },
     )
 
@@ -1100,7 +1107,11 @@ for trial_idx in range(args.num_trials):
             # H266: Polyak-Ruppert eval-only weight swap (drift-FREE Pattern A).
             # When polyak_ema_state is None this whole branch is skipped, leaving the
             # val measurement path bit-identical to the H203 baseline.
-            if polyak_ema_state is not None:
+            # H288: gate substitution on step > activation_step so the stale buffer
+            # before activation never replaces live params at val time. At
+            # activation_step=0 (H266 replicate), step==0 val skips substitution but
+            # is bit-id because EMA buffer == live params at init.
+            if polyak_ema_state is not None and step > args.polyak_ema_activation_step:
                 live_backup = {name: param.data.clone() for name, param in model.named_parameters()}
                 for name, param in model.named_parameters():
                     param.data.copy_(polyak_ema_state[name])
@@ -1217,8 +1228,15 @@ for trial_idx in range(args.num_trials):
         # H266: Polyak-Ruppert EMA update — runs after the live inner-optimizer step.
         # When polyak_ema_state is None this branch is skipped, leaving the training
         # path bit-identical to the H203 baseline.
-        if polyak_ema_state is not None:
+        # H288: gate on step >= activation_step so EMA updates only happen at or after
+        # the activation step. On the first activation step (when activation_step > 0),
+        # the buffer is reinitialized from live post-step params before applying the
+        # EMA update. activation_step=0 reproduces H266 (reinit branch skipped).
+        if polyak_ema_state is not None and step >= args.polyak_ema_activation_step:
             with torch.no_grad():
+                if step == args.polyak_ema_activation_step and args.polyak_ema_activation_step > 0:
+                    for name, param in model.named_parameters():
+                        polyak_ema_state[name].copy_(param.data)
                 decay = args.polyak_ema_decay
                 for name, param in model.named_parameters():
                     polyak_ema_state[name].mul_(1.0 - decay).add_(param.data, alpha=decay)
