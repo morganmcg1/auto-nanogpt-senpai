@@ -114,6 +114,15 @@ def parse_args():
                         help="Polyak-Ruppert EMA decay for eval-only weight averaging. "
                              "0.0 = disabled (drift-FREE CTRL). Typical: 0.05 (fast, ~20-step half-life) / "
                              "0.005 (slow, ~200-step half-life). Higher decay = faster EMA tracking.")
+    # H312: Adam-style 1/(1-Π μ_i) bias correction on the MuonH inner momentum
+    # buffer. Applied AFTER the momentum lerp and BEFORE the Nesterov interpolation
+    # / NS5 polar projection. Tracks the cumulative product Π μ_i in MuonH state
+    # (exact for variable µ schedules; reduces to Adam's 1/(1-μ^t) for constant µ).
+    # 0 = disabled (drift-FREE CTRL, bit-identical to baseline path).
+    parser.add_argument("--muonh_bias_correction", type=int,
+                        default=int(os.environ.get("MUONH_BIAS_CORRECTION", "0")),
+                        help="Apply Adam-style 1/(1-Π μ_i) bias correction to MuonH inner momentum "
+                             "(0=off, 1=on). Tracked exactly for variable µ via cumulative product.")
     args = parser.parse_args()
     args.num_trials = args.num_trials if args.num_trials is not None else (args.legacy_num_trials or 1)
     args.wandb_tags = [tag.strip() for tag in args.wandb_tags.split(",") if tag.strip()]
@@ -576,6 +585,24 @@ def muon_update(grad, momentum, mu=0.95, nesterov=True):
     update *= max(1, grad.size(-2) / grad.size(-1))**0.5
     return update
 
+
+@torch.compile
+def muon_update_bc(grad, momentum, mu=0.95, nesterov=True, bias_correction_inv=1.0):
+    """MuonH inner-momentum update with Adam-style bias correction (H312).
+
+    Identical to `muon_update` except the running momentum buffer is rescaled by
+    `bias_correction_inv = 1.0 / (1.0 - Π μ_i)` BEFORE the Nesterov interpolation
+    and NS5 polar projection. The persistent buffer itself is unchanged (matches
+    Adam's design: bias correction is applied to the *consumer* of the moment
+    estimate, never written back to state).
+    """
+    momentum.lerp_(grad, 1 - mu)
+    corrected_momentum = momentum * bias_correction_inv
+    update = grad.lerp_(corrected_momentum, mu) if nesterov else corrected_momentum
+    update = zeropower_via_newtonschulz5(update)
+    update *= max(1, grad.size(-2) / grad.size(-1))**0.5
+    return update
+
 class Muon(torch.optim.Optimizer):
     def __init__(self, params, lr=0.02, weight_decay=0, mu=0.95):
         assert isinstance(params, list) and len(params) >= 1 and isinstance(params[0], torch.nn.Parameter)
@@ -674,7 +701,8 @@ class MuonH(torch.optim.Optimizer):
     norm exactly constant; weight_decay must be 0.
     """
     def __init__(self, params, lr=0.018, weight_decay=0.0, mu=0.95,
-                 hyperball=True, budget_mult=1.0, mode="clip"):
+                 hyperball=True, budget_mult=1.0, mode="clip",
+                 bias_correction=False):
         assert isinstance(params, list) and len(params) >= 1 and isinstance(params[0], torch.nn.Parameter)
         assert mode in ("clip", "scale_invariant")
         params = sorted(params, key=lambda x: x.size(), reverse=True)
@@ -684,6 +712,14 @@ class MuonH(torch.optim.Optimizer):
         self._last_active_fraction = 0.0
         self._last_radius_to_norm_max = 0.0
         self._last_norm_to_radius_max = 0.0
+        # H312: Adam-style bias correction. When True, MuonH tracks a per-param
+        # cumulative product mu_product (state['mu_product']) of the µ values
+        # used at each step, and rescales the momentum buffer by
+        # 1/(1 - mu_product) before passing it to NS5. When False, the entire
+        # muon_update path is identical to baseline (no extra ops, no state).
+        self.bias_correction = bool(bias_correction)
+        self._last_bias_correction_inv = 1.0
+        self._last_mu_product = 1.0
 
     @torch.no_grad()
     def step(self):
@@ -699,6 +735,7 @@ class MuonH(torch.optim.Optimizer):
             hb = group["hyperball"]
             budget_mult = group["budget_mult"]
             mode = group["mode"]
+            mu_group = group["mu"]
             for base_i in range(0, len(params), world_size):
                 if base_i + rank < len(params):
                     p = params[base_i + rank]
@@ -707,7 +744,24 @@ class MuonH(torch.optim.Optimizer):
                         state["momentum"] = torch.zeros_like(p)
                         if hb:
                             state["hyperball_radius"] = p.data.norm().item() * budget_mult
-                    update = muon_update(p.grad, state["momentum"], mu=group["mu"])
+                        if self.bias_correction:
+                            state["mu_product"] = 1.0
+                    if self.bias_correction:
+                        # Track cumulative Π μ_i exactly (handles variable µ schedules).
+                        # For constant µ this reduces to μ^t (Adam's canonical formula).
+                        state["mu_product"] *= mu_group
+                        mp = state["mu_product"]
+                        # Floor (1 - mp) away from zero in case the cumulative product
+                        # rounds to >= 1 in fp32 for tiny step counts; mp is always
+                        # in [0, 1) for mu in (0,1), so this only guards numeric edges.
+                        bc_inv = 1.0 / max(1.0 - mp, 1e-30)
+                        self._last_bias_correction_inv = bc_inv
+                        self._last_mu_product = mp
+                        update = muon_update_bc(p.grad, state["momentum"],
+                                                mu=mu_group,
+                                                bias_correction_inv=bc_inv)
+                    else:
+                        update = muon_update(p.grad, state["momentum"], mu=mu_group)
                     if hb and mode == "scale_invariant":
                         # Always-active variant: norm is held at initial value by construction.
                         scale_invariant_update_(p.data, update, group["lr"])
@@ -796,6 +850,10 @@ if args.muonh_agc_clip_ratio > 0:
     print0(f"AGC ENABLED on inner MuonH gradient: clip_ratio={args.muonh_agc_clip_ratio} eps={args.muonh_agc_eps}", console=True)
 else:
     print0("AGC DISABLED on inner MuonH gradient (clip_ratio=0)", console=True)
+if args.muonh_bias_correction:
+    print0("H312 BIAS CORRECTION ENABLED on MuonH inner momentum (Adam-style 1/(1-Π μ_i))", console=True)
+else:
+    print0("H312 bias correction DISABLED (drift-FREE CTRL path, bit-identical to baseline)", console=True)
 print0("="*100)
 
 val_tokens = 20 * 524288
@@ -856,6 +914,7 @@ if dist.get_rank() == 0:
             "muonh_mu_start": args.muonh_mu_start,
             "muonh_mu_end": args.muonh_mu_end,
             "polyak_ema_decay": args.polyak_ema_decay,
+            "muonh_bias_correction": int(args.muonh_bias_correction),
         },
     )
 
@@ -939,7 +998,8 @@ for trial_idx in range(args.num_trials):
     optimizer2 = MuonH([p for p in model.blocks.parameters() if p.ndim >= 2],
                        lr=args.muonh_lr, weight_decay=0.0, mu=0.95,
                        hyperball=True, budget_mult=args.muonh_budget_mult,
-                       mode=args.muonh_mode)
+                       mode=args.muonh_mode,
+                       bias_correction=bool(args.muonh_bias_correction))
     optimizer2.param_groups[0]["name"] = "muonh_blocks"
     optimizers = [optimizer1, optimizer2]
     # AGC targets: AdamW aux groups (embed, lm_head, scalars). Built from optimizer1
@@ -1242,6 +1302,13 @@ for trial_idx in range(args.num_trials):
                         muonh_metrics["train/muonh/norm_to_radius_max"] = opt._last_norm_to_radius_max
                     muonh_metrics["train/muonh/warmup_factor"] = muonh_warmup_factor
                     muonh_metrics["train/muonh/effective_lr"] = opt.param_groups[0]["lr"]
+                    if opt.bias_correction:
+                        # H312 bias-correction trajectory: log the scalar shared across
+                        # all body params at this step (mu_product is the same for every
+                        # param since they share µ schedule). At t=1 with µ=0.95 the
+                        # inverse factor is 20.0; at t=100 it converges to ~1.006.
+                        muonh_metrics["train/muonh/bc_inv"] = opt._last_bias_correction_inv
+                        muonh_metrics["train/muonh/mu_product"] = opt._last_mu_product
             if telemetry_due and args.aux_agc_clip_ratio > 0 and agc_stats["agc_total"] > 0:
                 muonh_metrics["train/agc/active_fraction"] = agc_stats["agc_clipped"] / agc_stats["agc_total"]
                 muonh_metrics["train/agc/clipped_count"] = agc_stats["agc_clipped"]
