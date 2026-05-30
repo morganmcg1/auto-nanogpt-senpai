@@ -9,7 +9,7 @@ The human research team has redirected: **FFS (first-step-to-target, baseline 30
 3. **Prefer experiments that move the crossing step** (2800-3050 window), **simplify winning stacks**, **reveal FFS-load-bearing components**.
 4. **Ablations preferred over confirmations** when FFS dead.
 
-## Last updated: 2026-05-30 22:05Z (65 R5 closures; tanjiro #1821 per-head NS attn CLOSED 65th [FFS-NEG, output proj load-bearing]; tanjiro now idle pending fresh hypothesis)
+## Last updated: 2026-05-30 22:15Z (65 R5 closures; tanjiro #1880 muon-mu-cooldown-schedule ASSIGNED; all 8 students active)
 
 ### Notes (2026-05-30 22:05Z) — TANJIRO #1821 PER-HEAD NS ATTN CLOSED 65th [FFS-NEG, OUTPUT PROJ LOAD-BEARING]
 
@@ -22,8 +22,8 @@ The human research team has redirected: **FFS (first-step-to-target, baseline 30
   - **★ MECHANISM LOCALIZED to output projection (B−C delta = +100 FFS)**: per-head NS on Q/K/V is benign (projects dim→H*head_dim, head-specific subspaces); per-head NS on attn.proj.weight over-constrains inter-head mixing (projects H*head_dim→dim, head re-mixing).
   - **★★ FALSIFIER FINDING: ns_iter=6 is load-bearing on R5 stack** — Cell F shows --ns_iter 4 ALONE adds +125 FFS vs CTRL. Corroborates askeladd #1839 (per-shape NS iter) and #496 NS iter LOW sweep.
   - **NS-input-shape family broadly closed**: #1838 (Schulz polish nonsquare = NEUTRAL) + #1821 (per-head reshape = NEG). Remaining FFS lever per #1838 analysis: square attn σ_min ≈ 0.003 kernel direction (edward #1858 in-flight).
-- **TANJIRO NOW IDLE** — researcher-agent dispatched 22:05Z for fresh hypothesis outside NS-input-shape and orthogonalization clusters.
-- **Fleet at 22:05Z**: thorfinn #1870 WIP (label-smoothing); alphonse #1860 WIP (SOAP-attn phase gate, Cell A FFS=2875 done, Cell B running ~9%); edward #1858 WIP (Schulz polish square attn, Cell A FFS=2950 done, Cell B running ~18%); frieren #1841 WIP (spectral-norm + LR co-tune); askeladd #1839 WIP (per-shape NS iter, Cells A/B/C done [2950/2975/2925], Cell D running ~48%); nezuko #1834 WIP (adaptive NS iter, Cells B/C/D done [2925/2925/2975], Cell A CTRL running last); fern #1826 WIP (Padé, CTRL/default both FFS=2925, fast Cell running 92%); tanjiro IDLE (pending). **7/8 active.**
+- **★ ASSIGNED #1880 tanjiro: Muon μ cooldown schedule** — First time scheduling Muon momentum coefficient in 65 R5 closures. Linear decay from μ=0.95 toward 0.60–0.85 during 70% cooldown phase (steps 975–3250). Theory: long-memory gradient buffer with constant μ carries stale pre-cooldown gradients into the 2800–3050 FFS crossing window; lower μ → more localized present-tense updates. Risk: SOAP-attn parameters read `group["mu"]` for their momentum lerp (lines 655–656) — may interact non-trivially with SOAP eigenbasis. 4 cells n=1: A=ctrl, B★=0.85, C=0.75, D=0.60. KG_smoke gate: verify μ stays 0.95 outside cooldown, decays linearly inside. n=4 promotion only if FFS_ema ≤ 2925 AND not seed-noise pattern.
+- **Fleet at 22:15Z**: thorfinn #1870 WIP; alphonse #1860 WIP; edward #1858 WIP; frieren #1841 WIP; askeladd #1839 WIP; nezuko #1834 WIP; fern #1826 WIP; tanjiro #1880 WIP (muon-mu-cooldown, NEW). **8/8 active, zero idle.**
 
 ### Notes (2026-05-30 19:46Z) — THORFINN #1838 SCHULZ POLISH NONSQUARE CLOSED 64th [FFS-NEUTRAL, KILLS POST-NS5 POLISH FAMILY]
 
