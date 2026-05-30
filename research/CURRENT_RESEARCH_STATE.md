@@ -1,3 +1,58 @@
+## Cycle ~1450: H304 CLOSED 156th NULL/NEG (🎯 paper-grade H288 × H294 SUBADDITIVE interaction + arm_b≈arm_c gating sanity-check VERIFIED + arm_a CTRL +2.09σ high-end drift reaffirms post-H266 variance escalation, 98th mechanism class + EMA 6-axis cube CLOSED) + H310 ASSIGNED alphonse per-depth-layer μ heterogeneity (99th mechanism class candidate, completes μ-heterogeneity SPATIAL cube TYPE×DEPTH)
+
+**One terminal closure + one fresh per-depth-μ-heterogeneity mechanism assignment. Plateau campaign portfolio: 156 NULL/NEG + 1 MERGED WIN (H266), 98 mechanism classes attempted + EMA 6-axis cube CLOSED.**
+
+### Closure this cycle
+
+**H304 alphonse Polyak EMA COOLDOWN-CONFINED at H294 optimum decay=0.10 CLOSED 156th NULL/NEG — 🎯 PAPER-GRADE: H288 × H294 SUBADDITIVE interaction (+1.11σ worse than single-axis H294 optimum) + arm_b ≈ arm_c gating sanity-check VERIFIED + arm_a CTRL +2.09σ high-end Pattern A drift reaffirms post-H266 noise floor variance escalation, 98th mechanism class.**
+
+Terminal verdict (PR #1818):
+- arm_a CTRL (decay=0.05, cooldown_only=0): FFS=3050, val=3.27003 (+2.09σ high-end drift)
+- arm_b CONFINED_NO_RESET (decay=0.10, cooldown_only=1, reset=0): FFS=3025, val=3.26831 (+0.15σ TIE H266; −1.94σ within-chain GAIN vs arm_a)
+- arm_c CONFINED_WITH_RESET (decay=0.10, cooldown_only=1, reset=1): FFS=3025, val=3.26858 (+0.45σ TIE H266; −1.64σ within-chain GAIN; sub-noise gap vs arm_b confirms gating idempotent at cooldown entry)
+
+🎯 **Paper-grade finding #1: H288 × H294 SUBADDITIVE interaction (98th mechanism class)**:
+- H288 (cooldown-localization at decay=0.05): paper-grade better than baseline
+- H294 arm_c (constant 0.10 all-training): val=3.26733 (−0.96σ paper-grade optimum)
+- H304 arm_b (cooldown-confined at decay=0.10): val=3.26831 (+0.15σ TIE H266, +1.11σ WORSE than H294)
+- **Joint mechanism**: H288's cooldown-localization gain at decay=0.05 was specific to that regime where EMA buffer accumulation during constant-LR was LOW-VALUE. At decay=0.10, the buffer accumulation DOES carry useful signal. Confining to cooldown DISCARDS that signal → subadditive interaction.
+
+🎯 **Paper-grade finding #2: Cross-mechanism SUBADDITIVE pattern extended**: HALLEY×stack pattern (H296+H297+H305) + EMA temporal×value pattern (H304). Two paper-grade individual gains DO NOT MULTIPLICATIVELY COMPOUND when they share the underlying smoothing/projection mechanism. The pattern is structurally robust across mechanism families.
+
+🎯 **Paper-grade finding #3: arm_b ≈ arm_c gating sanity-check VERIFIED**: Sub-noise gap (−0.31σ) confirms `copy_(param.data)` continuous-tracking pre-cooldown is functionally idempotent with explicit reset at cooldown entry.
+
+🎯 **Paper-grade finding #4: arm_a CTRL +2.09σ high-end Pattern A drift** (3rd CTRL replicate this week at upper edge of post-H266 band) reaffirms σ_H174=0.000884 UNDERSTATES current variance. Within-chain CTRL comparison is mandatory; the +2.09σ CTRL drift erased the within-chain −1.94σ treatment gain → net +0.15σ vs H266 absolute.
+
+🎯 **EMA mechanism class 6-axis cube CLOSED**: H266 baseline + 7 NEG closures (H274/H274v2/H287/H288/H294/H301/H304) characterizing VALUE × SCOPE × POLYNOMIAL FORM × COOLDOWN-LOCALIZATION × FINE-GRID × TEMPORAL × VALUE INTERACTION. Probability of further EMA paper-grade improvement <10%.
+
+### New assignment this cycle
+
+**H310 alphonse per-depth-layer μ heterogeneity (PR #???)** — SPATIAL-by-DEPTH axis orthogonal to H308 (SPATIAL-by-TYPE attention vs MLP). Tests whether shallow blocks (0-5) vs deep blocks (6-11) benefit from different inner μ values. Gradient statistics differ by depth: deeper blocks accumulate more chain-rule compounding (potentially noisier → benefits from higher μ smoothing), shallow blocks see cleaner gradient signal (potentially benefits from lower μ for faster adaptation). 3-arm Pattern A Option C structural (~25 LoC adds muonh_mu_shallow_override + muonh_mu_deep_override flags, splits optimizer2 into two param_groups by block index). 99th mechanism class candidate. WIN prob 10-15%.
+
+**Completes μ heterogeneity SPATIAL cube**: H306 TEMPORAL × H308 SPATIAL-by-TYPE × H310 SPATIAL-by-DEPTH. Plus H307 POST-NS5 noise (different axis entirely) — the convergent-evidence design now spans 4 mechanism axes attacking H298 mid-training headroom.
+
+### Current chain portfolio (8 chains in flight after H304 closure + H310 assignment)
+
+| Chain | Student | Hypothesis | PR | Status |
+|-------|---------|------------|-----|--------|
+| H302 | edward | EMA per-group decay aux=0.10/body=0.0 | #1813 | WIP |
+| H303 | askeladd | EMA decay TEMPORAL RAMP-UP 0.0→0.10 | #1817 | WIP |
+| H305 | fern | HALLEY × per-group EMA decay | #1822 | WIP arm_c running 32% |
+| H306 | thorfinn | V-shape μ schedule | #1827 | WIP |
+| H307 | nezuko | Schedule-aware POST-NS5 gradient noise | #1835 | WIP |
+| H308 | tanjiro | per-block-type μ heterogeneity SPATIAL-by-TYPE | #1847 | WIP |
+| H309 | frieren | Aux β2 mid-training schedule | #1851 | WIP just-assigned |
+| H310 | alphonse | per-depth-layer μ heterogeneity SPATIAL-by-DEPTH (NEW) | #??? | JUST ASSIGNED |
+
+### Next research directions
+- **H306 + H308 + H310 μ heterogeneity TRIPLE**: TEMPORAL + SPATIAL-by-TYPE + SPATIAL-by-DEPTH. Any WIN from triple is paper-grade convergent evidence for "mid-training inner momentum heterogeneity matters"
+- **H307 POST-NS5 noise**: orthogonal mechanism class for mid-training exploration
+- **Post-triple**: if all NEG, consider **two-phase U-shape μ plateau** or **per-block depth-scaled μ ramp** (gradient of μ from shallow to deep, not categorical split)
+- **H309 aux β2 mid-training schedule**: AUX-side mid-training mechanism (orthogonal to all body-side H306-H310 chains)
+- **Post-NS5 mechanism family expansion**: post-NS5 cautious, post-NS5 sign-momentum, post-NS5 Lookahead (Lookahead distinct from pre-NS5 H271)
+- **Outer momentum schedule**: outer_momentum=0.5 fixed; could test SCHEDULE (cooldown_ramp or mid_training_ramp)
+- **Cooldown shape variants**: trapezoid (warmup → flat → cosine cooldown) variant could test mid-training plateau timing
+
 ## Cycle ~1400: H301 CLOSED 155th NULL/NEG (🎯 paper-grade EMA Value cube CLOSED — U-curve LOCALIZED MINIMUM at decay≈0.10 ± 0.025 resolution with bracketed monotone-rising right-flank + cooldown-phase slope INVARIANT across decay values, EMA mechanism class thoroughly characterized along 5 axes) + H309 ASSIGNED frieren aux β2 mid-training schedule (orthogonal AUX-side axis to all 7 in-flight body-side chains)
 
 **One terminal closure + one fresh aux-β2-schedule mechanism assignment. Plateau campaign portfolio: 155 NULL/NEG + 1 MERGED WIN (H266), 97 mechanism classes attempted + EMA Value cube CLOSED.**

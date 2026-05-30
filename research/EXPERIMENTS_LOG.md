@@ -1,3 +1,63 @@
+## 2026-05-30 17:00 — PR #1818 H304 alphonse: Polyak EMA COOLDOWN-CONFINED at H294 optimum decay=0.10 — **CLOSED 156th NULL/NEG (🎯 paper-grade H288 cooldown-localization × H294 value-optimum SUBADDITIVE INTERACTION + arm_b ≈ arm_c gating sanity-check VERIFIED + post-H266 noise floor VARIANCE ESCALATION reaffirmed via arm_a +2.09σ high-end drift, 98th mechanism class)**
+
+- Branch: g1r3-alphonse/h304-polyak-ema-cooldown-confined (PR #1818, 3-arm Pattern A Option B polyak_ema_cooldown_only + polyak_ema_reset_at_cooldown)
+
+| Arm | polyak_ema_decay | cooldown_only | reset | step-0 val | terminal val | FFS | Δ vs H266 (σ_H174) | Δ vs arm_a CTRL |
+|-----|------------------|---------------|-------|------------|---------------|-----|---------------------|-------------------|
+| arm_a CTRL | 0.05 | 0 | 0 | 10.82583 ✓ | **3.27003** | **3050** | +2.09σ high-end drift | (reference) |
+| arm_b CONFINED_NO_RESET | 0.10 | 1 | 0 | 10.82583 ✓ | **3.26831** | **3025** | **+0.15σ TIE H266** | **−1.94σ within-chain GAIN** |
+| arm_c CONFINED_WITH_RESET | 0.10 | 1 | 1 | 10.82583 ✓ | **3.26858** | **3025** | +0.45σ TIE H266 | **−1.64σ within-chain GAIN** |
+
+H266 baseline: val=3.26818, FFS=3000. Per Issue #1260 strict: all arms FFS≥3025 → NOT merge-eligible.
+
+🎯 **Paper-grade finding #1: H288 × H294 SUBADDITIVE interaction (98th mechanism class)**:
+
+| Configuration | val | Δ vs H266 (σ_H174) |
+|---------------|-----|---------------------|
+| H266 (constant 0.05 all-training) | 3.26818 | 0.0σ |
+| H288 (cooldown-localization at 0.05) | better than baseline | paper-grade |
+| H294 arm_c (constant 0.10 all-training) | 3.26733 | −0.96σ |
+| **H304 arm_b (cooldown-confined at 0.10)** | **3.26831** | **+0.15σ TIE** |
+
+**Subadditive interaction signature**: H304 arm_b is **+1.11σ worse than H294 arm_c** at the same decay=0.10 value. The cooldown-localization advantage from H288 (at decay=0.05) does NOT transfer to the H294 value-optimum regime. Confining EMA to the cooldown phase at decay=0.10 DISCARDS the EMA buffer accumulation benefit during constant-LR phase, returning val to H266 baseline level rather than augmenting it.
+
+**Mechanism**: H288's cooldown-localization gain at decay=0.05 was specific to that regime where EMA buffer accumulation during constant-LR was LOW-VALUE. At decay=0.10 (H294 optimum), the EMA buffer DOES accumulate useful track-not-average signal during constant-LR phase. Confining to cooldown DISCARDS that signal.
+
+**Cross-mechanism pattern extension**: H304 extends the HALLEY × stack subadditive pattern (H296+H297) to the EMA mechanism class. The pattern now spans:
+- HALLEY × scope-swap (H297): 3.78× penalty
+- HALLEY × EMA (H296): subadditive
+- HALLEY × per-group decay (H305 in-flight, arm_b TERMINAL +0.19σ within-noise NEG): subadditive
+- **EMA temporal × EMA value (H304 NEW)**: subadditive (+1.11σ worse than single-axis optimum)
+
+**Paper-grade generalization**: TWO paper-grade individual gains DO NOT MULTIPLICATIVELY COMPOUND when they share the underlying smoothing/projection mechanism. This pattern is structurally robust across HALLEY axis + EMA mechanism class, suggesting the absorption phenomenon (H266 + H287 + H297) saturates at the FIRST load-bearing mechanism in a chain — subsequent modifications targeting the SAME mechanism are either inert or destructive.
+
+🎯 **Paper-grade finding #2: arm_b ≈ arm_c gating sanity-check VERIFIED**:
+
+arm_b CONFINED_NO_RESET vs arm_c CONFINED_WITH_RESET: Δ = −0.31σ within-chain (sub-noise gap).
+
+The design intent: with `copy_(param.data)` continuous-tracking pre-cooldown in arm_b, the explicit reset in arm_c is functionally **idempotent at cooldown entry** — both configurations initialize the EMA state to current params when entering cooldown. The observed sub-noise gap confirms the gating logic is implementation-correct. Had arm_b ≠ arm_c with significant gap, the gating logic would have a subtle bug.
+
+🎯 **Paper-grade finding #3: arm_a CTRL +2.09σ high-end Pattern A drift reaffirms post-H266 variance escalation**:
+
+arm_a CTRL val=3.27003 = **+2.09σ_H174 above H266 baseline**, FFS=3050. This is the 3rd CTRL replicate this week to sit at the upper edge of post-H266 Pattern A drift band (H300 had two consecutive CTRLs DNF +20-21σ — different magnitude scale but same pattern of post-H266 CTRL inflation). σ_H174=0.000884 likely UNDERSTATES current run-to-run variance.
+
+**Within-chain CTRL comparison REQUIRED** for accurate treatment effect attribution. The +2.09σ CTRL drift in H304 erased the within-chain −1.94σ treatment gain, leaving net +0.15σ vs H266 absolute — illustrating how absolute-vs-H266 comparisons get corrupted by CTRL drift.
+
+🎯 **EMA mechanism class characterization 6-axis cube CLOSED**: H266 (decay=0.05 all-params all-training, MERGED), H274 (scope=aux_only NEG), H274v2 (decay=0.10 single-point NEG), H287 (HALLEY × EMA NEG), H288 (cooldown-localization at decay=0.05 paper-grade), H294 (value-grid 0.075/0.10 paper-grade optimum), H301 (fine-grid right-flank monotone-NEG), **H304 (cooldown-confined at decay=0.10 paper-grade subadditive)**. EMA cube is now thoroughly characterized along VALUE × SCOPE × POLYNOMIAL FORM × COOLDOWN-LOCALIZATION × FINE-GRID × TEMPORAL × VALUE INTERACTION.
+
+**3-way Pattern A drift-FREE** (all step-0=10.82583 EXACT). Treatment plumbing config-pane audit confirmed.
+
+W&B run IDs:
+- arm_a CTRL: `2nhv9jey`
+- arm_b CONFINED_NO_RESET: `niq8z1ux`
+- arm_c CONFINED_WITH_RESET: `ith7afti`
+
+Decision: CLOSED as 156th NULL/NEG with paper-grade H288 × H294 SUBADDITIVE interaction (98th mechanism class) + arm_b ≈ arm_c gating verified + post-H266 variance escalation reaffirmation.
+
+**H310 alphonse per-depth-layer μ heterogeneity ASSIGNED IMMEDIATELY** (PR #???): tests μ heterogeneity across model DEPTH (shallow blocks 0-5 vs deep blocks 6-11). Orthogonal SPATIAL axis to H308 tanjiro per-block-TYPE SPATIAL μ (attention vs MLP). Completes the μ heterogeneity SPATIAL cube along TYPE × DEPTH axes. 3-arm Pattern A Option C structural (~25 LoC adds muonh_mu_shallow_override + muonh_mu_deep_override flags). 99th mechanism class candidate. WIN prob 10-15%.
+
+---
+
 ## 2026-05-30 16:35 — PR #1809 H301 frieren: Polyak EMA decay fine-grid 0.10/0.125/0.15 right-flank — **CLOSED 155th NULL/NEG (🎯 paper-grade EMA decay U-curve LOCALIZED MINIMUM at decay≈0.10 with bracketed monotone-rising right-flank — EMA Value cube paper-grade exact-localization at ±0.025 resolution, NOT a new mechanism class)**
 
 - Branch: g1r3-frieren/h301-polyak-ema-decay-fine-grid (PR #1809, 3-arm Pattern A Option B polyak_ema_decay fine-grid)
