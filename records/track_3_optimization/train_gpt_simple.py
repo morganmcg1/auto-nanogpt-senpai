@@ -84,6 +84,16 @@ def parse_args():
     parser.add_argument('--aux_b2_pulse_target', type=float, default=0.99,
                         help='New aux Adam β2 value to set at --aux_b2_pulse_step. '
                              '0 or negative disables. Default: 0.99 (canonical WIN).')
+    parser.add_argument('--aux_ademamix_alpha', type=float, default=0.0,
+                        help='Target blend weight for slow EMA in AdEMAMix on aux AdamW '
+                             '(0 = disabled, falls back to canonical fused AdamW). '
+                             'Paper default: 0.5 (Pagliardini et al., NeurIPS 2024).')
+    parser.add_argument('--aux_ademamix_beta3', type=float, default=0.999,
+                        help='Slow EMA decay in AdEMAMix on aux AdamW. Effective window '
+                             '~1/(1-β3). Paper default: 0.999.')
+    parser.add_argument('--aux_ademamix_t_alpha', type=int, default=500,
+                        help='Warmup steps for α from 0 to --aux_ademamix_alpha (linear). '
+                             'Paper default: T_alpha=T/10.')
     parser.add_argument("--seed", type=int, default=1,
                         help="Random seed for torch/numpy/python. Default 1 matches baseline seed.")
     args = parser.parse_args()
@@ -765,9 +775,104 @@ if dist.get_rank() == 0:
             "paramema_refresh_only": int(args.paramema_refresh_only),
             "aux_b2_pulse_step": args.aux_b2_pulse_step,
             "aux_b2_pulse_target": args.aux_b2_pulse_target,
+            "aux_ademamix_alpha": args.aux_ademamix_alpha,
+            "aux_ademamix_beta3": args.aux_ademamix_beta3,
+            "aux_ademamix_t_alpha": args.aux_ademamix_t_alpha,
+            "aux_ademamix_active": int(args.aux_ademamix_alpha > 0.0),
             "seed": args.seed,
         },
     )
+
+@torch.no_grad()
+def aux_ademamix_step(optimizer, alpha_t, beta3, train_step):
+    """AdEMAMix update for the aux AdamW optimizer (Pagliardini et al., NeurIPS 2024).
+
+    Replaces optimizer.step() when args.aux_ademamix_alpha > 0. Mirrors PyTorch
+    fused AdamW math (decoupled weight decay, bias-corrected fast EMA, bias-
+    corrected second moment) and additionally maintains a slow first-moment EMA
+    that is blended in at weight alpha_t:
+
+        m_fast = β1 m_fast + (1-β1) g
+        m_slow = β3 m_slow + (1-β3) g
+        v      = β2 v      + (1-β2) g²
+        m_eff  = m_fast / (1-β1^t)  +  alpha_t · m_slow         # slow EMA NOT bias-corrected
+        p     -= lr · m_eff / (sqrt(v / (1-β2^t)) + eps)
+
+    train_step is 0-based; the first call uses step_count = train_step + 1.
+    """
+    step_count = train_step + 1  # 1-based, matches PyTorch AdamW bias correction convention
+
+    for group in optimizer.param_groups:
+        beta1, beta2 = group["betas"]
+        lr = group["lr"]
+        eps = group["eps"]
+        weight_decay = group["weight_decay"]
+
+        bias_correction1 = 1 - beta1 ** step_count
+        bias_correction2 = 1 - beta2 ** step_count
+        bias_correction2_sqrt = bias_correction2 ** 0.5
+        neg_step_size_fast = -lr / bias_correction1
+        neg_step_size_slow = -lr * alpha_t
+
+        for p in group["params"]:
+            if p.grad is None:
+                continue
+            grad = p.grad
+
+            state = optimizer.state[p]
+            if "exp_avg" not in state:
+                state["step"] = 0  # plain int — we manage step count via train_step
+                state["exp_avg"] = torch.zeros_like(p, memory_format=torch.preserve_format)
+                state["exp_avg_sq"] = torch.zeros_like(p, memory_format=torch.preserve_format)
+            if "exp_avg_slow" not in state:
+                state["exp_avg_slow"] = torch.zeros_like(p, memory_format=torch.preserve_format)
+            state["step"] = step_count
+
+            # AdamW decoupled weight decay (aux groups currently use wd=0, but keep correct).
+            if weight_decay != 0:
+                p.mul_(1 - lr * weight_decay)
+
+            exp_avg = state["exp_avg"]
+            exp_avg.mul_(beta1).add_(grad, alpha=1 - beta1)
+
+            exp_avg_slow = state["exp_avg_slow"]
+            exp_avg_slow.mul_(beta3).add_(grad, alpha=1 - beta3)
+
+            exp_avg_sq = state["exp_avg_sq"]
+            exp_avg_sq.mul_(beta2).addcmul_(grad, grad, value=1 - beta2)
+
+            denom = (exp_avg_sq.sqrt() / bias_correction2_sqrt).add_(eps)
+            p.addcdiv_(exp_avg, denom, value=neg_step_size_fast)
+            if alpha_t > 0:
+                p.addcdiv_(exp_avg_slow, denom, value=neg_step_size_slow)
+
+
+def compute_aux_ademamix_alpha_t(train_step, alpha_target, t_alpha):
+    """Linear warmup: alpha_t = alpha_target * min(1, train_step / max(1, t_alpha))."""
+    if alpha_target <= 0.0:
+        return 0.0
+    return float(alpha_target) * min(1.0, train_step / max(1, t_alpha))
+
+
+def compute_aux_ademamix_telemetry(optimizer, alpha_t):
+    """Aggregate norms across aux params of m_slow and (m_eff - m_fast_hat) = alpha_t * m_slow.
+
+    Returns scalars (uses .item() — call only at telemetry intervals).
+    """
+    m_slow_sq = 0.0
+    for group in optimizer.param_groups:
+        for p in group["params"]:
+            state = optimizer.state[p]
+            m_slow = state.get("exp_avg_slow")
+            if m_slow is None:
+                continue
+            m_slow_sq += float(m_slow.detach().float().square().sum().item())
+    m_slow_norm = m_slow_sq ** 0.5
+    return {
+        "aux/m_slow_norm": m_slow_norm,
+        "aux/m_eff_vs_fast_delta": float(alpha_t) * m_slow_norm,
+    }
+
 
 for trial_idx in range(args.num_trials):
 
@@ -1071,8 +1176,21 @@ for trial_idx in range(args.num_trials):
                 group["betas"] = new_betas
             print0(f"[step {step}] aux_b2_pulse: β2 {old_b2} → {args.aux_b2_pulse_target}",
                    console=True)
-        for opt in optimizers:
-            opt.step()
+        # AdEMAMix dual-EMA on aux AdamW (PR #1749). When alpha==0 the canonical
+        # fused PyTorch AdamW path runs unchanged (no regression). When alpha>0,
+        # we run a custom step that adds a slow first-moment EMA blended via
+        # alpha_t (linear warmup from 0 to args.aux_ademamix_alpha over t_alpha
+        # steps). The Muon body optimizer is always stepped through its own .step().
+        aux_ademamix_alpha_t = 0.0
+        if args.aux_ademamix_alpha > 0.0:
+            aux_ademamix_alpha_t = compute_aux_ademamix_alpha_t(
+                step, args.aux_ademamix_alpha, args.aux_ademamix_t_alpha)
+            aux_ademamix_step(optimizer1, aux_ademamix_alpha_t,
+                              args.aux_ademamix_beta3, step)
+            optimizer2.step()
+        else:
+            for opt in optimizers:
+                opt.step()
         # EMA buffer update on body-Muon matrix params.
         # During warmup: track params live (no averaging) so post-warmup buffer is
         # seeded with stable, non-zero params (handles proj zero-init bias and lets
@@ -1190,6 +1308,23 @@ for trial_idx in range(args.num_trials):
                                     and args.aux_b2_pulse_target > 0.0
                                     and step >= args.aux_b2_pulse_step),
             }, step=wandb_step)
+            # AdEMAMix telemetry (PR #1749). alpha_t logged unconditionally so
+            # the warmup schedule is visible in baseline runs too (will be 0).
+            # m_slow_norm and m_eff_vs_fast_delta only logged when AdEMAMix is
+            # active — otherwise no exp_avg_slow state exists.
+            ademamix_log = {
+                "trial": trial_idx,
+                "train/step": train_step,
+                "aux/alpha_t": aux_ademamix_alpha_t,
+                "aux/alpha_target": args.aux_ademamix_alpha,
+                "aux/beta3": args.aux_ademamix_beta3,
+                "aux/t_alpha": args.aux_ademamix_t_alpha,
+                "aux/ademamix_active": int(args.aux_ademamix_alpha > 0.0),
+            }
+            if args.aux_ademamix_alpha > 0.0:
+                ademamix_log.update(compute_aux_ademamix_telemetry(
+                    optimizer1, aux_ademamix_alpha_t))
+            wandb.log(ademamix_log, step=wandb_step)
         if dist.get_rank() == 0 and (train_step % 100 == 0 or train_step == train_steps):
             spec = pmuon_spectral_diag(optimizer2, PMUON_GAMMA)
             if spec:
