@@ -1,3 +1,58 @@
+## 2026-05-30 13:15 UTC — Cycle 71 mid-429 — askeladd #1806 331st refute + 165th family closure + 198th mech class (STRUCTURAL_AXIS_COMPOUND bilateral terminal: Arm A `cross_soap_compound` MLP-front_FAST+attn-back_FAST val=3.26966/3025 Arm B `mlp_front_fast_seed1` val=3.27136/3025 delta(A-B)=+0.00170; n=2 MLP-alone mean 3.26963; Δ(Arm_A − MLP-n2-mean)=+0.00003 ≈ ZERO; 198th mech class SOAP-FAMILY-COMMON-SECOND-MOMENT-STATE-FLOOR-AT-DEPTH-X-BETA2-LEVER-WITH-CROSS-KIND-DISPATCH-SATURATION; REGRESSION-TO-MEAN PRECEDENT #7 LOCKED axis-#8 MLP-SOAP front_FAST #1775A seed=0 3.26789 vs seed=1 3.27136; 165th family closure CROSS-SOAP-KIND-DEPTH-DISPATCH-COMPOUND-SHARED-SATURATION) + askeladd #1832 new assignment (CROSS-FAMILY: axis-#5 AdamW embed-reset × axis-#8 SOAP MLP-front_FAST; first AdamW×SOAP substrate test; merge candidate if sub-additive productive). Fleet 8/8 active 0 idle. Cumulative: 331 refuted / 198 mech classes / 165 family closures / 9 axes locked / 7 regression-to-mean precedents.
+
+### askeladd #1806 STRUCTURAL_AXIS_COMPOUND — 331st refute, 165th family closure, 198th mech class
+
+Bilateral terminal at 13:00Z: Arm A `cross_soap_compound` (MLP front_FAST + attn back_FAST) val=**3.26966**/3025; Arm B `mlp_front_fast_seed1` (MLP front_FAST alone, seed=1) val=**3.27136**/3025. W&B runs: k85ik407 (Arm A) + jrik9ea5 (Arm B). **331st cycle-71 refute**.
+
+**KEY STRUCTURAL FINDING — SOAP-FAMILY SHARED SATURATION**:
+- Δ(Arm A − n=2 MLP-alone mean) = 3.26966 − 3.26963 = **+0.00003** (statistically ZERO)
+- Adding attn-SOAP back_FAST on top of MLP-SOAP front_FAST contributes ESSENTIALLY NOTHING
+- Recalc additive null (using MLP n=2 mean 3.26963 + attn-alone Δ=+0.00021): null = 3.26984; Arm A at 3.26966 = **−0.00018 below null** (mild sub-additive saturation, within noise)
+- Historical-mean null (3.26810) gave +0.00156 ABOVE-NULL — artifact of single-seed MLP reference
+
+**198th MECH CLASS: SOAP-FAMILY-COMMON-SECOND-MOMENT-STATE-FLOOR-AT-DEPTH-X-BETA2-LEVER-WITH-CROSS-KIND-DISPATCH-SATURATION**:
+1. SOAP-family cross-kind compound floor (3.26966) ≈ MLP-alone n=2 mean (3.26963) — family-common saturation point
+2. Attn-SOAP per-depth-half trust-gate climbs to 100% on_fraction by step 2000 — substrate FULLY engaging, but adds zero to MLP-SOAP floor
+3. SHARED-SATURATION principle: SOAP family axes saturate at family-common floor, NOT additive
+
+**Contrast to AdamW family**:
+- AdamW WD × β1 (thorfinn #1808): PARTIAL CNI STACKING (31% of independent-channel sum)
+- AdamW WD × axis #5 (tanjiro #1803): SHARED-SUBSTRATE ABSORPTION (68.6%)
+- AdamW WD × axis #6 (alphonse #1799): DESTRUCTIVE super-additive (+0.00532)
+- **SOAP MLP × SOAP attn (this PR): SHARED-SATURATION-AT-FAMILY-FLOOR (≈0% additional benefit)**
+
+Cross-family taxonomy: AdamW is mechanism-heterogeneous; SOAP is saturation-homogeneous.
+
+**REGRESSION-TO-MEAN PRECEDENT #7**: axis #8 MLP-SOAP front_FAST productive direction #1775 A seed=0 (3.26789) does NOT replicate at seed=1 (3.27136); n=2 mean = 3.26963 (+0.00187 above baseline). Cumulative cycle-71 precedent count: **7 locked**.
+
+**165th FAMILY CLOSURE**: CROSS-SOAP-KIND-DEPTH-DISPATCH-COMPOUND-SHARED-SATURATION.
+
+### askeladd #1832 new assignment: CROSS-FAMILY substrate test — axis #5 × axis #8
+
+**Goal**: first AdamW × SOAP cross-family substrate test (untested territory in cycle 71):
+- Arm A `cross_family_compound`: axis #5 (embed exp_avg reset interval=250 MOMENT=2) + axis #8 (MLP-SOAP per-depth-half front_FAST)
+- Arm B `axis_5_alone`: axis #5 control (same seed as Arm A)
+
+Structural question: do AdamW substrate (embed first-moment trajectory) and SOAP substrate (depth-dependent second-moment dispatch) operate on orthogonal substrates? If orthogonal → sub-additive productive; if shared → saturation at axis #5 or axis #8 floor.
+
+Cherry-picks needed: fern #1754 (axis #5 infra) + askeladd's own #1775/#1806 MLP-SOAP per-depth-half infra.
+
+**Merge prediction**: 15% sub-additive productive (val < 3.26800 → first cross-family merge candidate). Most likely (40%) SHARED-SATURATION at axis-#5 AdamW floor (Arm A ≈ Arm B).
+
+### edward #1812 stale_wip resolution (Arm A ack)
+
+Arm A `eb189nhx` (kv_joint_excluded, bitfield=6) FINISHED at 12:30Z: val=**3.27045**/3025.
+- Δ vs baseline: +0.00269
+- Δ vs #1793 A (qk_excluded): +0.00021 → PAIR-AXIS-INVARIANT (within ±0.0007 band)
+- Arm B `qzstmexs` (vproj_excluded, bitfield=12) RUNNING at 13:07Z, step ~150, ETA ~14:42Z
+- 2 crashed retry attempts (`jxhvedel` + `ixgqimba`) between Arm A finish and Arm B launch — pod instability concern; advisor ack requested crash diagnosis
+
+### Cycle 71 cumulative state (updated: 1 new closure, 1 family closure, 1 new mech class, 1 new regression-to-mean precedent)
+
+**Cycle 71 cumulative**: **331 refuted** / **198 distinct mech classes** / **165 family-level closures** / **9 structural axes locked** / **7 regression-to-mean precedents** / axes #1+#2 FULLY CLOSED (CNI), axis #4 COMPOUND BILATERAL COMPLETE, axes #8+#9 LOCKED.
+
+---
+
 ## 2026-05-30 12:52 UTC — Cycle 71 mid-428 — tanjiro #1803 330th refute + 164th family closure + 197th mech class (STRUCTURAL_AXIS_COMPOUND bilateral terminal: Arm A `wd_preferred×embed_avg_reset` val=3.27191/3050 Arm B `embed_avg_reset alone` val=3.27117/3025 Δ(A−B)=+0.00074; recalc additive null 3.27353 → Δ_A=−0.00162 SHARED-SUBSTRATE ABSORPTION; axis #5 absorbs 68.6% of axis #1's destructive cost; 197th mech class AXIS-#1-X-AXIS-#5-COMPOUND-SHARED-SUBSTRATE-ABSORPTION-WITH-EMBED-RMS-DECOUPLING-RESET-EVENT-INDEPENDENCE; REGRESSION-TO-MEAN PRECEDENT #6 LOCKED (this-PR Arm B 3.27117 vs #1754 B n=2 mean 3.26891, Δ=+0.00226); 164th family closure AXIS-#1-X-AXIS-#5-CROSS-AXIS-COMPOUND-PARTIAL-SHARED-SUBSTRATE) + tanjiro #1828 new assignment (ABSORPTION UNIVERSALITY: axis #2 β1-preferred × axis #5 embed-reset compound; tests whether absorption mechanism generalizes from axis #1/WD-substrate to axis #2/β1-substrate). Fleet 8/8 active 0 idle. Cumulative: 330 refuted / 197 mech classes / 164 family closures / 9 axes locked / 6 regression-to-mean precedents.
 
 ### tanjiro #1803 STRUCTURAL_AXIS_COMPOUND — 330th refute, 164th family closure, 197th mech class
