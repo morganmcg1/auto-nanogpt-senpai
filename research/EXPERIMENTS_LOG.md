@@ -1,5 +1,29 @@
 # SENPAI Research Results — auto-nanogpt-1gpu-r5
 
+## 2026-05-30 23:15Z — PR #1839 CLOSED clean-NEG [falsifier triggered]: askeladd per-shape STATIC NS iter decoupling --ns_iter_mlp vs --ns_iter_attn [67th R5 closure]
+
+- branch: g1r5-askeladd/ns-iter-shape-decouple
+- hypothesis: Per-class STATIC NS iter decoupling. From thorfinn #1833 instrumented finding: square attn σ_min ≈ 0.003, MLP σ_min ≈ 0.86 post-NS5(6). Implication: MLP "over-iterated" at ns_iter=6 (already converged), attn needs more iter for σ_max precision. Test: --ns_iter_mlp 4 + --ns_iter_attn 8 shifts compute budget across classes.
+- W&B group: g1r5-askeladd/ns-iter-shape-decouple
+
+| Cell | Config (mlp/attn) | FFS_ema | FFS_trainval | val/loss | step_avg | W&B |
+|---|---|---:|---:|---:|---:|---|
+| A (CTRL) | 6/6 | **2950** | 2975 | 3.27194 | 1916 ms | `6izyfs1n` |
+| B★ (decoupled) | 4/8 | **2975** | 2975 | 3.27292 | 1891 ms | `dg6ytzwq` |
+| C (attn-bump) | 6/8 | **2925** | 2925 | 3.26951 | 1928 ms | `c4ypcxqy` |
+| D (mlp-save) | 4/6 | **3025** | 3025 | 3.27485 | 1882 ms | `49ql0tpk` |
+
+- verdict: CLOSED clean-NEG. Two predeclared falsifiers triggered:
+  - **Falsifier #2 — MLP ns_iter<6 catastrophic**: Cell D at FFS_ema=3025 = +75 FFS vs baseline (≈3σ_4). MLP cost-saving direction closed.
+  - **Falsifier #4 — B Pareto-dominated by C**: B(FFS=2975, val=3.27292) strictly worse than C(FFS=2925, val=3.26951) on both axes. The "decoupling synergy" hypothesis fails — MLP-side drop costs more than attn-side bump gains.
+- Cell C signal marginal: FFS_ema=2925 is the modal baseline value (3/4 trials in PR #1533 are at 2925) — not worth n=4 confirm.
+- **★★ MECHANISM** (high-value structural findings, two memory rules):
+  - **MLP ns_iter≥6 is structurally load-bearing**: even though MLP post-NS5(6) σ_min≈0.86 looks "good enough" from instrumentation, dropping to ns_iter=4 costs +75 FFS. The MLP weight updates need full 6 iters of σ_max precision, not just σ_min sufficiency. Memory: `mlp_ns_iter_floor_load_bearing`.
+  - **Attn ns_iter=8 produces no measurable benefit**: Cell C at FFS=2925 = modal baseline value. Memory: `attn_ns_iter_ceiling_no_gain`.
+  - **Per-class dispatcher works as designed**: D=1882ms < A=1916ms < C=1928ms (wall-clock ordering matches mlp/attn iter counts). Routing is correct.
+- **Implications for nezuko #1834 (adaptive ns_iter, in-flight)**: the per-MATRIX dynamic chooser must cap MLP floor at ≥6. If adaptive policy converges to attn=8, mlp=6 by itself, it would re-confirm Cell C's reading and supersede the static decoupling axis.
+- **NS-shape/iter family now CLOSED at static level**: #1821 (per-head reshape NEG) + #1839 (per-shape static iter NEG). Only dynamic per-matrix axis remains via nezuko #1834.
+
 ## 2026-05-30 22:30Z — PR #1826 CLOSED Pareto-NEG: fern Padé-(1,1) rational NS approximant [66th R5 closure]
 
 - branch: g1r5-fern/pade-rational-ns

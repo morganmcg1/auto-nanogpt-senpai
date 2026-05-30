@@ -9,7 +9,37 @@ The human research team has redirected: **FFS (first-step-to-target, baseline 30
 3. **Prefer experiments that move the crossing step** (2800-3050 window), **simplify winning stacks**, **reveal FFS-load-bearing components**.
 4. **Ablations preferred over confirmations** when FFS dead.
 
-## Last updated: 2026-05-30 22:30Z (66 R5 closures; fern #1826 Padé rational NS CLOSED 66th [Pareto-NEG, polar-approximator family structurally exhausted]; fern now idle pending fresh hypothesis)
+## Last updated: 2026-05-30 23:15Z (67 R5 closures; askeladd #1839 per-shape static NS iter CLOSED 67th [FFS-NEG, MLP ns_iter≥6 load-bearing]; fern #1885 GC + askeladd #1891 GE-SAM ASSIGNED; 8/8 active)
+
+### Notes (2026-05-30 23:15Z) — ASKELADD #1839 PER-SHAPE STATIC NS ITER CLOSED 67th [FFS-NEG, MLP NS_ITER FLOOR LOAD-BEARING]; #1891 GE-SAM ASSIGNED
+
+- **★ CLOSED #1839 askeladd per-shape STATIC NS iter decoupling** [67th R5 closure, 23:15Z] — clean-NEG, two predeclared falsifiers triggered. Cell-by-cell:
+  - Cell A CTRL (6/6): FFS_ema=2950, FFS_trainval=2975
+  - Cell B★ (4/8 decoupled): FFS_ema=**2975**, Pareto-dominated by C — Falsifier #4
+  - Cell C (6/8 attn-bump): FFS_ema=2925, FFS_trainval=2925 (modal baseline value)
+  - Cell D (4/6 mlp-save): FFS_ema=**3025**, +75 FFS vs baseline = ≈3σ_4 — Falsifier #2 (MLP ns_iter<6 catastrophic)
+- **★★ HIGH-VALUE MECHANISM** (two memory rules saved):
+  - **MLP ns_iter≥6 is structurally load-bearing** (`mlp_ns_iter_floor_load_bearing`): even though post-NS5(6) σ_min≈0.86 looks "good enough" from #1833's instrumentation, dropping MLP to ns_iter=4 costs +75 FFS. MLP weight updates need full 6 iters of σ_max precision.
+  - **Attn ns_iter=8 produces no measurable benefit** (`attn_ns_iter_ceiling_no_gain`): Cell C at 2925 = modal baseline value, no signal.
+  - Per-class dispatcher works as designed (D < A < C wall-clock); preserved in train code for nezuko #1834 if/when adaptive ns_iter lands.
+- **NS-shape/iter family CLOSED at static level**: #1821 (per-head reshape NEG) + #1839 (per-shape static iter NEG). Only dynamic per-matrix axis remains via nezuko #1834 (in-flight, currently stalled — advisor nudge sent 23:13Z requesting crash details).
+- **★ ASSIGNED #1891 askeladd: GE-SAM (Gradient Extrapolation as zero-cost SAM approximation)** — `g_eff = g_t + α·(g_t − g_{t-1})`. Approximates SAM's sharpness perturbation via finite-difference HVP estimate at ZERO extra forward/backward cost.
+  - **Mechanism**: SAM perturbation direction = HVP, approximated by `(g_t - g_{t-1}) / Δθ` (finite difference, fixed-LR regime). Adding `α·(g_t - g_{t-1})` to each gradient before SOAP momentum lerp biases optimizer toward flatter basins where EMA-eval gains most (Izmailov 2018 SWA + Foret 2021 SAM motivation).
+  - **Structural orthogonality**: acts on cross-step gradient history (g_t and g_{t-1}). NOT polar-approximator, NOT ns_iter/shape, NOT SOAP scalar HP, NOT init, NOT spectral-norm. Distinct from fern #1885 GC (mean subtraction vs. finite-difference are linearly independent additive modifications).
+  - **Risk and diagnostic**: gradient noise dominance. KG_smoke logs `diag/ge_sam_cos_sim_mean` (cosine of g_t vs g_t − g_{t-1}); if `< 0.05` throughout, gradient differences are noise → close at smoke.
+  - 4 cells n=1: A=ctrl(0.0), B★=0.05, C=0.02, D=0.10. Conditional Cell E at α=0.20 if D is borderline-best. W&B group `g1r5-askeladd/ge-sam-r5`.
+  - **References**: Foret 2021 SAM (https://arxiv.org/abs/2010.01412), Du 2022 LookSAM (https://arxiv.org/abs/2110.03141), Zhuang 2022 GSAM (https://arxiv.org/abs/2203.08065), Izmailov 2018 SWA (https://arxiv.org/abs/1803.05407).
+
+### Notes (2026-05-30 23:00Z) — FERN #1885 GRADIENT CENTRALIZATION ASSIGNED
+
+- **★ ASSIGNED #1885 fern: Gradient Centralization (GC, Yong et al. 2020) before NS5/SOAP** — First non-spectral gradient preprocessing in 66 R5 closures. All closed axes act on singular values (polar-approximator family), momentum dynamics (μ schedules), or architecture (per-head NS). GC acts on the **mean** (DC component) of the gradient, structurally orthogonal to NS.
+  - **Mechanism**: subtract per-output-row mean from gradient before NS consumes it. For shape [n_out, n_in]: `g -= g.mean(dim=1, keepdim=True)`. NS orthogonalization then operates on the zero-mean "AC component" only.
+  - **Complementarity to NS**: NS5 acts on singular values (spectral structure); GC acts on the mean (translational structure). The two are structurally orthogonal — GC cleans the gradient before NS sees it.
+  - **Risk and diagnostic**: gradient DC component may already be negligible in this stack. `diag/grad_mean_ratio` in KG_smoke (100 steps) gates the full sweep — if `grad_mean_ratio < 0.001` for all MLP layers, mechanism is falsified cheaply.
+  - 3 cells n=1: A=ctrl(none), B★=muon_mlp_only, C=muon_all. W&B group `g1r5-fern/grad-centralization`.
+  - **Reference**: Yong et al. 2020, ECCV. https://arxiv.org/abs/2004.01461
+
+- **Fleet at 23:15Z**: thorfinn #1870 WIP (label-smoothing); alphonse #1860 WIP (SOAP-attn cooldown gate, ~75% Cell C); edward #1858 WIP (Schulz polish on square attn, ~45% Cell C); frieren #1841 WIP (spec-NS + LR co-tune, ~75% Cell C-safety); nezuko #1834 STALLED (advisor nudge sent 23:13Z); fern #1885 WIP (gradient-centralization); tanjiro #1880 WIP (μ-cooldown); askeladd #1891 WIP (GE-SAM, NEW). **8/8 active, zero idle.**
 
 ### Notes (2026-05-30 22:30Z) — FERN #1826 PADÉ RATIONAL NS CLOSED 66th [PARETO-NEG, POLAR-APPROXIMATOR FAMILY STRUCTURALLY EXHAUSTED]
 
