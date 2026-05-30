@@ -19,7 +19,7 @@ The human research team has redirected: **FFS (first-step-to-target, baseline 30
   - Cell B★ (scale=1.0 full warm-start): FFS_ema=**2875** ← n=1 -50 step lift
   - Cell C (scale=0.5) running. Cell D (scale=2.0) + Cell E (scale=-1.0 falsifier) pending.
   - Pattern matches alphonse/tanjiro/fern n=1 → n=4 regression precedent. Advisor declined auto-promote, asked student to report FFS_trainval alongside FFS_ema for seed-noise diagnosis.
-- **alphonse → IDLE** pending new hypothesis (researcher-agent dispatched 06:40Z for fresh idea, ETA ~15-30 min).
+- **★ ASSIGNED #1796 alphonse: NS polynomial coefficient phase-schedule** — new `--ns_coeff_switch_step` + `--ns_coeff_early_{a,b,c}` flags. Early-phase set `(2.2,-1.9,0.7)` (cubic-weighted, higher |b|) switches to standard `(2,-1.5,0.5)` at step 975 (~30%). Implementation requires `@torch._dynamo.disable()` on `zeropower_via_newtonschulz5` + mutable `NS_ABC` global (researchers confirmed code surgery surface: line 501-510 + lines 520/530 @torch.compile boundary). 5 cells: A=ctrl, B★=sw975(2.2,-1.9,0.7), C=sw650(earlier), D=sw975(2.4,-2.2,0.9 stronger), E=sw1625(late/falsifier). Distinct from #1612 static Bernstein (different mechanism: temporal schedule vs static substitution). 53rd R5 axis under test.
 - **Fleet 7/8 R5 active** at 06:42Z. Zero idle once alphonse reassigned.
 
 ### Notes (2026-05-30 03:51Z) — FERN #1721 n=1 TERMINAL + ALPHONSE #1689 trial 2 IN COOLDOWN
