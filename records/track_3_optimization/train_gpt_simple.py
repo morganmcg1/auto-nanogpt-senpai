@@ -28,6 +28,9 @@ SLOPE_FRACTION = 0.10
 SOAP_BETA2 = 0.90
 PRECOND_FREQ = 16
 NS_ITER = 12  # overridden by args.ns_iter at module load
+# Mutable NS quintic coefficients [a, b, c]. Default standard (2, -1.5, 0.5).
+# The training loop overrides this in-place when --ns_coeff_switch_step > 0.
+NS_ABC = [2.0, -1.5, 0.5]
 
 
 def parse_args():
@@ -101,6 +104,16 @@ def parse_args():
                         help="EMA decay for SWA-style EMA-eval; None=disabled (control). "
                              "Recommend 0.99-0.9999. When set, val/ema_loss is logged "
                              "and speedrun/first_step_to_target uses the EMA-val crossing.")
+    parser.add_argument("--ns_coeff_switch_step", type=int, default=0,
+                        help="Step at which to switch NS quintic coefficients from "
+                             "early (a,b,c) back to standard (2,-1.5,0.5). 0=disabled (control).")
+    parser.add_argument("--ns_coeff_early_a", type=float, default=2.2,
+                        help="Early-phase NS coefficient 'a' (linear term). Only active when "
+                             "--ns_coeff_switch_step > 0, applied for step < switch_step.")
+    parser.add_argument("--ns_coeff_early_b", type=float, default=-1.9,
+                        help="Early-phase NS coefficient 'b' (cubic term).")
+    parser.add_argument("--ns_coeff_early_c", type=float, default=0.7,
+                        help="Early-phase NS coefficient 'c' (quintic term).")
     args = parser.parse_args()
     args.num_trials = args.num_trials if args.num_trials is not None else (args.legacy_num_trials or 1)
     args.wandb_tags = [tag.strip() for tag in args.wandb_tags.split(",") if tag.strip()]
@@ -498,6 +511,7 @@ class GPT(nn.Module):
 #              Optimizer               #
 ########################################
 
+@torch._dynamo.disable()
 def zeropower_via_newtonschulz5(G: Tensor) -> Tensor:
     assert G.ndim >= 2
     X = G.bfloat16()
@@ -506,8 +520,10 @@ def zeropower_via_newtonschulz5(G: Tensor) -> Tensor:
 
     # Ensure spectral norm is at most 1
     X = X / (X.norm(dim=(-2, -1), keepdim=True) + 1e-7)
-    # Perform the NS iterations, not optimizing for wallclock speed
-    a, b, c = 2, -1.5, 0.5
+    # Perform the NS iterations, not optimizing for wallclock speed.
+    # NS_ABC is a mutable module-level list so the training loop can swap
+    # coefficients between early/late phases without re-tracing torch.compile.
+    a, b, c = NS_ABC[0], NS_ABC[1], NS_ABC[2]
     for _ in range(NS_ITER):
         A = X @ X.mT
         B = b * A + c * A @ A
@@ -786,6 +802,11 @@ if dist.get_rank() == 0:
             "lr_cooldown_shape": args.lr_cooldown_shape,
             "ema_eval_decay": args.ema_eval_decay,
             "ema_eval_enabled": args.ema_eval_decay is not None,
+            "ns_coeff_switch_step": args.ns_coeff_switch_step,
+            "ns_coeff_phase_schedule_enabled": args.ns_coeff_switch_step > 0,
+            "ns_coeff_early_a": args.ns_coeff_early_a,
+            "ns_coeff_early_b": args.ns_coeff_early_b,
+            "ns_coeff_early_c": args.ns_coeff_early_c,
         },
     )
 
@@ -928,6 +949,14 @@ for trial_idx in range(args.num_trials):
                 group["lr"] = group["initial_lr"] * eta
                 if "initial_wd" in group and group.get("name", "").startswith("muon_"):
                     group["weight_decay"] = group["initial_wd"] * wd_mu
+        # NS quintic coefficient phase schedule. Mutates the module-level list
+        # in-place so zeropower_via_newtonschulz5 (eager via @torch._dynamo.disable)
+        # picks up the new values on the next call.
+        if args.ns_coeff_switch_step > 0:
+            if step < args.ns_coeff_switch_step:
+                NS_ABC[:] = [args.ns_coeff_early_a, args.ns_coeff_early_b, args.ns_coeff_early_c]
+            else:
+                NS_ABC[:] = [2.0, -1.5, 0.5]
         return eta
 
 
@@ -1085,6 +1114,11 @@ for trial_idx in range(args.num_trials):
                     "speedrun/reached_target_trainval": int(first_step_to_target_trainval >= 0),
                     "time/train_seconds": training_time,
                     "time/step_avg_ms": 1000 * step_avg,
+                    # NS quintic coefficients in effect for the just-completed window.
+                    # KG1 mechanism check: should read early values pre-switch, std post.
+                    "train/ns_abc_a": float(NS_ABC[0]),
+                    "train/ns_abc_b": float(NS_ABC[1]),
+                    "train/ns_abc_c": float(NS_ABC[2]),
                 }
                 metrics.update(prefixed("val/slope", loss_slope_stats(val_loss_history, slope_window_steps)))
                 if ema_val_loss_float is not None:
