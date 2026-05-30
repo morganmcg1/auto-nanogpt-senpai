@@ -599,6 +599,8 @@ NANOGPT_EMBED_INIT_ANCHOR_LAMBDA = float(os.environ.get("NANOGPT_EMBED_INIT_ANCH
 NANOGPT_NEWTON_MUON = int(os.environ.get("NANOGPT_NEWTON_MUON", "0"))
 NANOGPT_NEWTON_MUON_LR_SCALE = float(os.environ.get("NANOGPT_NEWTON_MUON_LR_SCALE", "1.0"))
 NANOGPT_NEWTON_MUON_UPDATE_PERIOD = int(os.environ.get("NANOGPT_NEWTON_MUON_UPDATE_PERIOD", "10"))
+NANOGPT_NEWTON_MUON_UPDATE_PERIOD_LATE = int(os.environ.get("NANOGPT_NEWTON_MUON_UPDATE_PERIOD_LATE", "0"))
+NANOGPT_NEWTON_MUON_UPDATE_PERIOD_SWITCH_STEP = int(os.environ.get("NANOGPT_NEWTON_MUON_UPDATE_PERIOD_SWITCH_STEP", "0"))
 NANOGPT_NEWTON_MUON_BETA = float(os.environ.get("NANOGPT_NEWTON_MUON_BETA", "0.95"))
 NANOGPT_NEWTON_MUON_EPS = float(os.environ.get("NANOGPT_NEWTON_MUON_EPS", "1e-4"))
 NANOGPT_NEWTON_MUON_MAX_D_IN = int(os.environ.get("NANOGPT_NEWTON_MUON_MAX_D_IN", "1024"))
@@ -856,10 +858,20 @@ class Muon(torch.optim.Optimizer):
             tel_w["r_warmstart_n"] = tel_w.get("r_warmstart_n", 0) + 1
             did_warmstart = True
         # Update R EMA + eigendecomp every newton_update_period steps (and at first call).
+        # Switch to PERIOD_LATE after PERIOD_SWITCH_STEP optimizer steps if configured.
+        # Note: condition uses ``(n-1) % period == 0`` which is bit-identical to the
+        # prior ``n % period == 1`` for any period>=2 but also yields True every step
+        # when period==1 (where the old ``n % 1 == 1`` was always False, freezing R).
+        if (NANOGPT_NEWTON_MUON_UPDATE_PERIOD_LATE > 0
+                and NANOGPT_NEWTON_MUON_UPDATE_PERIOD_SWITCH_STEP > 0
+                and self._newton_step_count >= NANOGPT_NEWTON_MUON_UPDATE_PERIOD_SWITCH_STEP):
+            _eff_period = NANOGPT_NEWTON_MUON_UPDATE_PERIOD_LATE
+        else:
+            _eff_period = self.newton_update_period
         update_R = (
             "R" not in state
             or did_warmstart
-            or (self._newton_step_count % self.newton_update_period == 1)
+            or ((self._newton_step_count - 1) % _eff_period == 0)
         )
         if update_R:
             if not did_warmstart:
@@ -1033,6 +1045,8 @@ print0(
     f"NEWTON_MUON: use_precond={'True' if NANOGPT_NEWTON_MUON else 'False'} "
     f"lr_scale={NANOGPT_NEWTON_MUON_LR_SCALE} "
     f"update_period={NANOGPT_NEWTON_MUON_UPDATE_PERIOD} "
+    f"update_period_late={NANOGPT_NEWTON_MUON_UPDATE_PERIOD_LATE} "
+    f"update_period_switch_step={NANOGPT_NEWTON_MUON_UPDATE_PERIOD_SWITCH_STEP} "
     f"beta={NANOGPT_NEWTON_MUON_BETA} eps={NANOGPT_NEWTON_MUON_EPS} "
     f"max_d_in={NANOGPT_NEWTON_MUON_MAX_D_IN} "
     f"tikhonov_gamma={NANOGPT_NEWTON_MUON_TIKHONOV_GAMMA} "
@@ -1155,6 +1169,8 @@ if dist.get_rank() == 0:
             "nanogpt_newton_muon": NANOGPT_NEWTON_MUON,
             "nanogpt_newton_muon_lr_scale": NANOGPT_NEWTON_MUON_LR_SCALE,
             "nanogpt_newton_muon_update_period": NANOGPT_NEWTON_MUON_UPDATE_PERIOD,
+            "nanogpt_newton_muon_update_period_late": NANOGPT_NEWTON_MUON_UPDATE_PERIOD_LATE,
+            "nanogpt_newton_muon_update_period_switch_step": NANOGPT_NEWTON_MUON_UPDATE_PERIOD_SWITCH_STEP,
             "nanogpt_newton_muon_beta": NANOGPT_NEWTON_MUON_BETA,
             "nanogpt_newton_muon_eps": NANOGPT_NEWTON_MUON_EPS,
             "nanogpt_newton_muon_max_d_in": NANOGPT_NEWTON_MUON_MAX_D_IN,
@@ -1523,6 +1539,13 @@ for trial_idx in range(args.num_trials):
                 )
             # #1600 warmstart event counter (spikes once per param at step K).
             newton_metrics["newton_muon/r_warmstart_n"] = tel.get("r_warmstart_n", 0)
+            # Effective R-update period (switches to PERIOD_LATE at SWITCH_STEP).
+            if NANOGPT_NEWTON_MUON_UPDATE_PERIOD_LATE > 0:
+                _eff_p = (NANOGPT_NEWTON_MUON_UPDATE_PERIOD_LATE
+                          if (NANOGPT_NEWTON_MUON_UPDATE_PERIOD_SWITCH_STEP > 0
+                              and train_step >= NANOGPT_NEWTON_MUON_UPDATE_PERIOD_SWITCH_STEP)
+                          else NANOGPT_NEWTON_MUON_UPDATE_PERIOD)
+                newton_metrics["newton_muon/effective_update_period"] = _eff_p
             wandb.log(newton_metrics, step=wandb_step)
         # Init-anchored WD on embed (#847, env-var-gated). After both optimizers
         # have stepped, apply `p -= lr_embed * lambda * (p - p_init)`. Order vs
