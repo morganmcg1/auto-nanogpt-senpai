@@ -1,5 +1,26 @@
 # SENPAI Research Results — auto-nanogpt-1gpu-r4
 
+## 2026-05-30 12:22 — PR #1784: NM R v-warmstart K-axis search K∈{50,100,200} — **CLOSED BIDIRECTIONAL-NULL-OR-NEG, K-AXIS-ASYMMETRIC LOCAL-OPTIMUM K=100 CONFIRMED**
+
+- branch: `g1r4-tanjiro/nm-r-warmstart-k-search`
+- hypothesis: K=100 (production) may not be locally optimal on the warmstart-timing axis — testing K=50 (2× PRUNE) and K=200 (2× INTENSIFY) to characterize K-axis asymmetry
+
+| Arm | K | val/loss | FFS | Δ_BA | Δ vs baseline 3.26118 | Verdict |
+|---|---:|---:|---:|---:|---:|---|
+| A (ctrl) | 100 | 3.26093 | 3125 | (ref) | −0.00025 (−0.16σ_seed) | spawn-floor below-baseline (ctrl heterogeneity) |
+| B | 50 (PRUNE 2×) | 3.26510 | 3175 | +0.00417 (+2.78× NULL band) | +0.00392 | **strong-NEG MECHANISM-COUPLED** |
+| C | 200 (INTENSIFY 2×) | 3.26125 | 3125 | +0.00032 | +0.00007 | **NULL MECHANISM-DECOUPLED-AT-VAL-LEVEL** |
+
+W&B run IDs: sb47fo0k (Arm A), rx4nkmdc (Arm B), d0g51px9 (Arm C)
+
+**Results commentary**:
+- **PRUNE-direction sharpness (load-bearing-NEG)**: K=50 Δ_BA=+0.00417 = 2.78× NULL band ceiling + MECHANISM-COUPLED via precond_ratio_mean LIFT degradation 1.058 vs 1.092 ctrl (−3.1%) + R_cond_mean dispersion +26% vs ctrl + FFS delay +50 steps. Insufficient Adam-EMA v-accumulation at 50 steps produces a low-quality warm prior, R-buffer convergence degrades.
+- **INTENSIFY-direction plateau (tolerant-NULL)**: K=200 Δ_CA=+0.00032 = within NULL band + MECHANISM-DIFFERENTIATED: tighter R-buffer eigenstructure (R_cond_max −20%, R_cond_mean −12% vs ctrl) with modestly weaker LIFT (precond_ratio 1.068 vs 1.092 ctrl). Richer warm prior approximately offsets longer cold-start phase at the val/loss level.
+- **K=100 local-optimum confirmation**: precond_ratio_mean monotonicity K=50→1.058 < K=200→1.068 < K=100→1.092 = K=100 MAXIMIZES R-buffer LIFT at production stack basin; both perturbation directions reduce LIFT.
+- **Catalog observations**: 2nd r4 MECHANISM-COUPLED + OUTCOME-COUPLED + STRONG-NEG single-seed Δ (Arm B K=50 PRUNE); K-axis ASYMMETRIC PARTITIONING signature (PRUNE-sharp + INTENSIFY-plateau); PRUNE-direction-cluster LOAD-BEARING-NEG catalog (K=50 PRUNE + fern class 31 NS=12 PRUNE = 2-case cluster); 13th r4 PP-ctrl arm spawn-floor cohort extension (Arm A Δ=−0.16σ_seed below baseline mean, 4/13 below baseline = 31% FAV-direction-ctrl heterogeneity).
+- **Closed NOT merged**: Arm A (ctrl, K=100) val=3.26093 ≤ baseline 3.26118 but is a CTRL arm with NO new intervention — same code as #1702 merged production stack. Single-seed spawn-floor observation within σ_seed=0.00161 envelope; merging would record n=1 seed-noise as new baseline degrading statistical quality. Both experimental arms (B NEG, C NULL) fail PP-promote criterion. Closed per pre-declared bidirectional-null-or-neg verdict criterion.
+- **Follow-up**: PR #1823 tanjiro assigned NM-warmstart-K INTENSIFY-WIDER-BRACKET K∈{100,500,800} to characterize INTENSIFY plateau extent.
+
 ## 2026-05-29 20:30 — PR #1631: NM β (EMA decay) stable β=0.99 PP-chain n=3 — **CLOSED MERGE GATE FAIL, Class 12a "β=0.99-R-COMPRESSION-MECHANISM-OBSERVABLE-OUTCOME-SEED-FRAGILE" FIRST decoupling-direction finding**
 
 - branch: `g1r4-thorfinn/nm-beta-schedule-axis`
