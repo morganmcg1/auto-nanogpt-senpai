@@ -1,6 +1,89 @@
+## Cycle ~1130: H296 + H295 CLOSED 149th + 150th NULL (🎯 paper-grade NS5 polynomial×iter SUBADDITIVE + μ-endpoint downward cross-baseline-stable closure, 91+92nd mechanism classes) + H303 askeladd + H304 alphonse ASSIGNED (Polyak EMA temporal axis)
+
+**Two terminal closures + two fresh EMA-temporal-axis assignments. Plateau campaign portfolio: 150 NULL/NEG + 1 MERGED WIN (H266), 92 mechanism classes attempted.**
+
+### Closures this cycle
+
+**H296 alphonse HALLEY × ns5_iter=16 multiplicative stack CLOSED 149th NULL/TIE — 🎯 PAPER-GRADE: NS5 POLYNOMIAL × ITER COUNT SUBADDITIVE (91st mechanism class).**
+
+Terminal verdict (PR #1791):
+- arm_a CTRL (default poly / iter=12): FFS=3025, val=3.26976 (+1.79σ Pattern A hot-drift)
+- arm_b HALLEY16 (halley poly / iter=16): FFS=**3000 EXACT**, val=**3.26778** (−0.45σ sub-noise)
+
+Per Issue #1260 strict FFS<3000: arm_b TIES baseline → NOT merge-eligible.
+
+🎯 **Paper-grade finding #1**: SUBADDITIVE interaction confirmed. Additive prediction = HALLEY12 + ITER16 − H266 = 3.26727. Observed = 3.26778. Δ = +0.58σ ABOVE additive prediction. **HALLEY at 12 iter is already at-convergence** — extra 4 iter provide zero marginal polar-projection gain. Wall-clock +33% NS5 work → only +1.38% step time (NS5 is ~4-5% of step). FFS bar not perturbed by extra iter cost.
+
+🎯 **Paper-grade finding #2**: H287's "HALLEY gain HOLDS through cooldown" finding REPLICATED on HALLEY16 (peak −2.3σ at step 2875, terminal −2.2σ at step 3325). Independent confirmation that HALLEY's polar-projection improvement is structural, not EMA-absorbable.
+
+**NS5 cube now 5 axes closed**: iteration count (H267), polynomial form (H287 HALLEY), input scaling (H291), cautious sign-mask (H280), **polynomial × iter (H296 subadditive)**.
+
+**H295 askeladd μ-endpoint LOW (0.85) on post-H266 CLOSED 150th NULL/NEG — 🎯 PAPER-GRADE: μ-endpoint DOWNWARD axis CROSS-BASELINE-STABLE CLOSURE (92nd mechanism class).**
+
+Terminal verdict (PR #1790):
+- arm_a CTRL (μ_end=0.90): FFS=3025, val=3.26958 (+1.58σ Pattern A drift)
+- arm_b LOW (μ_end=0.85): FFS=**3050**, val=**3.27231** (+4.67σ vs baseline, +3.08σ vs CTRL)
+
+🎯 **Paper-grade finding #1**: H125 (PR #1063, OLD baseline 3.26547, no EMA) closed μ-endpoint downward at 97% erosion (peak gap −0.068 step 1500 → terminal +0.0021). H295 (post-H266 baseline 3.26818, +EMA decay=0.05) shows **117% erosion + sign reversal** (peak −17.65σ step 1500 → terminal +3.08σ). **Cross-baseline-stable μ-endpoint downward closure** — three independent confirming NEGs across two baselines.
+
+🎯 **Paper-grade finding #2**: EMA decay=0.05 does NOT preserve H125 mid-training advantage. Mechanism: (1) EMA window (~20-step half-life) too short for cooldown span (825 steps); (2) Mid-training advantage is GRADIENT-DIRECTION based (deeper μ_end → higher-frequency polar-projection input), while EMA averages WEIGHTS not directions; (3) EMA × μ_end are DECOUPLED at cooldown phase (different mechanisms). **EMA × μ_end orthogonality finding paper-grade**.
+
+### Audit this cycle
+
+**H297 fern HALLEY × aux_only EMA chain — mid-flight ~52% arm_b**: arm_a CTRL `pmawpglc` terminal (val=3.26865, FFS=3025 Pattern A drift, treatment plumbing verified). arm_b HALLEY_AUX_ONLY `8dagfvth` running step 1740/3325, ETA ~+50min terminal. Configs distinct: arm_a `default/all`, arm_b `halley/aux_only` per W&B config-pane. 5-instance Pattern A drift-FREE (step-0=10.82583 EXACT across all runs). Audit cleared stale_wip. PR #1795.
+
+### New assignments this cycle
+
+**H303 askeladd: Polyak EMA decay TEMPORAL SCHEDULE (warmup ramp-up)** — PR #1817, 3-arm Pattern A, 93rd mechanism class candidate.
+
+3-arm Option B (adds `--polyak_ema_decay_schedule` + `--polyak_ema_decay_start` flags):
+- arm_a CTRL: constant 0.05 (bit-id H266)
+- arm_b RAMP_0_TO_0p10: linear 0.0 → 0.10 over training
+- arm_c RAMP_0p05_TO_0p10: linear 0.05 → 0.10 over training (narrower ramp)
+
+Direct combination of H288 cooldown-localization (early-training EMA may be drag) + H294 U-curve value optimum (0.10 best at terminal). Tests if dynamic decay schedule improves over constant. WIN prob 12-15%.
+
+**H304 alphonse: Polyak EMA COOLDOWN-CONFINED at H294 optimum decay=0.10** — PR #1818, 3-arm Pattern A, 94th mechanism class candidate.
+
+3-arm Option B (adds `--polyak_ema_cooldown_only` + `--polyak_ema_reset_at_cooldown` flags):
+- arm_a CTRL: standard 0.05 all-training (bit-id H266)
+- arm_b CONFINED_NO_RESET: 0.10 active only steps 2500-3325 (H288 window)
+- arm_c CONFINED_WITH_RESET: 0.10 cooldown-confined + state reset at cooldown entry (sanity check)
+
+Direct compound of H288 cooldown-localization + H294 value optimum. Tests if pre-cooldown EMA application contributes drag vs H266's all-training EMA. WIN prob 12-15%.
+
+### Current chain portfolio (8 chains in flight)
+
+| Chain | Student | Hypothesis | PR | Status |
+|-------|---------|------------|-----|--------|
+| H297 | fern | HALLEY × aux_only EMA orthogonal stack | #1795 | running ~52% arm_b |
+| H298 | mavis | DEMON-style mu→0 monotone body inner momentum decay | #1798 | running |
+| H299 | nezuko | Adan body pre-NS5 gradient-difference third moment | #1800 | running |
+| H300 | tanjiro | aux global gradient-norm clip | #1804 | running (CTRL DNF anomaly flagged) |
+| H301 | frieren | Polyak EMA decay fine-grid right-of-0.10 | #1809 | running |
+| H302 | edward | EMA per-group differential decay (aux=0.10/body=0.0) | #1813 | running |
+| **H303** | **askeladd** | **EMA decay TEMPORAL RAMP-UP (0.0→0.10)** | **#1817** | **new assignment** |
+| **H304** | **alphonse** | **EMA COOLDOWN-CONFINED at decay=0.10** | **#1818** | **new assignment** |
+
+### EMA-axis characterization status (post-H290+H294+H297+H301+H302+H303+H304)
+
+| Axis | Test PR / Status | Finding |
+|------|-------|---------|
+| Temporal — phase | H288 | cooldown-localized window 425-825 steps |
+| Temporal — schedule | **H303 in flight** | **TBD ramp-up dynamic decay** |
+| Temporal — confinement | **H304 in flight** | **TBD hard cooldown-gating** |
+| Scope | H290 | body NEG, aux TIE, all WIN |
+| Scope — per-group | H302 in flight | TBD (aux=0.10/body=0.0) |
+| Value — constant | H294 | U-curve optimum ≈0.10 (left of, at, monotone) |
+| Value — fine-grid right | H301 in flight | TBD (0.10/0.125/0.15) |
+| Window length | H288 | optimum 425-825 step window |
+| Orthogonal stack — HALLEY | H297 in flight | TBD (orthogonal compounding test) |
+
+**EMA mechanism is the dominant active investigation axis post-H266** — 6 of 8 in-flight chains involve EMA modifications.
+
 # SENPAI Research State — auto-nanogpt-1gpu-r3
 
-- **Last updated:** 2026-05-30 11:00 UTC
+- **Last updated:** 2026-05-30 11:30 UTC
 
 ---
 

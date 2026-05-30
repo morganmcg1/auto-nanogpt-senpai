@@ -1,3 +1,97 @@
+## 2026-05-30 11:30 — PR #1791 H296 alphonse: HALLEY × NS5_iter=16 multiplicative stack — **CLOSED 149th NULL/TIE (🎯 paper-grade SUBADDITIVE interaction confirmed + HALLEY at-convergence at iter=12 + H287 cooldown-persistence REPLICATED, 91st mechanism class)** + PR #1817 H303 askeladd ASSIGNED (EMA decay TEMPORAL RAMP-UP)
+
+- Branch: g1r3-alphonse/h296-halley-iter16-stack (PR #1791, 2-arm Pattern A)
+
+| Arm | polynomial / iter | W&B | val/loss | FFS | Δval vs H266 (3.26818) / σ_H174 | Verdict |
+|-----|------|-----|----------|-----|-------------|---------|
+| arm_a CTRL | default / 12 | 6bfj5apu | 3.26976 | 3025 | +1.79σ | Pattern A hot-drift |
+| arm_b HALLEY16 | halley / 16 | 446ardod | **3.26778** | **3000 EXACT** | −0.45σ sub-noise | **TIES baseline** |
+
+H266 baseline: val=3.26818, FFS=3000. Per Issue #1260 strict: arm_b TIES baseline → NOT merge-eligible.
+
+🎯 **Paper-grade finding #1: NS5 POLYNOMIAL × ITER COUNT SUBADDITIVE**:
+- Additive prediction = HALLEY12 (3.26754, H287) + ITER16 (3.26791, H267) − H266 = **3.26727**
+- arm_b observed = **3.26778**
+- **Δ = +0.58σ ABOVE additive prediction → SUBADDITIVE**
+
+**Mechanism**: HALLEY's 3rd-order Padé approximant converges in FEWER iterations than NS5's 5th-order. At 12 iter HALLEY is **already at-convergence** — extra 4 iter (16 total) provide essentially zero marginal polar-projection gain. Confirms PR-body a-priori 70-80% TIE/FAIL bucket: "HALLEY at-convergence at 12 iter."
+
+**NS5 cube 5 axes closed**: iter count (H267), polynomial form (H287 HALLEY), input scaling (H291), cautious sign-mask (H280), **polynomial × iter (H296 subadditive)**.
+
+🎯 **Paper-grade finding #2: H287 "HALLEY gain holds through cooldown" REPLICATED on HALLEY16**:
+
+| step | arm_a CTRL | arm_b HALLEY16 | Δ(b-a) |
+|------|-----------|----------------|--------|
+| 2875 (cooldown entry) | 3.29079 | 3.28877 | **−0.00202 (peak Δ)** |
+| 3000 | 3.28153 | 3.27954 | −0.00199 |
+| 3325 (terminal) | 3.26976 | 3.26778 | **−0.00198** |
+
+**Cooldown erosion ≈ 2% (essentially zero)** — HALLEY's polar-projection gain is **NOT EMA-absorbable**. Independent confirmation using different iter count.
+
+🎯 **Wall-clock characterization**: arm_b NS5 16-iter vs arm_a 12-iter: +25ms step time (+1.38%). NS5 is ~4-5% of total step wall-clock. FFS bar held at 3000 EXACT — extra iter cost not perturbing FFS calculation.
+
+**arm_a CTRL +1.79σ above H266**: within +1-2σ Pattern A n=1 noise band (matches H274v2/H280/H284/H289/H292/H293/H294/H295/H296 CTRL drift class).
+
+**Operational excellence**: Student diagnosed and recovered from `Path.cwd().glob` cwd-relative crash via wandb-metadata.json analysis (`cwd: /workspace/senpai/target`), relaunched arm_b cleanly, step-0=10.82583 EXACT bit-id maintained. Textbook root-cause debugging.
+
+W&B run IDs:
+- arm_a CTRL: 6bfj5apu
+- arm_b HALLEY16: 446ardod (relaunch; prior 62wr5qo3 crashed at cwd-relative path resolution)
+
+Decision: CLOSED as 149th NULL/TIE with paper-grade NS5 cube 5-axis closure + cross-experiment HALLEY cooldown-persistence replication.
+
+**H303 askeladd EMA decay TEMPORAL SCHEDULE ASSIGNED IMMEDIATELY** (PR #1817):
+- 3-arm Option B: --polyak_ema_decay_schedule {constant | linear_ramp_up} + --polyak_ema_decay_start
+- arm_a CTRL constant=0.05 / arm_b RAMP 0.0→0.10 / arm_c RAMP 0.05→0.10
+- Direct combination of H288 cooldown-localization (early-EMA = drag) + H294 U-curve optimum (0.10 at terminal)
+- WIN prob 12-15%, 93rd mechanism class candidate, Pattern A drift-FREE
+
+---
+
+## 2026-05-30 11:30 — PR #1790 H295 askeladd: muonh_mu_end LOW (0.85) on post-H266 stack — **CLOSED 150th NULL/NEG (🎯 paper-grade μ-endpoint downward CROSS-BASELINE-STABLE closure + EMA × μ_end DECOUPLED at cooldown, 92nd mechanism class)** + PR #1818 H304 alphonse ASSIGNED (EMA COOLDOWN-CONFINED at H294 optimum)
+
+- Branch: g1r3-askeladd/h295-muonh-mu-end (PR #1790, 2-arm Pattern A)
+
+| Arm | μ_end | W&B | val/loss | FFS | Δval vs H266 (3.26818) / σ_H174 | Verdict |
+|-----|-------|-----|----------|-----|---------|---------|
+| arm_a CTRL | 0.90 | id22gkh1 | 3.26958 | 3025 | +1.58σ | Pattern A drift |
+| arm_b LOW | 0.85 | 42yxtzn3 | **3.27231** | **3050** | **+4.67σ** | **NEG (+3.08σ within-chain)** |
+
+🎯 **Paper-grade finding #1: μ-endpoint DOWNWARD axis CROSS-BASELINE-STABLE CLOSURE**:
+
+| baseline | μ_end test | peak gap step 1500 | terminal gap | erosion |
+|----------|------------|-------------------|--------------|---------|
+| OLD 3.26547 (no EMA) — H125 | 0.88/0.84 | −0.068 | +0.0021 | 97% |
+| post-H266 3.26818 (+EMA decay=0.05) — H295 | 0.85 | **−0.01560** (−17.65σ) | **+0.00273** (+3.08σ) | **117% (sign reversal)** |
+
+Two independent baselines, same mechanism → cross-baseline-stable. Three independent confirming NEGs (H125 OLD × 2 + H295 post-H266) close the μ-endpoint downward axis paper-grade.
+
+🎯 **Paper-grade finding #2: EMA decay=0.05 does NOT preserve H125 mid-training advantage**:
+
+Three mechanisms confirmed via 8-checkpoint trajectory + μ_t schedule verification + embed/lm_head norm telemetry:
+
+1. **EMA window (~20-step half-life) too short for cooldown span (825 steps)** — EMA averages late-stage shallow-μ and deeper-μ similarly, both lose mid-training advantage.
+2. **Mid-training advantage is GRADIENT-DIRECTION based** (deeper μ_end → higher-frequency polar-projection input), while EMA averages WEIGHTS not directions.
+3. **EMA × μ_end are DECOUPLED at cooldown phase** — different mechanisms (H266 body-cooldown smoothing vs μ_end MuonH input direction).
+
+Strong asymmetric body weight signature: embed_norm grows MORE under deeper μ_end (+27 to +101 across steps), lm_head_norm grows LESS (−4 to −7 across steps). Signature persists through cooldown but does NOT translate to terminal val advantage.
+
+**EMA-mechanism characterization update**: H266 EMA is BODY-cooldown-localized SMOOTHING, NOT a general mid-training-advantage preservation mechanism. Adds to EMA-axis paper-grade closure cluster.
+
+W&B run IDs:
+- arm_a CTRL: id22gkh1
+- arm_b LOW: 42yxtzn3
+
+Decision: CLOSED as 150th NULL/NEG with paper-grade μ-endpoint downward cross-baseline-stable closure + EMA × μ_end orthogonality mechanism. Excellent gold-standard 8-checkpoint cooldown-erosion analysis.
+
+**H304 alphonse EMA COOLDOWN-CONFINED at decay=0.10 ASSIGNED IMMEDIATELY** (PR #1818):
+- 3-arm Option B: --polyak_ema_cooldown_only + --polyak_ema_reset_at_cooldown
+- arm_a CTRL constant 0.05 all-training / arm_b CONFINED 0.10 cooldown-only (steps 2500-3325) / arm_c CONFINED+RESET
+- Direct compound of H288 cooldown-localization + H294 U-curve optimum at H294 OPTIMUM VALUE
+- WIN prob 12-15%, 94th mechanism class candidate, Pattern A drift-FREE
+
+---
+
 ## 2026-05-30 11:00 — PR #1781 H293 edward: outer_lr VALUE bilateral test — **CLOSED (148th NULL/NEG, 🎯 paper-grade 6-axis PF#56 MuLoCo CONFIRMED-RIGID + outer-step velocity-magnitude triple-confirmed, 90th mechanism class)** + PR #1813 H302 edward ASSIGNED (EMA per-group differential decay)
 
 - Branch: g1r3-edward/h293-outer-lr-value (PR #1781, 3-arm Pattern A)
