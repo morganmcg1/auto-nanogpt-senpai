@@ -9,7 +9,23 @@ The human research team has redirected: **FFS (first-step-to-target, baseline 30
 3. **Prefer experiments that move the crossing step** (2800-3050 window), **simplify winning stacks**, **reveal FFS-load-bearing components**.
 4. **Ablations preferred over confirmations** when FFS dead.
 
-## Last updated: 2026-05-30 13:18Z (58 R5 axis closures; thorfinn #1772 + nezuko #1769 CLOSED 57+58th; #1833 Higham polish + #1834 adaptive NS iter ASSIGNED; fleet 8/8 active)
+## Last updated: 2026-05-30 13:55Z (59 R5 axis closures; thorfinn #1833 Higham polish CLOSED 59th [KG_smoke FAIL]; #1838 Schulz polish nonsquare ASSIGNED; σ_min finding: new memory rule)
+
+### Notes (2026-05-30 13:55Z) — THORFINN #1833 HIGHAM POLISH CLOSED 59th [KG_smoke FAIL]; #1838 SCHULZ POLISH NONSQUARE ASSIGNED; σ_min STRUCTURAL FINDING; σ_min WARNING POSTED TO EDWARD #1825 + FERN #1826
+
+- **★ CLOSED #1833 thorfinn Higham polar-Newton polish** [59th R5 closure, 13:53Z] — **KG_smoke FAIL: catastrophic divergence both arms**. Student delivered exceptional instrumented diagnostics:
+  - Cell A (CTRL `--ns_post_polish 0`): run `3216v10q`, val=5.697@50 ✓ healthy
+  - Cell B (μ=1 as specified): run `3gfz9l8e`, **NaN at step ~25** ✗, residual INCREASED 1300× (not dropped), polish cost 5.18× NS5
+  - Cell B (μ=Higham-scaled): run `7wtuzf8n`, **NaN at step ~25** ✗, residual 100× INCREASE
+  - **Critical finding from instrumented probes**: post-NS5(6 iter) σ-profile splits by shape:
+    - Square 768×768 (attention): `‖X^TX−I‖_F ≈ 11`, σ_min ≈ 0.003 (rank-deficient, NS5 polynomial p(x) is only linearly convergent at σ≈0 → kernel stays)
+    - Low-rank gradient: `‖X^TX−I‖_F ≈ 27.5`, σ_min ≈ 0 (catastrophically rank-deficient)
+    - Non-square 3072×768 (MLP): `‖X^TX−I‖_F ≈ 1.7`, σ_min ≈ 0.86 (Marchenko-Pastur tail, well-conditioned)
+  - Mechanism: Higham polar Newton σ → ½(μσ + 1/(μσ)). For σ near 0: `1/(μσ)` blows up → σ_max inflates to ~38.3× in one step → update ×100 LR → loss NaN by step 25
+  - **Memory rule saved**: `post_ns5_square_residual_finding` — ALL inversion-based polish is structurally unsafe on square attention matrices in this codebase
+- **★ ASSIGNED #1838 thorfinn: Schulz polynomial polish on non-square (MLP) gradients only** — `X ← ½X(3I − X^TX)`, per-σ map σ → 1.5σ − 0.5σ³. At σ=0.86 (MLP σ_min): moves to 0.972. **No inverse, no kernel blowup, stable for σ ∈ (0, √3].** Skips square attention matrices entirely. KG_smoke included as Cell 0, then A=ctrl/B★=polish_nonsquare/C=polish_all(diagnostic)/D=n4 conditional. PR #1838. Shape-conditional post-NS polish family: distinct from Schulz-as-replacement (#1200 closed) and shape-aware NS_ITERS (#724 closed).
+- **σ_min WARNING posted to #1825 edward Cayley + #1826 fern Padé** — Cayley's `lhs=I+0.5(I−X^TX)` is well-conditioned (eigenvalues [0.5, 1.5]) so won't NaN, but per-σ transform σ → σ/1.5 DECREASES σ_min → attention output LESS orthogonal than NS5. Padé f(σ) leaves σ_min ≈ 0 untouched (fixed point at 0); σ_max may drift if no mid-loop renorm. Neither approach should NaN but both may underperform NS5 on square attention. Recommended: log `‖X^TX−I‖_F` for one square + one non-square gradient at step 50 as diagnostic.
+- **Fleet at 13:55Z**: thorfinn #1838 WIP; edward #1825 + fern #1826 running; tanjiro #1821/alphonse #1796/askeladd #1776/nezuko #1834/frieren #1829 in-flight. 8/8 active, zero idle.
 
 ### Notes (2026-05-30 13:18Z) — THORFINN #1772 + NEZUKO #1769 CLOSED 57+58th; #1833 HIGHAM POLISH + #1834 ADAPTIVE NS ITER ASSIGNED
 

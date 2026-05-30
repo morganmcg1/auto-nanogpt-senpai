@@ -1,5 +1,42 @@
 # SENPAI Research Results — auto-nanogpt-1gpu-r5
 
+## 2026-05-30 13:53Z — PR #1833 CLOSED KG_smoke FAIL: thorfinn Higham polar-Newton polish post-NS5 [59th R5 closure]
+
+- branch: g1r5-thorfinn/higham-polish
+- hypothesis: post-NS5 Higham polar-Newton polish step X ← ½(X + X^{-T}) provides quadratic convergence toward orthogonality — "complements NS5's cubic-convergence polynomial axis". PR assumed post-NS5 residual `‖X^TX-I‖_F ~ 1e-3` making one polish step cheap and high-value.
+- W&B group: thorfinn-higham-polish-r5-smoke
+- Cells (KG_smoke only — conditional Cell progression aborted):
+
+  | Cell | Config | Run ID | val@50 | NS residual Δ | Polish/NS5 cost | Outcome |
+  |---|---|---|---|---|---|---|
+  | A CTRL | `--ns_post_polish 0` | `3216v10q` | 5.697 ✓ | n/a | 0 | healthy |
+  | B μ=1 (PR specified) | `--ns_post_polish 1` | `3gfz9l8e` | **NaN ✗** | 1300× INCREASE | 5.18× NS5 | diverged step ~25 |
+  | B μ=Higham-scaled | `--ns_post_polish 1` | `7wtuzf8n` | **NaN ✗** | 100× INCREASE | 5.48× NS5 | diverged step ~25 |
+
+- verdict: **KG_smoke FAIL — catastrophic divergence both treatment arms**. Both PR-specified μ=1 and Higham-scaled μ = (‖Y^{-T}‖_F/‖Y‖_F)^{1/2} failed.
+
+- **Root cause (student-instrumented, high-value finding)**:
+  The PR's precondition `‖X^TX-I‖_F ~ 1e-3` after `--ns_iter 6` is **FALSE for the square 768×768 attention gradient matrices** in this codebase. Instrumented NS5 probes revealed:
+
+  | Input shape | `‖X^TX-I‖_F` post-NS5(6) | σ_min | σ_max | Mechanism |
+  |---|---|---|---|---|
+  | randn(768, 768) | **11.46** | 0.0033 | 1.0045 | NS5 p(x)=2x−1.5x³+0.5x⁵ linear-convergent at σ≈0; rank-deficient stays rank-deficient |
+  | low-rank/decay input | **27.5** | ≈ 0 | | Rank-deficient gradient → kernel unfixable |
+  | randn(3072, 768) | **1.71** | 0.86 | 1.01 | Non-square: Marchenko-Pastur tail, well-conditioned |
+
+  For square attention: Higham polar Newton σ → ½(μσ + 1/(μσ)). At σ ≈ 0: `1/(μσ)` → ∞. Higham's optimal scaling μ = (‖X^{-T}‖_F/‖X‖_F)^{1/2} ≈ 18× for randn(768,768) → σ_max inflates from 1.004 to **38.3** after one scaled polish step → effective LR ~100× → NaN by step 25.
+
+- analysis: The "quadratic-convergence axis" insight was correct in theory but the precondition was invalid. NS5 polynomial p(x) converges cubically near x=1 but only linearly for x≪1. Six iterations from σ_min≈0 (rank-deficient gradient) leave σ_min≈0. Any METHOD REQUIRING FULL-RANK INPUT (polar Newton, Higham, Halley, standard matrix inverse) will blow up on these inputs. **This is structurally load-bearing: NS5 preserves rank, so rank-deficient gradients (common in NN layers) produce rank-deficient outputs after NS5.**
+
+- implications:
+  1. Memory rule `post_ns5_square_residual_finding` saved — all inversion-based post-NS polish is structurally unsafe on square attention in this codebase
+  2. Risk flagged to #1825 edward Cayley (σ → σ/1.5 decreases σ_min) + #1826 fern Padé (σ_min stuck at 0 fixed point)
+  3. Non-square (MLP) post-NS polish remains viable: σ_min ≈ 0.86, Schulz polish σ → 0.972 → assigned to thorfinn #1838
+
+- cluster impact: closes the "NS-internal structural: post-NS polish" family for square matrices. Combined with Higham, Cayley, Padé in-flight probes will complete the survey of "inverse-based NS refinement" → likely closes this entire sub-family.
+
+- next: thorfinn assigned #1838 Schulz polynomial polish on non-square (MLP) gradients only
+
 ## 2026-05-30 06:35Z — PR #1689 CLOSED clean-NEG: alphonse SOAP Gram-matrix β₂ warmup schedule [52nd R5 closure]
 
 - branch: g1r5-alphonse/soap-gram-b2-warmup
