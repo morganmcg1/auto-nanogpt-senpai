@@ -1,5 +1,23 @@
 # SENPAI Research Results
 
+## 2026-05-30 16:15 UTC — PR #1780 frieren: Body PMuon L/R cov bilateral ZERO RESET at cooldown boundary (975 vs 1100) — ❌ NULL on n=2 confirmation (cov-reset axis CLOSED)
+
+- Branch: `g1r1-frieren/cov-reset-cooldown`
+- Hypothesis: Body PMuon L_cov and R_cov carry pre-cooldown covariance statistics that are OOD at cooldown onset. Hard-zeroing at the phase boundary allows preconditioners to re-accumulate from fresh cooldown gradients. Tested two timing variants: cooldown-onset (step 975) vs 125 steps into cooldown (step 1100).
+
+| Arm | reset_step | seed | run | sr | val_ema | Verdict |
+|---|---|---|---|---:|---:|---|
+| Baseline n=2 | — | 1+2 mean | 9coyk2ke/09qrijtm | 2875 | 3.262854 | — |
+| A | 975 | 1 | x3i1eyro | 2925 | 3.264834 | ❌ NULL (both clauses fail) |
+| B seed-1 | 1100 | 1 | akezqgjp | 2875 | 3.262685 | ⚠️ THIN PASS clause 2 (−0.169 mnat) |
+| B seed-2 | 1100 | 2 | cknk2m33 | 2925 | 3.264785 | ❌ NULL (both clauses fail) |
+| **B n=2 mean** | **1100** | **1+2** | — | **2900** | **3.263735** | ❌ **NULL** |
+
+- **Key mechanistic read:** Arm B seed-1 barely passed clause 2 (-0.169 mnat) but seed-2 returned sr=2925 val_ema=3.264785, failing both clauses. n=2 mean sr=2900, val_ema=3.263735 — NULL. The single-seed seed-1 win was within run-to-run noise, NOT a reproducible structural signal.
+- **Bilateral zero-reset of L/R covariance is too aggressive.** Both preconditioners must regenerate simultaneously from cooldown statistics, producing high-variance trajectory that occasionally crosses target faster but cannot do so reliably.
+- **Axis closure:** Body PMuon cov-state full-reset CLOSED across cooldown onset (975), mid-cooldown (1100), and pre-target (#1726 @ 2750). Per-side asymmetric primitive (L-only / R-only, analogous to nezuko #1815 m-only / v×0.5) is the natural follow-up — now in flight as thorfinn #1849.
+- frieren reassigned: aux Adam scalar_lr pulse @ cooldown onset step 975 (#1850) — novel per-group LR perturbation on the untested scalar (RMSNorm gains/biases) group
+
 ## 2026-05-30 16:05 UTC — PR #1797 thorfinn: Body PMuon momentum buffer partial SCALE at cooldown onset step 975 (×0.5 / ×0.25) — ❌ BILATERAL NULL (momentum-scale at step 975 CLOSED)
 
 - Branch: `g1r1-thorfinn/body-muon-momentum-scale`
