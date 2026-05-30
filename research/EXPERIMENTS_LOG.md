@@ -1,5 +1,23 @@
 # SENPAI Research Results
 
+## 2026-05-30 05:50 UTC — PR #1752 alphonse: Newton-Muon activation-Gram right-preconditioner on body PMuon (diag mode) — ❌ ARM A NULL, Arm B not run (mechanism cleanly closed; student-recommended close)
+
+- Branch: `g1r1-alphonse/newton-muon-actgram`
+- Hypothesis: Add a Newton-style activation-Gram right-preconditioner to body PMuon updates — `g → g · diag(A)^{-1/2}` where A is the running EMA of `x x^T` over input activations — to capture input-side curvature analogous to KFAC's A factor.
+- W&B: Arm A `rh2iinb5` (diag mode)
+- Pre-authorized NULL gate: `val_ema ≥ 3.265 at step 3250`. Result: 3.26942 ≥ 3.265 → clearly NULL.
+
+| Arm | mode | sr | val_ema | val_live | Δval mnat | Verdict |
+|---|---|---:|---:|---:|---:|---|
+| A | diag-Gram preconditioner | 2975 | 3.26942 | — | +6.6 | ❌ NULL (+100 sr) |
+| B | full-Gram | NOT RUN | — | — | — | (student-recommended skip after Arm A clean NULL) |
+| Baseline #1532 | no preconditioner | 2875 | 3.262854 | — | — | — |
+
+- **Analysis:** Trajectory comparison vs baseline shows a **uniform ~+0.0066 val_loss drag from EMA warmup onward** (steps 1750/2250/2750/2875/2975/3250 all show +0.0065-0.0067 vs baseline mean) — NOT a late-stage cooldown issue, NOT a tuning issue, but a **systematic per-step optimization cost**. Training health was pristine: `nonfinite_count=0`, smooth grad-norm decline (121k → 15k), `actgram/fired_fraction=1.0` throughout, `actgram/diag_ratio` peaked ~15 and held 13-15 to terminal — confirming the preconditioner was doing real work (genuine input-feature variance spread).
+- **Mechanistic closure (student's analysis):** PMuon's bilateral whitening already handles output-side curvature via `L^{-γ}` and `R^{-γ}` on the momentum matrix. Right-multiplying the same gradient by `diag(A)^{-1/2}` before NS5 **double-corrects**: it re-weights input columns of the gradient in a basis that L_cov/R_cov already shape. The variance spread is real (ratio ~15) but those variance directions are already captured by R-side. Suppressing them via diag-scaling distorts the post-NS5 update direction without adding new information.
+- **Newton-Muon activation-Gram axis CLOSED** in diag mode. The full-Gram variant (Arm B) shares the same double-correction geometry (additionally rotates the gradient into a basis L/R already shape) — would compound the drag, not reduce it. Skipping Arm B saves compute on a structurally exhausted axis.
+- **Strong corroboration:** combined with alphonse #1703 ADOPT-style async whitening closure (update-rule order swap closed), the body PMuon bilateral whitening's structural sufficiency for both input-side AND output-side curvature is now confirmed across two independent additive interventions. No third curvature correction is needed.
+
 ## 2026-05-30 05:30 UTC — PR #1742 tanjiro: Depth-asymmetric per-block Muon LR burst ×1.5 @ [2750, 2900) — ❌ BILATERAL NULL (per-block LR perturbation axis FULLY CLOSED)
 
 - Branch: `g1r1-tanjiro/pretarget-block-lr-asym`

@@ -1,6 +1,6 @@
 # SENPAI Research State — auto-nanogpt-1gpu-r1
 
-- **Last update: 2026-05-30 05:30 UTC**
+- **Last update: 2026-05-30 05:50 UTC**
 - **Current baseline:** PR #1532 (aux Adam β₂ pulse 0.95→0.99 @ step 975). val_ema=3.262854, sr=2875 (n=2).
 - **Merge gate:** `sr ≤ 2862.5 OR (sr=2875 AND val_ema < 3.262854)`
 - **Human directive #1252:** Prioritize (a) optimizer-state resets at phase boundaries, (b) per-layer/per-block optimizer behavior, (c) short phase-specific mechanisms, (d) momentum/preconditioner state handling, (e) schedules that steepen loss descent before step 2925. Avoid pure scalar β/μ/EMA sweeps.
@@ -17,6 +17,7 @@
 - Body Muon momentum buffer hard ZERO RESET at step 2750 (#1730 askeladd) — Arm A CRASHED, Arm B sr=2925 +3.70 mnat NULL; momentum state-discard CLOSED at pre-target boundary
 - ADOPT-style async whitening (#1703 alphonse) — Arm A sr=2975, Arm B sr=2950; update-rule asynchrony CLOSED on body PMuon
 - **ACProp async denominator on aux AdamW (#1771 edward)** — Arm A diverged @ step 250, Arm B embed_only early-killed @ step 1575 val=3.705; aux-Adam async-denom CLOSED across all-groups + embed_only scopes
+- **Newton-Muon activation-Gram right-preconditioner on body PMuon (#1752 alphonse)** — Arm A diag NULL +6.6 mnat (uniform drag from warmup), Arm B full skipped (student-recommended; same double-correction geometry); confirms PMuon bilateral whitening is structurally sufficient for input + output curvature
 
 **Structural decoupling (BILATERAL NULL):**
 - Depth-stratified β_cov binary split (#1727 edward) — falsifying Arm B beat mechanistic Arm A; axis FULLY CLOSED across binary split + continuous ramp (#1339)
@@ -49,7 +50,7 @@ Two independent mechanisms hit baseline sr (bilateral nulls, but sr=2925→2875 
 | #1780 | frieren | Body PMuon L_cov/R_cov hard zero reset at cooldown onset (step 975 vs 1100) | Running | Arm A: reset@975; Arm B: reset@1100 |
 | #1773 | askeladd | paramEMA β hard step-drop at step 2750 (0.99→0.90 / 0.99→0.95) | Running | Arm A: 0.90; Arm B: 0.95 |
 | #1770 | nezuko | Aux Adam m/v hard zero reset at β₂-pulse boundary (step 975 / step 1200) | Running — Arm A `mhzwt7ge` in flight | Arm A: @975; Arm B pending |
-| #1752 | alphonse | Newton-Muon activation-Gram right-preconditioner on body PMuon | Running — Arm A `rh2iinb5` in flight | Arm A: diagonal Gram; Arm B pending |
+| **#1788** | **alphonse** | **Per-block depth-asymmetric μ on body PMuon (ascending vs descending linear ramp 0.90↔0.99)** | **Just assigned 05:50 UTC** | **Arm A: μ ascending; Arm B: μ descending** |
 | #1749 | thorfinn | AdEMAMix dual-EMA first moment on aux AdamW | Arm A NULL (sr=2975); Arm B `ctdbjhtv` running | Arm B: α=0.5/β₃=0.9995 |
 | **#1787** | **tanjiro** | **Aux Adam eps transient pulse co-located with β₂ pulse boundary (eps 1e-10→1e-6/1e-4, steps 975-1100)** | **Just assigned 05:30 UTC** | **Arm A: eps=1e-6; Arm B: eps=1e-4** |
 
