@@ -76,9 +76,11 @@ def parse_args():
     # each step. constant = baseline (fused=True kept); cooldown_ramp = fused=False so
     # PyTorch reads the updated betas from the param_group on every .step() call.
     parser.add_argument("--aux_beta2_schedule", type=str, default=os.environ.get("AUX_BETA2_SCHEDULE", "constant"),
-                        choices=["constant", "cooldown_ramp"],
+                        choices=["constant", "cooldown_ramp", "mid_training_ramp"],
                         help="If 'cooldown_ramp', ramp aux AdamW β2 from --aux_beta2_start to --aux_beta2_end "
-                             "linearly across the aux cooldown phase. Default 'constant' = baseline.")
+                             "linearly across the aux cooldown phase. If 'mid_training_ramp', ramp β2 linearly "
+                             "across the pre-cooldown phase, then hold at end value through cooldown. "
+                             "Default 'constant' = baseline.")
     parser.add_argument("--aux_beta2_start", type=float, default=float(os.environ.get("AUX_BETA2_START", "0.95")),
                         help="β2 at start of training (and constant β2 if schedule=constant).")
     parser.add_argument("--aux_beta2_end", type=float, default=float(os.environ.get("AUX_BETA2_END", "0.99")),
@@ -1006,6 +1008,13 @@ for trial_idx in range(args.num_trials):
             else:
                 prog = (step - cooldown_start) / max(1, train_steps - cooldown_start)
                 b2 = args.aux_beta2_start + prog * (args.aux_beta2_end - args.aux_beta2_start)
+        elif args.aux_beta2_schedule == "mid_training_ramp":
+            cooldown_start = int((1.0 - aux_cooldown_frac) * train_steps)
+            if step < cooldown_start:
+                prog = step / max(1, cooldown_start)
+                b2 = args.aux_beta2_start + prog * (args.aux_beta2_end - args.aux_beta2_start)
+            else:
+                b2 = args.aux_beta2_end
         else:
             b2 = args.aux_beta2_start
         for g in optimizer1.param_groups:
