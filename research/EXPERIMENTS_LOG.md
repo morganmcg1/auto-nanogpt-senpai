@@ -1,5 +1,20 @@
 # SENPAI Research Results — auto-nanogpt-1gpu-r4
 
+## 2026-05-30 15:29 — PR #1802: Class 35 NS_COOLDOWN_START_FRAC timing-axis sweep — **CLOSED CATALOG-NULL-AT-TIMING-AXIS, MECHANISM-MONOTONIC+OUTCOME-DECOUPLED NOVEL PATTERN**
+
+- branch: `g1r4-nezuko/ns-cooldown-start-frac-timing`
+- hypothesis: NS-iter cooldown-onset timing (frac=0.6/0.7/0.8 = step 2010/2345/2680) may be a load-bearing axis — earlier/later onset changes NS=16 coverage of cooldown window
+
+| Arm | frac | Onset step | val/loss | FFS | raw Δ vs A | net-causal Δ | precond_ratio_mean | Verdict |
+|---|---:|---:|---:|---:|---:|---:|---:|---|
+| A ctrl | 0.7 | 2345 | 3.26041 | 3125 | (ref) | (ref) | 1.07835 | FAV-spawn-floor (−0.48σ_seed ctrl) |
+| B EARLIER | 0.6 | 2010 | 3.26214 | 3150 | +0.00173 (mild-NEG-edge) | **+0.00009 NULL** | 1.08627 (+0.73% LIFT-amp) | net-causal NULL / FFS regression +25 |
+| C LATER | 0.8 | 2680 | 3.26165 | 3150 | +0.00124 (NULL) | **−0.00006 NULL** | 1.06255 (−1.47% LIFT-dec) | net-causal NULL / FFS regression +25 |
+
+W&B run IDs: ragyr4v7 (Arm A), a6ui4it4 (Arm B), mfrgzfgf (Arm C)
+
+**Conclusions**: Bidirectional-causal-NULL closure. Both EARLIER and LATER timing perturbations show net-causal Δ ≈ 0 after paired-pod-floor correction (+0.00164 / +0.00130 pre-onset floor). Raw mild-NEG (Arm B) is spawn-floor artifact, not SWITCH effect. CATALOG-NOVEL: mechanism-MONOTONIC + outcome-DECOUPLED pattern — precond_ratio_mean responds direction-correct bidirectionally (±1.5% LIFT) but val-loss is causally DECOUPLED. FFS=3150 for both Arm B and C = +25 step regression vs ctrl FFS=3125 = frac=0.7 is optimal TIMING for FFS within ±335-step neighborhood. 2D NS-COOLDOWN axis partitioning complete: INTENSITY load-bearing (class 31 fern), TIMING null (this). First r4 full 3-arm causal-baseline-floor disambiguation with within-chain paired-pod-floor correction.
+
 ## 2026-05-30 12:22 — PR #1784: NM R v-warmstart K-axis search K∈{50,100,200} — **CLOSED BIDIRECTIONAL-NULL-OR-NEG, K-AXIS-ASYMMETRIC LOCAL-OPTIMUM K=100 CONFIRMED**
 
 - branch: `g1r4-tanjiro/nm-r-warmstart-k-search`
