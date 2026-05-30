@@ -609,6 +609,9 @@ NANOGPT_NEWTON_MUON_TIKHONOV_GAMMA = float(os.environ.get("NANOGPT_NEWTON_MUON_T
 # diagonal prior accumulated over K steps of "naked Muon" training (NM bypassed pre-K).
 NANOGPT_NEWTON_MUON_R_ADAMW_WARMSTART = int(os.environ.get("NANOGPT_NEWTON_MUON_R_ADAMW_WARMSTART", "0"))
 NANOGPT_NEWTON_MUON_R_ADAMW_WARMSTART_K = int(os.environ.get("NANOGPT_NEWTON_MUON_R_ADAMW_WARMSTART_K", "100"))
+# #1848 step-gated NM activation: bypass NM preconditioning (returns None = naked Muon)
+# for training steps before activation_step. Default 0 = always active (production).
+NANOGPT_NEWTON_MUON_ACTIVATION_STEP = int(os.environ.get("NANOGPT_NEWTON_MUON_ACTIVATION_STEP", "0"))
 
 # Global per-parameter input-activation cache populated by forward hooks. Keyed by
 # id(weight_param) → tensor of shape (B*T, d_in) on device. Only populated when
@@ -825,6 +828,15 @@ class Muon(torch.optim.Optimizer):
         are guarded behind self.newton_telemetry_due (set by the training loop
         before step()) — async-only path on non-telemetry steps.
         """
+        # #1848 step-gated NM activation: bypass NM (naked Muon) for steps before
+        # activation_step. _newton_step_count is incremented in step() BEFORE this
+        # function is called, so the check fires for the first time at
+        # _newton_step_count == activation_step.
+        if (
+            NANOGPT_NEWTON_MUON_ACTIVATION_STEP > 0
+            and self._newton_step_count < NANOGPT_NEWTON_MUON_ACTIVATION_STEP
+        ):
+            return None
         if p.ndim != 2:
             return None
         d_out, d_in = grad.shape
@@ -1037,7 +1049,8 @@ print0(
     f"max_d_in={NANOGPT_NEWTON_MUON_MAX_D_IN} "
     f"tikhonov_gamma={NANOGPT_NEWTON_MUON_TIKHONOV_GAMMA} "
     f"r_warmstart={'True' if NANOGPT_NEWTON_MUON_R_ADAMW_WARMSTART else 'False'} "
-    f"r_warmstart_k={NANOGPT_NEWTON_MUON_R_ADAMW_WARMSTART_K}",
+    f"r_warmstart_k={NANOGPT_NEWTON_MUON_R_ADAMW_WARMSTART_K} "
+    f"activation_step={NANOGPT_NEWTON_MUON_ACTIVATION_STEP}",
     console=True,
 )
 if NS_ITERS_COOLDOWN > 0:
@@ -1161,6 +1174,7 @@ if dist.get_rank() == 0:
             "nanogpt_newton_muon_tikhonov_gamma": NANOGPT_NEWTON_MUON_TIKHONOV_GAMMA,
             "nanogpt_newton_muon_r_adamw_warmstart": NANOGPT_NEWTON_MUON_R_ADAMW_WARMSTART,
             "nanogpt_newton_muon_r_adamw_warmstart_k": NANOGPT_NEWTON_MUON_R_ADAMW_WARMSTART_K,
+            "nanogpt_newton_muon_activation_step": NANOGPT_NEWTON_MUON_ACTIVATION_STEP,
         },
     )
 
