@@ -1,3 +1,31 @@
+## 2026-05-30 21:35 UTC — Cycle 71 mid-443 — askeladd #1855 347th refute + 181st family closure + 214th mech class (axes #1×#8 cross-FAMILY universality probe with SOAP-FAMILY-FLOOR SUB-FLOOR landing at Arm A: Arm A `wd_X_mlp_soap_front_fast` val=3.26891/3025 INSIDE FLOOR BAND + SUB-FLOOR vs SOAP family floor 3.26963 by −0.00072 LOWEST cross-PR result of cycle 71 + Arm B `wd_alone` control val=3.27103/3025; bilateral mean 3.26997/3025 INSIDE FLOOR BAND but Arm A ffs=3025 fails merge bar by +25 steps; 214th mech class CROSS-FAMILY-AXIS-1-X-AXIS-8-AT-SOAP-FAMILY-SUB-FLOOR-CARRIER-ABSORPTION-WITH-WD-SUBSTRATE-CROSS-FAMILY-CARRIER-AT-65-PERCENT-AND-MLP-SOAP-FRONT-FAST-SUB-FLOOR-PENETRATION; FOUR concurrent invariants: ARM A SUB-FLOOR PENETRATION BELOW SOAP FAMILY FLOOR (FIRST cross-family compound to penetrate below SOAP floor + LOWEST cross-PR result), CROSS-FAMILY-CARRIER MECHANISM at 64.8% absorption (Δ(B−A)=+0.00212), SUB-ADDITIVE PRODUCTIVE INTERACTION at 77.6% recovery vs additive null 3.27290, SOAP FAMILY FLOOR ABSORBS BOTH AdamW-FAMILY SUBSTRATES (axis #5 × #8 +0.00029 above SOAP floor vs THIS −0.00072 below SOAP floor); Family A SOAP-FAMILY-FLOOR UNIVERSAL ABSORPTION STRONGLY SUPPORTED + Family B channel-specific REFUTED; 181st family closure AXES-1-X-8-CROSS-FAMILY-INITIAL-READING-WITH-SUB-FLOOR-PENETRATION-AND-CARRIER-ABSORPTION-AT-65-PERCENT) + askeladd #1875 new assignment (SUB-FLOOR n=2 VERIFICATION × LM-HEAD-DECOMPOSITION bilateral: Arm A wd_X_mlp_soap_front_fast n=2 re-seed verification + Arm B lm_head_wd_only_X_mlp_soap_front_fast AUX_WD_EMBED=0 carrier-decomposition; discriminates TRUE-SUB-FLOOR vs 11th RTM × LM-HEAD-CARRIER vs EMBED-PARTIAL-CARRIER). Fleet 8/8 active 0 idle. Cumulative: 347 refuted / 214 mech classes / 181 family closures / 9 axes locked / 10 regression-to-mean precedents.
+
+### askeladd #1855 axes #1×#8 cross-FAMILY universality probe — 347th refute, 181st family closure, 214th mech class
+
+Bilateral terminal: Arm A `wd_X_mlp_soap_front_fast` (`rat2mxyo`) val=**3.26891**/3025 SOAP-FAMILY-FLOOR SUB-FLOOR penetration by −0.00072; Arm B `wd_alone` control (`hm14mrky`) val=**3.27103**/3025. Bilateral mean **3.26997**/3025 INSIDE FLOOR BAND but Arm A ffs=3025 fails merge bar by +25 steps. **347th cycle-71 refute**.
+
+**KEY STRUCTURAL FINDING — SUB-FLOOR PENETRATION + CARRIER ABSORPTION at 65%**:
+- **Arm A 3.26891 is the LOWEST cross-PR val result of cycle 71** and the **FIRST cross-family compound to penetrate BELOW the SOAP family floor 3.26963**. Δ vs #1832 axis #5 × #8 cross-family compound (3.26992) = −0.00101 productive cross-PR delta.
+- **CROSS-FAMILY-CARRIER MECHANISM at 64.8% absorption**: Δ(Arm B − Arm A) = +0.00212 → MLP-SOAP front_FAST clears 64.8% of axis-#1-alone destructive cost. REFUTES SUPER-ABSORPTION pure variant (would need Arm A < 3.26800).
+- **SUB-ADDITIVE PRODUCTIVE INTERACTION at 77.6% recovery vs additive null 3.27290**: productive interaction excess −0.00399 (stronger than #1832 axis #5 × #8 which was 65% sub-additive).
+- **SOAP FAMILY FLOOR ABSORBS BOTH AdamW-FAMILY SUBSTRATES**: axis #5 × #8 (#1832) +0.00029 above SOAP family floor; axis #1 × #8 (THIS PR) −0.00072 below SOAP family floor — axis #1 × #8 absorbs MORE than axis #5 × #8 by −0.00101.
+
+**214th MECH CLASS**: CROSS-FAMILY-AXIS-1-X-AXIS-8-AT-SOAP-FAMILY-SUB-FLOOR-CARRIER-ABSORPTION-WITH-WD-SUBSTRATE-CROSS-FAMILY-CARRIER-AT-65-PERCENT-AND-MLP-SOAP-FRONT-FAST-SUB-FLOOR-PENETRATION.
+
+**181st FAMILY CLOSURE**: AXES-1-X-8-CROSS-FAMILY-INITIAL-READING-WITH-SUB-FLOOR-PENETRATION-AND-CARRIER-ABSORPTION-AT-65-PERCENT (CARRIER variant CONFIRMED + SUPER-ABSORPTION variant just-missed by +0.00091 above 3.26800).
+
+**Family-level cross-PR significance**: Family A (SOAP-FAMILY-FLOOR UNIVERSAL ABSORPTION) **STRONGLY SUPPORTED**: SOAP family floor mechanism absorbs BOTH AdamW-family substrate types (first-moment exp_avg AND parameter-space WD). Family B (channel-specific) **REFUTED**.
+
+### askeladd #1875 new assignment: SUB-FLOOR n=2 VERIFICATION × LM-HEAD-DECOMPOSITION at axes #1 × #8 cross-FAMILY
+
+**Goal**: discriminate TRUE-SUB-FLOOR vs 11th RTM × LM-HEAD-CARRIER vs EMBED-PARTIAL-CARRIER at the productive SOAP-family-floor sub-floor result:
+- Arm A `wd_X_mlp_soap_front_fast_n=2`: re-seed verification of #1855 A 3.26891 SUB-FLOOR result
+- Arm B `lm_head_wd_only_X_mlp_soap_front_fast`: AUX_WD_EMBED=0 decomposition probe to attribute 65% absorption to lm_head vs embed kind
+
+Outcomes: TRUE-SUB-FLOOR + LM-HEAD-CARRIER (35%) / 11th RTM + carrier-distribution-LATENT (30%) / TRUE-SUB-FLOOR + EMBED-PARTIAL-CARRIER (20%) / PURE SUPER-ABSORPTION + MERGE candidate (10%) / UNEXPECTED dual regression (5%).
+
+---
+
 ## 2026-05-30 21:25 UTC — Cycle 71 mid-442 — tanjiro #1854 346th refute + 180th family closure + 213th mech class (axes #2×#5 MOMENT-CHANNEL DISCRIMINATION CUBE COMPLETE at embed bilateral terminal: Arm A `beta1_X_moment_1` val=3.40479/-1 CATASTROPHIC-SHIFTED-FLOOR + Arm B `beta1_X_moment_3` val=3.27266/3050 DEGRADED-EDGE; bilateral mean 3.33873 ABOVE both merge bars; 213th mech class BETA1-X-MOMENT-CHANNEL-IMBALANCE-AT-EMBED-WITH-MOMENT-2-UNIQUELY-PRODUCTIVE-AND-MOMENT-1-CATASTROPHIC-SHIFTED-FLOOR-AND-MOMENT-3-DEGRADED-EDGE; THREE-MECHANISM ISOLATION: M=1 CATASTROPHIC (+0.137 above baseline, parallel to #1824 lm_head ~90× less severe), M=2 UNIQUELY PRODUCTIVE (#1828 A 3.26934 inverse of Family A prediction), M=3 DEGRADED-EDGE (β1=0.7 slow post-reset re-warmup); BOTH predicted families REJECTED; Step-375 dispositive divergence boundary; FIFTH cycle-71 closure where pre-declared hypothesis space rejected; 180th family closure AXES-2-X-5-MOMENT-CHANNEL-DISCRIMINATION-CUBE-COMPLETE; KIND-INVARIANT pattern: MOMENT=1 destabilizing at both substrates) + tanjiro #1874 new assignment (KIND-INVARIANCE × β1-DIRECTION-SYMMETRY at MOMENT=2: Arm A lm_head_M=2 + Arm B embed_β1_PUSH_UP_M=2; discriminates KIND-INVARIANT vs KIND-CONDITIONAL vs DIRECTION-SYMMETRIC vs DIRECTION-LOCKED). Fleet 8/8 active 0 idle. Cumulative: 346 refuted / 213 mech classes / 180 family closures / 9 axes locked / 10 regression-to-mean precedents.
 
 ### tanjiro #1854 axes #2×#5 MOMENT-CHANNEL DISCRIMINATION CUBE — 346th refute, 180th family closure, 213th mech class
