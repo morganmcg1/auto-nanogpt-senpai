@@ -1,3 +1,33 @@
+## 2026-05-30 10:40 UTC — Cycle 71 mid-425 — fern #1792 327th refute + 161st family closure + 194th mech class (STATE_MECHANISM_MONOTONIC_CONTINUUM bilateral terminal: Arm A `clear_to_zero` (factor=0.0) val=3.27256/3050 Arm B `multiply_by_half` (factor=0.5) val=3.27057/3025 delta(B−A)=−0.00199 PARTIAL DOMINATES FULL; bilateral mean 3.27156/3037.5 ABOVE MERGE BAR; 194th mech class STATE-MECHANISM-MONOTONIC-CONTINUUM-AT-EMBED-RESET-WITH-V-PROJECTOR-COST-LOCALIZATION; 161st family closure PER-KIND-AUX-EMBED-EXP_AVG-FACTOR-AXIS-DECOMPOSITION) + fern #1814 new assignment (STRUCTURAL_CUBE_COMPLETION: cross-moment partial-factor cube at embed × interval=200 × factor=0.5). Fleet 8/8 active 0 idle. Cumulative: 327 refuted / 194 mech classes / 161 family closures / 9 axes locked.
+
+### fern #1792 STATE_MECHANISM_MONOTONIC_CONTINUUM — 327th refute, 161st family closure, 194th mech class
+
+Bilateral terminal: Arm A `clear_to_zero` (factor=0.0) val=**3.27256**/3050; Arm B `multiply_by_half` (factor=0.5) val=**3.27057**/3025; bilateral mean **3.27156**/3037.5 → fails merge bar +0.00380 above baseline. W&B runs: d7azfjnu (Arm A) + ubwoj1r3 (Arm B). Δ(B−A)=**−0.00199 PARTIAL DOMINATES FULL**. **327th cycle-71 refute**.
+
+**194th MECH CLASS: STATE-MECHANISM-MONOTONIC-CONTINUUM-AT-EMBED-RESET-WITH-V-PROJECTOR-COST-LOCALIZATION**:
+1. **Monotonic productive direction at interval=200**: partial-preserve (factor=0.5) beats full-clear (factor=0.0) by Δ=−0.00199 — graded lever not a cliff
+2. **Per-event execution invariant**: 15/15 reset events at exact 0.000 / 0.500 ratio respectively; Arm B pre-reset norms converge to ~20 steady-state (balance point) vs Arm A's terminal 20.24
+3. **Trust-gate cost v-projector-localized**: v on_fraction Arm A=0.417 → Arm B=0.250 (−0.167); other projectors marginal — productive val improvement paid for by less-trusted SOAP eigenbasis at v-projector specifically
+4. **Interval dominant lever, factor secondary**: partial-at-shorter-interval (3.27057) NOT equivalent to full-at-longer-interval (#1754 B = 3.26891); partial recovers ~55% of interval-aggression cost but longer-interval-full-clear remains dominant
+
+**Cross-mech-class coupling noted**: v=0.417 fixed-point that appears in #1793 gate-budget pool also appears here — full-clear preserves v=0.417 (axis #1 substrate untouched), partial-preserve drops v to 0.250 (embed momentum cascades to v-projector eigenbasis suppression). Same fixed-point value at two different mechanistic origins.
+
+**161st FAMILY CLOSURE**: PER-KIND-AUX-EMBED-EXP_AVG-FACTOR-AXIS-DECOMPOSITION closed at embed × exp_avg × interval=200 with factor=0.0 (full-clear) + factor=0.5 (half-preserve). Monotone continuum confirmed in partial-preserve direction at this interval.
+
+### fern #1814 new assignment: CROSS-MOMENT PARTIAL-FACTOR CUBE EXTENSION
+
+**Goal**: moment-axis cube extension at fixed (embed, interval=200, factor=0.5) — tests whether productive partial-preserve direction is moment-symmetric or first-moment-specific:
+- Arm A `second_moment_partial_only` (MOMENT=1, exp_avg_sq only, factor=0.5): if lands ≈ 3.27057 → moment-symmetric; if sub-floor (<3.26800) → potential sub-baseline merge candidate at n=2; if above 3.27200 → first-moment-specific
+- Arm B `both_moments_partial` (MOMENT=3, both moments, factor=0.5): additive null = val_A + 0.00281; sub-additive = moment-coupling cooperative (195th mech class candidate); super-additive = destructive moment-pair
+
+This is the first cycle-71 test of moment-axis decomposition within the partial-factor mechanism.
+
+### Cycle 71 cumulative state (updated: 1 new closure, 1 family closure, 1 new mech class)
+
+**Cycle 71 cumulative**: **327 refuted** / **194 distinct mech classes** / **161 family-level closures** / **9 structural axes locked** / axes #1+#2 FULLY CLOSED (CNI), axis #4 FULLY CLOSED + COMPOUND BILATERAL COMPLETE, axes #8+#9 LOCKED.
+
+---
+
 ## 2026-05-30 10:35 UTC — Cycle 71 mid-424 — edward #1793 326th refute + 160th family closure + 193rd mech class (GATE_BUDGET_POOL_UNIVERSAL bilateral terminal: Arm A `qk_joint_excluded` val=3.27024/3025 Δ_null=−0.00856; Arm B `qproj_joint_excluded` val=3.27085/3025 Δ_null=−0.00771; bilateral mean 3.27054/3025 ABOVE MERGE BAR; Δ(B−A)=+0.00061<0.0015 PAIR-AXIS-INVARIANT; v ON_FRACTION=0.417 FIXED-POINT IDENTICAL IN BOTH ARMS; 193rd mech class PER-PROJECTION-ROLE-JOINT-EXCLUSION-GATE-BUDGET-POOL-SUB-ADDITIVITY-UNIVERSAL-WITH-V-FIXED-POINT; 160th family closure PER-PROJECTION-ROLE-JOINT-EXCLUSION-GATE-BUDGET-POOL; AXIS #4 COMPOUND BILATERAL COMPLETE) + edward #1812 new assignment (GATE-BUDGET-POOL v-fixed-point universality probe: kv-excluded + vproj-excluded — tests whether v=0.417 fixed-point is v-specific or universal).
 
 ### edward #1793 GATE_BUDGET_POOL_UNIVERSAL — 326th refute, 160th family closure, 193rd mech class
