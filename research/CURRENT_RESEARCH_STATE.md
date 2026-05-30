@@ -9,7 +9,26 @@ The human research team has redirected: **FFS (first-step-to-target, baseline 30
 3. **Prefer experiments that move the crossing step** (2800-3050 window), **simplify winning stacks**, **reveal FFS-load-bearing components**.
 4. **Ablations preferred over confirmations** when FFS dead.
 
-## Last updated: 2026-05-30 22:15Z (65 R5 closures; tanjiro #1880 muon-mu-cooldown-schedule ASSIGNED; all 8 students active)
+## Last updated: 2026-05-30 22:30Z (66 R5 closures; fern #1826 Padé rational NS CLOSED 66th [Pareto-NEG, polar-approximator family structurally exhausted]; fern now idle pending fresh hypothesis)
+
+### Notes (2026-05-30 22:30Z) — FERN #1826 PADÉ RATIONAL NS CLOSED 66th [PARETO-NEG, POLAR-APPROXIMATOR FAMILY STRUCTURALLY EXHAUSTED]
+
+- **★ CLOSED #1826 fern Padé-(1,1) rational NS approximant** [66th R5 closure, 22:25Z] — Pareto-NEG: FFS-neutral vs CTRL at +108% wall-clock per step. Student correctly skipped Cell D (Pareto clause: zero FFS gain at >30% wall-clock penalty).
+  - Cell A CTRL: FFS_ema=2925
+  - Cell B★ Padé default (iter=3): FFS_ema=**2925** (IDENTICAL), val=3.27061, step_avg 3942 ms vs CTRL 1896 ms = +107.9%
+  - Cell C Padé fast (iter=2): FFS_ema=−1 (never hit target, under-converged)
+  - Cell D: SKIPPED (Pareto-NEG)
+- **★★ MECHANISM (high value, doubly confirmed)**:
+  - **σ=0 fixed-point structural exhaustion** — Padé `f(σ)=σ(3+σ²)/(1+3σ²)` shares `f(0)=0` with NS5/Higham/Cayley/Schulz polish. **Entire polar-approximator family CANNOT lift attn σ_min ≈ 0.003** (rank-deficient stays rank-deficient).
+  - **MLP σ_min NOT FFS-load-bearing — independently confirmed by Padé**: σ_min 0.86→1 in 1 iter (theoretical advantage over NS5's 6 iters) produces zero FFS gain. Agrees with #1838 Schulz polish result. Two independent mechanism-distinct ablations now confirm.
+- **Polar-approximator family STRUCTURALLY EXHAUSTED at R5**: #1833 Higham (KG FAIL square attn) + #1825 Cayley (Frobenius σ-basin mismatch) + #1838 Schulz nonsquare polish (FFS-NEUTRAL) + #1826 Padé (Pareto-NEG). Further axes in this family are wasted compute unless they bundle explicit σ_min=0 lift (edward #1858 α-blended Schulz polish on SQUARE attn is the only remaining family experiment — but it also has σ=0 fixed-point limit, so unlikely to lift floor; outcome will be informative either way).
+- **Remaining FFS levers** (per current evidence):
+  - Loss-level (thorfinn #1870 label smoothing, in-flight)
+  - Momentum dynamics (tanjiro #1880 μ cooldown schedule, in-flight)
+  - LR/EMA window mechanics
+  - Non-spectral attention mechanism (data ordering, attention pattern shaping, etc.)
+- **FERN NOW IDLE** — researcher-agent dispatching 22:30Z for fresh hypothesis outside polar-approximator family.
+- **Fleet at 22:30Z**: thorfinn #1870 WIP; alphonse #1860 WIP; edward #1858 WIP; frieren #1841 WIP; askeladd #1839 WIP; nezuko #1834 WIP; tanjiro #1880 WIP; fern IDLE (pending). **7/8 active.**
 
 ### Notes (2026-05-30 22:05Z) — TANJIRO #1821 PER-HEAD NS ATTN CLOSED 65th [FFS-NEG, OUTPUT PROJ LOAD-BEARING]
 

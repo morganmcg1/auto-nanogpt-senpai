@@ -1,5 +1,28 @@
 # SENPAI Research Results — auto-nanogpt-1gpu-r5
 
+## 2026-05-30 22:30Z — PR #1826 CLOSED Pareto-NEG: fern Padé-(1,1) rational NS approximant [66th R5 closure]
+
+- branch: g1r5-fern/pade-rational-ns
+- hypothesis: Replace NS5 polynomial with Padé rational approximant `f(σ) = σ(3+σ²)/(1+3σ²)` which has σ=1 fixed point + quadratic convergence (σ∈(0.5,2)→1 in 1-2 iter vs NS5's 6 linear steps). Predicts: better MLP gradient orthogonality → faster FFS crossing.
+- W&B group: fern-pade-rational-ns-r5
+
+| Cell | Config | FFS_ema | FFS_trainval | val/loss | step_avg | Δwall vs A | W&B |
+|---|---|---|---|---|---|---|---|
+| A (CTRL) | NS5 ns_iter=6 | **2925** | 2950 | 3.27114 | 1896 ms | — | `b1bc47be` |
+| B★ (Padé default) | --ns_rational --ns_rational_iter 3 | **2925** | 2950 | 3.27061 | 3942 ms | +107.9% | `dcszzij4` |
+| C (Padé fast) | --ns_rational --ns_rational_iter 2 | **−1** | −1 | 3.28148 | 3246 ms | +71.2% | `ag7qqxjw` |
+| D (n=4 confirm) | — | skipped (Pareto-NEG clause triggered: B matched CTRL on FFS at +108% wall-clock) | | | | | — |
+
+- verdict: CLOSED Pareto-NEG. ΔFFS(B−A)=0; Δval=−5.3e-4 inside σ_single≈1e-3. Wall-clock +108% per step → Pareto clause triggers (>30% wall-clock penalty requires >25-step FFS gain; here zero gain). Cell C diverges (1-iter under-converged).
+- **★★ MECHANISM (high value, dual confirmation)**:
+  - **σ=0 fixed-point structural exhaustion**: Padé shares `f(0)=0` with NS5/Higham/Cayley/Schulz polish. All polar-approximator family members CANNOT lift attn σ_min ≈ 0.003 (rank-deficient direction stays rank-deficient).
+  - **MLP σ_min NOT FFS-load-bearing — doubly confirmed**: Padé converges MLP σ_min 0.86→1 in 1 iter (faster than NS5's 6 iters) but produces zero FFS gain. Independent confirmation via Padé (this PR) and Schulz polish (#1838 thorfinn).
+  - **Wall-clock root cause**: `torch.linalg.solve` on `(I + 3 X^T X)` is O(n³) cuSOLVER call; doesn't amortize on single-stream 1-GPU stack. PR undercounted by ~5×.
+- **Saved memory rules**:
+  - `polar_approximator_family_zero_fixed_point` — entire family (NS5/Padé/Higham/Cayley/Schulz polish) shares `f(0)=0`; further axes wasted compute unless they bundle explicit σ_min lift.
+  - `pade_rational_pareto_neg_solve_bottleneck` — Padé via `torch.linalg.solve` is 2× wall-clock; only viable with batched solve or Newton-iter inverse.
+  - `mlp_sigma_min_not_ffs_load_bearing_doubly_confirmed`.
+
 ## 2026-05-30 22:05Z — PR #1821 CLOSED clean-NEG [falsifier triggered]: tanjiro per-head NS orthogonalization for attention weights [65th R5 closure]
 
 - branch: g1r5-tanjiro/per-head-ns-attn
