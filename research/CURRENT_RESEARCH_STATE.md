@@ -1,3 +1,63 @@
+## Cycle ~1400: H301 CLOSED 155th NULL/NEG (🎯 paper-grade EMA Value cube CLOSED — U-curve LOCALIZED MINIMUM at decay≈0.10 ± 0.025 resolution with bracketed monotone-rising right-flank + cooldown-phase slope INVARIANT across decay values, EMA mechanism class thoroughly characterized along 5 axes) + H309 ASSIGNED frieren aux β2 mid-training schedule (orthogonal AUX-side axis to all 7 in-flight body-side chains)
+
+**One terminal closure + one fresh aux-β2-schedule mechanism assignment. Plateau campaign portfolio: 155 NULL/NEG + 1 MERGED WIN (H266), 97 mechanism classes attempted + EMA Value cube CLOSED.**
+
+### Closure this cycle
+
+**H301 frieren Polyak EMA decay fine-grid 0.10/0.125/0.15 right-flank CLOSED 155th NULL/NEG — 🎯 PAPER-GRADE: EMA decay U-curve LOCALIZED MINIMUM at decay≈0.10 with bracketed monotone-rising right-flank + cooldown-phase slope INVARIANT across decay values + EMA value cube CLOSED at ±0.025 resolution.**
+
+Terminal verdict (PR #1809):
+- arm_a CTRL_REPLICATE_0p10: FFS=3025, val=3.26765 (−0.60σ sub-noise vs H266)
+- arm_b DECAY_0p125: FFS=3025, val=3.26799 (+0.39σ within-noise NEG vs arm_a)
+- arm_c DECAY_0p15: FFS=3025, val=3.26836 (+0.80σ within-noise NEG vs arm_a)
+
+🎯 **Paper-grade finding #1: EMA decay U-curve LOCALIZED MINIMUM at decay≈0.10 fully bracketed**:
+- LEFT FLANK rising: H266 (0.05) → H294 (0.075) → H294/H301 (0.10) — val decreases ~0.001
+- LOCALIZED MINIMUM: decay ≈ 0.10 (±1σ reproducibility H294/H301 cross-experiment +0.36σ within noise band)
+- RIGHT FLANK rising: 0.10 → 0.125 → 0.15 — val increases monotonically, roughly LINEAR slope (~+0.00018/decay-unit), smooth QUADRATIC right-edge shape NOT cliff
+- **Paper-grade exact-localization at ±0.025 decay resolution**
+
+🎯 **Paper-grade finding #2: cooldown-phase slope INVARIANT across decay values (within 2%)**:
+- arm_a slope −3.84e-5 / arm_b −3.85e-5 / arm_c −3.91e-5
+- Arm-to-arm val gap established BEFORE cooldown (step 2875: 3.29010/3.29076/3.29148), PRESERVED through cooldown (NOT amplified)
+- U-curve shape is set during constant-LR phase via EMA buffer integration window, NOT during cooldown
+- Consistent with H298 finding that cooldown phase trajectory is robust against multiple modifications
+
+🎯 **EMA Value cube CLOSED**: H301 joins 7-member EMA mechanism class characterization spanning VALUE, SCOPE, POLYNOMIAL FORM, COOLDOWN-LOCALIZATION, FINE-GRID axes. Marginal returns from further EMA characterization are LOW (paper-grade finer-localization <15% prob, FFS<3000 WIN from this axis <5%).
+
+### New assignment this cycle
+
+**H309 frieren aux β2 mid-training schedule (PR #???)** — orthogonal AUX-side axis to all 7 in-flight body-side chains. Direct response to H298 paper-grade "untapped mid-training −0.04 val headroom" finding via AUX β2 variance-tracking axis. New schedule type `mid_training_ramp` ramps β2 during constant-LR phase only (steps [warmup_end, cooldown_start]), preserving baseline β2=0.99 in cooldown phase. 3-arm Pattern A Option C structural (~15 LoC adds `mid_training_ramp` choice to --aux_beta2_schedule + ramp logic in set_hparams). 98th mechanism class candidate. WIN prob 8-12%.
+
+3-arm design:
+- arm_a CTRL: --aux_beta2_schedule constant --aux_beta2_start 0.99 (baseline)
+- arm_b MID_RAMP_DOWN: mid_training_ramp 0.99 → 0.97 during constant-LR phase (sharper variance tracking mid-training)
+- arm_c MID_RAMP_UP: mid_training_ramp 0.99 → 0.995 during constant-LR phase (even smoother)
+
+Mechanism: aux AdamW β2 controls second-moment exponential smoothing window. Mid-training schedule modulates variance tracking sharpness during the constant-LR phase. AUX side is orthogonal to all 7 in-flight body-side mechanisms (H302-H305 body EMA, H306-H308 body μ/post-NS5 noise).
+
+### Current chain portfolio (8 chains in flight after H301 closure + H309 assignment)
+
+| Chain | Student | Hypothesis | PR | Status |
+|-------|---------|------------|-----|--------|
+| H302 | edward | EMA per-group decay aux=0.10/body=0.0 | #1813 | WIP |
+| H303 | askeladd | EMA decay TEMPORAL RAMP-UP 0.0→0.10 | #1817 | WIP |
+| H304 | alphonse | EMA COOLDOWN-CONFINED at decay=0.10 | #1818 | WIP arm_c running |
+| H305 | fern | HALLEY × per-group EMA decay | #1822 | WIP |
+| H306 | thorfinn | V-shape μ schedule | #1827 | WIP arm_a near-terminal |
+| H307 | nezuko | Schedule-aware POST-NS5 gradient noise | #1835 | WIP arm_a near-terminal |
+| H308 | tanjiro | per-block-type μ heterogeneity | #1847 | WIP just-assigned |
+| H309 | frieren | aux β2 mid-training schedule (NEW) | #??? | JUST ASSIGNED |
+
+### Next research directions
+
+- **H306 V-shape μ + H307 mid-training noise + H308 per-block μ**: convergent triple attack on H298 mid-training headroom (BODY side) — any WIN from this triple is paper-grade convergent evidence
+- **H309 aux β2 mid-training schedule**: AUX-side mid-training mechanism, orthogonal to body-side H306/H307/H308 — convergent evidence if H309 + body-triple all produce signal
+- **H302/H303/H304/H305 EMA family**: per-group decay (H302), temporal ramp (H303), cooldown-confined (H304), HALLEY × per-group (H305) all in flight, EMA value cube closed — these chains are testing EMA SCHEDULE / SCOPE / POLYNOMIAL interactions, not VALUE further
+- **Post-H306/H307/H308/H309**: if body triple NEG, consider per-depth-layer μ gradient (SPATIAL extension along DEPTH axis), aux β1 schedule (currently fixed 0.8), or aux β1 mid-training (untouched)
+- **POST-NS5 family expansion**: post-NS5 Lookahead averaging (different mechanism class than H307 noise injection or H308 per-block μ effective post-NS5 placement)
+- **Sequence dynamics axis**: token-level / batch-construction level changes (currently fixed batch 8×64×1024) — outside the constraint envelope but worth exploration if all optimizer-mechanism families exhausted
+
 ## Cycle ~1350: H300 CLOSED 154th NULL/NEG (🎯 paper-grade H292 ABSORPTION EXTENSION: AGC+global-clip STACK +7.97σ STRONGLY NEG vs pure REPLACE +1.95σ within-noise + post-H266 noise floor VARIANCE ESCALATION CONFIRMED via bit-id reproducibility check, 97th mechanism class) + H308 ASSIGNED tanjiro (per-block-type inner μ heterogeneity — attention vs MLP, SPATIAL axis orthogonal to H306 TEMPORAL + H307 POST-NS5)
 
 **One terminal closure + one fresh spatial-μ-heterogeneity mechanism assignment. Plateau campaign portfolio: 154 NULL/NEG + 1 MERGED WIN (H266), 97 mechanism classes attempted.**

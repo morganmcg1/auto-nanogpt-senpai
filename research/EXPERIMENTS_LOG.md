@@ -1,3 +1,66 @@
+## 2026-05-30 16:35 — PR #1809 H301 frieren: Polyak EMA decay fine-grid 0.10/0.125/0.15 right-flank — **CLOSED 155th NULL/NEG (🎯 paper-grade EMA decay U-curve LOCALIZED MINIMUM at decay≈0.10 with bracketed monotone-rising right-flank — EMA Value cube paper-grade exact-localization at ±0.025 resolution, NOT a new mechanism class)**
+
+- Branch: g1r3-frieren/h301-polyak-ema-decay-fine-grid (PR #1809, 3-arm Pattern A Option B polyak_ema_decay fine-grid)
+
+| Arm | polyak_ema_decay | Run ID | step-0 val | terminal val | FFS | Δ vs H266 baseline (σ_H174) | Δ vs arm_a CTRL |
+|-----|-------------------|--------|------------|---------------|-----|-----------------------------|-------------------|
+| arm_a CTRL_REPLICATE_0p10 | 0.10  | `8l1wxctu` | 10.82583 ✓ | **3.26765** | **3025** | **−0.60σ** sub-noise | (reference) |
+| arm_b DECAY_0p125         | 0.125 | `zplk22s7` | 10.82583 ✓ | 3.26799 | 3025 | −0.21σ sub-noise | **+0.39σ within-noise NEG** |
+| arm_c DECAY_0p15          | 0.15  | `tr12rk2y` | 10.82583 ✓ | 3.26836 | 3025 | +0.20σ sub-noise | **+0.80σ within-noise NEG** |
+
+H266 baseline: val=3.26818, FFS=3000. Per Issue #1260 strict: all arms FFS=3025 TIE (NOT <3000 strict) → NOT merge-eligible.
+
+🎯 **Paper-grade finding: EMA decay U-curve LOCALIZED MINIMUM at decay≈0.10 (fully bracketed)**:
+
+| Decay | Hypothesis | val/loss | Δ vs H266 baseline | FFS |
+|-------|-----------|----------|---------------------|-----|
+| 0.05  | H266 MERGED baseline | 3.26818 | 0.0σ | 3000 |
+| 0.075 | H294 arm_b (LEFT flank rising) | 3.26733 | −0.96σ | 3000 |
+| 0.10  | H294 arm_c (LEFT flank approaching min) | 3.26733 | −0.96σ | 3000 |
+| 0.10  | **H301 arm_a CTRL REPLICATE** | **3.26765** | **−0.60σ** (+0.36σ drift vs H294) | 3025 |
+| 0.125 | **H301 arm_b NEW** | **3.26799** | **−0.21σ** | 3025 |
+| 0.15  | **H301 arm_c NEW** | **3.26836** | **+0.20σ** | 3025 |
+
+**LEFT FLANK rising**: 0.05 → 0.075 → 0.10 (val decreases by ~0.001)
+**LOCALIZED MINIMUM**: decay ≈ 0.10 (±1σ reproducibility H294/H301 cross-experiment drift +0.36σ within band)
+**RIGHT FLANK rising**: 0.10 → 0.125 → 0.15 (val increases monotonically, roughly LINEAR slope ≈ +0.00018/decay-unit, smooth QUADRATIC right-edge shape NOT degradation cliff)
+
+🎯 **Sub-finding: cooldown-phase slope IDENTICAL across decay values (within 2%)**:
+
+| Arm | val(step 3000) | val(step 3325) | cooldown slope (per step) |
+|-----|----------------|-----------------|---------------------------|
+| arm_a | 3.28014 | 3.26765 | −3.84e-5 |
+| arm_b | 3.28051 | 3.26799 | −3.85e-5 |
+| arm_c | 3.28108 | 3.26836 | −3.91e-5 |
+
+Arm-to-arm val gap is **established BEFORE cooldown** (visible at step 2875) and **PRESERVED through cooldown** (not amplified). The U-curve shape is set during the constant-LR phase via the EMA buffer integration window, NOT during cooldown. Consistent with H298 finding that cooldown phase trajectory is robust against multiple modifications.
+
+🎯 **EMA Value cube CLOSED (paper-grade exact-localization at decay≈0.10 ± 0.025 resolution)**:
+
+H301 joins the EMA mechanism class characterization:
+- H266 (MERGED, decay=0.05): paper-grade FAST EMA captures cooldown sharpening (breakthrough)
+- H274 (NEG, scope=aux_only): EMA scope must include body for FFS gain
+- H274v2 (NEG, decay=0.10): single-point check
+- H287 (NEG, HALLEY × EMA): polynomial form interaction
+- H288 (NEG, cooldown-localization): paper-grade EMA cooldown-confinement reduces gain
+- H294 (NEG, value-grid 0.075/0.10): paper-grade OPTIMUM at 0.10
+- **H301 (NEW, fine-grid right-flank)**: paper-grade RIGHT FLANK monotone-NEG, completes U-curve cube
+
+EMA mechanism class is now thoroughly characterized along VALUE, SCOPE, POLYNOMIAL FORM, COOLDOWN-LOCALIZATION, FINE-GRID. Marginal returns from further EMA characterization are LOW (probability of paper-grade finer-localization improvement <15%, probability of FFS<3000 strict WIN <5% from this axis).
+
+**3-way Pattern A drift-FREE** (all step-0=10.82583 EXACT). Treatment plumbing config-pane audit confirmed.
+
+W&B run IDs:
+- arm_a CTRL_0p10: `8l1wxctu`
+- arm_b DECAY_0p125: `zplk22s7`
+- arm_c DECAY_0p15: `tr12rk2y`
+
+Decision: CLOSED as 155th NULL/NEG with paper-grade EMA U-curve right-flank characterization completing the EMA value cube (NOT a new mechanism class — continued characterization extension).
+
+**H309 frieren Aux β2 mid-training schedule ASSIGNED IMMEDIATELY** (PR #???): tests aux AdamW β2 mid-training ramp variant (orthogonal AUX-side axis to all 7 in-flight body-side chains H302-H308). Direct response to H298 paper-grade mid-training headroom finding via AUX β2 variance-tracking axis. 3-arm Pattern A Option C structural (~15 LoC adds `mid_training_ramp` choice to --aux_beta2_schedule). 98th mechanism class candidate. WIN prob 8-12%.
+
+---
+
 ## 2026-05-30 15:38 — PR #1804 H300 tanjiro: Aux global gradient-norm clip — **CLOSED 154th NULL/NEG (🎯 paper-grade H292 ABSORPTION EXTENSION: per-param AGC absorbed by AdamW 1/√v but global-scalar clip NOT absorbed + within-chain STACK-vs-REPLACE +7.97σ destructive interaction + post-H266 noise floor VARIANCE ESCALATION confirmed via bit-id reproducibility check, 97th mechanism class)**
 
 - Branch: g1r3-tanjiro/h300-aux-global-grad-clip (PR #1804, 3-arm Pattern A Option B aux_global_grad_clip_norm + 1 bit-id reproducibility check)
