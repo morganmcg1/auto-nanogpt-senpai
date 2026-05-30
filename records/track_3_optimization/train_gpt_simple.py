@@ -114,6 +114,14 @@ def parse_args():
                         help="Polyak-Ruppert EMA decay for eval-only weight averaging. "
                              "0.0 = disabled (drift-FREE CTRL). Typical: 0.05 (fast, ~20-step half-life) / "
                              "0.005 (slow, ~200-step half-life). Higher decay = faster EMA tracking.")
+    parser.add_argument("--polyak_ema_cooldown_only", type=int,
+                        default=int(os.environ.get("POLYAK_EMA_COOLDOWN_ONLY", "0")),
+                        help="If 1, Polyak EMA is only applied during the last 825 steps (H288 cooldown window). "
+                             "Pre-cooldown, EMA state tracks instantaneous params (copy each step, no smoothing).")
+    parser.add_argument("--polyak_ema_reset_at_cooldown", type=int,
+                        default=int(os.environ.get("POLYAK_EMA_RESET_AT_COOLDOWN", "0")),
+                        help="If 1 AND --polyak_ema_cooldown_only=1, EMA state is explicitly re-initialized at the "
+                             "cooldown entry step (clears pre-cooldown EMA memory).")
     args = parser.parse_args()
     args.num_trials = args.num_trials if args.num_trials is not None else (args.legacy_num_trials or 1)
     args.wandb_tags = [tag.strip() for tag in args.wandb_tags.split(",") if tag.strip()]
@@ -856,6 +864,8 @@ if dist.get_rank() == 0:
             "muonh_mu_start": args.muonh_mu_start,
             "muonh_mu_end": args.muonh_mu_end,
             "polyak_ema_decay": args.polyak_ema_decay,
+            "polyak_ema_cooldown_only": args.polyak_ema_cooldown_only,
+            "polyak_ema_reset_at_cooldown": args.polyak_ema_reset_at_cooldown,
         },
     )
 
@@ -1073,6 +1083,12 @@ for trial_idx in range(args.num_trials):
             print0(f"H266 Polyak EMA buffer initialized: decay={args.polyak_ema_decay}, "
                    f"total_bytes={total_ema_bytes/(1024**3):.2f}GB", console=True)
 
+    # H304: cooldown-entry step for EMA gating (H288 paper-grade 825-step window).
+    ema_cooldown_entry_step = max(0, train_steps - 825)
+    if dist.get_rank() == 0 and args.polyak_ema_cooldown_only == 1:
+        print0(f"H304 EMA cooldown-only gating ENABLED: entry_step={ema_cooldown_entry_step}, "
+               f"reset_at_cooldown={args.polyak_ema_reset_at_cooldown}", console=True)
+
     # start the clock
     training_time = 0
     last_val_step = 0
@@ -1149,6 +1165,8 @@ for trial_idx in range(args.num_trials):
                 metrics.update(prefixed("val/slope", loss_slope_stats(val_loss_history, slope_window_steps)))
                 if polyak_ema_state is not None:
                     metrics["train/h266/ema_deviation_l2"] = ema_deviation_l2
+                    metrics["ema/cooldown_entry_step"] = ema_cooldown_entry_step
+                    metrics["ema/in_cooldown_phase"] = int(step >= ema_cooldown_entry_step)
                 wandb.log(metrics, step=trial_idx * (train_steps + 1) + step)
             print0(f"step:{step}/{train_steps} val_loss:{val_loss:.5f} train_time:{training_time:.3f}s"
                    + f" step_avg:{1000*step_avg:.2f}ms", console=True)
@@ -1217,11 +1235,26 @@ for trial_idx in range(args.num_trials):
         # H266: Polyak-Ruppert EMA update — runs after the live inner-optimizer step.
         # When polyak_ema_state is None this branch is skipped, leaving the training
         # path bit-identical to the H203 baseline.
+        # H304: cooldown-only gating. Pre-cooldown the EMA state tracks instantaneous
+        # params (copy each step, no smoothing). Optional explicit reset at the cooldown
+        # entry step. Inside the cooldown window the standard EMA update applies.
+        ema_in_cooldown_phase = (step >= ema_cooldown_entry_step)
+        ema_did_reset = False
         if polyak_ema_state is not None:
             with torch.no_grad():
                 decay = args.polyak_ema_decay
-                for name, param in model.named_parameters():
-                    polyak_ema_state[name].mul_(1.0 - decay).add_(param.data, alpha=decay)
+                if args.polyak_ema_cooldown_only == 1 and not ema_in_cooldown_phase:
+                    for name, param in model.named_parameters():
+                        polyak_ema_state[name].copy_(param.data)
+                elif (args.polyak_ema_cooldown_only == 1
+                      and args.polyak_ema_reset_at_cooldown == 1
+                      and step == ema_cooldown_entry_step):
+                    for name, param in model.named_parameters():
+                        polyak_ema_state[name].copy_(param.data)
+                    ema_did_reset = True
+                else:
+                    for name, param in model.named_parameters():
+                        polyak_ema_state[name].mul_(1.0 - decay).add_(param.data, alpha=decay)
         # Log warmup telemetry every 10 steps during warmup (and at telemetry events
         # afterwards) so we capture the warmup curve at high resolution. Cheap since
         # it's just two floats.
@@ -1234,6 +1267,10 @@ for trial_idx in range(args.num_trials):
             muonh_metrics = {"trial": trial_idx, "train/step": train_step}
             muonh_metrics["aux/beta2"] = aux_beta2
             muonh_metrics["train/muonh_mu"] = muonh_mu_t
+            if polyak_ema_state is not None:
+                muonh_metrics["ema/in_cooldown_phase"] = int(ema_in_cooldown_phase)
+                muonh_metrics["ema/cooldown_entry_step"] = ema_cooldown_entry_step
+                muonh_metrics["ema/did_reset_this_step"] = int(ema_did_reset)
             for opt in optimizers:
                 if isinstance(opt, MuonH):
                     if telemetry_due:
