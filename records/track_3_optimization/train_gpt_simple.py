@@ -70,6 +70,11 @@ def parse_args():
                              "late-higher=0.9 (block 0) → 1.1 (block 11), "
                              "late-lower=1.1 (block 0) → 0.9 (block 11). "
                              "Mean LR preserved across blocks.")
+    parser.add_argument("--muon_block_beta_cov_split", type=str, default="none",
+                        choices=["none", "early-slow-late-fast", "early-fast-late-slow"],
+                        help="Binary split per-block Muon beta_cov: 'early-slow-late-fast' = blocks 0-5 "
+                             "beta_cov=0.97 (slow EMA), blocks 6-11 beta_cov=0.92 (fast EMA); "
+                             "'early-fast-late-slow' = inverse.")
     parser.add_argument("--paramema_refresh_step", type=int, default=-1,
                         help="If >0, refresh paramEMA buffer to live params at this step "
                              "(resets accumulated EMA history). -1=disabled. Requires "
@@ -591,13 +596,17 @@ class Muon(torch.optim.Optimizer):
                         state["momentum"] = torch.zeros_like(p)
                         state["L"] = torch.zeros(p.shape[0], p.shape[0], device=p.device, dtype=torch.float32)
                         state["R"] = torch.zeros(p.shape[1], p.shape[1], device=p.device, dtype=torch.float32)
+                    beta_cov_eff = group["beta_cov"]
+                    bc_mults = getattr(self, "_param_beta_cov_mults", None)
+                    if bc_mults is not None and id(p) in bc_mults:
+                        beta_cov_eff = bc_mults[id(p)]
                     update = pmuon_update(
                         p.grad,
                         state["momentum"],
                         state["L"],
                         state["R"],
                         mu=group["mu"],
-                        beta_cov=group["beta_cov"],
+                        beta_cov=beta_cov_eff,
                         gamma=group["gamma"],
                         ns_a=group["ns_a"],
                         ns_b=group["ns_b"],
@@ -664,6 +673,43 @@ def pmuon_spectral_diag(optimizer: torch.optim.Optimizer, gamma: float) -> dict[
                     "pmuon/sample_shape_dim1": float(momentum.shape[1]),
                 }
     return {}
+
+
+def pmuon_per_block_lcov_eigh(
+    optimizer: torch.optim.Optimizer,
+    param_block_idx: dict[int, int],
+    block_set,
+) -> dict[str, float]:
+    # For each block index in `block_set`, return lcov_eigh_min and rcov_eigh_min on the
+    # first parameter belonging to that block (PMuon-managed body matrix param).
+    if dist.get_rank() != 0:
+        return {}
+    seen: set[int] = set()
+    out: dict[str, float] = {}
+    for group in optimizer.param_groups:
+        for p in group["params"]:
+            pid = id(p)
+            if pid not in param_block_idx:
+                continue
+            bidx = param_block_idx[pid]
+            if bidx not in block_set or bidx in seen:
+                continue
+            state = optimizer.state.get(p, None)
+            if not state or "L" not in state:
+                continue
+            with torch.no_grad():
+                L_cov = state["L"]
+                R_cov = state["R"]
+                L_sym = 0.5 * (L_cov + L_cov.T)
+                R_sym = 0.5 * (R_cov + R_cov.T)
+                L_eig = torch.linalg.eigvalsh(L_sym).clamp_min(0)
+                R_eig = torch.linalg.eigvalsh(R_sym).clamp_min(0)
+                out[f"pmuon_per_block/lcov_eigh_min/block_{bidx}"] = float(L_eig.min().item())
+                out[f"pmuon_per_block/lcov_eigh_max/block_{bidx}"] = float(L_eig.max().item())
+                out[f"pmuon_per_block/rcov_eigh_min/block_{bidx}"] = float(R_eig.min().item())
+                out[f"pmuon_per_block/rcov_eigh_max/block_{bidx}"] = float(R_eig.max().item())
+                seen.add(bidx)
+    return out
 
 
 ########################################
@@ -754,6 +800,7 @@ if dist.get_rank() == 0:
             "ema_beta_target": args.ema_beta_target if args.ema_beta_target is not None else 0.0,
             "ema_dynamic_ramp_active": int(args.ema_beta_target is not None and args.ema_beta > 0),
             "muon_block_lr_pattern": args.muon_block_lr_pattern,
+            "muon_block_beta_cov_split": args.muon_block_beta_cov_split,
             "paramema_refresh_step": args.paramema_refresh_step,
             "paramema_refresh_only": int(args.paramema_refresh_only),
             "aux_b2_pulse_step": args.aux_b2_pulse_step,
@@ -827,6 +874,42 @@ for trial_idx in range(args.num_trials):
             wandb.log({f"muon_block_lr_mult/block_{i}": m for i, m in enumerate(block_mults)},
                       step=0)
     optimizer2._param_lr_mults = param_lr_mults
+
+    # Per-block Muon beta_cov binary split (PR #1727). Mirrors _param_lr_mults plumbing,
+    # but stores ABSOLUTE β_cov values per id(p) (NOT multipliers).
+    SPLIT_CUTOFF = NUM_LAYERS // 2  # blocks 0..SPLIT_CUTOFF-1 = early; rest = late
+    param_block_idx_map: dict[int, int] = {}
+    for name, p in model.named_parameters():
+        if p.ndim >= 2 and name.startswith("blocks."):
+            param_block_idx_map[id(p)] = int(name.split(".")[1])
+    optimizer2._param_block_idx = param_block_idx_map
+
+    param_beta_cov_mults = None
+    split_early_beta = float("nan")
+    split_late_beta = float("nan")
+    if args.muon_block_beta_cov_split != "none":
+        if args.muon_block_beta_cov_split == "early-slow-late-fast":
+            split_early_beta, split_late_beta = 0.97, 0.92
+        elif args.muon_block_beta_cov_split == "early-fast-late-slow":
+            split_early_beta, split_late_beta = 0.92, 0.97
+        param_beta_cov_mults = {}
+        for pid, block_idx in param_block_idx_map.items():
+            param_beta_cov_mults[pid] = split_early_beta if block_idx < SPLIT_CUTOFF else split_late_beta
+        if dist.get_rank() == 0:
+            n_early = sum(1 for v in param_beta_cov_mults.values() if v == split_early_beta)
+            n_late = sum(1 for v in param_beta_cov_mults.values() if v == split_late_beta)
+            print0(f"per-block Muon beta_cov split: {args.muon_block_beta_cov_split}", console=True)
+            print0(f"  early blocks (0..{SPLIT_CUTOFF-1}): beta_cov={split_early_beta} on {n_early} params", console=True)
+            print0(f"  late  blocks ({SPLIT_CUTOFF}..{NUM_LAYERS-1}): beta_cov={split_late_beta} on {n_late} params", console=True)
+            wandb.log({
+                "muon_block_beta_cov/split_early": split_early_beta,
+                "muon_block_beta_cov/split_late": split_late_beta,
+                "muon_block_beta_cov/early_horizon": 1.0 / (1.0 - split_early_beta),
+                "muon_block_beta_cov/late_horizon": 1.0 / (1.0 - split_late_beta),
+                "muon_block_beta_cov/delta_beta": abs(split_early_beta - split_late_beta),
+                "muon_block_beta_cov/split_cutoff": SPLIT_CUTOFF,
+            }, step=0)
+    optimizer2._param_beta_cov_mults = param_beta_cov_mults
 
     optimizers = [optimizer1, optimizer2]
     assert set(p for opt in optimizers for group in opt.param_groups
@@ -1148,6 +1231,17 @@ for trial_idx in range(args.num_trials):
                     "muon_block_lr/group_lr": muon_group_lr,
                     "muon_block_lr/ratio_b11_over_b0": b11_lr_mult / b0_lr_mult,
                 }, step=wandb_step)
+            if param_beta_cov_mults is not None:
+                sample_betas: dict[int, float] = {}
+                for pid, bidx in param_block_idx_map.items():
+                    if bidx in (0, 5, 6, 11) and bidx not in sample_betas:
+                        sample_betas[bidx] = param_beta_cov_mults[pid]
+                bc_log = {f"muon_block_beta_cov/block_{k}": v for k, v in sample_betas.items()}
+                bc_log["trial"] = trial_idx
+                bc_log["train/step"] = train_step
+                bc_log["muon_block_beta_cov/split_early_active"] = split_early_beta
+                bc_log["muon_block_beta_cov/split_late_active"] = split_late_beta
+                wandb.log(bc_log, step=wandb_step)
             if ema_params is not None:
                 wandb.log({
                     "trial": trial_idx,
@@ -1189,6 +1283,14 @@ for trial_idx in range(args.num_trials):
                 spec["trial"] = trial_idx
                 spec["train/step"] = train_step
                 wandb.log(spec, step=wandb_step)
+            if param_beta_cov_mults is not None:
+                per_block = pmuon_per_block_lcov_eigh(
+                    optimizer2, param_block_idx_map, {0, 5, 6, 11},
+                )
+                if per_block:
+                    per_block["trial"] = trial_idx
+                    per_block["train/step"] = train_step
+                    wandb.log(per_block, step=wandb_step)
         if dist.get_rank() == 0 and histogram_due:
             log_histograms(
                 model=model,
