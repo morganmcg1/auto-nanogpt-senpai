@@ -1,3 +1,60 @@
+## 2026-05-30 15:10 UTC — Cycle 71 mid-432 — edward #1812 334th refute + 168th family closure + 201st mech class (GATE-BUDGET-POOL bilateral terminal: Arm A `kv_excluded` bitfield=6 val=3.27045/3025 pair-axis-invariant band; Arm B `vproj_excluded` bitfield=12 val=3.26978/3025 CLOSEST-TO-BASELINE PAIR-EXC IN CYCLE 71; 4-of-6 pair-exc universality LOCKED range 0.00107; v-FIXED-POINT REFUTED AS UNIVERSAL — v-active-conditional only; 201st mech class PAIR-EXCLUSION-CNI-UNIVERSAL-AT-V-EXCLUDED-WITH-DUAL-ABSORBER-NO-FRACTIONAL-REMAINDER-AND-CO-DISPATCHING-Q-K-PAIR-VS-SEQUENTIAL-Q-PROJ-PAIR; 168th family closure GATE-BUDGET-POOL-CNI-4TH-CLASS-DUAL-ABSORBER) + nezuko #1811 335th refute + 169th family closure + 202nd mech class (LATE-FAST-PROJECTION-CUBE-COMPLETE bilateral terminal: Arm A `v-LATE-FAST` val=3.27083/3025 clusters with q-LATE +0.00048; Arm B `proj-LATE-FAST` val=3.27533/3075 UNIQUELY-DESTRUCTIVE at catastrophic-edge; 3-CLASS PARTITION: k-load-bearing / q-v-degenerate / proj-destructive; bidirectional v↔proj coupling; 202nd mech class PER-PROJECTION-LATE-PHASE-DISPATCH-LOAD-BEARING-AT-K-UNIQUE-WITH-Q-V-DEGENERACY-AND-PROJ-DESTRUCTIVE; 169th family closure LATE-FAST-PROJECTION-ROLE-CUBE-3-CLASS-PARTITION) + edward #1844 new assignment (6-of-6 pair-exc completion: Arm A kproj_excluded bitfield=10, Arm B qv_excluded bitfield=5; tests v-fixed-point at q-pair-mate + proj-destructive cross-axis transfer) + nezuko #1845 new assignment (EARLY-FAST cube completion: Arm A proj-EARLY-FAST, Arm B v-EARLY-FAST; closes 4×2=8-cube at axis #9). Fleet 8/8 active 0 idle. Cumulative: 335 refuted / 202 mech classes / 169 family closures / 9 axes locked / 8 regression-to-mean precedents.
+
+### edward #1812 GATE-BUDGET-POOL — 334th refute, 168th family closure, 201st mech class
+
+Bilateral terminal at 15:04Z: Arm A `kv_excluded` (bitfield=6, q+proj active) val=**3.27045**/3025; Arm B `vproj_excluded` (bitfield=12, q+k active) val=**3.26978**/3025. W&B runs: eb189nhx (Arm A) + qzstmexs (Arm B). **334th cycle-71 refute**.
+
+**KEY STRUCTURAL FINDINGS — 4-of-6 PAIR-EXC UNIVERSALITY + DUAL-ABSORBER-NO-FRACTIONAL-REMAINDER + Q-K CO-DISPATCH**:
+- 4-of-6 pair-exc universality band LOCKED: range 0.00107 (3.26978 to 3.27085 across 4 tests), |Δ_B − Δ_A| = 0.00067 just inside ±0.0007 invariance band
+- Arm B 3.26978 is CLOSEST-TO-BASELINE pair-exc landing in cycle 71 (+0.00202 above 3.26776), BUT still misses sub-floor by +0.00178
+- CNI vs additive null: Arm A −0.00437, Arm B −0.00480 — roughly HALF of #1793's v-active CNI (~−0.008). Halving at v-excluded is structural
+- v-FIXED-POINT REFUTED as universal: no role plateaus at 0.417 in EITHER arm. v-fixed-point is v-active-conditional only
+- DUAL-ABSORBER-NO-FRACTIONAL-REMAINDER (4th gate-budget-pool class): both remaining active projections saturate to 1.000 with no fractional remainder in both arms
+- Q-K CO-DISPATCHING (step 125 symmetric) vs Q-PROJ SEQUENTIAL (q step 500, proj step 2500): distinct saturation-timing identifies co-dispatch pair structure
+- |CNI_A − CNI_B| = 0.00043 — CNI magnitude itself pair-axis-invariant within v-excluded class
+
+**201st MECH CLASS**: PAIR-EXCLUSION-CNI-UNIVERSAL-AT-V-EXCLUDED-CONFIGURATIONS-WITH-DUAL-ABSORBER-NO-FRACTIONAL-REMAINDER-AND-CO-DISPATCHING-Q-K-PAIR-VS-SEQUENTIAL-Q-PROJ-PAIR. Axis #4 now has 4-class pool-dispatch taxonomy + 2 sub-classes within dual-absorber.
+
+**168th FAMILY CLOSURE**: GATE-BUDGET-POOL-CNI-UNIVERSAL-AT-V-EXCLUDED-CONFIGURATIONS-WITH-4TH-DUAL-ABSORBER-CLASS.
+
+### nezuko #1811 LATE-FAST-PROJECTION-CUBE — 335th refute, 169th family closure, 202nd mech class
+
+Bilateral terminal at 15:06Z: Arm A `v-only-LATE-FAST` val=**3.27083**/3025 (clusters with q-LATE 3.27035, Δ=+0.00048); Arm B `proj-only-LATE-FAST` val=**3.27533**/3075 (past 3.27500 catastrophic threshold). W&B runs: l6tw22o3 (Arm A) + nozxe91y (Arm B). **335th cycle-71 refute**.
+
+**KEY STRUCTURAL FINDINGS — 3-CLASS PROJECTION PARTITION + BIDIRECTIONAL V↔PROJ COUPLING**:
+- LATE-FAST SINGLE-AXIS CUBE COMPLETE: q=3.27035, k=3.26948 (in-floor), v=3.27083 (clusters q), proj=3.27533 (DESTRUCTIVE)
+- k-UNIQUE LATE-LOAD-BEARING CONFIRMED: only projection in floor band; Δ_k vs q = −0.00087, vs v = −0.00135, vs proj = −0.00585
+- Q-V DIRECTION-DEGENERATE TIGHT CLUSTER: Δ(v-LATE − q-LATE) = +0.00048 — input/output-side partition does NOT hold
+- PROJ UNIQUELY LATE-DESTRUCTIVE: +0.00033 past 3.27500 threshold; proj is post-aggregation (W_O), β2 perturbation shifts entire residual-stream contribution without softmax averaging attenuation
+- BIDIRECTIONAL V↔PROJ COUPLING: v drops → proj stabilizes (on_frac +0.08); proj drops → v cos_row rises +0.038. Output-side coupling distinct from k-drop→q-stabilization (#1794)
+- TRUST-GATE ASYMMETRY: v on_frac sustains-zero after drop; proj on_frac partially recovers to 0.67 (elastic gate)
+
+**202nd MECH CLASS**: PER-PROJECTION-LATE-PHASE-DISPATCH-LOAD-BEARING-AT-K-UNIQUE-WITH-Q-V-DEGENERACY-AND-PROJ-DESTRUCTIVE-WITH-BIDIRECTIONAL-V-PROJ-COUPLING. 3-class partition: {k} load-bearing / {q, v} degenerate / {proj} destructive.
+
+**169th FAMILY CLOSURE**: PER-PROJECTION-LATE-PHASE-DISPATCH-CUBE-AT-SINGLE-AXIS-WITH-3-CLASS-PARTITION.
+
+### edward #1844 new assignment: GATE-BUDGET-POOL pair-exc 6-of-6 completion
+
+**Goal**: complete the 6-of-6 pair-exc matrix AND test v-fixed-point universality scope at q-pair-mate:
+- Arm A `kproj_excluded` (bitfield=10, q+v active): v-fixed-point test — does v hold 0.417 fractional plateau when active with q as pair-mate? (v-active vs v-excluded split: tests whether v-fixed-point is universal-at-v-active OR also q-pair-mate-conditional)
+- Arm B `qv_excluded` (bitfield=5, k+proj active): 4th v-excluded dual-absorber test — does k+proj show symmetric saturation (like q+k) or sequential (like q+proj)? Proj-destructive cross-axis transfer risk if proj's axis-#9 LATE-destructive signature bleeds into axis-#4
+
+No cherry-pick needed — ATTN_SOAP_EXCLUSION_BITFIELD infrastructure already present from prior #1793/#1812 branches.
+
+### nezuko #1845 new assignment: EARLY-FAST projection cube v+proj
+
+**Goal**: complete the 4×2=8-cube at axis #9 (EARLY-FAST cube at v and proj single-axis):
+- Arm A `proj-only-EARLY-FAST`: ATTN_SOAP_BETA2_EARLY_proj=0.85, ATTN_SOAP_BETA2_LATE_proj=0.95 — tests proj-universally-destructive vs LATE-conditional (predicted: if universal → val > 3.27300; if LATE-conditional → val ≈ 3.27050)
+- Arm B `v-only-EARLY-FAST`: ATTN_SOAP_BETA2_EARLY_v=0.85, ATTN_SOAP_BETA2_LATE_v=0.95 — tests v-full-degeneracy at both phases (predicted: clusters with q-EARLY 3.27028)
+
+Infrastructure from prior #1794/#1811 branches — no cherry-pick needed. Bidirectional v↔proj coupling at EARLY→LATE boundary also testable.
+
+### Cycle 71 cumulative state (updated: 2 new closures, 2 family closures, 2 new mech classes)
+
+**Cycle 71 cumulative**: **335 refuted** / **202 distinct mech classes** / **169 family-level closures** / **9 structural axes locked** / **8 regression-to-mean precedents** / axes #1+#2 FULLY CLOSED (CNI), axis #4 4-of-6 universality band LOCKED + 4th dual-absorber class, axis #9 LATE-FAST CUBE COMPLETE (3-class partition).
+
+---
+
 ## 2026-05-30 14:55 UTC — Cycle 71 mid-431 — fern #1814 333rd refute + 167th family closure + 200th mech class (ROUND NUMBER MILESTONE — STRUCTURAL_CUBE_COMPLETION bilateral terminal: Arm A `second_moment_partial_only` MOMENT=1 factor=0.5 val=3.26881/3025 INSIDE FLOOR BAND narrowly missing sub-floor +0.00081; Arm B `both_moments_partial` MOMENT=3 val=3.27233/3050 ADDITIVE-ORTHOGONAL B-additive_null=+0.00071; 200th mech class SECOND-MOMENT-DOMINANT-PRODUCTIVE-DIRECTION-INVERSION-AT-AXIS-#5-PARTIAL-RESET-WITH-ADDITIVE-ORTHOGONAL-CROSS-MOMENT-COUPLING-AT-FACTOR=0.5-AND-GATE-CASCADE-DECOUPLING; SECOND-MOMENT 0.00176 BETTER than FIRST-MOMENT at single-moment partial-preserve INVERTS cycle-71 first-moment-localized assumption; v-gate cascade MOMENT-SYMMETRIC at 0.250 decoupling from val-loss productivity; 167th family closure CROSS-MOMENT-PARTIAL-FACTOR-CUBE-AT-EMBED) + fern #1842 new assignment (AXIS-#5 SECOND-MOMENT partial-reset sub-factor sweep: Arm A factor=0.75 primary sub-floor merge candidate predicted 3.26829, Arm B factor=0.25 monotonic-control predicted 3.27068; first cycle-71 axis-#5 sub-floor merge candidate test). Fleet 8/8 active 0 idle. Cumulative: 333 refuted / 200 mech classes / 167 family closures / 9 axes locked / 8 regression-to-mean precedents.
 
 ### fern #1814 STRUCTURAL_CUBE_COMPLETION — 333rd refute, 167th family closure, 200th mech class ROUND NUMBER
