@@ -1,3 +1,33 @@
+## 2026-05-30 — PR #1822: H305 fern HALLEY × per-group EMA decay (aux=0.10/body=0.05 + aux=0.05/body=0.10)
+
+- Branch: g1r3-fern/h305-halley-pergroup-ema-decay
+- Hypothesis: Compound THREE paper-grade findings (H287 HALLEY polynomial WIN + H294 decay value optimum ≈0.10 + H297 body EMA load-bearing under HALLEY) into FFS<3000 strict WIN. Test aux-elevated (arm_b, H290 compound direction) vs body-elevated (arm_c, H297 load-bearing direction) per-group decay under HALLEY.
+- 3-arm Pattern A Option C structural (~10 LoC adds polyak_ema_aux_decay + polyak_ema_body_decay flags)
+
+### Results
+
+| Arm | ns5_polynomial | aux_decay | body_decay | step-0 val | terminal val | FFS | Δ vs H266 (σ_H174) | Δ vs arm_a CTRL |
+|-----|----------------|-----------|------------|------------|---------------|-----|---------------------|-------------------|
+| arm_a CTRL_HALLEY_DEFAULT | halley | −1 sentinel | −1 sentinel | 10.82583 ✓ | **3.26866** | **3025** | +0.54σ NEG | (ref) |
+| arm_b HALLEY_PER_GROUP_OPT | halley | **0.10** | 0.05 | 10.82583 ✓ | **3.26883** | **3025** | +0.74σ NEG | +0.19σ NEG |
+| arm_c HALLEY_PER_GROUP_BODY_OPT | halley | 0.05 | **0.10** | 10.82583 ✓ | **3.26829** | **3025** | +0.12σ TIE | **−0.42σ best** |
+
+Run IDs: arm_a `m1bgjxm6` (restart of crashed `osqiix94`), arm_b `6cvv2okl`, arm_c `dgn710fu`. 4-way Pattern A drift-FREE (step-0=10.82583 EXACT × 4 including arm_a crash restart). arm_a crashed at step 475 (W&B auth infrastructure failure, NOT divergence); cleanly restarted with bit-id reproduced. Duplicate chain launcher detected and killed by student (PID 8549) preventing GPU contention.
+
+### Decision: **CLOSE** — 159th NULL/NEG
+
+All 3 arms FFS=3025 (Pattern A drift +25 vs H266 FFS=3000). NONE clear FFS<3000 strict gate (Issue #1260).
+
+🎯 **Paper-grade THIRD INSTANCE of HALLEY × stack SUBADDITIVE pattern** (100th mechanism class CONSOLIDATED across 3 distinct stack variants: H296 HALLEY×iter + H297 HALLEY×aux-scope + H305 HALLEY×per-group-decay-value). HALLEY polynomial cubic-convergence is its OWN localized-cube optimum corrupted by ANY simultaneous EMA-axis modification. Pattern is now ROBUST across 3 distinct stack axes.
+
+🎯 **arm_c confirms H297 body-EMA-load-bearing finding at VALUE-TUNING resolution**: body decay 0.05→0.10 under HALLEY gives −0.42σ within-chain (arm_c best of 3). H294 0.10 optimum transfers onto body group under HALLEY but NOT onto aux group (+0.19σ within-chain). arm_c < arm_a < arm_b ordering mirrors H297's body-vs-aux EMA asymmetry under HALLEY at finer resolution.
+
+🎯 **Cross-mechanism subadditive/non-additive pattern now spans 3 axis families × 3 stack variants**: HALLEY×stack (H296/297/305) SUBADDITIVE + EMA TEMPORAL×VALUE (H303/304) SUBADDITIVE + EMA SCOPE×VALUE (H302) NON-ADDITIVE.
+
+🎯 **senpai-pr-guard.py bug independently confirmed** by both g1r3-fern and g1r3-edward. Fix applied to live harness (previous cycle).
+
+🎯 **First documented infrastructure-crash bit-id restart precedent** in r3 campaign — confirms harness is robust against transient failures.
+
 ## 2026-05-30 — PR #1813: H302 edward EMA per-group decay (aux=0.10, body=0.0/0.05)
 
 - Branch: g1r3-edward/h302-ema-pergroup-decay

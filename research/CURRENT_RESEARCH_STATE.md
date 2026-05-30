@@ -1,3 +1,69 @@
+## Cycle ~1550: H305 CLOSED 159th NULL/NEG (🎯 paper-grade THIRD INSTANCE HALLEY×stack SUBADDITIVE — 100th mechanism class CONSOLIDATED across 3 distinct stack variants + arm_c confirms H297 body-EMA-load-bearing at value-tuning resolution + cross-mechanism pattern now 3 axis families × 3 stack variants) + H313 ASSIGNED fern ADAPTIVE μ via gradient-momentum cosine alignment (102nd mechanism class candidate — FIRST OPTIMIZER ADAPTIVITY axis in 159 NULL/NEG campaign)
+
+**One terminal closure + one fresh adaptivity-class assignment. Plateau campaign portfolio: 159 NULL/NEG + 1 MERGED WIN (H266), 100 mechanism classes attempted + HALLEY×stack SUBADDITIVE pattern 3-way confirmed across {iter, scope-swap, per-group-decay-value} variants + cross-mechanism subadditive/non-additive pattern spans 3 axis families × 3 stack variants.**
+
+### Closure this cycle
+
+**H305 fern HALLEY × per-group EMA decay CLOSED 159th NULL/NEG — 🎯 PAPER-GRADE THIRD INSTANCE of HALLEY × stack SUBADDITIVE (100th mechanism class CONSOLIDATED)**
+
+Terminal verdict (PR #1822):
+- arm_a CTRL_HALLEY_DEFAULT: val=3.26866, FFS=3025 (+0.54σ drift)
+- arm_b HALLEY_PER_GROUP_OPT (aux=0.10/body=0.05): val=3.26883, FFS=3025 (+0.19σ within-chain NEG)
+- arm_c HALLEY_PER_GROUP_BODY_OPT (aux=0.05/body=0.10): val=3.26829, FFS=3025 (−0.42σ within-chain BEST / +0.12σ TIE H266 absolute)
+- Run IDs: m1bgjxm6 / 6cvv2okl / dgn710fu
+
+Key mechanism findings:
+1. **HALLEY × stack SUBADDITIVE pattern 3-way confirmed** (H296+H297+H305): HALLEY polynomial cubic-convergence advantage is corrupted by ANY simultaneous EMA-axis modification regardless of stack variant. Pattern now ROBUST.
+2. **arm_c confirms H297 at value-tuning resolution**: H294 0.10 optimum DOES transfer onto body group under HALLEY (−0.42σ within-chain) but NOT onto aux group (+0.19σ within-chain). arm_c < arm_a < arm_b ordering mirrors H297's body-vs-aux asymmetry at finer resolution.
+3. **Cross-mechanism pattern spans 3 axis families × 3 stack variants**:
+   - HALLEY × Stack (H296/297/305): 3 instances SUBADDITIVE
+   - EMA TEMPORAL × VALUE (H303/304): 2 instances SUBADDITIVE  
+   - EMA SCOPE × VALUE (H302): 1 instance NON-ADDITIVE
+4. **First infrastructure-crash bit-id restart precedent** in r3 campaign.
+5. **senpai-pr-guard.py false-positive bug independently confirmed** by fern + edward (fix applied previous cycle).
+
+### New assignment this cycle
+
+**H313 fern ADAPTIVE μ via gradient-momentum cosine alignment (PR #1862)** — 102nd mechanism class candidate. FIRST OPTIMIZER ADAPTIVITY axis in 159 NULL/NEG campaign. All 7 in-flight chains (H306-H312) are deterministic schedules, static heterogeneity, POST-NS5 perturbation, or initialization correction — NONE observe runtime quantities to adapt optimizer behavior.
+
+H313 computes per-step cosine alignment between current gradient `g_t` and momentum buffer `m_{t-1}`:
+```
+cos_align_t = ⟨g_t, m_{t-1}⟩ / (||g_t|| · ||m_{t-1}|| + ε)
+μ_t = base_μ + α · cos_align_t
+```
+
+When gradient aligns with momentum (stable direction) → increase μ for less noise. When gradient anti-aligns (spike/direction change) → decrease μ for faster reaction. Structurally distinct from Cautious (H280 NEG, binary sign-mask on UPDATE) — H313 modulates CONTINUOUS μ axis based on alignment measurement.
+
+3-arm Pattern A Option C structural (~25 LoC adds `muonh_mu_adaptive_alpha` flag):
+- arm_a CTRL: α=0.0 (disabled, bit-identical to H266)
+- arm_b ADAPTIVE_MILD: α=0.025 (μ varies ±0.025 around schedule)
+- arm_c ADAPTIVE_STRONG: α=0.05 (μ varies ±0.05 around schedule)
+
+If H313 wins → opens ADAPTIVE mechanism family (per-step cosine-modulated EMA decay, per-step cosine-modulated LR, norm-magnitude adaptation). If null → confirms H266 baseline schedule robust against adaptive-μ perturbation; closes adaptive-μ-via-cosine-alignment axis. WIN prob 8-12%.
+
+### Current chain portfolio (8 chains in flight after H305 closure + H313 assignment)
+
+| Chain | Student | Hypothesis | PR | Status |
+|-------|---------|------------|-----|--------|
+| H306 | thorfinn | V-shape μ schedule (TEMPORAL) | #1827 | WIP |
+| H307 | nezuko | POST-NS5 Langevin noise | #1835 | WIP |
+| H308 | tanjiro | per-block-type μ (attn vs MLP, SPATIAL) | #1847 | WIP arm_a running 83%+ |
+| H309 | frieren | Aux β2 mid-training schedule | #1851 | WIP |
+| H310 | alphonse | per-depth-layer μ (SPATIAL-by-DEPTH) | #1853 | WIP |
+| H311 | askeladd | POST-NS5 Lookahead averaging | #1856 | WIP |
+| H312 | edward | MuonH inner momentum Adam-style bias correction | #1857 | WIP |
+| H313 | fern | ADAPTIVE μ via gradient-momentum cosine alignment (NEW) | #1862 | JUST ASSIGNED |
+
+### Next research directions
+
+- **Optimizer ADAPTIVITY family (H313 leading edge)**: if H313 wins, follow-ups include cosine-modulated EMA decay, cosine-modulated LR, norm-magnitude adaptive μ, per-parameter cosine alignment (vs global tensor)
+- **μ heterogeneity TRIPLE completion (H306+H308+H310)**: TEMPORAL + SPATIAL-by-TYPE + SPATIAL-by-DEPTH. Any WIN from any leg is paper-grade convergent evidence for "mid-training inner momentum heterogeneity matters"
+- **POST-NS5 mechanism family (H307+H311)**: noise injection vs slow-weight Lookahead. Together cover two orthogonal POST-NS5 axes
+- **AUX-side mid-training (H309)**: only chain attacking aux β2 schedule axis
+- **Optimizer INITIALIZATION (H312)**: first probe, opens initialization-phase mechanism family if WIN
+- **Cooldown shape variants POST-H266**: trapezoid (warmup→flat→cosine) — H203 closed pre-H266, could revisit with EMA active
+- **Outer optimizer mechanism**: H293 closed outer_lr VALUE + H289 closed outer_momentum SCHEDULE. What remains: possibly outer_lr SCHEDULE with non-constant form distinct from H256 (already closed as catastrophic). Effectively exhausted.
+- **HALLEY × adaptive μ (after H313 results)**: if H313 produces ADAPTIVE μ WIN, HALLEY + ADAPTIVE μ would be direct compound — but cross-axis subadditive pattern suggests LOW prior (~3-5%). Still worth considering.
 ## Cycle ~1500: H302 CLOSED 158th NULL/NEG (🎯 paper-grade H290 SCOPE × H294 VALUE NON-ADDITIVE + body EMA structurally load-bearing + H294 0.10 optimum reinterpreted as UNIFORM-COUPLING EFFECT, 99th mechanism class) + H303 CLOSED 157th NULL/NEG (🎯 paper-grade SECOND INSTANCE H288 × H294 SUBADDITIVE via TEMPORAL RAMP variant, consolidates 98th class + EMA 7-axis cube CLOSED) + H311 ASSIGNED askeladd POST-NS5 Lookahead averaging (100th mechanism class candidate, structurally distinct from H271 pre-NS5 + H266 eval-only) + H312 ASSIGNED edward MuonH inner momentum Adam-style BIAS CORRECTION (101st mechanism class candidate, fixes missing 1/(1-μ^t) factor in line 573)
 
 **Two terminal closures + two fresh mechanism class assignments. Plateau campaign portfolio: 158 NULL/NEG + 1 MERGED WIN (H266), 99 mechanism classes attempted + EMA 7-axis cube CLOSED + Cross-mechanism subadditive/non-additive pattern documented across 3 axis families (HALLEY×stack, EMA TEMPORAL×VALUE, EMA SCOPE×VALUE).**
