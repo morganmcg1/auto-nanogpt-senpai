@@ -1,12 +1,13 @@
 # SENPAI Research State — auto-nanogpt-1gpu-r1
 
-- **Last update: 2026-05-30 21:30 UTC**
+- **Last update: 2026-05-30 22:05 UTC**
 - **Current baseline:** PR #1532 (aux Adam β₂ pulse 0.95→0.99 @ step 975). val_ema=3.262854, sr=2875 (n=2).
 - **Merge gate:** `sr ≤ 2862.5 OR (sr=2875 AND val_ema < 3.262854)`
 - **🔥 STRONGEST HOT WIN CANDIDATE:** nezuko #1815 BILATERAL TERMINAL — Arm A (aux Adam m-only ZERO RESET @ step 975) `nvh1vd60` seed-1: sr=2875, val_ema=**3.262238 (-0.616 mnat below gate)**. Arm B (v×0.5) `366knnhc` NULL sr=2925, val_ema=3.265652. **BILATERAL COMPLETE — seed-2 of Arm A requested at 19:55 UTC.** Mechanistic read: first-moment direction memory is dispensable at cooldown boundary (m-zero benign: 0 mnat transient); v state is load-bearing (v×0.5 still degrades: +16.5 mnat transient). Awaiting nezuko's seed-2 launch and terminal.
 - **frieren #1780 CLOSED (16:15 UTC):** cov-reset@1100 Arm B seed-1 thin-pass nullified on n=2 — seed-2 sr=2925, val_ema=3.264785 FAIL. Cov-state full-reset axis fully CLOSED (975/1100/2750). Per-side asymmetric (thorfinn #1849) and frieren #1850 (scalar_lr pulse) now in flight.
 - **fern #1831 CLOSED (21:15 UTC):** Body PMuon γ pulse at cooldown onset bilateral NULL — Arm A (γ→0.3 RELAX) sr=2925 val_ema=3.267064 (+4.2 mnat), Arm B (γ→0.5 SHARPEN) sr=2925 val_ema=3.266283 (+3.4 mnat). Both directions miss gate; γ axis CLOSED across cooldown onset AND pre-target (#1680). fern reassigned: body PMuon momentum HARD-ZERO @ cooldown onset (#1876).
 - **edward #1830 CLOSED (21:15 UTC):** Aux Adam m+v full zero reset at LATE phase boundaries bilateral NULL — Arm A (reset@2600 pEMA boundary) sr=2925 val_ema=3.265206 (+2.4 mnat), Arm B (reset@2750 pre-target) sr=2925 val_ema=3.265872 (+3.0 mnat). Aux Adam full-zero reset CLOSED across ALL temporal boundaries (975/2600/2750). edward reassigned: body PMuon LR persistent step-down at cooldown onset (#1877).
+- **alphonse #1836 CLOSED (21:55 UTC):** Body PMuon momentum buffer SCALE at pre-target boundary step 2750 bilateral NULL — Arm A (×0.5) sr=2925 val_ema=3.265251 (+2.4 mnat), Arm B (×0.25) sr=2925 val_ema=3.264915 (+2.06 mnat). Magnitude-invariant outcome (same as #1797 at @975); body PMuon momentum SCALE axis CLOSED across ALL temporal boundaries. alphonse reassigned: aux Adam m-only ZERO reset at late boundaries (#1879).
 - **Human directive #1252:** Prioritize (a) optimizer-state resets at phase boundaries, (b) per-layer/per-block optimizer behavior, (c) short phase-specific mechanisms, (d) momentum/preconditioner state handling, (e) schedules that steepen loss descent before step 2925. Avoid pure scalar β/μ/EMA sweeps.
 
 ## 🚧 PLATEAU PROTOCOL ENGAGED — all body Muon scalar axes exhausted; now on Tier-2 structural mechanisms + aux Adam exploration
@@ -32,6 +33,7 @@
 - **Aux Adam β₁ JOINT pulse synchronous with β₂ pulse at step 975 (#1819 askeladd)** — Arm A (β₁→0.9) sr=2925, val_ema=3.266499 (+3.645 mnat NULL); Arm B (β₁→0.95) sr=2950, val_ema=3.267480 (+4.626 mnat, WORSE than Arm A — more momentum ⇒ worse); β₁ axis FULLY EXHAUSTED across (a) standalone raise #1592, (b) standalone drop #1639, AND (c) joint synchronization with β₂ #1819
 - **Body PMuon γ pulse at cooldown onset step 975 (#1831 fern)** — Arm A (γ→0.3 RELAX) sr=2925 val_ema=3.267064 (+4.2 mnat), Arm B (γ→0.5 SHARPEN) sr=2925 val_ema=3.266283 (+3.4 mnat); both directions miss gate identically; γ axis CLOSED across cooldown onset AND pre-target (#1680); whitening exponent well-calibrated at γ=0.4 across all training phases
 - **Aux Adam m+v FULL ZERO reset at late phase boundaries (#1830 edward)** — Arm A (reset@2600 pEMA boundary) sr=2925 val_ema=3.265206 (+2.4 mnat), Arm B (reset@2750 pre-target) sr=2925 val_ema=3.265872 (+3.0 mnat); Arm B marginally more disruptive (smaller late-phase v denominator → larger relative reset impact); aux Adam full-zero reset CLOSED across ALL temporal boundaries (975 via #1770, 2600 via Arm A, 2750 via Arm B)
+- **Body PMuon momentum buffer SCALE at pre-target boundary step 2750 (#1836 alphonse)** — Arm A (×0.5) sr=2925 val_ema=3.265251 (+2.4 mnat), Arm B (×0.25) sr=2925 val_ema=3.264915 (+2.06 mnat); magnitude-invariant outcome, replicating thorfinn #1797 pattern at cooldown onset; body PMuon momentum SCALE axis CLOSED across ALL temporal boundaries (step 975 via #1797, step 2750 via #1836); open: body PMuon momentum HARD-ZERO at cooldown onset (fern #1876 in flight)
 
 **Structural decoupling (BILATERAL NULL):**
 - Depth-stratified β_cov binary split (#1727 edward) — falsifying Arm B beat mechanistic Arm A; axis FULLY CLOSED across binary split + continuous ramp (#1339)
@@ -60,6 +62,7 @@ Two independent mechanisms hit baseline sr (bilateral nulls, but sr=2925→2875 
 | PR | Student | Experiment | Status | Arms |
 |---|---|---|---|---|
 | **#1815** | **nezuko** | **Aux Adam m-only ZERO RESET @ step 975 — 🔥 HOT WIN seed-2 in progress** | **Seed-2 requested 19:55 UTC** | **Arm A: m-only reset (WIN candidate); Arm B: v×0.5 (NULL)** |
+| **#1879** | **alphonse** | **Aux Adam m-only ZERO reset at LATE phase boundaries (step 2600 vs step 2750)** | **Assigned 22:00 UTC** | **Arm A: m-zero @2600 (pEMA boundary); Arm B: m-zero @2750 (pre-target)** |
 | **#1877** | **edward** | **Body PMuon LR persistent step-down at cooldown onset step 975 (×0.85 vs ×0.70)** | **Assigned 21:30 UTC** | **Arm A: muon_lr ×0.85 @975; Arm B: muon_lr ×0.70 @975** |
 | **#1876** | **fern** | **Body PMuon momentum HARD-ZERO reset at cooldown onset (975 vs 1100)** | **Assigned 21:30 UTC** | **Arm A: momentum zero @975; Arm B: momentum zero @1100** |
 | #1836 | alphonse | Body PMuon momentum buffer SCALE at pre-target boundary step 2750 (×0.5 vs ×0.25) | Assigned 14:00 UTC | Arm A: ×0.5 @ 2750; Arm B: ×0.25 @ 2750 |

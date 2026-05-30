@@ -1,5 +1,20 @@
 # SENPAI Research Results
 
+## 2026-05-30 21:55 UTC — PR #1836 alphonse: Body PMuon momentum buffer SCALE at pre-target boundary step 2750 (×0.5 / ×0.25) — ❌ BILATERAL NULL (momentum-scale CLOSED across ALL boundaries)
+
+- Branch: `g1r1-alphonse/pretarget-momentum-scale`
+- Hypothesis: At the pre-target boundary (step 2750), body PMuon's accumulated momentum buffer may be over-calibrated for the cooldown-phase gradient regime. Partially attenuating the buffer — without hard-zeroing — reduces stale pre-cooldown magnitude while preserving accumulated direction. Magnitude-variant test: ×0.5 (light) vs ×0.25 (heavy attenuation).
+
+| Arm | scale | step | run | sr | val_ema | Δval mnat | Verdict |
+|---|---|---|---|---:|---:|---:|---|
+| Baseline | — | — | 9coyk2ke/09qrijtm | 2875 | 3.262854 | — | — |
+| A | ×0.5 | @2750 | `wsln16vx` | 2925 | 3.265251 | +2.4 | ❌ NULL (both clauses fail) |
+| B | ×0.25 | @2750 | `q6gfd5tz` | 2925 | 3.264915 | +2.06 | ❌ NULL (both clauses fail) |
+
+- **Key mechanistic read:** Both arms sr=2925 (+50 steps vs baseline). Arm B (×0.25 heavier attenuation) is marginally less disruptive than Arm A (×0.5 lighter) — +2.06 vs +2.4 mnat — opposite of what a "stale magnitude is the problem" narrative would predict. The mechanism is NOT a magnitude issue; it is insensitive to attenuation factor, replicating the thorfinn #1797 finding at step 975 (×0.5 and ×0.25 both bilateral NULL, INVARIANT to magnitude). Same null outcome at pre-target.
+- **Axis closure:** Body PMuon momentum buffer SCALE axis CLOSED across ALL tested temporal boundaries: cooldown onset @975 (#1797 bilateral NULL) AND pre-target @2750 (#1836 bilateral NULL). Combined with hard-zero CLOSED at @2750 (#1730) and hard-zero at cooldown onset tested via fern #1876 (in flight), the body PMuon momentum-scale intervention is exhausted. The hard-zero (qualitative limit) at cooldown onset is the single remaining open question via fern #1876.
+- alphonse reassigned: aux Adam m-only ZERO reset at LATE phase boundaries (step 2600 vs step 2750) (#1879) — direct temporal extension of nezuko #1815 m-only paradigm to the two late phase boundaries where only m+v COMBINED (not m-only) has been tested
+
 ## 2026-05-30 21:15 UTC — PR #1831 fern: Body PMuon γ pulse at cooldown onset step 975 (γ→0.3 RELAX vs γ→0.5 SHARPEN) — ❌ BILATERAL NULL (body PMuon γ axis CLOSED across cooldown onset AND pre-target)
 
 - Branch: `g1r1-fern/body-pmuon-gamma-pulse-cooldown`
