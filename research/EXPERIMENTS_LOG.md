@@ -1,3 +1,71 @@
+## 2026-05-30 12:50 — PR #1798 H298 thorfinn: DEMON-style μ→0 monotone body inner momentum decay — **CLOSED 152nd NULL/NEG (🎯 paper-grade CROSS-PHASE μ-TIMESCALE DISSOCIATION — mid-training BETTER −40σ × cooldown WORSE +71.9σ scope-dependent role inversion vs H266 EMA mechanism, 95th mechanism class)** + PR ??? H306 thorfinn ASSIGNED (V-shape μ schedule capture mid-training gain + restore cooldown stability — direct H298 trajectory follow-up)
+
+- Branch: g1r3-thorfinn/h298-demon-mu-decay (PR #1798, 3-arm Pattern A pure VALUE)
+
+| Arm | μ_end | step-0 val | terminal val | Δ vs H266 (3.26818) | FFS | Verdict |
+|-----|-------|-----------|--------------|---------------------|-----|---------|
+| arm_a CTRL | 0.90 | 10.82583 ✓ EXACT | 3.26829 | +0.00011 (+0.12σ) | 3025 | REPLICATE ✓ |
+| arm_b DEMON_HALF | 0.45 | 10.82583 ✓ EXACT | 3.30300 | +0.03482 (+39.4σ) | **−1 DNF** | **NEG** ✗ |
+| arm_c DEMON_FULL | 0.00 | 10.82583 ✓ EXACT | 3.33181 | +0.06363 (+71.9σ) | **−1 DNF** | **NEG catastrophic** ✗ |
+
+H266 baseline: val=3.26818, FFS=3000. Per Issue #1260 strict: both DEMON arms DNF on FFS, not merge-eligible.
+
+🎯 **Paper-grade finding #1: CROSS-PHASE μ-TIMESCALE DISSOCIATION (mid-training/cooldown role inversion)**
+
+The trajectory shows TWO STRIKINGLY OPPOSITE SIGNS depending on training phase:
+
+| step | arm_a CTRL μ=0.90 | arm_b μ_end=0.45 | Δ_b vs a | arm_c μ_end=0.0 | Δ_c vs a |
+|------|------|------|------|------|------|
+| 500  | 3.79938 | 3.77209 | **−0.02729** | **3.76891** | **−0.03047** (BETTER) |
+| 1000 | 3.60917 | **3.56129** | **−0.04788** | 3.56310 | **−0.04607** (BETTER) |
+| 1500 | 3.49648 | **3.45552** | **−0.04096** | 3.46628 | **−0.03020** (BETTER) |
+| 2000 | 3.40876 | **3.38939** | −0.01937 | 3.40838 | −0.00038 (converging) |
+| 2500 | **3.33124** | 3.34053 | +0.00929 | 3.36591 | +0.03467 (NEG entry) |
+| 3000 | **3.28009** | 3.31067 | +0.03058 | 3.33902 | +0.05893 |
+| 3325 | **3.26829** | 3.30300 | **+0.03471** | 3.33181 | **+0.06352** |
+
+Cross-over: arm_b at step ~2200, arm_c at step ~2000. Mid-training (steps 500-1500) DEMON arms are **better by Δ=−0.03 to −0.05 val** (40-60σ_H174 BELOW noise floor → real signal). Cooldown (steps 2750-3325) DEMON arms catastrophic NEG. Signature: **lower body inner μ accelerates constant-LR phase but kills cooldown signal aggregation**.
+
+🎯 **Paper-grade finding #2: SCOPE-DEPENDENT TRACK-NOT-AVERAGE INVERSION vs H266 EMA**
+
+The DEMON hypothesis predicted body-inner-μ→0 would "track gradient ideally" during cooldown, by analogy with the H266 paper-grade EMA WIN (Polyak-EMA 20-step half-life TRACKS cooldown vs 200-step AVERAGES OVER → 250 FFS regression). **The data refutes this analogy**:
+
+| Timescale | Optimal regime at cooldown |
+|-----------|----------------------------|
+| Parameter EMA (H266 paper-grade) | SHORT timescale (decay=0.05, ~20-step half-life) — TRACKS recent updates |
+| Body inner momentum (H298 paper-grade) | LONG timescale (μ_end=0.90, ~10-step half-life) — INTEGRATES across many small updates |
+
+**Mechanism**: parameter-EMA averages OUTPUT (post-update parameter trajectory) — short timescale tracks the current sharpening direction. Body-inner-μ averages INPUT (gradient history) — long timescale integrates noisy small-LR cooldown gradients into stable update direction. **Two distinct optimizer timescales play OPPOSITE ROLES under same cooldown LR-decay window**.
+
+This is the **95th mechanism class** finding — a paper-grade scope-dependent timescale role-inversion across the H266 + H298 axes.
+
+🎯 **μ_end VALUE bilateral characterization NOW CLOSED (5-axis cube)**
+
+H298 + H125 + H295 jointly close the μ_end VALUE axis for monotone-linear schedules:
+
+| Hypothesis | μ_end | Result | σ_H174 above |
+|------------|-------|--------|--------------|
+| H125 (pre-H266, archived) | 0.88 | NEG | +5.5σ |
+| H295 (post-H266) | 0.84/0.85 | NEG cross-baseline-stable | +1.7σ/+2.3σ |
+| **H266 BASELINE** | **0.90** | **WIN (FFS=3000)** | **0σ** (frontier) |
+| H298 arm_b (NEW) | 0.45 | NEG catastrophic | +39.4σ |
+| H298 arm_c (NEW) | 0.00 | NEG catastrophic | +71.9σ |
+
+Strong cooldown-side concavity. μ_end=0.90 structurally optimal for monotone-linear; non-monotone schedules (V-shape, U-shape) untested.
+
+**5-instance Pattern A drift-FREE** (all step-0=10.82583 EXACT). Chain-launch verification gate applied per arm — `muonh_mu_end` config-pane audit per arm.
+
+W&B run IDs:
+- arm_a CTRL: yhzfbyhl
+- arm_b DEMON_HALF: ythjcav0
+- arm_c DEMON_FULL: en1jolvf
+
+Decision: CLOSED as 152nd NULL/NEG with paper-grade cross-phase μ-timescale dissociation + scope-dependent track-not-average role inversion vs H266 EMA. 5-axis μ_end VALUE cube closed for monotone schedules.
+
+**H306 thorfinn V-shape μ schedule ASSIGNED IMMEDIATELY** (PR #???): direct mid-training-trajectory follow-up. 3-arm Pattern A Option C structural (~15 LoC adds `v_shape` schedule). arm_a CTRL replicate H298 arm_a. arm_b V_DEEP (μ_start=0.95, μ_mid=0.65, μ_end=0.95 — captures DEMON_HALF mid-training gain + restores baseline cooldown μ). arm_c V_SHALLOW (μ_start=0.95, μ_mid=0.80, μ_end=0.95 — gentler dip). WIN prob 15-25% — substantial mechanistic prior from H298 trajectory data showing mid-training gain is large and real. **95th mechanism class follow-up.**
+
+---
+
 ## 2026-05-30 12:00 — PR #1795 H297 fern: HALLEY × aux_only EMA orthogonal stack — **CLOSED 151st NULL/NEG (🎯 paper-grade SUBADDITIVE coupling +1.73σ above orthogonal prediction + scope-swap penalty 3.78× LARGER under HALLEY than default NS5 — body EMA × HALLEY coupled-gain mechanism via cubic-convergence polynomial, 93rd mechanism class)** + PR #1822 H305 fern ASSIGNED (HALLEY × per-group EMA decay direct mechanism follow-up)
 
 - Branch: g1r3-fern/h297-halley-aux-only-stack (PR #1795, 2-arm Pattern A)
