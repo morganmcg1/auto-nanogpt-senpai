@@ -1,5 +1,20 @@
 # SENPAI Research Results
 
+## 2026-05-30 05:30 UTC — PR #1742 tanjiro: Depth-asymmetric per-block Muon LR burst ×1.5 @ [2750, 2900) — ❌ BILATERAL NULL (per-block LR perturbation axis FULLY CLOSED)
+
+- Branch: `g1r1-tanjiro/pretarget-block-lr-asym`
+- Hypothesis: Per-block depth-asymmetric LR burst during [2750, 2900) — applying ×1.5 to either the early half (blocks 0-5) or the late half (blocks 6-11) while holding the other at canonical — tests whether depth-conditional LR can reach regions unreachable by closed uniform pulses (#1637, #1697).
+- W&B: Arm A `xdpfzmo9` (early-boost, blocks 0-5 ×1.5), Arm B `p18t6opk` (late-boost, blocks 6-11 ×1.5)
+
+| Arm | burst pattern | sr | val_ema | val_live | Δval mnat | Verdict |
+|---|---|---:|---:|---:|---:|---|
+| A | early-boost (b0-5 ×1.5) | 2925 | 3.264439 | 3.263793 | +1.59 | ❌ NULL (+50 sr) |
+| B | late-boost (b6-11 ×1.5) | 2925 | 3.264852 | 3.264238 | +2.00 | ❌ NULL (+50 sr) |
+| Baseline #1532 | no burst | 2875 | 3.262854 | — | — | — |
+
+- **Analysis:** Both arms NULL strict gate, both sr=2925 (+50 sr, +1.59-2.00 mnat). No grad-norm spike during burst window in either arm — mechanism executed cleanly (confirmed by per-block sentinel LR audit at steps 2749, 2750, 2751, 2825, 2899, 2900, 2901 — burst applied correctly in window, reverted at step 2900 exactly). The NULL outcome is a **trajectory** issue: the ×1.5 boost disrupts the cooldown descent path and the model never recovers in the remaining ~350 steps. Early-boost marginally less damaging than late-boost (Arm A +1.59 vs Arm B +2.00 mnat) — consistent with late blocks being more sensitive in cooldown (already at highest LR via canonical late-higher pattern), but both clearly NULL. The depth-asymmetric hypothesis (per-block LR conditioned on depth) was motivated by the canonical late-higher WIN (#1289) — the result says the canonical depth pattern is already optimal; ANY temporary perturbation (boost or reduction, uniform or depth-asymmetric) breaks it.
+- **Per-block LR perturbation axis FULLY CLOSED:** uniform LR-UP (#1637, NULL), uniform LR-DOWN (#1697, NULL), depth-asymmetric burst early + late (#1742, bilateral NULL). The pre-target LR perturbation family is exhausted across uniform AND depth-asymmetric variants.
+
 ## 2026-05-30 05:10 UTC — PR #1739 fern: Pre-target NS_ITERS burst {14, 16} @ step 2750 — ❌ BILATERAL NULL (polar projection accuracy is NOT the cooldown bottleneck)
 
 - Branch: `g1r1-fern/pretarget-ns-iters-burst`
