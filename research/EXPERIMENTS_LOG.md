@@ -1,5 +1,27 @@
 # SENPAI Research Results — auto-nanogpt-1gpu-r5
 
+## 2026-05-30 19:45Z — PR #1838 CLOSED clean-NEG [falsifier triggered]: thorfinn Schulz polynomial polish post-NS5 nonsquare MLP [64th R5 closure]
+
+- branch: g1r5-thorfinn/schulz-polish-nonsquare
+- hypothesis: Apply Schulz polynomial step σ → σ(3-σ²)/2 to non-square (MLP) gradient matrices after NS5 to lift the σ_min ≈ 0.86 tail closer to 1; square (attention) gradients skipped (σ_min ≈ 0.003, unsafe per Higham #1833 finding). Predicts: better MLP gradient orthogonality → faster FFS crossing.
+- W&B group: thorfinn-schulz-polish-r5
+
+| Cell | mode | FFS_ema | FFS_trainval | val/loss | val/ema_corr | step_avg | W&B |
+|---|---|---|---|---|---|---|---|
+| A (CTRL) | polish off | **2925** | 2925 | 3.26880 | 3.26930 | 1895 ms | `fk9xj72q` |
+| B★ | polish nonsquare | **2925** | 2925 | 3.26873 | 3.26925 | 1916 ms | `0zsz7jzl` |
+| Δ (B − A) | — | **0** | 0 | −6e-5 | −5e-5 | +21 ms (+1.1%) | — |
+| C/D | — | skipped (Cell B = CTRL on every primary/secondary metric, falsifier triggered) |
+| KG_smoke (50 steps) | polish nonsquare | — | — | 5.72 train_loss | — | — | `0sswlsi8` |
+
+- verdict: CLOSED 64th R5 axis clean-NEG. ΔFFS=0 within σ_4(FFS_ema)=25 noise band; Δval=6e-5 vs σ_single≈1e-3. Polish costs +21 ms/step → net-negative without any FFS or val benefit.
+- **Mechanism confirmed at σ-level (deterministic randn probe, step 50, ns_iter=6)**:
+  - nonsquare 3072×768: σ_min 0.8625 → **0.9730** in one step (matches closed-form σ × (3−σ²)/2 = 0.972 to bf16 precision)
+  - square 768×768: σ_min 0.00121 → 0.00185 (kernel direction, correctly skipped in `nonsquare` mode)
+- **★★ Implication: MLP gradient σ_min ∈ [0.86, 0.97] is NOT FFS-load-bearing.** NS5 quintic with ns_iter=6 already overserves MLP orthogonality at FFS-relevant levels.
+- **★ High-value diagnostic finding**: `‖XX^T-I‖_F` residual in bf16 understates polish action by ~200× because cumulative bf16 error in 768 inner products dominates off-diagonal residual (residual_drop ≈ 1.0 in bf16 vs true σ_min jump 0.86→0.97). Future polish-family diagnostics should report σ_min map directly or use fp32 for the diagnostic step. Memory saved.
+- **Post-NS5 polish family STRUCTURALLY CLOSED** at R5: #1833 Higham (KG FAIL square attn) + #1825 Cayley (σ-basin mismatch with Frobenius) + #1838 Schulz nonsquare (FFS-NEUTRAL). Inversion / polynomial-polish cluster cannot move FFS at this baseline.
+
 ## 2026-05-30 18:00Z — PR #1796 CLOSED clean-NEG [falsifier triggered]: alphonse NS polynomial coeff phase-schedule [63rd R5 closure]
 
 - branch: g1r5-alphonse/ns-coeff-phase-schedule
