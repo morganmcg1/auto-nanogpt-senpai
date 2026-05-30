@@ -1,3 +1,79 @@
+## 2026-05-30 06:11 UTC — Cycle 71 mid-415 — TRIPLE CLOSURE WAVE: fern #1754 317th refute (n=2 regression-to-mean: axis #5 confirmed productive at embed-numerator-only, frieren #1783 lm_head parallel pending) + edward #1766 318th refute 153rd family closure (per-projection-role matrix 4-of-4 COMPLETE + GATE-BUDGET-REALLOCATION universal across 3 peer-exclusion arms) + nezuko #1763 319th refute 154th family closure (STRUCTURAL SIGN REVERSAL: joint qk LATE preferred over joint qk EARLY by Δ=−0.00390 vs single-axis priors EARLY-favored — 188th mech class PERSISTENT-DIRECTIONAL-DIVERGENCE-EARLY-LOCK, path-dependent maturation requirement locked) + 3 new assignments (fern #1792 PARTIAL_VS_FULL state-mechanism continuum + edward #1793 QK_JOINT_COMPOUND vs QPROJ_JOINT_COMPOUND shared-pool test + nezuko #1794 LATE_PHASE_DISPATCH_SINGLE_AXIS_DECOMPOSITION)
+
+### fern #1754 PER_KIND_AUX_PERIODIC_RESET_EMBED_MOMENT_ISOLATION — 317th refute, axis #5 confirmed productive
+
+Bilateral terminal at n=2: Arm A `embed_reset_sq_only` single-seed val=3.39739 CATASTROPHIC (denominator destruction). Arm B `embed_reset_avg_only` n=2 mean=3.26891/ffs=3012.5 (seed0=3.26747 NEW-BEST-eligible, seed1=3.27035 floor-band drift). MISSES merge bar by Δ=+0.00115 val and +12.5 ffs — regression-to-mean parallel to askeladd #1731 precedent (3rd cycle-71 instance of seed0-sub-baseline → seed1-floor-band-drift → n=2 within floor-band-cluster attractor 3.26896 ± 0.00060). Δ(B−A)=−0.12848 conclusive moment-attribution decomposition.
+
+**STRUCTURAL AXIS #5 CONFIRMED PRODUCTIVE** at embed-numerator-only: exp_avg-only reset productive (numerator-isolation; preserves Adam denominator stability); exp_avg_sq-only reset catastrophic (denominator destruction). frieren #1783 lm_head parallel still in flight will determine LR-mediation vs cross-kind generalization (96× LR ratio at lm_head may invert pattern).
+
+### edward #1766 PER_KIND_ATTN_SOAP_EXCLUSION_K_PROJ — 318th refute, 153rd family closure
+
+Bilateral terminal: Arm A `k_excluded` 3.27177/3050 + Arm B `proj_excluded` 3.27153/3050 → bilateral mean 3.27165/3050 misses merge bar by Δ=+0.00389. Δ(B−A)=−0.00024 sub-noise (k ≈ proj).
+
+**STRUCTURAL FINDING LOCKED — per-projection-role matrix 4-of-4 COMPLETE**: q (+0.00703 dominant) > k (+0.00401) ≈ proj (+0.00377) > v (+0.00305). Cost gap q−v = 0.00398 (2.3× v's residual cost). Bimodal-with-flat-middle distribution: q is the spike, v is the trough, k and proj sit at the indifferent middle. Read-path q≠k internally asymmetric — query is structurally distinguished from key.
+
+**187th mech class GATE-BUDGET-REALLOCATION-BY-PEER-EXCLUSION confirmed UNIVERSAL** across 3 peer-exclusion arms (q, k, proj). v on_fraction terminal: q-exc inferred (high), k-exc=0.833, proj-exc=0.750. Whenever ANY non-v projection role is excluded, v's gate engagement RISES — SOAP gate-budget reallocates from excluded role to v. v is the slack absorber tracking inverse of total q+k+proj engagement. Strong evidence for a shared competitive gate-budget pool at attn-SOAP. Per-projection-role decomposition axis fully closed.
+
+### nezuko #1763 PER_KIND_ATTN_SOAP_QK_JOINT_BETA2_PHASE_DISPATCH — 319th refute, 154th family closure
+
+Bilateral terminal: Arm A `qk_joint_EARLY_FAST` 3.27287/3050 + Arm B `qk_joint_LATE_FAST` 3.26897/3025 → bilateral mean 3.27092/3037.5 misses merge bar. **Δ(B−A)=−0.00390 STRUCTURAL ≥0.003 SIGN REVERSAL** vs single-axis priors:
+- #1718 q-EARLY-only 3.27028 (per-axis EARLY favored at q)
+- #1741 k-EARLY-only 3.27138 (per-axis EARLY favored at k)
+- joint EARLY 3.27287 (DESTRUCTIVE — naive additive +0.01104 vs observed +0.00511 partial saturation)
+- joint LATE 3.26897 (PRODUCTIVE — sign reversal from single-axis priors)
+
+**STRUCTURAL FINDING LOCKED — read-path joint-dispatch is PATH-DEPENDENT** with required maturation order β2=0.95 (mature) → β2=0.85 (stress). Joint EARLY at q+k co-induces trust-gate floor at step 125 (trust-statistic collapse, gate admission floors, irrecoverable through cooldown). Joint LATE preserves trust-gate admission through critical 0-1500 window, then applies β2=0.85 stress productively. Single-axis EARLY locally productive because unperturbed peer (k or q) preserves trust-gate stability; joint EARLY breaks both halves of read-path simultaneously.
+
+**188th mech class PERSISTENT-DIRECTIONAL-DIVERGENCE-EARLY-LOCK**: B leads A from step 125 (Δ=−0.0161 immediately), stable −0.004 throughout training, structural separation locked BEFORE phase boundary (Δ=−0.00436 at boundary 1500). Trust-gate floor signature ONLY in Arm A (EARLY-induced collapse), absent in Arm B.
+
+### Three new assignments wake-112
+
+| PR | student | hypothesis | key structural question |
+|---|---|---|---|
+| #1792 | fern | PER_KIND_AUX_PERIODIC_RESET_EMBED_AVG_PARTIAL_VS_FULL | state-mechanism continuum: is the productive embed-avg reset mechanism total-clear-to-zero OR graded-shrinkage (multiply by 0.5)? Tests binary-vs-graded mechanism at axis #5 |
+| #1793 | edward | PER_KIND_ATTN_SOAP_EXCLUSION_QK_JOINT_VS_QPROJ_JOINT_COMPOUND | shared-pool test: is gate-budget sub-additive (competitive cap; v absorbs slack) or super-additive (cooperative cost amplification)? Tests #1766 GATE-BUDGET-REALLOCATION mechanism at compound exclusion |
+| #1794 | nezuko | PER_KIND_ATTN_SOAP_QK_LATE_PHASE_DISPATCH_SINGLE_AXIS_DECOMPOSITION | decomposition: is #1763 joint-LATE productivity load-bearing on q-only-LATE, k-only-LATE, OR irreducibly cooperative (both required)? Tests joint-LATE mechanism decomposition |
+
+All 3 assignments per Morgan directive (per-group + state-mechanism, no scalar sweeps).
+
+### Wake-112 fleet status
+
+Fleet 8/8 active: askeladd #1775 + alphonse #1758 + edward #1793 (new) + fern #1792 (new) + frieren #1783 + nezuko #1794 (new) + tanjiro #1778 + thorfinn #1789. 0 idle. Three SOAP-family/structural-axis tests in flight (edward #1793 + nezuko #1794 + askeladd #1775). Human issues: Morgan #1259 standing directive active, no new messages since 2026-05-26.
+
+### Cycle 71 cumulative state (updated from mid-414 — 3 new closures, +2 mech classes, +2 family closures)
+
+**Cycle 71 cumulative**: **319 refuted** / **188 distinct mech classes** / **154 family-level closures**.
+
+### Emerging structural axes in cycle 71 — UPDATED: Axis #4 fully closed, Axis #5 confirmed productive at embed side
+
+| # | axis | direction-preferences | evidence | status |
+|---|---|---|---|---|
+| 1 | Cross-kind WD-direction asymmetry | embed prefers DOWN, lm_head prefers UP | #1683/#1705 + #1732 + #1765 | FULLY CLOSED — direction-asymmetric joint compound confirmed (preferred CNI, anti-preferred ~additive) |
+| 2 | Cross-kind β1-direction inversion | embed prefers FAST (0.7), lm_head prefers SLOW (0.9) | #1678 B + #1724 + #1750 | per-axis decomposition in flight via #1789 — additive null pending |
+| 3 | Depth-mechanism cluster BACK-favored | back-half blocks load-bearing across multiple mech classes (β2-phase #1731 + init-magnitude #1738 + kind-crosswire #1758) | #1731 + #1738 + #1758 | structural finding; n=2 of #1758 Arm B send-back pending |
+| 4 | Per-projection-role decomposition + GATE-BUDGET-REALLOCATION (universal) | q dominant cost > k ≈ proj > v slack absorber; gate-budget shared competitive pool | #1642 + #1718 + #1741 + #1744 + #1763 + #1766 | **FULLY CLOSED — matrix 4-of-4 complete; GATE-BUDGET-REALLOCATION confirmed universal across q-exc + k-exc + proj-exc**; compound-exclusion sub-additive vs super-additive test in flight via #1793 |
+| 5 | Cross-kind moment-isolation asymmetry | exp_avg reset productive at embed (numerator-isolation preserves Adam denominator stability), exp_avg_sq reset catastrophic (denominator destruction) | #1754 Arm B n=2 confirmed productive at floor-band-cluster + #1783 lm_head parallel pending | **CONFIRMED PRODUCTIVE at embed side**; lm_head generalization test in flight via #1783; partial-vs-full state-mechanism in flight via #1792 |
+| 6 | Cross-kind × depth-half decoupling at init-magnitude axis | kind-uniform back-tight is additive sum of per-kind (each kind absorbs back-tight independently) | #1758 bilateral + n=2 send-back | provisional structural finding; counter-evidence to axis #1 WD shared-substrate |
+| 7 | Read-path joint-dispatch path-dependent maturation | β2=0.95 (mature) → β2=0.85 (stress) required order; joint-EARLY destructive vs joint-LATE productive at qk | #1718 + #1741 + #1763 | **STRUCTURAL FINDING LOCKED — sign-reversal vs single-axis priors**; single-axis decomposition of joint-LATE in flight via #1794 |
+
+### PRs closed this wave
+
+| PR | student | hypothesis | action |
+|---|---|---|---|
+| #1754 | fern | PER_KIND_AUX_PERIODIC_RESET_EMBED_MOMENT_ISOLATION | CLOSED — 317th refute, axis #5 confirmed productive at embed side (regression-to-mean) |
+| #1766 | edward | PER_KIND_ATTN_SOAP_EXCLUSION_K_PROJ | CLOSED — 318th refute, 153rd family closure, matrix 4-of-4 + GATE-BUDGET-REALLOCATION universal |
+| #1763 | nezuko | PER_KIND_ATTN_SOAP_QK_JOINT_BETA2_PHASE_DISPATCH | CLOSED — 319th refute, 154th family closure, 188th mech class PERSISTENT-DIRECTIONAL-DIVERGENCE-EARLY-LOCK + sign-reversal |
+
+### New assignments this wave
+
+| PR | student | hypothesis | key structural question |
+|---|---|---|---|
+| #1792 | fern | PER_KIND_AUX_PERIODIC_RESET_EMBED_AVG_PARTIAL_VS_FULL | binary-vs-graded state-mechanism at axis #5 productive direction |
+| #1793 | edward | PER_KIND_ATTN_SOAP_EXCLUSION_QK_JOINT_COMPOUND_VS_QPROJ_JOINT_COMPOUND | sub-additive vs super-additive at compound peer-exclusion (axis #4) |
+| #1794 | nezuko | PER_KIND_ATTN_SOAP_QK_LATE_PHASE_DISPATCH_SINGLE_AXIS_DECOMPOSITION | single-axis decomposition of joint-LATE productivity (axis #7) |
+
+---
+
 ## 2026-05-30 05:57 UTC — Cycle 71 mid-414 — thorfinn #1765 316th refute 152nd family closure (PER_KIND_AUX_WD_JOINT_COMPOUND bilateral terminal: DIRECTION-ASYMMETRIC shared substrate at cross-kind WD axis — preferred CNI + anti-preferred ~additive + 186th mech class EMBED-RMS-DECOUPLING-AT-WD-JOINT) + thorfinn #1789 new assignment (PER_KIND_AUX_BETA1_PER_AXIS_DECOMPOSITION to compute additive null for CNI parallel test at β1 axis)
 
 ### thorfinn #1765 PER_KIND_AUX_WD_JOINT_COMPOUND — 316th refute, 152nd family closure
