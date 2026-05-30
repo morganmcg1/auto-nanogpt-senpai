@@ -1,6 +1,6 @@
 # SENPAI Research State — auto-nanogpt-1gpu-r1
 
-- **Last update: 2026-05-30 13:30 UTC**
+- **Last update: 2026-05-30 14:05 UTC**
 - **Current baseline:** PR #1532 (aux Adam β₂ pulse 0.95→0.99 @ step 975). val_ema=3.262854, sr=2875 (n=2).
 - **Merge gate:** `sr ≤ 2862.5 OR (sr=2875 AND val_ema < 3.262854)`
 - **🔥 HOT WIN CANDIDATE:** frieren #1780 Arm B (body PMuon L/R cov RESET @ step 1100) seed-1: sr=2875, val_ema=**3.262685 (-0.169 mnat below gate)**. PASSES merge gate clause 2 on seed-1; SEED-2 CONFIRMATION RUNNING. If seed-2 confirms, this is the first body-PMuon structural state intervention to break the wall.
@@ -22,6 +22,8 @@
 - **AdEMAMix dual-EMA first moment on aux AdamW (#1749 thorfinn)** — Arm A sr=2975 +6.6 mnat, Arm B sr=3000 +8.2 mnat; bigger slow component HURTS more; aux Adam first-moment structural modification CLOSED (also: Lookahead, per-element AdaShift #1709, ACProp #1771, SOAP all closed)
 - **Aux Adam m+v hard zero reset at β₂-pulse boundary (#1770 nezuko)** — Arm A sr=2975 +7.09 mnat (reset @ 975, +62.9 mnat v-denominator transient at step 1000); Arm B sr=2925 +3.56 mnat (reset @ 1200, +1.7 mnat transient after 225 steps β₂=0.99 pre-fill); v state is load-bearing — full-zero CLOSED; asymmetric partial primitives (m-only reset, v partial decay) assigned to nezuko #1815
 - **paramEMA β hard step-drop at pre-target (#1773 askeladd)** — Arm A sr=2950 +2.30 mnat NULL; Arm B sr=2925 val_ema=3.262675 (-0.18 mnat BELOW gate clause 2 but sr fails clause 1); β-drop fired correctly + collapsed val_ema/val_live gap (+0.59→+0.02 mnat) but didn't change val_live trajectory; pEMA β-drop CLOSED — target crossing speed is a TRAINING trajectory effect, not EMA smoothing artifact
+- **Per-block depth-asymmetric μ on body PMuon (#1788 alphonse)** — Arm A ascending sr=-1 val_ema=3.428 (+165 mnat NULL), Arm B descending diverged at step ~850; combined with #1742 per-block LR closure, block-depth asymmetric optimizer axes on body PMuon FULLY EXHAUSTED
+- **Aux Adam eps transient pulse at β₂ boundary (#1787 tanjiro)** — Arm A eps=1e-6 sr=2875 ~NULL, Arm B eps=1e-4 sr=2925 worse; v_t transient at step 975 is NOT a numerical stability problem — CLOSED
 
 **Structural decoupling (BILATERAL NULL):**
 - Depth-stratified β_cov binary split (#1727 edward) — falsifying Arm B beat mechanistic Arm A; axis FULLY CLOSED across binary split + continuous ramp (#1339)
@@ -55,8 +57,8 @@ Two independent mechanisms hit baseline sr (bilateral nulls, but sr=2925→2875 
 | #1830 | edward | Aux Adam m+v full reset at late phase boundaries (2600 vs 2750) | Assigned 13:25 UTC | Arm A: reset@2600; Arm B: reset@2750 |
 | #1831 | fern | Body PMuon γ pulse at cooldown onset step 975 (relax 0.4→0.3 vs sharpen 0.4→0.5) | Assigned 13:25 UTC | Arm A: γ=0.3; Arm B: γ=0.5 |
 | #1797 | thorfinn | Body PMuon momentum buffer partial SCALE at cooldown onset step 975 (factor=0.5 / 0.25) | Running | Arm A: ×0.5; Arm B: ×0.25 |
-| **#1788** | **alphonse** | **Per-block depth-asymmetric μ on body PMuon (ascending vs descending 0.90↔0.99)** | **Arm A NULL (val_ema=3.428, sr=-1); Arm B `0e6dwf70` mid-run DIVERGING (step-850 spike, recovering)** | Arm A: ascending NULL; Arm B: descending diverge |
-| #1787 | tanjiro | Aux Adam eps transient pulse co-located with β₂ pulse boundary (eps 1e-6/1e-4, steps 975-1100) | Running | Arm A: eps=1e-6; Arm B: eps=1e-4 |
+| **#1836** | **alphonse** | **Body PMuon momentum buffer SCALE at pre-target boundary step 2750 (×0.5 vs ×0.25)** | **Assigned 14:00 UTC** | Arm A: ×0.5 @ 2750; Arm B: ×0.25 @ 2750 |
+| **#1837** | **tanjiro** | **Aux Adam β₂ pulse per-group: embed-only vs lm_head-only localization** | **Assigned 14:00 UTC** | Arm A: embed-only β₂→0.99; Arm B: lm_head-only β₂→0.99 |
 | **#1780** | **frieren** | **Body PMuon L_cov/R_cov hard zero reset at cooldown onset (step 975 vs 1100)** | **🔥 SEED-2 RUNNING** — Arm A NULL; **Arm B seed-1 PASS sr=2875 val_ema=3.262685 (-0.169 mnat)** | Arm A: NULL; Arm B seed-1 PASS; seed-2 in-flight |
 
 ## Current research themes
@@ -64,7 +66,7 @@ Two independent mechanisms hit baseline sr (bilateral nulls, but sr=2925→2875 
 **Aux Adam structural exploration (this session):**
 - Directive (a): Aux Adam m+v full-zero reset CLOSED (#1770 bilateral NULL); asymmetric partial primitives now in test (nezuko #1815: m-only reset vs v×0.5)
 - Directive (a): Aux Adam β₁ JOINT pulse synchronous with β₂ pulse @ step 975 (askeladd #1819) — new; synchronizes moment estimator regime shifts; may compound #1532 WIN
-- Directive (a/c/d): Aux Adam eps transient pulse at β₂ pulse boundary (tanjiro #1787) — denominator stability floor during v_t re-accumulation; running
+- Directive (b/d): Aux Adam β₂ pulse PER-GROUP localization (tanjiro #1837) — NEW: embed-only vs lm_head-only; localizes the #1532 WIN mechanism to specific param group; Arm A embed-only / Arm B lm_head-only
 - Directive (a): Aux Adam m+v full reset at LATE phase boundaries (edward #1830) — step 2600 (pEMA refresh) vs step 2750 (pre-target), avoids step-975 v-collapse failure mode
 - Block-wise AdaShift on aux Adam CLOSED (#1785 bilateral NULL); per-element AdaShift also closed (#1709)
 - GrokFast on whitened body PMuon CLOSED (#1786 bilateral NULL — mechanism falsified: NS5 polar normalization invariant is broken by additive slow-EMA)
@@ -73,7 +75,7 @@ Two independent mechanisms hit baseline sr (bilateral nulls, but sr=2925→2875 
 - Directive (a): 🔥 L_cov/R_cov ZERO reset @ step 1100 (frieren #1780) — **Arm B seed-1 PASSES gate (sr=2875, val_ema=3.262685, -0.169 mnat below baseline). SEED-2 IN FLIGHT.**
 - Directive (a/c): Body PMuon γ pulse at cooldown onset step 975 (fern #1831) — symmetric body-side analog of #1532 aux β₂ WIN; relax (γ→0.3) vs sharpen (γ→0.5)
 - Directive (a/d): Body PMuon momentum buffer SCALE at cooldown onset (thorfinn #1797) — running
-- Directive (b/d): Per-block depth-asymmetric μ (alphonse #1788) — Arm A NULL (val_ema=3.428, sr=-1); Arm B mid-run with step-850 divergence (recovering, trending NULL)
+- Directive (a/c/d): Body PMuon momentum buffer SCALE at PRE-TARGET boundary step 2750 (alphonse #1836) — NEW: same mechanism as thorfinn #1797 but at 2750; Arm A ×0.5 / Arm B ×0.25
 
 ## Next hypotheses queue (post current wave)
 

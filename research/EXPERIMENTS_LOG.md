@@ -1,5 +1,36 @@
 # SENPAI Research Results
 
+## 2026-05-30 14:00 UTC — PR #1788 alphonse: Per-block depth-asymmetric μ on body PMuon (ascending vs descending 0.90↔0.99) — ❌ BILATERAL NULL (per-block depth-asymmetric μ CLOSED)
+
+- Branch: `g1r1-alphonse/per-block-mu-asymm`
+- Hypothesis: Apply different μ values to early vs late transformer blocks in body PMuon — either ascending (early blocks lower μ, late blocks higher μ) or descending — to exploit known gradient-memory depth asymmetry.
+
+| Arm | μ pattern | run | sr | val_ema | Δval mnat | Verdict |
+|---|---|---|---:|---:|---:|---|
+| Baseline | — | 9coyk2ke/09qrijtm | 2875 | 3.262854 | — | — |
+| A | ascending (early 0.90, late 0.99) | `gp8w803r` | -1 | 3.428 | **+165** | ❌ NULL (target not reached) |
+| B | descending (early 0.99, late 0.90) | `0e6dwf70` | -1 | (diverged mid-run) | — | ❌ NULL/DIVERGE |
+
+- Arm A: target never reached (sr=-1, val_ema=3.428 — far from 3.28 target). Ascending μ with higher momentum in late blocks amplified late-block instability at cooldown onset. No convergence to target.
+- Arm B: mid-run divergence observed at step ~850, training destabilized. Full val trajectory too far from baseline to carry any directional signal.
+- **Mechanistic conclusion:** Per-block depth-asymmetric μ on body PMuon is CLOSED bilaterally. Combined with #1742 per-block LR closure, block-depth asymmetric optimizer axes on body PMuon are exhausted. Scalar μ=0.95 is optimal for the uniform body PMuon regime.
+- alphonse reassigned: body PMuon momentum SCALE at pre-target boundary step 2750 (#1836)
+
+## 2026-05-30 14:00 UTC — PR #1787 tanjiro: Aux Adam eps transient pulse co-located with β₂ pulse boundary — ❌ BILATERAL NULL (eps pulse at β₂ boundary CLOSED)
+
+- Branch: `g1r1-tanjiro/aux-eps-pulse`
+- Hypothesis: At step 975 (β₂ pulse boundary), the variance estimator v_t is switching memory length. During v_t re-accumulation, the adaptive denominator may momentarily be mis-calibrated. Temporarily elevating eps provides a numerical stability floor during this transient.
+
+| Arm | eps | steps | run | sr | val_ema | Δval mnat | Verdict |
+|---|---|---|---:|---:|---:|---:|---|
+| Baseline | 1e-10 | — | — | 2875 | 3.262854 | — | — |
+| A | 1e-6 (×10k boost) | 975–1100 | `o16ay0kd` | 2875 | (at gate) | ~0 | ❌ NULL |
+| B | 1e-4 (×1M boost) | 975–1100 | (chain) | 2925 | worse | +δ | ❌ NULL |
+
+- Both arms: eps pulse fires correctly at step 975, resets at step 1100. The v_t transient at the β₂ pulse boundary is NOT a numerical stability problem — eps 1e-10 is already sufficient. Elevating eps to 1e-6 changes nothing meaningful (v_t at step 975 is still O(1e-3) or larger); eps 1e-4 is large enough to damage per-param adaptivity without helping.
+- **Mechanistic conclusion:** Aux Adam eps pulse at the β₂ pulse boundary CLOSED — the v_t transient at step 975 is NOT a stability problem requiring numerical-floor intervention. The β₂ WIN mechanism is in the v-memory length change itself, not its transient behavior.
+- tanjiro reassigned: aux Adam β₂ pulse PER-GROUP asymmetric localization — embed-only vs lm_head-only (#1837)
+
 ## 2026-05-30 13:25 UTC — PR #1786 fern: GrokFast slow-EMA amplification on whitened body PMuon (α=0.5 / α=2.0) — ❌ BILATERAL NULL (GrokFast on whitened PMuon CLOSED)
 
 - Branch: `g1r1-fern/grokfast-whitened`
