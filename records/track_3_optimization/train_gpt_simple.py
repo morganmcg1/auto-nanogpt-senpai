@@ -477,6 +477,20 @@ SOAP_PRECOND_FREQ = 10
 ATTN_SOAP_BETA2 = 0.90
 ATTN_SOAP_PRECOND_FREQ = 10
 ATTN_SOAP_TRUST_THRESHOLD = float(os.environ.get("ATTN_SOAP_TRUST_THRESHOLD", "0.9"))
+# Per-depth-half MLP-SOAP beta2 dispatch (PR #1806 — axis #8 productive direction).
+# When PER_DEPTH_HALF_MLP_SOAP_BETA2_ENABLED=1, MLP-SOAP params with layer index
+# < MLP_SOAP_DEPTH_SPLIT_BETA2 use MLP_SOAP_BETA2_FRONT, otherwise use
+# MLP_SOAP_BETA2_BACK. Disabled by default; falls back to SOAP_BETA2.
+PER_DEPTH_HALF_MLP_SOAP_BETA2_ENABLED = int(os.environ.get("PER_DEPTH_HALF_MLP_SOAP_BETA2_ENABLED", "0"))
+MLP_SOAP_BETA2_FRONT = float(os.environ.get("MLP_SOAP_BETA2_FRONT", "0.90"))
+MLP_SOAP_BETA2_BACK = float(os.environ.get("MLP_SOAP_BETA2_BACK", "0.90"))
+MLP_SOAP_DEPTH_SPLIT_BETA2 = int(os.environ.get("MLP_SOAP_DEPTH_SPLIT_BETA2", "6"))
+# Per-depth-half attn-SOAP beta2 dispatch (PR #1806 — axis #8 productive direction).
+# Same structure as MLP-SOAP; defaults to ATTN_SOAP_BETA2.
+PER_DEPTH_HALF_ATTN_SOAP_BETA2_ENABLED = int(os.environ.get("PER_DEPTH_HALF_ATTN_SOAP_BETA2_ENABLED", "0"))
+ATTN_SOAP_BETA2_FRONT = float(os.environ.get("ATTN_SOAP_BETA2_FRONT", "0.90"))
+ATTN_SOAP_BETA2_BACK = float(os.environ.get("ATTN_SOAP_BETA2_BACK", "0.90"))
+ATTN_SOAP_DEPTH_SPLIT_BETA2 = int(os.environ.get("ATTN_SOAP_DEPTH_SPLIT_BETA2", "6"))
 NS5_ITERS = int(os.environ.get("NS5_ITERS", "12"))
 WD_AUX = float(os.environ.get("WD_AUX", "0.0"))  # AdamW WD on embed + lm_head matrices (scalars stay at 0)
 EMBED_INIT_STD = float(os.environ.get("EMBED_INIT_STD", "1.0"))  # default preserves baseline N(0,1)
@@ -486,6 +500,9 @@ PER_KIND_AUX_PERIODIC_RESET_ENABLED = int(os.environ.get("PER_KIND_AUX_PERIODIC_
 AUX_RESET_INTERVAL_EMBED = int(os.environ.get("AUX_RESET_INTERVAL_EMBED", "0"))  # 0 = disabled
 # 0 = both (legacy behavior matching #1729), 1 = exp_avg_sq only, 2 = exp_avg only
 AUX_RESET_MOMENT_EMBED = int(os.environ.get("AUX_RESET_MOMENT_EMBED", "0"))
+# Optional explicit RNG seed for n=2 verification protocol (PR #1806 Arm B).
+SEED_ENV = os.environ.get("SEED")
+SEED = int(SEED_ENV) if SEED_ENV is not None else None
 
 
 def zeropower_via_newtonschulz5(G: Tensor) -> Tensor:
@@ -660,7 +677,24 @@ class Muon(torch.optim.Optimizer):
         }
         # Track which sub-type each attention-SOAP param is (q/k/v/proj) for per-type telemetry.
         self.attn_soap_kind: dict[int, str] = {}
+        # Per-param beta2 + depth-half maps (PR #1806). Built once at __init__ so
+        # the optimizer step() can look up the correct beta2 for each parameter
+        # based on its layer index. MLP-SOAP and attn-SOAP dispatches are
+        # independent (separate env flags, separate split indices) so both can
+        # be enabled simultaneously without interference.
+        self.mlp_soap_beta2: dict[int, float] = {}
+        self.attn_soap_beta2: dict[int, float] = {}
+        self.mlp_soap_depth_half: dict[int, str] = {}  # "front" or "back"
+        self.attn_soap_depth_half: dict[int, str] = {}
+        self.mlp_soap_layer: dict[int, int] = {}
+        self.attn_soap_layer: dict[int, int] = {}
         for n, p in named_params:
+            layer_idx: int | None = None
+            head = n.split(".", 1)[0]
+            try:
+                layer_idx = int(head)
+            except ValueError:
+                layer_idx = None
             if p in self.attn_soap_params:
                 if n.endswith(".attn.q.weight"):
                     self.attn_soap_kind[id(p)] = "q"
@@ -670,6 +704,31 @@ class Muon(torch.optim.Optimizer):
                     self.attn_soap_kind[id(p)] = "v"
                 elif n.endswith(".attn.proj.weight"):
                     self.attn_soap_kind[id(p)] = "proj"
+                if layer_idx is not None:
+                    self.attn_soap_layer[id(p)] = layer_idx
+                    if PER_DEPTH_HALF_ATTN_SOAP_BETA2_ENABLED:
+                        if layer_idx < ATTN_SOAP_DEPTH_SPLIT_BETA2:
+                            self.attn_soap_beta2[id(p)] = ATTN_SOAP_BETA2_FRONT
+                            self.attn_soap_depth_half[id(p)] = "front"
+                        else:
+                            self.attn_soap_beta2[id(p)] = ATTN_SOAP_BETA2_BACK
+                            self.attn_soap_depth_half[id(p)] = "back"
+                    else:
+                        self.attn_soap_beta2[id(p)] = ATTN_SOAP_BETA2
+                        self.attn_soap_depth_half[id(p)] = "uniform"
+            elif p in self.soap_params:
+                if layer_idx is not None:
+                    self.mlp_soap_layer[id(p)] = layer_idx
+                    if PER_DEPTH_HALF_MLP_SOAP_BETA2_ENABLED:
+                        if layer_idx < MLP_SOAP_DEPTH_SPLIT_BETA2:
+                            self.mlp_soap_beta2[id(p)] = MLP_SOAP_BETA2_FRONT
+                            self.mlp_soap_depth_half[id(p)] = "front"
+                        else:
+                            self.mlp_soap_beta2[id(p)] = MLP_SOAP_BETA2_BACK
+                            self.mlp_soap_depth_half[id(p)] = "back"
+                    else:
+                        self.mlp_soap_beta2[id(p)] = SOAP_BETA2
+                        self.mlp_soap_depth_half[id(p)] = "uniform"
         params = sorted([p for _, p in named_params], key=lambda x: x.size(), reverse=True)
         defaults = dict(lr=lr, weight_decay=weight_decay, mu=mu)
         super().__init__(params, defaults)
@@ -715,9 +774,15 @@ class Muon(torch.optim.Optimizer):
                     use_soap = p in self.soap_params
                     use_attn_soap = p in self.attn_soap_params
                     # SOAP precondition applied to momentum BEFORE NS5+contra+NorMuon
-                    # (matches public record #14/16 — pre-NS5 placement).
-                    if use_soap or use_attn_soap:
-                        momentum_update = soap_precondition(momentum_update, state)
+                    # (matches public record #14/16 — pre-NS5 placement). Per-param
+                    # beta2 is dispatched from self.{mlp,attn}_soap_beta2 (PR #1806);
+                    # falls back to the per-kind scalar default when the map is empty.
+                    if use_soap:
+                        beta2 = self.mlp_soap_beta2.get(id(p), SOAP_BETA2)
+                        momentum_update = soap_precondition(momentum_update, state, beta2=beta2)
+                    elif use_attn_soap:
+                        beta2 = self.attn_soap_beta2.get(id(p), ATTN_SOAP_BETA2)
+                        momentum_update = soap_precondition(momentum_update, state, beta2=beta2)
                     # NS5 + contra + NorMuon row variance on (possibly SOAP-preconditioned) momentum.
                     update = contra_normuon_update(momentum_update, state["second_moment"])
                     # u/w-floor: scale up if u/w < TARGET_UW; leave alone otherwise.
@@ -730,9 +795,11 @@ class Muon(torch.optim.Optimizer):
                     p.add_(update, alpha=-group["lr"])
                     # Refresh SOAP state with the raw grad (after applying the step).
                     if use_soap:
-                        soap_refresh(grad, state)
+                        beta2 = self.mlp_soap_beta2.get(id(p), SOAP_BETA2)
+                        soap_refresh(grad, state, beta2=beta2)
                     elif use_attn_soap:
-                        soap_refresh(grad, state, beta2=ATTN_SOAP_BETA2,
+                        beta2 = self.attn_soap_beta2.get(id(p), ATTN_SOAP_BETA2)
+                        soap_refresh(grad, state, beta2=beta2,
                                      refresh_freq=ATTN_SOAP_PRECOND_FREQ,
                                      use_trust_gate=True,
                                      trust_threshold=ATTN_SOAP_TRUST_THRESHOLD)
@@ -744,6 +811,8 @@ class Muon(torch.optim.Optimizer):
         Aggregate keys: count, on_fraction, mean_cos_row/col, min_cos_row/col.
         Per-type keys (kind in {q, k, v, proj}):
           {kind}/count, {kind}/on_fraction, {kind}/mean_cos_row, {kind}/mean_cos_col.
+        Per-depth-half keys (half in {front, back, uniform}):
+          {half}/count, {half}/on_fraction, {half}/mean_cos_row, {half}/mean_cos_col.
         """
         cos_rows: list[float] = []
         cos_cols: list[float] = []
@@ -753,6 +822,11 @@ class Muon(torch.optim.Optimizer):
             "k": {"on": 0, "cos_row": [], "cos_col": []},
             "v": {"on": 0, "cos_row": [], "cos_col": []},
             "proj": {"on": 0, "cos_row": [], "cos_col": []},
+        }
+        by_half: dict[str, dict[str, list[float] | int]] = {
+            "front": {"on": 0, "cos_row": [], "cos_col": []},
+            "back": {"on": 0, "cos_row": [], "cos_col": []},
+            "uniform": {"on": 0, "cos_row": [], "cos_col": []},
         }
         for p in self.attn_soap_params:
             state = self.state.get(p)
@@ -771,6 +845,12 @@ class Muon(torch.optim.Optimizer):
                 by_kind[kind]["cos_col"].append(cc)
                 if on:
                     by_kind[kind]["on"] += 1
+            half = self.attn_soap_depth_half.get(id(p))
+            if half is not None:
+                by_half[half]["cos_row"].append(cr)
+                by_half[half]["cos_col"].append(cc)
+                if on:
+                    by_half[half]["on"] += 1
         counts = len(cos_rows)
         if counts == 0:
             return {}
@@ -792,7 +872,81 @@ class Muon(torch.optim.Optimizer):
             out[f"{kind}/on_fraction"] = agg["on"] / kn
             out[f"{kind}/mean_cos_row"] = sum(crs) / kn
             out[f"{kind}/mean_cos_col"] = sum(ccs) / kn
+        for half, agg in by_half.items():
+            crs = agg["cos_row"]
+            ccs = agg["cos_col"]
+            kn = len(crs)
+            if kn == 0:
+                continue
+            out[f"depth_half_{half}/count"] = kn
+            out[f"depth_half_{half}/on_fraction"] = agg["on"] / kn
+            out[f"depth_half_{half}/mean_cos_row"] = sum(crs) / kn
+            out[f"depth_half_{half}/mean_cos_col"] = sum(ccs) / kn
         return out
+
+    def mlp_soap_depth_half_stats(self) -> dict[str, float]:
+        """Per-depth-half MLP-SOAP telemetry — soap_step counts and exp_avg_sq norms.
+
+        MLP-SOAP doesn't currently use a trust gate, so on_fraction/cos_row aren't
+        meaningful here. We expose what's available: aggregate counts and basis
+        statistics that diagnose whether the per-depth-half dispatch is taking
+        effect symmetrically across the front/back halves.
+        """
+        by_half: dict[str, dict[str, list[float] | int]] = {
+            "front": {"count": 0, "soap_step": [], "exp_avg_sq_norm": []},
+            "back": {"count": 0, "soap_step": [], "exp_avg_sq_norm": []},
+            "uniform": {"count": 0, "soap_step": [], "exp_avg_sq_norm": []},
+        }
+        for p in self.soap_params:
+            state = self.state.get(p)
+            if state is None or state.get("q_row") is None:
+                continue
+            half = self.mlp_soap_depth_half.get(id(p))
+            if half is None:
+                continue
+            by_half[half]["count"] += 1
+            by_half[half]["soap_step"].append(float(state.get("soap_step", 0)))
+            eas = state.get("exp_avg_sq")
+            if eas is not None:
+                by_half[half]["exp_avg_sq_norm"].append(float(eas.norm().item()))
+        out: dict[str, float] = {}
+        for half, agg in by_half.items():
+            if agg["count"] == 0:
+                continue
+            out[f"depth_half_{half}/count"] = agg["count"]
+            ss = agg["soap_step"]
+            if ss:
+                out[f"depth_half_{half}/mean_soap_step"] = sum(ss) / len(ss)
+            ns = agg["exp_avg_sq_norm"]
+            if ns:
+                out[f"depth_half_{half}/mean_exp_avg_sq_norm"] = sum(ns) / len(ns)
+        return out
+
+    def soap_dispatch_diagnostic(self) -> str:
+        """One-line summary of the per-depth-half beta2 dispatch state.
+
+        Used at step 0 to confirm both MLP-SOAP and attn-SOAP per-depth-half
+        dispatches are active simultaneously (PR #1806 heartbeat requirement).
+        """
+        mlp_front = sum(1 for h in self.mlp_soap_depth_half.values() if h == "front")
+        mlp_back = sum(1 for h in self.mlp_soap_depth_half.values() if h == "back")
+        mlp_uniform = sum(1 for h in self.mlp_soap_depth_half.values() if h == "uniform")
+        attn_front = sum(1 for h in self.attn_soap_depth_half.values() if h == "front")
+        attn_back = sum(1 for h in self.attn_soap_depth_half.values() if h == "back")
+        attn_uniform = sum(1 for h in self.attn_soap_depth_half.values() if h == "uniform")
+        mlp_betas = sorted({round(b, 4) for b in self.mlp_soap_beta2.values()})
+        attn_betas = sorted({round(b, 4) for b in self.attn_soap_beta2.values()})
+        return (
+            f"[PR1806-ASKELADD-COMPOUND] "
+            f"MLP-SOAP per-depth-half ENABLED={PER_DEPTH_HALF_MLP_SOAP_BETA2_ENABLED} "
+            f"front={mlp_front} back={mlp_back} uniform={mlp_uniform} "
+            f"split={MLP_SOAP_DEPTH_SPLIT_BETA2} betas={mlp_betas} "
+            f"(front_beta2={MLP_SOAP_BETA2_FRONT}, back_beta2={MLP_SOAP_BETA2_BACK}) | "
+            f"attn-SOAP per-depth-half ENABLED={PER_DEPTH_HALF_ATTN_SOAP_BETA2_ENABLED} "
+            f"front={attn_front} back={attn_back} uniform={attn_uniform} "
+            f"split={ATTN_SOAP_DEPTH_SPLIT_BETA2} betas={attn_betas} "
+            f"(front_beta2={ATTN_SOAP_BETA2_FRONT}, back_beta2={ATTN_SOAP_BETA2_BACK})"
+        )
 
 
 ########################################
@@ -806,6 +960,13 @@ dist.init_process_group(backend="nccl", device_id=device)
 dist.barrier()
 # this code can be run equivalently with 1, 2, 4, or 8 gpus.
 assert 8 % dist.get_world_size() == 0
+
+# Seed both CPU and CUDA RNG when SEED env var is explicitly set (PR #1806 Arm B
+# n=2 verification protocol). Leaving SEED unset preserves the original
+# unseeded behavior so prior baselines and Arm A reproduce as before.
+if SEED is not None:
+    torch.manual_seed(SEED)
+    torch.cuda.manual_seed_all(SEED)
 
 # logging setup
 if dist.get_rank() == 0:
@@ -887,12 +1048,21 @@ if dist.get_rank() == 0:
             "optimizer/attn_soap_beta2": ATTN_SOAP_BETA2,
             "optimizer/attn_soap_precond_freq": ATTN_SOAP_PRECOND_FREQ,
             "optimizer/attn_soap_trust_threshold": ATTN_SOAP_TRUST_THRESHOLD,
+            "optimizer/per_depth_half_mlp_soap_beta2_enabled": PER_DEPTH_HALF_MLP_SOAP_BETA2_ENABLED,
+            "optimizer/mlp_soap_beta2_front": MLP_SOAP_BETA2_FRONT,
+            "optimizer/mlp_soap_beta2_back": MLP_SOAP_BETA2_BACK,
+            "optimizer/mlp_soap_depth_split_beta2": MLP_SOAP_DEPTH_SPLIT_BETA2,
+            "optimizer/per_depth_half_attn_soap_beta2_enabled": PER_DEPTH_HALF_ATTN_SOAP_BETA2_ENABLED,
+            "optimizer/attn_soap_beta2_front": ATTN_SOAP_BETA2_FRONT,
+            "optimizer/attn_soap_beta2_back": ATTN_SOAP_BETA2_BACK,
+            "optimizer/attn_soap_depth_split_beta2": ATTN_SOAP_DEPTH_SPLIT_BETA2,
+            "optimizer/seed": SEED if SEED is not None else -1,
             "optimizer/ns5_iters": NS5_ITERS,
             "optimizer/wd_aux": WD_AUX,
             "optimizer/per_kind_aux_periodic_reset_enabled": int(PER_KIND_AUX_PERIODIC_RESET_ENABLED),
             "optimizer/aux_reset_interval_embed": AUX_RESET_INTERVAL_EMBED,
             "optimizer/aux_reset_moment_embed": AUX_RESET_MOMENT_EMBED,
-            "optimizer/recipe": "contra-muon + normuon-lite + soap-on-mlp + soap-on-attn-trust-gate (pre-NS5, record #14 + record #16)",
+            "optimizer/recipe": "contra-muon + normuon-lite + soap-on-mlp + soap-on-attn-trust-gate (pre-NS5, record #14 + record #16) + per-depth-half-soap-beta2-dispatch (PR #1806)",
         },
     )
 
@@ -937,6 +1107,30 @@ for trial_idx in range(args.num_trials):
     for opt in optimizers:
         for group in opt.param_groups:
             group["initial_lr"] = group["lr"]
+
+    # PR #1806 step-0 diagnostic — confirm both MLP-SOAP AND attn-SOAP per-depth-half
+    # dispatches are active simultaneously with the expected front/back param counts
+    # (12+12 for MLP-SOAP, 24+24 for attn-SOAP at depth_split=6 with 12-layer model).
+    if dist.get_rank() == 0:
+        diag = optimizer2.soap_dispatch_diagnostic()
+        print0(diag, console=True)
+        wandb.log({
+            "optimizer/diag/mlp_soap_per_depth_half_enabled": PER_DEPTH_HALF_MLP_SOAP_BETA2_ENABLED,
+            "optimizer/diag/attn_soap_per_depth_half_enabled": PER_DEPTH_HALF_ATTN_SOAP_BETA2_ENABLED,
+            "optimizer/diag/mlp_soap_front_count": sum(
+                1 for h in optimizer2.mlp_soap_depth_half.values() if h == "front"
+            ),
+            "optimizer/diag/mlp_soap_back_count": sum(
+                1 for h in optimizer2.mlp_soap_depth_half.values() if h == "back"
+            ),
+            "optimizer/diag/attn_soap_front_count": sum(
+                1 for h in optimizer2.attn_soap_depth_half.values() if h == "front"
+            ),
+            "optimizer/diag/attn_soap_back_count": sum(
+                1 for h in optimizer2.attn_soap_depth_half.values() if h == "back"
+            ),
+            "optimizer/diag/seed": SEED if SEED is not None else -1,
+        }, step=trial_idx * (train_steps + 1))
 
     # learning rate schedule: stable then decay
     def set_hparams(step, cooldown_frac=0.7):
@@ -1113,6 +1307,10 @@ for trial_idx in range(args.num_trials):
                     stats = opt.trust_gate_stats()
                     if stats:
                         wandb.log(prefixed("train/attn_soap_trust_gate", stats), step=wandb_step)
+                if hasattr(opt, "mlp_soap_depth_half_stats"):
+                    mlp_stats = opt.mlp_soap_depth_half_stats()
+                    if mlp_stats:
+                        wandb.log(prefixed("train/mlp_soap_depth_half", mlp_stats), step=wandb_step)
         if dist.get_rank() == 0 and telemetry_due:
             log_weight_telemetry(
                 model=model,
