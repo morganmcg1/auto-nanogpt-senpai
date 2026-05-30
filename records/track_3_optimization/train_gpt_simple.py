@@ -464,6 +464,34 @@ SOAP_PRECOND_FREQ = 10
 ATTN_SOAP_BETA2 = 0.90
 ATTN_SOAP_PRECOND_FREQ = 10
 ATTN_SOAP_TRUST_THRESHOLD = float(os.environ.get("ATTN_SOAP_TRUST_THRESHOLD", "0.9"))
+# Per-projection β2 phase-dispatch at attn-SOAP (PR #1794, extended to v/proj in #1811).
+# When ATTN_SOAP_PHASE_DISPATCH_PROJECTION ∈ {q, k, v, proj}, that projection's β2
+# switches from ATTN_SOAP_BETA2_EARLY_<proj> (steps < ATTN_SOAP_PHASE_BOUNDARY) to
+# ATTN_SOAP_BETA2_LATE_<proj> (steps >= ATTN_SOAP_PHASE_BOUNDARY). Non-dispatched
+# projections (and the dispatched projection when no dispatch is active) use the
+# per-kind ATTN_SOAP_BETA2_<kind>, which defaults to ATTN_SOAP_BETA2.
+ATTN_SOAP_PHASE_DISPATCH_PROJECTION = os.environ.get("ATTN_SOAP_PHASE_DISPATCH_PROJECTION", "")
+ATTN_SOAP_PHASE_BOUNDARY = int(os.environ.get("ATTN_SOAP_PHASE_BOUNDARY", "0"))
+ATTN_SOAP_BETA2_EARLY = {
+    kind: float(os.environ.get(f"ATTN_SOAP_BETA2_EARLY_{kind}", str(ATTN_SOAP_BETA2)))
+    for kind in ("q", "k", "v", "proj")
+}
+ATTN_SOAP_BETA2_LATE = {
+    kind: float(os.environ.get(f"ATTN_SOAP_BETA2_LATE_{kind}", str(ATTN_SOAP_BETA2)))
+    for kind in ("q", "k", "v", "proj")
+}
+ATTN_SOAP_BETA2_PER_KIND = {
+    kind: float(os.environ.get(f"ATTN_SOAP_BETA2_{kind}", str(ATTN_SOAP_BETA2)))
+    for kind in ("q", "k", "v", "proj")
+}
+
+
+def attn_soap_beta2_for_kind(kind: str, step: int) -> float:
+    if ATTN_SOAP_PHASE_DISPATCH_PROJECTION and kind == ATTN_SOAP_PHASE_DISPATCH_PROJECTION:
+        if step < ATTN_SOAP_PHASE_BOUNDARY:
+            return ATTN_SOAP_BETA2_EARLY[kind]
+        return ATTN_SOAP_BETA2_LATE[kind]
+    return ATTN_SOAP_BETA2_PER_KIND[kind]
 NS5_ITERS = int(os.environ.get("NS5_ITERS", "12"))
 WD_AUX = float(os.environ.get("WD_AUX", "0.0"))  # AdamW WD on embed + lm_head matrices (scalars stay at 0)
 EMBED_INIT_STD = float(os.environ.get("EMBED_INIT_STD", "1.0"))  # default preserves baseline N(0,1)
@@ -655,6 +683,8 @@ class Muon(torch.optim.Optimizer):
         params = sorted([p for _, p in named_params], key=lambda x: x.size(), reverse=True)
         defaults = dict(lr=lr, weight_decay=weight_decay, mu=mu)
         super().__init__(params, defaults)
+        # Iteration counter used for phase-dispatched per-kind attn-SOAP β2.
+        self.cur_step = 0
 
     @torch.no_grad()
     def step(self):
@@ -714,7 +744,9 @@ class Muon(torch.optim.Optimizer):
                     if use_soap:
                         soap_refresh(grad, state)
                     elif use_attn_soap:
-                        soap_refresh(grad, state, beta2=ATTN_SOAP_BETA2,
+                        kind = self.attn_soap_kind.get(id(p))
+                        beta2_p = attn_soap_beta2_for_kind(kind, self.cur_step) if kind else ATTN_SOAP_BETA2
+                        soap_refresh(grad, state, beta2=beta2_p,
                                      refresh_freq=ATTN_SOAP_PRECOND_FREQ,
                                      use_trust_gate=True,
                                      trust_threshold=ATTN_SOAP_TRUST_THRESHOLD)
@@ -805,6 +837,18 @@ def print0(s, console=False, log=True):
 # we begin by logging this file itself
 print0(code)
 print0("="*100)
+print0(
+    f"[PHASE_DISPATCH_ATTN_SOAP_PER_PROJECTION] projection={ATTN_SOAP_PHASE_DISPATCH_PROJECTION!r} "
+    f"boundary={ATTN_SOAP_PHASE_BOUNDARY} "
+    f"early_q={ATTN_SOAP_BETA2_EARLY['q']} late_q={ATTN_SOAP_BETA2_LATE['q']} "
+    f"early_k={ATTN_SOAP_BETA2_EARLY['k']} late_k={ATTN_SOAP_BETA2_LATE['k']} "
+    f"early_v={ATTN_SOAP_BETA2_EARLY['v']} late_v={ATTN_SOAP_BETA2_LATE['v']} "
+    f"early_proj={ATTN_SOAP_BETA2_EARLY['proj']} late_proj={ATTN_SOAP_BETA2_LATE['proj']} "
+    f"beta2_q={ATTN_SOAP_BETA2_PER_KIND['q']} beta2_k={ATTN_SOAP_BETA2_PER_KIND['k']} "
+    f"beta2_v={ATTN_SOAP_BETA2_PER_KIND['v']} beta2_proj={ATTN_SOAP_BETA2_PER_KIND['proj']} "
+    f"baseline_attn_soap_beta2={ATTN_SOAP_BETA2}",
+    console=True,
+)
 print0(f"Running PyTorch {torch.version.__version__} compiled for CUDA {torch.version.cuda}"
        + f" on {torch.cuda.get_device_name(device)} with world_size {dist.get_world_size()}")
 print0("="*100)
@@ -864,6 +908,20 @@ if dist.get_rank() == 0:
             "optimizer/attn_soap_beta2": ATTN_SOAP_BETA2,
             "optimizer/attn_soap_precond_freq": ATTN_SOAP_PRECOND_FREQ,
             "optimizer/attn_soap_trust_threshold": ATTN_SOAP_TRUST_THRESHOLD,
+            "optimizer/attn_soap_phase_dispatch_projection": ATTN_SOAP_PHASE_DISPATCH_PROJECTION,
+            "optimizer/attn_soap_phase_boundary": ATTN_SOAP_PHASE_BOUNDARY,
+            "optimizer/attn_soap_beta2_early_q": ATTN_SOAP_BETA2_EARLY["q"],
+            "optimizer/attn_soap_beta2_late_q": ATTN_SOAP_BETA2_LATE["q"],
+            "optimizer/attn_soap_beta2_early_k": ATTN_SOAP_BETA2_EARLY["k"],
+            "optimizer/attn_soap_beta2_late_k": ATTN_SOAP_BETA2_LATE["k"],
+            "optimizer/attn_soap_beta2_early_v": ATTN_SOAP_BETA2_EARLY["v"],
+            "optimizer/attn_soap_beta2_late_v": ATTN_SOAP_BETA2_LATE["v"],
+            "optimizer/attn_soap_beta2_early_proj": ATTN_SOAP_BETA2_EARLY["proj"],
+            "optimizer/attn_soap_beta2_late_proj": ATTN_SOAP_BETA2_LATE["proj"],
+            "optimizer/attn_soap_beta2_q": ATTN_SOAP_BETA2_PER_KIND["q"],
+            "optimizer/attn_soap_beta2_k": ATTN_SOAP_BETA2_PER_KIND["k"],
+            "optimizer/attn_soap_beta2_v": ATTN_SOAP_BETA2_PER_KIND["v"],
+            "optimizer/attn_soap_beta2_proj": ATTN_SOAP_BETA2_PER_KIND["proj"],
             "optimizer/ns5_iters": NS5_ITERS,
             "optimizer/wd_aux": WD_AUX,
             "optimizer/recipe": "contra-muon + normuon-lite + soap-on-mlp + soap-on-attn-trust-gate (pre-NS5, record #14 + record #16)",
@@ -932,6 +990,8 @@ for trial_idx in range(args.num_trials):
         else:
             cur_mu = MU + (MU_END - MU) * progress
         for opt in optimizers:
+            if hasattr(opt, "cur_step"):
+                opt.cur_step = step
             for group in opt.param_groups:
                 group["lr"] = group["initial_lr"] * eta
                 if group.get("name") == "muon_blocks":
@@ -1059,6 +1119,13 @@ for trial_idx in range(args.num_trials):
                     stats = opt.trust_gate_stats()
                     if stats:
                         wandb.log(prefixed("train/attn_soap_trust_gate", stats), step=wandb_step)
+            wandb.log({
+                "train/attn_soap_beta2_eff/q": attn_soap_beta2_for_kind("q", step),
+                "train/attn_soap_beta2_eff/k": attn_soap_beta2_for_kind("k", step),
+                "train/attn_soap_beta2_eff/v": attn_soap_beta2_for_kind("v", step),
+                "train/attn_soap_beta2_eff/proj": attn_soap_beta2_for_kind("proj", step),
+                "train/attn_soap_phase": ("late" if step >= ATTN_SOAP_PHASE_BOUNDARY else "early") if ATTN_SOAP_PHASE_DISPATCH_PROJECTION else "off",
+            }, step=wandb_step)
         if dist.get_rank() == 0 and telemetry_due:
             log_weight_telemetry(
                 model=model,
