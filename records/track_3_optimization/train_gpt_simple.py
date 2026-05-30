@@ -225,10 +225,11 @@ def log_training_telemetry(
             metrics[f"train/weight_decay/{group_name}"] = group.get("weight_decay", 0.0)
             if "mu" in group:
                 metrics[f"train/mu/{group_name}"] = group["mu"]
-            # PR #1814 (#1792): per-step AdamW moment norms for embed kind so the
-            # selective-moment-reset sawtooth (and partial-factor variant) is
-            # visible in W&B telemetry.
-            if group.get("name") == "adam_embed":
+            # PR #1814/#1872: per-step AdamW moment norms for embed AND lm_head so the
+            # selective-moment-reset sawtooth (and partial-factor variant) is visible
+            # in W&B telemetry. PR #1872 cross-kind-floor probe needs BOTH substrates.
+            if group.get("name") in ("adam_embed", "adam_lm_head"):
+                kind = "embed" if group.get("name") == "adam_embed" else "lm_head"
                 exp_avg_sq_sum = 0.0
                 exp_avg_sum = 0.0
                 for p in group["params"]:
@@ -237,8 +238,8 @@ def log_training_telemetry(
                         exp_avg_sum += float(st["exp_avg"].float().square().sum().item())
                     if "exp_avg_sq" in st:
                         exp_avg_sq_sum += float(st["exp_avg_sq"].float().square().sum().item())
-                metrics["optimizer/embed/exp_avg.norm"] = exp_avg_sum ** 0.5
-                metrics["optimizer/embed/exp_avg_sq.norm"] = exp_avg_sq_sum ** 0.5
+                metrics[f"optimizer/{kind}/exp_avg.norm"] = exp_avg_sum ** 0.5
+                metrics[f"optimizer/{kind}/exp_avg_sq.norm"] = exp_avg_sq_sum ** 0.5
     for module_type, tensors in grouped_by_type(grads, module_types).items():
         metrics.update(prefixed(f"train/grad_type/{module_type}", aggregate_stats(tensors)))
     for name, grad in grads:
