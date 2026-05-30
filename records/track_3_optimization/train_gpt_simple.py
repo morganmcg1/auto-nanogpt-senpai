@@ -464,6 +464,14 @@ SOAP_PRECOND_FREQ = 10
 ATTN_SOAP_BETA2 = 0.90
 ATTN_SOAP_PRECOND_FREQ = 10
 ATTN_SOAP_TRUST_THRESHOLD = float(os.environ.get("ATTN_SOAP_TRUST_THRESHOLD", "0.9"))
+# Per-kind attn-SOAP joint q+k β2 phase-dispatch (PR #1763, follow-up to #1718 q + #1741 k).
+# When enabled, BOTH q and k attention kinds share the same EARLY β2 for step<boundary and
+# LATE β2 for step>=boundary in their soap_refresh second-moment EMA. v/proj kinds stay at
+# the global ATTN_SOAP_BETA2 baseline throughout.
+PER_KIND_ATTN_SOAP_QK_JOINT_BETA2_PHASE_DISPATCH_ENABLED = int(os.environ.get("PER_KIND_ATTN_SOAP_QK_JOINT_BETA2_PHASE_DISPATCH_ENABLED", "0"))
+ATTN_SOAP_QK_BETA2_EARLY = float(os.environ.get("ATTN_SOAP_QK_BETA2_EARLY", "0.90"))
+ATTN_SOAP_QK_BETA2_LATE = float(os.environ.get("ATTN_SOAP_QK_BETA2_LATE", "0.90"))
+ATTN_SOAP_QK_BETA2_PHASE_BOUNDARY_STEP = int(os.environ.get("ATTN_SOAP_QK_BETA2_PHASE_BOUNDARY_STEP", "1500"))
 NS5_ITERS = int(os.environ.get("NS5_ITERS", "12"))
 WD_AUX = float(os.environ.get("WD_AUX", "0.0"))  # AdamW WD on embed + lm_head matrices (scalars stay at 0)
 EMBED_INIT_STD = float(os.environ.get("EMBED_INIT_STD", "1.0"))  # default preserves baseline N(0,1)
@@ -655,6 +663,8 @@ class Muon(torch.optim.Optimizer):
         params = sorted([p for _, p in named_params], key=lambda x: x.size(), reverse=True)
         defaults = dict(lr=lr, weight_decay=weight_decay, mu=mu)
         super().__init__(params, defaults)
+        # Optimizer-internal step counter for PER_KIND_ATTN_SOAP_QK_JOINT phase-dispatch (PR #1763).
+        self._step = 0
 
     @torch.no_grad()
     def step(self):
@@ -714,11 +724,54 @@ class Muon(torch.optim.Optimizer):
                     if use_soap:
                         soap_refresh(grad, state)
                     elif use_attn_soap:
-                        soap_refresh(grad, state, beta2=ATTN_SOAP_BETA2,
+                        # Per-kind joint q+k β2 phase-dispatch (PR #1763).
+                        # v/proj kinds stay at baseline ATTN_SOAP_BETA2; q AND k share the
+                        # same early/late β2 that switches at the phase boundary step.
+                        cur_beta2 = ATTN_SOAP_BETA2
+                        if PER_KIND_ATTN_SOAP_QK_JOINT_BETA2_PHASE_DISPATCH_ENABLED:
+                            kind = self.attn_soap_kind.get(id(p))
+                            if kind in ("q", "k"):
+                                if self._step < ATTN_SOAP_QK_BETA2_PHASE_BOUNDARY_STEP:
+                                    cur_beta2 = ATTN_SOAP_QK_BETA2_EARLY
+                                else:
+                                    cur_beta2 = ATTN_SOAP_QK_BETA2_LATE
+                        soap_refresh(grad, state, beta2=cur_beta2,
                                      refresh_freq=ATTN_SOAP_PRECOND_FREQ,
                                      use_trust_gate=True,
                                      trust_threshold=ATTN_SOAP_TRUST_THRESHOLD)
                 dist.all_gather(params_pad[base_i:base_i + world_size], params_pad[base_i + rank])
+        self._step += 1
+
+    def attn_soap_qk_beta2_state(self) -> dict[str, float | int]:
+        """Per-kind joint q+k β2 phase-dispatch telemetry (PR #1763).
+
+        All values numeric so W&B logs them as scalar series. `phase_is_late` is the
+        binary indicator (0=early, 1=late). self._step is post-increment, so the
+        most-recently-completed step index is self._step - 1; reporting based on
+        that aligns the W&B transition exactly with the boundary step.
+        """
+        last_step = max(0, self._step - 1)
+        in_early = last_step < ATTN_SOAP_QK_BETA2_PHASE_BOUNDARY_STEP
+        if PER_KIND_ATTN_SOAP_QK_JOINT_BETA2_PHASE_DISPATCH_ENABLED:
+            qk_beta2 = ATTN_SOAP_QK_BETA2_EARLY if in_early else ATTN_SOAP_QK_BETA2_LATE
+        else:
+            qk_beta2 = ATTN_SOAP_BETA2
+        n_q_params = sum(1 for p in self.attn_soap_params
+                         if self.attn_soap_kind.get(id(p)) == "q")
+        n_k_params = sum(1 for p in self.attn_soap_params
+                         if self.attn_soap_kind.get(id(p)) == "k")
+        return {
+            "q_beta2_effective": qk_beta2,
+            "k_beta2_effective": qk_beta2,
+            "v_beta2_effective": ATTN_SOAP_BETA2,
+            "proj_beta2_effective": ATTN_SOAP_BETA2,
+            "phase_is_late": 0 if in_early else 1,
+            "boundary_step": ATTN_SOAP_QK_BETA2_PHASE_BOUNDARY_STEP,
+            "opt_step": self._step,
+            "n_q_params": n_q_params,
+            "n_k_params": n_k_params,
+            "enabled": int(PER_KIND_ATTN_SOAP_QK_JOINT_BETA2_PHASE_DISPATCH_ENABLED),
+        }
 
     def trust_gate_stats(self) -> dict[str, float]:
         """Return aggregate + per-weight-type trust-gate telemetry across attention SOAP params.
@@ -864,10 +917,25 @@ if dist.get_rank() == 0:
             "optimizer/attn_soap_beta2": ATTN_SOAP_BETA2,
             "optimizer/attn_soap_precond_freq": ATTN_SOAP_PRECOND_FREQ,
             "optimizer/attn_soap_trust_threshold": ATTN_SOAP_TRUST_THRESHOLD,
+            "optimizer/per_kind_attn_soap_qk_joint_beta2_phase_dispatch_enabled": int(PER_KIND_ATTN_SOAP_QK_JOINT_BETA2_PHASE_DISPATCH_ENABLED),
+            "optimizer/attn_soap_qk_beta2_early": ATTN_SOAP_QK_BETA2_EARLY,
+            "optimizer/attn_soap_qk_beta2_late": ATTN_SOAP_QK_BETA2_LATE,
+            "optimizer/attn_soap_qk_beta2_phase_boundary_step": ATTN_SOAP_QK_BETA2_PHASE_BOUNDARY_STEP,
             "optimizer/ns5_iters": NS5_ITERS,
             "optimizer/wd_aux": WD_AUX,
             "optimizer/recipe": "contra-muon + normuon-lite + soap-on-mlp + soap-on-attn-trust-gate (pre-NS5, record #14 + record #16)",
         },
+    )
+    # PR #1763: step-0 marker for the joint q+k β2 phase-dispatch.
+    _n_q_params_marker = sum(1 for n, _ in model.named_parameters() if n.endswith(".attn.q.weight"))
+    _n_k_params_marker = sum(1 for n, _ in model.named_parameters() if n.endswith(".attn.k.weight"))
+    print0(
+        f"[PHASE_DISPATCH_ATTN_SOAP_QK_BETA2_JOINT] enabled={PER_KIND_ATTN_SOAP_QK_JOINT_BETA2_PHASE_DISPATCH_ENABLED}"
+        f" qk_early={ATTN_SOAP_QK_BETA2_EARLY:.4f} qk_late={ATTN_SOAP_QK_BETA2_LATE:.4f}"
+        f" boundary={ATTN_SOAP_QK_BETA2_PHASE_BOUNDARY_STEP}"
+        f" n_q_params={_n_q_params_marker} n_k_params={_n_k_params_marker}"
+        f" baseline_attn_soap_beta2={ATTN_SOAP_BETA2:.4f}",
+        console=True,
     )
 
 for trial_idx in range(args.num_trials):
@@ -1059,6 +1127,10 @@ for trial_idx in range(args.num_trials):
                     stats = opt.trust_gate_stats()
                     if stats:
                         wandb.log(prefixed("train/attn_soap_trust_gate", stats), step=wandb_step)
+                if hasattr(opt, "attn_soap_qk_beta2_state"):
+                    qk_state = opt.attn_soap_qk_beta2_state()
+                    if qk_state:
+                        wandb.log({f"train/attn_soap_{k}": v for k, v in qk_state.items()}, step=wandb_step)
         if dist.get_rank() == 0 and telemetry_due:
             log_weight_telemetry(
                 model=model,
