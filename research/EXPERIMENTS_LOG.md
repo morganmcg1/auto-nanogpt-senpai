@@ -1,5 +1,30 @@
 # SENPAI Research Results — auto-nanogpt-1gpu-r4
 
+## 2026-05-30 20:01 — PR #1823: NM R v-warmstart K INTENSIFY-wider bracket {100,500,800} — **CLOSED K-AXIS-CATALOG-COMPLETE + COLD-START-TAX-DOMINATES-LIFT-BENEFIT-CATALOG-MAJOR**
+
+- branch: `g1r4-tanjiro/nm-r-warmstart-k-intensify-extended`
+- hypothesis: K ∈ {500, 800} INTENSIFY direction at production stack basin — whether richer v-EMA prior unlocks INTENSIFY-direction FAV vs cold-start tax at K=500/800
+
+| Arm | K | W&B run | val/loss | FFS | Δ_vs_A | Δ_vs_baseline | σ_seed | precond_ratio_mean | R_cond_max | Verdict |
+|---|---:|---|---:|---:|---:|---:|---:|---:|---:|---|
+| A ctrl | 100 | `mlv719bx` | 3.26060 | 3125 | (ref) | −0.00058 | −0.36σ_seed | 1.0736 (LIFT) | 593378 | spawn-floor / lucky-seed |
+| B INTENSIFY | 500 | `vxfpzok6` | 3.26417 | 3150 | +0.00357 | +0.00299 | +1.86σ | 1.0630 (LIFT-pothole) | 577695 | **mild-NEG MECHANISM-DECOUPLED** |
+| C INTENSIFY | 800 | `7nrn8ept` | 3.26335 | 3150 | +0.00275 | +0.00217 | +1.35σ | **1.1312 (highest LIFT in catalog)** | 565325 | **mild-NEG OUTCOME-DECOUPLED-FROM-MECHANISM** |
+
+**Non-monotonic LIFT signature**: K=100 (1.074) > K=500 (1.063 LIFT-pothole) < K=800 (1.131 super-LIFT). K=800 reaches MARKEDLY richer steady-state R-prior.
+
+**FFS-COUPLED-NEG signature confirmed**: Arm A FFS=3125 + Arms B/C both FFS=3150 = +25 step regression for both INTENSIFY arms.
+
+**Conclusions**: K-axis NOT a winning axis at production stack basin. Combined with #1784 K ∈ {50, 100, 200}:
+- K=50 PRUNE: strong-NEG +0.00417 mechanism-coupled
+- K=100 production: OPTIMAL Pareto-floor
+- K=200 INTENSIFY: NULL plateau
+- K=500 INTENSIFY: mild-NEG cold-start tax begins
+- K=800 INTENSIFY: mild-NEG cold-start tax dominates despite richest LIFT
+**CATALOG-MAJOR**: K=800 produces tightest R_cond_max (−4.7%) AND highest LIFT (+5.4% precond_ratio) yet still loses +0.00275 val/loss = **MECHANISM-COUPLED + OUTCOME-DECOUPLED** = cleanest "LIFT benefit cannot recover cold-start cost" mechanism observation in r4 — isolates **cold-start tax** as load-bearing degradation mechanism on INTENSIFY side. Class 37 NM-R-warmstart-K axis CATALOG-COMPLETE bidirectionally. Arm A 3.26060 −0.00058 below baseline = single-seed n=1 spawn-floor noise within ±0.0015 σ_seed envelope = NOT a confirmable improvement.
+
+**Catalog**: 7th r4 MECHANISM-COUPLED+OUTCOME-DECOUPLED catalog observation. Sister to alphonse #1816 axis-asymmetric NEG-magnitude curvature (α-axis MECHANISM+OUTCOME COUPLED). K-axis MECHANISM-OUTCOME DECOUPLING is FIRST r4 axis where increased mechanism quality (richer R-buffer LIFT) does NOT translate to outcome quality (val_loss improvement). New methodology hook: future K-axis-mimicking experiments should separately diagnose (a) mechanism quality (LIFT) and (b) cold-start tax (delay-to-engagement). Suggested follow-ups: tanjiro fresh-assigned NM update_period bidirectional sweep (different lever, complementary to thorfinn late-window PERIOD-1).
+
 ## 2026-05-30 18:18 — PR #1816: NM R-power α-exponent extended bidirectional sweep {0.25,0.5,1.0} — **CLOSED AXIS-ASYMMETRIC-NEG-MAGNITUDE-CURVATURE + α-EXPONENT-AXIS-FENCED-BIDIRECTIONALLY**
 
 - branch: `g1r4-alphonse/nm-r-power-alpha-exponent-sweep`
