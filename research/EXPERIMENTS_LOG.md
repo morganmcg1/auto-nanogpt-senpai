@@ -1,5 +1,28 @@
 # SENPAI Research Results — auto-nanogpt-1gpu-r5
 
+## 2026-05-30 14:42Z — PR #1829 CLOSED clean-NEG + structural mechanism: frieren spectral-norm pre-NS scaling [61st R5 closure]
+
+- branch: g1r5-frieren/spectral-norm-pre-ns
+- hypothesis: replace Frobenius-norm pre-NS scaling with σ_max estimate via 2-step power iteration (X / (1.1·σ_max_est)). Mechanism: Frobenius overshrinking drops σ_max far below 1 → wasted iterations; spectral scaling puts σ_max ≈ 0.91 → all singular values in NS5 high-rate basin.
+- W&B group: g1r5-frieren/spectral-ns
+
+| Cell | Config | FFS_ema | FFS_trainval | val/loss | val/ema_corr | Notes |
+|---|---|---|---|---|---|---|
+| B (PR-spec) | iter=2, overshoot=1.1 | NaN step 2 | NaN | — | — | 15-18% σ_max underestimate → post-scale σ_max > 1.4 → NS5 diverges |
+| C (PR-spec) | iter=1 | NaN step 2 | NaN | — | — | Same failure mode, worse estimate |
+| D (PR-spec) | iter=2, overshoot=1.05 | NaN step 2 | NaN | — | — | Same failure mode |
+| B (salvaged) | iter=6, overshoot=1.1 | —stab | stable | 7.67 (stuck) | — | train/weight/all/rms = 8.72e11 (12-order weight explosion) |
+
+- verdict: CLOSED 61st R5 axis clean-NEG. All PR-specified cells NaN at step 2 (power iteration with 2 iters underestimates σ_max by 15-18%; post-scale σ_max > 1.4 puts singular values outside NS5 convergence basin [convergence radius ~1.4]; bf16 overflow follows). Student salvaged one cell (iter=6, overshoot=1.1): training initially stable but val_loss never recovers from early trajectory damage (stuck at 7.67), with catastrophic weight explosion (train/weight/all/rms = 8.72e11).
+- **★★ STRUCTURAL MECHANISM FINDING — Frobenius normalization is LOAD-BEARING for Muon update-magnitude calibration:**
+  - Student measured spec/frob ratio at runtime: attn ≈ 0.632, mlp ≈ 0.636 (via `ns/post_scale_max_singular_value` = 0.909 vs 1/1.1 target → confirms spectral-norm code correct but LRs miscalibrated)
+  - Frobenius shrinks σ_max(input) to ~0.63 (effective rank ~2.5), so NS5 produces sub-orthogonal outputs with σ_max ≈ 0.63 — baseline LRs (lr_mlp=0.055, lr_attn=0.035) are calibrated to this sub-orthogonality
+  - Switching to truly orthogonal NS5 outputs (σ_max ≈ 1) at same LRs → ~1.6× larger per-step Muon update → weight explosion
+  - The previously-assumed framing — "Frobenius is just a normalization" — is incorrect. Frobenius magnitude calibration is LOAD-BEARING, not incidental
+  - Implication: any future "alternative normalization for NS5" hypothesis MUST bundle a 0.63× LR co-tune
+- memory rule: `frobenius_load_bearing_muon_lr_calibration` saved
+- next: frieren assigned #1841 spectral-norm + LR co-tune rescue (lr_mlp=0.035, lr_attn=0.022, overshoot=1.0). Tests if orthogonality direction matters beyond magnitude. All three outcome scenarios publishable.
+
 ## 2026-05-30 14:25Z — PR #1776 CLOSED clean-NEG piecewise: askeladd SOAP eigenbasis smooth-blend [60th R5 closure]
 
 - branch: g1r5-askeladd/soap-basis-smooth

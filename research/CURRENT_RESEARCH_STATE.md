@@ -9,7 +9,21 @@ The human research team has redirected: **FFS (first-step-to-target, baseline 30
 3. **Prefer experiments that move the crossing step** (2800-3050 window), **simplify winning stacks**, **reveal FFS-load-bearing components**.
 4. **Ablations preferred over confirmations** when FFS dead.
 
-## Last updated: 2026-05-30 14:27Z (60 R5 axis closures; askeladd #1776 SOAP basis-smooth CLOSED 60th [clean-NEG piecewise]; #1839 per-shape NS iter ASSIGNED; nezuko #1834 redesigned via bf16 floor finding)
+## Last updated: 2026-05-30 14:44Z (61 R5 axis closures; frieren #1829 spectral-norm pre-NS CLOSED 61st [structural mechanism: Frobenius load-bearing for Muon LR]; #1841 spec-ns-lr-cotune ASSIGNED to frieren)
+
+### Notes (2026-05-30 14:44Z) — FRIEREN #1829 SPECTRAL-NORM PRE-NS CLOSED 61st [FROBENIUS LOAD-BEARING MECHANISM]; #1841 SPEC-NS-LR-COTUNE ASSIGNED
+
+- **★ CLOSED #1829 frieren spectral-norm pre-NS scaling** [61st R5 closure, 14:42Z] — clean-NEG + high-value mechanism discovery:
+  - All PR-specified Cells B/C/D (iter=2, overshoot=1.1): NaN at step 2 — 2-iter power iteration underestimates σ_max by 15-18%, post-scale σ_max > 1.4 → NS5 outside convergence basin → bf16 overflow
+  - Salvaged Cell B (iter=6, overshoot=1.1): stable training initially but val_loss stuck at 7.67, weights exploded 12 orders of magnitude (`train/weight/all/rms = 8.72e11`)
+  - **★★ STRUCTURAL MECHANISM FINDING — Frobenius normalization IS LOAD-BEARING for Muon LR calibration:**
+    - Frobenius shrinks σ_max(input) to ~0.63 (not ~0.1 as PR hypothesized; spec/frob ratio: attn≈0.632, mlp≈0.636)
+    - NS5 produces sub-orthogonal outputs: σ_max ≈ 0.63. Baseline LRs (lr_mlp=0.055, lr_attn=0.035) are TUNED to this sub-orthogonality
+    - Spectral-norm pre-NS gives fully orthogonal outputs σ_max ≈ 1 → ~1.6× larger per-step Muon update → weight explosion at same LRs
+    - "Frobenius is just a normalization" framing is WRONG. Sub-orthogonality is load-bearing magnitude calibration
+  - **Memory rule saved**: `frobenius_load_bearing_muon_lr_calibration` — any "alternative normalization for NS5" must bundle 0.63× LR co-tune
+- **★ ASSIGNED #1841 frieren: Spectral-norm + LR co-tune rescue** — Scales lr_mlp 0.055→0.035 and lr_attn 0.035→0.022 (both × 0.63 spec/frob ratio), uses spectral-norm pre-NS (iter=6, overshoot=1.0). 3 cells: A=ctrl (Frobenius), B★=spectral + co-tuned LR, C=spectral + slightly higher LR bracket (0.040/0.025). Tests whether Muon's update *direction* (truly orthogonal vs sub-orthogonal) matters beyond magnitude. All three outcomes publishable.
+- **Fleet at 14:44Z**: frieren #1841 WIP (NEW); askeladd #1839 WIP; nezuko #1834 WIP; thorfinn #1838 WIP; edward #1825 WIP; fern #1826 WIP; tanjiro #1821 WIP; alphonse #1796 WIP. **8/8 active, zero idle.**
 
 ### Notes (2026-05-30 14:27Z) — ASKELADD #1776 SOAP BASIS-SMOOTH CLOSED 60th; #1839 PER-SHAPE NS ITER ASSIGNED; NEZUKO #1834 REDESIGN BLESSED (bf16 FLOOR FINDING)
 
