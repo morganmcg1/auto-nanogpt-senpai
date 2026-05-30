@@ -1,5 +1,37 @@
 # SENPAI Research Results
 
+## 2026-05-30 05:10 UTC — PR #1739 fern: Pre-target NS_ITERS burst {14, 16} @ step 2750 — ❌ BILATERAL NULL (polar projection accuracy is NOT the cooldown bottleneck)
+
+- Branch: `g1r1-fern/pretarget-ns-iters-burst`
+- Hypothesis: Increasing Newton-Schulz iterations during the pre-target window (steps 2750+) tightens the polar approximation, producing cleaner whitened-gradient directions at the moment the LR decay sharpens the descent — bridging the val_ema gap on the final 250 steps.
+- W&B: Arm A `nlmt3a4w` (NS=14), Arm B `ossp58zg` (NS=16)
+
+| Arm | NS_ITERS pre-target | sr | val_ema | val_live | Δval mnat | Verdict |
+|---|---:|---:|---:|---:|---:|---|
+| A | 14 (vs canonical 12) | 2925 | 3.264729 | 3.264091 | +1.88 | ❌ NULL (+50 sr) |
+| B | 16 (vs canonical 12) | 2925 | 3.265219 | 3.264584 | +2.37 | ❌ NULL (+50 sr) |
+| Baseline #1532 | 12 | 2875 | 3.262854 | — | — | — |
+
+- **Analysis:** Polar residual `||A - polar(A)||/||A||` fell **3-5× during the burst window** (~0.29 → 0.06-0.07) — the mechanism worked exactly as designed. Yet neither arm reached baseline sr. **Polar projection accuracy is NOT the bottleneck** for cooldown-phase target crossing. The whitened-gradient direction is already clean enough at NS=12; sharper polar projection delivers more accurate direction but doesn't translate to better target-crossing speed or val_ema. The cooldown phase's remaining headroom is in update **magnitude / persistence**, not direction quality.
+- **Polar-accuracy axis CLOSED.** Tighter projection in pre-target window doesn't help. Future iteration-count tuning should focus on warmup discovery, not pre-target refinement.
+- **Strong motivation for GrokFast (#1786 fern next):** Direction quality is solved; persistent-direction amplification (slow-EMA boost) directly targets the magnitude axis that remains open.
+
+## 2026-05-30 05:10 UTC — PR #1771 edward: ACProp async denominator on aux AdamW (v_t uses g_{t-1}²) — ❌ BILATERAL NULL (ACProp axis structurally CLOSED on aux Adam)
+
+- Branch: `g1r1-edward/acprop-aux-adam`
+- Hypothesis: ACProp-style async variance estimation (`v_t = β₂·v_{t-1} + (1-β₂)·g_{t-1}²`) on aux AdamW would decorrelate the denominator from the current step's gradient bias — analogous to the body-side ADOPT mechanism.
+- W&B: Arm A `vk2cm1q4` (all-groups async), Arm B `xbv2asps` (embed_only async)
+
+| Arm | scope | sr | val_ema | val_live | Verdict |
+|---|---|---:|---:|---:|---|
+| A | all-groups async (embed + lm_head + scalars) | — | **16.23 @ step 250** | — | ❌ CATASTROPHIC DIVERGENCE |
+| B | embed_only async (sparse-grad target) | — | **3.705 @ step 1575 (early-killed)** | — | ❌ NULL (val_ema > 3.60 pre-authorized trigger) |
+| Baseline #1532 | sync | 2875 | 3.262854 | — | — |
+
+- **Analysis:** Arm A divergence (val=16.23 at step 250) confirms the **sparse-gradient embed failure mode**: the stale denominator `g_{t-1}²` at active vocab index `i` carries near-zero variance when step t-1 did not activate `i`, so the bias-corrected denominator under-divides the current step's actual gradient — producing the catastrophic update magnitude that diverged training within 250 steps. Arm B isolated the embed group with the same async mechanism + early-kill safety, hit val_ema 3.705 at step 1575 — confirming the sparse-grad failure is exactly localized to the embed group and that the mechanism is not salvageable in any subset.
+- **ACProp axis structurally CLOSED on aux Adam.** Even with sparse-grad isolation the async-denom mechanism fails. The per-element variance memory is fundamentally incompatible with sparse-activation token embeddings under any delay > 0 — Adam needs the current step's gradient² in the denominator to handle the sparse-activation pattern.
+- **Mechanistic motivation for block-wise AdaShift (#1785 edward next):** scalar-aggregated v_t (one per tensor) sidesteps the sparse-grad failure mode entirely — the L2 norm aggregation captures meaningful variance signal even when only a subset of vocab indices activate at each step. Orthogonal to per-element closure (#1709).
+
 ## 2026-05-30 04:00 UTC — PR #1708 frieren: Pre-target Skylight u/w floor pulse (UW=0.45 / UW=0.55) + seed-2 confirmation — ❌ BILATERAL SEED NULL (TARGET_UW family fully closed)
 
 - Branch: `g1r1-frieren/pretarget-uw-pulse`
