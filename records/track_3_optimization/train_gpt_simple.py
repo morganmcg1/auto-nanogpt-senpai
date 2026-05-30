@@ -468,6 +468,18 @@ NS5_ITERS = int(os.environ.get("NS5_ITERS", "12"))
 WD_AUX = float(os.environ.get("WD_AUX", "0.0"))  # AdamW WD on embed + lm_head matrices (scalars stay at 0)
 EMBED_INIT_STD = float(os.environ.get("EMBED_INIT_STD", "1.0"))  # default preserves baseline N(0,1)
 LOGIT_SOFTCAP = float(os.environ.get("LOGIT_SOFTCAP", "15.0"))  # default = 15 (current hardcoded value); soft-cap value c in f(x) = c·x / sqrt(x^2+c^2)
+# PR #1707/#1734 — per-kind MLP-SOAP trust gate on fc (and optionally proj).
+# When enabled, fc and proj soap_refresh runs the inline sort+QR path that
+# measures (q_old, q_new) cos overlap and decides whether to apply the SOAP
+# preconditioner this refresh window (matches the attn-SOAP gate mechanism).
+PER_KIND_MLP_SOAP_FC_TRUST_GATE_ENABLED = int(os.environ.get("PER_KIND_MLP_SOAP_FC_TRUST_GATE_ENABLED", "0"))
+MLP_SOAP_FC_TRUST_THRESHOLD = float(os.environ.get("MLP_SOAP_FC_TRUST_THRESHOLD", "0.0"))
+MLP_SOAP_PROJ_TRUST_THRESHOLD = float(os.environ.get("MLP_SOAP_PROJ_TRUST_THRESHOLD", "0.0"))
+# PR #1755 — PER_KIND_MLP_SOAP_FC_GATE_STATISTIC_ISOLATION — gate-statistic-axis dispatch
+# 0 = default min(cos_row, cos_col) (matches #1734 behavior)
+# 1 = col-only gate (use cos_col, ignore cos_row)
+# 2 = row-only gate (use cos_row, ignore cos_col)
+MLP_SOAP_FC_GATE_STATISTIC = int(os.environ.get("MLP_SOAP_FC_GATE_STATISTIC", "0"))
 
 
 def zeropower_via_newtonschulz5(G: Tensor) -> Tensor:
@@ -554,14 +566,22 @@ def soap_basis_qr(row_gg, col_gg, q_row, q_col, exp_avg_sq):
 
 
 def soap_refresh(grad, state, beta2=SOAP_BETA2, refresh_freq=SOAP_PRECOND_FREQ,
-                 use_trust_gate=False, trust_threshold=ATTN_SOAP_TRUST_THRESHOLD):
+                 use_trust_gate=False, trust_threshold=ATTN_SOAP_TRUST_THRESHOLD,
+                 gate_statistic=0):
     """Update row/col Gram EMAs every step; refresh eigenbasis every `refresh_freq` steps.
 
     When ``use_trust_gate`` is True (record #16 extension), the refresh runs the
     sort+QR subspace-iteration step inline so the pre-QR (but already sorted)
     basis can be compared against the post-QR basis. Comparing pre-sort q_old
     to post-QR q_new measures permutation overlap (~1/sqrt(D)), not rotation,
-    which is why this path doesn't reuse ``soap_basis_qr``."""
+    which is why this path doesn't reuse ``soap_basis_qr``.
+
+    ``gate_statistic`` selects which cos-axis discriminates accept/reject:
+      0 = min(cos_row, cos_col) (default, matches #1734)
+      1 = cos_col only
+      2 = cos_row only
+    The chosen statistic is stored in ``state['trust_gate_metric']``.
+    """
     grad_f = grad.float()
     state["row_gg"].lerp_(grad_f @ grad_f.T, 1 - beta2)
     state["col_gg"].lerp_(grad_f.T @ grad_f, 1 - beta2)
@@ -572,6 +592,7 @@ def soap_refresh(grad, state, beta2=SOAP_BETA2, refresh_freq=SOAP_PRECOND_FREQ,
             state["trust_gate"] = 1.0
             state["trust_cos_row"] = 1.0
             state["trust_cos_col"] = 1.0
+            state["trust_gate_metric"] = 1.0
     elif state["soap_step"] > 0 and state["soap_step"] % refresh_freq == 0:
         if use_trust_gate:
             row_gg = state["row_gg"]
@@ -600,7 +621,14 @@ def soap_refresh(grad, state, beta2=SOAP_BETA2, refresh_freq=SOAP_PRECOND_FREQ,
             cos_col = (q_col_new.T @ q_col_sorted).diagonal().abs().mean().item()
             state["trust_cos_row"] = cos_row
             state["trust_cos_col"] = cos_col
-            state["trust_gate"] = 1.0 if (cos_row >= trust_threshold and cos_col >= trust_threshold) else 0.0
+            if gate_statistic == 1:
+                gate_metric = cos_col
+            elif gate_statistic == 2:
+                gate_metric = cos_row
+            else:
+                gate_metric = min(cos_row, cos_col)
+            state["trust_gate_metric"] = gate_metric
+            state["trust_gate"] = 1.0 if gate_metric >= trust_threshold else 0.0
         else:
             state["q_row"], state["q_col"], state["exp_avg_sq"] = soap_basis_qr(
                 state["row_gg"], state["col_gg"], state["q_row"], state["q_col"], state["exp_avg_sq"]
@@ -642,6 +670,8 @@ class Muon(torch.optim.Optimizer):
         }
         # Track which sub-type each attention-SOAP param is (q/k/v/proj) for per-type telemetry.
         self.attn_soap_kind: dict[int, str] = {}
+        # Track which sub-type each MLP-SOAP param is (fc/proj) for per-kind trust-gate dispatch (#1707/#1734).
+        self.mlp_soap_kind: dict[int, str] = {}
         for n, p in named_params:
             if p in self.attn_soap_params:
                 if n.endswith(".attn.q.weight"):
@@ -652,6 +682,11 @@ class Muon(torch.optim.Optimizer):
                     self.attn_soap_kind[id(p)] = "v"
                 elif n.endswith(".attn.proj.weight"):
                     self.attn_soap_kind[id(p)] = "proj"
+            if p in self.soap_params:
+                if n.endswith(".mlp.fc.weight"):
+                    self.mlp_soap_kind[id(p)] = "fc"
+                elif n.endswith(".mlp.proj.weight"):
+                    self.mlp_soap_kind[id(p)] = "proj"
         params = sorted([p for _, p in named_params], key=lambda x: x.size(), reverse=True)
         defaults = dict(lr=lr, weight_decay=weight_decay, mu=mu)
         super().__init__(params, defaults)
@@ -691,6 +726,14 @@ class Muon(torch.optim.Optimizer):
                                 state["trust_gate"] = 1.0
                                 state["trust_cos_row"] = 1.0
                                 state["trust_cos_col"] = 1.0
+                            # Per-kind MLP-SOAP trust-gate state init (#1707/#1734/#1755).
+                            # fc + proj both receive trust_gate baselines so per-kind telemetry
+                            # has a sanity surface; proj stays at 1.0 unless its threshold is set.
+                            if p in self.soap_params and PER_KIND_MLP_SOAP_FC_TRUST_GATE_ENABLED:
+                                state["trust_gate"] = 1.0
+                                state["trust_cos_row"] = 1.0
+                                state["trust_cos_col"] = 1.0
+                                state["trust_gate_metric"] = 1.0
                     grad = p.grad
                     state["momentum"].lerp_(grad, 1 - group["mu"])
                     momentum_update = grad.lerp(state["momentum"], group["mu"])
@@ -712,7 +755,27 @@ class Muon(torch.optim.Optimizer):
                     p.add_(update, alpha=-group["lr"])
                     # Refresh SOAP state with the raw grad (after applying the step).
                     if use_soap:
-                        soap_refresh(grad, state)
+                        if PER_KIND_MLP_SOAP_FC_TRUST_GATE_ENABLED:
+                            # Per-kind dispatch (#1707/#1734/#1755): fc-kind gated with
+                            # MLP_SOAP_FC_TRUST_THRESHOLD and MLP_SOAP_FC_GATE_STATISTIC.
+                            # proj-kind gated with MLP_SOAP_PROJ_TRUST_THRESHOLD (0.0 = always-accept).
+                            kind = self.mlp_soap_kind.get(id(p))
+                            if kind == "fc":
+                                soap_refresh(grad, state, beta2=SOAP_BETA2,
+                                             refresh_freq=SOAP_PRECOND_FREQ,
+                                             use_trust_gate=True,
+                                             trust_threshold=MLP_SOAP_FC_TRUST_THRESHOLD,
+                                             gate_statistic=MLP_SOAP_FC_GATE_STATISTIC)
+                            elif kind == "proj":
+                                soap_refresh(grad, state, beta2=SOAP_BETA2,
+                                             refresh_freq=SOAP_PRECOND_FREQ,
+                                             use_trust_gate=True,
+                                             trust_threshold=MLP_SOAP_PROJ_TRUST_THRESHOLD,
+                                             gate_statistic=0)
+                            else:
+                                soap_refresh(grad, state)
+                        else:
+                            soap_refresh(grad, state)
                     elif use_attn_soap:
                         soap_refresh(grad, state, beta2=ATTN_SOAP_BETA2,
                                      refresh_freq=ATTN_SOAP_PRECOND_FREQ,
@@ -774,6 +837,54 @@ class Muon(torch.optim.Optimizer):
             out[f"{kind}/on_fraction"] = agg["on"] / kn
             out[f"{kind}/mean_cos_row"] = sum(crs) / kn
             out[f"{kind}/mean_cos_col"] = sum(ccs) / kn
+        return out
+
+    def mlp_soap_trust_gate_stats(self) -> dict[str, float]:
+        """Per-kind decomposition for MLP-SOAP trust-gate (#1707/#1734/#1755).
+
+        Returns aggregate fc/proj keys (kind in {fc, proj}):
+          {kind}/count, {kind}/on_fraction,
+          {kind}/mean_cos_row, {kind}/mean_cos_col, {kind}/mean_gate_metric.
+
+        Only active when PER_KIND_MLP_SOAP_FC_TRUST_GATE_ENABLED=1.
+        fc reflects acceptance under MLP_SOAP_FC_TRUST_THRESHOLD via
+        MLP_SOAP_FC_GATE_STATISTIC; proj reflects MLP_SOAP_PROJ_TRUST_THRESHOLD.
+        """
+        if not PER_KIND_MLP_SOAP_FC_TRUST_GATE_ENABLED:
+            return {}
+        by_kind: dict[str, dict[str, list[float] | int]] = {
+            "fc": {"on": 0, "cos_row": [], "cos_col": [], "gate_metric": []},
+            "proj": {"on": 0, "cos_row": [], "cos_col": [], "gate_metric": []},
+        }
+        for p in self.soap_params:
+            state = self.state.get(p)
+            if state is None or "trust_gate" not in state:
+                continue
+            on = state["trust_gate"] >= 0.5
+            cr = state.get("trust_cos_row", 1.0)
+            cc = state.get("trust_cos_col", 1.0)
+            gm = state.get("trust_gate_metric", min(cr, cc))
+            kind = self.mlp_soap_kind.get(id(p))
+            if kind is None:
+                continue
+            by_kind[kind]["cos_row"].append(cr)
+            by_kind[kind]["cos_col"].append(cc)
+            by_kind[kind]["gate_metric"].append(gm)
+            if on:
+                by_kind[kind]["on"] += 1
+        out: dict[str, float] = {}
+        for kind, agg in by_kind.items():
+            crs = agg["cos_row"]
+            ccs = agg["cos_col"]
+            gms = agg["gate_metric"]
+            kn = len(crs)
+            if kn == 0:
+                continue
+            out[f"{kind}/count"] = kn
+            out[f"{kind}/on_fraction"] = agg["on"] / kn
+            out[f"{kind}/mean_cos_row"] = sum(crs) / kn
+            out[f"{kind}/mean_cos_col"] = sum(ccs) / kn
+            out[f"{kind}/mean_gate_metric"] = sum(gms) / kn
         return out
 
 
@@ -864,10 +975,22 @@ if dist.get_rank() == 0:
             "optimizer/attn_soap_beta2": ATTN_SOAP_BETA2,
             "optimizer/attn_soap_precond_freq": ATTN_SOAP_PRECOND_FREQ,
             "optimizer/attn_soap_trust_threshold": ATTN_SOAP_TRUST_THRESHOLD,
+            "optimizer/per_kind_mlp_soap_fc_trust_gate_enabled": PER_KIND_MLP_SOAP_FC_TRUST_GATE_ENABLED,
+            "optimizer/mlp_soap_fc_trust_threshold": MLP_SOAP_FC_TRUST_THRESHOLD,
+            "optimizer/mlp_soap_proj_trust_threshold": MLP_SOAP_PROJ_TRUST_THRESHOLD,
+            "optimizer/mlp_soap_fc_gate_statistic": MLP_SOAP_FC_GATE_STATISTIC,
             "optimizer/ns5_iters": NS5_ITERS,
             "optimizer/wd_aux": WD_AUX,
             "optimizer/recipe": "contra-muon + normuon-lite + soap-on-mlp + soap-on-attn-trust-gate (pre-NS5, record #14 + record #16)",
         },
+    )
+    # Per-kind MLP-SOAP trust-gate step-0 marker (#1707/#1734/#1755).
+    print0(
+        f"[PER_KIND_MLP_SOAP_FC_TRUST_GATE] enabled={PER_KIND_MLP_SOAP_FC_TRUST_GATE_ENABLED}"
+        f" fc_threshold={MLP_SOAP_FC_TRUST_THRESHOLD}"
+        f" proj_threshold={MLP_SOAP_PROJ_TRUST_THRESHOLD}"
+        f" gate_statistic={MLP_SOAP_FC_GATE_STATISTIC}",
+        console=True,
     )
 
 for trial_idx in range(args.num_trials):
@@ -1059,6 +1182,10 @@ for trial_idx in range(args.num_trials):
                     stats = opt.trust_gate_stats()
                     if stats:
                         wandb.log(prefixed("train/attn_soap_trust_gate", stats), step=wandb_step)
+                if hasattr(opt, "mlp_soap_trust_gate_stats"):
+                    mlp_stats = opt.mlp_soap_trust_gate_stats()
+                    if mlp_stats:
+                        wandb.log(prefixed("train/mlp_soap_trust_gate", mlp_stats), step=wandb_step)
         if dist.get_rank() == 0 and telemetry_due:
             log_weight_telemetry(
                 model=model,
