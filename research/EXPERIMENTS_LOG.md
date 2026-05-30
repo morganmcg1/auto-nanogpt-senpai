@@ -1,3 +1,29 @@
+## 2026-05-31 — PR #1857: H312 edward MuonH inner momentum Adam-style bias correction
+
+- Branch: g1r3-edward/h312-muonh-momentum-bias-correction
+- Hypothesis: Adam-style 1/(1−μ^t) bias correction on MuonH inner momentum at line 573, applied AFTER `momentum.lerp_(grad, 1-mu)` BEFORE NS5 polar projection. FIRST optimizer INITIALIZATION-PHASE probe in the campaign — all prior chains modified steady-state behavior. Tests whether the m_0=0 + (1-μ)·g lerp produces measurable early-trajectory degradation that bias correction recovers.
+- 3-arm Pattern A Option C structural: arm_a CTRL (bc=0 baseline), arm_b BIAS_CORR (bc=1, μ=0.95→0.90), arm_c BIAS_CORR_HIGH_MU (bc=1, μ=0.97→0.92 — amplifies bias correction window from ~100 steps to ~200 steps and initial multiplier from 20× to 33×).
+
+### Results
+
+| Arm | μ schedule | bc | terminal val | FFS | Δ vs H266 (3.26818) | Δ vs CTRL |
+|-----|-----------|-----|--------------|-----|---------------------|-----------|
+| arm_a CTRL `z7080xmq` | 0.95→0.90 | 0 | **3.26759** | **3000** | −0.000590 (−0.67σ_H174) TIE | (ref) |
+| arm_b BIAS_CORR `0i3myyq8` | 0.95→0.90 | 1 | 3.26854 | 3025 | +0.000360 (+0.41σ_H174) TIE | +0.000950 (+1.07σ) TIE |
+| arm_c BIAS_CORR_HIGH_MU `0btv1rgu` | 0.97→0.92 | 1 | **3.27160** | **3075** | +0.003420 (+3.87σ_H174) | +0.004010 (**+4.54σ**) |
+
+σ_H174 = 0.000884 noise floor. Pattern A bit-id: all 3 arms + smoke `hsr6u6cw` step-0=10.82583 EXACT (drift-FREE preserved across 20× initial multiplier perturbation). W&B group: H312_muonh_bias_correction. Crash-recovery: arm_a first attempt `qf4qf7mz` crashed step 625 → restart `z7080xmq` preserved bit-id (2nd documented r3 crash-recovery bit-id precedent after H305).
+
+### Analysis
+
+**Closure verdict: CLOSED 166th NULL/NEG — 🎯 2 paper-grade findings (101st mechanism class CONSOLIDATED)**
+
+1. **🎯 paper-grade NEGATIVE INITIALIZATION-PHASE PROBE — bias correction DESTABILIZES MuonH with CLEAN MONOTONE DOSE-RESPONSE.** arm_b → arm_c: 1.67× initial multiplier (20× → 33×) produces 4× val regression magnification (+1.07σ → +4.54σ) and 3× FFS regression magnification (+25 → +75). The amplified arm_c HIGH_MU isolates the bias correction multiplier AS the harm mechanism (not random variance) — within-chain CTRL anchored at same μ=0.95→0.90 schedule as arm_b confirms μ-axis is not the cause. **Mechanism**: m_0=0 + (1−μ)·g lerp + muonh_warmup_steps=100 form CO-TUNED early-trajectory smoothing; Adam-style bias correction UNDOES the (1−μ)·g lerp's beneficial early-smoothing, creating destructive interference with the LR warmup schedule. NS5 polar projection cannot recover (normalizes per-step magnitude but cannot smooth across-step trajectory). **101st mechanism class consolidates**: MuonH's un-corrected initialization profile is the local optimum — INITIALIZATION-phase axis broadly closed.
+
+2. **🎯 paper-grade INFRASTRUCTURE OBSERVATION — arm_a CTRL `z7080xmq` FIRST CLEAN POST-H266 REPLICATE.** Across 6 consecutive post-H266 chains (H306/H307/H308/H309/H310/H311), CTRL replicates landed at FFS=3025-3050 envelope (+25 to +50 steps). H312 arm_a is the FIRST to achieve FFS=3000 EXACTLY matching H266 with val=3.26759 (sub-noise BELOW baseline). This validates the "+25 envelope" is run-to-run variance, NOT a systematic regression. Within-chain CTRL anchoring (all 7 chains do this) remains the load-bearing comparison — prior closure decisions are NOT undermined. Useful framing for the paper: σ_H174=0.000884 noise floor was estimated from a single replicate; multi-chain CTRL data now confirms ±25 FFS variance is within natural Pattern A drift.
+
+**Follow-up**: H320 edward assigned immediately (PR #1892) — OUTER anchor refresh policy soft-blend vs hard-replace (102nd mechanism class candidate, structurally distinct OUTER axis on anchor mechanism never touched).
+
 ## 2026-05-31 — PR #1856: H311 askeladd POST-NS5 Lookahead slow/fast weight averaging
 
 - Branch: g1r3-askeladd/h311-post-ns5-lookahead

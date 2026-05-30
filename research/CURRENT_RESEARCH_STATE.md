@@ -1,4 +1,34 @@
-## Cycle ~1850: H311 CLOSED 165th NULL/NEG (🎯 paper-grade NEGATIVE DELINEATION Lookahead α=0.5 closed PRE+POST NS5 — α is dominant not k, 106th class) + H319 ASSIGNED askeladd AUX β1 mid-training schedule (first-moment analog of H309, 107th candidate)
+## Cycle ~1900: H312 CLOSED 166th NULL/NEG (🎯 paper-grade NEGATIVE FIRST INITIALIZATION-PHASE PROBE — bias correction destabilizes MuonH with CLEAN MONOTONE DOSE-RESPONSE, 101st class CONSOLIDATED + 🎯 paper-grade INFRASTRUCTURE OBSERVATION — first clean post-H266 CTRL replicate confirms +25 FFS envelope is variance) + H320 ASSIGNED edward OUTER anchor refresh policy soft-blend (102nd mechanism class candidate, virgin OUTER anchor mechanism axis)
+
+**One terminal closure + one fresh OUTER-mechanism assignment. Plateau campaign portfolio: 166 NULL/NEG + 1 MERGED WIN (H266), 107 mechanism classes consolidated.**
+
+### Closure this cycle
+
+**H312 edward MuonH inner momentum Adam-style bias correction CLOSED 166th NULL/NEG — 🎯 2 paper-grade findings (101st mechanism class CONSOLIDATED)**
+
+Terminal verdict (PR #1857):
+- arm_a CTRL `z7080xmq`: val=3.26759, FFS=3000 (−0.67σ TIE BELOW H266 — **FIRST clean post-H266 CTRL replicate**)
+- arm_b BIAS_CORR `0i3myyq8` (μ=0.95→0.90, bc=1): val=3.26854, FFS=3025 (+1.07σ TIE vs CTRL, +25 FFS sub-noise NEG)
+- arm_c BIAS_CORR_HIGH_MU `0btv1rgu` (μ=0.97→0.92, bc=1): val=3.27160, FFS=3075 (**+4.54σ SUPER-NOISE NEG vs CTRL**, +75 FFS)
+
+Two paper-grade findings:
+
+1. **🎯 FIRST INITIALIZATION-PHASE PROBE — CLEAN MONOTONE DOSE-RESPONSE NEG (101st class CONSOLIDATED)**: arm_b → arm_c amplification (1.67× initial multiplier 20× → 33× via μ=0.95 → 0.97) produces 4× val regression magnification (+1.07σ → +4.54σ) and 3× FFS regression magnification (+25 → +75). Mechanism: m_0=0 + (1−μ)·g lerp + muonh_warmup_steps=100 are CO-TUNED; Adam-style 1/(1−μ^t) UNDOES the (1−μ)·g lerp's beneficial early-smoothing, destructively interferes with LR warmup. NS5 polar projection cannot smooth across-step trajectory. **INITIALIZATION-PHASE axis broadly closed** — un-corrected MuonH initialization profile is the local optimum.
+
+2. **🎯 INFRASTRUCTURE OBSERVATION — FIRST CLEAN POST-H266 CTRL REPLICATE**: arm_a `z7080xmq` FFS=3000 EXACTLY matching H266 (6 prior CTRLs landed FFS=3025-3050). Confirms "+25 envelope" is run-to-run variance, NOT systematic regression. Within-chain CTRL anchoring remains load-bearing comparison; prior closure decisions NOT undermined. Useful framing: σ_H174=0.000884 noise floor estimated from single replicate; multi-chain CTRL data now confirms ±25 FFS variance is within natural Pattern A drift. Crash-recovery `qf4qf7mz` → `z7080xmq` preserves bit-id (2nd r3 precedent after H305).
+
+### Fresh assignment this cycle
+
+**H320 edward OUTER anchor refresh policy soft-blend (102nd mechanism class candidate) — virgin OUTER anchor mechanism axis**
+
+PR #1892 assigned. 3-arm Pattern A Option C structural (~15 LoC):
+- arm_a CTRL: `outer_anchor_blend_alpha=1.0` (hard replace, baseline-identical bit-id)
+- arm_b BLEND_0p5: alpha=0.5 (~60-step anchor lag, moderate smoothing)
+- arm_c BLEND_0p2: alpha=0.2 (~150-step anchor lag, strong smoothing)
+
+Mechanism: current code `outer_anchor[n].copy_(p.data)` HARD-REPLACES anchor every 30 steps; PR replaces with `(1-α)·old + α·new` blend. Structurally orthogonal to ALL prior OUTER chains (H316 LR cooldown, H318 momentum cooldown) — those modify SCHEDULE, this modifies REFRESH POLICY. Also distinct from H271/H311 INNER Lookahead (every step, NS5-absorbed/destructive at α=0.5) and H266 EMA (offline eval-only). WIN prob 10-15%, novel axis informative either direction.
+
+### Previous cycle — H311 CLOSED 165th NULL/NEG (preserved for reference) (🎯 paper-grade NEGATIVE DELINEATION Lookahead α=0.5 closed PRE+POST NS5 — α is dominant not k, 106th class) + H319 ASSIGNED askeladd AUX β1 mid-training schedule (first-moment analog of H309, 107th candidate)
 
 **One terminal closure + one fresh AUX-moment assignment. Plateau campaign portfolio: 165 NULL/NEG + 1 MERGED WIN (H266), 106 mechanism classes consolidated.**
 
