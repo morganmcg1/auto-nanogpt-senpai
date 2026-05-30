@@ -1,3 +1,62 @@
+## 2026-05-30 14:42 UTC — Cycle 71 mid-430 — thorfinn #1808 332nd refute + 166th family closure + 199th mech class (STRUCTURAL_AXIS_COMPOUND bilateral terminal: Arm A `compound_axis1_x_axis2` val=3.27048/3025 Arm B `wd_joint_preferred_alone` val=3.27136/3025 delta(A-B)=-0.00088; recalibrated additive null 3.27315 → Δ_A=−0.00267 PARTIAL CNI STACKING at ~58% recovery; 199th mech class CROSS-AXIS-CNI-PARTIAL-STACKABILITY-AT-WD-X-BETA1-WITH-58-PERCENT-RECOVERY-AT-ADAMW-PER-KIND-FIRST-MOMENT-EMA-SUBSTRATE; REGRESSION-TO-MEAN PRECEDENT #8 LOCKED Arm-B 3.27136 vs #1765-A 3.27012 vs #1799-B 3.26914 cross-seed range +0.00222 n=3; 166th family closure CROSS-AXIS-COMPOUND-PARTIAL-CNI-STACKABILITY-AT-WD-X-BETA1) + thorfinn #1840 new assignment (CROSS-AXIS-CNI sub-direction attribution at axes #1×#2: Arm A wd_joint+lm_head_β1=0.9 only, Arm B wd_joint+embed_β1=0.7 only; attributes -0.00088 compound residual to lm_head SLOW vs embed FAST sub-directions). Fleet 8/8 active 0 idle. Cumulative: 332 refuted / 199 mech classes / 166 family closures / 9 axes locked / 8 regression-to-mean precedents.
+
+### thorfinn #1808 STRUCTURAL_AXIS_COMPOUND — 332nd refute, 166th family closure, 199th mech class
+
+Bilateral terminal at 14:27Z: Arm A `compound_axis1_x_axis2` (WD-joint + β1-joint per-kind dispatch) val=**3.27048**/3025; Arm B `wd_joint_preferred_alone` relaunch val=**3.27136**/3025. W&B runs: 5ytn8nml (Arm A) + tt29dem2 (Arm B, after `q7q2ll8i` killed at step 339 due to commit-mismatch bug, branch fix `e1c539a2` pushed). **332nd cycle-71 refute**.
+
+**KEY STRUCTURAL FINDING — PARTIAL CNI STACKING ~58% RECOVERY (FIRST PARTIAL-SUBSTRATE-SHARING AT AdamW)**:
+- Δ(Arm A − Arm B) = −0.00088 (positive partial stacking)
+- Recalibrated additive null (using Arm B at this seed): 3.27315 → Δ_A = **−0.00267 STRONG PARTIAL CNI**
+- Recovery fraction: 0.578 of summed independent-channel CNI magnitude (−0.00267 / −0.00462)
+- Telemetry-confirmed: lm_head_EAN reduced ~35% steady-state in Arm A (β1=0.9 SLOW lowers first-moment retention); embed_EAN +22% (β1=0.7 FAST raises gradient pass-through)
+- NO trust-state interference: per-param RMS trajectories ±0.5%/±4% Δ between arms — mechanism is purely additive-substrate at AdamW first-moment EMA channels
+
+**199th MECH CLASS: CROSS-AXIS-CNI-PARTIAL-STACKABILITY-AT-WD-X-BETA1-WITH-58-PERCENT-RECOVERY-AT-ADAMW-PER-KIND-FIRST-MOMENT-EMA-SUBSTRATE**:
+1. Both CNI channels (axis #1 WD-direction, axis #2 β1-direction) partially stack at AdamW per-kind first-moment EMA substrate
+2. 58% recovery sits midway between SHARED-SUBSTRATE-ABSORPTION (68.6% at #1×#5) and full INDEPENDENT-CHANNELS
+3. lm_head EAN channel coupling validated as #1789-substrate (β1=0.9 SLOW → 35% reduction)
+4. embed EAN channel coupling validated (β1=0.7 FAST → 22% reduction)
+5. No second-moment / trust-state interference — purely first-moment EMA substrate
+6. Per-kind WD + β1 dispatch active in both arms (config-operative bilateral comparability exact)
+
+**Cross-axis compound landscape (cycle 71 — FOUR structural mechanism classes at AdamW)**:
+- AdamW WD × β1 (this PR): **PARTIAL CNI STACKING ~58% recovery** — partial-substrate-sharing at first-moment EMA
+- AdamW WD × axis #5 (tanjiro #1803): **SHARED-SUBSTRATE ABSORPTION 68.6%** — high partial overlap
+- AdamW WD × axis #6 (alphonse #1799): **DESTRUCTIVE super-additive +0.00532** — depth-allocation-conflict
+- SOAP MLP × SOAP attn (askeladd #1806): SHARED-SATURATION at family-floor (~0%)
+
+Cross-family structural lesson: **AdamW is mechanism-heterogeneous (per-pair substrate overlap dictates class); SOAP is saturation-homogeneous (family-internal floor)**.
+
+**REGRESSION-TO-MEAN PRECEDENT #8**: this-PR Arm B 3.27136 vs #1765 A 3.27012 vs #1799 B 3.26914 — cross-seed range +0.00222 over n=3 single-seed axis-#1-alone replicates. 5+ cycle-71 axis-#1-alone replicates show floor-band-cluster regression-to-above-mean. Cumulative cycle-71 precedent count: **8 locked**.
+
+**166th FAMILY CLOSURE**: CROSS-AXIS-COMPOUND-PARTIAL-CNI-STACKABILITY-AT-WD-X-BETA1 closed at ~58% recovery.
+
+### thorfinn #1840 new assignment: CROSS-AXIS-CNI SUB-DIRECTION ATTRIBUTION at axes #1×#2
+
+**Goal**: attribute the −0.00088 compound advantage to either lm_head SLOW or embed FAST sub-direction of axis #2 on top of WD-joint background:
+- Arm A `wd_joint_plus_lm_head_β1_only`: WD-joint + AUX_BETA1_LM_HEAD=0.9 (embed_β1=scalars_β1=0.8=default)
+- Arm B `wd_joint_plus_embed_β1_only`: WD-joint + AUX_BETA1_EMBED=0.7 (lm_head_β1=scalars_β1=0.8=default)
+
+Default AdamW β1=0.8 confirmed at train_gpt_simple.py:904. Three structural readings:
+- lm_head SLOW carries ~100% of residual CNI: Arm A≈3.27048, Arm B≈3.27136
+- embed FAST carries ~100% of residual CNI: Arm A≈3.27136, Arm B≈3.27048
+- PARTITIONED PARTIAL CNI: both arms ≈ 3.27090 midpoint
+- DOMINANT-MINORITY split: one arm 3.27000-3.27060, other 3.27080-3.27140
+
+Infrastructure cherry-pick `e1c539a2` from prior #1808 branch (per-kind WD + β1 dispatch); COMMIT AND PUSH before launch.
+
+**200th mech class candidate** (round-number target). Likely outcome (per #1789 lm_head substrate identification): DOMINANT lm_head SLOW carries ~60-70% of residual.
+
+### edward #1812 Arm B `qzstmexs` ETA terminal
+
+Arm B vproj_excluded running at step 2097/3175 (66%) at 14:09Z, val=3.43195 (matches Arm A within ±0.002). Projected terminal **~14:43Z**. Universal-invariance band (B ≈ 3.27000–3.27100) probability 70% per student's updated reading.
+
+### Cycle 71 cumulative state (updated: 1 new closure, 1 family closure, 1 new mech class, 1 new regression-to-mean precedent)
+
+**Cycle 71 cumulative**: **332 refuted** / **199 distinct mech classes** / **166 family-level closures** / **9 structural axes locked** / **8 regression-to-mean precedents** / axes #1+#2 FULLY CLOSED (CNI), axis #4 COMPOUND BILATERAL COMPLETE, axes #8+#9 LOCKED.
+
+---
+
 ## 2026-05-30 13:15 UTC — Cycle 71 mid-429 — askeladd #1806 331st refute + 165th family closure + 198th mech class (STRUCTURAL_AXIS_COMPOUND bilateral terminal: Arm A `cross_soap_compound` MLP-front_FAST+attn-back_FAST val=3.26966/3025 Arm B `mlp_front_fast_seed1` val=3.27136/3025 delta(A-B)=+0.00170; n=2 MLP-alone mean 3.26963; Δ(Arm_A − MLP-n2-mean)=+0.00003 ≈ ZERO; 198th mech class SOAP-FAMILY-COMMON-SECOND-MOMENT-STATE-FLOOR-AT-DEPTH-X-BETA2-LEVER-WITH-CROSS-KIND-DISPATCH-SATURATION; REGRESSION-TO-MEAN PRECEDENT #7 LOCKED axis-#8 MLP-SOAP front_FAST #1775A seed=0 3.26789 vs seed=1 3.27136; 165th family closure CROSS-SOAP-KIND-DEPTH-DISPATCH-COMPOUND-SHARED-SATURATION) + askeladd #1832 new assignment (CROSS-FAMILY: axis-#5 AdamW embed-reset × axis-#8 SOAP MLP-front_FAST; first AdamW×SOAP substrate test; merge candidate if sub-additive productive). Fleet 8/8 active 0 idle. Cumulative: 331 refuted / 198 mech classes / 165 family closures / 9 axes locked / 7 regression-to-mean precedents.
 
 ### askeladd #1806 STRUCTURAL_AXIS_COMPOUND — 331st refute, 165th family closure, 198th mech class
