@@ -9,7 +9,20 @@ The human research team has redirected: **FFS (first-step-to-target, baseline 30
 3. **Prefer experiments that move the crossing step** (2800-3050 window), **simplify winning stacks**, **reveal FFS-load-bearing components**.
 4. **Ablations preferred over confirmations** when FFS dead.
 
-## Last updated: 2026-05-30 12:10Z (55 R5 axis closures; edward R5 ablation map COMPLETE; SOAP scalar HP cluster CLOSED 6/6; researcher dispatched for edward+fern fresh)
+## Last updated: 2026-05-30 12:49Z (55 R5 axis closures; edward #1825 + fern #1826 fresh structural axes assigned; fleet 8/8 active; 4 Cell E falsifier terminals pending)
+
+### Notes (2026-05-30 12:49Z) — EDWARD #1825 + FERN #1826 ASSIGNED (NS-internal structural class); 4 cell-E terminals pending
+
+- **★ ASSIGNED #1825 g1r5-edward: Cayley map closed-form replacement for NS5 polynomial** — `zeropower_via_cayley(G)` uses `Q = X(I + 0.5(I - X^T X))^{-1}` via `torch.linalg.solve` (closed-form retraction onto Stiefel manifold). Adds `--ns_backend {poly,cayley}` flag. Cells: A=ctrl_n1 (poly), B★=cayley_n1, C=cayley_n4 conditional on B≤2975 FFS-alive gate. Replaces iterative polynomial approximation with single-step rational retraction; targets the singular-value profile of effective update (poly NS5 sometimes overshoots σ>1, Cayley is exact). PR title search ✓ 0 hits for cayley/pade/rational.
+- **★ ASSIGNED #1826 g1r5-fern: Padé rational NS approximant** — `zeropower_via_rational_ns(G, α, β, n_iter)`: `X ← X(I + αX^TX)(I + βX^TX)^{-1}` per iteration via `torch.linalg.solve`. Defaults α=3.0, β=1.5, n_iter=3 (FLOP-matched to `--ns_iter 6` NS5). Adds `--ns_rational` + `--ns_pade_alpha/beta/iter`. Cells: A=ctrl_n1, B★=rational_default, C=rational_fast (α=4.0,β=2.0,n_iter=2), D=best_n4 conditional. **Zolotarev theory**: rational approximation strictly better than polynomial at same degree for sign function. Distinct from poly-axis (#1441 AGC, #1493 QHM, #1497 GC, #1446 Lookahead, #1460 Cautious all closed gradient-shape wrappers, but rational class IS the canonical alternative to polynomial NS).
+- **Researcher cycle 1 rejected**: lr_attn (DUP #209/#1677/#346) + soap_trust_threshold (DUP #171/#467/#683/#1565) — researcher's own closed-axes list flagged at L290-292; sent SendMessage rejection with explicit structural-only + R5-axis-orthogonality constraints. Cycle 2 returned valid Cayley + Padé hypotheses.
+- **Fleet 8/8 R5 active** at 12:49Z, zero idle. Cell E falsifier statuses (12:49Z W&B):
+  - frieren #1767 Cell E (qr_iter=0): step 3224/3250 (99.2%), val=3.286, terminal ~12:51Z, 56th R5 closure incoming
+  - thorfinn #1772 Cell E (0.70/0.99): step 3024 (93.0%), val=3.277, terminal ~12:59Z
+  - nezuko #1769 Cell E (scale=-1.0): step 2996 (92.2%), val=3.277, terminal ~13:00Z
+  - askeladd #1776 Cell E (β=0.9): step 1145 (35.2%), val=3.641, terminal ~13:55Z (catastrophic, predicted FFS=-1)
+  - alphonse #1796 Cell C (sw650 earlier switch): step 2322 (71.4%), val=3.386
+  - tanjiro #1821 Cell A (per-head ctrl): step 2169 (66.7%), val=3.410
 
 ### Notes (2026-05-30 12:10Z) — EDWARD #1761 + FERN #1721 CLOSED (54+55); ASKELADD #1776 CELL D CATASTROPHIC BEND-POINT; ALPHONSE Cell B SEED-NOISE
 
