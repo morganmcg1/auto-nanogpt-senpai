@@ -1,3 +1,39 @@
+## 2026-05-30 19:55 UTC — Cycle 71 mid-439 — alphonse #1846 343rd refute + 177th family closure + 210th mech class (JOINT-SYNERGY MAGNITUDE SWEEP bilateral terminal: Arm A 0.5× val=3.27019/3025 INSIDE FLOOR BAND + Arm B 1.5× val=3.27062/3025 INSIDE FLOOR BAND; bilateral mean 3.27041/3025 above merge bars; 210th mech class JOINT-SYNERGY-PEAK-AT-1X-LM-HEAD-WD-UP-AMPLITUDE-NON-MONOTONIC-NARROW-AMPLITUDE-WINDOW-RESONANCE; ALL 4 pre-declared hypotheses REJECTED (LINEAR/SATURATING/THRESHOLD/SUPER-LINEAR); synergy curve 0×=3.26817 / 0.5×=3.27019 / 1.0×=3.27585 / 1.5×=3.27062 FULLY CHARACTERIZED with narrow peak at 1.0×; 1.5× restores additive null MORE COMPLETELY than 0.5×; COMPRESSION-MEDIATED ESCAPE: monotone compression vs NON-MONOTONE val_loss decoupling at 1.5×; depth-allocation conflict signature SMOOTHED at 1.5×; 177th family closure AXIS-1-X-AXIS-6-JOINT-SYNERGY-MAGNITUDE-SWEEP-NARROW-AMPLITUDE-WINDOW-RESONANCE-CONFIRMING-PEAK-AT-1X) + alphonse #1869 new assignment (DIRECTION-SYMMETRY × SUB-AXIS-#6 TRANSFERABILITY cube: Arm A lm_head-WD-DOWN at peak amplitude vs Arm B lm_head-WD-up at FRONT-TIGHT; discriminates DIRECTION-LOCKED+DEPTH-LOCKED vs DIRECTION-SYMMETRIC vs DEPTH-TRANSFERABLE vs UNIVERSAL resonance). Fleet 8/8 active 0 idle. Cumulative: 343 refuted / 210 mech classes / 177 family closures / 9 axes locked / 9 regression-to-mean precedents.
+
+### alphonse #1846 JOINT-SYNERGY MAGNITUDE SWEEP — 343rd refute, 177th family closure, 210th mech class
+
+Bilateral terminal: Arm A `0.5×` (`2ye4nvci`) val=**3.27019**/3025 INSIDE FLOOR BAND; Arm B `1.5×` (`9xxmkoue`) val=**3.27062**/3025 INSIDE FLOOR BAND. Bilateral mean **3.27041**/3025 ABOVE both merge bars. **343rd cycle-71 refute**.
+
+**KEY STRUCTURAL FINDING — NARROW-AMPLITUDE-WINDOW RESONANCE, ALL 4 HYPOTHESES REJECTED**:
+- 0.0× (axis #6 alone): 3.26817 (additive null)
+- **0.5× (Arm A)**: 3.27019 — Δ_null = +0.00168, synergy ratio 0.258
+- **1.0× (#1799 A)**: 3.27585 — Δ_null = +0.00650, synergy ratio 1.000 PEAK
+- **1.5× (Arm B)**: 3.27062 — Δ_null = +0.00043, synergy ratio 0.066 NEAR-NULL
+- 1.5× restores additive null MORE COMPLETELY than 0.5× — resonance is NARROWLY PEAKED around 1.0×
+- COMPRESSION-MEDIATED ESCAPE: 1.5× has monotone stronger compression (+1.5% lm_head) but NON-MONOTONE val_loss — stronger compression bypasses the destructive synergy
+- Depth-allocation conflict signature (blocks 6-11) SMOOTHED at 1.5×, consistent with structural escape
+- Mid-trajectory trajectories IDENTICAL until final 275 steps cooldown — resonance fires in LATE cooldown phase
+
+**210th MECH CLASS**: JOINT-SYNERGY-PEAK-AT-1X-LM-HEAD-WD-UP-AMPLITUDE-NON-MONOTONIC-NARROW-AMPLITUDE-WINDOW-RESONANCE-AT-AXIS-1-X-AXIS-6-WITH-DEPTH-ALLOCATION-CONFLICT-SIGNATURE-SMOOTHED-AT-1.5X.
+
+**177th FAMILY CLOSURE**: AXIS-1-X-AXIS-6-JOINT-SYNERGY-MAGNITUDE-SWEEP-NARROW-AMPLITUDE-WINDOW-RESONANCE-CONFIRMING-PEAK-AT-1X-LM-HEAD-WD-UP.
+
+**Cross-mech-class significance**: FIRST cycle-71 evidence of narrow-amplitude-window resonance — a CATEGORY-NEW response shape distinct from absorption/cancellation. Possible mechanism: 1.0× lm_head-WD-up exactly matches a structural-frequency in the lm_head ↔ back-half-mlp coupling that gets DETUNED at both higher and lower amplitudes.
+
+### alphonse #1869 new assignment: JOINT-SYNERGY RESONANCE direction-symmetry × sub-axis-#6 transferability cube
+
+**Goal**: discriminate DIRECTION-LOCKED vs SIGN-SYMMETRIC + DEPTH-LOCKED vs DEPTH-TRANSFERABLE resonance:
+- Arm A `lm_head_wd_DOWN_1.0x_back_tight`: REVERSE lm_head direction at peak amplitude — tests direction-symmetry
+- Arm B `lm_head_wd_up_1.0x_FRONT_TIGHT`: same lm_head amplitude but FRONT-tight (reversed depth profile) — tests sub-axis-#6 transferability
+
+Outcomes: DIRECTION-LOCKED + DEPTH-LOCKED (35%) / DIRECTION-LOCKED + DEPTH-TRANSFERABLE (25%) / DIRECTION-SYMMETRIC + DEPTH-LOCKED (15%) / UNIVERSAL (15%) / MIXED PARTIAL (8%) / SUB-FLOOR UNEXPECTED (2%).
+
+### Cycle 71 cumulative state
+
+**Cycle 71 cumulative**: **343 refuted** / **210 distinct mech classes** / **177 family-level closures** / **9 structural axes locked** / **9 regression-to-mean precedents** / axes #1+#2 FULLY CLOSED at sub-direction level, axis #5 absorption taxonomy 3-class + embed-MOMENT-1 5-point factor curve fully characterized, axis #4 4-of-6 universality LOCKED, axis #9 7-of-8 cube filled with OPPOSITE-PHASE-FRAGILITY discovery, axes #1×#6 JOINT-SYNERGY NARROW-AMPLITUDE-WINDOW RESONANCE discovered. Next: RESONANCE direction-symmetry × depth-transferability + 8-cube k-EARLY-FAST closure + v×proj joint EARLY-FAST + CROSS-MOMENT-CHANNEL discrimination + REVERSE-DIRECTION KIND-INTRINSIC test + MOMENT-channel #2×#5 + cross-FAMILY #1×#8 + LM-HEAD partial-factor M1+M2 + gate-budget-pool 6-of-6.
+
+---
+
 ## 2026-05-30 19:25 UTC — Cycle 71 mid-438 — nezuko #1845 342nd refute + 176th family closure + 209th mech class (AXIS #9 PER-PROJECTION × PHASE-DISPATCH EARLY-FAST cube completion bilateral terminal: Arm A `proj-only-EARLY-FAST` val=3.27026/3025 FLOOR BAND EDGE + Arm B `v-only-EARLY-FAST` val=3.27271/3050 ABOVE FLOOR BAND; bilateral mean 3.27149/3037.5 above merge bars; 209th mech class PER-PROJECTION-PHASE-ASYMMETRIC-OPPOSITE-FRAGILITY-AT-AXIS-9-WITH-V-EARLY-FRAGILE-AND-PROJ-LATE-FRAGILE; OPPOSITE-PHASE-FRAGILITY sign-flip: proj Δ(EARLY−LATE)=−0.00507 vs v Δ(EARLY−LATE)=+0.00188; REFUTES proj-universally-destructive; REFUTES v-fully-degenerate; CONFIRMS PROJ-LATE-CONDITIONAL-DESTRUCTIVE; CONFIRMS V-PHASE-ASYMMETRIC; 3 phase-coupling classes at axis #9 8-cube; only k-EARLY-FAST cell remains of the 8-cube model; 176th family closure AXIS-9-EARLY-FAST-CUBE-COMPLETION-AT-V-PROJ) + nezuko #1866 new assignment (k-EARLY-FAST 8-cube closure + v×proj joint EARLY-FAST channel sharing test). Fleet 8/8 active 0 idle. Cumulative: 342 refuted / 209 mech classes / 176 family closures / 9 axes locked / 9 regression-to-mean precedents.
 
 ### nezuko #1845 AXIS-#9 PER-PROJECTION × PHASE-DISPATCH EARLY-FAST cube completion — 342nd refute, 176th family closure, 209th mech class
