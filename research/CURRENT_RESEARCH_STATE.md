@@ -1,3 +1,74 @@
+## 2026-05-30 08:01 UTC — Cycle 71 mid-419 — tanjiro #1778 321st refute + 155th family closure (PER_KIND_AUX_BETA2_DIRECTION bilateral terminal: val_mean=3.273845/3062.5 STANDARD-destructive, direction-asymmetry sub-threshold preserved Δ(A−B)=−0.00291 sign-matches β1 pattern = NOVEL cross-kind β2 direction-asymmetry sign-preserves β1 but destructive-only at split-magnitude Δ=0.08; AdamW per-kind β2 family FULLY CLOSED 3 consecutive refutes #1577+#1653+#1778) + tanjiro #1803 new assignment (STRUCTURAL_AXIS_COMPOUND_STACK: cross-kind-WD-preferred × per-kind-embed-numerator-reset to test orthogonal vs shared-substrate vs super-additive vs destructive compound of axes #1 and #5). Fleet 8/8 active 0 idle. Cumulative: 321 refuted / 188 mech classes / 155 family closures.
+
+### tanjiro #1778 PER_KIND_AUX_BETA2_DIRECTION — 321st refute, 155th family closure
+
+Bilateral terminal: Arm A `preferred` (embed FAST 0.91 + lm_head SLOW 0.99) val=3.27239/3050, Arm B `anti_preferred` (embed SLOW 0.99 + lm_head FAST 0.91) val=3.27530/3075. val_mean=**3.273845**/ffs_mean=**3062.5** MISSES merge bar by +0.00609 val / +62.5 ffs. Δ(A−B)=−0.00291 sub-threshold direction-asymmetry (sign-preserved, preferred=embed_FAST+lm_head_SLOW).
+
+**NOVEL CONFIRM**: cross-kind β2 direction-asymmetry sign-preserves β1 pattern (embed FAST + lm_head SLOW preferred at both β1 and β2 axes) at uniform scope but is **destructive-only at split-magnitude Δ=0.08** — first known cross-kind axis where sign matches β1 but magnitude is destructive at both directions. This is the **5th cycle-71 cross-kind direction-inversion at sign level** (WD-direction, LR-ratio, β1-direction, embed×β1 phase-dispatch, β2-direction).
+
+**Family closure**: AdamW per-kind β2 axis closed after 3 consecutive refutes:
+1. #1577 PER_KIND_AUX_BETA2: Arm B floor-band-edge 3.26992 (smaller-Δ, less destructive)
+2. #1653 PHASE_DISPATCH_AUX_BETA2: bilateral refute val>3.27 (AUX-uniform phase-dispatch destructive)
+3. #1778 (this): bilateral STANDARD-destructive 3.273845, direction-split destructive at Δ=0.08
+
+**No new mech class**: "sign-preservation at destructive-only magnitudes" is informative about the per-kind direction-asymmetry family but is the same pattern as WD-axis CNI and β1-axis direction-asymmetry, now at β2 with destructive magnitude regime.
+
+### tanjiro #1803 new assignment STRUCTURAL_AXIS_COMPOUND_STACK_WD_X_MOMENT_ISOLATION
+
+**Goal**: test compound stacking of two confirmed productive structural axes at **embed AdamW state**:
+- Axis #1 (thorfinn #1765 A `joint_preferred`): cross-kind WD preferred (embed-WD=0.0003 + lm_head-WD=0.003), val=3.27012/3025
+- Axis #5 (fern #1754 B `embed_reset_avg_only`): per-kind aux periodic embed exp_avg reset every 250 steps, val=3.26891/3012.5 (n=2 mean)
+
+- Arm A `wd_preferred_X_embed_avg_reset`: compound stack (AUX_WD_EMBED=0.0003 + AUX_WD_LM_HEAD=0.003 + embed numerator reset every 250 steps)
+- Arm B `embed_avg_reset_alone`: axis #5 control (replicate of #1754 B, no WD override, WD_AUX=0.001 global)
+
+**Predicted outcomes**:
+- A 3.27127 ± 0.0007 (additive null) → ORTHOGONAL stacking (independent mechanisms)
+- A < 3.26900 sub-floor-band → SUPER-ADDITIVE (potential merge candidate; n=2 verify required)
+- A ~ 3.26900-3.27050 saturates → SHARED SUBSTRATE (embed AdamW state is the bottleneck)
+- A > 3.27300 → DESTRUCTIVE (WD-preferred breaks the numerator-flush mechanism)
+
+Additive null = baseline + Δ#1 + Δ#5 = 3.26776 + 0.00236 + 0.00115 = **3.27127**.
+
+**Mechanism question**: are axis #1 (WD = continuous per-step embed-state decay) and axis #5 (moment-flush = discrete periodic embed-state reset) INDEPENDENT (different temporal scales) or SHARED SUBSTRATE (both saturate at same embed-state-norm floor)? This is the natural complement to alphonse #1799 (axis #1 × #6 = WD × init-magnitude compound) — your stack adds axis #1 × #5 (WD × moment-flush at embed state).
+
+Per-group (mlp.fc back-half + per-kind WD + per-kind aux reset) + structural-axis-compound. Morgan-directive compliant.
+
+### Wake-124 fleet status (post-closure update)
+
+Fleet 8/8 active: askeladd #1775 + alphonse #1799 + edward #1793 + fern #1792 + frieren #1783 + nezuko #1794 + tanjiro #1803 (new) + thorfinn #1789. 0 idle. 0 review-ready. Human issues: Morgan #1259 standing directive active, no new messages.
+
+### Cycle 71 cumulative state (updated: 1 new closure, 1 new family closure, 0 new distinct mech classes)
+
+**Cycle 71 cumulative**: **321 refuted** / **188 distinct mech classes** / **155 family-level closures**.
+
+### Structural axes — updated (axis #8 candidate pending bilateral)
+
+| # | axis | status |
+|---|---|---|
+| 1 | Cross-kind WD-direction asymmetry | FULLY CLOSED (direction-asymmetric joint compound) |
+| 2 | Cross-kind β1-direction inversion | per-axis decomposition in flight via #1789 |
+| 3 | Depth-mechanism cluster BACK-favored | structural finding |
+| 4 | Per-projection-role + GATE-BUDGET-REALLOCATION | FULLY CLOSED; compound-exclusion in flight via #1793 |
+| 5 | Cross-kind moment-isolation asymmetry | confirmed productive at embed; lm_head parallel in flight via #1783; partial-vs-full in flight via #1792 |
+| 6 | Cross-kind × depth-half decoupling at init-magnitude axis | CONFIRMED at n=2 via #1758; compound stack with axis #1 in flight via #1799 |
+| 7 | Read-path joint-dispatch path-dependent maturation | STRUCTURAL FINDING LOCKED; single-axis decomposition in flight via #1794 |
+| **8 (candidate)** | PER-SOAP-KIND-DEPTH-AXIS-β2-DISPATCH-DIRECTION-INVERSION | **PENDING bilateral at askeladd #1775 Arm B ~09:39Z** (MLP-SOAP front_FAST 3.26789 vs attn-SOAP front_FAST 3.27060 = Δ=−0.00271) |
+
+### PRs closed this wave
+
+| PR | student | hypothesis | action | cumulative |
+|---|---|---|---|---|
+| #1778 | tanjiro | PER_KIND_AUX_BETA2_DIRECTION | CLOSED — 321st refute, 155th family closure, AdamW per-kind β2 family FULLY CLOSED | 321/188/155 |
+
+### New assignments this wave
+
+| PR | student | hypothesis | additive null | key structural question |
+|---|---|---|---|---|
+| #1803 | tanjiro | STRUCTURAL_AXIS_COMPOUND_STACK_WD_X_MOMENT_ISOLATION | 3.27127 | orthogonal vs shared-substrate at embed AdamW state (axis #1 × #5 compound) |
+
+---
+
 ## 2026-05-30 07:43 UTC — Cycle 71 mid-418 — TRIPLE ARM-A LANDING WAVE: frieren #1783 Arm A `lm_head_reset_avg_only` `7bx1rk5q` val=**3.26862**/ffs=**3000** NEAR-FLOOR-NEW landing **−0.00029 below fern #1754 Arm B n=2 mean 3.26891** (cross-kind axis #5 productive direction generalization signal at n=1) + askeladd #1775 Arm A `front_FAST` `kqiab0hs` val=**3.26789**/ffs=**3000** NEAR-FLOOR-NEW landing **+0.00013 above baseline floor** AND **Δ=−0.00271 BETTER than attn-SOAP #1731 front_FAST 3.27060** = candidate axis #8 PER-SOAP-KIND-DEPTH-AXIS-β2-DISPATCH-DIRECTION-INVERSION pending bilateral + tanjiro #1778 Arm A `joint_preferred` val=3.27239/3050 STANDARD-destructive (Arm B in flight ETA ~07:45Z, clean refute expected). Advisor acknowledgments posted on #1783 and #1775 with n=2 verification flags for floor-band-cluster precedent risk. No new closures yet — three bilateral terminals expected within next ~2h. Fleet 8/8 active 0 idle. Cumulative unchanged: 320 refuted / 188 mech classes / 154 family closures.
 
 ### frieren #1783 Arm A landing — `lm_head_reset_avg_only` NEAR-FLOOR-NEW at n=1
