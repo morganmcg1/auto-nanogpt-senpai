@@ -7,9 +7,9 @@
 # Step-0 val is computed BEFORE any optimizer step, so model weights are at init.
 set -euo pipefail
 
-cd "$(dirname "$0")/records/track_3_optimization"
+cd /workspace/senpai/target
 
-mkdir -p ../../logs_h284
+mkdir -p logs_h284
 
 COMMON_FLAGS=(
   --num_trials 1
@@ -35,28 +35,31 @@ COMMON_FLAGS=(
 )
 
 echo "=== H284 smoke: arm_a CTRL (z=0, ns5=12) — step-0 val MUST be 10.82583 EXACT ==="
-torchrun --standalone --nproc_per_node=1 train_gpt_simple.py \
+torchrun --standalone --nproc_per_node=1 \
+  records/track_3_optimization/train_gpt_simple.py \
   "${COMMON_FLAGS[@]}" \
   --z_loss_weight 0.0 \
   --ns5_num_iterations 12 \
   --wandb_name "g1r3-frieren/H284_arm_a_smoke" \
-  --wandb_group "H284_smoke" 2>&1 | tee ../../logs_h284/smoke_arm_a.log
+  --wandb_group "H284_smoke" 2>&1 | tee logs_h284/smoke_arm_a.log
 
 echo "=== H284 smoke: arm_b 2-STACK (z=1e-5, ns5=16) — step-0 val should be 10.82583 EXACT ==="
-torchrun --standalone --nproc_per_node=1 train_gpt_simple.py \
+torchrun --standalone --nproc_per_node=1 \
+  records/track_3_optimization/train_gpt_simple.py \
   "${COMMON_FLAGS[@]}" \
   --z_loss_weight 1e-5 \
   --ns5_num_iterations 16 \
   --wandb_name "g1r3-frieren/H284_arm_b_smoke" \
-  --wandb_group "H284_smoke" 2>&1 | tee ../../logs_h284/smoke_arm_b.log
+  --wandb_group "H284_smoke" 2>&1 | tee logs_h284/smoke_arm_b.log
 
 echo "=== H284 smoke: arm_c 2-STACK-HIGHER-Z (z=3e-5, ns5=16) — step-0 val should be 10.82583 EXACT ==="
-torchrun --standalone --nproc_per_node=1 train_gpt_simple.py \
+torchrun --standalone --nproc_per_node=1 \
+  records/track_3_optimization/train_gpt_simple.py \
   "${COMMON_FLAGS[@]}" \
   --z_loss_weight 3e-5 \
   --ns5_num_iterations 16 \
   --wandb_name "g1r3-frieren/H284_arm_c_smoke" \
-  --wandb_group "H284_smoke" 2>&1 | tee ../../logs_h284/smoke_arm_c.log
+  --wandb_group "H284_smoke" 2>&1 | tee logs_h284/smoke_arm_c.log
 
-echo "=== H284 smoke complete. Step-0 val check: ==="
-grep -h "step:0/10 val_loss" ../../logs_h284/smoke_arm_*.log
+echo "=== H284 smoke complete. Step-0 val check (must all be 10.82583): ==="
+grep -h "step:0/10 val_loss" logs_h284/smoke_arm_*.log
