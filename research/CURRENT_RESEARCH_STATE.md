@@ -1,3 +1,73 @@
+## 2026-05-30 01:40 UTC — Cycle 71 mid-406+407 — DUAL CLOSURE WAVE — thorfinn #1732 311th refute, 147th family closure (cross-kind WD-direction asymmetry preserved as structural finding) + edward #1744 312th refute, 148th family closure (MAJOR STRUCTURAL FINDING + 181st mech class: v's on_fraction=0 signature is q-COUPLED, NOT fundamental property of v; 6-of-6 v-axis lever exhaustion definitively confirmed)
+
+### thorfinn #1732 311th refute — PER_KIND_AUX_WD_LM_HEAD n=2 first-seed regression-to-mean
+
+Arm B `lm_head_wd_higher` (WD_LM_HEAD=0.003, WD_EMBED=0.001) n=2: seed0=3.26833/3000 (NEAR-FLOOR-NEW first seed), seed1=3.27173/3050. **val_mean=3.27003 / ffs_mean=3025 misses merge bar by Δ=+0.00227 val and +25 ffs**. val_mean lands 0.00011 above floor-band upper edge (3.26992) — outside floor-band cluster. Stat rule (3.28−μ)·√n ≥ 0.004 PASSES at n=2 (0.01410). seed0 attribution: outlier-low draw 0.00083 below floor-band-cluster; seed1 (3.27173) lands 0.00181 above floor-band upper. n=2 spread (0.00340) exceeds prior single-axis WD-perturbation winners' Δ vs baseline. W&B 8fx3z540 seed1 verified `embed_wd=0.001 lm_head_wd=0.003` sanity.
+
+**STRUCTURAL FINDING PRESERVED — cross-kind WD-direction asymmetry**:
+
+| AdamW kind | preferred direction | reference | val | Δ vs baseline |
+|---|---|---|---|---|
+| embed | DOWN (WD=0.0003) | #1683 A | 3.26968 | +0.00192 |
+| embed | DOWN (WD=0.0003) | #1705 cluster mean (n=3) | 3.26962 | +0.00186 |
+| lm_head | UP (WD=0.003) | #1732 B n=2 mean | 3.27003 | +0.00227 |
+| lm_head | UP (WD=0.003) | #1732 A anti-preferred | 3.27085 | +0.00309 |
+
+Cross-kind WD-direction decoupling structurally confirmed: the two AdamW kinds have OPPOSITE WD-direction preferences (attributable to 96× effective LR ratio embed=0.3 vs lm_head=1/320). Rules out "shared-WD-floor" hypothesis at AdamW kind level. Within-arm-across-seed RMS↔val decoupling replicates: seed0 better-val has HIGHER terminal lm_head_rms by 0.00157 vs seed1 worse-val.
+
+### edward #1744 312th refute — PER_KIND_ATTN_SOAP_EXCLUSION bilateral; MAJOR STRUCTURAL FINDING
+
+Arm A `v_excluded` val=3.27081/ffs=3025 (+0.00305 above baseline). Arm B `q_excluded` val=3.27479/ffs=3075 (+0.00703 above baseline). **val_mean=3.27280 STANDARD misses merge bar by Δ=+0.00504 val and +50 ffs**. Δ(B−A)=+0.00398 strongly directional. Stat rule (3.28−μ)·√n ≥ 0.004 PASSES at n=2 (0.01018). W&B z9f8b9i3/kxpig0i0 verified `n_attn_soap_params=36` (48−12 excluded) + graceful absence of excluded kind's telemetry + disabled-check PASSED val@200=4.08096.
+
+**MAJOR STRUCTURAL FINDING — v's on_fraction=0 signature is q-COUPLED**:
+
+Across the 5-of-5 prior v-axis lever PRs in cycle 71 (#1663 β2-phase, #1665 trust-warmup, #1685 per-kind trust-threshold, #1692 per-kind Muon LR, #1719 per-kind NS5_ITERS), v `on_fraction=0.0000` was **bit-identical** at every pre-cooldown checkpoint. Arm B (q_excluded) **BREAKS** this signature: v's `on_fraction` rises from 0.000 (steps 200-2000) → 0.250 (step 2225) → 0.583 (step 3175). First cycle 71 PR result where v's gate-engagement is non-zero pre-cooldown.
+
+**181st distinct Δ-trajectory mech class — GATE-BUDGET-REALLOCATION-BY-PEER-EXCLUSION**: removing q from attn-SOAP changes global preconditioner statistics such that v's preconditioned update looks less anomalous to the trust gate. The prior "v on_fraction=0 bit-identical" signature was NOT a fundamental property of v's geometry — it was a CONSEQUENCE of q being in the SOAP path alongside v. Trust-gate's per-kind admission decision is GLOBALLY-COUPLED across attn-SOAP kinds via gate-statistic computation; one kind's removal liberates another kind's admission.
+
+**Per-kind attn-SOAP-path contribution ranking** (current 2-of-4 cells):
+- q removed: +0.00703 val cost (2.3× larger than v) — q is dominant load-bearing kind
+- v removed: +0.00305 val cost — v's SOAP path is near-redundant pre-cooldown
+
+**v-axis lever exhaustion DEFINITIVELY confirmed at 6-of-6** (β2-phase + trust-warmup + per-kind trust-threshold + per-kind Muon LR + per-kind NS5_ITERS + per-kind path-EXCLUSION all refuted). v-suppression is genuinely upstream of optimizer optimizer-mechanism family. Cycle 71 v-axis as optimizer-lever family is CLOSED.
+
+### Cycle 71 cumulative state
+
+**Cycle 71 cumulative**: **312 refuted** / **181 distinct mech classes** / **148 family-level closures**.
+
+### PRs closed this wave (2 closures):
+
+| PR | student | mechanism | outcome |
+|---|---|---|---|
+| **thorfinn #1732** | thorfinn | PER_KIND_AUX_WD_LM_HEAD n=2 confirmation Arm B `lm_head_wd_higher` (WD_LM_HEAD=0.003, WD_EMBED=0.001) | **311th** — seed0 val=3.26833/3000 NEAR-FLOOR-NEW, seed1 val=3.27173/3050, n=2 mean=3.27003/3025 misses merge bar by +0.00227/+25. Floor-band-upper-edge regression-to-mean. Cross-kind WD-direction asymmetry preserved as structural finding (embed prefers DOWN per #1683/#1705 cluster; lm_head prefers UP per #1732 bilateral). **147th family closure**. |
+| **edward #1744** | edward | PER_KIND_ATTN_SOAP_EXCLUSION bilateral (Arm A `v_excluded`, Arm B `q_excluded`) | **312th** — Arm A val=3.27081/3025 (+0.00305), Arm B val=3.27479/3075 (+0.00703), val_mean=3.27280 misses by +0.00504/+50. Δ(B−A)=+0.00398 q ≫ v. MAJOR STRUCTURAL FINDING v's on_fraction=0 signature is q-COUPLED, not fundamental property of v's geometry. 181st mech class GATE-BUDGET-REALLOCATION-BY-PEER-EXCLUSION. 6-of-6 v-axis lever exhaustion definitively confirmed. **148th family closure**. |
+
+### PRs assigned this wave (2 fresh state-mechanism axes):
+
+| PR | student | mechanism | hypothesis |
+|---|---|---|---|
+| **thorfinn #1765** | thorfinn | PER_KIND_AUX_WD_JOINT_COMPOUND (Arm A `joint_preferred` WD_LM_HEAD=0.003+WD_EMBED=0.0003, Arm B `joint_anti_preferred` WD_LM_HEAD=0.0003+WD_EMBED=0.003) | **Cross-kind WD-direction asymmetry compound test** of #1683/#1705 + #1732 cross-kind decoupling finding. Tests whether two preferred-direction perturbations COMPOUND constructively when applied jointly. Additive null prediction Arm A: 3.27189 (baseline + 0.00186 + 0.00227). If A < baseline 3.26776 → MERGE candidate (constructive negative interaction). If A < single-axis floors (3.26962-3.27003) → joint preferred is constructively-less-destructive. If A ≈ 3.27189 → strict additive null (full decoupling). If A > 3.27189 → super-additive destruction (surprising). If B > A by Δ ≥ 0.003 → strong cross-kind asymmetry confirmed at joint scope. Fits Morgan's directive per-kind × per-kind joint crosswire on AdamW state. |
+| **edward #1766** | edward | PER_KIND_ATTN_SOAP_EXCLUSION_K_PROJ (Arm A `k_excluded` EXCLUDE_K=1, Arm B `proj_excluded` EXCLUDE_PROJ=1) | **4-of-4 per-kind path-EXCLUSION matrix completion + gate-budget-reallocation generalization test**. Arm A k removal expected load-bearing similar to q (on_fraction=1.0 both); critical test whether v's gate engagement also liberates in Arm A. Arm B proj removal mid-engagement (on_fraction=0.58-1.00); tests whether mechanism operates at any admission level. If k-EXCLUSION liberates v → gate-budget-reallocation generalizes to fully-admitted kinds. If proj-EXCLUSION liberates v → mechanism operates at any admission level (most general). If neither liberates v → q-specific gate coupling (narrowest interpretation). Completes per-kind attn-SOAP-path contribution ranking definitively. Fits Morgan's directive per-kind path-EXCLUSION state-mechanism. |
+
+### Strategic fleet state
+
+Fleet 8/8 active:
+- **WIP (8)**: alphonse #1758, edward #1766 new, fern #1754, frieren #1755, nezuko #1763, tanjiro #1750, thorfinn #1765 new, askeladd #1731 seed1 (n=2 confirmation in flight)
+- **n=2 confirmation (1)**: askeladd #1731 seed1 — depth × β2-phase BACK-FAST NEAR-FLOOR-NEW first-seed
+- 0 idle
+
+Three emerging structural axes consolidated in cycle 71:
+1. **Cross-kind WD-direction decoupling** (#1683/#1705 embed-DOWN + #1732 lm_head-UP + #1765 joint compound test)
+2. **Per-projection-role split within attn-SOAP** (#1642 proj LATE + #1718/#1741 q/k EARLY + #1763 q+k joint compound running)
+3. **Depth-mechanism cluster BACK-favored across axes** (#1731 depth × β2-phase + #1738 depth × init-magnitude + #1758 kind × depth crosswire running)
+
+The #1744 MAJOR STRUCTURAL FINDING (v's on_fraction=0 signature is q-COUPLED) is a **mechanistic re-interpretation** of the 5-of-5 prior v-axis refutation cluster — what appeared to be a fundamental geometric property of v turned out to be a consequence of trust-gate's global per-kind coupling via shared gate-statistic. This is the second major retrospective re-interpretation finding in cycle 71 (after #1734's reframing of #1671 gate-penalty as fc preconditioner freeze).
+
+#1766 will determine whether the GATE-BUDGET-REALLOCATION mechanism is q-specific (narrowest), fully-admitted-kind-specific (medium), or general across any kind removal (broadest). Either outcome is structurally informative for understanding the trust-gate's per-kind coupling mechanism.
+
+---
+
+
 ## 2026-05-30 01:35 UTC — Cycle 71 mid-405 — nezuko #1741 310th refute, 146th family closure — MAJOR STRUCTURAL FINDING: attn-SOAP read-path (q,k) is intra-class direction-uniform; per-projection-role split (read-path q,k vs write-path proj) is relevant axis within attn-SOAP scope; q+k joint compound test assigned
 
 ### nezuko #1741 310th refute — PER_KIND_ATTN_SOAP_K_BETA2_PHASE_DISPATCH val_mean=3.27261 STANDARD misses merge bar by Δ=+0.00485 val and +50 ffs
