@@ -1,3 +1,38 @@
+## 2026-05-30 19:10 UTC — Cycle 71 mid-437 — fern #1842 341st refute + 175th family closure + 208th mech class (AXIS-#5 SECOND-MOMENT PARTIAL-RESET sub-factor sweep COMPLETE 5-point characterization bilateral terminal: Arm A `factor=0.75` val=3.27031/3025 Arm B `factor=0.25` val=3.26922/3025 INSIDE FLOOR BAND; bilateral mean 3.26977/3025 above merge bars; 208th mech class AXIS-5-SECOND-MOMENT-PARTIAL-RESET-FACTOR-AXIS-NON-MONOTONIC-U-SHAPED-WITH-LOCAL-MIN-AT-0.5-AND-LOCAL-MAX-AT-0.75-AT-EMBED-MOMENT-1; 5-point factor curve FULLY CHARACTERIZED with confirmed NON-MONOTONIC U-shape; MOMENT=1 / embed axis STRUCTURALLY EXHAUSTED for sub-floor candidacy; FIRST cycle-71 evidence of bimodal-with-local-max in structural sub-axis sweep; 175th family closure AXIS-5-EMBED-MOMENT-1-PARTIAL-RESET-FACTOR-SUB-AXIS-FULLY-CHARACTERIZED-NO-SUB-FLOOR) + fern #1864 new assignment (CROSS-MOMENT-CHANNEL discrimination cube at axis #5 productive factor=0.5: Arm A MOMENT=2 first-moment-only at factor=0.5 + Arm B MOMENT=3 joint-moment at factor=0.5; discriminates CHANNEL-INVARIANT vs FIRST-MOMENT-DOMINANT vs JOINT-CHANNEL-PRODUCTIVE vs CHANNEL-DESTRUCTIVE-BIMODAL). Fleet 8/8 active 0 idle. Cumulative: 341 refuted / 208 mech classes / 175 family closures / 9 axes locked / 9 regression-to-mean precedents.
+
+### fern #1842 AXIS-#5 SECOND-MOMENT PARTIAL-RESET sub-factor sweep — 341st refute, 175th family closure, 208th mech class
+
+Bilateral terminal: Arm A `factor=0.75` (`k9g24eau`) val=**3.27031**/3025; Arm B `factor=0.25` (`jyiwb22b`) val=**3.26922**/3025 INSIDE FLOOR BAND. Bilateral mean **3.26977**/3025 ABOVE both merge bars. **341st cycle-71 refute**.
+
+**KEY STRUCTURAL FINDING — COMPLETE 5-POINT FACTOR CURVE + NON-MONOTONIC U-SHAPE + LOCAL-MAX SURPRISE**:
+- factor=0.0 (full clear): val=3.27256 (#1792 reference, destructive)
+- factor=0.25 (Arm B): val=**3.26922** (NEW, productive band edge)
+- factor=0.5 (preserve 50%): val=3.26881 (#1814 reference, LOCAL MIN)
+- factor=0.75 (Arm A): val=**3.27031** (NEW, LOCAL MAX SURPRISE)
+- factor=1.0 (no reset): val=3.26776 (baseline)
+- NO sub-floor configuration at any factor — axis structurally exhausted at (embed, MOMENT=1, interval=200)
+- Bimodal-with-local-max pattern: descending [0.0→0.5] reaches local min, ascending [0.5→0.75] LOCAL MAX, descending [0.75→1.0] returns to baseline
+
+**208th MECH CLASS**: AXIS-5-SECOND-MOMENT-PARTIAL-RESET-FACTOR-AXIS-NON-MONOTONIC-U-SHAPED-WITH-LOCAL-MIN-AT-0.5-AND-LOCAL-MAX-AT-0.75-AT-EMBED-MOMENT-1.
+
+**175th FAMILY CLOSURE**: AXIS-5-EMBED-MOMENT-1-PARTIAL-RESET-FACTOR-SUB-AXIS-FULLY-CHARACTERIZED-NON-MONOTONIC-U-SHAPED-NO-SUB-FLOOR.
+
+**Cross-mech-class significance**: FIRST cycle-71 evidence of bimodal-with-local-max pattern in structural sub-axis sweep. Possible mechanism for local-max at factor=0.75: 25% clearing introduces noise on second-moment estimates faster than productive direction can absorb it. Completes axis-#5 embed-MOMENT-1 sub-axis exploration; remaining unexplored sub-axes: KIND≠embed, MOMENT≠1, INTERVAL≠200. Pairs with tanjiro #1854 (MOMENT-channel discrimination at axes #2×#5) and frieren #1852 (LM-HEAD partial-factor cube M1+M2 at factor=0.5).
+
+### fern #1864 new assignment: CROSS-MOMENT-CHANNEL discrimination cube at axis #5 embed factor=0.5
+
+**Goal**: discriminate CHANNEL-INVARIANT vs CHANNEL-CONDITIONAL productive factor at axis #5 embed:
+- Arm A `embed_moment_2_factor_0.5`: MOMENT=2 (first-moment-only) + factor=0.5 — tests whether first-moment carries productive signal
+- Arm B `embed_moment_3_factor_0.5`: MOMENT=3 (joint moments) + factor=0.5 — tests whether joint-clear preserves productive direction
+
+Outcomes: CHANNEL-INVARIANT (30%) vs FIRST-MOMENT-DOMINANT (25%) vs CHANNEL-DESTRUCTIVE-BIMODAL (20%) vs JOINT-CHANNEL-PRODUCTIVE (15%) vs MOMENT-3-SUPER-PRODUCTIVE crosses sub-floor (5%) vs MOMENT-2-SUPER-PRODUCTIVE (5%).
+
+### Cycle 71 cumulative state
+
+**Cycle 71 cumulative**: **341 refuted** / **208 distinct mech classes** / **175 family-level closures** / **9 structural axes locked** / **9 regression-to-mean precedents** / axes #1+#2 FULLY CLOSED at sub-direction level (single-direction carrier + cross-interaction), axis #5 absorption taxonomy with 3 distinct mechanism classes (WITHIN-ADAMW-PARTIAL #1×#5, WITHIN-ADAMW-DIRECTIONAL-ERASURE #2×#5, CROSS-FAMILY-SOAP-FLOOR-BOUNDED #5×#8) + axis-#5-embed-MOMENT-1 5-point factor curve fully characterized non-monotonic U-shape. axis #4 4-of-6 universality LOCKED + 4th dual-absorber class. axis #9 LATE-FAST CUBE COMPLETE. lm_head factor=0.0 moment cube FULLY CLOSED. Next: CROSS-MOMENT-CHANNEL discrimination at productive factor=0.5 + REVERSE-DIRECTION dispositive test for KIND-INTRINSIC sign asymmetry locking at sub-direction level + MOMENT-channel discrimination cube at axes #2×#5 + cross-FAMILY universality at axes #1×#8 + JOINT-SYNERGY magnitude sweep + LM-HEAD partial-factor cube M1+M2 + EARLY-FAST projection cube + gate-budget-pool 6-of-6 completion.
+
+---
+
 ## 2026-05-30 18:50 UTC — Cycle 71 mid-436 — thorfinn #1840 340th refute + 174th family closure + 207th mech class (CROSS-AXIS-CNI sub-direction attribution bilateral terminal: Arm A `wd_joint_plus_lm_head_β1_only` val=3.27052/3025 Arm B `wd_joint_plus_embed_β1_only` val=3.27178/3050; bilateral mean 3.27115/3037.5 above merge bars; Δ(A−B)=−0.00126; 207th mech class CROSS-AXIS-CNI-LM-HEAD-SLOW-DOMINANT-SUB-DIRECTION-CARRIER-WITH-EMBED-FAST-ANTI-PRODUCTIVE-ISOLATED-AND-SUPER-ADDITIVE-CROSS-INTERACTION; lm_head SLOW carries 95.5% of −0.00088 #1808 compound advantage; embed FAST anti-productive in isolation +0.00042; cross-interaction −0.00046=52.3% super-additive; SUB-DIRECTION SIGN ASYMMETRY first cycle-71 evidence; 9th regression-to-mean precedent at single-sub-direction perturbation level) + thorfinn #1863 new assignment (REVERSE-DIRECTION sub-direction cube at axes #1×#2: Arm A lm_head β1=0.7 FAST direction test + Arm B embed β1=0.9 SLOW direction test; discriminates KIND-INTRINSIC sign asymmetry vs MAGNITUDE-ASYMMETRIC). Fleet 8/8 active 0 idle. Cumulative: 340 refuted / 207 mech classes / 174 family closures / 9 axes locked / 9 regression-to-mean precedents.
 
 ### thorfinn #1840 CROSS-AXIS-CNI sub-direction attribution — 340th refute, 174th family closure, 207th mech class
