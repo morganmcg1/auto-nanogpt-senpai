@@ -1,5 +1,38 @@
 # SENPAI Research Results — auto-nanogpt-1gpu-r4
 
+## 2026-05-30 22:40 — PR #1743: NM R-buffer refresh rate late-window boost PERIOD=1 SWITCH=3000 — **CLOSED CLASS-25-PERIOD-LATE-AXIS-NULL + 5TH R4 FAV-MIRAGE + R_COND_MAX-DIRECTION-AXIS CATALOG-NOVEL**
+
+- branch: `g1r4-thorfinn/nm-period-late-window-cooldown-freshness`
+- hypothesis: PERIOD=2→1 switch at step 3000 = more frequent R-buffer eigendecomp in the late-cooldown FFS-crossing window; complement to PERIOD-EARLY (#1421 merge) hypothesis
+
+| Arm | seed | W&B run | val/loss | FFS | raw Δ_BA | pre-SWITCH Δ | causal Δ_BA |
+|---|---:|---|---:|---:|---:|---:|---:|
+| PP-ctrl-s0 | 0 | `silbkh8p` | 3.26236 | 3150 | (ref) | — | — |
+| PP-exp-s0 | 0 | `mjye5oz0` | 3.26298 | 3150 | +0.00062 | +0.00073 | **−0.00011** |
+| PP-ctrl-s1 | 1 | `ro25ijk4` | 3.26209 | 3150 | (ref) | — | — |
+| PP-exp-s1 | 1 | `g9vm347q` | 3.26222 | 3150 | +0.00013 | −0.00005 | **+0.00018** |
+| PP-ctrl-s2 | 2 | `ti6bdqs0` | 3.26064 | 3125 | (ref) | — | — |
+| PP-exp-s2 | 2 | `8b3eslr2` | 3.26153 | 3125 | +0.00089 | +0.00122 | **−0.00033** |
+| n=3 ctrl mean | — | — | **3.26170** | — | — | — | — |
+| n=3 exp mean | — | — | **3.26224** | — | — | — | **−0.0000867** |
+
+- n=3 causal Δ mean = **−0.0000867 ± 0.000256** (σ_paired_n=3) — **NULL** (95% CI [−0.00072, +0.00055])
+- PP-promote G2 threshold −0.0008 NOT MET (margin +0.000713)
+- n=3 exp mean 3.26224 > baseline 3.26118 = NOT merge candidate
+- Class 25 NM-UPDATE-PERIOD-AXIS **CLOSED** at n=3 bidirectionally (EARLY #1421 merged, MIDDLE/LATE null at n=3)
+
+**R-buffer mechanism (n=3 cross-seed table)**:
+- R_cond_max: +13.4% HIGHER in PP-exp arms across ALL 3 seeds (s0 +13.4% / s1 +17.6% / s2 +9.1%) = **direction-robust paired R-buffer mechanism signature confirmed**
+- R_cond_mean: bimodal direction-flip (s0/s2 compression, s1 expansion) = seed-fragile
+- precond_ratio: bimodal direction-flip (s0/s2 decrease, s1 ≈stable) = seed-fragile
+- PP-exp-s2 precond_ratio trajectory: spike at SWITCH-fire (1.117) → transient dip below LIFT-band (3025: 1.053, 3050: 0.999) → recovery above LIFT (3100: 1.101) → terminal in LIFT (3350: 1.090) = 2-step post-switch transient dip
+
+**Conclusions**: PERIOD=2→1 SWITCH=3000 is the **5th r4 FAV-MIRAGE axis** — direction-correct R_cond_max signature (+13.4% robust across seeds) fails to translate to val improvements at paired causal-Δ analysis. c594 single-seed record −33.8% R_cond_mean compression confirmed as seed-0-specific outlier (n=3 mean compression only −3.8% with σ=8.4% dominating). c610 single-seed FFS=3125 Arm C `4ioemzsd` confirmed as structural seed=2-specific FFS floor (FFS=3125 also appears in PP-ctrl-s2 PERIOD=2 arm = no PERIOD-LATE mechanism). Extends FAV-MIRAGE cohort: class-25 PERIOD-LATE + class-28 α-mid-cooldown + class-29 ε-mid-cooldown + class-30 per-module-γ + class-25-EARLY/MIDDLE = 5 axes.
+
+**Catalog-novel**: R_cond_max is emerging as **seed-robust** R-buffer mechanism observable (PERIOD-LATE now the 3rd r4 axis with R_cond_max direction-robust across n=3 seeds, joining #1631 β-axis + class-30 per-module-γ). Suggests tracking R_cond_max direction as a mechanism-quality diagnostic even when val outcome is NULL.
+
+**Fresh assignment**: thorfinn → #1883 NM pre-crossing burst PERIOD=1 steps 2400-3000 (per #1261 directive "pre-crossing burst steps 2400-3000" = orthogonal complement to just-closed POST-crossing LATE-SWITCH=3000)
+
 ## 2026-05-30 20:01 — PR #1823: NM R v-warmstart K INTENSIFY-wider bracket {100,500,800} — **CLOSED K-AXIS-CATALOG-COMPLETE + COLD-START-TAX-DOMINATES-LIFT-BENEFIT-CATALOG-MAJOR**
 
 - branch: `g1r4-tanjiro/nm-r-warmstart-k-intensify-extended`
