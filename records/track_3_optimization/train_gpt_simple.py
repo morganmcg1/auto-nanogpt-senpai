@@ -601,6 +601,14 @@ NANOGPT_NEWTON_MUON_LR_SCALE = float(os.environ.get("NANOGPT_NEWTON_MUON_LR_SCAL
 NANOGPT_NEWTON_MUON_UPDATE_PERIOD = int(os.environ.get("NANOGPT_NEWTON_MUON_UPDATE_PERIOD", "10"))
 NANOGPT_NEWTON_MUON_BETA = float(os.environ.get("NANOGPT_NEWTON_MUON_BETA", "0.95"))
 NANOGPT_NEWTON_MUON_EPS = float(os.environ.get("NANOGPT_NEWTON_MUON_EPS", "1e-4"))
+# class 29 ε-late-window-intensity-schedule (#1756): late-window override for the
+# eigenvalue floor in vals_clamped = vals.clamp(min=0)+ε. Defaults make the
+# code path bit-identical to production (EPS_LATE=EPS, SWITCH_STEP=0 disables).
+NANOGPT_NEWTON_MUON_EPS_LATE = float(os.environ.get(
+    "NANOGPT_NEWTON_MUON_EPS_LATE",
+    os.environ.get("NANOGPT_NEWTON_MUON_EPS", "1e-4"),
+))
+NANOGPT_NEWTON_MUON_EPS_SWITCH_STEP = int(os.environ.get("NANOGPT_NEWTON_MUON_EPS_SWITCH_STEP", "0"))
 NANOGPT_NEWTON_MUON_MAX_D_IN = int(os.environ.get("NANOGPT_NEWTON_MUON_MAX_D_IN", "1024"))
 NANOGPT_NEWTON_MUON_TIKHONOV_GAMMA = float(os.environ.get("NANOGPT_NEWTON_MUON_TIKHONOV_GAMMA", "0.0"))
 
@@ -747,6 +755,8 @@ class Muon(torch.optim.Optimizer):
                  newton_precond: bool = False, newton_beta: float = 0.95,
                  newton_eps: float = 1e-4, newton_update_period: int = 10,
                  newton_max_d_in: int = 1024,
+                 newton_eps_late: float | None = None,
+                 newton_eps_switch_step: int = 0,
                  newton_input_cache: dict | None = None):
         assert isinstance(params, list) and len(params) >= 1
         if isinstance(params[0], dict):
@@ -785,6 +795,14 @@ class Muon(torch.optim.Optimizer):
         self.newton_eps = float(newton_eps)
         self.newton_update_period = int(newton_update_period)
         self.newton_max_d_in = int(newton_max_d_in)
+        # class 29 ε-late-window-intensity-schedule (#1756). When
+        # newton_eps_switch_step > 0, the eigenvalue floor used at the eigh
+        # call switches from newton_eps to newton_eps_late once
+        # self._newton_step_count >= newton_eps_switch_step. Defaults
+        # (switch_step=0 and eps_late=eps) leave the code path bit-identical.
+        self.newton_eps_late = float(newton_eps_late) if newton_eps_late is not None else float(newton_eps)
+        self.newton_eps_switch_step = int(newton_eps_switch_step)
+        self._newton_eps_switch_announced = False
         self.newton_input_cache = newton_input_cache if newton_input_cache is not None else {}
         self._newton_step_count = 0
         # Accumulator dict reset each step() — read by the training loop after
@@ -846,9 +864,14 @@ class Muon(torch.optim.Optimizer):
             else:
                 R_for_decomp = state["R"]
             # Symmetric eigendecomp -> inverse square root with eigenvalue floor.
+            # class 29 ε-late-window-intensity-schedule (#1756): swap eps at SWITCH_STEP.
+            if self.newton_eps_switch_step > 0 and self._newton_step_count >= self.newton_eps_switch_step:
+                eff_eps = self.newton_eps_late
+            else:
+                eff_eps = self.newton_eps
             try:
                 vals, vecs = torch.linalg.eigh(R_for_decomp)
-                vals_clamped = vals.clamp(min=0.0) + self.newton_eps
+                vals_clamped = vals.clamp(min=0.0) + eff_eps
                 inv_sqrt_vals = vals_clamped.rsqrt()
                 # R_inv_sqrt = V * diag(inv_sqrt_vals) * V^T (symmetric).
                 state["R_inv_sqrt"] = (vecs * inv_sqrt_vals.unsqueeze(0)) @ vecs.T
@@ -900,6 +923,19 @@ class Muon(torch.optim.Optimizer):
         if self.newton_precond:
             self._newton_step_count += 1
             self.newton_telemetry = {}
+            # class 29 ε-late-window-intensity-schedule (#1756): one-time banner.
+            if (self.newton_eps_switch_step > 0
+                    and not self._newton_eps_switch_announced
+                    and self._newton_step_count >= self.newton_eps_switch_step):
+                print0(f"[NEWTON_MUON] eps switch fired at newton_step={self._newton_step_count}"
+                       f" (threshold={self.newton_eps_switch_step}): eps {self.newton_eps:.0e} -> {self.newton_eps_late:.0e}",
+                       console=True)
+                self._newton_eps_switch_announced = True
+            # class 29 telemetry: record eff_eps for W&B (matches _apply_newton_precondition logic).
+            if self.newton_eps_switch_step > 0 and self._newton_step_count >= self.newton_eps_switch_step:
+                self.newton_telemetry["eff_eps"] = self.newton_eps_late
+            else:
+                self.newton_telemetry["eff_eps"] = self.newton_eps
         for group in self.param_groups:
             params = group["params"]
             params_pad = params + [torch.empty_like(params[-1])] * (world_size - len(params) % world_size)
@@ -996,6 +1032,7 @@ print0(
     f"lr_scale={NANOGPT_NEWTON_MUON_LR_SCALE} "
     f"update_period={NANOGPT_NEWTON_MUON_UPDATE_PERIOD} "
     f"beta={NANOGPT_NEWTON_MUON_BETA} eps={NANOGPT_NEWTON_MUON_EPS} "
+    f"eps_late={NANOGPT_NEWTON_MUON_EPS_LATE} eps_switch_step={NANOGPT_NEWTON_MUON_EPS_SWITCH_STEP} "
     f"max_d_in={NANOGPT_NEWTON_MUON_MAX_D_IN} "
     f"tikhonov_gamma={NANOGPT_NEWTON_MUON_TIKHONOV_GAMMA}",
     console=True,
@@ -1117,6 +1154,8 @@ if dist.get_rank() == 0:
             "nanogpt_newton_muon_update_period": NANOGPT_NEWTON_MUON_UPDATE_PERIOD,
             "nanogpt_newton_muon_beta": NANOGPT_NEWTON_MUON_BETA,
             "nanogpt_newton_muon_eps": NANOGPT_NEWTON_MUON_EPS,
+            "nanogpt_newton_muon_eps_late": NANOGPT_NEWTON_MUON_EPS_LATE,
+            "nanogpt_newton_muon_eps_switch_step": NANOGPT_NEWTON_MUON_EPS_SWITCH_STEP,
             "nanogpt_newton_muon_max_d_in": NANOGPT_NEWTON_MUON_MAX_D_IN,
             "nanogpt_newton_muon_tikhonov_gamma": NANOGPT_NEWTON_MUON_TIKHONOV_GAMMA,
         },
@@ -1185,6 +1224,8 @@ for trial_idx in range(args.num_trials):
         newton_eps=NANOGPT_NEWTON_MUON_EPS,
         newton_update_period=NANOGPT_NEWTON_MUON_UPDATE_PERIOD,
         newton_max_d_in=NANOGPT_NEWTON_MUON_MAX_D_IN,
+        newton_eps_late=NANOGPT_NEWTON_MUON_EPS_LATE,
+        newton_eps_switch_step=NANOGPT_NEWTON_MUON_EPS_SWITCH_STEP,
         newton_input_cache=_newton_input_cache,
     )
     print0(f"MUON_PARAM_COUNTS: attn={len(muon_attn_params)} mlp={len(muon_mlp_params)} "
@@ -1477,6 +1518,8 @@ for trial_idx in range(args.num_trials):
                 newton_metrics["newton_muon/precond_ratio_mean"] = (
                     tel["precond_ratio_sum"] / ratio_n
                 )
+            if "eff_eps" in tel:
+                newton_metrics["newton_muon/eff_eps"] = tel["eff_eps"]
             wandb.log(newton_metrics, step=wandb_step)
         # Init-anchored WD on embed (#847, env-var-gated). After both optimizers
         # have stepped, apply `p -= lr_embed * lambda * (p - p_init)`. Order vs
