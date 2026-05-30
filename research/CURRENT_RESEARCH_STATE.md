@@ -1,3 +1,33 @@
+## 2026-05-30 16:50 UTC — Cycle 71 mid-434 — frieren #1824 337th refute + 171st family closure + 204th mech class (STRUCTURAL_CUBE_COMPLETION bilateral terminal: Arm A `lm_head_reset_sq_only` MOMENT=1 val=12.66/CATASTROPHIC moment-imbalance singularity at lm_head; Arm B `lm_head_reset_both_moments` MOMENT=3 val=3.27060/3025 NORMAL trajectory just-above-floor RESCUED by joint clearing; 204th mech class LM-HEAD-MOMENT-IMBALANCE-CATASTROPHIC-AT-MOMENT=1-RESCUED-BY-JOINT-CLEARING-AT-MOMENT=3-WITH-KIND-DIRECTIONAL-ASYMMETRY-AT-AXIS-5-AND-CROSS-KIND-CASCADE-AT-MOMENT=1; 171st family closure PER-KIND-AXIS-5-MOMENT-AXIS-CUBE-AT-LM-HEAD-COMPLETED-AT-FACTOR-0.0; KIND-DIRECTIONAL-ASYMMETRY LOCKED: EMBED-MOMENT=1-productive vs LM_HEAD-MOMENT=1-CATASTROPHIC; lm_head MOMENT-AXIS cube at factor=0.0 FULLY CLOSED — NO lm_head moment direction at factor=0.0 is merge-eligible) + frieren #1852 new assignment (LM-HEAD-MOMENT-AXIS PARTIAL-FACTOR CUBE: Arm A lm_head MOMENT=1 factor=0.5 singularity-relief test; Arm B lm_head MOMENT=2 factor=0.5 cross-moment cube closure; discriminates FACTOR-MEDIATED vs KIND-INTRINSIC asymmetry; predicted: 50% singularity-RELIEF-but-non-productive / 25% PARTIAL-RELIEF / 15% KIND-INTRINSIC-catastrophic / 10% sub-floor productive). Fleet 8/8 active 0 idle. Cumulative: 337 refuted / 204 mech classes / 171 family closures / 9 axes locked / 8 regression-to-mean precedents.
+
+### frieren #1824 STRUCTURAL_CUBE_COMPLETION — 337th refute, 171st family closure, 204th mech class
+
+Bilateral terminal at 16:48Z: Arm A `lm_head_reset_sq_only` (MOMENT=1) `fixn61lw` val=**12.66** CATASTROPHIC; Arm B `lm_head_reset_both_moments` (MOMENT=3) `e0vlbxze` val=**3.27060**/3025 RESCUED, just-above-floor. **337th cycle-71 refute**.
+
+**KEY STRUCTURAL FINDING — LM-HEAD-MOMENT-IMBALANCE-CATASTROPHIC + KIND-DIRECTIONAL-ASYMMETRY**:
+- Arm A: Adam update at reset step = `m_t / √(0 + ε) ≈ m_t / √ε` — moment-imbalance singularity produces massive updates that destroy lm_head representation. Cascades to embed (embed exp_avg_sq.norm reaches 4.20e+10 at step 500 = 3.7e+07× Arm B)
+- Arm B: MOMENT=3 joint clearing removes singularity. Both m_t and v_t reset simultaneously → standard bootstrap `g_t / √(g_t² + ε) ≈ sign(g_t)`. Clean trajectory to val=3.27060
+- Trust-gate: Arm A collapses by step 500 (2nd reset), sustained dead; Arm B recovers to 0.833 at cooldown apex with v-projector partial recovery to 0.333
+- KIND-DIRECTIONAL-ASYMMETRY at axis #5 LOCKED: EMBED+MOMENT=1+factor=0.5 → 3.26881 (PRODUCTIVE); LM_HEAD+MOMENT=1+factor=0.0 → 12.66 CATASTROPHIC. The lm_head moment-axis cube at factor=0.0 is FULLY CLOSED — NO lm_head moment direction is merge-eligible at factor=0.0
+
+**204th MECH CLASS**: LM-HEAD-MOMENT-IMBALANCE-CATASTROPHIC-AT-MOMENT=1-RESCUED-BY-JOINT-CLEARING-AT-MOMENT=3-WITH-KIND-DIRECTIONAL-ASYMMETRY-AT-AXIS-5-AND-CROSS-KIND-CASCADE-AT-MOMENT=1.
+
+**171st FAMILY CLOSURE**: PER-KIND-AXIS-5-MOMENT-AXIS-CUBE-AT-LM-HEAD-COMPLETED-AT-FACTOR-0.0.
+
+### frieren #1852 new assignment: LM-HEAD-MOMENT-AXIS PARTIAL-FACTOR CUBE
+
+**Goal**: discriminate FACTOR-MEDIATED vs KIND-INTRINSIC kind-directional-asymmetry at axis #5:
+- Arm A `lm_head_M1_factor_0.5`: AUX_RESET_MOMENT_LM_HEAD=1 + AUX_RESET_PARTIAL_FACTOR_LM_HEAD=0.5 — does partial second-moment preservation relieve the moment-imbalance singularity?
+- Arm B `lm_head_M2_factor_0.5`: AUX_RESET_MOMENT_LM_HEAD=2 + AUX_RESET_PARTIAL_FACTOR_LM_HEAD=0.5 — cross-moment cube closure at factor=0.5 (mirror of fern #1792 embed MOMENT=2 factor=0.5 at 3.27057)
+
+Required cherry-pick: fern's `d935941` (AUX_RESET_PARTIAL_FACTOR_EMBED) + extend to AUX_RESET_PARTIAL_FACTOR_LM_HEAD.
+
+### Cycle 71 cumulative state
+
+**Cycle 71 cumulative**: **337 refuted** / **204 distinct mech classes** / **171 family-level closures** / **9 structural axes locked** / **8 regression-to-mean precedents** / axes #1+#2 FULLY CLOSED, axis #4 4-of-6 universality LOCKED + 4th dual-absorber class, axis #9 LATE-FAST CUBE COMPLETE. lm_head factor=0.0 moment cube FULLY CLOSED (NO merge-eligible direction). KIND-DIRECTIONAL-ASYMMETRY AT AXIS-5 LOCKED. Next: partial-factor test discriminates FACTOR-MEDIATED vs KIND-INTRINSIC at lm_head.
+
+---
+
 ## 2026-05-30 15:39 UTC — Cycle 71 mid-433 — alphonse #1820 336th refute + 170th family closure + 203rd mech class (AXIS-COMPOUND-DECOMP bilateral terminal: Arm A `lm_head_wd_only_x_back_tight` val=3.27080/3025 Δ_null=+0.00145 mild-destructive; Arm B `embed_wd_only_x_back_tight` val=3.26923/3025 INSIDE FLOOR BAND Δ_null=−0.00012 AT NULL; JOINT synergy excess=+0.00517=79.5% of destructive cost EXCLUSIVELY JOINT; 203rd mech class AXIS-1-PER-KIND-COMPONENT-JOINT-SYNERGY-REQUIRED-FOR-DESTRUCTIVE-COMPOUND-AT-AXIS-6-BACK-TIGHT-WITH-EMBED-WD-DOWN-AT-NULL-AND-LM-HEAD-WD-UP-MILD-DESTRUCTIVE; 170th family closure AXIS-1-PER-KIND-COMPONENT-X-AXIS-6-BACK-TIGHT-JOINT-SYNERGY-CUBE; THIRD axis-#1 sub-component decomposition class: JOINT-SYNERGY-REQUIRED ~80% vs SHARED-SUBSTRATE-ABSORPTION ~68.6% (#1803) vs PARTIAL-CNI-STACKING ~58% (#1808); embed_rms inflation driven by embed-WD-down not lm_head-WD-up — confirms JOINT-SYNERGY-DOMINANT) + frieren #1824 stale_wip ack (Arm A `fixn61lw` `lm_head_reset_sq_only` MOMENT=1 CATASTROPHIC terminal val=12.66 — moment-imbalance singularity at lm_head; Arm B `e0vlbxze` `lm_head_reset_both_moments` MOMENT=3 running step 1275 val=3.5985 ETA ~17:00Z; KIND-DIRECTIONAL-ASYMMETRY at axis #5: embed-MOMENT=1-partial-preserve productive vs lm_head-MOMENT=1-full-clear CATASTROPHIC) + alphonse #1846 new assignment (JOINT-SYNERGY MAGNITUDE SWEEP: lm_head-WD-up amplitude 0.5× Arm A WD=0.002 vs 1.5× Arm B WD=0.004 with embed-WD-down fixed at axis-#1=0.0003 + back-tight; discriminates LINEAR vs SATURATING vs THRESHOLD scaling of synergy; predicted outcomes: 40% SATURATING / 30% THRESHOLD near 1.0× / 20% LINEAR / 10% SUPER-LINEAR). Fleet 8/8 active 0 idle. Cumulative: 336 refuted / 203 mech classes / 170 family closures / 9 axes locked / 8 regression-to-mean precedents.
 
 ### alphonse #1820 AXIS-COMPOUND-DECOMP — 336th refute, 170th family closure, 203rd mech class
