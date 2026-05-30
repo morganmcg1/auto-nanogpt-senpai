@@ -26,6 +26,8 @@ TARGET_VAL_LOSS = 3.28
 STAT_SIG_DELTA = 0.004
 SLOPE_FRACTION = 0.10
 SOAP_BETA2 = 0.90
+SOAP_BETA2_MLP = 0.90   # overridden by args.soap_beta2_mlp at module load
+SOAP_BETA2_ATTN = 0.90  # overridden by args.soap_beta2_attn at module load
 PRECOND_FREQ = 16
 NS_ITER = 12  # overridden by args.ns_iter at module load
 
@@ -68,6 +70,10 @@ def parse_args():
     parser.add_argument("--ns_iter", type=int, default=12,
                         help="Number of Newton-Schulz iterations in zeropower_via_newtonschulz5. "
                              "Default 12 (current hardcoded value). Lower = less orthogonal but faster.")
+    parser.add_argument("--soap_beta2_mlp", type=float, default=0.9,
+                        help="SOAP Gram-matrix EMA decay (β₂) for MLP body group. R5 default 0.9.")
+    parser.add_argument("--soap_beta2_attn", type=float, default=0.9,
+                        help="SOAP Gram-matrix EMA decay (β₂) for attn body group (requires --soap_attn). R5 default 0.9.")
     parser.add_argument("--lr_scalars", type=float, default=0.01,
                         help="LR for AdamW adam_scalars group (RMSNorm gains; "
                              "params with ndim < 2). Default 0.01 — hardcoded, "
@@ -111,6 +117,8 @@ def parse_args():
 
 args = parse_args()
 NS_ITER = args.ns_iter
+SOAP_BETA2_MLP = args.soap_beta2_mlp
+SOAP_BETA2_ATTN = args.soap_beta2_attn
 
 
 def clean_metric_name(name: str) -> str:
@@ -607,6 +615,12 @@ class Muon(torch.optim.Optimizer):
             p for n, p in all_named
             if any(n.endswith(suf) for suf in soap_suffixes)
         }
+        self.soap_beta2 = {}
+        for n, p in all_named:
+            if any(n.endswith(suf) for suf in self.SOAP_MLP_SUFFIXES):
+                self.soap_beta2[id(p)] = SOAP_BETA2_MLP
+            elif soap_attn and any(n.endswith(suf) for suf in self.SOAP_ATTN_SUFFIXES):
+                self.soap_beta2[id(p)] = SOAP_BETA2_ATTN
         self.param_names = {id(p): n for n, p in all_named}
         self.soap_attn = soap_attn
         self.trust_threshold = float(trust_threshold)
@@ -652,9 +666,10 @@ class Muon(torch.optim.Optimizer):
                             state["q_col"] = None
                             state["soap_step"] = 0
                     if use_soap:
+                        b2 = self.soap_beta2[id(p)]
                         state["momentum"].lerp_(p.grad, 1 - group["mu"])
                         raw_nesterov = p.grad.lerp(state["momentum"], group["mu"])
-                        precond_nesterov = soap_precondition_momentum(raw_nesterov, state)
+                        precond_nesterov = soap_precondition_momentum(raw_nesterov, state, beta2=b2)
                         u_soap = soap_ns_step(precond_nesterov)
                         if self.use_trust_gate:
                             u_muon = soap_ns_step(raw_nesterov)
@@ -665,7 +680,7 @@ class Muon(torch.optim.Optimizer):
                             self.cos_sims_buffer[self.param_names[id(p)]] = cos_sim_t
                         else:
                             update = u_soap
-                        soap_update_preconditioner(p.grad, state)
+                        soap_update_preconditioner(p.grad, state, shampoo_beta=b2)
                     else:
                         update = muon_update(p.grad, state["momentum"], mu=group["mu"])
                     norm_sum.add_(update.float().norm())
@@ -772,6 +787,8 @@ if dist.get_rank() == 0:
                 ",attn.q.weight,attn.k.weight,attn.v.weight,attn.proj.weight" if args.soap_attn else ""
             ),
             "soap_beta2": SOAP_BETA2,
+            "soap_beta2_mlp": SOAP_BETA2_MLP,
+            "soap_beta2_attn": SOAP_BETA2_ATTN,
             "soap_precond_freq": PRECOND_FREQ,
             "ns_iter": NS_ITER,
             "soap_attn_enabled": bool(args.soap_attn),
