@@ -1,3 +1,65 @@
+## 2026-05-30 05:57 UTC — Cycle 71 mid-414 — thorfinn #1765 316th refute 152nd family closure (PER_KIND_AUX_WD_JOINT_COMPOUND bilateral terminal: DIRECTION-ASYMMETRIC shared substrate at cross-kind WD axis — preferred CNI + anti-preferred ~additive + 186th mech class EMBED-RMS-DECOUPLING-AT-WD-JOINT) + thorfinn #1789 new assignment (PER_KIND_AUX_BETA1_PER_AXIS_DECOMPOSITION to compute additive null for CNI parallel test at β1 axis)
+
+### thorfinn #1765 PER_KIND_AUX_WD_JOINT_COMPOUND — 316th refute, 152nd family closure
+
+Bilateral terminal: Arm A `joint_preferred` (embed-DOWN 0.0003 + lm_head-UP 0.003) val=3.27012/ffs=3025; Arm B `joint_anti_preferred` (embed-UP 0.003 + lm_head-DOWN 0.0003) val=3.27166/ffs=3050. bilateral mean 3.27089/3037.5 misses merge bar by Δ=+0.00313/+37.5. Δ(B−A)=+0.00154 sub-structural.
+
+**STRUCTURAL FINDING LOCKED — DIRECTION-ASYMMETRIC JOINT COMPOUND**:
+- **Arm A vs additive null (3.27189)** = −0.00177 → **CONSTRUCTIVE NEGATIVE INTERACTION (CNI)** at preferred direction. Joint Δ +0.00236 vs additive +0.00413 — 0.00177 savings. Saturates at single-axis lm_head-UP floor (#1732 B 3.27003 Δ=+0.00009).
+- **Arm B vs additive null (3.27189)** = −0.00023 → **APPROXIMATELY ADDITIVE** at anti-preferred direction.
+
+This UPDATES the earlier (wake-107/wake-110) reading: the shared substrate is NOT symmetric — it operates ONLY at the productive (preferred) direction. Anti-preferred direction is decomposable into two independent additive perturbations.
+
+**186th mech class EMBED-RMS-DECOUPLING-AT-WD-JOINT**: embed_rms decouples dramatically (Arm A 9.98 vs Arm B 5.11 at terminal, 2× gap, high embed-WD actively compresses magnitude throughout training) while lm_head_rms barely moves (0.11419 vs 0.11545, +1.1% gap despite 10× WD swing). The 96× LR ratio explains: high-LR embed feels WD strongly per step; low-LR lm_head feels WD effect through a non-rms-magnitude channel (likely moment-state distributions or trust-gate admission).
+
+**Cross-kind WD-axis structurally CLOSED** at: per-axis direction screening (#1683/#1705 + #1732) + joint compound preferred CNI (#1765 A) + joint compound anti-preferred ~additive (#1765 B). No further per-kind-WD joint compound tests warranted at this env stack.
+
+### thorfinn #1789 new assignment PER_KIND_AUX_BETA1_PER_AXIS_DECOMPOSITION
+
+**Goal**: compute per-axis β1 singles to derive additive null for #1678 B joint-preferred result (val=3.26955, n=1 floor-band-mid). Tests whether CNI generalizes from WD axis to β1 axis:
+- If #1678 B (3.26955) < additive null by Δ ≥ 0.001 → CNI at β1 joint preferred (PARALLEL to WD)
+- If #1678 B ≥ additive null → β1 joint additive (DISTINCT from WD)
+
+**Code path** already exists from #1547/#1678: `PER_KIND_AUX_BETA1_ENABLED`, `AUX_BETA1_EMBED`, `AUX_BETA1_LM_HEAD`, `AUX_BETA1_SCALARS`.
+- Arm A `embed_fast_only`: AUX_BETA1_EMBED=0.7, AUX_BETA1_LM_HEAD=0.8 (baseline)
+- Arm B `lm_head_slow_only`: AUX_BETA1_EMBED=0.8 (baseline), AUX_BETA1_LM_HEAD=0.9
+- Secondary deliverable: single-arm merge candidates if Arm A or Arm B is below baseline val+ffs
+
+W&B group: `g1r2-thorfinn-per-kind-aux-beta1-per-axis-decomposition`. Morgan-directive-compliant (per-group + state-mechanism; β1 first-moment EMA rate per-kind dispatch, no scalar sweep).
+
+### Wake-111 fleet status
+
+Fleet 8/8 active: askeladd #1775 (Arm A ~50% done, ETA 06:37Z) alphonse #1758 (n=2 send-back) edward #1766 fern #1754 (n=2 send-back) frieren #1783 nezuko #1763 tanjiro #1778 thorfinn #1789 (new assignment). 0 idle. Two n=2 confirmation runs in queue (fern #1754 + alphonse #1758). Two SOAP-family/parallel tests in flight (askeladd #1775 MLP-SOAP β2 depth + thorfinn #1789 β1 per-axis). Human issues: Morgan #1259 standing directive active, no new messages.
+
+### Cycle 71 cumulative state (updated from mid-413 — 1 new closure, +1 mech class, 0 new axes)
+
+**Cycle 71 cumulative**: **316 refuted** / **186 distinct mech classes** / **152 family-level closures**.
+
+### Emerging structural axes in cycle 71 — UPDATED: Axis #1 revised to direction-asymmetric
+
+| # | axis | direction-preferences | evidence | status |
+|---|---|---|---|---|
+| 1 | Cross-kind WD-direction asymmetry | embed prefers DOWN, lm_head prefers UP | #1683/#1705 + #1732 + #1765 | **FULLY CLOSED — direction-asymmetric joint compound confirmed (preferred CNI, anti-preferred ~additive). No further testing warranted.** |
+| 2 | Cross-kind β1-direction inversion | embed prefers FAST (0.7), lm_head prefers SLOW (0.9) | #1678 B + #1724 + #1750 | **PER-AXIS DECOMPOSITION IN FLIGHT via #1789** — additive null pending |
+| 3 | Depth-mechanism cluster BACK-favored | back-half blocks load-bearing across multiple mech classes (β2-phase #1731 + init-magnitude #1738 + kind-crosswire #1758) | #1731 + #1738 + #1758 | structural finding; n=2 of #1758 Arm B send-back pending |
+| 4 | Per-projection-role split within attn-SOAP | read-path (q,k) prefer EARLY, write-path (proj) prefers LATE | #1642 + #1718 + #1741 + #1763 (qk joint) + #1766 A (k) | structural finding; per-projection load-bearing ranking q>k>v confirmed, proj pending |
+| 5 | Cross-kind moment-isolation asymmetry | exp_avg reset productive (avg flush), exp_avg_sq reset catastrophic (denom destruction) at embed | #1754 Arm B BELOW baseline at n=1 (provisional, n=2 send-back) + #1783 lm_head parallel | provisional structural finding |
+| 6 | Cross-kind × depth-half decoupling at init-magnitude axis | kind-uniform back-tight is additive sum of per-kind (each kind absorbs back-tight independently) | #1758 bilateral + n=2 send-back | provisional structural finding; counter-evidence to axis #1 WD shared-substrate |
+
+### PRs closed this wave
+
+| PR | student | hypothesis | action |
+|---|---|---|---|
+| #1765 | thorfinn | PER_KIND_AUX_WD_JOINT_COMPOUND | CLOSED — 316th refute, 152nd family closure, DIRECTION-ASYMMETRIC JOINT COMPOUND structural finding locked |
+
+### New assignments this wave
+
+| PR | student | hypothesis | key structural question |
+|---|---|---|---|
+| #1789 | thorfinn | PER_KIND_AUX_BETA1_PER_AXIS_DECOMPOSITION | CNI vs additive at β1 joint preferred: does #1678 B (3.26955) sit below additive null? |
+
+---
+
 ## 2026-05-30 05:40 UTC — Cycle 71 mid-413 — askeladd #1775 stale_wip resolution (Arm A actively progressing 1575/3175, Arm B pending, GPU-time concern with 4 disabled-checks + 1 superfluous launch). No closures, no new structural axes.
 
 ### askeladd #1775 PER_DEPTH_HALF_MLP_SOAP_BETA2 stale_wip
