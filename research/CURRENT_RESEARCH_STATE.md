@@ -1,6 +1,6 @@
 # SENPAI Research State — auto-nanogpt-1gpu-r1
 
-- **Last update: 2026-05-30 12:10 UTC**
+- **Last update: 2026-05-30 13:30 UTC**
 - **Current baseline:** PR #1532 (aux Adam β₂ pulse 0.95→0.99 @ step 975). val_ema=3.262854, sr=2875 (n=2).
 - **Merge gate:** `sr ≤ 2862.5 OR (sr=2875 AND val_ema < 3.262854)`
 - **🔥 HOT WIN CANDIDATE:** frieren #1780 Arm B (body PMuon L/R cov RESET @ step 1100) seed-1: sr=2875, val_ema=**3.262685 (-0.169 mnat below gate)**. PASSES merge gate clause 2 on seed-1; SEED-2 CONFIRMATION RUNNING. If seed-2 confirms, this is the first body-PMuon structural state intervention to break the wall.
@@ -52,27 +52,28 @@ Two independent mechanisms hit baseline sr (bilateral nulls, but sr=2925→2875 
 | PR | Student | Experiment | Status | Arms |
 | **#1819** | **askeladd** | **Aux Adam β₁ joint pulse synchronous with β₂ pulse at step 975 (β₁: 0.8→0.9 / 0.8→0.95)** | **Assigned 11:00 UTC** | **Arm A: β₁=0.9; Arm B: β₁=0.95** |
 | #1815 | nezuko | Aux Adam asymmetric moment intervention @ step 975: m-only ZERO vs v partial DECAY ×0.5 | Assigned 09:00 UTC, label fixed | Arm A: m-only reset; Arm B: v×0.5 |
-| #1797 | thorfinn | Body PMuon momentum buffer partial SCALE at cooldown onset step 975 (factor=0.5 / 0.25) | Running — Arm A `ou0jcj7r` in-flight | Arm A: ×0.5; Arm B: ×0.25 |
-| #1788 | alphonse | Per-block depth-asymmetric μ on body PMuon (ascending vs descending 0.90↔0.99) | Running — Arm A `gp8w803r` step ~2700 (trending NULL) | Arm A: ascending; Arm B: descending |
-| #1787 | tanjiro | Aux Adam eps transient pulse co-located with β₂ pulse boundary (eps 1e-6/1e-4, steps 975-1100) | Running — Arm A `o16ay0kd` step ~2800 (trending uncertain) | Arm A: eps=1e-6; Arm B: eps=1e-4 |
-| #1786 | fern | GrokFast slow-EMA gradient amplification on whitened body PMuon (α=0.5 / α=2.0) | Arm A `faenv1la` terminal sr=3075 NULL; Arm B awaiting chain | Arm A: α=0.5 NULL; Arm B: α=2.0 |
-| #1785 | edward | Block-wise AdaShift on aux AdamW embed (scalar v_t per tensor, delay=1 / delay=10) | Arm A `k7mnezbn` terminal NULL (val_ema=3.363 never crossed target) | Arm A: NULL; Arm B: delay=10 |
-| **#1780** | **frieren** | **Body PMuon L_cov/R_cov hard zero reset at cooldown onset (step 975 vs 1100)** | **🔥 SEED-2 REQUESTED 12:08 UTC** — Arm A `x3i1eyro` sr=2925 NULL; **Arm B `akezqgjp` seed-1 PASS sr=2875 val_ema=3.262685 (-0.169 mnat)** | Arm A: NULL; Arm B seed-1 PASS; seed-2 launching |
+| #1830 | edward | Aux Adam m+v full reset at late phase boundaries (2600 vs 2750) | Assigned 13:25 UTC | Arm A: reset@2600; Arm B: reset@2750 |
+| #1831 | fern | Body PMuon γ pulse at cooldown onset step 975 (relax 0.4→0.3 vs sharpen 0.4→0.5) | Assigned 13:25 UTC | Arm A: γ=0.3; Arm B: γ=0.5 |
+| #1797 | thorfinn | Body PMuon momentum buffer partial SCALE at cooldown onset step 975 (factor=0.5 / 0.25) | Running | Arm A: ×0.5; Arm B: ×0.25 |
+| **#1788** | **alphonse** | **Per-block depth-asymmetric μ on body PMuon (ascending vs descending 0.90↔0.99)** | **Arm A NULL (val_ema=3.428, sr=-1); Arm B `0e6dwf70` mid-run DIVERGING (step-850 spike, recovering)** | Arm A: ascending NULL; Arm B: descending diverge |
+| #1787 | tanjiro | Aux Adam eps transient pulse co-located with β₂ pulse boundary (eps 1e-6/1e-4, steps 975-1100) | Running | Arm A: eps=1e-6; Arm B: eps=1e-4 |
+| **#1780** | **frieren** | **Body PMuon L_cov/R_cov hard zero reset at cooldown onset (step 975 vs 1100)** | **🔥 SEED-2 RUNNING** — Arm A NULL; **Arm B seed-1 PASS sr=2875 val_ema=3.262685 (-0.169 mnat)** | Arm A: NULL; Arm B seed-1 PASS; seed-2 in-flight |
 
 ## Current research themes
 
 **Aux Adam structural exploration (this session):**
 - Directive (a): Aux Adam m+v full-zero reset CLOSED (#1770 bilateral NULL); asymmetric partial primitives now in test (nezuko #1815: m-only reset vs v×0.5)
 - Directive (a): Aux Adam β₁ JOINT pulse synchronous with β₂ pulse @ step 975 (askeladd #1819) — new; synchronizes moment estimator regime shifts; may compound #1532 WIN
-- Directive (a/c/d): Aux Adam eps transient pulse at β₂ pulse boundary (tanjiro #1787) — denominator stability floor during v_t re-accumulation; Arm A step ~2800 (trending uncertain)
-- Directive (d): Block-wise AdaShift on aux AdamW embed group (edward #1785) — Arm A terminal NULL (val_ema=3.363 never crossed target); Arm B awaiting SENPAI-RESULT
+- Directive (a/c/d): Aux Adam eps transient pulse at β₂ pulse boundary (tanjiro #1787) — denominator stability floor during v_t re-accumulation; running
+- Directive (a): Aux Adam m+v full reset at LATE phase boundaries (edward #1830) — step 2600 (pEMA refresh) vs step 2750 (pre-target), avoids step-975 v-collapse failure mode
+- Block-wise AdaShift on aux Adam CLOSED (#1785 bilateral NULL); per-element AdaShift also closed (#1709)
+- GrokFast on whitened body PMuon CLOSED (#1786 bilateral NULL — mechanism falsified: NS5 polar normalization invariant is broken by additive slow-EMA)
 
 **Body PMuon structural exploration (in-flight):**
-- Directive (a): L_cov/R_cov ZERO reset at cooldown onset step 975 (frieren #1780) — Arm A terminal sr=2925 NULL; Arm B `akezqgjp` running
-- Directive (a/d): Body PMuon momentum buffer SCALE at cooldown onset (thorfinn #1797) — scaling is the untested primitive; Arm A `ou0jcj7r` running ~step 1500
-- Directive (b/d): Per-block depth-asymmetric μ (alphonse #1788) — Arm A trending NULL at step ~2700
-- Directive (c/d): GrokFast slow-EMA amplification on whitened body PMuon (fern #1786) — Arm A sr=3075 NULL; Arm B pending chain
-- Directive (e): paramEMA β step-drop at pre-target (askeladd #1773, Arm B gentle 0.99→0.95 running)
+- Directive (a): 🔥 L_cov/R_cov ZERO reset @ step 1100 (frieren #1780) — **Arm B seed-1 PASSES gate (sr=2875, val_ema=3.262685, -0.169 mnat below baseline). SEED-2 IN FLIGHT.**
+- Directive (a/c): Body PMuon γ pulse at cooldown onset step 975 (fern #1831) — symmetric body-side analog of #1532 aux β₂ WIN; relax (γ→0.3) vs sharpen (γ→0.5)
+- Directive (a/d): Body PMuon momentum buffer SCALE at cooldown onset (thorfinn #1797) — running
+- Directive (b/d): Per-block depth-asymmetric μ (alphonse #1788) — Arm A NULL (val_ema=3.428, sr=-1); Arm B mid-run with step-850 divergence (recovering, trending NULL)
 
 ## Next hypotheses queue (post current wave)
 

@@ -1,5 +1,36 @@
 # SENPAI Research Results
 
+## 2026-05-30 13:25 UTC — PR #1786 fern: GrokFast slow-EMA amplification on whitened body PMuon (α=0.5 / α=2.0) — ❌ BILATERAL NULL (GrokFast on whitened PMuon CLOSED)
+
+- Branch: `g1r1-fern/grokfast-whitened`
+- Hypothesis: Apply GrokFast-style slow-EMA gradient amplification to the NS5-whitened body PMuon updates (after polar projection, before momentum accumulation), to compound persistent cooldown directions without disrupting polar normalization.
+
+| Arm | α | run | sr | val_ema | Δval mnat | Verdict |
+|---|---|---|---:|---:|---:|---|
+| Baseline | — | 9coyk2ke/09qrijtm | 2875 | 3.262854 | — | — |
+| A | 0.5 | `faenv1la` | 3075 | 3.272759 | **+9.9** | ❌ NULL |
+| B | 2.0 | `lhyyau6j` | -1 | 3.571985 | **+309** | ❌ DIVERGE |
+
+- Arm A (α=0.5, conservative): clean GrokFast activation at step 975, sr slipped +200 steps. Conservative slow-EMA boost ~15% magnitude lift SLOWED late-cooldown convergence — LR-decay magnitude shrink during cooldown is a feature, not a bug. Single-run target-margin +0.00324, below 0.004 stat-sig floor.
+- Arm B (α=2.0, paper default): catastrophic divergence at step 1500 (val_loss 3.86 → 8.858), grokfast/ema_norm_max=1.09e6 vs 1696 in Arm A (642× larger). Runaway positive feedback loop on the whitened update; broke the polar-normalization invariant. Recovery floor val_ema=3.572 (+309 mnat).
+- **Mechanistic conclusion:** NS5 outputs a near-orthogonal matrix whose magnitude is structurally invariant to gradient norm. Adding a slow-EMA term breaks that invariant and the feedback loop scales with α. Polar normalization is NOT preserved under additive slow-EMA injection. GrokFast on whitened body PMuon CLOSED. (Note: GrokFast cross-application to aux AdamW is also deprioritized given the mechanism failure.)
+- fern reassigned: body PMuon γ pulse at cooldown onset step 975 (#1831)
+
+## 2026-05-30 13:25 UTC — PR #1785 edward: Block-wise AdaShift on aux AdamW embed (delay=1 / delay=10) — ❌ BILATERAL NULL (block-wise AdaShift on aux Adam CLOSED)
+
+- Branch: `g1r1-edward/blockwise-adashift`
+- Hypothesis: Replace per-element v_t in aux AdamW embed group with a scalar v_t per tensor (block-wise), with a delay (v_t uses gradients from d steps ago) to reduce interference between slow-moving embed parameters and the current gradient distribution.
+
+| Arm | delay | run | sr | val_ema | Δval mnat | Verdict |
+|---|---|---|---:|---:|---:|---|
+| Baseline | — | — | 2875 | 3.262854 | — | — |
+| A | 1 | `k7mnezbn` | -1 | 3.361518 | **+98.7** | ❌ NULL |
+| B | 10 | `p02dl0lt` | -1 | 3.330504 | **+67.7** | ❌ NULL |
+
+- Arm B (delay=10) leads Arm A at every checkpoint but margin narrows monotonically (-0.456 at step 125 → -0.031 at step 3250). Neither arm hit 3.28 target. Block-wise scalar v_t fundamentally changes effective per-block LR for embed; embedding layer fails to learn fine-grained token distinctions under collapsed v_t per-tensor denominator.
+- **Conclusion:** Block-wise AdaShift on aux AdamW embed CLOSED. Combined with prior per-element AdaShift #1709, AdaShift axes fully exhausted for aux Adam.
+- edward reassigned: aux Adam m+v full reset at late phase boundaries 2600 vs 2750 (#1830)
+
 ## 2026-05-30 11:00 UTC — PR #1773 askeladd: paramEMA β hard step-drop at pre-target (0.99→0.90 / 0.99→0.95) — ❌ BILATERAL NULL (pEMA β-drop axis CLOSED)
 
 - Branch: `g1r1-askeladd/paramema-beta-step-drop`
