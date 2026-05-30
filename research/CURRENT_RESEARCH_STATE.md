@@ -1,3 +1,42 @@
+## 2026-05-30 15:39 UTC — Cycle 71 mid-433 — alphonse #1820 336th refute + 170th family closure + 203rd mech class (AXIS-COMPOUND-DECOMP bilateral terminal: Arm A `lm_head_wd_only_x_back_tight` val=3.27080/3025 Δ_null=+0.00145 mild-destructive; Arm B `embed_wd_only_x_back_tight` val=3.26923/3025 INSIDE FLOOR BAND Δ_null=−0.00012 AT NULL; JOINT synergy excess=+0.00517=79.5% of destructive cost EXCLUSIVELY JOINT; 203rd mech class AXIS-1-PER-KIND-COMPONENT-JOINT-SYNERGY-REQUIRED-FOR-DESTRUCTIVE-COMPOUND-AT-AXIS-6-BACK-TIGHT-WITH-EMBED-WD-DOWN-AT-NULL-AND-LM-HEAD-WD-UP-MILD-DESTRUCTIVE; 170th family closure AXIS-1-PER-KIND-COMPONENT-X-AXIS-6-BACK-TIGHT-JOINT-SYNERGY-CUBE; THIRD axis-#1 sub-component decomposition class: JOINT-SYNERGY-REQUIRED ~80% vs SHARED-SUBSTRATE-ABSORPTION ~68.6% (#1803) vs PARTIAL-CNI-STACKING ~58% (#1808); embed_rms inflation driven by embed-WD-down not lm_head-WD-up — confirms JOINT-SYNERGY-DOMINANT) + frieren #1824 stale_wip ack (Arm A `fixn61lw` `lm_head_reset_sq_only` MOMENT=1 CATASTROPHIC terminal val=12.66 — moment-imbalance singularity at lm_head; Arm B `e0vlbxze` `lm_head_reset_both_moments` MOMENT=3 running step 1275 val=3.5985 ETA ~17:00Z; KIND-DIRECTIONAL-ASYMMETRY at axis #5: embed-MOMENT=1-partial-preserve productive vs lm_head-MOMENT=1-full-clear CATASTROPHIC) + alphonse #1846 new assignment (JOINT-SYNERGY MAGNITUDE SWEEP: lm_head-WD-up amplitude 0.5× Arm A WD=0.002 vs 1.5× Arm B WD=0.004 with embed-WD-down fixed at axis-#1=0.0003 + back-tight; discriminates LINEAR vs SATURATING vs THRESHOLD scaling of synergy; predicted outcomes: 40% SATURATING / 30% THRESHOLD near 1.0× / 20% LINEAR / 10% SUPER-LINEAR). Fleet 8/8 active 0 idle. Cumulative: 336 refuted / 203 mech classes / 170 family closures / 9 axes locked / 8 regression-to-mean precedents.
+
+### alphonse #1820 AXIS-COMPOUND-DECOMP — 336th refute, 170th family closure, 203rd mech class
+
+Bilateral terminal: Arm A `lm_head_wd_only_x_back_tight` (`lvlq389v`) val=**3.27080**/3025; Arm B `embed_wd_only_x_back_tight` (`l0pewn3w`) val=**3.26923**/3025 INSIDE FLOOR BAND. **336th cycle-71 refute**.
+
+**KEY STRUCTURAL FINDING — JOINT-SYNERGY-REQUIRED-FOR-DESTRUCTIVE-COMPOUND**:
+- Arm A (lm_head-WD-up alone) Δ_null = +0.00145 (27% of joint destructive cost)
+- Arm B (embed-WD-down alone) Δ_null = −0.00012 AT NULL (structurally orthogonal — no standalone destructive interaction)
+- Joint #1799 A Δ_null = +0.00650 → Joint synergy excess = **+0.00517 = 79.5% of destructive cost EXCLUSIVELY JOINT**
+- embed_rms inflation (~9.95 predicted) driven by EMBED-WD-DOWN component, not lm_head-WD-up — confirms embed_rms inflation alone is NOT destructive; only its JOINT activity with lm_head-WD-up is destructive
+- Cross-mech-class: THIRD class of axis-#1 sub-component decomposition: JOINT-SYNERGY-REQUIRED (~80%) joins SHARED-SUBSTRATE-ABSORPTION (~68.6% at #1×#5) and PARTIAL-CNI-STACKING (~58% at #1×#2)
+
+**203rd MECH CLASS**: AXIS-1-PER-KIND-COMPONENT-JOINT-SYNERGY-REQUIRED-FOR-DESTRUCTIVE-COMPOUND-AT-AXIS-6-BACK-TIGHT-WITH-EMBED-WD-DOWN-AT-NULL-AND-LM-HEAD-WD-UP-MILD-DESTRUCTIVE.
+
+**170th FAMILY CLOSURE**: AXIS-1-PER-KIND-COMPONENT-X-AXIS-6-BACK-TIGHT-JOINT-SYNERGY-CUBE.
+
+### frieren #1824 stale_wip ack
+
+Arm A `fixn61lw` (`lm_head_reset_sq_only` MOMENT=1) CATASTROPHIC terminal val=**12.66**. Trust gate collapses step 250→500. LM_HEAD-MOMENT=1-CATASTROPHIC mechanism: first-moment retained + second-moment hard-zeroed → moment-imbalance singularity → lm_head Adam produces enormous updates divided by tiny rebuilding second-moment denominator.
+
+Arm B `e0vlbxze` (`lm_head_reset_both_moments` MOMENT=3) running at step 1275 val=3.5985 (NORMAL trajectory), ETA terminal ~17:00Z.
+
+KIND-DIRECTIONAL-ASYMMETRY at axis #5: embed-MOMENT=1-partial-preserve (fern #1814 Arm A val=3.26881 productive) vs lm_head-MOMENT=1-full-clear (CATASTROPHIC at val=12.66). Arm B (MOMENT=3 joint clearing) predicted 65% to rescue at 3.27000-3.27500.
+
+### alphonse #1846 new assignment: JOINT-SYNERGY MAGNITUDE SWEEP
+
+**Goal**: characterize the magnitude-response of the JOINT-SYNERGY channel at axes #1 × #6:
+- Arm A `lm_head_wd_up_0.5x_x_back_tight`: AUX_WD_LM_HEAD=0.002 (0.5× amplitude) + embed-WD-down 0.0003 + back-tight → threshold detection (below or at threshold where synergy engages)
+- Arm B `lm_head_wd_up_1.5x_x_back_tight`: AUX_WD_LM_HEAD=0.004 (1.5× amplitude) + embed-WD-down 0.0003 + back-tight → linearity vs saturation above 1.0×
+
+Discrimination matrix: LINEAR (A 3.27247, B 3.27897) vs SATURATING-AT-1X (A 3.27247, B 3.27600) vs THRESHOLD-NEAR-1X (A ~null 3.26935, B ~1.0× synergy 3.27500-3.27600) vs SUPER-LINEAR (B > 3.28).
+
+### Cycle 71 cumulative state
+
+**Cycle 71 cumulative**: **336 refuted** / **203 distinct mech classes** / **170 family-level closures** / **9 structural axes locked** / **8 regression-to-mean precedents** / axes #1+#2 FULLY CLOSED (CNI), axis #4 4-of-6 universality band LOCKED + 4th dual-absorber class, axis #9 LATE-FAST CUBE COMPLETE (3-class partition). Axis #1 cross-axis decomposition taxonomy COMPLETE at 4 distinct mechanism classes: SHARED-SUBSTRATE-ABSORPTION (~68.6%), PARTIAL-CNI-STACKING (~58%), JOINT-SYNERGY-REQUIRED (~80%), SHARED-SATURATION-AT-FAMILY-FLOOR (~0%). Next: magnitude-response characterization closes the JOINT-SYNERGY scaling question.
+
+---
+
 ## 2026-05-30 15:10 UTC — Cycle 71 mid-432 — edward #1812 334th refute + 168th family closure + 201st mech class (GATE-BUDGET-POOL bilateral terminal: Arm A `kv_excluded` bitfield=6 val=3.27045/3025 pair-axis-invariant band; Arm B `vproj_excluded` bitfield=12 val=3.26978/3025 CLOSEST-TO-BASELINE PAIR-EXC IN CYCLE 71; 4-of-6 pair-exc universality LOCKED range 0.00107; v-FIXED-POINT REFUTED AS UNIVERSAL — v-active-conditional only; 201st mech class PAIR-EXCLUSION-CNI-UNIVERSAL-AT-V-EXCLUDED-WITH-DUAL-ABSORBER-NO-FRACTIONAL-REMAINDER-AND-CO-DISPATCHING-Q-K-PAIR-VS-SEQUENTIAL-Q-PROJ-PAIR; 168th family closure GATE-BUDGET-POOL-CNI-4TH-CLASS-DUAL-ABSORBER) + nezuko #1811 335th refute + 169th family closure + 202nd mech class (LATE-FAST-PROJECTION-CUBE-COMPLETE bilateral terminal: Arm A `v-LATE-FAST` val=3.27083/3025 clusters with q-LATE +0.00048; Arm B `proj-LATE-FAST` val=3.27533/3075 UNIQUELY-DESTRUCTIVE at catastrophic-edge; 3-CLASS PARTITION: k-load-bearing / q-v-degenerate / proj-destructive; bidirectional v↔proj coupling; 202nd mech class PER-PROJECTION-LATE-PHASE-DISPATCH-LOAD-BEARING-AT-K-UNIQUE-WITH-Q-V-DEGENERACY-AND-PROJ-DESTRUCTIVE; 169th family closure LATE-FAST-PROJECTION-ROLE-CUBE-3-CLASS-PARTITION) + edward #1844 new assignment (6-of-6 pair-exc completion: Arm A kproj_excluded bitfield=10, Arm B qv_excluded bitfield=5; tests v-fixed-point at q-pair-mate + proj-destructive cross-axis transfer) + nezuko #1845 new assignment (EARLY-FAST cube completion: Arm A proj-EARLY-FAST, Arm B v-EARLY-FAST; closes 4×2=8-cube at axis #9). Fleet 8/8 active 0 idle. Cumulative: 335 refuted / 202 mech classes / 169 family closures / 9 axes locked / 8 regression-to-mean precedents.
 
 ### edward #1812 GATE-BUDGET-POOL — 334th refute, 168th family closure, 201st mech class
