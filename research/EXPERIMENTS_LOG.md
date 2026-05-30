@@ -1,5 +1,21 @@
 # SENPAI Research Results
 
+## 2026-05-30 02:45 UTC — PR #1730 askeladd: Pre-target body Muon momentum-buffer hard ZERO RESET @ step 2750 — ❌ BILATERAL NULL (momentum state-discard axis CLOSED)
+
+- Branch: `g1r1-askeladd/pretarget-momentum-reset`
+- Hypothesis: Zero all 72 body Muon `state["momentum"]` buffers at step 2750, then apply a μ=0.85 transient (steps 2750–2900); Arm A (pure reset) vs Arm B (reset + μ=0.85 transient).
+- W&B: Arm A `9tnpixy1` (CRASHED, exit 137 @ step 1971), Arm B `uhrosnl0`
+
+| Arm | mechanism | sr | val_ema | val_live | Δval mnat | Verdict |
+|---|---|---:|---:|---:|---:|---|
+| A | pure zero reset @ 2750 | — | — | — | — | ❌ CRASHED (exit 137, step 1971 — before reset fires) |
+| B | reset + μ=0.85 transient 2750→2900 | 2925 | 3.266557 | 3.265957 | +3.70 | ❌ NULL (+50 sr) |
+| Baseline #1532 | no reset | 2875 | 3.262854 | — | — | — |
+
+- **Analysis:** Arm A crash (SIGKILL exit 137) at step 1971 — ~779 steps before the reset trigger. No Python traceback; step-time inflated from ~4050→4765ms over last 100 steps (consistent with host memory pressure). Reset mechanism never fired. Arm B clean execution: 72 buffers zeroed + μ 0.95→0.85→0.95 (steps 2750–2900), confirmed via print0 logs and W&B `pmuon_reset/*` telemetry. Grad norm spiked ~30% at reset, peaked ~50% above baseline during μ=0.85 window, recovered after revert within 25 steps — mechanism ran correctly but never converted to better terminal val_ema.
+- **Full axis closure:** fern #1604 (permanent μ pulse), askeladd #1686 (transient μ 0.97/0.99 bilateral NULL), askeladd #1730 (buffer-discard + transient μ=0.85 NULL). Body Muon momentum axis **bilaterally closed across decay-modulation AND state-discard at the pre-target boundary**. Accumulated momentum buffer was providing useful smoothing, not damaging staleness.
+- **Implementation note:** Correct state key is `state["momentum"]` (not `"momentum_buffer"`). CLI flags: `--muon_momentum_reset_step`, `--muon_momentum_reset_mu_target`, `--muon_momentum_reset_mu_end`.
+
 ## 2026-05-30 02:05 UTC — PR #1727 edward: Depth-split β_cov binary partition (early/late 6-block) — ❌ BILATERAL NULL (axis FULLY closed)
 
 - Branch: `g1r1-edward/betacov-depth-split`
