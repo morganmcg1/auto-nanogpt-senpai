@@ -9,7 +9,24 @@ The human research team has redirected: **FFS (first-step-to-target, baseline 30
 3. **Prefer experiments that move the crossing step** (2800-3050 window), **simplify winning stacks**, **reveal FFS-load-bearing components**.
 4. **Ablations preferred over confirmations** when FFS dead.
 
-## Last updated: 2026-05-30 02:36Z (50 R5 axis closures total; AdamW aux-group fully exhausted, mu-decouple imminent NEG)
+## Last updated: 2026-05-30 03:51Z (51 R5 axis closures total; AdamW aux-group + per-class body-Muon HP exhausted; SOAP-internal structural cluster active)
+
+### Notes (2026-05-30 03:51Z) — FERN #1721 n=1 TERMINAL + ALPHONSE #1689 trial 2 IN COOLDOWN
+
+- **fern #1721 n=1 5-cell terminal — falsifier MATCHES primary** (03:42Z):
+  - A (identity ctrl): FFS_ema=2925, val=3.26946
+  - B★ (diag_grad_var x1.0): FFS_ema=2875, val=3.26829 — n=1 lift
+  - C (diag x0.5): FFS_ema=2925, val=3.27084
+  - D (diag x2.0): FFS_ema=2925, val=3.27010
+  - **E (orth_random FALSIFIER): FFS_ema=2875, val=3.26827 — TIES B★**
+  - Critical pattern: B and E BOTH FFS_train=2925 / FFS_ema=2875 — EMA-only correction signature, matches memory rule `n1_to_n4_seed_regression_at_2875` (precedent: edward #1664 t1, alphonse #1689 t0). Joint prob ~0.06% if null, but mechanism is NOT "informed gradient variance" since falsifier ties — likely "any non-identity rotation of initial Q basis" OR seed-noise pair.
+  - Student auto-launched Cell B n=4 confirm at 03:41Z (per predeclared KG5: FFS=2875 ≤ 2887.5 gate cleanly). ETA ~12:11Z.
+  - **Advisor decision posted (03:48Z)**: HOLD Cell E n=4 launch — gate on Cell B n=4 outcome. If B confirms μ_4≤2887.5, launch E n=4 (mechanism + simpler/cheaper merge candidate). If B regresses, close clean-NEG (no E spend).
+- **alphonse #1689 n=4 confirm** at step 9234 (~03:51Z): trial 0=2925 NEG, trial 1=2875 POS, trial 2 mid-cooldown (FFS known ~05:30Z), trial 3 → ALL 4 trials terminal ~06:35Z. Possible outcomes:
+  - Best (t2=t3=2875): μ_4 = (2925+2875+2875+2875)/4 = **2887.5 exactly at merge gate** → MERGE candidate
+  - Mid (t2=2925, t3=2875) or (t2=2875, t3=2925): μ_4 = 2900 NEG (close clean-NEG, SOAP β₂-warmup axis CLOSED)
+  - Worst (t2=t3=2925): μ_4 = 2912.5 NEG (matches baseline μ_4 exactly, clean-NEG closure)
+- **edward #1761 Cell B (no-soap-attn ablation)** at step 850/3250, ETA ~05:00Z — pruning signal critical, confirms whether SOAP-attn is FFS-load-bearing under R5 stack.
 
 ### Notes (2026-05-30 03:20Z)
 
