@@ -84,6 +84,8 @@ def parse_args():
     parser.add_argument('--aux_b2_pulse_target', type=float, default=0.99,
                         help='New aux Adam β2 value to set at --aux_b2_pulse_step. '
                              '0 or negative disables. Default: 0.99 (canonical WIN).')
+    parser.add_argument("--aux_adam_mv_reset_step", type=int, default=-1,
+                        help="Step at which to zero-reset aux Adam m+v state (-1 = disabled)")
     parser.add_argument("--seed", type=int, default=1,
                         help="Random seed for torch/numpy/python. Default 1 matches baseline seed.")
     args = parser.parse_args()
@@ -765,6 +767,7 @@ if dist.get_rank() == 0:
             "paramema_refresh_only": int(args.paramema_refresh_only),
             "aux_b2_pulse_step": args.aux_b2_pulse_step,
             "aux_b2_pulse_target": args.aux_b2_pulse_target,
+            "aux_adam_mv_reset_step": args.aux_adam_mv_reset_step,
             "seed": args.seed,
         },
     )
@@ -1071,6 +1074,29 @@ for trial_idx in range(args.num_trials):
                 group["betas"] = new_betas
             print0(f"[step {step}] aux_b2_pulse: β2 {old_b2} → {args.aux_b2_pulse_target}",
                    console=True)
+        if (args.aux_adam_mv_reset_step > 0
+                and step == args.aux_adam_mv_reset_step):
+            n_m, n_v = 0, 0
+            for group in optimizer1.param_groups:
+                for p in group["params"]:
+                    state = optimizer1.state.get(p, None)
+                    if state is None:
+                        continue
+                    if "exp_avg" in state:
+                        state["exp_avg"].zero_()
+                        n_m += 1
+                    if "exp_avg_sq" in state:
+                        state["exp_avg_sq"].zero_()
+                        n_v += 1
+            if dist.get_rank() == 0:
+                print0(f"[step {step}] aux Adam m+v ZERO RESET "
+                       f"(m_tensors={n_m}, v_tensors={n_v})", console=True)
+                if wandb.run is not None:
+                    wandb.log({
+                        "aux_adam_mv_reset/step": step,
+                        "aux_adam_mv_reset/m_tensors": n_m,
+                        "aux_adam_mv_reset/v_tensors": n_v,
+                    }, step=wandb_step)
         for opt in optimizers:
             opt.step()
         # EMA buffer update on body-Muon matrix params.
