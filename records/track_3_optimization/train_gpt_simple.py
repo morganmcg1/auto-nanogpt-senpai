@@ -28,6 +28,7 @@ SLOPE_FRACTION = 0.10
 SOAP_BETA2 = 0.90
 PRECOND_FREQ = 16
 NS_ITER = 12  # overridden by args.ns_iter at module load
+NS_POLISH_MODE = "off"  # overridden by args.ns_polish_mode at module load
 
 
 def parse_args():
@@ -68,6 +69,17 @@ def parse_args():
     parser.add_argument("--ns_iter", type=int, default=12,
                         help="Number of Newton-Schulz iterations in zeropower_via_newtonschulz5. "
                              "Default 12 (current hardcoded value). Lower = less orthogonal but faster.")
+    parser.add_argument("--ns_polish_mode", type=str, default="off",
+                        choices=["off", "all", "nonsquare", "square"],
+                        help="Schulz polynomial polish applied AFTER the NS5 polynomial loop. "
+                             "X <- 0.5 * X @ (3*I - X^T X). Cubic convergence near sigma=1, "
+                             "unconditionally stable for sigma in (0, sqrt(3)]. "
+                             "off=disabled (control); all=apply to every gradient; "
+                             "nonsquare=apply only when post-transpose X is non-square (MLP shapes); "
+                             "square=apply only to square shapes (diagnostic — expected harmful).")
+    parser.add_argument("--ns_polish_debug", action="store_true",
+                        help="Probe one square (768x768) and one non-square (3072x768) deterministic "
+                             "randn matrix each telemetry step, logging pre/post-polish residuals.")
     parser.add_argument("--lr_scalars", type=float, default=0.01,
                         help="LR for AdamW adam_scalars group (RMSNorm gains; "
                              "params with ndim < 2). Default 0.01 — hardcoded, "
@@ -111,6 +123,7 @@ def parse_args():
 
 args = parse_args()
 NS_ITER = args.ns_iter
+NS_POLISH_MODE = args.ns_polish_mode
 
 
 def clean_metric_name(name: str) -> str:
@@ -319,6 +332,49 @@ def log_weight_telemetry(
     wandb.log(metrics, step=wandb_step)
 
 
+@torch.no_grad()
+def diagnose_schulz_polish(device, seed: int = 0xC0FFEE) -> dict:
+    # Probe NS5 (+ optional Schulz polish) on a deterministic square 768x768
+    # and non-square 3072x768 matrix, representative of attn/MLP gradient
+    # shapes. Reports |X^T X - I|_F before/after polish and the per-sigma
+    # singular-value extremes.
+    if not torch.cuda.is_available():
+        return {}
+    out: dict[str, float] = {}
+    for label, rows, cols in (("square_768x768", 768, 768), ("nonsquare_3072x768", 3072, 768)):
+        gen = torch.Generator(device=device).manual_seed(seed)
+        G = torch.randn((rows, cols), device=device, dtype=torch.bfloat16, generator=gen)
+
+        X = G.bfloat16()
+        if X.size(-2) > X.size(-1):
+            X = X.mT
+        X = X / (X.norm(dim=(-2, -1), keepdim=True) + 1e-7)
+        a, b, c = 2, -1.5, 0.5
+        for _ in range(NS_ITER):
+            A = X @ X.mT
+            B = b * A + c * A @ A
+            X = a * X + B @ X
+        X_ns = X.clone()
+        X_polished = schulz_polish(X_ns)
+
+        Xf_pre = X_ns.float()
+        Xf_post = X_polished.float()
+        n = Xf_pre.size(-1)
+        eye = torch.eye(n, device=device, dtype=torch.float32)
+        res_pre = float(torch.linalg.norm(Xf_pre.mT @ Xf_pre - eye).item())
+        res_post = float(torch.linalg.norm(Xf_post.mT @ Xf_post - eye).item())
+        sigmas_pre = torch.linalg.svdvals(Xf_pre)
+        sigmas_post = torch.linalg.svdvals(Xf_post)
+        out[f"ns/{label}/residual_pre_polish"] = res_pre
+        out[f"ns/{label}/residual_post_polish"] = res_post
+        out[f"ns/{label}/residual_drop"] = res_pre / max(res_post, 1e-12)
+        out[f"ns/{label}/sigma_max_pre"] = float(sigmas_pre.max().item())
+        out[f"ns/{label}/sigma_min_pre"] = float(sigmas_pre.min().item())
+        out[f"ns/{label}/sigma_max_post"] = float(sigmas_post.max().item())
+        out[f"ns/{label}/sigma_min_post"] = float(sigmas_post.min().item())
+    return out
+
+
 def log_histograms(
     model: nn.Module,
     trial_idx: int,
@@ -498,10 +554,27 @@ class GPT(nn.Module):
 #              Optimizer               #
 ########################################
 
+def schulz_polish(X: Tensor) -> Tensor:
+    # One Schulz polynomial polish step: X <- 0.5 * X @ (3*I - X^T X).
+    # Per-sigma map: sigma -> sigma * (3 - sigma^2) / 2 = 1.5*sigma - 0.5*sigma^3.
+    # Fixed point at sigma=1; cubic convergence near 1; unconditionally stable
+    # for sigma in (0, sqrt(3)]. No matrix inverse. 2 matmuls + 1 scalar mul.
+    # Float32 inside: post-NS5 spectrum sigma_max^2 ~ 1 vs sigma_min^2 ~ 0.74
+    # for MLP shapes; mantissa precision matters.
+    Xf = X.float()
+    XtX = Xf.mT @ Xf
+    n = XtX.size(-1)
+    eye_n = torch.eye(n, device=X.device, dtype=torch.float32)
+    factor = 3.0 * eye_n - XtX
+    Y = 0.5 * (Xf @ factor)
+    return Y.to(X.dtype)
+
+
 def zeropower_via_newtonschulz5(G: Tensor) -> Tensor:
     assert G.ndim >= 2
     X = G.bfloat16()
-    if G.size(-2) > G.size(-1):
+    transposed = G.size(-2) > G.size(-1)
+    if transposed:
         X = X.mT
 
     # Ensure spectral norm is at most 1
@@ -513,7 +586,20 @@ def zeropower_via_newtonschulz5(G: Tensor) -> Tensor:
         B = b * A + c * A @ A
         X = a * X + B @ X
 
-    if G.size(-2) > G.size(-1):
+    # Schulz polish, conditioned on post-transpose shape so square attention
+    # (which had transposed=False since size(-2) == size(-1)) stays excluded
+    # under the "nonsquare" mode. The NS5 pre-step transposes only when
+    # size(-2) > size(-1); equal sizes leave X untouched.
+    is_square = X.size(-2) == X.size(-1)
+    apply_polish = (
+        NS_POLISH_MODE == "all"
+        or (NS_POLISH_MODE == "nonsquare" and not is_square)
+        or (NS_POLISH_MODE == "square" and is_square)
+    )
+    if apply_polish:
+        X = schulz_polish(X)
+
+    if transposed:
         X = X.mT
     return X
 
@@ -774,6 +860,8 @@ if dist.get_rank() == 0:
             "soap_beta2": SOAP_BETA2,
             "soap_precond_freq": PRECOND_FREQ,
             "ns_iter": NS_ITER,
+            "ns_polish_mode": NS_POLISH_MODE,
+            "ns_polish_debug": bool(args.ns_polish_debug),
             "soap_attn_enabled": bool(args.soap_attn),
             "soap_trust_threshold": float(args.soap_trust_threshold),
             "lr_mlp": args.lr_mlp,
@@ -1180,6 +1268,11 @@ for trial_idx in range(args.num_trials):
                 train_steps=train_steps,
                 wandb_step=wandb_step,
             )
+            if args.ns_polish_debug:
+                polish_diag = diagnose_schulz_polish(device)
+                if polish_diag:
+                    polish_diag.update({"trial": trial_idx, "train/step": train_step})
+                    wandb.log(polish_diag, step=wandb_step)
         for opt in optimizers:
             opt.step()
 
