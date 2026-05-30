@@ -1,3 +1,42 @@
+## 2026-05-30 19:25 UTC — Cycle 71 mid-438 — nezuko #1845 342nd refute + 176th family closure + 209th mech class (AXIS #9 PER-PROJECTION × PHASE-DISPATCH EARLY-FAST cube completion bilateral terminal: Arm A `proj-only-EARLY-FAST` val=3.27026/3025 FLOOR BAND EDGE + Arm B `v-only-EARLY-FAST` val=3.27271/3050 ABOVE FLOOR BAND; bilateral mean 3.27149/3037.5 above merge bars; 209th mech class PER-PROJECTION-PHASE-ASYMMETRIC-OPPOSITE-FRAGILITY-AT-AXIS-9-WITH-V-EARLY-FRAGILE-AND-PROJ-LATE-FRAGILE; OPPOSITE-PHASE-FRAGILITY sign-flip: proj Δ(EARLY−LATE)=−0.00507 vs v Δ(EARLY−LATE)=+0.00188; REFUTES proj-universally-destructive; REFUTES v-fully-degenerate; CONFIRMS PROJ-LATE-CONDITIONAL-DESTRUCTIVE; CONFIRMS V-PHASE-ASYMMETRIC; 3 phase-coupling classes at axis #9 8-cube; only k-EARLY-FAST cell remains of the 8-cube model; 176th family closure AXIS-9-EARLY-FAST-CUBE-COMPLETION-AT-V-PROJ) + nezuko #1866 new assignment (k-EARLY-FAST 8-cube closure + v×proj joint EARLY-FAST channel sharing test). Fleet 8/8 active 0 idle. Cumulative: 342 refuted / 209 mech classes / 176 family closures / 9 axes locked / 9 regression-to-mean precedents.
+
+### nezuko #1845 AXIS-#9 PER-PROJECTION × PHASE-DISPATCH EARLY-FAST cube completion — 342nd refute, 176th family closure, 209th mech class
+
+Bilateral terminal: Arm A `proj-only-EARLY-FAST` (`c74im61j`) val=**3.27026**/3025 FLOOR BAND EDGE; Arm B `v-only-EARLY-FAST` (`p7wtk46a`) val=**3.27271**/3050 ABOVE FLOOR BAND. Bilateral mean **3.27149**/3037.5 ABOVE both merge bars. **342nd cycle-71 refute**.
+
+**KEY STRUCTURAL FINDING — OPPOSITE-PHASE-FRAGILITY SIGN-FLIP AT AXIS #9**:
+- **proj-EARLY-FAST**: just-above-floor (3.27026, clusters with q-EARLY 3.27028 within 0.00002) → REFUTES proj-universally-destructive
+- **v-EARLY-FAST**: mildly-destructive (3.27271, outside predicted degenerate band) → REFUTES v-fully-degenerate
+- **proj phase-asymmetry**: Δ(EARLY−LATE) = −0.00507 (LATE-fragile, EARLY-degenerate)
+- **v phase-asymmetry**: Δ(EARLY−LATE) = +0.00188 (EARLY-fragile, LATE-degenerate)
+- **OPPOSITE phase-fragility**: v and proj have phase-asymmetry in OPPOSITE directions — first cycle-71 evidence of bidirectional phase-asymmetry
+
+**209th MECH CLASS**: PER-PROJECTION-PHASE-ASYMMETRIC-OPPOSITE-FRAGILITY-AT-AXIS-9-WITH-V-EARLY-FRAGILE-AND-PROJ-LATE-FRAGILE-CONFIRMING-ROLE-DEPENDENT-PHASE-COUPLING.
+
+**176th FAMILY CLOSURE**: AXIS-9-PER-PROJECTION-PHASE-DISPATCH-EARLY-FAST-CUBE-COMPLETION-AT-V-PROJ-WITH-OPPOSITE-PHASE-FRAGILITY.
+
+**Axis #9 8-cube reading — 3 phase-coupling classes identified**:
+- **q**: PHASE-SYMMETRIC DEGENERATE (EARLY 3.27028 / LATE 3.27035, Δ=−0.00007)
+- **k**: PHASE-SYMMETRIC LOAD-BEARING (LATE 3.26948 in-floor / EARLY TBD)
+- **v**: PHASE-ASYMMETRIC EARLY-FRAGILE (LATE 3.27083 / EARLY 3.27271, Δ=+0.00188)
+- **proj**: PHASE-ASYMMETRIC LATE-FRAGILE (EARLY 3.27026 / LATE 3.27533, Δ=−0.00507)
+
+**Cross-mech-class significance**: First cycle-71 evidence of OPPOSITE-PHASE-FRAGILITY pattern — v and proj are "destructive in opposite phases" but neither is universally fragile. ROLE-DEPENDENT and DIRECTION-ASYMMETRIC phase coupling. Only k-EARLY-FAST cell remains of the 8-cube model. Pairs with frieren #1852 (LM-HEAD partial-factor cube M1+M2 at factor=0.5) at different axis.
+
+### nezuko #1866 new assignment: AXIS-#9 8-CUBE COMPLETION + v×proj joint EARLY-FAST channel sharing test
+
+**Goal**: close the 8-cube AND discriminate SHARED vs INDEPENDENT EARLY-fragile channel between v and proj:
+- Arm A `k_only_EARLY_FAST`: closes 8-cube missing cell — discriminates k PHASE-SYMMETRIC LOAD-BEARING (clusters with k-LATE 3.26948 in-floor) vs k PHASE-ASYMMETRIC LATE-LOAD-BEARING (destructive)
+- Arm B `v_proj_joint_EARLY_FAST`: tests INDEPENDENT (additive ~3.27147) vs SHARED (saturating ~3.27270) vs SUPER-ADDITIVE (>3.27300) vs CHANNEL-CANCELLING (<3.27026)
+
+Outcomes: k SYMMETRIC + INDEPENDENT (30%) / k SYMMETRIC + SHARED (25%) / k LATE-LOAD-BEARING + INDEPENDENT (15%) / k SYMMETRIC + SUPER-ADDITIVE (15%) / k LATE-LOAD-BEARING + SHARED (10%) / CHANNEL-CANCELLING + k SUB-FLOOR (5%, unexpected).
+
+### Cycle 71 cumulative state
+
+**Cycle 71 cumulative**: **342 refuted** / **209 distinct mech classes** / **176 family-level closures** / **9 structural axes locked** / **9 regression-to-mean precedents** / axes #1+#2 FULLY CLOSED at sub-direction level, axis #5 absorption taxonomy with 3 distinct mechanism classes + axis-#5-embed-MOMENT-1 5-point factor curve characterized, axis #4 4-of-6 universality LOCKED + 4th dual-absorber class, axis #9 7-of-8 cube cells filled with 3 phase-coupling classes identified (OPPOSITE-PHASE-FRAGILITY discovery), lm_head factor=0.0 moment cube FULLY CLOSED. Next: AXIS-#9 8-cube completion at k-EARLY-FAST + v×proj joint EARLY-FAST channel sharing + CROSS-MOMENT-CHANNEL discrimination at productive factor=0.5 + REVERSE-DIRECTION KIND-INTRINSIC sign asymmetry test + MOMENT-channel discrimination cube at axes #2×#5 + cross-FAMILY universality at axes #1×#8 + JOINT-SYNERGY magnitude sweep + LM-HEAD partial-factor cube M1+M2 + gate-budget-pool 6-of-6 completion.
+
+---
+
 ## 2026-05-30 19:10 UTC — Cycle 71 mid-437 — fern #1842 341st refute + 175th family closure + 208th mech class (AXIS-#5 SECOND-MOMENT PARTIAL-RESET sub-factor sweep COMPLETE 5-point characterization bilateral terminal: Arm A `factor=0.75` val=3.27031/3025 Arm B `factor=0.25` val=3.26922/3025 INSIDE FLOOR BAND; bilateral mean 3.26977/3025 above merge bars; 208th mech class AXIS-5-SECOND-MOMENT-PARTIAL-RESET-FACTOR-AXIS-NON-MONOTONIC-U-SHAPED-WITH-LOCAL-MIN-AT-0.5-AND-LOCAL-MAX-AT-0.75-AT-EMBED-MOMENT-1; 5-point factor curve FULLY CHARACTERIZED with confirmed NON-MONOTONIC U-shape; MOMENT=1 / embed axis STRUCTURALLY EXHAUSTED for sub-floor candidacy; FIRST cycle-71 evidence of bimodal-with-local-max in structural sub-axis sweep; 175th family closure AXIS-5-EMBED-MOMENT-1-PARTIAL-RESET-FACTOR-SUB-AXIS-FULLY-CHARACTERIZED-NO-SUB-FLOOR) + fern #1864 new assignment (CROSS-MOMENT-CHANNEL discrimination cube at axis #5 productive factor=0.5: Arm A MOMENT=2 first-moment-only at factor=0.5 + Arm B MOMENT=3 joint-moment at factor=0.5; discriminates CHANNEL-INVARIANT vs FIRST-MOMENT-DOMINANT vs JOINT-CHANNEL-PRODUCTIVE vs CHANNEL-DESTRUCTIVE-BIMODAL). Fleet 8/8 active 0 idle. Cumulative: 341 refuted / 208 mech classes / 175 family closures / 9 axes locked / 9 regression-to-mean precedents.
 
 ### fern #1842 AXIS-#5 SECOND-MOMENT PARTIAL-RESET sub-factor sweep — 341st refute, 175th family closure, 208th mech class
