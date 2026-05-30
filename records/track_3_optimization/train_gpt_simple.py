@@ -464,6 +464,13 @@ SOAP_PRECOND_FREQ = 10
 ATTN_SOAP_BETA2 = 0.90
 ATTN_SOAP_PRECOND_FREQ = 10
 ATTN_SOAP_TRUST_THRESHOLD = float(os.environ.get("ATTN_SOAP_TRUST_THRESHOLD", "0.9"))
+# Per-kind attn-SOAP path EXCLUSION (PR #1744 / #1766). Flag-protected EXCLUSION at set
+# construction; excluded kinds receive the default contra-NorMuon path with no SOAP precondition.
+PER_KIND_ATTN_SOAP_EXCLUSION_ENABLED = int(os.environ.get("PER_KIND_ATTN_SOAP_EXCLUSION_ENABLED", "0"))
+ATTN_SOAP_EXCLUDE_Q = int(os.environ.get("ATTN_SOAP_EXCLUDE_Q", "0"))
+ATTN_SOAP_EXCLUDE_K = int(os.environ.get("ATTN_SOAP_EXCLUDE_K", "0"))
+ATTN_SOAP_EXCLUDE_V = int(os.environ.get("ATTN_SOAP_EXCLUDE_V", "0"))
+ATTN_SOAP_EXCLUDE_PROJ = int(os.environ.get("ATTN_SOAP_EXCLUDE_PROJ", "0"))
 NS5_ITERS = int(os.environ.get("NS5_ITERS", "12"))
 WD_AUX = float(os.environ.get("WD_AUX", "0.0"))  # AdamW WD on embed + lm_head matrices (scalars stay at 0)
 EMBED_INIT_STD = float(os.environ.get("EMBED_INIT_STD", "1.0"))  # default preserves baseline N(0,1)
@@ -635,23 +642,42 @@ class Muon(torch.optim.Optimizer):
             if n.endswith(".mlp.fc.weight") or n.endswith(".mlp.proj.weight")
         }
         # Attention weights (qkv + proj) receive trust-gated SOAP (public record #16 extension).
-        self.attn_soap_params = {
-            p for n, p in named_params
-            if (n.endswith(".attn.q.weight") or n.endswith(".attn.k.weight")
-                or n.endswith(".attn.v.weight") or n.endswith(".attn.proj.weight"))
+        # PR #1744/#1766: per-kind EXCLUSION drops named kinds from the attn-SOAP set; they then
+        # take the default contra-NorMuon path with no SOAP precondition.
+        self._attn_kind_excluded: dict[str, bool] = {
+            "q": bool(PER_KIND_ATTN_SOAP_EXCLUSION_ENABLED and ATTN_SOAP_EXCLUDE_Q),
+            "k": bool(PER_KIND_ATTN_SOAP_EXCLUSION_ENABLED and ATTN_SOAP_EXCLUDE_K),
+            "v": bool(PER_KIND_ATTN_SOAP_EXCLUSION_ENABLED and ATTN_SOAP_EXCLUDE_V),
+            "proj": bool(PER_KIND_ATTN_SOAP_EXCLUSION_ENABLED and ATTN_SOAP_EXCLUDE_PROJ),
         }
+        _kind_suffix = {
+            ".attn.q.weight": "q",
+            ".attn.k.weight": "k",
+            ".attn.v.weight": "v",
+            ".attn.proj.weight": "proj",
+        }
+        self.attn_soap_params = set()
         # Track which sub-type each attention-SOAP param is (q/k/v/proj) for per-type telemetry.
         self.attn_soap_kind: dict[int, str] = {}
         for n, p in named_params:
-            if p in self.attn_soap_params:
-                if n.endswith(".attn.q.weight"):
-                    self.attn_soap_kind[id(p)] = "q"
-                elif n.endswith(".attn.k.weight"):
-                    self.attn_soap_kind[id(p)] = "k"
-                elif n.endswith(".attn.v.weight"):
-                    self.attn_soap_kind[id(p)] = "v"
-                elif n.endswith(".attn.proj.weight"):
-                    self.attn_soap_kind[id(p)] = "proj"
+            for suffix, kind in _kind_suffix.items():
+                if n.endswith(suffix):
+                    if not self._attn_kind_excluded[kind]:
+                        self.attn_soap_params.add(p)
+                        self.attn_soap_kind[id(p)] = kind
+                    break
+        active_kinds = sorted({k for k in _kind_suffix.values() if not self._attn_kind_excluded[k]})
+        self._attn_active_kinds: list[str] = active_kinds
+        if dist.is_initialized() and dist.get_rank() == 0:
+            print(
+                f"[PER_KIND_ATTN_SOAP_EXCLUSION] enabled={int(PER_KIND_ATTN_SOAP_EXCLUSION_ENABLED)} "
+                f"exclude_q={int(ATTN_SOAP_EXCLUDE_Q)} exclude_k={int(ATTN_SOAP_EXCLUDE_K)} "
+                f"exclude_v={int(ATTN_SOAP_EXCLUDE_V)} exclude_proj={int(ATTN_SOAP_EXCLUDE_PROJ)} "
+                f"n_attn_soap_params={len(self.attn_soap_params)} "
+                f"n_attn_soap_kind={len(self.attn_soap_kind)} "
+                f"active_kinds={active_kinds}",
+                flush=True,
+            )
         params = sorted([p for _, p in named_params], key=lambda x: x.size(), reverse=True)
         defaults = dict(lr=lr, weight_decay=weight_decay, mu=mu)
         super().__init__(params, defaults)
@@ -864,6 +890,19 @@ if dist.get_rank() == 0:
             "optimizer/attn_soap_beta2": ATTN_SOAP_BETA2,
             "optimizer/attn_soap_precond_freq": ATTN_SOAP_PRECOND_FREQ,
             "optimizer/attn_soap_trust_threshold": ATTN_SOAP_TRUST_THRESHOLD,
+            "optimizer/per_kind_attn_soap_exclusion_enabled": PER_KIND_ATTN_SOAP_EXCLUSION_ENABLED,
+            "optimizer/attn_soap_excluded/q": ATTN_SOAP_EXCLUDE_Q,
+            "optimizer/attn_soap_excluded/k": ATTN_SOAP_EXCLUDE_K,
+            "optimizer/attn_soap_excluded/v": ATTN_SOAP_EXCLUDE_V,
+            "optimizer/attn_soap_excluded/proj": ATTN_SOAP_EXCLUDE_PROJ,
+            "optimizer/attn_soap_kinds_active": (
+                ",".join(sorted([k for k, ex in {
+                    "q": PER_KIND_ATTN_SOAP_EXCLUSION_ENABLED and ATTN_SOAP_EXCLUDE_Q,
+                    "k": PER_KIND_ATTN_SOAP_EXCLUSION_ENABLED and ATTN_SOAP_EXCLUDE_K,
+                    "v": PER_KIND_ATTN_SOAP_EXCLUSION_ENABLED and ATTN_SOAP_EXCLUDE_V,
+                    "proj": PER_KIND_ATTN_SOAP_EXCLUSION_ENABLED and ATTN_SOAP_EXCLUDE_PROJ,
+                }.items() if not ex]))
+            ),
             "optimizer/ns5_iters": NS5_ITERS,
             "optimizer/wd_aux": WD_AUX,
             "optimizer/recipe": "contra-muon + normuon-lite + soap-on-mlp + soap-on-attn-trust-gate (pre-NS5, record #14 + record #16)",
@@ -1059,6 +1098,11 @@ for trial_idx in range(args.num_trials):
                     stats = opt.trust_gate_stats()
                     if stats:
                         wandb.log(prefixed("train/attn_soap_trust_gate", stats), step=wandb_step)
+                if hasattr(opt, "_attn_active_kinds"):
+                    wandb.log({
+                        "optimizer/attn_soap_params_count": len(opt.attn_soap_params),
+                        "optimizer/attn_soap_kinds_active_n": len(opt._attn_active_kinds),
+                    }, step=wandb_step)
         if dist.get_rank() == 0 and telemetry_due:
             log_weight_telemetry(
                 model=model,
