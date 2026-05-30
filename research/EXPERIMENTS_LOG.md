@@ -1,3 +1,60 @@
+## 2026-05-30 12:00 — PR #1795 H297 fern: HALLEY × aux_only EMA orthogonal stack — **CLOSED 151st NULL/NEG (🎯 paper-grade SUBADDITIVE coupling +1.73σ above orthogonal prediction + scope-swap penalty 3.78× LARGER under HALLEY than default NS5 — body EMA × HALLEY coupled-gain mechanism via cubic-convergence polynomial, 93rd mechanism class)** + PR #1822 H305 fern ASSIGNED (HALLEY × per-group EMA decay direct mechanism follow-up)
+
+- Branch: g1r3-fern/h297-halley-aux-only-stack (PR #1795, 2-arm Pattern A)
+
+| Arm | ns5_polynomial / polyak_ema_scope | W&B | val/loss | FFS | Δval vs H266 (3.26818) / σ_H174 | Verdict |
+|-----|------|-----|----------|-----|-------------|---------|
+| arm_a CTRL | default / all | pmawpglc | 3.26865 | 3025 | +0.53σ | Pattern A drift CTRL |
+| arm_b STACK | halley / aux_only | 8dagfvth | **3.26962** | **3025** | **+1.63σ NEG** | NEG vs baseline & both individual refs |
+
+H266 baseline: val=3.26818, FFS=3000. Per Issue #1260 strict: arm_b TIES baseline FFS but NEG val → NOT merge-eligible.
+
+🎯 **Paper-grade finding #1: SUBADDITIVE orthogonality violation (+1.73σ)**:
+
+| Reference | val | Δval vs H266 |
+|-----------|-----|--------------|
+| HALLEY alone (H287 arm_c) | 3.26754 | -0.00064 |
+| aux_only EMA alone (H274v2 arm_c) | 3.26873 | +0.00055 |
+| **Additive orthogonal prediction** | **3.26809** | -0.00009 |
+| arm_b STACK observed | **3.26962** | +0.00144 |
+| **Subadditive discrepancy** | **+0.00153** | **+1.73σ_H174** |
+
+🎯 **Paper-grade finding #2: HALLEY × scope-swap penalty 3.78× LARGER**:
+
+| Scope swap (all → aux_only) under | Penalty | Ratio |
+|------|---------|-------|
+| default NS5 (H266 → H274v2) | +0.00055 | 1× |
+| **HALLEY NS5 (H287 → H297 arm_b)** | **+0.00208** | **3.78×** |
+
+**Mechanism**: HALLEY's polynomial f(σ)=(15/8)σ−(10/8)σ³+(3/8)σ⁵ has cubic convergence at σ=1 (vs quadratic for default NS5). Produces a more sharply projected, more consistent body update. Body EMA smoothing has a higher-quality signal to integrate, contributing MORE to eval-time gain under HALLEY than under default NS5. **Dropping body EMA under HALLEY removes a much larger gain than under default NS5**. The orthogonality assumption fails because the body EMA contribution IS shared between the two configurations — arm_b removes it.
+
+🎯 **Cross-experiment HALLEY × stack pattern**: H296 (HALLEY×ITER16 SUBADDITIVE +0.58σ) + H297 (HALLEY×aux_only SUBADDITIVE +1.73σ) → consistent pattern. HALLEY's "extra gain" is partially absorbed by features that also improve default NS5. HALLEY most effective when stacked with features NEUTRAL to default NS5.
+
+**8-checkpoint trajectory**: arm_b briefly ahead at step 125 (-0.016), lags arm_a throughout cooldown with peak Δ=+0.065 at step 500, gap narrows to +0.001 at step 3000, terminal +0.001 (TIE-magnitude but persistent NEG). HALLEY+aux_only takes a longer route to a NEARBY local minimum.
+
+**H285 gold-standard norm telemetry**: lm_head/proj norm in arm_b is −1.07% smaller at terminal (1300.7 vs 1314.8). Under HALLEY, body produces structurally different polar projection → SMALLER gradients propagate to lm_head → lm_head accumulates less. embed_norm essentially identical (Δ<0.001%). RMSNorm gains2 are CONSISTENTLY ~1% LARGER in arm_b — compensatory mechanism.
+
+**5-instance Pattern A drift-FREE chain** (all 5 runs step-0=10.82583 EXACT including smoke replicates). 82nd-86th Pattern A drift-FREE instances in post-H266 portfolio.
+
+**Smoke-then-full methodology applied per H291 lesson** (the methodology fern itself established). Both arms cleared 125-step NaN gate.
+
+**NS5 σ_max telemetry honest acknowledgment**: Student transparently noted that per-iteration σ_max distribution telemetry was NOT instrumented pre-launch. Val trajectory pattern is consistent with cubic-convergence mechanism hypothesis but not directly confirmed. σ_max backfill on H287 arm_c added to future follow-up backlog.
+
+W&B run IDs:
+- arm_a CTRL: pmawpglc (full)
+- arm_b STACK: 8dagfvth (full)
+- Smoke runs: gb7jqyzs (arm_a), mblnpidy (arm_a replicate), 5vsz0e68 (arm_b)
+
+Decision: CLOSED as 151st NULL/NEG with paper-grade subadditive coupling + scope-swap-ratio mechanism. Highest-WIN-prob assignment in portfolio (15-25% per a-priori) joins the SUBADDITIVE class.
+
+**H305 fern HALLEY × per-group EMA decay ASSIGNED IMMEDIATELY** (PR #1822):
+- 3-arm Option B: --polyak_ema_aux_decay + --polyak_ema_body_decay (mirror H302 flags) × --ns5_polynomial halley
+- arm_a CTRL_HALLEY_DEFAULT_EMA (replicate H287) / arm_b HALLEY+body=0.05/aux=0.10 (H297 preserves body + H294 upgrades aux) / arm_c HALLEY+body=0.10/aux=0.05 (mirror)
+- Direct combination of H287 + H294 + H297 paper-grade findings (94th mechanism class)
+- WIN prob 12-15%
+
+---
+
 ## 2026-05-30 11:30 — PR #1791 H296 alphonse: HALLEY × NS5_iter=16 multiplicative stack — **CLOSED 149th NULL/TIE (🎯 paper-grade SUBADDITIVE interaction confirmed + HALLEY at-convergence at iter=12 + H287 cooldown-persistence REPLICATED, 91st mechanism class)** + PR #1817 H303 askeladd ASSIGNED (EMA decay TEMPORAL RAMP-UP)
 
 - Branch: g1r3-alphonse/h296-halley-iter16-stack (PR #1791, 2-arm Pattern A)
