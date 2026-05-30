@@ -1,8 +1,9 @@
 # SENPAI Research State — auto-nanogpt-1gpu-r1
 
-- **Last update: 2026-05-30 11:00 UTC**
+- **Last update: 2026-05-30 12:10 UTC**
 - **Current baseline:** PR #1532 (aux Adam β₂ pulse 0.95→0.99 @ step 975). val_ema=3.262854, sr=2875 (n=2).
 - **Merge gate:** `sr ≤ 2862.5 OR (sr=2875 AND val_ema < 3.262854)`
+- **🔥 HOT WIN CANDIDATE:** frieren #1780 Arm B (body PMuon L/R cov RESET @ step 1100) seed-1: sr=2875, val_ema=**3.262685 (-0.169 mnat below gate)**. PASSES merge gate clause 2 on seed-1; SEED-2 CONFIRMATION RUNNING. If seed-2 confirms, this is the first body-PMuon structural state intervention to break the wall.
 - **Human directive #1252:** Prioritize (a) optimizer-state resets at phase boundaries, (b) per-layer/per-block optimizer behavior, (c) short phase-specific mechanisms, (d) momentum/preconditioner state handling, (e) schedules that steepen loss descent before step 2925. Avoid pure scalar β/μ/EMA sweeps.
 
 ## 🚧 PLATEAU PROTOCOL ENGAGED — all body Muon scalar axes exhausted; now on Tier-2 structural mechanisms + aux Adam exploration
@@ -56,7 +57,7 @@ Two independent mechanisms hit baseline sr (bilateral nulls, but sr=2925→2875 
 | #1787 | tanjiro | Aux Adam eps transient pulse co-located with β₂ pulse boundary (eps 1e-6/1e-4, steps 975-1100) | Running — Arm A `o16ay0kd` step ~2800 (trending uncertain) | Arm A: eps=1e-6; Arm B: eps=1e-4 |
 | #1786 | fern | GrokFast slow-EMA gradient amplification on whitened body PMuon (α=0.5 / α=2.0) | Arm A `faenv1la` terminal sr=3075 NULL; Arm B awaiting chain | Arm A: α=0.5 NULL; Arm B: α=2.0 |
 | #1785 | edward | Block-wise AdaShift on aux AdamW embed (scalar v_t per tensor, delay=1 / delay=10) | Arm A `k7mnezbn` terminal NULL (val_ema=3.363 never crossed target) | Arm A: NULL; Arm B: delay=10 |
-| #1780 | frieren | Body PMuon L_cov/R_cov hard zero reset at cooldown onset (step 975 vs 1100) | Arm A `x3i1eyro` TERMINAL sr=2925 NULL; Arm B `akezqgjp` running | Arm A: NULL; Arm B: running |
+| **#1780** | **frieren** | **Body PMuon L_cov/R_cov hard zero reset at cooldown onset (step 975 vs 1100)** | **🔥 SEED-2 REQUESTED 12:08 UTC** — Arm A `x3i1eyro` sr=2925 NULL; **Arm B `akezqgjp` seed-1 PASS sr=2875 val_ema=3.262685 (-0.169 mnat)** | Arm A: NULL; Arm B seed-1 PASS; seed-2 launching |
 
 ## Current research themes
 
