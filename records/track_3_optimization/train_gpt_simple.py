@@ -114,6 +114,19 @@ def parse_args():
                         help="Polyak-Ruppert EMA decay for eval-only weight averaging. "
                              "0.0 = disabled (drift-FREE CTRL). Typical: 0.05 (fast, ~20-step half-life) / "
                              "0.005 (slow, ~200-step half-life). Higher decay = faster EMA tracking.")
+    # H287: NS5 polynomial coefficient FORM axis (75th class). The Newton-Schulz5
+    # iteration p(y) = a + b*y + c*y^2 is applied via X = a*X + (b*A + c*A^2) @ X
+    # with A = X @ X.T inside zeropower_via_newtonschulz5. 'default' (2,-1.5,0.5) is
+    # bit-identical to baseline; 'bernstein_newhouse' (3.4445,-4.7750,2.0315) is the
+    # tuned coefficient from the Muon paper; 'halley' (3,-3,1) is the classical
+    # Halley iteration.
+    parser.add_argument("--ns5_polynomial", type=str,
+                        default=os.environ.get("NS5_POLYNOMIAL", "default"),
+                        choices=["default", "bernstein_newhouse", "halley"],
+                        help="NS5 polynomial coefficient set. "
+                             "'default'=(2,-1.5,0.5) — bit-identical to baseline. "
+                             "'bernstein_newhouse'=(3.4445,-4.7750,2.0315) — Muon-paper tuned. "
+                             "'halley'=(3,-3,1) — classical Halley iteration.")
     args = parser.parse_args()
     args.num_trials = args.num_trials if args.num_trials is not None else (args.legacy_num_trials or 1)
     args.wandb_tags = [tag.strip() for tag in args.wandb_tags.split(",") if tag.strip()]
@@ -549,7 +562,16 @@ class GPT(nn.Module):
 #              Optimizer               #
 ########################################
 
-def zeropower_via_newtonschulz5(G: Tensor) -> Tensor:
+# H287: NS5 polynomial coefficient FORM axis. The dict lookup happens at
+# trace time when polynomial is a string constant, so torch.compile specializes
+# on each arm's polynomial choice with no runtime overhead.
+NS5_POLY_COEFFS = {
+    "default": (2.0, -1.5, 0.5),
+    "bernstein_newhouse": (3.4445, -4.7750, 2.0315),
+    "halley": (3.0, -3.0, 1.0),
+}
+
+def zeropower_via_newtonschulz5(G: Tensor, polynomial: str = "default") -> Tensor:
     assert G.ndim >= 2
     X = G.bfloat16()
     if G.size(-2) > G.size(-1):
@@ -558,7 +580,7 @@ def zeropower_via_newtonschulz5(G: Tensor) -> Tensor:
     # Ensure spectral norm is at most 1
     X = X / (X.norm(dim=(-2, -1), keepdim=True) + 1e-7)
     # Perform the NS iterations, not optimizing for wallclock speed
-    a, b, c = 2, -1.5, 0.5
+    a, b, c = NS5_POLY_COEFFS[polynomial]
     for _ in range(12):
         A = X @ X.mT
         B = b * A + c * A @ A
@@ -569,18 +591,18 @@ def zeropower_via_newtonschulz5(G: Tensor) -> Tensor:
     return X
 
 @torch.compile
-def muon_update(grad, momentum, mu=0.95, nesterov=True):
+def muon_update(grad, momentum, mu=0.95, nesterov=True, polynomial: str = "default"):
     momentum.lerp_(grad, 1 - mu)
     update = grad.lerp_(momentum, mu) if nesterov else momentum
-    update = zeropower_via_newtonschulz5(update)
+    update = zeropower_via_newtonschulz5(update, polynomial=polynomial)
     update *= max(1, grad.size(-2) / grad.size(-1))**0.5
     return update
 
 class Muon(torch.optim.Optimizer):
-    def __init__(self, params, lr=0.02, weight_decay=0, mu=0.95):
+    def __init__(self, params, lr=0.02, weight_decay=0, mu=0.95, ns5_polynomial="default"):
         assert isinstance(params, list) and len(params) >= 1 and isinstance(params[0], torch.nn.Parameter)
         params = sorted(params, key=lambda x: x.size(), reverse=True)
-        defaults = dict(lr=lr, weight_decay=weight_decay, mu=mu)
+        defaults = dict(lr=lr, weight_decay=weight_decay, mu=mu, ns5_polynomial=ns5_polynomial)
         super().__init__(params, defaults)
 
     @torch.no_grad()
@@ -596,7 +618,8 @@ class Muon(torch.optim.Optimizer):
                     state = self.state[p]
                     if len(state) == 0:
                         state["momentum"] = torch.zeros_like(p)
-                    update = muon_update(p.grad, state["momentum"], mu=group["mu"])
+                    update = muon_update(p.grad, state["momentum"], mu=group["mu"],
+                                         polynomial=group["ns5_polynomial"])
                     p.mul_(1 - group["lr"] * group["weight_decay"])
                     p.add_(update, alpha=-group["lr"])
                 dist.all_gather(params_pad[base_i:base_i + world_size], params_pad[base_i + rank])
@@ -674,12 +697,13 @@ class MuonH(torch.optim.Optimizer):
     norm exactly constant; weight_decay must be 0.
     """
     def __init__(self, params, lr=0.018, weight_decay=0.0, mu=0.95,
-                 hyperball=True, budget_mult=1.0, mode="clip"):
+                 hyperball=True, budget_mult=1.0, mode="clip", ns5_polynomial="default"):
         assert isinstance(params, list) and len(params) >= 1 and isinstance(params[0], torch.nn.Parameter)
         assert mode in ("clip", "scale_invariant")
         params = sorted(params, key=lambda x: x.size(), reverse=True)
         defaults = dict(lr=lr, weight_decay=weight_decay, mu=mu,
-                        hyperball=hyperball, budget_mult=budget_mult, mode=mode)
+                        hyperball=hyperball, budget_mult=budget_mult, mode=mode,
+                        ns5_polynomial=ns5_polynomial)
         super().__init__(params, defaults)
         self._last_active_fraction = 0.0
         self._last_radius_to_norm_max = 0.0
@@ -707,7 +731,8 @@ class MuonH(torch.optim.Optimizer):
                         state["momentum"] = torch.zeros_like(p)
                         if hb:
                             state["hyperball_radius"] = p.data.norm().item() * budget_mult
-                    update = muon_update(p.grad, state["momentum"], mu=group["mu"])
+                    update = muon_update(p.grad, state["momentum"], mu=group["mu"],
+                                         polynomial=group["ns5_polynomial"])
                     if hb and mode == "scale_invariant":
                         # Always-active variant: norm is held at initial value by construction.
                         scale_invariant_update_(p.data, update, group["lr"])
@@ -856,6 +881,7 @@ if dist.get_rank() == 0:
             "muonh_mu_start": args.muonh_mu_start,
             "muonh_mu_end": args.muonh_mu_end,
             "polyak_ema_decay": args.polyak_ema_decay,
+            "ns5_polynomial": args.ns5_polynomial,
         },
     )
 
@@ -939,7 +965,8 @@ for trial_idx in range(args.num_trials):
     optimizer2 = MuonH([p for p in model.blocks.parameters() if p.ndim >= 2],
                        lr=args.muonh_lr, weight_decay=0.0, mu=0.95,
                        hyperball=True, budget_mult=args.muonh_budget_mult,
-                       mode=args.muonh_mode)
+                       mode=args.muonh_mode,
+                       ns5_polynomial=args.ns5_polynomial)
     optimizer2.param_groups[0]["name"] = "muonh_blocks"
     optimizers = [optimizer1, optimizer2]
     # AGC targets: AdamW aux groups (embed, lm_head, scalars). Built from optimizer1
