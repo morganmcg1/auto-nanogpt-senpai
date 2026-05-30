@@ -1,5 +1,35 @@
 # SENPAI Research Results
 
+## 2026-05-30 21:15 UTC — PR #1831 fern: Body PMuon γ pulse at cooldown onset step 975 (γ→0.3 RELAX vs γ→0.5 SHARPEN) — ❌ BILATERAL NULL (body PMuon γ axis CLOSED across cooldown onset AND pre-target)
+
+- Branch: `g1r1-fern/body-pmuon-gamma-pulse-cooldown`
+- Hypothesis: At cooldown onset (step 975), a discrete pulse of body PMuon's whitening exponent γ (currently 0.4) could steepen loss descent — softer whitening (γ→0.3) relaxes polar projection grip and allows more exploratory updates; sharper whitening (γ→0.5) tightens the preconditioner geometry. Bilateral test: symmetric body-side analog of the #1532 aux β₂ WIN.
+
+| Arm | γ target | run | sr | val_ema | Δval mnat | Verdict |
+|---|---|---|---:|---:|---:|---|
+| Baseline | 0.4 | 9coyk2ke/09qrijtm | 2875 | 3.262854 | — | — |
+| A (RELAX) | 0.4→0.3 @ step 975 | `odlfnxjn` | 2925 | 3.267064 | +4.2 | ❌ NULL (both clauses fail) |
+| B (SHARPEN) | 0.4→0.5 @ step 975 | `ycx299zy` | 2925 | 3.266283 | +3.4 | ❌ NULL (both clauses fail) |
+
+- **Key mechanistic read:** Both directions produce essentially identical sr penalty (+50 steps) regardless of direction (Arm A +4.2 mnat, Arm B +3.4 mnat). γ-pulse mechanism is NOT load-bearing at cooldown boundary. The #1532 β₂ WIN does NOT have a symmetric body-PMuon γ-pulse analog.
+- **Axis closure:** Body PMuon γ axis CLOSED across cooldown onset (step 975, #1831 bilateral) AND pre-target (#1680 bilateral @ step 2750). Combined closure of all γ temporal windows. The whitening exponent is well-calibrated at γ=0.4 across all training phases.
+- fern reassigned: body PMuon momentum HARD-ZERO reset at cooldown onset (#1876) — first test of full discard of body PMuon momentum direction memory, transferring nezuko #1815 m-only ZERO paradigm to body PMuon's analogous momentum buffer
+
+## 2026-05-30 21:15 UTC — PR #1830 edward: Aux Adam m+v FULL ZERO RESET at late phase boundaries (step 2600 pEMA-refresh vs step 2750 pre-target) — ❌ BILATERAL NULL (late-phase full-zero reset CLOSED)
+
+- Branch: `g1r1-edward/aux-mv-reset-late-phase`
+- Hypothesis: Aux Adam m+v full reset at the late phase boundaries (2600 = pEMA refresh, 2750 = pre-target), avoiding the well-established v-denominator transient danger at step 975 (where #1770 confirmed full-zero at β₂ pulse boundary is catastrophic). By delaying the reset until after β₂=0.99 has had 1625-1775 steps to fill v, the denominator should be robust enough to tolerate full reset.
+
+| Arm | reset_step | run | sr | val_ema | Δval mnat | Verdict |
+|---|---|---|---:|---:|---:|---|
+| Baseline | — | 9coyk2ke/09qrijtm | 2875 | 3.262854 | — | — |
+| A | 2600 (pEMA refresh boundary) | `jljip8l4` | 2925 | 3.265206 | +2.4 | ❌ NULL (both clauses fail) |
+| B | 2750 (pre-target boundary) | `n1mv5a58` | 2925 | 3.265872 | +3.0 | ❌ NULL (both clauses fail) |
+
+- **Key mechanistic read:** Arm A (+2.4 mnat) is slightly less disruptive than Arm B (+3.0 mnat). Arm B was MARGINALLY more disruptive — consistent with the advisor's prediction that smaller late-phase v denominator → larger relative reset impact at later boundaries. Both arms recover from the transient (transient confirmed: step 2625 +8.7 mnat spike for Arm A, step 2750 +8.7 mnat for Arm B, both recovering) but lose steps during recovery. Neither crosses the target before baseline.
+- **Axis closure:** Aux Adam m+v FULL-zero reset CLOSED across ALL temporal boundaries: step 975 (#1770 bilateral catastrophic, +v_transient), step 2600 (Arm A NULL), step 2750 (Arm B NULL). Combined with per-element AdaShift (#1709), AdEMAMix (#1749), Lookahead, SOAP, ACProp (#1771) — the aux Adam first-moment STRUCTURAL MODIFICATION axis is now completely exhausted. The remaining open axis is asymmetric partial primitives (m-only reset, v-only partial decay), tested in nezuko #1815 where m-only @ 975 is a HOT WIN candidate.
+- edward reassigned: body PMuon LR persistent step-down at cooldown onset step 975 (#1877) — first test of phase-locked LR schedule intervention on body PMuon; Arm A ×0.85, Arm B ×0.70
+
 ## 2026-05-30 19:00 UTC — PR #1819 askeladd: Aux Adam β₁ JOINT pulse synchronous with β₂ pulse at step 975 (β₁: 0.8→0.9 / 0.8→0.95) — ❌ BILATERAL NULL (aux Adam β₁ axis FULLY EXHAUSTED)
 
 - Branch: `g1r1-askeladd/aux-b1-joint-pulse`
