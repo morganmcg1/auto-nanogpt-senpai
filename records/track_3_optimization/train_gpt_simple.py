@@ -84,6 +84,18 @@ def parse_args():
     parser.add_argument('--aux_b2_pulse_target', type=float, default=0.99,
                         help='New aux Adam β2 value to set at --aux_b2_pulse_step. '
                              '0 or negative disables. Default: 0.99 (canonical WIN).')
+    parser.add_argument(
+        "--body_muon_momentum_scale_step", type=int, default=-1,
+        help="Step at which to scale body Muon momentum buffer (-1 = disabled)",
+    )
+    parser.add_argument(
+        "--body_muon_momentum_scale_factor", type=float, default=1.0,
+        help="Multiplicative factor applied to optimizer2 momentum tensors at scale step",
+    )
+    parser.add_argument(
+        "--train_steps", type=int, default=-1,
+        help="Override default train_steps for smoke tests (-1 = use built-in 3250)",
+    )
     parser.add_argument("--seed", type=int, default=1,
                         help="Random seed for torch/numpy/python. Default 1 matches baseline seed.")
     args = parser.parse_args()
@@ -765,6 +777,8 @@ if dist.get_rank() == 0:
             "paramema_refresh_only": int(args.paramema_refresh_only),
             "aux_b2_pulse_step": args.aux_b2_pulse_step,
             "aux_b2_pulse_target": args.aux_b2_pulse_target,
+            "body_muon_momentum_scale_step": args.body_muon_momentum_scale_step,
+            "body_muon_momentum_scale_factor": args.body_muon_momentum_scale_factor,
             "seed": args.seed,
         },
     )
@@ -778,6 +792,8 @@ for trial_idx in range(args.num_trials):
 
     # we want to minimize this while still reaching 3.28 val loss
     train_steps = 3250
+    if args.train_steps > 0:
+        train_steps = args.train_steps
 
     # initialize model parameters
     for name, p in model.named_parameters():
@@ -1071,6 +1087,25 @@ for trial_idx in range(args.num_trials):
                 group["betas"] = new_betas
             print0(f"[step {step}] aux_b2_pulse: β2 {old_b2} → {args.aux_b2_pulse_target}",
                    console=True)
+        if (args.body_muon_momentum_scale_step > 0
+                and step == args.body_muon_momentum_scale_step):
+            n_scaled = 0
+            for group in optimizer2.param_groups:
+                for p in group["params"]:
+                    state = optimizer2.state.get(p, None)
+                    if state is not None and "momentum" in state:
+                        state["momentum"].mul_(args.body_muon_momentum_scale_factor)
+                        n_scaled += 1
+            if dist.get_rank() == 0:
+                print0(f"[step {step}] body PMuon momentum SCALE "
+                       f"factor={args.body_muon_momentum_scale_factor:.4f} "
+                       f"(scaled {n_scaled} momentum tensors)", console=True)
+                if wandb.run is not None:
+                    wandb.log({
+                        "body_muon_momentum_scale/step": step,
+                        "body_muon_momentum_scale/factor": args.body_muon_momentum_scale_factor,
+                        "body_muon_momentum_scale/tensors_scaled": n_scaled,
+                    }, step=step)
         for opt in optimizers:
             opt.step()
         # EMA buffer update on body-Muon matrix params.
