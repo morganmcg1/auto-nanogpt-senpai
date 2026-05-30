@@ -84,6 +84,12 @@ def parse_args():
     parser.add_argument('--aux_b2_pulse_target', type=float, default=0.99,
                         help='New aux Adam β2 value to set at --aux_b2_pulse_step. '
                              '0 or negative disables. Default: 0.99 (canonical WIN).')
+    parser.add_argument('--aux_b2_pulse_scope', type=str, default='all',
+                        choices=['all', 'embed', 'lm_head', 'scalars'],
+                        help="Which aux Adam param group(s) receive the β2 pulse. "
+                             "Default 'all' matches #1532 (the canonical WIN). "
+                             "Single-group scopes localize the pulse to one of "
+                             "{adam_embed, adam_lm_head, adam_scalars}.")
     parser.add_argument("--seed", type=int, default=1,
                         help="Random seed for torch/numpy/python. Default 1 matches baseline seed.")
     args = parser.parse_args()
@@ -765,6 +771,7 @@ if dist.get_rank() == 0:
             "paramema_refresh_only": int(args.paramema_refresh_only),
             "aux_b2_pulse_step": args.aux_b2_pulse_step,
             "aux_b2_pulse_target": args.aux_b2_pulse_target,
+            "aux_b2_pulse_scope": args.aux_b2_pulse_scope,
             "seed": args.seed,
         },
     )
@@ -1065,12 +1072,25 @@ for trial_idx in range(args.num_trials):
         if (args.aux_b2_pulse_step > 0
                 and args.aux_b2_pulse_target > 0.0
                 and step == args.aux_b2_pulse_step):
-            old_b2 = optimizer1.param_groups[0]["betas"][1]
-            new_betas = (optimizer1.param_groups[0]["betas"][0], args.aux_b2_pulse_target)
+            n_groups = 0
+            old_b2_first = None
             for group in optimizer1.param_groups:
-                group["betas"] = new_betas
-            print0(f"[step {step}] aux_b2_pulse: β2 {old_b2} → {args.aux_b2_pulse_target}",
+                short_name = group.get("name", "unknown").removeprefix("adam_")
+                if args.aux_b2_pulse_scope != "all" and short_name != args.aux_b2_pulse_scope:
+                    continue
+                if old_b2_first is None:
+                    old_b2_first = group["betas"][1]
+                group["betas"] = (group["betas"][0], args.aux_b2_pulse_target)
+                n_groups += 1
+            print0(f"[step {step}] aux_b2_pulse: scope={args.aux_b2_pulse_scope} "
+                   f"β2 {old_b2_first} → {args.aux_b2_pulse_target:.4f} "
+                   f"(applied to {n_groups} groups)",
                    console=True)
+            if dist.get_rank() == 0 and wandb.run is not None:
+                wandb.log({
+                    "aux_b2_pulse/scope_applied": args.aux_b2_pulse_scope,
+                    "aux_b2_pulse/n_groups": n_groups,
+                }, step=wandb_step)
         for opt in optimizers:
             opt.step()
         # EMA buffer update on body-Muon matrix params.
@@ -1189,6 +1209,8 @@ for trial_idx in range(args.num_trials):
                 "aux_b2/fired": int(args.aux_b2_pulse_step > 0
                                     and args.aux_b2_pulse_target > 0.0
                                     and step >= args.aux_b2_pulse_step),
+                **{f"aux_b2/{g.get('name', f'group{i}')}": g["betas"][1]
+                   for i, g in enumerate(optimizer1.param_groups)},
             }, step=wandb_step)
         if dist.get_rank() == 0 and (train_step % 100 == 0 or train_step == train_steps):
             spec = pmuon_spectral_diag(optimizer2, PMUON_GAMMA)
