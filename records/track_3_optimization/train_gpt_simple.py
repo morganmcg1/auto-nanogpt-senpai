@@ -114,6 +114,28 @@ def parse_args():
                         help="Polyak-Ruppert EMA decay for eval-only weight averaging. "
                              "0.0 = disabled (drift-FREE CTRL). Typical: 0.05 (fast, ~20-step half-life) / "
                              "0.005 (slow, ~200-step half-life). Higher decay = faster EMA tracking.")
+    # H297: NS5 polynomial coefficient FORM axis. Iteration p(σ) = a*σ + b*σ³ + c*σ⁵
+    # acts on the singular values of the un-normalized momentum/grad matrix inside
+    # zeropower_via_newtonschulz5. 'default' (2,-1.5,0.5) is bit-identical to baseline.
+    # 'halley' (15/8,-10/8,3/8) has p(1)=1, p'(1)=p''(1)=0 → cubic convergence at σ=1.
+    parser.add_argument("--ns5_polynomial", type=str,
+                        default=os.environ.get("NS5_POLYNOMIAL", "default"),
+                        choices=["default", "halley"],
+                        help="NS5 polynomial coefficients applied to singular values. "
+                             "'default'=(2,-1.5,0.5) f(σ)=2σ-1.5σ³+0.5σ⁵ (bit-id baseline). "
+                             "'halley'=(15/8,-10/8,3/8) f(σ)=(15/8)σ-(10/8)σ³+(3/8)σ⁵ — "
+                             "cubic convergence to σ=1 (Halley-style quintic).")
+    # H297: Polyak EMA scope filter. 'all' = H266 baseline (bit-id) covers every
+    # named param. 'aux_only' restricts EMA to AdamW aux params (embed/lm_head/scalars,
+    # complement of MuonH body params). 'body_only' restricts EMA to MuonH body
+    # params (model.blocks ndim>=2). Eval-time substitution and per-step update
+    # only touch keys present in polyak_ema_state.
+    parser.add_argument("--polyak_ema_scope", type=str,
+                        default=os.environ.get("POLYAK_EMA_SCOPE", "all"),
+                        choices=["all", "aux_only", "body_only"],
+                        help="EMA buffer scope. 'all'=all params (default H266 behavior, bit-id baseline). "
+                             "'aux_only'=AdamW aux params only (embed/lm_head/scalars). "
+                             "'body_only'=MuonH body params only (excludes embed/lm_head/scalars).")
     args = parser.parse_args()
     args.num_trials = args.num_trials if args.num_trials is not None else (args.legacy_num_trials or 1)
     args.wandb_tags = [tag.strip() for tag in args.wandb_tags.split(",") if tag.strip()]
@@ -549,7 +571,15 @@ class GPT(nn.Module):
 #              Optimizer               #
 ########################################
 
-def zeropower_via_newtonschulz5(G: Tensor) -> Tensor:
+# H297: NS5 polynomial coefficient FORM axis. The dict lookup happens at
+# trace time when polynomial is a string constant, so torch.compile specializes
+# on each arm's polynomial choice with no runtime overhead.
+NS5_POLY_COEFFS = {
+    "default": (2.0, -1.5, 0.5),
+    "halley": (15.0 / 8.0, -10.0 / 8.0, 3.0 / 8.0),
+}
+
+def zeropower_via_newtonschulz5(G: Tensor, polynomial: str = "default") -> Tensor:
     assert G.ndim >= 2
     X = G.bfloat16()
     if G.size(-2) > G.size(-1):
@@ -558,7 +588,7 @@ def zeropower_via_newtonschulz5(G: Tensor) -> Tensor:
     # Ensure spectral norm is at most 1
     X = X / (X.norm(dim=(-2, -1), keepdim=True) + 1e-7)
     # Perform the NS iterations, not optimizing for wallclock speed
-    a, b, c = 2, -1.5, 0.5
+    a, b, c = NS5_POLY_COEFFS[polynomial]
     for _ in range(12):
         A = X @ X.mT
         B = b * A + c * A @ A
@@ -569,18 +599,18 @@ def zeropower_via_newtonschulz5(G: Tensor) -> Tensor:
     return X
 
 @torch.compile
-def muon_update(grad, momentum, mu=0.95, nesterov=True):
+def muon_update(grad, momentum, mu=0.95, nesterov=True, polynomial: str = "default"):
     momentum.lerp_(grad, 1 - mu)
     update = grad.lerp_(momentum, mu) if nesterov else momentum
-    update = zeropower_via_newtonschulz5(update)
+    update = zeropower_via_newtonschulz5(update, polynomial=polynomial)
     update *= max(1, grad.size(-2) / grad.size(-1))**0.5
     return update
 
 class Muon(torch.optim.Optimizer):
-    def __init__(self, params, lr=0.02, weight_decay=0, mu=0.95):
+    def __init__(self, params, lr=0.02, weight_decay=0, mu=0.95, ns5_polynomial="default"):
         assert isinstance(params, list) and len(params) >= 1 and isinstance(params[0], torch.nn.Parameter)
         params = sorted(params, key=lambda x: x.size(), reverse=True)
-        defaults = dict(lr=lr, weight_decay=weight_decay, mu=mu)
+        defaults = dict(lr=lr, weight_decay=weight_decay, mu=mu, ns5_polynomial=ns5_polynomial)
         super().__init__(params, defaults)
 
     @torch.no_grad()
@@ -596,7 +626,8 @@ class Muon(torch.optim.Optimizer):
                     state = self.state[p]
                     if len(state) == 0:
                         state["momentum"] = torch.zeros_like(p)
-                    update = muon_update(p.grad, state["momentum"], mu=group["mu"])
+                    update = muon_update(p.grad, state["momentum"], mu=group["mu"],
+                                         polynomial=group["ns5_polynomial"])
                     p.mul_(1 - group["lr"] * group["weight_decay"])
                     p.add_(update, alpha=-group["lr"])
                 dist.all_gather(params_pad[base_i:base_i + world_size], params_pad[base_i + rank])
@@ -674,12 +705,13 @@ class MuonH(torch.optim.Optimizer):
     norm exactly constant; weight_decay must be 0.
     """
     def __init__(self, params, lr=0.018, weight_decay=0.0, mu=0.95,
-                 hyperball=True, budget_mult=1.0, mode="clip"):
+                 hyperball=True, budget_mult=1.0, mode="clip", ns5_polynomial="default"):
         assert isinstance(params, list) and len(params) >= 1 and isinstance(params[0], torch.nn.Parameter)
         assert mode in ("clip", "scale_invariant")
         params = sorted(params, key=lambda x: x.size(), reverse=True)
         defaults = dict(lr=lr, weight_decay=weight_decay, mu=mu,
-                        hyperball=hyperball, budget_mult=budget_mult, mode=mode)
+                        hyperball=hyperball, budget_mult=budget_mult, mode=mode,
+                        ns5_polynomial=ns5_polynomial)
         super().__init__(params, defaults)
         self._last_active_fraction = 0.0
         self._last_radius_to_norm_max = 0.0
@@ -707,7 +739,8 @@ class MuonH(torch.optim.Optimizer):
                         state["momentum"] = torch.zeros_like(p)
                         if hb:
                             state["hyperball_radius"] = p.data.norm().item() * budget_mult
-                    update = muon_update(p.grad, state["momentum"], mu=group["mu"])
+                    update = muon_update(p.grad, state["momentum"], mu=group["mu"],
+                                         polynomial=group["ns5_polynomial"])
                     if hb and mode == "scale_invariant":
                         # Always-active variant: norm is held at initial value by construction.
                         scale_invariant_update_(p.data, update, group["lr"])
@@ -856,6 +889,8 @@ if dist.get_rank() == 0:
             "muonh_mu_start": args.muonh_mu_start,
             "muonh_mu_end": args.muonh_mu_end,
             "polyak_ema_decay": args.polyak_ema_decay,
+            "ns5_polynomial": args.ns5_polynomial,
+            "polyak_ema_scope": args.polyak_ema_scope,
         },
     )
 
@@ -939,7 +974,8 @@ for trial_idx in range(args.num_trials):
     optimizer2 = MuonH([p for p in model.blocks.parameters() if p.ndim >= 2],
                        lr=args.muonh_lr, weight_decay=0.0, mu=0.95,
                        hyperball=True, budget_mult=args.muonh_budget_mult,
-                       mode=args.muonh_mode)
+                       mode=args.muonh_mode,
+                       ns5_polynomial=args.ns5_polynomial)
     optimizer2.param_groups[0]["name"] = "muonh_blocks"
     optimizers = [optimizer1, optimizer2]
     # AGC targets: AdamW aux groups (embed, lm_head, scalars). Built from optimizer1
@@ -1062,16 +1098,37 @@ for trial_idx in range(args.num_trials):
     # H266: Polyak-Ruppert EMA buffer for eval-only weight averaging (Pattern A drift-FREE).
     # When decay == 0.0 the state stays None and all H266 code paths short-circuit, so the
     # train/val flow remains bit-identical to the H203 baseline.
+    # H297 scope filter: 'all' uses all params (bit-id H266); 'aux_only' restricts to
+    # AdamW aux params (embed/lm_head/scalars, complement of MuonH body); 'body_only'
+    # restricts to MuonH body params (model.blocks ndim>=2). Membership uses id(p) so
+    # the partition is exactly the optimizer assignment.
     polyak_ema_state = None
     if args.polyak_ema_decay > 0.0:
+        if args.polyak_ema_scope == "all":
+            ema_param_names = set(name for name, _ in model.named_parameters())
+        elif args.polyak_ema_scope == "body_only":
+            body_param_ids = set(id(p) for g in optimizer2.param_groups for p in g["params"])
+            ema_param_names = set(name for name, p in model.named_parameters() if id(p) in body_param_ids)
+        elif args.polyak_ema_scope == "aux_only":
+            body_param_ids = set(id(p) for g in optimizer2.param_groups for p in g["params"])
+            ema_param_names = set(name for name, p in model.named_parameters() if id(p) not in body_param_ids)
+        else:
+            raise ValueError(f"unknown polyak_ema_scope: {args.polyak_ema_scope}")
         polyak_ema_state = {
             name: param.data.clone().detach()
             for name, param in model.named_parameters()
+            if name in ema_param_names
         }
         if dist.get_rank() == 0:
             total_ema_bytes = sum(p.numel() * p.element_size() for p in polyak_ema_state.values())
+            total_ema_params = sum(p.numel() for p in polyak_ema_state.values())
+            total_model_params = sum(p.numel() for p in model.parameters())
             print0(f"H266 Polyak EMA buffer initialized: decay={args.polyak_ema_decay}, "
+                   f"scope={args.polyak_ema_scope}, "
                    f"total_bytes={total_ema_bytes/(1024**3):.2f}GB", console=True)
+            print0(f"H297 Polyak EMA scope={args.polyak_ema_scope}: "
+                   f"buffer covers {total_ema_params/total_model_params*100:.1f}% of model params "
+                   f"({total_ema_params/1e6:.1f}M / {total_model_params/1e6:.1f}M)", console=True)
 
     # start the clock
     training_time = 0
@@ -1101,9 +1158,10 @@ for trial_idx in range(args.num_trials):
             # When polyak_ema_state is None this whole branch is skipped, leaving the
             # val measurement path bit-identical to the H203 baseline.
             if polyak_ema_state is not None:
-                live_backup = {name: param.data.clone() for name, param in model.named_parameters()}
+                live_backup = {name: param.data.clone() for name, param in model.named_parameters() if name in polyak_ema_state}
                 for name, param in model.named_parameters():
-                    param.data.copy_(polyak_ema_state[name])
+                    if name in polyak_ema_state:
+                        param.data.copy_(polyak_ema_state[name])
                 ema_deviation_l2 = sum(
                     (polyak_ema_state[n] - live_backup[n]).norm().item() ** 2
                     for n in polyak_ema_state
@@ -1121,7 +1179,8 @@ for trial_idx in range(args.num_trials):
             # H266: restore live weights so training continues with the live trajectory.
             if live_backup is not None:
                 for name, param in model.named_parameters():
-                    param.data.copy_(live_backup[name])
+                    if name in live_backup:
+                        param.data.copy_(live_backup[name])
                 del live_backup
             dist.all_reduce(val_loss, op=dist.ReduceOp.SUM)
             val_loss /= val_tokens
@@ -1221,7 +1280,8 @@ for trial_idx in range(args.num_trials):
             with torch.no_grad():
                 decay = args.polyak_ema_decay
                 for name, param in model.named_parameters():
-                    polyak_ema_state[name].mul_(1.0 - decay).add_(param.data, alpha=decay)
+                    if name in polyak_ema_state:
+                        polyak_ema_state[name].mul_(1.0 - decay).add_(param.data, alpha=decay)
         # Log warmup telemetry every 10 steps during warmup (and at telemetry events
         # afterwards) so we capture the warmup curve at high resolution. Cheap since
         # it's just two floats.
