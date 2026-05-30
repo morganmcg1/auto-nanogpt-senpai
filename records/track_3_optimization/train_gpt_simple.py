@@ -114,6 +114,29 @@ def parse_args():
                         help="Polyak-Ruppert EMA decay for eval-only weight averaging. "
                              "0.0 = disabled (drift-FREE CTRL). Typical: 0.05 (fast, ~20-step half-life) / "
                              "0.005 (slow, ~200-step half-life). Higher decay = faster EMA tracking.")
+    # H307: POST-NS5 Langevin noise injection. Adds eps * randn_like(update) to the
+    # polar-projected body update AFTER muon_update returns and BEFORE the outer
+    # parameter step (scale_invariant rescale / hyperball clip). Schedule-aware:
+    # gated OFF during the last cooldown_frac of training so that the H266 EMA
+    # cooldown signal aggregation stays clean. Drift-FREE at eps=0: no torch.randn
+    # call, no param_group mutation, no extra wandb keys.
+    parser.add_argument("--body_post_ns5_noise_epsilon", type=float,
+                        default=float(os.environ.get("BODY_POST_NS5_NOISE_EPSILON", "0.0")),
+                        help="POST-NS5 Langevin gradient noise epsilon (per-element Gaussian stddev) "
+                             "added to polar-projected MuonH body update during the constant-LR phase "
+                             "of training. 0.0 (default) = OFF, bit-identical baseline. Non-zero adds "
+                             "eps * randn_like(update) after polar projection, before outer step.")
+    parser.add_argument("--body_post_ns5_noise_cooldown_off", type=int,
+                        default=int(os.environ.get("BODY_POST_NS5_NOISE_COOLDOWN_OFF", "1")),
+                        help="If 1 (default), POST-NS5 noise is gated OFF during the noise cooldown "
+                             "phase (last --body_post_ns5_noise_cooldown_frac of training). If 0, "
+                             "noise is applied through cooldown as well (not recommended — kills "
+                             "H266 EMA / cooldown signal aggregation).")
+    parser.add_argument("--body_post_ns5_noise_cooldown_frac", type=float,
+                        default=float(os.environ.get("BODY_POST_NS5_NOISE_COOLDOWN_FRAC", "0.15")),
+                        help="Last fraction of training during which POST-NS5 noise is gated OFF. "
+                             "Default 0.15: noise active for steps 0 -> 0.85*T, OFF for the last 15%%. "
+                             "Independent of the LR cooldown shape — purely controls noise gating.")
     args = parser.parse_args()
     args.num_trials = args.num_trials if args.num_trials is not None else (args.legacy_num_trials or 1)
     args.wandb_tags = [tag.strip() for tag in args.wandb_tags.split(",") if tag.strip()]
@@ -679,11 +702,20 @@ class MuonH(torch.optim.Optimizer):
         assert mode in ("clip", "scale_invariant")
         params = sorted(params, key=lambda x: x.size(), reverse=True)
         defaults = dict(lr=lr, weight_decay=weight_decay, mu=mu,
-                        hyperball=hyperball, budget_mult=budget_mult, mode=mode)
+                        hyperball=hyperball, budget_mult=budget_mult, mode=mode,
+                        post_ns5_noise_eps=0.0)
         super().__init__(params, defaults)
         self._last_active_fraction = 0.0
         self._last_radius_to_norm_max = 0.0
         self._last_norm_to_radius_max = 0.0
+        # H307: POST-NS5 noise telemetry (training loop reads these after opt.step()).
+        # All zeros when noise is OFF (post_ns5_noise_eps == 0) since the noise branch
+        # never fires.
+        self._last_noise_active = 0
+        self._last_noise_l2_sq = 0.0
+        self._last_update_pre_l2_sq = 0.0
+        self._last_update_post_l2_sq = 0.0
+        self._last_noise_param_count = 0
 
     @torch.no_grad()
     def step(self):
@@ -693,12 +725,20 @@ class MuonH(torch.optim.Optimizer):
         total_count_local = 0
         max_r_over_n_local = 0.0
         max_n_over_r_local = 0.0
+        noise_l2_sq_local = 0.0
+        update_pre_l2_sq_local = 0.0
+        update_post_l2_sq_local = 0.0
+        noise_param_count_local = 0
+        any_noise_active = 0
         for group in self.param_groups:
             params = group["params"]
             params_pad = params + [torch.empty_like(params[-1])] * (world_size - len(params) % world_size)
             hb = group["hyperball"]
             budget_mult = group["budget_mult"]
             mode = group["mode"]
+            post_ns5_noise_eps = group.get("post_ns5_noise_eps", 0.0)
+            if post_ns5_noise_eps > 0.0:
+                any_noise_active = 1
             for base_i in range(0, len(params), world_size):
                 if base_i + rank < len(params):
                     p = params[base_i + rank]
@@ -708,6 +748,20 @@ class MuonH(torch.optim.Optimizer):
                         if hb:
                             state["hyperball_radius"] = p.data.norm().item() * budget_mult
                     update = muon_update(p.grad, state["momentum"], mu=group["mu"])
+                    if post_ns5_noise_eps > 0.0:
+                        # H307: track pre-noise update norm, inject Gaussian noise
+                        # AFTER NS5 polar projection but BEFORE scale_invariant /
+                        # hyperball-clip application. Telemetry computed in float32
+                        # to avoid bf16 precision loss in norm reporting.
+                        update_pre_norm = float(update.float().norm().item())
+                        noise = torch.randn_like(update) * post_ns5_noise_eps
+                        update = update + noise
+                        update_post_norm = float(update.float().norm().item())
+                        noise_norm = float(noise.float().norm().item())
+                        noise_l2_sq_local += noise_norm * noise_norm
+                        update_pre_l2_sq_local += update_pre_norm * update_pre_norm
+                        update_post_l2_sq_local += update_post_norm * update_post_norm
+                        noise_param_count_local += 1
                     if hb and mode == "scale_invariant":
                         # Always-active variant: norm is held at initial value by construction.
                         scale_invariant_update_(p.data, update, group["lr"])
@@ -742,14 +796,43 @@ class MuonH(torch.optim.Optimizer):
             total_count = float(counts[1].item())
             max_r_over_n = float(ratios[0].item())
             max_n_over_r = float(ratios[1].item())
+            if any_noise_active:
+                noise_stats = torch.tensor(
+                    [noise_l2_sq_local, update_pre_l2_sq_local,
+                     update_post_l2_sq_local, float(noise_param_count_local)],
+                    device="cuda", dtype=torch.float64,
+                )
+                dist.all_reduce(noise_stats, op=dist.ReduceOp.SUM)
+                noise_l2_sq = float(noise_stats[0].item())
+                update_pre_l2_sq = float(noise_stats[1].item())
+                update_post_l2_sq = float(noise_stats[2].item())
+                noise_param_count = int(noise_stats[3].item())
+            else:
+                noise_l2_sq = 0.0
+                update_pre_l2_sq = 0.0
+                update_post_l2_sq = 0.0
+                noise_param_count = 0
         else:
             clip_count = float(clip_count_local)
             total_count = float(total_count_local)
             max_r_over_n = max_r_over_n_local
             max_n_over_r = max_n_over_r_local
+            noise_l2_sq = noise_l2_sq_local
+            update_pre_l2_sq = update_pre_l2_sq_local
+            update_post_l2_sq = update_post_l2_sq_local
+            noise_param_count = noise_param_count_local
         self._last_active_fraction = clip_count / total_count if total_count > 0 else 0.0
         self._last_radius_to_norm_max = max_r_over_n
         self._last_norm_to_radius_max = max_n_over_r
+        # H307: POST-NS5 noise telemetry. _last_noise_active=1 means this step
+        # actually injected noise on at least one param group. Updates norms are
+        # cross-param L2 sums (RMS-style aggregation), then the training loop
+        # logs RMS = sqrt(sum_sq / count) for human-readable comparison.
+        self._last_noise_active = any_noise_active
+        self._last_noise_l2_sq = noise_l2_sq
+        self._last_update_pre_l2_sq = update_pre_l2_sq
+        self._last_update_post_l2_sq = update_post_l2_sq
+        self._last_noise_param_count = noise_param_count
 
 
 ########################################
@@ -796,6 +879,12 @@ if args.muonh_agc_clip_ratio > 0:
     print0(f"AGC ENABLED on inner MuonH gradient: clip_ratio={args.muonh_agc_clip_ratio} eps={args.muonh_agc_eps}", console=True)
 else:
     print0("AGC DISABLED on inner MuonH gradient (clip_ratio=0)", console=True)
+if args.body_post_ns5_noise_epsilon > 0.0:
+    print0(f"H307 POST-NS5 noise ENABLED: eps={args.body_post_ns5_noise_epsilon} "
+           f"cooldown_off={args.body_post_ns5_noise_cooldown_off} "
+           f"cooldown_frac={args.body_post_ns5_noise_cooldown_frac}", console=True)
+else:
+    print0("H307 POST-NS5 noise DISABLED (epsilon=0)", console=True)
 print0("="*100)
 
 val_tokens = 20 * 524288
@@ -856,6 +945,9 @@ if dist.get_rank() == 0:
             "muonh_mu_start": args.muonh_mu_start,
             "muonh_mu_end": args.muonh_mu_end,
             "polyak_ema_decay": args.polyak_ema_decay,
+            "body_post_ns5_noise_epsilon": args.body_post_ns5_noise_epsilon,
+            "body_post_ns5_noise_cooldown_off": args.body_post_ns5_noise_cooldown_off,
+            "body_post_ns5_noise_cooldown_frac": args.body_post_ns5_noise_cooldown_frac,
         },
     )
 
@@ -1033,7 +1125,24 @@ for trial_idx in range(args.num_trials):
                 g["mu"] = mu_t
         else:
             mu_t = 0.95
-        return muonh_warmup, b2, mu_t
+        # H307: POST-NS5 noise epsilon schedule. Skip entirely when noise is OFF
+        # so the optimizer.param_group dict stays bit-identical to baseline. When
+        # ON, gate noise to the constant-LR phase (progress < 1 - cooldown_frac)
+        # so that the H266 EMA / cooldown signal aggregation stays clean.
+        noise_active = 0
+        active_noise_eps = 0.0
+        if args.body_post_ns5_noise_epsilon > 0.0:
+            if args.body_post_ns5_noise_cooldown_off and (
+                progress >= 1.0 - args.body_post_ns5_noise_cooldown_frac
+            ):
+                active_noise_eps = 0.0
+                noise_active = 0
+            else:
+                active_noise_eps = args.body_post_ns5_noise_epsilon
+                noise_active = 1
+            for g in optimizer2.param_groups:
+                g["post_ns5_noise_eps"] = active_noise_eps
+        return muonh_warmup, b2, mu_t, noise_active, active_noise_eps
 
 
     ########################################
@@ -1175,7 +1284,7 @@ for trial_idx in range(args.num_trials):
         dist.all_reduce(step_loss, op=dist.ReduceOp.SUM)
         train_loss = float((step_loss / batch_size).item())
         # set optimization hyperparameters and take a step
-        muonh_warmup_factor, aux_beta2, muonh_mu_t = set_hparams(step)
+        muonh_warmup_factor, aux_beta2, muonh_mu_t, post_ns5_noise_active, post_ns5_noise_eps_active = set_hparams(step)
         train_step = step + 1
         telemetry_due = (step == 0 or (step + 1) % args.telemetry_interval == 0 or step + 1 == train_steps)
         histogram_due = (step == 0 or (step + 1) % args.histogram_interval == 0 or step + 1 == train_steps)
@@ -1258,6 +1367,24 @@ for trial_idx in range(args.num_trials):
                 muonh_metrics["train/muonh/agc/max_ratio"] = muonh_agc_stats["agc_max_ratio"]
                 muonh_metrics["train/muonh/agc/scale_min"] = muonh_agc_stats["agc_scale_min"]
                 muonh_metrics["train/muonh/agc/scale_mean"] = muonh_agc_stats["agc_scale_mean"]
+            # H307: POST-NS5 noise telemetry. Only emit when this experiment has
+            # noise enabled at runtime (eps>0). _last_noise_param_count==0 means
+            # the noise branch never fired this step (cooldown phase gating).
+            if args.body_post_ns5_noise_epsilon > 0.0:
+                muonh_metrics["body/post_ns5_noise_eps_active"] = post_ns5_noise_eps_active
+                muonh_metrics["body/post_ns5_noise_active"] = post_ns5_noise_active
+                for opt in optimizers:
+                    if isinstance(opt, MuonH) and opt._last_noise_param_count > 0:
+                        n = opt._last_noise_param_count
+                        noise_rms = (opt._last_noise_l2_sq / n) ** 0.5
+                        pre_rms = (opt._last_update_pre_l2_sq / n) ** 0.5
+                        post_rms = (opt._last_update_post_l2_sq / n) ** 0.5
+                        muonh_metrics["body/post_ns5_noise_norm_rms"] = noise_rms
+                        muonh_metrics["body/post_ns5_update_norm_pre_noise_rms"] = pre_rms
+                        muonh_metrics["body/post_ns5_update_norm_post_noise_rms"] = post_rms
+                        muonh_metrics["body/post_ns5_noise_to_update_ratio"] = (
+                            noise_rms / pre_rms if pre_rms > 0 else 0.0
+                        )
             if len(muonh_metrics) > 2:
                 wandb.log(muonh_metrics, step=wandb_step)
         if dist.get_rank() == 0 and telemetry_due:
