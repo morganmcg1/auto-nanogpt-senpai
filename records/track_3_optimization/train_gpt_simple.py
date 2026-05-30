@@ -466,6 +466,9 @@ ATTN_SOAP_PRECOND_FREQ = 10
 ATTN_SOAP_TRUST_THRESHOLD = float(os.environ.get("ATTN_SOAP_TRUST_THRESHOLD", "0.9"))
 NS5_ITERS = int(os.environ.get("NS5_ITERS", "12"))
 WD_AUX = float(os.environ.get("WD_AUX", "0.0"))  # AdamW WD on embed + lm_head matrices (scalars stay at 0)
+PER_KIND_AUX_WD_ENABLED = int(os.environ.get("PER_KIND_AUX_WD_ENABLED", "0"))
+WD_LM_HEAD = float(os.environ.get("WD_LM_HEAD", "0.001"))
+WD_EMBED_OVERRIDE = float(os.environ.get("WD_EMBED_OVERRIDE", "0.001"))
 EMBED_INIT_STD = float(os.environ.get("EMBED_INIT_STD", "1.0"))  # default preserves baseline N(0,1)
 LOGIT_SOFTCAP = float(os.environ.get("LOGIT_SOFTCAP", "15.0"))  # default = 15 (current hardcoded value); soft-cap value c in f(x) = c·x / sqrt(x^2+c^2)
 
@@ -866,6 +869,9 @@ if dist.get_rank() == 0:
             "optimizer/attn_soap_trust_threshold": ATTN_SOAP_TRUST_THRESHOLD,
             "optimizer/ns5_iters": NS5_ITERS,
             "optimizer/wd_aux": WD_AUX,
+            "optimizer/per_kind_aux_wd_enabled": PER_KIND_AUX_WD_ENABLED,
+            "optimizer/wd_lm_head": WD_LM_HEAD,
+            "optimizer/wd_embed_override": WD_EMBED_OVERRIDE,
             "optimizer/recipe": "contra-muon + normuon-lite + soap-on-mlp + soap-on-attn-trust-gate (pre-NS5, record #14 + record #16)",
         },
     )
@@ -898,8 +904,17 @@ for trial_idx in range(args.num_trials):
             raise Exception(f"Uninitialized parameter: {name}")
 
     # create the optimizer(s)
-    optimizer1 = AdamW([dict(params=[model.embed.weight], lr=0.3, name="adam_embed", weight_decay=WD_AUX),
-                        dict(params=[model.proj.weight], lr=1/320, name="adam_lm_head", weight_decay=WD_AUX),
+    if PER_KIND_AUX_WD_ENABLED:
+        embed_wd = WD_EMBED_OVERRIDE
+        lm_head_wd = WD_LM_HEAD
+    else:
+        embed_wd = WD_AUX
+        lm_head_wd = WD_AUX
+    if dist.get_rank() == 0 and trial_idx == 0:
+        print(f"[per_kind_aux_wd] enabled={PER_KIND_AUX_WD_ENABLED} embed_wd={embed_wd:.6f} lm_head_wd={lm_head_wd:.6f}",
+              flush=True)
+    optimizer1 = AdamW([dict(params=[model.embed.weight], lr=0.3, name="adam_embed", weight_decay=embed_wd),
+                        dict(params=[model.proj.weight], lr=1/320, name="adam_lm_head", weight_decay=lm_head_wd),
                         dict(params=[p for p in model.parameters() if p.ndim < 2], lr=0.01, name="adam_scalars")],
                        betas=(0.8, 0.95), eps=1e-10, weight_decay=0, fused=True)
     optimizer2 = Muon([(n, p) for n, p in model.blocks.named_parameters() if p.ndim >= 2],
