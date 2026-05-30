@@ -9,7 +9,20 @@ The human research team has redirected: **FFS (first-step-to-target, baseline 30
 3. **Prefer experiments that move the crossing step** (2800-3050 window), **simplify winning stacks**, **reveal FFS-load-bearing components**.
 4. **Ablations preferred over confirmations** when FFS dead.
 
-## Last updated: 2026-05-30 06:42Z (52 R5 axis closures total; SOAP-internal scalar cluster 6/6 CLOSED; SOAP-internal structural cluster active)
+## Last updated: 2026-05-30 07:08Z (52 R5 axis closures total; SOAP-internal scalar cluster 6/6 CLOSED; FFS_trainval dual-metric standard now in force)
+
+### Notes (2026-05-30 07:08Z) — CROSS-PR SEED CORRELATION CONFIRMED; #1769/#1767/#1776 ALL HIT (2875, 2925) DUAL-METRIC; #1772 CELL B TIES CTRL
+
+- **★ MAJOR FINDING — 3-PR concurrent confirmation of memory rule `n1_to_n4_seed_regression_at_2875`** (07:00-07:05Z W&B/comment sweep): Today's seed=0 baseline draws the FULL R5 stack to (FFS_ema=2875, FFS_trainval=2925) — same dual-metric signature on:
+  - **askeladd #1776 Cell A** (β=0.0 CTRL, R5 default β₂=0.95): FFS_ema=2875 / FFS_trainval=2925 — the smoking-gun CTRL reproduce
+  - **nezuko #1769 Cell B★** (warm-start scale=1.0): FFS_ema=2875 / FFS_trainval=2925 (student auto-flagged seed-noise signature)
+  - **frieren #1767 Cell B** (qr_iter=2): FFS_ema=2875 / FFS_trainval=2925 (student noted Cell A vs B differential within σ_1≈50)
+- **Implication**: The EMA-corrected FFS landing 50 steps early on some seeds while FFS_trainval lands at 2925 is now confirmed as **EMA-eval smoothing noise** at the threshold-crossing, not a baseline shift. Memory rule strengthens: **NEW STANDARD — all n=1 sweep cells must report BOTH FFS_ema AND FFS_trainval**; only cells with FFS_trainval ≤ 2900 OR FFS_ema ≤ 2825 are confirm-worthy. Posted as advisor protocol on all 3 PRs (07:04-07:05Z).
+- **thorfinn #1772 Cell B terminal** (07:04Z): mlp=0.85/attn=0.95 decouple TIES Cell A (mlp=attn=0.90 ctrl) at FFS_ema=2925, Δval/loss=+0.00022. Per-class β₂ decoupling axis tentative FFS-cosmetic (pre-mortem 1 HIT). Cell C (INVERT) needed to confirm. Note: thorfinn's Cell A=2925 vs askeladd's Cell A=2875 differential = #1077 static β₂=0.90 vs R5 default 0.95 +50 FFS_ema (NOT seed noise) — confirms #1077 closed-NEG at EMA-eval level too.
+- **edward #1761 Cell C pre-confirm** (07:01Z): drop --ema_eval_decay → val/loss=3.2838 at step 2924/3250 (90%), likely FFS=-1 catastrophic. Would be **2nd structural pruning signal** after Cell B (drop --soap_attn). Confirms `ema_eval_decay` ALSO FFS-load-bearing on R5 (not just a metric cosmetic — without it raw val doesn't reach 3.28 in budget).
+- **alphonse #1796 NS coeff phase-schedule**: 0 comments yet (PR created 06:48Z). Student pickup pending.
+- **tanjiro #1715 verdict-locked** (07:00Z): trials 0+1=2925/2925, best-case μ_4=2900 NEG. Continuing to terminal (~10:30Z) for full closure record. 53rd R5 closure pending.
+- **Fleet 8/8 R5 active** at 07:08Z. Zero idle.
 
 ### Notes (2026-05-30 06:42Z) — ALPHONSE #1689 CLOSED 52nd, NEZUKO #1769 CELL B = 2875 N=1 LIFT (seed-noise check needed)
 
