@@ -113,7 +113,22 @@ def parse_args():
                         default=float(os.environ.get("POLYAK_EMA_DECAY", "0.0")),
                         help="Polyak-Ruppert EMA decay for eval-only weight averaging. "
                              "0.0 = disabled (drift-FREE CTRL). Typical: 0.05 (fast, ~20-step half-life) / "
-                             "0.005 (slow, ~200-step half-life). Higher decay = faster EMA tracking.")
+                             "0.005 (slow, ~200-step half-life). Higher decay = faster EMA tracking. "
+                             "Under --polyak_ema_decay_schedule linear_ramp_up this is the FINAL (end-of-training) decay.")
+    parser.add_argument("--polyak_ema_decay_schedule", type=str,
+                        default=os.environ.get("POLYAK_EMA_DECAY_SCHEDULE", "constant"),
+                        choices=["constant", "linear_ramp_up"],
+                        help="Polyak EMA decay schedule. 'constant' (default) uses --polyak_ema_decay throughout. "
+                             "'linear_ramp_up' interpolates linearly from --polyak_ema_decay_start at step 0 "
+                             "to --polyak_ema_decay at step train_steps. Note: this code uses the tracking-rate "
+                             "convention (state = (1-d)*state + d*param), so higher decay = faster tracking. "
+                             "When the effective decay equals 0.0 exactly, the EMA state is copied from current "
+                             "params (instantaneous, no smoothing) to avoid stale-state drift.")
+    parser.add_argument("--polyak_ema_decay_start", type=float,
+                        default=float(os.environ.get("POLYAK_EMA_DECAY_START", "0.0")),
+                        help="Initial decay value when using --polyak_ema_decay_schedule linear_ramp_up. "
+                             "Default 0.0 means EMA is forced to the live params at step 0 (no early-training "
+                             "EMA contribution).")
     args = parser.parse_args()
     args.num_trials = args.num_trials if args.num_trials is not None else (args.legacy_num_trials or 1)
     args.wandb_tags = [tag.strip() for tag in args.wandb_tags.split(",") if tag.strip()]
@@ -209,6 +224,23 @@ def aggregate_stats(named_tensors: list[tuple[str, Tensor]]) -> dict[str, float]
 
 def prefixed(prefix: str, stats: dict[str, float]) -> dict[str, float]:
     return {f"{prefix}/{key}": value for key, value in stats.items()}
+
+
+def get_polyak_ema_decay(step: int, total_steps: int, args) -> float:
+    """Return effective Polyak EMA decay (tracking-rate convention) at the given step.
+
+    constant      -> args.polyak_ema_decay every step.
+    linear_ramp_up -> linear interpolation from args.polyak_ema_decay_start (step 0)
+                      to args.polyak_ema_decay (step >= total_steps).
+    """
+    if args.polyak_ema_decay_schedule == "constant":
+        return args.polyak_ema_decay
+    if args.polyak_ema_decay_schedule == "linear_ramp_up":
+        progress = min(1.0, max(0.0, step / max(1, total_steps)))
+        return args.polyak_ema_decay_start + progress * (
+            args.polyak_ema_decay - args.polyak_ema_decay_start
+        )
+    return args.polyak_ema_decay
 
 
 def loss_slope_stats(history: list[tuple[int, float]], window_steps: int) -> dict[str, float]:
@@ -856,6 +888,8 @@ if dist.get_rank() == 0:
             "muonh_mu_start": args.muonh_mu_start,
             "muonh_mu_end": args.muonh_mu_end,
             "polyak_ema_decay": args.polyak_ema_decay,
+            "polyak_ema_decay_schedule": args.polyak_ema_decay_schedule,
+            "polyak_ema_decay_start": args.polyak_ema_decay_start,
         },
     )
 
@@ -1063,14 +1097,16 @@ for trial_idx in range(args.num_trials):
     # When decay == 0.0 the state stays None and all H266 code paths short-circuit, so the
     # train/val flow remains bit-identical to the H203 baseline.
     polyak_ema_state = None
-    if args.polyak_ema_decay > 0.0:
+    polyak_ema_active = args.polyak_ema_decay > 0.0 or args.polyak_ema_decay_start > 0.0
+    if polyak_ema_active:
         polyak_ema_state = {
             name: param.data.clone().detach()
             for name, param in model.named_parameters()
         }
         if dist.get_rank() == 0:
             total_ema_bytes = sum(p.numel() * p.element_size() for p in polyak_ema_state.values())
-            print0(f"H266 Polyak EMA buffer initialized: decay={args.polyak_ema_decay}, "
+            print0(f"H266 Polyak EMA buffer initialized: schedule={args.polyak_ema_decay_schedule}, "
+                   f"decay_start={args.polyak_ema_decay_start}, decay_end={args.polyak_ema_decay}, "
                    f"total_bytes={total_ema_bytes/(1024**3):.2f}GB", console=True)
 
     # start the clock
@@ -1217,11 +1253,22 @@ for trial_idx in range(args.num_trials):
         # H266: Polyak-Ruppert EMA update — runs after the live inner-optimizer step.
         # When polyak_ema_state is None this branch is skipped, leaving the training
         # path bit-identical to the H203 baseline.
+        # H303: decay is sampled per-step from the schedule. Existing tracking-rate
+        # convention is preserved (state = (1-d)*state + d*param) so that constant-mode
+        # CTRL stays bit-identical with the merged H266 baseline. When d==0.0 exactly,
+        # copy live params into the EMA state to model "no early-training EMA contribution"
+        # (matches the linear_ramp_up start=0.0 design intent).
+        ema_decay_current = 0.0
         if polyak_ema_state is not None:
             with torch.no_grad():
-                decay = args.polyak_ema_decay
-                for name, param in model.named_parameters():
-                    polyak_ema_state[name].mul_(1.0 - decay).add_(param.data, alpha=decay)
+                ema_decay_current = get_polyak_ema_decay(step, args.train_steps, args)
+                if ema_decay_current == 0.0:
+                    for name, param in model.named_parameters():
+                        polyak_ema_state[name].copy_(param.data)
+                else:
+                    decay = ema_decay_current
+                    for name, param in model.named_parameters():
+                        polyak_ema_state[name].mul_(1.0 - decay).add_(param.data, alpha=decay)
         # Log warmup telemetry every 10 steps during warmup (and at telemetry events
         # afterwards) so we capture the warmup curve at high resolution. Cheap since
         # it's just two floats.
@@ -1234,6 +1281,8 @@ for trial_idx in range(args.num_trials):
             muonh_metrics = {"trial": trial_idx, "train/step": train_step}
             muonh_metrics["aux/beta2"] = aux_beta2
             muonh_metrics["train/muonh_mu"] = muonh_mu_t
+            if polyak_ema_state is not None:
+                muonh_metrics["ema/decay_current"] = ema_decay_current
             for opt in optimizers:
                 if isinstance(opt, MuonH):
                     if telemetry_due:
