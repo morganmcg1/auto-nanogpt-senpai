@@ -1,3 +1,93 @@
+## Cycle ~1300: H299 CLOSED 153rd NULL/NEG (🎯 paper-grade BILATERAL Adan closure H169 AUX + H299 BODY + POLAR-PROJECTION vs FINITE-DIFFERENCE INCOMPATIBILITY MECHANISM — NS5 normalizes magnitude but preserves direction, pre-NS5 perturbations directly corrupt projected direction at α≥0.1, 96th mechanism class) + H307 ASSIGNED nezuko (schedule-aware mid-training gradient noise injection — orthogonal mechanism to H306 V-shape μ, both target H298 mid-training headroom)
+
+**One terminal closure + one fresh mid-training-exploration mechanism assignment. Plateau campaign portfolio: 153 NULL/NEG + 1 MERGED WIN (H266), 96 mechanism classes attempted.**
+
+### Closure this cycle
+
+**H299 nezuko Adan body pre-NS5 gradient-difference third moment CLOSED 153rd NULL/NEG — 🎯 PAPER-GRADE: bilateral Adan closure (H169 AUX + H299 BODY) + cross-mechanism polar-projection-vs-finite-difference incompatibility (96th mechanism class).**
+
+Terminal verdict (PR #1800):
+- arm_a CTRL α=0.0: FFS=3025, val=3.26876 (+0.66σ Pattern A drift CTRL within-noise)
+- arm_b ADAN_LOW α=0.01: FFS=3025, val=**3.26961** (+1.62σ NEG vs baseline, +0.96σ within-chain NEG)
+- arm_c ADAN_HIGH α=0.1: FFS=**−1 DNF**, val=**3.30206** (+38.3σ catastrophic NEG)
+
+🎯 **Paper-grade finding #1**: BILATERAL Adan closure (cross-mechanism):
+- H169 AUX-Adan replacing AdamW second-moment: NEG
+- H299 BODY-Adan finite-difference pre-NS5: NEG
+- **Joint mechanism**: Adan three-term construction structurally incompatible with curvature-aware normalization layers (1/√v AdamW adaptive variance OR NS5 polar projection). Both already provide curvature management; Adan adds redundant noise or destroys signal.
+
+🎯 **Paper-grade finding #2**: POLAR-PROJECTION vs FINITE-DIFFERENCE INCOMPATIBILITY (96th mechanism class):
+- NS5 polar projection normalizes magnitude but PRESERVES DIRECTION
+- Pre-NS5 perturbations to direction directly affect projected update
+- α=0.01: small perturbation, NS5 mostly recovers direction → within-noise NEG (+0.96σ)
+- α=0.1: gradient-difference magnitude DOMINATES → NS5 input corrupted → catastrophic DNF
+
+🎯 **Pre-NS5 inner gradient-information axis now BROADLY CLOSED (5 subclasses bilateral)**:
+- H92 MARS-M variance reduction: NEG
+- H229 Nesterov/Polyak FORM: NEG
+- H280 Cautious sign-mask: NEG
+- H281 GC gradient centralization: NEG
+- H299 Adan finite-difference: NEG (NEW)
+
+Pattern: MuonH polar-projection + outer optimizer + EMA stack is structurally RIGID against pre-NS5 inner gradient modifications. The information that survives polar projection is the DIRECTION; modifications that perturb direction or try to add information NS5 absorbs into magnitude produce no signal or NEG.
+
+🎯 **Cross-axis trajectory observation (H298 + H299)**: H298 mid-training −0.04 val headroom is NOT reproduced by H299 finite-difference gradient noise → mid-training gain mechanism is specific to inner momentum smoothing (H298) or output-trajectory tracking (H266 EMA), not to gradient-information modification (H299). Strengthens H298 mechanism interpretation.
+
+### New assignment this cycle
+
+**H307 nezuko: Schedule-aware mid-training gradient-noise injection (POST-NS5)** — direct response to H298 paper-grade "untapped mid-training headroom" finding via orthogonal mechanism to H306 V-shape μ schedule. 3-arm Pattern A Option C structural (~20 LoC adds `body_noise_epsilon` flag + POST-NS5 noise injection block gated by cooldown phase). 97th mechanism class candidate.
+
+3-arm Option C:
+- arm_a CTRL: --body_noise_epsilon 0.0 (baseline)
+- arm_b NOISE_LOW: --body_noise_epsilon 0.001 (Langevin noise added POST-NS5 during constant-LR phase only, OFF during cooldown)
+- arm_c NOISE_HIGH: --body_noise_epsilon 0.01
+
+Mechanism: NS5 projection produces the unit-magnitude update direction. Adding Gaussian noise POST-NS5 perturbs the projected direction without going through the polar normalization. Schedule-aware: noise OFF during cooldown to preserve H298 cooldown signal aggregation. Orthogonal mechanism to H306 V-shape μ (which modulates inner momentum smoothing) — both target the H298 mid-training −0.04 val headroom via DIFFERENT mechanisms. If both produce signal: convergent evidence for "mid-training exploration" mechanism.
+
+WIN prob 8-12%. Different family entirely from Adan finite-difference (which was pre-NS5 and got absorbed/corrupted).
+
+### Current chain portfolio (8 chains in flight after H299 closure + H307 assignment)
+
+| Chain | Student | Hypothesis | PR | Status |
+|-------|---------|------------|-----|--------|
+| H300 | tanjiro | Aux global gradient-norm clip | #1804 | WIP arm_c running, arm_b TERMINAL DNF |
+| H301 | frieren | Polyak EMA decay fine-grid 0.10/0.125/0.15 | #1809 | WIP arm_a near-terminal |
+| H302 | edward | EMA per-group decay aux=0.10/body=0.0 | #1813 | WIP arm_a running ~67% |
+| H303 | askeladd | EMA decay TEMPORAL RAMP-UP 0.0→0.10 | #1817 | WIP |
+| H304 | alphonse | EMA COOLDOWN-CONFINED at decay=0.10 | #1818 | WIP arm_a TERMINAL high-drift, arm_b running early |
+| H305 | fern | HALLEY × per-group EMA decay | #1822 | WIP |
+| H306 | thorfinn | V-shape μ schedule (NEW) | #1827 | WIP just-assigned |
+| H307 | nezuko | Schedule-aware POST-NS5 gradient noise (NEW) | #??? | WIP just-assigned |
+
+### Mechanism-class roll-up post-H299
+
+**96 mechanism classes attempted**. Categories now include:
+- 6-axis PF#56 MuLoCo cube CONFIRMED-RIGID
+- AGC subsystem 6-axis closed (H93/H102/H105/H114/H119/H292)
+- Cautious axis bilateral closed (H544 AUX-AdamW + H280 BODY-MuonH NEG)
+- GC axis bilateral closed (H196 AUX + H281 BODY both NULL)
+- **NEW: Adan axis bilateral closed (H169 AUX + H299 BODY both NEG)**
+- NS5 cube 6 axes closed (H267 iter, H287 HALLEY polynomial, H291 input scaling, H280 cautious, H296 polynomial×iter subadditive, H297 HALLEY×aux_only)
+- EMA 3-axis cube CLOSED (H288 temporal × H290 scope × H294 value)
+- μ_end VALUE 5-axis cube CLOSED for monotone schedules (H125/H295/H266/H298)
+- HALLEY × stack SUBADDITIVE pattern (H296 + H297)
+- Body EMA load-bearing under HALLEY (H297 paper-grade scope-swap penalty 3.78×)
+- Scope-dependent track-not-average inversion (H266 EMA vs H298 body-inner-momentum)
+- Cross-phase μ-timescale dissociation (mid-training × cooldown role inversion, H298)
+- **NEW: pre-NS5 inner gradient-information axis broadly closed (5 subclasses H92/H229/H280/H281/H299 all NEG)**
+- **NEW: polar-projection vs finite-difference incompatibility (NS5 magnitude-norm preserves direction, pre-NS5 perturbations corrupt projected direction)**
+
+### Next research directions
+- **H306 V-shape μ + H307 mid-training noise** (both target H298 mid-training headroom — convergent evidence if both produce signal)
+- **EMA temporal characterization** (H303 + H304 in flight)
+- **EMA fine-grid right of optimum** (H301 in flight — highest portfolio WIN prob 20-25%)
+- After H306/H307: consider **two-phase piecewise μ schedule** or **U-shape with plateau** as variant of V-shape
+- After H306/H307: consider **POST-NS5 mechanisms** family expansion since H299 closed pre-NS5 (e.g., post-NS5 cautious, post-NS5 sign-momentum, post-NS5 Lookahead averaging)
+- Cooldown shape variants beyond cosine (sqrt is already supported as choice)
+- Aux beta2 schedule shapes (currently constant 0.99; cosine/linear untested)
+
+---
+
 ## Cycle ~1230: H298 CLOSED 152nd NULL/NEG (🎯 paper-grade CROSS-PHASE μ-TIMESCALE DISSOCIATION + scope-dependent TRACK-NOT-AVERAGE role inversion vs H266 EMA mechanism, 95th mechanism class) + H306 ASSIGNED thorfinn (V-shape μ schedule — direct H298 mid-training trajectory follow-up)
 
 **One terminal closure + one fresh non-monotone-μ-schedule assignment. Plateau campaign portfolio: 152 NULL/NEG + 1 MERGED WIN (H266), 95 mechanism classes attempted.**
