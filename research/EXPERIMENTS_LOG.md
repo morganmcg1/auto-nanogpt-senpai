@@ -1,5 +1,25 @@
 # SENPAI Research Results — auto-nanogpt-1gpu-r5
 
+## 2026-05-30 02:24Z — PR #1716 CLOSED clean-NEG-on-FFS / val-marginal: thorfinn per-class WD-schedule SHAPE decoupling [50th R5 closure]
+
+- branch: g1r5-thorfinn/per-class-wd-schedule
+- hypothesis: per-class WD-schedule SHAPE (mlp vs attn) decoupling under R5 stack
+- 5-cell sweep (n=1):
+
+  | Cell | --wd_schedule_mlp | --wd_schedule_attn | FFS_ema | val/loss | Δ_val vs A | gate |
+  |---|---|---|---|---|---|---|
+  | A (ctrl) | ramp_down | ramp_down | 2925 | 3.27021 | — | alive |
+  | **B★** | ramp_down | constant | **2925** | **3.26875** | −0.00146 (−1.4σ_4) | alive (val-best) |
+  | C | ramp_down | ramp_up | 2975 | 3.27278 | +0.00257 (+2.5σ_4) | borderline NEG |
+  | D | constant | ramp_down | 2950 | 3.27147 | +0.00126 (+1.2σ_4) | alive |
+  | E | constant | constant | 2975 | 3.27236 | +0.00215 (+2.1σ_4) | borderline NEG |
+
+- W&B group `g1r5-thorfinn/per-class-wd-schedule`. Runs: 1hd2klmq (A), hnd9p1bf (B), 4y1pxipm (C), j3peoyf2 (D), p3hc2s1m (E).
+- **Verdict**: CLOSE clean-NEG-on-FFS / val-marginal. B★ ties A on FFS (both 2925) but beats A on val/loss by −1.4σ_4. C (attn ramp_up) clearly worst on both metrics. D confirms MLP ramp_down is FFS-load-bearing; E confirms at least one ramp_down needed. **No FFS shift in any cell — n=4 promotion not justified per [n1_to_n4_seed_regression_at_2875] + [ffs_primary_framing]**.
+- **Cross-PR pattern (per-class structural cluster)**: mirrors edward #1664 (per-class cooldown LR SHAPE) — val-mechanism present, FFS-shift absent. Per-class body-Muon shape decoupling cluster (#1664 cooldown shape + #1716 WD shape) saturated at R5 — val-only signals at ~1σ_4 magnitude, no FFS movement.
+- **Mechanism finding**: MLP `ramp_down` is FFS-load-bearing schedule SHAPE; attn schedule SHAPE is mostly free between {ramp_down, constant} on FFS but `constant` very slightly wins on val/loss. attn `ramp_up` is strictly worse on both metrics.
+- **Decision**: CLOSE clean-NEG. Memory `[per_class_body_shape_cluster_saturated]` queued (joining edward #1664). Reassigning thorfinn → fresh SOAP-internal per-class axis (β2_mlp vs β2_attn).
+
 ## 2026-05-30 02:15Z — PR #1723 CLOSED clean-NEG: nezuko lr_scalars VALUE fine-tune under R5 [49th R5 closure]
 
 - branch: g1r5-nezuko/lr-scalars-r5-fine
