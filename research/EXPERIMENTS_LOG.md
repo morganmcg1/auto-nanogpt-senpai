@@ -1,5 +1,27 @@
 # SENPAI Research Results — auto-nanogpt-1gpu-r5
 
+## 2026-05-30 01:11Z — PR #1664 CLOSED clean-NEG-on-FFS / val-POS-mechanism: edward per-class body Muon cooldown SHAPE decouple (mlp=cosine, attn=linear)
+
+- branch: g1r5-edward/body-cooldown-shape-decouple → n=4 confirm group `g1r5-edward/per-class-cooldown-shape-confirm`
+- hypothesis: at n=1 (#1664 5-cell), Cell B★ (mlp=cosine, attn=linear) hit FFS_ema=2875 with clean falsifier (Cell E mlp=cos/attn=step catastrophic). Promoted to n=4 confirm.
+- n=4 per-trial results (W&B `p7ia0dqz`, single multi-trial launch, 13003 steps):
+
+| trial | FFS_ema | FFS_raw | best_val_loss | ema_best_val_loss |
+|:---:|:---:|:---:|:---:|:---:|
+| 0 | 2925 | 2925 | 3.26697 | 3.26755 |
+| 1 | 2925 | 2925 | 3.26845 | 3.26906 |
+| 2 | 2925 | 2925 | 3.26732 | 3.26790 |
+| 3 | 2925 | 2925 | 3.26733 | 3.26791 |
+
+| Metric | μ_4 | σ_4 | Δ vs baseline | Δσ |
+|:---|:---:|:---:|:---:|:---:|
+| FFS_ema | **2925.0** | **0.0** | **+12.5** | +0.50σ |
+| val/loss | 3.267517 | 0.000644 | −0.002083 | −2.06σ |
+
+- **Verdict**: FFS-primary clean-NEG (fails merge gate ≤2887.5 by +37.5). val/loss meaningfully improved (−2σ) but FFS unmoved — per-class shape decoupling is val-mechanism only. n=1 FFS=2875 was −1σ tail of σ_1≈50 around μ_4=2912.5; regressed to baseline at n=4.
+- **Body-Muon per-class differentiation taxonomy closed for shape**: LR magnitude (#162 merged) only load-bearing per-class lever; mu (#1615 closed) + shape (this PR closed) FFS-cosmetic.
+- **Pattern flagged → memory `n1-to-n4-seed-regression-at-2875`**: Second R5 n=1 FFS=2875 to regress to 2925 at n=4 in 12h (alphonse #1689 t0 also). Future n=4 promotions require ≥1 cell at FFS_ema ≤ 2850 OR ≥2 convergent 2875 cells with dose-response.
+
 ## 2026-05-29 21:52Z — PR #1689 SEND-BACK for n=4 confirm [60th R5 result — SOAP Gram β₂ warmup n=1 strong-positive]: alphonse SOAP Gram-matrix β₂ warmup schedule
 
 - branch: g1r5-alphonse/soap-gram-b2-warmup
