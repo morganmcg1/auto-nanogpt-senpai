@@ -114,6 +114,17 @@ def parse_args():
                         help="Polyak-Ruppert EMA decay for eval-only weight averaging. "
                              "0.0 = disabled (drift-FREE CTRL). Typical: 0.05 (fast, ~20-step half-life) / "
                              "0.005 (slow, ~200-step half-life). Higher decay = faster EMA tracking.")
+    parser.add_argument("--polyak_ema_aux_decay", type=float,
+                        default=float(os.environ.get("POLYAK_EMA_AUX_DECAY", "-1.0")),
+                        help="H302 per-group Polyak EMA decay for aux params (optimizer1: embed, lm_head, scalars). "
+                             "-1.0 (default) = use --polyak_ema_decay. Set to positive value to override aux-group "
+                             "decay independently. 0.0 = disable EMA for aux params (eval uses live param values).")
+    parser.add_argument("--polyak_ema_body_decay", type=float,
+                        default=float(os.environ.get("POLYAK_EMA_BODY_DECAY", "-1.0")),
+                        help="H302 per-group Polyak EMA decay for body params (optimizer2: block 2D weights). "
+                             "-1.0 (default) = use --polyak_ema_decay. 0.0 = disable EMA for body params (eval "
+                             "uses live param values). Set to positive value to override body-group decay "
+                             "independently.")
     args = parser.parse_args()
     args.num_trials = args.num_trials if args.num_trials is not None else (args.legacy_num_trials or 1)
     args.wandb_tags = [tag.strip() for tag in args.wandb_tags.split(",") if tag.strip()]
@@ -856,6 +867,12 @@ if dist.get_rank() == 0:
             "muonh_mu_start": args.muonh_mu_start,
             "muonh_mu_end": args.muonh_mu_end,
             "polyak_ema_decay": args.polyak_ema_decay,
+            "polyak_ema_aux_decay": args.polyak_ema_aux_decay,
+            "polyak_ema_body_decay": args.polyak_ema_body_decay,
+            "ema/aux_decay": (args.polyak_ema_aux_decay
+                              if args.polyak_ema_aux_decay >= 0.0 else args.polyak_ema_decay),
+            "ema/body_decay": (args.polyak_ema_body_decay
+                               if args.polyak_ema_body_decay >= 0.0 else args.polyak_ema_decay),
         },
     )
 
@@ -1062,15 +1079,30 @@ for trial_idx in range(args.num_trials):
     # H266: Polyak-Ruppert EMA buffer for eval-only weight averaging (Pattern A drift-FREE).
     # When decay == 0.0 the state stays None and all H266 code paths short-circuit, so the
     # train/val flow remains bit-identical to the H203 baseline.
+    # H302: per-group decay — aux params (optimizer1) and body params (optimizer2) can use
+    # different EMA decays. -1.0 sentinel = inherit --polyak_ema_decay. 0.0 = disable EMA
+    # for that group (eval-time swap uses live param values, since polyak_ema_state always
+    # equals param.data after the post-step "no EMA" branch).
+    _aux_decay_eff = args.polyak_ema_aux_decay if args.polyak_ema_aux_decay >= 0.0 else args.polyak_ema_decay
+    _body_decay_eff = args.polyak_ema_body_decay if args.polyak_ema_body_decay >= 0.0 else args.polyak_ema_decay
     polyak_ema_state = None
-    if args.polyak_ema_decay > 0.0:
+    polyak_ema_body_names = set()
+    if args.polyak_ema_decay > 0.0 or _aux_decay_eff > 0.0 or _body_decay_eff > 0.0:
         polyak_ema_state = {
             name: param.data.clone().detach()
             for name, param in model.named_parameters()
         }
+        # Tag body params by identity against optimizer2 (MuonH) param groups.
+        _body_param_ids = {id(p) for g in optimizer2.param_groups for p in g["params"]}
+        polyak_ema_body_names = {
+            name for name, param in model.named_parameters() if id(param) in _body_param_ids
+        }
         if dist.get_rank() == 0:
             total_ema_bytes = sum(p.numel() * p.element_size() for p in polyak_ema_state.values())
-            print0(f"H266 Polyak EMA buffer initialized: decay={args.polyak_ema_decay}, "
+            n_aux = sum(1 for n in polyak_ema_state if n not in polyak_ema_body_names)
+            n_body = len(polyak_ema_body_names)
+            print0(f"H266/H302 Polyak EMA buffer initialized: global_decay={args.polyak_ema_decay}, "
+                   f"aux_decay={_aux_decay_eff} ({n_aux} params), body_decay={_body_decay_eff} ({n_body} params), "
                    f"total_bytes={total_ema_bytes/(1024**3):.2f}GB", console=True)
 
     # start the clock
@@ -1217,11 +1249,18 @@ for trial_idx in range(args.num_trials):
         # H266: Polyak-Ruppert EMA update — runs after the live inner-optimizer step.
         # When polyak_ema_state is None this branch is skipped, leaving the training
         # path bit-identical to the H203 baseline.
+        # H302: per-group decay. decay == 0.0 means EMA is disabled for that group →
+        # copy live param into the EMA buffer so the eval-time swap is a no-op for
+        # that param. Otherwise use the existing parameterization
+        # ema = (1 - decay) * ema + decay * param (higher decay = faster tracking).
         if polyak_ema_state is not None:
             with torch.no_grad():
-                decay = args.polyak_ema_decay
                 for name, param in model.named_parameters():
-                    polyak_ema_state[name].mul_(1.0 - decay).add_(param.data, alpha=decay)
+                    decay = _body_decay_eff if name in polyak_ema_body_names else _aux_decay_eff
+                    if decay == 0.0:
+                        polyak_ema_state[name].copy_(param.data)
+                    else:
+                        polyak_ema_state[name].mul_(1.0 - decay).add_(param.data, alpha=decay)
         # Log warmup telemetry every 10 steps during warmup (and at telemetry events
         # afterwards) so we capture the warmup curve at high resolution. Cheap since
         # it's just two floats.
