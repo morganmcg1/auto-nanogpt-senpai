@@ -1,5 +1,29 @@
 # SENPAI Research Results — auto-nanogpt-1gpu-r5
 
+## 2026-05-30 17:35Z — PR #1825 CLOSED clean-NEG + structural mechanism: edward Cayley map closed-form NS replacement [62nd R5 closure]
+
+- branch: g1r5-edward/cayley-map-ns
+- hypothesis: replace iterative NS5 polynomial with single-step Cayley resolvent Q = X(I + 0.5(I − X^T X))^{-1}(1.5I − 0.5X^T X), claimed "exact Q^T Q = I to float precision".
+- W&B group: edward-cayley-ns-r5
+
+| Cell | Backend | W&B run | FFS_ema | FFS_trainval | val/loss | val/ema_corr | step_avg | Notes |
+|---|---|---|---|---|---|---|---|---|
+| A | poly (CTRL) | jwzgzizn | 2925 | 2950 | 3.27026 | 3.27077 | 1890ms | Clean CTRL replicate, matches μ_4=2912.5±25 |
+| B★ | cayley | jejaikwy | −1 | −1 | 3.36078 | 3.36131 | 2447ms | Never crossed 3.28; +Δval≈+89σ_single; 30% slower wall-clock |
+| C | cayley n=4 | — | — | — | — | — | — | Blocked per predeclared falsifier "Cell B FFS_ema > 2975 → close axis" |
+
+- verdict: CLOSED 62nd R5 axis clean-NEG, predeclared falsifier triggered. Cayley one-step does NOT orthogonalize Frobenius-normalized matrices; produces Q ≈ (2/3)·X_normalized with no spectral whitening.
+- **★★ STRUCTURAL MECHANISM**:
+  - Frobenius normalization X/‖X‖_F bounds σ_max(X) ≈ 1/√min(m,n) = 0.036 for (768,768) Gaussian, and ~0.63 in the actual training stack per #1829.
+  - Cayley single step has σ-transform σ → σ/(1.5 − 0.5σ²) with σ=1 fixed point, but from σ≈0.04 it gives σ≈0.027 — moves AWAY from 1.
+  - Pre-launch sv-check (student's diligence at 12:38Z): NS5(12) achieves ‖Q^T Q − I‖_F/dim = 0.0016 vs Cayley(1) = 0.036 (22× worse residual). Median σ: NS5=1.001 vs Cayley=0.019.
+  - Mechanism is INVERSE of NS5's cubic convergence: NS5 iterates over 12 steps from σ≈0.04 → σ≈1; Cayley(1) is a single resolvent step that only contracts toward σ=1 when σ already near 1.
+  - Wen-Yin (2013) Cayley retraction clarification: their R(A,G) = (I + W/2)^{-1}(I − W/2)A is a Stiefel-manifold→manifold map starting from already-orthogonal A. The PR formula is a one-step ambient-space polar approximant — mathematically distinct.
+  - Compute cost: 2447 ms (Cayley) vs 1890 ms (NS5) — 30% slower per step. Worst of both worlds.
+- **Composition with #1829 (61st today)**: Together these establish Frobenius pre-scaling IS load-bearing for placing input in NS5's iterative-convergence regime, and the iteration count is structurally necessary to climb from σ≈0.04 (init) or σ≈0.6 (training stack) toward σ=1. One-step closed-form polar-replacement families cannot work under Frobenius pre-normalization.
+- **Cross-axis cluster**: polynomial-replacement axis now 2/3 closed at R5 — Higham polar (#1833, 59th), Cayley (#1825, 62nd). Padé (fern #1826) still in-flight. The polynomial-iteration NS5 family is structurally privileged.
+- memory rule: `cayley_one_step_inadequate_under_frobenius` — reject single-step closed-form NS replacements without explicit spectral-norm pre-scaling justification
+
 ## 2026-05-30 14:42Z — PR #1829 CLOSED clean-NEG + structural mechanism: frieren spectral-norm pre-NS scaling [61st R5 closure]
 
 - branch: g1r5-frieren/spectral-norm-pre-ns

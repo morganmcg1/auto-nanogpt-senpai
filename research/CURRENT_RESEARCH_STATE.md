@@ -9,7 +9,20 @@ The human research team has redirected: **FFS (first-step-to-target, baseline 30
 3. **Prefer experiments that move the crossing step** (2800-3050 window), **simplify winning stacks**, **reveal FFS-load-bearing components**.
 4. **Ablations preferred over confirmations** when FFS dead.
 
-## Last updated: 2026-05-30 14:44Z (61 R5 axis closures; frieren #1829 spectral-norm pre-NS CLOSED 61st [structural mechanism: Frobenius load-bearing for Muon LR]; #1841 spec-ns-lr-cotune ASSIGNED to frieren)
+## Last updated: 2026-05-30 17:38Z (62 R5 axis closures; edward #1825 Cayley CLOSED 62nd [Frobenius pre-norm puts σ outside Cayley convergence basin]; edward to be reassigned next)
+
+### Notes (2026-05-30 17:38Z) — EDWARD #1825 CAYLEY CLOSED 62nd [σ-BASIN MISMATCH WITH FROBENIUS NORMALIZATION]
+
+- **★ CLOSED #1825 edward Cayley map closed-form NS replacement** [62nd R5 closure, 17:35Z] — clean-NEG, predeclared falsifier triggered. Exceptional mechanism analysis:
+  - Cell A poly CTRL (jwzgzizn): FFS_ema=2925, FFS_trainval=2950, val/ema=3.27077 ✓ matches baseline μ_4=2912.5±25
+  - Cell B Cayley (jejaikwy): FFS_ema=−1 (never reached 3.28), FFS_trainval=−1, val/ema=3.36131 ✗ catastrophic
+  - Cell C n=4 blocked per predeclared falsifier "Cell B FFS_ema > 2975 → close axis"
+  - **★★ STRUCTURAL MECHANISM**: under Frobenius normalization X/‖X‖_F, σ_max(X) ≈ 1/√min(m,n) ≈ 0.036 for (768,768) Gaussian. Cayley one-step σ → σ/(1.5 − 0.5σ²) only converges near σ=1 fixed point; from σ≈0.04 it gives σ≈0.027 (moves AWAY). NS5 quintic with 12 iters achieves orthogonality residual 0.0016; Cayley(1) gets 0.036 (22× worse, 30% slower wall-clock).
+  - **Wen-Yin Cayley retraction clarification**: PR's formula is NOT the Wen-Yin Stiefel retraction (which is manifold→manifold from an already-orthogonal point). The "Cayley NS replacement" is a one-step ambient-space resolvent, inheriting σ-basin constraint from polar-approximation theory.
+  - **Memory rule saved**: `cayley_one_step_inadequate_under_frobenius` — reject single-step closed-form NS replacements unless spectral-norm pre-scaling is explicit
+- **Composition with #1829 (closed 61st today)**: Together they establish that Frobenius pre-scaling places NS input in the iterative-convergence regime, and iteration count is structurally necessary to climb from σ≈0.04 (Gaussian init) or σ≈0.6 (training-stack mid-run) toward σ=1. A one-step closed-form family cannot work under Frobenius pre-normalization.
+- **Polynomial-replacement axis status**: Higham polar (#1833 KG_smoke FAIL, 59th), Cayley (#1825 22× worse residual, 62nd) → both classical closed-form polar approximants closed. Padé (fern #1826) in-flight. The polynomial-iteration family (NS5 with k iters) is structurally privileged for this stack.
+- **Edward idle, fresh assignment incoming** — septic NS polynomial (degree-7) axis: distinct from #1826 Padé (rational form), distinct from #1796 phase-schedule (NS5 coefficients still). Tests whether higher-degree polynomial improves σ-convergence at the same ns_iter=6 budget.
 
 ### Notes (2026-05-30 14:44Z) — FRIEREN #1829 SPECTRAL-NORM PRE-NS CLOSED 61st [FROBENIUS LOAD-BEARING MECHANISM]; #1841 SPEC-NS-LR-COTUNE ASSIGNED
 
