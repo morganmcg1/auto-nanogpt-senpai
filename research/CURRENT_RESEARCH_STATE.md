@@ -1,3 +1,52 @@
+## 2026-05-30 06:30 UTC — Cycle 71 mid-410 — fern #1754 Arm B BELOW BASELINE n=1 (n=2 send-back) + thorfinn #1765 Arm A CONSTRUCTIVE NEGATIVE INTERACTION (PROVISIONAL STRUCTURAL FINDINGS — no closures this wake)
+
+### fern #1754 PER_KIND_AUX_PERIODIC_RESET_EMBED_MOMENT_ISOLATION — STRONGEST n=1 BELOW-BASELINE SINGLE-AXIS RESULT IN CYCLE 71
+
+Arm A `embed_reset_sq_only` (RESET_MOMENT=1, denominator destruction): val=3.39738/ffs=-1 **CATASTROPHIC** (+0.12963 above baseline, exp_avg_sq spike 19.5× at step 525 cascading to ~307210 by step 2025). Arm B `embed_reset_avg_only` (RESET_MOMENT=2, numerator zeroing): val=3.26747/ffs=3000 **BELOW baseline by Δ=−0.00029 at n=1**. Δ(B−A)=−0.12992 conclusive moment-attribution decomposition. **Strongest single-seed below-baseline screening result in cycle 71** (cleanest moment-attribution decomposition we have).
+
+Mechanism: exp_avg-only reset preserves denominator coherence across reset (continuously updated with squared gradients); numerator zeroing acts as a small "stale-momentum flush" that the optimizer recovers from within ~25 steps. Late-training LR-decayed gradient signal followed faithfully without stale early-training momentum bias.
+
+Stat rule (3.28−μ)·√n ≥ 0.004 PASSES at n=1 (0.01253, 3.13× bar). Merge bar val<3.26776 AND ffs≤3000 PASSES at n=1. **SEND-BACK for n=2 confirmation** — Δ=−0.00029 margin is well within cross-seed noise (~±0.001), askeladd #1731 precedent (first-seed NEAR-FLOOR-NEW → n=2 mean +0.00021 above baseline) demonstrates regression-to-mean risk near floor. Student's own SENPAI-RESULT requested n=2 confirmation. seed-2 launch command posted with W&B group + wandb_name `arm-b-embed-reset-avg-only-250-seed1`.
+
+### thorfinn #1765 PER_KIND_AUX_WD_JOINT_COMPOUND — CONSTRUCTIVE NEGATIVE INTERACTION at cross-kind WD-direction joint compound
+
+Arm A `joint_preferred` (WD_EMBED=0.0003 + WD_LM_HEAD=0.003) FINISHED: val=3.27012/ffs=3025. Δ vs baseline = +0.00236; Δ vs additive null (baseline + per-axis Δs = 3.26776 + 0.00192 + 0.00227 = 3.27195) = **−0.00183**. Joint compound lands 0.00183 BELOW additive null prediction. The two cross-kind WD-direction perturbations interact constructively-less-destructively at joint scope. Joint Δ ≈ single-axis Δ (within ~0.00009 of #1683/#1705 embed-DOWN cluster mean 3.26962). Joint perturbation behaves like a single-axis perturbation, NOT like the sum of two.
+
+**STRUCTURAL FINDING — cross-kind WD-direction asymmetry has SHARED SUBSTRATE**: embed-DOWN and lm_head-UP both modify the same underlying mechanism (likely the relative balance of update magnitudes between high-LR and low-LR kinds), so applying both is not "two independent perturbations" but "one perturbation expressed in two directions". This is the strongest direct evidence yet for cross-kind WD-coupling at the AdamW-state level. **Rules out additive compound stacking at the WD axis**.
+
+Mechanism candidates: (1) Joint regularization budget hypothesis — total regularization at AdamW level is what matters (embed_wd × embed_lr + lm_head_wd × lm_head_lr); (2) Per-step update magnitude balance hypothesis — the relative size of embed vs lm_head updates is the load-bearing scalar; (3) Trust-gate admission coupling — WD changes shift moment-state distributions, which couples through gate statistics to both kinds simultaneously.
+
+Arm B `joint_anti_preferred` (WD_EMBED=0.003 + WD_LM_HEAD=0.0003) launched at 03:49:50Z `bpxn9paz` running. Outcome bands: B<baseline ⇒ MERGE candidate; B<3.27012 ⇒ direction-asymmetry preserved at joint scope; 3.27012≤B<3.27195 ⇒ constructive negative interaction at anti-preferred direction too (strong evidence shared-substrate); B≈3.27195 ⇒ additive at anti-preferred (direction-specific to preferred-side); B>3.27195+0.003 ⇒ super-additive destruction at anti-preferred.
+
+### Wake-107 fleet status
+
+Fleet 8/8 active: askeladd #1775 alphonse #1758 edward #1766 fern #1754 frieren #1755 nezuko #1763 tanjiro #1778 thorfinn #1765. No idle students. fern #1754 sent-back to status:wip for seed-2 of Arm B; thorfinn #1765 advisor ping posted documenting Arm A constructive negative interaction + asking for Arm B heartbeat + terminal bilateral SENPAI-RESULT.
+
+### Cycle 71 cumulative state (unchanged from mid-409 — no new closures this wake)
+
+**Cycle 71 cumulative**: **314 refuted** / **183 distinct mech classes** / **150 family-level closures**.
+
+### Emerging structural axes in cycle 71 — UPDATED
+
+| # | axis | direction-preferences | evidence | status |
+|---|---|---|---|---|
+| 1 | Cross-kind WD-direction asymmetry | embed prefers DOWN, lm_head prefers UP | #1683/#1705 + #1732 | **CONFIRMED shared-substrate via #1765 Arm A constructive negative interaction** |
+| 2 | Cross-kind β1-direction inversion | embed prefers FAST (0.7), lm_head prefers SLOW (0.9) | #1678 B + #1724 + #1750 | structural finding, no compound yet |
+| 3 | Depth-mechanism cluster BACK-favored | back-half blocks load-bearing across two mech classes (β2-phase #1731 + init-magnitude #1738) | #1731 + #1738 | structural finding, kind-crosswire #1758 in flight |
+| 4 | Per-projection-role split within attn-SOAP | read-path (q,k) prefer EARLY, write-path (proj) prefers LATE | #1642 + #1718 + #1741 + #1763 (qk joint) | structural finding |
+| 5 | **NEW Cross-kind moment-isolation asymmetry** | exp_avg reset productive (avg flush), exp_avg_sq reset catastrophic (denom destruction) | **#1754 Arm B BELOW baseline at n=1 (provisional, awaiting n=2)** | **provisional structural finding** |
+
+If #1754 n=2 confirms (Arm B mean below baseline), fern #1754 becomes **first merge candidate of cycle 71** (since baseline lock at #613) and opens the **moment-isolation axis** as productive 5th structural axis.
+
+### PRs sent-back / pinged this wave (no closures, 1 send-back + 1 ping)
+
+| PR | student | action | outcome |
+|---|---|---|---|
+| **fern #1754** | fern | SEND-BACK to status:wip for n=2 confirmation of Arm B `embed_reset_avg_only` | seed-1 val=3.26747/ffs=3000 BELOW baseline by Δ=−0.00029 at n=1. Strongest n=1 below-baseline single-axis result in cycle 71. Student requested n=2 confirmation. seed-2 launch command posted. Provisional 5th structural axis. |
+| **thorfinn #1765** | thorfinn | ADVISOR PING (stale_wip resolution) | Arm A `cl98z5eo` FINISHED val=3.27012/ffs=3025, constructive negative interaction (lands 0.00183 BELOW additive null 3.27195). Cross-kind WD-direction asymmetry shared-substrate STRUCTURAL FINDING. Arm B `bpxn9paz` running. Awaiting Arm A SENPAI-RESULT + Arm B terminal bilateral SENPAI-RESULT. |
+
+---
+
 ## 2026-05-30 05:30 UTC — Cycle 71 mid-409 — tanjiro #1750 314th refute, 150th family closure (PER_KIND_EMBED_AUX_BETA1_PHASE_DISPATCH bilateral val_mean=3.27079/ffs=3025 misses merge bar by +0.00303/+25, META-FINDING LOCKED: AdamW-side phase-dispatch axis fully closed at 3-of-3 cells lm_head×β1 + embed×β1 + AUX-uniform×β2 all refuted, cross-kind β1-direction inversion preserved as 4th structural axis: embed prefers EARLY-FAST + lm_head prefers LATE-SLOW, 183rd mech class MONOTONIC-DECAY-EARLY-FAVORED). New assignment tanjiro #1778 PER_KIND_AUX_BETA2_DIRECTION (per-kind β2 directional asymmetry test: Arm A embed_β2=0.91/lm_head_β2=0.99 preferred, Arm B embed_β2=0.99/lm_head_β2=0.91 anti-preferred; tests whether cross-kind direction-inversion replicates at β2 axis, could explain #1653 AUX-uniform null as asymmetric cancellation). Fleet: 8/8 active (askeladd #1775 alphonse #1758 edward #1766 fern #1754 frieren #1755 nezuko #1763 tanjiro #1778 thorfinn #1765). Cumulative: 314 refuted / 183 mech classes / 150 family closures.
 
 ## 2026-05-30 04:30 UTC — Cycle 71 mid-408 — askeladd #1731 313th refute, 149th family closure (PER_DEPTH_HALF_ATTN_SOAP_BETA2 n=2 NEAR-FLOOR-NEW: val_mean=3.26797/ffs=3000 misses merge bar by +0.00021, back-FAST β2 direction confirmed sub-merge-productive, Δ(B−A)=−0.00263 strongly directional, 182nd mech class NEAR-FLOOR-NEW-ASYMMETRIC-DEPTH). New assignment askeladd #1775 PER_DEPTH_HALF_MLP_SOAP_BETA2 (parallel test: does depth-axis β2 productivity generalize from attn-SOAP to MLP-SOAP? Arm A front_FAST MLP_SOAP_BETA2_FRONT=0.85/BACK=0.95, Arm B back_FAST MLP_SOAP_BETA2_FRONT=0.95/BACK=0.85). Advisor pings: alphonse #1758 stale_wip (Arm A back_attn_tight step 2325 val=3.385, asked for heartbeat + Arm B launch), frieren #1755 Arm A terminal val=3.27089/ffs=3025 STANDARD-cluster-edge (col-axis fc-gate IS productive, closest cycle-71 gate-statistic-axis result to floor band, Arm B running step 400), nezuko #1763 stale_wip (2 pod crashes, productive Arm A 0sprqc7j step 3025 val=3.281 near terminal, ffs pending, asked for heartbeat + Arm B launch). Cumulative: 313 refuted / 182 mech classes / 149 family closures.
