@@ -468,6 +468,13 @@ NS5_ITERS = int(os.environ.get("NS5_ITERS", "12"))
 WD_AUX = float(os.environ.get("WD_AUX", "0.0"))  # AdamW WD on embed + lm_head matrices (scalars stay at 0)
 EMBED_INIT_STD = float(os.environ.get("EMBED_INIT_STD", "1.0"))  # default preserves baseline N(0,1)
 LOGIT_SOFTCAP = float(os.environ.get("LOGIT_SOFTCAP", "15.0"))  # default = 15 (current hardcoded value); soft-cap value c in f(x) = c·x / sqrt(x^2+c^2)
+# Per-kind AdamW state-reset for lm_head (parallel to fern #1754 embed). Periodically zero
+# one of the moments of the adam_lm_head group only. Modes: 0=disabled, 1=exp_avg_sq only,
+# 2=exp_avg only. Predicted: mode 2 productive (numerator flush), mode 1 catastrophic
+# (denominator destruction) — tests cross-kind moment-isolation asymmetry vs effective LR.
+PER_KIND_AUX_PERIODIC_RESET_LM_HEAD_ENABLED = int(os.environ.get("PER_KIND_AUX_PERIODIC_RESET_LM_HEAD_ENABLED", "0"))
+AUX_RESET_INTERVAL_LM_HEAD = int(os.environ.get("AUX_RESET_INTERVAL_LM_HEAD", "250"))
+AUX_RESET_MOMENT_LM_HEAD = int(os.environ.get("AUX_RESET_MOMENT_LM_HEAD", "0"))
 
 
 def zeropower_via_newtonschulz5(G: Tensor) -> Tensor:
@@ -866,6 +873,9 @@ if dist.get_rank() == 0:
             "optimizer/attn_soap_trust_threshold": ATTN_SOAP_TRUST_THRESHOLD,
             "optimizer/ns5_iters": NS5_ITERS,
             "optimizer/wd_aux": WD_AUX,
+            "optimizer/per_kind_aux_periodic_reset_lm_head_enabled": PER_KIND_AUX_PERIODIC_RESET_LM_HEAD_ENABLED,
+            "optimizer/aux_reset_interval_lm_head": AUX_RESET_INTERVAL_LM_HEAD,
+            "optimizer/aux_reset_moment_lm_head": AUX_RESET_MOMENT_LM_HEAD,
             "optimizer/recipe": "contra-muon + normuon-lite + soap-on-mlp + soap-on-attn-trust-gate (pre-NS5, record #14 + record #16)",
         },
     )
@@ -879,6 +889,14 @@ for trial_idx in range(args.num_trials):
 
     # we want to minimize this while still reaching 3.28 val loss
     train_steps = args.train_steps if args.train_steps is not None else 3175
+
+    # Precompute lm_head adamw state-snapshot steps: full-history validation steps plus
+    # 5-step granularity around each reset boundary so reset-induced spikes/recoveries are
+    # visible in the per-kind reset telemetry.
+    lm_head_snapshot_steps: set[int] = {500, 1000, 1500, 2000, 2500, 3000, 3175}
+    if PER_KIND_AUX_PERIODIC_RESET_LM_HEAD_ENABLED and AUX_RESET_INTERVAL_LM_HEAD > 0:
+        for _b in range(AUX_RESET_INTERVAL_LM_HEAD, train_steps + 1, AUX_RESET_INTERVAL_LM_HEAD):
+            lm_head_snapshot_steps.update((_b - 5, _b, _b + 5))
 
     # initialize model parameters
     for name, p in model.named_parameters():
@@ -1051,8 +1069,72 @@ for trial_idx in range(args.num_trials):
                 train_steps=train_steps,
                 wandb_step=wandb_step,
             )
+        # Rank-0 sanity probes at step 0 (verify the adam_lm_head group has the expected
+        # lr=1/320, betas=(0.8, 0.95) so that any moment-reset finding is not contaminated
+        # by an accidental hyperparameter mismatch).
+        if step == 0 and trial_idx == 0 and dist.get_rank() == 0:
+            lm_head_group = optimizer1.param_groups[1]
+            assert lm_head_group.get("name") == "adam_lm_head", \
+                f"expected param_groups[1] to be adam_lm_head, got {lm_head_group.get('name')}"
+            wandb.log({
+                "optimizer/lm_head_lr_actual": lm_head_group["lr"],
+                "optimizer/lm_head_beta1_actual": lm_head_group["betas"][0],
+                "optimizer/lm_head_beta2_actual": lm_head_group["betas"][1],
+            }, step=wandb_step)
+            print0(
+                f"[PER_KIND_AUX_PERIODIC_RESET_LM_HEAD] enabled={PER_KIND_AUX_PERIODIC_RESET_LM_HEAD_ENABLED}"
+                f" interval={AUX_RESET_INTERVAL_LM_HEAD} moment={AUX_RESET_MOMENT_LM_HEAD}",
+                console=True,
+            )
+            print0(
+                f"[SANITY] lm_head_lr_actual={lm_head_group['lr']:.6g}"
+                f" lm_head_beta1={lm_head_group['betas'][0]} lm_head_beta2={lm_head_group['betas'][1]}",
+                console=True,
+            )
         for opt in optimizers:
             opt.step()
+        # Per-kind moment reset on adam_lm_head only. Other AdamW groups (embed, scalars)
+        # keep baseline state-evolution; this mirrors fern's #1754 embed-isolated test for
+        # the lm_head kind. AUX_RESET_MOMENT_LM_HEAD: 1=exp_avg_sq only (denominator
+        # destruction), 2=exp_avg only (numerator flush).
+        if (
+            PER_KIND_AUX_PERIODIC_RESET_LM_HEAD_ENABLED
+            and train_step > 0
+            and train_step % AUX_RESET_INTERVAL_LM_HEAD == 0
+        ):
+            for group in optimizer1.param_groups:
+                if group.get("name") == "adam_lm_head":
+                    for p in group["params"]:
+                        state = optimizer1.state.get(p)
+                        if state is None:
+                            continue
+                        if AUX_RESET_MOMENT_LM_HEAD == 1 and "exp_avg_sq" in state:
+                            state["exp_avg_sq"].zero_()
+                        elif AUX_RESET_MOMENT_LM_HEAD == 2 and "exp_avg" in state:
+                            state["exp_avg"].zero_()
+        # Per-kind reset telemetry: snapshot lm_head adam moments at validation steps and
+        # at ±5 steps around each reset boundary so the reset-induced trajectory is visible.
+        if dist.get_rank() == 0 and train_step in lm_head_snapshot_steps:
+            for group in optimizer1.param_groups:
+                if group.get("name") != "adam_lm_head":
+                    continue
+                for p in group["params"]:
+                    state = optimizer1.state.get(p)
+                    if state is None:
+                        continue
+                    ea = state.get("exp_avg")
+                    eas = state.get("exp_avg_sq")
+                    snap = {}
+                    if ea is not None:
+                        ea_f = ea.float()
+                        snap["per_kind_reset/lm_head/exp_avg_norm"] = ea_f.norm().item()
+                        snap["per_kind_reset/lm_head/exp_avg_max"] = ea_f.abs().max().item()
+                    if eas is not None:
+                        eas_f = eas.float()
+                        snap["per_kind_reset/lm_head/exp_avg_sq_norm"] = eas_f.norm().item()
+                        snap["per_kind_reset/lm_head/exp_avg_sq_max"] = eas_f.abs().max().item()
+                    if snap:
+                        wandb.log(snap, step=wandb_step)
         if dist.get_rank() == 0 and telemetry_due:
             for opt in optimizers:
                 if hasattr(opt, "trust_gate_stats"):
