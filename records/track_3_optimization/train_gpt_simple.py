@@ -28,6 +28,7 @@ SLOPE_FRACTION = 0.10
 SOAP_BETA2 = 0.90
 PRECOND_FREQ = 16
 NS_ITER = 12  # overridden by args.ns_iter at module load
+NUM_HEADS = 6  # benchmark-fixed; model_dim=768, head_dim=128 -> 6 heads
 
 
 def parse_args():
@@ -101,6 +102,13 @@ def parse_args():
                         help="EMA decay for SWA-style EMA-eval; None=disabled (control). "
                              "Recommend 0.99-0.9999. When set, val/ema_loss is logged "
                              "and speedrun/first_step_to_target uses the EMA-val crossing.")
+    parser.add_argument("--per_head_ns", action="store_true", default=False,
+                        help="Apply Newton-Schulz per attention head (reshape (H*D, dim) -> "
+                             "(H, D, dim) before NS) instead of flat on the full attention matrix. "
+                             "Requires --soap_attn; only affects attention params on the SOAP path.")
+    parser.add_argument("--per_head_ns_qkv_only", action="store_true", default=False,
+                        help="With --per_head_ns: only apply per-head NS to q/k/v weights, "
+                             "leave attn.proj on flat NS. Tests whether proj head-structure matters.")
     args = parser.parse_args()
     args.num_trials = args.num_trials if args.num_trials is not None else (args.legacy_num_trials or 1)
     args.wandb_tags = [tag.strip() for tag in args.wandb_tags.split(",") if tag.strip()]
@@ -533,6 +541,19 @@ def soap_ns_step(nesterov_update):
     return update
 
 
+@torch.compile
+def soap_ns_step_per_head(nesterov_update):
+    # Reshape (H*head_dim, dim) -> (H, head_dim, dim) and orthogonalize each head.
+    # zeropower_via_newtonschulz5 supports batched leading dim via batched .mT and
+    # per-batch norm(dim=(-2,-1)). Scale uses the per-head slice shape.
+    orig_shape = nesterov_update.shape
+    H = NUM_HEADS
+    G_heads = nesterov_update.view(H, nesterov_update.size(0) // H, nesterov_update.size(1))
+    ns_heads = zeropower_via_newtonschulz5(G_heads)
+    ns_heads = ns_heads * max(1, G_heads.size(-2) / G_heads.size(-1)) ** 0.5
+    return ns_heads.view(orig_shape)
+
+
 def soap_eigenbasis(mat: Tensor) -> Tensor:
     eye = torch.eye(mat.size(0), device=mat.device)
     try:
@@ -589,7 +610,8 @@ class Muon(torch.optim.Optimizer):
     SOAP_ATTN_SUFFIXES = (".attn.q.weight", ".attn.k.weight", ".attn.v.weight", ".attn.proj.weight")
 
     def __init__(self, named_params, lr=0.02, weight_decay=0, mu=0.95,
-                 soap_attn=False, trust_threshold=0.0):
+                 soap_attn=False, trust_threshold=0.0,
+                 per_head_ns=False, per_head_ns_qkv_only=False):
         # `named_params` can be either:
         #   (a) list of (name, param) tuples → single param group (legacy form)
         #   (b) list of dicts {"named_params": [(name, param), ...], "lr": ?, "weight_decay": ?, "mu": ?, "name": ?}
@@ -612,6 +634,21 @@ class Muon(torch.optim.Optimizer):
         self.trust_threshold = float(trust_threshold)
         self.use_trust_gate = soap_attn
         self.cos_sims_buffer: dict[str, Tensor] = {}
+
+        # Per-head NS: optionally route attention SOAP-path params through
+        # soap_ns_step_per_head. With qkv_only=True, attn.proj stays on flat NS.
+        if per_head_ns:
+            ph_suffixes = (".attn.q.weight", ".attn.k.weight", ".attn.v.weight")
+            if not per_head_ns_qkv_only:
+                ph_suffixes = ph_suffixes + (".attn.proj.weight",)
+            self.per_head_ns_params = {
+                p for n, p in all_named
+                if any(n.endswith(suf) for suf in ph_suffixes)
+            }
+        else:
+            self.per_head_ns_params = set()
+        self.per_head_ns = per_head_ns
+        self.per_head_ns_qkv_only = per_head_ns_qkv_only
 
         param_groups = []
         for g in groups_raw:
@@ -655,9 +692,10 @@ class Muon(torch.optim.Optimizer):
                         state["momentum"].lerp_(p.grad, 1 - group["mu"])
                         raw_nesterov = p.grad.lerp(state["momentum"], group["mu"])
                         precond_nesterov = soap_precondition_momentum(raw_nesterov, state)
-                        u_soap = soap_ns_step(precond_nesterov)
+                        ns_fn = soap_ns_step_per_head if p in self.per_head_ns_params else soap_ns_step
+                        u_soap = ns_fn(precond_nesterov)
                         if self.use_trust_gate:
-                            u_muon = soap_ns_step(raw_nesterov)
+                            u_muon = ns_fn(raw_nesterov)
                             us = u_soap.float()
                             um = u_muon.float()
                             cos_sim_t = (us * um).sum() / (us.norm() * um.norm() + 1e-8)
@@ -786,6 +824,9 @@ if dist.get_rank() == 0:
             "lr_cooldown_shape": args.lr_cooldown_shape,
             "ema_eval_decay": args.ema_eval_decay,
             "ema_eval_enabled": args.ema_eval_decay is not None,
+            "per_head_ns": bool(args.per_head_ns),
+            "per_head_ns_qkv_only": bool(args.per_head_ns_qkv_only),
+            "num_heads": NUM_HEADS,
         },
     )
 
@@ -874,7 +915,12 @@ for trial_idx in range(args.num_trials):
             dict(named_params=attn_named, lr=args.lr_attn, weight_decay=args.wd_attn, name="muon_attn"),
         ],
         soap_attn=args.soap_attn, trust_threshold=args.soap_trust_threshold,
+        per_head_ns=args.per_head_ns, per_head_ns_qkv_only=args.per_head_ns_qkv_only,
     )
+    print0(f"[muon] soap_params={len(optimizer2.soap_params)} "
+           f"per_head_ns_params={len(optimizer2.per_head_ns_params)} "
+           f"per_head_ns={args.per_head_ns} qkv_only={args.per_head_ns_qkv_only} "
+           f"num_heads={NUM_HEADS}", console=True)
     optimizers = [optimizer1, optimizer2]
     assert set(p for opt in optimizers for group in opt.param_groups
                for p in group["params"]) == set(model.parameters())
