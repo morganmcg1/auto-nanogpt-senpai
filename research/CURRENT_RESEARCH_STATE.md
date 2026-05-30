@@ -1,3 +1,29 @@
+## 2026-05-30 22:55 UTC — Cycle 71 mid-444 — thorfinn #1863 348th refute + 182nd family closure + 215th mech class (axes #1×#2 REVERSE-DIRECTION sub-direction cube COMPLETE with KIND-DEPENDENT LOCAL β1 CURVATURE ASYMMETRY discovery: Arm A `lm_head β1=0.7 FAST` val=3.26991/3025 INSIDE FLOOR BAND edge + Arm B `embed β1=0.9 SLOW` val=3.27276/3050 ABOVE FLOOR BAND; bilateral mean 3.27134/3037.5 ABOVE both merge bars; 215th mech class KIND-DEPENDENT-LOCAL-BETA1-CURVATURE-ASYMMETRY-AT-AXES-1-X-2-WITH-LM-HEAD-LOCAL-MAX-AND-EMBED-LOCAL-MIN-AT-DEFAULT-BETA1-0.8; FOUR concurrent invariants: lm_head LOCAL-MAX at β1=0.8 with 1.73× FAST-side asymmetry productive both ±0.1, embed LOCAL-MIN at β1=0.8 with 3.33× SLOW-side asymmetry destructive both ±0.1, ALL 5 PRE-EXPERIMENT FAMILIES REFUTED (SIXTH cycle-71 closure of this pattern after #1840/#1842/#1845/#1846/#1852/#1854), #1808 A SUPER-ADDITIVE COMPOUND MECHANISTICALLY EXPLAINED via decomposition tax; 182nd family closure AXES-1-X-2-REVERSE-DIRECTION-SUB-DIRECTION-CUBE-COMPLETE-AT-4-OF-4-CELLS) + thorfinn #1884 new assignment (MERGE-CANDIDATE COMPOUND × LM-HEAD-FINE-RESOLUTION bilateral: Arm A lm_head_FAST_X_embed_DEFAULT predicted MERGE CANDIDATE val ∈ [3.26900, 3.26970] + Arm B lm_head_EXTREME_FAST_0.6 probes whether lm_head minimum is BELOW 0.7; under 215th mech class lm_head FAST stacking without embed local-min tax should clear merge bar). Fleet 8/8 active 0 idle. Cumulative: 348 refuted / 215 mech classes / 182 family closures / 9 axes locked / 10 regression-to-mean precedents.
+
+### thorfinn #1863 axes #1×#2 REVERSE-DIRECTION sub-direction cube — 348th refute, 182nd family closure, 215th mech class
+
+Bilateral terminal: Arm A `lm_head β1=0.7 FAST` (`3w6q9wyz`) val=**3.26991**/3025 INSIDE FLOOR BAND edge; Arm B `embed β1=0.9 SLOW` (`tvwnjlpe`) val=**3.27276**/3050 ABOVE FLOOR BAND. Bilateral mean **3.27134**/3037.5 ABOVE both merge bars. **348th cycle-71 refute**.
+
+**KEY STRUCTURAL FINDING — KIND-DEPENDENT LOCAL β1 CURVATURE ASYMMETRY**:
+- **lm_head LOCAL-MAX at β1=0.8**: both ±0.1 perturbations PRODUCTIVE (0.7 FAST −0.00145 / 0.9 SLOW −0.00084); FAST-side asymmetry **1.73× MORE productive**
+- **embed LOCAL-MIN at β1=0.8**: both ±0.1 perturbations DESTRUCTIVE (0.7 FAST +0.00042 / 0.9 SLOW +0.00140); SLOW-side asymmetry **3.33× MORE destructive**
+- **ALL 5 pre-experiment families REFUTED**: SIXTH cycle-71 closure where pre-declared hypothesis space rejected and category-new mech class emerges (after #1840 sub-direction, #1842 U-shape, #1845 OPPOSITE-PHASE-FRAGILITY, #1846 NARROW-AMPLITUDE-WINDOW, #1852 SINGULARITY+CROSS-KIND-FLOOR, #1854 MOMENT-2-UNIQUELY-PRODUCTIVE)
+- **#1808 A SUPER-ADDITIVE COMPOUND MECHANISTICALLY EXPLAINED**: captured lm_head SLOW productivity but paid embed FAST anti-productive tax; re-routing to (lm_head FAST × embed default) should strictly dominate predicted ≈ 3.26900-3.26970 MERGE candidate
+
+**215th MECH CLASS**: KIND-DEPENDENT-LOCAL-BETA1-CURVATURE-ASYMMETRY-AT-AXES-1-X-2-WITH-LM-HEAD-LOCAL-MAX-AND-EMBED-LOCAL-MIN-AT-DEFAULT-BETA1-0.8.
+
+**182nd FAMILY CLOSURE**: AXES-1-X-2-REVERSE-DIRECTION-SUB-DIRECTION-CUBE-COMPLETE-WITH-KIND-DEPENDENT-LOCAL-BETA1-CURVATURE-ASYMMETRY (4 of 4 cells closed).
+
+### thorfinn #1884 new assignment: MERGE-CANDIDATE COMPOUND × LM-HEAD-FINE-RESOLUTION at axes #1 × #2
+
+**Goal**: pursue PR #1863 suggested follow-up #2 MERGE-CANDIDATE compound × suggested follow-up #1 lm_head fine-resolution:
+- Arm A `lm_head_FAST_X_embed_DEFAULT`: lm_head β1=0.7 FAST × embed β1=0.8 default (no embed perturbation tax) — PREDICTED MERGE CANDIDATE val ∈ [3.26900, 3.26970]
+- Arm B `lm_head_EXTREME_FAST_0.6_at_embed_0.8`: lm_head β1=0.6 (probes whether lm_head minimum is BELOW 0.7)
+
+Outcomes: A ∈ [3.26900, 3.26970] + B > A (35%) / A ∈ [3.26800, 3.26900] + B < A (25%) / **MERGE CANDIDATE A < 3.26776 AND ffs ≤ 3000 (20%)** / compound interaction refutes decomposition (15%) / val merge edge, ffs miss (5%).
+
+---
+
 ## 2026-05-30 21:35 UTC — Cycle 71 mid-443 — askeladd #1855 347th refute + 181st family closure + 214th mech class (axes #1×#8 cross-FAMILY universality probe with SOAP-FAMILY-FLOOR SUB-FLOOR landing at Arm A: Arm A `wd_X_mlp_soap_front_fast` val=3.26891/3025 INSIDE FLOOR BAND + SUB-FLOOR vs SOAP family floor 3.26963 by −0.00072 LOWEST cross-PR result of cycle 71 + Arm B `wd_alone` control val=3.27103/3025; bilateral mean 3.26997/3025 INSIDE FLOOR BAND but Arm A ffs=3025 fails merge bar by +25 steps; 214th mech class CROSS-FAMILY-AXIS-1-X-AXIS-8-AT-SOAP-FAMILY-SUB-FLOOR-CARRIER-ABSORPTION-WITH-WD-SUBSTRATE-CROSS-FAMILY-CARRIER-AT-65-PERCENT-AND-MLP-SOAP-FRONT-FAST-SUB-FLOOR-PENETRATION; FOUR concurrent invariants: ARM A SUB-FLOOR PENETRATION BELOW SOAP FAMILY FLOOR (FIRST cross-family compound to penetrate below SOAP floor + LOWEST cross-PR result), CROSS-FAMILY-CARRIER MECHANISM at 64.8% absorption (Δ(B−A)=+0.00212), SUB-ADDITIVE PRODUCTIVE INTERACTION at 77.6% recovery vs additive null 3.27290, SOAP FAMILY FLOOR ABSORBS BOTH AdamW-FAMILY SUBSTRATES (axis #5 × #8 +0.00029 above SOAP floor vs THIS −0.00072 below SOAP floor); Family A SOAP-FAMILY-FLOOR UNIVERSAL ABSORPTION STRONGLY SUPPORTED + Family B channel-specific REFUTED; 181st family closure AXES-1-X-8-CROSS-FAMILY-INITIAL-READING-WITH-SUB-FLOOR-PENETRATION-AND-CARRIER-ABSORPTION-AT-65-PERCENT) + askeladd #1875 new assignment (SUB-FLOOR n=2 VERIFICATION × LM-HEAD-DECOMPOSITION bilateral: Arm A wd_X_mlp_soap_front_fast n=2 re-seed verification + Arm B lm_head_wd_only_X_mlp_soap_front_fast AUX_WD_EMBED=0 carrier-decomposition; discriminates TRUE-SUB-FLOOR vs 11th RTM × LM-HEAD-CARRIER vs EMBED-PARTIAL-CARRIER). Fleet 8/8 active 0 idle. Cumulative: 347 refuted / 214 mech classes / 181 family closures / 9 axes locked / 10 regression-to-mean precedents.
 
 ### askeladd #1855 axes #1×#8 cross-FAMILY universality probe — 347th refute, 181st family closure, 214th mech class
