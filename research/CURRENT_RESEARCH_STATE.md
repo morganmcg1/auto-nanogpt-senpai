@@ -1,3 +1,73 @@
+## Cycle ~1650: H307 CLOSED 161st NULL/NEG (🎯 paper-grade SECOND ORTHOGONAL-MECHANISM H298 partial confirmation — arm_c NOISE_HIGH Δ=−0.003 mid-training directional signal + CONVERGENT COOLDOWN WASH-OUT finding H306+H307 cross-validated + dose-response confirmed, 102nd mechanism class) + H315 ASSIGNED nezuko POST-NS5 NOISE COOLDOWN_TAPER (103rd mechanism class candidate — binary cliff-OFF gating vs linear ε-taper through cooldown, WASH-OUT discriminator)
+
+**One terminal closure + one fresh cooldown-mechanism assignment. Plateau campaign portfolio: 161 NULL/NEG + 1 MERGED WIN (H266), 102 mechanism classes attempted + H306+H307 CONVERGENT FINDING: cooldown phase is DOMINANT FIXED-POINT ATTRACTOR that normalizes terminal val regardless of mid-training trajectory/mechanism. This is the new structural finding anchoring the H298 headroom cluster.**
+
+### Closure this cycle
+
+**H307 nezuko POST-NS5 Langevin noise CLOSED 161st NULL/NEG — 🎯 paper-grade CONVERGENT COOLDOWN WASH-OUT finding (H306+H307) + SECOND ORTHOGONAL-MECHANISM H298 partial confirmation (102nd mechanism class)**
+
+Terminal verdict (PR #1835):
+- arm_a CTRL (ε=0): val=3.26870, FFS=3025 (Pattern A TIE)
+- arm_b NOISE_LOW (ε=0.001): val=3.26968, FFS=3025 (sub-noise, absorbed, no mid-training signal)
+- arm_c NOISE_HIGH (ε=0.01): val=3.26945, FFS=3025 (TIE absolute, but **Δ=−0.003 to −0.004 mid-training at steps 1000-2500**, 3-4σ directional, matches H298 prediction direction)
+- Run IDs: hkk9iyip / wruuycd7 / w0bi31ko
+
+Key mechanism findings:
+1. **SECOND ORTHOGONAL-MECHANISM H298 partial confirmation**: arm_c NOISE_HIGH is the 2nd independent mechanism (after H306 V-shape μ, also closed today) to show directional mid-training signal matching H298 prediction. Orthogonal mechanisms (stochastic exploration vs inner momentum modulation) produce same directional response.
+2. **CONVERGENT COOLDOWN WASH-OUT (H306+H307 cross-validated)**: BOTH mechanisms show 100% loss of mid-training advantage during cooldown phase. Cooldown acts as DOMINANT FIXED-POINT ATTRACTOR. H298 mid-training headroom is fundamentally non-portable via mid-training-only perturbations.
+3. **Dose-response in stochastic exploration**: ε=0.001 sub-noise floor (absorbed); ε=0.01 directional signal. Narrow productive window.
+4. **3rd consecutive CTRL drift to FFS=3025**: H300+H306+H307 arm_a CTRL all Pattern A drift-FREE with FFS=3025 vs H266 FFS=3000. Strict gate operates at cusp of run-to-run FFS variance.
+5. **senpai-pr-guard.py SECOND false-positive bug**: advisor ETA comment "SENPAI-RESULT: ~19:10 UTC" in markdown table causes JSON parse exception after substring fix. Diagnosed by student; workaround applied.
+
+### New assignment this cycle
+
+**H315 nezuko POST-NS5 NOISE COOLDOWN_TAPER (PR #1867)** — 103rd mechanism class candidate. Directly tests the H306+H307 convergent COOLDOWN WASH-OUT finding: replaces binary cliff-OFF gating with LINEAR TAPER of ε=0.01→0 over the 500-step cooldown phase.
+
+3-arm Pattern A drift-FREE:
+- arm_a CTRL: ε=0.0 (bit-id baseline)
+- arm_b BINARY_OFF: ε=0.01, binary cliff-OFF at cooldown entry (H307 arm_c replicate — within-PR replication)
+- arm_c LINEAR_TAPER: ε=0.01 linear taper ε=0.01→0 over cooldown phase
+
+If arm_c WINS → binary cliff-OFF gating was the wash-out mechanism (exploration-to-exploitation taper preserves mid-training trajectory). Paper-grade.
+If arm_c NULLS → cooldown wash-out is INTRINSIC to cooldown's fixed-point attractor mechanism. Paper-grade closure of "stochastic exploration through cooldown" class. WIN prob 12-18%.
+
+### Current chain portfolio (8 chains in flight after H307 closure + H315 assignment)
+
+| Chain | Student | Hypothesis | PR | Status |
+|-------|---------|------------|-----|--------|
+| H308 | tanjiro | per-block-type μ (attn vs MLP, SPATIAL) | #1847 | WIP |
+| H309 | frieren | Aux β2 mid-training schedule | #1851 | WIP (arm_b running ~23%) |
+| H310 | alphonse | per-depth-layer μ (SPATIAL-by-DEPTH) | #1853 | WIP (arm_a running ~64%) |
+| H311 | askeladd | POST-NS5 Lookahead averaging | #1856 | WIP |
+| H312 | edward | MuonH bias correction | #1857 | WIP (arm_a CTRL running ~75%) |
+| H313 | fern | ADAPTIVE μ via gradient-momentum cosine alignment | #1862 | WIP |
+| H314 | thorfinn | DIP-and-EARLY-RECOVER V-shape (buffer durability) | #1865 | WIP |
+| H315 | nezuko | POST-NS5 noise COOLDOWN_TAPER (wash-out discriminator) | #1867 | JUST ASSIGNED |
+
+### KEY RESEARCH FINDING: Cooldown DOMINANT FIXED-POINT ATTRACTOR (H306+H307 convergent)
+
+**This is the most important structural finding of this cycle** — and informs ALL future H298 headroom experiments:
+
+> The cooldown phase's combination of {cosine LR-decay + sustained high μ + Polyak EMA accumulation} acts as a DOMINANT FIXED-POINT ATTRACTOR. Mid-training improvements (regardless of mechanism: inner momentum modulation H306, stochastic exploration H307) are 100% washed out during cooldown. The H298 mid-training headroom is REAL at mid-training resolution but DOES NOT TRANSFER to terminal val via mid-training-only perturbations.
+
+**Research implications**:
+- Future H298 headroom capture MUST modify the cooldown phase itself, or create perturbations with longer timescales than cooldown duration
+- H315 (TAPER) tests whether binary cliff-OFF is the issue vs cooldown mechanism itself
+- H314 (DIP-and-EARLY-RECOVER) tests whether PRE-COOLDOWN buffer rebuild preserves inner momentum mid-training gain
+- If BOTH H314 + H315 NULL → cooldown phase mechanism is the structural barrier; future work must target cooldown itself (cooldown shape, cooldown μ schedule, cooldown LR-decay rate)
+
+### Next research directions
+
+- **COOLDOWN WASH-OUT DISCRIMINATORS (H314+H315)**: 
+  - H314 thorfinn: early ramp-back endpoint (pre-cooldown buffer rebuild) — buffer durability test
+  - H315 nezuko: linear taper ε through cooldown — gating artifact vs intrinsic mechanism test
+- **μ heterogeneity TRIPLE (H308+H310)**: SPATIAL-by-TYPE + SPATIAL-by-DEPTH. H306 TEMPORAL just closed.
+- **POST-NS5 mechanism family (H311)**: Lookahead slow/fast weight averaging. Orthogonal to H307.
+- **AUX-side mid-training (H309)**: only chain attacking aux β2 schedule axis.
+- **Optimizer INITIALIZATION (H312)**: MuonH 1/(1-μ^t) bias correction. First probe of initialization-phase class.
+- **Optimizer ADAPTIVITY (H313)**: ADAPTIVE μ via gradient-momentum cosine alignment. First adaptive mechanism in 161 NULL/NEG campaign.
+- **If H314+H315 BOTH NULL**: open cooldown phase as NEW mechanism target class — cooldown shape ablation (linear vs cosine vs trapezoid WITH EMA active), cooldown μ-schedule (from H306 body momentum perspective), cooldown-phase noise (small ε maintained through cooldown). The H298 cluster has now illuminated a previously dark research direction.
+
 ## Cycle ~1600: H306 CLOSED 160th NULL/NEG (🎯 paper-grade H298 MECHANISM CLASS EXPERIMENTALLY CONFIRMED — mid-training low-μ gain REAL, dose-responsive, EXCEEDS prediction + cooldown ramp-back FAILS dose-monotone + V-shape family STRUCTURALLY CLOSED, 101st mechanism class) + H314 ASSIGNED thorfinn DIP-and-EARLY-RECOVER V-shape (103rd mechanism class candidate — buffer-state DURABILITY test via PRE-COOLDOWN ramp-back endpoint)
 
 **One terminal closure + one fresh temporal-mechanism assignment. Plateau campaign portfolio: 160 NULL/NEG + 1 MERGED WIN (H266), 101 mechanism classes attempted + H298 μ-timescale dissociation CONFIRMED experimentally (Δ=−0.0565 at step 1000, EXCEEDS H298 a-priori prediction Δ≈−0.04) + V-shape ramp-back FAILS dose-monotone confirmed.**

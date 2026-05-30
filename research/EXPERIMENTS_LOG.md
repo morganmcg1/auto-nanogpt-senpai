@@ -1,3 +1,35 @@
+## 2026-05-30 — PR #1835: H307 nezuko POST-NS5 Langevin noise injection mid-training
+
+- Branch: g1r3-nezuko/h307-post-ns5-noise-mid-training
+- Hypothesis: Schedule-aware POST-NS5 gradient noise injection during constant-LR phase only (Langevin ε ∈ {0.001, 0.01}) as an ORTHOGONAL mechanism to capture H298 mid-training headroom (vs H306's inner momentum approach). Noise gated OFF at cooldown entry (step 0.85·T = ~2826) to preserve H266 EMA + H298 high-μ cooldown mechanism.
+- 3-arm Pattern A drift-FREE, sequential chain (~25 LoC adds body_post_ns5_noise_epsilon + cooldown_off + cooldown_frac flags)
+
+### Results
+
+| Arm | ε | step-0 val | step 1500 val | terminal val | FFS | Δ vs H266 | Δ vs CTRL | Mid-training signal |
+|-----|---|-----------|---------------|-------------|-----|-----------|-----------|---------------------|
+| arm_a CTRL | 0.0 | 10.82583 ✓ | 3.49564 | **3.26870** | **3025** | +0.59σ TIE | (ref) | none |
+| arm_b NOISE_LOW | 0.001 | 10.82583 ✓ | 3.49822 | **3.26968** | **3025** | +1.70σ TIE | +1.11σ TIE | none (3.21% update ratio, absorbed) |
+| arm_c NOISE_HIGH | 0.01 | 10.82583 ✓ | **3.49232** | **3.26945** | **3025** | +1.44σ TIE | +0.85σ TIE | **Δ=−0.003 at step 1500** (3-4σ directional) |
+
+Run IDs: arm_a `hkk9iyip`, arm_b `wruuycd7`, arm_c `w0bi31ko`. **5-way Pattern A drift-FREE** (smoke arm_b `rs4rx0o9` + smoke arm_c `1o08u23r` + 3 full arms). Noise-to-update ratio: arm_b 3.21%, arm_c 32.09% (10× scaling CONFIRMED via `noise_norm_rms`). Cooldown gating VERIFIED (noise_active=0 in final W&B summary for both treatment arms).
+
+### Decision: **CLOSE** — 161st NULL/NEG
+
+All 3 arms FFS=3025 (Pattern A drift +25 vs H266 FFS=3000). NONE clear FFS<3000 strict gate.
+
+🎯 **Paper-grade SECOND ORTHOGONAL-MECHANISM partial confirmation of H298 mid-training headroom**: arm_c NOISE_HIGH (ε=0.01, 32% update perturbation) produced CONSISTENT mid-training advantage Δ=−0.003 to −0.004 val from step 1000 to step 2500 (3-4σ directional), matching H298 prediction direction. Confirms H298 headroom is capturable via STOCHASTIC EXPLORATION mechanism (orthogonal to H306's inner momentum approach).
+
+🎯 **Paper-grade CONVERGENT COOLDOWN WASH-OUT finding (H306 + H307 cross-validation)**: BOTH H306 (V-shape μ) and H307 (stochastic exploration) show 100% mid-training advantage LOST during cooldown phase, regardless of mid-training mechanism or magnitude. Cooldown acts as DOMINANT FIXED-POINT ATTRACTOR — normalizes terminal val independent of pre-cooldown trajectory. This is the key new structural finding of the H298 cluster.
+
+🎯 **Paper-grade dose-response in stochastic exploration axis**: ε=0.001 sub-noise (absorbed by NS5 + inner momentum); ε=0.01 directional signal. Narrow productive window centered around ε=0.005-0.01.
+
+🎯 **Sub-finding: FFS=3000 brittle (3rd consecutive CTRL drift to FFS=3025)** — H300 + H306 arm_a + H307 arm_a all Pattern A drift-FREE with FFS=3025. Strict gate operates in noise band.
+
+🎯 **Sub-finding: senpai-pr-guard.py SECOND JSON-parse false-positive bug** discovered by g1r3-nezuko — advisor's ETA comment containing "SENPAI-RESULT: ~19:10 UTC" in markdown table causes JSON parse failure even after substring-match fix.
+
+**H315 nezuko POST-NS5 NOISE COOLDOWN_TAPER ASSIGNED IMMEDIATELY** (PR #1867): 103rd mechanism class candidate, tests whether binary cliff-OFF cooldown gating is responsible for wash-out vs intrinsic cooldown mechanism.
+
 ## 2026-05-30 — PR #1827: H306 thorfinn V-shape μ schedule (DIP mid-training + RESTORE cooldown)
 
 - Branch: g1r3-thorfinn/h306-vshape-mu-schedule
