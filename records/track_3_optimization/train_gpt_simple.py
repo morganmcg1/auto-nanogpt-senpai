@@ -87,15 +87,25 @@ def parse_args():
     # 'linear' ramps µ across all train_steps. 'cooldown_ramp' stays at mu_start until
     # cooldown starts (using h_cooldown_frac), then ramps linearly across the cooldown.
     parser.add_argument("--muonh_mu_schedule", type=str, default=os.environ.get("MUONH_MU_SCHEDULE", "off"),
-                        choices=["off", "linear", "cooldown_ramp"],
+                        choices=["off", "linear", "cooldown_ramp", "v_shape"],
                         help="Schedule for inner MuonH momentum coefficient µ. "
                              "'off' (default) = static muonh_mu=0.95, bit-identical to baseline. "
                              "'linear' = linear ramp from muonh_mu_start to muonh_mu_end across all train_steps. "
-                             "'cooldown_ramp' = static muonh_mu_start until cooldown begins, then linear ramp to muonh_mu_end over cooldown.")
+                             "'cooldown_ramp' = static muonh_mu_start until cooldown begins, then linear ramp to muonh_mu_end over cooldown. "
+                             "'v_shape' = linear ramp from muonh_mu_start to muonh_mu_mid at muonh_mu_mid_step_frac of train_steps, then linear ramp from muonh_mu_mid to muonh_mu_end.")
     parser.add_argument("--muonh_mu_start", type=float, default=float(os.environ.get("MUONH_MU_START", "0.95")),
-                        help="Starting value of µ schedule (used by linear and cooldown_ramp modes).")
+                        help="Starting value of µ schedule (used by linear, cooldown_ramp, and v_shape modes).")
     parser.add_argument("--muonh_mu_end", type=float, default=float(os.environ.get("MUONH_MU_END", "0.98")),
-                        help="Ending value of µ schedule (used by linear and cooldown_ramp modes).")
+                        help="Ending value of µ schedule (used by linear, cooldown_ramp, and v_shape modes).")
+    parser.add_argument("--muonh_mu_mid", type=float,
+                        default=float(os.environ.get("MUONH_MU_MID", "0.95")),
+                        help="V-shape µ midpoint value (used only when --muonh_mu_schedule=v_shape). "
+                             "Default 0.95 = no dip (V-shape degenerates to monotone). "
+                             "Set < µ_start to enable V-shape dip; cooldown then ramps µ_mid → µ_end.")
+    parser.add_argument("--muonh_mu_mid_step_frac", type=float,
+                        default=float(os.environ.get("MUONH_MU_MID_STEP_FRAC", "0.5")),
+                        help="V-shape midpoint position as fraction of train_steps "
+                             "(used only when --muonh_mu_schedule=v_shape). Default 0.5 = midpoint at 50%% of training.")
     parser.add_argument("--body_init", type=str, default=os.environ.get("BODY_INIT", "default"),
                         choices=["default", "orthogonal_fnorm_matched", "orthogonal_bottom_damp"],
                         help="Initialization scheme for body MuonH 2D weights (attn.q/k/v, attn.proj, mlp.fc, mlp.proj). "
@@ -855,6 +865,8 @@ if dist.get_rank() == 0:
             "muonh_mu_schedule": args.muonh_mu_schedule,
             "muonh_mu_start": args.muonh_mu_start,
             "muonh_mu_end": args.muonh_mu_end,
+            "muonh_mu_mid": args.muonh_mu_mid,
+            "muonh_mu_mid_step_frac": args.muonh_mu_mid_step_frac,
             "polyak_ema_decay": args.polyak_ema_decay,
         },
     )
@@ -1027,6 +1039,14 @@ for trial_idx in range(args.num_trials):
                 else:
                     cooldown_prog = (progress - cooldown_start_frac) / h_cooldown_frac
                     mu_t = args.muonh_mu_start + cooldown_prog * (args.muonh_mu_end - args.muonh_mu_start)
+            elif args.muonh_mu_schedule == "v_shape":
+                mid_step = int(args.muonh_mu_mid_step_frac * train_steps)
+                if step <= mid_step:
+                    prog = step / max(1, mid_step)
+                    mu_t = args.muonh_mu_start + prog * (args.muonh_mu_mid - args.muonh_mu_start)
+                else:
+                    prog = (step - mid_step) / max(1, train_steps - mid_step - 1)
+                    mu_t = args.muonh_mu_mid + prog * (args.muonh_mu_end - args.muonh_mu_mid)
             else:
                 raise ValueError(f"unknown muonh_mu_schedule: {args.muonh_mu_schedule}")
             for g in optimizer2.param_groups:
