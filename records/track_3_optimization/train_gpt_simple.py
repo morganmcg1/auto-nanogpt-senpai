@@ -28,6 +28,8 @@ SLOPE_FRACTION = 0.10
 SOAP_BETA2 = 0.90
 PRECOND_FREQ = 16
 NS_ITER = 12  # overridden by args.ns_iter at module load
+NS_ADAPTIVE_TOL = 0.0  # overridden by args.ns_adaptive_tol; 0 = baseline fixed-iter NS5
+NS_STATS_RECORDS: list[tuple[int, float, bool]] = []  # (iters_used, residual_at_term, early_term)
 
 
 def parse_args():
@@ -68,6 +70,11 @@ def parse_args():
     parser.add_argument("--ns_iter", type=int, default=12,
                         help="Number of Newton-Schulz iterations in zeropower_via_newtonschulz5. "
                              "Default 12 (current hardcoded value). Lower = less orthogonal but faster.")
+    parser.add_argument("--ns_adaptive_tol", type=float, default=0.0,
+                        help="NS residual termination tolerance. 0=fixed NS_ITER (baseline); "
+                             ">0=per-matrix adaptive termination when ‖X^T X - I‖_F < tol. "
+                             "Suggested: 1e-2 (loose), 1e-3 (moderate), 1e-4 (strict). "
+                             "Checked every 2 iters to amortize CPU sync cost.")
     parser.add_argument("--lr_scalars", type=float, default=0.01,
                         help="LR for AdamW adam_scalars group (RMSNorm gains; "
                              "params with ndim < 2). Default 0.01 — hardcoded, "
@@ -111,6 +118,7 @@ def parse_args():
 
 args = parse_args()
 NS_ITER = args.ns_iter
+NS_ADAPTIVE_TOL = args.ns_adaptive_tol
 
 
 def clean_metric_name(name: str) -> str:
@@ -498,7 +506,56 @@ class GPT(nn.Module):
 #              Optimizer               #
 ########################################
 
+@torch._dynamo.disable()
+def zeropower_via_newtonschulz5_adaptive(G: Tensor) -> Tensor:
+    """NS5 with per-matrix adaptive termination via Frobenius residual ‖X^T X - I‖_F.
+
+    Records (iters_used, residual_at_term, early_terminated) into NS_STATS_RECORDS
+    for diagnostic logging. Disabled from dynamo so the data-dependent early break
+    and CPU sync (.item()) work; called only when NS_ADAPTIVE_TOL > 0.
+    """
+    assert G.ndim >= 2
+    X = G.bfloat16()
+    transposed = G.size(-2) > G.size(-1)
+    if transposed:
+        X = X.mT
+
+    # Frobenius pre-NS scaling (matches baseline)
+    X = X / (X.norm(dim=(-2, -1), keepdim=True) + 1e-7)
+    a, b, c = 2, -1.5, 0.5
+    # After optional transpose, X has size(-2) <= size(-1) (fat or square).
+    # NS5 converges X toward UV^T (polar factor), so X X^T -> I_m on the
+    # smaller side. Checking ||X^T X - I_n|| would plateau at ||P_m - I_n||
+    # for rectangular X and never fire early termination on MLP matrices.
+    m = X.size(-2)
+
+    iters_used = 0
+    last_resid = float("nan")
+    eye_m = torch.eye(m, device=X.device, dtype=torch.float32)
+    for k in range(NS_ITER):
+        A = X @ X.mT
+        B = b * A + c * A @ A
+        X = a * X + B @ X
+        iters_used = k + 1
+        # Residual check: every 2 iters to amortize ~0.1ms CPU-sync cost. Skip on
+        # last iter (no opportunity to save further work).
+        if k < NS_ITER - 1 and (k + 1) % 2 == 0:
+            Xf = X.float()
+            XXt = Xf @ Xf.mT
+            last_resid = (XXt - eye_m).norm().item()
+            if last_resid < NS_ADAPTIVE_TOL:
+                break
+
+    NS_STATS_RECORDS.append((iters_used, last_resid, iters_used < NS_ITER))
+
+    if transposed:
+        X = X.mT
+    return X
+
+
 def zeropower_via_newtonschulz5(G: Tensor) -> Tensor:
+    if NS_ADAPTIVE_TOL > 0:
+        return zeropower_via_newtonschulz5_adaptive(G)
     assert G.ndim >= 2
     X = G.bfloat16()
     if G.size(-2) > G.size(-1):
@@ -774,6 +831,8 @@ if dist.get_rank() == 0:
             "soap_beta2": SOAP_BETA2,
             "soap_precond_freq": PRECOND_FREQ,
             "ns_iter": NS_ITER,
+            "ns_adaptive_tol": NS_ADAPTIVE_TOL,
+            "ns_adaptive_enabled": bool(NS_ADAPTIVE_TOL > 0),
             "soap_attn_enabled": bool(args.soap_attn),
             "soap_trust_threshold": float(args.soap_trust_threshold),
             "lr_mlp": args.lr_mlp,
@@ -1236,6 +1295,26 @@ for trial_idx in range(args.num_trials):
                 per_group_metrics["train/wd_schedule_progress"] = train_step / train_steps
                 per_group_metrics["cooldown_shape/eta_at_step"] = eta_actual
                 wandb.log(per_group_metrics, step=wandb_step)
+        if dist.get_rank() == 0 and NS_ADAPTIVE_TOL > 0 and NS_STATS_RECORDS and telemetry_due:
+            records = NS_STATS_RECORDS[:]
+            NS_STATS_RECORDS.clear()
+            iters = [r[0] for r in records]
+            resids = [r[1] for r in records if not math.isnan(r[1])]
+            early = [r[2] for r in records]
+            ns_metrics = {
+                "trial": trial_idx,
+                "train/step": train_step,
+                "ns/adaptive_iters_used_mean": sum(iters) / len(iters),
+                "ns/adaptive_iters_used_max": max(iters),
+                "ns/adaptive_iters_used_min": min(iters),
+                "ns/adaptive_pct_early_term": 100.0 * sum(early) / len(early),
+                "ns/adaptive_matrices_recorded": len(records),
+            }
+            if resids:
+                ns_metrics["ns/adaptive_residual_at_term_mean"] = sum(resids) / len(resids)
+                ns_metrics["ns/adaptive_residual_at_term_max"] = max(resids)
+                ns_metrics["ns/adaptive_residual_at_term_min"] = min(resids)
+            wandb.log(ns_metrics, step=wandb_step)
         if dist.get_rank() == 0 and optimizer2.cos_sims_buffer:
             cs_names = list(optimizer2.cos_sims_buffer.keys())
             cs_tensors = list(optimizer2.cos_sims_buffer.values())
