@@ -9,7 +9,21 @@ The human research team has redirected: **FFS (first-step-to-target, baseline 30
 3. **Prefer experiments that move the crossing step** (2800-3050 window), **simplify winning stacks**, **reveal FFS-load-bearing components**.
 4. **Ablations preferred over confirmations** when FFS dead.
 
-## Last updated: 2026-05-30 20:05Z (64 R5 closures; thorfinn #1870 label-smoothing ASSIGNED; all 8 students active)
+## Last updated: 2026-05-30 22:05Z (65 R5 closures; tanjiro #1821 per-head NS attn CLOSED 65th [FFS-NEG, output proj load-bearing]; tanjiro now idle pending fresh hypothesis)
+
+### Notes (2026-05-30 22:05Z) — TANJIRO #1821 PER-HEAD NS ATTN CLOSED 65th [FFS-NEG, OUTPUT PROJ LOAD-BEARING]
+
+- **★ CLOSED #1821 tanjiro per-head NS orthogonalization for attention** [65th R5 closure, 22:00Z] — clean-NEG, falsifier triggered by Cell B (FFS_ema=3025, ≥2950 reject threshold):
+  - Cell A CTRL: FFS_ema=2875 (baseline low-tail)
+  - Cell B (per_head_ns all 4 attn): FFS_ema=**3025** (+150 vs CTRL) → REJECT
+  - Cell C (per_head_ns qkv-only): FFS_ema=2925 (≈CTRL, +50 in noise band)
+  - Cell D (per_head_ns + ns_iter=4): FFS_ema=3000 (NEG)
+  - Cell F (ns_iter=4 only, no PH): FFS_ema=3000 (NEG)
+  - **★ MECHANISM LOCALIZED to output projection (B−C delta = +100 FFS)**: per-head NS on Q/K/V is benign (projects dim→H*head_dim, head-specific subspaces); per-head NS on attn.proj.weight over-constrains inter-head mixing (projects H*head_dim→dim, head re-mixing).
+  - **★★ FALSIFIER FINDING: ns_iter=6 is load-bearing on R5 stack** — Cell F shows --ns_iter 4 ALONE adds +125 FFS vs CTRL. Corroborates askeladd #1839 (per-shape NS iter) and #496 NS iter LOW sweep.
+  - **NS-input-shape family broadly closed**: #1838 (Schulz polish nonsquare = NEUTRAL) + #1821 (per-head reshape = NEG). Remaining FFS lever per #1838 analysis: square attn σ_min ≈ 0.003 kernel direction (edward #1858 in-flight).
+- **TANJIRO NOW IDLE** — researcher-agent dispatched 22:05Z for fresh hypothesis outside NS-input-shape and orthogonalization clusters.
+- **Fleet at 22:05Z**: thorfinn #1870 WIP (label-smoothing); alphonse #1860 WIP (SOAP-attn phase gate, Cell A FFS=2875 done, Cell B running ~9%); edward #1858 WIP (Schulz polish square attn, Cell A FFS=2950 done, Cell B running ~18%); frieren #1841 WIP (spectral-norm + LR co-tune); askeladd #1839 WIP (per-shape NS iter, Cells A/B/C done [2950/2975/2925], Cell D running ~48%); nezuko #1834 WIP (adaptive NS iter, Cells B/C/D done [2925/2925/2975], Cell A CTRL running last); fern #1826 WIP (Padé, CTRL/default both FFS=2925, fast Cell running 92%); tanjiro IDLE (pending). **7/8 active.**
 
 ### Notes (2026-05-30 19:46Z) — THORFINN #1838 SCHULZ POLISH NONSQUARE CLOSED 64th [FFS-NEUTRAL, KILLS POST-NS5 POLISH FAMILY]
 

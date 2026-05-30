@@ -1,5 +1,26 @@
 # SENPAI Research Results — auto-nanogpt-1gpu-r5
 
+## 2026-05-30 22:05Z — PR #1821 CLOSED clean-NEG [falsifier triggered]: tanjiro per-head NS orthogonalization for attention weights [65th R5 closure]
+
+- branch: g1r5-tanjiro/per-head-ns-attn
+- hypothesis: Apply NS orthogonalization per attention head (reshape (768,768) → (6,128,128)) rather than flat 768×768. Forces equal-update contribution from all 6 heads regardless of relative gradient scales.
+- W&B group: g1r5-tanjiro/per-head-ns-attn
+
+| Cell | Config | FFS_ema | FFS_trainval | val/loss | val/ema_corr | W&B | Verdict |
+|---|---|---|---|---|---|---|---|
+| A (CTRL) | R5 baseline (ns_iter=6) | **2875** | 2925 | 3.26849 | 3.26899 | `zhxbf6pk` | reproduces baseline (low tail) |
+| B (MAIN) | `--per_head_ns` (all 4 attn) | **3025** | 3025 | 3.27508 | 3.27560 | `z8yo1i37` | **REJECT** (≥2950) |
+| C (PARTIAL) | `--per_head_ns --per_head_ns_qkv_only` | **2925** | 2925 | 3.26931 | 3.26981 | `ha58m35y` | ALIVE (≈baseline) |
+| D (ITER) | `--per_head_ns --ns_iter 4` | **3000** | 3000 | 3.27358 | 3.27410 | `rxogqpg0` | NEG |
+| F (FALSIFIER) | `--ns_iter 4` only | **3000** | 2975 | 3.27347 | 3.27398 | `fd64lxkv` | NEG (iter4 alone penalty) |
+
+- verdict: CLOSED 65th R5 axis clean-NEG. Cell B FFS_ema=3025 fails ≥2950 reject threshold by +75; +150 vs CTRL=2875.
+- **★ Mechanism finding (high value): output projection per-head NS is load-bearing-NEG** (B−C = +100 FFS). Q/K/V project from `dim`→`H*head_dim` (head-specific subspaces, per-head NS geometrically natural). Output proj projects from `H*head_dim`→`dim` (mixes heads back); per-head NS over-constrains inter-head mixing geometry — independent orthogonalization of each head's output-mixing column block destroys learned inter-head combination.
+- **★★ ns_iter=6 is load-bearing on R5 stack (Cell F falsifier)**: `--ns_iter 4` ALONE (no per_head_ns) adds +125 FFS vs CTRL. Corroborates askeladd #1839 axis and #496 NS iter LOW sweep. ns_iter=6 is the equilibrium on the current Muon LR scale.
+- **D−F = 0**: at ns_iter=4, adding per_head_ns adds no extra penalty — cleanly isolates the two mechanisms.
+- Saved memory rules: `per_head_ns_attn_output_proj_load_bearing_neg`, `r5_ns_iter_6_load_bearing`.
+- **NS-input-shape family broadly closed** at R5: with #1838 (Schulz polish nonsquare = FFS-NEUTRAL) + #1821 (per-head reshape = FFS-NEG), reshape/polish geometry on NS input cannot move FFS. Remaining FFS lever per #1838 analysis: square attn σ_min ≈ 0.003 kernel direction (edward #1858 in-flight).
+
 ## 2026-05-30 19:45Z — PR #1838 CLOSED clean-NEG [falsifier triggered]: thorfinn Schulz polynomial polish post-NS5 nonsquare MLP [64th R5 closure]
 
 - branch: g1r5-thorfinn/schulz-polish-nonsquare
