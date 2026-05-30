@@ -359,10 +359,20 @@ def diagnose_schulz_polish(device, seed: int = 0xC0FFEE) -> dict:
 
         Xf_pre = X_ns.float()
         Xf_post = X_polished.float()
-        n = Xf_pre.size(-1)
-        eye = torch.eye(n, device=device, dtype=torch.float32)
-        res_pre = float(torch.linalg.norm(Xf_pre.mT @ Xf_pre - eye).item())
-        res_post = float(torch.linalg.norm(Xf_post.mT @ Xf_post - eye).item())
+        # After the NS5 pre-transpose, X has shape (small, large). Measure
+        # the left isometry residual X X^T - I_{small} so the metric tracks
+        # singular-value deviation from 1 instead of structural rank
+        # deficiency (n - m diagonal entries you can never reach with rank m).
+        small = min(Xf_pre.size(-2), Xf_pre.size(-1))
+        eye_small = torch.eye(small, device=device, dtype=torch.float32)
+        if Xf_pre.size(-2) <= Xf_pre.size(-1):
+            gram_pre = Xf_pre @ Xf_pre.mT
+            gram_post = Xf_post @ Xf_post.mT
+        else:
+            gram_pre = Xf_pre.mT @ Xf_pre
+            gram_post = Xf_post.mT @ Xf_post
+        res_pre = float(torch.linalg.norm(gram_pre - eye_small).item())
+        res_post = float(torch.linalg.norm(gram_post - eye_small).item())
         sigmas_pre = torch.linalg.svdvals(Xf_pre)
         sigmas_post = torch.linalg.svdvals(Xf_post)
         out[f"ns/{label}/residual_pre_polish"] = res_pre
