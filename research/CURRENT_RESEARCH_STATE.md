@@ -1,3 +1,41 @@
+## 2026-05-30 08:00 UTC — Cycle 71 mid-411 — frieren #1755 315th refute, 151st family closure (fc-gate statistic-axis closed) + frieren #1783 new assignment (lm_head moment-isolation) + edward #1766 stale_wip ping (Arm A terminal, Arm B missing)
+
+### frieren #1755 PER_KIND_MLP_SOAP_FC_GATE_STATISTIC_ISOLATION — 315th refute, 151st family closure
+
+Bilateral: Arm A `fc_col_gate_partial` (col-only @ 0.98) val=3.27089/ffs=3025, Arm B `fc_row_gate_partial` (row-only @ 0.84) val=3.27173/ffs=3050. bilateral mean 3.27131 misses merge bar by Δ=+0.00355/+37.5 ffs. Δ(B−A)=+0.00084 — col-axis slightly better (sub-structural |Δ|<0.003). **184th mech class STATISTIC-AXIS-CURRICULUM-DIVERGENCE**: col-axis shows monotonic curriculum signature (frozen→partial→near-full as col grows past 0.98) while row-axis shows stochastic partial-acceptance throughout (tight cos_row distribution 0.83-0.85); both converge to ~90% acceptance by step 2000. Both productive partial-acceptance regimes (refutes bimodality at statistic-axis scope) but neither crosses un-gated MLP-SOAP fc+proj floor 3.26991 (#1645 B). **STRUCTURAL FINDING LOCKED**: fc-gate-axis joins the structural-axis-decomposable-but-floor-gated cluster (parallel: attn-SOAP per-projection-role split) — fc-refresh-stochasticity is NOT the productivity discriminator regardless of which cos-axis statistic gates the decision.
+
+### frieren #1783 new assignment PER_KIND_AUX_PERIODIC_RESET_LM_HEAD_MOMENT_ISOLATION
+
+**Provisional 5th structural axis exploration (cross-kind moment-isolation asymmetry)**. Parallel to fern's embed-axis test (#1754 Arm B BELOW BASELINE n=1). Tests whether moment-isolation decomposition (exp_avg-only reset vs exp_avg_sq-only reset) replicates at lm_head (96× lower LR than embed). Arm A `lm_head_reset_avg_only` (predicted productive), Arm B `lm_head_reset_sq_only` (predicted catastrophic per fern's embed finding). Key structural question: is denominator-destruction mechanism kind-AGNOSTIC (effective-LR-independent) or kind-ASYMMETRIC (96× lower LR mediates destabilization at lm_head)? Either outcome structurally informative — if lm_head Arm B is less catastrophic than embed Arm A, mechanism joins the 4 cycle-71 cross-kind structural axes.
+
+### edward #1766 stale_wip
+
+Arm A `k_excluded` FINISHED at 03:48:36Z (2.5h stall): val=3.27177/ffs=3050, Δ=+0.00401 above baseline. Per-projection-role load-bearing ranking update: q (most, Δ=+0.00703) > k (middle, Δ=+0.00401) > v (least, Δ=+0.00305). Arm B `proj_excluded` NEVER LAUNCHED. Advisor ping posted asking for Arm A SENPAI-RESULT + immediate Arm B launch.
+
+### Wake-108 fleet status
+
+Fleet 8/8 active: askeladd #1775 alphonse #1758 edward #1766 fern #1754 frieren #1783 nezuko #1763 tanjiro #1778 thorfinn #1765. 0 idle. Human issues: no new directives (Morgan #1259 standing directive confirmed — per-group + state-mechanism, no scalar sweeps).
+
+### Cycle 71 cumulative state (updated from mid-410 — 1 new closure this wake)
+
+**Cycle 71 cumulative**: **315 refuted** / **184 distinct mech classes** / **151 family-level closures**.
+
+### Emerging structural axes in cycle 71 — UPDATED
+
+| # | axis | direction-preferences | evidence | status |
+|---|---|---|---|---|
+| 1 | Cross-kind WD-direction asymmetry | embed prefers DOWN, lm_head prefers UP | #1683/#1705 + #1732 | **CONFIRMED shared-substrate via #1765 Arm A constructive negative interaction** |
+| 2 | Cross-kind β1-direction inversion | embed prefers FAST (0.7), lm_head prefers SLOW (0.9) | #1678 B + #1724 + #1750 | structural finding, no compound yet |
+| 3 | Depth-mechanism cluster BACK-favored | back-half blocks load-bearing across two mech classes (β2-phase #1731 + init-magnitude #1738) | #1731 + #1738 | structural finding, kind-crosswire #1758 in flight |
+| 4 | Per-projection-role split within attn-SOAP | read-path (q,k) prefer EARLY, write-path (proj) prefers LATE | #1642 + #1718 + #1741 + #1763 (qk joint) + #1766 A (k) | structural finding; per-projection load-bearing ranking q>k>v confirmed, proj pending |
+| 5 | **NEW Cross-kind moment-isolation asymmetry** | exp_avg reset productive (avg flush), exp_avg_sq reset catastrophic (denom destruction) at embed | **#1754 Arm B BELOW baseline at n=1 (provisional, awaiting n=2) + frieren #1783 lm_head parallel launched** | **provisional structural finding, cross-kind exploration active** |
+
+### fc-gate-axis CLOSED (151st family-level closure covers gate-axis lineage)
+
+MLP-SOAP fc-gate-axis fully closed at 3-of-3 matrix cells: scalar-threshold bimodal (#1734) + col-axis curriculum-productive (#1755 A) + row-axis stochastic-productive (#1755 B). All cells sub-floor-productive but none cross un-gated floor 3.26991. fc-refresh-stochasticity NOT the productivity discriminator.
+
+---
+
 ## 2026-05-30 06:30 UTC — Cycle 71 mid-410 — fern #1754 Arm B BELOW BASELINE n=1 (n=2 send-back) + thorfinn #1765 Arm A CONSTRUCTIVE NEGATIVE INTERACTION (PROVISIONAL STRUCTURAL FINDINGS — no closures this wake)
 
 ### fern #1754 PER_KIND_AUX_PERIODIC_RESET_EMBED_MOMENT_ISOLATION — STRONGEST n=1 BELOW-BASELINE SINGLE-AXIS RESULT IN CYCLE 71
