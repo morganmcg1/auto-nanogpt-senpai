@@ -9,7 +9,20 @@ The human research team has redirected: **FFS (first-step-to-target, baseline 30
 3. **Prefer experiments that move the crossing step** (2800-3050 window), **simplify winning stacks**, **reveal FFS-load-bearing components**.
 4. **Ablations preferred over confirmations** when FFS dead.
 
-## Last updated: 2026-05-30 08:01Z (52 R5 axis closures total; SOAP-internal scalar cluster 6/6 CLOSED; R5 stack pruning signals from edward #1761)
+## Last updated: 2026-05-30 11:11Z (53 R5 axis closures total; SOAP PRECOND_FREQ cluster CLOSED; tanjiro reassigned to per-head NS attention)
+
+### Notes (2026-05-30 11:11Z) — TANJIRO #1715 CLOSED 53rd; #1821 ASSIGNED per-head NS attention; thorfinn #1772 verdict near-locked
+
+- **★ CLOSED #1715 tanjiro SOAP PRECOND_FREQ phase-schedule** [53rd R5 closure, 11:07Z] — clean-NEG. n=4 confirm: t0=2925, t1=2925, t2=2875 (seed-noise tail), t3=2925 → **μ_4(FFS_ema)=2912.5 EXACTLY at baseline μ_4** (Δ=0), σ_4=25.0 identical to baseline. FFS_trainval μ_4=2931.25 (worse). Val/loss −0.00038 sub-σ. **SOAP PRECOND_FREQ cluster CLOSED in both presentations**: #1617 (static-value) + #1715 (phase-schedule) — PRECOND_FREQ=16 structurally optimal under R5 stack across both formulations.
+- **★ ASSIGNED #1821 tanjiro: PER-HEAD Newton-Schulz orthogonalization for attention** — restructure NS to operate per attention head: G(768,768) → reshape (6, 128, 768) → NS on each head independently. Mechanism: flat NS on stacked matrix lets gradient-dominant head over-rotate the shared update direction; per-head NS constrains each head to its own subspace. Distinct from all closed NS axes (iter count, coefficients, polynomial). Adds `--per_head_ns` flag + `per_head_ns(G, H)` helper after line 519. 5-cell sweep: A=ctrl, B=full per_head_ns, C=Q/K/V only (not proj), D=per_head + ns_iter=4, F=flat + ns_iter=4 (falsifier separating "head structure" from "smaller matrices"). Dual-metric gate: FFS_ema≤2875 AND FFS_trainval≤2900 for n=4 promotion. 54th R5 axis under test.
+- **thorfinn #1772 Cell D terminal** (11:09Z W&B): FFS_ema=2875 / FFS_trainval=2925 — **10th independent confirmation of dual-metric seed-noise signature today**. A=B=C=D all FFS_trainval=2925 → per-class β₂ decoupling axis FFS-NEUTRAL across [(0.90,0.90), (0.85,0.95), (0.95,0.85), (0.85,0.85)] grid. Cell E (extreme 0.70/0.99 falsifier) in flight. Verdict near-locked clean-NEG.
+- **frieren #1767 Cell D terminal** (~10:14Z W&B): FFS_ema=2875 / FFS_trainval=2925 / val=3.2676 (val plateaued vs C=3.26736). qr_iter axis: FFS-cosmetic on FFS_trainval (flat A→B→C→D); val monotone-down A→B→C plateaus at D. Mechanism-finding closure expected unless Cell E (qr_iter=0) disrupts. Cell E in flight, ETA ~12:30Z.
+- **nezuko #1769 Cell D terminal** (~10:55Z W&B): FFS_ema=2925 / FFS_trainval=2925 (= CTRL). Cell B's lone FFS_ema=2875 was seed-noise — both threshold AND smooth-dose-response hypotheses falsified. Cell E (scale=−1.0 falsifier) in flight, ETA ~13:00Z.
+- **askeladd #1776 Cell C posted** (10:04Z): FFS_ema=2925 / FFS_trainval=2925 (TIES Cell B exactly) — step-discontinuous axis around β≥0.1. Cell D (β=0.5) in flight ETA ~11:45Z.
+- **edward #1761**: Cell A=2925 ctrl, Cell B=−1 catastrophic (SOAP-attn essential), Cell C=2925 tied (ema_eval val-cosmetic, prunable), Cell D=2975 (musoft +50 NEG load-bearing), Cell E (drop wd_schedule) in flight ETA ~11:18Z. R5 ablation map: 2/4 load-bearing, 1/4 prunable (ema_eval).
+- **alphonse #1796 Cell A posted** (09:22Z): FFS_ema=2925 / FFS_trainval=2950 / val=3.27094. Implementation audit ✓. Subtle CTRL FFS_trainval=2950 from dynamo-disable numerical drift. Cell B★ (sw975 with (2.2,-1.9,0.7) cubic-weighted) in flight ETA ~11:25Z.
+- **fern #1721 n=4 verdict-LOCKED** (10:16Z W&B): t0=2925/2950, t1=2875/2925, t2=2925/2925, t3 in flight. Best-case μ_4(FFS_ema)=2900 NEG, μ_4(FFS_trainval)=2918.75 NEG. Trial 3 terminal ~11:55Z. 54th R5 closure pending.
+- **Fleet 8/8 R5 active** at 11:11Z. Zero idle.
 
 ### Notes (2026-05-30 08:01Z) — EDWARD CELL C FFS-NEUTRAL (val-cosmetic R5 component); ASKELADD CELL B NEG; FERN #1721 VERDICT-LOCKED via FFS_trainval
 
