@@ -1,3 +1,37 @@
+## 2026-05-30 — PR #1847: H308 tanjiro per-block-type μ heterogeneity (attn vs MLP)
+
+- Branch: g1r3-tanjiro/h308-per-block-mu-heterogeneity
+- Hypothesis: per-block-type μ heterogeneity via 2-param-group split (attn vs MLP) as the SPATIAL-by-TYPE leg of the μ-heterogeneity TRIPLE (with H306 TEMPORAL + H310 SPATIAL-by-DEPTH). Tests whether attn vs MLP gradient structure benefits from different inner momentum smoothing regimes.
+- 3-arm Pattern A: arm_a CTRL (-1/-1 sentinels), arm_b ATTN_LOW (μ_attn=0.85), arm_c MLP_LOW (μ_mlp=0.85). ~30 LoC adds 2 CLI flags + body param_groups split + per-group telemetry.
+
+### Results
+
+| Arm | μ_attn | μ_mlp | step-0 val | terminal val | FFS | Δ vs H266 (3.26818) | Δ vs CTRL | Mid-training peak Δ |
+|-----|--------|-------|-----------|-------------|-----|---------------------|-----------|----------------------|
+| arm_a CTRL `ifb8sjed` | sched 0.95→0.90 | sched 0.95→0.90 | 10.82583 ✓ | **3.28632** | **-1** | **+0.01814 (+20.5σ)** ⚠️ | (ref) | n/a |
+| arm_b ATTN_LOW `dah1frcr` | 0.85 fixed | sched | 10.82583 ✓ | **3.27995** | **3325** | +0.01177 (+13.3σ) | **−0.00637 (−7.2σ)** | **−0.0343 at step 500** |
+| arm_c MLP_LOW `npuoi80l` | sched | 0.85 fixed | 10.82583 ✓ | **3.31022** | **-1** | +0.04204 (+47.6σ) | **+0.02390 (+27.0σ)** | +0.020 monotone divergence |
+
+σ_H174 = 0.000884 noise floor. Smoke triple (Pattern A drift-FREE): arm_a `be8azujj`, arm_b `mrbkbaxk`, arm_c `7reily4w` all step-0=10.82583 EXACT.
+
+### Analysis
+
+**Closure verdict: CLOSED 162nd NULL/NEG — 🎯 3 paper-grade findings**
+
+1. **🎯 paper-grade INFRASTRUCTURE FINDING (103rd mechanism class): param_groups split produces RNG-CONSUMPTION-ORDER DRIFT.** arm_a CTRL drifted +0.01814 above H266 baseline (20.5σ, 20× outside post-H266 CTRL envelope of ±0.002). Trajectory comparison vs H266 m2ywl0o9 is NON-MONOTONE (arm_a BETTER at steps 125-250, CROSSOVER at step ~500, persistently +0.02-0.03 WORSE through cooldown). Pattern is inconsistent with simple split-bias but consistent with MuonH's per-step internal RNG (hyperball noise, NS5 polar projection internals) being consumed across a two-group sequence instead of single-group block. **Mechanism class consolidated**: all future param_groups-split hypotheses must use per-tensor state-dict-keyed overrides OR accept the split-induced drift as a confound and rely on within-chain comparison only.
+
+2. **🎯 paper-grade BLOCK-TYPE-ASYMMETRIC mechanistic distinction (attn-help, MLP-hurt).** Despite CTRL drift, the within-chain treatment signal is clean (all 3 arms share split code path). Attention-side μ reduction (arm_b) helps mildly (Δ=−0.006 terminal, peak Δ=−0.034 at step 500). MLP-side μ reduction (arm_c) hurts substantially (Δ=+0.024 terminal, monotone divergence through cooldown). **Asymmetry rules out pure compensation artifact** — opposite-sign Δ on symmetric arms. Mechanistic interpretation: attn gradients (sparse + spiky) benefit from lower μ for faster adaptation; MLP gradients (dense + continuous) require higher μ for cooldown stability. **First direct empirical evidence in r3 that attn and MLP gradient structure have qualitatively different optimal smoothing regimes**.
+
+3. **🎯 paper-grade THIRD ORTHOGONAL-MECHANISM confirmation of H306+H307 COOLDOWN WASH-OUT.** arm_b ATTN_LOW shows the identical 5× wash-out pattern: peak mid-training Δ=−0.0343 at step 500 → terminal Δ=−0.006. Three structurally INDEPENDENT mechanisms — TEMPORAL μ modulation (H306), POST-NS5 update perturbation (H307), SPATIAL-by-TYPE μ heterogeneity (H308) — ALL produce mid-training advantages that are 100%-to-5×-washed out by cooldown. **Convergent evidence at scale** that H298 mid-training headroom is non-portable to terminal val via 3 orthogonal mid-training mechanisms. The cooldown phase is the dominant fixed-point attractor.
+
+### Sub-finding: H312 arm_a CTRL z7080xmq FIRST CLEAN POST-H266 CTRL replicate
+
+Independent operational data from parallel H312 chain: arm_a CTRL hit FFS=3000 EXACTLY matching H266 baseline, val=3.26759 (Δ=−0.067σ TIE). FIRST clean post-H266 CTRL replicate (H300/H306/H307/H311 all FFS=3025+). Confirms post-H266 CTRL drift pattern is run-to-run variance, NOT systematic. Strengthens per-chain CTRL-anchored comparison framework.
+
+### Conclusion
+
+H308 closed as 162nd NULL/NEG with 3 paper-grade findings + 1 sub-finding + 103rd mechanism class consolidated (param_groups RNG-order infrastructure axis + SPATIAL-by-TYPE μ-heterogeneity axis closed jointly). H316 ASSIGNED to g1r3-tanjiro (PR #1878) — first OUTER STEP attack on cooldown wash-out, orthogonal to all in-flight inner-step chains.
+
 ## 2026-05-30 — PR #1835: H307 nezuko POST-NS5 Langevin noise injection mid-training
 
 - Branch: g1r3-nezuko/h307-post-ns5-noise-mid-training

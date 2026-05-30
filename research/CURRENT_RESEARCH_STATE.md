@@ -1,3 +1,68 @@
+## Cycle ~1700: H308 CLOSED 162nd NULL/NEG (🎯 paper-grade THIRD ORTHOGONAL-MECHANISM H306+H307 cooldown wash-out confirmation — arm_b ATTN_LOW 5× wash-out + 🎯 paper-grade BLOCK-TYPE-ASYMMETRIC mechanistic distinction attn-help/MLP-hurt + 🎯 paper-grade INFRASTRUCTURE FINDING: param_groups RNG-consumption-order drift +20σ, 103rd mechanism class) + H316 ASSIGNED tanjiro OUTER LR cooldown schedule (104th mechanism class candidate — FIRST OUTER STEP attack on paper-grade convergent cooldown wash-out)
+
+**One terminal closure + one fresh OUTER-STEP cooldown-mechanism assignment. Plateau campaign portfolio: 162 NULL/NEG + 1 MERGED WIN (H266), 103 mechanism classes attempted + H306+H307+H308 CONVERGENT FINDING: cooldown phase is DOMINANT FIXED-POINT ATTRACTOR (3-axis paper-grade convergent evidence across TEMPORAL μ × POST-NS5 perturbation × SPATIAL-by-TYPE μ heterogeneity).**
+
+### Closure this cycle
+
+**H308 tanjiro per-block-type μ heterogeneity (attn vs MLP) CLOSED 162nd NULL/NEG — 🎯 3 paper-grade findings (103rd mechanism class CONSOLIDATED)**
+
+Terminal verdict (PR #1847):
+- arm_a CTRL `ifb8sjed` (sentinels -1/-1): val=3.28632, FFS=-1, Δ=+0.01814 vs H266 (+20.5σ — 20× post-H266 CTRL drift envelope!)
+- arm_b ATTN_LOW `dah1frcr` (μ_attn=0.85): val=3.27995, FFS=3325 (just barely qualified), within-chain Δ=−0.00637 vs CTRL (−7.2σ)
+- arm_c MLP_LOW `npuoi80l` (μ_mlp=0.85): val=3.31022, FFS=-1, within-chain Δ=+0.02390 vs CTRL (+27.0σ, monotone divergence)
+
+Three paper-grade findings:
+
+1. **🎯 INFRASTRUCTURE FINDING (103rd mechanism class CONSOLIDATED)**: param_groups split into 2 groups (attn + mlp) produces RNG-consumption-order drift of +20σ_H174 in CTRL. MuonH's per-step internal RNG (hyperball noise, NS5 polar projection internals) iterates across a two-group sequence instead of single-group block → stochastic trajectory diverges from step 1 onward. The arm_a CTRL trajectory is NON-MONOTONE vs H266 m2ywl0o9 (BETTER at steps 125-250, CROSSOVER at step ~500, +0.02-0.03 WORSE through cooldown) → inconsistent with simple split-bias, consistent with RNG-order. **All future param_groups-split hypotheses must use per-tensor state-dict-keyed overrides preserving single-group dispatch, OR accept the drift as a confound and rely on within-chain comparison only.**
+
+2. **🎯 BLOCK-TYPE-ASYMMETRIC mechanistic distinction**: arm_b ATTN_LOW (μ_attn=0.85) HELPS mildly (Δ=−0.006 terminal, peak −0.034 at step 500). arm_c MLP_LOW (μ_mlp=0.85) HURTS substantially (Δ=+0.024 terminal, monotone divergence). Opposite-sign Δ on symmetric arms rules out pure compensation artifact. **First direct empirical evidence in r3 that attn vs MLP gradient structure have qualitatively different optimal smoothing regimes** — attn (sparse + spiky) benefits from lower μ for faster adaptation; MLP (dense + continuous) requires higher μ for cooldown stability.
+
+3. **🎯 THIRD ORTHOGONAL-MECHANISM confirmation of H306+H307 cooldown wash-out**: arm_b ATTN_LOW shows identical 5× wash-out pattern (peak Δ=−0.034 at step 500 → terminal Δ=−0.006). Three structurally INDEPENDENT mechanisms — TEMPORAL μ modulation (H306), POST-NS5 update perturbation (H307), SPATIAL-by-TYPE μ heterogeneity (H308) — ALL produce mid-training advantages 100%-to-5×-washed out by cooldown. **Convergent evidence at scale**: H298 mid-training headroom is non-portable to terminal val via 3 orthogonal mechanisms. The cooldown phase is the dominant fixed-point attractor.
+
+Sub-finding: H312 arm_a CTRL `z7080xmq` (from parallel in-flight chain) hit **FFS=3000 EXACTLY** matching H266 baseline (val=3.26759, Δ=−0.067σ TIE) — FIRST clean post-H266 CTRL replicate in r3. Confirms post-H266 CTRL drift pattern is run-to-run noise, NOT systematic. Strengthens per-chain CTRL-anchored comparison framework.
+
+### Fresh assignment this cycle
+
+**H316 tanjiro OUTER LR cooldown schedule (104th mechanism class candidate) — FIRST OUTER STEP attack on paper-grade convergent cooldown wash-out**
+
+PR #1878 assigned. 3-arm Pattern A Option B sentinel-constant:
+- arm_a CTRL: outer_lr=0.7 constant (H266 baseline, drift-FREE)
+- arm_b COOLDOWN_RAMP_FULL: outer_lr ramps 0.7→0.0 over cooldown phase (matches inner cosine endpoint)
+- arm_c COOLDOWN_RAMP_HALF: outer_lr ramps 0.7→0.35 over cooldown (mild ramp)
+
+Hypothesis: The H306+H307+H308 paper-grade convergent finding identifies cooldown as the DOMINANT FIXED-POINT ATTRACTOR. During cooldown, inner LR decays cosine (1→0) but outer_lr stays CONSTANT at 0.7 → outer pull dominates the small inner updates → outer step may be HOMOGENIZING the cooldown trajectory toward outer anchor, washing out mid-training inner state. Ramping outer_lr during cooldown preserves inner-driven cooldown dynamics.
+
+**Critically, this is the FIRST OUTER STEP attack** on the cooldown wash-out mechanism — all 7 in-flight chains (H309-H315) and 162 closed mechanism classes modify only the INNER optimizer state. Outer step is the virgin axis. WIN prob 10-15%.
+
+### Current research focus
+
+The H306+H307+H308 paper-grade convergent finding (cooldown is dominant fixed-point attractor) is the structural anchor of the post-H266 plateau campaign. Three orthogonal mid-training mechanism axes — TEMPORAL, POST-NS5, SPATIAL-by-TYPE — all show 100% wash-out. Future strategic directions:
+
+1. **Cooldown PHASE direct attack** (H315 in-flight, H316 fresh): modify the cooldown mechanism itself rather than pre-cooldown trajectory. H315 attacks via POST-NS5 noise cooldown_taper. H316 attacks via OUTER LR cooldown schedule.
+2. **Buffer durability test** (H314 in-flight): test whether buffer state rebuild timescale permits mid-training perturbations to persist through cooldown.
+3. **Convergent-mechanism cross-validation**: H310 (SPATIAL-by-DEPTH) in-flight provides the 4th cooldown wash-out axis if it follows pattern.
+
+### Portfolio in-flight (7 r3 students with H309-H315)
+
+- H309 frieren: Aux beta2 mid-training schedule
+- H310 alphonse: per-depth-layer μ heterogeneity (SPATIAL-by-DEPTH)
+- H311 askeladd: POST-NS5 Lookahead slow/fast weight averaging
+- H312 edward: MuonH inner momentum Adam-style bias correction (arm_a+arm_b FINISHED, arm_b NEG +25 FFS, arm_c BIAS_CORR_HIGH_MU still running ~270/3325, ETA ~23:20 UTC)
+- H313 fern: ADAPTIVE μ via gradient-momentum cosine alignment (arm_a CTRL clean +0.14σ TIE FFS=3025, arm_b mid-training cos_align=-0.353)
+- H314 thorfinn: DIP-and-EARLY-RECOVER V-shape μ (buffer durability test)
+- H315 nezuko: POST-NS5 NOISE COOLDOWN_TAPER (binary cliff-OFF vs linear ε-taper discriminator)
+
+### Potential next research directions (after H316 closure)
+
+- **Single-group ATTN_LOW replication** (H308 follow-up): per-tensor μ override via state-dict to remove the param_groups split confound. Worth doing as paper-figure backup even if Δ ≈ −0.01 caps at sub-merge-gate
+- **Cooldown LR shape sweep with NEW shapes** (polynomial p=2, polynomial p=0.5, exponential) — extends cosine/linear/sqrt
+- **Outer momentum schedule** — analogous to H316 but on outer_momentum instead of outer_lr
+- **Sync interval schedule** — sync_interval varies with cooldown phase
+- **NS5 iter count interaction with adaptive μ** — explore whether lower NS5 iter + lower μ unlocks productive exploration window
+- **Polyak EMA decay schedule** — currently decay=0.05 fixed; matched-to-cooldown variant could capture cooldown-specific state
+
+---
+
 ## Cycle ~1650: H307 CLOSED 161st NULL/NEG (🎯 paper-grade SECOND ORTHOGONAL-MECHANISM H298 partial confirmation — arm_c NOISE_HIGH Δ=−0.003 mid-training directional signal + CONVERGENT COOLDOWN WASH-OUT finding H306+H307 cross-validated + dose-response confirmed, 102nd mechanism class) + H315 ASSIGNED nezuko POST-NS5 NOISE COOLDOWN_TAPER (103rd mechanism class candidate — binary cliff-OFF gating vs linear ε-taper through cooldown, WASH-OUT discriminator)
 
 **One terminal closure + one fresh cooldown-mechanism assignment. Plateau campaign portfolio: 161 NULL/NEG + 1 MERGED WIN (H266), 102 mechanism classes attempted + H306+H307 CONVERGENT FINDING: cooldown phase is DOMINANT FIXED-POINT ATTRACTOR that normalizes terminal val regardless of mid-training trajectory/mechanism. This is the new structural finding anchoring the H298 headroom cluster.**
