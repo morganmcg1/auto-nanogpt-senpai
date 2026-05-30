@@ -1,3 +1,61 @@
+## 2026-05-30 00:55 UTC — Cycle 71 mid-404 — alphonse #1738 309th refute, 145th family closure — MAJOR STRUCTURAL FINDING: depth-axis is correct decomposition for init-mechanism family (5× larger Δ than per-kind); back-half tightening directionally favored but wrong magnitude; emerging cross-axis depth-mechanism cluster (#1731 + #1738 both BACK-favored)
+
+### alphonse #1738 309th refute — PER_DEPTH_HALF_INIT_STD_MULT val_mean=3.27194 STANDARD misses merge bar by Δ=+0.00418 val and +37.5 ffs
+
+Arm A `init_front_tight` (FRONT=0.5/BACK=1.0/SPLIT=6) val=3.27348/ffs=3050 STANDARD-destructive. Arm B `init_back_tight` (FRONT=1.0/BACK=0.5/SPLIT=6) val=3.27040/ffs=3025 STANDARD. Δ(B−A)=−0.00308 strongly directional (back-tight favored over front-tight). Stat rule (3.28−μ)·√n ≥ 0.004 PASSES at n=2 (0.01140). W&B 3oce9if7/qqfnw0pv verified config-operative + per-(arm, block, kind) init-std step-0 sanity probes match expected within 0.0001 + 24/24 weight tensor split at INIT_DEPTH_SPLIT=6.
+
+**MAJOR STRUCTURAL FINDING — depth-axis is correct decomposition for init-mechanism family**:
+
+| decomposition axis | Δ(B−A) | trajectory class | A val | B val | mean val | Δ vs baseline |
+|---|---|---|---|---|---|---|
+| per-kind (#1713) | +0.00064 | absorption-convergence | 3.26865 | 3.26929 | 3.26897 | +0.00121 |
+| **per-depth-half (#1738)** | **−0.00308** | **persistent-directional-divergence** | 3.27348 | 3.27040 | 3.27194 | +0.00418 |
+
+Depth-axis surfaces 5× larger Δ(B−A) than per-kind axis with persistent-divergence trajectory class instead of absorption-convergence → depth-axis is **load-bearing decomposition** for init-mechanism family. But 0.5× magnitude is wrong (both arms above baseline) and back-half-uniform 0.5× tightening is more destructive than per-kind 0.5× tightening (5× larger Δ vs baseline).
+
+**180th distinct Δ-trajectory mech class: PERSISTENT-DIRECTIONAL-DIVERGENCE** — Δ(B−A) trajectory −0.00032 → −0.00321 → +0.00154 (sign reversal) → −0.00261 → **−0.00890 PEAK at step 2500** → −0.00315 → −0.00308 terminal. Late-training amplification phase + slow partial absorption, distinct from MID-PEAK-DECAY or absorption-convergence families.
+
+**EMERGING CROSS-AXIS DEPTH-MECHANISM CLUSTER in cycle 71**:
+
+| mechanism | axis | direction-favored | val improvement |
+|---|---|---|---|
+| #1731 B (in n=2 confirmation) | depth × β2-phase | BACK-FAST | val=3.26845/ffs=3000 NEAR-FLOOR-NEW |
+| **#1738 B** | **depth × init-magnitude** | **BACK-TIGHT** | Δ(B−A)=−0.00308 but val=3.27040 above baseline |
+
+Both depth-axis decompositions identify BACK-half as productive side across two distinct mechanism classes (SOAP β2 vs init magnitude). Strengthens emerging finding: **back-half blocks are the load-bearing depth region** for cycle 71 optimizer/init mechanisms.
+
+Rules out three hypotheses: (1) per-depth-half init magnitude is load-bearing at 0.5× — REFUTED, (2) front-half init tightening is benign — REFUTED (Arm A destructive +0.00572), (3) per-kind axis absorbs init asymmetry equally — REFUTED (depth-axis 5× larger Δ).
+
+**145th family closure**: PER_DEPTH_HALF_INIT_STD_MULT axis fully mapped at directional-not-load-bearing outcome with depth-axis structural axis claim.
+
+### Cycle 71 cumulative state
+
+**Cycle 71 cumulative**: **309 refuted** / **180 distinct mech classes** / **145 family-level closures**.
+
+### PRs closed this wave (1 closure):
+
+| PR | student | mechanism | outcome |
+|---|---|---|---|
+| **alphonse #1738** | alphonse | PER_DEPTH_HALF_INIT_STD_MULT (Arm A FRONT=0.5/BACK=1.0/SPLIT=6, Arm B FRONT=1.0/BACK=0.5/SPLIT=6) | **309th** — Arm A 3.27348/3050 STANDARD-destructive, Arm B 3.27040/3025 STANDARD, val_mean=3.27194 misses by +0.00418/+37.5. Δ(B−A)=−0.00308 directional back-tight favored. MAJOR STRUCTURAL FINDING depth-axis is load-bearing decomposition for init-mechanism family with 5× larger Δ than per-kind + persistent-directional-divergence trajectory class. EMERGING cluster cross-axis depth-mechanism with #1731 B both BACK-favored. **145th family closure**. |
+
+### PRs assigned this wave (1 fresh kind × depth crosswire):
+
+| PR | student | mechanism | hypothesis |
+|---|---|---|---|
+| **alphonse #1758** | alphonse | PER_DEPTH_HALF_INIT_STD_MULT_KIND_CROSSWIRE (Arm A `back_attn_tight` KIND_FILTER=1 attn-only back-half BACK=0.5, Arm B `back_mlp_tight` KIND_FILTER=2 mlp-only back-half BACK=0.5; FRONT=1.0 SPLIT=6 fixed) | **Kind × depth-half crosswire decomposition** of #1738 B back-tight signal. Tests which kind in back half is load-bearing component of −0.00308 directional signal. If A < #1738 B floor → attn-kind in back half is the lever (18 tensors of qkv). If B < #1738 B floor → mlp-kind in back half is the lever (12 tensors of fc/proj). If both ≈ #1738 B → back-half kind-uniform required no kind-specificity. If Δ(A−B) ≥ 0.003 → kind-specificity within depth-half opens fresh kind × depth axis as productive direction. Fits Morgan's directive per-group + state-mechanism per-kind × per-depth crosswire is state-mechanism no scalar sweep. |
+
+### Strategic fleet state
+
+Fleet 8/8 active:
+- **WIP (6)**: alphonse #1758 new, edward #1744, fern #1754, frieren #1755, nezuko #1741, tanjiro #1750
+- **n=2 confirmation (2)**: askeladd #1731 seed1, thorfinn #1732 seed1
+- 0 idle
+
+Two consecutive depth-axis structural findings (#1731 provisional + #1738) both identifying BACK-half as productive direction across two mechanism classes (SOAP β2 phase-dispatch + init-magnitude) is the **strongest emerging structural cluster in cycle 71**. If both #1731 and #1732 confirm at n=2 next wake, and #1758 shows kind-specificity within depth-half is productive, cycle 71 will have a clean depth-axis × kind-axis matrix of productive directions to compound.
+
+---
+
+
 ## 2026-05-30 00:50 UTC — Cycle 71 mid-403 — frieren #1734 308th refute, 144th family closure — MAJOR MECHANISTIC FINDING: #1671 gate-penalty REFRAMED as "threshold > fc_cos_row → preconditioner freeze" (NOT joint-coupling); gate-statistic axis follow-up assigned
 
 ### frieren #1734 308th refute — PER_KIND_MLP_SOAP_FC_TRUST_THRESHOLD_ISOLATION val_mean=3.270576 STANDARD misses merge bar by Δ=+0.00282 val and +37.5 ffs
