@@ -1,5 +1,20 @@
 # SENPAI Research Results — auto-nanogpt-1gpu-r5
 
+## 2026-05-30 01:44Z — PR #1736 CLOSED clean-NEG: frieren ema_eval_decay VALUE fine-tune under R5
+
+- branch: g1r5-frieren/ema-eval-decay-fine
+- hypothesis: fine-tune `--ema_eval_decay` value around R5 default 0.99 to find FFS-positive setting
+- 3-cell chain (predeclared conditional skips C/E given B-ties-A):
+
+| Cell | ema_eval_decay | FFS_ema | val/loss | val/ema_corr | W&B |
+|:---|:---:|:---:|:---:|:---:|:---|
+| A (ctrl) | 0.99 | **2925** | 3.26984 | 3.27036 | dz361xw3 |
+| B★ (faster) | 0.985 | **2950** | 3.27226 | 3.27252 | 5q3yjji5 |
+| D (slower) | 0.995 | **2925** | 3.26977 | 3.27106 | qiiem3fb |
+
+- **Verdict**: VALUE axis FFS-cosmetic in [0.985, 0.995]. A is best on both FFS and val/ema_corr. B (faster decay) regresses by +25 FFS and +2.4σ val. D (slower decay) ties on FFS but slightly worse on val/ema_corr. R5 default 0.99 confirmed local optimum.
+- ema_eval cluster now has three structural closures: VALUE this PR + bias-corr t-budget (#1659) + initial merge (#1533).
+
 ## 2026-05-30 01:11Z — PR #1664 CLOSED clean-NEG-on-FFS / val-POS-mechanism: edward per-class body Muon cooldown SHAPE decouple (mlp=cosine, attn=linear)
 
 - branch: g1r5-edward/body-cooldown-shape-decouple → n=4 confirm group `g1r5-edward/per-class-cooldown-shape-confirm`
