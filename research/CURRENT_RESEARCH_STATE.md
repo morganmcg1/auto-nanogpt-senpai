@@ -9,7 +9,19 @@ The human research team has redirected: **FFS (first-step-to-target, baseline 30
 3. **Prefer experiments that move the crossing step** (2800-3050 window), **simplify winning stacks**, **reveal FFS-load-bearing components**.
 4. **Ablations preferred over confirmations** when FFS dead.
 
-## Last updated: 2026-05-30 12:49Z (55 R5 axis closures; edward #1825 + fern #1826 fresh structural axes assigned; fleet 8/8 active; 4 Cell E falsifier terminals pending)
+## Last updated: 2026-05-30 13:05Z (56 R5 axis closures; frieren #1767 qr_iter CLOSED + spectral-norm pre-NS axis ASSIGNED #1829; thorfinn #1772 Cell E ready terminal NEG; fleet 8/8 active)
+
+### Notes (2026-05-30 13:05Z) — FRIEREN #1767 CLOSED 56th (qr_iter axis); ASSIGNED #1829 SPECTRAL-NORM pre-NS; THORFINN #1772 CELL E NEG (57th pending)
+
+- **★ CLOSED #1767 frieren SOAP basis-refresh QR-iter** [56th R5 closure, 13:00Z] — clean-NEG. 5-cell terminal: A(qr=1)=2925/2925/3.26891, B(qr=2)=2875/2925/3.26834, C(qr=3)=2875/2925/3.26736 (best val), D(qr=5)=2875/2925/3.26765 (plateau), **E(qr=0 falsifier)=−1/−1/3.28588 CATASTROPHIC** (never crossed 3.28). FFS axis FULLY COSMETIC across qr_iter∈{2,3,5}: all cells exactly hit today's seed-0 dual-metric signature (2875/2925), zero shift. **Cell E load-bears the QR refresh step itself** — basis-rotation is structurally required for SOAP convergence in budget. SOAP basis-mechanism axis cluster now 4/4 CLOSED (off-diagonal staleness #1654, Gram warm-init #1721, Gram β₂ warmup #1689, QR-iter #1767).
+- **★ ASSIGNED #1829 g1r5-frieren: Spectral-norm pre-NS scaling via power iteration** — replaces Frobenius-norm pre-NS scaling (line 508 of train_gpt_simple.py mistakenly comments "spectral" but uses `X.norm` = Frobenius) with σ_max estimate via 2-step power iteration: `X / (1.1 · σ_max_est)`. Mechanism: NS5 polynomial p(x)=2x−1.5x³+0.5x⁵ has convergence radius ~1.4, optimal rate near x≈1. Frobenius overshrinking (‖X‖_F ≈ √r · σ_max) drops σ_max far below 1 → wasted iterations chasing it back. Spectral scaling puts σ_max≈0.91 → all singular values in high-rate basin. 4 cells: A=ctrl (Frob), B★=spectral_iter2_overshoot1.1, C=spectral_iter1, D=spectral_iter2_overshoot1.05 (tighter). PR title search ✓ 0 hits for "spectral norm" / "power iteration".
+- **thorfinn #1772 Cell E (0.70/0.99 falsifier) W&B-terminal** (13:00Z): FFS_ema=2950, FFS_trainval=**2975** (+50 NEG vs A=2925), val=3.27185. Clean-NEG closure verdict: per-class β₂ decoupling FFS-NEUTRAL at moderate offsets, **directional-NEG at extreme**. Cell E load-bears the smooth-dose-response falsification. 57th R5 closure pending terminal SENPAI-RESULT post. Heartbeat read-through ack sent 13:05Z.
+- **nezuko #1769 Cell E (scale=-1.0)** step 3215/3250 val=3.270 (healthy, FFS likely alive). Terminal ~13:08Z.
+- **askeladd #1776 Cell E (β=0.9 falsifier)** step 1497/3250 (46%) val=3.587 → catastrophic in flight as predicted. Terminal ~13:55Z.
+- **alphonse #1796 Cell C (sw650)** step 2662/3250 (82%) val=3.316 → mid-recovery. Terminal ~13:25Z.
+- **tanjiro #1821 Cell A (per-head ctrl)** step 2499/3250 (77%) val=3.359 → recovery, terminal ~13:20Z.
+- **edward #1825 + fern #1826** still no W&B runs in target groups (student pods polling).
+- **Fleet 8/8 R5 active** at 13:05Z. Zero idle (frieren re-assigned).
 
 ### Notes (2026-05-30 12:49Z) — EDWARD #1825 + FERN #1826 ASSIGNED (NS-internal structural class); 4 cell-E terminals pending
 
