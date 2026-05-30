@@ -464,13 +464,17 @@ SOAP_PRECOND_FREQ = 10
 ATTN_SOAP_BETA2 = 0.90
 ATTN_SOAP_PRECOND_FREQ = 10
 ATTN_SOAP_TRUST_THRESHOLD = float(os.environ.get("ATTN_SOAP_TRUST_THRESHOLD", "0.9"))
-# Per-projection β2 phase-dispatch at attn-SOAP (PR #1794, extended to v/proj in #1811).
-# When ATTN_SOAP_PHASE_DISPATCH_PROJECTION ∈ {q, k, v, proj}, that projection's β2
-# switches from ATTN_SOAP_BETA2_EARLY_<proj> (steps < ATTN_SOAP_PHASE_BOUNDARY) to
-# ATTN_SOAP_BETA2_LATE_<proj> (steps >= ATTN_SOAP_PHASE_BOUNDARY). Non-dispatched
-# projections (and the dispatched projection when no dispatch is active) use the
-# per-kind ATTN_SOAP_BETA2_<kind>, which defaults to ATTN_SOAP_BETA2.
+# Per-projection β2 phase-dispatch at attn-SOAP (PR #1794, extended to v/proj in #1811,
+# joint-projection dispatch added in #1866).
+# ATTN_SOAP_PHASE_DISPATCH_PROJECTION is a comma-separated list of kinds in {q, k, v, proj}.
+# Each dispatched projection's β2 switches from ATTN_SOAP_BETA2_EARLY_<proj>
+# (steps < ATTN_SOAP_PHASE_BOUNDARY) to ATTN_SOAP_BETA2_LATE_<proj>
+# (steps >= ATTN_SOAP_PHASE_BOUNDARY). Non-dispatched projections use the per-kind
+# ATTN_SOAP_BETA2_<kind>, which defaults to ATTN_SOAP_BETA2.
 ATTN_SOAP_PHASE_DISPATCH_PROJECTION = os.environ.get("ATTN_SOAP_PHASE_DISPATCH_PROJECTION", "")
+ATTN_SOAP_PHASE_DISPATCH_PROJECTIONS = frozenset(
+    p.strip() for p in ATTN_SOAP_PHASE_DISPATCH_PROJECTION.split(",") if p.strip()
+)
 ATTN_SOAP_PHASE_BOUNDARY = int(os.environ.get("ATTN_SOAP_PHASE_BOUNDARY", "0"))
 ATTN_SOAP_BETA2_EARLY = {
     kind: float(os.environ.get(f"ATTN_SOAP_BETA2_EARLY_{kind}", str(ATTN_SOAP_BETA2)))
@@ -487,7 +491,7 @@ ATTN_SOAP_BETA2_PER_KIND = {
 
 
 def attn_soap_beta2_for_kind(kind: str, step: int) -> float:
-    if ATTN_SOAP_PHASE_DISPATCH_PROJECTION and kind == ATTN_SOAP_PHASE_DISPATCH_PROJECTION:
+    if kind in ATTN_SOAP_PHASE_DISPATCH_PROJECTIONS:
         if step < ATTN_SOAP_PHASE_BOUNDARY:
             return ATTN_SOAP_BETA2_EARLY[kind]
         return ATTN_SOAP_BETA2_LATE[kind]
