@@ -9,7 +9,22 @@ The human research team has redirected: **FFS (first-step-to-target, baseline 30
 3. **Prefer experiments that move the crossing step** (2800-3050 window), **simplify winning stacks**, **reveal FFS-load-bearing components**.
 4. **Ablations preferred over confirmations** when FFS dead.
 
-## Last updated: 2026-05-30 07:08Z (52 R5 axis closures total; SOAP-internal scalar cluster 6/6 CLOSED; FFS_trainval dual-metric standard now in force)
+## Last updated: 2026-05-30 08:01Z (52 R5 axis closures total; SOAP-internal scalar cluster 6/6 CLOSED; R5 stack pruning signals from edward #1761)
+
+### Notes (2026-05-30 08:01Z) — EDWARD CELL C FFS-NEUTRAL (val-cosmetic R5 component); ASKELADD CELL B NEG; FERN #1721 VERDICT-LOCKED via FFS_trainval
+
+- **edward #1761 Cell C terminal** (07:12Z): drop `--ema_eval_decay 0.99` → FFS=2925 TIED with Cell A CTRL (Δ=0). Val/loss=3.26948 vs A=3.26884 (+0.6σ within noise). **Correcting my 07:01Z mid-cell prediction of FFS=-1** — raw val crossed 3.28 RIGHT AT step 2925, not later. **EMA-eval is val-cosmetic, NOT FFS-load-bearing on seed=42.** First clearly val-cosmetic R5 component identified — pruning candidate. Caveat: n=1 result; at n=4 EMA may show variance-reduction (σ_4 narrower) not bias-reduction (μ_4 shift). Continue Cells D/E.
+  - **Updated ablation table**: A (CTRL): 2925 ✓; B (drop --soap_attn): −1 CATASTROPHIC; **C (drop --ema_eval_decay): 2925 TIED (val-cosmetic)**; D (drop --depth_init_mode musoft): running ETA ~08:56Z; E (drop --wd_schedule ramp_down): pending.
+- **askeladd #1776 Cell B terminal** (07:55Z): β=0.3 SOAP basis smooth-blend → FFS_ema=2925 / FFS_trainval=2925, val/loss +0.00158 vs CTRL. **Directional NEG (+50 FFS_ema vs same-seed CTRL=2875)**. Mid-smoothing lags Gram eigenspace → delays threshold crossing by exactly one eval interval. Cell C (β=0.1 light) running, ETA ~09:30Z. Sweep gate: monotone-NEG axis closure if C+D+E all ≥ FFS_ema=2925.
+- **fern #1721 n=4 confirm verdict-LOCKED clean-NEG** (07:58Z liveness check, trial 2 in flight ~4%):
+  - t0: FFS_ema=2925 / **FFS_trainval=2950** NEG (above CTRL baseline)
+  - t1: FFS_ema=2875 / FFS_trainval=2925 (matches today's 3-PR seed-noise signature)
+  - μ_2(FFS_ema)=2900, μ_2(FFS_trainval)=2937.5
+  - **FFS_trainval merge gate already LOCKED-NEG**: best-case t2=t3=2875 gives μ_4(FFS_trainval)=2906.25 > 2900 gate.
+  - **FFS_ema borderline**: best-case μ_4=2887.5 exactly at gate; any single t at 2925 → 2900 NEG.
+  - Advisor decision: HOLD Cell E n=4 launch (already in force from 03:48Z), save ~8.5h GPU. Continue Cell B n=4 to terminal for closure record. 53rd R5 closure pending.
+- **alphonse #1796 NS coeff phase-schedule**: still 0 implementation commits (assignment commit only). Student picked up at 06:50Z, exited iteration 768 at 07:01Z (10 min compute). Next iteration ~07:11Z+jitter → currently in compute window. Watch for first implementation commits.
+- **Fleet 8/8 R5 active** at 08:01Z. Zero idle.
 
 ### Notes (2026-05-30 07:08Z) — CROSS-PR SEED CORRELATION CONFIRMED; #1769/#1767/#1776 ALL HIT (2875, 2925) DUAL-METRIC; #1772 CELL B TIES CTRL
 
