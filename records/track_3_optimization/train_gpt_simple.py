@@ -56,6 +56,25 @@ def parse_args():
     parser.add_argument("--outer_lr", type=float, default=float(os.environ.get("OUTER_LR", "0.7")))
     parser.add_argument("--outer_momentum", type=float, default=float(os.environ.get("OUTER_MOMENTUM", "0.5")))
     parser.add_argument("--sync_interval", type=int, default=int(os.environ.get("SYNC_INTERVAL", "30")))
+    # H289: Outer optimizer momentum temporal schedule (77th class). 'constant'
+    # returns args.outer_momentum bit-identical to baseline. 'linear_decrease' /
+    # 'linear_increase' ramp outer_momentum_start → outer_momentum_end across
+    # all train_steps. 'cooldown_drop' holds outer_momentum_start until
+    # step 2500, then linearly ramps to outer_momentum_end through train_steps.
+    parser.add_argument("--outer_momentum_schedule", type=str,
+                        default=os.environ.get("OUTER_MOMENTUM_SCHEDULE", "constant"),
+                        choices=["constant", "linear_decrease", "linear_increase", "cooldown_drop"],
+                        help="Outer momentum schedule. constant=baseline (uses --outer_momentum throughout). "
+                             "linear_decrease/linear_increase=ramp start→end over all train_steps. "
+                             "cooldown_drop=hold start until step 2500, then ramp to end through train_steps.")
+    parser.add_argument("--outer_momentum_start", type=float,
+                        default=float(os.environ.get("OUTER_MOMENTUM_START", "0.5")),
+                        help="Outer momentum at start of training (used by non-constant schedules). "
+                             "Default 0.5 matches baseline.")
+    parser.add_argument("--outer_momentum_end", type=float,
+                        default=float(os.environ.get("OUTER_MOMENTUM_END", "0.5")),
+                        help="Outer momentum at end of training (used by non-constant schedules). "
+                             "Default 0.5 matches baseline.")
     # AGC (Brock et al. 2021): per-parameter adaptive gradient clipping applied to
     # AdamW aux groups (embed, lm_head, scalars). Clips grad to clip_ratio * |param|.
     # Default 0.0 disables (no-op for bit-identical baseline).
@@ -777,6 +796,25 @@ def print0(s, console=False, log=True):
             with open(logfile, "a") as f:
                 print(s, file=f)
 
+
+def get_outer_momentum(args, train_step, train_steps, cooldown_start_step=2500):
+    # H289: 'constant' returns args.outer_momentum bit-identically to baseline.
+    # Non-constant schedules at train_step=0 return outer_momentum_start, which
+    # defaults to 0.5 = baseline outer_momentum, so the step-0 outer step (which
+    # is a no-op with delta=0 anyway) stays bit-identical across all arms.
+    if args.outer_momentum_schedule == "constant":
+        return args.outer_momentum
+    if args.outer_momentum_schedule in ("linear_decrease", "linear_increase"):
+        progress = train_step / max(train_steps - 1, 1)
+        return args.outer_momentum_start + progress * (args.outer_momentum_end - args.outer_momentum_start)
+    if args.outer_momentum_schedule == "cooldown_drop":
+        if train_step < cooldown_start_step:
+            return args.outer_momentum_start
+        cooldown_progress = (train_step - cooldown_start_step) / max(train_steps - cooldown_start_step - 1, 1)
+        return args.outer_momentum_start + cooldown_progress * (args.outer_momentum_end - args.outer_momentum_start)
+    raise ValueError(f"unknown outer_momentum_schedule: {args.outer_momentum_schedule}")
+
+
 # we begin by logging this file itself
 print0(code)
 print0("="*100)
@@ -785,6 +823,8 @@ print0(f"Running PyTorch {torch.version.__version__} compiled for CUDA {torch.ve
 if args.use_outer_optimizer:
     print0(f"MuLoCo outer optimizer ENABLED: outer_lr={args.outer_lr} "
            f"outer_momentum={args.outer_momentum} sync_interval={args.sync_interval}", console=True)
+    print0(f"H289 outer_momentum_schedule={args.outer_momentum_schedule} "
+           f"start={args.outer_momentum_start} end={args.outer_momentum_end}", console=True)
 else:
     print0("MuLoCo outer optimizer DISABLED", console=True)
 print0(f"MuonH mode={args.muonh_mode} lr={args.muonh_lr} budget_mult={args.muonh_budget_mult} cooldown_shape={args.muonh_cooldown_shape}", console=True)
@@ -844,6 +884,9 @@ if dist.get_rank() == 0:
             "muloco_outer_lr": args.outer_lr,
             "muloco_outer_momentum": args.outer_momentum,
             "muloco_sync_interval": args.sync_interval,
+            "outer_momentum_schedule": args.outer_momentum_schedule,
+            "outer_momentum_start": args.outer_momentum_start,
+            "outer_momentum_end": args.outer_momentum_end,
             "aux_agc_clip_ratio": args.aux_agc_clip_ratio,
             "aux_agc_eps": args.aux_agc_eps,
             "muonh_agc_clip_ratio": args.muonh_agc_clip_ratio,
@@ -1326,6 +1369,7 @@ for trial_idx in range(args.num_trials):
         # behavior — the goal is trajectory smoothing, not strict norm invariance.
         if use_outer and train_step % args.sync_interval == 0 and train_step < train_steps:
             log_outer = (dist.get_rank() == 0)
+            outer_momentum_now = get_outer_momentum(args, train_step, train_steps)
             if log_outer:
                 delta_sq = torch.zeros((), device=device)
                 velocity_sq = torch.zeros((), device=device)
@@ -1333,9 +1377,9 @@ for trial_idx in range(args.num_trials):
             with torch.no_grad():
                 for n, p in model.named_parameters():
                     delta = outer_anchor[n] - p.data
-                    outer_velocity[n].mul_(args.outer_momentum).add_(delta)
+                    outer_velocity[n].mul_(outer_momentum_now).add_(delta)
                     p.data.copy_(outer_anchor[n] - args.outer_lr *
-                                 (args.outer_momentum * outer_velocity[n] + delta))
+                                 (outer_momentum_now * outer_velocity[n] + delta))
                     outer_anchor[n].copy_(p.data)
                     if log_outer:
                         delta_sq = delta_sq + delta.float().square().sum()
@@ -1351,6 +1395,7 @@ for trial_idx in range(args.num_trials):
                     "train/muloco/outer_step": outer_applied_steps,
                     "train/muloco/delta_rms": delta_rms,
                     "train/muloco/velocity_rms": velocity_rms,
+                    "train/muloco/outer_momentum": outer_momentum_now,
                 }, step=wandb_step)
 
         approx_training_time = training_time + (time.perf_counter() - t0)
