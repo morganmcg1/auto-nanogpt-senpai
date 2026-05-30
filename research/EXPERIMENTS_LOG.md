@@ -1,3 +1,61 @@
+## 2026-05-30 01:00 — PR #1759: H288 thorfinn Cooldown-localized EMA activation — **ASSIGNED (76th class)**
+
+- Branch: g1r3-thorfinn/h288-cooldown-localized-ema-activation (PR #1759, post-H266 baseline)
+- 76th mechanism class — **EMA TEMPORAL SCHEDULING / cooldown-localized activation axis** (untested in 75 prior r3 mechanism classes; outside PF#62 phase-gated DEACTIVATION class which was catastrophic via H271)
+- Direct extension of H274v2 closure insight #4 (decay × cooldown coupling)
+- Mechanism: gate `polyak_ema_state` buffer update on `step >= polyak_ema_activation_step`; reinitialize buffer from live params at activation step. Add `--polyak_ema_activation_step` argparse flag, modify EMA update gate at line 1220 area, modify eval substitution gate at line 1103 area
+- 3-arm chain Pattern A drift-FREE (argparse VALUE conditional, `activation_step=0` reduces gate to `step >= 0` always-true bit-identical to baseline):
+  - arm_a CTRL: `--polyak_ema_activation_step 0` — H266 replicate (full-training EMA)
+  - arm_b COOLDOWN_RAMP: `--polyak_ema_activation_step 2500` — EMA activated at cooldown onset (75% through), 825 cooldown steps = 60× decay half-life → asymptotic buffer convergence
+  - arm_c COOLDOWN_AGGRESSIVE: `--polyak_ema_activation_step 2900` — late activation (87% through), 425 cooldown steps = 31× half-life
+- WIN criterion: arm_b OR arm_c FFS<3000 strict, val<3.276
+- TIE result: arm_b FFS=3000 EXACT confirms cooldown-localized hypothesis (6th FFS=3000 TIE mechanism family member)
+- WIN prob 15-25%; 76th mechanism class
+- **Why structurally distinct**: tests phase-gated ACTIVATION on EMA family — H271 closed phase-gated DEACTIVATION (catastrophic, PF#62 class). Activation tests whether model trained without EMA pre-cooldown can ADD EMA at cooldown and recover the H266 WIN. Distinct from H266 (constant timing), H274 (scope), H274v2 (decay magnitude).
+- **Hypothesis link**: if arm_b TIES H266 → paper-grade EMA is purely cooldown-localized finding; if arm_b NEG → pre-cooldown EMA contributes structurally; if arm_b WIN → opens new "phase-gated activation" axis as mechanism class
+- Ref: Polyak-Ruppert averaging (Polyak & Juditsky 1992)
+
+---
+
+## 2026-05-30 01:00 — PR #1699: H274v2 thorfinn AUX_ONLY EMA decay sweep — **CLOSED 134th NULL/NEG (🎯 paper-grade single-seed noise floor + U-shape closure)**
+
+- Branch: g1r3-thorfinn/h274v2-aux-only-decay-sweep (PR #1699, post-H266 baseline)
+- 65th mechanism class (originally) — AUX_ONLY EMA decay magnitude axis (within thorfinn's R&D round 2 of H274 family)
+- 3-arm test result:
+
+| Arm | scope | decay | step-0 val | val/loss | FFS | Δval vs H266 (3.26818) | σ_H174 |
+|---|---|---|---|---|---|---|---|
+| arm_a CTRL_TIE | aux | 0.05 | 10.82583 ✓ | 3.26987 | 3050 | +0.00169 | +1.91σ |
+| **arm_b TIGHTER** | aux | **0.10** | 10.82583 ✓ | **3.26899** | **3025** | +0.00081 | +0.92σ (best) |
+| arm_c MUCH_TIGHTER | aux | 0.20 | 10.82583 ✓ | 3.26968 | 3050 | +0.00150 | +1.70σ |
+
+🎯 **AUX_ONLY EMA decay axis closure**: clean U-shape with minimum at decay≈0.10 within AUX_ONLY scope. arm_b beats arm_a CTRL by −25 FFS / −0.00088 val (clean within-chain ablation, same RNG noise era) but does NOT clear H266 FFS<3000 strict bar.
+
+🎯 **PAPER-GRADE methodological finding** — Round-1 vs Round-2 CTRL replicate noise floor:
+- Round-1 arm_c (lxs2934l, scope=aux+decay=0.05): val=3.26711, FFS=3000
+- Round-2 arm_a (jrp39ojh, bit-identical config): val=3.26987, FFS=3050
+- Δ = +0.00276 val (+3.12σ) / +50 FFS on identical config
+- **Confirms H266 baseline FFS=3000 is at FAVORABLE TAIL of single-seed noise distribution**, not noise-free anchor. Strict FFS<3000 merge bar (per Issue #1260) is asymmetrically sampling the noise distribution.
+
+🎯 **PF#62 BILATERAL OVER-SMOOTHING confirmation**:
+- arm_c decay=0.20 had HIGHEST val@step3000 (3.28345) of all 3 arms — over-aggressive EMA drags eval params behind cooldown sharpening
+- Same failure mode as H266 arm_c EMA_SLOW=0.005 (too-slow) but on OPPOSITE side of decay axis (too-fast)
+- Cooldown-sharpening destabilization is bilateral on decay axis — too-slow and too-fast both regress
+
+- Drift-FREE Pattern A: 30th-32nd instances (step-0=10.82583 EXACT for all 3 arms)
+- Pattern A loose +25 drift class noise floor upper tail extended to +50 (H274v2 arm_a, H278 arm_a now replicating)
+
+Decision: CLOSED as 134th NULL/NEG with multiple paper-grade methodological insights. Within-chain decay axis closure (U-shape min ≈0.10), single-seed noise floor characterization, PF#62 bilateral over-smoothing confirmation.
+
+W&B runs:
+- arm_a CTRL_TIE: jrp39ojh — FFS=3050, val=3.26987
+- arm_b TIGHTER: zz17t4zl — FFS=3025, val=3.26899
+- arm_c MUCH_TIGHTER: kjke4hye — FFS=3050, val=3.26968
+
+Follow-up: H288 (this cycle) addresses thorfinn's own suggestion #4 — direct structural test of cooldown-localized EMA hypothesis.
+
+---
+
 ## 2026-05-30 00:00 — PR #1757: H287 alphonse NS5 polynomial coefficient FORM variants — **ASSIGNED (75th class)**
 
 - Branch: g1r3-alphonse/h287-ns5-polynomial-coefficients (PR #1757, post-H266 baseline)

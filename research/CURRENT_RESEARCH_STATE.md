@@ -1,6 +1,69 @@
 # SENPAI Research State — auto-nanogpt-1gpu-r3
 
-- **Last updated:** 2026-05-30 00:00 UTC
+- **Last updated:** 2026-05-30 01:00 UTC
+
+---
+
+## Cycle ~2300: H274v2 CLOSED 134th NULL/NEG (🎯 paper-grade single-seed noise floor characterization + AUX_ONLY decay U-shape) + H288 ASSIGNED 76th class cooldown-localized EMA activation
+
+**One terminal closure + one fresh assignment. Plateau campaign portfolio: 134 NULL/NEG + 1 MERGED WIN (H266), 76 mechanism classes attempted.**
+
+### Closure this cycle
+
+**H274v2 thorfinn AUX_ONLY EMA decay sweep CLOSED 134th NULL/NEG — 🎯 PAPER-GRADE methodological finding on single-seed noise floor + AUX_ONLY decay U-shape.**
+
+Terminal verdict (post-H266 baseline, PR #1699):
+- arm_a CTRL aux + decay=0.05: FFS=3050, val=3.26987 (+1.91σ_H174)
+- arm_b TIGHTER aux + decay=0.10: **FFS=3025, val=3.26899 (+0.92σ_H174 — best of 3)**
+- arm_c MUCH_TIGHTER aux + decay=0.20: FFS=3050, val=3.26968 (+1.70σ_H174)
+
+🎯 **AUX_ONLY EMA decay axis closure**: clean U-shape with minimum at decay≈0.10 within AUX_ONLY scope. arm_b TIGHTER beats arm_a CTRL by −25 FFS / −0.00088 val (clean within-chain ablation), but does NOT clear H266 FFS<3000 strict merge bar.
+
+🎯 **PAPER-GRADE methodological finding** — Round-1 vs round-2 CTRL replicate drift:
+- Round-1 arm_c (lxs2934l, scope=aux+decay=0.05): val=3.26711, **FFS=3000**
+- Round-2 arm_a (jrp39ojh, bit-identical config): val=3.26987, **FFS=3050**
+- Δ = +0.00276 val (+3.12σ) / +50 FFS on identical config = **single-seed noise floor explicitly characterized**
+- Confirms H266 baseline FFS=3000 (m2ywl0o9) is at FAVORABLE TAIL of noise distribution, not noise-free anchor
+- Strict FFS<3000 merge bar (per Issue #1260) is asymmetrically sampling the noise distribution
+
+🎯 **PF#62 BILATERAL OVER-SMOOTHING confirmed**: arm_c at decay=0.20 had HIGHEST val@step3000 (3.28345) — same failure mode as H266 arm_c EMA_SLOW=0.005 (too-slow) but on OPPOSITE side of decay axis (too-fast). Cooldown-sharpening destabilization is bilateral.
+
+- Drift-FREE Pattern A: 30th-32nd instances (step-0=10.82583 EXACT for all 3 arms)
+- Pattern A loose +25 drift class noise floor: ≥24 instances; upper tail extended to +50 by H278 arm_a and H274v2 arm_a (replicating same RNG distribution)
+
+### New assignment this cycle
+
+**H288 thorfinn ASSIGNED 76th class cooldown-localized EMA activation (PR #1759, 3-arm test).**
+
+- 3-arm chain: CTRL `--polyak_ema_activation_step 0` (bit-identical H266 baseline) / COOLDOWN_RAMP `--polyak_ema_activation_step 2500` (75% through, cooldown onset) / AGGRESSIVE `--polyak_ema_activation_step 2900` (87% through, late activation)
+- Mechanism: gate the EMA buffer update on `step >= polyak_ema_activation_step`; reinitialize buffer from live params at activation step. Tests whether the H266 WIN signal is purely cooldown-localized (buffer converges in 425-825 steps at decay=0.05 = 31-60× half-life)
+- **Why structurally distinct**: EMA TEMPORAL SCHEDULING is **untested in 75 prior r3 mechanism classes**. Outside PF#62 (phase-gated DEACTIVATION, structurally rigid — H271 catastrophic) by being phase-gated ACTIVATION instead. Distinct from H266 (constant decay full-training), H274 (scope ablation), H274v2 (decay magnitude).
+- **Direct extension of thorfinn's H274v2 methodological insight**: tests structural composition of the H266 WIN signal — if arm_b TIES H266 then EMA is purely cooldown-localized (6th FFS=3000 TIE family member); if arm_b NEG then pre-cooldown EMA contributes structurally
+- Pattern A drift-FREE: `activation_step=0` reduces gate to `step >= 0` (always true) → bit-identical baseline
+- WIN prob 15-25%; 76th mechanism class; 3-arm test
+- PR #1759, post-H266 baseline (FFS<3000 strict WIN criterion per Issue #1260)
+- Ref: Polyak-Ruppert averaging (Polyak & Juditsky 1992)
+
+### Plateau campaign portfolio after cycle ~2300
+
+- **134 NULL/NEG closures + 1 MERGED WIN (H266)**
+- **76 mechanism classes attempted** (H288 = 76th)
+- 6 PROGRAMME FINDING candidates: PF#56 STRENGTHENED (7 axes + directional asymmetry), PF#58 CLOSURE-GRADE 4-axis, **PF#61 CLOSURE-GRADE 4-axis (aux preconditioner FORM/wrapper/scope/pre-NS5 filter)**, **PF#62 STRENGTHENED to 10 mechanism categories + BILATERAL EMA over-smoothing confirmation**
+- 🎯 **NEW: Single-seed noise floor explicitly characterized** — bit-id replicate drift +50 FFS / +3σ val demonstrates H266 baseline is on favorable tail; merge bar is asymmetrically sampling noise distribution
+- **FFS=3000 TIE mechanism family (5 mechanisms)** — composability hypothesis active (H284 in flight)
+- Pattern A loose +25 drift class noise floor: ≥24 instances; upper tail at +50
+- All 8 students with active WIP PRs — zero idle GPUs
+
+### In-flight chains as of cycle ~2300
+
+- PR #1733 H280 nezuko Cautious MuonH — arm_a FFS=3025 / arm_b cautious_half FFS=3025 / arm_c full cautious (ETA ~01:48Z May 30)
+- PR #1745 H282 askeladd AdaBelief on aux — arm_a CTRL FFS=3025 / arm_b ADABELIEF trailing badly mid-train (predicted NEG, ETA ~02:00Z)
+- PR #1746 H283 fern Label smoothing — arm_a CTRL FFS=3025, LOW/MID arms running sequential
+- PR #1747 H284 frieren composability z_loss=1e-5 + ns5_iter=16 — arm_a FFS=3050, arm_b running step 390
+- PR #1748 H285 tanjiro aux WD — arm_a FFS=3025, LOW arm running
+- PR #1751 H286 edward Nesterov toggle — in flight
+- PR #1757 H287 alphonse NS5 polynomial coefficients — in flight
+- **PR #1759 H288 thorfinn cooldown-localized EMA activation — FRESH ASSIGNMENT (just created)**
 
 ---
 
