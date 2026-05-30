@@ -1,6 +1,6 @@
 # SENPAI Research State — auto-nanogpt-1gpu-r1
 
-- **Last update: 2026-05-30 22:05 UTC**
+- **Last update: 2026-05-30 22:45 UTC**
 - **Current baseline:** PR #1532 (aux Adam β₂ pulse 0.95→0.99 @ step 975). val_ema=3.262854, sr=2875 (n=2).
 - **Merge gate:** `sr ≤ 2862.5 OR (sr=2875 AND val_ema < 3.262854)`
 - **🔥 STRONGEST HOT WIN CANDIDATE:** nezuko #1815 BILATERAL TERMINAL — Arm A (aux Adam m-only ZERO RESET @ step 975) `nvh1vd60` seed-1: sr=2875, val_ema=**3.262238 (-0.616 mnat below gate)**. Arm B (v×0.5) `366knnhc` NULL sr=2925, val_ema=3.265652. **BILATERAL COMPLETE — seed-2 of Arm A requested at 19:55 UTC.** Mechanistic read: first-moment direction memory is dispensable at cooldown boundary (m-zero benign: 0 mnat transient); v state is load-bearing (v×0.5 still degrades: +16.5 mnat transient). Awaiting nezuko's seed-2 launch and terminal.
@@ -8,6 +8,7 @@
 - **fern #1831 CLOSED (21:15 UTC):** Body PMuon γ pulse at cooldown onset bilateral NULL — Arm A (γ→0.3 RELAX) sr=2925 val_ema=3.267064 (+4.2 mnat), Arm B (γ→0.5 SHARPEN) sr=2925 val_ema=3.266283 (+3.4 mnat). Both directions miss gate; γ axis CLOSED across cooldown onset AND pre-target (#1680). fern reassigned: body PMuon momentum HARD-ZERO @ cooldown onset (#1876).
 - **edward #1830 CLOSED (21:15 UTC):** Aux Adam m+v full zero reset at LATE phase boundaries bilateral NULL — Arm A (reset@2600 pEMA boundary) sr=2925 val_ema=3.265206 (+2.4 mnat), Arm B (reset@2750 pre-target) sr=2925 val_ema=3.265872 (+3.0 mnat). Aux Adam full-zero reset CLOSED across ALL temporal boundaries (975/2600/2750). edward reassigned: body PMuon LR persistent step-down at cooldown onset (#1877).
 - **alphonse #1836 CLOSED (21:55 UTC):** Body PMuon momentum buffer SCALE at pre-target boundary step 2750 bilateral NULL — Arm A (×0.5) sr=2925 val_ema=3.265251 (+2.4 mnat), Arm B (×0.25) sr=2925 val_ema=3.264915 (+2.06 mnat). Magnitude-invariant outcome (same as #1797 at @975); body PMuon momentum SCALE axis CLOSED across ALL temporal boundaries. alphonse reassigned: aux Adam m-only ZERO reset at late boundaries (#1879).
+- **tanjiro #1837 CLOSED (22:30 UTC):** Aux Adam β₂ pulse PER-GROUP localization bilateral NULL — Arm A (embed-only) sr=2950 val_ema=3.267478 (+4.624 mnat), Arm B (lm_head-only) sr=2925 val_ema=3.264385 (+1.531 mnat). WIN requires JOINT multi-group β₂ switch — per-group localization CLOSED. tanjiro reassigned: aux Adam m-state PARTIAL DECAY at cooldown onset step 975 (×0.5 / ×0.25) (#1881).
 - **Human directive #1252:** Prioritize (a) optimizer-state resets at phase boundaries, (b) per-layer/per-block optimizer behavior, (c) short phase-specific mechanisms, (d) momentum/preconditioner state handling, (e) schedules that steepen loss descent before step 2925. Avoid pure scalar β/μ/EMA sweeps.
 
 ## 🚧 PLATEAU PROTOCOL ENGAGED — all body Muon scalar axes exhausted; now on Tier-2 structural mechanisms + aux Adam exploration
@@ -39,7 +40,7 @@
 - Depth-stratified β_cov binary split (#1727 edward) — falsifying Arm B beat mechanistic Arm A; axis FULLY CLOSED across binary split + continuous ramp (#1339)
 - Stacked pEMA refresh @ 2750/2850 (#1704 thorfinn) — bilateral NULL; canonical 2600 is singular optimum
 
-**β₂ pulse mechanism:** amplitude, timing, shape, per-group recipient, pre-target re-spike — ALL NULL except canonical 0.95→0.99 @ 975 (#1532 WIN)
+**β₂ pulse mechanism:** amplitude, timing, shape, per-group recipient (embed-only #1837 Arm A, lm_head-only #1837 Arm B — both NULL), pre-target re-spike — ALL NULL except canonical 0.95→0.99 @ 975 (#1532 WIN); per-group localization axis CLOSED
 
 **Optimizer replacements:** Lookahead, AdaShift per-element, SOAP, AdEMAMix — all closed
 
@@ -65,8 +66,7 @@ Two independent mechanisms hit baseline sr (bilateral nulls, but sr=2925→2875 
 | **#1879** | **alphonse** | **Aux Adam m-only ZERO reset at LATE phase boundaries (step 2600 vs step 2750)** | **Assigned 22:00 UTC** | **Arm A: m-zero @2600 (pEMA boundary); Arm B: m-zero @2750 (pre-target)** |
 | **#1877** | **edward** | **Body PMuon LR persistent step-down at cooldown onset step 975 (×0.85 vs ×0.70)** | **Assigned 21:30 UTC** | **Arm A: muon_lr ×0.85 @975; Arm B: muon_lr ×0.70 @975** |
 | **#1876** | **fern** | **Body PMuon momentum HARD-ZERO reset at cooldown onset (975 vs 1100)** | **Assigned 21:30 UTC** | **Arm A: momentum zero @975; Arm B: momentum zero @1100** |
-| #1836 | alphonse | Body PMuon momentum buffer SCALE at pre-target boundary step 2750 (×0.5 vs ×0.25) | Assigned 14:00 UTC | Arm A: ×0.5 @ 2750; Arm B: ×0.25 @ 2750 |
-| #1837 | tanjiro | Aux Adam β₂ pulse per-group: embed-only vs lm_head-only localization | Assigned 14:00 UTC | Arm A: embed-only β₂→0.99; Arm B: lm_head-only β₂→0.99 |
+| **#1881** | **tanjiro** | **Aux Adam m-state PARTIAL DECAY at cooldown onset step 975 (×0.5 / ×0.25)** | **Assigned 22:45 UTC** | **Arm A: m×0.5 @975; Arm B: m×0.25 @975** |
 | #1849 | thorfinn | Body PMuon per-side L_cov vs R_cov asymmetric ZERO RESET @ step 1100 | Assigned 16:10 UTC — 0 comments (4h), ping sent | Arm A: L-only reset; Arm B: R-only reset |
 | #1850 | frieren | Aux Adam scalar_lr PULSE @ cooldown onset step 975 (RMSNorm per-group LR perturbation) | Arm A `t14ojkgw` running at step ~1907/3250, Arm B pending | Arm A: scalar_lr ×2 (→0.050); Arm B: scalar_lr ×0.5 (→0.0125) |
 | **#1868** | **askeladd** | **Aux Adam embed_lr PULSE @ cooldown onset step 975 (per-group LR perturbation on adam_embed)** | **Assigned 20:00 UTC** | **Arm A: embed_lr ×2 (0.3→0.6); Arm B: embed_lr ×0.5 (0.3→0.15)** |
@@ -76,7 +76,7 @@ Two independent mechanisms hit baseline sr (bilateral nulls, but sr=2925→2875 
 **Aux Adam structural exploration (this session):**
 - Directive (a): Aux Adam m-only ZERO RESET @975 (nezuko #1815 Arm A nvh1vd60) — **STRONG WIN on seed-1 (−0.616 mnat below gate)**; seed-2 requested. Bilateral confirms: m-zero benign (0 mnat transient), v×0.5 degrades (+16.5 mnat transient) — first-moment direction memory dispensable, v state load-bearing.
 - Directive (a): Aux Adam β₁ JOINT pulse CLOSED (#1819 askeladd bilateral NULL; combined with #1592/#1639 closes β₁ axis fully)
-- Directive (b/d): Aux Adam β₂ pulse PER-GROUP localization (tanjiro #1837) — embed-only vs lm_head-only; localizes the #1532 WIN mechanism to specific param group
+- Directive (b/d): Aux Adam β₂ pulse PER-GROUP localization (tanjiro #1837) CLOSED — embed-only sr=2950 (+4.6 mnat), lm_head-only sr=2925 (+1.5 mnat); WIN requires JOINT switch; tanjiro reassigned to m-state PARTIAL DECAY at step 975 (#1881)
 - Directive (a): Aux Adam m+v full reset at LATE phase boundaries (edward #1830) — step 2600 (pEMA refresh) vs step 2750 (pre-target), avoids step-975 v-collapse failure mode
 - Directive (a/b): Aux Adam scalar_lr PULSE @ cooldown onset step 975 (frieren #1850) — per-group LR perturbation on untested RMSNorm scalar group; Arm A `t14ojkgw` ×2 running, Arm B pending
 - Directive (a/b): Aux Adam embed_lr PULSE @ cooldown onset step 975 (askeladd #1868) — NEW: per-group LR perturbation on `adam_embed` (vocab×hidden, lr=0.3), largest aux group; Arm A ×2 (→0.6) / Arm B ×0.5 (→0.15); companion to frieren #1850; covers 2-of-3 aux groups for per-group LR sensitivity at cooldown

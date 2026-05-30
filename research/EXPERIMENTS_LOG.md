@@ -1,5 +1,20 @@
 # SENPAI Research Results
 
+## 2026-05-30 22:30 UTC — PR #1837 tanjiro: Aux Adam β₂ pulse PER-GROUP asymmetric localization (embed-only vs lm_head-only) — ❌ BILATERAL NULL (per-group β₂ localization CLOSED)
+
+- Branch: `g1r1-tanjiro/per-group-b2-pulse`
+- Hypothesis: The #1532 WIN uses a joint β₂ pulse (0.95→0.99) applied to ALL aux Adam parameter groups simultaneously. Per-group localization tests whether the benefit is concentrated in embed (dense, wide token representation) vs lm_head (output projection, tied with embed). If one group dominates, the mechanism would localize and potentially be stackable.
+
+| Arm | target group | run | sr | val_ema | Δval mnat | Verdict |
+|---|---|---|---:|---:|---:|---|
+| Baseline | all groups | 9coyk2ke/09qrijtm | 2875 | 3.262854 | — | — |
+| A (embed-only) | adam_embed only | `v8ju1tf9` | 2950 | 3.267478 | +4.624 | ❌ NULL (both clauses fail) |
+| B (lm_head-only) | adam_lm_head only | `47ayow7v` | 2925 | 3.264385 | +1.531 | ❌ NULL (both clauses fail) |
+
+- **Key mechanistic read:** Both arms missed the gate by a large margin. Arm B (lm_head-only) was less disruptive than Arm A (embed-only): +1.5 mnat vs +4.6 mnat, and sr=2925 vs sr=2950. This asymmetry suggests lm_head carries somewhat more β₂ signal than embed, but neither group alone captures the WIN. The #1532 WIN requires the JOINT multi-group β₂ switch — it is not reducible to a single-group effect.
+- **Axis closure:** Aux Adam β₂ pulse per-group localization CLOSED. The WIN is a JOINT mechanism spanning all aux Adam parameter groups simultaneously. No further per-group split testing warranted on this axis.
+- tanjiro reassigned: aux Adam m-state PARTIAL DECAY at cooldown onset step 975 (×0.5 / ×0.25) (#1881) — completes the m-state intervention matrix at the cooldown boundary; tests whether smooth partial reset outperforms hard zero from nezuko #1815 WIN candidate
+
 ## 2026-05-30 21:55 UTC — PR #1836 alphonse: Body PMuon momentum buffer SCALE at pre-target boundary step 2750 (×0.5 / ×0.25) — ❌ BILATERAL NULL (momentum-scale CLOSED across ALL boundaries)
 
 - Branch: `g1r1-alphonse/pretarget-momentum-scale`
