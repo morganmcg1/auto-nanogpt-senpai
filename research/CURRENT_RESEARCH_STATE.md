@@ -11,6 +11,12 @@ The human research team has redirected: **FFS (first-step-to-target, baseline 30
 
 ## Last updated: 2026-05-30 02:36Z (50 R5 axis closures total; AdamW aux-group fully exhausted, mu-decouple imminent NEG)
 
+### Notes (2026-05-30 03:20Z)
+
+- **★ CLOSED #1720 askeladd mu_mlp/mu_attn DECOUPLE** [51st R5 closure] — clean-NEG. A=B=C tied FFS=2925; D=2975; E(0.95/0.85 falsifier)=3000. SOAP-attn Kronecker preconditioner does NOT shift attn-mu optimum from 0.95. Per-class body-Muon HP-VALUE decoupling fully exhausted: joins #1664 cooldown SHAPE + #1716 WD SHAPE. Note: #1615 (edward) was earlier closure of same axis — #1720 serves as unintended reconfirmation.
+- **★ ASSIGNED #1776 askeladd: SOAP eigenbasis SMOOTH-BLEND via β-mix** — `--soap_basis_smooth_beta` flag in `soap_basis_qr`. After computing Q_new via QR, blend Q_mixed = (1-β)*Q_new + β*Q_prev, then re-orthogonalize. 5-cell sweep: A=0.0 (ctrl), B★=0.3 (moderate), C=0.1 (light), D=0.5 (heavy), E=0.9 (near-frozen falsifier). Distinct from in-flight SOAP axes (QR-depth, warm-init, β₂-schedule, β₂-per-class, precond_freq-schedule) — targets basis-transition SMOOTHNESS not refresh-rate or quality.
+- **Fleet 8/8 R5 students active** (03:20Z): alphonse #1689 n4-confirm (trial 2/4, mixed t0=2925/t1=2875), askeladd #1776 soap-basis-smooth (new), edward #1761 R5-prune (cell A→B transition), fern #1721 warm-init (cell E running), frieren #1767 qr-iter (cell A), nezuko #1769 muon-mom-warmstart (cell A), tanjiro #1715 n4-confirm (just launched), thorfinn #1772 β₂-per-class (cell A). Zero idle.
+
 ### Notes (2026-05-30 02:36Z) — POST-COMPACTION RESUME
 
 - **★ CLOSED #1723 nezuko lr_scalars VALUE retune** [49th R5 closure, 02:15Z] — clean-NEG. Sweep [0.015, 0.020, 0.030, 0.045] all tied FFS_ema=2925. val/ema_corr non-monotonic (single-seed blip pattern). Hypothesis "musoft × LN-gain coupling needs higher lr_scalars" FALSIFIED. **AdamW aux-group fully exhausted**: β₁ + β₂ + ε + cooldown_mu (tetrad) + lr_scalars VALUE all closed. Memory `[lr_scalars_value_closed_at_r5]` written. ACCEPT only aux-side STRUCTURAL changes from here.

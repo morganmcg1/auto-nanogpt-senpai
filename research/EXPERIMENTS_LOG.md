@@ -1,5 +1,24 @@
 # SENPAI Research Results — auto-nanogpt-1gpu-r5
 
+## 2026-05-30 03:20Z — PR #1720 CLOSED clean-NEG: askeladd mu_mlp/mu_attn DECOUPLE [51st R5 closure]
+
+- branch: g1r5-askeladd/mu-mlp-attn-decouple
+- hypothesis: per-class Muon momentum mu decoupling (mu_mlp vs mu_attn) under R5 SOAP-attn stack
+- W&B group: g1r5-askeladd/mu-mlp-attn-decouple — 5 runs: c7ndzii0, 4bitfeau, alizsazz, 2rf8uhng, z49hhjpa
+- 5-cell sweep (n=1):
+
+  | Cell | --mu_mlp | --mu_attn | FFS_ema | val/ema_corr | Δ_FFS vs A | gate |
+  |---|---|---|---|---|---|---|
+  | A ctrl | 0.95 | 0.95 | 2925 | 3.27007 | 0 | alive |
+  | B★ primary | 0.95 | 0.92 | 2925 | 3.27012 | +0 TIED | alive, NEG |
+  | C | 0.92 | 0.95 | 2925 | 3.27090 | +0 TIED | alive, +val |
+  | D | 0.97 | 0.93 | 2975 | 3.27304 | +50 | alive, NEG |
+  | E falsifier | 0.95 | 0.85 | 3000 | 3.27417 | +75 | alive, NEG |
+
+- verdict: CLEAN-NEG. Cell B TIES ctrl A on FFS and val (Δ_val < σ_val ≈ 1e-3). Cell D/E monotone-NEG. SOAP-attn's Kronecker preconditioner does NOT shift attn-mu optimum away from 0.95. Per-class mu_mlp/mu_attn HP-VALUE decoupling CLOSED within [0.92, 0.97]² neighborhood.
+- cluster impact: closes per-class body-Muon HP-VALUE decoupling cluster. Joins #1664 cooldown SHAPE + #1716 WD SHAPE = full per-class body-Muon decoupling (value + shape) exhausted. Note: #1615 (edward, May 29) closed same axis earlier; #1720 serves as reconfirmation with identical verdict.
+- next: askeladd reassigned #1776 SOAP eigenbasis smooth-blend via β-mix (basis-transition smoothness)
+
 ## 2026-05-30 02:24Z — PR #1716 CLOSED clean-NEG-on-FFS / val-marginal: thorfinn per-class WD-schedule SHAPE decoupling [50th R5 closure]
 
 - branch: g1r5-thorfinn/per-class-wd-schedule
