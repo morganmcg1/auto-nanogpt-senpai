@@ -1,0 +1,7 @@
+[2026-05-30T02:09:32+00:00] START armA-ns_cooldown16-ctrl-s0 NS_ITERS_COOLDOWN=16 wandb=g1r4-fern/armA-ns_cooldown16-ctrl-s0
+[2026-05-30T04:41:08+00:00] END   armA-ns_cooldown16-ctrl-s0 rc=0
+[2026-05-30T04:41:08+00:00] START armB-ns_cooldown12-pruning-s0 NS_ITERS_COOLDOWN=12 wandb=g1r4-fern/armB-ns_cooldown12-pruning-s0
+[2026-05-30T07:07:57+00:00] END   armB-ns_cooldown12-pruning-s0 rc=0
+[2026-05-30T07:07:57+00:00] START armC-ns_cooldown20-intensify-s0 NS_ITERS_COOLDOWN=20 wandb=g1r4-fern/armC-ns_cooldown20-intensify-s0
+[2026-05-30T09:35:17+00:00] END   armC-ns_cooldown20-intensify-s0 rc=0
+[2026-05-30T09:35:17+00:00] ALL ARMS DONE
