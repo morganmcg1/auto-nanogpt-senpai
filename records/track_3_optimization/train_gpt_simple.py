@@ -114,6 +114,12 @@ def parse_args():
                         help="Polyak-Ruppert EMA decay for eval-only weight averaging. "
                              "0.0 = disabled (drift-FREE CTRL). Typical: 0.05 (fast, ~20-step half-life) / "
                              "0.005 (slow, ~200-step half-life). Higher decay = faster EMA tracking.")
+    parser.add_argument("--label_smoothing", type=float,
+                        default=float(os.environ.get("LABEL_SMOOTHING", "0.0")),
+                        help="Label smoothing alpha for F.cross_entropy training loss. "
+                             "0.0 = no smoothing (drift-FREE CTRL). Replaces hard one-hot targets "
+                             "with (1-alpha)*delta_true + (alpha/(V-1))*1_rest. PyTorch documents "
+                             "label_smoothing=0.0 to be identical to omitting the kwarg.")
     args = parser.parse_args()
     args.num_trials = args.num_trials if args.num_trials is not None else (args.legacy_num_trials or 1)
     args.wandb_tags = [tag.strip() for tag in args.wandb_tags.split(",") if tag.strip()]
@@ -536,13 +542,18 @@ class GPT(nn.Module):
         self.norm1 = RMSNorm(model_dim)
         self.norm2 = RMSNorm(model_dim)
 
-    def forward(self, inputs: Tensor, targets: Tensor):
+    def forward(self, inputs: Tensor, targets: Tensor, label_smoothing: float = 0.0):
         x = self.norm1(self.embed(inputs))
         for block in self.blocks:
             x = block(x)
         logits = self.proj(self.norm2(x)).float()
         logits = 15 * logits * (logits.square() + 15**2).rsqrt()
-        return F.cross_entropy(logits.view(targets.numel(), -1), targets.view(-1), reduction="sum")
+        return F.cross_entropy(
+            logits.view(targets.numel(), -1),
+            targets.view(-1),
+            reduction="sum",
+            label_smoothing=label_smoothing,
+        )
 
 
 ########################################
@@ -856,6 +867,7 @@ if dist.get_rank() == 0:
             "muonh_mu_start": args.muonh_mu_start,
             "muonh_mu_end": args.muonh_mu_end,
             "polyak_ema_decay": args.polyak_ema_decay,
+            "label_smoothing": args.label_smoothing,
         },
     )
 
@@ -1166,7 +1178,7 @@ for trial_idx in range(args.num_trials):
         assert len(inputs) % mbs == 0
         step_loss = torch.zeros((), device=device)
         for i in range(len(inputs) // mbs):
-            loss = model(inputs[i*mbs:(i+1)*mbs], targets[i*mbs:(i+1)*mbs])
+            loss = model(inputs[i*mbs:(i+1)*mbs], targets[i*mbs:(i+1)*mbs], args.label_smoothing)
             step_loss += loss.detach()
             loss.backward()
         for name, p in model.named_parameters():
