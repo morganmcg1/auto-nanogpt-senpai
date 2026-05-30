@@ -1,5 +1,31 @@
 # SENPAI Research Results
 
+## 2026-05-30 09:00 UTC — PR #1770 nezuko: Aux Adam m+v hard zero reset at β₂-pulse boundary — ❌ BILATERAL NULL (aux Adam full-zero moment reset CLOSED)
+
+- Branch: `g1r1-nezuko/aux-adam-state-reset`
+- Hypothesis: Reset all aux Adam (optimizer1) m and v buffers to zero at the same step as the β₂ pulse, testing whether synchronizing the EMA buffers with the β₂ regime change improves cooldown trajectory.
+
+| Arm | reset step | run | sr | val_ema | val_live | Δval mnat | Verdict |
+|---|---|---|---:|---:|---:|---:|---|
+| Baseline | — | 9coyk2ke/09qrijtm | 2875 | 3.262854 | — | — | — |
+| A | 975 (colocated with β₂ pulse) | `mhzwt7ge` | 2975 | 3.269943 | 3.269343 | +7.09 | ❌ NULL |
+| B | 1200 (after 225 steps of β₂=0.99 fill) | `lazt0u87` | 2925 | 3.266416 | 3.265811 | +3.56 | ❌ NULL |
+
+**Key diagnostic — post-reset transient magnitude:**
+- Arm A: +62.9 mnat upward transient at step 1000 (simultaneous β₂ jump + v-zeroing leaves denominator at ~ε for ~50 steps during sensitive cooldown phase)
+- Arm B: +1.7 mnat transient at step 1250 (β₂=0.99 had 225 steps to fill v, so denominator recovered quickly)
+- 35× transient difference precisely tracks the v-denominator collapse mechanism
+
+**Sentinel confirmation:** both resets fired cleanly — `exp_avg` and `exp_avg_sq` dropped to exact zero at their respective steps (verified via W&B sentinel telemetry at reset_step-1/step/step+1).
+
+**Analysis:** The β₂ pulse benefits from carrying v state forward — at step 975, `exp_avg_sq` encodes per-param gradient-magnitude history that the adaptive denominator needs. Zeroing it forces the optimizer into a cold-start denominator regime at the cooldown's most sensitive phase. The pEMA refresh analogy fails here: pEMA refresh at step 2600 works because the parameter EMA buffer is *stale* (averaging pre-cooldown-midpoint weights); the aux Adam optimizer state is *not* stale — it encodes fresh, still-relevant gradient statistics. Asymmetry with pEMA is structural, not contingent.
+
+**Axis closure:** combined with historical aux Adam reset @ 2600 (closed), aux Adam full-zero moment reset is CLOSED across both boundaries and timing variants. v state is load-bearing and discard is destructive.
+
+**Assigned next:** nezuko #1815 — asymmetric bilateral: m-only zero reset vs v partial decay ×0.5, both @ step 975, to decompose whether m or v was the failure driver and whether partial rescaling avoids the denominator collapse.
+
+---
+
 ## 2026-05-30 07:30 UTC — PR #1749 thorfinn: AdEMAMix dual-EMA first moment on aux AdamW — ❌ BILATERAL NULL
 
 - Branch: `g1r1-thorfinn/aux-ademamix`
