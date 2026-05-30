@@ -1,3 +1,47 @@
+## 2026-05-30 03:55 — PR #1779: H292 tanjiro Aux AGC enable/disable binary — **ASSIGNED (80th class)**
+
+- Branch: g1r3-tanjiro/h292-aux-agc-binary (PR #1779, post-H266 baseline)
+- 80th mechanism class — **AUX GRADIENT CLIPPING ENABLE/DISABLE binary**
+- Direct extension of H285 closure: tanjiro's H285 embed-norm telemetry isolated EMBED dominance for aux WD. H292 isolates the AGC contribution as a SECOND restriction on aux gradients (beyond WD), to characterize its structural necessity.
+- Mechanism: existing line 1207-1209 calls `adaptive_gradient_clip(aux_params_for_agc, args.aux_agc_clip_ratio, ...)` with baseline ratio=0.05. Code comment line 1206 confirms "No-op (bit-identical) when args.aux_agc_clip_ratio <= 0" → setting ratio=0 short-circuits AGC entirely
+- 2-arm Pattern A drift-FREE binary chain (VALUE-only argparse, no code changes):
+  - arm_a CTRL `--aux_agc_clip_ratio 0.05`: baseline AGC enabled (bit-id H266)
+  - arm_b OFF `--aux_agc_clip_ratio 0.0`: AGC disabled (no per-param clipping)
+- WIN criterion: arm_b FFS<3000 strict, val<3.276
+- TIE result: arm_b FFS=3000 EXACT → 6th FFS=3000 TIE family member; AGC structurally neutral (paper-grade redundancy)
+- NEG result: arm_b FFS≥3050 → AGC structurally important for stability
+- WIN prob 10-20%; 80th mechanism class
+- **Critical telemetry**: replicate tanjiro's gold-standard H285 norm analysis (embed_norm, lm_head_norm, aux_grad_norm trajectories). Also: AGC clip activation rate in CTRL (what fraction of aux grads exceed 0.05·‖param‖). If <1% activation, AGC is effectively a no-op already.
+- **Distinct from in-flight**: not PF#61 (aux preconditioner FORM/wrapper), not PF#62 (variance reduction), not NS5 mechanisms (H280/H287/H291), not EMA (H266/H274/H288/H290)
+- Ref: Adaptive Gradient Clipping https://arxiv.org/abs/2102.06171 (Brock et al. 2021)
+
+## 2026-05-30 03:55 — PR #1748: H285 tanjiro Aux AdamW weight decay coefficient — **CLOSED 138th NULL/NEG (🎯 paper-grade FFS TIE + embed-vs-lm_head asymmetry mechanism)**
+
+- Branch: g1r3-tanjiro/h285-aux-adamw-weight-decay (PR #1748, post-H266 baseline)
+- 68th-74th mechanism class — within-formula aux AdamW WD coefficient (untested in 67 prior r3 classes)
+- Terminal verdict: FFS=3025 across all 3 arms = Pattern A loose drift TIE; arm_c val-improvement within noise floor
+
+| Arm | wd | run_id | step-0 val | val/loss | Δ vs H266 (σ_H174) | FFS | verdict |
+|-----|------|--------|-----------|----------|---------------------|-----|---------|
+| arm_a CTRL | 0.0 | ap4nystb | 10.82583 ✓ | 3.26884 | +0.75σ | 3025 | Pattern A loose drift (30th) |
+| arm_b LOW | 1e-4 | xhi1j65u | 10.82583 ✓ | 3.26829 | +0.12σ | 3025 | TIE within noise (~CTRL) |
+| arm_c MID | 1e-3 | 2lnm01we | 10.82583 ✓ | **3.26795** | **−0.26σ** | 3025 | val below H266 baseline; FFS TIE |
+
+- 🎯 **Paper-grade mechanism CONTRADICTION** of original hypothesis (lm_head shrinkage predicted; embed shrinkage observed):
+
+| Arm | embed_norm | % vs CTRL | lm_head_norm | % vs CTRL |
+|-----|-----------|-----------|--------------|-----------|
+| CTRL wd=0.0 | 109056 | 100.0% | 1313.81 | 100.0% |
+| LOW wd=1e-4 | 104448 | 95.8% | 1319.26 | 100.4% |
+| MID wd=1e-3 | **72704** | **66.7%** | 1301.02 | 99.0% |
+
+- 🎯 **PF#61 framework state — per-group LR × WD coupling**: lm_head_lr=1/320 ≈ 0.003125 is 100× smaller than embed_lr=0.3 → per-step embed WD decay is 100× stronger than lm_head decay. Single "global aux WD" produces asymmetric per-group behavior. Embed-only WD at wd=1e-3 may be sufficient to recover val gain
+- 🎯 **74th mechanism class catalogued**: aux AdamW WD coefficient — FFS TIE, paper-grade per-group LR × WD coupling
+- Per Issue #1260: val-only WIN with FFS TIE → NOT merge-eligible (FFS<3000 strict bar)
+- Drift-FREE Pattern A: 32nd-34th instances (all 3 arms step-0=10.82583 EXACT)
+- Pattern A loose +25 drift class: 30th instance (CTRL arm_a)
+- 138th NULL/NEG closure of plateau campaign
+
 ## 2026-05-30 03:35 — PR #1777: H291 fern MuonH NS5 input normalization Frobenius vs spectral — **ASSIGNED (79th class)**
 
 - Branch: g1r3-fern/h291-ns5-input-norm (PR #1777, post-H266 baseline)

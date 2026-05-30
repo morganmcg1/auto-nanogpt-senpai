@@ -1,6 +1,86 @@
 # SENPAI Research State — auto-nanogpt-1gpu-r3
 
-- **Last updated:** 2026-05-30 03:35 UTC
+- **Last updated:** 2026-05-30 03:55 UTC
+
+---
+
+## Cycle ~0355: H285 CLOSED 138th NULL/NEG (🎯 paper-grade FFS TIE + embed-vs-lm_head asymmetry mechanism finding) + H292 ASSIGNED 80th class aux AGC enable/disable binary
+
+**One terminal closure + one fresh assignment. Plateau campaign portfolio: 138 NULL/NEG + 1 MERGED WIN (H266), 80 mechanism classes attempted.**
+
+### Closure this cycle
+
+**H285 tanjiro Aux AdamW weight decay coefficient CLOSED 138th NULL/NEG — 🎯 PAPER-GRADE FFS TIE + embed-vs-lm_head asymmetry mechanism finding (74th mechanism class).**
+
+Terminal verdict (post-H266 baseline, PR #1748):
+- arm_a CTRL wd=0.0: FFS=3025 (Pattern A loose drift), val=3.26884 (+0.75σ)
+- arm_b LOW wd=1e-4: FFS=3025 TIE, val=3.26829 (+0.12σ, ~CTRL within noise)
+- arm_c MID wd=1e-3: FFS=3025 TIE, val=3.26795 (-0.26σ vs H266 baseline; -1.01σ within-chain vs CTRL)
+
+**FFS=3025 across all 3 arms = Pattern A loose drift TIE** — primary metric is structurally invariant to aux WD across 4 orders of magnitude (0 → 1e-3). Per Issue #1260 directive: FFS<3000 strict bar; val-only WIN with FFS TIE → NOT merge-eligible.
+
+🎯 **Paper-grade mechanism CONTRADICTION**: H285 hypothesis predicted lm_head shrinkage as dominant aux WD mechanism (logit-scale interpretation, analog to H275 z_loss). Data CONTRADICTS hypothesis:
+
+| Arm | embed_norm | % vs CTRL | lm_head_norm | % vs CTRL |
+|-----|-----------|-----------|--------------|-----------|
+| CTRL wd=0.0 | 109056 | 100.0% | 1313.81 | 100.0% |
+| LOW wd=1e-4 | 104448 | 95.8% | 1319.26 | 100.4% |
+| MID wd=1e-3 | **72704** | **66.7%** | 1301.02 | 99.0% |
+
+**Mechanism**: WD shrinks EMBED dramatically (67% of CTRL at wd=1e-3); lm_head essentially unaffected (<1.1% variation). Reason: lm_head_lr=1/320 ≈ 0.003125 is 100× smaller than embed_lr=0.3 → per-step embed WD decay is 100× stronger than lm_head decay.
+
+🎯 **PF#61 framework state — per-group LR × WD coupling**:
+- per-group LR axis (H203): per-group LRs are load-bearing
+- **per-group WD coupling (H285)**: WD primarily acts on EMBED via LR-WD multiplication, not uniformly across aux groups
+- Single "global aux WD coefficient" produces asymmetric per-group behavior; embed-only WD at wd=1e-3 may be sufficient to recover val gain
+
+🎯 **74th mechanism class catalogued**: aux AdamW WD coefficient — FFS TIE, paper-grade per-group LR × WD coupling mechanism.
+
+- Drift-FREE Pattern A: 32nd-34th instances (all 3 arms step-0=10.82583 EXACT)
+- Pattern A loose +25 drift class: 30th instance
+
+### New assignment this cycle
+
+**H292 tanjiro: Aux AGC enable/disable binary — 80th class** (PR #1779)
+
+Mechanism class: 80th class — **AUX GRADIENT CLIPPING ENABLE/DISABLE binary**. Distinct from PF#61 (aux preconditioner FORM/wrapper/scope/within-formula), PF#62 (phase-gated), H272 eps, H280 cautious, H544 schedule. AGC is a separate clipping form acting BEFORE optimizer.step.
+
+2-arm Pattern A drift-FREE binary chain:
+- arm_a CTRL `--aux_agc_clip_ratio 0.05`: baseline AGC enabled (bit-id H266)
+- arm_b OFF `--aux_agc_clip_ratio 0.0`: AGC disabled (short-circuits to no clipping per existing code comment line 1206)
+
+**WIN (FFS<3000)**: AGC at 0.05 was hurting; unrestricted aux gradients better
+**TIE (FFS=3000)**: AGC is structurally neutral; can be removed for stack simplification (paper-grade redundancy finding)
+**NEG (FFS≥3050)**: AGC is structurally important for stability; confirms H266 WIN dependency
+
+10-20% WIN prob. High-information regardless. Direct extension of H285 embed-norm telemetry mechanism finding — replicate gold-standard telemetry for AGC clip activation rate diagnosis.
+
+### Updated framework state (after cycle ~0355)
+
+**🎯 Paper-grade mechanism findings (12 total)**:
+1. H266 all-params EMA WIN (FFS=3000 MERGED)
+2. PF#61 5-axis CLOSURE-GRADE
+3. PF#62 11-category CLOSURE-GRADE
+4. Pattern A loose +25 drift class (≥30 instances)
+5. Pattern A +50 upper tail (4 consecutive CTRL drifts)
+6. H229+H278 BILATERAL ν-axis closure
+7. H271+H281 EMA × variance-reduction overlap
+8. H280 NS5 polar projection SIGNAL-CONSERVATIVE
+9. H544+H280 cautious axis BROAD CLOSURE
+10. H274v2 single-seed noise floor characterization
+11. H283 loss-level regularization closure (73rd class)
+12. **🆕 H285 per-group LR × WD coupling — EMBED dominates lm_head for aux WD (74th class)**
+
+**In-flight chains (8 students all active)**:
+- PR #1748 → CLOSED ✓
+- PR #1747 H284 frieren COMPOSE z_loss+ns5_iter (arm_c HIGHER_Z running)
+- PR #1751 H286 edward Nesterov toggle (audit sent)
+- PR #1757 H287 alphonse NS5 polynomial coefficient FORM (arm_a near done)
+- PR #1759 H288 thorfinn cooldown-localized EMA activation (arm_a near done)
+- PR #1760 H289 nezuko outer momentum SCHEDULE (arm_b LINEAR_DECREASE running)
+- PR #1764 H290 askeladd body-only EMA scope axis (just assigned)
+- PR #1777 H291 fern NS5 input normalization (just assigned)
+- **PR #1779 H292 tanjiro aux AGC binary ← NEW**
 
 ---
 
