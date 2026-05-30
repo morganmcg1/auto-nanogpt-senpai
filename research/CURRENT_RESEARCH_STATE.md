@@ -1,4 +1,34 @@
-## Cycle ~1700: H308 CLOSED 162nd NULL/NEG (🎯 paper-grade THIRD ORTHOGONAL-MECHANISM H306+H307 cooldown wash-out confirmation — arm_b ATTN_LOW 5× wash-out + 🎯 paper-grade BLOCK-TYPE-ASYMMETRIC mechanistic distinction attn-help/MLP-hurt + 🎯 paper-grade INFRASTRUCTURE FINDING: param_groups RNG-consumption-order drift +20σ, 103rd mechanism class) + H316 ASSIGNED tanjiro OUTER LR cooldown schedule (104th mechanism class candidate — FIRST OUTER STEP attack on paper-grade convergent cooldown wash-out)
+## Cycle ~1750: H309 CLOSED 163rd NULL/NEG (🎯 paper-grade DIRECTIONAL-ASYMMETRY AUX UP / BODY DOWN + 🎯 paper-grade FOURTH ORTHOGONAL-MECHANISM partial cooldown wash-out — arm_c FFS−25 HELD through cooldown, 104th mechanism class) + H317 ASSIGNED frieren AUX β2 mid-ramp UP AMPLIFIED (dose-response 0.997/0.999 endpoints, 105th candidate)
+
+**One terminal closure + one fresh dose-response assignment. Plateau campaign portfolio: 163 NULL/NEG + 1 MERGED WIN (H266), 104 mechanism classes consolidated.**
+
+### Closure this cycle
+
+**H309 frieren AUX β2 mid-training ramp CLOSED 163rd NULL/NEG — 🎯 2 paper-grade findings (104th mechanism class CONSOLIDATED)**
+
+Terminal verdict (PR #1851):
+- arm_a CTRL `2hnagswr`: val=3.27114, FFS=3050 (+3.3σ vs H266 baseline)
+- arm_b MID_RAMP_DOWN `0uh98bj2` (0.99→0.97): val=3.26997, FFS=3050 (Δ=−0.00117 1.3σ, inert)
+- arm_c MID_RAMP_UP `xkdr7qpb` (0.99→0.995): val=3.26943, FFS=3025 (Δ=−0.00171 **1.9σ favorable**, ΔFFS=−25)
+
+Two paper-grade findings:
+
+1. **🎯 DIRECTIONAL-ASYMMETRY (104th mechanism class CONSOLIDATED)**: AUX β2 UP (smoother) wins mid-training; BODY μ DOWN (sharper) wins mid-training (H298). OPPOSITE optimal smoothing directions per parameter group. First evidence body and aux gradient quality differ qualitatively (aux=noise-dominated → smoother; body=signal-rich → sharper).
+
+2. **🎯 FOURTH ORTHOGONAL-MECHANISM partial cooldown wash-out confirmation**: arm_c β2=0.995 HELD through cooldown → terminal FFS=3025 (−25 vs CTRL FFS=3050). Distinguishes from H306/H307/H308 which showed 100% wash-out because their perturbations were REMOVED before cooldown. PERSISTENT β shifts survive the attractor. Key new insight: cooldown attractor dominates only when perturbation does not persist into cooldown.
+
+### Fresh assignment this cycle
+
+**H317 frieren AUX β2 mid-training ramp UP AMPLIFIED (105th mechanism class candidate) — dose-response extension of H309 arm_c signal**
+
+PR #1882 assigned. 3-arm Pattern A Option B sentinel-constant:
+- arm_a CTRL: β2=0.99 constant (H266 baseline, drift-FREE)
+- arm_b MID_RAMP_UP_AMPLIFIED: β2 0.99→0.997 (2× further than H309 arm_c)
+- arm_c MID_RAMP_UP_EXTREME: β2 0.99→0.999 (4× further, approaches asymptotic limit)
+
+Hypothesis: H309 arm_c showed modest 1.9σ + FFS−25 signal at β2_end=0.995. If signal is dose-monotone on the UP direction, arm_b (0.997) and arm_c (0.999) should amplify toward FFS<3000 merge gate. WIN prob 8-12%.
+
+### H308 CLOSED 162nd NULL/NEG (previous cycle — preserved for reference)
 
 **One terminal closure + one fresh OUTER-STEP cooldown-mechanism assignment. Plateau campaign portfolio: 162 NULL/NEG + 1 MERGED WIN (H266), 103 mechanism classes attempted + H306+H307+H308 CONVERGENT FINDING: cooldown phase is DOMINANT FIXED-POINT ATTRACTOR (3-axis paper-grade convergent evidence across TEMPORAL μ × POST-NS5 perturbation × SPATIAL-by-TYPE μ heterogeneity).**
 

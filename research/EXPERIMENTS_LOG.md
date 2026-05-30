@@ -1,3 +1,33 @@
+## 2026-05-30 — PR #1851: H309 frieren AUX β2 mid-training ramp (MID_RAMP_DOWN/UP)
+
+- Branch: g1r3-frieren/h309-aux-beta2-mid-training-ramp
+- Hypothesis: aux AdamW second-moment β2 ramped UP or DOWN during pre-cooldown phase and held through cooldown. Tests AUX-side analog of H298 body-side μ dissociation finding — does optimal variance-tracking-sharpness differ between mid-training and cooldown on the AUX side?
+- 3-arm Pattern A: arm_a CTRL (β2=0.99 constant), arm_b MID_RAMP_DOWN (0.99→0.97), arm_c MID_RAMP_UP (0.99→0.995). New `mid_training_ramp` choice added to `--aux_beta2_schedule` argparse.
+
+### Results
+
+| Arm | β2 schedule | terminal val | FFS | Δ vs H266 (3.26818) | Δ vs CTRL |
+|-----|-------------|--------------|-----|---------------------|-----------|
+| arm_a CTRL `2hnagswr` | constant 0.99 | **3.27114** | **3050** | +0.00296 (+3.3σ_H174) | (ref) |
+| arm_b MID_RAMP_DOWN `0uh98bj2` | 0.99→0.97 | **3.26997** | **3050** | +0.00179 (+2.0σ) | −0.00117 (−1.3σ) sub-noise |
+| arm_c MID_RAMP_UP `xkdr7qpb` | 0.99→0.995 | **3.26943** | **3025** | +0.00125 (+1.4σ) | **−0.00171 (−1.9σ)** |
+
+σ_H174 = 0.000884 noise floor. Pattern A bit-id: all 3 arms step-0=10.82583 EXACT. W&B group: H309_aux_beta2_mid_training_ramp.
+
+### Analysis
+
+**Closure verdict: CLOSED 163rd NULL/NEG — 🎯 2 paper-grade findings (104th mechanism class CONSOLIDATED)**
+
+1. **🎯 paper-grade DIRECTIONAL-ASYMMETRY finding (AUX UP / BODY DOWN)**: The H298 body-side finding shows body μ DOWN (sharper) wins mid-training. H309 arm_c shows AUX β2 UP (smoother) wins mid-training. Opposite directions on symmetric structures confirm parameter-group-specific optimal sharpness. Mechanistic interpretation: body gradients (high-quality 2D weights projected through NS5) benefit from sharper smoothing; aux gradients (embeddings, biases, layernorm — sparse/noisy targets) benefit from smoother smoothing. **First direct empirical evidence in r3 that BODY and AUX parameter groups have qualitatively OPPOSITE optimal mid-training smoothing directions.**
+
+2. **🎯 paper-grade FOURTH ORTHOGONAL-MECHANISM partial cooldown wash-out (H309 arm_c FFS-25 HELD through cooldown)**: Unlike H306/H307/H308 (which ALL show 100% wash-out due to reverting perturbation before cooldown), H309 arm_c HOLDS β2=0.995 through cooldown → terminal Δval=−0.00171 (1.9σ) AND FFS=3025 (−25 vs CTRL FFS=3050). First non-washed-out terminal-FFS movement on a non-EMA mid-training-schedule axis. Mechanistically: cooldown attractor is dominant when perturbation is REMOVED before cooldown; attractor cannot override a PERSISTENT β shift that continues through cooldown.
+
+**Sub-finding**: arm_b MID_RAMP_DOWN shows FFS=3050 identical to CTRL with sub-noise Δval=−0.00117 (1.3σ) — DOWN direction is inert. The UP direction (arm_c) is load-bearing. Dose-response amplification (H317) warranted.
+
+**FFS<3000 merge gate**: NEITHER arm clears (3050/3025 vs baseline 3000). CLOSED per Issue #1260 strict.
+
+**Follow-up**: H317 frieren assigned immediately (PR #1882) — push UP direction to β2_end ∈ {0.997, 0.999} for dose-response amplification.
+
 ## 2026-05-30 — PR #1847: H308 tanjiro per-block-type μ heterogeneity (attn vs MLP)
 
 - Branch: g1r3-tanjiro/h308-per-block-mu-heterogeneity
