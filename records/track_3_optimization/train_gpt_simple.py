@@ -84,6 +84,14 @@ def parse_args():
     parser.add_argument('--aux_b2_pulse_target', type=float, default=0.99,
                         help='New aux Adam β2 value to set at --aux_b2_pulse_step. '
                              '0 or negative disables. Default: 0.99 (canonical WIN).')
+    parser.add_argument("--muon_cov_reset_step", type=int, default=-1,
+                        help="If positive, zero body-Muon L and R covariance state at this step "
+                             "(hard reset). Default -1 = disabled.")
+    parser.add_argument("--muon_cov_reset_beta_cov_target", type=float, default=-1.0,
+                        help="If positive AND --muon_cov_reset_step is set, simultaneously pulse "
+                             "beta_cov from canonical 0.95 to this value at the reset step. "
+                             "Reverts to 0.95 at step + 150. Default -1.0 = no beta_cov pulse, "
+                             "pure reset.")
     parser.add_argument("--seed", type=int, default=1,
                         help="Random seed for torch/numpy/python. Default 1 matches baseline seed.")
     args = parser.parse_args()
@@ -758,6 +766,8 @@ if dist.get_rank() == 0:
             "paramema_refresh_only": int(args.paramema_refresh_only),
             "aux_b2_pulse_step": args.aux_b2_pulse_step,
             "aux_b2_pulse_target": args.aux_b2_pulse_target,
+            "muon_cov_reset_step": args.muon_cov_reset_step,
+            "muon_cov_reset_beta_cov_target": args.muon_cov_reset_beta_cov_target,
             "seed": args.seed,
         },
     )
@@ -1064,6 +1074,46 @@ for trial_idx in range(args.num_trials):
                 group["betas"] = new_betas
             print0(f"[step {step}] aux_b2_pulse: β2 {old_b2} → {args.aux_b2_pulse_target}",
                    console=True)
+        # Pre-target body-Muon covariance hard zero RESET hook.
+        # Zeros state["L"] and state["R"] EMA accumulators on the body-Muon
+        # optimizer at --muon_cov_reset_step, forcing whitening to re-accumulate
+        # from scratch on the most recent gradient geometry. Optional Arm B:
+        # simultaneously pulse beta_cov to a faster-accumulation value, reverting
+        # 150 steps later.
+        if (args.muon_cov_reset_step > 0
+                and step == args.muon_cov_reset_step):
+            n_reset = 0
+            for group in optimizer2.param_groups:
+                for p in group["params"]:
+                    state = optimizer2.state.get(p, None)
+                    if state is None:
+                        continue
+                    if "L" in state:
+                        state["L"].zero_()
+                        n_reset += 1
+                    if "R" in state:
+                        state["R"].zero_()
+            print0(f"[step {step}] cov-reset: zeroed L/R on {n_reset} body-Muon params",
+                   console=True)
+            if dist.get_rank() == 0:
+                wandb.log({
+                    "pmuon/cov_reset_step": step,
+                    "pmuon/cov_reset_count": n_reset,
+                }, step=wandb_step)
+            if args.muon_cov_reset_beta_cov_target > 0.0:
+                old_bc = optimizer2.param_groups[0]["beta_cov"]
+                for group in optimizer2.param_groups:
+                    group["beta_cov"] = args.muon_cov_reset_beta_cov_target
+                print0(f"[step {step}] cov-reset: beta_cov "
+                       f"{old_bc} → {args.muon_cov_reset_beta_cov_target}",
+                       console=True)
+        if (args.muon_cov_reset_step > 0
+                and args.muon_cov_reset_beta_cov_target > 0.0
+                and step == args.muon_cov_reset_step + 150):
+            for group in optimizer2.param_groups:
+                group["beta_cov"] = 0.95
+            print0(f"[step {step}] cov-reset: beta_cov reverted to 0.95",
+                   console=True)
         for opt in optimizers:
             opt.step()
         # EMA buffer update on body-Muon matrix params.
@@ -1183,11 +1233,22 @@ for trial_idx in range(args.num_trials):
                                     and args.aux_b2_pulse_target > 0.0
                                     and step >= args.aux_b2_pulse_step),
             }, step=wandb_step)
-        if dist.get_rank() == 0 and (train_step % 100 == 0 or train_step == train_steps):
+        # Spectral diag fires at the canonical every-100 cadence, plus densely
+        # within the cov-reset window so the reset transient is visible.
+        cov_reset_window_due = False
+        if args.muon_cov_reset_step > 0:
+            r = args.muon_cov_reset_step
+            # Per-step coverage steps {r-10..r+10, r+50, r+150, r+175, r+250}.
+            if (r - 10 <= step <= r + 10
+                    or step in {r + 50, r + 150, r + 175, r + 250}):
+                cov_reset_window_due = True
+        if dist.get_rank() == 0 and (train_step % 100 == 0 or train_step == train_steps
+                                     or cov_reset_window_due):
             spec = pmuon_spectral_diag(optimizer2, PMUON_GAMMA)
             if spec:
                 spec["trial"] = trial_idx
                 spec["train/step"] = train_step
+                spec["pmuon/beta_cov_effective"] = optimizer2.param_groups[0]["beta_cov"]
                 wandb.log(spec, step=wandb_step)
         if dist.get_rank() == 0 and histogram_due:
             log_histograms(
