@@ -28,6 +28,7 @@ SLOPE_FRACTION = 0.10
 SOAP_BETA2 = 0.90
 PRECOND_FREQ = 16
 NS_ITER = 12  # overridden by args.ns_iter at module load
+NS_BACKEND = "poly"  # overridden by args.ns_backend at module load
 
 
 def parse_args():
@@ -68,6 +69,12 @@ def parse_args():
     parser.add_argument("--ns_iter", type=int, default=12,
                         help="Number of Newton-Schulz iterations in zeropower_via_newtonschulz5. "
                              "Default 12 (current hardcoded value). Lower = less orthogonal but faster.")
+    parser.add_argument("--ns_backend", type=str, default="poly",
+                        choices=["poly", "cayley"],
+                        help="NS orthogonalization backend in soap_ns_step: "
+                             "'poly'=iterative NS5 quintic polynomial (current default); "
+                             "'cayley'=single-step closed-form Cayley-style retraction "
+                             "Q = X (I + 0.5*(I - X^T X))^{-1}. Cayley ignores --ns_iter.")
     parser.add_argument("--lr_scalars", type=float, default=0.01,
                         help="LR for AdamW adam_scalars group (RMSNorm gains; "
                              "params with ndim < 2). Default 0.01 — hardcoded, "
@@ -111,6 +118,7 @@ def parse_args():
 
 args = parse_args()
 NS_ITER = args.ns_iter
+NS_BACKEND = args.ns_backend
 
 
 def clean_metric_name(name: str) -> str:
@@ -517,18 +525,48 @@ def zeropower_via_newtonschulz5(G: Tensor) -> Tensor:
         X = X.mT
     return X
 
+
+def zeropower_via_cayley(G: Tensor) -> Tensor:
+    # Single closed-form Cayley-style retraction toward the Stiefel manifold:
+    # normalize X, then Q = X @ (I + 0.5*(I - X^T X))^{-1}. Replaces the
+    # iterative NS5 polynomial with one matrix solve. Float32 upcast on lhs/Xf
+    # required for solve accuracy; bfloat16 output to match NS5 cast contract.
+    assert G.ndim >= 2
+    X = G.bfloat16()
+    transposed = G.size(-2) > G.size(-1)
+    if transposed:
+        X = X.mT
+    X = X / (X.norm(dim=(-2, -1), keepdim=True) + 1e-7)
+    Xf = X.float()
+    n = Xf.size(-1)
+    XtX = Xf.mT @ Xf
+    eye_n = torch.eye(n, device=Xf.device, dtype=torch.float32)
+    lhs = eye_n + 0.5 * (eye_n - XtX)
+    Q = torch.linalg.solve(lhs.mT, Xf.mT).mT
+    Q = Q.to(G.dtype)
+    if transposed:
+        Q = Q.mT
+    return Q
+
+
+def _ns_orthogonalize(update: Tensor) -> Tensor:
+    if NS_BACKEND == "cayley":
+        return zeropower_via_cayley(update)
+    return zeropower_via_newtonschulz5(update)
+
+
 @torch.compile
 def muon_update(grad, momentum, mu=0.95, nesterov=True):
     momentum.lerp_(grad, 1 - mu)
     update = grad.lerp_(momentum, mu) if nesterov else momentum
-    update = zeropower_via_newtonschulz5(update)
+    update = _ns_orthogonalize(update)
     update *= max(1, grad.size(-2) / grad.size(-1))**0.5
     return update
 
 
 @torch.compile
 def soap_ns_step(nesterov_update):
-    update = zeropower_via_newtonschulz5(nesterov_update)
+    update = _ns_orthogonalize(nesterov_update)
     update *= max(1, nesterov_update.size(-2) / nesterov_update.size(-1))**0.5
     return update
 
@@ -774,6 +812,7 @@ if dist.get_rank() == 0:
             "soap_beta2": SOAP_BETA2,
             "soap_precond_freq": PRECOND_FREQ,
             "ns_iter": NS_ITER,
+            "ns_backend": NS_BACKEND,
             "soap_attn_enabled": bool(args.soap_attn),
             "soap_trust_threshold": float(args.soap_trust_threshold),
             "lr_mlp": args.lr_mlp,
