@@ -469,6 +469,15 @@ WD_AUX = float(os.environ.get("WD_AUX", "0.0"))  # AdamW WD on embed + lm_head m
 EMBED_INIT_STD = float(os.environ.get("EMBED_INIT_STD", "1.0"))  # default preserves baseline N(0,1)
 LOGIT_SOFTCAP = float(os.environ.get("LOGIT_SOFTCAP", "15.0"))  # default = 15 (current hardcoded value); soft-cap value c in f(x) = c·x / sqrt(x^2+c^2)
 
+# PR #1775: per-depth-half MLP-SOAP β2 dispatch (parallel to attn-SOAP test #1731).
+# When ENABLED=1, MLP-SOAP params with layer index < SPLIT use FRONT β2, others use BACK β2.
+# Both the soap_refresh row/col EMAs and soap_precondition exp_avg_sq second-moment EMA use the
+# per-param β2. When ENABLED=0 the path reproduces baseline bit-for-bit (all params use SOAP_BETA2).
+PER_DEPTH_HALF_MLP_SOAP_BETA2_ENABLED = int(os.environ.get("PER_DEPTH_HALF_MLP_SOAP_BETA2_ENABLED", "0"))
+MLP_SOAP_BETA2_FRONT = float(os.environ.get("MLP_SOAP_BETA2_FRONT", "0.90"))
+MLP_SOAP_BETA2_BACK = float(os.environ.get("MLP_SOAP_BETA2_BACK", "0.90"))
+MLP_SOAP_DEPTH_SPLIT_BETA2 = int(os.environ.get("MLP_SOAP_DEPTH_SPLIT_BETA2", "6"))
+
 
 def zeropower_via_newtonschulz5(G: Tensor) -> Tensor:
     assert G.ndim >= 2
@@ -554,26 +563,34 @@ def soap_basis_qr(row_gg, col_gg, q_row, q_col, exp_avg_sq):
 
 
 def soap_refresh(grad, state, beta2=SOAP_BETA2, refresh_freq=SOAP_PRECOND_FREQ,
-                 use_trust_gate=False, trust_threshold=ATTN_SOAP_TRUST_THRESHOLD):
+                 use_trust_gate=False, trust_threshold=ATTN_SOAP_TRUST_THRESHOLD,
+                 track_cos=False):
     """Update row/col Gram EMAs every step; refresh eigenbasis every `refresh_freq` steps.
 
     When ``use_trust_gate`` is True (record #16 extension), the refresh runs the
     sort+QR subspace-iteration step inline so the pre-QR (but already sorted)
     basis can be compared against the post-QR basis. Comparing pre-sort q_old
     to post-QR q_new measures permutation overlap (~1/sqrt(D)), not rotation,
-    which is why this path doesn't reuse ``soap_basis_qr``."""
+    which is why this path doesn't reuse ``soap_basis_qr``.
+
+    When ``track_cos`` is True (PR #1775), the same inline sort+QR path is taken
+    so that ``trust_cos_row`` / ``trust_cos_col`` diagnostics are computed and
+    stored in state, but no trust_gate is set — preconditioning runs unconditionally.
+    The math is identical to the ``soap_basis_qr`` path so non-gated trajectories
+    are preserved."""
     grad_f = grad.float()
     state["row_gg"].lerp_(grad_f @ grad_f.T, 1 - beta2)
     state["col_gg"].lerp_(grad_f.T @ grad_f, 1 - beta2)
     if state["q_row"] is None:
         state["q_row"] = soap_eigenbasis(state["row_gg"])
         state["q_col"] = soap_eigenbasis(state["col_gg"])
-        if use_trust_gate:
-            state["trust_gate"] = 1.0
+        if use_trust_gate or track_cos:
             state["trust_cos_row"] = 1.0
             state["trust_cos_col"] = 1.0
-    elif state["soap_step"] > 0 and state["soap_step"] % refresh_freq == 0:
         if use_trust_gate:
+            state["trust_gate"] = 1.0
+    elif state["soap_step"] > 0 and state["soap_step"] % refresh_freq == 0:
+        if use_trust_gate or track_cos:
             row_gg = state["row_gg"]
             col_gg = state["col_gg"]
             q_row_old = state["q_row"]
@@ -600,7 +617,8 @@ def soap_refresh(grad, state, beta2=SOAP_BETA2, refresh_freq=SOAP_PRECOND_FREQ,
             cos_col = (q_col_new.T @ q_col_sorted).diagonal().abs().mean().item()
             state["trust_cos_row"] = cos_row
             state["trust_cos_col"] = cos_col
-            state["trust_gate"] = 1.0 if (cos_row >= trust_threshold and cos_col >= trust_threshold) else 0.0
+            if use_trust_gate:
+                state["trust_gate"] = 1.0 if (cos_row >= trust_threshold and cos_col >= trust_threshold) else 0.0
         else:
             state["q_row"], state["q_col"], state["exp_avg_sq"] = soap_basis_qr(
                 state["row_gg"], state["col_gg"], state["q_row"], state["q_col"], state["exp_avg_sq"]
@@ -652,6 +670,30 @@ class Muon(torch.optim.Optimizer):
                     self.attn_soap_kind[id(p)] = "v"
                 elif n.endswith(".attn.proj.weight"):
                     self.attn_soap_kind[id(p)] = "proj"
+        # PR #1775: per-depth-half MLP-SOAP β2 dispatch.
+        # Names from model.blocks.named_parameters() are like "<idx>.mlp.fc.weight".
+        # When ENABLED, build per-param β2 lookup by depth half: idx < SPLIT → FRONT, else BACK.
+        # Always track depth-half + kind for diagnostic telemetry so the disabled-check still verifies
+        # plumbing; when ENABLED=0, mlp_soap_param_beta2 is empty and step() falls back to SOAP_BETA2.
+        self.mlp_soap_layer_idx: dict[int, int] = {}
+        self.mlp_soap_depth_half: dict[int, str] = {}
+        self.mlp_soap_kind: dict[int, str] = {}
+        self.mlp_soap_param_beta2: dict[int, float] = {}
+        for n, p in named_params:
+            if p in self.soap_params:
+                idx = int(n.split(".")[0])
+                self.mlp_soap_layer_idx[id(p)] = idx
+                half = "front" if idx < MLP_SOAP_DEPTH_SPLIT_BETA2 else "back"
+                self.mlp_soap_depth_half[id(p)] = half
+                if n.endswith(".mlp.fc.weight"):
+                    self.mlp_soap_kind[id(p)] = "fc"
+                elif n.endswith(".mlp.proj.weight"):
+                    self.mlp_soap_kind[id(p)] = "proj"
+                if PER_DEPTH_HALF_MLP_SOAP_BETA2_ENABLED:
+                    self.mlp_soap_param_beta2[id(p)] = (
+                        MLP_SOAP_BETA2_FRONT if half == "front" else MLP_SOAP_BETA2_BACK
+                    )
+        self.per_depth_half_mlp_soap_beta2_enabled = bool(PER_DEPTH_HALF_MLP_SOAP_BETA2_ENABLED)
         params = sorted([p for _, p in named_params], key=lambda x: x.size(), reverse=True)
         defaults = dict(lr=lr, weight_decay=weight_decay, mu=mu)
         super().__init__(params, defaults)
@@ -696,9 +738,15 @@ class Muon(torch.optim.Optimizer):
                     momentum_update = grad.lerp(state["momentum"], group["mu"])
                     use_soap = p in self.soap_params
                     use_attn_soap = p in self.attn_soap_params
+                    # PR #1775: dispatch per-param β2 for MLP-SOAP when per-depth-half is enabled.
+                    # Empty map → falls back to SOAP_BETA2 (baseline). Both refresh and precondition
+                    # share the same β2 for a given param.
+                    mlp_soap_beta2 = self.mlp_soap_param_beta2.get(id(p), SOAP_BETA2) if use_soap else SOAP_BETA2
                     # SOAP precondition applied to momentum BEFORE NS5+contra+NorMuon
                     # (matches public record #14/16 — pre-NS5 placement).
-                    if use_soap or use_attn_soap:
+                    if use_soap:
+                        momentum_update = soap_precondition(momentum_update, state, beta2=mlp_soap_beta2)
+                    elif use_attn_soap:
                         momentum_update = soap_precondition(momentum_update, state)
                     # NS5 + contra + NorMuon row variance on (possibly SOAP-preconditioned) momentum.
                     update = contra_normuon_update(momentum_update, state["second_moment"])
@@ -712,7 +760,8 @@ class Muon(torch.optim.Optimizer):
                     p.add_(update, alpha=-group["lr"])
                     # Refresh SOAP state with the raw grad (after applying the step).
                     if use_soap:
-                        soap_refresh(grad, state)
+                        soap_refresh(grad, state, beta2=mlp_soap_beta2,
+                                     track_cos=self.per_depth_half_mlp_soap_beta2_enabled)
                     elif use_attn_soap:
                         soap_refresh(grad, state, beta2=ATTN_SOAP_BETA2,
                                      refresh_freq=ATTN_SOAP_PRECOND_FREQ,
@@ -774,6 +823,50 @@ class Muon(torch.optim.Optimizer):
             out[f"{kind}/on_fraction"] = agg["on"] / kn
             out[f"{kind}/mean_cos_row"] = sum(crs) / kn
             out[f"{kind}/mean_cos_col"] = sum(ccs) / kn
+        return out
+
+    def mlp_soap_depth_stats(self) -> dict[str, float]:
+        """PR #1775: per-depth-half MLP-SOAP refresh diagnostics.
+
+        Only populated when ``per_depth_half_mlp_soap_beta2_enabled`` is True (track_cos active).
+        Buckets by depth half (front/back) and by kind (fc/proj). Reports cos_row, cos_col
+        means and a synthetic on_fraction using ATTN_SOAP_TRUST_THRESHOLD as the diagnostic
+        threshold so the metric is directly comparable to the attn-SOAP trust-gate readout.
+        """
+        if not self.per_depth_half_mlp_soap_beta2_enabled:
+            return {}
+        threshold = ATTN_SOAP_TRUST_THRESHOLD
+        agg: dict[str, dict[str, list[float] | int]] = {}
+        for p in self.soap_params:
+            state = self.state.get(p)
+            if state is None or "trust_cos_row" not in state:
+                continue
+            half = self.mlp_soap_depth_half.get(id(p))
+            kind = self.mlp_soap_kind.get(id(p))
+            if half is None:
+                continue
+            cr = state.get("trust_cos_row", 1.0)
+            cc = state.get("trust_cos_col", 1.0)
+            for bucket in (half, f"{half}_{kind}") if kind else (half,):
+                d = agg.setdefault(bucket, {"on": 0, "cos_row": [], "cos_col": []})
+                d["cos_row"].append(cr)
+                d["cos_col"].append(cc)
+                if cr >= threshold and cc >= threshold:
+                    d["on"] += 1
+        if not agg:
+            return {}
+        out: dict[str, float] = {}
+        for bucket, d in agg.items():
+            crs = d["cos_row"]
+            ccs = d["cos_col"]
+            n = len(crs)
+            if n == 0:
+                continue
+            out[f"{bucket}/count"] = n
+            out[f"{bucket}/on_fraction"] = d["on"] / n
+            out[f"{bucket}/cos_row"] = sum(crs) / n
+            out[f"{bucket}/cos_col"] = sum(ccs) / n
+        out["threshold_synthetic"] = threshold
         return out
 
 
@@ -866,6 +959,10 @@ if dist.get_rank() == 0:
             "optimizer/attn_soap_trust_threshold": ATTN_SOAP_TRUST_THRESHOLD,
             "optimizer/ns5_iters": NS5_ITERS,
             "optimizer/wd_aux": WD_AUX,
+            "optimizer/per_depth_half_mlp_soap_beta2_enabled": PER_DEPTH_HALF_MLP_SOAP_BETA2_ENABLED,
+            "optimizer/mlp_soap_beta2_front": MLP_SOAP_BETA2_FRONT,
+            "optimizer/mlp_soap_beta2_back": MLP_SOAP_BETA2_BACK,
+            "optimizer/mlp_soap_depth_split_beta2": MLP_SOAP_DEPTH_SPLIT_BETA2,
             "optimizer/recipe": "contra-muon + normuon-lite + soap-on-mlp + soap-on-attn-trust-gate (pre-NS5, record #14 + record #16)",
         },
     )
@@ -1059,6 +1156,10 @@ for trial_idx in range(args.num_trials):
                     stats = opt.trust_gate_stats()
                     if stats:
                         wandb.log(prefixed("train/attn_soap_trust_gate", stats), step=wandb_step)
+                if hasattr(opt, "mlp_soap_depth_stats"):
+                    stats = opt.mlp_soap_depth_stats()
+                    if stats:
+                        wandb.log(prefixed("train/mlp_soap_depth", stats), step=wandb_step)
         if dist.get_rank() == 0 and telemetry_due:
             log_weight_telemetry(
                 model=model,
