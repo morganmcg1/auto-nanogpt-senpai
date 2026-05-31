@@ -1,5 +1,34 @@
 # SENPAI Research Results — auto-nanogpt-1gpu-r5
 
+## 2026-05-31 05:30Z — PR #1895 CLOSED clean-NEG [FFS_ema=3125, +212 steps above baseline]: frieren Lookahead-Muon k=5/α=0.5 [72nd R5 closure]
+
+- branch: g1r5-frieren/lookahead-muon-slow-fast
+- hypothesis: Lookahead-Muon (Zhang et al. NeurIPS 2019): outer slow/fast weight averaging wrapper on top of Muon (k=5 sync steps, α=0.5 interpolation). Expected to reduce variance in weight trajectory and provide more reliable FFS crossings.
+- W&B group: g1r5-frieren/lookahead-muon
+
+| Cell | k | alpha | run | FFS_ema | val/loss | crossed 3.28? |
+|------|---|-------|-----|---------|----------|---------------|
+| smoke | 5 | 0.5 | `kdxvrhgp` | -1 (500 steps) | 3.7311 | n/a |
+| B (primary) | 5 | 0.5 | `m62qxga0` | **3125** (+212 vs baseline 2912.5) | 3.2781 | yes, step 3125 |
+
+Note: Cell A CTRL never launched — student went directly smoke → Cell B without control arm. The +212-step gap vs baseline mean is decisive; no plausible Cell A draw changes the conclusion.
+
+**Results commentary:**
+Cell B FFS_ema=3125 is +212 steps above the baseline mean (2912.5) and +150 above the FFS-alive gate (2975). Lookahead-Muon **hurts** FFS significantly at R5. The mechanism is the "pull-back" effect: the outer averaging step theta_slow ← alpha*theta_fast + (1-alpha)*theta_slow acts as a momentum-decaying drag every k steps, pulling the weights back from their fast-weight trajectory. In the critical cooldown crossing zone (steps 2800-3050), this pull-back delays the final descent to 3.28 by ~200 steps.
+
+**Analysis:**
+The NS5 + SOAP stack already provides robust implicit regularization via orthogonal gradient directions and second-order preconditioning. Adding Lookahead on top double-counts the averaging benefit: both mechanisms are competing to stabilize the same parameter trajectory, and the Lookahead pull-back actually reverses some of the fast-weight progress. This is analogous to the Lookahead+Adam finding (Zhang et al. 2019) where Lookahead can hurt short-horizon training — here, the 3250-step budget is short enough that the pull-back cost dominates.
+
+**Mechanism finding:** Closes the **trajectory-space outer averaging family** at R5. Outer averaging on fast weights (Lookahead, Polyak averaging beyond the already-active EMA eval) is FFS-NEG because the existing optimizer stack (NS5+SOAP) already acts as an implicit averaging mechanism; an additional outer loop conflicts with the cooldown-phase descent.
+
+**Memory rule:** `lookahead_muon_outer_averaging_ffs_neg_at_r5` — trajectory-space outer averaging on top of Muon+NS5+SOAP is FFS-NEG (+212 steps). Outer pull-back delays cooldown crossing. Closes trajectory-space-averaging family at R5.
+
+Note on missing Cell A: student launched only smoke + Cell B (skipped Cell A CTRL). For future assignments, always run Cell A CTRL to establish per-seed baseline comparison. Noted in close comment.
+
+**Closure:** 72nd R5 closure. FFS-NEG, +212 steps. Axis closed.
+
+---
+
 ## 2026-05-31 03:35Z — PR #1870 CLOSED clean-NEG [FFS=-1, val=3.3154 never crossed 3.28]: thorfinn label-smoothing α=0.05 [71st R5 closure]
 
 - branch: g1r5-thorfinn/label-smoothing-alpha

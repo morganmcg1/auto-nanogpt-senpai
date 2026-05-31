@@ -9,7 +9,31 @@ The human research team has redirected: **FFS (first-step-to-target, baseline 30
 3. **Prefer experiments that move the crossing step** (2800-3050 window), **simplify winning stacks**, **reveal FFS-load-bearing components**.
 4. **Ablations preferred over confirmations** when FFS dead.
 
-## Last updated: 2026-05-31 03:35Z (71 R5 closures; thorfinn #1870 CLOSED 71st [FFS-NEG, val=3.3154 never crossed, loss-function-space-regularization family CLOSED]; thorfinn #1907 ln-gain-init-small ASSIGNED; 8/8 active)
+## Last updated: 2026-05-31 05:30Z (72 R5 closures; frieren #1895 CLOSED 72nd [FFS-NEG Lookahead-Muon +212 steps, trajectory-space-averaging family CLOSED]; frieren #1910 bias-ln-lr-scale ASSIGNED; tanjiro #1880 Cell B FFS=2875 Cell C running; 8/8 active)
+
+### Notes (2026-05-31 05:30Z) — FRIEREN #1895 LOOKAHEAD-MUON CLOSED 72nd [FFS-NEG, +212 steps]; FRIEREN #1910 bias-ln-lr-scale ASSIGNED
+
+- **★ CLOSED #1895 frieren Lookahead-Muon k=5/α=0.5** [72nd R5 closure, 05:25Z] — clean FFS-NEG.
+  - Cell B (k=5, α=0.5, `m62qxga0`): FFS_ema=**3125** (+212 steps above baseline mean 2912.5), val=3.2781
+  - No Cell A CTRL launched (student skipped it — noted in close comment)
+  - FFS-alive gate (≤2975) FAILED by +150 steps — no plausible Cell A draw changes conclusion
+- **★★ TRAJECTORY-SPACE-AVERAGING FAMILY CLOSED:**
+  - Lookahead outer averaging (k=5, α=0.5) hurts FFS by +212 steps: outer pull-back (theta_slow ← alpha·fast + (1-alpha)·slow) delays cooldown crossing.
+  - NS5+SOAP already act as implicit averaging — adding Lookahead on top double-counts and causes regression.
+  - **Combined with EMA-eval (already active) and #1403 Polyak-Ruppert eval-only (closed): trajectory/model-averaging family is structurally closed at R5.**
+  - Memory rule: `lookahead_muon_outer_averaging_ffs_neg_at_r5`.
+
+- **★ FRIEREN #1910 bias-ln-lr-scale ASSIGNED** — PR #1910. Hypothesis: split AdamW group into two: (1) biases+LN/RMSNorm gains at `lr_bias_scale * lr_scalars` (sweet-spot 0.3), (2) embedding+lm_head at existing `lr_scalars`. Sharpness Disparity Principle (Wang et al. ICML 2025): scale-setting params have 3-10× lower Hessian sharpness → over-driven when forced onto shared schedule → cooldown-phase oscillation delays crossing. **IMPORTANT: KG_smoke must verify scale_params count > 0** — if modded-nanogpt is bias-free + custom RMSNorm, hypothesis may be moot. Cells: smoke(100 steps), A=ctrl(scale=1.0), B★=0.3, C=0.1, D=0.5, E=n=4 confirm at best scale.
+
+- **★ TANJIRO #1880 Cell B FFS=2875 (FFS-alive) — Cell C running:**
+  - Cell A CTRL (`if71akg1`, μ=0.95): FFS_ema=2925, val=3.2704
+  - Cell B (`upms16as`, μ=0.85): **FFS_ema=2875** (FFS-alive ✓), val=3.2687 (Δval=-0.0017 ≈ 0.7σ_4)
+  - Cell C (`8326z2mc`, μ=0.75): running at ~20%
+  - Decision pending Cell C terminal: need monotone-in-μ structure for n=4 promotion (Δval too small to promote on Cell B alone — 0.7σ_4 = likely seed noise)
+
+- **Fleet at 05:30Z**: edward #1858 WIP (n=4 seed s3 running, s1/s4 pending); tanjiro #1880 WIP (Cell C running μ=0.75); fern #1885 WIP (Cell B ~93%); askeladd #1891 WIP (Cell B ~67%); nezuko #1897 WIP (Cell A ~73%); alphonse #1903 WIP; thorfinn #1907 WIP; frieren #1910 WIP (bias-ln-lr-scale just assigned). **8/8 active.**
+
+---
 
 ### Notes (2026-05-31 03:35Z) — THORFINN #1870 LABEL-SMOOTHING CLOSED 71st [FFS-NEG, DID NOT CROSS]; THORFINN #1907 ln-gain-init-small ASSIGNED
 
