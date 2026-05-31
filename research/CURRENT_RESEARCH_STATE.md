@@ -1,3 +1,58 @@
+## Cycle ~2000: AUDIT-TRAIL cycle — H316 + H318 + H317 stale_wip clearing nudges, zero new closures, all 8 students WIP, chain executions in progress for 3 OUTER/AUX schedule mechanism axes
+
+**Zero terminal closures this cycle. Three stale_wip audit-trail nudges posted to surface chain progress + treatment plumbing verification gaps. Plateau campaign portfolio unchanged: 167 NULL/NEG + 1 MERGED WIN (H266), 108 mechanism classes consolidated.**
+
+### Audit cycle context
+
+This cycle was reactive housekeeping rather than productive closure — 3 of the 8 WIP PRs auto-marked stale_wip after >6h with no SENPAI-RESULT yet. The W&B audits via sub-agent confirmed chains progressing normally on 2 of 3 (H316, H317) and surfaced a treatment plumbing concern on the 3rd (H318). All 3 nudges follow `feedback_audit_wandb_on_stale_wip.md` + `feedback_audit_treatment_runs_too.md` + `feedback_read_pr_comments_before_nudge.md` discipline (W&B per-arm config audit, treatment-config verification, comments read before nudge composition).
+
+### Three stale_wip nudges this cycle
+
+**H316 tanjiro OUTER LR cooldown schedule (PR #1878)** — chain CLEAR
+- arm_a CTRL `v7f2xskd` FINISHED val=3.2685 FFS=3025 (+0.36σ TIE H266, +25 envelope)
+- arm_b RAMP_TO_0p0 `7ctwznxj` RUNNING step 525/3325 (~16%), step-0 val=10.82583 EXACT ✓
+- arm_c RAMP_TO_0p35 QUEUED
+- Smoke gate retrospective: 3-arm step-0 + step-120 outer_lr_t ramp mechanism verified at chain launch
+- ETA arm_c terminal ~04:00Z. No action requested — "carry on" acknowledgment posted.
+
+**H318 alphonse OUTER momentum cooldown schedule (PR #1889)** — TREATMENT PLUMBING CONCERN flagged
+- arm_a CTRL `hbevurge` RUNNING step 2000/3325 (~60%), val=3.4094, H318 config flags properly logged ✓
+- Smoke `a5tozl9i` FINISHED but **MISSING H318 CLI flags from W&B logged config** ⚠️
+- arm_b RAMP_DOWN, arm_c RAMP_UP NOT YET LAUNCHED
+- Three items requested: (1) arm_a step-0 val verification (10.82583 EXACT), (2) smoke `outer_momentum_t` telemetry confirmation OR re-launch arm_b smoke with verified config logging, (3) chain-launch audit-trail comment
+
+**H317 frieren AUX β2 mid-ramp UP AMPLIFIED (PR #1882)** — chain CLEAR with design clarification
+- arm_a CTRL `mxr34jzh` FINISHED val=3.2691 FFS=3025 (+1.04σ TIE H266, +25 envelope)
+- arm_b AMPLIFIED `9re46x0w` RUNNING step 425/3325 (~13%), step-0 val=10.82583 EXACT ✓
+- arm_c EXTREME QUEUED
+- Student reinterpreted arm_b/arm_c as baseline-anchored (0.99 START) rather than H309-anchored — defensible but closure narrative cannot include H309 cross-validation. Logged for narrative discipline.
+- ETA arm_c terminal ~12:00Z 2026-05-31. Stale_wip cleared, "carry on" acknowledgment posted.
+
+### Mechanism axes in flight (post-cycle ~2000)
+
+| PR | Hypothesis | Mechanism axis | WIN prob | ETA terminal |
+|----|-----------|----------------|---------:|-------------|
+| #1865 | H314 thorfinn V-shape μ buffer durability | INNER μ schedule | 5-10% | ~12:00Z 2026-05-31 |
+| #1867 | H315 nezuko POST-NS5 noise COOLDOWN_TAPER | INNER noise wash-out | 10% | ~03:00Z 2026-05-31 |
+| #1878 | H316 tanjiro OUTER LR cooldown ramp | OUTER LR schedule | 15-20% | ~04:00Z 2026-05-31 |
+| #1882 | H317 frieren AUX β2 UP AMPLIFIED | AUX β2 schedule (H309 follow) | 20-25% | ~12:00Z 2026-05-31 |
+| #1889 | H318 alphonse OUTER momentum cooldown | OUTER μ schedule | 15-20% | pending (plumbing) |
+| #1890 | H319 askeladd AUX β1 mid-training schedule | AUX β1 schedule (NEW axis) | 10-15% | TBD |
+| #1892 | H320 edward OUTER anchor refresh policy | OUTER anchor (VIRGIN axis) | 10-15% | TBD |
+| #1896 | H321 fern schedule-tapered adaptive μ | INNER μ schedule (H313 follow) | 25-30% | TBD |
+
+8 chains across 4 mechanism axes (INNER μ ×3, OUTER ×3, AUX ×2, VIRGIN anchor ×1). The cluster targets the dose-response and directional-asymmetry follow-ups identified in cycles ~1850-1950 paper-grade findings.
+
+### Next high-priority closures expected
+
+- **H321 fern (HIGH-PROB 25-30%)**: most likely WIN candidate — direct test of H313 phase-inverting mechanism (taper α during cooldown to preserve POS pre-cooldown / eliminate NEG cooldown)
+- **H317 frieren (20-25%)**: dose-response amplification of H309 arm_c POS finding — could header-grade WIN if directional asymmetry persists past 0.997 ceiling
+- **H316 tanjiro + H318 alphonse (15-20%)**: 2D OUTER schedule mechanism map (LR × momentum cooldown) — symmetric NEG closes axis; asymmetric reveals headroom
+
+### Plateau campaign sustained
+
+Cycle ~2000 makes plateau cycle count effectively ~167 NULL/NEG with NO new closures. The chains in flight test 8 distinct mechanism axes with cumulative WIN-prob mass ~120-160% — expected ~1.2-1.6 WINs from this cluster if probabilities are accurate. Cycle ~2050 should land at least one terminal verdict (most likely H315 nezuko ~03:00Z or H316 tanjiro ~04:00Z).
+
 ## Cycle ~1950: H313 CLOSED 167th NULL/NEG (🎯 paper-grade STRUCTURAL ANTI-ALIGNMENT cos_align_mean persistently NEGATIVE through entire training + 🎯 paper-grade PHASE-INVERTING MECHANISM adaptive μ POS pre-cooldown / NEG cooldown crossover step ~2200-2400, 102nd class CONSOLIDATED with HIGH-PROB refinement) + H321 ASSIGNED fern schedule-tapered adaptive μ (DIRECT paper-grade follow-up to H313 FINDING #2, WIN prob 25-30%)
 
 **One terminal closure + one fresh HIGH-PROB paper-grade refinement assignment. Plateau campaign portfolio: 167 NULL/NEG + 1 MERGED WIN (H266), 108 mechanism classes consolidated.**
