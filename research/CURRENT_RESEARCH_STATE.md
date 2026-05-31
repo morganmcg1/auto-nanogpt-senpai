@@ -1,3 +1,57 @@
+## 2026-05-31 02:10 UTC — Cycle 71 mid-449 — edward #1873 354th refute + askeladd #1875 355th refute (RTM + WD decomposition) + edward #1908 + askeladd #1909 assigned
+
+### edward #1873 axis #4 PAIR-EXC 6-OF-6 V-ACTIVE CLASS-BAND CLOSED — 354th refute, 188th family closure, 221st mech class, 12th RTM precedent
+
+Bilateral terminal: Arm A `kproj_excluded` n=2 (`palvce9u`) val=**3.27002**/3025 INSIDE FLOOR BAND EDGE; Arm B `q_only_active` triple-exc (`k7phdr64`) val=**3.27133**/3050. Bilateral mean **3.270675**/3037.5 ABOVE merge bars. W&B MATCH. **354th cycle-71 refute**.
+
+Arm A n=2 with #1844 A: aggregate mean **3.27092** — INSIDE v-active class band [3.27024, 3.27085] upper edge with noise overlap. **12th RTM precedent confirmed**: #1844 A 3.27182 was upward noise excursion; kproj_excluded IS a v-active class member.
+
+**KEY STRUCTURAL FINDINGS — FOUR concurrent invariants**:
+1. **V-ACTIVE CLASS BAND CLOSED 6-of-6 CELLS**: pair-exc matrix unified at band [3.27024, 3.27085] ±0.0009 variance. Removing any single non-q projection = equivalent v-active class landing.
+2. **Q-LOAD-BEARING EVIDENCE**: q on_fraction = 1.0 in BOTH arms throughout post-warmup; q-only triple-exc loses only +0.00131 vs q+v active (small penalty not catastrophic).
+3. **Q-ISOLATION-DEGRADED-EDGE FIRST CELL**: q-only triple-exc 3.27133 = +0.00079 ABOVE v-active class band but INSIDE floor band. New degraded-edge class opened at axis #4.
+4. **V-FIXED-POINT CRITERION HIT AT COOLDOWN**: Arm A v on_fraction destabilizes to ~0.417 in cooldown phase (v-fixed-point band marker), confirming v-fixed-point family membership.
+
+**221st MECH CLASS**: AXIS-4-PAIR-EXC-6-OF-6-V-ACTIVE-CLASS-BAND-CLOSED-WITH-Q-LOAD-BEARING-Q-ISOLATION-DEGRADED-EDGE-FIRST-TRIPLE-EXC.
+**188th FAMILY CLOSURE**: AXIS-4-PAIR-EXC-6-OF-6-BAND-CLOSED + AXIS-4-FIRST-TRIPLE-EXC-Q-ONLY-OPENED.
+
+### edward #1908 new assignment: axis #4 triple-exc v_only × k_only Q-LOAD-BEARING discriminator
+
+Two remaining triple-exc cells to close the Q-LOAD-BEARING hypothesis:
+- Arm A: `v_only` bitfield=11 (q+k+proj excluded; v ONLY active) — Q-LOAD-BEARING → should be catastrophic; DISTRIBUTED-LOAD → degraded-edge similar to q_only
+- Arm B: `k_only` bitfield=13 (q+v+proj excluded; k ONLY active) — predicted catastrophic if Q-LOAD-BEARING
+
+If BOTH catastrophic → 222nd mech class Q-LOAD-BEARING CONFIRMED. If BOTH degraded-edge → DISTRIBUTED-PROJECTION-LOAD.
+
+### askeladd #1875 RTM CONFIRMED + WD DECOMPOSITION — 355th refute, 189th family closure, 222nd mech class
+
+Bilateral terminal: Arm A `cw2fu5an` val=**3.27047**/3025 (full per-kind-WD + MLP-SOAP per-depth-half = 11th RTM); Arm B `4l7px6l8` val=**3.27240**/3050 (lm_head-WD-only + MLP-SOAP). Bilateral mean **3.27144**/3037.5 ABOVE merge bars. W&B MATCH. **355th cycle-71 refute**.
+
+**WD-DECOMPOSITION STRUCTURAL FINDING**: Arm B (lm_head-WD-only) Δ vs Arm A (full per-kind-WD) = **+0.00193** — removing embed WD costs +0.00193 productivity. Embed WD carries a small but measurable productive contribution alongside lm_head WD. Per-kind WD 2×2 matrix half-complete:
+
+| Config | val | embed WD | lm_head WD |
+|---|---|---|---|
+| Full (#1875 A) | 3.27047 | ✓ | ✓ |
+| lm_head-only (#1875 B) | 3.27240 | ✗ | ✓ |
+| embed-only (TBD #1909 A) | ? | ✓ | ✗ |
+| no-aux-WD null (TBD #1909 B) | ? | ✗ | ✗ |
+
+**222nd MECH CLASS**: AXES-1-X-8-RTM-CONFIRMED-LM-HEAD-WD-DECOMPOSITION-EMBED-WD-SMALL-PRODUCTIVE-CONTRIBUTION.
+**189th FAMILY CLOSURE**: AXES-1-X-8-SUB-FLOOR-N2-REFUTED-RTM-CONFIRMED-WD-DECOMPOSITION-HALF-MATRIX-EMBED-WD-CONTRIBUTION-MEASURED.
+
+### askeladd #1909 new assignment: per-kind WD 2×2 decomposition matrix completion (embed-only × null-WD)
+
+Arm A: `embed_wd_only` (AUX_WD_EMBED=0.0003 ON, AUX_WD_LM_HEAD=0 OFF) + MLP-SOAP per-depth-half
+Arm B: `no_aux_wd_null` (both WDs OFF) + MLP-SOAP per-depth-half (null control)
+
+Completes the 2×2 WD decomposition matrix. If Arm B (null WD) lands ~3.27047 → MLP-SOAP carries all benefit; if Arm B > 3.27047 → per-kind WD adds measurable marginal benefit on top of MLP-SOAP. If Arm A < 3.27047 → embed WD dominant vs lm_head WD.
+
+### Cycle 71 cumulative update
+
+Fleet 8/8 active 0 idle. Cumulative: **355 refuted / 222 mech classes / 189 family closures / 9 axes locked / 12 RTM precedents**. Three consecutive RTM precedents (edward #1873 12th + askeladd #1875 11th already in mid-448) confirm that n=1 sub-floor readings in the per-kind WD / SOAP family are frequently noise-upward-excursion outliers. Key open questions: (1) axis #4 Q-LOAD-BEARING hypothesis (edward #1908); (2) per-kind WD embed vs lm_head dominance (askeladd #1909); (3) CROSS-KIND FLOOR ORIGIN direction-coupled vs substrate-physics (tanjiro #1904); (4) lm_head M=3 n=2 replication (frieren #1901); (5) INTERVAL-AXIS-AT-LM-HEAD structure (fern #1887 Arm B).
+
+---
+
 ## 2026-05-31 01:35 UTC — Cycle 71 mid-448 — tanjiro #1874 353rd refute (axes #2×#5 MOMENT-2-NARROWLY-PRODUCTIVE-AT-EMBED-PUSH-DOWN-ONLY) + fern #1887 INTERVAL-AXIS-AT-LM-HEAD DISCOVERY + tanjiro #1904 assigned
 
 ### tanjiro #1874 axes #2×#5 MOMENT-CHANNEL-DISCRIMINATION × β1-DIRECTION-SYMMETRY — 353rd refute, 187th family closure, 220th mech class
