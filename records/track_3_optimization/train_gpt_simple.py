@@ -101,6 +101,11 @@ def parse_args():
                         help="EMA decay for SWA-style EMA-eval; None=disabled (control). "
                              "Recommend 0.99-0.9999. When set, val/ema_loss is logged "
                              "and speedrun/first_step_to_target uses the EMA-val crossing.")
+    parser.add_argument("--drop_path_rate", type=float, default=0.0,
+                        help="Max stochastic depth drop probability at deepest block "
+                             "(linear schedule 0 -> drop_path_rate). 0 = disabled. "
+                             "Per-sample Bernoulli mask on each residual branch (attn/mlp) "
+                             "with kept-branch rescaling by 1/p_l. Inference path is unchanged.")
     args = parser.parse_args()
     args.num_trials = args.num_trials if args.num_trials is not None else (args.legacy_num_trials or 1)
     args.wandb_tags = [tag.strip() for tag in args.wandb_tags.split(",") if tag.strip()]
@@ -463,6 +468,20 @@ class MLP(nn.Module):
         x = self.proj(x)
         return x
 
+def drop_path(x: Tensor, survival_prob: float, training: bool) -> Tensor:
+    """Stochastic depth on a residual branch output. Per-sample Bernoulli mask.
+
+    Training: independently drops each sample with prob (1-p) and rescales kept
+    samples by 1/p so the expected branch output magnitude is preserved.
+    Eval / p>=1.0: identity passthrough. Inference path stays deterministic full-depth.
+    """
+    if not training or survival_prob >= 1.0:
+        return x
+    mask = torch.rand(x.size(0), 1, 1, device=x.device, dtype=x.dtype)
+    mask = (mask < survival_prob).to(x.dtype) / survival_prob
+    return x * mask
+
+
 class Block(nn.Module):
     def __init__(self, dim: int):
         super().__init__()
@@ -471,24 +490,34 @@ class Block(nn.Module):
         self.norm1 = RMSNorm(dim)
         self.norm2 = RMSNorm(dim)
 
-    def forward(self, x: Tensor):
-        x = x + self.attn(self.norm1(x))
-        x = x + self.mlp(self.norm2(x))
+    def forward(self, x: Tensor, survival_prob: float = 1.0):
+        x = x + drop_path(self.attn(self.norm1(x)), survival_prob, self.training)
+        x = x + drop_path(self.mlp(self.norm2(x)),  survival_prob, self.training)
         return x
 
 class GPT(nn.Module):
-    def __init__(self, vocab_size: int, num_layers: int, model_dim: int):
+    def __init__(self, vocab_size: int, num_layers: int, model_dim: int, drop_path_rate: float = 0.0):
         super().__init__()
         self.embed = nn.Embedding(vocab_size, model_dim).bfloat16()
         self.blocks = nn.ModuleList([Block(model_dim) for _ in range(num_layers)])
         self.proj = Linear(model_dim, vocab_size)
         self.norm1 = RMSNorm(model_dim)
         self.norm2 = RMSNorm(model_dim)
+        # Linear stochastic depth survival schedule: block 0 = 1.0, block L-1 = 1 - drop_path_rate.
+        # Block 0 must stay deterministic (embedding-to-residual transformation is load-bearing).
+        if drop_path_rate > 0.0:
+            self.survival_probs = [
+                1.0 - (i / max(num_layers - 1, 1)) * drop_path_rate
+                for i in range(num_layers)
+            ]
+        else:
+            self.survival_probs = None
 
     def forward(self, inputs: Tensor, targets: Tensor):
         x = self.norm1(self.embed(inputs))
-        for block in self.blocks:
-            x = block(x)
+        for i, block in enumerate(self.blocks):
+            p = 1.0 if self.survival_probs is None else self.survival_probs[i]
+            x = block(x, survival_prob=p)
         logits = self.proj(self.norm2(x)).float()
         logits = 15 * logits * (logits.square() + 15**2).rsqrt()
         return F.cross_entropy(logits.view(targets.numel(), -1), targets.view(-1), reduction="sum")
@@ -736,7 +765,8 @@ batch_size = 8 * 64 * 1024
 mbs = 64
 val_inputs, val_targets = next(distributed_data_generator("data/fineweb10B/fineweb_val_*.bin", val_tokens))
 
-model = GPT(vocab_size=50304, num_layers=12, model_dim=768).cuda()
+model = GPT(vocab_size=50304, num_layers=12, model_dim=768,
+            drop_path_rate=args.drop_path_rate).cuda()
 model.compile(dynamic=False)
 
 module_types = param_module_types(model)
@@ -786,6 +816,12 @@ if dist.get_rank() == 0:
             "lr_cooldown_shape": args.lr_cooldown_shape,
             "ema_eval_decay": args.ema_eval_decay,
             "ema_eval_enabled": args.ema_eval_decay is not None,
+            "drop_path_rate": args.drop_path_rate,
+            "drop_path_enabled": args.drop_path_rate > 0.0,
+            "drop_path_survival_probs": (
+                ",".join(f"{p:.4f}" for p in model.survival_probs)
+                if model.survival_probs is not None else ""
+            ),
         },
     )
 
