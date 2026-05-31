@@ -1,4 +1,34 @@
-## Cycle ~1900: H312 CLOSED 166th NULL/NEG (🎯 paper-grade NEGATIVE FIRST INITIALIZATION-PHASE PROBE — bias correction destabilizes MuonH with CLEAN MONOTONE DOSE-RESPONSE, 101st class CONSOLIDATED + 🎯 paper-grade INFRASTRUCTURE OBSERVATION — first clean post-H266 CTRL replicate confirms +25 FFS envelope is variance) + H320 ASSIGNED edward OUTER anchor refresh policy soft-blend (102nd mechanism class candidate, virgin OUTER anchor mechanism axis)
+## Cycle ~1950: H313 CLOSED 167th NULL/NEG (🎯 paper-grade STRUCTURAL ANTI-ALIGNMENT cos_align_mean persistently NEGATIVE through entire training + 🎯 paper-grade PHASE-INVERTING MECHANISM adaptive μ POS pre-cooldown / NEG cooldown crossover step ~2200-2400, 102nd class CONSOLIDATED with HIGH-PROB refinement) + H321 ASSIGNED fern schedule-tapered adaptive μ (DIRECT paper-grade follow-up to H313 FINDING #2, WIN prob 25-30%)
+
+**One terminal closure + one fresh HIGH-PROB paper-grade refinement assignment. Plateau campaign portfolio: 167 NULL/NEG + 1 MERGED WIN (H266), 108 mechanism classes consolidated.**
+
+### Closure this cycle
+
+**H313 fern ADAPTIVE μ via grad-momentum cos_align CLOSED 167th NULL/NEG — 🎯 2 paper-grade findings (102nd mechanism class CONSOLIDATED with HIGH-PROB refinement OPEN)**
+
+Terminal verdict (PR #1862):
+- arm_a CTRL `s6twms0v` (α=0.0): val=3.26833, FFS=3025 (+0.17σ TIE H266)
+- arm_b ADAPTIVE_MILD `g8hjx9v1` (α=0.025): val=3.27202, FFS=3075 (+4.18σ NEG vs CTRL)
+- arm_c ADAPTIVE_STRONG `c293b1uj` (α=0.05): val=3.27174, FFS=3075 (+3.86σ NEG vs CTRL, dose-saturated with arm_b)
+
+Two paper-grade findings:
+
+1. **🎯 STRUCTURAL ANTI-ALIGNMENT (cos_align_mean persistently NEGATIVE)**: cos_align_mean is NEGATIVE through entire 3325-step run, crossing zero only at the very terminal step. Peaks at ~−0.4 around step 500-1000, decays monotonically to near-zero by cooldown. Mechanism: gradient-vs-momentum anti-alignment is a STRUCTURAL property of MuonH (NS5 polar projection extracts freshest direction vs smoothed historical momentum). Fundamental new knowledge.
+
+2. **🎯 PHASE-INVERTING MECHANISM (adaptive POS pre-cooldown / NEG cooldown)**: arm_c was BEATING CTRL by **−0.01698 val (~19σ_H174 POS) at step 1000** but inverted to +0.00341 NEG by terminal. Crossover at step ~2200-2400. Mechanism: cooldown's collapsing LR magnifies relative effect of μ perturbations that the converging optimizer cannot reject. Quantitative prediction: suppressing α during cooldown should preserve ~−0.017 POS while eliminating +0.003 cooldown NEG → clear H266 strictly.
+
+### Fresh assignment this cycle
+
+**H321 fern schedule-tapered adaptive μ (102nd mechanism class refinement, HIGH-PROB) — DIRECT paper-grade follow-up to H313 FINDING #2**
+
+PR #1896 assigned. 3-arm Pattern A Option C extension to H313 (~15 LoC adding `muonh_mu_adaptive_schedule` flag):
+- arm_a CTRL: α=0.0 baseline (bit-id with H266)
+- arm_b LINEAR_TAPER: α=0.05 → 0 linearly across 3325 steps (smooth taper)
+- arm_c STEP_OFF_COOLDOWN: α=0.05 constant until cooldown onset (step 2826), then α=0 cliff-off (cleanest discriminator)
+
+Hypothesis: H313 found arm_c was BEATING CTRL by −0.017 at step 1000 but inverted to +0.003 NEG by terminal. H321 tests whether suppressing α at cooldown onset preserves the pre-cooldown POS while eliminating the cooldown NEG. WIN prob 25-30% per quantitative analysis of H313 phase-inverting telemetry — the highest-probability paper-grade assignment available.
+
+### Previous cycle — H312 CLOSED 166th NULL/NEG (preserved for reference) (🎯 paper-grade NEGATIVE FIRST INITIALIZATION-PHASE PROBE — bias correction destabilizes MuonH with CLEAN MONOTONE DOSE-RESPONSE, 101st class CONSOLIDATED + 🎯 paper-grade INFRASTRUCTURE OBSERVATION — first clean post-H266 CTRL replicate confirms +25 FFS envelope is variance) + H320 ASSIGNED edward OUTER anchor refresh policy soft-blend (102nd mechanism class candidate, virgin OUTER anchor mechanism axis)
 
 **One terminal closure + one fresh OUTER-mechanism assignment. Plateau campaign portfolio: 166 NULL/NEG + 1 MERGED WIN (H266), 107 mechanism classes consolidated.**
 

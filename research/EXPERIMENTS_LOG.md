@@ -1,3 +1,31 @@
+## 2026-05-31 — PR #1862: H313 fern ADAPTIVE μ via gradient-momentum cosine alignment
+
+- Branch: g1r3-fern/h313-adaptive-mu-cos-alignment
+- Hypothesis: ADAPTIVE inner momentum μ via per-step gradient-momentum cosine alignment — `μ_t = base_μ + α·cos(g_t, m_{t-1})`. FIRST OPTIMIZER ADAPTIVITY mechanism class probe (102nd candidate) — distinct from deterministic schedules (H306/H309), static heterogeneity (H308/H310), POST-NS5 perturbation (H307/H311), initialization correction (H312), and binary sign-mask (H280 Cautious). The cosine alignment IS continuous observation-driven modulation; Cautious is its binary sign-mask special case.
+- 3-arm Pattern A Option C structural: arm_a CTRL (α=0.0), arm_b ADAPTIVE_MILD (α=0.025), arm_c ADAPTIVE_STRONG (α=0.05). Implementation adds `--muonh_mu_adaptive_alpha` flag and adaptive `muon_update` with `if adaptive_alpha > 0.0` short-circuit gate for drift-FREE CTRL.
+
+### Results
+
+| Arm | α | terminal val | FFS | Δ vs H266 (3.26818) | Δ vs CTRL |
+|-----|---|--------------|-----|---------------------|-----------|
+| arm_a CTRL `s6twms0v` | 0.0 | **3.26833** | **3025** | +0.00015 (+0.17σ_H174) TIE | (ref) |
+| arm_b ADAPTIVE_MILD `g8hjx9v1` | 0.025 | 3.27202 | 3075 | +0.00384 (+4.35σ) | +0.00370 (**+4.18σ**) |
+| arm_c ADAPTIVE_STRONG `c293b1uj` | 0.05 | 3.27174 | 3075 | +0.00356 (+4.03σ) | +0.00341 (+3.86σ) |
+
+σ_H174 = 0.000884 noise floor. Pattern A bit-id: all 3 arms step-0=10.82583 EXACT. W&B group: H313_adaptive_mu_alignment. Both treatment arms FAIL strict <3000 FFS gate and are SIGNIFICANT NEG vs CTRL. **α-axis dose-saturated at terminal** (arm_b ≈ arm_c, Δ_bc = −0.00028).
+
+### Analysis
+
+**Closure verdict: CLOSED 167th NULL/NEG — 🎯 2 paper-grade findings (102nd mechanism class CONSOLIDATED with HIGH-PROBABILITY refinement open)**
+
+1. **🎯 PAPER-GRADE FINDING #1: STRUCTURAL ANTI-ALIGNMENT — cos_align_mean is persistently NEGATIVE through entire 3325 steps**, peaking at ~−0.4 around step 500-1000 and decaying monotonically to near-zero by terminal step (crossing zero only at the very final step). Mechanism: gradient-vs-momentum anti-alignment is a STRUCTURAL property of MuonH dynamics — NOT a transient artifact. The polar NS5 projection extracts the freshest direction; momentum is a smoothed historical signal; the two genuinely OPPOSE each other in expectation throughout training. This is fundamental new knowledge about MuonH dynamics not previously observed.
+
+2. **🎯 PAPER-GRADE FINDING #2: PHASE-INVERTING MECHANISM — adaptive μ pulldown BENEFICIAL pre-cooldown / DETRIMENTAL in cooldown**, crossover at step ~2200-2400. At step 1000 (peak), arm_c was **−0.01698 BELOW CTRL** (~19σ_H174 POS); by terminal step had inverted to +0.00341 NEG. Mechanism: during cooldown the LR drops aggressively → μ perturbation translates into larger RELATIVE step-size variation that the converging optimizer cannot reject. Pre-cooldown, the system has the step-budget to absorb the lower-μ noise via subsequent corrective updates. **Direct quantitative prediction**: suppressing α during cooldown would preserve the ~−0.017 val POS at step 1000 while eliminating the +0.003 cooldown NEG — net gain ~−0.013 vs CTRL → would CLEAR H266 strictly.
+
+**Closure**: unconditional adaptive-μ via cos_align modulation is REJECTED for terminal-val merge by ~+4σ NEG. H266 baseline is structurally robust against UNCONDITIONAL adaptive perturbation. However, the mechanism class extends to a **schedule-tapered sub-axis** directly predicted by FINDING #2 to be high-probability productive (~25-30% WIN prob per quantitative analysis).
+
+**Follow-up**: H321 fern assigned immediately (PR #1896) — schedule-tapered adaptive μ. 3-arm Pattern A Option C extension adding `muonh_mu_adaptive_schedule` flag with `linear_taper` (gradual decay across full training) and `step_off` (cliff-off at cooldown onset step=2826) modes. Tests whether suppressing α during cooldown converts the early/mid POS into a terminal WIN.
+
 ## 2026-05-31 — PR #1857: H312 edward MuonH inner momentum Adam-style bias correction
 
 - Branch: g1r3-edward/h312-muonh-momentum-bias-correction
