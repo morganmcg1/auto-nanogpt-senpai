@@ -1,3 +1,32 @@
+## 2026-05-31 20:18 UTC — Cycle 71 mid-482 — fern #1991 386th refute 256th mech class CROSS-SUBSTRATE-COMPOUND-f=0.5-RTM-CONFIRMED-AT-FLOOR-BAND (n=2 mean 3.27036 / Arm A 3.27084 Arm B 3.26988 spread 0.00096; predecessor n=1 #1959 B 3.26934 was favorable seed sample, drift +0.00102 matches cohort average; 24th cycle-71 RTM precedent; 9th candidate carrier RTM-CONFIRMED; RTM-PERSISTENT rate now 10/11 = 91%) + fern #2013 new assignment (MIRROR-INVERTED-β1-DISPATCH-DIRECTION-PROBE: embed=0.7, lm_head=0.8 — inverts the JOINT-COHERENT optimum direction; 40% DIRECTION-SENSITIVE-LM-HEAD-SPECIFIC 25% ASYMMETRY-PRODUCTIVE 15% MIRROR-STRONGER 15% MIRROR-CARRIER-DESTRUCTIVE 5% MERGE). Methodological accept: n=2 verification gates n=3 budget for cycle-71 candidates <3.27 single-seed (confirmed by 10/11 RTM-PERSISTENT rate). No human issues. Fleet 8/8 active 0 idle. Cumulative **386 refuted / 256 mech classes / 212 family closures / 9 axes / 24 RTM precedents / 12 pod-stability observations** (RTM-PERSISTENT-AT-N=10/11 = 91%; ONE n=2 verification still pending: thorfinn #1997 inverted-asymmetry).
+
+### fern #1991 bilateral terminal — 386th refute / 256th mech class CROSS-SUBSTRATE-COMPOUND-f=0.5-RTM-CONFIRMED / 24th RTM precedent
+
+**Bilateral terminal**: Arm A `utj7xbiu` SEED=1 val=**3.27084**/3025; Arm B `z8wetwor` SEED=2 val=**3.26988**/3025. n=2 mean **3.27036** (spread 0.00096 — within seed-pair noise). Δ vs predecessor n=1 #1959 B 3.26934 = **+0.00102** (matches cohort drift average).
+
+**Cross-substrate compound symmetric-F floor-band map** (both RTM-confirmed):
+
+| symmetric-F | n=2 mean | RTM precedent |
+|---|---|---|
+| f=0.25 | 3.27011 | 18th RTM |
+| f=0.5 | **3.27036** | **24th RTM (THIS PR)** |
+
+Symmetric-F cross-substrate compound is structurally floor-band-bounded ([3.27000, 3.27050] for both cells). RTM-PERSISTENT rate updates: 9/10 → **10/11 = 91%**. Tight bilateral parity (spread 0.00096) confirms genuine floor-band reading. Reset events fired cleanly 15/15 at each substrate. Calibration check passes — 50%-prior outcome materialized within 0.00021 of point prediction.
+
+### Methodological observation accepted — n=2 verification as gating
+
+Student-proposed methodology: n=2 verification gates n=3 confirmation budget for any cycle-71 single-seed candidate <3.27. **Accepted as cycle-71 methodological principle** — confirmed by 10/11 RTM-PERSISTENT rate. n=2 cheaply discriminates 22nd-RTM (~50% probability) from STRONG-PRODUCTIVE (~15%) without spending three trials per candidate.
+
+### fern #2013 new assignment — MIRROR-INVERTED β1-DISPATCH-DIRECTION PROBE
+
+Pivots fern OFF per-substrate-reset family entirely to structurally fresh direction. Tests substrate-specificity of the JOINT-COHERENT-DISPATCH (#1972, 19th RTM at 3.27015) productive direction: canonical is (embed=0.8, lm_head=0.7, scalars=0.8) — lm_head LOWER. Mirror inverts to (embed=0.7, lm_head=0.8, scalars=0.8) — embed LOWER. Most likely (40%): DIRECTION-SENSITIVE — mirror destructive (lm_head specifically benefits from lower β1). Alternative (25%): ASYMMETRY-PRODUCTIVE (symmetric direction). Alternative (15%): MIRROR-STRONGER (embed-LOWER more productive). Analogous to nezuko #2010 mirror-inverted-factor probe but on β1 dispatch axis.
+
+### Fleet status — 8/8 active 0 idle
+
+After fern #1991 close + fern #2013 assignment: g1r2-{tanjiro #2001, askeladd #2007, alphonse #2008, edward #2004, fern #2013, thorfinn #1997, frieren #1999, nezuko #2010} all WIP. Cumulative **386 refuted / 256 distinct mech classes / 212 family closures / 9 structural axes locked / 24 RTM precedents / 12 pod-stability observations** (RTM-PERSISTENT-AT-N=10/11 = 91%; ONE n=2 carrier-verification pending: thorfinn #1997 inverted-asymmetry).
+
+---
+
 ## 2026-05-31 20:05 UTC — Cycle 71 mid-481 — nezuko #2005 POD-STABILITY-BLOCKED at CROSS-SUBSTRATE-ASYMMETRIC-FACTOR (embed-WEAK-f=0.125 + lm_head-STRONG-f=0.5) — 12th cycle-71 pod-stability observation; FIRST F-axis pod-broken cell (prior 11 were M-axis); bilateral n=2 NaN step 125 pre-event; adjacent symmetric-f cells #1959 A f=0.25 → 3.27027 and B f=0.5 → 3.26934 both stable single-seed under same M-bit cross-substrate config; NOT counted as refute. Phantom env-var caught: `PR1824_FRIEREN_ENABLED=1` is no-op (only `PER_KIND_AUX_PERIODIC_RESET_*_ENABLED=1` matters). + nezuko #2010 new assignment (MIRROR-INVERTED-FACTOR probe: embed-STRONG-f=0.5 + lm_head-WEAK-f=0.125; 45% DIRECTION-SENSITIVE-MIRROR-STABLE 25% ANY-F-ASYMMETRY-BLOCKED 15% MIRROR-PRODUCTIVE-CARRIER 10% SEED-MARGINAL 5% MERGE). No human issues. Fleet 8/8 active 0 idle. Cumulative **385 refuted / 255 mech classes / 211 family closures / 9 axes / 23 RTM precedents / 12 pod-stability observations** (RTM-PERSISTENT-AT-N=9/10 = 90%; TWO n=2 verifications still pending: fern #1991 cross-substrate-compound + thorfinn #1997 inverted-asymmetry).
 
 ### nezuko #2005 bilateral terminal — 12th pod-stability observation / FIRST F-axis pod-broken cell
