@@ -84,6 +84,12 @@ def parse_args():
     parser.add_argument('--aux_b2_pulse_target', type=float, default=0.99,
                         help='New aux Adam β2 value to set at --aux_b2_pulse_step. '
                              '0 or negative disables. Default: 0.99 (canonical WIN).')
+    parser.add_argument("--body_muon_nesterov_off_step", type=int, default=0,
+                        help="Step at which to disable Nesterov on body PMuon (optimizer2). "
+                             "0 disables (no flip).")
+    parser.add_argument("--body_muon_nesterov_on_step", type=int, default=0,
+                        help="Step at which to re-enable Nesterov on body PMuon (optimizer2) "
+                             "after a prior OFF flip. 0 disables (no re-enable).")
     parser.add_argument("--seed", type=int, default=1,
                         help="Random seed for torch/numpy/python. Default 1 matches baseline seed.")
     args = parser.parse_args()
@@ -571,11 +577,11 @@ def pmuon_update(
 
 class Muon(torch.optim.Optimizer):
     def __init__(self, params, lr=0.02, weight_decay=0, mu=0.95, beta_cov=0.95, gamma=PMUON_GAMMA,
-                 ns_a=NS_A, ns_b=NS_B, ns_c=NS_C):
+                 ns_a=NS_A, ns_b=NS_B, ns_c=NS_C, nesterov=True):
         assert isinstance(params, list) and len(params) >= 1 and isinstance(params[0], torch.nn.Parameter)
         params = sorted(params, key=lambda x: x.size(), reverse=True)
         defaults = dict(lr=lr, weight_decay=weight_decay, mu=mu, beta_cov=beta_cov, gamma=gamma,
-                        ns_a=ns_a, ns_b=ns_b, ns_c=ns_c)
+                        ns_a=ns_a, ns_b=ns_b, ns_c=ns_c, nesterov=nesterov)
         super().__init__(params, defaults)
 
     @torch.no_grad()
@@ -606,6 +612,7 @@ class Muon(torch.optim.Optimizer):
                         mu=group["mu"],
                         beta_cov=group["beta_cov"],
                         gamma=group["gamma"],
+                        nesterov=group["nesterov"],
                         ns_a=group["ns_a"],
                         ns_b=group["ns_b"],
                         ns_c=group["ns_c"],
@@ -1071,6 +1078,28 @@ for trial_idx in range(args.num_trials):
                 group["betas"] = new_betas
             print0(f"[step {step}] aux_b2_pulse: β2 {old_b2} → {args.aux_b2_pulse_target}",
                    console=True)
+        if args.body_muon_nesterov_off_step > 0 and step == args.body_muon_nesterov_off_step:
+            n_groups = 0
+            for group in optimizer2.param_groups:
+                if "nesterov" in group:
+                    group["nesterov"] = False
+                    n_groups += 1
+            if dist.get_rank() == 0:
+                print0(f"[step {step}] body PMuon Nesterov OFF (n_groups={n_groups})", console=True)
+                if wandb.run is not None:
+                    wandb.log({"body_muon_nesterov/off_step": step,
+                               "body_muon_nesterov/n_groups_off": n_groups}, step=wandb_step)
+        if args.body_muon_nesterov_on_step > 0 and step == args.body_muon_nesterov_on_step:
+            n_groups = 0
+            for group in optimizer2.param_groups:
+                if "nesterov" in group:
+                    group["nesterov"] = True
+                    n_groups += 1
+            if dist.get_rank() == 0:
+                print0(f"[step {step}] body PMuon Nesterov ON (n_groups={n_groups})", console=True)
+                if wandb.run is not None:
+                    wandb.log({"body_muon_nesterov/on_step": step,
+                               "body_muon_nesterov/n_groups_on": n_groups}, step=wandb_step)
         for opt in optimizers:
             opt.step()
         # EMA buffer update on body-Muon matrix params.
