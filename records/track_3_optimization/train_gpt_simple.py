@@ -101,6 +101,10 @@ def parse_args():
                         help="EMA decay for SWA-style EMA-eval; None=disabled (control). "
                              "Recommend 0.99-0.9999. When set, val/ema_loss is logged "
                              "and speedrun/first_step_to_target uses the EMA-val crossing.")
+    parser.add_argument("--mu_cooldown_end", type=float, default=None,
+                        help="If set, linearly decay Muon mu from its initial value "
+                             "(0.95) to this target during the cooldown phase. "
+                             "None = mu held constant at 0.95.")
     args = parser.parse_args()
     args.num_trials = args.num_trials if args.num_trials is not None else (args.legacy_num_trials or 1)
     args.wandb_tags = [tag.strip() for tag in args.wandb_tags.split(",") if tag.strip()]
@@ -287,6 +291,8 @@ def log_training_telemetry(
             group_name = group.get("name", f"optimizer_{opt_idx}_group_{group_idx}")
             metrics[f"train/lr/{group_name}"] = group["lr"]
             metrics[f"train/weight_decay/{group_name}"] = group.get("weight_decay", 0.0)
+            if "mu" in group:
+                metrics[f"train/mu/{group_name}"] = group["mu"]
     for module_type, tensors in grouped_by_type(grads, module_types).items():
         metrics.update(prefixed(f"train/grad_type/{module_type}", aggregate_stats(tensors)))
     for name, grad in grads:
@@ -786,6 +792,8 @@ if dist.get_rank() == 0:
             "lr_cooldown_shape": args.lr_cooldown_shape,
             "ema_eval_decay": args.ema_eval_decay,
             "ema_eval_enabled": args.ema_eval_decay is not None,
+            "mu_cooldown_end": args.mu_cooldown_end,
+            "mu_cooldown_enabled": args.mu_cooldown_end is not None,
         },
     )
 
@@ -882,6 +890,8 @@ for trial_idx in range(args.num_trials):
         for group in opt.param_groups:
             group["initial_lr"] = group["lr"]
             group["initial_wd"] = group.get("weight_decay", 0.0)
+            if "mu" in group:
+                group["initial_mu"] = group["mu"]
 
     def _wd_multiplier(step, total_steps, schedule):
         if schedule == "constant":
@@ -919,15 +929,26 @@ for trial_idx in range(args.num_trials):
         assert 0 <= progress < 1
         if progress < 1 - cooldown_frac:
             eta = 1.0
+            mu_x = 0.0
+            in_cooldown = False
         else:
             x = (progress - (1 - cooldown_frac)) / cooldown_frac
             eta = _cooldown_eta(x, args.lr_cooldown_shape)
+            mu_x = x
+            in_cooldown = True
         wd_mu = _wd_multiplier(step, train_steps, args.wd_schedule)
         for opt in optimizers:
             for group in opt.param_groups:
                 group["lr"] = group["initial_lr"] * eta
                 if "initial_wd" in group and group.get("name", "").startswith("muon_"):
                     group["weight_decay"] = group["initial_wd"] * wd_mu
+                if args.mu_cooldown_end is not None and "initial_mu" in group:
+                    if in_cooldown:
+                        group["mu"] = group["initial_mu"] + (
+                            args.mu_cooldown_end - group["initial_mu"]
+                        ) * mu_x
+                    else:
+                        group["mu"] = group["initial_mu"]
         return eta
 
 
