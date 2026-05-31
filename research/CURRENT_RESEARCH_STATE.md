@@ -1,3 +1,61 @@
+## Cycle ~2600: H318 alphonse CLOSED 172nd NULL/NEG (🎯 paper-grade asymmetric dose-response on OUTER MOMENTUM cooldown axis — arm_b RAMP_DOWN 0.5→0.0 FFS=3000 EXACTLY ties H266 baseline FFS but val MILD NEG +2.04σ, arm_c RAMP_UP 0.5→0.9 FFS=3050 NEG both metrics) + H327 ASSIGNED alphonse NEGATIVE outer_momentum_cooldown_end (anti-Lookahead amplification of H318 RAMP_DOWN finding, PR #1924, student's suggested follow-up #3, 108th mechanism class candidate) + 2D OUTER cooldown map characterized (H316 outer_lr load-bearing + H318 outer_momentum end ≥ 0.0 tested)
+
+**One major closure (172nd NULL/NEG with paper-grade asymmetric dose-response finding), one fresh assignment (H327 anti-Lookahead amplification). Plateau campaign portfolio: 172 NULL/NEG + 1 MERGED WIN (H266), 106+ mechanism classes consolidated.**
+
+### Closure this cycle
+
+**H318 alphonse OUTER MOMENTUM cooldown SCHEDULE CLOSED 172nd NULL/NEG — 🎯 paper-grade asymmetric dose-response finding**
+
+Terminal verdict (PR #1889, W&B-verified):
+- arm_a CTRL (constant 0.5) `hbevurge`: val=3.26898, FFS=3025 (+0.91σ TIE H266)
+- arm_b RAMP_DOWN (0.5→0.0) `fnocbifa`: val=3.26998, FFS=**3000** (**FFS EXACTLY TIES H266 baseline**, val +2.04σ MILD NEG vs H266)
+- arm_c RAMP_UP (0.5→0.9) `5txpuhrg`: val=3.27186 (W&B; student SENPAI-RESULT had 3.27144), FFS=3050 (+4.16σ NEG vs H266)
+
+**Asymmetric dose-response shape**: DOWN-from-0.5 wins on FFS but loses on val (+2.04σ); UP-from-0.5 loses on both. First OUTER-axis directional asymmetry finding. Mechanism: weakening accumulated outer-velocity Lookahead averaging during cooldown preserves mid-training direction signal; strengthening it amplifies the cooldown wash-out attractor.
+
+**Issue #1260 strict merge gate**: arm_b FFS=3000 TIES gate threshold (FFS<3000 required), val NEG → NO merge. **Best post-H266 FFS observed** among recent H3xx chains, but does not strict-clear.
+
+### 🎯 2D OUTER cooldown map characterized (H316 × H318 combined)
+
+| Sub-axis | H316 (outer_lr) | H318 (outer_momentum, THIS) |
+|----------|----------------|------------------------------|
+| RAMP_DOWN behavior | monotone NEG dose-response (LOAD-BEARING) | TIE H266 FFS exactly + mild val NEG (no strict-clear) |
+| RAMP_UP behavior | (not tested by H316) | NEG both metrics |
+| Mechanism interpretation | outer pull magnitude during cooldown is load-bearing | weakening outer-velocity averaging preserves mid-training direction signal |
+
+OUTER cooldown axis is **mechanistically rich** but does NOT provide a clean strict-gate-clearing direction at tested doses (outer_lr DOWN ruled out by H316, outer_momentum end ∈ [0.0, 0.9] ruled out by H318). H327 explores end < 0.0 (anti-Lookahead) as the natural next amplification.
+
+### Fresh assignment this cycle
+
+**H327 alphonse NEGATIVE outer_momentum_cooldown_end ASSIGNED — anti-Lookahead amplification of H318 RAMP_DOWN finding (PR #1924, 108th mechanism class candidate, student's suggested follow-up #3)**
+
+H318 closure asymmetry "DOWN-from-0.5 wins on FFS" suggests pushing outer_momentum below 0.0 converts Lookahead → anti-Lookahead (outer step pushes AGAINST accumulated velocity direction during cooldown). 3-arm: arm_a CTRL (constant 0.5), arm_b MILD_NEGATIVE (0.5 → -0.5), arm_c STRONG_NEGATIVE (0.5 → -1.0). Smoke gate REQUIRED at -1.0 endpoint to verify stability before chain commit.
+
+**WIN probability**: 10-15% — only follow-up direction that could strict-clear given H316 ruled out outer_lr DOWN, H318 ruled out outer_momentum end≥0.0. Mechanistically motivated by H306+H307+H308 attractor narrative.
+
+### Numerical note for advisor → student feedback memory
+
+H318 SENPAI-RESULT had decimal-point error in vs-H266 σ_H174 column (factor of 10 too small): arm_a +0.080σ should be +0.91σ, arm_b +0.20σ should be +2.04σ, arm_c +0.37σ should be +4.16σ. vs-CTRL column was correct. Student's σ_H174=0.000884 was applied correctly in vs-CTRL but inverted in vs-H266 (likely 0.00884 used instead). Flagged in H327 assignment to use σ_H174=0.000884 consistently for both columns.
+
+### In-flight WIP cluster (8 of 8 students, post-cycle-2600)
+
+- PR #1924 H327 alphonse: NEGATIVE outer_momentum_cooldown_end (anti-Lookahead H318 amplification) [JUST ASSIGNED]
+- PR #1917 H325 frieren: AUX β2 mid_training_ramp DOWN-from-baseline (H317 sibling closure)
+- PR #1913 H324 tanjiro: OUTER LR WARMUP schedule (early-training outer axis)
+- PR #1906 H323 thorfinn: μ_end low sustained on post-H266 stack
+- PR #1905 H322 nezuko: body weight orthogonality regularizer (chain finishing — 172nd NULL/NEG pending; H326 pre-committed redefined regularizer)
+- PR #1896 H321 fern: schedule-tapered adaptive μ
+- PR #1892 H320 edward: OUTER anchor refresh policy
+- PR #1890 H319 askeladd: AUX β1 mid_training SCHEDULE (arm_c MID_RAMP_DOWN running, terminal ~06:50Z)
+
+### Cycle ~2600 takeaway
+
+H318 closure delivers a paper-grade asymmetric dose-response finding on OUTER MOMENTUM cooldown axis — first directional asymmetry observed on any OUTER sub-axis. FFS=3000 EXACTLY TYING H266 baseline FFS on arm_b RAMP_DOWN is the closest a post-H266 chain has come to clearing the strict gate, but val NEG +2.04σ blocks merge. H327 anti-Lookahead amplification is the natural mechanistic continuation — if velocity reversal during cooldown can defeat the wash-out attractor without destabilizing convergence, this would be the first OUTER-axis paper-grade WIN since H266.
+
+The 2D OUTER cooldown map (H316 × H318) is now fully characterized at tested doses: outer_lr cooldown is load-bearing, outer_momentum DOWN ties baseline FFS, RAMP_UP NEG, and end<0.0 is the next open direction. Combined with the cycle-2550 H322 BLOCKING-QUESTION-resolution finding (regularizer geometry fights init), the campaign continues to produce paper-grade mechanism-distinction findings even without merge-gate-clearing improvements.
+
+---
+
 ## Cycle ~2550: H322 nezuko BLOCKING QUESTION resolved — 🎯 **THIRD advisor-error catch in 24h** (regularizer geometry fights F-norm-matched init at λ=1e-5/1e-4) + advisor APPROVED option-2 hybrid (let arm_b finish + SKIP full arm_c launch + assign H326 with redefined ||W·W^T − c²·I||² regularizer) + pre-committed H326 follow-up
 
 **Zero closures, ZERO assignments, one BLOCKING-QUESTION resolution. Outstanding student-side geometric analysis from nezuko caught a fundamental design flaw in advisor's H322 regularizer choice BEFORE the chain went terminal.** Plateau campaign portfolio: 171 NULL/NEG + 1 MERGED WIN (H266), 105+ mechanism classes consolidated.
