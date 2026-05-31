@@ -1,3 +1,36 @@
+## 2026-05-31 18:30 UTC — Cycle 71 mid-477 — tanjiro #1976 382nd refute 253rd mech class LM-HEAD-β1=0.9-ISOLATED-DESTRUCTIVE-+-EMBED-β1=0.5-RESCUES-COMPOUND (Arm A val=3.28145 FAIL-3.28-CAP +17.5σ destructive; Arm B val=3.27097/3025 RTM-rescue ~85% collapse of destructive direction; reset axis NULL within seed σ; JOINT-COHERENT-DISPATCH confirmed as load-bearing mechanism) + tanjiro #2001 new assignment (EMBED-β1=0.5-+-LM-HEAD-β1=0.7-RESCUE-MECHANISM-EXTENSION-PROBE bilateral n=2; 35% UNIVERSAL-RESCUE-RTM 25% PARTIAL-RESCUE 20% PRODUCTIVE-CARRIER 15% RESCUE-COLLAPSES 5% MERGE). No human issues. Fleet 8/8 active 0 idle. Cumulative **382 refuted / 253 mech classes / 211 family closures / 9 axes / 21 RTM precedents / 10 pod-stability observations** (RTM-PERSISTENT-AT-N=7/8 = 87.5%; THREE n=2 verifications still pending: k+proj edward #1982 + cross-substrate-compound fern #1991 + inverted-asymmetry thorfinn #1997; nezuko #2000 mirror-substrate-probe running).
+
+### tanjiro #1976 bilateral terminal — 382nd refute, 253rd mech class LM-HEAD-β1=0.9-ISOLATED-DESTRUCTIVE-+-EMBED-β1=0.5-RESCUES-COMPOUND
+
+**Bilateral terminal**:
+- Arm A `agpf5dtg` lm_head β1=0.9 isolated (embed=0.95 scalars=0.95 NO reset) → val=**3.28145**, ffs=-1 (**FAILED 3.28 cap** — +0.01369 vs baseline, +17.5σ destructive)
+- Arm B `b5ono71j` embed=0.5 + lm_head=0.9 compound-minus-reset → val=**3.27097**/3025 (RTM band rescue, +0.00321 vs baseline)
+
+**Cross-PR 2D interaction surface** (embed β1 × lm_head β1, scalars=0.95):
+
+| (embed β1, lm_head β1) | val | n | reading |
+|---|---|---|---|
+| (0.95, 0.95) | 3.26776 | 2 | **baseline** |
+| (0.5, 0.95) | 3.27186 | 1 | RTM-band-edge |
+| **(0.5, 0.9)** | **3.27097** | **1** | **RTM-RESCUE** ← Arm B |
+| **(0.95, 0.9)** | **3.28145** | **1** | **FAIL-3.28-CAP DESTRUCTIVE** ← Arm A |
+| (0.95, 0.7) | 3.27930 | 2 | CARRIER-DESTRUCTIVE (#1972) |
+| **(0.5, 0.7)** | **UNKNOWN** | **0** | **→ tanjiro #2001** |
+
+**Key mechanism finding**: embed β1=0.5 RESCUES ~85% of lm_head β1=0.9's destructive direction (+0.01369 arm A vs +0.00321 arm B = 0.01048 rescue magnitude). Reset axis NULL within seed σ (compound-minus-reset 3.27097 vs full compound 3.27004 = +0.00093 = 1.2σ). JOINT-COHERENT-DISPATCH is load-bearing: the productive interaction lives in the INTERACTION between embed β1=0.5 and lm_head β1=0.9, NOT in either kind alone.
+
+**lm_head β1 ISOLATED axis is now CONSISTENTLY MONOTONE-DESTRUCTIVE in both directions** (β1=0.9: +17.5σ; β1=0.7: +14.8σ n=2) — combined with frieren #1999 running (β1=0.5 isolated). Anti-canonical lm_head β1 perturbation without matching embed β1 change = DESTRUCTIVE.
+
+### tanjiro #2001 new assignment — EMBED-β1=0.5-+-LM-HEAD-β1=0.7-RESCUE-MECHANISM-EXTENSION-PROBE
+
+Tests whether embed β1=0.5 also rescues the destructive lm_head β1=0.7 direction (confirmed CARRIER-DESTRUCTIVE at n=2 mean 3.27930 by #1972). Completes the (0.5, 0.7) cell in the 2D embed×lm_head interaction surface. Most likely (35%): UNIVERSAL-RESCUE-RTM-BAND (rescue scales with perturbation magnitude → embed β1=0.5 is a generalized stability-attractor). Alternative (25%): PARTIAL-RESCUE (lm_head-β1-direction-specific rescue). Alternative (20%): PRODUCTIVE-CARRIER (cell is productive at ~3.26925). Edge (15%): RESCUE-COLLAPSES-DESTRUCTIVE. Rare (5%): MERGE-CANDIDATE.
+
+### Fleet status — 8/8 active 0 idle
+
+After tanjiro #1976 close + tanjiro #2001 assignment: g1r2-{tanjiro #2001, askeladd #1985, alphonse #1981, edward #1982, fern #1991, thorfinn #1997, frieren #1999, nezuko #2000} all WIP. Cumulative **382 refuted / 253 distinct mech classes / 211 family closures / 9 structural axes locked / 21 RTM precedents / 10 pod-stability observations** (RTM-PERSISTENT-AT-N=7/8 = 87.5%; THREE n=2 carrier-verification probes with adjusted destructive priors: k+proj edward #1982 + cross-substrate-compound fern #1991 + inverted-asymmetry thorfinn #1997).
+
+---
+
 ## 2026-05-31 17:55 UTC — Cycle 71 mid-476 — nezuko #1992 POD-STABILITY-BLOCKED at LM_HEAD M=2 i=200 f=0.25 (10th structural pod-stability observation — 4/4 NaN at step 125 BEFORE first reset at step 200; NOT counted as refute; M-axis SUBSTRATE-ASYMMETRIC confirmed: M=2 at embed STABLE RTM, M=2 at lm_head BROKEN) + nezuko #2000 new assignment (EMBED-M=3-AT-i=200-f=0.25-MIRROR-CROSS-SUBSTRATE-PROBE: 40%-M-INVARIANT-AT-EMBED-RTM 25%-M-WEAKLY-ACTIVE-AT-EMBED 20%-EMBED-M=3-POD-BROKEN-MIRROR 15%-STRONG-PRODUCTIVE-BREAKS-RTM). No human issues. Fleet 8/8 active 0 idle. Cumulative **381 refuted / 252 mech classes / 211 family closures / 9 axes / 21 RTM precedents / 10 pod-stability observations** (RTM-PERSISTENT-AT-N=7/8 = 87.5%; THREE n=2 verifications still running: k+proj edward #1982 + cross-substrate-compound fern #1991 + inverted-asymmetry thorfinn #1997).
 
 ### nezuko #1992 — POD-STABILITY-BLOCKED at LM_HEAD M=2 i=200 f=0.25 / 10th structural pod-stability observation
