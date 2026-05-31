@@ -87,15 +87,33 @@ def parse_args():
     # 'linear' ramps µ across all train_steps. 'cooldown_ramp' stays at mu_start until
     # cooldown starts (using h_cooldown_frac), then ramps linearly across the cooldown.
     parser.add_argument("--muonh_mu_schedule", type=str, default=os.environ.get("MUONH_MU_SCHEDULE", "off"),
-                        choices=["off", "linear", "cooldown_ramp"],
+                        choices=["off", "linear", "cooldown_ramp", "trapezoidal_v_shape"],
                         help="Schedule for inner MuonH momentum coefficient µ. "
                              "'off' (default) = static muonh_mu=0.95, bit-identical to baseline. "
                              "'linear' = linear ramp from muonh_mu_start to muonh_mu_end across all train_steps. "
-                             "'cooldown_ramp' = static muonh_mu_start until cooldown begins, then linear ramp to muonh_mu_end over cooldown.")
+                             "'cooldown_ramp' = static muonh_mu_start until cooldown begins, then linear ramp to muonh_mu_end over cooldown. "
+                             "'trapezoidal_v_shape' = mu_start plateau [0,decline_start) → linear descent → mu_trough plateau "
+                             "[decline_end, recovery_start) → linear ascent → mu_end plateau [recovery_end, train_steps).")
     parser.add_argument("--muonh_mu_start", type=float, default=float(os.environ.get("MUONH_MU_START", "0.95")),
-                        help="Starting value of µ schedule (used by linear and cooldown_ramp modes).")
+                        help="Starting value of µ schedule (used by linear, cooldown_ramp, and trapezoidal_v_shape modes).")
     parser.add_argument("--muonh_mu_end", type=float, default=float(os.environ.get("MUONH_MU_END", "0.98")),
-                        help="Ending value of µ schedule (used by linear and cooldown_ramp modes).")
+                        help="Ending value of µ schedule (used by linear, cooldown_ramp, and trapezoidal_v_shape modes).")
+    parser.add_argument("--muonh_mu_trough", type=float,
+                        default=float(os.environ.get("MUONH_MU_TROUGH", "0.65")),
+                        help="Low-plateau value of trapezoidal_v_shape µ schedule.")
+    parser.add_argument("--muonh_mu_decline_start", type=int,
+                        default=int(os.environ.get("MUONH_MU_DECLINE_START", "500")),
+                        help="Step at which trapezoidal_v_shape descent from mu_start to mu_trough begins.")
+    parser.add_argument("--muonh_mu_decline_end", type=int,
+                        default=int(os.environ.get("MUONH_MU_DECLINE_END", "1000")),
+                        help="Step at which trapezoidal_v_shape descent reaches mu_trough (low plateau begins).")
+    parser.add_argument("--muonh_mu_recovery_start", type=int,
+                        default=int(os.environ.get("MUONH_MU_RECOVERY_START", "2500")),
+                        help="Step at which trapezoidal_v_shape ascent from mu_trough to mu_end begins.")
+    parser.add_argument("--muonh_mu_recovery_end", type=int,
+                        default=int(os.environ.get("MUONH_MU_RECOVERY_END", "2826")),
+                        help="Step at which trapezoidal_v_shape ascent reaches mu_end (high plateau begins). "
+                             "Should be ≤ cooldown_start so cooldown phase sees CONSTANT mu_end.")
     parser.add_argument("--body_init", type=str, default=os.environ.get("BODY_INIT", "default"),
                         choices=["default", "orthogonal_fnorm_matched", "orthogonal_bottom_damp"],
                         help="Initialization scheme for body MuonH 2D weights (attn.q/k/v, attn.proj, mlp.fc, mlp.proj). "
@@ -855,6 +873,11 @@ if dist.get_rank() == 0:
             "muonh_mu_schedule": args.muonh_mu_schedule,
             "muonh_mu_start": args.muonh_mu_start,
             "muonh_mu_end": args.muonh_mu_end,
+            "muonh_mu_trough": args.muonh_mu_trough,
+            "muonh_mu_decline_start": args.muonh_mu_decline_start,
+            "muonh_mu_decline_end": args.muonh_mu_decline_end,
+            "muonh_mu_recovery_start": args.muonh_mu_recovery_start,
+            "muonh_mu_recovery_end": args.muonh_mu_recovery_end,
             "polyak_ema_decay": args.polyak_ema_decay,
         },
     )
@@ -1027,6 +1050,23 @@ for trial_idx in range(args.num_trials):
                 else:
                     cooldown_prog = (progress - cooldown_start_frac) / h_cooldown_frac
                     mu_t = args.muonh_mu_start + cooldown_prog * (args.muonh_mu_end - args.muonh_mu_start)
+            elif args.muonh_mu_schedule == "trapezoidal_v_shape":
+                decline_start = args.muonh_mu_decline_start
+                decline_end = args.muonh_mu_decline_end
+                recovery_start = args.muonh_mu_recovery_start
+                recovery_end = args.muonh_mu_recovery_end
+                if step < decline_start:
+                    mu_t = args.muonh_mu_start
+                elif step < decline_end:
+                    frac = (step - decline_start) / max(1, decline_end - decline_start)
+                    mu_t = args.muonh_mu_start + frac * (args.muonh_mu_trough - args.muonh_mu_start)
+                elif step < recovery_start:
+                    mu_t = args.muonh_mu_trough
+                elif step < recovery_end:
+                    frac = (step - recovery_start) / max(1, recovery_end - recovery_start)
+                    mu_t = args.muonh_mu_trough + frac * (args.muonh_mu_end - args.muonh_mu_trough)
+                else:
+                    mu_t = args.muonh_mu_end
             else:
                 raise ValueError(f"unknown muonh_mu_schedule: {args.muonh_mu_schedule}")
             for g in optimizer2.param_groups:
