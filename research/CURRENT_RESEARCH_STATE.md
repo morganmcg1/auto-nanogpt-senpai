@@ -9,7 +9,27 @@ The human research team has redirected: **FFS (first-step-to-target, baseline 30
 3. **Prefer experiments that move the crossing step** (2800-3050 window), **simplify winning stacks**, **reveal FFS-load-bearing components**.
 4. **Ablations preferred over confirmations** when FFS dead.
 
-## Last updated: 2026-05-31 21:40Z (91 R5 closures; **91st: fern #1983 wd-schedule-ablation FFS-NEG (ramp_down IS LOAD-BEARING; monotone dose-response down>const>up; WD-axis closed)**; fern → researcher-agent dispatched for fresh hypothesis; 7/8 active pending fern assignment)
+## Last updated: 2026-05-31 22:05Z (91 R5 closures; **fern → #2023 lion-aux-optimizer (AUX OPTIMIZER ALGORITHM — first AUX algorithm replacement in 91 R5 experiments)**; 8/8 active)
+
+### Notes (2026-05-31 22:05Z) — fern #2023 lion-aux-optimizer assigned; 8/8 students active
+
+- **FERN → PR #2023 (lion-aux-optimizer)** — Replace AdamW with Lion (sign-based momentum, arXiv:2302.06675) for the 3 AUX parameter groups: `embed.weight` (lr=0.03 at lion_lr_scale=0.1), `proj.weight`/lm_head, scalars/biases/RMSNorm-gains. **First AUX optimizer ALGORITHM replacement in all 91 R5 experiments.** The AUX-side cooldown family (3 closures: eps/ema-decay/β₁) closed SCHEDULE perturbations on AdamW; Lion changes the update rule itself (sign-quantized momentum, no second-moment). 4-cell dose-response: A_ctrl(AdamW), B★(Lion β₁=0.9, lr_scale=0.1), C(Lion β₁=0.99 per arXiv:2509.01440v1), D(Lion lr_scale=0.3). FFS mechanism: uniform ±lr step on embed may accelerate rare-token adaptation relative to AdamW's second-moment suppression of high-frequency vocab rows. Divergence watchdog: train_loss > 4.0 at step 500 → kill arm.
+
+- **8/8 ACTIVE — CURRENT FLEET STATUS (22:05Z)**:
+  - **edward #1948**: n=4 confirm in flight at freq=4 (trial 2+ in sequential run)
+  - **frieren #1966**: n=4 confirm in flight at mu=0.80 (trial 1 at step ~2700)
+  - **tanjiro #2014**: ns-iter-cooldown-ramp A_ctrl at step ~1945/3250 (B/C/D queued)
+  - **nezuko #2020**: post-watchdog restart (watchdog fired at 21:53Z, iteration 3086 picking up)
+  - **thorfinn #1994**: B★ at step ~3074/3250 (~terminal)
+  - **askeladd #1989**: A+B finished, C at step ~2372/3250 (~25 min)
+  - **alphonse #1979**: all arms reported finished by W&B (A/B/C), student SENPAI-RESULT pending
+  - **fern #2023**: new assignment (lion-aux-optimizer), student will pick up next heartbeat
+
+- **AUX-OPTIMIZER FRONTIER NOTE**: With lion-aux-optimizer assigned, the complete map of open AUX axes is: (1) Lion — algorithm replacement [fern #2023], (2) Schedule-Free AdamW — iterate averaging (hypothesis #2 in research ideas file), (3) Adafactor — factored second moment (hypothesis #3). If Lion is FFS-NEUTRAL, next student becomes SF-AdamW.
+
+- **COMPOUNDING EXPERIMENT QUEUED**: After edward + frieren n=4 confirm: precond_freq=4 + mu→0.80 stacked. Both mechanisms at distinct optimizer state (SOAP eigenbasis stride vs Muon momentum EMA). Orthogonal expectation: μ_4(FFS_ema) ≤ 2825. Assign to whichever student becomes idle first after the n=4 confirms land.
+
+---
 
 ### Notes (2026-05-31 21:40Z) — 91st closure; WD direction confirmed load-bearing; fern hypothesis dispatch in flight
 
