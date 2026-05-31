@@ -101,6 +101,13 @@ def parse_args():
                         help="EMA decay for SWA-style EMA-eval; None=disabled (control). "
                              "Recommend 0.99-0.9999. When set, val/ema_loss is logged "
                              "and speedrun/first_step_to_target uses the EMA-val crossing.")
+    parser.add_argument("--qkv_ortho_init", action="store_true",
+                        help="Initialize attn.q/k/v weight matrices with orthogonal init "
+                             "(same Frobenius norm as Gaussian baseline). Default: False (Gaussian).")
+    parser.add_argument("--qkv_ortho_mode", type=str, default="qkv",
+                        choices=["qkv", "qk", "v"],
+                        help="Which subset of Q/K/V to apply orthogonal init to "
+                             "(used only when --qkv_ortho_init is set).")
     args = parser.parse_args()
     args.num_trials = args.num_trials if args.num_trials is not None else (args.legacy_num_trials or 1)
     args.wandb_tags = [tag.strip() for tag in args.wandb_tags.split(",") if tag.strip()]
@@ -786,6 +793,8 @@ if dist.get_rank() == 0:
             "lr_cooldown_shape": args.lr_cooldown_shape,
             "ema_eval_decay": args.ema_eval_decay,
             "ema_eval_enabled": args.ema_eval_decay is not None,
+            "qkv_ortho_init": bool(args.qkv_ortho_init),
+            "qkv_ortho_mode": args.qkv_ortho_mode if args.qkv_ortho_init else None,
         },
     )
 
@@ -842,7 +851,18 @@ for trial_idx in range(args.num_trials):
             else:
                 # non-residual 2D weights (block Q/K/V/fc and any others)
                 std_base = (0.33 ** 0.5) / (w.size(-1) ** 0.5)
-                if args.depth_init_mode == "muall" and _is_block_nonresidual_2d(name):
+                _QKV_MODE_SUFFIXES = {
+                    "qkv": (".attn.q.weight", ".attn.k.weight", ".attn.v.weight"),
+                    "qk":  (".attn.q.weight", ".attn.k.weight"),
+                    "v":   (".attn.v.weight",),
+                }
+                _suffixes = _QKV_MODE_SUFFIXES[args.qkv_ortho_mode]
+                if args.qkv_ortho_init and any(name.endswith(s) for s in _suffixes):
+                    # Place W on Stiefel manifold, rescale to match Gaussian Frobenius norm
+                    torch.nn.init.orthogonal_(w)
+                    target_norm = std_base * math.sqrt(w.size(0) * w.size(1))
+                    w.mul_(target_norm / w.norm().clamp_min(1e-8))
+                elif args.depth_init_mode == "muall" and _is_block_nonresidual_2d(name):
                     w.normal_(std=std_base / (NUM_LAYERS ** 0.5))
                 else:
                     w.normal_(std=std_base)
@@ -856,6 +876,28 @@ for trial_idx in range(args.num_trials):
     # Sanity print — will appear in W&B stdout logs
     _ex_resid_std = _resid_proj_std(768, args.depth_init_mode, NUM_LAYERS) if args.depth_init_mode != "ctrl" else 0.0
     print0(f"[init] mode={args.depth_init_mode}  L={NUM_LAYERS}  block_residual_attn.proj_std={_ex_resid_std:.6f}", console=True)
+    if args.qkv_ortho_init:
+        # KG_smoke: verify orthogonality + Frobenius preservation on one Q matrix
+        _qkv_mode_suffixes = {
+            "qkv": (".attn.q.weight", ".attn.k.weight", ".attn.v.weight"),
+            "qk":  (".attn.q.weight", ".attn.k.weight"),
+            "v":   (".attn.v.weight",),
+        }[args.qkv_ortho_mode]
+        for _n, _p in model.named_parameters():
+            if any(_n.endswith(s) for s in _qkv_mode_suffixes):
+                _w = _p.data
+                _svs = torch.linalg.svdvals(_w.float())
+                _max_sv, _min_sv = float(_svs.max().item()), float(_svs.min().item())
+                _sv_ratio = _max_sv / max(_min_sv, 1e-12)
+                _std_base = (0.33 ** 0.5) / (_w.size(-1) ** 0.5)
+                _target = _std_base * math.sqrt(_w.size(0) * _w.size(1))
+                _frob_ratio = float(_w.norm().item()) / _target
+                print0(f"[init] qkv_ortho_init=True (mode={args.qkv_ortho_mode}): "
+                       f"first {_n}: sv max/min={_sv_ratio:.6f} (≤1.001 OK), "
+                       f"Frob/target={_frob_ratio:.6f} (∈[0.999,1.001] OK)", console=True)
+                assert _sv_ratio <= 1.001, f"KG_smoke FAIL: sv ratio {_sv_ratio:.6f} > 1.001 for {_n}"
+                assert 0.999 <= _frob_ratio <= 1.001, f"KG_smoke FAIL: Frob ratio {_frob_ratio:.6f} for {_n}"
+                break
 
     # create the optimizer(s)
     optimizer1 = AdamW([dict(params=[model.embed.weight], lr=0.3, name="adam_embed"),
