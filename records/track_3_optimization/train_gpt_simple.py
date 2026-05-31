@@ -48,6 +48,11 @@ def parse_args():
                         help="Extend SOAP preconditioning to attention projections with trust gate")
     parser.add_argument("--soap_trust_threshold", type=float, default=0.0,
                         help="Cosine similarity threshold below which SOAP update falls back to plain Muon (when --soap_attn)")
+    parser.add_argument("--soap_attn_cooldown_disable_step", type=int, default=-1,
+                        help="Step at which to disable SOAP attn preconditioner (revert attn to plain Muon NS5). "
+                             "-1 = disabled (SOAP attn active throughout, current behavior). "
+                             "Only effective when --soap_attn is set. "
+                             "Typical use: phase-gate to cooldown onset (e.g. step 975 for 3250-step run with cooldown_frac=0.7).")
     parser.add_argument("--lr_mlp", type=float, default=0.035,
                         help="Muon learning rate for MLP weights (.mlp.fc.weight / .mlp.proj.weight)")
     parser.add_argument("--wd_mlp", type=float, default=0.025,
@@ -589,7 +594,8 @@ class Muon(torch.optim.Optimizer):
     SOAP_ATTN_SUFFIXES = (".attn.q.weight", ".attn.k.weight", ".attn.v.weight", ".attn.proj.weight")
 
     def __init__(self, named_params, lr=0.02, weight_decay=0, mu=0.95,
-                 soap_attn=False, trust_threshold=0.0):
+                 soap_attn=False, trust_threshold=0.0,
+                 soap_attn_cooldown_disable_step=-1):
         # `named_params` can be either:
         #   (a) list of (name, param) tuples → single param group (legacy form)
         #   (b) list of dicts {"named_params": [(name, param), ...], "lr": ?, "weight_decay": ?, "mu": ?, "name": ?}
@@ -607,11 +613,20 @@ class Muon(torch.optim.Optimizer):
             p for n, p in all_named
             if any(n.endswith(suf) for suf in soap_suffixes)
         }
+        self.soap_attn_params = {
+            p for n, p in all_named
+            if any(n.endswith(suf) for suf in self.SOAP_ATTN_SUFFIXES)
+        } if soap_attn else set()
         self.param_names = {id(p): n for n, p in all_named}
         self.soap_attn = soap_attn
         self.trust_threshold = float(trust_threshold)
         self.use_trust_gate = soap_attn
         self.cos_sims_buffer: dict[str, Tensor] = {}
+        self.soap_attn_cooldown_disable_step = int(soap_attn_cooldown_disable_step)
+        self._global_step = 0
+        self._soap_attn_active_last_step: bool = bool(soap_attn)
+        self.record_sigma_max: bool = False
+        self.sigma_max_buffer: dict[str, float] = {}
 
         param_groups = []
         for g in groups_raw:
@@ -631,6 +646,16 @@ class Muon(torch.optim.Optimizer):
     @torch.no_grad()
     def step(self):
         self.cos_sims_buffer = {}
+        self.sigma_max_buffer = {}
+        # Phase gate: if soap_attn_cooldown_disable_step >= 0 and we've reached it,
+        # disable SOAP preconditioning for attn params (revert to plain Muon NS5).
+        soap_attn_gate_off = (
+            self.soap_attn
+            and self.soap_attn_cooldown_disable_step >= 0
+            and self._global_step >= self.soap_attn_cooldown_disable_step
+        )
+        self._soap_attn_active_last_step = self.soap_attn and not soap_attn_gate_off
+        record_sigma_max = bool(self.record_sigma_max)
         world_size = dist.get_world_size()
         rank = dist.get_rank()
         for group in self.param_groups:
@@ -642,9 +667,13 @@ class Muon(torch.optim.Optimizer):
                     p = params[base_i + rank]
                     state = self.state[p]
                     use_soap = p in self.soap_params
+                    if use_soap and soap_attn_gate_off and p in self.soap_attn_params:
+                        use_soap = False
                     if len(state) == 0:
                         state["momentum"] = torch.zeros_like(p)
-                        if use_soap:
+                        # Always init SOAP state for soap_params so the phase gate can
+                        # flip use_soap=False at later steps without breaking state lookup.
+                        if p in self.soap_params:
                             state["exp_avg_sq"] = torch.zeros_like(p, dtype=torch.float32)
                             state["row_gg"] = torch.zeros(p.size(0), p.size(0), dtype=torch.float32, device=p.device)
                             state["col_gg"] = torch.zeros(p.size(1), p.size(1), dtype=torch.float32, device=p.device)
@@ -669,11 +698,15 @@ class Muon(torch.optim.Optimizer):
                     else:
                         update = muon_update(p.grad, state["momentum"], mu=group["mu"])
                     norm_sum.add_(update.float().norm())
+                    if record_sigma_max:
+                        sigma_max = float(torch.linalg.matrix_norm(update.float(), ord=2).item())
+                        self.sigma_max_buffer[self.param_names[id(p)]] = sigma_max
                     p.mul_(1 - group["lr"] * group["weight_decay"])
                     p.add_(update, alpha=-group["lr"])
                 dist.all_gather(params_pad[base_i:base_i + world_size], params_pad[base_i + rank])
             group["_step_norm_sum"] = norm_sum
             group["_step_norm_count"] = len(params)
+        self._global_step += 1
 
     def get_step_update_norms(self) -> dict[str, float]:
         """Return per-group mean Frobenius norm of the most recent step's updates.
@@ -697,6 +730,41 @@ class Muon(torch.optim.Optimizer):
             name = group.get("name", f"group_{g_idx}")
             result[name] = mean
         return result
+
+    def get_step_sigma_max(self) -> dict[str, dict[str, float]]:
+        """Aggregate per-group post-scale σ_max from sigma_max_buffer (populated
+        on this rank only when record_sigma_max=True). Returns dict with mean/max
+        per group name. The training loop is responsible for cross-rank
+        all-reduce if more granular per-rank tracking is needed; for telemetry
+        purposes we report this-rank stats only (since each rank only computed
+        σ_max for its slice of params).
+        """
+        if not self.sigma_max_buffer:
+            return {}
+        # Map param name → group name via param_names + group lookup
+        group_for_name: dict[str, str] = {}
+        for g_idx, group in enumerate(self.param_groups):
+            gname = group.get("name", f"group_{g_idx}")
+            for p in group["params"]:
+                pname = self.param_names.get(id(p))
+                if pname is not None:
+                    group_for_name[pname] = gname
+        agg: dict[str, list[float]] = {}
+        for pname, sigma in self.sigma_max_buffer.items():
+            gname = group_for_name.get(pname)
+            if gname is None:
+                continue
+            agg.setdefault(gname, []).append(sigma)
+        out: dict[str, dict[str, float]] = {}
+        for gname, vals in agg.items():
+            if vals:
+                out[gname] = {
+                    "mean": sum(vals) / len(vals),
+                    "max": max(vals),
+                    "min": min(vals),
+                    "count": float(len(vals)),
+                }
+        return out
 
 
 ########################################
@@ -776,6 +844,7 @@ if dist.get_rank() == 0:
             "ns_iter": NS_ITER,
             "soap_attn_enabled": bool(args.soap_attn),
             "soap_trust_threshold": float(args.soap_trust_threshold),
+            "soap_attn_cooldown_disable_step": int(args.soap_attn_cooldown_disable_step),
             "lr_mlp": args.lr_mlp,
             "wd_mlp": args.wd_mlp,
             "lr_attn": args.lr_attn,
@@ -874,6 +943,7 @@ for trial_idx in range(args.num_trials):
             dict(named_params=attn_named, lr=args.lr_attn, weight_decay=args.wd_attn, name="muon_attn"),
         ],
         soap_attn=args.soap_attn, trust_threshold=args.soap_trust_threshold,
+        soap_attn_cooldown_disable_step=args.soap_attn_cooldown_disable_step,
     )
     optimizers = [optimizer1, optimizer2]
     assert set(p for opt in optimizers for group in opt.param_groups
@@ -1180,8 +1250,28 @@ for trial_idx in range(args.num_trials):
                 train_steps=train_steps,
                 wandb_step=wandb_step,
             )
+        # Gate σ_max recording inside Muon.step() to telemetry-due iters.
+        optimizer2.record_sigma_max = bool(telemetry_due)
         for opt in optimizers:
             opt.step()
+        # Log SOAP phase-gate status + per-group post-scale σ_max telemetry.
+        if dist.get_rank() == 0 and telemetry_due:
+            soap_metrics = {
+                "trial": trial_idx,
+                "train/step": train_step,
+                "soap/active/attn": int(optimizer2._soap_attn_active_last_step),
+                "soap/active/mlp": 1,  # MLP SOAP always on; no MLP gate in this PR
+                "soap/global_step": optimizer2._global_step,
+            }
+            sigma_max_per_group = optimizer2.get_step_sigma_max()
+            for gname, stats in sigma_max_per_group.items():
+                # gname is "muon_mlp" or "muon_attn"; emit ns/post_scale_sigma_max/<short>
+                short = gname.removeprefix("muon_") if gname.startswith("muon_") else gname
+                for stat_name, stat_val in stats.items():
+                    soap_metrics[f"ns/post_scale_sigma_max/{short}/{stat_name}"] = stat_val
+            wandb.log(soap_metrics, step=wandb_step)
+        # Reset recording flag so non-telemetry steps don't pay σ_max cost.
+        optimizer2.record_sigma_max = False
 
         # EMA-eval update: parallel param trajectory, no gradients/momentum.
         # Performed after the optimizer step so EMA tracks the post-update params.
