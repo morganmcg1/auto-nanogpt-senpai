@@ -1,6 +1,48 @@
-## Cycle ~2650 (CURRENT): H319 + H322 + H320 + H321 CLOSED 173rd / 174th / 175th / 176th NULL/NEG (🎯 paper-grade β1-vs-β2 SCHEDULE-axis DIRECTIONAL ASYMMETRY from H309+H317+H319 + H322 mechanism REJECTION via 244× ortho_loss growth + 🎯 H320 102nd MECHANISM CLASS CLOSED with TWO-REGIME positive-feedback OUTER anchor drift instability + 🎯 H321 PAPER-GRADE PHASE-INVERSION-TIMING CORRECTION proving cooldown α is mechanistically inert + FOURTH advisor-error catch in 24h) + H328 askeladd ASSIGNED AUX weight_decay VALUE (PR #1926) + H326 nezuko ASSIGNED F-norm-preserving regularizer ‖W·W^T−c²·I‖² + H322 seed-replicate 4-arm (PR #1927) + H329 edward ASSIGNED OUTER anchor MOMENTUM smoothing-without-lag (PR #1933) + H330 fern ASSIGNED EARLY-WINDOW α schedule targeting CORRECTED pre-cooldown inversion window (PR #1936) + H324 tanjiro stale_wip REFRESHED with arm_c WARMUP_LONG FULL RUN MISSING flag (per treatment-arm audit feedback)
+## Cycle ~2700 (CURRENT): H323 CLOSED 177th NULL/NEG (🎯 PAPER-GRADE DEEPEST mid-training POS ever observed −45σ_H174 at step 1000 + CLEAN mid→terminal phase-inverting crossover at cooldown onset proving "active-only-during-low-μ" mechanism IRREDUCIBILITY on H266 stack + H314+H321+H323 three-experiment mechanism cluster triangulates SAME cooldown-onset inversion boundary across adaptive AND monotone schemes) + H331 thorfinn ASSIGNED TRAPEZOIDAL V-shape μ schedule with ramp-back COMPLETED BEFORE cooldown onset (PR #1939, student's follow-up #1 from H323 closure, WIN prob 12-18%)
 
-**Four major closures (173rd-176th NULL/NEG with paper-grade findings in each), four fresh assignments. Plateau campaign portfolio: 176 NULL/NEG + 1 MERGED WIN (H266), 110+ mechanism classes consolidated.**
+**One major closure (177th NULL/NEG with paper-grade mechanism finding), one fresh assignment. Plateau campaign portfolio: 177 NULL/NEG + 1 MERGED WIN (H266), 103+ mechanism classes consolidated. All 8 students WIP — zero idle GPUs.**
+
+### Closure this cycle
+
+**H323 thorfinn μ_end VALUE low sustained on post-H266 stack CLOSED 177th NULL/NEG (PR #1906)**
+- arm_a CTRL (μ_end=0.90, H266 bit-id) `k1plr8nv`: val=3.26845 FFS=3025 (+0.31σ TIE Pattern A drift)
+- arm_b LOW_MU_END (μ_end=0.75) `p5ptvjq7`: val=3.27939 FFS=**3275** (+12.4σ NEG = 9.2% regression)
+- arm_c VERY_LOW_MU_END (μ_end=0.65) `ymrrpqy7`: val=**3.28555** FFS=**−1 NEVER** (+19.3σ CATASTROPHIC, did not reach val=3.28)
+- 🎯 **DEEPEST mid-training POS ever observed**: arm_c at step 1000 val=3.56959 = **−45.8σ_H174 below CTRL** — strongest empirical confirmation of H314 "active-only-during-low-μ" mechanism
+- 🎯 **CLEAN mid→terminal phase-inverting crossover at steps 2500-2826** (cooldown onset): both arms STRONGLY BETTER mid-training (−24σ to −45σ), then INVERT to +12-19σ NEG terminal under H266 Polyak EMA (decay=0.05)
+- 🎯 **H314 + H321 + H323 three-experiment mechanism cluster**: both adaptive (H321 α-suppression) AND monotone (H323 low-μ_end) schemes that produce sustained low μ during cooldown FAIL terminal — two-mechanism closure of low-μ-during-cooldown axis
+- 🎯 **Convergent crossover-horizon finding with H321 closure**: H321's "phase-inversion PRE-cooldown steps 2000-2500" generalizes to H323's "monotone inversion at steps 2500-2826" — both identify cooldown-onset boundary independently
+- Mechanism: cooldown phase requires CONSTANT HIGH μ for Polyak EMA momentum-coherence tracking; V-shape ramp-back-to-high-μ BEFORE cooldown is mechanistically essential
+
+### Fresh assignment this cycle
+
+**H331 thorfinn — TRAPEZOIDAL V-shape μ schedule (PR #1939)**
+- Student's suggested follow-up #1 from H323 closure. Mechanism-distinct from H314 V-shape by shifting ramp-back BEFORE cooldown onset (H314 ramp-back overlapped cooldown 1750-3325)
+- Schedule: μ=0.95 [0,500) → linear DOWN [500,1000) → CONSTANT LOW μ=0.65 plateau [1000,2500) → linear UP [2500,2826) → CONSTANT HIGH μ=0.90 cooldown [2826,3325)
+- 3-arm: CTRL (linear H266 bit-id) / TRAPEZOID_MILD μ_trough=0.75 / TRAPEZOID_AGGRESSIVE μ_trough=0.65
+- Captures DEEPEST mid-training POS (−45σ anchor from H323 arm_c step-1000 val=3.56959) while preserving cooldown Polyak EMA coherence via pre-cooldown-completed ramp-back
+- Cherry-pick V-shape code from thorfinn's H314 branch + add HOLD window
+- WIN prob 12-18% (moderate — directly targets mechanism inversion boundary identified by H323 + H321)
+
+### Cycle ~2650 carry-over: all other 7 students WIP
+
+- PR #1936 H330 fern: EARLY-WINDOW adaptive α schedule (just assigned cycle ~2650)
+- PR #1933 H329 edward: OUTER anchor MOMENTUM smoothing-without-lag (just assigned cycle ~2650)
+- PR #1927 H326 nezuko: F-norm-preserving redefined regularizer + H322 seed-replicate (just assigned cycle ~2650)
+- PR #1926 H328 askeladd: AUX weight_decay VALUE axis virgin (just assigned cycle ~2650)
+- PR #1924 H327 alphonse: NEGATIVE outer_momentum_cooldown_end (anti-Lookahead H318 amplification)
+- PR #1917 H325 frieren: AUX β2 mid_training_ramp DOWN-from-baseline (arm_a CTRL `io9w74er` FINISHED FFS=3000 EXACT TIE H266 val=3.2674 — **5th independent FFS=3000 attractor TIE**; arm_b running ~13%; arm_c queued)
+- PR #1913 H324 tanjiro: OUTER LR warmup — arm_a CTRL FFS=3000 EXACT TIE H266 val=3.26774; arm_b WARMUP_SHORT running; arm_c WARMUP_LONG FULL RUN MISSING — awaiting student launch + chain completion
+
+### 🎯 Cycle ~2700 within-cycle paper-grade mechanism findings
+
+**1. DEEPEST mid-training POS ever observed (H323 arm_c −45.8σ at step 1000)** — empirical anchor for the H314 "active-only-during-low-μ" mechanism. The dose-response is MONOTONE — deeper μ trough → bigger mid-training POS. This is the strongest single-checkpoint POS observation in the entire 177-experiment plateau campaign.
+
+**2. CONVERGENT cooldown-onset inversion boundary** — H321 (PRE-cooldown 2000-2500) + H323 (cooldown onset 2500-2826) independently identify the SAME inversion phase from different axes (adaptive vs monotone schedule shapes). Together they form a **two-mechanism closure** of the low-μ-during-cooldown axis at paper-grade strength.
+
+**3. H266 Polyak EMA cooldown coherence requirement** — direct mechanistic explanation for the inversion: decay=0.05 (20-step half-life) needs HIGH-μ inner-momentum coherence to track cosine LR cooldown. Both adaptive (α) and monotone (μ_end) deviations from this requirement at cooldown produce monotone-dose NEG terminal regression.
+
+**4. V-shape ramp-back BEFORE cooldown identified as canonical schedule** — the natural mechanism-targeted intervention. H331 directly tests this on the empirical anchor of H323's DEEPEST POS (−45σ trough magnitude at step 1000).
 
 ### Closures this cycle
 
