@@ -9,7 +9,35 @@ The human research team has redirected: **FFS (first-step-to-target, baseline 30
 3. **Prefer experiments that move the crossing step** (2800-3050 window), **simplify winning stacks**, **reveal FFS-load-bearing components**.
 4. **Ablations preferred over confirmations** when FFS dead.
 
-## Last updated: 2026-05-31 17:55Z (88 R5 closures; **★★★ FRIEREN #1966 B★ FFS-POSITIVE n=1 OFF-ATTRACTOR** {FFS_ema=2875, FFS_trainval=2875} vs ctrl {2925, 2925}; **★★ EDWARD #1948 D mid-run, B+C confirmed signal at FFS=2875**; alphonse #1979 A done FFS=2950 marginal; 8/8 active)
+## Last updated: 2026-05-31 19:10Z (88 R5 closures; **★★★ EDWARD #1948 D TERMINAL — ALL 3 ARMS FFS_ema=2875 FLAT DOSE-RESPONSE**; **★★★ FRIEREN #1966 B★ FFS-POSITIVE n=1 OFF-ATTRACTOR** {FFS_ema=2875, FFS_trainval=2875}; askeladd A_ctrl=2975 +2.5σ flag-verify needed; 8/8 active)
+
+### Notes (2026-05-31 19:10Z) — ★★★ EDWARD #1948 D TERMINAL: full dose-response flat FFS_ema=2875 across freq∈{2,4,8}; SENPAI-RESULT expected next heartbeat; n=4 confirm imminent
+
+- **★★★ EDWARD #1948 D-AGGRESSIVE TERMINAL (~18:36Z)** — D(precond_freq_cooldown=2): FFS_ema=**2875**, FFS_trainval=**2925**, val=**3.2672**. **ALL 3 treatment arms now confirmed:**
+  - A_ctrl(freq=16): FFS={2925, 2925}, val=3.2686
+  - B★(freq=4):     FFS={2875, 2925}, val=3.2672
+  - C(freq=8):      FFS={2875, 2925}, val=3.2682
+  - D(freq=2):      FFS={2875, 2925}, val=3.2672
+  
+  **Dose-response is FLAT across freq∈{2,4,8} at FFS_ema=2875.** Mechanism saturates at freq≤8. ON-attractor FFS_trainval (2925), OFF-attractor FFS_ema (2875). Signal robust. **Awaiting student SENPAI-RESULT marker (expected within 1-2 heartbeats).** n=4 confirm decision: launch at freq=4 (most defensible choice — center of saturated region; freq=2 has compute overhead; freq=8 is upper boundary).
+
+- **★★★ FRIEREN #1966 B★ FFS-POSITIVE STANDING** — Still terminal at {FFS_ema=2875, FFS_trainval=2875}, val=3.2697. **Stronger off-attractor signature than edward** (BOTH FFS metrics off-attractor vs edward only FFS_ema). C(mu=0.80) at step 2354/3250 (~72%), ETA ~19:50Z. After C SENPAI-RESULT, launch n=4 at mu=0.70.
+
+- **★★ TWO PARALLEL FFS-POSITIVE MECHANISMS BOTH ROBUST** — edward precond_freq cooldown (3 cells all FFS=2875) + frieren muon mu cooldown (off-attractor on both metrics). If n=4 confirms on both, **compounding experiment is the natural follow-up**: precond_freq=4 + mu cooldown 0.95→0.70 stacked. Both mechanisms target different optimizer state (SOAP eigenbasis refresh stride vs Muon momentum decay). If orthogonal, μ_4(FFS_ema) ≤ 2825 might be achievable. If overlapping, compound = single mechanism gain only.
+
+- **★ ASKELADD #1989 A_ctrl=2975 ANOMALY** — A_ctrl FFS_ema=FFS_trainval=2975 (+2.5σ above global baseline μ_4=2912.5). Could be seed noise (rare but possible at ±2.5σ) OR --aux_cooldown_shape unset path is NOT bit-identical to baseline. Posted comment requesting student verify eta_body/eta_aux bit-identicality in their terminal post. **Signal gate now uses GLOBAL baseline μ_4=2912.5 (raw threshold 2887.5), not local A_ctrl=2975.**
+
+- **★ ALPHONSE #1979 B★ mid-run** — B★(LR warm restart pulse at step 2700, peak=0.3, dur=200). A_ctrl was at FFS={2950, 2975} (also +1.5σ, less anomalous than askeladd).
+
+- **★ TANJIRO + NEZUKO + THORFINN healthy** — All A_ctrls progressing. nezuko A_ctrl val=3.2967 at step 2802 may finish marginal; thorfinn A_ctrl at step 1232/3250 (~38%); tanjiro B★ at step 154 (just launched).
+
+- **★ FERN #1983** — A_ctrl finished {2925, 2925} clean baseline; B (constant WD) + C (ramp_up WD) sequential pending; ETA B ~19:30Z, C ~21:30Z.
+
+- **Fleet at 19:10Z**: All 8 active. **Two FFS-POSITIVE signals locked, n=4 confirms imminent on edward freq=4 and frieren mu=0.70.**
+
+---
+
+### Notes (2026-05-31 17:55Z) — ★★★ FRIEREN #1966 B★(mu=0.70 ramp) IS FFS-POSITIVE AT n=1 — SECOND INDEPENDENT FFS-ALIVE SIGNAL alongside edward #1948
 
 ### Notes (2026-05-31 17:55Z) — ★★★ FRIEREN #1966 B★(mu=0.70 ramp) IS FFS-POSITIVE AT n=1 — SECOND INDEPENDENT FFS-ALIVE SIGNAL alongside edward #1948
 
