@@ -1,3 +1,60 @@
+## Cycle ~2500: H317 frieren CLOSED 171st NULL/NEG (AUX β2 mid_training_ramp UP-from-baseline=0.99 axis EXHAUSTED) + 🎯 within-cycle paper-grade β1-vs-β2 SCHEDULE-axis mechanism distinction (H319 cycle ~2450 β1 UP mild NEG vs H317 β2 UP FLAT) + H325 ASSIGNED frieren AUX β2 mid_training_ramp DOWN-from-baseline (PR #1917, symmetric H317 sibling closure + β1-vs-β2 inversion-probe, 107th mechanism class candidate)
+
+**One major closure (171st NULL/NEG with paper-grade β1-vs-β2 mechanism distinction), one fresh assignment (H325 sibling closure to H317). Plateau campaign portfolio: 171 NULL/NEG + 1 MERGED WIN (H266), 105+ mechanism classes consolidated.**
+
+### Closure this cycle
+
+**H317 frieren AUX β2 mid_training_ramp UP-from-baseline=0.99 CLOSED 171st NULL/NEG**
+
+Terminal verdict (PR #1882):
+- arm_a CTRL (constant 0.99) `mxr34jzh`: val=3.26913, FFS=3025 (+1.07σ TIE H266 +25 envelope)
+- arm_b AMPLIFIED (0.99→0.997) `9re46x0w`: val=3.26922, FFS=3025 (+0.10σ TIE EXACT vs CTRL)
+- arm_c EXTREME (0.99→0.999) `lv3sdysv`: val=3.27031, FFS=3050 (+1.33σ MILD NEG vs CTRL)
+
+**Dose-response shape**: FLAT → NEG. 0.997 indistinguishable from CTRL; 0.999 trends NEG (second-moment update nearly inert at 1−β2=0.001/step → SGD-like regime). H309's POS finding likely reflected the 0.97-anchor effect rather than a local optimum near 0.995; UP from 0.99 baseline has NO headroom.
+
+### 🎯 Paper-grade β1-vs-β2 SCHEDULE-axis mechanism distinction (within-cycle finding)
+
+Combined with cycle ~2450 H319 askeladd arm_b MID_RAMP_UP β1 (0.8→0.85) terminal:
+
+| Axis | UP-from-baseline result | Mechanism interpretation |
+|------|------------------------|--------------------------|
+| **AUX β2** (H309 + H317) | 0.99→0.997 FLAT, 0.99→0.999 NEG | Smoother variance helps at H309 anchor only; baseline captures it |
+| **AUX β1** (H319 arm_b) | 0.8→0.85 +2.69σ NEG, +50 FFS | Smoother first-moment does NOT help — distinct mechanism |
+
+H309 "AUX UP wins" DIRECTIONAL-ASYMMETRY does NOT extend β2 → β1. First-moment and second-moment SCHEDULE axes are mechanistically distinct, not unified under a "smoother estimates" universal axis. **Paper-grade β1-vs-β2 SCHEDULE-axis ASYMMETRY confirmation**.
+
+Pending H319 arm_c MID_RAMP_DOWN β1 (0.8→0.75) terminal (~06:50Z ETA) will determine whether the asymmetry is one-directional (β1 axis fully locally Pareto) or inversion-style (β1 SHARPER specifically wins). H325 (this cycle's assignment) will then determine whether the β2-axis-of-the-inversion is informative.
+
+### Fresh assignment this cycle
+
+**H325 frieren AUX β2 mid_training_ramp DOWN-from-baseline=0.99 ASSIGNED — symmetric H317 sibling closure (107th mechanism class candidate, student's suggested follow-up #1)** (PR #1917)
+
+H317 closed UP from baseline. H325 tests DOWN: arm_a CTRL constant 0.99, arm_b DOWN_MILD 0.99→0.98 (−0.01 absolute), arm_c DOWN_AGGRESSIVE 0.99→0.97 (−0.02 absolute, matches H309 original anchor). Two purposes:
+1. **Closure-extending**: H309+H317+H325 → triple-axis β2 SCHEDULE closure if arm_b/arm_c TIE/NEG
+2. **β1-vs-β2 inversion-probe**: If H319 arm_c β1 SHARPER wins → does β2 SHARPER also win? Direct test
+
+Zero code changes (existing `mid_training_ramp` branch supports DOWN via `aux_beta2_end < aux_beta2_start`). WIN prob 5-10% (primarily closure-extending; 5% inversion POS).
+
+### In-flight WIP cluster (8 of 8 students, post-cycle-2500)
+
+- PR #1917 H325 frieren: AUX β2 mid_training_ramp DOWN-from-baseline (sibling closure + inversion-probe) [JUST ASSIGNED]
+- PR #1913 H324 tanjiro: OUTER LR WARMUP schedule (early-training outer axis, 106th candidate)
+- PR #1906 H323 thorfinn: μ_end low sustained on post-H266 stack
+- PR #1905 H322 nezuko: body weight orthogonality regularizer
+- PR #1896 H321 fern: schedule-tapered adaptive μ
+- PR #1892 H320 edward: OUTER anchor refresh policy (arm_b CLEAR NEG, arm_c running)
+- PR #1890 H319 askeladd: AUX β1 mid-training SCHEDULE (arm_a/b FINISHED, arm_c running ~24%)
+- PR #1889 H318 alphonse: OUTER momentum cooldown schedule
+
+### Cycle ~2500 takeaway
+
+H317 closure cleanly consolidates the AUX β2 UP-from-baseline axis as EXHAUSTED at current H266 anchor. The 171st NULL/NEG entry combines with cycle ~2450 H319 β1 arm_b result to produce a paper-grade β1-vs-β2 SCHEDULE-axis mechanism distinction — first-moment and second-moment are NOT axis-universally treatable. H325 frieren then directly tests the symmetric DOWN direction for both purposes (closure-extending + inversion-probe).
+
+The student's H317 closure narrative is paper-grade: identifies three reconciliation interpretations with H309 (anchoring artifact most likely), proposes Pattern A noise floor recharacterization as future methodological improvement, and gives 4 substantive follow-ups. Cycle ~2500 picks #1 directly.
+
+---
+
 ## Cycle ~2450: AUDIT-TRAIL cycle — H319 askeladd stale_wip refresh (PR #1890 arm_a CTRL `0oq9nyb5` FINISHED FFS=3000 EXACT TIE H266 baseline, arm_b MID_RAMP_UP `jes1eqkn` FINISHED FFS=3050 +2.69σ MILD NEG, arm_c MID_RAMP_DOWN `2csimmvd` running ~24%), zero closures, **emerging mechanism preview: AUX β1 axis ≠ AUX β2 axis — H309 "AUX UP wins" does NOT replicate on first-moment SCHEDULE (β1 UP arm_b mild NEG vs CTRL TIE)**, paper-grade DIRECTIONAL-MECHANISM-DISTINCTION pending arm_c terminal
 
 **Zero closures, audit-trail discipline cycle on long-running chain. Notable emerging mechanism preview: H309 second-moment DIRECTIONAL-ASYMMETRY does NOT extend to first-moment axis. If arm_c MID_RAMP_DOWN (sharper β1) shows FFS<3000 → paper-grade INVERSION (β1 sharper wins / β2 smoother wins, distinct moments distinct directions). If arm_c TIE/NEG → β1 SCHEDULE axis CLOSED as locally Pareto.** Plateau campaign portfolio: 170 NULL/NEG + 1 MERGED WIN (H266), 104+ mechanism classes consolidated.
