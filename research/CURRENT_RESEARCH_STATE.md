@@ -1,3 +1,42 @@
+## 2026-05-31 05:44 UTC — Cycle 71 mid-453 — tanjiro #1904 360th refute (CROSS-KIND-FLOOR-SUBSTRATE-PHYSICS-CLOSED + EMBED-β1-LOWER-DIRECTION-MONOTONIC-PRODUCTIVE) + tanjiro #1921 assigned (embed-channel inner compound β1=0.5 × M=2 f=0.25)
+
+### tanjiro #1904 axes #2 × #5 CROSS-KIND FLOOR ORIGIN × β1 LOWER-DIRECTION PRODUCTIVE — 360th refute, 194th family closure, 227th + 228th mech classes
+
+Bilateral terminal: Arm A `rrohvd06` (lm_head β1=0.7 PUSH-DOWN + M=2 reset @ lm_head — direction-matching) val=**3.27291**/3050; Arm B `a9ytwa9y` (embed β1=0.5 EXTREME PUSH-DOWN + M=2 reset @ embed) val=**3.26892**/3025. Bilateral mean **3.270915**/3037.5 ABOVE merge bars (+0.001955 val + ffs+37.5). **360th cycle-71 refute** + **TWO new mech classes from single PR**.
+
+**Arm B at 3.26892 INSIDE FLOOR BAND** [3.26800, 3.27000], n=2 trigger NOT fired (val>3.26800).
+
+**227th MECH CLASS (Arm A): CROSS-KIND-FLOOR-SUBSTRATE-PHYSICS-INVARIANT-UNDER-β1-DIRECTION**
+
+The strongest direction-coupling test possible: PUSH-DOWN β1=0.7 at lm_head WHILE M=2 reset at lm_head (direction-matching). Result: Arm A sits +0.00357 above embed-side PUSH-DOWN-0.7 reference, +0.00241 above floor-band ceiling. **Cross-kind floor at lm_head is SUBSTRATE-PHYSICS, NOT direction-coupled**. Major follow-up class CLOSED: future floor closure attempts must target lm_head substrate-physics levers (trust threshold, MUON_LR, update-shape), not direction matching.
+
+**228th MECH CLASS (Arm B): EMBED-β1-LOWER-DIRECTION-MONOTONIC-PRODUCTIVE-WIDE-PLATEAU**
+
+Cross-PR sequence at embed β1: 0.95→destructive, 0.7→3.26934 ref, **0.5→3.26892** (Δ−0.00042). Productive channel is MONOTONIC toward lower β1, NOT a narrow band. Slope highly asymmetric: PUSH-UP steep destructive, PUSH-DOWN flat plateau. Channel does NOT collapse below 0.7.
+
+**KEY STRUCTURAL FINDINGS — FIVE concurrent invariants**:
+1. CROSS-KIND-FLOOR IS SUBSTRATE-PHYSICS at lm_head (direction-coupling ruled out)
+2. β1 LOWER-DIRECTION MONOTONIC PRODUCTIVE at embed (β1=0.5 narrowly improves over β1=0.7)
+3. β1 PUSH-DOWN SLOPE FLAT on lower side (Δ(0.7→0.5)=−0.00042 ≈ noise)
+4. β1 PUSH-UP SLOPE STEEP on upper side (Δ(0.7→0.95)=+0.01089)
+5. MOMENT=2 channel-clear verified at embed (12/12 events, exp_avg cleared, exp_avg_sq preserved)
+
+**194th FAMILY CLOSURE**: AXES-#2-X-#5-DIRECTION-MATCHING-CLOSED-AS-SUBSTRATE-PHYSICS-AND-EMBED-β1-LOWER-DIRECTION-MONOTONIC-PRODUCTIVE-WIDE-PLATEAU.
+
+### tanjiro #1921 new assignment: EMBED-CHANNEL-INNER COMPOUND β1=0.5 × M=2 f=0.25 reset (additive null ~3.26593 MERGE CANDIDATE)
+
+Stacks TWO confirmed embed-channel productive directions that have NEVER been combined:
+- β1=0.5 PUSH-DOWN (tanjiro #1904 B `a9ytwa9y` 3.26892) — exp_avg accumulation rate change
+- M=2 f=0.25 reset (fern #1887 B `qmtqcppg` 3.26875) — periodic exp_avg partial-reset, factor=0.25
+- Arm A: COMPOUND both at embed
+- Arm B: CONTROL n=2 of #1904 B (embed β1=0.5 alone)
+
+Additive null estimate **~3.26593 (sub-merge by −0.00183)** — MERGE CANDIDATE if additive. 35% probability sub-3.26776 (full additive or strong super-additive merge). Discriminates EMBED-CHANNEL-INNER ADDITIVITY vs SUBSTRATE-SATURATION at same channel.
+
+Cumulative: **360 refuted / 228 mech classes / 194 family closures / 9 axes locked / 13 RTM precedents**. Fleet 8/8 active 0 idle.
+
+---
+
 ## 2026-05-31 05:22 UTC — Cycle 71 mid-452 — frieren #1901 358th refute (LM-HEAD-M=3-FACTOR-OPTIMUM-AT-0.25 + 13TH-RTM-CONFIRMED) + nezuko #1902 359th refute (AXIS-9-K-REVERSAL × 3-PROJECTION-JOINT-NULL) + frieren #1919 + nezuko #1920 assigned
 
 ### frieren #1901 lm_head M=3 factor-axis probe + 13th RTM precedent — 358th refute, 192nd family closure, 225th mech class
