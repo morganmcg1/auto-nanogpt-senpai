@@ -96,6 +96,25 @@ def parse_args():
                         help="Starting value of µ schedule (used by linear and cooldown_ramp modes).")
     parser.add_argument("--muonh_mu_end", type=float, default=float(os.environ.get("MUONH_MU_END", "0.98")),
                         help="Ending value of µ schedule (used by linear and cooldown_ramp modes).")
+    # H313 + H321: adaptive μ via gradient-momentum cosine alignment, with an optional
+    # α_t schedule that suppresses adaptive modulation during cooldown. α=0 with
+    # adaptive_schedule=constant is bit-identical to baseline (no-op gate).
+    parser.add_argument("--muonh_mu_adaptive_alpha", type=float,
+                        default=float(os.environ.get("MUONH_MU_ADAPTIVE_ALPHA", "0.0")),
+                        help="ADAPTIVE μ peak strength α_max: at α=0, μ=schedule (H266 baseline drift-FREE). "
+                             "At α>0, μ_t = mu_schedule_t + α_t·cos(g_t, m_{t-1}) — modulates per-parameter momentum decay "
+                             "by observed gradient-momentum alignment. α=0.025 typical, α=0.05 aggressive. "
+                             "Effective μ is clamped to [0.5, 0.999] for numerical safety.")
+    parser.add_argument("--muonh_mu_adaptive_schedule", type=str,
+                        default=os.environ.get("MUONH_MU_ADAPTIVE_SCHEDULE", "constant"),
+                        choices=["constant", "linear_taper", "step_off"],
+                        help="α_t schedule: 'constant' (H313 baseline, α=α_max all steps), "
+                             "'linear_taper' (α linearly decays from α_max at step 0 to 0 at train_steps-1), "
+                             "'step_off' (α=α_max constant until cutoff_step, then 0).")
+    parser.add_argument("--muonh_mu_adaptive_cutoff_step", type=int,
+                        default=int(os.environ.get("MUONH_MU_ADAPTIVE_CUTOFF_STEP", "2826")),
+                        help="Step at which α drops to 0 (only used by 'step_off' schedule). "
+                             "Default 2826 ≈ cooldown onset for 3325-step run with cooldown_frac=0.15.")
     parser.add_argument("--body_init", type=str, default=os.environ.get("BODY_INIT", "default"),
                         choices=["default", "orthogonal_fnorm_matched", "orthogonal_bottom_damp"],
                         help="Initialization scheme for body MuonH 2D weights (attn.q/k/v, attn.proj, mlp.fc, mlp.proj). "
@@ -569,9 +588,22 @@ def zeropower_via_newtonschulz5(G: Tensor) -> Tensor:
     return X
 
 @torch.compile
-def muon_update(grad, momentum, mu=0.95, nesterov=True):
-    momentum.lerp_(grad, 1 - mu)
-    update = grad.lerp_(momentum, mu) if nesterov else momentum
+def muon_update(grad, momentum, mu=0.95, nesterov=True, adaptive_alpha=0.0):
+    # H313: gradient-momentum cosine modulation of effective μ.
+    # The `if adaptive_alpha > 0.0` gate is a Python-time branch on a scalar; when
+    # the call site passes α=0.0 it short-circuits and the FLOP graph is identical
+    # to the baseline. Sweep tests rely on this bit-identity for arm_a CTRL.
+    if adaptive_alpha > 0.0:
+        eps = 1e-7
+        g_norm = grad.norm()
+        m_norm = momentum.norm()
+        cos_align = (grad * momentum).sum() / (g_norm * m_norm + eps)
+        mu_adaptive = mu + adaptive_alpha * cos_align.clamp(-1.0, 1.0)
+        mu_adaptive = mu_adaptive.clamp(0.5, 0.999)
+    else:
+        mu_adaptive = mu
+    momentum.lerp_(grad, 1 - mu_adaptive)
+    update = grad.lerp_(momentum, mu_adaptive) if nesterov else momentum
     update = zeropower_via_newtonschulz5(update)
     update *= max(1, grad.size(-2) / grad.size(-1))**0.5
     return update
@@ -707,7 +739,12 @@ class MuonH(torch.optim.Optimizer):
                         state["momentum"] = torch.zeros_like(p)
                         if hb:
                             state["hyperball_radius"] = p.data.norm().item() * budget_mult
-                    update = muon_update(p.grad, state["momentum"], mu=group["mu"])
+                    # H321: per-group adaptive_alpha_t routed from set_hparams(). When the schedule
+                    # produces α_t=0 (e.g., 'step_off' past cutoff, or constant with α_max=0),
+                    # muon_update short-circuits and is bit-identical to the baseline path.
+                    adaptive_alpha_t = group.get("adaptive_alpha_t", args.muonh_mu_adaptive_alpha)
+                    update = muon_update(p.grad, state["momentum"], mu=group["mu"],
+                                         adaptive_alpha=adaptive_alpha_t)
                     if hb and mode == "scale_invariant":
                         # Always-active variant: norm is held at initial value by construction.
                         scale_invariant_update_(p.data, update, group["lr"])
@@ -855,6 +892,9 @@ if dist.get_rank() == 0:
             "muonh_mu_schedule": args.muonh_mu_schedule,
             "muonh_mu_start": args.muonh_mu_start,
             "muonh_mu_end": args.muonh_mu_end,
+            "muonh_mu_adaptive_alpha": args.muonh_mu_adaptive_alpha,
+            "muonh_mu_adaptive_schedule": args.muonh_mu_adaptive_schedule,
+            "muonh_mu_adaptive_cutoff_step": args.muonh_mu_adaptive_cutoff_step,
             "polyak_ema_decay": args.polyak_ema_decay,
         },
     )
@@ -1033,7 +1073,22 @@ for trial_idx in range(args.num_trials):
                 g["mu"] = mu_t
         else:
             mu_t = 0.95
-        return muonh_warmup, b2, mu_t
+        # H321: adaptive μ α_t schedule. Computes the per-step strength of the
+        # cos-alignment modulation that muon_update reads via group["adaptive_alpha_t"].
+        # 'constant' with α_max=0 (default) is bit-identical to the baseline because
+        # muon_update short-circuits on α_t==0.
+        if args.muonh_mu_adaptive_schedule == "constant":
+            alpha_t = args.muonh_mu_adaptive_alpha
+        elif args.muonh_mu_adaptive_schedule == "linear_taper":
+            prog = step / max(1, train_steps - 1)
+            alpha_t = args.muonh_mu_adaptive_alpha * (1.0 - prog)
+        elif args.muonh_mu_adaptive_schedule == "step_off":
+            alpha_t = args.muonh_mu_adaptive_alpha if step < args.muonh_mu_adaptive_cutoff_step else 0.0
+        else:
+            raise ValueError(f"unknown muonh_mu_adaptive_schedule: {args.muonh_mu_adaptive_schedule}")
+        for g in optimizer2.param_groups:
+            g["adaptive_alpha_t"] = alpha_t
+        return muonh_warmup, b2, mu_t, alpha_t
 
 
     ########################################
@@ -1175,7 +1230,7 @@ for trial_idx in range(args.num_trials):
         dist.all_reduce(step_loss, op=dist.ReduceOp.SUM)
         train_loss = float((step_loss / batch_size).item())
         # set optimization hyperparameters and take a step
-        muonh_warmup_factor, aux_beta2, muonh_mu_t = set_hparams(step)
+        muonh_warmup_factor, aux_beta2, muonh_mu_t, muonh_alpha_t = set_hparams(step)
         train_step = step + 1
         telemetry_due = (step == 0 or (step + 1) % args.telemetry_interval == 0 or step + 1 == train_steps)
         histogram_due = (step == 0 or (step + 1) % args.histogram_interval == 0 or step + 1 == train_steps)
@@ -1212,6 +1267,37 @@ for trial_idx in range(args.num_trials):
         muonh_agc_stats = adaptive_gradient_clip(
             muonh_params_for_agc, args.muonh_agc_clip_ratio, eps=args.muonh_agc_eps,
         )
+        # H313 telemetry: pre-step cos_align between grad and momentum across body params.
+        # Must run before opt.step() because muon_update's lerp_ mutates both grad and momentum.
+        # H321 extension: log alpha_t alongside on the same cadence so the schedule is visible.
+        if (args.muonh_mu_adaptive_alpha > 0.0
+                and dist.get_rank() == 0
+                and train_step % 50 == 0):
+            with torch.no_grad():
+                cos_aligns = []
+                for p in optimizer2.param_groups[0]["params"]:
+                    if p.grad is None:
+                        continue
+                    pstate = optimizer2.state.get(p, {})
+                    m = pstate.get("momentum")
+                    if m is None:
+                        continue
+                    gn = float(p.grad.norm().item())
+                    mn = float(m.norm().item())
+                    if gn > 0 and mn > 0:
+                        cos_aligns.append(
+                            float((p.grad * m).sum().item()) / (gn * mn + 1e-7)
+                        )
+                if cos_aligns:
+                    wandb.log({
+                        "train/muonh_cos_align_mean": sum(cos_aligns) / len(cos_aligns),
+                        "train/muonh_cos_align_max": max(cos_aligns),
+                        "train/muonh_cos_align_min": min(cos_aligns),
+                        "train/muonh_cos_align_abs_mean": sum(abs(c) for c in cos_aligns) / len(cos_aligns),
+                        "train/muonh_alpha_t": muonh_alpha_t,
+                        "trial": trial_idx,
+                        "train/step": train_step,
+                    }, step=wandb_step)
         for opt in optimizers:
             opt.step()
         # H266: Polyak-Ruppert EMA update — runs after the live inner-optimizer step.
