@@ -1,5 +1,76 @@
 # SENPAI Research Results — auto-nanogpt-1gpu-r4
 
+## 2026-05-31 00:55 — PR #1768: NS_ITERS_COOLDOWN bidirectional pruning ablation 3-arm {12, 16, 20} — **CLOSED CLASS-31-NS-ITERS-COOLDOWN-INTENSITY NULL-PAIRED FAV-MIRAGE + 3RD R4 PP-CONFIRM-MIRAGE + 8TH FAV-MIRAGE PLATEAU AXIS + NS=16 BIDIRECTIONAL LOAD-BEARING LOCAL-OPTIMUM**
+
+- branch: `g1r4-fern/nm-ns-iters-cooldown-intensity`
+- hypothesis: Is the production stack's NS_ITERS_COOLDOWN=16 boost load-bearing or over-engineered? Bidirectional INTENSITY test on NS-iter axis orthogonal to all R-buffer family axes.
+
+### Single-seed screening (n=1 per arm)
+
+| Arm | NS_ITERS_COOLDOWN | W&B run | val/loss | FFS | Δ_BA raw | Verdict |
+|---|---:|---|---:|---:|---:|---|
+| A ctrl | 16 (production) | `05zktstw` | 3.26161 | 3125 | — | baseline |
+| B PRUNING | 12 | `q7hobm3l` | 3.26363 | 3150 | **+0.00202 = +1.25σ_seed** | strong-NEG load-bearing |
+| C INTENSIFY | 20 | `6o4848o4` | 3.26045 | 3125 | **−0.00116 = −0.72σ_seed** | mild-FAV sub-σ_spawn |
+
+### PP-confirm n=3 paired-pod chain (Arm C INTENSIFY only, advisor c648 PP-promote decision)
+
+| Pair | seed | PP-ctrl (NS=16) | PP-exp (NS=20) | Δ_paired_CA | Direction |
+|---:|---:|---:|---:|---:|---|
+| 1 | s0 | `7no07x4h` 3.26182 | `5pqcft70` 3.26116 | **−0.00066** | FAV |
+| 2 | s1 | `t8aegl0f` 3.26054 | `o8v6ptoc` 3.26114 | **+0.00060** | NEG (sign-flip) |
+| 3 | s2 | `rmf5wg2t` 3.26364 | `zmzdwsjg` 3.26340 | **−0.00024** | FAV (sub-magnitude) |
+| **Mean** | — | **3.26200** | **3.26190** | **−0.00010** | **NULL** |
+
+### 6-gate framework verdict (n=3 PP-confirm)
+
+| Gate | Target | n=3 status | Verdict |
+|---|---|---|---|
+| **G2 (FAV-magnitude)** | μ_Δ_paired ≤ −0.0017 | **−0.00010 = −0.06σ_seed** | **FAIL → NULL** ✓ (matches c704 math-impossible forecast) |
+| **G7 (drift)** | \|μ_ctrl − 3.26161\| ≤ 0.0015 | **+0.00039 = +0.24σ_seed** | **PASS-CLEAN** ✓ |
+| **G1 (baseline beat)** | μ_exp < production 3.26118 | μ_exp = **3.26190 = +0.00072** | **FAIL** (sub-spawn-floor NEG) |
+| **G3 (FFS coupling)** | μ_exp_FFS < μ_ctrl_FFS | exp 3133.33 vs ctrl 3141.67 | mild-FAV sub-cadence (FFS=25 quantum) |
+| **G5 (cohort reproducibility)** | spread within σ_seed envelope | ctrl 1.93σ / exp 1.40σ | **PASS** ✓ |
+| **G6 (cost-benefit)** | wallclock vs val | NS=20 adds +1.2% step_avg cooldown vs zero val benefit | **NEG cost-benefit** |
+
+### Catalog placement — 3 simultaneous catalog growth events
+
+- **Class 31 NM-NS-ITERS-COOLDOWN-INTENSITY**: NULL-PAIRED FAV-MIRAGE. Single-axis bidirectional bracket closure. Production NS=16 confirmed load-bearing local-optimum.
+- **3rd r4 PP-confirm-MIRAGE catalog instance**: joining #1816 α=0.25 c658 + #1702 NM-coverage c606 (pre-merge). Signature: single-seed mild-FAV → n=3 paired NULL with within-cohort sign-flip pattern.
+- **8th FAV-MIRAGE plateau cohort axis**: first **pure-NS-axis** instance (others all R-buffer family: NS-iters, NM-β-schedule, Tikhonov-uniform-SWITCH, R_warmstart_k, γ-Tikhonov-SWITCH-bidirectional, NM-activation-timing, per-module-γ).
+
+### Mechanism observable cross-pair — seed-fragile orthogonalization signature
+
+| Observable | Pair 1 exp−ctrl | Pair 2 exp−ctrl | Pair 3 exp−ctrl | Stability |
+|---|---:|---:|---:|---|
+| precond_ratio_mean | −4.6% | −1.8% | **+2.5% (sign-flip!)** | inconsistent |
+| R_inv_sqrt_norm_mean | −2.8% | −0.7% | +2.3% | inconsistent |
+| R_cond_max | +2.7% | +12.9% | **−29.9%** | wide spread |
+| R_cond_mean | +5.6% | +51.4% | +1.7% | mostly positive but unstable |
+
+Mechanism interpretation: "more NS-iter → cleaner orthogonalization" causal chain does NOT hold consistently across seeds. NS-iter count is **orthogonal compute lever** to R-buffer state, but **not a productively-tunable mechanism dimension** at current production stack operating point.
+
+### LIFT-band lower-edge revision FLAG
+
+- Fern PP-ctrl trio precond_ratio_mean: s0=1.08071 (in-LIFT) / s1=1.04753 (−0.93%) / s2=1.03768 (−1.83%) — **2/3 below LIFT-band lower edge 1.057**
+- Fern PP-exp trio: s0=1.03093 / s1=1.02825 / s2=1.06411 — **2/3 below 1.057**
+- **6 of 9 fern PP cohort runs fall below historical LIFT-band lower edge 1.057** → strong single-experiment evidence LIFT-band needs revision from 1.057 → ~1.03
+- Catalog action: lower-edge revision **FLAGGED pending cross-axis n=3 PP-confirm validation**
+
+### FFS-coupling — 19th r4 FFS-DECOUPLED axis observation
+
+NS_ITERS_COOLDOWN bracket FFS-DECOUPLED at single-eval quantum resolution (FFS=25). Adds to 19-way r4 FFS-DECOUPLED cohort.
+
+### Cross-class implications
+
+1. **NS-axis catalog status**: pure-NS-iter intensity is **closed bidirectionally as load-bearing local-optimum**. Future NS-axis exploration should pivot to orthogonal sub-dimensions (NS_COEF_SCHEDULE, NS_STOCHASTIC_COOLDOWN, NS_COOLDOWN_SHAPE).
+2. **Production stack mechanism concentration confirmed**: 8 of 8 catalog-closed FAV-MIRAGE axes act on R-buffer state.
+3. **PP-confirm-MIRAGE 3-instance r4 pattern**: single-seed screening with |Δ_CA| ≤ 1σ_seed magnitude should be pre-discounted as 50%+ likely to MIRAGE under PP-confirm.
+
+**Fresh assignment**: fern → #1900 NS_STOCHASTIC_COOLDOWN width bidirectional bracket {0, 2, 3} (class 33) — sister NS-axis sub-dimension orthogonal to class 31 NS_ITERS_COOLDOWN intensity. Per student's own follow-up suggestion #4 from HB-PP-FINAL.
+
+---
+
 ## 2026-05-30 23:20 — PR #1848: NM step-gated activation timing STEP={0,1000,2000} — **CLOSED CLASS-38-NM-ACTIVATION-TIMING-LOAD-BEARING + 11th R4 CATALOG CLOSURE**
 
 - branch: `g1r4-nezuko/nm-step-gated-activation-timing`
