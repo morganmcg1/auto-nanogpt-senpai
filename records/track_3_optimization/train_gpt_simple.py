@@ -84,6 +84,23 @@ def parse_args():
     parser.add_argument('--aux_b2_pulse_target', type=float, default=0.99,
                         help='New aux Adam β2 value to set at --aux_b2_pulse_step. '
                              '0 or negative disables. Default: 0.99 (canonical WIN).')
+    parser.add_argument(
+        "--body_muon_gamma_pulse_blockwise_step", type=int, default=0,
+        help="Step at which to set body PMuon γ to a target value for a subset of blocks "
+             "(0 disables). Pulse is permanent: γ stays at the target for the targeted "
+             "blocks until end of training. Canonical body-Muon γ is 0.4 (PMUON_GAMMA).",
+    )
+    parser.add_argument(
+        "--body_muon_gamma_pulse_blockwise_target", type=float, default=0.4,
+        help="γ target value for the blockwise pulse (default 0.4 = canonical no-op).",
+    )
+    parser.add_argument(
+        "--body_muon_gamma_pulse_blockwise_subset",
+        type=str, default="none",
+        choices=["none", "deep", "shallow"],
+        help="Which block subset receives the pulse: 'deep' = last 4 of 12, "
+             "'shallow' = first 4 of 12, 'none' = no-op (default).",
+    )
     parser.add_argument("--seed", type=int, default=1,
                         help="Random seed for torch/numpy/python. Default 1 matches baseline seed.")
     args = parser.parse_args()
@@ -598,6 +615,10 @@ class Muon(torch.optim.Optimizer):
                         state["momentum"] = torch.zeros_like(p)
                         state["L"] = torch.zeros(p.shape[0], p.shape[0], device=p.device, dtype=torch.float32)
                         state["R"] = torch.zeros(p.shape[1], p.shape[1], device=p.device, dtype=torch.float32)
+                    gamma_eff = group["gamma"]
+                    param_gamma_overrides = getattr(self, "_param_gamma_overrides", None)
+                    if param_gamma_overrides is not None:
+                        gamma_eff = param_gamma_overrides.get(id(p), gamma_eff)
                     update = pmuon_update(
                         p.grad,
                         state["momentum"],
@@ -605,7 +626,7 @@ class Muon(torch.optim.Optimizer):
                         state["R"],
                         mu=group["mu"],
                         beta_cov=group["beta_cov"],
-                        gamma=group["gamma"],
+                        gamma=gamma_eff,
                         ns_a=group["ns_a"],
                         ns_b=group["ns_b"],
                         ns_c=group["ns_c"],
@@ -765,6 +786,9 @@ if dist.get_rank() == 0:
             "paramema_refresh_only": int(args.paramema_refresh_only),
             "aux_b2_pulse_step": args.aux_b2_pulse_step,
             "aux_b2_pulse_target": args.aux_b2_pulse_target,
+            "body_muon_gamma_pulse_blockwise_step": args.body_muon_gamma_pulse_blockwise_step,
+            "body_muon_gamma_pulse_blockwise_target": args.body_muon_gamma_pulse_blockwise_target,
+            "body_muon_gamma_pulse_blockwise_subset": args.body_muon_gamma_pulse_blockwise_subset,
             "seed": args.seed,
         },
     )
@@ -834,6 +858,20 @@ for trial_idx in range(args.num_trials):
             wandb.log({f"muon_block_lr_mult/block_{i}": m for i, m in enumerate(block_mults)},
                       step=0)
     optimizer2._param_lr_mults = param_lr_mults
+
+    # Per-param block index map for blockwise body PMuon γ pulse. Mirrors the
+    # late-higher pattern (id(p) -> block_idx). Built unconditionally so the
+    # pulse mechanism works regardless of muon_block_lr_pattern.
+    param_block_indices = {}
+    for name, p in model.named_parameters():
+        if p.ndim >= 2 and name.startswith("blocks."):
+            idx = int(name.split(".")[1])
+            param_block_indices[id(p)] = idx
+    optimizer2._param_block_indices = param_block_indices
+    optimizer2._param_gamma_overrides = None
+    body_muon_gamma_pulse_blockwise_fired = 0
+    body_muon_gamma_pulse_blockwise_n_groups_modified = 0
+    body_muon_gamma_pulse_blockwise_target_blocks: list[int] = []
 
     optimizers = [optimizer1, optimizer2]
     assert set(p for opt in optimizers for group in opt.param_groups
@@ -1071,6 +1109,54 @@ for trial_idx in range(args.num_trials):
                 group["betas"] = new_betas
             print0(f"[step {step}] aux_b2_pulse: β2 {old_b2} → {args.aux_b2_pulse_target}",
                    console=True)
+        # Body PMuon γ pulse (blockwise): permanently override γ for a depth-localized
+        # subset of body blocks at a chosen step. Uses the same id(p)->block_idx map
+        # as the late-higher LR pattern. Pulse is permanent — overrides persist until
+        # end of trial.
+        if (args.body_muon_gamma_pulse_blockwise_step > 0
+                and step == args.body_muon_gamma_pulse_blockwise_step
+                and args.body_muon_gamma_pulse_blockwise_subset != "none"):
+            all_block_indices = sorted(set(param_block_indices.values()))
+            n_blocks = len(all_block_indices)
+            if args.body_muon_gamma_pulse_blockwise_subset == "deep":
+                target_blocks = set(all_block_indices[-4:])
+            elif args.body_muon_gamma_pulse_blockwise_subset == "shallow":
+                target_blocks = set(all_block_indices[:4])
+            else:
+                target_blocks = set()
+            target_gamma = float(args.body_muon_gamma_pulse_blockwise_target)
+            gamma_before = optimizer2.param_groups[0].get("gamma", PMUON_GAMMA)
+            if optimizer2._param_gamma_overrides is None:
+                optimizer2._param_gamma_overrides = {}
+            n_params_modified = 0
+            for group in optimizer2.param_groups:
+                for p in group["params"]:
+                    bidx = param_block_indices.get(id(p))
+                    if bidx is None:
+                        continue
+                    if bidx in target_blocks:
+                        optimizer2._param_gamma_overrides[id(p)] = target_gamma
+                        n_params_modified += 1
+            body_muon_gamma_pulse_blockwise_fired = 1
+            body_muon_gamma_pulse_blockwise_n_groups_modified = n_params_modified
+            body_muon_gamma_pulse_blockwise_target_blocks = sorted(target_blocks)
+            if dist.get_rank() == 0:
+                print0(
+                    f"[step {step}] body PMuon γ pulse blockwise "
+                    f"(subset={args.body_muon_gamma_pulse_blockwise_subset}, "
+                    f"target_blocks={sorted(target_blocks)}, γ {gamma_before}->{target_gamma}, "
+                    f"n_params_modified={n_params_modified}) out of n_blocks={n_blocks}",
+                    console=True,
+                )
+                if wandb.run is not None:
+                    wandb.log({
+                        "body_muon_gamma_pulse_blockwise/step": step,
+                        "body_muon_gamma_pulse_blockwise/target_gamma": target_gamma,
+                        "body_muon_gamma_pulse_blockwise/gamma_before": gamma_before,
+                        "body_muon_gamma_pulse_blockwise/n_params_modified": n_params_modified,
+                        "body_muon_gamma_pulse_blockwise/n_target_blocks": len(target_blocks),
+                        "body_muon_gamma_pulse_blockwise/n_blocks_total": n_blocks,
+                    }, step=wandb_step)
         for opt in optimizers:
             opt.step()
         # EMA buffer update on body-Muon matrix params.
@@ -1189,6 +1275,10 @@ for trial_idx in range(args.num_trials):
                 "aux_b2/fired": int(args.aux_b2_pulse_step > 0
                                     and args.aux_b2_pulse_target > 0.0
                                     and step >= args.aux_b2_pulse_step),
+                "body_muon_gamma_pulse_blockwise/fired_latched": body_muon_gamma_pulse_blockwise_fired,
+                "body_muon_gamma_pulse_blockwise/pulse_step_arg": args.body_muon_gamma_pulse_blockwise_step,
+                "body_muon_gamma_pulse_blockwise/target_arg": args.body_muon_gamma_pulse_blockwise_target,
+                "body_muon_gamma_pulse_blockwise/n_params_modified_latched": body_muon_gamma_pulse_blockwise_n_groups_modified,
             }, step=wandb_step)
         if dist.get_rank() == 0 and (train_step % 100 == 0 or train_step == train_steps):
             spec = pmuon_spectral_diag(optimizer2, PMUON_GAMMA)
