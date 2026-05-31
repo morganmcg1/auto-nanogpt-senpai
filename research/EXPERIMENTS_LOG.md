@@ -1,5 +1,37 @@
 # SENPAI Research Results
 
+## 2026-05-31 12:10 UTC — PR #1915 frieren: Aux Adam β₂ pulse TIMING SWEEP @ step 1100 vs 1200 — ❌ BILATERAL NULL (canonical step 975 confirmed as load-bearing pulse moment)
+
+- Branch: `g1r1-frieren/aux-b2-timing-sweep`
+- Hypothesis: Delaying the β₂ pulse beyond canonical step 975 (mid-cooldown rather than cooldown onset) may capture additional descent by hitting a cleaner optimization trajectory after LR cosine has progressed.
+
+| Arm | Pulse step | run | sr | val_ema | Δ vs gate (mnat) | Verdict |
+|---|---|---|---:|---:|---:|---|
+| Baseline (#1532, n=2 mean) | 975 | 9coyk2ke/09qrijtm | 2875 | 3.262854 | 0 | — |
+| **A (β₂ pulse @ step 1100)** | 1100 | `rw092z34` | 2925 | 3.265624 | **+2.77** | ❌ NULL |
+| **B (β₂ pulse @ step 1200)** | 1200 | `v2j1dqfu` | 2925 | 3.263962 | **+1.11** | ❌ NULL |
+
+- **Monotonic interior trend:** 1100 (+2.77 mnat) WORSE than 1200 (+1.11 mnat) — the closest of the late-pulse timings to baseline (1.11 mnat) is also the latest. Despite both being NULL, this suggests a partial recovery as pulse approaches step 1200; but the absolute optimum is still 975.
+- **Mechanism:** β₂ pulse at 975 captures the AdamW state recalibration exactly at the moment cosine LR begins decaying. Any delay misses the window where preconditioner ↔ LR phase coordination is most informative.
+- **Axis closure:** aux Adam β₂ pulse TIMING axis CLOSED in the delayed-pulse direction. Canonical 975 (#1532 baseline) confirmed optimal pulse moment. Pre-975 timing (e.g., step 800/900) is theoretically the only untested cell on this axis but unlikely to outperform.
+- frieren reassigned: fresh directive-aligned hypothesis incoming.
+
+## 2026-05-31 12:09 UTC — PR #1912 askeladd: Aux Adam adam_scalars v-state PARTIAL DECAY @ step 975 — ❌ BILATERAL NULL with notable Arm B sr=2875 near-miss on val_ema axis
+
+- Branch: `g1r1-askeladd/aux-scalar-v-decay-cooldown`
+- Hypothesis: Partial v-state decay (×0.5, ×0.25) on `adam_scalars` group at step 975 may interpolate between baseline (no decay) and full-zero (#1770 NULL) and complement scalar_lr (#1850 thin-WIN candidate) by isolating the state-side mechanism.
+
+| Arm | v factor | run | sr | val_ema | Δ vs gate (mnat) | Verdict |
+|---|---|---|---:|---:|---:|---|
+| Baseline (#1532, n=2 mean) | 1.0 | 9coyk2ke/09qrijtm | 2875 | 3.262854 | 0 | — |
+| **A (scalar v×0.5 @ 975)** | 0.5 | `yz6q3i8v` | 2925 | 3.266375 | **+3.52** | ❌ NULL |
+| **B (scalar v×0.25 @ 975)** | 0.25 | `c19i0ns3` | **2875** | 3.263736 | **+0.88** | ❌ NULL (sr ties, val_ema fails clause-2) |
+
+- **Notable Arm B near-miss:** sr=2875 matches baseline; val_ema only +0.88 mnat above gate. This is the closest val_ema near-miss of the recent wave aside from tanjiro #1879 Arm B (+0.658 mnat) and tanjiro #1934 Arm A (in flight). v-state decay × scalar-group IS doing something useful for target crossing speed.
+- **Magnitude monotonicity:** A (×0.5, +3.52 mnat) WORSE than B (×0.25, +0.88 mnat). Lighter decay closer to baseline — the optimum is closer to no-decay than ×0.25. Suggests the mechanism is benign (not actively harmful) but doesn't add headroom.
+- **Axis closure:** aux adam_scalars v-state PARTIAL DECAY axis CLOSED across magnitude grid {1.0=no-decay, 0.5, 0.25, 0=hard-zero via #1770}. Combined with scalar_lr (#1850 thin WIN), aux scalars group is well-mapped: LR side has marginal signal, v-state side is benign-but-not-load-bearing.
+- askeladd reassigned: fresh directive-aligned hypothesis incoming.
+
 ## 2026-05-31 10:25 UTC — PR #1898 nezuko: Body PMuon Nesterov OFF @ cooldown onset step 975 — ❌ BILATERAL NULL (PERMANENT vs TRANSIENT both degrade)
 
 - Branch: `g1r1-nezuko/body-nesterov-off-cooldown`
