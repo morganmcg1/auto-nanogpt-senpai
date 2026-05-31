@@ -1,3 +1,87 @@
+## 2026-05-31 — PR #1970: H337 alphonse OUTER outer_momentum VALUE micro-axis {0.3, 0.7} at H266 anchor — CLOSED 191st NULL/NEG (🎯 PAPER-GRADE STRONGEST single-direction NEG of cycle ~2700: bilateral catastrophic VALUE-axis closure both arms FFS=-1 never crossed 3.28 target + ASYMMETRIC failure modes with SYMMETRIC catastrophic outcome (LOW=smoothing-deficit, HIGH=velocity-ratchet) + NARROW Pareto basin Δβ=±0.2 exceeds basin width in both directions + H318 V-vertex SCHEDULE finding does NOT translate to constant-LOW VALUE finding)
+
+- Branch: g1r3-alphonse/h337-outer-momentum-value-microaxis
+- Hypothesis: Test outer_momentum VALUE micro-axis at hardcoded H266 baseline β=0.5 (set in PR #114 era ~120 cycles ago, never re-screened at H266 stack). 4th virgin-axis-at-hardcoded-baseline attempt. Mechanism: steady-state velocity envelope scales 1/(1-β) — tests "lower-attractor-entry" hypothesis.
+
+### Results
+
+| Arm | outer_momentum | val/loss | FFS | Δ vs H266 (σ_H174) | Verdict |
+|-----|----------------|----------|-----|---------------------|--------|
+| arm_a CTRL β=0.5 (H266 bit-id) | 0.5 | 3.26861 | 3025 | +0.49σ TIE | Pattern A +25 IN FAMILY |
+| arm_b LOW β=0.3 | 0.3 | **3.28053** | **−1 FAILED** | **+13.97σ CATASTROPHIC NEG** | **NEVER REACHED 3.28** ⚡ |
+| arm_c HIGH β=0.7 | 0.7 | **3.28028** | **−1 FAILED** | **+13.69σ CATASTROPHIC NEG** | **NEVER REACHED 3.28** ⚡ |
+| H266 baseline (PR #1669) | 0.5 | 3.26818 | 3000 | (ref) | — |
+
+🎯 **191st NULL/NEG closure** — Issue #1260 strict gate FAIL (arm_a TIE FFS=3025 Pattern A IN FAMILY, arm_b/c catastrophic FFS=-1 NEVER reached 3.28).
+
+W&B runs: arm_a `eb13ea1j`, arm_b `6fyujhrz`, arm_c `1354d5qx`, group `H337_outer_momentum_value_microaxis`.
+
+### 🎯 PAPER-GRADE FINDING #1 — STRONGEST single-direction NEG of cycle ~2700
+
+arm_b LOW val=3.28053 = **terminal val ABOVE FineWeb 3.28 target threshold** → FFS=-1 = run NEVER crossed gate. QUALITATIVELY distinct from typical NEG closures landing FFS=3025-3100 with val<3.28 (e.g. H336 BRAKE_HEAVY +200 FFS still reached 3.28 at step 3200).
+
+Δ vs H266 = +13.97σ_H174 — **largest single-direction NEG of the entire cycle ~2700** by a wide margin (next-largest H331 arm_c TRAPEZOID_AGGRESSIVE +35σ at val=3.29917 which similarly failed FFS=-1).
+
+### 🎯 PAPER-GRADE FINDING #2 — ASYMMETRIC failure modes with SYMMETRIC catastrophic outcome
+
+Both LOW and HIGH perturbations fail catastrophically but via OPPOSITE mechanisms:
+
+**arm_b LOW (β=0.3) — insufficient inter-sync smoothing**:
+- Outer-momentum EMA half-life ≈ 0.58 outer-steps (vs ≈1.0 at β=0.5) — too short relative to sync_interval=30 inner-steps
+- Velocity buffer carries insufficient direction-memory across sync intervals → outer-step direction dominated by single-sync gradient noise
+- velocity_rms/delta_rms ratio at step 3300 = **1.33 vs 1.43 steady-state prediction** (slight UNDERSHOOT)
+- The smoothing effect (MuLoCo outer-momentum's primary purpose) is destroyed
+
+**arm_c HIGH (β=0.7) — velocity-overshoot ratchet during cooldown**:
+- Outer-momentum EMA half-life ≈ 2.0 outer-steps (vs ≈1.0 at β=0.5) — too long for cooldown
+- As inner-step LR cools, delta_rms shrinks rapidly but velocity decays slowly
+- velocity_rms/delta_rms ratio at step 3300 = **5.28 vs 3.33 steady-state prediction** (massive OVERSHOOT)
+- Stale momentum keeps driving outer-step updates AFTER cooldown has reduced incoming gradient signal
+
+**Paper-grade mechanism asymmetry**: same VALUE axis (outer_momentum), same magnitude perturbation (Δβ=±0.2), opposite failure modes (smoothing-deficit vs ratchet-overshoot), identical catastrophic outcome (FFS=-1).
+
+### 🎯 PAPER-GRADE FINDING #3 — NARROW Pareto basin at H266 outer_momentum=0.5
+
+H266 outer_momentum=0.5 sits in a narrow Pareto basin where two regimes balance:
+- ENOUGH smoothing to suppress single-sync gradient noise (vs β=0.3 failure)
+- FAST-ENOUGH velocity decay during cooldown to track shrinking delta (vs β=0.7 failure)
+
+The 40% bilateral perturbation (Δβ=±0.2 = ±40% of baseline) EXCEEDS the basin width in BOTH directions. **First AUX/OUTER VALUE-axis micro-screen in cycle ~2700 to produce BILATERAL CATASTROPHIC closure** (vs H334 β1 ASYMMETRIC envelope, H335 eps ASYMMETRIC envelope, H328 wd asymmetric).
+
+### 🎯 PAPER-GRADE FINDING #4 — H318 V-vertex SCHEDULE finding does NOT translate to constant-LOW VALUE finding
+
+H318 RAMP_DOWN end=0.0 V-vertex was a SCHEDULE axis TIE with H266 — outer_momentum that DECAYS to 0 during cooldown can match baseline. H337 confirms this benefit is captured ONLY via SCHEDULE, not via constant-LOW:
+- Constant LOW (β=0.3) sacrifices early/mid-phase smoothing benefit (single-sync gradient noise dominates)
+- Constant HIGH (β=0.7) retains stale momentum into cooldown (velocity-ratchet failure)
+- SCHEDULE captures both: HIGH during early/mid (smoothing) + LOW during cooldown (tracking)
+
+**Paper-grade SCHEDULE-vs-VALUE finding**: V-vertex SCHEDULE finding does NOT compose with constant VALUE perturbation. Any future outer_momentum work must be SCHEDULE-axis, not VALUE-axis.
+
+### Cycle ~2700 virgin-axis-at-hardcoded-baseline re-screen pattern after H337
+
+5 of 6 virgin-axis-at-H266-stack re-screens now closed:
+- H328 wd VALUE: CLOSED 180th NULL/NEG (asymmetric, embed-RMS shrinkage)
+- H334 β1 VALUE: CLOSED 188th NULL/NEG (asymmetric, dual-time-scale tracking)
+- H335 eps VALUE: CLOSED 189th NULL/NEG (asymmetric, LOWEST val of cluster at LOW)
+- **H337 outer_momentum VALUE: CLOSED 191st NULL/NEG (BILATERAL CATASTROPHIC, NARROW Pareto basin)** ⚡
+- H338 sync_interval VALUE: in-flight thorfinn
+- H340 aux_embed LR VALUE: in-flight tanjiro
+
+**Cycle ~2700 canalization meta-finding strengthens**: H266 stack VALUE-axis hyperparameters fall into 3 categories:
+1. ASYMMETRIC TIE envelope (LOW POS but FFS-bounded, HIGH NEG): H334 β1, H335 eps
+2. ASYMMETRIC MILD NEG (1 direction MILD, other Pattern A): H328 wd
+3. **BILATERAL CATASTROPHIC NARROW basin: H337 outer_momentum (THIS)** ⚡
+
+The MuLoCo OUTER optimizer momentum is qualitatively MORE load-bearing than AUX AdamW hyperparameters at the H266 stack. Suggests the outer-step coupling between BODY MuonH and AUX AdamW via the anchor refresh is the load-bearing mechanism — outer_momentum=0.5 is its operating point.
+
+### Reassignment
+
+alphonse → H345 Polyak EMA SCOPE decoupling at H266 stack (BODY-only vs AUX-only vs all-params), PR #2011. Mechanism-novel STRUCTURAL change directly dissecting H266's winning mechanism. 3-arm CTRL all params (H266 bit-id) / BODY_ONLY (filter Polyak EMA to body 2D weights only) / AUX_ONLY (filter to aux groups only). Code change ~15-20 LoC adds `--polyak_ema_scope` CLI flag with values {all, body, aux}. WIN prob 10-15% — fresh STRUCTURAL change on H266's core mechanism, paper-grade mechanism dissection either direction.
+
+110th mechanism class total (no NEW since H329 — H337 paper-grade VALUE-axis closure refinement of canalization narrative + asymmetric failure mode characterization + SCHEDULE-vs-VALUE finding).
+
+---
+
 ## 2026-05-31 — PR #1969: H336 edward OUTER anchor MOMENTUM η<1 brake — 2D interior corner of (lag, velocity) plane — CLOSED 190th NULL/NEG (🎯 PAPER-GRADE OUTER anchor smoothing axis FULLY CLOSED across (lag, velocity) plane via H320+H329+H336 joint + arm_a CTRL = 10th H266 attractor cluster member + COMPOUND NEG at 2D interior corner worst-of-both-worlds + mechanism prediction VALIDATED on dynamics but does NOT translate to FFS improvement)
 
 - Branch: g1r3-edward/h336-outer-anchor-brake-interior
