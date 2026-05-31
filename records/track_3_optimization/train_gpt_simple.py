@@ -72,6 +72,12 @@ def parse_args():
                         help="LR for AdamW adam_scalars group (RMSNorm gains; "
                              "params with ndim < 2). Default 0.01 — hardcoded, "
                              "never ablated. ~20K params total in this model.")
+    parser.add_argument("--ln_gain_init_alpha", type=float, default=1.0,
+                        help="Initial value for LayerNorm/RMSNorm gain (gamma) params. "
+                             "Default 1.0 = canonical. <1.0 = small-init variant "
+                             "(T-Fixup-style). Applied after depth_init_mode so it overrides "
+                             "the canonical gains=1.0 init. AdamW drives gains to "
+                             "task-optimal values during training.")
     parser.add_argument(
         "--lr_cooldown_shape",
         type=str,
@@ -401,6 +407,31 @@ class RMSNorm(nn.Module):
 
     def forward(self, x):
         return F.rms_norm(x, (x.size(-1),), weight=self.gains.type_as(x))
+
+
+def apply_ln_gain_init(model: nn.Module, alpha: float = 1.0) -> int:
+    """Initialize LayerNorm/RMSNorm gain (gamma) parameters to alpha.
+    Complementary to depth_init_mode/musoft (which only touches ndim>=2 weight matrices).
+    Returns the number of gain params that were re-initialized.
+    """
+    if alpha == 1.0:
+        return 0  # no-op for canonical
+    count = 0
+    for _, module in model.named_modules():
+        cls_name = type(module).__name__
+        if 'Norm' not in cls_name:
+            continue
+        # Custom RMSNorm uses .gains; nn.LayerNorm uses .weight. Handle both.
+        gain_param = None
+        if hasattr(module, 'gains') and isinstance(getattr(module, 'gains', None), nn.Parameter):
+            gain_param = module.gains
+        elif hasattr(module, 'weight') and isinstance(getattr(module, 'weight', None), nn.Parameter):
+            gain_param = module.weight
+        if gain_param is not None and gain_param.ndim == 1:
+            with torch.no_grad():
+                gain_param.fill_(alpha)
+            count += 1
+    return count
 
 class Linear(nn.Linear):
     def __init__(self, in_features, out_features):
@@ -786,6 +817,7 @@ if dist.get_rank() == 0:
             "lr_cooldown_shape": args.lr_cooldown_shape,
             "ema_eval_decay": args.ema_eval_decay,
             "ema_eval_enabled": args.ema_eval_decay is not None,
+            "ln_gain_init_alpha": args.ln_gain_init_alpha,
         },
     )
 
@@ -856,6 +888,13 @@ for trial_idx in range(args.num_trials):
     # Sanity print — will appear in W&B stdout logs
     _ex_resid_std = _resid_proj_std(768, args.depth_init_mode, NUM_LAYERS) if args.depth_init_mode != "ctrl" else 0.0
     print0(f"[init] mode={args.depth_init_mode}  L={NUM_LAYERS}  block_residual_attn.proj_std={_ex_resid_std:.6f}", console=True)
+
+    # Small LN-gain init (T-Fixup-style). Runs AFTER depth_init_mode so it overrides the canonical
+    # gains=1.0 from the loop above. No-op when alpha==1.0.
+    _ln_gain_count = apply_ln_gain_init(model, alpha=args.ln_gain_init_alpha)
+    print0(f"[ln-gain-init-small] Set {_ln_gain_count} LN/RMSNorm gain params to alpha={args.ln_gain_init_alpha}", console=True)
+    if trial_idx == 0 and dist.get_rank() == 0:
+        wandb.config.update({"ln_gain_init_count": _ln_gain_count}, allow_val_change=True)
 
     # create the optimizer(s)
     optimizer1 = AdamW([dict(params=[model.embed.weight], lr=0.3, name="adam_embed"),
