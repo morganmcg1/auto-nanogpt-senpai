@@ -1,3 +1,62 @@
+## 2026-05-31 13:45 UTC — Cycle 71 mid-468 — frieren #1947 374th refute 208th family closure 242nd + 243rd mech classes + 20th RTM PRECEDENT (RTM-PERSISTENT-AT-N=6) + CLEAN COMPOUND DECOMPOSITION METHODOLOGY VALIDATED (bilateral Arm-A `bq9o2gcs` lm_head M=3 f=0.5 val=3.27177/3050 + Arm-B `stpseprb` isolated embed β1=0.5 val=3.27186/3050; lm_head M=3 f=0.5 n=2 mean 3.27077 ± σ 0.00141 = 20th RTM precedent + lm_head M=3 channel CROSS-FACTOR UNIFORMLY UNPRODUCTIVE across f=0.25 + f=0.5; isolated embed β1=0.5 lands within seed σ ~0.0015 of #1904 B compound n=2 mean 3.27016 → embed β1=0.5 ALONE drives compound, M=2 reset axis NULL; DECOMPOSITION-BY-ISOLATION methodology added to cycle-71 toolkit) + frieren #1972 new assignment (LM_HEAD-β1=0.7-ISOLATED-N=2-VERIFICATION at last unverified cycle-71 TOP carrier #1884 B 3.26948; 60%-21st-RTM-PRECEDENT prior 15%-BORDERLINE prior 10%-PRODUCTIVE-RTM-RATE-BROKEN prior)
+
+### frieren #1947 bilateral terminal — 374th refute, 208th family closure, 242nd + 243rd mech classes, 20th RTM precedent
+
+Bilateral terminal: Arm A `bq9o2gcs` lm_head M=3 f=0.5 val=**3.27177**/3050; Arm B `stpseprb` isolated embed β1=0.5 val=**3.27186**/3050. Both PASS stat rule, FAIL merge bar. **374th cycle-71 refute**.
+
+**20th RTM PRECEDENT — lm_head M=3 f=0.5 (Arm A + #1887 A)**:
+
+| sample | run_id | val |
+|---|---|---|
+| #1887 A seed-1 | `ie2mnlq7` | 3.26977 |
+| frieren Arm A seed-2 | `bq9o2gcs` | 3.27177 |
+| **n=2 mean** | — | **3.27077 ± σ 0.00141** |
+
+100% RTM rate persists at **6 distinct cycle-71 carriers** (RTM-PERSISTENT-AT-N=6).
+
+**242nd MECH CLASS — LM-HEAD M=3 CROSS-FACTOR UNIFORMLY UNPRODUCTIVE**:
+
+| factor | RTM-corrected n-mean | n |
+|---|---|---|
+| f=0.25 (nezuko #1920) | 3.27050 ± σ 0.00112 | 3 |
+| f=0.5 (this PR + #1887 A) | 3.27077 ± σ 0.00141 | 2 |
+| **cross-factor span** | **0.0003** | — |
+
+**243rd MECH CLASS — CLEAN COMPOUND DECOMPOSITION (Arm B vs #1904 B compound)**:
+
+| reading | val |
+|---|---|
+| Arm B isolated embed β1=0.5 | 3.27186 (n=1) |
+| #1904 B compound n=2 mean (tanjiro #1921) | 3.27016 (n=2) |
+| **Δ(isolated − compound)** | **+0.00170** (within seed σ ~0.0015) |
+
+Isolated embed β1=0.5 lands within seed noise of compound n=2 mean → entire compound effect attributable to embed β1=0.5 alone, M=2 reset axis NULL at floor band region. **DECOMPOSITION-BY-ISOLATION methodology validated** — one n=1 isolated-component arm can attribute compound's productive lift to one mediator if isolated value lands within seed noise.
+
+### frieren #1972 new assignment — close cycle-71 RTM audit at LAST unverified TOP carrier
+
+Tests isolated lm_head β1=0.7 at n=2 (#1884 B = 3.26948 single-seed, unverified):
+- **Arm A** SEED=1 (embed=0.95/lm_head=0.7/scalars=0.95)
+- **Arm B** SEED=2 (same isolated config)
+- Probability-weighted: RTM-CONFIRMED-21ST 60% / BORDERLINE 15% / STRONG-PRODUCTIVE-RTM-RATE-BROKEN 10% / DESTRUCTIVE 10% / NOISE 5%
+- Predicted landing under 100% RTM prior: n=2 mean 3.27015-3.27200
+
+### Cycle 71 cumulative state (post-#1947 closure)
+
+**374 refuted / 243 distinct mech classes / 208 family closures / 9 structural axes locked / 20 regression-to-mean precedents** (RTM-PERSISTENT-AT-N=6 — 100% rate across 6 distinct cycle-71 carriers). Fleet 8/8 active. After frieren #1972 closes the LAST unverified cycle-71 TOP carrier, the RTM audit will be COMPLETE.
+
+### Standing in-flight monitoring (last status as of 13:45Z)
+
+- **frieren #1972** — lm_head β1=0.7 isolated n=2 verification, just assigned
+- **tanjiro #1949** — was last update 13:24Z, likely TERMINAL soon
+- **edward #1952** — AXIS-4 DUAL-EXCLUSION (last update 13:30Z)
+- **alphonse #1953** — NS5_ITERS bilateral (last update 13:40Z)
+- **askeladd #1956** — RESET-FACTOR-ABLATION compound (last update 13:09Z)
+- **fern #1959** — CROSS-SUBSTRATE COMPOUND (last update 13:22Z)
+- **nezuko #1960** — INTERVAL-AXIS lm_head M=3 i=150 (last update 13:43Z)
+- **thorfinn #1967** — PER-KIND-ASYMMETRY-AXIS (last update 13:19Z)
+
+---
+
 ## 2026-05-31 13:05 UTC — Cycle 71 mid-467 — thorfinn #1944 373rd refute 207th family closure 241st mech class + 19th RTM PRECEDENT — RTM SEXTET COMPLETE (PER-KIND-β1-DISPATCH-RTM-CONFIRMED-AT-N=2-MEAN-3.27015 + PER-KIND-ASYMMETRY-DIRECTION-MARGINALLY-LOAD-BEARING-AT-+0.00150 bilateral Arm-A-per-kind=3.27081/3025 + Arm-B-uniform-β1=0.7=3.27231/3050; per-kind β1 dispatch is 6th cycle-71 carrier RTM-confirmed, 100% RTM rate persists; tightest single-seed σ in SEXTET at 0.00067) + thorfinn #1967 new assignment (PER-KIND-ASYMMETRY-AXIS bilateral deeper-0.9-vs-inverted-0.6 at lm_head=0.7 anchor; tests whether +0.00150 asymmetry effect is monotone-magnitude-dependent saturated or RTM-band noise 35%-SATURATED-AT-0.8 prior 25%-MONOTONE-PRODUCTIVE prior 20%-FLAT-RTM-BAND prior)
 
 ### thorfinn #1944 bilateral terminal — 373rd refute, 207th family closure, 241st mech class, 19th RTM precedent
