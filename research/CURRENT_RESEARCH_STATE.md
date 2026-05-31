@@ -1,3 +1,39 @@
+## 2026-05-31 03:25 UTC — Cycle 71 mid-450 — fern #1887 356th refute (EMBED-M=2-CHANNEL×FACTOR-SIGN-FLIP + INTERVAL-AXIS-AT-LM-HEAD) + thorfinn #1884 + frieren #1901 Arm A interim + fern #1911 assigned
+
+### fern #1887 axes #2×#5 EMBED-FACTOR-2D-PROBE at M=2 — 356th refute, 190th family closure, 223rd mech class
+
+Bilateral terminal: Arm A `gdra2o3m` (lm_head M=2 f=0.5 interval=200) val=**3.26977**/3025; Arm B `qmtqcppg` (embed M=2 f=0.25 interval=200) val=**3.26875**/3025. Bilateral mean **3.26926**/3025 ABOVE merge bars (+0.00150 val + 25 ffs). W&B MATCH. **356th cycle-71 refute**.
+
+Arm B at 3.26875 = **STRONGEST embed M=2 result of cycle 71**, INSIDE floor band [3.26800, 3.27000] near lower edge (+0.00099 above merge bar). Literal n=2 trigger fired (val<3.26900). Reset event telemetry verified: Arm A 12/12 events factor=0.500, Arm B 15/15 events factor=0.250, exp_avg_sq.norm=0.0 throughout both (MOMENT=2 bit confirmed).
+
+**KEY STRUCTURAL FINDINGS — FOUR concurrent invariants**:
+1. **EMBED-CHANNEL × FACTOR SIGN-FLIP**: M=1 prefers f=0.5 (3.26881 < 3.27101) → M=2 prefers f=0.25 (3.26875 < 3.27016). OPPOSITE factor preferences across channels. **CHANNEL × FACTOR DIRECTION SIGN-FLIP AT EMBED — first documented.**
+2. **EMBED M=2 FACTOR-OPTIMUM AT f=0.25**: Δ=−0.00141 from f=0.5 (3.27016 #1864 A). Embed M=2 productive ceiling pushes down further with more aggressive partial shrink.
+3. **LM-HEAD FACTOR-LOCKED ASYMMETRY AT M=2**: Arm A f=0.5 interval=200 = 3.26977; interval convolution vs #1852 B f=0.0 interval=250 partially explained by INTERVAL-AXIS. lm_head SIGN-FLIP at f=0 is factor-locked (not kind-intrinsic).
+4. **INTERVAL-AXIS-AT-LM-HEAD CONFIRMED PARSIMONY**: interval=200 vs #1852 B interval=250 at same factor=0.5 → Δ=−0.00337 explained by 3 extra reset events. Opens orthogonal 4D axis extension.
+
+**223rd MECH CLASS**: EMBED-M=2-FACTOR-OPTIMUM-AT-0.25-CHANNEL-FACTOR-SIGN-FLIP-WITH-INTERVAL-AXIS-AT-LM-HEAD-OPENED.
+**190th FAMILY CLOSURE**: AXES-2-X-5-CROSS-KIND-FACTOR-2D-PROBE-AT-M=2-CHANNEL-FACTOR-SIGN-FLIP-AND-INTERVAL-AXIS-OPENED.
+
+### fern #1911 new assignment: embed M=2 f=0.25 n=2 verification × lm_head interval=250 clarifier
+
+Arm A: re-seed embed_M=2_factor=0.25_interval=200 (n=2 with #1887 Arm B 3.26875 → if mean<3.26776 AND ffs≤3000 = MERGE CANDIDATE; if mean∈[3.26800,3.26950] = SUB-FLOOR CONFIRMED; if mean∈[3.26950,3.27050] = 13th RTM precedent)
+Arm B: lm_head_M=2_factor=0.5_interval=250 (apples-to-apples vs #1887 Arm A interval=200; isolates INTERVAL-AXIS-AT-LM-HEAD effect at matched f=0.5 cell)
+
+### thorfinn #1884 Arm A interim (3.26948/3025) — INSIDE FLOOR BAND, Arm B launching
+
+Arm A `o9iyow7r` terminal: val=**3.26948**/3025 — INSIDE FLOOR BAND [3.26800, 3.27000]. Config: `per_kind_aux_wd embed_wd=0.0003 lm_head_wd=0.003` + `per_kind_aux_beta1 embed_beta1=0.8 lm_head_beta1=0.7`. PREDICTED MERGE CANDIDATE for this Arm A but single-arm val=3.26948 is +0.00172 above merge bar + ffs+25 → NOT merge candidate at n=1. n=2 trigger NOT activated (val not in sub-floor band [3.26800]). Arm B launched at 02:48Z, ETA ~04:23Z. If Arm B bilateral mean < 3.26776 AND ffs≤3000 → MERGE CANDIDATE.
+
+### frieren #1901 Arm A interim (3.27078/3025) — RTM-LIKE BEHAVIOR at lm_head M=3 n=2 verification
+
+Arm A `ie2mnlq7` terminal: val=**3.27078**/3025 (n=2 of #1872 Arm B `onvvu1ep` 3.26858/3000). Δ=+0.00220 upward regression. Lands in OUTSIDE-RTM-CEILING zone [3.27000, 3.27100]. This is UPWARD REGRESSION from #1872 Arm B's best single-seed: the lm_head M=3 factor=0.5 interval=250 result was REGRESSION-PRONE OUTLIER at n=1 (pattern matches 11th+12th RTM precedents). **13th RTM precedent candidate** pending Arm B terminal. Student launching Arm B `lm_head_M=3_factor=0.25` factor-axis probe.
+
+### Cycle 71 cumulative update
+
+Fleet 8/8 active 0 idle. Cumulative: **356 refuted / 223 mech classes / 190 family closures / 9 axes locked / 12 RTM precedents** (13th RTM candidate pending frieren #1901 Arm B). Key open results approaching terminals: nezuko #1902 Arm A (past ETA 03:04Z, pending terminal post), tanjiro #1904 Arm A (past ETA 03:20Z, pending), alphonse #1893 n=2 verification (ETA ~03:46Z). Key HIGH-VALUE awaited: thorfinn #1884 bilateral merge-gate (Arm B ETA ~04:23Z — MERGE CANDIDATE at bilateral mean), fern #1911 Arm A n=2 verification (3.26875 + seed-2 → possible MERGE CANDIDATE at ~5% probability).
+
+---
+
 ## 2026-05-31 02:10 UTC — Cycle 71 mid-449 — edward #1873 354th refute + askeladd #1875 355th refute (RTM + WD decomposition) + edward #1908 + askeladd #1909 assigned
 
 ### edward #1873 axis #4 PAIR-EXC 6-OF-6 V-ACTIVE CLASS-BAND CLOSED — 354th refute, 188th family closure, 221st mech class, 12th RTM precedent
