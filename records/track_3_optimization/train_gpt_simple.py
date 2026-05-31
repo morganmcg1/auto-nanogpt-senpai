@@ -101,6 +101,10 @@ def parse_args():
                         help="EMA decay for SWA-style EMA-eval; None=disabled (control). "
                              "Recommend 0.99-0.9999. When set, val/ema_loss is logged "
                              "and speedrun/first_step_to_target uses the EMA-val crossing.")
+    parser.add_argument("--ge_sam_alpha", type=float, default=0.0,
+                        help="GE-SAM gradient extrapolation coefficient. 0 = disabled. "
+                             "Effective gradient: g_eff = g + alpha*(g - g_prev_raw). "
+                             "Recommended range: 0.02-0.15. Operates on Muon SOAP path before momentum lerp.")
     args = parser.parse_args()
     args.num_trials = args.num_trials if args.num_trials is not None else (args.legacy_num_trials or 1)
     args.wandb_tags = [tag.strip() for tag in args.wandb_tags.split(",") if tag.strip()]
@@ -589,7 +593,7 @@ class Muon(torch.optim.Optimizer):
     SOAP_ATTN_SUFFIXES = (".attn.q.weight", ".attn.k.weight", ".attn.v.weight", ".attn.proj.weight")
 
     def __init__(self, named_params, lr=0.02, weight_decay=0, mu=0.95,
-                 soap_attn=False, trust_threshold=0.0):
+                 soap_attn=False, trust_threshold=0.0, ge_sam_alpha=0.0):
         # `named_params` can be either:
         #   (a) list of (name, param) tuples → single param group (legacy form)
         #   (b) list of dicts {"named_params": [(name, param), ...], "lr": ?, "weight_decay": ?, "mu": ?, "name": ?}
@@ -612,6 +616,9 @@ class Muon(torch.optim.Optimizer):
         self.trust_threshold = float(trust_threshold)
         self.use_trust_gate = soap_attn
         self.cos_sims_buffer: dict[str, Tensor] = {}
+        self.ge_sam_alpha = float(ge_sam_alpha)
+        self.ge_sam_cos_sims_buffer: dict[str, float] = {}
+        self.ge_sam_step = 0
 
         param_groups = []
         for g in groups_raw:
@@ -621,16 +628,20 @@ class Muon(torch.optim.Optimizer):
                 "lr": g.get("lr", lr),
                 "weight_decay": g.get("weight_decay", weight_decay),
                 "mu": g.get("mu", mu),
+                "ge_sam_alpha": g.get("ge_sam_alpha", ge_sam_alpha),
             }
             if "name" in g:
                 g_dict["name"] = g["name"]
             param_groups.append(g_dict)
-        defaults = dict(lr=lr, weight_decay=weight_decay, mu=mu)
+        defaults = dict(lr=lr, weight_decay=weight_decay, mu=mu, ge_sam_alpha=ge_sam_alpha)
         super().__init__(param_groups, defaults)
 
     @torch.no_grad()
     def step(self):
         self.cos_sims_buffer = {}
+        self.ge_sam_cos_sims_buffer = {}
+        self.ge_sam_step += 1
+        ge_sam_log_due = self.ge_sam_step < 200 and (self.ge_sam_step % 10 == 0)
         world_size = dist.get_world_size()
         rank = dist.get_rank()
         for group in self.param_groups:
@@ -644,6 +655,7 @@ class Muon(torch.optim.Optimizer):
                     use_soap = p in self.soap_params
                     if len(state) == 0:
                         state["momentum"] = torch.zeros_like(p)
+                        state["prev_raw_grad"] = None
                         if use_soap:
                             state["exp_avg_sq"] = torch.zeros_like(p, dtype=torch.float32)
                             state["row_gg"] = torch.zeros(p.size(0), p.size(0), dtype=torch.float32, device=p.device)
@@ -651,6 +663,22 @@ class Muon(torch.optim.Optimizer):
                             state["q_row"] = None
                             state["q_col"] = None
                             state["soap_step"] = 0
+                    # --- GE-SAM: extrapolation before SOAP/Muon path ---
+                    alpha = group.get("ge_sam_alpha", 0.0)
+                    if alpha > 0.0:
+                        raw_grad = p.grad.detach().clone()
+                        if state["prev_raw_grad"] is not None:
+                            if ge_sam_log_due:
+                                raw_flat = raw_grad.float().view(-1)
+                                delta_flat = (raw_grad - state["prev_raw_grad"]).float().view(-1)
+                                rn = raw_flat.norm()
+                                dn = delta_flat.norm()
+                                cos_sim = (raw_flat @ delta_flat) / (rn * dn + 1e-8)
+                                self.ge_sam_cos_sims_buffer[self.param_names[id(p)]] = float(cos_sim.item())
+                            delta = p.grad - state["prev_raw_grad"]
+                            p.grad.add_(delta, alpha=alpha)
+                        state["prev_raw_grad"] = raw_grad
+                    # --- end GE-SAM ---
                     if use_soap:
                         state["momentum"].lerp_(p.grad, 1 - group["mu"])
                         raw_nesterov = p.grad.lerp(state["momentum"], group["mu"])
@@ -786,6 +814,8 @@ if dist.get_rank() == 0:
             "lr_cooldown_shape": args.lr_cooldown_shape,
             "ema_eval_decay": args.ema_eval_decay,
             "ema_eval_enabled": args.ema_eval_decay is not None,
+            "ge_sam_alpha": float(args.ge_sam_alpha),
+            "ge_sam_enabled": args.ge_sam_alpha > 0.0,
         },
     )
 
@@ -874,6 +904,7 @@ for trial_idx in range(args.num_trials):
             dict(named_params=attn_named, lr=args.lr_attn, weight_decay=args.wd_attn, name="muon_attn"),
         ],
         soap_attn=args.soap_attn, trust_threshold=args.soap_trust_threshold,
+        ge_sam_alpha=args.ge_sam_alpha,
     )
     optimizers = [optimizer1, optimizer2]
     assert set(p for opt in optimizers for group in opt.param_groups
@@ -1269,6 +1300,26 @@ for trial_idx in range(args.num_trials):
                 trust_metrics["trust/cos_sim_mean_attn"] = sum(attn_vals) / len(attn_vals)
                 trust_metrics["trust/fired_count_attn"] = fired_attn
             wandb.log(trust_metrics, step=wandb_step)
+        if dist.get_rank() == 0 and optimizer2.ge_sam_cos_sims_buffer:
+            ge_vals = list(optimizer2.ge_sam_cos_sims_buffer.values())
+            ge_names = list(optimizer2.ge_sam_cos_sims_buffer.keys())
+            ge_metrics = {"trial": trial_idx, "train/step": train_step}
+            mlp_ge: list[float] = []
+            attn_ge: list[float] = []
+            for ge_name, ge_val in zip(ge_names, ge_vals):
+                ge_metrics[f"diag/ge_sam_cos_sim/{clean_metric_name(ge_name)}"] = ge_val
+                if any(ge_name.endswith(suf) for suf in Muon.SOAP_ATTN_SUFFIXES):
+                    attn_ge.append(ge_val)
+                elif any(ge_name.endswith(suf) for suf in Muon.SOAP_MLP_SUFFIXES):
+                    mlp_ge.append(ge_val)
+            ge_metrics["diag/ge_sam_cos_sim_mean"] = sum(ge_vals) / len(ge_vals)
+            ge_metrics["diag/ge_sam_cos_sim_min"] = min(ge_vals)
+            ge_metrics["diag/ge_sam_cos_sim_max"] = max(ge_vals)
+            if mlp_ge:
+                ge_metrics["diag/ge_sam_cos_sim_mean_mlp"] = sum(mlp_ge) / len(mlp_ge)
+            if attn_ge:
+                ge_metrics["diag/ge_sam_cos_sim_mean_attn"] = sum(attn_ge) / len(attn_ge)
+            wandb.log(ge_metrics, step=wandb_step)
         if dist.get_rank() == 0 and telemetry_due:
             log_weight_telemetry(
                 model=model,
