@@ -1,3 +1,32 @@
+## 2026-05-31 17:55 UTC — Cycle 71 mid-476 — nezuko #1992 POD-STABILITY-BLOCKED at LM_HEAD M=2 i=200 f=0.25 (10th structural pod-stability observation — 4/4 NaN at step 125 BEFORE first reset at step 200; NOT counted as refute; M-axis SUBSTRATE-ASYMMETRIC confirmed: M=2 at embed STABLE RTM, M=2 at lm_head BROKEN) + nezuko #2000 new assignment (EMBED-M=3-AT-i=200-f=0.25-MIRROR-CROSS-SUBSTRATE-PROBE: 40%-M-INVARIANT-AT-EMBED-RTM 25%-M-WEAKLY-ACTIVE-AT-EMBED 20%-EMBED-M=3-POD-BROKEN-MIRROR 15%-STRONG-PRODUCTIVE-BREAKS-RTM). No human issues. Fleet 8/8 active 0 idle. Cumulative **381 refuted / 252 mech classes / 211 family closures / 9 axes / 21 RTM precedents / 10 pod-stability observations** (RTM-PERSISTENT-AT-N=7/8 = 87.5%; THREE n=2 verifications still running: k+proj edward #1982 + cross-substrate-compound fern #1991 + inverted-asymmetry thorfinn #1997).
+
+### nezuko #1992 — POD-STABILITY-BLOCKED at LM_HEAD M=2 i=200 f=0.25 / 10th structural pod-stability observation
+
+**Bilateral result**: Arm A `u5jphl63` SEED=1 + Arm B `wc8ta59l` SEED=2 → both `val_loss=nan` at **step 125** BEFORE first reset event at step 200. Plus 2 duplicate launches (`jq2ewbih`, `v5i4h7y0`) also NaN → **4/4 runs across 2 seeds NaN pre-event** at this pod stack. Step-0 banner verified correct: `LM_HEAD enabled=1 interval=200 moment=2 factor=0.25`.
+
+NOT counted as refute (no pre-event passing control established — per memory feedback_pod_broken_axis_misattribution). Cumulative tally UNCHANGED.
+
+**M-axis substrate-asymmetric pattern** (2×2 M-substrate matrix now 3/4 cells filled):
+
+| Substrate | M=2 | M=3 |
+|---|---|---|
+| **embed** | STABLE-RTM 3.27023 (14th RTM) | UNKNOWN — nezuko #2000 |
+| **lm_head** | **POD-BLOCKED i=200 (this PR)** | STABLE-RTM 3.27050/3.27077 (16th/20th RTM, but POD-BLOCKED at i=150) |
+
+**Mechanism conjecture**: M=2 at lm_head is BROKEN at i=200 (even though M=3 at lm_head is STABLE at SAME i=200). The pod-broken-radius appears to SHRINK with M: M=3 needs i ≥ 200 (i=150 broken); M=2 needs i > 200 (i=200 broken). This is a MONOTONE-NARROWING pattern in the M-dimension.
+
+**NaN precedes reset event** → the M-bit affects optimizer preconditioner update path EVERY STEP (not just at reset event intervals) at the lm_head substrate, possibly via numerical overflow at the wider matmul dimension (vocab=50257).
+
+### nezuko #2000 new assignment — EMBED-M=3-AT-i=200-MIRROR-CROSS-SUBSTRATE-PROBE
+
+Completes the 2×2 M-substrate matrix by testing embed M=3 (the only UNKNOWN cell). Most likely (40%): M-INVARIANT-AT-EMBED-RTM (embed substrate is M-axis permissive at all M-bits → M-axis substrate-asymmetric confirmed; embed flat at ~3.27040). Alternative (25%): M-WEAKLY-ACTIVE-AT-EMBED (embed M-axis mildly sensitive). Alternative (20%): EMBED-M=3-POD-BROKEN mirror (unprecedented mirror of lm_head M=3 at i=150 — would confirm substrate-symmetric pod-broken-radius at INVERTED M-direction). Edge (15%): STRONG-PRODUCTIVE-BREAKS-RTM.
+
+### Fleet status — 8/8 active 0 idle
+
+After nezuko #1992 close + nezuko #2000 assignment: g1r2-{tanjiro #1976, askeladd #1985, alphonse #1981, edward #1982, fern #1991, thorfinn #1997, frieren #1999, nezuko #2000} all WIP. Cumulative **381 refuted / 252 distinct mech classes / 211 family closures / 9 structural axes locked / 21 RTM precedents / 10 pod-stability observations** (RTM-PERSISTENT-AT-N=7/8 = 87.5%; THREE n=2 carrier-verification probes running with adjusted destructive priors: k+proj edward #1982 + cross-substrate-compound fern #1991 + inverted-asymmetry thorfinn #1997).
+
+---
+
 ## 2026-05-31 17:45 UTC — Cycle 71 mid-475 — frieren #1972 381st refute 252nd mech class SINGLE-SEED-CARRIER-MISCLASSIFICATION-AT-LM-HEAD-β1=0.7-ISOLATED-DESTRUCTIVE (bilateral n=2 mean 3.27930 / spread 0.00769 — CARRIER-DESTRUCTIVE +0.00731 above RTM ceiling; original #1884 single-seed 3.26948 was LUCKY-SEED EXTREME-OUTLIER; RTM rate breaks 7/7→7/8 87.5% — FIRST cycle-71 candidate to FAIL RTM band landing) + frieren #1999 new assignment (LM-HEAD-β1=0.5-AXIS-MONOTONICITY-PROBE: lm_head β1=0.5 isolated bilateral n=2; 35% MONOTONE-DESTRUCTIVE-WEAKER 25% SUBSTRATE-SYMMETRIC-RTM 20% MORE-DESTRUCTIVE 15% V-SHAPE-PRODUCTIVE). No human issues. Fleet 8/8 active 0 idle. Cumulative **381 refuted / 252 mech classes / 211 family closures / 9 axes / 21 RTM precedents** (RTM-PERSISTENT-AT-N=7/8 = 87.5%; THREE n=2 verifications still pending with adjusted carrier-destructive priors: k+proj edward #1982 + cross-substrate-compound fern #1991 + inverted-asymmetry thorfinn #1997).
 
 ### frieren #1972 bilateral terminal — 381st refute, 252nd mech class SINGLE-SEED-CARRIER-MISCLASSIFICATION, RTM rate 7/7→7/8
