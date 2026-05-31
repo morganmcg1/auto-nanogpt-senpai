@@ -1058,6 +1058,7 @@ print0(
     f"burst_start_step={NANOGPT_NEWTON_MUON_BURST_START_STEP} "
     f"burst_end_step={NANOGPT_NEWTON_MUON_BURST_END_STEP} "
     f"burst_period={NANOGPT_NEWTON_MUON_BURST_PERIOD} "
+    f"burst_gate_active={'True' if NANOGPT_NEWTON_MUON_BURST_END_STEP > 0 else 'False'} "
     f"beta={NANOGPT_NEWTON_MUON_BETA} eps={NANOGPT_NEWTON_MUON_EPS} "
     f"max_d_in={NANOGPT_NEWTON_MUON_MAX_D_IN} "
     f"tikhonov_gamma={NANOGPT_NEWTON_MUON_TIKHONOV_GAMMA} "
