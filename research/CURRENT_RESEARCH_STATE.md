@@ -9,7 +9,50 @@ The human research team has redirected: **FFS (first-step-to-target, baseline 30
 3. **Prefer experiments that move the crossing step** (2800-3050 window), **simplify winning stacks**, **reveal FFS-load-bearing components**.
 4. **Ablations preferred over confirmations** when FFS dead.
 
-## Last updated: 2026-05-31 22:05Z (91 R5 closures; **fern → #2023 lion-aux-optimizer (AUX OPTIMIZER ALGORITHM — first AUX algorithm replacement in 91 R5 experiments)**; 8/8 active)
+## Last updated: 2026-05-31 22:30Z (91 R5 closures; **★★★ THORFINN #1994 B★ FFS-POSITIVE n=1 (3rd parallel mechanism: discrete SOAP state reset; canonical attractor + EMA-monotone Δval=−0.00254)**; n=4 launch instructions posted; 8/8 active including 3 parallel n=4 confirms — edward + frieren + thorfinn)
+
+### Notes (2026-05-31 22:30Z) — ★★★ Thorfinn B★ FFS-POSITIVE signal candidate; THREE parallel n=4 confirms in flight
+
+- **★★★ THORFINN #1994 B★ FFS-POSITIVE at n=1** — Single discrete SOAP state hard-reset at step 975 (= int(0.3 × 3250)). Result lands at canonical seed-noise attractor coords {FFS_ema=2875, FFS_trainval=2925} with EMA val_loss MONOTONE better than A_ctrl at all 4 probe steps:
+
+  | step | A_ctrl EMA val | B★ EMA val | Δ (B−A) |
+  |---|---|---|---|
+  | 1000 | 3.53239 | 3.53168 | −0.00071 |
+  | 2000 | 3.37086 | 3.36847 | −0.00239 |
+  | 2500 | 3.31083 | 3.30799 | −0.00284 |
+  | 3250 | 3.27031 | 3.26777 | **−0.00254** |
+
+  Raw val_loss has 1 transient crossing at step 1000 (~25 steps post-reset, eigenbasis rebuilding — pre-mortem #2 mechanistically expected). From step 1125+ monotone better. **Δval (B-A) at terminal = 1.85× larger than edward #1948's continuous freq cooldown.** Sent back to wip with explicit n=4 launch instructions at `--soap_state_cooldown_reset` ON (single-arm, 4 trials sequential). wandb_group `g1r5-thorfinn/soap-state-cd-reset-n4`. Merge gate: μ_4(FFS_ema) ≤ 2887.5.
+
+- **★★★ THREE PARALLEL FFS-POSITIVE OPTIMIZER-STATE MECHANISMS AT n=1**:
+
+  | PR | Student | Mechanism | n=1 FFS | Δval (B-A) | n=4 status |
+  |---|---|---|---|---|---|
+  | #1948 | edward | SOAP precond_freq cooldown (continuous, 16→4) | 2875 | −0.00137 | trial 2+/4 in flight |
+  | #1966 | frieren | Muon mu cooldown ramp (0.95→0.80) | 2875 (OFF-ATTRACTOR on both metrics) | −0.0021 | trial 1/4 in flight |
+  | #1994 | thorfinn | SOAP state hard-reset (discrete, one-shot at step 975) | 2875 (on canonical attractor) | **−0.00254** | n=4 instructions just posted |
+
+  All three probe optimizer state at the phase transition. If all three confirm μ_4 ≤ 2887.5, the FFS bottleneck is decisively identified as optimizer-state staleness at the warm→cooldown crossover — and the compounding test (precond_freq=4 + mu=0.80 + soap_state_reset stacked) becomes the obvious next experiment.
+
+- **★ NOTE on edward vs thorfinn**: edward's continuous freq cooldown and thorfinn's discrete reset are STRUCTURALLY ADJACENT (both refresh SOAP eigenbasis at cooldown crossover, different temporal profile). Stacking is non-trivial — thorfinn's hard reset may absorb edward's continuous schedule, or compound. The compounding PR design will need to think carefully about this.
+
+- **★★ GRADUAL > DISCRETE memory POSSIBLY REFINED**: nezuko #1993's muon-momentum DISCRETE reset was FFS-NEUTRAL (memory: gradual > discrete). thorfinn's SOAP-state DISCRETE reset IS FFS-POSITIVE. The two contrasting findings together suggest "gradual > discrete" applies to BUFFER refreshes (Muon momentum is a streaming EMA), but NOT to STATIC STATE refreshes (SOAP eigenbasis is a periodic snapshot, not a streaming aggregate). New refined memory: discrete refresh works on PERIODIC eigenbases but not on STREAMING buffers.
+
+- **FERN #2023 (lion-aux-optimizer)** — First AUX optimizer ALGORITHM replacement in all 91 R5 experiments. Just assigned. Orthogonal to all 3 in-flight FFS-positive mechanisms.
+
+- **ASKELADD #1989 (aux-cooldown-shape decoupling)** — B(constant aux) TERMINAL FFS-NEG at FFS_ema=3050 (monotone worse at all probes). C(concave) running, ETA was ~22:10Z. Both directions failing → axis closure imminent (3rd AUX-side cooldown family closure on cooldown SHAPE axis, complementing the cooldown-parameter axis already closed).
+
+- **8/8 ACTIVE — CURRENT FLEET STATUS (22:30Z)**:
+  - **edward #1948**: n=4 confirm in flight at freq=4 (trial 2+ sequential)
+  - **frieren #1966**: n=4 confirm in flight at mu=0.80 (trial 1)
+  - **thorfinn #1994**: n=4 confirm launch directive posted (just sent back to wip)
+  - **tanjiro #2014**: ns-iter-cooldown-ramp A_ctrl ~step 1945/3250 (B/C/D queued)
+  - **nezuko #2020**: soap-beta2-cooldown post-watchdog restart, iteration 3112
+  - **askeladd #1989**: C(concave) near terminal, B FFS-NEG confirmed
+  - **alphonse #1979**: A/B/C all finished per W&B (best C=3.2696), awaiting SENPAI-RESULT
+  - **fern #2023**: lion-aux-optimizer just assigned
+
+---
 
 ### Notes (2026-05-31 22:05Z) — fern #2023 lion-aux-optimizer assigned; 8/8 students active
 
