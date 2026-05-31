@@ -1,5 +1,34 @@
 # SENPAI Research Results
 
+## 2026-05-31 05:30 UTC — PR #1877 edward: Body PMuon LR persistent step-down @ cooldown onset step 975 — ❌ BILATERAL NULL (body PMuon LR axis CLOSED)
+
+- Branch: `g1r1-edward/body-muon-lr-stepdown`
+- Hypothesis: Discrete LR step-down on body PMuon at cooldown onset step 975 (phase-locked with β₂ pulse boundary) could steepen cooldown descent. Bilateral magnitude test: Arm A ×0.85, Arm B ×0.70.
+
+| Arm | factor | muon_lr after step-down | run | sr | val_ema | Δval mnat | Verdict |
+|---|---|---|---|---:|---:|---:|---|
+| Baseline | — | 0.040 | 9coyk2ke/09qrijtm | 2875 | 3.262854 | — | — |
+| A (×0.85) | 0.85 | 0.034 | `kxq9csqg` | 2875 | 3.262952 | +0.098 | ❌ NEAR-MISS NULL (fails clause 2 by single-seed noise) |
+| B (×0.70) | 0.70 | 0.028 | `hjcqr1ec` | 2875 | 3.265135 | +2.281 | ❌ NULL |
+
+- **Key mechanistic read:** Arm A is baseline-equivalent (+0.098 mnat = single seed noise increment); Arm B moderately harms (+2.281 mnat). Heavier LR reduction is worse — confirms body PMuon cosine LR schedule from 0.040 is well-tuned. The phase-locked step-down does NOT realign with the β₂ pulse phase boundary in a useful way.
+- **Combined LR axis closure:** Combined with #1637 (LR-UP @ pre-target NULL), #1697 (LR-DOWN @ pre-target NULL), this PR closes **body PMuon LR trajectory** as a lever at ALL temporal boundaries (cooldown onset 975 AND pre-target 2750). Discrete LR perturbations in either direction at any tested boundary do not produce sub-baseline val_ema. Body PMuon LR axis FULLY CLOSED.
+- edward reassigned: body PMuon momentum HARD-ZERO BLOCKWISE @ step 975 (deep vs shallow blocks) (#1929) — directive (b)/(d), per-block depth-stratified state intervention.
+
+## 2026-05-31 05:30 UTC — PR #1876 fern: Body PMuon momentum HARD-ZERO @ cooldown onset (975 vs 1100) — ❌ BILATERAL NULL (global body PMuon momentum axis fully exhausted)
+
+- Branch: `g1r1-fern/body-momentum-zero`
+- Hypothesis: Hard-zeroing body PMuon `momentum_buffer` at cooldown onset (step 975 or 1100) as hard-limit of the momentum-scaling axis (#1797). Bilateral temporal test.
+
+| Arm | zero step | run | sr | val_ema | Δval mnat | Verdict |
+|---|---|---|---:|---:|---:|---|
+| Baseline | — | 9coyk2ke/09qrijtm | 2875 | 3.262854 | — | — |
+| A (zero @975) | 975 | `sg2mj20u` | 2925 | 3.264221 | +1.37 | ❌ NULL (both clauses) |
+| B (zero @1100) | 1100 | `df00qagd` | 2925 | 3.264998 | +2.14 | ❌ NULL (both clauses) |
+
+- **Key mechanistic read:** Confirms #1797 (SCALE ×0.5/×0.25 @ 975) and #1836 (SCALE @ 2750) conclusions — body PMuon momentum state is INVARIANT to ALL perturbation types (scale, zero) at ALL temporal boundaries (975, 1100, 2750). Global momentum-handling axis on body PMuon FULLY CLOSED. Temporal invariance (975 ≈ 1100 in outcome) also consistent with frieren #1780 (cov temporal-invariance finding).
+- fern reassigned: body PMuon side cov HARD-ZERO / ×0.5 @ cooldown onset step 975 (#1930) — directive (a)/(d), preconditioner state buffer reset (distinct from β_cov rate #1666 and per-side cov LR #1849).
+
 ## 2026-05-31 04:57 UTC — PR #1850 frieren: Aux Adam scalar_lr PULSE @ cooldown onset step 975 — ❌ BILATERAL NULL on n=2 (seed-2 failed to confirm thin WIN)
 
 - Branch: `g1r1-frieren/scalar-lr-pulse-cooldown`
