@@ -101,6 +101,11 @@ def parse_args():
                         help="EMA decay for SWA-style EMA-eval; None=disabled (control). "
                              "Recommend 0.99-0.9999. When set, val/ema_loss is logged "
                              "and speedrun/first_step_to_target uses the EMA-val crossing.")
+    parser.add_argument("--logit_z_loss_weight", type=float, default=0.0,
+                        help="Z-loss aux penalty weight: adds w*sum(logits**2) to "
+                             "cross-entropy during training (gated by model.training). "
+                             "0.0=disabled (control). PaLM used 1e-4. Scaling matches "
+                             "the cross-entropy reduction='sum' convention.")
     args = parser.parse_args()
     args.num_trials = args.num_trials if args.num_trials is not None else (args.legacy_num_trials or 1)
     args.wandb_tags = [tag.strip() for tag in args.wandb_tags.split(",") if tag.strip()]
@@ -262,6 +267,8 @@ def log_training_telemetry(
     step: int,
     train_steps: int,
     wandb_step: int,
+    logit_z_loss_contribution: float = 0.0,
+    logit_abs_mean: float = 0.0,
 ):
     grads = [(name, p.grad) for name, p in model.named_parameters() if p.grad is not None]
     grad_stats = aggregate_stats(grads)
@@ -277,6 +284,8 @@ def log_training_telemetry(
         "train/grad/max_abs": grad_stats.get("max_abs", 0.0),
         "train/grad/nonfinite_count": grad_stats.get("nonfinite_count", 0.0),
         "train/weight/global_norm_pre_update": weight_stats.get("norm", 0.0),
+        "diag/logit_z_loss_contribution": logit_z_loss_contribution,
+        "diag/logit_abs_mean": logit_abs_mean,
     }
     weight_norm = weight_stats.get("norm", 0.0)
     if weight_norm:
@@ -477,13 +486,15 @@ class Block(nn.Module):
         return x
 
 class GPT(nn.Module):
-    def __init__(self, vocab_size: int, num_layers: int, model_dim: int):
+    def __init__(self, vocab_size: int, num_layers: int, model_dim: int,
+                 logit_z_loss_weight: float = 0.0):
         super().__init__()
         self.embed = nn.Embedding(vocab_size, model_dim).bfloat16()
         self.blocks = nn.ModuleList([Block(model_dim) for _ in range(num_layers)])
         self.proj = Linear(model_dim, vocab_size)
         self.norm1 = RMSNorm(model_dim)
         self.norm2 = RMSNorm(model_dim)
+        self.logit_z_loss_weight = float(logit_z_loss_weight)
 
     def forward(self, inputs: Tensor, targets: Tensor):
         x = self.norm1(self.embed(inputs))
@@ -491,7 +502,14 @@ class GPT(nn.Module):
             x = block(x)
         logits = self.proj(self.norm2(x)).float()
         logits = 15 * logits * (logits.square() + 15**2).rsqrt()
-        return F.cross_entropy(logits.view(targets.numel(), -1), targets.view(-1), reduction="sum")
+        ce_loss = F.cross_entropy(logits.view(targets.numel(), -1), targets.view(-1), reduction="sum")
+        # Telemetry stats (cheap; match reduction="sum" scaling so train loop can divide by batch).
+        logit_abs_sum = logits.abs().sum().detach()
+        if self.training and self.logit_z_loss_weight > 0.0:
+            # PaLM-style z-loss penalty. sum() pairs with CE's reduction="sum".
+            z_loss = self.logit_z_loss_weight * logits.pow(2).sum()
+            return ce_loss + z_loss, z_loss.detach(), logit_abs_sum
+        return ce_loss, ce_loss.new_zeros(()), logit_abs_sum
 
 
 ########################################
@@ -736,7 +754,8 @@ batch_size = 8 * 64 * 1024
 mbs = 64
 val_inputs, val_targets = next(distributed_data_generator("data/fineweb10B/fineweb_val_*.bin", val_tokens))
 
-model = GPT(vocab_size=50304, num_layers=12, model_dim=768).cuda()
+model = GPT(vocab_size=50304, num_layers=12, model_dim=768,
+            logit_z_loss_weight=args.logit_z_loss_weight).cuda()
 model.compile(dynamic=False)
 
 module_types = param_module_types(model)
@@ -786,6 +805,8 @@ if dist.get_rank() == 0:
             "lr_cooldown_shape": args.lr_cooldown_shape,
             "ema_eval_decay": args.ema_eval_decay,
             "ema_eval_enabled": args.ema_eval_decay is not None,
+            "logit_z_loss_weight": args.logit_z_loss_weight,
+            "logit_z_loss_enabled": args.logit_z_loss_weight > 0.0,
         },
     )
 
@@ -992,7 +1013,8 @@ for trial_idx in range(args.num_trials):
             with torch.no_grad():
                 assert len(val_inputs) % mbs == 0
                 for i in range(len(val_inputs) // mbs):
-                    val_loss += model(val_inputs[i*mbs:(i+1)*mbs], val_targets[i*mbs:(i+1)*mbs])
+                    # model() returns (loss, z_loss_aux, logit_abs_sum); only loss is needed for val.
+                    val_loss += model(val_inputs[i*mbs:(i+1)*mbs], val_targets[i*mbs:(i+1)*mbs])[0]
             dist.all_reduce(val_loss, op=dist.ReduceOp.SUM)
             val_loss /= val_tokens
             val_loss_float = float(val_loss.item())
@@ -1016,7 +1038,7 @@ for trial_idx in range(args.num_trials):
                 ema_val_loss = torch.zeros((), device=device)
                 with torch.no_grad():
                     for i in range(len(val_inputs) // mbs):
-                        ema_val_loss += model(val_inputs[i*mbs:(i+1)*mbs], val_targets[i*mbs:(i+1)*mbs])
+                        ema_val_loss += model(val_inputs[i*mbs:(i+1)*mbs], val_targets[i*mbs:(i+1)*mbs])[0]
                 dist.all_reduce(ema_val_loss, op=dist.ReduceOp.SUM)
                 ema_val_loss /= val_tokens
                 ema_val_loss_float = float(ema_val_loss.item())
@@ -1036,7 +1058,7 @@ for trial_idx in range(args.num_trials):
                     ema_val_loss_corrected = torch.zeros((), device=device)
                     with torch.no_grad():
                         for i in range(len(val_inputs) // mbs):
-                            ema_val_loss_corrected += model(val_inputs[i*mbs:(i+1)*mbs], val_targets[i*mbs:(i+1)*mbs])
+                            ema_val_loss_corrected += model(val_inputs[i*mbs:(i+1)*mbs], val_targets[i*mbs:(i+1)*mbs])[0]
                     dist.all_reduce(ema_val_loss_corrected, op=dist.ReduceOp.SUM)
                     ema_val_loss_corrected /= val_tokens
                     ema_val_loss_corrected_float = float(ema_val_loss_corrected.item())
@@ -1143,15 +1165,25 @@ for trial_idx in range(args.num_trials):
         # accumulate across microbatches in case we are running with fewer than 8 gpus
         assert len(inputs) % mbs == 0
         step_loss = torch.zeros((), device=device)
+        step_z_loss = torch.zeros((), device=device)
+        step_logit_abs_sum = torch.zeros((), device=device)
         for i in range(len(inputs) // mbs):
-            loss = model(inputs[i*mbs:(i+1)*mbs], targets[i*mbs:(i+1)*mbs])
+            loss, z_loss_contrib, logit_abs_sum = model(inputs[i*mbs:(i+1)*mbs], targets[i*mbs:(i+1)*mbs])
             step_loss += loss.detach()
+            step_z_loss += z_loss_contrib
+            step_logit_abs_sum += logit_abs_sum
             loss.backward()
         for name, p in model.named_parameters():
             assert p.grad is not None, name
             dist.all_reduce(p.grad, op=dist.ReduceOp.SUM)
         dist.all_reduce(step_loss, op=dist.ReduceOp.SUM)
+        dist.all_reduce(step_z_loss, op=dist.ReduceOp.SUM)
+        dist.all_reduce(step_logit_abs_sum, op=dist.ReduceOp.SUM)
         train_loss = float((step_loss / batch_size).item())
+        # z-loss reports as per-token contribution (matches train_loss = total/batch_size).
+        train_z_loss = float((step_z_loss / batch_size).item())
+        # logit abs mean averaged across all logits = total / (batch_size * vocab_size).
+        train_logit_abs_mean = float((step_logit_abs_sum / (batch_size * 50304)).item())
         # set optimization hyperparameters and take a step
         eta_actual = set_hparams(step)
         train_step = step + 1
@@ -1179,6 +1211,8 @@ for trial_idx in range(args.num_trials):
                 step=train_step,
                 train_steps=train_steps,
                 wandb_step=wandb_step,
+                logit_z_loss_contribution=train_z_loss,
+                logit_abs_mean=train_logit_abs_mean,
             )
         for opt in optimizers:
             opt.step()
