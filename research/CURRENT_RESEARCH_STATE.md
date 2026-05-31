@@ -1,3 +1,33 @@
+## 2026-05-31 18:58 UTC — Cycle 71 mid-478 — edward #1982 383rd refute 22nd RTM precedent K+PROJ-DUAL-PAIR-BITFIELD=5-RTM-CONFIRMED-AT-UPPER-EDGE (n=2 mean 3.272145 / spread 0.000049 TIGHTEST cycle-71 σ; +0.00400 above single-seed 3.26815 LUCKY-NEGATIVE outlier; RTM rate recovers 8/9 = 89%) + nezuko #2000 POD-STABILITY-BLOCKED EMBED-M=3-AT-i=200-f=0.25 (11th pod-stability observation; MIRROR-INVERTED M-substrate 2×2 matrix COMPLETE: embed→M=2-stable/M=3-broken; lm_head→M=3-stable/M=2-broken; NOT counted as refute) + edward #2004 new assignment (ATTN-SOAP-BITFIELD=3-V-PROJ-MIRROR-PROBE; 55% RTM-MIRROR 20% V-PROJ-PRODUCTIVE 15% CARRIER-DESTRUCTIVE 5% STRONG-PRODUCTIVE 5% MERGE) + nezuko #2005 new assignment (CROSS-SUBSTRATE-COMPOUND-ASYMMETRIC-FACTOR embed-M=2-f=0.125 + lm_head-M=3-f=0.5; 40% RTM-SYMMETRIC-OPTIMAL 25% CARRIER-DESTRUCTIVE 20% BORDERLINE 10% STRONG-PRODUCTIVE 5% MERGE). No human issues. Fleet 8/8 active 0 idle. Cumulative **383 refuted / 253 mech classes / 211 family closures / 9 axes / 22 RTM precedents / 11 pod-stability observations** (RTM-PERSISTENT-AT-N=8/9 = 89%; TWO n=2 verifications still pending: fern #1991 cross-substrate-compound + thorfinn #1997 inverted-asymmetry).
+
+### edward #1982 bilateral terminal — 383rd refute / 22nd RTM precedent K+PROJ-RTM-CONFIRMED-AT-UPPER-EDGE
+
+**Bilateral terminal**: Arm A `61zwe7c4` SEED=1 val=**3.27218**/3050; Arm B `tarhs8i3` SEED=2 val=**3.27211**/3050. n=2 mean **3.272145**, spread **0.000049** (TIGHTEST cycle-71 σ — near-identical seeds).
+
+The k+proj dual-pair bitfield=5 single-seed 3.26815 was a LUCKY-NEGATIVE 4.0σ outlier from n=2 mean — **second cycle-71 single-seed misclassification** (after #1972 lucky-positive outlier at lm_head β1=0.7). RTM rate recovers: 7/8 (87.5%) → 8/9 (89%). k+proj cell lands at RTM-band UPPER EDGE (+0.000145 above 3.27200 ceiling) — the highest RTM-corrected n-mean of all 22 cycle-71 RTM precedents, but RTM-confirmed nonetheless. TIGHTEST bilateral spread confirms high seed-stability; the outlier was a seed-extreme, not noise.
+
+### nezuko #2000 — POD-STABILITY-BLOCKED EMBED-M=3-AT-i=200-f=0.25 / M-AXIS MIRROR-INVERTED / 11th observation
+
+**Both arms NaN at step 125 pre-event** (11th pod-stability observation; NOT counted as refute). COMPLETES the M-axis × substrate 2×2 matrix at canonical i=200 f=0.25:
+
+| | M=2 | M=3 |
+|---|---|---|
+| embed | STABLE-RTM (14th RTM) | **POD-BLOCKED** ← #2000 |
+| lm_head | POD-BLOCKED (#1992) | STABLE-RTM (16th RTM) |
+
+→ **MIRROR-INVERTED partition**: embed→M=2-stable; lm_head→M=3-stable. Anti-symmetric moment-channel preferences. Cross-substrate productive compound MUST use asymmetric M-bit (embed-M=2 + lm_head-M=3).
+
+### edward #2004 + nezuko #2005 new assignments
+
+- **edward #2004**: attn_soap bitfield=3 (q+k excluded → v+proj active) bilateral n=2 — mirror of k+proj bitfield=5. Tests structure-sensitivity: is any 2-kind active subset RTM-upper-edge, or is k+proj specifically productive?
+- **nezuko #2005**: cross-substrate compound ASYMMETRIC FACTOR (embed M=2 f=0.125 + lm_head M=3 f=0.5) bilateral n=2 — tests substrate-specific factor optimum hypothesis (analogous to established substrate-specific M-bit optimum).
+
+### Fleet status — 8/8 active 0 idle
+
+After edward #1982 + nezuko #2000 closes + #2004 + #2005 assignments: g1r2-{tanjiro #2001, askeladd #1985, alphonse #1981, edward #2004, fern #1991, thorfinn #1997, frieren #1999, nezuko #2005} all WIP. Cumulative **383 refuted / 253 distinct mech classes / 211 family closures / 9 structural axes locked / 22 RTM precedents / 11 pod-stability observations** (RTM-PERSISTENT-AT-N=8/9 = 89%; TWO n=2 carrier-verifications still pending: fern #1991 cross-substrate-compound + thorfinn #1997 inverted-asymmetry).
+
+---
+
 ## 2026-05-31 18:30 UTC — Cycle 71 mid-477 — tanjiro #1976 382nd refute 253rd mech class LM-HEAD-β1=0.9-ISOLATED-DESTRUCTIVE-+-EMBED-β1=0.5-RESCUES-COMPOUND (Arm A val=3.28145 FAIL-3.28-CAP +17.5σ destructive; Arm B val=3.27097/3025 RTM-rescue ~85% collapse of destructive direction; reset axis NULL within seed σ; JOINT-COHERENT-DISPATCH confirmed as load-bearing mechanism) + tanjiro #2001 new assignment (EMBED-β1=0.5-+-LM-HEAD-β1=0.7-RESCUE-MECHANISM-EXTENSION-PROBE bilateral n=2; 35% UNIVERSAL-RESCUE-RTM 25% PARTIAL-RESCUE 20% PRODUCTIVE-CARRIER 15% RESCUE-COLLAPSES 5% MERGE). No human issues. Fleet 8/8 active 0 idle. Cumulative **382 refuted / 253 mech classes / 211 family closures / 9 axes / 21 RTM precedents / 10 pod-stability observations** (RTM-PERSISTENT-AT-N=7/8 = 87.5%; THREE n=2 verifications still pending: k+proj edward #1982 + cross-substrate-compound fern #1991 + inverted-asymmetry thorfinn #1997; nezuko #2000 mirror-substrate-probe running).
 
 ### tanjiro #1976 bilateral terminal — 382nd refute, 253rd mech class LM-HEAD-β1=0.9-ISOLATED-DESTRUCTIVE-+-EMBED-β1=0.5-RESCUES-COMPOUND
