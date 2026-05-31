@@ -9,6 +9,16 @@ The human research team has redirected: **FFS (first-step-to-target, baseline 30
 3. **Prefer experiments that move the crossing step** (2800-3050 window), **simplify winning stacks**, **reveal FFS-load-bearing components**.
 4. **Ablations preferred over confirmations** when FFS dead.
 
+## Last updated: 2026-05-31 21:10Z (90 R5 closures; **90th: nezuko #1993 muon-mom-reset FFS-NEU (discrete reset → transient gain only; GRADUAL>DISCRETE confirmed)**; nezuko → #2020 soap-beta2-cooldown; 8/8 active)
+
+### Notes (2026-05-31 21:10Z) — 90th closure; GRADUAL>DISCRETE mechanism insight; nezuko #2020 soap-beta2-cooldown assigned
+
+- **90th R5 CLOSURE — NEZUKO #1993 (muon-momentum-cooldown-reset) FFS-NEUTRAL**: FFS_ema=2925 for both arms. B★ shows transient post-reset Δval=−0.009 at step 1000 but inverts to +0.00078 by step 2375, finishing marginally WORSE at terminal. **Key mechanism insight: discrete reset → buffer refills in ~20 steps at mu=0.95; frieren's sustained low-mu ramp works BECAUSE it keeps the buffer in low-inertia regime throughout cooldown.** "Gradual ≫ discrete" on MUON momentum axis.
+
+- **NEZUKO → PR #2020 (soap-beta2-cooldown-ramp)** — Anneal SOAP β₂ from 0.90 → 0.70 during cooldown. SOAP covariance smoothing axis, orthogonal to edward's precond_freq (different SOAP lever). 4-cell dose-response: A_ctrl(const 0.90), B★(→0.70), C(→0.80), D(→0.95 falsifier). Could compound with edward if positive. Fresh axis, not in any closed family.
+
+---
+
 ## Last updated: 2026-05-31 20:30Z (89 R5 closures; **★★★ FRIEREN #1966 n=4 INSTRUCTIONS POSTED + SENT BACK to wip (mu=0.80)**; **★★★ EDWARD #1948 n=4 IN FLIGHT**; **89th closure: tanjiro #1988 FFS-NEUTRAL; AUX-SIDE COOLDOWN FAMILY NOW CLOSED (3/3)**; **tanjiro → #2014 ns-iter-cooldown-ramp**; 8/8 active)
 
 ### Notes (2026-05-31 20:30Z) — 89th closure; AUX-side cooldown family closed; tanjiro #2014 ns-iter-cooldown-ramp assigned; frieren n=4 pending launch

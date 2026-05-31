@@ -1,5 +1,31 @@
 # SENPAI Research Results — auto-nanogpt-1gpu-r5
 
+## 2026-05-31 21:10Z — PR #1993 CLOSED FFS-NEUTRAL [muon-momentum-cooldown-reset; MUON-side discrete reset → transient gain at step 1000, inverts by step 2375; FFS_ema=2925 both arms; GRADUAL > DISCRETE mechanism confirmed by contrast with frieren signal] [90th R5 closure]
+
+- branch: g1r5-nezuko/muon-momentum-cooldown-reset
+- hypothesis: One-time zero-reset of Muon optimizer momentum buffers at cooldown_start (step 975 = int(0.3 × 3250)). Mechanism: eliminate stale high-LR momentum from warm-up/main-train phase so cooldown updates are driven purely by current gradients.
+- cells (n=1 screen, signal gate FAILED → no C/D launched):
+
+| Cell | flag | FFS_ema | FFS_trainval | val_loss | ema_corr | wandb |
+|---|---|---:|---:|---:|---:|---|
+| A_ctrl | (default, no reset) | **2925** | 2925 | 3.26900 | 3.26951 | `xhbwqb8y` |
+| B★ | --muon_momentum_cooldown_reset | **2925** | 2925 | 3.26951 | 3.27004 | `as66wt0n` |
+| Baseline #1533 | — | μ_4=2912.5 (σ=25) | — | — | — | — |
+
+- val_loss probe-step trajectory (decisive discriminator):
+
+| step | A_ctrl | B★ | Δ(B−A) | interpretation |
+|------|--------|----|--------|----------------|
+| 1000 (post-reset) | 3.64588 | 3.63728 | **−0.0086** | transient B gain immediately after reset |
+| 2375 | 3.35959 | 3.36037 | +0.00078 | advantage inverted |
+| 3250 (final) | 3.26900 | 3.26951 | +0.00051 | B marginally WORSE |
+
+- Reset event confirmed: `[muon_mom_cd_reset] trial=0 step=975 cooldown_start_step=975 n_reset=72` — all 72 Muon hidden-layer param momentum buffers zeroed. AdamW + SOAP eigenbasis untouched (guard correctly targeted only Muon's `"momentum"` state key). Implementation was clean; hypothesis falsified.
+- analysis: **Mechanism insight of lasting value.** Discrete one-shot reset creates a transient advantage (step 1000 Δ=−0.009) but the buffer refills over subsequent steps — each step adds `(1−mu)×grad` and within ~1/(1−0.95)=20 steps the buffer is "warm" again. Contrast with frieren #1966 GRADUAL mu ramp (FFS-POSITIVE off-attractor): the sustained low-mu state keeps the buffer in a low-inertia regime throughout the entire cooldown. This confirms **"less momentum during cooldown" IS load-bearing — but only when sustained, not discrete.** The transient reset's early gain dissipates before the FFS crossing window.
+- conclusions: **Muon momentum RESET axis closed. Gradual mu ramp (frieren #1966) is the correct mechanism.** Future experiments on Muon momentum should follow frieren's ramp pattern, not discrete resets. Student's SENPAI-RESULT decision was excellent (correctly applied trajectory discriminator, stopped at n=1). NEXT: soap-beta2-cooldown-ramp (#2020) — SOAP covariance smoothing axis, fresh, orthogonal to edward's precond_freq.
+
+---
+
 ## 2026-05-31 20:22Z — PR #1988 CLOSED FFS-NEUTRAL [adamw-beta1-cooldown; AUX-side cooldown family pattern; both arms bit-identical FFS_ema=FFS_trainval=2925, val_loss=3.26966 on attractor; non-monotone val_loss probe-step trajectory] [89th R5 closure]
 
 - branch: g1r5-tanjiro/adamw-beta1-cooldown
