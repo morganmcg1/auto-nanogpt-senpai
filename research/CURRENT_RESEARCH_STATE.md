@@ -1,3 +1,62 @@
+## 2026-05-31 01:15 UTC — Cycle 71 mid-447 — frieren #1872 351st refute + nezuko #1866 352nd refute (double closure with axes #5 lm_head INVERSE-PARABOLIC + axis #9 8-cube COMPLETE)
+
+### frieren #1872 axes #5 LM-HEAD-MOMENT-AXIS-FACTOR-0.5-CUBE-COMPLETE — 351st refute, 185th family closure, 218th mech class
+
+Bilateral terminal: Arm A `joint_M1_factor_0.5_both_substrates` (`54g57tsp`) val=**3.26906**/3025 INSIDE FLOOR BAND; Arm B `lm_head_M3_factor_0.5` (`onvvu1ep`) val=**3.26858**/**3000** (ffs ON merge bar). Bilateral mean **3.26882**/3012.5 ABOVE both merge bars by +0.00106 val + 12.5 ffs. **351st cycle-71 refute**.
+
+**Arm B is the LOWEST single-arm lm_head substrate result of cycle 71** — ffs=3000 exactly on merge bar, val +0.00082 above; routed to #1901 for n=2 verification (HIGHEST-VALUE single test in current cycle 71 portfolio).
+
+**KEY STRUCTURAL FINDING — LM-HEAD INVERSE-PARABOLIC NON-MONOTONIC + EMBED STRICT-MONOTONIC ASYMMETRY**:
+- **lm_head MOMENT × FACTOR=0.5 cube 6 of 6 COMPLETE**: M=3 (3.26858 BEST) < M=1 (3.27098) < M=2 (3.27314 WORST) → INVERSE-PARABOLIC non-monotonic
+- **embed MOMENT × FACTOR=0.5 cube 3 of 3 (#1814+#1864)**: M=1 (3.26881 BEST) < M=2 (3.27016) < M=3 (3.27162) → STRICT-MONOTONIC DEGRADATION
+- **CROSS-KIND-STRUCTURE ASYMMETRY** QUALITATIVELY OPPOSITE: embed productive at LOW-channel-breadth M=1; lm_head productive at HIGH-channel-breadth M=3
+- **EMBED-DOMINANT JOINT-SYNERGY** at M=1 factor=0.5: joint Arm A 3.26906 is FAR closer to embed-alone (Δ=+0.00025) than lm_head-alone (Δ=−0.00192); lm_head cross-kind floor penalty NOT COMPOUNDING in joint substrate
+- **LM-HEAD M=3 PRODUCTIVE-FLOOR REVELATION**: extends #1852 SIGN-FLIP from binary to INVERSE-PARABOLIC — destructive M=2 cell FLANKED by productive M=1 + M=3 sides
+
+**218th MECH CLASS**: LM-HEAD-MOMENT-AXIS-FACTOR-0.5-CUBE-COMPLETE-WITH-INVERSE-PARABOLIC-NON-MONOTONIC-CHANNEL-STRUCTURE-AND-CROSS-KIND-STRUCTURE-ASYMMETRY-FROM-EMBED-STRICT-MONOTONIC.
+
+**185th FAMILY CLOSURE**: AXIS-5-LM-HEAD-MOMENT-AXIS-FACTOR-0.5-CUBE-COMPLETE-6-OF-6-CELLS-WITH-INVERSE-PARABOLIC-CHANNEL-STRUCTURE.
+
+### nezuko #1866 axis #9 8-CUBE COMPLETION — 352nd refute, 186th family closure, 219th mech class
+
+Bilateral terminal: Arm A `k_only_EARLY_FAST` (`rjinzzpb`) val=**3.27444**/3075 REFUTE; Arm B `v_proj_joint_EARLY_FAST` (`568s7p5w`) val=**3.26924**/3025 INSIDE FLOOR BAND (strongest EARLY-FAST landing at axis #9). Bilateral mean **3.27184**/3050 ABOVE merge bars. **352nd cycle-71 refute**.
+
+**KEY STRUCTURAL FINDING — FOUR-CLASS PHASE-COUPLING TAXONOMY + v×proj SUB-ADDITIVE COMPRESSION + k-BILATERAL-LOAD-BEARING**:
+- **8-cube CLOSED at 8 of 8 cells** (4 projections × 2 phases): q PHASE-SYMMETRIC DEGENERATE / k BILATERAL-LOAD-BEARING (LATE 3.26948 best AND EARLY 3.27444 worst) / v EARLY-MILDLY-DESTRUCTIVE / proj PHASE-INVERTED (EARLY productive, LATE destructive)
+- **v×proj JOINT SUB-ADDITIVE COMPRESSION**: Arm B 3.26924 = −0.00224 BELOW sub-additive predicted, −0.00597 BELOW naive additive predicted. The v+proj joint EARLY-FAST channel sharing PRODUCTIVELY COMPRESSES destructive contributions
+- **k-BILATERAL-LOAD-BEARING (NEW class 4th of taxonomy)**: k is the ONLY projection where BOTH phases are dispositive
+- **Cross-mechanism with #1845 OPPOSITE-PHASE-FRAGILITY**: confirms + extends with 2 new structural cells (q DEGENERATE + k BILATERAL-LOAD-BEARING)
+
+**219th MECH CLASS**: AXIS-9-8-CUBE-COMPLETE-WITH-FOUR-CLASS-PHASE-COUPLING-TAXONOMY-AND-V-PROJ-JOINT-SUB-ADDITIVE-COMPRESSION-AND-K-BILATERAL-LOAD-BEARING-NEW.
+
+**186th FAMILY CLOSURE**: AXIS-9-8-CUBE-FULL-COMPLETION-AT-4-PROJECTIONS-X-2-PHASES-WITH-FOUR-CLASS-PHASE-COUPLING-TAXONOMY.
+
+### frieren #1901 new assignment: lm_head M=3 factor=0.5 n=2 VERIFICATION × FACTOR-AXIS PROBE
+
+**Goal**: HIGHEST-VALUE single-test in cycle 71 portfolio — does the #1872 Arm B 3.26858/3000 single-seed sub-floor + ffs-on-bar landing replicate at fresh seed?
+- Arm A: re-seed `lm_head_M3_factor_0.5` (n=2 variance band); if val < 3.26776 AND ffs ≤ 3000 → MERGE CANDIDATE
+- Arm B: `lm_head_M3_factor_0.25` factor-axis probe (parallel to embed M=1 U-shape #1842 pattern)
+
+Outcomes: SUB-FLOOR confirmed + KIND-INVARIANT U-shape (35%) / MERGE CANDIDATE (15%) / 11th RTM precedent (20%) / Multi-modal lm_head M=3 productive (15%) / CATASTROPHIC-VARIANCE (10%) / OTHER (5%).
+
+### nezuko #1902 new assignment: k-DIRECTION-REVERSAL PROBE × v×proj×q TRIPLE-JOINT COMPRESSION
+
+**Goal**: extend axis #9 4-class taxonomy + test SUB-ADDITIVE COMPRESSION extension:
+- Arm A: `k_EARLY_SLOW + LATE_SLOW` (k β2 INVERTED on both phases); tests if k bilateral-load is direction-locked
+- Arm B: `v_proj_q_joint_EARLY_FAST` (3-projection joint); tests if v×proj SUB-ADDITIVE COMPRESSION extends to triple-joint or saturates
+
+Outcomes: k REVERSE destructive + TRIPLE-JOINT sub-additive extended (30%) / k REVERSE productive + TRIPLE-JOINT saturates (25%) / TRIPLE-JOINT sub-floor MERGE CANDIDATE (10%) / OTHER (35%).
+
+### fern #1887 stale_wip CATCHUP + CROSS-PR INCONSISTENCY FLAG
+
+Arm A `gdra2o3m` TERMINAL val=**3.26977**/3025 — but this CONTRADICTS #1852 B (lm_head M=2 factor=0.5 = 3.27314) by −0.00337 (7.5× single-seed noise band). Possibilities: (1) CONFIG MISMATCH (interval=200 vs 250 between PRs) — if interval matters → NEW INTERVAL-AXIS-AT-LM-HEAD finding; (2) SINGLE-SEED VARIANCE OUTLIER (either #1852 B catastrophic-variance or THIS PR Arm A productive-variance). Posted catchup requesting config verification + Arm B `embed_M=2_factor_0.25` launch banner. If THIS PR Arm A is canonical, the #1872 (218th mech class) lm_head INVERSE-PARABOLIC structure would shift to NEAR-MONOTONIC (M=3 < M=2 < M=1) — would require erratum closure on #1872.
+
+### Cycle 71 cumulative update
+
+Fleet 8/8 active 0 idle. Cumulative: **352 refuted / 219 mech classes / 186 family closures / 9 axes locked / 10 regression-to-mean precedents**. EIGHTH cycle-71 closure (#1872) where pre-declared hypothesis space rejected and category-new HYBRID outcome matched. The fern #1887 cross-PR inconsistency is the FIRST cycle-71 cross-PR replication anomaly that could trigger an erratum on a closed family closure (#1872 218th mech class).
+
+---
+
 ## 2026-05-31 00:05 UTC — Cycle 71 mid-446 — alphonse #1869 350th refute + 184th family closure + 217th mech class (axes #1×#6 JOINT-SYNERGY-PEAK DIRECTION × DEPTH CUBE 3-of-4 COMPLETE with PARTIAL-DIRECTION + PARTIAL-DEPTH SYMMETRY + COOLDOWN-WINDOW MEDIATION: Arm A `lm_head-WD-DOWN-1.0x-back-tight` val=3.27185/3050 + Arm B `lm_head-WD-UP-1.0x-FRONT-TIGHT` val=3.27227/3050; bilateral mean 3.27206/3050 ABOVE both merge bars; 217th mech class JOINT-SYNERGY-PEAK-AT-AXES-1-X-6-PARTIAL-DIRECTION-AND-PARTIAL-DEPTH-SYMMETRIC-WITH-COOLDOWN-WINDOW-MEDIATION; FOUR concurrent invariants: PARTIAL-DIRECTION-SYMMETRIC 47.9% peak excess preserved at DOWN, PARTIAL-DEPTH-TRANSFERABLE 53.4% peak excess preserved at FRONT-TIGHT, COOLDOWN-WINDOW MEDIATION (mid-trajectory val curves identical through step 2900; divergence only in final 275 steps), ALL 4 SINGLE-CELL HYPOTHESES REJECTED + 8% MIXED PARTIAL prior MATCHED EIGHTH cycle-71 closure of this pattern; KEY DIRECTION-DECOUPLING FINDING: terminal lm_head proj rms 0.11515 (DOWN) vs 0.11501 (UP) differ by 0.12% despite opposite-sign WD — direction-specific destruction enters via gradient/update interactions NOT steady-state compression; 184th family closure AXES-1-X-6-DIRECTION-X-DEPTH-CUBE-3-OF-4-CELLS-COMPLETE-AT-MAGNITUDE-1.0) + alphonse #1893 new assignment (4TH CELL COMPLETION + n=2 VERIFICATION at FRONT-TIGHT: Arm A lm_head_WD_DOWN_FRONT_TIGHT 4th cell completion discriminates ADDITIVE vs SUPER-ADDITIVE vs SIGN-CANCELLATION vs CATEGORY-NEW + Arm B lm_head_WD_UP_FRONT_TIGHT n=2 pins partial-transfer variance band) + nezuko #1866 Arm A duplicate-run thread CLOSED (Case-1 confirmed canonical `rjinzzpb` val=3.27444/3075 REFUTE-level; Arm B `568s7p5w` v×proj joint EARLY-FAST launched clean at 23:08Z ETA ~01:00Z) + edward #1873 Arm B config anomaly RESOLVED (duplicate Arm A bitfield=10 killed clean; correct Arm B `k7phdr64` Q-ONLY TRIPLE-EXC bitfield=14 launched at 23:52Z ETA ~01:37Z). Fleet 8/8 active 0 idle. Cumulative: 350 refuted / 217 mech classes / 184 family closures / 9 axes locked / 10 regression-to-mean precedents.
 
 ### alphonse #1869 axes #1×#6 JOINT-SYNERGY-PEAK DIRECTION × DEPTH CUBE — 350th refute, 184th family closure, 217th mech class
