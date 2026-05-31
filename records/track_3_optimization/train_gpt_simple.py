@@ -101,6 +101,13 @@ def parse_args():
                         help="EMA decay for SWA-style EMA-eval; None=disabled (control). "
                              "Recommend 0.99-0.9999. When set, val/ema_loss is logged "
                              "and speedrun/first_step_to_target uses the EMA-val crossing.")
+    parser.add_argument("--eps_cooldown_end", type=float, default=1e-10,
+                        help="AdamW epsilon at the end of cooldown. Default 1e-10 "
+                             "(matches current static value, code-path no-op). "
+                             "Log-linear decay from 1e-10 -> eps_cooldown_end starts at "
+                             "cooldown_start = (1 - cooldown_frac) * train_steps and ends "
+                             "at train_steps. Only applies to AdamW param groups "
+                             "(embed, lm_head, scalars); Muon groups unaffected.")
     args = parser.parse_args()
     args.num_trials = args.num_trials if args.num_trials is not None else (args.legacy_num_trials or 1)
     args.wandb_tags = [tag.strip() for tag in args.wandb_tags.split(",") if tag.strip()]
@@ -914,6 +921,19 @@ for trial_idx in range(args.num_trials):
         else:
             raise ValueError(f"Unknown lr_cooldown_shape: {shape}")
 
+    ADAMW_EPS_START = 1e-10
+
+    def get_adamw_eps(step, cooldown_frac, eps_start, eps_end):
+        if eps_end >= eps_start:
+            return eps_start
+        cooldown_start = int((1.0 - cooldown_frac) * train_steps)
+        if step < cooldown_start:
+            return eps_start
+        frac = (step - cooldown_start) / max(1, train_steps - cooldown_start)
+        frac = min(max(frac, 0.0), 1.0)
+        log_eps = math.log(eps_start) + frac * (math.log(eps_end) - math.log(eps_start))
+        return math.exp(log_eps)
+
     def set_hparams(step, cooldown_frac=0.7):
         progress = step / train_steps
         assert 0 <= progress < 1
@@ -928,6 +948,14 @@ for trial_idx in range(args.num_trials):
                 group["lr"] = group["initial_lr"] * eta
                 if "initial_wd" in group and group.get("name", "").startswith("muon_"):
                     group["weight_decay"] = group["initial_wd"] * wd_mu
+        if args.eps_cooldown_end < ADAMW_EPS_START:
+            current_eps = get_adamw_eps(step, cooldown_frac,
+                                        eps_start=ADAMW_EPS_START,
+                                        eps_end=args.eps_cooldown_end)
+            for opt in optimizers:
+                for group in opt.param_groups:
+                    if "eps" in group:
+                        group["eps"] = current_eps
         return eta
 
 
@@ -1235,6 +1263,15 @@ for trial_idx in range(args.num_trials):
                 per_group_metrics["train/wd_attn_now"] = current_wds.get("muon_attn", 0.0)
                 per_group_metrics["train/wd_schedule_progress"] = train_step / train_steps
                 per_group_metrics["cooldown_shape/eta_at_step"] = eta_actual
+                adamw_eps_now = None
+                for group in optimizer1.param_groups:
+                    if "eps" in group:
+                        adamw_eps_now = float(group["eps"])
+                        break
+                if adamw_eps_now is not None:
+                    per_group_metrics["train/adamw/eps"] = adamw_eps_now
+                    per_group_metrics["train/adamw/log10_eps"] = math.log10(adamw_eps_now)
+                per_group_metrics["train/adamw/eps_cooldown_end"] = args.eps_cooldown_end
                 wandb.log(per_group_metrics, step=wandb_step)
         if dist.get_rank() == 0 and optimizer2.cos_sims_buffer:
             cs_names = list(optimizer2.cos_sims_buffer.keys())
