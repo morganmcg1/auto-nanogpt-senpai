@@ -1,5 +1,36 @@
 # SENPAI Research Results
 
+## 2026-05-31 15:15 UTC — PR #1935 alphonse: Body PMuon γ pulse BLOCK-STRATIFIED (γ→0.5 SHARPEN deep vs shallow) @ step 975 — ❌ BILATERAL NULL (depth localization does not unlock γ→0.5 SHARPEN headroom)
+
+- Branch: `g1r1-alphonse/body-gamma-sharpen-blockwise`
+- Hypothesis: Global γ pulse @ 975 (#1831) and @ pre-target (#1680) were bilateral NULL. Depth-stratifying the γ→0.5 SHARPEN tests whether headroom is concentrated in shallow or deep blocks — the late-higher LR pattern means deep blocks receive proportionally more whitening change per unit γ-shift.
+
+| Arm | Subset (blocks) | run | sr | val_ema | Δ vs gate (mnat) | Verdict |
+|---|---|---|---:|---:|---:|---|
+| Baseline (#1532, n=2) | — | 9coyk2ke/09qrijtm | 2875 | 3.262854 | 0 | — |
+| **A (DEEP blocks 8-11)** | deep | `38squmio` | 2925 | 3.264731 | **+1.88** | ❌ NULL |
+| **B (SHALLOW blocks 0-3)** | shallow | `phg6c5mn` | 2925 | 3.265399 | **+2.55** | ❌ NULL |
+
+- **Bilateral NULL within 0.67 mnat:** Shallow (Arm B) is marginally WORSE than deep (Arm A) — the depth-response is reversed from the momentum axis (#1929 shallow 0.675 mnat near-miss). Different mechanism, same conclusion: depth localization cannot rescue the γ→0.5 axis.
+- **Axis closure:** Combined with #1831 (global γ@975 bilateral NULL +3.4/+4.2 mnat) and #1680 (pre-target γ bilateral NULL), **body PMuon γ axis EXHAUSTIVELY CLOSED** across all temporal boundaries (cooldown-onset / pre-target) AND all depth localizations (joint / deep / shallow). Student note: "depth localization does not unlock γ→0.5 SHARPEN headroom."
+- alphonse reassigned: Block-stratified body PMuon momentum FRESH-START (m.copy_(p.grad)) @ step 975 — Arm A deep (8-11), Arm B shallow (0-3). Third distinct state-operation after HARD-ZERO (#1929) and DECAY (#1980).
+
+## 2026-05-31 15:10 UTC — PR #1930 fern: Body PMuon side cov HARD-ZERO / ×0.5 DECAY @ cooldown onset step 975 — ❌ BILATERAL NULL (cov buffer values regenerate within steps; perturbation axis FULLY CLOSED)
+
+- Branch: `g1r1-fern/body-cov-hardzero-cooldown`
+- Hypothesis: Body PMuon side-cov STATE BUFFER values (L and R running statistics in bilateral whitening L^{-γ}·g·R^{-γ}) at cooldown onset may over-represent pre-cooldown curvature. Resetting or decaying them forces L/R to readapt from scratch at step 975, potentially improving update direction quality through cooldown.
+
+| Arm | Factor | run | sr | val_ema | Δ vs gate (mnat) | Verdict |
+|---|---|---|---:|---:|---:|---|
+| Baseline (#1532, n=2) | — | 9coyk2ke/09qrijtm | 2875 | 3.262854 | 0 | — |
+| **A (HARD-ZERO factor=0.0)** | 0.0 | `kimfzyld` | 2925 | 3.266424 | **+3.57** | ❌ NULL |
+| **B (×0.5 DECAY factor=0.5)** | 0.5 | `u3a62mkw` | 2925 | 3.266546 | **+3.69** | ❌ NULL |
+
+- **Symmetric NULL within 0.12 mnat:** HARD-ZERO and ×0.5 DECAY produce essentially identical outcomes. Sentinels verified correct perturbation: 72L + 72R params touched; L mean 1087.49→0.0 (Arm A), 1460.27→730.14 (Arm B); R mean 61106→0 (Arm A), 57864→28932 (Arm B). The buffer values clearly changed — yet no benefit.
+- **Mechanism interpretation:** Cov buffer values L and R recover within a few steps via their running statistics update rule, so the perturbation is absorbed quickly. The loss signal is not sensitive to the cov-state buffer VALUE at the phase boundary; only the RATE (β_cov) matters, and that axis is closed (#1666 β_cov pulse NULL).
+- **Axis closure:** Combined with #1849 (per-side L/R asymmetric reset bilateral NULL), #1780 (full L+R ZERO @975/1100 bilateral NULL, seed-2 confirmed), and #1726 (cov ZERO @2750 pre-target NULL), **body PMuon side cov-state buffer-value perturbation axis FULLY CLOSED** across all magnitudes (ZERO / ×0.5) AND all temporal boundaries (975 / 1100 / 2750) AND all asymmetries (joint / L-only / R-only). Student note: "Decaying or zeroing the body PMuon side cov buffers at cooldown onset is a clean negative result."
+- fern reassigned: Aux Adam β₂ EARLY pulse 0.95→0.99 @ step 100 (mid-warmup) vs step 200 (warmup-end) — timing complement to frieren #1963 (aux v-state ×0.5 @ step 200).
+
 ## 2026-05-31 14:45 UTC — PR #1934 tanjiro: Aux Adam m-state HARD-ZERO PER-GROUP @ step 975 (lm_head-only vs embed-only) — ❌ BILATERAL NULL (per-group localization closes aux m-state axis exhaustively)
 
 - Branch: `g1r1-tanjiro/aux-m-zero-per-group`
