@@ -84,6 +84,16 @@ def parse_args():
     parser.add_argument('--aux_b2_pulse_target', type=float, default=0.99,
                         help='New aux Adam β2 value to set at --aux_b2_pulse_step. '
                              '0 or negative disables. Default: 0.99 (canonical WIN).')
+    parser.add_argument(
+        "--aux_scalars_v_decay_step", type=int, default=0,
+        help="Step at which to multiplicatively scale the adam_scalars group's "
+             "exp_avg_sq (v) buffer. 0 disables.",
+    )
+    parser.add_argument(
+        "--aux_scalars_v_decay_factor", type=float, default=1.0,
+        help="Scale factor applied to adam_scalars exp_avg_sq when "
+             "aux_scalars_v_decay_step fires. 1.0 is no-op.",
+    )
     parser.add_argument("--seed", type=int, default=1,
                         help="Random seed for torch/numpy/python. Default 1 matches baseline seed.")
     args = parser.parse_args()
@@ -765,6 +775,8 @@ if dist.get_rank() == 0:
             "paramema_refresh_only": int(args.paramema_refresh_only),
             "aux_b2_pulse_step": args.aux_b2_pulse_step,
             "aux_b2_pulse_target": args.aux_b2_pulse_target,
+            "aux_scalars_v_decay_step": args.aux_scalars_v_decay_step,
+            "aux_scalars_v_decay_factor": args.aux_scalars_v_decay_factor,
             "seed": args.seed,
         },
     )
@@ -1071,6 +1083,47 @@ for trial_idx in range(args.num_trials):
                 group["betas"] = new_betas
             print0(f"[step {step}] aux_b2_pulse: β2 {old_b2} → {args.aux_b2_pulse_target}",
                    console=True)
+        if (args.aux_scalars_v_decay_step > 0
+                and step == args.aux_scalars_v_decay_step
+                and args.aux_scalars_v_decay_factor != 1.0):
+            n_params_scaled = 0
+            scale = float(args.aux_scalars_v_decay_factor)
+            v_before_max = 0.0
+            v_after_max = 0.0
+            v_before_mean = 0.0
+            v_after_mean = 0.0
+            for group in optimizer1.param_groups:
+                name = group.get("name", "")
+                if name == "adam_scalars":
+                    for p in group["params"]:
+                        state = optimizer1.state.get(p, None)
+                        if state is None or "exp_avg_sq" not in state:
+                            continue
+                        v = state["exp_avg_sq"]
+                        v_before_max = max(v_before_max, float(v.max()))
+                        v_before_mean += float(v.mean())
+                        v.mul_(scale)
+                        v_after_max = max(v_after_max, float(v.max()))
+                        v_after_mean += float(v.mean())
+                        n_params_scaled += 1
+            if dist.get_rank() == 0:
+                if n_params_scaled > 0:
+                    v_before_mean /= n_params_scaled
+                    v_after_mean /= n_params_scaled
+                print0(f"[step {step}] aux_scalars v-decay x{scale} on {n_params_scaled} params: "
+                       f"v.mean {v_before_mean:.6e}->{v_after_mean:.6e}, "
+                       f"v.max {v_before_max:.6e}->{v_after_max:.6e}",
+                       console=True)
+                if wandb.run is not None:
+                    wandb.log({
+                        "aux_scalars_v_decay/step": step,
+                        "aux_scalars_v_decay/factor": scale,
+                        "aux_scalars_v_decay/n_params_scaled": n_params_scaled,
+                        "aux_scalars_v_decay/v_mean_before": v_before_mean,
+                        "aux_scalars_v_decay/v_mean_after": v_after_mean,
+                        "aux_scalars_v_decay/v_max_before": v_before_max,
+                        "aux_scalars_v_decay/v_max_after": v_after_max,
+                    }, step=wandb_step)
         for opt in optimizers:
             opt.step()
         # EMA buffer update on body-Muon matrix params.
