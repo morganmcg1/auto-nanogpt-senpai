@@ -7638,3 +7638,46 @@ The hypothesis assumed lm_head gradient is rank-8-dominant. Telemetry directly c
 **Plateau context**: 16th consecutive no-merge closure since #847 (cycle 222). 2 of 5 escalation axes diverged (#1120 GaLore + #1132 Shampoo — both wholesale NS5-or-AdamW-replacement). NS5-preserving / AdamW-preserving escalations remain stable: #1122 AggMo, #1127 SF Arm A only (Arm B regression), #1138 Newton-Muon, #1153 Cautious.
 
 ### Nezuko reassigned → PR #1154 MARS-AdamW for aux (Yuan 2024 arXiv:2411.10438) — variance-reduced gradient estimate `g_t' = g_t + γ·(g_t − g_{t−1})` fed into standard AdamW. Mechanism-distinct from Cautious (output-mask) and from all OPTIMIZER-FAMILY-AUX closures: preserves AdamW step rule (no LR confound), single mechanism slot = STORM-style gradient variance reduction at the AdamW INPUT. 4 arms: A=ctrl, B=γ=0.025 lm_head only (mech-lead, targets Zipfian noise specifically), C=γ=0.025 all aux, D=γ=0.1 lm_head only (magnitude sensitivity).
+
+---
+
+## 2026-05-31 00:05 — PR #1762: NM γ-module-differentiated sweep MLP-proj vs attn+MLP-fc bidirectional (class 30) — **CLOSED NULL-PAIRED FAV-MIRAGE + G7-6-WAY-FFS-COHORT-CLOSURE + R-BUFFER-PER-MODULE-MECHANISM-VERIFIED + 12th R4 CATALOG CLOSURE**
+
+- branch: `g1r4-frieren/nm-module-differentiated-gamma`
+- hypothesis: Per-module-differentiated γ-Tikhonov (γ_MLP-proj=0.003, γ_attn+MLP-fc=0.008) leverages structural-dominance of MLP-proj (17-32× higher R_cond) to reduce damping on the high-conditioning axis while increasing damping on the low-conditioning axis; should improve terminal val/loss
+
+### Initial 3-arm chain results
+| Arm | Config | W&B run | val/loss | FFS | Single-seed Δ vs ctrl | Verdict |
+|---|---|---|---:|---:|---:|---|
+| A ctrl | uniform γ=0.005 | `1seglt0p` | 3.26365 | 3125 | — | baseline (+1.53σ_seed above #1702) |
+| B amplify | γ_MLP=0.008/γ_attn=0.003 | `blh13xct` | 3.26490 | 3125 | +0.00125 | NEG |
+| C damp | γ_MLP=0.003/γ_attn=0.008 | `4n0xdhwh` | 3.26101 | 3125 | −0.00264 | single-seed FAV → PP escalated |
+
+### PP-confirm n=3 paired results (6 runs interleaved, paired ctrl+exp per seed)
+| Pair | seed | PP-ctrl val | PP-exp val | Δ_paired (exp−ctrl) | |Δ|/σ_seed | label |
+|---|---:|---:|---:|---:|---:|---|
+| 1 | s0 | 3.26166 (`mn6pgm1w`) | 3.26049 (`ckik3tvo`) | **−0.00117** | 0.73σ | NULL-band-FAV-direction-lean |
+| 2 | s1 | 3.26153 (`caobqjqt`) | 3.26158 (`344nvw99`) | **+0.00005** | 0.03σ | NULL |
+| 3 | s2 | 3.26108 (`jzpi1v56`) | 3.26107 (`5dscacpg`) | **−0.00001** | 0.01σ | NULL essentially-flat |
+| **mean n=3** | | **3.26142** | **3.26105** | **−0.000377** | **0.24σ** | **NULL-PAIRED** |
+
+- Paired t-test: t=−0.95, df=2, p≈0.44 — unambiguous NULL
+- **Single-seed FAV collapse 7.0×** at n=3 PP-confirm (Δ_CA=−0.00264 → Δ_paired_mean=−0.000377) = textbook FAV-MIRAGE per c618 framework prediction from Arm A spawn-floor inflation (+1.53σ_seed above baseline)
+
+### G7 FFS=3125 6-way cohort closure (catalog-major)
+- All 6 PP-confirm runs FFS=3125 (PP-ctrl-s0/s1/s2 + PP-exp-s0/s1/s2) across 3 seeds × 2 config arms
+- **First r4 FFS-axis observation at PP-confirm 6-run cohort level**
+- FFS-DECOUPLED from both per-module-γ axis and seed dimension
+- Extends to **18th r4 FFS-DECOUPLED observation**
+
+### R-buffer per-module mechanism verification
+- **MLP-proj axis 3/3 bidirectional PASS-CLEAN**: γ=0.003 reproducibly raises R_cond_max_d_in_3072 by +68/+73/+79% across 3 seeds (3/3 R_cond_mean also pass)
+- **attn+MLP-fc axis noisy (2/3 cond_max, 0/3 cond_mean)**: γ=0.008 at tiny d_in=768 magnitude dominated by terminal-point sampling noise
+- **Bridge-to-outcome BROKEN**: mechanism-observable + outcome-NULL = FAV-MIRAGE plateau cohort pattern
+
+### FAV-MIRAGE plateau cohort expansion (per-module-γ joins)
+Per-module-γ axis (0.003/0.008 magnitude) now catalog-member alongside: NS-iters, NM-β-schedule, Tikhonov-uniform bidirectional SWITCH, R_warmstart_k, γ-Tikhonov SWITCH bidirectional — 7 catalog-confirmed FAV-MIRAGE plateau axes total
+
+### Fresh assignment
+frieren → #1894 NM cooldown-entry γ step-up bracket (γ_cooldown ∈ {0.0075, 0.015} at step 2345) — #1261-aligned cooldown-refresh direction, phase-dependent γ extension of #1543's uniform γ merge winner, orthogonal to per-module-γ axis just closed
+
