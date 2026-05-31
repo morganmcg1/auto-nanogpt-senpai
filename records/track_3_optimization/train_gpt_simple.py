@@ -114,6 +114,21 @@ def parse_args():
                         help="Polyak-Ruppert EMA decay for eval-only weight averaging. "
                              "0.0 = disabled (drift-FREE CTRL). Typical: 0.05 (fast, ~20-step half-life) / "
                              "0.005 (slow, ~200-step half-life). Higher decay = faster EMA tracking.")
+    # H341: BODY 2D spectral-norm² penalty via cached power iteration. Adds
+    # λ × mean(σ_max²(W_i)) over body 2D weights to the task loss each step.
+    # Mechanism test (M2) bisecting H326 closure narrowing: σ_max suppression
+    # while leaving F-norm free, distinct from H326 Gram-deviation penalty and
+    # from H339 F-norm projection. Default 0.0 disables (bit-id to H266 baseline).
+    parser.add_argument("--body_spectral_penalty", type=float,
+                        default=float(os.environ.get("BODY_SPECTRAL_PENALTY", "0.0")),
+                        help="λ for body 2D weight spectral-norm² penalty. "
+                             "L_total = L_task + λ × mean(σ_max²(W_i)) over body 2D weights. "
+                             "Power-iteration estimate (cached eigenvector across steps). "
+                             "Default 0.0 (disabled, bit-id with H266).")
+    parser.add_argument("--body_spectral_power_iters", type=int,
+                        default=int(os.environ.get("BODY_SPECTRAL_POWER_ITERS", "2")),
+                        help="Number of power iterations per step for σ_max estimation. "
+                             "Default 2 (cached eigenvector amortizes across steps).")
     args = parser.parse_args()
     args.num_trials = args.num_trials if args.num_trials is not None else (args.legacy_num_trials or 1)
     args.wandb_tags = [tag.strip() for tag in args.wandb_tags.split(",") if tag.strip()]
@@ -856,6 +871,8 @@ if dist.get_rank() == 0:
             "muonh_mu_start": args.muonh_mu_start,
             "muonh_mu_end": args.muonh_mu_end,
             "polyak_ema_decay": args.polyak_ema_decay,
+            "body_spectral_penalty": args.body_spectral_penalty,
+            "body_spectral_power_iters": args.body_spectral_power_iters,
         },
     )
 
@@ -942,6 +959,22 @@ for trial_idx in range(args.num_trials):
                        mode=args.muonh_mode)
     optimizer2.param_groups[0]["name"] = "muonh_blocks"
     optimizers = [optimizer1, optimizer2]
+    # H341: cached top-right-eigenvector per body 2D weight for σ_max power
+    # iteration. Matches the MuonH-managed body 2D parameter set. When
+    # body_spectral_penalty == 0 we skip every code path below so arm_a CTRL is
+    # bit-identical to the H266 baseline (no flag-default drift either since the
+    # branch is gated on > 0).
+    body_2d_params = [p for p in model.blocks.parameters() if p.ndim >= 2]
+    spectral_u_cache: dict[int, Tensor] = {}
+    if args.body_spectral_penalty > 0:
+        for p in body_2d_params:
+            u = torch.randn(p.shape[1], device=p.device, dtype=p.dtype)
+            u = u / (u.norm() + 1e-12)
+            spectral_u_cache[id(p)] = u
+        if trial_idx == 0:
+            print0(f"[H341 body_spectral_penalty={args.body_spectral_penalty}] "
+                   f"power_iters={args.body_spectral_power_iters} "
+                   f"#body_2d_params={len(body_2d_params)}", console=True)
     # AGC targets: AdamW aux groups (embed, lm_head, scalars). Built from optimizer1
     # param groups to track exactly the same params AdamW updates.
     aux_params_for_agc = [p for g in optimizer1.param_groups for p in g["params"]]
@@ -1202,6 +1235,31 @@ for trial_idx in range(args.num_trials):
                 train_steps=train_steps,
                 wandb_step=wandb_step,
             )
+        # H341: BODY 2D spectral-norm² penalty. Adds λ × mean(σ_max²(W_i)) gradient
+        # contribution into p.grad AFTER all_reduce (spec gradient is deterministic
+        # in p, identical on every rank — must not pass through all_reduce again)
+        # but BEFORE AGC (so the combined task+spec gradient is clipped together,
+        # matching the optimizer's view of L_total). When penalty == 0 the entire
+        # block is skipped and the training path is bit-identical to H266 baseline.
+        spec_loss_value = 0.0
+        spec_sigma_sq_mean_value = 0.0
+        if args.body_spectral_penalty > 0:
+            spec_sigma_sq_sum = None
+            for p in body_2d_params:
+                u = spectral_u_cache[id(p)]
+                for _ in range(args.body_spectral_power_iters):
+                    v = torch.mv(p, u)
+                    v = v / (v.norm() + 1e-12)
+                    u = torch.mv(p.T, v)
+                    u = u / (u.norm() + 1e-12)
+                sigma_sq = (torch.mv(p, u)).pow(2).sum()
+                spec_sigma_sq_sum = sigma_sq if spec_sigma_sq_sum is None else spec_sigma_sq_sum + sigma_sq
+                spectral_u_cache[id(p)] = u.detach()
+            spec_sigma_sq_mean = spec_sigma_sq_sum / max(1, len(body_2d_params))
+            spec_loss = args.body_spectral_penalty * spec_sigma_sq_mean
+            spec_loss_value = float(spec_loss.item())
+            spec_sigma_sq_mean_value = float(spec_sigma_sq_mean.item())
+            spec_loss.backward()
         # AGC on aux AdamW groups: clip per-param grad to clip_ratio * |param|.
         # No-op (bit-identical) when args.aux_agc_clip_ratio <= 0.
         agc_stats = adaptive_gradient_clip(
@@ -1234,6 +1292,9 @@ for trial_idx in range(args.num_trials):
             muonh_metrics = {"trial": trial_idx, "train/step": train_step}
             muonh_metrics["aux/beta2"] = aux_beta2
             muonh_metrics["train/muonh_mu"] = muonh_mu_t
+            if args.body_spectral_penalty > 0:
+                muonh_metrics["body/spec_loss"] = spec_loss_value
+                muonh_metrics["body/spec_sigma_sq_mean"] = spec_sigma_sq_mean_value
             for opt in optimizers:
                 if isinstance(opt, MuonH):
                     if telemetry_due:
