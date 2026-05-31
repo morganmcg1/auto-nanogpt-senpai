@@ -1,3 +1,47 @@
+## 2026-05-31 11:05 UTC — Cycle 71 mid-464 — askeladd #1928 371st refute 205th family closure 239th mech class + 18th RTM PRECEDENT — RTM QUINTET COMPLETE (CROSS-AXIS-MLP-SOAP-X-EMBED-M2-FLOOR-SATURATED-AT-MLP-SOAP-N=3-MEAN reset-axis-marginal-lift-zero bilateral compound=3.27011/3025 alone-verify=3.27139/3025; MLP-SOAP front_FAST n=3 mean 3.27018 ± σ 0.00124 — 5-of-5 cycle-71 TOP carriers RTM-confirmed 100% rate) + askeladd #1956 new assignment (COMPOUND-RESET-FACTOR-ABLATION Arm-A=0.5 Arm-B=0.1 at MLP-SOAP × embed-M=2 compound, 40%-FLOOR-SATURATION-INDEPENDENT-OF-FACTOR prior testing whether MLP-SOAP saturates floor or reset MAGNITUDE drives saturation)
+
+### askeladd #1928 bilateral terminal — 371st refute, 205th family closure, 239th mech class, 18th RTM precedent
+
+Bilateral terminal: Arm A `keqpe2sc` compound MLP-SOAP × embed-M=2-f=0.25 val=**3.27011**/3025; Arm B `knsgbpgm` MLP-SOAP-alone-verify val=**3.27139**/3025. Both PASS stat rule, FAIL merge bar. **371st cycle-71 refute**.
+
+**RTM QUINTET COMPLETE — 5-of-5 cycle-71 TOP carriers RTM-confirmed at 100% rate**:
+
+| carrier | RTM-corrected n-mean | n |
+|---|---|---|
+| MLP-SOAP front_FAST | **3.27018** (this PR n=3 confirms) | 3 |
+| embed M=2 f=0.25 reset | 3.27023 | 2 |
+| lm_head M=3 f=0.25 interval=200 | 3.27050 (nezuko #1920 n=3) | 3 |
+| embed β1=0.5 | 3.27016 (tanjiro #1921 n=2) | 2 |
+
+Cycle-71 RTM-corrected floor is ~3.27018-3.27050 NOT 3.26891 (best single seed). Single-seed σ ~0.00124.
+
+**Cross-axis compound FLOOR-SATURATED at MLP-SOAP-alone n=3 mean**: Arm A compound 3.27011 is **−0.00007 from MLP-SOAP n=3 mean** (essentially AT floor) and **−0.00254 below RTM-corrected null prediction 3.27265**. Embed-M=2 reset adds **~0 marginal lift** over MLP-SOAP-alone — MLP-SOAP per-depth-half dominates the floor substrate.
+
+### askeladd #1956 new assignment — COMPOUND RESET-FACTOR ABLATION
+
+Student-suggested follow-up: vary ONLY the embed-M=2 factor to test whether reset MAGNITUDE drives the floor-saturation pattern.
+- **Arm A** AUX_RESET_EMBED_FACTOR=0.5 (weaker reset, ~2× shrink)
+- **Arm B** AUX_RESET_EMBED_FACTOR=0.1 (stronger reset, ~10× shrink)
+- Both compounds use MLP-SOAP per-depth-half front_FAST same as #1928
+- Tests: factor-neutral floor-saturation (40%) vs reset MAGNITUDE mediator (40%) vs canonical near-optimal (12%)
+
+### Cycle 71 cumulative state (post-#1928 closure)
+
+**371 refuted / 239 distinct mech classes / 205 family closures / 9 structural axes locked / 18 regression-to-mean precedents** (RTM QUINTET). Fleet 8/8 active. Cumulative refutation rate: ~17.0 mech classes / hour at current pace.
+
+### Standing in-flight monitoring (last status as of 11:00Z)
+
+- **fern #1940** — Arm A terminal at 10:20Z (val tbd), Arm B step-0 banner ~10:20Z, ETA ~12:13Z
+- **thorfinn #1944** — was step 900/3175 at 09:42Z, ETA ~11:50Z
+- **frieren #1947** — Arm A mid-run + Arm B isolated β1=0.5 launching
+- **tanjiro #1949** — Arm A `j3n5pgmy` launched ~10:21Z hybrid config
+- **nezuko #1950** — INTERVAL-AXIS at M=2 cell, just assigned
+- **edward #1952** — AXIS-4 DUAL-EXCLUSION MATRIX, just assigned
+- **alphonse #1953** — NS5_ITERS bilateral at diagonal corner, just assigned
+- **askeladd #1956** — RESET-FACTOR-ABLATION compound, just assigned
+
+---
+
 ## 2026-05-31 10:45 UTC — Cycle 71 mid-463 — alphonse #1932 370th refute 204th family closure 238th mech class (DIAGONAL-CORNER-3rd-PARAM-COOLDOWN-AND-TRUST-GATE-BOTH-DESTRUCTIVE-NEITHER-MEDIATES-SA-REMAINDER bilateral 3.27399/3075 + 3.27414/3075 inter-arm Δ +0.00015 below σ MID-TRAINING-CROSSOVER-PATTERN V-KIND-ADMISSION-NOT-PRIMARY-MEDIATOR) + alphonse #1953 new assignment (NS5_ITERS bilateral mediator probe Arm-A=12 Arm-B=16 at diagonal corner — LAST named 3rd-param candidate from {COOLDOWN, TRUST-GATE, NS5} triple, 35%-NS-BOTH-DESTRUCTIVE prior)
 
 ### alphonse #1932 bilateral terminal — 370th refute, 204th family closure, 238th mech class
