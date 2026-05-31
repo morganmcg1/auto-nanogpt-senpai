@@ -114,6 +114,23 @@ def parse_args():
                         help="Polyak-Ruppert EMA decay for eval-only weight averaging. "
                              "0.0 = disabled (drift-FREE CTRL). Typical: 0.05 (fast, ~20-step half-life) / "
                              "0.005 (slow, ~200-step half-life). Higher decay = faster EMA tracking.")
+    parser.add_argument("--polyak_ema_decay_schedule", type=str,
+                        default=os.environ.get("POLYAK_EMA_DECAY_SCHEDULE", "constant"),
+                        choices=["constant", "step_increase_cooldown", "ramp_increase_cooldown"],
+                        help="Polyak EMA decay schedule. 'constant' = H266 baseline (decay stays at "
+                             "--polyak_ema_decay throughout training). 'step_increase_cooldown' = "
+                             "decay stays at --polyak_ema_decay for [0, cooldown_start_step), then "
+                             "STEPS UP to --polyak_ema_decay_cooldown_end during cooldown. "
+                             "'ramp_increase_cooldown' = decay stays at --polyak_ema_decay until "
+                             "cooldown onset, then LINEAR RAMP --polyak_ema_decay → "
+                             "--polyak_ema_decay_cooldown_end across cooldown. H332 uses "
+                             "cooldown_start_step = int(0.85 * train_steps) (the last 15% window, "
+                             "matching the cosine-LR sharpening phase per H323 mechanism narrative).")
+    parser.add_argument("--polyak_ema_decay_cooldown_end", type=float,
+                        default=float(os.environ.get("POLYAK_EMA_DECAY_COOLDOWN_END", "0.05")),
+                        help="Target Polyak EMA decay value at end of training (used only when "
+                             "--polyak_ema_decay_schedule != 'constant'). Default 0.05 = H266 baseline "
+                             "(no-op even when a non-constant schedule is selected).")
     args = parser.parse_args()
     args.num_trials = args.num_trials if args.num_trials is not None else (args.legacy_num_trials or 1)
     args.wandb_tags = [tag.strip() for tag in args.wandb_tags.split(",") if tag.strip()]
@@ -856,6 +873,8 @@ if dist.get_rank() == 0:
             "muonh_mu_start": args.muonh_mu_start,
             "muonh_mu_end": args.muonh_mu_end,
             "polyak_ema_decay": args.polyak_ema_decay,
+            "polyak_ema_decay_schedule": args.polyak_ema_decay_schedule,
+            "polyak_ema_decay_cooldown_end": args.polyak_ema_decay_cooldown_end,
         },
     )
 
@@ -1033,7 +1052,30 @@ for trial_idx in range(args.num_trials):
                 g["mu"] = mu_t
         else:
             mu_t = 0.95
-        return muonh_warmup, b2, mu_t
+        # H332: Polyak EMA decay schedule. The MuonH LR cosine cooldown spans all of
+        # training (h_cooldown_frac=1.0), so there is no existing "cooldown_start_step"
+        # variable matching the H323 narrative's "last 15% sharpening phase". H332
+        # defines its own cooldown reference: cooldown_start_step = int(0.85 *
+        # train_steps), matching step 2826 for the 3325-step H266 baseline.
+        # 'constant' (default) preserves bit-id with the H266 baseline regardless of
+        # --polyak_ema_decay_cooldown_end. Treatment schedules are also bit-id for
+        # [0, cooldown_start_step); only the cooldown window diverges.
+        polyak_ema_cooldown_start_step = int(0.85 * train_steps)
+        if args.polyak_ema_decay_schedule == "constant":
+            polyak_ema_decay_t = args.polyak_ema_decay
+        elif step < polyak_ema_cooldown_start_step:
+            polyak_ema_decay_t = args.polyak_ema_decay
+        elif args.polyak_ema_decay_schedule == "step_increase_cooldown":
+            polyak_ema_decay_t = args.polyak_ema_decay_cooldown_end
+        else:  # "ramp_increase_cooldown"
+            cooldown_prog = (step - polyak_ema_cooldown_start_step) / max(
+                1, train_steps - polyak_ema_cooldown_start_step
+            )
+            cooldown_prog = min(1.0, max(0.0, cooldown_prog))
+            polyak_ema_decay_t = args.polyak_ema_decay + cooldown_prog * (
+                args.polyak_ema_decay_cooldown_end - args.polyak_ema_decay
+            )
+        return muonh_warmup, b2, mu_t, polyak_ema_decay_t
 
 
     ########################################
@@ -1175,7 +1217,7 @@ for trial_idx in range(args.num_trials):
         dist.all_reduce(step_loss, op=dist.ReduceOp.SUM)
         train_loss = float((step_loss / batch_size).item())
         # set optimization hyperparameters and take a step
-        muonh_warmup_factor, aux_beta2, muonh_mu_t = set_hparams(step)
+        muonh_warmup_factor, aux_beta2, muonh_mu_t, polyak_ema_decay_t = set_hparams(step)
         train_step = step + 1
         telemetry_due = (step == 0 or (step + 1) % args.telemetry_interval == 0 or step + 1 == train_steps)
         histogram_due = (step == 0 or (step + 1) % args.histogram_interval == 0 or step + 1 == train_steps)
@@ -1217,11 +1259,15 @@ for trial_idx in range(args.num_trials):
         # H266: Polyak-Ruppert EMA update — runs after the live inner-optimizer step.
         # When polyak_ema_state is None this branch is skipped, leaving the training
         # path bit-identical to the H203 baseline.
+        # H332: decay is now `polyak_ema_decay_t` from set_hparams (schedule-aware).
+        # For polyak_ema_decay_schedule="constant" this is identical to args.polyak_ema_decay.
         if polyak_ema_state is not None:
             with torch.no_grad():
-                decay = args.polyak_ema_decay
+                decay = polyak_ema_decay_t
                 for name, param in model.named_parameters():
                     polyak_ema_state[name].mul_(1.0 - decay).add_(param.data, alpha=decay)
+            if dist.get_rank() == 0:
+                wandb.log({"train/polyak_ema_decay_t": polyak_ema_decay_t}, step=wandb_step)
         # Log warmup telemetry every 10 steps during warmup (and at telemetry events
         # afterwards) so we capture the warmup curve at high resolution. Cheap since
         # it's just two floats.
