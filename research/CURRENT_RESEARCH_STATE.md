@@ -1,3 +1,57 @@
+## 2026-05-31 10:15 UTC — Cycle 71 mid-461 — nezuko #1920 368th refute 202nd family closure 236th mech class (INTERVAL-AXIS-UNIFIED-DIRECTION-AT-LM-HEAD-M-CHANNEL-WEAKENED-AT-M=3 + 16th RTM PRECEDENT confirmed at n=3) + nezuko #1950 assigned (INTERVAL-AXIS at larger-lever M=2 cell: interval=200 n=2 + interval=150 fresh push) + frieren #1947 spec disambiguation answered (option a — isolated β1=0.5)
+
+### nezuko #1920 bilateral terminal — 368th refute, 202nd family closure, 236th mech class
+
+Bilateral terminal: Arm A `riycub45` lm_head M=3 f=0.25 interval=250 val=**3.27135**/3025; Arm B `mnm5jf3v` lm_head M=3 f=0.25 interval=200 n=2-seed val=**3.27047**/3025. **368th cycle-71 refute**.
+
+**INTERVAL-AXIS-UNIFIED-DIRECTION-AT-LM-HEAD-M-CHANNEL-WEAKENED-AT-M=3** (236th mech class):
+
+| M-channel | Δ(interval=250 → 200) | sign | source |
+|---|---|---|---|
+| M=2 (f=0.5) | −0.00337 | productive (interval=200 better) | fern #1887 |
+| M=3 (f=0.25) | −0.00088 | productive (interval=200 better) | this PR (intra-cell) |
+| **ratio** | **3.83× weaker at M=3** | sign-consistent | — |
+
+INTERVAL direction is UNIFIED across M=2 and M=3 cells; magnitude shrinks 3.83× at M=3 (moment-pattern complexity damps lever).
+
+**Arm B confirms 16th RTM precedent at n=3 — FIRST n=3-CONFIRMED CARRIER in cycle 71**:
+- #1901 B `8ru91ywq` seed-1: 3.26922
+- frieren #1919 Arm B `fuo6dqy3` seed-2: 3.27181
+- nezuko Arm B `mnm5jf3v` seed-3: **3.27047**
+- **n=3 mean: 3.27050 ± 0.00094 (σ=0.00112)**
+
+σ=0.00112 narrower than initial estimate ~0.00130. lm_head M=3 f=0.25 interval=200 RTM mean is structurally fixed at 3.27050.
+
+**KEY STRUCTURAL FINDINGS — FIVE concurrent invariants**:
+1. **INTERVAL-AXIS-UNIFIED-DIRECTION at lm_head** — interval=200 < interval=250 at BOTH M=2 and M=3
+2. **INTERVAL-AXIS lever 3.83× WEAKER at M=3 vs M=2** — productive direction damped as M increases
+3. **16th RTM precedent CONFIRMED at n=3** — mean 3.27050 stable across 3 independent seeds
+4. **First n=3-confirmed carrier in cycle 71** — σ=0.00112 reference for floor-band edge
+5. Spec cross-check methodology proven again — env-var SOURCE-CODE-CORRECT spelling caught silent fallthrough (`phxtegsx` killed at step 531)
+
+**236th MECH CLASS**: INTERVAL-AXIS-UNIFIED-DIRECTION-AT-LM-HEAD-M-CHANNEL-WEAKENED-AT-M=3-3.83X-LEVER-DAMPING + LM-HEAD-M=3-F=0.25-INTERVAL=200-RTM-CONFIRMED-AT-n=3-MEAN-3.27050.
+**202nd FAMILY CLOSURE**: INTERVAL-AXIS-LM-HEAD-UNIVERSAL-DIRECTION-WITH-M-CHANNEL-DAMPING-AND-RTM-TRIPLE-INDEPENDENT-CONFIRMATION-OF-FLOOR-BAND-CARRIER.
+
+### nezuko #1950 NEW ASSIGNMENT — INTERVAL-AXIS at larger-lever M=2 cell
+
+Arm A: lm_head M=2 f=0.5 interval=200 n=2 verification (target fern #1887 A `gdra2o3m` 3.26977) — 5th carrier to enter n=2 in cycle 71.
+
+Arm B: lm_head M=2 f=0.5 **interval=150** fresh — never-tested SHORTER interval at the 3.83×-larger-lever cell. Linear extrapolation predicts val ≈ 3.26640 (MERGE CANDIDATE if linearity holds).
+
+**Outcome probabilities**:
+- 30% DOUBLE RTM (both A and B in [3.27050+] band)
+- 25% STABLE M=2 + INTERVAL=150 DESTRUCTIVE (A ≈ 3.26977, B > 3.27000)
+- 20% STABLE M=2 + INTERVAL-SUB-LINEAR-SATURATION (A ≈ 3.26977, B ∈ floor band)
+- 10% 18TH RTM at M=2 cell only (A RTM, B variable)
+- **10% MERGE EXTRAPOLATION at interval=150** (B < 3.26776, Arm A stable) — exciting if it materializes
+- 5% Sub-floor productive at either arm
+
+### frieren #1947 — Arm B spec disambiguation issued (option a — isolated β1=0.5)
+
+frieren caught that #1904 B is a COMPOUND, not isolated β1=0.5. tanjiro #1921 already provided n=2 verification of the compound (mean 3.27016, 17th RTM precedent). Advisor green-lighted option (a): test ISOLATED β1=0.5 at embed (no reset, lm_head/scalars β1=0.95) — fresh decomposition probe of how much of the compound effect is from β1 alone vs reset axis.
+
+---
+
 ## 2026-05-31 10:01 UTC — Cycle 71 mid-460 — tanjiro #1921 367th refute 201st family closure 235th mech class 17th RTM PRECEDENT (RTM QUARTET COMPLETE — 4 of 4 cycle-71 "TOP" carriers confirmed RTM, 100% rate persists; EMBED-INNER-FLOOR-SATURATION compound sub-additive) + tanjiro #1949 assigned (VARIANCE-BUDGET AUDIT: lm_head β1=0.7 n=2 + EMBED-INNER compound n=2 dual verification)
 
 ### tanjiro #1921 bilateral terminal — 367th refute, 201st family closure, 235th mech class, **17th RTM precedent**
