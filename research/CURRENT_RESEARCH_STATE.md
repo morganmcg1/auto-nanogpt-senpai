@@ -1,3 +1,36 @@
+## 2026-05-31 06:13 UTC — Cycle 71 mid-454 — edward #1908 361st refute (Q-LOAD-BEARING-REFUTED + V-K-CO-CARRY-RANK-ORDERED-V-DOMINANT) + edward #1925 assigned (4-cell triple-exc matrix closure proj_only × v_only n=2)
+
+### edward #1908 axis #4 triple-exc v_only × k_only Q-LOAD-BEARING discriminator — 361st refute, 195th family closure, 229th mech class
+
+Bilateral terminal: Arm A `mmzu7dvj` v_only (bitfield=11, q+k+proj excluded) val=**3.27042**/3025; Arm B `s4wbsxw8` k_only (bitfield=13, q+v+proj excluded) val=**3.27193**/3050. Bilateral mean **3.271175**/3037.5 ABOVE merge bars (+0.004415 val + ffs+37.5). **361st cycle-71 refute**.
+
+**Arm A v_only IN v-active class band [3.27024, 3.27085]** — confirms v alone is structurally sufficient. **Q-LOAD-BEARING (40% prior) REFUTED**, **PROJECTION-RANK-ORDERED (25% prior) REFUTED**, **DISTRIBUTED-PROJECTION-LOAD PARTIAL** (Arm B just below degraded-edge).
+
+**Established triple-exc rank ordering**: v_only (3.27042) < q_only (3.27133, #1873 B) < k_only (3.27193). Spread ±0.00076 from mean. v carries more productive structure per active step than k or q.
+
+**CRITICAL on_fraction × productivity ASYMMETRY**: v_only on_fraction=**0.50** (gated half the time) yet WINS; k_only on_fraction=**1.00** (saturated) yet LOSES. Trust gate (threshold=0.85) admits k more readily (row-cos 0.905 vs 0.860) but k's contribution per admitted step is weaker. **Trust gate calibration is sub-optimal for v** — v's higher productive value per step is being throttled by the 0.85 threshold.
+
+**KEY STRUCTURAL FINDINGS — FOUR concurrent invariants**:
+1. v-active class band 6-of-6 pair-exc cells + v_only triple-exc UNIFIED at [3.27024, 3.27085] — v alone sufficient
+2. k_only DEGRADED-EDGE-CONTIGUOUS at 3.27193 (mild degradation, not catastrophic)
+3. on_fraction × productivity ANTI-CORRELATED at v vs k (v wins at 0.50 fraction; k loses at 1.00 fraction)
+4. Q is NOT uniquely load-bearing — q removal alone produces same magnitude penalty as v retention alone
+
+**229th MECH CLASS**: V-K-CO-CARRY-RANK-ORDERED-WITH-V-LOAD-BEARING-DOMINANCE.
+**195th FAMILY CLOSURE**: AXIS-#4-TRIPLE-EXC-Q-LOAD-BEARING-REFUTED-V-K-CO-CARRY-RANK-ORDERED-V-DOMINANT-DESPITE-HALF-DUTY-CYCLE.
+
+### edward #1925 new assignment: 4-cell triple-exc matrix closure proj_only (bit=7) × v_only n=2 verification
+
+Closes the 4-cell triple-exc decomposition matrix at axis-#4:
+- Arm A: proj_only triple-exc (bitfield=7, q+k+v excluded) — last unmeasured cell
+- Arm B: v_only triple-exc n=2 seed-2 — n=2 verification of #1908 Arm A 3.27042
+
+If proj_only ∈ v-active band → 4-PROJECTION-EQUIVALENT-SOLO-CARRIERS structural closure. If proj_only < 3.27000 → uniquely strong solo carrier (MERGE CANDIDATE — 10% probability). If proj_only > 3.27500 → near-catastrophic (proj not viable as sole carrier).
+
+Cumulative: **361 refuted / 229 mech classes / 195 family closures / 9 axes locked / 13 RTM precedents**. Fleet 8/8 active 0 idle.
+
+---
+
 ## 2026-05-31 05:44 UTC — Cycle 71 mid-453 — tanjiro #1904 360th refute (CROSS-KIND-FLOOR-SUBSTRATE-PHYSICS-CLOSED + EMBED-β1-LOWER-DIRECTION-MONOTONIC-PRODUCTIVE) + tanjiro #1921 assigned (embed-channel inner compound β1=0.5 × M=2 f=0.25)
 
 ### tanjiro #1904 axes #2 × #5 CROSS-KIND FLOOR ORIGIN × β1 LOWER-DIRECTION PRODUCTIVE — 360th refute, 194th family closure, 227th + 228th mech classes
