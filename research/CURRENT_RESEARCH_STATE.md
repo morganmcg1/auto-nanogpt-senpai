@@ -1,3 +1,30 @@
+## 2026-05-31 20:36 UTC — Cycle 71 mid-483 — nezuko #2010 13th pod-stability observation F-AXIS-POD-STABILITY-UNDER-CROSS-SUBSTRATE-MIRROR-M-IS-ASYMMETRY-SENSITIVE-NOT-DIRECTION-SENSITIVE (bilateral n=2 NaN step 125 pre-event; MIRROR direction embed-STRONG-f=0.5 + lm_head-WEAK-f=0.125 fails IDENTICALLY to forward direction #2005; both factor-4× directions destabilize cross-substrate compound at MIRROR-INVERTED-M-optimum; SYMMETRY-PROTECTION established at factor-4× scale; NOT counted as refute) + nezuko #2016 new assignment (F-AXIS-ASYMMETRY-THRESHOLD-AT-FACTOR-2× probe: embed-f=0.25 + lm_head-f=0.5; 45% STABLE-AT-FACTOR-2× 30% NaN-STRICT-SYMMETRY-PROTECTION 10% SPLIT 10% PRODUCTIVE 5% MERGE). No human issues. Fleet 8/8 active 0 idle. Cumulative **386 refuted / 256 mech classes / 212 family closures / 9 axes / 24 RTM precedents / 13 pod-stability observations** (RTM-PERSISTENT-AT-N=10/11 = 91%; ONE n=2 verification still pending: thorfinn #1997 inverted-asymmetry).
+
+### nezuko #2010 bilateral terminal — 13th pod-stability observation / F-AXIS-ASYMMETRY-SENSITIVE confirmed
+
+**Bilateral NaN**: Arm A `hh7aetcy` SEED=1 → NaN step 125; Arm B `sbmkdrsw` SEED=2 → NaN step 125 (both pre-event; identical failure mode to #2005 forward direction).
+
+**F-axis pod-stability matrix at cross-substrate MIRROR-INVERTED-M (embed=M=2, lm_head=M=3) — now complete at factor-4× scale**:
+
+| F-pairing | direction | outcome | n | reference |
+|---|---|---|---|---|
+| symmetric f=0.25 | n/a | STABLE 3.27027 | 1 | #1959 A |
+| symmetric f=0.5 | n/a | STABLE n=2 mean 3.27036 | 2 | #1991 (24th RTM) |
+| asymmetric factor-4× | embed-WEAK + lm_head-STRONG | NaN step 125 | 2 | #2005 (12th) |
+| **asymmetric factor-4×** | **embed-STRONG + lm_head-WEAK (MIRROR)** | **NaN step 125** | **2** | **#2010 (13th, THIS PR)** |
+
+→ Both factor-4× directions destabilize identically. F-axis pod-stability under cross-substrate MIRROR-INVERTED-M is **ASYMMETRY-SENSITIVE, not direction-sensitive**. SYMMETRY-PROTECTION at factor-4× scale is binary.
+
+### nezuko #2016 new assignment — F-AXIS-ASYMMETRY-THRESHOLD-AT-FACTOR-2× probe
+
+Maps the asymmetry threshold magnitude. Tests embed-f=0.25 + lm_head-f=0.5 (factor-2× lm_head-STRONG ratio) bilaterally. Most likely (45%): STABLE at factor-2× — pod-radius lies between 2× and 4×. Alternative (30%): NaN at factor-2× — strict SYMMETRY-PROTECTION (any asymmetry destabilizes). Alternative (10%): SPLIT — seed-marginal boundary. Alternative (10%): PRODUCTIVE — light asymmetry emerges productive. Alternative (5%): MERGE-CANDIDATE.
+
+### Fleet status — 8/8 active 0 idle
+
+After nezuko #2010 close + nezuko #2016 assignment: g1r2-{tanjiro #2001, askeladd #2007, alphonse #2008, edward #2004, fern #2013, thorfinn #1997, frieren #1999, nezuko #2016} all WIP. Cumulative **386 refuted / 256 distinct mech classes / 212 family closures / 9 structural axes locked / 24 RTM precedents / 13 pod-stability observations** (RTM-PERSISTENT-AT-N=10/11 = 91%; ONE n=2 carrier-verification pending: thorfinn #1997 inverted-asymmetry).
+
+---
+
 ## 2026-05-31 20:18 UTC — Cycle 71 mid-482 — fern #1991 386th refute 256th mech class CROSS-SUBSTRATE-COMPOUND-f=0.5-RTM-CONFIRMED-AT-FLOOR-BAND (n=2 mean 3.27036 / Arm A 3.27084 Arm B 3.26988 spread 0.00096; predecessor n=1 #1959 B 3.26934 was favorable seed sample, drift +0.00102 matches cohort average; 24th cycle-71 RTM precedent; 9th candidate carrier RTM-CONFIRMED; RTM-PERSISTENT rate now 10/11 = 91%) + fern #2013 new assignment (MIRROR-INVERTED-β1-DISPATCH-DIRECTION-PROBE: embed=0.7, lm_head=0.8 — inverts the JOINT-COHERENT optimum direction; 40% DIRECTION-SENSITIVE-LM-HEAD-SPECIFIC 25% ASYMMETRY-PRODUCTIVE 15% MIRROR-STRONGER 15% MIRROR-CARRIER-DESTRUCTIVE 5% MERGE). Methodological accept: n=2 verification gates n=3 budget for cycle-71 candidates <3.27 single-seed (confirmed by 10/11 RTM-PERSISTENT rate). No human issues. Fleet 8/8 active 0 idle. Cumulative **386 refuted / 256 mech classes / 212 family closures / 9 axes / 24 RTM precedents / 12 pod-stability observations** (RTM-PERSISTENT-AT-N=10/11 = 91%; ONE n=2 verification still pending: thorfinn #1997 inverted-asymmetry).
 
 ### fern #1991 bilateral terminal — 386th refute / 256th mech class CROSS-SUBSTRATE-COMPOUND-f=0.5-RTM-CONFIRMED / 24th RTM precedent
