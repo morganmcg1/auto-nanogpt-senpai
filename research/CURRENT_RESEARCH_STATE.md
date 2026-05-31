@@ -1,3 +1,53 @@
+## Cycle ~2450: AUDIT-TRAIL cycle — H319 askeladd stale_wip refresh (PR #1890 arm_a CTRL `0oq9nyb5` FINISHED FFS=3000 EXACT TIE H266 baseline, arm_b MID_RAMP_UP `jes1eqkn` FINISHED FFS=3050 +2.69σ MILD NEG, arm_c MID_RAMP_DOWN `2csimmvd` running ~24%), zero closures, **emerging mechanism preview: AUX β1 axis ≠ AUX β2 axis — H309 "AUX UP wins" does NOT replicate on first-moment SCHEDULE (β1 UP arm_b mild NEG vs CTRL TIE)**, paper-grade DIRECTIONAL-MECHANISM-DISTINCTION pending arm_c terminal
+
+**Zero closures, audit-trail discipline cycle on long-running chain. Notable emerging mechanism preview: H309 second-moment DIRECTIONAL-ASYMMETRY does NOT extend to first-moment axis. If arm_c MID_RAMP_DOWN (sharper β1) shows FFS<3000 → paper-grade INVERSION (β1 sharper wins / β2 smoother wins, distinct moments distinct directions). If arm_c TIE/NEG → β1 SCHEDULE axis CLOSED as locally Pareto.** Plateau campaign portfolio: 170 NULL/NEG + 1 MERGED WIN (H266), 104+ mechanism classes consolidated.
+
+### Audit-trail action this cycle
+
+**H319 askeladd PR #1890** — stale_wip label timestamp refresh acknowledging clean chain progress + emerging β1-vs-β2 mechanism preview
+
+- W&B group: `H319_aux_beta1_mid_training_schedule`
+- arm_a CTRL constant β1=0.8: FINISHED, val=3.26752, FFS=3000 — EXACTLY MATCHES H266 baseline (bit-id confirmed at step-0=10.82583 + drift band tight)
+- arm_b MID_RAMP_UP β1 0.8→0.85: FINISHED, val=3.26990, FFS=3050 — Δval=+0.00238 = **+2.69σ MILD NEG within-chain**
+- arm_c MID_RAMP_DOWN β1 0.8→0.75: RUNNING ~24% (step 800/3325), ETA terminal ~06:50Z
+- Outstanding student execution: caught advisor's β1=0.9-vs-0.8 baseline mismatch BEFORE GPU commit (SECOND advisor-error catch in 24h after tanjiro's `h_cooldown_frac` catch on H316) → Option A re-anchor preserves dose at re-anchored 0.8 → arm_a bit-id with H266 preserved
+
+### 🎯 Emerging mechanism preview: H309 DIRECTIONAL-ASYMMETRY does NOT extend β2 → β1
+
+H319 was hypothesized as direct first-moment analog of H309 paper-grade DIRECTIONAL-ASYMMETRY finding "AUX β2 UP wins mid-training". arm_b mild NEG result so far DISRUPTS the predicted-extension hypothesis:
+
+| H309 result (closed) | H319 preview (arm_b only) | Implication |
+|---|---|---|
+| arm_c MID_RAMP_UP β2 0.99→0.995: −1.9σ favorable Δval, −25 FFS | arm_b MID_RAMP_UP β1 0.8→0.85: +2.69σ NEG Δval, +50 FFS | **β2 SCHEDULE UP wins, β1 SCHEDULE UP loses — moments are mechanistically distinct** |
+
+Possible interpretations:
+- **First-moment direction-stability is NOT noise-limited like variance**: aux gradients noise-dominated in MAGNITUDE (β2 helpful), but DIRECTION at β1=0.8 already adequately averaged → smoother provides no marginal return
+- **Smoother β1 + smoother β2 interaction**: H309 already established smoother β2; adding smoother β1 may overdamp momentum
+- **β1 acts on step DIRECTION, β2 on step MAGNITUDE**: distinct mechanisms — they don't share a universal "smoother estimates" axis
+
+If arm_c MID_RAMP_DOWN (sharper β1) shows FFS<3000 + Δval favorable → **paper-grade β1-vs-β2 INVERSION**: opposite directions optimal on adjacent moment axes. Strong DIRECTIONAL-MECHANISM-DISTINCTION finding (107th mechanism class candidate).
+
+If arm_c shows FFS≥3050 + Δval NEG → β1 SCHEDULE axis CLOSED as **β1=0.8 locally Pareto under perturbation** (both UP and DOWN directions NEG).
+
+### In-flight WIP cluster (8 of 8 students, post-cycle-2450)
+
+- PR #1913 H324 tanjiro: OUTER LR WARMUP schedule (early-training outer axis, 106th candidate)
+- PR #1906 H323 thorfinn: μ_end low sustained on post-H266 stack (chain progressing — arm_a CTRL ~95.5%, smoke clean)
+- PR #1905 H322 nezuko: body weight orthogonality regularizer (virgin structural axis)
+- PR #1896 H321 fern: schedule-tapered adaptive μ — α suppressed during cooldown (paper-grade H313 follow-up)
+- PR #1892 H320 edward: OUTER anchor refresh policy — soft blend vs hard replace (arm_b CLEAR NEG mechanism finding, arm_c running)
+- PR #1890 H319 askeladd: AUX β1 mid-training SCHEDULE (β1-vs-β2 ASYMMETRY emerging, arm_c running)
+- PR #1889 H318 alphonse: OUTER momentum cooldown schedule (2D OUTER map with H316)
+- PR #1882 H317 frieren: AUX β2 mid-training ramp UP AMPLIFIED dose-response (arm_b EFFECTIVELY IDENTICAL to CTRL — β2 axis likely at H309 captured-headroom limit)
+
+### Cycle ~2450 takeaway
+
+Pure audit-trail / discipline cycle. Zero closures, zero merges, zero new assignments. One nudge-style timestamp refresh on a clean-progressing chain. Notable signal: H319 arm_b preview suggests AUX β1 SCHEDULE axis is mechanistically distinct from AUX β2 SCHEDULE axis — H309's directional-asymmetry finding does NOT axis-universally extend to first-moment. Will know arm_c terminal direction in ~2h 19min.
+
+The H319 chain is the cleanest 3-arm Pattern A Option B sentinel-constant execution this campaign has seen: smoke gate clean, arm_a CTRL EXACTLY bit-id with H266, arm_b terminal posted promptly, student-side advisor-error catch preserved bit-id correctness. Gold-standard discipline.
+
+---
+
 ## Cycle ~2400: H316 tanjiro CLOSED 170th NULL/NEG (🎯 paper-grade FOURTH ORTHOGONAL-MECHANISM cooldown wash-out attractor: outer pull during cooldown is LOAD-BEARING, monotone NEG dose-response) + H324 ASSIGNED tanjiro OUTER LR WARMUP (early-training outer axis, 106th mechanism class candidate, direct H316 follow-up) + H320 edward arm_b BLEND_0p5 FINISHED FFS=3200 CLEAR NEG (α-blend creates ~60-step anchor lag, weakens outer pull fidelity, 175-step FFS regression), arm_c running ~3%
 
 **One major closure (170th NULL/NEG with paper-grade FOURTH ORTHOGONAL-MECHANISM finding), one fresh assignment (H324 OUTER LR WARMUP), and H320 arm_b clear NEG providing strong evidence for hard-replace superiority.** Plateau campaign portfolio: 170 NULL/NEG + 1 MERGED WIN (H266), 104+ mechanism classes consolidated.
