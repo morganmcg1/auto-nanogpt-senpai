@@ -1,3 +1,29 @@
+## 2026-05-31 19:17 UTC — Cycle 71 mid-479 — askeladd #1985 384th refute 254th mech class V-SHAPE-IS-COMPOUND-EMERGENT-NOT-INTRINSIC (bilateral n=2 mean 3.27031; F-axis FLAT without MLP-SOAP: f=0.5→3.26992, f=0.1→3.27069, both within seed σ of 14th RTM anchor 3.27023; V-shape +0.00115/+0.00169 penalty VANISHES in isolation; MLP-SOAP×embed-reset INTERACTION is load-bearing) + askeladd #2007 new assignment (MLP-SOAP-×-PER-KIND-β1-DISPATCH-NOVEL-COMPOUND: 18th RTM + 19th RTM compounded; 35% RTM-ADDITIVE 25% PRODUCTIVE-DESCENT 20% DESTRUCTIVE-INTERFERENCE 15% STRONG-PRODUCTIVE 5% MERGE). No human issues. Fleet 8/8 active 0 idle. Cumulative **384 refuted / 254 mech classes / 211 family closures / 9 axes / 23 RTM precedents / 11 pod-stability observations** (RTM-PERSISTENT-AT-N=9/10 = 90%; TWO n=2 verifications still pending: fern #1991 cross-substrate-compound + thorfinn #1997 inverted-asymmetry).
+
+### askeladd #1985 bilateral terminal — 384th refute / 254th mech class V-SHAPE-COMPOUND-EMERGENT / 23rd RTM precedent
+
+**Bilateral terminal**: Arm A `lfd8a58s` embed-M=2 f=0.5 ISOLATED val=**3.26992**/3025; Arm B `6x9p4z03` embed-M=2 f=0.1 ISOLATED val=**3.27069**/3025. Bilateral n=2 mean **3.27031** (+0.00008 from 14th RTM anchor 3.27023).
+
+**V-shape profile (isolated vs compound)**:
+
+| factor | isolated (this PR) | compound (#1956) | Δ | reading |
+|---|---|---|---|---|
+| f=0.5 | 3.26992 (Arm A) | 3.27107 | +0.00115 | PENALTY VANISHES in isolation |
+| f=0.25 (anchor) | 3.27023 (14th RTM) | 3.27011 (#1928) | −0.00012 | flat in both |
+| f=0.1 | 3.27069 (Arm B) | 3.27238 | +0.00169 | PENALTY VANISHES in isolation |
+
+→ **V-shape is COMPOUND-EMERGENT**: F-axis structurally flat (all three isolated cells within seed σ ~0.0015 of each other). V-shape with optimum at f=0.25 lives in MLP-SOAP × embed-reset INTERACTION — third cycle-71 mech class confirming that productive directions are INTERACTION-MEDIATED. 23rd RTM precedent.
+
+### askeladd #2007 new assignment — MLP-SOAP × PER-KIND-β1-DISPATCH NOVEL COMPOUND PROBE
+
+Tests compound additivity between 18th RTM (MLP-SOAP front_FAST 3.27018) and 19th RTM (per-kind β1 dispatch 0.8/0.7/0.8 = 3.27015). Most likely (35%): RTM-ADDITIVE (compounds independent, no synergy). Alternative (25%): PRODUCTIVE-DESCENT (productive synergy; mean ~3.26900-3.27000 — new 11th candidate carrier). Alternative (20%): DESTRUCTIVE-INTERFERENCE (compound breaks per-kind β1's direction). Alternative (15%): STRONG-PRODUCTIVE-BREAKS-RTM.
+
+### Fleet status — 8/8 active 0 idle
+
+After askeladd #1985 close + askeladd #2007 assignment: g1r2-{tanjiro #2001, askeladd #2007, alphonse #1981, edward #2004, fern #1991, thorfinn #1997, frieren #1999, nezuko #2005} all WIP. Cumulative **384 refuted / 254 distinct mech classes / 211 family closures / 9 structural axes locked / 23 RTM precedents / 11 pod-stability observations** (RTM-PERSISTENT-AT-N=9/10 = 90%; TWO n=2 carrier-verifications pending: fern #1991 cross-substrate-compound + thorfinn #1997 inverted-asymmetry).
+
+---
+
 ## 2026-05-31 18:58 UTC — Cycle 71 mid-478 — edward #1982 383rd refute 22nd RTM precedent K+PROJ-DUAL-PAIR-BITFIELD=5-RTM-CONFIRMED-AT-UPPER-EDGE (n=2 mean 3.272145 / spread 0.000049 TIGHTEST cycle-71 σ; +0.00400 above single-seed 3.26815 LUCKY-NEGATIVE outlier; RTM rate recovers 8/9 = 89%) + nezuko #2000 POD-STABILITY-BLOCKED EMBED-M=3-AT-i=200-f=0.25 (11th pod-stability observation; MIRROR-INVERTED M-substrate 2×2 matrix COMPLETE: embed→M=2-stable/M=3-broken; lm_head→M=3-stable/M=2-broken; NOT counted as refute) + edward #2004 new assignment (ATTN-SOAP-BITFIELD=3-V-PROJ-MIRROR-PROBE; 55% RTM-MIRROR 20% V-PROJ-PRODUCTIVE 15% CARRIER-DESTRUCTIVE 5% STRONG-PRODUCTIVE 5% MERGE) + nezuko #2005 new assignment (CROSS-SUBSTRATE-COMPOUND-ASYMMETRIC-FACTOR embed-M=2-f=0.125 + lm_head-M=3-f=0.5; 40% RTM-SYMMETRIC-OPTIMAL 25% CARRIER-DESTRUCTIVE 20% BORDERLINE 10% STRONG-PRODUCTIVE 5% MERGE). No human issues. Fleet 8/8 active 0 idle. Cumulative **383 refuted / 253 mech classes / 211 family closures / 9 axes / 22 RTM precedents / 11 pod-stability observations** (RTM-PERSISTENT-AT-N=8/9 = 89%; TWO n=2 verifications still pending: fern #1991 cross-substrate-compound + thorfinn #1997 inverted-asymmetry).
 
 ### edward #1982 bilateral terminal — 383rd refute / 22nd RTM precedent K+PROJ-RTM-CONFIRMED-AT-UPPER-EDGE
