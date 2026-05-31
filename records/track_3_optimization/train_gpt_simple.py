@@ -473,20 +473,30 @@ LOGIT_SOFTCAP = float(os.environ.get("LOGIT_SOFTCAP", "15.0"))  # default = 15 (
 # When enabled, the three AdamW aux groups (embed / lm_head / scalars) use independent β1.
 # β2 stays at AdamW's group default (0.95). Defaults are the baseline β1=0.8 across groups.
 PER_KIND_AUX_BETA1_ENABLED = int(os.environ.get("PER_KIND_AUX_BETA1_ENABLED", "0"))
-PER_KIND_AUX_BETA1_EMBED = float(os.environ.get("PER_KIND_AUX_BETA1_EMBED", "0.8"))
-PER_KIND_AUX_BETA1_LM_HEAD = float(os.environ.get("PER_KIND_AUX_BETA1_LM_HEAD", "0.8"))
-PER_KIND_AUX_BETA1_SCALARS = float(os.environ.get("PER_KIND_AUX_BETA1_SCALARS", "0.8"))
+# Canonical env-var names for the per-kind β1 dispatch (per saved memory
+# `per-kind-aux-beta1-env-var-names`). Fall back to the legacy `PER_KIND_AUX_BETA1_<KIND>` names
+# so older orchestration commands still work; the new `AUX_BETA1_<KIND>` names take precedence.
+PER_KIND_AUX_BETA1_EMBED = float(os.environ.get("AUX_BETA1_EMBED",
+                                                os.environ.get("PER_KIND_AUX_BETA1_EMBED", "0.8")))
+PER_KIND_AUX_BETA1_LM_HEAD = float(os.environ.get("AUX_BETA1_LM_HEAD",
+                                                  os.environ.get("PER_KIND_AUX_BETA1_LM_HEAD", "0.8")))
+PER_KIND_AUX_BETA1_SCALARS = float(os.environ.get("AUX_BETA1_SCALARS",
+                                                  os.environ.get("PER_KIND_AUX_BETA1_SCALARS", "0.8")))
 
 # --- Per-substrate AdamW periodic reset (PR #2008 carrier 2 of 2, 14th RTM precedent #1956) ---
 # Every INTERVAL steps, partially scale down the chosen Adam moment(s) on the embed (or lm_head)
 # parameter to the configured PARTIAL_FACTOR. moment bitfield: bit0(=1)=exp_avg_sq, bit1(=2)=exp_avg.
 # So MOMENT=2 means "exp_avg only", MOMENT=1 means "exp_avg_sq only", MOMENT=3 means "both".
 # PARTIAL_FACTOR is the multiplier applied to the chosen state(s); 0.25 = keep 25% of momentum.
-AUX_RESET_EMBED_ENABLED = int(os.environ.get("AUX_RESET_EMBED_ENABLED", "0"))
+# Canonical gate name is PER_KIND_AUX_PERIODIC_RESET_<SUB>_ENABLED. Fall back to the legacy
+# AUX_RESET_<SUB>_ENABLED to stay compatible with older orchestration commands.
+AUX_RESET_EMBED_ENABLED = int(os.environ.get("PER_KIND_AUX_PERIODIC_RESET_EMBED_ENABLED",
+                                             os.environ.get("AUX_RESET_EMBED_ENABLED", "0")))
 AUX_RESET_INTERVAL_EMBED = int(os.environ.get("AUX_RESET_INTERVAL_EMBED", "200"))
 AUX_RESET_MOMENT_EMBED = int(os.environ.get("AUX_RESET_MOMENT_EMBED", "2"))
 AUX_RESET_PARTIAL_FACTOR_EMBED = float(os.environ.get("AUX_RESET_PARTIAL_FACTOR_EMBED", "0.25"))
-AUX_RESET_LM_HEAD_ENABLED = int(os.environ.get("AUX_RESET_LM_HEAD_ENABLED", "0"))
+AUX_RESET_LM_HEAD_ENABLED = int(os.environ.get("PER_KIND_AUX_PERIODIC_RESET_LM_HEAD_ENABLED",
+                                               os.environ.get("AUX_RESET_LM_HEAD_ENABLED", "0")))
 AUX_RESET_INTERVAL_LM_HEAD = int(os.environ.get("AUX_RESET_INTERVAL_LM_HEAD", "200"))
 AUX_RESET_MOMENT_LM_HEAD = int(os.environ.get("AUX_RESET_MOMENT_LM_HEAD", "2"))
 AUX_RESET_PARTIAL_FACTOR_LM_HEAD = float(os.environ.get("AUX_RESET_PARTIAL_FACTOR_LM_HEAD", "0.25"))
@@ -902,14 +912,14 @@ if dist.get_rank() == 0:
             "optimizer/ns5_iters": NS5_ITERS,
             "optimizer/wd_aux": WD_AUX,
             "optimizer/per_kind_aux_beta1_enabled": int(PER_KIND_AUX_BETA1_ENABLED),
-            "optimizer/per_kind_aux_beta1_embed": PER_KIND_AUX_BETA1_EMBED,
-            "optimizer/per_kind_aux_beta1_lm_head": PER_KIND_AUX_BETA1_LM_HEAD,
-            "optimizer/per_kind_aux_beta1_scalars": PER_KIND_AUX_BETA1_SCALARS,
-            "optimizer/aux_reset_embed_enabled": int(AUX_RESET_EMBED_ENABLED),
+            "optimizer/aux_beta1_embed": PER_KIND_AUX_BETA1_EMBED,
+            "optimizer/aux_beta1_lm_head": PER_KIND_AUX_BETA1_LM_HEAD,
+            "optimizer/aux_beta1_scalars": PER_KIND_AUX_BETA1_SCALARS,
+            "optimizer/per_kind_aux_periodic_reset_embed_enabled": int(AUX_RESET_EMBED_ENABLED),
             "optimizer/aux_reset_interval_embed": AUX_RESET_INTERVAL_EMBED,
             "optimizer/aux_reset_moment_embed": AUX_RESET_MOMENT_EMBED,
             "optimizer/aux_reset_partial_factor_embed": AUX_RESET_PARTIAL_FACTOR_EMBED,
-            "optimizer/aux_reset_lm_head_enabled": int(AUX_RESET_LM_HEAD_ENABLED),
+            "optimizer/per_kind_aux_periodic_reset_lm_head_enabled": int(AUX_RESET_LM_HEAD_ENABLED),
             "optimizer/aux_reset_interval_lm_head": AUX_RESET_INTERVAL_LM_HEAD,
             "optimizer/aux_reset_moment_lm_head": AUX_RESET_MOMENT_LM_HEAD,
             "optimizer/aux_reset_partial_factor_lm_head": AUX_RESET_PARTIAL_FACTOR_LM_HEAD,
@@ -971,10 +981,10 @@ for trial_idx in range(args.num_trials):
     # Step-0 banner — print BOTH compound carrier configs so step-0 W&B logs and stdout can be
     # spot-checked against the PR #2008 banner contract.
     if dist.get_rank() == 0:
-        print0(f"[per_kind_β1_dispatch] enabled={PER_KIND_AUX_BETA1_ENABLED} "
-               f"embed={PER_KIND_AUX_BETA1_EMBED if PER_KIND_AUX_BETA1_ENABLED else 0.8} "
-               f"lm_head={PER_KIND_AUX_BETA1_LM_HEAD if PER_KIND_AUX_BETA1_ENABLED else 0.8} "
-               f"scalars={PER_KIND_AUX_BETA1_SCALARS if PER_KIND_AUX_BETA1_ENABLED else 0.8}",
+        print0(f"[per_kind_aux_beta1] enabled={PER_KIND_AUX_BETA1_ENABLED} "
+               f"embed_beta1={PER_KIND_AUX_BETA1_EMBED if PER_KIND_AUX_BETA1_ENABLED else 0.8} "
+               f"lm_head_beta1={PER_KIND_AUX_BETA1_LM_HEAD if PER_KIND_AUX_BETA1_ENABLED else 0.8} "
+               f"scalars_beta1={PER_KIND_AUX_BETA1_SCALARS if PER_KIND_AUX_BETA1_ENABLED else 0.8}",
                console=True)
         if AUX_RESET_EMBED_ENABLED:
             print0(f"[aux_reset_embed] enabled=1 interval={AUX_RESET_INTERVAL_EMBED} "
