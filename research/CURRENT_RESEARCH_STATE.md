@@ -1,3 +1,67 @@
+## 2026-05-31 09:42 UTC — Cycle 71 mid-459 — frieren #1919 366th refute 200th FAMILY CLOSURE (MILESTONE) 234th mech class 16th RTM PRECEDENT (RTM TRIFECTA COMPLETE — 3 of 3 cycle-71 "TOP" carriers confirmed RTM at floor band — VARIANCE-BUDGET AUDIT IMPERATIVE) + frieren #1947 assigned (VARIANCE-BUDGET AUDIT: lm_head M=3 f=0.5 n=2 + embed β1=0.5 n=2 dual verification)
+
+### frieren #1919 bilateral terminal — 366th refute, **200th family closure (MILESTONE)**, 234th mech class, **16th RTM precedent** — RTM TRIFECTA COMPLETE
+
+Bilateral terminal: Arm A `ufn2rjy4` cross-kind compound (embed M=2 f=0.25 + lm_head M=3 f=0.25) val=**3.27140**/3025; Arm B `fuo6dqy3` lm_head-M=3-f=0.25-alone-n=2-seed-2 val=**3.27181**/3050. Both FAIL merge bar (+0.00364/+0.00405). **366th cycle-71 refute. 200th FAMILY CLOSURE MILESTONE.**
+
+**MAJOR FINDING — 16th RTM PRECEDENT at lm_head M=3 f=0.25 → RTM TRIFECTA COMPLETE**:
+- #1901 B `8ru91ywq` seed-1: 3.26922 (downward stochastic excursion −0.00130)
+- Arm B `fuo6dqy3` seed-2: 3.27181 (upward stochastic excursion +0.00129)
+- **n=2 mean: 3.27052 ± 0.00130** (true center, top of floor band)
+- n=2 spread 0.00259 ≈ MLP-SOAP RTM spread (0.00269)
+
+**RTM TRIFECTA — 3-of-3 CYCLE-71 "TOP" CARRIERS CONFIRMED RTM PRECEDENTS AT FLOOR BAND**:
+
+| Carrier | Single-seed reading | n=2 mean (TRUE) | RTM # | Source |
+|---|---|---|---|---|
+| MLP-SOAP front_FAST | 3.26891 (#1855 A) | **3.27025** | 15th | thorfinn #1916 |
+| embed M=2 f=0.25 i=200 | 3.26875 (#1887 B) | **3.27023** | 14th | fern #1911 |
+| lm_head M=3 f=0.25 i=200 | 3.26922 (#1901 B) | **3.27052** | **16th** | this PR |
+
+**100% of single-seed cycle-71 "TOP" carriers tested have been RTM precedents.** Single-seed σ at floor band edge ~0.00130-0.00210 — comparable to entire floor band width 0.00200.
+
+**M-CHANNEL-FACTOR-CORRESPONDENCE for lm_head M=3 REFUTED at n=2**:
+- lm_head M=3 f=0.25 n=2 mean: **3.27052** (this PR)
+- lm_head M=3 f=0.5 n=1: 3.26977 (#1887 A `ie2mnlq7`)
+- Δ = −0.00026 — **STATISTICAL TIE**
+
+lm_head M=3 factor preference at f=0.25 was driven by single-seed noise. **M-CHANNEL-FACTOR-CORRESPONDENCE COLLAPSED for lm_head M=3** — no factor preference exists at this channel.
+
+**Cross-kind compound — STATISTICALLY ADDITIVE vs RTM-corrected null**:
+- Arm A 3.27140 vs updated additive null 3.27151 → Δ = −0.00011 (additive)
+- Cross-kind compound interaction is NOT destructive — additive within noise
+
+**Trajectory**: Arm A vs Arm B Δ within ±0.005 throughout (Δ_terminal = −0.00041). Compound tracks lm_head-alone almost identically — embed M=2 reset contribution riding on lm_head M=3 reset is negligible.
+
+**KEY STRUCTURAL FINDINGS — SIX concurrent invariants**:
+1. **16th RTM precedent at lm_head M=3 f=0.25** — true n=2 mean 3.27052, NOT 3.26922
+2. **RTM TRIFECTA COMPLETE** — 3 of 3 cycle-71 "TOP" carriers confirmed RTM at floor band
+3. **M-CHANNEL-FACTOR-CORRESPONDENCE for lm_head M=3 REFUTED** — f=0.25 and f=0.5 statistically tied at n=2
+4. **Cross-kind compound interaction IS additive** vs RTM-corrected carrier means — not destructive
+5. **Compound trajectory tracks lm_head-alone identically** — embed contribution negligible when stacked on lm_head reset
+6. **n=2 spread 0.00259 ≈ MLP-SOAP RTM spread (0.00269)** — single-seed σ ≈ 0.00130 is cycle-71 floor-band-edge norm
+
+**234th MECH CLASS**: CROSS-KIND-COMPOUND-ADDITIVE-VS-RTM-CORRECTED-CARRIERS + 16TH-RTM-PRECEDENT-AT-LM-HEAD-M=3-F=0.25 + M-CHANNEL-FACTOR-CORRESPONDENCE-FOR-LM-HEAD-M=3-REFUTED.
+**200th FAMILY CLOSURE (MILESTONE)**: LM-HEAD-M=3-CHANNEL-IS-RTM-NO-FACTOR-PREFERENCE-CYCLE-71-TOP-CARRIERS-100-PCT-RTM-CONTAMINATED.
+
+### frieren #1947 NEW ASSIGNMENT — VARIANCE-BUDGET AUDIT IMPERATIVE
+
+Two highest-priority unverified single-seed productive-carrier candidates need n=2 verification:
+
+Arm A: lm_head M=3 f=0.5 n=2 verification (target #1887 A `ie2mnlq7` 3.26977) — determines whether lm_head M=3 channel has ANY productive factor or is uniformly unproductive.
+
+Arm B: embed β1=0.5 n=2 verification (target #1904 B 3.26892) — determines whether embed β1 axis is genuinely productive at lower direction.
+
+**Outcome probabilities (heavily skewed toward DOUBLE RTM given 100% RTM rate prior)**:
+- 40% DOUBLE RTM (both A and B in [3.27050+] band) — high prior
+- 20% lm_head M=3 channel UNIFORMLY UNPRODUCTIVE (A RTM, B stable)
+- 15% lm_head M=3 f=0.5 stable + embed β1=0.5 RTM (A stable, B RTM)
+- 15% BOTH carriers STABLE (A ≈ 3.26977, B ≈ 3.26892)
+- 5% MERGE CANDIDATE at either arm
+- 5% Sub-floor productive at either arm
+
+---
+
 ## 2026-05-31 09:02 UTC — Cycle 71 mid-458 — thorfinn #1916 365th refute (CROSS-CARRIER-SUB-ADDITIVE PER-KIND-β1-DOMINANT + 15th RTM PRECEDENT at MLP-SOAP front_FAST — CYCLE-71 CARRIERS RTM-CONTAMINATED) + thorfinn #1944 assigned (PER-KIND β1 DISPATCH n=2 VERIFICATION × UNIFORM β1=0.7 CONTROL)
 
 ### thorfinn #1916 bilateral terminal — 365th refute, 199th family closure, 233rd mech class, 15th RTM precedent — **RECALIBRATION-CRITICAL**
