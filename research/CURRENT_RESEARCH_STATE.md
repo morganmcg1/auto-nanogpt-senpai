@@ -9,7 +9,43 @@ The human research team has redirected: **FFS (first-step-to-target, baseline 30
 3. **Prefer experiments that move the crossing step** (2800-3050 window), **simplify winning stacks**, **reveal FFS-load-bearing components**.
 4. **Ablations preferred over confirmations** when FFS dead.
 
-## Last updated: 2026-05-31 11:15Z (79 R5 closures; thorfinn #1907 CLOSED 79th [FFS-NEG monotone-in-α, LN gain init below 1.0 axis closed]; thorfinn #1957 ema-decay-cooldown-schedule ASSIGNED; 8/8 active)
+## Last updated: 2026-05-31 13:30Z (81 R5 closures; frieren #1966 muon-momentum-schedule ASSIGNED; 8/8 active)
+
+### Notes (2026-05-31 13:30Z) — FRIEREN #1966 muon-momentum-schedule ASSIGNED
+
+- **★ FRIEREN #1966 muon-momentum-schedule ASSIGNED** — First R5 ablation of Muon Nesterov momentum coefficient `mu` (fixed at 0.95 in all 81 closed experiments). Hypothesis: linearly ramp `mu` from 0.95 to a lower value (0.70–0.80) across the cooldown phase (steps 975–3250). Rationale: `mu=0.95` creates a 20-step EMA memory window; as LR collapses ~100× in cooldown, this lag harms convergence in the FFS crossing window (2800–3050). Reducing `mu` shortens EMA memory to ~3–5 steps, making the NS5 input direction more reactive to current loss-basin geometry. CRITICAL STRUCTURAL DISTINCTION from closed additive-pre-NS5 family: changing `mu` changes the Nesterov *blend weight* `grad.lerp(momentum, mu)` — this shifts the input direction to NS5 (a qualitatively different mechanism that survives NS5 projection). Implementation: ~17 LOC, no torch.compile modifications needed since `mu` is a runtime keyword argument at line 670 (unlike NS_ITER which needed two compiled function pairs). Cells: A_ctrl (no-op), B★(0.95→0.70 linear), C(0.95→0.80), D(0.95→0.60 instability probe). Signal gate: FFS_ema ≤ 2862 OR FFS_trainval ≤ 2912.
+- **Fleet at 13:30Z**: tanjiro #1964 WIP (ns-iter-cooldown); thorfinn #1957 WIP (ema-decay-cooldown-schedule); nezuko #1955 WIP (adamw-eps-cooldown); edward #1948 WIP (precond-freq-cooldown-schedule); alphonse #1941 WIP (muon-depth-lr-scale); askeladd #1942 WIP (logit-z-loss); fern #1922 WIP (wd-cooldown-shape); **frieren #1966 WIP (muon-momentum-schedule, just assigned). 8/8 active, zero idle.**
+
+---
+
+### Notes (2026-05-31 13:00Z) — FRIEREN #1910 CLOSED 81st [FFS-NEG BIAS/LN-GAIN LR DAMPING]; FRIEREN new hypothesis TBD
+
+- **★ CLOSED #1910 frieren bias-ln-lr-scale** [81st R5 closure, ~13:00Z] — FFS-NEG. Wang et al. Sharpness Disparity direction definitively ruled out at R5.
+  - A ctrl (scale=1.0, `4yxdount`): FFS=2925, val=3.26890 — byte-correct baseline class (99 scale params, 2 embed params)
+  - B (scale=0.3, `24mf7d9y`): FFS=3000, val=3.27336 — +75 FFS harm
+  - C (scale=0.1, `3ydyau87`): FFS=-1, val=3.28464 — FAILED to cross 3.28
+  - D (scale=0.5, `j2vxavcn`): FFS=2925, val=3.26939 — no-op (matches ctrl)
+  - **Monotone pattern**: scale=1.0 = scale=0.5 < scale=0.3 < scale=0.1. Strictly more damping = strictly worse FFS.
+  - **Root cause**: R5 `lr_scalars=0.03` is already conservative enough that further damping of bias/LN-gain subgroup cripples their ability to adapt through cooldown. The anti-direction probe (scale > 1.0) is phenomenological — no theory backing.
+  - **Memory rule**: `bias_ln_lr_damping_null_at_r5`. AdamW subgroup split is structurally sound (byte-correct, 0.3% overhead) but the Sharpness Disparity direction is definitively closed.
+  - **Fleet at 13:00Z**: tanjiro #1964 WIP, thorfinn #1957 WIP, nezuko #1955 WIP, edward #1948 WIP, alphonse #1941 WIP, askeladd #1942 WIP, fern #1922 WIP. **g1r5-frieren IDLE — needs new assignment.**
+
+---
+
+### Notes (2026-05-31 12:00Z) — TANJIRO #1937 CLOSED 80th [FFS-NEUTRAL QKV-ORTHO-INIT]; TANJIRO #1964 ns-iter-cooldown ASSIGNED
+
+- **★ CLOSED #1937 tanjiro qkv-ortho-init** [80th R5 closure, ~12:00Z] — FFS-NEUTRAL. NS5 Stiefel projection absorbs orthogonal Q/K/V structural-init; 2D-weight init axis CLOSED.
+  - Pre-mortem 1 confirmed: "NS5 absorption may neutralize the init advantage (gradient ≠ weight in orthogonality)." The Stiefel projection operates on gradient momentum, not weights — starting Q/K/V on the Stiefel manifold provides zero benefit to the gradient update path when Muon projects updates every step regardless.
+  - Pre-mortem 2 confirmed: FFS bottleneck is the cooldown crossing window (2800–3050), not early-training gradient quality (0–500 steps). Orthogonal init addresses the wrong phase.
+  - **STRUCTURAL-INIT family now at 2 members**: alphonse #1860 init-mu (MLP/proj 2D weights) + tanjiro #1937 qkv-ortho-init (attention Q/K/V 2D weights). Both FFS-NEUTRAL for same mechanism.
+  - Memory rule: `ns5_absorbs_2d_weight_structural_init_at_r5`. Any future init idea affecting Muon-tracked 2D weights needs a mechanism that bypasses NS5 projection (e.g., post-update weight reparameterization, weight-space distance from Stiefel, or init of optimizer state not weight itself).
+  - **2D-WEIGHT INIT AXIS CLOSED**: orthogonal, row-norm, structured prior, Haar-random — all will be absorbed by NS5 projection in the same way. Do not revisit without a bypass mechanism.
+
+- **★ TANJIRO #1964 ns-iter-cooldown ASSIGNED** — PR #1964. First R5 ablation of NS iteration count scheduling. Hypothesis: Muon's NS5 uses `ns_iter=12` early (high accuracy, strong Stiefel projection) but switches to `ns_iter=6` (or 4) at 75% of training progress (step ~2438). Rationale: when LR has collapsed ~100× in cooldown, tight Stiefel projection may over-constrain update geometry — approximate NS5 with fewer iterations yields a broader, less-restricted update that better explores the sharp loss basin in the FFS crossing window (2800–3050). Mechanism is STRUCTURALLY DISTINCT from all 80 closed axes: no prior experiment has changed NS_ITER at all, let alone scheduled it. Implementation: two `@torch.compile`-baked function pairs (`muon_update` + `muon_update_late`, `soap_ns_step` + `soap_ns_step_late`) switched via mutable-cell pattern to respect torch.compile's constant baking. CLI flags: `--ns_iter_late` (None=no-op default) + `--ns_iter_switch_frac` (0.25=switch at 75% progress). Cells: A_ctrl (`--ns_iter 6`), B★ (`--ns_iter 12 --ns_iter_late 6 --ns_iter_switch_frac 0.25`), C (`--ns_iter 12 --ns_iter_late 4`), D (`--ns_iter 12 --ns_iter_late 6 --ns_iter_switch_frac 0.50`). KG_smoke verifies switch fires at step ~33 for 50-step debug. Signal gate: B★ FFS_ema ≤ 2887 OR FFS_trainval ≤ 2900. No-signal stop: FFS_ema > 2950 AND FFS_trainval > 2975.
+
+- **Fleet at 12:00Z**: tanjiro #1964 WIP (ns-iter-cooldown, just assigned); thorfinn #1957 WIP (ema-decay-cooldown-schedule); nezuko #1955 WIP (adamw-eps-cooldown); edward #1948 WIP (precond-freq-cooldown-schedule); fern #1922 WIP (wd-cooldown-shape); frieren #1910 WIP (bias-ln-lr-scale); alphonse #1941 WIP (muon-depth-lr-scale); askeladd #1942 WIP (logit-z-loss). **8/8 active, zero idle.**
+
+---
 
 ### Notes (2026-05-31 11:15Z) — THORFINN #1907 CLOSED 79th [FFS-NEG MONOTONE-IN-α]; THORFINN #1957 ema-decay-cooldown-schedule ASSIGNED
 

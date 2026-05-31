@@ -1,5 +1,73 @@
 # SENPAI Research Results — auto-nanogpt-1gpu-r5
 
+## 2026-05-31 12:52Z — PR #1910 CLOSED FFS-NEG [bias/LN-gain LR damping monotone harm; Sharpness Disparity direction ruled out at R5]: frieren lr_bias_scale ∈ {1.0, 0.5, 0.3, 0.1} [81st R5 closure]
+
+- branch: g1r5-frieren/bias-ln-lr-scale
+- hypothesis: AdamW subgroup split — bias/LN-gain params get scaled LR via `lr_bias_scale × lr_scalars`. Per Wang et al. Sharpness Disparity (ICML 2025), shared LR on biases + LN-gains is suboptimal; damping should improve cooldown convergence.
+- W&B group: `g1r5-frieren/bias-ln-lr-scale`
+
+| Cell | lr_bias_scale | FFS | FFS_ema | best val | best val_ema | run_id |
+|------|---------------|------|---------|----------|--------------|--------|
+| A_ctrl | 1.0 | 2925 | 2925 | 3.26890 | 3.26941 | 4yxdount |
+| B★ | 0.3 | 3000 | 3000 | 3.27336 | 3.27391 | 24mf7d9y |
+| C | 0.1 | -1 | -1 | 3.28464 | 3.28518 | 3ydyau87 |
+| D | 0.5 | 2925 | 2925 | 3.26939 | 3.26990 | j2vxavcn |
+
+**KG_smoke (PASS):** scale_params=99 tensors (153216 elems), embed_params=2 tensors (77266944 elems). `train/lr/adamw_scale = 0.3 × train/lr/adamw_embed` verified at step 1. Split byte-correct.
+
+**Results commentary:**
+**Strict monotone harm in damping direction**: FFS(scale=1.0) = FFS(scale=0.5) < FFS(scale=0.3) < FFS(scale=0.1). Cell C (most aggressive damping) **failed to cross 3.28 target** (FFS=-1, val=3.28464). Cell B★ (Wang et al.'s motivated value) +75 FFS worse. Cell D (mild damping=0.5) is a no-op matching A_ctrl exactly.
+
+**Analysis:**
+The Wang et al. mechanism predicts that damping shared LR helps cooldown convergence. **Data shows the opposite, monotonically.** Root cause:
+1. R5 `lr_scalars=0.03` already conservative — bias/LN-gain subgroup is in comfortable LR regime; further damping over-damps.
+2. thorfinn #1907 LN-gain-init-small (closed 79th) independently showed LN gains need fast adaptation through cooldown. Damping their LR cripples this.
+3. Split itself is byte-correct (A=baseline within 0.5σ at zero overhead). Negative result is about the mechanism direction, not the implementation.
+
+**Wall-clock overhead:** 0.3% (1899ms/step_avg vs ~1890ms baseline). Pareto-NEG clause not triggered.
+
+**Closure:** 81st R5 closure. FFS-NEG monotone harm.
+
+**Memory rule:** `bias_ln_lr_damping_null_at_r5`. AdamW-subgroup-split lever is structurally sound but Sharpness Disparity direction (damping) is definitively ruled out at R5. Anti-direction probe (lr_bias_scale > 1.0) is phenomenological with no theory backing — lower-priority follow-up.
+
+---
+
+## 2026-05-31 12:23Z — PR #1937 CLOSED FFS-NEUTRAL [QKV orthogonal init axis closed, NS5 absorbs 2D weight structural init]: tanjiro qkv-ortho-init mode=qkv n=1 [80th R5 closure]
+
+- branch: g1r5-tanjiro/qkv-ortho-init
+- hypothesis: Replace Gaussian init of Q/K/V attention weights with orthogonal init (Frobenius norm preserved). Starting Q/K/V exactly on Stiefel manifold at step 0 should reduce NS5's corrective work in early training (~0–500 steps) and yield cleaner gradient signal during the FFS crossing window.
+- W&B group: `g1r5-tanjiro/qkv-ortho-init`
+
+| Cell | flag | FFS_ema | FFS_trainval | val/loss | val/ema_corr | run_id |
+|------|------|---------|--------------|----------|--------------|--------|
+| A_ctrl (Gaussian) | — | 2925 | 2925 | 3.268663 | 3.269186 | h45kaerv |
+| B★ (qkv_ortho_init mode=qkv) | --qkv_ortho_init | 2925 | 2950 | 3.270418 | 3.270941 | t5gyfqoj |
+| Baseline μ_4 | PR #1533 | 2912.5 (σ_4=25) | 2937.5 | 3.269600 | 3.270113 | — |
+
+**KG_smoke (all PASS):**
+- sv max/min = 1.000251 (≤1.001 OK)
+- Frobenius preservation = 1.000000 (∈[0.999,1.001] OK)
+- Implementation verified — exact orthogonality at init
+
+**Results commentary:**
+ΔFFS_ema(B★ vs A_ctrl) = 0. ΔFFS_trainval = +25 (worse). val/loss trajectories of A_ctrl and B★ track within ~0.005 from step 125 onward and are identical to 4 decimals from step ~2000. Signal gate FAIL: FFS_ema 2925 > 2887 AND FFS_trainval 2950 > 2900. Student correctly applied predeclared no-signal stop; Cells C (mode=qk ablation) and D (n=4 confirm) NOT launched.
+
+**Analysis (student's pre-mortems both fired):**
+1. **Gaussian is nearly-orthogonal at d=768**: deviation from orthogonality is O(1/√d) ≈ 3.6%. NS5 with `ns_iter=6` in bf16 saturates orthogonality in 1–2 iterations from random Gaussian start.
+2. **NS5 absorbs init advantage**: NS5 re-projects the UPDATE every step, not the weights. Even if W_0 is on Stiefel, trajectory quickly converges to same Riemannian path regardless of starting point on the manifold.
+
+**Closure:** 80th R5 closure. FFS-NEUTRAL n=1 screen.
+
+**Family insight:** Second R5 closure showing NS5 absorbs structural-init perturbations on Muon-tracked 2D weights:
+- alphonse #1860 init-mu (mean-init perturbation) — closed
+- tanjiro #1937 qkv-ortho-init (orthogonal init) — closed here
+
+Combined with the ADDITIVE-PRE-NS5 GRADIENT-MODIFIER family (#1897/#1891/#1885/#1880), the Muon/NS5 stack has emergent absorption of small-magnitude perturbations to either (a) the gradient pre-NS5 OR (b) the initial weights of Muon-tracked params. R5 stack is in a local Riemannian basin that NS5 keeps returning to.
+
+**Memory rule:** `ns5_absorbs_2d_weight_init_perturbations_at_r5`. Future 2D weight init perturbations should pair with `--ns_iter ≤ 2` for early training (or target NON-Muon params).
+
+---
+
 ## 2026-05-31 11:15Z — PR #1907 CLOSED FFS-NEG [LN gain init below 1.0 axis closed, monotone-in-α regression at R5]: thorfinn ln-gain-init-small α ∈ {1.0, 0.7, 0.5, 0.3} [79th R5 closure]
 
 - branch: g1r5-thorfinn/ln-gain-init-small
