@@ -1,3 +1,53 @@
+## 2026-05-31 — PR #1913: H324 tanjiro OUTER LR WARMUP schedule (early-training axis) — CLOSED 178th NULL/NEG (🎯 PAPER-GRADE monotone NEG dose-response + 6th independent FFS=3000 EXACT TIE H266 attractor cluster member + trajectory-divergence-then-incomplete-recovery mechanism + H316+H324 two-experiment closure of OUTER LR SCHEDULE axis as a CLASS)
+
+- Branch: g1r3-tanjiro/h324-outer-lr-warmup
+- Hypothesis: Symmetric early-training counterpart of H316's cooldown OUTER LR finding. Test whether warming up outer_lr from 0.0 → 0.7 over the first N outer steps is at Pareto. arm_a CTRL constant N=0 (H266 baseline), arm_b WARMUP_SHORT N=10 outer steps (~9% of training), arm_c WARMUP_LONG N=30 outer steps (~27% of training).
+
+### Results
+
+| Arm | W&B | warmup_outer_steps | val/loss | FFS | Δ vs H266 (σ_H174) | Δ vs arm_a CTRL (σ_H174) | Merge gate FFS<3000 |
+|-----|-----|--------------------|----------|-----|---------------------|---------------------------|----------------------|
+| arm_a CTRL (constant) | `or2ps0ah` | 0 | **3.26774** | **3000 EXACT** | −0.50σ TIE BELOW | (ref) | ties — not merge candidate |
+| arm_b WARMUP_SHORT | `mw4mpz1r` | 10 | 3.27436 | **3125** | **+6.99σ NEG** | **+7.49σ NEG** | misses by +125 = **4.2% regression** |
+| arm_c WARMUP_LONG | `rp3bwo68` | 30 | **3.29092** | **−1 NEVER REACHED** | **+25.72σ CATASTROPHIC** | **+26.22σ CATASTROPHIC** | **DID NOT REACH val=3.28** |
+
+All 3 arms (+ smoke `l46ickgj`) step-0 val=10.82583 EXACT Pattern A drift-FREE. outer_lr_t telemetry bit-exact to formula at all 10 first outer steps for both warmup arms.
+
+### 🎯 6th independent FFS=3000 EXACT TIE H266 attractor cluster member
+
+arm_a CTRL val=3.26774 FFS=3000 EXACT joins paper-grade attractor cluster (H266 + H319_a + H321_a + H322_b + H324_a + H325_a). H324 arm_a val=3.26774 IDENTICAL to H322 arm_b val=3.26774 — 2nd cross-PR exact val-tie.
+
+### 🎯 PAPER-GRADE monotone NEG dose-response with trajectory-divergence-then-incomplete-recovery
+
+| warmup window | terminal Δ vs CTRL (σ_H174) | Δ per outer-step of warmup |
+|---------------|------------------------------|-----------------------------|
+| N=0 (CTRL) | 0 | — |
+| N=10 (SHORT, ~9%) | +7.49σ | +0.75σ per outer step |
+| N=30 (LONG, ~27%) | +26.22σ | +0.87σ per outer step |
+
+Per-checkpoint trajectory analysis: gap NARROWS over training but NEVER CLOSES. arm_c stays ~+0.023 above CTRL at terminal even after being post-warmup for ~2425 steps (~73% of training). Paper-grade demonstration of early-training trajectory divergence with incomplete recovery — mechanism-distinct from per-checkpoint POS-then-NEG inversion patterns (H323, H321).
+
+### 🎯 H316 + H324 two-experiment closure of OUTER LR SCHEDULE axis
+
+| Sub-axis | Mechanism | Status |
+|----------|-----------|--------|
+| H316 (cooldown ramp DOWN 0.7 → 0.0/0.35) | OUTER LR scheduling during last 15% | +2.24σ-+4.68σ monotone NEG → load-bearing in cooldown |
+| H324 (warmup ramp UP 0.0 → 0.7 over N outer steps, THIS) | OUTER LR scheduling during early 9-27% | +7.49σ-+26.22σ monotone NEG → load-bearing in warmup |
+
+**OUTER LR SCHEDULE axis CLOSED as a class** — H266 baseline `outer_lr=0.7` constant is locally Pareto across BOTH temporal boundary windows. Pre-H266 outer-step-cube studies (H91/H99/H100/H101/H103/H108/H111/H113) all held outer_lr constant — H316 + H324 together establish this is empirically-validated Pareto-stable optimum.
+
+### Conclusions
+
+🎯 **178th NULL/NEG + 106th mechanism class CLOSED NEG** — OUTER LR WARMUP axis CLOSED at +7.49σ-+26.22σ monotone NEG with paper-grade trajectory-divergence-then-incomplete-recovery mechanism characterization at 9-checkpoint resolution.
+
+🎯 **6th independent FFS=3000 EXACT TIE H266** — attractor cluster now at 6 paper-grade-stable members across distinct code paths.
+
+🎯 **H316 + H324 OUTER LR SCHEDULE axis CLOSED as a class** — symmetric NEG dose-response findings across both temporal boundary windows.
+
+Reassigning tanjiro to H332 — POLYAK EMA DECAY SCHEDULE (mechanism-targeted from H323 closure narrative "Polyak EMA requires HIGH-μ momentum coherence during cooldown for terminal val"). H266 baseline decay=0.05 constant was screen-tuned at coarse resolution; cooldown-peak schedule probe is mechanism-distinct from value-only sweeps. WIN probability: 12-18%.
+
+Plateau portfolio: **178 NULL/NEG + 1 MERGED WIN** (H266 baseline FFS=3000), 106 mechanism classes consolidated.
+
 ## 2026-05-31 — PR #1906: H323 thorfinn μ_end VALUE low sustained on post-H266 stack — CLOSED 177th NULL/NEG (🎯 PAPER-GRADE DEEPEST mid-training POS ever observed −45σ at step 1000 + CLEAN mid→terminal phase-inverting crossover at cooldown onset proving "active-only-during-low-μ" mechanism IRREDUCIBILITY on H266 stack + H314+H321+H323 three-experiment mechanism cluster triangulates same cooldown-onset inversion boundary)
 
 - Branch: g1r3-thorfinn/h323-mu-end-value-low-sustained-post-h266
