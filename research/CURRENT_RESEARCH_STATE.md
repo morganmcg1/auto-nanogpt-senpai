@@ -1,3 +1,43 @@
+## 2026-05-31 12:05 UTC — Cycle 71 mid-465 — fern #1940 372nd refute 206th family closure 240th mech class (M-CHANNEL-SUBSTRATE-SPECIFICITY-CONFIRMED-DISJOINT-OPTIMA embed-M=2-strict lm_head-M=3-strict + factor-axis-FLAT-at-embed-M=3 off-substrate-optimum; bilateral 3.27088/3025 + 3.27138/3025 inter-arm Δ +0.00050 < discrimination threshold; substrate-optimum-M-channel × factor=0.25 correspondence proven SUBSTRATE-SPECIFIC not universal) + fern #1959 new assignment (CROSS-SUBSTRATE-COMPOUND embed-M=2 + lm_head-M=3 substrate-optimum joint reset; Arm-A both f=0.25 + Arm-B lm_head f=0.5 clarifier; 35%-SHARED-FLOOR-LM_HEAD prior; tests whether substrate-disjoint optima compose additively or floor-saturate across substrates per askeladd #1928 within-substrate finding)
+
+### fern #1940 bilateral terminal — 372nd refute, 206th family closure, 240th mech class
+
+Bilateral terminal: Arm A `22c0nzg5` embed M=3 f=0.25 val=**3.27088**/3025; Arm B `f91y7jys` embed M=3 f=0.5 val=**3.27138**/3025. Inter-arm Δ +0.00050 (< 0.00200 discrimination threshold, within run-noise). Both PASS stat rule, FAIL merge bar. **372nd cycle-71 refute**.
+
+**M-CHANNEL × SUBSTRATE MATRIX — SUBSTRATE-SPECIFICITY CONFIRMED**:
+
+| substrate | M-channel optimum | RTM-corrected n-mean | n |
+|---|---|---|---|
+| embed | M=2 f=0.25 i=200 | **3.27023** | 2 |
+| lm_head | M=3 f=0.25 i=200 | **3.27050** (16th RTM, nezuko #1920) | 3 |
+
+Each substrate has its OWN M-channel optimum, and the optima are DISJOINT. At substrate-optimum M-channel, f=0.25 is preferred; off-optimum, factor axis flattens within run-noise.
+
+### fern #1959 new assignment — CROSS-SUBSTRATE COMPOUND
+
+Tests whether substrate-disjoint M-channel optima compose ADDITIVELY across substrates (slots formally orthogonal) or FLOOR-SATURATE (cf. askeladd #1928 within-substrate floor-saturation pattern at MLP-SOAP × embed-M=2):
+- **Arm A** embed-M=2 f=0.25 + lm_head-M=3 f=0.25 (substrate-optimum compound)
+- **Arm B** embed-M=2 f=0.25 + lm_head-M=3 f=0.5 (lm_head factor clarifier; closes FACTOR-axis at lm_head-M=3 cell, your suggestion #3)
+- RTM-corrected additive null: 3.27023 + 3.27050 − 3.26776 = **3.27297**
+- Probability-weighted: SHARED-FLOOR-LM_HEAD 35% / PRODUCTIVE-ADDITIVE 25% / SHARED-FLOOR-EMBED 20% / WEAK-DESTRUCTIVE 12% / MERGE 5% / STRONG-DESTRUCTIVE 3%
+
+### Cycle 71 cumulative state (post-#1940 closure)
+
+**372 refuted / 240 distinct mech classes / 206 family closures / 9 structural axes locked / 18 regression-to-mean precedents** (RTM QUINTET). Fleet 8/8 active. Cumulative refutation rate: ~17.0 mech classes / hour at current pace.
+
+### Standing in-flight monitoring (last status as of 12:00Z)
+
+- **thorfinn #1944** — was step 900/3175 at 09:42Z, ETA ~11:50Z (likely past terminal, check next wake)
+- **frieren #1947** — Arm A mid-run + Arm B isolated β1=0.5 launching
+- **tanjiro #1949** — Arm A `j3n5pgmy` launched ~10:21Z hybrid config, ETA ~12:14Z
+- **nezuko #1950** — INTERVAL-AXIS at M=2 cell
+- **edward #1952** — AXIS-4 DUAL-EXCLUSION MATRIX
+- **alphonse #1953** — NS5_ITERS bilateral at diagonal corner
+- **askeladd #1956** — RESET-FACTOR-ABLATION compound
+- **fern #1959** — CROSS-SUBSTRATE COMPOUND, just assigned
+
+---
+
 ## 2026-05-31 11:05 UTC — Cycle 71 mid-464 — askeladd #1928 371st refute 205th family closure 239th mech class + 18th RTM PRECEDENT — RTM QUINTET COMPLETE (CROSS-AXIS-MLP-SOAP-X-EMBED-M2-FLOOR-SATURATED-AT-MLP-SOAP-N=3-MEAN reset-axis-marginal-lift-zero bilateral compound=3.27011/3025 alone-verify=3.27139/3025; MLP-SOAP front_FAST n=3 mean 3.27018 ± σ 0.00124 — 5-of-5 cycle-71 TOP carriers RTM-confirmed 100% rate) + askeladd #1956 new assignment (COMPOUND-RESET-FACTOR-ABLATION Arm-A=0.5 Arm-B=0.1 at MLP-SOAP × embed-M=2 compound, 40%-FLOOR-SATURATION-INDEPENDENT-OF-FACTOR prior testing whether MLP-SOAP saturates floor or reset MAGNITUDE drives saturation)
 
 ### askeladd #1928 bilateral terminal — 371st refute, 205th family closure, 239th mech class, 18th RTM precedent
