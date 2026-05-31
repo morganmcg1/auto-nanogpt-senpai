@@ -609,6 +609,13 @@ NANOGPT_NEWTON_MUON_TIKHONOV_GAMMA = float(os.environ.get("NANOGPT_NEWTON_MUON_T
 # diagonal prior accumulated over K steps of "naked Muon" training (NM bypassed pre-K).
 NANOGPT_NEWTON_MUON_R_ADAMW_WARMSTART = int(os.environ.get("NANOGPT_NEWTON_MUON_R_ADAMW_WARMSTART", "0"))
 NANOGPT_NEWTON_MUON_R_ADAMW_WARMSTART_K = int(os.environ.get("NANOGPT_NEWTON_MUON_R_ADAMW_WARMSTART_K", "100"))
+# #1914: Body-phase NM step-gate. When BURST_END_STEP > 0, override
+# update_period to BURST_PERIOD inside [BURST_START_STEP, BURST_END_STEP).
+# Setting BURST_PERIOD=99999 inside the window freezes R refresh during the
+# burst region (body-phase NM ablation). BURST_END_STEP=0 disables the gate.
+NANOGPT_NEWTON_MUON_BURST_START_STEP = int(os.environ.get("NANOGPT_NEWTON_MUON_BURST_START_STEP", "0"))
+NANOGPT_NEWTON_MUON_BURST_END_STEP = int(os.environ.get("NANOGPT_NEWTON_MUON_BURST_END_STEP", "0"))
+NANOGPT_NEWTON_MUON_BURST_PERIOD = int(os.environ.get("NANOGPT_NEWTON_MUON_BURST_PERIOD", "1"))
 
 # Global per-parameter input-activation cache populated by forward hooks. Keyed by
 # id(weight_param) → tensor of shape (B*T, d_in) on device. Only populated when
@@ -855,11 +862,23 @@ class Muon(torch.optim.Optimizer):
             tel_w = self.newton_telemetry
             tel_w["r_warmstart_n"] = tel_w.get("r_warmstart_n", 0) + 1
             did_warmstart = True
-        # Update R EMA + eigendecomp every newton_update_period steps (and at first call).
+        # #1914: Burst-gate eff_period — when within [BURST_START_STEP, BURST_END_STEP),
+        # use BURST_PERIOD; otherwise ambient newton_update_period. BURST_END_STEP=0
+        # disables the gate (bit-identical fallback for runs without burst envs set).
+        if (
+            NANOGPT_NEWTON_MUON_BURST_END_STEP > 0
+            and NANOGPT_NEWTON_MUON_BURST_START_STEP
+            <= self._newton_step_count
+            < NANOGPT_NEWTON_MUON_BURST_END_STEP
+        ):
+            eff_period = NANOGPT_NEWTON_MUON_BURST_PERIOD
+        else:
+            eff_period = self.newton_update_period
+        # Update R EMA + eigendecomp every eff_period steps (and at first call).
         update_R = (
             "R" not in state
             or did_warmstart
-            or (self._newton_step_count % self.newton_update_period == 1)
+            or (self._newton_step_count % eff_period == 1)
         )
         if update_R:
             if not did_warmstart:
@@ -1037,7 +1056,11 @@ print0(
     f"max_d_in={NANOGPT_NEWTON_MUON_MAX_D_IN} "
     f"tikhonov_gamma={NANOGPT_NEWTON_MUON_TIKHONOV_GAMMA} "
     f"r_warmstart={'True' if NANOGPT_NEWTON_MUON_R_ADAMW_WARMSTART else 'False'} "
-    f"r_warmstart_k={NANOGPT_NEWTON_MUON_R_ADAMW_WARMSTART_K}",
+    f"r_warmstart_k={NANOGPT_NEWTON_MUON_R_ADAMW_WARMSTART_K} "
+    f"burst_start={NANOGPT_NEWTON_MUON_BURST_START_STEP} "
+    f"burst_end={NANOGPT_NEWTON_MUON_BURST_END_STEP} "
+    f"burst_period={NANOGPT_NEWTON_MUON_BURST_PERIOD} "
+    f"burst_gate_active={'True' if NANOGPT_NEWTON_MUON_BURST_END_STEP > 0 else 'False'}",
     console=True,
 )
 if NS_ITERS_COOLDOWN > 0:
@@ -1161,6 +1184,9 @@ if dist.get_rank() == 0:
             "nanogpt_newton_muon_tikhonov_gamma": NANOGPT_NEWTON_MUON_TIKHONOV_GAMMA,
             "nanogpt_newton_muon_r_adamw_warmstart": NANOGPT_NEWTON_MUON_R_ADAMW_WARMSTART,
             "nanogpt_newton_muon_r_adamw_warmstart_k": NANOGPT_NEWTON_MUON_R_ADAMW_WARMSTART_K,
+            "nanogpt_newton_muon_burst_start_step": NANOGPT_NEWTON_MUON_BURST_START_STEP,
+            "nanogpt_newton_muon_burst_end_step": NANOGPT_NEWTON_MUON_BURST_END_STEP,
+            "nanogpt_newton_muon_burst_period": NANOGPT_NEWTON_MUON_BURST_PERIOD,
         },
     )
 
