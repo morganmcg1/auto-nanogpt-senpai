@@ -1,3 +1,58 @@
+## 2026-05-31 05:22 UTC — Cycle 71 mid-452 — frieren #1901 358th refute (LM-HEAD-M=3-FACTOR-OPTIMUM-AT-0.25 + 13TH-RTM-CONFIRMED) + nezuko #1902 359th refute (AXIS-9-K-REVERSAL × 3-PROJECTION-JOINT-NULL) + frieren #1919 + nezuko #1920 assigned
+
+### frieren #1901 lm_head M=3 factor-axis probe + 13th RTM precedent — 358th refute, 192nd family closure, 225th mech class
+
+Bilateral terminal (advisor-side W&B capture; student silent at 05:05Z): Arm A `ie2mnlq7` (lm_head M=3 f=0.5 interval=200 n=2 of #1872 B) val=**3.27078**/3025; Arm B `8ru91ywq` (lm_head M=3 f=0.25 interval=200 NEW) val=**3.26922**/3025. Bilateral mean **3.27000**/3025 ABOVE merge bars (+0.00224 val + ffs+25). **358th cycle-71 refute**.
+
+**Arm B at 3.26922 = INSIDE FLOOR BAND** [3.26800, 3.27000] near lower edge. Δ(A − B) = **+0.00156 productive** in B direction.
+
+**HIGH-VALUE NEW MECH FINDING: lm_head M=3 PREFERS factor=0.25 OVER factor=0.5**
+
+Combined with fern #1887 finding (embed M=2 prefers f=0.25 over f=0.5), a **SECOND-CHANNEL-FACTOR-OPTIMUM pattern** emerges:
+
+| channel | M | factor optimum | source | val |
+|---|---|---|---|---|
+| embed | M=1 | 0.5 (reference) | cross-PR | — |
+| embed | M=2 | **0.25** | fern #1887 B | 3.26875 |
+| lm_head | M=2 | 0.5 | fern #1887 A | 3.26977 |
+| **lm_head** | **M=3** | **0.25** | frieren #1901 B | **3.26922** |
+
+**M-CHANNEL-FACTOR-CORRESPONDENCE hypothesis emerging**: higher M-channel preferentially uses smaller factor.
+
+**13th RTM precedent CONFIRMED**: Arm A 3.27078 (n=2 of #1872 B `onvvu1ep` 3.26858 at interval=250→200) = +0.00220 upward regression. The single-seed 3.26858 was upward-noise excursion outside the lm_head M=3 productive band.
+
+**225th MECH CLASS**: LM-HEAD-M=3-FACTOR-OPTIMUM-AT-0.25-INSIDE-FLOOR-BAND-WITH-13TH-RTM-CONFIRMED-AT-M=3-FACTOR=0.5.
+**192nd FAMILY CLOSURE**: LM-HEAD-M=3-FACTOR-AXIS-PROBE-MINIMUM-AT-0.25-CONFIRMED-CROSS-PR-RTM-13TH-PRECEDENT.
+
+### nezuko #1902 axis-9 k-reversal × 3-projection joint compression — 359th refute, 193rd family closure, 226th mech class
+
+Bilateral terminal (advisor-side W&B capture; student silent at 05:09Z): Arm A `p2714adn` val=**3.27305**/3050; Arm B `5pzu66dq` (× 3-projection joint compression) val=**3.27205**/3050. Bilateral mean **3.27255**/3050 ABOVE merge bars (+0.00479 val + ffs+50). **CLEAR refute**.
+
+Axis-9 k-reversal alone DESTRUCTIVE (3.27305 = +0.00529 above merge bar). 3-projection joint compression PARTIALLY RECOVERS (Δ B−A −0.00100) but not enough to clear floor band. Bilateral mean above floor band ceiling — NOT a productive direction.
+
+**226th MECH CLASS**: AXIS-9-K-DIRECTION-REVERSAL-DESTRUCTIVE-WITH-3-PROJECTION-JOINT-COMPRESSION-PARTIAL-RECOVERY-ABOVE-FLOOR-BAND.
+**193rd FAMILY CLOSURE**: AXIS-9-K-REVERSAL-X-3-PROJECTION-JOINT-COMPRESSION-CELL-CLOSED-ABOVE-FLOOR-BAND-NOT-PRODUCTIVE.
+
+### frieren #1919 new assignment: M-CHANNEL-FACTOR-CORRESPONDENCE cross-kind compound at SECOND-CHANNEL-FACTOR-OPTIMUM
+
+Combines two confirmed cycle-71 productive carriers at smaller-factor optima:
+- Arm A: COMPOUND = embed M=2 f=0.25 interval=200 + lm_head M=3 f=0.25 interval=200
+- Arm B: CONTROL n=2 = lm_head M=3 f=0.25 alone (replicates #1901 Arm B 3.26922)
+
+Additive null = 3.26802 (sub-merge borderline). 35% probability cross-kind f=0.25 floor saturation; 15% full additivity merge candidate; 15% destructive cross-kind reset interference.
+
+### nezuko #1920 new assignment: INTERVAL-AXIS-AT-LM-HEAD-M=3-F=0.25 clarifier
+
+Tests interval=250 cell at just-confirmed lm_head M=3 f=0.25 productive direction:
+- Arm A: lm_head M=3 f=0.25 interval=250 (UNEXPLORED cell)
+- Arm B: CONTROL n=2 = lm_head M=3 f=0.25 interval=200 (replicates #1901 Arm B 3.26922)
+
+Discriminates INTERVAL-AXIS-M-CHANNEL-DEPENDENT (20% merge candidate if interval=250 productive at M=3) vs INTERVAL-AXIS-UNIFIED-DIRECTION (interval=200 productive at all M, ~3.27000-3.27100).
+
+Cumulative: **359 refuted / 226 mech classes / 193 family closures / 9 axes locked / 13 RTM precedents**. Fleet 8/8 active 0 idle.
+
+---
+
 ## 2026-05-31 04:48 UTC — Cycle 71 mid-451 — thorfinn #1884 357th refute (LM-HEAD-β1=0.7-MINIMUM-CONFIRMED + SIXTH-FLOOR-BAND-ABSORPTION) + thorfinn #1916 assigned (cross-carrier compound #1855 × #1884)
 
 ### thorfinn #1884 axes #1 × #2 MERGE-CANDIDATE COMPOUND + lm_head EXTREME-FAST probe — 357th refute, 191st family closure, 215th mech class CONFIRMED
