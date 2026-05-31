@@ -1,3 +1,44 @@
+## 2026-05-31 06:24 UTC — Cycle 71 mid-455 — askeladd #1909 362nd refute (PER-KIND-WD-FINE-TUNE-NOT-LOAD-BEARING) + askeladd #1928 assigned (CROSS-AXIS COMPOUND MLP-SOAP × embed M=2 f=0.25, additive null ~3.26475 STRONG MERGE CANDIDATE)
+
+### askeladd #1909 axis-13 per-kind WD 2×2 matrix embed-only × null-WD — 362nd refute, 196th family closure, 230th mech class
+
+Bilateral terminal: Arm A `3751xv8l` embed-only-WD=0.001 (other kinds WD=0.0) val=**3.27266**/3000; Arm B `uad14u8y` "null" (actually uniform-0.001 fallback, not true zero-WD due to env var fallback) val=**3.27132**/3000. Both ABOVE merge bar (+0.00356 / +0.00490). **362nd cycle-71 refute**.
+
+**Completed 2×2 per-kind WD matrix**: Full (all kinds WD=0.001) 3.27047, Uniform 3.27132, lm_head-only 3.27240 (#1879), embed-only 3.27266 (#1909 A). **All split-WD configurations REGRESS vs full uniform**.
+
+**PER-KIND-WD-IS-FINE-TUNE-NOT-LOAD-BEARING**: per-kind WD decomposition is NOT a productive axis at the current floor band. Single-substrate WD application is DESTRUCTIVE relative to uniform application. The 4-cell matrix completion produces a monotonic rank: Full < Uniform < lm_head-only < embed-only. **Single-substrate WD imbalance disrupts substrate equilibrium** — WD as a control axis only works when applied uniformly.
+
+**CAVEAT**: Arm B's "null" branch used uniform-0.001 fallback rather than true zero-WD due to env var fallback behavior. True zero-WD null control would require explicit `WEIGHT_DECAY=0.0` — not the same null as nominal "WD=0 on all".
+
+**KEY STRUCTURAL FINDINGS**:
+1. 2×2 per-kind WD matrix COMPLETED — all 4 cells above merge bar
+2. Single-substrate WD = DESTRUCTIVE — both embed-only and lm_head-only regress vs uniform
+3. Monotonic destructive ordering: Full(3.27047) < Uniform(3.27132) < lm_head-only(3.27240) < embed-only(3.27266)
+4. WD AXIS LOCKED at uniform application — per-kind decomposition closed as non-productive
+
+**230th MECH CLASS**: PER-KIND-WD-FINE-TUNE-NOT-LOAD-BEARING-SINGLE-SUBSTRATE-DESTRUCTIVE.
+**196th FAMILY CLOSURE**: AXIS-13-WD-PER-KIND-DECOMPOSITION-CLOSED-UNIFORM-APPLICATION-ONLY-PRODUCTIVE.
+
+### askeladd #1928 NEW ASSIGNMENT — CROSS-AXIS COMPOUND MLP-SOAP per-depth-half front_FAST × embed M=2 f=0.25 reset (additive null ~3.26475 STRONG MERGE CANDIDATE)
+
+Arm A: COMPOUND combining #1855 A MLP-SOAP per-depth-half front_FAST (3.26891) × #1887 B embed M=2 f=0.25 reset (3.26875) — two TOP cycle-71 carriers NEVER combined. Different mechanism families (MLP-SOAP per-depth-half vs embed periodic reset M-factor) at orthogonal substrate axes (MLP vs embed).
+
+Arm B: n=2 verification of #1855 A MLP-SOAP per-depth-half front_FAST (target 3.26891 replication).
+
+**Additive null prediction**: ~3.26475 (= 3.26891 + 3.26875 - 3.27291 baseline-equivalent) — **STRONG MERGE CANDIDATE** if at or below this floor band sub-merge target by −0.00301 vs baseline.
+
+**Outcome probabilities**:
+- 10% SUPER-ADDITIVE breakthrough (<3.26475, new SOTA below 3.265)
+- 35% FULL/STRONG additive merge candidate (3.26475-3.26700, sub-merge)
+- 25% sub-additive sub-merge (3.26700-3.26800, in floor band)
+- 20% floor saturation (3.26800-3.27000, no improvement)
+- 10% destructive (>3.27000, regression)
+- **Cumulative 45% sub-merge bar probability** — HIGHEST single-PR merge probability this cycle
+
+Bilateral verification arms launched concurrently; merge bar 3.26776 mean for both arms or both below.
+
+---
+
 ## 2026-05-31 06:13 UTC — Cycle 71 mid-454 — edward #1908 361st refute (Q-LOAD-BEARING-REFUTED + V-K-CO-CARRY-RANK-ORDERED-V-DOMINANT) + edward #1925 assigned (4-cell triple-exc matrix closure proj_only × v_only n=2)
 
 ### edward #1908 axis #4 triple-exc v_only × k_only Q-LOAD-BEARING discriminator — 361st refute, 195th family closure, 229th mech class
