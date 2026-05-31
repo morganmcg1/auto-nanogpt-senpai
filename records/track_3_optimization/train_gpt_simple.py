@@ -28,6 +28,46 @@ STAT_SIG_DELTA = 0.004
 SLOPE_FRACTION = 0.10
 
 
+class LookaheadAdamW(AdamW):
+    """H344 Lookahead wrapper around AdamW (Zhang et al. 2019, arXiv:1907.08610).
+
+    Every k inner steps: slow ← α·fast + (1-α)·slow ; fast ← slow.
+    k=0 short-circuits to plain AdamW so arm_a CTRL is bit-id with H266 baseline.
+    """
+
+    def __init__(self, params, *args, lookahead_k=0, lookahead_alpha=0.5, **kwargs):
+        super().__init__(params, *args, **kwargs)
+        self.lookahead_k = int(lookahead_k)
+        self.lookahead_alpha = float(lookahead_alpha)
+        self.lookahead_step_count = 0
+        self.slow_weights = None  # lazy init on first sync-eligible step
+        self.last_slow_drift_rms = 0.0  # ||fast-slow||₂ measured at sync events
+
+    @torch.no_grad()
+    def step(self, closure=None):
+        loss = super().step(closure)
+        if self.lookahead_k == 0:
+            return loss  # bit-id with standard AdamW (H266 baseline)
+        if self.slow_weights is None:
+            self.slow_weights = [
+                [p.detach().clone() for p in group["params"]]
+                for group in self.param_groups
+            ]
+        self.lookahead_step_count += 1
+        if self.lookahead_step_count % self.lookahead_k == 0:
+            sq_sum = 0.0
+            elem = 0
+            for group, slow_group in zip(self.param_groups, self.slow_weights):
+                for p, slow_p in zip(group["params"], slow_group):
+                    diff = (p.data.float() - slow_p.float())
+                    sq_sum += float(diff.pow(2).sum().item())
+                    elem += p.numel()
+                    slow_p.mul_(1.0 - self.lookahead_alpha).add_(p.data, alpha=self.lookahead_alpha)
+                    p.data.copy_(slow_p)
+            self.last_slow_drift_rms = (sq_sum / max(1, elem)) ** 0.5
+        return loss
+
+
 def parse_args():
     parser = argparse.ArgumentParser(description="Modded-NanoGPT optimizer speedrun trainer")
     parser.add_argument("legacy_num_trials", nargs="?", type=int, help="Backward-compatible positional trial count")
@@ -114,6 +154,17 @@ def parse_args():
                         help="Polyak-Ruppert EMA decay for eval-only weight averaging. "
                              "0.0 = disabled (drift-FREE CTRL). Typical: 0.05 (fast, ~20-step half-life) / "
                              "0.005 (slow, ~200-step half-life). Higher decay = faster EMA tracking.")
+    # H344 Lookahead-on-AUX (Zhang et al. 2019). Wraps the aux AdamW with a slow-weight
+    # pullback every k inner steps: slow ← α·fast + (1-α)·slow ; fast ← slow.
+    # k=0 short-circuits to standard AdamW for H266 bit-id.
+    parser.add_argument("--aux_lookahead_k", type=int,
+                        default=int(os.environ.get("AUX_LOOKAHEAD_K", "0")),
+                        help="Lookahead k (slow-weight sync every k inner steps for AUX AdamW). "
+                             "0 = disabled (H266 bit-id).")
+    parser.add_argument("--aux_lookahead_alpha", type=float,
+                        default=float(os.environ.get("AUX_LOOKAHEAD_ALPHA", "0.5")),
+                        help="Lookahead α (slow-weight averaging coefficient). "
+                             "slow ← α·fast + (1-α)·slow. Only used when aux_lookahead_k>0.")
     args = parser.parse_args()
     args.num_trials = args.num_trials if args.num_trials is not None else (args.legacy_num_trials or 1)
     args.wandb_tags = [tag.strip() for tag in args.wandb_tags.split(",") if tag.strip()]
@@ -796,6 +847,10 @@ if args.muonh_agc_clip_ratio > 0:
     print0(f"AGC ENABLED on inner MuonH gradient: clip_ratio={args.muonh_agc_clip_ratio} eps={args.muonh_agc_eps}", console=True)
 else:
     print0("AGC DISABLED on inner MuonH gradient (clip_ratio=0)", console=True)
+if args.aux_lookahead_k > 0:
+    print0(f"H344 Lookahead ENABLED on aux AdamW: k={args.aux_lookahead_k} alpha={args.aux_lookahead_alpha}", console=True)
+else:
+    print0("H344 Lookahead DISABLED on aux AdamW (k=0, H266 bit-id)", console=True)
 print0("="*100)
 
 val_tokens = 20 * 524288
@@ -856,6 +911,8 @@ if dist.get_rank() == 0:
             "muonh_mu_start": args.muonh_mu_start,
             "muonh_mu_end": args.muonh_mu_end,
             "polyak_ema_decay": args.polyak_ema_decay,
+            "aux_lookahead_k": args.aux_lookahead_k,
+            "aux_lookahead_alpha": args.aux_lookahead_alpha,
         },
     )
 
@@ -932,10 +989,16 @@ for trial_idx in range(args.num_trials):
     # silent-failure-mode risk we use fused=False whenever the β2 schedule is active.
     # constant schedule keeps fused=True so arm_a is bitwise-identical to baseline.
     _aux_fused = (args.aux_beta2_schedule == "constant")
-    optimizer1 = AdamW([dict(params=[model.embed.weight], lr=0.3, name="adam_embed"),
-                        dict(params=[model.proj.weight], lr=1/320, name="adam_lm_head"),
-                        dict(params=[p for p in model.parameters() if p.ndim < 2], lr=0.01, name="adam_scalars")],
-                       betas=(0.8, args.aux_beta2_start), eps=args.aux_adamw_eps, weight_decay=0, fused=_aux_fused)
+    # H344: LookaheadAdamW wraps AdamW with slow-weight pullback every k inner steps.
+    # aux_lookahead_k=0 short-circuits to standard AdamW (H266 baseline bit-id).
+    optimizer1 = LookaheadAdamW(
+        [dict(params=[model.embed.weight], lr=0.3, name="adam_embed"),
+         dict(params=[model.proj.weight], lr=1/320, name="adam_lm_head"),
+         dict(params=[p for p in model.parameters() if p.ndim < 2], lr=0.01, name="adam_scalars")],
+        lookahead_k=args.aux_lookahead_k,
+        lookahead_alpha=args.aux_lookahead_alpha,
+        betas=(0.8, args.aux_beta2_start), eps=args.aux_adamw_eps, weight_decay=0, fused=_aux_fused,
+    )
     optimizer2 = MuonH([p for p in model.blocks.parameters() if p.ndim >= 2],
                        lr=args.muonh_lr, weight_decay=0.0, mu=0.95,
                        hyperball=True, budget_mult=args.muonh_budget_mult,
@@ -1234,6 +1297,10 @@ for trial_idx in range(args.num_trials):
             muonh_metrics = {"trial": trial_idx, "train/step": train_step}
             muonh_metrics["aux/beta2"] = aux_beta2
             muonh_metrics["train/muonh_mu"] = muonh_mu_t
+            # H344 Lookahead-on-AUX slow-weight drift telemetry: only meaningful when k>0.
+            if args.aux_lookahead_k > 0:
+                muonh_metrics["train/aux_lookahead_slow_drift_rms"] = optimizer1.last_slow_drift_rms
+                muonh_metrics["train/aux_lookahead_step_count"] = optimizer1.lookahead_step_count
             for opt in optimizers:
                 if isinstance(opt, MuonH):
                     if telemetry_due:
