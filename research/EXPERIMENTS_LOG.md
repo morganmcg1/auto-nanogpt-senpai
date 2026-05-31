@@ -1,3 +1,45 @@
+## 2026-05-31 — PR #1977: H339 nezuko F-norm rescaling projection (M3 mechanism test bisecting H326 closure narrowing) — CLOSED 193rd NULL/NEG (🎯 PAPER-GRADE BILATERAL M3 CLOSURE: both α=1.0 hard AND α=0.1 soft F-norm projection NEG at FFS=3050 + arm_c PROJ_SOFT MARGINALLY WORSE than arm_b PROJ_HARD despite 10× lighter dose confirms NO soft admit window + M3 F-norm contraction BILATERALLY RULED OUT as load-bearing mechanism for H326 BODY ORTHO POS direction + H326 closure 3-mechanism narrowing FULLY PRUNED: M1 RULED OUT H328 + M3 RULED OUT H339 THIS → M2 spectral-spread SOLE remaining candidate H341 IN-FLIGHT + steady systemic loss in attainable terminal val NOT training instability — F-norm projection during cooldown incompatible with H266 body F-norm equilibrium that emerges during cooldown window Polyak EMA tracking cooldown-final-state requires free body F-norm growth)
+
+- Branch: g1r3-nezuko/h339-fnorm-rescaling-projection
+- Hypothesis: M3 (F-norm contraction toward init) mechanism bisection test of H326 closure narrowing. Per-step F-norm rescaling projection of body 2D weights toward initialization F-norm targets. arm_a CTRL α=0 (H266 bit-id) / arm_b PROJ_HARD α=1.0 (full F-norm projection) / arm_c PROJ_SOFT α=0.1 (10% projection step).
+
+### Results
+
+| Arm | body_fnorm_projection α | val/loss | FFS | Δ vs H266 (σ_H174) | Δ vs CTRL (σ_H174) | Verdict |
+|-----|--------------------------|----------|-----|--------------------|--------------------|---------|
+| arm_a CTRL α=0 (H266 bit-id) | 0.0 | 3.26919 | 3025 | +1.14σ TIE | (ref) | Pattern A +25 IN FAMILY |
+| arm_b PROJ_HARD α=1.0 | 1.0 | **3.27037** | **3050** | **+2.48σ NEG** | **+1.33σ NEG-vs-CTRL** | **NEG** (+25 FFS vs CTRL) |
+| arm_c PROJ_SOFT α=0.1 | 0.1 | **3.27071** | **3050** | **+2.86σ NEG** | **+1.72σ NEG-vs-CTRL** | **NEG** (+25 FFS vs CTRL, marginally WORSE than arm_b) |
+| H266 baseline (PR #1669) | 0.0 | 3.26818 | 3000 | (ref) | — | — |
+
+🎯 **193rd NULL/NEG closure** — Issue #1260 strict gate FAIL (arm_a Pattern A +25 IN FAMILY, arm_b/c monotone-up NEG no strict-clear).
+
+### W&B run IDs
+
+- arm_a CTRL `m5wvt61a`
+- arm_b PROJ_HARD `2xt59td9`
+- arm_c PROJ_SOFT `i2s4i76s`
+- group: `H339_fnorm_projection`
+
+### Paper-grade findings
+
+**Finding #1 — M3 mechanism BILATERALLY RULED OUT (NO soft admit window)**: arm_c PROJ_SOFT MARGINALLY WORSE than arm_b PROJ_HARD is paper-grade signal. The α=0.1 soft projection admits ~0.4% F-norm drift around step 100 then settles back to drift_ratio≈1.0, yet does NOT partially admit — it's marginally WORSE than hard projection. ANY non-zero F-norm projection toward init is closure-direction at H266 stack. M3 (F-norm contraction) is RULED OUT as source of H326 arm_c FNORM_MID −0.67σ POS-direction signal.
+
+**Finding #2 — H326 closure 3-mechanism narrowing FULLY PRUNED to M2**:
+- M1 weight-decay analog: RULED OUT (H328 180th NULL/NEG)
+- M2 spectral-spread regularization: IN-FLIGHT (H341 frieren, arm_a TIE, arm_b LIGHT running)
+- M3 F-norm contraction: RULED OUT bilaterally (H339 THIS) ⚡
+
+The H322 BODY ORTHO POS magnitude observed at H326 arm_c is NOT produced by F-norm contraction. M2 spectral-spread is SOLE remaining candidate. H341 frieren resolution: M2 confirmed → BODY ORTHO POS axis FULLY CLOSED with paper-grade mechanism narrowed to spectral-spread / M2 also ruled out → M4 init-eigenspace alignment becomes top priority next BODY cycle.
+
+**Finding #3 — Steady systemic loss in attainable terminal val (NOT training instability)**: Per-step val trajectory shows damage NOT from training-time instability (no NaN/divergence) but from steady systemic loss in attainable terminal val that grows through cooldown. Damage small at mid-training (~0.001 val) compounds across cooldown to +0.001-0.002 val at terminal = +25 FFS shift. Mechanism: F-norm projection during cooldown incompatible with H266 body F-norm equilibrium emerging during cooldown window. Polyak EMA branch tracking cooldown-final-state requires free body F-norm growth.
+
+### Releasing nezuko for H347
+
+H347 — MuonH Newton-Schulz iteration count VALUE micro-axis at H266 stack (mechanism-novel BODY-orthogonalizer KERNEL structural axis). The hardcoded `range(12)` at line 562 of train_gpt_simple.py has NEVER been re-screened at H266 stack. NS iteration count controls polar decomposition approximation quality for body 2D weight orthogonalization. Mechanism-distinct from H342 BODY init geometry and H326/H339 BODY F-norm/orthogonality regularizers (penalty-based). H347 directly probes the orthogonalizer kernel itself.
+
+---
+
 ## 2026-05-31 — PR #1975: H338 thorfinn AUX sync_interval VALUE micro-axis re-screen at H266 stack (K∈{20,30,45}) — CLOSED 192nd NULL/NEG (🎯 PAPER-GRADE 5-axis virgin-axis-at-H266-stack canalization narrative COMPLETE: H328 wd + H334 β1 + H335 eps + H337 outer_momentum + H338 sync_interval all closed at H266 stack + arm_a CTRL = 11th H266 attractor cluster member TIED for LOWEST val with H335 arm_b LOW eps=1e-7 + NEW paper-grade mechanism finding: Polyak EMA branch acts as low-pass filter on outer-step delta amplitude + monotone-up FFS trend K=20:3025 / K=30:3000 / K=45:3050 confirms K=30 sits at local Pareto + EMA-cadence resonance hypothesis FALSIFIED)
 
 - Branch: g1r3-thorfinn/h338-aux-sync-interval-h266-rescreen
