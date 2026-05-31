@@ -114,6 +114,12 @@ def parse_args():
                         help="Polyak-Ruppert EMA decay for eval-only weight averaging. "
                              "0.0 = disabled (drift-FREE CTRL). Typical: 0.05 (fast, ~20-step half-life) / "
                              "0.005 (slow, ~200-step half-life). Higher decay = faster EMA tracking.")
+    parser.add_argument("--body_orthogonality_lambda", type=float,
+                        default=float(os.environ.get("BODY_ORTHOGONALITY_LAMBDA", "0.0")),
+                        help="H322 soft Frobenius penalty on body weight semi-orthogonality "
+                             "(W·W^T → I for fat W, W^T·W → I for tall W). "
+                             "Adds lambda·sum_W ||W W^T - I||_F^2 to training loss for each 2D body weight matrix. "
+                             "0.0 = disabled (drift-FREE CTRL, bit-identical to H266 baseline).")
     args = parser.parse_args()
     args.num_trials = args.num_trials if args.num_trials is not None else (args.legacy_num_trials or 1)
     args.wandb_tags = [tag.strip() for tag in args.wandb_tags.split(",") if tag.strip()]
@@ -249,6 +255,28 @@ def grouped_by_type(named_tensors: list[tuple[str, Tensor]], module_types: dict[
     for name, tensor in named_tensors:
         groups.setdefault(module_types[name], []).append((name, tensor))
     return groups
+
+
+def compute_body_orthogonality_loss(body_params: list[Tensor], lam: float) -> Tensor | None:
+    # H322: sum of ||W W^T - I||_F^2 over 2D body weight matrices.
+    # For fat/square W (m<=n) penalize W W^T → I_m; for tall W penalize W^T W → I_n.
+    if lam <= 0.0 or not body_params:
+        return None
+    device = body_params[0].device
+    total = torch.zeros((), device=device)
+    for W in body_params:
+        if W.ndim != 2:
+            continue
+        m, n = W.shape
+        if m <= n:
+            ww = W @ W.t()
+            I = torch.eye(m, device=W.device, dtype=W.dtype)
+        else:
+            ww = W.t() @ W
+            I = torch.eye(n, device=W.device, dtype=W.dtype)
+        diff = ww - I
+        total = total + (diff * diff).sum()
+    return lam * total
 
 
 def sample_tensor(tensor: Tensor, max_samples: int) -> Tensor:
@@ -856,6 +884,7 @@ if dist.get_rank() == 0:
             "muonh_mu_start": args.muonh_mu_start,
             "muonh_mu_end": args.muonh_mu_end,
             "polyak_ema_decay": args.polyak_ema_decay,
+            "body_orthogonality_lambda": args.body_orthogonality_lambda,
         },
     )
 
@@ -1174,6 +1203,22 @@ for trial_idx in range(args.num_trials):
             dist.all_reduce(p.grad, op=dist.ReduceOp.SUM)
         dist.all_reduce(step_loss, op=dist.ReduceOp.SUM)
         train_loss = float((step_loss / batch_size).item())
+        # H322: body weight orthogonality regularizer. Gated at lambda<=0 → no-op
+        # (bit-identical to H266 baseline). Added AFTER the data-gradient all_reduce
+        # so the regularizer gradient is applied exactly once per step (weights are
+        # identical across ranks, so each rank computes the same ortho_loss and we
+        # do not all_reduce its backward contribution). Affects backward only —
+        # val/loss and train_loss reporting remain task-only.
+        ortho_loss_val = 0.0
+        ortho_loss_ratio = 0.0
+        if args.body_orthogonality_lambda > 0.0:
+            ortho_loss = compute_body_orthogonality_loss(
+                muonh_params_for_agc, args.body_orthogonality_lambda,
+            )
+            if ortho_loss is not None:
+                ortho_loss.backward()
+                ortho_loss_val = float(ortho_loss.detach().item())
+                ortho_loss_ratio = (ortho_loss_val / train_loss) if train_loss > 0 else 0.0
         # set optimization hyperparameters and take a step
         muonh_warmup_factor, aux_beta2, muonh_mu_t = set_hparams(step)
         train_step = step + 1
@@ -1191,6 +1236,16 @@ for trial_idx in range(args.num_trials):
             }
             slope_metrics.update(prefixed("train/slope", loss_slope_stats(train_loss_history, slope_window_steps)))
             wandb.log(slope_metrics, step=wandb_step)
+        # H322: body orthogonality telemetry. Log at every telemetry tick so we
+        # capture the ortho_loss trajectory. Gated on the flag (>0) so CTRL arm
+        # adds no extra W&B rows when disabled.
+        if dist.get_rank() == 0 and telemetry_due and args.body_orthogonality_lambda > 0.0:
+            wandb.log({
+                "trial": trial_idx,
+                "train/step": train_step,
+                "body/ortho_loss": ortho_loss_val,
+                "body/ortho_loss_ratio": ortho_loss_ratio,
+            }, step=wandb_step)
         if dist.get_rank() == 0 and telemetry_due:
             log_training_telemetry(
                 model=model,
