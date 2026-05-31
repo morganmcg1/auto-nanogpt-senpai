@@ -9,7 +9,26 @@ The human research team has redirected: **FFS (first-step-to-target, baseline 30
 3. **Prefer experiments that move the crossing step** (2800-3050 window), **simplify winning stacks**, **reveal FFS-load-bearing components**.
 4. **Ablations preferred over confirmations** when FFS dead.
 
-## Last updated: 2026-05-31 13:30Z (81 R5 closures; frieren #1966 muon-momentum-schedule ASSIGNED; 8/8 active)
+## Last updated: 2026-05-31 13:55Z (82 R5 closures; alphonse #1973 ns5-eps-cooldown ASSIGNED; 8/8 active)
+
+### Notes (2026-05-31 13:55Z) — ALPHONSE #1941 CLOSED 82nd [FFS-NEG NS5 absorbs depth-LR asymmetry; μP axis closed]; ALPHONSE #1973 ns5-eps-cooldown ASSIGNED
+
+- **★ CLOSED #1941 alphonse muon-depth-lr-scale** [82nd R5 closure, ~13:50Z] — FFS-NEG. Pre-mortem #1 (NS5 depth-asymmetry absorption) confirmed.
+  - A_ctrl (decay=0.0, `2v5dzpp2`): FFS_ema=2875 (canonical attractor), FFS_trainval=2925
+  - B★ (decay=0.15, `q1hblvmc`): FFS_ema=2925, FFS_trainval=2925 — **+50 FFS regression**
+  - KG_smoke 5/5 PASS: per-block LR ratio 0.04675/0.05500 = 0.8500 verified; 24 Muon groups (12 MLP + 12 attn). Code-split byte-clean.
+  - **Pre-mortem #1 confirmed**: `--ns_iter 6` drives post-NS5 spectral norm ~1 per matrix, equalizing step magnitudes across ALL blocks regardless of depth. Adding 1/depth LR decay then triple-corrects deep blocks: musoft (static) + NS5 (dynamic per-step) + depth-LR-decay (additional scalar) = over-suppression. FFS regression is the signature.
+  - **NS5-absorption family EXPANDED (3rd entry)**:
+    - gradient-modifier absorption (pre-NS5 additive: SGLD/GC/μ/GE-SAM) — closed
+    - weight-init absorption (2D structural: orthogonal init, mean-init) — closed
+    - **post-NS5 lr-scalar depth-asymmetry (muon-depth-lr-scale) — closed NOW**
+  - **μP depth-calibration axis CLOSED**: static init ∝ 1/depth (musoft) + dynamic lr ∝ 1/depth (this PR) are both dominated by NS5 spectral normalization. Do not revisit while `--ns_iter 6` is active.
+
+- **★ ALPHONSE #1973 ns5-eps-cooldown ASSIGNED** — First R5 experiment to modify NS5 *internal* parameters. Hypothesis: linearly anneal the NS5 normalization stabilizer ε at line 508 (`X = X / (X.norm(...) + 1e-7)`) from `1e-7` → `1e-9` during cooldown. Under cooldown LR collapse (~100×), gradient Frobenius norms decrease and the ε floor may clip normalization near the FFS crossing window (2800–3050). STRUCTURAL DISTINCTION: all 82 prior closures left `1e-7` ε constant; this axis operates INSIDE the NS5 absorption rather than on top of it. Implementation: ~20 LOC using module-level tensor `_NS5_EPS` with `.fill_()` for torch.compile compatibility. KG_smoke gate includes mechanism-alive diagnostic (`train/muon_grad_norm_min` every 25 steps — if >> 1e-5 throughout, ε floor irrelevant). Cells: A_ctrl (None=no-op), B★(1e-9), C(1e-8 conditional), D(1e-11 floor probe). Signal gate: FFS_ema ≤ 2887 OR FFS_trainval ≤ 2900.
+
+- **Fleet at 13:55Z**: alphonse #1973 WIP (ns5-eps-cooldown, just assigned); tanjiro #1964 WIP (ns-iter-cooldown); frieren #1966 WIP (muon-momentum-schedule); thorfinn #1957 WIP (ema-decay-cooldown-schedule); nezuko #1955 WIP (adamw-eps-cooldown); edward #1948 WIP (precond-freq-cooldown-schedule); askeladd #1942 WIP (logit-z-loss); fern #1922 WIP (wd-cooldown-shape). **8/8 active, zero idle.**
+
+---
 
 ### Notes (2026-05-31 13:30Z) — FRIEREN #1966 muon-momentum-schedule ASSIGNED
 

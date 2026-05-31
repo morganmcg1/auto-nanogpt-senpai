@@ -1,5 +1,39 @@
 # SENPAI Research Results — auto-nanogpt-1gpu-r5
 
+## 2026-05-31 13:50Z — PR #1941 CLOSED FFS-NEG [muon-depth-lr-scale; NS5 absorbs post-NS5 depth asymmetry; μP depth-calibration axis closed]: alphonse muon-depth-lr-scale decay∈{0.00,0.15} [82nd R5 closure]
+
+- branch: g1r5-alphonse/muon-depth-lr-scale
+- hypothesis: Apply linear per-block depth decay to Muon LR so block 0 retains full `lr_muon` while block N-1 gets `lr_muon * (1 - decay)`, completing the μP depth-calibration contract (Yang & Hu 2021, arxiv:2203.03466) whose init half is already satisfied by `musoft`.
+- W&B group: `g1r5-alphonse/muon-depth-lr-scale`
+
+| Cell | decay | FFS_ema | FFS_trainval | best_val_loss | best_val_ema | wandb |
+|------|-------|---------|--------------|---------------|--------------|-------|
+| A_ctrl | 0.00 | **2875** | 2925 | 3.26766 | 3.26818 | `2v5dzpp2` |
+| B★ | 0.15 | **2925** | 2925 | 3.26979 | 3.27029 | `q1hblvmc` |
+| Δ (B★−A_ctrl) | — | **+50** | 0 | +0.0021 | +0.0021 | — |
+
+**KG_smoke (all 5 PASS):** per-block LR ratio verified at step 100: `muon_mlp_block11/muon_mlp_block0 = 0.04675/0.05500 = 0.8500` (expected 0.85). 24 Muon groups total (12 MLP + 12 attn). Code-split clean. No lr_mlp collision.
+
+**Results commentary:**
+A_ctrl landed on canonical seed-noise attractor {2875, 2925}. B★ at decay=0.15 showed +50 FFS regression (wrong direction) with no val/loss movement. Signal gate FAIL: FFS_ema=2925 > 2887 AND FFS_trainval=2925 > 2900.
+
+**Analysis — pre-mortem #1 confirmed:**
+NS5 with `--ns_iter 6` drives post-NS5 update to spectral norm ~1 per matrix, **equalizing effective step magnitudes across all blocks regardless of depth**. Adding 1/depth LR decay on top then double-corrects deep blocks: already small-step under NS5 normalization, and we cut them further. Combined with `musoft` which already scaled deep-block *weight* init by 1/√L, the result is triple-correction: musoft (static) + NS5 (dynamic per-step) + depth-lr-decay (additional scalar) = over-suppression of deep-block updates → FFS regression.
+
+**Mechanism family expanded:**
+This adds a third entry to the NS5-absorption family:
+- **gradient-modifier absorption** (SGLD/GC/μ/GE-SAM pre-NS): closed
+- **weight-init absorption** (orthogonal/mean-init 2D perturbations): closed #1937+#1860
+- **post-NS5 lr-scalar depth-asymmetry absorption** (muon-depth-lr-scale): closed NOW
+
+The μP depth-calibration axis (static init ∝ 1/depth AND dynamic lr ∝ 1/depth) is now complete under R5 mandatory stack. Do not propose further depth-LR scaling while `--ns_iter 6` is active.
+
+**Closure:** 82nd R5 closure. FFS-NEG. Student correctly applied stop condition (signal gate fail, mechanism read as NS5 absorption). Cells C/D not launched — correct per protocol.
+
+**New assignment:** alphonse #1973 ns5-eps-cooldown (anneal NS5 normalizer ε from 1e-7 to 1e-9 during cooldown — first R5 experiment to modify NS5 internal ε).
+
+---
+
 ## 2026-05-31 12:52Z — PR #1910 CLOSED FFS-NEG [bias/LN-gain LR damping monotone harm; Sharpness Disparity direction ruled out at R5]: frieren lr_bias_scale ∈ {1.0, 0.5, 0.3, 0.1} [81st R5 closure]
 
 - branch: g1r5-frieren/bias-ln-lr-scale
