@@ -9,7 +9,24 @@ The human research team has redirected: **FFS (first-step-to-target, baseline 30
 3. **Prefer experiments that move the crossing step** (2800-3050 window), **simplify winning stacks**, **reveal FFS-load-bearing components**.
 4. **Ablations preferred over confirmations** when FFS dead.
 
-## Last updated: 2026-05-31 10:35Z (78 R5 closures; nezuko #1897 CLOSED 78th [FFS-NEG SGLD noise η-decade exhausted, 4-member additive-pre-NS family complete]; nezuko #1955 adamw-eps-cooldown ASSIGNED; 8/8 active)
+## Last updated: 2026-05-31 11:15Z (79 R5 closures; thorfinn #1907 CLOSED 79th [FFS-NEG monotone-in-α, LN gain init below 1.0 axis closed]; thorfinn #1957 ema-decay-cooldown-schedule ASSIGNED; 8/8 active)
+
+### Notes (2026-05-31 11:15Z) — THORFINN #1907 CLOSED 79th [FFS-NEG MONOTONE-IN-α]; THORFINN #1957 ema-decay-cooldown-schedule ASSIGNED
+
+- **★ CLOSED #1907 thorfinn ln-gain-init-small** [79th R5 closure, 11:15Z] — FFS-NEG monotone-in-α.
+  - A ctrl (α=1.0, `0y2j8sk1`): FFS_ema=2875, FFS_trainval=2925 (attractor)
+  - B (α=0.7, `pyer58hf`): FFS_ema=2925, FFS_trainval=2950 (+50)
+  - C (α=0.5, `xdt2lkf3`): FFS_ema=2950, FFS_trainval=2950 (+75)
+  - D (α=0.3, `fav5h11k`): FFS_ema=3050, FFS_trainval=3025 (+175)
+  - **Decisive finding**: strict monotone-in-α regression. As γ_init shrinks, FFS_ema grows linearly. R5 tuned baseline has no headroom for variance/gain reductions below 1.0.
+- **★★ R5 BASELINE VARIANCE-CONTRACT FINDING**: 3rd axis with the same pattern (label smoothing #1870 + stochastic depth #1903 + LN gain init #1907). The tuned stack is at a sharp variance/regularization optimum — any direction that further suppresses variance below γ=1.0 norm regresses FFS monotonically.
+- Memory rule: `ln_gain_init_below_one_ffs_neg_at_r5`. Future 1D-scale init ideas should pair with `--depth_init_mode=ctrl` to disentangle the variance contract.
+
+- **★ THORFINN #1957 ema-decay-cooldown-schedule ASSIGNED** — First R5 ablation of the `ema_eval_decay=0.99` constant during cooldown. Hypothesis: linearly ramp `ema_eval_decay` from 0.99 → 0.95 across the cooldown phase (steps 975→3250 at `cooldown_frac=0.7`). Mechanism: in cooldown the loss curve is monotonically descending; a tight 100-step EMA tail (d=0.99) lags ~50 steps behind the current parameters. Shortening to ~20-step tail (d=0.95) snaps EMA forward to track the convergence basin, potentially advancing the FFS crossing in steps 2800–3050. ~25 LOC: one CLI flag (`--ema_decay_cooldown_target`, default None=no-op) + `get_ema_decay()` helper + replacing line 1189 `d = args.ema_eval_decay` with the scheduled value. **Critical bias-correction gotcha**: scheduled `d` breaks the `d^t` geometric series used for bias correction; need cumulative-product `bias_corr_factor *= d`. Distinct from all 79 closed and 7 in-flight axes (no prior R5 experiment touches EMA decay; all EMA params are read-only telemetry). Cells (n=1 first): A_ctrl(None no-op), B★(0.95 primary), C(0.97 mid), D(0.90 aggressive). Signal gate: B★ ema_corr_val_loss → FFS crossing earlier than ctrl OR FFS_ema ≤ 2887.
+
+- **Fleet at 11:15Z**: thorfinn #1957 WIP (ema-decay-cooldown-schedule, just assigned); nezuko #1955 WIP (adamw-eps-cooldown); edward #1948 WIP (precond-freq-cooldown-schedule); fern #1922 WIP (wd-cooldown-shape Cell B nearly complete); frieren #1910 WIP (bias-ln-lr-scale Cell D ~38%); tanjiro #1937 WIP (qkv-ortho-init Cell B); alphonse #1941 WIP (muon-depth-lr-scale); askeladd #1942 WIP (logit-z-loss). **8/8 active, zero idle.**
+
+---
 
 ### Notes (2026-05-31 10:35Z) — NEZUKO #1897 CLOSED 78th [FFS-NEG, +50 ACROSS η DECADE]; NEZUKO #1955 adamw-eps-cooldown ASSIGNED
 

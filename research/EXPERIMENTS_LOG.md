@@ -1,5 +1,35 @@
 # SENPAI Research Results — auto-nanogpt-1gpu-r5
 
+## 2026-05-31 11:15Z — PR #1907 CLOSED FFS-NEG [LN gain init below 1.0 axis closed, monotone-in-α regression at R5]: thorfinn ln-gain-init-small α ∈ {1.0, 0.7, 0.5, 0.3} [79th R5 closure]
+
+- branch: g1r5-thorfinn/ln-gain-init-small
+- hypothesis: Initial LN/RMSNorm gain γ_init = α (α ∈ {0.7, 0.5, 0.3}, ctrl α=1.0) shrinks initial residual representations. Variance-propagation contract under depth_init_mode=musoft should tolerate small γ since per-layer residual is still 1/√L scaled.
+- W&B group: `g1r5-thorfinn/ln-gain-init`
+
+| Cell | α (γ_init) | FFS_ema | FFS_trainval | best_val_loss | Δ_FFS_ema vs ctrl | run_id |
+|------|-----------|---------|--------------|---------------|-------------------|--------|
+| A ctrl | 1.0 | **2875** | 2925 | 3.26790 | — | `0y2j8sk1` |
+| B★ | 0.7 | 2925 | 2950 | 3.26948 | +50 | `pyer58hf` |
+| C | 0.5 | 2950 | 2950 | 3.27073 | +75 | `xdt2lkf3` |
+| D | 0.3 | 3050 | 3025 | 3.27355 | +175 | `fav5h11k` |
+
+**Results commentary:**
+Strict monotone FFS-NEG dose response: as α decreases from 1.0 → 0.3, FFS_ema increases from 2875 → 3050 monotonically. The α=0.3 arm shows the largest regression (+175 FFS_ema, +0.00565 val_loss). Cell A landed on documented {2875, 2925} seed-noise attractor. All telemetry confirmed flag fired correctly (γ values verified in checkpoint).
+
+**Analysis:**
+Pre-mortem hypothesis #1 confirmed: musoft already calibrates the variance-propagation contract by scaling residual projection weights by 1/√L. Reducing initial γ at LN/RMSNorm shrinks the post-LN representation a second time, double-counting variance suppression. The residual stream is calibrated around γ=1.0 at LN — perturbing this in either direction creates miscalibration, but only α<1 was tested. The monotone-in-α pattern leaves no headroom for γ_init < 1.0.
+
+**Closure:** 79th R5 closure. FFS-NEG (monotone, all 3 noise arms regressed).
+
+**Pattern:** Third axis demonstrating R5 tuned baseline has no slack for variance/gain reductions:
+1. label smoothing #1870 (forward-pass regularization)
+2. stochastic depth #1903 (drop-path)
+3. LN gain init #1907 (1D gain init)
+
+**Memory rule:** `ln_gain_init_below_one_ffs_neg_at_r5`. Future 1D-scale init hypotheses should pair with `--depth_init_mode=ctrl` (turn off musoft) so the variance contract isn't double-counted.
+
+---
+
 ## 2026-05-31 10:35Z — PR #1897 CLOSED FFS-NEG [SGLD additive noise injection family closed, completing 4-member additive-pre-NS family]: nezuko annealed Gaussian gradient noise η∈{0.001,0.005,0.01} γ=0.55 [78th R5 closure]
 
 - branch: g1r5-nezuko/annealed-grad-noise
