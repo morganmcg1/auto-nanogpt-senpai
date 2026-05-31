@@ -1,0 +1,12 @@
+[2026-05-30T10:04:17+00:00] START pair0-pp-ctrl-s0-ns16 SENPAI_SEED=0 NS_ITERS_COOLDOWN=16 wandb=g1r4-fern/pp-ctrl-s0-ns16
+[2026-05-30T12:31:27+00:00] END   pair0-pp-ctrl-s0-ns16 rc=0
+[2026-05-30T12:31:27+00:00] START pair0-pp-exp-s0-ns20 SENPAI_SEED=0 NS_ITERS_COOLDOWN=20 wandb=g1r4-fern/pp-exp-s0-ns20
+[2026-05-30T14:58:48+00:00] END   pair0-pp-exp-s0-ns20 rc=0
+[2026-05-30T14:58:48+00:00] START pair1-pp-ctrl-s1-ns16 SENPAI_SEED=1 NS_ITERS_COOLDOWN=16 wandb=g1r4-fern/pp-ctrl-s1-ns16
+[2026-05-30T17:25:54+00:00] END   pair1-pp-ctrl-s1-ns16 rc=0
+[2026-05-30T17:25:54+00:00] START pair1-pp-exp-s1-ns20 SENPAI_SEED=1 NS_ITERS_COOLDOWN=20 wandb=g1r4-fern/pp-exp-s1-ns20
+[2026-05-30T19:53:20+00:00] END   pair1-pp-exp-s1-ns20 rc=0
+[2026-05-30T19:53:20+00:00] START pair2-pp-ctrl-s2-ns16 SENPAI_SEED=2 NS_ITERS_COOLDOWN=16 wandb=g1r4-fern/pp-ctrl-s2-ns16
+[2026-05-30T22:20:26+00:00] END   pair2-pp-ctrl-s2-ns16 rc=0
+[2026-05-30T22:20:26+00:00] START pair2-pp-exp-s2-ns20 SENPAI_SEED=2 NS_ITERS_COOLDOWN=20 wandb=g1r4-fern/pp-exp-s2-ns20
+[2026-05-31T00:47:58+00:00] END   pair2-pp-exp-s2-ns20 rc=0
