@@ -6,6 +6,7 @@ It was prepared as a simplified version of the speedrun for use in neural net op
 """
 
 import os
+import re
 import sys
 with open(sys.argv[0]) as f:
     code = f.read() # read the code of this file ASAP, for logging
@@ -466,8 +467,37 @@ ATTN_SOAP_PRECOND_FREQ = 10
 ATTN_SOAP_TRUST_THRESHOLD = float(os.environ.get("ATTN_SOAP_TRUST_THRESHOLD", "0.9"))
 NS5_ITERS = int(os.environ.get("NS5_ITERS", "12"))
 WD_AUX = float(os.environ.get("WD_AUX", "0.0"))  # AdamW WD on embed + lm_head matrices (scalars stay at 0)
+# PR #1799/#1869/#1893: per-kind AUX WD overrides (axis #1).
+# When set explicitly, these override the global WD_AUX for the embed/lm_head AdamW groups.
+# Accept both AUX_WD_<KIND> and WD_<KIND> spellings so existing infra and new advisor
+# command lines work interchangeably.
+AUX_WD_EMBED = float(os.environ.get("AUX_WD_EMBED", os.environ.get("WD_EMBED", str(WD_AUX))))
+AUX_WD_LM_HEAD = float(os.environ.get("AUX_WD_LM_HEAD", os.environ.get("WD_LM_HEAD", str(WD_AUX))))
+# PR #1893: per-kind AUX WD scalars lever (NEW; reintroduces #500-class control with non-zero default).
+WD_SCALARS = float(os.environ.get("WD_SCALARS", "0.0"))
 EMBED_INIT_STD = float(os.environ.get("EMBED_INIT_STD", "1.0"))  # default preserves baseline N(0,1)
 LOGIT_SOFTCAP = float(os.environ.get("LOGIT_SOFTCAP", "15.0"))  # default = 15 (current hardcoded value); soft-cap value c in f(x) = c·x / sqrt(x^2+c^2)
+# PR #1738/#1758/#1799/#1893: per-depth-half init std multiplier with optional kind-filter.
+# When PER_DEPTH_HALF_INIT_STD_MULT_ENABLED=1 (or PER_KIND_AUX_WD_ENABLED=1 for compat),
+# weights inside blocks.* whose block index < INIT_DEPTH_SPLIT get FRONT_HALF_INIT_STD_MULT
+# applied to their post-init std, and block index >= INIT_DEPTH_SPLIT get BACK_HALF_INIT_STD_MULT.
+# INIT_DEPTH_HALF_KIND_FILTER restricts which kinds receive the multiplier:
+#   0 = all kinds, 1 = attn-only (q/k/v), 2 = mlp-only (fc/proj).
+# Aliases: FRONT_HALF_INIT_STD_MULT_SPLIT -> INIT_DEPTH_SPLIT,
+#          FRONT_HALF_INIT_STD_MULT_KIND_FILTER -> INIT_DEPTH_HALF_KIND_FILTER.
+PER_DEPTH_HALF_INIT_STD_MULT_ENABLED = int(os.environ.get(
+    "PER_DEPTH_HALF_INIT_STD_MULT_ENABLED",
+    os.environ.get("PER_KIND_AUX_WD_ENABLED", "0"),
+))
+FRONT_HALF_INIT_STD_MULT = float(os.environ.get("FRONT_HALF_INIT_STD_MULT", "1.0"))
+BACK_HALF_INIT_STD_MULT = float(os.environ.get("BACK_HALF_INIT_STD_MULT", "1.0"))
+INIT_DEPTH_SPLIT = int(os.environ.get(
+    "INIT_DEPTH_SPLIT", os.environ.get("FRONT_HALF_INIT_STD_MULT_SPLIT", "6"),
+))
+INIT_DEPTH_HALF_KIND_FILTER = int(os.environ.get(
+    "INIT_DEPTH_HALF_KIND_FILTER",
+    os.environ.get("FRONT_HALF_INIT_STD_MULT_KIND_FILTER", "0"),
+))
 
 
 def zeropower_via_newtonschulz5(G: Tensor) -> Tensor:
@@ -866,6 +896,15 @@ if dist.get_rank() == 0:
             "optimizer/attn_soap_trust_threshold": ATTN_SOAP_TRUST_THRESHOLD,
             "optimizer/ns5_iters": NS5_ITERS,
             "optimizer/wd_aux": WD_AUX,
+            "optimizer/aux_wd_embed": AUX_WD_EMBED,
+            "optimizer/aux_wd_lm_head": AUX_WD_LM_HEAD,
+            "optimizer/wd_scalars": WD_SCALARS,
+            "init/embed_init_std": EMBED_INIT_STD,
+            "init/per_depth_half_init_std_mult_enabled": PER_DEPTH_HALF_INIT_STD_MULT_ENABLED,
+            "init/front_half_init_std_mult": FRONT_HALF_INIT_STD_MULT,
+            "init/back_half_init_std_mult": BACK_HALF_INIT_STD_MULT,
+            "init/depth_split": INIT_DEPTH_SPLIT,
+            "init/depth_half_kind_filter": INIT_DEPTH_HALF_KIND_FILTER,
             "optimizer/recipe": "contra-muon + normuon-lite + soap-on-mlp + soap-on-attn-trust-gate (pre-NS5, record #14 + record #16)",
         },
     )
@@ -897,10 +936,81 @@ for trial_idx in range(args.num_trials):
         else:
             raise Exception(f"Uninitialized parameter: {name}")
 
+    # PR #1738/#1758/#1799/#1893: per-depth-half init std multiplier with kind-filter.
+    # Apply as a second pass after default init so the underlying init branches
+    # remain authoritative. Skipped weights (filter mismatch, non-block, etc.)
+    # retain default init. Counts are printed for sanity verification.
+    depth_half_init_selected = 0
+    depth_half_init_scaled = 0
+    depth_half_init_front_kinds: dict[str, int] = {}
+    depth_half_init_back_kinds: dict[str, int] = {}
+    if PER_DEPTH_HALF_INIT_STD_MULT_ENABLED:
+        for name, p in model.named_parameters():
+            if p.dim() < 2 or not p.requires_grad:
+                continue
+            block_match = re.match(r"blocks\.(\d+)\.", name)
+            if not block_match:
+                continue
+            block_idx = int(block_match.group(1))
+            is_back = block_idx >= INIT_DEPTH_SPLIT
+            is_attn = any(k in name for k in (".attn.q.weight", ".attn.k.weight", ".attn.v.weight"))
+            is_mlp = any(k in name for k in (".mlp.fc.weight", ".mlp.proj.weight"))
+            if INIT_DEPTH_HALF_KIND_FILTER == 1 and not is_attn:
+                continue
+            if INIT_DEPTH_HALF_KIND_FILTER == 2 and not is_mlp:
+                continue
+            mult = BACK_HALF_INIT_STD_MULT if is_back else FRONT_HALF_INIT_STD_MULT
+            depth_half_init_selected += 1
+            if mult != 1.0 and p.data.abs().max().item() > 0:
+                depth_half_init_scaled += 1
+            p.data.mul_(mult)
+            kind_key = "attn.q" if ".attn.q.weight" in name else \
+                       "attn.k" if ".attn.k.weight" in name else \
+                       "attn.v" if ".attn.v.weight" in name else \
+                       "attn.proj" if ".attn.proj.weight" in name else \
+                       "mlp.fc" if ".mlp.fc.weight" in name else \
+                       "mlp.proj" if ".mlp.proj.weight" in name else "other"
+            bucket = depth_half_init_back_kinds if is_back else depth_half_init_front_kinds
+            bucket[kind_key] = bucket.get(kind_key, 0) + 1
+    if dist.get_rank() == 0:
+        print(
+            f"[PER_DEPTH_HALF_INIT_STD_MULT] enabled={PER_DEPTH_HALF_INIT_STD_MULT_ENABLED}"
+            f" front_mult={FRONT_HALF_INIT_STD_MULT}"
+            f" back_mult={BACK_HALF_INIT_STD_MULT}"
+            f" split={INIT_DEPTH_SPLIT}"
+            f" kind_filter={INIT_DEPTH_HALF_KIND_FILTER}"
+            f" selected_tensors={depth_half_init_selected}"
+            f" effectively_scaled_tensors={depth_half_init_scaled}"
+            f" front_kinds={depth_half_init_front_kinds}"
+            f" back_kinds={depth_half_init_back_kinds}",
+            flush=True,
+        )
+
+    # PR #1893: per-kind AUX WD banner (advisor-required format).
+    if dist.get_rank() == 0 and trial_idx == 0:
+        print(
+            f"[PER_KIND_AUX_WD] embed={AUX_WD_EMBED} lm_head={AUX_WD_LM_HEAD} scalars={WD_SCALARS}",
+            flush=True,
+        )
+
+    # Per-(block, kind) init-std probes logged once at wandb step=0 for sanity
+    # verification of the depth-half × kind-filter multiplier.
+    if dist.get_rank() == 0 and trial_idx == 0:
+        init_probe_metrics = {"trial": trial_idx, "train/step": 0}
+        for name, p in model.named_parameters():
+            if p.dim() < 2:
+                continue
+            block_match = re.match(r"blocks\.(\d+)\.", name)
+            if not block_match:
+                continue
+            std = float(p.data.detach().float().std(unbiased=False).item())
+            init_probe_metrics[f"init_probe/{clean_metric_name(name)}/std"] = std
+        wandb.log(init_probe_metrics, step=0)
+
     # create the optimizer(s)
-    optimizer1 = AdamW([dict(params=[model.embed.weight], lr=0.3, name="adam_embed", weight_decay=WD_AUX),
-                        dict(params=[model.proj.weight], lr=1/320, name="adam_lm_head", weight_decay=WD_AUX),
-                        dict(params=[p for p in model.parameters() if p.ndim < 2], lr=0.01, name="adam_scalars")],
+    optimizer1 = AdamW([dict(params=[model.embed.weight], lr=0.3, name="adam_embed", weight_decay=AUX_WD_EMBED),
+                        dict(params=[model.proj.weight], lr=1/320, name="adam_lm_head", weight_decay=AUX_WD_LM_HEAD),
+                        dict(params=[p for p in model.parameters() if p.ndim < 2], lr=0.01, name="adam_scalars", weight_decay=WD_SCALARS)],
                        betas=(0.8, 0.95), eps=1e-10, weight_decay=0, fused=True)
     optimizer2 = Muon([(n, p) for n, p in model.blocks.named_parameters() if p.ndim >= 2],
                       lr=MUON_LR, weight_decay=MUON_WEIGHT_DECAY, mu=MU)
