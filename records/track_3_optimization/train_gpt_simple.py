@@ -84,6 +84,16 @@ def parse_args():
     parser.add_argument('--aux_b2_pulse_target', type=float, default=0.99,
                         help='New aux Adam β2 value to set at --aux_b2_pulse_step. '
                              '0 or negative disables. Default: 0.99 (canonical WIN).')
+    parser.add_argument(
+        "--body_muon_momentum_zero_blockwise_step", type=int, default=0,
+        help="Step at which to zero body PMuon momentum buffer for a subset of blocks (0 disables).",
+    )
+    parser.add_argument(
+        "--body_muon_momentum_zero_blockwise_subset",
+        type=str, default="none",
+        choices=["none", "deep", "shallow"],
+        help="Which block subset to zero: 'deep' = last 4 of 12, 'shallow' = first 4 of 12.",
+    )
     parser.add_argument("--seed", type=int, default=1,
                         help="Random seed for torch/numpy/python. Default 1 matches baseline seed.")
     args = parser.parse_args()
@@ -765,6 +775,8 @@ if dist.get_rank() == 0:
             "paramema_refresh_only": int(args.paramema_refresh_only),
             "aux_b2_pulse_step": args.aux_b2_pulse_step,
             "aux_b2_pulse_target": args.aux_b2_pulse_target,
+            "body_muon_momentum_zero_blockwise_step": args.body_muon_momentum_zero_blockwise_step,
+            "body_muon_momentum_zero_blockwise_subset": args.body_muon_momentum_zero_blockwise_subset,
             "seed": args.seed,
         },
     )
@@ -1071,6 +1083,52 @@ for trial_idx in range(args.num_trials):
                 group["betas"] = new_betas
             print0(f"[step {step}] aux_b2_pulse: β2 {old_b2} → {args.aux_b2_pulse_target}",
                    console=True)
+        if (args.body_muon_momentum_zero_blockwise_step > 0
+                and step == args.body_muon_momentum_zero_blockwise_step
+                and args.body_muon_momentum_zero_blockwise_subset != "none"):
+            # Derive id(p) -> block_idx from model.named_parameters() (same source
+            # the muon_block_lr_pattern code uses to build param_lr_mults).
+            id_to_block = {}
+            for _name, _p in model.named_parameters():
+                if _p.ndim >= 2 and _name.startswith("blocks."):
+                    id_to_block[id(_p)] = int(_name.split(".")[1])
+            block_indices = sorted(set(id_to_block.values()))
+            n_blocks = len(block_indices)
+            if args.body_muon_momentum_zero_blockwise_subset == "deep":
+                target_blocks = set(block_indices[-4:])
+            elif args.body_muon_momentum_zero_blockwise_subset == "shallow":
+                target_blocks = set(block_indices[:4])
+            else:
+                target_blocks = set()
+            n_zeroed = 0
+            for group in optimizer2.param_groups:
+                for p in group["params"]:
+                    if id_to_block.get(id(p)) not in target_blocks:
+                        continue
+                    state = optimizer2.state.get(p, None)
+                    if state is None:
+                        continue
+                    # PMuon Muon stores running momentum under state["momentum"]
+                    # (see Muon.step). The PR placeholder said "momentum_buffer";
+                    # use the actual key here.
+                    buf = state.get("momentum", None)
+                    if buf is not None:
+                        buf.zero_()
+                        n_zeroed += 1
+            if dist.get_rank() == 0:
+                print0(
+                    f"[step {step}] body PMuon momentum HARD-ZERO blockwise "
+                    f"(subset={args.body_muon_momentum_zero_blockwise_subset}, "
+                    f"target_blocks={sorted(target_blocks)}, n_zeroed={n_zeroed}) "
+                    f"out of n_blocks={n_blocks}",
+                    console=True,
+                )
+                if wandb.run is not None:
+                    wandb.log({
+                        "body_muon_momentum_zero_blockwise/step": step,
+                        "body_muon_momentum_zero_blockwise/n_zeroed": n_zeroed,
+                        "body_muon_momentum_zero_blockwise/n_target_blocks": len(target_blocks),
+                    }, step=step)
         for opt in optimizers:
             opt.step()
         # EMA buffer update on body-Muon matrix params.
