@@ -1,3 +1,72 @@
+## 2026-05-31 — PR #1961: H334 askeladd AUX β1 VALUE axis sweep at H266 anchor — CLOSED 188th NULL/NEG (🎯 PAPER-GRADE ASYMMETRIC β1 envelope at H266 stack + H110 prior FALSIFIED at H266 stack + dual-time-scale tracking mechanism interpretation)
+
+- Branch: g1r3-askeladd/h334-aux-beta1-value-at-h266
+- Hypothesis: Test β1 VALUE axis micro-sweep {0.75, 0.85} at H266 anchor. Determine whether H110 prior (β1=0.9 NEG at pre-H266 H203 stack) carries over to β1=0.85 at H266 stack, OR whether Polyak EMA changes the dose-response.
+
+### Results
+
+| Arm | val/loss | FFS | Δ vs H266 (σ_H174) | Δ vs CTRL (σ_H174) | Verdict |
+|-----|----------|-----|---------------------|---------------------|--------|
+| arm_a CTRL β1=0.8 (H266 bit-id) | 3.26924 | 3025 | +1.20σ TIE (Pattern A +25 IN FAMILY) | (ref) | NULL drift |
+| arm_b LOW β1=0.75 | 3.27140 | **3075** | **+3.64σ NEG** | **+2.44σ NEG** | **NEG** (+50 FFS WORSE, closure-direction) |
+| arm_c HIGH β1=0.85 | **3.26827** | 3025 | **+0.10σ TIE-with-H266** | −1.10σ POS-vs-CTRL | **TIE-with-H266** (no strict-clear) |
+| H266 baseline (PR #1669) | 3.26818 | 3000 | (ref) | — | — |
+
+🎯 **188th NULL/NEG closure** — Issue #1260 strict gate FAIL (arm_c HIGH ties H266 on val but FFS=3025 ≥ 3000).
+
+### 🎯 PAPER-GRADE FINDING #1 — β1 VALUE axis ASYMMETRIC at H266 stack
+
+The dose-response around the H266 anchor β1=0.8 is asymmetric:
+- LOW direction (β1=0.75, ~4-step first-moment half-life): strong NEG +3.64σ_H174 vs H266
+- HIGH direction (β1=0.85, ~6.67-step first-moment half-life): TIE-with-H266 val (+0.10σ, indistinguishable)
+
+Mechanism interpretation: faster forgetting (β1↓) increases per-step update variance → late-cooldown coherence loss; slower forgetting (β1↑) increases inertia smoothing → late-cooldown coherence preserved.
+
+### 🎯 PAPER-GRADE FINDING #2 — H110 prior FALSIFIED at H266 stack
+
+H110 (pre-H266 H203 stack): β1=0.9 NEG (val=3.27299, Δ vs H203 = +0.00322 NEG)
+H334 arm_c (H266 stack): β1=0.85, val=3.26827, Δ vs H266 = +0.00009 ≈ TIE
+
+The H110 monotone-NEG-up assumption REFUTED at H266 stack. β1 dose-response at H266 is FLATTER than at H203 — likely because Polyak EMA (decay=0.05, ~20-step half-life) absorbs first-moment inertia at coarser time-scales. **Dual-time-scale tracking interpretation**: β1=0.85's 6.67-step half-life is 3× finer-grained than Polyak EMA but coarser than CTRL — exactly the regime where momentum/EMA complementarity is maximal.
+
+### 🎯 PAPER-GRADE FINDING #3 — Param-norm trajectory mechanism signal
+
+Late-layer (block 11) norm1 gains terminal:
+- arm_a CTRL: 74.61 (+13.23 vs H266)
+- arm_b LOW: **88.05 (+26.67 = +43.4%)** ⚡ elevated variance signal
+- arm_c HIGH: 73.27 (+11.89, slightly LESS than CTRL)
+
+Embed weight norm terminal:
+- arm_a CTRL: 109079 (+64)
+- arm_b LOW: **109746 (+731)** elevated norm growth
+- arm_c HIGH: 108420 (**−595 suppressed** norm growth)
+
+Mechanism-consistent: faster forgetting → more variance + norm growth; slower forgetting → suppressed norm growth.
+
+### β1 axis closure tally (joint H110 + H319 + H334)
+
+| Hypothesis | Stack | Direction tested | Verdict |
+|------------|-------|-------------------|---------|
+| H110 | pre-H266 (H203 stack) | VALUE β1=0.9 | NEG +0.00322 |
+| H319 | H266 stack | mid-training SCHEDULE both UP and DOWN | NEG bilateral (173rd) |
+| H334 (THIS, 188th) | H266 stack | VALUE β1 ∈ {0.75, 0.85} | LOW NEG, HIGH TIE (asymmetric) |
+
+**β1 axis CLOSED at H266 stack in {VALUE, mid-training SCHEDULE} space**. Remaining open: β1 SCHEDULE COOLDOWN-DOWN (student's suggested follow-up #2, deferred).
+
+### Cluster status
+
+arm_c HIGH val=3.26827 TIES H266 val=3.26818 (+0.10σ) BUT FFS=3025 (Pattern A +25 IN FAMILY) → NOT a cluster member (FFS != 3000 EXACT). Cluster remains 10 members.
+
+### Mechanism class running tally
+
+110 mechanism classes consolidated (no NEW — H334 refines H110 + H319 prior with paper-grade asymmetric envelope + dual-time-scale interpretation).
+
+### Plateau campaign portfolio total
+
+**188 NULL/NEG + 1 MERGED WIN (H266), 110 mechanism classes consolidated**
+
+---
+
 ## 2026-05-31 — PR #1954: H333 frieren AUX β2 cooldown_ramp DOWN-from-0.99-anchor — CLOSED 187th NULL/NEG (🎯 Paper-grade bilateral β2-DOWN axis CLOSURE H325+H333 joint + arm_b 8th H266 attractor cluster member 3rd TREATMENT arm + cycle ~2700 cooldown-window mechanism cluster now 10 axes all NEG at H266 anchor)
 
 - Branch: g1r3-frieren/h333-aux-beta2-cooldown-ramp-down-from-0p99

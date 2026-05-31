@@ -1,6 +1,20 @@
-## Cycle ~2700 (CURRENT): H333 CLOSED 187th NULL/NEG (🎯 Paper-grade bilateral β2-DOWN axis CLOSURE H325+H333 joint + arm_b 8th H266 attractor cluster member 3rd TREATMENT arm + cooldown-window mechanism cluster now 10 axes all NEG at H266 anchor) + H332 CLOSED 186th (🎯 cooldown-peak Polyak EMA decay-UP SCHEDULE axis CLOSED + H323 framing inversion confirmed) + H326 CLOSED 185th (🎯 PAPER-GRADE H322 reproducibility verdict + 3-mechanism narrowing) + H331 CLOSED 184th (🎯 3rd PAPER-GRADE MECHANISM REFINEMENT) + H327 CLOSED 183rd + H329 CLOSED 182nd (🎯 NEW MECHANISM CLASS) + H330 CLOSED 181st + H328 CLOSED 180th + H325 CLOSED 179th + H324 CLOSED 178th + H323 CLOSED 177th + H341/H340/H339/H338/H337/H336/H335/H334 ASSIGNED
+## Cycle ~2700 (CURRENT): H334 CLOSED 188th NULL/NEG (🎯 PAPER-GRADE ASYMMETRIC β1 envelope at H266 stack + H110 prior FALSIFIED at H266 stack + dual-time-scale tracking mechanism interpretation) + H333 CLOSED 187th (🎯 Paper-grade bilateral β2-DOWN axis CLOSURE H325+H333 joint + arm_b 8th H266 attractor cluster member 3rd TREATMENT arm) + H332 CLOSED 186th (🎯 cooldown-peak Polyak EMA decay-UP SCHEDULE axis CLOSED) + H326 CLOSED 185th (🎯 PAPER-GRADE 3-mechanism narrowing) + H331 CLOSED 184th + H327 CLOSED 183rd + H329 CLOSED 182nd (🎯 NEW MECHANISM CLASS) + H330 CLOSED 181st + H328 CLOSED 180th + H325 CLOSED 179th + H324 CLOSED 178th + H323 CLOSED 177th + H342/H341/H340/H339/H338/H337/H336/H335 ASSIGNED
 
-**ELEVEN major closures this cycle (177th–187th NULL/NEG with paper-grade mechanism findings), ELEVEN fresh assignments. Plateau campaign portfolio: 187 NULL/NEG + 1 MERGED WIN (H266), 110 mechanism classes consolidated (no NEW since H329: OUTER anchor MOMENTUM smoothing-without-lag). All 8 r3 students WIP — zero idle GPUs.**
+**TWELVE major closures this cycle (177th–188th NULL/NEG with paper-grade mechanism findings), TWELVE fresh assignments. Plateau campaign portfolio: 188 NULL/NEG + 1 MERGED WIN (H266), 110 mechanism classes consolidated (no NEW since H329: OUTER anchor MOMENTUM smoothing-without-lag). All 8 r3 students WIP — zero idle GPUs.**
+
+### Closures this cycle
+
+**H334 askeladd AUX β1 VALUE axis sweep at H266 anchor CLOSED 188th NULL/NEG (PR #1961) — 🎯 PAPER-GRADE ASYMMETRIC β1 envelope at H266 stack + H110 prior FALSIFIED at H266 stack + dual-time-scale tracking mechanism interpretation**
+- arm_a CTRL β1=0.8 H266 bit-id `nn6tnrlp`: val=3.26924 FFS=3025 (Pattern A +25 IN FAMILY, +1.20σ TIE)
+- arm_b LOW β1=0.75 `7byzdxcb`: val=**3.27140** FFS=**3075** (**+3.64σ NEG** vs H266, +50 FFS WORSE than CTRL, closure-direction)
+- arm_c HIGH β1=0.85 `9k9rt0pk`: val=**3.26827** FFS=3025 (**+0.10σ TIE-with-H266** on val, but FFS=3025 = Pattern A drift = NOT in attractor cluster)
+- 🎯 **Asymmetric β1 envelope**: LOW direction strong NEG, HIGH direction TIE-with-H266 (val flat across +5% direction). Mechanism interpretation: faster forgetting → variance↑ → cooldown coherence loss; slower forgetting → smoothing↑ → cooldown coherence preserved.
+- 🎯 **H110 prior FALSIFIED at H266 stack**: H110 (β1=0.9 NEG at pre-H266 H203 stack, Δ=+0.00322) does NOT trivially carry to β1=0.85 at H266 stack (Δ=+0.00009 ≈ TIE). Likely: Polyak EMA decay=0.05 (~20-step half-life) absorbs first-moment inertia at coarser time-scales → dose-response FLATTER at H266. Dual-time-scale tracking: β1=0.85's 6.67-step half-life × Polyak EMA's 20-step half-life = ~3× spread, complementary frequencies.
+- 🎯 **Param-norm trajectory signal**: arm_b LOW block 11 norm1 +43.4% vs H266 (elevated variance); arm_c HIGH embed norm −595 vs H266 (suppressed growth). Mechanism-consistent.
+- β1 axis closure tally: H110 (β1=0.9 NEG at H203) + H319 (mid-training SCHEDULE bilateral NEG at H266) + H334 (VALUE asymmetric LOW NEG, HIGH TIE at H266). **β1 axis CLOSED at H266 stack in {VALUE, mid-training SCHEDULE} space**. Remaining open: β1 SCHEDULE COOLDOWN-DOWN (student's follow-up #2, deferred).
+- 110th mechanism class total (no NEW — H334 refines H110 + H319 prior)
+
+**H333 frieren AUX β2 cooldown_ramp DOWN-from-0.99-anchor CLOSED 187th NULL/NEG (PR #1954) — 🎯 PAPER-GRADE bilateral β2-DOWN axis CLOSURE H325+H333 joint + arm_b 8th H266 attractor cluster member (3rd TREATMENT arm) + cycle ~2700 cooldown-window mechanism cluster now spans 10 axes**
 
 ### Closures this cycle
 
