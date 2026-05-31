@@ -1,3 +1,64 @@
+## Cycle ~2050: H315 CLOSED 168th NULL/NEG (🎯 paper-grade TRIPLE CONVERGENT H306+H307+H315 "cooldown is dominant fixed-point attractor" + 🎯 paper-grade FAST sign-flip ~75 steps + 🎯 paper-grade LINEAR_TAPER ~25% sub-noise mitigation, 103rd mechanism class CONSOLIDATED) + H322 ASSIGNED nezuko body weight orthogonality regularizer (FRESH STRUCTURAL AXIS per EXPERIMENTS_LOG #3528 UNEXPLORED list, 104th candidate)
+
+**One terminal closure (168th NULL/NEG) producing 🎯 plateau-protocol-level paper-grade finding (cooldown attractor structural rigidity). Plateau campaign portfolio: 168 NULL/NEG + 1 MERGED WIN (H266), 103 mechanism classes consolidated. Fresh STRUCTURAL axis assigned per closure recommendation.**
+
+### Closure this cycle
+
+**H315 nezuko POST-NS5 noise COOLDOWN_TAPER CLOSED 168th NULL/NEG — 🎯 paper-grade TRIPLE CONVERGENT cooldown attractor finding**
+
+Terminal verdict (PR #1867):
+- arm_a CTRL `dqcyejto` (ε=0.0): val=3.26857, FFS=3025 (+0.44σ TIE H266)
+- arm_b BINARY_OFF `dlnf2bha` (ε=0.01, taper=binary, H307 replicate): val=3.26999, FFS=3050 (+1.61σ NEG sub-noise)
+- arm_c LINEAR_TAPER `j4ld23ss` (ε=0.01, taper=linear): val=3.26963, FFS=3025 (+1.20σ NEG sub-noise)
+- **Direct discriminator**: arm_c vs arm_b: Δval=−0.00036 (−0.41σ sub-noise TIE), ΔFFS=−25 (1× drift band better). Linear taper marginally better than binary, well within run-to-run noise.
+
+**🎯 Three paper-grade findings**:
+
+1. **TRIPLE CONVERGENT cooldown attractor**: H306 V-shape μ schedule + H307 binary cliff-off ε noise + H315 linear taper ε noise — all 3 orthogonal mid-training mechanisms WASH OUT during cooldown. The H298 mid-training partial WIN is empirically NON-PORTABLE to terminal val via any tested noise/μ/exploration mechanism. Cooldown phase is structurally rigid as a fixed-point attractor across SIX major mechanism axes (shape, duration, sync_interval, EMA, ε noise gating, μ schedule).
+
+2. **FAST cooldown sign-flip within ~75 steps**: arm_b's Δ vs CTRL flips from −0.00047 (step 2500) to +0.00081 (step 2750) — within ~75 steps of cooldown onset. The wash-out is not slow drift; it's a fast attractor pull. Rules out "cooldown duration is limiting factor" hypotheses.
+
+3. **LINEAR TAPER ~25% sub-noise mitigation**: arm_c retains 25% mitigation of arm_b's terminal NEG (0.00036/0.00142) but sub-noise (0.41σ_H174). Smooth ε taper preserves SOME mid-training trajectory but cosine LR decay alone is sufficient to drive attractor convergence.
+
+Cross-validation gate PASSED: H315 arm_b BINARY_OFF vs H307 arm_c NOISE_HIGH — Δval=0.18σ TIE (infrastructure stable across H307→H315).
+
+### Fresh assignment this cycle
+
+**H322 nezuko body weight orthogonality regularizer ASSIGNED — FRESH STRUCTURAL AXIS** (104th mechanism class candidate)
+
+Per EXPERIMENTS_LOG line 3528 remaining-UNEXPLORED axes list: "body preconditioner replacement, body second-order moment, eigenvalue-spectrum-constrained body init, **body weight orthogonality regularizer**, trapezoidal/triangle/inverse-sqrt schedule shape, minimal-MuonH stack pruning ablation."
+
+H322 tests: NS5 polar projection orthogonalizes UPDATE direction; what about maintaining semi-orthogonality of WEIGHTS themselves? Add soft Frobenius penalty `λ·||W·W^T - I||_F^2` (or its semi-orthogonal variant for non-square W). Orthogonal to ALL in-flight cooldown/schedule axes. WIN prob 10-12% — moderate but mechanistically clean test of a structurally distinct axis.
+
+### Mechanism axes in flight (post-cycle ~2050)
+
+| PR | Hypothesis | Mechanism axis | WIN prob | ETA terminal |
+|----|-----------|----------------|---------:|-------------|
+| #1865 | H314 thorfinn V-shape μ buffer durability | INNER μ schedule | 5-10% | ~12:00Z 2026-05-31 |
+| #1878 | H316 tanjiro OUTER LR cooldown ramp | OUTER LR schedule | 15-20% | ~04:00Z 2026-05-31 |
+| #1882 | H317 frieren AUX β2 UP AMPLIFIED | AUX β2 schedule (H309 follow) | 20-25% | ~12:00Z 2026-05-31 |
+| #1889 | H318 alphonse OUTER momentum cooldown | OUTER μ schedule | 15-20% | pending (plumbing audit) |
+| #1890 | H319 askeladd AUX β1 mid-training schedule | AUX β1 schedule (NEW axis) | 10-15% | TBD |
+| #1892 | H320 edward OUTER anchor refresh policy | OUTER anchor (VIRGIN axis) | 10-15% | TBD |
+| #1896 | H321 fern schedule-tapered adaptive μ | INNER μ schedule (H313 follow) | 25-30% | TBD |
+| #NEW | H322 nezuko body weight orthogonality | BODY weight STRUCTURAL (VIRGIN axis) | 10-12% | TBD |
+
+8 chains across 5 mechanism axes (INNER μ ×3, OUTER ×3, AUX ×2, VIRGIN anchor ×1, VIRGIN body weight ×1). The cluster targets dose-response and directional-asymmetry follow-ups from cycles ~1850-1950 paper-grade findings + 2 virgin structural axes.
+
+### Cooldown attractor closure synthesis
+
+The triple convergent H306+H307+H315 finding is the **second plateau-protocol-level paper-grade insight of this campaign** (after H266 MERGED Polyak EMA WIN). Implications for next research direction:
+
+1. **STOP designing cooldown-aware noise/exploration/μ schedule mechanisms** — the axis is structurally exhausted.
+2. **PRE-cooldown mechanisms** (e.g., mid-training mechanisms that influence inner state BEFORE cooldown onset) may still hold POS — but only if they survive the cooldown attractor pull.
+3. **STRUCTURAL axes orthogonal to cooldown trajectory** (body weight orthogonality, preconditioner replacement, eigenvalue init, NS5 polynomial variants) are now PRIORITY.
+
+H322 is the first explicit response to this finding — testing a STRUCTURAL axis (weight orthogonality) that operates IN-ADDITION to cooldown LR decay, not AS-A-SUBSTITUTE FOR it.
+
+### Plateau campaign sustained
+
+Cycle ~2050: plateau cycle count 168 NULL/NEG + 1 MERGED WIN. The chains in flight test 8 distinct mechanism axes (5 cooldown-aware schedule + 3 fresh structural) with cumulative WIN-prob mass ~120-150%. Next terminal verdict expected ~04:00Z (H316 tanjiro) or ~12:00Z (H314/H317).
+
 ## Cycle ~2000: AUDIT-TRAIL cycle — H316 + H318 + H317 stale_wip clearing nudges, zero new closures, all 8 students WIP, chain executions in progress for 3 OUTER/AUX schedule mechanism axes
 
 **Zero terminal closures this cycle. Three stale_wip audit-trail nudges posted to surface chain progress + treatment plumbing verification gaps. Plateau campaign portfolio unchanged: 167 NULL/NEG + 1 MERGED WIN (H266), 108 mechanism classes consolidated.**

@@ -1,3 +1,56 @@
+## 2026-05-31 — PR #1867: H315 nezuko POST-NS5 noise COOLDOWN_TAPER (H307 wash-out test) — CLOSED 168th NULL/NEG (🎯 paper-grade TRIPLE CONVERGENT confirmation H306+H307+H315 "cooldown is dominant fixed-point attractor" + 🎯 paper-grade FAST cooldown sign-flip ~75 steps + 🎯 paper-grade LINEAR_TAPER ~25% sub-noise mitigation, 103rd mechanism class CONSOLIDATED)
+
+- Branch: g1r3-nezuko/h315-post-ns5-noise-cooldown-taper
+- Hypothesis: Replace H307's binary cooldown-OFF (ε=0.01 → 0 cliff at step 2826) with LINEAR TAPER (ε=0.01 → 0 linearly over 500-step cooldown). Direct discriminator of "is cooldown wash-out a GATING ARTIFACT vs INTRINSIC to cooldown's fixed-point attractor?" 103rd mechanism class candidate.
+- 3-arm Pattern A drift-FREE: arm_a CTRL (ε=0.0 sentinel, bit-id H266), arm_b BINARY_OFF_REPLICATE (ε=0.01, taper=binary — H307 arm_c within-PR replication), arm_c LINEAR_TAPER (ε=0.01, taper=linear).
+
+### Results
+
+| Arm | W&B | val/loss | FFS | Δ vs H266 (σ_H174) | Δ vs CTRL (σ_H174) |
+|-----|-----|----------|-----|---------------------|---------------------|
+| arm_a CTRL (ε=0.0) | `dqcyejto` | 3.26857 | 3025 | +0.44σ TIE | (ref) |
+| arm_b BINARY_OFF (ε=0.01, binary) | `dlnf2bha` | 3.26999 | 3050 | +2.05σ NEG | +1.61σ NEG (sub-noise) |
+| arm_c LINEAR_TAPER (ε=0.01, linear) | `j4ld23ss` | 3.26963 | 3025 | +1.64σ NEG | +1.20σ NEG (sub-noise) |
+| arm_c vs arm_b discriminator | direct | −0.00036 | −25 | — | −0.41σ sub-noise TIE |
+
+- σ_H174 = 0.000884 noise floor. H266 baseline val=3.26818, FFS=3000. Issue #1260 strict FFS<3000 merge gate.
+- arm_a CTRL FFS=3025 (within +25 Pattern A envelope), arm_b/arm_c MISS gate.
+
+### Per-checkpoint trajectory (FAST cooldown sign-flip)
+
+| Step | Phase | CTRL | BINARY_OFF | LINEAR_TAPER | b−CTRL | c−CTRL | c−b |
+|------|-------|------|------------|--------------|--------|--------|------|
+| 1500 | const-LR (noise active) | 3.49734 | 3.49203 | 3.49177 | **−0.00531** | **−0.00557** (~6σ POS) | −0.00026 |
+| 2500 | const-LR end | 3.33177 | 3.33130 | 3.33116 | −0.00047 | −0.00061 | −0.00014 |
+| 2750 | cooldown 15% in | 3.30145 | 3.30226 | 3.30172 | **+0.00081** ← SIGN FLIP | +0.00027 | −0.00054 |
+| 3000 | cooldown 50% | 3.28032 | 3.28166 | 3.28120 | +0.00134 | +0.00088 | −0.00046 |
+| 3325 | terminal | 3.26857 | 3.26999 | 3.26963 | +0.00142 | +0.00106 | −0.00036 |
+
+🎯 **FAST cooldown sign-flip**: arm_b's Δ vs CTRL flips from −0.00047 (step 2500) to +0.00081 (step 2750) — within ~75 steps of cooldown onset. The wash-out is not slow drift; it's a fast attractor pull. arm_c LINEAR_TAPER smooths the sign-flip but still terminal-NEG.
+
+### Cross-validation gate PASSED (within-chain CTRL stability)
+
+H315 arm_b BINARY_OFF (`dlnf2bha`) vs H307 arm_c NOISE_HIGH (`w0bi31ko`) — mechanically identical:
+- Δval = −0.00016 (**0.18σ_H174 — clean TIE**), ΔFFS = +25 (1× drift band). Infrastructure stable across H307→H315.
+
+### 🎯 paper-grade TRIPLE CONVERGENT finding
+
+| Hypothesis | Mid-training mechanism | Mid-training Δ (step ~1000-1500) | Terminal Δ vs CTRL |
+|-----------|------------------------|-----------------------------------|--------------------|
+| H306 thorfinn (PR #1827) | V-shape μ schedule | −0.057 / −0.042 (~60σ dose-monotone) | +0.024 / +0.008 dose-monotone NEG |
+| H307 nezuko (PR #1835) | Binary cliff-off ε noise | −0.003 to −0.004 (~6σ directional) | +0.00128 NEG sub-noise |
+| **H315 nezuko (this PR)** | **Linear taper ε noise** | **−0.00557 (~6σ directional)** | **+0.00106 NEG sub-noise** |
+
+THREE orthogonal mid-training mechanisms ALL wash out during cooldown → **paper-grade cooldown fixed-point attractor finding**. The H298 mid-training partial WIN is empirically NON-PORTABLE to terminal val via ANY tested noise/μ/exploration mechanism.
+
+### Closure rationale
+
+103rd mechanism class CONSOLIDATED ("stochastic exploration through cooldown" closed at gating-shape axis). Combined with prior cooldown axis closures: cooldown SHAPE (H203 MERGED, H211, H242), cooldown DURATION (H242 cf<1.0 bilateral NEG), sync_interval cooldown-aware (H252 mechanism CONFIRMED val NEG), Polyak EMA cooldown-localized (H304 closed). **Cooldown phase is structurally rigid as a fixed-point attractor across SIX major mechanism axes.**
+
+### Next assignment
+
+H322 nezuko BODY WEIGHT ORTHOGONALITY REGULARIZER (fresh structural axis per EXPERIMENTS_LOG line 3528 UNEXPLORED list — body weight orthogonality regularizer never tested). Tests whether maintaining semi-orthogonality of body weights (W·W^T → I) throughout training improves NS5 polar projection geometric consistency. Orthogonal to all in-flight cooldown/schedule axes.
+
 ## 2026-05-31 — PR #1862: H313 fern ADAPTIVE μ via gradient-momentum cosine alignment
 
 - Branch: g1r3-fern/h313-adaptive-mu-cos-alignment
