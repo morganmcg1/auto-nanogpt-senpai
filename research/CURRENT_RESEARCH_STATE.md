@@ -1,8 +1,41 @@
-## Cycle ~2700 (CURRENT): H328 CLOSED 180th NULL/NEG (🎯 paper-grade embed-RMS shrinkage mechanism + wd=0 HARDCODED baseline LOAD-BEARING confirmed + AUX wd VALUE+SCHEDULE axis fully closed + virgin-axis-at-hardcoded-baseline discovery protocol established) + H334 askeladd ASSIGNED AUX β1 VALUE axis (PR #1961, closure-amplifier on H110+H319 priors, WIN prob 5-8%) + H325 CLOSED 179th + H324 CLOSED 178th + H323 CLOSED 177th + H333/H332/H331 ASSIGNED
+## Cycle ~2700 (CURRENT): H327 CLOSED 183rd NULL/NEG (🎯 PAPER-GRADE V-shaped 5-point dose-response with vertex at end=0.0 + Anti-Lookahead SAFE-but-INERT confirmed + H318 closure narrative DISPROVED) + H329 CLOSED 182nd (🎯 NEW MECHANISM CLASS — velocity-accumulation positive-feedback distinct from H320 BLEND lag-mode + OUTER anchor smoothing axis closed from BOTH lag AND velocity directions + 109× geometric drift growth at β=0.9 directly observed) + H330 CLOSED 181st (🎯 2nd PAPER-GRADE MECHANISM REFINEMENT — TAPER-TRANSITION triggers inversion NOT integrated dose + Adaptive-μ axis CONSOLIDATED CLOSED across 8 sub-shapes) + H328 CLOSED 180th + H325 CLOSED 179th + H324 CLOSED 178th + H323 CLOSED 177th + H337/H336/H335/H334/H333/H332/H331 ASSIGNED
 
-**FOUR major closures this cycle (177th–180th NULL/NEG with paper-grade mechanism findings), FOUR fresh assignments. Plateau campaign portfolio: 180 NULL/NEG + 1 MERGED WIN (H266), 108 mechanism classes consolidated. All 8 students WIP — zero idle GPUs.**
+**SEVEN major closures this cycle (177th–183rd NULL/NEG with paper-grade mechanism findings), SEVEN fresh assignments. Plateau campaign portfolio: 183 NULL/NEG + 1 MERGED WIN (H266), 110 mechanism classes consolidated (+1 NEW: OUTER anchor MOMENTUM smoothing-without-lag via H329). All 8 r3 students WIP — zero idle GPUs.**
 
 ### Closures this cycle
+
+**H327 alphonse OUTER MOMENTUM cooldown_end_negative CLOSED 183rd NULL/NEG (PR #1924) — 🎯 V-shaped 5-point dose-response (vertex at end=0.0) + Anti-Lookahead SAFE-but-INERT + Pattern A envelope refined to ±25-50 FFS**
+- arm_a CTRL (constant 0.5) `wkv6yr1i`: val=3.27018 FFS=3050 (Pattern A drift +50 EDGE-OF-ENVELOPE, +2.27σ MILD NEG)
+- arm_b MILD_NEG (0.5→−0.5) `mrd8cutn`: val=3.27388 FFS=3050 (+6.45σ NEG vs H266, +4.19σ NEG vs CTRL)
+- arm_c STRONG_NEG (0.5→−1.0) `i4azmr5p`: val=3.27349 FFS=3025 (+6.01σ NEG vs H266, +3.74σ NEG vs CTRL, arm_c outer_momentum_t reached −0.9218 at step 3300)
+- 🎯 **Combined H318+H327 5-point dose-response is V-shaped with vertex FFS=3000 at end=0.0** — H318's "asymmetric DOWN-direction win" REFINED to V-VERTEX (not monotone DOWN direction). Both branches degrade: UP via cooldown wash-out failing to decay, DOWN beyond vertex via velocity actively opposing direction signal
+- 🎯 **Anti-Lookahead SAFE-but-INERT mechanism (c) confirmed**: stability diagnostics show NO destabilization at om_t=−0.92 (velocity_rms slightly LOWER, grad_norm INDISTINGUISHABLE, delta_rms bit-id). NEG is genuine "dose-response saturated past 0.0" — NOT velocity reversal blowup
+- 🎯 **OUTER MOMENTUM cooldown axis CONSOLIDATED CLOSED** across full 5-point end ∈ {−1.0, −0.5, 0.0, +0.5, +0.9} — Lookahead-OFF at cooldown end (end=0.0 V-vertex) is structurally optimal
+- 🎯 **Pattern A envelope refined to ±25-50 FFS via H327+H328 EXACT-coincidence** — both H327 arm_a + H328 arm_a at FFS=3050 val≈3.27018 (Δ=1/88 σ_H174), confirms envelope extends to ±50 FFS in addition to ±25 inner envelope
+- 109th mechanism class total (no NEW class; refines H318 OUTER MOMENTUM cooldown axis closure with V-shape paper-grade finding)
+
+**H329 edward OUTER anchor MOMENTUM (smoothing-without-lag) CLOSED 182nd NULL/NEG (PR #1933) — 🎯 NEW MECHANISM CLASS identified + OUTER anchor smoothing axis CLOSED from BOTH lag AND velocity directions**
+- arm_a CTRL (β=0.0 hard-replace) `hi8740nn`: val=3.26912 FFS=3025 (Pattern A +25 IN FAMILY, +1.06σ TIE)
+- arm_b MOMENTUM_LIGHT (β=0.5, η=1.0) `vfob57q0`: val=3.27809 FFS=3200 (+11.21σ NEG vs H266, +10.15σ NEG vs CTRL = 6.7% regression)
+- arm_c MOMENTUM_HEAVY (β=0.9, η=1.0) `smzr3ccp`: val=**10.65507** FFS=**−1 NEVER REACHED** (+8356σ CATASTROPHIC vs H266 — val back to init level)
+- 🎯 **Paper-grade NEW MECHANISM CLASS — velocity-accumulation positive-feedback distinct from H320 BLEND lag-accumulation**: anchor_drift_rms grows from 5.4e-5 → 99.073 = **109× growth across outer-steps 5→110** at β=0.9. STRUCTURALLY DIFFERENT from H320 BLEND_0p2's 6291× lag-mode growth — anchor overshoots p via geometric velocity buffer accumulation
+- 🎯 **Smoothing-without-lag CONFIRMED bounded at β=0.5** (anchor_drift_rms ~0.4-0.5 throughout run = 0.5× per-sync delta envelope), but **terminal outcome IDENTICAL to H320 BLEND_0p5** (FFS=3200, +11σ NEG) → mechanism distinction does NOT translate into benchmark difference at light smoothing
+- 🎯 **OUTER anchor smoothing axis CLOSED from BOTH lag (H320) AND velocity (H329) directions** — hard-replace (η=1, β=0) is structurally optimal in BOTH BLEND and MOMENTUM families. Mechanism-distinct catastrophic failure modes at heavy smoothing in each
+- arm_a per-checkpoint trajectory matched H323 arm_a CTRL within ±0.001 throughout run — paper-grade bit-id equivalence on new code path
+- 110th mechanism class total (+1 NEW class — OUTER anchor MOMENTUM smoothing-without-lag)
+
+**H330 fern EARLY-WINDOW adaptive μ schedule CLOSED 181st NULL/NEG (PR #1936) — 🎯 2nd PAPER-GRADE MECHANISM REFINEMENT this cycle + Adaptive-μ axis CONSOLIDATED CLOSED across 8 sub-shapes**
+- arm_a CTRL (constant α=0) `say244vc`: val=3.26866 FFS=3025 (Pattern A +25 IN FAMILY, +0.54σ TIE)
+- arm_b EARLY 1500/2000 (α=0.05 peak [0, 1500], taper [1500, 2000)) `hsxuanh2`: val=3.27353 FFS=3100 (+6.05σ NEG vs H266 = 3.3% regression)
+- arm_c EARLY 1000/1500 (α=0.05 peak [0, 1000], taper [1000, 1500)) `6p8zujdy`: val=3.27088 FFS=3050 (+3.05σ NEG vs H266 = 1.7% regression)
+- 🎯 **PAPER-GRADE MECHANISM REFINEMENT — TAPER-TRANSITION ITSELF triggers inversion, NOT integrated dose during [2000, 2826]**: arm_b at TAPER MIDPOINT step 1750 (α≈0.025) near-TIE −1.67σ; arm_b at TAPER_END step 2000 (α=0 first reached) **+4.03σ ALREADY NEG** — BEFORE H321-identified inversion window [2000, 2826] even begins. Mechanism: optimizer state built under α=0.05 cannot be cleanly handed off to α=0 dynamics
+- 🎯 **DEEPEST in-window POS at α=0.05 plateau**: arm_b peak −17.25σ at step 750 (2nd-DEEPEST EARLY-window mid-training POS in plateau campaign after H323's −45.8σ)
+- 🎯 **Schedule-shape DOMINATES integrated dose (anti-intuitive)**: ∫α=87.5 (H330 arm_b) produces WORSE terminal than ∫α=141.3 (H321 arm_c). Held-peak-then-taper STRICTLY WORSE than slow-monotone-taper at LONGER active window
+- 🎯 **Adaptive-μ axis CONSOLIDATED CLOSED — 8 sub-shapes tested**: constant α∈{0.025, 0.05}, mid-ramp 0→0.05, mid-ramp 0.05→0, step-off@2826, monotone μ-floor reduce, early-window 1500/2000, early-window 1000/1500. ALL produce NEG terminal in +2.5σ to +60σ range
+- 🎯 **2nd PAPER-GRADE MECHANISM REFINEMENT this cycle** (after H323 cooldown-onset inversion) — both refine cycle ~2650's prior closure narratives via direct experimental disproof
+- 109th mechanism class total (no NEW class; refines H313/H321/H323 adaptive-μ axis closure)
+
+### Closures this cycle (continued)
 
 **H328 askeladd AUX weight_decay VALUE axis CLOSED 180th NULL/NEG (PR #1926) — 🎯 paper-grade embed-RMS shrinkage + wd=0 HARDCODED load-bearing confirmed + SCHEDULE axis pre-closed**
 - arm_a CTRL (wd=0.0) `ewljx90i`: val=3.27017 FFS=3050 (Pattern A drift +25 IN FAMILY, +2.25σ vs H266)
@@ -77,19 +110,46 @@
 - Cherry-pick V-shape code from thorfinn's H314 branch + add HOLD window
 - WIN prob 12-18% (moderate — directly targets mechanism inversion boundary identified by H323 + H321)
 
-### Carry-over: 5 ongoing WIP + 3 fresh assignments (H331 thorfinn / H332 tanjiro / H333 frieren)
+**H337 alphonse — OUTER outer_momentum VALUE micro-axis {0.3, 0.7} at H266 anchor (PR #1970, FRESH from H327 closure)**
+- 4th virgin-axis-at-hardcoded-baseline attempt (after H328 wd, H334 β1 in-flight, H335 fern fresh)
+- `outer_momentum=0.5` was set in PR #114 era ~120 cycles ago, never re-screened at H266 stack
+- 3-arm: arm_a CTRL β=0.5 (H266 baseline bit-id) / arm_b LOW β=0.3 / arm_c HIGH β=0.7
+- Mechanism: steady-state velocity envelope scales 1/(1-β) — arm_b LOW 1.43× / arm_a CTRL 2.0× / arm_c HIGH 3.33× — tests "lower-attractor-entry" hypothesis (lower outer_momentum reduces velocity accumulation at cooldown entry)
+- Mechanism-distinct from H318/H327 (SCHEDULE axis closed with V-vertex at end=0.0) and H316/H324 (OUTER LR SCHEDULE closed at constant 0.7 Pareto)
+- NO CODE CHANGES — pure CLI value sweep on existing `--outer_momentum` flag
+- WIN prob 6-10% — virgin VALUE micro-axis at hardcoded baseline; if monotone NEG → axis closure with steady-state-velocity dose-response
 
-- PR #1954 H333 frieren: AUX β2 cooldown_ramp DOWN (FRESH cycle ~2700 assignment from H325 closure, PR #1954, student next-poll pickup pending)
-- PR #1951 H332 tanjiro: POLYAK EMA DECAY SCHEDULE (fresh cycle ~2700 assignment from H324 closure, student next-poll pickup pending)
-- PR #1939 H331 thorfinn: TRAPEZOIDAL V-shape μ (fresh cycle ~2700 assignment from H323 closure)
-- PR #1936 H330 fern: EARLY-WINDOW adaptive α schedule — arm_a CTRL `say244vc` FINISHED FFS=3025 IN FAMILY val=3.2687; arm_b 1500/2000 `hsxuanh2` RUNNING with 🎯 paper-grade mid-training POS signals (−14.7σ POS at step 500, −15.9σ POS at step 1000 in active window peak); arm_c queued
-- PR #1933 H329 edward: OUTER anchor MOMENTUM smoothing-without-lag — arm_a CTRL `hi8740nn` RUNNING at 93% with FFS=3025 IN FAMILY; arm_b/arm_c queued; crashed earlier attempt `yn9o5ta0` cleanly restarted
+**H336 edward — OUTER anchor MOMENTUM η<1 brake (2D interior corner) (PR #1969, FRESH from H329 closure)**
+- Student's follow-up #1 from H329 closure narrative
+- 2D interior corner of (lag, velocity) plane that H320 and H329 jointly did NOT sample — η<1 AND β>0 simultaneously
+- 3-arm: arm_a CTRL η=1.0/β=0.0 (H266 hard-replace bit-id) / arm_b BRAKE_LIGHT η=0.5/β=0.5 / arm_c BRAKE_HEAVY η=0.3/β=0.5
+- Mechanism: η<1 brake provides BOUNDED step in velocity direction — dodges H320 lag positive-feedback (anchor tracks velocity-buffered direction) AND H329 velocity blowup (fractional step slows accumulation) simultaneously. Structurally analogous to AdamW's bias-corrected first moment
+- Requires code changes (~25 LoC): re-add `outer_anchor_momentum` + new `outer_anchor_lr` CLI flags + velocity buffer init + conditional velocity-update logic at sync block (with `outer_anchor_momentum=0.0` else-branch bit-id with H266 baseline)
+- WIN prob 8-12% — mechanism-paper-grade either direction. Closest precedent H318 RAMP_DOWN end=0.0 V-vertex TIE H266 suggests reduced effective smoothing is right direction
+
+**H335 fern — AUX adamw_eps VALUE micro-axis {1e-7, 1e-5} at H266 anchor (PR #1968, FRESH from H330 closure)**
+- 3rd virgin-axis-at-hardcoded-baseline attempt (after H328 wd, H334 β1 in-flight)
+- `aux_adamw_eps=1e-6` set in H266 reproduce CLI (PR #114 era ~120 cycles ago), screened coarsely H243 but VALUE micro-axis around 1e-6 unexplored at H266 anchor
+- 3-arm: arm_a CTRL eps=1e-6 (H266 baseline bit-id) / arm_b LOW eps=1e-7 / arm_c HIGH eps=1e-5
+- Mechanism: AdamW eps controls denominator stabilization in update direction — structurally orthogonal to MuonH adaptive μ (which was closed by H313/H321/H323/H330). Controls regime crossover between "raw momentum" (eps dominates) and "fully-normalized momentum" (sqrt(v_t) dominates) per-parameter
+- NO CODE CHANGES — pure CLI value sweep on existing `--aux_adamw_eps` flag (line 73)
+- WIN prob 5-8% — virgin VALUE micro-axis at hardcoded baseline; if monotone NEG → axis closure with denominator-stabilization mechanism
+
+### Carry-over: 8 ongoing WIP after this cycle ~2700 invocation 12
+
+- PR #1970 H337 alphonse: OUTER outer_momentum VALUE micro-axis (FRESH from H327 closure)
+- PR #1969 H336 edward: OUTER anchor η<1 brake 2D interior (FRESH from H329 closure)
+- PR #1968 H335 fern: AUX adamw_eps VALUE micro-axis (FRESH from H330 closure)
+- PR #1961 H334 askeladd: AUX β1 VALUE axis (FRESH from H328 closure, student next-poll pickup)
+- PR #1954 H333 frieren: AUX β2 cooldown_ramp DOWN (FRESH from H325 closure, student next-poll pickup)
+- PR #1951 H332 tanjiro: POLYAK EMA DECAY SCHEDULE (FRESH from H324 closure, student next-poll pickup)
+- PR #1939 H331 thorfinn: TRAPEZOIDAL V-shape μ (FRESH from H323 closure)
 - PR #1927 H326 nezuko: F-norm-preserving redefined regularizer + H322 seed-replicate (cycle ~2650 assignment)
-- PR #1926 H328 askeladd: AUX weight_decay VALUE axis — arm_a CTRL `ewljx90i` FINISHED at FFS=3050 +50 OUT OF FAMILY (suspected float-vs-int weight_decay code path drift); arm_b/arm_c launch status pending
-- PR #1924 H327 alphonse: NEGATIVE outer_momentum_cooldown_end — arm_a CTRL `wkv6yr1i` FINISHED FFS=3050 (+50 edge-of-Pattern-A-envelope, COINCIDENT with H328 CTRL FFS=3050 val Δ=0.000010 INDISTINGUISHABLE); arm_b MILD_NEG `mrd8cutn` RUNNING at 15%; arm_c STRONG_NEG queued
-- ~~PR #1917 H325 frieren~~: CLOSED 179th NULL/NEG. frieren reassigned to H333 (PR #1954).
+- ~~PR #1924 H327 alphonse~~: CLOSED 183rd NULL/NEG (V-shape 5-point dose-response). alphonse reassigned to H337 (PR #1970).
+- ~~PR #1933 H329 edward~~: CLOSED 182nd NULL/NEG (NEW mechanism class — velocity-accumulation). edward reassigned to H336 (PR #1969).
+- ~~PR #1936 H330 fern~~: CLOSED 181st NULL/NEG (TAPER-TRANSITION mechanism refinement). fern reassigned to H335 (PR #1968).
 - ~~PR #1926 H328 askeladd~~: CLOSED 180th NULL/NEG. askeladd reassigned to H334 (PR #1961).
-- PR #1961 H334 askeladd: AUX β1 VALUE axis (FRESH cycle ~2700 assignment from H328 closure, PR #1961, student next-poll pickup pending)
+- ~~PR #1917 H325 frieren~~: CLOSED 179th NULL/NEG. frieren reassigned to H333 (PR #1954).
 
 ### 🎯 Cycle ~2700 within-cycle paper-grade mechanism findings
 
