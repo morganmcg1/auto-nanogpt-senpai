@@ -1,3 +1,69 @@
+## 2026-05-31 — PR #1954: H333 frieren AUX β2 cooldown_ramp DOWN-from-0.99-anchor — CLOSED 187th NULL/NEG (🎯 Paper-grade bilateral β2-DOWN axis CLOSURE H325+H333 joint + arm_b 8th H266 attractor cluster member 3rd TREATMENT arm + cycle ~2700 cooldown-window mechanism cluster now 10 axes all NEG at H266 anchor)
+
+- Branch: g1r3-frieren/h333-aux-beta2-cooldown-ramp-down-from-0p99
+- Hypothesis: Test mechanism-distinct cooldown-only AUX β2 DOWN-ramp (window [1995, 3325]) vs H325's mid_training_ramp window [100, 1995]. Distinguish "variance-noise during steady-state generalizes" vs "variance-noise during cooldown convergence specifically matters" hypothesis.
+
+### Results
+
+| Arm | val/loss | FFS | Δ vs CTRL (σ_H174) | Δ vs H266 (σ_H174) | Verdict |
+|-----|----------|-----|---------------------|---------------------|--------|
+| arm_a CTRL constant 0.99 | 3.26921 | 3025 | (ref) | +1.17σ TIE (Pattern A +25 IN FAMILY) | NULL drift |
+| arm_b DOWN_MILD cooldown_ramp (0.99,0.98) | **3.26768** | **3000 EXACT** | −1.73σ POS-vs-CTRL | **−0.57σ TIE** (8th H266 attractor cluster member) | **TIES** |
+| arm_c DOWN_AGGRESSIVE cooldown_ramp (0.99,0.97) | 3.27077 | **3050** | +1.77σ NEG-vs-CTRL | **+2.93σ NEG** | **NEG** |
+| H266 baseline (PR #1669) | 3.26818 | 3000 | — | (ref) | — |
+
+🎯 **187th NULL/NEG closure** — Issue #1260 strict gate FAIL (arm_b FFS=3000 EXACT TIES, no strict-clear; arm_c +50 FFS NEG).
+
+### 🎯 PAPER-GRADE FINDING #1 — arm_b 8th H266 attractor cluster member (3rd TREATMENT arm)
+
+arm_b DOWN_MILD val=3.26768 FFS=3000 = −0.57σ_H174 BELOW H266 (val=3.26818). 8th independent FFS=3000 EXACT TIE at the H266 attractor (cluster members: H266 baseline, H322 arm_b TREATMENT, H324 arm_a, H325 arm_a, H326 arm_c TREATMENT, H335 arm_a CTRL, H333 arm_b THIS TREATMENT). Third TREATMENT arm to land at the attractor after H322 BODY ORTHO identity-λ=1e-5 and H326 BODY ORTHO fnorm-λ=2e-6.
+
+Paper-grade canalization signal: H266 attractor basin admits TREATMENT arms with distinct upstream perturbations (BODY ORTHO regularization, AUX β2 cooldown-only mild ramp). Common feature: perturbation magnitude small enough to keep cooldown sharpening intact.
+
+### 🎯 PAPER-GRADE FINDING #2 — Joint H325+H333 closure of β2 DOWN-from-0.99 axis across BOTH windows
+
+| Hypothesis | Schedule window | Active ramp | arm_b (mild) | arm_c (aggressive) |
+|------------|-----------------|-------------|--------------|---------------------|
+| H325 (179th) | mid_training_ramp [100, 1995] | 1895 steps | +1.69σ NEG-vs-CTRL | +2.24σ NEG-vs-CTRL |
+| H333 (THIS, 187th) | cooldown_ramp [1995, 3325] | 1330 steps | **−0.57σ TIE** | **+2.93σ NEG-vs-H266** |
+
+**Mechanism resolution**: Throughout-training window is monotone NEG at BOTH mild and aggressive dose. Cooldown-only window is NON-MONOTONIC — mild dose TIES at H266 attractor (8th cluster), aggressive dose +2.93σ NEG. Cooldown is MORE FORGIVING than throughout-training at mild dose, COMPARABLY DEGRADING at aggressive dose. **β2 DOWN axis CLOSED across BOTH windows**, β2=0.99 globally Pareto on the SCHEDULE axis.
+
+Combined with H309 + H317: 4-experiment closure of mid_training_ramp + cooldown_ramp in both UP and DOWN directions at H266 anchor.
+
+### 🎯 PAPER-GRADE FINDING #3 — Cycle ~2700 cooldown-window mechanism cluster now spans 10 axes
+
+Extending the cluster from 9 → 10 axes all NEG at H266 anchor: H316 / H318 / H321 / H323 / H324 / H327 / H330 / H331 / H332 / **H333 cooldown β2 DOWN-ramp at aggressive dose** (THIS). Paper-grade canalization: cooldown phase [1995, 3325] is the load-bearing window where ANY aggressive mechanism perturbation monotonically degrades FFS.
+
+### Per-checkpoint trajectory mechanism
+
+Divergence emerges precisely at AUX `cooldown_start = int(0.6 × 3325) = 1995`:
+- Steps [0, 1995]: arm_b/c bit-id with CTRL (cooldown_ramp inactive)
+- Step 2000 (5 steps post-onset): arm_b −1.87σ, arm_c +0.93σ already diverging
+- Step 2500: arm_b −1.96σ, arm_c +1.36σ growing
+- Step 3000: arm_b −1.87σ, arm_c +1.55σ saturating
+- Terminal: arm_b −1.73σ POS-vs-CTRL, arm_c +1.77σ NEG-vs-CTRL
+
+Pattern A step-0 val=10.82583 EXACT on ALL THREE arms (schedule activation introduces ZERO pre-cooldown drift).
+
+### Student's windowing-discrepancy pre-launch catch
+
+Student STUDENT pre-launch implementation note correctly flagged that `aux_cooldown_frac=0.4` (hardcoded line 960) puts the AUX cooldown_ramp window at [1995, 3325] (last 40%), NOT [2826, 3325] (MuonH 15% cooldown) as the original PR body stated. Mechanism distinction vs H325 mid-training window remains preserved. Good engineering hygiene.
+
+### 110th mechanism class — no NEW class
+
+H333 refines H325's β2-DOWN closure with cooldown-window mechanism-distinct probe + canalization signal.
+
+### Mechanism class running tally — cycle ~2700 ten major closures
+
+110 mechanism classes consolidated (no NEW since H329 OUTER anchor MOMENTUM smoothing-without-lag, 182nd closure). Closures this cycle: H323/H324/H325/H328/H329(NEW)/H330/H327/H331/H326/H332/**H333** (177th-187th NULL/NEG).
+
+### Plateau campaign portfolio total
+
+**187 NULL/NEG + 1 MERGED WIN (H266), 110 mechanism classes consolidated**
+
+---
+
 ## 2026-05-31 — PR #1951: H332 tanjiro Polyak EMA decay SCHEDULE cooldown-peak — CLOSED 186th NULL/NEG (🎯 cooldown-peak Polyak EMA decay-UP SCHEDULE axis CLOSED + H323 framing inversion confirmed: cooldown requires UNPERTURBED decay=0.05 + cycle ~2700 cooldown-window mechanism cluster now spans 9 axes all NEG at H266 anchor)
 
 - Branch: g1r3-tanjiro/h332-polyak-ema-decay-schedule
