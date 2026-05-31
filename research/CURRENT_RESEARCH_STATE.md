@@ -1,3 +1,53 @@
+## 2026-05-31 09:02 UTC — Cycle 71 mid-458 — thorfinn #1916 365th refute (CROSS-CARRIER-SUB-ADDITIVE PER-KIND-β1-DOMINANT + 15th RTM PRECEDENT at MLP-SOAP front_FAST — CYCLE-71 CARRIERS RTM-CONTAMINATED) + thorfinn #1944 assigned (PER-KIND β1 DISPATCH n=2 VERIFICATION × UNIFORM β1=0.7 CONTROL)
+
+### thorfinn #1916 bilateral terminal — 365th refute, 199th family closure, 233rd mech class, 15th RTM precedent — **RECALIBRATION-CRITICAL**
+
+Bilateral terminal: Arm A `svg8kop6` cross-carrier compound (per-kind β1 × MLP-SOAP front_FAST) val=**3.26958**/3025; Arm B `kvj4trxk` MLP-SOAP-front_FAST-alone-n=2-seed-2 val=**3.27160**/3050. **365th cycle-71 refute**. Arm A FAIL merge bar by +0.00182.
+
+**Arm A landed in 15% prior bucket CROSS-CARRIER-SUB-ADDITIVE**: compound ≈ per-kind β1 alone (Δ=+0.00010 vs #1884 A 3.26948, within n=1 noise). MLP-SOAP front_FAST in compound delivers ≤ 0.00010 marginal — **PER-KIND β1 DISPATCH IS THE LOAD-BEARING CARRIER**.
+
+**MAJOR FINDING — 15th RTM PRECEDENT at MLP-SOAP front_FAST**:
+- #1855 A `rat2mxyo` seed-1: 3.26891 (downward stochastic excursion −0.00134 from mean)
+- Arm B `kvj4trxk` seed-2: 3.27160 (upward stochastic excursion +0.00134 from mean)
+- **n=2 mean: 3.27025 ± 0.00134** (true center, top of floor band, NOT below it)
+- n=2 spread 0.00269 ≈ 2× single-run stat-sig margin
+
+**CYCLE-71 PRODUCTIVE-CARRIERS LANDSCAPE RTM-CONTAMINATED** — two of the "TOP" cycle-71 carriers are confirmed RTM precedents at the floor band:
+- **#1855 A MLP-SOAP front_FAST**: 15th RTM precedent (this PR) — true mean 3.27025
+- **#1887 B embed M=2 f=0.25**: 14th RTM precedent (fern #1911) — true mean 3.27023
+
+Single-seed σ at floor band edge ~0.00190-0.00210 — comparable to entire floor band width. **Methodology lesson**: n=1 productive carriers at floor band edge should be treated as RTM precedents until n=2-verified.
+
+**Recalibration for compounds in flight**:
+- **askeladd #1928** (MLP-SOAP × embed M=2 f=0.25): both carriers RTM-revised → additive null shifts from 3.26475 to ~3.26757 → sub-merge probability DOWNGRADED from 45% to ~15-20%
+- **tanjiro #1921** (embed β1=0.5 × embed M=2 f=0.25): one carrier RTM-revised → additive null shifts from 3.26593 to ~3.26617 → mild downgrade
+
+**KEY STRUCTURAL FINDINGS — FIVE concurrent invariants**:
+1. Cross-carrier compound (per-kind β1 × MLP-SOAP front_FAST) sub-additive at 3.26958 in floor-band saturation zone
+2. **PER-KIND β1 DISPATCH dominates** the compound; MLP-SOAP front_FAST ≤ 0.00010 marginal contribution
+3. **15th RTM precedent at MLP-SOAP front_FAST carrier** — true n=2 mean 3.27025
+4. **Cycle-71 productive-carriers landscape RTM-CONTAMINATED** — 2 of "TOP" carriers confirmed RTM at floor band
+5. Trust-gate v on_fraction varies 0.417↔0.500 across seeds — V-FIXED-POINT in band, not single-point
+
+**233rd MECH CLASS**: CROSS-CARRIER-SUB-ADDITIVE-PER-KIND-β1-DOMINANT-MLP-SOAP-NEUTRALIZED + 15TH-RTM-PRECEDENT-AT-MLP-SOAP-FRONT-FAST-CARRIER.
+**199th FAMILY CLOSURE**: CROSS-CARRIER-COMPOUND-PER-KIND-β1-IS-LOAD-BEARING-MLP-SOAP-FRONT-FAST-IS-RTM-PRECEDENT-NOT-STABLE-CARRIER.
+
+### thorfinn #1944 NEW ASSIGNMENT — PER-KIND β1 DISPATCH n=2 VERIFICATION × UNIFORM β1=0.7 CONTROL
+
+Arm A: per-kind β1 dispatch n=2 verification (embed=0.8, lm_head=0.7, scalars=0.8) — replicates #1884 A 3.26948. Tests whether per-kind β1 dispatch is the FIRST verified-stable productive carrier in cycle 71 OR the 16th RTM precedent (cycle-71 carrier list ALL RTM).
+
+Arm B: uniform β1=0.7 control (embed=0.7, lm_head=0.7, scalars=0.7) — tests whether per-kind ASYMMETRY is load-bearing or uniform β1=0.7 delivers the same gain.
+
+**Outcome probabilities (recalibrated for RTM-contamination prior)**:
+- 25% per-kind β1 STABLE + uniform β1=0.7 sufficient (A ≈ 3.26948, B ≈ A)
+- 20% per-kind β1 STABLE + per-kind asymmetry LOAD-BEARING (A ≈ 3.26948, B > A)
+- **30% 16th RTM PRECEDENT (A ∈ [3.27050, 3.27200])** — HIGH PRIOR given RTM contamination
+- 10% per-kind β1 SUB-FLOOR PRODUCTIVE (A < 3.26800)
+- 10% UNIFORM β1=0.7 beats per-kind dispatch (B < A)
+- 5% MERGE CANDIDATE (A < 3.26776)
+
+---
+
 ## 2026-05-31 07:55 UTC — Cycle 71 mid-457 — fern #1911 364th refute (INTERVAL-AXIS-AT-LM-HEAD-CONFIRMED-FACTOR-DOMINATED + 14th RTM PRECEDENT at embed M=2 f=0.25 i=200) + fern #1940 assigned (M-CHANNEL × SUBSTRATE matrix completion at embed M=3)
 
 ### fern #1911 bilateral terminal — 364th refute, 198th family closure, 232nd mech class, 14th RTM precedent
