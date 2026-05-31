@@ -9,7 +9,27 @@ The human research team has redirected: **FFS (first-step-to-target, baseline 30
 3. **Prefer experiments that move the crossing step** (2800-3050 window), **simplify winning stacks**, **reveal FFS-load-bearing components**.
 4. **Ablations preferred over confirmations** when FFS dead.
 
-## Last updated: 2026-05-31 16:25Z (88 R5 closures; **★★ EDWARD #1948 C MONOTONE-CONFIRMING B★** Cell C(freq=8) FFS_ema=2875 at step 3140/3250 matching B★; D not yet launched. nezuko #1955 + thorfinn #1957 CLOSED FFS-NEUTRAL; researcher-agent dispatched for 2 fresh hypotheses; 6/8 active + 2 awaiting new assignments)
+## Last updated: 2026-05-31 17:55Z (88 R5 closures; **★★★ FRIEREN #1966 B★ FFS-POSITIVE n=1 OFF-ATTRACTOR** {FFS_ema=2875, FFS_trainval=2875} vs ctrl {2925, 2925}; **★★ EDWARD #1948 D mid-run, B+C confirmed signal at FFS=2875**; alphonse #1979 A done FFS=2950 marginal; 8/8 active)
+
+### Notes (2026-05-31 17:55Z) — ★★★ FRIEREN #1966 B★(mu=0.70 ramp) IS FFS-POSITIVE AT n=1 — SECOND INDEPENDENT FFS-ALIVE SIGNAL alongside edward #1948
+
+- **★★★ FRIEREN #1966 B★ FFS-POSITIVE at n=1** — Just terminal (~17:40Z): A_ctrl(mu=0.95 fixed) FFS={2925, 2925}, val=3.2692. **B★(mu=0.95→0.70 ramp during cooldown) FFS={2875, 2875}, val=3.2697.** Both FFS metrics improved by -50 steps. **OFF-attractor on FFS_trainval** (standard attractor is {2875, 2925}; B★ is {2875, 2875} — trainval also -50). This dual-metric off-attractor signature passes the seed-noise discriminator [[r5_n1_to_n4_reversion_dual_metric_attractor]]. Student now running Cell C(mu=0.80) at step 210/3250, ETA ~19:50Z. **Will require n=4 confirm before merge.** Advisor comment posted requesting SENPAI-RESULT after C terminal + val_loss probe-step trajectory + n=4 launch at mu=0.70.
+
+- **★★ EDWARD #1948 D mid-run at step 2110/3250** — B(freq=4) AND C(freq=8) both FINISHED at FFS_ema=2875, FFS_trainval=2925 (on attractor on FFS_trainval). D(freq=2) ETA ~18:30Z. Once D terminal, n=4 confirm at freq=4 will be decisive — if freq=4 confirms μ_4(FFS_ema) ≤ 2887.5, MERGE.
+
+- **★★ TWO PARALLEL FFS-POSITIVE MECHANISMS** — edward(precond_freq cooldown) AND frieren(muon mu cooldown). These are STRUCTURALLY DISTINCT optimizer-side interventions both producing the same FFS_ema=2875 reduction at n=1. **If both confirm at n=4, they may compound (orthogonal mechanisms acting on SOAP preconditioner refresh stride vs Muon momentum decay).** Compounding test is the natural next-round experiment. Note: frieren is more aggressive (both FFS metrics moved off-attractor), edward is less so (only FFS_ema off-attractor, trainval on).
+
+- **★ ALPHONSE #1979** A_ctrl FINISHED at FFS_ema=2950, FFS_trainval=2975 — marginal +1.5σ above baseline (within ±2σ band); B★(warm restart at step 2700) just launched at step 459/3250. Note: A_ctrl FFS=2950 is HIGHER than typical baseline 2912.5; this raises the bar for B★ to demonstrate signal (effective threshold becomes ≤2887 vs raw threshold).
+
+- **★ FERN #1983** A_ctrl FINISHED at FFS_ema=2925, FFS_trainval=2925, val=3.268752 (clean baseline replicate of PR #1533). Cells B (constant WD) + C (ramp_up WD) not yet launched — sequential single-GPU, ETA B ~19:30Z, C ~21:30Z. Advisor comment posted noting cross-fleet context.
+
+- **★ ASKELADD #1989** A_ctrl mid-run (~38%, step 1237/3250). KG_smoke passed. Healthy. ETA A ~18:40Z, B ~20:30Z.
+
+- **★ TANJIRO #1988 + NEZUKO #1993 + THORFINN #1994** — All WIP. tanjiro adamw-beta1-cooldown (4h ago), nezuko muon-momentum-cd-reset + thorfinn soap-state-cd-reset (assigned 1.5h ago, students may be in KG_smoke phase).
+
+- **Fleet at 17:55Z**: All 8 active. **TWO PARALLEL FFS-POSITIVE SIGNAL CANDIDATES** awaiting n=4 confirm (edward freq=4, frieren mu=0.70). This is the strongest research moment in the entire R5 round so far.
+
+---
 
 ### Notes (2026-05-31 16:25Z) — NEZUKO #1955 CLOSED 87th [adamw-eps-cooldown bit-identical FFS_ema]; THORFINN #1957 CLOSED 88th [ema-decay-cooldown FFS-bin-saturated]; EDWARD #1948 C(freq=8) MONOTONE-CONFIRMS B★ AT step 3140
 
