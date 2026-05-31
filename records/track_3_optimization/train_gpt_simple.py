@@ -84,6 +84,13 @@ def parse_args():
     parser.add_argument('--aux_b2_pulse_target', type=float, default=0.99,
                         help='New aux Adam β2 value to set at --aux_b2_pulse_step. '
                              '0 or negative disables. Default: 0.99 (canonical WIN).')
+    parser.add_argument('--aux_scalar_lr_pulse_step', type=int, default=0,
+                        help='Step at which to apply scalar_lr pulse to the aux Adam '
+                             'adam_scalars group (RMSNorm gains/biases). 0 disables.')
+    parser.add_argument('--aux_scalar_lr_pulse_factor', type=float, default=1.0,
+                        help='Multiplicative factor applied to adam_scalars lr at pulse step '
+                             '(e.g. 2.0 doubles, 0.5 halves). Persists across subsequent cooldown '
+                             'steps by also scaling initial_lr. 1.0 is a no-op.')
     parser.add_argument("--seed", type=int, default=1,
                         help="Random seed for torch/numpy/python. Default 1 matches baseline seed.")
     args = parser.parse_args()
@@ -765,6 +772,8 @@ if dist.get_rank() == 0:
             "paramema_refresh_only": int(args.paramema_refresh_only),
             "aux_b2_pulse_step": args.aux_b2_pulse_step,
             "aux_b2_pulse_target": args.aux_b2_pulse_target,
+            "aux_scalar_lr_pulse_step": args.aux_scalar_lr_pulse_step,
+            "aux_scalar_lr_pulse_factor": args.aux_scalar_lr_pulse_factor,
             "seed": args.seed,
         },
     )
@@ -1071,6 +1080,31 @@ for trial_idx in range(args.num_trials):
                 group["betas"] = new_betas
             print0(f"[step {step}] aux_b2_pulse: β2 {old_b2} → {args.aux_b2_pulse_target}",
                    console=True)
+        if (args.aux_scalar_lr_pulse_step > 0
+                and step == args.aux_scalar_lr_pulse_step
+                and args.aux_scalar_lr_pulse_factor != 1.0):
+            n_applied = 0
+            base_lr_before = None
+            for group in optimizer1.param_groups:
+                name = group.get("name", "")
+                short_name = name.removeprefix("adam_")
+                if short_name == "scalars":
+                    base_lr_before = group["lr"]
+                    group["lr"] = group["lr"] * args.aux_scalar_lr_pulse_factor
+                    group["initial_lr"] = group["initial_lr"] * args.aux_scalar_lr_pulse_factor
+                    n_applied += 1
+            if dist.get_rank() == 0:
+                print0(f"[step {step}] aux scalar_lr pulse: {base_lr_before:.6f} -> "
+                       f"{base_lr_before * args.aux_scalar_lr_pulse_factor:.6f} "
+                       f"(factor={args.aux_scalar_lr_pulse_factor}, applied to {n_applied} groups)",
+                       console=True)
+                if wandb.run is not None:
+                    wandb.log({
+                        "aux_scalar_lr_pulse/factor": args.aux_scalar_lr_pulse_factor,
+                        "aux_scalar_lr_pulse/lr_before": base_lr_before,
+                        "aux_scalar_lr_pulse/lr_after": base_lr_before * args.aux_scalar_lr_pulse_factor,
+                        "aux_scalar_lr_pulse/n_applied": n_applied,
+                    }, step=wandb_step)
         for opt in optimizers:
             opt.step()
         # EMA buffer update on body-Muon matrix params.
