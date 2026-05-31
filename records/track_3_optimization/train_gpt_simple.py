@@ -101,6 +101,11 @@ def parse_args():
                         help="EMA decay for SWA-style EMA-eval; None=disabled (control). "
                              "Recommend 0.99-0.9999. When set, val/ema_loss is logged "
                              "and speedrun/first_step_to_target uses the EMA-val crossing.")
+    parser.add_argument("--muon_momentum_cooldown_reset", action="store_true", default=False,
+                        help="At step==cooldown_start_step (computed from cooldown_frac=0.7), "
+                             "zero the Muon optimizer momentum buffers (state[p]['momentum']) "
+                             "one time. SOAP state (q_row/q_col/row_gg/col_gg/exp_avg_sq/"
+                             "soap_step) is NOT reset; AdamW state is untouched.")
     args = parser.parse_args()
     args.num_trials = args.num_trials if args.num_trials is not None else (args.legacy_num_trials or 1)
     args.wandb_tags = [tag.strip() for tag in args.wandb_tags.split(",") if tag.strip()]
@@ -798,6 +803,9 @@ for trial_idx in range(args.num_trials):
 
     # we want to minimize this while still reaching 3.28 val loss
     train_steps = int(os.environ.get("SENPAI_TRAIN_STEPS", 3250))
+    # cooldown_start_step matches the cooldown_frac=0.7 boundary used by set_hparams.
+    # Used by --muon_momentum_cooldown_reset to fire a one-time Muon momentum zero.
+    cooldown_start_step = int((1.0 - 0.7) * train_steps)
 
     NUM_LAYERS = len(model.blocks)  # = 12 for the fixed baseline architecture
 
@@ -1180,6 +1188,26 @@ for trial_idx in range(args.num_trials):
                 train_steps=train_steps,
                 wandb_step=wandb_step,
             )
+        # One-time Muon momentum buffer reset at cooldown_start_step. Fires before
+        # optimizer.step() so the step that lands at cooldown_start_step re-accumulates
+        # momentum from a zero buffer. SOAP eigenbasis state and AdamW state are not
+        # touched (the "momentum" key only exists in Muon state[p] dicts).
+        if args.muon_momentum_cooldown_reset and step == cooldown_start_step:
+            n_reset = 0
+            for p in optimizer2.state:
+                if "momentum" in optimizer2.state[p]:
+                    optimizer2.state[p]["momentum"].zero_()
+                    n_reset += 1
+            if dist.get_rank() == 0:
+                wandb.log({
+                    "trial": trial_idx,
+                    "train/step": train_step,
+                    "train/muon_momentum_reset": 1,
+                    "train/muon_reset_n_buffers": n_reset,
+                }, step=wandb_step)
+                print0(f"[muon_mom_cd_reset] trial={trial_idx} step={step} "
+                       f"cooldown_start_step={cooldown_start_step} "
+                       f"n_reset={n_reset}", console=True)
         for opt in optimizers:
             opt.step()
 
