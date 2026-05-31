@@ -101,6 +101,12 @@ def parse_args():
                         help="EMA decay for SWA-style EMA-eval; None=disabled (control). "
                              "Recommend 0.99-0.9999. When set, val/ema_loss is logged "
                              "and speedrun/first_step_to_target uses the EMA-val crossing.")
+    parser.add_argument("--adamw_beta1_cooldown_target", type=float, default=None,
+                        help="Linearly anneal AdamW aux-group beta1 from its base value "
+                             "(0.8 in this code) toward this target across the cooldown "
+                             "window. None=disabled (control, fixed beta1=0.8). Applies "
+                             "to all AdamW aux groups (adam_embed, adam_lm_head, "
+                             "adam_scalars). Set 0.0 for full anneal to pure RMSProp-style.")
     args = parser.parse_args()
     args.num_trials = args.num_trials if args.num_trials is not None else (args.legacy_num_trials or 1)
     args.wandb_tags = [tag.strip() for tag in args.wandb_tags.split(",") if tag.strip()]
@@ -914,6 +920,16 @@ for trial_idx in range(args.num_trials):
         else:
             raise ValueError(f"Unknown lr_cooldown_shape: {shape}")
 
+    ADAMW_BASE_BETA1 = 0.8
+
+    def _get_adamw_beta1(progress, cooldown_frac, target_beta1, base_beta1=ADAMW_BASE_BETA1):
+        if target_beta1 is None:
+            return base_beta1
+        if progress < 1 - cooldown_frac:
+            return base_beta1
+        x = (progress - (1 - cooldown_frac)) / cooldown_frac
+        return base_beta1 + x * (target_beta1 - base_beta1)
+
     def set_hparams(step, cooldown_frac=0.7):
         progress = step / train_steps
         assert 0 <= progress < 1
@@ -923,12 +939,16 @@ for trial_idx in range(args.num_trials):
             x = (progress - (1 - cooldown_frac)) / cooldown_frac
             eta = _cooldown_eta(x, args.lr_cooldown_shape)
         wd_mu = _wd_multiplier(step, train_steps, args.wd_schedule)
+        new_beta1 = _get_adamw_beta1(progress, cooldown_frac, args.adamw_beta1_cooldown_target)
         for opt in optimizers:
             for group in opt.param_groups:
                 group["lr"] = group["initial_lr"] * eta
                 if "initial_wd" in group and group.get("name", "").startswith("muon_"):
                     group["weight_decay"] = group["initial_wd"] * wd_mu
-        return eta
+                if args.adamw_beta1_cooldown_target is not None and group.get("name", "").startswith("adam_"):
+                    _, b2 = group.get("betas", (ADAMW_BASE_BETA1, 0.95))
+                    group["betas"] = (new_beta1, b2)
+        return eta, new_beta1
 
 
     ########################################
@@ -1153,7 +1173,7 @@ for trial_idx in range(args.num_trials):
         dist.all_reduce(step_loss, op=dist.ReduceOp.SUM)
         train_loss = float((step_loss / batch_size).item())
         # set optimization hyperparameters and take a step
-        eta_actual = set_hparams(step)
+        eta_actual, adamw_beta1_actual = set_hparams(step)
         train_step = step + 1
         telemetry_due = (step == 0 or (step + 1) % args.telemetry_interval == 0 or step + 1 == train_steps)
         histogram_due = (step == 0 or (step + 1) % args.histogram_interval == 0 or step + 1 == train_steps)
@@ -1235,6 +1255,9 @@ for trial_idx in range(args.num_trials):
                 per_group_metrics["train/wd_attn_now"] = current_wds.get("muon_attn", 0.0)
                 per_group_metrics["train/wd_schedule_progress"] = train_step / train_steps
                 per_group_metrics["cooldown_shape/eta_at_step"] = eta_actual
+                per_group_metrics["train/adamw_beta1_current"] = adamw_beta1_actual
+                if args.adamw_beta1_cooldown_target is not None:
+                    per_group_metrics["train/adamw_beta1_target"] = args.adamw_beta1_cooldown_target
                 wandb.log(per_group_metrics, step=wandb_step)
         if dist.get_rank() == 0 and optimizer2.cos_sims_buffer:
             cs_names = list(optimizer2.cos_sims_buffer.keys())
