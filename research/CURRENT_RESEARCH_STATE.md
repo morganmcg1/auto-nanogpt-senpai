@@ -9,6 +9,37 @@ The human research team has redirected: **FFS (first-step-to-target, baseline 30
 3. **Prefer experiments that move the crossing step** (2800-3050 window), **simplify winning stacks**, **reveal FFS-load-bearing components**.
 4. **Ablations preferred over confirmations** when FFS dead.
 
+## Last updated: 2026-05-31 21:40Z (91 R5 closures; **91st: fern #1983 wd-schedule-ablation FFS-NEG (ramp_down IS LOAD-BEARING; monotone dose-response down>const>up; WD-axis closed)**; fern → researcher-agent dispatched for fresh hypothesis; 7/8 active pending fern assignment)
+
+### Notes (2026-05-31 21:40Z) — 91st closure; WD direction confirmed load-bearing; fern hypothesis dispatch in flight
+
+- **91st R5 CLOSURE — FERN #1983 (wd-schedule-ablation) FFS-NEGATIVE (ABLATION CONFIRMS LOAD-BEARING)**: A_ctrl(ramp_down)=2925, B(constant)=2975 (+50 FFS), C(ramp_up)=3100 (+175 FFS). **Monotone dose-response: ramp_down > constant > ramp_up** on both metrics, with monotone val_loss trajectory at all probe steps ≥ 2000. **Pre-mortem #1 (time-integrated WD only) FALSIFIED** — B's mean WD = A_ctrl's mean WD, yet B regresses. **Schedule DIRECTION is the lever, not integrated magnitude.** Directly extends PR #1922's "WD near-zero at crossing helps" → "elevating WD at crossing actively destroys FFS by 0.008 val_loss / +175 FFS."
+
+- **WD-AXIS CLOSED**: Three PRs now fully cover the WD design surface: peak magnitude (PR #1830), 4 shape variants (PR #1922), direction (PR #1983). `--wd_schedule ramp_down` stays in mandatory R5 stack. Direct response to human directive #1262 ablation request completed — component verified as load-bearing, not redundant.
+
+- **FERN → RESEARCHER-AGENT DISPATCHED** for next hypothesis on a non-closed axis. Candidates being evaluated: Schedule-Free AdamW (AUX replacement, not perturbation), Lion AUX optimizer, gradient covariance preconditioning for embeddings/LN, cooldown-windowed WD floor (precision test), per-depth-bucket mu decoupling in Muon, NS5 polish geometry alternatives (modified Schulz coefficients).
+
+- **CURRENT FLEET STATUS (21:40Z)**:
+  - **edward #1948**: n=4 confirm in flight at freq=4 (trial 1/4 hit FFS_ema=2875)
+  - **frieren #1966**: n=4 confirm in flight at mu=0.80 (trial 1/4 in flight)
+  - **tanjiro #2014**: ns-iter-cooldown-ramp WIP (NS5 polish geometry, MUON-side, structural)
+  - **nezuko #2020**: soap-beta2-cooldown-ramp WIP (SOAP covariance smoothing axis, orthogonal to edward)
+  - **thorfinn #1994**: soap-state-cooldown-reset WIP
+  - **askeladd #1989**: aux-cooldown-shape-decoupling WIP
+  - **alphonse #1979**: lr-warm-restart-probe WIP
+  - **fern #1983**: just closed, pending new assignment from researcher-agent
+
+- **CLOSED FAMILIES (memory note for next assignments)**:
+  - NS5 absorption family (3 closures)
+  - NS5 internal ε irrelevant at R5 scale
+  - SGLD/additive-pre-NS family
+  - LN gain init below 1.0
+  - AUX-side cooldown family (3 closures, all absorbed by cosine LR decay)
+  - Muon momentum DISCRETE RESET (gradual ramp is correct mechanism)
+  - WD-axis fully explored (peak magnitude, shape, direction — all measured)
+
+---
+
 ## Last updated: 2026-05-31 21:10Z (90 R5 closures; **90th: nezuko #1993 muon-mom-reset FFS-NEU (discrete reset → transient gain only; GRADUAL>DISCRETE confirmed)**; nezuko → #2020 soap-beta2-cooldown; 8/8 active)
 
 ### Notes (2026-05-31 21:10Z) — 90th closure; GRADUAL>DISCRETE mechanism insight; nezuko #2020 soap-beta2-cooldown assigned

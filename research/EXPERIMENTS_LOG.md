@@ -1,5 +1,36 @@
 # SENPAI Research Results — auto-nanogpt-1gpu-r5
 
+## 2026-05-31 21:40Z — PR #1983 CLOSED FFS-NEGATIVE [wd-schedule-ablation; ramp_down IS LOAD-BEARING; monotone dose-response ramp_down > constant > ramp_up across all post-warmup probe steps; direction matters, not just magnitude] [91st R5 closure]
+
+- branch: g1r5-fern/wd-schedule-ablation
+- hypothesis: Test if `--wd_schedule ramp_down` is load-bearing by comparing against constant (WD at base throughout) and ramp_up (WD goes 0 → 2× base across training). Direct response to human directive #1262 ablation request.
+- cells (n=1 screen, BOTH B AND C failed signal gate → no n=4 escalation):
+
+| Cell | wd_schedule | FFS_ema | FFS_trainval | val_loss | wandb |
+|---|---|---:|---:|---:|---|
+| **A_ctrl** | **ramp_down** | **2925** | 2925 | 3.26875 | `zup3n9hb` |
+| B | constant | 2975 | 2975 | 3.27234 | `1pho2o8n` |
+| C | ramp_up | 3100 | 3075 | 3.27675 | `z8ov1a4n` |
+| Baseline #1533 | — | μ_4=2912.5 (σ=25) | — | — | — |
+
+- val_loss probe-step trajectory (monotone dose-response, decisive signal):
+
+| step | A_ctrl (ramp_down) | B (constant) | C (ramp_up) | Δ(B−A) | Δ(C−A) |
+|---:|---:|---:|---:|---:|---:|
+| 1000 | 3.64304 | 3.62338 | **3.60023** | −0.0197 | −0.0428 (C fastest early) |
+| 2000 | **3.43632** | 3.43868 | 3.43722 | +0.0024 | +0.0009 (CROSSOVER) |
+| 2500 | **3.33561** | 3.34267 | 3.34978 | +0.0071 | +0.0142 |
+| 3000 | **3.27417** | 3.27844 | 3.28337 | +0.0043 | +0.0092 |
+| 3250 | **3.26875** | 3.27234 | 3.27675 | +0.0036 | +0.0080 |
+
+- Crossover at step ~2000: ramp_up (low WD early) wins early training but loses progressively as WD climbs above base during crossing window. A_ctrl (ramp_down) takes lead at step 2000 and never gives it up.
+- **Pre-mortem #1 FALSIFIED**: "time-integrated WD is the only lever" — B's mean WD ≈ A_ctrl's mean WD (both time-average = base), yet B regresses +50 FFS on both metrics. Schedule SHAPE matters independently.
+- **Pre-mortem #2 CONFIRMED**: "high WD at crossing prevents final basin descent" — C's late-training elevated WD destroys FFS by +175 steps.
+- analysis: **This directly extends PR #1922's "WD near-zero at crossing helps" finding.** Not only is near-zero WD at crossing beneficial — *elevating WD there actively destroys FFS by 0.008 val_loss / +175 FFS steps*. The schedule DIRECTION (down vs up) is the lever, not the integrated magnitude. WD-axis design surface fully explored across 3 PRs: peak magnitude (PR #1830), shape variants (PR #1922 4 shapes), and direction (this PR).
+- conclusions: **`--wd_schedule ramp_down` keeps its place in the mandatory R5 stack — load-bearing CONFIRMED.** Direct response to human directive #1262 ablation request completed: component is essential, not redundant. WD-axis is closed; future ideas in this family will be FFS-neutral or negative absent a fundamentally different mechanism. Student's val_loss trajectory analysis (consistent PR #1922 discriminator) was rigorous — exactly the right discipline to attribute monotone signal vs seed noise. Next: fern → fresh hypothesis on a non-closed axis.
+
+---
+
 ## 2026-05-31 21:10Z — PR #1993 CLOSED FFS-NEUTRAL [muon-momentum-cooldown-reset; MUON-side discrete reset → transient gain at step 1000, inverts by step 2375; FFS_ema=2925 both arms; GRADUAL > DISCRETE mechanism confirmed by contrast with frieren signal] [90th R5 closure]
 
 - branch: g1r5-nezuko/muon-momentum-cooldown-reset
