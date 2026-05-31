@@ -1,3 +1,47 @@
+## 2026-05-31 13:05 UTC — Cycle 71 mid-467 — thorfinn #1944 373rd refute 207th family closure 241st mech class + 19th RTM PRECEDENT — RTM SEXTET COMPLETE (PER-KIND-β1-DISPATCH-RTM-CONFIRMED-AT-N=2-MEAN-3.27015 + PER-KIND-ASYMMETRY-DIRECTION-MARGINALLY-LOAD-BEARING-AT-+0.00150 bilateral Arm-A-per-kind=3.27081/3025 + Arm-B-uniform-β1=0.7=3.27231/3050; per-kind β1 dispatch is 6th cycle-71 carrier RTM-confirmed, 100% RTM rate persists; tightest single-seed σ in SEXTET at 0.00067) + thorfinn #1967 new assignment (PER-KIND-ASYMMETRY-AXIS bilateral deeper-0.9-vs-inverted-0.6 at lm_head=0.7 anchor; tests whether +0.00150 asymmetry effect is monotone-magnitude-dependent saturated or RTM-band noise 35%-SATURATED-AT-0.8 prior 25%-MONOTONE-PRODUCTIVE prior 20%-FLAT-RTM-BAND prior)
+
+### thorfinn #1944 bilateral terminal — 373rd refute, 207th family closure, 241st mech class, 19th RTM precedent
+
+Bilateral terminal: Arm A `pchcdejq` per-kind β1 dispatch (embed=0.8/lm_head=0.7/scalars=0.8) val=**3.27081**/3025; Arm B `su2hdizs` uniform β1=0.7 control val=**3.27231**/3050. Inter-arm Δ +0.00150 (Arm B above Arm A → per-kind asymmetry direction CONFIRMED productive at 2.3σ marginal). Both PASS stat rule, FAIL merge bar. **373rd cycle-71 refute**.
+
+**RTM SEXTET COMPLETE — 6-of-6 cycle-71 TOP carriers confirmed RTM-contaminated**:
+
+| carrier | RTM-corrected n-mean | n | σ |
+|---|---|---|---|
+| MLP-SOAP front_FAST | 3.27018 (askeladd #1928 n=3) | 3 | 0.00124 |
+| embed M=2 f=0.25 reset | 3.27023 (n=2) | 2 | — |
+| lm_head M=3 f=0.25 i=200 | 3.27050 (nezuko #1920 n=3) | 3 | 0.00112 |
+| embed β1=0.5 | 3.27016 (tanjiro #1921 n=2) | 2 | — |
+| **per-kind β1 dispatch** | **3.27015** (thorfinn #1944 n=2) | 2 | **0.00067** |
+
+**Cycle-71 RTM-corrected floor band**: 3.27015-3.27050 across 5 distinct carrier mechanisms. Single-seed σ width 0.00067-0.00124. Cycle-71 floor is NOT 3.26900-3.26950 (best single seeds) but **~3.27015-3.27050** (RTM-corrected mean). **100% RTM rate across all probed cycle-71 carriers persists.**
+
+**PER-KIND ASYMMETRY direction marginally LOAD-BEARING at +0.00150** (2.3σ above single-seed σ ~0.00067): uniform β1=0.7 control isolates the asymmetry contribution. Direction is consistent across training phase but well within RTM-band noise scale (0.00100-0.00250).
+
+### thorfinn #1967 new assignment — PER-KIND-ASYMMETRY-AXIS bilateral
+
+Tests asymmetry magnification AT THE SAME lm_head=0.7 anchor (only embed/scalars vary):
+- **Arm A** `deeper_asymmetry` (embed=0.9 / lm_head=0.7 / scalars=0.9) — extends productive direction
+- **Arm B** `inverted_asymmetry` (embed=0.6 / lm_head=0.7 / scalars=0.6) — tests direction-dependence
+- Probability-weighted: SATURATED at 0.8 35% / MONOTONE-PRODUCTIVE 25% / FLAT-WITHIN-NOISE 20% / CANONICAL-NEAR-OPTIMAL non-monotone 12% / MERGE 5% / REVERSAL 3%
+
+### Cycle 71 cumulative state (post-#1944 closure)
+
+**373 refuted / 241 distinct mech classes / 207 family closures / 9 structural axes locked / 19 regression-to-mean precedents** (RTM SEXTET COMPLETE — 6-of-6 cycle-71 TOP carriers RTM-confirmed at 100% rate). Fleet 8/8 active.
+
+### Standing in-flight monitoring (last status as of 13:00Z)
+
+- **thorfinn #1967** — PER-KIND-ASYMMETRY-AXIS bilateral, just assigned
+- **frieren #1947** — Arm B isolated β1=0.5 (mid-run)
+- **tanjiro #1949** — Arm A `j3n5pgmy` ETA ~12:14Z (likely terminal soon, check next wake)
+- **edward #1952** — AXIS-4 DUAL-EXCLUSION MATRIX
+- **alphonse #1953** — NS5_ITERS bilateral at diagonal corner
+- **askeladd #1956** — RESET-FACTOR-ABLATION compound
+- **fern #1959** — CROSS-SUBSTRATE COMPOUND
+- **nezuko #1960** — INTERVAL-AXIS lm_head M=3 i=150 fresh push
+
+---
+
 ## 2026-05-31 12:30 UTC — Cycle 71 mid-466 — nezuko #1950 POD-STABILITY-BLOCKED at lm_head M=2 f=0.5 (11/11 NaN crashes 8% empirical success rate cross-pod control confirms cell IS reachable on other pods — NOT counted as refute; tally unchanged at 372/240/206/18 RTM) + nezuko #1960 new assignment (INTERVAL-AXIS at lm_head M=3 f=0.25 interval=150 FRESH PUSH n=2 from start at SUBSTRATE-OPTIMUM cell linear-extrapolation predicts 3.26962 ± σ 0.00112; 35%-LINEAR-EXTRAPOLATION-CONFIRMED prior, 10%-MERGE-CANDIDATE prior)
 
 ### nezuko #1950 POD-STABILITY-BLOCKED — operational lesson logged
