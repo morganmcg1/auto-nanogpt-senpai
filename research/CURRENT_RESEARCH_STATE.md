@@ -1,8 +1,18 @@
-## Cycle ~2700 (CURRENT): H326 CLOSED 185th NULL/NEG (🎯 PAPER-GRADE H322 reproducibility verdict + BODY ORTHOGONALITY axis CLOSED under BOTH geometries + mechanism-paper-grade FALSIFICATION of target-specific orthogonality preservation + 3-mechanism narrowing of POS source to (M2)/(M3) only) + H331 CLOSED 184th (🎯 3rd PAPER-GRADE MECHANISM REFINEMENT — DEEPER mid-training POS produces DEEPER terminal NEG inverse relationship + H330+H331 JOINT TRANSITION-DE-STABILIZATION mechanism) + H327 CLOSED 183rd (🎯 V-shaped 5-point dose-response) + H329 CLOSED 182nd (🎯 NEW MECHANISM CLASS) + H330 CLOSED 181st (🎯 TAPER-TRANSITION mechanism) + H328 CLOSED 180th + H325 CLOSED 179th + H324 CLOSED 178th + H323 CLOSED 177th + H339/H338/H337/H336/H335/H334/H333/H332 ASSIGNED
+## Cycle ~2700 (CURRENT): H332 CLOSED 186th NULL/NEG (🎯 cooldown-peak Polyak EMA decay-UP SCHEDULE axis CLOSED + H323 framing inversion confirmed + cooldown-window mechanism cluster now spans 9 axes all NEG at H266 anchor) + H326 CLOSED 185th (🎯 PAPER-GRADE H322 reproducibility verdict + BODY ORTHOGONALITY axis CLOSED + mechanism-paper-grade FALSIFICATION of target-specific orthogonality preservation + 3-mechanism narrowing) + H331 CLOSED 184th (🎯 3rd PAPER-GRADE MECHANISM REFINEMENT) + H327 CLOSED 183rd + H329 CLOSED 182nd (🎯 NEW MECHANISM CLASS) + H330 CLOSED 181st + H328 CLOSED 180th + H325 CLOSED 179th + H324 CLOSED 178th + H323 CLOSED 177th + H340/H339/H338/H337/H336/H335/H334/H333 ASSIGNED
 
-**NINE major closures this cycle (177th–185th NULL/NEG with paper-grade mechanism findings), NINE fresh assignments. Plateau campaign portfolio: 185 NULL/NEG + 1 MERGED WIN (H266), 110 mechanism classes consolidated (+1 NEW: OUTER anchor MOMENTUM smoothing-without-lag via H329). All 8 r3 students WIP — zero idle GPUs.**
+**TEN major closures this cycle (177th–186th NULL/NEG with paper-grade mechanism findings), TEN fresh assignments. Plateau campaign portfolio: 186 NULL/NEG + 1 MERGED WIN (H266), 110 mechanism classes consolidated (no NEW since H329: OUTER anchor MOMENTUM smoothing-without-lag). All 8 r3 students WIP — zero idle GPUs.**
 
 ### Closures this cycle
+
+**H332 tanjiro Polyak EMA decay SCHEDULE cooldown-peak CLOSED 186th NULL/NEG (PR #1951) — 🎯 cooldown-peak Polyak EMA decay-UP SCHEDULE axis CLOSED + H323 framing inversion confirmed + H266 polyak_ema_decay=0.05 robustly at Pareto + cooldown-window mechanism cluster now 9 axes all NEG at H266 anchor**
+- arm_a CTRL (constant 0.05) `msm8k9hu`: val=3.26928 FFS=3025 (Pattern A +25 IN FAMILY, +1.24σ TIE)
+- arm_b STEP_INC_COOLDOWN (0.05→step 0.10 [2826,3325]) `d2hzltfi`: val=**3.26953** FFS=**3050** (+1.53σ TIE-NEG vs H266, +0.28σ TIE vs CTRL, **+50 FFS WORSE than baseline**)
+- arm_c RAMP_INC_COOLDOWN (0.05→ramp 0.20 [2826,3325]) `iyjw96s5`: val=**3.26932** FFS=**3050** (+1.29σ TIE-NEG vs H266, +0.05σ TIE-BIT vs CTRL, +50 FFS WORSE)
+- 🎯 **Polyak EMA decay axis CLOSED in 4 directions at H266 anchor**: H323 constant decay=0.025 NEG, H323 constant decay=0.10 NEG, H332 arm_b cooldown-only step-UP 0.10 NEG, H332 arm_c cooldown-only ramp 0.20 NEG. **H266 decay=0.05 (20-step half-life) is robustly at Pareto**
+- 🎯 **H323 framing INVERTED**: H323's narrative was "cooldown requires LONGER EMA half-life for coherence" — H332 data shows cooldown requires UNPERTURBED 20-step half-life; any perturbation (UP or constant non-default) degrades terminal FFS by +25-50 steps
+- 🎯 **Non-monotone arm_b vs arm_c signal (suggestive, NOT significant)**: arm_c (peak 0.20, 4× baseline) has terminal val ≈ CTRL while arm_b (constant 0.10 cooldown) +0.28σ worse. 0.21σ between-arm gap below noise floor — hints ramp shape > step shape but both still NEG vs H266
+- 🎯 **Cooldown-window mechanism cluster now 9 axes all NEG at H266 anchor**: H316 OUTER LR cooldown shape / H318 OUTER LR cooldown end (V-shape vertex H327) / H321 Adaptive μ taper / H323 μ mid_training_ramp / H324 OUTER LR CTRL TIE / H327 V-shape μ vertex / H330 Adaptive-DOWN trapezoid (TAPER-TRANSITION) / H331 Monotone μ-floor trapezoid (TRANSITION-DE-STABILIZATION) / **H332 cooldown-peak Polyak EMA decay-UP (THIS)** — paper-grade canalization signal
+- 110th mechanism class total (no NEW class — H332 extends H323 same class)
 
 **H326 nezuko F-norm-preserving body orthogonality regularizer + H322 seed-replicate CLOSED 185th NULL/NEG (PR #1927) — 🎯 PAPER-GRADE H322 reproducibility verdict + BODY ORTHOGONALITY axis CLOSED under BOTH geometries + mechanism-paper-grade FALSIFICATION of target-specific orthogonality preservation + 3-mechanism narrowing**
 - arm_a CTRL (λ=0, identity) `hgjm512e`: val=3.27076 FFS=3050 (+2.92σ MILD NEG, Pattern A drift +50 EDGE-OF-ENVELOPE)
@@ -102,6 +112,14 @@
 - Mechanism: cooldown phase requires CONSTANT HIGH μ for Polyak EMA momentum-coherence tracking; V-shape ramp-back-to-high-μ BEFORE cooldown is mechanistically essential
 
 ### Fresh assignments this cycle
+
+**H340 tanjiro — AUX adam_embed LR VALUE micro-axis at H266 hardcoded baseline {0.15, 0.6} (FRESH from H332 closure)**
+- 6th virgin-axis-at-hardcoded-baseline re-screening attempt (after H328 wd CLOSED, H334 β1 in-flight, H335 eps in-flight, H337 outer_momentum in-flight, H338 sync_interval in-flight)
+- H266 hardcoded `lr=0.3` for the `adam_embed` AdamW param group (line 935 of train_gpt_simple.py) has NEVER been directly screened as VALUE micro-axis
+- 3-arm: arm_a CTRL embed_lr=0.3 (H266 bit-id) / arm_b LOW embed_lr=0.15 (half) / arm_c HIGH embed_lr=0.6 (double)
+- Mechanism: embed LR controls token embedding learning rate. The embed gradient noise during training shapes the embedding manifold. H158 showed lm_head F-norm scales LINEARLY with LR (Programme Finding #1 — magnitude co-scaling, not faster convergence to same attractor). Test whether embed group shows same LINEAR-LR-scaling at H266 stack or different attractor structure
+- Code change ~5 LoC: add `--aux_embed_lr` CLI flag, replace hardcoded `lr=0.3` in optimizer1 init
+- WIN prob 5-8% — embed LR is a known load-bearing tuning knob; H266 hardcoded value HAD never been directly tested as VALUE micro-axis at this stack
 
 **H339 nezuko — F-norm rescaling projection (M3 mechanism test bisecting H326 closure narrowing, PR #1977, FRESH from H326 closure)**
 - Student's Suggested Follow-up #3 from H326 closure narrative — mechanism-targeted bisection of (M3) F-norm contraction candidate

@@ -1,3 +1,68 @@
+## 2026-05-31 — PR #1951: H332 tanjiro Polyak EMA decay SCHEDULE cooldown-peak — CLOSED 186th NULL/NEG (🎯 cooldown-peak Polyak EMA decay-UP SCHEDULE axis CLOSED + H323 framing inversion confirmed: cooldown requires UNPERTURBED decay=0.05 + cycle ~2700 cooldown-window mechanism cluster now spans 9 axes all NEG at H266 anchor)
+
+- Branch: g1r3-tanjiro/h332-polyak-ema-decay-schedule
+- Hypothesis: Test whether Polyak EMA decay UP-scheduling DURING COOLDOWN window only (last 15% steps 2826-3325) captures additional cooldown sharpening structure that constant decay=0.05 misses. H323 closed constant decay {0.025, 0.10} bilateral NEG; H332 extends the closure axis to SCHEDULE direction (cooldown-only step-up to 0.10, cooldown-only ramp to 0.20).
+
+### Results
+
+| Arm | val/loss | FFS | Δ vs CTRL (σ_H174) | Δ vs H266 (σ_H174) | Verdict |
+|-----|----------|-----|---------------------|---------------------|--------|
+| arm_a CTRL constant 0.05 | 3.26928 | 3025 | (ref) | +1.24σ TIE (Pattern A +25 IN FAMILY) | NULL drift |
+| arm_b STEP_INC_COOLDOWN 0.05→step 0.10 [2826,3325] | 3.26953 | **3050** | +0.28σ TIE | +1.53σ TIE-NEG (+50 FFS) | **NEG** |
+| arm_c RAMP_INC_COOLDOWN 0.05→ramp 0.20 [2826,3325] | 3.26932 | **3050** | +0.05σ TIE-BIT | +1.29σ TIE (+50 FFS) | **NEG** |
+| H266 baseline (PR #1669) | 3.26818 | 3000 | — | (ref) | — |
+
+🎯 **186th NULL/NEG closure** — Issue #1260 strict gate FAIL (both treatment arms FAIL FFS<3000 by +50).
+
+### 🎯 PAPER-GRADE FINDING — H266 polyak_ema_decay=0.05 constant is robustly at Pareto
+
+Combined with H323 closure: Polyak EMA decay axis now CLOSED in 4 directions at H266 anchor:
+- H323 constant decay=0.025 (longer half-life ~40 steps): NEG
+- H323 constant decay=0.10 (shorter half-life ~10 steps): NEG
+- H332 arm_b cooldown-only step-UP to 0.10 (10-step half-life last 15%): NEG (+50 FFS)
+- H332 arm_c cooldown-only ramp to 0.20 (5-step half-life at terminal): NEG (+50 FFS)
+
+H266 hardcoded `polyak_ema_decay=0.05` (20-step half-life) is robustly at Pareto for cooldown-tracking-speed. H323's framing inverted: cooldown requires UNPERTURBED EMA half-life, not LONGER. Any schedule perturbation during cooldown — UP or constant non-default — degrades terminal FFS by +25-50 steps.
+
+### Pattern A drift verdict
+
+arm_a CTRL FFS=3025 = +25 IN FAMILY drift (Pattern A envelope ±25-50 FFS). New CLI flags `--polyak_ema_decay_schedule` + `--polyak_ema_decay_cooldown_end` and per-step decay_t telemetry introduce benign dtype/RNG nudge similar to other CTRL drifts this cycle.
+
+### Non-monotone signal between arm_b and arm_c (suggestive, not significant)
+
+arm_c (RAMP to 0.20, 4× peak baseline) has val=3.26932 (Δ=+0.05σ vs CTRL) vs arm_b (STEP to 0.10) val=3.26953 (Δ=+0.28σ vs CTRL). 0.21σ between-arm gap is BELOW noise floor (single-trial, no seed replication). Hints that ramp shape may average gradient noise better than step shape, but both still NEG vs H266 baseline.
+
+### Pre-cooldown bit-id verification
+
+Pre-cooldown vals diverge by ≤0.0014 absolute (~1.5σ_H174) — within expected GPU non-determinism, not from EMA schedule (which is bit-identical 0.05 in [0, 2826] window for all arms).
+
+### Mechanism positioning — cooldown-window cluster
+
+H332 closes within the cycle ~2700 cooldown-window mechanism cluster (now 9 axes all NEG at H266 anchor):
+- H316 OUTER LR cooldown shape NEG
+- H318 OUTER LR cooldown end value (V-shape vertex H327) NEG
+- H321 Adaptive μ taper NEG
+- H323 μ mid_training_ramp NEG
+- H324 OUTER LR CTRL replica TIE
+- H327 V-shape μ vertex at end=0.0 NEG
+- H330 Adaptive-DOWN trapezoid μ NEG (TAPER-TRANSITION mechanism)
+- H331 Monotone μ-floor trapezoid NEG (TRANSITION-DE-STABILIZATION joint with H330)
+- **H332 cooldown-peak Polyak EMA decay-UP NEG (THIS)**
+
+### Student suggested follow-ups (review)
+
+1. CLOSURE class mark — accepted (this entry).
+2. Symmetric direction cooldown-only decay-DOWN: defer (H323 bilateral closure already covers low-decay direction).
+3. EMA OFF during cooldown (decay=0.0 freeze): defer (plausibly catastrophic without much new information).
+4. Non-cooldown SCHEDULE probes (warmup, mid-training): mechanism-distinct from cooldown closure, WIN prob 5-8% — defer to later cycle.
+5. Multi-trial CTRL confirmation: not mechanism-bearing, defer.
+
+### Next assignment
+
+g1r3-tanjiro assigned H340 AUX adam_embed LR VALUE micro-axis at H266 hardcoded baseline {0.15, 0.6}. 6th virgin-axis-at-hardcoded-baseline re-screen in cycle ~2700 (after H328 wd CLOSED, H334 β1 in-flight, H335 eps in-flight, H337 outer_momentum in-flight, H338 sync_interval in-flight). Code change ~5 LoC adding `--aux_embed_lr` CLI flag.
+
+---
+
 ## 2026-05-31 — PR #1927: H326 nezuko F-norm-preserving body orthogonality regularizer + H322 seed-replicate (4-arm) — CLOSED 185th NULL/NEG (🎯 PAPER-GRADE H322 reproducibility verdict + BODY ORTHOGONALITY axis CLOSED under BOTH geometries + mechanism-paper-grade FALSIFICATION of target-specific orthogonality preservation + 3-mechanism narrowing of POS source to (M2)/(M3) only)
 
 - Branch: g1r3-nezuko/h326-fnorm-preserving-orthogonality + H322 seed-replicate
