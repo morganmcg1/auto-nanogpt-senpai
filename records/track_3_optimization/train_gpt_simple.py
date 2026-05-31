@@ -56,6 +56,20 @@ def parse_args():
     parser.add_argument("--outer_lr", type=float, default=float(os.environ.get("OUTER_LR", "0.7")))
     parser.add_argument("--outer_momentum", type=float, default=float(os.environ.get("OUTER_MOMENTUM", "0.5")))
     parser.add_argument("--sync_interval", type=int, default=int(os.environ.get("SYNC_INTERVAL", "30")))
+    # OUTER LR warmup (H324): linearly ramp outer_lr from 0.0 → args.outer_lr over the first
+    # outer_lr_warmup_outer_steps OUTER steps (each outer step = sync_interval inner steps).
+    # Default schedule=constant + warmup_steps=0 short-circuits to outer_lr_t=args.outer_lr,
+    # bit-identical with baseline behavior.
+    parser.add_argument("--outer_lr_schedule", type=str,
+                        default=os.environ.get("OUTER_LR_SCHEDULE", "constant"),
+                        choices=["constant", "warmup_linear"],
+                        help="OUTER LR schedule: 'constant' = baseline (outer_lr fixed at args.outer_lr), "
+                             "'warmup_linear' = linear ramp from 0.0 to args.outer_lr over "
+                             "outer_lr_warmup_outer_steps outer steps.")
+    parser.add_argument("--outer_lr_warmup_outer_steps", type=int,
+                        default=int(os.environ.get("OUTER_LR_WARMUP_OUTER_STEPS", "0")),
+                        help="Number of OUTER steps (each = sync_interval inner steps) over which "
+                             "outer_lr ramps linearly from 0.0 to outer_lr. 0 = constant (baseline).")
     # AGC (Brock et al. 2021): per-parameter adaptive gradient clipping applied to
     # AdamW aux groups (embed, lm_head, scalars). Clips grad to clip_ratio * |param|.
     # Default 0.0 disables (no-op for bit-identical baseline).
@@ -844,6 +858,8 @@ if dist.get_rank() == 0:
             "muloco_outer_lr": args.outer_lr,
             "muloco_outer_momentum": args.outer_momentum,
             "muloco_sync_interval": args.sync_interval,
+            "outer_lr_schedule": args.outer_lr_schedule,
+            "outer_lr_warmup_outer_steps": args.outer_lr_warmup_outer_steps,
             "aux_agc_clip_ratio": args.aux_agc_clip_ratio,
             "aux_agc_eps": args.aux_agc_eps,
             "muonh_agc_clip_ratio": args.muonh_agc_clip_ratio,
@@ -1033,7 +1049,23 @@ for trial_idx in range(args.num_trials):
                 g["mu"] = mu_t
         else:
             mu_t = 0.95
-        return muonh_warmup, b2, mu_t
+        # OUTER LR WARMUP schedule (H324). Default 'constant' is a no-op
+        # (bit-identical with baseline since outer_lr_t = args.outer_lr).
+        # 'warmup_linear': outer_lr ramps 0.0 → args.outer_lr linearly over the
+        # first outer_lr_warmup_outer_steps OUTER steps. Each outer step occurs
+        # at train_step = sync_interval, 2*sync_interval, ... so set_hparams(step)
+        # at step = k*sync_interval - 1 (where train_step = k*sync_interval) sees
+        # outer_step_index = (k*sync_interval - 1) // sync_interval = k - 1, the
+        # zero-indexed outer step about to fire.
+        if args.outer_lr_schedule == "warmup_linear" and args.outer_lr_warmup_outer_steps > 0:
+            outer_step_index = step // args.sync_interval
+            if outer_step_index < args.outer_lr_warmup_outer_steps:
+                outer_lr_t = args.outer_lr * (outer_step_index / args.outer_lr_warmup_outer_steps)
+            else:
+                outer_lr_t = args.outer_lr
+        else:
+            outer_lr_t = args.outer_lr
+        return muonh_warmup, b2, mu_t, outer_lr_t
 
 
     ########################################
@@ -1175,7 +1207,7 @@ for trial_idx in range(args.num_trials):
         dist.all_reduce(step_loss, op=dist.ReduceOp.SUM)
         train_loss = float((step_loss / batch_size).item())
         # set optimization hyperparameters and take a step
-        muonh_warmup_factor, aux_beta2, muonh_mu_t = set_hparams(step)
+        muonh_warmup_factor, aux_beta2, muonh_mu_t, outer_lr_t = set_hparams(step)
         train_step = step + 1
         telemetry_due = (step == 0 or (step + 1) % args.telemetry_interval == 0 or step + 1 == train_steps)
         histogram_due = (step == 0 or (step + 1) % args.histogram_interval == 0 or step + 1 == train_steps)
@@ -1334,7 +1366,7 @@ for trial_idx in range(args.num_trials):
                 for n, p in model.named_parameters():
                     delta = outer_anchor[n] - p.data
                     outer_velocity[n].mul_(args.outer_momentum).add_(delta)
-                    p.data.copy_(outer_anchor[n] - args.outer_lr *
+                    p.data.copy_(outer_anchor[n] - outer_lr_t *
                                  (args.outer_momentum * outer_velocity[n] + delta))
                     outer_anchor[n].copy_(p.data)
                     if log_outer:
@@ -1351,6 +1383,7 @@ for trial_idx in range(args.num_trials):
                     "train/muloco/outer_step": outer_applied_steps,
                     "train/muloco/delta_rms": delta_rms,
                     "train/muloco/velocity_rms": velocity_rms,
+                    "train/muloco/outer_lr_t": outer_lr_t,
                 }, step=wandb_step)
 
         approx_training_time = training_time + (time.perf_counter() - t0)
