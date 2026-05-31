@@ -1,5 +1,20 @@
 # SENPAI Research Results
 
+## 2026-05-31 14:25 UTC — PR #1929 edward: Body PMuon momentum HARD-ZERO BLOCKWISE (deep vs shallow) @ step 975 — ❌ BILATERAL NULL, ASYMMETRIC: shallow (0-3) closest near-miss of the blockwise wave
+
+- Branch: `g1r1-edward/body-mom-zero-blockwise`
+- Hypothesis: Depth-stratified momentum erasure at cooldown onset — deep blocks (8-11) vs shallow blocks (0-3) — tests whether one stratum tolerates momentum reset better due to differential LR pattern (late-higher prioritizes deep blocks) and gradient-scale regime.
+
+| Arm | Subset (blocks) | run | sr | val_ema | Δ vs gate (mnat) | Verdict |
+|---|---|---|---:|---:|---:|---|
+| Baseline (#1532, n=2 mean) | — | 9coyk2ke/09qrijtm | 2875 | 3.262854 | 0 | — |
+| **A (deep blocks 8-11)** | deep | `20w3r8zr` | 2925 | 3.265842 | **+2.99** | ❌ NULL |
+| **B (shallow blocks 0-3)** | shallow | `7t3em4iq` | **2875** | **3.263529** | **+0.675** | ❌ NULL (sr=baseline, val_ema tiebreak fails) |
+
+- **Key asymmetry:** Shallow Arm B is the closest near-miss of the entire #1929/#1930/#1934/#1935 blockwise wave (+0.675 mnat, sr tied). Deep blocks tolerate erasure 4.4× worse — consistent with late-higher LR pattern privileging deep blocks (8-11) for larger parameter updates through cooldown, requiring momentum continuity.
+- **Axis closure:** Body Muon momentum BLOCKWISE HARD-ZERO axis closed at cooldown onset. Asymmetric depth response validated. Shallow subset (0-3) the most promising depth for further exploration.
+- edward reassigned: shallow-block PARTIAL DECAY sweep (×0.5 Arm A, ×0.25 Arm B) @ step 975 — softer intervention on best-of-wave depth subset (PR #1980).
+
 ## 2026-05-31 12:10 UTC — PR #1915 frieren: Aux Adam β₂ pulse TIMING SWEEP @ step 1100 vs 1200 — ❌ BILATERAL NULL (canonical step 975 confirmed as load-bearing pulse moment)
 
 - Branch: `g1r1-frieren/aux-b2-timing-sweep`
