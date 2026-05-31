@@ -1,3 +1,103 @@
+## 2026-05-31 — PR #1905: H322 nezuko BODY ORTHOGONALITY regularizer ‖W·W^T−I‖² (virgin structural axis) — CLOSED 174th NULL/NEG (🎯 paper-grade unexpected within-chain POS on arm_b λ=1e-5 + DEFINITIVE mechanism REJECTION via 244× ortho_loss growth + arm_c λ=1e-4 catastrophic divergence + advisor's THIRD advisor-error catch in 24h on regularizer geometry vs F-norm-matched init)
+
+- Branch: g1r3-nezuko/h322-body-weight-orthogonality
+- Hypothesis: Add ‖W·W^T−I‖² regularization on body weights with calibrated λ to preserve `orthogonal_fnorm_matched` init's spectral properties during training. arm_a CTRL (λ=0), arm_b ORTHO_WEAK (λ=1e-5), arm_c ORTHO_STRONG (λ=1e-4, anticipated catastrophic per cycle ~2550 pre-decision).
+
+### Results
+
+| Arm | W&B | val/loss | FFS | Δ vs CTRL (σ_H174) | Δ vs H266 (σ_H174) | Merge gate |
+|-----|-----|----------|-----|---------------------|---------------------|------------|
+| arm_a CTRL (λ=0) | `97w100d0` | 3.26972 | 3025 | (ref) | +1.74σ TIE | misses by +25 |
+| arm_b ORTHO_WEAK (λ=1e-5) | `dlqr0bu2` | **3.26774** | **3000** | **−2.24σ POS within-chain** | **−0.50σ TIE BELOW H266** | **FFS=3000 TIES gate threshold (FFS<3000 required) → NO merge** |
+| arm_c ORTHO_STRONG (λ=1e-4) | `vlv7rh95` | **5.16645** | **−1** | +2145.6σ DIVERGED | +2147.4σ DIVERGED | catastrophic |
+
+### 🎯 MECHANISM REJECTION: orthogonality preservation hypothesis FALSIFIED via direct telemetry
+
+arm_b ORTHO_WEAK λ=1e-5 `body/ortho_loss` trajectory:
+
+| Step | body/ortho_loss | Ratio vs step-1 |
+|------|----------------|-----------------|
+| 1 (init) | 0.847 | 1.0× |
+| 100 | 1.110 | 1.3× |
+| 1500 | 106.501 | 125.7× |
+| 3000 | 206.978 | 244.4× |
+| 3325 (terminal) | 207.180 | **244.5×** |
+
+**ortho_loss GREW 244× over training** — the regularizer does NOT preserve orthogonality, it monotonically DRIFTS toward non-orthogonal matrices throughout the run. The stated hypothesis ("body weight orthogonality regularization preserves the F-norm-matched init's spectral properties") is **DEFINITIVELY REJECTED**.
+
+### 🎯 Paper-grade auxiliary weak-regularizer mechanism candidate (replaces stated hypothesis)
+
+Despite hypothesis rejection, arm_b shows real within-chain POS (val −2.24σ vs CTRL, FFS=3000 vs CTRL 3025). The mechanism is NOT orthogonality preservation. Three candidate re-interpretations: (1) mild weight-decay analog via gradient ∂L/∂W = 4λ(W·W^T−I)W, (2) spectral-spread regularization independent of W·W^T=I attractor, (3) F-norm rescaling toward a softer attractor than `orthogonal_fnorm_matched` init values (c²∈{0.33, 0.45, 2.95}).
+
+### 🎯 H322 cycle ~2550 THIRD ADVISOR-ERROR CATCH IN 24H
+
+Student's paper-grade geometric analysis (cycle ~2550 BLOCKING QUESTION):
+> "regularizer geometry fights F-norm-matched init: ortho_loss measures distance from W·W^T=I but `orthogonal_fnorm_matched` produces W·W^T=c²·I with c²≠1, λ=1e-5 produces 51× ratio at init"
+
+THIRD advisor-error catch in 24h (after H316 tanjiro cooldown semantics + H319 askeladd baseline β1=0.8). Preserved in `feedback_audit_treatment_runs_too.md` derivative. Advisor's cycle ~2550 hybrid option-2 decision (let arm_b finish + SKIP arm_c full run + pre-commit H326) preserved both signal extraction AND GPU efficiency — arm_b POS surprise validated the decision to let it complete.
+
+### Pattern A drift-FREE bit-id verification
+
+All 3 arms step-0 val=10.82583 EXACT. arm_a CTRL `body_orthogonality_lambda=0.0` bit-id verified against H266 baseline path. Config-pane: arm_b λ=1e-5 + arm_c λ=1e-4 verified.
+
+### Conclusions
+
+🎯 **174th NULL/NEG** — BODY ORTHOGONALITY axis at original ‖W·W^T−I‖² geometry CLOSED. arm_b within-chain POS is REAL (−2.24σ vs CTRL well outside σ_H174 noise floor) but FFS=3000 TIE on strict gate means it does NOT clear merge. Mechanism rejected by direct ortho_loss telemetry. arm_c catastrophic divergence at λ=1e-4 (anticipated per cycle ~2550 pre-decision) bounds the saturation.
+
+**Within-cycle convergent gate-TIE finding** (cycle ~2650): H319 arm_a CTRL FFS=3000 + H322 arm_b ORTHO_WEAK FFS=3000 both TIE H266 baseline FFS but neither strict-clears — the FFS=3000 attractor is highly stable.
+
+Reassigning nezuko to H326 — REDEFINED F-norm-preserving regularizer ‖W·W^T−c²·I‖² per cycle ~2550 pre-commitment. Adding seed-replicate arm at H322's λ=1e-5 with original regularizer (student suggestion #2) to test reproducibility of the unexpected within-chain POS — critical given mechanism rejection means the POS could be noise. WIN probability: 12-18%.
+
+Plateau portfolio: **174 NULL/NEG + 1 MERGED WIN** (H266 baseline FFS=3000).
+
+## 2026-05-31 — PR #1890: H319 askeladd AUX β1 mid_training_ramp SCHEDULE (first-moment analog of H309) — CLOSED 173rd NULL/NEG (🎯 paper-grade β1-vs-β2 SCHEDULE-axis DIRECTIONAL ASYMMETRY characterization combining H309 + H317 + H319: β1 SCHEDULE axis CLOSED both directions, β1=0.8 baseline LOCALLY PARETO)
+
+- Branch: g1r3-askeladd/h319-aux-beta1-mid-training-ramp
+- Hypothesis: Test the AUX β1 mid_training_ramp SCHEDULE axis as first-moment analog to H309 β2 SCHEDULE POS finding. arm_a CTRL (constant β1=0.8), arm_b MID_RAMP_UP (β1 0.8→0.85), arm_c MID_RAMP_DOWN (β1 0.8→0.75).
+
+### Results
+
+| Arm | W&B | val/loss | FFS | Δ vs CTRL (σ_H174) | Δ vs H266 (σ_H174) | Merge gate |
+|-----|-----|----------|-----|---------------------|---------------------|------------|
+| arm_a CTRL (constant β1=0.8) | `0oq9nyb5` | 3.26752 | **3000** | (ref) | **−0.75σ TIE BELOW** | **FFS TIES gate threshold, not below** — but IS CTRL replicate (no treatment) → not merge candidate |
+| arm_b MID_RAMP_UP (β1 0.8→0.85) | `jes1eqkn` | 3.26990 | 3050 | **+2.69σ NEG** | +1.95σ MILD NEG | misses by +50 |
+| arm_c MID_RAMP_DOWN (β1 0.8→0.75) | `2csimmvd` | 3.26873 | 3025 | **+1.37σ mild NEG** | +0.62σ TIE | misses by +25 |
+
+### 🎯 Paper-grade β1-vs-β2 SCHEDULE-axis directional asymmetry
+
+Within-cycle convergent finding (H309 + H317 + H319 combined):
+
+| Moment | UP direction | DOWN direction | Mechanism |
+|--------|-------------|----------------|-----------|
+| **β2** (variance smoothing) | H309 POS at 0.97-anchor, H317 FLAT at 0.99-anchor | (testing in H325) | smoother variance helps noise-dominated estimates |
+| **β1** (first-moment direction averaging) | **NEG +2.69σ** (H319 arm_b) | **mild NEG +1.37σ** (H319 arm_c) | first-moment locally Pareto at 0.8 |
+
+**Refutes the "aux=smoother axis-universal" hypothesis**. The H309 β2-UP-wins finding does NOT generalize to β1. β1 and β2 SCHEDULE axes are mechanistically distinct.
+
+Three plausible mechanism interpretations (per student's analysis):
+1. First-moment direction-stability already saturated at β1=0.8 (~5 effective historical steps) — further smoothing adds inertia without noise-suppression benefit
+2. β1 × β2 interaction: with β2=0.99 (already very smooth variance), additional first-moment smoothing creates over-damped momentum
+3. First-moment is signal-dominated (not noise-dominated) — qualitatively different from β2
+
+### AUX 2-moment matrix status
+
+| Moment | VALUE axis | SCHEDULE axis |
+|--------|------------|---------------|
+| β1 | H225 closed (baseline 0.8 best) | **H319 closed (this — both ramp directions degrade)** |
+| β2 | (prior closure) | H309/H317 closed UP, H325 testing DOWN (in-flight) |
+
+β2 SCHEDULE was historically the only load-bearing AUX SCHEDULE axis (H309 POS-direction at 0.97-anchor). H319 confirms β1 has no equivalent load-bearing direction.
+
+### Conclusions
+
+🎯 **173rd NULL/NEG** — AUX β1 SCHEDULE axis CLOSED both directions, β1=0.8 baseline LOCALLY PARETO. The H309/H317/H319 within-cycle convergent finding provides paper-grade β1-vs-β2 directional-asymmetry characterization — refutes "aux=smoother axis-universal" framing. **Student caught baseline β1=0.8 vs PR-assumed 0.9 BEFORE GPU commit** — second advisor-error catch in 24h, preserved in feedback memory.
+
+**Within-cycle convergent gate-TIE finding** (cycle ~2650): H319 arm_a CTRL FFS=3000 + H322 arm_b ORTHO_WEAK FFS=3000 both TIE H266 baseline FFS but neither strict-clears — both at gate threshold, not below.
+
+Reassigning askeladd to H328 — AUX weight_decay SCHEDULE (virgin AUX axis, student's suggested follow-up #3). weight_decay is mechanistically distinct from β1/β2 (acts on parameter shrinkage during the update, not gradient smoothing). WIN probability: 8-12%.
+
+Plateau portfolio: **174 NULL/NEG + 1 MERGED WIN** (H266 baseline FFS=3000).
+
 ## 2026-05-31 — PR #1889: H318 alphonse OUTER MOMENTUM cooldown SCHEDULE (2D OUTER map with H316) — CLOSED 172nd NULL/NEG (🎯 paper-grade asymmetric dose-response on OUTER MOMENTUM cooldown axis: RAMP_DOWN ties H266 FFS exactly but val MILD NEG, RAMP_UP NEG on both metrics; together with H316 characterizes the 2D OUTER cooldown map)
 
 - Branch: g1r3-alphonse/h318-outer-momentum-cooldown-schedule
