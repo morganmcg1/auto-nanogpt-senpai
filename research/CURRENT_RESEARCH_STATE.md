@@ -1,3 +1,55 @@
+## 2026-05-31 10:45 UTC — Cycle 71 mid-463 — alphonse #1932 370th refute 204th family closure 238th mech class (DIAGONAL-CORNER-3rd-PARAM-COOLDOWN-AND-TRUST-GATE-BOTH-DESTRUCTIVE-NEITHER-MEDIATES-SA-REMAINDER bilateral 3.27399/3075 + 3.27414/3075 inter-arm Δ +0.00015 below σ MID-TRAINING-CROSSOVER-PATTERN V-KIND-ADMISSION-NOT-PRIMARY-MEDIATOR) + alphonse #1953 new assignment (NS5_ITERS bilateral mediator probe Arm-A=12 Arm-B=16 at diagonal corner — LAST named 3rd-param candidate from {COOLDOWN, TRUST-GATE, NS5} triple, 35%-NS-BOTH-DESTRUCTIVE prior)
+
+### alphonse #1932 bilateral terminal — 370th refute, 204th family closure, 238th mech class
+
+Bilateral terminal: Arm A `21d30cb9` MU_COOLDOWN_START=0.97 val=**3.27399**/3075; Arm B `aeq9kubr` ATTN_SOAP_TRUST_THRESHOLD=0.80 val=**3.27414**/3075. Both PASS stat rule, FAIL merge bar. **Inter-arm Δ +0.00015** (well below single-seed σ ~0.00191) — striking convergence despite divergent intermediate trajectories. **370th cycle-71 refute**.
+
+**3rd-PARAM MEDIATOR MATRIX at diagonal corner — JOINT DESTRUCTIVE CELL (rare 7% prior)**:
+
+| Arm | Perturbation | Δ vs #1893 A n=2 mean (3.27168) | σ-units | Per PR matrix |
+|---|---|---|---|---|
+| A | MU_COOLDOWN_START 0.95 → 0.97 | +0.00231 | +1.21σ | COOLDOWN-WINDOW-DESTRUCTIVE |
+| B | ATTN_SOAP_TRUST_THRESHOLD 0.85 → 0.80 | +0.00246 | +1.29σ | TRUST-GATE-THRESHOLD-DESTRUCTIVE |
+
+**Mid-training crossover at step 2375**: Arm B led Arm A by Δ −0.055 peak around step 1000, then crossed above Arm A entering cooldown ramp — looser trust-gate amplifies early/mid SOAP admission (v-kind on_frac 1.00 from step 1500 in Arm B vs 0 in Arm A) but the lead dissipates entering cooldown. Both arms converge to indistinguishable terminal val (Δ +0.00015).
+
+**Two named 3rd-param candidates REFUTED at corner**:
+- COOLDOWN-WINDOW-TIMING (+0.02 push) → destructive
+- TRUST-GATE-THRESHOLD (−0.05 loosen) → destructive
+- **NS5_ITERS remaining — strongest STRUCTURAL candidate** (controls Muon preconditioner convergence)
+
+### alphonse #1953 new assignment — NS5_ITERS BILATERAL MEDIATOR PROBE
+
+Last named 3rd-param candidate from hypothesis triple {COOLDOWN, TRUST-GATE, NS5}:
+- **Arm A** NS5_ITERS=12 (faster but less converged NS preconditioner)
+- **Arm B** NS5_ITERS=16 (slower but more converged NS preconditioner)
+- Canonical NS5_ITERS=14
+- Tests whether the +0.00341 SA-remainder at (DOWN, FRONT-TIGHT) is a Muon-preconditioner-saturation artifact
+
+Probability-weighted outcomes:
+1. NS-BOTH-DESTRUCTIVE (canonical local optimum): 35%
+2. NS-NEUTRAL-CORNER (not mediator): 25%
+3. PRODUCTIVE-MEDIATOR-HIGHER-NS (canonical under-converged): 20%
+4. PRODUCTIVE-MEDIATOR-LOWER-NS (canonical over-converged): 12%
+5. MERGE CANDIDATE (n=2 trigger): 8%
+
+### Cycle 71 cumulative state (post-#1932 closure)
+
+**370 refuted / 238 distinct mech classes / 204 family closures / 9 structural axes locked / 17 regression-to-mean precedents**. Fleet 8/8 active (alphonse #1953 just launched). Cumulative refutation rate: 17.0 mech classes / hour at current pace.
+
+### Standing in-flight monitoring (last status as of 10:30Z)
+
+- **fern #1940** — overdue; was step 2725/3175 at 09:42Z, last update 10:20Z. Approaching silent stale_wip threshold; check next wake.
+- **askeladd #1928** — was step 1175/3175 at 09:42Z, ETA ~11:35Z. Recalibrated downgrade due to RTM corrections (per-kind β1 + WD compound).
+- **thorfinn #1944** — was step 900/3175 at 09:42Z, ETA ~11:50Z. PER-KIND-β1-DISPATCH n=2 verification + UNIFORM-β1=0.7 control.
+- **frieren #1947** — Arm A step ~500/3175 at 10:08Z, Arm B isolated β1=0.5 about to launch.
+- **tanjiro #1949** — Arm A `j3n5pgmy` launched ~10:21Z hybrid config (per-kind β1 + uniform WD), chained Arm B compound.
+- **nezuko #1950** — INTERVAL-AXIS at larger lever M=2 cell, just assigned.
+- **edward #1952** — AXIS-4 DUAL-EXCLUSION MATRIX best-pair v+q vs worst-pair k+proj, just assigned.
+- **alphonse #1953** — NS5_ITERS bilateral at diagonal corner, just assigned.
+
+---
+
 ## 2026-05-31 10:30 UTC — Cycle 71 mid-462 — edward #1925 369th refute 203rd family closure 237th mech class (AXIS-4-TRIPLE-EXC-MATRIX-CLOSED with strict v<q<k<proj solo-carrier-rank-ordering; v_only n=2 mean 3.27072 stable spread 0.00060 — axis-4 NOT cycle-71-RTM-contaminated) + edward #1952 assigned (AXIS-4 DUAL-EXCLUSION MATRIX best-pair v+q vs worst-pair k+proj) + tanjiro #1949 spec call answered (proceed with launched per-kind β1 + uniform WD as control for thorfinn #1944)
 
 ### edward #1925 bilateral terminal — 369th refute, 203rd family closure, 237th mech class
