@@ -114,6 +114,25 @@ def parse_args():
                         help="Polyak-Ruppert EMA decay for eval-only weight averaging. "
                              "0.0 = disabled (drift-FREE CTRL). Typical: 0.05 (fast, ~20-step half-life) / "
                              "0.005 (slow, ~200-step half-life). Higher decay = faster EMA tracking.")
+    # H322/H326: body weight orthogonality regularizer. Adds
+    # lambda * sum_W ||W W^T - target||_F^2 to training loss for each 2D body weight matrix.
+    # H322 used target = I (identity). H326 introduces target = c^2 * I (fnorm_matched),
+    # where c^2 is the per-layer-type average eigenvalue of W W^T at init — preserves the
+    # orthogonal_fnorm_matched init geometry instead of fighting it.
+    parser.add_argument("--body_orthogonality_lambda", type=float,
+                        default=float(os.environ.get("BODY_ORTHOGONALITY_LAMBDA", "0.0")),
+                        help="H322/H326 soft Frobenius penalty on body 2D weight matrices. "
+                             "Adds lambda * sum_W ||W W^T - target||_F^2 to training loss. "
+                             "Target depends on --body_orthogonality_geometry. "
+                             "0.0 = disabled (drift-FREE CTRL, bit-identical to H266 baseline).")
+    parser.add_argument("--body_orthogonality_geometry", type=str,
+                        default=os.environ.get("BODY_ORTHOGONALITY_GEOMETRY", "identity"),
+                        choices=["identity", "fnorm_matched"],
+                        help="H326 target geometry for body orthogonality regularizer. "
+                             "'identity' (H322 original) = ||W W^T - I||_F^2. "
+                             "'fnorm_matched' (H326 new) = ||W W^T - c^2 * I||_F^2 where c^2 is the "
+                             "per-layer-type average eigenvalue of W W^T at init (preserves "
+                             "F-norm-matched init geometry rather than fighting it).")
     args = parser.parse_args()
     args.num_trials = args.num_trials if args.num_trials is not None else (args.legacy_num_trials or 1)
     args.wandb_tags = [tag.strip() for tag in args.wandb_tags.split(",") if tag.strip()]
@@ -249,6 +268,81 @@ def grouped_by_type(named_tensors: list[tuple[str, Tensor]], module_types: dict[
     for name, tensor in named_tensors:
         groups.setdefault(module_types[name], []).append((name, tensor))
     return groups
+
+
+def _body_layer_type(name: str) -> str:
+    # H326: strip "blocks.{N}." prefix and ".weight" suffix from body 2D weight names.
+    # "blocks.0.attn.q.weight" -> "attn.q"; "blocks.5.mlp.fc.weight" -> "mlp.fc".
+    m = re.match(r"blocks\.\d+\.(.+)\.weight$", name)
+    return m.group(1) if m else name
+
+
+def compute_body_orthogonality_loss(
+    body_params: list[Tensor],
+    lam: float,
+    geometry: str,
+    c_squared_per_param: "dict[int, float] | None",
+) -> "Tensor | None":
+    # H322/H326: lam * sum_W ||W W^T - target||_F^2 over body 2D weight matrices.
+    # For fat/square W (m<=n) penalize W W^T -> target_m; for tall W penalize W^T W -> target_n.
+    # geometry='identity' (H322): target = I. geometry='fnorm_matched' (H326): target = c^2 * I,
+    # where c^2 is the per-layer-type average eigenvalue of W W^T at init.
+    if lam <= 0.0 or not body_params:
+        return None
+    device = body_params[0].device
+    total = torch.zeros((), device=device)
+    for W in body_params:
+        if W.ndim != 2:
+            continue
+        m, n = W.shape
+        if m <= n:
+            ww = W @ W.t()
+            d = m
+        else:
+            ww = W.t() @ W
+            d = n
+        I = torch.eye(d, device=W.device, dtype=W.dtype)
+        if geometry == "fnorm_matched":
+            assert c_squared_per_param is not None
+            target = c_squared_per_param[id(W)] * I
+        else:
+            target = I
+        diff = ww - target
+        total = total + (diff * diff).sum()
+    return lam * total
+
+
+@torch.no_grad()
+def compute_diagnostic_ortho_loss_raw(
+    body_params: list[Tensor],
+    geometry: str,
+    c_squared_per_param: "dict[int, float] | None",
+) -> float:
+    # H326: telemetry-only RAW ortho loss (unscaled by lambda) for the requested geometry.
+    # Used to log both body/ortho_loss_identity and body/ortho_loss_fnorm_matched at every
+    # telemetry tick regardless of which geometry feeds the backward pass.
+    if not body_params:
+        return 0.0
+    total = 0.0
+    for W in body_params:
+        if W.ndim != 2:
+            continue
+        m, n = W.shape
+        if m <= n:
+            ww = W @ W.t()
+            d = m
+        else:
+            ww = W.t() @ W
+            d = n
+        I = torch.eye(d, device=W.device, dtype=W.dtype)
+        if geometry == "fnorm_matched":
+            assert c_squared_per_param is not None
+            target = c_squared_per_param[id(W)] * I
+        else:
+            target = I
+        diff = ww - target
+        total += float((diff * diff).sum().item())
+    return total
 
 
 def sample_tensor(tensor: Tensor, max_samples: int) -> Tensor:
@@ -856,6 +950,8 @@ if dist.get_rank() == 0:
             "muonh_mu_start": args.muonh_mu_start,
             "muonh_mu_end": args.muonh_mu_end,
             "polyak_ema_decay": args.polyak_ema_decay,
+            "body_orthogonality_lambda": args.body_orthogonality_lambda,
+            "body_orthogonality_geometry": args.body_orthogonality_geometry,
         },
     )
 
@@ -922,6 +1018,44 @@ for trial_idx in range(args.num_trials):
                         "blocks.11.attn.q.weight", "blocks.11.mlp.fc.weight")
         sample_rows = [e for e in body_init_log if e["name"] in sample_names]
         print0(f"[H148 body_init={args.body_init}] sample F-norms: {sample_rows}", console=True)
+
+    # H326: per-layer-type c^2 target for the fnorm_matched orthogonality regularizer.
+    # c^2_layer = ||W||_F^2 / min(m, n) is the average eigenvalue of W W^T at init.
+    # Averaged across all layers of the same type, this gives the per-layer-type c^2 used
+    # by --body_orthogonality_geometry fnorm_matched. With orthogonal_fnorm_matched init,
+    # each W satisfies W W^T = c^2 * I exactly per-layer, so the type-average target gives
+    # ortho_loss_fnorm_matched ~= 0 at init (small residue from per-layer-vs-type drift).
+    c_squared_per_param: dict[int, float] = {}
+    c_squared_by_type_layers: dict[str, list[float]] = {}
+    for name, p in model.named_parameters():
+        if p.ndim != 2 or not name.endswith("weight"):
+            continue
+        if name in ("embed.weight", "proj.weight"):
+            continue
+        if not ("attn.proj" in name or "mlp.proj" in name or "mlp.fc" in name or "attn." in name):
+            continue
+        w = p.data
+        m_dim, n_dim = w.shape
+        d_dim = min(m_dim, n_dim)
+        c_sq_layer = (w.norm().item() ** 2) / d_dim
+        c_squared_per_param[id(p)] = c_sq_layer
+        layer_type = _body_layer_type(name)
+        c_squared_by_type_layers.setdefault(layer_type, []).append(c_sq_layer)
+    c_squared_by_type: dict[str, float] = {
+        k: sum(v) / len(v) for k, v in c_squared_by_type_layers.items()
+    }
+    # Replace per-param values with per-layer-type averages (regularizer target).
+    for name, p in model.named_parameters():
+        if id(p) in c_squared_per_param:
+            c_squared_per_param[id(p)] = c_squared_by_type[_body_layer_type(name)]
+    if trial_idx == 0 and dist.get_rank() == 0:
+        print0(f"[H326 body_orthogonality_geometry={args.body_orthogonality_geometry}] "
+               f"per-layer-type c^2 (avg over layers, target for fnorm_matched regularizer): "
+               f"{c_squared_by_type}", console=True)
+        try:
+            wandb.summary["body_orthogonality_c_squared_by_type"] = c_squared_by_type
+        except Exception:
+            pass
 
     # create the optimizer(s)
     # MuonH replaces plain Muon on the hidden 2D weights: hard hyperball projection
@@ -1178,6 +1312,36 @@ for trial_idx in range(args.num_trials):
         muonh_warmup_factor, aux_beta2, muonh_mu_t = set_hparams(step)
         train_step = step + 1
         telemetry_due = (step == 0 or (step + 1) % args.telemetry_interval == 0 or step + 1 == train_steps)
+        # H322/H326: body weight orthogonality regularizer. Gated at lambda<=0 -> no-op
+        # (bit-identical to H266 baseline). Added AFTER the data-gradient all_reduce so
+        # the regularizer gradient is applied exactly once per step (weights are identical
+        # across ranks, so each rank computes the same ortho_loss without re-reducing).
+        # Affects backward only — val/loss and train_loss reporting remain task-only.
+        ortho_loss_val = 0.0
+        ortho_loss_identity_raw = 0.0
+        ortho_loss_fnorm_raw = 0.0
+        ortho_loss_ratio = 0.0
+        if args.body_orthogonality_lambda > 0.0:
+            ortho_loss = compute_body_orthogonality_loss(
+                muonh_params_for_agc,
+                args.body_orthogonality_lambda,
+                geometry=args.body_orthogonality_geometry,
+                c_squared_per_param=c_squared_per_param,
+            )
+            if ortho_loss is not None:
+                ortho_loss.backward()
+                ortho_loss_val = float(ortho_loss.detach().item())
+                ortho_loss_ratio = ortho_loss_val / train_loss if train_loss > 0 else 0.0
+            if telemetry_due:
+                # Always log both raw ortho losses (identity AND fnorm_matched) at every
+                # telemetry tick so we can compare both targets regardless of which feeds
+                # backward. Computed under no_grad for efficiency.
+                ortho_loss_identity_raw = compute_diagnostic_ortho_loss_raw(
+                    muonh_params_for_agc, "identity", c_squared_per_param,
+                )
+                ortho_loss_fnorm_raw = compute_diagnostic_ortho_loss_raw(
+                    muonh_params_for_agc, "fnorm_matched", c_squared_per_param,
+                )
         histogram_due = (step == 0 or (step + 1) % args.histogram_interval == 0 or step + 1 == train_steps)
         slope_due = (train_step % slope_interval == 0 or train_step == train_steps)
         wandb_step = trial_idx * (train_steps + 1) + train_step
@@ -1202,6 +1366,17 @@ for trial_idx in range(args.num_trials):
                 train_steps=train_steps,
                 wandb_step=wandb_step,
             )
+        # H322/H326: body orthogonality telemetry. Logs body/ortho_loss (active, lambda-scaled),
+        # the ratio to train_loss, and both raw geometry variants for cross-geometry comparison.
+        if dist.get_rank() == 0 and telemetry_due and args.body_orthogonality_lambda > 0.0:
+            wandb.log({
+                "trial": trial_idx,
+                "train/step": train_step,
+                "body/ortho_loss": ortho_loss_val,
+                "body/ortho_loss_ratio": ortho_loss_ratio,
+                "body/ortho_loss_identity": ortho_loss_identity_raw,
+                "body/ortho_loss_fnorm_matched": ortho_loss_fnorm_raw,
+            }, step=wandb_step)
         # AGC on aux AdamW groups: clip per-param grad to clip_ratio * |param|.
         # No-op (bit-identical) when args.aux_agc_clip_ratio <= 0.
         agc_stats = adaptive_gradient_clip(
