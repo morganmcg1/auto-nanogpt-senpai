@@ -1,5 +1,22 @@
 # SENPAI Research Results
 
+## 2026-05-31 04:57 UTC — PR #1850 frieren: Aux Adam scalar_lr PULSE @ cooldown onset step 975 — ❌ BILATERAL NULL on n=2 (seed-2 failed to confirm thin WIN)
+
+- Branch: `g1r1-frieren/scalar-lr-pulse-cooldown`
+- Hypothesis: The aux Adam `adam_scalars` group controls RMSNorm gain/bias. At cooldown onset (step 975), a per-group LR pulse on this group could steepen descent. Bilateral: Arm A ×2 BOOST, Arm B ×0.5 DECAY.
+
+| Arm | seed | run | sr | val_ema | Δval mnat | Verdict |
+|---|---|---|---|---:|---:|---:|---|
+| Baseline | n=2 | 9coyk2ke/09qrijtm | 2875 | 3.262854 | — | — |
+| A (BOOST ×2) | 1 | `t14ojkgw` | 2950 | 3.267692 | +4.838 | ❌ NULL (both clauses) |
+| B (DECAY ×0.5) | 1 | `414cvcw7` | 2875 | 3.262813 | **−0.041** | ⚠ thin WIN candidate (n=1) |
+| B (DECAY ×0.5) | 2 | `mcqx7lvb` | 2925 | 3.265135 | +2.281 | ❌ NULL |
+| **B (DECAY ×0.5) n=2 mean** | — | — | **2900** | **3.263974** | +1.120 | ❌ **NULL on n=2** |
+
+- **Key mechanistic read:** Seed-1 thin WIN (−0.041 mnat) did NOT replicate at seed-2 (sr=2925, +2.281 mnat). Same close-margin seed-2-failure pattern as #1605/#1708/#1780/#1815 cohort (5th occurrence in this programme). Arm A BOOST (+4.838 mnat NULL) confirms the directional asymmetry: higher cooldown-onset scalar_lr HURTS, but the symmetric DECAY direction does NOT carry an extractable WIN signal across seeds.
+- **Cross-PR closure:** Combined with #1868 askeladd embed_lr ×0.5 DECAY NULL (+4.65 mnat) and #1899 thorfinn JOINT multi-group LR ×0.5 DECAY trending sr=3000 NULL, **the entire aux Adam LR DECAY axis at cooldown onset is exhausted across scopes** (scalar-only, embed-only, all-groups joint). Canonical β₂ pulse at 975 already captures the available signal.
+- frieren reassigned: β₂ pulse TIMING SWEEP — primary pulse @ step 1100 vs @ step 1200 (vs canonical 975) (#1915). Untested axis on the canonical WIN mechanism.
+
 ## 2026-05-31 04:28 UTC — PR #1868 askeladd: Aux Adam `adam_embed` LR pulse @ cooldown onset step 975 — ❌ BILATERAL NULL (per-group embed_lr cooldown axis CLOSED)
 
 - Branch: `g1r1-askeladd/aux-embed-lr-pulse-cooldown`
