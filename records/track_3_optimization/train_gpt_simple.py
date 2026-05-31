@@ -28,6 +28,7 @@ SLOPE_FRACTION = 0.10
 SOAP_BETA2 = 0.90
 PRECOND_FREQ = 16
 NS_ITER = 12  # overridden by args.ns_iter at module load
+NS_SCHULZ_POLISH_SQUARE_ALPHA = 0.0  # overridden by args.ns_schulz_polish_square_alpha
 
 
 def parse_args():
@@ -68,6 +69,12 @@ def parse_args():
     parser.add_argument("--ns_iter", type=int, default=12,
                         help="Number of Newton-Schulz iterations in zeropower_via_newtonschulz5. "
                              "Default 12 (current hardcoded value). Lower = less orthogonal but faster.")
+    parser.add_argument("--ns_schulz_polish_square_alpha", type=float, default=0.0,
+                        help="α-blend coefficient for Schulz polish on SQUARE matrices only, "
+                             "applied post-NS5: Q ← (1-α)·Q + α·(1.5Q − 0.5(QQᵀ)Q). "
+                             "0 = disabled (default). Recommended (0, 0.3]. "
+                             "Preserves σ=0 fixed point (safe vs rank-deficient tail) while pulling mid-σ toward 1. "
+                             "Skips non-square matrices (e.g., MLP) — dual of nonsquare-only polish.")
     parser.add_argument("--lr_scalars", type=float, default=0.01,
                         help="LR for AdamW adam_scalars group (RMSNorm gains; "
                              "params with ndim < 2). Default 0.01 — hardcoded, "
@@ -111,6 +118,7 @@ def parse_args():
 
 args = parse_args()
 NS_ITER = args.ns_iter
+NS_SCHULZ_POLISH_SQUARE_ALPHA = float(args.ns_schulz_polish_square_alpha)
 
 
 def clean_metric_name(name: str) -> str:
@@ -498,6 +506,19 @@ class GPT(nn.Module):
 #              Optimizer               #
 ########################################
 
+def schulz_alpha_blend_polish(Q: Tensor, alpha: float) -> Tensor:
+    """Apply Q ← (1-α)·Q + α·(1.5Q − 0.5(QQᵀ)Q) to a SQUARE matrix.
+
+    Preserves σ=0 fixed point (harmless on rank-deficient tail) and σ=1 fixed
+    point, while pulling mid-σ toward 1. Computed in fp32 for stability,
+    cast back to Q's dtype.
+    """
+    Q_f = Q.float()
+    QQT = Q_f @ Q_f.mT
+    schulz_step = 1.5 * Q_f - 0.5 * (QQT @ Q_f)
+    return ((1.0 - alpha) * Q_f + alpha * schulz_step).to(Q.dtype)
+
+
 def zeropower_via_newtonschulz5(G: Tensor) -> Tensor:
     assert G.ndim >= 2
     X = G.bfloat16()
@@ -513,9 +534,58 @@ def zeropower_via_newtonschulz5(G: Tensor) -> Tensor:
         B = b * A + c * A @ A
         X = a * X + B @ X
 
+    # α-blend Schulz polish on square matrices (no-op on σ=0 and σ=1 fixed points).
+    if NS_SCHULZ_POLISH_SQUARE_ALPHA > 0.0 and X.size(-1) == X.size(-2):
+        X = schulz_alpha_blend_polish(X, NS_SCHULZ_POLISH_SQUARE_ALPHA)
+
     if G.size(-2) > G.size(-1):
         X = X.mT
     return X
+
+
+@torch.no_grad()
+def ns_polish_probe(grad: Tensor, alpha: float) -> dict:
+    """Diagnostic: run NS5 (no polish) and NS5+polish on a sample grad; return σ-stats.
+
+    Returns ‖XXᵀ − I‖_F (smaller-side gram) and σ_min/σ_max/σ_mean for both pre- and
+    post-polish outputs. Polish only applied when the post-NS shape is square.
+    """
+    # Inline NS5 (no polish) so the probe is independent of the global flag.
+    X = grad.bfloat16()
+    if grad.size(-2) > grad.size(-1):
+        X = X.mT
+    X = X / (X.norm(dim=(-2, -1), keepdim=True) + 1e-7)
+    a, b, c = 2, -1.5, 0.5
+    for _ in range(NS_ITER):
+        A = X @ X.mT
+        B = b * A + c * A @ A
+        X = a * X + B @ X
+    is_square_post = X.size(-1) == X.size(-2)
+    X_pre_polish = X
+    if alpha > 0.0 and is_square_post:
+        X_post_polish = schulz_alpha_blend_polish(X_pre_polish, alpha)
+    else:
+        X_post_polish = X_pre_polish
+
+    def _stats(M: Tensor) -> dict:
+        M_f = M.float()
+        # Smaller-side gram (X X^T when M has size(-2) <= size(-1)) keeps memory bounded.
+        gram = M_f @ M_f.mT
+        eye = torch.eye(gram.size(0), device=gram.device, dtype=gram.dtype)
+        frob = (gram - eye).norm().item()
+        svals = torch.linalg.svdvals(M_f)
+        return {
+            "frob_off_identity": float(frob),
+            "sigma_min": float(svals.min().item()),
+            "sigma_max": float(svals.max().item()),
+            "sigma_mean": float(svals.mean().item()),
+        }
+
+    return {
+        "is_square_post_ns": bool(is_square_post),
+        "pre_polish": _stats(X_pre_polish),
+        "post_polish": _stats(X_post_polish),
+    }
 
 @torch.compile
 def muon_update(grad, momentum, mu=0.95, nesterov=True):
@@ -774,6 +844,7 @@ if dist.get_rank() == 0:
             "soap_beta2": SOAP_BETA2,
             "soap_precond_freq": PRECOND_FREQ,
             "ns_iter": NS_ITER,
+            "ns_schulz_polish_square_alpha": NS_SCHULZ_POLISH_SQUARE_ALPHA,
             "soap_attn_enabled": bool(args.soap_attn),
             "soap_trust_threshold": float(args.soap_trust_threshold),
             "lr_mlp": args.lr_mlp,
@@ -1180,6 +1251,26 @@ for trial_idx in range(args.num_trials):
                 train_steps=train_steps,
                 wandb_step=wandb_step,
             )
+        # Per-shape σ-profile probe at fixed steps. Runs BEFORE opt.step because
+        # muon_update mutates grad in-place via lerp_. Cheap: 2 grads, 2 SVDs.
+        if dist.get_rank() == 0 and train_step in (50, 1000):
+            probe_targets = {}
+            for n, p in model.named_parameters():
+                if p.grad is None:
+                    continue
+                if n.endswith("blocks.0.attn.q.weight"):
+                    probe_targets["square_attn_q"] = p.grad.detach()
+                elif n.endswith("blocks.0.mlp.fc.weight"):
+                    probe_targets["nonsquare_mlp_fc"] = p.grad.detach()
+            probe_metrics = {"trial": trial_idx, "train/step": train_step}
+            for tag, grad_t in probe_targets.items():
+                stats = ns_polish_probe(grad_t, NS_SCHULZ_POLISH_SQUARE_ALPHA)
+                for k, v in stats["pre_polish"].items():
+                    probe_metrics[f"ns_probe/{tag}/pre/{k}"] = v
+                for k, v in stats["post_polish"].items():
+                    probe_metrics[f"ns_probe/{tag}/post/{k}"] = v
+                probe_metrics[f"ns_probe/{tag}/is_square_post_ns"] = int(stats["is_square_post_ns"])
+            wandb.log(probe_metrics, step=wandb_step)
         for opt in optimizers:
             opt.step()
 
