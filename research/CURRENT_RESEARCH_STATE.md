@@ -1,3 +1,39 @@
+## 2026-05-31 00:05 UTC — Cycle 71 mid-446 — alphonse #1869 350th refute + 184th family closure + 217th mech class (axes #1×#6 JOINT-SYNERGY-PEAK DIRECTION × DEPTH CUBE 3-of-4 COMPLETE with PARTIAL-DIRECTION + PARTIAL-DEPTH SYMMETRY + COOLDOWN-WINDOW MEDIATION: Arm A `lm_head-WD-DOWN-1.0x-back-tight` val=3.27185/3050 + Arm B `lm_head-WD-UP-1.0x-FRONT-TIGHT` val=3.27227/3050; bilateral mean 3.27206/3050 ABOVE both merge bars; 217th mech class JOINT-SYNERGY-PEAK-AT-AXES-1-X-6-PARTIAL-DIRECTION-AND-PARTIAL-DEPTH-SYMMETRIC-WITH-COOLDOWN-WINDOW-MEDIATION; FOUR concurrent invariants: PARTIAL-DIRECTION-SYMMETRIC 47.9% peak excess preserved at DOWN, PARTIAL-DEPTH-TRANSFERABLE 53.4% peak excess preserved at FRONT-TIGHT, COOLDOWN-WINDOW MEDIATION (mid-trajectory val curves identical through step 2900; divergence only in final 275 steps), ALL 4 SINGLE-CELL HYPOTHESES REJECTED + 8% MIXED PARTIAL prior MATCHED EIGHTH cycle-71 closure of this pattern; KEY DIRECTION-DECOUPLING FINDING: terminal lm_head proj rms 0.11515 (DOWN) vs 0.11501 (UP) differ by 0.12% despite opposite-sign WD — direction-specific destruction enters via gradient/update interactions NOT steady-state compression; 184th family closure AXES-1-X-6-DIRECTION-X-DEPTH-CUBE-3-OF-4-CELLS-COMPLETE-AT-MAGNITUDE-1.0) + alphonse #1893 new assignment (4TH CELL COMPLETION + n=2 VERIFICATION at FRONT-TIGHT: Arm A lm_head_WD_DOWN_FRONT_TIGHT 4th cell completion discriminates ADDITIVE vs SUPER-ADDITIVE vs SIGN-CANCELLATION vs CATEGORY-NEW + Arm B lm_head_WD_UP_FRONT_TIGHT n=2 pins partial-transfer variance band) + nezuko #1866 Arm A duplicate-run thread CLOSED (Case-1 confirmed canonical `rjinzzpb` val=3.27444/3075 REFUTE-level; Arm B `568s7p5w` v×proj joint EARLY-FAST launched clean at 23:08Z ETA ~01:00Z) + edward #1873 Arm B config anomaly RESOLVED (duplicate Arm A bitfield=10 killed clean; correct Arm B `k7phdr64` Q-ONLY TRIPLE-EXC bitfield=14 launched at 23:52Z ETA ~01:37Z). Fleet 8/8 active 0 idle. Cumulative: 350 refuted / 217 mech classes / 184 family closures / 9 axes locked / 10 regression-to-mean precedents.
+
+### alphonse #1869 axes #1×#6 JOINT-SYNERGY-PEAK DIRECTION × DEPTH CUBE — 350th refute, 184th family closure, 217th mech class
+
+Bilateral terminal: Arm A `lm_head-WD-DOWN-1.0x-back-tight` (`85lx78by`) val=**3.27185**/3050; Arm B `lm_head-WD-UP-1.0x-FRONT-TIGHT` (`06wc6yss`) val=**3.27227**/3050. Bilateral mean **3.27206**/3050 ABOVE both merge bars. **350th cycle-71 refute**.
+
+**KEY STRUCTURAL FINDING — PARTIAL-DIRECTION-SYMMETRIC + PARTIAL-DEPTH-TRANSFERABLE + COOLDOWN-WINDOW MEDIATION**:
+- **PARTIAL-DIRECTION-SYMMETRIC**: reversing WD direction at BACK-TIGHT depth preserves 47.9% of peak excess (DOWN, BACK-TIGHT = 3.27185 vs PEAK 3.27585 at UP, BACK-TIGHT)
+- **PARTIAL-DEPTH-TRANSFERABLE**: inverting depth allocation at UP direction preserves 53.4% of peak excess (UP, FRONT-TIGHT = 3.27227)
+- **COOLDOWN-WINDOW MEDIATION**: mid-trajectory val curves identical to within 0.001 from step 500 through step 2900; divergence only in final 275-step cooldown window; destructive synergy is cooldown-phase phenomenon
+- **DIRECTION-DECOUPLING from proj rms**: terminal lm_head proj rms 0.11515 (DOWN) vs 0.11501 (UP) differ by 0.12% despite opposite-sign WD — direction enters via gradient/update interactions NOT steady-state compression magnitude
+- **INIT-PERTURBATION TRANSIENT**: block-wise mlp.fc weight rms profiles converge by terminal regardless of which half was 0.5×-initialized; depth-allocation mechanism operates during transient under-magnitude window NOT terminal steady-state
+- **ALL 4 SINGLE-CELL HYPOTHESES REJECTED**: EIGHTH cycle-71 closure where pre-declared 4-block 35/25/15/15 majority was rejected and LOW-PRIOR (8%) MIXED PARTIAL outcome matched (after #1840, #1842, #1845, #1846, #1852, #1854, #1863, #1864)
+
+**217th MECH CLASS**: JOINT-SYNERGY-PEAK-AT-AXES-1-X-6-PARTIAL-DIRECTION-AND-PARTIAL-DEPTH-SYMMETRIC-WITH-COOLDOWN-WINDOW-MEDIATION.
+
+**184th FAMILY CLOSURE**: AXES-1-X-6-DIRECTION-X-DEPTH-CUBE-3-OF-4-CELLS-COMPLETE-AT-MAGNITUDE-1.0-WITH-PARTIAL-SYMMETRY (4th cell DOWN × FRONT-TIGHT routed to #1893 for additive-picture discrimination).
+
+### alphonse #1893 new assignment: 4TH CELL COMPLETION + n=2 VERIFICATION at FRONT-TIGHT
+
+**Goal**: complete the 4-cell direction × depth cube + pin partial-transfer variance band:
+- Arm A `lm_head_WD_DOWN_FRONT_TIGHT` (4th cell): predicts near additive null 3.26817 under 2-PARAMETER ADDITIVE; deviation discriminates ADDITIVE vs SUPER-ADDITIVE vs SIGN-CANCELLATION SUB-FLOOR-PRODUCTIVE vs CATEGORY-NEW MERGE-CANDIDATE
+- Arm B `lm_head_WD_UP_FRONT_TIGHT_n=2`: n=2 verification of #1869 Arm B; pins 53.4% partial-transfer variance band
+
+Outcomes: 2-PARAMETER ADDITIVE confirmed (40%) / SUPER-ADDITIVE remainder (25%) / SIGN-CANCELLATION SUB-FLOOR-PRODUCTIVE (15%) / HIGH variance at B re-seed RTM-11 precedent (10%) / CATEGORY-NEW productive joint MERGE CANDIDATE (5%) / CATASTROPHIC remainder (5%).
+
+### nezuko #1866 duplicate-run thread CLOSED
+
+Case-1 confirmed: `rjinzzpb` canonical Arm A terminal val=**3.27444**/3075 (REFUTE-level k-EARLY-PROJ-DOMINANT-DESTRUCTIVE mech-class candidate, axis #9 8-cube k-EARLY-FAST cell filled). `hjjhpo3d` confirmed stale erroneous restart, killed clean. Arm B `568s7p5w` v×proj joint EARLY-FAST launched 23:08Z with verified step-0 banner (`projection='v,proj'` boundary=1500 + JOINT_PROJECTION_DISPATCH commit `ad1c9dd` active); ETA ~01:00Z for bilateral cube-completion closure.
+
+### edward #1873 Arm B config anomaly RESOLVED
+
+Arm A `palvce9u` terminal val=**3.27002**/3025 (INSIDE FLOOR BAND edge, v-FIXED-POINT q-pair-mate-conditional n=2 qualitatively CONFIRMED). Initial Arm B `h6u6f6kq` was DUPLICATE re-launch of Arm A config (bitfield=10 k,proj excluded SAME as Arm A). Student confirmed CASE-1 orchestration error, killed `h6u6f6kq` at 23:50Z, re-launched correct Arm B `k7phdr64` at 23:52Z with `attn_soap_exclusion_bitfield=14` (`k,proj,v` excluded → q-only active, first TRIPLE-EXC cell at axis #4). Anti-blackout cadence accepted; step-0 banner posted; ETA ~01:37Z for bilateral closure.
+
+---
+
 ## 2026-05-30 23:05 UTC — Cycle 71 mid-445 — fern #1864 349th refute + 183rd family closure + 216th mech class (axes #2×#5 EMBED-FACTOR-0.5 CROSS-MOMENT-CHANNEL DISCRIMINATION CUBE COMPLETE with KIND-CHANNEL-STRUCTURE ASYMMETRY: Arm A `embed_M=2_factor_0.5` val=3.27016/3025 INSIDE FLOOR BAND edge + Arm B `embed_M=3_factor_0.5` val=3.27162/3050 ABOVE FLOOR BAND; bilateral mean 3.27089/3037.5 ABOVE both merge bars; 216th mech class EMBED-FACTOR-0.5-MOMENT-CHANNEL-MONOTONIC-DEGRADATION-WITH-M=1-DOMINANT-AND-CROSS-KIND-CHANNEL-STRUCTURE-ASYMMETRY-VS-LM-HEAD-SIGN-FLIP; FOUR concurrent invariants: M=1-DOMINANT MONOTONIC DEGRADATION (M=1=3.26881 BEST < M=2=3.27016 +0.00135 PARTIAL < M=3=3.27162 +0.00281 GREATER), FOUR of FIVE pre-experiment families REFUTED (SEVENTH cycle-71 closure of this pattern), KIND-CHANNEL-STRUCTURE ASYMMETRY (embed MONOTONIC vs lm_head SIGN-FLIP from #1852), CROSS-MOMENT-CHANNEL CUBE COMPLETE at embed factor=0.5 at 3 of 3 cells; 183rd family closure AXES-2-X-5-EMBED-FACTOR-0.5-CROSS-MOMENT-CHANNEL-DISCRIMINATION-CUBE-COMPLETE) + fern #1887 new assignment (CROSS-KIND-STRUCTURE-VERIFICATION × EMBED-FACTOR-2D-PROBE at M=2: Arm A lm_head_M=2_factor_0.5 + Arm B embed_M=2_factor_0.25; discriminates FACTOR-LOCKED vs KIND-INTRINSIC sign-flip and M=2 U-shape candidacy). Fleet 8/8 active 0 idle. Cumulative: 349 refuted / 216 mech classes / 183 family closures / 9 axes locked / 10 regression-to-mean precedents.
 
 ### fern #1864 axes #2×#5 EMBED-FACTOR-0.5 CROSS-MOMENT-CHANNEL DISCRIMINATION CUBE — 349th refute, 183rd family closure, 216th mech class
