@@ -114,6 +114,16 @@ def parse_args():
                         help="Polyak-Ruppert EMA decay for eval-only weight averaging. "
                              "0.0 = disabled (drift-FREE CTRL). Typical: 0.05 (fast, ~20-step half-life) / "
                              "0.005 (slow, ~200-step half-life). Higher decay = faster EMA tracking.")
+    # H343: Cautious Optimizer (Liang et al. 2024) sign-agreement mask on AUX AdamW.
+    # 0.0 = bit-identical standard AdamW (short-circuit super().step()).
+    # 1.0 = full Cautious — zero updates where sign(adam_update) != sign(grad).
+    # Interpolation: update *= (1 - frac + frac * sign_agree).
+    parser.add_argument("--aux_cautious_fraction", type=float,
+                        default=float(os.environ.get("AUX_CAUTIOUS_FRACTION", "0.0")),
+                        help="Cautious mask fraction for AUX AdamW updates (Liang et al. 2024). "
+                             "0.0 = standard AdamW (H266 bit-id). 1.0 = full Cautious "
+                             "(zero updates where sign(adam_update) != sign(grad)). "
+                             "Interpolation: update *= (1-frac + frac * sign_agree).")
     args = parser.parse_args()
     args.num_trials = args.num_trials if args.num_trials is not None else (args.legacy_num_trials or 1)
     args.wandb_tags = [tag.strip() for tag in args.wandb_tags.split(",") if tag.strip()]
@@ -752,6 +762,85 @@ class MuonH(torch.optim.Optimizer):
         self._last_norm_to_radius_max = max_n_over_r
 
 
+class CautiousAdamW(AdamW):
+    """AdamW with Cautious sign-agreement masking (Liang et al. 2024, arxiv 2411.16085).
+
+    cautious_fraction=0.0 short-circuits to super().step() so the path is
+    bit-identical to standard AdamW (preserves fused kernel use).
+    cautious_fraction=1.0 applies the full Cautious mask: update *= (sign(u) == sign(g)).
+    Interpolation: update *= (1 - frac + frac * sign_agree).
+
+    Records two telemetry attributes after each non-short-circuit step:
+        _last_sign_agree_fraction: mean (sign(u) == sign(g)) across all aux params.
+        _last_active_param_fraction: fraction of param-elements with mask > 0.
+    """
+
+    def __init__(self, params, cautious_fraction=0.0, **kwargs):
+        super().__init__(params, **kwargs)
+        self.cautious_fraction = cautious_fraction
+        self._last_sign_agree_fraction = 1.0
+        self._last_active_param_fraction = 1.0
+
+    @torch.no_grad()
+    def step(self, closure=None):
+        if self.cautious_fraction == 0.0:
+            return super().step(closure)
+
+        loss = None if closure is None else closure()
+
+        agree_sum = 0.0
+        elem_total = 0
+        for group in self.param_groups:
+            beta1, beta2 = group["betas"]
+            lr = group["lr"]
+            eps = group["eps"]
+            wd = group["weight_decay"]
+
+            for p in group["params"]:
+                if p.grad is None:
+                    continue
+                grad = p.grad
+                state = self.state[p]
+                if len(state) == 0:
+                    state["step"] = torch.zeros((), dtype=torch.float32, device=p.device)
+                    state["exp_avg"] = torch.zeros_like(p)
+                    state["exp_avg_sq"] = torch.zeros_like(p)
+
+                exp_avg = state["exp_avg"]
+                exp_avg_sq = state["exp_avg_sq"]
+                state["step"] += 1
+                step_t = state["step"].item()
+
+                if wd > 0:
+                    p.mul_(1 - lr * wd)
+
+                exp_avg.mul_(beta1).add_(grad, alpha=1 - beta1)
+                exp_avg_sq.mul_(beta2).addcmul_(grad, grad, value=1 - beta2)
+
+                bias_correction1 = 1 - beta1 ** step_t
+                bias_correction2 = 1 - beta2 ** step_t
+
+                denom = (exp_avg_sq.sqrt() / (bias_correction2 ** 0.5)).add_(eps)
+                update = exp_avg / denom / bias_correction1
+
+                sign_agree = (update.sign() == grad.sign()).to(update.dtype)
+                agree_sum += float(sign_agree.sum().item())
+                elem_total += sign_agree.numel()
+                mask = 1.0 - self.cautious_fraction + self.cautious_fraction * sign_agree
+                update = update * mask
+
+                p.add_(update, alpha=-lr)
+
+        if elem_total > 0:
+            self._last_sign_agree_fraction = agree_sum / elem_total
+            self._last_active_param_fraction = (
+                self._last_sign_agree_fraction
+                if self.cautious_fraction == 1.0
+                else 1.0
+            )
+        return loss
+
+
 ########################################
 #                Setup                 #
 ########################################
@@ -856,6 +945,7 @@ if dist.get_rank() == 0:
             "muonh_mu_start": args.muonh_mu_start,
             "muonh_mu_end": args.muonh_mu_end,
             "polyak_ema_decay": args.polyak_ema_decay,
+            "aux_cautious_fraction": args.aux_cautious_fraction,
         },
     )
 
@@ -932,10 +1022,11 @@ for trial_idx in range(args.num_trials):
     # silent-failure-mode risk we use fused=False whenever the β2 schedule is active.
     # constant schedule keeps fused=True so arm_a is bitwise-identical to baseline.
     _aux_fused = (args.aux_beta2_schedule == "constant")
-    optimizer1 = AdamW([dict(params=[model.embed.weight], lr=0.3, name="adam_embed"),
-                        dict(params=[model.proj.weight], lr=1/320, name="adam_lm_head"),
-                        dict(params=[p for p in model.parameters() if p.ndim < 2], lr=0.01, name="adam_scalars")],
-                       betas=(0.8, args.aux_beta2_start), eps=args.aux_adamw_eps, weight_decay=0, fused=_aux_fused)
+    optimizer1 = CautiousAdamW([dict(params=[model.embed.weight], lr=0.3, name="adam_embed"),
+                                dict(params=[model.proj.weight], lr=1/320, name="adam_lm_head"),
+                                dict(params=[p for p in model.parameters() if p.ndim < 2], lr=0.01, name="adam_scalars")],
+                               cautious_fraction=args.aux_cautious_fraction,
+                               betas=(0.8, args.aux_beta2_start), eps=args.aux_adamw_eps, weight_decay=0, fused=_aux_fused)
     optimizer2 = MuonH([p for p in model.blocks.parameters() if p.ndim >= 2],
                        lr=args.muonh_lr, weight_decay=0.0, mu=0.95,
                        hyperball=True, budget_mult=args.muonh_budget_mult,
@@ -1258,6 +1349,9 @@ for trial_idx in range(args.num_trials):
                 muonh_metrics["train/muonh/agc/max_ratio"] = muonh_agc_stats["agc_max_ratio"]
                 muonh_metrics["train/muonh/agc/scale_min"] = muonh_agc_stats["agc_scale_min"]
                 muonh_metrics["train/muonh/agc/scale_mean"] = muonh_agc_stats["agc_scale_mean"]
+            if telemetry_due and args.aux_cautious_fraction > 0:
+                muonh_metrics["train/aux/cautious/sign_agree_fraction"] = optimizer1._last_sign_agree_fraction
+                muonh_metrics["train/aux/cautious/active_param_fraction"] = optimizer1._last_active_param_fraction
             if len(muonh_metrics) > 2:
                 wandb.log(muonh_metrics, step=wandb_step)
         if dist.get_rank() == 0 and telemetry_due:
