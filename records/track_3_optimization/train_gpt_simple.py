@@ -114,6 +114,33 @@ def parse_args():
                         help="Polyak-Ruppert EMA decay for eval-only weight averaging. "
                              "0.0 = disabled (drift-FREE CTRL). Typical: 0.05 (fast, ~20-step half-life) / "
                              "0.005 (slow, ~200-step half-life). Higher decay = faster EMA tracking.")
+    # H315: post-NS5 update-direction noise with cooldown gating + taper.
+    # ε=0.0 is the drift-FREE CTRL (no noise code path entered, bit-id baseline).
+    # cooldown_off=1 + cooldown_taper={binary,linear,cosine} controls how the noise
+    # is gated through the LR cooldown phase. H307 corresponded to taper="binary"
+    # (binary cliff-OFF at cooldown entry); H315 adds linear/cosine tapers to test
+    # whether the cooldown wash-out is a gating artifact vs. structural.
+    parser.add_argument("--body_post_ns5_noise_epsilon", type=float,
+                        default=float(os.environ.get("BODY_POST_NS5_NOISE_EPSILON", "0.0")),
+                        help="Magnitude of Gaussian noise added to post-NS5 MuonH update direction. "
+                             "0.0 = disabled (Pattern A drift-FREE CTRL, bit-id baseline). "
+                             "Typical: 0.01 = ε noise comparable to update RMS.")
+    parser.add_argument("--body_post_ns5_noise_cooldown_off", type=int,
+                        default=int(os.environ.get("BODY_POST_NS5_NOISE_COOLDOWN_OFF", "0")),
+                        help="If 1, gate the noise through the LR cooldown phase using cooldown_taper. "
+                             "If 0, noise is applied at constant ε for the full run (no cooldown gating).")
+    parser.add_argument("--body_post_ns5_noise_cooldown_frac", type=float,
+                        default=float(os.environ.get("BODY_POST_NS5_NOISE_COOLDOWN_FRAC", "0.15")),
+                        help="Fraction of train_steps at the END of training treated as the noise cooldown "
+                             "phase. Must match the LR cooldown phase for clean head-to-head. Only used if "
+                             "cooldown_off=1.")
+    parser.add_argument("--body_post_ns5_noise_cooldown_taper", type=str,
+                        default=os.environ.get("BODY_POST_NS5_NOISE_COOLDOWN_TAPER", "binary"),
+                        choices=["binary", "linear", "cosine"],
+                        help="Taper shape for POST-NS5 noise epsilon through the cooldown phase. "
+                             "'binary' (default, H307 behavior): ε drops to 0 immediately at cooldown entry. "
+                             "'linear': ε tapers linearly from epsilon → 0 over the cooldown phase. "
+                             "'cosine': ε tapers via cosine half-period from initial → 0 over cooldown phase.")
     args = parser.parse_args()
     args.num_trials = args.num_trials if args.num_trials is not None else (args.legacy_num_trials or 1)
     args.wandb_tags = [tag.strip() for tag in args.wandb_tags.split(",") if tag.strip()]
@@ -684,6 +711,9 @@ class MuonH(torch.optim.Optimizer):
         self._last_active_fraction = 0.0
         self._last_radius_to_norm_max = 0.0
         self._last_norm_to_radius_max = 0.0
+        # H315: per-step post-NS5 noise magnitude (set externally each step).
+        # 0.0 = drift-FREE; the noise branch is fully skipped (bit-id baseline).
+        self._post_ns5_noise_eps_active = 0.0
 
     @torch.no_grad()
     def step(self):
@@ -708,6 +738,11 @@ class MuonH(torch.optim.Optimizer):
                         if hb:
                             state["hyperball_radius"] = p.data.norm().item() * budget_mult
                     update = muon_update(p.grad, state["momentum"], mu=group["mu"])
+                    # H315: post-NS5 Gaussian noise on the orthogonalized update direction.
+                    # Bit-id baseline when eps_active == 0 (no randn_like, no tensor mutation).
+                    eps_active = self._post_ns5_noise_eps_active
+                    if eps_active > 0.0:
+                        update = update + torch.randn_like(update) * eps_active
                     if hb and mode == "scale_invariant":
                         # Always-active variant: norm is held at initial value by construction.
                         scale_invariant_update_(p.data, update, group["lr"])
@@ -796,6 +831,16 @@ if args.muonh_agc_clip_ratio > 0:
     print0(f"AGC ENABLED on inner MuonH gradient: clip_ratio={args.muonh_agc_clip_ratio} eps={args.muonh_agc_eps}", console=True)
 else:
     print0("AGC DISABLED on inner MuonH gradient (clip_ratio=0)", console=True)
+if args.body_post_ns5_noise_epsilon > 0.0:
+    print0(
+        f"H315 POST-NS5 noise ENABLED: epsilon={args.body_post_ns5_noise_epsilon} "
+        f"cooldown_off={args.body_post_ns5_noise_cooldown_off} "
+        f"cooldown_frac={args.body_post_ns5_noise_cooldown_frac} "
+        f"cooldown_taper={args.body_post_ns5_noise_cooldown_taper}",
+        console=True,
+    )
+else:
+    print0("H315 POST-NS5 noise DISABLED (epsilon=0; bit-id baseline)", console=True)
 print0("="*100)
 
 val_tokens = 20 * 524288
@@ -856,6 +901,10 @@ if dist.get_rank() == 0:
             "muonh_mu_start": args.muonh_mu_start,
             "muonh_mu_end": args.muonh_mu_end,
             "polyak_ema_decay": args.polyak_ema_decay,
+            "body_post_ns5_noise_epsilon": args.body_post_ns5_noise_epsilon,
+            "body_post_ns5_noise_cooldown_off": args.body_post_ns5_noise_cooldown_off,
+            "body_post_ns5_noise_cooldown_frac": args.body_post_ns5_noise_cooldown_frac,
+            "body_post_ns5_noise_cooldown_taper": args.body_post_ns5_noise_cooldown_taper,
         },
     )
 
@@ -1033,7 +1082,36 @@ for trial_idx in range(args.num_trials):
                 g["mu"] = mu_t
         else:
             mu_t = 0.95
-        return muonh_warmup, b2, mu_t
+        # H315: per-step post-NS5 noise magnitude. eps=0 leaves MuonH._post_ns5_noise_eps_active=0,
+        # so the bit-id (Pattern A drift-FREE) baseline path is preserved.
+        if args.body_post_ns5_noise_epsilon > 0.0:
+            noise_progress = step / max(1, train_steps - 1)
+            if args.body_post_ns5_noise_cooldown_off == 0:
+                eps_active = args.body_post_ns5_noise_epsilon
+            else:
+                noise_cooldown_start = 1.0 - args.body_post_ns5_noise_cooldown_frac
+                if noise_progress < noise_cooldown_start:
+                    eps_active = args.body_post_ns5_noise_epsilon
+                else:
+                    cooldown_progress = (noise_progress - noise_cooldown_start) / max(
+                        1e-12, args.body_post_ns5_noise_cooldown_frac
+                    )
+                    cooldown_progress = min(1.0, max(0.0, cooldown_progress))
+                    taper = args.body_post_ns5_noise_cooldown_taper
+                    if taper == "binary":
+                        eps_active = 0.0
+                    elif taper == "linear":
+                        eps_active = args.body_post_ns5_noise_epsilon * (1.0 - cooldown_progress)
+                    elif taper == "cosine":
+                        eps_active = args.body_post_ns5_noise_epsilon * 0.5 * (
+                            1.0 + math.cos(math.pi * cooldown_progress)
+                        )
+                    else:
+                        raise ValueError(f"unknown body_post_ns5_noise_cooldown_taper: {taper}")
+            optimizer2._post_ns5_noise_eps_active = float(eps_active)
+        else:
+            eps_active = 0.0
+        return muonh_warmup, b2, mu_t, eps_active
 
 
     ########################################
@@ -1175,7 +1253,7 @@ for trial_idx in range(args.num_trials):
         dist.all_reduce(step_loss, op=dist.ReduceOp.SUM)
         train_loss = float((step_loss / batch_size).item())
         # set optimization hyperparameters and take a step
-        muonh_warmup_factor, aux_beta2, muonh_mu_t = set_hparams(step)
+        muonh_warmup_factor, aux_beta2, muonh_mu_t, post_ns5_eps_active = set_hparams(step)
         train_step = step + 1
         telemetry_due = (step == 0 or (step + 1) % args.telemetry_interval == 0 or step + 1 == train_steps)
         histogram_due = (step == 0 or (step + 1) % args.histogram_interval == 0 or step + 1 == train_steps)
@@ -1234,6 +1312,9 @@ for trial_idx in range(args.num_trials):
             muonh_metrics = {"trial": trial_idx, "train/step": train_step}
             muonh_metrics["aux/beta2"] = aux_beta2
             muonh_metrics["train/muonh_mu"] = muonh_mu_t
+            # H315: per-step post-NS5 noise magnitude. 0 when disabled or in binary
+            # cooldown-OFF window; tapered ε through cooldown for linear/cosine arms.
+            muonh_metrics["body/post_ns5_noise_eps_active"] = post_ns5_eps_active
             for opt in optimizers:
                 if isinstance(opt, MuonH):
                     if telemetry_due:
