@@ -1,3 +1,51 @@
+## 2026-05-31 22:40 UTC — Cycle 71 mid-485 — DOUBLE CLOSURE: tanjiro #2001 388th refute 258th mech class EMBED-β1=0.5-UNIVERSAL-RESCUE-EXTENDS-LM-HEAD-β1=0.7 (26th RTM precedent; n=2 mean 3.268645 RTM band lower edge, spread 0.00041; rescue magnitude CONSTANT at ~0.0105 across lm_head β1∈{0.7,0.9}) + frieren #1999 389th refute 259th mech class LM-HEAD-β1-AXIS-MONOTONE-DESTRUCTIVE-SATURATED-BETWEEN-0.5-AND-0.7-SUBSTRATE-ASYMMETRIC (n=2 mean 3.279075 +0.01132 above carrier; spread 0.00033 — TIGHTEST single-axis n=2 of cycle-71 outside floor band; substrate-asymmetric vs embed β1=0.5 by +0.00892) + tanjiro #2026 new assignment (EMBED-β1=0.5 × LM-HEAD-β1=0.5 RESCUE-BOUNDARY-AT-SATURATED-DESTRUCTIVE: 35% UNIVERSAL-RESCUE-LOCKED 25% RESCUE-MAGNITUDE-BOUNDED 20% RESCUE-COLLAPSES 15% PRODUCTIVE-CARRIER 5% MERGE) + frieren #2027 new assignment (LM-HEAD-β1=0.85 ISOLATED BRIDGE PROBE: 35% SHARP-THRESHOLD-NEAR-0.95 30% GRADIENT-ONSET 20% ALREADY-SATURATED-AT-0.85 10% RTM-PRECEDENT 5% MERGE). **Operational hygiene**: per-kind β1 env-var names corrected globally — code reads `AUX_BETA1_<KIND>` for values + `PER_KIND_AUX_BETA1_ENABLED=1` for gate; `PER_KIND_BETA1_*` and `PER_KIND_AUX_BETA1_<KIND>` are silent no-ops (memory `per-kind-aux-beta1-env-var-names` saved). No human issues. Fleet 8/8 active 0 idle. Cumulative **389 refuted / 259 mech classes / 215 family closures / 9 axes locked / 26 RTM precedents / 13 pod-stability observations** (RTM-PERSISTENT-AT-N=12/13 = 92.3%).
+
+### tanjiro #2001 bilateral terminal — 258th mech class / 26th RTM precedent / UNIVERSAL-RESCUE confirmed
+
+**Bilateral terminal**: Arm A `dkomocor` SEED=1 val=**3.26844**/3000; Arm B `le9toyuy` SEED=2 val=**3.26885**/3025. n=2 mean **3.268645** (spread 0.00041 — tight). Δ vs baseline 3.26776 = +0.000885 (RTM band lower edge).
+
+**Rescue magnitude characterization across lm_head β1 axis**:
+
+| lm_head β1 | isolated (no rescue) | + embed β1=0.5 RESCUE | rescue magnitude |
+|---|---|---|---|
+| 0.9 | 3.28145 (n=1, #1976 A) | 3.27097 (n=1, #1976 B) | **0.01048** |
+| 0.7 | 3.27930 (n=2, frieren #1972) | **3.268645 (n=2, THIS PR)** | **0.01065** |
+
+→ Rescue magnitude **essentially CONSTANT at ~0.0105** across two destructive lm_head β1 perturbations. Favors **UNIVERSAL-RESCUE mechanism class**: embed β1=0.5 acts as a generalized stability-attractor independent of lm_head perturbation magnitude. RTM-PERSISTENT rate 12/13 = 92.3%.
+
+### frieren #1999 bilateral terminal — 259th mech class / DESTRUCTIVE-SATURATED axis
+
+**Bilateral terminal**: Arm A `dqwbhh49` SEED=1 val=**3.27891**/3150; Arm B `sq22ptto` SEED=2 val=**3.27924**/3150. n=2 mean **3.279075** (spread 0.00033 — TIGHTEST single-axis cycle-71 outside floor band).
+
+**lm_head β1 axis destructive map**:
+
+| lm_head β1 | n=2 mean | Δ vs carrier | regime |
+|---|---|---|---|
+| 0.95 | 3.26776 | 0 | carrier floor |
+| 0.85 | UNKNOWN | TBD | **frieren #2027 BRIDGE PROBE** |
+| 0.7 (#1972) | 3.27930 | +0.01154 | CARRIER-DESTRUCTIVE |
+| 0.5 (THIS PR) | 3.279075 | +0.01132 | CARRIER-DESTRUCTIVE-SATURATED |
+
+→ Destructive direction **SATURATES at +0.0113 across β1∈{0.5, 0.7}**; lowering β1 from 0.7 to 0.5 does NOT deepen destruction. Axis is NOT V-shaped (no productive minimum below β1=0.7). **Substrate-asymmetric**: lm_head β1=0.5 = 3.279 vs embed β1=0.5 = 3.27016 (17th RTM), Δ = +0.00892.
+
+### Operational hygiene MILESTONE — env-var name bug corrected globally
+
+Student detected silently-wrong launch: `PER_KIND_BETA1_<KIND>` env-vars in PR-body launch commands are NOT source-read; code in `train_gpt_simple.py:509-511` reads `AUX_BETA1_<KIND>` (PR #1789 names). Wrong-name launches silently fall to `AUX_BETA1_DEFAULT=0.8` (canonical β1=0.8 masquerading as a per-kind probe). frieren #1999 Arm B initial launch wasted 30 min on this before step-0 banner mismatch detected. **Advisor self-correction**: memory `per-kind-aux-beta1-env-var-names` saved; all future per-kind β1 dispatch templates use `AUX_BETA1_<KIND>` for values + `PER_KIND_AUX_BETA1_ENABLED=1` for gate; `PER_KIND_AUX_BETA1_<KIND>` prefix is also silently no-op. fern #2013, alphonse #2008, thorfinn #2021 caught the issue at launch via verification memory; tanjiro #2001 caught it at launch too.
+
+### tanjiro #2026 new assignment — EMBED-β1=0.5 × LM-HEAD-β1=0.5 RESCUE-BOUNDARY-AT-SATURATED
+
+Tests whether the constant ~0.0105 rescue magnitude extends from lm_head β1∈{0.7, 0.9} to the SATURATED destructive cell (lm_head β1=0.5). Single highest-information-gain cell on the 2D embed×lm_head β1 interaction surface. Most likely (35%): UNIVERSAL-RESCUE-LOCKED — n=2 mean ~3.26900 (locks UNIVERSAL-RESCUE mech class). Alternatives: 25% RESCUE-MAGNITUDE-BOUNDED ~3.27300, 20% RESCUE-COLLAPSES-AT-SATURATION ~3.27600, 15% PRODUCTIVE-CARRIER ~3.26750 (first sub-baseline 2-axis cell of cycle 71), 5% MERGE-CANDIDATE.
+
+### frieren #2027 new assignment — LM-HEAD-β1=0.85 ISOLATED BRIDGE PROBE
+
+Tests destruction-onset zone between carrier (β1=0.95, 3.26776) and saturated (β1∈{0.5, 0.7}, ~3.279). Most likely (35%): SHARP-THRESHOLD-NEAR-0.95 — n=2 mean ~3.27000 (threshold between 0.85 and 0.7). Alternatives: 30% GRADIENT-ONSET ~3.27500, 20% ALREADY-SATURATED-AT-0.85 ~3.27900, 10% RTM-PRECEDENT ~3.27015, 5% MERGE-CANDIDATE. Closes the LAST uncharacterized cell on the lm_head β1 isolated axis.
+
+### Fleet status — 8/8 active 0 idle
+
+After tanjiro #2001 + frieren #1999 closes + tanjiro #2026 + frieren #2027 assignments: g1r2-{askeladd #2007, alphonse #2008, edward #2004, fern #2013, nezuko #2016, thorfinn #2021, tanjiro #2026, frieren #2027} all WIP. Cumulative **389 refuted / 259 distinct mech classes / 215 family closures / 9 structural axes locked / 26 RTM precedents / 13 pod-stability observations** (RTM-PERSISTENT-AT-N=12/13 = 92.3%; floor band STRUCTURALLY LOCKED).
+
+---
+
 ## 2026-05-31 21:26 UTC — Cycle 71 mid-484 — MILESTONE: ALL cycle-71 candidate carrier verifications CLOSED / floor band STRUCTURALLY LOCKED — thorfinn #1997 387th refute 257th mech class INVERTED-ASYMMETRY-β1-DISPATCH-RTM-CONFIRMED-AT-FLOOR-BAND-EDGE (n=2 mean 3.27116 / Arm A `h0obsnkn` 3.27118 Arm B `tbomxhct` 3.27114 spread 0.00004 — TIGHTEST cross-arm Δ of cycle-71; drift +0.00142 from #1967 single-seed — LARGEST in RTM cohort; 10th and FINAL cycle-71 candidate carrier verification; 25th RTM precedent; RTM-PERSISTENT rate 11/12 = 91.7%; floor band [3.27000, 3.27200] now STRUCTURALLY LOCKED) + thorfinn #2021 new assignment (TRIPLE-COMPOUND-MLP-SOAP-FRONT-FAST-×-PER-KIND-β1-JOINT-COHERENT-×-EMBED-RESET: all 3 RTM carriers active simultaneously; 25% TRIPLE-RTM-ADDITIVE ~3.27015-3.27050 / 25% TRIPLE-PRODUCTIVE-DESCENT ~3.26900-3.27000 / 20% TRIPLE-DESTRUCTIVE >3.27100 / 20% TRIPLE-STRONG-PRODUCTIVE <3.26900 / 10% TRIPLE-MERGE-CANDIDATE <3.26776). No human issues. Fleet 8/8 active 0 idle. Cumulative **387 refuted / 257 mech classes / 213 family closures / 9 axes locked / 25 RTM precedents / 13 pod-stability observations** (RTM-PERSISTENT-AT-N=11/12 = 91.7%; ZERO n=2 carrier-verifications still pending).
 
 ### thorfinn #1997 bilateral terminal — 387th refute / 257th mech class INVERTED-ASYMMETRY-β1-DISPATCH-RTM-CONFIRMED-AT-FLOOR-BAND-EDGE / 25th RTM precedent
