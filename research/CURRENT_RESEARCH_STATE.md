@@ -9,7 +9,7 @@ The human research team has redirected: **FFS (first-step-to-target, baseline 30
 3. **Prefer experiments that move the crossing step** (2800-3050 window), **simplify winning stacks**, **reveal FFS-load-bearing components**.
 4. **Ablations preferred over confirmations** when FFS dead.
 
-## Last updated: 2026-05-31 02:00Z (70 R5 closures; alphonse #1860 SOAP-attn cooldown gate CLOSED 70th [FFS-NEG monotonic harm, SOAP-attn load-bearing throughout cooldown]; alphonse idle pending researcher-agent; thorfinn #1870 Cell B nearing completion at 88% with val=3.34 (unlikely to cross 3.28); 7/8 active)
+## Last updated: 2026-05-31 03:15Z (70 R5 closures; alphonse #1903 stochastic-depth-residual-dropout ASSIGNED; 8/8 active)
 
 ### Notes (2026-05-31 02:00Z) — ALPHONSE #1860 SOAP-ATTN COOLDOWN GATE CLOSED 70th [FFS-NEG, MONOTONIC HARM]
 
@@ -25,14 +25,14 @@ The human research team has redirected: **FFS (first-step-to-target, baseline 30
 - **★ SOAP-attn phase-gating family STRUCTURALLY CLOSED**: #818 (full disable) + #914 (Q-freeze) + #1707 (MLP per-kind) + #1860 (cooldown disable) — SOAP-attn is load-bearing throughout ALL training phases. No time-window gating viable.
 - **Student observation (worth a follow-up family)**: MLP vs ATTN asymmetry (#1707 MLP per-kind NEUTRAL vs this PR NEG on attn) suggests SOAP benefit on attn matrices is structurally different from MLP. Potential motivator for architectural differential routing.
 
-- **★ ALPHONSE NOW IDLE** — researcher-agent dispatched 01:55Z for fresh axis distinct from all closed (polar-approximator, NS-iter, SOAP phase-gating, magnitude/direction, scalar HPs, init) and all 7 in-flight axes (label-smoothing, μ-cooldown, GC, GE-SAM, Lookahead, annealed-grad-noise, Schulz polish square n=4).
+- **★ ALPHONSE #1903 ASSIGNED** — `stochastic-depth-residual-dropout` (Huang et al. 2016, ECCV). Stochastic depth with linear survival schedule `p_l = 1 − (l/11)·drop_rate`. Cells: A=smoke(0.10, 300 steps), B=0.05, C★=0.10, D=0.15 at 2500 steps, E=n=4 confirm at best rate. First forward-pass training-time regularization axis at R5. Complementary to `musoft` init. PR #1903.
 
 - **★ W&B-verified in-flight progress at 01:50Z**:
   - thorfinn #1870 Cell B (`vde4akez`, α=0.05): step 2874/3250 (~88%), val=3.34 (0.06 above target, ~376 steps remain). **Borderline FFS-alive — may not cross 3.28 by step 3250**.
   - tanjiro #1880 Cell B (`upms16as`, μ=0.85): step 719/3250 (~22%), val=3.75 (early-training, too early to judge).
   - Both runs healthy, no crashes.
 
-- **Fleet at 02:00Z**: thorfinn #1870 WIP (Cell B 88%, nearing terminal); tanjiro #1880 WIP (Cell B 22%); fern #1885 WIP; askeladd #1891 WIP; frieren #1895 WIP; nezuko #1897 WIP; edward #1858 WIP (n=4 confirm running ~7h); alphonse IDLE (pending researcher-agent). **7/8 active.**
+- **Fleet at 03:15Z**: thorfinn #1870 WIP (Cell B may have completed); tanjiro #1880 WIP (Cell B ~50%); fern #1885 WIP; askeladd #1891 WIP; frieren #1895 WIP; nezuko #1897 WIP; edward #1858 WIP (n=4 confirm running ~7h); alphonse #1903 WIP (stochastic-depth assigned). **8/8 active.**
 
 
 
