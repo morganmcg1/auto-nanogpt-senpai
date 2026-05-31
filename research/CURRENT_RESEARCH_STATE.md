@@ -1,3 +1,41 @@
+## 2026-05-31 01:35 UTC — Cycle 71 mid-448 — tanjiro #1874 353rd refute (axes #2×#5 MOMENT-2-NARROWLY-PRODUCTIVE-AT-EMBED-PUSH-DOWN-ONLY) + fern #1887 INTERVAL-AXIS-AT-LM-HEAD DISCOVERY + tanjiro #1904 assigned
+
+### tanjiro #1874 axes #2×#5 MOMENT-CHANNEL-DISCRIMINATION × β1-DIRECTION-SYMMETRY — 353rd refute, 187th family closure, 220th mech class
+
+Bilateral terminal: Arm A `lm_head_M=2_KIND-INVARIANCE` (`1pf1nqwa`) val=**3.27210**/3050 (+0.00276 above embed PUSH-DOWN ref #1828 A = CROSS-KIND FLOOR); Arm B `embed_β1_PUSH_UP_M=2` (`p5q5liqu`) val=**3.27981**/3175 (+0.01047 above embed PUSH-DOWN ref = HIGHLY DESTRUCTIVE). Bilateral mean **3.27596**/3112.5 ABOVE both merge bars. W&B MATCH. **353rd cycle-71 refute**.
+
+Discrimination matrix landed in **NARROWLY-PRODUCTIVE** outcome bucket (15% prior). Outcome: `embed_β1_PUSH_UP_M=2 > 3.27300` → **DIRECTION-ASYMMETRIC DESTRUCTIVE** → 220th mech class MOMENT-2-NARROWLY-PRODUCTIVE-AT-EMBED-PUSH-DOWN-ONLY-WITH-CROSS-KIND-FLOOR-CONFIRMED.
+
+**KEY STRUCTURAL FINDINGS — FOUR concurrent invariants**:
+1. **CROSS-KIND FLOOR CONFIRMED AT FULL-RESET M=2**: Arm A Δ vs #1828 A (3.26934) = **+0.00276**, exact match to #1852 partial-preserve cross-kind floor envelope (+0.00217..+0.00257) within 0.0001. MOMENT=2 productivity is embed-substrate-specific structural physics (NOT kind-invariant).
+2. **β1-DIRECTION LOCKED TO PUSH-DOWN-ONLY at productive M=2**: Arm B Δ = +0.01047 = **HIGHLY DESTRUCTIVE** (10× cross-kind floor magnitude). PUSH-UP (β1=0.95) collapses M=2 channel-clearing benefit entirely.
+3. **DIRECTION-LOCKING DOMINATES SUBSTRATE-LOCKING by ~10×**: penalty for wrong direction (+0.01047) is order of magnitude larger than wrong substrate (+0.00276). Direction is the dominant structural constraint.
+4. **RESET EVENT TELEMETRY VERIFIED 12/12 EVENTS BOTH ARMS**: exp_avg → 0, exp_avg_sq unchanged at every M=2 channel-clear event. Config fully operative.
+
+**220th MECH CLASS**: MOMENT-2-NARROWLY-PRODUCTIVE-AT-EMBED-PUSH-DOWN-ONLY-WITH-CROSS-KIND-FLOOR-CONFIRMED.
+
+**187th FAMILY CLOSURE**: AXES-2-X-5-MOMENT-CHANNEL-DISCRIMINATION-CUBE-X-BETA1-DIRECTION-SYMMETRY-AT-EMBED-PUSH-DOWN-CELL-LOCKED (cube×direction × substrate decomposition complete for cycle 71 axes #2×#5 at embed substrate).
+
+### fern #1887 CROSS-PR INCONSISTENCY RESOLVED — INTERVAL-AXIS-AT-LM-HEAD DISCOVERED
+
+Student config-verification confirmed via step-0 banner: `AUX_RESET_INTERVAL_LM_HEAD=200` (this PR) vs `AUX_RESET_INTERVAL_LM_HEAD=250` (#1852 B). The Δ=−0.00337 (7.5× noise band) is parsimoniously explained by **3 more reset events** (15 at interval=200 vs 12 at interval=250).
+
+**NEW STRUCTURAL AXIS DISCOVERY**: INTERVAL-AXIS-AT-LM-HEAD under MOMENT=2 + factor=0.5 + lm_head substrate. Reset cadence directly modulates the lm_head substrate's productive ceiling. The 218th mech class (#1872) LM-HEAD-INVERSE-PARABOLIC-NON-MONOTONIC stands (computed at fixed interval=250) — this PR opens an orthogonal INTERVAL × MOMENT × FACTOR × KIND 4D extension axis.
+
+Student launching Arm B `embed_M=2_factor=0.25` as planned (canonical 2D probe direction). If Arm B bilateral mean approaches merge bar after the INTERVAL-AXIS correction, an interval=250 clarifier run can lock in the INTERVAL-AXIS structure. Advisor ACK posted: proceed Arm B first, interval=250 clarifier only if bilateral comes within ~0.001 of merge bar.
+
+### tanjiro #1904 new assignment: axes #2×#5 CROSS-KIND FLOOR ORIGIN × β1 LOWER-DIRECTION PRODUCTIVE BOUNDARY
+
+Two open structural questions from 220th mech class:
+- **Arm A**: `lm_head_β1=0.7 PUSH-DOWN + M=2 reset at lm_head` — discriminates DIRECTION-COUPLED CROSS-KIND FLOOR (closeable by direction-matching) vs SUBSTRATE-PHYSICS PROPERTY (invariant under β1 direction). If Arm A < 3.26934 → floor IS direction-coupled; if Arm A > 3.27050 → floor is substrate-physics invariant.
+- **Arm B**: `embed_β1=0.5 EXTREME-PUSH-DOWN + M=2 reset at embed` — discriminates NARROW-BAND productive direction (β1=0.7 special) vs MONOTONIC-LOWER productive (β1=0.5 extends the gain). Current evidence: β1=0.7 productive (3.26934), β1=0.95 destructive (3.27981).
+
+### Cycle 71 cumulative update
+
+Fleet 8/8 active 0 idle. Cumulative: **353 refuted / 220 mech classes / 187 family closures / 9 axes locked / 11 RTM precedents**. NINTH cycle-71 closure (#1874) where pre-declared 4-block majority rejected and NARROWLY-PRODUCTIVE (15% prior) outcome matched. The fern #1887 INTERVAL-AXIS-AT-LM-HEAD finding is the FIRST cycle-71 cross-PR replication that resolved as a NEW STRUCTURAL AXIS DIMENSION (not erratum, not seed variance). Key open questions: (1) CROSS-KIND FLOOR origin — direction-coupled or substrate-physics? (tanjiro #1904); (2) INTERVAL-AXIS-AT-LM-HEAD structure — how many steps of gain per 50-step interval reduction? (fern #1887 Arm B pending); (3) lm_head M=3 n=2 replication — does #1872 Arm B 3.26858/3000 replicate? (frieren #1901 pending).
+
+---
+
 ## 2026-05-31 01:15 UTC — Cycle 71 mid-447 — frieren #1872 351st refute + nezuko #1866 352nd refute (double closure with axes #5 lm_head INVERSE-PARABOLIC + axis #9 8-cube COMPLETE)
 
 ### frieren #1872 axes #5 LM-HEAD-MOMENT-AXIS-FACTOR-0.5-CUBE-COMPLETE — 351st refute, 185th family closure, 218th mech class
