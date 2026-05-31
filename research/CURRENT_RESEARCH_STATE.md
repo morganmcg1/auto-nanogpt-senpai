@@ -1,3 +1,31 @@
+## 2026-05-31 21:26 UTC — Cycle 71 mid-484 — MILESTONE: ALL cycle-71 candidate carrier verifications CLOSED / floor band STRUCTURALLY LOCKED — thorfinn #1997 387th refute 257th mech class INVERTED-ASYMMETRY-β1-DISPATCH-RTM-CONFIRMED-AT-FLOOR-BAND-EDGE (n=2 mean 3.27116 / Arm A `h0obsnkn` 3.27118 Arm B `tbomxhct` 3.27114 spread 0.00004 — TIGHTEST cross-arm Δ of cycle-71; drift +0.00142 from #1967 single-seed — LARGEST in RTM cohort; 10th and FINAL cycle-71 candidate carrier verification; 25th RTM precedent; RTM-PERSISTENT rate 11/12 = 91.7%; floor band [3.27000, 3.27200] now STRUCTURALLY LOCKED) + thorfinn #2021 new assignment (TRIPLE-COMPOUND-MLP-SOAP-FRONT-FAST-×-PER-KIND-β1-JOINT-COHERENT-×-EMBED-RESET: all 3 RTM carriers active simultaneously; 25% TRIPLE-RTM-ADDITIVE ~3.27015-3.27050 / 25% TRIPLE-PRODUCTIVE-DESCENT ~3.26900-3.27000 / 20% TRIPLE-DESTRUCTIVE >3.27100 / 20% TRIPLE-STRONG-PRODUCTIVE <3.26900 / 10% TRIPLE-MERGE-CANDIDATE <3.26776). No human issues. Fleet 8/8 active 0 idle. Cumulative **387 refuted / 257 mech classes / 213 family closures / 9 axes locked / 25 RTM precedents / 13 pod-stability observations** (RTM-PERSISTENT-AT-N=11/12 = 91.7%; ZERO n=2 carrier-verifications still pending).
+
+### thorfinn #1997 bilateral terminal — 387th refute / 257th mech class INVERTED-ASYMMETRY-β1-DISPATCH-RTM-CONFIRMED-AT-FLOOR-BAND-EDGE / 25th RTM precedent
+
+**Bilateral terminal**: Arm A `h0obsnkn` SEED=1 val=**3.27118**/3025; Arm B `tbomxhct` SEED=2 val=**3.27114**/3025. n=2 mean **3.27116** (spread 0.00004 — TIGHTEST cross-arm Δ of all cycle-71 verifications). Δ vs predecessor n=1 #1967 3.26974 = **+0.00142** (drift — LARGEST in RTM cohort; confirms #1967 was a strong favorable outlier; inverted-asymmetry-β1 genuinely sits at floor-band-EDGE not floor-band-middle).
+
+**MILESTONE — ALL cycle-71 candidate carrier n=2 verifications CLOSED** (10/10):
+
+| # | candidate | verifier | n=2 mean | RTM-CONFIRMED? |
+|---|---|---|---|---|
+| 8 | k+proj dual-pair bitfield=5 | edward #1982 | 3.272145 | ✓ (RTM-band-upper-edge) |
+| 9 | cross-substrate-compound f=0.5 | fern #1991 | 3.27036 | ✓ (floor band) |
+| 10 | inverted-asymmetry β1=0.6/0.7/0.6 | **thorfinn #1997 (THIS PR)** | **3.27116** | **✓ (floor-band-edge)** |
+
+RTM-PERSISTENT rate: **11/12 = 91.7%** (was 10/11 = 91%). Floor band [3.27000, 3.27200] now **STRUCTURALLY LOCKED** — productive direction below floor MUST come from NOVEL COMPOUNDS or HIGHER-ABSTRACTION MECHANISMS.
+
+### thorfinn #2021 new assignment — TRIPLE-COMPOUND probe (3-way carrier composition)
+
+First 3-way compound probe of cycle 71. Combines simultaneously: **MLP-SOAP per-depth-half front_FAST** (18th RTM at 3.27018) + **per-kind β1 JOINT-COHERENT-DISPATCH** embed=0.8/lm_head=0.7/scalars=0.8 (19th RTM at 3.27015) + **per-substrate embed-only reset** i=200/m=2/f=0.25 (14th RTM at 3.27023). Natural 3-way extension of in-flight pair compounds askeladd #2007 (MLP-SOAP × β1) and alphonse #2008 (β1 × embed-reset). Tests 3-way interaction surface: 25% TRIPLE-RTM-ADDITIVE (carriers independent at floor), 25% TRIPLE-PRODUCTIVE-DESCENT (multi-carrier synergy below floor), 20% TRIPLE-DESTRUCTIVE (compound collision), 20% TRIPLE-STRONG-PRODUCTIVE (<3.26900 — first sub-3.269 cell of cycle 71), 10% TRIPLE-MERGE-CANDIDATE (<3.26776).
+
+If TRIPLE-PRODUCTIVE-DESCENT or stronger → 3-way carrier compounds open as the productive direction for cycle 71. If TRIPLE-RTM-ADDITIVE → carriers are floor-band-independent; must seek higher-abstraction mechanisms.
+
+### Fleet status — 8/8 active 0 idle
+
+After thorfinn #1997 close + thorfinn #2021 assignment: g1r2-{tanjiro #2001, askeladd #2007, alphonse #2008, edward #2004, fern #2013, frieren #1999, nezuko #2016, thorfinn #2021} all WIP. Cumulative **387 refuted / 257 distinct mech classes / 213 family closures / 9 structural axes locked / 25 RTM precedents / 13 pod-stability observations** (RTM-PERSISTENT-AT-N=11/12 = 91.7%; **ZERO n=2 carrier-verifications still pending** — floor band STRUCTURALLY LOCKED).
+
+---
+
 ## 2026-05-31 20:36 UTC — Cycle 71 mid-483 — nezuko #2010 13th pod-stability observation F-AXIS-POD-STABILITY-UNDER-CROSS-SUBSTRATE-MIRROR-M-IS-ASYMMETRY-SENSITIVE-NOT-DIRECTION-SENSITIVE (bilateral n=2 NaN step 125 pre-event; MIRROR direction embed-STRONG-f=0.5 + lm_head-WEAK-f=0.125 fails IDENTICALLY to forward direction #2005; both factor-4× directions destabilize cross-substrate compound at MIRROR-INVERTED-M-optimum; SYMMETRY-PROTECTION established at factor-4× scale; NOT counted as refute) + nezuko #2016 new assignment (F-AXIS-ASYMMETRY-THRESHOLD-AT-FACTOR-2× probe: embed-f=0.25 + lm_head-f=0.5; 45% STABLE-AT-FACTOR-2× 30% NaN-STRICT-SYMMETRY-PROTECTION 10% SPLIT 10% PRODUCTIVE 5% MERGE). No human issues. Fleet 8/8 active 0 idle. Cumulative **386 refuted / 256 mech classes / 212 family closures / 9 axes / 24 RTM precedents / 13 pod-stability observations** (RTM-PERSISTENT-AT-N=10/11 = 91%; ONE n=2 verification still pending: thorfinn #1997 inverted-asymmetry).
 
 ### nezuko #2010 bilateral terminal — 13th pod-stability observation / F-AXIS-ASYMMETRY-SENSITIVE confirmed
