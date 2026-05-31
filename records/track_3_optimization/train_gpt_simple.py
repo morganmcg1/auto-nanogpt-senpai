@@ -84,6 +84,10 @@ def parse_args():
     parser.add_argument('--aux_b2_pulse_target', type=float, default=0.99,
                         help='New aux Adam β2 value to set at --aux_b2_pulse_step. '
                              '0 or negative disables. Default: 0.99 (canonical WIN).')
+    parser.add_argument('--body_muon_wd_pulse_step', type=int, default=-1,
+                        help='Step at which to persistently change body PMuon weight_decay. -1 disables.')
+    parser.add_argument('--body_muon_wd_pulse_target', type=float, default=-1.0,
+                        help='New body PMuon wd value from the pulse step onward (no revert). 0.0 for RELAX, 0.05 for DEEPEN.')
     parser.add_argument("--seed", type=int, default=1,
                         help="Random seed for torch/numpy/python. Default 1 matches baseline seed.")
     args = parser.parse_args()
@@ -765,6 +769,8 @@ if dist.get_rank() == 0:
             "paramema_refresh_only": int(args.paramema_refresh_only),
             "aux_b2_pulse_step": args.aux_b2_pulse_step,
             "aux_b2_pulse_target": args.aux_b2_pulse_target,
+            "body_muon_wd_pulse_step": args.body_muon_wd_pulse_step,
+            "body_muon_wd_pulse_target": args.body_muon_wd_pulse_target,
             "seed": args.seed,
         },
     )
@@ -1071,6 +1077,14 @@ for trial_idx in range(args.num_trials):
                 group["betas"] = new_betas
             print0(f"[step {step}] aux_b2_pulse: β2 {old_b2} → {args.aux_b2_pulse_target}",
                    console=True)
+        if (args.body_muon_wd_pulse_step > 0
+                and args.body_muon_wd_pulse_target >= 0.0
+                and step == args.body_muon_wd_pulse_step):
+            old_wd = optimizer2.param_groups[0]["weight_decay"]
+            for g in optimizer2.param_groups:
+                g["weight_decay"] = args.body_muon_wd_pulse_target
+            print0(f"[step {step}] body_muon_wd_pulse: wd {old_wd} -> {args.body_muon_wd_pulse_target}",
+                   console=True)
         for opt in optimizers:
             opt.step()
         # EMA buffer update on body-Muon matrix params.
@@ -1189,6 +1203,12 @@ for trial_idx in range(args.num_trials):
                 "aux_b2/fired": int(args.aux_b2_pulse_step > 0
                                     and args.aux_b2_pulse_target > 0.0
                                     and step >= args.aux_b2_pulse_step),
+                "body_muon_wd/current": optimizer2.param_groups[0]["weight_decay"],
+                "body_muon_wd/pulse_step": args.body_muon_wd_pulse_step,
+                "body_muon_wd/pulse_target": args.body_muon_wd_pulse_target,
+                "body_muon_wd/fired": int(args.body_muon_wd_pulse_step > 0
+                                          and args.body_muon_wd_pulse_target >= 0.0
+                                          and step >= args.body_muon_wd_pulse_step),
             }, step=wandb_step)
         if dist.get_rank() == 0 and (train_step % 100 == 0 or train_step == train_steps):
             spec = pmuon_spectral_diag(optimizer2, PMUON_GAMMA)
