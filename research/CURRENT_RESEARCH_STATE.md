@@ -1,3 +1,37 @@
+## Cycle ~2250: AUDIT-TRAIL cycle — H316 tanjiro stale_wip refresh (PR #1878, arm_a CTRL `v7f2xskd` FINISHED val=3.2685 FFS=3025 +0.36σ TIE H266, arm_b RAMP_TO_0p0 `7ctwznxj` FINISHED val=3.2726 FFS=3025 +5.0σ NEG TIE arm_a CTRL exactly, arm_c RAMP_TO_0p35 `fnz49gfm` running ~32% step 1050/3325, chain healthy ETA ~04:50Z), zero new closures, 8 mechanism axes in flight, 0 idle students, 0 review-ready
+
+**Audit-trail-only cycle: H316 tanjiro chain progressing normally — label-timestamp refresh only.** Two of three arms terminal (arm_a CTRL + arm_b RAMP_TO_0p0), arm_c RAMP_TO_0p35 still mid-training. Plateau campaign portfolio unchanged: 169 NULL/NEG + 1 MERGED WIN (H266), 104 mechanism classes consolidated.
+
+### Stale_wip refreshes posted this cycle
+
+**H316 tanjiro PR #1878 (OUTER LR cooldown SCHEDULE, 104th mechanism class candidate — FIRST OUTER STEP attack on paper-grade convergent cooldown wash-out)** — prior 00:55Z audit established arm_a CTRL FINISHED clean replicate of H266 baseline. Since then, arm_b RAMP_TO_0p0 FINISHED at val=3.2726 (+5.0σ NEG vs H266), FFS=3025 (TIES arm_a CTRL EXACTLY — no FFS improvement from full ramp to outer_lr=0.0 over last 499 steps). arm_c RAMP_TO_0p35 (partial ramp) at step 1050 (~32%), pre-ramp phase outer_lr_t=0.700 IDENTICAL to CTRL through step 2825. Drift-FREE plumbing CONFIRMED (step-0 val=10.82583 EXACT all 3 arms). Refresh posted: arm_b terminal numbers, arm_c trajectory, updated ETAs (~04:47Z arm_c terminal, ~04:50Z SENPAI-RESULT), no action requested.
+
+### Mechanism preview pending arm_c
+
+If arm_c FFS=3025 TIE arm_a CTRL → FOURTH ORTHOGONAL-MECHANISM confirmation of H306+H307+H308 paper-grade convergent "cooldown wash-out attractor" (outer-step cooldown ramp added to inner-LR, μ, and post-NS5 noise dimensions). If arm_c instead clears FFS<3000 with partial ramp depth (between 0.0 and 0.35) it would be a meaningful within-ramp-shape discovery worth chasing into a partial-ramp dose-response cube.
+
+### In-flight WIP cluster (8 of 8 students, post-cycle-2250)
+
+| Student | PR | Hypothesis | Status |
+|---------|----|-----------|----|
+| tanjiro | #1878 | H316 OUTER LR cooldown SCHEDULE | **WIP: arm_a + arm_b TERMINAL (both FFS=3025), arm_c at ~32% (ETA ~04:47Z)** |
+| frieren | #1882 | H317 AUX β2 mid-training ramp UP AMPLIFIED | WIP arm_a finished val=3.2691 FFS=3025 (+1.04σ TIE), arm_b RUNNING |
+| alphonse | #1889 | H318 OUTER MOMENTUM cooldown SCHEDULE | WIP in-flight |
+| askeladd | #1890 | H319 AUX β1 mid-training schedule | WIP in-flight |
+| edward | #1892 | H320 OUTER anchor refresh policy (102nd virgin) | WIP arm_a CTRL running, treatment arms MISSING (cycle ~2150 nudge pending) |
+| fern | #1896 | H321 schedule-tapered adaptive μ (α-suppression cooldown, 25-30% top WIN) | WIP arm_a CTRL ~92%, treatment arms MISSING (cycle ~2200 nudge pending) |
+| nezuko | #1905 | H322 body weight orthogonality regularizer (104th virgin) | WIP in-flight |
+| thorfinn | #1906 | H323 μ_end low sustained on post-H266 stack (105th candidate) | WIP in-flight |
+
+### Notes
+
+- 8 of 8 students active. Zero idle GPUs.
+- Issue #1260: no new human messages since 2026-05-29 advisor status update.
+- Next imminent decision points: H321 arm_a CTRL ~92% almost terminal (no impact since treatment arms missing); H320 arm_a CTRL ~30 min terminal ETA; H316 arm_c terminal ETA ~04:47Z; H317 arm_b AMPLIFIED ETA ~12:00Z.
+- Audit-trail cycle: no closures or new assignments. Surveillance + arm_b terminal update only.
+
+---
+
 ## Cycle ~2200: AUDIT-TRAIL cycle — H321 fern stale_wip nudge (PR #1896, only arm_a CTRL `rjn6drqg` running ~92% step 3060/3325 step-0=10.82583 EXACT target crossed step 3000 FFS=3000 likely TIE, arm_b LINEAR_TAPER + arm_c STEP_OFF_COOLDOWN MISSING from W&B, branch has ZERO code commits beyond assignment — α-schedule code not landed yet, zero PR comments), 2 consecutive cycles of treatment-plumbing-gap nudges (H320 #1892 cycle ~2150 + H321 #1896 cycle ~2200) → emerging student-side under-launch pattern
 
 **Audit-trail-only cycle: H321 fern flagged. Second consecutive cycle of treatment-arm-MISSING nudges (H320 edward → H321 fern). PATTERN OBSERVATION: 2 of 8 in-flight students have only-CTRL-running with zero plumbing comments after ~2h.** Plateau campaign portfolio unchanged: 169 NULL/NEG + 1 MERGED WIN (H266), 104 mechanism classes consolidated.
