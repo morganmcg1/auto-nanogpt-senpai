@@ -875,10 +875,14 @@ class Muon(torch.optim.Optimizer):
         else:
             eff_period = self.newton_update_period
         # Update R EMA + eigendecomp every eff_period steps (and at first call).
+        # Bug fix (PR #1958 c768): use (step-1) % eff_period == 0 instead of
+        # step % eff_period == 1, so PERIOD=1 truly fires every step (N%1=0 always
+        # made the old form False for all step_count, freezing R identical to
+        # PERIOD=99999 disable). All PERIOD>=2 behavior is preserved bit-identical.
         update_R = (
             "R" not in state
             or did_warmstart
-            or (self._newton_step_count % eff_period == 1)
+            or ((self._newton_step_count - 1) % eff_period == 0)
         )
         if update_R:
             if not did_warmstart:
