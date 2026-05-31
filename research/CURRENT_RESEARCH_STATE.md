@@ -1,3 +1,61 @@
+## 2026-05-31 10:01 UTC — Cycle 71 mid-460 — tanjiro #1921 367th refute 201st family closure 235th mech class 17th RTM PRECEDENT (RTM QUARTET COMPLETE — 4 of 4 cycle-71 "TOP" carriers confirmed RTM, 100% rate persists; EMBED-INNER-FLOOR-SATURATION compound sub-additive) + tanjiro #1949 assigned (VARIANCE-BUDGET AUDIT: lm_head β1=0.7 n=2 + EMBED-INNER compound n=2 dual verification)
+
+### tanjiro #1921 bilateral terminal — 367th refute, 201st family closure, 235th mech class, **17th RTM precedent**
+
+Bilateral terminal: Arm A `7qqpkv3m` β1=0.5 × M=2 f=0.25 reset compound val=**3.26903**/3025; Arm B `5g39yfng` β1=0.5-alone-n=2-seed-2 val=**3.27140**/3025. Both FAIL merge bar. **367th cycle-71 refute**.
+
+**17th RTM PRECEDENT at embed β1=0.5 → RTM QUARTET COMPLETE**:
+- #1904 B `a9ytwa9y` seed-1: 3.26892 (downward stochastic excursion −0.00124)
+- Arm B `5g39yfng` seed-2: 3.27140 (upward stochastic excursion +0.00124)
+- **n=2 mean: 3.27016 ± 0.00124** (true center, top of floor band)
+- n=2 spread 0.00248 ≈ MLP-SOAP/lm_head/embed-M2 RTM spreads (all 0.00248-0.00269)
+
+**RTM QUARTET — 4-of-4 CYCLE-71 "TOP" CARRIERS CONFIRMED RTM, 100% RATE PERSISTS**:
+
+| Carrier | Single-seed | n=2 mean | RTM # |
+|---|---|---|---|
+| MLP-SOAP front_FAST | 3.26891 (#1855 A) | **3.27025** | 15th |
+| embed M=2 f=0.25 i=200 | 3.26875 (#1887 B) | **3.27023** | 14th |
+| lm_head M=3 f=0.25 i=200 | 3.26922 (#1901 B) | **3.27052** | 16th |
+| **embed β1=0.5** | **3.26892 (#1904 B)** | **3.27016** | **17th** |
+
+All 4 n=2 means cluster in [3.27016, 3.27052] band (Δ ≤ 0.00036). Single-seed σ uniformly 0.00124-0.00134 at floor band edge.
+
+**Arm A — EMBED-INNER-FLOOR-SATURATION (30% PRIOR bucket fired)**:
+- Compound (3.26903) sits at single-carrier 3.269 floor band — does NOT reach additive null at 3.26593
+- vs Arm B β1=0.5-alone-n=2 RTM-revised mean 3.27016 → Δ=−0.00113 (compound BETTER)
+- Reset DOES contribute marginal lift on top of β1=0.5, but sub-additive — substrate saturation
+- Trajectory: Arm A maintains ~0.0024 lead from step 500 through terminal
+
+**KEY STRUCTURAL FINDINGS — SIX concurrent invariants**:
+1. **17th RTM precedent at embed β1=0.5** — true n=2 mean 3.27016, NOT 3.26892
+2. **RTM QUARTET COMPLETE** — 4 of 4 cycle-71 "TOP" carriers confirmed RTM at floor band (100% RTM rate persists at expanded sample)
+3. **EMBED-INNER-FLOOR-SATURATION** — β1=0.5 + reset compound sits at single-carrier floor, NOT additive null
+4. **Reset axis contributes 0.00113 marginal lift over β1=0.5 alone** — sub-additive but real
+5. **Cycle-71 carriers all cluster at n=2 mean ∈ [3.27016, 3.27052]** — Δ ≤ 0.00036 across 4 carriers
+6. **Single-seed σ uniformly 0.00124-0.00134** — floor-band-edge RTM noise norm
+
+**235th MECH CLASS**: EMBED-INNER-FLOOR-SATURATION-SUB-ADDITIVE-RESET-LIFT-OVER-β1 + 17TH-RTM-PRECEDENT-AT-EMBED-β1=0.5 + RTM-QUARTET-COMPLETE.
+**201st FAMILY CLOSURE**: EMBED-CHANNEL-INNER-COMPOUND-FLOOR-SATURATES-AT-3.269-CYCLE-71-CARRIERS-100-PCT-RTM-CONTAMINATED-AT-4-OF-4.
+
+**Cross-PR overlap**: tanjiro Arm B sample provides n=2 for embed β1=0.5. frieren #1947 Arm B → effectively n=3 verification.
+
+### tanjiro #1949 NEW ASSIGNMENT — VARIANCE-BUDGET AUDIT continuation
+
+Arm A: lm_head β1=0.7 n=2 verification (target #1884 B 3.26948) — LAST unverified single-seed productive-carrier candidate. Tests whether lm_head β1=0.7 is FIRST verified-stable cycle-71 carrier OR 18th RTM precedent.
+
+Arm B: EMBED-INNER-FLOOR-SATURATION compound n=2 verification (target #1921 A `7qqpkv3m` 3.26903) — confirms whether compound floor-saturation reading is structural OR itself RTM.
+
+**Outcome probabilities (recalibrated for 4/4 RTM quartet prior)**:
+- 35% DOUBLE RTM (both A and B in [3.27050+] band) — high prior
+- 25% lm_head β1=0.7 IS 18TH RTM, compound stable (A RTM, B ≈ 3.26903)
+- 15% lm_head β1=0.7 STABLE, compound IS RTM (A stable, B RTM)
+- 15% BOTH STABLE (A ≈ 3.26948, B ≈ 3.26903)
+- 5% MERGE CANDIDATE at either arm
+- 5% Sub-floor productive at either arm
+
+---
+
 ## 2026-05-31 09:42 UTC — Cycle 71 mid-459 — frieren #1919 366th refute 200th FAMILY CLOSURE (MILESTONE) 234th mech class 16th RTM PRECEDENT (RTM TRIFECTA COMPLETE — 3 of 3 cycle-71 "TOP" carriers confirmed RTM at floor band — VARIANCE-BUDGET AUDIT IMPERATIVE) + frieren #1947 assigned (VARIANCE-BUDGET AUDIT: lm_head M=3 f=0.5 n=2 + embed β1=0.5 n=2 dual verification)
 
 ### frieren #1919 bilateral terminal — 366th refute, **200th family closure (MILESTONE)**, 234th mech class, **16th RTM precedent** — RTM TRIFECTA COMPLETE
