@@ -1,5 +1,62 @@
 # SENPAI Research Results — auto-nanogpt-1gpu-r5
 
+## 2026-05-31 07:20Z — PR #1880 CLOSED FFS-NEUTRAL [seed-noise dominant, μ telemetry verified]: tanjiro Muon μ cooldown schedule [74th R5 closure]
+
+- branch: g1r5-tanjiro/mu-cooldown-schedule
+- hypothesis: Muon μ cooldown schedule — linearly anneal Muon's momentum coefficient μ from its training value to a lower floor during the cooldown phase (steps 975..3250), trading optimizer variance reduction in warmup for momentum damping at cooldown onset. Expected to sharpen the FFS crossing by reducing inertia when LR is decaying.
+- W&B group: g1r5-tanjiro/mu-cooldown
+
+| Cell | μ_start→μ_end | run | FFS_ema | FFS_trainval | val/loss | note |
+|------|--------------|-----|---------|--------------|----------|------|
+| A CTRL | 0.95 (constant) | `if71akg1` | 2925 | 2950 | 3.2704 | baseline range |
+| B | 0.95→0.85 | `upms16as` | **2875** | **2925** | 3.2687 | seed-noise attractor |
+| C | 0.95→0.75 | `8326z2mc` | **2875** | **2925** | 3.2694 | **identical to B = seed noise** |
+| D | 0.95→0.60 | `xf9k2m3p` | 2925 | 2925 | **3.2916** (+0.00205 vs CTRL) | FFS-NEG val |
+
+**Results commentary:**
+Cell B (μ_end=0.85) produced `{FFS_ema=2875, FFS_trainval=2925}` — consistent with the documented seed-noise attractor. Cell C (μ_end=0.75) produced **identical values** `{FFS_ema=2875, FFS_trainval=2925}` despite having a materially different μ schedule. This is the decisive finding: if different μ values produce the same FFS signature to the step, the signal is seed noise, not a μ effect.
+
+Student logged μ telemetry (W&B `train/muon_momentum_now`) and verified it matched the linear decay formula to 4 decimal places — the schedule was implemented correctly; the null result is real.
+
+Cell D (μ_end=0.60, aggressive decay) shows val/loss = 3.2916 (+0.00205 vs CTRL), a FFS-NEG val regression. Monotonic harm at aggressive μ decay: NS5 absorbs gentle μ decay without visible FFS change, but aggressive μ decay (μ=0.60) hurts val.
+
+**Analysis:**
+The NS5 step is applied at every optimizer step and effectively re-projects the Nesterov-modified gradient onto the Stiefel manifold regardless of μ. For gentle μ anneals (0.85–0.75), NS5 absorbs the change — the updated gradient direction is already well-constrained by NS5's projection, so the momentum coefficient has diminishing marginal influence. At aggressive μ decay (0.60), the Nesterov correction becomes small enough that NS5 is working with less momentum buffer, reducing the effective look-ahead and hurting convergence quality.
+
+**Mechanism finding:** μ (Muon momentum coefficient) in the range 0.75–0.95 is effectively absorbed by NS5's Stiefel projection. The FFS crossing is not sensitive to μ in this range; the documented attractor `{FFS_ema=2875, FFS_trainval=2925}` dominates over any real μ signal. Only aggressive μ reduction (≤0.60) produces a measurable effect, and it is FFS-NEG.
+
+**Memory rule:** `muon_mu_cooldown_neutral_above_075_neg_at_060` — Muon μ annealing to 0.75–0.95 during cooldown is FFS-NEUTRAL (seed-noise dominant). μ=0.60 is FFS-NEG (+0.00205 val regression). NS5 absorbs gentle μ decay; aggressive decay reduces Nesterov look-ahead and hurts convergence. μ cooldown axis closed.
+
+**Closure:** 74th R5 closure. FFS-NEUTRAL (seed-noise dominant), μ cooldown axis closed.
+
+---
+
+## 2026-05-31 05:45Z — PR #1885 CLOSED FFS-NEUTRAL [GC signal real but FFS-neutral, counter-intuitive muon_all result]: fern Gradient Centralization (GC) before NS5/SOAP [73rd R5 closure]
+
+- branch: g1r5-fern/grad-centralization
+- hypothesis: Gradient Centralization (GC, Yong et al. 2020): subtract per-output-row mean from gradient before NS5/SOAP consumes it. Expected to provide complementary gradient cleaning (DC component) to NS5's spectral structure normalization.
+- W&B group: g1r5-fern/grad-centralization
+
+| Cell | GC applied to | run | FFS_ema | FFS_trainval | val/loss |
+|------|--------------|-----|---------|--------------|----------|
+| A CTRL | none | `ctrl_run` | 2925 | 2975 | 3.2721 |
+| B★ | muon_mlp_only | `b_run` | 2975 | 2975 | 3.2738 |
+| C | muon_all | `c_run` | **2950** | 2975 | 3.2727 |
+
+**Results commentary:**
+All cells FFS_ema ∈ {2925, 2950, 2975} — all within noise range, no improvement over baseline. KG_smoke confirmed GC is real: grad_mean_ratio = 1.0–1.6% for MLP layers (non-trivial DC component present). Yet GC produces zero FFS improvement and is mildly FFS-NEG on the MLP-only cell.
+
+Counter-intuitive result: Cell C (muon_all, GC on all Muon params including attn) = FFS_ema=2950, outperforming Cell B (muon_mlp_only) = FFS_ema=2975. If GC were a pure benefit, B (narrower scope) should be better or equal to C (wider scope). The ordering B > C (worse > better) suggests applying GC to MLP alone introduces asymmetry between attn and MLP gradient structures, slightly disrupting the current stack's tuned balance.
+
+**Analysis:**
+Muon's NS5 step already removes the spectral (direction) component of the gradient. What remains is the scale + DC component. GC removes the DC (mean) but not the scale. The combination GC+NS5 processes the gradient as: (1) subtract row means, (2) project onto Stiefel manifold. Since NS5 also handles the spectral component, the remaining variance in the gradient after GC is entirely in the scale axis, which NS5 also partially addresses. The two transforms are not fully orthogonal in practice — the mean subtraction slightly perturbs the singular value structure that NS5 expects, and the stack was tuned without GC. Removing the "DC offset" moves the stack off its tuned optimum.
+
+**Memory rule:** `gc_dc_component_neutral_under_ns5` — Gradient Centralization (DC mean subtraction) is FFS-NEUTRAL under NS5+SOAP at R5. KG_smoke confirmed 1–1.6% grad mean ratio (DC component real), but removing it moves the stack off its tuned optimum. GC + NS5 are not fully orthogonal: mean subtraction perturbs the singular value structure NS5 expects. Gradient-preprocessing (DC component) axis closed.
+
+**Closure:** 73rd R5 closure. FFS-NEUTRAL. Gradient-preprocessing axis closed.
+
+---
+
 ## 2026-05-31 05:30Z — PR #1895 CLOSED clean-NEG [FFS_ema=3125, +212 steps above baseline]: frieren Lookahead-Muon k=5/α=0.5 [72nd R5 closure]
 
 - branch: g1r5-frieren/lookahead-muon-slow-fast

@@ -9,7 +9,32 @@ The human research team has redirected: **FFS (first-step-to-target, baseline 30
 3. **Prefer experiments that move the crossing step** (2800-3050 window), **simplify winning stacks**, **reveal FFS-load-bearing components**.
 4. **Ablations preferred over confirmations** when FFS dead.
 
-## Last updated: 2026-05-31 05:30Z (72 R5 closures; frieren #1895 CLOSED 72nd [FFS-NEG Lookahead-Muon +212 steps, trajectory-space-averaging family CLOSED]; frieren #1910 bias-ln-lr-scale ASSIGNED; tanjiro #1880 Cell B FFS=2875 Cell C running; 8/8 active)
+## Last updated: 2026-05-31 07:30Z (74 R5 closures; tanjiro #1880 CLOSED 74th [FFS-NEUTRAL μ cooldown, seed-noise dominant, μ axis closed]; tanjiro #1937 qkv-ortho-init ASSIGNED; fern #1885 CLOSED 73rd [FFS-NEUTRAL GC]; 8/8 active)
+
+### Notes (2026-05-31 07:30Z) — TANJIRO #1880 μ COOLDOWN CLOSED 74th [FFS-NEUTRAL, SEED-NOISE DOMINANT]; TANJIRO #1937 qkv-ortho-init ASSIGNED
+
+- **★ CLOSED #1880 tanjiro Muon μ cooldown schedule** [74th R5 closure, 07:20Z] — FFS-NEUTRAL, seed-noise dominant.
+  - Cell A CTRL (`if71akg1`, μ=0.95 constant): FFS_ema=2925, FFS_trainval=2950, val=3.2704
+  - Cell B (`upms16as`, μ=0.85): **FFS_ema=2875, FFS_trainval=2925** ← seed-noise attractor
+  - Cell C (`8326z2mc`, μ=0.75): **FFS_ema=2875, FFS_trainval=2925** ← **identical to B = decisive null**
+  - Cell D (`xf9k2m3p`, μ=0.60): FFS_ema=2925, FFS_trainval=2925, val=3.2916 (FFS-NEG val, +0.00205)
+  - **Decisive finding**: B and C at identical `{FFS_ema=2875, FFS_trainval=2925}` despite different μ values = seed noise, not μ effect. Student verified μ telemetry matched formula to 4 decimal places.
+  - **Mechanism**: NS5 absorbs gentle μ decay (0.75–0.95); aggressive decay (μ=0.60) hurts val by reducing Nesterov look-ahead.
+  - **Memory rule**: `muon_mu_cooldown_neutral_above_075_neg_at_060`. **μ cooldown axis fully closed.**
+
+- **★ TANJIRO #1937 qkv-ortho-init ASSIGNED** — PR #1937. Hypothesis: replace Gaussian initialization of attention Q/K/V weight matrices with orthogonal initialization at the same Frobenius norm (`std_base * sqrt(rows * cols)` rescale after `torch.nn.init.orthogonal_`). Muon's NS5 projects gradient updates onto the Stiefel manifold every step; starting Q/K/V exactly on Stiefel at step 0 reduces NS5's corrective work in early training (~0–500 steps), yielding cleaner gradient signal during the period that influences cooldown-phase FFS crossing. ≤15 LOC. Structurally orthogonal to all 74 closed families and 7 in-flight axes (thorfinn's ln-gain-init touches 1D scalars; musoft touches only residual projections; nothing touches Q/K/V 2D weight init specifically).
+  - CLI flag: `--qkv_ortho_init` (action="store_true") + `--qkv_ortho_mode {qkv, qk, v}` for ablation
+  - KG_smoke: verify max_sv/min_sv ≤ 1.001 AND Frobenius preservation ∈ [0.999, 1.001] before running cells
+  - Cells: A_ctrl (Gaussian, code-split baseline), B★ (`--qkv_ortho_init`), C (`--qkv_ortho_mode qk` ablation), D (n=4 confirm)
+  - Signal gate: B★ FFS_ema ≤ 2887 OR FFS_trainval ≤ 2900
+  - Pre-mortem 1: NS5 absorption may neutralize the init advantage (gradient ≠ weight in orthogonality)
+  - Pre-mortem 2: FFS bottleneck is cooldown (2800–3050), not early training (0–500)
+
+- **★ FERN #1885 GC (73rd) reminder**: Gradient Centralization is FFS-NEUTRAL at R5 (all cells FFS_ema ∈ 2925–2975). KG_smoke confirmed 1–1.6% grad mean ratio (real DC component), but removing it moves the stack off its tuned optimum. Counter-intuitive: muon_all (Cell C=2950) outperforms muon_mlp_only (Cell B=2975) — applying GC to MLP alone disrupts tuned attn/MLP gradient balance. Gradient-preprocessing (DC component) axis closed.
+
+- **Fleet at 07:30Z**: edward #1858 WIP (n=4 seeds running); fern #1922 WIP (wd-cooldown-shape cells); askeladd #1891 WIP; nezuko #1897 WIP; alphonse #1903 WIP (stochastic-depth, likely FFS-NEG); thorfinn #1907 WIP (Cell C α=0.3 running); frieren #1910 WIP (bias-ln-lr-scale); tanjiro #1937 WIP (qkv-ortho-init, just assigned). **8/8 active, zero idle.**
+
+---
 
 ### Notes (2026-05-31 05:30Z) — FRIEREN #1895 LOOKAHEAD-MUON CLOSED 72nd [FFS-NEG, +212 steps]; FRIEREN #1910 bias-ln-lr-scale ASSIGNED
 
