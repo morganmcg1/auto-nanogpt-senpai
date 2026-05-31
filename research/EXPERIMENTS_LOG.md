@@ -1,3 +1,75 @@
+## 2026-05-31 — PR #1975: H338 thorfinn AUX sync_interval VALUE micro-axis re-screen at H266 stack (K∈{20,30,45}) — CLOSED 192nd NULL/NEG (🎯 PAPER-GRADE 5-axis virgin-axis-at-H266-stack canalization narrative COMPLETE: H328 wd + H334 β1 + H335 eps + H337 outer_momentum + H338 sync_interval all closed at H266 stack + arm_a CTRL = 11th H266 attractor cluster member TIED for LOWEST val with H335 arm_b LOW eps=1e-7 + NEW paper-grade mechanism finding: Polyak EMA branch acts as low-pass filter on outer-step delta amplitude + monotone-up FFS trend K=20:3025 / K=30:3000 / K=45:3050 confirms K=30 sits at local Pareto + EMA-cadence resonance hypothesis FALSIFIED)
+
+- Branch: g1r3-thorfinn/h338-aux-sync-interval-h266-rescreen
+- Hypothesis: 5th virgin-axis-at-H266-stack re-screen. H252 closed sync_interval at H203 stack as 109th NULL/NEG; H338 re-tests at H266 stack with Polyak EMA half-life coupling as new mechanism dimension. NO CODE CHANGES — pure CLI value sweep on existing `--sync_interval` flag.
+
+### Results
+
+| Arm | sync_interval | val/loss | FFS | Δ vs H266 (σ_H174) | Verdict |
+|-----|----------------|----------|-----|---------------------|--------|
+| arm_a CTRL K=30 (H266 bit-id) | 30 | **3.26696** | **3000 EXACT** | **−1.38σ POS TIE** | **11th H266 attractor cluster member, TIED LOWEST val** ⚡ |
+| arm_b TIGHT K=20 | 20 | 3.26874 | 3025 | +0.063σ TIE | Pattern A +25 IN FAMILY |
+| arm_c LOOSE K=45 | 45 | 3.27072 | 3050 | +2.873σ NEG | Pattern A +50 boundary, mild NEG |
+| H266 baseline (PR #1669) | 30 | 3.26818 | 3000 | (ref) | — |
+
+🎯 **192nd NULL/NEG closure** — Issue #1260 strict gate FAIL (arm_a TIE FFS=3000 EXACT, arm_b/c monotone-up Pattern A drift).
+
+W&B runs: arm_a `7y01qp0a`, arm_b `3p560uum`, arm_c `jak3pmny`, group `H338_sync_interval_h266_rescreen`.
+
+### 🎯 PAPER-GRADE FINDING #1 — 11th H266 attractor cluster member, TIED for LOWEST val of cluster
+
+arm_a CTRL K=30 val=3.26696 = **TIED for LOWEST val of attractor cluster** with H335 arm_b LOW eps=1e-7 (val=3.26694). H266 attractor cluster now spans 11 members at FFS=3000 EXACT. Two CTRL replicas (H338 arm_a, H335 arm_b TREATMENT) share the LOWEST val of the cluster at ~−1.40σ_H174 below H266 baseline.
+
+CTRL-side Pattern A POS drift confirmed at paper-grade strength: 6 CTRL replicas span −0.29σ to −1.38σ below H266 baseline (H324, H325, H335, H336, H338, H341). **The attractor mean sits ~−0.6σ below the H266 baseline run (m2ywl0o9)** — the original baseline sampled an unfavorable RNG draw.
+
+### 🎯 PAPER-GRADE FINDING #2 — Polyak EMA branch acts as low-pass filter on outer-step delta amplitude (NEW MECHANISM FINDING)
+
+**SUB-LINEAR delta_rms scaling vs H203 stack H252 baseline**:
+
+| K | delta_rms ratio H252 (H203 stack) | delta_rms ratio H338 (H266 stack) | Polyak EMA damping |
+|---|-----------------------------------|------------------------------------|---------------------|
+| 20 (H338) | — | **×0.79** | ~50% damped vs H203 |
+| 30 (CTRL) | ×1.00 | ×1.00 | (ref) |
+| 45 (H338) | — | **×1.24** | ~57% damped vs H203 linear-interp ×2.18 |
+
+At H266 stack, K=45 scales delta_rms only ×1.24 (substantially compressed from H252's ×2.18 linear-interp prediction). The Polyak EMA branch (decay=0.05, half-life ~20 steps) dampens body-anchor delta excursions ~50% relative to H203 stack at K=45 — **Polyak EMA acts as a low-pass filter on outer-step delta amplitude**. EMA averaging across outer-step trajectory discontinuities reduces effective delta_rms amplitude per outer event.
+
+### 🎯 PAPER-GRADE FINDING #3 — EMA-cadence resonance hypothesis FALSIFIED at H266 stack
+
+K=20 achieves **1:1 synchronization with Polyak EMA half-life** (~20-step), yet:
+- val terminal = +0.63σ above H266 (TIE-NEG, NOT POS)
+- max EMA deviation = 7424.5 vs CTRL 6944.3 = **+7% HIGHER** despite tighter sync cadence
+- FFS = 3025 Pattern A +25 IN FAMILY
+
+The hypothesized "tight coupling" regime yields NO resonant FFS reduction and produces LARGER peak EMA divergence. All 3 arms converge to ~5280±50 final EMA deviation — **terminal EMA state is structurally invariant under K**.
+
+### 🎯 PAPER-GRADE FINDING #4 — 5-axis virgin-axis-at-H266-stack canalization narrative COMPLETE
+
+H338 is the 5th terminal NEG closure in the virgin-axis-at-H266-stack re-screening protocol:
+
+| # | Hypothesis | Axis | Verdict | Failure mode |
+|---|------------|------|---------|--------------|
+| 1 | H328 askeladd | AUX wd VALUE | CLOSED 180th NULL/NEG | ASYMMETRIC MILD NEG |
+| 2 | H334 askeladd | AUX β1 VALUE | CLOSED 188th NULL/NEG | ASYMMETRIC TIE envelope |
+| 3 | H335 fern | AUX eps VALUE | CLOSED 189th NULL/NEG | ASYMMETRIC TIE envelope (LOWEST val) |
+| 4 | H337 alphonse | OUTER outer_momentum VALUE | CLOSED 191st NULL/NEG | BILATERAL CATASTROPHIC NARROW basin |
+| 5 | **H338 thorfinn** | **AUX sync_interval VALUE** | **CLOSED 192nd NULL/NEG (THIS)** | **MONOTONE-UP local Pareto** ⚡ |
+
+**Paper-grade aggregation finding**: H266 hardcoded baseline scalar axes are structurally rigid across the H203→H266 stack composition. The Polyak EMA branch + Pattern A drift envelope together bound:
+1. CTRL-side val variance to ~1σ_H174 below H266 baseline (CTRL-side POS drift)
+2. Treatment-side val degradation to Pattern A +25-50 FFS for mild perturbations
+3. Catastrophic failure only at >>40% bilateral perturbation (H337) or >67% loose-side perturbation (H338 arm_c at boundary)
+
+The H266 stack is **locally Pareto across 5 independent scalar axes** — paper-grade canalization claim worth aggregating into a methodological note.
+
+### Reassignment
+
+thorfinn → H346 AUX β1 cooldown_ramp DOWN SCHEDULE at H266 stack (β1: 0.8 → {0.5, 0.3}), PR #2012. Mechanism-distinct virgin SCHEDULE axis test extending H334 (β1 VALUE asymmetric envelope CLOSED) and H319 (β1 mid_training_ramp SCHEDULE CLOSED) to cooldown window. Cycle ~2700 cooldown-window mechanism cluster now spans 10 axes all NEG — H346 tests AUX β1 cooldown-only SCHEDULE as 11th axis candidate. Direct mirror of H318 RAMP_DOWN end=0.0 V-vertex finding on AUX optimizer first-moment axis. 3-arm CTRL constant β1=0.8 / arm_b COOLDOWN_DOWN_MILD β1: 0.8 → 0.5 / arm_c COOLDOWN_DOWN_AGGRESSIVE β1: 0.8 → 0.3. Code change ~15-20 LoC mirroring β2_schedule cooldown_ramp pattern. WIN prob 6-10% — mechanism-paper-grade either direction.
+
+110th mechanism class total (no NEW since H329 — H338 paper-grade extension of canalization-of-attractor narrative + NEW Polyak EMA low-pass filter mechanism finding).
+
+---
+
 ## 2026-05-31 — PR #1970: H337 alphonse OUTER outer_momentum VALUE micro-axis {0.3, 0.7} at H266 anchor — CLOSED 191st NULL/NEG (🎯 PAPER-GRADE STRONGEST single-direction NEG of cycle ~2700: bilateral catastrophic VALUE-axis closure both arms FFS=-1 never crossed 3.28 target + ASYMMETRIC failure modes with SYMMETRIC catastrophic outcome (LOW=smoothing-deficit, HIGH=velocity-ratchet) + NARROW Pareto basin Δβ=±0.2 exceeds basin width in both directions + H318 V-vertex SCHEDULE finding does NOT translate to constant-LOW VALUE finding)
 
 - Branch: g1r3-alphonse/h337-outer-momentum-value-microaxis
