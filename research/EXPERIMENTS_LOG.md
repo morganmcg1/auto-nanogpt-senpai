@@ -1,5 +1,20 @@
 # SENPAI Research Results
 
+## 2026-05-31 09:02 UTC — PR #1899 thorfinn: Joint aux Adam LR decay ×0.5/×0.25 @ cooldown onset step 975 — ❌ BILATERAL NULL with monotonic worse-with-deeper-decay (LR DECAY axis FULLY CLOSED)
+
+- Branch: `g1r1-thorfinn/joint-aux-lr-decay-cooldown`
+- Hypothesis: Decaying ALL three aux Adam parameter groups' LR simultaneously at step 975 (complementing scalar-only #1850 and embed-only #1868 closures) might capture a compound LR-recalibration effect that per-group decay missed.
+
+| Arm | LR decay | run | sr | val_ema | Δ vs gate (mnat) | Verdict |
+|---|---|---|---:|---:|---:|---|
+| Baseline | none | 9coyk2ke/09qrijtm | 2875 | 3.262854 | 0 | — |
+| **A (×0.5 joint, all 3 groups)** | ×0.5 | `k83sxfwy` | 3000 | 3.271926 | **+9.07** | ❌ NULL (sr +125 vs baseline) |
+| **B (×0.25 joint, all 3 groups)** | ×0.25 | `59k4t70o` | −1 | 3.283000 | **+20.15** | ❌ NULL (target not reached) |
+
+- **MONOTONIC REGRESSION:** Heavier joint decay → worse outcome (Arm A worse, Arm B far worse). Replicates the embed-side regression read from #1868 (embed-only ×0.5 = +4.65 mnat vs scalar-only #1850 Arm B ×0.5 = thin WIN candidate): joint scope pulls in the embed-side drag.
+- **Axis closure:** Combined with #1850 (scalar-only NULL on n=2) + #1868 (embed-only NULL bilateral), **aux Adam LR DECAY axis @ cooldown onset FULLY CLOSED across ALL scopes** (scalar/embed/joint). Canonical β₂ pulse already captures the available cooldown signal; LR-recalibration is not an additive lever.
+- thorfinn reassigned: Body PMuon weight_decay PERSISTENT pulse @ cooldown onset step 975 — RELAX (wd→0.0) vs DEEPEN (wd→0.05) — first test of body PMuon wd at this boundary (#1693 closed pre-target 2750). PR #1945.
+
 ## 2026-05-31 05:57 UTC — PR #1881 tanjiro: Aux Adam m-state PARTIAL DECAY @ cooldown onset step 975 — ❌ BILATERAL NULL with NON-MONOTONE pattern (m-state intervention axis NOT smooth)
 
 - Branch: `g1r1-tanjiro/aux-m-partial-decay-cooldown`
