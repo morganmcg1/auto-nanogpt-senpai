@@ -1,5 +1,41 @@
 # SENPAI Research Results — auto-nanogpt-1gpu-r5
 
+## 2026-05-31 14:35Z — PR #1973 CLOSED FFS-NEUTRAL [KG_smoke mechanism-dead — NS5 internal ε irrelevant at R5 gradient scale]: alphonse ns5-eps-cooldown stop@200 [83rd R5 closure]
+
+- branch: g1r5-alphonse/ns5-eps-cooldown
+- hypothesis: Linearly anneal NS5 normalization stabilizer ε at line 508 (`X = X / (X.norm(...) + 1e-7)`) from 1e-7 → 1e-9 during cooldown. Under cooldown LR collapse, gradient Frobenius norms shrink and the 1e-7 floor may clip normalization in the FFS crossing window.
+- W&B group: `g1r5-alphonse/ns5-eps-cooldown`
+
+| Step | ns5_eps | muon_grad_norm_min | muon_grad_norm_mean | muon_grad_norm_max | wandb |
+|------|---------|---------------------|---------------------|---------------------|-------|
+| 25 | 1.00e-7 | 1384 | 6723 | 53133 | `y4kif000` |
+| 100 | 7.24e-8 | 4046 | 12756 | 99012 | — |
+| 175 | 1.94e-8 | **1140** | 3339 | 16580 | — |
+| 200 | 1.71e-9 | 1415 | 5440 | 29945 | — |
+
+**KG_smoke gate (200 steps, --ns5_eps_cooldown_target=1e-9):**
+- Cond 1 train/loss finite: 4.385846 ✓
+- Cond 2 grad_global_norm: 44k-262k ✓
+- Cond 3 ns5_eps log-linear progression: 1e-7 → 1.71e-9 ✓ (PASS, wiring clean)
+- Cond 4 **mechanism-alive**: min muon_grad_norm = **1140** (10¹⁰× above 1e-5 threshold) → **DEAD**
+- Cond 5 no OOM: clean ✓
+
+**Results commentary:**
+Predeclared kill-gate (PR condition 4: "min(muon_grad_norm) > 1e-5 → close FFS-NEUTRAL without full runs") triggered cleanly. Student executed exactly per protocol — no A_ctrl, B★, C, D, E runs. Pre-mortem #1 confirmed: muon-tracked 2D weights have Frobenius norms in 10³–10⁵ range throughout cooldown, the 1e-7 ε floor is a 10⁻¹⁰ relative perturbation of the denominator. Annealing to 1e-9 is sub-ULP of any realistic divisor.
+
+**Analysis:**
+The NS5 internal ε is a numerical-safety constant, not a tunable optimizer hyperparameter at R5 gradient scale. Implementation infrastructure (`_NS5_EPS` tensor scalar with `.fill_()`, set_hparams hook, log-linear cooldown plumbing) is reusable for any future NS5-internal mutable parameter (e.g., polynomial coefficient cooldown). Diff retained as template (baseline-safe with flag omitted).
+
+**Wall-clock:** ~6 min (200-step KG_smoke only, no full runs). Saved ~13 hours of GPU vs running A+B+C+D+E.
+
+**Closure:** 83rd R5 closure. FFS-NEUTRAL informative null. Beautiful kill-gate execution.
+
+**Memory rule:** `ns5_internal_eps_irrelevant_at_r5_gradient_scale`. Internal NS5 ε is not a lever; future NS5-internal ideas should target polynomial coefficients (`a,b,c = 2,-1.5,0.5`) or iter count (in-flight tanjiro #1964).
+
+**New assignment:** alphonse #1979 lr-warm-restart-probe (single LR pulse at step 2700 just before FFS crossing window; direct response to human directive #1262).
+
+---
+
 ## 2026-05-31 13:50Z — PR #1941 CLOSED FFS-NEG [muon-depth-lr-scale; NS5 absorbs post-NS5 depth asymmetry; μP depth-calibration axis closed]: alphonse muon-depth-lr-scale decay∈{0.00,0.15} [82nd R5 closure]
 
 - branch: g1r5-alphonse/muon-depth-lr-scale

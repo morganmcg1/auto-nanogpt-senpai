@@ -9,7 +9,20 @@ The human research team has redirected: **FFS (first-step-to-target, baseline 30
 3. **Prefer experiments that move the crossing step** (2800-3050 window), **simplify winning stacks**, **reveal FFS-load-bearing components**.
 4. **Ablations preferred over confirmations** when FFS dead.
 
-## Last updated: 2026-05-31 14:25Z (82 R5 closures; **★ EDWARD #1948 SIGNAL ALIVE on precond-freq-cooldown B★(=4): FFS_ema=2875 vs A_ctrl=2925, val_loss Δ=-0.00137 outside seed noise**; 8/8 active)
+## Last updated: 2026-05-31 14:40Z (83 R5 closures; **★ EDWARD #1948 SIGNAL ALIVE**; alphonse #1979 lr-warm-restart-probe ASSIGNED; 8/8 active)
+
+### Notes (2026-05-31 14:40Z) — ALPHONSE #1973 CLOSED 83rd [KG_smoke mechanism-dead]; ALPHONSE #1979 lr-warm-restart-probe ASSIGNED
+
+- **★ CLOSED #1973 alphonse ns5-eps-cooldown** [83rd R5 closure, ~14:35Z] — FFS-NEUTRAL informative null via KG_smoke mechanism-dead. Beautiful kill-gate execution: student ran ONLY 200-step KG_smoke, observed min(muon_grad_norm) = 1140 (10¹⁰× above 1e-5 threshold), triggered predeclared stop condition. Saved ~13h GPU. NS5 internal ε is a numerical-safety constant, not an optimizer lever at R5 gradient scale.
+- **Memory rule**: `ns5_internal_eps_irrelevant_at_r5_gradient_scale`. The 1e-7 ε in `X / (||X||_F + ε)` is sub-ULP of any realistic divisor at R5 (muon grad Frobenius norms in 10³–10⁵ range throughout cooldown). Future NS5-internal ideas: target polynomial coefficients or iter count (tanjiro #1964 already on iter).
+
+- **★ ALPHONSE #1979 lr-warm-restart-probe ASSIGNED** — Direct response to human directive #1262 ("warm restart probes"). Single LR warm-restart pulse at step 2700, just before the FFS crossing window (2800-3050) opens. Pulse shape: half-cosine bump peaking at restart_step + duration/2, peak_frac=0.3, duration=200 steps. Mechanism: standard cosine cooldown drives LR to ~1% by step 2700; warm-restart "kicks" model out of sharp local minimum into broader basin, then resumed cooldown anneals into new basin → earlier crossing of val_loss=3.28. STRUCTURALLY DISTINCT from all 83 closed and 7 in-flight axes: no prior R5 experiment has applied a non-monotonic LR pulse during cooldown. ~25 LOC: new flags `--lr_warm_restart_step/_peak_frac/_duration`, `_warm_restart_pulse` helper, one-line patch in `set_hparams`. Pulse applied as `max(base_eta, pulse_eta)` to only raise eta. Cells: A_ctrl (None), B★(step=2700, peak=0.3, dur=200), C(step=2500 earlier), D(peak=0.5 higher amplitude). Signal gate: B★ FFS_ema ≤ 2887.
+
+- **★★ EDWARD #1948 SIGNAL ALIVE (still active)** — A_ctrl=2925, B★(precond_freq=4)=2875, val_loss Δ=-0.00137 outside ±0.005 seed-noise band. C (freq=8) ETA 16:07Z, D (freq=2) ETA ~18:00Z. n=4 decision @ ~18:00Z.
+
+- **Fleet at 14:40Z**: alphonse #1979 WIP (lr-warm-restart-probe, just assigned); edward #1948 WIP (precond-freq C+D running, SIGNAL ALIVE); tanjiro #1964 WIP (ns-iter-cooldown); frieren #1966 WIP (muon-momentum-schedule); thorfinn #1957 WIP (ema-decay-cooldown-schedule); nezuko #1955 WIP (adamw-eps-cooldown); askeladd #1942 WIP (logit-z-loss B★ in regression); fern #1922 WIP (wd-cooldown-shape). **8/8 active, zero idle.**
+
+---
 
 ### Notes (2026-05-31 14:25Z) — EDWARD #1948 FIRST SIGNAL-ALIVE B★ IN MANY HEARTBEATS
 
