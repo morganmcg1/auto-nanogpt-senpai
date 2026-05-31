@@ -1,3 +1,44 @@
+## Cycle ~2200: AUDIT-TRAIL cycle — H321 fern stale_wip nudge (PR #1896, only arm_a CTRL `rjn6drqg` running ~92% step 3060/3325 step-0=10.82583 EXACT target crossed step 3000 FFS=3000 likely TIE, arm_b LINEAR_TAPER + arm_c STEP_OFF_COOLDOWN MISSING from W&B, branch has ZERO code commits beyond assignment — α-schedule code not landed yet, zero PR comments), 2 consecutive cycles of treatment-plumbing-gap nudges (H320 #1892 cycle ~2150 + H321 #1896 cycle ~2200) → emerging student-side under-launch pattern
+
+**Audit-trail-only cycle: H321 fern flagged. Second consecutive cycle of treatment-arm-MISSING nudges (H320 edward → H321 fern). PATTERN OBSERVATION: 2 of 8 in-flight students have only-CTRL-running with zero plumbing comments after ~2h.** Plateau campaign portfolio unchanged: 169 NULL/NEG + 1 MERGED WIN (H266), 104 mechanism classes consolidated.
+
+### Stale_wip nudges posted this cycle
+
+**H321 fern PR #1896 (schedule-tapered adaptive μ — α suppressed during cooldown, top-WIN-prob 25-30% candidate, paper-grade H313 follow-up)** — only arm_a CTRL `rjn6drqg` running (step 3060/3325 ~92%, step-0 val=10.82583 EXACT, target crossed step 3000 likely FFS=3000 TIE H266 baseline). arm_b LINEAR_TAPER (α=0.05 → 0 over train_steps) and arm_c STEP_OFF_COOLDOWN (α=0.05 then cliff at step 2826) MISSING from W&B. Branch `g1r3-fern/h321-adaptive-mu-tapered` has only assignment commit `6c418c7` — no fern code changes pushed yet. arm_a is gated-short-circuit-bit-id with H266 baseline so could launch without code changes; arm_b/arm_c need the ~15 LoC for `--muonh_mu_adaptive_schedule` flag + `α_t` per-step computation in `set_hparams` + MuonH.step() reading `group["adaptive_alpha_t"]` (per PR body instructions). Nudge requested: code-changes audit, smoke-gate result for arm_b/arm_c, W&B per-arm config-pane audit (per `feedback_audit_treatment_runs_too.md`), chain plan, ETAs.
+
+### Emerging pattern observation
+
+Two consecutive cycles (~2150 + ~2200) flagged the same shape: only arm_a CTRL launched, treatment arms missing, zero PR comments, ~2h after assignment. Pattern across students:
+- **H320 edward PR #1892**: arm_b SOFT_BLEND (α=0.5) + arm_c VERY_SOFT_BLEND (α=0.2) MISSING (arm_a CTRL α=1.0 hard-replace = H266 bit-id, no code needed); edward has concurrent g1r3+g1r4+g1r5 assignments noted as possible GPU-scheduling explanation
+- **H321 fern PR #1896**: arm_b LINEAR_TAPER + arm_c STEP_OFF_COOLDOWN MISSING (arm_a CTRL gated-α=0 = H266 bit-id, no code needed); branch lacks fern code commits
+
+Both cases share: (1) arm_a is the ONLY arm that requires NO code changes (gated short-circuit to H266 baseline), (2) treatment arms require code changes or non-trivial flag plumbing, (3) student has not posted any chain-launch or smoke-gate comment. This suggests students may be using arm_a as a "free pre-launch" while code/plumbing for treatment arms is still pending — but failing to post the audit-trail comment that would explain the timeline.
+
+Both nudges request the same items: code-audit, smoke result, W&B per-arm config, chain plan, ETAs.
+
+### In-flight WIP cluster (8 of 8 students, post-cycle-2200) — unchanged from cycle ~2150
+
+| Student | PR | Hypothesis | Class | Status |
+|---------|----|-----------|----|--------|
+| tanjiro | #1878 | H316 OUTER LR cooldown SCHEDULE | outer LR temporal | WIP in-flight |
+| frieren | #1882 | H317 AUX β2 mid-training ramp UP AMPLIFIED | aux β2 temporal | WIP arm_a finished val=3.2691 FFS=3025 (+1.04σ TIE), arm_b RUNNING |
+| alphonse | #1889 | H318 OUTER MOMENTUM cooldown SCHEDULE | outer momentum temporal | WIP in-flight |
+| askeladd | #1890 | H319 AUX β1 mid-training schedule | aux β1 temporal | WIP in-flight |
+| edward | #1892 | H320 OUTER anchor refresh policy (102nd class) | outer ANCHOR REFRESH POLICY (virgin) | **WIP — only arm_a CTRL running, treatment arms MISSING (cycle ~2150 nudge pending)** |
+| fern | #1896 | H321 schedule-tapered ADAPTIVE μ (α-suppression cooldown) | inner μ adaptive scope | **WIP — only arm_a CTRL running, treatment arms MISSING (cycle ~2200 nudge pending)** |
+| nezuko | #1905 | H322 body weight orthogonality regularizer | body STRUCTURAL regularizer (virgin) | WIP in-flight |
+| thorfinn | #1906 | H323 μ_end low sustained on post-H266 stack | inner μ_end value (revisit on post-H266) | WIP in-flight |
+
+### Notes
+
+- 8 of 8 students active. Zero idle GPUs.
+- Issue #1260: no new human messages since 2026-05-29 advisor status update.
+- Next decision points: H321 arm_a CTRL terminal ETA ~10 min (step 3060 of 3325); H317 arm_b AMPLIFIED terminal ETA ~12:00Z; H320 arm_a CTRL terminal ETA ~30 min (step 2525 of 3325).
+- If H321 arm_a CTRL TIES H266 baseline (FFS=3000 strict) it will provide useful within-PR drift-FREE confirmation when arm_b/arm_c arrive later.
+- Audit-trail cycle: no closures or new assignments. Surveillance + plumbing verification only.
+
+---
+
 ## Cycle ~2150: AUDIT-TRAIL cycle — H320 edward stale_wip nudge (PR #1892, only arm_a CTRL `uhgw9uxc` running at step 2525/3325, arm_b α=0.5 + arm_c α=0.2 BOTH MISSING from W&B, zero PR comments, treatment plumbing UNVERIFIED), zero new closures, 8 mechanism axes in flight, 0 idle students, 0 review-ready PRs
 
 **Audit-trail-only cycle: H320 edward flagged for missing treatment arms.** No closures, no new assignments. Fleet 8/8 occupied. Plateau campaign portfolio: 169 NULL/NEG + 1 MERGED WIN (H266), 104 mechanism classes consolidated.
