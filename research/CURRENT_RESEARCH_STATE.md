@@ -9,7 +9,33 @@ The human research team has redirected: **FFS (first-step-to-target, baseline 30
 3. **Prefer experiments that move the crossing step** (2800-3050 window), **simplify winning stacks**, **reveal FFS-load-bearing components**.
 4. **Ablations preferred over confirmations** when FFS dead.
 
-## Last updated: 2026-05-31 19:35Z (88 R5 closures; **★★★ FRIEREN #1966 C TERMINAL — TWO-CELL OFF-ATTRACTOR CONFIRMATION at {2875, 2875}**; **★★★ EDWARD #1948 n=4 IN FLIGHT**; **★ FERN #1983 B FFS-NEG: ramp_down IS load-bearing**; 8/8 active)
+## Last updated: 2026-05-31 20:30Z (89 R5 closures; **★★★ FRIEREN #1966 n=4 INSTRUCTIONS POSTED + SENT BACK to wip (mu=0.80)**; **★★★ EDWARD #1948 n=4 IN FLIGHT**; **89th closure: tanjiro #1988 FFS-NEUTRAL; AUX-SIDE COOLDOWN FAMILY NOW CLOSED (3/3)**; **tanjiro → #2014 ns-iter-cooldown-ramp**; 8/8 active)
+
+### Notes (2026-05-31 20:30Z) — 89th closure; AUX-side cooldown family closed; tanjiro #2014 ns-iter-cooldown-ramp assigned; frieren n=4 pending launch
+
+- **89th R5 CLOSURE — TANJIRO #1988 (adamw-β₁-cooldown) FFS-NEUTRAL**: Both arms at identical FFS_ema=FFS_trainval=2925, val_loss=3.26966. Non-monotone val_loss trajectory (B worse than A at 1000/2000/2500). **AUX-SIDE COOLDOWN FAMILY NOW DEFINITIVELY CLOSED** — three consecutive AUX perturbations all absorbed by cosine LR decay: adamw-eps (#1955 87th), ema-decay (#1957 88th), adamw-β₁ (#1988 89th). Future aux-side ideas need AUX OPTIMIZER REPLACEMENT (not perturbation) to escape absorption.
+
+- **★★★ FRIEREN #1966 n=4 PENDING LAUNCH** — Sent PR back to status:wip with explicit launch directive. Student should launch 4-trial confirm at mu=0.80, group `g1r5-frieren/muon-mu-sched-n4`. Key finding from 3-cell dose-response: BOTH B(mu=0.70) and C(mu=0.80) at {FFS_ema=2875, FFS_trainval=2875} off-attractor. C dominates B on val_loss (3.2676 vs 3.2697) at every cooldown probe step from 2750 onward. TWO-CELL STRUCTURAL CONFIRMATION. Student now idle → should pick up the n=4 launch on next iteration.
+
+- **★★★ EDWARD #1948 n=4 IN FLIGHT** — Group `g1r5-edward/precond-freq-cooldown-schedule-n4`, run `1r8b1zmi`. Trial 1/4 running. ETA ~5h for all 4 trials.
+
+- **★★ TANJIRO → PR #2014 (ns-iter-cooldown-ramp)** — Newton-Schulz iteration count cooldown (6→3 during cooldown). NS5-internal axis, orthogonal to confirmed edward+frieren signals. Tests if late polish is wasteful (less iter) vs load-bearing. 4-cell dose-response: A_ctrl(no schedule), B★(6→3), C(6→2, aggressive), D(6→9, opposite/falsifier). ~7.5h wall-clock.
+
+- **★ COMPOUNDING EXPERIMENT QUEUED** — Once both edward + frieren n=4 confirms land: precond_freq=4 + mu→0.80 stacked. Both mechanisms at distinct optimizer state (SOAP eigenbasis stride vs Muon momentum decay EMA). Orthogonal expectation: μ_4(FFS_ema) ≤ 2825.
+
+- **CURRENT FLEET STATUS (20:30Z)**:
+  - **frieren #1966**: status:wip (just sent back), n=4 launch imminent
+  - **edward #1948**: n=4 in flight
+  - **tanjiro #2014**: new assignment, student picking up
+  - **fern #1983**: B(const WD) closed, C(ramp_up) at step ~450/3250
+  - **alphonse #1979**: B(LR warm restart) should be near terminal
+  - **thorfinn #1994**: A_ctrl near terminal, B★ queued
+  - **askeladd #1989**: B(const aux) running
+  - **nezuko #1993**: B(muon momentum reset) running
+
+- **AUX-SIDE COOLDOWN FAMILY CLOSED (memory note)**: All three AUX-optimizer-state cooldown perturbations (eps, ema-decay, beta1) are FFS-NEUTRAL absorbed by LR cosine decay. Future aux ideas require **AUX OPTIMIZER REPLACEMENT** (Lion, AdaProp, Schedule-Free AdamW) or **AUX LR SHAPE CHANGE** (askeladd #1989 in progress).
+
+---
 
 ### Notes (2026-05-31 19:35Z) — ★★★ FRIEREN C TERMINAL: dual-cell off-attractor confirmation; n=4 instructions posted at mu=0.80; ★ FERN B FFS-NEG cleanly attributes ramp_down as load-bearing
 

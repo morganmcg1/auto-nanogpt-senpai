@@ -1,5 +1,34 @@
 # SENPAI Research Results — auto-nanogpt-1gpu-r5
 
+## 2026-05-31 20:22Z — PR #1988 CLOSED FFS-NEUTRAL [adamw-beta1-cooldown; AUX-side cooldown family pattern; both arms bit-identical FFS_ema=FFS_trainval=2925, val_loss=3.26966 on attractor; non-monotone val_loss probe-step trajectory] [89th R5 closure]
+
+- branch: g1r5-tanjiro/adamw-beta1-cooldown
+- hypothesis: Anneal AdamW β₁ from 0.8 (base) → 0.0 during cooldown window to eliminate momentum lag in the late-training low-LR regime. Mechanism: smaller momentum EMA → faster adaptation to local gradients when LR has decayed.
+- cells (n=1 screen, signal gate FAILED → no C/D launched):
+
+| Cell | β₁ schedule | FFS_ema | FFS_trainval | best val_loss | best ema_corr val_loss | wandb |
+|---|---|---:|---:|---:|---:|---|
+| A_ctrl (no-op) | 0.8 constant | **2925** | **2925** | 3.26966 | 3.27018 | `zp4c5qhx` |
+| B★ (anneal) | 0.8 → 0.0 cooldown | **2925** | **2925** | 3.26966 | 3.27018 | `1lnu5vii` |
+| Baseline #1533 | — | μ_4=2912.5 (σ=25) | — | — | — | — |
+
+- val_loss probe-step trajectory (decisive discriminator):
+
+| step | A_ctrl | B★ | Δ(B−A) | A_ctrl ema_corr | B★ ema_corr | Δ(B−A) ema |
+|------|--------|----|--------|-----------------|-------------|------------|
+| 1000 | 3.64178 | 3.64455 | **+0.00277** | 3.53206 | 3.53160 | −0.00046 |
+| 2000 | 3.43715 | 3.44098 | **+0.00383** | 3.37051 | 3.37165 | +0.00114 |
+| 2500 | 3.33621 | 3.33751 | **+0.00130** | 3.31040 | 3.31123 | +0.00083 |
+| 3250 | 3.26966 | 3.26966 | 0.00000 | 3.27018 | 3.27018 | 0.00000 |
+
+- **Non-monotone**: B★ is WORSE than A_ctrl at every intermediate probe (1000/2000/2500) before tying at terminal. Bit-identical terminal state (val_loss, ema_corr, FFS, FFS_trainval ALL identical) confirms cooldown LR decay absorbs the β₁ schedule difference once aux LR → 0.
+- KG_smoke verified at step 200 (`m0u7upqo`): β₁ schedule fired correctly at cooldown_start (step 60 for 200-step KG with cooldown_frac=0.7), monotone decreasing 0.800 → 0.006 over steps 50-200. Note: PR body claimed base β₁=0.9 but actual aux AdamW config is `betas=(0.8, 0.95)` — student correctly used 0.8 (preserves mechanism).
+- analysis: This places AdamW β₁ cooldown in the **AUX-side cooldown family of FFS-NEUTRAL absorptions**: nezuko #1955 adamw-eps-cooldown (87th), thorfinn #1957 ema-decay-cooldown (88th), and now tanjiro #1988 adamw-β₁-cooldown (89th). **Mechanism unification**: once aux LR has cosine-decayed to near-zero in the cooldown window, the aux update step is tiny regardless of momentum buffer rate, EMA decay rate, or numerical ε floor. The aux-state perturbation cannot register because the update magnitude itself is bottlenecked by the LR schedule.
+- conclusions: **AUX-side cooldown state perturbations are closed.** Any future cooldown-axis idea on the AUX (AdamW) optimizer state will be absorbed by the cosine LR decay. Productive directions remain: (1) **MUON-side cooldown state** (precond_freq cooldown confirmed positive @ edward #1948, mu cooldown confirmed positive @ frieren #1966); (2) **AUX OPTIMIZER REPLACEMENT** (not perturbation — e.g., Schedule-Free AdamW, Lion, AdaProp); (3) **AUX LR schedule SHAPE** itself (askeladd #1989 in progress); (4) **NS5 iteration count or polish geometry** (testing if late polish is wasteful or insufficient).
+- student assignment next: ns_iter cooldown ramp (NS5 polish geometry axis — fresh, MUON-side, structural)
+
+---
+
 ## 2026-05-31 16:10Z — PR #1957 CLOSED FFS-NEUTRAL [ema-decay-cooldown; mechanism alive but FFS-bin-saturated; B★ HIGHER than A_ctrl during 2625-2875 then crosses below at step 2925] [88th R5 closure]
 
 - branch: thorfinn/ema-decay-cooldown-schedule
