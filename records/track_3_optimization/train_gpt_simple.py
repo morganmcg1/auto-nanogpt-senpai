@@ -84,6 +84,11 @@ def parse_args():
     parser.add_argument('--aux_b2_pulse_target', type=float, default=0.99,
                         help='New aux Adam β2 value to set at --aux_b2_pulse_step. '
                              '0 or negative disables. Default: 0.99 (canonical WIN).')
+    parser.add_argument("--body_muon_cov_reset_step", type=int, default=0,
+                        help="Step at which to scale body PMuon side covariance buffers L and R (0 disables)")
+    parser.add_argument("--body_muon_cov_reset_factor", type=float, default=1.0,
+                        help="Multiplicative factor applied to both L and R cov buffers at step. "
+                             "0.0=hard zero, 0.5=half. 1.0=no-op.")
     parser.add_argument("--seed", type=int, default=1,
                         help="Random seed for torch/numpy/python. Default 1 matches baseline seed.")
     args = parser.parse_args()
@@ -1071,6 +1076,54 @@ for trial_idx in range(args.num_trials):
                 group["betas"] = new_betas
             print0(f"[step {step}] aux_b2_pulse: β2 {old_b2} → {args.aux_b2_pulse_target}",
                    console=True)
+        if (args.body_muon_cov_reset_step > 0
+                and step == args.body_muon_cov_reset_step
+                and args.body_muon_cov_reset_factor != 1.0):
+            scale = float(args.body_muon_cov_reset_factor)
+            n_L_touched, n_R_touched = 0, 0
+            L_before_mean, L_after_mean = 0.0, 0.0
+            R_before_mean, R_after_mean = 0.0, 0.0
+            for group in optimizer2.param_groups:
+                for p in group["params"]:
+                    state = optimizer2.state.get(p, None)
+                    if state is None:
+                        continue
+                    L_buf = state.get("L", None)
+                    R_buf = state.get("R", None)
+                    if L_buf is not None:
+                        L_before_mean += float(L_buf.mean())
+                        L_buf.mul_(scale)
+                        L_after_mean += float(L_buf.mean())
+                        n_L_touched += 1
+                    if R_buf is not None:
+                        R_before_mean += float(R_buf.mean())
+                        R_buf.mul_(scale)
+                        R_after_mean += float(R_buf.mean())
+                        n_R_touched += 1
+            if dist.get_rank() == 0:
+                if n_L_touched > 0:
+                    L_before_mean /= n_L_touched
+                    L_after_mean /= n_L_touched
+                if n_R_touched > 0:
+                    R_before_mean /= n_R_touched
+                    R_after_mean /= n_R_touched
+                print0(
+                    f"[step {step}] body PMuon cov reset x{scale}: "
+                    f"L on {n_L_touched} params (mean {L_before_mean:.6e}->{L_after_mean:.6e}); "
+                    f"R on {n_R_touched} params (mean {R_before_mean:.6e}->{R_after_mean:.6e})",
+                    console=True,
+                )
+                if wandb.run is not None:
+                    wandb.log({
+                        "body_muon_cov_reset/step": step,
+                        "body_muon_cov_reset/factor": scale,
+                        "body_muon_cov_reset/n_L_touched": n_L_touched,
+                        "body_muon_cov_reset/n_R_touched": n_R_touched,
+                        "body_muon_cov_reset/L_mean_before": L_before_mean,
+                        "body_muon_cov_reset/L_mean_after": L_after_mean,
+                        "body_muon_cov_reset/R_mean_before": R_before_mean,
+                        "body_muon_cov_reset/R_mean_after": R_after_mean,
+                    }, step=step)
         for opt in optimizers:
             opt.step()
         # EMA buffer update on body-Muon matrix params.
