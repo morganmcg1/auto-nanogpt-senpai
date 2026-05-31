@@ -469,6 +469,35 @@ WD_AUX = float(os.environ.get("WD_AUX", "0.0"))  # AdamW WD on embed + lm_head m
 EMBED_INIT_STD = float(os.environ.get("EMBED_INIT_STD", "1.0"))  # default preserves baseline N(0,1)
 LOGIT_SOFTCAP = float(os.environ.get("LOGIT_SOFTCAP", "15.0"))  # default = 15 (current hardcoded value); soft-cap value c in f(x) = c·x / sqrt(x^2+c^2)
 
+# PR #2007: MLP-SOAP per-depth-half β2 dispatch (askeladd #1775/#1928 front_FAST lineage).
+# When enabled, MLP-SOAP params with layer index < SPLIT (default 6) use the "front"
+# β2 setting; otherwise use the "back" setting. Each half's boolean toggle (1/0)
+# selects FAST (β2=0.85) or SLOW (β2=0.95). Canonical front_FAST: FRONT_HALF=1
+# BACK_HALF=0 → front=0.85 back=0.95.
+MLP_SOAP_PER_DEPTH_HALF_ENABLED = int(os.environ.get("MLP_SOAP_PER_DEPTH_HALF_ENABLED", "0"))
+MLP_SOAP_FRONT_HALF = int(os.environ.get("MLP_SOAP_FRONT_HALF", "1"))
+MLP_SOAP_BACK_HALF = int(os.environ.get("MLP_SOAP_BACK_HALF", "0"))
+MLP_SOAP_DEPTH_SPLIT = int(os.environ.get("MLP_SOAP_DEPTH_SPLIT", "6"))
+MLP_SOAP_BETA2_FAST = float(os.environ.get("MLP_SOAP_BETA2_FAST", "0.85"))
+MLP_SOAP_BETA2_SLOW = float(os.environ.get("MLP_SOAP_BETA2_SLOW", "0.95"))
+
+# PR #2007: per-kind AdamW β1 dispatch (thorfinn #1944 lineage, RTM-confirmed at
+# embed=0.8 lm_head=0.7 scalars=0.8 n=2 mean 3.27015). Allows independent β1 for
+# the three AdamW kinds (embed, lm_head, scalars). β2 stays at 0.95 across groups.
+PER_KIND_AUX_BETA1_ENABLED = int(os.environ.get("PER_KIND_AUX_BETA1_ENABLED", "0"))
+PER_KIND_BETA1_EMBED = float(os.environ.get("PER_KIND_BETA1_EMBED", "0.8"))
+PER_KIND_BETA1_LM_HEAD = float(os.environ.get("PER_KIND_BETA1_LM_HEAD", "0.8"))
+PER_KIND_BETA1_SCALARS = float(os.environ.get("PER_KIND_BETA1_SCALARS", "0.8"))
+
+# Optional explicit RNG seed for n=2 verification protocol (PR #1806 lineage).
+SEED_ENV = os.environ.get("SEED")
+SEED = int(SEED_ENV) if SEED_ENV is not None else None
+
+# Per-PR-instruction marker — surface flags for periodic-reset config-operative
+# spot-check so disabled-reset is unambiguous in W&B config (PR #2007 step-0).
+AUX_RESET_EMBED_ENABLED = int(os.environ.get("AUX_RESET_EMBED_ENABLED", "0"))
+AUX_RESET_LM_HEAD_ENABLED = int(os.environ.get("AUX_RESET_LM_HEAD_ENABLED", "0"))
+
 
 def zeropower_via_newtonschulz5(G: Tensor) -> Tensor:
     assert G.ndim >= 2
@@ -642,7 +671,17 @@ class Muon(torch.optim.Optimizer):
         }
         # Track which sub-type each attention-SOAP param is (q/k/v/proj) for per-type telemetry.
         self.attn_soap_kind: dict[int, str] = {}
+        # PR #2007 — per-depth-half MLP-SOAP β2 dispatch lookup tables.
+        self.mlp_soap_beta2: dict[int, float] = {}
+        self.mlp_soap_depth_half: dict[int, str] = {}  # "front" or "back"
+        self.mlp_soap_layer: dict[int, int] = {}
         for n, p in named_params:
+            layer_idx: int | None = None
+            head = n.split(".", 1)[0]
+            try:
+                layer_idx = int(head)
+            except ValueError:
+                layer_idx = None
             if p in self.attn_soap_params:
                 if n.endswith(".attn.q.weight"):
                     self.attn_soap_kind[id(p)] = "q"
@@ -652,6 +691,21 @@ class Muon(torch.optim.Optimizer):
                     self.attn_soap_kind[id(p)] = "v"
                 elif n.endswith(".attn.proj.weight"):
                     self.attn_soap_kind[id(p)] = "proj"
+            elif p in self.soap_params and layer_idx is not None:
+                self.mlp_soap_layer[id(p)] = layer_idx
+                if MLP_SOAP_PER_DEPTH_HALF_ENABLED:
+                    if layer_idx < MLP_SOAP_DEPTH_SPLIT:
+                        # Front half: FRONT_HALF=1 → FAST (0.85); FRONT_HALF=0 → SLOW (0.95).
+                        beta2 = MLP_SOAP_BETA2_FAST if MLP_SOAP_FRONT_HALF else MLP_SOAP_BETA2_SLOW
+                        self.mlp_soap_beta2[id(p)] = beta2
+                        self.mlp_soap_depth_half[id(p)] = "front"
+                    else:
+                        beta2 = MLP_SOAP_BETA2_FAST if MLP_SOAP_BACK_HALF else MLP_SOAP_BETA2_SLOW
+                        self.mlp_soap_beta2[id(p)] = beta2
+                        self.mlp_soap_depth_half[id(p)] = "back"
+                else:
+                    self.mlp_soap_beta2[id(p)] = SOAP_BETA2
+                    self.mlp_soap_depth_half[id(p)] = "uniform"
         params = sorted([p for _, p in named_params], key=lambda x: x.size(), reverse=True)
         defaults = dict(lr=lr, weight_decay=weight_decay, mu=mu)
         super().__init__(params, defaults)
@@ -697,8 +751,12 @@ class Muon(torch.optim.Optimizer):
                     use_soap = p in self.soap_params
                     use_attn_soap = p in self.attn_soap_params
                     # SOAP precondition applied to momentum BEFORE NS5+contra+NorMuon
-                    # (matches public record #14/16 — pre-NS5 placement).
-                    if use_soap or use_attn_soap:
+                    # (matches public record #14/16 — pre-NS5 placement). PR #2007:
+                    # MLP-SOAP β2 is per-param to support depth-half dispatch.
+                    if use_soap:
+                        mlp_beta2 = self.mlp_soap_beta2.get(id(p), SOAP_BETA2)
+                        momentum_update = soap_precondition(momentum_update, state, beta2=mlp_beta2)
+                    elif use_attn_soap:
                         momentum_update = soap_precondition(momentum_update, state)
                     # NS5 + contra + NorMuon row variance on (possibly SOAP-preconditioned) momentum.
                     update = contra_normuon_update(momentum_update, state["second_moment"])
@@ -712,7 +770,8 @@ class Muon(torch.optim.Optimizer):
                     p.add_(update, alpha=-group["lr"])
                     # Refresh SOAP state with the raw grad (after applying the step).
                     if use_soap:
-                        soap_refresh(grad, state)
+                        mlp_beta2 = self.mlp_soap_beta2.get(id(p), SOAP_BETA2)
+                        soap_refresh(grad, state, beta2=mlp_beta2)
                     elif use_attn_soap:
                         soap_refresh(grad, state, beta2=ATTN_SOAP_BETA2,
                                      refresh_freq=ATTN_SOAP_PRECOND_FREQ,
@@ -867,8 +926,27 @@ if dist.get_rank() == 0:
             "optimizer/ns5_iters": NS5_ITERS,
             "optimizer/wd_aux": WD_AUX,
             "optimizer/recipe": "contra-muon + normuon-lite + soap-on-mlp + soap-on-attn-trust-gate (pre-NS5, record #14 + record #16)",
+            # PR #2007: MLP-SOAP per-depth-half + per-kind AdamW β1 compound dispatch.
+            "optimizer/mlp_soap_per_depth_half_enabled": MLP_SOAP_PER_DEPTH_HALF_ENABLED,
+            "optimizer/mlp_soap_front_half": MLP_SOAP_FRONT_HALF,
+            "optimizer/mlp_soap_back_half": MLP_SOAP_BACK_HALF,
+            "optimizer/mlp_soap_depth_split": MLP_SOAP_DEPTH_SPLIT,
+            "optimizer/mlp_soap_beta2_fast": MLP_SOAP_BETA2_FAST,
+            "optimizer/mlp_soap_beta2_slow": MLP_SOAP_BETA2_SLOW,
+            "optimizer/per_kind_aux_beta1_enabled": PER_KIND_AUX_BETA1_ENABLED,
+            "optimizer/per_kind_beta1_embed": PER_KIND_BETA1_EMBED,
+            "optimizer/per_kind_beta1_lm_head": PER_KIND_BETA1_LM_HEAD,
+            "optimizer/per_kind_beta1_scalars": PER_KIND_BETA1_SCALARS,
+            "optimizer/aux_reset_embed_enabled": AUX_RESET_EMBED_ENABLED,
+            "optimizer/aux_reset_lm_head_enabled": AUX_RESET_LM_HEAD_ENABLED,
+            "seed": SEED if SEED is not None else -1,
         },
     )
+
+# PR #2007: explicit RNG seeding for n=2 bilateral verification (Arm A SEED=1, Arm B SEED=2).
+if SEED is not None:
+    torch.manual_seed(SEED)
+    torch.cuda.manual_seed_all(SEED)
 
 for trial_idx in range(args.num_trials):
 
@@ -897,14 +975,65 @@ for trial_idx in range(args.num_trials):
         else:
             raise Exception(f"Uninitialized parameter: {name}")
 
-    # create the optimizer(s)
-    optimizer1 = AdamW([dict(params=[model.embed.weight], lr=0.3, name="adam_embed", weight_decay=WD_AUX),
-                        dict(params=[model.proj.weight], lr=1/320, name="adam_lm_head", weight_decay=WD_AUX),
-                        dict(params=[p for p in model.parameters() if p.ndim < 2], lr=0.01, name="adam_scalars")],
+    # create the optimizer(s) — PR #2007: per-kind AdamW β1 dispatch when enabled.
+    _adam_groups = [
+        dict(params=[model.embed.weight], lr=0.3, name="adam_embed", weight_decay=WD_AUX),
+        dict(params=[model.proj.weight], lr=1/320, name="adam_lm_head", weight_decay=WD_AUX),
+        dict(params=[p for p in model.parameters() if p.ndim < 2], lr=0.01, name="adam_scalars"),
+    ]
+    if PER_KIND_AUX_BETA1_ENABLED:
+        # Per-group betas override the global betas in PyTorch's AdamW.
+        _adam_groups[0]["betas"] = (PER_KIND_BETA1_EMBED, 0.95)
+        _adam_groups[1]["betas"] = (PER_KIND_BETA1_LM_HEAD, 0.95)
+        _adam_groups[2]["betas"] = (PER_KIND_BETA1_SCALARS, 0.95)
+    optimizer1 = AdamW(_adam_groups,
                        betas=(0.8, 0.95), eps=1e-10, weight_decay=0, fused=True)
     optimizer2 = Muon([(n, p) for n, p in model.blocks.named_parameters() if p.ndim >= 2],
                       lr=MUON_LR, weight_decay=MUON_WEIGHT_DECAY, mu=MU)
     optimizer2.param_groups[0]["name"] = "muon_blocks"
+
+    # PR #2007 step-0 banner: confirm both compound infras are config-operative.
+    if dist.get_rank() == 0:
+        _banner_mlp = (
+            f"[PR1806-ASKELADD-COMPOUND] MLP-SOAP per-depth-half "
+            f"ENABLED={MLP_SOAP_PER_DEPTH_HALF_ENABLED} "
+            f"front={MLP_SOAP_FRONT_HALF} back={MLP_SOAP_BACK_HALF}"
+        )
+        _banner_beta1 = (
+            f"[per_kind_aux_beta1] enabled={PER_KIND_AUX_BETA1_ENABLED} "
+            f"embed={PER_KIND_BETA1_EMBED} lm_head={PER_KIND_BETA1_LM_HEAD} "
+            f"scalars={PER_KIND_BETA1_SCALARS}"
+        )
+        print0(_banner_mlp, console=True)
+        print0(_banner_beta1, console=True)
+        # Per-param β2 distribution diagnostic for MLP-SOAP depth-half:
+        _front_betas = sorted({optimizer2.mlp_soap_beta2[id(p)]
+                               for p in optimizer2.soap_params
+                               if optimizer2.mlp_soap_depth_half.get(id(p)) == "front"})
+        _back_betas = sorted({optimizer2.mlp_soap_beta2[id(p)]
+                              for p in optimizer2.soap_params
+                              if optimizer2.mlp_soap_depth_half.get(id(p)) == "back"})
+        _n_front = sum(1 for p in optimizer2.soap_params
+                       if optimizer2.mlp_soap_depth_half.get(id(p)) == "front")
+        _n_back = sum(1 for p in optimizer2.soap_params
+                      if optimizer2.mlp_soap_depth_half.get(id(p)) == "back")
+        print0(
+            f"[PR2007-compound] split={MLP_SOAP_DEPTH_SPLIT} front_n={_n_front} back_n={_n_back} "
+            f"front_β2s={_front_betas} back_β2s={_back_betas} "
+            f"FAST={MLP_SOAP_BETA2_FAST} SLOW={MLP_SOAP_BETA2_SLOW}",
+            console=True,
+        )
+        # AdamW per-kind β1 per-group verification:
+        for _grp in optimizer1.param_groups:
+            _name = _grp.get("name", "?")
+            _betas = _grp.get("betas", (0.8, 0.95))
+            print0(f"[PR2007-compound] adam_group={_name} betas={_betas}", console=True)
+        # Reset-axis config-operative spot-check (no reset for this PR):
+        print0(
+            f"[PR2007-compound] aux_reset_embed_enabled={AUX_RESET_EMBED_ENABLED} "
+            f"aux_reset_lm_head_enabled={AUX_RESET_LM_HEAD_ENABLED}",
+            console=True,
+        )
     optimizers = [optimizer1, optimizer2]
     assert set(p for opt in optimizers for group in opt.param_groups
                for p in group["params"]) == set(model.parameters())
