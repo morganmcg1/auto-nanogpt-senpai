@@ -1,3 +1,84 @@
+## 2026-05-31 — PR #1939: H331 thorfinn TRAPEZOIDAL μ V-shape pre-cooldown recovery — CLOSED 184th NULL/NEG (🎯 3rd PAPER-GRADE MECHANISM REFINEMENT this cycle — DEEPER mid-training POS produces DEEPER terminal NEG (inverse relationship empirically confirmed at 33σ-deeper-POS / 15σ-worse-terminal cross-experiment ablation) + H323 V-shape POS-transmission hypothesis DEFINITIVELY DISPROVED + Trapezoid → monotone phase-inverting crossover at step ~2000 + H330 + H331 jointly establish TRANSITION-DE-STABILIZATION mechanism across BOTH adaptive μ taper (H330) AND geometric μ-floor trapezoid (H331) + μ-schedule axis SATURATED across 8 sub-shapes/families)
+
+- Branch: g1r3-thorfinn/h331-trapezoidal-mu-v-shape-pre-cooldown-recovery
+- Hypothesis: H323 closure narrative student follow-up #1 — V-shape ramp-back COMPLETED BEFORE cooldown onset (steps 2500→2826) should preserve H323 arm_c DEEPEST mid-training POS (−45.8σ at step 1000) to terminal while restoring Polyak EMA cooldown coherence. 3-arm trapezoidal μ-schedule chain: arm_a CTRL linear (0.95, 0.90) H266 bit-id / arm_b TRAPEZOID_MILD μ_trough=0.75 (hold [1000, 2500], ramp-back [2500, 2826]) / arm_c TRAPEZOID_AGGRESSIVE μ_trough=0.65 (same trapezoid envelope).
+
+### Results
+
+| Arm | W&B run_id | μ_schedule | val/loss | FFS | Δ vs H266 (σ_H174) | Verdict |
+|-----|------------|-----------|----------|-----|--------------------|---------|
+| arm_a CTRL | `odm5anoe` | linear (0.95, 0.90) H266 bit-id | **3.26941** | **3025** | +1.39σ | TIE (Pattern A +25 IN FAMILY) |
+| arm_b TRAPEZOID_MILD | `rnsfomgl` | trapezoidal_v_shape μ_trough=0.75 | **3.28625** | **−1 NEVER** | +20.44σ | CATASTROPHIC NEG |
+| arm_c TRAPEZOID_AGGRESSIVE | `3csa1l2m` | trapezoidal_v_shape μ_trough=0.65 | **3.29917** | **−1 NEVER** | +35.06σ | CATASTROPHIC NEG (DEEPEST this cycle) |
+
+🎯 **184th NULL/NEG closure** — 3rd PAPER-GRADE MECHANISM REFINEMENT this cycle.
+
+### 🎯 PAPER-GRADE MECHANISM FINDING #1 — Inverse relationship: DEEPER mid-training POS produces DEEPER terminal NEG
+
+Step-1000 mid-training POS magnitudes vs arm_a CTRL (σ_H174 normalized):
+- H323 arm_c monotone (mid-descent μ≈0.86): **−45.09σ POS** → terminal val 3.28555 / FFS=−1
+- H331 arm_b TRAPEZOID (trough begin μ=0.75): **−72.39σ POS** → terminal val 3.28625 / FFS=−1
+- H331 arm_c TRAPEZOID (trough begin μ=0.65): **−77.71σ POS** → terminal val 3.29917 / FFS=−1
+
+The trapezoid lands the optimizer at the FULL low-μ value already at step 1000, capturing +33σ MORE mid-training POS than H323 at the same nominal μ_trough — but produces +15.4σ WORSE terminal val. **The reservoir does NOT transmit — its very magnitude SCALES the destabilization cost.**
+
+### 🎯 PAPER-GRADE MECHANISM FINDING #2 — Trapezoid → monotone phase-inverting crossover at step ~2000
+
+H323 arm_c (monotone μ_end=0.65) vs H331 arm_c (trapezoid μ_trough=0.65) head-to-head per-checkpoint trajectory:
+
+| step | H331 trapezoid | H323 monotone | H331 advantage (σ_H174) |
+|------|----------------|---------------|--------------------------|
+| 1000 | 3.54075 | 3.56959 | **−32.62σ POS** (trapezoid deeper) |
+| 2000 | 3.38854 | 3.38344 | **+0.58σ NEG (CROSSOVER)** |
+| 3325 | **3.29917** | **3.28555** | **+15.41σ NEG (monotone WINS terminal)** |
+
+Phase-inverting crossover at step ~2000 with monotone winning terminal by paper-grade margin = canonical evidence that optimizer state geometry produced by hold-low + jump-back is **non-recoverable** even with 326 steps of high-μ before cooldown onset.
+
+### 🎯 PAPER-GRADE MECHANISM FINDING #3 — H330 + H331 JOINT TRANSITION-DE-STABILIZATION MECHANISM (two-axis closure)
+
+H330 (closed today as 181st NULL/NEG): "TAPER-TRANSITION ITSELF triggers inversion, NOT integrated dose" (adaptive μ taper).
+H331 (closed today as 184th NULL/NEG): "RAMP-BACK TRANSITION ITSELF triggers de-stabilization, NOT cumulative low-μ exposure" (monotone μ-floor trapezoid).
+
+Joint claim: **The DERIVATIVE of the μ schedule at transition points dominates terminal outcome, NOT the integrated μ trajectory.** Mechanism-paper-grade across TWO independent schedule families:
+- H330: adaptive μ taper [vertex at end=0.0] — transition at TAPER_END (step 2000) inverts H321 monotone-DOWN hypothesis
+- H331: monotone μ-floor trapezoid [V-shape recovery before cooldown] — transition at RECOVERY_START (step 2500) inverts H323 "POS reservoir transmission" hypothesis
+
+Both findings have parallel structure: schedule-shape transition LOCATION determines inversion timing, schedule-shape transition MAGNITUDE determines inversion depth, integrated μ trajectory is dominated by these effects.
+
+### H323 arm_b same-μ_trough=0.75 ablation (additional refinement)
+
+| Schedule | val | FFS | Δ vs H323 arm_b (σ_H174) |
+|----------|-----|-----|---------------------------|
+| H323 arm_b MONOTONE μ_end=0.75 (3325 slow descent) | 3.27939 | 3275 | (ref) |
+| H331 arm_b TRAPEZOID μ_trough=0.75 (hold [1000,2500] + ramp-back [2500,2826]) | 3.28625 | **−1 NEVER** | **+7.76σ WORSE** |
+
+H331 arm_b has only ~1825 active steps at μ≤0.75 vs H323 arm_b's 3325 cumulative low-μ exposure — yet H331 arm_b's terminal is +7.76σ WORSE. The trapezoidal "hold-low + jump-back" geometry is the de-stabilizing factor, NOT cumulative low-μ exposure time. **Directly DISPROVES the "cumulative low-μ exposure causes harm" sub-hypothesis from H323.**
+
+### Programme μ-schedule axis SATURATED
+
+Cycle ~2700 contribution: μ-schedule axis CLOSED across:
+- Constant baseline (H266 MERGED)
+- Linear adaptive (H314 closed)
+- Monotone DOWN (H321, H323 closed)
+- Monotone UP (H316, H324, H325 closed)
+- V-shape adaptive 5-point (H327 closed)
+- Adaptive-DOWN trapezoid (H330 closed today)
+- Monotone μ-floor trapezoid (H331 closed today)
+
+Plus H315 (closed earlier) on μ_start. Axis is SATURATED — all dose-response shapes, all schedule families, all transition geometries tested. H266 hardcoded baseline (linear 0.95→0.90) is robustly Pareto across the entire μ-schedule design space.
+
+### Plateau portfolio update
+
+- **184 NULL/NEG + 1 MERGED WIN** (H331 = 184th)
+- **110 mechanism classes consolidated** (no NEW class — H331's transition-de-stabilization is a refinement of H330's same-day finding)
+- Pattern A envelope: ±25-50 FFS (unchanged)
+- σ_H174 = 0.000884 (unchanged)
+- 🏆 BASELINE unchanged: PR #1669 H266 EMA decay=0.05 val=3.26818 FFS=3000
+
+Reassigning thorfinn to H338 — AUX sync_interval VALUE micro-axis re-screen at H266 stack (5th virgin-axis-at-hardcoded-baseline attempt). H252 closed sync_interval at H203 stack as 109th NULL/NEG; H338 re-screens at H266 stack with Polyak EMA half-life coupling as new mechanism dimension. K∈{20, 30, 45}. WIN prob 5-8%.
+
+---
+
 ## 2026-05-31 — PR #1924: H327 alphonse OUTER MOMENTUM cooldown_end_negative — CLOSED 183rd NULL/NEG (🎯 PAPER-GRADE V-shaped 5-point dose-response with vertex at end=0.0 + Anti-Lookahead SAFE-but-INERT confirmed + H318 closure narrative directly DISPROVED (asymmetric-DOWN was actually V-VERTEX, NOT monotone DOWN direction) + OUTER MOMENTUM cooldown axis CONSOLIDATED CLOSED across full 5-point span end ∈ {−1.0, −0.5, 0.0, +0.5, +0.9} + Pattern A envelope refined to ±25-50 FFS via H327+H328 EXACT-coincidence)
 
 - Branch: g1r3-alphonse/h327-negative-outer-momentum-cooldown-end

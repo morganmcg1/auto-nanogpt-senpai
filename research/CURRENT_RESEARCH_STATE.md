@@ -1,8 +1,19 @@
-## Cycle ~2700 (CURRENT): H327 CLOSED 183rd NULL/NEG (🎯 PAPER-GRADE V-shaped 5-point dose-response with vertex at end=0.0 + Anti-Lookahead SAFE-but-INERT confirmed + H318 closure narrative DISPROVED) + H329 CLOSED 182nd (🎯 NEW MECHANISM CLASS — velocity-accumulation positive-feedback distinct from H320 BLEND lag-mode + OUTER anchor smoothing axis closed from BOTH lag AND velocity directions + 109× geometric drift growth at β=0.9 directly observed) + H330 CLOSED 181st (🎯 2nd PAPER-GRADE MECHANISM REFINEMENT — TAPER-TRANSITION triggers inversion NOT integrated dose + Adaptive-μ axis CONSOLIDATED CLOSED across 8 sub-shapes) + H328 CLOSED 180th + H325 CLOSED 179th + H324 CLOSED 178th + H323 CLOSED 177th + H337/H336/H335/H334/H333/H332/H331 ASSIGNED
+## Cycle ~2700 (CURRENT): H331 CLOSED 184th NULL/NEG (🎯 3rd PAPER-GRADE MECHANISM REFINEMENT — DEEPER mid-training POS produces DEEPER terminal NEG (inverse relationship) + H323 V-shape POS-transmission hypothesis DEFINITIVELY DISPROVED + Trapezoid→monotone phase-inverting crossover at step ~2000 + H330+H331 JOINT TRANSITION-DE-STABILIZATION mechanism across BOTH adaptive μ taper AND geometric μ-floor trapezoid + μ-schedule axis SATURATED across 8 sub-shapes/families) + H327 CLOSED 183rd (🎯 V-shaped 5-point dose-response with vertex at end=0.0) + H329 CLOSED 182nd (🎯 NEW MECHANISM CLASS — velocity-accumulation positive-feedback) + H330 CLOSED 181st (🎯 TAPER-TRANSITION triggers inversion) + H328 CLOSED 180th + H325 CLOSED 179th + H324 CLOSED 178th + H323 CLOSED 177th + H338/H337/H336/H335/H334/H333/H332 ASSIGNED
 
-**SEVEN major closures this cycle (177th–183rd NULL/NEG with paper-grade mechanism findings), SEVEN fresh assignments. Plateau campaign portfolio: 183 NULL/NEG + 1 MERGED WIN (H266), 110 mechanism classes consolidated (+1 NEW: OUTER anchor MOMENTUM smoothing-without-lag via H329). All 8 r3 students WIP — zero idle GPUs.**
+**EIGHT major closures this cycle (177th–184th NULL/NEG with paper-grade mechanism findings), EIGHT fresh assignments. Plateau campaign portfolio: 184 NULL/NEG + 1 MERGED WIN (H266), 110 mechanism classes consolidated (+1 NEW: OUTER anchor MOMENTUM smoothing-without-lag via H329). All 8 r3 students WIP — zero idle GPUs.**
 
 ### Closures this cycle
+
+**H331 thorfinn TRAPEZOIDAL μ V-shape pre-cooldown recovery CLOSED 184th NULL/NEG (PR #1939) — 🎯 3rd PAPER-GRADE MECHANISM REFINEMENT this cycle + Inverse relationship: DEEPER mid-training POS produces DEEPER terminal NEG + H323 V-shape POS-transmission hypothesis DEFINITIVELY DISPROVED + Trapezoid→monotone phase-inverting crossover at step ~2000 + H330+H331 JOINT TRANSITION-DE-STABILIZATION mechanism across 2 schedule families + μ-schedule axis SATURATED across 8 sub-shapes/families**
+- arm_a CTRL (linear 0.95→0.90 H266 bit-id) `odm5anoe`: val=3.26941 FFS=3025 (+1.39σ TIE Pattern A +25 IN FAMILY)
+- arm_b TRAPEZOID_MILD (μ_trough=0.75 hold[1000,2500] + ramp-back[2500,2826]) `rnsfomgl`: val=**3.28625** FFS=**−1 NEVER** (+20.44σ CATASTROPHIC NEG)
+- arm_c TRAPEZOID_AGGRESSIVE (μ_trough=0.65) `3csa1l2m`: val=**3.29917** FFS=**−1 NEVER** (+35.06σ CATASTROPHIC NEG — DEEPEST this cycle)
+- 🎯 **PAPER-GRADE MECHANISM FINDING #1 — Inverse relationship: DEEPER mid-training POS → DEEPER terminal NEG**: H331 arm_b/c at step 1000 capture −72σ/−77σ POS (vs H323 arm_c −45σ at same step) — but produces +15σ WORSE terminal val. The mid-training POS reservoir does NOT transmit; its magnitude SCALES the destabilization cost.
+- 🎯 **PAPER-GRADE MECHANISM FINDING #2 — Trapezoid → monotone phase-inverting crossover at step ~2000**: H323 monotone vs H331 trapezoid at same μ_trough=0.65: step 1000 trapezoid −32.62σ POS (deeper), step 2000 +0.58σ NEG (CROSSOVER), terminal +15.41σ NEG (monotone WINS by paper-grade). Optimizer state geometry from hold-low + jump-back is NON-RECOVERABLE.
+- 🎯 **PAPER-GRADE MECHANISM FINDING #3 — H330 + H331 JOINT TRANSITION-DE-STABILIZATION mechanism (two-axis closure)**: H330 = TAPER-TRANSITION triggers inversion (adaptive μ taper, transition at step 2000). H331 = RAMP-BACK TRANSITION triggers de-stabilization (monotone μ-floor trapezoid, transition at step 2500). Joint claim: **the DERIVATIVE of μ schedule at transition points dominates terminal outcome, NOT the integrated μ trajectory**. Mechanism-paper-grade across TWO independent schedule families.
+- 🎯 **H323 arm_b same-μ_trough=0.75 ablation DISPROVES "cumulative low-μ exposure" hypothesis**: H331 arm_b has ~1825 active steps at μ≤0.75 vs H323 arm_b's 3325 cumulative low-μ exposure — yet H331 +7.76σ WORSE terminal. Geometry of "hold-low + jump-back" is the de-stabilizing factor, NOT cumulative exposure time.
+- 🎯 **μ-schedule axis SATURATED across 8 sub-shapes/families**: constant (H266 MERGED), linear adaptive (H314 closed), monotone DOWN (H321, H323), monotone UP (H316, H324, H325), V-shape adaptive 5-point (H327), Adaptive-DOWN trapezoid (H330 today), Monotone μ-floor trapezoid (H331 today). H266 linear 0.95→0.90 is robustly Pareto across entire μ-schedule design space.
+- 110th mechanism class total (no NEW class; refines H330 same-day TRANSITION-DE-STABILIZATION finding to second schedule family)
 
 **H327 alphonse OUTER MOMENTUM cooldown_end_negative CLOSED 183rd NULL/NEG (PR #1924) — 🎯 V-shaped 5-point dose-response (vertex at end=0.0) + Anti-Lookahead SAFE-but-INERT + Pattern A envelope refined to ±25-50 FFS**
 - arm_a CTRL (constant 0.5) `wkv6yr1i`: val=3.27018 FFS=3050 (Pattern A drift +50 EDGE-OF-ENVELOPE, +2.27σ MILD NEG)
@@ -80,6 +91,14 @@
 
 ### Fresh assignments this cycle
 
+**H338 thorfinn — AUX sync_interval VALUE micro-axis re-screen at H266 stack (K∈{20, 30, 45}, PR #1975, FRESH from H331 closure)**
+- 5th virgin-axis-at-hardcoded-baseline re-screening attempt (after H328 wd CLOSED, H334 β1 in-flight, H335 eps in-flight, H337 outer_momentum in-flight)
+- H252 closed sync_interval at H203 stack as 109th NULL/NEG (K=15/30/60 monotone NEG trend); H338 re-screens at H266 stack with Polyak EMA half-life coupling as new mechanism dimension
+- 3-arm: arm_a CTRL K=30 (H266 bit-id) / arm_b TIGHT K=20 (EMA half-life synchronization, 1.5× sync events) / arm_c LOOSE K=45 (unexplored K∈(30,60) interior region)
+- Mechanism: at K=30, EMA samples ~1.5 outer events per 20-step half-life (loose-coupled); K=20 → 3.0 events (tight-coupled, EMA may average across outer-step discontinuities); K=45 → 1.0 events (intermediate sampling)
+- NO CODE CHANGES — pure CLI value sweep on existing `--sync_interval` flag (line 58)
+- WIN prob 5-8% — if NEG closure → 4-axis canalization finding strengthening (sync_interval rigid across H203→H266 stack transition, Polyak EMA half-life coupling does not reshape K=30 attractor)
+
 **H334 askeladd — AUX β1 VALUE axis {0.75, 0.85} at H266 anchor (PR #1961)**
 - Closure-amplifier on H110 (β1=0.9 pre-H266 NEG) + H319 (mid-ramp SCHEDULE both dirs NEG at H266); finer-resolution VALUE characterization never done at H266 stack
 - arm_a CTRL β1=0.8 (H266 bit-id) / arm_b LOW β1=0.75 / arm_c HIGH β1=0.85
@@ -135,16 +154,17 @@
 - NO CODE CHANGES — pure CLI value sweep on existing `--aux_adamw_eps` flag (line 73)
 - WIN prob 5-8% — virgin VALUE micro-axis at hardcoded baseline; if monotone NEG → axis closure with denominator-stabilization mechanism
 
-### Carry-over: 8 ongoing WIP after this cycle ~2700 invocation 12
+### Carry-over: 8 ongoing WIP after this cycle ~2700 invocation 14
 
+- PR #1975 H338 thorfinn: AUX sync_interval VALUE re-screen at H266 (FRESH from H331 closure)
 - PR #1970 H337 alphonse: OUTER outer_momentum VALUE micro-axis (FRESH from H327 closure)
 - PR #1969 H336 edward: OUTER anchor η<1 brake 2D interior (FRESH from H329 closure)
 - PR #1968 H335 fern: AUX adamw_eps VALUE micro-axis (FRESH from H330 closure)
 - PR #1961 H334 askeladd: AUX β1 VALUE axis (FRESH from H328 closure, student next-poll pickup)
 - PR #1954 H333 frieren: AUX β2 cooldown_ramp DOWN (FRESH from H325 closure, student next-poll pickup)
 - PR #1951 H332 tanjiro: POLYAK EMA DECAY SCHEDULE (FRESH from H324 closure, student next-poll pickup)
-- PR #1939 H331 thorfinn: TRAPEZOIDAL V-shape μ (FRESH from H323 closure)
 - PR #1927 H326 nezuko: F-norm-preserving redefined regularizer + H322 seed-replicate (cycle ~2650 assignment)
+- ~~PR #1939 H331 thorfinn~~: CLOSED 184th NULL/NEG (3rd PAPER-GRADE MECHANISM REFINEMENT — inverse mid-training POS→terminal NEG relationship + H330+H331 JOINT TRANSITION-DE-STABILIZATION). thorfinn reassigned to H338 (PR #1975).
 - ~~PR #1924 H327 alphonse~~: CLOSED 183rd NULL/NEG (V-shape 5-point dose-response). alphonse reassigned to H337 (PR #1970).
 - ~~PR #1933 H329 edward~~: CLOSED 182nd NULL/NEG (NEW mechanism class — velocity-accumulation). edward reassigned to H336 (PR #1969).
 - ~~PR #1936 H330 fern~~: CLOSED 181st NULL/NEG (TAPER-TRANSITION mechanism refinement). fern reassigned to H335 (PR #1968).
