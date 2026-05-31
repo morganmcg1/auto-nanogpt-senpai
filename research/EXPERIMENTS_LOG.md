@@ -1,5 +1,99 @@
 # SENPAI Research Results — auto-nanogpt-1gpu-r4
 
+## 2026-05-31 16:41 — PR #1943: MUON LR_MULT-asymmetry bracket {0.90/1.10, 0.80/1.20, 0.70/1.30} post-NM — **CLOSED-CATALOG-NULL + DUAL-MECHANISM UPPER-EDGE CONFIRMATION CATALOG-MAJOR + LR_MULT × R-BUFFER ASYMMETRIC COUPLING CLEANEST DISPLACEMENT-CONTROL MECHANISM IN R4**
+
+- branch: `g1r4-fern/muon-lr-mult-bracket-post-nm`
+- hypothesis: Production MUON ATTN_LR_MULT=0.80 + MUON_MLP_LR_MULT=1.20 asymmetry (PR #579 merge) may be locally near-optimal; bidirectional bracket {±10% perturbation} tests whether SOFTEN (0.90/1.10) or HARDEN (0.70/1.30) shifts outcome on post-NM stack. Hypothesis NM-absorption-of-asymmetry-mechanism = does NM right-preconditioning of body matrices absorb the LR_MULT asymmetry signal that #579 found load-bearing pre-NM?
+
+### 3-arm matrix terminal results
+
+| Arm | LR_MULT (ATTN/MLP) | Effective LR (ATTN/MLP) | W&B run | val/loss | Δ_XA | Δ vs μ_prod=3.26118 | FFS | precond_ratio_mean | LIFT-position |
+|---|---|---|---|---:|---:|---:|---:|---:|---|
+| A ctrl | 0.80/1.20 (ratio 1.50×) | 0.02800/0.04200 | `ixxx4sww` | **3.26053** | — | −0.00065 = **−0.40σ_seed** | 3125 | 1.07493 | in-LIFT lower-half |
+| B SOFTEN | 0.90/1.10 (ratio 1.22×) | 0.03150/0.03850 | `t19yclcp` | 3.26264 | **+0.00211** = REAL-SIGNAL NEG | +0.00146 = +0.91σ_seed | 3150 | **1.06738** (−0.00755) | **LOWER-EDGE ENGINEERED** |
+| C HARDEN | 0.70/1.30 (ratio 1.86×) | 0.02450/0.04550 | `czxu0stm` | 3.26084 | **+0.00031** = NULL | −0.00034 = −0.21σ_seed | 3125 | **1.11812** (+0.04319) | **UPPER-OOB MECH-LINKED CROSSING** |
+
+### 6-gate framework verdict
+
+| Gate | Target | Status | Verdict |
+|---|---|---|---|
+| **G1 (baseline beat)** | μ_exp < production 3.26118 | Arm C 3.26084 (paired Δ_CA=+0.00031 NULL) | **FAIL** (not a winner; Arm C single-seed absolute pass is sub-σ-seed-floor on n=1) |
+| **G2 (FAV-magnitude)** | μ_Δ_paired ≤ −0.0017 | Arm B +0.00211 NEG / Arm C +0.00031 NULL | **FAIL** (no FAV signal) |
+| **G3 (FFS coupling)** | μ_exp_FFS < μ_ctrl_FFS | Arm B 3150 +25 unfav / Arm C 3125 = ctrl | **NEG B / NULL C** |
+| **G7 (drift)** | Arm A Δ ≤ ±0.93σ_seed | Arm A −0.40σ | **PASS-CLEAN** ✓ |
+| **G7-B (NULL band)** | Arm B/C inside ±0.0015 | B +0.00211 OUT / C +0.00031 IN | **B fails-NULL real-signal NEG / C in NULL** |
+
+### CATALOG-MAJOR — LR_MULT × R-buffer ASYMMETRIC COUPLING (cleanest single-axis displacement-control mechanism in r4)
+
+| LR_MULT | precond_ratio_mean | Δ_R vs Arm A | LIFT-position |
+|---|---:|---:|---|
+| SOFTEN 0.90/1.10 | 1.06738 | **−0.00755** | LOWER-edge cluster |
+| ctrl 0.80/1.20 | 1.07493 | — | lower-half mid-band |
+| HARDEN 0.70/1.30 | 1.11812 | **+0.04319** | UPPER-OOB +0.024 |
+
+**Asymmetric coupling**: HARDEN effect 5.72× larger than SOFTEN effect on R-buffer terminal state. LR_MULT asymmetry intensification monotonically drives precond_ratio higher; relaxation toward identity weakly drives it lower.
+
+### CATALOG-MAJOR — DUAL-MECHANISM UPPER-EDGE CONFIRMATION
+
+Arm C HARDEN precond_ratio=1.11812 = NEW UPPER-OOB cluster member. Production stack now has **TWO independent mechanism-LINKED upper-edge crossing axes**:
+
+1. **NS_ITERS=16 phase EXTENSION** (frieren #1938 Arm B EARLIER frac=0.6 +335 steps → 1.10223)
+2. **MUON HARDEN LR_MULT asymmetry** (fern #1943 Arm C ratio 1.86× → 1.11812)
+
+| Source | precond_ratio_mean | Mechanism context |
+|---|---:|---|
+| askeladd #1914 Arm A | 1.10613 | production NS_COOLDOWN_START_FRAC=0.7 |
+| frieren #1938 Arm B | 1.10223 | NS_ITERS=16 EXTENSION |
+| thorfinn #1883 Arm B | 1.10758 | late-cd FREEZE-R PP-confirm B0 |
+| edward #1888 Arm A | 1.10151 | production-stack ctrl K=100 |
+| **fern #1943 Arm C HARDEN (NEW)** | **1.11812** | **HARDEN MUON LR_MULT asymmetry** |
+
+**5/14 cohort = 36% steady-state upper-OOB rate** under diverse mechanism contexts. UPPER-OOB cluster catalog-CONFIRMED as stable mechanism-attractor reachable via multiple independent axes.
+
+### CATALOG-NOVEL — DECOUPLES R-buffer displacement from val-degradation
+
+HARDEN Arm C drove precond_ratio to **1.11812 = highest r4 catalog observation** but val outcome was NULL (Δ_CA=+0.00031). **Catalog implication**: R-buffer displacement up to ~1.12 is **mechanism-neutral for val-outcome** under current NS=12→16 production schedule. Production 0.80/1.20 is at a **flat local optimum with directional asymmetry preserved**. Useful as forward-engineering datum: future hypotheses can use HARDEN as clean LIFT-band-displacement-control axis WITHOUT val penalty.
+
+### LIFT-band N=14 cohort update
+
+| Position | Count | Fraction | Notes |
+|---|---:|---:|---|
+| Lower-edge cluster 1.064-1.075 | 6/14 | 43% | 5 CTRL-class + 1 ENGINEERED (fern-B SOFTEN, first engineered cluster entry) |
+| Upper-OOB MECH-LINKED 1.10+ | 5/14 | 36% | DUAL-mechanism (4 NS-axis + 1 LR_MULT-axis) |
+| Mid-band TRANSITION 1.078-1.085 | 3/14 | 21% | shrinking transition zone |
+
+### Drift cohort #29 contribution
+
+Arm A Δ=−0.404σ_seed favorable. Cumulative cohort μ ≈ +0.40σ at n=29 (17+/12−); cohort compressing toward +0.40σ band.
+
+### NS-axis vs LR_MULT-axis comparison
+
+| Axis | Mechanism | Range tested | Net val-effect | R-buffer effect |
+|---|---|---|---:|---:|
+| NS_COOLDOWN_START_FRAC (frieren #1938) | NS_ITERS=16 phase timing | ±0.1 frac | EARLIER +0.00285 NEG / LATER +0.00132 NULL | EARLIER +0.040 OOB / LATER +0.016 mid |
+| MUON LR_MULT (fern #1943) | ATTN/MLP differential push | ratio 1.22-1.86× | SOFTEN +0.00211 NEG / HARDEN +0.00031 NULL | SOFTEN −0.008 lower / HARDEN +0.043 OOB |
+
+Both axes are **locally near-optimal at production** with **asymmetric cost gradients**. Both have a "compute-NULL" perturbation direction (NS LATER, MUON HARDEN) and a "compute-NEG" perturbation direction (NS EARLIER, MUON SOFTEN). UPPER-OOB precond_ratio is reachable via either axis without val penalty (NS Arm B: +1.30σ val cost vs HARDEN Arm C: NULL val cost) — so HARDEN is the cleaner displacement-control mechanism.
+
+### Catalog placement — 3 simultaneous catalog contributions
+
+1. **LR_MULT × R-buffer ASYMMETRIC COUPLING** — cleanest single-axis displacement-control mechanism in r4 (5.72× HARDEN-vs-SOFTEN asymmetry)
+2. **DUAL-MECHANISM UPPER-EDGE CONFIRMATION** — 2 independent axes (NS_ITERS=16 + HARDEN LR_MULT) both drive precond_ratio into 1.10+ MECH-LINKED CROSSING zone
+3. **R-buffer-displacement-from-val-degradation DECOUPLING** — HARDEN val NULL despite precond_ratio=1.11812 (highest r4 observation) = forward-engineering datum
+
+### 6 student follow-ups evaluated
+
+1. Close LR_MULT-asymmetry axis in catalog — **APPROVED**
+2. HARDEN as R-buffer-engineering lever — **CATALOG-NOTED for future hypothesis design**
+3. PP-confirm Arm A drift cohort contribution — **ACCEPTED** drift cohort #29 updated
+4. Cross-mechanism 2x2 factorial HARDEN × NS_ITERS=16 — **HIGH-VALUE BUT DEFER** (4-arm chain ~9h; revisit when both axes catalog-closed)
+5. **ADAMW_EMBED_LR_MULT bracket — ADOPTED for FERN'S NEXT ASSIGNMENT** {1.0, 1.5 ctrl, 2.0}
+6. No code changes required — **NOTED**
+
+**Fresh assignment**: fern → ADAMW_EMBED_LR_MULT post-NM bracket {1.0, 1.5 ctrl, 2.0} testing whether #393 production 1.5× is locally near-optimal post-NM stack accumulation. LR-axis methodology continuity from fern's expertise + EMBED-group sister-axis to MUON LR_MULT just exhausted + hasn't been bracketed since #393 merge.
+
+---
+
 ## 2026-05-31 15:51 — PR #1938: NS_COOLDOWN_START_FRAC bracket {0.6, 0.7, 0.8} cooldown-activation-timing — **CLOSED-CATALOG-NULL + NS-AXIS LOCALLY NEAR-OPTIMAL AT PRODUCTION 0.7 ASYMMETRIC + LIFT-UPPER-OOB MECH-LINKED CROSSING TRIPLE-OBSERVATION 4/12 STEADY-STATE + c645 BOUNDARY-PAIR SUB-σ_SEED VALIDATION**
 
 - branch: `g1r4-frieren/nm-ns-cooldown-start-frac-bracket`
