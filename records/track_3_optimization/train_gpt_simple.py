@@ -492,9 +492,10 @@ WD_EMBED = float(os.environ.get("WD_EMBED", "0.001"))
 WD_LM_HEAD = float(os.environ.get("WD_LM_HEAD", "0.001"))
 WD_SCALARS = float(os.environ.get("WD_SCALARS", "0.0"))
 PER_KIND_AUX_BETA1_ENABLED = int(os.environ.get("PER_KIND_AUX_BETA1_ENABLED", "0"))
-AUX_BETA1_EMBED = float(os.environ.get("AUX_BETA1_EMBED", "0.8"))
-AUX_BETA1_LM_HEAD = float(os.environ.get("AUX_BETA1_LM_HEAD", "0.8"))
-AUX_BETA1_SCALARS = float(os.environ.get("AUX_BETA1_SCALARS", "0.8"))
+# Accept PER_KIND_BETA1_* as a more descriptive alias for AUX_BETA1_* (PR #1997).
+AUX_BETA1_EMBED = float(os.environ.get("PER_KIND_BETA1_EMBED", os.environ.get("AUX_BETA1_EMBED", "0.8")))
+AUX_BETA1_LM_HEAD = float(os.environ.get("PER_KIND_BETA1_LM_HEAD", os.environ.get("AUX_BETA1_LM_HEAD", "0.8")))
+AUX_BETA1_SCALARS = float(os.environ.get("PER_KIND_BETA1_SCALARS", os.environ.get("AUX_BETA1_SCALARS", "0.8")))
 # Optional explicit RNG seed for n=2 verification protocol (PR #1806 Arm B).
 SEED_ENV = os.environ.get("SEED")
 SEED = int(SEED_ENV) if SEED_ENV is not None else None
@@ -1056,6 +1057,9 @@ if dist.get_rank() == 0:
             "optimizer/aux_beta1_embed": AUX_BETA1_EMBED,
             "optimizer/aux_beta1_lm_head": AUX_BETA1_LM_HEAD,
             "optimizer/aux_beta1_scalars": AUX_BETA1_SCALARS,
+            "optimizer/per_kind_beta1_embed": AUX_BETA1_EMBED,
+            "optimizer/per_kind_beta1_lm_head": AUX_BETA1_LM_HEAD,
+            "optimizer/per_kind_beta1_scalars": AUX_BETA1_SCALARS,
             "optimizer/recipe": "contra-muon + normuon-lite + soap-on-mlp + soap-on-attn-trust-gate + per-depth-half-soap-beta2-dispatch (PR #1916 compound)",
         },
     )
