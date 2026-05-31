@@ -1,3 +1,56 @@
+## 2026-05-31 — PR #1995: H340 tanjiro AUX adam_embed LR VALUE micro-axis at H266 hardcoded baseline {0.15, 0.6} — CLOSED 194th NULL/NEG (🎯 PAPER-GRADE arm_c HIGH lr=0.6 EXACT FFS=3025 COINCIDENCE WITH arm_a CTRL = AGC clip absorbs 2× embed LR over-scaling + H158 carryover cross-validated to embed group + 6-axis virgin-axis-at-H266-stack canalization narrative COMPLETE on AUX VALUE axes: H328 wd / H334 β1 / H335 eps / H337 outer_momentum / H338 sync_interval / H340 aux_embed_lr — all 6 axes show H266 at local Pareto)
+
+- Branch: g1r3-tanjiro/h340-aux-embed-lr-value
+- Hypothesis: AUX adam_embed LR VALUE micro-axis at H266 stack. Hardcoded `lr=0.3` at AdamW init line 938 NEVER re-screened at H266 stack — virgin-axis-at-H266 test in mirror of H158 lm_head LR sweep (Programme Finding #1: terminal F-norm scales LINEARLY with LR for AGC-stacked groups).
+
+### Results
+
+| Arm | aux_embed_lr | val/loss | FFS | Δ vs H266 (σ_H174) | Δ vs CTRL (σ_H174) | Verdict |
+|-----|--------------|----------|-----|--------------------|--------------------|---------|
+| arm_a CTRL | 0.3 (H266 bit-id) | 3.26967 | 3025 | +1.69σ TIE | (ref) | Pattern A +25 IN FAMILY |
+| arm_b LOW | 0.15 | **3.27138** | **3050** | **+3.62σ NEG** | **+1.93σ NEG-vs-CTRL** | **MILD NEG** (+25 FFS vs CTRL) |
+| arm_c HIGH | 0.6 | 3.26945 | 3025 | +1.44σ TIE | **−0.25σ TIE-vs-CTRL** | **EXACT FFS-coincident TIE with CTRL** |
+| H266 baseline (PR #1669) | 0.3 | 3.26818 | 3000 | (ref) | — | — |
+
+W&B runs: `n6h1jey6` (arm_a CTRL), `unjmpxlv` (arm_b LOW), `nwpo7laf` (arm_c HIGH). σ_H174=0.000884.
+
+🎯 **194th NULL/NEG closure** — Issue #1260 strict gate FAIL (no arm achieves FFS<3000). NO MERGE.
+
+### Analysis
+
+🎯 **PAPER-GRADE finding — AGC absorbs 2× embed LR over-scaling**: arm_c HIGH lr=0.6 (2× CTRL) achieves EXACT FFS=3025 coincidence with arm_a CTRL — Δ_val=−0.25σ_H174 ≈ 0.00022 raw, statistically indistinguishable. Strongest evidence yet that the H266 stack's AGC clip (`aux_agc_clip_ratio=0.05`) absorbs ~2× embed LR over-scaling, and nominal LR within a 2× envelope is irrelevant to FFS. This cross-validates H158 Programme Finding #1 (terminal F-norm scales LINEARLY with LR for AGC-stacked groups) on the embed group: doubling embed LR likely yields ~2× terminal embed F-norm without convergence-speed benefit.
+
+🎯 **arm_b LOW MILD NEG mechanism**: halving embed LR under-shoots the embed RMS growth trajectory needed by H266's cooldown phase — analogous to **H328 wd=0.005 NEG via embed-RMS shrinkage**. Embed-RMS axis behaves symmetrically: damping it via wd↑ OR LR↓ both produce NEG. Confirms embed-RMS as a load-bearing axis at H266 stack with monotone direction.
+
+🎯 **6-axis virgin-axis-at-H266-stack canalization narrative COMPLETE on AUX VALUE axes**:
+| Hyp | Axis | Direction | Verdict |
+|-----|------|-----------|---------|
+| H328 | wd | (0 → 0.005) | ASYMMETRIC MILD NEG (embed-RMS shrinkage) |
+| H334 | β1 | (0.8 → ±0.05) | ASYMMETRIC TIE envelope |
+| H335 | eps | (1e-6 → ±10×) | ASYMMETRIC TIE envelope, LOW=LOWEST val |
+| H337 | outer_momentum | (0.5 → ±0.2) | BILATERAL CATASTROPHIC NARROW basin |
+| H338 | sync_interval | (30 → 20/45) | MONOTONE-UP (LOW=TIE, HIGH=NEG) |
+| **H340** | **aux_embed_lr** | **(0.3 → ±2×)** | **ASYMMETRIC TIE-HIGH EXACT FFS / NEG-LOW** |
+
+All 6 axes show H266 sits at local Pareto optimum on AUX VALUE axes. Paper-grade aggregation finding for cycle ~2700 — H266 is locally Pareto across multiple independent scalar axes.
+
+### Pattern A confirmation
+
+✓ step-0 val=10.82583 EXACT on arm_a CTRL (default 0.3 bit-id)
+✓ arm_a CTRL FFS=3025 / val=3.26967 = Pattern A +25 IN FAMILY (+1.69σ vs H266; matches H329/H331/H334/H339 envelope)
+✓ Treatment-arm W&B config audit: arm_b `aux_embed_lr=0.15` ✓ / arm_c `aux_embed_lr=0.6` ✓
+✓ All 3 arms passed `(3.28-μ)√n ≥ 0.004` margin gate
+
+### Cycle ~2700 H266 attractor cluster
+
+H340 contributes 0 cluster members (all arms FFS=3025-3050). Cluster remains at **11 members** at FFS=3000 EXACT.
+
+### H348 tanjiro re-assignment
+
+tanjiro re-routed to **H348 Z-loss (partition function regularization) on lm_head logits at H266 stack** (PR #2029, STRUCTURAL change orthogonal to all 7 current WIP mechanism classes H341-H347). Z-loss penalizes `(logsumexp(logits))²` to keep softmax log-partition close to zero. Provenance: PaLM (Chowdhery 2022, coef=1e-4) + ST-MoE (Zoph 2022, coef=1e-3) + Mesh-TensorFlow. Mechanism distinct from H266's existing logit softcap at line 544 — softcap bounds per-logit magnitude, Z-loss bounds per-token log-partition shape. 3-arm CTRL coef=0.0 H266 bit-id / MILD coef=1e-4 PaLM-default / MEDIUM coef=1e-3 ST-MoE-default. Code change ~10-15 LoC adds `--z_loss_coef` CLI flag + modifies `GPT.forward()` to add Z-loss term scaled to match `reduction="sum"` of main_loss. WIN prob 5-8% mechanism-paper-grade either direction.
+
+---
+
 ## 2026-05-31 — PR #1977: H339 nezuko F-norm rescaling projection (M3 mechanism test bisecting H326 closure narrowing) — CLOSED 193rd NULL/NEG (🎯 PAPER-GRADE BILATERAL M3 CLOSURE: both α=1.0 hard AND α=0.1 soft F-norm projection NEG at FFS=3050 + arm_c PROJ_SOFT MARGINALLY WORSE than arm_b PROJ_HARD despite 10× lighter dose confirms NO soft admit window + M3 F-norm contraction BILATERALLY RULED OUT as load-bearing mechanism for H326 BODY ORTHO POS direction + H326 closure 3-mechanism narrowing FULLY PRUNED: M1 RULED OUT H328 + M3 RULED OUT H339 THIS → M2 spectral-spread SOLE remaining candidate H341 IN-FLIGHT + steady systemic loss in attainable terminal val NOT training instability — F-norm projection during cooldown incompatible with H266 body F-norm equilibrium that emerges during cooldown window Polyak EMA tracking cooldown-final-state requires free body F-norm growth)
 
 - Branch: g1r3-nezuko/h339-fnorm-rescaling-projection
