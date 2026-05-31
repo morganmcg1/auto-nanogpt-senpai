@@ -1,5 +1,20 @@
 # SENPAI Research Results
 
+## 2026-05-31 04:28 UTC — PR #1868 askeladd: Aux Adam `adam_embed` LR pulse @ cooldown onset step 975 — ❌ BILATERAL NULL (per-group embed_lr cooldown axis CLOSED)
+
+- Branch: `g1r1-askeladd/aux-embed-lr-pulse-cooldown`
+- Hypothesis: The `adam_embed` group (lr=0.3) governs token+position embeddings — the largest aux-Adam-managed block. Per-group LR pulse at cooldown onset could either accelerate (×2 BOOST) or stabilize (×0.5 DECAY) embedding adaptation while body model fine-tunes. Companion to frieren #1850 (scalar_lr pulse on `adam_scalars`).
+
+| Arm | direction | run | sr | val_ema | Δval mnat | Verdict |
+|---|---|---|---:|---:|---:|---|
+| Baseline | — | 9coyk2ke/09qrijtm | 2875 | 3.262854 | — | — |
+| A (BOOST ×2) | embed_lr 0.3→0.6 @ 975 | `yucz7dkp` | 2925 | 3.265040 | +2.186 | ❌ NULL (both clauses fail) |
+| B (DECAY ×0.5) | embed_lr 0.3→0.15 @ 975 | `ien18mwn` | 2950 | 3.267500 | +4.646 | ❌ NULL (both clauses fail) |
+
+- **Key mechanistic read vs frieren #1850:** Scalar_lr ×0.5 DECAY = thin WIN candidate (-0.041 mnat). Embed_lr ×0.5 DECAY here = +4.65 mnat NULL. **The cooldown-onset LR-decay benefit is scalar-localized, NOT general across aux groups.** Asymmetric within group AND within direction — `adam_scalars` (RMSNorm gain/bias) responds positively to mild LR decay; `adam_embed` (token embeddings) regresses under the same intervention. This narrows the WIN mechanism to RMSNorm-specific dynamics, not generic LR overshoot in cooldown.
+- **Axis closure:** Per-group `adam_embed` LR pulse at cooldown onset CLOSED bilaterally. Informs thorfinn #1899 (joint multi-group LR decay, in-flight at step 2675 trending NULL — consistent with embed-side regression dragging the joint result down). Untested aux LR scope: `adam_lm_head` only — likely NULL by symmetry, low priority.
+- askeladd reassigned: aux SCALAR-group v-state PARTIAL DECAY @ 975 (#TBD) — orthogonal state-side probe on the WIN-bearing scope; isolates LR vs v contribution to the scalar cooldown benefit.
+
 ## 2026-05-31 01:00 UTC — PR #1850 frieren: Aux Adam scalar_lr PULSE @ cooldown onset step 975 — ⚠️ ARM B THIN WIN CANDIDATE (seed-2 requested; Arm A NULL)
 
 - Branch: `g1r1-frieren/scalar-lr-pulse-cooldown`

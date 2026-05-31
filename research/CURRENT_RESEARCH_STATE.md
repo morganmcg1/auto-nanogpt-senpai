@@ -1,6 +1,6 @@
 # SENPAI Research State — auto-nanogpt-1gpu-r1
 
-- **Last update: 2026-05-31 01:00 UTC**
+- **Last update: 2026-05-31 04:28 UTC**
 - **Current baseline:** PR #1532 (aux Adam β₂ pulse 0.95→0.99 @ step 975). val_ema=3.262854, sr=2875 (n=2).
 - **Merge gate:** `sr ≤ 2862.5 OR (sr=2875 AND val_ema < 3.262854)`
 - **⚠️ HOT WATCH:** frieren #1850 Arm B (aux Adam scalar_lr ×0.5 @975) `414cvcw7` seed-1: sr=2875, val_ema=3.262813 (−0.041 mnat below gate). **THIN WIN CANDIDATE (n=1); seed-2 requested 00:50 UTC.** Strong asymmetry: BOOST ×2 HURTS (+4.836 mnat), DECAY ×0.5 HELPS — directional mechanism is clear (RMSNorm overshoot at cooldown onset). ETA seed-2 terminal ~04:00-05:00 UTC.
@@ -37,6 +37,7 @@
 - **Aux Adam m+v FULL ZERO reset at late phase boundaries (#1830 edward)** — Arm A (reset@2600 pEMA boundary) sr=2925 val_ema=3.265206 (+2.4 mnat), Arm B (reset@2750 pre-target) sr=2925 val_ema=3.265872 (+3.0 mnat); Arm B marginally more disruptive (smaller late-phase v denominator → larger relative reset impact); aux Adam full-zero reset CLOSED across ALL temporal boundaries (975 via #1770, 2600 via Arm A, 2750 via Arm B)
 - **Body PMuon momentum buffer SCALE at pre-target boundary step 2750 (#1836 alphonse)** — Arm A (×0.5) sr=2925 val_ema=3.265251 (+2.4 mnat), Arm B (×0.25) sr=2925 val_ema=3.264915 (+2.06 mnat); magnitude-invariant outcome, replicating thorfinn #1797 pattern at cooldown onset; body PMuon momentum SCALE axis CLOSED across ALL temporal boundaries (step 975 via #1797, step 2750 via #1836); open: body PMuon momentum HARD-ZERO at cooldown onset (fern #1876 in flight)
 - **Body PMuon L_cov/R_cov PER-SIDE asymmetric ZERO RESET @ step 1100 (#1849 thorfinn)** — Arm A (L-only) `2p8t595p` sr=2925 val_ema=3.264782 (+1.928 mnat), Arm B (R-only) `qoi4hlnj` sr=2925 val_ema=3.264384 (+1.530 mnat); marginal R<L asymmetry is directionally consistent with gradient-space hypothesis but effect too small to bear load; cov-state reset axis FULLY EXHAUSTED across all reset types (full/per-side-L/per-side-R) AND all temporal boundaries (975/1100/2750)
+- **Aux Adam embed_lr PULSE @975 (#1868 askeladd, CLOSED 04:28 UTC)** — Arm A (×2 BOOST, embed_lr 0.3→0.6) `yucz7dkp` sr=2925 val_ema=3.265040 (+2.186 mnat); Arm B (×0.5 DECAY, embed_lr 0.3→0.15) `ien18mwn` sr=2950 val_ema=3.267500 (+4.646 mnat); BILATERAL NULL; embed_lr ×0.5 DECAY is +4.65 mnat NULL while scalar_lr ×0.5 DECAY (#1850) = thin WIN candidate; cooldown-onset LR-decay benefit is SCALAR-LOCALIZED; per-group `adam_embed` LR axis CLOSED
 - **Aux Adam m-only HARD ZERO RESET @ step 975 (#1815 nezuko)** — Arm A seed-1 `nvh1vd60` sr=2875 val_ema=3.262238 (−0.616 mnat WIN candidate); seed-2 `gdr4m70w` sr=2925 val_ema=3.264410 (+1.556 mnat FAIL); n=2 mean sr=2900, val_ema=3.263324 fails both clauses; seed-1 WIN was run-to-run noise; m-only HARD ZERO at step 975 CLOSED; first-moment direction memory is load-bearing at cooldown onset; open: PARTIAL DECAY of m (tanjiro #1881 in flight)
 
 **Structural decoupling (BILATERAL NULL):**
@@ -72,14 +73,15 @@ Two independent mechanisms hit baseline sr (bilateral nulls, but sr=2925→2875 
 | **#1876** | **fern** | **Body PMuon momentum HARD-ZERO reset at cooldown onset (975 vs 1100)** | **Assigned 21:30 UTC** | **Arm A: momentum zero @975; Arm B: momentum zero @1100** |
 | **#1881** | **tanjiro** | **Aux Adam m-state PARTIAL DECAY at cooldown onset step 975 (×0.5 / ×0.25)** | **Assigned 22:45 UTC** | **Arm A: m×0.5 @975; Arm B: m×0.25 @975** |
 | **#1850** | **frieren** | **⚠️ Aux Adam scalar_lr DECAY ×0.5 @ 975 — THIN WIN candidate; seed-2 LAUNCHED** | **Sent back 00:50 UTC; seed-2 in flight** | **Arm A: ×2 BOOST (NULL +4.836 mnat); Arm B: ×0.5 DECAY (seed-2 running)** |
-| **#1868** | **askeladd** | **Aux Adam embed_lr PULSE @ cooldown onset step 975 (per-group LR perturbation on adam_embed)** | **Assigned 20:00 UTC** | **Arm A: embed_lr ×2 (0.3→0.6); Arm B: embed_lr ×0.5 (0.3→0.15)** |
+| **#1912** | **askeladd** | **Aux adam_scalars v-state PARTIAL DECAY at cooldown onset step 975 (v×0.5 / v×0.25)** | **Assigned 04:28 UTC** | **Arm A: adam_scalars v×0.5 @975; Arm B: adam_scalars v×0.25 @975** |
 
 ## Current research themes
 
 **Aux Adam structural exploration (this session):**
 - Directive (a): Aux Adam m-only ZERO RESET @975 (#1815 nezuko) CLOSED on n=2 — seed-2 returned NULL (+1.556 mnat). First-moment direction memory IS load-bearing at cooldown onset (not dispensable). Open: PARTIAL DECAY of m (tanjiro #1881 in flight — does 50%/25% retention outperform hard-zero?)
 - Directive (a/b): Aux Adam scalar_lr DECAY ×0.5 @975 (#1850 frieren Arm B `414cvcw7`) — ⚠️ THIN WIN CANDIDATE (sr=2875, val_ema=3.262813, −0.041 mnat). BOOST ×2 (Arm A `t14ojkgw`) NULL +4.836 mnat. Seed-2 in flight. RMSNorm gain/bias overshoot at cooldown onset is the mechanistic read.
-- Directive (a/b): Aux Adam embed_lr PULSE @975 (#1868 askeladd) — companion to #1850, testing embed group (lr=0.3) LR perturbation at same boundary; in flight
+- **Aux Adam embed_lr PULSE @975 (#1868 askeladd) CLOSED (04:28 UTC):** Bilateral NULL — Arm A (×2 BOOST) sr=2925 +2.19 mnat, Arm B (×0.5 DECAY) sr=2950 +4.65 mnat. **Embed LR decay is the WRONG scope.** Cooldown-onset LR-decay benefit is scalar-localized (not embed/lm_head). Informs thorfinn #1899 (joint LR decay trending NULL — embed-side regression drags joint down). askeladd reassigned: aux SCALAR-group v-state PARTIAL DECAY @975 (#1912) — state-side probe on the WIN-bearing scope.
+- Directive (a/d): Aux adam_scalars v-state PARTIAL DECAY @975 (#1912 askeladd) — NEW: isolates v-state side of scalar WIN mechanism (vs frieren #1850 which isolates LR side); tests whether v-buffer recalibration for new β₂=0.99 regime contributes independently
 - Directive (a/b): Joint aux Adam LR decay all-3-groups ×0.5/×0.25 @975 (#1899 thorfinn) — NEW: stacks #1850 Arm B scalar-only WIN signal across ALL aux groups; tests whether benefit is general (all-group LR overshoot) or scalar-localized (RMSNorm-specific)
 - Directive (a): Aux Adam m-only ZERO reset at LATE boundaries (#1879 alphonse) — testing m-zero @2600 vs @2750; temporal extension of #1815 paradigm to late phase boundaries where m-zero hasn't been tested in isolation
 
