@@ -1,3 +1,38 @@
+## 2026-05-31 12:30 UTC — Cycle 71 mid-466 — nezuko #1950 POD-STABILITY-BLOCKED at lm_head M=2 f=0.5 (11/11 NaN crashes 8% empirical success rate cross-pod control confirms cell IS reachable on other pods — NOT counted as refute; tally unchanged at 372/240/206/18 RTM) + nezuko #1960 new assignment (INTERVAL-AXIS at lm_head M=3 f=0.25 interval=150 FRESH PUSH n=2 from start at SUBSTRATE-OPTIMUM cell linear-extrapolation predicts 3.26962 ± σ 0.00112; 35%-LINEAR-EXTRAPOLATION-CONFIRMED prior, 10%-MERGE-CANDIDATE prior)
+
+### nezuko #1950 POD-STABILITY-BLOCKED — operational lesson logged
+
+11 of 11 runs (10 Arm A interval=200 across 7 named seeds + 1 Arm B interval=150) diverged to `val_loss:nan` by step 125. Divergence happens BEFORE any periodic-reset event (first reset at step ≥150) → mechanistically INDEPENDENT of reset configuration.
+
+**Cross-pod control evidence**: fern #1887 `gdra2o3m` at SAME config (lm_head M=2 f=0.5 i=200) → 3.26977 on different pod → cell IS reachable. Statistical reading: 11 consecutive failures at 8% base rate has p=0.92^11 ≈ 40% → consistent with cell's known instability prior, no new structural information beyond operational success-rate confirmation.
+
+**Per advisor methodology** (memory feedback_pod_broken_axis_misattribution): NaN-axis-closures require cross-pod control. This PR has explicit cross-pod control → safely classified as pod-stability-bounded, NOT a refutation. Cycle-71 tally unchanged at 372/240/206/18 RTM precedents.
+
+### nezuko #1960 new assignment — INTERVAL-AXIS FRESH PUSH at substrate-optimum cell
+
+Pivots nezuko's INTERVAL-AXIS specialty to the STABLE lm_head M=3 substrate-optimum cell:
+- **Arm A** SEED=1 at lm_head M=3 f=0.25 interval=150
+- **Arm B** SEED=2 at lm_head M=3 f=0.25 interval=150 (n=2 from start)
+- Linear extrapolation from #1920 Δ(250→200) = −0.00088 at 3.83× damping vs M=2 → predicted Δ(200→150) ≈ −0.00088 → landing ≈ 3.26962 ± σ 0.00112
+- Tests whether INTERVAL-AXIS productive direction extends further or plateaus at i=200 sweet spot
+
+### Cycle 71 cumulative state (post-#1950 close, unchanged)
+
+**372 refuted / 240 distinct mech classes / 206 family closures / 9 structural axes locked / 18 regression-to-mean precedents** (RTM QUINTET). Fleet 8/8 active. nezuko pivoted from blocked cell to stable substrate-optimum.
+
+### Standing in-flight monitoring (last status as of 12:24Z)
+
+- **thorfinn #1944** — last update 11:59Z (still WIP; was due ~11:50Z, possibly bilateral wrapping up)
+- **frieren #1947** — last update 11:45Z (still WIP)
+- **tanjiro #1949** — last update 12:00Z (still WIP, Arm A `j3n5pgmy` launched 10:21Z ~12:14Z ETA likely completing)
+- **edward #1952** — AXIS-4 DUAL-EXCLUSION MATRIX
+- **alphonse #1953** — NS5_ITERS bilateral at diagonal corner
+- **askeladd #1956** — RESET-FACTOR-ABLATION compound
+- **fern #1959** — CROSS-SUBSTRATE COMPOUND
+- **nezuko #1960** — INTERVAL-AXIS lm_head M=3 i=150 fresh push, just assigned
+
+---
+
 ## 2026-05-31 12:05 UTC — Cycle 71 mid-465 — fern #1940 372nd refute 206th family closure 240th mech class (M-CHANNEL-SUBSTRATE-SPECIFICITY-CONFIRMED-DISJOINT-OPTIMA embed-M=2-strict lm_head-M=3-strict + factor-axis-FLAT-at-embed-M=3 off-substrate-optimum; bilateral 3.27088/3025 + 3.27138/3025 inter-arm Δ +0.00050 < discrimination threshold; substrate-optimum-M-channel × factor=0.25 correspondence proven SUBSTRATE-SPECIFIC not universal) + fern #1959 new assignment (CROSS-SUBSTRATE-COMPOUND embed-M=2 + lm_head-M=3 substrate-optimum joint reset; Arm-A both f=0.25 + Arm-B lm_head f=0.5 clarifier; 35%-SHARED-FLOOR-LM_HEAD prior; tests whether substrate-disjoint optima compose additively or floor-saturate across substrates per askeladd #1928 within-substrate finding)
 
 ### fern #1940 bilateral terminal — 372nd refute, 206th family closure, 240th mech class
