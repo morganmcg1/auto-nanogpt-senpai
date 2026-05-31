@@ -9,7 +9,22 @@ The human research team has redirected: **FFS (first-step-to-target, baseline 30
 3. **Prefer experiments that move the crossing step** (2800-3050 window), **simplify winning stacks**, **reveal FFS-load-bearing components**.
 4. **Ablations preferred over confirmations** when FFS dead.
 
-## Last updated: 2026-05-31 08:20Z (76 R5 closures; alphonse #1903 CLOSED 75th [FFS-NEG monotone, drop-path family closed]; askeladd #1891 CLOSED 76th [FFS-NEUTRAL GE-SAM, additive-pre-NS family closed]; alphonse #1941 muon-depth-lr-scale ASSIGNED; askeladd #1942 logit-z-loss ASSIGNED; 8/8 active)
+## Last updated: 2026-05-31 09:36Z (77 R5 closures; edward #1858 CLOSED 77th [FFS-NEUTRAL Schulz n=4 revert, α-blend per-shape axis closed]; edward #1948 precond-freq-cooldown-schedule ASSIGNED; 8/8 active)
+
+### Notes (2026-05-31 09:36Z) — EDWARD #1858 CLOSED 77th [FFS-NEUTRAL n=1→n=4 REVERT]; EDWARD #1948 precond-freq-cooldown-schedule ASSIGNED
+
+- **★ CLOSED #1858 edward Schulz polish SQUARE α=0.1 n=4 confirm** [77th R5 closure, 09:36Z] — FFS-NEUTRAL.
+  - n=4 seeds (s2–s5): μ_4(FFS_ema) = **2912.5** (= documented baseline exactly), μ_4(val/loss) = 3.269053 (Δ = −0.54σ from baseline)
+  - n=1 Cell B {FFS_ema=2875, FFS_trainval=2925} did not replicate at n=4: 3/4 seeds at baseline-typical {2925, 2925/2950}
+  - Classic n=1→n=4 dual-metric attractor reversion
+  - **Mechanism finding preserved**: σ=0 fixed-point of Schulz polynomial makes it SAFE on rank-deficient SQUARE attn matrices — rules out the "use Schulz instead of Higham" branch
+- **★★ α-BLENDED SCHULZ POLISH PER-SHAPE AXIS CLOSED**: #1858 (SQUARE attn) + #1838 thorfinn (non-square MLP, dual mechanism) together exhaust this axis. No combination expected to recover signal.
+
+- **★ EDWARD #1948 precond-freq-cooldown-schedule ASSIGNED** — First R5 ablation of `PRECOND_FREQ=16` (hardcoded at line 29 of train_gpt_simple.py, untouched across all 77 closures). Hypothesis: reduce SOAP's QR eigenbasis refresh stride from 16→4 only in the FIRST HALF of cooldown (steps ~975→1937 at `cooldown_frac=0.7`, `train_steps=3250`), where gradient covariance is most non-stationary as LR collapses ~100×. Outside the window keep stride=16. Distinctness: SOAP-attn on/off toggles (prior closures) are orthogonal to SOAP's INTERNAL refresh rate; PRECOND_FREQ has never been ablated. ~20 LOC: two CLI flags (`--precond_freq_base`, `--precond_freq_cooldown`) + `get_precond_freq()` helper + passing `precondition_frequency=` kwarg explicitly at call site (line 668; default-arg binding means global mutation does NOT work). KG_smoke verifies schedule fires at steps {0→16, 75→4, 150→16} for a 200-step debug run. Cells: A_ctrl(freq=16 no-op), B★(freq=4 primary), C(freq=8), D(freq=2). Signal gate: B★ FFS_ema ≤ 2887 OR FFS_trainval ≤ 2900.
+
+- **Fleet at 09:36Z**: edward #1948 WIP (precond-freq-cooldown-schedule, just assigned); fern #1922 WIP (wd-cooldown-shape Cell B ~46%); nezuko #1897 WIP (Cell D η=0.01 ~55%); thorfinn #1907 WIP (Cell D α=0.7 ~34%); frieren #1910 WIP (Cell C scale=0.1 ~61%); tanjiro #1937 WIP (qkv-ortho-init); alphonse #1941 WIP (muon-depth-lr-scale); askeladd #1942 WIP (logit-z-loss). **8/8 active, zero idle.**
+
+---
 
 ### Notes (2026-05-31 08:20Z) — ALPHONSE #1903 CLOSED 75th [FFS-NEG MONOTONE]; ASKELADD #1891 CLOSED 76th [FFS-NEUTRAL]; ALPHONSE #1941 + ASKELADD #1942 ASSIGNED
 

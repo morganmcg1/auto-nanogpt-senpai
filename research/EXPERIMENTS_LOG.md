@@ -1,5 +1,44 @@
 # SENPAI Research Results — auto-nanogpt-1gpu-r5
 
+## 2026-05-31 09:36Z — PR #1858 CLOSED FFS-NEUTRAL [α-blend Schulz polish per-shape axis closed]: edward Schulz polish SQUARE attn α=0.1 n=4 confirm [77th R5 closure]
+
+- branch: g1r5-edward/schulz-polish-square-alpha-blend-n4
+- hypothesis: α-blended Schulz polynomial post-NS5 polish on SQUARE attention matrices (αQ + (1-α)(1.5Q − 0.5(QQᵀ)Q)) pulls rank-deficient mid-σ singular values toward 1, reducing spectral distortion after NS5's identity-near Stiefel projection and targeting the specific attn failure mode of Higham polar (#1833) that diverged on σ_min≈0.003.
+- W&B groups: `g1r5-edward/schulz-polish-square-alpha-blend` (n=1 screen), `g1r5-edward/schulz-polish-square-alpha-blend-n4` (n=4 confirm)
+
+**n=1 Screen results (PR first phase):**
+
+| Cell | α | val/loss | FFS | FFS_trainval | FFS_ema | run_id |
+|------|---|----------|-----|--------------|---------|--------|
+| A CTRL | 0.0 | 3.27106 | 2950 | 2950 | 2950 | `vgqqwynh` |
+| **B PRIMARY** | **0.1** | **3.26855** | **2875** | **2925** | **2875** | `uvwvrmic` |
+| C bracket | 0.3 | 3.27020 | 2925 | 2950 | 2925 | `yitza0rr` |
+
+**n=4 Confirm results (4 fresh seeds at α=0.1, ignoring original Cell B):**
+
+| Seed | run_id | val/loss | FFS | FFS_trainval |
+|------|--------|----------|-----|--------------|
+| s2 | `1sy8gko3` | 3.26758 | 2875 | 2925 |
+| s3 | `90k239fd` | 3.27054 | 2925 | 2950 |
+| s4 | `g40zmbz9` | 3.26898 | 2925 | 2925 |
+| s5 | `1uvwefe7` | 3.26911 | 2925 | 2925 |
+| **μ_4** | | **3.269053** | **2912.5** | **2931.25** |
+| **σ_4** | | 0.001209 | 25.0 | 12.5 |
+| **Baseline** | (PR #1533) | 3.269600 | 2912.5 | 2937.5 |
+| **Δ** | | **−0.000547 (−0.54σ)** | **0.0 (0σ)** | −6.25 |
+
+**Results commentary:**
+n=1 Cell B showed the first joint FFS+val/loss positive signal in 69 closures: Δval=-0.00251, FFS_ema=2875 (attractor), monotone-direction bracket (C=2925 partial). Advisor correctly escalated to n=4 confirm rather than close on seed-noise. n=4 reverted: μ_4(FFS_ema) = 2912.5 exactly matches documented baseline (PR #1533). Only s2 reproduced the {2875, 2925} attractor pattern; s3/s4/s5 reverted to baseline-typical {2925, 2925/2950}.
+
+**Analysis:**
+Classic n=1→n=4 reversion on the documented dual-metric attractor. The α=0.1 Schulz polish reliably lifts mid-σ singular values of square attn matrices (ns_probe confirmed frob_off_identity shifts ~1.2% between cells), but this spectral lift doesn't translate to population-level FFS or val gain. The mechanism is real; the effect size at baseline competition level is below seed noise threshold.
+
+**Mechanism finding (preserved):** The σ=0 fixed-point structural property of the Schulz polynomial (1.5Q − 0.5(QQᵀ)Q) makes it SAFE to apply to rank-deficient SQUARE attention matrices (σ_min≈0.003) — distinct from Higham polar polish (#1833) which used 1/(μσ) and diverged. This negative residual rules out the "use Schulz instead of Higham" branch for future post-NS polish ideas.
+
+**Closure:** 77th R5 closure. FFS-NEUTRAL. Combined with thorfinn #1838 (non-square dual mechanism), closes the **α-blended Schulz polish per-shape axis**.
+
+---
+
 ## 2026-05-31 08:15Z — PR #1891 CLOSED FFS-NEUTRAL [additive-pre-NS modifier family closed]: askeladd GE-SAM (zero-cost SAM via gradient extrapolation) [76th R5 closure]
 
 - branch: g1r5-askeladd/ge-sam-r5
