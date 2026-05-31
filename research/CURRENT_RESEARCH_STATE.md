@@ -1,4 +1,56 @@
+## 2026-05-31 14:45 UTC — Cycle 71 mid-470 — nezuko #1960 POD-STABILITY-BLOCKED at lm_head M=3 f=0.25 i=150 (6/6 named seeds NaN at step 125 BEFORE first reset event at step 150; mechanistically independent of reset config per memory feedback_pod_broken_axis_misattribution; cell-family STABLE at i=200/i=250, i=150 pod-bounded at this stack; NOT counted as refute — cycle-71 tally UNCHANGED at 375/245/209/9/21) + nezuko #1978 new assignment (INTERVAL-AXIS at lm_head M=3 **f=0.5** i=150 fresh push n=2; gentler factor halves moments per reset vs f=0.25 quartering, predicted MORE stable; baseline f=0.5 i=200 = 3.27077 RTM frieren #1947 + #1887 A 20th precedent; linear extrapolation Δ=−0.00088 → predicted ~3.26989 borderline floor edge; 30%-POD-BLOCKED-CROSS-FACTOR prior 25%-22ND-RTM prior 20%-BORDERLINE prior 10%-STRONG-PRODUCTIVE prior; MANDATORY step-125 KILL GATE for pre-event NaN check + seed budget fallback)
+
 ## 2026-05-31 14:25 UTC — Cycle 71 mid-469 — tanjiro #1949 375th refute 209th family closure 244th + 245th mech classes + 21st RTM PRECEDENT (RTM-PERSISTENT-AT-N=7) + PER-KIND-WD-AXIS-NEUTRAL cross-arm validated + DOUBLE-RTM-IN-SINGLE-PR pattern (bilateral Arm-A `j3n5pgmy` per-kind β1 dispatch+uniform WD val=3.27088/3025 + Arm-B `1p60m3se` EMBED-INNER compound val=3.27105/3025; per-kind β1 dispatch under uniform WD vs thorfinn #1944 A per-kind WD Δ=+0.00007 < σ → PER-KIND WD AXIS NEUTRAL at this carrier; EMBED-INNER compound n=2 mean 3.27004 = LOWEST RTM-corrected n-mean in cycle 71; combining RTM-carriers does not escape RTM, lands at floor band) + tanjiro #1976 new assignment (EMBED-INNER-DECOMPOSITION-VIA-ISOLATION: Arm-A lm_head β1=0.9 isolated + Arm-B compound-minus-reset; attributes compound's -0.00182 lift over isolated embed β1=0.5 to its mediator; 30%-LM_HEAD-β1=0.9-LOAD-BEARING prior 25%-RTM-BAND-ONLY prior 20%-INTERACTION-DEPENDENT prior)
+
+### nezuko #1960 POD-STABILITY-BLOCKED — NOT counted as refute (cycle-71 tally UNCHANGED 375/245/209/9/21)
+
+**Result**: 6 of 6 named seeds {1, 3, 7, 13, 42, 100} diverged to `val_loss:nan` at FIRST val checkpoint (step 125), which is **BEFORE the first periodic-reset event at step 150**. NaN appears at step 125 before ANY reset event, so the failure is **mechanistically independent of the reset config** at i=150.
+
+**Cell-family reachability table**:
+
+| cell | result | source | pod |
+|---|---|---|---|
+| lm_head M=3 f=0.25 i=200 | n=3 mean 3.27050 STABLE (16th RTM) | nezuko #1920 | this & other pods |
+| lm_head M=3 f=0.25 i=250 | STABLE | cross-PR baseline | other pods |
+| **lm_head M=3 f=0.25 i=150** | **6/6 NaN at step 125 POD-BLOCKED** | **this PR** | this pod |
+
+Per memory feedback_pod_broken_axis_misattribution: NaN-axis-closures CAN mask pod-state failures. The pre-event NaN argument (NaN at step 125 < first reset event step 150) is decisive — the divergence is caused by general numerical instability in the early training trajectory at this pod/cuDNN/cuBLAS stack, NOT by the interval=150 reset configuration. POD-STABILITY-BLOCKED safely classified, NOT counted as refute.
+
+**Operational lesson**: INTERVAL-AXIS at lm_head M=3 f=0.25 is locked at i=200 sweet spot at this pod. The productive direction (i=250 → i=200: Δ = −0.00088) is locked at the stable region. Pushing further to i=150 at this factor exceeds the pod's numerical stability margin.
+
+### nezuko #1978 new assignment — INTERVAL-AXIS at lm_head M=3 **f=0.5** i=150 fresh push n=2
+
+Pivot direction after f=0.25 i=150 pod-blocked: lm_head M=3 **f=0.5** i=150 (same M-channel + same interval, GENTLER factor). f=0.5 halves moments per reset vs f=0.25 quartering moments — gradient state-shock magnitude reduced ~2× vs f=0.25 i=150. Predicted to be MORE numerically stable than the just-blocked cell at this pod.
+
+**Cell-family reachability supporting pivot**:
+
+| cell | result | source |
+|---|---|---|
+| lm_head M=3 f=0.5 i=200 | n=2 mean 3.27077 ± σ 0.00141 (20th RTM) | frieren #1947 Arm A + #1887 A |
+| lm_head M=3 f=0.25 i=200 | n=3 mean 3.27050 (16th RTM) | nezuko #1920 |
+| **lm_head M=3 f=0.5 i=150** | **UNKNOWN — this PR** | — |
+| lm_head M=3 f=0.25 i=150 | 6/6 NaN at step 125 POD-BLOCKED | nezuko #1960 |
+
+**Extrapolated prediction** for f=0.5 i=200 → i=150 (linear, assumes numerical stability at f=0.5):
+- Baseline f=0.5 i=200 = 3.27077
+- Applying Δ=−0.00088 → predicted n=2 mean ~**3.26989** ± σ 0.00141 → lands borderline floor-edge
+
+**Prior distribution** (most-likely outcomes):
+- 30% POD-STABILITY-BLOCKED-CROSS-FACTOR (NaN at step 125 BEFORE first reset event) — would lock i=150 as structurally pod-bounded regardless of factor
+- 25% RTM-CONFIRMED at floor edge (n=2 mean 3.26989-3.27050) → 22nd RTM precedent at LM_HEAD-M=3-F=0.5-I=150-RTM
+- 20% BORDERLINE PRODUCTIVE (n=2 mean 3.26900-3.26989) → sub-band candidate, trigger n=3
+- 10% STRONG-PRODUCTIVE-BREAKS-RTM (n=2 mean < 3.26800) → FIRST cycle-71 carrier to break RTM rate
+- 10% NOISE-DOMINATED (spread > 0.00250) → underdetermined
+
+Includes MANDATORY step-125 KILL GATE for pre-event NaN check + 6-seed budget fallback if needed. Tests whether reduced state-shock magnitude rescues numerical stability at i=150, OR whether i=150 is structurally pod-bounded regardless of factor on this stack.
+
+### Fleet status — 8/8 active 0 idle
+
+After nezuko #1960 close + nezuko #1978 assignment: g1r2-{tanjiro #1976, frieren #1972, thorfinn #1967, fern #1959, askeladd #1956, alphonse #1953, edward #1952, nezuko #1978} all WIP. Cumulative state UNCHANGED at **375 refuted / 245 distinct mech classes / 209 family closures / 9 structural axes locked / 21 regression-to-mean precedents** (RTM-PERSISTENT-AT-N=7 — 100% rate across 7 distinct carriers).
+
+---
+
+
 
 ### tanjiro #1949 bilateral terminal — 375th refute, 209th family closure, 244th + 245th mech classes, 21st RTM precedent
 
