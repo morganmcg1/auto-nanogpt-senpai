@@ -1,3 +1,33 @@
+## 2026-05-31 19:32 UTC — Cycle 71 mid-480 — alphonse #1981 385th refute 255th mech class MU-WARMUP-DIAGONAL-CORNER-ASYMMETRIC-DESTRUCTIVE-SHORTER-NEUTRAL-LONGER (n=2 single-seed bilateral; Arm A WARMUP=100 → 3.27765 +3.13σ DESTRUCTIVE; Arm B WARMUP=300 → 3.27256 +0.46σ NEUTRAL; 4th and final OFF-TRIPLE mediator candidate on β2-schedule axis CLOSED — entire β2-schedule machinery {COOLDOWN, TRUST-GATE, NS5_ITERS, MU_WARMUP_STEPS} eliminated as SA-REMAINDER mediator; SA-remainder +0.00341 at (DOWN, FRONT-TIGHT) diagonal corner is OFF the β2-schedule machinery) + alphonse #2008 new assignment (PER-KIND-β1 × EMBED-RESET NOVEL COMPOUND: 19th RTM + 14th RTM compounded; 35% RTM-ADDITIVE 25% PRODUCTIVE-DESCENT 20% DESTRUCTIVE-INTERFERENCE 15% STRONG-PRODUCTIVE 5% MERGE). No human issues. Fleet 8/8 active 0 idle. Cumulative **385 refuted / 255 mech classes / 211 family closures / 9 axes / 23 RTM precedents / 11 pod-stability observations** (RTM-PERSISTENT-AT-N=9/10 = 90%; TWO n=2 verifications still pending: fern #1991 cross-substrate-compound + thorfinn #1997 inverted-asymmetry).
+
+### alphonse #1981 bilateral terminal — 385th refute / 255th mech class MU-WARMUP-DIAGONAL-CORNER-ASYMMETRIC / 4th OFF-TRIPLE mediator candidate CLOSED
+
+**Bilateral terminal**: Arm A `stoeic25` MU_WARMUP_STEPS=100 val=**3.27765**/3125 (+0.00597 / +3.13σ above #1893 A canonical 3.27168 at single-seed σ ~0.00191); Arm B `5qebcu9f` MU_WARMUP_STEPS=300 val=**3.27256**/3050 (+0.00088 / +0.46σ within seed band).
+
+**OFF-TRIPLE asymmetry-pattern matrix complete**:
+
+| candidate | bidirectional structure |
+|---|---|
+| COOLDOWN/TRUST-GATE (#1932) | BIDIRECTIONAL-DESTRUCTIVE (both directions worse) |
+| NS5_ITERS (#1953) | BIDIRECTIONAL-NEUTRAL (±0.34σ both arms) |
+| **MU_WARMUP_STEPS** (#1981) | **ASYMMETRIC: SHORTER-DESTRUCTIVE-LONGER-NEUTRAL** (one-sided basin) |
+
+→ Canonical MU_WARMUP_STEPS=200 sits at upper boundary of a LEFT-LEANING basin (steep penalty for under-warming; near-flat for over-warming up to ~+50%). SA-REMAINDER +0.00341 is **NOT in β2-schedule machinery** — the entire OFF-TRIPLE β2-schedule axis (4/4 candidates closed) eliminated. Remaining mediator candidates: Muon-update-magnitude (MUON_LR, CONTRA_MUON), init/cap (EMBED_INIT_STD, LOGIT_SOFTCAP), per-kind dispatch (PER_KIND_AUX_WD/β1).
+
+### alphonse #2008 new assignment — PER-KIND-β1 × EMBED-RESET NOVEL COMPOUND PROBE
+
+Pivots alphonse from OFF-TRIPLE mediator search (β2-schedule axis exhausted) to COMPOUND-EMERGENCE landscape mapping. Tests compound additivity between TWO PRODUCTIVE-RTM mechanisms NEVER COMPOUNDED:
+- per-kind β1 dispatch JOINT-COHERENT (19th RTM at 3.27015): embed β1=0.8, lm_head β1=0.7, scalars β1=0.8
+- per-substrate embed periodic reset (14th RTM at 3.27023): interval=200, moment=2, partial_factor=0.25
+
+Completes the productive-mechanism compound triangle with askeladd #2007 (MLP-SOAP × per-kind β1) and #1956/#1985 (MLP-SOAP × embed-reset). Most likely (35%): RTM-ADDITIVE (compounds independent at floor). Alternative (25%): PRODUCTIVE-DESCENT (productive synergy via temporal × spatial axes; mean ~3.26900-3.27000). Alternative (20%): DESTRUCTIVE-INTERFERENCE. Alternative (15%): STRONG-PRODUCTIVE-BREAKS-RTM.
+
+### Fleet status — 8/8 active 0 idle
+
+After alphonse #1981 close + alphonse #2008 assignment: g1r2-{tanjiro #2001, askeladd #2007, alphonse #2008, edward #2004, fern #1991, thorfinn #1997, frieren #1999, nezuko #2005} all WIP. Cumulative **385 refuted / 255 distinct mech classes / 211 family closures / 9 structural axes locked / 23 RTM precedents / 11 pod-stability observations** (RTM-PERSISTENT-AT-N=9/10 = 90%; TWO n=2 carrier-verifications pending: fern #1991 cross-substrate-compound + thorfinn #1997 inverted-asymmetry).
+
+---
+
 ## 2026-05-31 19:17 UTC — Cycle 71 mid-479 — askeladd #1985 384th refute 254th mech class V-SHAPE-IS-COMPOUND-EMERGENT-NOT-INTRINSIC (bilateral n=2 mean 3.27031; F-axis FLAT without MLP-SOAP: f=0.5→3.26992, f=0.1→3.27069, both within seed σ of 14th RTM anchor 3.27023; V-shape +0.00115/+0.00169 penalty VANISHES in isolation; MLP-SOAP×embed-reset INTERACTION is load-bearing) + askeladd #2007 new assignment (MLP-SOAP-×-PER-KIND-β1-DISPATCH-NOVEL-COMPOUND: 18th RTM + 19th RTM compounded; 35% RTM-ADDITIVE 25% PRODUCTIVE-DESCENT 20% DESTRUCTIVE-INTERFERENCE 15% STRONG-PRODUCTIVE 5% MERGE). No human issues. Fleet 8/8 active 0 idle. Cumulative **384 refuted / 254 mech classes / 211 family closures / 9 axes / 23 RTM precedents / 11 pod-stability observations** (RTM-PERSISTENT-AT-N=9/10 = 90%; TWO n=2 verifications still pending: fern #1991 cross-substrate-compound + thorfinn #1997 inverted-asymmetry).
 
 ### askeladd #1985 bilateral terminal — 384th refute / 254th mech class V-SHAPE-COMPOUND-EMERGENT / 23rd RTM precedent
