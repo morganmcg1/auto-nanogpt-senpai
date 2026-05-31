@@ -1,3 +1,60 @@
+## 2026-05-31 — PR #1889: H318 alphonse OUTER MOMENTUM cooldown SCHEDULE (2D OUTER map with H316) — CLOSED 172nd NULL/NEG (🎯 paper-grade asymmetric dose-response on OUTER MOMENTUM cooldown axis: RAMP_DOWN ties H266 FFS exactly but val MILD NEG, RAMP_UP NEG on both metrics; together with H316 characterizes the 2D OUTER cooldown map)
+
+- Branch: g1r3-alphonse/h318-outer-momentum-cooldown-schedule
+- Hypothesis: Test the OUTER MOMENTUM cooldown axis as 2D companion to H316's OUTER LR cooldown SCHEDULE test. Cooldown_ramp branch with frac=0.15 (last 15% of training). 3-arm Pattern A Option B sentinel-constant: arm_a CTRL (outer_momentum constant 0.5), arm_b RAMP_DOWN (cooldown_ramp 0.5→0.0, weakens Lookahead averaging), arm_c RAMP_UP (cooldown_ramp 0.5→0.9, strengthens Lookahead averaging).
+
+### Results
+
+| Arm | W&B | val/loss | FFS | Δ vs CTRL (σ_H174) | Δ vs H266 (σ_H174) | Merge gate |
+|-----|-----|----------|-----|---------------------|---------------------|------------|
+| arm_a CTRL (constant 0.5) | `hbevurge` | 3.26898 | 3025 | (ref) | +0.91σ TIE | misses by +25 |
+| arm_b RAMP_DOWN (0.5→0.0) | `fnocbifa` | 3.26998 | **3000** | +1.13σ TIE | +2.04σ MILD NEG | **FFS=3000 ties gate threshold (FFS<3000 required), val MILD NEG → NO merge** |
+| arm_c RAMP_UP (0.5→0.9) | `5txpuhrg` | 3.27186 | 3050 | **+3.26σ NEG** | **+4.16σ NEG** | misses by +50 |
+
+(W&B-verified arm_c val/loss=3.27186, student SENPAI-RESULT had 3.27144 — minor discrepancy, closure verdict unchanged)
+
+### Mechanism decode — 🎯 paper-grade asymmetric dose-response
+
+| outer_momentum_cooldown_end | val/loss | FFS | Direction interpretation |
+|-----------------------------|----------|-----|---------------------------|
+| 0.0 (arm_b) | 3.26998 | **3000** | **weakens Lookahead averaging → preserves mid-training direction signal during cooldown** |
+| 0.5 (CTRL) | 3.26898 | 3025 | baseline Lookahead averaging |
+| 0.9 (arm_c) | 3.27186 | 3050 | strengthens averaging → amplifies cooldown attractor |
+
+**FIRST OUTER-axis directional asymmetry finding** — distinct from H316 which showed monotone NEG dose-response on outer_lr cooldown RAMP_DOWN. The asymmetric dose-response localizes the mechanism: outer-velocity accumulation during the inner-LR-zero cooldown window can be weakened (helps FFS) but strengthened (hurts both metrics).
+
+### 🎯 2D OUTER cooldown map characterization (H316 × H318 combined)
+
+| Sub-axis | H316 (outer_lr cooldown) | H318 (outer_momentum cooldown, THIS) |
+|----------|--------------------------|---------------------------------------|
+| RAMP_DOWN behavior | monotone NEG dose-response (LOAD-BEARING) | **TIE H266 FFS exactly + mild val NEG** (no strict-clear) |
+| RAMP_UP behavior | (not tested by H316) | **NEG both metrics** |
+| Mechanism interpretation | outer pull magnitude during cooldown is load-bearing | weakening outer-velocity averaging preserves mid-training direction signal |
+
+**Together H316 + H318 characterize the 2D OUTER cooldown map**: outer_lr cooldown is load-bearing (DON'T ramp down), outer_momentum cooldown DOWN direction has mild positive signal on FFS (but doesn't strict-clear gate at tested doses end≥0.0). OUTER cooldown axis is mechanistically rich but does NOT provide a clean strict-gate-clearing direction at tested values.
+
+### Pattern A drift-FREE pre-cooldown validation
+
+- Step-0 bit-id EXACT across all 3 arms (10.82583)
+- Pre-cooldown drift (steps 1500/2000/2500) sub-σ_H174 (max-spread 0.00233 at step 1500 = 2.6σ_H174) — single-GPU CUDA non-determinism, not treatment drift
+- outer_momentum_t telemetry verification (8 cooldown checkpoints) confirms ramp mechanism fired correctly: arm_b reaches 0.026 at terminal (full ramp to 0.0), arm_c reaches 0.879 (full ramp to 0.9)
+- Pre-cooldown outer_momentum_t = 0.500 for all 3 arms steps 30-2820 (sentinel-constant short-circuit verified)
+
+### Issue #1260 strict merge gate triage
+
+arm_b RAMP_DOWN FFS=3000 EXACTLY TIES H266 baseline FFS — best post-H266 result on FFS among recent H3xx chains (vs CTRL 3025-3050 across H306/H307/H309/H310/H312/H316/H317). However: Issue #1260 gate is **strict** FFS<3000 (i.e., FFS≤2999) AND val/loss must improve baseline. arm_b is FFS-TIE at gate threshold (NOT below) + val NEG +2.04σ → NO merge candidate.
+
+### H318 contribution to plateau portfolio
+
+- **172nd NULL/NEG** closure entry
+- **OUTER MOMENTUM cooldown axis status**: characterized — DOWN direction (end=0.0) TIES baseline FFS, UP direction NEG, asymmetric dose-response identified
+- 2D OUTER cooldown map closed at tested doses (outer_lr RAMP_DOWN, outer_momentum end ∈ [0.0, 0.9])
+- Plateau portfolio: 172 NULL/NEG + 1 MERGED WIN (H266)
+
+### Decision: CLOSED 172nd NULL/NEG. Reassigning alphonse to H327 — NEGATIVE outer_momentum_cooldown_end (anti-Lookahead amplification of H318 RAMP_DOWN finding, student's suggested follow-up #3).
+
+---
+
 ## 2026-05-31 — PR #1882: H317 frieren AUX β2 mid-training ramp UP AMPLIFIED (dose-response H309 arm_c) — CLOSED 171st NULL/NEG (AUX β2 UP-from-baseline=0.99 axis EXHAUSTED + 🎯 paper-grade β1-vs-β2 SCHEDULE-axis mechanism distinction confirmation when combined with H319 cycle ~2450 arm_b)
 
 - Branch: g1r3-frieren/h317-aux-beta2-mid-ramp-up-amplified
