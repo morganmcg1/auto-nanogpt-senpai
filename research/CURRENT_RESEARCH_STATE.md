@@ -1,3 +1,43 @@
+## Cycle ~2350: AUDIT-TRAIL cycle — H323 thorfinn stale_wip nudge (PR #1906, arm_a CTRL `k1plr8nv` running ~95.5% step 3175/3325 FFS=3025 interim already crossed val=3.2714 ETA terminal ~5 min, arm_c smoke `ioo156zp` μ_end=0.65 stability verified step-0=10.82583 + step-125=5.17599 finite, arm_b LOW_MU_END + arm_c VERY_LOW_MU_END full runs MISSING, zero PR comments), 3 consecutive cycles of partial-treatment nudges (H320 ~2150 + H321 ~2200 + H323 ~2350 = same pattern)
+
+**Audit-trail-only cycle: H323 thorfinn partial launch — CTRL near-terminal, arm_c smoke clean, full treatment arms not yet launched.** Notable: H323 student DID launch the extreme-end smoke gate (correctly applying H291 lesson) — distinguishing it from H320 (no smoke) and H321 (no commits). Plateau campaign portfolio unchanged: 169 NULL/NEG + 1 MERGED WIN (H266), 104 mechanism classes consolidated.
+
+### Stale_wip nudges posted this cycle
+
+**H323 thorfinn PR #1906 (μ_END VALUE DOSE-RESPONSE on post-H266 stack — direct H314 follow-up, 105th mechanism class candidate)** — arm_a CTRL `k1plr8nv` running step 3175/3325 (~95.5%), step-0=10.82583 EXACT, FFS=3025 interim already crossed (`speedrun/reached_target=1`), val=3.2714 near terminal (~5 min ETA). arm_c smoke `ioo156zp` (μ_end=0.65 125-step gate) FINISHED clean — step-0=10.82583 EXACT, step-125=5.17599 finite (no NaN at μ_end=0.65 limit) — stability for the most aggressive μ_end confirmed. arm_b LOW_MU_END (μ_end=0.75, full 3325) and arm_c VERY_LOW_MU_END (μ_end=0.65, full 3325) are MISSING from W&B. Zero PR comments. Nudge requested chain-launch comment with audit-trail (smoke run id `ioo156zp`), chain plan (sequential after arm_a terminal or queued parallel), per-arm config-pane audit, ETAs.
+
+### Pattern across 3 cycles
+
+| Cycle | PR | Student | arm_a CTRL state | Treatment arms | Smoke gate | Code/branch state |
+|-------|----|----|----|----|----|----|
+| ~2150 | #1892 | edward (H320) | running ~76% | both missing | none | branch had commit |
+| ~2200 | #1896 | fern (H321) | running ~92% | both missing | none | branch lacks code commits |
+| ~2350 | #1906 | thorfinn (H323) | running ~96% | both full missing | **arm_c smoke EXECUTED CLEAN** | no code changes needed (CLI-only) |
+
+H323 thorfinn is a notable improvement vs prior pattern (smoke gate executed before GPU commitment), but the under-comment behavior persists across all 3 students — zero chain-launch comments in 2h+ windows. This may reflect: (a) students relying on sequential auto-launch after CTRL terminal, (b) PR-comment overhead vs running script automation, or (c) silent-default behavior when arm_a CTRL is bit-id with H266 baseline (could be launched while treatment plumbing is finalizing).
+
+### In-flight WIP cluster (8 of 8 students, post-cycle-2350)
+
+| Student | PR | Hypothesis | Status |
+|---------|----|-----------|----|
+| tanjiro | #1878 | H316 OUTER LR cooldown SCHEDULE | WIP arm_a + arm_b TERMINAL both FFS=3025 TIE, arm_c at ~32% (ETA ~04:47Z) |
+| frieren | #1882 | H317 AUX β2 mid-training ramp UP AMPLIFIED | WIP arm_a + arm_b TERMINAL both FFS=3025 EFFECTIVELY IDENTICAL, arm_c EXTREME at ~28% (ETA ~05:45Z) |
+| alphonse | #1889 | H318 OUTER MOMENTUM cooldown SCHEDULE | WIP in-flight |
+| askeladd | #1890 | H319 AUX β1 mid-training schedule | WIP in-flight |
+| edward | #1892 | H320 OUTER anchor refresh policy (102nd virgin) | WIP arm_a CTRL running, treatment arms MISSING (cycle ~2150 nudge pending) |
+| fern | #1896 | H321 schedule-tapered adaptive μ (25-30% top WIN) | WIP arm_a CTRL ~92%, treatment arms MISSING (cycle ~2200 nudge pending) |
+| nezuko | #1905 | H322 body weight orthogonality regularizer (104th virgin) | WIP in-flight |
+| thorfinn | #1906 | H323 μ_end low sustained on post-H266 stack (105th candidate) | **WIP arm_a CTRL ~95.5%, arm_c SMOKE clean, arm_b + arm_c full MISSING (cycle ~2350 nudge pending)** |
+
+### Notes
+
+- 8 of 8 students active. Zero idle GPUs.
+- Issue #1260: no new human messages since 2026-05-29 advisor status update.
+- Imminent decision points (next ~3h window): H316 arm_c terminal ~04:47Z (cooldown wash-out FOURTH ORTHOGONAL pending), H317 arm_c EXTREME terminal ~05:45Z (β2 UP axis exhaustion pending), H323 arm_a CTRL terminal ~5 min from now → arm_b launch (if sequential).
+- Audit-trail cycle: no closures or new assignments. Surveillance + nudge only.
+
+---
+
 ## Cycle ~2300: AUDIT-TRAIL cycle — H317 frieren stale_wip refresh (PR #1882, arm_a CTRL `mxr34jzh` FINISHED val=3.26913 FFS=3025 +1.07σ TIE H266, arm_b AMPLIFIED `9re46x0w` β2_end=0.997 FINISHED val=3.26922 FFS=3025 +0.10σ TIE arm_a CTRL EFFECTIVELY IDENTICAL, arm_c EXTREME `lv3sdysv` β2_end=0.999 running ~28% step 925/3325 ETA ~05:45Z), zero new closures, 8 mechanism axes in flight
 
 **Audit-trail-only cycle: H317 frieren chain progressing normally — label-timestamp refresh only.** Two of three arms terminal (arm_a CTRL + arm_b AMPLIFIED), arm_c EXTREME still mid-training. Plateau campaign portfolio unchanged: 169 NULL/NEG + 1 MERGED WIN (H266), 104 mechanism classes consolidated.
