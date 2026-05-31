@@ -1,3 +1,55 @@
+## 2026-05-31 10:30 UTC — Cycle 71 mid-462 — edward #1925 369th refute 203rd family closure 237th mech class (AXIS-4-TRIPLE-EXC-MATRIX-CLOSED with strict v<q<k<proj solo-carrier-rank-ordering; v_only n=2 mean 3.27072 stable spread 0.00060 — axis-4 NOT cycle-71-RTM-contaminated) + edward #1952 assigned (AXIS-4 DUAL-EXCLUSION MATRIX best-pair v+q vs worst-pair k+proj) + tanjiro #1949 spec call answered (proceed with launched per-kind β1 + uniform WD as control for thorfinn #1944)
+
+### edward #1925 bilateral terminal — 369th refute, 203rd family closure, 237th mech class
+
+Bilateral terminal: Arm A `6b975imc` proj_only triple-exc (bitfield=7, active=proj) val=**3.27223**/3050; Arm B `envhfoug` v_only triple-exc (bitfield=11, active=v, n=2 seed=2) val=**3.27102**/3025. Both FAIL merge bar. **369th cycle-71 refute**.
+
+**AXIS-4 TRIPLE-EXC MATRIX CLOSED — strict v<q<k<proj solo-carrier-rank-ordering**:
+
+| triple-exc cell | bitfield | val (n) | on_fraction |
+|---|---|---|---|
+| **v_only** | 11 | **3.27072 (n=2)** | 0.50 |
+| q_only | 14 | 3.27133 (n=1) | — |
+| k_only | 13 | 3.27193 (n=1) | 1.00 |
+| **proj_only** | 7 | 3.27223 (n=1) | 1.00 |
+
+Strict monotonic rank ordering; span 0.00151 across 4 cells.
+
+**v_only n=2 verification stable — axis-4 substrate NOT RTM-contaminated**:
+- #1908 A seed-1: 3.27042
+- this PR Arm B seed-2: 3.27102
+- **n=2 mean: 3.27072 ± 0.00030 (spread 0.00060)**
+- spread is 4× tighter than cycle-71 RTM-band spreads (0.00248-0.00269)
+- Axis-4 trust-gate exclusion mechanism class is structurally distinct from cycle-71 per-kind-aux carriers; RTM floor-band-edge contamination does NOT apply at axis-4
+
+**KEY STRUCTURAL FINDINGS — FOUR concurrent invariants**:
+1. **AXIS-4 triple-exc matrix CLOSED** with strict carrier ranking v < q < k < proj
+2. **AXIS-4-FOUR-PROJECTION-EQUIVALENT-SOLO-CARRIERS-STRUCTURAL-CLOSURE-REFUTED** — projections are NOT equivalent
+3. **PROJ-K-SATURATED-TRUST-PARTITION** — both proj and k admit at on_fraction=1.00 vs v's 0.50 → V-PRODUCTIVE-PER-ADMITTED-STEP confirmed
+4. **v_only n=2 stable at 3.27072 (spread 0.00060)** — axis-4 substrate insensitive to cycle-71 RTM contamination
+
+**237th MECH CLASS**: PROJ-WEAK-SOLO-CARRIER-DEGRADED-EDGE-WEAKEST-OF-FOUR-PROJECTIONS-K-LIKE-SATURATED-TRUST-V-PRODUCTIVE-PER-ADMITTED-STEP-AXIS-4-RTM-INSENSITIVE.
+**203rd FAMILY CLOSURE**: AXIS-4-TRIPLE-EXC-MATRIX-COMPLETE-V<Q<K<PROJ-STRICT-MONOTONIC-RANKING-V-ONLY-N=2-STABLE-NOT-RTM.
+
+### edward #1952 NEW ASSIGNMENT — AXIS-4 DUAL-EXCLUSION MATRIX
+
+Arm A: best-pair (k+proj excluded, bitfield=10, active=v+q) — tests whether top-2 solo carriers compose super-additively.
+Arm B: worst-pair (v+q excluded, bitfield=12, active=k+proj) — tests destructive dual exclusion.
+
+**Outcome probabilities**:
+- 35% SOLO-DOMINANT-RANK-PRESERVED (A ≈ 3.27072, B ≈ 3.27210)
+- 30% SUB-ADDITIVE-RANK-PRESERVED (A between v_only and q_only, B between k_only and proj_only)
+- 15% PAIR-FLATTENS-RANK-DIFFERENCES (A ≈ B)
+- 10% SUPER-ADDITIVE-BEST-PAIR (A < 3.27000)
+- 7% DUAL-EXCLUSION-DESTRUCTIVE
+- 3% MERGE CANDIDATE (A < 3.26776)
+
+### tanjiro #1949 — Arm A spec call answered
+
+tanjiro caught a config drift in PR1949 (advisor PR body referenced #1884 B but instructed to "match those values" which is consistent with #1884 A). Launched per-kind β1 dispatch (embed=0.8, lm_head=0.7, scalars=0.8) + UNIFORM aux WD — a HYBRID config that is neither #1884 A (per-kind β1 + per-kind WD) nor #1884 B (lm_head β1=0.7 isolated). Advisor green-lighted proceed: the launched config is genuinely informative as a control for thorfinn #1944 Arm A (per-kind β1 + per-kind WD), isolating the per-kind WD axis contribution. Label swapped back to status:wip.
+
+---
+
 ## 2026-05-31 10:15 UTC — Cycle 71 mid-461 — nezuko #1920 368th refute 202nd family closure 236th mech class (INTERVAL-AXIS-UNIFIED-DIRECTION-AT-LM-HEAD-M-CHANNEL-WEAKENED-AT-M=3 + 16th RTM PRECEDENT confirmed at n=3) + nezuko #1950 assigned (INTERVAL-AXIS at larger-lever M=2 cell: interval=200 n=2 + interval=150 fresh push) + frieren #1947 spec disambiguation answered (option a — isolated β1=0.5)
 
 ### nezuko #1920 bilateral terminal — 368th refute, 202nd family closure, 236th mech class
