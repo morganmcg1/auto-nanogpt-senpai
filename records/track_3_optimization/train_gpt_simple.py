@@ -101,6 +101,11 @@ def parse_args():
                         help="EMA decay for SWA-style EMA-eval; None=disabled (control). "
                              "Recommend 0.99-0.9999. When set, val/ema_loss is logged "
                              "and speedrun/first_step_to_target uses the EMA-val crossing.")
+    parser.add_argument("--muon_depth_lr_decay", type=float, default=0.0,
+                        help="Linear LR decay fraction from block 0 to block N-1 for Muon groups. "
+                             "0.0 = uniform (baseline). 0.15 = block N-1 gets 85%% of lr. "
+                             "Splits the muon_mlp and muon_attn groups into one (mlp+attn) pair per "
+                             "transformer block, with block_lr = lr_{mlp,attn} * (1 - decay * idx / max(L-1, 1)).")
     args = parser.parse_args()
     args.num_trials = args.num_trials if args.num_trials is not None else (args.legacy_num_trials or 1)
     args.wandb_tags = [tag.strip() for tag in args.wandb_tags.split(",") if tag.strip()]
@@ -786,6 +791,8 @@ if dist.get_rank() == 0:
             "lr_cooldown_shape": args.lr_cooldown_shape,
             "ema_eval_decay": args.ema_eval_decay,
             "ema_eval_enabled": args.ema_eval_decay is not None,
+            "muon_depth_lr_decay": args.muon_depth_lr_decay,
+            "muon_depth_lr_split_enabled": args.muon_depth_lr_decay != 0.0,
         },
     )
 
@@ -868,13 +875,40 @@ for trial_idx in range(args.num_trials):
     attn_named = [(n, p) for n, p in named_blocks
                   if not (n.endswith(".mlp.fc.weight") or n.endswith(".mlp.proj.weight"))]
     assert len(mlp_named) + len(attn_named) == len(named_blocks)
+    # block_idx 0 keeps full lr; with decay=0.0 every block matches baseline lr_mlp/lr_attn.
+    _depth_denom = max(NUM_LAYERS - 1, 1)
+    def _depth_factor(idx: int) -> float:
+        return 1.0 - args.muon_depth_lr_decay * idx / _depth_denom
+    mlp_per_block: list[list[tuple[str, Tensor]]] = [[] for _ in range(NUM_LAYERS)]
+    attn_per_block: list[list[tuple[str, Tensor]]] = [[] for _ in range(NUM_LAYERS)]
+    for n, p in mlp_named:
+        mlp_per_block[int(n.split(".", 1)[0])].append((n, p))
+    for n, p in attn_named:
+        attn_per_block[int(n.split(".", 1)[0])].append((n, p))
+    muon_groups_spec = []
+    for block_idx in range(NUM_LAYERS):
+        df = _depth_factor(block_idx)
+        if mlp_per_block[block_idx]:
+            muon_groups_spec.append(dict(
+                named_params=mlp_per_block[block_idx],
+                lr=args.lr_mlp * df, weight_decay=args.wd_mlp,
+                name=f"muon_mlp_block{block_idx}",
+            ))
+        if attn_per_block[block_idx]:
+            muon_groups_spec.append(dict(
+                named_params=attn_per_block[block_idx],
+                lr=args.lr_attn * df, weight_decay=args.wd_attn,
+                name=f"muon_attn_block{block_idx}",
+            ))
     optimizer2 = Muon(
-        [
-            dict(named_params=mlp_named,  lr=args.lr_mlp,  weight_decay=args.wd_mlp,  name="muon_mlp"),
-            dict(named_params=attn_named, lr=args.lr_attn, weight_decay=args.wd_attn, name="muon_attn"),
-        ],
+        muon_groups_spec,
         soap_attn=args.soap_attn, trust_threshold=args.soap_trust_threshold,
     )
+    if dist.get_rank() == 0:
+        print0(f"[muon_depth_lr] decay={args.muon_depth_lr_decay}  "
+               f"L={NUM_LAYERS}  block_lr_factor[0]={_depth_factor(0):.4f}  "
+               f"block_lr_factor[{NUM_LAYERS-1}]={_depth_factor(NUM_LAYERS-1):.4f}  "
+               f"num_muon_groups={len(muon_groups_spec)}", console=True)
     optimizers = [optimizer1, optimizer2]
     assert set(p for opt in optimizers for group in opt.param_groups
                for p in group["params"]) == set(model.parameters())
@@ -1231,8 +1265,8 @@ for trial_idx in range(args.num_trials):
                     per_group_metrics[f"train/lr/{name}"] = lr
                 for name, wd in current_wds.items():
                     per_group_metrics[f"train/wd/{name}"] = wd
-                per_group_metrics["train/wd_mlp_now"] = current_wds.get("muon_mlp", 0.0)
-                per_group_metrics["train/wd_attn_now"] = current_wds.get("muon_attn", 0.0)
+                per_group_metrics["train/wd_mlp_now"] = current_wds.get("muon_mlp_block0", 0.0)
+                per_group_metrics["train/wd_attn_now"] = current_wds.get("muon_attn_block0", 0.0)
                 per_group_metrics["train/wd_schedule_progress"] = train_step / train_steps
                 per_group_metrics["cooldown_shape/eta_at_step"] = eta_actual
                 wandb.log(per_group_metrics, step=wandb_step)
