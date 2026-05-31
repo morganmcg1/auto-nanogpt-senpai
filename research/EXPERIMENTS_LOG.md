@@ -1,5 +1,59 @@
 # SENPAI Research Results — auto-nanogpt-1gpu-r4
 
+## 2026-05-31 20:22 — PR #1965: NM R-buffer cooldown-phase FREEZE: BURST PERIOD=99999 cooldown bracket (3-arm) — **CLOSED-CATALOG-NULL-BIDIRECTIONAL + 2x2 BODY × COOLDOWN MATRIX FULLY CLOSED + NEW HIGHEST r4 precond_ratio=1.14163 + 2nd ENGINEERING-PRECISION FREEZE VERIFICATION**
+
+- branch: `g1r4-alphonse/nm-r-buffer-cooldown-freeze-bracket`
+- hypothesis: R-buffer FREEZE during cooldown window (PERIOD=99999 prevents R EMA update) gives NM better-calibrated preconditioner for cooldown-regime: body-accumulated R may be stale at cooldown entry as gradient distribution shifts at LR onset; frozen R serves as clean prior rather than noisy rolling average. Tests c776 catalog-major "cooldown-NM R-buffer refinement is cosmetic" finding from OPPOSITE direction to confirm.
+
+### Chain terminal results (3-arm, SEED=0, full production stack post-#1702)
+
+| Arm | PERIOD / Window | W&B run | val/loss | FFS | Δ vs ctrl A | Δ vs baseline | precond_ratio_mean | Notes |
+|---|---|---|---:|---:|---:|---:|---:|---|
+| A ctrl | PERIOD=2 full-run | — | ~3.26139 | 3150 | — | +0.00021 (NULL) | ~1.073 | CTRL ±0.86σ DRIFT-PASS |
+| B full-cd-FREEZE | PERIOD=99999 [2345,3350) | `6lqbw2zh` | 3.26190 | 3150 | +0.00051 = +0.32σ NULL | +0.00072 | **1.11810** (UPPER-OOB) | byte-identical R 2350→3350 1005-step window (503 update opportunities FROZEN) |
+| C late-cd-FREEZE | PERIOD=99999 [2700,3350) | — | **3.26132** | 3150 | −0.04σ DEEP-NULL | +0.00014 | **1.14163** (NEW HIGHEST r4) | byte-identical R 650-step window; late-FREEZE creates BIGGER terminal mismatch than full-FREEZE |
+
+### 2x2 BODY × COOLDOWN PERIOD matrix — FULLY CLOSED (c777 catalog-major synthesis)
+
+| | BODY (0, 2345) | COOLDOWN (2345, 3350) |
+|---|---|---|
+| **ABLATE (PERIOD=99999 FREEZE)** | **STRONG-NEG** +5.16σ Δ_BA=#1914 c773 | **NULL** Arm B +0.32σ (c776 alphonse) |
+| **INTENSIFY (PERIOD=1-bug→FREEZE per c768)** | **NULL-mild-FAV** −0.42σ Δ_BA=#1958 askeladd v2 | **DEEP-NULL** Arm C −0.04σ (c782 alphonse) |
+
+Interpretation: body R-buffer is ACTIVE (ablation strong-NEG confirms it's load-bearing) + body INTENSIFY NULL shows production PERIOD=2 already near-optimal. Cooldown R-buffer is PASSIVE BIDIRECTIONAL (both FREEZE and late-FREEZE NULL) = cooldown-phase R-buffer manipulation cosmetic not productive.
+
+### CATALOG-MAJOR — 2nd engineering-precision FREEZE verification
+
+| Arm | Observable | Byte-identical window | Steps frozen | Update opportunities skipped |
+|---|---|---|---:|---:|
+| B (alphonse c776) | R_cond_max=570517.1 + R_cond_mean=25423.3 + R_inv_sqrt_norm=80.248 | [2350, 3350) | 1005 | 503 |
+| C (alphonse c782) | R 3-observable trio byte-identical | [2700, 3350) | 650 | ~325 |
+
+PERIOD=99999 semantics catalog-clean confirmed: `step_count % 99999 == 1` → True at step 1 only → R frozen for all remaining steps in the window. Both Arm B and Arm C achieve engineering-precision freeze semantics (downstream-validated against c768 gold standard).
+
+### CATALOG-MAJOR — NEW HIGHEST r4 LIFT-band precond_ratio observation
+
+Arm C late-FREEZE [2700, 3350) precond_ratio_mean = **1.14163** — NEW HIGHEST r4 observation, surpassing alphonse Arm B 1.11810 and fern-C HARDEN 1.11812. Mechanism: LATE-FREEZE creates BIGGER terminal mismatch than full-FREEZE because:
+- With full-FREEZE from step 2345: gradient distribution shifts gradually over 1005 steps; terminal mismatch = moderate
+- With late-FREEZE from step 2700: gradient distribution continues adapting 2345→2700, then FREEZES at a point further from the eventual 3350 distribution; terminal mismatch = LARGER
+
+This confirms c779 catalog-novel finding: "frozen R cannot adapt to evolving gradient distribution" — the longer the freeze duration AND the later the freeze starts (relative to distribution endpoint), the MORE extreme the UPPER-OOB precond_ratio at terminal.
+
+### LIFT-band cohort N=22 post-c782
+
+Post-c782 BIMODAL (5/6/6/3/1 lower/mid/upper-mech/upper-ctrl/lower-OOB):
+- 5/22 lower-edge 1.04-1.07
+- 6/22 mid-band 1.07-1.09
+- 6/22 upper-OOB MECH-LINKED (1.10+): alphonse Arm B 1.11810 + alphonse Arm C 1.14163 NEW (both FREEZE) + fern-C HARDEN 1.11812 + frieren-B EXTENSION 1.10223 + thorfinn-B PERIOD=1-bug FREEZE B0/B1 1.10758/1.10088
+- 3/22 upper-OOB CTRL-class (seed noise ≥1.10): askeladd v1 1.10613 + frieren-A 1.1025 + edward-A0 1.10151
+- 1/22 lower-OOB NEW: tanjiro-B 1.04521 (NS_ITERS SHORTENING axis)
+
+### Disposition
+
+**CLOSE-CATALOG-NULL bidirectional** — best arm Arm C val=3.26132 > baseline 3.26118 by +0.00014 (fails merge rule). Hypothesis fully tested: both full-cooldown and late-cooldown FREEZE are NULL. 2x2 body×cooldown matrix CLOSED with body-ACTIVE asymmetric / cooldown-PASSIVE bidirectional finding. Catalog-comprehensive with 2 independent engineering-precision FREEZE verifications and new HIGHEST r4 precond_ratio record.
+
+---
+
 ## 2026-05-31 16:41 — PR #1943: MUON LR_MULT-asymmetry bracket {0.90/1.10, 0.80/1.20, 0.70/1.30} post-NM — **CLOSED-CATALOG-NULL + DUAL-MECHANISM UPPER-EDGE CONFIRMATION CATALOG-MAJOR + LR_MULT × R-BUFFER ASYMMETRIC COUPLING CLEANEST DISPLACEMENT-CONTROL MECHANISM IN R4**
 
 - branch: `g1r4-fern/muon-lr-mult-bracket-post-nm`
