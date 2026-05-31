@@ -101,6 +101,13 @@ def parse_args():
                         help="EMA decay for SWA-style EMA-eval; None=disabled (control). "
                              "Recommend 0.99-0.9999. When set, val/ema_loss is logged "
                              "and speedrun/first_step_to_target uses the EMA-val crossing.")
+    parser.add_argument("--grad_noise_eta", type=float, default=0.0,
+                        help="Annealed gradient noise scale on Muon group only "
+                             "(Neelakantan et al. 2015; SGLD-style basin widener). "
+                             "sigma_t = sqrt(eta / (1+t)^gamma). 0 = disabled.")
+    parser.add_argument("--grad_noise_gamma", type=float, default=0.55,
+                        help="Annealing exponent for grad_noise schedule. "
+                             "sigma_t = sqrt(eta / (1+t)^gamma). Default 0.55.")
     args = parser.parse_args()
     args.num_trials = args.num_trials if args.num_trials is not None else (args.legacy_num_trials or 1)
     args.wandb_tags = [tag.strip() for tag in args.wandb_tags.split(",") if tag.strip()]
@@ -589,7 +596,8 @@ class Muon(torch.optim.Optimizer):
     SOAP_ATTN_SUFFIXES = (".attn.q.weight", ".attn.k.weight", ".attn.v.weight", ".attn.proj.weight")
 
     def __init__(self, named_params, lr=0.02, weight_decay=0, mu=0.95,
-                 soap_attn=False, trust_threshold=0.0):
+                 soap_attn=False, trust_threshold=0.0,
+                 grad_noise_eta=0.0, grad_noise_gamma=0.55):
         # `named_params` can be either:
         #   (a) list of (name, param) tuples → single param group (legacy form)
         #   (b) list of dicts {"named_params": [(name, param), ...], "lr": ?, "weight_decay": ?, "mu": ?, "name": ?}
@@ -612,6 +620,12 @@ class Muon(torch.optim.Optimizer):
         self.trust_threshold = float(trust_threshold)
         self.use_trust_gate = soap_attn
         self.cos_sims_buffer: dict[str, Tensor] = {}
+        self.grad_noise_eta = float(grad_noise_eta)
+        self.grad_noise_gamma = float(grad_noise_gamma)
+        self._step_count = 0
+        self._last_sigma_t: float = 0.0
+        self._last_grad_rms: float = 0.0
+        self._last_noise_rms: float = 0.0
 
         param_groups = []
         for g in groups_raw:
@@ -633,6 +647,18 @@ class Muon(torch.optim.Optimizer):
         self.cos_sims_buffer = {}
         world_size = dist.get_world_size()
         rank = dist.get_rank()
+        # Increment ONCE per step() call, not per parameter. sigma_t = sqrt(eta / (1+t)^gamma).
+        self._step_count += 1
+        noise_on = self.grad_noise_eta > 0.0
+        if noise_on:
+            sigma_t = math.sqrt(self.grad_noise_eta / (1.0 + self._step_count) ** self.grad_noise_gamma)
+            self._last_sigma_t = float(sigma_t)
+            self._last_noise_rms = float(sigma_t)  # randn has unit variance per element
+        else:
+            sigma_t = 0.0
+            self._last_sigma_t = 0.0
+            self._last_noise_rms = 0.0
+        first_grad_rms_recorded = False
         for group in self.param_groups:
             params = group["params"]
             norm_sum = torch.zeros((), device=params[0].device, dtype=torch.float32)
@@ -651,9 +677,19 @@ class Muon(torch.optim.Optimizer):
                             state["q_row"] = None
                             state["q_col"] = None
                             state["soap_step"] = 0
+                    if noise_on:
+                        # Sample one param's grad_rms for telemetry/SNR.
+                        if not first_grad_rms_recorded:
+                            self._last_grad_rms = float(
+                                p.grad.float().square().mean().sqrt().item()
+                            )
+                            first_grad_rms_recorded = True
+                        g = p.grad + torch.randn_like(p.grad) * sigma_t
+                    else:
+                        g = p.grad
                     if use_soap:
-                        state["momentum"].lerp_(p.grad, 1 - group["mu"])
-                        raw_nesterov = p.grad.lerp(state["momentum"], group["mu"])
+                        state["momentum"].lerp_(g, 1 - group["mu"])
+                        raw_nesterov = g.lerp(state["momentum"], group["mu"])
                         precond_nesterov = soap_precondition_momentum(raw_nesterov, state)
                         u_soap = soap_ns_step(precond_nesterov)
                         if self.use_trust_gate:
@@ -665,15 +701,36 @@ class Muon(torch.optim.Optimizer):
                             self.cos_sims_buffer[self.param_names[id(p)]] = cos_sim_t
                         else:
                             update = u_soap
-                        soap_update_preconditioner(p.grad, state)
+                        soap_update_preconditioner(g, state)
                     else:
-                        update = muon_update(p.grad, state["momentum"], mu=group["mu"])
+                        update = muon_update(g, state["momentum"], mu=group["mu"])
                     norm_sum.add_(update.float().norm())
                     p.mul_(1 - group["lr"] * group["weight_decay"])
                     p.add_(update, alpha=-group["lr"])
                 dist.all_gather(params_pad[base_i:base_i + world_size], params_pad[base_i + rank])
             group["_step_norm_sum"] = norm_sum
             group["_step_norm_count"] = len(params)
+
+    def get_grad_noise_telemetry(self) -> dict[str, float]:
+        """Return per-step gradient-noise diagnostics for W&B logging.
+
+        - sigma_t: injected noise std at the last step
+        - grad_rms: sampled gradient RMS from one Muon param at the last step
+        - snr: grad_rms / sigma_t (inf if noise disabled or sigma_t==0)
+        """
+        sigma_t = float(self._last_sigma_t)
+        grad_rms = float(self._last_grad_rms)
+        if sigma_t > 0.0:
+            snr = grad_rms / sigma_t
+        else:
+            snr = float("inf")
+        return {
+            "sigma_t": sigma_t,
+            "grad_rms": grad_rms,
+            "noise_rms": float(self._last_noise_rms),
+            "snr": snr,
+            "step_count": int(self._step_count),
+        }
 
     def get_step_update_norms(self) -> dict[str, float]:
         """Return per-group mean Frobenius norm of the most recent step's updates.
@@ -786,6 +843,9 @@ if dist.get_rank() == 0:
             "lr_cooldown_shape": args.lr_cooldown_shape,
             "ema_eval_decay": args.ema_eval_decay,
             "ema_eval_enabled": args.ema_eval_decay is not None,
+            "grad_noise_eta": args.grad_noise_eta,
+            "grad_noise_gamma": args.grad_noise_gamma,
+            "grad_noise_enabled": args.grad_noise_eta > 0.0,
         },
     )
 
@@ -874,6 +934,7 @@ for trial_idx in range(args.num_trials):
             dict(named_params=attn_named, lr=args.lr_attn, weight_decay=args.wd_attn, name="muon_attn"),
         ],
         soap_attn=args.soap_attn, trust_threshold=args.soap_trust_threshold,
+        grad_noise_eta=args.grad_noise_eta, grad_noise_gamma=args.grad_noise_gamma,
     )
     optimizers = [optimizer1, optimizer2]
     assert set(p for opt in optimizers for group in opt.param_groups
@@ -1223,6 +1284,7 @@ for trial_idx in range(args.num_trials):
                            for i, group in enumerate(optimizer2.param_groups)}
             current_wds = {group.get("name", f"group_{i}"): group.get("weight_decay", 0.0)
                            for i, group in enumerate(optimizer2.param_groups)}
+            grad_noise_tel = optimizer2.get_grad_noise_telemetry()
             if dist.get_rank() == 0:
                 per_group_metrics = {"trial": trial_idx, "train/step": train_step}
                 for name, mean_norm in update_norms.items():
@@ -1235,6 +1297,12 @@ for trial_idx in range(args.num_trials):
                 per_group_metrics["train/wd_attn_now"] = current_wds.get("muon_attn", 0.0)
                 per_group_metrics["train/wd_schedule_progress"] = train_step / train_steps
                 per_group_metrics["cooldown_shape/eta_at_step"] = eta_actual
+                if args.grad_noise_eta > 0.0:
+                    per_group_metrics["train/grad_noise/sigma_t"] = grad_noise_tel["sigma_t"]
+                    per_group_metrics["train/grad_noise/noise_rms"] = grad_noise_tel["noise_rms"]
+                    per_group_metrics["train/grad_noise/grad_rms_sample"] = grad_noise_tel["grad_rms"]
+                    per_group_metrics["train/grad_noise/snr"] = grad_noise_tel["snr"]
+                    per_group_metrics["train/grad_noise/step_count"] = grad_noise_tel["step_count"]
                 wandb.log(per_group_metrics, step=wandb_step)
         if dist.get_rank() == 0 and optimizer2.cos_sims_buffer:
             cs_names = list(optimizer2.cos_sims_buffer.keys())
