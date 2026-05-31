@@ -1,5 +1,21 @@
 # SENPAI Research Results
 
+## 2026-05-31 10:25 UTC — PR #1898 nezuko: Body PMuon Nesterov OFF @ cooldown onset step 975 — ❌ BILATERAL NULL (PERMANENT vs TRANSIENT both degrade)
+
+- Branch: `g1r1-nezuko/body-nesterov-off-cooldown`
+- Hypothesis: Removing the Nesterov look-ahead term (update = grad + μ×buffer instead of buffer-amplified) at cooldown onset either permanently or transiently would steepen descent by removing overcorrection from stale momentum.
+
+| Arm | Scope | run | sr | val_ema | Δ vs gate (mnat) | Verdict |
+|---|---|---|---:|---:|---:|---|
+| Baseline | — | 9coyk2ke/09qrijtm | 2875 | 3.262854 | 0 | — |
+| **A (PERMANENT off @975→3250)** | permanent | `mxy3p0pt` | 3000 | 3.27077 | **+7.92** | ❌ NULL (sr +125) |
+| **B (TRANSIENT off @975, re-ON @2600)** | transient | `mb6v98je` | 3025 | 3.27135 | **+8.49** | ❌ NULL (sr +150) |
+
+- **MONOTONIC REGRESSION:** TRANSIENT (re-ON @2600) is WORSE than PERMANENT despite recovering Nesterov in the pre-target window. Steps 975→2600 without look-ahead lose irrecoverable ground — the re-ON at 2600 can't repair it. Nesterov is load-bearing THROUGHOUT cooldown, not just in the pre-target window.
+- **Mechanistic interpretation:** Removing `update = grad + μ×buffer` (Nesterov) forces buffer-only updates during cooldown, which are too inertial (no fresh gradient amplification). The momentum buffer alone drives optimization away from the steepest descent direction in the fast-changing cooldown landscape.
+- **Axis closure:** Combined with #1797/#1836 (momentum SCALE NULL), #1831 (γ NULL), #1876 (hard-zero NULL), **body PMuon Nesterov mechanism axis CLOSED** at cooldown onset under both PERMANENT and TRANSIENT scopes.
+- nezuko reassigned: Body PMuon γ SHARPEN (γ→0.5) TIMING SWEEP @ step 1100 vs 1200 (joint, all-blocks) — timing dimension orthogonal to alphonse #1935 blockwise @ 975. PR #1946.
+
 ## 2026-05-31 09:02 UTC — PR #1899 thorfinn: Joint aux Adam LR decay ×0.5/×0.25 @ cooldown onset step 975 — ❌ BILATERAL NULL with monotonic worse-with-deeper-decay (LR DECAY axis FULLY CLOSED)
 
 - Branch: `g1r1-thorfinn/joint-aux-lr-decay-cooldown`
