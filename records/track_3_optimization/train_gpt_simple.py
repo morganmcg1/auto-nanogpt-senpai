@@ -84,6 +84,16 @@ def parse_args():
     parser.add_argument('--aux_b2_pulse_target', type=float, default=0.99,
                         help='New aux Adam β2 value to set at --aux_b2_pulse_step. '
                              '0 or negative disables. Default: 0.99 (canonical WIN).')
+    parser.add_argument(
+        "--aux_adam_m_scale_step", type=int, default=0,
+        help="Step at which to multiplicatively scale aux Adam first-moment buffers (exp_avg). "
+             "Does NOT touch exp_avg_sq. 0 disables.",
+    )
+    parser.add_argument(
+        "--aux_adam_m_scale_factor", type=float, default=1.0,
+        help="Scale factor applied to exp_avg when aux_adam_m_scale_step fires. "
+             "0.5 = retain 50%%, 0.25 = retain 25%%. 1.0 is no-op.",
+    )
     parser.add_argument("--seed", type=int, default=1,
                         help="Random seed for torch/numpy/python. Default 1 matches baseline seed.")
     args = parser.parse_args()
@@ -765,6 +775,8 @@ if dist.get_rank() == 0:
             "paramema_refresh_only": int(args.paramema_refresh_only),
             "aux_b2_pulse_step": args.aux_b2_pulse_step,
             "aux_b2_pulse_target": args.aux_b2_pulse_target,
+            "aux_adam_m_scale_step": args.aux_adam_m_scale_step,
+            "aux_adam_m_scale_factor": args.aux_adam_m_scale_factor,
             "seed": args.seed,
         },
     )
@@ -1071,6 +1083,29 @@ for trial_idx in range(args.num_trials):
                 group["betas"] = new_betas
             print0(f"[step {step}] aux_b2_pulse: β2 {old_b2} → {args.aux_b2_pulse_target}",
                    console=True)
+        if (args.aux_adam_m_scale_step > 0
+                and step == args.aux_adam_m_scale_step
+                and args.aux_adam_m_scale_factor != 1.0):
+            n_scaled = 0
+            scale = float(args.aux_adam_m_scale_factor)
+            for group in optimizer1.param_groups:
+                for p in group["params"]:
+                    state = optimizer1.state.get(p, None)
+                    if state is None:
+                        continue
+                    m = state.get("exp_avg", None)
+                    if m is not None:
+                        m.mul_(scale)
+                        n_scaled += 1
+            if dist.get_rank() == 0:
+                print0(f"[step {step}] aux Adam m-ONLY SCALE x{scale} (n_scaled={n_scaled}; v untouched)",
+                       console=True)
+                if wandb.run is not None:
+                    wandb.log({
+                        "aux_adam_m_scale/step": step,
+                        "aux_adam_m_scale/factor": scale,
+                        "aux_adam_m_scale/n_scaled": n_scaled,
+                    }, step=wandb_step)
         for opt in optimizers:
             opt.step()
         # EMA buffer update on body-Muon matrix params.
@@ -1189,6 +1224,11 @@ for trial_idx in range(args.num_trials):
                 "aux_b2/fired": int(args.aux_b2_pulse_step > 0
                                     and args.aux_b2_pulse_target > 0.0
                                     and step >= args.aux_b2_pulse_step),
+                "aux_adam_m_scale/pulse_step": args.aux_adam_m_scale_step,
+                "aux_adam_m_scale/pulse_factor": args.aux_adam_m_scale_factor,
+                "aux_adam_m_scale/fired": int(args.aux_adam_m_scale_step > 0
+                                              and args.aux_adam_m_scale_factor != 1.0
+                                              and step >= args.aux_adam_m_scale_step),
             }, step=wandb_step)
         if dist.get_rank() == 0 and (train_step % 100 == 0 or train_step == train_steps):
             spec = pmuon_spectral_diag(optimizer2, PMUON_GAMMA)
