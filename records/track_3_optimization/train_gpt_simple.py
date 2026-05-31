@@ -68,6 +68,13 @@ def parse_args():
     parser.add_argument("--ns_iter", type=int, default=12,
                         help="Number of Newton-Schulz iterations in zeropower_via_newtonschulz5. "
                              "Default 12 (current hardcoded value). Lower = less orthogonal but faster.")
+    parser.add_argument("--ns_iter_late", type=int, default=None,
+                        help="NS iteration count to switch to after ns_iter_switch_frac of training remains. "
+                             "None = no switch (ns_iter used throughout). E.g., 6 or 4.")
+    parser.add_argument("--ns_iter_switch_frac", type=float, default=0.25,
+                        help="Fraction of training REMAINING when ns_iter switches to ns_iter_late. "
+                             "Default 0.25 = switch at 75%% of total steps (step ~2438 for train_steps=3250). "
+                             "E.g., 0.50 = switch at 50%% (step ~1625).")
     parser.add_argument("--lr_scalars", type=float, default=0.01,
                         help="LR for AdamW adam_scalars group (RMSNorm gains; "
                              "params with ndim < 2). Default 0.01 — hardcoded, "
@@ -111,6 +118,7 @@ def parse_args():
 
 args = parse_args()
 NS_ITER = args.ns_iter
+NS_ITER_LATE = args.ns_iter_late if args.ns_iter_late is not None else NS_ITER
 
 
 def clean_metric_name(name: str) -> str:
@@ -533,6 +541,47 @@ def soap_ns_step(nesterov_update):
     return update
 
 
+# Late-phase NS5 using NS_ITER_LATE as compile-time constant. Separate function
+# because torch.compile bakes in the loop bound from the closed-over NS_ITER_LATE.
+def zeropower_via_newtonschulz5_late(G: Tensor) -> Tensor:
+    assert G.ndim >= 2
+    X = G.bfloat16()
+    if G.size(-2) > G.size(-1):
+        X = X.mT
+    X = X / (X.norm(dim=(-2, -1), keepdim=True) + 1e-7)
+    a, b, c = 2, -1.5, 0.5
+    for _ in range(NS_ITER_LATE):
+        A = X @ X.mT
+        B = b * A + c * A @ A
+        X = a * X + B @ X
+    if G.size(-2) > G.size(-1):
+        X = X.mT
+    return X
+
+
+@torch.compile
+def muon_update_late(grad, momentum, mu=0.95, nesterov=True):
+    momentum.lerp_(grad, 1 - mu)
+    update = grad.lerp_(momentum, mu) if nesterov else momentum
+    update = zeropower_via_newtonschulz5_late(update)
+    update *= max(1, grad.size(-2) / grad.size(-1))**0.5
+    return update
+
+
+@torch.compile
+def soap_ns_step_late(nesterov_update):
+    update = zeropower_via_newtonschulz5_late(nesterov_update)
+    update *= max(1, nesterov_update.size(-2) / nesterov_update.size(-1))**0.5
+    return update
+
+
+# Mutable cells holding the currently active NS function pair. Patched by the
+# training loop at the switch step; consumed by Muon.step. Lists so they're
+# mutable; index 0 is the active function.
+_current_muon_update_fn = [muon_update]
+_current_soap_ns_step_fn = [soap_ns_step]
+
+
 def soap_eigenbasis(mat: Tensor) -> Tensor:
     eye = torch.eye(mat.size(0), device=mat.device)
     try:
@@ -655,9 +704,9 @@ class Muon(torch.optim.Optimizer):
                         state["momentum"].lerp_(p.grad, 1 - group["mu"])
                         raw_nesterov = p.grad.lerp(state["momentum"], group["mu"])
                         precond_nesterov = soap_precondition_momentum(raw_nesterov, state)
-                        u_soap = soap_ns_step(precond_nesterov)
+                        u_soap = _current_soap_ns_step_fn[0](precond_nesterov)
                         if self.use_trust_gate:
-                            u_muon = soap_ns_step(raw_nesterov)
+                            u_muon = _current_soap_ns_step_fn[0](raw_nesterov)
                             us = u_soap.float()
                             um = u_muon.float()
                             cos_sim_t = (us * um).sum() / (us.norm() * um.norm() + 1e-8)
@@ -667,7 +716,7 @@ class Muon(torch.optim.Optimizer):
                             update = u_soap
                         soap_update_preconditioner(p.grad, state)
                     else:
-                        update = muon_update(p.grad, state["momentum"], mu=group["mu"])
+                        update = _current_muon_update_fn[0](p.grad, state["momentum"], mu=group["mu"])
                     norm_sum.add_(update.float().norm())
                     p.mul_(1 - group["lr"] * group["weight_decay"])
                     p.add_(update, alpha=-group["lr"])
@@ -774,6 +823,9 @@ if dist.get_rank() == 0:
             "soap_beta2": SOAP_BETA2,
             "soap_precond_freq": PRECOND_FREQ,
             "ns_iter": NS_ITER,
+            "ns_iter_late": NS_ITER_LATE,
+            "ns_iter_late_arg": args.ns_iter_late,
+            "ns_iter_switch_frac": args.ns_iter_switch_frac,
             "soap_attn_enabled": bool(args.soap_attn),
             "soap_trust_threshold": float(args.soap_trust_threshold),
             "lr_mlp": args.lr_mlp,
@@ -938,6 +990,29 @@ for trial_idx in range(args.num_trials):
     train_loader = distributed_data_generator("data/fineweb10B/fineweb_train_*.bin", batch_size)
     for p in model.parameters():
         dist.broadcast(p.detach(), 0)
+
+    # NS-iter cooldown schedule setup. Compute the switch step and reset the
+    # mutable cells to the early NS function so each trial starts in the early
+    # regime. When ns_iter_late is None or equal to ns_iter, the switch is a
+    # no-op (cells stay on the early functions throughout training).
+    _ns_switch_step = (
+        int(train_steps * (1.0 - args.ns_iter_switch_frac))
+        if args.ns_iter_late is not None and NS_ITER_LATE != NS_ITER
+        else train_steps + 1
+    )
+    _current_muon_update_fn[0] = muon_update
+    _current_soap_ns_step_fn[0] = soap_ns_step
+    if args.ns_iter_late is not None and NS_ITER_LATE != NS_ITER and trial_idx == 0:
+        _dummy_g = torch.randn(128, 128, dtype=torch.bfloat16, device=device)
+        _dummy_m = torch.zeros_like(_dummy_g)
+        _ = muon_update_late(_dummy_g.clone(), _dummy_m.clone())
+        _ = soap_ns_step_late(_dummy_g.clone())
+        del _dummy_g, _dummy_m
+        if dist.get_rank() == 0:
+            print0(f"[NS schedule] trial={trial_idx} train_steps={train_steps} "
+                   f"ns_iter={NS_ITER} ns_iter_late={NS_ITER_LATE} "
+                   f"switch_step={_ns_switch_step} switch_frac={args.ns_iter_switch_frac}",
+                   console=True)
 
     # EMA-eval (SWA-style) state. Parallel param trajectory, used only for validation
     # eval; does NOT modify the train trajectory. Initialized fresh per trial from
@@ -1180,8 +1255,25 @@ for trial_idx in range(args.num_trials):
                 train_steps=train_steps,
                 wandb_step=wandb_step,
             )
+        # NS function switching — evaluated once per training step. When step
+        # crosses _ns_switch_step, swap the cells to the late NS function pair.
+        if step == _ns_switch_step and NS_ITER_LATE != NS_ITER:
+            _current_muon_update_fn[0] = muon_update_late
+            _current_soap_ns_step_fn[0] = soap_ns_step_late
+            if dist.get_rank() == 0:
+                print0(f"[NS switch] trial={trial_idx} step={step}: "
+                       f"ns_iter {NS_ITER} -> {NS_ITER_LATE}", console=True)
+        _use_late_ns = (step >= _ns_switch_step) and (NS_ITER_LATE != NS_ITER)
         for opt in optimizers:
             opt.step()
+        if dist.get_rank() == 0 and telemetry_due:
+            wandb.log({
+                "trial": trial_idx,
+                "train/step": train_step,
+                "train/ns_iter_current": NS_ITER_LATE if _use_late_ns else NS_ITER,
+                "train/ns_iter_switched": float(_use_late_ns),
+                "train/ns_switch_step": _ns_switch_step,
+            }, step=wandb_step)
 
         # EMA-eval update: parallel param trajectory, no gradients/momentum.
         # Performed after the optimizer step so EMA tracks the post-update params.
