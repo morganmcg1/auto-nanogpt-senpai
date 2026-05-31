@@ -55,6 +55,23 @@ def parse_args():
     parser.add_argument("--use_outer_optimizer", type=int, default=int(os.environ.get("USE_OUTER_OPTIMIZER", "1")))
     parser.add_argument("--outer_lr", type=float, default=float(os.environ.get("OUTER_LR", "0.7")))
     parser.add_argument("--outer_momentum", type=float, default=float(os.environ.get("OUTER_MOMENTUM", "0.5")))
+    parser.add_argument("--outer_momentum_schedule", type=str,
+        default=os.environ.get("OUTER_MOMENTUM_SCHEDULE", "constant"),
+        choices=["constant", "cooldown_ramp"],
+        help="OUTER momentum schedule. 'constant' = H266 baseline (drift-FREE). "
+             "'cooldown_ramp' = linear ramp from outer_momentum to outer_momentum_cooldown_end "
+             "across the OUTER cooldown window (last outer_momentum_cooldown_frac of train_steps). "
+             "outer_momentum_cooldown_end may be negative (anti-Lookahead).")
+    parser.add_argument("--outer_momentum_cooldown_end", type=float,
+        default=float(os.environ.get("OUTER_MOMENTUM_COOLDOWN_END", "0.0")),
+        help="Endpoint outer_momentum at terminal step when outer_momentum_schedule='cooldown_ramp'. "
+             "Negative values allowed (active velocity reversal during cooldown). "
+             "Ignored when outer_momentum_schedule='constant'.")
+    parser.add_argument("--outer_momentum_cooldown_frac", type=float,
+        default=float(os.environ.get("OUTER_MOMENTUM_COOLDOWN_FRAC", "0.15")),
+        help="Fraction of train_steps over which outer_momentum ramps. "
+             "0.15 = ramp over last 15% (last 499 of 3325 steps), preserving Pattern A "
+             "drift-FREE for the first 85%. Independent from inner h_cooldown_frac=1.0.")
     parser.add_argument("--sync_interval", type=int, default=int(os.environ.get("SYNC_INTERVAL", "30")))
     # AGC (Brock et al. 2021): per-parameter adaptive gradient clipping applied to
     # AdamW aux groups (embed, lm_head, scalars). Clips grad to clip_ratio * |param|.
@@ -843,6 +860,9 @@ if dist.get_rank() == 0:
             "muloco_use_outer_optimizer": bool(args.use_outer_optimizer),
             "muloco_outer_lr": args.outer_lr,
             "muloco_outer_momentum": args.outer_momentum,
+            "outer_momentum_schedule": args.outer_momentum_schedule,
+            "outer_momentum_cooldown_end": args.outer_momentum_cooldown_end,
+            "outer_momentum_cooldown_frac": args.outer_momentum_cooldown_frac,
             "muloco_sync_interval": args.sync_interval,
             "aux_agc_clip_ratio": args.aux_agc_clip_ratio,
             "aux_agc_eps": args.aux_agc_eps,
@@ -1033,7 +1053,20 @@ for trial_idx in range(args.num_trials):
                 g["mu"] = mu_t
         else:
             mu_t = 0.95
-        return muonh_warmup, b2, mu_t
+        # OUTER momentum schedule. 'constant' = no-op (drift-FREE). 'cooldown_ramp' =
+        # linear ramp from args.outer_momentum to args.outer_momentum_cooldown_end
+        # over the last args.outer_momentum_cooldown_frac of train_steps. Endpoint
+        # may be negative (anti-Lookahead: outer step pushes against velocity).
+        if args.outer_momentum_schedule == "cooldown_ramp":
+            outer_mom_cooldown_start_frac = 1.0 - args.outer_momentum_cooldown_frac
+            if progress < outer_mom_cooldown_start_frac:
+                outer_momentum_t = args.outer_momentum
+            else:
+                outer_mom_cooldown_prog = (progress - outer_mom_cooldown_start_frac) / args.outer_momentum_cooldown_frac
+                outer_momentum_t = args.outer_momentum + outer_mom_cooldown_prog * (args.outer_momentum_cooldown_end - args.outer_momentum)
+        else:
+            outer_momentum_t = args.outer_momentum
+        return muonh_warmup, b2, mu_t, outer_momentum_t
 
 
     ########################################
@@ -1175,7 +1208,7 @@ for trial_idx in range(args.num_trials):
         dist.all_reduce(step_loss, op=dist.ReduceOp.SUM)
         train_loss = float((step_loss / batch_size).item())
         # set optimization hyperparameters and take a step
-        muonh_warmup_factor, aux_beta2, muonh_mu_t = set_hparams(step)
+        muonh_warmup_factor, aux_beta2, muonh_mu_t, outer_momentum_t = set_hparams(step)
         train_step = step + 1
         telemetry_due = (step == 0 or (step + 1) % args.telemetry_interval == 0 or step + 1 == train_steps)
         histogram_due = (step == 0 or (step + 1) % args.histogram_interval == 0 or step + 1 == train_steps)
@@ -1333,9 +1366,9 @@ for trial_idx in range(args.num_trials):
             with torch.no_grad():
                 for n, p in model.named_parameters():
                     delta = outer_anchor[n] - p.data
-                    outer_velocity[n].mul_(args.outer_momentum).add_(delta)
+                    outer_velocity[n].mul_(outer_momentum_t).add_(delta)
                     p.data.copy_(outer_anchor[n] - args.outer_lr *
-                                 (args.outer_momentum * outer_velocity[n] + delta))
+                                 (outer_momentum_t * outer_velocity[n] + delta))
                     outer_anchor[n].copy_(p.data)
                     if log_outer:
                         delta_sq = delta_sq + delta.float().square().sum()
@@ -1351,6 +1384,7 @@ for trial_idx in range(args.num_trials):
                     "train/muloco/outer_step": outer_applied_steps,
                     "train/muloco/delta_rms": delta_rms,
                     "train/muloco/velocity_rms": velocity_rms,
+                    "train/outer_momentum_t": outer_momentum_t,
                 }, step=wandb_step)
 
         approx_training_time = training_time + (time.perf_counter() - t0)
