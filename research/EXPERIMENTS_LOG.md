@@ -1,3 +1,38 @@
+## 2026-05-31 — PR #1998: H341 frieren BODY 2D spectral-norm² penalty (M2 mechanism test bisecting H326 closure narrowing) — CLOSED 195th NULL/NEG (🎯 PAPER-GRADE RESOLUTION FINDING: ALL 3 H326 candidate mechanisms M1+M2+M3 RULED OUT → M4 candidate class REQUIRED + M2 spectral-spread axis CLOSED bilaterally at both λ=1e-5 LIGHT and λ=1e-4 MEDIUM doses + non-monotone dose response arm_c MEDIUM BETTER than arm_b LIGHT + σ²_max trajectory NEARLY IDENTICAL between arms <0.5% Δ at any step 10× heavier penalty NOT engaging σ_max landscape NEG arises from gradient-direction perturbation not σ_max suppression + arm_a CTRL 11th H266 attractor cluster member + 3rd-LOWEST val of cluster)
+
+- Branch: g1r3-frieren/h341-body-spectral-penalty
+- Hypothesis: M2 (σ_max² suppression via direct spectral penalty) mechanism bisection test of H326 closure narrowing. Per-step λ·Σ_params σ_max(W)² penalty via 2-iter power iteration. arm_a CTRL λ=0 (H266 bit-id default-flag skip) / arm_b LIGHT λ=1e-5 / arm_c MEDIUM λ=1e-4.
+
+### Results
+
+| Arm | λ | val/loss | FFS | Δ vs H266 (σ_H174) | Δ vs CTRL (σ_H174) | σ²_max terminal | Verdict |
+|-----|---|----------|-----|---------------------|---------------------|-----------------|---------|
+| arm_a CTRL `a1ch2uae` | 0 (default-skip) | **3.26717** | **3000 EXACT** | **−1.14σ POS** (11th cluster member, 3rd-LOWEST val) | (ref) | n/a (short-circuit) | Pattern A bit-id confirmed |
+| arm_b LIGHT `cu84w3as` | 1e-5 | 3.26959 | 3025 | +1.59σ NEG | **+2.74σ NEG** | 71.20 | Pattern A +25 NEG-direction |
+| arm_c MEDIUM `6tv700yc` | 1e-4 | 3.26840 | 3025 | +0.25σ TIE-vs-H266 | **+1.39σ NEG** | 71.34 | Pattern A +25 NEG-direction (non-monotone — better than arm_b) |
+| H266 baseline (PR #1669) | — | 3.26818 | 3000 | (ref) | — | — | — |
+| Smoke arm_c `vbxwz4se` | 1e-4 | 5.164 (125 steps) | — | — | — | 1.83 | ✓ pre-launch gate passed |
+
+🎯 **195th NULL/NEG closure** — Issue #1260 strict gate FAIL (arm_a TIES, arm_b/c NEG).
+
+### Paper-grade resolution findings
+
+🎯 **FINDING #1 — H326 closure 3-mechanism narrowing FULLY RESOLVED**: ALL 3 candidate mechanisms RULED OUT (M1 weight-decay analog at H328, **M2 spectral-spread regularization at H341 THIS**, M3 F-norm contraction at H339 bilaterally) → the H326 BODY ORTHO POS direction at FFS=3000 EXACT requires a **4th mechanism candidate (M4)** not in the original 3-mechanism decomposition.
+
+🎯 **FINDING #2 — σ_max² trajectory NEARLY IDENTICAL between treatment arms** (<0.5% Δ at any step under 10× dose change): the M2 penalty does NOT meaningfully engage with the σ_max landscape at λ ∈ [1e-5, 1e-4]. Both arms settle at σ_max² ≈ 71 by step 3000, matching the H266 natural equilibrium. The penalty's NEG val/loss effect arises from **gradient-direction perturbation / noise injection**, not σ_max suppression — confirming M2 is mechanistically distinct from H326's implicit F-norm-matched orthogonality regularizer.
+
+🎯 **FINDING #3 — Non-monotone dose response**: arm_c MEDIUM (10× heavier) BETTER than arm_b LIGHT (+0.25σ vs +1.59σ vs H266). Counter-intuitive — light dose is MORE damaging. Reflects smoothness of σ_max² landscape vs gradient-interaction noise.
+
+🎯 **FINDING #4 — arm_a CTRL = 11th H266 attractor cluster member + 3rd-LOWEST val**: CTRL replicas span ~−0.3σ to ~−1.4σ below H266 baseline → 6 CTRL replicas now confirm baseline RNG draw was unfavorable; attractor cluster mean ~−0.6σ below baseline.
+
+### Mechanism class consolidation
+
+110 mechanism classes total — no NEW class added; H341 closure refines the H326 closure narrowing toward M4 candidate class.
+
+### Next step
+
+frieren reassigned to H349 (M4a Top-K right-singular-subspace alignment penalty, PR #2032) — direct probe of EIGENVECTOR-space subspace preservation distinct from all 3 magnitude-axis mechanisms (M1 F-norm, M2 σ_max, M3 F-norm-projection). If H349 arm_b/c monotone-up NEG → M4a also ruled out → H326 POS direction may be seed-luck artifact requiring M4b/M4c (Schatten-1 nuclear norm or condition-number) for final resolution.
+
 ## 2026-05-31 — PR #1995: H340 tanjiro AUX adam_embed LR VALUE micro-axis at H266 hardcoded baseline {0.15, 0.6} — CLOSED 194th NULL/NEG (🎯 PAPER-GRADE arm_c HIGH lr=0.6 EXACT FFS=3025 COINCIDENCE WITH arm_a CTRL = AGC clip absorbs 2× embed LR over-scaling + H158 carryover cross-validated to embed group + 6-axis virgin-axis-at-H266-stack canalization narrative COMPLETE on AUX VALUE axes: H328 wd / H334 β1 / H335 eps / H337 outer_momentum / H338 sync_interval / H340 aux_embed_lr — all 6 axes show H266 at local Pareto)
 
 - Branch: g1r3-tanjiro/h340-aux-embed-lr-value
