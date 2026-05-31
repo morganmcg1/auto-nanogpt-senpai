@@ -1,3 +1,47 @@
+## 2026-05-31 — PR #1892: H320 edward OUTER anchor refresh POLICY — soft blend vs hard replace (102nd mechanism class) — CLOSED 175th NULL/NEG (🎯 paper-grade monotone dose-response NEG with TWO-REGIME instability finding: stable-regime NEG at α=0.5 FFS+175 + catastrophic UNBOUNDED divergence at α=0.2 with anchor_drift_rms 6291× geometric growth + positive-feedback OUTER anchor drift mechanism identified)
+
+- Branch: g1r3-edward/h320-outer-anchor-blend-policy
+- Hypothesis: Replace HARD-REPLACE anchor refresh `outer_anchor[n].copy_(p.data)` (line 1339) with SOFT-BLEND `outer_anchor[n] = (1-α)·outer_anchor[n] + α·p.data` to introduce controlled anchor LAG that may smooth the OUTER trajectory — structurally analogous to Lookahead at the OUTER (every-sync_interval) cadence. arm_a CTRL α=1.0 (hard replace, bit-id H266), arm_b BLEND_0p5 α=0.5 (~60-step lag), arm_c BLEND_0p2 α=0.2 (~150-step lag).
+
+### Results
+
+| Arm | W&B | val/loss | FFS | Δ vs CTRL (σ_H174) | Δ vs H266 (σ_H174) | Merge gate |
+|-----|-----|----------|-----|---------------------|---------------------|------------|
+| arm_a CTRL (α=1.0, hard replace) | `uhgw9uxc` | 3.26884 | 3025 | (ref) | +0.75σ TIE | misses by +25 |
+| arm_b BLEND_0p5 (α=0.5, ~60-step lag) | `pufhqmo8` | 3.27652 | **3200** | **+8.68σ NEG** | **+9.43σ NEG** | **FFS+175 = 5.8% regression — clear NEG** |
+| arm_c BLEND_0p2 (α=0.2, ~150-step lag) | `4p35dtv3` | **3.66399** | **−1 NEVER** | **+447σ CATASTROPHIC** | **+448σ CATASTROPHIC** | **never reached target, val climbed to 19.66 at terminal** |
+
+### 🎯 Paper-grade positive-feedback OUTER anchor drift mechanism (102nd mechanism class CLOSED NEG)
+
+The OUTER heavy-ball Nesterov update at sync boundaries: `delta = anchor - p; velocity = μ·velocity + delta; p ← anchor − outer_lr·(μ·velocity + delta); anchor ← (1-α)·anchor + α·p`. When α<1, anchor LAGS p.data. Stale anchor over-represents past drift direction → larger delta → larger correction → unbounded positive-feedback divergence when α too small.
+
+#### anchor_drift_rms trajectory (per-arm milestones)
+
+| outer_step | arm_a α=1.0 | arm_b α=0.5 | arm_c α=0.2 | Growth pattern |
+|------------|-------------|-------------|-------------|---------------|
+| 1 | 0.0000 | 0.478 | 0.765 | initial single-sync drift |
+| 10 | 0.0000 | 0.482 | 2.66 | arm_b BOUNDED, arm_c growing |
+| 50 | 0.0000 | 0.496 | 61.9 | arm_c geometric explosion begins |
+| 110 (final) | 0.0000 | 0.056 | **6291.8** | arm_c terminal: 6291× initial |
+
+**TWO-REGIME finding**:
+- **Stable regime (α=0.5)**: anchor_drift_rms hovers at ~0.5 (bounded equilibrium), declines during cooldown. Stable but suboptimal — constant "smoothing tax" costing FFS+175 steps
+- **Unstable regime (α=0.2)**: anchor_drift_rms grows geometrically (~×2 per 10 outer-steps), unbounded divergence. Instability threshold lies between α=0.5 and α=0.2
+
+The hypothesis's *NEG prediction narrative* materialized EXACTLY: "anchor lag means OUTER computes delta = (lagged anchor) − (current p) which OVERESTIMATES the recent drift, amplifying the OUTER pull magnitude. The heavy-ball update would over-correct toward stale state, destabilizing late-training trajectory."
+
+### 🎯 OUTER axis status update (H316 + H318 + H320 combined)
+
+H316 + H318 + H320 together characterize the OUTER stack: outer_lr is load-bearing (DON'T touch), outer_momentum cooldown DOWN ties baseline FFS, anchor refresh POLICY is structurally optimal at hard-replace. **All three modifications of the OUTER axis CLOSED NEG**. H327 in-flight (anti-Lookahead amplification of H318 RAMP_DOWN) is the last remaining live OUTER probe.
+
+### Conclusions
+
+🎯 **175th NULL/NEG + 102nd mechanism class CLOSED NEG** — OUTER anchor refresh POLICY is structurally optimal at hard-replace. Soft-blend introduces stable-regime FFS-tax OR unbounded catastrophic divergence depending on α magnitude. Hard-replace at sync_interval=30 is the unique stable fixed point keeping delta bounded by per-sync model drift only (not compounding stale-anchor amplification).
+
+Reassigning edward to H329 — OUTER anchor MOMENTUM (student's suggested follow-up #1, virgin OUTER axis decoupling smoothing from lag). Anchor MOMENTUM produces smoothing-WITHOUT-lag (anchor velocity buffer integrates recent delta history but anchor still takes full step each sync boundary) — mechanism-distinct from BLEND which produces lag-as-side-effect-of-smoothing. WIN probability: 10-15%.
+
+Plateau portfolio: **175 NULL/NEG + 1 MERGED WIN** (H266 baseline FFS=3000).
+
 ## 2026-05-31 — PR #1905: H322 nezuko BODY ORTHOGONALITY regularizer ‖W·W^T−I‖² (virgin structural axis) — CLOSED 174th NULL/NEG (🎯 paper-grade unexpected within-chain POS on arm_b λ=1e-5 + DEFINITIVE mechanism REJECTION via 244× ortho_loss growth + arm_c λ=1e-4 catastrophic divergence + advisor's THIRD advisor-error catch in 24h on regularizer geometry vs F-norm-matched init)
 
 - Branch: g1r3-nezuko/h322-body-weight-orthogonality

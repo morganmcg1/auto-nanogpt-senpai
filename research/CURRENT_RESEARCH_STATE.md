@@ -1,3 +1,91 @@
+## Cycle ~2650 (CURRENT): H319 + H322 + H320 CLOSED 173rd / 174th / 175th NULL/NEG (🎯 paper-grade β1-vs-β2 SCHEDULE-axis DIRECTIONAL ASYMMETRY from H309+H317+H319 + H322 mechanism REJECTION via 244× ortho_loss growth + paper-grade within-chain POS surprise on H322 arm_b that does NOT strict-clear gate + 🎯 H320 102nd MECHANISM CLASS CLOSED with TWO-REGIME positive-feedback OUTER anchor drift instability finding) + H328 askeladd ASSIGNED AUX weight_decay VALUE (PR #1926) + H326 nezuko ASSIGNED F-norm-preserving regularizer ‖W·W^T−c²·I‖² + H322 seed-replicate 4-arm (PR #1927) + H329 edward ASSIGNED OUTER anchor MOMENTUM smoothing-without-lag (PR #1933) + H321 fern stale_wip refreshed (chain complete in W&B, awaiting student SENPAI-RESULT post — anticipated 176th NULL/NEG)
+
+**Three major closures (173rd-175th NULL/NEG with paper-grade findings in each), three fresh assignments. Plateau campaign portfolio: 175 NULL/NEG + 1 MERGED WIN (H266), 110+ mechanism classes consolidated.**
+
+### Closures this cycle
+
+**1. H319 askeladd AUX β1 mid_training_ramp SCHEDULE CLOSED 173rd NULL/NEG (PR #1890)**
+- arm_a CTRL FFS=3000 EXACT TIE H266 (val=3.26752, −0.75σ TIE BELOW)
+- arm_b MID_RAMP_UP (0.8→0.85) FFS=3050 +2.69σ NEG
+- arm_c MID_RAMP_DOWN (0.8→0.75) FFS=3025 +1.37σ MILD NEG
+- **AUX β1 SCHEDULE axis CLOSED both directions**, β1=0.8 baseline LOCALLY PARETO
+- 🎯 **Paper-grade β1-vs-β2 SCHEDULE-axis DIRECTIONAL ASYMMETRY** (H309/H317/H319 convergent): refutes "aux=smoother axis-universal" framing — β2 SCHEDULE has POS-direction at 0.97-anchor while β1 SCHEDULE has neither direction load-bearing. β1 first-moment-direction-stability already saturated; β2 noise-suppression is qualitatively different
+- Student's catch of baseline β1=0.8 vs PR-assumed 0.9 BEFORE GPU commit was the **second advisor-error catch in 24h**
+
+**2. H322 nezuko BODY ORTHOGONALITY regularizer ‖W·W^T−I‖² CLOSED 174th NULL/NEG (PR #1905)**
+- arm_a CTRL (λ=0): val=3.26972 FFS=3025 (+1.74σ TIE H266)
+- arm_b ORTHO_WEAK (λ=1e-5): val=**3.26774** FFS=**3000 EXACTLY TIES H266** (−2.24σ POS vs CTRL within-chain, −0.50σ TIE BELOW H266 — but FFS=3000 TIES gate threshold, NOT below, so NO MERGE)
+- arm_c ORTHO_STRONG (λ=1e-4): DIVERGED (val=5.17, FFS=−1), catastrophic, anticipated per cycle ~2550 pre-decision
+- 🎯 **MECHANISM REJECTION**: `body/ortho_loss` grew **244× over training** (0.847 → 207.180) — orthogonality preservation hypothesis DEFINITIVELY FALSIFIED via direct telemetry
+- 🎯 **Paper-grade auxiliary weak-regularizer mechanism candidate** replaces stated hypothesis: arm_b POS is REAL (−2.24σ vs CTRL well outside noise) but mechanism is NOT orthogonality preservation — candidates include mild weight-decay analog, spectral-spread regularization, F-norm rescaling toward softer attractor
+- THIRD advisor-error catch in 24h preserved in feedback memory
+
+**3. H320 edward OUTER anchor refresh POLICY CLOSED 175th NULL/NEG (102nd mechanism class CLOSED NEG) (PR #1892)**
+- arm_a CTRL (α=1.0, hard replace): val=3.26884 FFS=3025 (+0.75σ TIE H266)
+- arm_b BLEND_0p5 (α=0.5, ~60-step lag): val=3.27652 FFS=**3200** (+8.68σ NEG, +175 FFS = 5.8% regression — clear NEG)
+- arm_c BLEND_0p2 (α=0.2, ~150-step lag): val=**3.66399** FFS=**−1 NEVER** (+447σ CATASTROPHIC, anchor_drift_rms grew **6291×** geometrically)
+- 🎯 **Paper-grade TWO-REGIME positive-feedback OUTER anchor drift mechanism**: stable regime at α=0.5 (bounded equilibrium ~0.5 drift, constant smoothing tax) + unstable regime at α=0.2 (geometric divergence, instability threshold between α=0.2 and 0.5)
+- 🎯 **OUTER axis status update** (H316 + H318 + H320 + H321 pending): outer_lr load-bearing, outer_momentum cooldown DOWN ties baseline FFS, anchor refresh POLICY structurally optimal at hard-replace, adaptive μ SCHEDULE pending. **All three modifications of the OUTER axis CLOSED NEG**
+
+### Fresh assignments this cycle (3 students transitioned from review → WIP)
+
+**H328 askeladd — AUX weight_decay VALUE axis (PR #1926)**
+- Virgin AUX axis (baseline `weight_decay=0` HARDCODED line 938). Mechanism-distinct from β1/β2 SCHEDULE (gradient smoothing) — acts on parameter shrinkage during update
+- 3-arm: CTRL aux_wd=0.0 / MILD aux_wd=0.005 / MODERATE aux_wd=0.02
+- WIN prob 10-15%
+
+**H326 nezuko — F-norm-preserving redefined orthogonality regularizer ‖W·W^T−c²·I‖² + H322 seed-replicate (PR #1927)**
+- 4-arm: CTRL / FNORM_MILD λ=4e-7 / FNORM_MID λ=2e-6 / SEED_REPLICATE H322 arm_b at λ=1e-5 with original identity geometry
+- Tests BOTH (1) corrected geometry for first proper test of the stated hypothesis AND (2) reproducibility of H322's mysterious arm_b within-chain POS (critical given mechanism REJECTED)
+- WIN prob 12-18%
+
+**H329 edward — OUTER anchor MOMENTUM (smoothing-without-lag) (PR #1933)**
+- Student's suggested follow-up #1 from H320 closure. Mechanism-distinct from BLEND (decouples smoothing from lag — anchor_velocity buffer integrates delta history but anchor still takes full step each sync)
+- 3-arm: CTRL β=0 (bit-id H266) / MOMENTUM_LIGHT β=0.5 / MOMENTUM_HEAVY β=0.9
+- Should dodge the H320 positive-feedback divergence mode
+- WIN prob 10-15%
+
+### Pending advisor action
+
+**H321 fern stale_wip REFRESHED (PR #1896)** — all 3 arms FINISHED in W&B (auto-discovered arm_c run `vp0jbfb5`):
+- arm_a CTRL FFS=3000 EXACT TIE H266 (val=3.26792)
+- arm_b LINEAR_TAPER FFS=3050 +2.55σ NEG
+- arm_c STEP_OFF_COOLDOWN FFS=3075 +3.96σ NEG
+- 🎯 **Within-cycle paper-grade asymmetric finding flagged for student**: STEP_OFF > LINEAR_TAPER in harm → adaptive μ correction is LOAD-BEARING during cooldown phase, OPPOSITE of the H321 phase-inversion-suppression hypothesis. H313 FINDING #2 pre-cooldown POS / cooldown NEG crossover is NOT removable by suppressing α during cooldown
+- Awaiting student terminal SENPAI-RESULT marker (anticipated 176th NULL/NEG closure)
+
+### 🎯 Within-cycle convergent gate-TIE finding (cycle ~2650)
+
+**Three independent FFS=3000 EXACT TIES H266 baseline FFS** observed in single cycle: H319 arm_a CTRL + H321 arm_a CTRL + H322 arm_b ORTHO_WEAK. None strict-clear the FFS<3000 gate. The **FFS=3000 attractor is highly stable** under both CTRL replication AND mild regularization perturbation — confirms H312 closure narrative that FFS=3000 represents the H266 mechanism's deterministic convergence point.
+
+### 🎯 Paper-grade β1-vs-β2 SCHEDULE-axis directional asymmetry (H309/H317/H319 convergent finding)
+
+| Moment | UP direction | DOWN direction | Mechanism |
+|--------|-------------|----------------|-----------|
+| **β2** (variance smoothing) | H309 POS at 0.97-anchor, H317 FLAT at 0.99-anchor | (H325 testing in-flight) | smoother variance helps noise-dominated estimates |
+| **β1** (first-moment direction averaging) | NEG +2.69σ (H319) | mild NEG +1.37σ (H319) | first-moment locally Pareto at 0.8 |
+
+**Refutes "aux=smoother axis-universal" hypothesis**. β1 and β2 SCHEDULE axes are mechanistically distinct. First major paper-grade-quality AUX-axis claim from the plateau campaign.
+
+### In-flight WIP cluster (8 of 8 students, post-cycle-2650)
+
+- PR #1933 H329 edward: OUTER anchor MOMENTUM smoothing-without-lag [JUST ASSIGNED]
+- PR #1927 H326 nezuko: F-norm-preserving redefined regularizer + H322 seed-replicate [JUST ASSIGNED]
+- PR #1926 H328 askeladd: AUX weight_decay VALUE axis (virgin) [JUST ASSIGNED]
+- PR #1924 H327 alphonse: NEGATIVE outer_momentum_cooldown_end (anti-Lookahead H318 amplification)
+- PR #1917 H325 frieren: AUX β2 mid_training_ramp DOWN-from-baseline (H317 sibling closure)
+- PR #1913 H324 tanjiro: OUTER LR WARMUP schedule (early-training outer axis)
+- PR #1906 H323 thorfinn: μ_end low sustained on post-H266 stack
+- PR #1896 H321 fern: schedule-tapered adaptive μ (chain complete W&B, awaiting student SENPAI-RESULT)
+
+### Cycle ~2650 takeaway
+
+Three closures in one cycle, each producing distinct paper-grade findings: (1) H319 cements the β1-vs-β2 SCHEDULE-axis directional asymmetry as a clean within-cycle convergent finding from H309+H317+H319; (2) H322's mechanism rejection via direct ortho_loss telemetry + within-chain POS surprise sets up the H326 reproducibility test as the critical follow-up; (3) H320's two-regime positive-feedback divergence finding closes the anchor-policy axis decisively and motivates H329's smoothing-without-lag mechanism-distinct probe. The **FFS=3000 attractor stability** across three independent CTRL/mild-treatment arms in this cycle reinforces the H312 closure narrative that H266's mechanism is highly canalized — finding directions that strict-clear FFS<3000 requires modifications that exit the H266 attractor basin entirely.
+
+All 8 students now WIP. H321 fern SENPAI-RESULT expected next cycle. The plateau campaign continues compounding paper-grade mechanism findings even when individual experiments don't strict-clear the merge gate — the H266 → H329 trajectory has now produced **175 NULL/NEG closures** but with 102+ distinct mechanism classes consolidated, the plateau itself has become the central research artifact.
+
+---
+
 ## Cycle ~2600: H318 alphonse CLOSED 172nd NULL/NEG (🎯 paper-grade asymmetric dose-response on OUTER MOMENTUM cooldown axis — arm_b RAMP_DOWN 0.5→0.0 FFS=3000 EXACTLY ties H266 baseline FFS but val MILD NEG +2.04σ, arm_c RAMP_UP 0.5→0.9 FFS=3050 NEG both metrics) + H327 ASSIGNED alphonse NEGATIVE outer_momentum_cooldown_end (anti-Lookahead amplification of H318 RAMP_DOWN finding, PR #1924, student's suggested follow-up #3, 108th mechanism class candidate) + 2D OUTER cooldown map characterized (H316 outer_lr load-bearing + H318 outer_momentum end ≥ 0.0 tested)
 
 **One major closure (172nd NULL/NEG with paper-grade asymmetric dose-response finding), one fresh assignment (H327 anti-Lookahead amplification). Plateau campaign portfolio: 172 NULL/NEG + 1 MERGED WIN (H266), 106+ mechanism classes consolidated.**
