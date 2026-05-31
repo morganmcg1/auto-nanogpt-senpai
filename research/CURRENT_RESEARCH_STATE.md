@@ -1,3 +1,40 @@
+## 2026-05-31 15:18 UTC — Cycle 71 mid-472 — askeladd #1956 378th refute 249th mech class RESET-FACTOR-AXIS-NON-MONOTONE-V-SHAPED-OPTIMUM-AT-CANONICAL (bilateral Arm-A `kps9enwf` f=0.5 val=3.27107/3025 + Arm-B `7xxdbjbo` f=0.1 val=3.27238/3050; V-shape confirmed at canonical f=0.25 in MLP-SOAP × embed-M=2 compound; ASYMMETRIC V — stronger-direction f=0.1 ~2.4× steeper destruction +0.00220 vs weaker-direction f=0.5 +0.00089 above MLP-SOAP-alone floor; both fail merge bar) + askeladd #1985 new assignment (V-SHAPE-INTRINSICNESS-PROBE isolated embed-M=2 at f=0.5+f=0.1 with MLP-SOAP OFF; tests whether V-shape lives in embed-reset axis intrinsically or only emerges in compound context; 35% PARTIAL-INTRINSICNESS prior 25% COMPOUND-EMERGENT prior 25% INTRINSIC prior 10% WEAKER-PRODUCTIVE-IN-ISOLATION prior). Tally 378 refuted / 249 mech classes / 210 family closures / 9 axes / 21 RTM precedents.
+
+### askeladd #1956 bilateral terminal — 378th refute, 249th mech class V-SHAPE-AT-CANONICAL
+
+Three-factor curve at MLP-SOAP × embed-M=2 compound:
+
+| factor | val | Δ vs canonical f=0.25 | Δ vs MLP-SOAP-alone floor |
+|---|---|---|---|
+| 0.5 (#1956 A) | 3.27107 | +0.00096 | +0.00089 |
+| 0.25 canonical (#1928 A) | 3.27011 | (anchor) | −0.00007 |
+| 0.1 (#1956 B) | 3.27238 | +0.00227 | +0.00220 |
+
+V-SHAPE CONFIRMED at canonical f=0.25. Asymmetric (stronger-direction ~2.4× steeper). Reset-factor axis is a NON-MONOTONE mediator with sharply-tuned optimum at canonical. Reset-event accounting both arms clean (16 events at intervals 200; exp_avg.norm shrinks by exact factor ratio at every event; exp_avg_sq.norm stays 0.0000 confirming M=2 = M-bit only).
+
+**Trajectory mechanism**: Stronger reset (B) leads early (steps 125-1000 by −0.005 to −0.003) — suppresses noisy early-phase embed momentum — then INVERTS at step-1500 cooldown onset and lags through cooldown. Matches "momentum-budget" reading: early-phase wants suppression, late-phase wants preservation; canonical f=0.25 balances both ends. Cross-arm terminal Δ +0.00131 is ~3× wider than NS5_ITERS={12,16} spread (alphonse #1953 +0.00045) — reset-factor axis is MORE sensitive than preconditioner-convergence axis.
+
+### askeladd #1985 new assignment — V-SHAPE-INTRINSICNESS-PROBE isolated embed-M=2
+
+KEY open question post-#1956: is V-shape INTRINSIC to embed-M=2-reset axis or COMPOUND-EMERGENT (MLP-SOAP-dependent)?
+
+Two arms at isolated embed-M=2 reset (MLP-SOAP OFF):
+- Arm A: factor=0.5 (vs compound 3.27107)
+- Arm B: factor=0.1 (vs compound 3.27238)
+- Anchor: isolated f=0.25 = 3.27023 (14th RTM precedent)
+
+If isolated arms ≈ 3.27023 → V-shape COMPOUND-EMERGENT (MLP-SOAP imposes V-shape via embed-momentum demands).
+If isolated arms ≈ compound values → V-shape INTRINSIC (embed-reset axis has V-shape regardless of compound).
+If between → PARTIAL INTRINSICNESS (compound amplifies underlying V-shape).
+
+Most likely (35% prior): PARTIAL INTRINSICNESS — compound amplifies an underlying weak V-shape. CRITICAL config check: MLP-SOAP per-depth-half MUST be OFF at step-0 banner to avoid duplicating #1956.
+
+### Fleet status — 8/8 active 0 idle
+
+After askeladd #1956 close + askeladd #1985 assignment: g1r2-{tanjiro #1976, frieren #1972, thorfinn #1967, fern #1959, askeladd #1985, alphonse #1981, edward #1982, nezuko #1978} all WIP. Cumulative state **378 refuted / 249 distinct mech classes / 210 family closures / 9 structural axes locked / 21 regression-to-mean precedents** (RTM-PERSISTENT-AT-N=7; k+proj 8th candidate pending edward #1982).
+
+---
+
 ## 2026-05-31 15:00 UTC — Cycle 71 mid-471 — alphonse #1953 376th refute 210th family closure (HYPOTHESIS TRIPLE {COOLDOWN, TRUST-GATE, NS5_ITERS} CLOSED) 246th mech class + edward #1952 377th refute 247th + 248th mech classes (DUAL-CARRIER RANK-INVERSION + DOUBLE-SUPER-ADDITIVE) + 8th CYCLE-71 TOP CANDIDATE CARRIER SPAWNED (k+proj 3.26815/3000) + alphonse #1981 new assignment (MU_WARMUP_STEPS bilateral at diagonal corner, first OFF-TRIPLE candidate) + edward #1982 new assignment (k+proj bilateral n=2 verification — HIGHEST-PRIORITY cycle-71 probe, discriminates RTM-PERSISTENT-AT-N=8 50% prior vs RTM-RATE-BROKEN 15% prior vs MERGE-CANDIDATE-CONFIRMED 5% prior). Tally 377 refuted / 248 mech classes / 210 family closures / 9 axes / 21 RTM precedents.
 
 ### alphonse #1953 bilateral terminal — 376th refute, 210th FAMILY CLOSURE (HYPOTHESIS TRIPLE CLOSED), 246th mech class
