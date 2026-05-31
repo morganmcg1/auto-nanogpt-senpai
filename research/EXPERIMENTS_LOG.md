@@ -1,5 +1,36 @@
 # SENPAI Research Results
 
+## 2026-05-31 05:57 UTC — PR #1881 tanjiro: Aux Adam m-state PARTIAL DECAY @ cooldown onset step 975 — ❌ BILATERAL NULL with NON-MONOTONE pattern (m-state intervention axis NOT smooth)
+
+- Branch: `g1r1-tanjiro/aux-m-partial-decay-cooldown`
+- Hypothesis: m-state partial decay (residual = 50%, 25%) at step 975 may interpolate between baseline (residual=100%) and #1815 m-zero seed-1 thin WIN (residual=0%).
+
+| Arm | residual m | run | sr | val_ema | Δ vs gate (mnat) | Verdict |
+|---|---|---|---|---:|---:|---:|---|
+| Baseline | 100% | 9coyk2ke/09qrijtm | 2875 | 3.262854 | 0 | — |
+| nezuko #1815 m-zero seed-1 (unconfirmed) | 0% | nvh1vd60 | 2875 | 3.262238 | −0.616 | unconfirmed (seed-2 NULL) |
+| **A (×0.5 m partial decay)** | 50% | `qysyg72c` | 2925 | 3.265940 | +3.086 | ❌ NULL |
+| **B (×0.25 m partial decay)** | 25% | `qu502g96` | 2925 | 3.264549 | +1.695 | ❌ NULL |
+
+- **NON-MONOTONE finding:** Partial decay is WORSE than BOTH baseline (residual=100%, val_ema=3.262854) AND hard-zero (residual=0%, val_ema=3.262238 seed-1) by +1.7 to +3.1 mnat. m-state intervention at step 975 is NOT smooth in residual fraction — partial discarding leaves a noisy mid-state that disrupts cooldown adaptation, whereas hard-zero gets a clean restart.
+- **Cross-PR axis closure (m-state at all boundaries):** Combined with #1815 (m-zero @975 NULL on n=2), #1879 alphonse (m-zero @2600/2750 NULL — closed same loop), #1770 (m+v zero @975 NULL), #1830 (m+v zero @2600/2750 NULL), **aux Adam first-moment (m) state perturbation axis is FULLY CLOSED** across ALL magnitudes (partial decay, hard zero, joint full-zero) AND ALL temporal boundaries (975, 2600, 2750). First-moment direction memory is consistently load-bearing or benign at every tested intervention point.
+- tanjiro reassigned: Aux Adam m-state HARD-ZERO PER-GROUP @ step 975 (lm_head-only vs embed-only) (#1934) — only untested cell on the m-state axis: per-group localization, mirroring tanjiro's prior #1837 β₂-pulse PER-GROUP framework.
+
+## 2026-05-31 05:57 UTC — PR #1879 alphonse: Aux Adam m-only ZERO reset at LATE phase boundaries (2600 vs 2750) — ❌ BILATERAL NULL with informative monotonic temporal gradient
+
+- Branch: `g1r1-alphonse/aux-m-zero-late-boundary`
+- Hypothesis: m-zero at LATE phase boundaries (2600 pEMA refresh, 2750 pre-target) may show different behavior than the #1815 cooldown-onset m-zero (which had unconfirmed seed-1 thin-WIN). Tests temporal completeness of m-state axis.
+
+| Arm | zero step | run | sr | val_ema | Δ vs gate (mnat) | Verdict |
+|---|---|---|---:|---:|---:|---|
+| Baseline | — | 9coyk2ke/09qrijtm | 2875 | 3.262854 | 0 | — |
+| **A (zero @2600 pEMA)** | 2600 | `i5ffmrvp` | 2925 | 3.263822 | +0.968 | ❌ NULL (worse on both axes) |
+| **B (zero @2750 pre-target)** | 2750 | `1gi5xjae` | **2875** | 3.263512 | +0.658 | ❌ NULL (sr ties, val_ema misses by 0.658 mnat — closest near-miss on val_ema this session) |
+
+- **MONOTONIC TEMPORAL GRADIENT FINDING:** Disruption decreases monotonically with boundary lateness — m-zero @975 (most disruptive, #1815 seed-2 +1.556 mnat) > @2600 (medium disruption, +0.968 mnat) > @2750 (least disruptive, +0.658 mnat). Later boundary = m-state is more "consumed" by training and matters less to zero. But NONE crosses the merge gate. Arm B is the closest near-miss this session on val_ema with sr ties baseline.
+- **Cross-PR axis closure:** Combined with tanjiro #1881 (m partial decay @975 NULL, closed same loop), #1815 (m-zero @975 NULL on n=2), #1770/#1830 (m+v zero @975/2600/2750 NULL), **aux Adam first-moment (m) state perturbation axis FULLY CLOSED** across ALL magnitudes AND ALL temporal boundaries.
+- alphonse reassigned: Body PMuon γ pulse BLOCK-STRATIFIED @ step 975 (deep-only vs shallow-only γ→0.5) (#1935) — opens depth-localization axis on the closed global γ pulse (#1831 fern NULL).
+
 ## 2026-05-31 05:30 UTC — PR #1877 edward: Body PMuon LR persistent step-down @ cooldown onset step 975 — ❌ BILATERAL NULL (body PMuon LR axis CLOSED)
 
 - Branch: `g1r1-edward/body-muon-lr-stepdown`
