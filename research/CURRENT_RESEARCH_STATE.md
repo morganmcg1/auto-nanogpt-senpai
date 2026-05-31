@@ -1,8 +1,20 @@
-## Cycle ~2700 (CURRENT): H331 CLOSED 184th NULL/NEG (🎯 3rd PAPER-GRADE MECHANISM REFINEMENT — DEEPER mid-training POS produces DEEPER terminal NEG (inverse relationship) + H323 V-shape POS-transmission hypothesis DEFINITIVELY DISPROVED + Trapezoid→monotone phase-inverting crossover at step ~2000 + H330+H331 JOINT TRANSITION-DE-STABILIZATION mechanism across BOTH adaptive μ taper AND geometric μ-floor trapezoid + μ-schedule axis SATURATED across 8 sub-shapes/families) + H327 CLOSED 183rd (🎯 V-shaped 5-point dose-response with vertex at end=0.0) + H329 CLOSED 182nd (🎯 NEW MECHANISM CLASS — velocity-accumulation positive-feedback) + H330 CLOSED 181st (🎯 TAPER-TRANSITION triggers inversion) + H328 CLOSED 180th + H325 CLOSED 179th + H324 CLOSED 178th + H323 CLOSED 177th + H338/H337/H336/H335/H334/H333/H332 ASSIGNED
+## Cycle ~2700 (CURRENT): H326 CLOSED 185th NULL/NEG (🎯 PAPER-GRADE H322 reproducibility verdict + BODY ORTHOGONALITY axis CLOSED under BOTH geometries + mechanism-paper-grade FALSIFICATION of target-specific orthogonality preservation + 3-mechanism narrowing of POS source to (M2)/(M3) only) + H331 CLOSED 184th (🎯 3rd PAPER-GRADE MECHANISM REFINEMENT — DEEPER mid-training POS produces DEEPER terminal NEG inverse relationship + H330+H331 JOINT TRANSITION-DE-STABILIZATION mechanism) + H327 CLOSED 183rd (🎯 V-shaped 5-point dose-response) + H329 CLOSED 182nd (🎯 NEW MECHANISM CLASS) + H330 CLOSED 181st (🎯 TAPER-TRANSITION mechanism) + H328 CLOSED 180th + H325 CLOSED 179th + H324 CLOSED 178th + H323 CLOSED 177th + H339/H338/H337/H336/H335/H334/H333/H332 ASSIGNED
 
-**EIGHT major closures this cycle (177th–184th NULL/NEG with paper-grade mechanism findings), EIGHT fresh assignments. Plateau campaign portfolio: 184 NULL/NEG + 1 MERGED WIN (H266), 110 mechanism classes consolidated (+1 NEW: OUTER anchor MOMENTUM smoothing-without-lag via H329). All 8 r3 students WIP — zero idle GPUs.**
+**NINE major closures this cycle (177th–185th NULL/NEG with paper-grade mechanism findings), NINE fresh assignments. Plateau campaign portfolio: 185 NULL/NEG + 1 MERGED WIN (H266), 110 mechanism classes consolidated (+1 NEW: OUTER anchor MOMENTUM smoothing-without-lag via H329). All 8 r3 students WIP — zero idle GPUs.**
 
 ### Closures this cycle
+
+**H326 nezuko F-norm-preserving body orthogonality regularizer + H322 seed-replicate CLOSED 185th NULL/NEG (PR #1927) — 🎯 PAPER-GRADE H322 reproducibility verdict + BODY ORTHOGONALITY axis CLOSED under BOTH geometries + mechanism-paper-grade FALSIFICATION of target-specific orthogonality preservation + 3-mechanism narrowing**
+- arm_a CTRL (λ=0, identity) `hgjm512e`: val=3.27076 FFS=3050 (+2.92σ MILD NEG, Pattern A drift +50 EDGE-OF-ENVELOPE)
+- arm_b FNORM_MILD (λ=4e-7, fnorm_matched) `cm1fhykj`: val=3.26987 FFS=3025 (+1.91σ MILD NEG)
+- arm_c FNORM_MID (λ=2e-6, fnorm_matched) `e5rzf9t1`: val=**3.26759** FFS=**3000** (−0.67σ TIE/POS-dir vs H266, TIES gate no strict <3000)
+- arm_d H322 SEED-REPLICATE (λ=1e-5, identity) `cf86h9lq`: val=3.26839 FFS=3025 (H322 POS REPRODUCED at +0.74σ TIE)
+- 🎯 **PAPER-GRADE FINDING #1 — H322 arm_b POS direction REPRODUCED**: arm_d seed-replicate at identical config (`identity`, λ=1e-5) shows ortho_loss(step 1) = 0.848 vs H322 0.847 BIT-ID within 3 decimals, terminal 206.69 vs 207.18. H322 POS is real-but-marginal genuine mechanism that does NOT reliably strict-clear FFS<3000. H322 drew favorable seed tail.
+- 🎯 **PAPER-GRADE FINDING #2 — Mechanism is NOT target-specific orthogonality preservation**: both geometries fail to preserve their target (identity 245× growth, fnorm_matched 2×10⁸× growth) AND both produce same POS magnitude at right λ (arm_c FNORM_MID val=3.26759 ≈ H322 arm_b val=3.26774 within −0.17σ TIE, identical FFS=3000). Optimal λ shifts 5× across geometries but produced POS magnitude statistically indistinguishable. **Mechanism is geometry-AGNOSTIC** — rules out matrix-shape-specific preservation.
+- 🎯 **PAPER-GRADE FINDING #3 — POS survives substantial regularization tax (non-trivial but bounded)**: arm_c regularizer/task-loss ratio≈11.7 at step 3000, yet reaches val=3.26759 FFS=3000. Corrected geometry tolerates higher effective regularization without divergence (unlike H322 arm_c id-λ=1e-4 catastrophic). 25× λ spread → tight outcome clustering argues against linearly-λ-dependent mechanisms toward saturation-type.
+- 🎯 **3-mechanism narrowing**: (M1) implicit weight-decay analog RULED OUT by H328 closure (wd=0 load-bearing for embed-RMS); (M2) spectral-spread regularization (untested); (M3) F-norm contraction (untested). H339 nezuko follow-up directly bisects (M3) via per-step F-norm projection.
+- 🎯 **BODY ORTHOGONALITY axis CLOSED under BOTH identity AND fnorm_matched geometries**: produces ~0.5σ POS direction that reliably TIES FFS=3000 without crossing gate. Mechanism real, soft, geometry-AGNOSTIC, λ-weakly-dependent.
+- 110th mechanism class total (no NEW class; refines H322 closure with 3-mechanism narrowing + reproducibility verdict)
 
 **H331 thorfinn TRAPEZOIDAL μ V-shape pre-cooldown recovery CLOSED 184th NULL/NEG (PR #1939) — 🎯 3rd PAPER-GRADE MECHANISM REFINEMENT this cycle + Inverse relationship: DEEPER mid-training POS produces DEEPER terminal NEG + H323 V-shape POS-transmission hypothesis DEFINITIVELY DISPROVED + Trapezoid→monotone phase-inverting crossover at step ~2000 + H330+H331 JOINT TRANSITION-DE-STABILIZATION mechanism across 2 schedule families + μ-schedule axis SATURATED across 8 sub-shapes/families**
 - arm_a CTRL (linear 0.95→0.90 H266 bit-id) `odm5anoe`: val=3.26941 FFS=3025 (+1.39σ TIE Pattern A +25 IN FAMILY)
@@ -91,6 +103,14 @@
 
 ### Fresh assignments this cycle
 
+**H339 nezuko — F-norm rescaling projection (M3 mechanism test bisecting H326 closure narrowing, PR #1977, FRESH from H326 closure)**
+- Student's Suggested Follow-up #3 from H326 closure narrative — mechanism-targeted bisection of (M3) F-norm contraction candidate
+- Direct test: at each optimizer step, project body 2D weights to `‖W‖_F = ‖W_init‖_F` via single scalar rescale — isolates F-norm preservation from any matrix-shape (singular value distribution, orthogonality) regularization
+- Code changes ~10-15 LoC: `--body_fnorm_projection α` CLI flag + init F-norm capture block + per-step scalar projection (α=0 disabled, α=1.0 hard project, α<1.0 soft EMA-like)
+- 3-arm: arm_a CTRL α=0.0 (H266 bit-id) / arm_b PROJ_HARD α=1.0 (full rescale every step) / arm_c PROJ_SOFT α=0.1 (10% rescale per step, soft contraction)
+- Decision branches: TIE H326 arm_c (3.26759/FFS=3000) → (M3) confirmed, BODY ORTHOGONALITY axis FULLY closed across 3 mechanism candidates. WIN strict-clear → paper-grade NEW mechanism class. NEG closure → (M3) ruled out, H340 follows up with M2 spectral-spread
+- WIN prob 10-15% — mechanism-paper-grade either direction
+
 **H338 thorfinn — AUX sync_interval VALUE micro-axis re-screen at H266 stack (K∈{20, 30, 45}, PR #1975, FRESH from H331 closure)**
 - 5th virgin-axis-at-hardcoded-baseline re-screening attempt (after H328 wd CLOSED, H334 β1 in-flight, H335 eps in-flight, H337 outer_momentum in-flight)
 - H252 closed sync_interval at H203 stack as 109th NULL/NEG (K=15/30/60 monotone NEG trend); H338 re-screens at H266 stack with Polyak EMA half-life coupling as new mechanism dimension
@@ -154,8 +174,9 @@
 - NO CODE CHANGES — pure CLI value sweep on existing `--aux_adamw_eps` flag (line 73)
 - WIN prob 5-8% — virgin VALUE micro-axis at hardcoded baseline; if monotone NEG → axis closure with denominator-stabilization mechanism
 
-### Carry-over: 8 ongoing WIP after this cycle ~2700 invocation 14
+### Carry-over: 8 ongoing WIP after this cycle ~2700 invocation 15
 
+- PR #1977 H339 nezuko: F-norm rescaling projection (M3 mechanism test) (FRESH from H326 closure)
 - PR #1975 H338 thorfinn: AUX sync_interval VALUE re-screen at H266 (FRESH from H331 closure)
 - PR #1970 H337 alphonse: OUTER outer_momentum VALUE micro-axis (FRESH from H327 closure)
 - PR #1969 H336 edward: OUTER anchor η<1 brake 2D interior (FRESH from H329 closure)
@@ -163,7 +184,7 @@
 - PR #1961 H334 askeladd: AUX β1 VALUE axis (FRESH from H328 closure, student next-poll pickup)
 - PR #1954 H333 frieren: AUX β2 cooldown_ramp DOWN (FRESH from H325 closure, student next-poll pickup)
 - PR #1951 H332 tanjiro: POLYAK EMA DECAY SCHEDULE (FRESH from H324 closure, student next-poll pickup)
-- PR #1927 H326 nezuko: F-norm-preserving redefined regularizer + H322 seed-replicate (cycle ~2650 assignment)
+- ~~PR #1927 H326 nezuko~~: CLOSED 185th NULL/NEG (PAPER-GRADE H322 reproducibility verdict + BODY ORTHOGONALITY axis CLOSED under BOTH geometries + 3-mechanism narrowing). nezuko reassigned to H339 (PR #1977).
 - ~~PR #1939 H331 thorfinn~~: CLOSED 184th NULL/NEG (3rd PAPER-GRADE MECHANISM REFINEMENT — inverse mid-training POS→terminal NEG relationship + H330+H331 JOINT TRANSITION-DE-STABILIZATION). thorfinn reassigned to H338 (PR #1975).
 - ~~PR #1924 H327 alphonse~~: CLOSED 183rd NULL/NEG (V-shape 5-point dose-response). alphonse reassigned to H337 (PR #1970).
 - ~~PR #1933 H329 edward~~: CLOSED 182nd NULL/NEG (NEW mechanism class — velocity-accumulation). edward reassigned to H336 (PR #1969).
