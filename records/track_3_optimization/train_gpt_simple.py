@@ -56,6 +56,15 @@ def parse_args():
     parser.add_argument("--outer_lr", type=float, default=float(os.environ.get("OUTER_LR", "0.7")))
     parser.add_argument("--outer_momentum", type=float, default=float(os.environ.get("OUTER_MOMENTUM", "0.5")))
     parser.add_argument("--sync_interval", type=int, default=int(os.environ.get("SYNC_INTERVAL", "30")))
+    # H320: OUTER anchor refresh policy (default 1.0 = hard replace, bit-identical to baseline).
+    # When alpha < 1.0, the anchor is updated by soft blend
+    # ``outer_anchor[n] = (1-alpha)*outer_anchor[n] + alpha*p.data`` instead of the
+    # baseline ``outer_anchor[n].copy_(p.data)``. Smaller alpha => more anchor lag.
+    parser.add_argument("--outer_anchor_blend_alpha", type=float,
+                        default=float(os.environ.get("OUTER_ANCHOR_BLEND_ALPHA", "1.0")),
+                        help="OUTER anchor refresh blend factor: 1.0 = hard replace (baseline, bit-id), "
+                             "<1.0 = soft blend (1-alpha)*old_anchor + alpha*new_params. Smaller alpha = "
+                             "more anchor lag (e.g. 0.5 ~= 60-step lag, 0.2 ~= 150-step lag at sync_interval=30).")
     # AGC (Brock et al. 2021): per-parameter adaptive gradient clipping applied to
     # AdamW aux groups (embed, lm_head, scalars). Clips grad to clip_ratio * |param|.
     # Default 0.0 disables (no-op for bit-identical baseline).
@@ -844,6 +853,7 @@ if dist.get_rank() == 0:
             "muloco_outer_lr": args.outer_lr,
             "muloco_outer_momentum": args.outer_momentum,
             "muloco_sync_interval": args.sync_interval,
+            "outer_anchor_blend_alpha": args.outer_anchor_blend_alpha,
             "aux_agc_clip_ratio": args.aux_agc_clip_ratio,
             "aux_agc_eps": args.aux_agc_eps,
             "muonh_agc_clip_ratio": args.muonh_agc_clip_ratio,
@@ -1329,6 +1339,7 @@ for trial_idx in range(args.num_trials):
             if log_outer:
                 delta_sq = torch.zeros((), device=device)
                 velocity_sq = torch.zeros((), device=device)
+                anchor_drift_sq = torch.zeros((), device=device)
                 total_count = 0
             with torch.no_grad():
                 for n, p in model.named_parameters():
@@ -1336,21 +1347,31 @@ for trial_idx in range(args.num_trials):
                     outer_velocity[n].mul_(args.outer_momentum).add_(delta)
                     p.data.copy_(outer_anchor[n] - args.outer_lr *
                                  (args.outer_momentum * outer_velocity[n] + delta))
-                    outer_anchor[n].copy_(p.data)
+                    # H320: anchor refresh policy. alpha=1.0 is the baseline hard
+                    # replace (bit-identical when alpha=1.0). alpha<1.0 is a soft
+                    # convex blend that introduces controlled anchor lag.
+                    if args.outer_anchor_blend_alpha >= 1.0:
+                        outer_anchor[n].copy_(p.data)
+                    else:
+                        outer_anchor[n].mul_(1.0 - args.outer_anchor_blend_alpha) \
+                                       .add_(p.data, alpha=args.outer_anchor_blend_alpha)
                     if log_outer:
                         delta_sq = delta_sq + delta.float().square().sum()
                         velocity_sq = velocity_sq + outer_velocity[n].float().square().sum()
+                        anchor_drift_sq = anchor_drift_sq + (outer_anchor[n] - p.data).float().square().sum()
                         total_count += delta.numel()
             outer_applied_steps += 1
             if log_outer:
                 delta_rms = (delta_sq.item() / max(1, total_count)) ** 0.5
                 velocity_rms = (velocity_sq.item() / max(1, total_count)) ** 0.5
+                anchor_drift_rms = (anchor_drift_sq.item() / max(1, total_count)) ** 0.5
                 wandb.log({
                     "trial": trial_idx,
                     "train/step": train_step,
                     "train/muloco/outer_step": outer_applied_steps,
                     "train/muloco/delta_rms": delta_rms,
                     "train/muloco/velocity_rms": velocity_rms,
+                    "train/muloco/anchor_drift_rms": anchor_drift_rms,
                 }, step=wandb_step)
 
         approx_training_time = training_time + (time.perf_counter() - t0)
