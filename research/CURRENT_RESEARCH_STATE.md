@@ -1,3 +1,36 @@
+## 2026-05-31 20:05 UTC — Cycle 71 mid-481 — nezuko #2005 POD-STABILITY-BLOCKED at CROSS-SUBSTRATE-ASYMMETRIC-FACTOR (embed-WEAK-f=0.125 + lm_head-STRONG-f=0.5) — 12th cycle-71 pod-stability observation; FIRST F-axis pod-broken cell (prior 11 were M-axis); bilateral n=2 NaN step 125 pre-event; adjacent symmetric-f cells #1959 A f=0.25 → 3.27027 and B f=0.5 → 3.26934 both stable single-seed under same M-bit cross-substrate config; NOT counted as refute. Phantom env-var caught: `PR1824_FRIEREN_ENABLED=1` is no-op (only `PER_KIND_AUX_PERIODIC_RESET_*_ENABLED=1` matters). + nezuko #2010 new assignment (MIRROR-INVERTED-FACTOR probe: embed-STRONG-f=0.5 + lm_head-WEAK-f=0.125; 45% DIRECTION-SENSITIVE-MIRROR-STABLE 25% ANY-F-ASYMMETRY-BLOCKED 15% MIRROR-PRODUCTIVE-CARRIER 10% SEED-MARGINAL 5% MERGE). No human issues. Fleet 8/8 active 0 idle. Cumulative **385 refuted / 255 mech classes / 211 family closures / 9 axes / 23 RTM precedents / 12 pod-stability observations** (RTM-PERSISTENT-AT-N=9/10 = 90%; TWO n=2 verifications still pending: fern #1991 cross-substrate-compound + thorfinn #1997 inverted-asymmetry).
+
+### nezuko #2005 bilateral terminal — 12th pod-stability observation / FIRST F-axis pod-broken cell
+
+**Bilateral NaN**: Arm A `0jcrjqoj` SEED=1 → NaN step 125; Arm B `tfhfplsd` SEED=2 → NaN step 125 (both pre-event; first reset at step 200).
+
+**Causality check**: factor value is only read at step ≥ 200; steps 1–199 are factor-independent. Both seeds NaN at step 125 means destabilization originated BEFORE the factor was active. Step-200 reset attempt logs `exp_avg.norm nan→nan` — confirms pre-reset NaN moments.
+
+**F-axis pod-stability matrix** (at cross-substrate M-MIRROR-OPTIMUM embed=M=2, lm_head=M=3):
+
+| F-axis pairing | outcome | n | reference |
+|---|---|---|---|
+| symmetric f=0.25 | STABLE 3.27027 | 1 | #1959 A |
+| symmetric f=0.5 | STABLE 3.26934 | 1 | #1959 B |
+| **asymmetric embed-WEAK (0.125) + lm_head-STRONG (0.5)** | **NaN step 125** | **2** | **#2005 (THIS PR)** |
+| asymmetric embed-STRONG (0.5) + lm_head-WEAK (0.125) | UNKNOWN | — | **#2010 (next nezuko)** |
+
+→ F-AXIS ASYMMETRY destabilizes the cross-substrate compound even when M-bits are at the MIRROR-INVERTED OPTIMUM. The differentiator from stable #1959 cells is the asymmetric F-pairing (embed-weak + lm_head-strong reset), not the M-bit configuration.
+
+### Env-var trap discovered — PR1824_FRIEREN_ENABLED=1 is no-op
+
+Student's `grep -rn PR1824_FRIEREN_ENABLED records/track_3_optimization/` returns no source reads. Only the banner label is named `[PR1824-FRIEREN]`. Source-true flags are `PER_KIND_AUX_PERIODIC_RESET_{EMBED,LM_HEAD}_ENABLED=1`. Both #2005 arms set source-true flags correctly. Dropping `PR1824_FRIEREN_ENABLED=1` from future templates for template hygiene.
+
+### nezuko #2010 new assignment — MIRROR-INVERTED-FACTOR probe (embed-STRONG + lm_head-WEAK)
+
+Tests F-axis pod-stability direction-sensitivity by INVERTING the factor asymmetry direction. Most likely (45%): DIRECTION-SENSITIVE — MIRROR STABLE at val ~3.27000-3.27100 (weak-embed-reset is specifically the destabilizer). Alternative (25%): ANY-F-ASYMMETRY-BLOCKED — bilateral NaN step ≤125 (any F-axis asymmetry under cross-substrate is pod-broken). Alternative (15%): MIRROR-PRODUCTIVE-CARRIER at val < 3.27000 (embed-STRONG + lm_head-WEAK is a productive direction).
+
+### Fleet status — 8/8 active 0 idle
+
+After nezuko #2005 close + nezuko #2010 assignment: g1r2-{tanjiro #2001, askeladd #2007, alphonse #2008, edward #2004, fern #1991, thorfinn #1997, frieren #1999, nezuko #2010} all WIP. Cumulative **385 refuted / 255 distinct mech classes / 211 family closures / 9 structural axes locked / 23 RTM precedents / 12 pod-stability observations** (RTM-PERSISTENT-AT-N=9/10 = 90%; TWO n=2 carrier-verifications pending: fern #1991 cross-substrate-compound + thorfinn #1997 inverted-asymmetry).
+
+---
+
 ## 2026-05-31 19:32 UTC — Cycle 71 mid-480 — alphonse #1981 385th refute 255th mech class MU-WARMUP-DIAGONAL-CORNER-ASYMMETRIC-DESTRUCTIVE-SHORTER-NEUTRAL-LONGER (n=2 single-seed bilateral; Arm A WARMUP=100 → 3.27765 +3.13σ DESTRUCTIVE; Arm B WARMUP=300 → 3.27256 +0.46σ NEUTRAL; 4th and final OFF-TRIPLE mediator candidate on β2-schedule axis CLOSED — entire β2-schedule machinery {COOLDOWN, TRUST-GATE, NS5_ITERS, MU_WARMUP_STEPS} eliminated as SA-REMAINDER mediator; SA-remainder +0.00341 at (DOWN, FRONT-TIGHT) diagonal corner is OFF the β2-schedule machinery) + alphonse #2008 new assignment (PER-KIND-β1 × EMBED-RESET NOVEL COMPOUND: 19th RTM + 14th RTM compounded; 35% RTM-ADDITIVE 25% PRODUCTIVE-DESCENT 20% DESTRUCTIVE-INTERFERENCE 15% STRONG-PRODUCTIVE 5% MERGE). No human issues. Fleet 8/8 active 0 idle. Cumulative **385 refuted / 255 mech classes / 211 family closures / 9 axes / 23 RTM precedents / 11 pod-stability observations** (RTM-PERSISTENT-AT-N=9/10 = 90%; TWO n=2 verifications still pending: fern #1991 cross-substrate-compound + thorfinn #1997 inverted-asymmetry).
 
 ### alphonse #1981 bilateral terminal — 385th refute / 255th mech class MU-WARMUP-DIAGONAL-CORNER-ASYMMETRIC / 4th OFF-TRIPLE mediator candidate CLOSED
