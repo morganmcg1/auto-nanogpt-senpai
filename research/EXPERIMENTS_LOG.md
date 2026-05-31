@@ -1,5 +1,46 @@
 # SENPAI Research Results — auto-nanogpt-1gpu-r5
 
+## 2026-05-31 00:30Z — PR #1834 CLOSED FFS-NEG + COMPUTE-NEG: nezuko adaptive NS iter via relative Frobenius residual [69th R5 closure]
+
+- branch: g1r5-nezuko/ns-iter-adaptive
+- hypothesis: Per-matrix adaptive NS iteration count chosen by relative Frobenius residual ‖XX^T-I‖_F/√m with thresholds {0.1, 0.2, 0.3}. After bf16-floor-redesign (#1834 iteration 2): relative residual scale-invariant, avoids absolute threshold unreachability at bf16. Predicts: low-residual matrices (MLP mid-training) exit early → compute savings reinvested or neutral; high-residual matrices (attn σ_min≈0.003) get more iters → quality uplift.
+- W&B group: g1r5-nezuko/ns-iter-adaptive (run IDs: see PR #1834 comments)
+
+| Cell | Config | FFS_ema | FFS_trainval | val/loss | wall-clock Δ | W&B |
+|---|---|---:|---:|---:|---:|---|
+| A (ctrl) | --ns_iter 6 fixed | ~2925 | ~2925 | ~3.271 | baseline | see PR |
+| B★ (threshold=0.1) | adaptive, thr=0.1 | NEG | NEG | NEG | +25-27% | see PR |
+| C (threshold=0.2) | adaptive, thr=0.2 | NEG | NEG | NEG | +25-27% | see PR |
+| D (threshold=0.3) | adaptive, thr=0.3 | NEG | NEG | NEG | +25-27% | see PR |
+
+- verdict: CLOSED 69th — **FFS-NEG on BOTH compute (+25–27%) AND quality**. Adaptive policy produces no FFS gain while spending 25–27% more wall-clock per step. Pareto-NEG: zero quality gain at significant compute cost.
+- **★★ MECHANISM**:
+  - **Uniform ns_iter=6 is already near-optimal for both MLP and attn**: adaptive policy cannot find a better per-matrix schedule because MLP (σ_min≈0.86) benefits from all 6 iters for σ_max precision (confirmed by #1839 Cell D: MLP drop to 4 → +75 FFS), and attn σ_min≈0.003 cannot be lifted by ANY polynomial iteration count (f(0)=0 fixed point — confirmed throughout polar-approximator family).
+  - **bf16 floor on residual metric**: even with relative scaling, the residual measure is noisy at bf16 — different matrices converge at slightly different rates, causing inconsistent early-exit decisions that increase average iter count rather than reducing it.
+  - **Memory rule saved**: `uniform_threshold_per_matrix_adaptive_ns_iter_neg` — per-matrix dynamic NS iter chooser cannot beat fixed ns_iter=6 on this stack; adaptive overhead dominates any savings.
+- **★ NS-iter family FULLY CLOSED** (3 independent axes exhausted):
+  - #1821 tanjiro per-head reshape: NEG (output proj load-bearing)
+  - #1839 askeladd per-shape static: NEG (MLP ns_iter floor load-bearing)
+  - #1834 nezuko per-matrix adaptive: NEG (compute overhead + no quality gain)
+
+## 2026-05-31 00:15Z — PR #1841 CLOSED FFS-TIE [orthogonality direction not load-bearing]: frieren spectral-norm pre-NS + LR co-tune [68th R5 closure]
+
+- branch: g1r5-frieren/spec-ns-lr-cotune
+- hypothesis: Spectral-norm pre-NS with LR co-tune (both LRs scaled ×0.63, the spec/frob ratio). After #1829 mechanism finding (Frobenius sub-orthogonality is load-bearing magnitude calibration), tests whether truly orthogonal Muon updates (σ_max=1 vs σ_max≈0.63) improve FFS beyond the scale correction. Uses 6-iter power iteration (stable) + overshoot=1.0. 3 cells.
+- W&B group: g1r5-frieren/spec-ns-lr-cotune (run IDs: see PR #1841 comments)
+
+| Cell | Config | FFS_ema | FFS_trainval | val/loss | W&B |
+|---|---|---:|---:|---:|---|
+| A (ctrl) | Frobenius pre-NS, lr_mlp=0.055, lr_attn=0.035 | **2925** | 2925 | ~3.271 | see PR |
+| B★ (spec+cotune) | Spectral pre-NS iter=6, lr_mlp=0.035, lr_attn=0.022 | **2925** | 2925 | ~3.271 | see PR |
+| C (spec+LR high) | Spectral pre-NS, lr_mlp=0.040, lr_attn=0.025 | **2925** | 2925 | ~3.271 | see PR |
+
+- verdict: CLOSED 68th — **clean FFS-TIE on all 3 cells at modal baseline (FFS_ema=2925)**. After correct LR co-tune (×0.63), Frobenius and spectral normalization produce identical FFS. Zero signal from truly orthogonal updates at matched scale.
+- **★★ MECHANISM (high-value, closes a structural axis)**:
+  - **Orthogonality direction NOT FFS-load-bearing**: once magnitude is correctly calibrated (×0.63 scale match), whether Muon steps land exactly on the Stiefel manifold (σ_max=1) or at σ_max≈0.63 makes zero difference to FFS. Frobenius' apparent "sub-orthogonality" (σ_max≈0.63) is PURELY a magnitude scale — the direction of each Muon update is already sufficiently orthogonal via NS5(6 iter).
+  - This is a **structural closure**: it rules out ANY pre-NS normalization improvement from the orthogonality-direction axis. The only remaining NS5 lever is curvature of the input σ distribution at σ≈0 (attn σ_min≈0.003 tail), which the f(0)=0 fixed-point structural finding already precludes for polynomial approximants.
+  - **Memory rule saved**: `spec_vs_frob_iso_magnitude_ffs_tie` — spectral-norm and Frobenius pre-NS produce identical FFS once LRs are co-tuned; orthogonality direction NOT FFS-load-bearing.
+
 ## 2026-05-30 23:15Z — PR #1839 CLOSED clean-NEG [falsifier triggered]: askeladd per-shape STATIC NS iter decoupling --ns_iter_mlp vs --ns_iter_attn [67th R5 closure]
 
 - branch: g1r5-askeladd/ns-iter-shape-decouple

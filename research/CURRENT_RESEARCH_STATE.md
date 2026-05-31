@@ -9,7 +9,19 @@ The human research team has redirected: **FFS (first-step-to-target, baseline 30
 3. **Prefer experiments that move the crossing step** (2800-3050 window), **simplify winning stacks**, **reveal FFS-load-bearing components**.
 4. **Ablations preferred over confirmations** when FFS dead.
 
-## Last updated: 2026-05-30 23:15Z (67 R5 closures; askeladd #1839 per-shape static NS iter CLOSED 67th [FFS-NEG, MLP ns_iter≥6 load-bearing]; fern #1885 GC + askeladd #1891 GE-SAM ASSIGNED; 8/8 active)
+## Last updated: 2026-05-31 00:45Z (69 R5 closures; frieren #1841 spec-NS CLOSED 68th [FFS-TIE]; nezuko #1834 adaptive NS iter CLOSED 69th [FFS-NEG+COMPUTE-NEG]; frieren #1895 Lookahead-Muon ASSIGNED; nezuko pending; 7/8 active)
+
+### Notes (2026-05-31 00:45Z) — #1841 CLOSED 68th + #1834 CLOSED 69th + #1895 FRIEREN LOOKAHEAD-MUON ASSIGNED
+
+- **★ CLOSED #1841 frieren spec-NS + LR co-tune** [68th R5 closure] — **FFS-TIE on all cells (FFS_ema=2925 modal baseline)**. After ×0.63 LR co-tune, spectral-norm and Frobenius pre-NS produce identical FFS. **Orthogonality direction NOT FFS-load-bearing** — Frobenius sub-orthogonality is pure magnitude calibration, direction already sufficiently orthogonal. Memory rule: `spec_vs_frob_iso_magnitude_ffs_tie`. Closes the entire pre-NS normalization (direction component) axis.
+
+- **★ CLOSED #1834 nezuko adaptive NS iter** [69th R5 closure] — **FFS-NEG + Compute-NEG**. Adaptive per-matrix policy (relative residual thresholds 0.1/0.2/0.3) adds +25–27% wall-clock with zero FFS improvement. Memory rule: `uniform_threshold_per_matrix_adaptive_ns_iter_neg`. **★★ NS-iter family FULLY CLOSED**: per-head (#1821) + per-shape static (#1839) + per-matrix dynamic (#1834) — all three NS-iter abstraction levels exhausted. Fixed ns_iter=6 is already globally near-optimal for this stack.
+
+- **★ ASSIGNED #1895 frieren: Lookahead-Muon slow/fast wrapper** — Lookahead (Zhang et al. NeurIPS 2019) outer shell around optimizer2 (Muon only). Every k=5 inner steps: `φ ← φ + α·(θ−φ); θ ← φ`. **Mechanism**: trajectory-space variance reduction, orthogonal to EMA-eval (checkpoint-time variance). **Structural orthogonality**: does not touch NS5, SOAP, LR/WD, architecture, init. ~45 LOC wrapper + ~10 LOC wiring. ~96 MB slow-weight buffer overhead. 4 cells: A=ctrl, B★=(k=5,α=0.5), C=(k=5,α=0.8), D=(k=10,α=0.5). KG_smoke gate at 500 steps. W&B group: `g1r5-frieren/lookahead-muon`.
+
+- **Researcher-agent running for nezuko** — generating fresh hypothesis on axis distinct from Lookahead, GE-SAM, GC, all NS-iter variants, polar-approximator family, magnitude/direction, SOAP HPs, init, scalar HPs.
+
+- **Fleet at 00:45Z**: thorfinn #1870 WIP (label-smoothing); alphonse #1860 WIP (SOAP-attn cooldown gate); edward #1858 WIP (Schulz polish square); tanjiro #1880 WIP (μ-cooldown); fern #1885 WIP (gradient-centralization); askeladd #1891 WIP (GE-SAM); frieren #1895 WIP (Lookahead-Muon, NEW); nezuko IDLE (pending researcher-agent). **7/8 active.**
 
 ### Notes (2026-05-30 23:15Z) — ASKELADD #1839 PER-SHAPE STATIC NS ITER CLOSED 67th [FFS-NEG, MLP NS_ITER FLOOR LOAD-BEARING]; #1891 GE-SAM ASSIGNED
 
