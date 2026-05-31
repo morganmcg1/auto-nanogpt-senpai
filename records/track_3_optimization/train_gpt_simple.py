@@ -84,6 +84,12 @@ def parse_args():
     parser.add_argument('--aux_b2_pulse_target', type=float, default=0.99,
                         help='New aux Adam β2 value to set at --aux_b2_pulse_step. '
                              '0 or negative disables. Default: 0.99 (canonical WIN).')
+    parser.add_argument('--aux_v_decay_per_group_step', type=int, default=-1,
+                        help='Step to apply per-group v-state decay. -1 disables.')
+    parser.add_argument('--aux_v_decay_per_group_target', type=str, default='',
+                        help='Param group name to decay: adam_embed | adam_lm_head | adam_scalars.')
+    parser.add_argument('--aux_v_decay_per_group_factor', type=float, default=0.5,
+                        help='Multiplicative factor for v-state exp_avg_sq.')
     parser.add_argument("--seed", type=int, default=1,
                         help="Random seed for torch/numpy/python. Default 1 matches baseline seed.")
     args = parser.parse_args()
@@ -765,6 +771,9 @@ if dist.get_rank() == 0:
             "paramema_refresh_only": int(args.paramema_refresh_only),
             "aux_b2_pulse_step": args.aux_b2_pulse_step,
             "aux_b2_pulse_target": args.aux_b2_pulse_target,
+            "aux_v_decay_per_group_step": args.aux_v_decay_per_group_step,
+            "aux_v_decay_per_group_target": args.aux_v_decay_per_group_target,
+            "aux_v_decay_per_group_factor": args.aux_v_decay_per_group_factor,
             "seed": args.seed,
         },
     )
@@ -1071,6 +1080,21 @@ for trial_idx in range(args.num_trials):
                 group["betas"] = new_betas
             print0(f"[step {step}] aux_b2_pulse: β2 {old_b2} → {args.aux_b2_pulse_target}",
                    console=True)
+        if (args.aux_v_decay_per_group_step > 0
+                and args.aux_v_decay_per_group_target
+                and step == args.aux_v_decay_per_group_step):
+            target_group = args.aux_v_decay_per_group_target
+            factor = args.aux_v_decay_per_group_factor
+            n_scaled = 0
+            for g in optimizer1.param_groups:
+                if g.get("name") == target_group:
+                    for p in g["params"]:
+                        state = optimizer1.state.get(p)
+                        if state is not None and "exp_avg_sq" in state:
+                            state["exp_avg_sq"].mul_(factor)
+                            n_scaled += 1
+                    print0(f"[step {step}] aux_v_decay_per_group: {target_group} v *= {factor} ({n_scaled} params)", console=True)
+                    break
         for opt in optimizers:
             opt.step()
         # EMA buffer update on body-Muon matrix params.
@@ -1189,6 +1213,11 @@ for trial_idx in range(args.num_trials):
                 "aux_b2/fired": int(args.aux_b2_pulse_step > 0
                                     and args.aux_b2_pulse_target > 0.0
                                     and step >= args.aux_b2_pulse_step),
+                "aux_v_decay_pg/pulse_step": args.aux_v_decay_per_group_step,
+                "aux_v_decay_pg/factor": args.aux_v_decay_per_group_factor,
+                "aux_v_decay_pg/fired": int(args.aux_v_decay_per_group_step > 0
+                                            and bool(args.aux_v_decay_per_group_target)
+                                            and step >= args.aux_v_decay_per_group_step),
             }, step=wandb_step)
         if dist.get_rank() == 0 and (train_step % 100 == 0 or train_step == train_steps):
             spec = pmuon_spectral_diag(optimizer2, PMUON_GAMMA)
