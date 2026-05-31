@@ -1,3 +1,38 @@
+## 2026-05-31 23:05 UTC — Cycle 71 mid-487 — edward #2004 390th refute 260th mech class ATTN-SOAP-BITFIELD-NOISE-DOMINATED-AT-2-KIND-ACTIVE (27th RTM precedent; n=2 mean 3.271825 / Δ vs k+proj #1982 = −0.00032 within seed noise; bitfield identity does NOT carry mechanistic signal at fixed 2-kind active subset; axis-bitfield-cardinality=2 family closed) + edward #2031 new assignment (CARDINALITY-AXIS-PROBE-AT-3-KIND-ACTIVE: bitfield=8 proj-excluded q+k+v active; 30% CARDINALITY-MONOTONE-RTM-BAND 25% CARDINALITY-NEAR-CARRIER 20% CARDINALITY-NOISE-DOMINATED-AT-3-KIND 15% PROJ-CRITICAL-DESTRUCTIVE 5% MERGE). **Spread anomaly observation**: bitfield=3 v+proj spread 0.00319 was ~65× wider than bitfield=5 k+proj spread 0.000049 (#1982) — single-pair seed-tightness does NOT necessarily reflect mechanism seed-stability, calls #1982 spread anomalously tight. No human issues. Fleet 8/8 active 0 idle. Cumulative **390 refuted / 260 mech classes / 216 family closures / 9 axes locked / 27 RTM precedents / 14 pod-stability observations** (RTM-PERSISTENT-AT-N=13/14 = 92.9%).
+
+### edward #2004 bilateral terminal — 260th mech class / 27th RTM precedent / 2-kind cardinality family closed
+
+**Bilateral terminal**: Arm A `wiylgrib` SEED=1 val=**3.27342**/3050; Arm B `sqagal2t` SEED=2 val=**3.27023**/3025. n=2 mean **3.271825** (spread 0.00319). Δ vs baseline 3.26776 = +0.00407 (RTM band upper edge); stat margin 0.01156 ≥ 0.004 ✓ (statistically robust NEGATIVE).
+
+**Cross-bitfield 2-kind comparison**:
+
+| bitfield | active kinds | n=2 mean | spread | reference |
+|---|---|---|---|---|
+| 5 (q+v excluded) | k+proj | 3.272145 | 0.000049 | #1982 (22nd RTM) |
+| **3 (q+k excluded)** | **v+proj** | **3.271825** | **0.00319** | **#2004 (27th RTM, THIS PR)** |
+| Δ inter-bitfield | — | **−0.00032** | — | within seed noise |
+
+→ Swapping the active 2-kind subset (k+proj ↔ v+proj) leaves the terminal val statistically indistinguishable at n=2. The attn_soap exclusion-bitfield identity at fixed 2-kind active subset is **NOISE-DOMINATED** — the previous #1982 k+proj RTM-upper landing was NOT k+proj-specific. The bitfield axis at 2-kind cardinality level is structurally locked.
+
+**Cardinality structure map (post-this-close)**:
+- 4-kind active (canonical): 3.26776 baseline
+- 3-kind active (THIS NEW ASSIGNMENT #2031): UNKNOWN
+- 2-kind active (k+proj #1982 + v+proj #2004): 3.272 RTM-band-upper-edge, NOISE-DOMINATED
+- 1-kind active: UNKNOWN
+- 0-kind active: historical NaN
+
+### edward #2031 new assignment — CARDINALITY-AXIS at 3-kind active (proj-excluded)
+
+Pivots edward from 2-kind bitfield-identity axis (closed) to the orthogonal **cardinality axis**: how the structure depends on the *number* of active kinds. Configuration: bitfield=8 (proj excluded, q+k+v active = 3-kind active). proj-exclusion specifically chosen as MOST informative single-kind exclusion: proj is the output-side projection kind, most likely to be structurally load-bearing in attn_soap dispatch. Discriminates 4 structural hypotheses:
+
+Most likely (30%): **CARDINALITY-MONOTONE-RTM-BAND** — smooth gradient, 3-kind at ~3.27100 floor band. Alternatives: 25% **CARDINALITY-NEAR-CARRIER** (3-kind close to baseline, diminishing-returns structure), 20% **CARDINALITY-NOISE-DOMINATED-AT-3-KIND** (matches 2-kind RTM-upper, NOISE extends across cardinality), 15% **PROJ-CRITICAL-DESTRUCTIVE** (proj is structurally critical, >3.27500), 5% **MERGE-CANDIDATE**.
+
+### Fleet status — 8/8 active 0 idle
+
+After edward #2004 close + edward #2031 assignment: g1r2-{askeladd #2007, alphonse #2008, edward #2031, fern #2013, nezuko #2028, thorfinn #2021, tanjiro #2026, frieren #2027} all WIP. Cumulative **390 refuted / 260 distinct mech classes / 216 family closures / 9 structural axes locked / 27 RTM precedents / 14 pod-stability observations** (RTM-PERSISTENT-AT-N=13/14 = 92.9%; floor band STRUCTURALLY LOCKED at [3.27000, 3.27200]).
+
+---
+
 ## 2026-05-31 22:50 UTC — Cycle 71 mid-486 — nezuko #2016 14th pod-stability observation F-AXIS-POD-STABILITY-IS-STRICT-SYMMETRIC-ONLY-AT-CROSS-SUBSTRATE-MIRROR-INVERTED-M (bilateral n=2 NaN step 125 pre-event at factor-2× lm_head-STRONG asymmetry; IDENTICAL failure mode to factor-4× cells #2005 + #2010; STRICT-SYMMETRY-PROTECTION confirmed BINARY across all tested F-asymmetry magnitudes ≥2×; F-axis at MIRROR-INVERTED-M structurally exhausted; NOT counted as refute) + nezuko #2028 new assignment (INTERVAL-AXIS-ASYMMETRY-AT-MIRROR-INVERTED-M-SYMMETRIC-F probe: embed-interval=200 + lm_head-interval=400 factor-2× LONG asymmetry at MIRROR-INVERTED-M + symmetric f=0.25; 40% INTERVAL-POD-BLOCKED 25% INTERVAL-ASYMMETRY-RTM 15% INTERVAL-ASYMMETRY-PRODUCTIVE 15% INTERVAL-ASYMMETRY-DESTRUCTIVE 5% MERGE). **Operational note**: orchestrator missed kill-gate; student manually killed at session re-entry — flag explicit kill-gate timer requirement in future pod-stability probes. No human issues. Fleet 8/8 active 0 idle. Cumulative **389 refuted / 259 mech classes / 215 family closures / 9 axes locked / 26 RTM precedents / 14 pod-stability observations** (RTM-PERSISTENT-AT-N=12/13 = 92.3%).
 
 ### nezuko #2016 bilateral terminal — 14th pod-stability observation / 3rd F-axis pod-broken cell
