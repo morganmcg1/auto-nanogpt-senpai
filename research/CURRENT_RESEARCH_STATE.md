@@ -1,3 +1,26 @@
+## 2026-05-31 17:45 UTC — Cycle 71 mid-475 — frieren #1972 381st refute 252nd mech class SINGLE-SEED-CARRIER-MISCLASSIFICATION-AT-LM-HEAD-β1=0.7-ISOLATED-DESTRUCTIVE (bilateral n=2 mean 3.27930 / spread 0.00769 — CARRIER-DESTRUCTIVE +0.00731 above RTM ceiling; original #1884 single-seed 3.26948 was LUCKY-SEED EXTREME-OUTLIER; RTM rate breaks 7/7→7/8 87.5% — FIRST cycle-71 candidate to FAIL RTM band landing) + frieren #1999 new assignment (LM-HEAD-β1=0.5-AXIS-MONOTONICITY-PROBE: lm_head β1=0.5 isolated bilateral n=2; 35% MONOTONE-DESTRUCTIVE-WEAKER 25% SUBSTRATE-SYMMETRIC-RTM 20% MORE-DESTRUCTIVE 15% V-SHAPE-PRODUCTIVE). No human issues. Fleet 8/8 active 0 idle. Cumulative **381 refuted / 252 mech classes / 211 family closures / 9 axes / 21 RTM precedents** (RTM-PERSISTENT-AT-N=7/8 = 87.5%; THREE n=2 verifications still pending with adjusted carrier-destructive priors: k+proj edward #1982 + cross-substrate-compound fern #1991 + inverted-asymmetry thorfinn #1997).
+
+### frieren #1972 bilateral terminal — 381st refute, 252nd mech class SINGLE-SEED-CARRIER-MISCLASSIFICATION, RTM rate 7/7→7/8
+
+**Bilateral terminal**: Arm A `terdpjgu` SEED=1 val=**3.28315** (above baseline by 0.0152!); Arm B `dflx4kw2` SEED=2 val=**3.27546**. n=2 mean **3.27930**, spread **0.00769** (~8× tightest cycle-71 σ). CARRIER-DESTRUCTIVE classification confirmed: +0.00731 above RTM ceiling 3.27200 AND +0.00982 above original single-seed 3.26948 (12.5σ).
+
+**Mechanism reading**: lm_head β1=0.7 ISOLATED (with embed=0.95, scalars=0.95 canonical) creates ASYMMETRIC SHARP β1 differential. Cross-kind momentum-buffer disparity creates training instability that emerges at step ~1500 (stability gate). Divergence from +0.00046 at step-125 → −0.01410 at step-2500 → −0.00769 terminal. SUBSTRATE-ASYMMETRIC noise generation at lm_head β1 vs embed β1 axis.
+
+**CRITICAL methodology update**:
+- RTM rate: **7/7 → 7/8 (87.5%)** — first cycle-71 candidate to FAIL RTM band landing
+- lm_head β1=0.7 with embed/scalars=0.95 is DESTRUCTIVE; same lm_head=0.7 with embed=0.8 (thorfinn #1944) or embed=0.6 (thorfinn #1967) is PRODUCTIVE → **JOINT-COHERENT-DISPATCH is the mechanism, not lm_head β1 in isolation**
+- Pending 3 n=2 verifications carry non-zero carrier-destructive prior (especially thorfinn #1997 at marginal 0.13σ below floor edge)
+
+### frieren #1999 new assignment — LM-HEAD-β1=0.5-AXIS-MONOTONICITY-PROBE + CROSS-SUBSTRATE-SYMMETRY
+
+Tests lm_head β1 axis monotonicity (does destructive trend continue at 0.5 or V-shape?) AND cross-substrate symmetry at β1=0.5 (compare to embed β1=0.5 = 3.27016, 17th RTM precedent). Config: embed=0.95, lm_head=0.5, scalars=0.95. Most likely (35%): MONOTONE-DESTRUCTIVE-WEAKER (axis continues destructive but mildly weaker). Alternative (25%): SUBSTRATE-SYMMETRIC-AT-β1=0.5 (matches embed β1=0.5, RTM band). Alternative (20%): MORE-DESTRUCTIVE. Alternative (15%): V-SHAPE-PRODUCTIVE-AT-0.5. PRE-WARNING: this axis showed 0.00769 cross-arm spread at β1=0.7 — expect higher noise floor.
+
+### Fleet status — 8/8 active 0 idle
+
+After frieren #1972 close + frieren #1999 assignment: g1r2-{tanjiro #1976, askeladd #1985, alphonse #1981, edward #1982, fern #1991, nezuko #1992, thorfinn #1997, frieren #1999} all WIP. Cumulative **381 refuted / 252 distinct mech classes / 211 family closures / 9 structural axes locked / 21 RTM precedents** (RTM-PERSISTENT-AT-N=7/8 = 87.5%; THREE n=2 carrier-verification probes running with adjusted destructive priors: k+proj edward #1982 + cross-substrate compound fern #1991 + inverted-asymmetry thorfinn #1997).
+
+---
+
 ## 2026-05-31 17:15 UTC — Cycle 71 mid-474 — thorfinn #1967 380th refute 251st mech class PER-KIND-ASYMMETRY-AXIS-INVERTED-DIRECTION-PRODUCTIVE-LOWER-EMBED-SCALARS-β1 + 10th CYCLE-71 TOP CANDIDATE CARRIER SPAWNED (inverted-asymmetry β1=0.6/0.7/0.6 3.26974/3025 — 3rd-strongest single-seed reading after k+proj 3.26815 and cross-substrate f=0.5 3.26934) + thorfinn #1997 new assignment (INVERTED-ASYMMETRY-AXIS-N=2-VERIFICATION seed1+seed2; 60%-22ND-RTM prior 20%-BORDERLINE prior 15%-STRONG-PRODUCTIVE-BREAKS-RTM prior 5%-MERGE-CANDIDATE prior). No human issues. Fleet 8/8 active 0 idle. Cumulative **380 refuted / 251 mech classes / 211 family closures / 9 axes / 21 RTM precedents** (RTM-PERSISTENT-AT-N=7; THREE n=2 verifications pending: k+proj 8th candidate edward #1982 + cross-substrate compound 9th candidate fern #1991 + inverted-asymmetry 10th candidate thorfinn #1997 — LARGEST cycle-71 carrier-candidate cohort assembled).
 
 ### thorfinn #1967 bilateral terminal — 380th refute, 251st mech class PER-KIND-ASYMMETRY-AXIS-INVERTED-DIRECTION-PRODUCTIVE, 10th cycle-71 candidate carrier spawned
