@@ -1,5 +1,51 @@
 # SENPAI Research Results
 
+## 2026-05-31 01:00 UTC — PR #1850 frieren: Aux Adam scalar_lr PULSE @ cooldown onset step 975 — ⚠️ ARM B THIN WIN CANDIDATE (seed-2 requested; Arm A NULL)
+
+- Branch: `g1r1-frieren/scalar-lr-pulse-cooldown`
+- Hypothesis: The aux Adam `adam_scalars` group controls RMSNorm gain/bias. At cooldown onset (step 975), a per-group LR pulse on this group could steepen descent without disturbing embedding/lm_head dynamics. Bilateral test: Arm A ×2 BOOST (0.025→0.050), Arm B ×0.5 DECAY (0.025→0.0125).
+
+| Arm | scalar_lr target | run | sr | val_ema | Δval mnat | Verdict |
+|---|---|---|---:|---:|---:|---|
+| Baseline | 0.025 | 9coyk2ke/09qrijtm | 2875 | 3.262854 | — | — |
+| A (BOOST ×2) | 0.025→0.050 @ 975 | `t14ojkgw` | 2925 | 3.267690 | +4.836 | ❌ NULL (both clauses fail) |
+| B (DECAY ×0.5) | 0.025→0.0125 @ 975 | `414cvcw7` | 2875 | 3.262813 | **−0.041** | ⚠️ **THIN WIN candidate** (clause 2 passes by 0.041 mnat; n=1 seed noise) |
+
+- **Key mechanistic read:** Strong asymmetry: BOOST HURTS (+4.836 mnat), DECAY HELPS (thin WIN). Direction is clear — lower scalar LR at cooldown onset damps RMSNorm overshoot. The 0.041 mnat margin is below single-seed noise floor, so seed-2 confirmation is required before merger.
+- **Status:** Arm B seed-2 requested 00:50 UTC (sent back to student with reproduce command). Result pending ETA ~04:00-05:00 UTC.
+- frieren forwarded to: seed-2 confirmation run of Arm B (scalar_lr ×0.5 @975, seed 2)
+
+## 2026-05-31 01:00 UTC — PR #1849 thorfinn: Body PMuon L_cov/R_cov PER-SIDE asymmetric ZERO RESET @ step 1100 — ❌ BILATERAL NULL DEEP (per-side cov-reset CLOSED)
+
+- Branch: `g1r1-thorfinn/per-side-cov-reset`
+- Hypothesis: The canonical cov full-reset (#1780 frieren) applied both L and R simultaneously. The asymmetric paradigm tests whether gradient-side (R_cov) vs activation-side (L_cov) carries the signal independently. Prediction: R-only captures the benefit (gradient magnitudes shift more than activations under cooldown LR decay).
+
+| Arm | side | run | sr | val_ema | Δval mnat | Verdict |
+|---|---|---|---:|---:|---:|---|
+| Baseline | both | 9coyk2ke/09qrijtm | 2875 | 3.262854 | — | — |
+| A (L-only) | L_cov only | `2p8t595p` | 2925 | 3.264782 | +1.928 | ❌ NULL (both clauses fail) |
+| B (R-only) | R_cov only | `qoi4hlnj` | 2925 | 3.264384 | +1.530 | ❌ NULL (both clauses fail) |
+
+- **Key mechanistic read:** Both arms sr=2925 (+50 vs baseline). Marginal R<L asymmetry (R-only −0.40 mnat less disruptive than L-only) is directionally consistent with gradient-space carrying more signal, but the effect is tiny and both regress. Prediction directionally correct but effect too small to bear load.
+- **Axis closure:** Per-side covariance state reset CLOSED. Combined with full-reset CLOSED at cooldown onset (975), mid-cooldown (1100 via #1780), and pre-target (2750 via #1726) — cov-state reset axis fully EXHAUSTED across ALL reset types (full/per-side-L/per-side-R) AND temporal boundaries.
+
+## 2026-05-31 01:00 UTC — PR #1815 nezuko: Aux Adam m-only ZERO RESET @ step 975 — ❌ BILATERAL NULL on n=2 (m-only zero WIN CLOSED)
+
+- Branch: `g1r1-nezuko/aux-adam-m-only-zero-reset`
+- Hypothesis: Aux Adam first-moment buffer (m) at cooldown onset carries stale pre-cooldown gradient direction. Hard-zeroing m only (preserving v denominator) avoids the catastrophic v-transient seen in full m+v reset (#1770). Bilateral: Arm A m-only zero @ 975 (no v touch); Arm B v×0.5 @ 975 (m untouched).
+
+| Arm | intervention | seed | run | sr | val_ema | Δval mnat | Verdict |
+|---|---|---|---|---:|---:|---:|---|
+| Baseline | — | — | 9coyk2ke/09qrijtm | 2875 | 3.262854 | — | — |
+| A (m-zero) | m ← 0 @ 975 | seed-1 | `nvh1vd60` | 2875 | 3.262238 | −0.616 | ⚠️ WIN candidate (seed-1 only) |
+| A (m-zero) | m ← 0 @ 975 | seed-2 | `gdr4m70w` | 2925 | 3.264410 | +1.556 | ❌ FAIL seed-2 |
+| B (v×0.5) | v ← v×0.5 @ 975 | seed-1 | `366knnhc` | 2925 | 3.265652 | +2.798 | ❌ NULL |
+
+- **n=2 aggregate:** Arm A mean sr=2900, val_ema=3.263324. Fails both merge-gate clauses.
+- **Key mechanistic read:** The seed-1 WIN (-0.616 mnat) was a close-margin run-to-run noise artifact. Seed-2 reversed to NULL (+1.556 mnat). m-only ZERO at step 975 is not a repeatable improvement. The first-moment direction memory is LOAD-BEARING at cooldown onset — it cannot be hard-discarded. v is even more load-bearing (Arm B +2.798 mnat NULL confirms denominator must be preserved).
+- **Axis closure:** Aux Adam m-only HARD ZERO at cooldown onset CLOSED. The open sub-axis is PARTIAL DECAY of m (testing 0.5x and 0.25x attenuation), which may outperform hard-zero or null — assigned as tanjiro #1881.
+- nezuko reassigned: Body PMuon Nesterov ON/OFF flag at cooldown onset (#1898) — untested Nesterov axis on update rule itself (not LR, not momentum magnitude, not state)
+
 ## 2026-05-30 22:30 UTC — PR #1837 tanjiro: Aux Adam β₂ pulse PER-GROUP asymmetric localization (embed-only vs lm_head-only) — ❌ BILATERAL NULL (per-group β₂ localization CLOSED)
 
 - Branch: `g1r1-tanjiro/per-group-b2-pulse`

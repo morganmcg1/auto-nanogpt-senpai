@@ -1,10 +1,11 @@
 # SENPAI Research State — auto-nanogpt-1gpu-r1
 
-- **Last update: 2026-05-30 22:45 UTC**
+- **Last update: 2026-05-31 01:00 UTC**
 - **Current baseline:** PR #1532 (aux Adam β₂ pulse 0.95→0.99 @ step 975). val_ema=3.262854, sr=2875 (n=2).
 - **Merge gate:** `sr ≤ 2862.5 OR (sr=2875 AND val_ema < 3.262854)`
-- **🔥 STRONGEST HOT WIN CANDIDATE:** nezuko #1815 BILATERAL TERMINAL — Arm A (aux Adam m-only ZERO RESET @ step 975) `nvh1vd60` seed-1: sr=2875, val_ema=**3.262238 (-0.616 mnat below gate)**. Arm B (v×0.5) `366knnhc` NULL sr=2925, val_ema=3.265652. **BILATERAL COMPLETE — seed-2 of Arm A requested at 19:55 UTC.** Mechanistic read: first-moment direction memory is dispensable at cooldown boundary (m-zero benign: 0 mnat transient); v state is load-bearing (v×0.5 still degrades: +16.5 mnat transient). Awaiting nezuko's seed-2 launch and terminal.
-- **frieren #1780 CLOSED (16:15 UTC):** cov-reset@1100 Arm B seed-1 thin-pass nullified on n=2 — seed-2 sr=2925, val_ema=3.264785 FAIL. Cov-state full-reset axis fully CLOSED (975/1100/2750). Per-side asymmetric (thorfinn #1849) and frieren #1850 (scalar_lr pulse) now in flight.
+- **⚠️ HOT WATCH:** frieren #1850 Arm B (aux Adam scalar_lr ×0.5 @975) `414cvcw7` seed-1: sr=2875, val_ema=3.262813 (−0.041 mnat below gate). **THIN WIN CANDIDATE (n=1); seed-2 requested 00:50 UTC.** Strong asymmetry: BOOST ×2 HURTS (+4.836 mnat), DECAY ×0.5 HELPS — directional mechanism is clear (RMSNorm overshoot at cooldown onset). ETA seed-2 terminal ~04:00-05:00 UTC.
+- **nezuko #1815 CLOSED (01:00 UTC):** m-only ZERO RESET bilateral NULL on n=2 — Arm A seed-2 `gdr4m70w` sr=2925, val_ema=3.264410 (+1.556 mnat FAIL). n=2 mean sr=2900, val_ema=3.263324 fails both clauses. m-only hard-zero at step 975 is NOT a repeatable improvement. First-moment direction memory IS load-bearing at cooldown onset. nezuko reassigned: Body PMuon Nesterov OFF at cooldown onset step 975 (#1898).
+- **thorfinn #1849 CLOSED (01:00 UTC):** Body PMuon per-side cov-reset bilateral NULL DEEP — Arm A (L-only) `2p8t595p` sr=2925 val_ema=3.264782 (+1.928 mnat), Arm B (R-only) `qoi4hlnj` sr=2925 val_ema=3.264384 (+1.530 mnat). Marginal R<L asymmetry is directionally consistent but load-too-small. Cov-state reset axis FULLY EXHAUSTED across all reset types AND temporal boundaries. thorfinn reassigned: Joint aux Adam LR decay at cooldown onset step 975 (#1899).
 - **fern #1831 CLOSED (21:15 UTC):** Body PMuon γ pulse at cooldown onset bilateral NULL — Arm A (γ→0.3 RELAX) sr=2925 val_ema=3.267064 (+4.2 mnat), Arm B (γ→0.5 SHARPEN) sr=2925 val_ema=3.266283 (+3.4 mnat). Both directions miss gate; γ axis CLOSED across cooldown onset AND pre-target (#1680). fern reassigned: body PMuon momentum HARD-ZERO @ cooldown onset (#1876).
 - **edward #1830 CLOSED (21:15 UTC):** Aux Adam m+v full zero reset at LATE phase boundaries bilateral NULL — Arm A (reset@2600 pEMA boundary) sr=2925 val_ema=3.265206 (+2.4 mnat), Arm B (reset@2750 pre-target) sr=2925 val_ema=3.265872 (+3.0 mnat). Aux Adam full-zero reset CLOSED across ALL temporal boundaries (975/2600/2750). edward reassigned: body PMuon LR persistent step-down at cooldown onset (#1877).
 - **alphonse #1836 CLOSED (21:55 UTC):** Body PMuon momentum buffer SCALE at pre-target boundary step 2750 bilateral NULL — Arm A (×0.5) sr=2925 val_ema=3.265251 (+2.4 mnat), Arm B (×0.25) sr=2925 val_ema=3.264915 (+2.06 mnat). Magnitude-invariant outcome (same as #1797 at @975); body PMuon momentum SCALE axis CLOSED across ALL temporal boundaries. alphonse reassigned: aux Adam m-only ZERO reset at late boundaries (#1879).
@@ -35,6 +36,8 @@
 - **Body PMuon γ pulse at cooldown onset step 975 (#1831 fern)** — Arm A (γ→0.3 RELAX) sr=2925 val_ema=3.267064 (+4.2 mnat), Arm B (γ→0.5 SHARPEN) sr=2925 val_ema=3.266283 (+3.4 mnat); both directions miss gate identically; γ axis CLOSED across cooldown onset AND pre-target (#1680); whitening exponent well-calibrated at γ=0.4 across all training phases
 - **Aux Adam m+v FULL ZERO reset at late phase boundaries (#1830 edward)** — Arm A (reset@2600 pEMA boundary) sr=2925 val_ema=3.265206 (+2.4 mnat), Arm B (reset@2750 pre-target) sr=2925 val_ema=3.265872 (+3.0 mnat); Arm B marginally more disruptive (smaller late-phase v denominator → larger relative reset impact); aux Adam full-zero reset CLOSED across ALL temporal boundaries (975 via #1770, 2600 via Arm A, 2750 via Arm B)
 - **Body PMuon momentum buffer SCALE at pre-target boundary step 2750 (#1836 alphonse)** — Arm A (×0.5) sr=2925 val_ema=3.265251 (+2.4 mnat), Arm B (×0.25) sr=2925 val_ema=3.264915 (+2.06 mnat); magnitude-invariant outcome, replicating thorfinn #1797 pattern at cooldown onset; body PMuon momentum SCALE axis CLOSED across ALL temporal boundaries (step 975 via #1797, step 2750 via #1836); open: body PMuon momentum HARD-ZERO at cooldown onset (fern #1876 in flight)
+- **Body PMuon L_cov/R_cov PER-SIDE asymmetric ZERO RESET @ step 1100 (#1849 thorfinn)** — Arm A (L-only) `2p8t595p` sr=2925 val_ema=3.264782 (+1.928 mnat), Arm B (R-only) `qoi4hlnj` sr=2925 val_ema=3.264384 (+1.530 mnat); marginal R<L asymmetry is directionally consistent with gradient-space hypothesis but effect too small to bear load; cov-state reset axis FULLY EXHAUSTED across all reset types (full/per-side-L/per-side-R) AND all temporal boundaries (975/1100/2750)
+- **Aux Adam m-only HARD ZERO RESET @ step 975 (#1815 nezuko)** — Arm A seed-1 `nvh1vd60` sr=2875 val_ema=3.262238 (−0.616 mnat WIN candidate); seed-2 `gdr4m70w` sr=2925 val_ema=3.264410 (+1.556 mnat FAIL); n=2 mean sr=2900, val_ema=3.263324 fails both clauses; seed-1 WIN was run-to-run noise; m-only HARD ZERO at step 975 CLOSED; first-moment direction memory is load-bearing at cooldown onset; open: PARTIAL DECAY of m (tanjiro #1881 in flight)
 
 **Structural decoupling (BILATERAL NULL):**
 - Depth-stratified β_cov binary split (#1727 edward) — falsifying Arm B beat mechanistic Arm A; axis FULLY CLOSED across binary split + continuous ramp (#1339)
@@ -62,31 +65,29 @@ Two independent mechanisms hit baseline sr (bilateral nulls, but sr=2925→2875 
 
 | PR | Student | Experiment | Status | Arms |
 |---|---|---|---|---|
-| **#1815** | **nezuko** | **Aux Adam m-only ZERO RESET @ step 975 — 🔥 HOT WIN seed-2 in progress** | **Seed-2 requested 19:55 UTC** | **Arm A: m-only reset (WIN candidate); Arm B: v×0.5 (NULL)** |
+| **#1898** | **nezuko** | **Body PMuon Nesterov OFF at cooldown onset step 975 (permanent vs transient)** | **Assigned 01:00 UTC** | **Arm A: Nesterov OFF PERMANENT @975→3250; Arm B: Nesterov OFF TRANSIENT @975→2600 then re-ON** |
+| **#1899** | **thorfinn** | **Joint aux Adam LR decay ×0.5/×0.25 at cooldown onset step 975 (all 3 aux groups)** | **Assigned 01:00 UTC** | **Arm A: all groups ×0.5 @975; Arm B: all groups ×0.25 @975** |
 | **#1879** | **alphonse** | **Aux Adam m-only ZERO reset at LATE phase boundaries (step 2600 vs step 2750)** | **Assigned 22:00 UTC** | **Arm A: m-zero @2600 (pEMA boundary); Arm B: m-zero @2750 (pre-target)** |
 | **#1877** | **edward** | **Body PMuon LR persistent step-down at cooldown onset step 975 (×0.85 vs ×0.70)** | **Assigned 21:30 UTC** | **Arm A: muon_lr ×0.85 @975; Arm B: muon_lr ×0.70 @975** |
 | **#1876** | **fern** | **Body PMuon momentum HARD-ZERO reset at cooldown onset (975 vs 1100)** | **Assigned 21:30 UTC** | **Arm A: momentum zero @975; Arm B: momentum zero @1100** |
 | **#1881** | **tanjiro** | **Aux Adam m-state PARTIAL DECAY at cooldown onset step 975 (×0.5 / ×0.25)** | **Assigned 22:45 UTC** | **Arm A: m×0.5 @975; Arm B: m×0.25 @975** |
-| #1849 | thorfinn | Body PMuon per-side L_cov vs R_cov asymmetric ZERO RESET @ step 1100 | Assigned 16:10 UTC — 0 comments (4h), ping sent | Arm A: L-only reset; Arm B: R-only reset |
-| #1850 | frieren | Aux Adam scalar_lr PULSE @ cooldown onset step 975 (RMSNorm per-group LR perturbation) | Arm A `t14ojkgw` running at step ~1907/3250, Arm B pending | Arm A: scalar_lr ×2 (→0.050); Arm B: scalar_lr ×0.5 (→0.0125) |
+| **#1850** | **frieren** | **⚠️ Aux Adam scalar_lr DECAY ×0.5 @ 975 — THIN WIN candidate; seed-2 LAUNCHED** | **Sent back 00:50 UTC; seed-2 in flight** | **Arm A: ×2 BOOST (NULL +4.836 mnat); Arm B: ×0.5 DECAY (seed-2 running)** |
 | **#1868** | **askeladd** | **Aux Adam embed_lr PULSE @ cooldown onset step 975 (per-group LR perturbation on adam_embed)** | **Assigned 20:00 UTC** | **Arm A: embed_lr ×2 (0.3→0.6); Arm B: embed_lr ×0.5 (0.3→0.15)** |
 
 ## Current research themes
 
 **Aux Adam structural exploration (this session):**
-- Directive (a): Aux Adam m-only ZERO RESET @975 (nezuko #1815 Arm A nvh1vd60) — **STRONG WIN on seed-1 (−0.616 mnat below gate)**; seed-2 requested. Bilateral confirms: m-zero benign (0 mnat transient), v×0.5 degrades (+16.5 mnat transient) — first-moment direction memory dispensable, v state load-bearing.
-- Directive (a): Aux Adam β₁ JOINT pulse CLOSED (#1819 askeladd bilateral NULL; combined with #1592/#1639 closes β₁ axis fully)
-- Directive (b/d): Aux Adam β₂ pulse PER-GROUP localization (tanjiro #1837) CLOSED — embed-only sr=2950 (+4.6 mnat), lm_head-only sr=2925 (+1.5 mnat); WIN requires JOINT switch; tanjiro reassigned to m-state PARTIAL DECAY at step 975 (#1881)
-- Directive (a): Aux Adam m+v full reset at LATE phase boundaries (edward #1830) — step 2600 (pEMA refresh) vs step 2750 (pre-target), avoids step-975 v-collapse failure mode
-- Directive (a/b): Aux Adam scalar_lr PULSE @ cooldown onset step 975 (frieren #1850) — per-group LR perturbation on untested RMSNorm scalar group; Arm A `t14ojkgw` ×2 running, Arm B pending
-- Directive (a/b): Aux Adam embed_lr PULSE @ cooldown onset step 975 (askeladd #1868) — NEW: per-group LR perturbation on `adam_embed` (vocab×hidden, lr=0.3), largest aux group; Arm A ×2 (→0.6) / Arm B ×0.5 (→0.15); companion to frieren #1850; covers 2-of-3 aux groups for per-group LR sensitivity at cooldown
-- Block-wise AdaShift on aux Adam CLOSED (#1785 bilateral NULL); per-element AdaShift also closed (#1709)
-- GrokFast on whitened body PMuon CLOSED (#1786 bilateral NULL — mechanism falsified: NS5 polar normalization invariant is broken by additive slow-EMA)
+- Directive (a): Aux Adam m-only ZERO RESET @975 (#1815 nezuko) CLOSED on n=2 — seed-2 returned NULL (+1.556 mnat). First-moment direction memory IS load-bearing at cooldown onset (not dispensable). Open: PARTIAL DECAY of m (tanjiro #1881 in flight — does 50%/25% retention outperform hard-zero?)
+- Directive (a/b): Aux Adam scalar_lr DECAY ×0.5 @975 (#1850 frieren Arm B `414cvcw7`) — ⚠️ THIN WIN CANDIDATE (sr=2875, val_ema=3.262813, −0.041 mnat). BOOST ×2 (Arm A `t14ojkgw`) NULL +4.836 mnat. Seed-2 in flight. RMSNorm gain/bias overshoot at cooldown onset is the mechanistic read.
+- Directive (a/b): Aux Adam embed_lr PULSE @975 (#1868 askeladd) — companion to #1850, testing embed group (lr=0.3) LR perturbation at same boundary; in flight
+- Directive (a/b): Joint aux Adam LR decay all-3-groups ×0.5/×0.25 @975 (#1899 thorfinn) — NEW: stacks #1850 Arm B scalar-only WIN signal across ALL aux groups; tests whether benefit is general (all-group LR overshoot) or scalar-localized (RMSNorm-specific)
+- Directive (a): Aux Adam m-only ZERO reset at LATE boundaries (#1879 alphonse) — testing m-zero @2600 vs @2750; temporal extension of #1815 paradigm to late phase boundaries where m-zero hasn't been tested in isolation
 
 **Body PMuon structural exploration (in-flight):**
-- Directive (a/c): Body PMuon γ pulse at cooldown onset step 975 (fern #1831) — symmetric body-side analog of #1532 aux β₂ WIN; relax (γ→0.3) vs sharpen (γ→0.5)
-- Directive (a/b/d): Body PMuon per-side L_cov vs R_cov asymmetric ZERO RESET @ step 1100 (thorfinn #1849) — NEW: transfers nezuko #1815's asymmetric-primitive paradigm (m-only vs v-only on aux Adam) to body PMuon covariance preconditioners; Arm A L-only / Arm B R-only (predicted: R-only carries signal — gradient magnitudes shift more than activations under cooldown LR decay)
-- Directive (a/c/d): Body PMuon momentum buffer SCALE at PRE-TARGET boundary step 2750 (alphonse #1836) — NEW: momentum scaling at 2750 boundary; Arm A ×0.5 / Arm B ×0.25
+- Directive (a/d): Body PMuon momentum HARD-ZERO @cooldown onset (#1876 fern) — qualitative-limit of momentum scaling axis; Arm A @975 / Arm B @1100
+- Directive (c/e): Body PMuon LR persistent step-down @975 (#1877 edward) — phase-locked LR schedule intervention; Arm A muon_lr ×0.85 / Arm B muon_lr ×0.70
+- Directive (d/c): Body PMuon Nesterov OFF at cooldown onset (#1898 nezuko) — NEW: untested update-rule intervention (Nesterov flag changes the update formula itself, not LR or momentum magnitude); Arm A permanent OFF / Arm B transient OFF→ON @2600
+- Directive (a/b/d): Body PMuon per-side cov-reset (#1849 thorfinn) CLOSED — R-only marginally less disruptive than L-only but both NULL; cov-state reset axis FULLY EXHAUSTED
 
 ## Next hypotheses queue (post current wave)
 
