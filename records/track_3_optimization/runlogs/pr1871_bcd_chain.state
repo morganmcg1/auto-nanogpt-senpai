@@ -1,0 +1,9 @@
+chain_start_utc=2026-05-30T23:27:35Z
+resume_after=A-ctrl-period2-s0 (terminal val/loss=3.26323, BORDERLINE per advisor c707)
+[2026-05-30T23:27:35Z] launching B-period1-s0 (period=1) -> records/track_3_optimization/runlogs/pr1871_B-period1-s0.log
+[2026-05-31T01:19:27Z] B-period1-s0 finished rc=0
+[2026-05-31T01:19:57Z] launching C-period3-s0 (period=3) -> records/track_3_optimization/runlogs/pr1871_C-period3-s0.log
+[2026-05-31T03:34:36Z] C-period3-s0 finished rc=0
+[2026-05-31T03:35:06Z] launching D-period4-s0 (period=4) -> records/track_3_optimization/runlogs/pr1871_D-period4-s0.log
+[2026-05-31T05:44:08Z] D-period4-s0 finished rc=0
+[2026-05-31T05:44:38Z] chain complete

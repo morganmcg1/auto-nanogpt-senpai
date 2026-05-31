@@ -1,0 +1,7 @@
+chain_start_utc=2026-05-30T20:21:50Z
+[2026-05-30T20:21:50Z] launching A-ctrl-period2-s0 (period=2) -> records/track_3_optimization/runlogs/pr1871_A-ctrl-period2-s0.log
+[2026-05-30T23:07:27Z] A-ctrl-period2-s0 finished rc=0
+[2026-05-30T23:07:57Z] drift_gate: arm_A val/loss=3.26323 (gate [3.2597, 3.2627])
+[2026-05-30T23:07:57Z] drift_gate: FAIL — stopping chain, HB needed
+[2026-05-30T23:07:57Z] chain stopped after Arm A drift gate failure
+[2026-05-30T23:07:57Z] chain complete
