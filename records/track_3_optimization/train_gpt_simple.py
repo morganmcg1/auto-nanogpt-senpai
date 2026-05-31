@@ -68,6 +68,14 @@ def parse_args():
     parser.add_argument("--ns_iter", type=int, default=12,
                         help="Number of Newton-Schulz iterations in zeropower_via_newtonschulz5. "
                              "Default 12 (current hardcoded value). Lower = less orthogonal but faster.")
+    parser.add_argument("--ns_spectral_norm", action="store_true",
+                        help="Use spectral norm (power iteration) for pre-NS scaling instead of Frobenius. "
+                             "Frobenius scales σ_max to ~0.63 of orthogonal (per #1829); spectral targets σ_max≈1/overshoot.")
+    parser.add_argument("--ns_spectral_iter", type=int, default=6,
+                        help="Power iteration count for spectral norm estimation. 6-iter < 3%% error.")
+    parser.add_argument("--ns_spectral_overshoot", type=float, default=1.0,
+                        help="Post-scale safety factor: σ_max(NS input) ≈ 1/overshoot. "
+                             "1.0 = truly orthogonal (in NS basin), 1.1 = 0.91 safety margin (per #1829).")
     parser.add_argument("--lr_scalars", type=float, default=0.01,
                         help="LR for AdamW adam_scalars group (RMSNorm gains; "
                              "params with ndim < 2). Default 0.01 — hardcoded, "
@@ -111,6 +119,9 @@ def parse_args():
 
 args = parse_args()
 NS_ITER = args.ns_iter
+NS_SPECTRAL_NORM = bool(args.ns_spectral_norm)
+NS_SPECTRAL_ITER = int(args.ns_spectral_iter)
+NS_SPECTRAL_OVERSHOOT = float(args.ns_spectral_overshoot)
 
 
 def clean_metric_name(name: str) -> str:
@@ -505,7 +516,21 @@ def zeropower_via_newtonschulz5(G: Tensor) -> Tensor:
         X = X.mT
 
     # Ensure spectral norm is at most 1
-    X = X / (X.norm(dim=(-2, -1), keepdim=True) + 1e-7)
+    if NS_SPECTRAL_NORM:
+        # Power-iteration estimate of σ_max(X) in fp32, then scale so σ_max(post)≈1/overshoot.
+        # X already has size(-2) <= size(-1) after the transpose above, so X@Xᵀ is the smaller-dim Gram.
+        X_f = X.float()
+        gram = X_f @ X_f.mT
+        v = torch.randn(gram.size(-1), device=gram.device, dtype=gram.dtype)
+        v = v / v.norm().clamp_min(1e-12)
+        for _ in range(NS_SPECTRAL_ITER):
+            v = gram @ v
+            v = v / v.norm().clamp_min(1e-12)
+        sigma_max = (v @ gram @ v).clamp_min(0).sqrt()
+        scale = 1.0 / (sigma_max * NS_SPECTRAL_OVERSHOOT + 1e-7)
+        X = X * scale.to(X.dtype)
+    else:
+        X = X / (X.norm(dim=(-2, -1), keepdim=True) + 1e-7)
     # Perform the NS iterations, not optimizing for wallclock speed
     a, b, c = 2, -1.5, 0.5
     for _ in range(NS_ITER):
@@ -516,6 +541,20 @@ def zeropower_via_newtonschulz5(G: Tensor) -> Tensor:
     if G.size(-2) > G.size(-1):
         X = X.mT
     return X
+
+def estimate_sigma_max(G: Tensor, n_iter: int = 10) -> float:
+    """High-iter power-iteration estimate of σ_max(G) in fp32, for telemetry only."""
+    G_f = G.detach().float()
+    if G_f.size(-2) > G_f.size(-1):
+        G_f = G_f.mT
+    gram = G_f @ G_f.mT
+    v = torch.randn(gram.size(-1), device=gram.device, dtype=gram.dtype)
+    v = v / v.norm().clamp_min(1e-12)
+    for _ in range(n_iter):
+        v = gram @ v
+        v = v / v.norm().clamp_min(1e-12)
+    return float((v @ gram @ v).clamp_min(0).sqrt().item())
+
 
 @torch.compile
 def muon_update(grad, momentum, mu=0.95, nesterov=True):
@@ -612,6 +651,8 @@ class Muon(torch.optim.Optimizer):
         self.trust_threshold = float(trust_threshold)
         self.use_trust_gate = soap_attn
         self.cos_sims_buffer: dict[str, Tensor] = {}
+        self.log_spec_frob: bool = False
+        self.spec_frob_buffer: dict[str, dict[str, float]] = {}
 
         param_groups = []
         for g in groups_raw:
@@ -631,6 +672,8 @@ class Muon(torch.optim.Optimizer):
     @torch.no_grad()
     def step(self):
         self.cos_sims_buffer = {}
+        self.spec_frob_buffer = {}
+        log_specfrob = self.log_spec_frob
         world_size = dist.get_world_size()
         rank = dist.get_rank()
         for group in self.param_groups:
@@ -655,6 +698,8 @@ class Muon(torch.optim.Optimizer):
                         state["momentum"].lerp_(p.grad, 1 - group["mu"])
                         raw_nesterov = p.grad.lerp(state["momentum"], group["mu"])
                         precond_nesterov = soap_precondition_momentum(raw_nesterov, state)
+                        if log_specfrob:
+                            self._record_spec_frob(p, precond_nesterov)
                         u_soap = soap_ns_step(precond_nesterov)
                         if self.use_trust_gate:
                             u_muon = soap_ns_step(raw_nesterov)
@@ -666,14 +711,43 @@ class Muon(torch.optim.Optimizer):
                         else:
                             update = u_soap
                         soap_update_preconditioner(p.grad, state)
+                        if log_specfrob:
+                            self._record_post_ns5(p, update)
                     else:
+                        if log_specfrob:
+                            # Replicate muon_update's nesterov mix without in-place mutation
+                            # so the actual muon_update call below gets identical inputs.
+                            mom_preview = state["momentum"].lerp(p.grad, 1 - group["mu"])
+                            ns_input_preview = p.grad.lerp(mom_preview, group["mu"])
+                            self._record_spec_frob(p, ns_input_preview)
                         update = muon_update(p.grad, state["momentum"], mu=group["mu"])
+                        if log_specfrob:
+                            self._record_post_ns5(p, update)
                     norm_sum.add_(update.float().norm())
                     p.mul_(1 - group["lr"] * group["weight_decay"])
                     p.add_(update, alpha=-group["lr"])
                 dist.all_gather(params_pad[base_i:base_i + world_size], params_pad[base_i + rank])
             group["_step_norm_sum"] = norm_sum
             group["_step_norm_count"] = len(params)
+
+    def _record_spec_frob(self, p: Tensor, pre_ns: Tensor) -> None:
+        name = self.param_names[id(p)]
+        sigma_max = estimate_sigma_max(pre_ns, n_iter=10)
+        frob = float(pre_ns.detach().float().norm().item())
+        ratio = sigma_max / max(frob, 1e-12)
+        self.spec_frob_buffer[name] = {
+            "sigma_max": sigma_max,
+            "frob": frob,
+            "spec_frob_ratio": ratio,
+        }
+
+    def _record_post_ns5(self, p: Tensor, update: Tensor) -> None:
+        name = self.param_names[id(p)]
+        post_sigma_max = estimate_sigma_max(update, n_iter=10)
+        post_frob = float(update.detach().float().norm().item())
+        entry = self.spec_frob_buffer.setdefault(name, {})
+        entry["post_ns5_sigma_max"] = post_sigma_max
+        entry["post_ns5_frob"] = post_frob
 
     def get_step_update_norms(self) -> dict[str, float]:
         """Return per-group mean Frobenius norm of the most recent step's updates.
@@ -774,6 +848,9 @@ if dist.get_rank() == 0:
             "soap_beta2": SOAP_BETA2,
             "soap_precond_freq": PRECOND_FREQ,
             "ns_iter": NS_ITER,
+            "ns_spectral_norm": NS_SPECTRAL_NORM,
+            "ns_spectral_iter": NS_SPECTRAL_ITER,
+            "ns_spectral_overshoot": NS_SPECTRAL_OVERSHOOT,
             "soap_attn_enabled": bool(args.soap_attn),
             "soap_trust_threshold": float(args.soap_trust_threshold),
             "lr_mlp": args.lr_mlp,
@@ -1180,8 +1257,59 @@ for trial_idx in range(args.num_trials):
                 train_steps=train_steps,
                 wandb_step=wandb_step,
             )
+        spec_frob_log_step = train_step in (1, 2, 3, 5, 10, 25, 50, 100, 1000)
+        if spec_frob_log_step:
+            optimizer2.log_spec_frob = True
         for opt in optimizers:
             opt.step()
+        if spec_frob_log_step:
+            optimizer2.log_spec_frob = False
+            if dist.get_rank() == 0 and optimizer2.spec_frob_buffer:
+                sf_metrics = {"trial": trial_idx, "train/step": train_step}
+                mlp_ratio: list[float] = []
+                attn_ratio: list[float] = []
+                mlp_sigma: list[float] = []
+                attn_sigma: list[float] = []
+                mlp_frob: list[float] = []
+                attn_frob: list[float] = []
+                mlp_post: list[float] = []
+                attn_post: list[float] = []
+                for name, vals in optimizer2.spec_frob_buffer.items():
+                    clean = clean_metric_name(name)
+                    sf_metrics[f"ns/spec_frob_ratio_param/{clean}"] = vals["spec_frob_ratio"]
+                    sf_metrics[f"ns/sigma_max_param/{clean}"] = vals["sigma_max"]
+                    sf_metrics[f"ns/frob_param/{clean}"] = vals["frob"]
+                    if "post_ns5_sigma_max" in vals:
+                        sf_metrics[f"ns/post_ns5_sigma_max_param/{clean}"] = vals["post_ns5_sigma_max"]
+                        sf_metrics[f"ns/post_ns5_frob_param/{clean}"] = vals["post_ns5_frob"]
+                    if any(name.endswith(suf) for suf in Muon.SOAP_ATTN_SUFFIXES):
+                        attn_ratio.append(vals["spec_frob_ratio"])
+                        attn_sigma.append(vals["sigma_max"])
+                        attn_frob.append(vals["frob"])
+                        if "post_ns5_sigma_max" in vals:
+                            attn_post.append(vals["post_ns5_sigma_max"])
+                    elif any(name.endswith(suf) for suf in Muon.SOAP_MLP_SUFFIXES):
+                        mlp_ratio.append(vals["spec_frob_ratio"])
+                        mlp_sigma.append(vals["sigma_max"])
+                        mlp_frob.append(vals["frob"])
+                        if "post_ns5_sigma_max" in vals:
+                            mlp_post.append(vals["post_ns5_sigma_max"])
+                if mlp_ratio:
+                    sf_metrics["ns/spec_frob_ratio_mean/mlp"] = sum(mlp_ratio) / len(mlp_ratio)
+                    sf_metrics["ns/sigma_max_mean/mlp"] = sum(mlp_sigma) / len(mlp_sigma)
+                    sf_metrics["ns/frob_mean/mlp"] = sum(mlp_frob) / len(mlp_frob)
+                if attn_ratio:
+                    sf_metrics["ns/spec_frob_ratio_mean/attn"] = sum(attn_ratio) / len(attn_ratio)
+                    sf_metrics["ns/sigma_max_mean/attn"] = sum(attn_sigma) / len(attn_sigma)
+                    sf_metrics["ns/frob_mean/attn"] = sum(attn_frob) / len(attn_frob)
+                if mlp_post:
+                    sf_metrics["ns/post_ns5_sigma_max_mean/mlp"] = sum(mlp_post) / len(mlp_post)
+                if attn_post:
+                    sf_metrics["ns/post_ns5_sigma_max_mean/attn"] = sum(attn_post) / len(attn_post)
+                # Implied post-scale σ_max if spectral mode is on: 1/overshoot.
+                if NS_SPECTRAL_NORM:
+                    sf_metrics["ns/post_scale_target_sigma_max"] = 1.0 / NS_SPECTRAL_OVERSHOOT
+                wandb.log(sf_metrics, step=wandb_step)
 
         # EMA-eval update: parallel param trajectory, no gradients/momentum.
         # Performed after the optimizer step so EMA tracks the post-update params.
