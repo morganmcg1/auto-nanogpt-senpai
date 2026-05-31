@@ -1,3 +1,54 @@
+## Cycle ~2550: H322 nezuko BLOCKING QUESTION resolved — 🎯 **THIRD advisor-error catch in 24h** (regularizer geometry fights F-norm-matched init at λ=1e-5/1e-4) + advisor APPROVED option-2 hybrid (let arm_b finish + SKIP full arm_c launch + assign H326 with redefined ||W·W^T − c²·I||² regularizer) + pre-committed H326 follow-up
+
+**Zero closures, ZERO assignments, one BLOCKING-QUESTION resolution. Outstanding student-side geometric analysis from nezuko caught a fundamental design flaw in advisor's H322 regularizer choice BEFORE the chain went terminal.** Plateau campaign portfolio: 171 NULL/NEG + 1 MERGED WIN (H266), 105+ mechanism classes consolidated.
+
+### BLOCKING QUESTION resolution this cycle
+
+**H322 nezuko PR #1905** — student geometric analysis revealed regularizer mis-calibration of 25-250×, advisor approved hybrid skip + reassignment plan
+
+W&B audit at ~05:00Z:
+- arm_a CTRL `97w100d0` FINISHED: val=3.2697, FFS=3025 (clean TIE H266 +25 envelope)
+- arm_b ORTHO_WEAK `dlqr0bu2` RUNNING at step 2100/3325 (~63%): val=3.4078 interim, `body/ortho_loss_ratio=51.33` (regularizer dominates task loss 51×)
+- arm_c ORTHO_STRONG `vlv7rh95` SMOKE ONLY (125 steps): full arm_c never launched
+
+**Geometric root cause** (student's analysis): Regularizer measures distance from `W·W^T=I`, but `orthogonal_fnorm_matched` init produces `W·W^T=c²·I` with c²≠1 (e.g., c²≈0.33 for attn.qkv, c²≈2.95 for mlp.fc). Regularizer fights init geometry — wants to rescale singular values to 1.0, contradicting F-norm matching. Total raw ortho_loss ≈ 84,787 at init. At λ=1e-5, regularizer term ≈0.85 (51× task loss). Calibrated λ for ratio<0.05 target should be ≈2e-6 (25× weaker), ratio<0.01 ≈4e-7 (250× weaker).
+
+**Advisor decision** (approved hybrid):
+1. Let arm_b finish (~30-40 min remaining, sunk cost optimal)
+2. **SKIP full arm_c at λ=1e-4** — would burn 1h 45min confirming "even more catastrophic" (predicted 510× ratio). Zero informational value.
+3. Post terminal 2.5-arm SENPAI-RESULT (arm_a CTRL + arm_b NEG + arm_c smoke)
+4. PR closes as **172nd NULL/NEG** — NEG-regime characterization of broken-design regularizer (mechanistic-design clarification, not successful test of original hypothesis)
+5. **Pre-committed H326 follow-up**: redefined regularizer `||W·W^T − c²·I||²` (preserves F-norm matching, tests TRUE orthogonality of singular vectors not singular-value scaling) + calibrated λ values (4e-7 / 2e-6 / 1e-5)
+
+### 🎯 THIRD advisor-error catch in 24h — paper-grade student rigor pattern
+
+| Catch | Student | Hypothesis | Advisor error |
+|-------|---------|-----------|---------------|
+| #1 | tanjiro (H316) | OUTER LR cooldown SCHEDULE | `h_cooldown_frac=1.0` would have run inner cooldown 100% → saved 5.4h chain on incorrect schedule semantics |
+| #2 | askeladd (H319) | AUX β1 mid_training SCHEDULE | Baseline β1=0.8 not 0.9 (hardcoded at train_gpt_simple.py:938) → re-anchored Option A preserved bit-id arm_a |
+| #3 | nezuko (H322 — THIS) | body weight orthogonality regularizer | Regularizer geometry `||W·W^T−I||²` fights F-norm-matched init (`W·W^T=c²·I`) → would have run 6h on broken design |
+
+This is a **structural fleet-wide pattern**: students with paper-grade rigor catching advisor-design errors via pre-launch smoke-gate analysis. The shared trigger across all three: students ran the smoke gate, found unexpected behavior (wrong cooldown semantics / wrong baseline value / wrong λ scaling), did the geometric/code analysis, and asked BEFORE committing GPU hours. Gold-standard student gating behavior — preserved in feedback memory.
+
+### In-flight WIP cluster (8 of 8 students, post-cycle-2550)
+
+- PR #1917 H325 frieren: AUX β2 mid_training_ramp DOWN-from-baseline
+- PR #1913 H324 tanjiro: OUTER LR WARMUP schedule
+- PR #1906 H323 thorfinn: μ_end low sustained
+- PR #1905 H322 nezuko: body weight orthogonality regularizer (will close as 172nd NULL/NEG when arm_b terminal + 2.5-arm result posted; H326 pre-committed)
+- PR #1896 H321 fern: schedule-tapered adaptive μ
+- PR #1892 H320 edward: OUTER anchor refresh policy
+- PR #1890 H319 askeladd: AUX β1 mid_training SCHEDULE
+- PR #1889 H318 alphonse: OUTER momentum cooldown schedule
+
+### Cycle ~2550 takeaway
+
+Pure BLOCKING-QUESTION resolution cycle. No closures, no merges, no new assignments. Outstanding student analysis on H322 saved a 6h GPU misallocation and produced a paper-grade design clarification: F-norm-matched init constrains regularizer geometry. The pre-committed H326 follow-up will then test the TRUE orthogonality question with the F-norm-preserving regularizer.
+
+The fleet-wide pattern of THREE advisor-error catches in 24h is itself a research-process finding: paper-grade student rigor with pre-launch smoke-gate diagnostics is catching design errors that would otherwise consume 5-6h GPU per occurrence. The advisor must continue grounding pre-PR-body design in actual code inspection rather than assumed semantics.
+
+---
+
 ## Cycle ~2500: H317 frieren CLOSED 171st NULL/NEG (AUX β2 mid_training_ramp UP-from-baseline=0.99 axis EXHAUSTED) + 🎯 within-cycle paper-grade β1-vs-β2 SCHEDULE-axis mechanism distinction (H319 cycle ~2450 β1 UP mild NEG vs H317 β2 UP FLAT) + H325 ASSIGNED frieren AUX β2 mid_training_ramp DOWN-from-baseline (PR #1917, symmetric H317 sibling closure + β1-vs-β2 inversion-probe, 107th mechanism class candidate)
 
 **One major closure (171st NULL/NEG with paper-grade β1-vs-β2 mechanism distinction), one fresh assignment (H325 sibling closure to H317). Plateau campaign portfolio: 171 NULL/NEG + 1 MERGED WIN (H266), 105+ mechanism classes consolidated.**
