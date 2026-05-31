@@ -1065,10 +1065,26 @@ for trial_idx in range(args.num_trials):
         if (args.aux_b2_pulse_step > 0
                 and args.aux_b2_pulse_target > 0.0
                 and step == args.aux_b2_pulse_step):
+            before_str = ", ".join(
+                f"{g.get('name', f'group{i}')}={g['betas'][1]}"
+                for i, g in enumerate(optimizer1.param_groups)
+            )
+            print0(f"[step {step}] β₂ before: {before_str}", console=True)
             old_b2 = optimizer1.param_groups[0]["betas"][1]
             new_betas = (optimizer1.param_groups[0]["betas"][0], args.aux_b2_pulse_target)
             for group in optimizer1.param_groups:
                 group["betas"] = new_betas
+            after_str = ", ".join(
+                f"{g.get('name', f'group{i}')}={g['betas'][1]}"
+                for i, g in enumerate(optimizer1.param_groups)
+            )
+            print0(f"[step {step}] β₂ after:  {after_str}", console=True)
+            print0(
+                f"[step {step}] aux_b2_pulse fired @ step {step} "
+                f"(target={args.aux_b2_pulse_target}, "
+                f"n_groups={len(optimizer1.param_groups)})",
+                console=True,
+            )
             print0(f"[step {step}] aux_b2_pulse: β2 {old_b2} → {args.aux_b2_pulse_target}",
                    console=True)
         for opt in optimizers:
