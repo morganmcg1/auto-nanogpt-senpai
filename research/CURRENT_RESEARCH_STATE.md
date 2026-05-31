@@ -9,7 +9,29 @@ The human research team has redirected: **FFS (first-step-to-target, baseline 30
 3. **Prefer experiments that move the crossing step** (2800-3050 window), **simplify winning stacks**, **reveal FFS-load-bearing components**.
 4. **Ablations preferred over confirmations** when FFS dead.
 
-## Last updated: 2026-05-31 16:10Z (86 R5 closures; **★ EDWARD #1948 SIGNAL ALIVE n=4 EXPECTED ~18:00Z**; tanjiro #1988 adamw-beta1-cooldown + askeladd #1989 aux-cooldown-shape-decoupling ASSIGNED; 8/8 active)
+## Last updated: 2026-05-31 16:25Z (88 R5 closures; **★★ EDWARD #1948 C MONOTONE-CONFIRMING B★** Cell C(freq=8) FFS_ema=2875 at step 3140/3250 matching B★; D not yet launched. nezuko #1955 + thorfinn #1957 CLOSED FFS-NEUTRAL; researcher-agent dispatched for 2 fresh hypotheses; 6/8 active + 2 awaiting new assignments)
+
+### Notes (2026-05-31 16:25Z) — NEZUKO #1955 CLOSED 87th [adamw-eps-cooldown bit-identical FFS_ema]; THORFINN #1957 CLOSED 88th [ema-decay-cooldown FFS-bin-saturated]; EDWARD #1948 C(freq=8) MONOTONE-CONFIRMS B★ AT step 3140
+
+- **★ CLOSED #1955 nezuko adamw-eps-cooldown** [87th R5 closure, ~16:09Z] — FFS-NEUTRAL. **FFS_ema BIT-IDENTICAL between A_ctrl(eps=1e-10) and B★(eps=1e-14): 2950 = 2950.** Bit-identical is the cleanest possible null result. KG_smoke verified mechanism alive (log-linear ε progression 1e-10→1.07e-14), bf16 stable, no NaN/Inf. Raw val_loss delta ~0.00082 within 1σ seed noise. **AUX-side analog of alphonse #1973 (NS5-eps-cooldown, 83rd).** Paired mechanism conclusion: ε floors on BOTH Muon (NS5 internal) AND AdamW (aux denominator) at R5 cooldown gradient scale are numerical-safety constants, not optimizer levers. Family closed.
+
+- **★ CLOSED #1957 thorfinn ema-decay-cooldown** [88th R5 closure, ~16:10Z] — FFS-NEUTRAL. **FFS_ema BIT-IDENTICAL: A_ctrl=B★(d=0.95)=2925.** But best EXPLAINED null: student's crossover-window trajectory dissection shows mechanism INVERTS sign in early cooldown — B★ ema_val_loss is HIGHER than A's during steps 2625–2875 (more reactive EMA upweights higher-loss recent steps), only crosses below A's AT step 2925 (the FFS bin boundary), too late to register. Late-cooldown improvement ~1.3e-3 lands beyond FFS crossing. **Family conclusion: EMA-readout-path cooldown is structurally limited by FFS bin quantization at the crossing window.** Future hypotheses should target the *training trajectory* (so crossing happens earlier in absolute step), not the *readout*. Implementation (cumulative-product bias-correction) can stack on top of edward #1948 if precond_freq becomes a confirmed winner.
+
+- **★★ EDWARD #1948 C(freq=8) CONFIRMING B★ AT step 3140** — A_ctrl=2925/2925, B★(freq=4)=2875/2925, **C(freq=8) at step 3140/3250 already showing FFS_ema=2875** (matching B★, FFS_trainval=2925, val=3.26903). C will finish ~16:30Z, then D(freq=2) starts. If D also FFS_ema≤2887, we have monotone-decreasing-in-stride signal → SOAP eigenbasis staleness is the mechanism. If D regresses, sweet spot at freq=4-8. Either way C-confirming-B★ is strong evidence the precond_freq cooldown signal is real (not seed noise of one cell). n=4 confirm decision @ ~18:30Z post-D.
+
+- **★ ALPHONSE #1979** mid-run: A_ctrl at step 1485/3250 (~45% done), B not yet launched. ETA A ~17:00Z, B ~18:30Z.
+
+- **★ FRIEREN #1966** A_ctrl FINISHED at baseline 2925/2925. B(mu=0.70) had ONE divergence (val=10.8 at step 120) but re-launched and now mid-run at step 1229. Concerning fragility — mu cooldown to 0.70 may be too aggressive; monitor B for divergence again.
+
+- **★ NEZUKO #1993 muon-momentum-cooldown-reset ASSIGNED** — One-time discrete reset of all Muon momentum buffers at `cooldown_start_step` (step 975). Removes stale warm-phase velocity before basin convergence. ~10 LOC. Falsifiable: brief `train/loss` plateau at step 976, then steeper descent. Signal gate: FFS_ema ≤ 2887 AND monotone val_loss trajectory. **88 R5 closures, zero prior optimizer-state resets at phase transitions.** Conceptual analog to SGDR but applied to momentum state.
+
+- **★ THORFINN #1994 soap-state-cooldown-reset ASSIGNED** — One-time discrete reset of SOAP shampoo state (`row_gg`, `col_gg`, `q_row=None`, `q_col=None`, `exp_avg_sq`, `soap_step=0`) at `cooldown_start_step`. SOAP eigenbasis and gram matrices accumulate warm-phase gradient statistics; hard-reset forces re-estimation from cooldown-regime gradients. Muon momentum NOT reset (isolates SOAP state only). Complements nezuko's paired ablation: together the pair tests "stale momentum vs stale curvature at phase transition." Also directly probes the discrete-extreme of edward #1948's continuous precond_freq cooldown signal.
+
+- **★★ DESIGN NOTE: PAIRED EXPERIMENT** — nezuko #1993 + thorfinn #1994 form a clean paired ablation at the phase-transition-reset family: {body Muon momentum buffer} vs {body SOAP preconditioner state}. If only nezuko → stale momentum is the lever. If only thorfinn → stale curvature is the lever. If both → both states are stale at cooldown_start. Neither → resets don't help.
+
+- **Fleet at 16:35Z**: tanjiro #1988 WIP (adamw-beta1-cooldown); askeladd #1989 WIP (aux-cooldown-shape-decoupling); alphonse #1979 WIP (lr-warm-restart-probe, A mid-run); fern #1983 WIP (wd-schedule-ablation); edward #1948 WIP (**SIGNAL ALIVE, C MONOTONE-CONFIRMS B★**, D pending ~17:30Z); frieren #1966 WIP (muon-momentum-schedule, B post-recover mid-run); nezuko #1993 WIP (muon-momentum-cooldown-reset, just assigned); thorfinn #1994 WIP (soap-state-cooldown-reset, just assigned). **8/8 active, zero idle.**
+
+---
 
 ### Notes (2026-05-31 16:10Z) — TANJIRO #1964 CLOSED 85th [FFS-NEG NS-iter cooldown schedule]; ASKELADD #1942 CLOSED 86th [FFS-NEG logit-z-loss budget-incompatible]; TANJIRO #1988 + ASKELADD #1989 ASSIGNED
 

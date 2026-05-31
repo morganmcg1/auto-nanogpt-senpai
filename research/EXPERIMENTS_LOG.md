@@ -1,5 +1,52 @@
 # SENPAI Research Results — auto-nanogpt-1gpu-r5
 
+## 2026-05-31 16:10Z — PR #1957 CLOSED FFS-NEUTRAL [ema-decay-cooldown; mechanism alive but FFS-bin-saturated; B★ HIGHER than A_ctrl during 2625-2875 then crosses below at step 2925] [88th R5 closure]
+
+- branch: thorfinn/ema-decay-cooldown-schedule
+- hypothesis: Linearly ramp `ema_eval_decay` from 0.99→0.95 across the cooldown window so the EMA validation readout tracks the tightening basin faster, registering the val_loss ≤ 3.28 crossing at an earlier step. Mechanism: shorter EMA tail (smaller d) → smaller half-life → faster reactivity to current iterates.
+- cells (n=1 screen, signal gate FAILED → no C/D launched):
+
+| Cell | d_target | FFS_ema | FFS_trainval | best val_loss | best ema_corr val_loss | wandb |
+|---|---|---:|---:|---:|---:|---|
+| A_ctrl (no-op) | None | **2925** | **2925** | 3.26990 | 3.27041 | `0rhq3big` |
+| B★ (primary) | 0.95 | **2925** | **2925** | 3.26906 | 3.26908 | `ynvcsto6` |
+| Baseline #1533 | — | μ_4=2912.5 (σ=25) | — | — | — | — |
+
+- val_loss probe-step trajectory (decisive discriminator):
+
+| step | A_ctrl | B★(0.95) | Δ(B−A) |
+|------|--------|----------|--------|
+| 2625 | 3.29925 | 3.30508 | **+0.00583** (B HIGHER) |
+| 2750 | 3.28921 | 3.29198 | +0.00277 |
+| 2875 | 3.28126 | 3.28162 | +0.00036 |
+| 2925 | 3.27873 | 3.27833 | −0.00040 ← FFS_ema fires for both |
+| 3000 | 3.27557 | 3.27436 | −0.00121 |
+| 3250 | 3.27041 | 3.26908 | −0.00133 (B catches up) |
+
+- **Mechanism inversion finding**: Per PR's pre-mortem #1, d=0.99 half-life ≈ 69 steps is already comparable to the 50-step val eval grid. Worse: in early-to-mid cooldown when LR is still relatively high, recent iterates are higher-loss than the historical EMA. A *more reactive* EMA upweights the higher-loss recent steps, making B's ema_val_loss HIGHER than A's during steps 2625–2875. The crossover (B < A) happens precisely AT the FFS bin (step 2925) — too late to register on FFS_ema.
+- KG_smoke verified: `train/ema/decay_scheduled` ramps as designed (0.99→0.99000@s975→0.95004@s3249); cumulative-product `ema_bias_corr_factor` collapses to `d**t` for constant d (no-op semantics preserved).
+- analysis: This is a **textbook case of why FFS_ema is hard to move under FFS-PRIMARY framing**. The metric is bin-quantized at the 50-step eval grid; mechanism gain must land EXACTLY at the crossing window (~steps 2875–2925) to register. Late-cooldown improvements (B below A at step 3000+) are invisible to FFS_ema even when they are real (~1.3e-3 raw delta).
+- conclusions: **EMA-decay-cooldown axis closed. Family: EMA-readout-path cooldown is structurally limited by FFS bin quantization at the crossing window.** Readout-only sharpening cannot produce FFS_ema movement unless gain lands exactly at bin boundary. Future hypotheses should target the *training trajectory* (so the crossing happens earlier in absolute step) rather than the *readout* (which only changes what value is reported at fixed eval steps). Student's Option A cumulative-product bias-correction implementation is clean and can be reused if EMA decay is ever stacked atop edward #1948 (signal-alive precond_freq cooldown).
+- student assignment next: TBD (fresh hypothesis from researcher-agent)
+
+## 2026-05-31 16:09Z — PR #1955 CLOSED FFS-NEUTRAL [adamw-eps-cooldown; bit-identical FFS_ema A_ctrl=B★=2950; AdamW ε floor on aux groups is numerical-safety constant at R5 cooldown gradient scale, not optimizer lever] [87th R5 closure]
+
+- branch: g1r5-nezuko/adamw-eps-cooldown
+- hypothesis: Log-linearly decay AdamW ε from 1e-10 → 1e-14 during cooldown window for aux groups (embed/lm_head/scalars). Mechanism: FAdam-inspired — tighter denominator in low-LR regime should improve effective per-step update magnitude near convergence basin.
+- cells (n=1 screen, signal gate FAILED both thresholds → no C/D launched):
+
+| Cell | eps_end | wandb | FFS_ema | FFS_trainval | best_val_loss | ema_corr_best |
+|---|---|---|---:|---:|---:|---:|
+| A_ctrl | 1e-10 (no-op) | `2uhsbg79` | **2950** | 2975 | 3.27216 | 3.27268 |
+| B★ | 1e-14 | `jzx2rdrq` | **2950** (bit-identical) | 2950 | 3.27134 | 3.27184 |
+| Baseline #1533 | — | — | μ_4=2912.5 (σ=25) | — | — | — |
+| Merge gate | — | — | ≤2887.5 | — | — | — |
+
+- KG_smoke verified: log-linear ε progression 1e-10 → 1.07e-14 across 200 steps; `args.eps_cooldown_end < 1e-10` guard active only for eps<1e-10 (A_ctrl provably a no-op); `if "eps" in group` guards AdamW-only mutation (Muon untouched); bf16 numerical stability at 1e-14 floor.
+- analysis: **FFS_ema is bit-identical between A_ctrl and B★ (2950 = 2950)**. The eps modification of AdamW (managing only 1D embed/lm_head/scalars) had zero effect on when the EMA val_loss curve crosses target. FFS_trainval improved by 25 steps (1σ within seed noise σ_4=25). Raw val_loss delta ~0.00082 — within n=1 seed jitter. No numerical issues (bf16+fused AdamW at eps=1e-14 stable, no NaN/Inf across 3250 steps). Pre-mortem #1 confirmed: AdamW ε has minimal effect because the 1D scalar/embed/lm_head params don't dominate FFS crossing. The 2D Muon-managed body matrices drive the late-cooldown loss curve under SOAP-attn + Muon-mlp split.
+- conclusions: **AUX-side analog of alphonse #1973 (NS5-eps-cooldown closure, 83rd).** Both are ε-cooldown experiments on different optimizer paths (Muon NS5 internal vs AdamW aux), both produced informative nulls with mechanism-alive telemetry but zero FFS movement. Paired mechanism conclusion: **ε floors on both Muon (NS5 internal) and AdamW (aux denominator) at R5 cooldown gradient scale are numerical-safety constants, not optimizer levers.** Memory rule confirmed: Muon gradient norms remain 10³–10⁵ throughout cooldown, never approach 1e-7 ε floor. Future ε-perturbation hypotheses in the optimizer space at R5 should not be proposed without a mechanism story for how ε would couple to the FFS crossing window — likely requires aux-dominance argument first.
+- student assignment next: TBD (fresh hypothesis from researcher-agent)
+
 ## 2026-05-31 16:05Z — PR #1942 CLOSED FFS-NEG [logit-z-loss; monotone dose-response regression; budget-incompatible; matches label-smoothing pattern #1870] [86th R5 closure]
 
 - branch: g1r5-askeladd/logit-z-loss
