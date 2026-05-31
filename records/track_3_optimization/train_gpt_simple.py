@@ -86,6 +86,16 @@ def parse_args():
              "step: eta = 1 if x < 0.8 else 0 (falsifier - no decay until last 20% of cooldown).",
     )
     parser.add_argument(
+        "--wd_cooldown_shape",
+        type=str,
+        default="linear",
+        choices=["linear", "cosine", "concave", "convex"],
+        help="Shape of WD decay within the cooldown window when --wd_schedule=ramp_down. "
+             "Mirrors --lr_cooldown_shape but operates on the WD multiplier in the cooldown phase only. "
+             "linear (default, current behavior); cosine (0.5*(1+cos(pi*x))); "
+             "concave (sqrt(1-x)); convex ((1-x)**2). Only active for ramp_down.",
+    )
+    parser.add_argument(
         "--depth_init_mode",
         type=str,
         default="ctrl",
@@ -784,6 +794,7 @@ if dist.get_rank() == 0:
             "lr_scalars": args.lr_scalars,
             "depth_init_mode": args.depth_init_mode,
             "lr_cooldown_shape": args.lr_cooldown_shape,
+            "wd_cooldown_shape": args.wd_cooldown_shape,
             "ema_eval_decay": args.ema_eval_decay,
             "ema_eval_enabled": args.ema_eval_decay is not None,
         },
@@ -883,18 +894,30 @@ for trial_idx in range(args.num_trials):
             group["initial_lr"] = group["lr"]
             group["initial_wd"] = group.get("weight_decay", 0.0)
 
-    def _wd_multiplier(step, total_steps, schedule):
+    def _wd_multiplier(step, total_steps, schedule, cooldown_frac=0.7, wd_cooldown_shape="linear"):
         if schedule == "constant":
             return 1.0
         p = step / total_steps
         if schedule == "ramp_up":
             return 2.0 * p
         elif schedule == "ramp_down":
+            cooldown_start = 1.0 - cooldown_frac
+            if p >= cooldown_start and wd_cooldown_shape != "linear":
+                wd_at_onset = 2.0 * cooldown_frac  # = 1.4 with cooldown_frac=0.7
+                x = max(0.0, min(1.0, (p - cooldown_start) / cooldown_frac))
+                if wd_cooldown_shape == "cosine":
+                    shape_eta = 0.5 * (1.0 + math.cos(math.pi * x))
+                elif wd_cooldown_shape == "concave":
+                    shape_eta = math.sqrt(max(0.0, 1.0 - x))
+                elif wd_cooldown_shape == "convex":
+                    shape_eta = (1.0 - x) ** 2
+                else:
+                    raise ValueError(f"Unknown wd_cooldown_shape: {wd_cooldown_shape}")
+                return wd_at_onset * shape_eta
             return 2.0 * (1.0 - p)
         elif schedule == "triangle":
             return 4.0 * p if p < 0.5 else 4.0 * (1.0 - p)
         elif schedule == "cosine_updown":
-            import math
             return 1.0 - math.cos(2 * math.pi * p)
         else:
             raise ValueError(f"Unknown wd_schedule: {schedule}")
@@ -922,7 +945,9 @@ for trial_idx in range(args.num_trials):
         else:
             x = (progress - (1 - cooldown_frac)) / cooldown_frac
             eta = _cooldown_eta(x, args.lr_cooldown_shape)
-        wd_mu = _wd_multiplier(step, train_steps, args.wd_schedule)
+        wd_mu = _wd_multiplier(step, train_steps, args.wd_schedule,
+                               cooldown_frac=cooldown_frac,
+                               wd_cooldown_shape=args.wd_cooldown_shape)
         for opt in optimizers:
             for group in opt.param_groups:
                 group["lr"] = group["initial_lr"] * eta
