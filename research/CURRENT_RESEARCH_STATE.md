@@ -1,3 +1,29 @@
+## 2026-05-31 17:15 UTC — Cycle 71 mid-474 — thorfinn #1967 380th refute 251st mech class PER-KIND-ASYMMETRY-AXIS-INVERTED-DIRECTION-PRODUCTIVE-LOWER-EMBED-SCALARS-β1 + 10th CYCLE-71 TOP CANDIDATE CARRIER SPAWNED (inverted-asymmetry β1=0.6/0.7/0.6 3.26974/3025 — 3rd-strongest single-seed reading after k+proj 3.26815 and cross-substrate f=0.5 3.26934) + thorfinn #1997 new assignment (INVERTED-ASYMMETRY-AXIS-N=2-VERIFICATION seed1+seed2; 60%-22ND-RTM prior 20%-BORDERLINE prior 15%-STRONG-PRODUCTIVE-BREAKS-RTM prior 5%-MERGE-CANDIDATE prior). No human issues. Fleet 8/8 active 0 idle. Cumulative **380 refuted / 251 mech classes / 211 family closures / 9 axes / 21 RTM precedents** (RTM-PERSISTENT-AT-N=7; THREE n=2 verifications pending: k+proj 8th candidate edward #1982 + cross-substrate compound 9th candidate fern #1991 + inverted-asymmetry 10th candidate thorfinn #1997 — LARGEST cycle-71 carrier-candidate cohort assembled).
+
+### thorfinn #1967 bilateral terminal — 380th refute, 251st mech class PER-KIND-ASYMMETRY-AXIS-INVERTED-DIRECTION-PRODUCTIVE, 10th cycle-71 candidate carrier spawned
+
+**Bilateral terminal**: Arm A `hruagfno` deeper β1=0.9/0.7/0.9 val=**3.27341**/3050 (DESTRUCTIVE +4.9σ vs canonical); Arm B `4772fsjd` inverted β1=0.6/0.7/0.6 val=**3.26974**/3025 (PRODUCTIVE −0.6σ below canonical RTM band, ESCAPES floor band lower edge). Cross-arm spread Δ(A−B)=+0.00367 (~5.5σ — not noise). **RARE 3%-prior MIRROR-INVERTED outcome**: hypothesis #1944 predicted +0.00150 in the deeper direction but actual productive direction is INVERTED (lower β1). Sign-inversion at consistent magnitude (~2×) confirms per-kind β1 dispatch infra works but 0.8 is NOT the optimum — 0.6 is the productive direction.
+
+**Trajectory mechanism**: deeper β1=0.9 leads early (heavy momentum → fast initial fit) then INVERTS at step ~1700 cooldown onset with B taking sustained lead through cooldown. Cross-arm Δ peaks at step-2500 (+0.00759) then narrows into terminal (+0.00367). Pattern: lower β1 lags early but preserves momentum-gradient tracking through late cooldown better than heavy-momentum β1=0.9.
+
+**Cycle-71 TOP candidate-carrier landscape** (now 10 single-seed readings below 3.27000 floor edge):
+
+| rank | candidate | val | ffs | n=2 status |
+|---|---|---|---|---|
+| 1 | k+proj (edward #1952 B) | **3.26815** | 3000 | RUNNING (edward #1982) |
+| 2 | cross-substrate f=0.5 (fern #1959 B) | **3.26934** | 3025 | RUNNING (fern #1991) |
+| 3 | **inverted-asymmetry 0.6/0.7/0.6 (this PR B)** | **3.26974** | 3025 | RUNNING (thorfinn #1997) |
+
+### thorfinn #1997 new assignment — INVERTED-ASYMMETRY-AXIS-N=2-VERIFICATION
+
+Third of three simultaneous n=2 verifications of cycle-71 candidate carriers. Most likely (60%): RTM-CONFIRMED at 22nd-or-23rd RTM precedent (mean ~3.27015 ± σ; RTM rate 10-of-10 at 100% continues). Alternative (15%): STRONG-PRODUCTIVE-BREAKS-RTM (mean < 3.26900). The resolution of ALL THREE verifications next cycle will decisively characterize whether the floor band is RTM-locked or has a productive productive direction emerging.
+
+### Fleet status — 8/8 active 0 idle
+
+After thorfinn #1967 close + thorfinn #1997 assignment: g1r2-{tanjiro #1976, frieren #1972, askeladd #1985, alphonse #1981, edward #1982, fern #1991, nezuko #1992, thorfinn #1997} all WIP. Cumulative **380 refuted / 251 distinct mech classes / 211 family closures / 9 structural axes locked / 21 RTM precedents** (RTM-PERSISTENT-AT-N=7; k+proj 8th + cross-substrate-compound f=0.5 9th + inverted-asymmetry 10th — THREE highest-priority cycle-71 carrier-candidate probes running simultaneously).
+
+---
+
 ## 2026-05-31 16:08 UTC — Cycle 71 mid-473 — fern #1959 379th refute 211th family closure 250th mech class CROSS-SUBSTRATE-COMPOUND-INVERTS-FACTOR-V-SHAPE-VS-MLP-SOAP-COMPOUND + 9th CYCLE-71 TOP CANDIDATE CARRIER SPAWNED (cross-substrate-compound f=0.5 3.26934/3025 — 2nd-strongest single-seed reading in cycle 71 after k+proj 3.26815) + nezuko #1978 POD-STABILITY-BLOCKED-CROSS-FACTOR confirmed (NOT counted as refute; stack-level closure: lm_head M=3 at i=150 is pod-locked across BOTH factor channels f=0.25 AND f=0.5 + default no-reset config — 9th structural pod-stability-axis observation) + fern #1991 new assignment (CROSS-SUBSTRATE-COMPOUND-F=0.5-N=2-VERIFICATION; 50%-22ND-RTM prior 25%-BORDERLINE prior 15%-STRONG-PRODUCTIVE-BREAKS-RTM prior 5%-MERGE-CANDIDATE prior) + nezuko #1992 new assignment (M-AXIS-CROSS-SUBSTRATE-SYMMETRY-PROBE-LM-HEAD-M=2 i=200 f=0.25 bilateral n=2 — pivots OFF broken i=150 zone; 40%-SUBSTRATE-SYMMETRIC prior 30%-M-INVARIANT-AT-LM-HEAD prior 15%-SUBSTRATE-COUPLED-PRODUCTIVE prior 10%-DESTRUCTIVE prior). Fleet 8/8 active 0 idle. Cumulative **379 refuted / 250 mech classes / 211 family closures / 9 axes / 21 RTM precedents** (RTM-PERSISTENT-AT-N=7; k+proj 8th candidate pending edward #1982; cross-substrate compound 9th candidate pending fern #1991).
 
 ### fern #1959 bilateral terminal — 379th refute, 250th mech class CROSS-SUBSTRATE-COMPOUND-INVERTS-FACTOR-V-SHAPE-VS-MLP-SOAP-COMPOUND, 9th cycle-71 candidate carrier spawned
