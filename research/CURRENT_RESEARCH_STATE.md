@@ -1,3 +1,37 @@
+## 2026-05-31 23:54 UTC — Cycle 71 mid-489 — askeladd #2007 392nd refute 262nd mech class MLP-SOAP-×-PER-KIND-β1-NULL-INTERACTION-AT-FLOOR (29th RTM precedent; n=2 mean 3.27090 / Δ +0.00072 vs MLP-SOAP isolated, Δ +0.00075 vs per-kind-β1 isolated both within seed noise; **3-MECHANISM COMPOUND TRIANGLE COMPLETE**: MLP-SOAP × embed-reset uniquely emergent; carrier-substrate hypothesis NARROWED to embed-substrate-reset OR substrate-reset-class) + askeladd #2035 new assignment (MLP-SOAP × LM-HEAD-RESET CARRIER-SUBSTRATE DISCRIMINATOR; 35% PRODUCTIVE-EMERGENT-substrate-reset-class-carrier 30% RTM-ADDITIVE-embed-uniquely-carrier 15% DESTRUCTIVE 15% POD-BLOCKED 5% MERGE). **Critical structural insight**: MLP-SOAP × per-kind β1 RTM-additive + per-kind β1 × embed-reset RTM-additive but MLP-SOAP × embed-reset emergent → the emergence is PAIR-SPECIFIC, not driven by MLP-SOAP alone NOR by embed-reset alone in arbitrary pairings. Next probe resolves substrate-reset-class vs embed-uniquely. Step-1500 cross-arm Δ −0.00004 = TIGHTEST early-gate of cycle 71. No human issues. Fleet 8/8 active 0 idle. Cumulative **392 refuted / 262 mech classes / 218 family closures / 9 axes locked / 29 RTM precedents / 15 pod-stability observations** (RTM-PERSISTENT-AT-N=15/16 = 93.75%).
+
+### askeladd #2007 bilateral terminal — 262nd mech class / 29th RTM / 3-mechanism compound triangle COMPLETE
+
+**Bilateral terminal**: Arm A `f2o8lt32` SEED=1 val=**3.27135**/3025; Arm B `h47s51sx` SEED=2 val=**3.27045**/3025. n=2 mean **3.27090** (spread 0.00090 — clean cross-arm constant offset). Δ vs baseline 3.26776 = +0.00314 (RTM band lower edge); stat margin 0.01287 ≥ 0.004 ✓ (statistically robust NEGATIVE). **Step-1500 cross-arm Δ −0.00004 = TIGHTEST early-gate of cycle 71**.
+
+**3-mechanism compound triangle reading**:
+
+| compound | reference | n=2 mean | reading |
+|---|---|---|---|
+| MLP-SOAP × embed-reset | #1956/#1985 | sub-floor | **LOAD-BEARING** (productive emergence) |
+| **MLP-SOAP × per-kind β1** | **#2007 THIS PR** | **3.27090 RTM** | **NULL-INTERACTION (additive)** |
+| Per-kind β1 × embed-reset | #2008 | 3.27064 RTM | NULL-INTERACTION (additive) |
+
+→ **MLP-SOAP is NOT a universal interaction-carrier substrate**: pairing MLP-SOAP with per-kind β1 produces RTM-additive, not emergence. Similarly per-kind β1 × embed-reset is additive. The MLP-SOAP × embed-reset pair is **uniquely emergent**. Neither mechanism alone carries the emergence.
+
+### Carrier-substrate hypothesis state — narrowed to 2 candidates
+
+Post-triangle, two remaining hypotheses:
+1. **EMBED-SUBSTRATE-RESET uniquely the carrier**: the emergence requires the specific embed-substrate; lm_head-reset is functionally distinct from embed-reset in MLP-SOAP-anchored compounds
+2. **SUBSTRATE-RESET-CLASS is the carrier**: embed-reset and lm_head-reset are substitutable in the MLP-SOAP-anchored emergent compound
+
+The clean discriminator: **MLP-SOAP × LM-HEAD-RESET** (mirror config of #1985's productive embed-reset). Assigned to askeladd as #2035.
+
+### askeladd #2035 new assignment — MLP-SOAP × LM-HEAD-RESET CARRIER-SUBSTRATE DISCRIMINATOR
+
+Tests MLP-SOAP front_FAST × per-substrate lm_head-reset (interval=200, MOMENT=2, partial_factor=0.25 — mirror config of #1985's productive embed-reset cell). Most likely (35%): PRODUCTIVE-EMERGENT ~3.26950 sub-floor — substrate-reset-class is the carrier; embed and lm_head substitutable. Alternatives: 30% RTM-ADDITIVE ~3.27015 floor (embed-uniquely the carrier), 15% DESTRUCTIVE (lm_head-reset disrupts MLP-SOAP), 15% POD-BLOCKED (lm_head-reset destabilizes muon-warmup), 5% MERGE. **If PRODUCTIVE-EMERGENT confirmed**, opens 2nd cycle-71 emergent compound AND opens lm_head-reset M-axis, F-axis, interval-axis as new productive design dimensions (entirely new probe budget).
+
+### Fleet status — 8/8 active 0 idle
+
+After askeladd #2007 close + askeladd #2035 assignment: g1r2-{askeladd #2035, alphonse #2034, edward #2031, fern #2013, nezuko #2033, thorfinn #2021, tanjiro #2026, frieren #2027} all WIP. Cumulative **392 refuted / 262 distinct mech classes / 218 family closures / 9 structural axes locked / 29 RTM precedents / 15 pod-stability observations** (RTM-PERSISTENT-AT-N=15/16 = 93.75%; floor band STRUCTURALLY LOCKED at [3.27000, 3.27200]).
+
+---
+
 ## 2026-05-31 23:42 UTC — Cycle 71 mid-488 — DOUBLE CLOSURE: nezuko #2028 15th pod-stability INTERVAL-AXIS-POD-BLOCKED-AT-MIRROR-INVERTED-M (4th per-substrate-axis pod-block; STRICT-SYMMETRY-PROTECTION extends F→INTERVAL; MIRROR-INVERTED-M monolithically symmetric-only) + alphonse #2008 391st refute 261st mech class PER-KIND-β1-×-EMBED-RESET-ADDITIVE-AT-FLOOR (28th RTM precedent; n=2 mean 3.27064 / Δ +0.00049 vs β1-isolated 3.27015, Δ +0.00041 vs reset-isolated 3.27023 both within seed noise; 3rd compound-emergence reading — MLP-SOAP × embed-reset remains UNIQUE load-bearing interaction) + nezuko #2033 new assignment (FORWARD-MATCHED-M=2 + SYMMETRIC-F: pivot OFF MIRROR-INVERTED-M; 35% RTM-INVARIANT 25% PRODUCTIVE-NEW-PAIRING 20% DESTRUCTIVE-MIRROR-UNIQUE 15% POD-BLOCKED 5% MERGE) + alphonse #2034 new assignment (PER-KIND-β1 × EMBED-RESET-MOMENT=1 variance reset: M-axis discriminator; 35% RTM-ADDITIVE-INVARIANT 25% PRODUCTIVE-EMERGENCE 20% DESTRUCTIVE 15% POD-BLOCKED 5% MERGE). **Strategic pivot**: nezuko pivots OFF MIRROR-INVERTED-M after 4 per-substrate-axis pod-blocks (consumed substantial probe budget; student-suggested direction in #2028 follow-ups). No human issues. Fleet 8/8 active 0 idle. Cumulative **391 refuted / 261 mech classes / 217 family closures / 9 axes locked / 28 RTM precedents / 15 pod-stability observations** (RTM-PERSISTENT-AT-N=14/15 = 93.3%).
 
 ### nezuko #2028 bilateral terminal — 15th pod-stability observation / 4th per-substrate-axis pod-block at MIRROR-INVERTED-M
