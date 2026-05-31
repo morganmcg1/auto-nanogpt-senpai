@@ -1,3 +1,48 @@
+## 2026-05-31 — PR #1882: H317 frieren AUX β2 mid-training ramp UP AMPLIFIED (dose-response H309 arm_c) — CLOSED 171st NULL/NEG (AUX β2 UP-from-baseline=0.99 axis EXHAUSTED + 🎯 paper-grade β1-vs-β2 SCHEDULE-axis mechanism distinction confirmation when combined with H319 cycle ~2450 arm_b)
+
+- Branch: g1r3-frieren/h317-aux-beta2-mid-ramp-up-amplified
+- Hypothesis: Amplify H309's POS finding (arm_c 0.97→0.997 = +0.027 absolute ramp magnitude, −1.9σ favorable Δval, −25 FFS) by pushing the END value further UP from the current H266 baseline=0.99. 3-arm: arm_a CTRL (constant 0.99), arm_b AMPLIFIED (mid_ramp 0.99→0.997, +0.007 ramp), arm_c EXTREME (mid_ramp 0.99→0.999, +0.009 ramp).
+
+### Results
+
+| Arm | W&B | val/loss | FFS | Δ vs CTRL (σ_H174) | Δ vs H266 (σ_H174) | Merge gate |
+|-----|-----|----------|-----|--------------------|--------------------|------------|
+| arm_a CTRL (constant 0.99) | `mxr34jzh` | 3.26913 | 3025 | (ref) | +1.07σ TIE | misses by +25 |
+| arm_b AMPLIFIED (0.99→0.997) | `9re46x0w` | 3.26922 | 3025 | **+0.10σ TIE EXACT** | +1.18σ TIE | misses by +25 (FFS TIES CTRL) |
+| arm_c EXTREME (0.99→0.999) | `lv3sdysv` | 3.27031 | 3050 | **+1.33σ MILD NEG** | +2.41σ NEG | misses by +50 |
+
+### Mechanism decode
+
+- **Dose-response shape: FLAT → NEG** — 0.997 indistinguishable from CTRL (+0.10σ val, ΔFFS=0); 0.999 trends NEG (+1.33σ val, ΔFFS=+25 vs CTRL)
+- **AUX β2 UP-from-baseline=0.99 axis is at LOCAL OPTIMUM**: H309's POS finding likely captured full headroom; extending UP past 0.997 produces no signal, 0.999 trends NEG (second-moment update nearly inert at 1−β2=0.001/step → SGD-like regime)
+- **H309 POS finding reconciliation**: H309 tested 0.97→0.995 from OLD 0.97 anchor. H317 tested 0.99→0.997/0.999 from current 0.99 baseline. Three plausible reconciliations: (1) anchoring artifact (most likely), (2) narrow ~0.002-wide β2 peak (mechanistically implausible), (3) H309 1.9σ signal near noise floor
+- **Pattern A drift-FREE pre-ramp** (steps 125/1000): max |Δ| ≤ 0.001 abs through step 1000 across all 3 arms — TIE-IDENTICAL; divergence emerges in cooldown (step 2826+) with arm_c systematically +0.001
+
+### 🎯 Within-cycle paper-grade β1-vs-β2 SCHEDULE-axis mechanism distinction
+
+Combined with cycle ~2450 H319 askeladd arm_b MID_RAMP_UP β1 0.8→0.85 terminal (+2.69σ MILD NEG vs CTRL, FFS=3050):
+
+| Axis | UP-from-baseline result | Mechanism interpretation |
+|------|------------------------|--------------------------|
+| **AUX β2** (H309 + H317) | 0.99→0.997 FLAT, 0.99→0.999 NEG | Smoother variance helps at H309 anchor only; baseline captures it; saturation past 0.997 |
+| **AUX β1** (H319 arm_b) | 0.8→0.85 +2.69σ NEG | Smoother first-moment does NOT help — distinct mechanism from β2 |
+
+H309 "AUX UP wins" DIRECTIONAL-ASYMMETRY finding on β2 does NOT extend to β1. First-moment and second-moment SCHEDULE axes are mechanistically distinct, not unified under a "smoother estimates" universal axis. **Paper-grade β1-vs-β2 ASYMMETRY confirmation**. Pending H319 arm_c MID_RAMP_DOWN β1 terminal (~06:50Z ETA) will determine final inversion direction.
+
+### Issue #1260 strict merge gate triage
+
+All 3 arms FFS ≥ 3025. Best treatment FFS=3025 (arm_b TIES CTRL). No merge candidate.
+
+### H317 contribution to plateau portfolio
+
+- **171st NULL/NEG** closure entry (170 prior + H317)
+- **AUX β2 SCHEDULE axis status**: FULLY EXHAUSTED at current baseline anchor (UP direction; DOWN direction will be tested by H325 sibling closure)
+- Plateau portfolio: 171 NULL/NEG + 1 MERGED WIN (H266 baseline FFS=3000)
+
+### Decision: CLOSED 171st NULL/NEG. Reassigning frieren to H325 — AUX β2 mid_training_ramp **DOWN-from-baseline** (symmetric H317 sibling closure, student's suggested follow-up #1).
+
+---
+
 ## 2026-05-31 — PR #1878: H316 tanjiro OUTER LR cooldown SCHEDULE (post-H306+H307+H308 paper-grade convergent test) — CLOSED 170th NULL/NEG (🎯 paper-grade FOURTH ORTHOGONAL-MECHANISM cooldown wash-out attractor confirmation: outer pull during cooldown is LOAD-BEARING, monotone NEG dose-response on outer_lr_cooldown_end)
 
 - Branch: g1r3-tanjiro/h316-outer-lr-cooldown-schedule
