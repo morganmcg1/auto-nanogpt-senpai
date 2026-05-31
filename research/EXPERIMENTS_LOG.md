@@ -1,5 +1,20 @@
 # SENPAI Research Results
 
+## 2026-05-31 14:45 UTC — PR #1934 tanjiro: Aux Adam m-state HARD-ZERO PER-GROUP @ step 975 (lm_head-only vs embed-only) — ❌ BILATERAL NULL (per-group localization closes aux m-state axis exhaustively)
+
+- Branch: `g1r1-tanjiro/aux-m-zero-per-group`
+- Hypothesis: Aux Adam m-state JOINT all-group hard-zero @ step 975 (nezuko #1815) was NULL on n=2. This PR tests whether PER-GROUP localization (narrowing the reset scope to lm_head or embed) recovers signal by targeting the group most likely to benefit from momentum recalibration at the cooldown onset.
+
+| Arm | Target group | run | sr | val_ema | Δ vs gate (mnat) | Verdict |
+|---|---|---|---:|---:|---:|---|
+| Baseline (#1532, n=2) | — | 9coyk2ke/09qrijtm | 2875 | 3.262854 | 0 | — |
+| **A (lm_head-only m ZERO)** | adam_lm_head | `m7jgni6z` | 2925 | 3.26493 | **+2.07** | ❌ NULL |
+| **B (embed-only m ZERO)** | adam_embed | `34nw7six` | 2925 | 3.26496 | **+2.11** | ❌ NULL |
+
+- **Symmetric NULL:** Both arms within 0.04 mnat of each other (tightest within-bilateral spread of this entire wave). Per-group localization does not break the symmetry — lm_head and embed are equally unable to benefit from m-state erasure at cooldown onset.
+- **Axis closure:** aux Adam m-state PERTURBATION axis EXHAUSTIVELY CLOSED: magnitudes 0.0/0.5/0.25 (#1815/#1881), joint-scope late boundaries 2600/2750 (#1879), per-group lm_head/embed (#1934). Only `adam_scalars`-only is unspecified but that group has only 1 param (already bounded by #1850 scalar-group LR NULL). Entire aux Adam first-moment axis CLOSED.
+- tanjiro reassigned: middle-block (4-7) body PMuon momentum HARD-ZERO vs ×0.5 @ step 975 — completes depth coverage on the strongest open axis (PR #1984).
+
 ## 2026-05-31 14:25 UTC — PR #1929 edward: Body PMuon momentum HARD-ZERO BLOCKWISE (deep vs shallow) @ step 975 — ❌ BILATERAL NULL, ASYMMETRIC: shallow (0-3) closest near-miss of the blockwise wave
 
 - Branch: `g1r1-edward/body-mom-zero-blockwise`
