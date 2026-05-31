@@ -84,6 +84,21 @@ def parse_args():
     parser.add_argument('--aux_b2_pulse_target', type=float, default=0.99,
                         help='New aux Adam β2 value to set at --aux_b2_pulse_step. '
                              '0 or negative disables. Default: 0.99 (canonical WIN).')
+    parser.add_argument('--body_muon_momentum_zero_blockwise_step', type=int, default=-1,
+                        help='Step at which to zero/decay body Muon (optimizer2) momentum '
+                             'buffers for a subset of transformer blocks. -1 disables.')
+    parser.add_argument('--body_muon_momentum_zero_blockwise_subset', type=str, default='deep',
+                        choices=['deep', 'shallow', 'middle', 'all'],
+                        help='Block subset for body Muon momentum reset/decay. '
+                             'deep=[8,9,10,11], shallow=[0,1,2,3], middle=[4,5,6,7], '
+                             'all=[0..11]. Default: deep.')
+    parser.add_argument('--body_muon_momentum_zero_blockwise_op', type=str, default='zero',
+                        choices=['zero', 'decay'],
+                        help='Operation applied to selected blocks momentum at the step. '
+                             'zero: hard-zero (mul by 0). decay: mul by --factor. Default zero.')
+    parser.add_argument('--body_muon_momentum_zero_blockwise_factor', type=float, default=1.0,
+                        help='Multiplicative factor for decay op (0<factor<1 expected). '
+                             'Ignored when op=zero. Default 1.0 (no-op).')
     parser.add_argument("--seed", type=int, default=1,
                         help="Random seed for torch/numpy/python. Default 1 matches baseline seed.")
     args = parser.parse_args()
@@ -765,6 +780,10 @@ if dist.get_rank() == 0:
             "paramema_refresh_only": int(args.paramema_refresh_only),
             "aux_b2_pulse_step": args.aux_b2_pulse_step,
             "aux_b2_pulse_target": args.aux_b2_pulse_target,
+            "body_muon_momentum_zero_blockwise_step": args.body_muon_momentum_zero_blockwise_step,
+            "body_muon_momentum_zero_blockwise_subset": args.body_muon_momentum_zero_blockwise_subset,
+            "body_muon_momentum_zero_blockwise_op": args.body_muon_momentum_zero_blockwise_op,
+            "body_muon_momentum_zero_blockwise_factor": args.body_muon_momentum_zero_blockwise_factor,
             "seed": args.seed,
         },
     )
@@ -834,6 +853,18 @@ for trial_idx in range(args.num_trials):
             wandb.log({f"muon_block_lr_mult/block_{i}": m for i, m in enumerate(block_mults)},
                       step=0)
     optimizer2._param_lr_mults = param_lr_mults
+
+    # param_id -> block index map for body Muon (optimizer2). Reused by the
+    # blockwise momentum zero/decay hook so we can subset by transformer block.
+    param_id_to_block = {}
+    for name, p in model.named_parameters():
+        if p.ndim >= 2 and name.startswith("blocks."):
+            try:
+                idx = int(name.split(".")[1])
+            except (IndexError, ValueError):
+                continue
+            param_id_to_block[id(p)] = idx
+    optimizer2._param_id_to_block = param_id_to_block
 
     optimizers = [optimizer1, optimizer2]
     assert set(p for opt in optimizers for group in opt.param_groups
@@ -1071,6 +1102,47 @@ for trial_idx in range(args.num_trials):
                 group["betas"] = new_betas
             print0(f"[step {step}] aux_b2_pulse: β2 {old_b2} → {args.aux_b2_pulse_target}",
                    console=True)
+        if (args.body_muon_momentum_zero_blockwise_step > 0
+                and step == args.body_muon_momentum_zero_blockwise_step):
+            subset = args.body_muon_momentum_zero_blockwise_subset
+            target_blocks = {
+                "deep":    [8, 9, 10, 11],
+                "shallow": [0, 1, 2, 3],
+                "middle":  [4, 5, 6, 7],
+                "all":     list(range(12)),
+            }[subset]
+            target_set = set(target_blocks)
+            op = args.body_muon_momentum_zero_blockwise_op
+            factor = 0.0 if op == "zero" else float(args.body_muon_momentum_zero_blockwise_factor)
+            n_modified = 0
+            n_total = 0
+            for group in optimizer2.param_groups:
+                for p in group["params"]:
+                    n_total += 1
+                    blk = optimizer2._param_id_to_block.get(id(p))
+                    if blk is None or blk not in target_set:
+                        continue
+                    state = optimizer2.state.get(p, None)
+                    if state is not None and "momentum" in state:
+                        state["momentum"].mul_(factor)
+                        n_modified += 1
+            if dist.get_rank() == 0:
+                print0(
+                    f"[step {step}] body PMuon momentum "
+                    f"{'ZERO' if op == 'zero' else 'DECAY'} blockwise "
+                    f"(subset={subset}, target_blocks={target_blocks}, "
+                    f"n_modified={n_modified}, n_total={n_total}, "
+                    f"op={op}, factor={factor:.4f})",
+                    console=True,
+                )
+                if wandb.run is not None:
+                    wandb.log({
+                        "body_muon_mom_zero_blockwise/step": step,
+                        "body_muon_mom_zero_blockwise/n_modified": n_modified,
+                        "body_muon_mom_zero_blockwise/n_total": n_total,
+                        "body_muon_mom_zero_blockwise/factor": factor,
+                        "body_muon_mom_zero_blockwise/subset_size": len(target_blocks),
+                    }, step=step)
         for opt in optimizers:
             opt.step()
         # EMA buffer update on body-Muon matrix params.
