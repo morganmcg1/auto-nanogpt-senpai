@@ -9,7 +9,7 @@ The human research team has redirected: **FFS (first-step-to-target, baseline 30
 3. **Prefer experiments that move the crossing step** (2800-3050 window), **simplify winning stacks**, **reveal FFS-load-bearing components**.
 4. **Ablations preferred over confirmations** when FFS dead.
 
-## Last updated: 2026-05-31 00:45Z (69 R5 closures; frieren #1841 spec-NS CLOSED 68th [FFS-TIE]; nezuko #1834 adaptive NS iter CLOSED 69th [FFS-NEG+COMPUTE-NEG]; frieren #1895 Lookahead-Muon ASSIGNED; nezuko pending; 7/8 active)
+## Last updated: 2026-05-31 01:15Z (69 R5 closures; frieren #1895 Lookahead-Muon ASSIGNED; nezuko #1897 annealed-gradient-noise-muon ASSIGNED; 8/8 active)
 
 ### Notes (2026-05-31 00:45Z) — #1841 CLOSED 68th + #1834 CLOSED 69th + #1895 FRIEREN LOOKAHEAD-MUON ASSIGNED
 
@@ -19,9 +19,13 @@ The human research team has redirected: **FFS (first-step-to-target, baseline 30
 
 - **★ ASSIGNED #1895 frieren: Lookahead-Muon slow/fast wrapper** — Lookahead (Zhang et al. NeurIPS 2019) outer shell around optimizer2 (Muon only). Every k=5 inner steps: `φ ← φ + α·(θ−φ); θ ← φ`. **Mechanism**: trajectory-space variance reduction, orthogonal to EMA-eval (checkpoint-time variance). **Structural orthogonality**: does not touch NS5, SOAP, LR/WD, architecture, init. ~45 LOC wrapper + ~10 LOC wiring. ~96 MB slow-weight buffer overhead. 4 cells: A=ctrl, B★=(k=5,α=0.5), C=(k=5,α=0.8), D=(k=10,α=0.5). KG_smoke gate at 500 steps. W&B group: `g1r5-frieren/lookahead-muon`.
 
-- **Researcher-agent running for nezuko** — generating fresh hypothesis on axis distinct from Lookahead, GE-SAM, GC, all NS-iter variants, polar-approximator family, magnitude/direction, SOAP HPs, init, scalar HPs.
+- **★ ASSIGNED #1897 nezuko: Annealed Gradient Noise Injection** — SGLD-style (Welling & Teh 2011) per-step noise `ε_t ~ N(0, η/(1+t)^γ·I)` added to Muon gradients BEFORE NS5 orthogonalization. The FFS bottleneck is threshold-crossing reliability (σ_4=25), not mean loss level. Noise injection drives optimizer toward flatter minima (wider basin) where EMA-smoothed trajectory crosses 3.28 more reliably. Schedule anneals to zero by late training → preserves final convergence quality.
+  - **Mechanism**: Neelakantan et al. 2015 schedule, η=0.005, γ=0.55. Post-NS5 effective noise scales down by projection → SNR gate at step 100 (SNR > 5) prevents overdamping.
+  - **5 cells n=1**: A=ctrl, B★=(η=0.005,γ=0.55), C=(η=0.001,γ=0.55), D=(η=0.01,γ=0.55), E=slow-anneal falsifier (γ=0.10). KG_smoke at 500 steps.
+  - **Structural orthogonality**: NOT in any closed axis. GC is deterministic mean-subtraction; GE-SAM is deterministic extrapolation; Lookahead is trajectory-space; NS5 variants change HOW gradient is orthogonalized; noise injection changes WHAT is fed to NS5. Completely fresh axis.
+  - **References**: Neelakantan 2015 (arxiv:1511.06807), Welling & Teh 2011 (ICML).
 
-- **Fleet at 00:45Z**: thorfinn #1870 WIP (label-smoothing); alphonse #1860 WIP (SOAP-attn cooldown gate); edward #1858 WIP (Schulz polish square); tanjiro #1880 WIP (μ-cooldown); fern #1885 WIP (gradient-centralization); askeladd #1891 WIP (GE-SAM); frieren #1895 WIP (Lookahead-Muon, NEW); nezuko IDLE (pending researcher-agent). **7/8 active.**
+- **Fleet at 01:15Z**: thorfinn #1870 WIP (label-smoothing, full cells running); alphonse #1860 WIP (SOAP-attn cooldown gate, nudge sent); edward #1858 WIP (Schulz polish square, nudge sent); tanjiro #1880 WIP (μ-cooldown); fern #1885 WIP (gradient-centralization); askeladd #1891 WIP (GE-SAM); frieren #1895 WIP (Lookahead-Muon, NEW); nezuko #1897 WIP (annealed-grad-noise, NEW). **8/8 active, zero idle.**
 
 ### Notes (2026-05-30 23:15Z) — ASKELADD #1839 PER-SHAPE STATIC NS ITER CLOSED 67th [FFS-NEG, MLP NS_ITER FLOOR LOAD-BEARING]; #1891 GE-SAM ASSIGNED
 
