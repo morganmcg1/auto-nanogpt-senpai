@@ -84,6 +84,16 @@ def parse_args():
     parser.add_argument('--aux_b2_pulse_target', type=float, default=0.99,
                         help='New aux Adam β2 value to set at --aux_b2_pulse_step. '
                              '0 or negative disables. Default: 0.99 (canonical WIN).')
+    parser.add_argument(
+        "--aux_m_zero_per_group_step", type=int, default=0,
+        help="Step at which to hard-zero exp_avg (m) of a SPECIFIC aux Adam group (0 disables)",
+    )
+    parser.add_argument(
+        "--aux_m_zero_per_group_target",
+        type=str, default="none",
+        choices=["none", "adam_lm_head", "adam_embed"],
+        help="Which aux group to zero m-state in. NOT adam_scalars (excluded by design).",
+    )
     parser.add_argument("--seed", type=int, default=1,
                         help="Random seed for torch/numpy/python. Default 1 matches baseline seed.")
     args = parser.parse_args()
@@ -765,6 +775,8 @@ if dist.get_rank() == 0:
             "paramema_refresh_only": int(args.paramema_refresh_only),
             "aux_b2_pulse_step": args.aux_b2_pulse_step,
             "aux_b2_pulse_target": args.aux_b2_pulse_target,
+            "aux_m_zero_per_group_step": args.aux_m_zero_per_group_step,
+            "aux_m_zero_per_group_target": args.aux_m_zero_per_group_target,
             "seed": args.seed,
         },
     )
@@ -1071,6 +1083,31 @@ for trial_idx in range(args.num_trials):
                 group["betas"] = new_betas
             print0(f"[step {step}] aux_b2_pulse: β2 {old_b2} → {args.aux_b2_pulse_target}",
                    console=True)
+        if (args.aux_m_zero_per_group_step > 0
+                and step == args.aux_m_zero_per_group_step
+                and args.aux_m_zero_per_group_target != "none"):
+            target_name = args.aux_m_zero_per_group_target
+            n_zeroed = 0
+            for group in optimizer1.param_groups:
+                if group.get("name", "") != target_name:
+                    continue
+                for p in group["params"]:
+                    state = optimizer1.state.get(p, None)
+                    if state is None or "exp_avg" not in state:
+                        continue
+                    state["exp_avg"].zero_()
+                    n_zeroed += 1
+            if dist.get_rank() == 0:
+                print0(
+                    f"[step {step}] aux Adam m-ZERO PER-GROUP (target='{target_name}', "
+                    f"n_zeroed={n_zeroed}; exp_avg_sq untouched)",
+                    console=True,
+                )
+                if wandb.run is not None:
+                    wandb.log({
+                        "aux_m_zero_per_group/step": step,
+                        "aux_m_zero_per_group/n_zeroed": n_zeroed,
+                    }, step=wandb_step)
         for opt in optimizers:
             opt.step()
         # EMA buffer update on body-Muon matrix params.
