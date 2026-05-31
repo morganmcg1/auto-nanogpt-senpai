@@ -603,6 +603,27 @@ NANOGPT_NEWTON_MUON_BETA = float(os.environ.get("NANOGPT_NEWTON_MUON_BETA", "0.9
 NANOGPT_NEWTON_MUON_EPS = float(os.environ.get("NANOGPT_NEWTON_MUON_EPS", "1e-4"))
 NANOGPT_NEWTON_MUON_MAX_D_IN = int(os.environ.get("NANOGPT_NEWTON_MUON_MAX_D_IN", "1024"))
 NANOGPT_NEWTON_MUON_TIKHONOV_GAMMA = float(os.environ.get("NANOGPT_NEWTON_MUON_TIKHONOV_GAMMA", "0.0"))
+# #1894: phase-dependent γ-Tikhonov — switch γ value at cooldown entry. When
+# COOLDOWN_START_STEP>=0 and COOLDOWN_VALUE>=0, the effective γ becomes
+# COOLDOWN_VALUE once _newton_step_count >= COOLDOWN_START_STEP. Defaults of -1
+# disable the step-up and keep γ uniform (bit-identical to #1543).
+NANOGPT_NEWTON_MUON_TIKHONOV_GAMMA_COOLDOWN_START_STEP = int(os.environ.get(
+    "NANOGPT_NEWTON_MUON_TIKHONOV_GAMMA_COOLDOWN_START_STEP", "-1"))
+NANOGPT_NEWTON_MUON_TIKHONOV_GAMMA_COOLDOWN_VALUE = float(os.environ.get(
+    "NANOGPT_NEWTON_MUON_TIKHONOV_GAMMA_COOLDOWN_VALUE", "-1.0"))
+
+
+def _effective_tikhonov_gamma(newton_step: int) -> float:
+    """Phase-dependent γ-Tikhonov (#1894). Returns COOLDOWN_VALUE once we cross
+    COOLDOWN_START_STEP, else the uniform γ. Both env vars must be >=0 for the
+    step-up to activate; -1/-1 defaults keep γ uniform (bit-identical fallback)."""
+    if (NANOGPT_NEWTON_MUON_TIKHONOV_GAMMA_COOLDOWN_START_STEP >= 0
+        and NANOGPT_NEWTON_MUON_TIKHONOV_GAMMA_COOLDOWN_VALUE >= 0.0
+        and newton_step >= NANOGPT_NEWTON_MUON_TIKHONOV_GAMMA_COOLDOWN_START_STEP):
+        return NANOGPT_NEWTON_MUON_TIKHONOV_GAMMA_COOLDOWN_VALUE
+    return NANOGPT_NEWTON_MUON_TIKHONOV_GAMMA
+
+
 # #1600: data-driven R warmstart from Muon^2 state["v"] second-moment EMA. When enabled,
 # defer R initialization to step K (instead of cold-start X^T X / N at first call).
 # At step K, R[0] = diag(state["v"].mean(0)) normalized to unit mean — gradient-based
@@ -874,10 +895,13 @@ class Muon(torch.optim.Optimizer):
                     state["R"].mul_(b).add_(R_new, alpha=1.0 - b)
             # Tikhonov regularization: R_reg = R + gamma * (tr(R)/d_in) * I.
             # Applied only at eigendecomp time; state["R"] EMA buffer is unmodified.
-            if NANOGPT_NEWTON_MUON_TIKHONOV_GAMMA > 0.0:
+            # #1894: γ is phase-dependent — switches to COOLDOWN_VALUE once
+            # _newton_step_count crosses COOLDOWN_START_STEP. Defaults keep γ uniform.
+            effective_gamma = _effective_tikhonov_gamma(self._newton_step_count)
+            if effective_gamma > 0.0:
                 n_dim = state["R"].shape[0]
                 trace_mean = state["R"].diagonal().mean()
-                lambda_reg = NANOGPT_NEWTON_MUON_TIKHONOV_GAMMA * trace_mean
+                lambda_reg = effective_gamma * trace_mean
                 R_for_decomp = state["R"] + lambda_reg * torch.eye(
                     n_dim, device=state["R"].device, dtype=state["R"].dtype
                 )
@@ -1036,6 +1060,8 @@ print0(
     f"beta={NANOGPT_NEWTON_MUON_BETA} eps={NANOGPT_NEWTON_MUON_EPS} "
     f"max_d_in={NANOGPT_NEWTON_MUON_MAX_D_IN} "
     f"tikhonov_gamma={NANOGPT_NEWTON_MUON_TIKHONOV_GAMMA} "
+    f"gamma_cooldown_start={NANOGPT_NEWTON_MUON_TIKHONOV_GAMMA_COOLDOWN_START_STEP if NANOGPT_NEWTON_MUON_TIKHONOV_GAMMA_COOLDOWN_START_STEP >= 0 else 'disabled'} "
+    f"gamma_cooldown_value={NANOGPT_NEWTON_MUON_TIKHONOV_GAMMA_COOLDOWN_VALUE if NANOGPT_NEWTON_MUON_TIKHONOV_GAMMA_COOLDOWN_VALUE >= 0 else 'disabled'} "
     f"r_warmstart={'True' if NANOGPT_NEWTON_MUON_R_ADAMW_WARMSTART else 'False'} "
     f"r_warmstart_k={NANOGPT_NEWTON_MUON_R_ADAMW_WARMSTART_K}",
     console=True,
@@ -1159,6 +1185,11 @@ if dist.get_rank() == 0:
             "nanogpt_newton_muon_eps": NANOGPT_NEWTON_MUON_EPS,
             "nanogpt_newton_muon_max_d_in": NANOGPT_NEWTON_MUON_MAX_D_IN,
             "nanogpt_newton_muon_tikhonov_gamma": NANOGPT_NEWTON_MUON_TIKHONOV_GAMMA,
+            "nanogpt_newton_muon_tikhonov_gamma_cooldown_start_step": NANOGPT_NEWTON_MUON_TIKHONOV_GAMMA_COOLDOWN_START_STEP,
+            "nanogpt_newton_muon_tikhonov_gamma_cooldown_value": NANOGPT_NEWTON_MUON_TIKHONOV_GAMMA_COOLDOWN_VALUE,
+            "effective_gamma_step_0": _effective_tikhonov_gamma(0),
+            "effective_gamma_step_2345": _effective_tikhonov_gamma(2345),
+            "effective_gamma_step_3349": _effective_tikhonov_gamma(3349),
             "nanogpt_newton_muon_r_adamw_warmstart": NANOGPT_NEWTON_MUON_R_ADAMW_WARMSTART,
             "nanogpt_newton_muon_r_adamw_warmstart_k": NANOGPT_NEWTON_MUON_R_ADAMW_WARMSTART_K,
         },
