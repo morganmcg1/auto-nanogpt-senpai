@@ -114,6 +114,31 @@ def parse_args():
                         help="Polyak-Ruppert EMA decay for eval-only weight averaging. "
                              "0.0 = disabled (drift-FREE CTRL). Typical: 0.05 (fast, ~20-step half-life) / "
                              "0.005 (slow, ~200-step half-life). Higher decay = faster EMA tracking.")
+    # H349 M4a: Top-K right-singular-subspace alignment penalty on BODY 2D weights.
+    # penalty = coef × Σ_params ||V_topK(W)·V_topK(W)^T − V_init_topK·V_init_topK^T||²_F.
+    # Probes Grassmann-manifold distance to W_init's top-K right-singular subspace
+    # per body 2D weight (eigenvector-space preservation, mechanism-distinct from
+    # M1 wd-analog / M2 σ_max-magnitude / M3 F-norm-projection — all 3 RULED OUT).
+    # When penalty == 0 the entire branch is short-circuited (bit-id with H266).
+    parser.add_argument("--body_subspace_penalty", type=float,
+                        default=float(os.environ.get("BODY_SUBSPACE_PENALTY", "0.0")),
+                        help="M4a Top-K right-singular-subspace alignment penalty on body 2D weights. "
+                             "penalty = coef · Σ_params ||V_topK·V_topK^T − V_init_topK·V_init_topK^T||_F². "
+                             "Default 0.0 = H266 bit-id short-circuit. Probes Grassmann-manifold distance "
+                             "to W_init's top-K right-singular subspace per body 2D weight.")
+    parser.add_argument("--body_subspace_k", type=int,
+                        default=int(os.environ.get("BODY_SUBSPACE_K", "2")),
+                        help="Number of top right-singular vectors to track for M4a alignment penalty. "
+                             "K=1 = top-1 only, K=4 = top-4 subspace. Default K=2 (balance: dominant + "
+                             "secondary direction, modest power-iter cost).")
+    parser.add_argument("--body_subspace_init_iters", type=int,
+                        default=int(os.environ.get("BODY_SUBSPACE_INIT_ITERS", "20")),
+                        help="Power iterations for the one-time V_init computation at step 0. "
+                             "Default 20 (generous; one-time cost).")
+    parser.add_argument("--body_subspace_step_iters", type=int,
+                        default=int(os.environ.get("BODY_SUBSPACE_STEP_ITERS", "2")),
+                        help="Power iterations per train step for V_curr estimation. "
+                             "Default 2 (warm-started from V_init).")
     args = parser.parse_args()
     args.num_trials = args.num_trials if args.num_trials is not None else (args.legacy_num_trials or 1)
     args.wandb_tags = [tag.strip() for tag in args.wandb_tags.split(",") if tag.strip()]
@@ -856,6 +881,10 @@ if dist.get_rank() == 0:
             "muonh_mu_start": args.muonh_mu_start,
             "muonh_mu_end": args.muonh_mu_end,
             "polyak_ema_decay": args.polyak_ema_decay,
+            "body_subspace_penalty": args.body_subspace_penalty,
+            "body_subspace_k": args.body_subspace_k,
+            "body_subspace_init_iters": args.body_subspace_init_iters,
+            "body_subspace_step_iters": args.body_subspace_step_iters,
         },
     )
 
@@ -942,6 +971,30 @@ for trial_idx in range(args.num_trials):
                        mode=args.muonh_mode)
     optimizer2.param_groups[0]["name"] = "muonh_blocks"
     optimizers = [optimizer1, optimizer2]
+    # H349 M4a: cache top-K right-singular subspace V_init ∈ R^(n×K) per body 2D
+    # weight via long-iter power iteration on W^T·W at step 0 (one-time cost).
+    # Matches the MuonH-managed body 2D parameter set (same as H341 body_2d_params).
+    # When body_subspace_penalty == 0 every code path is skipped so arm_a CTRL
+    # remains bit-identical to H266 baseline.
+    body_2d_params_m4a = [p for p in model.blocks.parameters() if p.ndim >= 2]
+    subspace_v_init_cache: dict[int, Tensor] = {}
+    if args.body_subspace_penalty > 0:
+        k = args.body_subspace_k
+        with torch.no_grad():
+            for p in body_2d_params_m4a:
+                W = p.detach().float()  # m × n
+                n_dim = W.shape[1]
+                V = torch.randn(n_dim, k, device=p.device, dtype=torch.float32)
+                V, _ = torch.linalg.qr(V)
+                for _ in range(args.body_subspace_init_iters):
+                    V = W.T @ (W @ V)
+                    V, _ = torch.linalg.qr(V)
+                subspace_v_init_cache[id(p)] = V.detach()
+        if trial_idx == 0 and dist.get_rank() == 0:
+            print0(f"[H349 body_subspace_penalty={args.body_subspace_penalty}] "
+                   f"k={k} init_iters={args.body_subspace_init_iters} "
+                   f"step_iters={args.body_subspace_step_iters} "
+                   f"#body_2d_params={len(body_2d_params_m4a)}", console=True)
     # AGC targets: AdamW aux groups (embed, lm_head, scalars). Built from optimizer1
     # param groups to track exactly the same params AdamW updates.
     aux_params_for_agc = [p for g in optimizer1.param_groups for p in g["params"]]
@@ -1202,6 +1255,34 @@ for trial_idx in range(args.num_trials):
                 train_steps=train_steps,
                 wandb_step=wandb_step,
             )
+        # H349 M4a: BODY 2D top-K right-singular-subspace alignment penalty.
+        # penalty = coef × Σ_params ||V_curr·V_curr^T − V_init·V_init^T||²_F (sum over
+        # body 2D weights, matching H326 Gram-deviation sum convention). Same
+        # placement as H341 spec_loss: after task all_reduce (penalty gradient is
+        # deterministic in p, identical on every rank — must not pass through
+        # all_reduce again) but BEFORE AGC (so the combined task+penalty gradient
+        # is clipped together, matching the optimizer's view of L_total). When
+        # penalty == 0 the block is skipped → bit-id with H266 baseline.
+        subspace_penalty_value = 0.0
+        subspace_proj_dist_sq_sum_value = 0.0
+        if args.body_subspace_penalty > 0:
+            subspace_dist_sq_sum = None
+            for p in body_2d_params_m4a:
+                V_init = subspace_v_init_cache[id(p)]  # n × k, detached
+                W = p.float()  # cast to float32 for power-iter stability; keeps grad
+                V = V_init.clone()  # warm-start
+                for _ in range(args.body_subspace_step_iters):
+                    V = W.T @ (W @ V)
+                    V, _ = torch.linalg.qr(V)
+                # ||P_curr - P_init||²_F where P = V V^T is rank-K orthogonal projector
+                P_curr = V @ V.T
+                P_init = V_init @ V_init.T
+                dist_sq = (P_curr - P_init).pow(2).sum()
+                subspace_dist_sq_sum = dist_sq if subspace_dist_sq_sum is None else subspace_dist_sq_sum + dist_sq
+            subspace_loss = args.body_subspace_penalty * subspace_dist_sq_sum
+            subspace_penalty_value = float(subspace_loss.item())
+            subspace_proj_dist_sq_sum_value = float(subspace_dist_sq_sum.item())
+            subspace_loss.backward()
         # AGC on aux AdamW groups: clip per-param grad to clip_ratio * |param|.
         # No-op (bit-identical) when args.aux_agc_clip_ratio <= 0.
         agc_stats = adaptive_gradient_clip(
@@ -1234,6 +1315,9 @@ for trial_idx in range(args.num_trials):
             muonh_metrics = {"trial": trial_idx, "train/step": train_step}
             muonh_metrics["aux/beta2"] = aux_beta2
             muonh_metrics["train/muonh_mu"] = muonh_mu_t
+            if args.body_subspace_penalty > 0:
+                muonh_metrics["body/subspace_penalty"] = subspace_penalty_value
+                muonh_metrics["body/subspace_proj_dist_sq_sum"] = subspace_proj_dist_sq_sum_value
             for opt in optimizers:
                 if isinstance(opt, MuonH):
                     if telemetry_due:
