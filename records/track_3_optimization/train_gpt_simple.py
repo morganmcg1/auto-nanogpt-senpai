@@ -223,8 +223,24 @@ def log_training_telemetry(
             group_name = group.get("name", f"optimizer_{opt_idx}_group_{group_idx}")
             metrics[f"train/lr/{group_name}"] = group["lr"]
             metrics[f"train/weight_decay/{group_name}"] = group.get("weight_decay", 0.0)
+            if "betas" in group:
+                metrics[f"train/beta1/{group_name}"] = float(group["betas"][0])
+                metrics[f"train/beta2/{group_name}"] = float(group["betas"][1])
             if "mu" in group:
                 metrics[f"train/mu/{group_name}"] = group["mu"]
+            # PR #1754: log per-step AdamW moment norms for embed kind so the
+            # selective-moment-reset sawtooth is visible in W&B telemetry.
+            if group.get("name") == "adam_embed":
+                exp_avg_sq_sum = 0.0
+                exp_avg_sum = 0.0
+                for p in group["params"]:
+                    st = opt.state.get(p, {})
+                    if "exp_avg" in st:
+                        exp_avg_sum += float(st["exp_avg"].float().square().sum().item())
+                    if "exp_avg_sq" in st:
+                        exp_avg_sq_sum += float(st["exp_avg_sq"].float().square().sum().item())
+                metrics["optimizer/embed/exp_avg.norm"] = exp_avg_sum ** 0.5
+                metrics["optimizer/embed/exp_avg_sq.norm"] = exp_avg_sq_sum ** 0.5
     for module_type, tensors in grouped_by_type(grads, module_types).items():
         metrics.update(prefixed(f"train/grad_type/{module_type}", aggregate_stats(tensors)))
     for name, grad in grads:
@@ -466,8 +482,63 @@ ATTN_SOAP_PRECOND_FREQ = 10
 ATTN_SOAP_TRUST_THRESHOLD = float(os.environ.get("ATTN_SOAP_TRUST_THRESHOLD", "0.9"))
 NS5_ITERS = int(os.environ.get("NS5_ITERS", "12"))
 WD_AUX = float(os.environ.get("WD_AUX", "0.0"))  # AdamW WD on embed + lm_head matrices (scalars stay at 0)
+PER_KIND_AUX_WD_ENABLED = int(os.environ.get("PER_KIND_AUX_WD_ENABLED", "0"))
+WD_LM_HEAD = float(os.environ.get("WD_LM_HEAD", "0.001"))
+WD_EMBED_OVERRIDE = float(os.environ.get("WD_EMBED_OVERRIDE", "0.001"))
+# PR #1789: PER_KIND_AUX_BETA1 — per-AUX-kind AdamW β1 dispatch
+AUX_BETA1_DEFAULT = 0.80  # matches existing global default
+AUX_BETA1_EMBED = float(os.environ.get("AUX_BETA1_EMBED", str(AUX_BETA1_DEFAULT)))
+AUX_BETA1_LM_HEAD = float(os.environ.get("AUX_BETA1_LM_HEAD", str(AUX_BETA1_DEFAULT)))
+AUX_BETA1_SCALARS = float(os.environ.get("AUX_BETA1_SCALARS", str(AUX_BETA1_DEFAULT)))
+PER_KIND_AUX_BETA1_ENABLED = int(os.environ.get("PER_KIND_AUX_BETA1_ENABLED", "0")) or \
+    ("AUX_BETA1_EMBED" in os.environ) or ("AUX_BETA1_LM_HEAD" in os.environ) or ("AUX_BETA1_SCALARS" in os.environ)
 EMBED_INIT_STD = float(os.environ.get("EMBED_INIT_STD", "1.0"))  # default preserves baseline N(0,1)
 LOGIT_SOFTCAP = float(os.environ.get("LOGIT_SOFTCAP", "15.0"))  # default = 15 (current hardcoded value); soft-cap value c in f(x) = c·x / sqrt(x^2+c^2)
+# PR #1754: PER_KIND_AUX_PERIODIC_RESET_EMBED_MOMENT_ISOLATION — selective moment reset on embed
+# PR #1824: PER_KIND_AUX_PERIODIC_RESET_LM_HEAD — selective moment reset on lm_head
+# PR #1842/#1864/#1887: AUX_RESET_*_FACTOR partial-reset multiplier (0.0 = full zero, 1.0 = no-op)
+# PR #1921: Scheme B aliases (PER_KIND_AUX_PERIODIC_RESET_ENABLED gate + AUX_RESET_KIND_FILTER +
+#           kind-prefixed AUX_RESET_<KIND>_INTERVAL/MOMENT/FACTOR names) exposing the FACTOR control.
+# Bitfield (MOMENT): 0 = legacy "both" (matches #1729 when only embed flag set),
+# 1 = exp_avg_sq only (bit-0), 2 = exp_avg only (bit-1), 3 = both moments (bit-0 + bit-1).
+#
+# Scheme A (suffix-style, original): PER_KIND_AUX_PERIODIC_RESET_<KIND>_ENABLED + AUX_RESET_INTERVAL_<KIND> + AUX_RESET_MOMENT_<KIND>
+# Scheme B (gate + filter, adds FACTOR): PER_KIND_AUX_PERIODIC_RESET_ENABLED + AUX_RESET_KIND_FILTER +
+#     AUX_RESET_<KIND>_INTERVAL + AUX_RESET_<KIND>_MOMENT + AUX_RESET_<KIND>_FACTOR
+# Both schemes coexist; Scheme B values override Scheme A when set.
+PER_KIND_AUX_PERIODIC_RESET_GATE = int(os.environ.get("PER_KIND_AUX_PERIODIC_RESET_ENABLED", "0"))
+AUX_RESET_KIND_FILTER = int(os.environ.get("AUX_RESET_KIND_FILTER", "0"))
+
+def _resolve_reset_param(scheme_b_name: str, scheme_a_name: str, default: str, cast):
+    """Prefer Scheme B (kind-prefixed) if set, else fall back to Scheme A (suffix)."""
+    if scheme_b_name in os.environ:
+        return cast(os.environ[scheme_b_name])
+    return cast(os.environ.get(scheme_a_name, default))
+
+# Embed reset config (resolved across both schemes).
+PER_KIND_AUX_PERIODIC_RESET_EMBED_ENABLED = int(os.environ.get(
+    "PER_KIND_AUX_PERIODIC_RESET_EMBED_ENABLED",
+    str(PER_KIND_AUX_PERIODIC_RESET_GATE) if (PER_KIND_AUX_PERIODIC_RESET_GATE and AUX_RESET_KIND_FILTER) else "0",
+))
+AUX_RESET_INTERVAL_EMBED = _resolve_reset_param("AUX_RESET_EMBED_INTERVAL", "AUX_RESET_INTERVAL_EMBED", "0", int)
+AUX_RESET_MOMENT_EMBED = _resolve_reset_param("AUX_RESET_EMBED_MOMENT", "AUX_RESET_MOMENT_EMBED", "0", int)
+AUX_RESET_FACTOR_EMBED = _resolve_reset_param("AUX_RESET_EMBED_FACTOR", "AUX_RESET_FACTOR_EMBED", "0.0", float)
+
+# LM-head reset config (resolved across both schemes).
+PER_KIND_AUX_PERIODIC_RESET_LM_HEAD_ENABLED = int(os.environ.get(
+    "PER_KIND_AUX_PERIODIC_RESET_LM_HEAD_ENABLED",
+    str(PER_KIND_AUX_PERIODIC_RESET_GATE) if (PER_KIND_AUX_PERIODIC_RESET_GATE and AUX_RESET_KIND_FILTER) else "0",
+))
+AUX_RESET_INTERVAL_LM_HEAD = _resolve_reset_param("AUX_RESET_LM_HEAD_INTERVAL", "AUX_RESET_INTERVAL_LM_HEAD", "0", int)
+AUX_RESET_MOMENT_LM_HEAD = _resolve_reset_param("AUX_RESET_LM_HEAD_MOMENT", "AUX_RESET_MOMENT_LM_HEAD", "0", int)
+AUX_RESET_FACTOR_LM_HEAD = _resolve_reset_param("AUX_RESET_LM_HEAD_FACTOR", "AUX_RESET_FACTOR_LM_HEAD", "0.0", float)
+
+# When Scheme B is used with kind filter, only enable kinds with a non-zero interval.
+if PER_KIND_AUX_PERIODIC_RESET_GATE and AUX_RESET_KIND_FILTER:
+    if AUX_RESET_INTERVAL_EMBED <= 0:
+        PER_KIND_AUX_PERIODIC_RESET_EMBED_ENABLED = 0
+    if AUX_RESET_INTERVAL_LM_HEAD <= 0:
+        PER_KIND_AUX_PERIODIC_RESET_LM_HEAD_ENABLED = 0
 
 
 def zeropower_via_newtonschulz5(G: Tensor) -> Tensor:
@@ -807,6 +878,22 @@ print0(code)
 print0("="*100)
 print0(f"Running PyTorch {torch.version.__version__} compiled for CUDA {torch.version.cuda}"
        + f" on {torch.cuda.get_device_name(device)} with world_size {dist.get_world_size()}")
+print0(
+    f"[PER_KIND_AUX_PERIODIC_RESET] gate={PER_KIND_AUX_PERIODIC_RESET_GATE}"
+    f" kind_filter={AUX_RESET_KIND_FILTER}"
+)
+print0(
+    f"[per_kind_aux_periodic_reset embed] enabled={PER_KIND_AUX_PERIODIC_RESET_EMBED_ENABLED}"
+    f" interval={AUX_RESET_INTERVAL_EMBED}"
+    f" moment={AUX_RESET_MOMENT_EMBED}"
+    f" factor={AUX_RESET_FACTOR_EMBED}"
+)
+print0(
+    f"[per_kind_aux_periodic_reset lm_head] enabled={PER_KIND_AUX_PERIODIC_RESET_LM_HEAD_ENABLED}"
+    f" interval={AUX_RESET_INTERVAL_LM_HEAD}"
+    f" moment={AUX_RESET_MOMENT_LM_HEAD}"
+    f" factor={AUX_RESET_FACTOR_LM_HEAD}"
+)
 print0("="*100)
 
 val_tokens = 20 * 524288
@@ -866,6 +953,23 @@ if dist.get_rank() == 0:
             "optimizer/attn_soap_trust_threshold": ATTN_SOAP_TRUST_THRESHOLD,
             "optimizer/ns5_iters": NS5_ITERS,
             "optimizer/wd_aux": WD_AUX,
+            "optimizer/per_kind_aux_periodic_reset_gate": PER_KIND_AUX_PERIODIC_RESET_GATE,
+            "optimizer/aux_reset_kind_filter": AUX_RESET_KIND_FILTER,
+            "optimizer/per_kind_aux_periodic_reset_embed_enabled": int(PER_KIND_AUX_PERIODIC_RESET_EMBED_ENABLED),
+            "optimizer/aux_reset_interval_embed": AUX_RESET_INTERVAL_EMBED,
+            "optimizer/aux_reset_moment_embed": AUX_RESET_MOMENT_EMBED,
+            "optimizer/aux_reset_factor_embed": AUX_RESET_FACTOR_EMBED,
+            "optimizer/per_kind_aux_periodic_reset_lm_head_enabled": int(PER_KIND_AUX_PERIODIC_RESET_LM_HEAD_ENABLED),
+            "optimizer/aux_reset_interval_lm_head": AUX_RESET_INTERVAL_LM_HEAD,
+            "optimizer/aux_reset_moment_lm_head": AUX_RESET_MOMENT_LM_HEAD,
+            "optimizer/aux_reset_factor_lm_head": AUX_RESET_FACTOR_LM_HEAD,
+            "optimizer/per_kind_aux_wd_enabled": PER_KIND_AUX_WD_ENABLED,
+            "optimizer/wd_lm_head": WD_LM_HEAD,
+            "optimizer/wd_embed_override": WD_EMBED_OVERRIDE,
+            "optimizer/aux_beta1_embed": AUX_BETA1_EMBED,
+            "optimizer/aux_beta1_lm_head": AUX_BETA1_LM_HEAD,
+            "optimizer/aux_beta1_scalars": AUX_BETA1_SCALARS,
+            "optimizer/per_kind_aux_beta1_enabled": int(PER_KIND_AUX_BETA1_ENABLED),
             "optimizer/recipe": "contra-muon + normuon-lite + soap-on-mlp + soap-on-attn-trust-gate (pre-NS5, record #14 + record #16)",
         },
     )
@@ -898,10 +1002,28 @@ for trial_idx in range(args.num_trials):
             raise Exception(f"Uninitialized parameter: {name}")
 
     # create the optimizer(s)
-    optimizer1 = AdamW([dict(params=[model.embed.weight], lr=0.3, name="adam_embed", weight_decay=WD_AUX),
-                        dict(params=[model.proj.weight], lr=1/320, name="adam_lm_head", weight_decay=WD_AUX),
-                        dict(params=[p for p in model.parameters() if p.ndim < 2], lr=0.01, name="adam_scalars")],
+    if PER_KIND_AUX_WD_ENABLED:
+        embed_wd = WD_EMBED_OVERRIDE
+        lm_head_wd = WD_LM_HEAD
+    else:
+        embed_wd = WD_AUX
+        lm_head_wd = WD_AUX
+    if dist.get_rank() == 0 and trial_idx == 0:
+        print(f"[per_kind_aux_wd] enabled={PER_KIND_AUX_WD_ENABLED} embed_wd={embed_wd:.6f} lm_head_wd={lm_head_wd:.6f}",
+              flush=True)
+        print(f"[per_kind_aux_beta1] enabled={int(PER_KIND_AUX_BETA1_ENABLED)} "
+              f"embed_beta1={AUX_BETA1_EMBED} lm_head_beta1={AUX_BETA1_LM_HEAD} "
+              f"scalars_beta1={AUX_BETA1_SCALARS}", flush=True)
+    optimizer1 = AdamW([dict(params=[model.embed.weight], lr=0.3, name="adam_embed", weight_decay=embed_wd,
+                             betas=(AUX_BETA1_EMBED, 0.95)),
+                        dict(params=[model.proj.weight], lr=1/320, name="adam_lm_head", weight_decay=lm_head_wd,
+                             betas=(AUX_BETA1_LM_HEAD, 0.95)),
+                        dict(params=[p for p in model.parameters() if p.ndim < 2], lr=0.01, name="adam_scalars",
+                             betas=(AUX_BETA1_SCALARS, 0.95))],
                        betas=(0.8, 0.95), eps=1e-10, weight_decay=0, fused=True)
+    if dist.get_rank() == 0 and trial_idx == 0:
+        for i, g in enumerate(optimizer1.param_groups):
+            print(f"[per_kind_aux_beta1] param_group[{i}] name={g.get('name','?')} betas={tuple(g['betas'])} wd={g['weight_decay']:.6f}", flush=True)
     optimizer2 = Muon([(n, p) for n, p in model.blocks.named_parameters() if p.ndim >= 2],
                       lr=MUON_LR, weight_decay=MUON_WEIGHT_DECAY, mu=MU)
     optimizer2.param_groups[0]["name"] = "muon_blocks"
@@ -1053,6 +1175,81 @@ for trial_idx in range(args.num_trials):
             )
         for opt in optimizers:
             opt.step()
+        # PR #1754 (embed) + PR #1824 (lm_head) + PR #1921 (FACTOR): per-kind AdamW moment reset hooks.
+        # Both blocks are independent — both can fire on the same step if intervals align.
+        # factor in [0,1]: state.mul_(factor). factor=0.0 → legacy full zero; factor=1.0 → no-op.
+        def _per_kind_reset(group_name: str, moment_mode: int, interval: int, factor: float, label: str) -> None:
+            if interval <= 0 or step <= 0 or (step % interval) != 0:
+                return
+            params_reset_avg = 0
+            params_reset_sq = 0
+            pre_exp_avg_sq_sum = 0.0
+            pre_exp_avg_sum = 0.0
+            for g in optimizer1.param_groups:
+                if g.get("name") == group_name:
+                    for p in g["params"]:
+                        st = optimizer1.state.get(p, {})
+                        if "exp_avg" in st:
+                            pre_exp_avg_sum += float(st["exp_avg"].float().square().sum().item())
+                        if "exp_avg_sq" in st:
+                            pre_exp_avg_sq_sum += float(st["exp_avg_sq"].float().square().sum().item())
+                        # MOMENT=0 → both (legacy), MOMENT=1 → exp_avg_sq only, MOMENT=2 → exp_avg only, MOMENT=3 → both (bitfield)
+                        if moment_mode in (0, 2, 3) and "exp_avg" in st:
+                            if factor == 0.0:
+                                st["exp_avg"].zero_()
+                            else:
+                                st["exp_avg"].mul_(factor)
+                            params_reset_avg += 1
+                        if moment_mode in (0, 1, 3) and "exp_avg_sq" in st:
+                            if factor == 0.0:
+                                st["exp_avg_sq"].zero_()
+                            else:
+                                st["exp_avg_sq"].mul_(factor)
+                            params_reset_sq += 1
+                    break
+            post_exp_avg_sq_sum = 0.0
+            post_exp_avg_sum = 0.0
+            for g in optimizer1.param_groups:
+                if g.get("name") == group_name:
+                    for p in g["params"]:
+                        st = optimizer1.state.get(p, {})
+                        if "exp_avg" in st:
+                            post_exp_avg_sum += float(st["exp_avg"].float().square().sum().item())
+                        if "exp_avg_sq" in st:
+                            post_exp_avg_sq_sum += float(st["exp_avg_sq"].float().square().sum().item())
+                    break
+            if dist.get_rank() == 0:
+                pre_avg_norm = pre_exp_avg_sum ** 0.5
+                post_avg_norm = post_exp_avg_sum ** 0.5
+                pre_sq_norm = pre_exp_avg_sq_sum ** 0.5
+                post_sq_norm = post_exp_avg_sq_sum ** 0.5
+                wandb.log(
+                    {
+                        "trial": trial_idx,
+                        "train/step": train_step,
+                        f"{label}/exp_avg.norm_pre": pre_avg_norm,
+                        f"{label}/exp_avg.norm_post": post_avg_norm,
+                        f"{label}/exp_avg_sq.norm_pre": pre_sq_norm,
+                        f"{label}/exp_avg_sq.norm_post": post_sq_norm,
+                        f"{label}/reset_event_step": step,
+                        f"{label}/reset_event_moment": moment_mode,
+                        f"{label}/reset_event_factor": factor,
+                    },
+                    step=wandb_step,
+                )
+                print(
+                    f"[PER_KIND_AUX_PERIODIC_RESET] step {step}: {label} AdamW state reset"
+                    f" (moment={moment_mode}, factor={factor}, exp_avg reset={params_reset_avg},"
+                    f" exp_avg_sq reset={params_reset_sq},"
+                    f" exp_avg.norm pre={pre_avg_norm:.4f} post={post_avg_norm:.4f},"
+                    f" exp_avg_sq.norm pre={pre_sq_norm:.4f} post={post_sq_norm:.4f})",
+                    flush=True,
+                )
+
+        if PER_KIND_AUX_PERIODIC_RESET_EMBED_ENABLED:
+            _per_kind_reset("adam_embed", AUX_RESET_MOMENT_EMBED, AUX_RESET_INTERVAL_EMBED, AUX_RESET_FACTOR_EMBED, "embed")
+        if PER_KIND_AUX_PERIODIC_RESET_LM_HEAD_ENABLED:
+            _per_kind_reset("adam_lm_head", AUX_RESET_MOMENT_LM_HEAD, AUX_RESET_INTERVAL_LM_HEAD, AUX_RESET_FACTOR_LM_HEAD, "lm_head")
         if dist.get_rank() == 0 and telemetry_due:
             for opt in optimizers:
                 if hasattr(opt, "trust_gate_stats"):
