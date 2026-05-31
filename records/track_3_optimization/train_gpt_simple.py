@@ -86,6 +86,17 @@ def parse_args():
              "step: eta = 1 if x < 0.8 else 0 (falsifier - no decay until last 20% of cooldown).",
     )
     parser.add_argument(
+        "--aux_cooldown_shape",
+        type=str,
+        default=None,
+        choices=["linear", "cosine", "concave", "convex", "step", "constant"],
+        help="LR cooldown shape for AdamW aux groups (adam_embed, adam_lm_head, adam_scalars). "
+             "None=inherit --lr_cooldown_shape (A_ctrl behavior, uniform across body and aux). "
+             "'constant' is a new shape meaning 'no cooldown for aux' (aux holds full LR throughout). "
+             "Mechanism: AdamW v_hat already self-rescales aux step size with gradient magnitude; "
+             "explicit cooldown on aux may be redundant double-cooling.",
+    )
+    parser.add_argument(
         "--depth_init_mode",
         type=str,
         default="ctrl",
@@ -784,6 +795,9 @@ if dist.get_rank() == 0:
             "lr_scalars": args.lr_scalars,
             "depth_init_mode": args.depth_init_mode,
             "lr_cooldown_shape": args.lr_cooldown_shape,
+            "aux_cooldown_shape": args.aux_cooldown_shape,
+            "aux_cooldown_decoupled": args.aux_cooldown_shape is not None
+                                       and args.aux_cooldown_shape != args.lr_cooldown_shape,
             "ema_eval_decay": args.ema_eval_decay,
             "ema_eval_enabled": args.ema_eval_decay is not None,
         },
@@ -901,6 +915,8 @@ for trial_idx in range(args.num_trials):
 
     # learning rate schedule: stable then decay
     def _cooldown_eta(x, shape):
+        if shape == "constant":
+            return 1.0
         if shape == "linear":
             return 1.0 - x
         elif shape == "cosine":
@@ -917,18 +933,22 @@ for trial_idx in range(args.num_trials):
     def set_hparams(step, cooldown_frac=0.7):
         progress = step / train_steps
         assert 0 <= progress < 1
+        aux_shape = args.aux_cooldown_shape if args.aux_cooldown_shape is not None else args.lr_cooldown_shape
         if progress < 1 - cooldown_frac:
-            eta = 1.0
+            eta_body = 1.0
+            eta_aux = 1.0
         else:
             x = (progress - (1 - cooldown_frac)) / cooldown_frac
-            eta = _cooldown_eta(x, args.lr_cooldown_shape)
+            eta_body = _cooldown_eta(x, args.lr_cooldown_shape)
+            eta_aux = _cooldown_eta(x, aux_shape)
         wd_mu = _wd_multiplier(step, train_steps, args.wd_schedule)
         for opt in optimizers:
             for group in opt.param_groups:
-                group["lr"] = group["initial_lr"] * eta
+                is_aux = group.get("name", "").startswith("adam_")
+                group["lr"] = group["initial_lr"] * (eta_aux if is_aux else eta_body)
                 if "initial_wd" in group and group.get("name", "").startswith("muon_"):
                     group["weight_decay"] = group["initial_wd"] * wd_mu
-        return eta
+        return eta_body, eta_aux
 
 
     ########################################
@@ -1153,7 +1173,7 @@ for trial_idx in range(args.num_trials):
         dist.all_reduce(step_loss, op=dist.ReduceOp.SUM)
         train_loss = float((step_loss / batch_size).item())
         # set optimization hyperparameters and take a step
-        eta_actual = set_hparams(step)
+        eta_body, eta_aux = set_hparams(step)
         train_step = step + 1
         telemetry_due = (step == 0 or (step + 1) % args.telemetry_interval == 0 or step + 1 == train_steps)
         histogram_due = (step == 0 or (step + 1) % args.histogram_interval == 0 or step + 1 == train_steps)
@@ -1234,7 +1254,9 @@ for trial_idx in range(args.num_trials):
                 per_group_metrics["train/wd_mlp_now"] = current_wds.get("muon_mlp", 0.0)
                 per_group_metrics["train/wd_attn_now"] = current_wds.get("muon_attn", 0.0)
                 per_group_metrics["train/wd_schedule_progress"] = train_step / train_steps
-                per_group_metrics["cooldown_shape/eta_at_step"] = eta_actual
+                per_group_metrics["cooldown_shape/eta_at_step"] = eta_body
+                per_group_metrics["cooldown_shape/eta_body"] = eta_body
+                per_group_metrics["cooldown_shape/eta_aux"] = eta_aux
                 wandb.log(per_group_metrics, step=wandb_step)
         if dist.get_rank() == 0 and optimizer2.cos_sims_buffer:
             cs_names = list(optimizer2.cos_sims_buffer.keys())
