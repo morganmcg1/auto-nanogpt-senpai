@@ -1,5 +1,48 @@
 # SENPAI Research Results
 
+## 2026-05-31 22:23 UTC — PR #1962 askeladd: Aux Adam v-state ×0.5 PER-GROUP @ step 975 (embed vs lm_head) — ❌ BILATERAL NULL (aux v-decay per-group scope closed)
+
+- Branch: `g1r1-askeladd/aux-scalar-v-decay-cooldown`
+- Hypothesis: Per-group aux Adam v×0.5 @ step 975 — embed-only (Arm A) vs lm_head-only (Arm B). Joint v×0.5 @ 975 was NOT tested; frieren #1963 tested joint v×0.5 @ step 200. Per-group scope tests whether the WIN mechanism is localized to a specific optimizer group.
+
+| Arm | scope @975 | run | sr | val_ema | Δ vs gate (mnat) | Verdict |
+|---|---|---|---:|---:|---:|---|
+| Baseline (#1532, n=2) | — | 9coyk2ke/09qrijtm | 2875 | 3.262854 | 0 | — |
+| **A (embed-only v×0.5)** | adam_embed | `1l8r7xbp` | 2925 | 3.265293 | **+2.45** | ❌ NULL |
+| **B (lm_head-only v×0.5)** | adam_lm_head | `q1mx06f1` | 2925 | ~3.266 | **~+2.9** | ❌ NULL |
+
+- **Symmetric NULL — both scopes identical sr=2925.** Per-group localization of v×0.5 at step 975 does NOT unlock the mechanism (consistent with frieren #1963 joint v×0.5 @ step 200 yielding a WIN-candidate seed-1 that failed seed-2 confirmation).
+- **Combined with askeladd prior closures and frieren #1963:** Aux Adam v-state recalibration mechanism is exhausted at per-group-late (this PR) and joint-early (#1963 NULL seed-2). Aux v-state decay axis CLOSED.
+- **askeladd reassigned:** PR #2025 — body PMuon momentum SCALE-UP (×2.0/×4.0) @ step 975. Tests the SCALE-UP direction on the body-mom axis (SCALE-DOWN ×0.5/×0.25 bilaterally closed at 975 #1797 and 2750 #1836).
+
+## 2026-05-31 22:21 UTC — PR #1946 nezuko: Body PMuon γ SHARPEN (γ→0.5) TIMING SWEEP @ step 1100 vs 1200 — ❌ BILATERAL NULL (γ-pulse axis fully exhausted across all timings)
+
+- Branch: `g1r1-nezuko/body-gamma-sharpen-timing`
+- Hypothesis: Body PMuon γ axis tested globally at step 975 (#1831 NULL) and pre-target 2750 (#1680 NULL). Timing sweep to 1100/1200 (mid-cooldown) to find the optimal γ pulse window.
+
+| Arm | timing | run | sr | val_ema | Δ vs gate (mnat) | Verdict |
+|---|---|---|---:|---:|---:|---|
+| Baseline (#1532, n=2) | — | 9coyk2ke/09qrijtm | 2875 | 3.262854 | 0 | — |
+| **A (γ→0.5 @ step 1100)** | mid-cooldown | `9oolxfqn` | 2925 | 3.265571 | **+2.72** | ❌ NULL |
+| **B (γ→0.5 @ step 1200)** | late-cooldown | `tghdnkyw` | 2925 | 3.264640 | **+1.79** | ❌ NULL |
+
+- **Clean asymmetric param-norm response (relax grows norm, deepen shrinks norm) but identical sr=2925 outcome.** The whitening sharpening mechanism is real (sentinels verified), but not load-bearing for target-crossing speed at any tested timing.
+- **γ-pulse axis CLOSURE SUMMARY across ALL timings:**
+  - #1831 fern: γ→0.5 SHARPEN @ 975 → bilateral NULL
+  - #1680 nezuko: γ→0.5 SHARPEN @ pre-target 2750 → bilateral NULL
+  - #1935 alphonse: γ→0.5 SHARPEN BLOCKWISE (deep/shallow) @ 975 → bilateral NULL
+  - #1946 nezuko: γ→0.5 SHARPEN @ 1100 and @ 1200 → bilateral NULL
+- **Body PMuon γ axis EXHAUSTIVELY CLOSED across ALL temporal boundaries (975/1100/1200/2750) AND all depth localizations.** Whitening exponent γ=0.4 is robustly optimal.
+- **nezuko reassigned:** PR #2024 — body PMuon momentum FRESH-START (m.copy_(p.grad)) @ step 2600 (pEMA refresh boundary). Distinct from all tested body-mom operations — same mechanism as alphonse #1986 (@ step 975) but at the pEMA refresh boundary (untested for any body-mom state operation).
+
+## 2026-05-31 21:30 UTC — frieren #1963: Aux v-state ×0.5 joint @ step 200 — seed-2 `apt27zit` NOT CONFIRMING WIN
+
+- Arm A `0udzyamc` seed-1: sr=2875, val_ema=3.262159 (-0.695 mnat WIN candidate)
+- Arm A `apt27zit` seed-2: **sr=-1 (did not reach target; finished at step 3250), val_ema=3.265112 (+2.26 mnat NULL)**
+- N=2 mean: sr=-1 / val_ema=3.2636 — fails both gate clauses. WIN was run-to-run noise.
+- Arm B `su37rclp` (embed-only @ step 200) RUNNING at step 125 — completing the experiment.
+- Frieren #1963 still open, awaiting Arm B terminal + student SENPAI-RESULT post.
+
 ## 2026-05-31 18:47 UTC — PR #1945 thorfinn: Body PMuon weight_decay PERSISTENT pulse @ cooldown onset step 975 (RELAX wd→0.0 vs DEEPEN wd→0.05) — ❌ BILATERAL NULL
 
 - Branch: `thorfinn/body-muon-wd-pulse-cooldown`

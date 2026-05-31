@@ -1,8 +1,10 @@
 # SENPAI Research State — auto-nanogpt-1gpu-r1
 
-- **Last update: 2026-05-31 18:47 UTC**
+- **Last update: 2026-05-31 22:30 UTC**
 - **Current baseline:** PR #1532 (aux Adam β₂ pulse 0.95→0.99 @ step 975). val_ema=3.262854, sr=2875 (n=2).
-- **🔥 WIN CANDIDATE: frieren #1963 Arm A `0udzyamc` TERMINAL sr=2875 val_ema=3.2622 (-0.695 mnat):** Aux Adam v×0.5 @ warmup-end step 200, JOINT scope. Seed-2 `apt27zit` launched and running. Arm B (embed-only) chained after seed-2 terminal. AWAITING CONFIRMATION.
+- **WIN CANDIDATE FAILED: frieren #1963 Arm A `0udzyamc` seed-2 `apt27zit` DOES NOT CONFIRM** (sr=-1, val_ema=3.265112 +2.26 mnat). Seed-1 WIN was run-to-run noise. Arm B `su37rclp` (embed-only @ step 200) still running (step 125). Awaiting Arm B terminal + student SENPAI-RESULT.
+- **askeladd #1962 CLOSED (22:23 UTC):** Aux v×0.5 PER-GROUP @ 975 bilateral NULL. Arm A embed sr=2925 +2.45 mnat, Arm B lm_head sr=2925 ~+2.9 mnat. Aux v-state recalibration axis CLOSED (all per-group localizations and timings exhausted).
+- **nezuko #1946 CLOSED (22:21 UTC):** Body PMuon γ SHARPEN TIMING SWEEP @ 1100/1200 bilateral NULL. Arm A sr=2925 +2.72 mnat, Arm B sr=2925 +1.79 mnat. γ-pulse axis EXHAUSTIVELY CLOSED across all timings (975/1100/1200/2750) and all depth localizations.
 - **Merge gate:** `sr ≤ 2862.5 OR (sr=2875 AND val_ema < 3.262854)`
 - **alphonse #1935 CLOSED (15:15 UTC) → alphonse #NEW ASSIGNED (15:30 UTC):** Body PMuon γ→0.5 SHARPEN BLOCK-STRATIFIED (deep Arm A vs shallow Arm B) @ step 975 — BILATERAL NULL. Arm A deep (8-11) `38squmio` sr=2925 val_ema=3.264731 (+1.88 mnat); Arm B shallow (0-3) `phg6c5mn` sr=2925 val_ema=3.265399 (+2.55 mnat). Depth localization does NOT unlock γ headroom; shallow slightly WORSE than deep (reversed from momentum axis #1929). **Body PMuon γ axis EXHAUSTIVELY CLOSED** across all temporal boundaries (975/#1831, pre-target/#1680) AND all depth localizations (joint/deep/shallow/#1935). alphonse reassigned: block-stratified body PMuon momentum FRESH-START (m.copy_(p.grad)) @ step 975 — Arm A deep (8-11), Arm B shallow (0-3). Third distinct state-arithmetic operation after HARD-ZERO (#1929) and DECAY (#1980).
 - **fern #1930 CLOSED (15:10 UTC) → fern #NEW ASSIGNED (15:30 UTC):** Body PMuon side cov HARD-ZERO/×0.5 @ step 975 — BILATERAL NULL. Arm A factor=0.0 `kimfzyld` sr=2925 val_ema=3.266424 (+3.57 mnat); Arm B factor=0.5 `u3a62mkw` sr=2925 val_ema=3.266546 (+3.69 mnat). Symmetric within 0.12 mnat. Sentinels verified: 72L+72R params correctly perturbed. Cov buffers regenerate within a few steps via running statistics — perturbation is absorbed. **Body PMuon cov-state buffer-value perturbation axis FULLY CLOSED** across all magnitudes (ZERO/×0.5), all temporal boundaries (975/1100/2750), all asymmetries (joint/L-only/R-only). fern reassigned: Aux Adam β₂ EARLY pulse 0.95→0.99 — Arm A @ step 100 (mid-warmup), Arm B @ step 200 (warmup-end). Complements frieren #1963 at same boundary on different mechanism.
@@ -90,14 +92,14 @@ Two independent mechanisms hit baseline sr (bilateral nulls, but sr=2925→2875 
 
 | PR | Student | Experiment | Status | Arms |
 |---|---|---|---|---|
-| **#1946** | **nezuko** | **Body PMuon γ SHARPEN (γ→0.5) TIMING SWEEP — @ step 1100 vs 1200 (joint all-blocks)** | **Arm A `9oolxfqn` NULL sr=2925; Arm B step1200 `tghdnkyw` running step 250** | **Arm A: γ→0.5 @1100 NULL; Arm B: γ→0.5 @1200 in-flight** |
-| **#2003** | **thorfinn** | **Body PMuon momentum HARD-ZERO vs DECAY ×0.5 @ warmup-end step 200 (all blocks)** | **Assigned 18:47 UTC — picking up** | **Arm A: HARD-ZERO @200 (all 12 blocks); Arm B: DECAY ×0.5 @200 (all 12 blocks)** |
-| **#1986** | **alphonse** | **Block-stratified body PMuon momentum FRESH-START (m.copy_(p.grad)) @ step 975** | **Assigned 15:30 UTC — running** | **Arm A: deep (8-11) FRESH-START @975; Arm B: shallow (0-3) FRESH-START @975** |
-| **#1980** | **edward** | **Shallow-block body PMuon momentum PARTIAL DECAY ×0.5/×0.25 @ step 975** | **Assigned 14:30 UTC — running** | **Arm A: shallow (0-3) mom ×0.5 @975; Arm B: shallow (0-3) mom ×0.25 @975 (follows #1929 Arm B near-miss)** |
-| **#1987** | **fern** | **Aux Adam β₂ EARLY pulse 0.95→0.99 — timing sweep @ step 100 vs step 200** | **Assigned 15:30 UTC — running** | **Arm A: β₂ pulse @step 100 (mid-warmup); Arm B: β₂ pulse @step 200 (warmup-end)** |
-| **#1984** | **tanjiro** | **Middle-block (4-7) body PMuon momentum HARD-ZERO + ×0.5 DECAY @ step 975** | **Assigned 14:50 UTC — running** | **Arm A: middle (4-7) mom factor=0.0 (HARD-ZERO) @975; Arm B: middle (4-7) mom factor=0.5 (PARTIAL DECAY) @975** |
-| **#1963** | **frieren** | **Aux Adam v-state ×0.5 @ WARMUP-END boundary step 200 — joint vs embed-only** | **🔥 Arm A WIN CANDIDATE sr=2875 val_ema=3.2622; seed-2 `apt27zit` running; Arm B chained after** | **Arm A: all-3-groups v×0.5 @200 (TERMINAL WIN candidate); Arm B: adam_embed only (pending after seed-2)** |
-| **#1962** | **askeladd** | **Aux Adam v-state ×0.5 PER-GROUP @ step 975 — embed-only vs lm_head-only** | **Arm A `1l8r7xbp` NULL sr=2925; Arm B `q1mx06f1` running step 125** | **Arm A: adam_embed v×0.5 @975 NULL; Arm B: adam_lm_head v×0.5 @975 in-flight** |
+| **#2024** | **nezuko** | **Body PMuon momentum FRESH-START (m.copy_(p.grad)) @ step 2600 (pEMA refresh boundary)** | **Assigned 22:30 UTC — picking up** | **Arm A: all 72 buffers @2600; Arm B: deep blocks (8-11) only @2600** |
+| **#2025** | **askeladd** | **Body PMuon momentum SCALE-UP (×2.0/×4.0) @ step 975 (cooldown onset)** | **Assigned 22:30 UTC — picking up** | **Arm A: m*=2.0 all blocks @975; Arm B: m*=4.0 all blocks @975** |
+| **#2003** | **thorfinn** | **Body PMuon momentum HARD-ZERO vs DECAY ×0.5 @ warmup-end step 200 (all blocks)** | **`gqax73wu` near terminal (step 2925)** | **Arm A: HARD-ZERO @200 (all 12 blocks); Arm B: DECAY ×0.5 @200 (all 12 blocks)** |
+| **#1986** | **alphonse** | **Block-stratified body PMuon momentum FRESH-START (m.copy_(p.grad)) @ step 975** | **Arm A `09ja3yrh` running (step 1000)** | **Arm A: deep (8-11) FRESH-START @975; Arm B: shallow (0-3) FRESH-START @975** |
+| **#1980** | **edward** | **Shallow-block body PMuon momentum PARTIAL DECAY ×0.5/×0.25 @ step 975** | **Arm A `y2lchrhe` running (step 1875)** | **Arm A: shallow (0-3) mom ×0.5 @975; Arm B: shallow (0-3) mom ×0.25 @975** |
+| **#1987** | **fern** | **Aux Adam β₂ EARLY pulse 0.95→0.99 — timing sweep @ step 100 vs step 200** | **Arm B `5zx2wm8c` running (step 2250)** | **Arm A: β₂ pulse @step 100 (mid-warmup); Arm B: β₂ pulse @step 200 (warmup-end)** |
+| **#1984** | **tanjiro** | **Middle-block (4-7) body PMuon momentum HARD-ZERO + ×0.5 DECAY @ step 975** | **Arm A `g87o92vn` running (step 2500)** | **Arm A: middle (4-7) mom factor=0.0 (HARD-ZERO) @975; Arm B: middle (4-7) mom factor=0.5 (PARTIAL DECAY) @975** |
+| **#1963** | **frieren** | **Aux Adam v-state ×0.5 @ WARMUP-END boundary step 200 — joint vs embed-only** | **Arm A `0udzyamc` NULL (seed-2 NOT CONFIRMING); Arm B `su37rclp` running (step 125)** | **Arm A: all-3-groups v×0.5 @200 CLOSED (NULL); Arm B: adam_embed only @200 (in-flight)** |
 
 ## Current research themes
 
