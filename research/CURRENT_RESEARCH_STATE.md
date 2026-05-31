@@ -9,7 +9,32 @@ The human research team has redirected: **FFS (first-step-to-target, baseline 30
 3. **Prefer experiments that move the crossing step** (2800-3050 window), **simplify winning stacks**, **reveal FFS-load-bearing components**.
 4. **Ablations preferred over confirmations** when FFS dead.
 
-## Last updated: 2026-05-31 01:45Z (69 R5 closures; edward #1858 Schulz polish SQUARE sent back for n=4 confirm at α=0.1 [FIRST joint FFS+val signal in 69 closures]; tanjiro #1880 + thorfinn #1870 active progress confirmed via W&B; 8/8 active)
+## Last updated: 2026-05-31 02:00Z (70 R5 closures; alphonse #1860 SOAP-attn cooldown gate CLOSED 70th [FFS-NEG monotonic harm, SOAP-attn load-bearing throughout cooldown]; alphonse idle pending researcher-agent; thorfinn #1870 Cell B nearing completion at 88% with val=3.34 (unlikely to cross 3.28); 7/8 active)
+
+### Notes (2026-05-31 02:00Z) — ALPHONSE #1860 SOAP-ATTN COOLDOWN GATE CLOSED 70th [FFS-NEG, MONOTONIC HARM]
+
+- **★ CLOSED #1860 alphonse SOAP-attn cooldown phase-gate** [70th R5 closure, 01:08Z] — clean-NEG, predeclared falsifier triggered. Cell-by-cell:
+  - Cell A CTRL (SOAP always on, `823jts3g`): FFS_ema=**2875**, FFS_trainval=2925, val=3.26841 (canonical seed-noise lower tail per #699, #1796)
+  - Cell B★ (disable@975, full cooldown without SOAP, `y2roqlfr`): FFS_ema=**3025** (+150 vs A), val=3.27462
+  - Cell C (disable@1625, late half without SOAP, `ymmj4bd6`): FFS_ema=**2950** (+75 vs A), val=3.27153
+  - Predeclared falsifier: B and C both FFS_ema ≥ 2925 → SOAP attn IS load-bearing during cooldown ✓✓ TRIGGERED.
+- **★★ HIGH-VALUE MECHANISM** (two memory rules):
+  - **Monotonic A < C < B on every metric** (val, ema_val, FFS_ema, FFS_trainval) — harm scales monotonically with cooldown duration without SOAP-attn. Early cooldown window (975–1625, ~20% of training) accounts for ~50% of SOAP-attn FFS contribution.
+  - **Opposes original hypothesis**: SOAP eigenbasis is NOT stale during cooldown. Strongest contribution is in the LR-decay-onset zone where the preconditioner stabilizes attn updates against rapidly-shrinking step sizes.
+  - Memory rules: `soap_attn_cooldown_load_bearing_monotonic` + `soap_attn_early_cooldown_concentrated`.
+- **★ SOAP-attn phase-gating family STRUCTURALLY CLOSED**: #818 (full disable) + #914 (Q-freeze) + #1707 (MLP per-kind) + #1860 (cooldown disable) — SOAP-attn is load-bearing throughout ALL training phases. No time-window gating viable.
+- **Student observation (worth a follow-up family)**: MLP vs ATTN asymmetry (#1707 MLP per-kind NEUTRAL vs this PR NEG on attn) suggests SOAP benefit on attn matrices is structurally different from MLP. Potential motivator for architectural differential routing.
+
+- **★ ALPHONSE NOW IDLE** — researcher-agent dispatched 01:55Z for fresh axis distinct from all closed (polar-approximator, NS-iter, SOAP phase-gating, magnitude/direction, scalar HPs, init) and all 7 in-flight axes (label-smoothing, μ-cooldown, GC, GE-SAM, Lookahead, annealed-grad-noise, Schulz polish square n=4).
+
+- **★ W&B-verified in-flight progress at 01:50Z**:
+  - thorfinn #1870 Cell B (`vde4akez`, α=0.05): step 2874/3250 (~88%), val=3.34 (0.06 above target, ~376 steps remain). **Borderline FFS-alive — may not cross 3.28 by step 3250**.
+  - tanjiro #1880 Cell B (`upms16as`, μ=0.85): step 719/3250 (~22%), val=3.75 (early-training, too early to judge).
+  - Both runs healthy, no crashes.
+
+- **Fleet at 02:00Z**: thorfinn #1870 WIP (Cell B 88%, nearing terminal); tanjiro #1880 WIP (Cell B 22%); fern #1885 WIP; askeladd #1891 WIP; frieren #1895 WIP; nezuko #1897 WIP; edward #1858 WIP (n=4 confirm running ~7h); alphonse IDLE (pending researcher-agent). **7/8 active.**
+
+
 
 ### Notes (2026-05-31 01:45Z) — EDWARD #1858 SCHULZ POLISH SQUARE SENT BACK FOR n=4 CONFIRM [FIRST JOINT FFS+VAL SIGNAL]
 

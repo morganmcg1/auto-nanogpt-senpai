@@ -1,5 +1,31 @@
 # SENPAI Research Results — auto-nanogpt-1gpu-r5
 
+## 2026-05-31 01:08Z — PR #1860 CLOSED clean-NEG [falsifier triggered, monotonic harm]: alphonse SOAP-attn cooldown phase gate [70th R5 closure]
+
+- branch: g1r5-alphonse/soap-attn-cooldown-phase-gate
+- hypothesis: SOAP preconditioning is most load-bearing during stable learning phase (steps 0-975). During cooldown (steps 975-3250), SOAP eigenbasis is stale (Gram lag from rapidly-decaying LR). Reverting attn to plain Muon NS5 at cooldown onset should give cleaner descent in the 3.28-crossing zone. 3 cells.
+- W&B group: g1r5-alphonse/soap-attn-cooldown-gate
+
+| Cell | Config | FFS_ema | FFS_trainval | val/loss | W&B |
+|---|---|---:|---:|---:|---|
+| A (ctrl) | SOAP active throughout | **2875** | 2925 | 3.26841 | `823jts3g` |
+| B★ (disable@975, full cooldown) | --soap_attn_cooldown_disable_step 975 | **3025** (+150) | 3025 | 3.27462 | `y2roqlfr` |
+| C (disable@1625, half cooldown) | --soap_attn_cooldown_disable_step 1625 | **2950** (+75) | 2975 | 3.27153 | `ymmj4bd6` |
+
+- verdict: CLOSED clean-NEG. Pre-declared falsifier triggered: "B and C both FFS_ema ≥ 2925 → SOAP attn IS load-bearing during cooldown."
+  - B FFS_ema=3025 ≥ 2925 ✓
+  - C FFS_ema=2950 ≥ 2925 ✓
+- Cell A's `{FFS_ema=2875, FFS_trainval=2925}` is canonical seed-noise lower tail (documented in #699, #1796). A is the clean baseline, not an outlier.
+- **★★ MECHANISM (high-value, two memory rules)**:
+  - **Monotonic ordering A < C < B on every metric** (val, ema_val, FFS_ema, FFS_trainval) shows harm scales monotonically with cooldown duration without SOAP-attn. Full-cooldown disable: +150 FFS. Half-cooldown disable: +75 FFS. Early-cooldown window (975-1625) accounts for ~50% of the SOAP-attn FFS contribution.
+  - **Opposes original hypothesis**: SOAP eigenbasis is NOT stale during cooldown; it remains informative throughout. The strongest contribution is in the LR-decay-onset zone where the preconditioner stabilizes attn updates against the rapidly-shrinking step size.
+  - Telemetry verified: `ns/post_scale_sigma_max/attn/max` stabilizes near 1.0 after step 975 in Cell B (plain NS5) — gate fires correctly, regression is mechanism, not artifact.
+- **Memory rules saved**:
+  - `soap_attn_cooldown_load_bearing_monotonic` — SOAP-attn preconditioner is FFS-load-bearing throughout cooldown; disable cost scales monotonically with disable duration.
+  - `soap_attn_early_cooldown_concentrated` — early-cooldown window (975-1625, ~20% of training) accounts for ~50% of SOAP-attn FFS contribution.
+- **SOAP-attn phase-gating family STRUCTURALLY CLOSED**: #818 (full disable) + #914 (Q-freeze) + #1707 (MLP per-kind) + #1860 (cooldown disable on attn). SOAP is structurally load-bearing on attn matrices throughout all training phases.
+- Student also raised valuable observation: MLP vs ATTN asymmetry (#1707 MLP per-kind = NEUTRAL; this PR = NEG on attn) suggests SOAP-attn benefit is structurally stronger and more cooldown-sensitive than SOAP-MLP. Potential motivator for future architectural experiments on differential routing.
+
 ## 2026-05-31 00:30Z — PR #1834 CLOSED FFS-NEG + COMPUTE-NEG: nezuko adaptive NS iter via relative Frobenius residual [69th R5 closure]
 
 - branch: g1r5-nezuko/ns-iter-adaptive
