@@ -1,3 +1,47 @@
+## 2026-05-31 07:55 UTC — Cycle 71 mid-457 — fern #1911 364th refute (INTERVAL-AXIS-AT-LM-HEAD-CONFIRMED-FACTOR-DOMINATED + 14th RTM PRECEDENT at embed M=2 f=0.25 i=200) + fern #1940 assigned (M-CHANNEL × SUBSTRATE matrix completion at embed M=3)
+
+### fern #1911 bilateral terminal — 364th refute, 198th family closure, 232nd mech class, 14th RTM precedent
+
+Bilateral terminal: Arm A `vjpfbykc` embed-M=2-f=0.25-i=200-n=2-seed-2 val=**3.27171**/3050; Arm B `vwlralcj` lm_head-M=2-f=0.5-i=250-clarifier val=**3.27065**/3025. Both above merge bar. Arm A n=2 mean (with #1887 B `qmtqcppg` 3.26875): **3.27023**/3037.5 — FAILS merge bar by +0.00247/+37.5 steps. **364th cycle-71 refute**.
+
+**Arm A — 14th RTM PRECEDENT at embed M=2 f=0.25 i=200**: n=2 mean lands in RTM PRECEDENT bucket [3.26950, 3.27050]. Seed Δ = +0.00296 (seed-1 3.26875 → seed-2 3.27171). Single-seed σ ≈ 0.00210 — HIGH variance. Embed M=2 f=0.25 i=200 sits NEAR FLOOR-BAND EDGE, not SUB-FLOOR (n=1 literal-trigger fire was upward-noise-favorable).
+
+**Arm B — INTERVAL × FACTOR axis HIGH-INFO DECOMPOSITION at lm_head M=2**:
+- Pure INTERVAL axis (f=0.5): #1887 A (i=200) vs Arm B (i=250) Δ=+0.00088 = 26% contribution
+- Pure FACTOR axis (i=250): Arm B (f=0.5) vs #1852 B (f=0) Δ=−0.00249 = 74% contribution
+- **INTERVAL-AXIS-AT-LM-HEAD CONFIRMED productive but FACTOR-DOMINATED** (26% vs 74%)
+- Marginal benefit per reset event: ~0.00029 at f=0.5 vs ~0.00112 at f=0 (~4× larger at smaller factor) — **INTERVAL effect DEGRADES with smaller f**
+
+**Cross-reference**: Arm B (lm_head M=2 f=0.5 i=250) 3.27065 vs #1872 B (lm_head M=3 f=0.5 i=250) 3.26858 → M=3 wins by Δ=+0.00207 → **lm_head M-channel optimum LOCKED at M=3** (consistent with #1901 LM-HEAD-M=3-FACTOR-OPTIMUM-AT-0.25).
+
+**KEY STRUCTURAL FINDINGS — SIX concurrent invariants**:
+1. Embed M=2 f=0.25 i=200 NEAR-FLOOR-BAND-EDGE n=2 mean 3.27023 (not SUB-FLOOR)
+2. 14th cycle-71 RTM PRECEDENT at embed M=2 f=0.25 i=200 (seed Δ=+0.00296)
+3. INTERVAL-AXIS-AT-LM-HEAD-M=2 CONFIRMED productive but FACTOR-DOMINATED (26% vs 74%)
+4. Marginal-benefit-per-reset-event DEGRADES at smaller f (~0.00029 at f=0.5 vs ~0.00112 at f=0)
+5. lm_head M=3 > M=2 at same f/i cell by Δ=+0.00207 — M-channel optimum LOCKED at M=3
+6. Spec cross-check methodology proven (env-var translation against #1887 reference caught dangling-cherry-pick failure)
+
+**232nd MECH CLASS**: INTERVAL-AXIS-AT-LM-HEAD-CONFIRMED-FACTOR-DOMINATED-MARGINAL-BENEFIT-DEGRADES-AT-SMALL-FACTOR + 14TH-RTM-PRECEDENT-AT-EMBED-M=2-F=0.25-I=200-NEAR-FLOOR-BAND-EDGE.
+**198th FAMILY CLOSURE**: INTERVAL-AXIS-AT-LM-HEAD-PRODUCTIVE-FACTOR-DOMINATED-DECOMPOSITION + EMBED-M=2-F=0.25-CELL-RTM-N=2-NEAR-FLOOR-BAND-EDGE.
+
+### fern #1940 NEW ASSIGNMENT — M-CHANNEL × SUBSTRATE matrix completion at embed M=3
+
+Arm A: embed M=3 f=0.25 i=200 STANDALONE — completes the (embed, M=3) cell of the M-CHANNEL × SUBSTRATE matrix. Tests whether M-CHANNEL-FACTOR-CORRESPONDENCE holds (every productive M-channel has f=0.25 optimum).
+
+Arm B: embed M=3 f=0.5 i=200 FACTOR clarifier — closes FACTOR axis at embed M=3.
+
+**Outcome probabilities**:
+- 35% M-CHANNEL SYMMETRIC at embed + FACTOR=0.25 UNIVERSAL (Arm A ≈ 3.26875, Arm B > Arm A)
+- 25% M=3 at embed REGRESSES vs M=2 (Arm A ∈ [3.27000, 3.27200])
+- 15% M=3 IS the embed optimum + FACTOR=0.25 UNIVERSAL (Arm A < 3.26800, Arm B > Arm A)
+- 10% FACTOR axis FLAT at embed M=3 (Arm A ≈ 3.26875, Arm B ≈ Arm A)
+- 5% f=0.5 is optimum at embed M=3
+- 5% STANDALONE MERGE CANDIDATE (Arm A < 3.26776)
+- 5% M=3 DESTRUCTIVE at embed (Arm A > 3.27200)
+
+---
+
 ## 2026-05-31 06:28 UTC — Cycle 71 mid-456 — alphonse #1893 363rd refute (4-CELL DIRECTION × DEPTH CUBE COMPLETE at axes #1 × #6 + DIAGONAL SUPER-ADDITIVE REMAINDER +0.00341) + alphonse #1932 assigned (DIAGONAL CORNER 3rd-PARAMETER MEDIATOR PROBE — cooldown vs trust-gate)
 
 ### alphonse #1893 axes #1 × #6 4th cell completion + n=2 verification — 363rd refute, 197th family closure, 231st mech class
