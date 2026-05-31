@@ -1,8 +1,18 @@
-## Cycle ~2700 (CURRENT): H325 CLOSED 179th NULL/NEG (🎯 7th independent FFS=3000 EXACT TIE H266 attractor cluster STRONGEST BELOW + H309+H317+H325 three-experiment β2 mid_training_ramp axis CLOSED + β1-vs-β2 SCHEDULE-axis distinction + H266 attractor canalization paper-grade reinforced at maximum strength) + H333 frieren ASSIGNED AUX β2 cooldown_ramp DOWN (NO CODE CHANGES, mechanism-targeted, WIN prob 6-10%) + H324 CLOSED 178th NULL/NEG (H316+H324 two-experiment OUTER LR SCHEDULE axis CLOSED as class) + H332 tanjiro ASSIGNED Polyak EMA DECAY SCHEDULE (PR #1951, WIN prob 12-18%) + H323 CLOSED 177th NULL/NEG (DEEPEST mid-training POS −45σ at step 1000 + cooldown-onset inversion) + H331 thorfinn ASSIGNED TRAPEZOIDAL V-shape μ schedule (PR #1939, WIN prob 12-18%)
+## Cycle ~2700 (CURRENT): H328 CLOSED 180th NULL/NEG (🎯 paper-grade embed-RMS shrinkage mechanism + wd=0 HARDCODED baseline LOAD-BEARING confirmed + AUX wd VALUE+SCHEDULE axis fully closed + virgin-axis-at-hardcoded-baseline discovery protocol established) + H334 askeladd ASSIGNED AUX β1 VALUE axis (PR #1961, closure-amplifier on H110+H319 priors, WIN prob 5-8%) + H325 CLOSED 179th + H324 CLOSED 178th + H323 CLOSED 177th + H333/H332/H331 ASSIGNED
 
-**THREE major closures this cycle (177th–179th NULL/NEG with paper-grade mechanism findings), three fresh assignments. Plateau campaign portfolio: 179 NULL/NEG + 1 MERGED WIN (H266), 107 mechanism classes consolidated. All 8 students WIP — zero idle GPUs.**
+**FOUR major closures this cycle (177th–180th NULL/NEG with paper-grade mechanism findings), FOUR fresh assignments. Plateau campaign portfolio: 180 NULL/NEG + 1 MERGED WIN (H266), 108 mechanism classes consolidated. All 8 students WIP — zero idle GPUs.**
 
 ### Closures this cycle
+
+**H328 askeladd AUX weight_decay VALUE axis CLOSED 180th NULL/NEG (PR #1926) — 🎯 paper-grade embed-RMS shrinkage + wd=0 HARDCODED load-bearing confirmed + SCHEDULE axis pre-closed**
+- arm_a CTRL (wd=0.0) `ewljx90i`: val=3.27017 FFS=3050 (Pattern A drift +25 IN FAMILY, +2.25σ vs H266)
+- arm_b MILD (wd=0.005) `eusgpydo`: val=3.27323 FFS=3150 (+5.71σ NEG vs H266, +3.46σ NEG vs CTRL, FFS +150 = 5.0% regression)
+- arm_c MOD (wd=0.02) `1z5om0r0`: val=**3.29155** FFS=**−1 NEVER REACHED** (+26.44σ CATASTROPHIC vs H266)
+- 🎯 **Paper-grade embed-RMS shrinkage mechanism**: arm_b 3.69× shrinkage / arm_c 10.49× shrinkage at terminal vs CTRL embed_rms=17.545. wd dominantly acts on embed group (lr=0.3 >> lm_head lr=0.003). H266 trajectory requires embed_rms to GROW to ~17.5 — wd>0 prevents this, destroying both val AND FFS.
+- 🎯 **H266 hardcoded wd=0 is LOAD-BEARING** — not a design oversight, an empirically required design choice for embed growth trajectory
+- 🎯 **AUX wd SCHEDULE axis effectively closed** — baseline floor=0 means any ramp-UP-from-zero hits same embed-growth requirement
+- 🎯 **Virgin-axis-at-hardcoded-baseline discovery protocol** — same pattern as H328 discovered wd loading applies to β1=0.8 (H334), outer_momentum=0.5, sync_interval=30
+- Process incident: commit not pushed caused arm_b/c crash; student identified + recovered cleanly; lesson saved to feedback_push_commits_immediately.md
 
 **H325 frieren AUX β2 mid_training_ramp DOWN-from-0.99-anchor CLOSED 179th NULL/NEG (PR #1917) — 🎯 H309+H317+H325 three-experiment β2 mid_training_ramp axis CLOSED + β1-vs-β2 SCHEDULE-axis distinction**
 - arm_a CTRL (constant β2=0.99, H266 baseline) `io9w74er`: val=**3.26742** FFS=**3000 EXACT** (🎯 **−0.86σ TIE BELOW H266, 7th independent attractor TIE, STRONGEST BELOW in entire cluster**)
@@ -36,6 +46,13 @@
 - Mechanism: cooldown phase requires CONSTANT HIGH μ for Polyak EMA momentum-coherence tracking; V-shape ramp-back-to-high-μ BEFORE cooldown is mechanistically essential
 
 ### Fresh assignments this cycle
+
+**H334 askeladd — AUX β1 VALUE axis {0.75, 0.85} at H266 anchor (PR #1961)**
+- Closure-amplifier on H110 (β1=0.9 pre-H266 NEG) + H319 (mid-ramp SCHEDULE both dirs NEG at H266); finer-resolution VALUE characterization never done at H266 stack
+- arm_a CTRL β1=0.8 (H266 bit-id) / arm_b LOW β1=0.75 / arm_c HIGH β1=0.85
+- β1 VALUE 0.75 untested; β1 VALUE 0.85 untested (H110 only tested 0.9); H266-anchor validation of H110 prior
+- WIN prob 5-8% (H110+H319 priors suggest β1=0.8 Pareto; H266 stack changes could shift optimum)
+- **Critical**: push commit to origin BEFORE chain launch (H328 lesson)
 
 **H333 frieren — AUX β2 cooldown_ramp DOWN from 0.99-anchor (PR #1954)**
 - Mechanism-targeted from H325 closure + cycle ~2700 cooldown-window cluster (H321 cooldown α / H323 cooldown μ / H332 cooldown EMA decay / H331 cooldown μ ramp-back — all identify cooldown steps 2826-3325 as load-bearing window)
@@ -71,6 +88,8 @@
 - PR #1926 H328 askeladd: AUX weight_decay VALUE axis — arm_a CTRL `ewljx90i` FINISHED at FFS=3050 +50 OUT OF FAMILY (suspected float-vs-int weight_decay code path drift); arm_b/arm_c launch status pending
 - PR #1924 H327 alphonse: NEGATIVE outer_momentum_cooldown_end — arm_a CTRL `wkv6yr1i` FINISHED FFS=3050 (+50 edge-of-Pattern-A-envelope, COINCIDENT with H328 CTRL FFS=3050 val Δ=0.000010 INDISTINGUISHABLE); arm_b MILD_NEG `mrd8cutn` RUNNING at 15%; arm_c STRONG_NEG queued
 - ~~PR #1917 H325 frieren~~: CLOSED 179th NULL/NEG. frieren reassigned to H333 (PR #1954).
+- ~~PR #1926 H328 askeladd~~: CLOSED 180th NULL/NEG. askeladd reassigned to H334 (PR #1961).
+- PR #1961 H334 askeladd: AUX β1 VALUE axis (FRESH cycle ~2700 assignment from H328 closure, PR #1961, student next-poll pickup pending)
 
 ### 🎯 Cycle ~2700 within-cycle paper-grade mechanism findings
 

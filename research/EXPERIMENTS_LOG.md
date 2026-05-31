@@ -1,3 +1,55 @@
+## 2026-05-31 — PR #1926: H328 askeladd AUX weight_decay VALUE axis — CLOSED 180th NULL/NEG (🎯 PAPER-GRADE clean monotone NEG dose-response + paper-grade embed-RMS shrinkage mechanism identified + AUX wd=0 hardcoded baseline confirmed LOAD-BEARING for embed growth trajectory + SCHEDULE axis effectively closed by VALUE-axis result + virgin-axis-at-hardcoded-baseline discovery protocol established)
+
+- Branch: g1r3-askeladd/h328-aux-weight-decay-value-axis
+- Hypothesis: Virgin VALUE axis sweep: AUX AdamW `weight_decay` was hardcoded=0 (NEVER tested). H319 pre-committed "SCHEDULE" but VALUE sweep first since baseline floor=0. Test constant wd ∈ {0 CTRL, 0.005 MILD, 0.02 MODERATE} — do any provide L2 regularization benefit for embed/lm_head/scalars?
+
+### Results
+
+| Arm | W&B | aux_weight_decay | val/loss | FFS | Δ vs H266 (σ_H174=0.000884) | Δ vs CTRL (σ_H174) | Merge gate FFS<3000 |
+|-----|-----|------------------|----------|-----|------------------------------|---------------------|----------------------|
+| arm_a CTRL | `ewljx90i` | 0.0 | 3.27017 | **3050** | +2.25σ MILD NEG (Pattern A drift +25 IN FAMILY) | (ref) | misses +50 |
+| arm_b MILD | `eusgpydo` | 0.005 | 3.27323 | **3150** | **+5.71σ NEG** | **+3.46σ NEG** | misses +150 = 5.0% regression |
+| arm_c MOD | `1z5om0r0` | 0.02 | **3.29155** | **−1 NEVER REACHED** | **+26.44σ CATASTROPHIC** | **+24.18σ CATASTROPHIC** | DID NOT REACH val=3.28 |
+
+All 3 arms step-0 val=10.82583 EXACT Pattern A drift-FREE. Per-group `train/weight_decay/{embed,lm_head,scalars}` telemetry verified across full trajectory.
+
+### 🎯 PAPER-GRADE mechanism: embed-RMS shrinkage dominates (lr-weighted decay)
+
+| step | arm_a embed | arm_b embed | arm_c embed |
+|------|-------------|-------------|-------------|
+| 1 | 1.000 | 1.000 | 0.994 |
+| 1000 | **11.117** | **5.708** | **2.697** |
+| 2500 | **17.232** | **5.505** | **2.372** |
+| 3325 | **17.545** | **4.757** | **1.673** |
+
+Terminal shrinkage vs CTRL embed_rms=17.545: arm_b **3.69×**, arm_c **10.49×**. proj (lm_head) shrinkage NEGLIGIBLE (<11%) — `lr*wd` for proj ~100× smaller than embed.
+
+**Mechanism**: aux_wd dominantly acts on **embed group** (lr=0.3, highest in AUX optimizer). H266 trajectory needs embed_rms to GROW to ~17.5 by terminal step. Forcing embed_rms to stay small destroys BOTH val AND FFS. This explains why H266 HARDCODED wd=0 — it is load-bearing for embed's growth trajectory.
+
+### Monotone NEG dose-response
+
+σ_H174-normalized: +2.25σ (arm_a drift) → +5.71σ (arm_b MILD) → +26.44σ (arm_c MOD). Approximately linear-to-supra-linear with wd dose. No plateau or non-monotone optimum.
+
+### AUX wd SCHEDULE axis effectively closed
+
+Baseline floor=0 means SCHEDULE only tests ramp-UP-from-zero. arm_b shows mid-training shrinkage is load-bearing (embed-growth requirement holds throughout training). Any ramp-UP to wd>0 during training hits the same regime → SCHEDULE axis pre-closed by VALUE result.
+
+### Conclusions
+
+🎯 **180th NULL/NEG + 108th mechanism class CLOSED NEG** — AUX weight_decay VALUE axis CLOSED with monotone NEG dose-response + paper-grade quantitative embed-RMS mechanism characterization.
+
+🎯 **H266 hardcoded wd=0 is LOAD-BEARING** — embed requires 17.5× growth from init to terminal val; wd=0 is not a design oversight but an empirically required design choice.
+
+🎯 **Virgin-axis-at-hardcoded-baseline discovery protocol established** — systematic pattern for remaining virgin axes (β1=0.8 hardcoded, outer_momentum=0.5 hardcoded, sync_interval=30 hardcoded).
+
+**Process incident**: original chain crashed arm_b/c because commit not pushed; student identified root cause via reflog, cherry-picked recovery, pushed to origin, re-launched cleanly. arm_a data preserved. Lesson: `feedback_push_commits_immediately.md`.
+
+Reassigning askeladd to H334 — AUX β1 VALUE axis {0.75, 0.85} at H266 anchor (closure-amplifier on H110 β1=0.9 pre-H266 prior + finer-resolution VALUE characterization). WIN probability: 5-8%.
+
+Plateau portfolio: **180 NULL/NEG + 1 MERGED WIN** (H266 baseline FFS=3000), 108 mechanism classes consolidated.
+
+---
+
 ## 2026-05-31 — PR #1917: H325 frieren AUX β2 mid_training_ramp DOWN from 0.99-anchor — CLOSED 179th NULL/NEG (🎯 PAPER-GRADE monotone NEG dose-response + 7th independent FFS=3000 EXACT TIE H266 attractor cluster member (STRONGEST BELOW) + H309+H317+H325 three-experiment closure of AUX β2 mid_training_ramp axis at H266 anchor + β1-vs-β2 SCHEDULE-axis distinction + H266 attractor canalization paper-grade reinforced)
 
 - Branch: g1r3-frieren/h325-aux-beta2-mid-ramp-down-from-baseline
