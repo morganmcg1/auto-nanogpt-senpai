@@ -84,6 +84,9 @@ def parse_args():
     parser.add_argument('--aux_b2_pulse_target', type=float, default=0.99,
                         help='New aux Adam β2 value to set at --aux_b2_pulse_step. '
                              '0 or negative disables. Default: 0.99 (canonical WIN).')
+    parser.add_argument("--body_muon_momentum_zero_step", type=int, default=0,
+                        help="Step at which to hard-zero body PMuon momentum buffers "
+                             "(0 disables; analog of aux m-only ZERO in nezuko #1815).")
     parser.add_argument("--seed", type=int, default=1,
                         help="Random seed for torch/numpy/python. Default 1 matches baseline seed.")
     args = parser.parse_args()
@@ -1071,6 +1074,26 @@ for trial_idx in range(args.num_trials):
                 group["betas"] = new_betas
             print0(f"[step {step}] aux_b2_pulse: β2 {old_b2} → {args.aux_b2_pulse_target}",
                    console=True)
+        if (args.body_muon_momentum_zero_step > 0
+                and step == args.body_muon_momentum_zero_step):
+            n_zeroed = 0
+            for group in optimizer2.param_groups:
+                for p in group["params"]:
+                    state = optimizer2.state.get(p, None)
+                    if state is None:
+                        continue
+                    buf = state.get("momentum", None)
+                    if buf is not None:
+                        buf.zero_()
+                        n_zeroed += 1
+            if dist.get_rank() == 0:
+                print0(f"[step {step}] body PMuon momentum HARD-ZERO reset "
+                       f"(n_zeroed={n_zeroed})", console=True)
+                if wandb.run is not None:
+                    wandb.log({
+                        "body_muon_momentum_zero/step": step,
+                        "body_muon_momentum_zero/n_zeroed": n_zeroed,
+                    }, step=wandb_step)
         for opt in optimizers:
             opt.step()
         # EMA buffer update on body-Muon matrix params.
