@@ -72,6 +72,11 @@ def parse_args():
                         help="LR for AdamW adam_scalars group (RMSNorm gains; "
                              "params with ndim < 2). Default 0.01 — hardcoded, "
                              "never ablated. ~20K params total in this model.")
+    parser.add_argument("--lr_bias_scale", type=float, default=1.0,
+                        help="Sharpness-Disparity multiplier applied on top of --lr_scalars "
+                             "for the AdamW adam_scalars subgroup (biases + RMSNorm gains, "
+                             "ndim<2). Default 1.0 = baseline (no-op). <1.0 damps the "
+                             "scale-setting subgroup, leaving adam_embed/adam_lm_head untouched.")
     parser.add_argument(
         "--lr_cooldown_shape",
         type=str,
@@ -782,6 +787,8 @@ if dist.get_rank() == 0:
             "wd_attn": args.wd_attn,
             "wd_schedule": args.wd_schedule,
             "lr_scalars": args.lr_scalars,
+            "lr_bias_scale": args.lr_bias_scale,
+            "lr_scalars_effective": args.lr_scalars * args.lr_bias_scale,
             "depth_init_mode": args.depth_init_mode,
             "lr_cooldown_shape": args.lr_cooldown_shape,
             "ema_eval_decay": args.ema_eval_decay,
@@ -858,9 +865,20 @@ for trial_idx in range(args.num_trials):
     print0(f"[init] mode={args.depth_init_mode}  L={NUM_LAYERS}  block_residual_attn.proj_std={_ex_resid_std:.6f}", console=True)
 
     # create the optimizer(s)
+    # adam_scalars subgroup (biases + RMSNorm gains, ndim<2) gets an extra multiplier
+    # `args.lr_bias_scale` on top of args.lr_scalars (Sharpness Disparity Principle).
+    # adam_embed (embedding rows) and adam_lm_head (lm_head weight) keep their original LRs.
+    scalar_params = [p for p in model.parameters() if p.ndim < 2]
+    embed_lmhead_params = [model.embed.weight, model.proj.weight]
+    if dist.get_rank() == 0:
+        n_scale_p = sum(p.numel() for p in scalar_params)
+        n_embed_p = sum(p.numel() for p in embed_lmhead_params)
+        print0(f"[bias-ln-lr-scale] scale_params: {len(scalar_params)} tensors ({n_scale_p} elems), "
+               f"embed_params: {len(embed_lmhead_params)} tensors ({n_embed_p} elems), "
+               f"lr_bias_scale={args.lr_bias_scale}", console=True)
     optimizer1 = AdamW([dict(params=[model.embed.weight], lr=0.3, name="adam_embed"),
                         dict(params=[model.proj.weight], lr=1/320, name="adam_lm_head"),
-                        dict(params=[p for p in model.parameters() if p.ndim < 2], lr=args.lr_scalars, name="adam_scalars")],
+                        dict(params=scalar_params, lr=args.lr_scalars * args.lr_bias_scale, name="adam_scalars")],
                        betas=(0.8, 0.95), eps=1e-10, weight_decay=0, fused=True)
     named_blocks = [(n, p) for n, p in model.blocks.named_parameters() if p.ndim >= 2]
     mlp_named = [(n, p) for n, p in named_blocks
