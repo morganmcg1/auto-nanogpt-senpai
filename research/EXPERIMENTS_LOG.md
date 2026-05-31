@@ -1,5 +1,41 @@
 # SENPAI Research Results — auto-nanogpt-1gpu-r5
 
+## 2026-05-31 16:05Z — PR #1942 CLOSED FFS-NEG [logit-z-loss; monotone dose-response regression; budget-incompatible; matches label-smoothing pattern #1870] [86th R5 closure]
+
+- branch: g1r5-askeladd/logit-z-loss
+- hypothesis: PaLM-style auxiliary penalty on logit magnitude `w·mean(logits²)` prevents logit drift and improves FFS crossing. Mechanism: soft-tanh squash bounds logits to ±15 but provides no gradient incentive to stay small within that range; logit drift causes peaked softmax reducing cooldown-phase adaptability.
+- cells:
+
+| Cell | w | FFS_ema | FFS_trainval | val/loss | logit_abs_mean | W&B |
+|---|---:|---:|---:|---:|---:|---|
+| KG_smoke (100 steps) | 1e-4 | — | — | 5.722 | 0.107 | cv4q4kts |
+| **A_ctrl** | 0.0 | **2875** | **2925** | **3.2684** | 6.755 | raw5s26x |
+| **B★** | 1e-4 | **-1 (FAIL)** | **-1** | 4.0463 | 0.110 | y6hm4ph0 |
+| **C1** | 1e-5 | **-1 (FAIL)** | **-1** | 3.5055 | 0.357 | 8m4jwmms |
+| C2 | 1e-3 | *skipped* | | | | — |
+
+- val_loss probe-step trajectory: A_ctrl on attractor {2875, 2925}; B★ never crossed (val=4.05); C1 never crossed (val=3.51). No monotone discriminator needed — both treatment cells failed outright.
+- analysis: Dose-response is monotone in regressive direction (w=0→1e-5→1e-4: logit_abs shrinks 6.75→0.36→0.11 but val worsens 3.268→3.506→4.046). Pre-Mortem #1 FALSIFIED (z-loss mechanism alive, logits shrink dramatically). Pre-Mortem #2 CONFIRMED (budget-incompatible: even w=1e-5 costs ~250+ steps of slowed CE optimization). Pre-Mortem #3 FALSIFIED (no seed-noise saturation — smooth monotone dose-response). Pre-Mortem #4 partly falsified (logit_abs_mean=6.75 with musoft, well into squash region; musoft does NOT keep logits in linear regime).
+- conclusions: **z-loss mechanism ALIVE but BUDGET-INCOMPATIBLE**. Same pattern as label-smoothing closure (#1870): regularizer works mechanistically but tightens achievability budget below val≤3.28 threshold. z_loss_contribution at w=1e-5 ≈ 6% of total loss; at w=1e-4 ≈ 14%. Logit-magnitude-penalty axis closed. Student correctly stopped C2 (skipped per predeclared stop on C1 regression).
+- student assignment next: #1989 aux-cooldown-shape-decoupling
+
+## 2026-05-31 16:00Z — PR #1964 CLOSED FFS-NEG [NS-iter cooldown schedule; B★(12→6 at 75%) FFS_ema=2950 above entire baseline distribution; early ns_iter=12 hurt; axis closed] [85th R5 closure]
+
+- branch: tanjiro/ns-iter-cooldown
+- hypothesis: Schedule NS iterations from 12 (high early diversity) to 6 (lower, already-proven) at 75% training progress. Mechanism: tight NS projection during high-LR exploration vs relaxed NS during low-LR cooldown.
+- cells:
+
+| Cell | Config | FFS_ema | FFS_trainval | val/loss | W&B |
+|---|---|---:|---:|---:|---|
+| KG_smoke | ns_iter_switch_frac=0.99 (forces early switch) | — | — | — | 7n84mb6y |
+| **A_ctrl** | ns_iter=6 fixed | ~2925 | ~2925 | ~3.271 | (baseline) |
+| **B★** | ns_iter=12→6 at 75% progress | **2950** | **2950** | **3.271822** | nujc9s8p |
+
+- val_loss probe-step trajectory: Not on attractor (2950 > 2925). B★ above ENTIRE baseline distribution (2875–2925). Student correctly stopped C/D per predeclared gates (gated on signal that did not appear).
+- analysis: B★ FFS_ema=2950 is +37.5 above baseline μ_4=2912.5; val/loss=3.271822 vs baseline 3.270113 (+0.001709 worse). Both metrics worse. Pre-Mortem 1 confirmed: early ns_iter=12 hurt (over-constrains updates during warmup/mid-training relative to what lr_mlp=0.055 needs; NS5 with ns_iter=12 produces tighter orthogonal projection, but this reduces gradient diversity in a way that hurts FFS convergence). KG_smoke correctly verified implementation.
+- conclusions: **NS-iter cooldown schedule axis closed**. The NS5 iteration count is not a schedule-able lever at R5 stack depth. Mandatory ns_iter=6 is already near-optimal throughout training; early ns_iter=12 costs FFS without adding mid-training descent benefit. Pairs with #1973 (ns5-eps-cooldown mechanism-dead) and #1922 (wd-cooldown-shape FFS-NEUTRAL) as 3 cooldown-internal Muon mechanism closures.
+- student assignment next: #1988 adamw-beta1-cooldown
+
 ## 2026-05-31 14:55Z — PR #1922 CLOSED FFS-NEUTRAL [WD cooldown shape axis closed; val_loss trajectory non-monotone = attractor noise on Cell D]: fern wd-cooldown-shape ∈ {linear, cosine, concave, convex} [84th R5 closure]
 
 - branch: g1r5-fern/wd-cooldown-shape

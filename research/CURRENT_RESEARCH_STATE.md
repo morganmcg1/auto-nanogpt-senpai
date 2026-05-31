@@ -9,7 +9,23 @@ The human research team has redirected: **FFS (first-step-to-target, baseline 30
 3. **Prefer experiments that move the crossing step** (2800-3050 window), **simplify winning stacks**, **reveal FFS-load-bearing components**.
 4. **Ablations preferred over confirmations** when FFS dead.
 
-## Last updated: 2026-05-31 14:55Z (84 R5 closures; **★ EDWARD #1948 SIGNAL ALIVE**; fern #1983 wd-schedule-ablation ASSIGNED; 8/8 active)
+## Last updated: 2026-05-31 16:10Z (86 R5 closures; **★ EDWARD #1948 SIGNAL ALIVE n=4 EXPECTED ~18:00Z**; tanjiro #1988 adamw-beta1-cooldown + askeladd #1989 aux-cooldown-shape-decoupling ASSIGNED; 8/8 active)
+
+### Notes (2026-05-31 16:10Z) — TANJIRO #1964 CLOSED 85th [FFS-NEG NS-iter cooldown schedule]; ASKELADD #1942 CLOSED 86th [FFS-NEG logit-z-loss budget-incompatible]; TANJIRO #1988 + ASKELADD #1989 ASSIGNED
+
+- **★ CLOSED #1964 tanjiro ns-iter-cooldown** [85th R5 closure, ~16:00Z] — FFS-NEG. B★(12→6 at 75% progress) FFS_ema=2950 vs baseline 2912.5 (+37.5 worse); val_loss=3.271822 vs 3.270113 (+0.001709 worse). B★ above ENTIRE baseline distribution (2875–2925). Pre-Mortem 1 confirmed: early ns_iter=12 hurt (over-constrains during warmup/mid-training). NS-iter cooldown schedule axis closed. Pairs with #1973 (ns5-eps-cooldown mechanism-dead) + #1922 (wd-cooldown-shape FFS-NEUTRAL) as 3rd cooldown-internal Muon mechanism closure.
+
+- **★ CLOSED #1942 askeladd logit-z-loss** [86th R5 closure, ~16:05Z] — FFS-NEG (monotone dose-response regression; budget-incompatible). A_ctrl(w=0) FFS=2875/val=3.2684; B★(w=1e-4) FFS=-1/val=4.0463; C1(w=1e-5) FFS=-1/val=3.5055. Mechanism ALIVE (logit_abs_mean 6.75→0.36→0.11) but each w>0 costs enough CE budget to push val>3.28. Matches label-smoothing (#1870) pattern. Logit-magnitude-penalty axis closed.
+
+- **★ TANJIRO #1988 adamw-beta1-cooldown ASSIGNED** — Anneal AdamW β₁ 0.9→0.0 during cooldown for all aux groups. Fresh axis: static β₁ sweeps (#1310) and β₂ cooldown schedule (#1377) closed; **β₁ COOLDOWN ANNEAL never tested** in 86 closures. ~17 LOC additive. Signal gate: FFS_ema ≤ 2887 with monotone val_loss trajectory.
+
+- **★ ASKELADD #1989 aux-cooldown-shape-decoupling ASSIGNED** — Apply different LR cooldown shape to AdamW aux groups vs Muon body. B★(aux=constant), C(aux=concave). Fresh axis: #1922 swept UNIFORM cooldown shapes; per-class shape decoupling untested. ~12 LOC additive.
+
+- **★★ EDWARD #1948 SIGNAL ALIVE** — B★(precond_freq=4) FFS_ema=2875, val_loss Δ=-0.00137 monotone. C+D terminal expected ~18:00Z. n=4 decision at that time.
+
+- **Fleet at 16:10Z**: tanjiro #1988 WIP (adamw-beta1-cooldown); askeladd #1989 WIP (aux-cooldown-shape-decoupling); alphonse #1979 WIP (lr-warm-restart-probe); edward #1948 WIP (**SIGNAL ALIVE**, C+D running); frieren #1966 WIP (muon-momentum-schedule); thorfinn #1957 WIP (ema-decay-cooldown-schedule); nezuko #1955 WIP (adamw-eps-cooldown); fern #1983 WIP (wd-schedule-ablation). **8/8 active, zero idle.**
+
+---
 
 ### Notes (2026-05-31 14:55Z) — FERN #1922 CLOSED 84th [WD cooldown SHAPE axis closed; val_loss trajectory non-monotone = attractor noise]; FERN #1983 wd-schedule-ablation ASSIGNED
 
