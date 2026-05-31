@@ -1,3 +1,43 @@
+## 2026-05-31 16:08 UTC — Cycle 71 mid-473 — fern #1959 379th refute 211th family closure 250th mech class CROSS-SUBSTRATE-COMPOUND-INVERTS-FACTOR-V-SHAPE-VS-MLP-SOAP-COMPOUND + 9th CYCLE-71 TOP CANDIDATE CARRIER SPAWNED (cross-substrate-compound f=0.5 3.26934/3025 — 2nd-strongest single-seed reading in cycle 71 after k+proj 3.26815) + nezuko #1978 POD-STABILITY-BLOCKED-CROSS-FACTOR confirmed (NOT counted as refute; stack-level closure: lm_head M=3 at i=150 is pod-locked across BOTH factor channels f=0.25 AND f=0.5 + default no-reset config — 9th structural pod-stability-axis observation) + fern #1991 new assignment (CROSS-SUBSTRATE-COMPOUND-F=0.5-N=2-VERIFICATION; 50%-22ND-RTM prior 25%-BORDERLINE prior 15%-STRONG-PRODUCTIVE-BREAKS-RTM prior 5%-MERGE-CANDIDATE prior) + nezuko #1992 new assignment (M-AXIS-CROSS-SUBSTRATE-SYMMETRY-PROBE-LM-HEAD-M=2 i=200 f=0.25 bilateral n=2 — pivots OFF broken i=150 zone; 40%-SUBSTRATE-SYMMETRIC prior 30%-M-INVARIANT-AT-LM-HEAD prior 15%-SUBSTRATE-COUPLED-PRODUCTIVE prior 10%-DESTRUCTIVE prior). Fleet 8/8 active 0 idle. Cumulative **379 refuted / 250 mech classes / 211 family closures / 9 axes / 21 RTM precedents** (RTM-PERSISTENT-AT-N=7; k+proj 8th candidate pending edward #1982; cross-substrate compound 9th candidate pending fern #1991).
+
+### fern #1959 bilateral terminal — 379th refute, 250th mech class CROSS-SUBSTRATE-COMPOUND-INVERTS-FACTOR-V-SHAPE-VS-MLP-SOAP-COMPOUND, 9th cycle-71 candidate carrier spawned
+
+**Bilateral terminal** (closed via W&B since student at heartbeat stage but both arms FINISHED):
+- Arm A `n8m1h5ij` f=0.25 val=**3.27027**/3025 (cross-substrate joint reset embed-M=2 + lm_head-M=3)
+- Arm B `r7m1kxkh` f=0.5 val=**3.26934**/3025 (same compound, weaker factor)
+
+**Direct cross-compound factor-axis comparison**:
+
+| compound context | f=0.25 val | f=0.5 val | Δ(0.5−0.25) | factor optimum |
+|---|---|---|---|---|
+| MLP-SOAP × embed-M=2 (askeladd #1928 + #1956) | 3.27011 | 3.27107 | +0.00096 (f=0.25 wins) | **f=0.25 (V-shape canonical)** |
+| CROSS-SUBSTRATE embed-M=2 + lm_head-M=3 (fern #1959) | 3.27027 | 3.26934 | **−0.00093 (f=0.5 wins)** | **f=0.5 (V-shape INVERTED)** |
+
+→ **F-axis optimum is COMPOUND-CONTEXT-DEPENDENT**. Same factor-axis produces OPPOSITE ranking in two different compounds. Cross-substrate-compound at f=0.5 ESCAPES floor band lower edge (3.26934 < 3.27000) and ranks as 2nd-strongest single-seed reading in cycle 71 (after k+proj 3.26815). Terminal-tail trajectory rock-stable: cross-arm Δ(B−A) holds at −0.0009-0.0010 across last 100 steps of cooldown — STABLE structural advantage, not terminal noise.
+
+### nezuko #1978 POD-STABILITY-BLOCKED-CROSS-FACTOR — NOT counted as refute / stack-level closure
+
+6/6 named seeds NaN at step 125 (BEFORE first reset event at step 150) with verified-correct banner `LM_HEAD enabled=1 interval=150 moment=3 factor=0.5`. Combined with nezuko #1960 (f=0.25 POD-BLOCKED), this establishes **lm_head M=3 at i=150 IS POD-LOCKED REGARDLESS OF FACTOR**. Auxiliary side-finding (`o48iyooo` default no-reset config NaN at step 125) rules out reset-side-effects as the destabilizing pathway. Cumulative tally UNCHANGED per memory feedback_pod_broken_axis_misattribution. 9th structural pod-stability-axis observation on this stack.
+
+### fern #1991 new assignment — CROSS-SUBSTRATE-COMPOUND-F=0.5-N=2-VERIFICATION
+
+n=2 verification of the 9th cycle-71 candidate carrier (cross-substrate compound f=0.5 = 3.26934/3025). Same config as fern #1959 Arm B, SEED differs between arms. Most likely (50%): RTM-CONFIRMED at 22nd RTM precedent (mean ~3.27015). Alternative (15%): STRONG-PRODUCTIVE-BREAKS-RTM (mean < 3.26900). HIGHEST-PRIORITY cross-substrate-compound probe alongside edward #1982 (k+proj n=2 verification). Both characterize structurally-novel TOP candidates spawned this cycle.
+
+### nezuko #1992 new assignment — M-AXIS-CROSS-SUBSTRATE-SYMMETRY-PROBE-LM-HEAD-M=2
+
+Pivots OFF the broken i=150 zone entirely. Clean structural probe at lm_head M=2 i=200 f=0.25 bilateral n=2 — discriminates M-axis cross-substrate symmetry:
+- embed M=2 f=0.25 i=200 = 3.27023 (n=2, 14th RTM)
+- lm_head M=3 f=0.25 i=200 = 3.27050 (n=3, 16th RTM)
+- lm_head M=2 f=0.25 i=200 = UNKNOWN (this PR)
+
+If lm_head M=2 ≈ 3.27023 → M-AXIS-SUBSTRATE-SYMMETRIC at M=2 (40% prior). If ≈ 3.27050 → M-AXIS-AT-LM-HEAD-INVARIANT (30% prior). M-axis bitfield encoding (M=2 = exp_avg only vs M=3 = joint) means M=2 vs M=3 at same substrate differs only in whether exp_avg_sq is ALSO reset — direct discrimination of exp_avg_sq reset mechanism at lm_head substrate.
+
+### Fleet status — 8/8 active 0 idle
+
+After fern #1959 close + nezuko #1978 close + fern #1991 assignment + nezuko #1992 assignment: g1r2-{tanjiro #1976, frieren #1972, thorfinn #1967, askeladd #1985, alphonse #1981, edward #1982, fern #1991, nezuko #1992} all WIP. Cumulative state **379 refuted / 250 distinct mech classes / 211 family closures / 9 structural axes locked / 21 regression-to-mean precedents** (RTM-PERSISTENT-AT-N=7; **k+proj 8th candidate pending edward #1982**; **cross-substrate compound f=0.5 9th candidate pending fern #1991** — TWO HIGHEST-PRIORITY cycle-71 carrier-candidate probes running in parallel).
+
+---
+
 ## 2026-05-31 15:18 UTC — Cycle 71 mid-472 — askeladd #1956 378th refute 249th mech class RESET-FACTOR-AXIS-NON-MONOTONE-V-SHAPED-OPTIMUM-AT-CANONICAL (bilateral Arm-A `kps9enwf` f=0.5 val=3.27107/3025 + Arm-B `7xxdbjbo` f=0.1 val=3.27238/3050; V-shape confirmed at canonical f=0.25 in MLP-SOAP × embed-M=2 compound; ASYMMETRIC V — stronger-direction f=0.1 ~2.4× steeper destruction +0.00220 vs weaker-direction f=0.5 +0.00089 above MLP-SOAP-alone floor; both fail merge bar) + askeladd #1985 new assignment (V-SHAPE-INTRINSICNESS-PROBE isolated embed-M=2 at f=0.5+f=0.1 with MLP-SOAP OFF; tests whether V-shape lives in embed-reset axis intrinsically or only emerges in compound context; 35% PARTIAL-INTRINSICNESS prior 25% COMPOUND-EMERGENT prior 25% INTRINSIC prior 10% WEAKER-PRODUCTIVE-IN-ISOLATION prior). Tally 378 refuted / 249 mech classes / 210 family closures / 9 axes / 21 RTM precedents.
 
 ### askeladd #1956 bilateral terminal — 378th refute, 249th mech class V-SHAPE-AT-CANONICAL
