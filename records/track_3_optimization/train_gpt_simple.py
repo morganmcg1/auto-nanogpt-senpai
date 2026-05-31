@@ -101,6 +101,11 @@ def parse_args():
                         help="EMA decay for SWA-style EMA-eval; None=disabled (control). "
                              "Recommend 0.99-0.9999. When set, val/ema_loss is logged "
                              "and speedrun/first_step_to_target uses the EMA-val crossing.")
+    parser.add_argument("--ns5_eps_cooldown_target", type=float, default=None,
+                        help="Anneal NS5 normalization stabilizer eps linearly from 1e-7 to this value "
+                             "during cooldown (last cooldown_frac of training). None = disabled "
+                             "(eps stays at 1e-7). 1e-9 = primary hypothesis. Lower values (1e-11) "
+                             "probe numerical floor. See NS5 kernel line 508.")
     args = parser.parse_args()
     args.num_trials = args.num_trials if args.num_trials is not None else (args.legacy_num_trials or 1)
     args.wandb_tags = [tag.strip() for tag in args.wandb_tags.split(",") if tag.strip()]
@@ -111,6 +116,12 @@ def parse_args():
 
 args = parse_args()
 NS_ITER = args.ns_iter
+
+# Mutable tensor scalar for NS5 normalization stabilizer eps. Identity stays
+# stable across in-place .fill_() updates so torch.compile sees it as a dynamic
+# graph input (no recompiles). Moved to device after device setup, before NS5
+# is first called. Default 1e-7 reproduces the historical hardcoded value.
+_NS5_EPS = torch.tensor(1e-7, dtype=torch.float32)
 
 
 def clean_metric_name(name: str) -> str:
@@ -504,8 +515,9 @@ def zeropower_via_newtonschulz5(G: Tensor) -> Tensor:
     if G.size(-2) > G.size(-1):
         X = X.mT
 
-    # Ensure spectral norm is at most 1
-    X = X / (X.norm(dim=(-2, -1), keepdim=True) + 1e-7)
+    # Ensure spectral norm is at most 1. Eps is a mutable tensor scalar so it
+    # can be annealed during cooldown without retriggering torch.compile.
+    X = X / (X.norm(dim=(-2, -1), keepdim=True) + _NS5_EPS)
     # Perform the NS iterations, not optimizing for wallclock speed
     a, b, c = 2, -1.5, 0.5
     for _ in range(NS_ITER):
@@ -708,6 +720,10 @@ device = torch.device("cuda", int(os.environ["LOCAL_RANK"]))
 torch.cuda.set_device(device)
 dist.init_process_group(backend="nccl", device_id=device)
 dist.barrier()
+
+# Move NS5 eps scalar to the device once, before NS5 is ever called. After this
+# we only mutate via .fill_(), so the tensor identity is stable for torch.compile.
+_NS5_EPS = _NS5_EPS.to(device)
 # this code can be run equivalently with 1, 2, 4, or 8 gpus.
 assert 8 % dist.get_world_size() == 0
 
@@ -786,6 +802,9 @@ if dist.get_rank() == 0:
             "lr_cooldown_shape": args.lr_cooldown_shape,
             "ema_eval_decay": args.ema_eval_decay,
             "ema_eval_enabled": args.ema_eval_decay is not None,
+            "ns5_eps_base": 1e-7,
+            "ns5_eps_cooldown_target": args.ns5_eps_cooldown_target,
+            "ns5_eps_cooldown_enabled": args.ns5_eps_cooldown_target is not None,
         },
     )
 
@@ -914,6 +933,17 @@ for trial_idx in range(args.num_trials):
         else:
             raise ValueError(f"Unknown lr_cooldown_shape: {shape}")
 
+    def _ns5_eps_value(step, cooldown_frac, target_eps, base_eps=1e-7):
+        if target_eps is None:
+            return base_eps
+        cooldown_start = train_steps * (1.0 - cooldown_frac)
+        if step < cooldown_start:
+            return base_eps
+        denom = max(1.0, train_steps - cooldown_start)
+        frac = (step - cooldown_start) / denom
+        frac = min(max(frac, 0.0), 1.0)
+        return base_eps + frac * (target_eps - base_eps)
+
     def set_hparams(step, cooldown_frac=0.7):
         progress = step / train_steps
         assert 0 <= progress < 1
@@ -928,6 +958,8 @@ for trial_idx in range(args.num_trials):
                 group["lr"] = group["initial_lr"] * eta
                 if "initial_wd" in group and group.get("name", "").startswith("muon_"):
                     group["weight_decay"] = group["initial_wd"] * wd_mu
+        if args.ns5_eps_cooldown_target is not None:
+            _NS5_EPS.fill_(_ns5_eps_value(step, cooldown_frac, args.ns5_eps_cooldown_target))
         return eta
 
 
@@ -1180,6 +1212,20 @@ for trial_idx in range(args.num_trials):
                 train_steps=train_steps,
                 wandb_step=wandb_step,
             )
+        # Capture pre-step Muon grad Frobenius norms for the NS5 mechanism-alive
+        # diagnostic. Stacked + single .item() to avoid per-param GPU sync.
+        muon_grad_norm_stats = None
+        if telemetry_due and dist.get_rank() == 0:
+            muon_grads = [p.grad for group in optimizer2.param_groups
+                          for p in group["params"] if p.grad is not None]
+            if muon_grads:
+                _grad_norms = torch.stack([g.detach().norm() for g in muon_grads]).float()
+                _grad_norms_cpu = _grad_norms.cpu()
+                muon_grad_norm_stats = {
+                    "min": float(_grad_norms_cpu.min().item()),
+                    "mean": float(_grad_norms_cpu.mean().item()),
+                    "max": float(_grad_norms_cpu.max().item()),
+                }
         for opt in optimizers:
             opt.step()
 
@@ -1235,6 +1281,11 @@ for trial_idx in range(args.num_trials):
                 per_group_metrics["train/wd_attn_now"] = current_wds.get("muon_attn", 0.0)
                 per_group_metrics["train/wd_schedule_progress"] = train_step / train_steps
                 per_group_metrics["cooldown_shape/eta_at_step"] = eta_actual
+                per_group_metrics["train/ns5_eps"] = float(_NS5_EPS.item())
+                if muon_grad_norm_stats is not None:
+                    per_group_metrics["train/muon_grad_norm_min"] = muon_grad_norm_stats["min"]
+                    per_group_metrics["train/muon_grad_norm_mean"] = muon_grad_norm_stats["mean"]
+                    per_group_metrics["train/muon_grad_norm_max"] = muon_grad_norm_stats["max"]
                 wandb.log(per_group_metrics, step=wandb_step)
         if dist.get_rank() == 0 and optimizer2.cos_sims_buffer:
             cs_names = list(optimizer2.cos_sims_buffer.keys())
