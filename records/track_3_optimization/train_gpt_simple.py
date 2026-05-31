@@ -101,6 +101,15 @@ def parse_args():
                         help="EMA decay for SWA-style EMA-eval; None=disabled (control). "
                              "Recommend 0.99-0.9999. When set, val/ema_loss is logged "
                              "and speedrun/first_step_to_target uses the EMA-val crossing.")
+    parser.add_argument("--lookahead_k", type=int, default=0,
+                        help="Lookahead inner-step period (Zhang et al. NeurIPS 2019). "
+                             "0=disabled. When >0, wraps Muon (optimizer2) in a slow-weight "
+                             "shell: every k inner steps, phi <- phi + alpha*(theta - phi); "
+                             "theta <- phi.")
+    parser.add_argument("--lookahead_alpha", type=float, default=0.5,
+                        help="Lookahead slow-weight interpolation rate. "
+                             "0=no pull, 1=hard reset to fast weights. Only used when "
+                             "lookahead_k > 0.")
     args = parser.parse_args()
     args.num_trials = args.num_trials if args.num_trials is not None else (args.legacy_num_trials or 1)
     args.wandb_tags = [tag.strip() for tag in args.wandb_tags.split(",") if tag.strip()]
@@ -699,6 +708,116 @@ class Muon(torch.optim.Optimizer):
         return result
 
 
+class Lookahead(torch.optim.Optimizer):
+    """Lookahead optimizer wrapper (Zhang et al., NeurIPS 2019, arXiv:1907.08610).
+
+    Wraps any inner optimizer. Maintains a parallel slow-weight buffer phi.
+    Every k inner optimizer steps, the slow weights are pulled toward the fast
+    weights theta by interpolation factor alpha:
+
+        phi  <-  phi + alpha * (theta - phi)
+        theta <- phi
+
+    Equivalent to `phi.lerp_(theta, alpha)` then `theta.copy_(phi)`. The fast
+    optimizer (here Muon) continues to read state from `optimizer.state` and
+    update the same parameter tensors in place; the slow buffers live on the
+    same device and dtype as the params.
+
+    The wrapper exposes the inner optimizer's `param_groups`, `state`, and
+    `defaults` directly so downstream LR-scheduler reads and assertions work
+    unchanged. Attributes not explicitly overridden fall through to the inner
+    optimizer via `__getattr__` (covers Muon.get_step_update_norms and
+    Muon.cos_sims_buffer used by the telemetry loop).
+
+    Distributed correctness: `Muon.step` already performs `all_gather` on
+    params at every inner step, so all ranks observe identical post-step
+    `.data`. The slow-sync runs the same deterministic interpolation on every
+    rank from identical inputs; no additional `all_reduce` is required.
+    """
+
+    def __init__(self, optimizer: torch.optim.Optimizer, k: int = 5, alpha: float = 0.5):
+        if k < 1:
+            raise ValueError(f"Lookahead k must be >= 1, got {k}")
+        if not (0.0 <= alpha <= 1.0):
+            raise ValueError(f"Lookahead alpha must be in [0, 1], got {alpha}")
+        self.optimizer = optimizer
+        self.k = int(k)
+        self.alpha = float(alpha)
+        self._step_count = 0
+        self._sync_count = 0
+        # Per-group lists of slow-weight tensors, aligned with optimizer.param_groups.
+        self.slow_weights: list[list[Tensor]] = []
+        for group in optimizer.param_groups:
+            slow_group = [p.data.detach().clone() for p in group["params"]]
+            self.slow_weights.append(slow_group)
+        # Expose inner state references so LR scheduler / asserts keep working.
+        self.param_groups = optimizer.param_groups
+        self.state = optimizer.state
+        self.defaults = optimizer.defaults
+
+    @torch.no_grad()
+    def step(self):
+        self.optimizer.step()
+        self._step_count += 1
+        if self._step_count % self.k == 0:
+            self._sync_slow_weights()
+            self._sync_count += 1
+
+    @torch.no_grad()
+    def _sync_slow_weights(self):
+        # phi <- phi + alpha * (theta - phi)  ==  phi.lerp_(theta, alpha)
+        # then theta <- phi (overwrite fast weights with new slow).
+        for group, slow_group in zip(self.optimizer.param_groups, self.slow_weights):
+            for p, slow in zip(group["params"], slow_group):
+                slow.lerp_(p.data, self.alpha)
+                p.data.copy_(slow)
+
+    def zero_grad(self, set_to_none: bool = True):
+        self.optimizer.zero_grad(set_to_none=set_to_none)
+
+    def state_dict(self):
+        return {
+            "inner": self.optimizer.state_dict(),
+            "_step_count": self._step_count,
+            "_sync_count": self._sync_count,
+            "slow_weights": [[s.detach().cpu() for s in sg] for sg in self.slow_weights],
+            "k": self.k,
+            "alpha": self.alpha,
+        }
+
+    def load_state_dict(self, state_dict):
+        self.optimizer.load_state_dict(state_dict["inner"])
+        self._step_count = state_dict["_step_count"]
+        self._sync_count = state_dict.get("_sync_count", 0)
+        for sg, slow_group in zip(state_dict["slow_weights"], self.slow_weights):
+            for s_cpu, slow in zip(sg, slow_group):
+                slow.copy_(s_cpu.to(slow.device))
+
+    def slow_fast_diff_norm(self) -> float:
+        """Return total Frobenius distance ||theta - phi|| across all slow params.
+
+        Useful diagnostic for tracking how far fast weights drift between slow
+        syncs. After a sync this drops to 0 by construction; mid-window value
+        is the running displacement budget being averaged each sync.
+        """
+        total_sq = 0.0
+        for group, slow_group in zip(self.optimizer.param_groups, self.slow_weights):
+            for p, slow in zip(group["params"], slow_group):
+                diff = p.data.detach().float() - slow.float()
+                total_sq += float(diff.pow(2).sum().item())
+        return total_sq ** 0.5
+
+    def __getattr__(self, name):
+        # Fallback: forward attribute access to inner optimizer for anything
+        # not explicitly set on the wrapper (e.g. get_step_update_norms,
+        # cos_sims_buffer, param_names). Only fires when normal lookup fails.
+        try:
+            inner = self.__dict__["optimizer"]
+        except KeyError:
+            raise AttributeError(name)
+        return getattr(inner, name)
+
+
 ########################################
 #                Setup                 #
 ########################################
@@ -786,6 +905,9 @@ if dist.get_rank() == 0:
             "lr_cooldown_shape": args.lr_cooldown_shape,
             "ema_eval_decay": args.ema_eval_decay,
             "ema_eval_enabled": args.ema_eval_decay is not None,
+            "lookahead_k": args.lookahead_k,
+            "lookahead_alpha": args.lookahead_alpha,
+            "lookahead_enabled": args.lookahead_k > 0,
         },
     )
 
@@ -875,6 +997,16 @@ for trial_idx in range(args.num_trials):
         ],
         soap_attn=args.soap_attn, trust_threshold=args.soap_trust_threshold,
     )
+    # Optional Lookahead slow/fast shell on Muon only (not on AdamW aux).
+    # Fresh per-trial slow buffers — must wrap before the optimizers list is
+    # frozen so set_hparams etc. see the wrapper's exposed param_groups.
+    if args.lookahead_k > 0:
+        optimizer2 = Lookahead(optimizer2, k=args.lookahead_k, alpha=args.lookahead_alpha)
+        if dist.get_rank() == 0:
+            print0(f"[lookahead] wrapping Muon: k={args.lookahead_k} alpha={args.lookahead_alpha} "
+                   f"groups={len(optimizer2.optimizer.param_groups)} "
+                   f"params={sum(len(g['params']) for g in optimizer2.optimizer.param_groups)}",
+                   console=True)
     optimizers = [optimizer1, optimizer2]
     assert set(p for opt in optimizers for group in opt.param_groups
                for p in group["params"]) == set(model.parameters())
@@ -1216,6 +1348,50 @@ for trial_idx in range(args.num_trials):
                     "ema/d_pow_t": d_pow_now,
                     "ema/init_weight_fraction": d_pow_now,
                 }, step=wandb_step)
+
+        # Periodic Lookahead diagnostics: slow-fast drift, sync count, and
+        # EMA<->slow agreement (when both are active). Computed only when the
+        # wrapper is engaged; cheap (one full-Muon-param pass every 100 steps).
+        if args.lookahead_k > 0 and dist.get_rank() == 0 and (
+                train_step % 100 == 0 or train_step == train_steps):
+            with torch.no_grad():
+                la_diff = optimizer2.slow_fast_diff_norm()
+                slow_sq = torch.zeros((), device=device, dtype=torch.float32)
+                for slow_group in optimizer2.slow_weights:
+                    for s in slow_group:
+                        slow_sq.add_(s.float().pow(2).sum())
+                la_metrics = {
+                    "trial": trial_idx,
+                    "train/step": train_step,
+                    "lookahead/k": args.lookahead_k,
+                    "lookahead/alpha": args.lookahead_alpha,
+                    "lookahead/slow_fast_diff_norm": la_diff,
+                    "lookahead/slow_param_norm": float(slow_sq.sqrt().item()),
+                    "lookahead/inner_step_count": optimizer2._step_count,
+                    "lookahead/sync_count": optimizer2._sync_count,
+                }
+                # If EMA-eval is also live, also log distance between EMA state
+                # and slow_weights — they target distinct trajectories (EMA over
+                # all post-step iterates with decay d; Lookahead a hard linear
+                # interpolation at every k-th step). Track whether they diverge.
+                if ema_state is not None:
+                    ema_minus_slow_sq = torch.zeros((), device=device, dtype=torch.float32)
+                    name_to_param = dict(model.named_parameters())
+                    for group, slow_group in zip(optimizer2.optimizer.param_groups,
+                                                 optimizer2.slow_weights):
+                        for p, slow in zip(group["params"], slow_group):
+                            # Recover param name by identity match.
+                            pname = None
+                            for n_, p_ in name_to_param.items():
+                                if p_ is p:
+                                    pname = n_
+                                    break
+                            if pname is not None and pname in ema_state:
+                                ema_minus_slow_sq.add_(
+                                    (ema_state[pname] - slow.float()).pow(2).sum())
+                    la_metrics["lookahead/ema_minus_slow_norm"] = float(
+                        ema_minus_slow_sq.sqrt().item())
+                wandb.log(la_metrics, step=wandb_step)
 
         if telemetry_due:
             update_norms = optimizer2.get_step_update_norms()
