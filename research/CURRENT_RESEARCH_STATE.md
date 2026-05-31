@@ -9,7 +9,31 @@ The human research team has redirected: **FFS (first-step-to-target, baseline 30
 3. **Prefer experiments that move the crossing step** (2800-3050 window), **simplify winning stacks**, **reveal FFS-load-bearing components**.
 4. **Ablations preferred over confirmations** when FFS dead.
 
-## Last updated: 2026-05-31 19:20Z (88 R5 closures; **★★★ EDWARD #1948 n=4 LAUNCHED at freq=4** (trial 1/4 step 872/3250); **★★★ FRIEREN #1966 B★ FFS-POSITIVE STANDING**; **TWO MECHANISMS APPROACHING n=4 GATE**; 8/8 active)
+## Last updated: 2026-05-31 19:35Z (88 R5 closures; **★★★ FRIEREN #1966 C TERMINAL — TWO-CELL OFF-ATTRACTOR CONFIRMATION at {2875, 2875}**; **★★★ EDWARD #1948 n=4 IN FLIGHT**; **★ FERN #1983 B FFS-NEG: ramp_down IS load-bearing**; 8/8 active)
+
+### Notes (2026-05-31 19:35Z) — ★★★ FRIEREN C TERMINAL: dual-cell off-attractor confirmation; n=4 instructions posted at mu=0.80; ★ FERN B FFS-NEG cleanly attributes ramp_down as load-bearing
+
+- **★★★ FRIEREN #1966 C TERMINAL — TWO-CELL CONFIRMATION at OFF-ATTRACTOR {2875, 2875}**:
+
+  | Cell | mu schedule | FFS_ema | FFS_trainval | val_loss |
+  |---|---|---:|---:|---:|
+  | A_ctrl | 0.95 constant | 2925 | 2925 | 3.2692 |
+  | B★ | 0.95→0.70 ramp | 2875 | 2875 | 3.2697 |
+  | **C** | **0.95→0.80 ramp** | **2875** | **2875** | **3.2676** |
+
+  Both B★ AND C land at {FFS_ema=2875, FFS_trainval=2875} — same OFF-attractor coords on BOTH metrics. **This is structural, not seed jitter** (canonical attractor is {2875, 2925}). C is BETTER on val_loss (3.2676 < 3.2697 < 3.2692). **Flat dose-response mu∈{0.70, 0.80}** — same pattern edward saw across freq∈{2,4,8}. Probe-step trajectory monotone-better than A_ctrl throughout for both cells.
+
+  **n=4 confirm INSTRUCTIONS POSTED at mu=0.80** (cheaper choice: same FFS as 0.70, better val_loss, higher stability, B★ at 0.70 had a step-120 crash). wandb_group `g1r5-frieren/muon-mu-sched-n4`. ETA ~7.2h. Merge gate: μ_4(FFS_ema) ≤ 2887.5.
+
+- **★★★ EDWARD #1948 n=4 IN FLIGHT** — Trial 1/4 at step 872/3250 last check. Group `g1r5-edward/precond-freq-cooldown-schedule-n4`. ETA ~5h total.
+
+- **★ FERN #1983 B(constant WD) FFS-NEGATIVE** — FFS={2975, 2975}, val=3.2723. +50 FFS steps worse than A_ctrl{2925, 2925}. **`--wd_schedule ramp_down` IS load-bearing.** Clean ablation finding answering human directive #1262. Cell C(ramp_up) at step ~140/3250 (~96 min ETA) will fully resolve ramp-direction sensitivity.
+
+- **★ COMPOUNDING EXPERIMENT** still queued: precond_freq=4 + mu ramp→0.80 stacked. Both mechanisms now have TWO independent off-attractor cells each at FFS_ema=2875. Strong prior for orthogonality. Assignment ready for whichever student closes first after n=4 confirms.
+
+- **Other terminals expected ~30-90 min**: alphonse (~15 min), thorfinn A_ctrl (~10 min), tanjiro (~40 min), askeladd (~50 min), nezuko (~80 min), fern C (~90 min).
+
+---
 
 ### Notes (2026-05-31 19:20Z) — Edward n=4 confirm in flight; fern closest to terminal (~14 min); compounding experiment plan drafted
 
