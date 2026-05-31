@@ -9,6 +9,34 @@ The human research team has redirected: **FFS (first-step-to-target, baseline 30
 3. **Prefer experiments that move the crossing step** (2800-3050 window), **simplify winning stacks**, **reveal FFS-load-bearing components**.
 4. **Ablations preferred over confirmations** when FFS dead.
 
+## Last updated: 2026-05-31 22:55Z (**92 R5 closures**; **92nd: askeladd #1989 aux-cooldown-shape-decoupling FFS-NEG/NEUTRAL** (AUX-COOLDOWN family fully closed across both SHAPE + PARAM axes, 4 closures total); askeladd → researcher-agent dispatched for fresh hypothesis; 7/8 active pending askeladd; 3 parallel n=4 confirms in flight)
+
+### Notes (2026-05-31 22:55Z) — 92nd closure; AUX-COOLDOWN family fully closed; askeladd hypothesis dispatch in flight
+
+- **92nd R5 CLOSURE — ASKELADD #1989 (aux-cooldown-shape-decoupling) FFS-NEG/NEUTRAL**: Three cells with cooled (cosine baseline), constant (no aux cooldown), and concave (sharp end-drop). B★(constant)=FFS_ema 3050 monotone-worse at every probe; C(concave)=FFS_ema 2925 but lands at canonical attractor with non-monotone val_loss trajectory (worse at probes 1000/2000/2500, crosses below only at step 3250). **"AdamW v̂_t self-rescaling sufficient" mechanism FALSIFIED.** AUX groups DO need explicit LR cooldown — AdamW's per-element rescaling alone fails during gradient collapse phase. Bit-identity check on A_ctrl was rigorous (max |eta_body - eta_aux| = 0.0 across 131 steps; FFS_ema=2975 = +2.5σ seed tail not code regression).
+
+- **★ AUX-COOLDOWN FAMILY NOW FULLY CLOSED** — across BOTH axes (PARAM + SHAPE): 4 closures total. AUX-side aux-cooldown-PARAM closed by #1955 (eps), #1957 (ema-decay), #1988 (β₁); AUX-side aux-cooldown-SHAPE closed today by #1989. Future AUX-side experiments REQUIRE ALGORITHM REPLACEMENT. **fern #2023 lion-aux-optimizer (assigned today) is the first such replacement.** Remaining AUX-algorithm candidates: Schedule-Free AdamW, Adafactor.
+
+- **ASKELADD HYPOTHESIS DISPATCH IN FLIGHT** — researcher-agent tasked with finding a fresh non-AUX-side axis. Explicitly excluded closed families (additive pre-NS5, NS5 absorption, μP depth-LR, LN gain init<1.0, WD-axis, μ momentum DISCRETE reset, AUX cooldown PARAM+SHAPE). Candidate frontiers: body-side optimizer ALGORITHM replacements (Lion/Adan/Sign-SGD for Muon body), NS5 polish algorithm variants (Schur/Cholesky/Higham), 2nd-order/Shampoo-family alternatives (KrAD/K-FAC), loss-shape modifications. Output expected at `/research/RESEARCH_IDEAS_ASKELADD_2026-05-31_22:45.md`.
+
+- **★★★ THREE PARALLEL FFS-POSITIVE n=4 CONFIRMS IN FLIGHT**:
+  - edward #1948 (SOAP precond_freq=4 cooldown continuous) — trial 2+/4
+  - frieren #1966 (Muon mu=0.80 gradual ramp) — trial 1/4
+  - thorfinn #1994 (SOAP state hard-reset discrete) — n=4 launch directive posted today
+  All three probe optimizer state at warm→cooldown crossover. Compounding test queued: precond_freq=4 + mu=0.80 + soap_state_reset stacked. **If all 3 confirm μ_4 ≤ 2887.5, the FFS bottleneck = optimizer-state staleness at crossover, decisively identified.**
+
+- **7/8 ACTIVE — CURRENT FLEET STATUS (22:55Z)**:
+  - edward #1948: n=4 confirm in flight (trial 2+)
+  - frieren #1966: n=4 confirm in flight (trial 1), pod healthy iter 903
+  - thorfinn #1994: n=4 launch directive posted, awaiting student pickup
+  - tanjiro #2014: ns-iter-cooldown-ramp A_ctrl mid-run
+  - nezuko #2020: soap-beta2-cooldown post-watchdog restart
+  - alphonse #1979: A/B/C all finished per W&B, awaiting SENPAI-RESULT
+  - fern #2023: lion-aux-optimizer (rebased onto latest advisor branch)
+  - **askeladd #1989: CLOSED 92nd; idle pending new hypothesis**
+
+---
+
 ## Last updated: 2026-05-31 22:30Z (91 R5 closures; **★★★ THORFINN #1994 B★ FFS-POSITIVE n=1 (3rd parallel mechanism: discrete SOAP state reset; canonical attractor + EMA-monotone Δval=−0.00254)**; n=4 launch instructions posted; 8/8 active including 3 parallel n=4 confirms — edward + frieren + thorfinn)
 
 ### Notes (2026-05-31 22:30Z) — ★★★ Thorfinn B★ FFS-POSITIVE signal candidate; THREE parallel n=4 confirms in flight

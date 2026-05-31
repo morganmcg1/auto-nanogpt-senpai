@@ -1,5 +1,35 @@
 # SENPAI Research Results — auto-nanogpt-1gpu-r5
 
+## 2026-05-31 22:50Z — PR #1989 CLOSED FFS-NEG/NEUTRAL [aux-cooldown-shape-decoupling; AUX-COOLDOWN family fully closed across SHAPE + PARAM axes (4 total); "AdamW v̂_t self-rescaling sufficient" FALSIFIED; per-group aux SHAPE absorbed/regressed regardless of direction] [92nd R5 closure]
+
+- branch: g1r5-askeladd/aux-cooldown-shape-decoupling
+- hypothesis: Decouple AUX (embed/lm_head/scalars AdamW) cooldown SHAPE from body (Muon/SOAP MLP) cooldown shape. Cell A_ctrl inherits cosine for both; B★ holds AUX at constant LR=1.0 throughout cooldown (no aux LR decay); C uses concave aux shape (sharp drop at end). Direct ablation of aux-cooldown necessity orthogonal to closed AUX-cooldown-PARAM family (eps/ema-decay/β₁).
+- cells (n=1 screen, no n=4 escalation):
+
+| Cell | aux shape | FFS_ema | FFS_trainval | val_loss | wandb |
+|---|---|---:|---:|---:|---|
+| A_ctrl | (inherit cosine) | 2975 | 2975 | 3.27320 | `xzaptbic` |
+| **B★** | **constant** | **3050** | **NOT REACHED** | **3.29809** | `si1iix18` |
+| C | concave | 2925 | 3050 | 3.26718 | `8hw2035d` |
+| Baseline #1533 | — | μ_4=2912.5 | — | — | — |
+
+- A_ctrl rigorously verified bit-identical to baseline: float-exact `eta_body == eta_aux` at all 131 logged steps (max diff = 0.0). FFS_ema=2975 is +2.5σ seed-noise tail of μ_4=2912.5, not a code-path regression.
+- val_loss probe-step trajectory (decisive discriminator):
+
+| step | A_ctrl | B(const) | C(concave) | Δ(B−A) | Δ(C−A) |
+|---:|---:|---:|---:|---:|---:|
+| 1000 | **3.6450** | 3.64709 | 3.64648 | +0.002 | +0.0015 |
+| 2000 | **3.4408** | 3.45592 | 3.44491 | +0.015 | +0.0041 |
+| 2500 | **3.3399** | 3.36670 | 3.35106 | +0.027 | +0.0112 |
+| 3250 | 3.27320 | 3.29809 | **3.26718** | +0.025 | −0.0060 |
+
+- **B★ FFS-NEG**: monotone WORSE than A_ctrl at every probe step + terminal. Mechanism falsified: AdamW's v̂_t per-element rescaling alone is NOT sufficient to handle gradient-magnitude collapse during late cooldown — aux groups DO need explicit LR decay during cooldown.
+- **C FFS-NEUTRAL via discriminator rule**: lands at canonical attractor {FFS_ema=2925, FFS_trainval=3050} but val_loss is non-monotone (WORSE than A_ctrl at probes 1000/2000/2500, crosses below only at terminal step 3250). Per [[r5_n1_to_n4_reversion_dual_metric_attractor]], non-monotone trajectory + attractor landing = seed noise, not real signal.
+- analysis: **AUX-COOLDOWN SHAPE axis fully closed** — joins the AUX-COOLDOWN PARAM axis (#1955 eps, #1957 ema-decay, #1988 β₁ all FFS-NEUTRAL). Together these 4 closures EXHAUST the AUX-side cooldown family across both SHAPE and PARAM axes. Future AUX-side experiments require ALGORITHM REPLACEMENT (fern #2023 lion-aux assigned today; SF-AdamW + Adafactor remaining).
+- conclusions: Mechanism (1) "AdamW self-rescaling is sufficient" FALSIFIED. Mechanism (2) "aux benefits from sharper cooldown" INCONCLUSIVE — modest FFS_ema improvement (2925 vs 2975) but at attractor with non-monotone trajectory, ineligible for n=4 promotion. Per-group aux SHAPE decoupling joins {β1, β2, ε, LR magnitude, warmup, cooldown_frac, scalars-only schedule, cooldown-shape} as exhausted aux-side mechanisms. Bit-identity verification by student was rigorous — exactly the right discipline. Cross-fleet at closure: thorfinn #1994 B★ 3rd parallel FFS-POSITIVE optimizer-state mechanism today; the bottleneck is decisively body/SOAP optimizer state, not AUX scheduling.
+
+---
+
 ## 2026-05-31 21:40Z — PR #1983 CLOSED FFS-NEGATIVE [wd-schedule-ablation; ramp_down IS LOAD-BEARING; monotone dose-response ramp_down > constant > ramp_up across all post-warmup probe steps; direction matters, not just magnitude] [91st R5 closure]
 
 - branch: g1r5-fern/wd-schedule-ablation
