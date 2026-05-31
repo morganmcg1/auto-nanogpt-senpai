@@ -1,3 +1,48 @@
+## 2026-05-31 23:42 UTC — Cycle 71 mid-488 — DOUBLE CLOSURE: nezuko #2028 15th pod-stability INTERVAL-AXIS-POD-BLOCKED-AT-MIRROR-INVERTED-M (4th per-substrate-axis pod-block; STRICT-SYMMETRY-PROTECTION extends F→INTERVAL; MIRROR-INVERTED-M monolithically symmetric-only) + alphonse #2008 391st refute 261st mech class PER-KIND-β1-×-EMBED-RESET-ADDITIVE-AT-FLOOR (28th RTM precedent; n=2 mean 3.27064 / Δ +0.00049 vs β1-isolated 3.27015, Δ +0.00041 vs reset-isolated 3.27023 both within seed noise; 3rd compound-emergence reading — MLP-SOAP × embed-reset remains UNIQUE load-bearing interaction) + nezuko #2033 new assignment (FORWARD-MATCHED-M=2 + SYMMETRIC-F: pivot OFF MIRROR-INVERTED-M; 35% RTM-INVARIANT 25% PRODUCTIVE-NEW-PAIRING 20% DESTRUCTIVE-MIRROR-UNIQUE 15% POD-BLOCKED 5% MERGE) + alphonse #2034 new assignment (PER-KIND-β1 × EMBED-RESET-MOMENT=1 variance reset: M-axis discriminator; 35% RTM-ADDITIVE-INVARIANT 25% PRODUCTIVE-EMERGENCE 20% DESTRUCTIVE 15% POD-BLOCKED 5% MERGE). **Strategic pivot**: nezuko pivots OFF MIRROR-INVERTED-M after 4 per-substrate-axis pod-blocks (consumed substantial probe budget; student-suggested direction in #2028 follow-ups). No human issues. Fleet 8/8 active 0 idle. Cumulative **391 refuted / 261 mech classes / 217 family closures / 9 axes locked / 28 RTM precedents / 15 pod-stability observations** (RTM-PERSISTENT-AT-N=14/15 = 93.3%).
+
+### nezuko #2028 bilateral terminal — 15th pod-stability observation / 4th per-substrate-axis pod-block at MIRROR-INVERTED-M
+
+**Bilateral NaN**: Arm A `xvz0fbum` SEED=1 → NaN step 125; Arm B `4i9eysf8` SEED=2 → NaN step 125 (both pre-event before first reset event; identical to #2005/#2010/#2016 F-axis failures).
+
+**Per-substrate axis pod-stability matrix at MIRROR-INVERTED-M — COMPLETE across F-axis AND interval-axis**:
+
+| per-substrate axis | direction | ratio | outcome | n | reference |
+|---|---|---|---|---|---|
+| F-axis | embed-WEAK + lm_head-STRONG | 4× | NaN step 125 | 2 | #2005 (12th) |
+| F-axis | embed-STRONG + lm_head-WEAK (MIRROR) | 4× | NaN step 125 | 2 | #2010 (13th) |
+| F-axis | embed-WEAK + lm_head-STRONG | 2× | NaN step 125 | 2 | #2016 (14th) |
+| **INTERVAL-axis** | **embed-SHORT + lm_head-LONG (LONG-INTERVAL)** | **2×** | **NaN step 125** | **2** | **#2028 (15th, THIS PR)** |
+
+→ STRICT-SYMMETRY-PROTECTION extends from F-axis to INTERVAL-axis at MIRROR-INVERTED-M. Cross-substrate compound at MIRROR-INVERTED-M is **monolithically symmetric-only across all tested per-substrate axes**. The reset mechanism never gets to fire (NaN at step 125 < first reset at step 200) — failure is upstream in gradient flow during muon-warmup.
+
+### alphonse #2008 bilateral terminal — 261st mech class / 28th RTM precedent / RTM-ADDITIVE non-MLP-SOAP compound
+
+**Bilateral terminal**: Arm A val=**3.27116**/3050; Arm B val=**3.27012**/3025. n=2 mean **3.27064** (spread 0.00104 — tight). Δ vs baseline 3.26776 = +0.00288 (RTM band lower edge); stat margin 0.01323 ≥ 0.004 ✓ (statistically robust NEGATIVE).
+
+**3-mechanism compound triangle reading**:
+
+| compound | reference | outcome | reading |
+|---|---|---|---|
+| MLP-SOAP × embed-reset | #1956/#1985 | productive emergence | **LOAD-BEARING** |
+| MLP-SOAP × per-kind β1 | askeladd #2007 (in-flight) | UNKNOWN | TBD |
+| **Per-kind β1 × embed-reset** | **#2008 THIS PR** | **RTM-additive at floor** | **NO SYNERGY** |
+
+→ MLP-SOAP × embed-reset remains the ONLY confirmed load-bearing compound interaction. Per-kind β1 × embed-reset is **near-orthogonal** in productive-direction influence. The cycle-71 RTM-band-floor at ~3.27015-3.27025 is a hard productive-mechanism asymptote for non-MLP-SOAP single-carrier interactions. RTM-PERSISTENT rate now 14/15 = 93.3%.
+
+### nezuko #2033 new assignment — FORWARD-MATCHED-M=2 (strategic pivot OFF MIRROR-INVERTED-M)
+
+Tests embed-M=2 + lm_head-M=2 (forward symmetric-M instead of asymmetric-M) + symmetric f=0.25 + interval=200. Direct mirror-comparison to #1959 A (MIRROR-INVERTED-M + symmetric f=0.25 = 3.27027 RTM). Discriminates M-symmetry-direction axis. Most likely (35%): FORWARD-MATCHED-M=2-RTM-BAND ~3.27050 (M-symmetry-direction invariant). Alternatives: 25% PRODUCTIVE-NEW-PAIRING (sub-floor — opens new productive region), 20% DESTRUCTIVE (MIRROR uniquely productive), 15% POD-BLOCKED (MIRROR uniquely stable), 5% MERGE. Pivots nezuko OUT of MIRROR-INVERTED-M narrow stability island after 4 per-substrate-axis pod-blocks consumed substantial probe budget.
+
+### alphonse #2034 new assignment — PER-KIND-β1 × EMBED-RESET-MOMENT=1 (M-axis discriminator)
+
+Tests per-kind β1 (embed=0.8, lm_head=0.7, scalars=0.8) × embed-reset with MOMENT=1 (exp_avg_sq variance reset instead of MOMENT=2 exp_avg momentum reset). Structural mirror of #2008. Discriminates whether M-axis of embed-reset carries compound-emergence signal. Most likely (35%): MOMENT=1-RTM-ADDITIVE-INVARIANT (M-axis invariant for compound emergence). Alternatives: 25% MOMENT=1-PRODUCTIVE-EMERGENCE (FIRST non-MLP-SOAP emergent compound below floor), 20% MOMENT=1-DESTRUCTIVE (variance reset disrupts β1 dynamics), 15% MOMENT=1-POD-BLOCKED (compound destabilizes), 5% MERGE.
+
+### Fleet status — 8/8 active 0 idle
+
+After nezuko #2028 + alphonse #2008 closes + nezuko #2033 + alphonse #2034 assignments: g1r2-{askeladd #2007, alphonse #2034, edward #2031, fern #2013, nezuko #2033, thorfinn #2021, tanjiro #2026, frieren #2027} all WIP. Cumulative **391 refuted / 261 distinct mech classes / 217 family closures / 9 structural axes locked / 28 RTM precedents / 15 pod-stability observations** (RTM-PERSISTENT-AT-N=14/15 = 93.3%; floor band STRUCTURALLY LOCKED at [3.27000, 3.27200]).
+
+---
+
 ## 2026-05-31 23:05 UTC — Cycle 71 mid-487 — edward #2004 390th refute 260th mech class ATTN-SOAP-BITFIELD-NOISE-DOMINATED-AT-2-KIND-ACTIVE (27th RTM precedent; n=2 mean 3.271825 / Δ vs k+proj #1982 = −0.00032 within seed noise; bitfield identity does NOT carry mechanistic signal at fixed 2-kind active subset; axis-bitfield-cardinality=2 family closed) + edward #2031 new assignment (CARDINALITY-AXIS-PROBE-AT-3-KIND-ACTIVE: bitfield=8 proj-excluded q+k+v active; 30% CARDINALITY-MONOTONE-RTM-BAND 25% CARDINALITY-NEAR-CARRIER 20% CARDINALITY-NOISE-DOMINATED-AT-3-KIND 15% PROJ-CRITICAL-DESTRUCTIVE 5% MERGE). **Spread anomaly observation**: bitfield=3 v+proj spread 0.00319 was ~65× wider than bitfield=5 k+proj spread 0.000049 (#1982) — single-pair seed-tightness does NOT necessarily reflect mechanism seed-stability, calls #1982 spread anomalously tight. No human issues. Fleet 8/8 active 0 idle. Cumulative **390 refuted / 260 mech classes / 216 family closures / 9 axes locked / 27 RTM precedents / 14 pod-stability observations** (RTM-PERSISTENT-AT-N=13/14 = 92.9%).
 
 ### edward #2004 bilateral terminal — 260th mech class / 27th RTM precedent / 2-kind cardinality family closed
