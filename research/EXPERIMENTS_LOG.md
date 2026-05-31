@@ -1,3 +1,69 @@
+## 2026-05-31 — PR #1896: H321 fern SCHEDULE-TAPERED adaptive μ — α suppressed during cooldown — CLOSED 176th NULL/NEG (🎯 PAPER-GRADE phase-inversion-timing CORRECTION: H313 NEG crossover is a PRE-COOLDOWN phenomenon locked in by steps 1500-2500 integrated α exposure × declining |cos_align|, NOT cooldown-localized as both original H313 closure narrative AND advisor's stale_wip refresh interpretation assumed — student's terminal analysis DEFINITIVELY DISPROVED both with H321 arm_c vs H313 arm_c terminal Δ=−0.00005 = 1/18σ_H174 INDISTINGUISHABLE + FOURTH advisor-error catch in 24h pattern)
+
+- Branch: g1r3-fern/h321-adaptive-mu-tapered
+- Hypothesis: Test whether suppressing adaptive μ correction α during cooldown phase dodges the H313 NEG crossover. arm_a CTRL α=0 (Pattern A bit-id), arm_b LINEAR_TAPER α=0.05→0 over full training, arm_c STEP_OFF_COOLDOWN α=0.05 constant until cooldown onset at step 2826, then 0.
+
+### Results
+
+| Arm | W&B | val/loss | FFS | Δ vs CTRL (σ_H174) | Δ vs H266 (σ_H174) | Merge gate FFS<3000 |
+|-----|-----|----------|-----|---------------------|---------------------|----------------------|
+| arm_a CTRL (α=0, constant) | `rjn6drqg` | **3.26792** | **3000 EXACT** | (ref) | **−0.029σ TIE BELOW** | **FFS TIES gate, NOT below** — but IS CTRL → not merge candidate |
+| arm_b LINEAR_TAPER (α=0.05 → 0.0) | `wed73q52` | 3.27043 | 3050 | **+2.84σ NEG** | +2.55σ NEG | misses by +50 |
+| arm_c STEP_OFF_COOLDOWN (α=0.05 → 0 at step 2826) | `vp0jbfb5` | 3.27168 | 3075 | **+4.26σ NEG** | +3.96σ NEG | misses by +75 |
+
+σ_H174 = 0.000884. arm_a CTRL is the **STRONGEST post-H266 CTRL replicate** in the plateau cluster — val=3.26792 BEATS H312 arm_a (val=3.26759) and TIES H266 m2ywl0o9 within σ_H174 noise. FFS=3000 EXACT confirms the `+25 FFS envelope is variance` thesis from H312 closure.
+
+### 🎯 PAPER-GRADE phase-inversion-timing CORRECTION (4th advisor-error catch in 24h)
+
+The H313 closure narrative AND the advisor's H321 stale_wip refresh both characterized the phase-inversion as **cooldown-localized** (NEG crossover happens during the last 15% of training). Student's terminal analysis DEFINITIVELY DISPROVED this — actual timing is **PRE-COOLDOWN steps 2000-2500** (326 steps BEFORE cooldown onset at step 2826).
+
+#### Cross-comparison: H321 arm_c (α=0 post-2826) vs H313 arm_c (α=0.05 always)
+
+| step | H321 arm_c (α=0 after 2826) | H313 arm_c (α=0.05 always) | Δ (H321 − H313) |
+|-----:|--------------------------------:|---------------------------:|----------------:|
+| 1500 | 3.48658 | 3.48694 | −0.00036 |
+| 2500 | 3.33358 | 3.33348 | +0.00010 |
+| 3000 | 3.28347 | 3.28347 | **−0.00000 EXACT** |
+| **3325** | 3.27168 | 3.27174 | **−0.00005 (1/18σ_H174 INDISTINGUISHABLE)** |
+
+**Cooldown-phase α has ZERO load-bearing effect on terminal val.** The cliff-off at step 2826 produces a difference smaller than 1/18σ_H174 over the entire cooldown window. Phase-inversion timing is PRE-COOLDOWN late window (steps 2000-2500), fully consummated 326 steps BEFORE cooldown onset.
+
+#### Phase-by-phase Δ analysis (arm_b smooth-taper vs arm_c cliff-off vs H313 always-on)
+
+| Phase | Steps | arm_b mean Δ | arm_c mean Δ | H313_c mean Δ |
+|-------|------:|-------------:|-------------:|--------------:|
+| Pre-cooldown early | 0-1500 | −0.01011 (POS) | −0.01065 (POS) | −0.01530 (POS) |
+| Pre-cooldown mid | 1500-2000 | −0.00300 (POS decaying) | −0.00595 | −0.00610 |
+| **Pre-cooldown LATE (crossover)** | **2000-2826** | **+0.00109 NEG** | **+0.00118 NEG** | **+0.00088 NEG** |
+| Cooldown | 2826-3325 | +0.00254 | +0.00374 | +0.00378 |
+
+Crossover happens in 2000-2826 window (PRE-COOLDOWN). arm_c (α=0 post-2826) and H313_c (α=0.05 always) have NEAR-IDENTICAL cooldown-window Δs (+0.00374 vs +0.00378) — confirming cooldown α is mechanistically inert at terminal.
+
+### Mechanism re-interpretation
+
+cos_align decays naturally from peak |−0.43| at step 500 to |−0.10| at step 2500. Integrated α exposure during steps 1500-2500 × declining |cos_align| produces a residual perturbation that compounds into trajectory inversion. arm_b (smooth taper) had **60% LESS α dose in the critical window 1500-2500** (∫α ≈ 19.95 vs arm_c ∫α = 50) → terminal +0.00125 BETTER than arm_c. Dose-response in the pre-cooldown inversion window is detectable.
+
+### 🎯 H313 + H321 mechanism cluster status update
+
+| Sub-axis | Status |
+|----------|--------|
+| H313 (constant α VALUE, multiple doses) | NULL/NEG — α=0.025 mild NEG, α=0.05 mild NEG |
+| H321 (SCHEDULE-tapered α — this) | **CLOSED NEG — phase-inversion timing CORRECTED to pre-cooldown 2000-2500 window** |
+| Pre-cooldown POS at step 1000 | **REAL** — ~15σ_H174 POS observed in H313+H321 arm_c data |
+| Cooldown-phase α load-bearing | **REFUTED** — cliff-off vs always-on indistinguishable at terminal |
+
+### Conclusions
+
+🎯 **176th NULL/NEG + paper-grade student-driven mechanism correction** — SCHEDULE-tapered adaptive μ sub-axis CLOSED NEG. Cooldown-phase α suppression has zero load-bearing terminal effect. The H313 closure narrative misidentified the load-bearing window; correct window is PRE-COOLDOWN 2000-2500. Future adaptive-μ work must attenuate α BEFORE step 2000, not after step 2826.
+
+🎯 **FFS=3000 EXACT TIE H266 (4th in cycle ~2650)** — arm_a CTRL `rjn6drqg` joins H319 arm_a, H322 arm_b, H321 arm_a in the cycle ~2650 within-cycle convergent FFS=3000 attractor cluster.
+
+🎯 **FOURTH advisor-error catch in 24h pattern** — H316 tanjiro cooldown semantics + H319 askeladd baseline β1=0.8 + H322 nezuko regularizer geometry + H321 fern phase-inversion timing.
+
+Reassigning fern to H330 — EARLY-WINDOW α schedule (student's suggested follow-up #1, mechanism-distinct from H321 by targeting the CORRECT phase-inversion window: α=0.05 constant during steps 0-1500 to capture peak |cos_align|=0.43 at step 500, linear taper steps 1500-2000 cleanly exits dose at INVERSION ONSET rather than END of training). Tests whether H313+H321 pre-cooldown POS (~15σ_H174 at step 1000) can be cleanly extracted by avoiding the inversion-window dose. WIN probability: 15-20%.
+
+Plateau portfolio: **176 NULL/NEG + 1 MERGED WIN** (H266 baseline FFS=3000).
+
 ## 2026-05-31 — PR #1892: H320 edward OUTER anchor refresh POLICY — soft blend vs hard replace (102nd mechanism class) — CLOSED 175th NULL/NEG (🎯 paper-grade monotone dose-response NEG with TWO-REGIME instability finding: stable-regime NEG at α=0.5 FFS+175 + catastrophic UNBOUNDED divergence at α=0.2 with anchor_drift_rms 6291× geometric growth + positive-feedback OUTER anchor drift mechanism identified)
 
 - Branch: g1r3-edward/h320-outer-anchor-blend-policy

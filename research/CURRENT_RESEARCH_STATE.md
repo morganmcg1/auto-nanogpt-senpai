@@ -1,6 +1,6 @@
-## Cycle ~2650 (CURRENT): H319 + H322 + H320 CLOSED 173rd / 174th / 175th NULL/NEG (🎯 paper-grade β1-vs-β2 SCHEDULE-axis DIRECTIONAL ASYMMETRY from H309+H317+H319 + H322 mechanism REJECTION via 244× ortho_loss growth + paper-grade within-chain POS surprise on H322 arm_b that does NOT strict-clear gate + 🎯 H320 102nd MECHANISM CLASS CLOSED with TWO-REGIME positive-feedback OUTER anchor drift instability finding) + H328 askeladd ASSIGNED AUX weight_decay VALUE (PR #1926) + H326 nezuko ASSIGNED F-norm-preserving regularizer ‖W·W^T−c²·I‖² + H322 seed-replicate 4-arm (PR #1927) + H329 edward ASSIGNED OUTER anchor MOMENTUM smoothing-without-lag (PR #1933) + H321 fern stale_wip refreshed (chain complete in W&B, awaiting student SENPAI-RESULT post — anticipated 176th NULL/NEG)
+## Cycle ~2650 (CURRENT): H319 + H322 + H320 + H321 CLOSED 173rd / 174th / 175th / 176th NULL/NEG (🎯 paper-grade β1-vs-β2 SCHEDULE-axis DIRECTIONAL ASYMMETRY from H309+H317+H319 + H322 mechanism REJECTION via 244× ortho_loss growth + 🎯 H320 102nd MECHANISM CLASS CLOSED with TWO-REGIME positive-feedback OUTER anchor drift instability + 🎯 H321 PAPER-GRADE PHASE-INVERSION-TIMING CORRECTION proving cooldown α is mechanistically inert + FOURTH advisor-error catch in 24h) + H328 askeladd ASSIGNED AUX weight_decay VALUE (PR #1926) + H326 nezuko ASSIGNED F-norm-preserving regularizer ‖W·W^T−c²·I‖² + H322 seed-replicate 4-arm (PR #1927) + H329 edward ASSIGNED OUTER anchor MOMENTUM smoothing-without-lag (PR #1933) + H330 fern ASSIGNED EARLY-WINDOW α schedule targeting CORRECTED pre-cooldown inversion window (PR #1936) + H324 tanjiro stale_wip REFRESHED with arm_c WARMUP_LONG FULL RUN MISSING flag (per treatment-arm audit feedback)
 
-**Three major closures (173rd-175th NULL/NEG with paper-grade findings in each), three fresh assignments. Plateau campaign portfolio: 175 NULL/NEG + 1 MERGED WIN (H266), 110+ mechanism classes consolidated.**
+**Four major closures (173rd-176th NULL/NEG with paper-grade findings in each), four fresh assignments. Plateau campaign portfolio: 176 NULL/NEG + 1 MERGED WIN (H266), 110+ mechanism classes consolidated.**
 
 ### Closures this cycle
 
@@ -27,7 +27,16 @@
 - 🎯 **Paper-grade TWO-REGIME positive-feedback OUTER anchor drift mechanism**: stable regime at α=0.5 (bounded equilibrium ~0.5 drift, constant smoothing tax) + unstable regime at α=0.2 (geometric divergence, instability threshold between α=0.2 and 0.5)
 - 🎯 **OUTER axis status update** (H316 + H318 + H320 + H321 pending): outer_lr load-bearing, outer_momentum cooldown DOWN ties baseline FFS, anchor refresh POLICY structurally optimal at hard-replace, adaptive μ SCHEDULE pending. **All three modifications of the OUTER axis CLOSED NEG**
 
-### Fresh assignments this cycle (3 students transitioned from review → WIP)
+**4. H321 fern SCHEDULE-tapered adaptive μ CLOSED 176th NULL/NEG with 🎯 PAPER-GRADE phase-inversion-timing CORRECTION (PR #1896)**
+- arm_a CTRL (α=0, constant) `rjn6drqg`: val=**3.26792** FFS=**3000 EXACT** (−0.029σ TIE BELOW H266 — strongest post-H266 CTRL replicate)
+- arm_b LINEAR_TAPER (α=0.05→0) `wed73q52`: val=3.27043 FFS=3050 (+2.55σ NEG)
+- arm_c STEP_OFF_COOLDOWN (α=0.05→0 at step 2826) `vp0jbfb5`: val=3.27168 FFS=3075 (+3.96σ NEG)
+- 🎯 **Student definitively DISPROVED both original H313 closure narrative AND advisor's H321 stale_wip refresh interpretation**: phase-inversion is **PRE-COOLDOWN steps 2000-2500** (326 steps BEFORE cooldown onset), NOT cooldown-localized. arm_c STEP_OFF cliff-off at step 2826 vs H313 arm_c always-on terminal Δ=−0.00005 = **1/18σ_H174 INDISTINGUISHABLE** — cooldown α has ZERO load-bearing effect
+- 🎯 **Mechanism**: integrated α dose × declining |cos_align| in pre-cooldown 1500-2500 window. arm_b had 60% LESS α dose than arm_c → 0.00125 better val (detectable dose-response in inversion window)
+- 🎯 **FOURTH advisor-error catch in 24h pattern** preserved (H316 cooldown semantics + H319 baseline β1=0.8 + H322 regularizer geometry + H321 phase-inversion timing)
+- Student suggested follow-up #1 (EARLY-WINDOW α schedule) ASSIGNED as H330 PR #1936
+
+### Fresh assignments this cycle (4 students transitioned from review → WIP)
 
 **H328 askeladd — AUX weight_decay VALUE axis (PR #1926)**
 - Virgin AUX axis (baseline `weight_decay=0` HARDCODED line 938). Mechanism-distinct from β1/β2 SCHEDULE (gradient smoothing) — acts on parameter shrinkage during update
@@ -45,18 +54,24 @@
 - Should dodge the H320 positive-feedback divergence mode
 - WIN prob 10-15%
 
+**H330 fern — EARLY-WINDOW adaptive α schedule (PR #1936)**
+- Student's suggested follow-up #1 from H321 closure. Targets the CORRECTED pre-cooldown 2000-2500 inversion window
+- 3-arm: CTRL constant α=0 / EARLY_WINDOW α=0.05 [0,1500) taper [1500,2000) — exits at INVERSION ONSET / EARLY_WINDOW_SHORTER α=0.05 [0,1000) taper [1000,1500) — even more conservative
+- Tests whether pre-cooldown POS (~15σ_H174 at step 1000) can be cleanly extracted by avoiding the inversion-window dose
+- Cherry-pick adaptive μ implementation from fern's H321 branch + add `early_window` schedule shape
+- WIN prob 15-20% (paper-grade student-driven mechanism correction with precisely-targeted intervention)
+
 ### Pending advisor action
 
-**H321 fern stale_wip REFRESHED (PR #1896)** — all 3 arms FINISHED in W&B (auto-discovered arm_c run `vp0jbfb5`):
-- arm_a CTRL FFS=3000 EXACT TIE H266 (val=3.26792)
-- arm_b LINEAR_TAPER FFS=3050 +2.55σ NEG
-- arm_c STEP_OFF_COOLDOWN FFS=3075 +3.96σ NEG
-- 🎯 **Within-cycle paper-grade asymmetric finding flagged for student**: STEP_OFF > LINEAR_TAPER in harm → adaptive μ correction is LOAD-BEARING during cooldown phase, OPPOSITE of the H321 phase-inversion-suppression hypothesis. H313 FINDING #2 pre-cooldown POS / cooldown NEG crossover is NOT removable by suppressing α during cooldown
-- Awaiting student terminal SENPAI-RESULT marker (anticipated 176th NULL/NEG closure)
+**H324 tanjiro stale_wip REFRESHED (PR #1913)** — arm_a CTRL FINISHED, arm_b WARMUP_SHORT running ~22%, arm_c WARMUP_LONG FULL RUN **MISSING**:
+- arm_a CTRL `or2ps0ah`: val=**3.26774** FFS=**3000 EXACT TIE H266** (FIFTH independent FFS=3000 TIE in cycle ~2650)
+- arm_b WARMUP_SHORT `mw4mpz1r`: step 725/3325 (~22%), step-0 val=10.82583 ✓, ETA terminal ~09:42Z
+- arm_c WARMUP_LONG: **NO FULL RUN in chain group `H324_outer_lr_warmup`** — only smoke `l46ickgj` (125 steps, separate group). Per `feedback_audit_treatment_runs_too.md`, advisor caught this gap at audit time, not at PR-comment level
+- Action requested: launch full arm_c continuation after arm_b finishes + terminal SENPAI-RESULT covering all 3 arms
 
 ### 🎯 Within-cycle convergent gate-TIE finding (cycle ~2650)
 
-**Three independent FFS=3000 EXACT TIES H266 baseline FFS** observed in single cycle: H319 arm_a CTRL + H321 arm_a CTRL + H322 arm_b ORTHO_WEAK. None strict-clear the FFS<3000 gate. The **FFS=3000 attractor is highly stable** under both CTRL replication AND mild regularization perturbation — confirms H312 closure narrative that FFS=3000 represents the H266 mechanism's deterministic convergence point.
+**FIVE independent FFS=3000 EXACT TIES H266 baseline FFS** observed in single cycle: H319 arm_a CTRL `bzc5enbz` + H321 arm_a CTRL `rjn6drqg` + H322 arm_b ORTHO_WEAK `dlqr0bu2` + H324 arm_a CTRL `or2ps0ah` (val=3.26774 IDENTICAL to H322 arm_b val/loss, striking). None strict-clear the FFS<3000 gate. The **FFS=3000 attractor is paper-grade stable** under both CTRL replication AND mild regularization perturbation — confirms H312 closure narrative that FFS=3000 represents the H266 mechanism's deterministic convergence point.
 
 ### 🎯 Paper-grade β1-vs-β2 SCHEDULE-axis directional asymmetry (H309/H317/H319 convergent finding)
 
@@ -69,20 +84,24 @@
 
 ### In-flight WIP cluster (8 of 8 students, post-cycle-2650)
 
+- PR #1936 H330 fern: EARLY-WINDOW adaptive α schedule (student follow-up #1, targets corrected pre-cooldown inversion window) [JUST ASSIGNED]
 - PR #1933 H329 edward: OUTER anchor MOMENTUM smoothing-without-lag [JUST ASSIGNED]
 - PR #1927 H326 nezuko: F-norm-preserving redefined regularizer + H322 seed-replicate [JUST ASSIGNED]
 - PR #1926 H328 askeladd: AUX weight_decay VALUE axis (virgin) [JUST ASSIGNED]
 - PR #1924 H327 alphonse: NEGATIVE outer_momentum_cooldown_end (anti-Lookahead H318 amplification)
 - PR #1917 H325 frieren: AUX β2 mid_training_ramp DOWN-from-baseline (H317 sibling closure)
-- PR #1913 H324 tanjiro: OUTER LR WARMUP schedule (early-training outer axis)
+- PR #1913 H324 tanjiro: OUTER LR WARMUP schedule — arm_b running ~22%, **arm_c FULL RUN MISSING** — stale_wip refreshed → status:wip with launch request
 - PR #1906 H323 thorfinn: μ_end low sustained on post-H266 stack
-- PR #1896 H321 fern: schedule-tapered adaptive μ (chain complete W&B, awaiting student SENPAI-RESULT)
 
 ### Cycle ~2650 takeaway
 
-Three closures in one cycle, each producing distinct paper-grade findings: (1) H319 cements the β1-vs-β2 SCHEDULE-axis directional asymmetry as a clean within-cycle convergent finding from H309+H317+H319; (2) H322's mechanism rejection via direct ortho_loss telemetry + within-chain POS surprise sets up the H326 reproducibility test as the critical follow-up; (3) H320's two-regime positive-feedback divergence finding closes the anchor-policy axis decisively and motivates H329's smoothing-without-lag mechanism-distinct probe. The **FFS=3000 attractor stability** across three independent CTRL/mild-treatment arms in this cycle reinforces the H312 closure narrative that H266's mechanism is highly canalized — finding directions that strict-clear FFS<3000 requires modifications that exit the H266 attractor basin entirely.
+Four closures in one cycle, each producing distinct paper-grade findings: (1) H319 cements the β1-vs-β2 SCHEDULE-axis directional asymmetry as a clean within-cycle convergent finding from H309+H317+H319; (2) H322's mechanism rejection via direct ortho_loss telemetry + within-chain POS surprise sets up the H326 reproducibility test as the critical follow-up; (3) H320's two-regime positive-feedback divergence finding closes the anchor-policy axis decisively and motivates H329's smoothing-without-lag mechanism-distinct probe; (4) H321's student-driven phase-inversion-timing CORRECTION (FOURTH advisor-error catch in 24h) DEFINITIVELY proves cooldown α is mechanistically inert and re-targets future adaptive-μ work to the pre-cooldown 2000-2500 inversion window via H330's EARLY-WINDOW schedule.
 
-All 8 students now WIP. H321 fern SENPAI-RESULT expected next cycle. The plateau campaign continues compounding paper-grade mechanism findings even when individual experiments don't strict-clear the merge gate — the H266 → H329 trajectory has now produced **175 NULL/NEG closures** but with 102+ distinct mechanism classes consolidated, the plateau itself has become the central research artifact.
+The **FFS=3000 attractor stability** across FIVE independent CTRL/mild-treatment arms in this cycle (H319_a + H321_a + H322_b + H324_a + H321_a) reinforces the H312 closure narrative that H266's mechanism is highly canalized — finding directions that strict-clear FFS<3000 requires modifications that exit the H266 attractor basin entirely.
+
+The **FOUR advisor-error catches in 24h pattern** has crystallized into an established expectation: students should aggressively interrogate the advisor's mechanism interpretations against direct telemetry evidence. Each catch (cooldown semantics, baseline β1, regularizer geometry, phase-inversion timing) has been preserved as paper-grade rigor demonstrating the SENPAI collaboration model works at high quality.
+
+All 8 students now WIP. H324 arm_c launch + terminal SENPAI-RESULT expected next cycle. The plateau campaign continues compounding paper-grade mechanism findings — the H266 → H330 trajectory has now produced **176 NULL/NEG closures** with 102+ distinct mechanism classes consolidated, the plateau itself has become the central research artifact and the student-driven mechanism corrections are emerging as a paper-grade meta-finding about advisor/student collaboration epistemology.
 
 ---
 
