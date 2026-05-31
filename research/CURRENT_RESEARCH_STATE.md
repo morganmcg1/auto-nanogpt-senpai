@@ -1,3 +1,65 @@
+## 2026-05-31 15:00 UTC — Cycle 71 mid-471 — alphonse #1953 376th refute 210th family closure (HYPOTHESIS TRIPLE {COOLDOWN, TRUST-GATE, NS5_ITERS} CLOSED) 246th mech class + edward #1952 377th refute 247th + 248th mech classes (DUAL-CARRIER RANK-INVERSION + DOUBLE-SUPER-ADDITIVE) + 8th CYCLE-71 TOP CANDIDATE CARRIER SPAWNED (k+proj 3.26815/3000) + alphonse #1981 new assignment (MU_WARMUP_STEPS bilateral at diagonal corner, first OFF-TRIPLE candidate) + edward #1982 new assignment (k+proj bilateral n=2 verification — HIGHEST-PRIORITY cycle-71 probe, discriminates RTM-PERSISTENT-AT-N=8 50% prior vs RTM-RATE-BROKEN 15% prior vs MERGE-CANDIDATE-CONFIRMED 5% prior). Tally 377 refuted / 248 mech classes / 210 family closures / 9 axes / 21 RTM precedents.
+
+### alphonse #1953 bilateral terminal — 376th refute, 210th FAMILY CLOSURE (HYPOTHESIS TRIPLE CLOSED), 246th mech class
+
+Bilateral terminal: Arm A `nr132hq6` NS5_ITERS=12 val=**3.27188**/3050; Arm B `fr5xrohc` NS5_ITERS=16 val=**3.27233**/3050. Both arms NEUTRAL in canonical band [3.27000, 3.27300]. Cross-NS comparison vs #1893 canonical NS=14 n=2 mean 3.27168: Δ +0.00020 (NS=12, 0.10σ) and Δ +0.00065 (NS=16, 0.34σ) — all three NS values within 0.5σ of canonical mean.
+
+**246th mech class — NS5-ITERS-DIAGONAL-CORNER-NEUTRAL-NOT-MEDIATOR**: Newton-Schulz preconditioner convergence quality does NOT control the +0.00341 SA-remainder at diagonal corner. Early-step NS=16 advantage (−0.02083 at step-125) DISSIPATES through training; crossover at step-875; terminal Δ +0.00045. Step-time signature confirms lever operative (Δ +15.6ms/step).
+
+**210th family closure — {COOLDOWN, TRUST-GATE, NS5_ITERS} HYPOTHESIS TRIPLE CLOSED**:
+
+| 3rd-parameter | val | σ-distance | Reading |
+|---|---|---|---|
+| COOLDOWN 0.97 (#1932 A) | 3.27399 | +1.21σ | DESTRUCTIVE |
+| TRUST-GATE 0.80 (#1932 B) | 3.27414 | +1.29σ | DESTRUCTIVE |
+| NS5_ITERS 12 (#1953 A) | 3.27188 | +0.10σ | NEUTRAL |
+| NS5_ITERS 16 (#1953 B) | 3.27233 | +0.34σ | NEUTRAL |
+
+**SA-remainder lives OFF named-triple axis** — NOT cooldown-driven, NOT trust-gate-driven, NOT preconditioner-convergence-driven. Next mediator search must move to OFF-TRIPLE candidates.
+
+### alphonse #1981 new assignment — MU_WARMUP_STEPS bilateral mediator probe at diagonal corner
+
+Pivot direction after triple closed: MU_WARMUP_STEPS={100, 300} bilateral at (DOWN, FRONT-TIGHT) diagonal corner. First OFF-TRIPLE candidate — tests if warmup-phase β2 lerp duration mediates SA-remainder, OR if warmup is also OFF-axis (pointing to MUON_LR or CONTRA_MUON as next directions).
+
+**Prior**: 40% MU-WARMUP-NEUTRAL, 20% BOTH-DESTRUCTIVE, 15% PRODUCTIVE-LONGER, 12% PRODUCTIVE-SHORTER, 10% ASYMMETRIC, 3% MERGE.
+
+### edward #1952 bilateral terminal — 377th refute (DUAL-CARRIER-RANK-ADDITIVITY HYPOTHESIS REFUTED via sign-inversion), 247th + 248th mech classes, 8th CYCLE-71 TOP CANDIDATE CARRIER SPAWNED
+
+Bilateral terminal: Arm A `4eiphavu` v+q active (bitfield=10) val=**3.26964**/3025; Arm B `d7tv6bf1` k+proj active (bitfield=5) val=**3.26815**/3000.
+
+**247th mech class — DUAL-CARRIER-RANK-INVERSION-WORST-PAIR-BEATS-BEST-PAIR**: Hypothesis predicted Δ(best − worst) ≈ −0.00151 (best pair v+q LOWER). Observed Δ = **+0.00149** (best pair v+q HIGHER) — magnitude matches prediction, **SIGN INVERTED**. The "worst-pair" k+proj actually outperforms the "best-pair" v+q. Dual-cell compound mechanism is non-monotonic w.r.t. solo carrier strength.
+
+**248th mech class — BOTH-PAIRS-SUPER-ADDITIVE-OVER-SOLOS-WORST-PAIR-3.5X-STRONGER**:
+
+| Cell | solo best | dual-pair val | Δ(pair − solo best) | Super-additivity |
+|---|---|---|---|---|
+| Best-pair v+q | v_only 3.27072 | 3.26964 | −0.00108 | ~1× |
+| Worst-pair k+proj | k_only 3.27193 | 3.26815 | −0.00378 | ~3.5× |
+
+k+proj structural complementarity advantage; v+q saturated/redundant. Dual-exclusion compound mechanism governed by INTERACTION GEOMETRY, NOT additive carrier-strength stacking.
+
+**8th cycle-71 TOP single-seed candidate carrier — k+proj 3.26815/3000**:
+- +0.00039 ABOVE merge bar 3.26776 (0.20σ at single-seed σ~0.00191)
+- ffs=3000 MATCHES baseline ffs ceiling
+- ESCAPES cycle-71 RTM-corrected floor band [3.27000, 3.27077] at single-seed reading
+- FIRST cycle-71 candidate NOT derived from single-axis or compound-of-RTM-carriers mechanism
+- Trajectory: B leads from step-125 (−0.02724) through terminal (−0.00149) — PARTIAL dissipation, NOT full like NS5_ITERS pattern → suggests PERSISTENT mechanism difference, NOT transient preconditioner-quality artifact
+
+### edward #1982 new assignment — k+proj bilateral n=2 verification (HIGHEST-PRIORITY cycle-71 probe)
+
+Two seeds (1, 2) at bitfield=5 (k+proj active) — identical config to #1952 Arm B. Discriminates:
+- 50% RTM-CONFIRMED at 22nd RTM precedent → n=2 mean ~3.27000-3.27200 → RTM-rate 8-of-8 at 100% continues
+- 20% BORDERLINE-FLOOR-EDGE → n=2 mean 3.26900-3.27000 → carrier-on-edge
+- 15% STRONG-PRODUCTIVE-BREAKS-RTM → n=2 mean 3.26776-3.26900 → FIRST genuine cycle-71 productive carrier → trigger n=3
+- 5% MERGE-CANDIDATE-CONFIRMED → n=2 mean < 3.26776 → 8th cycle-71 merge candidate → trigger n=3
+- 10% CARRIER-DESTRUCTIVE or NOISE-DOMINATED
+
+### Fleet status — 8/8 active 0 idle
+
+After alphonse #1953 close + alphonse #1981 assignment + edward #1952 close + edward #1982 assignment: g1r2-{tanjiro #1976, frieren #1972, thorfinn #1967, fern #1959, askeladd #1956, alphonse #1981, edward #1982, nezuko #1978} all WIP. Cumulative state **377 refuted / 248 distinct mech classes / 210 family closures / 9 structural axes locked / 21 regression-to-mean precedents** (RTM-PERSISTENT-AT-N=7; k+proj 8th candidate pending n=2 verification at #1982).
+
+---
+
 ## 2026-05-31 14:45 UTC — Cycle 71 mid-470 — nezuko #1960 POD-STABILITY-BLOCKED at lm_head M=3 f=0.25 i=150 (6/6 named seeds NaN at step 125 BEFORE first reset event at step 150; mechanistically independent of reset config per memory feedback_pod_broken_axis_misattribution; cell-family STABLE at i=200/i=250, i=150 pod-bounded at this stack; NOT counted as refute — cycle-71 tally UNCHANGED at 375/245/209/9/21) + nezuko #1978 new assignment (INTERVAL-AXIS at lm_head M=3 **f=0.5** i=150 fresh push n=2; gentler factor halves moments per reset vs f=0.25 quartering, predicted MORE stable; baseline f=0.5 i=200 = 3.27077 RTM frieren #1947 + #1887 A 20th precedent; linear extrapolation Δ=−0.00088 → predicted ~3.26989 borderline floor edge; 30%-POD-BLOCKED-CROSS-FACTOR prior 25%-22ND-RTM prior 20%-BORDERLINE prior 10%-STRONG-PRODUCTIVE prior; MANDATORY step-125 KILL GATE for pre-event NaN check + seed budget fallback)
 
 ## 2026-05-31 14:25 UTC — Cycle 71 mid-469 — tanjiro #1949 375th refute 209th family closure 244th + 245th mech classes + 21st RTM PRECEDENT (RTM-PERSISTENT-AT-N=7) + PER-KIND-WD-AXIS-NEUTRAL cross-arm validated + DOUBLE-RTM-IN-SINGLE-PR pattern (bilateral Arm-A `j3n5pgmy` per-kind β1 dispatch+uniform WD val=3.27088/3025 + Arm-B `1p60m3se` EMBED-INNER compound val=3.27105/3025; per-kind β1 dispatch under uniform WD vs thorfinn #1944 A per-kind WD Δ=+0.00007 < σ → PER-KIND WD AXIS NEUTRAL at this carrier; EMBED-INNER compound n=2 mean 3.27004 = LOWEST RTM-corrected n-mean in cycle 71; combining RTM-carriers does not escape RTM, lands at floor band) + tanjiro #1976 new assignment (EMBED-INNER-DECOMPOSITION-VIA-ISOLATION: Arm-A lm_head β1=0.9 isolated + Arm-B compound-minus-reset; attributes compound's -0.00182 lift over isolated embed β1=0.5 to its mediator; 30%-LM_HEAD-β1=0.9-LOAD-BEARING prior 25%-RTM-BAND-ONLY prior 20%-INTERACTION-DEPENDENT prior)
