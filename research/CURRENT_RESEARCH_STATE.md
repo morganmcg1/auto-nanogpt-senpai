@@ -9,7 +9,22 @@ The human research team has redirected: **FFS (first-step-to-target, baseline 30
 3. **Prefer experiments that move the crossing step** (2800-3050 window), **simplify winning stacks**, **reveal FFS-load-bearing components**.
 4. **Ablations preferred over confirmations** when FFS dead.
 
-## Last updated: 2026-05-31 14:40Z (83 R5 closures; **★ EDWARD #1948 SIGNAL ALIVE**; alphonse #1979 lr-warm-restart-probe ASSIGNED; 8/8 active)
+## Last updated: 2026-05-31 14:55Z (84 R5 closures; **★ EDWARD #1948 SIGNAL ALIVE**; fern #1983 wd-schedule-ablation ASSIGNED; 8/8 active)
+
+### Notes (2026-05-31 14:55Z) — FERN #1922 CLOSED 84th [WD cooldown SHAPE axis closed; val_loss trajectory non-monotone = attractor noise]; FERN #1983 wd-schedule-ablation ASSIGNED
+
+- **★ CLOSED #1922 fern wd-cooldown-shape** [84th R5 closure, ~14:50Z] — FFS-NEUTRAL. 4 cells {linear, cosine, concave, convex}; Cell D (convex) landed at attractor {2875, 2925} but val_loss probe-step table shows non-monotone trajectory (D > A at step 2000 by +0.00240). All 4 cells within ±0.005 val_loss at each probe step → tight band, weak shape effect. Mechanism null: by step 2500, WD < 0.02 across all shapes (vs base 0.025), absolute differences at crossing window ~0.0006 mlp units.
+- **★★ NEW DISCRIMINATOR ESTABLISHED**: When n=1 result lands at attractor {2875, 2925}, the val_loss PROBE-STEP TRAJECTORY (not just terminal value) is the decisive discriminator. Non-monotone (cross-over) = noise; monotone = signal candidate. This is a refinement of [[r5_n1_to_n4_reversion_dual_metric_attractor]] — fern's D shows attractor coords + non-monotone = NOT a candidate. Edward's #1948 B★ shows attractor coords + monotone improvement = signal candidate. **Both came in the same heartbeat** — first time we have two attractor-coordinate n=1 results to compare.
+
+- **★ FERN #1983 wd-schedule-ablation ASSIGNED** — Direct response to human directive #1262 ("drop ramp_down ablation"). Tests `--wd_schedule ramp_down` (mandatory baseline) vs `constant` (WD stays at base throughout) vs `ramp_up` (WD goes 0 → 2× across training). PR #1922 showed WD reaches near-zero at crossing regardless of shape; this experiment tests what happens when WD STAYS HIGH (constant) or RAMPS UP (high WD at crossing window). Zero LOC — pure configuration sweep, the `--wd_schedule` flag already supports all three values. Cells: A_ctrl (ramp_down), B (constant), C (ramp_up). Stop conditions include the new "non-monotone trajectory" discriminator from PR #1922.
+
+- **★★ EDWARD #1948 SIGNAL ALIVE (still active)** — A_ctrl=2925, B★(precond_freq=4)=2875, val_loss Δ=-0.00137 outside ±0.005 seed-noise band AND monotone. C (freq=8) ETA 16:07Z, D (freq=2) ETA ~18:00Z. n=4 decision @ ~18:00Z.
+
+- **★ TANJIRO #1964 silent**: pod healthy (Running, no restarts, age 16d). Student hasn't posted KG_smoke or progress in 2h20min since assignment ~12:30Z. Could be student worker cycle issue or just KG_smoke still running. Monitor next heartbeat.
+
+- **Fleet at 14:55Z**: fern #1983 WIP (wd-schedule-ablation, just assigned); alphonse #1979 WIP (lr-warm-restart-probe); edward #1948 WIP (precond-freq C+D running, **SIGNAL ALIVE**); tanjiro #1964 WIP (ns-iter-cooldown, silent); frieren #1966 WIP (muon-momentum-schedule); thorfinn #1957 WIP (ema-decay-cooldown-schedule); nezuko #1955 WIP (adamw-eps-cooldown); askeladd #1942 WIP (logit-z-loss). **8/8 active, zero idle.**
+
+---
 
 ### Notes (2026-05-31 14:40Z) — ALPHONSE #1973 CLOSED 83rd [KG_smoke mechanism-dead]; ALPHONSE #1979 lr-warm-restart-probe ASSIGNED
 

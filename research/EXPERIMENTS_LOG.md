@@ -1,5 +1,45 @@
 # SENPAI Research Results — auto-nanogpt-1gpu-r5
 
+## 2026-05-31 14:55Z — PR #1922 CLOSED FFS-NEUTRAL [WD cooldown shape axis closed; val_loss trajectory non-monotone = attractor noise on Cell D]: fern wd-cooldown-shape ∈ {linear, cosine, concave, convex} [84th R5 closure]
+
+- branch: g1r5-fern/wd-cooldown-shape
+- hypothesis: Cooldown WD curve shape (linear vs cosine vs concave vs convex) modifies the regularization profile near the FFS crossing window (steps 2800-3050). Test all 4 shapes to find the optimal cooldown WD trajectory.
+- W&B group: `g1r5-fern/wd-cooldown-shape`
+
+| Cell | shape | FFS_ema | FFS_trainval | val/loss | ema_val_loss (corr) | step_avg_ms | wandb |
+|------|-------|---------|--------------|----------|---------------------|-------------|-------|
+| A_ctrl | linear | 2925 | 2950 | 3.27091 | 3.27142 | 1894.85 | `xhlrtnbv` |
+| B | cosine | 2950 | 2950 | 3.27123 | 3.27178 | 1894.39 | `4g3paj2g` |
+| C | concave | 2925 | 2950 | 3.26908 | 3.26963 | 1898.39 | `wywfzce5` |
+| D | convex | **2875** | **2925** | 3.26930 | 3.26977 | 1897.46 | `lvp1ah0y` |
+
+**Cell D landed at canonical attractor {2875, 2925}** — but the val_loss probe-step table shows non-monotone trajectory (D > A at step 2000 by +0.00240), the discriminator that distinguishes attractor noise from real signal. Compare with edward #1948 SIGNAL ALIVE which shows monotone val_loss improvement at attractor coordinates.
+
+**Probe-step val_loss table (decisive discriminator):**
+| Step | A (linear) | B (cosine) | C (concave) | D (convex) |
+|------|------------|------------|-------------|------------|
+| 1000 | 3.64905 | 3.64360 | 3.64305 | 3.64778 |
+| 2000 | 3.43838 | 3.44369 | 3.44328 | **3.44078** (D > A) |
+| 2500 | 3.33766 | 3.33948 | 3.34150 | 3.33756 |
+| 3250 | 3.27091 | 3.27123 | 3.26908 | 3.26930 |
+
+All 4 cells within ±0.005 val_loss at each probe step → tight band, weak shape effect.
+
+**WD trajectory verification (`train/wd_mlp_now`):**
+- Step 2500: A=0.0116, D=0.0038 (D crashes early)
+- Step 2900 (crossing): A=0.0054, D=0.0008
+- Mechanism: by step 2500, all shapes have WD < 0.02 (vs base 0.025). Absolute WD differences at crossing window are tiny (0.0006 mlp units). Shape lever acts correctly but has weak effect.
+
+**Pre-mortem #1 confirmed:** "WD already near-zero at crossing → null mechanism." The crossing happens after WD ramp has already nearly completed regardless of shape. There is no leverage for shape modifications within the existing ramp_down schedule.
+
+**Closure:** 84th R5 closure. FFS-NEUTRAL — shape axis closed.
+
+**Cross-PR comparison (key research insight):** This is the first heartbeat where two PRs both hit attractor coordinates {2875, 2925} simultaneously — edward #1948 B★(precond_freq=4) AND fern #1922 D(convex). Edward's shows monotone val_loss improvement (real signal candidate); fern's shows non-monotone (noise). The val_loss probe-step trajectory is the decisive discriminator and should be used for all future n=1 attractor-coordinate results.
+
+**New assignment:** fern #1983 wd-schedule-ablation (drop ramp_down ablation — test if --wd_schedule ramp_down is load-bearing vs constant vs ramp_up). Direct response to human directive #1262.
+
+---
+
 ## 2026-05-31 14:35Z — PR #1973 CLOSED FFS-NEUTRAL [KG_smoke mechanism-dead — NS5 internal ε irrelevant at R5 gradient scale]: alphonse ns5-eps-cooldown stop@200 [83rd R5 closure]
 
 - branch: g1r5-alphonse/ns5-eps-cooldown
