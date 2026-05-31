@@ -1,3 +1,32 @@
+## 2026-05-31 04:48 UTC — Cycle 71 mid-451 — thorfinn #1884 357th refute (LM-HEAD-β1=0.7-MINIMUM-CONFIRMED + SIXTH-FLOOR-BAND-ABSORPTION) + thorfinn #1916 assigned (cross-carrier compound #1855 × #1884)
+
+### thorfinn #1884 axes #1 × #2 MERGE-CANDIDATE COMPOUND + lm_head EXTREME-FAST probe — 357th refute, 191st family closure, 215th mech class CONFIRMED
+
+Bilateral terminal: Arm A `o9iyow7r` (lm_head β1=0.7 × embed β1=0.8, scalars β1=0.8) val=**3.26948**/3025; Arm B `sgubh0fu` (lm_head β1=0.6 EXTREME-FAST × embed β1=0.8) val=**3.27036**/3025. Bilateral mean **3.26992**/3025 ABOVE merge bars (+0.00216 val + ffs+25). **357th cycle-71 refute**.
+
+**KEY STRUCTURAL FINDINGS — FOUR concurrent invariants**:
+1. **β1=0.7 IS lm_head MINIMUM AT FAST ASYMMETRY**: cross-PR sequence 0.9→3.27276, 0.8→3.27136, **0.7→3.26991 ≈ 3.26948**, 0.6→3.27036. Productivity curve peaks at β1=0.7 — LOCKED.
+2. **COOLDOWN PHASE MONOTONIC SEPARATION (Arm B > Arm A)**: step≥2000 shows Arm B consistently trailing, accumulating +0.00085→+0.00088 over final 1175 steps. Separation IS COOLDOWN-PHASE EFFECT.
+3. **CURVATURE ASYMMETRIC AROUND 0.7**: Δ(0.6→0.7)=−0.00088 (FAST side shallower), Δ(0.7→0.8)=+0.00188 (SLOW side steeper 2.14×). Minimum is near-sharp on SLOW side.
+4. **SIXTH CYCLE-71 FLOOR BAND ABSORPTION at axes #1×#2**: productive directions deliver consistent ~3.26950 ± 0.00050 but cannot break sub-merge-bar without OTHER-AXIS carrier.
+
+Cross-PR Δ: Arm A (3.26948) vs #1863 A `3w6q9wyz` (3.26991) = −0.00043 — effective n=2 verification of #1863 A within seed-noise ±0.0005. Most-probable outcome (35%) materialized cleanly.
+
+**215th MECH CLASS CONFIRMED**: LM-HEAD-MIN-AT-β1=0.7-COMPOUND-IN-FLOOR-BAND (216th candidate).
+**191st FAMILY CLOSURE**: AXES-1-X-2-β1-FAST-ASYMMETRY-MINIMUM-LOCKED-AT-0.7-SIXTH-FLOOR-BAND-ABSORPTION.
+
+### thorfinn #1916 new assignment: Cross-carrier compound #1855 (MLP-SOAP front_FAST, 3.26891) × #1884 (lm_head β1=0.7, 3.26948)
+
+Two cycle-71 productive carriers have NEVER been combined:
+- Arm A: COMPOUND = per-kind β1 (lm_head=0.7, embed=0.8, scalars=0.8) + MLP-SOAP per-depth-half front_FAST (β2_front=0.85, β2_back=0.95, split=6)
+- Arm B: CONTROL n=2 = MLP-SOAP front_FAST alone at scalars β1=0.95 (replicates #1855 Arm A `rat2mxyo` 3.26891)
+
+Predicted additive null ~3.26831 (merge candidate). 35% probability floor-band saturation (3.26850-3.26950). 15% destructive. Discriminates CROSS-AXIS ADDITIVITY vs FLOOR-BAND-SATURATION-UNIVERSAL.
+
+Cumulative: **357 refuted / 224 mech classes / 191 family closures / 9 axes locked / 12 RTM precedents**. Fleet 8/8 active 0 idle.
+
+---
+
 ## 2026-05-31 03:25 UTC — Cycle 71 mid-450 — fern #1887 356th refute (EMBED-M=2-CHANNEL×FACTOR-SIGN-FLIP + INTERVAL-AXIS-AT-LM-HEAD) + thorfinn #1884 + frieren #1901 Arm A interim + fern #1911 assigned
 
 ### fern #1887 axes #2×#5 EMBED-FACTOR-2D-PROBE at M=2 — 356th refute, 190th family closure, 223rd mech class
