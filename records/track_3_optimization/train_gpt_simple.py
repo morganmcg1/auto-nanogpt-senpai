@@ -84,6 +84,10 @@ def parse_args():
     parser.add_argument('--aux_b2_pulse_target', type=float, default=0.99,
                         help='New aux Adam β2 value to set at --aux_b2_pulse_step. '
                              '0 or negative disables. Default: 0.99 (canonical WIN).')
+    parser.add_argument("--body_muon_lr_stepdown_step", type=int, default=0,
+                        help="Step at which to apply persistent body Muon LR step-down (0 disables)")
+    parser.add_argument("--body_muon_lr_stepdown_factor", type=float, default=1.0,
+                        help="Multiplicative factor applied to body Muon initial_lr at stepdown step (1.0 = no-op)")
     parser.add_argument("--seed", type=int, default=1,
                         help="Random seed for torch/numpy/python. Default 1 matches baseline seed.")
     args = parser.parse_args()
@@ -1071,6 +1075,25 @@ for trial_idx in range(args.num_trials):
                 group["betas"] = new_betas
             print0(f"[step {step}] aux_b2_pulse: β2 {old_b2} → {args.aux_b2_pulse_target}",
                    console=True)
+        if (args.body_muon_lr_stepdown_step > 0
+                and step == args.body_muon_lr_stepdown_step
+                and args.body_muon_lr_stepdown_factor != 1.0):
+            for group in optimizer2.param_groups:
+                base_initial_lr_before = group["initial_lr"]
+                group["initial_lr"] = group["initial_lr"] * args.body_muon_lr_stepdown_factor
+                group["lr"] = group["lr"] * args.body_muon_lr_stepdown_factor
+                if dist.get_rank() == 0:
+                    print0(
+                        f"[step {step}] body Muon LR step-down: "
+                        f"initial_lr {base_initial_lr_before:.6f} -> {group['initial_lr']:.6f} "
+                        f"(factor={args.body_muon_lr_stepdown_factor})",
+                        console=True,
+                    )
+            if dist.get_rank() == 0 and wandb.run is not None:
+                wandb.log({
+                    "body_muon_lr_stepdown/step": step,
+                    "body_muon_lr_stepdown/factor": args.body_muon_lr_stepdown_factor,
+                }, step=wandb_step)
         for opt in optimizers:
             opt.step()
         # EMA buffer update on body-Muon matrix params.
