@@ -1,3 +1,35 @@
+## Cycle ~2150: AUDIT-TRAIL cycle — H320 edward stale_wip nudge (PR #1892, only arm_a CTRL `uhgw9uxc` running at step 2525/3325, arm_b α=0.5 + arm_c α=0.2 BOTH MISSING from W&B, zero PR comments, treatment plumbing UNVERIFIED), zero new closures, 8 mechanism axes in flight, 0 idle students, 0 review-ready PRs
+
+**Audit-trail-only cycle: H320 edward flagged for missing treatment arms.** No closures, no new assignments. Fleet 8/8 occupied. Plateau campaign portfolio: 169 NULL/NEG + 1 MERGED WIN (H266), 104 mechanism classes consolidated.
+
+### Stale_wip nudges posted this cycle
+
+**H320 edward PR #1892 (OUTER anchor refresh policy, 102nd mechanism class candidate)** — W&B audit reveals only arm_a CTRL `uhgw9uxc` is running (~76% done, step 2525/3325, step-0 val=10.82583 EXACT for CTRL bit-id, current val=3.3320 at step 2500). arm_b SOFT_BLEND (α=0.5) and arm_c VERY_SOFT_BLEND (α=0.2) ENTIRELY MISSING from W&B. Zero comments on PR thread. Per `feedback_audit_treatment_runs_too.md`, treatment-config gap requires nudge requesting (1) smoke-gate result with α=0.5 plumbing verification, (2) chain plan clarification (sequential after arm_a or parallel), (3) per-arm W&B config-pane audit confirming α correctly routes per-arm, (4) ETAs. Edward has concurrent assignments g1r3+g1r4+g1r5 — potential GPU-scheduling explanation noted.
+
+### In-flight WIP cluster (8 of 8 students, post-cycle-2150)
+
+| Student | PR | Hypothesis | Class | Status |
+|---------|----|-----------|----|--------|
+| tanjiro | #1878 | H316 OUTER LR cooldown SCHEDULE | outer LR temporal | WIP in-flight |
+| frieren | #1882 | H317 AUX β2 mid-training ramp UP AMPLIFIED | aux β2 temporal | WIP arm_a `mxr34jzh` FINISHED val=3.2691 FFS=3025 (+1.04σ TIE), arm_b RUNNING ~13% |
+| alphonse | #1889 | H318 OUTER MOMENTUM cooldown SCHEDULE | outer momentum temporal | WIP in-flight |
+| askeladd | #1890 | H319 AUX β1 mid-training schedule | aux β1 temporal | WIP in-flight |
+| edward | #1892 | H320 OUTER anchor refresh policy (102nd class) | outer ANCHOR REFRESH POLICY (virgin) | **WIP — only arm_a CTRL running, treatment arms MISSING (this cycle's nudge)** |
+| fern | #1896 | H321 schedule-tapered ADAPTIVE μ (α-suppression cooldown) | inner μ adaptive scope | WIP in-flight — direct H313 follow-up (paper-grade, WIN prob 25-30%) |
+| nezuko | #1905 | H322 body weight orthogonality regularizer | body STRUCTURAL regularizer (virgin) | WIP in-flight (104th candidate) |
+| thorfinn | #1906 | H323 μ_end low sustained on post-H266 stack | inner μ_end value (revisit on post-H266) | WIP in-flight (105th candidate, direct H314 follow-up) |
+
+Cumulative WIN probability mass: ~125-170% (H321 25-30% top + 7 axes at 5-15% each). Top-3 by WIN prob: H321 fern (25-30%), H322 nezuko + H320 edward (10-12% each tied — virgin structural axes), H323 thorfinn (10-15%).
+
+### Notes
+
+- 8 of 8 students active. Zero idle GPUs.
+- Issue #1260 no new human messages since 2026-05-29 advisor status update.
+- Next decision points: arm_a CTRL `uhgw9uxc` (H320) terminal ETA ~28 min; H317 arm_b AMPLIFIED terminal ETA ~12:00Z; H321/H320/H322/H323 chains all expected next 4-6h.
+- Audit-trail cycle: no committee-style closures or new assignment branches. Surveillance + plumbing verification only.
+
+---
+
 ## Cycle ~2100: H314 CLOSED 169th NULL/NEG (🎯 paper-grade BUFFER DURABILITY DEFINITIVE NEGATIVE: active-ONLY-during-low-μ mechanism confirmed — gain washes out AS μ recovers at step ~1750 during ramp-back, NOT coast delay, 104th mechanism class CONSOLIDATED) + H323 ASSIGNED thorfinn μ_end low sustained (direct H314 follow-up, 105th candidate)
 
 **One terminal closure (169th NULL/NEG) producing paper-grade μ-buffer durability mechanism insight. Plateau campaign portfolio: 169 NULL/NEG + 1 MERGED WIN (H266), 104 mechanism classes consolidated. μ_end value dose-response assigned (zero code changes, highest-leverage direct follow-up to H314).**
