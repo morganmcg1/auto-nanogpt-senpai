@@ -114,6 +114,13 @@ def parse_args():
                         help="Polyak-Ruppert EMA decay for eval-only weight averaging. "
                              "0.0 = disabled (drift-FREE CTRL). Typical: 0.05 (fast, ~20-step half-life) / "
                              "0.005 (slow, ~200-step half-life). Higher decay = faster EMA tracking.")
+    parser.add_argument("--polyak_ema_scope", type=str,
+                        default=os.environ.get("POLYAK_EMA_SCOPE", "all"),
+                        choices=["all", "body", "aux"],
+                        help="H345 Polyak EMA scope filter. 'all' = H266 baseline (all params). "
+                             "'body' = body 2D matmul weights only (MuonH-managed: name.startswith('blocks.') and ndim>=2). "
+                             "'aux' = AUX param groups only (AdamW-managed: embed, lm_head, scalars). "
+                             "Default 'all' is the H266 short-circuit gate (bit-id with H266 baseline).")
     args = parser.parse_args()
     args.num_trials = args.num_trials if args.num_trials is not None else (args.legacy_num_trials or 1)
     args.wandb_tags = [tag.strip() for tag in args.wandb_tags.split(",") if tag.strip()]
@@ -856,6 +863,7 @@ if dist.get_rank() == 0:
             "muonh_mu_start": args.muonh_mu_start,
             "muonh_mu_end": args.muonh_mu_end,
             "polyak_ema_decay": args.polyak_ema_decay,
+            "polyak_ema_scope": args.polyak_ema_scope,
         },
     )
 
@@ -1062,15 +1070,33 @@ for trial_idx in range(args.num_trials):
     # H266: Polyak-Ruppert EMA buffer for eval-only weight averaging (Pattern A drift-FREE).
     # When decay == 0.0 the state stays None and all H266 code paths short-circuit, so the
     # train/val flow remains bit-identical to the H203 baseline.
+    # H345: scope filter selects which params participate in EMA. BODY = MuonH params
+    # (name.startswith("blocks.") and ndim>=2). AUX = AdamW params (embed, lm_head, scalars).
+    # 'all' is the H266 baseline short-circuit (every param participates).
+    def _polyak_in_scope(name: str, param: Tensor) -> bool:
+        if args.polyak_ema_scope == "all":
+            return True
+        is_body = name.startswith("blocks.") and param.ndim >= 2
+        if args.polyak_ema_scope == "body":
+            return is_body
+        if args.polyak_ema_scope == "aux":
+            return not is_body
+        return True
+
     polyak_ema_state = None
     if args.polyak_ema_decay > 0.0:
         polyak_ema_state = {
             name: param.data.clone().detach()
             for name, param in model.named_parameters()
+            if _polyak_in_scope(name, param)
         }
         if dist.get_rank() == 0:
             total_ema_bytes = sum(p.numel() * p.element_size() for p in polyak_ema_state.values())
+            n_body = sum(1 for n, p in model.named_parameters()
+                         if n in polyak_ema_state and n.startswith("blocks.") and p.ndim >= 2)
+            n_aux = len(polyak_ema_state) - n_body
             print0(f"H266 Polyak EMA buffer initialized: decay={args.polyak_ema_decay}, "
+                   f"scope={args.polyak_ema_scope}, body_params={n_body}, aux_params={n_aux}, "
                    f"total_bytes={total_ema_bytes/(1024**3):.2f}GB", console=True)
 
     # start the clock
@@ -1100,14 +1126,22 @@ for trial_idx in range(args.num_trials):
             # H266: Polyak-Ruppert eval-only weight swap (drift-FREE Pattern A).
             # When polyak_ema_state is None this whole branch is skipped, leaving the
             # val measurement path bit-identical to the H203 baseline.
+            # H345: only swap params that are in the EMA scope. Out-of-scope params keep
+            # their live values during val (matches the H266 baseline for those params).
+            ema_deviation_l2_body_sq = 0.0
+            ema_deviation_l2_aux_sq = 0.0
             if polyak_ema_state is not None:
-                live_backup = {name: param.data.clone() for name, param in model.named_parameters()}
+                live_backup = {name: param.data.clone() for name, param in model.named_parameters()
+                               if name in polyak_ema_state}
                 for name, param in model.named_parameters():
-                    param.data.copy_(polyak_ema_state[name])
-                ema_deviation_l2 = sum(
-                    (polyak_ema_state[n] - live_backup[n]).norm().item() ** 2
-                    for n in polyak_ema_state
-                ) ** 0.5
+                    if name in polyak_ema_state:
+                        diff_sq = (polyak_ema_state[name] - live_backup[name]).norm().item() ** 2
+                        if name.startswith("blocks.") and param.ndim >= 2:
+                            ema_deviation_l2_body_sq += diff_sq
+                        else:
+                            ema_deviation_l2_aux_sq += diff_sq
+                        param.data.copy_(polyak_ema_state[name])
+                ema_deviation_l2 = (ema_deviation_l2_body_sq + ema_deviation_l2_aux_sq) ** 0.5
             else:
                 live_backup = None
                 ema_deviation_l2 = 0.0
@@ -1119,9 +1153,11 @@ for trial_idx in range(args.num_trials):
                     val_loss += model(val_inputs[i*mbs:(i+1)*mbs], val_targets[i*mbs:(i+1)*mbs])
 
             # H266: restore live weights so training continues with the live trajectory.
+            # H345: only restore params we swapped (those in the EMA scope).
             if live_backup is not None:
                 for name, param in model.named_parameters():
-                    param.data.copy_(live_backup[name])
+                    if name in live_backup:
+                        param.data.copy_(live_backup[name])
                 del live_backup
             dist.all_reduce(val_loss, op=dist.ReduceOp.SUM)
             val_loss /= val_tokens
@@ -1149,6 +1185,8 @@ for trial_idx in range(args.num_trials):
                 metrics.update(prefixed("val/slope", loss_slope_stats(val_loss_history, slope_window_steps)))
                 if polyak_ema_state is not None:
                     metrics["train/h266/ema_deviation_l2"] = ema_deviation_l2
+                    metrics["val/ema_buffer_drift_l2_body"] = ema_deviation_l2_body_sq ** 0.5
+                    metrics["val/ema_buffer_drift_l2_aux"] = ema_deviation_l2_aux_sq ** 0.5
                 wandb.log(metrics, step=trial_idx * (train_steps + 1) + step)
             print0(f"step:{step}/{train_steps} val_loss:{val_loss:.5f} train_time:{training_time:.3f}s"
                    + f" step_avg:{1000*step_avg:.2f}ms", console=True)
@@ -1217,11 +1255,13 @@ for trial_idx in range(args.num_trials):
         # H266: Polyak-Ruppert EMA update — runs after the live inner-optimizer step.
         # When polyak_ema_state is None this branch is skipped, leaving the training
         # path bit-identical to the H203 baseline.
+        # H345: only update EMA buffers for params in the EMA scope.
         if polyak_ema_state is not None:
             with torch.no_grad():
                 decay = args.polyak_ema_decay
                 for name, param in model.named_parameters():
-                    polyak_ema_state[name].mul_(1.0 - decay).add_(param.data, alpha=decay)
+                    if name in polyak_ema_state:
+                        polyak_ema_state[name].mul_(1.0 - decay).add_(param.data, alpha=decay)
         # Log warmup telemetry every 10 steps during warmup (and at telemetry events
         # afterwards) so we capture the warmup curve at high resolution. Cheap since
         # it's just two floats.
