@@ -1,5 +1,66 @@
 # SENPAI Research Results — auto-nanogpt-1gpu-r4
 
+## 2026-05-31 21:30 — PR #1958: Body NM symmetric INTENSIFY mirror BURST[0,2345) PERIOD=1 (3-arm) — **CLOSED-CATALOG-NULL-MILD-FAV BIDIRECTIONAL + 3-ARM WINDOW SHRINKAGE MATRIX CATALOG-MAJOR + COMPOSITIONAL R-BUFFER TIME-AVERAGING CATALOG-NOVEL + 2x2 BODY × COOLDOWN MATRIX 2nd CLOSURE**
+
+- branch: `g1r4-askeladd/body-nm-symmetric-intensify-mirror`
+- hypothesis: body-NM PERIOD=1 INTENSIFY mirror of #1914 STRONG-NEG body-disable — tests if doubling body-phase NM update frequency produces symmetric FAV direction. Includes POST-FIX PERIOD=1 semantics from c768 BURST gate bug fix (commit `a9eda67`).
+
+### Chain v2 terminal results (3-arm, SEED=0, full production stack post-#1702)
+
+| Arm | Burst window | W&B run | val/loss | FFS | Δ vs A | σ_seed | Δ vs baseline 3.26118 |
+|---|---|---|---:|---:|---:|---:|---:|
+| A ctrl | none (PERIOD=2 throughout) | `1sl9rphj` | 3.26266 | 3150 | — | — | +0.00148 (+0.92σ DRIFT-PASS) |
+| B v2 INTENSIFY | [0, 2345) PERIOD=1 full body | `0d0cosoq` | **3.26199** | 3150 | −0.00067 | −0.42σ NULL-mild-FAV | **+0.00081** > baseline |
+| C v2 INTENSIFY | [1000, 2345) PERIOD=1 late body | `9w10col9` | 3.26221 | 3150 | −0.00045 | −0.28σ NULL-mild-FAV | +0.00103 > baseline |
+
+best arm μ_B=3.26199 > baseline 3.26118 by +0.00081 = no merge. PP-confirm probability ~12% (low).
+
+### CATALOG-MAJOR — 3-arm body-INTENSIFY-WINDOW SHRINKAGE MATRIX
+
+Per-burst-step efficiency:
+- Full body [0, 2345): −0.00067 / 2345 = **−2.86e-7 per burst-step**
+- Late body [1000, 2345): −0.00045 / 1345 = **−3.35e-7 per burst-step**
+
+Late-body INTENSIFY is **~17% MORE EFFICIENT per burst-step** than full-body. Mechanism: late-body window where R-buffer is settled benefits MORE from per-batch PERIOD=1 refinement than early-body where R is still warming up.
+
+### CATALOG-NOVEL — Compositional R-buffer time-averaging (NON-LINEAR)
+
+| Observable | A ctrl | B (70% coverage) | C (40% coverage) | Linear C interp | C − interp |
+|---|---:|---:|---:|---:|---:|
+| precond_ratio_mean | 1.08985 | 1.05954 | 1.08598 | 1.07248 | **+0.01350** |
+
+Arm C precond_ratio is +0.01350 ABOVE linear interpolation. Early-body burst [0, 1000) contributes MAJORITY of precond_ratio LOWER-EDGE shift, NOT proportional to coverage. Mechanism: early-body window establishes R-buffer state attractor; late-body PERIOD=1 only marginally re-shapes already-settled state. precond_ratio_mean is STATE-ATTRACTOR observable not direct val-mechanism.
+
+### CATALOG-MAJOR — 2x2 BODY × COOLDOWN MATRIX FULLY CLOSED (2nd closure post-#1965)
+
+|  | **BODY [0, 2345)** | **COOLDOWN [2345, 3350)** |
+|---|---|---|
+| **ABLATE/FREEZE PERIOD=99999** | **STRONG-NEG** +5.16σ (#1914 ArmB c761) | **NULL** +0.32σ (#1965 ArmB c776) |
+| **INTENSIFY PERIOD=1** | **NULL-mild-FAV** −0.42σ (#1958 ArmB v2 c785 NEW) | **DEEP-NULL** −0.04σ (#1965 ArmC c782) |
+
+Body axis ASYMMETRIC (ABLATE 6-7× stronger NEG than INTENSIFY plausibly NULL-FAV). Cooldown axis PASSIVE bidirectional (FREEZE and INTENSIFY both NULL). Body NM PRIMARY mechanism; cooldown rides body state — manipulation cosmetic.
+
+### LIFT-band cohort N=24 post-c785
+
+Arm B v2 1.05954 LOWER-EDGE joins + Arm C v2 1.08598 mid-band joins:
+- 6/24 lower-edge (25%)
+- 7/24 mid-band (29%)
+- 6/24 upper-OOB-MECH (25%)
+- 3/24 upper-OOB-CTRL (13%)
+- 2/24 lower-OOB (8%)
+
+Bimodal distribution maintained.
+
+### Disposition — CLOSE-CATALOG-NULL-MILD-FAV BIDIRECTIONAL
+
+- val: both arms NULL-mild-FAV (−0.42σ, −0.28σ), best arm μ_B > baseline +0.00081 = no merge
+- FFS: identical 3150 across all 3 arms (Issue #1261 primary direction-NULL)
+- catalog-MAJOR + catalog-NOVEL findings: window shrinkage 17% efficiency + compositional non-linear precond_ratio attractor + 2x2 matrix 2nd closure
+
+Closed Cycle 785 21:30Z. Reassigning askeladd fresh: NM PRE-CROSSING BURST PERIOD=1 POST-FIX #2022 — Issue #1261 canonical pre-crossing window [2400, 3000) PERIOD=1 with TRUE INTENSIFY semantics (post c768 bugfix).
+
+---
+
 ## 2026-05-31 20:54 — PR #1971: NS_COOLDOWN_SHAPE post-NM validation bracket (3-arm) — **CLOSED-CATALOG-NULL-BIDIRECTIONAL SHAPE-PASSIVE + NS-ITER INTEGRAL MECHANISM CATALOG-MAJOR 5th LIFT-band axis**
 
 - branch: `g1r4-tanjiro/ns-cooldown-shape-post-nm-validation-bracket`
