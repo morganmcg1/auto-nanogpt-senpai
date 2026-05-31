@@ -101,6 +101,10 @@ def parse_args():
                         help="EMA decay for SWA-style EMA-eval; None=disabled (control). "
                              "Recommend 0.99-0.9999. When set, val/ema_loss is logged "
                              "and speedrun/first_step_to_target uses the EMA-val crossing.")
+    parser.add_argument("--ema_decay_cooldown_target", type=float, default=None,
+                        help="Linear ramp ema_eval_decay from --ema_eval_decay to this "
+                             "target value across the cooldown window "
+                             "[cooldown_start, train_steps). None=constant decay (baseline).")
     args = parser.parse_args()
     args.num_trials = args.num_trials if args.num_trials is not None else (args.legacy_num_trials or 1)
     args.wandb_tags = [tag.strip() for tag in args.wandb_tags.split(",") if tag.strip()]
@@ -786,6 +790,7 @@ if dist.get_rank() == 0:
             "lr_cooldown_shape": args.lr_cooldown_shape,
             "ema_eval_decay": args.ema_eval_decay,
             "ema_eval_enabled": args.ema_eval_decay is not None,
+            "ema_decay_cooldown_target": args.ema_decay_cooldown_target,
         },
     )
 
@@ -930,6 +935,17 @@ for trial_idx in range(args.num_trials):
                     group["weight_decay"] = group["initial_wd"] * wd_mu
         return eta
 
+    def get_ema_decay(step, cooldown_frac, d_start, d_target):
+        if d_target is None or d_start is None:
+            return d_start
+        cooldown_start = int((1.0 - cooldown_frac) * train_steps)
+        if step < cooldown_start:
+            return d_start
+        denom = max(1, train_steps - cooldown_start)
+        frac = (step - cooldown_start) / denom
+        frac = min(max(frac, 0.0), 1.0)
+        return d_start + (d_target - d_start) * frac
+
 
     ########################################
     #        Training and Validation       #
@@ -947,6 +963,10 @@ for trial_idx in range(args.num_trials):
     ema_state: dict[str, Tensor] | None = None
     init_state: dict[str, Tensor] | None = None
     ema_n_updates = 0
+    # Cumulative product prod_{s=1..t} d_s. With a constant d this equals d**t and
+    # matches the original bias-correction. With a scheduled d (ramped during the
+    # cooldown window) it is the exact init-weight factor of the EMA recursion.
+    ema_bias_corr_factor = 1.0
     if args.ema_eval_decay is not None:
         ema_state = {n: p.detach().clone().to(torch.float32)
                      for n, p in model.named_parameters() if p.requires_grad}
@@ -1022,9 +1042,11 @@ for trial_idx in range(args.num_trials):
                 ema_val_loss_float = float(ema_val_loss.item())
 
                 # Pass 2: bias-corrected EMA swap. Skip at ema_n_updates==0 since
-                # (1 - d^0) = 0 makes the correction undefined.
+                # (1 - prod d_s) = 0 makes the correction undefined. With scheduled
+                # decay, the init-weight factor is the cumulative product of per-step
+                # decays (ema_bias_corr_factor) rather than the constant d**t.
                 if ema_n_updates > 0:
-                    d_pow = float(args.ema_eval_decay) ** ema_n_updates
+                    d_pow = float(ema_bias_corr_factor)
                     one_minus_d_pow = 1.0 - d_pow
                     ema_d_pow_at_val = d_pow
                     with torch.no_grad():
@@ -1186,12 +1208,26 @@ for trial_idx in range(args.num_trials):
         # EMA-eval update: parallel param trajectory, no gradients/momentum.
         # Performed after the optimizer step so EMA tracks the post-update params.
         if ema_state is not None:
-            d = args.ema_eval_decay
+            d = get_ema_decay(
+                step=step,
+                cooldown_frac=0.7,
+                d_start=args.ema_eval_decay,
+                d_target=args.ema_decay_cooldown_target,
+            )
             with torch.no_grad():
                 for n, p in model.named_parameters():
                     if n in ema_state:
                         ema_state[n].mul_(d).add_(p.detach().to(torch.float32), alpha=(1 - d))
             ema_n_updates += 1
+            ema_bias_corr_factor *= float(d)
+            # Always log the scheduled decay so the ramp is visible in KG_smoke. Cheap.
+            if dist.get_rank() == 0:
+                wandb.log({
+                    "trial": trial_idx,
+                    "train/step": train_step,
+                    "train/ema/decay_scheduled": float(d),
+                    "train/ema/bias_corr_factor": float(ema_bias_corr_factor),
+                }, step=wandb_step)
             # Periodic EMA diagnostics (drift vs current params, EMA norm). Cheap.
             if dist.get_rank() == 0 and (train_step % 100 == 0 or train_step == train_steps):
                 with torch.no_grad():
@@ -1204,14 +1240,14 @@ for trial_idx in range(args.num_trials):
                             ema_sq.add_(e.pow(2).sum())
                             drift_sq.add_((e - p.detach().to(torch.float32)).pow(2).sum())
                             init_drift_sq.add_((e - init_state[n]).pow(2).sum())
-                d_pow_now = float(d) ** ema_n_updates
+                d_pow_now = ema_bias_corr_factor
                 wandb.log({
                     "trial": trial_idx,
                     "train/step": train_step,
                     "ema/param_norm": float(ema_sq.sqrt().item()),
                     "ema/state_dict_drift": float(drift_sq.sqrt().item()),
                     "ema/drift_from_init": float(init_drift_sq.sqrt().item()),
-                    "ema/decay": d,
+                    "ema/decay": float(d),
                     "ema/n_updates": ema_n_updates,
                     "ema/d_pow_t": d_pow_now,
                     "ema/init_weight_fraction": d_pow_now,
