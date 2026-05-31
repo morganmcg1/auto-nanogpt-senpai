@@ -1,0 +1,8 @@
+chain_start_utc=2026-05-31T13:22:14Z
+[2026-05-31T13:22:14Z] launching ARM=A SHAPE=late_peak -> records/track_3_optimization/runlogs/pr1971_armA_late_peak_s0.log
+[2026-05-31T15:48:48Z] ARM=A SHAPE=late_peak finished rc=0
+[2026-05-31T15:49:18Z] launching ARM=B SHAPE=step -> records/track_3_optimization/runlogs/pr1971_armB_step_s0.log
+[2026-05-31T18:15:44Z] ARM=B SHAPE=step finished rc=0
+[2026-05-31T18:16:14Z] launching ARM=C SHAPE=linear_ramp -> records/track_3_optimization/runlogs/pr1971_armC_linear_ramp_s0.log
+[2026-05-31T20:42:25Z] ARM=C SHAPE=linear_ramp finished rc=0
+[2026-05-31T20:42:55Z] chain complete
