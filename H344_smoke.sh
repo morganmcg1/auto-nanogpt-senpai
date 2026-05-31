@@ -5,7 +5,8 @@ set -euo pipefail
 #   bounded aux_lookahead_slow_drift_rms.
 #
 # Usage: H344_smoke.sh {1|2}
-RUN="${1:?usage: $0 {1|2}}"
+RUN="${1:-}"
+if [ -z "$RUN" ]; then echo "usage: $0 1|2" >&2; exit 2; fi
 case "$RUN" in
   1) NAME="g1r3-edward/H344_smoke_arm_b_k5_run1"; LOG="runlogs/h344/smoke_run1.log";;
   2) NAME="g1r3-edward/H344_smoke_arm_b_k5_run2"; LOG="runlogs/h344/smoke_run2.log";;

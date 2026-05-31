@@ -4,7 +4,8 @@ set -euo pipefail
 #   arm_a CTRL   (k=0, α=0.5 ignored) — bit-id with H266 baseline
 #   arm_b LIGHT  (k=5, α=0.5)         — tight inner cycle, half-step pullback
 #   arm_c MEDIUM (k=10, α=0.5)        — medium inner cycle, half-step pullback
-ARM="${1:?arm a|b|c required}"
+ARM="${1:-}"
+if [ -z "$ARM" ]; then echo "usage: $0 a|b|c" >&2; exit 2; fi
 case "$ARM" in
   a) K=0;  ALPHA=0.5; SUFFIX="arm_a_CTRL";;
   b) K=5;  ALPHA=0.5; SUFFIX="arm_b_LIGHT_k5";;
