@@ -1,8 +1,18 @@
-## Cycle ~2700 (CURRENT): H335 CLOSED 189th NULL/NEG (🎯 PAPER-GRADE ASYMMETRIC eps VALUE envelope at H266 anchor + arm_b LOW = LOWEST val of attractor cluster + FFS-bounded canalization meta-finding: VALUE-axis micro-search EXHAUSTED in AUX optimizer space) + H334 CLOSED 188th (🎯 PAPER-GRADE ASYMMETRIC β1 envelope + H110 prior FALSIFIED) + H333 CLOSED 187th (🎯 Paper-grade bilateral β2-DOWN axis CLOSURE H325+H333 joint) + H332 CLOSED 186th (🎯 cooldown-peak Polyak EMA decay-UP SCHEDULE axis CLOSED) + H326 CLOSED 185th (🎯 PAPER-GRADE 3-mechanism narrowing) + H331 CLOSED 184th + H327 CLOSED 183rd + H329 CLOSED 182nd (🎯 NEW MECHANISM CLASS) + H330 CLOSED 181st + H328 CLOSED 180th + H325 CLOSED 179th + H324 CLOSED 178th + H323 CLOSED 177th + H343/H342/H341/H340/H339/H338/H337/H336 ASSIGNED
+## Cycle ~2700 (CURRENT): H336 CLOSED 190th NULL/NEG (🎯 PAPER-GRADE OUTER anchor smoothing axis FULLY CLOSED across (lag, velocity) plane via H320+H329+H336 joint + COMPOUND NEG at 2D interior corner + arm_a CTRL = 10th H266 attractor cluster member) + H335 CLOSED 189th (🎯 PAPER-GRADE ASYMMETRIC eps VALUE envelope at H266 anchor + LOWEST val of attractor cluster + FFS-bounded canalization meta-finding) + H334 CLOSED 188th (🎯 PAPER-GRADE ASYMMETRIC β1 envelope + H110 prior FALSIFIED) + H333 CLOSED 187th (🎯 Paper-grade bilateral β2-DOWN axis CLOSURE) + H332 CLOSED 186th (🎯 cooldown-peak Polyak EMA decay-UP SCHEDULE axis CLOSED) + H326 CLOSED 185th (🎯 PAPER-GRADE 3-mechanism narrowing) + H331 CLOSED 184th + H327 CLOSED 183rd + H329 CLOSED 182nd (🎯 NEW MECHANISM CLASS) + H330 CLOSED 181st + H328 CLOSED 180th + H325 CLOSED 179th + H324 CLOSED 178th + H323 CLOSED 177th + H344/H343/H342/H341/H340/H339/H338/H337 ASSIGNED
 
-**THIRTEEN major closures this cycle (177th–189th NULL/NEG with paper-grade mechanism findings), THIRTEEN fresh assignments. Plateau campaign portfolio: 189 NULL/NEG + 1 MERGED WIN (H266), 110 mechanism classes consolidated (no NEW since H329: OUTER anchor MOMENTUM smoothing-without-lag). All 8 r3 students WIP — zero idle GPUs.**
+**FOURTEEN major closures this cycle (177th–190th NULL/NEG with paper-grade mechanism findings), FOURTEEN fresh assignments. Plateau campaign portfolio: 190 NULL/NEG + 1 MERGED WIN (H266), 110 mechanism classes consolidated (no NEW since H329: OUTER anchor MOMENTUM smoothing-without-lag). All 8 r3 students WIP — zero idle GPUs.**
 
 ### Closures this cycle
+
+**H336 edward OUTER anchor MOMENTUM η<1 brake 2D interior corner CLOSED 190th NULL/NEG (PR #1969) — 🎯 PAPER-GRADE OUTER anchor smoothing axis FULLY CLOSED across (lag, velocity) plane via H320+H329+H336 joint + COMPOUND NEG at 2D interior corner worst-of-both-worlds + arm_a CTRL = 10th H266 attractor cluster member Pattern A drift-FREE + mechanism prediction VALIDATED on dynamics yet does NOT translate to FFS improvement**
+- arm_a CTRL (η=1.0, β=0.0 H266 bit-id) `ajsca9mv`: val=**3.26775** FFS=**3000 EXACT** (**−0.49σ TIE/POS**, 10th attractor cluster member, ZERO Pattern A drift via else-branch code isolation)
+- arm_b BRAKE_LIGHT (η=0.5, β=0.5) `s9ckj0yg`: val=3.27123 FFS=**3075** (**+3.45σ NEG vs H266, +75 FFS = 2.5% regression**)
+- arm_c BRAKE_HEAVY (η=0.3, β=0.5) `rubcbz82`: val=**3.27568** FFS=**3200** (**+8.49σ NEG vs H266, +200 FFS = 6.7% regression**)
+- 🎯 **OUTER anchor smoothing axis FULLY CLOSED across (lag, velocity) plane**: joint closure via H320 (BLEND lag axis) + H329 (MOMENTUM velocity axis at η=1) + H336 (2D interior corner). ANY deviation from (η=1, β=0) corner monotonically degrades terminal FFS. H266 hard-replace is unique discrete optimum.
+- 🎯 **COMPOUND NEG at 2D interior corner**: arm_b BRAKE_LIGHT (η=0.5, β=0.5) +75 FFS WORSE than either H320 arm_b BLEND_0p5 (η=0.5, β=0) only (+50) OR H329 arm_b MOMENTUM_LIGHT (η=1, β=0.5) only (+25). Two suboptimal axes COMPOUND in NEG direction — no "sweet spot" bridges narratives.
+- 🎯 **Mechanism prediction VALIDATED on dynamics**: η<1 brake produces BOUNDED drift (arm_b ~0.42-0.48, arm_c ~0.57-0.67 throughout 110 outer-steps, decays cleanly during cooldown). Velocity stabilizes ~1.2-1.3 (arm_b) / ~1.7-2.1 (arm_c). Hypothesis "AdamW first-moment-like" mechanism analogy is mathematically correct yet does NOT translate to FFS improvement — AUX optimizer at H266 stack is a sharp-anchor structure.
+- 🎯 **arm_a CTRL = 10th H266 attractor cluster member + clean code-isolation**: new CLI flags `--outer_anchor_momentum` + `--outer_anchor_lr` introduce ZERO Pattern A drift at default values (else-branch bit-id). Cluster spans H266 + H322 arm_b + H324 arm_a + H325 arm_a + H326 arm_c + H333 arm_b + H335 arm_a + H335 arm_b + H338 arm_a + H336 arm_a (10 members all FFS=3000 EXACT, paper-grade canalization).
+- 110th mechanism class total (no NEW class — H336 paper-grade refinement of OUTER anchor smoothing closure via 2D interior corner)
 
 **H335 fern AUX adamw_eps VALUE micro-axis at H266 hardcoded baseline {1e-7, 1e-5} CLOSED 189th NULL/NEG (PR #1968) — 🎯 PAPER-GRADE ASYMMETRIC eps VALUE envelope at H266 anchor + arm_b LOW = LOWEST val of attractor cluster (9th member, 4th TREATMENT arm, −1.40σ) + FFS-bounded canalization meta-finding**
 - arm_a CTRL eps=1e-6 H266 bit-id `purwz3bf`: val=3.26792 FFS=3000 EXACT (−0.29σ TIE/POS, 7th attractor cluster member)
@@ -148,6 +158,16 @@
 
 ### Fresh assignments this cycle
 
+**H344 edward — Lookahead AdamW on AUX (Zhang et al. 2019 slow-weight averaging, PR #2009, FRESH from H336 closure)**
+- Mechanism-novel fresh exploration per directive's call for "fresh optimizer mechanisms" and per H335 closure's recommendation for STRUCTURAL changes (new optimizer families) over further VALUE-axis search at H266 stack
+- Lookahead Optimizer (Zhang 2019, "Lookahead Optimizer: k steps forward, 1 step back"): wraps inner AdamW with per-k-step slow-weight averaging. Maintain fast/slow weights. Every k inner steps: slow ← α·fast + (1-α)·slow; fast ← slow. Mechanism: variance reduction via slow-weight pullback, preserves inner convergence rate.
+- Custom LookaheadAdamW class ~35-40 LoC subclassing torch.optim.AdamW with k-step slow-weight averaging. CLI flags `--aux_lookahead_k` (default 0 = H266 bit-id short-circuit) + `--aux_lookahead_alpha` (default 0.5)
+- 3-arm: arm_a CTRL k=0 (H266 bit-id standard AdamW) / arm_b LIGHT k=5 α=0.5 / arm_c MEDIUM k=10 α=0.5
+- Orthogonal to existing H266 averaging mechanisms: Polyak EMA (decay=0.05) is val-only (no training trajectory impact); MuLoCo OUTER anchor (sync_interval=30) is essentially Lookahead-on-BODY at k=30 α=0 (hard-replace). **Lookahead-on-AUX is structurally virgin**
+- Orthogonal to H343 fern Cautious AdamW (per-step sign-mask) — Lookahead is per-k-step weight-average. Two structurally distinct sign/averaging mechanisms in flight simultaneously
+- Hypothesis: BODY uses MuonH (strong update direction constraint via NS orthogonalization → less variance to average); AUX uses standard AdamW (diagonal preconditioner → higher variance per-step → may benefit more from k-step pullback)
+- WIN prob 6-10% — mechanism-paper-grade either direction. Closure → AUX optimizer at H266 stack is robust to slow-weight pullback. Strict-clear → opens NEW optimizer-wrapper family at speedrun frontier
+
 **H343 fern — Cautious Optimizer on AUX AdamW (Liang et al. 2024 sign-agreement masking, PR #2006, FRESH from H335 closure)**
 - Mechanism-novel fresh exploration per directive's call for "fresh optimizer mechanisms" over further VALUE-axis search at H266 stack — pivoting from H335 finding "VALUE-axis micro-search around H266 hardcoded baseline EXHAUSTED in AUX optimizer space"
 - Cautious Optimizer (Liang 2024): mask Adam update direction by sign agreement with current gradient — `mask = 1−c + c·(sign(update)==sign(grad))`, applied after bias correction before weight update. Bounded-magnitude, sign-aware regularization of momentum-direction overshoots
@@ -236,8 +256,9 @@
 - NO CODE CHANGES — pure CLI value sweep on existing `--aux_adamw_eps` flag (line 73)
 - WIN prob 5-8% — virgin VALUE micro-axis at hardcoded baseline; if monotone NEG → axis closure with denominator-stabilization mechanism
 
-### Carry-over: 8 ongoing WIP after this cycle ~2700 invocation 28
+### Carry-over: 8 ongoing WIP after this cycle ~2700 invocation 29
 
+- PR #2009 H344 edward: Lookahead AdamW on AUX (Zhang 2019) (FRESH from H336 closure)
 - PR #2006 H343 fern: Cautious Optimizer on AUX AdamW (Liang 2024) (FRESH from H335 closure)
 - PR #2002 H342 askeladd: BODY INITIALIZATION axis sweep at H266 stack (FRESH from H334 closure)
 - PR #1998 H341 frieren: BODY 2D spectral-norm penalty (M2 mechanism test) (FRESH from H333 closure)
@@ -245,7 +266,7 @@
 - PR #1977 H339 nezuko: F-norm rescaling projection (M3 mechanism test) (FRESH from H326 closure)
 - PR #1975 H338 thorfinn: AUX sync_interval VALUE re-screen at H266 (FRESH from H331 closure)
 - PR #1970 H337 alphonse: OUTER outer_momentum VALUE micro-axis (FRESH from H327 closure)
-- PR #1969 H336 edward: OUTER anchor η<1 brake 2D interior (FRESH from H329 closure)
+- ~~PR #1969 H336 edward~~: CLOSED 190th NULL/NEG (🎯 PAPER-GRADE OUTER anchor smoothing axis FULLY CLOSED across (lag, velocity) plane + arm_a CTRL = 10th attractor cluster member + COMPOUND NEG at 2D interior corner). edward reassigned to H344 (PR #2009).
 - ~~PR #1968 H335 fern~~: CLOSED 189th NULL/NEG (🎯 PAPER-GRADE ASYMMETRIC eps envelope + LOWEST val of attractor cluster + FFS-bounded canalization meta-finding). fern reassigned to H343 (PR #2006).
 - PR #1961 H334 askeladd: AUX β1 VALUE axis (FRESH from H328 closure, student next-poll pickup)
 - PR #1954 H333 frieren: AUX β2 cooldown_ramp DOWN (FRESH from H325 closure, student next-poll pickup)

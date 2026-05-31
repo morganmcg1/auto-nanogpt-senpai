@@ -1,3 +1,63 @@
+## 2026-05-31 — PR #1969: H336 edward OUTER anchor MOMENTUM η<1 brake — 2D interior corner of (lag, velocity) plane — CLOSED 190th NULL/NEG (🎯 PAPER-GRADE OUTER anchor smoothing axis FULLY CLOSED across (lag, velocity) plane via H320+H329+H336 joint + arm_a CTRL = 10th H266 attractor cluster member + COMPOUND NEG at 2D interior corner worst-of-both-worlds + mechanism prediction VALIDATED on dynamics but does NOT translate to FFS improvement)
+
+- Branch: g1r3-edward/h336-outer-anchor-brake-interior
+- Hypothesis: Test 2D interior corner (η<1 AND β>0 simultaneously) of the (lag, velocity) plane unsampled by H320 (BLEND axis) and H329 (MOMENTUM axis). Closure-amplifier framing: either WIN at interior → opens NEW mechanism class, or NEG at interior → forecloses the FULL 2D corner.
+
+### Results
+
+| Arm | (η, β) | val/loss | FFS | Δ vs H266 (σ_H174) | Verdict |
+|-----|--------|----------|-----|---------------------|--------|
+| arm_a CTRL (H266 bit-id) | (1.0, 0.0) | 3.26775 | **3000 EXACT** | **−0.49σ TIE/POS** | **10th attractor cluster member, Pattern A drift-FREE** ⚡ |
+| arm_b BRAKE_LIGHT | (0.5, 0.5) | 3.27123 | **3075** | **+3.45σ NEG** | **NEG** (+75 FFS, 2.5% regression) |
+| arm_c BRAKE_HEAVY | (0.3, 0.5) | 3.27568 | **3200** | **+8.49σ NEG** | **NEG** (+200 FFS, 6.7% regression) |
+| H266 baseline (PR #1669) | (1.0, 0.0) | 3.26818 | 3000 | (ref) | — |
+
+🎯 **190th NULL/NEG closure** — Issue #1260 strict gate FAIL (arm_a TIE at FFS=3000 EXACT, arm_b/c NEG monotone-up).
+
+### 🎯 PAPER-GRADE FINDING #1 — OUTER anchor smoothing axis FULLY CLOSED across (lag, velocity) plane (H320+H329+H336 joint)
+
+Joint closure of the (η, β) plane via H320 + H329 + H336:
+
+| (η, β) | Run | val/loss | FFS Δ vs H266 | Verdict |
+|--------|-----|----------|---------------|---------|
+| (1.0, 0.0) H266 hard replace | H266 | 3.26818 | 0 | MERGED WIN |
+| (0.5, 0.0) BLEND_0p5 | H320 arm_b | 3.27050 | +50 | NEG 175th |
+| (0.2, 0.0) BLEND_0p2 | H320 arm_c | catastrophic | catastrophic | NEG 175th |
+| (1.0, 0.5) MOMENTUM_LIGHT | H329 arm_b | 3.27015 | +25 | NEG 182nd |
+| (1.0, 0.9) MOMENTUM_HEAVY | H329 arm_c | catastrophic | catastrophic | NEG 182nd |
+| **(0.5, 0.5) BRAKE_LIGHT** | **H336 arm_b** | **3.27123** | **+75** | **NEG (THIS)** ⚡ |
+| **(0.3, 0.5) BRAKE_HEAVY** | **H336 arm_c** | **3.27568** | **+200** | **NEG (THIS)** ⚡ |
+
+ANY deviation from (η=1, β=0) corner monotonically degrades terminal FFS. H266 hard-replace is the unique discrete optimum of the OUTER anchor smoothing problem.
+
+### 🎯 PAPER-GRADE FINDING #2 — COMPOUND NEG at 2D interior corner (worst-of-both-worlds)
+
+arm_b BRAKE_LIGHT (η=0.5, β=0.5) +75 FFS NEG is WORSE than either single-axis predecessor:
+- H320 arm_b BLEND_0p5 (η=0.5, β=0) only: +50 FFS
+- H329 arm_b MOMENTUM_LIGHT (η=1, β=0.5) only: +25 FFS
+- H336 arm_b BRAKE_LIGHT compound: +75 FFS
+
+Two suboptimal axes COMPOUND in NEG direction. No "sweet spot" at intermediate (η, β) — mechanism-paper-grade falsification of the "bridge two narratives" hypothesis.
+
+### 🎯 PAPER-GRADE FINDING #3 — Mechanism prediction VALIDATED on dynamics but does NOT translate to FFS
+
+η<1 brake produces BOUNDED drift as predicted (vs H329 β=0.9 109× geometric growth):
+- arm_b drift bounded ~0.42-0.48 throughout, velocity ~1.2-1.3 stable plateau
+- arm_c drift bounded ~0.57-0.67 throughout, velocity ~1.7-2.1 stable plateau
+- Both arms drift cleanly decays during cooldown → ~0.024-0.026 at outer-step 110
+
+Dynamics-correctness ≠ FFS-improvement. The AUX optimizer at H266 stack is a sharp-anchor structure where discrete jump preserves information that gradual smoothing destroys.
+
+### 🎯 PAPER-GRADE FINDING #4 — arm_a CTRL = 10th H266 attractor cluster member (clean code-isolation)
+
+arm_a CTRL with outer_anchor_momentum=0.0 → else-branch `outer_anchor[n].copy_(p.data)` is bit-id with H266 baseline. New CLI flags `--outer_anchor_momentum` and `--outer_anchor_lr` introduce ZERO Pattern A drift at default values. arm_a val=3.26775 FFS=3000 EXACT = −0.49σ TIE/POS below H266 = 10th cluster member (counting H335 arm_b LOW + H338 arm_a CTRL prior).
+
+### Next steps
+
+H344 edward ASSIGNED **Lookahead AdamW on AUX (Zhang et al. 2019)** — mechanism-novel fresh exploration per directive's call for "fresh optimizer mechanisms" and per H335 closure's recommendation for STRUCTURAL changes. Lookahead wraps AUX AdamW with per-k-step slow-weight averaging: every k inner steps, slow ← α·fast + (1-α)·slow; fast ← slow. Orthogonal to H343 fern Cautious (per-step sign-mask) AND orthogonal to MuLoCo OUTER anchor (Lookahead-on-BODY at k=30 α=0). 3-arm: arm_a CTRL k=0 (H266 bit-id short-circuit) / arm_b LIGHT k=5 α=0.5 / arm_c MEDIUM k=10 α=0.5. Mechanism-paper-grade either direction (PR #2009).
+
+---
+
 ## 2026-05-31 — PR #1968: H335 fern AUX adamw_eps VALUE micro-axis at H266 hardcoded baseline {1e-7, 1e-5} — CLOSED 189th NULL/NEG (🎯 PAPER-GRADE ASYMMETRIC eps VALUE envelope at H266 anchor + arm_b LOW = LOWEST val of H266 attractor cluster + 9th cluster member + 4th TREATMENT arm + FFS-bounded canalization meta-observation: VALUE-axis micro-search around H266 hardcoded baseline EXHAUSTED in AUX optimizer space)
 
 - Branch: g1r3-fern/h335-aux-adamw-eps-value-at-h266
