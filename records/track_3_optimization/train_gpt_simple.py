@@ -84,6 +84,12 @@ def parse_args():
     parser.add_argument('--aux_b2_pulse_target', type=float, default=0.99,
                         help='New aux Adam β2 value to set at --aux_b2_pulse_step. '
                              '0 or negative disables. Default: 0.99 (canonical WIN).')
+    parser.add_argument("--aux_adam_all_lr_scale_step", type=int, default=0,
+                        help="Step at which to multiplicatively scale ALL aux Adam param-group LRs "
+                             "(adam_scalars, adam_embed, adam_lm_head). 0 disables.")
+    parser.add_argument("--aux_adam_all_lr_scale_factor", type=float, default=1.0,
+                        help="Scale factor applied to all aux Adam group LRs when "
+                             "aux_adam_all_lr_scale_step fires. 1.0 is no-op.")
     parser.add_argument("--seed", type=int, default=1,
                         help="Random seed for torch/numpy/python. Default 1 matches baseline seed.")
     args = parser.parse_args()
@@ -765,6 +771,8 @@ if dist.get_rank() == 0:
             "paramema_refresh_only": int(args.paramema_refresh_only),
             "aux_b2_pulse_step": args.aux_b2_pulse_step,
             "aux_b2_pulse_target": args.aux_b2_pulse_target,
+            "aux_adam_all_lr_scale_step": args.aux_adam_all_lr_scale_step,
+            "aux_adam_all_lr_scale_factor": args.aux_adam_all_lr_scale_factor,
             "seed": args.seed,
         },
     )
@@ -1071,6 +1079,38 @@ for trial_idx in range(args.num_trials):
                 group["betas"] = new_betas
             print0(f"[step {step}] aux_b2_pulse: β2 {old_b2} → {args.aux_b2_pulse_target}",
                    console=True)
+        if (args.aux_adam_all_lr_scale_step > 0
+                and step == args.aux_adam_all_lr_scale_step
+                and args.aux_adam_all_lr_scale_factor != 1.0):
+            n_scaled = 0
+            scale = float(args.aux_adam_all_lr_scale_factor)
+            log_groups = {}
+            for group in optimizer1.param_groups:
+                name = group.get("name", "<unnamed>")
+                if "initial_lr" in group:
+                    old_initial = float(group["initial_lr"])
+                    new_initial = old_initial * scale
+                    group["initial_lr"] = new_initial
+                    log_groups[f"{name}/initial_lr_before"] = old_initial
+                    log_groups[f"{name}/initial_lr_after"] = new_initial
+                if "lr" in group:
+                    old_lr = float(group["lr"])
+                    new_lr = old_lr * scale
+                    group["lr"] = new_lr
+                    log_groups[f"{name}/lr_before"] = old_lr
+                    log_groups[f"{name}/lr_after"] = new_lr
+                n_scaled += 1
+            if dist.get_rank() == 0:
+                print0(f"[step {step}] aux Adam JOINT LR x{scale} on {n_scaled} groups",
+                       console=True)
+                for k, v in log_groups.items():
+                    print0(f"    {k} = {v:.6e}", console=True)
+                if wandb.run is not None:
+                    wandb.log({"aux_adam_joint_lr/step": step,
+                               "aux_adam_joint_lr/factor": scale,
+                               "aux_adam_joint_lr/n_scaled": n_scaled,
+                               **{f"aux_adam_joint_lr/{k}": v for k, v in log_groups.items()}},
+                              step=wandb_step)
         for opt in optimizers:
             opt.step()
         # EMA buffer update on body-Muon matrix params.
@@ -1189,6 +1229,11 @@ for trial_idx in range(args.num_trials):
                 "aux_b2/fired": int(args.aux_b2_pulse_step > 0
                                     and args.aux_b2_pulse_target > 0.0
                                     and step >= args.aux_b2_pulse_step),
+                "aux_adam_joint_lr/scale_step": args.aux_adam_all_lr_scale_step,
+                "aux_adam_joint_lr/scale_factor": args.aux_adam_all_lr_scale_factor,
+                "aux_adam_joint_lr/fired": int(args.aux_adam_all_lr_scale_step > 0
+                                               and args.aux_adam_all_lr_scale_factor != 1.0
+                                               and step >= args.aux_adam_all_lr_scale_step),
             }, step=wandb_step)
         if dist.get_rank() == 0 and (train_step % 100 == 0 or train_step == train_steps):
             spec = pmuon_spectral_diag(optimizer2, PMUON_GAMMA)
