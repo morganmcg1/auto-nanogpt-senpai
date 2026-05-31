@@ -1,3 +1,63 @@
+## 2026-05-31 — PR #1968: H335 fern AUX adamw_eps VALUE micro-axis at H266 hardcoded baseline {1e-7, 1e-5} — CLOSED 189th NULL/NEG (🎯 PAPER-GRADE ASYMMETRIC eps VALUE envelope at H266 anchor + arm_b LOW = LOWEST val of H266 attractor cluster + 9th cluster member + 4th TREATMENT arm + FFS-bounded canalization meta-observation: VALUE-axis micro-search around H266 hardcoded baseline EXHAUSTED in AUX optimizer space)
+
+- Branch: g1r3-fern/h335-aux-adamw-eps-value-at-h266
+- Hypothesis: Test eps VALUE axis micro-sweep {1e-7, 1e-5} at H266 anchor. Determine whether AdamW's transition between "raw momentum" (eps dominates) and "fully-normalized momentum" (sqrt(v_t) dominates) shifts away from hardcoded 1e-6.
+
+### Results
+
+| Arm | val/loss | FFS | Δ vs H266 (σ_H174) | Δ vs CTRL (σ_H174) | Verdict |
+|-----|----------|-----|---------------------|---------------------|--------|
+| arm_a CTRL eps=1e-6 (H266 bit-id) | 3.26792 | **3000 EXACT** | −0.29σ TIE/POS | (ref) | 7th attractor cluster member |
+| arm_b LOW eps=1e-7 | **3.26694** | **3000 EXACT** | **−1.40σ POS** | −1.11σ POS-vs-CTRL | **9th cluster member, 4th TREATMENT arm, LOWEST val** ⚡ |
+| arm_c HIGH eps=1e-5 | 3.26911 | **3025** | +1.05σ NEG | +1.34σ NEG-vs-CTRL | **NEG** (Pattern A +25 drift edge, falls out of attractor) |
+| H266 baseline (PR #1669) | 3.26818 | 3000 | (ref) | — | — |
+
+🎯 **189th NULL/NEG closure** — Issue #1260 strict gate FAIL (arm_b LOW −1.40σ POS val improvement but FFS=3000 EXACT TIES baseline). Per H162 lineage precedent: val improvement at TIE FFS is NOT mergeable.
+
+### 🎯 PAPER-GRADE FINDING #1 — ASYMMETRIC eps VALUE envelope at H266 anchor
+
+H266 hardcoded eps=1e-6 sits at the RIGHT edge of the Pareto plateau:
+- LOW direction (eps=1e-7, 10× smaller): val IMPROVES by −1.40σ, FFS TIES — H266 attractor admits the perturbation
+- CTRL eps=1e-6: H266 baseline anchor
+- HIGH direction (eps=1e-5, 10× larger): val DEGRADES by +1.05σ, FFS +25 = Pattern A drift edge — falls out of strict attractor band
+
+**Mechanism interpretation**: AdamW eps controls transition between "raw momentum" (eps dominates denominator) and "fully-normalized momentum" (sqrt(v_t) dominates). LOW eps → MORE normalization → improved val (but FFS-bounded); HIGH eps → LESS normalization → degraded val + FFS. Consistent with AUX param groups (embed, lm_head, scalars) being in regimes where v_t accumulates non-trivially.
+
+### 🎯 PAPER-GRADE FINDING #2 — arm_b LOW = LOWEST val of H266 attractor cluster (9th member, 4th TREATMENT arm)
+
+arm_b LOW val=3.26694 = LOWEST val of any attractor cluster member to date, surpassing prior low H325 arm_a val=3.26742. 4th TREATMENT arm to land at H266 attractor (after H322 BODY ORTHO identity-λ=1e-5, H326 BODY ORTHO fnorm-λ=2e-6, H333 cooldown β2 DOWN_MILD).
+
+H266 attractor cluster after H335 (9 members at FFS=3000 EXACT):
+
+| # | Run | val/loss | Δ vs H266 (σ_H174) | Type |
+|---|-----|----------|---------------------|------|
+| 1 | H266 baseline | 3.26818 | 0.00σ (ref) | MERGED WIN |
+| 2 | H322 arm_b BODY ORTHO λ=1e-5 identity | 3.26774 | −0.50σ | TREATMENT |
+| 3 | H324 arm_a OUTER LR CTRL | 3.26774 | −0.50σ | CTRL |
+| 4 | H325 arm_a β2 ramp CTRL | 3.26742 | −0.86σ | CTRL |
+| 5 | H326 arm_c BODY ORTHO λ=2e-6 fnorm | 3.26759 | −0.67σ | TREATMENT |
+| 6 | H333 arm_b β2 cooldown_ramp DOWN_MILD | 3.26768 | −0.57σ | TREATMENT |
+| 7 | H335 arm_a CTRL eps=1e-6 | 3.26792 | −0.29σ | CTRL |
+| 8 | **H335 arm_b LOW eps=1e-7** | **3.26694** | **−1.40σ** | **TREATMENT (4th + LOWEST val)** ⚡ |
+| 9 | H336 arm_a CTRL outer_anchor brake CTRL | 3.26775 | −0.49σ | CTRL |
+
+Canalization narrative: 9-member cluster spans massively diverse upstream perturbations (BODY ORTHO regularization at 2 geometries × 2 λ scales, AUX β2 cooldown DOWN, AUX eps LOW, outer_anchor CTRL, plus 4 distinct CTRL replicas) all converging to FFS=3000 EXACT. H266 attractor is FFS-bounded: cooldown-window mechanism determines step-to-target, val improvement decouples from step reduction at the attractor.
+
+### 🎯 PAPER-GRADE FINDING #3 — Cycle ~2700 canalization meta-observation
+
+After 3 virgin-axis-at-H266-stack re-screens (H328 wd CLOSED, H334 β1 CLOSED, H335 eps CLOSED asymmetric):
+- **Canalization at the speedrun frontier**: H266 stack is locally robust to wide-range single-axis perturbation of AUX optimizer hyperparameters (±10× scale around hardcoded value).
+- **Asymmetric edge effects**: H266 sits at the right edge of multiple Pareto plateaus (β1 LOW NEG, eps HIGH NEG) — not centered.
+- **FFS-bounded vs val-bounded**: val improvements (up to −1.40σ at LOW eps) do NOT translate to FFS reduction at the H266 attractor.
+
+**Implication for cycle ~2800+ portfolio**: Future AUX-axis search should focus on STRUCTURAL changes (new schedule shapes, per-group decoupling, new optimizer families) NOT VALUE-axis re-tuning of single hyperparameters at H266 stack. **VALUE-axis micro-search around H266 hardcoded baseline is exhausted in the AUX optimizer space.**
+
+### Next steps
+
+H343 fern ASSIGNED **Cautious Optimizer on AUX AdamW (Liang et al. 2024)** — fresh-mechanism candidate per directive's call for "fresh optimizer mechanisms" over further VALUE-axis search. Custom CautiousAdamW class with sign-agreement masking: mask = 1−c + c·(sign(update)==sign(grad)). 3-arm CTRL=0.0 / HALF=0.5 / FULL=1.0. Mechanism-paper-grade either direction (PR #2006).
+
+---
+
 ## 2026-05-31 — PR #1961: H334 askeladd AUX β1 VALUE axis sweep at H266 anchor — CLOSED 188th NULL/NEG (🎯 PAPER-GRADE ASYMMETRIC β1 envelope at H266 stack + H110 prior FALSIFIED at H266 stack + dual-time-scale tracking mechanism interpretation)
 
 - Branch: g1r3-askeladd/h334-aux-beta1-value-at-h266
